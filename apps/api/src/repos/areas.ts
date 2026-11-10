@@ -2,7 +2,7 @@
  * 区域的数据访问（迁移 0011）。全部在租户事务（withTenantTx）里调用：
  * 每个函数都显式带 tenantId 并写在条件里（ADR 0003 的第一道防线），行级安全是兜底。
  */
-import type { AreaBizType, AreaPolygonKind, AreaPolygonSource, AreaStatus, GeoJsonMultiPolygon, GeoJsonPolygon, LocalizedText, MasterDataStatus, Ring } from "@nozomi/domain";
+import type { AreaBizType, AreaPolygonKind, AreaPolygonSource, AreaRole, AreaStatus, GeoJsonMultiPolygon, GeoJsonPolygon, LocalizedText, MasterDataStatus, OverlapAreaInput, Ring, ServiceCategory } from "@nozomi/domain";
 import { ringToGeoJson } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
 import { type Page, type TimeCursor, toPage } from "../pagination.ts";
@@ -13,6 +13,8 @@ export interface Area {
   cityId: string;
   name: LocalizedText;
   bizType: AreaBizType;
+  /** 用途（ADR 0075）：运营区域 / 报价区域 / 运营 + 报价 */
+  role: AreaRole;
   status: AreaStatus;
   version: number;
   createdAt: Date;
@@ -55,7 +57,7 @@ export interface AreaCity {
 
 type Row = Record<string, any>;
 
-const AREA_COLUMNS = "id, city_id, name, biz_type, status, version, created_at, updated_at";
+const AREA_COLUMNS = "id, city_id, name, biz_type, role, status, version, created_at, updated_at";
 
 export function toArea(row: Row): Area {
   return {
@@ -63,6 +65,7 @@ export function toArea(row: Row): Area {
     cityId: row["city_id"],
     name: row["name"],
     bizType: row["biz_type"],
+    role: row["role"],
     status: row["status"],
     version: row["version"],
     createdAt: row["created_at"],
@@ -74,14 +77,15 @@ export interface AreaValues {
   name: LocalizedText;
   nameKeys: string[];
   bizType: AreaBizType;
+  role: AreaRole;
 }
 
 export async function insertArea(db: Db, tenantId: string, cityId: string, values: AreaValues, now: Date): Promise<Area> {
   const result = await db.query<Row>(
-    `insert into areas (tenant_id, city_id, name, name_keys, biz_type, status, created_at, updated_at)
-     values ($1, $2, $3::jsonb, $4, $5, 'active', $6, $6)
+    `insert into areas (tenant_id, city_id, name, name_keys, biz_type, role, status, created_at, updated_at)
+     values ($1, $2, $3::jsonb, $4, $5, $6, 'active', $7, $7)
      returning ${AREA_COLUMNS}`,
-    [tenantId, cityId, JSON.stringify(values.name), values.nameKeys, values.bizType, now],
+    [tenantId, cityId, JSON.stringify(values.name), values.nameKeys, values.bizType, values.role, now],
   );
   return toArea(result.rows[0] as Row);
 }
@@ -91,10 +95,10 @@ export async function updateArea(db: Db, tenantId: string, id: string, values: A
   const result = await db.query<Row>(
     `update areas
         set status = $3, updated_at = $4, version = version + 1,
-            name = coalesce($5::jsonb, name), name_keys = coalesce($6::text[], name_keys), biz_type = coalesce($7, biz_type)
+            name = coalesce($5::jsonb, name), name_keys = coalesce($6::text[], name_keys), biz_type = coalesce($7, biz_type), role = coalesce($8, role)
       where tenant_id = $1 and id = $2
       returning ${AREA_COLUMNS}`,
-    [tenantId, id, status, now, values === null ? null : JSON.stringify(values.name), values?.nameKeys ?? null, values?.bizType ?? null],
+    [tenantId, id, status, now, values === null ? null : JSON.stringify(values.name), values?.nameKeys ?? null, values?.bizType ?? null, values?.role ?? null],
   );
   return toArea(result.rows[0] as Row);
 }
@@ -134,6 +138,7 @@ export interface AreaFilter {
   search?: string | undefined;
   cityId?: string | undefined;
   bizType?: AreaBizType | undefined;
+  role?: AreaRole | undefined;
   status?: AreaStatus | undefined;
 }
 
@@ -147,6 +152,7 @@ export async function listAreas(db: Db, tenantId: string, filter: AreaFilter, li
   };
   if (filter.cityId !== undefined) where("a.city_id = ?", filter.cityId);
   if (filter.bizType !== undefined) where("a.biz_type = ?", filter.bizType);
+  if (filter.role !== undefined) where("a.role = ?", filter.role);
   if (filter.status !== undefined) where("a.status = ?", filter.status);
   if (filter.search !== undefined) {
     where("exists (select 1 from jsonb_each_text(a.name) as localized(lang, value) where localized.value ilike ? escape '\\')", containsPattern(filter.search));
@@ -256,4 +262,53 @@ export async function countAreasByStatus(db: Db, tenantId: string): Promise<{ ac
   const result = await db.query<{ status: AreaStatus; n: number }>("select status, count(*)::int as n from areas where tenant_id = $1 group by status", [tenantId]);
   const of = (status: AreaStatus): number => result.rows.find((row) => row.status === status)?.n ?? 0;
   return { active: of("active"), disabled: of("disabled") };
+}
+
+/** 本租户的一个区域连同图形（用途、业务类型、状态）：算「报价区域超出运营区域」用（ADR 0075）。 */
+export interface AreaShapes {
+  id: string;
+  bizType: AreaBizType;
+  role: AreaRole;
+  status: AreaStatus;
+  polygons: { kind: AreaPolygonKind; ring: Ring }[];
+}
+
+/** 区域连同图形 → 重叠、超出运营区域的计算（@nozomi/domain 的 area-overlap）要的样子 */
+export const areaShapeInput = (area: AreaShapes): OverlapAreaInput => ({ id: area.id, bizType: area.bizType, role: area.role, active: area.status === "active", polygons: area.polygons });
+
+/** 本租户的全部区域连同图形（只在租户事务里调用）。 */
+export async function listTenantAreaShapes(db: Db, tenantId: string): Promise<AreaShapes[]> {
+  const areas = await db.query<Row>("select id, biz_type, role, status from areas where tenant_id = $1 order by created_at, id", [tenantId]);
+  const polygons = await db.query<Row>("select area_id, kind, geometry from area_polygons where tenant_id = $1 order by area_id, position", [tenantId]);
+  const byArea = new Map<string, { kind: AreaPolygonKind; ring: Ring }[]>();
+  for (const row of polygons.rows) byArea.set(row["area_id"], [...(byArea.get(row["area_id"]) ?? []), { kind: row["kind"], ring: ((row["geometry"] as GeoJsonPolygon).coordinates[0] ?? []).slice(0, -1) }]);
+  return areas.rows.map((row) => ({ id: row["id"], bizType: row["biz_type"], role: row["role"], status: row["status"], polygons: byArea.get(row["id"]) ?? [] }));
+}
+
+/** 已上架的商品和它们勾选的报价区域（商品区域、启用的包车区域加价的区域）：改运营区域之前核对用（ADR 0075 第一部分第 2 节）。 */
+export async function listPublishedPricingAreas(db: Db, tenantId: string): Promise<{ productId: string; code: string; category: ServiceCategory; areaIds: string[] }[]> {
+  const result = await db.query<Row>(
+    `select p.id, p.code, p.category,
+            array(select pa.area_id from product_areas pa where pa.tenant_id = p.tenant_id and pa.product_id = p.id
+                  union
+                  select r.area_id from price_rules r where r.tenant_id = p.tenant_id and r.product_id = p.id and r.pricing_model = 'charter_area_surcharge' and r.status = 'enabled') as area_ids
+       from products p
+      where p.tenant_id = $1 and p.status = 'published'
+      order by p.code, p.id`,
+    [tenantId],
+  );
+  return result.rows.map((row) => ({ productId: row["id"], code: row["code"], category: row["category"], areaIds: row["area_ids"] }));
+}
+
+/** 有多少个商品（任何状态）把这个区域当报价区域用着：商品区域、价格规则的上车 / 下车区域（任何价格方式、任何状态）。改成运营区域之前查（ADR 0075）。 */
+export async function countProductsPricingWithArea(db: Db, tenantId: string, areaId: string): Promise<{ productCount: number; publishedProductCount: number }> {
+  const result = await db.query<{ n: number; published: number }>(
+    `select count(*)::int as n, count(*) filter (where p.status = 'published')::int as published
+       from products p
+      where p.tenant_id = $1
+        and (exists (select 1 from product_areas pa where pa.tenant_id = p.tenant_id and pa.product_id = p.id and pa.area_id = $2)
+             or exists (select 1 from price_rules r where r.tenant_id = p.tenant_id and r.product_id = p.id and (r.area_id = $2 or r.to_area_id = $2)))`,
+    [tenantId, areaId],
+  );
+  return { productCount: result.rows[0]?.n ?? 0, publishedProductCount: result.rows[0]?.published ?? 0 };
 }

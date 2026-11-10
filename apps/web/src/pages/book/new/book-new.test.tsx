@@ -141,7 +141,7 @@ async function fillTrip(actor: ReturnType<typeof user>): Promise<void> {
   await actor.type(screen.getByLabelText(/时间（当地）/), "14:30");
 }
 
-test("地址框：不到 2 个字不查；停顿后带会话令牌查；平台的机场在前；谷歌候选选中后用同一个会话令牌取坐标，之后换新令牌；报价带名称、坐标和类型", async () => {
+test("地址框：不到 2 个字不查；停顿后带会话令牌查；平台的机场在前；谷歌候选选中后用同一个会话令牌取坐标，之后换新令牌；报价带名称、坐标和类型，另带选中候选的名称（M8-20）", async () => {
   wideScreen();
   const calls = open();
   const actor = user();
@@ -185,6 +185,9 @@ test("地址框：不到 2 个字不查；停顿后带会话令牌查；平台�
     service_local: "2030-11-20T14:30",
     passengers: 2,
     luggage: 2,
+    // M8-20：地址联想里选中的那一项的名称（只有名称，不带地址），给平台记「未覆盖需求」用
+    pickup_name: "成田国际机场",
+    dropoff_name: "京王广场酒店",
   });
   assert.ok(calls.every((call) => !/google/i.test(call.path)), "浏览器不连谷歌");
 });
@@ -293,7 +296,7 @@ test("座位示意图：选中的车型才展开；乘客座位 1–N、行李 1
   assert.ok(within(aside).getByText("20,000"));
 });
 
-test("链接参数：from 编码（按编码取一次平台地点，不调谷歌、不逐城市扫描）、to 坐标加名称、date、time、pax、bags 打开就报价；不合法的只是不预填", async () => {
+test("链接参数：from 编码（按编码取一次平台地点，不调谷歌、不逐城市扫描）、to 坐标加名称、date、time、pax、bags 打开就报价；不合法的只是不预填；链接带来的地点不算地址联想，不带 pickup_name / dropoff_name（M8-20）", async () => {
   wideScreen();
   const calls = open({ at: "/book/new?from=NRT&to=35.6905,139.6948&to_name=%E4%BA%AC%E7%8E%8B%E5%B9%BF%E5%9C%BA%E9%85%92%E5%BA%97&date=2030-11-20&time=14:30&pax=3&bags=1" });
   await screen.findByRole("heading", { name: "车型1" }, SLOW);

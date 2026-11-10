@@ -17,10 +17,10 @@
 | [`pages/platform-tenants.md`](./pages/platform-tenants.md) | 运营后台的供应商管理：列表、新建、详情、暂停 / 恢复、邀请管理员、发密码重置；**一次性链接（邀请、重置）怎么交付** |
 | [`pages/platform-settings.md`](./pages/platform-settings.md) | 运营后台的系统设置：平台员工（新增、角色说明、停用 / 启用、发密码重置）、审计日志（筛选、改前改后）、系统状态 |
 | [`pages/platform-security.md`](./pages/platform-security.md) | 运营后台的账号安全：登录的第二步（绑定验证器、输入动态码、恢复码）、个人页「账号安全」、平台员工详情（角色、IP 白名单、重置两步验证）、角色管理（菜单 × 操作、数据范围） |
-| [`pages/platform-products.md`](./pages/platform-products.md) | 运营后台只读查看供应商的商品：列表（按供应商、城市、品类、状态、可用价格、子品牌筛）、详情（复用供应商后台各步骤的只读模式）、首页的商品卡片、供应商详情里的「商品」；报价试算；只读的区域地图 |
+| [`pages/platform-products.md`](./pages/platform-products.md) | 运营后台只读查看供应商的商品：列表（按供应商、城市、品类、状态、可用价格、子品牌筛）、详情（复用供应商后台各步骤的只读模式）、首页的商品卡片、供应商详情里的「商品」；报价试算；只读的区域地图（含运营 / 报价区域的样式和「未覆盖需求」图层）；「未覆盖需求」列表（M8-20） |
 | [`pages/master-data.md`](./pages/master-data.md) | 主数据：城市、地点、车型组、附加服务的列表页和新增 / 编辑页；处理导入的机场 |
 | [`pages/tenant-home.md`](./pages/tenant-home.md) | 供应商后台首页（模块入口、数量、「先建区域」的引导）；供应商后台菜单的分组与顺序 |
-| [`pages/tenant-areas.md`](./pages/tenant-areas.md) | 区域管理：列表、在地图上画营运区和禁行区、坐标表、自测；区域地图（总览、重叠、导入导出、「在地图上查看」对话框）；地图底图的技术约束（地图库、瓦片来源、内容安全策略） |
+| [`pages/tenant-areas.md`](./pages/tenant-areas.md) | 区域管理：列表、在地图上画营运区和禁行区、坐标表、自测；区域地图（总览、重叠、导入导出、「在地图上查看」对话框）；运营区域与报价区域（用途、超出运营区域的提醒、只列报价区域，M8-20）；地图底图的技术约束（地图库、瓦片来源、内容安全策略） |
 | [`pages/tenant-products.md`](./pages/tenant-products.md) | 商品：列表、分步配置（基础信息、服务规则、商品详情）、上架检查与上下架 |
 | [`pages/tenant-prices.md`](./pages/tenant-prices.md) | 商品的第 ③ 步：价格规则（固定一口价 / 里程 + 时长 / 包车套餐、缺价的组合、生效日期重叠）、调价规则（步骤、顺序、试算）、价格日历、取整单位；菜单里的「价格规则」 |
 | [`pages/tenant-inventory.md`](./pages/tenant-inventory.md) | 商品的第 ④ 步：库存模式（不限量 / 限量）、库存日历、改某一天、批量设置；价格和库存的 Excel 导入导出（下载模版、选文件、检查结果、确认导入） |

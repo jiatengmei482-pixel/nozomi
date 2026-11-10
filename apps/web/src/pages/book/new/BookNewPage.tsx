@@ -41,7 +41,7 @@ import { SelectField } from "../../../components/FormFields.tsx";
 import { Icon } from "../../../components/Icon.tsx";
 import { Skeleton, StateBlock } from "../../../components/States.tsx";
 import { TextField } from "../../../components/TextField.tsx";
-import { type BookingLink, type LinkEnd, type TripPoint, VISIBLE_VEHICLES, guestCurrencyOf, moneyDifference, parseBookingLink, pointName, rejectionTexts, travellersText } from "../../../lib/book-new.ts";
+import { type BookingLink, type LinkEnd, type TripPoint, VISIBLE_VEHICLES, guestCurrencyOf, moneyDifference, parseBookingLink, pointName, rejectionTexts, suggestionNames, travellersText } from "../../../lib/book-new.ts";
 import { formatInZone, moneyText } from "../../../lib/dispatch-display.ts";
 import { displayName } from "../../../lib/master-display.ts";
 import { CHARTER_OVERAGE_NOTE, addressEnds, defaultServiceDate, guestCancelPolicyText, guestLocalText, newIdempotencyKey, quotesByTotal, siteOrderUrl } from "../../../lib/site-display.ts";
@@ -122,11 +122,11 @@ function requestOf(draft: TripDraft, charterCity: SiteCity | null, addons: reado
   const serviceLocal = `${draft.date}T${draft.time}`;
   if (draft.mode === "charter") {
     if (charterCity === null || draft.packageHours === "" || draft.to === null) return null;
-    const body: SiteQuoteRequest = { category: "charter", city_id: charterCity.id, pickup: { lat: draft.from.lat, lng: draft.from.lng }, dropoff: { lat: draft.to.lat, lng: draft.to.lng }, package_hours: Number(draft.packageHours), service_local: serviceLocal, passengers: draft.passengers, luggage: draft.luggage, ...(addons.length > 0 ? { addons: [...addons] } : {}) };
+    const body: SiteQuoteRequest = { category: "charter", city_id: charterCity.id, pickup: { lat: draft.from.lat, lng: draft.from.lng }, dropoff: { lat: draft.to.lat, lng: draft.to.lng }, package_hours: Number(draft.packageHours), service_local: serviceLocal, passengers: draft.passengers, luggage: draft.luggage, ...(addons.length > 0 ? { addons: [...addons] } : {}), ...suggestionNames(draft.from, draft.to) };
     return { key: JSON.stringify(body), run: async () => ({ mode: "charter", result: await createSiteQuotes(body), city: charterCity }) };
   }
   if (draft.to === null) return null;
-  const body: SiteByPointsRequest = { pickup: end(draft.from), dropoff: end(draft.to), service_local: serviceLocal, passengers: draft.passengers, luggage: draft.luggage, ...(addons.length > 0 ? { addons: [...addons] } : {}) };
+  const body: SiteByPointsRequest = { pickup: end(draft.from), dropoff: end(draft.to), service_local: serviceLocal, passengers: draft.passengers, luggage: draft.luggage, ...(addons.length > 0 ? { addons: [...addons] } : {}), ...suggestionNames(draft.from, draft.to) };
   return { key: JSON.stringify(body), run: async () => ({ mode: "transfer", result: await createSiteQuotesByPoints(body) }) };
 }
 

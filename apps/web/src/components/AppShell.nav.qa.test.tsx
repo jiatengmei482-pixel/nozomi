@@ -36,6 +36,8 @@ const MENU_PAGES: Readonly<Record<string, readonly string[]>> = {
   tenants: ["/platform/tenants", "/platform/tenant-documents"],
   products: ["/platform/products"],
   quote_preview: ["/platform/quote-preview"],
+  // 未覆盖需求（M8-20）
+  uncovered_demands: ["/platform/uncovered-demands"],
   channels: ["/platform/channels"],
   orders: ["/platform/orders", "/platform/webhook-deliveries"],
   // 代传履约没有单独的页面：入口在订单详情里，看的权限就是看订单

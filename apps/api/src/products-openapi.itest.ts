@@ -376,6 +376,7 @@ test("VALIDATION_FAILED 的原因代码：每一个实际会出现的都写在�
   assert.equal((await api.call("POST", `/tenant/v1/areas/${disabledArea.id}/disable`, { token: tenant.adminToken })).status, 200);
   const charterArea = await newArea({ biz_type: "charter" });
   const osakaArea = await newArea({ city_id: ids["osaka"] });
+  const operatingArea = await newArea({ role: "operating" });
   const offGroup = await platform("vehicle-groups", { grade: "luxury", seats: 4, power: "fuel", combos: [{ passengers: 3, luggage: 2 }], code: "VG-LUX-4", name: { zh: "停用的车型组" } });
   await platform(`vehicle-groups/${offGroup.id}/disable`, undefined);
   const expectInvalid = async (method: HttpMethod, template: string, options: Options, expected: string[], what: string): Promise<void> => {
@@ -404,6 +405,7 @@ test("VALIDATION_FAILED 的原因代码：每一个实际会出现的都写在�
   await create({}, ["BRAND_DISABLED"], "子品牌已停用");
   await api.db.owner.query("update brands set status = 'active' where id = $1", [ids["brand"]]);
   await patch({ areas: [{ area_id: MISSING }, { area_id: osakaArea.id }, { area_id: charterArea.id }, { area_id: disabledArea.id }, { area_id: ids["area"] }, { area_id: ids["area"] }] }, ["UNKNOWN_AREA", "AREA_OTHER_CITY", "AREA_NOT_USABLE", "AREA_DISABLED", "DUPLICATE"], "区域");
+  await patch({ areas: [{ area_id: operatingArea.id }] }, ["AREA_ROLE_NOT_PRICING"], "运营区域不能被商品勾选（M8-20）");
   await patch({ areas: Array.from({ length: 51 }, () => ({ area_id: ids["area"] })) }, ["TOO_MANY"], "区域太多");
   await patch({ vehicle_groups: [{ vehicle_group_id: MISSING, passengers: 1, luggage: 0 }, { vehicle_group_id: offGroup.id, passengers: 3, luggage: 2 }, { vehicle_group_id: ids["eco4"], passengers: 4, luggage: 4 }] }, ["UNKNOWN_VEHICLE_GROUP", "VEHICLE_GROUP_DISABLED", "VEHICLE_COMBO_NOT_OFFERED"], "车型组");
   await patch({ dispatchers: [{ name: "", phone: "abc" }] }, ["REQUIRED", "INVALID_PHONE"], "调度人");

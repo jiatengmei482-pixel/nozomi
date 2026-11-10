@@ -46,10 +46,13 @@ export function areaRing(geometry: { coordinates: [number, number][][] }): Posit
 
 /** 交给 domain 算重叠的样子。 */
 export function overlapInputs(items: readonly AreaMapItem[]): OverlapAreaInput[] {
-  return items.map((item) => ({ id: item.id, bizType: item.biz_type, active: item.status === "active", polygons: item.polygons.map((polygon) => ({ kind: polygon.kind, ring: areaRing(polygon.geometry) })) }));
+  return items.map((item) => ({ id: item.id, bizType: item.biz_type, role: item.role ?? "both", active: item.status === "active", polygons: item.polygons.map((polygon) => ({ kind: polygon.kind, ring: areaRing(polygon.geometry) })) }));
 }
 
-/** 重叠只在「同一个供应商」的区域之间算：运营后台一次看到几家的区域时，按供应商分开算再合起来。 */
+/**
+ * 重叠只在「同一个供应商」的区域之间算：运营后台一次看到几家的区域时，按供应商分开算再合起来。
+ * 只在报价区域（报价、运营 + 报价）之间算（ADR 0075 第五部分）：运营区域之间、运营区域和报价区域之间都不算重叠。
+ */
 export function computeOverlaps<T extends AreaMapItem>(items: readonly T[], ownerOf: (item: T) => string = () => ""): AreaOverlapResult {
   const groups = new Map<string, T[]>();
   for (const item of items) groups.set(ownerOf(item), [...(groups.get(ownerOf(item)) ?? []), item]);
@@ -63,15 +66,26 @@ export function computeOverlaps<T extends AreaMapItem>(items: readonly T[], owne
   return merged;
 }
 
+/** 区域地图按用途筛（ADR 0075 第五部分）：「运营」= 能决定接单的（运营、运营 + 报价），「报价」= 能挂价格的（报价、运营 + 报价）。 */
+export type OverviewRoleFilter = "all" | "operating" | "pricing";
+
 export interface OverviewFilter {
   q: string;
   overlapOnly: boolean;
+  role?: OverviewRoleFilter;
 }
 
-/** 列表的筛选：名称（任意一种语言，不分大小写）、只看有重叠的。 */
+function roleMatches(role: AreaMapItem["role"], filter: OverviewRoleFilter): boolean {
+  const value = role ?? "both";
+  if (filter === "operating") return value !== "pricing";
+  if (filter === "pricing") return value !== "operating";
+  return true;
+}
+
+/** 列表的筛选：名称（任意一种语言，不分大小写）、用途、只看有重叠的。 */
 export function filterAreas<T extends AreaMapItem>(items: readonly T[], filter: OverviewFilter, overlaps: AreaOverlapResult): T[] {
   const q = filter.q.trim().toLowerCase();
-  return items.filter((item) => (q === "" || Object.values(item.name).some((text) => (text ?? "").toLowerCase().includes(q))) && (!filter.overlapOnly || overlaps.byArea.has(item.id)));
+  return items.filter((item) => (q === "" || Object.values(item.name).some((text) => (text ?? "").toLowerCase().includes(q))) && roleMatches(item.role, filter.role ?? "all") && (!filter.overlapOnly || overlaps.byArea.has(item.id)));
 }
 
 /** 最近修改人的说法。 */
@@ -82,7 +96,7 @@ export function editorText(editor: AreaMapItem["last_editor"]): string | null {
 }
 
 /**
- * 导出成 GeoJSON（FeatureCollection，一块图形一个要素）。properties 里有区域的编号、名称、城市、业务类型、状态，
+ * 导出成 GeoJSON（FeatureCollection，一块图形一个要素）。properties 里有区域的编号、名称、城市、业务类型、用途（M8-20）、状态，
  * 和图形的类型（`kind`）、名字、备注名（`label`）——和编辑器「复制坐标」的写法一致，导入时类型和备注名能带回来。
  */
 export function areasToGeoJson(items: readonly AreaMapItem[]): string {
@@ -94,6 +108,7 @@ export function areasToGeoJson(items: readonly AreaMapItem[]): string {
         area_name: displayName(item.name).text,
         city_code: item.city?.code ?? null,
         biz_type: item.biz_type,
+        role: item.role ?? "both",
         status: item.status,
         kind: polygon.kind,
         name: `${polygon.kind === "operate" ? "营运" : "禁行"} ${polygon.seq}`,
@@ -144,6 +159,20 @@ export function areasInGeoJson(text: string): number {
     if (typeof id === "string") ids.add(id);
   }
   return ids.size;
+}
+
+/** 导入的文件里写明的用途（我们自己导出的带 `properties.role`）：全部要素一致时才认，否则为 null（让用户在新增页自己选）。 */
+export function roleInGeoJson(text: string): AreaMapItem["role"] | null {
+  let root: unknown;
+  try {
+    root = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const features = typeof root === "object" && root !== null && Array.isArray((root as { features?: unknown }).features) ? ((root as { features: unknown[] }).features) : [];
+  const roles = new Set(features.map((feature) => (typeof feature === "object" && feature !== null ? (feature as { properties?: { role?: unknown } }).properties?.role : undefined)));
+  const [only] = [...roles];
+  return roles.size === 1 && (only === "operating" || only === "pricing" || only === "both") ? only : null;
 }
 
 const PAIR = /^\s*(-?\d{1,3}(?:\.\d+)?)\s*[,，\s]\s*(-?\d{1,3}(?:\.\d+)?)\s*$/;

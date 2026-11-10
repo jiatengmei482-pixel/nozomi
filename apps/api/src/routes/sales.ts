@@ -219,7 +219,8 @@ export function registerSalesRoutes(app: FastifyInstance, ctx: AppContext): void
         vehicleGroupIds: input.vehicle_group_ids,
         currency: input.currency,
       },
-      { log: request.log, request: { ...input, service_time: input.service_time.toISOString() } },
+      // 一个价都报不出时另记「未覆盖需求」（ADR 0075）：限流按 API 客户端，渠道接口没有地点名称
+      { log: request.log, request: { ...input, service_time: input.service_time.toISOString() }, demand: { channelKind: "sales", sourceKey: principal.apiClientId, pickupName: null, dropoffName: null, log: request.log } },
     );
     return { quotes: result.quotes.map(quoteJson), unavailable: result.unavailable.map((entry) => ({ vehicle_group_id: entry.vehicleGroupId, reasons: entry.reasons })) };
   });

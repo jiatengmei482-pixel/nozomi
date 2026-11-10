@@ -22,10 +22,12 @@ import {
   type PricingModel,
   type TripDirection,
   type AreaBizType,
+  type AreaRole,
   type AreaStatus,
   addDays,
   adjustRuleIssues,
   areaSurchargeFor,
+  areaRoleCanPrice,
   areaUsableByCategory,
   isSurchargeRule,
   adjustRuleNonPositivePrices,
@@ -143,8 +145,11 @@ export interface PricingContext {
    * 包车、点对点：本租户的全部报价区域（包车的区域加价可以挂任何一个，不限于商品选的；点对点线路价的下车区域不是本租户的按 404，ADR 0073）；
    * 接送机是空的。只在租户事务里取，看不到别的租户的区域。
    */
-  tenantAreas: Map<string, { name: LocalizedText; bizType: AreaBizType; status: AreaStatus }>;
+  tenantAreas: Map<string, { name: LocalizedText; bizType: AreaBizType; role: AreaRole; status: AreaStatus }>;
 }
+
+/** 选了运营区域时的说明（ADR 0075：运营区域只决定能不能接单、不带价格） */
+const AREA_ROLE_NOT_PRICING_MESSAGE = "运营区域不带价格：价格、区域加价、线路价只能挂在报价区域（或「运营 + 报价」的区域）上";
 
 export async function loadPricingContext(db: Db, tenantId: string, productId: string, now: Date, options: { lock: boolean }): Promise<PricingContext> {
   const product = await findProduct(db, tenantId, productId, options);
@@ -272,6 +277,11 @@ export function checkPriceChanges(context: PricingContext, changes: PriceChanges
     if (toAreaId !== null && !areas.has(toAreaId) && (before?.toAreaId ?? null) !== toAreaId) {
       issues.push({ path: `${at}/to_area_id`, reason: "AREA_NOT_IN_PRODUCT", message: "下车区域只能选这个商品选了的区域", detail: who });
     }
+    // 价格只能挂在报价区域上（ADR 0075）：商品区域本来就不会是运营区域（改用途时拦了），这里按区域现在的用途再核对一遍
+    for (const [field, areaId, was] of [["area_id", isSurchargeRule(rule) ? null : rule.areaId, before?.areaId], ["to_area_id", toAreaId, before?.toAreaId ?? null]] as const) {
+      const role = areaId === null || areaId === was ? undefined : context.tenantAreas.get(areaId)?.role;
+      if (role !== undefined && !areaRoleCanPrice(role)) issues.push({ path: `${at}/${field}`, reason: "AREA_ROLE_NOT_PRICING", message: AREA_ROLE_NOT_PRICING_MESSAGE, detail: who });
+    }
     if (!groups.has(rule.vehicleGroupId) && before?.vehicleGroupId !== rule.vehicleGroupId) {
       issues.push({ path: `${at}/vehicle_group_id`, reason: "VEHICLE_GROUP_NOT_IN_PRODUCT", message: "只能给这个商品选了的车型组设价格", detail: who });
     }
@@ -331,6 +341,7 @@ function surchargeAreaIssues(context: PricingContext, rule: PriceRule, at: strin
   if (area === undefined) return [];
   if (context.areaIds.includes(rule.areaId)) return [{ path: `${at}/area_id`, reason: "AREA_IS_PRODUCT_AREA", message: "这是商品本身的区域：上车、下车在这里都不加价。区域加价请选商品区域以外的区域", detail: who }];
   if (!areaUsableByCategory(context.product.category, area.bizType)) return [{ path: `${at}/area_id`, reason: "AREA_NOT_USABLE", message: "只能选业务类型是包车或「通用」的区域", detail: who }];
+  if (!areaRoleCanPrice(area.role)) return [{ path: `${at}/area_id`, reason: "AREA_ROLE_NOT_PRICING", message: AREA_ROLE_NOT_PRICING_MESSAGE, detail: who }];
   if (area.status !== "active") return [{ path: `${at}/area_id`, reason: "AREA_DISABLED", message: "这个区域已停用，不能新选", detail: who }];
   return [];
 }

@@ -2,11 +2,12 @@
  * 新增 / 编辑区域（docs/design/pages/tenant-areas.md 第 3–10 节）：选城市、起名字，画出营运区和禁行区，自测，保存。
  * DOM 顺序固定：基本信息 → 绘制工具条 → 地图 → 图形列表与坐标表 → 自测 → 操作区；没有地图也能完成全部操作。
  */
-import { AREA_BIZ_TYPES, AREA_BIZ_TYPE_NAMES, AREA_LIMITS, type AreaBizType, type AreaPolygonKind, type LocalizedText, hasVisibleText } from "@nozomi/domain";
+import { AREA_BIZ_TYPES, AREA_BIZ_TYPE_NAMES, AREA_LIMITS, AREA_ROLES, type AreaBizType, type AreaPolygonKind, type AreaRole, type LocalizedText, hasVisibleText } from "@nozomi/domain";
 import { Component, type FormEvent, type ReactNode, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { ApiError, NetworkError } from "../../api/client.ts";
 import { type Area, type AreaCreate, type MapConfig, createArea, fetchMapConfig, getArea, listTenantCities, updateArea } from "../../api/areas.ts";
+import { type AreaMapItem, type AreaMapResponse, fetchTenantAreaMap } from "../../api/area-map.ts";
 import type { City } from "../../api/master.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert, type AlertKind } from "../../components/Alert.tsx";
@@ -21,10 +22,12 @@ import { Icon } from "../../components/Icon.tsx";
 import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { useToast } from "../../components/Toast.tsx";
-import { EMPTY_EDITOR, type EditorShape, type PastedPolygon, areaProblems, editorReducer, hasBlockingProblems, sameShapes, shapeName, shapeProblems, shapeWarnings, shapesToGeoJson, toPolygonInputs } from "../../lib/area-editor.ts";
+import { EMPTY_EDITOR, type EditorShape, type PastedPolygon, areaProblems, editorReducer, hasBlockingProblems, sameShapes, shapeName, shapeRing, shapeProblems, shapeWarnings, shapesToGeoJson, toPolygonInputs } from "../../lib/area-editor.ts";
 import { areaProblemText, ringProblemText, shapeProblemText } from "../../lib/area-messages.ts";
 import { type AreaDraft, clearAreaDraft, draftTimeText, readAreaDraft, writeAreaDraft } from "../../lib/area-draft.ts";
 import { AREA_LIST_PATH, AREA_MAP_PATH } from "../../lib/area-paths.ts";
+import { areaRing } from "../../lib/area-overview.ts";
+import { AREA_ROLE_FIELD_HINT, AREA_ROLE_OPTIONS, type OutsideImpact, editingOutside, outsideRejectedText, outsideText, readOutsideImpacts, roleInUseText, roleName, roleOf } from "../../lib/area-roles.ts";
 import { PRODUCT_LIST_PATH } from "../../lib/product-paths.ts";
 import { INPUT_LANGUAGES, MASTER_STATUS_BADGES, cleanLocalized, countryLabel, displayName, formatLocalDateTime, sameLocalized, shortName } from "../../lib/master-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
@@ -36,6 +39,7 @@ import { readListPage } from "../master/shared.tsx";
 import { AreaMap, type MapTool, Swatch } from "./AreaMap.tsx";
 import { PasteDialog, type PasteRequest } from "./PasteDialog.tsx";
 import { type ProbeResult, SelfTest } from "./SelfTest.tsx";
+import { OutsideImpacts } from "./OutsideImpacts.tsx";
 import { ShapeList } from "./ShapeList.tsx";
 import { AREA_FORBIDDEN_TEXT, AreaMoreItems, useAreaActions } from "./useAreaActions.tsx";
 
@@ -60,6 +64,8 @@ interface TopNotice {
   title?: string;
   text: string;
   action?: ReactNode;
+  /** 409 `PRICING_AREA_OUTSIDE_OPERATING`：受影响的已上架商品和报价区域（M8-20） */
+  outside?: OutsideImpact[];
 }
 
 interface Problem {
@@ -71,6 +77,11 @@ interface Problem {
 function returnTo(state: unknown): string {
   const from = typeof state === "object" && state !== null ? (state as { from?: unknown }).from : undefined;
   return typeof from === "string" && (from === AREA_LIST_PATH || from === AREA_MAP_PATH || from.startsWith(`${AREA_LIST_PATH}?`)) ? from : AREA_LIST_PATH;
+}
+
+/** 地址或导入的文件里带的用途（`?role=`、区域地图导入时文件里写明的，M8-20）；认不出为 null。 */
+function wantedRole(value: unknown): AreaRole | null {
+  return typeof value === "string" && (AREA_ROLES as readonly string[]).includes(value) ? (value as AreaRole) : null;
 }
 
 /** 区域地图拖进来、选进来的 .geojson 文件的内容（M8-18）：新增页打开时放进「粘贴坐标」，在那里识别、核对。 */
@@ -95,17 +106,21 @@ export function AreaEditorPage() {
   const area = mode === "edit" ? loaded.state.data : null;
   const cities = useLoad<City[]>("tenant-cities-active", mode === "new" && canManage ? (authToken) => listTenantCities(authToken) : null);
   const mapConfig = useLoad<MapConfig>("map-config", canRead ? fetchMapConfig : null);
+  // 本供应商别的区域（带图形）：画面上的报价区域超出运营区域的部分按它们现算（M8-20）
+  const siblings = useLoad<AreaMapResponse<AreaMapItem>>("area-editor-siblings", canRead && validId ? (authToken) => fetchTenantAreaMap(authToken) : null);
 
   const [cityId, setCityId] = useState<string | null>(null);
   const [name, setName] = useState<LocalizedText>({});
   const [bizType, setBizType] = useState<AreaBizType>("general");
+  // 新增时默认「运营 + 报价」：和改版前一样只画一个区域就能用；页面写清楚三种的区别
+  const [role, setRole] = useState<AreaRole>("both");
   const [bizLocked, setBizLocked] = useState(false);
   const [confirmingShapes, setConfirmingShapes] = useState(false);
   // 从商品页面的「新增区域」过来：/areas/new?city=&biz= 预先选好；参数不认识就当没带。预先选上的不算「有修改」
   const [search] = useSearchParams();
   const [prefilledCity, setPrefilledCity] = useState<string | null>(null);
   const [editor, dispatch] = useReducer(editorReducer, EMPTY_EDITOR);
-  const [initial, setInitial] = useState<{ name: LocalizedText; bizType: AreaBizType; shapes: readonly EditorShape[] }>({ name: {}, bizType: "general", shapes: [] });
+  const [initial, setInitial] = useState<{ name: LocalizedText; bizType: AreaBizType; role: AreaRole; shapes: readonly EditorShape[] }>({ name: {}, bizType: "general", role: "both", shapes: [] });
   const [adopted, setAdopted] = useState<string | null>(null);
   const [tool, setTool] = useState<MapTool>("select");
   const [newKind, setNewKind] = useState<AreaPolygonKind>("operate");
@@ -139,10 +154,11 @@ export function AreaEditorPage() {
     if (area === null || areaKey === adopted || (adopted !== null && !conflict)) return;
     dispatch({ type: "load", polygons: area.polygons });
     // 载入后的那一份就是「打开时的样子」，之后拿它判断有没有改过
-    setInitial({ name: area.name, bizType: area.biz_type, shapes: editorReducer(EMPTY_EDITOR, { type: "load", polygons: area.polygons }).shapes });
+    setInitial({ name: area.name, bizType: area.biz_type, role: roleOf(area), shapes: editorReducer(EMPTY_EDITOR, { type: "load", polygons: area.polygons }).shapes });
     setCityId(area.city_id);
     setName(area.name);
     setBizType(area.biz_type);
+    setRole(roleOf(area));
     setAdopted(areaKey);
     setAttempted(false);
     setFieldErrors({});
@@ -156,6 +172,12 @@ export function AreaEditorPage() {
   }, [area, areaKey, adopted, conflict]);
   const wantedCity = mode === "new" ? search.get("city") : null;
   const wantedBiz = mode === "new" ? search.get("biz") : null;
+  const presetRole = mode === "new" ? (wantedRole(search.get("role")) ?? wantedRole(typeof location.state === "object" && location.state !== null ? (location.state as { importRole?: unknown }).importRole : null)) : null;
+  useEffect(() => {
+    if (presetRole === null) return;
+    setRole(presetRole);
+    setInitial((current) => ({ ...current, role: presetRole }));
+  }, [presetRole]);
   const cityList = cities.state.data;
   useEffect(() => {
     if (wantedBiz !== null && (AREA_BIZ_TYPES as readonly string[]).includes(wantedBiz)) {
@@ -179,7 +201,7 @@ export function AreaEditorPage() {
   useDocumentTitle(mode === "new" ? `新增区域 · NOZOMI ${portal.name}` : `${pageTitle} · 区域 · NOZOMI ${portal.name}`);
 
   const shapesDirty = !sameShapes(editor.shapes, initial.shapes);
-  const dirty = !readOnly && (shapesDirty || !sameLocalized(name, initial.name) || bizType !== initial.bizType || (mode === "new" && cityId !== prefilledCity));
+  const dirty = !readOnly && (shapesDirty || !sameLocalized(name, initial.name) || bizType !== initial.bizType || role !== initial.role || (mode === "new" && cityId !== prefilledCity));
   const usedBy = area?.usage?.product_count ?? 0;
   const publishedUsers = area?.usage?.published_product_count ?? 0;
   useLeaveGuard(dirty && !submitting && !discarded, setLeaving);
@@ -196,7 +218,7 @@ export function AreaEditorPage() {
   const draftChecked = pageReady;
   // 页面上现在的内容；`null` = 现在不该存（没改、已经离开、还有一份旧草稿等用户决定）
   const draftNow = useRef<AreaDraft | null>(null);
-  draftNow.current = pageReady && draftChecked && foundDraft === null && dirty && !discarded ? { savedAt: new Date().toISOString(), baseVersion: area?.version ?? null, cityId, name, bizType, shapes: editor.shapes } : null;
+  draftNow.current = pageReady && draftChecked && foundDraft === null && dirty && !discarded ? { savedAt: new Date().toISOString(), baseVersion: area?.version ?? null, cityId, name, bizType, role, shapes: editor.shapes } : null;
   const flushDraft = (): void => {
     if (owner !== null && draftNow.current !== null) writeAreaDraft(owner, draftArea, draftNow.current);
   };
@@ -212,7 +234,7 @@ export function AreaEditorPage() {
     if (!dirty) return clearAreaDraft(owner, draftArea);
     const timer = setTimeout(() => flushRef.current(), DRAFT_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [pageReady, draftChecked, foundDraft, discarded, dirty, ownerKey, name, bizType, cityId, editor.shapes]);
+  }, [pageReady, draftChecked, foundDraft, discarded, dirty, ownerKey, name, bizType, role, cityId, editor.shapes]);
   // 离开页面（包括浏览器的后退）时再写一次：最后几百毫秒里的改动也在
   useEffect(() => () => flushRef.current(), []);
   const restoreDraft = (): void => {
@@ -220,6 +242,7 @@ export function AreaEditorPage() {
     dispatch({ type: "restore", shapes: foundDraft.shapes });
     setName(foundDraft.name);
     if (usedBy === 0 && !bizLocked) setBizType(foundDraft.bizType);
+    if (foundDraft.role !== undefined) setRole(foundDraft.role);
     if (mode === "new" && foundDraft.cityId !== null) setCityId(foundDraft.cityId);
     setDraftDecided(true);
     setFitSignal((value) => value + 1);
@@ -241,6 +264,16 @@ export function AreaEditorPage() {
   });
 
   const warnings = useMemo(() => shapeWarnings(editor.shapes, city ? { lat: city.center.lat, lng: city.center.lng } : null), [editor.shapes, city]);
+  // 报价区域超出运营区域（M8-20，只提醒、不拦保存）：按画面上的图形和选的用途、业务类型现算；别的区域还没取到时用接口给的（只对已保存的样子）
+  const siblingItems = siblings.state.data?.items ?? null;
+  const outside = useMemo(() => {
+    if (siblingItems === null || hasBlockingProblems(editor.shapes)) return null;
+    const others = siblingItems.filter((item) => item.id !== area?.id).map((item) => ({ id: item.id, bizType: item.biz_type, role: roleOf(item), active: item.status === "active", polygons: item.polygons.map((polygon) => ({ kind: polygon.kind, ring: areaRing(polygon.geometry) })) }));
+    const current = { id: area?.id ?? "editing", bizType, role, active: area?.status !== "disabled", polygons: editor.shapes.map((shape) => ({ kind: shape.kind, ring: shapeRing(shape) })) };
+    return editingOutside(current, others);
+  }, [siblingItems, editor.shapes, bizType, role, area?.id, area?.status]);
+  const unchangedForServer = !shapesDirty && role === initial.role && bizType === initial.bizType;
+  const outsideM2 = outside !== null ? ([...outside.byArea.values()][0] ?? 0) : unchangedForServer ? (area?.outside_operating_m2 ?? 0) : 0;
   const overall = useMemo(() => areaProblems(editor.shapes), [editor.shapes]);
 
   // 提交时要改的地方：城市 → 名称 → 图形（按列表从上到下）
@@ -289,6 +322,7 @@ export function AreaEditorPage() {
           else if (path.startsWith("/name")) fields["name"] = [...(fields["name"] ?? []), fallback];
           else if (path === "/city_id") fields["city"] = [...(fields["city"] ?? []), fallback];
           else if (path === "/biz_type") fields["bizType"] = [...(fields["bizType"] ?? []), fallback];
+          else if (path === "/role") fields["role"] = [...(fields["role"] ?? []), fallback];
           else unplaced += 1;
         }
         setFieldErrors(fields);
@@ -327,6 +361,14 @@ export function AreaEditorPage() {
         });
       case "CONCURRENT_UPDATE":
         return setNotice({ kind: "warning", text: "同时有其他人在修改相关的数据，这次没有保存成功。请再点一次保存。" });
+      case "AREA_IN_USE":
+        // 改成运营区域，但有商品把它当报价区域用着（M8-20）
+        setFieldErrors({ role: [roleInUseText(err.details)] });
+        return jump({ field: "role" });
+      case "PRICING_AREA_OUTSIDE_OPERATING": {
+        const said = outsideRejectedText("save");
+        return setNotice({ kind: "danger", title: said.title, text: `${said.text}${PRESERVED}`, outside: readOutsideImpacts(err.details) });
+      }
       case "IDEMPOTENCY_KEY_REUSED":
         return setNotice({ kind: "warning", text: "这次保存和刚才那一次撞在了一起。请刷新页面后重试。" });
       case "MASTER_DATA_NOT_READY":
@@ -374,7 +416,7 @@ export function AreaEditorPage() {
         setIdempotencyKey(fresh);
         return createArea(token, body, fresh);
       }
-      return updateArea(token, existing.id, existing.version, { name: body.name, biz_type: body.biz_type, polygons: body.polygons });
+      return updateArea(token, existing.id, existing.version, { name: body.name, biz_type: body.biz_type, ...(body.role !== undefined ? { role: body.role } : {}), polygons: body.polygons });
     }
   };
 
@@ -395,7 +437,7 @@ export function AreaEditorPage() {
     setNotice(null);
     setSubmitting(true);
     try {
-      const body = { name: cleanLocalized(name), biz_type: bizType, polygons: toPolygonInputs(editor.shapes) };
+      const body = { name: cleanLocalized(name), biz_type: bizType, role, polygons: toPolygonInputs(editor.shapes) };
       const saved = mode === "edit" && area ? await updateArea(token, area.id, area.version, body) : await createOrAdopt({ city_id: cityId ?? "", ...body });
       toast(mode === "edit" ? `已保存「${shortName(displayName(saved.name).text)}」` : `已新增区域「${shortName(displayName(saved.name).text)}」`);
       dropDraft();
@@ -448,6 +490,8 @@ export function AreaEditorPage() {
     );
   }
 
+  const siblingNames = new Map((siblingItems ?? []).map((item) => [item.id, displayName(item.name).text]));
+  const roleChangeBlocked = mode === "edit" && usedBy > 0 && role === "operating" && initial.role !== "operating";
   const tiles = mapConfig.state.data?.tiles ?? null;
   const mapUsable = tiles !== null && !mapBroken;
   const full = editor.shapes.length >= AREA_LIMITS.maxPolygons;
@@ -497,6 +541,7 @@ export function AreaEditorPage() {
           <Alert kind={notice.kind}>
             {notice.title && <strong className="alert__title">{notice.title}</strong>}
             <span>{notice.text}</span>
+            {notice.outside && <OutsideImpacts impacts={notice.outside} knownNames={siblingNames} />}
             {notice.action && <span className="alert__actions">{notice.action}</span>}
           </Alert>
         )}
@@ -592,6 +637,44 @@ export function AreaEditorPage() {
                 <RadioGroup<AreaBizType> legend="业务类型" name="biz-type" required readOnly={readOnly} disabled={submitting} options={BIZ_OPTIONS} value={bizType} errors={fieldErrors["bizType"] ?? []} hint="建商品时，只能选到业务类型和商品品类相同的区域，或「通用」的区域。不管哪一类，上车点或下车点只要落在禁行区，就不报价。" onChange={setBizType} />
               )}
             </div>
+            <div data-field="role">
+              <RadioGroup<AreaRole>
+                legend="用途"
+                name="area-role"
+                required
+                readOnly={readOnly}
+                disabled={submitting}
+                options={AREA_ROLE_OPTIONS}
+                value={role}
+                errors={fieldErrors["role"] ?? []}
+                hint={AREA_ROLE_FIELD_HINT}
+                onChange={(next) => {
+                  setRole(next);
+                  setFieldErrors(({ role: _role, ...rest }) => rest);
+                }}
+              />
+              {roleChangeBlocked && (
+                <p className="field__hint field__hint--warning">
+                  {`已有 ${usedBy} 个商品勾选了这个区域。运营区域不带价格，改成运营区域前要先在这些商品里换掉它，否则保存不了。`}
+                  {area && canSeeProducts && (
+                    <>
+                      {" "}
+                      <Link className="link" to={`${PRODUCT_LIST_PATH}?area=${area.id}`}>
+                        查看这些商品
+                      </Link>
+                    </>
+                  )}
+                </p>
+              )}
+              {outsideM2 > 0 && (
+                <div role="status" data-outside-warning="">
+                  <Alert kind="warning">
+                    <strong className="alert__title">{`${outsideText(outsideM2)}。`}</strong>
+                    <span>{mapUsable ? "地图上用警告色斜线标出了这部分。" : ""}只是提醒，可以保存。要在那里报价，请把运营区域画大一些，或新增一个覆盖它的运营区域。</span>
+                  </Alert>
+                </div>
+              )}
+            </div>
           </form>
         </section>
 
@@ -658,6 +741,7 @@ export function AreaEditorPage() {
                 probe={probe}
                 cityCenter={{ lat: city.center.lat, lng: city.center.lng }}
                 fitSignal={fitSignal}
+                outside={outside?.pieces ?? []}
               />
             </MapBoundary>
           ) : (

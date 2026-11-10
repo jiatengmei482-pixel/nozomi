@@ -59,6 +59,7 @@ export const PLATFORM_ACTION_PHRASES: Readonly<Record<PlatformAction, string>> =
   "tenant.approve": "审核同事发起的供应商暂停、清退、合同和资料修改（另一位同事审核）",
   "product.read": "查看供应商的商品和价格",
   "quote.preview": "报价试算",
+  "demand.read": "看未覆盖需求（客人询价一家都报不出价的地方）",
   "master_data.read": "看主数据",
   "master_data.manage": "维护主数据",
   "fx.manage": "管理汇率（立即拉取、确认或放弃变动过大的汇率，发起人工锁定和解锁）",

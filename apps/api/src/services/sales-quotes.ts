@@ -10,13 +10,14 @@
  */
 import { randomInt } from "node:crypto";
 import { performance } from "node:perf_hooks";
-import { type ComparisonRefusal, guestRouteReason, type CurrencyCode, type DistanceBreakdown, type FxQuote, type LatLng, type MarkupMatch, type QuoteSnapshot, type ServiceCategory, type TripDirection, formatMajor, instantToLocal, isPickupPlaceType, quoteSnapshotValid } from "@nozomi/domain";
+import { type ComparisonRefusal, guestRouteReason, type CurrencyCode, type DistanceBreakdown, type FxQuote, type LatLng, type MarkupMatch, type QuoteSnapshot, type ServiceCategory, type TripDirection, formatMajor, instantToLocal, isPickupPlaceType, quoteCheckPoints, quoteSnapshotValid } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
 import { findQuoteCity, findQuotePlace } from "../repos/quotes.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
 import { type PlatformQuotePreview, type QuoteLog, type RouteOutcome, markupKey, previewPlatformQuote } from "./quotes.ts";
+import { type DemandFacts, type DemandSource, recordUncoveredDemandLater } from "./uncovered-demands.ts";
 import type { SalesPrincipal } from "./sales-auth.ts";
 
 /** 起点 / 终点：坐标，或主数据里的地点（机场、车站、POI）编号——给了地点就用地点的坐标。 */
@@ -53,8 +54,10 @@ function salesReason(reason: ComparisonRefusal, route: RouteOutcome): SalesUnava
   switch (reason) {
     case "ROUTE_UNAVAILABLE":
       return route.status === "unavailable" ? guestRouteReason(route.code) : "TEMPORARILY_UNAVAILABLE";
+    // 在运营区域里、但商品没勾报价区域（ADR 0075）：只是平台内部的细分，对外仍是不在服务范围（不给渠道加新的枚举值）
     case "OUT_OF_SERVICE_AREA":
     case "IN_FORBIDDEN_AREA":
+    case "NO_PRICING_AREA":
       return "OUT_OF_SERVICE_AREA";
     // 包车没给下车地点、而商品设了区域加价（ADR 0073）：渠道补上下车地点就能报
     case "DROPOFF_REQUIRED":
@@ -185,8 +188,11 @@ async function resolvePoints(ctx: AppContext, input: SalesQuoteInput): Promise<{
   );
 }
 
-/** 询价：比价、生成 quote_id、存快照和询价日志。 */
-export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincipal, input: SalesQuoteInput, options: { log?: QuoteLog; request: Record<string, unknown> }): Promise<SalesQuoteResult> {
+/**
+ * 询价：比价、生成 quote_id、存快照和询价日志。
+ * 一个价都报不出、又给了 `demand`（官网、渠道的正式询价）时，应答之后另记一条「未覆盖需求」（M8-20，ADR 0075 第四部分），不影响应答。
+ */
+export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincipal, input: SalesQuoteInput, options: { log?: QuoteLog; request: Record<string, unknown>; demand?: DemandSource }): Promise<SalesQuoteResult> {
   const started = performance.now();
   const points = await resolvePoints(ctx, input);
   const serviceLocal = instantToLocal(input.serviceTime, points.timezone).dateTime;
@@ -254,7 +260,32 @@ export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincip
       );
     }
   });
+  if (snapshots.length === 0 && options.demand !== undefined) recordUncoveredDemandLater(ctx, options.demand, demandFacts(principal, input, points, serviceLocal, preview));
   return result;
+}
+
+/** 报不出价的这次询价整理成「未覆盖需求」要的事实（不含任何客人个人信息）。 */
+function demandFacts(principal: SalesPrincipal, input: SalesQuoteInput, points: { pickup: LatLng | null; dropoff: LatLng | null }, serviceLocal: string, preview: PlatformQuotePreview): DemandFacts {
+  const requested = [...new Set(input.vehicleGroupIds)];
+  const checked: ("pickup" | "dropoff")[] = input.category === "charter" ? (points.dropoff === null ? ["pickup"] : ["pickup", "dropoff"]) : quoteCheckPoints({ category: input.category, direction: input.direction });
+  return {
+    channelId: principal.channelId,
+    category: input.category,
+    direction: input.direction,
+    packageHours: input.packageHours,
+    cityId: input.cityId,
+    airportId: input.category === "airport_transfer" ? input.placeId : null,
+    pickup: points.pickup,
+    dropoff: points.dropoff,
+    serviceLocal,
+    passengers: input.passengers,
+    luggage: input.luggage,
+    vehicleGroupId: requested.length === 1 ? (requested[0] as string) : null,
+    checked,
+    suppliers: preview.candidates.map((candidate) => ({ tenantId: candidate.product.tenantId, operatingAreas: candidate.product.operatingAreas ?? [] })),
+    candidateCount: preview.candidates.length,
+    refusals: preview.comparison.refused.map((entry) => entry.reason),
+  };
 }
 
 /** 参加了这个车型组比价的候选商品提供的附加服务（开着、目录里启用、适用这个品类）。 */

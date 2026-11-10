@@ -168,6 +168,12 @@ export interface QuoteProduct {
    * 不给 = 没有；只有包车用。
    */
   surchargeAreas?: readonly QuoteArea[];
+  /**
+   * 这个供应商的运营范围（ADR 0075 第二部分）：本租户启用中的、用途是「运营」或「运营 + 报价」、业务类型和商品品类相容的区域（不限城市）。
+   * 给了就在第 4 步先做运营判断，再做报价判断（点在运营范围里、但不在商品勾选的报价区域里 → `NO_PRICING_AREA`）；
+   * 不给 = 不做运营判断（ADR 0075 之前的口径：切换前的只读清单用它对比）。
+   */
+  operatingAreas?: readonly QuoteArea[];
   /** 商品选的车型组和各自的「人数 / 行李数」组合 */
   vehicleGroups: readonly { vehicleGroupId: string; passengers: number; luggage: number; active: boolean }[];
   serviceRules: ServiceRules;
@@ -222,6 +228,11 @@ export const QUOTE_REFUSALS = [
   "OUT_OF_SERVICE_AREA",
   /** 要校验的点落在禁行区里，而且没有别的区域能接 */
   "IN_FORBIDDEN_AREA",
+  /**
+   * 要校验的点在这个供应商的运营区域里，但不在这个商品勾选的任何报价区域里（ADR 0075）：这个商品不报，不退回基础价。
+   * 只在平台内部（试算、询价日志、未覆盖需求）出现；给渠道和官网的原因是 `OUT_OF_SERVICE_AREA`
+   */
+  "NO_PRICING_AREA",
   /** 包车没给下车地点，而这个商品设了区域加价（渠道接口暂时可以不给下车地点，ADR 0073 第三部分第 4 节）：不知道下车点就不知道加多少，不报 */
   "DROPOFF_REQUIRED",
   /** 要的附加服务这个商品不提供（没开、被平台停用、不适用） */
@@ -371,20 +382,39 @@ export function locateInAreas(areas: readonly QuoteArea[], point: LatLng): { ope
   return { operating, forbidden };
 }
 
+type AreaRefusal = "OUT_OF_SERVICE_AREA" | "IN_FORBIDDEN_AREA" | "NO_PRICING_AREA";
+
 /**
- * 第 4 步：这个商品的哪些区域能接这次用车；一个都没有时说明原因。
+ * 第 4 步的运营判断（ADR 0075 第二部分第 1 节）：点落在这个供应商某个运营区域的营运区里、且不在那个区域的禁行区里。
+ * 不满足时给原因（点只落在禁行区里是 `IN_FORBIDDEN_AREA`，口径同今天）；满足、或商品没带运营范围（不做运营判断）时为 null。
+ */
+function outsideOperating(product: QuoteProduct, position: LatLng): "OUT_OF_SERVICE_AREA" | "IN_FORBIDDEN_AREA" | null {
+  if (product.operatingAreas === undefined) return null;
+  const located = locateInAreas(product.operatingAreas, position);
+  if (located.operating.length > 0) return null;
+  return located.forbidden.length > 0 ? "IN_FORBIDDEN_AREA" : "OUT_OF_SERVICE_AREA";
+}
+
+/** 报价判断不通过（点不在勾选的报价区域里）的原因：做过运营判断的是 `NO_PRICING_AREA`（在运营范围里，只是没价），没做的照旧 */
+const notPriced = (product: QuoteProduct): "OUT_OF_SERVICE_AREA" | "NO_PRICING_AREA" => (product.operatingAreas === undefined ? "OUT_OF_SERVICE_AREA" : "NO_PRICING_AREA");
+
+/**
+ * 第 4 步：这个商品的哪些区域能接这次用车；一个都没有时说明原因。每一个要校验的点依次做两道判断（ADR 0075）：
+ * 先是运营判断（`outsideOperating`），再是报价判断——
  * - 每一个要校验的点都得落在某个区域的营运区里、且不在那个区域的禁行区里（禁行区只管它所在的区域，ADR 0015）；
  * - 要校验的点里只要有一个落在某个区域的禁行区里，这个区域就不参与这一单的报价——点对点时即使另一端在它的营运区里也一样（ADR 0020）。
  */
-function serviceAreas(product: QuoteProduct, request: QuoteRequest): { areaIds: string[] } | { reason: "OUT_OF_SERVICE_AREA" | "IN_FORBIDDEN_AREA" } {
+function serviceAreas(product: QuoteProduct, request: QuoteRequest): { areaIds: string[] } | { reason: AreaRefusal } {
   const usable = new Set<string>();
   const forbidden = new Set<string>();
   for (const point of quoteCheckPoints(request)) {
     const position = request[point];
     if (position === null) return { reason: "OUT_OF_SERVICE_AREA" };
+    const outside = outsideOperating(product, position);
+    if (outside !== null) return { reason: outside };
     const located = locateInAreas(product.areas, position);
     // 每一个要校验的点都得有区域能接（点对点：起点和终点都要在营运区）
-    if (located.operating.length === 0) return { reason: located.forbidden.length > 0 ? "IN_FORBIDDEN_AREA" : "OUT_OF_SERVICE_AREA" };
+    if (located.operating.length === 0) return { reason: located.forbidden.length > 0 ? "IN_FORBIDDEN_AREA" : notPriced(product) };
     // 一个点落在多个区域：每个都算；点对点起终点在不同区域：两端的区域都算（取最低在后面做）
     for (const areaId of located.operating) usable.add(areaId);
     for (const areaId of located.forbidden) forbidden.add(areaId);
@@ -402,10 +432,11 @@ interface CharterEnd {
 /**
  * 包车的区域判断（ADR 0073 第三部分）：
  * - 没给下车点（只有渠道接口暂时允许）：商品没挂加价区域的照旧只看上车点（和以前一模一样）；挂了的不报（`DROPOFF_REQUIRED`）。
- * - 给了下车点：上车点、下车点各自要在商品本身的区域里，或者在某个加价区域里；哪里都不在的不报（转人工，`OUT_OF_SERVICE_AREA` / `IN_FORBIDDEN_AREA`）。
+ * - 给了下车点：上车点、下车点依次先过运营判断（ADR 0075），再看各自是不是在商品本身的区域里，或者在某个加价区域里；
+ *   哪里都不在的不报（转人工，`NO_PRICING_AREA`——不做运营判断时是 `OUT_OF_SERVICE_AREA`——或 `IN_FORBIDDEN_AREA`）。
  *   基础定价用哪个区域的：上车点所在的商品区域（和以前一样）；上车点只在加价区域里时用下车点所在的商品区域；两端都只在加价区域里时商品的每个区域都算（取最低在后面做）。
  */
-function charterEnds(product: QuoteProduct, request: QuoteRequest): { areaIds: string[]; ends: { pickup: CharterEnd; dropoff: CharterEnd } | null } | { reason: "OUT_OF_SERVICE_AREA" | "IN_FORBIDDEN_AREA" | "DROPOFF_REQUIRED" } {
+function charterEnds(product: QuoteProduct, request: QuoteRequest): { areaIds: string[]; ends: { pickup: CharterEnd; dropoff: CharterEnd } | null } | { reason: AreaRefusal | "DROPOFF_REQUIRED" } {
   const surchargeIds = surchargeAreaIds(product.priceRules);
   if (request.dropoff === null || request.pickup === null) {
     if (surchargeIds.length > 0) return { reason: "DROPOFF_REQUIRED" };
@@ -422,8 +453,10 @@ function charterEnds(product: QuoteProduct, request: QuoteRequest): { areaIds: s
   };
   const pickup = located(request.pickup);
   const dropoff = located(request.dropoff);
-  for (const end of [pickup, dropoff]) {
-    if (!end.end.inProductArea && end.end.surchargeAreaIds.length === 0) return { reason: end.forbidden ? "IN_FORBIDDEN_AREA" : "OUT_OF_SERVICE_AREA" };
+  for (const [end, position] of [[pickup, request.pickup], [dropoff, request.dropoff]] as const) {
+    const outside = outsideOperating(product, position);
+    if (outside !== null) return { reason: outside };
+    if (!end.end.inProductArea && end.end.surchargeAreaIds.length === 0) return { reason: end.forbidden ? "IN_FORBIDDEN_AREA" : notPriced(product) };
   }
   const baseAreas = pickup.own.length > 0 ? pickup.own : dropoff.own.length > 0 ? dropoff.own : product.areas.filter((area) => area.active).map((area) => area.areaId);
   return { areaIds: baseAreas, ends: { pickup: pickup.end, dropoff: dropoff.end } };
@@ -537,7 +570,7 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
   // 第 9 步后半：加急单另查加急库存
   if (window.urgentTier !== null && urgent.dailyQuota !== null && moment.urgentUsed >= urgent.dailyQuota) return refuse("URGENT_SOLD_OUT");
 
-  // 第 4 步：区域校验（包车另看下车点和加价区域，ADR 0073）
+  // 第 4 步：区域校验——每个要校验的点先过运营判断、再过报价判断（ADR 0075）；包车另看下车点和加价区域（ADR 0073）
   const charter = product.category === "charter" ? charterEnds(product, request) : null;
   if (charter !== null && "reason" in charter) return refuse(charter.reason);
   const areas = charter ?? serviceAreas(product, request);

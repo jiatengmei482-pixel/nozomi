@@ -7,6 +7,7 @@
 import type {
   AddonChargeUnit,
   AreaBizType,
+  AreaRole,
   AreaStatus,
   CurrencyCode,
   FlightScope,
@@ -293,16 +294,16 @@ export async function replaceProductAreas(db: Db, tenantId: string, productId: s
 }
 
 /** 本租户的这些区域现在的情况（校验商品选的区域用）。别的租户的区域查不到。 */
-export async function findAreasForProduct(db: Db, tenantId: string, areaIds: readonly string[]): Promise<Map<string, { id: string; cityId: string; bizType: AreaBizType; status: AreaStatus; name: LocalizedText }>> {
+export async function findAreasForProduct(db: Db, tenantId: string, areaIds: readonly string[]): Promise<Map<string, { id: string; cityId: string; bizType: AreaBizType; role: AreaRole; status: AreaStatus; name: LocalizedText }>> {
   if (areaIds.length === 0) return new Map();
-  const result = await db.query<Row>("select id, city_id, biz_type, status, name from areas where tenant_id = $1 and id = any($2::uuid[])", [tenantId, areaIds]);
-  return new Map(result.rows.map((row) => [row["id"] as string, { id: row["id"], cityId: row["city_id"], bizType: row["biz_type"], status: row["status"], name: row["name"] }]));
+  const result = await db.query<Row>("select id, city_id, biz_type, role, status, name from areas where tenant_id = $1 and id = any($2::uuid[])", [tenantId, areaIds]);
+  return new Map(result.rows.map((row) => [row["id"] as string, { id: row["id"], cityId: row["city_id"], bizType: row["biz_type"], role: row["role"], status: row["status"], name: row["name"] }]));
 }
 
-/** 本租户的全部区域：名称、业务类型、状态（包车区域加价选区域、导入时按名称认区域用，ADR 0073）。只在租户事务里调用。 */
-export async function listTenantAreaFacts(db: Db, tenantId: string): Promise<Map<string, { name: LocalizedText; bizType: AreaBizType; status: AreaStatus }>> {
-  const result = await db.query<Row>("select id, biz_type, status, name from areas where tenant_id = $1 order by created_at, id", [tenantId]);
-  return new Map(result.rows.map((row) => [row["id"] as string, { name: row["name"], bizType: row["biz_type"], status: row["status"] }]));
+/** 本租户的全部区域：名称、业务类型、用途、状态（包车区域加价选区域、导入时按名称认区域用，ADR 0073、0075）。只在租户事务里调用。 */
+export async function listTenantAreaFacts(db: Db, tenantId: string): Promise<Map<string, { name: LocalizedText; bizType: AreaBizType; role: AreaRole; status: AreaStatus }>> {
+  const result = await db.query<Row>("select id, biz_type, role, status, name from areas where tenant_id = $1 order by created_at, id", [tenantId]);
+  return new Map(result.rows.map((row) => [row["id"] as string, { name: row["name"], bizType: row["biz_type"], role: row["role"], status: row["status"] }]));
 }
 
 /** 商品选的一个车型组，连同车型组现在的情况。 */

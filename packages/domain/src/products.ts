@@ -411,7 +411,7 @@ export function contentTitles(content: ProductContent): LocalizedText {
 
 // ---- 上架校验 ----
 
-export const PUBLISH_CHECK_KEYS = ["basic_info", "service_rules", "price_rules", "content", "adjust_rules", "inventory"] as const;
+export const PUBLISH_CHECK_KEYS = ["basic_info", "service_rules", "price_rules", "content", "adjust_rules", "inventory", "area_coverage"] as const;
 export type PublishCheckKey = (typeof PUBLISH_CHECK_KEYS)[number];
 
 export const PUBLISH_CHECK_NAMES: Readonly<Record<PublishCheckKey, string>> = {
@@ -421,6 +421,7 @@ export const PUBLISH_CHECK_NAMES: Readonly<Record<PublishCheckKey, string>> = {
   content: "商品详情",
   adjust_rules: "调价规则",
   inventory: "库存",
+  area_coverage: "运营区域",
 };
 
 export type PublishIssueReason =
@@ -457,6 +458,8 @@ export type PublishIssueReason =
   | "ADJUST_STACK_OVER_LIMIT"
   /** 库存是限量的，但从今天起没有一天还有可售的库存：客人询价时会因为没有库存而报不出价 */
   | "NO_INVENTORY_AHEAD"
+  /** 勾选的报价区域有不小于 100 平方米的部分不在任何运营区域里：那部分报不出价（ADR 0075，提醒、不拦上架） */
+  | "PRICING_AREA_OUTSIDE_OPERATING"
   /** 这项功能还没有上线，所以这一项现在一定不满足（或对可选项：没有东西可查） */
   | "FEATURE_NOT_AVAILABLE";
 
@@ -507,6 +510,8 @@ export interface PublishFacts {
   adjustStackProblems?: readonly { kind: "NOT_POSITIVE" | "OVER_LIMIT" }[];
   /** 库存：模式，和从城市当地的今天起还有剩余库存的日子有几天。不给就当作不限量 */
   inventory?: { mode: "unlimited" | "limited"; sellableDaysAhead: number };
+  /** 勾选的报价区域里不在任何运营区域里的部分（ADR 0075，`productPricingOutsideOperating`）：区域编号和面积（平方米）；不给或空 = 没有 */
+  pricingOutsideOperating?: readonly { areaId: string; outsideM2: number }[];
 }
 
 /**
@@ -516,6 +521,7 @@ export interface PublishFacts {
  *   个别组合缺价不拦；一个有价的组合都没有才拦。
  * - 调价规则：可以没有；有启用中的规则会把某条价格调到不大于 0 时指出来（不拦上架）。
  * - 库存：可以不设（默认不限量）。限量、而从今天起没有一天还有库存时指出来（不拦上架）。
+ * - 运营区域（ADR 0075）：勾选的报价区域有一部分不在任何运营区域里时多一项提醒（不拦上架）；没有这种情况时没有这一项。
  */
 export function publishCheck(facts: PublishFacts): PublishCheckItem[] {
   const basic: PublishIssue[] = [];
@@ -562,7 +568,16 @@ export function publishCheck(facts: PublishFacts): PublishCheckItem[] {
   const content: PublishIssue[] = [...contentMissing(facts.content, facts.category), ...contentIssues(facts.content)];
 
   const item = (key: PublishCheckKey, required: boolean, issues: PublishIssue[]): PublishCheckItem => ({ key, required, passed: issues.length === 0, issues });
-  return [item("basic_info", true, basic), item("service_rules", true, rules), item("price_rules", true, price), item("content", true, content), item("adjust_rules", false, adjust), item("inventory", false, inventory)];
+  const coverage: PublishIssue[] = (facts.pricingOutsideOperating ?? []).map((entry): PublishIssue => ({ path: `/areas/${entry.areaId}`, reason: "PRICING_AREA_OUTSIDE_OPERATING", detail: { outside_m2: entry.outsideM2 } }));
+  return [
+    item("basic_info", true, basic),
+    item("service_rules", true, rules),
+    item("price_rules", true, price),
+    item("content", true, content),
+    item("adjust_rules", false, adjust),
+    item("inventory", false, inventory),
+    ...(coverage.length === 0 ? [] : [item("area_coverage", false, coverage)]),
+  ];
 }
 
 /** 校验结果能不能上架：必须的每一项都通过。 */

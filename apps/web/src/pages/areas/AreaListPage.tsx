@@ -1,7 +1,7 @@
 /**
  * 区域列表（docs/design/pages/tenant-areas.md 第 2 节）：找和管；看形状进编辑页，这里不放地图。
  */
-import { AREA_BIZ_TYPES, AREA_BIZ_TYPE_NAMES, type AreaBizType, type MasterDataStatus } from "@nozomi/domain";
+import { AREA_BIZ_TYPES, AREA_BIZ_TYPE_NAMES, AREA_ROLES, type AreaBizType, type AreaRole, type MasterDataStatus } from "@nozomi/domain";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { type AreaSummary, listAreas, listTenantCities } from "../../api/areas.ts";
@@ -19,6 +19,7 @@ import { Icon } from "../../components/Icon.tsx";
 import { StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { AREA_MAP_PATH, AREA_NEW_PATH, areaEditPath } from "../../lib/area-paths.ts";
+import { roleName, roleOf } from "../../lib/area-roles.ts";
 import { PRODUCT_LIST_PATH } from "../../lib/product-paths.ts";
 import { MASTER_STATUS_BADGES, displayName, formatLocalDateTime, otherNames } from "../../lib/master-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
@@ -37,6 +38,7 @@ function cityLabel(city: City): string {
 function Filters({ cities, citiesState }: { cities: readonly City[] | null; citiesState: string }) {
   const [city, setCity] = useFilterParam("city");
   const [biz, setBiz] = useFilterParam("biz");
+  const [role, setRole] = useFilterParam("role");
   const [status, setStatus] = useFilterParam("status");
   const options = useMemo(() => (cities ?? []).map((entry) => ({ value: entry.id, label: cityLabel(entry), detail: entry.code, keywords: Object.values(entry.name).join(" ") })), [cities]);
   return (
@@ -48,6 +50,13 @@ function Filters({ cities, citiesState }: { cities: readonly City[] | null; citi
         value={(AREA_BIZ_TYPES as readonly string[]).includes(biz ?? "") ? (biz as AreaBizType) : "all"}
         options={[{ value: "all", label: "全部" }, ...AREA_BIZ_TYPES.map((value) => ({ value, label: AREA_BIZ_TYPE_NAMES[value] }))]}
         onChange={(value) => setBiz(value === "all" ? null : value)}
+      />
+      <SelectField
+        inline
+        label="用途"
+        value={(AREA_ROLES as readonly string[]).includes(role ?? "") ? (role as AreaRole) : "all"}
+        options={[{ value: "all", label: "全部" }, ...AREA_ROLES.map((value) => ({ value, label: roleName(value) }))]}
+        onChange={(value) => setRole(value === "all" ? null : value)}
       />
       <SelectField
         inline
@@ -82,9 +91,11 @@ export function AreaListPage() {
   const city = cityParam !== null && UUID_PATTERN.test(cityParam) ? cityParam : null;
   const bizParam = params.get("biz");
   const biz = (AREA_BIZ_TYPES as readonly string[]).includes(bizParam ?? "") ? (bizParam as AreaBizType) : null;
+  const roleParam = params.get("role");
+  const role = (AREA_ROLES as readonly string[]).includes(roleParam ?? "") ? (roleParam as AreaRole) : null;
   const sizeParam = Number(params.get("size"));
   const pageSize = (PAGE_SIZES as readonly number[]).includes(sizeParam) ? sizeParam : DEFAULT_PAGE_SIZE;
-  const filterKey = JSON.stringify(["areas", q, status, city, biz, pageSize]);
+  const filterKey = JSON.stringify(["areas", q, status, city, biz, role, pageSize]);
 
   const remembered = readListPage(location.state);
   const stack = remembered !== null && remembered.key === filterKey ? remembered.stack : [null];
@@ -97,7 +108,7 @@ export function AreaListPage() {
   };
 
   const { state, reload } = useLoad<MasterPage<AreaSummary>>(`${filterKey}|${cursor ?? ""}`, canRead
-    ? (token) => listAreas(token, { status, limit: pageSize, ...(q !== "" ? { q } : {}), ...(city ? { city_id: city } : {}), ...(biz ? { biz_type: biz } : {}), ...(cursor !== null ? { cursor } : {}) })
+    ? (token) => listAreas(token, { status, limit: pageSize, ...(q !== "" ? { q } : {}), ...(city ? { city_id: city } : {}), ...(biz ? { biz_type: biz } : {}), ...(role ? { role } : {}), ...(cursor !== null ? { cursor } : {}) })
     : null);
 
   const [updated, setUpdated] = useState<Record<string, AreaSummary>>({});
@@ -122,7 +133,7 @@ export function AreaListPage() {
     setFocusRow(null);
   }, [focusRow, rows]);
 
-  const filterParams = ["q", "status", "city", "biz"];
+  const filterParams = ["q", "status", "city", "biz", "role"];
   const filtered = filterParams.some((key) => params.has(key));
   const setParam = (changes: Record<string, string | null>): void => {
     const next = new URLSearchParams(params);
@@ -181,6 +192,7 @@ export function AreaListPage() {
       ),
     },
     { key: "biz", header: "业务类型", cell: (row) => <span className="tag">{AREA_BIZ_TYPE_NAMES[row.biz_type]}</span> },
+    { key: "role", header: "用途", cell: (row) => <span className="tag">{roleName(roleOf(row))}</span> },
     { key: "operate", header: "营运区", align: "end", cell: (row) => row.operate_polygon_count },
     { key: "forbid", header: "禁行区", align: "end", cell: (row) => row.forbid_polygon_count },
     {
@@ -241,7 +253,7 @@ export function AreaListPage() {
       }
     />
   ) : (
-    <StateBlock tone="neutral" title="还没有区域" description="区域就是你提供服务的范围：在地图上画出去的地方（营运区）和不去的地方（禁行区）。有了区域，才能建商品、设价格。" {...(canManage ? { action: newButton } : {})} />
+    <StateBlock tone="neutral" title="还没有区域" description="区域就是你提供服务的范围：在地图上画出去的地方（营运区）和不去的地方（禁行区）。运营区域决定能不能接单；报价区域给商品勾选、设价格。有了报价区域，才能建商品、设价格。" {...(canManage ? { action: newButton } : {})} />
   );
 
   return (
@@ -258,7 +270,7 @@ export function AreaListPage() {
           </span>
         }
       >
-        <FilterBar search={<SearchBox label="按名称搜索" value={q} onSearch={(value) => setParam({ q: value })} />} paramNames={["city", "biz", "status"]} active={filtered} onClear={clearFilters}>
+        <FilterBar search={<SearchBox label="按名称搜索" value={q} onSearch={(value) => setParam({ q: value })} />} paramNames={["city", "biz", "role", "status"]} active={filtered} onClear={clearFilters}>
           <Filters cities={cities.state.data} citiesState={cities.state.status} />
         </FilterBar>
         {actions.notice}
