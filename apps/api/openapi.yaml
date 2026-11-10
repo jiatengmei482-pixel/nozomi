@@ -2328,10 +2328,10 @@ paths:
             $ref: "#/components/schemas/ServiceCategory"
         - name: status
           in: query
-          description: 按状态筛选（`draft` 草稿、`published` 已上架、`unpublished` 已下架）；不带或 `all` 表示全部
+          description: 按状态筛选（`draft` 草稿、`published` 已上架、`unpublished` 已下架、`qa_listed` 验收可售（M8-26））；不带或 `all` 表示全部
           schema:
             type: string
-            enum: [ draft, published, unpublished, all ]
+            enum: [ draft, published, unpublished, qa_listed, all ]
             default: all
         - name: brand_id
           in: query
@@ -4947,7 +4947,7 @@ paths:
           description: 按状态筛选；不带或 `all` 表示全部
           schema:
             type: string
-            enum: [ draft, published, unpublished, all ]
+            enum: [ draft, published, unpublished, qa_listed, all ]
             default: all
         - name: category
           in: query
