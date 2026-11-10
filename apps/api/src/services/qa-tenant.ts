@@ -10,7 +10,7 @@
 import type { AppEnv } from "@nozomi/config";
 import { checkPasswordStrength } from "@nozomi/domain";
 import { hashPassword } from "../auth/password.ts";
-import { isUniqueViolation, withPlatformTx } from "../db/context.ts";
+import { isUniqueViolation, withPlatformTx, withTenantTx } from "../db/context.ts";
 import type { Pool } from "../db/pool.ts";
 import { AppError } from "../errors.ts";
 import { type AuditOrigin, insertAuditLog } from "../repos/audit-logs.ts";
@@ -19,6 +19,7 @@ import {
   deleteTenantSessionsOfUser,
   findTenantUserByEmail,
   insertActiveTenantUser,
+  lockTenantUser,
   setTenantUserPassword,
 } from "../repos/tenant-users.ts";
 import { type Tenant, findTestTenant, insertTestTenant } from "../repos/tenants.ts";
@@ -89,12 +90,13 @@ export async function ensureQaTenant(pool: Pool, input: QaTenantInput, now: Date
     if (issues.length > 0) throw weakPassword(issues);
     passwordHash = await hashPassword(input.password);
   }
+  let step: QaTenantOutcome | { kind: "reset"; tenant: Tenant; admin: TenantUser };
   try {
-    return await withPlatformTx(pool, async (db): Promise<QaTenantOutcome> => {
-      const origin = cliOrigin(now);
+    step = await withPlatformTx(pool, async (db) => {
       const existing = await findTestTenant(db, { lock: true });
       if (existing === null) {
         if (passwordHash === null) throw passwordRequired();
+        const origin = cliOrigin(now);
         const tenant = await insertTestTenant(db, QA_TENANT_NAME, now);
         await insertAuditLog(db, origin, {
           tenantId: tenant.id,
@@ -113,10 +115,10 @@ export async function ensureQaTenant(pool: Pool, input: QaTenantInput, now: Date
           before: null,
           after: accountValues(admin),
         });
-        return { kind: "created", tenant, admin };
+        return { kind: "created" as const, tenant, admin };
       }
 
-      const found = await findTenantUserByEmail(db, existing.id, input.email, { lock: input.resetPassword });
+      const found = await findTenantUserByEmail(db, existing.id, input.email);
       if (found === null) {
         const admins = await db.query<{ email: string }>("select email from tenant_users where tenant_id = $1 and role = 'admin' order by created_at, id", [existing.id]);
         throw new AppError(409, "QA_TENANT_EMAIL_MISMATCH", `已经有一家 QA 测试供应商「${existing.name}」，这个邮箱不是它的账号（它的管理员：${admins.rows.map((row) => row.email).join("、") || "无"}）。没有做任何改动`, {
@@ -124,23 +126,9 @@ export async function ensureQaTenant(pool: Pool, input: QaTenantInput, now: Date
         });
       }
       if (!input.resetPassword) {
-        return { kind: "verified", tenant: existing, admin: found.user, issues: verificationIssues(existing, found.user, found.passwordHash !== null) };
+        return { kind: "verified" as const, tenant: existing, admin: found.user, issues: verificationIssues(existing, found.user, found.passwordHash !== null) };
       }
-      if (passwordHash === null) throw passwordRequired();
-      if (found.user.status !== "active") {
-        throw new AppError(409, "ACCOUNT_NOT_ACTIVE", `这个账号现在是 ${found.user.status}（不是在用），密码没有改动：请先在平台后台启用它`);
-      }
-      await setTenantUserPassword(db, existing.id, found.user.id, passwordHash, now);
-      await deleteTenantSessionsOfUser(db, existing.id, found.user.id);
-      await insertAuditLog(db, origin, {
-        tenantId: existing.id,
-        resource: "tenant_user",
-        resourceId: found.user.id,
-        action: "reset_password",
-        before: null,
-        after: null,
-      });
-      return { kind: "password_reset", tenant: existing, admin: found.user, issues: verificationIssues(existing, found.user, true) };
+      return { kind: "reset" as const, tenant: existing, admin: found.user };
     });
   } catch (err) {
     if (isUniqueViolation(err, "tenants_one_test_tenant")) {
@@ -148,4 +136,27 @@ export async function ensureQaTenant(pool: Pool, input: QaTenantInput, now: Date
     }
     throw asEmailTaken(err);
   }
+  if (step.kind !== "reset") return step;
+
+  // 重设密码在这个供应商自己的事务里做（会话表只有租户角色能删）；租户编号来自上面找到的那一家 QA 测试供应商
+  if (passwordHash === null) throw passwordRequired();
+  const { tenant, admin } = step;
+  const hash = passwordHash;
+  await withTenantTx(pool, tenant.id, async (db) => {
+    const locked = await lockTenantUser(db, tenant.id, admin.id);
+    if (locked === null || locked.user.status !== "active") {
+      throw new AppError(409, "ACCOUNT_NOT_ACTIVE", `这个账号现在是 ${locked?.user.status ?? "不存在"}（不是在用），密码没有改动：请先在平台后台启用它`);
+    }
+    await setTenantUserPassword(db, tenant.id, admin.id, hash, now);
+    await deleteTenantSessionsOfUser(db, tenant.id, admin.id);
+    await insertAuditLog(db, cliOrigin(now), {
+      tenantId: tenant.id,
+      resource: "tenant_user",
+      resourceId: admin.id,
+      action: "reset_password",
+      before: null,
+      after: null,
+    });
+  });
+  return { kind: "password_reset", tenant, admin, issues: verificationIssues(tenant, admin, true) };
 }
