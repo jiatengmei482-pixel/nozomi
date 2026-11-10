@@ -68,7 +68,7 @@ function StatusCounts({ counts, current, onPick }: { counts: ManualQuotePage["co
     <ul className="status-counts" aria-label="各状态的数量">
       {MANUAL_QUOTE_STATUSES.map((status) => (
         <li key={status}>
-          <button type="button" className="status-counts__item" aria-pressed={current === status} onClick={() => onPick(current === status ? null : status)}>
+          <button type="button" className="status-counts__item" aria-label={`${MANUAL_QUOTE_STATUS_BADGES[status].label} ${counts[status]} 条`} aria-pressed={current === status} onClick={() => onPick(current === status ? null : status)}>
             <span>{MANUAL_QUOTE_STATUS_BADGES[status].label}</span>
             <strong className="status-counts__value">{counts[status]}</strong>
           </button>
