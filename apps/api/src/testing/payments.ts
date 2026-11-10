@@ -58,7 +58,7 @@ export interface FakeRefund {
 export class FakePaymentProvider implements PaymentProvider {
   readonly name = "stripe" as const;
   readonly publishableKey = `pk_test_fake${randomBytes(6).toString("hex")}`;
-  readonly livemode = false;
+  readonly livemode: boolean = false;
   readonly webhookSecret = `whsec_${randomBytes(18).toString("hex")}`;
   readonly intents = new Map<string, FakeIntent>();
   /** 每次调用：`create:订单号`、`retrieve:付款编号`、`cancel:付款编号` */

@@ -864,10 +864,10 @@ export async function qaListProduct(ctx: DbContext, writer: ProductWriter, id: s
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;
   return writeTx(ctx, tenantId, async (db) => {
-    const tenant = await findOwnTenant(db, tenantId);
-    if (tenant === null || !tenant.isTestTenant) throw new AppError(409, "NOT_TEST_TENANT", "只有测试环境的 QA 测试供应商能把商品设为「验收可售」");
     const current = await findProduct(db, tenantId, id, { lock: true });
     if (!current) throw notFound("商品");
+    const tenant = await findOwnTenant(db, tenantId);
+    if (tenant === null || !tenant.isTestTenant) throw new AppError(409, "NOT_TEST_TENANT", "只有测试环境的 QA 测试供应商能把商品设为「验收可售」");
     if (current.status === "qa_listed") return detail(db, tenantId, current);
     await lockMasterReferences(db, current, (await listProductVehicleGroups(db, tenantId, id)).map((group) => group.vehicleGroupId), current.serviceRules);
     await lockProductAreas(db, tenantId, id);

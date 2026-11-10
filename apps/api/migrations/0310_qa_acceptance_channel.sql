@@ -60,9 +60,6 @@ create trigger orders_acceptance_immutable
   before update of is_acceptance on orders
   for each row execute function orders_acceptance_immutable();
 
--- 运营后台按「验收」筛选、出账排除它们：验收单很少，部分索引
-create index orders_acceptance_idx on orders (created_at desc, id) where is_acceptance;
-
 -- 验收会话询出来的报价和那一次询价日志：验收的报价只能下成验收单，普通的报价不能下成验收单
 alter table quotes add column is_acceptance boolean not null default false;
 alter table quote_logs add column is_acceptance boolean not null default false;
