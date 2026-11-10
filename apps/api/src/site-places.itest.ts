@@ -148,13 +148,14 @@ test("短时缓存：同一城市同一关键字（大小写、全角半角不�
   await ok(reverse({ lat: point.lat + 0.00003, lng: point.lng - 0.00003 }));
   assert.equal(geocode.requests.length, 1);
   // 别的城市同一个关键字不共用（大阪也在官网的城市里）
-  const short = await openSite({}, { placeCacheTtlMs: 150 });
+  const short = await openSite({}, { placeCacheTtlMs: 2_000 });
   reset();
   const q = freshQuery();
   await ok(search(q, short));
   await ok(search(q, short));
   assert.equal(places.requests.length, 1);
-  await new Promise((resolve) => setTimeout(resolve, 200));
+  // 有效期给 2 秒：CI 机器慢时，前两次查询之间曾超过 150 毫秒，缓存提前过期（M8-17）
+  await new Promise((resolve) => setTimeout(resolve, 2_100));
   await ok(search(q, short));
   assert.equal(places.requests.length, 2);
 });

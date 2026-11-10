@@ -118,6 +118,22 @@ async function toBank(page: Page): Promise<void> {
 
 const confirms = (seen: string[]): string[] => seen.filter((entry) => entry.endsWith("/confirm"));
 
+/** 从现在起记下页面上 `role="alert"` 出现过的每一句话（只停留一瞬的提示也记得到：DOM 一变就记，早于下一次网络应答）。 */
+async function recordAlerts(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const shown: string[] = [];
+    (window as unknown as { __alertsShown: string[] }).__alertsShown = shown;
+    new MutationObserver(() => {
+      for (const alert of document.querySelectorAll('[role="alert"]')) {
+        const text = alert.textContent?.trim() ?? "";
+        if (text !== "" && !shown.includes(text)) shown.push(text);
+      }
+    }).observe(document.body, { subtree: true, childList: true, characterData: true });
+  });
+}
+
+const alertsShown = (page: Page): Promise<string[]> => page.evaluate(() => (window as unknown as { __alertsShown: string[] }).__alertsShown);
+
 test("整页跳去银行再回来：令牌由页面记下、不进 Stripe 的任何请求；回来后令牌移进历史记录并删掉 Web 存储里的记录，Stripe 的参数不留在地址栏、历史和页面里", async ({ page, request }) => {
   test.setTimeout(90_000);
   const world = await sellableWorld(request);
@@ -281,17 +297,22 @@ test("订单在付款表单开着时被取消：付款被后端取消，再点�
   const world = await sellableWorld(request);
   const source = sourceAddress();
   const placed = await placeOrder(request, world, source);
-  await openOrder(page, source, placed.token);
+  const routed = await openOrder(page, source, placed.token);
   const cancelled = await request.post(`${SITE}/site/v1/order/cancel`, { headers: { authorization: `Bearer ${placed.token}`, "x-forwarded-for": source }, data: { reason: "GUEST_REQUEST" } });
   expect(cancelled.status(), await cancelled.text()).toBe(200);
+  // 页面说完「不能付款了」马上刷新订单；订单已取消，付款区块连同这句提示一起消失（CI 上只停留几十毫秒）。
+  // 轮询的断言可能一次都碰不到它（M8-17，run 42699451447、42715903801），所以在页面里记下出现过的每一句提示，结束后再核对。
+  await recordAlerts(page);
   await cardField(page).fill(TEST_CARDS.success);
   await page.getByRole("button", { name: "付款 22,000 JPY" }).click();
   await page.getByRole("button", { name: "确认支付" }).click();
-  // 先等确认有了结果（否则下面「没有付款成功」的断言可能在结果出来之前就通过）
-  await expect(paymentSection(page).getByRole("alert")).not.toBeEmpty();
+  await expect(paymentSection(page), "订单刷新成已取消，付款区块（表单、付款按钮）消失").toHaveCount(0);
+  await expect(page.getByRole("region", { name: "取消" })).toContainText("您取消了订单");
+  expect(confirms(routed.seen), "确认真的发给了 Stripe").toHaveLength(1);
+  expect(await alertsShown(page), "页面说明了不能付").toContainEqual(expect.stringContaining("这张订单现在不能付款了"));
   await expect(page.getByText(/付款成功/), "取消后不能扣款").toHaveCount(0);
   expect(await orderStatus(request, placed.token, source)).toBe("cancelled");
-  await expect(cardField(page), "不再显示表单").toHaveCount(0, { timeout: 10_000 });
+  await expect(cardField(page), "不再显示表单").toHaveCount(0);
   await expect(page.getByRole("button", { name: "付款 22,000 JPY" })).toHaveCount(0);
 });
 

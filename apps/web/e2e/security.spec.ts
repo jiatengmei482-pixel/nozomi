@@ -4,7 +4,10 @@
  * 浏览器存储被改坏时页面是否还正常；内容安全策略（只有官网页面放行 Stripe，ADR 0046）。
  */
 import { type Page, type Request, expect, test } from "@playwright/test";
-import { adminCredentials, createActiveTenant, createTenant, detail, expectSignedInAs, fillLogin, loginAs, newPassword, platformAdminHeaders, uniqueEmail } from "./support.ts";
+import { adminCredentials, createActiveTenant, createTenant, detail, expectSignedInAs, fillLogin, loginAs, newPassword, platformAdminHeaders, uniqueEmail, OWN_SITE_SOURCE } from "./support.ts";
+
+// 官网按来源地址限速：每条用例带自己的文档专用地址，不和并行的官网用例在 127.0.0.1 上抢同一份额度（M8-17）
+test.use(OWN_SITE_SOURCE);
 
 const SESSION_KEYS = { tenant: "nozomi.session.tenant", platform: "nozomi.session.platform" } as const;
 
