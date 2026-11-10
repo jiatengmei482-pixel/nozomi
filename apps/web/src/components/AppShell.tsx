@@ -54,6 +54,8 @@ export function navEntries(portal: Portal, home: string, role: string | null, pl
   if (portal === "platform" && platformCan("tenant.read")) entries.push({ to: "/platform/tenants", label: "供应商", icon: "building", prefix: true });
   if (portal === "platform" && platformCan("tenant.read")) entries.push({ to: "/platform/tenant-documents", label: "资质审核", icon: "file", prefix: true });
   if (portal === "platform" && platformCan("product.read")) entries.push({ to: "/platform/products", label: "商品", icon: "package", prefix: true });
+  // 区域地图（M8-18）：只读看全部供应商的区域，和看商品同一个权限
+  if (portal === "platform" && platformCan("product.read")) entries.push({ to: "/platform/areas/map", label: "区域地图", icon: "map", prefix: true });
   if (portal === "platform" && platformCan("quote.preview")) entries.push({ to: "/platform/quote-preview", label: "报价试算", icon: "calculator", prefix: true });
   if (portal === "platform" && platformCan("channel.read")) entries.push({ to: "/platform/channels", label: "渠道", icon: "link", prefix: true });
   if (portal === "platform" && platformCan("approval.read")) entries.push({ to: "/platform/approvals", label: "待审核", icon: "check-circle", prefix: true });

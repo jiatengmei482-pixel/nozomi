@@ -2064,6 +2064,70 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/area-map:
+    get:
+      tags: [ 供应商商品（平台） ]
+      operationId: getPlatformAreaMap
+      summary: 区域地图：所有供应商的区域（只读）
+      description: |
+        M8-18（ADR 0074）。需要操作 `product.read`（和看供应商的商品同一个权限：区域是商品配置的一部分）。平台没有修改供应商区域的接口。
+        每一项和供应商后台的 `AreaMapItem` 相同，另带所属供应商。可以按供应商、城市、状态筛；按最近修改从新到旧，最多 300 个，超过时 `truncated` 为 true。
+        只读：不写库、不写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - name: tenant_id
+          in: query
+          description: 只看这个供应商的区域
+          schema:
+            type: string
+            format: uuid
+        - name: city_id
+          in: query
+          description: 只看这个城市的区域
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          description: 状态；默认 `all`
+          schema:
+            type: string
+            enum: [ active, disabled, all ]
+            default: all
+      responses:
+        "200":
+          description: 区域和它们的图形
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items, truncated ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PlatformAreaMapItem"
+                  truncated:
+                    type: boolean
+                    description: 符合条件的区域超过 300 个，只给了最近修改的 300 个
+  /platform/v1/map/config:
+    get:
+      tags: [ 供应商商品（平台） ]
+      operationId: getPlatformMapConfig
+      summary: 地图底图的配置（运营后台）
+      description: |
+        M8-18。任何已登录的平台员工都能调，内容和 `GET /tenant/v1/map/config` 相同（同一份部署配置）。运营后台的区域地图用。
+      security:
+        - platformToken: []
+      responses:
+        "200":
+          description: 底图配置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MapConfig"
   /platform/v1/products:
     get:
       tags: [ 供应商商品（平台） ]
@@ -4500,6 +4564,48 @@ paths:
                 $ref: "#/components/schemas/AreaPointCheck"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/area-map:
+    get:
+      tags: [ 区域 ]
+      operationId: getTenantAreaMap
+      summary: 区域地图：本供应商的区域连同全部图形
+      description: |
+        M8-18（ADR 0074）。需要操作 `area.read`。一次返回令牌所属供应商的区域（不分页），每一项和 `GET /tenant/v1/areas/{id}` 的详情相同（带全部图形），
+        另带最近修改人 `last_editor`（取自审计日志）。按最近修改从新到旧，最多 300 个；超过时只给最近修改的 300 个，`truncated` 为 true（请用 `city_id` 筛小范围）。
+        区域之间的重叠由页面用 `@nozomi/domain` 的 `findAreaOverlaps` 在浏览器里算（只是提醒，不影响保存）。只读：不写库、不写审计日志。
+      security:
+        - tenantToken: []
+      parameters:
+        - name: city_id
+          in: query
+          description: 只看这个城市的区域
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          description: 状态；默认 `all`
+          schema:
+            type: string
+            enum: [ active, disabled, all ]
+            default: all
+      responses:
+        "200":
+          description: 区域和它们的图形
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items, truncated ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AreaMapItem"
+                  truncated:
+                    type: boolean
+                    description: 符合条件的区域超过 300 个，只给了最近修改的 300 个
   /tenant/v1/map/config:
     get:
       tags: [ 区域 ]
@@ -20488,6 +20594,147 @@ components:
           description: 全部图形，按加入的先后
           items:
             $ref: "#/components/schemas/AreaPolygon"
+    AreaMapItem:
+      type: object
+      additionalProperties: false
+      description: 区域地图的一项：和区域详情相同（带全部图形），另带最近修改人
+      required: [ id, name, city_id, city, biz_type, status, operate_polygon_count, forbid_polygon_count, usage, version, created_at, updated_at, polygons, last_editor ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedText"
+        city_id:
+          type: string
+          format: uuid
+        city:
+          $ref: "#/components/schemas/AreaCity"
+        biz_type:
+          $ref: "#/components/schemas/AreaBizType"
+        status:
+          $ref: "#/components/schemas/MasterDataStatus"
+        operate_polygon_count:
+          type: integer
+          minimum: 0
+        forbid_polygon_count:
+          type: integer
+          minimum: 0
+        usage:
+          type: object
+          additionalProperties: false
+          required: [ product_count, published_product_count ]
+          description: 被多少个商品选了、其中多少个已上架。有已上架的商品在用时不能删除、不能停用；有商品在用时不能改业务类型
+          properties:
+            product_count:
+              type: integer
+              minimum: 0
+            published_product_count:
+              type: integer
+              minimum: 0
+        version:
+          type: integer
+          minimum: 1
+          description: 版本号，每改一次加一；修改时放在请求头 `If-Match` 里
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        polygons:
+          type: array
+          description: 全部图形，按加入的先后
+          items:
+            $ref: "#/components/schemas/AreaPolygon"
+        last_editor:
+          description: 最近一次改这个区域的是谁、什么时候（取自审计日志里这个区域的最后一条；新增、修改、停用、启用都算）。没有日志时为 null
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/AreaLastEditor"
+    PlatformAreaMapItem:
+      type: object
+      additionalProperties: false
+      description: 运营后台区域地图的一项：和供应商后台的 `AreaMapItem` 相同，另带所属供应商
+      required: [ id, name, city_id, city, biz_type, status, operate_polygon_count, forbid_polygon_count, usage, version, created_at, updated_at, polygons, last_editor, tenant_id, tenant ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedText"
+        city_id:
+          type: string
+          format: uuid
+        city:
+          $ref: "#/components/schemas/AreaCity"
+        biz_type:
+          $ref: "#/components/schemas/AreaBizType"
+        status:
+          $ref: "#/components/schemas/MasterDataStatus"
+        operate_polygon_count:
+          type: integer
+          minimum: 0
+        forbid_polygon_count:
+          type: integer
+          minimum: 0
+        usage:
+          type: object
+          additionalProperties: false
+          required: [ product_count, published_product_count ]
+          description: 被多少个商品选了、其中多少个已上架。有已上架的商品在用时不能删除、不能停用；有商品在用时不能改业务类型
+          properties:
+            product_count:
+              type: integer
+              minimum: 0
+            published_product_count:
+              type: integer
+              minimum: 0
+        version:
+          type: integer
+          minimum: 1
+          description: 版本号，每改一次加一；修改时放在请求头 `If-Match` 里
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        polygons:
+          type: array
+          description: 全部图形，按加入的先后
+          items:
+            $ref: "#/components/schemas/AreaPolygon"
+        last_editor:
+          description: 最近一次改这个区域的是谁、什么时候（取自审计日志里这个区域的最后一条；新增、修改、停用、启用都算）。没有日志时为 null
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/AreaLastEditor"
+        tenant_id:
+          type: string
+          format: uuid
+        tenant:
+          description: 所属供应商；供应商记录取不到时为 null
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/ProductTenantRef"
+    AreaLastEditor:
+      type: object
+      additionalProperties: false
+      required: [ type, name, at ]
+      properties:
+        type:
+          type: string
+          enum: [ tenant_user, system, platform_user ]
+          description: 供应商的账号 / 系统（服务器上的命令行，例如导入价格表）/ 平台员工（现在没有平台改区域的接口，留着兼容审计日志的取值）
+        name:
+          type: [ string, "null" ]
+          description: 账号现在的名字；系统，或账号已经不在了时为 null。不返回邮箱
+        at:
+          type: string
+          format: date-time
     AreaCreate:
       type: object
       required: [ city_id, name, biz_type, polygons ]

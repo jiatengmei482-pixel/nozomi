@@ -24,7 +24,7 @@ import { useToast } from "../../components/Toast.tsx";
 import { EMPTY_EDITOR, type EditorShape, type PastedPolygon, areaProblems, editorReducer, hasBlockingProblems, sameShapes, shapeName, shapeProblems, shapeWarnings, shapesToGeoJson, toPolygonInputs } from "../../lib/area-editor.ts";
 import { areaProblemText, ringProblemText, shapeProblemText } from "../../lib/area-messages.ts";
 import { type AreaDraft, clearAreaDraft, draftTimeText, readAreaDraft, writeAreaDraft } from "../../lib/area-draft.ts";
-import { AREA_LIST_PATH } from "../../lib/area-paths.ts";
+import { AREA_LIST_PATH, AREA_MAP_PATH } from "../../lib/area-paths.ts";
 import { PRODUCT_LIST_PATH } from "../../lib/product-paths.ts";
 import { INPUT_LANGUAGES, MASTER_STATUS_BADGES, cleanLocalized, countryLabel, displayName, formatLocalDateTime, sameLocalized, shortName } from "../../lib/master-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
@@ -70,7 +70,13 @@ interface Problem {
 
 function returnTo(state: unknown): string {
   const from = typeof state === "object" && state !== null ? (state as { from?: unknown }).from : undefined;
-  return typeof from === "string" && (from === AREA_LIST_PATH || from.startsWith(`${AREA_LIST_PATH}?`)) ? from : AREA_LIST_PATH;
+  return typeof from === "string" && (from === AREA_LIST_PATH || from === AREA_MAP_PATH || from.startsWith(`${AREA_LIST_PATH}?`)) ? from : AREA_LIST_PATH;
+}
+
+/** 区域地图拖进来、选进来的 .geojson 文件的内容（M8-18）：新增页打开时放进「粘贴坐标」，在那里识别、核对。 */
+function importedText(state: unknown): string | null {
+  const text = typeof state === "object" && state !== null ? (state as { importText?: unknown }).importText : undefined;
+  return typeof text === "string" && text.trim() !== "" ? text : null;
 }
 
 export function AreaEditorPage() {
@@ -112,7 +118,10 @@ export function AreaEditorPage() {
   const [blocked, setBlocked] = useState<string | null>(null);
   const [leaving, setLeaving] = useState<string | null>(null);
   const [discarded, setDiscarded] = useState(false);
-  const [paste, setPaste] = useState<PasteRequest | null>(null);
+  const [paste, setPaste] = useState<PasteRequest | null>(() => {
+    const text = mode === "new" ? importedText(location.state) : null;
+    return text === null ? null : { kind: "operate", initialText: text };
+  });
   const [probe, setProbe] = useState<ProbeResult | null>(null);
   const [picked, setPicked] = useState<{ lat: number; lng: number; at: number } | null>(null);
   const [fitSignal, setFitSignal] = useState(0);

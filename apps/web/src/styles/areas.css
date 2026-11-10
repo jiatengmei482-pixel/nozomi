@@ -745,3 +745,297 @@
   cursor: pointer;
   overflow-wrap: anywhere;
 }
+
+/* ---------- 区域地图（M8-18，tenant-areas.md 第 19 节） ---------- */
+
+/* 每个区域一种颜色（`color`，图形和圆点用 currentColor）：只用现有的令牌（规范没有成组的「分类色」，见 ADR 0074；红色留给禁行区，警告色留给重叠） */
+.area-color--0 {
+  color: var(--color-primary);
+}
+
+.area-color--1 {
+  color: var(--color-success-text);
+}
+
+.area-color--2 {
+  color: var(--color-info-text);
+}
+
+.area-color--3 {
+  color: var(--color-text-secondary);
+}
+
+.area-color--4 {
+  color: var(--color-border-strong);
+}
+
+.area-overview-fill {
+  fill: currentColor;
+  fill-opacity: 0.18;
+  stroke: transparent;
+}
+
+.area-overview-fill--selected {
+  fill-opacity: 0.32;
+}
+
+.area-overview-stroke {
+  fill: transparent;
+  stroke: currentColor;
+  stroke-width: 2px;
+  stroke-linejoin: round;
+}
+
+.area-overview-stroke--selected {
+  stroke-width: 4px;
+}
+
+/* 停用的区域：点线、更淡（不参与报价，也不算重叠） */
+.area-overview--disabled .area-overview-fill {
+  fill-opacity: 0.06;
+}
+
+.area-overview--disabled .area-overview-stroke {
+  stroke-dasharray: 2 4;
+}
+
+/* 重叠的地方：警告色，压在各区域的填充上面 */
+.area-overlap {
+  fill: var(--color-warning-text);
+  fill-opacity: 0.5;
+  stroke: transparent;
+}
+
+.area-overlap--selected {
+  fill-opacity: 0.8;
+}
+
+.area-overview__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.area-overview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.area-overview__search {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: flex-start;
+}
+
+.area-overview__search > .input {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.area-overview__search-results {
+  flex: 1 1 100%;
+  min-width: 0;
+  font-size: var(--font-size-sm);
+}
+
+.area-overview__places {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-wrap: anywhere;
+}
+
+.area-overview__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+}
+
+.area-overview__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.area-overview__tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  align-items: center;
+}
+
+.area-overview__tools > .input {
+  flex: 1 1 10rem;
+  min-width: 0;
+}
+
+.area-overview__items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  max-height: min(56dvh, 480px);
+}
+
+.area-overview__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border-bottom: var(--border-width) solid var(--color-border-default);
+  border-left: var(--focus-ring-width) solid transparent;
+  min-width: 0;
+}
+
+.area-overview__item--selected {
+  border-left-color: var(--color-border-focus);
+  background: var(--color-bg-selected);
+}
+
+.area-overview__pick {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-primary);
+  font: inherit;
+  font-weight: var(--font-weight-medium);
+  text-align: start;
+  cursor: pointer;
+}
+
+.area-overview__pick:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-border-focus);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.area-overview__name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.area-dot {
+  flex: none;
+  width: var(--space-3);
+  height: var(--space-3);
+  border: var(--focus-ring-width) solid var(--color-bg-surface);
+  border-radius: var(--radius-full);
+  background: currentColor;
+}
+
+.area-overview__meta,
+.area-overview__overlap,
+.area-overview__edited {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  align-items: center;
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.area-overview__overlap {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  color: var(--color-warning-text);
+}
+
+.area-overview__overlap > svg {
+  flex: none;
+}
+
+.area-overview__edited {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+}
+
+.area-overview__item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.area-drop {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  align-items: center;
+  width: 100%;
+  padding: var(--space-6) var(--space-4);
+  border: var(--focus-ring-width) solid var(--color-border-strong);
+  border-style: dashed;
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+
+.area-drop:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-border-focus);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.area-drop--over {
+  border-color: var(--color-border-focus);
+  background: var(--color-bg-selected);
+}
+
+.area-drop__hint {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+@media (min-width: 1024px) {
+  .area-overview__layout {
+    grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .area-overview__items {
+    max-height: calc(100dvh - var(--layout-topbar-height) - var(--space-16) * 5);
+    min-height: 320px;
+  }
+
+  .area-overview-map {
+    height: calc(100dvh - var(--layout-topbar-height) - var(--space-16) * 3);
+    min-height: 480px;
+  }
+}
+
+/* 「在地图上查看」对话框里的地图 */
+.area-map-dialog__map .area-map {
+  height: min(60dvh, 480px);
+  min-height: 280px;
+}
+
+.area-map-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.area-map-dialog__list {
+  max-height: 160px;
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+}
+
+.picked__map {
+  margin-top: var(--space-2);
+}
