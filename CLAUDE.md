@@ -52,7 +52,7 @@ pnpm admin:reset-password --email <邮箱>         # 给超级管理员重设密
 pnpm masterdata:import-airports --country JP,KR  # 从 OurAirports（公有领域）导入机场，可重复运行；--all-countries / --file <csv> / --dry-run
 pnpm masterdata:import-cities --country JP,KR    # 从 GeoNames（CC BY 4.0）导入主要城市，可重复运行；--min-population <n> / --activate / --dry-run / --file
 pnpm masterdata:import-airport-names --country JP,KR  # 从 GeoNames（CC BY 4.0）给机场填空着的中文名、日文名，可重复运行，先导入机场；--file <JP.zip> --names-file <alternatenames/JP.zip> / --dry-run
-pnpm check             # 类型检查 + 单元测试 + 集成测试 + 进度文件校验，提交前必须通过（需要本地数据库在运行）
+pnpm check             # 类型检查 + 单元测试 + 集成测试 + 进度文件校验（全套，需要本地数据库）；本机平时只跑相关测试，全套由 CI 跑，见 docs/workflow.md「本机检查与 CI 的分工」
 pnpm test              # 只跑单元测试（不需要数据库）
 pnpm test:integration  # 只跑集成测试（连真实 PostgreSQL）
 pnpm test:e2e          # 端到端测试（Playwright）；第一次先运行 pnpm --filter @nozomi/web exec playwright install --with-deps chromium
