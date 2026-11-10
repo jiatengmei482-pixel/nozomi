@@ -218,6 +218,9 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   { method: "GET", url: "/platform/v1/products", action: "product.read" },
   // 区域地图（M8-18）：只读看全部供应商的区域，和看商品同一个权限
   { method: "GET", url: "/platform/v1/area-map", action: "product.read" },
+  // 未覆盖需求（M8-20，ADR 0075）：单独的 demand.read（超级管理员、运营、招商、渠道经理）
+  { method: "GET", url: "/platform/v1/uncovered-demands", action: "demand.read" },
+  { method: "GET", url: "/platform/v1/uncovered-demands/points", action: "demand.read" },
   { method: "GET", url: `/platform/v1/products/${MISSING}`, action: "product.read" },
   ...MASTER_PATHS.flatMap((path) => [
     { method: "GET", url: `/platform/v1/master/${path}`, action: "master_data.read" } as const,

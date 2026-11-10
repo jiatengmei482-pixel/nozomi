@@ -72,6 +72,9 @@ const PLATFORM_TABLES = [
   "static_map_images",
   "tenant_roles",
   "ticket_compensations",
+  "uncovered_demand_drops",
+  "uncovered_demand_limits",
+  "uncovered_demands",
   "ticket_notes",
   "vehicle_groups",
   "view_link_requests",
@@ -290,6 +293,10 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     static_map_api_usage: ["INSERT", "SELECT", "UPDATE"],
     // /sales/v1 的限流计数
     sales_rate_limits: ["INSERT", "SELECT", "UPDATE"],
+    // 未覆盖需求（ADR 0075）：记录时新增、累加次数；保留期清理删 365 天以前的；限流窗口、「被限掉」计数同样增改、清理
+    uncovered_demands: ["DELETE", "INSERT", "SELECT", "UPDATE"],
+    uncovered_demand_limits: ["DELETE", "INSERT", "SELECT", "UPDATE"],
+    uncovered_demand_drops: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     // 官网的订单查看链接（ADR 0032）：只追加，到有效期自然失效
     site_order_links: ["INSERT", "SELECT"],
     // 官网找回订单的失败记录（ADR 0032）：一次失败一行，超过 24 小时的写入时顺手删
