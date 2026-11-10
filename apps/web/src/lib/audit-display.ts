@@ -2,7 +2,7 @@
  * 审计日志的显示（docs/design/pages/platform-settings.md 第 3 节）：对象类型和操作的中文名、从改前改后的值里找名称、
  * 「改了什么」的对照。审计日志是后台里唯一允许出现字段原名的地方——排查问题时要拿它去对接口和数据库。
  */
-import { EXCEPTION_STATUS_NAMES, ORDER_STATUS_NAMES, PLATFORM_ROLES, PRODUCT_STATUS_NAMES, STATEMENT_STATUS_NAMES, TENANT_ROLES, TICKET_STATUS_NAMES } from "@nozomi/domain";
+import { EXCEPTION_STATUS_NAMES, MANUAL_QUOTE_STATUS_NAMES, ORDER_STATUS_NAMES, PLATFORM_ROLES, PRODUCT_STATUS_NAMES, STATEMENT_STATUS_NAMES, TENANT_ROLES, TICKET_STATUS_NAMES } from "@nozomi/domain";
 import type { AuditActorType, AuditLog, AuditSource } from "../api/platform.ts";
 import { APPROVAL_KIND_NAMES } from "./channel-display.ts";
 import { displayName } from "./master-display.ts";
@@ -58,6 +58,8 @@ export const RESOURCE_NAMES: Readonly<Record<string, string>> = {
   payout_batch: "付款批次",
   payout_account: "收款账户",
   bank_file: "银行转账文件",
+  manual_quote_request: "人工报价申请",
+  site_settings: "官网设置",
 };
 
 export const ACTION_NAMES: Readonly<Record<string, string>> = {
@@ -182,6 +184,7 @@ export const ACTION_NAMES_BY_RESOURCE: Readonly<Record<string, Readonly<Record<s
   bank_file: { create: "生成", download: "下载", pay: "收尾（已付款）" },
   extra_charge: { decide: "审核加收" },
   integration_secret: { test: "测试一下" },
+  manual_quote_request: { view_passenger: "查看客人的联系方式", change: "改状态", anonymize_passenger: "到期清除联系方式" },
 };
 
 export const ACTOR_TYPE_NAMES: Readonly<Record<AuditActorType, string>> = { platform_user: "平台员工", tenant_user: "供应商的账号", system: "系统（命令行或定时任务）", anonymous: "没有登录的访问者" };
@@ -290,6 +293,7 @@ function statusNames(resource: string): Readonly<Record<string, string>> {
   if (resource === "payout_account") return { pending: "待审核", active: "生效中", superseded: "已被替换", rejected: "已驳回", withdrawn: "已撤回" };
   if (resource === "tenant_profile_change") return { pending: "待审核", approved: "已生效", rejected: "已驳回", withdrawn: "已撤回" };
   if (resource === "order") return ORDER_STATUS_NAMES;
+  if (resource === "manual_quote_request") return MANUAL_QUOTE_STATUS_NAMES;
   if (resource === "platform_user" || resource === "tenant_user") return { invited: "待激活", active: "在用", disabled: "已停用" };
   if (resource === "product") return PRODUCT_STATUS_NAMES;
   return { active: "启用", disabled: "已停用" };

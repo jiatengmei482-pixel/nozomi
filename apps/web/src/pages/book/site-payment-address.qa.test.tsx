@@ -26,7 +26,7 @@ const PAY_A = "付款 21,780 JPY";
 const PAY_B = "付款 33,000 JPY";
 const LINK_A = `/book/order#${TOKEN_A}`;
 const LINK_B = `/book/order#${TOKEN_B}`;
-const stripeConfig: SiteConfig = { open: true, currency: "JPY", payments: { provider: "stripe", publishable_key: "pk_test_abc" }, support_phone: null, address_search: false, map_tiles: null };
+const stripeConfig: SiteConfig = { open: true, currency: "JPY", payments: { provider: "stripe", publishable_key: "pk_test_abc" }, support_phone: null, support_whatsapp: null, address_search: false, map_tiles: null };
 
 type Status = SiteOrder["status"];
 

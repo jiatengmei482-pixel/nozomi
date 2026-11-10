@@ -20,8 +20,14 @@ const files = walk(DIST);
 const relative = (path: string): string => path.slice(DIST.length);
 const textFiles = files.filter((path) => /\.(js|css|html|json|txt|svg)$/.test(path)).map((path) => ({ name: relative(path), text: readFileSync(path, "utf8") }));
 
+/**
+ * 「通过 WhatsApp 联系我们」的链接模板（M8-21，ADR 0076）：@nozomi/domain 的 `whatsappChatUrl` 拼的 `https://wa.me/<号码>?text=<编码的一句话>`。
+ * 这是客人自己点开的站外链接（新标签页、noopener noreferrer），不是页面加载的资源；只放行这一个模板的原样（号码、文字都是变量），wa.me 的其他写法和任何别的站点照旧不许。
+ */
+const WHATSAPP_CHAT_URL = /^https:\/\/wa\.me\/\$\{[A-Za-z_$][\w$]*\}\?text=\$\{encodeURIComponent\([A-Za-z_$][\w$]*$/;
+
 /** 库自带的网址：XML 命名空间、React 的报错说明页、react-router 的说明页、解析相对路径用的占位站点、地图库 Leaflet 的官网（它的署名控件用，我们没用那个控件，ADR 0017）。都不会被请求。 */
-const KNOWN_URLS = [/^http:\/\/www\.w3\.org\//, /^https:\/\/react\.dev\/errors\//, /^https:\/\/reactrouter\.com\//, /^https:\/\/github\.com\/ungap\/url-search-params\.$/, /^http:\/\/localhost$/, /^https:\/\/www\.geonames\.org\/$/, /^https:\/\/creativecommons\.org\/licenses\/by\/4\.0\/$/, /^https:\/\/ourairports\.com\/data\/$/, /^https:\/\/leafletjs\.com$/, /^https:\/\/js\.stripe\.com\/v3\/$/];
+const KNOWN_URLS = [/^http:\/\/www\.w3\.org\//, /^https:\/\/react\.dev\/errors\//, /^https:\/\/reactrouter\.com\//, /^https:\/\/github\.com\/ungap\/url-search-params\.$/, /^http:\/\/localhost$/, /^https:\/\/www\.geonames\.org\/$/, /^https:\/\/creativecommons\.org\/licenses\/by\/4\.0\/$/, /^https:\/\/ourairports\.com\/data\/$/, /^https:\/\/leafletjs\.com$/, /^https:\/\/js\.stripe\.com\/v3\/$/, WHATSAPP_CHAT_URL];
 
 test("产物只有 index.html 和带哈希的 JS / CSS，没有 source map", () => {
   const names = files.map(relative).sort();

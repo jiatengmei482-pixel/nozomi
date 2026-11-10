@@ -331,11 +331,12 @@ test("平台员工：新增（角色说明）拿到链接 → 对方设密码登
   const row = page.getByRole("row").filter({ hasText: email });
   await expect(row).toContainText("待激活");
 
-  // 对方设密码登录：运营看得到供应商和主数据，没有系统设置；直接打开地址说没有权限
+  // 对方设密码登录：运营看得到供应商和主数据；系统设置里只有官网设置（M8-21，只读）；直接打开别的设置页说没有权限
   const staff = await useLink(browser, invite.link, email, "platform");
   const staffMenu = staff.page.getByRole("navigation", { name: "主菜单" });
   await expect(staffMenu.getByRole("link", { name: "供应商" })).toBeVisible();
-  await expect(staffMenu.getByRole("button", { name: "系统设置" })).toHaveCount(0);
+  await staffMenu.getByRole("button", { name: "系统设置" }).click();
+  await expect(staffMenu.locator(".sidebar__list--children").last().getByRole("link")).toHaveText(["官网设置"]);
   for (const path of ["/platform/settings/staff", "/platform/settings/audit-logs", "/platform/settings/integrations"]) {
     await staff.page.goto(path);
     await expect(staff.page.getByText("你没有权限查看这里"), path).toBeVisible();

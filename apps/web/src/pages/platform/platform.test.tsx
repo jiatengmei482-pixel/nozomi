@@ -90,20 +90,21 @@ function assertTokenOnlyInDialog(): void {
 
 // ───────────── 菜单、首页、权限 ─────────────
 
-test("菜单按角色显示：超级管理员有供应商和系统设置（默认收起）；运营没有系统设置；技术只有系统状态、没有供应商；首页的供应商卡片可以点进列表", async () => {
+test("菜单按角色显示：超级管理员有供应商和系统设置（默认收起）；运营的系统设置里只有官网设置；技术只有系统状态、没有供应商；首页的供应商卡片可以点进列表", async () => {
   open("/platform", "super_admin");
   const card = (await screen.findByRole("link", { name: "供应商", description: /正常/ })) as HTMLAnchorElement;
   assert.equal(card.getAttribute("href"), "/platform/tenants");
-  assert.deepEqual(menuLabels(), ["首页", "供应商", "资质审核", "商品", "区域地图", "报价试算", "渠道", "待审核", "订单", "异常队列", "工单", "救援", "取消政策", "赔付表", "推送记录", "通知中心", "财务结算", "账单", "付款批次", "收款账户", "主数据", "城市", "地点", "车型组", "附加服务", "汇率", "系统设置"]);
+  assert.deepEqual(menuLabels(), ["首页", "供应商", "资质审核", "商品", "区域地图", "报价试算", "渠道", "待审核", "订单", "异常队列", "工单", "人工报价", "救援", "取消政策", "赔付表", "推送记录", "通知中心", "财务结算", "账单", "付款批次", "收款账户", "主数据", "城市", "地点", "车型组", "附加服务", "汇率", "系统设置"]);
   const group = screen.getByRole("button", { name: "系统设置" });
   assert.equal(group.getAttribute("aria-expanded"), "false");
   await user().click(group);
-  assert.deepEqual(menuLabels().slice(-5), ["系统设置", "平台员工", "角色", "审计日志", "系统状态"]);
+  assert.deepEqual(menuLabels().slice(-6), ["系统设置", "平台员工", "角色", "审计日志", "系统状态", "官网设置"]);
 
   resetBrowser();
   open("/platform", "operations");
   await waitFor(() => assert.ok(menuLabels().includes("供应商")));
-  assert.ok(!menuLabels().includes("系统设置"));
+  await user().click(screen.getByRole("button", { name: "系统设置" }));
+  assert.deepEqual(menuLabels().slice(-2), ["系统设置", "官网设置"], "运营的系统设置里只有官网设置（M8-21，只读）");
 
   resetBrowser();
   open("/platform/settings/integrations", "tech");

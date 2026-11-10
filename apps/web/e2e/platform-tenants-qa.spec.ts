@@ -667,17 +667,17 @@ test("只用键盘：从供应商列表走到「新建供应商 → 复制链接
 
 // ───────────── 权限：十个平台角色，真实后端 ─────────────
 
-const ROLE_EXPECTATIONS: Readonly<Record<string, { label: string; tenants: "manage" | "read" | "none"; staff: boolean; audit: boolean; integrations: boolean }>> = {
-  super_admin: { label: "超级管理员", tenants: "manage", staff: true, audit: true, integrations: true },
-  operations: { label: "运营", tenants: "manage", staff: false, audit: false, integrations: false },
-  tenant_onboarding: { label: "招商", tenants: "manage", staff: false, audit: false, integrations: false },
-  channel_manager: { label: "渠道经理", tenants: "read", staff: false, audit: false, integrations: false },
-  customer_service: { label: "客服", tenants: "none", staff: false, audit: false, integrations: false },
-  finance: { label: "财务", tenants: "none", staff: false, audit: false, integrations: false },
-  risk: { label: "风控", tenants: "none", staff: false, audit: false, integrations: false },
-  master_data: { label: "主数据运营", tenants: "none", staff: false, audit: false, integrations: false },
-  tech: { label: "技术", tenants: "none", staff: false, audit: false, integrations: true },
-  readonly: { label: "只读", tenants: "read", staff: false, audit: false, integrations: false },
+const ROLE_EXPECTATIONS: Readonly<Record<string, { label: string; tenants: "manage" | "read" | "none"; staff: boolean; audit: boolean; integrations: boolean; site: boolean }>> = {
+  super_admin: { label: "超级管理员", tenants: "manage", staff: true, audit: true, integrations: true, site: true },
+  operations: { label: "运营", tenants: "manage", staff: false, audit: false, integrations: false, site: true },
+  tenant_onboarding: { label: "招商", tenants: "manage", staff: false, audit: false, integrations: false, site: false },
+  channel_manager: { label: "渠道经理", tenants: "read", staff: false, audit: false, integrations: false, site: false },
+  customer_service: { label: "客服", tenants: "none", staff: false, audit: false, integrations: false, site: true },
+  finance: { label: "财务", tenants: "none", staff: false, audit: false, integrations: false, site: false },
+  risk: { label: "风控", tenants: "none", staff: false, audit: false, integrations: false, site: false },
+  master_data: { label: "主数据运营", tenants: "none", staff: false, audit: false, integrations: false, site: false },
+  tech: { label: "技术", tenants: "none", staff: false, audit: false, integrations: true, site: false },
+  readonly: { label: "只读", tenants: "read", staff: false, audit: false, integrations: false, site: false },
 };
 
 for (const [role, expected] of Object.entries(ROLE_EXPECTATIONS)) {
@@ -701,13 +701,14 @@ for (const [role, expected] of Object.entries(ROLE_EXPECTATIONS)) {
     await expect(menu.getByRole("link", { name: "首页" })).toBeVisible();
     await expect(menu.getByRole("link", { name: "供应商" })).toHaveCount(expected.tenants === "none" ? 0 : 1);
     await expect(page.locator(".entry-card").getByRole("link", { name: "供应商" })).toHaveCount(expected.tenants === "none" ? 0 : 1);
-    const anySettings = expected.staff || expected.audit || expected.integrations;
+    const anySettings = expected.staff || expected.audit || expected.integrations || expected.site;
     await expect(menu.getByRole("button", { name: "系统设置" })).toHaveCount(anySettings ? 1 : 0);
     if (anySettings) {
       await menu.getByRole("button", { name: "系统设置" }).click();
       await expect(menu.getByRole("link", { name: "平台员工" })).toHaveCount(expected.staff ? 1 : 0);
       await expect(menu.getByRole("link", { name: "审计日志" })).toHaveCount(expected.audit ? 1 : 0);
       await expect(menu.getByRole("link", { name: "系统状态" })).toHaveCount(expected.integrations ? 1 : 0);
+      await expect(menu.getByRole("link", { name: "官网设置" })).toHaveCount(expected.site ? 1 : 0);
     }
 
     const visit = async (path: string, allowed: boolean, heading: string | RegExp, data: RegExp): Promise<void> => {

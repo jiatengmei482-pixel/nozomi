@@ -21,6 +21,8 @@ export interface SiteConfig {
   payments: { provider: "stripe"; publishable_key: string } | null;
   /** 客服电话（登记了才有，原样显示）；null 时订单页不显示「需要帮助」区块 */
   support_phone: string | null;
+  /** 客服 WhatsApp 号码（wa.me 用的纯数字，M8-21，ADR 0076）；null 时不显示「通过 WhatsApp 联系我们」 */
+  support_whatsapp: string | null;
   /** 显示地址搜索（谷歌，后端代调；M3-12，ADR 0044）；false 时只有常用地点、地图和手填 */
   address_search: boolean;
   /** 地图底图（和供应商区域页同一份配置）；null 时不显示地图选点 */
@@ -362,7 +364,7 @@ export interface SiteChangeRequest {
 
 /** 契约测试用：这些类型的字段要和 openapi.yaml 里的定义完全一致。 */
 export const SITE_SCHEMA_FIELDS = {
-  SiteConfig: ["open", "currency", "payments", "support_phone", "address_search", "map_tiles"],
+  SiteConfig: ["open", "currency", "payments", "support_phone", "support_whatsapp", "address_search", "map_tiles"],
   SiteCity: ["id", "code", "name", "timezone", "country_code", "center", "categories"],
   SitePlaceCandidate: ["source", "id", "name", "address", "location", "kind"],
   SitePlaceSuggestion: ["source", "id", "name", "address", "location", "kind"],
@@ -398,6 +400,36 @@ const guest = (token: string) => ({ token });
 
 export function getSiteConfig(): Promise<SiteConfig> {
   return apiRequest("GET", `${SITE_BASE}/config`);
+}
+
+/** 人工报价申请带上的行程（页面自动填，M8-21，ADR 0076）。 */
+export interface SiteManualQuoteTrip {
+  category: SiteCategory;
+  city_id: string | null;
+  pickup: { name: string; lat: number; lng: number };
+  dropoff: { name: string; lat: number; lng: number } | null;
+  service_local: string;
+  passengers: number;
+  luggage: number;
+  package_hours: number | null;
+}
+
+export interface SiteManualQuoteRequest {
+  email: string | null;
+  whatsapp: string | null;
+  consent: true;
+  trip: SiteManualQuoteTrip;
+  /** 陷阱字段：页面上人看不到，人不会填 */
+  website: string;
+}
+
+export const SITE_MANUAL_QUOTE_PATH = `${SITE_BASE}/manual-quote-requests`;
+export const SITE_MANUAL_QUOTE_REQUEST_FIELDS: readonly (keyof SiteManualQuoteRequest)[] = ["email", "whatsapp", "consent", "trip", "website"];
+export const SITE_MANUAL_QUOTE_TRIP_FIELDS: readonly (keyof SiteManualQuoteTrip)[] = ["category", "city_id", "pickup", "dropoff", "service_local", "passengers", "luggage", "package_hours"];
+
+/** 客人留下邮箱或 WhatsApp，请客服人工报价。应答一律 202（不说明是不是重复提交）。 */
+export function submitSiteManualQuote(body: SiteManualQuoteRequest): Promise<{ status: "accepted" }> {
+  return apiRequest("POST", SITE_MANUAL_QUOTE_PATH, { body });
 }
 
 export function listSiteCities(): Promise<{ items: SiteCity[] }> {
