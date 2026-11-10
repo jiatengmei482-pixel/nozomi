@@ -28,6 +28,8 @@ export interface Tenant {
   /** 最近一次每日评分：比价用的分、按数据算出的分、近 90 天完成订单数、近 30 天司机未到次数、算的是哪一天 */
   score: { scoreCenti: number | null; rawScoreCenti: number | null; completedOrders: number; noShows: number; scoreOn: string | null };
   evaluatedOn: string | null;
+  /** 测试环境专用的 QA 测试供应商（ADR 0077）：永远不能上架、不参与比价（数据库的检查约束兜底） */
+  isTestTenant: boolean;
   version: number;
   createdAt: Date;
   updatedAt: Date;
@@ -51,7 +53,7 @@ type Row = Record<string, any>;
 
 const COLUMNS = `id, name, status, suspended_from, suspension_reasons, suspended_at, observation_reasons, observation_since,
   signed_at, trial_started_at, activated_at, terminated_at, score_centi, score_raw_centi, score_completed_orders, score_no_shows,
-  score_on::text as score_on, evaluated_on::text as evaluated_on, version, created_at, updated_at`;
+  score_on::text as score_on, evaluated_on::text as evaluated_on, is_test_tenant, version, created_at, updated_at`;
 
 function toTenant(row: Row): Tenant {
   return {
@@ -69,6 +71,7 @@ function toTenant(row: Row): Tenant {
     terminatedAt: row["terminated_at"],
     score: { scoreCenti: row["score_centi"], rawScoreCenti: row["score_raw_centi"], completedOrders: row["score_completed_orders"], noShows: row["score_no_shows"], scoreOn: row["score_on"] },
     evaluatedOn: row["evaluated_on"],
+    isTestTenant: row["is_test_tenant"],
     version: row["version"],
     createdAt: row["created_at"],
     updatedAt: row["updated_at"],
@@ -84,6 +87,22 @@ export function tenantState(tenant: Tenant): TenantState {
 export async function insertTenant(db: Db, name: string, now: Date): Promise<Tenant> {
   const result = await db.query<Row>(`insert into tenants (name, status, created_at, updated_at) values ($1, 'applying', $2, $2) returning ${COLUMNS}`, [name, now]);
   return toTenant(result.rows[0] as Row);
+}
+
+/**
+ * 建测试环境专用的 QA 测试供应商（ADR 0077）：同样从「申请中」开始，带 `is_test_tenant`。
+ * 只由 `pnpm qa:tenant-ensure` 在平台事务里调用；已经有一家时部分唯一索引 `tenants_one_test_tenant` 拒绝。
+ */
+export async function insertTestTenant(db: Db, name: string, now: Date): Promise<Tenant> {
+  const result = await db.query<Row>(`insert into tenants (name, status, is_test_tenant, created_at, updated_at) values ($1, 'applying', true, $2, $2) returning ${COLUMNS}`, [name, now]);
+  return toTenant(result.rows[0] as Row);
+}
+
+/** 平台取那一家 QA 测试供应商（没有为 null）。`lock` 为真时锁住这一行直到事务结束。 */
+export async function findTestTenant(db: Db, options: { lock: boolean }): Promise<Tenant | null> {
+  const result = await db.query<Row>(`select ${COLUMNS} from tenants where is_test_tenant ${options.lock ? "for update" : ""}`);
+  const row = result.rows[0];
+  return row ? toTenant(row) : null;
 }
 
 export async function listTenantsAcrossTenants(db: Db, limit: number, after: TimeCursor | null): Promise<Page<Tenant>> {

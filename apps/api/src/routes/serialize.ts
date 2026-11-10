@@ -60,6 +60,7 @@ export function tenantJson(tenant: Tenant): Record<string, unknown> {
       no_shows: tenant.score.noShows,
       score_on: tenant.score.scoreOn,
     },
+    is_test_tenant: tenant.isTestTenant,
     version: tenant.version,
     created_at: tenant.createdAt.toISOString(),
     updated_at: tenant.updatedAt.toISOString(),

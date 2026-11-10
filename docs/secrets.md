@@ -168,6 +168,16 @@
 | Google Cloud | 里程 + 时长报价、地址搜索 | console.cloud.google.com，需要绑定付款方式；启用 Routes API、Places API (New)、Geocoding API | 正式环境接单前（可以填在服务器 `.env` 或运营后台） |
 | 汇率 | 中央换算中心 | 免费源 open.er-api.com，无需注册 | 已有默认值 |
 
+## 测试环境的 QA 测试供应商（M8-16，ADR 0077）
+
+验收角色在测试环境做供应商端写入实测时用的那家「QA 测试供应商（验收专用）」：只在测试环境，永远不能上架、不参与比价。
+
+- 怎么建：合并部署后由协调者在测试环境运行一次 `pnpm qa:tenant-ensure --email <管理员邮箱>`（容器里是 `node apps/api/src/cli/qa-tenant-ensure.ts`），密码经管道从标准输入传入。命令在正式环境拒绝运行；再运行只核对、不改动；要换密码加 `--reset-password`。
+- 密码在哪里：只在运维机器上的 `~/.ssh/nozomi/qa-staging-tenant-password`（权限 `600`），由协调者在本机随机生成。不进仓库、聊天、日志、命令行参数、提交记录；数据库只存哈希。
+- 邮箱在哪里：邮箱不是密钥，记在同目录的 `~/.ssh/nozomi/qa-staging-tenant-email`。
+- 谁能用：验收角色在测试环境用它登录供应商后台；读文件时不打印内容（例如先读进变量，再直接用于登录请求）。不能用 `qa-tenant@` / 「Tokyo-Taxi」代替。
+- 怀疑泄露：在运维机器上重新生成密码文件，再运行一次带 `--reset-password` 的命令（旧密码和旧登录立即失效）。
+
 ## 规则
 
 1. 测试环境只用 Stripe 测试密钥（`sk_test_`），代码会拒绝在非正式环境使用正式密钥。

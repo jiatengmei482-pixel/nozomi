@@ -148,6 +148,25 @@ export async function insertInvitedTenantUser(db: Db, tenantId: string, input: N
 }
 
 /**
+ * 直接建一个在用的用户（密码已设好、不经过邀请）。只给 `pnpm qa:tenant-ensure` 建 QA 测试供应商的管理员用（ADR 0077）：
+ * 密码是运维从标准输入给的，不是临时密码。在平台事务里调用。
+ */
+export async function insertActiveTenantUser(
+  db: Db,
+  tenantId: string,
+  input: { email: string; name: string; role: TenantRole; passwordHash: string },
+  now: Date,
+): Promise<TenantUser> {
+  const result = await db.query<TenantUserRow>(
+    `insert into tenant_users (tenant_id, email, name, role, status, password_hash, created_at, updated_at)
+     values ($1, $2, $3, $4, 'active', $5, $6, $6)
+     returning ${COLUMNS}`,
+    [tenantId, input.email, input.name, input.role, input.passwordHash, now],
+  );
+  return toUser(result.rows[0] as TenantUserRow);
+}
+
+/**
  * 给一个从未激活过的用户重新发邀请：换令牌，姓名和角色按本次请求更新，状态回到待激活。
  * 用户在这期间已经被激活（设了密码）时不做任何改动，返回 null。
  */
