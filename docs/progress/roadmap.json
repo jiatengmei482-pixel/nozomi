@@ -723,9 +723,9 @@
           "id": "M8-16",
           "title": "测试环境专用 QA 测试租户（用项目脚本建，不上架、不参与官网比价）",
           "role": "backend",
-          "status": "review",
+          "status": "done",
           "acceptance": ["用项目自己的脚本（不是迁移、不预置在代码里）在测试环境建一个名字带「QA 测试」字样的租户和管理员；脚本可重复运行、只在 staging 允许", "密码按提示输入或随机生成后只写进运维机器上的文件，不进代码、日志、命令行参数和提交记录", "租户商品默认不上架、不参与官网比价；验收规则（.claude/agents/acceptance.md）改为写入实测用这个租户", "补做 M8-15 在测试环境的写入实测（区域加价新增、409、批量、日历、导入导出），结束后停用测试数据"],
-          "evidence": "后端完成（分支 m8-16-staging-qa-tenant，未开 PR，未在测试环境运行）：ADR 0077；迁移 0300（tenants.is_test_tenant；检查约束只许申请中 / 审核中 / 已签约 / 已清退，最多一家）；新命令 pnpm qa:tenant-ensure（只允许 staging / local / ci，production 拒绝；可重复运行，已有时只核对不改；--reset-password 才改密码；密码只从标准输入读，审计记系统 / 命令行、无明文）；运营开始试运营 409 TEST_TENANT_NOT_FOR_SALE；Tenant 接口多 is_test_tenant；docs/secrets.md 记凭据位置（无凭据本身）。本机：类型检查通过；新增单元测试 3 条、集成测试 16 条（cli/qa-tenant-ensure.itest.ts 10、qa-tenant.itest.ts 6）全过；相关回归 schema-structure 12、rls 11、tenant-onboarding 6、tenant-onboarding.qa 14、tenant-isolation 69、platform-admin 16、tenant-profile 9、openapi / errors / migration-order 16、domain tenants 25、前端接口契约 161、前端组件 platform / company 29 全过。待办：CLAUDE.md 命令清单和 .claude/agents/acceptance.md 规则 6 的改动由主会话按交回报告里的原文写入；运营后台「测试」标记见 M8-24；第 4 条（补做 M8-15 写入实测）在测试环境建好后由验收角色做",
+          "evidence": "测试环境已建出 QA 测试供应商并核对通过（2026-11-10）；第 1、4 条测试环境验收见 docs/acceptance/M8-16-staging.md；后端完成（分支 m8-16-staging-qa-tenant，未开 PR，未在测试环境运行）：ADR 0077；迁移 0300（tenants.is_test_tenant；检查约束只许申请中 / 审核中 / 已签约 / 已清退，最多一家）；新命令 pnpm qa:tenant-ensure（只允许 staging / local / ci，production 拒绝；可重复运行，已有时只核对不改；--reset-password 才改密码；密码只从标准输入读，审计记系统 / 命令行、无明文）；运营开始试运营 409 TEST_TENANT_NOT_FOR_SALE；Tenant 接口多 is_test_tenant；docs/secrets.md 记凭据位置（无凭据本身）。本机：类型检查通过；新增单元测试 3 条、集成测试 16 条（cli/qa-tenant-ensure.itest.ts 10、qa-tenant.itest.ts 6）全过；相关回归 schema-structure 12、rls 11、tenant-onboarding 6、tenant-onboarding.qa 14、tenant-isolation 69、platform-admin 16、tenant-profile 9、openapi / errors / migration-order 16、domain tenants 25、前端接口契约 161、前端组件 platform / company 29 全过。待办：CLAUDE.md 命令清单和 .claude/agents/acceptance.md 规则 6 的改动由主会话按交回报告里的原文写入；运营后台「测试」标记见 M8-24；第 4 条（补做 M8-15 写入实测）在测试环境建好后由验收角色做",
           "updated": "2026-11-10"
         },
         {
@@ -768,9 +768,18 @@
           "id": "M8-12a",
           "title": "包车「区域加价」可视化设置（供应商后台价格规则页）",
           "role": "frontend",
-          "status": "review",
+          "status": "done",
           "acceptance": ["包车「区域加价」块：每个加价区域一行，列 区域 / 上车加价 / 下车加价 / 操作；金额是结算价、商品币种，不出现对外价和加价比例（规则 4）", "添加：「选择区域」只列本供应商能挂价格的启用中的区域（报价区域、运营 + 报价），不含商品自己的区域；「确认添加」、「新增自定义区域」（区域页面，用途预选报价区域）、「在地图上查看」", "编辑、删除（= 停用，页面内二次确认，可恢复）；按车型组 × 套餐时长筛选和展开逐条改；「一次给所有车型组和套餐时长填同一个加价」展开成多条，和价格表一起走一次批量保存（同一事务）", "保存校验：整数 ≥ 0、必填、不重复；409 PRICE_RULE_CONFLICT、400 AREA_IS_PRODUCT_AREA / AREA_NOT_USABLE / AREA_DISABLED / AREA_ROLE_NOT_PRICING、别人的区域 404 都有说清怎么办的文字", "原来的价格表不再把区域加价当普通行显示", "亮暗两套、320 / 390 宽不横向滚动（手机上每个区域一张卡片）、axe 通过；组件测试、端到端测试（建区域 → 页面上加价 → 运营报价试算看到基础价 + 上车加价 + 下车加价 → 官网报价「含区域加价」→ 删除即停用）全过"],
-          "evidence": "分支 m8-12a-charter-surcharge-ui（未开 PR）；本机：类型检查通过，单元测试 lib/area-surcharge 7 条 + quote-form 1 条新增，组件测试 area-surcharge 8 条 + 报价试算 1 条新增，相关组件测试（价格页 33、商品 28、库存 17、运营商品 29 + 13）全过；端到端 charter-surcharge.spec.ts 1 条新增，相关的 prices / products-qa / platform-products 18 条全过；截图 m812a-*.png 14 张",
+          "evidence": "PR #145（CI 42852122593 全绿）；验收记录 docs/acceptance/M8-12a.md（QA 测试供应商在测试环境实测，初验 3 处缺陷已修复复验通过）；分支 m8-12a-charter-surcharge-ui（未开 PR）；本机：类型检查通过，单元测试 lib/area-surcharge 7 条 + quote-form 1 条新增，组件测试 area-surcharge 8 条 + 报价试算 1 条新增，相关组件测试（价格页 33、商品 28、库存 17、运营商品 29 + 13）全过；端到端 charter-surcharge.spec.ts 1 条新增，相关的 prices / products-qa / platform-products 18 条全过；截图 m812a-*.png 14 张",
+          "updated": "2026-11-10"
+        },
+        {
+          "id": "M8-25",
+          "title": "价格页遗留：基础价格表按格子合并、区域加价小问题、导入预览日期重叠漏查",
+          "role": "frontend",
+          "status": "todo",
+          "acceptance": ["基础价格表「载入最新内容，保留我的修改」改为按格子合并（同 M8-12a 区域加价的做法），不再把别人改过的格子写回旧值", "区域加价：只设了加价、基础定价没有的套餐也出现在「套餐」筛选和汇总里；默认「报价区域」不在运营区域里时给提醒；已删除的加价区域标出区域本身已停用；保存后读屏状态区清掉旧提示", "区域加价与设计 §17 对齐：明细行「再加一段日期」、手机上「每个组合一行 + 底部改一条」、「这一行的意思」代入当天套餐价和合计（需 domain 提供加法函数）", "M8-15 后端：导入预览里有一行 AREA_IS_PRODUCT_AREA 时，其余行仍要检查生效日期重叠（目前显示成「新增」）", "来源：M8-12a 验收（2026-11-10）缺陷 3 之外的 4–8 条"],
+          "evidence": "",
           "updated": "2026-11-10"
         }
       ]
@@ -1581,6 +1590,11 @@
       "date": "2026-11-10",
       "by": "Claude",
       "summary": "M8-12a 前端完成、待验收：包车商品「价格规则」页签多了「区域加价」块——选区域（只列能挂价格的启用区域，不含商品自己的区域）、确认添加、一次给所有车型组和套餐填同一个上车加价 / 下车加价、展开逐条改、删除即停用（页面内确认，可恢复），和价格表一起一次保存；原来的价格表不再显示区域加价；运营报价试算包车可填下车点并列出套餐价 + 上车加价 + 下车加价；亮暗两色、320 / 390 宽、axe 通过"
+    },
+    {
+      "date": "2026-11-10",
+      "by": "Claude",
+      "summary": "M8-12a 验收通过（包车区域加价设置页，QA 测试供应商在测试环境实测，初验缺陷已修复复验）；M8-16 第 1、4 条在测试环境验收通过，标为已验收；遗留小问题登记为 M8-25"
     }
   ]
 }
