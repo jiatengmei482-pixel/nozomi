@@ -3,11 +3,11 @@
  * 真实浏览器 → 构建好的前端 → 真实 API → 真实 PostgreSQL，不 mock 接口。
  *
  * 本用例自己建一个城市（中心随机落在四国一带，离别的用例的城市都远：官网包车按上车地点找城市只会找到它），
- * 供应商经接口建一个运营区域（盖住整片）、商品区域和两个报价区域（东边「加价甲」、西边「加价乙」），上架包车商品（8 小时套餐 70,000 日元）。然后在页面上：
+ * 供应商经接口建一个运营区域（盖住整片）、商品区域和两个报价区域（东边「东区」、西边「西区」），上架包车商品（8 小时套餐 70,000 日元）。然后在页面上：
  * - 从菜单「商品配置 → 价格规则」进到这个商品的价格页，「区域加价」块里选区域、确认添加、在对话框里填上车加价和下车加价，两个区域都加上，保存（一次批量保存）；
  * - 运营后台「报价试算」：甲上车、乙下车 = 套餐价 70,000 + 上车加价 500 + 下车加价 1,000 = 结算价 71,500；
  * - 官网新预订页同一条路线：只有一个价，写「含区域加价」，不写加价金额；
- * - 删除「加价甲」（页面内确认）→ 保存：那几条区域加价停用（记录还在），出现在「已删除的加价区域」里。
+ * - 删除「东区」（页面内确认）→ 保存：那几条区域加价停用（记录还在），出现在「已删除的加价区域」里。
  * 亮暗两色 axe、320 / 390 宽不横向滚动（手机上区域是卡片）；截图存到 E2E_SCREENSHOT_DIR（没设时存到测试输出目录）。
  */
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
@@ -48,7 +48,7 @@ interface Trip {
   groupName: string;
   east: Ref;
   west: Ref;
-  /** 加价甲里的上车点、加价乙里的下车点 */
+  /** 东区里的上车点、西区里的下车点 */
   pickup: Point;
   dropoff: Point;
 }
@@ -63,8 +63,8 @@ async function charterTrip(request: APIRequestContext): Promise<Trip> {
   const admin = await platformAdminHeaders(request);
   const tag = randomLetters(5);
   const center = { lat: Number((33.7 + Math.random() * 0.4).toFixed(6)), lng: Number((133.0 + Math.random() * 0.6).toFixed(6)) };
-  const created = await post<{ id: string }>(request, admin, "/platform/v1/master/cities", { code: `CTY-JP-${tag}`, country_code: "JP", name: { zh: `加价城市${tag}` }, timezone: "Asia/Tokyo", center }, "新建城市");
-  const city: Ref = { id: created.id, code: `CTY-JP-${tag}`, name: `加价城市${tag}` };
+  const created = await post<{ id: string }>(request, admin, "/platform/v1/master/cities", { code: `CTY-JP-${tag}`, country_code: "JP", name: { zh: `区域甲城市${tag}` }, timezone: "Asia/Tokyo", center }, "新建城市");
+  const city: Ref = { id: created.id, code: `CTY-JP-${tag}`, name: `区域甲城市${tag}` };
   const tenant = await createActiveTenant(request);
   const headers = await tenantHeaders(request, tenant.adminEmail, tenant.password);
   const brand = await createBrand(request, headers, `品牌 ${randomLetters(4)}`);
@@ -74,8 +74,8 @@ async function charterTrip(request: APIRequestContext): Promise<Trip> {
   };
   await area(`运营范围 ${tag}`, center, 0.4, "operating");
   const own = await area(`市区 ${tag}`, center, 0.05, "pricing");
-  const east = await area(`加价甲 ${tag}`, offset(center, 0, 0.16), 0.04, "pricing");
-  const west = await area(`加价乙 ${tag}`, offset(center, 0, -0.16), 0.04, "pricing");
+  const east = await area(`东区 ${tag}`, offset(center, 0, 0.16), 0.04, "pricing");
+  const west = await area(`西区 ${tag}`, offset(center, 0, -0.16), 0.04, "pricing");
   const product = await createProductByApi(request, { tenant, headers, brand, area: own }, { ...world, city }, "charter");
   const rules = await request.put(`/tenant/v1/products/${product.id}/service-rules`, { headers: { ...headers, "if-match": `"${product.version}"` }, data: RULES });
   expect(rules.status(), await rules.text()).toBe(200);
@@ -144,7 +144,7 @@ test("供应商在价格页设包车区域加价（两个区域）→ 运营报�
   const options = await block.getByLabel("选择要加价的区域").locator("option").allTextContents();
   expect(options.some((text) => text.startsWith("市区") && text.includes("商品的服务区域，不加价"))).toBe(true);
   expect(options.some((text) => text.startsWith("运营范围"))).toBe(false);
-  await expect(block.getByRole("link", { name: "新增自定义区域（在新标签页打开区域页面）" })).toHaveAttribute("href", /role=pricing/);
+  await expect(block.getByRole("link", { name: /^新增自定义区域\s*（在新标签页打开）$/ })).toHaveAttribute("href", /role=pricing/);
   await block.getByRole("button", { name: "确认添加" }).click();
   await expect(block.getByText("请先选一个区域")).toBeVisible();
   await expect(block.getByLabel("选择要加价的区域")).toBeFocused();
@@ -152,7 +152,7 @@ test("供应商在价格页设包车区域加价（两个区域）→ 运营报�
   await addSurcharge(page, trip.east, "500", "500");
   await addSurcharge(page, trip.west, "800", "1000");
   await expect(page.getByText("有 2 条未保存的修改")).toBeVisible();
-  await expect(page.locator("#price-table")).not.toContainText("加价甲");
+  await expect(page.locator("#price-table")).not.toContainText(trip.east.name);
   await bothThemes(page, "区域加价（添加后、保存前）");
   await shot(page, "desktop-unsaved");
 
@@ -233,7 +233,7 @@ test("供应商在价格页设包车区域加价（两个区域）→ 运营报�
   await expect(site.locator("main")).not.toContainText(/500 JPY|1,000 JPY|1,500 JPY/);
   await site.close();
 
-  // ── 删除「加价甲」= 停用：页面内确认 → 保存 → 记录还在、不启用，出现在「已删除的加价区域」 ──
+  // ── 删除「东区」= 停用：页面内确认 → 保存 → 记录还在、不启用，出现在「已删除的加价区域」 ──
   await block.getByRole("button", { name: `删除加价区域「${trip.east.name}」` }).click();
   const confirm = page.getByRole("dialog", { name: `删除加价区域「${trip.east.name}」？` });
   await expect(confirm).toContainText("会停用，记录保留");
@@ -249,7 +249,7 @@ test("供应商在价格页设包车区域加价（两个区域）→ 运营报�
   expect([removal.create, removal.delete, removal.update.map((entry) => [entry.area_id, entry.status])]).toEqual([[], [], [[trip.east.id, "disabled"]]]);
   await expect(block.getByText("已删除的加价区域（1）")).toBeVisible();
   const stored = (await (await request.get(`/tenant/v1/products/${trip.productId}/price-rules`, { headers: trip.headers })).json()) as { items: { area_id: string; pricing_model: string; status: string }[] };
-  expect(stored.items.filter((item) => item.pricing_model === "charter_area_surcharge").map((item) => [item.area_id === trip.east.id ? "甲" : "乙", item.status]).sort()).toEqual([["乙", "enabled"], ["甲", "disabled"]]);
+  expect(stored.items.filter((item) => item.pricing_model === "charter_area_surcharge").map((item) => [item.area_id === trip.east.id ? "东" : "西", item.status]).sort()).toEqual([["东", "disabled"], ["西", "enabled"]]);
   await block.locator("details.surcharge-deleted > summary").click();
   await bothThemes(page, "已删除的加价区域");
   await shot(page, "desktop-deleted");

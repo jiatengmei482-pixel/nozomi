@@ -383,3 +383,31 @@ export function surchargeState(row: SurchargeRow, reading: SurchargeReading, ove
   if (rule.validTo !== null && rule.validTo <= addDays(today, 30)) return { state: "active", text: `生效中，${rule.validTo} 到期` };
   return { state: "active", text: "生效中" };
 }
+
+const MERGED_FIELDS = ["pickup", "dropoff", "from", "to", "enabled", "deleted"] as const;
+type MergedField = (typeof MERGED_FIELDS)[number];
+
+/**
+ * 「载入最新内容，保留我的修改」时一条已保存的区域加价怎么合（M8-12a 验收）：按格子合，不按整行。
+ * 我改过的格子留我的；我没动过的格子换成最新的（别人刚改的不会被我手里的旧值盖回去）。
+ * 同一个格子我和别人都改了、而且改得不一样：留我的，但 `conflict` 为 true，页面标出来请人核对。
+ */
+export function mergeSurchargeRow(mine: SurchargeRow, latest: SurchargeRow, currency: string): { row: SurchargeRow; conflict: boolean } {
+  if (mine.origin === null) return { row: latest, conflict: false };
+  const before = surchargeRowFromRule(mine.origin, currency);
+  const norm = (field: MergedField, value: SurchargeRow[MergedField]): string => {
+    if (typeof value === "boolean") return String(value);
+    if (field === "pickup" || field === "dropoff") return tidyAmountDisplay(value, currency).trim();
+    return tidyDate(value) ?? value.trim();
+  };
+  const row: SurchargeRow = { ...latest };
+  let conflict = false;
+  for (const field of MERGED_FIELDS) {
+    const mineChanged = norm(field, mine[field]) !== norm(field, before[field]);
+    if (!mineChanged) continue;
+    const theirsChanged = norm(field, latest[field]) !== norm(field, before[field]);
+    if (theirsChanged && norm(field, latest[field]) !== norm(field, mine[field])) conflict = true;
+    (row as unknown as Record<MergedField, unknown>)[field] = mine[field];
+  }
+  return { row, conflict };
+}

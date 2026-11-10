@@ -136,7 +136,7 @@ test("包车价格页：基础定价下面多「区域加价」；价格表不�
   assert.equal(select.querySelectorAll("optgroup").length, 2, "按城市分组，商品所在城市排第一组");
   assert.equal(select.querySelector("optgroup")?.getAttribute("label"), "东京");
   assert.match(section.textContent ?? "", /另有 1 个运营区域没有列出/);
-  const link = within(section).getByRole("link", { name: "新增自定义区域（在新标签页打开区域页面）" });
+  const link = within(section).getByRole("link", { name: /^新增自定义区域\s*（在新标签页打开）$/ });
   assert.equal(link.getAttribute("target"), "_blank");
   assert.match(link.getAttribute("href") ?? "", /^\/areas\/new\?.*role=pricing/);
   assert.ok(within(section).getByRole("button", { name: "在地图上查看" }));
@@ -339,4 +339,40 @@ test("只读角色：看得到区域加价，没有选择区域、编辑、删�
   assert.equal(within(section).queryByLabelText(/的上车加价$/), null);
   assert.match(section.textContent ?? "", /1,000/);
   assertNoRetailWords();
+});
+
+test("别人先改了（409）→「载入最新内容，保留我的修改」按格子合：我只改了上车加价，别人改的下车加价不被我的旧值盖回；同一格两人都改了的标出来请核对", async () => {
+  const actor = user();
+  let latest = pricesOf([...BASE_RULES, surcharge(), surcharge({ id: "s2", vehicle_group_id: BUSINESS })]);
+  let answer: Response = apiError(409, "VERSION_CONFLICT", "stale");
+  const calls = open("admin", pricesOf([...BASE_RULES, surcharge(), surcharge({ id: "s2", vehicle_group_id: BUSINESS })]), (call) => {
+    if (call.method === "POST" && call.url.pathname === `${BASE}/price-rules/batch`) return answer;
+    if (call.method === "GET" && call.url.pathname === `${BASE}/price-rules`) return json(200, latest);
+    return null;
+  });
+  const section = await block();
+  await actor.click(within(section).getByRole("button", { name: "展开「富士山」的各车型组和套餐" }));
+  const mine = screen.getByLabelText("区域加价 · 富士山 · 舒适五座 · 8 小时 的上车加价") as HTMLInputElement;
+  await actor.clear(mine);
+  await actor.type(mine, "1200");
+  const both = screen.getByLabelText("区域加价 · 富士山 · 商务七座 · 8 小时 的上车加价") as HTMLInputElement;
+  await actor.clear(both);
+  await actor.type(both, "1300");
+  await actor.tab();
+  // 别人同时：舒适五座改了下车加价；商务七座改了上车加价（和我改的是同一格）
+  latest = pricesOf([...BASE_RULES, surcharge({ dropoff_surcharge: 2000 }), surcharge({ id: "s2", vehicle_group_id: BUSINESS, pickup_surcharge: 1500 })], 8);
+  await save(actor);
+  await actor.click(await screen.findByRole("button", { name: "载入最新内容，保留我的修改" }));
+  await waitFor(() => assert.equal((screen.getByLabelText("区域加价 · 富士山 · 舒适五座 · 8 小时 的下车加价") as HTMLInputElement).value, "2,000"));
+  assert.equal((screen.getByLabelText("区域加价 · 富士山 · 舒适五座 · 8 小时 的上车加价") as HTMLInputElement).value, "1,200");
+  assert.equal((screen.getByLabelText("区域加价 · 富士山 · 商务七座 · 8 小时 的上车加价") as HTMLInputElement).value, "1,300");
+  assert.match(section.textContent ?? "", /有 1 条区域加价别人也改过同一项。/);
+  const flagged = document.getElementById("surcharge-row-s2") as HTMLElement;
+  assert.match(flagged.textContent ?? "", /别人也改过这一条，请核对/);
+  assert.doesNotMatch((document.getElementById(`surcharge-row-${SURCHARGE_ID}`) as HTMLElement).textContent ?? "", /请核对/);
+  answer = json(200, { ...pricesOf([...BASE_RULES, surcharge({ pickup_surcharge: 1200, dropoff_surcharge: 2000 }), surcharge({ id: "s2", vehicle_group_id: BUSINESS, pickup_surcharge: 1300 })], 9), created_ids: [] });
+  await save(actor);
+  await waitFor(() => assert.equal(writes(calls).length, 2));
+  const batch = batchOf(writes(calls)[1]);
+  assert.deepEqual(batch.update.map((entry) => [entry["id"], entry["pickup_surcharge"], entry["dropoff_surcharge"]]).sort(), [["s2", 1300, 1000], [SURCHARGE_ID, 1200, 2000]].sort());
 });

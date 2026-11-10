@@ -13,6 +13,7 @@ import { Alert } from "../../../components/Alert.tsx";
 import { Button } from "../../../components/Button.tsx";
 import { Dialog } from "../../../components/Dialog.tsx";
 import { Icon } from "../../../components/Icon.tsx";
+import { NewTabLink } from "../../../components/NewTabLink.tsx";
 import { StatusBadge } from "../../../components/StatusBadge.tsx";
 import { hiddenOperatingText, pricingCapable, roleOf } from "../../../lib/area-roles.ts";
 import { AREA_NEW_PATH } from "../../../lib/area-paths.ts";
@@ -27,6 +28,7 @@ import {
   commonAmount,
   isSurchargeItem,
   liveSurcharges,
+  mergeSurchargeRow,
   planFill,
   rangeText,
   readSurchargeAmount,
@@ -64,6 +66,8 @@ export interface SurchargeState {
   setExpanded(next: ReadonlySet<string>): void;
   /** 已保存的加价区域，按服务器给的顺序 */
   savedOrder: string[];
+  /** 载入最新内容时，同一格我和别人都改了的行（留的是我的，请人核对） */
+  review: ReadonlySet<string>;
   changeCount: number;
   batch(): PriceRuleBatch;
   /** 保存成功、或重新读取以后：换成最新的（`keepEdits` 时没保存的修改重新套上去） */
@@ -81,6 +85,7 @@ export function useSurcharges(prices: PriceRules): SurchargeState {
   const [added, setAdded] = useState<string[]>([]);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [savedOrder, setSavedOrder] = useState<string[]>(() => savedAreaOrder(prices));
+  const [review, setReview] = useState<ReadonlySet<string>>(new Set());
   const changeCount = useMemo(() => surchargeChangeCount(rows, currency, removing), [rows, currency, removing]);
   return {
     rows,
@@ -94,6 +99,7 @@ export function useSurcharges(prices: PriceRules): SurchargeState {
     expanded,
     setExpanded,
     savedOrder,
+    review,
     changeCount,
     batch: () => buildSurchargeBatch(rows, currency, removing),
     adopt: (data, keepEdits) => {
@@ -101,23 +107,29 @@ export function useSurcharges(prices: PriceRules): SurchargeState {
       setSavedOrder(savedAreaOrder(data));
       if (!keepEdits) {
         setRowsState(base);
+        setReview(new Set());
         setRemoving(new Set());
         setRestoring(new Set());
         setAdded([]);
         return;
       }
-      setRowsState((current) => {
-        const byId = new Map(base.map((row) => [row.id, row]));
-        const extra: SurchargeRow[] = [];
-        for (const old of current) {
-          const change = surchargeChange(old, readSurchargeRow(old, data.currency));
-          if (change === "none" || change === "blank") continue;
-          const latest = old.id === null ? undefined : byId.get(old.id);
-          if (latest) Object.assign(latest, { pickup: old.pickup, dropoff: old.dropoff, from: old.from, to: old.to, enabled: old.enabled, deleted: old.deleted });
-          else if (change !== "deleted") extra.push({ ...old, id: null, origin: null });
-        }
-        return [...base, ...extra];
-      });
+      // 按格子合：我改过的格子留我的，没动过的换成最新的；同一格别人也改了的标出来请人核对
+      const byId = new Map(base.map((row, index) => [row.id, index]));
+      const merged = [...base];
+      const extra: SurchargeRow[] = [];
+      const conflicts = new Set<string>();
+      for (const old of rows) {
+        const change = surchargeChange(old, readSurchargeRow(old, data.currency));
+        if (change === "none" || change === "blank") continue;
+        const at = old.id === null ? undefined : byId.get(old.id);
+        if (at !== undefined) {
+          const result = mergeSurchargeRow(old, merged[at] as SurchargeRow, data.currency);
+          merged[at] = result.row;
+          if (result.conflict) conflicts.add(result.row.key);
+        } else if (change !== "deleted") extra.push({ ...old, id: null, origin: null });
+      }
+      setRowsState([...merged, ...extra]);
+      setReview(conflicts);
     },
   };
 }
@@ -222,7 +234,7 @@ export function AreaSurchargeBlock(props: {
   const missingTotal = listed.filter((id) => !removing.has(id)).reduce((sum, id) => sum + areaSummary(rows, id, groupIds, packages, currency, today).missing, 0);
 
   const hasProblem = (areaId: string): boolean =>
-    rows.some((row) => row.areaId === areaId && !row.deleted && !removing.has(areaId) && (readSurchargeRow(row, currency).problems.length > 0 || overlaps.has(row.key) || props.conflictKeys.has(row.key)));
+    rows.some((row) => row.areaId === areaId && !row.deleted && !removing.has(areaId) && (state.review.has(row.key) || readSurchargeRow(row, currency).problems.length > 0 || overlaps.has(row.key) || props.conflictKeys.has(row.key)));
   const isOpen = (areaId: string): boolean => expanded.has(areaId) || hasProblem(areaId);
   const toggle = (areaId: string, open?: boolean): void => {
     const next = new Set(expanded);
@@ -485,7 +497,8 @@ export function AreaSurchargeBlock(props: {
             {list.map((row) => {
               const reading = readSurchargeRow(row, currency);
               const overlapping = overlaps.has(row.key) || props.conflictKeys.has(row.key);
-              const look = surchargeState(row, reading, overlapping, today);
+              const base = surchargeState(row, reading, overlapping, today);
+              const look = state.review.has(row.key) && (base.state === "changed" || base.state === "new") ? { state: "overlap" as const, text: "别人也改过这一条，请核对" } : base;
               const group = groups.find((entry) => entry.id === row.vehicleGroupId);
               const label = rowLabel(row);
               const bad = (field: SurchargeField): boolean => reading.problems.some((problem) => problem.field === field) || ((field === "from" || field === "to") && overlapping);
@@ -554,6 +567,12 @@ export function AreaSurchargeBlock(props: {
         {`上车点或下车点哪个区域都不在的单不报价，客人会看到「${NO_ONLINE_QUOTE}」。`}
       </p>
 
+      {state.review.size > 0 && (
+        <Alert kind="warning">
+          <strong className="alert__title">{`有 ${state.review.size} 条区域加价别人也改过同一项。`}</strong>
+          <span>已经载入最新内容：你没动过的格子换成了别人改的；你和别人都改了的格子现在是你的修改（行上标着「别人也改过这一条，请核对」）。请核对后再保存。</span>
+        </Alert>
+      )}
       {canPick && (
         <div className="surcharge-pick">
           {areas?.status === "error" && areas.data === null ? (
@@ -604,10 +623,9 @@ export function AreaSurchargeBlock(props: {
               {hiddenOperatingText(operatingHidden) !== null && <p className="field__hint">{hiddenOperatingText(operatingHidden)}</p>}
               <div className="surcharge-pick__links">
                 {props.canManageAreas && (
-                  <a className="link surcharge-pick__new" href={`${AREA_NEW_PATH}?biz=charter&role=pricing`} target="_blank" rel="noopener" aria-label="新增自定义区域（在新标签页打开区域页面）">
+                  <NewTabLink to={`${AREA_NEW_PATH}?biz=charter&role=pricing`} className="link surcharge-pick__new">
                     新增自定义区域
-                    <Icon name="external" />
-                  </a>
+                  </NewTabLink>
                 )}
                 <AreaMapButton areaIds={[...productAreaIds, ...listed.filter((id) => areaById.has(id))]} />
               </div>

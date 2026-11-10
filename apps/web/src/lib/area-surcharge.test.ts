@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { PriceRuleBody } from "../api/prices.ts";
-import { applyFill, areaSummary, blankSurchargeRow, buildSurchargeBatch, commonAmount, planFill, rangeText, readSurchargeRow, surchargeChangeCount, surchargeOverlaps, surchargeRowFromRule, surchargeSentence } from "./area-surcharge.ts";
+import { applyFill, areaSummary, blankSurchargeRow, buildSurchargeBatch, commonAmount, mergeSurchargeRow, planFill, rangeText, readSurchargeRow, surchargeChangeCount, surchargeOverlaps, surchargeRowFromRule, surchargeSentence } from "./area-surcharge.ts";
 
 const TODAY = "2026-11-10";
 const stamps = { created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-02T00:00:00.000Z" };
@@ -113,4 +113,13 @@ test("日期重叠用 domain 的规则：同一个加价区域 × 车型组 × �
 
 test("读回：填 0 写成不加钱，金额带币种", () => {
   assert.equal(surchargeSentence("富士山", 0, 1000, "JPY"), "上车点在富士山时不加钱，下车点在富士山时加 JPY 1,000。");
+});
+
+test("载入最新内容时按格子合：我改的留我的，我没动的换成最新的；同一格两人改得不一样标为冲突", () => {
+  const mine = { ...surchargeRowFromRule(rule(), "JPY"), pickup: "1,200" };
+  const theirs = surchargeRowFromRule(rule({ dropoff_surcharge: 2000 }), "JPY");
+  assert.deepEqual([mergeSurchargeRow(mine, theirs, "JPY").row.pickup, mergeSurchargeRow(mine, theirs, "JPY").row.dropoff, mergeSurchargeRow(mine, theirs, "JPY").conflict], ["1,200", "2,000", false]);
+  const same = surchargeRowFromRule(rule({ pickup_surcharge: 1500 }), "JPY");
+  assert.equal(mergeSurchargeRow(mine, same, "JPY").conflict, true);
+  assert.equal(mergeSurchargeRow(mine, surchargeRowFromRule(rule({ pickup_surcharge: 1200 }), "JPY"), "JPY").conflict, false);
 });
