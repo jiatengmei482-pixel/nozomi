@@ -140,6 +140,8 @@ export interface TenantOrderDetail {
   vehicleGroup: OrderVehicleGroupRef | null;
   /** M8-15：包车区域加价用到的加价区域现在的名称（ADR 0073）；区域被删了的不在里面 */
   surchargeAreaNames: Map<string, LocalizedText>;
+  /** M8-13：点对点用的价格（线路价 / 区域价）；没有为 null */
+  pricingRoute: PricingRoute | null;
 }
 
 /** 这一单的包车区域加价用到的加价区域现在的名称（只查这个供应商自己的区域）。 */
@@ -148,6 +150,30 @@ async function surchargeAreaNamesOf(db: Db, order: Order): Promise<Map<string, L
   const ids = surcharge === null ? [] : [...new Set([surcharge.pickup.areaId, surcharge.dropoff.areaId].filter((id): id is string => id !== null))];
   const found = await findAreasForProduct(db, order.tenantId, ids);
   return new Map([...found].map(([id, area]) => [id, area.name]));
+}
+
+/**
+ * 点对点用的价格（M8-13，ADR 0073 第四部分；规范 platform-orders.md 3d「用的价格」）：上车区域（报价快照里中标的区域）和线路价的下车区域，带现在的名称。
+ * 只有用了线路价、或设了含公里数的点对点单才有（没有这些数的旧单、区域价没设含公里数的单显示不变）；别的品类为 null。
+ * 上车区域取下单用的报价快照：救援转给了别的供应商、改期后命中的线路和快照不一样时不知道是哪个区域，`areaId` 为 null。
+ * 区域被删了的不在 `names` 里。只查这个供应商自己的区域；不含任何金额（供应商详情也用）。
+ */
+export interface PricingRoute {
+  areaId: string | null;
+  toAreaId: string | null;
+  names: Map<string, LocalizedText>;
+}
+
+async function pricingRouteOf(db: Db, order: Order): Promise<PricingRoute | null> {
+  if (order.category !== "point_to_point") return null;
+  const toAreaId = order.settlement.toAreaId ?? null;
+  if (toAreaId === null && (order.settlement.distance ?? null) === null) return null;
+  const row = (await db.query<{ snapshot: StoredQuoteSnapshot }>("select q.snapshot from order_sales s join quotes q on q.id = s.quote_id where s.order_id = $1", [order.id])).rows[0];
+  const winner = row?.snapshot.winner;
+  const same = winner !== undefined && winner.tenantId === order.tenantId && winner.productId === order.productId && (winner.offer.settlement.toAreaId ?? null) === toAreaId;
+  const areaId = same ? winner.offer.areaId : null;
+  const found = await findAreasForProduct(db, order.tenantId, [areaId, toAreaId].filter((id): id is string => id !== null));
+  return { areaId, toAreaId, names: new Map([...found].map(([id, area]) => [id, area.name])) };
 }
 
 export async function getOrderForTenant(ctx: AppContext, tenantId: string, orderId: string): Promise<TenantOrderDetail> {
@@ -172,8 +198,9 @@ export async function getOrderForTenant(ctx: AppContext, tenantId: string, order
     { snapshot: true },
   );
   // 救援记录在平台表里（涉及几家供应商）：在平台事务里只取和令牌里这个供应商有关的那一部分
-  const rescue = await withPlatformTx(ctx.pool, (db) => tenantRescueOf(db, { tenantId, id: orderId }), { snapshot: true });
-  return { ...detail, rescue };
+  // 用的价格（M8-13）的上车区域在下单用的报价快照里（平台表）：只取区域编号，名称只查这个供应商自己的区域
+  const { rescue, pricingRoute } = await withPlatformTx(ctx.pool, async (db) => ({ rescue: await tenantRescueOf(db, { tenantId, id: orderId }), pricingRoute: await pricingRouteOf(db, detail.order) }), { snapshot: true });
+  return { ...detail, rescue, pricingRoute };
 }
 
 /**
@@ -266,6 +293,8 @@ export interface PlatformOrderDetail {
   vehicleGroup: OrderVehicleGroupRef | null;
   /** M8-15：包车区域加价用到的加价区域现在的名称（ADR 0073） */
   surchargeAreaNames: Map<string, LocalizedText>;
+  /** M8-13：点对点用的价格（线路价 / 区域价）；没有为 null */
+  pricingRoute: PricingRoute | null;
 }
 
 /** 只看下一步：别人已经把这一步回传了的旧复核（批准只会得到「已过时」）不算在等。 */
@@ -310,6 +339,7 @@ export async function getOrderForPlatform(ctx: AppContext, orderId: string, scop
         pendingEmailReview: await findPendingPassengerEmailChange(db, orderId),
         vehicleGroup: await findOrderVehicleGroup(db, order.vehicleGroupId),
         surchargeAreaNames: await surchargeAreaNamesOf(db, order as Order),
+        pricingRoute: await pricingRouteOf(db, order as Order),
       };
     },
     { snapshot: true },

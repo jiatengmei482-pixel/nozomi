@@ -9147,8 +9147,13 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ order, events, records, changes, extra_charges, rescue, driver_link_email, vehicle_group, area_surcharge ]
+                required: [ order, events, records, changes, extra_charges, rescue, driver_link_email, vehicle_group, area_surcharge, pricing_route ]
                 properties:
+                  pricing_route:
+                    description: 点对点用的价格（M8-13）：线路价 / 区域价和区域名称，没有金额；没有为 null
+                    oneOf:
+                      - $ref: "#/components/schemas/OrderPricingRoute"
+                      - type: "null"
                   area_surcharge:
                     description: 包车区域加价（M8-15）：上车、下车所在的加价区域和加价，只有结算价（规则 4）；没有为 null
                     oneOf:
@@ -9330,9 +9335,15 @@ paths:
                   - vehicle_group
                   - area_surcharge
                   - distance
+                  - pricing_route
                 properties:
                   order:
                     $ref: "#/components/schemas/PlatformOrder"
+                  pricing_route:
+                    description: 点对点用的价格（M8-13）：线路价 / 区域价和区域名称；没有为 null
+                    oneOf:
+                      - $ref: "#/components/schemas/OrderPricingRoute"
+                      - type: "null"
                   distance:
                     description: 点对点含公里数（M8-11，ADR 0073 第四部分）：结算价和超出每公里的对外价参考；没设含公里数的订单为 null
                     oneOf:
@@ -24220,7 +24231,7 @@ components:
       type: object
       additionalProperties: false
       required: [ included_km, route_meters, over_km, over_km_per_km, over_km_per_km_sell ]
-      description: 运营看到的含公里数（M8-11）：结算价（同供应商看到的 `OrderDistance`）加上超出每公里的对外价参考（报价快照里单独换算、单独取整，已含在对外价里；快照里没有时为 null）
+      description: 运营看到的含公里数（M8-11）：结算价（同供应商看到的 `OrderDistance`）加上超出每公里的对外价参考（订单上锁定的结算单价按这一单的汇率、缓冲、加价比例单独换算、单独取整，已含在对外价里，和官网订单页、确认邮件同一个数，M8-13）
       properties:
         included_km:
           type: integer
@@ -24235,6 +24246,38 @@ components:
         over_km_per_km_sell:
           oneOf:
             - $ref: "#/components/schemas/SalesMoney"
+            - type: "null"
+    OrderPricingRoute:
+      type: object
+      additionalProperties: false
+      description: |
+        点对点用的价格（M8-13，ADR 0073 第四部分）：`route` 线路价（`area` → `to_area`，单向）/ `area` 区域价（`area`，`to_area` 为 null）。
+        只有用了线路价、或设了含公里数的点对点单才有（别的单这一项为 null，显示不变）。名称是区域现在的名称（区域被删了为 null）；
+        `area` 取下单用的报价快照，救援转给了别的供应商、改期后命中的线路和快照不一样时为 null。没有任何金额。
+      required: [ kind, area, to_area ]
+      properties:
+        kind:
+          type: string
+          enum: [ route, area ]
+        area:
+          oneOf:
+            - $ref: "#/components/schemas/OrderPricingRouteArea"
+            - type: "null"
+        to_area:
+          oneOf:
+            - $ref: "#/components/schemas/OrderPricingRouteArea"
+            - type: "null"
+    OrderPricingRouteArea:
+      type: object
+      additionalProperties: false
+      required: [ id, name ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          oneOf:
+            - $ref: "#/components/schemas/LocalizedText"
             - type: "null"
     PlatformOrderAreaSurcharge:
       type: object
@@ -24271,8 +24314,18 @@ components:
       additionalProperties: false
       description: |
         渠道看到的订单：行程、乘客、客人支付的金额、付款状态。**没有结算价、加价比例**；中标租户只在付款成功后、渠道设置了「付款后展示」时出现。
-      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
+      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
       properties:
+        includes_area_surcharge:
+          type: boolean
+          description: 包车：这一单的价格里含区域加价（M8-13，ADR 0073 第四部分；取订单上锁定的值）。只说「含区域加价」，不单列金额；没有区域加价的、M8-15 之前的订单为 false（新增字段）
+        distance:
+          description: |
+            点对点：价格是设了含公里数的一口价时（M8-13，取订单上锁定的值；改期后是改期后的值）——含多少公里、报价时的路线距离、超出公里数、超出每公里的对外价
+            （按这一单的汇率、缓冲、加价比例单独换算、单独取整，已含在 `price.total` 里，是说明不是另一笔钱）；没设的、M8-11 之前的订单为 null（新增字段）
+          oneOf:
+            - $ref: "#/components/schemas/SalesQuoteDistance"
+            - type: "null"
         id:
           type: string
           format: uuid
@@ -27911,8 +27964,18 @@ components:
       additionalProperties: false
       description: |
         客人在官网订单页看到的订单：和渠道看到的 `SalesOrder` 字段一样，只是落地信息里没有司机到达屏照片的文件编号（客人用不上，ADR 0032）。
-      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
+      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
       properties:
+        includes_area_surcharge:
+          type: boolean
+          description: 包车：这一单的价格里含区域加价（M8-13，ADR 0073 第四部分；取订单上锁定的值）。只说「含区域加价」，不单列金额；没有区域加价的、M8-15 之前的订单为 false（新增字段）
+        distance:
+          description: |
+            点对点：价格是设了含公里数的一口价时（M8-13，取订单上锁定的值；改期后是改期后的值）——含多少公里、报价时的路线距离、超出公里数、超出每公里的对外价
+            （按这一单的汇率、缓冲、加价比例单独换算、单独取整，已含在 `price.total` 里，是说明不是另一笔钱）；没设的、M8-11 之前的订单为 null（新增字段）
+          oneOf:
+            - $ref: "#/components/schemas/SalesQuoteDistance"
+            - type: "null"
         id:
           type: string
           format: uuid

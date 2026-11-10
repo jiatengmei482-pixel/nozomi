@@ -35,6 +35,7 @@ import { type PaymentMount, usePaymentDriver } from "../../lib/payment-driver.ts
 import { forgetPaymentReturn, intentIdOf, rememberPaymentReturn } from "../../lib/payment-return.ts";
 import {
   ADDRESS_LABELS,
+  AREA_SURCHARGE_NOTE,
   GUEST_CANCEL_REASON_NAMES,
   GUEST_CHANGE_STATUS_BADGES,
   GUEST_EXTRA_STATUS_BADGES,
@@ -50,6 +51,7 @@ import {
   orderFeeNote,
   packageText,
   serviceTimeLabels,
+  siteDistanceNote,
   visibleTimeline,
 } from "../../lib/site-display.ts";
 import { siteFailureText } from "./SiteLayout.tsx";
@@ -345,6 +347,8 @@ function routeFacts(order: SiteOrder, names: SiteOrderNames): { label: string; t
 
 export function TripSection({ order, names }: { order: SiteOrder; names: SiteOrderNames }) {
   const group = names.vehicle_group === null ? null : displayName(names.vehicle_group.name);
+  // M8-13（规范 site-booking-v2.md 10.2、10.3）：订单上锁定的「含区域加价」「公里数」；旧单没有这些数，显示不变
+  const kmNote = siteDistanceNote(order.distance);
   return (
     <Section id="site-trip-title" title="行程">
       <dl className="site-facts">
@@ -370,7 +374,9 @@ export function TripSection({ order, names }: { order: SiteOrder; names: SiteOrd
         {order.notes !== null && <Fact label="备注">{order.notes}</Fact>}
         <Fact label="总价" total>
           <SitePrice text={moneyText(order.price.total)} size="lg" />
+          {order.includes_area_surcharge === true && <span className="site-facts__note">{AREA_SURCHARGE_NOTE}</span>}
         </Fact>
+        {kmNote !== null && <Fact label="公里数">{kmNote}</Fact>}
         {orderFeeNote(order) !== null && <Fact label="费用说明">{orderFeeNote(order)}</Fact>}
         <Fact label="免费等待">{freeWaitText(order.free_wait_minutes, order.category, order.direction)}</Fact>
         {order.winning_tenant !== null && <Fact label="服务方">{order.winning_tenant.name}</Fact>}

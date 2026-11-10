@@ -120,6 +120,16 @@ export function areaSurchargeDetailJson(order: Order, names: ReadonlyMap<string,
 }
 
 /**
+ * 点对点用的价格（M8-13，ADR 0073 第四部分）：`kind` 线路价 `route` / 区域价 `area`；`area` 是上车区域、`to_area` 是线路价的下车区域，
+ * 名称是区域现在的名称（区域被删了为 null）；不知道上车区域时 `area` 为 null。没有任何金额，供应商和运营都用。没有为 null。
+ */
+export function pricingRouteJson(route: { areaId: string | null; toAreaId: string | null; names: ReadonlyMap<string, LocalizedText> } | null): Json | null {
+  if (route === null) return null;
+  const area = (id: string | null): Json | null => (id === null ? null : { id, name: route.names.get(id) ?? null });
+  return { kind: route.toAreaId === null ? "area" : "route", area: area(route.areaId), to_area: area(route.toAreaId) };
+}
+
+/**
  * 这一单要不要记落地时间：接机（从机场接人）。下单时机场接机必须填航班号、车站接送不能填（ADR 0026 的下单校验），
  * 所以「接送机 + 接机方向 + 有航班号」就是从机场接人，不用再查地点的类型。
  */
