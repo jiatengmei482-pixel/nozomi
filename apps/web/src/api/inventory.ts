@@ -91,6 +91,8 @@ export interface PriceImportSummary {
 }
 export interface PriceImportContent {
   area: string | null;
+  /** 点对点线路价的下车区域（M8-11）；区域价为 null */
+  to_area?: string | null;
   vehicle_group: string | null;
   direction: PriceDirection | null;
   package_hours: number | null;
@@ -98,6 +100,9 @@ export interface PriceImportContent {
   main_price: number | null;
   /** 包车区域加价的行（M8-15）：上车加价、下车加价；别的行是 null */
   surcharge?: { pickup: number | null; dropoff: number | null } | null;
+  /** 点对点一口价的含公里数、超出每公里（M8-11）；没填为 null */
+  included_km?: number | null;
+  over_km_per_km?: number | null;
   valid_from: string | null;
   valid_to: string | null;
   status: PriceRuleStatus;
@@ -107,6 +112,8 @@ export interface PriceImportConflict {
   row: number | null;
   price_rule_id: string | null;
   area: string | null;
+  /** 点对点线路价的下车区域（M8-11） */
+  to_area?: string | null;
   vehicle_group: string | null;
   direction: PriceDirection | null;
   package_hours: number | null;
@@ -206,8 +213,8 @@ export const INVENTORY_NESTED_FIELDS = {
   ahead: ["sellable_days", "last_set_date"],
   inventoryRow: ["row", "date", "action", "total", "occupied", "issues"],
   priceRow: ["row", "action", "price_rule_id", "content", "issues", "conflicts_with"],
-  priceContent: ["area", "vehicle_group", "direction", "package_hours", "pricing_model", "main_price", "surcharge", "valid_from", "valid_to", "status"],
-  priceConflict: ["row", "price_rule_id", "area", "vehicle_group", "direction", "package_hours", "valid_from", "valid_to"],
+  priceContent: ["area", "to_area", "vehicle_group", "direction", "package_hours", "pricing_model", "main_price", "surcharge", "included_km", "over_km_per_km", "valid_from", "valid_to", "status"],
+  priceConflict: ["row", "price_rule_id", "area", "to_area", "vehicle_group", "direction", "package_hours", "valid_from", "valid_to"],
 } as const satisfies {
   day: readonly (keyof InventoryDayBody)[];
   ahead: readonly (keyof InventoryAhead)[];

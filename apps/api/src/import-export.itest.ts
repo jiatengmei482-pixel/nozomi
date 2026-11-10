@@ -191,12 +191,12 @@ test("预览：只校验不写入——逐行给出新增 / 修改 / 没变 / �
   // 每一行带着它读到的内容，新增的行也有：确认前可以核对「新增的是不是我想的那些」
   assert.deepEqual(Object.keys(body.rows[0]).sort(), ["action", "conflicts_with", "content", "issues", "price_rule_id", "row"]);
   assert.deepEqual(body.rows.slice(0, 3).map((row: any) => row.content), [
-    { area: "东京市区", vehicle_group: "VG-BIZ-7", direction: "pickup", package_hours: null, pricing_model: "fixed", main_price: 21_000, surcharge: null, valid_from: "2026-10-01", valid_to: "2026-12-31", status: "enabled" },
-    { area: "东京市区", vehicle_group: "VG-ECO-4", direction: "pickup", package_hours: null, pricing_model: "fixed", main_price: 12_000, surcharge: null, valid_from: "2026-10-01", valid_to: null, status: "enabled" },
-    { area: "东京市区", vehicle_group: "VG-BIZ-7", direction: "dropoff", package_hours: null, pricing_model: "mileage_time", main_price: 3_000, surcharge: null, valid_from: "2026-10-01", valid_to: null, status: "disabled" },
+    { area: "东京市区", to_area: null, vehicle_group: "VG-BIZ-7", direction: "pickup", package_hours: null, pricing_model: "fixed", main_price: 21_000, surcharge: null, included_km: null, over_km_per_km: null, valid_from: "2026-10-01", valid_to: "2026-12-31", status: "enabled" },
+    { area: "东京市区", to_area: null, vehicle_group: "VG-ECO-4", direction: "pickup", package_hours: null, pricing_model: "fixed", main_price: 12_000, surcharge: null, included_km: null, over_km_per_km: null, valid_from: "2026-10-01", valid_to: null, status: "enabled" },
+    { area: "东京市区", to_area: null, vehicle_group: "VG-BIZ-7", direction: "dropoff", package_hours: null, pricing_model: "mileage_time", main_price: 3_000, surcharge: null, included_km: null, over_km_per_km: null, valid_from: "2026-10-01", valid_to: null, status: "disabled" },
   ]);
   // 出错的行：认得出来的照样带着，认不出来的写表里填的原文，读不出来的是 null
-  assert.deepEqual(body.rows[3].content, { area: "大阪", vehicle_group: "VG-LUX-4", direction: null, package_hours: null, pricing_model: null, main_price: null, surcharge: null, valid_from: null, valid_to: null, status: "enabled" });
+  assert.deepEqual(body.rows[3].content, { area: "大阪", to_area: null, vehicle_group: "VG-LUX-4", direction: null, package_hours: null, pricing_model: null, main_price: null, surcharge: null, included_km: null, over_km_per_km: null, valid_from: null, valid_to: null, status: "enabled" });
   assert.deepEqual([body.rows[4].content.main_price, body.rows[4].content.direction, body.rows[8].content.area], [null, "dropoff", null]);
   const issue = body.rows[4].issues[0];
   assert.deepEqual([issue.cell, issue.column, issue.reason, typeof issue.message], ["F7", "基础价", "PRECISION", "string"]);
@@ -208,9 +208,9 @@ test("预览：只校验不写入——逐行给出新增 / 修改 / 没变 / �
   const conflicts = await preview(id, sheet([TRANSFER_HEADER, fixedRow({ 方向: "送机" }), fixedRow({ 方向: "送机", 生效开始: "2027-01-01" }), fixedRow({ 方向: "接机", 生效开始: "2026-11-01" }), fixedRow({ 车型组: "VG-ECO-4" })]));
   assert.deepEqual(conflicts.summary, { rows: 4, create: 1, update: 0, unchanged: 0, error: 0, conflict: 3 });
   assert.deepEqual(conflicts.rows.map((row: any) => [row.row, row.action, row.conflicts_with]), [
-    [2, "conflict", [{ row: 3, price_rule_id: null, area: "东京市区", vehicle_group: "VG-BIZ-7", direction: "dropoff", package_hours: null, valid_from: "2027-01-01", valid_to: null }]],
-    [3, "conflict", [{ row: 2, price_rule_id: null, area: "东京市区", vehicle_group: "VG-BIZ-7", direction: "dropoff", package_hours: null, valid_from: "2026-10-01", valid_to: null }]],
-    [4, "conflict", [{ row: null, price_rule_id: existing.id, area: "东京市区", vehicle_group: "VG-BIZ-7", direction: "pickup", package_hours: null, valid_from: "2026-10-01", valid_to: "2026-12-31" }]],
+    [2, "conflict", [{ row: 3, price_rule_id: null, area: "东京市区", to_area: null, vehicle_group: "VG-BIZ-7", direction: "dropoff", package_hours: null, valid_from: "2027-01-01", valid_to: null }]],
+    [3, "conflict", [{ row: 2, price_rule_id: null, area: "东京市区", to_area: null, vehicle_group: "VG-BIZ-7", direction: "dropoff", package_hours: null, valid_from: "2026-10-01", valid_to: null }]],
+    [4, "conflict", [{ row: null, price_rule_id: existing.id, area: "东京市区", to_area: null, vehicle_group: "VG-BIZ-7", direction: "pickup", package_hours: null, valid_from: "2026-10-01", valid_to: "2026-12-31" }]],
     [5, "create", []],
   ]);
   assert.equal(conflicts.can_import, false);

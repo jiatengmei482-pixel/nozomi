@@ -68,7 +68,7 @@ import {
 import { salesMoney } from "../services/sales-quotes.ts";
 import { type InputIssue, idempotencyKey, ifMatchVersion, parseInput, passengerInput, resourceId, singleLine, uuidSchema, validationFailed } from "../validation.ts";
 import { changeSchema, disputeSchema, feeJson, salesCancelSchema, salesFeeQuerySchema, toChangeInput } from "./order-actions.ts";
-import { paymentJson, salesOrderJson } from "./sales.ts";
+import { distanceJson, paymentJson, salesOrderJson } from "./sales.ts";
 import { mapConfigJson } from "./areas.ts";
 import type { OrderVehicleGroupRef } from "../repos/master-data.ts";
 
@@ -260,6 +260,8 @@ function quoteJson(quote: SiteQuote): Json {
     package: quote.packageHours === null ? null : { hours: quote.packageHours, km: quote.packageKm },
     // 包车：这个价里含区域加价（上车或下车不在商品本身的区域里，ADR 0073）；只说明「含区域加价」，不单列金额
     includes_area_surcharge: quote.includesAreaSurcharge,
+    // 点对点设了含公里数的价（M8-11，ADR 0073 第四部分）：含 X 公里、本次路线 D 米、超出 Z 公里 × 每公里对外价（已含在 price.total 里）；没设为 null
+    distance: distanceJson(quote),
     price: { total: salesMoney(quote.sellMinor, quote.currency), fx: quote.fx === null ? null : { rate: quote.fx.rate, as_of: quote.fx.asOf } },
     free_wait_minutes: quote.freeWaitMinutes,
     cancel_policy: { category: quote.cancelPolicy.category, level: quote.cancelPolicy.level, tiers: quote.cancelPolicy.tiers.map((tier) => ({ min_hours_before: tier.minHoursBefore, fee_bp: tier.feeBp })) },

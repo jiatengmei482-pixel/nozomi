@@ -210,7 +210,9 @@ test("跨币种询价：最低毛利（日元）按中央汇率换成美元补�
   // 甲：20,000 × 0.0067 × 1.015 = 136.01 → +20.10 = 156.11 → 157.00；都在 3% 价格带里、评分一样 → 排序价低的乙
   const [q] = res.body.quotes;
   assert.deepEqual(q.price, { total: { amount: "155.00", currency: "USD" }, fx: { rate: "0.0067", as_of: q.price.fx.as_of } });
-  assert.deepEqual(Object.keys(q).sort(), ["created_at", "expires_at", "free_wait_minutes", "package_hours", "price", "quote_id", "service_date", "urgent", "vehicle_group_id"]);
+  // distance（M8-11，点对点含公里数）只有对外价；接送机恒为 null
+  assert.deepEqual(Object.keys(q).sort(), ["created_at", "distance", "expires_at", "free_wait_minutes", "package_hours", "price", "quote_id", "service_date", "urgent", "vehicle_group_id"]);
+  assert.equal(q.distance, null);
   assert.deepEqual(Object.keys(res.body).sort(), ["quotes", "unavailable"]);
   const row = (await api.db.owner.query("select sell_minor, settlement_minor, winner_tenant_id, snapshot from quotes where id = $1", [q.quote_id])).rows[0];
   assert.deepEqual([Number(row.sell_minor), Number(row.settlement_minor), row.winner_tenant_id, row.snapshot.winner.sell.channel.minMarginApplied, row.snapshot.winner.sell.channel.minMarginMinor], [15_500, 19_800, m.b.tenantId, true, 2_010]);

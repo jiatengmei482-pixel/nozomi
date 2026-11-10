@@ -582,7 +582,7 @@ test("M2-02 试算的路线情况：取到时写明路程从哪里来；没取�
   await again(/用的路程：12 公里、40 分钟（你填写的假定值）。/);
 
   const cases: [string, RegExp][] = [
-    ["DAILY_LIMIT_REACHED", /原因码 DAILY_LIMIT_REACHED：今天调用谷歌地图的次数到了每日上限。今天的里程计价暂停，明天自动恢复；可在服务器配置 GOOGLE_ROUTES_DAILY_LIMIT 调整。一口价和包车套餐不受影响。/],
+    ["DAILY_LIMIT_REACHED", /原因码 DAILY_LIMIT_REACHED：今天调用谷歌地图的次数到了每日上限。今天的里程计价暂停，明天自动恢复；可在服务器配置 GOOGLE_ROUTES_DAILY_LIMIT 调整。没设含公里数的一口价和包车套餐不受影响。/],
     ["NOT_CONFIGURED", /原因码 NOT_CONFIGURED：谷歌地图的密钥没有配置。请超级管理员在「系统设置 → 系统状态 → 第三方密钥」填写。/],
     ["NO_ROUTE", /原因码 NO_ROUTE：这两个地点之间没有可行驶的路线（例如隔着海）。请换一组地点。/],
     ["BRAND_NEW_CODE", /原因码 BRAND_NEW_CODE：后端的说明/],

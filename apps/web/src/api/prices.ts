@@ -12,11 +12,15 @@ import { BRANDS_PATH, type DailyWindowBody, PRODUCTS_PATH } from "./products.ts"
 /** 一条价格里这种计价方式不用的数是 null。 */
 export interface PriceRuleInput {
   area_id: string;
+  /** 点对点线路价的下车区域（M8-11，ADR 0073）：填了 = 单向线路价（只管 area_id 上车、to_area_id 下车）；不填或 null = 区域价 */
+  to_area_id?: string | null;
   vehicle_group_id: string;
   direction: PriceDirection | null;
   package_hours: number | null;
   pricing_model: PricingModel;
   base_price: number | null;
+  /** 点对点一口价含多少公里（M8-11）：和 over_km_per_km 一起填或都不填 */
+  included_km?: number | null;
   start_price: number | null;
   start_meters: number | null;
   start_minutes: number | null;
@@ -131,7 +135,9 @@ export interface CalendarDay {
   date: string;
   weekday: number;
   holiday: { name: LocalizedText } | null;
-  price_rule: { id: string; pricing_model: PricingModel; direction: PriceDirection | null; valid_from: string; valid_to: string | null } | null;
+  price_rule: { id: string; pricing_model: PricingModel; to_area_id?: string | null; direction: PriceDirection | null; valid_from: string; valid_to: string | null } | null;
+  /** 点对点给了 to_area_id 时：这一天用的是线路价（true）还是退回了区域价（false）；没给为 null（M8-11） */
+  route_rule?: boolean | null;
   /** 包车：这个区域作为加价区域时这一天用的区域加价（M8-15）；没有为 null */
   surcharge?: { price_rule_id: string; pickup_surcharge: number; dropoff_surcharge: number; valid_from: string; valid_to: string | null } | null;
   segments: CalendarSegment[];
@@ -217,13 +223,15 @@ export function saveAdjustRuleOrder(token: string, productId: string, version: n
 
 export interface CalendarQuery {
   area_id: string;
+  /** 点对点：下车区域（看这条线路的价，没有线路价退回区域价；M8-11） */
+  to_area_id?: string;
   vehicle_group_id: string;
   direction?: TripDirection;
   package_hours?: number;
   from: string;
   to: string;
 }
-export const CALENDAR_QUERY_KEYS = ["area_id", "vehicle_group_id", "direction", "package_hours", "from", "to"] as const satisfies readonly (keyof CalendarQuery)[];
+export const CALENDAR_QUERY_KEYS = ["area_id", "to_area_id", "vehicle_group_id", "direction", "package_hours", "from", "to"] as const satisfies readonly (keyof CalendarQuery)[];
 
 export function getPriceCalendar(token: string, productId: string, values: CalendarQuery): Promise<PriceCalendar> {
   return apiRequest("GET", query(`${product(productId)}/price-calendar`, values), { token });
@@ -250,12 +258,12 @@ export function getHolidays(token: string, values: { country_code?: string; from
 }
 
 /** 对账用：每个类型的字段名清单。 */
-const PRICE_INPUT = ["area_id", "vehicle_group_id", "direction", "package_hours", "pricing_model", "base_price", "start_price", "start_meters", "start_minutes", "per_km", "per_minute", "min_price", "package_km", "package_price", "overtime_per_hour", "over_km_per_km", "pickup_surcharge", "dropoff_surcharge", "valid_from", "valid_to", "status"] as const;
+const PRICE_INPUT = ["area_id", "to_area_id", "vehicle_group_id", "direction", "package_hours", "pricing_model", "base_price", "included_km", "start_price", "start_meters", "start_minutes", "per_km", "per_minute", "min_price", "package_km", "package_price", "overtime_per_hour", "over_km_per_km", "pickup_surcharge", "dropoff_surcharge", "valid_from", "valid_to", "status"] as const;
 const ADJUST_INPUT = ["name", "travel_from", "travel_to", "cycle", "time_slot", "area_ids", "vehicle_group_ids", "directions", "package_hours", "steps", "status"] as const;
 export const PRICE_SCHEMA_FIELDS = {
   PriceRule: ["id", ...PRICE_INPUT, "base", "created_at", "updated_at"],
   PriceCalendar: ["version", "currency", "rounding_unit", "today", "days", "groups"],
-  PriceCalendarDay: ["date", "weekday", "holiday", "price_rule", "surcharge", "segments"],
+  PriceCalendarDay: ["date", "weekday", "holiday", "price_rule", "route_rule", "surcharge", "segments"],
   PriceRules: ["version", "currency", "rounding_unit", "available_models", "surcharge_models", "today", "items", "coverage"],
   AdjustRule: ["id", ...ADJUST_INPUT, "ended", "created_at", "updated_at"],
   AdjustRules: ["version", "currency", "rounding_unit", "today", "items"],
