@@ -7,6 +7,7 @@
  *   填齐了就自动报价（停顿一下再查），改了任何一项旧结果立刻收起。
  * - 「选择车型」：价格从低到高，坐不下的接口不返回；默认电脑 4 个、手机 3 个；选中的展开车内俯视示意图；下面「一口价包含」。
  * - 「怎么联系你」（M8-04）：字段、校验、下单（`POST /site/v1/orders`）和旧下单页同一套（`lib/site-order-form.ts`），下单后进现有订单页付款。
+ *   报不出价时不出现，只有「请客服人工报价」那一块（M8-21b，规范 11.1）。
  * - 电脑（≥ 1024px）单页：左列三块，右侧栏跟着滚动：行程摘要、路线图、附加服务（改数量带 `addons` 重新报价，显示合计差额）、车费、合计、
  *   参考价（≈ 客人币种）、取消规则、去付款、支付方式。
  *   手机分步：第 1 步行程 →「查看车型和价格」→ 第 2 步车型（底部固定「车型 · 一口价 [下一步]」）→ 第 3 步：右侧栏的内容在顶部，下面「怎么联系你」。
@@ -523,6 +524,11 @@ export function BookNewPage() {
   const manualKey = JSON.stringify(manualTrip);
   /** 包车报不出价（上车地点不在任何能订包车的城市、或城市没有套餐）：时长用通用的几档，给人工报价用 */
   const charterNoOnline = draft.mode === "charter" && draft.from !== null && (charterCity === null || (packageLoad?.kind === "ready" && packageLoad.items.length === 0));
+  /**
+   * 报不出价（任何一种：包车没有在线报价、渠道不卖这一段、报价列表为空）时只给人工报价那一块，
+   * 不出现下单用的「怎么联系你」（M8-21b，规范 site-booking-v2.md 11.1）；有报价时照旧。
+   */
+  const manualOnly = charterNoOnline || (current?.kind === "failed" && current.scope) || (current?.kind === "ready" && quotes.length === 0);
 
   let body;
   if (config.kind === "loading" || (open && cities.kind === "loading")) {
@@ -862,7 +868,7 @@ export function BookNewPage() {
               {summaryInner}
             </>
           )}
-          {showStep3 && contactSection}
+          {showStep3 && !manualOnly && contactSection}
         </div>
         {wide && (
           <aside className="book-new__aside" aria-labelledby="book-summary-title">

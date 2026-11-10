@@ -7,17 +7,19 @@
  * - 客服：菜单「人工报价」→ 列表里只写留了哪几项（没有邮箱原文）→ 按邮箱查到 → 详情有邮箱、发信链接、审计提示 → 改成「跟进中」并指派给自己、写备注；
  *   「系统设置 → 官网设置」只读。
  * - 超级管理员：「系统设置 → 官网设置」填「客服 WhatsApp 号码」→ 客人重新打开同一个链接，按钮出现、wa.me 链接带号码和行程要点。
+ * - 报不出价时只有人工报价那一块（M8-21b）：电脑单页、手机都没有下单用的「怎么联系你」（姓名、手机号、同意保存银行卡）和「去付款」。
  * 320 / 390 宽不横向滚动，亮暗两色 axe。号码、邮箱都是虚构的；用例结束把客服号码清空（全站一行，不留给别的用例）。
- * 官网按来源地址限速：这组 API 信任一层代理，每个用例带一个文档专用的随机地址，不和别的用例抢额度。
+ * 官网按来源地址限速：这组 API 信任一层代理，每个用例用 `OWN_SITE_SOURCE` 带一个文档专用的随机地址，不和别的用例抢额度。
  */
-import { randomBytes, randomInt } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { E2E_WEB_DRIVER_MAIL_PORT } from "../playwright.config.ts";
 import { publishTransfer, tomorrowInTokyo } from "./book-new-support.ts";
 import { createSupplier, createWorld, expectAccessible } from "./catalog.ts";
-import { adminCredentials, expectNoHorizontalOverflow, loginAs, newPassword, platformAdminHeaders, snapshot, uniqueEmail } from "./support.ts";
+import { OWN_SITE_SOURCE, adminCredentials, expectNoHorizontalOverflow, loginAs, newPassword, platformAdminHeaders, snapshot, uniqueEmail } from "./support.ts";
 
-test.use({ baseURL: `http://127.0.0.1:${E2E_WEB_DRIVER_MAIL_PORT}`, extraHTTPHeaders: { "x-forwarded-for": `203.0.113.${randomInt(1, 250)}` } });
+test.use({ baseURL: `http://127.0.0.1:${E2E_WEB_DRIVER_MAIL_PORT}` });
+test.use(OWN_SITE_SOURCE);
 
 /** 虚构的客服号码：国家码 81 后面全是 0，不是任何真实号码 */
 const SUPPORT_DIGITS = "810000000000";
@@ -60,6 +62,17 @@ async function checkNarrow(page: Page, what: string, shot: string): Promise<void
   await page.setViewportSize(viewport);
 }
 
+/** 报不出价时只有人工报价那一块：下单用的「怎么联系你」和「去付款」都不在页面上（M8-21b，规范 11.1）。 */
+async function expectManualQuoteOnly(page: Page): Promise<void> {
+  await expect(page.getByRole("region", { name: "请客服人工报价" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "怎么联系你" })).toHaveCount(0);
+  await expect(page.getByLabel("乘车人姓名")).toHaveCount(0);
+  await expect(page.getByLabel("手机号（含国家区号）")).toHaveCount(0);
+  await expect(page.getByRole("checkbox", { name: /同意保存这次付款用的银行卡/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "去付款 →" })).toHaveCount(0);
+  await expect(page.getByLabel("邮箱")).toHaveCount(1);
+}
+
 test("报不出价：客人留下邮箱和 WhatsApp → 客服在「人工报价」看到、改成跟进中并指派给自己、写备注 → 超级管理员在「官网设置」填客服 WhatsApp 号码后，官网出现「通过 WhatsApp 联系我们」", async ({ browser, page, request }) => {
   test.setTimeout(240_000);
   // 官网要有一个可订的城市，新预订页才打开（这个城市在东京，和北海道的两端无关）
@@ -73,6 +86,11 @@ test("报不出价：客人留下邮箱和 WhatsApp → 客服在「人工报价
 
   try {
     // ── 客人 ──
+    // 电脑单页：左列只有行程、车型（报不出价 + 人工报价），没有「怎么联系你」
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(link);
+    await expect(page.getByText("这个地址暂时没有在线报价，请联系客服")).toBeVisible();
+    await expectManualQuoteOnly(page);
     await page.setViewportSize({ width: 390, height: 844 });
     // 链接带齐了行程：打开就报价，手机直接到第 2 步
     await page.goto(link);
@@ -83,6 +101,7 @@ test("报不出价：客人留下邮箱和 WhatsApp → 客服在「人工报价
     await expect(form.getByRole("checkbox")).toHaveCount(0);
     await expect(form.getByText("提交即同意客服通过您留下的方式联系您")).toBeVisible();
     await expect(page.getByRole("link", { name: /通过 WhatsApp 联系我们/ })).toHaveCount(0);
+    await expectManualQuoteOnly(page);
     await form.getByRole("button", { name: "提交" }).click();
     await expect(form.getByText("请至少填一项：邮箱或 WhatsApp")).toBeVisible();
     await expect(form.getByLabel("邮箱")).toBeFocused();
@@ -169,6 +188,18 @@ test("报不出价：客人留下邮箱和 WhatsApp → 客服在「人工报价
     expect(`${href.origin}${href.pathname}`).toBe(`https://wa.me/${SUPPORT_DIGITS}`);
     expect(href.searchParams.get("text")).toBe(`您好，我想咨询用车报价：点对点，${FROM.name} → ${TO.name}，${date} 10:00，2 人。`);
     await checkNarrow(page, "新预订页的人工报价（有 WhatsApp 按钮）", "m821-site-whatsapp");
+    await expectManualQuoteOnly(page);
+    // 只有人工报价那一块（M8-21b）：手机 390 和电脑单页，亮暗各一张
+    for (const [width, height, name] of [[390, 844, "390"], [1280, 900, "desktop"]] as const) {
+      await page.setViewportSize({ width, height });
+      await expectManualQuoteOnly(page);
+      for (const scheme of ["light", "dark"] as const) {
+        await page.emulateMedia({ colorScheme: scheme });
+        await expectAccessible(page, `新预订页报不出价、只有人工报价（${name}，${scheme === "light" ? "亮色" : "暗色"}）`);
+        await snapshot(page, `m821b-${name}-${scheme}`);
+      }
+    }
+    await page.emulateMedia({ colorScheme: "light" });
   } finally {
     await setSupportWhatsapp(request, null);
   }
