@@ -722,9 +722,9 @@
           "id": "M8-16",
           "title": "测试环境专用 QA 测试租户（用项目脚本建，不上架、不参与官网比价）",
           "role": "backend",
-          "status": "doing",
+          "status": "review",
           "acceptance": ["用项目自己的脚本（不是迁移、不预置在代码里）在测试环境建一个名字带「QA 测试」字样的租户和管理员；脚本可重复运行、只在 staging 允许", "密码按提示输入或随机生成后只写进运维机器上的文件，不进代码、日志、命令行参数和提交记录", "租户商品默认不上架、不参与官网比价；验收规则（.claude/agents/acceptance.md）改为写入实测用这个租户", "补做 M8-15 在测试环境的写入实测（区域加价新增、409、批量、日历、导入导出），结束后停用测试数据"],
-          "evidence": "",
+          "evidence": "后端完成（分支 m8-16-staging-qa-tenant，未开 PR，未在测试环境运行）：ADR 0077；迁移 0300（tenants.is_test_tenant；检查约束只许申请中 / 审核中 / 已签约 / 已清退，最多一家）；新命令 pnpm qa:tenant-ensure（只允许 staging / local / ci，production 拒绝；可重复运行，已有时只核对不改；--reset-password 才改密码；密码只从标准输入读，审计记系统 / 命令行、无明文）；运营开始试运营 409 TEST_TENANT_NOT_FOR_SALE；Tenant 接口多 is_test_tenant；docs/secrets.md 记凭据位置（无凭据本身）。本机：类型检查通过；新增单元测试 3 条、集成测试 16 条（cli/qa-tenant-ensure.itest.ts 10、qa-tenant.itest.ts 6）全过；相关回归 schema-structure 12、rls 11、tenant-onboarding 6、tenant-onboarding.qa 14、tenant-isolation 69、platform-admin 16、tenant-profile 9、openapi / errors / migration-order 16、domain tenants 25、前端接口契约 161、前端组件 platform / company 29 全过。待办：CLAUDE.md 命令清单和 .claude/agents/acceptance.md 规则 6 的改动由主会话按交回报告里的原文写入；运营后台「测试」标记见 M8-24；第 4 条（补做 M8-15 写入实测）在测试环境建好后由验收角色做",
           "updated": "2026-11-10"
         },
         {
@@ -734,6 +734,15 @@
           "status": "done",
           "acceptance": ["找到根因并给出证据（CI 日志、能稳定复现的本机做法）", "修复（改测试的搭建；只有发现真实缺陷才改业务代码，并补测试说明）", "用能复现问题的并发 / 负载方式在本机重复跑 20 次全过", "CI 全绿"],
           "evidence": "PR #141（CI 42785648490 全绿）；验收记录 docs/acceptance/M8-23.md：根因为占名额事务 500 毫秒客户端时限在进程被挂起时超时触发 15 秒冷却；只改测试，本机正常 5 次、加压 5 次全过",
+          "updated": "2026-11-10"
+        },
+        {
+          "id": "M8-24",
+          "title": "运营后台供应商列表、详情显示「测试」标记（QA 测试供应商，接口字段 is_test_tenant）",
+          "role": "frontend",
+          "status": "todo",
+          "acceptance": ["运营后台「供应商」列表和详情：is_test_tenant 为真的供应商名称旁显示「测试」标记（ADR 0077）", "测试供应商的详情里「开始试运营」不可用或点了显示接口的中文说明（409 TEST_TENANT_NOT_FOR_SALE）", "组件测试覆盖有 / 没有标记两种"],
+          "evidence": "",
           "updated": "2026-11-10"
         },
         {
@@ -1503,6 +1512,11 @@
       "date": "2026-11-10",
       "by": "Claude",
       "summary": "M8-21 验收通过：报不出价时留邮箱 / WhatsApp、WhatsApp 联系按钮（业主已填号码并亲测有效）、客服后台跟进、加密与保留期；两条视觉观察登记到 M6-08"
+    },
+    {
+      "date": "2026-11-10",
+      "by": "Claude",
+      "summary": "M8-16 后端完成，待验收：新命令 pnpm qa:tenant-ensure 在测试环境建一家「QA 测试供应商（验收专用）」和它的管理员。它能登录、建区域、商品、价格、加价、导入、试算，但永远不能上架、不能开始试运营、不参与官网和销售端比价（数据库约束兜底）；命令只在测试环境能用，正式环境拒绝；重复运行只核对不改；密码只从标准输入读，不进日志和审计。合并部署后由协调者在测试环境运行一次（密码存在运维机器的 600 文件里）。运营后台的「测试」标记登记为 M8-24。"
     }
   ]
 }
