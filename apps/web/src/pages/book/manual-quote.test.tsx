@@ -1,0 +1,244 @@
+/**
+ * 报不出价时「请客服人工报价」和「通过 WhatsApp 联系我们」（M8-21，ADR 0076；规范 site-booking-v2.md 第 13 节）的组件测试：
+ * 只有邮箱、WhatsApp 两个框（至少一项、各自的格式）、提交按钮旁的同意说明（没有勾选框）、陷阱字段、提交后的中性提示、
+ * 接口点名的字段落在框下面、限速时的说法；WhatsApp 按钮有号码才显示、链接带预先写好的行程要点、新标签页打开。
+ * 新预订页（接送报不出价、包车地址不在任何城市）和旧预订页里的位置和带上的行程在后半部分。
+ * 接口用测试替身；真实后端由 e2e/manual-quote.spec.ts 覆盖。
+ */
+import { afterEach, test } from "node:test";
+import assert from "node:assert/strict";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import { userEvent } from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
+import { App } from "../../App.tsx";
+import type { SiteByPointsResult, SiteCity, SiteConfig, SiteQuoteResult } from "../../api/site.ts";
+import { type ManualQuoteTripDraft, missingTripParts } from "../../lib/manual-quote-form.ts";
+import { type ApiCall, apiError, assertAbsent, assertFocused, json, resetBrowser, stubApiWith } from "../../testing/harness.tsx";
+import { ManualQuoteBlock } from "./ManualQuote.tsx";
+
+const originalMatchMedia = window.matchMedia;
+afterEach(() => {
+  resetBrowser();
+  window.matchMedia = originalMatchMedia;
+});
+
+function wideScreen(): void {
+  window.matchMedia = ((query: string) => ({ matches: query.includes("min-width: 1024px"), media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false })) as typeof window.matchMedia;
+}
+
+const SLOW = { timeout: 3000 };
+const CITY_ID = "11111111-1111-4111-8111-111111111111";
+/** 测试用的客服号码（不是任何真实号码） */
+const SUPPORT = "810000000000";
+const trip: ManualQuoteTripDraft = {
+  category: "point_to_point",
+  cityId: CITY_ID,
+  pickup: { name: "新宿站", lat: 35.6896, lng: 139.7006 },
+  dropoff: { name: "成田机场", lat: 35.772, lng: 140.3929 },
+  serviceLocal: "2030-11-20T09:30",
+  passengers: 2,
+  luggage: 1,
+  packageHours: null,
+};
+const user = () => userEvent.setup();
+const manualPosts = (calls: ApiCall[]): ApiCall[] => calls.filter((call) => call.method === "POST" && call.path === "/site/v1/manual-quote-requests");
+
+function openBlock(options: { supportWhatsapp?: string | null; trip?: ManualQuoteTripDraft; respond?: () => Response } = {}): ApiCall[] {
+  const calls = stubApiWith((call) => (call.method === "POST" && call.url.pathname === "/site/v1/manual-quote-requests" ? (options.respond?.() ?? json(202, { status: "accepted" })) : null));
+  render(<ManualQuoteBlock trip={options.trip ?? trip} supportWhatsapp={options.supportWhatsapp ?? null} />);
+  return calls;
+}
+
+test("只有邮箱、WhatsApp 两个框（没有姓名、备注、勾选框）；提交按钮旁写「提交即同意…」；陷阱字段人看不到、键盘到不了", () => {
+  openBlock();
+  const form = screen.getByRole("region", { name: "请客服人工报价" });
+  assert.deepEqual(within(form).getAllByRole("textbox").map((box) => box.getAttribute("type")), ["email", "tel"]);
+  assert.ok(within(form).getByLabelText("邮箱"));
+  assert.ok(within(form).getByLabelText("WhatsApp"));
+  assertAbsent(within(form).queryByRole("checkbox"));
+  assertAbsent(within(form).queryByLabelText(/姓名|备注/));
+  const submit = within(form).getByRole("button", { name: "提交" });
+  assert.equal(submit.parentElement?.textContent, "提交提交即同意客服通过您留下的方式联系您");
+  const trap = document.querySelector<HTMLInputElement>('input[name="website"]');
+  assert.ok(trap);
+  assert.equal(trap.tabIndex, -1);
+  assert.equal(trap.closest("[aria-hidden]")?.getAttribute("aria-hidden"), "true");
+});
+
+test("两项都不填：「请至少填一项」落在邮箱下面、焦点到邮箱，不提交；填了一项提示收起", async () => {
+  const calls = openBlock();
+  const actor = user();
+  await actor.click(screen.getByRole("button", { name: "提交" }));
+  assert.ok(screen.getByText("请至少填一项：邮箱或 WhatsApp"));
+  assertFocused(screen.getByLabelText("邮箱"));
+  assert.equal(screen.getByLabelText("邮箱").getAttribute("aria-invalid"), "true");
+  assert.equal(manualPosts(calls).length, 0);
+  await actor.type(screen.getByLabelText("WhatsApp"), "+81");
+  assertAbsent(screen.queryByText("请至少填一项：邮箱或 WhatsApp"));
+});
+
+test("格式：邮箱不完整、WhatsApp 不以 + 开头或位数不对都在各自的框下面说明，不提交", async () => {
+  const calls = openBlock();
+  const actor = user();
+  await actor.type(screen.getByLabelText("邮箱"), "name@example");
+  await actor.type(screen.getByLabelText("WhatsApp"), "090 1234 5678");
+  await actor.click(screen.getByRole("button", { name: "提交" }));
+  assert.ok(screen.getByText("邮箱的格式不对，请写完整，如 name@example.com"));
+  assert.ok(screen.getByText(/WhatsApp 号码请以 \+ 和国家码开头/));
+  assertFocused(screen.getByLabelText("邮箱"));
+  assert.equal(manualPosts(calls).length, 0);
+  await actor.clear(screen.getByLabelText("邮箱"));
+  await actor.clear(screen.getByLabelText("WhatsApp"));
+  await actor.type(screen.getByLabelText("WhatsApp"), "+81 12");
+  await actor.click(screen.getByRole("button", { name: "提交" }));
+  assert.ok(screen.getByText(/WhatsApp 号码请以 \+ 和国家码开头/));
+  assertFocused(screen.getByLabelText("WhatsApp"));
+  assert.equal(manualPosts(calls).length, 0);
+});
+
+test("只填 WhatsApp 就能提交：请求体只有两项联系方式、同意、页面带上的行程、空的陷阱字段；之后表单换成中性的「已收到」", async () => {
+  const calls = openBlock();
+  const actor = user();
+  await actor.type(screen.getByLabelText("WhatsApp"), "+81 90-0000-0000");
+  await actor.click(screen.getByRole("button", { name: "提交" }));
+  assert.ok(await screen.findByText("已收到。客服会通过您留下的邮箱或 WhatsApp 联系您报价，请留意消息。"));
+  assert.equal(screen.getByRole("status").textContent, "已收到。客服会通过您留下的邮箱或 WhatsApp 联系您报价，请留意消息。");
+  assert.deepEqual(manualPosts(calls).map((call) => call.body), [
+    {
+      email: null,
+      whatsapp: "+81 90-0000-0000",
+      consent: true,
+      trip: { category: "point_to_point", city_id: CITY_ID, pickup: { name: "新宿站", lat: 35.6896, lng: 139.7006 }, dropoff: { name: "成田机场", lat: 35.772, lng: 140.3929 }, service_local: "2030-11-20T09:30", passengers: 2, luggage: 1, package_hours: null },
+      website: "",
+    },
+  ]);
+  assertAbsent(screen.queryByLabelText("邮箱"));
+});
+
+test("接口点名 WhatsApp 格式不对时落在 WhatsApp 框下面；限速时说要等多久，并提到 WhatsApp 按钮", async () => {
+  let reply = (): Response => apiError(400, "VALIDATION_FAILED", "x", { issues: [{ path: "/whatsapp", reason: "FORMAT", message: "x" }] });
+  openBlock({ supportWhatsapp: SUPPORT, respond: () => reply() });
+  const actor = user();
+  await actor.type(screen.getByLabelText("邮箱"), "guest@example.com");
+  await actor.type(screen.getByLabelText("WhatsApp"), "+81 90 0000 0000");
+  await actor.click(screen.getByRole("button", { name: "提交" }));
+  assert.ok(await screen.findByText(/WhatsApp 号码请以 \+ 和国家码开头/));
+  await waitFor(() => assertFocused(screen.getByLabelText("WhatsApp")));
+  reply = () => apiError(429, "RATE_LIMITED", "x", {}, { "retry-after": "120" });
+  await actor.click(screen.getByRole("button", { name: "提交" }));
+  assert.equal((await screen.findByRole("alert", {}, SLOW)).textContent, "操作太频繁了，请 2 分钟后再试。也可以点下面的「通过 WhatsApp 联系我们」。");
+  assert.ok(screen.getByLabelText("邮箱"), "表单还在，填的内容还在");
+  assert.equal((screen.getByLabelText("邮箱") as HTMLInputElement).value, "guest@example.com");
+});
+
+test("行程不齐（包车没选时长、没选时间）时不提交，请客人先在上面补上", async () => {
+  const calls = openBlock({ trip: { ...trip, category: "charter", dropoff: null, packageHours: null, serviceLocal: null } });
+  const actor = user();
+  await actor.type(screen.getByLabelText("邮箱"), "guest@example.com");
+  await actor.click(screen.getByRole("button", { name: "提交" }));
+  assert.equal(screen.getByRole("alert").textContent, "请先在上面选好包车时长、日期和时间，再提交。");
+  assert.equal(manualPosts(calls).length, 0);
+  assert.deepEqual(missingTripParts({ ...trip, pickup: null, dropoff: null }), ["出发地", "目的地"]);
+});
+
+test("WhatsApp 按钮：没设置客服号码时不显示；设置了显示，wa.me 链接带预先写好的行程要点（没有客人的个人信息），新标签页打开", () => {
+  openBlock();
+  assertAbsent(screen.queryByRole("link", { name: /WhatsApp/ }));
+  resetBrowser();
+  openBlock({ supportWhatsapp: SUPPORT });
+  const link = screen.getByRole("link", { name: /^通过 WhatsApp 联系我们\s*（在新标签页打开）$/ });
+  const href = new URL(link.getAttribute("href") ?? "");
+  assert.equal(`${href.origin}${href.pathname}`, `https://wa.me/${SUPPORT}`);
+  assert.equal(href.searchParams.get("text"), "您好，我想咨询用车报价：点对点，新宿站 → 成田机场，2030-11-20 09:30，2 人。");
+  assert.equal(link.getAttribute("target"), "_blank");
+  assert.match(link.getAttribute("rel") ?? "", /\bnoopener\b/);
+});
+
+// ───────────── 页面里的位置 ─────────────
+
+const city: SiteCity = { id: CITY_ID, code: "CTY-JP-TYO", name: { zh: "东京" }, timezone: "Asia/Tokyo", country_code: "JP", center: { lat: 35.6895, lng: 139.6917 }, categories: ["airport_transfer", "point_to_point", "charter"] };
+const configOf = (changes: Partial<SiteConfig> = {}): SiteConfig => ({ open: true, currency: "JPY", payments: null, support_phone: "+81 3-0000-0000", support_whatsapp: null, address_search: true, map_tiles: null, ...changes });
+const noQuotes: SiteByPointsResult = { trip_type: "point_to_point", airport: null, city: { id: CITY_ID, code: "CTY-JP-TYO", name: { zh: "东京" }, timezone: "Asia/Tokyo" }, currency: "JPY", quotes: [], unavailable: [{ vehicle_group_id: null, reasons: ["NO_PRODUCT"] }], expires_at: null, route: null };
+
+function openPage(at: string, options: { config?: SiteConfig; byPoints?: () => Response; charter?: () => Response } = {}): ApiCall[] {
+  const calls = stubApiWith((call) => {
+    const path = call.url.pathname;
+    if (path === "/site/v1/config") return json(200, options.config ?? configOf());
+    if (path === "/site/v1/cities") return json(200, { items: [city] });
+    if (path === `/site/v1/cities/${CITY_ID}/charter-packages`) return json(200, { items: [{ hours: 8 }] });
+    if (call.method === "POST" && path === "/site/v1/quotes/by-points") return options.byPoints?.() ?? json(200, noQuotes);
+    if (call.method === "POST" && path === "/site/v1/quotes") return options.charter?.() ?? null;
+    if (call.method === "POST" && path === "/site/v1/manual-quote-requests") return json(202, { status: "accepted" });
+    return null;
+  });
+  render(
+    <MemoryRouter initialEntries={[at]}>
+      <App />
+    </MemoryRouter>,
+  );
+  return calls;
+}
+
+const P2P_LINK = "/book/new?from=35.6896,139.7006&from_name=%E6%96%B0%E5%AE%BF%E7%AB%99&to=35.6586,139.7454&to_name=%E4%B8%9C%E4%BA%AC%E5%A1%94&date=2030-11-20&time=14:30";
+
+test("新预订页接送报不出价：保留「这个地址暂时没有在线报价，请联系客服」和客服电话，下面是人工报价表单和 WhatsApp 按钮；提交带上页面的行程（用车类型按识别结果、城市）", async () => {
+  wideScreen();
+  const calls = openPage(P2P_LINK, { config: configOf({ support_whatsapp: SUPPORT }) });
+  const actor = user();
+  const region = await screen.findByRole("region", { name: "请客服人工报价" }, SLOW);
+  assert.ok(screen.getByText("这个地址暂时没有在线报价，请联系客服"));
+  assert.ok(screen.getByRole("link", { name: "+81 3-0000-0000" }));
+  const link = within(region).getByRole("link", { name: /通过 WhatsApp 联系我们/ });
+  assert.equal(new URL(link.getAttribute("href") ?? "").searchParams.get("text"), "您好，我想咨询用车报价：点对点，新宿站 → 东京塔，2030-11-20 14:30，2 人。");
+  await actor.type(within(region).getByLabelText("邮箱"), "guest@example.com");
+  await actor.click(within(region).getByRole("button", { name: "提交" }));
+  assert.ok(await screen.findByText(/已收到。/));
+  assert.deepEqual(manualPosts(calls)[0]?.body, {
+    email: "guest@example.com",
+    whatsapp: null,
+    consent: true,
+    trip: { category: "point_to_point", city_id: CITY_ID, pickup: { name: "新宿站", lat: 35.6896, lng: 139.7006 }, dropoff: { name: "东京塔", lat: 35.6586, lng: 139.7454 }, service_local: "2030-11-20T14:30", passengers: 2, luggage: 2, package_hours: null },
+    website: "",
+  });
+});
+
+test("新预订页渠道不卖这一段（CHANNEL_SCOPE_DENIED）：同样有人工报价表单；没设置客服 WhatsApp 时不显示按钮", async () => {
+  wideScreen();
+  openPage(P2P_LINK, { byPoints: () => apiError(403, "CHANNEL_SCOPE_DENIED", "x") });
+  assert.ok(await screen.findByRole("region", { name: "请客服人工报价" }, SLOW));
+  assert.ok(screen.getByText("这个地址暂时没有在线报价，请联系客服"));
+  assertAbsent(screen.queryByRole("link", { name: /WhatsApp/ }));
+});
+
+test("新预订页包车、上车地点不在任何能订包车的城市：说明 + 客服电话；给通用的包车时长，选了以后提交带 package_hours、没有城市", async () => {
+  wideScreen();
+  const calls = openPage("/book/new?mode=charter&from=26.2124,127.6809&from_name=%E9%82%A3%E9%9C%B8&to=26.3,127.8&to_name=%E5%8C%97%E8%B0%B7&date=2030-11-20&time=09:00");
+  const actor = user();
+  const region = await screen.findByRole("region", { name: "请客服人工报价" }, SLOW);
+  assert.ok(screen.getByText("这个地址暂时没有在线报价，请联系客服"));
+  await actor.type(within(region).getByLabelText("WhatsApp"), "+86 130 0000 0000");
+  await actor.click(within(region).getByRole("button", { name: "提交" }));
+  assert.equal(within(region).getByRole("alert").textContent, "请先在上面选好包车时长，再提交。");
+  await actor.selectOptions(screen.getByLabelText("包车时长"), "6");
+  const again = await screen.findByRole("region", { name: "请客服人工报价" });
+  await actor.type(within(again).getByLabelText("WhatsApp"), "+86 130 0000 0000");
+  await actor.click(within(again).getByRole("button", { name: "提交" }));
+  assert.ok(await screen.findByText(/已收到。/));
+  const body = manualPosts(calls)[0]?.body as { trip: Record<string, unknown> };
+  assert.equal(body.trip["category"], "charter");
+  assert.equal(body.trip["city_id"], null);
+  assert.equal(body.trip["package_hours"], 6);
+  assert.deepEqual(body.trip["dropoff"], { name: "北谷", lat: 26.3, lng: 127.8 });
+  assert.equal(calls.filter((call) => call.path === "/site/v1/quotes").length, 0, "不在城市里不询价");
+});
+
+test("新预订页没有车（报价列表为空、也没有原因）同样给人工报价；还没填行程时不显示", async () => {
+  wideScreen();
+  openPage(P2P_LINK, { byPoints: () => json(200, { ...noQuotes, quotes: [] satisfies SiteQuoteResult["quotes"], unavailable: [] }) });
+  assert.ok(await screen.findByRole("region", { name: "请客服人工报价" }, SLOW), "没有车也算报不出价");
+  resetBrowser();
+  wideScreen();
+  openPage("/book/new");
+  await screen.findByRole("combobox", { name: "出发地" }, SLOW);
+  assertAbsent(screen.queryByRole("region", { name: "请客服人工报价" }));
+});

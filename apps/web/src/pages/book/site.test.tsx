@@ -563,3 +563,33 @@ test("车型标识（M7-03）：订单页（查订单进来的也是它）的「
   assert.equal(factValue(bare, "最多乘客")?.textContent, "6 人");
   assert.equal([...bare.querySelectorAll("dd")].filter((node) => (node.textContent ?? "").trim() === "").length, 0, "没有空的项");
 });
+
+test("旧预订页报不出价（M8-21）：原因下面有「请客服人工报价」（邮箱、WhatsApp）；提交带上机场和地址两端的行程；没设置客服 WhatsApp 时不显示按钮", async () => {
+  const calls = open(
+    "/book",
+    bookingRoutes((call) => {
+      if (call.method === "POST" && call.url.pathname === "/site/v1/quotes") return json(200, { currency: "JPY", quotes: [], unavailable: [{ vehicle_group_id: null, reasons: ["OUT_OF_SERVICE_AREA"] }] });
+      if (call.method === "POST" && call.url.pathname === "/site/v1/manual-quote-requests") return json(202, { status: "accepted" });
+      return null;
+    }),
+  );
+  const actor = user();
+  await fillInquiry(actor);
+  await actor.click(screen.getByRole("button", { name: "查询价格" }));
+  const region = await screen.findByRole("region", { name: "请客服人工报价" });
+  assert.equal(screen.queryByRole("link", { name: /WhatsApp/ }), null);
+  await actor.type(within(region).getByLabelText("邮箱"), "guest@example.com");
+  await actor.click(within(region).getByRole("button", { name: "提交" }));
+  assert.ok(await screen.findByText(/已收到。/));
+  const body = calls.find((call) => call.path === "/site/v1/manual-quote-requests")?.body as { trip: Record<string, unknown> };
+  assert.deepEqual(body.trip, {
+    category: "airport_transfer",
+    city_id: CITY_ID,
+    pickup: { name: "成田机场（NRT）", lat: 35.7686, lng: 140.3887 },
+    dropoff: { name: "东京站八重洲口", lat: 35.6812, lng: 139.7671 },
+    service_local: "2030-11-20T10:00",
+    passengers: 2,
+    luggage: 1,
+    package_hours: null,
+  });
+});
