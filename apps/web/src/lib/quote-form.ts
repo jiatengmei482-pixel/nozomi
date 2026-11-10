@@ -45,6 +45,14 @@ export function pointsNeeded(form: Pick<QuoteForm, "category" | "direction">): (
   return quoteCheckPoints({ category: form.category, direction: form.category === "airport_transfer" ? form.direction : null });
 }
 
+/**
+ * 选填的点：包车的下车点（ADR 0073 第三部分，M8-12a）。试算接口和渠道接口一样，包车不给下车点时只报没设区域加价的商品；
+ * 给了才按「上车加价 + 下车加价」算。填了就要填对。
+ */
+export function optionalPoints(form: Pick<QuoteForm, "category">): ("pickup" | "dropoff")[] {
+  return form.category === "charter" ? ["dropoff"] : [];
+}
+
 function wholeNumber(text: string): number | null {
   const trimmed = text.trim().replace(/[０-９]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xfee0));
   return /^\d+$/.test(trimmed) ? Number(trimmed) : null;
@@ -65,7 +73,8 @@ export function readQuoteForm(form: QuoteForm): QuoteReading {
   if (transfer && form.direction === null) errors.direction = "请选择方向";
 
   const points: Partial<Record<"pickup" | "dropoff", { lat: number; lng: number }>> = {};
-  for (const which of pointsNeeded(form)) {
+  const optional = optionalPoints(form).filter((which) => form[which].lat.trim() !== "" || form[which].lng.trim() !== "");
+  for (const which of [...pointsNeeded(form), ...optional]) {
     const value = form[which];
     const lat = coordinateIssue("lat", value.lat);
     const lng = coordinateIssue("lng", value.lng);

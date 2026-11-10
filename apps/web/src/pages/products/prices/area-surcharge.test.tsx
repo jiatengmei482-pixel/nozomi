@@ -296,7 +296,7 @@ test("保存被拒：区域的四种 400 原因写成怎么办；别人的 / 已
   for (const [reason, text] of reasons) {
     answer = (body) => apiError(400, "VALIDATION_FAILED", "invalid", { issues: [{ path: "/create/0/area_id", reason, message: "后端的说明", detail: { ref: body.create[0]?.["ref"] } }] });
     await save(actor);
-    await waitFor(() => assert.match(document.body.textContent ?? "", text), reason);
+    await waitFor(() => assert.match(document.body.textContent ?? "", text, reason));
   }
   answer = () => apiError(404, "NOT_FOUND", "区域不存在");
   await save(actor);
