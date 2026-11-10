@@ -929,7 +929,7 @@ export function AreaSurchargeBlock(props: {
 }
 
 /** 复选框组：「全部」是三态复选框（`02-components.md` 第 8 节）。 */
-function CheckGroup({ legend, all, chosen, nameOf, error, onChange }: { legend: string; all: readonly string[]; chosen: readonly string[]; nameOf(id: string): string; error: string | undefined; onChange(next: string[]): void }) {
+export function CheckGroup({ legend, all, chosen, nameOf, error, onChange }: { legend: string; all: readonly string[]; chosen: readonly string[]; nameOf(id: string): string; error: string | undefined; onChange(next: string[]): void }) {
   const allRef = useRef<HTMLInputElement>(null);
   const every = all.every((id) => chosen.includes(id));
   const some = !every && chosen.length > 0;

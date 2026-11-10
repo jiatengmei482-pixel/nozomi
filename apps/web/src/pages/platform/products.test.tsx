@@ -879,3 +879,18 @@ test("M8-12a 报价试算的包车区域加价：明细里写出套餐价 + 上�
   const detail = groupCard.querySelector(".quote-detail")?.textContent ?? "";
   for (const part of ["区域加价套餐价 JPY 20,000 + 上车加价 JPY 0 + 下车加价 JPY 1,000（已含在基础价里）", "上车点在商品的服务区域里，不加价", "对外价参考：上车加价 JPY 0，下车加价 JPY 1,100"]) assert.ok(detail.includes(part), `明细应有「${part}」：${detail}`);
 });
+
+test("M8-12 报价试算的点对点线路价和含公里数：明细里写出一口价 + 超出公里 × 每公里、含几公里、这次路线多长；对外价参考单独列", async () => {
+  const routeCandidate = candidateOf(1, "NOZOMI 自营车队", "PRD-A", 19500, {
+    over_km_per_km_sell: 330,
+    offer: { vehicle_group_id: GROUP_ID, package_hours: null, area_id: AREA_ID, price_rule_id: PRICE_ID, settlement: { ...settlementOf(19500), base: 19500, adjust: 0, to_area_id: AREA_ID, distance: { included_km: 30, route_meters: 34200, over_km: 5, over_km_per_km: 300 } } },
+  });
+  const preview = previewOf();
+  open("/platform/quote-preview", "super_admin", (call) => (call.method === "POST" && call.url.pathname === "/platform/v1/quotes/preview" ? json(200, { ...preview, groups: [{ ...(preview.groups[0] as (typeof preview.groups)[number]), candidates: [routeCandidate] }] }) : null));
+  await fillTransfer();
+  await user().click(screen.getByRole("button", { name: "试算" }));
+  const groupCard = (await screen.findByRole("heading", { level: 3, name: "商务七座" })).closest("section") as HTMLElement;
+  await user().click(within(groupCard).getByRole("button", { name: "看 NOZOMI 自营车队 的结算价明细" }));
+  const detail = groupCard.querySelector(".quote-detail")?.textContent ?? "";
+  for (const part of ["线路价用的是这条线路（上车区域 → 下车区域，单向）的线路价", "含公里数一口价 JPY 18,000 + 超出 5 公里 × JPY 300 = JPY 19,500（已含在基础价里）", "含 30 公里，这次路线约 34.2 公里；超出的部分不足 1 公里按 1 公里", "对外价参考：超出每公里 JPY 330"]) assert.ok(detail.includes(part), `明细应有「${part}」：${detail}`);
+});
