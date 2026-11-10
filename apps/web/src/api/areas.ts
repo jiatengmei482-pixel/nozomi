@@ -2,7 +2,7 @@
  * 供应商后台：区域、地图底图配置、首页数量、选城市和参考点用的平台主数据（只读）。
  * 类型手写，与 `apps/api/openapi.yaml` 对账（`areas.contract.test.ts`）。
  */
-import type { AreaBizType, AreaPolygonKind, AreaPolygonSource, LocalizedText, MasterDataStatus, PlaceType } from "@nozomi/domain";
+import type { AreaBizType, AreaPolygonKind, AreaPolygonSource, AreaRole, LocalizedText, MasterDataStatus, PlaceType } from "@nozomi/domain";
 import { apiRequest } from "./client.ts";
 import type { City, MasterPage, Place, Point } from "./master.ts";
 
@@ -47,6 +47,8 @@ export interface AreaSummary {
   city_id: string;
   city: AreaCity;
   biz_type: AreaBizType;
+  /** 用途（M8-20，ADR 0075）：运营区域 / 报价区域 / 运营 + 报价。页面改版前可能没有这一项 */
+  role?: AreaRole;
   status: MasterDataStatus;
   operate_polygon_count: number;
   forbid_polygon_count: number;
@@ -58,6 +60,8 @@ export interface AreaSummary {
 
 export interface Area extends AreaSummary {
   polygons: AreaPolygon[];
+  /** 报价区域有多少平方米不在任何运营区域里（不到 100 平方米为 0；运营区域、停用的为 null；M8-20） */
+  outside_operating_m2?: number | null;
 }
 
 /** 提交的一块图形：多边形给 geometry，圆给 circle；已有的带 id，新加的不带。 */
@@ -74,6 +78,8 @@ export interface AreaCreate {
   city_id: string;
   name: LocalizedText;
   biz_type: AreaBizType;
+  /** 用途（M8-20）：新建时不给按运营 + 报价；修改时不给 = 不改 */
+  role?: AreaRole;
   polygons: AreaPolygonInput[];
 }
 export type AreaUpdate = Omit<AreaCreate, "city_id">;
@@ -118,9 +124,10 @@ export interface AreaListQuery {
   q?: string;
   city_id?: string;
   biz_type?: AreaBizType;
+  role?: AreaRole;
   status?: MasterDataStatus | "all";
 }
-export const AREA_LIST_QUERY_KEYS = ["limit", "cursor", "q", "city_id", "biz_type", "status"] as const satisfies readonly (keyof AreaListQuery)[];
+export const AREA_LIST_QUERY_KEYS = ["limit", "cursor", "q", "city_id", "biz_type", "role", "status"] as const satisfies readonly (keyof AreaListQuery)[];
 
 export function query(path: string, values: object): string {
   const params = new URLSearchParams();
@@ -193,10 +200,10 @@ export function listTenantPlaces(token: string, cityId: string, type: PlaceType)
 }
 
 /** 对账用：每个类型的字段名清单。 */
-const SUMMARY = ["id", "name", "city_id", "city", "biz_type", "status", "operate_polygon_count", "forbid_polygon_count", "usage", "version", "created_at", "updated_at"] as const;
+const SUMMARY = ["id", "name", "city_id", "city", "biz_type", "role", "status", "operate_polygon_count", "forbid_polygon_count", "usage", "version", "created_at", "updated_at"] as const;
 export const AREA_SCHEMA_FIELDS = {
   AreaSummary: SUMMARY,
-  Area: [...SUMMARY, "polygons"],
+  Area: [...SUMMARY, "polygons", "outside_operating_m2"],
   AreaCity: ["id", "code", "name", "status", "center", "boundary"],
   AreaPolygon: ["id", "kind", "seq", "label", "source", "circle", "geometry"],
   AreaCircle: ["center", "radius_m"],
@@ -213,8 +220,8 @@ export const AREA_SCHEMA_FIELDS = {
 };
 
 export const AREA_WRITE_FIELDS = {
-  AreaCreate: ["city_id", "name", "biz_type", "polygons"],
-  AreaUpdate: ["name", "biz_type", "polygons"],
+  AreaCreate: ["city_id", "name", "biz_type", "role", "polygons"],
+  AreaUpdate: ["name", "biz_type", "role", "polygons"],
   AreaPolygonInput: ["id", "kind", "label", "source", "circle", "geometry"],
 } as const satisfies {
   AreaCreate: readonly (keyof AreaCreate)[];

@@ -17,7 +17,6 @@ import {
   AREA_OVERLAP_MIN_M2,
   type AreaBizType,
   type AreaRole,
-  type OverlapAreaInput,
   type AreaPolygonKind,
   type AreaPolygonSource,
   type AreaShapeIssue,
@@ -29,8 +28,8 @@ import {
   areaRoleCanOperate,
   areaRoleCanPrice,
   areaShapeIssues,
-  areaUsableByCategory,
   findPricingOutsideOperating,
+  productPricingOutsideOperating,
   circleToRing,
   isLatitude,
   isLongitude,
@@ -53,6 +52,7 @@ import {
   type AreaPolygonDraft,
   type AreaShapes,
   areaNameTaken as nameTaken,
+  areaShapeInput,
   countProductsPricingWithArea,
   countAreasByStatus,
   deleteArea as deleteAreaRow,
@@ -106,7 +106,7 @@ export interface AreaView {
   polygons: AreaPolygon[] | null;
   /**
    * 报价区域（报价区域、运营 + 报价）有多少平方米不在本租户任何启用中、业务类型相容的运营区域里（ADR 0075 第一部分第 2 节）：
-   * 不小于 100 平方米时给面积，否则 0；只在详情里算（列表、区域地图不算：地图自己用同一个函数算）。运营区域、停用的区域为 null
+   * 不小于 100 平方米时给面积，否则 0；详情和区域地图里算，列表不算（不给）。运营区域、停用的区域为 null
    */
   outsideOperatingM2?: number | null;
 }
@@ -225,14 +225,13 @@ function areaAudit(area: Area, polygons: readonly (AreaPolygon | AreaPolygonDraf
   return { city_id: area.cityId, name: area.name, biz_type: area.bizType, role: area.role, status: area.status, polygons: polygons.map(polygonAudit) };
 }
 
-const overlapInput = (area: AreaShapes): OverlapAreaInput => ({ id: area.id, bizType: area.bizType, role: area.role, active: area.status === "active", polygons: area.polygons });
 
 /** 这个报价区域超出本租户运营区域的面积（不小于 100 平方米才算，否则 0）；运营区域、停用的为 null。 */
 function outsideOperatingOf(areaId: string, all: readonly AreaShapes[]): number | null {
   const area = all.find((entry) => entry.id === areaId);
   if (area === undefined || area.status !== "active" || !areaRoleCanPrice(area.role)) return null;
-  const operating = all.filter((entry) => areaRoleCanOperate(entry.role)).map(overlapInput);
-  return findPricingOutsideOperating([overlapInput(area)], operating).byArea.get(areaId) ?? 0;
+  const operating = all.filter((entry) => areaRoleCanOperate(entry.role)).map(areaShapeInput);
+  return findPricingOutsideOperating([areaShapeInput(area)], operating).byArea.get(areaId) ?? 0;
 }
 
 /** 一个区域改成这样之后（`after` 为 null = 停用或删除）本租户全部区域的样子。 */
@@ -248,11 +247,7 @@ async function assertOperatingKept(db: Db, tenantId: string, change: AreaChange)
   if (products.length === 0) return;
   const before = await listTenantAreaShapes(db, tenantId);
   const after = before.flatMap((area) => (area.id !== change.areaId ? [area] : change.after === null ? [] : [change.after]));
-  const outside = (areas: readonly AreaShapes[], product: (typeof products)[number]): Map<string, number> => {
-    const pricing = areas.filter((area) => product.areaIds.includes(area.id) && areaRoleCanPrice(area.role)).map(overlapInput);
-    const operating = areas.filter((area) => areaRoleCanOperate(area.role) && areaUsableByCategory(product.category, area.bizType)).map(overlapInput);
-    return findPricingOutsideOperating(pricing, operating, () => true).byArea;
-  };
+  const outside = (areas: readonly AreaShapes[], product: (typeof products)[number]): Map<string, number> => productPricingOutsideOperating(areas.map(areaShapeInput), product.areaIds, product.category);
   const affected: { product_id: string; product_code: string; area_id: string; outside_m2: number }[] = [];
   for (const product of products) {
     const was = outside(before, product);
@@ -545,8 +540,13 @@ async function mapViews(db: Db, rows: readonly AreaMapRow[], tenantId: string | 
   const cities = await findAreaCities(db, [...new Set(rows.map((row) => row.cityId))]);
   const editors = await lastAreaEditors(db, ids, tenantId);
   const usages = new Map<string, AreaUsage>();
+  const outside = new Map<string, number | null>();
   for (const owner of new Set(rows.map((row) => row.tenantId))) {
-    for (const [id, usage] of await areaUsage(db, owner, rows.filter((row) => row.tenantId === owner).map((row) => row.id))) usages.set(id, usage);
+    const owned = rows.filter((row) => row.tenantId === owner);
+    for (const [id, usage] of await areaUsage(db, owner, owned.map((row) => row.id))) usages.set(id, usage);
+    // 报价区域超出运营区域的面积（ADR 0075）：和这个供应商全部的运营区域比（不只是这一页里的）
+    const shapes = await listTenantAreaShapes(db, owner);
+    for (const row of owned) outside.set(row.id, outsideOperatingOf(row.id, shapes));
   }
   return rows.map((row) => {
     const { operatePolygonCount, forbidPolygonCount, tenantId: _owner, ...area } = row;
@@ -557,6 +557,7 @@ async function mapViews(db: Db, rows: readonly AreaMapRow[], tenantId: string | 
       forbidPolygonCount,
       usage: usages.get(row.id) ?? UNUSED,
       polygons: polygons.get(row.id) ?? [],
+      outsideOperatingM2: outside.get(row.id) ?? null,
       lastEditor: editors.get(row.id) ?? null,
     };
   });

@@ -21087,12 +21087,12 @@ components:
           description: |
             报价区域（`pricing` / `both`）真正的范围（营运区减去自己的禁行区）有多少平方米不在本租户任何启用中、业务类型相容的运营区域里（ADR 0075 第一部分第 2 节）。
             不到 100 平方米算 0；大于 0 时页面提示「这个报价区域有一部分不在任何运营区域里，那部分不会报价」。只是提醒，不拦保存。
-            运营区域、停用的区域为 null。超出部分的形状由页面用 `@nozomi/domain` 的 `findPricingOutsideOperating` 在区域地图上算
+            运营区域、停用的区域为 null。超出部分的形状由页面用 `@nozomi/domain` 的 `findPricingOutsideOperating` 在区域地图上画
     AreaMapItem:
       type: object
       additionalProperties: false
       description: 区域地图的一项：和区域详情相同（带全部图形），另带最近修改人
-      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, created_at, updated_at, polygons, last_editor ]
+      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, created_at, updated_at, polygons, outside_operating_m2, last_editor ]
       properties:
         id:
           type: string
@@ -21144,6 +21144,10 @@ components:
           description: 全部图形，按加入的先后
           items:
             $ref: "#/components/schemas/AreaPolygon"
+        outside_operating_m2:
+          type: [ integer, "null" ]
+          minimum: 0
+          description: 同区域详情的 `outside_operating_m2`（和这个供应商全部的运营区域比，不只是这一页里的）
         last_editor:
           description: 最近一次改这个区域的是谁、什么时候（取自审计日志里这个区域的最后一条；新增、修改、停用、启用都算）。没有日志时为 null
           oneOf:
@@ -21153,7 +21157,7 @@ components:
       type: object
       additionalProperties: false
       description: 运营后台区域地图的一项：和供应商后台的 `AreaMapItem` 相同，另带所属供应商
-      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, created_at, updated_at, polygons, last_editor, tenant_id, tenant ]
+      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, created_at, updated_at, polygons, outside_operating_m2, last_editor, tenant_id, tenant ]
       properties:
         id:
           type: string
@@ -21205,6 +21209,10 @@ components:
           description: 全部图形，按加入的先后
           items:
             $ref: "#/components/schemas/AreaPolygon"
+        outside_operating_m2:
+          type: [ integer, "null" ]
+          minimum: 0
+          description: 同区域详情的 `outside_operating_m2`（和这个供应商全部的运营区域比，不只是这一页里的）
         last_editor:
           description: 最近一次改这个区域的是谁、什么时候（取自审计日志里这个区域的最后一条；新增、修改、停用、启用都算）。没有日志时为 null
           oneOf:
@@ -22087,7 +22095,8 @@ components:
             properties:
               key:
                 type: string
-                enum: [ basic_info, service_rules, price_rules, content, adjust_rules, inventory ]
+                enum: [ basic_info, service_rules, price_rules, content, adjust_rules, inventory, area_coverage ]
+                description: "`area_coverage`（运营区域，M8-20）只在有提醒时出现、从不必须：勾选的报价区域有一部分不在任何运营区域里（原因 `PRICING_AREA_OUTSIDE_OPERATING`，`path` 是 `/areas/{区域编号}`，`detail.outside_m2` 是面积）"
               required:
                 type: boolean
                 description: 这一项不通过就不能上架
@@ -22099,7 +22108,7 @@ components:
                   不通过的原因。`path` 是相对于这一项的字段位置（如 `/areas/0`、`/booking/service_time`、`/zh/pickup_guide`；没有具体位置时是 `/`）。
                   `reason` 除了 `ProductInvalid` 里列的规则代码，还有：`NO_AREA`、`NO_VEHICLE_GROUP`、`NO_DISPATCHER`、`BRAND_DISABLED`、`CITY_DISABLED`、
                   `PICKUP_PLACE_MISSING`、`PICKUP_PLACE_DISABLED`、`PICKUP_PLACE_OTHER_CITY`（接送点被平台改到了别的城市）、`AREA_DISABLED`、`AREA_CITY_DISABLED`、`AREA_NOT_USABLE`、`VEHICLE_GROUP_DISABLED`、
-                  `VEHICLE_COMBO_NOT_OFFERED`、`ADDON_DISABLED`、`ADDON_NOT_APPLICABLE`、`NO_ACTIVE_PRICE_RULE`、`NO_PRICE_IN_SELECTION`、`ALL_PRICE_RULES_DISABLED`、`ALL_PRICE_RULES_EXPIRED`、`ADJUST_RESULT_NOT_POSITIVE`、`ADJUST_STACK_NOT_POSITIVE`、`ADJUST_STACK_OVER_LIMIT`、`NO_INVENTORY_AHEAD`。
+                  `VEHICLE_COMBO_NOT_OFFERED`、`ADDON_DISABLED`、`ADDON_NOT_APPLICABLE`、`NO_ACTIVE_PRICE_RULE`、`NO_PRICE_IN_SELECTION`、`ALL_PRICE_RULES_DISABLED`、`ALL_PRICE_RULES_EXPIRED`、`ADJUST_RESULT_NOT_POSITIVE`、`ADJUST_STACK_NOT_POSITIVE`、`ADJUST_STACK_OVER_LIMIT`、`NO_INVENTORY_AHEAD`、`PRICING_AREA_OUTSIDE_OPERATING`（M8-20）。
                   （`FEATURE_NOT_AVAILABLE` 只在 `@nozomi/domain` 的 `publishCheck` 不知道价格条数时出现，接口不再返回它。）
                 items:
                   type: object

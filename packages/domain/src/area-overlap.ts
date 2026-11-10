@@ -21,7 +21,9 @@
  * 规模：边数 n 时，找交点用「按最小经度排序 + 扫描」，竖条按活动边表扫描；几十个区域、几千个点在毫秒级。
  * 极端情况（几百个区域、每个几千个点、彼此大面积交错）会到秒级，所以页面只在数据变化时算一次（ADR 0074「限制」）。
  */
-import type { AreaBizType, AreaPolygonKind, AreaRole, Position } from "./areas.ts";
+import { type AreaBizType, type AreaPolygonKind, type AreaRole, type Position, areaRoleCanOperate, areaRoleCanPrice } from "./areas.ts";
+import type { ServiceCategory } from "./master-data.ts";
+import { areaUsableByCategory } from "./products.ts";
 
 /** 公共部分不到这么多平方米的不算重叠（10 米 × 10 米）。 */
 export const AREA_OVERLAP_MIN_M2 = 100;
@@ -353,4 +355,15 @@ export function findPricingOutsideOperating(
     if (ids.length > 0) result.pieces.push({ areaIds: ids, ring: piece.ring });
   }
   return result;
+}
+
+/**
+ * 一个商品勾选的报价区域（`pricingAreaIds`：商品区域、启用的包车区域加价的区域）各有多少平方米不在这个供应商的运营范围里（ADR 0075）：
+ * 运营范围按商品的品类取（用途是运营或运营 + 报价、业务类型和品类相容、启用中），和报价时的运营判断一样。不到 100 平方米的不在结果里。
+ * `areas` 是这个供应商的全部区域（没给用途的按运营 + 报价算）。
+ */
+export function productPricingOutsideOperating(areas: readonly OverlapAreaInput[], pricingAreaIds: readonly string[], category: ServiceCategory): Map<string, number> {
+  const pricing = areas.filter((area) => pricingAreaIds.includes(area.id) && areaRoleCanPrice(area.role ?? "both"));
+  const operating = areas.filter((area) => areaRoleCanOperate(area.role ?? "both") && areaUsableByCategory(category, area.bizType));
+  return findPricingOutsideOperating(pricing, operating, () => true).byArea;
 }

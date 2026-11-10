@@ -2,7 +2,7 @@
  * 区域的数据访问（迁移 0011）。全部在租户事务（withTenantTx）里调用：
  * 每个函数都显式带 tenantId 并写在条件里（ADR 0003 的第一道防线），行级安全是兜底。
  */
-import type { AreaBizType, AreaPolygonKind, AreaPolygonSource, AreaRole, AreaStatus, GeoJsonMultiPolygon, GeoJsonPolygon, LocalizedText, MasterDataStatus, Ring, ServiceCategory } from "@nozomi/domain";
+import type { AreaBizType, AreaPolygonKind, AreaPolygonSource, AreaRole, AreaStatus, GeoJsonMultiPolygon, GeoJsonPolygon, LocalizedText, MasterDataStatus, OverlapAreaInput, Ring, ServiceCategory } from "@nozomi/domain";
 import { ringToGeoJson } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
 import { type Page, type TimeCursor, toPage } from "../pagination.ts";
@@ -272,6 +272,9 @@ export interface AreaShapes {
   status: AreaStatus;
   polygons: { kind: AreaPolygonKind; ring: Ring }[];
 }
+
+/** 区域连同图形 → 重叠、超出运营区域的计算（@nozomi/domain 的 area-overlap）要的样子 */
+export const areaShapeInput = (area: AreaShapes): OverlapAreaInput => ({ id: area.id, bizType: area.bizType, role: area.role, active: area.status === "active", polygons: area.polygons });
 
 /** 本租户的全部区域连同图形（只在租户事务里调用）。 */
 export async function listTenantAreaShapes(db: Db, tenantId: string): Promise<AreaShapes[]> {

@@ -2,7 +2,7 @@
  * 审计日志的显示（docs/design/pages/platform-settings.md 第 3 节）：对象类型和操作的中文名、从改前改后的值里找名称、
  * 「改了什么」的对照。审计日志是后台里唯一允许出现字段原名的地方——排查问题时要拿它去对接口和数据库。
  */
-import { EXCEPTION_STATUS_NAMES, ORDER_STATUS_NAMES, PLATFORM_ROLES, PRODUCT_STATUS_NAMES, STATEMENT_STATUS_NAMES, TENANT_ROLES, TICKET_STATUS_NAMES } from "@nozomi/domain";
+import { AREA_ROLE_NAMES, EXCEPTION_STATUS_NAMES, ORDER_STATUS_NAMES, PLATFORM_ROLES, PRODUCT_STATUS_NAMES, STATEMENT_STATUS_NAMES, TENANT_ROLES, TICKET_STATUS_NAMES } from "@nozomi/domain";
 import type { AuditActorType, AuditLog, AuditSource } from "../api/platform.ts";
 import { APPROVAL_KIND_NAMES } from "./channel-display.ts";
 import { displayName } from "./master-display.ts";
@@ -271,6 +271,8 @@ export const FIELD_NAMES: Readonly<Record<string, string>> = {
 /** 只在某一类对象上才这样叫的字段（同名字段在别处意思不同）：双人复核的 `kind` 是复核类别，`resource_id` 是要改的对象。 */
 export const FIELD_NAMES_BY_RESOURCE: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   approval: { kind: "复核类别", resource: "复核对象的类型", resource_id: "复核对象的编号", summary: "摘要", payload: "申请的内容" },
+  // 区域的用途（M8-20，ADR 0075）：运营区域 / 报价区域 / 运营 + 报价，不是账号的角色
+  area: { role: "用途" },
 };
 
 /** 字段的中文名：先看这一类对象专有的，再看通用的；不认识的返回 undefined（页面上只显示原名）。 */
@@ -296,6 +298,7 @@ function statusNames(resource: string): Readonly<Record<string, string>> {
 }
 function enumName(key: string, value: string, resource: string): string | undefined {
   if (key === "status") return statusNames(resource)[value];
+  if (resource === "area" && key === "role") return (AREA_ROLE_NAMES as Readonly<Record<string, string>>)[value];
   if (key === "role") return ROLE_NAMES[value];
   if (key === "mode") return ({ unlimited: "不限量", limited: "限量" } as Record<string, string>)[value];
   if (resource === "approval" && key === "kind") return (APPROVAL_KIND_NAMES as Readonly<Record<string, string>>)[value];

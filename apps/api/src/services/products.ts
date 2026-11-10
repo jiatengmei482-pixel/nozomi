@@ -38,6 +38,7 @@ import {
   sellableRouteRules,
   isSurchargeRule,
   areaRoleCanPrice,
+  productPricingOutsideOperating,
   areaUsableByCategory,
   canPublish,
   contentIssues,
@@ -60,7 +61,7 @@ import type { DbContext } from "../context.ts";
 import { type Db, isUniqueViolation, withTenantTx } from "../db/context.ts";
 import { AppError, isRetryableDbError } from "../errors.ts";
 import type { TimeCursor } from "../pagination.ts";
-import { type AreaCity, findAreaCities } from "../repos/areas.ts";
+import { type AreaCity, areaShapeInput, findAreaCities, listTenantAreaShapes } from "../repos/areas.ts";
 import { type AuditAction, type AuditValue, type AuditValues, insertAuditLog } from "../repos/audit-logs.ts";
 import {
   BRAND_NAME_CONSTRAINT,
@@ -98,7 +99,7 @@ import {
 } from "../repos/products.ts";
 import { countSellableDays, findInventoryMode } from "../repos/inventory.ts";
 import { lockMasterReferencesShared } from "../repos/master-data.ts";
-import { listAdjustRules, listHolidays, listPriceRules } from "../repos/prices.ts";
+import { type StoredPriceRule, listAdjustRules, listHolidays, listPriceRules } from "../repos/prices.ts";
 import { findOwnTenant } from "../repos/tenants.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
 import { type SystemTenantPrincipal, tenantWriteOrigin } from "./audit.ts";
@@ -565,6 +566,7 @@ const RULE_MESSAGES: Readonly<Record<PublishIssueReason, string>> = {
   ADJUST_STACK_NOT_POSITIVE: "几条调价规则同时生效时，有些价格叠加、取整之后不大于 0",
   ADJUST_STACK_OVER_LIMIT: "调价规则生效时，有些价格调完超过了结算价的上限",
   NO_INVENTORY_AHEAD: "库存是限量的，但从今天起没有一天还有可售的库存，客人询价时报不出价",
+  PRICING_AREA_OUTSIDE_OPERATING: "这个报价区域有一部分不在任何运营区域里，那部分不会报价。需要的话请补画运营区域",
   FEATURE_NOT_AVAILABLE: "这项功能还没有上线",
 };
 
@@ -757,7 +759,8 @@ async function runPublishCheck(db: Db, tenantId: string, product: Product, now: 
   // 价格过没过期按商品所在城市当地的今天算
   const today = instantToLocal(now, view.city?.timezone ?? "UTC").date;
   // 区域加价（ADR 0073）不算在上架检查的价格统计里：它的区域本来就不在商品的区域列表里，不是「已不在选择范围内的价格」
-  const priceRules = (await listPriceRules(db, tenantId, product.id)).filter((rule) => !isSurchargeRule(rule));
+  const allPriceRules = await listPriceRules(db, tenantId, product.id);
+  const priceRules = allPriceRules.filter((rule) => !isSurchargeRule(rule));
   const adjustRules = await listAdjustRules(db, tenantId, product.id);
   // 「可以卖的价格」：启用、未过期，而且区域和车型组都是商品现在选着的（price-overview、修改保护用的是同一个判断）
   const selected = { areaIds: (view.areas ?? []).map((area) => area.areaId), vehicleGroupIds: (view.vehicleGroups ?? []).map((group) => group.vehicleGroupId) };
@@ -798,8 +801,18 @@ async function runPublishCheck(db: Db, tenantId: string, product: Product, now: 
     inventory: { mode: (await findInventoryMode(db, tenantId, product.id)) ?? "unlimited", sellableDaysAhead: await countSellableDays(db, tenantId, product.id, today) },
     nonPositiveAdjustRules: nonPositive,
     adjustStackProblems: stacks,
+    // 勾选的报价区域超出运营区域的部分（ADR 0075）：提醒、不拦上架；列表概况、修改保护不算
+    ...(options.light === true ? {} : { pricingOutsideOperating: await pricingOutsideOperating(db, tenantId, product, view.areas ?? [], allPriceRules) }),
   };
   return { items: publishCheck(facts), adjustRules: adjustRules.map((rule) => ({ id: rule.id, name: rule.name })), stacks };
+}
+
+/** 商品勾选的报价区域（商品区域、启用的包车区域加价的区域）里，有多少不在本租户运营范围里（ADR 0075，按商品品类取运营区域）。 */
+async function pricingOutsideOperating(db: Db, tenantId: string, product: Product, areas: readonly { areaId: string }[], rules: readonly StoredPriceRule[]): Promise<{ areaId: string; outsideM2: number }[]> {
+  const pricingIds = [...new Set([...areas.map((area) => area.areaId), ...rules.filter((rule) => isSurchargeRule(rule) && rule.status === "enabled").map((rule) => rule.areaId)])];
+  if (pricingIds.length === 0) return [];
+  const outside = productPricingOutsideOperating((await listTenantAreaShapes(db, tenantId)).map(areaShapeInput), pricingIds, product.category);
+  return [...outside].map(([areaId, outsideM2]) => ({ areaId, outsideM2 }));
 }
 
 /** 一个商品完整的上架校验结果（含调价规则叠加的检查）。租户的 publish-check 和运营后台查看商品用的是同一个。 */
