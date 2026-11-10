@@ -191,7 +191,7 @@ test("运营后台报价试算：路程来自缓存 / 起终点重合 / 假定�
   // 没有路线：警示条写出原因码和怎么办，没报出价的表里有这个商品
   await goTo(noRoute);
   await expect(banner).toBeVisible();
-  await expect(banner).toContainText("原因码 NO_ROUTE：这两个地点之间没有可行驶的路线（例如隔着海）。请换一组地点。一口价和包车套餐不受影响。");
+  await expect(banner).toContainText("原因码 NO_ROUTE：这两个地点之间没有可行驶的路线（例如隔着海）。请换一组地点。没设含公里数的一口价和包车套餐不受影响。");
   await expect(page.locator("main")).not.toContainText("用的路程");
   await expect(page.getByRole("region", { name: "没报出价的商品和原因" })).toContainText("价格是「里程 + 时长」或设了含公里数的一口价，需要路线预估，而现在取不到");
   await expectNarrowAndAccessible(page, "报价试算：没有路线");
