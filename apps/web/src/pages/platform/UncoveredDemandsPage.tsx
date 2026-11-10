@@ -27,6 +27,7 @@ import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { PLATFORM_AREA_MAP_PATH } from "../../lib/area-paths.ts";
 import { displayName, formatLocalDateTime } from "../../lib/master-display.ts";
 import { DEMAND_REASON_HINTS, DEMAND_REASON_NAMES, dateRangeProblem, endText, pointText, refusalSummary, serviceLocalText, tripText } from "../../lib/uncovered-demand-display.ts";
+import { tenantOptionLabel } from "../../lib/platform-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan } from "../../lib/use-master-access.ts";
@@ -62,7 +63,7 @@ function Filters({ cities, tenants, canSeeTenants }: { cities: { data: Filterabl
           label="供应商"
           clearLabel="全部"
           placeholder="全部"
-          options={(tenants.data ?? []).map((entry) => ({ value: entry.id, label: entry.name }))}
+          options={(tenants.data ?? []).map((entry) => ({ value: entry.id, label: tenantOptionLabel(entry), keywords: entry.name }))}
           value={tenant !== null && UUID_PATTERN.test(tenant) ? tenant : null}
           onChange={setTenant}
           loading={tenants.data === null && tenants.status === "loading"}

@@ -24,6 +24,9 @@ export const TENANT_STATUS_BADGES: Readonly<Record<TenantStatus, BadgeSpec>> = {
   terminated: { tone: "neutral", label: "已清退" },
 };
 
+/** QA 测试供应商（ADR 0077，接口字段 is_test_tenant）：中性色，放在名称旁边，和状态徽标分开。 */
+export const TEST_TENANT_BADGE: BadgeSpec = { tone: "neutral", label: "测试" };
+
 export function StatusBadge({ tone, label }: BadgeSpec) {
   return (
     <span className={`badge badge--${tone}`}>

@@ -4,6 +4,14 @@ import { ApiError, NetworkError } from "../api/client.ts";
 import type { BadgeSpec } from "../components/StatusBadge.tsx";
 
 export const NAME_MAX = 100;
+
+/** 下拉选项里的供应商名称：QA 测试供应商（ADR 0077）后面加「（测试）」。 */
+export function tenantOptionLabel(tenant: { name: string; is_test_tenant: boolean }): string {
+  return tenant.is_test_tenant ? `${tenant.name}（测试）` : tenant.name;
+}
+
+/** 详情页给 QA 测试供应商的说明（ADR 0077）。 */
+export const TEST_TENANT_TEXT = "测试供应商：只用于验收，不能上架、不参与官网和渠道比价（ADR 0077）。";
 export const REASON_MAX = 500;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 

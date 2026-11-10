@@ -20,11 +20,11 @@ import { CopyButton, FieldErrors, SelectField } from "../../components/FormField
 import { Icon } from "../../components/Icon.tsx";
 import { type IssuedLink, OneTimeLinkDialog } from "../../components/OneTimeLinkDialog.tsx";
 import { Skeleton, StateBlock } from "../../components/States.tsx";
-import { StatusBadge, TENANT_STATUS_BADGES } from "../../components/StatusBadge.tsx";
+import { StatusBadge, TENANT_STATUS_BADGES, TEST_TENANT_BADGE } from "../../components/StatusBadge.tsx";
 import { useToast } from "../../components/Toast.tsx";
 import { failureText } from "../../lib/failure.ts";
 import { formatLocalDateTime, shortName } from "../../lib/master-display.ts";
-import { EMAIL_REFUSED_TEXT, emailProblem, emailRefused, isUnsure, nameProblem } from "../../lib/platform-display.ts";
+import { EMAIL_REFUSED_TEXT, TEST_TENANT_TEXT, emailProblem, emailRefused, isUnsure, nameProblem } from "../../lib/platform-display.ts";
 import { TENANT_LIST_PATH, TENANT_NEW_PATH, auditLogPath, platformProductListPath, tenantPath } from "../../lib/platform-paths.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLeaveGuard } from "../../lib/use-leave-guard.ts";
@@ -115,9 +115,12 @@ export function TenantListPage() {
       header: "供应商",
       wrap: true,
       cell: (row) => (
-        <Link className="link tenant-name" to={tenantPath(row.id)} title={row.name}>
-          {row.name}
-        </Link>
+        <span className="tenant-status-cell">
+          <Link className="link tenant-name" to={tenantPath(row.id)} title={row.name}>
+            {row.name}
+          </Link>
+          {row.is_test_tenant && <StatusBadge {...TEST_TENANT_BADGE} />}
+        </span>
       ),
     },
     {
@@ -496,6 +499,7 @@ export function TenantDetailPage() {
   return shell(
     <>
       {!canCreate && !canChangeStatus && !canEdit && <Alert kind="info">你可以查看供应商，但不能修改。</Alert>}
+      {tenant.is_test_tenant && <Alert kind="info">{TEST_TENANT_TEXT}</Alert>}
       {suspended && (
         <div role="status">
           <Alert kind="warning">
@@ -530,7 +534,12 @@ export function TenantDetailPage() {
         <dl className="details">
           <div>
             <dt>名称</dt>
-            <dd>{tenant.name}</dd>
+            <dd>
+              <span className="tenant-status-cell">
+                {tenant.name}
+                {tenant.is_test_tenant && <StatusBadge {...TEST_TENANT_BADGE} />}
+              </span>
+            </dd>
           </div>
           <div>
             <dt>状态</dt>
@@ -602,6 +611,11 @@ export function TenantDetailPage() {
       {actions.dialog}
     </>,
     tenant.name,
-    { ...(statusButton ? { action: statusButton } : {}), meta: <StatusBadge {...TENANT_STATUS_BADGES[tenant.status]} /> },
+    { ...(statusButton ? { action: statusButton } : {}), meta: (
+        <span className="tenant-status-cell">
+          <StatusBadge {...TENANT_STATUS_BADGES[tenant.status]} />
+          {tenant.is_test_tenant && <StatusBadge {...TEST_TENANT_BADGE} />}
+        </span>
+      ) },
   );
 }
