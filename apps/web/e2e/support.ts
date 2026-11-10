@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomInt } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { withPlatformTx } from "../../api/src/db/context.ts";
@@ -428,16 +428,12 @@ export async function issueSiteLink(orderNo: string): Promise<string> {
   }
 }
 
-let siteSourceCount = 0;
-
 /**
- * 一条官网用例自己的来源地址（192.0.2.0/24，RFC 5737 文档专用，不会是真实客人）。官网按来源地址限速，额度记在各个 API 共用的数据库里；
- * 每个并行进程分一段（parallelIndex），段内按顺序取，同时跑的用例不撞同一个地址。
+ * 一条官网用例自己的来源地址（192.0.2.0/24，RFC 5737 文档专用，不会是真实客人）。官网按来源地址限速，额度记在各个 API 共用的数据库里。
+ * 随机取：测试进程失败后会换新进程重来，按进程内计数取地址会从头再用一遍，同一个地址很快攒满「10 分钟下单 10 次」。
  */
-export function siteSourceAddress(parallelIndex: number): string {
-  const perWorker = 63;
-  const slot = (parallelIndex * perWorker + (siteSourceCount++ % perWorker)) % 254;
-  return `192.0.2.${slot + 1}`;
+export function siteSourceAddress(): string {
+  return `192.0.2.${randomInt(1, 255)}`;
 }
 
 /**
@@ -447,6 +443,6 @@ export function siteSourceAddress(parallelIndex: number): string {
  */
 export const OWN_SITE_SOURCE: Parameters<typeof test.use>[0] = {
   extraHTTPHeaders: async ({}, use: (headers: Record<string, string>) => Promise<void>) => {
-    await use({ "x-forwarded-for": siteSourceAddress(test.info().parallelIndex) });
+    await use({ "x-forwarded-for": siteSourceAddress() });
   },
 };
