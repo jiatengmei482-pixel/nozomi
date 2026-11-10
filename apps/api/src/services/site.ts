@@ -86,11 +86,12 @@ import type { RouteMapRequest, RouteMapResult } from "./static-maps.ts";
 import { validationFailed } from "../validation.ts";
 import { notFound } from "./errors.ts";
 import { type SalesOrderInput, type SalesOrderPayment, type SalesOrderView, type OrderLog, SILENT_ORDER_LOG, createSiteOrder } from "./orders.ts";
-import { inBackground } from "./background.ts";
+import { type BackgroundLog, inBackground } from "./background.ts";
 import { type SalesRateScope, rateLimited, takeRateSlot } from "./rate-limit.ts";
 import { lastUsedIsStale } from "./sales-auth.ts";
 import type { SalesPrincipal } from "./sales-auth.ts";
 import { type SalesQuote, type SalesUnavailableReason, createSalesQuotes } from "./sales-quotes.ts";
+import { type DemandSource, recordUncoveredDemandLater } from "./uncovered-demands.ts";
 
 /** 官网卖的品类：接送机（M3-05）、点对点和包车（M3-10，ADR 0035）。和需求的三种品类一致；渠道没授权的品类照样不卖。 */
 export const SITE_CATEGORIES: readonly ServiceCategory[] = ["airport_transfer", "point_to_point", "charter"];
@@ -440,7 +441,21 @@ export interface SiteQuoteInput {
   luggage: number;
   /** 客人选的附加服务和数量（M8-02，ADR 0069 B15）：照原样交给报价引擎，没提供的商品不报（`ADDON_NOT_OFFERED`） */
   addons: { addonId: string; quantity: number }[];
+  /** 一个价都报不出时记「未覆盖需求」用（M8-20，ADR 0075）；不给就不记 */
+  demand?: SiteDemand;
 }
+
+/**
+ * 官网询价记「未覆盖需求」要的（ADR 0075 第四部分）：客人地址只用来算限流的哈希、不落库；名称是地址联想里选中的那一项（手打的文字不给）。
+ */
+export interface SiteDemand {
+  ip: string;
+  pickupName: string | null;
+  dropoffName: string | null;
+  log: BackgroundLog;
+}
+
+const demandSource = (demand: SiteDemand): DemandSource => ({ channelKind: "site", sourceKey: rateLimitKeyOf(demand.ip), pickupName: demand.pickupName, dropoffName: demand.dropoffName, log: demand.log });
 
 export interface SiteCancelPolicy {
   category: ServiceCategory;
@@ -525,7 +540,7 @@ export async function siteQuotes(ctx: AppContext, input: SiteQuoteInput, logExtr
       vehicleGroupIds: [],
       currency: channel.settleCurrency,
     },
-    { request: { ...sales.request, ...logExtra } },
+    { request: { ...sales.request, ...logExtra }, ...(input.demand === undefined ? {} : { demand: demandSource(input.demand) }) },
   );
   const { groups, policy, packageKm, addons } = await withPlatformTx(
     ctx.pool,
@@ -554,6 +569,8 @@ export async function siteQuotes(ctx: AppContext, input: SiteQuoteInput, logExtr
 export interface SiteByPointsInput {
   pickup: TripEnd;
   dropoff: TripEnd;
+  /** 一个价都报不出时记「未覆盖需求」用（ADR 0075）；不给就不记 */
+  demand?: SiteDemand;
   /** 当地的用车时间 `YYYY-MM-DDTHH:mm`（接机是航班落地时间） */
   serviceLocal: string;
   passengers: number;
@@ -606,7 +623,7 @@ function endLog(end: TripEnd, match: AirportMatch<AirportCandidateRow> | null): 
  * 路线（时间、距离、折线）和报价并行取，取不到为 null。
  */
 export async function siteQuotesByPoints(ctx: AppContext, input: SiteByPointsInput): Promise<SiteByPointsResult> {
-  const { channel } = await requireOpenSite(ctx);
+  const { principal, channel } = await requireOpenSite(ctx);
   const { airports, cities } = await withPlatformTx(
     ctx.pool,
     async (db) => {
@@ -635,6 +652,27 @@ export async function siteQuotesByPoints(ctx: AppContext, input: SiteByPointsInp
   const airport = trip.tripType === "point_to_point" ? null : { id: trip.airport.airport.id, code: trip.airport.airport.code, name: trip.airport.airport.name, matchedBy: trip.airport.matchedBy, meters: trip.airport.meters };
   const cityJson = city === null ? null : { id: city.id, code: city.code, name: city.name, timezone: city.timezone };
   if (city === null || siteTrip === null) {
+    // 点对点的出发地不在任何能订的城市里：一个候选都没有，不进询价日志；未覆盖需求照样记一条（ADR 0075：这个口子由它补上）
+    if (input.demand !== undefined && trip.tripType === "point_to_point") {
+      recordUncoveredDemandLater(ctx, demandSource(input.demand), {
+        channelId: principal.channelId,
+        category: "point_to_point",
+        direction: null,
+        packageHours: null,
+        cityId: null,
+        airportId: null,
+        pickup: { lat: input.pickup.lat, lng: input.pickup.lng },
+        dropoff: { lat: input.dropoff.lat, lng: input.dropoff.lng },
+        serviceLocal: input.serviceLocal,
+        passengers: input.passengers,
+        luggage: input.luggage,
+        vehicleGroupId: null,
+        checked: ["pickup", "dropoff"],
+        suppliers: [],
+        candidateCount: 0,
+        refusals: [],
+      });
+    }
     return { tripType: trip.tripType, airport, city: null, currency: channel.settleCurrency, quotes: [], unavailable: [{ vehicleGroupId: null, reasons: ["OUT_OF_SERVICE_AREA"] }], expiresAt: null, route: null };
   }
   const logExtra = {
@@ -642,7 +680,7 @@ export async function siteQuotesByPoints(ctx: AppContext, input: SiteByPointsInp
     recognition: { trip_type: trip.tripType, airport_id: airport?.id ?? null, pickup: endLog(input.pickup, recognized.pickupAirport), dropoff: endLog(input.dropoff, recognized.dropoffAirport) },
   };
   const [result, route] = await Promise.all([
-    siteQuotes(ctx, { cityId: city.id, trip: siteTrip, serviceLocal: input.serviceLocal, passengers: input.passengers, luggage: input.luggage, addons: input.addons }, logExtra),
+    siteQuotes(ctx, { cityId: city.id, trip: siteTrip, serviceLocal: input.serviceLocal, passengers: input.passengers, luggage: input.luggage, addons: input.addons, ...(input.demand === undefined ? {} : { demand: input.demand }) }, logExtra),
     routePreviewOrNull(ctx, { lat: input.pickup.lat, lng: input.pickup.lng }, { lat: input.dropoff.lat, lng: input.dropoff.lng }),
   ]);
   const expiresAt = result.quotes.reduce<string | null>((earliest, quote) => (earliest === null || quote.expiresAt < earliest ? quote.expiresAt : earliest), null);

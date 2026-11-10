@@ -21,7 +21,9 @@
  * 规模：边数 n 时，找交点用「按最小经度排序 + 扫描」，竖条按活动边表扫描；几十个区域、几千个点在毫秒级。
  * 极端情况（几百个区域、每个几千个点、彼此大面积交错）会到秒级，所以页面只在数据变化时算一次（ADR 0074「限制」）。
  */
-import type { AreaBizType, AreaPolygonKind, Position } from "./areas.ts";
+import { type AreaBizType, type AreaPolygonKind, type AreaRole, type Position, areaRoleCanOperate, areaRoleCanPrice } from "./areas.ts";
+import type { ServiceCategory } from "./master-data.ts";
+import { areaUsableByCategory } from "./products.ts";
 
 /** 公共部分不到这么多平方米的不算重叠（10 米 × 10 米）。 */
 export const AREA_OVERLAP_MIN_M2 = 100;
@@ -32,6 +34,8 @@ const EPSILON = 1e-12;
 export interface OverlapAreaInput {
   id: string;
   bizType: AreaBizType;
+  /** 用途（ADR 0075）：重叠只在报价区域之间算，`operating` 的不参与；不给按报价区域算 */
+  role?: AreaRole;
   /** 停用的区域不参与 */
   active: boolean;
   polygons: readonly { kind: AreaPolygonKind; ring: readonly Position[] }[];
@@ -111,19 +115,33 @@ function crossingX(a: Edge, b: Edge): number | null {
   return a.x0 + t * dax;
 }
 
-/** 区域之间的重叠：哪几对重叠、各重叠多少平方米、重叠部分的形状（画在地图上）。 */
-export function findAreaOverlaps(areas: readonly OverlapAreaInput[]): AreaOverlapResult {
-  const live = areas.filter((area) => area.active && area.polygons.some((polygon) => polygon.kind === "operate" && polygon.ring.length >= 3));
-  // 每个区域营运区的外框；外框和任何一个能竞争的区域都碰不到的区域不用算
-  const boxes = live.map((area) => {
-    const operate = area.polygons.filter((polygon) => polygon.kind === "operate" && polygon.ring.length >= 3).map((polygon) => ringBox(polygon.ring));
-    return operate.reduce((all, box) => ({ minX: Math.min(all.minX, box.minX), minY: Math.min(all.minY, box.minY), maxX: Math.max(all.maxX, box.maxX), maxY: Math.max(all.maxY, box.maxY) }));
-  });
-  const candidate = live.map((area, i) => live.some((other, j) => j !== i && areasCanCompete(area.bizType, other.bizType) && boxesMeet(boxes[i] as Box, boxes[j] as Box)));
-  const used = live.filter((_, i) => candidate[i]);
-  const empty: AreaOverlapResult = { pairs: [], pieces: [], byArea: new Map() };
-  if (used.length < 2) return empty;
+/** 竖条里相邻两条边之间的一段：这一段里「真正报价」（在营运区里、不在自己的禁行区里）的区域（`used` 里的下标）、上下两条边的位置、面积。 */
+interface Span {
+  ids: number[];
+  xa: number;
+  xb: number;
+  lowA: number;
+  lowB: number;
+  highA: number;
+  highB: number;
+  /** 这一段的面积（平方米）；高度不大于 0 时为 0 */
+  m2: number;
+}
 
+function liveAreas(areas: readonly OverlapAreaInput[]): OverlapAreaInput[] {
+  return areas.filter((area) => area.active && area.polygons.some((polygon) => polygon.kind === "operate" && polygon.ring.length >= 3));
+}
+
+/** 一个区域营运区的外框 */
+function operateBox(area: OverlapAreaInput): Box {
+  const operate = area.polygons.filter((polygon) => polygon.kind === "operate" && polygon.ring.length >= 3).map((polygon) => ringBox(polygon.ring));
+  return operate.reduce((all, box) => ({ minX: Math.min(all.minX, box.minX), minY: Math.min(all.minY, box.minY), maxX: Math.max(all.maxX, box.maxX), maxY: Math.max(all.maxY, box.maxY) }));
+}
+
+/**
+ * 竖条分解（重叠、超出运营区域共用）：把 `used` 的全部图形切成竖条，每个竖条里从下往上逐段交给 `visit`（同一个竖条的各段按从下到上的顺序一次给全）。
+ */
+function sweepSpans(used: readonly OverlapAreaInput[], visit: (spans: readonly Span[]) => void): void {
   // 全部图形和它们的边（竖直的边不进竖条：它们正好落在竖条的边界上）
   const polygonArea: number[] = [];
   const polygonForbid: boolean[] = [];
@@ -164,11 +182,10 @@ export function findAreaOverlaps(areas: readonly OverlapAreaInput[]): AreaOverla
   const slabs: number[] = [];
   for (const x of xs) if (slabs.length === 0 || x - (slabs[slabs.length - 1] as number) > EPSILON) slabs.push(x);
 
-  const pairArea = new Map<string, number>();
-  const rawPieces: { key: string; ids: number[]; ring: Position[] }[] = [];
   const inside = new Array<boolean>(polygonArea.length).fill(false);
   const operateCount = new Array<number>(used.length).fill(0);
   const forbidCount = new Array<number>(used.length).fill(0);
+  const scale = METERS_PER_DEGREE * METERS_PER_DEGREE;
   let active: Edge[] = [];
   let next = 0;
   for (let s = 0; s + 1 < slabs.length; s += 1) {
@@ -186,42 +203,81 @@ export function findAreaOverlaps(areas: readonly OverlapAreaInput[]): AreaOverla
     inside.fill(false);
     operateCount.fill(0);
     forbidCount.fill(0);
-    const scale = METERS_PER_DEGREE * METERS_PER_DEGREE;
-    // 正在往上长的一块：从哪条边开始、属于哪组区域
-    let open: { key: string; ids: number[]; lowA: number; lowB: number } | undefined;
-    for (let k = 0; k < ordered.length; k += 1) {
+    const spans: Span[] = [];
+    for (let k = 0; k + 1 < ordered.length; k += 1) {
       const current = ordered[k] as (typeof ordered)[number];
       const polygon = current.edge.polygon;
       const areaIndex = polygonArea[polygon] as number;
       const counts = polygonForbid[polygon] ? forbidCount : operateCount;
       inside[polygon] = !inside[polygon];
       counts[areaIndex] = (counts[areaIndex] as number) + (inside[polygon] ? 1 : -1);
-      // 这条边和上面一条边之间：哪些区域「真正报价」、其中哪几对能竞争
-      const above = ordered[k + 1];
+      // 这条边和上面一条边之间：哪些区域「真正报价」
+      const above = ordered[k + 1] as (typeof ordered)[number];
       const ids: number[] = [];
-      if (above !== undefined) for (let a = 0; a < used.length; a += 1) if ((operateCount[a] as number) > 0 && forbidCount[a] === 0) ids.push(a);
+      for (let a = 0; a < used.length; a += 1) if ((operateCount[a] as number) > 0 && forbidCount[a] === 0) ids.push(a);
+      const height = (above.ya - current.ya + (above.yb - current.yb)) / 2;
+      const m2 = height > 0 ? (xb - xa) * height * scale * Math.cos((current.ym + above.ym) * (Math.PI / 360)) : 0;
+      spans.push({ ids, xa, xb, lowA: current.ya, lowB: current.yb, highA: above.ya, highB: above.yb, m2 });
+    }
+    visit(spans);
+  }
+}
+
+/**
+ * 一个竖条里的各段按「属于哪组区域」（`keyOf`，空串 = 不要）连成一块块梯形：和下面一段是同一组的接着往上长，不另起一块（地图上少画很多条缝）。
+ * 收口用的是下一段的下边：高度为 0 的段被跳过，和它上一段的上边是同一条线。
+ */
+function mergeSpans(spans: readonly Span[], keyOf: (span: Span) => string, emit: (key: string, ring: Position[]) => void): void {
+  let open: { key: string; lowA: number; lowB: number } | undefined;
+  let top: Span | undefined;
+  for (const span of spans) {
+    // 高度为 0 的一段（两条边重合）不改变正在长的那一块：既不让它断开，也不单独成一块（地图上不画一条线）
+    if (span.m2 <= 0) continue;
+    const key = keyOf(span);
+    // 换了一组区域：上一块在这一段的下边收口
+    if (open !== undefined && open.key !== key) {
+      emit(open.key, [[span.xa, open.lowA], [span.xb, open.lowB], [span.xb, span.lowB], [span.xa, span.lowA]]);
+      open = undefined;
+    }
+    top = span;
+    if (key === "") continue;
+    open ??= { key, lowA: span.lowA, lowB: span.lowB };
+  }
+  if (open !== undefined && top !== undefined) emit(open.key, [[top.xa, open.lowA], [top.xb, open.lowB], [top.xb, top.highB], [top.xa, top.highA]]);
+}
+
+/**
+ * 区域之间的重叠：哪几对重叠、各重叠多少平方米、重叠部分的形状（画在地图上）。
+ * 只在**报价区域之间**算（ADR 0075 第五部分）：用途是「运营区域」（`role: "operating"`）的不参与——运营范围合起来用，重叠没有影响；
+ * 没给用途的按报价区域算（ADR 0075 之前的口径）。
+ */
+export function findAreaOverlaps(areas: readonly OverlapAreaInput[]): AreaOverlapResult {
+  const live = liveAreas(areas.filter((area) => area.role !== "operating"));
+  // 每个区域营运区的外框；外框和任何一个能竞争的区域都碰不到的区域不用算
+  const boxes = live.map(operateBox);
+  const candidate = live.map((area, i) => live.some((other, j) => j !== i && areasCanCompete(area.bizType, other.bizType) && boxesMeet(boxes[i] as Box, boxes[j] as Box)));
+  const used = live.filter((_, i) => candidate[i]);
+  const empty: AreaOverlapResult = { pairs: [], pieces: [], byArea: new Map() };
+  if (used.length < 2) return empty;
+
+  const pairArea = new Map<string, number>();
+  const rawPieces: { ids: number[]; ring: Position[] }[] = [];
+  sweepSpans(used, (spans) => {
+    const competingIds = new Map<Span, number[]>();
+    for (const span of spans) {
+      const { ids } = span;
       const competing: [number, number][] = [];
       for (let i = 0; i < ids.length; i += 1) {
         for (let j = i + 1; j < ids.length; j += 1) {
           if (areasCanCompete((used[ids[i] as number] as OverlapAreaInput).bizType, (used[ids[j] as number] as OverlapAreaInput).bizType)) competing.push([ids[i] as number, ids[j] as number]);
         }
       }
-      const key = competing.length === 0 ? "" : ids.join(",");
-      // 换了一组区域（或到了顶）：上一块在这条边收口
-      if (open !== undefined && open.key !== key) {
-        rawPieces.push({ key: open.key, ids: open.ids, ring: [[xa, open.lowA], [xb, open.lowB], [xb, current.yb], [xa, current.ya]] });
-        open = undefined;
-      }
-      if (above === undefined || competing.length === 0) continue;
-      const height = (above.ya - current.ya + (above.yb - current.yb)) / 2;
-      if (height > 0) {
-        const m2 = (xb - xa) * height * scale * Math.cos((current.ym + above.ym) * (Math.PI / 360));
-        for (const [i, j] of competing) pairArea.set(`${i},${j}`, (pairArea.get(`${i},${j}`) ?? 0) + m2);
-      }
-      // 和下面一块是同一组区域：接着往上长，不另起一块（地图上少画很多条缝）
-      open ??= { key, ids, lowA: current.ya, lowB: current.yb };
+      if (competing.length === 0) continue;
+      competingIds.set(span, ids);
+      if (span.m2 > 0) for (const [i, j] of competing) pairArea.set(`${i},${j}`, (pairArea.get(`${i},${j}`) ?? 0) + span.m2);
     }
-  }
+    mergeSpans(spans, (span) => competingIds.get(span)?.join(",") ?? "", (key, ring) => rawPieces.push({ ids: key.split(",").map(Number), ring }));
+  });
 
   const pairs: AreaOverlapPair[] = [];
   const kept = new Set<string>();
@@ -245,4 +301,69 @@ export function findAreaOverlaps(areas: readonly OverlapAreaInput[]): AreaOverla
     if (ids.length >= 2) pieces.push({ areaIds: ids.map((i) => (used[i] as OverlapAreaInput).id), ring: piece.ring });
   }
   return { pairs, pieces, byArea };
+}
+
+// ---- 报价区域超出运营区域的部分（ADR 0075 第一部分第 2 节） ----
+
+export interface PricingOutsideResult {
+  /** 每个报价区域不在任何运营区域里的面积（平方米，取整）；不到 `AREA_OVERLAP_MIN_M2` 的不在里面 */
+  byArea: Map<string, number>;
+  /** 超出的部分（梯形，四个点，不闭合）和它属于哪几个报价区域：画在地图上 */
+  pieces: AreaOverlapPiece[];
+}
+
+/**
+ * 报价区域「真正的范围」（营运区减去自己的禁行区）里，不在任何一个运营区域「真正的范围」里的部分（同一个竖条分解）。
+ * - `pricing`：要看的报价区域；`operating`：运营范围（调用方已经按用途挑好：运营区域和「运营 + 报价」）。同一个区域可以两边都在（「运营 + 报价」自己盖住自己）。
+ * - `covers(报价区域, 运营区域)`：这个运营区域算不算这个报价区域的运营范围；默认按业务类型相容（相同，或其中一个是通用）。
+ * - 停用的区域不参与（停用的报价区域不报价，停用的运营区域不算运营范围）。
+ */
+export function findPricingOutsideOperating(
+  pricing: readonly OverlapAreaInput[],
+  operating: readonly OverlapAreaInput[],
+  covers: (pricingArea: OverlapAreaInput, operatingArea: OverlapAreaInput) => boolean = (a, b) => areasCanCompete(a.bizType, b.bizType),
+): PricingOutsideResult {
+  const result: PricingOutsideResult = { byArea: new Map(), pieces: [] };
+  const priced = liveAreas(pricing);
+  if (priced.length === 0) return result;
+  const pricedBoxes = priced.map(operateBox);
+  const pricedIds = new Set(priced.map((area) => area.id));
+  // 只要外框碰得到某个报价区域、又不是报价区域本身的运营区域
+  const operated = liveAreas(operating).filter((area) => !pricedIds.has(area.id) && pricedBoxes.some((box) => boxesMeet(box, operateBox(area))));
+  const used = [...priced, ...operated];
+  const operatingIds = new Set(operating.map((area) => area.id));
+  const isPricing = used.map((_, index) => index < priced.length);
+  const isOperating = used.map((area) => operatingIds.has(area.id));
+  // 每个报价区域能被哪些下标的区域盖住
+  const coveredBy = priced.map((area, p) => new Set(used.flatMap((other, o) => (isOperating[o] && (o === p || covers(area, other)) ? [o] : []))));
+
+  const outsideM2 = new Map<number, number>();
+  const rawPieces: { ids: number[]; ring: Position[] }[] = [];
+  sweepSpans(used, (spans) => {
+    const outsideIds = new Map<Span, number[]>();
+    for (const span of spans) {
+      const outside = span.ids.filter((p) => isPricing[p] && !span.ids.some((o) => (coveredBy[p] as Set<number>).has(o)));
+      if (outside.length === 0) continue;
+      outsideIds.set(span, outside);
+      if (span.m2 > 0) for (const p of outside) outsideM2.set(p, (outsideM2.get(p) ?? 0) + span.m2);
+    }
+    mergeSpans(spans, (span) => outsideIds.get(span)?.join(",") ?? "", (key, ring) => rawPieces.push({ ids: key.split(",").map(Number), ring }));
+  });
+  for (const [p, m2] of outsideM2) if (m2 >= AREA_OVERLAP_MIN_M2) result.byArea.set((priced[p] as OverlapAreaInput).id, Math.round(m2));
+  for (const piece of rawPieces) {
+    const ids = piece.ids.map((p) => (priced[p] as OverlapAreaInput).id).filter((id) => result.byArea.has(id));
+    if (ids.length > 0) result.pieces.push({ areaIds: ids, ring: piece.ring });
+  }
+  return result;
+}
+
+/**
+ * 一个商品勾选的报价区域（`pricingAreaIds`：商品区域、启用的包车区域加价的区域）各有多少平方米不在这个供应商的运营范围里（ADR 0075）：
+ * 运营范围按商品的品类取（用途是运营或运营 + 报价、业务类型和品类相容、启用中），和报价时的运营判断一样。不到 100 平方米的不在结果里。
+ * `areas` 是这个供应商的全部区域（没给用途的按运营 + 报价算）。
+ */
+export function productPricingOutsideOperating(areas: readonly OverlapAreaInput[], pricingAreaIds: readonly string[], category: ServiceCategory): Map<string, number> {
+  const pricing = areas.filter((area) => pricingAreaIds.includes(area.id) && areaRoleCanPrice(area.role ?? "both"));
+  const operating = areas.filter((area) => areaRoleCanOperate(area.role ?? "both") && areaUsableByCategory(category, area.bizType));
+  return findPricingOutsideOperating(pricing, operating, () => true).byArea;
 }

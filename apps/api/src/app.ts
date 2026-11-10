@@ -51,6 +51,7 @@ import { registerIntegrationSecretRoutes } from "./routes/integration-secrets.ts
 import { OrderJobs } from "./services/order-jobs.ts";
 import { PassengerEncryptionJobs } from "./services/passenger-encryption.ts";
 import { PassengerRetentionJobs } from "./services/passenger-retention.ts";
+import { UncoveredDemandJobs } from "./services/uncovered-demands.ts";
 import { TenantJobs } from "./services/tenant-jobs.ts";
 import { BillingJobs } from "./services/billing.ts";
 import { WebhookJobs } from "./services/webhook-jobs.ts";
@@ -67,6 +68,7 @@ import { registerNotificationRoutes } from "./routes/notifications.ts";
 import { registerTenantWebhookRoutes } from "./routes/tenant-webhooks.ts";
 import { registerViewLinkRoutes } from "./routes/view-link.ts";
 import { registerSiteRoutes } from "./routes/site.ts";
+import { registerUncoveredDemandRoutes } from "./routes/uncovered-demands.ts";
 import { registerPlatformSecurityRoutes } from "./routes/platform-security.ts";
 import { registerManualQuoteRoutes } from "./routes/manual-quotes.ts";
 import { ManualQuoteRetentionJobs } from "./services/manual-quotes.ts";
@@ -127,6 +129,7 @@ declare module "fastify" {
     tenantJobs: TenantJobs;
     /** 乘客信息的自动脱敏（ADR 0055；服务进程用 `jobs` 启动它；测试直接调 `tick`） */
     passengerRetention: PassengerRetentionJobs;
+    uncoveredDemandJobs: UncoveredDemandJobs;
     passengerEncryption: PassengerEncryptionJobs;
     /** 人工报价申请的到期清除（M8-21，ADR 0076；服务进程用 `jobs` 启动它；测试直接调 `tick`） */
     manualQuoteRetention: ManualQuoteRetentionJobs;
@@ -334,6 +337,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   app.decorate("tenantJobs", tenantJobs);
   const passengerRetention = new PassengerRetentionJobs(context, app.log);
   app.decorate("passengerRetention", passengerRetention);
+  const uncoveredDemandJobs = new UncoveredDemandJobs(context, app.log);
+  app.decorate("uncoveredDemandJobs", uncoveredDemandJobs);
   const passengerEncryption = new PassengerEncryptionJobs(context, app.log);
   app.decorate("passengerEncryption", passengerEncryption);
   const manualQuoteRetention = new ManualQuoteRetentionJobs(context, app.log);
@@ -354,6 +359,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     notificationJobs.start();
     passengerRetention.start();
     passengerEncryption.start();
+    uncoveredDemandJobs.start();
     manualQuoteRetention.start();
     app.addHook("onClose", () => fx.stop());
     app.addHook("onClose", () => orderJobs.stop());
@@ -363,6 +369,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     app.addHook("onClose", () => notificationJobs.stop());
     app.addHook("onClose", () => passengerRetention.stop());
     app.addHook("onClose", () => passengerEncryption.stop());
+    app.addHook("onClose", () => uncoveredDemandJobs.stop());
     app.addHook("onClose", () => manualQuoteRetention.stop());
   }
   registerPlatformRoutes(app, context);
@@ -377,6 +384,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerInventoryRoutes(app, context);
   registerImportExportRoutes(app, context);
   registerQuoteRoutes(app, context);
+  registerUncoveredDemandRoutes(app, context);
   registerFxRoutes(app, context);
   registerPlatformProductRoutes(app, context);
   registerChannelRoutes(app, context);

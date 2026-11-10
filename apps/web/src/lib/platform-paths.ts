@@ -37,6 +37,8 @@ export function auditLogPath(filter: { tenant?: string; actor?: string; resource
 /** 运营后台只读查看供应商的商品（docs/design/pages/platform-products.md）。 */
 export const PLATFORM_PRODUCT_LIST_PATH = "/platform/products";
 export const QUOTE_PREVIEW_PAGE_PATH = "/platform/quote-preview";
+/** 未覆盖需求（M8-20） */
+export const UNCOVERED_DEMANDS_PAGE_PATH = "/platform/uncovered-demands";
 
 /** 商品列表并带着筛选条件（网址参数名见 platform-products.md 2.2）。 */
 export function platformProductListPath(filter: { tenant?: string; status?: string; priced?: "yes" | "no"; city?: string; category?: string; brand?: string } = {}): string {

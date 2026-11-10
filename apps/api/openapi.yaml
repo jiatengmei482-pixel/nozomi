@@ -93,6 +93,8 @@ tags:
     description: 汇率中心（ADR 0022）：看板、近 N 天曲线、拉取记录、立即拉取、确认 / 放弃变动过大而挂起的一批
   - name: 供应商商品（平台）
     description: 运营后台只读地查看所有供应商的商品（列表、详情、上架校验）。平台没有修改供应商商品的接口
+  - name: 未覆盖需求
+    description: 一个价都报不出的询价（M8-20，ADR 0075）：只有平台能看（`demand.read`），不含任何客人个人信息
   - name: 报价
     description: 报价引擎的试算（平台侧：所有供应商一起比，可以选渠道按它的规则算；租户侧：自己的一个商品，只有结算价）
   - name: 渠道
@@ -2065,6 +2067,161 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "422":
           description: "`CHANNEL_SCOPE_DENIED`：城市或品类不在所选渠道的授权范围里（`details.reason`）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/uncovered-demands:
+    get:
+      tags: [ 未覆盖需求 ]
+      operationId: listUncoveredDemands
+      summary: 未覆盖需求列表
+      description: |
+        需要操作 `demand.read`（超级管理员、运营、招商、渠道经理；M8-20，ADR 0075 第四部分）。
+        一次询价（官网按坐标报价、`POST /site/v1/quotes`、`POST /sales/v1/quotes`）**一个价都报不出**时平台自动记的一条：客人想去哪里、什么时候、什么车，
+        两端落在哪些供应商的哪些运营区域里、为什么报不出。同一天（东京时间）同一个指纹（渠道、品类、方向、套餐、两端 3 位小数、用车日期、人数、车型组）只有一行，`repeat_count` 是次数。
+        **不含任何客人个人信息**（没有姓名、邮箱、电话、自由文本、IP）；坐标只有 4 位小数（约 10 米）；保留 365 天。供应商后台没有读它的接口。
+        主原因 `reason`：`OUTSIDE_OPERATING`（任一要校验的点不在任何候选供应商的运营区域里，含官网点对点出发地不在任何能订的城市里）、
+        `NO_PRICING_AREA`（每个点都在某家的运营区域里，但所有商品都因为没勾覆盖它的报价区域或区域原因报不出）、`OTHER`（其余，`refusal_counts` 里有具体原因和次数）。
+        按最近出现从新到旧（同一时刻按编号），游标分页。`summary` 是同样筛选下的合计（行数、次数之和）、按原因 / 城市 / 供应商的计数（城市、供应商各最多 100 项，多的在前），
+        和这段日期里因为限流没记下来的新需求条数（`dropped`）。`tenants`、`cities` 是这一页和计数里出现的供应商、城市的名字。不认识的查询参数 400。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/UncoveredDemandCity"
+        - $ref: "#/components/parameters/UncoveredDemandTenant"
+        - $ref: "#/components/parameters/UncoveredDemandFrom"
+        - $ref: "#/components/parameters/UncoveredDemandTo"
+        - $ref: "#/components/parameters/UncoveredDemandCategory"
+        - $ref: "#/components/parameters/UncoveredDemandReason"
+      responses:
+        "200":
+          description: 一页未覆盖需求和计数
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ from, to, items, next_cursor, summary, tenants, cities ]
+                properties:
+                  from:
+                    type: string
+                    format: date
+                    description: 实际用的开始日期（东京时间，含）
+                  to:
+                    type: string
+                    format: date
+                    description: 实际用的结束日期（东京时间，含）
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/UncoveredDemand"
+                  next_cursor:
+                    type: [ string, "null" ]
+                  summary:
+                    $ref: "#/components/schemas/UncoveredDemandSummary"
+                  tenants:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [ id, name ]
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        name:
+                          type: string
+                  cities:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [ id, name ]
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        name:
+                          $ref: "#/components/schemas/LocalizedText"
+        "400":
+          description: "`VALIDATION_FAILED`：查询参数不认识、写得不对，或开始日期晚于结束日期、范围超过 366 天"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/uncovered-demands/points:
+    get:
+      tags: [ 未覆盖需求 ]
+      operationId: listUncoveredDemandPoints
+      summary: 未覆盖需求在地图上的点
+      description: |
+        需要操作 `demand.read`。和列表同样的筛选（不分页），给运营后台区域地图的「未覆盖需求」图层：每条的上车、下车坐标（4 位小数）、原因、次数，
+        按最近出现从新到旧最多 2000 条，多的不给、`truncated` 为 true。不认识的查询参数 400。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/UncoveredDemandCity"
+        - $ref: "#/components/parameters/UncoveredDemandTenant"
+        - $ref: "#/components/parameters/UncoveredDemandFrom"
+        - $ref: "#/components/parameters/UncoveredDemandTo"
+        - $ref: "#/components/parameters/UncoveredDemandCategory"
+        - $ref: "#/components/parameters/UncoveredDemandReason"
+      responses:
+        "200":
+          description: 地图上的点
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ from, to, items, truncated ]
+                properties:
+                  from:
+                    type: string
+                    format: date
+                  to:
+                    type: string
+                    format: date
+                  items:
+                    type: array
+                    maxItems: 2000
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [ id, category, reason, repeat_count, pickup, dropoff, service_local, last_seen_at ]
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        category:
+                          $ref: "#/components/schemas/ServiceCategory"
+                        reason:
+                          $ref: "#/components/schemas/UncoveredDemandReason"
+                        repeat_count:
+                          type: integer
+                          minimum: 1
+                        pickup:
+                          oneOf:
+                            - $ref: "#/components/schemas/UncoveredDemandPoint"
+                            - type: "null"
+                        dropoff:
+                          oneOf:
+                            - $ref: "#/components/schemas/UncoveredDemandPoint"
+                            - type: "null"
+                        service_local:
+                          type: string
+                          description: 用车的当地时间 `YYYY-MM-DDTHH:mm`
+                        last_seen_at:
+                          type: string
+                          format: date-time
+                          description: 最近一次出现的时刻
+                  truncated:
+                    type: boolean
+        "400":
+          description: "`VALIDATION_FAILED`：查询参数不认识、写得不对，或开始日期晚于结束日期、范围超过 366 天"
           content:
             application/json:
               schema:
@@ -4311,6 +4468,11 @@ paths:
           in: query
           schema:
             $ref: "#/components/schemas/AreaBizType"
+        - name: role
+          in: query
+          description: 按用途筛选（M8-20）；不带表示全部
+          schema:
+            $ref: "#/components/schemas/AreaRole"
         - name: status
           in: query
           description: 按状态筛选；不带或 `all` 表示全部
@@ -4350,6 +4512,7 @@ paths:
         - 每块图形的 `seq`（「营运 1」里的 1）由后端分配。
         - 同一个供应商在同一个城市里不能有同名的区域（不分大小写、全角半角，不看是哪种语言）。
         - 上限：一个区域最多 50 块图形、一个多边形最多 1000 个点、合计最多 5000 个点；圆的半径 100 到 100000 米。
+        - 用途 `role`（M8-20，ADR 0075）：运营区域 / 报价区域 / 运营 + 报价；不给按运营 + 报价。报价区域有一部分不在任何运营区域里时只提醒（`outside_operating_m2`），不拦保存。
         写审计日志（`resource` = `area`，`action` = `create`）。
       security:
         - tenantToken: []
@@ -4419,6 +4582,9 @@ paths:
         - 把 `GET` 拿到的 `polygons` 原样提交回来是合法的（多出来的 `seq` 被忽略）。
         - 不能改城市：带了 `city_id` 且和现有的不同返回 409 `FIELD_LOCKED`。
         - 内容没有变化时原样返回，`version` 不变、不写日志。
+        - 用途 `role`（M8-20，ADR 0075）不给 = 不改。改成运营区域时，有商品（任何状态）把它当报价区域用着（商品区域、区域加价、线路价）就不能改（409 `AREA_IN_USE`）。
+          改小运营区域、改业务类型、把运营 + 报价改成报价区域，让已上架商品的报价区域多出「不在运营区域里」的部分时 409 `PRICING_AREA_OUTSIDE_OPERATING`。
+          报价区域超出运营区域只提醒（`outside_operating_m2`），不拦保存。
         有变化时 `version` 加一并写审计日志（`action` = `update`，前后值只含变了的那几项）。区域停用时、所属城市被平台停用后也可以改。
       security:
         - tenantToken: []
@@ -4447,6 +4613,9 @@ paths:
             - `VERSION_CONFLICT`：`If-Match` 里的版本号不是最新的，`details.current_version` 是当前版本
             - `FIELD_LOCKED`：改了城市（`city_id`），或已经有商品选了这个区域时改了业务类型（`biz_type`）；`details.fields` 列出是哪个
             - `AREA_NAME_TAKEN`：这个城市已经有同名的区域
+            - `AREA_IN_USE`：要改成运营区域，但有商品勾选了它（`details.product_count`、`details.published_product_count`）
+            - `PRICING_AREA_OUTSIDE_OPERATING`（M8-20，ADR 0075）：这样改之后（停用、删除、改小运营区域，或把「运营 + 报价」改成报价区域），已上架商品勾选的报价区域会多出不小于 100 平方米「不在任何运营区域里」的部分，那部分将报不出价。
+              `details.items` 是 `[{ product_id, product_code, area_id, outside_m2 }]`：受影响的商品、报价区域和改之后超出的面积。先补运营区域，或先把这些商品下架
             - `CONCURRENT_UPDATE`：和别人同时进行的修改撞上了，请重试
           content:
             application/json:
@@ -4461,6 +4630,7 @@ paths:
       description: |
         需要操作 `area.manage`。区域可以真的删除（连同它的图形），删了不能恢复；删除前的完整内容记在审计日志里（`action` = `delete`）。
         只是暂时不用的话请用停用。被已上架的商品引用时不能删除（409 `AREA_IN_USE`）；草稿、已下架的商品选了它的，删除后那些商品少掉这个区域。
+        删掉一个运营区域（运营、运营 + 报价）会让已上架商品的报价区域多出「不在运营区域里」的部分时不能删除（409 `PRICING_AREA_OUTSIDE_OPERATING`，ADR 0075）。
       security:
         - tenantToken: []
       parameters:
@@ -4471,7 +4641,10 @@ paths:
         "404":
           $ref: "#/components/responses/ResourceNotFound"
         "409":
-          description: "`AREA_IN_USE`：有已上架的商品在用这个区域，`details.published_product_count` 是数量"
+          description: |
+            - `AREA_IN_USE`：有已上架的商品在用这个区域，`details.published_product_count` 是数量
+            - `PRICING_AREA_OUTSIDE_OPERATING`（M8-20，ADR 0075）：这样改之后（停用、删除、改小运营区域，或把「运营 + 报价」改成报价区域），已上架商品勾选的报价区域会多出不小于 100 平方米「不在任何运营区域里」的部分，那部分将报不出价。
+              `details.items` 是 `[{ product_id, product_code, area_id, outside_m2 }]`：受影响的商品、报价区域和改之后超出的面积。先补运营区域，或先把这些商品下架
           content:
             application/json:
               schema:
@@ -4484,7 +4657,7 @@ paths:
       description: |
         需要操作 `area.manage`。停用 = 暂时不用：建商品时不能再选它、报价时不再使用它；区域和图形都保留，可以再启用，停用期间也可以修改和自测。
         已经停用的再次调用原样返回。有变化时 `version` 加一并写审计日志（`action` = `disable`）。
-        被已上架的商品引用时不能停用（409 `AREA_IN_USE`）。
+        被已上架的商品引用时不能停用（409 `AREA_IN_USE`）。停用一个运营区域会让已上架商品的报价区域多出「不在运营区域里」的部分时不能停用（409 `PRICING_AREA_OUTSIDE_OPERATING`，ADR 0075）。
       security:
         - tenantToken: []
       parameters:
@@ -4499,7 +4672,10 @@ paths:
         "404":
           $ref: "#/components/responses/ResourceNotFound"
         "409":
-          description: "`AREA_IN_USE`：有已上架的商品在用这个区域，`details.published_product_count` 是数量"
+          description: |
+            - `AREA_IN_USE`：有已上架的商品在用这个区域，`details.published_product_count` 是数量
+            - `PRICING_AREA_OUTSIDE_OPERATING`（M8-20，ADR 0075）：这样改之后（停用、删除、改小运营区域，或把「运营 + 报价」改成报价区域），已上架商品勾选的报价区域会多出不小于 100 平方米「不在任何运营区域里」的部分，那部分将报不出价。
+              `details.items` 是 `[{ product_id, product_code, area_id, outside_m2 }]`：受影响的商品、报价区域和改之后超出的面积。先补运营区域，或先把这些商品下架
           content:
             application/json:
               schema:
@@ -5235,7 +5411,7 @@ paths:
         三种计价方式各填各的数（别的留空）：`fixed` 填 `base_price`；`mileage_time` 填 `start_price`、`start_meters`、`start_minutes`、`per_km`、`per_minute`，`min_price` 可不填；
         `charter_package` 填 `package_km`、`package_price`、`overtime_per_hour`、`over_km_per_km`（套餐时长是 `package_hours`）。
         包车区域加价 `charter_area_surcharge`（M8-15，ADR 0073）填 `pickup_surcharge`、`dropoff_surcharge` 和 `package_hours`；它的 `area_id` 是加价区域：
-        本租户的报价区域就行（不必是商品选的；不能是商品本身的区域 400 `AREA_IS_PRODUCT_AREA`；业务类型要是包车或通用 400 `AREA_NOT_USABLE`；新选的不能是停用的 400 `AREA_DISABLED`）；
+        本租户的报价区域就行（不必是商品选的；不能是商品本身的区域 400 `AREA_IS_PRODUCT_AREA`；业务类型要是包车或通用 400 `AREA_NOT_USABLE`；用途要是报价区域或运营 + 报价 400 `AREA_ROLE_NOT_PRICING`（M8-20）；新选的不能是停用的 400 `AREA_DISABLED`）；
         区域不存在或是别的租户的：404（不区分）。加价区域不加进商品的区域列表。
         点对点（M8-11，ADR 0073 第二部分）：
         - `to_area_id`（下车区域）可填：不填 = 区域价（和以前一样）；填了 = **单向线路价**，只管上车点在 `area_id`、下车点在 `to_area_id` 的单。
@@ -15645,6 +15821,44 @@ components:
       scheme: bearer
       description: 司机链接里的令牌（`nzd_…`，派车时生成、只出现一次）：司机不需要账号；用车结束后 24 小时、改派、重新生成、吊销后失效
   parameters:
+    UncoveredDemandCity:
+      name: city_id
+      in: query
+      description: 只看按这个城市报价的
+      schema:
+        type: string
+        format: uuid
+    UncoveredDemandTenant:
+      name: tenant_id
+      in: query
+      description: 只看两端落在这个供应商运营区域里的
+      schema:
+        type: string
+        format: uuid
+    UncoveredDemandFrom:
+      name: from
+      in: query
+      description: 最近一次出现的开始日期（东京时间，含）；默认结束日期往前 29 天（共 30 天）
+      schema:
+        type: string
+        format: date
+    UncoveredDemandTo:
+      name: to
+      in: query
+      description: 最近一次出现的结束日期（东京时间，含）；默认今天。范围最长 366 天
+      schema:
+        type: string
+        format: date
+    UncoveredDemandCategory:
+      name: category
+      in: query
+      schema:
+        $ref: "#/components/schemas/ServiceCategory"
+    UncoveredDemandReason:
+      name: reason
+      in: query
+      schema:
+        $ref: "#/components/schemas/UncoveredDemandReason"
     OnboardingLimit:
       name: limit
       in: query
@@ -16154,7 +16368,8 @@ components:
       description: |
         `VALIDATION_FAILED`：字段不合规。`details.issues[]` 每条有 `path`、`message`（中文），业务规则的问题另有机器可读的 `reason`，部分带 `detail`（上限、范围、条数）。
         价格规则：`REQUIRED`、`NOT_APPLICABLE`（这种计价方式或这个品类不填这一项）、`MODEL_NOT_ALLOWED`、`NOT_INTEGER`、`OUT_OF_RANGE`、`INVALID_DATE`、`DATE_RANGE_REVERSED`、
-        `AREA_NOT_IN_PRODUCT`、`VEHICLE_GROUP_NOT_IN_PRODUCT`（不是这个商品选的；别的供应商的、不存在的也是这个结果）、`UNKNOWN_PRICE_RULE`、`DUPLICATE`、`TOO_MANY`。
+        `AREA_NOT_IN_PRODUCT`、`VEHICLE_GROUP_NOT_IN_PRODUCT`（不是这个商品选的；别的供应商的、不存在的也是这个结果）、`UNKNOWN_PRICE_RULE`、`DUPLICATE`、`TOO_MANY`；
+        `AREA_ROLE_NOT_PRICING`（M8-20，ADR 0075：包车区域加价的区域、点对点线路价的上车 / 下车区域是运营区域——运营区域不带价格）。
         调价规则另有：`TOO_LONG`、`INVALID_TIME`、`EMPTY_WINDOW`、`INVALID_COUNTRY`、`ZERO_STEP`、`ADJUST_RESULT_NOT_POSITIVE`、`ADJUST_RESULT_TOO_LARGE`、`IDS_MISMATCH`。
         前面这些里凡是规则本身的，和 `@nozomi/domain` 的 `priceRuleIssues` / `adjustRuleIssues` 返回的是同一套代码。
         价格规则的每条问题在 `detail` 里带着是哪一条：新增的是请求里的 `ref`（没给就没有），修改、删除的是 `id`——不用靠 `path` 里的下标去对。
@@ -16234,7 +16449,7 @@ components:
       description: |
         `VALIDATION_FAILED`：字段不合规。`details.issues[]` 每条有 `path`、`message`（中文），业务规则的问题另有机器可读的 `reason`，部分带 `detail`（上限、平台规定的最小值等）。
         基础信息：`UNKNOWN_BRAND`、`BRAND_DISABLED`、`UNKNOWN_CITY`、`UNKNOWN_PLACE`、`PLACE_OTHER_CITY`、
-        `UNKNOWN_AREA`（区域不存在，别的供应商的区域也是这个结果）、`AREA_OTHER_CITY`、`AREA_NOT_USABLE`、`AREA_DISABLED`、
+        `UNKNOWN_AREA`（区域不存在，别的供应商的区域也是这个结果）、`AREA_OTHER_CITY`、`AREA_NOT_USABLE`、`AREA_ROLE_NOT_PRICING`（选的是运营区域：只能勾选报价区域或运营 + 报价，M8-20）、`AREA_DISABLED`、
         `UNKNOWN_VEHICLE_GROUP`、`VEHICLE_GROUP_DISABLED`、`VEHICLE_COMBO_NOT_OFFERED`、`INVALID_PHONE`、`DUPLICATE`、`TOO_MANY`、`REQUIRED`、`NOT_APPLICABLE`。
         服务规则和商品详情：`INVALID_DATE`、`DATE_RANGE_REVERSED`、`INVALID_TIME`、`EMPTY_WINDOW`、`OUT_OF_RANGE`、`NOT_INTEGER`、`TOO_MANY`、`TOO_LONG`、`DUPLICATE`、
         `TIER_NOT_WITHIN_LEAD_TIME`、`BELOW_PLATFORM_MINIMUM`、`FIXED_BY_PLATFORM`（包车的免费等待只能是 0 分钟）、`NOT_APPLICABLE`、`INVALID_LANGUAGE`、`UNKNOWN_ADDON`、`ADDON_DISABLED`、`ADDON_NOT_APPLICABLE`、`REQUIRED`。
@@ -16507,6 +16722,187 @@ components:
               ticket:
                 $ref: "#/components/schemas/ChannelTicket"
   schemas:
+    UncoveredDemandReason:
+      type: string
+      enum: [ OUTSIDE_OPERATING, NO_PRICING_AREA, OTHER ]
+      description: 主原因：不在任何供应商的运营区域里 / 在运营区域里但没有报价区域 / 其他原因（M8-20，ADR 0075）
+    UncoveredDemandPoint:
+      type: object
+      additionalProperties: false
+      required: [ lat, lng ]
+      description: 坐标，4 位小数（约 10 米）
+      properties:
+        lat:
+          type: number
+        lng:
+          type: number
+    UncoveredDemandOperatingRef:
+      type: object
+      additionalProperties: false
+      required: [ tenant_id, area_id ]
+      description: 这一端落在哪个供应商的哪个运营区域里（运营区域或运营 + 报价）
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        area_id:
+          type: string
+          format: uuid
+    UncoveredDemand:
+      type: object
+      additionalProperties: false
+      required: [ id, first_seen_at, last_seen_at, repeat_count, channel_kind, channel_id, category, direction, package_hours, city_id, airport_id, pickup, dropoff, pickup_name, dropoff_name, service_local, service_date, passengers, luggage, vehicle_group_id, pickup_operating, dropoff_operating, tenant_ids, reason, refusal_counts ]
+      description: 一条未覆盖需求（去重后）。不含任何客人个人信息
+      properties:
+        id:
+          type: string
+          format: uuid
+        first_seen_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        repeat_count:
+          type: integer
+          minimum: 1
+          description: 同一天同一个指纹出现了几次
+        channel_kind:
+          type: string
+          enum: [ site, sales ]
+          description: 官网 / 渠道接口
+        channel_id:
+          type: string
+          format: uuid
+        category:
+          $ref: "#/components/schemas/ServiceCategory"
+        direction:
+          type: [ string, "null" ]
+          enum: [ pickup, dropoff, null ]
+          description: 接送机：接机 / 送机；别的品类 null
+        package_hours:
+          type: [ integer, "null" ]
+          description: 包车的套餐时长；别的品类 null
+        city_id:
+          type: [ string, "null" ]
+          format: uuid
+          description: 按哪个城市报的价；官网点对点的出发地不在任何能订的城市里时为 null
+        airport_id:
+          type: [ string, "null" ]
+          format: uuid
+          description: 接送机的机场
+        pickup:
+          oneOf:
+            - $ref: "#/components/schemas/UncoveredDemandPoint"
+            - type: "null"
+        dropoff:
+          description: 包车渠道没给下车点时为 null
+          oneOf:
+            - $ref: "#/components/schemas/UncoveredDemandPoint"
+            - type: "null"
+        pickup_name:
+          type: [ string, "null" ]
+          maxLength: 200
+          description: 官网地址联想选中的那一项的名称；接送机机场那一端是机场名；渠道接口没有名称
+        dropoff_name:
+          type: [ string, "null" ]
+          maxLength: 200
+        service_local:
+          type: string
+          description: 用车的当地时间 `YYYY-MM-DDTHH:mm`
+        service_date:
+          type: string
+          format: date
+        passengers:
+          type: integer
+          minimum: 1
+        luggage:
+          type: integer
+          minimum: 0
+        vehicle_group_id:
+          type: [ string, "null" ]
+          format: uuid
+          description: 客人（渠道）只问了一个车型组时是它；否则 null
+        pickup_operating:
+          type: array
+          items:
+            $ref: "#/components/schemas/UncoveredDemandOperatingRef"
+        dropoff_operating:
+          type: array
+          items:
+            $ref: "#/components/schemas/UncoveredDemandOperatingRef"
+        tenant_ids:
+          type: array
+          description: 两端的运营区域涉及的供应商（去重）
+          items:
+            type: string
+            format: uuid
+        reason:
+          $ref: "#/components/schemas/UncoveredDemandReason"
+        refusal_counts:
+          type: object
+          description: 这次比价里全部的拒绝原因 → 次数（报价引擎的原因，含 `NO_PRICING_AREA`）
+          additionalProperties:
+            type: integer
+            minimum: 1
+    UncoveredDemandSummary:
+      type: object
+      additionalProperties: false
+      required: [ rows, repeats, dropped, by_reason, by_city, by_tenant ]
+      properties:
+        rows:
+          type: integer
+          minimum: 0
+          description: 符合筛选的行数
+        repeats:
+          type: integer
+          minimum: 0
+          description: 这些行的次数之和
+        dropped:
+          type: integer
+          minimum: 0
+          description: 这段日期里因为限流（每个来源每小时 30 条、全站每天 5000 条新行）没记下来的新需求条数（不分城市、供应商）
+        by_reason:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ reason, rows, repeats ]
+            properties:
+              reason:
+                $ref: "#/components/schemas/UncoveredDemandReason"
+              rows:
+                type: integer
+              repeats:
+                type: integer
+        by_city:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ city_id, rows, repeats ]
+            properties:
+              city_id:
+                type: [ string, "null" ]
+                format: uuid
+              rows:
+                type: integer
+              repeats:
+                type: integer
+        by_tenant:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ tenant_id, rows, repeats ]
+            properties:
+              tenant_id:
+                type: string
+                format: uuid
+              rows:
+                type: integer
+              repeats:
+                type: integer
     ChannelType:
       type: string
       enum: [ own, api, ota, offline ]
@@ -18072,12 +18468,14 @@ components:
       description: |
         报不出价的原因。商品层面的：`PRODUCT_NOT_PUBLISHED`、`TENANT_SUSPENDED`、`TENANT_NOT_ONBOARDED`（还没开始试运营或已清退）、`TRIAL_DAILY_LIMIT`（试运营当天已到每日上限）、`BRAND_DISABLED`、`SERVICE_RULES_INCOMPLETE`、`INVALID_SERVICE_TIME`、
         `OUTSIDE_SALE_PERIOD`、`OUTSIDE_SERVICE_TIME`、`SERVICE_TIME_PASSED`、`LEAD_TIME_TOO_SHORT`、`URGENT_SOLD_OUT`、`OUT_OF_SERVICE_AREA`、`IN_FORBIDDEN_AREA`、
+        `NO_PRICING_AREA`（M8-20，ADR 0075：地点在这个供应商的运营区域里，但商品没有勾选覆盖它的报价区域——这个商品不报，不退回基础价；
+        只在报价试算、询价日志里出现，给渠道和官网的是 `OUT_OF_SERVICE_AREA`）、
         `DROPOFF_REQUIRED`（包车没给下车地点、而商品设了区域加价，M8-15）、
         `ADDON_NOT_OFFERED`、`DRIVER_LANGUAGE_NOT_OFFERED`、`SOLD_OUT`。包车的上车点、下车点都要在商品本身的区域或某个加价区域里，否则是 `OUT_OF_SERVICE_AREA` / `IN_FORBIDDEN_AREA`（ADR 0073）。
         车型组层面的（包车两端所在的加价区域没有这个车型组、套餐的区域加价也报 `NO_PRICE_RULE` / `PRICE_NOT_IN_EFFECT` / `PRICE_RULE_DISABLED`）：`VEHICLE_GROUP_NOT_OFFERED`、`VEHICLE_GROUP_DISABLED`、`CAPACITY_EXCEEDED`、
         `NO_PRICE_RULE`、`PRICE_NOT_IN_EFFECT`、`PRICE_RULE_DISABLED`、`ROUTE_UNAVAILABLE`、`PRICE_NOT_POSITIVE`、`PRICE_OVER_LIMIT`。
         只在平台侧比价时出现的：`FX_RATE_UNAVAILABLE`、`SELL_PRICE_OVER_LIMIT`。
-      enum: [ PRODUCT_NOT_PUBLISHED, TENANT_SUSPENDED, TENANT_NOT_ONBOARDED, TRIAL_DAILY_LIMIT, BRAND_DISABLED, SERVICE_RULES_INCOMPLETE, INVALID_SERVICE_TIME, OUTSIDE_SALE_PERIOD, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, LEAD_TIME_TOO_SHORT, URGENT_SOLD_OUT, OUT_OF_SERVICE_AREA, IN_FORBIDDEN_AREA, DROPOFF_REQUIRED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, SOLD_OUT, VEHICLE_GROUP_NOT_OFFERED, VEHICLE_GROUP_DISABLED, CAPACITY_EXCEEDED, NO_PRICE_RULE, PRICE_NOT_IN_EFFECT, PRICE_RULE_DISABLED, ROUTE_UNAVAILABLE, PRICE_NOT_POSITIVE, PRICE_OVER_LIMIT, FX_RATE_UNAVAILABLE, SELL_PRICE_OVER_LIMIT ]
+      enum: [ PRODUCT_NOT_PUBLISHED, TENANT_SUSPENDED, TENANT_NOT_ONBOARDED, TRIAL_DAILY_LIMIT, BRAND_DISABLED, SERVICE_RULES_INCOMPLETE, INVALID_SERVICE_TIME, OUTSIDE_SALE_PERIOD, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, LEAD_TIME_TOO_SHORT, URGENT_SOLD_OUT, OUT_OF_SERVICE_AREA, IN_FORBIDDEN_AREA, NO_PRICING_AREA, DROPOFF_REQUIRED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, SOLD_OUT, VEHICLE_GROUP_NOT_OFFERED, VEHICLE_GROUP_DISABLED, CAPACITY_EXCEEDED, NO_PRICE_RULE, PRICE_NOT_IN_EFFECT, PRICE_RULE_DISABLED, ROUTE_UNAVAILABLE, PRICE_NOT_POSITIVE, PRICE_OVER_LIMIT, FX_RATE_UNAVAILABLE, SELL_PRICE_OVER_LIMIT ]
     QuoteRouteEstimate:
       type: object
       additionalProperties: false
@@ -18830,6 +19228,7 @@ components:
         - master_data.read
         - master_data.manage
         - quote.preview
+        - demand.read
         - product.read
         - fx.manage
         - fx.review
@@ -20806,6 +21205,13 @@ components:
       type: string
       enum: [ general, airport_transfer, point_to_point, charter ]
       description: 业务类型：通用、接送机、点对点、包车。建商品时只能选到业务类型和商品品类相同的区域，或「通用」的区域
+    AreaRole:
+      type: string
+      enum: [ operating, pricing, both ]
+      description: |
+        用途（M8-20，ADR 0075）：`operating` 运营区域（只决定这一单能不能接，不带价格；商品区域、包车区域加价、点对点线路价都不能用它，选了 400，原因 `AREA_ROLE_NOT_PRICING`）；
+        `pricing` 报价区域（商品勾选后填价格或加价）；`both` 运营 + 报价（M8-20 之前的区域都是它）。
+        报价时一个点要同时在这个供应商的运营区域（`operating` / `both`，启用、业务类型和商品品类相容，不限城市）里、在商品勾选的报价区域里才报价。
     AreaPolygonKind:
       type: string
       enum: [ operate, forbid ]
@@ -20947,7 +21353,7 @@ components:
       type: object
       additionalProperties: false
       description: 列表里的一项：不带图形的坐标
-      required: [ id, name, city_id, city, biz_type, status, operate_polygon_count, forbid_polygon_count, usage, version, created_at, updated_at ]
+      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, created_at, updated_at ]
       properties:
         id:
           type: string
@@ -20964,6 +21370,8 @@ components:
           $ref: "#/components/schemas/AreaCity"
         biz_type:
           $ref: "#/components/schemas/AreaBizType"
+        role:
+          $ref: "#/components/schemas/AreaRole"
         status:
           $ref: "#/components/schemas/MasterDataStatus"
         operate_polygon_count:
@@ -20996,8 +21404,8 @@ components:
     Area:
       type: object
       additionalProperties: false
-      description: 区域的详情：比列表项多全部图形
-      required: [ id, name, city_id, city, biz_type, status, operate_polygon_count, forbid_polygon_count, usage, version, created_at, updated_at, polygons ]
+      description: 区域的详情：比列表项多全部图形，和「超出运营区域」的提醒
+      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, created_at, updated_at, polygons, outside_operating_m2 ]
       properties:
         id:
           type: string
@@ -21012,6 +21420,8 @@ components:
           $ref: "#/components/schemas/AreaCity"
         biz_type:
           $ref: "#/components/schemas/AreaBizType"
+        role:
+          $ref: "#/components/schemas/AreaRole"
         status:
           $ref: "#/components/schemas/MasterDataStatus"
         operate_polygon_count:
@@ -21047,11 +21457,18 @@ components:
           description: 全部图形，按加入的先后
           items:
             $ref: "#/components/schemas/AreaPolygon"
+        outside_operating_m2:
+          type: [ integer, "null" ]
+          minimum: 0
+          description: |
+            报价区域（`pricing` / `both`）真正的范围（营运区减去自己的禁行区）有多少平方米不在本租户任何启用中、业务类型相容的运营区域里（ADR 0075 第一部分第 2 节）。
+            不到 100 平方米算 0；大于 0 时页面提示「这个报价区域有一部分不在任何运营区域里，那部分不会报价」。只是提醒，不拦保存。
+            运营区域、停用的区域为 null。超出部分的形状由页面用 `@nozomi/domain` 的 `findPricingOutsideOperating` 在区域地图上画
     AreaMapItem:
       type: object
       additionalProperties: false
       description: 区域地图的一项：和区域详情相同（带全部图形），另带最近修改人
-      required: [ id, name, city_id, city, biz_type, status, operate_polygon_count, forbid_polygon_count, usage, version, created_at, updated_at, polygons, last_editor ]
+      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, created_at, updated_at, polygons, outside_operating_m2, last_editor ]
       properties:
         id:
           type: string
@@ -21066,6 +21483,8 @@ components:
           $ref: "#/components/schemas/AreaCity"
         biz_type:
           $ref: "#/components/schemas/AreaBizType"
+        role:
+          $ref: "#/components/schemas/AreaRole"
         status:
           $ref: "#/components/schemas/MasterDataStatus"
         operate_polygon_count:
@@ -21101,6 +21520,10 @@ components:
           description: 全部图形，按加入的先后
           items:
             $ref: "#/components/schemas/AreaPolygon"
+        outside_operating_m2:
+          type: [ integer, "null" ]
+          minimum: 0
+          description: 同区域详情的 `outside_operating_m2`（和这个供应商全部的运营区域比，不只是这一页里的）
         last_editor:
           description: 最近一次改这个区域的是谁、什么时候（取自审计日志里这个区域的最后一条；新增、修改、停用、启用都算）。没有日志时为 null
           oneOf:
@@ -21110,7 +21533,7 @@ components:
       type: object
       additionalProperties: false
       description: 运营后台区域地图的一项：和供应商后台的 `AreaMapItem` 相同，另带所属供应商
-      required: [ id, name, city_id, city, biz_type, status, operate_polygon_count, forbid_polygon_count, usage, version, created_at, updated_at, polygons, last_editor, tenant_id, tenant ]
+      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, created_at, updated_at, polygons, outside_operating_m2, last_editor, tenant_id, tenant ]
       properties:
         id:
           type: string
@@ -21125,6 +21548,8 @@ components:
           $ref: "#/components/schemas/AreaCity"
         biz_type:
           $ref: "#/components/schemas/AreaBizType"
+        role:
+          $ref: "#/components/schemas/AreaRole"
         status:
           $ref: "#/components/schemas/MasterDataStatus"
         operate_polygon_count:
@@ -21160,6 +21585,10 @@ components:
           description: 全部图形，按加入的先后
           items:
             $ref: "#/components/schemas/AreaPolygon"
+        outside_operating_m2:
+          type: [ integer, "null" ]
+          minimum: 0
+          description: 同区域详情的 `outside_operating_m2`（和这个供应商全部的运营区域比，不只是这一页里的）
         last_editor:
           description: 最近一次改这个区域的是谁、什么时候（取自审计日志里这个区域的最后一条；新增、修改、停用、启用都算）。没有日志时为 null
           oneOf:
@@ -21200,6 +21629,10 @@ components:
             - $ref: "#/components/schemas/LocalizedText"
         biz_type:
           $ref: "#/components/schemas/AreaBizType"
+        role:
+          description: 用途。新建时不给按 `both`（运营 + 报价，和 M8-20 之前一样）；修改时不给 = 不改
+          allOf:
+            - $ref: "#/components/schemas/AreaRole"
         polygons:
           type: array
           items:
@@ -21217,6 +21650,10 @@ components:
             - $ref: "#/components/schemas/LocalizedText"
         biz_type:
           $ref: "#/components/schemas/AreaBizType"
+        role:
+          description: 用途。新建时不给按 `both`（运营 + 报价，和 M8-20 之前一样）；修改时不给 = 不改
+          allOf:
+            - $ref: "#/components/schemas/AreaRole"
         polygons:
           type: array
           items:
@@ -22034,7 +22471,8 @@ components:
             properties:
               key:
                 type: string
-                enum: [ basic_info, service_rules, price_rules, content, adjust_rules, inventory ]
+                enum: [ basic_info, service_rules, price_rules, content, adjust_rules, inventory, area_coverage ]
+                description: "`area_coverage`（运营区域，M8-20）只在有提醒时出现、从不必须：勾选的报价区域有一部分不在任何运营区域里（原因 `PRICING_AREA_OUTSIDE_OPERATING`，`path` 是 `/areas/{区域编号}`，`detail.outside_m2` 是面积）"
               required:
                 type: boolean
                 description: 这一项不通过就不能上架
@@ -22046,7 +22484,7 @@ components:
                   不通过的原因。`path` 是相对于这一项的字段位置（如 `/areas/0`、`/booking/service_time`、`/zh/pickup_guide`；没有具体位置时是 `/`）。
                   `reason` 除了 `ProductInvalid` 里列的规则代码，还有：`NO_AREA`、`NO_VEHICLE_GROUP`、`NO_DISPATCHER`、`BRAND_DISABLED`、`CITY_DISABLED`、
                   `PICKUP_PLACE_MISSING`、`PICKUP_PLACE_DISABLED`、`PICKUP_PLACE_OTHER_CITY`（接送点被平台改到了别的城市）、`AREA_DISABLED`、`AREA_CITY_DISABLED`、`AREA_NOT_USABLE`、`VEHICLE_GROUP_DISABLED`、
-                  `VEHICLE_COMBO_NOT_OFFERED`、`ADDON_DISABLED`、`ADDON_NOT_APPLICABLE`、`NO_ACTIVE_PRICE_RULE`、`NO_PRICE_IN_SELECTION`、`ALL_PRICE_RULES_DISABLED`、`ALL_PRICE_RULES_EXPIRED`、`ADJUST_RESULT_NOT_POSITIVE`、`ADJUST_STACK_NOT_POSITIVE`、`ADJUST_STACK_OVER_LIMIT`、`NO_INVENTORY_AHEAD`。
+                  `VEHICLE_COMBO_NOT_OFFERED`、`ADDON_DISABLED`、`ADDON_NOT_APPLICABLE`、`NO_ACTIVE_PRICE_RULE`、`NO_PRICE_IN_SELECTION`、`ALL_PRICE_RULES_DISABLED`、`ALL_PRICE_RULES_EXPIRED`、`ADJUST_RESULT_NOT_POSITIVE`、`ADJUST_STACK_NOT_POSITIVE`、`ADJUST_STACK_OVER_LIMIT`、`NO_INVENTORY_AHEAD`、`PRICING_AREA_OUTSIDE_OPERATING`（M8-20）。
                   （`FEATURE_NOT_AVAILABLE` 只在 `@nozomi/domain` 的 `publishCheck` 不知道价格条数时出现，接口不再返回它。）
                 items:
                   type: object
@@ -23567,6 +24005,7 @@ components:
             - UNKNOWN_AREA
             - AREA_IS_PRODUCT_AREA
             - AREA_NOT_USABLE
+            - AREA_ROLE_NOT_PRICING
             - AREA_DISABLED
             - SAME_AREA
           description: |
@@ -23578,6 +24017,7 @@ components:
             `UNKNOWN_PRICE_RULE` 价格编号不是这个商品的；`AREA_NOT_IN_PRODUCT` / `VEHICLE_GROUP_NOT_IN_PRODUCT` 不是这个商品选的区域 / 车型组；
             `AMBIGUOUS` 有不止一个区域叫这个名字；`INVENTORY_BELOW_OCCUPIED` 这一天有订单占着，不能改成这个数。
             包车区域加价的行（M8-15）：`UNKNOWN_AREA` 本租户没有叫这个名字的区域；`AREA_IS_PRODUCT_AREA` 是商品本身的区域；`AREA_NOT_USABLE` 业务类型不是包车或通用；`AREA_DISABLED` 区域已停用。
+            `AREA_ROLE_NOT_PRICING`（M8-20，ADR 0075）：认出的是运营区域，运营区域不带价格。
             点对点线路价的行（M8-11）：`SAME_AREA`「下车区域」和「区域」相同。
         message:
           type: string
@@ -27098,6 +27538,16 @@ components:
           description: 客人选的附加服务和数量（M8-02，ADR 0069 B15）。照原样交给报价引擎：没有商品提供的车型组报不出价（`ADDON_NOT_OFFERED`）；价格只在报价的合计里，不单独给单价
           items:
             $ref: "#/components/schemas/SiteAddonRequest"
+        pickup_name:
+          type: [ string, "null" ]
+          maxLength: 200
+          description: |
+            可选（M8-20，ADR 0075 第四部分）：客人在地址联想里选中的上车那一项的名称（手打的文字不要带）。只在一个价都报不出时记进平台的「未覆盖需求」，不影响报价；
+            接送机机场那一端记的是机场名
+        dropoff_name:
+          type: [ string, "null" ]
+          maxLength: 200
+          description: 可选（M8-20）：客人在地址联想里选中的下车那一项的名称，用法同 `pickup_name`
     SiteRoutePreview:
       type: object
       additionalProperties: false
@@ -27169,6 +27619,16 @@ components:
           description: 客人选的附加服务和数量（M8-02，ADR 0069 B15）。照原样交给报价引擎：没有商品提供的车型组报不出价（`ADDON_NOT_OFFERED`）；价格只在报价的合计里，不单独给单价
           items:
             $ref: "#/components/schemas/SiteAddonRequest"
+        pickup_name:
+          type: [ string, "null" ]
+          maxLength: 200
+          description: |
+            可选（M8-20，ADR 0075 第四部分）：客人在地址联想里选中的上车那一项的名称（手打的文字不要带）。只在一个价都报不出时记进平台的「未覆盖需求」，不影响报价；
+            接送机机场那一端记的是机场名
+        dropoff_name:
+          type: [ string, "null" ]
+          maxLength: 200
+          description: 可选（M8-20）：客人在地址联想里选中的下车那一项的名称，用法同 `pickup_name`
     SiteAddonRequest:
       type: object
       additionalProperties: false

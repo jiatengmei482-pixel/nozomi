@@ -38,6 +38,7 @@ export function checkContextOf(product: Product): CheckContext {
     cityName: product.city ? displayName(product.city.name).text : "",
     placeName: product.poi ? displayName(product.poi.name).text : null,
     station: product.poi?.type === "station",
+    areaNames: new Map(product.areas.map((area) => [area.area_id, displayName(area.name).text])),
   };
 }
 

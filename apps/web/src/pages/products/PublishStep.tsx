@@ -13,6 +13,7 @@ import { Dialog } from "../../components/Dialog.tsx";
 import { Icon, type IconName } from "../../components/Icon.tsx";
 import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { useToast } from "../../components/Toast.tsx";
+import { areaEditPath } from "../../lib/area-paths.ts";
 import { shortName } from "../../lib/master-display.ts";
 import { CHECK_STEP, type CheckItemState, checkItemName, checkItemState, checkOverview, checkReasons, noteForPortal, productName, quoteNames } from "../../lib/product-display.ts";
 import { PRODUCT_FORBIDDEN_TEXT, saveFailureText } from "../../lib/product-failure.ts";
@@ -28,7 +29,7 @@ const STATE_LOOK: Readonly<Record<CheckItemState, { icon: IconName; tone: string
   optional: { icon: "minus", tone: "muted" },
 };
 const UNAVAILABLE_NOTES: Readonly<Record<string, string>> = { price_rules: "不是出错：设价格的页面还在开发。开放后在那里设好至少 1 条启用的价格规则，这一项就会满足。" };
-const OPTIONAL_NOTES: Readonly<Record<string, string>> = { adjust_rules: "节假日、旺季想调价时才用。", inventory: "不设就是不限量；想限制每天接多少单时才用。" };
+const OPTIONAL_NOTES: Readonly<Record<string, string>> = { adjust_rules: "节假日、旺季想调价时才用。", inventory: "不设就是不限量；想限制每天接多少单时才用。", area_coverage: "只是提醒：勾选的报价区域超出运营区域的部分不会报价。" };
 
 export function PublishStep({ frame, product, onReload, checkStatus }: { frame: ProductFrame; product: Product; onReload(): void; checkStatus: string }) {
   const { readOnly, checkContext } = frame;
@@ -160,7 +161,8 @@ export function PublishStep({ frame, product, onReload, checkStatus }: { frame: 
     // 不是必须的项也可能有要提醒的（调价规则会把价格调到不大于 0）
     const reasons = state === "missing" || (state === "optional" && !item.passed) ? checkReasons(item, checkContext) : [];
     const stepPath = item.key === "adjust_rules" ? pricePath(product.id, "adjust") : step ? productPath(product.id, step) : null;
-    const heedful = item.key === "inventory" && reasons.length > 0;
+    // 库存从今天起没有、报价区域超出运营区域（M8-20）：不拦上架，但要留意
+    const heedful = (item.key === "inventory" || item.key === "area_coverage") && reasons.length > 0;
     const stateText = state === "passed" ? "已满足" : state === "missing" ? `还差 ${Math.max(1, reasons.length)} 项` : state === "unavailable" ? "功能即将开放" : heedful ? `有 ${reasons.length} 处要留意` : "不是必须";
     const optionalNote = item.key === "inventory" ? (frame.inventoryMode === "unlimited" ? "现在是不限量，每天接多少单都可以。想限制每天接多少单时才用设。" : frame.inventoryMode === "limited" ? "现在是限量，按每天设的库存接单。" : (OPTIONAL_NOTES[item.key] ?? "")) : (OPTIONAL_NOTES[item.key] ?? "");
     return (
@@ -185,7 +187,18 @@ export function PublishStep({ frame, product, onReload, checkStatus }: { frame: 
             {reasons.map((reason) => (
               <li key={reason.text}>
                 <span>{reason.text}</span>
-                {reason.anchor !== null && step && stepPath ? (
+                {item.key === "area_coverage" ? (
+                  onPlatform ? (
+                    <span className="checklist__note">供应商需要补画覆盖它的运营区域</span>
+                  ) : (
+                    reason.areaId !== undefined && (
+                      <Link className="link checklist__go" to={areaEditPath(reason.areaId)} aria-label={`去看区域：${reason.text}`}>
+                        去看区域
+                        <Icon name="chevron-right" />
+                      </Link>
+                    )
+                  )
+                ) : reason.anchor !== null && step && stepPath ? (
                   <Link className="link checklist__go" to={step === "prices" ? (reason.anchor !== null && reason.anchor.startsWith("adjust/") ? pricePath(product.id, "adjust", reason.anchor.slice("adjust".length)) : stepPath) : productPath(product.id, step, reason.anchor === "" ? undefined : reason.anchor)} aria-label={`${readOnly ? "去查看" : item.key === "inventory" ? "去设" : "去填"}：${reason.text}`}>
                     {readOnly ? "去查看" : item.key === "inventory" ? "去设" : "去填"}
                     <Icon name="chevron-right" />

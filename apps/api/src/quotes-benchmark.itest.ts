@@ -123,8 +123,8 @@ before(async () => {
            select new_tenant, name, currency, status, rounding_unit, created_at, updated_at from brands where tenant_id = src_tenant returning id into new_brand;
          truncate area_map;
          for src in select * from areas where tenant_id = src_tenant loop
-           insert into areas (tenant_id, city_id, name, name_keys, biz_type, status, created_at, updated_at)
-             values (new_tenant, src.city_id, src.name, src.name_keys, src.biz_type, src.status, src.created_at, src.updated_at) returning id into new_area;
+           insert into areas (tenant_id, city_id, name, name_keys, biz_type, role, status, created_at, updated_at)
+             values (new_tenant, src.city_id, src.name, src.name_keys, src.biz_type, src.role, src.status, src.created_at, src.updated_at) returning id into new_area;
            insert into area_map values (src.id, new_area);
          end loop;
          insert into area_polygons (tenant_id, area_id, kind, seq, label, position, source, geometry, vertex_count, min_lng, min_lat, max_lng, max_lat)

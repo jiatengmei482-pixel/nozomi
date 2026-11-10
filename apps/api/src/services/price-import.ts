@@ -256,6 +256,8 @@ export async function runPriceImport(
         cityId: area.city,
         name: { zh: area.region },
         bizType: "airport_transfer",
+        // 价格表导入的区域既是服务范围、又挂价格（和 M8-20 之前一样）
+        role: "both",
         polygons: [
           area.shape.kind === "circle"
             ? { id: null, kind: "operate", label, source: "circle", circle: { center: { lat: area.shape.lat, lng: area.shape.lng }, radiusM: area.shape.radiusM }, geometry: null }

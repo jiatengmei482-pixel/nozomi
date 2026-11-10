@@ -4,6 +4,7 @@ import {
   PRODUCT_LIMITS,
   PRODUCT_STATUSES,
   PUBLISH_CHECK_KEYS,
+  PUBLISH_CHECK_NAMES,
   type ProductContent,
   type PublishFacts,
   type ServiceRules,
@@ -48,9 +49,9 @@ function complete(extra: Partial<ServiceRules> = {}): ServiceRules {
 const reasons = (rules: ServiceRules, context: Parameters<typeof serviceRuleIssues>[1] = airport): string[] =>
   serviceRuleIssues(rules, context).map((issue) => `${issue.path} ${issue.reason}`);
 
-test("常量：状态三种；上架校验六项；区域和品类的匹配；接送点只能是机场或车站", () => {
+test("常量：状态三种；上架校验六项（另有只在有提醒时出现的「运营区域」，M8-20）；区域和品类的匹配；接送点只能是机场或车站", () => {
   assert.deepEqual([...PRODUCT_STATUSES], ["draft", "published", "unpublished"]);
-  assert.deepEqual([...PUBLISH_CHECK_KEYS], ["basic_info", "service_rules", "price_rules", "content", "adjust_rules", "inventory"]);
+  assert.deepEqual([...PUBLISH_CHECK_KEYS], ["basic_info", "service_rules", "price_rules", "content", "adjust_rules", "inventory", "area_coverage"]);
   assert.equal(areaUsableByCategory("charter", "charter"), true);
   assert.equal(areaUsableByCategory("charter", "general"), true);
   assert.equal(areaUsableByCategory("charter", "airport_transfer"), false);
@@ -227,6 +228,15 @@ test("上架校验：六项按顺序给出，四项必须、两项可选；全�
   ]);
   assert.equal(canPublish(items), true);
   assert.ok(items.every((item) => item.issues.length === 0));
+});
+
+test("上架校验（ADR 0075）：勾选的报价区域有一部分不在任何运营区域里时多一项「运营区域」提醒，不拦上架；没有时没有这一项", () => {
+  assert.deepEqual(publishCheck(facts({ pricingOutsideOperating: [] })).map((item) => item.key), ["basic_info", "service_rules", "price_rules", "content", "adjust_rules", "inventory"]);
+  const items = publishCheck(facts({ pricingOutsideOperating: [{ areaId: "a1", outsideM2: 1_234 }] }));
+  const coverage = items.find((item) => item.key === "area_coverage");
+  assert.deepEqual(coverage, { key: "area_coverage", required: false, passed: false, issues: [{ path: "/areas/a1", reason: "PRICING_AREA_OUTSIDE_OPERATING", detail: { outside_m2: 1_234 } }] });
+  assert.equal(canPublish(items), true, "只是提醒");
+  assert.equal(PUBLISH_CHECK_NAMES.area_coverage, "运营区域");
 });
 
 test("上架校验：价格规则功能还没上线时这一项固定不通过；上线后要至少一条启用且未过期的", () => {

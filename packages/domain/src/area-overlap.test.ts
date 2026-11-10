@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { AREA_OVERLAP_MIN_M2, type OverlapAreaInput, areasCanCompete, findAreaOverlaps } from "./area-overlap.ts";
+import { AREA_OVERLAP_MIN_M2, type OverlapAreaInput, areasCanCompete, findAreaOverlaps, findPricingOutsideOperating } from "./area-overlap.ts";
 import { type Position, circleToRing } from "./areas.ts";
 
 /** 射线法：点在不在一圈点里（测试自己的，不依赖被测代码）。 */
@@ -210,5 +210,67 @@ describe("findAreaOverlaps：小细缝和边界情况", () => {
   it("相邻的梯形合成一块：两个矩形的重叠只有一块", () => {
     const result = findAreaOverlaps([area("a", [rect(0, 0, 0.02, 0.02)]), area("b", [rect(0.01, 0.01, 0.03, 0.03)])]);
     assert.equal(result.pieces.length, 1);
+  });
+});
+
+describe("ADR 0075：重叠只在报价区域之间算", () => {
+  it("运营区域和别的区域叠在一起不算重叠；报价区域、运营 + 报价之间照算；没给用途的按报价区域算", () => {
+    const big = area("op", [rect(0, 0, 0.1, 0.1)], [], { role: "operating" });
+    const p1 = area("p1", [rect(0.01, 0.01, 0.03, 0.03)], [], { role: "pricing" });
+    const p2 = area("p2", [rect(0.02, 0.02, 0.04, 0.04)], [], { role: "both" });
+    const old = area("old", [rect(0.035, 0.035, 0.05, 0.05)]);
+    const result = findAreaOverlaps([big, p1, p2, old]);
+    assert.deepEqual(result.pairs.map((pair) => [pair.a, pair.b]), [["p1", "p2"], ["p2", "old"]]);
+    assert.ok(result.pieces.every((piece) => !piece.areaIds.includes("op")));
+    assert.deepEqual(findAreaOverlaps([big, area("op2", [rect(0.05, 0.05, 0.2, 0.2)], [], { role: "operating" })]).pairs, []);
+  });
+});
+
+describe("findPricingOutsideOperating：报价区域超出运营区域的部分", () => {
+  const op = area("op", [rect(0, 0, 0.02, 0.02)], [], { role: "operating" });
+
+  it("报价区域一半在运营区域外：面积是外面那一半，形状正好盖住外面那一半", () => {
+    const pricing = area("p", [rect(0.01, 0, 0.03, 0.02)], [], { role: "pricing" });
+    const result = findPricingOutsideOperating([pricing], [op]);
+    const expected = 0.01 * 0.02 * DEG2;
+    const got = result.byArea.get("p") ?? 0;
+    assert.ok(Math.abs(got - expected) / expected < 0.001, `面积 ${got}，应为约 ${expected}`);
+    assert.ok(Math.abs(piecesArea(result.pieces.map((piece) => piece.ring)) - 0.0002) < 1e-9);
+    for (const piece of result.pieces) {
+      assert.deepEqual(piece.areaIds, ["p"]);
+      for (const point of piece.ring) assert.ok(point[0] >= 0.02 - 1e-12);
+    }
+  });
+
+  it("完全在运营区域里、运营 + 报价自己盖住自己、相加的几个运营区域合起来盖住：没有超出", () => {
+    assert.equal(findPricingOutsideOperating([area("p", [rect(0.005, 0.005, 0.015, 0.015)])], [op]).byArea.size, 0);
+    const both = area("b", [rect(1, 1, 1.1, 1.1)], [], { role: "both" });
+    assert.equal(findPricingOutsideOperating([both], [both]).byArea.size, 0);
+    const right = area("op2", [rect(0.02, 0, 0.04, 0.02)], [], { role: "operating" });
+    assert.equal(findPricingOutsideOperating([area("p", [rect(0.01, 0.005, 0.03, 0.015)])], [op, right]).byArea.size, 0);
+  });
+
+  it("运营区域的禁行区里那一块算超出（禁行区只管它所在的区域）；报价区域自己的禁行区不算", () => {
+    const holed = area("op", [rect(0, 0, 0.02, 0.02)], [rect(0.005, 0.005, 0.01, 0.01)], { role: "operating" });
+    const result = findPricingOutsideOperating([area("p", [rect(0, 0, 0.02, 0.02)], [rect(0.012, 0.012, 0.018, 0.018)])], [holed]);
+    const expected = 0.005 * 0.005 * DEG2;
+    assert.ok(Math.abs((result.byArea.get("p") ?? 0) - expected) / expected < 0.001);
+  });
+
+  it("业务类型不相容的运营区域不算；停用的运营区域不算；停用的报价区域不看；不到 100 平方米的不提示", () => {
+    const charterOp = area("op", [rect(0, 0, 0.02, 0.02)], [], { role: "operating", bizType: "charter" });
+    const transfer = area("p", [rect(0.005, 0.005, 0.015, 0.015)], [], { role: "pricing", bizType: "airport_transfer" });
+    assert.ok(findPricingOutsideOperating([transfer], [charterOp]).byArea.has("p"));
+    assert.equal(findPricingOutsideOperating([transfer], [charterOp], () => true).byArea.size, 0);
+    assert.ok(findPricingOutsideOperating([area("p", [rect(0.005, 0.005, 0.015, 0.015)])], [{ ...op, active: false }]).byArea.has("p"));
+    assert.equal(findPricingOutsideOperating([{ ...area("p", [rect(1, 1, 2, 2)]), active: false }], [op]).byArea.size, 0);
+    const sliver = 50 / 111_320 / 111_320 / 0.001;
+    assert.equal(findPricingOutsideOperating([area("p", [rect(0.01, 0, 0.02 + sliver, 0.001)])], [op]).byArea.size, 0);
+  });
+
+  it("没有运营区域：整个报价区域都超出", () => {
+    const result = findPricingOutsideOperating([area("p", [rect(0, 0, 0.01, 0.01)])], []);
+    const expected = 0.01 * 0.01 * DEG2;
+    assert.ok(Math.abs((result.byArea.get("p") ?? 0) - expected) / expected < 0.001);
   });
 });

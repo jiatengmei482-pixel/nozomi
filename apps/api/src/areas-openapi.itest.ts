@@ -409,7 +409,13 @@ test("定义里的请求字段、必填项、枚举、上限和实现一致", as
   // 修改：city_id 不是必填
   const update = schemas["AreaUpdate"] as Schema;
   assert.deepEqual([...update["required"]].sort(), ["biz_type", "name", "polygons"]);
-  assert.deepEqual(Object.keys(update["properties"]).sort(), ["biz_type", "city_id", "name", "polygons"]);
+  assert.deepEqual(Object.keys(update["properties"]).sort(), ["biz_type", "city_id", "name", "polygons", "role"]);
+  // 用途（M8-20）：新建、修改都可以不给；不认识的值 400
+  assert.deepEqual(Object.keys(create["properties"]).sort(), ["biz_type", "city_id", "name", "polygons", "role"]);
+  assert.deepEqual(deref(schemas["AreaRole"] as Schema)["enum"], ["operating", "pricing", "both"]);
+  assert.equal((await call("POST", AREAS, { headers: key(), body: body({ role: "operating" }) })).body.role, "operating");
+  const wrongRole = await call("POST", AREAS, { headers: key(), body: body({ role: "everything" }) });
+  assert.ok(wrongRole.status === 400 && wrongRole.body.error.details.issues.some((issue: any) => issue.path === "/role"), wrongRole.text);
   // 上限：备注名、圆的半径、名称的长度写的是 domain 里的数
   assert.equal(input["properties"]["label"]["maxLength"], AREA_LIMITS.maxLabelLength);
   assert.equal(deref(schemas["AreaPolygon"] as Schema)["properties"]["label"]["maxLength"], AREA_LIMITS.maxLabelLength);
@@ -420,7 +426,7 @@ test("定义里的请求字段、必填项、枚举、上限和实现一致", as
   for (const limit of [AREA_LIMITS.maxPolygons, AREA_LIMITS.maxRingVertices, AREA_LIMITS.maxTotalVertices, AREA_LIMITS.minRadiusM, AREA_LIMITS.maxRadiusM]) assert.ok(createText.includes(String(limit)), `新增接口的说明里没有写上限 ${limit}`);
   // 查询参数：定义里写的每一个接口都认；定义里没有的不认（400）还是被忽略——至少不能改变结果
   const parameters = (doc.paths[AREAS]?.["get"]?.parameters ?? []).map((parameter) => deref(parameter)["name"] as string);
-  assert.deepEqual(parameters.sort(), ["biz_type", "city_id", "cursor", "limit", "q", "status"]);
+  assert.deepEqual(parameters.sort(), ["biz_type", "city_id", "cursor", "limit", "q", "role", "status"]);
   const statusEnum = deref((doc.paths[AREAS]?.["get"]?.parameters ?? []).map(deref).find((parameter) => parameter["name"] === "status") as Schema)["schema"]["enum"] as string[];
   for (const status of statusEnum) assert.equal((await call("GET", AREAS, { query: `status=${status}` })).status, 200, status);
   assert.equal((await call("GET", AREAS, { query: "status=archived" })).status, 400);

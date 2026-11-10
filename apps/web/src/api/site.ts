@@ -96,6 +96,9 @@ export interface SiteQuoteRequest {
   luggage: number;
   /** 客人选的附加服务和数量（M8-02）；不选可以不给 */
   addons?: SiteAddonRequest[];
+  /** 地址联想里选中的那一项的名称（M8-20：只在一个价都报不出时记进未覆盖需求；手打的文字不要带） */
+  pickup_name?: string | null;
+  dropoff_name?: string | null;
 }
 
 /** 询价时选的一项附加服务（从报价的 `available_addons` 里选）。 */
@@ -180,6 +183,9 @@ export interface SiteByPointsRequest {
   passengers: number;
   luggage?: number;
   addons?: SiteAddonRequest[];
+  /** 地址联想里选中的那一项的名称（M8-20：只在一个价都报不出时记进未覆盖需求；手打的文字不要带） */
+  pickup_name?: string | null;
+  dropoff_name?: string | null;
 }
 
 /** 出发地到目的地的行车路线（谷歌 Routes，只用来给客人看，不影响价格）。 */
@@ -389,10 +395,10 @@ export const SITE_ORDER_FIELDS: readonly (keyof SiteOrder)[] = [
   "free_cancel_available", "changes", "extra_charges", "version",
 ];
 
-export const SITE_BY_POINTS_REQUEST_FIELDS: readonly (keyof SiteByPointsRequest)[] = ["pickup", "dropoff", "service_local", "passengers", "luggage", "addons"];
+export const SITE_BY_POINTS_REQUEST_FIELDS: readonly (keyof SiteByPointsRequest)[] = ["pickup", "dropoff", "service_local", "passengers", "luggage", "addons", "pickup_name", "dropoff_name"];
 export const SITE_TRIP_END_FIELDS: readonly (keyof SiteTripEnd)[] = ["name", "lat", "lng", "kind"];
 export const SITE_BY_POINTS_RESULT_FIELDS: readonly (keyof SiteByPointsResult)[] = ["trip_type", "airport", "city", "currency", "quotes", "unavailable", "expires_at", "route"];
-export const SITE_QUOTE_REQUEST_FIELDS: readonly (keyof SiteQuoteRequest)[] = ["category", "city_id", "airport_id", "direction", "address", "pickup", "dropoff", "package_hours", "service_local", "passengers", "luggage", "addons"];
+export const SITE_QUOTE_REQUEST_FIELDS: readonly (keyof SiteQuoteRequest)[] = ["category", "city_id", "airport_id", "direction", "address", "pickup", "dropoff", "package_hours", "service_local", "passengers", "luggage", "addons", "pickup_name", "dropoff_name"];
 export const SITE_FX_REFERENCE_FIELDS: readonly (keyof SiteFxReference)[] = ["available", "from", "to", "rate", "as_of", "reason"];
 export const SITE_ORDER_REQUEST_FIELDS: readonly (keyof SiteOrderRequest)[] = ["quote_id", "passenger", "flight_no", "pickup_address", "dropoff_address", "messaging", "notes", "save_payment_method"];
 

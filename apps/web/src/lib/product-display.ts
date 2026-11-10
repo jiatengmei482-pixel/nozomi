@@ -6,6 +6,7 @@ import { GROUPING_PROBLEM, otherCurrencyProblem, tidyAmountText } from "./amount
 import { CURRENCIES, type CurrencyCode, type LocalizedText, MASTER_DATA_LANGUAGES, PRODUCT_CATEGORY_NAMES, PRODUCT_LIMITS, PRODUCT_STATUS_NAMES, PUBLISH_CHECK_NAMES, type ProductStatus, type PublishCheckKey, type ServiceCategory, formatMajor, isCurrencyCode, scaledInteger } from "@nozomi/domain";
 import type { PublishCheckIssue, PublishCheckItemBody, PublishCheckResult } from "../api/products.ts";
 import type { BadgeSpec } from "../components/StatusBadge.tsx";
+import { overlapAreaText } from "./area-overview.ts";
 import { type DisplayText, displayName } from "./master-display.ts";
 import type { ProductStepSlug } from "./product-paths.ts";
 
@@ -94,7 +95,7 @@ export function readAmount(text: string, currency: string | null): AmountResult 
 // ───────────── 上架检查 ─────────────
 
 /** 前端有页面的步骤：上架检查里的项 → 步骤。价格规则、库存上线时在这里接上。 */
-export const CHECK_STEP: Readonly<Partial<Record<PublishCheckKey, ProductStepSlug>>> = { basic_info: "basic", service_rules: "service-rules", price_rules: "prices", adjust_rules: "prices", inventory: "inventory", content: "content" };
+export const CHECK_STEP: Readonly<Partial<Record<PublishCheckKey, ProductStepSlug>>> = { basic_info: "basic", service_rules: "service-rules", price_rules: "prices", adjust_rules: "prices", inventory: "inventory", content: "content", area_coverage: "basic" };
 
 export function checkItemName(key: string): string {
   return (PUBLISH_CHECK_NAMES as Record<string, string>)[key] ?? "其他检查";
@@ -121,6 +122,8 @@ export interface CheckReason {
   note?: string;
   /** 这一条牵涉到好几处时（几条调价规则叠加）：每一处各一个去处 */
   links?: { label: string; anchor: string }[];
+  /** 「运营区域」一项：是哪个报价区域（供应商后台可以直接去改那个区域） */
+  areaId?: string;
 }
 
 export interface CheckContext {
@@ -130,6 +133,8 @@ export interface CheckContext {
   placeName: string | null;
   /** 接送点是车站时「接机指引」叫「接站指引」 */
   station: boolean;
+  /** 商品选的区域编号 → 名称（上架检查「运营区域」一项按编号指出是哪个区域，M8-20） */
+  areaNames?: ReadonlyMap<string, string>;
 }
 
 /**
@@ -226,6 +231,16 @@ export function checkReasons(item: PublishCheckItemBody, context: CheckContext):
     }
   } else if (item.key === "inventory") {
     if (take(reason("NO_INVENTORY_AHEAD"))) out.push(one("库存是限量的，但从今天起没有一天有库存——上了架也卖不出去。", ""));
+  } else if (item.key === "area_coverage") {
+    // 勾选的报价区域有一部分不在任何运营区域里（M8-20，只提醒、不拦上架）：一个区域一句
+    for (const issue of item.issues) {
+      if (issue.reason !== "PRICING_AREA_OUTSIDE_OPERATING") continue;
+      known.add(issue);
+      const id = /^\/areas\/([^/]+)$/.exec(issue.path)?.[1] ?? "";
+      const name = context.areaNames?.get(id);
+      const m2 = typeof issue.detail?.["outside_m2"] === "number" ? issue.detail["outside_m2"] : 0;
+      out.push({ text: `报价区域${name === undefined ? "" : `「${name}」`}有${m2 > 0 ? overlapAreaText(m2) : "一部分"}不在任何运营区域里，那部分不会报价`, anchor: "areas", ...(id !== "" ? { areaId: id } : {}) });
+    }
   }
   // 没列在上面的：用接口带的中文说明
   const seen = new Set<string>();

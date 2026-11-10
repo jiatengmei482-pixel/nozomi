@@ -854,3 +854,13 @@ test("M4-15 取不到账号信息：商品页给重试，不停在骨架屏；�
   await user().click(screen.getByRole("button", { name: "重试" }));
   await screen.findByRole("heading", { level: 2, name: "② 服务规则" });
 });
+
+test("M8-20 报价试算：新的内部原因 NO_PRICING_AREA 用后端给的中文说明（在运营区域里、但商品没勾选报价区域），不显示代码", async () => {
+  const refused = [{ tenant_id: TENANT2_ID, tenant_name: "远方车队", product_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", product_code: "PRD-C", vehicle_group_id: null, reason: "NO_PRICING_AREA" as const, message: "这个地点在运营区域里，但商品没有勾选覆盖它的报价区域" }];
+  open("/platform/quote-preview", "super_admin", (call) => (call.method === "POST" && call.url.pathname === "/platform/v1/quotes/preview" ? json(200, previewOf({ refused })) : null));
+  await fillTransfer();
+  await user().click(screen.getByRole("button", { name: "试算" }));
+  const section = (await screen.findByRole("heading", { level: 3, name: "没报出价的（1）" })).closest("section") as HTMLElement;
+  assert.match(section.textContent ?? "", /远方车队PRD-C整个商品这个地点在运营区域里，但商品没有勾选覆盖它的报价区域/);
+  assert.doesNotMatch(section.textContent ?? "", /NO_PRICING_AREA/);
+});

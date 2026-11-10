@@ -5,7 +5,7 @@
  * 图形、控制点、图例全部是这里自己画的 SVG / HTML，颜色只用设计令牌；
  * 图形的状态和操作在 lib/area-editor.ts（纯函数），这里只把指针事件翻译成那边的操作。
  */
-import { AREA_LIMITS, type AreaPolygonKind, type Position, haversineMeters, normalizeRing } from "@nozomi/domain";
+import { AREA_LIMITS, type AreaOverlapPiece, type AreaPolygonKind, type Position, haversineMeters, normalizeRing } from "@nozomi/domain";
 import L from "leaflet";
 import { type Dispatch, type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { MapTiles } from "../../api/areas.ts";
@@ -33,6 +33,8 @@ export interface AreaMapProps {
   cityCenter: { lat: number; lng: number } | null;
   /** 变了就把全部图形放进视野（载入、粘贴之后） */
   fitSignal: number;
+  /** 报价区域超出运营区域的部分（M8-20）：警告色斜线，只提醒；没有时不画、图例里不列 */
+  outside?: readonly AreaOverlapPiece[];
 }
 
 const CITY_ZOOM = 11;
@@ -91,7 +93,7 @@ function isDark(): boolean {
   return chosen === "dark" || (chosen !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
 }
 
-export function AreaMap({ tiles, shapes, selected, dispatch, readOnly, tool, newKind, onToolDone, onProbe, probe, cityCenter, fitSignal }: AreaMapProps) {
+export function AreaMap({ tiles, shapes, selected, dispatch, readOnly, tool, newKind, onToolDone, onProbe, probe, cityCenter, fitSignal, outside = [] }: AreaMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const clipId = `area-clip-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
   const mapRef = useRef<L.Map | null>(null);
@@ -292,6 +294,7 @@ export function AreaMap({ tiles, shapes, selected, dispatch, readOnly, tool, new
 
   const size = map?.getSize() ?? null;
   const hatch = useMemo(() => hatchLines(size?.x ?? 0, size?.y ?? 0), [size?.x, size?.y]);
+  const outsidePath = outside.map((piece) => path(piece.ring)).join("");
 
   const hint =
     tool === "polygon"
@@ -315,6 +318,11 @@ export function AreaMap({ tiles, shapes, selected, dispatch, readOnly, tool, new
                 <path d={path(ring)} />
               </clipPath>
             ))}
+            {outsidePath !== "" && (
+              <clipPath id={`${clipId}-outside`}>
+                <path d={outsidePath} />
+              </clipPath>
+            )}
           </defs>
           {operate.map(({ shape, ring }) => (
             <path key={`f-${shape.key}`} className={shape.key === selected ? "area-fill area-fill--operate area-fill--selected" : "area-fill area-fill--operate"} d={path(ring)} />
@@ -325,6 +333,12 @@ export function AreaMap({ tiles, shapes, selected, dispatch, readOnly, tool, new
               <path className="area-hatch" d={hatch} clipPath={`url(#${clipId}-${shape.key})`} />
             </g>
           ))}
+          {outsidePath !== "" && (
+            <g data-outside="editing">
+              <path className="area-outside" d={outsidePath} />
+              <path className="area-hatch area-hatch--outside" d={hatch} clipPath={`url(#${clipId}-outside)`} />
+            </g>
+          )}
           {[...operate, ...forbid].map(({ shape, ring }) => (
             <g key={`s-${shape.key}`} data-shape={shape.key} data-kind={shape.kind}>
               <path className="area-casing" d={path(ring)} />
@@ -438,6 +452,15 @@ export function AreaMap({ tiles, shapes, selected, dispatch, readOnly, tool, new
             <Swatch kind="overlap" />
             <strong>重叠的地方</strong> 按禁行区算
           </li>
+          {outsidePath !== "" && (
+            <li>
+              <svg className="legend-swatch" viewBox="0 0 24 14" aria-hidden="true">
+                <path className="area-outside" d="M2,2H22V12H2Z" />
+                <path className="area-hatch area-hatch--outside" d="M6,2L2,6M12,2L2,12M18,2L8,12M22,4L14,12M22,10L20,12" />
+              </svg>
+              <strong>超出运营区域</strong> 这部分不会报价
+            </li>
+          )}
           {probe && (
             <li>
               <Swatch kind="probe" />

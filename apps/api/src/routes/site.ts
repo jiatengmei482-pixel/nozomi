@@ -88,6 +88,12 @@ const addonsSchema = z
 const addonsOf = (addons: z.output<typeof addonsSchema>): { addonId: string; quantity: number }[] => addons.map((addon) => ({ addonId: addon.addon_id, quantity: addon.quantity }));
 
 /**
+ * 地址联想里选中的那一项的名称（M8-20，ADR 0075 第四部分）：可选，只在一个价都报不出时记进「未覆盖需求」；不影响报价。
+ * 页面只在客人从联想列表里选了地址时才带（手打的文字不带）。
+ */
+const demandNameSchema = z.string().max(200).nullable().optional();
+
+/**
  * 询价请求：`category` 不填是接送机（M3-05 的请求照旧能用）。各品类要的字段：
  * 接送机 `airport_id` + `direction` + `address`；点对点 `pickup` + `dropoff`；包车 `pickup` + `dropoff` + `package_hours`
  * （下车点 M8-15 暂为可选，M8-19 新预订页加了下车地点输入框后改回必填，ADR 0073；`/sales/v1` 仍可选）。
@@ -107,6 +113,8 @@ const quoteSchema = z
     passengers: z.number().int().min(1).max(60),
     luggage: z.number().int().min(0).max(60).default(0),
     addons: addonsSchema,
+    pickup_name: demandNameSchema,
+    dropoff_name: demandNameSchema,
   })
   .strict();
 
@@ -167,6 +175,8 @@ const byPointsSchema = z
     passengers: z.number().int().min(1).max(60),
     luggage: z.number().int().min(0).max(60).default(0),
     addons: addonsSchema,
+    pickup_name: demandNameSchema,
+    dropoff_name: demandNameSchema,
   })
   .strict();
 
@@ -444,7 +454,15 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
   app.post("/site/v1/quotes", async (request) => {
     await takeSiteSlot(ctx, "site_quote", { ip: request.ip });
     const input = parseInput(quoteSchema, request.body, "body");
-    const quoteInput: SiteQuoteInput = { cityId: input.city_id, trip: siteTripOf(input), serviceLocal: input.service_local, passengers: input.passengers, luggage: input.luggage, addons: addonsOf(input.addons) };
+    const quoteInput: SiteQuoteInput = {
+      cityId: input.city_id,
+      trip: siteTripOf(input),
+      serviceLocal: input.service_local,
+      passengers: input.passengers,
+      luggage: input.luggage,
+      addons: addonsOf(input.addons),
+      demand: { ip: request.ip, pickupName: input.pickup_name ?? null, dropoffName: input.dropoff_name ?? null, log: request.log },
+    };
     return quoteResultJson(await siteQuotes(ctx, quoteInput));
   });
 
@@ -452,7 +470,15 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
     await takeSiteSlot(ctx, "site_quote", { ip: request.ip });
     const input = parseInput(byPointsSchema, request.body, "body");
     const end = (value: z.output<typeof tripEndSchema>) => ({ lat: value.lat, lng: value.lng, kind: value.kind ?? null });
-    const result = await siteQuotesByPoints(ctx, { pickup: end(input.pickup), dropoff: end(input.dropoff), serviceLocal: input.service_local, passengers: input.passengers, luggage: input.luggage, addons: addonsOf(input.addons) });
+    const result = await siteQuotesByPoints(ctx, {
+      pickup: end(input.pickup),
+      dropoff: end(input.dropoff),
+      serviceLocal: input.service_local,
+      passengers: input.passengers,
+      luggage: input.luggage,
+      addons: addonsOf(input.addons),
+      demand: { ip: request.ip, pickupName: input.pickup_name ?? null, dropoffName: input.dropoff_name ?? null, log: request.log },
+    });
     return {
       trip_type: result.tripType,
       airport: result.airport === null ? null : { id: result.airport.id, code: result.airport.code, name: result.airport.name, matched_by: result.airport.matchedBy, distance_meters: result.airport.meters },

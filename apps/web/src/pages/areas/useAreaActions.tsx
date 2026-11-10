@@ -16,6 +16,8 @@ import { NETWORK_FAILURE_TEXT } from "../../lib/failure.ts";
 import { displayName, shortName } from "../../lib/master-display.ts";
 import { PRODUCT_LIST_PATH } from "../../lib/product-paths.ts";
 import { NetworkError } from "../../api/client.ts";
+import { type OutsideImpact, outsideRejectedText, readOutsideImpacts } from "../../lib/area-roles.ts";
+import { OutsideImpacts } from "./OutsideImpacts.tsx";
 
 export const AREA_FORBIDDEN_TEXT = "你没有权限修改区域。需要的话，请联系你们的管理员开通。";
 
@@ -26,6 +28,9 @@ interface Pending {
   text?: string;
   /** 被拒的原因是有已上架的商品在用：给一个去看这些商品的链接 */
   inUse?: boolean;
+  /** 被拒的原因是已上架商品的报价区域会超出运营区域（M8-20）：列出受影响的商品和区域 */
+  outside?: OutsideImpact[];
+  title?: string;
 }
 
 export interface AreaActions {
@@ -73,6 +78,9 @@ export function useAreaActions(options: { onChanged(area: AreaSummary): void; on
         setPending(null);
         options.onDeleted(area);
         setNotice({ kind: "info", text: `「${name}」已经被别人删除了。` });
+      } else if (err instanceof ApiError && err.code === "PRICING_AREA_OUTSIDE_OPERATING") {
+        const said = outsideRejectedText(action);
+        setPending({ area, action, phase: "rejected", title: said.title, text: said.text, outside: readOutsideImpacts(err.details) });
       } else if (err instanceof ApiError && err.code === "AREA_IN_USE") {
         const count = err.details["published_product_count"];
         const who = typeof count === "number" ? `有 ${count} 个已上架的商品在用这个区域。` : "有已上架的商品在用这个区域。";
@@ -139,8 +147,9 @@ export function useAreaActions(options: { onChanged(area: AreaSummary): void; on
       <div role="alert">
         {pending?.phase === "rejected" && (
           <Alert kind="danger">
-            <strong className="alert__title">{`现在不能${verb}。`}</strong>
+            <strong className="alert__title">{pending.title ?? `现在不能${verb}。`}</strong>
             <span>{pending.text}</span>
+            {pending.outside && <OutsideImpacts impacts={pending.outside} />}
             {pending.inUse && area && (
               <span className="alert__actions">
                 <Link className="link" to={`${PRODUCT_LIST_PATH}?area=${area.id}&status=published`}>

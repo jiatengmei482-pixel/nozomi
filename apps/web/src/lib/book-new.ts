@@ -101,6 +101,22 @@ export interface TripPoint {
   lat: number;
   lng: number;
   kind: SitePlaceKind | null;
+  /**
+   * 客人在地址联想里选中的那一项的名称（只有名称，不带地址；M8-20）：询价时带上，一个价都报不出时平台记进「未覆盖需求」。
+   * 地图上选的、链接带来的、手打的都没有这一项（不收客人自己写的文字）。
+   */
+  suggestionName?: string;
+}
+
+/** 询价请求里的两个可选名称（ADR 0075 第四部分）：只有从地址联想里选的那一端才有，名称最多 200 字。 */
+export function suggestionNames(from: TripPoint | null, to: TripPoint | null): { pickup_name?: string; dropoff_name?: string } {
+  const clip = (text: string | undefined): string | undefined => {
+    const value = text?.trim() ?? "";
+    return value === "" ? undefined : value.slice(0, 200);
+  };
+  const pickup = clip(from?.suggestionName);
+  const dropoff = clip(to?.suggestionName);
+  return { ...(pickup !== undefined ? { pickup_name: pickup } : {}), ...(dropoff !== undefined ? { dropoff_name: dropoff } : {}) };
 }
 
 /** 地图上选的、链接里只有坐标的点没有名称时写什么。 */

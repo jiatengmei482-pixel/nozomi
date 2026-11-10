@@ -36,6 +36,7 @@ test("值怎么显示：空、是否、认识的枚举带原值（状态按对�
   assert.deepEqual(shownValue("reason", ""), { text: "（空）", block: false, empty: true });
   assert.deepEqual(shownValue("temporary_password", true), { text: "是", block: false, empty: false });
   assert.deepEqual(shownValue("status", "suspended", "tenant"), { text: "已暂停", raw: "suspended", block: false, empty: false });
+  assert.deepEqual(shownValue("role", "both", "area"), { text: "运营 + 报价", raw: "both", block: false, empty: false });
   assert.equal(shownValue("status", "active", "tenant").text, "正常");
   assert.equal(shownValue("status", "active", "platform_user").text, "在用");
   assert.equal(shownValue("status", "active", "city").text, "启用");
@@ -88,6 +89,9 @@ test("双人复核的审计（M4-10）：kind、resource_id 等字段有中文�
   assert.equal(fieldName("resource_id", "approval"), "复核对象的编号");
   for (const field of Object.keys(FIELD_NAMES_BY_RESOURCE["approval"] ?? {})) assert.ok(fieldName(field, "approval"), field);
   assert.equal(fieldName("kind", "order_exception"), undefined, "别的对象上的 kind 不叫复核类别");
+  // 区域的用途（M8-20）：不是账号的角色
+  assert.equal(fieldName("role", "area"), "用途");
+  assert.equal(fieldName("role", "tenant_user"), "角色");
   assert.equal(fieldName("status", "approval"), "状态", "通用的照用");
   const kinds = Object.keys(APPROVAL_KIND_NAMES);
   assert.ok(kinds.includes("compensation_table.update"));

@@ -37,6 +37,7 @@ import {
   storedNumberDecimal,
   pricingModelsFor,
   sheetDate,
+  areaRoleCanPrice,
   areaUsableByCategory,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
@@ -402,9 +403,9 @@ export function exportPriceRules(ctx: AppContext, tenantId: string, productId: s
   });
 }
 
-/** 包车区域加价可以选的区域：本租户启用中的、业务类型是包车或通用的、不是商品本身的区域（ADR 0073）。 */
+/** 包车区域加价可以选的区域：本租户启用中的、业务类型是包车或通用的、用途能挂价格的（ADR 0075）、不是商品本身的区域（ADR 0073）。 */
 function surchargeAreaChoices(context: PricingContext): string[] {
-  return [...context.tenantAreas].flatMap(([id, area]) => (area.status === "active" && areaUsableByCategory("charter", area.bizType) && !context.areaIds.includes(id) ? [id] : []));
+  return [...context.tenantAreas].flatMap(([id, area]) => (area.status === "active" && areaUsableByCategory("charter", area.bizType) && areaRoleCanPrice(area.role) && !context.areaIds.includes(id) ? [id] : []));
 }
 
 export type ImportRowAction = "create" | "update" | "unchanged" | "error" | "conflict";
@@ -521,7 +522,10 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
     let areaId: string | null = null;
     if (areaText !== null) {
       const candidates = (areaByName.get(nameKey(areaText)) ?? []).filter((id) => (surchargeRow ? context.tenantAreas.has(id) : productAreas.has(id)) || id === before?.areaId);
-      if (candidates.length === 1) areaId = candidates[0] as string;
+      // 认出的是运营区域：它不带价格（ADR 0075）
+      const role = candidates.length === 1 && candidates[0] !== before?.areaId ? context.tenantAreas.get(candidates[0] as string)?.role : undefined;
+      if (role !== undefined && !areaRoleCanPrice(role)) read.problem(P.area, "AREA_ROLE_NOT_PRICING", "这是运营区域，不带价格：加价只能挂在报价区域（或「运营 + 报价」的区域）上");
+      else if (candidates.length === 1) areaId = candidates[0] as string;
       else if (candidates.length > 1) read.problem(P.area, "AMBIGUOUS", "有不止一个区域叫这个名字，请先在区域页面把名字改得不一样");
       else if (surchargeRow) read.problem(P.area, "UNKNOWN_AREA", "没有叫这个名字的区域（加价区域见「填写说明」里列出的）");
       else read.problem(P.area, "AREA_NOT_IN_PRODUCT", "这个商品没有选叫这个名字的区域（见「填写说明」里列出的）");

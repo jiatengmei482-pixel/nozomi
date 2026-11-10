@@ -701,8 +701,8 @@ test("区域的隔离（数据库层面）：租户事务里不带任何条件�
   await assert.rejects(
     withTenantTx(api.db.pool, a.tenantId, (db) =>
       db.query(
-        `insert into areas (tenant_id, city_id, name, name_keys, biz_type, status, created_at, updated_at)
-         values ($1, $2, '{"zh": "塞进别人名下"}', '{塞进别人名下}', 'general', 'active', now(), now())`,
+        `insert into areas (tenant_id, city_id, name, name_keys, biz_type, role, status, created_at, updated_at)
+         values ($1, $2, '{"zh": "塞进别人名下"}', '{塞进别人名下}', 'general', 'both', 'active', now(), now())`,
         [b.tenantId, areas.cityId],
       ),
     ),

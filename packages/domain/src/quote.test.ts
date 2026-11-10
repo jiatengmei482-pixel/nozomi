@@ -687,6 +687,61 @@ test("第 10–12 步合起来：几个供应商对同一次用车报价——�
   assert.deepEqual(compareQuotes({ request: r, currency: "JPY", now, entries: [entry(d)] }).groups, []);
 });
 
+test("第 4 步 两道判断（ADR 0075 增强版 B）：先看点在不在这个供应商的运营区域里，再看在不在这个商品勾选的报价区域里；不在勾选的报价区域里不报、不退回基础价", () => {
+  // 一个大的运营区域（只决定能不能接），里面两块报价区域 A1、A2（商品勾选），FAR 在运营区域里但没有报价区域
+  const BIG = { areaId: "op", active: true, shapes: [{ id: "op-op", kind: "operate" as const, ring: square(138.5, 34.5, 141.5, 36.5) }] };
+  const operated = product({ operatingAreas: [BIG] });
+  assert.equal(outcome(operated, request({ dropoff: WEST })), 20_000, "两道都过：后面和今天一模一样");
+  assert.equal(outcome(operated, request({ dropoff: FAR })), "NO_PRICING_AREA", "在运营区域里、但商品没勾覆盖它的报价区域：这个商品不报");
+  assert.equal(outcome(operated, request({ dropoff: { lng: 142.5, lat: 35.5 } })), "OUT_OF_SERVICE_AREA", "运营区域外：不报");
+  assert.equal(outcome(operated, request({ dropoff: FORBIDDEN })), "IN_FORBIDDEN_AREA", "报价区域自己的禁行区：口径同今天");
+  // 只有运营区域、一个报价区域都没勾（商品选的区域停用了）：任何点都不报
+  assert.equal(outcome(product({ operatingAreas: [BIG], areas: [{ ...AREA_1, active: false }] }), request({ dropoff: WEST })), "NO_PRICING_AREA");
+  // 报价区域超出运营区域的部分：报价区域里，但运营区域外 → 不报
+  const SMALL = { areaId: "op-small", active: true, shapes: [{ id: "s-op", kind: "operate" as const, ring: square(139.0, 35.0, 139.4, 36.0) }] };
+  assert.equal(outcome(product({ operatingAreas: [SMALL] }), request({ dropoff: WEST })), 20_000);
+  assert.equal(outcome(product({ operatingAreas: [SMALL] }), request({ dropoff: { lng: 139.5, lat: 35.5 } })), "OUT_OF_SERVICE_AREA", "A1 里、但在运营区域外");
+  // 运营区域的禁行区：这家在那里不接（`IN_FORBIDDEN_AREA`），除非那个点还在另一个运营区域的营运区里
+  const HOLED = { ...BIG, shapes: [...BIG.shapes, { id: "op-no", kind: "forbid" as const, ring: square(139.1, 35.4, 139.3, 35.6) }] };
+  assert.equal(outcome(product({ operatingAreas: [HOLED] }), request({ dropoff: WEST })), "IN_FORBIDDEN_AREA");
+  assert.equal(outcome(product({ operatingAreas: [HOLED, SMALL] }), request({ dropoff: WEST })), 20_000);
+  // 停用的运营区域不算
+  assert.equal(outcome(product({ operatingAreas: [{ ...BIG, active: false }] }), request({ dropoff: WEST })), "OUT_OF_SERVICE_AREA");
+  // 运营范围是空的（供应商一个运营区域都没有）：不报
+  assert.equal(outcome(product({ operatingAreas: [] }), request({ dropoff: WEST })), "OUT_OF_SERVICE_AREA");
+  // 接送机只看非机场一端：机场不要求在运营区域里
+  assert.equal(outcome(product({ operatingAreas: [SMALL] }), request({ dropoff: WEST, pickup: { lng: 142.5, lat: 35.5 } })), 20_000);
+});
+
+test("第 4 步 两道判断：点对点两端都要过；包车上车、下车（给了时）都要过，基础价和加价只来自勾选的报价区域", () => {
+  const BIG = { areaId: "op", active: true, shapes: [{ id: "op-op", kind: "operate" as const, ring: square(138.5, 34.5, 141.5, 36.5) }] };
+  const OUTSIDE = { lng: 142.5, lat: 35.5 };
+  const p2p = product({ category: "point_to_point", pickupPlace: null, operatingAreas: [BIG], priceRules: [price(fixed(8_000), { direction: null })], serviceRules: rules({ freeWait: { pickup: null, dropoff: null, general: { mode: "limited", minutes: 15 } } }) });
+  const trip = (pickup: typeof WEST, dropoff: typeof WEST): QuoteRequest => request({ category: "point_to_point", direction: null, pickup, dropoff });
+  assert.equal(outcome(p2p, trip(WEST, OVERLAP)), 8_000);
+  assert.equal(outcome(p2p, trip(WEST, FAR)), "NO_PRICING_AREA");
+  assert.equal(outcome(p2p, trip(FAR, WEST)), "NO_PRICING_AREA");
+  assert.equal(outcome(p2p, trip(WEST, OUTSIDE)), "OUT_OF_SERVICE_AREA");
+  // 一端一端地判：起点在运营范围里但没价，就不再看终点
+  assert.equal(outcome(p2p, trip(FAR, OUTSIDE)), "NO_PRICING_AREA");
+  assert.equal(outcome(p2p, trip(OUTSIDE, FAR)), "OUT_OF_SERVICE_AREA");
+
+  const charter = product({ category: "charter", pickupPlace: null, operatingAreas: [BIG], priceRules: [price({ model: "charter_package", packageKm: 300, packagePriceMinor: 98_000, overtimePerHourMinor: 5_000, overKmPerKmMinor: 400 }, { direction: null, packageHours: 10 })], serviceRules: rules({ freeWait: { pickup: null, dropoff: null, general: { mode: "unlimited" } } }) });
+  const day = (pickup: typeof WEST, dropoff: typeof WEST | null): QuoteRequest => request({ category: "charter", direction: null, packageHours: 10, pickup, dropoff });
+  assert.equal(outcome(charter, day(WEST, null)), 98_000);
+  assert.equal(outcome(charter, day(FAR, null)), "NO_PRICING_AREA");
+  assert.equal(outcome(charter, day(WEST, EAST)), 98_000);
+  assert.equal(outcome(charter, day(WEST, FAR)), "NO_PRICING_AREA", "下车点在运营区域里、但不在商品区域也不在加价区域：不报、不按基础价报");
+  assert.equal(outcome(charter, day(WEST, OUTSIDE)), "OUT_OF_SERVICE_AREA");
+  assert.equal(outcome(charter, day(OUTSIDE, WEST)), "OUT_OF_SERVICE_AREA");
+  // 下车点在勾选的加价区域里：加这个区域的加价
+  const A9 = { areaId: "a9", active: true, shapes: [{ id: "a9-op", kind: "operate" as const, ring: square(140.8, 35.3, 141.2, 35.7) }] };
+  const surcharged = { ...charter, surchargeAreas: [A9], priceRules: [...charter.priceRules, price({ model: "charter_area_surcharge", pickupSurchargeMinor: 500, dropoffSurchargeMinor: 700 }, { areaId: "a9", direction: null, packageHours: 10 })] };
+  assert.equal(outcome(surcharged, day(WEST, FAR)), 98_700);
+  // 没给下车点、商品设了区域加价：照旧 DROPOFF_REQUIRED（不论上车点在不在运营范围里，和今天的先后一样）
+  assert.equal(outcome(surcharged, day(OUTSIDE, null)), "DROPOFF_REQUIRED");
+});
+
 test("每一个报不出价的原因都有测试触发过（上面各条）", () => {
   assert.deepEqual(QUOTE_REFUSALS.filter((reason) => !seenRefusals.has(reason)), []);
 });

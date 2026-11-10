@@ -18,6 +18,7 @@ import { Dialog } from "../../components/Dialog.tsx";
 import { Icon } from "../../components/Icon.tsx";
 import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { areaRing, colorSlot, computeOverlaps, overlapText } from "../../lib/area-overview.ts";
+import { computeOutside, outsideText, roleName, roleOf } from "../../lib/area-roles.ts";
 import { displayName } from "../../lib/master-display.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { AreaOverviewMap, type AreaOverviewMapProps, type OverviewArea } from "./AreaOverviewMap.tsx";
@@ -48,8 +49,12 @@ export function AreaMapDialog({ open, areaIds, onClose, title = "在地图上查
     return areaIds.map((id) => byId.get(id)).filter((item): item is AreaMapItem => item !== undefined);
   }, [all, areaIds]);
   const overlaps = useMemo(() => computeOverlaps(chosen), [chosen]);
+  // 超出运营区域：和这个供应商全部的运营区域比（不只是选中的这几个）
+  const outside = useMemo(() => computeOutside((all ?? []).map((item) => ({ id: item.id, bizType: item.biz_type, role: roleOf(item), active: item.status === "active", polygons: item.polygons.map((polygon) => ({ kind: polygon.kind, ring: areaRing(polygon.geometry) })) }))), [all]);
+  const chosenIds = new Set(chosen.map((item) => item.id));
+  const chosenOutside = outside.pieces.filter((piece) => piece.areaIds.some((id) => chosenIds.has(id)));
   const names = new Map(chosen.map((item) => [item.id, displayName(item.name).text]));
-  const mapAreas: OverviewArea[] = chosen.map((item, index) => ({ id: item.id, name: names.get(item.id) ?? "", slot: colorSlot(index), active: item.status === "active", polygons: item.polygons.map((polygon) => ({ id: polygon.id, kind: polygon.kind, ring: areaRing(polygon.geometry) })) }));
+  const mapAreas: OverviewArea[] = chosen.map((item, index) => ({ id: item.id, name: names.get(item.id) ?? "", slot: colorSlot(index), active: item.status === "active", role: roleOf(item), polygons: item.polygons.map((polygon) => ({ id: polygon.id, kind: polygon.kind, ring: areaRing(polygon.geometry) })) }));
   const missing = all === null ? 0 : areaIds.length - chosen.length;
   const tiles = mapConfig.state.data?.tiles ?? null;
 
@@ -92,8 +97,15 @@ export function AreaMapDialog({ open, areaIds, onClose, title = "在地图上查
                   >
                     <span className={`area-dot area-color--${colorSlot(index)}`} aria-hidden="true" />
                     <span className="area-overview__name">{names.get(item.id)}</span>
+                    <span className="tag">{roleName(roleOf(item))}</span>
                     {item.status === "disabled" && <span className="tag">已停用</span>}
                   </button>
+                  {(item.outside_operating_m2 ?? outside.byArea.get(item.id) ?? 0) > 0 && (
+                    <p className="area-overview__overlap">
+                      <Icon name="alert-triangle" />
+                      <span>{`报价区域超出运营区域：${outsideText(item.outside_operating_m2 ?? outside.byArea.get(item.id) ?? 0)}。`}</span>
+                    </p>
+                  )}
                   {others.length > 0 && (
                     <p className="area-overview__overlap">
                       <Icon name="alert-triangle" />
@@ -114,7 +126,7 @@ export function AreaMapDialog({ open, areaIds, onClose, title = "在地图上查
             ) : tiles === null ? (
               <p className="area-map-placeholder">{mapConfig.state.status === "ready" ? "这个环境没有配置地图底图。" : "地图没有加载出来。"}区域和重叠照常列在上面。</p>
             ) : (
-              <AreaOverviewMap tiles={tiles} areas={mapAreas} selected={selected} onSelect={setSelected} overlaps={overlaps.pieces} showOverlaps focusSignal={focusSignal} marker={null} label="选中区域的地图" {...(surfaceFactory ? { surfaceFactory } : {})} />
+              <AreaOverviewMap tiles={tiles} areas={mapAreas} selected={selected} onSelect={setSelected} overlaps={overlaps.pieces} showOverlaps focusSignal={focusSignal} marker={null} outside={chosenOutside} label="选中区域的地图" {...(surfaceFactory ? { surfaceFactory } : {})} />
             )}
           </div>
         </div>

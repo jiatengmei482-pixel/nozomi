@@ -179,6 +179,8 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
       ["GET", "/platform/v1/products"],
       ["GET", "/platform/v1/area-map"],
       ["GET", "/platform/v1/map/config"],
+      ["GET", "/platform/v1/uncovered-demands"],
+      ["GET", "/platform/v1/uncovered-demands/points"],
       ["GET", `/platform/v1/products/${ids.userId}`],
       ["GET", "/platform/v1/orders"],
       ["GET", `/platform/v1/orders/${ids.userId}`],
