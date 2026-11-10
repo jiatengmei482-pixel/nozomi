@@ -126,6 +126,7 @@ jobs:
       - name: 部署冒烟：behind-proxy 模式（前面套一层 nginx 模拟机器上原有的反向代理，同样的全流程）
         run: deploy/ci/smoke.sh behind-proxy
       - name: 服务器初始化脚本在 Ubuntu 22.04 / 24.04、CentOS Stream 9 / 10 容器里各跑两遍（可重复执行）
+        timeout-minutes: 25
         run: deploy/ci/bootstrap-check.sh
       - name: 手工部署演练（push-local.sh → remote.sh → 一台已有 Docker、80/443 被别的网站占着的 CentOS Stream 10 演练服务器）
         run: deploy/ci/push-local-check.sh
