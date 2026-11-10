@@ -820,7 +820,7 @@ test("GET /tenant/v1/products、/products/{id}：只看得到自己的商品；�
   assert.equal((await api.call("GET", `/tenant/v1/products/${seeded.b.product.id}`, { token: b.adminToken })).status, 200);
 });
 
-test("商品的其余接口：读不到、改不了、删不了、上不了架、下不了架别的供应商的商品（404，和不存在一样，对方的数据原样不动）", async () => {
+test("商品的其余接口：读不到、改不了、删不了、上不了架、下不了架、设不了验收可售别的供应商的商品（404，和不存在一样，对方的数据原样不动）", async () => {
   const seeded = await seedProducts();
   const before = await productRows();
   const requests: [HttpMethod, string, unknown][] = [
@@ -833,6 +833,8 @@ test("商品的其余接口：读不到、改不了、删不了、上不了架�
     ["GET", "/publish-check", undefined],
     ["POST", "/publish", undefined],
     ["POST", "/unpublish", undefined],
+    // 验收可售（M8-26）：别人的商品和不存在一样 404，先于「不是测试供应商」
+    ["POST", "/qa-list", undefined],
   ];
   for (const [method, suffix, body] of requests) {
     cover(`${method} /tenant/v1/products/:id${suffix}`);
