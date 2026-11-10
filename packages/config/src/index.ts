@@ -492,7 +492,7 @@ function parseQaAcceptance(env: z.output<typeof rawSchema>, issues: string[]): {
     return null;
   }
   if (token.length < QA_ACCEPTANCE_TOKEN_LENGTH.min || token.length > QA_ACCEPTANCE_TOKEN_LENGTH.max || !/^[\x21-\x7e]+$/.test(token)) {
-    issues.push(`QA_ACCEPTANCE_TOKEN 要是 ${QA_ACCEPTANCE_TOKEN_LENGTH.min}–${QA_ACCEPTANCE_TOKEN_LENGTH.max} 个字母、数字或符号（不含空格），建议用 openssl rand -base64 36 生成`);
+    issues.push(`QA_ACCEPTANCE_TOKEN 要是 ${QA_ACCEPTANCE_TOKEN_LENGTH.min}–${QA_ACCEPTANCE_TOKEN_LENGTH.max} 个字母、数字或符号（不含空格），建议用 openssl rand -hex 32 生成`);
     return null;
   }
   if ([env.AUTH_JWT_SECRET, env.DATA_ENCRYPTION_KEY, env.STRIPE_SECRET_KEY, env.STRIPE_WEBHOOK_SECRET, env.SMTP_PASSWORD].includes(token)) {

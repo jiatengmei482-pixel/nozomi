@@ -6,6 +6,7 @@
  *
  * - 口令只来自配置，比较用常量时间（两边先各取 SHA-256 再 `timingSafeEqual`，长度不同也不提前返回）。口令不进日志、审计、应答、报错。
  * - 会话：浏览器里是 32 字节随机数（base64url），库里只存它的 SHA-256；有效期 4 小时；结束记 `ended_at`。
+ *   会话还记着解锁时口令的指纹（加了用途前缀的 SHA-256）：换了口令，旧会话立即作废。
  * - 限速：每个来源地址 15 分钟 10 次、全站每小时 30 次，成功失败都计（计数先提交）。口令错记审计（匿名，只记原因，不记口令）。
  */
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
@@ -22,6 +23,8 @@ const SESSION_FORMAT = /^[A-Za-z0-9_-]{43}$/;
 const sha256 = (value: string): Buffer => createHash("sha256").update(value, "utf8").digest();
 const sha256Hex = (value: string): string => createHash("sha256").update(value, "utf8").digest("hex");
 const ipBucket = (ip: string): string => sha256Hex(`site-qa-unlock:${rateLimitKeyOf(ip)}`);
+/** 口令的指纹：只用来认出「换过口令」，不能反推口令（口令本身是 32 个字符以上的随机串） */
+const keyFingerprint = (token: string): string => sha256Hex(`nozomi-qa-acceptance-session:${token}`);
 
 /** 这个进程里验收通道开没开（配置了口令、不是 production）。 */
 export function qaAcceptanceActive(ctx: Pick<AppContext, "config">): boolean {
@@ -95,16 +98,17 @@ export async function unlockQaAcceptance(ctx: AppContext, input: { token: string
   const value = randomBytes(32).toString("base64url");
   const expiresAt = new Date(now.getTime() + QA_ACCEPTANCE_RULES.sessionMs);
   await withPlatformTx(ctx.pool, async (db) => {
-    const created = await db.query<{ id: string }>("insert into qa_acceptance_sessions (token_hash, created_at, expires_at) values ($1, $2, $3) returning id", [sha256Hex(value), now, expiresAt]);
+    const created = await db.query<{ id: string }>("insert into qa_acceptance_sessions (token_hash, key_fingerprint, created_at, expires_at) values ($1, $2, $3, $4) returning id", [sha256Hex(value), keyFingerprint(config.token), now, expiresAt]);
     await insertAuditLog(db, origin, { tenantId: null, resource: "qa_acceptance_session", resourceId: (created.rows[0] as { id: string }).id, action: "unlock", before: null, after: { expires_at: expiresAt.toISOString() } });
   });
   return { value, expiresAt };
 }
 
-/** 现在有效的会话（没结束、没过期）；没有为 null。 */
+/** 现在有效的会话（没结束、没过期、是用现在这个口令解锁的）；没有为 null。 */
 async function findLiveSession(ctx: AppContext, value: string): Promise<{ id: string; expiresAt: Date } | null> {
-  if (!SESSION_FORMAT.test(value)) return null;
-  const row = await withPlatformTx(ctx.pool, async (db) => (await db.query<{ id: string; expires_at: Date }>("select id, expires_at from qa_acceptance_sessions where token_hash = $1 and ended_at is null and expires_at > $2", [sha256Hex(value), ctx.now()])).rows[0]);
+  const config = ctx.config.qaAcceptance;
+  if (config === null || !SESSION_FORMAT.test(value)) return null;
+  const row = await withPlatformTx(ctx.pool, async (db) => (await db.query<{ id: string; expires_at: Date }>("select id, expires_at from qa_acceptance_sessions where token_hash = $1 and key_fingerprint = $2 and ended_at is null and expires_at > $3", [sha256Hex(value), keyFingerprint(config.token), ctx.now()])).rows[0]);
   return row === undefined ? null : { id: row.id, expiresAt: row.expires_at };
 }
 

@@ -28,7 +28,6 @@ import { DROPOFF, type Market, SERVICE_TIME, buildMarket, newChannel, ok, salesC
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
 import { FakePaymentProvider, deliverWebhook } from "./testing/payments.ts";
 import { ensureQaTenant } from "./services/qa-tenant.ts";
-import { QUOTE_CATALOG_TTL_MS } from "./services/quote-catalog.ts";
 
 const TOKEN = "qa-acceptance-token-for-itests-only-Vb93kLm2Qz7Rt";
 const QA_EMAIL = "qa-admin@example.com";
@@ -60,7 +59,7 @@ let ipSeq = 0;
 const nextIp = (): string => `203.0.113.${(ipSeq++ % 200) + 20}`;
 
 /** 一个官网应用（同一个库、同一个时钟）：可以配口令、换收款服务、换环境；截下日志和「真的发出去」的邮件。 */
-async function siteApp(options: { token?: boolean; payments?: PaymentProvider | null; appEnv?: "production" } = {}): Promise<Site> {
+async function siteApp(options: { token?: boolean | string; payments?: PaymentProvider | null; appEnv?: "production" } = {}): Promise<Site> {
   const logs: string[] = [];
   const responses: string[] = [];
   const sent: MailMessage[] = [];
@@ -70,7 +69,7 @@ async function siteApp(options: { token?: boolean; payments?: PaymentProvider | 
       return { ok: true, messageId: `<${randomUUID()}@example.test>` };
     },
   };
-  const loaded = loadConfig({ ...testEnv(api.db.url), ...UNREACHABLE_INTEGRATIONS, SITE_CLIENT_ID: clientId, ...(options.token === true ? { QA_ACCEPTANCE_TOKEN: TOKEN } : {}) });
+  const loaded = loadConfig({ ...testEnv(api.db.url), ...UNREACHABLE_INTEGRATIONS, SITE_CLIENT_ID: clientId, ...(options.token === undefined || options.token === false ? {} : { QA_ACCEPTANCE_TOKEN: options.token === true ? TOKEN : options.token }) });
   // production 配了口令根本启动不了（config 的单元测试）；这里手工造一个「万一」的配置，证明代码里的第二道关
   const config = options.appEnv === "production" ? { ...loaded, appEnv: "production" as const } : loaded;
   const app = buildApp({
@@ -183,7 +182,6 @@ class LiveFakePayments extends FakePaymentProvider {
   override readonly livemode: boolean = true;
 }
 
-let baselineView: string;
 let baselineTotal: string;
 
 before(async () => {
@@ -203,9 +201,6 @@ before(async () => {
   qa = { tenantId: outcome.tenant.id, adminId: outcome.admin.id, adminEmail: QA_EMAIL, adminToken: login.access_token };
   ids["qaProduct"] = await qaTransfer(5_000);
 
-  // 基线：还没有验收可售商品时普通客人看到的（新起一个官网应用，目录缓存是空的）
-  api.clock.advance(QUOTE_CATALOG_TTL_MS + 1);
-  baselineView = await publicView(await siteApp({ token: true }));
   baselineTotal = biz7(await ok(siteQuote(plain))).price.total.amount;
 });
 after(async () => {
@@ -249,16 +244,17 @@ test("只有 QA 测试供应商能设「验收可售」：普通供应商 409、
 });
 
 test("不带验收会话：有没有验收可售商品，官网城市、机场、包车套餐、询价、按两个坐标报价逐字节相同（报价编号除外）", async () => {
-  assert.equal((await api.db.owner.query("select status from products where id = $1", [ids["qaProduct"]])).rows[0].status, "qa_listed");
-  api.clock.advance(QUOTE_CATALOG_TTL_MS + 1);
-  const now = api.clock.now();
-  const fresh = await siteApp({ token: true });
-  const view = await publicView(fresh);
-  // 时钟拨过：只有时间相关的字段（有效期）会变——把基线的那一刻换成这一刻再比
-  assert.equal(api.clock.now().getTime(), now.getTime());
-  const normalize = (text: string): string => text.replace(/"expires_at":"[^"]+"/g, '"expires_at":"T"');
-  assert.equal(normalize(view), normalize(baselineView));
-  assert.ok(!view.includes(qa.tenantId) && !view.includes(ids["qaProduct"] as string));
+  // 同一时刻：先把它摆回草稿看一遍，再摆回验收可售看一遍；每次新起一个官网应用（目录缓存是空的，不靠缓存「看不见」）
+  const now = api.clock.now().getTime();
+  await api.db.owner.query("update products set status = 'draft' where id = $1", [ids["qaProduct"]]);
+  const without = await publicView(await siteApp({ token: true }));
+  await api.db.owner.query("update products set status = 'qa_listed' where id = $1", [ids["qaProduct"]]);
+  const withListed = await publicView(await siteApp({ token: true }));
+  assert.equal(api.clock.now().getTime(), now, "两次在同一时刻");
+  assert.equal(withListed, without);
+  assert.ok(!withListed.includes(qa.tenantId) && !withListed.includes(ids["qaProduct"] as string));
+  // 已经热了的目录缓存也一样：没开验收通道的官网照旧
+  assert.equal(await publicView(plain), without);
 });
 
 test("/sales/v1 和平台试算永远没有验收可售商品", async () => {
@@ -314,12 +310,16 @@ test("口令对了：201 + HttpOnly、Secure、SameSite=Strict、只在 /site/v1
   const stale = await siteQuote(gated, cookie);
   assert.deepEqual([stale.status, stale.body.error.code], [401, "QA_SESSION_INVALID"]);
   assertMatchesOpenApi("POST", "/site/v1/quotes", stale);
+  // 换了口令：用旧口令解锁的会话立即作废
+  const rotated = await siteApp({ token: `${TOKEN}-rotated` });
+  const beforeRotation = await unlock(gated);
+  assert.deepEqual([(await rotated.call("GET", SESSION_PATH, { cookie: beforeRotation })).status, (await siteQuote(rotated, beforeRotation)).status], [401, 401]);
   // 过期的也一样
   const expiring = await unlock(gated);
   api.clock.advance(4 * 3_600_000 + 1);
   assert.equal((await siteQuote(gated, expiring)).status, 401);
   const actions = (await api.db.owner.query("select action from audit_logs where resource = 'qa_acceptance_session' and action <> 'login_failed' order by id")).rows.map((row) => row.action);
-  assert.deepEqual(actions, ["unlock", "close", "unlock"]);
+  assert.deepEqual(actions, ["unlock", "close", "unlock", "unlock"]);
 });
 
 test("带验收会话：城市、机场只看验收可售商品，询价只报 QA 测试供应商（报价标成验收的）；同一个应用里普通客人照旧（目录缓存不串）", async () => {

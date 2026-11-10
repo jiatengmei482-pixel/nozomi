@@ -178,6 +178,16 @@
 - 谁能用：验收角色在测试环境用它登录供应商后台；读文件时不打印内容（例如先读进变量，再直接用于登录请求）。不能用 `qa-tenant@` / 「Tokyo-Taxi」代替。
 - 怀疑泄露：在运维机器上重新生成密码文件，再运行一次带 `--reset-password` 的命令（旧密码和旧登录立即失效）。
 
+## 测试环境的验收通道口令（M8-26，ADR 0078）
+
+`QA_ACCEPTANCE_TOKEN` 是**密钥**，只放在测试环境的服务器 `.env` 里（`/opt/nozomi/staging/.env`），**正式环境永远不要写**（写了服务拒绝启动）。
+
+- 有什么用：验收角色在测试环境用它解锁一个浏览器会话。会话里官网只看 QA 测试供应商的「验收可售」商品，能下单、用 Stripe 测试卡付款；这样的单是验收单，不进结算，邮件只真的发给 `qa-staging@nozomi.moveglobal.io`（其余的不发，内容留在运营后台的发送记录里）。不配 = 没有这个通道，测试环境和以前完全一样。
+- 怎么生成：在运维机器上运行 `openssl rand -hex 32`（64 位十六进制），存进只有自己能读的文件，如 `~/.ssh/nozomi/qa-staging-acceptance-token`（权限 `600`）。不进仓库、聊天、日志、命令行参数和提交记录。
+- 怎么填：用 `nozomi` 账号登录测试环境服务器，编辑 `/opt/nozomi/staging/.env`，加一行 `QA_ACCEPTANCE_TOKEN=口令`（顶格、不加引号、等号两边不留空格），然后运行 `/opt/nozomi/staging/current/bin/compose.sh up -d --wait` 让它生效。
+- 怎么用：验收角色读文件（不打印），在 Playwright 的同一个浏览器上下文里用 `context.request.post("/site/v1/qa-acceptance/session", { data: { token } })` 解锁——口令只在请求体里，不进地址栏；会话 Cookie 4 小时有效，`DELETE` 同一个地址结束。
+- 怀疑泄露：重新生成、改 `.env`、再运行上面那条命令；旧口令和用旧口令解锁的会话立即失效。要关掉通道就删掉这一行再运行同一条命令。
+
 ## 规则
 
 1. 测试环境只用 Stripe 测试密钥（`sk_test_`），代码会拒绝在非正式环境使用正式密钥。

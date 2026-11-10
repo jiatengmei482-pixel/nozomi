@@ -64,15 +64,18 @@ create trigger orders_acceptance_immutable
 alter table quotes add column is_acceptance boolean not null default false;
 alter table quote_logs add column is_acceptance boolean not null default false;
 
--- 验收会话：浏览器里的 Cookie 是随机编号，库里只存它的 SHA-256（十六进制）；结束（DELETE）记 ended_at，过期的不再认
+-- 验收会话：浏览器里的 Cookie 是随机编号，库里只存它的 SHA-256（十六进制）；结束（DELETE）记 ended_at，过期的不再认。
+-- key_fingerprint 是解锁时那个口令的指纹（加了用途前缀的 SHA-256，不是口令本身）：换了口令，旧会话立即作废
 create table qa_acceptance_sessions (
   id uuid primary key default gen_random_uuid(),
   token_hash text not null,
+  key_fingerprint text not null,
   created_at timestamptz not null,
   expires_at timestamptz not null,
   ended_at timestamptz,
   constraint qa_acceptance_sessions_token_hash_key unique (token_hash),
   constraint qa_acceptance_sessions_hash_format check (token_hash ~ '^[0-9a-f]{64}$'),
+  constraint qa_acceptance_sessions_fingerprint_format check (key_fingerprint ~ '^[0-9a-f]{64}$'),
   constraint qa_acceptance_sessions_expiry check (expires_at > created_at),
   constraint qa_acceptance_sessions_end check (ended_at is null or ended_at >= created_at)
 );
