@@ -2,7 +2,7 @@
  * 端到端（M8-13，ADR 0073 第四部分；规范 site-booking-v2.md 10.3、platform-orders.md 3d、driver.md 3a）：含公里数的点对点单，各处怎么写。
  * 真实浏览器 → 构建好的前端 → 真实 API → 真实 PostgreSQL，不 mock 接口。
  *
- * 本用例自己建一个城市（中心随机落在北海道一带，离别的用例的城市都远：新预订页按两个坐标找城市只会找到它），供应商经接口建两个区域（「上车区」「下车区」），
+ * 本用例自己建一个城市（中心随机落在冲绳本岛一带，离别的用例的城市、和别的用例当作「不在任何城市」的北海道那几个点都在 80 公里以外：新预订页按两个坐标找城市只会找到它，也不会把别的用例的点认成它），供应商经接口建两个区域（「上车区」「下车区」），
  * 上架点对点商品：两个区域的区域价各 10,000；「上车区 → 下车区」的线路价 12,000，含 30 公里、超出每公里 300。
  * 这条路线的谷歌路线预估直接写进路线缓存（34,153 米，45 分钟；用例结束删掉），结果确定：超出 ⌈4.153⌉ = 5 公里，结算价 12,000 + 5 × 300 = 13,500。
  * - 新预订页：车型卡「公里数」一句（D 向上取整 34.2，每公里是对外价），右侧栏车费下面同一句、路线一行同一个 D；只有一个总价；
@@ -84,7 +84,8 @@ async function kmTrip(request: APIRequestContext): Promise<KmTrip> {
   const world = await createWorld(request);
   const admin = await platformAdminHeaders(request);
   const tag = randomLetters(5);
-  const center = { lat: Number((43.0 + Math.random() * 0.4).toFixed(4)), lng: Number((141.2 + Math.random() * 0.5).toFixed(4)) };
+  // 冲绳本岛一带：离别的用例的城市、和别的用例当作「哪个城市都不在」的点（manual-quote、area-roles 用北海道）都在 80 公里（城市的服务范围）以外
+  const center = { lat: Number((26.2 + Math.random() * 0.3).toFixed(4)), lng: Number((127.65 + Math.random() * 0.2).toFixed(4)) };
   const city = await post<{ id: string }>(request, admin, "/platform/v1/master/cities", { code: `CTY-JP-${tag}`, country_code: "JP", name: { zh: `公里城市${tag}` }, timezone: "Asia/Tokyo", center }, "新建城市");
   const tenant = await createActiveTenant(request);
   const headers = await tenantHeaders(request, tenant.adminEmail, tenant.password);
