@@ -827,3 +827,48 @@ test("M4-15 商品详情、价格规则取不到（403）时同样不停在骨�
     resetBrowser();
   }
 });
+
+// ───────────── M8-20：区域用途 ─────────────
+
+test("M8-20 服务区域只列报价区域（和「运营 + 报价」），说明为什么运营区域不在里面；保存被拒 AREA_ROLE_NOT_PRICING 说明是运营区域", async () => {
+  const actor = user();
+  const OPERATING = "46464646-4646-4646-8646-464646464646";
+  const areas: Route = (call) => (call.method === "GET" && call.url.pathname === "/tenant/v1/areas" ? page([areaOf({ role: "both" }), areaOf({ id: AREA2_ID, name: { zh: "新宿报价" }, role: "pricing" }), areaOf({ id: OPERATING, name: { zh: "东京全域" }, role: "operating" })]) : null);
+  const calls = open(
+    `/products/${PRODUCT_ID}/basic`,
+    "admin",
+    productRoutes({}, (call) => areas(call) ?? (call.method === "PATCH" && call.path === BASE ? apiError(400, "VALIDATION_FAILED", "bad", { issues: [{ path: "/areas/1", reason: "AREA_ROLE_NOT_PRICING", message: "operating" }] }) : null)),
+  );
+  await actor.click(await screen.findByRole("button", { name: "添加区域" }));
+  const panel = screen.getByRole("group", { name: "添加区域" });
+  const offered = within(panel).getAllByRole("checkbox").map((box) => box.closest("label")?.textContent ?? "");
+  assert.equal(offered.length, 2);
+  assert.ok(offered.every((text) => !text.includes("东京全域")), "运营区域不能勾选");
+  await actor.click(within(panel).getByRole("checkbox", { name: /新宿报价/ }));
+  await actor.click(within(panel).getByRole("button", { name: "完成" }));
+  assert.match(document.querySelector("[data-hidden-operating]")?.textContent ?? "", /另有 1 个运营区域没有列出：运营区域只决定能不能接单，不带价格/);
+  await actor.click(screen.getByRole("button", { name: "保存草稿" }));
+  assert.ok((await screen.findAllByText(/「新宿报价」是运营区域，不能给商品勾选/)).length > 0);
+  assert.equal(writes(calls).length, 1);
+});
+
+test("M8-20 这个城市只有运营区域：说明要先画报价区域，「新增区域」预先选好报价区域", async () => {
+  const actor = user();
+  open("/products/new", "admin", productRoutes({}, (call) => (call.method === "GET" && call.url.pathname === "/tenant/v1/areas" ? page([areaOf({ name: { zh: "东京全域" }, role: "operating" })]) : null)));
+  await fillNew(actor);
+  await screen.findByText(/「东京」下只有运营区域，还没有能给接送机商品勾选的报价区域。/);
+  assert.equal(screen.getByRole("link", { name: "新增区域" }).getAttribute("href"), `/areas/new?city=${CITY_ID}&biz=airport_transfer&role=pricing`);
+});
+
+test("M8-20 上架检查「运营区域」：报价区域超出运营区域只提醒（不拦上架），写明是哪个区域、超出多少，能直接去看那个区域", async () => {
+  const check = checkOf({ price_rules: [] });
+  check.items.push({ key: "area_coverage", required: false, passed: false, issues: [{ path: `/areas/${AREA_ID}`, reason: "PRICING_AREA_OUTSIDE_OPERATING", message: "outside", detail: { outside_m2: 2_500_000 } }] });
+  open(`/products/${PRODUCT_ID}/publish`, "admin", productRoutes({ check }));
+  await screen.findByText("可以上架了");
+  const row = document.querySelector('[data-check="area_coverage"]') as HTMLElement;
+  assert.match(row.textContent ?? "", /运营区域/);
+  assert.match(row.textContent ?? "", /有 1 处要留意/);
+  assert.match(row.textContent ?? "", /报价区域「东京 23 区」有约 2\.5 平方公里不在任何运营区域里，那部分不会报价/);
+  assert.equal(within(row).getByRole("link", { name: /^去看区域/ }).getAttribute("href"), `/areas/${AREA_ID}`);
+  assert.ok(screen.getByRole("button", { name: "上架" }));
+});
