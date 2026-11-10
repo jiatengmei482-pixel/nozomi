@@ -31,6 +31,11 @@ export interface QuoteCandidateFilter {
   productId?: string;
   /** 只取已上架的 */
   publishedOnly: boolean;
+  /**
+   * 把这些供应商启用中的每个区域都当作运营范围（不看用途）：迁移 0290 之前，区域还没有用途这一列，迁移会把它们全部填成「运营 + 报价」——
+   * 切换前的只读清单（`pnpm areas:role-preview`）用它按「迁移后的用途」回放。报价、试算都不给
+   */
+  everyAreaOperating?: boolean;
 }
 
 const columns = (prefix: string, list: string): string => list.split(", ").map((column) => `${prefix}.${column}`).join(", ");
@@ -85,7 +90,7 @@ export async function loadQuoteCandidates(db: Db, filter: QuoteCandidateFilter):
   );
   // 运营范围（ADR 0075）：这些供应商启用中的运营区域和「运营 + 报价」区域，不限城市；按商品的品类挑业务类型相容的
   const operatingRows = await db.query<Row>(
-    "select tenant_id, id, biz_type from areas where tenant_id = any($1::uuid[]) and status = 'active' and role in ('operating', 'both') order by tenant_id, created_at, id",
+    `select tenant_id, id, biz_type from areas where tenant_id = any($1::uuid[]) and status = 'active' ${filter.everyAreaOperating === true ? "" : "and role in ('operating', 'both')"} order by tenant_id, created_at, id`,
     [tenantIds],
   );
   const areaIds = [...new Set([...areas.rows, ...surchargeRows.rows].map((row) => row["area_id"] as string).concat(operatingRows.rows.map((row) => row["id"] as string)))];
