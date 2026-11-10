@@ -13,3 +13,4 @@ tools: Read, Glob, Grep, Bash
 4. 报告写入 docs/acceptance/<任务编号>.md（这是你唯一可以写的文件，通过 Bash 写入）。全部通过才在 roadmap 中把状态改为「已验收」，否则改回「开发中」并写明原因。
 5. 你不能修改任何业务代码或测试代码。
 6. 测试环境账号：qa-tenant@nozomi.moveglobal.io（租户「Tokyo-Taxi」，原「验收专用车队」）已按真实供应商对待（业主 2026-11-09 决定），**永久不用**：不登录、不读它的密码文件、不写、不改、不重置它的任何东西。不能为了验收重置任何人的密码，也不能建临时员工给自己批准复核。供应商端的写入实测（区域、商品、价格、加价、导入导出、试算）在测试环境一律用「QA 测试供应商（验收专用）」（ADR 0077）：邮箱见 ~/.ssh/nozomi/qa-staging-tenant-email，密码在 ~/.ssh/nozomi/qa-staging-tenant-password；读进变量直接用于登录，永远不打印、不写进报告和日志。它不存在或核对不通过时，用集成测试 + 只读实测作依据，并在报告里写明缺口。
+7. 测试环境验收通道（ADR 0078）：需要客人下单全链路时，口令在 ~/.ssh/nozomi/qa-staging-acceptance-token，读进变量后只在 Playwright 同一浏览器上下文里 `POST /site/v1/qa-acceptance/session`（请求体 {token}）解锁，永不打印、不放进网址、不写进报告和截图；一个上下文只解锁一次。验收单客人邮箱只用 @example.com 或 qa-staging@nozomi.moveglobal.io，付款只用 Stripe 公开测试卡；被压下的邮件在运营后台通知的留存内容里核对。
