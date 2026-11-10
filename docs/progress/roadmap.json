@@ -765,9 +765,9 @@
           "id": "M8-21b",
           "title": "新预订页报不出价时只显示人工报价，不出现「怎么联系你」",
           "role": "frontend",
-          "status": "review",
+          "status": "done",
           "acceptance": ["报不出价时（接送报价为空、渠道不卖这一段、包车报价为空、包车上车地点没有在线报价）新预订页只显示人工报价那一块（邮箱 / WhatsApp 表单和「通过 WhatsApp 联系我们」），不出现「怎么联系你」和「去付款」", "有报价时正常下单流程不变：「怎么联系你」、右侧栏和去付款照旧", "亮色 / 暗色两套主题，320 / 390 宽不横向滚动", "有组件测试和端到端测试覆盖；业主 2026-11-10 决定，从 M6-08 的 M8-21 验收观察移来"],
-          "evidence": "分支 m8-21b-manual-quote-only（已推送、未开 PR）；BookNewPage.tsx 报不出价时不渲染「怎么联系你」；旧预订页 /book 核对过不用改（「怎么联系你」在选车以后的下单页，报不出价时页面上只有人工报价表单）；设计规范 site-booking-v2.md 11.1 写明规则。本机：类型检查通过；组件测试 manual-quote.test.tsx + book-new.test.tsx 共 37 条全过（新增 1 条有报价 / 从报不出价到报出价，4 条报不出价用例加了「没有怎么联系你、去付款」的断言；去掉改动后其中 5 条失败）；端到端 manual-quote.spec.ts 1 条（改用 OWN_SITE_SOURCE，电脑和手机都核对只有人工报价，320 / 390 宽、亮暗 axe）和 site-booking-new.spec.ts 2 条（有报价时「怎么联系你」照旧、没有人工报价）全过（1 个 worker）；截图 /home/codespace/import/ui-screens/m821b-{desktop,390}-{light,dark}.png",
+          "evidence": "PR #146（CI 42851546839 全绿）；验收记录 docs/acceptance/M8-21b.md（测试环境 5 种报不出价行程只显示人工报价，有报价流程不变）；分支 m8-21b-manual-quote-only（已推送、未开 PR）；BookNewPage.tsx 报不出价时不渲染「怎么联系你」；旧预订页 /book 核对过不用改（「怎么联系你」在选车以后的下单页，报不出价时页面上只有人工报价表单）；设计规范 site-booking-v2.md 11.1 写明规则。本机：类型检查通过；组件测试 manual-quote.test.tsx + book-new.test.tsx 共 37 条全过（新增 1 条有报价 / 从报不出价到报出价，4 条报不出价用例加了「没有怎么联系你、去付款」的断言；去掉改动后其中 5 条失败）；端到端 manual-quote.spec.ts 1 条（改用 OWN_SITE_SOURCE，电脑和手机都核对只有人工报价，320 / 390 宽、亮暗 axe）和 site-booking-new.spec.ts 2 条（有报价时「怎么联系你」照旧、没有人工报价）全过（1 个 worker）；截图 /home/codespace/import/ui-screens/m821b-{desktop,390}-{light,dark}.png",
           "updated": "2026-11-10"
         }
       ]
@@ -1573,6 +1573,11 @@
       "date": "2026-11-10",
       "by": "Claude",
       "summary": "M8-21b 前端完成、待验收：新预订页报不出价时只显示人工报价（邮箱 / WhatsApp 表单和 WhatsApp 按钮），不再同时出现下单用的「怎么联系你」；有报价时下单流程不变；旧预订页核对过不用改；亮暗两色、320 / 390 宽检查通过"
+    },
+    {
+      "date": "2026-11-10",
+      "by": "Claude",
+      "summary": "M8-21b 验收通过：新预订页报不出价时只显示人工报价（邮箱 / WhatsApp + WhatsApp 按钮），有报价时下单流程不变"
     }
   ]
 }
