@@ -395,7 +395,7 @@ export const SITE_ORDER_VEHICLE_GROUP_FIELDS: readonly (keyof NonNullable<SiteOr
 export const SITE_ORDER_FIELDS: readonly (keyof SiteOrder)[] = [
   "id", "order_no", "status", "category", "city_id", "place_id", "direction", "vehicle_group_id", "package_hours", "service_time", "service_local", "timezone", "service_date", "urgent",
   "passengers", "luggage", "pickup", "dropoff", "addons", "driver_language", "flight_no", "passenger", "messaging", "notes", "free_wait_minutes", "created_at", "confirmed_at", "cancelled_at",
-  "cancel_reason", "quote_id", "channel_order_no", "price", "payment_status", "payment_due_at", "winning_tenant", "driver", "vehicle", "landing", "cancel_policy", "cancellation",
+  "cancel_reason", "quote_id", "channel_order_no", "price", "includes_area_surcharge", "distance", "payment_status", "payment_due_at", "winning_tenant", "driver", "vehicle", "landing", "cancel_policy", "cancellation",
   "free_cancel_available", "changes", "extra_charges", "version",
 ];
 

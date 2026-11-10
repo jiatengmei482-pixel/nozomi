@@ -667,7 +667,7 @@ test("附加服务（M8-04）：供应商和运营的订单详情写「名称 ×
 });
 
 test("区域价（M8-13，platform-orders.md 3d）：点对点线路价写「用的价格」和「公里数」三行（对外 / 结算每公里、核对米数）；包车写两端的区域加价（对外 / 结算）；总价仍是一个数", async () => {
-  const p2p = platformDetail(platformOrder({ category: "point_to_point", direction: null, place_id: null, flight_no: null, pickup: { lng: 139.7, lat: 35.7, address: "新宿站" }, dropoff: { lng: 140.3, lat: 35.7, address: "成田机场" } }), {
+  const p2p = platformDetail(platformOrder({ category: "point_to_point", direction: null, flight_no: null, pickup: { lng: 139.7, lat: 35.7, address: "新宿站" }, dropoff: { lng: 140.3, lat: 35.7, address: "成田机场" } }), {
     pricing_route: { kind: "route", area: { id: "a1", name: { zh: "东京 23 区" } }, to_area: { id: "a2", name: { zh: "成田周边" } } },
     distance: { included_km: 30, route_meters: 34_153, over_km: 5, over_km_per_km: money("250"), over_km_per_km_sell: money("300") },
     area_surcharge: null,
@@ -682,7 +682,7 @@ test("区域价（M8-13，platform-orders.md 3d）：点对点线路价写「用
   assert.doesNotMatch(km.textContent ?? "", /[=+]|合计/, "不写成算式");
 
   resetBrowser();
-  const charter = platformDetail(platformOrder({ category: "charter", direction: null, place_id: null, flight_no: null, package_hours: 8, pickup: { lng: 138.7, lat: 35.4, address: "河口湖站" }, dropoff: { lng: 139.7, lat: 35.69, address: "京王广场酒店" } }), {
+  const charter = platformDetail(platformOrder({ category: "charter", direction: null, flight_no: null, package_hours: 8, pickup: { lng: 138.7, lat: 35.4, address: "河口湖站" }, dropoff: { lng: 139.7, lat: 35.69, address: "京王广场酒店" } }), {
     pricing_route: null,
     distance: null,
     area_surcharge: { package_settlement: money("70000"), pickup: { area_id: "a3", area_name: { zh: "富士山" }, settlement: money("1000"), sell: money("1100") }, dropoff: { area_id: null, area_name: null, settlement: money("0"), sell: money("0") } },
