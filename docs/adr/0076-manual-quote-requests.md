@@ -16,7 +16,7 @@
 - 同意：请求体的 `consent` 必须是 `true`。页面在提交按钮旁写一句「提交即同意客服通过您留下的方式联系您」，点提交就是同意，不另加勾选框（业主要求不增加步骤）。库里记同意的时间。
 - 校验规则在 `@nozomi/domain` 的 `manual-quote.ts`（`manualQuoteEmail`、`whatsappDigits`、`manualQuoteTripIssues`），页面和接口用同一份。
 
-### 2. 数据模型（迁移 `0270_manual_quote_requests.sql`）
+### 2. 数据模型（迁移 `0280_manual_quote_requests.sql`）
 
 三张**平台表**，只授权给 `nozomi_platform`（`select, insert, update`，不给 `delete`），租户角色 `nozomi_app` 和登录前角色没有任何权限：
 
