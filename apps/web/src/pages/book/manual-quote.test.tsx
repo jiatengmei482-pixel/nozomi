@@ -3,6 +3,7 @@
  * 只有邮箱、WhatsApp 两个框（至少一项、各自的格式）、提交按钮旁的同意说明（没有勾选框）、陷阱字段、提交后的中性提示、
  * 接口点名的字段落在框下面、限速时的说法；WhatsApp 按钮有号码才显示、链接带预先写好的行程要点、新标签页打开。
  * 新预订页（接送报不出价、包车地址不在任何城市）和旧预订页里的位置和带上的行程在后半部分。
+ * 报不出价时新预订页只有人工报价那一块、没有下单用的「怎么联系你」，有报价时照旧（M8-21b）。
  * 接口用测试替身；真实后端由 e2e/manual-quote.spec.ts 覆盖。
  */
 import { afterEach, test } from "node:test";
@@ -181,6 +182,16 @@ function openPage(at: string, options: { config?: SiteConfig; byPoints?: () => R
 
 const P2P_LINK = "/book/new?from=35.6896,139.7006&from_name=%E6%96%B0%E5%AE%BF%E7%AB%99&to=35.6586,139.7454&to_name=%E4%B8%9C%E4%BA%AC%E5%A1%94&date=2030-11-20&time=14:30";
 
+/** 报不出价时只有人工报价那一块：下单用的「怎么联系你」（姓名、手机号、同意保存银行卡）和「去付款」都不出现（M8-21b，规范 11.1） */
+function assertNoCheckout(): void {
+  assertAbsent(screen.queryByRole("heading", { name: "怎么联系你" }));
+  assertAbsent(screen.queryByLabelText("乘车人姓名"));
+  assertAbsent(screen.queryByLabelText("手机号（含国家区号）"));
+  assertAbsent(screen.queryByRole("checkbox", { name: /同意保存这次付款用的银行卡/ }));
+  assertAbsent(screen.queryByRole("button", { name: "去付款 →" }));
+  assert.equal(screen.getAllByLabelText("邮箱").length, 1, "页面上只有人工报价的一个邮箱框");
+}
+
 test("新预订页接送报不出价：保留「这个地址暂时没有在线报价，请联系客服」和客服电话，下面是人工报价表单和 WhatsApp 按钮；提交带上页面的行程（用车类型按识别结果、城市）", async () => {
   wideScreen();
   const calls = openPage(P2P_LINK, { config: configOf({ support_whatsapp: SUPPORT }) });
@@ -188,6 +199,7 @@ test("新预订页接送报不出价：保留「这个地址暂时没有在线�
   const region = await screen.findByRole("region", { name: "请客服人工报价" }, SLOW);
   assert.ok(screen.getByText("这个地址暂时没有在线报价，请联系客服"));
   assert.ok(screen.getByRole("link", { name: "+81 3-0000-0000" }));
+  assertNoCheckout();
   const link = within(region).getByRole("link", { name: /通过 WhatsApp 联系我们/ });
   assert.equal(new URL(link.getAttribute("href") ?? "").searchParams.get("text"), "您好，我想咨询用车报价：点对点，新宿站 → 东京塔，2030-11-20 14:30，2 人。");
   await actor.type(within(region).getByLabelText("邮箱"), "guest@example.com");
@@ -208,6 +220,7 @@ test("新预订页渠道不卖这一段（CHANNEL_SCOPE_DENIED）：同样有人
   assert.ok(await screen.findByRole("region", { name: "请客服人工报价" }, SLOW));
   assert.ok(screen.getByText("这个地址暂时没有在线报价，请联系客服"));
   assertAbsent(screen.queryByRole("link", { name: /WhatsApp/ }));
+  assertNoCheckout();
 });
 
 test("新预订页包车、上车地点不在任何能订包车的城市：说明 + 客服电话；给通用的包车时长，选了以后提交带 package_hours、没有城市", async () => {
@@ -216,6 +229,7 @@ test("新预订页包车、上车地点不在任何能订包车的城市：说�
   const actor = user();
   const region = await screen.findByRole("region", { name: "请客服人工报价" }, SLOW);
   assert.ok(screen.getByText("这个地址暂时没有在线报价，请联系客服"));
+  assertNoCheckout();
   await actor.type(within(region).getByLabelText("WhatsApp"), "+86 130 0000 0000");
   await actor.click(within(region).getByRole("button", { name: "提交" }));
   assert.equal(within(region).getByRole("alert").textContent, "请先在上面选好包车时长，再提交。");
@@ -236,9 +250,49 @@ test("新预订页没有车（报价列表为空、也没有原因）同样给�
   wideScreen();
   openPage(P2P_LINK, { byPoints: () => json(200, { ...noQuotes, quotes: [] satisfies SiteQuoteResult["quotes"], unavailable: [] }) });
   assert.ok(await screen.findByRole("region", { name: "请客服人工报价" }, SLOW), "没有车也算报不出价");
+  assertNoCheckout();
   resetBrowser();
   wideScreen();
   openPage("/book/new");
   await screen.findByRole("combobox", { name: "出发地" }, SLOW);
   assertAbsent(screen.queryByRole("region", { name: "请客服人工报价" }));
+});
+
+test("有报价时照旧：「怎么联系你」和「去付款」都在，没有人工报价；从报不出价改了行程、报出价以后「怎么联系你」回来、人工报价收起", async () => {
+  wideScreen();
+  const quote = {
+    quote_id: "QT20301120000000000001",
+    expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
+    service_date: "2030-11-20",
+    urgent: false,
+    includes_area_surcharge: false,
+    vehicle_group: { id: "33333333-3333-4333-8333-333333333301", code: "VG-T1", name: { zh: "车型1" }, grade: "economy", seats: 7, sample_models: [], combos: [{ passengers: 6, luggage: 4 }] },
+    package: null,
+    price: { total: { amount: "18000", currency: "JPY" }, fx: null },
+    free_wait_minutes: 0,
+    cancel_policy: { category: "point_to_point", level: "economy", tiers: [{ min_hours_before: 0, fee_bp: 10000 }] },
+    available_addons: [],
+  } satisfies SiteQuoteResult["quotes"][number];
+  let asked = 0;
+  openPage(P2P_LINK, {
+    byPoints: () => {
+      asked += 1;
+      return json(200, asked === 1 ? noQuotes : { ...noQuotes, quotes: [quote], unavailable: [] });
+    },
+  });
+  const actor = user();
+  assert.ok(await screen.findByRole("region", { name: "请客服人工报价" }, SLOW));
+  assertNoCheckout();
+
+  const time = screen.getByLabelText("用车时间（当地）");
+  await actor.clear(time);
+  await actor.type(time, "15:30");
+  assert.ok(await screen.findByRole("heading", { name: "车型1" }, SLOW));
+  assert.ok(screen.getByRole("heading", { name: "怎么联系你" }));
+  assert.ok(screen.getByLabelText("乘车人姓名"));
+  assert.ok(screen.getByLabelText("手机号（含国家区号）"));
+  assertAbsent(screen.queryByRole("region", { name: "请客服人工报价" }));
+  assertAbsent(screen.queryByRole("link", { name: /通过 WhatsApp 联系我们/ }));
+  await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
+  assert.ok(screen.getByRole("button", { name: "去付款 →" }));
 });

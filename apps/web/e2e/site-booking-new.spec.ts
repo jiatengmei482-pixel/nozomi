@@ -150,12 +150,17 @@ test("新预订页第 3 步：选车 → 加附加服务（重新报价、合计
   await card.getByRole("button", { name: `选择 ${world.group.name}` }).click();
   await page.locator(".book-bar").getByRole("button", { name: "下一步" }).click();
   await expect(page.getByRole("heading", { name: "怎么联系你" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "请客服人工报价" })).toHaveCount(0);
   await expect(page.getByRole("region", { name: "附加服务（选填）" })).toContainText(world.seat.name);
   await expectNarrowAndAccessible(page, "新预订页手机第 3 步");
 
   // 电脑：单页，右侧栏加附加服务 → 重新报价 → 合计差额
   await page.setViewportSize({ width: 1280, height: 900 });
   const aside = page.getByRole("complementary", { name: "行程摘要" });
+  // 有报价时照旧（M8-21b 只改报不出价）：「怎么联系你」在左列，没有人工报价
+  await expect(page.getByRole("heading", { name: "怎么联系你" })).toBeVisible();
+  await expect(page.getByLabel("乘车人姓名")).toBeVisible();
+  await expect(page.getByRole("region", { name: "请客服人工报价" })).toHaveCount(0);
   await aside.getByRole("button", { name: `增加${world.seat.name}` }).click();
   await expect(aside).toContainText("附加服务（合计差额）");
   await expect(aside).toContainText("+1,100 JPY");
