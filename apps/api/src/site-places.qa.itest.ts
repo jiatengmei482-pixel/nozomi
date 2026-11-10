@@ -3,7 +3,7 @@
  * （服务进程的密钥只用运营后台填写的假密钥；搜索、反查地址都指向本机）。
  *
  * - 费用控制：每日上限按东京日期（23:59:59.999 / 0 点整）、同一进程跨午夜不被前一天的冷却挡、并发和含重试不超、两个进程合计不超、0 不调用、
- *   和路线预估分开（路线上限 0 / 已用满时地址搜索照常）；缓存命中不计次、10 分钟按毫秒的边界、500 条先进先出、同一个键（含反查格子）并发只调一次、
+ *   和路线预估分开（路线上限 0 / 已用满时地址搜索照常）、计数库超时就不调用（冷却 15 秒后恢复）；缓存命中不计次、10 分钟按毫秒的边界、500 条先进先出、同一个键（含反查格子）并发只调一次、
  *   请求无效缓存而其他失败不缓存（15 秒冷却之后重新调用）。
  * - 限速：按来源地址每分钟 20 次（第 21 次 429 + Retry-After，等够 Retry-After 恢复）、每天 300 次（第 301 次 429，24 小时后恢复）；
  *   TRUST_PROXY_HOPS=0 时 X-Forwarded-For 不起作用、=1 时只认最近一层代理写的地址——伪造都绕不过。
@@ -168,13 +168,18 @@ function service(options: { now: () => Date; search?: SearchFn; dailyLimit?: num
     cacheTtlMs: options.cacheTtlMs ?? CACHE_MECHANISM_TTL_MS,
   });
 }
-/** 不联网的谷歌替身：照真实实现，发请求前先占名额；记下调用次数 */
-function counting(next: (query: string) => PlaceCallResult<PlaceCandidate[]> = () => ({ ok: true, value: [] }), delayMs = 0): { search: SearchFn; calls: () => number } {
+/**
+ * 不联网的谷歌替身，记下调用次数。默认照真实实现：发请求前先占名额（数据库里的每日计数）。
+ * `quota: false` 只给测缓存机制本身的用例：不占名额。占名额是一个客户端时限 500 毫秒的数据库事务，测试进程被系统挂起超过 500 毫秒
+ * （CI 上几个测试文件并发、CPU 紧张）时这次按超时失败 → 这把密钥冷却 15 秒 → 后面的查询全被冷却挡下、不再调用替身（M8-23）。
+ * 占名额失败时的这套行为见「计数库一次超时」那条用例；每日上限有专门的用例。
+ */
+function counting(next: (query: string) => PlaceCallResult<PlaceCandidate[]> = () => ({ ok: true, value: [] }), delayMs = 0, options: { quota?: boolean } = {}): { search: SearchFn; calls: () => number } {
   let calls = 0;
   return {
     calls: () => calls,
     search: async (_key, request, beforeAttempt) => {
-      if (!(await beforeAttempt())) return { ok: false, code: "DAILY_LIMIT_REACHED" };
+      if (options.quota !== false && !(await beforeAttempt())) return { ok: false, code: "DAILY_LIMIT_REACHED" };
       calls++;
       if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
       return next(request.query);
@@ -199,12 +204,12 @@ async function withMonotonic<T>(start: number, fn: (set: (ms: number) => void) =
 
 test("默认缓存 10 分钟（ADR 0069，业主 2026-11-09 确认；原 ADR 0053 为 0）：同一个关键字问两次只调一次谷歌；缓存时长设成 0 时只留「并发只调一次」", async () => {
   assert.equal(PLACE_SEARCH_RULES.cacheTtlMs, 10 * 60_000);
-  const google = counting();
+  const google = counting(undefined, 0, { quota: false });
   const places = service({ now: () => new Date("2030-09-02T03:00:00.000Z"), search: google.search, cacheTtlMs: PLACE_SEARCH_RULES.cacheTtlMs, apiKey: () => "AIzaQaNoCacheDefault00000000001" });
   await ask(places, "渋谷 ホテル");
   await ask(places, "渋谷 ホテル");
   assert.equal(google.calls(), 1);
-  const strict = counting();
+  const strict = counting(undefined, 0, { quota: false });
   const noCache = service({ now: () => new Date("2030-09-02T03:00:00.000Z"), search: strict.search, cacheTtlMs: 0, apiKey: () => "AIzaQaNoCacheDefault00000000002" });
   await ask(noCache, "渋谷 ホテル");
   await ask(noCache, "渋谷 ホテル");
@@ -340,7 +345,7 @@ test("缓存命中不计次：同一个关键字、同一个 11 米格子再问�
 
 test("缓存 10 分钟按毫秒：10 分钟减 1 毫秒还命中，正好 10 分钟过期重新调用；「没找到」也缓存", async () => {
   await withMonotonic(20_000_000, async (setMono) => {
-    const google = counting();
+    const google = counting(undefined, 0, { quota: false });
     const places = service({ now: () => new Date("2030-10-08T03:00:00.000Z"), search: google.search });
     assert.deepEqual(await ask(places, "十分钟"), { ok: true, value: [], source: "google" });
     setMono(20_000_000 + 600_000 - 1);
@@ -353,7 +358,7 @@ test("缓存 10 分钟按毫秒：10 分钟减 1 毫秒还命中，正好 10 分
 });
 
 test("缓存最多 500 条、先进先出：第 501 条挤掉最早的那条（命中不会让它变新），其余照常命中", async () => {
-  const google = counting();
+  const google = counting(undefined, 0, { quota: false });
   const places = service({ now: () => new Date("2030-10-09T03:00:00.000Z"), search: google.search });
   for (let i = 0; i < 500; i++) await ask(places, `条目 ${i}`);
   assert.equal(google.calls(), 500);
@@ -386,7 +391,7 @@ test("并发只调一次：同一个 11 米格子里十个不同的点同时反�
 test("失败的缓存：请求无效记 10 分钟（同一个关键字不再问）；超时不缓存，15 秒冷却（14.999 秒还挡）过后同一个关键字重新调用", async () => {
   await withMonotonic(30_000_000, async (setMono) => {
     let result: PlaceCallResult<PlaceCandidate[]> = { ok: false, code: "INVALID_REQUEST" };
-    const google = counting(() => result);
+    const google = counting(() => result, 0, { quota: false });
     const places = service({ now: () => new Date("2030-10-10T03:00:00.000Z"), search: google.search, apiKey: () => "AIzaQaFailCache00000000000001" });
     assert.deepEqual(await ask(places, "无效 请求"), { ok: false, code: "INVALID_REQUEST" });
     result = { ok: true, value: [] };
@@ -401,6 +406,27 @@ test("失败的缓存：请求无效记 10 分钟（同一个关键字不再问�
     setMono(30_000_000 + 15_000);
     assert.equal((await ask(places, "超时 一次")).ok, true);
     assert.equal(google.calls(), 3);
+  });
+});
+
+test("计数库一次超时（占名额失败）：这次 UNAVAILABLE、不调谷歌（宁可少调）；这把密钥冷却 15 秒（14.999 秒还挡、不再碰计数库），之后恢复", async () => {
+  await withMonotonic(40_000_000, async (setMono) => {
+    let down = true;
+    const pool = { connect: () => (down ? Promise.reject(new Error("Query read timeout")) : api.db.pool.connect()) } as unknown as Pool;
+    const google = counting();
+    const before = warnings.length;
+    const places = service({ now: () => new Date("2030-10-11T03:00:00.000Z"), search: google.search, pool, apiKey: () => "AIzaQaCounterDown000000000001" });
+    assert.deepEqual(await ask(places, "计数 一"), { ok: false, code: "UNAVAILABLE" });
+    assert.equal(google.calls(), 0);
+    assert.ok(warnings.slice(before).some((entry) => entry.msg.startsWith("占用地址搜索的每日调用名额失败")));
+    down = false;
+    setMono(40_000_000 + 14_999);
+    assert.deepEqual(await ask(places, "计数 二"), { ok: false, code: "UNAVAILABLE" });
+    assert.equal(google.calls(), 0);
+    setMono(40_000_000 + 15_000);
+    assert.deepEqual(await ask(places, "计数 二"), { ok: true, value: [], source: "google" });
+    assert.equal(google.calls(), 1);
+    assert.equal((await usage("2030-10-11")).calls, 1);
   });
 });
 
