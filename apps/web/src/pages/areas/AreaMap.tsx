@@ -53,7 +53,7 @@ type Drag =
   | { kind: "radius"; key: string };
 
 /** 铺满画布的 45° 斜线（间距 6px）。禁行区的斜纹 = 这组线裁剪到图形内部；线的颜色在样式文件里。 */
-function hatchLines(width: number, height: number): string {
+export function hatchLines(width: number, height: number): string {
   const step = HATCH_SPACING * Math.SQRT2;
   const parts: string[] = [];
   for (let x = 0; x < width + height; x += step) parts.push(`M${x.toFixed(1)},0L${(x - height).toFixed(1)},${height}`);

@@ -30,7 +30,8 @@ import {
   roundCoordinate,
 } from "@nozomi/domain";
 import type { DbContext } from "../context.ts";
-import { type Db, withTenantTx } from "../db/context.ts";
+import { type Db, withPlatformTx, withTenantTx } from "../db/context.ts";
+import { type AreaLastEditor, type AreaMapFilter, type AreaMapRow, lastAreaEditors, listAreaMapRows, listPolygonsOfAreas } from "../repos/area-map.ts";
 import { AppError, isRetryableDbError } from "../errors.ts";
 import type { TimeCursor } from "../pagination.ts";
 import {
@@ -53,6 +54,7 @@ import {
   updateArea as updateAreaRow,
 } from "../repos/areas.ts";
 import { type AuditValue, type AuditValues, insertAuditLog } from "../repos/audit-logs.ts";
+import { findTenantForPlatform } from "../repos/tenants.ts";
 import { type AreaUsage, areaUsage, compactAreaPriorities, productIdsUsingArea } from "../repos/products.ts";
 import { removePricingOfArea } from "./prices.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
@@ -438,3 +440,72 @@ export function areaCounts(ctx: DbContext, tenantId: string): Promise<{ active: 
   return withTenantTx(ctx.pool, tenantId, (db) => countAreasByStatus(db, tenantId), { snapshot: true });
 }
 
+
+// ---- 区域地图（M8-18，ADR 0074）：一次取一批区域连同全部图形，看覆盖范围和重叠 ----
+
+/** 区域地图一次最多给多少个区域（按最近修改从新到旧）；再多就请用城市筛小范围。 */
+export const AREA_MAP_MAX_AREAS = 300;
+
+export interface AreaMapView extends AreaView {
+  polygons: AreaPolygon[];
+  lastEditor: AreaLastEditor | null;
+}
+
+/** 平台入口多带一项：区域属于哪个供应商。 */
+export interface PlatformAreaMapView extends AreaMapView {
+  tenant: { id: string; name: string; status: string } | null;
+}
+
+async function mapViews(db: Db, rows: readonly AreaMapRow[], tenantId: string | null): Promise<AreaMapView[]> {
+  const ids = rows.map((row) => row.id);
+  const polygons = await listPolygonsOfAreas(db, ids, tenantId);
+  const cities = await findAreaCities(db, [...new Set(rows.map((row) => row.cityId))]);
+  const editors = await lastAreaEditors(db, ids, tenantId);
+  const usages = new Map<string, AreaUsage>();
+  for (const owner of new Set(rows.map((row) => row.tenantId))) {
+    for (const [id, usage] of await areaUsage(db, owner, rows.filter((row) => row.tenantId === owner).map((row) => row.id))) usages.set(id, usage);
+  }
+  return rows.map((row) => {
+    const { operatePolygonCount, forbidPolygonCount, tenantId: _owner, ...area } = row;
+    return {
+      area,
+      city: cities.get(row.cityId) ?? null,
+      operatePolygonCount,
+      forbidPolygonCount,
+      usage: usages.get(row.id) ?? UNUSED,
+      polygons: polygons.get(row.id) ?? [],
+      lastEditor: editors.get(row.id) ?? null,
+    };
+  });
+}
+
+/** 供应商后台：本租户的区域连同图形（租户编号只来自令牌）。 */
+export async function tenantAreaMap(ctx: DbContext, tenantId: string, filter: { cityId?: string | undefined; status?: AreaStatus | undefined }): Promise<{ items: AreaMapView[]; truncated: boolean }> {
+  return withTenantTx(
+    ctx.pool,
+    tenantId,
+    async (db) => {
+      const page = await listAreaMapRows(db, { ...filter, tenantId }, AREA_MAP_MAX_AREAS);
+      return { items: await mapViews(db, page.items, tenantId), truncated: page.truncated };
+    },
+    { snapshot: true },
+  );
+}
+
+/** 运营后台：全部供应商的区域（只读），可按供应商、城市、状态筛。 */
+export async function platformAreaMap(ctx: DbContext, filter: AreaMapFilter): Promise<{ items: PlatformAreaMapView[]; truncated: boolean }> {
+  return withPlatformTx(
+    ctx.pool,
+    async (db) => {
+      const page = await listAreaMapRows(db, filter, AREA_MAP_MAX_AREAS);
+      const views = await mapViews(db, page.items, null);
+      const tenants = new Map<string, PlatformAreaMapView["tenant"]>();
+      for (const id of new Set(page.items.map((row) => row.tenantId))) {
+        const tenant = await findTenantForPlatform(db, id, { lock: false });
+        tenants.set(id, tenant === null ? null : { id: tenant.id, name: tenant.name, status: tenant.status });
+      }
+      return { items: views.map((view, index) => ({ ...view, tenant: tenants.get((page.items[index] as AreaMapRow).tenantId) ?? null })), truncated: page.truncated };
+    },
+    { snapshot: true },
+  );
+}

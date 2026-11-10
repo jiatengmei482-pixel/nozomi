@@ -15,6 +15,7 @@ const PLATFORM_PAGE_VIEW: Readonly<Record<string, PlatformAction>> = {
   "/platform/tenants": "tenant.read",
   "/platform/tenant-documents": "tenant.read",
   "/platform/products": "product.read",
+  "/platform/areas/map": "product.read",
   "/platform/quote-preview": "quote.preview",
   "/platform/channels": "channel.read",
   "/platform/approvals": "approval.read",
