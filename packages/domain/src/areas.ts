@@ -25,6 +25,25 @@ export const AREA_BIZ_TYPE_NAMES: Readonly<Record<AreaBizType, string>> = {
   charter: "包车",
 };
 
+/**
+ * 区域的用途（ADR 0075 第一部分）：运营区域只决定「这一单能不能接」、不带价格；报价区域由商品勾选后填价格或加价；
+ * 「运营 + 报价」两种都算（迁移前已有的区域都是它）。
+ */
+export const AREA_ROLES = ["operating", "pricing", "both"] as const;
+export type AreaRole = (typeof AREA_ROLES)[number];
+
+export const AREA_ROLE_NAMES: Readonly<Record<AreaRole, string>> = { operating: "运营区域", pricing: "报价区域", both: "运营 + 报价" };
+
+/** 能不能被商品勾选、挂价格（商品区域、包车区域加价、点对点线路价的两端）：报价区域和「运营 + 报价」 */
+export function areaRoleCanPrice(role: AreaRole): boolean {
+  return role !== "operating";
+}
+
+/** 算不算这个供应商的运营范围：运营区域和「运营 + 报价」 */
+export function areaRoleCanOperate(role: AreaRole): boolean {
+  return role !== "pricing";
+}
+
 export const AREA_STATUSES = ["active", "disabled"] as const;
 export type AreaStatus = (typeof AREA_STATUSES)[number];
 
