@@ -52,6 +52,8 @@ import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { SITE_NEW_CHARTER_URL } from "../../lib/book-new.ts";
 import { AddressFields, type AddressLookup, type PlacesState, type PointDraft, type PointErrors, emptyPoint } from "./AddressFields.tsx";
 import { SiteLayout, siteFailureText, useSiteConfig } from "./SiteLayout.tsx";
+import { ManualQuoteBlock } from "./ManualQuote.tsx";
+import type { ManualQuoteTripDraft } from "../../lib/manual-quote-form.ts";
 import { SitePrice } from "./SitePrice.tsx";
 
 /** 询价时客人填的内容：带到下单页，返回修改时再带回来。 */
@@ -201,7 +203,24 @@ function QuoteCard({ quote, draft, onChoose }: { quote: SiteQuote; draft: Bookin
  * 询价结果（报不出价时同样）：出来后把焦点移到结果标题并滚到那里（F4）——手机上结果在长表单下面，不这样客人看不到任何变化。
  * 报价按总价从低到高（F6）。
  */
-function Results({ result, city, draft, onChoose }: { result: SiteQuoteResult; city: SiteCity; draft: BookingDraft; onChoose(quote: SiteQuote): void }) {
+/** 报不出价时「请客服人工报价」带上的行程（M8-21）：接送机的两端是机场和地址，点对点是上车点、下车点。 */
+function manualTripOf(draft: BookingDraft, city: SiteCity, airport: SiteAirport | null): ManualQuoteTripDraft {
+  const place = (point: PointDraft) => ({ name: point.address.trim(), ...pointOf(point) });
+  const airportPlace = airport === null ? null : { name: `${displayName(airport.name).text}（${airport.code}）`, lat: airport.location.lat, lng: airport.location.lng };
+  const transfer = draft.category === "airport_transfer";
+  return {
+    category: draft.category,
+    cityId: city.id,
+    pickup: transfer ? (draft.direction === "pickup" ? airportPlace : place(draft.address)) : place(draft.from),
+    dropoff: transfer ? (draft.direction === "pickup" ? place(draft.address) : airportPlace) : draft.category === "charter" ? null : place(draft.to),
+    serviceLocal: `${draft.date}T${draft.time}`,
+    passengers: Number(draft.passengers),
+    luggage: Number(draft.luggage),
+    packageHours: draft.category === "charter" && draft.packageHours !== "" ? Number(draft.packageHours) : null,
+  };
+}
+
+function Results({ result, city, airport, draft, supportPhone, supportWhatsapp, onChoose }: { result: SiteQuoteResult; city: SiteCity; airport: SiteAirport | null; draft: BookingDraft; supportPhone: string | null; supportWhatsapp: string | null; onChoose(quote: SiteQuote): void }) {
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     const node = heading.current;
@@ -223,6 +242,15 @@ function Results({ result, city, draft, onChoose }: { result: SiteQuoteResult; c
           ))}
         </ul>
         {draft.category === "charter" && <p className="site-muted">也可以换一个包车时长试试。</p>}
+        {supportPhone !== null && (
+          <p>
+            客服电话：
+            <a className="link" href={`tel:${supportPhone.replace(/[^+\d]/g, "")}`}>
+              {supportPhone}
+            </a>
+          </p>
+        )}
+        <ManualQuoteBlock trip={manualTripOf(draft, city, airport)} supportWhatsapp={supportWhatsapp} />
       </section>
     );
   }
@@ -488,7 +516,7 @@ export function BookPage() {
             </Button>
           </div>
         </form>
-        {result !== null && city !== undefined && <Results result={result} city={city} draft={draft} onChoose={choose} />}
+        {result !== null && city !== undefined && <Results result={result} city={city} airport={airport ?? null} draft={draft} supportPhone={config.config.support_phone} supportWhatsapp={config.config.support_whatsapp} onChoose={choose} />}
       </>
     );
   }
