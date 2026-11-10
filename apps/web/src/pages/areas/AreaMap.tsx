@@ -11,6 +11,7 @@ import { type Dispatch, type PointerEvent as ReactPointerEvent, type ReactNode, 
 import type { MapTiles } from "../../api/areas.ts";
 import { Icon } from "../../components/Icon.tsx";
 import { QuietTileLayer } from "../../lib/quiet-tile-layer.ts";
+import "../../lib/leaflet-focus.ts";
 import { type EditorAction, type EditorShape, locateInEditor, metersToKmText, shapeName, shapeProblems, shapeRing, shapesBounds } from "../../lib/area-editor.ts";
 import type { ProbeResult } from "./SelfTest.tsx";
 

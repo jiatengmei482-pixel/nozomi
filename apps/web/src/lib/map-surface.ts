@@ -8,6 +8,7 @@
 import L from "leaflet";
 import type { MapTiles } from "../api/areas.ts";
 import { QuietTileLayer } from "./quiet-tile-layer.ts";
+import "./leaflet-focus.ts";
 
 export interface Pixel {
   x: number;

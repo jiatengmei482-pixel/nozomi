@@ -225,3 +225,66 @@ test("运营后台：只读看全部供应商的区域，按供应商筛；没�
   await expectAccessible(page, "运营后台的区域地图");
   await snapshot(page, "m818-platform-overview");
 });
+
+/** 一大一小两个区域：小的在大的北边，往下 62px 就落到大的上面（验收发现的「第一次点地图选错、页面跳」用得上）。 */
+async function seedSmallAndBig(request: APIRequestContext, headers: Record<string, string>, city: City): Promise<{ big: string; small: string; smallName: string }> {
+  const suffix = randomLetters(3);
+  const { lng, lat } = CENTER;
+  const make = async (name: string, geometry: ReturnType<typeof rect>): Promise<string> => {
+    const response = await request.post("/tenant/v1/areas", { headers: { ...headers, "idempotency-key": crypto.randomUUID() }, data: { city_id: city.id, name: { zh: name }, biz_type: "general", polygons: [{ kind: "operate", geometry }] } });
+    expect(response.status(), "接口新建区域").toBe(201);
+    return ((await response.json()) as { id: string }).id;
+  };
+  const big = await make(`大区 ${suffix}`, rect(lng - 0.1, lat - 0.1, lng + 0.1, lat + 0.02));
+  const smallName = `小区 ${suffix}`;
+  const small = await make(smallName, rect(lng - 0.006, lat + 0.03, lng + 0.006, lat + 0.042));
+  return { big, small, smallName };
+}
+
+/** 地图没有完全在视野里、先不滚动，按下鼠标点小区域的正中：选中的是它，内容区一点没滚。 */
+async function clickSmallWithoutJump(page: Page, small: string, smallName: string): Promise<void> {
+  const map = page.locator(".area-overview-map");
+  const mapBox = await map.boundingBox();
+  if (!mapBox) throw new Error("找不到地图");
+  const viewport = page.viewportSize()?.height ?? 0;
+  expect(mapBox.y + mapBox.height, "前提：地图没有完全在视野里").toBeGreaterThan(viewport);
+  const main = page.locator("main.shell__main");
+  const before = await main.evaluate((element) => element.scrollTop);
+  const box = await page.locator(`[data-area="${small}"] .area-overview-stroke`).boundingBox();
+  if (!box) throw new Error("找不到小区域");
+  expect(box.height, "前提：小区域在画面上不到 62px 高").toBeLessThan(62);
+  expect(box.y + box.height, "前提：小区域在视野里").toBeLessThan(viewport);
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(page.getByRole("button", { name: smallName, exact: true })).toHaveAttribute("aria-pressed", "true");
+  expect(await main.evaluate((element) => element.scrollTop), "点地图时内容区没有滚动").toBe(before);
+  // 焦点照样落到地图上：键盘可以接着操作地图
+  await expect(page.locator(".area-overview-map .area-map__canvas")).toBeFocused();
+}
+
+test("第一次点地图：不跳、选中点到的那个区域（运营后台 1280×800；供应商后台 1000×800 单栏——两栏时地图总是整个在视野里）；地图没有完全在视野里、不先滚动", async ({ page, request }) => {
+  test.slow();
+  await page.setViewportSize({ width: 1000, height: 800 });
+  const city = await createCity(request);
+  const tenant = await createActiveTenant(request);
+  const headers = await tenantHeaders(request, tenant.adminEmail, tenant.password);
+  const seeded = await seedSmallAndBig(request, headers, city);
+
+  // 供应商后台：单栏，地图在列表下面，只露出上半截
+  await loginAs(page, "tenant", tenant.adminEmail, tenant.password);
+  await page.goto("/areas/map");
+  await expect(page.locator(".area-overview-map [data-area]")).toHaveCount(2);
+  await clickSmallWithoutJump(page, seeded.small, seeded.smallName);
+
+  // 运营后台：两栏，筛选条和提示条把地图的下沿推出视野
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const admin = adminCredentials();
+  await loginAs(page, "platform", admin.email, admin.password);
+  await page.goto("/platform/areas/map");
+  const supplier = page.getByRole("combobox", { name: /供应商/ });
+  await supplier.click();
+  await supplier.fill(tenant.tenantName);
+  await page.getByRole("option", { name: tenant.tenantName }).click();
+  await expect(page.getByRole("heading", { name: "共 2 个区域" })).toBeVisible();
+  await expect(page.locator(".area-overview-map [data-area]")).toHaveCount(2);
+  await clickSmallWithoutJump(page, seeded.small, seeded.smallName);
+});
