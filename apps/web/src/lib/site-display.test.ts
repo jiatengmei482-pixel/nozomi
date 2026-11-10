@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { SiteOrder, SiteQuote } from "../api/site.ts";
-import { CHARTER_OVERAGE_NOTE, freeWaitText, guestCancelPolicyText, guestInstantText, guestLocalText, orderFeeNote, orderSectionSequence, primaryOrderSection, priceNote, quotesByTotal } from "./site-display.ts";
+import { AREA_SURCHARGE_NOTE, CHARTER_OVERAGE_NOTE, addressEnds, freeWaitText, guestCancelPolicyText, guestInstantText, guestLocalText, orderAddressEnds, orderFeeNote, orderSectionSequence, primaryOrderSection, priceNote, quotesByTotal } from "./site-display.ts";
 
 const HOUR = 3_600_000;
 
@@ -118,4 +118,17 @@ test("包车一口价全含（M8-09）：询价说明写含所有费用、超出
   for (const category of ["airport_transfer", "point_to_point"] as const) assert.equal(orderFeeNote({ category, created_at: "2026-10-01T00:00:00.000Z" }), "一口价已含所有费用（高速费、停车费等），无需另付");
   assert.equal(orderFeeNote({ category: "charter", created_at: "2026-11-09T15:00:00.000Z" }), "一口价已含所有费用（高速费、停车费等），无需另付；超出套餐的时长和公里服务后按实际收取");
   assert.equal(orderFeeNote({ category: "charter", created_at: "2026-11-09T14:59:59.999Z" }), null);
+});
+
+test("要写哪几端的地址（M8-19）：包车新单两端都写；已下的包车单没有下车点时只有上车点；接送机、点对点不变；含区域加价的说法不带金额", () => {
+  assert.deepEqual(addressEnds("charter", null), ["pickup", "dropoff"]);
+  assert.deepEqual(addressEnds("point_to_point", null), ["pickup", "dropoff"]);
+  assert.deepEqual(addressEnds("airport_transfer", "pickup"), ["dropoff"]);
+  assert.deepEqual(addressEnds("airport_transfer", "dropoff"), ["pickup"]);
+  const point = { lng: 139.7, lat: 35.6, address: "新宿站" };
+  assert.deepEqual(orderAddressEnds({ category: "charter", direction: null, dropoff: point }), ["pickup", "dropoff"]);
+  assert.deepEqual(orderAddressEnds({ category: "charter", direction: null, dropoff: null }), ["pickup"]);
+  assert.deepEqual(orderAddressEnds({ category: "airport_transfer", direction: "pickup", dropoff: point }), ["dropoff"]);
+  assert.equal(AREA_SURCHARGE_NOTE, "含区域加价，已算在这个价格里");
+  assert.doesNotMatch(AREA_SURCHARGE_NOTE, /\d|附加费|另收/);
 });

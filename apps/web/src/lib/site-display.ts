@@ -41,12 +41,20 @@ export function orderFeeNote(order: Pick<SiteOrder, "category" | "created_at">):
   return charterAllInclusiveFor(new Date(order.created_at)) ? fixedPriceFeeNote("charter") : null;
 }
 
-/** 一单要客人写哪几端的地址：接送机只写机场之外的那一端；点对点两端；包车只写上车点。 */
+/** 一单要客人写哪几端的地址：接送机只写机场之外的那一端；点对点、包车两端（包车的下车点 M8-19 起必填，ADR 0073）。 */
 export function addressEnds(category: SiteCategory, direction: SiteDirection | null): ("pickup" | "dropoff")[] {
-  if (category === "point_to_point") return ["pickup", "dropoff"];
-  if (category === "charter") return ["pickup"];
+  if (category === "point_to_point" || category === "charter") return ["pickup", "dropoff"];
   return direction === "pickup" ? ["dropoff"] : ["pickup"];
 }
+
+/** 已下的这一单有哪几端的地址：M8-19 之前下的包车单没有下车点，只有上车点（订单页、修改订单不显示下车地址）。 */
+export function orderAddressEnds(order: Pick<SiteOrder, "category" | "direction" | "dropoff">): ("pickup" | "dropoff")[] {
+  const ends = addressEnds(order.category, order.direction);
+  return order.category === "charter" && order.dropoff === null ? ends.filter((end) => end !== "dropoff") : ends;
+}
+
+/** 报价含区域加价时的说明（ADR 0073 第四部分；规范 site-booking-v2.md 10.2）：只说已含，不写金额、不写是哪个区域。 */
+export const AREA_SURCHARGE_NOTE = "含区域加价，已算在这个价格里";
 
 /** 地址那一栏的名字：接送机、点对点都按上车 / 下车说。 */
 export const ADDRESS_LABELS: Readonly<Record<"pickup" | "dropoff", string>> = { pickup: "上车地址或酒店名", dropoff: "下车地址或酒店名" };
