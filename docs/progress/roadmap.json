@@ -703,7 +703,7 @@
           "title": "CI 部署冒烟：演练容器的系统软件源加超时、重试和 Azure 镜像",
           "role": "backend",
           "status": "review",
-          "acceptance": ["服务器初始化演练容器里，Ubuntu 改用 GitHub runner 所在的 azure.archive.ubuntu.com 镜像，apt、dnf 加超时和重试；被测的初始化脚本不改", "这一步加 25 分钟上限，卡住时尽快失败而不是拖到整个作业 60 分钟超时", "不改业务代码；CI 全绿"],
+          "acceptance": ["服务器初始化演练容器里，Ubuntu 改用 GitHub runner 所在的 azure.archive.ubuntu.com 镜像，apt、dnf 加超时和重试；被测的初始化脚本不改", "这一步加 25 分钟上限，卡住时尽快失败而不是拖到整个作业 60 分钟超时；端到端测试一步的上限从 20 分钟放到 30 分钟（用例 400 多条，正常 17～20 分钟），整个任务上限 60 分钟", "不改业务代码；CI 全绿"],
           "evidence": "本机在 ubuntu:22.04、24.04 容器里验证换源后 apt-get update 成功，CentOS Stream 9 的 dnf 设置写入正确",
           "updated": "2026-11-10"
         }
