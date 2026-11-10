@@ -45,6 +45,8 @@ import {
   priceRuleIssues,
   pricingModelsFor,
   roundingUnitOptions,
+  selectPriceRule,
+  sellableRouteRules,
   surchargeModelsFor,
 } from "@nozomi/domain";
 import type { DbContext } from "../context.ts";
@@ -100,6 +102,7 @@ const ISSUE_MESSAGES: Readonly<Record<PriceIssueReason, string>> = {
   TOO_LONG: "太长了",
   INVALID_COUNTRY: "不是合法的国家码（ISO 3166-1 两位大写字母）",
   ZERO_STEP: "调价的值不能是 0",
+  SAME_AREA: "下车区域不能和上车区域相同（同一个区域里的单用区域价，不填下车区域）",
 };
 
 function inputIssues(issues: readonly PriceIssue[], prefix: string): InputIssue[] {
@@ -137,8 +140,8 @@ export interface PricingContext {
   priceRules: StoredPriceRule[];
   adjustRules: StoredAdjustRule[];
   /**
-   * 包车：本租户的全部报价区域（区域加价可以挂任何一个，不限于商品选的，ADR 0073）；别的品类是空的。
-   * 只在租户事务里取，看不到别的租户的区域。
+   * 包车、点对点：本租户的全部报价区域（包车的区域加价可以挂任何一个，不限于商品选的；点对点线路价的下车区域不是本租户的按 404，ADR 0073）；
+   * 接送机是空的。只在租户事务里取，看不到别的租户的区域。
    */
   tenantAreas: Map<string, { name: LocalizedText; bizType: AreaBizType; status: AreaStatus }>;
 }
@@ -159,7 +162,7 @@ export async function loadPricingContext(db: Db, tenantId: string, productId: st
     vehicleGroupIds: (view.vehicleGroups ?? []).map((group) => group.vehicleGroupId),
     priceRules: await listPriceRules(db, tenantId, productId),
     adjustRules: await listAdjustRules(db, tenantId, productId),
-    tenantAreas: surchargeModelsFor(product.category).length > 0 ? await listTenantAreaFacts(db, tenantId) : new Map(),
+    tenantAreas: surchargeModelsFor(product.category).length > 0 || product.category === "point_to_point" ? await listTenantAreaFacts(db, tenantId) : new Map(),
   };
 }
 
@@ -210,6 +213,7 @@ function priceAudit(rule: PriceRule): AuditValues {
   const { model, ...params } = rule.pricing;
   return {
     area_id: rule.areaId,
+    to_area_id: rule.toAreaId ?? null,
     vehicle_group_id: rule.vehicleGroupId,
     direction: rule.direction,
     package_hours: rule.packageHours,
@@ -263,6 +267,11 @@ export function checkPriceChanges(context: PricingContext, changes: PriceChanges
     issues.push(...inputIssues(priceRuleIssues(rule, { category: product.category }), at).map((issue) => ({ ...issue, detail: { ...issue.detail, ...who } })));
     if (isSurchargeRule(rule)) issues.push(...surchargeAreaIssues(context, rule, at, before, who));
     else if (!areas.has(rule.areaId) && before?.areaId !== rule.areaId) issues.push({ path: `${at}/area_id`, reason: "AREA_NOT_IN_PRODUCT", message: "只能给这个商品选了的区域设价格", detail: who });
+    // 线路价的下车区域也要是这个商品选了的区域（ADR 0073 第二部分：两端都要在商品区域里）；修改时没换的不再查
+    const toAreaId = rule.toAreaId ?? null;
+    if (toAreaId !== null && !areas.has(toAreaId) && (before?.toAreaId ?? null) !== toAreaId) {
+      issues.push({ path: `${at}/to_area_id`, reason: "AREA_NOT_IN_PRODUCT", message: "下车区域只能选这个商品选了的区域", detail: who });
+    }
     if (!groups.has(rule.vehicleGroupId) && before?.vehicleGroupId !== rule.vehicleGroupId) {
       issues.push({ path: `${at}/vehicle_group_id`, reason: "VEHICLE_GROUP_NOT_IN_PRODUCT", message: "只能给这个商品选了的车型组设价格", detail: who });
     }
@@ -306,7 +315,7 @@ export function checkPriceChanges(context: PricingContext, changes: PriceChanges
 }
 
 export function priceRuleConflict(conflicts: PriceConflict[]): AppError {
-  return new AppError(409, "PRICE_RULE_CONFLICT", "同一个区域、车型组、方向或套餐的价格（基础定价、区域加价各算各的），生效日期不能重叠（两头的日期都算在内，停用的也算）", { conflicts });
+  return new AppError(409, "PRICE_RULE_CONFLICT", "同一个区域（点对点线路价：同一条线路）、车型组、方向或套餐的价格（基础定价、区域加价各算各的），生效日期不能重叠（两头的日期都算在内，停用的也算）", { conflicts });
 }
 
 /**
@@ -326,11 +335,13 @@ function surchargeAreaIssues(context: PricingContext, rule: PriceRule, at: strin
   return [];
 }
 
-/** 区域加价用的区域必须是本租户的：不存在、或是别的租户的，按 404 处理（ADR 0073 第一部分），不说是哪种。 */
+/** 区域加价用的区域、线路价的下车区域必须是本租户的：不存在、或是别的租户的，按 404 处理（ADR 0073 第一部分），不说是哪种。 */
 function assertSurchargeAreasExist(context: PricingContext, changes: PriceChanges): void {
   // 别的品类不能用区域加价：那是 400 MODEL_NOT_ALLOWED（下面的检查报），不是区域找不到
-  if (surchargeModelsFor(context.product.category).length === 0) return;
   const rules = [...changes.create.map((entry) => entry.rule), ...changes.update.map((entry) => entry.rule)];
+  // 点对点线路价的下车区域同样：不是本租户的区域按 404（别的品类填了下车区域是 400 NOT_APPLICABLE）
+  if (context.product.category === "point_to_point" && rules.some((rule) => (rule.toAreaId ?? null) !== null && !context.tenantAreas.has(rule.toAreaId as string))) throw notFound("区域");
+  if (surchargeModelsFor(context.product.category).length === 0) return;
   if (rules.some((rule) => isSurchargeRule(rule) && !context.tenantAreas.has(rule.areaId))) throw notFound("区域");
 }
 
@@ -470,8 +481,8 @@ function assertAdjustRule(context: PricingContext, rule: AdjustRule, before: Sto
     if (!groups.has(groupId)) issues.push({ path: `/vehicle_group_ids/${index}`, reason: "VEHICLE_GROUP_NOT_IN_PRODUCT", message: "只能选这个商品选了的车型组" });
   }
   if (issues.length === 0 && rule.status === "enabled") {
-    // 只看「可以卖的价格」（启用、没过期、区域和车型组是商品现在选着的），按取整单位取整之后的结果
-    const prices = sellablePriceRules(context.priceRules, context, context.today);
+    // 只看「可以卖的价格」（启用、没过期、区域和车型组是商品现在选着的；连同点对点的线路价，ADR 0073），按取整单位取整之后的结果
+    const prices = [...sellablePriceRules(context.priceRules, context, context.today), ...sellableRouteRules(context.priceRules, context, context.today)];
     const count = adjustRuleNonPositivePrices(rule, prices, context.roundingUnit).length;
     if (count > 0) issues.push({ path: "/steps", reason: "ADJUST_RESULT_NOT_POSITIVE", message: `按这条规则调完（再按取整单位取整），有 ${count} 条价格不大于 0（这样的价格报不出去）。请调小减价的幅度，或缩小适用范围`, detail: { count } });
     const tooLarge = adjustRuleOverLimitPrices(rule, prices).length;
@@ -628,6 +639,8 @@ export async function removePricingOfArea(db: Db, writer: ProductWriter, areaId:
 
 export interface CalendarQuery {
   areaId: string;
+  /** 点对点：看「从 `areaId` 上车、到这个区域下车」的价（有线路价用线路价，没有退回区域价，和报价一样）；null = 区域价 */
+  toAreaId: string | null;
   /** 一次可以看几个车型组（对比表）；至少一个，最多 20 个 */
   vehicleGroupIds: string[];
   direction: TripDirection | null;
@@ -641,6 +654,8 @@ export interface CalendarDay {
   /** 商品所在国家这一天的节假日名称；不是节假日为 null */
   holiday: LocalizedText | null;
   segments: CalendarSegment<StoredPriceRule, StoredAdjustRule>[];
+  /** 点对点给了下车区域时：这一天用的是线路价（true）还是退回了区域价（false）；没给下车区域为 null */
+  routeRule: boolean | null;
   /** 包车：这个区域作为加价区域时这一天用的区域加价规则（启用、在生效期内）；没有为 null */
   surcharge: StoredPriceRule | null;
 }
@@ -676,6 +691,10 @@ export function getPriceCalendar(ctx: DbContext, tenantId: string, productId: st
     if ((category === "charter") !== (query.packageHours !== null)) {
       issues.push({ path: "/package_hours", reason: category === "charter" ? "REQUIRED" : "NOT_APPLICABLE", message: category === "charter" ? "包车商品要给套餐时长" : ISSUE_MESSAGES.NOT_APPLICABLE });
     }
+    if (query.toAreaId !== null) {
+      if (category !== "point_to_point") issues.push({ path: "/to_area_id", reason: "NOT_APPLICABLE", message: ISSUE_MESSAGES.NOT_APPLICABLE });
+      else if (query.toAreaId === query.areaId) issues.push({ path: "/to_area_id", reason: "SAME_AREA", message: ISSUE_MESSAGES.SAME_AREA });
+    }
     if (issues.length > 0) throw validationFailed("querystring", issues);
 
     // 节假日：调价规则里提到的国家，加上商品所在的国家（格子上显示假日名）；多取前一天，跨午夜的时段要用
@@ -688,16 +707,20 @@ export function getPriceCalendar(ctx: DbContext, tenantId: string, productId: st
     const groups = query.vehicleGroupIds.map((vehicleGroupId) => {
       const days: CalendarDay[] = [];
       for (let date = query.from; date <= query.to; date = addDays(date, 1)) {
+        const areaQuery = { areaId: query.areaId, vehicleGroupId, direction: query.direction, packageHours: query.packageHours, date };
+        // 点对点给了下车区域：这条线路这一天有能用的线路价就用它，没有退回区域价（ADR 0073 第二部分第 2 节，和报价一样）
+        const routeRule = query.toAreaId === null ? null : selectPriceRule(context.priceRules, { ...areaQuery, toAreaId: query.toAreaId }) !== null;
         days.push({
           date,
           holiday: local.get(date) ?? null,
           segments: calendarDay({
             priceRules: context.priceRules,
             adjustRules: context.adjustRules,
-            query: { areaId: query.areaId, vehicleGroupId, direction: query.direction, packageHours: query.packageHours, date },
+            query: routeRule === true ? { ...areaQuery, toAreaId: query.toAreaId } : areaQuery,
             roundingUnit: context.roundingUnit,
             holidays: lookup,
           }),
+          routeRule,
           surcharge: category === "charter" ? areaSurchargeFor(context.priceRules, { areaIds: [query.areaId], vehicleGroupId, packageHours: query.packageHours, date, end: "pickup" }).rule : null,
         });
       }

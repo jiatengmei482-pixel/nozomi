@@ -57,7 +57,20 @@ export interface QuoteSettlement {
   usage: QuoteRoute | null;
   /** 包车区域加价（结算价，已含在 base 里；M8-15）：一端的 area_id 为 null = 在商品本身的区域里 */
   area_surcharge?: { package: number; pickup: QuoteAreaSurchargeEnd; dropoff: QuoteAreaSurchargeEnd } | null;
+  /** 点对点用的是线路价时线路的下车区域（M8-11）；区域价为 null */
+  to_area_id?: string | null;
+  /** 点对点含公里数的一口价（结算价，超出的钱已含在 base 里；M8-11）；没设为 null */
+  distance?: QuoteDistance | null;
   free_wait: { item: "pickup" | "dropoff" | "general"; mode: "unlimited" | "limited" | null; minutes: number | null; platform_minimum_minutes: number };
+}
+
+export interface QuoteDistance {
+  included_km: number;
+  /** 报价时锁定的路线距离（米） */
+  route_meters: number;
+  /** 超出公里数（向上取整到 1 公里） */
+  over_km: number;
+  over_km_per_km: number;
 }
 
 export interface QuoteAreaSurchargeEnd {
@@ -97,6 +110,8 @@ export interface QuoteCandidate {
   fx_buffer_bp: number;
   /** 包车区域加价的对外价参考（已含在 sell 里，单独取整；M8-15）；没有区域加价为 null */
   area_surcharge_sell?: { pickup: number; dropoff: number } | null;
+  /** 点对点含公里数的超出每公里对外价参考（已含在 sell 里，单独取整；M8-11）；没有为 null */
+  over_km_per_km_sell?: number | null;
   /** `lock`：用了人工锁定的汇率（M2-06）时写明哪一边锁定、锁定值和到期时间 */
   fx: { from: string; to: string; rate: string; as_of: string; lock: { legs: { currency: string; rate: string; lock_id: string; expires_at: string }[]; uses_source: boolean } | null } | null;
   offer: QuoteOffer;
@@ -168,10 +183,10 @@ export const QUOTE_SCHEMA_FIELDS = {
   QuoteExcluded: ["tenant_id", "tenant_name", "product_id", "product_code"],
   QuoteGroup: ["vehicle_group_id", "package_hours", "created_at", "expires_at", "winner", "candidates"],
   QuoteWinner: ["tenant_id", "tenant_name", "product_id", "product_code", "sell", "settlement", "settlement_currency"],
-  QuoteCandidate: ["position", "in_band", "rank_price", "tenant_id", "tenant_name", "product_id", "product_code", "product_version", "observation", "score_centi", "completed_orders", "sell", "sell_exact", "markup_bp", "markup_level", "markup_rule_id", "min_margin_applied", "fx_buffer_bp", "fx", "area_surcharge_sell", "offer"],
+  QuoteCandidate: ["position", "in_band", "rank_price", "tenant_id", "tenant_name", "product_id", "product_code", "product_version", "observation", "score_centi", "completed_orders", "sell", "sell_exact", "markup_bp", "markup_level", "markup_rule_id", "min_margin_applied", "fx_buffer_bp", "fx", "area_surcharge_sell", "over_km_per_km_sell", "offer"],
   QuoteRefusal: ["tenant_id", "tenant_name", "product_id", "product_code", "vehicle_group_id", "reason", "message"],
   QuoteOffer: ["vehicle_group_id", "package_hours", "area_id", "price_rule_id", "settlement"],
-  QuoteSettlement: ["currency", "rounding_unit", "total", "base", "adjust", "urgent", "night", "addons", "driver_language", "exact", "adjusts", "urgent_tier", "night_detail", "addon_items", "driver_language_code", "usage", "area_surcharge", "free_wait"],
+  QuoteSettlement: ["currency", "rounding_unit", "total", "base", "adjust", "urgent", "night", "addons", "driver_language", "exact", "adjusts", "urgent_tier", "night_detail", "addon_items", "driver_language_code", "usage", "area_surcharge", "to_area_id", "distance", "free_wait"],
   QuoteRoute: ["meters", "minutes"],
   QuoteRouteStatus: ["status", "source", "code", "message"],
 } as const satisfies {

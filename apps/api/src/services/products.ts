@@ -35,6 +35,7 @@ import {
   adjustStackProblems,
   holidayLookup,
   sellablePriceRules,
+  sellableRouteRules,
   isSurchargeRule,
   areaUsableByCategory,
   canPublish,
@@ -759,13 +760,15 @@ async function runPublishCheck(db: Db, tenantId: string, product: Product, now: 
   const selected = { areaIds: (view.areas ?? []).map((area) => area.areaId), vehicleGroupIds: (view.vehicleGroups ?? []).map((group) => group.vehicleGroupId) };
   const inSelection = priceRules.filter((rule) => selected.areaIds.includes(rule.areaId) && selected.vehicleGroupIds.includes(rule.vehicleGroupId));
   const activePrices = sellablePriceRules(priceRules, selected, today);
+  // 调价规则的检查连同点对点的线路价一起看（它们不算上架条件，但同样会被报出去，ADR 0073）
+  const adjustedPrices = [...activePrices, ...sellableRouteRules(priceRules, selected, today)];
   const roundingUnit = view.brand?.roundingUnit ?? 1;
-  const nonPositive = adjustRules.flatMap((rule, index) => (rule.status === "enabled" && adjustRuleNonPositivePrices(rule, activePrices, roundingUnit).length > 0 ? [index] : []));
+  const nonPositive = adjustRules.flatMap((rule, index) => (rule.status === "enabled" && adjustRuleNonPositivePrices(rule, adjustedPrices, roundingUnit).length > 0 ? [index] : []));
   let stacks: AdjustStackProblem[] = [];
   if (options.light !== true && activePrices.length > 0 && adjustRules.some((rule) => rule.status === "enabled")) {
     const countries = [...new Set(adjustRules.flatMap((rule) => (rule.cycle.type === "holidays" ? rule.cycle.countries : [])))];
     const holidays = countries.length === 0 ? [] : await listHolidays(db, { countryCodes: countries, from: addDays(today, -1), to: addDays(today, PRICE_LIMITS.adjustStackDays) }, 20_000);
-    stacks = adjustStackProblems({ priceRules: activePrices, adjustRules, roundingUnit, from: today, holidays: holidayLookup(holidays), skipRuleIndexes: nonPositive });
+    stacks = adjustStackProblems({ priceRules: adjustedPrices, adjustRules, roundingUnit, from: today, holidays: holidayLookup(holidays), skipRuleIndexes: nonPositive });
   }
   const areaCities = await findAreaCities(db, [...new Set((view.areas ?? []).map((area) => area.cityId))]);
   const addons = await findAddonsForProduct(db, product.serviceRules.addons.map((addon) => addon.addonId));

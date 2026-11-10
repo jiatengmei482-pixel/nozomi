@@ -57,6 +57,8 @@ function pricePreviewJson(preview: PriceImportPreview): Json {
       // 这一行读到的内容（确认前核对用）；读不出来的项是 null。main_price 是最小货币单位
       content: {
         area: row.content.area,
+        // 点对点线路价的下车区域（M8-11）；区域价、别的品类为 null
+        to_area: row.content.toArea,
         vehicle_group: row.content.vehicleGroup,
         direction: row.content.direction,
         package_hours: row.content.packageHours,
@@ -64,6 +66,9 @@ function pricePreviewJson(preview: PriceImportPreview): Json {
         main_price: row.content.mainPriceMinor,
         // 包车区域加价的行（ADR 0073）：上车加价、下车加价（最小货币单位）；别的行为 null
         surcharge: row.content.surcharge === null ? null : { pickup: row.content.surcharge.pickupMinor, dropoff: row.content.surcharge.dropoffMinor },
+        // 点对点一口价的含公里数、超出每公里（最小货币单位）；没填为 null
+        included_km: row.content.includedKm,
+        over_km_per_km: row.content.overKmPerKmMinor,
         valid_from: row.content.validFrom,
         valid_to: row.content.validTo,
         status: row.content.status,
@@ -73,6 +78,7 @@ function pricePreviewJson(preview: PriceImportPreview): Json {
         row: other.row,
         price_rule_id: other.id,
         area: other.area,
+        to_area: other.toArea,
         vehicle_group: other.vehicleGroup,
         direction: other.direction,
         package_hours: other.packageHours,
