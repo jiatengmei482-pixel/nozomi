@@ -99,6 +99,10 @@ export const PLATFORM_ACTION_PHRASES: Readonly<Record<PlatformAction, string>> =
   "statement.review": "审核付款给供应商",
   "notification.read": "看通知记录和通知模板",
   "notification.retry": "手动重试发送失败的通知",
+  "manual_quote.read": "看客人留下联系方式的人工报价申请（打开详情看联系方式，有审计）",
+  "manual_quote.manage": "跟进人工报价申请（指派、改状态、写备注）",
+  "site_settings.read": "看官网设置",
+  "site_settings.manage": "修改官网设置（客服 WhatsApp 号码）",
 };
 
 /**
