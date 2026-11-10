@@ -9,7 +9,7 @@
  * - 供应商被平台暂停时仍然可以改自己的区域（需求文档：暂停 = 商品不参与比价，已有订单继续履约；账号照常能用）。
  * - 用途（ADR 0075）：运营区域 / 报价区域 / 运营 + 报价。改成运营区域时有商品勾着它（任何状态）409 `AREA_IN_USE`；
  *   改小、停用、删除运营范围（含把运营 + 报价改成报价区域）让已上架商品勾选的报价区域多出不小于 100 平方米「不在运营区域里」的部分时
- *   409 `PRICING_AREA_OUTSIDE_OPERATING`。报价区域超出运营区域只提醒（详情里的 `outsideOperating`），不拦保存。
+ *   409 `PRICING_AREA_OUTSIDE_OPERATING`。报价区域超出运营区域只提醒（详情和区域地图里的 `outsideOperatingM2`），不拦保存。
  */
 import { isDeepStrictEqual } from "node:util";
 import {
@@ -225,7 +225,6 @@ function areaAudit(area: Area, polygons: readonly (AreaPolygon | AreaPolygonDraf
   return { city_id: area.cityId, name: area.name, biz_type: area.bizType, role: area.role, status: area.status, polygons: polygons.map(polygonAudit) };
 }
 
-
 /** 这个报价区域超出本租户运营区域的面积（不小于 100 平方米才算，否则 0）；运营区域、停用的为 null。 */
 function outsideOperatingOf(areaId: string, all: readonly AreaShapes[]): number | null {
   const area = all.find((entry) => entry.id === areaId);
@@ -243,6 +242,8 @@ type AreaChange = { areaId: string; after: AreaShapes | null };
  * 运营范围按商品的品类取（业务类型和品类相容的运营区域，和报价时一样）。
  */
 async function assertOperatingKept(db: Db, tenantId: string, change: AreaChange): Promise<void> {
+  // 同一个供应商同时改两个运营区域时排队：后一个等前一个提交后，按改过的样子再核对（各自只看自己那一块会漏掉两块一起缩小）
+  await db.query("select pg_advisory_xact_lock(hashtextextended('areas.operating.' || $1, 0))", [tenantId]);
   const products = await listPublishedPricingAreas(db, tenantId);
   if (products.length === 0) return;
   const before = await listTenantAreaShapes(db, tenantId);
