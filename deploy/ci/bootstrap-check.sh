@@ -127,15 +127,12 @@ start_container() {
 }
 
 # 容器里装软件包走网络，公共软件源偶尔连不上或正在同步（CI 曾因此卡住近 1 小时）。
-# 只在这些演练容器里：Ubuntu 改用 GitHub runner 所在的 Azure 镜像，apt 和 dnf 都加超时和重试。
-# 被测的初始化脚本本身不改。
+# 只在这些演练容器里给 apt 和 dnf 加超时和重试；仍用各系统默认的官方软件源
+#（换成 Azure 镜像后遇到过镜像没同步完、软件包 404，M8-22）。被测的初始化脚本本身不改。
 harden_package_sources() {
   local name="$1"
   docker exec "$name" sh -c '
     if [ -d /etc/apt ]; then
-      for f in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do
-        [ -f "$f" ] && sed -i -E "s#http://(archive|security)\.ubuntu\.com/ubuntu#http://azure.archive.ubuntu.com/ubuntu#g" "$f"
-      done
       printf "%s\n" "Acquire::Retries \"5\";" "Acquire::http::Timeout \"30\";" "Acquire::https::Timeout \"30\";" >/etc/apt/apt.conf.d/80-ci-retries
     fi
     if [ -f /etc/dnf/dnf.conf ]; then
