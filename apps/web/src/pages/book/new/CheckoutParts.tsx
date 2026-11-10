@@ -18,6 +18,7 @@ import { TextField } from "../../../components/TextField.tsx";
 import { ADDON_QUANTITY, FX_REFERENCE_NOTE, type TripPoint, decodePolyline, referenceMoney, routeSummaryText } from "../../../lib/book-new.ts";
 import { moneyText } from "../../../lib/dispatch-display.ts";
 import { displayName } from "../../../lib/master-display.ts";
+import { AREA_SURCHARGE_NOTE } from "../../../lib/site-display.ts";
 import { CONSENT_HELP, CONSENT_TEXT, FIELD_HINTS, MESSAGING_NAMES, type OrderErrors } from "../../../lib/site-order-form.ts";
 import { SitePrice } from "../SitePrice.tsx";
 import { RoutePicture } from "./StaticRouteMap.tsx";
@@ -69,12 +70,15 @@ export function PriceBlock({
   currency,
   onCurrency,
   reference,
+  areaSurcharge = false,
 }: {
   fare: SiteMoney;
   priced: PricedState;
   currency: string;
   onCurrency(currency: string): void;
   reference: SiteFxReference | null;
+  /** 这个车型的报价含区域加价（M8-19）：车费下面说一句「含区域加价，已算在这个价格里」，不写金额 */
+  areaSurcharge?: boolean;
 }) {
   const approx = priced.kind === "ready" && reference !== null && reference.to !== priced.total.currency ? referenceMoney(priced.total, reference) : null;
   return (
@@ -82,7 +86,10 @@ export function PriceBlock({
       <dl className="book-prices">
         <div className="book-prices__row">
           <dt>车费</dt>
-          <dd>{moneyText(fare)}</dd>
+          <dd>
+            {moneyText(fare)}
+            {areaSurcharge && <span className="book-prices__surcharge">{AREA_SURCHARGE_NOTE}</span>}
+          </dd>
         </div>
         {priced.kind === "ready" && priced.difference !== null && (
           <div className="book-prices__row">

@@ -269,3 +269,27 @@ test("常用地点填进地址栏的写法：名称；地标有地址时带上�
   assert.equal(placeAddress(hotel), "新宿某酒店（新宿区西新宿 2-7-2）");
   assert.equal(placeAddress({ ...hotel, address: "  " }), "新宿某酒店");
 });
+
+test("订单页（M8-19）：有下车点的包车单在「上车地点」后面写「下车地点」；改单列上车、下车两个地址，只提交改了的", async () => {
+  const withDropoff = charterOrder({ dropoff: { lng: 140.3929, lat: 35.772, address: "成田国际机场 第 1 航站楼" } });
+  const calls = open({ pathname: "/book/order", hash: `#${TOKEN}` }, (call) => {
+    if (call.url.pathname === "/site/v1/config") return json(200, { open: true, currency: "JPY", payments: null, support_phone: null, address_search: false, map_tiles: null });
+    if (call.method === "GET" && call.url.pathname === "/site/v1/order") return json(200, envelopeOf(withDropoff));
+    if (call.method === "PATCH") return json(200, { ...envelopeOf({ ...withDropoff, dropoff: { lng: 140.3929, lat: 35.772, address: "成田国际机场 第 2 航站楼" }, version: 3 }), change: null });
+    return null;
+  });
+  const actor = user();
+  const trip = (await screen.findByRole("heading", { name: "行程" })).closest("section") as HTMLElement;
+  const labels = [...trip.querySelectorAll("dt")].map((item) => item.textContent);
+  assert.ok(labels.indexOf("下车地点") === labels.indexOf("上车地点") + 1, labels.join("、"));
+  assert.ok(within(trip).getByText("成田国际机场 第 1 航站楼"));
+  await actor.click(screen.getByRole("button", { name: "修改订单" }));
+  assert.ok(screen.getByLabelText("上车地址或酒店名"));
+  const dropoff = screen.getByLabelText("下车地址或酒店名") as HTMLInputElement;
+  assert.equal(dropoff.value, "成田国际机场 第 1 航站楼");
+  await actor.clear(dropoff);
+  await actor.type(dropoff, "成田国际机场 第 2 航站楼");
+  await actor.click(screen.getByRole("button", { name: "提交修改" }));
+  await waitFor(() => assert.ok(calls.some((call) => call.method === "PATCH")));
+  assert.deepEqual(calls.find((call) => call.method === "PATCH")?.body, { dropoff_address: "成田国际机场 第 2 航站楼" });
+});

@@ -2,14 +2,16 @@
  * 新预订页 `/book/new`（M8-03，ADR 0069 A3 和「修正版 v2」；规范 docs/design/pages/site-booking-v2.md）。旧的 `/book` 不动，M8-05 验收后再切换。
  *
  * - 「你的行程」：接送 | 按小时包车；接送是出发地、目的地两个地址框（输入即提示），日期、时间、乘客 / 行李、接机才有的航班号（选填）。
- *   接送按两个坐标报价（`POST /site/v1/quotes/by-points`，服务端认机场、接机 / 送机 / 点对点）；包车沿用现有询价（上车点 + 套餐时长，城市按上车点找最近的可订城市）。
+ *   接送按两个坐标报价（`POST /site/v1/quotes/by-points`，服务端认机场、接机 / 送机 / 点对点）；包车沿用现有询价（上车点 + 下车点 + 套餐时长，城市按上车点找最近的可订城市）。
+ *   包车的下车地点必填（M8-19，ADR 0073，规范 10.1）：和上车地点同一个地址框；报价含区域加价时只说「含区域加价，已算在这个价格里」，不写金额（10.2）。
  *   填齐了就自动报价（停顿一下再查），改了任何一项旧结果立刻收起。
  * - 「选择车型」：价格从低到高，坐不下的接口不返回；默认电脑 4 个、手机 3 个；选中的展开车内俯视示意图；下面「一口价包含」。
  * - 「怎么联系你」（M8-04）：字段、校验、下单（`POST /site/v1/orders`）和旧下单页同一套（`lib/site-order-form.ts`），下单后进现有订单页付款。
  * - 电脑（≥ 1024px）单页：左列三块，右侧栏跟着滚动：行程摘要、路线图、附加服务（改数量带 `addons` 重新报价，显示合计差额）、车费、合计、
  *   参考价（≈ 客人币种）、取消规则、去付款、支付方式。
  *   手机分步：第 1 步行程 →「查看车型和价格」→ 第 2 步车型（底部固定「车型 · 一口价 [下一步]」）→ 第 3 步：右侧栏的内容在顶部，下面「怎么联系你」。
- * - 链接参数 from / to / date / time / pax / bags（parseBookingLink）：打开就预填并报价；不合法的只是不预填。`mode=charter` 打开就是包车（旧 `/book` 的包车跳过来，M8-15）。
+ * - 链接参数 from / to / date / time / pax / bags（parseBookingLink）：打开就预填并报价；不合法的只是不预填。`mode=charter` 打开就是包车（旧 `/book` 的包车跳过来，M8-15），
+ *   包车也用 `to` 当下车地点；旧链接只有 `from` 时下车地点空着，框下面请客人补选（10.1）。
  * 四种状态：加载中（骨架）、官网没开 / 没有可订城市（空）、出错（说明 + 重试）、正常。页面上没有供应商、结算价、加价比例。
  */
 import { type CityCandidate, type CurrencyCode, fixedPriceIncludes, isFlightNo, serviceCityOf } from "@nozomi/domain";
@@ -78,7 +80,7 @@ export interface TripDraft {
   mode: BookMode;
   /** 接送：出发地；包车：上车地点 */
   from: TripPoint | null;
-  /** 接送：目的地；包车不用 */
+  /** 接送：目的地；包车：下车地点（M8-19 起必填） */
   to: TripPoint | null;
   date: string;
   time: string;
@@ -117,8 +119,8 @@ function requestOf(draft: TripDraft, charterCity: SiteCity | null, addons: reado
   if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.date) || !/^\d{2}:\d{2}$/.test(draft.time) || draft.from === null) return null;
   const serviceLocal = `${draft.date}T${draft.time}`;
   if (draft.mode === "charter") {
-    if (charterCity === null || draft.packageHours === "") return null;
-    const body: SiteQuoteRequest = { category: "charter", city_id: charterCity.id, pickup: { lat: draft.from.lat, lng: draft.from.lng }, package_hours: Number(draft.packageHours), service_local: serviceLocal, passengers: draft.passengers, luggage: draft.luggage, ...(addons.length > 0 ? { addons: [...addons] } : {}) };
+    if (charterCity === null || draft.packageHours === "" || draft.to === null) return null;
+    const body: SiteQuoteRequest = { category: "charter", city_id: charterCity.id, pickup: { lat: draft.from.lat, lng: draft.from.lng }, dropoff: { lat: draft.to.lat, lng: draft.to.lng }, package_hours: Number(draft.packageHours), service_local: serviceLocal, passengers: draft.passengers, luggage: draft.luggage, ...(addons.length > 0 ? { addons: [...addons] } : {}) };
     return { key: JSON.stringify(body), run: async () => ({ mode: "charter", result: await createSiteQuotes(body), city: charterCity }) };
   }
   if (draft.to === null) return null;
@@ -144,13 +146,13 @@ async function resolveLinkEnd(link: LinkEnd | null): Promise<LinkResolution> {
   }
 }
 
-/** 链接里的地点没有预填时的说法。 */
-function linkNotice(ends: LinkResolution[]): string | null {
+/** 链接里的地点没有预填时的说法（包车的两端叫上车地点、下车地点）。 */
+function linkNotice(ends: LinkResolution[], mode: BookMode): string | null {
   const missing = ends.filter((end) => end?.kind === "missing").map((end) => `「${(end as { code: string }).code}」`);
   const failed = ends.filter((end) => end?.kind === "failed").map((end) => `「${(end as { code: string }).code}」`);
   if (missing.length > 0) {
     // 只提没找到的那一端（[出发地, 目的地]）
-    const which = ["出发地", "目的地"].filter((_, index) => ends[index]?.kind === "missing").join("和");
+    const which = (mode === "charter" ? ["上车地点", "下车地点"] : ["出发地", "目的地"]).filter((_, index) => ends[index]?.kind === "missing").join("和");
     return `链接里的地点${missing.join("、")}没有找到，请在下面重新选择${which}。`;
   }
   if (failed.length > 0) return `链接里的地点${failed.join("、")}暂时没有读出来，请稍后刷新页面，或在下面直接选择。`;
@@ -165,7 +167,7 @@ function validate(draft: TripDraft, charterCity: SiteCity | null, arrival: boole
   const errors: Errors = {};
   if (draft.from === null) errors.from = draft.mode === "charter" ? "请从候选里选上车地点" : "请从候选里选出发地";
   else if (draft.mode === "charter" && charterCity === null) errors.from = "这个地址暂时没有在线报价，请联系客服";
-  if (draft.mode === "transfer" && draft.to === null) errors.to = "请从候选里选目的地";
+  if (draft.to === null) errors.to = draft.mode === "charter" ? "请选择下车地点" : "请从候选里选目的地";
   if (draft.mode === "charter" && charterCity !== null && draft.packageHours === "") errors.packageHours = "请选择包车时长";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.date)) errors.date = "请选择日期";
   if (!/^\d{2}:\d{2}$/.test(draft.time)) errors.time = "请选择时间";
@@ -252,7 +254,7 @@ export function BookNewPage() {
       const from = fromEnd?.kind === "point" ? fromEnd.point : null;
       const to = toEnd?.kind === "point" ? toEnd.point : null;
       setDraft((current) => ({ ...current, from: current.from ?? from, to: current.to ?? to }));
-      const text = linkNotice([fromEnd, toEnd]);
+      const text = linkNotice([fromEnd, toEnd], link.mode ?? "transfer");
       if (text !== null) setNotice({ kind: "warning", text });
       else if (from !== null && to !== null && link.date !== null && link.time !== null) setStep(2);
     });
@@ -262,6 +264,8 @@ export function BookNewPage() {
   }, [cities.kind, link]);
 
   const charterCity = draft.mode === "charter" ? charterCityOf(draft.from, cityList) : null;
+  /** 旧的包车链接：只有上车地点（`from`）没有下车地点（`to`），下车地点框下面请客人补选（规范 10.1） */
+  const legacyCharterLink = link.mode === "charter" && link.from !== null && link.to === null;
 
   // 包车时长：按上车地点所在的城市读；只有一种时替客人选上
   useEffect(() => {
@@ -473,11 +477,20 @@ export function BookNewPage() {
     setErrors(found);
     if (Object.keys(found).length > 0) {
       setNotice({ kind: "danger", text: "有几项没有填好，请看标红的地方。" });
+      setFocusInvalid((value) => value + 1);
       return;
     }
     setNotice(null);
     setStep(2);
   };
+
+  // 点「查看车型和价格」时有没填好的：焦点移到第一个标红的框（规范 10.1）
+  const tripSectionRef = useRef<HTMLElement>(null);
+  const [focusInvalid, setFocusInvalid] = useState(0);
+  useEffect(() => {
+    if (focusInvalid === 0) return;
+    tripSectionRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+  }, [focusInvalid]);
 
   // 手机换步：到第 2 步把焦点放到「选择车型」，回第 1 步放到「你的行程」
   const moved = useRef(false);
@@ -535,7 +548,7 @@ export function BookNewPage() {
     );
 
     const tripSection = (
-      <section aria-labelledby="book-trip-title" className="site-section book-new__trip">
+      <section aria-labelledby="book-trip-title" className="site-section book-new__trip" ref={tripSectionRef}>
         <h2 id="book-trip-title" ref={tripHeading} tabIndex={-1} className="site-section__title">
           你的行程
         </h2>
@@ -561,7 +574,18 @@ export function BookNewPage() {
           mapCenter={centerOf(draft.to)}
           cities={centers}
         />
-        {draft.mode === "transfer" && <PlaceField label="目的地" value={draft.to} onChange={(to) => update({ to })} {...(errors.to !== undefined ? { error: errors.to } : {})} tiles={tiles} mapCenter={centerOf(draft.from)} cities={centers} />}
+        <PlaceField
+          key={`to-${draft.mode}`}
+          label={draft.mode === "charter" ? "下车地点" : "目的地"}
+          value={draft.to}
+          onChange={(to) => update({ to })}
+          {...(errors.to !== undefined ? { error: errors.to } : {})}
+          {...(draft.mode === "charter" ? { hint: "包车结束时在哪里下车，价格按上车和下车地点算。" } : {})}
+          {...(draft.mode === "charter" && legacyCharterLink && draft.to === null ? { info: "请选择下车地点，包车现在按上车和下车地点报价。" } : {})}
+          tiles={tiles}
+          mapCenter={centerOf(draft.from)}
+          cities={centers}
+        />
         {draft.mode === "charter" && draft.from !== null && charterCity === null && (
           <div className="book-new__notice" role="status">
             <p>这个地址暂时没有在线报价，请联系客服</p>
@@ -612,7 +636,7 @@ export function BookNewPage() {
 
     let vehicles;
     if (current === null) {
-      vehicles = <p className="site-muted">{draft.mode === "charter" ? "选好上车地点、包车时长、日期和时间后，这里会列出能坐下的车型和一口价。" : "填好出发地、目的地、日期和时间后，这里会列出能坐下的车型和一口价。"}</p>;
+      vehicles = <p className="site-muted">{draft.mode === "charter" ? "选好上车地点、下车地点、包车时长、日期和时间后，这里会列出能坐下的车型和价格。" : "填好出发地、目的地、日期和时间后，这里会列出能坐下的车型和一口价。"}</p>;
     } else if (current.kind === "loading") {
       vehicles = <Skeleton lines={["long", "medium", "long", "medium"]} label="正在查询价格" />;
     } else if (current.kind === "failed") {
@@ -676,8 +700,8 @@ export function BookNewPage() {
     const strip = draft.from !== null && (
       <div className="book-new__strip">
         <p className="book-new__strip-text">
-          {tripName !== null && <span className="book-new__strip-type">{tripName}</span>} {draft.from.name}
-          {draft.mode === "transfer" && draft.to !== null ? ` → ${draft.to.name}` : ""}
+          {tripName !== null && <span className="book-new__strip-type">{draft.mode === "charter" && draft.packageHours !== "" ? `包车 ${draft.packageHours} 小时` : tripName}</span>} {draft.from.name}
+          {draft.to !== null ? ` → ${draft.to.name}` : ""}
           {whenText !== null ? ` · ${whenText}` : ""} · {travellersText(draft.passengers, draft.luggage)}
         </p>
         <Button size="lg" onClick={() => setStep(1)}>
@@ -713,12 +737,10 @@ export function BookNewPage() {
             <dt>{draft.mode === "charter" ? "上车地点" : "出发地"}</dt>
             <dd>{draft.from?.name ?? "—"}</dd>
           </div>
-          {draft.mode === "transfer" && (
-            <div className="site-facts__item">
-              <dt>目的地</dt>
-              <dd>{draft.to?.name ?? "—"}</dd>
-            </div>
-          )}
+          <div className="site-facts__item">
+            <dt>{draft.mode === "charter" ? "下车地点" : "目的地"}</dt>
+            <dd>{draft.to?.name ?? "—"}</dd>
+          </div>
           <div className="site-facts__item">
             <dt>{arrival ? "航班落地（当地时间）" : "用车时间（当地时间）"}</dt>
             <dd>{whenText ?? "—"}</dd>
@@ -746,7 +768,7 @@ export function BookNewPage() {
         ) : (
           <>
             <AddonsBlock options={selected.available_addons} quantities={addonQuantities} onChange={(id, quantity) => setAddonQuantities((value) => ({ ...value, [id]: quantity }))} />
-            <PriceBlock fare={selected.price.total} priced={pricedState} currency={guestCurrency} onCurrency={(code) => setGuestCurrency(code as CurrencyCode)} reference={reference !== null && reference.to === guestCurrency ? reference : null} />
+            <PriceBlock fare={selected.price.total} areaSurcharge={selected.includes_area_surcharge === true} priced={pricedState} currency={guestCurrency} onCurrency={(code) => setGuestCurrency(code as CurrencyCode)} reference={reference !== null && reference.to === guestCurrency ? reference : null} />
             <div className="book-summary__block">
               <h3 className="book-new__subtitle">取消规则</h3>
               <p>{guestCancelPolicyText((priced ?? selected).cancel_policy.tiers)}</p>

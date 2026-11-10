@@ -40,6 +40,10 @@ export interface PlaceFieldProps {
   value: TripPoint | null;
   onChange(value: TripPoint | null): void;
   error?: string;
+  /** 输入框下面的帮助文字（如包车下车地点「包车结束时在哪里下车…」） */
+  hint?: string;
+  /** 输入框下面的信息提示（不是出错，如旧链接没有下车地点时请客人补选） */
+  info?: string;
   /** 地图选点的底图；null 时没有「在地图上选点」 */
   tiles: MapTiles | null;
   /** 地图从哪里打开（另一端或第一个城市的中心） */
@@ -48,11 +52,13 @@ export interface PlaceFieldProps {
   cities: readonly CityCandidate[];
 }
 
-export function PlaceField({ label, value, onChange, error, tiles, mapCenter, cities }: PlaceFieldProps) {
+export function PlaceField({ label, value, onChange, error, hint, info, tiles, mapCenter, cities }: PlaceFieldProps) {
   const id = useId();
   const listId = `${id}-list`;
   const statusId = `${id}-status`;
   const errorId = `${id}-error`;
+  const hintId = `${id}-hint`;
+  const infoId = `${id}-info`;
   const mapId = `${id}-map`;
   const [text, setText] = useState(value?.name ?? "");
   const [items, setItems] = useState<SitePlaceSuggestion[]>([]);
@@ -204,7 +210,7 @@ export function PlaceField({ label, value, onChange, error, tiles, mapCenter, ci
   else if (status.kind === "empty") statusText = `没有找到。请换个说法（如酒店的英文名、地址）。${tiles !== null ? FALLBACK_MAP : ""}`;
   else if (status.kind === "notice") statusText = status.text;
   const warning = status.kind === "notice" && status.warning;
-  const describedBy = [error !== undefined ? errorId : null, statusText !== "" ? statusId : null].filter(Boolean).join(" ");
+  const describedBy = [error !== undefined ? errorId : null, info !== undefined ? infoId : null, hint !== undefined ? hintId : null, statusText !== "" ? statusId : null].filter(Boolean).join(" ");
 
   return (
     <div className="place-field" ref={rootRef}>
@@ -255,6 +261,17 @@ export function PlaceField({ label, value, onChange, error, tiles, mapCenter, ci
               <span>{error}</span>
             </li>
           </ul>
+        )}
+        {info !== undefined && (
+          <p id={infoId} className="site-address__status place-field__info">
+            <Icon name="info" />
+            {info}
+          </p>
+        )}
+        {hint !== undefined && (
+          <p className="field__hint" id={hintId}>
+            {hint}
+          </p>
         )}
         <p id={statusId} className={warning ? "site-address__status site-address__status--warning" : "site-address__status"} role="status">
           {warning && <Icon name="alert-triangle" />}

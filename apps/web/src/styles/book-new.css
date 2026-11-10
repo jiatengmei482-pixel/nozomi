@@ -126,6 +126,21 @@
   color: var(--color-info-text);
 }
 
+/* 地址框下面的信息提示（旧链接只有上车地点时请客人补选下车地点，M8-19） */
+.place-field__info {
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width) solid var(--color-info-border);
+  border-radius: var(--radius-md);
+  background: var(--color-info-bg);
+  color: var(--color-text-primary);
+}
+
+.place-field__info > .icon {
+  flex: none;
+  margin-top: var(--space-0-5);
+  color: var(--color-info-text);
+}
+
 .book-new__notice,
 .book-new__rejected {
   display: flex;
@@ -296,6 +311,15 @@
 
 .book-vehicle__price {
   margin-left: auto;
+}
+
+/* 含区域加价（M8-19，site-booking-v2.md 10.2）：价格下面一行，靠右对着价格，放不下时折行 */
+.book-vehicle__note {
+  margin: calc(-1 * var(--space-3)) 0 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  text-align: right;
+  overflow-wrap: anywhere;
 }
 
 .book-vehicle__facts {
@@ -620,6 +644,13 @@
 .book-prices__note {
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
+}
+
+.book-prices__surcharge {
+  display: block;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  text-align: right;
 }
 
 .book-pay {

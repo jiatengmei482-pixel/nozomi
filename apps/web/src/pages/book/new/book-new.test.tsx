@@ -635,3 +635,105 @@ test("附加服务报不出价时点「去付款」：说这个车型现在加�
   assert.equal(screen.getAllByText("这个车型现在加不了所选的附加服务，请减少附加服务或换一个车型。").length, 2, "合计处和「去付款」后的说法一致");
   assertAbsent(screen.queryByText(/价格还在计算/));
 });
+
+// ---- M8-19：包车的下车地点（必填）、含区域加价（规范 site-booking-v2.md 10.1、10.2、10.4） ----
+
+const CHARTER_LINK = "/book/new?mode=charter&from=35.6905,139.6948&from_name=%E4%BA%AC%E7%8E%8B%E5%B9%BF%E5%9C%BA%E9%85%92%E5%BA%97&date=2030-11-20&time=09:00";
+const charterQuotes = (surcharge: boolean): SiteQuoteResult => ({ currency: "JPY", quotes: [{ ...quoteOf(1, { freeWait: 0, amount: 78650, package: { hours: 8, km: 150 } }), includes_area_surcharge: surcharge }], unavailable: [] });
+
+test("包车：字段顺序 服务 → 上车地点 → 下车地点 → 包车时长 → 日期时间；下车地点是同一个地址框，帮助文字；没选下车地点不报价，选了以后询价带 dropoff 坐标", async () => {
+  wideScreen();
+  const calls = open({ at: "/book/new?mode=charter", charter: () => json(200, charterQuotes(false)) });
+  const actor = user();
+  await screen.findByRole("heading", { name: "你的行程" });
+  await pickPlace(actor, "上车地点", "京王", /京王广场酒店/);
+  await screen.findByLabelText(/包车时长/);
+  const labels = [...document.querySelectorAll(".book-new__trip label")].map((label) => label.textContent?.replace("*", "").trim()).filter((text) => text !== "");
+  assert.deepEqual(labels.slice(0, 6), ["接送", "按小时包车", "上车地点", "下车地点", "包车时长", "日期（当地）"]);
+  const dropoff = screen.getByRole("combobox", { name: "下车地点" });
+  assert.equal(dropoff.getAttribute("aria-required"), "true");
+  assert.match(dropoff.getAttribute("aria-describedby") ?? "", /hint/);
+  assert.ok(screen.getByText("包车结束时在哪里下车，价格按上车和下车地点算。"));
+  const date = screen.getByLabelText("日期（当地）") as HTMLInputElement;
+  await actor.clear(date);
+  await actor.type(date, "2030-11-20");
+  fireEvent.change(screen.getByLabelText("上车时间（当地）"), { target: { value: "09:00" } });
+  assert.ok(screen.getByText("选好上车地点、下车地点、包车时长、日期和时间后，这里会列出能坐下的车型和价格。"));
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  assert.equal(posts(calls, "/site/v1/quotes").length, 0, "没选下车地点不报价");
+
+  await pickPlace(actor, "下车地点", "成田", /成田国际机场/);
+  await screen.findByRole("heading", { name: "车型1" }, SLOW);
+  const body = posts(calls, "/site/v1/quotes").at(-1)?.body as Record<string, unknown>;
+  assert.deepEqual([body["category"], body["pickup"], body["dropoff"], body["package_hours"], body["service_local"]], ["charter", { lat: 35.6905, lng: 139.6948 }, { lat: 35.772, lng: 140.3929 }, 8, "2030-11-20T09:00"]);
+  assertAbsent(screen.queryByText("含区域加价，已算在这个价格里"));
+});
+
+test("包车含区域加价：车型卡价格下面、右侧栏车费下面写「含区域加价，已算在这个价格里」，只有一个总价、不写加价金额；行程摘要有下车地点；下单带 dropoff_address", async () => {
+  wideScreen();
+  const calls = open({
+    at: `${CHARTER_LINK}&to=35.772,140.3929&to_name=${encodeURIComponent("成田国际机场")}`,
+    charter: () => json(200, charterQuotes(true)),
+    order: () => json(201, { order: {}, timeline: [], names: {}, payment: null, link: { token: `nzo_${"b".repeat(43)}`, expires_at: "2030-12-01T00:00:00.000Z" } }),
+  });
+  const actor = user();
+  const card = (await screen.findByRole("heading", { name: "车型1" }, SLOW)).closest("li") as HTMLElement;
+  assert.ok(within(card).getByText("含区域加价，已算在这个价格里"));
+  assert.match(card.textContent ?? "", /78,650 JPY/);
+  await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
+  const aside = screen.getByRole("complementary", { name: "行程摘要" });
+  assert.ok(within(aside).getByText("含区域加价，已算在这个价格里"));
+  const facts = [...aside.querySelectorAll(".site-facts__item")].map((item) => [item.querySelector("dt")?.textContent, item.querySelector("dd")?.textContent]);
+  assert.deepEqual(facts.slice(0, 3), [["行程", "包车 8 小时"], ["上车地点", "京王广场酒店"], ["下车地点", "成田国际机场"]]);
+  const amounts = (document.body.textContent ?? "").replaceAll("车型1", " ").match(/[\d,]+ JPY/g) ?? [];
+  assert.deepEqual([...new Set(amounts)], ["78,650 JPY"], "只有一个价格，没有单列的加价金额");
+
+  await actor.type(screen.getByLabelText("乘车人姓名"), "王小明");
+  await actor.type(screen.getByLabelText("邮箱"), "guest@example.com");
+  await actor.type(screen.getByLabelText("手机号（含国家区号）"), "+86 138 0000 0000");
+  await actor.click(screen.getByRole("checkbox", { name: /同意保存这次付款用的银行卡/ }));
+  await actor.click(screen.getByRole("button", { name: "去付款 →" }));
+  await waitFor(() => assert.equal(posts(calls, "/site/v1/orders").length, 1));
+  const order = posts(calls, "/site/v1/orders")[0]?.body as Record<string, unknown>;
+  assert.deepEqual([order["pickup_address"], order["dropoff_address"], order["flight_no"]], ["京王广场酒店", "成田国际机场", null]);
+});
+
+test("包车手机：没选下车地点点「查看车型和价格」时下车地点标红「请选择下车地点」、焦点移过去；行程条「包车 8 小时 · 上车 → 下车」", async () => {
+  narrowScreen();
+  open({ at: CHARTER_LINK, charter: () => json(200, charterQuotes(false)) });
+  const actor = user();
+  const dropoff = await screen.findByRole("combobox", { name: "下车地点" });
+  await waitFor(() => assert.equal((screen.getByRole("combobox", { name: "上车地点" }) as HTMLInputElement).value, "京王广场酒店"));
+  await actor.click(screen.getByRole("button", { name: "查看车型和价格" }));
+  assert.ok(screen.getByText("请选择下车地点"));
+  assert.equal(dropoff.getAttribute("aria-invalid"), "true");
+  await waitFor(() => assertFocused(screen.getByRole("combobox", { name: "下车地点" })));
+
+  await pickPlace(actor, "下车地点", "成田", /成田国际机场/);
+  await actor.click(screen.getByRole("button", { name: "查看车型和价格" }));
+  await screen.findByRole("heading", { name: "车型1" }, SLOW);
+  assert.match(document.querySelector(".book-new__strip-text")?.textContent ?? "", /^包车 8 小时 京王广场酒店 → 成田国际机场 · /);
+});
+
+test("旧包车链接只有上车地点：预填上车地点，下车地点空着，框下面信息提示「请选择下车地点，包车现在按上车和下车地点报价。」（不报错、不报价）；选了以后提示收起", async () => {
+  wideScreen();
+  const calls = open({ at: CHARTER_LINK, charter: () => json(200, charterQuotes(false)) });
+  const actor = user();
+  assert.ok(await screen.findByText("请选择下车地点，包车现在按上车和下车地点报价。", {}, SLOW));
+  await waitFor(() => assert.equal((screen.getByRole("combobox", { name: "上车地点" }) as HTMLInputElement).value, "京王广场酒店"));
+  assert.equal((screen.getByRole("combobox", { name: "下车地点" }) as HTMLInputElement).value, "");
+  assertAbsent(screen.queryByText("有几项没有填好，请看标红的地方。"));
+  assert.equal(posts(calls, "/site/v1/quotes").length, 0);
+  await pickPlace(actor, "下车地点", "成田", /成田国际机场/);
+  await screen.findByRole("heading", { name: "车型1" }, SLOW);
+  assertAbsent(screen.queryByText("请选择下车地点，包车现在按上车和下车地点报价。"));
+});
+
+test("包车上车或下车地点不在任何区域（OUT_OF_SERVICE_AREA）：沿用「这个地址暂时没有在线报价，请联系客服」+ 客服电话，不显示内部代码", async () => {
+  wideScreen();
+  open({ at: `${CHARTER_LINK}&to=37.0,141.5`, charter: () => json(200, { currency: "JPY", quotes: [], unavailable: [{ vehicle_group_id: null, reasons: ["OUT_OF_SERVICE_AREA"] }] } satisfies SiteQuoteResult) });
+  assert.ok(await screen.findByText("这个地址暂时没有在线报价，请联系客服", {}, SLOW));
+  assert.ok(screen.getByRole("heading", { name: "没有可预订的车" }));
+  assert.equal(screen.getByRole("link", { name: "+81 3-1234-5678" }).getAttribute("href"), "tel:+81312345678");
+  assert.doesNotMatch(document.body.textContent ?? "", /OUT_OF_SERVICE_AREA|含区域加价/);
+});
