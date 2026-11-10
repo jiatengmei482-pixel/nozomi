@@ -103,6 +103,7 @@ function problemText(err: unknown, verb: string, typeNames: Readonly<Record<stri
       return `条件还不满足：${issues.map((issue) => issueText(issue, typeNames)).join("；")}。`;
     }
     if (err.code === "TENANT_HAS_OPEN_ORDERS") return `还有 ${String(err.details["open_orders"] ?? "")} 张没履约完的订单，全部完成或取消以后才能清退。`;
+    if (err.code === "TEST_TENANT_NOT_FOR_SALE") return "这是测试供应商，只用于验收，不能开始试运营、转为正式或上架（ADR 0077）。它停在已签约就可以做验收要用的所有设置。";
     if (err.code === "TENANT_STATE_INVALID") return "供应商现在的状态不能做这一步。请刷新页面看最新的状态。";
     if (err.code === "DOCUMENT_SUPERSEDED") return "供应商之后又交了一份同类型的资质，请审核最新的那份。";
     if (err.code === "DOCUMENT_NOT_PENDING") return "这份资质已经审核过了。请刷新页面。";
@@ -177,7 +178,7 @@ function ProgressCard({ company, onTenantChanged }: { company: CompanyOverview; 
                 签约
               </Button>
             )}
-            {tenant.status === "signed" && (
+            {tenant.status === "signed" && !tenant.is_test_tenant && (
               <Button variant="primary" onClick={() => start("trial")}>
                 开始试运营
               </Button>
@@ -191,6 +192,7 @@ function ProgressCard({ company, onTenantChanged }: { company: CompanyOverview; 
         )}
       </div>
       <p>{progressHint(company, "platform")}</p>
+      {tenant.status === "signed" && tenant.is_test_tenant && <p className="page-intro">测试供应商不能开始试运营（ADR 0077），所以这里没有「开始试运营」。</p>}
       <dl className="details">
         {(
           [

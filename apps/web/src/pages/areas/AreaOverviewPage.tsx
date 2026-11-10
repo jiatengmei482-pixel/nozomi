@@ -37,6 +37,7 @@ import { DEMAND_REASON_NAMES, demandMapPoints, shiftDate, tokyoToday } from "../
 import { saveFile } from "../../lib/download.ts";
 import { UNCOVERED_DEMANDS_PAGE_PATH } from "../../lib/platform-paths.ts";
 import { MASTER_STATUS_BADGES, displayName, formatLocalDateTime } from "../../lib/master-display.ts";
+import { tenantOptionLabel } from "../../lib/platform-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan, useTenantCan } from "../../lib/use-master-access.ts";
@@ -185,7 +186,7 @@ export function AreaOverviewPage() {
               label="供应商"
               clearLabel="全部"
               placeholder="全部"
-              options={(tenants.state.data?.items ?? []).map((tenant) => ({ value: tenant.id, label: tenant.name }))}
+              options={(tenants.state.data?.items ?? []).map((tenant) => ({ value: tenant.id, label: tenantOptionLabel(tenant), keywords: tenant.name }))}
               value={tenantId}
               onChange={setTenantId}
               loading={tenants.state.data === null && tenants.state.status === "loading"}
