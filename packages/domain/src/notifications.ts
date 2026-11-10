@@ -105,7 +105,7 @@ export const NOTIFICATION_CHANNELS = ["email"] as const;
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
 
 /** 客人邮件能用的变量。 */
-export const GUEST_VARIABLES = ["order_no", "passenger_name", "service_time", "route", "vehicle_group", "vehicle_similar", "vehicle_max_persons", "vehicle_max_luggage", "paid_amount", "view_url", "driver_name", "driver_phone", "vehicle_plate", "changed_fields", "change_decline_reason", "change_decline_advice", "extra_charge_amount", "extra_charge_type", "dispute_until", "fee_note"] as const;
+export const GUEST_VARIABLES = ["order_no", "passenger_name", "service_time", "route", "vehicle_group", "vehicle_similar", "vehicle_max_persons", "vehicle_max_luggage", "paid_amount", "view_url", "driver_name", "driver_phone", "vehicle_plate", "changed_fields", "change_decline_reason", "change_decline_advice", "extra_charge_amount", "extra_charge_type", "dispute_until", "fee_note", "area_surcharge_note", "distance_note"] as const;
 /** 供应商邮件能用的变量：行程和编号。**不能往这里加对外价、加价比例、客人付的钱**（规则 4）。 */
 export const TENANT_VARIABLES = ["order_no", "service_time", "route", "vehicle_group", "vehicle_similar", "vehicle_max_persons", "vehicle_max_luggage", "passengers", "order_url", "console_url", "dispatch_due_at", "confirm_due_at", "changed_fields", "driver_notice", "ticket_no", "document_type", "expires_on", "days_left", "tenant_status", "reasons", "payout_currency", "payout_account", "reject_reason", "charter_price_note"] as const;
 /** 平台员工邮件能用的变量。 */
@@ -121,11 +121,19 @@ export const TENANT_FORBIDDEN_PATTERN = /对外价|加价|markup|sell|paid|refun
  * 可以整行省略的变量：值没有或为空时，正文里含它的那一行整行不出现，其余照常发；别的变量缺了仍然整封不发。
  * 只能用在正文里自成一行的地方（「标签：{{x}}」），主题里不能用。
  * - 车型标识（M7-04，ADR 0068）：`vehicle_similar`、`vehicle_max_persons`、`vehicle_max_luggage`；
- * - 一口价说明（M8-09，ADR 0070）：客人的 `fee_note`（分界前下的包车单为空）、供应商的 `charter_price_note`（只有分界后下的包车单有）。
+ * - 一口价说明（M8-09，ADR 0070）：客人的 `fee_note`（分界前下的包车单为空）、供应商的 `charter_price_note`（只有分界后下的包车单有）；
+ * - 含公里数（M8-13，ADR 0073 第四部分）：客人的 `distance_note`（只有设了含公里数的点对点单有）。
  */
-export const OPTIONAL_LINE_VARIABLES = ["vehicle_similar", "vehicle_max_persons", "vehicle_max_luggage", "fee_note", "charter_price_note"] as const;
+export const OPTIONAL_LINE_VARIABLES = ["vehicle_similar", "vehicle_max_persons", "vehicle_max_luggage", "fee_note", "charter_price_note", "distance_note"] as const;
+
+/**
+ * 可以为空、接在别的内容后面的变量：为空时替换成空字符串，**那一行照常出现**（只是少了这一截）。同样只能用在正文里。
+ * - 含区域加价（M8-13，ADR 0073 第四部分）：客人的 `area_surcharge_note`，接在「已付金额」后面（「（含区域加价）」），没有区域加价的单为空。
+ */
+export const OPTIONAL_SUFFIX_VARIABLES = ["area_surcharge_note"] as const;
 
 const isOptionalLine = (name: string): boolean => (OPTIONAL_LINE_VARIABLES as readonly string[]).includes(name);
+const isOptionalSuffix = (name: string): boolean => (OPTIONAL_SUFFIX_VARIABLES as readonly string[]).includes(name);
 
 export function audienceVariables(audience: NotificationAudience): readonly string[] {
   if (audience === "driver") return DRIVER_VARIABLES;
@@ -156,7 +164,7 @@ const zhEmail = (event: NotificationEvent, audience: NotificationAudience, subje
 
 /** 全部模板。加语言 = 在这里加常量（ADR 0049「模板」）。 */
 export const NOTIFICATION_TEMPLATES: readonly NotificationTemplate[] = [
-  zhEmail("order.confirmed", "guest", "预订已确认：{{order_no}}", `{{passenger_name}}，您好：\n\n我们已收到您的付款，订单已确认。\n\n${TRIP}\n已付金额：{{paid_amount}}\n费用说明：{{fee_note}}\n\n派好司机后我们会再发邮件告诉您司机信息。${GUEST_FOOTER}`),
+  zhEmail("order.confirmed", "guest", "预订已确认：{{order_no}}", `{{passenger_name}}，您好：\n\n我们已收到您的付款，订单已确认。\n\n${TRIP}\n已付金额：{{paid_amount}}{{area_surcharge_note}}\n公里数：{{distance_note}}\n费用说明：{{fee_note}}\n\n派好司机后我们会再发邮件告诉您司机信息。${GUEST_FOOTER}`),
   zhEmail("order.assigned", "guest", "司机信息：{{order_no}}", `{{passenger_name}}，您好：\n\n您的订单已安排司机。如果之前收到过司机信息，请以这一封为准。\n\n${TRIP}\n司机：{{driver_name}}\n电话：{{driver_phone}}\n车牌：{{vehicle_plate}}${GUEST_FOOTER}`),
   zhEmail("order.service_reminder", "guest", "用车提醒：{{service_time}}（{{order_no}}）", `{{passenger_name}}，您好：\n\n您的用车时间快到了，请按时到达上车点。\n\n${TRIP}${GUEST_FOOTER}`),
   zhEmail("order.driver_arrived", "guest", "司机已到达：{{order_no}}", `{{passenger_name}}，您好：\n\n司机已经到达上车点。\n\n司机：{{driver_name}}\n电话：{{driver_phone}}\n车牌：{{vehicle_plate}}${GUEST_FOOTER}`),
@@ -251,7 +259,7 @@ const oneLine = (value: string): string => value.replace(CONTROL_CHARS, " ").tri
 
 /**
  * 渲染：一次替换（变量值里的 `{{x}}` 不会被再次替换），只认这个接收方白名单里的变量。缺变量返回 null（不发半截邮件）；
- * 例外是 `OPTIONAL_LINE_VARIABLES`：为空时正文里那一行整行不出现（主题里用了照样算缺）。
+ * 例外是 `OPTIONAL_LINE_VARIABLES`：为空时正文里那一行整行不出现；`OPTIONAL_SUFFIX_VARIABLES`：为空时替换成空字符串、那一行照常（主题里用了这两类照样算缺）。
  * 主题和正文里的变量都把换行、行分隔符等控制字符规整成空格：主题防邮件头注入，正文防客人填的内容伪造段落（如在发给供应商的邮件里伪造「平台通知」）。
  */
 export function renderNotification(template: NotificationTemplate, variables: NotificationVariables): { subject: string; text: string } | null {
@@ -260,12 +268,12 @@ export function renderNotification(template: NotificationTemplate, variables: No
   const blank = (name: string): boolean => variables[name] === undefined || oneLine(variables[name] as string) === "";
   for (const name of templatePlaceholders(template)) {
     if (!allowed.includes(name)) return null;
-    if (blank(name) && (!isOptionalLine(name) || subjectNames.has(name))) return null;
+    if (blank(name) && (!(isOptionalLine(name) || isOptionalSuffix(name)) || subjectNames.has(name))) return null;
   }
   // 可省略的变量为空：正文里含它的行整行去掉（不留空标签）
   const lineDropped = (line: string): boolean => [...line.matchAll(PLACEHOLDER)].some((match) => isOptionalLine(match[1] as string) && blank(match[1] as string));
   const body = template.body.split("\n").filter((line) => !lineDropped(line)).join("\n");
-  const fill = (text: string): string => text.replace(PLACEHOLDER, (_, name: string) => oneLine(variables[name] as string));
+  const fill = (text: string): string => text.replace(PLACEHOLDER, (_, name: string) => oneLine(variables[name] ?? ""));
   return { subject: fill(template.subject).slice(0, 200), text: fill(body) };
 }
 

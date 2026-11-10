@@ -8,7 +8,8 @@ import { NOTIFICATION_TEMPLATES, TENANT_FORBIDDEN_PATTERN, findNotificationTempl
 const fill = (event: "order.confirmed", audience: "guest" | "tenant", overrides: Record<string, string>): { text: string; html: string } => {
   const target = findNotificationTemplate(event, audience, "zh-CN", "email");
   assert.ok(target);
-  const rendered = renderNotification(target, { ...Object.fromEntries(templatePlaceholders(target).map((name) => [name, `v-${name}`])), ...overrides });
+  // 含区域加价、公里数（M8-13）默认为空：这里只看费用说明
+  const rendered = renderNotification(target, { ...Object.fromEntries(templatePlaceholders(target).map((name) => [name, `v-${name}`])), area_surcharge_note: "", distance_note: "", ...overrides });
   assert.ok(rendered, `${event}/${audience}`);
   return { text: rendered.text, html: renderMailHtml(rendered) };
 };

@@ -19,7 +19,7 @@ import type { Order, OrderEvent, OrderPayment, OrderSale, PaymentEventRecord } f
 import type { DriverLink, OrderFile } from "../repos/dispatch.ts";
 import { driverLinkEmailJson, getDriverLinkEmail, mailConfigured } from "../services/driver-link-email.ts";
 import type { WebhookDelivery } from "../repos/webhooks.ts";
-import { type DispatchFacts, areaSurchargeDetailJson, distanceMoneyJson, cancelPolicyJson, changeJson, dispatchJson, extraChargeJson, fulfilmentJson, landingJson, orderTripJson, orderVehicleGroupJson, settlementJson, tenantOrderJson } from "../services/order-views.ts";
+import { type DispatchFacts, areaSurchargeDetailJson, pricingRouteJson, distanceMoneyJson, cancelPolicyJson, changeJson, dispatchJson, extraChargeJson, fulfilmentJson, landingJson, orderTripJson, orderVehicleGroupJson, settlementJson, tenantOrderJson } from "../services/order-views.ts";
 import { customerAmountOf } from "../services/extra-charges.ts";
 import type { OrderRefund } from "../repos/refunds.ts";
 import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
@@ -27,6 +27,7 @@ import { type OrderFulfilmentRecords, assertPlatformOrderInScope, getOrderFile, 
 import { PLATFORM_PROXY_SOURCE } from "../services/fulfilment.ts";
 import { orderPassengerNames, revealPassenger } from "../services/passenger-privacy.ts";
 import { salesMoney } from "../services/sales-quotes.ts";
+import { orderSellDistance } from "../services/order-price-notes.ts";
 import { fxJson } from "./quotes.ts";
 import { authenticateTenant } from "../services/tenant-auth.ts";
 import { dateTimeSchema, pageQuerySchema, parseInput, resourceId, uuidSchema } from "../validation.ts";
@@ -179,14 +180,14 @@ function platformAreaSurchargeJson(found: { order: Order; surchargeAreaNames: Re
 }
 
 /**
- * 运营看到的含公里数（ADR 0073 第四部分）：结算价（同供应商看到的）加上超出每公里的对外价参考（报价快照里单独换算、单独取整的数，已含在对外价里）。
- * 没设含公里数的订单为 null；快照里没有对外价参考时 `over_km_per_km_sell` 为 null。
+ * 运营看到的含公里数（ADR 0073 第四部分）：结算价（同供应商看到的）加上超出每公里的对外价参考——订单上锁定的结算单价按这一单对外价用的汇率、缓冲、
+ * 加价比例单独换算、单独取整（和官网订单页、确认邮件同一个数，M8-13）。没设含公里数的订单为 null。
  */
-function platformDistanceJson(found: { order: Order; quote: { currency: CurrencyCode; winner: { sell: { overKmPerKmMinor?: number } } } }): Json | null {
+function platformDistanceJson(found: { order: Order; sale: OrderSale }): Json | null {
   const detail = distanceMoneyJson(found.order.settlement, found.order.settlementCurrency);
-  if (detail === null) return null;
-  const sell = found.quote.winner.sell.overKmPerKmMinor;
-  return { ...detail, over_km_per_km_sell: sell === undefined ? null : salesMoney(sell, found.quote.currency) };
+  const sell = orderSellDistance(found.order, found.sale);
+  if (detail === null || sell === null) return null;
+  return { ...detail, over_km_per_km_sell: salesMoney(sell.overKmPerKmMinor, sell.currency) };
 }
 
 /** 推送内容里的乘客也打码（运营详情一页看全，不能从这里绕过「查看」）。 */
@@ -267,6 +268,8 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
       vehicle_group: orderVehicleGroupJson(found.vehicleGroup),
       // 包车区域加价（ADR 0073）：只有结算价（规则 4）
       area_surcharge: areaSurchargeDetailJson(found.order, found.surchargeAreaNames),
+      // 点对点用的价格（M8-13）：线路价 / 区域价和区域名称，没有金额
+      pricing_route: pricingRouteJson(found.pricingRoute),
     };
   });
 
@@ -361,6 +364,7 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
       area_surcharge: platformAreaSurchargeJson(found),
       // 点对点含公里数（M8-11）：结算价 + 超出每公里的对外价参考（只有运营看得到）
       distance: platformDistanceJson(found),
+      pricing_route: pricingRouteJson(found.pricingRoute),
       quote: {
         quote_id: found.quote.quoteId,
         created_at: found.quote.createdAt,

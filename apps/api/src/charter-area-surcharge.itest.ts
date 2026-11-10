@@ -280,6 +280,8 @@ test("官网包车下单：下车地址必填；订单存下车点；供应商�
   assert.equal(created.status, 201, created.text);
   const orderId = created.body.order.id as string;
   assert.deepEqual([created.body.order.dropoff, created.body.order.price.total.amount], [{ ...P.fuji, address: "富士山五合目" }, "78650"]);
+  // M8-13：官网订单应答带「含区域加价」（只是布尔，不给金额、不给区域）；包车没有含公里数
+  assert.deepEqual([created.body.order.includes_area_surcharge, created.body.order.distance], [true, null]);
   const intent = pay.intentOf(orderId);
   assert.ok(intent);
   pay.pay(intent.id);
@@ -305,12 +307,21 @@ test("官网包车下单：下车地址必填；订单存下车点；供应商�
   assertMatchesOperation("GET", "/platform/v1/orders/{id}", platform.status, platform.body);
   assert.deepEqual([platform.body.area_surcharge.pickup.settlement.amount, platform.body.area_surcharge.pickup.sell, platform.body.area_surcharge.dropoff.sell], ["500", { amount: "550", currency: "JPY" }, { amount: "1100", currency: "JPY" }]);
 
+  assert.deepEqual([tenant.body.pricing_route, platform.body.pricing_route], [null, null], "包车没有「用的价格」（那是点对点的）");
+  const guest = await site.call("GET", "/site/v1/order", { token: created.body.link.token, ip: nextIp() });
+  assertMatchesOpenApi("GET", "/site/v1/order", guest);
+  assert.deepEqual([guest.body.order.includes_area_surcharge, guest.body.order.distance, guest.body.order.price.total.amount], [true, null, "78650"]);
+  for (const key of ["area_surcharge", "settlement", "pricing_route"]) assert.ok(!allKeys(guest.body).has(key), `官网订单里有 ${key}`);
+  assert.doesNotMatch(guest.text.replace(/[0-9a-f-]{36}|NZ\d{8}[0-9A-Z]+/gi, ""), /"550"|"1100"|"500"|"1000"|千叶"|"富士山"/);
+
   assert.equal((await tenantCall(m.a, "GET", `/orders/${orderId}`)).status, 404, "甲读不到乙的单");
   // M8-15 之前下的单（结算价明细里没有区域加价）：显示照旧，这一项为 null
   await api.db.owner.query("update orders set settlement = settlement - 'areaSurcharge' where id = $1", [orderId]);
   const legacy = await tenantCall(m.b, "GET", `/orders/${orderId}`);
   assertMatchesOpenApi("GET", "/tenant/v1/orders/{id}", legacy);
   assert.deepEqual([legacy.body.area_surcharge, legacy.body.order.settlement.area_surcharge, legacy.body.order.settlement.total.amount], [null, null, "71500"]);
+  const legacyGuest = await site.call("GET", "/site/v1/order", { token: created.body.link.token, ip: nextIp() });
+  assert.equal(legacyGuest.body.order.includes_area_surcharge, false, "旧单不写「含区域加价」");
 });
 
 test("已下的订单不改：M8-15 之前下的包车单（没有下车点）改期照以前的算法——只看上车点、不加区域加价，商品后来设了区域加价也能改", async () => {

@@ -12,6 +12,8 @@
  * 日志只写通知编号、事件、订单编号、错误码：**不写邮箱、令牌、主题、正文**。查看链接的令牌只在内存里（库里只有哈希）。
  */
 import {
+  AREA_SURCHARGE_MAIL_NOTE,
+  includedKmNote,
   CHARTER_SUPPLIER_PRICE_NOTE,
   charterAllInclusiveFor,
   fixedPriceFeeNote,
@@ -103,6 +105,7 @@ import { findOrderNames, insertSiteOrderLink } from "../repos/site.ts";
 import { vehicleMailVariables } from "./order-views.ts";
 import { prepareDriverLinkEmail, prepareDriverNotice } from "./driver-link-email.ts";
 import { customerAmountOf } from "./extra-charges.ts";
+import { orderIncludesAreaSurcharge, orderSellDistance } from "./order-price-notes.ts";
 import { sendMail } from "./mail.ts";
 import type { OrderLog } from "./orders.ts";
 import { newSiteLink } from "./site.ts";
@@ -189,12 +192,21 @@ function guestFeeNote(order: Order): string {
   return charterAllInclusiveFor(order.createdAt) ? fixedPriceFeeNote("charter") : "";
 }
 
+/**
+ * 客人确认邮件里的价格说明（M8-13，ADR 0073 第四部分；规范 site-booking-v2.md 10.5）：已付金额后面的「（含区域加价）」、「公里数」一行，
+ * 和官网订单页同一个函数、同一个数（订单上锁定的，每公里用对外价）。没有的为空（`area_surcharge_note` 那一截不出现，`distance_note` 整行不出现）。
+ */
+function guestPriceNotes(order: Order, sale: OrderSale): { area_surcharge_note: string; distance_note: string } {
+  const distance = orderSellDistance(order, sale);
+  return { area_surcharge_note: orderIncludesAreaSurcharge(order) ? AREA_SURCHARGE_MAIL_NOTE : "", distance_note: distance === null ? "" : includedKmNote(distance) };
+}
+
 const changedFieldsText = (fields: unknown): string => (Array.isArray(fields) && fields.length > 0 ? fields.map((field) => ORDER_CHANGE_FIELD_NAMES[String(field)] ?? String(field)).join("、") : "订单信息");
 
 /** 客人邮件的变量。这里可以读对外价（客人自己付的钱）。 */
 async function guestVariables(db: Db, event: StoredNotificationEvent, order: Order): Promise<NotificationVariables> {
   const sale = (await findSale(db, order.id)) as OrderSale;
-  const base: Record<string, string> = { order_no: order.orderNo, passenger_name: order.passenger.name, paid_amount: moneyText(sale.sellMinor, sale.currency), changed_fields: changedFieldsText(event.data["fields"]), fee_note: guestFeeNote(order), ...(await tripVariables(db, order)) };
+  const base: Record<string, string> = { order_no: order.orderNo, passenger_name: order.passenger.name, paid_amount: moneyText(sale.sellMinor, sale.currency), changed_fields: changedFieldsText(event.data["fields"]), fee_note: guestFeeNote(order), ...guestPriceNotes(order, sale), ...(await tripVariables(db, order)) };
   if ((event.event === "order.assigned" || event.event === "order.driver_arrived") && order.dispatch.driverId !== null && order.dispatch.vehicleId !== null) {
     const driver = await findDriver(db, order.tenantId, order.dispatch.driverId);
     const vehicle = await findVehicle(db, order.tenantId, order.dispatch.vehicleId);

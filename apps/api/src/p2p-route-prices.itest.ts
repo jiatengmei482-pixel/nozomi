@@ -369,6 +369,17 @@ test("官网：报价含公里数（只有对外价）；下单后订单锁定�
     assertMatchesOperation("GET", "/platform/v1/orders/{id}", platform.status, platform.body);
     assert.deepEqual(platform.body.distance, { included_km: 30, route_meters: 34_200, over_km: 5, over_km_per_km: { amount: "300", currency: "JPY" }, over_km_per_km_sell: { amount: "330", currency: "JPY" } });
     assert.equal(platform.body.order.settlement.to_area_id, p2pB.airport);
+    // M8-13：用的价格（线路价 · 市区 → 机场周边），供应商、运营一样，没有金额
+    const routeUsed = { kind: "route", area: { id: p2pB.city, name: { zh: "市区" } }, to_area: { id: p2pB.airport, name: { zh: "机场周边" } } };
+    assert.deepEqual(tenant.body.pricing_route, routeUsed);
+    assert.deepEqual(platform.body.pricing_route, routeUsed);
+    // M8-13：官网订单页带订单上锁定的含公里数（只有对外价，和报价时同一个数）；没有区域加价
+    const guest = await site.call("GET", "/site/v1/order", { token: created.body.link.token, ip: nextIp() });
+    assertMatchesOpenApi("GET", "/site/v1/order", guest);
+    assert.equal(guest.status, 200, guest.text);
+    assert.deepEqual([guest.body.order.distance, guest.body.order.includes_area_surcharge], [{ included_km: 30, route_meters: 34_200, over_km: 5, over_km_per_km: { amount: "330", currency: "JPY" } }, false]);
+    for (const key of ["settlement", "to_area_id", "pricing_route", "over_km_per_km_sell", "markup_bp"]) assert.ok(!allKeys(guest.body).has(key), `官网订单里有 ${key}`);
+    assert.doesNotMatch(guest.text.replace(/[0-9a-f-]{36}|NZ\d{8}[0-9A-Z]+/gi, ""), /19500|"300"|"市区"|机场周边/);
   } finally {
     route = { meters: 34_200, minutes: 50 };
   }
@@ -382,6 +393,40 @@ test("官网：报价含公里数（只有对外价）；下单后订单锁定�
   const legacyPlatform = await api.call("GET", `/platform/v1/orders/${orderId}`, { token: m.root });
   assertMatchesOperation("GET", "/platform/v1/orders/{id}", legacyPlatform.status, legacyPlatform.body);
   assert.equal(legacyPlatform.body.distance, null);
+  assert.deepEqual([legacy.body.pricing_route, legacyPlatform.body.pricing_route], [null, null], "旧单没有「用的价格」");
+  const legacyGuest = await site.call("GET", "/site/v1/order", { token: created.body.link.token, ip: nextIp() });
+  assertMatchesOpenApi("GET", "/site/v1/order", legacyGuest);
+  assert.deepEqual([legacyGuest.body.order.distance, legacyGuest.body.order.includes_area_surcharge], [null, false]);
+});
+
+test("用的价格（M8-13）：区域价 + 含公里数写「区域价」；订单上的线路和下单时的报价对不上（改期后命中了别的）时不猜上车区域；区域被删了名称为 null", async () => {
+  api.clock.advance(1_000);
+  const quoted = await site.call("POST", "/site/v1/quotes", { body: { category: "point_to_point", city_id: m.ids.tokyo, pickup: P.city, dropoff: P.airport, service_local: SERVICE_LOCAL, passengers: 2, luggage: 1 }, ip: nextIp() });
+  const biz = quoted.body.quotes.find((entry: any) => entry.vehicle_group.id === m.ids.biz7);
+  const created = await site.call("POST", "/site/v1/orders", { headers: { "idempotency-key": randomUUID() }, body: { quote_id: biz.quote_id, passenger: PASSENGER, save_payment_method: true, pickup_address: "市区酒店", dropoff_address: "机场" }, ip: nextIp() });
+  assert.equal(created.status, 201, created.text);
+  const orderId = created.body.order.id as string;
+  const intent = pay.intentOf(orderId);
+  assert.ok(intent);
+  pay.pay(intent.id);
+  const raw = pay.event("payment_intent.succeeded", pay.intentObject(intent.id), { created: api.clock.now() });
+  assert.equal((await deliverWebhook(api.app, raw, pay.sign(raw, api.clock.now()))).status, 200);
+  // 报价快照和订单都改成「区域价（市区）+ 含公里数」：用的价格是区域价
+  await api.db.owner.query("update orders set settlement = settlement - 'toAreaId' where id = $1", [orderId]);
+  await api.db.owner.query("update quotes set snapshot = jsonb_set(snapshot, '{winner,offer,settlement}', (snapshot #> '{winner,offer,settlement}') - 'toAreaId') where id = $1", [biz.quote_id]);
+  const area = await tenantCall(m.b, "GET", `/orders/${orderId}`);
+  assertMatchesOpenApi("GET", "/tenant/v1/orders/{id}", area);
+  assert.deepEqual(area.body.pricing_route, { kind: "area", area: { id: p2pB.city, name: { zh: "市区" } }, to_area: null });
+  // 订单上是线路价、快照里不是：不知道上车区域
+  await api.db.owner.query("update orders set settlement = settlement || jsonb_build_object('toAreaId', $2::text) where id = $1", [orderId, p2pB.airport]);
+  const mismatch = await api.call("GET", `/platform/v1/orders/${orderId}`, { token: m.root });
+  assertMatchesOperation("GET", "/platform/v1/orders/{id}", mismatch.status, mismatch.body);
+  assert.deepEqual(mismatch.body.pricing_route, { kind: "route", area: null, to_area: { id: p2pB.airport, name: { zh: "机场周边" } } });
+  // 区域名称取现在的；查不到（被删了）为 null
+  await api.db.owner.query("update orders set settlement = settlement || jsonb_build_object('toAreaId', $2::text) where id = $1", [orderId, randomUUID()]);
+  const gone = await tenantCall(m.b, "GET", `/orders/${orderId}`);
+  assert.equal(gone.body.pricing_route.to_area.name, null);
+  assert.equal((await tenantCall(m.a, "GET", `/orders/${orderId}`)).status, 404, "甲读不到乙的单");
 });
 
 test("改期：含公里数的单按下单时锁定的路线距离重算（路线后来变了也不变），改期后订单上的距离照旧", async () => {
