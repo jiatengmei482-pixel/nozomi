@@ -50,6 +50,7 @@ export const PLATFORM_ACTIONS = [
   "master_data.read",
   "master_data.manage",
   "quote.preview",
+  "demand.read",
   "product.read",
   "fx.manage",
   "fx.review",
@@ -182,13 +183,13 @@ export type TenantAction = (typeof TENANT_ACTIONS)[number];
 const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformAction[]>> = {
   super_admin: PLATFORM_ACTIONS,
   operations: [
-    "tenant.read", "tenant.create", "tenant.edit", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend",
+    "tenant.read", "tenant.create", "tenant.edit", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "demand.read", "product.read", "channel.read", "approval.read", "order.read", "order.resend",
     "order.manage", "order.proxy_fulfilment", "order.proxy_review", "order.change_decide", "order.view_link_resend", "order.view_link_review", "payment.manage", "cancellation_policy.manage", "cancellation_policy.review",
     "rescue.manage", "rescue.review",
     "exception.manage", "ticket.read", "ticket.manage", "ticket.review", "compensation_table.manage", "compensation_table.review", "notification.read", "notification.retry",
   ],
-  tenant_onboarding: ["tenant.read", "tenant.create", "tenant.edit", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read"],
-  channel_manager: ["tenant.read", "master_data.read", "quote.preview", "product.read", "channel.read", "channel.manage", "channel.review", "approval.read"],
+  tenant_onboarding: ["tenant.read", "tenant.create", "tenant.edit", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "demand.read", "product.read", "channel.read", "approval.read"],
+  channel_manager: ["tenant.read", "master_data.read", "quote.preview", "demand.read", "product.read", "channel.read", "channel.manage", "channel.review", "approval.read"],
   customer_service: ["master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend", "order.manage", "order.view_link_resend", "rescue.manage", "exception.manage", "ticket.read", "ticket.manage", "notification.read", "notification.retry"],
   finance: ["master_data.read", "channel.read", "approval.read", "order.read", "order.proxy_review", "payment.manage", "cancellation_policy.review", "exception.manage", "ticket.read", "compensation_table.review", "statement.read", "statement.manage", "statement.review"],
   risk: ["master_data.read", "product.read", "channel.read", "approval.read", "order.read", "ticket.read"],
@@ -326,6 +327,8 @@ export const PLATFORM_MENUS = [
   { key: "tenants", name: "供应商", operations: { view: ["tenant.read"], edit: ["tenant.create", "tenant.edit", "tenant.change_status", "tenant.review"], review: ["tenant.approve"] } },
   { key: "products", name: "供应商商品", operations: { view: ["product.read"] } },
   { key: "quote_preview", name: "报价试算", operations: { view: ["quote.preview"] } },
+  // 未覆盖需求（M8-20，ADR 0075）：单独一格，不并进「报价试算」——已有的自建角色不会因此多出看各供应商运营区域分布的权限
+  { key: "uncovered_demands", name: "未覆盖需求", operations: { view: ["demand.read"] } },
   { key: "channels", name: "渠道", operations: { view: ["channel.read"], edit: ["channel.manage"], review: ["channel.review"] } },
   // 订单中心（M3-02、M3-03）：手动重推、代客人取消、改单、审核事后加收、发起免收取消费算编辑；
   // 重试失败的退款和扣款、审核「多退给客人」的代取消（`payment.manage`，需求「人工退款超过阈值」的复核）算审核

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   actionsOfGrants,
   PLATFORM_ACTIONS,
+  PLATFORM_MENUS,
   PLATFORM_ROLES,
   TENANT_ACTIONS,
   TENANT_ROLES,
@@ -53,7 +54,7 @@ test("平台账号管理和审计日志只有超级管理员能碰", () => {
 
 test("租户管理归招商和运营；只读角色只能看；技术只能看集成状态", () => {
   for (const role of ["operations", "tenant_onboarding"] as const) {
-    assert.deepEqual(platformPermissions(role), ["tenant.read", "tenant.create", "tenant.edit", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", ...(role === "operations" ? ["order.read", "order.resend", "order.manage", "order.proxy_fulfilment", "order.proxy_review", "order.change_decide", "order.view_link_resend", "order.view_link_review", "payment.manage", "cancellation_policy.manage", "cancellation_policy.review", "rescue.manage", "rescue.review", "exception.manage", "ticket.read", "ticket.manage", "ticket.review", "compensation_table.manage", "compensation_table.review", "notification.read", "notification.retry"] : [])]);
+    assert.deepEqual(platformPermissions(role), ["tenant.read", "tenant.create", "tenant.edit", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "demand.read", "product.read", "channel.read", "approval.read", ...(role === "operations" ? ["order.read", "order.resend", "order.manage", "order.proxy_fulfilment", "order.proxy_review", "order.change_decide", "order.view_link_resend", "order.view_link_review", "payment.manage", "cancellation_policy.manage", "cancellation_policy.review", "rescue.manage", "rescue.review", "exception.manage", "ticket.read", "ticket.manage", "ticket.review", "compensation_table.manage", "compensation_table.review", "notification.read", "notification.retry"] : [])]);
   }
   assert.deepEqual(platformPermissions("readonly"), ["tenant.read", "master_data.read", "product.read", "channel.read", "approval.read", "order.read", "ticket.read", "statement.read"]);
   assert.deepEqual(platformPermissions("tech"), ["integration.read", "master_data.read", "channel.read", "approval.read"]);
@@ -65,6 +66,14 @@ test("租户管理归招商和运营；只读角色只能看；技术只能看�
   assert.deepEqual(platformPermissions("customer_service"), ["master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend", "order.manage", "order.view_link_resend", "rescue.manage", "exception.manage", "ticket.read", "ticket.manage", "notification.read", "notification.retry"]);
   for (const role of ["channel_manager", "customer_service"] as const) assert.equal(platformRoleCan(role, "quote.preview"), true);
   for (const role of ["finance", "risk", "master_data", "tech", "readonly"] as const) assert.equal(platformRoleCan(role, "quote.preview"), false);
+});
+
+test("未覆盖需求（M8-20，ADR 0075）：超级管理员、运营、招商、渠道经理能看；客服、财务、风控、主数据运营、技术、只读不能（里面有各供应商的运营区域分布）；单独一个菜单格", () => {
+  const allowed = ["super_admin", "operations", "tenant_onboarding", "channel_manager"];
+  for (const { key } of PLATFORM_ROLES) assert.equal(platformRoleCan(key, "demand.read"), allowed.includes(key), key);
+  const menu = PLATFORM_MENUS.find((entry) => entry.key === "uncovered_demands");
+  assert.deepEqual(menu?.operations, { view: ["demand.read"] });
+  assert.ok(!PLATFORM_MENUS.some((entry) => entry.key !== "uncovered_demands" && Object.values(entry.operations).some((actions) => (actions as readonly string[]).includes("demand.read"))), "不并进别的菜单格");
 });
 
 test("查看供应商的商品（M1-12，ADR 0021）：超级管理员、运营、招商、渠道经理、客服、风控、只读；财务、主数据运营、技术没有。平台没有改租户商品的操作", () => {
