@@ -110,6 +110,23 @@ function SettlementDetail({ candidate, currency }: { candidate: QuoteCandidate; 
       ),
     });
   }
+  // 点对点线路价、含公里数（ADR 0073 第二部分）：超出的钱已含在基础价里；距离是报价时锁定的路线
+  if ((settlement.to_area_id ?? null) !== null) lines.push({ label: "线路价", value: "用的是这条线路（上车区域 → 下车区域，单向）的线路价，不和区域价比低" });
+  const distance = settlement.distance ?? null;
+  if (distance) {
+    const extra = distance.over_km * distance.over_km_per_km;
+    const sell = candidate.over_km_per_km_sell ?? null;
+    lines.push({
+      label: "含公里数",
+      value: (
+        <span className="quote-detail__lines">
+          <span>{`一口价 ${moneyText(settlement.base - extra, own)} + 超出 ${distance.over_km} 公里 × ${moneyText(distance.over_km_per_km, own)} = ${moneyText(settlement.base, own)}（已含在基础价里）`}</span>
+          <span>{`含 ${distance.included_km} 公里，这次路线约 ${kmText(distance.route_meters)} 公里；超出的部分不足 1 公里按 1 公里`}</span>
+          {sell !== null && <span>{`对外价参考：超出每公里 ${moneyText(sell, currency)}（单独换算、取整，已含在对外价里）`}</span>}
+        </span>
+      ),
+    });
+  }
   if (settlement.adjusts.length > 0 || settlement.adjust !== 0) {
     lines.push({
       label: "调价",
