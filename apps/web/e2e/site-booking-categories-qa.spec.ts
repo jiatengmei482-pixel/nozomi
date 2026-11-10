@@ -156,14 +156,14 @@ test("官网点对点、包车（测试角色补充）：长名称的常用地�
   await expect(page).toHaveURL(/\/book\/new\?mode=charter$/);
   await expect(page.getByRole("heading", { name: "你的行程" })).toBeVisible();
 
-  // 包车单的订单页：展开「修改订单」只有上车地址，没有下车地址和航班号
+  // 包车单的订单页：展开「修改订单」有上车地址和下车地址（M8-19，规范 site-booking-v2.md 10.6），没有航班号
   // 包车下车地点必填（M8-15）：下车点也在商品的区域里，不加价
   const charterToken = await placeByApi(request, { category: "charter", city_id: world.city.id, pickup: POINT, dropoff: OTHER, package_hours: 8, service_local: `${tokyoDayAfter(4)}T21:00`, passengers: 2, luggage: 1 }, { pickup_address: LONG_ADDRESS, dropoff_address: "包车下车点" }, { paid: true });
   await page.goto(`/book/order#${charterToken}`);
   await expect(page.getByRole("region", { name: "行程" })).toContainText("8 小时");
   await page.getByRole("button", { name: "修改订单" }).click();
   await expect(page.getByLabel("上车地址或酒店名")).toHaveValue(LONG_ADDRESS);
-  await expect(page.getByLabel("下车地址或酒店名")).toHaveCount(0);
+  await expect(page.getByLabel("下车地址或酒店名")).toHaveValue("包车下车点");
   await expect(page.getByLabel(/^航班号/)).toHaveCount(0);
   await expectNoOverflow(page, "订单页（包车，展开修改）");
   await expectAccessibleBothThemes(page, "订单页（包车，展开修改）");

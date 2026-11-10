@@ -1,6 +1,6 @@
 /**
  * 新预订页的「选择车型」列表（M8-03；规范 site-booking-v2.md 4）：按价格从低到高（接口已排好）、坐不下的接口不返回；
- * 默认电脑 4 个、手机 3 个，下面「显示全部 N 个车型 ▾」。每张卡：车型名、车型标识（M7）、一口价、「选择」；
+ * 默认电脑 4 个、手机 3 个，下面「显示全部 N 个车型 ▾」。每张卡：车型名、车型标识（M7）、一口价（含区域加价时价格下面说一句，不写金额，M8-19）、「选择」；
  * 选中的那张展开车内俯视示意图。选中用 `aria-pressed`，不只靠颜色（按钮文字变「已选择」、卡片加粗描边）。
  */
 import { vehicleLabel } from "@nozomi/domain";
@@ -10,7 +10,7 @@ import { Button } from "../../../components/Button.tsx";
 import { VehicleLabelItems } from "../../../components/VehicleLabelFacts.tsx";
 import { moneyText } from "../../../lib/dispatch-display.ts";
 import { displayName } from "../../../lib/master-display.ts";
-import { packageText } from "../../../lib/site-display.ts";
+import { AREA_SURCHARGE_NOTE, packageText } from "../../../lib/site-display.ts";
 import { SitePrice } from "../SitePrice.tsx";
 import { SeatMap } from "./SeatMap.tsx";
 
@@ -28,6 +28,7 @@ function VehicleCard({ quote, selected, onSelect }: { quote: SiteQuote; selected
           <SitePrice text={moneyText(quote.price.total)} />
         </p>
       </div>
+      {quote.includes_area_surcharge === true && <p className="book-vehicle__note">{AREA_SURCHARGE_NOTE}</p>}
       <dl className="site-facts book-vehicle__facts">
         {quote.package !== null && (
           <div className="site-facts__item">

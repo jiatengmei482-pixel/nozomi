@@ -88,8 +88,8 @@ const addonsOf = (addons: z.output<typeof addonsSchema>): { addonId: string; qua
 
 /**
  * 询价请求：`category` 不填是接送机（M3-05 的请求照旧能用）。各品类要的字段：
- * 接送机 `airport_id` + `direction` + `address`；点对点 `pickup` + `dropoff`；包车 `pickup` + `package_hours`，`dropoff` 可选（M8-15，ADR 0073：
- * 暂时可选，规则同 `/sales/v1`——不给时只报没设区域加价的商品；M8-13 新预订页加了下车地点输入框后改为必填）。
+ * 接送机 `airport_id` + `direction` + `address`；点对点 `pickup` + `dropoff`；包车 `pickup` + `dropoff` + `package_hours`
+ * （下车点 M8-15 暂为可选，M8-19 新预订页加了下车地点输入框后改回必填，ADR 0073；`/sales/v1` 仍可选）。
  * 该给的没给是 `REQUIRED`，不该给的给了是 `NOT_APPLICABLE`（和 `/sales/v1` 同一种说法），见 `siteTripOf`。
  */
 const quoteSchema = z
@@ -115,10 +115,8 @@ type TripField = "airport_id" | "direction" | "address" | "pickup" | "dropoff" |
 const TRIP_FIELDS: Readonly<Record<QuoteBody["category"], readonly TripField[]>> = {
   airport_transfer: ["airport_id", "direction", "address"],
   point_to_point: ["pickup", "dropoff"],
-  charter: ["pickup", "package_hours"],
+  charter: ["pickup", "dropoff", "package_hours"],
 };
-/** 可给可不给的字段：包车的下车点（M8-15 暂为可选，M8-13 改为必填） */
-const OPTIONAL_TRIP_FIELDS: Readonly<Record<QuoteBody["category"], readonly TripField[]>> = { airport_transfer: [], point_to_point: [], charter: ["dropoff"] };
 const TRIP_FIELD_NAMES: Readonly<Record<TripField, string>> = { airport_id: "机场", direction: "接机还是送机", address: "地址那一端的坐标", pickup: "上车点的坐标", dropoff: "下车点的坐标", package_hours: "包车套餐时长" };
 const CATEGORY_NAMES: Readonly<Record<QuoteBody["category"], string>> = { airport_transfer: "接送机", point_to_point: "点对点", charter: "包车" };
 
@@ -129,7 +127,7 @@ export function siteTripOf(body: QuoteBody): SiteTrip {
   for (const field of Object.keys(TRIP_FIELD_NAMES) as TripField[]) {
     const given = body[field] !== undefined;
     if (needed.includes(field) && !given) issues.push({ path: `/${field}`, reason: "REQUIRED", message: `${CATEGORY_NAMES[body.category]}要填${TRIP_FIELD_NAMES[field]}` });
-    if (!needed.includes(field) && !OPTIONAL_TRIP_FIELDS[body.category].includes(field) && given) issues.push({ path: `/${field}`, reason: "NOT_APPLICABLE", message: `${CATEGORY_NAMES[body.category]}不用填${TRIP_FIELD_NAMES[field]}（请删掉）` });
+    if (!needed.includes(field) && given) issues.push({ path: `/${field}`, reason: "NOT_APPLICABLE", message: `${CATEGORY_NAMES[body.category]}不用填${TRIP_FIELD_NAMES[field]}（请删掉）` });
   }
   if (issues.length > 0) throw validationFailed("body", issues);
   const { airport_id: airportId, direction, address, pickup, dropoff, package_hours: packageHours } = body;
@@ -139,7 +137,7 @@ export function siteTripOf(body: QuoteBody): SiteTrip {
     case "point_to_point":
       return { category: "point_to_point", pickup: pickup as { lng: number; lat: number }, dropoff: dropoff as { lng: number; lat: number } };
     case "charter":
-      return { category: "charter", pickup: pickup as { lng: number; lat: number }, dropoff: dropoff ?? null, packageHours: packageHours as number };
+      return { category: "charter", pickup: pickup as { lng: number; lat: number }, dropoff: dropoff as { lng: number; lat: number }, packageHours: packageHours as number };
   }
 }
 
