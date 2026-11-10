@@ -3124,18 +3124,18 @@ p.stock-day__status.stock-cell--sold_out {
   font-size: var(--font-size-sm);
 }
 
-.surcharge-table caption,
-.surcharge-table thead {
+.surcharge-table > caption,
+.surcharge-table > thead {
   display: none;
 }
 
-.surcharge-table tbody {
+.surcharge-table > tbody {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
 }
 
-.surcharge-table tr {
+.surcharge-table > tbody > tr {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-1) var(--space-3);
@@ -3146,8 +3146,8 @@ p.stock-day__status.stock-cell--sold_out {
   background: var(--color-bg-surface);
 }
 
-.surcharge-table th,
-.surcharge-table td {
+.surcharge-table > tbody > tr > th,
+.surcharge-table > tbody > tr > td {
   display: block;
   min-width: 0;
   padding: 0;
@@ -3156,18 +3156,18 @@ p.stock-day__status.stock-cell--sold_out {
   overflow-wrap: anywhere;
 }
 
-.surcharge-table tbody th {
+.surcharge-table > tbody > tr > th {
   grid-column: 1 / -1;
 }
 
-.surcharge-table td.price-table__number::before {
+.surcharge-table > tbody > tr > td.price-table__number::before {
   content: attr(data-label) " ";
   color: var(--color-text-secondary);
 }
 
-.surcharge-table .surcharge-table__own-note,
-.surcharge-table .surcharge-table__actions,
-.surcharge-table .surcharge-table__detail > td {
+.surcharge-table > tbody > tr > .surcharge-table__own-note,
+.surcharge-table > tbody > tr > .surcharge-table__actions,
+.surcharge-table > tbody > .surcharge-table__detail > td {
   grid-column: 1 / -1;
 }
 
@@ -3175,13 +3175,13 @@ p.stock-day__status.stock-cell--sold_out {
   color: var(--color-text-secondary);
 }
 
-.surcharge-table td.surcharge-table__actions {
+.surcharge-table > tbody > tr > td.surcharge-table__actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1) var(--space-3);
 }
 
-.surcharge-table tr.surcharge-table__area--unsaved {
+.surcharge-table > tbody > tr.surcharge-table__area--unsaved {
   border-left-color: var(--color-primary);
 }
 
@@ -3190,7 +3190,7 @@ p.stock-day__status.stock-cell--sold_out {
   text-decoration: line-through;
 }
 
-.surcharge-table tr.surcharge-table__detail {
+.surcharge-table > tbody > tr.surcharge-table__detail {
   padding: 0;
   border: 0;
   background: transparent;
@@ -3240,9 +3240,9 @@ p.stock-day__status.stock-cell--sold_out {
   gap: var(--space-1) var(--space-2);
 }
 
-.surcharge-table tbody th > .price-state,
-.surcharge-table tbody th > .surcharge-sum__missing,
-.surcharge-table tbody th > .surcharge-sum__note {
+.surcharge-table > tbody > tr > th > .price-state,
+.surcharge-table > tbody > tr > th > .surcharge-sum__missing,
+.surcharge-table > tbody > tr > th > .surcharge-sum__note {
   display: flex;
   margin-top: var(--space-0-5);
 }
@@ -3377,21 +3377,33 @@ p.stock-day__status.stock-cell--sold_out {
     margin-left: auto;
   }
 
+  /* 固定列宽：展开的明细表在自己的容器里横向滚动，不把外面这张表撑宽 */
   .surcharge-table {
     display: table;
+    table-layout: fixed;
     border: var(--border-width) solid var(--color-border-default);
     border-radius: var(--radius-lg);
   }
 
-  .surcharge-table thead {
+  .surcharge-table > thead > tr > th:nth-child(2),
+  .surcharge-table > thead > tr > th:nth-child(3) {
+    width: 144px;
+  }
+
+  .surcharge-table > thead > tr > th:nth-child(4) {
+    width: 208px;
+  }
+
+  .surcharge-table > thead {
     display: table-header-group;
   }
 
-  .surcharge-table tbody {
+  .surcharge-table > tbody {
     display: table-row-group;
   }
 
-  .surcharge-table tr {
+  .surcharge-table > thead > tr,
+  .surcharge-table > tbody > tr {
     display: table-row;
     padding: 0;
     border: 0;
@@ -3399,14 +3411,15 @@ p.stock-day__status.stock-cell--sold_out {
     border-left: var(--focus-ring-width) solid transparent;
   }
 
-  .surcharge-table th,
-  .surcharge-table td {
+  .surcharge-table > thead > tr > th,
+  .surcharge-table > tbody > tr > th,
+  .surcharge-table > tbody > tr > td {
     display: table-cell;
     padding: var(--space-2) var(--space-3);
     vertical-align: top;
   }
 
-  .surcharge-table thead th {
+  .surcharge-table > thead > tr > th {
     border-bottom: var(--border-width) solid var(--color-border-strong);
     background: var(--color-bg-subtle);
     color: var(--color-text-secondary);
@@ -3414,11 +3427,12 @@ p.stock-day__status.stock-cell--sold_out {
     font-weight: var(--font-weight-medium);
   }
 
-  .surcharge-table .price-table__number {
+  .surcharge-table > tbody > tr > .price-table__number,
+  .surcharge-table > thead > tr > .price-table__number {
     text-align: right;
   }
 
-  .surcharge-table td.price-table__number::before {
+  .surcharge-table > tbody > tr > td.price-table__number::before {
     content: none;
   }
 
@@ -3426,12 +3440,12 @@ p.stock-day__status.stock-cell--sold_out {
     align-items: flex-end;
   }
 
-  .surcharge-table td.surcharge-table__actions {
+  .surcharge-table > tbody > tr > td.surcharge-table__actions {
     display: table-cell;
     white-space: nowrap;
   }
 
-  .surcharge-table__detail > td {
+  .surcharge-table > tbody > .surcharge-table__detail > td {
     padding: 0 var(--space-3) var(--space-3);
   }
 }

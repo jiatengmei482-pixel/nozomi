@@ -877,5 +877,5 @@ test("M8-12a 报价试算的包车区域加价：明细里写出套餐价 + 上�
   const groupCard = (await screen.findByRole("heading", { level: 3, name: "商务七座" })).closest("section") as HTMLElement;
   await user().click(within(groupCard).getByRole("button", { name: "看 NOZOMI 自营车队 的结算价明细" }));
   const detail = groupCard.querySelector(".quote-detail")?.textContent ?? "";
-  for (const part of ["区域加价套餐价 JPY 20,000 + 上车加价 JPY 0 + 下车加价 JPY 1,000（已含在基础价里）", "上车点在商品的服务区域，不加价；下车加价 JPY 1,000", "对外价参考：上车加价 JPY 0，下车加价 JPY 1,100"]) assert.ok(detail.includes(part), `明细应有「${part}」：${detail}`);
+  for (const part of ["区域加价套餐价 JPY 20,000 + 上车加价 JPY 0 + 下车加价 JPY 1,000（已含在基础价里）", "上车点在商品的服务区域里，不加价", "对外价参考：上车加价 JPY 0，下车加价 JPY 1,100"]) assert.ok(detail.includes(part), `明细应有「${part}」：${detail}`);
 });

@@ -860,7 +860,7 @@ export function AreaSurchargeBlock(props: {
               onChange={(next) => setDraft({ ...draft, packages: next.map(Number) })}
             />
             {draft.mode === "edit" && planFill(rows, { areaId: draft.areaId, groupIds: draft.groups, packages: draft.packages, existing: "overwrite" }, today).overwrite > 0 && (
-              <fieldset className="field">
+              <fieldset className="field surcharge-dialog__checks">
                 <legend className="field__label">已经填了的组合</legend>
                 <label className="choice">
                   <input type="radio" name="surcharge-existing" checked={draft.existing === "overwrite"} onChange={() => setDraft({ ...draft, existing: "overwrite" })} />

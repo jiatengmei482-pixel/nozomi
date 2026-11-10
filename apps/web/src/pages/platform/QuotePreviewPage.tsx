@@ -97,14 +97,14 @@ function SettlementDetail({ candidate, currency }: { candidate: QuoteCandidate; 
   // 包车区域加价（ADR 0073 第三部分）：基础价 = 套餐价 + 上车加价 + 下车加价，调价作用在合计上
   const surcharge = settlement.area_surcharge ?? null;
   if (surcharge) {
-    const end = (name: "上车" | "下车", part: { area_id: string | null; amount: number }): string => (part.area_id === null ? `${name}点在商品的服务区域，不加价` : `${name}加价 ${moneyText(part.amount, own)}`);
+    const inOwnArea = [surcharge.pickup.area_id === null ? "上车点" : null, surcharge.dropoff.area_id === null ? "下车点" : null].filter((end): end is string => end !== null);
     const sell = candidate.area_surcharge_sell ?? null;
     lines.push({
       label: "区域加价",
       value: (
         <span className="quote-detail__lines">
           <span>{`套餐价 ${moneyText(surcharge.package, own)} + 上车加价 ${moneyText(surcharge.pickup.amount, own)} + 下车加价 ${moneyText(surcharge.dropoff.amount, own)}（已含在基础价里）`}</span>
-          <span>{`${end("上车", surcharge.pickup)}；${end("下车", surcharge.dropoff)}`}</span>
+          {inOwnArea.length > 0 && <span>{`${inOwnArea.join("、")}在商品的服务区域里，不加价`}</span>}
           {sell && <span>{`对外价参考：上车加价 ${moneyText(sell.pickup, currency)}，下车加价 ${moneyText(sell.dropoff, currency)}（单独换算、取整，已含在对外价里）`}</span>}
         </span>
       ),
