@@ -177,6 +177,12 @@ export class PassengerCrypto {
     return this.index(MANUAL_QUOTE_OWNER, kind, value);
   }
 
+  /** 人工报价申请的去重键：联系方式的盲索引加行程要点算出的 HMAC，不能反推出内容。 */
+  manualQuoteFingerprint(text: string): string {
+    if (this.box === null) throw passengerEncryptionNotConfigured();
+    return `${this.kid}:${this.box.mac("passenger-index", JSON.stringify([MANUAL_QUOTE_OWNER, "dedup", text]))}`;
+  }
+
   /** `--verify` 用：这段密文能不能用当前密钥解开，解开是什么。解不开返回 null，不报警。 */
   openForVerify(kind: SealKind, tenantId: string, id: string, enc: string): string | null {
     if (this.box === null) return null;
