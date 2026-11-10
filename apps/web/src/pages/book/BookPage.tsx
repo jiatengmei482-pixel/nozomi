@@ -183,7 +183,7 @@ function QuoteCard({ quote, draft, onChoose }: { quote: SiteQuote; draft: Bookin
         )}
         <VehicleLabelItems group={group} itemClassName="site-facts__item" />
         {kmNote !== null && (
-          <div className="site-facts__item">
+          <div className="site-facts__item site-facts__item--wide">
             <dt>公里数</dt>
             <dd>{kmNote}</dd>
           </div>

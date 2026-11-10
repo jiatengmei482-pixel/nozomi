@@ -40,7 +40,7 @@ function VehicleCard({ quote, selected, onSelect }: { quote: SiteQuote; selected
         )}
         <VehicleLabelItems group={group} itemClassName="site-facts__item" luggageBasis />
         {kmNote !== null && (
-          <div className="site-facts__item">
+          <div className="site-facts__item site-facts__item--wide">
             <dt>公里数</dt>
             <dd>{kmNote}</dd>
           </div>

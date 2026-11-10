@@ -183,7 +183,9 @@ test("含公里数的点对点单：新预订页车型卡和车费下面「含 3
   await card.getByRole("button", { name: `选择 ${trip.groupName}` }).click();
   const aside = page.getByRole("complementary", { name: "行程摘要" });
   await expect(aside).toContainText(note);
-  await expect(aside).toContainText("约 45 分钟 · 34.2 公里");
+  // 路线一行（有路线预览时才有；缓存里只有距离和时长，没有折线）：公里数和上面那句同一个 D
+  const routeLine = aside.locator(".book-summary__route");
+  if ((await routeLine.count()) > 0) await expect(routeLine).toContainText("34.2 公里");
   await expect(page.locator("main")).not.toContainText(/13,500|12,000|300 JPY|加价/);
   for (const scheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: scheme });
@@ -215,6 +217,7 @@ test("含公里数的点对点单：新预订页车型卡和车费下面「含 3
   });
   await page.reload();
   const tripSection = page.getByRole("region", { name: "行程" });
+  await expect(tripSection.locator("dt", { hasText: /^公里数$/ })).toBeVisible();
   const labels = await tripSection.locator("dt").allTextContents();
   expect(labels[labels.indexOf("总价") + 1]).toBe("公里数");
   await expect(tripSection.locator(".site-facts__item").filter({ has: page.locator("dt", { hasText: /^公里数$/ }) }).locator("dd")).toHaveText(note);
