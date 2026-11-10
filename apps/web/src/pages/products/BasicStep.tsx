@@ -29,6 +29,7 @@ import { useTenantCan } from "../../lib/use-master-access.ts";
 import { BrandDialog } from "./BrandDialog.tsx";
 import { type StepController, StepShell } from "./StepShell.tsx";
 import { type ProductFrame, type StepProblem, stepMissing } from "./frame.ts";
+import { AreaMapButton } from "../areas/AreaMapDialog.tsx";
 
 const CATEGORY_OPTIONS: readonly { value: ServiceCategory; label: string; hint: string }[] = [
   { value: "airport_transfer", label: PRODUCT_CATEGORY_NAMES.airport_transfer, hint: "机场或车站 ↔ 市内，分接和送。一个商品对应一个机场或车站。" },
@@ -700,6 +701,12 @@ export function BasicStep({ frame }: { frame: ProductFrame }) {
                             );
                           })}
                         </ol>
+                      )}
+                      {/* 选了的区域在地图上看覆盖范围和重叠（M8-18） */}
+                      {canReadAreas && !onPlatform && areas.length > 0 && (
+                        <div className="picked__map">
+                          <AreaMapButton areaIds={areas.map((area) => area.id)} />
+                        </div>
                       )}
                     </>
                   )}

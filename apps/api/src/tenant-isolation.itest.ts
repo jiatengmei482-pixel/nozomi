@@ -584,6 +584,27 @@ test("GET /tenant/v1/areas/{id}：别的供应商的区域是 404，和根本不
   assert.equal((await api.call("GET", `/tenant/v1/areas/${areas.a.id}`, { token: a.adminToken })).body.id, areas.a.id);
 });
 
+test("GET /tenant/v1/area-map：只有自己的区域和图形、自己的修改人；带对方的城市也翻不出对方的；查询串里的 tenant_id 直接 400", async () => {
+  cover("GET /tenant/v1/area-map");
+  const areas = await seedAreas();
+  for (const query of ["", `?city_id=${areas.cityId}`, "?status=all"]) {
+    const res = await api.call("GET", `/tenant/v1/area-map${query}`, { token: a.adminToken });
+    assert.equal(res.status, 200, res.text);
+    assert.ok(res.body.items.some((item: any) => item.id === areas.a.id), query);
+    assert.ok(res.body.items.every((item: any) => item.city_id !== undefined && item.id !== areas.b.id), query);
+    assert.ok(!res.text.includes(areas.b.id) && !res.text.includes(b.tenantId) && !res.text.includes(areas.b.polygons[0].id), `${query}：没有乙的区域、图形、供应商编号`);
+    assert.ok(!res.text.includes("@b.test"), `${query}：没有乙的账号`);
+  }
+  const mine = (await api.call("GET", "/tenant/v1/area-map", { token: a.adminToken })).body.items.find((item: any) => item.id === areas.a.id);
+  assert.deepEqual(mine.polygons.map((polygon: any) => polygon.id), areas.a.polygons.map((polygon: any) => polygon.id));
+  assert.equal(mine.last_editor.type, "tenant_user");
+  const theirs = await api.call("GET", "/tenant/v1/area-map", { token: b.adminToken });
+  assert.ok(theirs.body.items.some((item: any) => item.id === areas.b.id) && !theirs.text.includes(areas.a.id), "乙那边同样只有乙的");
+  const smuggled = await api.call("GET", `/tenant/v1/area-map?tenant_id=${b.tenantId}`, { token: a.adminToken });
+  assert.equal(smuggled.status, 400);
+  assert.ok(!smuggled.text.includes(areas.b.id));
+});
+
 test("PUT /tenant/v1/areas/{id}：改不了别的供应商的区域（404，对方的数据原样不动）；也不能把别人的图形编号塞进自己的区域", async () => {
   cover("PUT /tenant/v1/areas/:id");
   const areas = await seedAreas();

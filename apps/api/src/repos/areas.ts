@@ -57,7 +57,7 @@ type Row = Record<string, any>;
 
 const AREA_COLUMNS = "id, city_id, name, biz_type, status, version, created_at, updated_at";
 
-function toArea(row: Row): Area {
+export function toArea(row: Row): Area {
   return {
     id: row["id"],
     cityId: row["city_id"],
@@ -182,21 +182,24 @@ export async function listAreaPolygons(db: Db, tenantId: string, areaId: string)
       order by position`,
     [tenantId, areaId],
   );
-  return result.rows.map((row) => {
-    const closed = (row["geometry"] as GeoJsonPolygon).coordinates[0] ?? [];
-    return {
-      id: row["id"],
-      kind: row["kind"],
-      seq: row["seq"],
-      label: row["label"],
-      source: row["source"],
-      circle:
-        row["circle_radius_m"] === null
-          ? null
-          : { center: { lat: Number(row["circle_center_lat"]), lng: Number(row["circle_center_lng"]) }, radiusM: row["circle_radius_m"] },
-      ring: closed.slice(0, -1),
-    };
-  });
+  return result.rows.map(toAreaPolygon);
+}
+
+/** 图形表的一行 → 一块图形（`listAreaPolygons` 和区域地图 `repos/area-map.ts` 共用）。 */
+export function toAreaPolygon(row: Row): AreaPolygon {
+  const closed = (row["geometry"] as GeoJsonPolygon).coordinates[0] ?? [];
+  return {
+    id: row["id"],
+    kind: row["kind"],
+    seq: row["seq"],
+    label: row["label"],
+    source: row["source"],
+    circle:
+      row["circle_radius_m"] === null
+        ? null
+        : { center: { lat: Number(row["circle_center_lat"]), lng: Number(row["circle_center_lng"]) }, radiusM: row["circle_radius_m"] },
+    ring: closed.slice(0, -1),
+  };
 }
 
 /** 要保存的一块图形；`id` 为 null 时由数据库生成。 */

@@ -2,6 +2,9 @@
  * /tenant/v1 的区域接口（M1-02），外加供应商后台的底图配置和首页数量。这里只做鉴权、校验字段的类型和长度、调用、返回；
  * 图形的规则在 @nozomi/domain，流程在 services/areas.ts。
  *
+ * 区域地图（M8-18，ADR 0074）：`GET /tenant/v1/area-map`（本租户的区域连同全部图形、最近修改人）；运营后台只读的
+ * `GET /platform/v1/area-map`（`product.read`，按供应商、城市筛）和 `GET /platform/v1/map/config`（任何已登录的平台员工）。
+ *
  * 租户编号只来自令牌（`principal.tenantId`）：这里没有任何地方从请求参数或请求体读 tenant_id，校验结构里也没有这个字段。
  * 规则 4：返回里没有对外价和加价比例（区域本来也不涉及价格）。
  */
@@ -15,17 +18,22 @@ import { decodeTimeCursor } from "../pagination.ts";
 import type { AreaPolygon } from "../repos/areas.ts";
 import {
   type AreaPolygonInput,
+  type AreaMapView,
   type AreaView,
+  type PlatformAreaMapView,
   areaCounts,
   checkAreaPoint,
   createArea,
   deleteArea,
   getArea,
   listAreas,
+  platformAreaMap,
   setAreaStatus,
+  tenantAreaMap,
   updateArea,
 } from "../services/areas.ts";
 import { productCounts } from "../services/products.ts";
+import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import { type TenantPrincipal, authenticateTenant } from "../services/tenant-auth.ts";
 import { idempotencyKey, ifMatchVersion, pageQuerySchema, parseInput, resourceId, uuidSchema } from "../validation.ts";
 import { localized, visibleText } from "./master-data.ts";
@@ -102,6 +110,24 @@ export function areaJson(view: AreaView): Json {
     updated_at: area.updatedAt.toISOString(),
     ...(view.polygons === null ? {} : { polygons: view.polygons.map(polygonJson) }),
   };
+}
+
+const areaMapQuerySchema = z.object({
+  city_id: uuidSchema.optional(),
+  status: z.enum(["active", "disabled", "all"]).default("all"),
+});
+/** 供应商的区域地图不认识的参数一律 400：尤其是 `tenant_id`，租户编号只来自令牌。 */
+const tenantAreaMapQuerySchema = areaMapQuerySchema.strict();
+const platformAreaMapQuerySchema = areaMapQuerySchema.extend({ tenant_id: uuidSchema.optional() });
+
+/** 区域地图的一项：区域详情（带全部图形）+ 最近一次是谁改的。 */
+export function areaMapItemJson(view: AreaMapView): Json {
+  const editor = view.lastEditor;
+  return { ...areaJson(view), last_editor: editor === null ? null : { type: editor.type, name: editor.name, at: editor.at.toISOString() } };
+}
+
+function platformAreaMapItemJson(view: PlatformAreaMapView): Json {
+  return { ...areaMapItemJson(view), tenant_id: view.tenant?.id ?? null, tenant: view.tenant };
 }
 
 /** 底图配置的应答：没有配置时 `tiles` 是 null。 */
@@ -189,6 +215,26 @@ export function registerAreaRoutes(app: FastifyInstance, ctx: AppContext): void 
     const point = parseInput(pointSchema, request.body, "body");
     const location = await checkAreaPoint(ctx, principal.tenantId, id, point);
     return { result: location.result, operate_polygon_ids: location.operatePolygonIds, forbid_polygon_ids: location.forbidPolygonIds };
+  });
+
+  app.get("/tenant/v1/area-map", async (request) => {
+    const principal = await authenticate(request, "area.read");
+    const query = parseInput(tenantAreaMapQuerySchema, request.query, "querystring");
+    const found = await tenantAreaMap(ctx, principal.tenantId, { cityId: query.city_id?.toLowerCase(), status: query.status === "all" ? undefined : query.status });
+    return { items: found.items.map(areaMapItemJson), truncated: found.truncated };
+  });
+
+  // 运营后台只读看全部供应商的区域：和看商品同一个权限（区域是商品配置的一部分）
+  app.get("/platform/v1/area-map", async (request) => {
+    await authenticatePlatform(ctx, platformCredentials(request), { action: "product.read" });
+    const query = parseInput(platformAreaMapQuerySchema, request.query, "querystring");
+    const found = await platformAreaMap(ctx, { tenantId: query.tenant_id?.toLowerCase(), cityId: query.city_id?.toLowerCase(), status: query.status === "all" ? undefined : query.status });
+    return { items: found.items.map(platformAreaMapItemJson), truncated: found.truncated };
+  });
+
+  app.get("/platform/v1/map/config", async (request) => {
+    await authenticatePlatform(ctx, platformCredentials(request));
+    return mapConfigJson(ctx.config.mapTiles);
   });
 
   // 底图配置：任何已登录的供应商账号都能取。值来自环境配置（packages/config），不是密钥——本来就是要发给浏览器用的。
