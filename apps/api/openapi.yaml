@@ -1484,6 +1484,7 @@ paths:
         需要操作 `tenant.change_status`。至少 1 个商品通过上架校验、完成了一次测试单（`test_order_note` 写测试单的情况，必填）、资质仍然有效，
         否则 409 `TENANT_CONDITIONS_UNMET`（`NO_PUBLISHABLE_PRODUCT`、`DOCUMENTS_INVALID`）。试运营：可以上架、参与比价，每日订单上限 10 单；
         满 30 天且完成 ≥ 20 单、无重大投诉后由每日检查自动转正式。
+        QA 测试供应商（`is_test_tenant`，ADR 0077）永远不能开始试运营：409 `TEST_TENANT_NOT_FOR_SALE`（签约以前的每一步照常可以做）。
       security:
         - platformToken: []
       parameters:
@@ -16216,7 +16217,8 @@ components:
       description: |
         `TENANT_STATE_INVALID`：供应商现在的状态不能做这一步（`details.status`）；`TENANT_CONDITIONS_UNMET`：条件还不满足（`details.issues[]`：`path`、`reason`，如
         `DOCUMENT_MISSING`、`DOCUMENT_NOT_APPROVED`、`DOCUMENT_EXPIRED`、`DOCUMENT_NEEDS_RESUBMISSION`、`CONTRACT_NOT_EFFECTIVE`、`NO_PUBLISHABLE_PRODUCT`、`DOCUMENTS_INVALID`、`REQUIRED`）；
-        `DOCUMENTS_INVALID`：有必交资质过期或没通过，不能人工恢复；`TENANT_HAS_OPEN_ORDERS`：还有没履约完的订单（`details.open_orders`）；`TENANT_TERMINATED`：已清退
+        `DOCUMENTS_INVALID`：有必交资质过期或没通过，不能人工恢复；`TENANT_HAS_OPEN_ORDERS`：还有没履约完的订单（`details.open_orders`）；`TENANT_TERMINATED`：已清退；
+        `TEST_TENANT_NOT_FOR_SALE`：QA 测试供应商（ADR 0077）不能进入试运营、正式、暂停（`details.status`、`details.to`）
       content:
         application/json:
           schema:
@@ -19451,7 +19453,7 @@ components:
     Tenant:
       type: object
       additionalProperties: false
-      required: [ id, name, status, suspended_from, suspension_reasons, suspended_at, observation_reasons, observation_since, signed_at, trial_started_at, activated_at, terminated_at, score, version, created_at, updated_at ]
+      required: [ id, name, status, suspended_from, suspension_reasons, suspended_at, observation_reasons, observation_since, signed_at, trial_started_at, activated_at, terminated_at, score, is_test_tenant, version, created_at, updated_at ]
       properties:
         id:
           type: string
@@ -19523,6 +19525,9 @@ components:
             score_on:
               type: [ string, "null" ]
               format: date
+        is_test_tenant:
+          type: boolean
+          description: 测试环境专用的 QA 测试供应商（ADR 0077，只由 `pnpm qa:tenant-ensure` 建）。永远停在申请中、审核中、已签约或已清退：商品不能上架、不参与官网和销售端比价；运营后台显示「测试」标记
         version:
           type: integer
           minimum: 1

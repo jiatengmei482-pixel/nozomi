@@ -7,6 +7,7 @@ import {
   TENANT_RULES,
   TENANT_STATUSES,
   TENANT_TRIGGERS,
+  TEST_TENANT_STATUSES,
   cleanFileName,
   computeTenantScore,
   contractIssues,
@@ -18,6 +19,7 @@ import {
   effectiveContract,
   evaluateTenantStanding,
   expiryReminderDue,
+  testTenantStatusAllowed,
   requiredDocumentsExpired,
   noShowWindowStart,
   requiredDocumentTypes,
@@ -346,4 +348,14 @@ test("资质：必交资质有过期的自动暂停；暂停原因只有它、�
   assert.deepEqual(evaluateTenantStanding(standing({ status: "suspended", suspensionReasons: ["document_expired"], documentsValid: false })), { observation: [], suspend: [], clearDocumentExpired: false });
   assert.deepEqual(evaluateTenantStanding(standing({ status: "suspended", suspensionReasons: ["document_expired", "manual"], documentsValid: true })).clearDocumentExpired, true);
   assert.equal(evaluateTenantStanding(standing({ status: "suspended", suspensionReasons: ["manual"], documentsValid: true })).clearDocumentExpired, false);
+});
+
+test("QA 测试供应商（ADR 0077）能处在的状态：没有一种能上架或参与比价；能上架、能比价的状态它都进不去", () => {
+  for (const status of TENANT_STATUSES) {
+    const allowed = testTenantStatusAllowed(status);
+    assert.equal(allowed, TEST_TENANT_STATUSES.includes(status), status);
+    if (allowed) assert.ok(!tenantCanPublish(status) && !tenantBids(status), `${status} 能上架或比价`);
+    if (tenantCanPublish(status) || tenantBids(status)) assert.equal(allowed, false, status);
+  }
+  assert.deepEqual([...TEST_TENANT_STATUSES], ["applying", "reviewing", "signed", "terminated"]);
 });

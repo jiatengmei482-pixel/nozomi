@@ -184,5 +184,6 @@ export const TENANT_EXTRAS: Omit<Tenant, "id" | "name" | "status" | "created_at"
   activated_at: null,
   terminated_at: null,
   score: { score_centi: null, raw_score_centi: null, completed_orders: 0, no_shows: 0, score_on: null },
+  is_test_tenant: false,
   version: 1,
 };

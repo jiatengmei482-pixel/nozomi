@@ -87,6 +87,16 @@ export function tenantCanPublish(status: TenantStatus): boolean {
   return status === "trial" || status === "active" || status === "suspended";
 }
 
+/**
+ * 测试环境专用的 QA 测试供应商（ADR 0077）能处在的状态：申请中、审核中、已签约、已清退——都不能上架、不参与比价。
+ * 和迁移 0300 的检查约束 `tenants_test_tenant_never_sells` 是同一份清单。
+ */
+export const TEST_TENANT_STATUSES: readonly TenantStatus[] = ["applying", "reviewing", "signed", "terminated"];
+
+export function testTenantStatusAllowed(status: TenantStatus): boolean {
+  return TEST_TENANT_STATUSES.includes(status);
+}
+
 /** 已清退：「只能查看历史和账单」，所有修改都拒绝。 */
 export function tenantReadOnly(status: TenantStatus): boolean {
   return status === "terminated";
