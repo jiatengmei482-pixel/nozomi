@@ -355,7 +355,7 @@ export function CopyRouteDialog(props: {
           </fieldset>
           <p role="status" className="surcharge-dialog__result">
             {plan ? copyPlanText(plan) : ""}
-            {plan !== null && plan.added.length === 0 && issues.target === undefined && " 没有可以填的。"}
+            {plan !== null && plan.added.length === 0 && issues.target === undefined && "没有可以填的线路价。"}
           </p>
           {overLimit && <p className="field__error">{`加上还没保存的 ${props.pending} 条超过了一次最多保存的 ${PRICE_LIMITS.maxBatchChanges} 条。请先保存。`}</p>}
         </div>

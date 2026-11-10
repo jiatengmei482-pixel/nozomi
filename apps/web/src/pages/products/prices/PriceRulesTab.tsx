@@ -659,12 +659,12 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                   <span className="route-group__meta">
                     <span>返程：</span>
                     {hasBack ? (
-                      <button type="button" className="link" title="两个方向是两组独立的价格" aria-label={`返程：有，到「${routeName(back)}」那一组`} onClick={() => {
+                      <Button size="sm" variant="text" title="两个方向是两组独立的价格" aria-label={`返程：有，到「${routeName(back)}」那一组`} onClick={() => {
                           const first = routeRows.find((entry) => entry.areaId === back.from && entry.toAreaId === back.to);
                           if (first) focusAnchor(`price-row-${first.key}`);
                         }}>
                         有
-                      </button>
+                      </Button>
                     ) : (
                       <span>没有</span>
                     )}

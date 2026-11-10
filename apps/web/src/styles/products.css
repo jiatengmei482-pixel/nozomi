@@ -3507,7 +3507,8 @@ p.stock-day__status.stock-cell--sold_out {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-1) var(--space-3);
-  max-width: min(100%, calc(100vw - var(--space-8) * 2));
+  /* 窄屏：表在自己的容器里横向滚动，组标题吸在左边、折行，不超出看得见的那一截 */
+  max-width: 16rem;
 }
 
 .route-group__name {
@@ -3579,4 +3580,13 @@ p.stock-day__status.stock-cell--sold_out {
   .route-pick__add {
     width: auto;
   }
+
+  .route-group__head {
+    max-width: none;
+  }
+}
+
+.route-dialog .surcharge-dialog__currency {
+  flex: none;
+  white-space: nowrap;
 }

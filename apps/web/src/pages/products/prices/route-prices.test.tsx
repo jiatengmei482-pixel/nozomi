@@ -303,3 +303,31 @@ test("只读角色看得到线路价、不能添加和复制", async () => {
   assert.match(readonly.textContent ?? "", /东京 23 区 → 成田周边/);
   assertNoRetailWords();
 });
+
+test("价格日历选「下车区域」：按这条线路取日历（to_area_id），写明用的是线路价还是退回区域价；设了含公里数的写「起」并说明", async () => {
+  const actor = user();
+  const days = (query: URLSearchParams, route: boolean | null) => {
+    const list = [];
+    for (let day = 1; day <= 30; day += 1) {
+      const date = `2026-11-${String(day).padStart(2, "0")}`;
+      if (date < (query.get("from") ?? "") || date > (query.get("to") ?? "")) continue;
+      list.push({ date, weekday: (day + 6) % 7, holiday: null, price_rule: route ? { id: ROUTE_ID, pricing_model: "fixed" as const, to_area_id: NARITA, direction: null, valid_from: "2026-11-01", valid_to: null } : { id: "a0c", pricing_model: "fixed" as const, to_area_id: null, direction: null, valid_from: "2026-11-01", valid_to: null }, route_rule: route, segments: [{ from: "00:00", to: "24:00", final: route ? 18000 : 9000, no_price_reason: null, base: route ? "18000" : "9000", unrounded: route ? "18000" : "9000", adjusts: [] }] });
+    }
+    return list;
+  };
+  const calls = open("admin", pricesOf([...AREA_RULES, routePrice()]), (call) => {
+    if (call.method !== "GET" || call.url.pathname !== `${BASE}/price-calendar`) return null;
+    const list = days(call.url.searchParams, call.url.searchParams.get("to_area_id") === null ? null : true);
+    return json(200, { version: 7, currency: "JPY", rounding_unit: 1, today: TODAY, days: list, groups: [{ vehicle_group_id: call.url.searchParams.get("vehicle_group_id") ?? "", days: list }] });
+  });
+  await block();
+  await actor.click(screen.getByRole("link", { name: "价格日历" }));
+  const to = (await screen.findByLabelText("下车区域")) as HTMLSelectElement;
+  assert.deepEqual([...to.options].map((option) => option.textContent), ["同一区域（区域价）", "到 成田周边", "到 横滨"]);
+  await actor.selectOptions(to, NARITA);
+  await waitFor(() => assert.match(calls.filter((call) => call.path.includes("/price-calendar")).at(-1)?.path ?? "", new RegExp(`to_area_id=${NARITA}`)));
+  await waitFor(() => assert.match(document.body.textContent ?? "", /这个组合设了含公里数，日历上是不超出时的价。/));
+  assert.match((document.getElementById(`calendar-day-${TODAY}`) as HTMLElement).getAttribute("aria-label") ?? "", /结算价 JPY 18,000 起/);
+  assert.match(document.body.textContent ?? "", /线路价 · 东京 23 区 → 成田周边/);
+  assertNoRetailWords();
+});
