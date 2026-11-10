@@ -85,6 +85,7 @@ const EXPECTED_SHAPES: Record<keyof typeof SCHEMA_FIELDS, Record<string, string 
     activated_at: "string(date-time)|null",
     terminated_at: "string(date-time)|null",
     score: "object",
+    is_test_tenant: "boolean",
     version: "integer",
     created_at: "string(date-time)",
     updated_at: "string(date-time)",

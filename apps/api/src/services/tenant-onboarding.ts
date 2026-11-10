@@ -37,6 +37,7 @@ import {
   startTrialIssues,
   submitIssues,
   tenantTransition,
+  testTenantStatusAllowed,
   type DocumentFileType,
   cleanFileName,
   detectDocumentFileType,
@@ -157,6 +158,7 @@ function stateValues(state: TenantState): AuditValues {
  * 写一次状态变化：主体、状态记录、审计、提醒。`before` 是调用方锁住后读到的。状态、暂停原因、观察原因都没变时什么都不做，返回 `before`。
  */
 export async function applyTenantChange(db: Db, before: Tenant, next: TenantState, meta: { trigger: TenantTrigger | "observation"; actor: ChangeActor; note: string | null; approvalId?: string | null }): Promise<Tenant> {
+  assertTestTenantStaysOff(before, next.status);
   const same = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((value) => b.includes(value));
   if (before.status === next.status && same(before.suspensionReasons, next.suspensionReasons) && same(before.observationReasons, next.observationReasons)) return before;
   const now = meta.actor.origin.occurredAt;
@@ -196,12 +198,23 @@ export async function applyTenantChange(db: Db, before: Tenant, next: TenantStat
   return after;
 }
 
+/**
+ * QA 测试供应商（ADR 0077）不能进入试运营、正式、暂停：那样它的商品就能上架、参与比价。409 `TEST_TENANT_NOT_FOR_SALE`。
+ * 数据库的检查约束是第二道防线；这里先拦下，给运营一个看得懂的说明。
+ */
+function assertTestTenantStaysOff(tenant: Tenant, to: TenantStatus): void {
+  if (tenant.isTestTenant && !testTenantStatusAllowed(to)) {
+    throw new AppError(409, "TEST_TENANT_NOT_FOR_SALE", "这是测试环境专用的 QA 测试供应商：只用于验收，不能开始试运营、不能上架、不参与比价", { status: tenant.status, to });
+  }
+}
+
 /** 状态机的一步（`tenantTransition`）：不允许时 409 `TENANT_STATE_INVALID`。返回改完的状态（还没写）。 */
 function transitioned(tenant: Tenant, trigger: TenantTrigger, by: "tenant" | "platform" | "system", now: Date): TenantState {
   const result = tenantTransition(tenant.status, trigger, by, tenant.suspendedFrom);
   if (!result.ok) throw stateInvalid(tenant.status, `供应商现在是「${TENANT_STATUS_NAMES[tenant.status]}」，不能做这一步`);
   const state = tenantState(tenant);
   const to = result.to;
+  assertTestTenantStaysOff(tenant, to);
   const next: TenantState = { ...state, status: to };
   if (trigger === "sign") next.signedAt = now;
   if (trigger === "start_trial") next.trialStartedAt = now;

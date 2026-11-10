@@ -299,7 +299,7 @@ export function testIntegrationSecret(token: string, key: IntegrationSecretKey):
 
 /** 对账用：每个类型的字段名清单。 */
 export const PLATFORM_SCHEMA_FIELDS = {
-  Tenant: ["id", "name", "status", "suspended_from", "suspension_reasons", "suspended_at", "observation_reasons", "observation_since", "signed_at", "trial_started_at", "activated_at", "terminated_at", "score", "version", "created_at", "updated_at"],
+  Tenant: ["id", "name", "status", "suspended_from", "suspension_reasons", "suspended_at", "observation_reasons", "observation_since", "signed_at", "trial_started_at", "activated_at", "terminated_at", "score", "is_test_tenant", "version", "created_at", "updated_at"],
   TenantUser: ["id", "email", "name", "role", "status", "created_at", "updated_at"],
   PlatformUser: ["id", "email", "name", "role", "role_name", "status", "created_at", "updated_at"],
   StaffMember: ["id", "email", "name", "role", "role_name", "status", "created_at", "updated_at", "mfa_enabled", "mfa_enabled_at", "ip_allowlist"],

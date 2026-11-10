@@ -58,6 +58,8 @@ export interface Tenant {
   activated_at: string | null;
   terminated_at: string | null;
   score: TenantScoreSummary;
+  /** 测试环境专用的 QA 测试供应商（ADR 0077）：不能上架、不参与比价 */
+  is_test_tenant: boolean;
   version: number;
   created_at: string;
   updated_at: string;
@@ -143,7 +145,7 @@ export interface PortalTypes {
 export const SCHEMA_FIELDS = {
   PlatformUser: ["id", "email", "name", "role", "role_name", "status", "created_at", "updated_at"],
   TenantUser: ["id", "email", "name", "role", "status", "created_at", "updated_at"],
-  Tenant: ["id", "name", "status", "suspended_from", "suspension_reasons", "suspended_at", "observation_reasons", "observation_since", "signed_at", "trial_started_at", "activated_at", "terminated_at", "score", "version", "created_at", "updated_at"],
+  Tenant: ["id", "name", "status", "suspended_from", "suspension_reasons", "suspended_at", "observation_reasons", "observation_since", "signed_at", "trial_started_at", "activated_at", "terminated_at", "score", "is_test_tenant", "version", "created_at", "updated_at"],
   LoginRequest: ["email", "password"],
   PlatformLoginResponse: ["access_token", "token_type", "expires_at", "user", "must_change_password", "second_factor"],
   TenantLoginResponse: ["access_token", "token_type", "expires_at", "user", "tenant", "must_change_password"],

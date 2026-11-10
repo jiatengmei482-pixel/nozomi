@@ -49,6 +49,7 @@ pnpm web:dev           # 启动前端开发服务器（会把接口请求转给�
 pnpm web:build         # 构建前端到 apps/web/dist
 pnpm admin:create --email <邮箱> --name <姓名>   # 创建平台超级管理员；密码按提示输入，不接受命令行参数
 pnpm admin:reset-password --email <邮箱>         # 给超级管理员重设密码
+pnpm qa:tenant-ensure --email <邮箱> [--reset-password]   # 只在测试环境：建出 / 核对 QA 测试供应商（不上架、不参与比价，ADR 0077）；密码从标准输入读，不接受命令行参数
 pnpm masterdata:import-airports --country JP,KR  # 从 OurAirports（公有领域）导入机场，可重复运行；--all-countries / --file <csv> / --dry-run
 pnpm masterdata:import-cities --country JP,KR    # 从 GeoNames（CC BY 4.0）导入主要城市，可重复运行；--min-population <n> / --activate / --dry-run / --file
 pnpm masterdata:import-airport-names --country JP,KR  # 从 GeoNames（CC BY 4.0）给机场填空着的中文名、日文名，可重复运行，先导入机场；--file <JP.zip> --names-file <alternatenames/JP.zip> / --dry-run
