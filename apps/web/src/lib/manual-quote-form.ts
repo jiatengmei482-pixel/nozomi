@@ -5,7 +5,7 @@
  * - 行程由页面自动带上；缺了哪一项（日期、时间、包车时长）就请客人先在上面补上。
  * - 「通过 WhatsApp 联系我们」：号码来自官网配置 `support_whatsapp`，预先写好的一句话只有行程要点（manualQuoteWhatsappText）。
  */
-import { type ManualQuoteTrip, isRealLocalDateTime, manualQuoteEmail, manualQuoteWhatsappText, whatsappChatUrl, whatsappDigits } from "@nozomi/domain";
+import { type ManualQuoteTrip, isRealLocalDateTime, manualQuoteEmail, manualQuoteWhatsappText, whatsappDigits } from "@nozomi/domain";
 import { ApiError } from "../api/client.ts";
 import type { SiteCategory, SiteManualQuoteRequest } from "../api/site.ts";
 
@@ -108,10 +108,9 @@ export function manualQuoteFieldErrors(err: unknown): ManualQuoteErrors | null {
   return Object.keys(errors).length > 0 ? errors : null;
 }
 
-/** 「通过 WhatsApp 联系我们」的链接；没有设置客服号码时为 null（不显示按钮）。行程不齐时只说想咨询报价。 */
-export function supportWhatsappUrl(supportWhatsapp: string | null, trip: ManualQuoteTripDraft): string | null {
-  if (supportWhatsapp === null || supportWhatsapp === "") return null;
-  if (trip.pickup === null || trip.serviceLocal === null || !isRealLocalDateTime(trip.serviceLocal)) return whatsappChatUrl(supportWhatsapp, "您好，我想咨询用车报价。");
+/** 「通过 WhatsApp 联系我们」预先写好的一句话（链接由 WhatsappLink 用 domain 的 whatsappChatUrl 拼）。行程不齐时只说想咨询报价。 */
+export function supportWhatsappMessage(trip: ManualQuoteTripDraft): string {
+  if (trip.pickup === null || trip.serviceLocal === null || !isRealLocalDateTime(trip.serviceLocal)) return "您好，我想咨询用车报价。";
   const text: Parameters<typeof manualQuoteWhatsappText>[0] = {
     category: trip.category,
     pickup: { name: trip.pickup.name },
@@ -120,7 +119,7 @@ export function supportWhatsappUrl(supportWhatsapp: string | null, trip: ManualQ
     passengers: trip.passengers,
     packageHours: trip.category === "charter" ? trip.packageHours : null,
   } satisfies Pick<ManualQuoteTrip, "category" | "serviceLocal" | "passengers" | "packageHours"> & { pickup: { name: string }; dropoff: { name: string } | null };
-  return whatsappChatUrl(supportWhatsapp, manualQuoteWhatsappText(text));
+  return manualQuoteWhatsappText(text);
 }
 
 /** 包车报不出价（地址不在任何能订包车的城市、城市没有套餐）时给客人选的大概时长：1–12 小时，客服报价时再确认。 */

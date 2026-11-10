@@ -56,10 +56,14 @@ export function manualQuoteEventText(event: ManualQuoteEvent): string {
   return "备注";
 }
 
-/** 客人的 WhatsApp（`+819012345678`）去 wa.me 的链接：只要纯数字。 */
-export function guestWhatsappUrl(whatsapp: string): string | null {
-  const digits = whatsappDigits(whatsapp, { requirePlus: false });
-  return digits === null ? null : `https://wa.me/${digits}`;
+/** 客人的 WhatsApp（`+819012345678`）去 wa.me 要的纯数字；认不出时为 null（只显示号码）。 */
+export function guestWhatsappDigits(whatsapp: string): string | null {
+  return whatsappDigits(whatsapp, { requirePlus: false });
+}
+
+/** 客服点客人的 WhatsApp 时预先写好的第一句（客服可以在 WhatsApp 里改）。 */
+export function guestWhatsappGreeting(requestNo: string): string {
+  return `您好，这里是 NOZOMI 用车的客服，关于您的用车报价申请（${requestNo}）：`;
 }
 
 /** 客服 WhatsApp 号码显示成「+81 0000000000」这样带 + 的写法（存的是纯数字）。 */

@@ -13,10 +13,10 @@ import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
 import { Button } from "../../components/Button.tsx";
-import { Icon } from "../../components/Icon.tsx";
 import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { TextField } from "../../components/TextField.tsx";
 import { useToast } from "../../components/Toast.tsx";
+import { WhatsappLink } from "../../components/WhatsappLink.tsx";
 import { failureText } from "../../lib/failure.ts";
 import { SUPPORT_WHATSAPP_HINT, SUPPORT_WHATSAPP_INVALID, supportWhatsappText } from "../../lib/manual-quote-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
@@ -29,11 +29,9 @@ const TRAIL = [{ label: "系统设置" }];
 /** 号码去 wa.me 看一眼：确认是客服的号、WhatsApp 打得开。 */
 function TryLink({ digits }: { digits: string }) {
   return (
-    <a className="link" href={`https://wa.me/${digits}`} target="_blank" rel="noopener noreferrer">
+    <WhatsappLink digits={digits} text="您好">
       在 WhatsApp 里打开看看
-      <Icon name="external" />
-      <span className="visually-hidden">（在新标签页打开）</span>
-    </a>
+    </WhatsappLink>
   );
 }
 

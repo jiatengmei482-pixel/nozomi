@@ -13,6 +13,7 @@ import { Alert } from "../../components/Alert.tsx";
 import { Button } from "../../components/Button.tsx";
 import { Icon } from "../../components/Icon.tsx";
 import { TextField } from "../../components/TextField.tsx";
+import { WhatsappLink } from "../../components/WhatsappLink.tsx";
 import {
   MANUAL_QUOTE_TEXTS,
   type ManualQuoteContact,
@@ -22,21 +23,18 @@ import {
   manualQuoteFieldErrors,
   manualQuoteRequestOf,
   missingTripParts,
-  supportWhatsappUrl,
+  supportWhatsappMessage,
   validateManualQuoteContact,
 } from "../../lib/manual-quote-form.ts";
 import { siteFailureText } from "./SiteLayout.tsx";
 
 /** 「通过 WhatsApp 联系我们」：没有设置客服号码时什么都不显示。 */
 export function WhatsappButton({ supportWhatsapp, trip }: { supportWhatsapp: string | null; trip: ManualQuoteTripDraft }) {
-  const url = supportWhatsappUrl(supportWhatsapp, trip);
-  if (url === null) return null;
+  if (supportWhatsapp === null || supportWhatsapp === "") return null;
   return (
-    <a className="button button--secondary button--lg manual-quote__whatsapp" href={url} target="_blank" rel="noopener noreferrer">
-      <Icon name="message" />
+    <WhatsappLink digits={supportWhatsapp} text={supportWhatsappMessage(trip)} className="button button--secondary button--lg manual-quote__whatsapp" icon="message">
       <span>通过 WhatsApp 联系我们</span>
-      <span className="visually-hidden">（在新标签页打开）</span>
-    </a>
+    </WhatsappLink>
   );
 }
 
@@ -90,7 +88,7 @@ export function ManualQuoteBlock({ trip, supportWhatsapp, headingLevel = "h3" }:
         setErrors(fields);
         (fields.email !== undefined ? emailRef.current : whatsappRef.current)?.focus();
       } else {
-        const whatsapp = supportWhatsappUrl(supportWhatsapp, trip) !== null;
+        const whatsapp = supportWhatsapp !== null && supportWhatsapp !== "";
         setProblem(`${siteFailureText(err, "提交")}${whatsapp ? "也可以点下面的「通过 WhatsApp 联系我们」。" : ""}`);
       }
     } finally {

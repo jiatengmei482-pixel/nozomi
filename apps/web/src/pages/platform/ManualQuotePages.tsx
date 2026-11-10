@@ -21,9 +21,10 @@ import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { TextAreaField } from "../../components/TextAreaField.tsx";
 import { useToast } from "../../components/Toast.tsx";
+import { WhatsappLink } from "../../components/WhatsappLink.tsx";
 import { localOffsetLabel } from "../../lib/audit-display.ts";
 import { failureText } from "../../lib/failure.ts";
-import { MANUAL_QUOTES_PAGE, MANUAL_QUOTE_STATUS_BADGES, PURGED_BADGE, contactKindsText, contactQueryValid, guestWhatsappUrl, manualQuoteEventText, manualQuotePath, manualQuoteStatusOf, manualQuoteTripText } from "../../lib/manual-quote-display.ts";
+import { MANUAL_QUOTES_PAGE, MANUAL_QUOTE_STATUS_BADGES, PURGED_BADGE, contactKindsText, contactQueryValid, guestWhatsappDigits, guestWhatsappGreeting, manualQuoteEventText, manualQuotePath, manualQuoteStatusOf, manualQuoteTripText } from "../../lib/manual-quote-display.ts";
 import { auditLogPath } from "../../lib/platform-paths.ts";
 import { pageSizeOf, useCursorPages } from "../../lib/use-cursor-pages.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
@@ -206,7 +207,7 @@ function ContactSection({ detail }: { detail: ManualQuoteDetail }) {
       </section>
     );
   }
-  const whatsappUrl = contact.whatsapp === null ? null : guestWhatsappUrl(contact.whatsapp);
+  const whatsappDigits = contact.whatsapp === null ? null : guestWhatsappDigits(contact.whatsapp);
   return (
     <section className="card" aria-labelledby="mq-contact">
       <h2 className="card__title" id="mq-contact">
@@ -224,14 +225,12 @@ function ContactSection({ detail }: { detail: ManualQuoteDetail }) {
           )}
         </Detail>
         <Detail label="WhatsApp">
-          {contact.whatsapp === null ? null : whatsappUrl === null ? (
+          {contact.whatsapp === null ? null : whatsappDigits === null ? (
             contact.whatsapp
           ) : (
-            <a className="link" href={whatsappUrl} target="_blank" rel="noopener noreferrer">
+            <WhatsappLink digits={whatsappDigits} text={guestWhatsappGreeting(detail.request.request_no)}>
               {contact.whatsapp}
-              <Icon name="external" />
-              <span className="visually-hidden">（在 WhatsApp 打开，新标签页）</span>
-            </a>
+            </WhatsappLink>
           )}
         </Detail>
         <Detail label={detail.request.category === "charter" ? "上车地点" : "出发地"}>{pickup === null ? null : <PlaceText place={pickup} />}</Detail>

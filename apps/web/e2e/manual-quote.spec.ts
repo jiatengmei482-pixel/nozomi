@@ -115,7 +115,7 @@ test("报不出价：客人留下邮箱和 WhatsApp → 客服在「人工报价
     await row.getByRole("link", { name: /^MQ/ }).click();
     await expect(csPage.getByRole("heading", { level: 1, name: /^申请 MQ/ })).toBeVisible();
     await expect(csPage.getByRole("link", { name: guestEmail })).toHaveAttribute("href", `mailto:${guestEmail}`);
-    await expect(csPage.getByRole("link", { name: /^\+8613000000000/ })).toHaveAttribute("href", "https://wa.me/8613000000000");
+    await expect(csPage.getByRole("link", { name: /^\+8613000000000/ })).toHaveAttribute("href", /^https:\/\/wa\.me\/8613000000000\?text=/);
     await expect(csPage.getByText(/你打开这一页已记入审计日志/)).toBeVisible();
     await expect(csPage.getByText(FROM.name)).toBeVisible();
     const follow = csPage.getByRole("region", { name: "跟进" });
@@ -155,7 +155,7 @@ test("报不出价：客人留下邮箱和 WhatsApp → 客服在「人工报价
     await adminPage.getByRole("button", { name: "保存" }).click();
     await expect(adminPage.getByText("已保存，官网的 WhatsApp 按钮用这个号码")).toBeVisible();
     await expect(adminPage.getByLabel("客服 WhatsApp 号码")).toHaveValue(`+${SUPPORT_DIGITS}`);
-    await expect(adminPage.getByRole("link", { name: /在 WhatsApp 里打开看看/ })).toHaveAttribute("href", `https://wa.me/${SUPPORT_DIGITS}`);
+    await expect(adminPage.getByRole("link", { name: /在 WhatsApp 里打开看看/ })).toHaveAttribute("href", new RegExp(`^https://wa\\.me/${SUPPORT_DIGITS}\\?text=`));
     await checkNarrow(adminPage, "官网设置", "m821-platform-site-settings");
     await adminContext.close();
 

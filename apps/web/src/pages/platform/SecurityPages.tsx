@@ -718,7 +718,7 @@ export function RoleEditorPage() {
         <h2 className="card__title" id="role-grants">
           权限（菜单 × 操作）
         </h2>
-        <p className="page-intro">勾编辑、审核会自动带上查看。平台账号的编辑、角色的编辑和审核只归超级管理员，自建角色勾不了。「导出」还没有对应的功能。</p>
+        <p className="page-intro">勾编辑、审核会自动带上查看。平台账号的编辑、角色的编辑和审核、系统状态的编辑（第三方密钥）、官网设置的编辑（客服 WhatsApp 号码）只归超级管理员，自建角色勾不了。「导出」还没有对应的功能。</p>
         <PermissionMatrix grants={current.grants} readOnly={!editable} onToggle={(grant, on) => change({ grants: toggleGrant(current.grants, grant, on) })} />
       </section>
       {(!role?.builtin || isNew) && scopeSection}

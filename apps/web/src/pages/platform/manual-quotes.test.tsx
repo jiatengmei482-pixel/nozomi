@@ -126,7 +126,9 @@ test("详情：联系方式、两端地点；邮箱点开发信、WhatsApp 去 w
   assert.ok(await screen.findByRole("heading", { level: 1, name: "申请 MQ20301120AB12CD34" }));
   assert.equal(screen.getByRole("link", { name: "guest@example.com" }).getAttribute("href"), "mailto:guest@example.com");
   const whatsapp = screen.getByRole("link", { name: /^\+810000000000/ });
-  assert.equal(whatsapp.getAttribute("href"), "https://wa.me/810000000000");
+  const href = new URL(whatsapp.getAttribute("href") ?? "");
+  assert.equal(`${href.origin}${href.pathname}`, "https://wa.me/810000000000");
+  assert.equal(href.searchParams.get("text"), "您好，这里是 NOZOMI 用车的客服，关于您的用车报价申请（MQ20301120AB12CD34）：");
   assert.equal(whatsapp.getAttribute("target"), "_blank");
   assert.match(whatsapp.getAttribute("rel") ?? "", /\bnoopener\b/);
   assert.ok(screen.getByText(/你打开这一页已记入审计日志/));
@@ -210,7 +212,7 @@ test("官网设置（超级管理员）：「客服 WhatsApp 号码」有格式�
   const put = calls.find((call) => call.method === "PUT");
   assert.deepEqual(put?.body, { support_whatsapp: "+81 00 0000 0000" });
   assert.equal(put?.headers["if-match"], undefined);
-  assert.equal(screen.getByRole("link", { name: /在 WhatsApp 里打开看看/ }).getAttribute("href"), "https://wa.me/810000000000");
+  assert.match(screen.getByRole("link", { name: /在 WhatsApp 里打开看看/ }).getAttribute("href") ?? "", /^https:\/\/wa\.me\/810000000000\?text=/);
   resetBrowser();
   const again = openSettings("super_admin", settingsOf({ support_whatsapp: "810000000000", version: 2, updated_at: "2030-11-10T05:00:00.000Z", updated_by: { id: ME, name: "测试员工" } }));
   const filled = (await screen.findByLabelText("客服 WhatsApp 号码")) as HTMLInputElement;
