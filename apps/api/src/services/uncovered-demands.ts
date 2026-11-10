@@ -134,9 +134,8 @@ export function demandDraft(source: DemandSource, facts: DemandFacts, airport: {
 
 export type DemandRecordResult = "inserted" | "repeated" | "dropped";
 
-/** 记一条（在调用方的后台任务里）：先累加同一天同一个指纹；没有才占新增额度，超了只记「被限掉」。 */
-export async function recordUncoveredDemand(ctx: DbContext, source: DemandSource, facts: DemandFacts): Promise<DemandRecordResult> {
-  const now = ctx.now();
+/** 记一条（在调用方的后台任务里；`now` 是询价的时刻）：先累加同一天同一个指纹；没有才占新增额度，超了只记「被限掉」。 */
+export async function recordUncoveredDemand(ctx: DbContext, source: DemandSource, facts: DemandFacts, now: Date = ctx.now()): Promise<DemandRecordResult> {
   const timeoutMs = UNCOVERED_DEMAND_RULES.recordTimeoutMs;
   return withPlatformTx(ctx.pool, async (db) => {
     // 最多等 200 毫秒：超时数据库放弃这条语句、整个记录回滚，报价不受影响
@@ -158,8 +157,9 @@ export async function recordUncoveredDemand(ctx: DbContext, source: DemandSource
 
 /** 应答之后再记（失败只写一条不含请求内容的错误日志） */
 export function recordUncoveredDemandLater(ctx: AppContext, source: DemandSource, facts: DemandFacts): void {
+  const now = ctx.now();
   inBackground(ctx, source.log, "uncovered_demand.record", async () => {
-    await recordUncoveredDemand(ctx, source, facts);
+    await recordUncoveredDemand(ctx, source, facts, now);
   });
 }
 
