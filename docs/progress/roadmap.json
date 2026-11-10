@@ -756,7 +756,7 @@
           "id": "M8-24",
           "title": "运营后台供应商列表、详情显示「测试」标记（QA 测试供应商，接口字段 is_test_tenant）",
           "role": "frontend",
-          "status": "todo",
+          "status": "doing",
           "acceptance": ["运营后台「供应商」列表和详情：is_test_tenant 为真的供应商名称旁显示「测试」标记（ADR 0077）", "测试供应商的详情里「开始试运营」不可用或点了显示接口的中文说明（409 TEST_TENANT_NOT_FOR_SALE）", "组件测试覆盖有 / 没有标记两种"],
           "evidence": "",
           "updated": "2026-11-10"
