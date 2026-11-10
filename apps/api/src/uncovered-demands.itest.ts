@@ -239,6 +239,9 @@ test("运营后台列表：按城市、供应商、日期、品类、原因筛�
   assert.equal(points.body.truncated, false);
   assert.deepEqual(points.body.items.map((item: any) => item.id).sort(), ofA.items.map((item: any) => item.id).sort());
   assert.ok(points.body.items.every((item: any) => item.dropoff === null || Object.keys(item.dropoff).sort().join() === "lat,lng"));
+  // 每个点带用车时间和最近出现的时刻（地图的弹出框显示时间用），和列表里同一条一致
+  const listed = new Map<string, any>(ofA.items.map((item: any) => [item.id, item]));
+  for (const item of points.body.items) assert.deepEqual([item.service_local, item.last_seen_at], [listed.get(item.id).service_local, listed.get(item.id).last_seen_at]);
   assert.equal((await platform("/uncovered-demands/points?limit=5")).status, 400, "点不分页");
 });
 

@@ -216,18 +216,21 @@ export interface DemandPoint {
   repeatCount: number;
   pickup: LatLng | null;
   dropoff: LatLng | null;
+  /** 用车的当地时间 `YYYY-MM-DDTHH:mm`；最近一次出现的时刻 */
+  serviceLocal: string;
+  lastSeenAt: Date;
 }
 
 /** 地图上的点（最近出现从新到旧），最多 `max` 条；多出来的不取，`truncated` 为真 */
 export async function listDemandPoints(db: Db, filter: DemandFilter, max: number): Promise<{ items: DemandPoint[]; truncated: boolean }> {
   const where = conditions(filter);
   const result = await db.query<Row>(
-    `select d.id, d.category, d.reason, d.repeat_count, d.pickup_lat, d.pickup_lng, d.dropoff_lat, d.dropoff_lng
+    `select d.id, d.category, d.reason, d.repeat_count, d.pickup_lat, d.pickup_lng, d.dropoff_lat, d.dropoff_lng, d.service_local, d.last_seen_at
        from uncovered_demands d where ${where.sql} order by d.last_seen_at desc, d.id desc limit $${where.params.length + 1}`,
     [...where.params, max + 1],
   );
   return {
-    items: result.rows.slice(0, max).map((row) => ({ id: row["id"], category: row["category"], reason: row["reason"], repeatCount: row["repeat_count"], pickup: point(row["pickup_lat"], row["pickup_lng"]), dropoff: point(row["dropoff_lat"], row["dropoff_lng"]) })),
+    items: result.rows.slice(0, max).map((row) => ({ id: row["id"], category: row["category"], reason: row["reason"], repeatCount: row["repeat_count"], pickup: point(row["pickup_lat"], row["pickup_lng"]), dropoff: point(row["dropoff_lat"], row["dropoff_lng"]), serviceLocal: row["service_local"], lastSeenAt: row["last_seen_at"] })),
     truncated: result.rows.length > max,
   };
 }

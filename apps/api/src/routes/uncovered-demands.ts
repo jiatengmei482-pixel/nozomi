@@ -105,7 +105,7 @@ export function registerUncoveredDemandRoutes(app: FastifyInstance, ctx: AppCont
     return {
       from: found.from,
       to: found.to,
-      items: found.items.map((item) => ({ id: item.id, category: item.category, reason: item.reason, repeat_count: item.repeatCount, pickup: pointJson(item.pickup), dropoff: pointJson(item.dropoff) })),
+      items: found.items.map((item) => ({ id: item.id, category: item.category, reason: item.reason, repeat_count: item.repeatCount, pickup: pointJson(item.pickup), dropoff: pointJson(item.dropoff), service_local: item.serviceLocal, last_seen_at: item.lastSeenAt.toISOString() })),
       truncated: found.truncated,
     };
   });

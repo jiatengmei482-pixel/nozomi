@@ -208,7 +208,7 @@ test("画布：运营区域虚线很淡、报价区域实线；超出运营区�
     { id: OPERATING_ID, name: "东京西部", slot: 0, active: true, role: "operating", polygons: [{ id: "p1", kind: "operate", ring: ring(operating) }] },
     { id: AREA_ID, name: "东京 23 区", slot: 1, active: true, role: "pricing", polygons: [{ id: "p2", kind: "operate", ring: ring(pricing) }] },
   ];
-  const demands = demandMapPoints([{ id: "d1", category: "point_to_point", reason: "NO_PRICING_AREA", repeat_count: 6, pickup: { lat: 35.7, lng: 139.75 }, dropoff: { lat: 35.65, lng: 139.65 } }]);
+  const demands = demandMapPoints([{ id: "d1", category: "point_to_point", reason: "NO_PRICING_AREA", repeat_count: 6, pickup: { lat: 35.7, lng: 139.75 }, dropoff: { lat: 35.65, lng: 139.65 }, service_local: "2026-12-01T09:00", last_seen_at: "2026-11-10T01:00:00.000Z" }]);
   const view = (layer: typeof demands | null) => (
     <AreaOverviewMap tiles={TILES} areas={areas} selected={null} onSelect={() => {}} overlaps={[]} showOverlaps focusSignal={0} marker={null} outside={[{ areaIds: [AREA_ID], ring: [[139.7, 35.6], [139.8, 35.6], [139.8, 35.8], [139.7, 35.8]] }]} demands={layer} surfaceFactory={fakeFactory(store)} />
   );

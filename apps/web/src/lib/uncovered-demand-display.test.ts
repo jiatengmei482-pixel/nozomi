@@ -25,7 +25,7 @@ describe("未覆盖需求的说法（M8-20）", () => {
   });
 
   it("地图上的点：上车、下车各一个，没给的那一端不画；大小按次数三档", () => {
-    const points = demandMapPoints([{ id: "d", category: "charter", reason: "OTHER", repeat_count: 2, pickup: { lat: 1, lng: 2 }, dropoff: null }]);
+    const points = demandMapPoints([{ id: "d", category: "charter", reason: "OTHER", repeat_count: 2, pickup: { lat: 1, lng: 2 }, dropoff: null, service_local: "2026-12-01T09:00", last_seen_at: "2026-11-10T01:00:00.000Z" }]);
     assert.deepEqual(points.map((point) => [point.key, point.end]), [["d:p", "pickup"]]);
     assert.deepEqual([1, 2, 4, 5, 100].map(demandDotRadius), [5, 7, 7, 9, 9]);
   });

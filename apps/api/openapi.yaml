@@ -2186,7 +2186,7 @@ paths:
                     items:
                       type: object
                       additionalProperties: false
-                      required: [ id, category, reason, repeat_count, pickup, dropoff ]
+                      required: [ id, category, reason, repeat_count, pickup, dropoff, service_local, last_seen_at ]
                       properties:
                         id:
                           type: string
@@ -2206,6 +2206,13 @@ paths:
                           oneOf:
                             - $ref: "#/components/schemas/UncoveredDemandPoint"
                             - type: "null"
+                        service_local:
+                          type: string
+                          description: 用车的当地时间 `YYYY-MM-DDTHH:mm`
+                        last_seen_at:
+                          type: string
+                          format: date-time
+                          description: 最近一次出现的时刻
                   truncated:
                     type: boolean
         "400":

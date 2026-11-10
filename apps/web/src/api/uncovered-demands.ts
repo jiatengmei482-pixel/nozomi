@@ -84,6 +84,10 @@ export interface UncoveredDemandPointItem {
   repeat_count: number;
   pickup: DemandPoint | null;
   dropoff: DemandPoint | null;
+  /** 用车的当地时间 `YYYY-MM-DDTHH:mm` */
+  service_local: string;
+  /** 最近一次出现的时刻 */
+  last_seen_at: string;
 }
 
 export interface UncoveredDemandPoints {
@@ -126,7 +130,7 @@ export const UNCOVERED_DEMAND_FIELDS = {
   UncoveredDemandOperatingRef: ["tenant_id", "area_id"],
   Page: ["from", "to", "items", "next_cursor", "summary", "tenants", "cities"],
   Points: ["from", "to", "items", "truncated"],
-  PointItem: ["id", "category", "reason", "repeat_count", "pickup", "dropoff"],
+  PointItem: ["id", "category", "reason", "repeat_count", "pickup", "dropoff", "service_local", "last_seen_at"],
 } as const satisfies {
   UncoveredDemand: readonly (keyof UncoveredDemand)[];
   UncoveredDemandSummary: readonly (keyof UncoveredDemandSummary)[];
