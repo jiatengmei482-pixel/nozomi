@@ -5126,6 +5126,12 @@ paths:
         包车区域加价 `charter_area_surcharge`（M8-15，ADR 0073）填 `pickup_surcharge`、`dropoff_surcharge` 和 `package_hours`；它的 `area_id` 是加价区域：
         本租户的报价区域就行（不必是商品选的；不能是商品本身的区域 400 `AREA_IS_PRODUCT_AREA`；业务类型要是包车或通用 400 `AREA_NOT_USABLE`；新选的不能是停用的 400 `AREA_DISABLED`）；
         区域不存在或是别的租户的：404（不区分）。加价区域不加进商品的区域列表。
+        点对点（M8-11，ADR 0073 第二部分）：
+        - `to_area_id`（下车区域）可填：不填 = 区域价（和以前一样）；填了 = **单向线路价**，只管上车点在 `area_id`、下车点在 `to_area_id` 的单。
+          必须是这个商品选的区域（400 `AREA_NOT_IN_PRODUCT`，路径 `/to_area_id`），不能等于 `area_id`（400 `SAME_AREA`）；不存在或是别的租户的区域 404。
+          接送机、包车填了 400 `NOT_APPLICABLE`。报价时线路价优先、不和区域价比低；这一单没有命中的线路价才用区域价。
+        - 一口价（`fixed`）可选「含公里数」：`included_km`（整数 1～2000）和 `over_km_per_km`（超出后每公里，0 到金额上限）要么都填、要么都不填（只填一个：另一个 400 `REQUIRED`）。
+          报价时按谷歌路线距离，超出公里数向上取整到 1 公里，`base_price + 超出公里数 × over_km_per_km` 算进一口价；拿不到路线时这条价格不报价。接送机填了 400 `NOT_APPLICABLE`。
         写审计日志（`resource` = `price_rule`）。
       security:
         - tenantToken: []
@@ -5152,7 +5158,7 @@ paths:
           $ref: "#/components/responses/ResourceNotFound"
         "409":
           description: |
-            - `PRICE_RULE_CONFLICT`：同一个「区域 + 车型组 + 方向或套餐时长」的生效日期重叠（两头的日期都算，停用的也算）；基础定价和区域加价各算各的，同一个区域可以同时有套餐价和区域加价。
+            - `PRICE_RULE_CONFLICT`：同一个「区域 + 车型组 + 方向或套餐时长」的生效日期重叠（两头的日期都算，停用的也算）；基础定价和区域加价各算各的，同一个区域可以同时有套餐价和区域加价；点对点线路价按「上车区域 → 下车区域」各算各的（反方向是另一条线路），和区域价互不冲突。
               `details.conflicts[]`：每一条被拒绝的规则 `{ id 或 ref, valid_from, valid_to, with: [{ id 或 ref, valid_from, valid_to }] }`——已经在库里的用 `id`，这次新增的用请求里的 `ref`
             - `VERSION_CONFLICT`：商品已经被别人改过（`details.current_version` 是现在的版本号）
             - `PUBLISH_CHECK_FAILED`：商品已上架，这样改完就不满足上架条件了（`details.items` 同上架校验）
@@ -5180,6 +5186,9 @@ paths:
         页面保存「价格规则」一页、一次给一个区域下的多个车型组设价、把价格复制到别的区域，都用它。
         重叠按**保存之后**的样子判断：同一批里删掉旧的、加上新的同一个组合不算冲突。
         包车「一次给所有车型组和套餐时长填同一个区域加价」也用它：页面展开成多条 `charter_area_surcharge` 一起新增（同一事务，ADR 0073）；区域不存在或是别的租户的整批 404。
+        点对点线路价的「返程价格」也用它（M8-11，ADR 0073 第二部分第 3 节）：页面把一条带返程价的表单展开成两条——A → B 用「价格」、B → A 用「返程价格」，
+        车型组、生效日期、含公里数、状态相同——放在同一个 `create` 里提交：两条要么都建成、要么都不建（任一条冲突整批 409，`details.conflicts` 列出）。建好以后是两条独立的规则。
+        线路价的下车区域不存在或是别的租户的，整批 404。
         400 时 `path` 指到是哪一条的哪一项（`/create/3/base_price`、`/update/0/id`、`/delete/2`）。写审计日志（每条变了的规则一条，带前后值）。
       security:
         - tenantToken: []
@@ -5206,7 +5215,7 @@ paths:
           $ref: "#/components/responses/ResourceNotFound"
         "409":
           description: |
-            - `PRICE_RULE_CONFLICT`：同一个「区域 + 车型组 + 方向或套餐时长」的生效日期重叠（两头的日期都算，停用的也算）；基础定价和区域加价各算各的，同一个区域可以同时有套餐价和区域加价。
+            - `PRICE_RULE_CONFLICT`：同一个「区域 + 车型组 + 方向或套餐时长」的生效日期重叠（两头的日期都算，停用的也算）；基础定价和区域加价各算各的，同一个区域可以同时有套餐价和区域加价；点对点线路价按「上车区域 → 下车区域」各算各的（反方向是另一条线路），和区域价互不冲突。
               `details.conflicts[]`：每一条被拒绝的规则 `{ id 或 ref, valid_from, valid_to, with: [{ id 或 ref, valid_from, valid_to }] }`——已经在库里的用 `id`，这次新增的用请求里的 `ref`
             - `VERSION_CONFLICT`：商品已经被别人改过（`details.current_version` 是现在的版本号）
             - `PUBLISH_CHECK_FAILED`：商品已上架，这样改完就不满足上架条件了（`details.items` 同上架校验）
@@ -5257,7 +5266,7 @@ paths:
           $ref: "#/components/responses/ResourceNotFound"
         "409":
           description: |
-            - `PRICE_RULE_CONFLICT`：同一个「区域 + 车型组 + 方向或套餐时长」的生效日期重叠（两头的日期都算，停用的也算）；基础定价和区域加价各算各的，同一个区域可以同时有套餐价和区域加价。
+            - `PRICE_RULE_CONFLICT`：同一个「区域 + 车型组 + 方向或套餐时长」的生效日期重叠（两头的日期都算，停用的也算）；基础定价和区域加价各算各的，同一个区域可以同时有套餐价和区域加价；点对点线路价按「上车区域 → 下车区域」各算各的（反方向是另一条线路），和区域价互不冲突。
               `details.conflicts[]`：每一条被拒绝的规则 `{ id 或 ref, valid_from, valid_to, with: [{ id 或 ref, valid_from, valid_to }] }`——已经在库里的用 `id`，这次新增的用请求里的 `ref`
             - `VERSION_CONFLICT`：商品已经被别人改过（`details.current_version` 是现在的版本号）
             - `PUBLISH_CHECK_FAILED`：商品已上架，这样改完就不满足上架条件了（`details.items` 同上架校验）
@@ -5335,11 +5344,15 @@ paths:
         里程 + 时长的价格按「不超出起步」算（起步价或最低消费）。`delta`、`after`、`base`、`unrounded` 是没取整的精确值（十进制字符串，最小货币单位）。
         最多 62 天。这里没有对外价和加价比例。
         包车的区域加价（M8-15，ADR 0073）按区域分行：`area_id` 给加价区域时，每天的 `surcharge` 是这个区域这一天用的上车加价、下车加价（这时 `segments` 没有基础价）。
+        点对点的线路价（M8-11，ADR 0073 第五部分「线路价按线路分行」）：给 `to_area_id` 时看「从 `area_id` 上车、到 `to_area_id` 下车」的价——
+        这一天这个车型组有能用的线路价就用它（`route_rule` = true），没有就退回区域价（`route_rule` = false），和报价一样。设了含公里数的一口价按不超出算。
+        `to_area_id` 只有点对点能给（别的品类 400 `NOT_APPLICABLE`），不能等于 `area_id`（400 `SAME_AREA`）。
       security:
         - tenantToken: []
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/CalendarArea"
+        - $ref: "#/components/parameters/CalendarToArea"
         - $ref: "#/components/parameters/CalendarVehicleGroup"
         - $ref: "#/components/parameters/CalendarDirection"
         - $ref: "#/components/parameters/CalendarPackageHours"
@@ -6016,7 +6029,8 @@ paths:
       description: |
         需要操作 `product.read`。`rows=all`（默认）导出现有的全部价格；`rows=none` 只有表头——就是空白模版，不预置任何价格。
         失败时（商品不存在、没有权限）返回统一的 JSON 错误格式，`Content-Type` 是 `application/json`。
-        列按品类不同（接送机有「方向」，包车是套餐的几列，M8-15 起另有「上车加价」「下车加价」两列：填了这两列的行是区域加价，「区域」是加价区域）。金额是子品牌币种的**主单位**（日元整数、美元两位小数）。
+        列按品类不同（接送机有「方向」，包车是套餐的几列，M8-15 起另有「上车加价」「下车加价」两列：填了这两列的行是区域加价，「区域」是加价区域；
+        点对点 M8-11 起另有「下车区域」「含公里数」「超出每公里」三列：填了「下车区域」的行是单向线路价，「区域」是上车区域）。金额是子品牌币种的**主单位**（日元整数、美元两位小数）。
         第二张表「填写说明」列出这个商品可以填的区域（名称）、车型组（编码）和各列怎么填。以 `= + - @` 开头的文字前面加了单引号，Excel 不会把它当公式。
       security:
         - tenantToken: []
@@ -6048,6 +6062,8 @@ paths:
         每一行的 `content` 是它读到的内容（区域、车型组、方向 / 套餐、主价格、区域加价、生效日期），新增的行也有。文件里有叫「价格」的工作表就读它，没有就读第一张。
         包车（M8-15，ADR 0073）：「上车加价」「下车加价」两列可选——旧模版没有这两列照样导入；填了的行是区域加价（区域按本租户全部区域的名称认，不认识报 `UNKNOWN_AREA`；
         套餐那几列要留空，填了报 `NOT_APPLICABLE`；商品本身的区域报 `AREA_IS_PRODUCT_AREA`）。
+        点对点（M8-11，ADR 0073 第二部分）：「下车区域」「含公里数」「超出每公里」三列可选——旧模版没有这三列照样导入（都按留空）；「下车区域」按商品选的区域的名称认
+        （不认识报 `AREA_NOT_IN_PRODUCT`，和「区域」相同报 `SAME_AREA`）；含公里数的两列只有一口价能填，要么都填、要么都不填（只填一个报 `REQUIRED` 到空着的那一格）。
       security:
         - tenantToken: []
       parameters:
@@ -9026,9 +9042,15 @@ paths:
                   - tickets
                   - vehicle_group
                   - area_surcharge
+                  - distance
                 properties:
                   order:
                     $ref: "#/components/schemas/PlatformOrder"
+                  distance:
+                    description: 点对点含公里数（M8-11，ADR 0073 第四部分）：结算价和超出每公里的对外价参考；没设含公里数的订单为 null
+                    oneOf:
+                      - $ref: "#/components/schemas/PlatformOrderDistance"
+                      - type: "null"
                   area_surcharge:
                     description: 包车区域加价（M8-15，ADR 0073）：上车、下车所在的加价区域和加价，结算价和对外价参考都有；没有为 null
                     oneOf:
@@ -15258,6 +15280,14 @@ components:
       schema:
         type: string
         format: uuid
+    CalendarToArea:
+      name: to_area_id
+      in: query
+      required: false
+      description: 点对点：下车区域（看这条线路的价；没有线路价时退回区域价）。不给 = 区域价（M8-11）
+      schema:
+        type: string
+        format: uuid
     CalendarVehicleGroup:
       name: vehicle_group_id
       in: query
@@ -16787,7 +16817,7 @@ components:
     SalesQuote:
       type: object
       additionalProperties: false
-      required: [ quote_id, created_at, expires_at, vehicle_group_id, package_hours, service_date, urgent, price, free_wait_minutes ]
+      required: [ quote_id, created_at, expires_at, vehicle_group_id, package_hours, service_date, urgent, price, free_wait_minutes, distance ]
       description: 一个车型组的报价。没有中标租户、结算价、加价比例
       properties:
         quote_id:
@@ -16832,6 +16862,27 @@ components:
         free_wait_minutes:
           type: [ integer, "null" ]
           description: 免费等待分钟数；不限时或没有为 null
+        distance:
+          description: 点对点：价格是设了含公里数的一口价时，含多少公里、报价时的路线距离、超出公里数和超出每公里的对外价（已含在 `price.total` 里，是说明不是另一笔钱）；没设为 null（M8-11，新增字段）
+          oneOf:
+            - $ref: "#/components/schemas/SalesQuoteDistance"
+            - type: "null"
+    SalesQuoteDistance:
+      type: object
+      additionalProperties: false
+      required: [ included_km, route_meters, over_km, over_km_per_km ]
+      description: |
+        含公里数（ADR 0073 第二部分第 4 节、第四部分）：一口价含 `included_km` 公里；本次路线约 `route_meters` 米；超出 `over_km` 公里（向上取整到 1 公里）× `over_km_per_km`（对外价）已经含在总价里。
+        每公里对外价是单独取整的，和总价可能差一个取整单位以内，所以不要写成「基础价 + 超出 = 合计」的算式。路线距离是报价时锁定的，车开绕路不加钱
+      properties:
+        included_km:
+          type: integer
+        route_meters:
+          type: integer
+        over_km:
+          type: integer
+        over_km_per_km:
+          $ref: "#/components/schemas/SalesMoney"
     SalesQuoteResult:
       type: object
       additionalProperties: false
@@ -17774,7 +17825,8 @@ components:
         一个车型组的结算价和明细（子品牌币种的最小货币单位整数）。`total` = `base` + `adjust` + `urgent` + `night` + `addons` + `driver_language`，
         取整只在最后按 `rounding_unit` 做一次，尾差在 `adjust` 里。这里只有供应商自己的结算价。
         包车给了下车点时 `base` 含区域加价（调价作用在「基础定价 + 区域加价」的合计上），`area_surcharge` 是它的明细（M8-15，ADR 0073）。
-      required: [ currency, rounding_unit, total, base, adjust, urgent, night, addons, driver_language, exact, adjusts, urgent_tier, night_detail, addon_items, driver_language_code, usage, area_surcharge, free_wait ]
+        点对点用了含公里数的一口价时 `base` 含超出公里的钱，`distance` 是它的明细；用的是线路价时 `to_area_id` 是线路的下车区域（M8-11）。
+      required: [ currency, rounding_unit, total, base, adjust, urgent, night, addons, driver_language, exact, adjusts, urgent_tier, night_detail, addon_items, driver_language_code, usage, area_surcharge, to_area_id, distance, free_wait ]
       properties:
         currency:
           type: string
@@ -17895,7 +17947,7 @@ components:
         driver_language_code:
           type: [ string, "null" ]
         usage:
-          description: 「里程 + 时长」的价格用到的路线预估；别的计价方式为 null
+          description: 「里程 + 时长」和设了含公里数的一口价用到的路线预估；别的计价方式为 null
           oneOf:
             - $ref: "#/components/schemas/QuoteRouteEstimate"
             - type: "null"
@@ -17903,6 +17955,15 @@ components:
           description: 包车的区域加价明细（结算价，已含在 `base` 里）；只有给了下车点的包车报价才有，否则为 null（M8-15）
           oneOf:
             - $ref: "#/components/schemas/QuoteAreaSurcharge"
+            - type: "null"
+        to_area_id:
+          description: 点对点用的是线路价时，线路的下车区域（上车区域是 offer 的 `area_id`）；区域价、别的品类为 null（M8-11，ADR 0073 第二部分）
+          type: [ string, "null" ]
+          format: uuid
+        distance:
+          description: 点对点设了含公里数的一口价在这一单上的情况（结算价；超出的钱已含在 `base` 里）；没设为 null（M8-11）
+          oneOf:
+            - $ref: "#/components/schemas/QuoteDistance"
             - type: "null"
         free_wait:
           type: object
@@ -17920,6 +17981,24 @@ components:
               type: [ integer, "null" ]
             platform_minimum_minutes:
               type: integer
+    QuoteDistance:
+      type: object
+      additionalProperties: false
+      required: [ included_km, route_meters, over_km, over_km_per_km ]
+      description: 含公里数的一口价（ADR 0073 第二部分第 4 节）：距离是报价时谷歌路线的距离，报价时锁定、存进订单，之后不重算
+      properties:
+        included_km:
+          type: integer
+          description: 一口价含多少公里
+        route_meters:
+          type: integer
+          description: 报价时的路线距离（米）
+        over_km:
+          type: integer
+          description: 超出公里数 = max(0, ⌈(route_meters − included_km × 1000) ÷ 1000⌉)（向上取整到 1 公里）
+        over_km_per_km:
+          type: integer
+          description: 超出每公里的结算价（最小货币单位）
     QuoteAreaSurcharge:
       type: object
       additionalProperties: false
@@ -18134,7 +18213,7 @@ components:
                 items:
                   type: object
                   additionalProperties: false
-                  required: [ position, in_band, rank_price, tenant_id, tenant_name, product_id, product_code, product_version, observation, score_centi, completed_orders, sell, sell_exact, markup_bp, markup_level, markup_rule_id, min_margin_applied, fx_buffer_bp, fx, area_surcharge_sell, offer ]
+                  required: [ position, in_band, rank_price, tenant_id, tenant_name, product_id, product_code, product_version, observation, score_centi, completed_orders, sell, sell_exact, markup_bp, markup_level, markup_rule_id, min_margin_applied, fx_buffer_bp, fx, area_surcharge_sell, over_km_per_km_sell, offer ]
                   properties:
                     position:
                       type: integer
@@ -18194,6 +18273,11 @@ components:
                             dropoff:
                               type: integer
                         - type: "null"
+                    over_km_per_km_sell:
+                      description: |
+                        点对点含公里数的超出每公里对外价参考（`currency` 的最小货币单位，M8-11，ADR 0073 第四部分）：按这个候选的汇率、缓冲、加价比例换算，单独四舍五入；
+                        已含在 `sell` 里，只用来说明。结算价明细里没有 `distance` 时为 null
+                      type: [ integer, "null" ]
                     fx_buffer_bp:
                       type: integer
                     fx:
@@ -21518,6 +21602,10 @@ components:
         area_id:
           type: string
           format: uuid
+        to_area_id:
+          description: 点对点线路价的下车区域（M8-11，ADR 0073 第二部分）：填了 = 只管「上车点在 area_id、下车点在 to_area_id」的单（单向）；null = 区域价。只有点对点能填，必须是商品选的区域、不能等于 area_id
+          type: [ string, "null" ]
+          format: uuid
         vehicle_group_id:
           type: string
           format: uuid
@@ -21585,10 +21673,17 @@ components:
           minimum: 0
           maximum: 1000000000
         over_km_per_km:
-          description: 包车套餐：超公里单价（每公里）
+          description: |
+            包车套餐：超公里单价（每公里）。
+            点对点一口价（M8-11，ADR 0073）：含公里数之外每公里多少钱（和 `included_km` 一起填或都不填；0 = 超出不另收）；不设为 null
           type: [ integer, "null" ]
           minimum: 0
           maximum: 1000000000
+        included_km:
+          description: 点对点一口价含多少公里（M8-11，ADR 0073 第二部分第 4 节；和 `over_km_per_km` 一起填或都不填）；不设为 null。报价时超出的公里数向上取整到 1 公里
+          type: [ integer, "null" ]
+          minimum: 1
+          maximum: 2000
         pickup_surcharge:
           description: 包车区域加价：上车点在这个区域时加多少（可以是 0；M8-15）
           type: [ integer, "null" ]
@@ -21612,13 +21707,17 @@ components:
     PriceRule:
       type: object
       additionalProperties: false
-      required: [ id, area_id, vehicle_group_id, direction, package_hours, pricing_model, base_price, start_price, start_meters, start_minutes, per_km, per_minute, min_price, package_km, package_price, overtime_per_hour, over_km_per_km, pickup_surcharge, dropoff_surcharge, base, valid_from, valid_to, status, created_at, updated_at ]
+      required: [ id, area_id, to_area_id, vehicle_group_id, direction, package_hours, pricing_model, base_price, included_km, start_price, start_meters, start_minutes, per_km, per_minute, min_price, package_km, package_price, overtime_per_hour, over_km_per_km, pickup_surcharge, dropoff_surcharge, base, valid_from, valid_to, status, created_at, updated_at ]
       properties:
         id:
           type: string
           format: uuid
         area_id:
           type: string
+          format: uuid
+        to_area_id:
+          description: 点对点线路价的下车区域（M8-11，ADR 0073 第二部分）：填了 = 只管「上车点在 area_id、下车点在 to_area_id」的单（单向）；null = 区域价。只有点对点能填，必须是商品选的区域、不能等于 area_id
+          type: [ string, "null" ]
           format: uuid
         vehicle_group_id:
           type: string
@@ -21687,10 +21786,17 @@ components:
           minimum: 0
           maximum: 1000000000
         over_km_per_km:
-          description: 包车套餐：超公里单价（每公里）
+          description: |
+            包车套餐：超公里单价（每公里）。
+            点对点一口价（M8-11，ADR 0073）：含公里数之外每公里多少钱（和 `included_km` 一起填或都不填；0 = 超出不另收）；不设为 null
           type: [ integer, "null" ]
           minimum: 0
           maximum: 1000000000
+        included_km:
+          description: 点对点一口价含多少公里（M8-11，ADR 0073 第二部分第 4 节；和 `over_km_per_km` 一起填或都不填）；不设为 null。报价时超出的公里数向上取整到 1 公里
+          type: [ integer, "null" ]
+          minimum: 1
+          maximum: 2000
         pickup_surcharge:
           description: 包车区域加价：上车点在这个区域时加多少（可以是 0；M8-15）
           type: [ integer, "null" ]
@@ -21713,7 +21819,7 @@ components:
           $ref: "#/components/schemas/RuleStatus"
         base:
           type: string
-          description: 这条价格能报出的最低数（一口价的基础价、里程 + 时长的起步价或最低消费、包车的套餐价），十进制字符串：试算和日历的基数。区域加价不是基础定价，是 "0"
+          description: 这条价格能报出的最低数（一口价的基础价——设了含公里数的是不超出时的价、里程 + 时长的起步价或最低消费、包车的套餐价），十进制字符串：试算和日历的基数。区域加价不是基础定价，是 "0"
         created_at:
           type: string
           format: date-time
@@ -22155,11 +22261,14 @@ components:
     PriceCalendarDay:
       type: object
       additionalProperties: false
-      required: [ date, weekday, holiday, price_rule, surcharge, segments ]
+      required: [ date, weekday, holiday, price_rule, route_rule, surcharge, segments ]
       properties:
         date:
           type: string
           format: date
+        route_rule:
+          description: 点对点给了 `to_area_id` 时：这一天用的是线路价（true）还是这个车型组没有能用的线路价、退回了区域价（false）；没给 `to_area_id` 为 null（M8-11）
+          type: [ boolean, "null" ]
         surcharge:
           description: 包车：这个区域作为加价区域时这一天用的区域加价（启用、在生效期内）；没有、或不是包车为 null（M8-15）
           oneOf:
@@ -22202,13 +22311,17 @@ components:
           oneOf:
             - type: object
               additionalProperties: false
-              required: [ id, pricing_model, direction, valid_from, valid_to ]
+              required: [ id, pricing_model, to_area_id, direction, valid_from, valid_to ]
               properties:
                 id:
                   type: string
                   format: uuid
                 pricing_model:
                   $ref: "#/components/schemas/PricingModel"
+                to_area_id:
+                  description: 点对点线路价的下车区域；区域价为 null（M8-11）
+                  type: [ string, "null" ]
+                  format: uuid
                 direction:
                   oneOf:
                     - $ref: "#/components/schemas/PriceDirection"
@@ -22630,12 +22743,21 @@ components:
               content:
                 type: object
                 additionalProperties: false
-                required: [ area, vehicle_group, direction, package_hours, pricing_model, main_price, surcharge, valid_from, valid_to, status ]
+                required: [ area, to_area, vehicle_group, direction, package_hours, pricing_model, main_price, surcharge, included_km, over_km_per_km, valid_from, valid_to, status ]
                 description: 这一行读到的内容（确认前核对用），新增的行也有。读不出来的项是 null
                 properties:
                   area:
                     type: [ string, "null" ]
                     description: 区域的名称；没认出来时是表里填的原文
+                  to_area:
+                    type: [ string, "null" ]
+                    description: 点对点线路价的下车区域的名称（「下车区域」列，M8-11）；区域价、别的品类为 null
+                  included_km:
+                    type: [ integer, "null" ]
+                    description: 点对点一口价的「含公里数」（M8-11）；没填为 null
+                  over_km_per_km:
+                    type: [ integer, "null" ]
+                    description: 点对点一口价的「超出每公里」（最小货币单位，M8-11）；没填为 null
                   vehicle_group:
                     type: [ string, "null" ]
                     description: 车型组的编码；没认出来时是表里填的原文
@@ -22690,11 +22812,14 @@ components:
                 items:
                   type: object
                   additionalProperties: false
-                  required: [ row, price_rule_id, area, vehicle_group, direction, package_hours, valid_from, valid_to ]
+                  required: [ row, price_rule_id, area, to_area, vehicle_group, direction, package_hours, valid_from, valid_to ]
                   description: 和它重叠的那一条：直接带着组合的文字和日期。`price_rule_id` 一定是这个商品的价格
                   properties:
                     area:
                       type: [ string, "null" ]
+                    to_area:
+                      type: [ string, "null" ]
+                      description: 点对点线路价的下车区域（M8-11）；区域价为 null
                     vehicle_group:
                       type: [ string, "null" ]
                     direction:
@@ -22827,6 +22952,7 @@ components:
             - AREA_IS_PRODUCT_AREA
             - AREA_NOT_USABLE
             - AREA_DISABLED
+            - SAME_AREA
           description: |
             `REQUIRED` 必填的格空着；`FORMULA` 这一格是公式；`NOT_A_NUMBER` / `NOT_INTEGER` 不是数字 / 不是整数；
             `PRECISION` 小数位超过了币种的精度（或起步里程超过 1 位小数）；`OUT_OF_RANGE` 超出范围；
@@ -22836,6 +22962,7 @@ components:
             `UNKNOWN_PRICE_RULE` 价格编号不是这个商品的；`AREA_NOT_IN_PRODUCT` / `VEHICLE_GROUP_NOT_IN_PRODUCT` 不是这个商品选的区域 / 车型组；
             `AMBIGUOUS` 有不止一个区域叫这个名字；`INVENTORY_BELOW_OCCUPIED` 这一天有订单占着，不能改成这个数。
             包车区域加价的行（M8-15）：`UNKNOWN_AREA` 本租户没有叫这个名字的区域；`AREA_IS_PRODUCT_AREA` 是商品本身的区域；`AREA_NOT_USABLE` 业务类型不是包车或通用；`AREA_DISABLED` 区域已停用。
+            点对点线路价的行（M8-11）：`SAME_AREA`「下车区域」和「区域」相同。
         message:
           type: string
     OrderStatus:
@@ -22937,8 +23064,17 @@ components:
       type: object
       additionalProperties: false
       description: 结算价和明细（中标租户的结算币种），来自报价快照；各项之和等于 `total`
-      required: [ total, base, adjust, urgent, night, addons, driver_language, area_surcharge ]
+      required: [ total, base, adjust, urgent, night, addons, driver_language, area_surcharge, to_area_id, distance ]
       properties:
+        to_area_id:
+          description: 点对点用的是线路价时，线路的下车区域；区域价、别的品类、M8-11 之前的订单为 null（M8-11，ADR 0073 第二部分）
+          type: [ string, "null" ]
+          format: uuid
+        distance:
+          description: 点对点设了含公里数的一口价：含多少公里、报价时锁定的路线距离（米）、超出公里数、超出每公里（结算价）；超出的钱已含在 `base` 里。没设的、M8-11 之前的订单为 null
+          oneOf:
+            - $ref: "#/components/schemas/OrderDistance"
+            - type: "null"
         area_surcharge:
           description: |
             包车的区域加价（结算价，已含在 `base` 里；`package` 是其中的基础定价，M8-15，ADR 0073）。一端的 `area_id` 为 null = 在商品本身的区域里（加 0）。
@@ -23008,6 +23144,42 @@ components:
             - type: "null"
         settlement:
           $ref: "#/components/schemas/SalesMoney"
+    OrderDistance:
+      type: object
+      additionalProperties: false
+      required: [ included_km, route_meters, over_km, over_km_per_km ]
+      description: 含公里数的一口价在这一单上的情况（M8-11，ADR 0073 第二部分第 4 节），报价时锁定
+      properties:
+        included_km:
+          type: integer
+        route_meters:
+          type: integer
+          description: 报价时谷歌路线的距离（米）
+        over_km:
+          type: integer
+          description: 超出公里数（向上取整到 1 公里）
+        over_km_per_km:
+          $ref: "#/components/schemas/SalesMoney"
+    PlatformOrderDistance:
+      type: object
+      additionalProperties: false
+      required: [ included_km, route_meters, over_km, over_km_per_km, over_km_per_km_sell ]
+      description: 运营看到的含公里数（M8-11）：结算价（同供应商看到的 `OrderDistance`）加上超出每公里的对外价参考（报价快照里单独换算、单独取整，已含在对外价里；快照里没有时为 null）
+      properties:
+        included_km:
+          type: integer
+        route_meters:
+          type: integer
+          description: 报价时谷歌路线的距离（米）
+        over_km:
+          type: integer
+          description: 超出公里数（向上取整到 1 公里）
+        over_km_per_km:
+          $ref: "#/components/schemas/SalesMoney"
+        over_km_per_km_sell:
+          oneOf:
+            - $ref: "#/components/schemas/SalesMoney"
+            - type: "null"
     PlatformOrderAreaSurcharge:
       type: object
       additionalProperties: false
@@ -26411,8 +26583,13 @@ components:
     SiteQuote:
       type: object
       additionalProperties: false
-      required: [ quote_id, expires_at, service_date, urgent, vehicle_group, package, includes_area_surcharge, price, free_wait_minutes, cancel_policy, available_addons ]
+      required: [ quote_id, expires_at, service_date, urgent, vehicle_group, package, includes_area_surcharge, distance, price, free_wait_minutes, cancel_policy, available_addons ]
       properties:
+        distance:
+          description: 点对点：价格是设了含公里数的一口价时，含多少公里、报价时的路线距离（米）、超出公里数、超出每公里的对外价（已含在 `price.total` 里）；没设为 null（M8-11）
+          oneOf:
+            - $ref: "#/components/schemas/SalesQuoteDistance"
+            - type: "null"
         includes_area_surcharge:
           type: boolean
           description: 包车：这个价里含区域加价（上车或下车不在商品本身的区域里，ADR 0073）；只说「含区域加价」，不单列金额。别的品类恒为 false（M8-15）

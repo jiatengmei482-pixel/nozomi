@@ -111,7 +111,7 @@ export const REFUSAL_MESSAGES: Readonly<Record<ComparisonRefusal, string>> = {
   NO_PRICE_RULE: "这个区域、车型组、方向或套餐没有价格（包车：或者上车点、下车点所在的加价区域没有这个车型组、套餐的加价）",
   PRICE_NOT_IN_EFFECT: "有价格，但用车日期不在它的生效期里",
   PRICE_RULE_DISABLED: "对得上的那条价格停用了",
-  ROUTE_UNAVAILABLE: "价格是「里程 + 时长」，需要路线预估，而现在取不到",
+  ROUTE_UNAVAILABLE: "价格是「里程 + 时长」或设了含公里数的一口价，需要路线预估，而现在取不到",
   PRICE_NOT_POSITIVE: "调价、取整之后价格不大于 0",
   PRICE_OVER_LIMIT: "价格超过了结算价的上限",
   FX_RATE_UNAVAILABLE: "商品的结算币种和客人支付的币种不同，而现在没有可用的汇率（没有，或超过 48 小时没更新）",
@@ -146,6 +146,10 @@ function settlementJson(settlement: SettlementBreakdown): Json {
     usage: settlement.usage,
     // 包车的区域加价（ADR 0073）：已含在 base 里；area_id 为 null = 这一端在商品本身的区域里（加 0）
     area_surcharge: areaSurchargeJson(settlement.areaSurcharge ?? null),
+    // 点对点（M8-11，ADR 0073 第二部分）：用的是线路价时的下车区域（上车区域是 offer 的 area_id）；区域价为 null
+    to_area_id: settlement.toAreaId ?? null,
+    // 含公里数的一口价：报价时锁定的路线距离（米）、超出公里数（向上取整）、超出每公里（结算价）；超出的钱已含在 base 里。没设的为 null
+    distance: settlement.distance === undefined || settlement.distance === null ? null : { included_km: settlement.distance.includedKm, route_meters: settlement.distance.routeMeters, over_km: settlement.distance.overKm, over_km_per_km: settlement.distance.overKmPerKmMinor },
     free_wait: {
       item: settlement.freeWait.item,
       mode: settlement.freeWait.value?.mode ?? null,
@@ -215,6 +219,8 @@ export function registerQuoteRoutes(app: FastifyInstance, ctx: AppContext): void
           fx: candidate.sell.fx === null ? null : fxJson(candidate.sell.fx),
           // 包车区域加价的对外价参考（ADR 0073 第四部分）：已含在 sell 里，单独取整，只用来说明
           area_surcharge_sell: candidate.sell.areaSurcharge === undefined ? null : { pickup: candidate.sell.areaSurcharge.pickupMinor, dropoff: candidate.sell.areaSurcharge.dropoffMinor },
+          // 点对点含公里数的超出每公里对外价参考（ADR 0073 第四部分）：已含在 sell 里，单独取整，只用来说明
+          over_km_per_km_sell: candidate.sell.overKmPerKmMinor ?? null,
           offer: offerJson(candidate.offer),
         })),
       })),

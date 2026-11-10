@@ -86,7 +86,15 @@ function quoteJson(quote: SalesQuote): Record<string, unknown> {
     urgent: quote.urgent,
     price: { total: salesMoney(quote.sellMinor, quote.currency), fx: quote.fx === null ? null : { rate: quote.fx.rate, as_of: quote.fx.asOf } },
     free_wait_minutes: quote.freeWaitMinutes,
+    // 点对点设了含公里数的价（M8-11，ADR 0073）：含多少公里、报价时的路线距离（米）、超出公里数、超出每公里（对外价，已含在 total 里）；没设为 null
+    distance: distanceJson(quote),
   };
+}
+
+/** 报价里的含公里数（对外接口共用；只有对外价）。 */
+export function distanceJson(quote: Pick<SalesQuote, "distance" | "currency">): Record<string, unknown> | null {
+  const distance = quote.distance;
+  return distance === null ? null : { included_km: distance.includedKm, route_meters: distance.routeMeters, over_km: distance.overKm, over_km_per_km: salesMoney(distance.overKmPerKmMinor, quote.currency) };
 }
 
 /**
