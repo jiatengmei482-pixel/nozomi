@@ -123,6 +123,22 @@ start_container() {
     --volume "$work_dir/systemctl:/usr/local/sbin/systemctl:ro" \
     "$@" "$image" sleep infinity >/dev/null
   containers+=("$name")
+  harden_package_sources "$name"
+}
+
+# 容器里装软件包走网络，公共软件源偶尔连不上或正在同步（CI 曾因此卡住近 1 小时）。
+# 只在这些演练容器里给 apt 和 dnf 加超时和重试；仍用各系统默认的官方软件源
+#（换成 Azure 镜像后遇到过镜像没同步完、软件包 404，M8-22）。被测的初始化脚本本身不改。
+harden_package_sources() {
+  local name="$1"
+  docker exec "$name" sh -c '
+    if [ -d /etc/apt ]; then
+      printf "%s\n" "Acquire::Retries \"5\";" "Acquire::http::Timeout \"30\";" "Acquire::https::Timeout \"30\";" >/etc/apt/apt.conf.d/80-ci-retries
+    fi
+    if [ -f /etc/dnf/dnf.conf ]; then
+      printf "%s\n" "retries=5" "timeout=30" "minrate=1000" >>/etc/dnf/dnf.conf
+    fi
+  ' || fail "演练容器 $name 的软件源设置失败"
 }
 
 # 两种情形共用：用户、目录、密钥、公钥、定时任务，以及「重跑不覆盖、只补缺」。

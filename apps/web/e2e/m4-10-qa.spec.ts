@@ -5,7 +5,10 @@
  * 数据经接口现建（供应商名字带随机后缀），不依赖其他用例。
  */
 import { expect, test } from "@playwright/test";
-import { adminCredentials, createTenant, loginAs } from "./support.ts";
+import { adminCredentials, createTenant, loginAs, OWN_SITE_SOURCE } from "./support.ts";
+
+// 官网按来源地址限速：每条用例带自己的文档专用地址，不和并行的官网用例在 127.0.0.1 上抢同一份额度（M8-17）
+test.use(OWN_SITE_SOURCE);
 
 test("运营后台供应商列表：搜索框输入后马上点进某家供应商，过了 300ms 仍停在详情页，没有被换回列表", async ({ page, request }) => {
   const tenant = await createTenant(request);

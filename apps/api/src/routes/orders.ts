@@ -19,7 +19,7 @@ import type { Order, OrderEvent, OrderPayment, OrderSale, PaymentEventRecord } f
 import type { DriverLink, OrderFile } from "../repos/dispatch.ts";
 import { driverLinkEmailJson, getDriverLinkEmail, mailConfigured } from "../services/driver-link-email.ts";
 import type { WebhookDelivery } from "../repos/webhooks.ts";
-import { type DispatchFacts, areaSurchargeDetailJson, cancelPolicyJson, changeJson, dispatchJson, extraChargeJson, fulfilmentJson, landingJson, orderTripJson, orderVehicleGroupJson, settlementJson, tenantOrderJson } from "../services/order-views.ts";
+import { type DispatchFacts, areaSurchargeDetailJson, distanceMoneyJson, cancelPolicyJson, changeJson, dispatchJson, extraChargeJson, fulfilmentJson, landingJson, orderTripJson, orderVehicleGroupJson, settlementJson, tenantOrderJson } from "../services/order-views.ts";
 import { customerAmountOf } from "../services/extra-charges.ts";
 import type { OrderRefund } from "../repos/refunds.ts";
 import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
@@ -176,6 +176,17 @@ function platformAreaSurchargeJson(found: { order: Order; surchargeAreaNames: Re
   const sell = found.quote.winner.sell.areaSurcharge ?? null;
   const money = (minor: number | undefined): Json | null => (sell === null || minor === undefined ? null : salesMoney(minor, found.quote.currency));
   return { ...detail, pickup: { ...(detail["pickup"] as Json), sell: money(sell?.pickupMinor) }, dropoff: { ...(detail["dropoff"] as Json), sell: money(sell?.dropoffMinor) } };
+}
+
+/**
+ * 运营看到的含公里数（ADR 0073 第四部分）：结算价（同供应商看到的）加上超出每公里的对外价参考（报价快照里单独换算、单独取整的数，已含在对外价里）。
+ * 没设含公里数的订单为 null；快照里没有对外价参考时 `over_km_per_km_sell` 为 null。
+ */
+function platformDistanceJson(found: { order: Order; quote: { currency: CurrencyCode; winner: { sell: { overKmPerKmMinor?: number } } } }): Json | null {
+  const detail = distanceMoneyJson(found.order.settlement, found.order.settlementCurrency);
+  if (detail === null) return null;
+  const sell = found.quote.winner.sell.overKmPerKmMinor;
+  return { ...detail, over_km_per_km_sell: sell === undefined ? null : salesMoney(sell, found.quote.currency) };
 }
 
 /** 推送内容里的乘客也打码（运营详情一页看全，不能从这里绕过「查看」）。 */
@@ -348,6 +359,8 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
       }, names),
       vehicle_group: orderVehicleGroupJson(found.vehicleGroup),
       area_surcharge: platformAreaSurchargeJson(found),
+      // 点对点含公里数（M8-11）：结算价 + 超出每公里的对外价参考（只有运营看得到）
+      distance: platformDistanceJson(found),
       quote: {
         quote_id: found.quote.quoteId,
         created_at: found.quote.createdAt,

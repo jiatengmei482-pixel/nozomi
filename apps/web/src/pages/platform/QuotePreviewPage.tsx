@@ -252,7 +252,7 @@ function RouteUnavailable({ code, message }: { code: string | null; message: str
             {"："}
           </>
         )}
-        {`${reason}一口价和包车套餐不受影响。想看这些商品的价格，可以在上面「假定的里程和时长」里填一组数再试算。`}
+        {`${reason}没设含公里数的一口价和包车套餐不受影响。想看这些商品的价格，可以在上面「假定的里程和时长」里填一组数再试算。`}
       </span>
     </Alert>
   );
