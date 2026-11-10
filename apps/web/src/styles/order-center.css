@@ -121,7 +121,7 @@
   flex-shrink: 0;
 }
 
-/* ---------- 人工报价：各状态的数量（M8-21，platform-tickets.md 第 8 节）：点一个只看这个状态，再点取消 ---------- */
+/* ---------- 人工报价：各状态的数量（M8-21，platform-tickets.md 第 9 节）：点一个只看这个状态，再点取消 ---------- */
 
 .status-counts {
   display: flex;

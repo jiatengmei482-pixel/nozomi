@@ -1,5 +1,5 @@
 /**
- * 运营后台「系统设置 → 官网设置」（M8-21，ADR 0076；规范 docs/design/pages/platform-settings.md 第 6 节）。
+ * 运营后台「系统设置 → 官网设置」（M8-21，ADR 0076；规范 docs/design/pages/platform-settings.md 第 9 节）。
  * 现在只有一项：客服 WhatsApp 号码。官网报不出价时的「通过 WhatsApp 联系我们」用它；清空就不显示按钮。
  * - 看（`site_settings.read`）：超级管理员、运营、客服；
  * - 改（`site_settings.manage`）：只归超级管理员（号码被换掉，客人就会把行程发给别人）。别人看到的是只读的号码和这句说明。
@@ -110,29 +110,31 @@ export function SiteSettingsPage() {
         <h2 className="card__title" id="site-settings-whatsapp">
           客服 WhatsApp
         </h2>
-        {canManage ? (
-          <Editor key={settings.version} settings={settings} onSaved={set} onReload={reload} />
-        ) : (
-          <>
-            <dl className="details">
-              <Detail label="客服 WhatsApp 号码">{digits === null ? "还没有设置（官网不显示 WhatsApp 按钮）" : supportWhatsappText(digits)}</Detail>
-            </dl>
-            <p className="table__muted">只有超级管理员能改这个号码：号码填错或被换掉，客人就会把行程发给别人。</p>
-          </>
-        )}
-        <dl className="details">
-          {digits !== null && <Detail label="试一下">{<TryLink digits={digits} />}</Detail>}
-          <Detail label="最后修改">
-            {settings.version === 0 ? (
-              "还没有设置过"
-            ) : (
-              <>
-                <LocalTime iso={settings.updated_at} />
-                {settings.updated_by === null ? "" : ` · ${settings.updated_by.name}`}
-              </>
-            )}
-          </Detail>
-        </dl>
+        <div className="form">
+          {canManage ? (
+            <Editor key={settings.version} settings={settings} onSaved={set} onReload={reload} />
+          ) : (
+            <>
+              <dl className="details">
+                <Detail label="客服 WhatsApp 号码">{digits === null ? "还没有设置（官网不显示 WhatsApp 按钮）" : supportWhatsappText(digits)}</Detail>
+              </dl>
+              <p className="table__muted">只有超级管理员能改这个号码：号码填错或被换掉，客人就会把行程发给别人。</p>
+            </>
+          )}
+          <dl className="details">
+            {digits !== null && <Detail label="试一下"><TryLink digits={digits} /></Detail>}
+            <Detail label="最后修改">
+              {settings.version === 0 ? (
+                "还没有设置过"
+              ) : (
+                <>
+                  <LocalTime iso={settings.updated_at} />
+                  {settings.updated_by === null ? "" : ` · ${settings.updated_by.name}`}
+                </>
+              )}
+            </Detail>
+          </dl>
+        </div>
       </section>
     </>,
   );

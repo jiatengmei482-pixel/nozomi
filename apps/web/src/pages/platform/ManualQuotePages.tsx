@@ -1,5 +1,5 @@
 /**
- * 运营后台「人工报价」的列表和详情（M8-21，ADR 0076；规范 docs/design/pages/platform-tickets.md 第 8 节）。
+ * 运营后台「人工报价」的列表和详情（M8-21，ADR 0076；规范 docs/design/pages/platform-tickets.md 第 9 节）。
  * - 列表（`manual_quote.read`）：没有个人信息——只写客人留了邮箱还是 WhatsApp；按状态、跟进人、联系方式（完整的邮箱或号码）筛；上面是各状态的数量。
  * - 详情：打开才解密联系方式、两端地点、备注，每次打开都记审计（页面上写明）；邮箱点开发信，WhatsApp 点开去 wa.me。
  *   改状态、指派带版本号（If-Match），被别人改过时刷新再说；写备注（加密保存，到期和联系方式一起清除）。`manual_quote.manage` 才有这些操作。

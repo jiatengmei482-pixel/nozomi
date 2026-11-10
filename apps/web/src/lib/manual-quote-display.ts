@@ -1,5 +1,5 @@
 /**
- * 运营后台「人工报价」「官网设置」的地址、状态徽标和文字（M8-21，ADR 0076；规范 docs/design/pages/platform-tickets.md 第 8 节、platform-settings.md 第 6 节）。
+ * 运营后台「人工报价」「官网设置」的地址、状态徽标和文字（M8-21，ADR 0076；规范 docs/design/pages/platform-tickets.md 第 9 节、platform-settings.md 第 9 节）。
  */
 import { MANUAL_QUOTE_STATUSES, MANUAL_QUOTE_STATUS_NAMES, type ManualQuoteStatus, manualQuoteEmail, whatsappDigits } from "@nozomi/domain";
 import type { ManualQuoteEvent, ManualQuoteSummary } from "../api/manual-quotes.ts";

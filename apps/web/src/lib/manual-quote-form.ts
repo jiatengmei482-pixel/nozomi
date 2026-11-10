@@ -1,5 +1,5 @@
 /**
- * 官网报不出价时「留下联系方式、人工报价」（M8-21，ADR 0076；规范 docs/design/pages/site-booking-v2.md 第 13 节）。
+ * 官网报不出价时「留下联系方式、人工报价」（M8-21，ADR 0076；规范 docs/design/pages/site-booking-v2.md 第 11 节）。
  *
  * - 只收两项：邮箱、WhatsApp（以 + 开头的国际格式），至少一项；格式规则和接口同一份（@nozomi/domain 的 manualQuoteEmail、whatsappDigits）。
  * - 行程由页面自动带上；缺了哪一项（日期、时间、包车时长）就请客人先在上面补上。

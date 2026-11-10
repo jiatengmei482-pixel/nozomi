@@ -97,7 +97,8 @@ test("报不出价：客人留下邮箱和 WhatsApp → 客服在「人工报价
 
     // ── 客服 ──
     const cs = await inviteStaff(request, "customer_service", "端到端客服（M8-21）");
-    const csPage = await browser.newPage({ baseURL: `http://127.0.0.1:${E2E_WEB_DRIVER_MAIL_PORT}` });
+    const csContext = await browser.newContext({ baseURL: `http://127.0.0.1:${E2E_WEB_DRIVER_MAIL_PORT}`, locale: "zh-CN" });
+    const csPage = await csContext.newPage();
     await csPage.setViewportSize({ width: 1280, height: 900 });
     await loginAs(csPage, "platform", cs.email, cs.password);
     await csPage.getByRole("navigation", { name: "主菜单" }).getByRole("link", { name: "人工报价" }).click();
@@ -134,11 +135,12 @@ test("报不出价：客人留下邮箱和 WhatsApp → 客服在「人工报价
     await csPage.getByRole("navigation", { name: "主菜单" }).getByRole("link", { name: "官网设置" }).click();
     await expect(csPage.getByText(/只有超级管理员能改这个号码/)).toBeVisible();
     await expect(csPage.getByRole("textbox")).toHaveCount(0);
-    await csPage.close();
+    await csContext.close();
 
     // ── 超级管理员 ──
     const admin = adminCredentials();
-    const adminPage = await browser.newPage({ baseURL: `http://127.0.0.1:${E2E_WEB_DRIVER_MAIL_PORT}` });
+    const adminContext = await browser.newContext({ baseURL: `http://127.0.0.1:${E2E_WEB_DRIVER_MAIL_PORT}`, locale: "zh-CN" });
+    const adminPage = await adminContext.newPage();
     await adminPage.setViewportSize({ width: 1280, height: 900 });
     await loginAs(adminPage, "platform", admin.email, admin.password);
     await adminPage.getByRole("navigation", { name: "主菜单" }).getByRole("button", { name: "系统设置" }).click();
@@ -155,7 +157,7 @@ test("报不出价：客人留下邮箱和 WhatsApp → 客服在「人工报价
     await expect(adminPage.getByLabel("客服 WhatsApp 号码")).toHaveValue(`+${SUPPORT_DIGITS}`);
     await expect(adminPage.getByRole("link", { name: /在 WhatsApp 里打开看看/ })).toHaveAttribute("href", `https://wa.me/${SUPPORT_DIGITS}`);
     await checkNarrow(adminPage, "官网设置", "m821-platform-site-settings");
-    await adminPage.close();
+    await adminContext.close();
 
     // ── 客人重新打开同一个链接：WhatsApp 按钮出现 ──
     await page.goto(link);

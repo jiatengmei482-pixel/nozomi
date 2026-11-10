@@ -742,7 +742,7 @@
   overflow-wrap: anywhere;
 }
 
-/* ---------- 报不出价时：留下联系方式、人工报价（M8-21，site-booking-v2.md 第 13 节） ---------- */
+/* ---------- 报不出价时：留下联系方式、人工报价（M8-21，site-booking-v2.md 第 11 节） ---------- */
 
 .manual-quote {
   display: flex;
