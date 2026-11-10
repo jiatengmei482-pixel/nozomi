@@ -102,6 +102,15 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   { method: "GET", url: "/platform/v1/notifications", action: "notification.read" },
   { method: "GET", url: "/platform/v1/notification-templates", action: "notification.read" },
   { method: "POST", url: `/platform/v1/notifications/${MISSING}/retry`, action: "notification.retry" },
+  // 人工报价申请（M8-21，ADR 0076）：看 manual_quote.read；指派、改状态、备注、看能指派给谁 manual_quote.manage。用不存在的编号：有权限时 404 / 428
+  { method: "GET", url: "/platform/v1/manual-quote-requests", action: "manual_quote.read" },
+  { method: "GET", url: `/platform/v1/manual-quote-requests/${MISSING}`, action: "manual_quote.read" },
+  { method: "GET", url: "/platform/v1/manual-quote-requests/assignees", action: "manual_quote.manage" },
+  { method: "PATCH", url: `/platform/v1/manual-quote-requests/${MISSING}`, action: "manual_quote.manage", body: {} },
+  { method: "POST", url: `/platform/v1/manual-quote-requests/${MISSING}/notes`, action: "manual_quote.manage", body: {} },
+  // 官网设置（M8-21）：看 site_settings.read；改 site_settings.manage（只归超级管理员；空的请求体有权限时 400，不会改到）
+  { method: "GET", url: "/platform/v1/site-settings", action: "site_settings.read" },
+  { method: "PUT", url: "/platform/v1/site-settings", action: "site_settings.manage", body: {} },
   { method: "GET", url: "/platform/v1/integration-secrets", action: "integration.read" },
   { method: "PUT", url: `/platform/v1/integration-secrets/${MISSING_SECRET}`, action: "integration.manage", body: {} },
   { method: "DELETE", url: `/platform/v1/integration-secrets/${MISSING_SECRET}`, action: "integration.manage" },
