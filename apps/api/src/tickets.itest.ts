@@ -97,6 +97,15 @@ async function tenantTicket(who: TenantFixture, ticketId: string): Promise<any> 
   return res;
 }
 
+/** 应答里所有金额（`{ amount, currency }` 形状的对象）的 amount。 */
+function moneyAmountsIn(value: unknown): string[] {
+  if (Array.isArray(value)) return value.flatMap(moneyAmountsIn);
+  if (typeof value !== "object" || value === null) return [];
+  const record = value as Record<string, unknown>;
+  const own = typeof record["amount"] === "string" && typeof record["currency"] === "string" ? [record["amount"]] : [];
+  return [...own, ...Object.values(record).flatMap(moneyAmountsIn)];
+}
+
 /** 供应商能看到的应答里不该出现的东西（规则 4）：对外价、加价比例、汇率、客人那边的赔付、内部备注、处理人。 */
 const TENANT_FORBIDDEN = ["sell", "markup_bp", "fx", "fx_buffer_bp", "refund", "manual_payout", "compensation", "notes", "assignee_id", "decided_by", "approval_id", "channel"];
 
@@ -154,7 +163,8 @@ test("赔付按统一表计算：渠道代客人投诉迟到 20 分钟，客服�
   assert.equal(seen.body.ticket.decision_note, "司机迟到 20 分钟，属实");
   assert.deepEqual(seen.body.deductions.map((d: any) => [d.kind, d.amount.amount]), [["compensation", "1980"]]);
   assertTenantSafe(seen.body, "供应商的工单详情");
-  assert.ok(!seen.text.includes(String(expected)) || String(expected) === "1980", "供应商的应答里不该出现客人的赔付金额");
+  // 按金额字段比，不在整段应答文字里找数字：工单号、订单号、编号、时间里随机出现同样的几位数字会误报（M8-21 的 CI 碰上过一次）
+  assert.ok(!moneyAmountsIn(seen.body).includes(String(expected)) || String(expected) === "1980", "供应商的应答里不该出现客人的赔付金额");
   const deductions = await api.call("GET", "/tenant/v1/deductions", { token: await tenantToken(m.b) });
   assertMatchesOpenApi("GET", "/tenant/v1/deductions", deductions);
   assert.ok(deductions.body.items.some((d: any) => d.kind === "compensation" && d.amount.amount === "1980"));

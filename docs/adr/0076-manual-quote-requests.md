@@ -79,6 +79,7 @@
 ### 9. 「通过 WhatsApp 联系我们」
 
 - 号码在运营后台「系统设置 → 官网设置」的「客服 WhatsApp 号码」填（超级管理员）。填带国家码的号码（+ 可有可无，可以有空格、连字符），存成 wa.me 要的纯数字；清空就不显示按钮。代码、测试数据里不写任何真实号码。
+- 前端（M8-21 前端部分）：三处去 WhatsApp 的链接（官网的按钮、客服点客人的 WhatsApp、官网设置里「在 WhatsApp 里打开看看」）都用一个组件 `components/WhatsappLink.tsx`，地址只由 `whatsappChatUrl` 拼，号码先核对是纯数字，新标签页、`rel` 写死 `noopener noreferrer`。构建产物的守卫（`e2e/build-output.spec.ts`「产物不引用任何站外资源」）因此只多放行一个：`whatsappChatUrl` 编译后的模板原样 `https://wa.me/${…}?text=${encodeURIComponent(…`——它是客人自己点开的站外链接，不是页面加载的资源；wa.me 的其他写法和任何别的站点照旧不许。
 - 页面的链接：`https://wa.me/<号码>?text=<编码后的一句话>`，新标签页打开。这句话由 domain 的 `manualQuoteWhatsappText` 生成：「您好，我想咨询用车报价：点对点，新宿站 → 成田机场，2026-12-01 09:30，2 人。」——只有用车类型（包车加时长）、上车 → 下车、时间、人数，**没有客人的任何个人信息**（客人还没留）。地点名称太长时截短。链接由 `whatsappChatUrl` 拼。
 - 和客服电话的区别：客服电话现在仍是部署配置 `SITE_SUPPORT_PHONE`（ADR 0061），不在后台改；以后要搬到「官网设置」时加一列即可。
 
