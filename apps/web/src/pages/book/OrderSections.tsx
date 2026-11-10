@@ -40,13 +40,13 @@ import {
   GUEST_EXTRA_STATUS_BADGES,
   SITE_ORDER_PATH,
   TIMELINE_NAMES,
-  addressEnds,
   freeWaitText,
   guestCancelPolicyText,
   guestInstantText,
   guestLocalText,
   landingAvailability,
   localDateTimeIn,
+  orderAddressEnds,
   orderFeeNote,
   packageText,
   serviceTimeLabels,
@@ -333,12 +333,12 @@ export function PaymentSection({
 
 // ---- 行程、时间线、司机 ----
 
-/** 行程那一行：接机 / 送机写机场和地址，点对点写两端，包车写套餐和上车点。 */
+/** 行程那一行：接机 / 送机写机场和地址，点对点写两端，包车写套餐、上车点和下车点（M8-19 之前的单没有下车点，不写这一项）。 */
 function routeFacts(order: SiteOrder, names: SiteOrderNames): { label: string; text: string }[] {
   const pickupAddress = order.pickup?.address ?? "—";
   const dropoffAddress = order.dropoff?.address ?? "—";
   if (order.category === "point_to_point") return [{ label: "点对点", text: `${pickupAddress} → ${dropoffAddress}` }];
-  if (order.category === "charter") return [{ label: "包车", text: order.package_hours === null ? "—" : packageText(order.package_hours, null) }, { label: "上车地点", text: pickupAddress }];
+  if (order.category === "charter") return [{ label: "包车", text: order.package_hours === null ? "—" : packageText(order.package_hours, null) }, { label: "上车地点", text: pickupAddress }, ...(order.dropoff !== null ? [{ label: "下车地点", text: dropoffAddress }] : [])];
   const airport = placeName(names);
   return order.direction === "pickup" ? [{ label: "接机", text: `${airport} → ${dropoffAddress}` }] : [{ label: "送机", text: `${pickupAddress} → ${airport}` }];
 }
@@ -627,7 +627,7 @@ export function changeRequestOf(order: SiteOrder, form: ChangeForm): SiteChangeR
   const body: SiteChangeRequest = {};
   if (passengerKey(form) !== passengerKey(before)) body.passenger = { name: form.name.trim(), phone: form.phone.trim(), email: form.email.trim() };
   if (order.category === "airport_transfer" && flightKey(form.flightNo) !== flightKey(before.flightNo)) body.flight_no = form.flightNo.trim() === "" ? null : form.flightNo.trim();
-  const ends = addressEnds(order.category, order.direction);
+  const ends = orderAddressEnds(order);
   if (ends.includes("pickup") && form.pickupAddress.trim() !== before.pickupAddress) {
     if (form.pickupAddress.trim() === "") return { error: "上车地址不能为空" };
     body.pickup_address = form.pickupAddress.trim();
@@ -675,8 +675,8 @@ export function validateChange(order: SiteOrder, form: ChangeForm, now: Date): C
     if (arrival && form.flightNo.trim() === "") errors.flightNo = "接机要填航班号，司机按航班落地时间等候";
     else if (form.flightNo.trim() !== "" && !isFlightNo(form.flightNo)) errors.flightNo = "航班号的格式不对，如 NH211、MU523";
   }
-  // 只查这一单有的地址（接送机是机场之外的那一端，点对点两端，包车上车点）
-  for (const end of addressEnds(order.category, order.direction)) {
+  // 只查这一单有的地址（接送机是机场之外的那一端，点对点两端，包车上车点和下车点——旧单没有下车点）
+  for (const end of orderAddressEnds(order)) {
     const field = ADDRESS_FIELDS[end];
     if (changed(field) && form[field].trim() === "") errors[field] = end === "pickup" ? "请填写上车的地址或酒店名" : "请填写下车的地址或酒店名";
   }
@@ -883,7 +883,7 @@ export function ChangeSection({ token, order, onChanged }: { token: string; orde
             <TextField label="手机号（带国家码）" size="lg" required type="tel" inputMode="tel" autoComplete="tel" hint="以 + 和国家码开头，如 +81 90-1234-5678" value={form.phone} errors={fieldErrors("phone")} onChange={(event) => set({ phone: event.target.value })} />
             <TextField label="邮箱" size="lg" required type="email" inputMode="email" autoCapitalize="none" spellCheck={false} autoComplete="email" value={form.email} errors={fieldErrors("email")} onChange={(event) => set({ email: event.target.value })} />
             {transfer && <TextField label={arrival ? "航班号" : "航班号（选填）"} size="lg" required={arrival} autoCapitalize="characters" hint="如 NH211" value={form.flightNo} errors={fieldErrors("flightNo")} onChange={(event) => set({ flightNo: event.target.value })} />}
-            {addressEnds(order.category, order.direction).map((end) => {
+            {orderAddressEnds(order).map((end) => {
               const field = ADDRESS_FIELDS[end];
               return (
                 <TextField

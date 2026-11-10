@@ -12073,12 +12073,12 @@ paths:
       summary: 官网询价（接送机、点对点、包车）
       description: |
         服务端以官网渠道的身份走正式询价（ADR 0035；和 `POST /sales/v1/quotes` 同一个流程：比价、加价、`quote_id` 30 分钟有效）。用车时间是城市当地时间；币种是渠道的结算币种。
-        三种品类各填各的（`category` 不填是接送机）：接送机 `airport_id` + `direction` + `address`；点对点 `pickup` + `dropoff`；包车 `pickup` + `package_hours`，`dropoff` 暂时可选。
+        三种品类各填各的（`category` 不填是接送机）：接送机 `airport_id` + `direction` + `address`；点对点 `pickup` + `dropoff`；包车 `pickup` + `dropoff` + `package_hours`。
         该给的没给 400 `REQUIRED`，不该给的给了 400 `NOT_APPLICABLE`。包车的报价带 `package`（套餐时长和含的公里数）。
-        包车的下车地点（M8-15，ADR 0073）**暂时可选**，规则同 `POST /sales/v1/quotes`：不给时只报没设区域加价的包车商品（和以前一样只看上车点），设了的不报（原因 `DROPOFF_REQUIRED`）；
-        **M8-13 新预订页加上下车地点输入框后改为必填**。给了下车点时：报价 = 基础定价 + 上车点所在加价区域的上车加价 + 下车点所在加价区域的下车加价（一口价，已含）；
+        包车的下车地点（ADR 0073）**必填**（M8-15 暂为可选，M8-19 新预订页加了下车地点输入框后改回必填；`POST /sales/v1/quotes` 仍可选），不给 400 `REQUIRED`（`/dropoff`）。
+        报价 = 基础定价 + 上车点所在加价区域的上车加价 + 下车点所在加价区域的下车加价（一口价，已含）；
         上车点或下车点不在商品本身的区域、也不在任何加价区域里的不报价（`unavailable` 是 `OUT_OF_SERVICE_AREA`，页面说「这个地址暂时没有在线报价，请联系客服」）。
-        报价里含区域加价时 `includes_area_surcharge` 为 true（只说「含区域加价」，不单列金额）。询价给了下车点的，下单时要填 `dropoff_address`；没给的不能填。
+        报价里含区域加价时 `includes_area_surcharge` 为 true（只说「含区域加价」，不单列金额）。包车下单时要填 `dropoff_address`（询价给了下车点的单都要填）。
         应答里每个车型组一个对外价，带车型组的名称、免费等待、按现在的平台取消政策下单后适用的阶梯。**没有中标供应商、结算价、加价比例。**
         每个地址每分钟 30 次。
       requestBody:
@@ -26351,7 +26351,7 @@ components:
           description: 点对点、包车：上车点的坐标
         dropoff:
           $ref: "#/components/schemas/SitePoint"
-          description: 点对点（必填）、包车（M8-15 起可以给，暂时可选，M8-13 改为必填；ADR 0073）：下车点的坐标
+          description: 点对点、包车（必填；包车 M8-15 暂为可选，M8-19 改回必填，ADR 0073）：下车点的坐标
         package_hours:
           type: integer
           minimum: 1
@@ -26548,11 +26548,11 @@ components:
         pickup_address:
           type: [ string, "null" ]
           maxLength: 1000
-          description: 送机时的上车地址（或酒店名）
+          description: 送机、点对点、包车的上车地址（或酒店名）
         dropoff_address:
           type: [ string, "null" ]
           maxLength: 1000
-          description: 接机时的下车地址（或酒店名）
+          description: 接机、点对点、包车的下车地址（或酒店名；包车 M8-19 起必填）
         messaging:
           oneOf:
             - $ref: "#/components/schemas/OrderMessaging"
