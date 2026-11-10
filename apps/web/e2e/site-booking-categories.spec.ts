@@ -6,7 +6,10 @@
  */
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { CENTER, type Supplier, type World, createProductByApi, createSupplier, createWorld, expectAccessible } from "./catalog.ts";
-import { platformAdminHeaders, randomLetters } from "./support.ts";
+import { platformAdminHeaders, randomLetters, OWN_SITE_SOURCE } from "./support.ts";
+
+// 官网按来源地址限速：每条用例带自己的文档专用地址，不和并行的官网用例在 127.0.0.1 上抢同一份额度（M8-17）
+test.use(OWN_SITE_SOURCE);
 
 const RULES = {
   booking: { sale_from: null, sale_to: null, service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 0, note: null },
