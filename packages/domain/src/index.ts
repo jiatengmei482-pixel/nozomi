@@ -62,3 +62,4 @@ export * from "./points-trip.ts";
 export * from "./bank-transfer.ts";
 export * from "./view-link.ts";
 export * from "./passenger-email-review.ts";
+export * from "./manual-quote.ts";

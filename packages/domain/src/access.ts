@@ -84,6 +84,10 @@ export const PLATFORM_ACTIONS = [
   "statement.review",
   "notification.read",
   "notification.retry",
+  "manual_quote.read",
+  "manual_quote.manage",
+  "site_settings.read",
+  "site_settings.manage",
 ] as const;
 
 export type PlatformAction = (typeof PLATFORM_ACTIONS)[number];
@@ -178,6 +182,11 @@ export type TenantAction = (typeof TENANT_ACTIONS)[number];
  * 发到新邮箱等于把订单交给另一个人，要另一位同事审核（`order.view_link_review`）：运营——客服发起、运营审核；两位运营互审，或超级管理员审。
  * 运营、客服代客人改单时改了乘客邮箱（M4-31，ADR 0065）同样是把订单交给另一个地址：由同一个 `order.view_link_review` 审核（同一批人、勾选表同一格），
  * 不另加操作——两件事审的是同一个问题「这个新邮箱是不是客人本人的」。
+ * 人工报价申请（M8-21，ADR 0076）：客人留的邮箱、WhatsApp 和两端地点是个人信息，只给跟进的人——
+ * 看（`manual_quote.read`，打开详情才解密、每次留审计）和指派、改状态、写备注（`manual_quote.manage`）：运营、客服。
+ * 只读、财务、风控等不给：他们的工作用不到客人的联系方式（和 `order.read` 不同，这里没有对账、风控的用途）。
+ * 官网设置（M8-21，ADR 0076：客服 WhatsApp 号码）：看（`site_settings.read`）给运营、客服（要知道客人联系的是哪个号）；
+ * 改（`site_settings.manage`）只归超级管理员——号码填错或被换掉，客人就会把行程发给别人（和第三方密钥同一种风险，自建角色也勾不了）。
  */
 const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformAction[]>> = {
   super_admin: PLATFORM_ACTIONS,
@@ -186,10 +195,11 @@ const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformActio
     "order.manage", "order.proxy_fulfilment", "order.proxy_review", "order.change_decide", "order.view_link_resend", "order.view_link_review", "payment.manage", "cancellation_policy.manage", "cancellation_policy.review",
     "rescue.manage", "rescue.review",
     "exception.manage", "ticket.read", "ticket.manage", "ticket.review", "compensation_table.manage", "compensation_table.review", "notification.read", "notification.retry",
+    "manual_quote.read", "manual_quote.manage", "site_settings.read",
   ],
   tenant_onboarding: ["tenant.read", "tenant.create", "tenant.edit", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read"],
   channel_manager: ["tenant.read", "master_data.read", "quote.preview", "product.read", "channel.read", "channel.manage", "channel.review", "approval.read"],
-  customer_service: ["master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend", "order.manage", "order.view_link_resend", "rescue.manage", "exception.manage", "ticket.read", "ticket.manage", "notification.read", "notification.retry"],
+  customer_service: ["master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend", "order.manage", "order.view_link_resend", "rescue.manage", "exception.manage", "ticket.read", "ticket.manage", "notification.read", "notification.retry", "manual_quote.read", "manual_quote.manage", "site_settings.read"],
   finance: ["master_data.read", "channel.read", "approval.read", "order.read", "order.proxy_review", "payment.manage", "cancellation_policy.review", "exception.manage", "ticket.read", "compensation_table.review", "statement.read", "statement.manage", "statement.review"],
   risk: ["master_data.read", "product.read", "channel.read", "approval.read", "order.read", "ticket.read"],
   master_data: ["master_data.read", "master_data.manage", "fx.manage", "fx.review", "approval.read"],
@@ -352,6 +362,10 @@ export const PLATFORM_MENUS = [
   // 需求文档里汇率中心是主数据菜单的一部分：看汇率就是看主数据；拉取、确认、发起锁定算编辑，审核锁定算审核
   // 通知中心（M4-08，ADR 0049）：看发送记录和模板；手动重试算编辑
   { key: "notifications", name: "通知中心", operations: { view: ["notification.read"], edit: ["notification.retry"] } },
+  // 人工报价申请（M8-21，ADR 0076）：看列表和详情（详情里有客人的联系方式）；指派、改状态、写备注算编辑
+  { key: "manual_quotes", name: "人工报价", operations: { view: ["manual_quote.read"], edit: ["manual_quote.manage"] } },
+  // 官网设置（M8-21，ADR 0076）：客服 WhatsApp 号码；改只归超级管理员（见 SUPER_ADMIN_ONLY_GRANTS）
+  { key: "site_settings", name: "官网设置", operations: { view: ["site_settings.read"], edit: ["site_settings.manage"] } },
   { key: "master_data", name: "主数据与汇率", operations: { view: ["master_data.read"], edit: ["master_data.manage", "fx.manage"], review: ["fx.review"] } },
   { key: "staff", name: "平台账号", operations: { view: ["staff.read"], edit: ["staff.manage"] } },
   { key: "roles", name: "角色", operations: { view: ["role.read"], edit: ["role.manage"], review: ["role.review"] } },
@@ -368,10 +382,10 @@ export type MenuGrant = `${PlatformMenuKey}:${MenuOperation}`;
 /**
  * 只有超级管理员（内置角色）才有、自建角色勾不了的几项：管平台账号、建改角色、审核角色修改、填写第三方密钥（M4-09，ADR 0041）。
  * 否则有「改角色」权限的人可以给自己的角色加上任何权限，有「管账号」权限的人可以把自己改成超级管理员——双人复核也挡不住两个人合谋；
- * 能填第三方密钥的人能把收款换成别人的 Stripe 账户。
+ * 能填第三方密钥的人能把收款换成别人的 Stripe 账户；能改官网客服 WhatsApp 号码的人能让客人把行程发给别人（M8-21）。
  * 系统设置里的「查看」（账号列表、角色、审计日志、集成状态）可以给自建角色。
  */
-export const SUPER_ADMIN_ONLY_GRANTS: readonly MenuGrant[] = ["staff:edit", "roles:edit", "roles:review", "integrations:edit"];
+export const SUPER_ADMIN_ONLY_GRANTS: readonly MenuGrant[] = ["staff:edit", "roles:edit", "roles:review", "integrations:edit", "site_settings:edit"];
 
 function menuOperationActions(menuKey: string, operation: string): readonly PlatformAction[] | null {
   const menu = PLATFORM_MENUS.find((entry) => entry.key === menuKey) as PlatformMenu | undefined;

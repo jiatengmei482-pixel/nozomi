@@ -12,6 +12,11 @@ import { AppError } from "../errors.ts";
 import type { SecretBox } from "./secret-box.ts";
 
 export type PassengerCopyKind = "order_change" | "webhook_delivery" | "notification";
+/** 人工报价申请（M8-21，ADR 0076）：平台数据，没有租户；联系方式和两端地点一份密文，客服备注一条一份。 */
+export type ManualQuoteSealKind = "manual_quote_request" | "manual_quote_note";
+type SealKind = "order" | PassengerCopyKind | ManualQuoteSealKind;
+/** 人工报价申请的密文、盲索引用的「租户」位置：固定值，和任何供应商的订单分开（同一个邮箱算出的盲索引不同）。 */
+const MANUAL_QUOTE_OWNER = "platform:manual_quote";
 
 export interface PassengerCryptoLog {
   error(obj: object, msg: string): void;
@@ -156,8 +161,24 @@ export class PassengerCrypto {
     return { email: email === "" ? null : this.index(tenantId, "email", email), phone: phone === "" ? null : this.index(tenantId, "phone", phone), name: name === "" ? null : this.index(tenantId, "name", name) };
   }
 
+  /** 人工报价申请的密文（没有主密钥时报错，不存明文）。`id` 是申请或备注的编号。 */
+  sealManualQuote(kind: ManualQuoteSealKind, id: string, text: string): string {
+    return this.seal(kind, MANUAL_QUOTE_OWNER, id, text);
+  }
+
+  /** 解开人工报价申请的密文；不是当前密钥的、解不开的报 503（不退回任何明文：这里没有明文列）。 */
+  openManualQuote(kind: ManualQuoteSealKind, id: string, enc: string): string {
+    const opened = this.isCurrent(enc) ? this.tryOpen(kind, MANUAL_QUOTE_OWNER, id, enc) : null;
+    return opened ?? this.unreadable(kind, id);
+  }
+
+  /** 人工报价申请的盲索引：WhatsApp 按电话的口径（纯数字）。`value` 必须已经规范化。 */
+  manualQuoteIndex(kind: "email" | "phone", value: string): string {
+    return this.index(MANUAL_QUOTE_OWNER, kind, value);
+  }
+
   /** `--verify` 用：这段密文能不能用当前密钥解开，解开是什么。解不开返回 null，不报警。 */
-  openForVerify(kind: "order" | PassengerCopyKind, tenantId: string, id: string, enc: string): string | null {
+  openForVerify(kind: SealKind, tenantId: string, id: string, enc: string): string | null {
     if (this.box === null) return null;
     try {
       return this.box.open("passenger-data", this.owner(kind, tenantId, id), enc.slice(enc.indexOf(":") + 1));
@@ -170,12 +191,12 @@ export class PassengerCrypto {
     return `${kind}:${tenantId}:${id}`;
   }
 
-  private seal(kind: "order" | PassengerCopyKind, tenantId: string, id: string, text: string): string {
+  private seal(kind: SealKind, tenantId: string, id: string, text: string): string {
     if (this.box === null) throw passengerEncryptionNotConfigured();
     return `${this.kid}:${this.box.seal("passenger-data", this.owner(kind, tenantId, id), text)}`;
   }
 
-  private tryOpen(kind: "order" | PassengerCopyKind, tenantId: string, id: string, enc: string): string | null {
+  private tryOpen(kind: SealKind, tenantId: string, id: string, enc: string): string | null {
     const opened = this.openForVerify(kind, tenantId, id, enc);
     if (opened === null) this.alert("passenger.decrypt_failed", { kind, id }, "乘客信息的密文解不开，退回读明文");
     return opened;
