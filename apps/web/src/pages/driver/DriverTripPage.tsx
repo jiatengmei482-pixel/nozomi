@@ -67,6 +67,16 @@ function currentLocation(): Promise<ReportedLocation | null> {
   });
 }
 
+/**
+ * 「下车：…」那一行（M8-13，规范 driver.md 3a）：有下车地址写地址；接送机写机场；M8-15 之前的包车单没有下车点，
+ * 写「没有指定（包车，按客人安排）」（不写「—」，司机会以为漏了）。
+ */
+export function dropoffText(order: Pick<DriverTrip["order"], "category" | "dropoff">, placeName: string | null): string {
+  if (order.dropoff !== null) return order.dropoff.address;
+  if (order.category === "charter") return "没有指定（包车，按客人安排）";
+  return placeName ?? "—";
+}
+
 /** 导航：`geo:` 链接交给手机自带的地图应用（不链到站外网页：本站只允许 lib/external-links.ts 里登记的外链）。 */
 export function mapLink(point: { lng: number; lat: number }): string {
   return `geo:${point.lat},${point.lng}?q=${point.lat},${point.lng}`;
@@ -274,13 +284,21 @@ export function DriverTripPage() {
 
       <Section title="行程">
         <p className="driver-key">{`上车：${order.pickup?.address ?? placeName ?? "—"}`}</p>
-        <p className="driver-key">{`下车：${order.dropoff?.address ?? placeName ?? "—"}`}</p>
+        <p className="driver-key">{`下车：${dropoffText(order, placeName)}`}</p>
         {order.pickup_point !== null && (
           <>
             <a className="button button--secondary button--block" href={mapLink(order.pickup_point)}>
               导航到上车点
             </a>
             <p className="field__hint">{`上车点坐标：${order.pickup_point.lat.toFixed(6)}, ${order.pickup_point.lng.toFixed(6)}`}</p>
+          </>
+        )}
+        {order.category === "charter" && order.dropoff !== null && (
+          <>
+            <a className="link driver-nav" href={mapLink(order.dropoff)}>
+              导航到下车点
+            </a>
+            <p className="field__hint">{`下车点坐标：${order.dropoff.lat.toFixed(6)}, ${order.dropoff.lng.toFixed(6)}`}</p>
           </>
         )}
         <p>{`免费等待：${order.free_wait_minutes === null ? "不限" : `${order.free_wait_minutes} 分钟`}，从 ${formatInZone(trip.free_wait.start, zone)} 起${trip.free_wait.end ? `，到 ${formatInZone(trip.free_wait.end, zone)}` : ""}`}</p>

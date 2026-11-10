@@ -25,6 +25,7 @@ import type { OrderChange } from "../repos/order-changes.ts";
 import type { ExtraCharge } from "../repos/extra-charges.ts";
 import type { OrderRefund } from "../repos/refunds.ts";
 import { customerAmountOf } from "../services/extra-charges.ts";
+import { orderIncludesAreaSurcharge, orderSellDistance } from "../services/order-price-notes.ts";
 
 const tokenSchema = z.object({ grant_type: z.literal("client_credentials"), client_id: z.string().min(1).max(100), client_secret: z.string().min(1).max(200) }).strict();
 
@@ -155,6 +156,12 @@ function salesExtraChargeJson(charge: ExtraCharge, view: SalesOrderView, now: Da
   };
 }
 
+/** 订单上锁定的含公里数（对外价，格式同报价的 `distance`）；没设含公里数为 null。 */
+function orderDistanceJson(view: Pick<SalesOrderView, "order" | "sale">): Record<string, unknown> | null {
+  const distance = orderSellDistance(view.order, view.sale);
+  return distance === null ? null : { included_km: distance.includedKm, route_meters: distance.routeMeters, over_km: distance.overKm, over_km_per_km: salesMoney(distance.overKmPerKmMinor, distance.currency) };
+}
+
 export function salesOrderJson(view: SalesOrderView, now: Date): Record<string, unknown> {
   const { order, sale, payment } = view;
   return {
@@ -162,6 +169,9 @@ export function salesOrderJson(view: SalesOrderView, now: Date): Record<string, 
     quote_id: sale.quoteId,
     channel_order_no: sale.channelOrderNo,
     price: { total: salesMoney(sale.sellMinor, sale.currency), fx: sale.fx === null ? null : { rate: sale.fx.rate, as_of: sale.fx.asOf } },
+    // M8-13（ADR 0073 第四部分）：订单上锁定的价格说明——含区域加价（不给金额）、含公里数（只有对外价）；只加字段
+    includes_area_surcharge: orderIncludesAreaSurcharge(order),
+    distance: orderDistanceJson(view),
     payment_status: payment?.status ?? "creating",
     payment_due_at: order.paymentDueAt.toISOString(),
     winning_tenant: view.winningTenant,

@@ -56,6 +56,10 @@ export function CalendarTab({ shared }: { shared: PricesShared }) {
   const areaId = wantedArea !== null && !unknown ? wantedArea : (firstPriced?.area_id ?? areaIds[0] ?? "");
   const groupId = wantedGroup !== null && !unknown ? wantedGroup : (firstPriced?.vehicle_group_id ?? groupIds[0] ?? "");
   const direction: TripDirection | null = airport ? (params.get("dir") === "dropoff" ? "dropoff" : "pickup") : null;
+  // 点对点：下车区域（17.5）。不选 = 同一区域（区域价）；选了 = 这条线路上客人的价（有线路价用线路价，没有退回区域价）
+  const p2p = product.category === "point_to_point";
+  const wantedTo = params.get("to");
+  const toAreaId = p2p && wantedTo !== null && wantedTo !== areaId && areaIds.includes(wantedTo) ? wantedTo : null;
   const wantedPackage = Number(params.get("pkg"));
   const packageHours = charter ? (packages.includes(wantedPackage) ? wantedPackage : (packages[0] ?? null)) : null;
   const time = tidyTime(params.get("time") ?? "") ?? "10:00";
@@ -85,14 +89,14 @@ export function CalendarTab({ shared }: { shared: PricesShared }) {
   const areaName = (id: string): string => displayName(product.areas.find((area) => area.area_id === id)?.name).text;
   const groupName = (id: string): string => displayName(product.vehicle_groups.find((group) => group.vehicle_group_id === id)?.name).text;
   const variant = direction !== null ? directionNames[direction] : packageHours !== null ? `${packageHours} 小时` : null;
-  const comboName = [areaName(areaId), groupName(groupId), variant].filter((part) => part !== null).join(" · ");
+  const comboName = [toAreaId !== null ? `${areaName(areaId)} → ${areaName(toAreaId)}` : areaName(areaId), groupName(groupId), variant].filter((part) => part !== null).join(" · ");
   const hasPrices = prices.items.length > 0;
   const canLoad = hasPrices && areaId !== "" && groupId !== "" && (!charter || packageHours !== null);
   const dates = useMemo(() => monthDates(month), [month]);
   const weeks = useMemo(() => monthWeeks(month), [month]);
   const loaded = useLoad<PriceCalendar>(
-    `calendar:${product.id}:${areaId}:${groupId}:${direction}:${packageHours}:${month}:${frame.version}:${prices.rounding_unit}`,
-    canLoad ? (token) => getPriceCalendar(token, product.id, { area_id: areaId, vehicle_group_id: groupId, ...(direction !== null ? { direction } : {}), ...(packageHours !== null ? { package_hours: packageHours } : {}), from: dates[0] as string, to: dates.at(-1) as string }) : null,
+    `calendar:${product.id}:${areaId}:${toAreaId}:${groupId}:${direction}:${packageHours}:${month}:${frame.version}:${prices.rounding_unit}`,
+    canLoad ? (token) => getPriceCalendar(token, product.id, { area_id: areaId, ...(toAreaId !== null ? { to_area_id: toAreaId } : {}), vehicle_group_id: groupId, ...(direction !== null ? { direction } : {}), ...(packageHours !== null ? { package_hours: packageHours } : {}), from: dates[0] as string, to: dates.at(-1) as string }) : null,
   );
   const data = loaded.state.data;
   // 换了月份或组合、新的还没到时，手上的还是上一份：只用日期对得上的
@@ -234,6 +238,13 @@ export function CalendarTab({ shared }: { shared: PricesShared }) {
 
   const priceRuleOf = (day: CalendarDay) => prices.items.find((item) => item.id === day.price_rule?.id) ?? null;
   const mileage = (data?.days ?? []).some((day) => day.price_rule?.pricing_model === "mileage_time");
+  /** 设了含公里数的一口价：日历上是不超出时的价，写「起」（17.5） */
+  const withKm = (day: CalendarDay | null): boolean => {
+    const rule = day === null ? null : priceRuleOf(day);
+    return rule !== null && rule.pricing_model === "fixed" && rule.included_km !== undefined && rule.included_km !== null;
+  };
+  const startsAt = (day: CalendarDay | null): boolean => day?.price_rule?.pricing_model === "mileage_time" || withKm(day);
+  const kmNote = (data?.days ?? []).some(withKm);
   /** 只看今天和以后：整个月都已经过去时不提醒 */
   const ahead = (data?.days ?? []).filter((day) => day.date >= today);
   const allEmpty = data !== null && !stale && ahead.length > 0 && ahead.every((day) => day.segments.every((segment) => segment.final === null && segment.no_price_reason !== "NOT_POSITIVE" && segment.no_price_reason !== "OVER_LIMIT"));
@@ -290,7 +301,7 @@ export function CalendarTab({ shared }: { shared: PricesShared }) {
           <>
             <p className="calendar-detail__final">
               <span className="calendar-detail__final-label">结算价</span> {moneyText(segment.final, currency)}
-              {day.price_rule?.pricing_model === "mileage_time" && " 起"}
+              {startsAt(day) && " 起"}
             </p>
             <p className="calendar-detail__combo">{`${time} 用车 · ${comboName}`}</p>
             <dl className="calendar-detail__steps">
@@ -298,6 +309,12 @@ export function CalendarTab({ shared }: { shared: PricesShared }) {
                 <dt>基础价</dt>
                 <dd>{segment.base === null ? "—" : exactTextMoney(segment.base, currency)}</dd>
               </div>
+              {toAreaId !== null && day.route_rule !== undefined && day.route_rule !== null && (
+                <div className="calendar-detail__row calendar-detail__row--sub">
+                  <dt>{day.route_rule ? `线路价 · ${areaName(areaId)} → ${areaName(toAreaId)}` : "区域价（这条线路这个车型组没有线路价）"}</dt>
+                  <dd />
+                </div>
+              )}
               {day.price_rule && (
                 <div className="calendar-detail__row calendar-detail__row--sub">
                   <dt>{`${PRICING_MODEL_NAMES[day.price_rule.pricing_model]} · ${day.price_rule.valid_to === null ? `${day.price_rule.valid_from} 起一直有效` : `${day.price_rule.valid_from} 至 ${day.price_rule.valid_to}`}`}</dt>
@@ -367,7 +384,7 @@ export function CalendarTab({ shared }: { shared: PricesShared }) {
     /** 已经过去的日子没有价格：只写文字，不用警告色（不可能再卖，提醒只是干扰；M1-14） */
     const past = date < today;
     const holiday = day?.holiday ? displayName(day.holiday.name).text : null;
-    const from = day?.price_rule?.pricing_model === "mileage_time" ? " 起" : "";
+    const from = startsAt(day) ? " 起" : "";
     const spoken =
       view === null
         ? `${spokenDate(date)}，${loaded.state.status === "error" ? "没有加载出来" : "加载中"}`
@@ -453,6 +470,7 @@ export function CalendarTab({ shared }: { shared: PricesShared }) {
       </div>
       <div className="calendar-filters" role="group" aria-label="看哪个组合">
         {select("calendar-area", "区域", areaId, product.areas.map((area) => ({ value: area.area_id, label: shortName(displayName(area.name).text) })), (value) => change({ area: value, vg: groupId }))}
+        {p2p && areaIds.length > 1 && select("calendar-to", "下车区域", toAreaId ?? "", [{ value: "", label: "同一区域（区域价）" }, ...product.areas.filter((area) => area.area_id !== areaId).map((area) => ({ value: area.area_id, label: `到 ${shortName(displayName(area.name).text)}` }))], (value) => change({ to: value === "" ? null : value }))}
         {select("calendar-group", "车型组", groupId, product.vehicle_groups.map((group) => ({ value: group.vehicle_group_id, label: shortName(displayName(group.name).text) })), (value) => change({ vg: value, area: areaId }))}
         {airport && select("calendar-direction", "方向", direction ?? "pickup", [{ value: "pickup", label: directionNames.pickup }, { value: "dropoff", label: directionNames.dropoff }], (value) => change({ dir: value === "pickup" ? null : value }))}
         {charter && packages.length > 0 && select("calendar-package", "套餐", String(packageHours), packages.map((hours) => ({ value: String(hours), label: `${hours} 小时` })), (value) => change({ pkg: value }))}
@@ -564,6 +582,7 @@ export function CalendarTab({ shared }: { shared: PricesShared }) {
           </section>
         </div>
       )}
+      {kmNote && <p className="calendar-note">这个组合设了含公里数，日历上是不超出时的价。超出的公里数按每一单的路线算，加进一口价。</p>}
       {mileage && <p className="calendar-note">这个组合按里程和时长计价，日历上是不超出起步里程和起步时长时的价（起步价或最低消费）调完以后的数。按客人实际路线报价要等路线预估功能上线。</p>}
       <p className="calendar-note">{`日历上是按价格规则和调价规则算出来的结算价，不含加急费、夜间加价和附加服务。日期是${product.city ? displayName(product.city.name).text : ""}当地的用车日期。`}</p>
       <Dialog open={sheet} title={`${shownDate} 的价`} onClose={() => setSheet(false)} footer={<Button onClick={() => setSheet(false)}>关闭</Button>}>

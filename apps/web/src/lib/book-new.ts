@@ -3,7 +3,7 @@
  * 链接参数、报不出价的说法、车型列表默认显示几个、乘客 / 行李栏的写法、车内俯视示意图的排布。
  * 价格、报价、下单逻辑都不在这里：报价走 `POST /site/v1/quotes/by-points`（包车走 `POST /site/v1/quotes`），只负责显示。
  */
-import { type CurrencyCode, formatMajor, isCurrencyCode, minorDigits, parseMajor, rateToFraction, roundFractionHalfAwayFromZero } from "@nozomi/domain";
+import { type CurrencyCode, formatMajor, isCurrencyCode, minorDigits, parseMajor, rateToFraction, roundFractionHalfAwayFromZero, routeKmText } from "@nozomi/domain";
 import { SITE_ROUTE_MAP_LIMITS, type SitePlaceKind, type SiteUnavailableReason } from "../api/site.ts";
 import { UNAVAILABLE_REASON_TEXT } from "./site-display.ts";
 
@@ -254,6 +254,14 @@ export function decodePolyline(encoded: string): { lat: number; lng: number }[] 
 export function routeSummaryText(minutes: number, meters: number): string {
   const km = (Math.round(meters / 100) / 10).toFixed(1).replace(/\.0$/, "");
   return `约 ${Math.max(1, Math.round(minutes))} 分钟 · ${km} 公里`;
+}
+
+/**
+ * 选了含公里数的车型时（M8-13，规范 site-booking-v2.md 10.3）：公里数用报价锁定的路线米数、和「公里数」那句同一个取整（domain `routeKmText`，向上取整到 0.1 公里），
+ * 两处数字不会不一样。
+ */
+export function lockedRouteSummaryText(minutes: number, lockedMeters: number): string {
+  return `约 ${Math.max(1, Math.round(minutes))} 分钟 · ${routeKmText(lockedMeters)} 公里`;
 }
 
 /**

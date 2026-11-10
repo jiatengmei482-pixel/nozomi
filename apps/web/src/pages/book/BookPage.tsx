@@ -47,6 +47,7 @@ import {
   priceNote,
   quotesByTotal,
   serviceTimeLabels,
+  siteDistanceNote,
 } from "../../lib/site-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { SITE_NEW_CHARTER_URL } from "../../lib/book-new.ts";
@@ -161,6 +162,8 @@ function QuoteCard({ quote, draft, onChoose }: { quote: SiteQuote; draft: Bookin
   const group = quote.vehicle_group;
   const name = displayName(group.name);
   const capacity = group.combos.map((combo) => `${combo.passengers} 人 + ${combo.luggage} 件行李`).join(" 或 ");
+  // 含公里数（M8-13，规范 site-booking-v2.md 10.6 第 1 条）：车型标识下面一行，和新预订页同一句
+  const kmNote = siteDistanceNote(quote.distance);
   return (
     <li className="site-quote">
       <div className="site-quote__head">
@@ -179,6 +182,12 @@ function QuoteCard({ quote, draft, onChoose }: { quote: SiteQuote; draft: Bookin
           </div>
         )}
         <VehicleLabelItems group={group} itemClassName="site-facts__item" />
+        {kmNote !== null && (
+          <div className="site-facts__item site-facts__item--wide">
+            <dt>公里数</dt>
+            <dd>{kmNote}</dd>
+          </div>
+        )}
         <div className="site-facts__item">
           <dt>座位</dt>
           <dd>{group.seats} 座{capacity !== "" ? `（最多 ${capacity}）` : ""}</dd>

@@ -252,9 +252,11 @@ export function fileInvalidText(status: number, details: Record<string, unknown>
 // ───────────── 导入：检查结果 ─────────────
 
 /** 价格的一行（或冲突的那一条）是什么：「{区域} · {车型组} · {方向 / 套餐}」。读不出来的部分不写。 */
-export function priceComboText(content: Pick<PriceImportContent | PriceImportConflict, "area" | "vehicle_group" | "direction" | "package_hours">, station: boolean): string {
+export function priceComboText(content: Pick<PriceImportContent | PriceImportConflict, "area" | "to_area" | "vehicle_group" | "direction" | "package_hours">, station: boolean): string {
   const variant = content.direction !== null ? priceDirectionNames(station ? "station" : null)[content.direction] : content.package_hours !== null ? `${count(content.package_hours)} 小时` : null;
-  return [content.area, content.vehicle_group, variant].filter((part): part is string => part !== null && part !== "").join(" · ");
+  // 点对点线路价（M8-12）：「上车区域 → 下车区域」
+  const place = content.area !== null && content.to_area !== undefined && content.to_area !== null && content.to_area !== "" ? `${content.area} → ${content.to_area}` : content.area;
+  return [place, content.vehicle_group, variant].filter((part): part is string => part !== null && part !== "").join(" · ");
 }
 
 export function validityText(from: string | null, to: string | null): string {
@@ -266,7 +268,10 @@ export function validityText(from: string | null, to: string | null): string {
 export function priceRowText(content: PriceImportContent, currency: string | null, station: boolean): string {
   const combo = priceComboText(content, station);
   const price = content.main_price === null ? "" : moneyText(content.main_price, currency);
-  const text = [combo, price, validityText(content.valid_from, content.valid_to), content.status === "disabled" ? "停用" : ""].filter((part) => part !== "").join("，");
+  // 含公里数（点对点一口价）、区域加价（包车）：和页面上同样的说法（结算价）
+  const km = content.included_km !== undefined && content.included_km !== null ? `含 ${count(content.included_km)} 公里${content.over_km_per_km !== undefined && content.over_km_per_km !== null ? `，超出每公里 ${moneyText(content.over_km_per_km, currency)}` : ""}` : "";
+  const surcharge = content.surcharge ? [content.surcharge.pickup !== null ? `上车加价 ${moneyText(content.surcharge.pickup, currency)}` : "", content.surcharge.dropoff !== null ? `下车加价 ${moneyText(content.surcharge.dropoff, currency)}` : ""].filter((part) => part !== "").join("，") : "";
+  const text = [combo, price, km, surcharge, validityText(content.valid_from, content.valid_to), content.status === "disabled" ? "停用" : ""].filter((part) => part !== "").join("，");
   return text === "" ? "—" : text;
 }
 

@@ -523,6 +523,15 @@ export function ImportPage({ kind, frame, product }: { kind: Kind; frame: Produc
           「价格编号」：导出的行带着它，<strong>留着 = 修改这一条；新增的行留空</strong>。导入不会删除价格，要删请在页面上删。
         </li>
         <li>「区域」填区域的名称，「车型组」填车型组的编码——只能用文件第二张表「填写说明」里列出的。</li>
+        {product.category === "point_to_point" && (
+          <>
+            <li>
+              「下车区域」：线路价才填（这个商品的另一个服务区域，只管「区域」上车、「下车区域」下车这一个方向）；<strong>区域价留空</strong>。上车、下车不能是同一个区域。
+            </li>
+            <li>「含公里数」「超出每公里」：一口价选填，两格要一起填或都空着。含公里数是 1 到 2,000 的整数；超出的部分不足 1 公里按 1 公里算。</li>
+          </>
+        )}
+        {product.category === "charter" && <li>「上车加价」「下车加价」：只有「计价方式」填「区域加价」的行填，不加钱填 0；这时「区域」填加价区域。</li>}
         <li>
           金额是<strong>结算价</strong>，币种 {currency}，{digits === 0 ? "只能填整数" : `最多 ${digits} 位小数`}。<strong>小数位多了会报错，不会自动四舍五入。</strong>
         </li>

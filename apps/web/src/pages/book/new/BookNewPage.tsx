@@ -45,7 +45,7 @@ import { TextField } from "../../../components/TextField.tsx";
 import { type BookingLink, type LinkEnd, type TripPoint, VISIBLE_VEHICLES, guestCurrencyOf, moneyDifference, parseBookingLink, pointName, rejectionTexts, suggestionNames, travellersText } from "../../../lib/book-new.ts";
 import { formatInZone, moneyText } from "../../../lib/dispatch-display.ts";
 import { displayName } from "../../../lib/master-display.ts";
-import { CHARTER_OVERAGE_NOTE, addressEnds, defaultServiceDate, guestCancelPolicyText, guestLocalText, newIdempotencyKey, quotesByTotal, siteOrderUrl } from "../../../lib/site-display.ts";
+import { CHARTER_OVERAGE_NOTE, addressEnds, defaultServiceDate, guestCancelPolicyText, guestLocalText, newIdempotencyKey, quotesByTotal, siteDistanceNote, siteOrderUrl } from "../../../lib/site-display.ts";
 import { FIELD_HINTS, type OrderErrors, type OrderTrip, orderFailureOf, orderRequestOf, validateOrderForm } from "../../../lib/site-order-form.ts";
 import { useDocumentTitle } from "../../../lib/use-document-title.ts";
 import { MANUAL_QUOTE_CHARTER_HOURS, type ManualQuoteTripDraft } from "../../../lib/manual-quote-form.ts";
@@ -815,13 +815,13 @@ export function BookNewPage() {
             </div>
           )}
         </dl>
-        {draft.mode === "transfer" && draft.from !== null && draft.to !== null && <RouteBlock route={routeResult} tiles={tiles} from={draft.from} to={draft.to} />}
+        {draft.mode === "transfer" && draft.from !== null && draft.to !== null && <RouteBlock route={routeResult} tiles={tiles} from={draft.from} to={draft.to} lockedMeters={selected?.distance?.route_meters ?? null} />}
         {selected === null ? (
           <p className="site-muted">还没有选择车型</p>
         ) : (
           <>
             <AddonsBlock options={selected.available_addons} quantities={addonQuantities} onChange={(id, quantity) => setAddonQuantities((value) => ({ ...value, [id]: quantity }))} />
-            <PriceBlock fare={selected.price.total} areaSurcharge={selected.includes_area_surcharge === true} priced={pricedState} currency={guestCurrency} onCurrency={(code) => setGuestCurrency(code as CurrencyCode)} reference={reference !== null && reference.to === guestCurrency ? reference : null} />
+            <PriceBlock fare={selected.price.total} areaSurcharge={selected.includes_area_surcharge === true} kmNote={siteDistanceNote(selected.distance)} priced={pricedState} currency={guestCurrency} onCurrency={(code) => setGuestCurrency(code as CurrencyCode)} reference={reference !== null && reference.to === guestCurrency ? reference : null} />
             <div className="book-summary__block">
               <h3 className="book-new__subtitle">取消规则</h3>
               <p>{guestCancelPolicyText((priced ?? selected).cancel_policy.tiers)}</p>

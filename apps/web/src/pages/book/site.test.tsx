@@ -593,3 +593,50 @@ test("旧预订页报不出价（M8-21）：原因下面有「请客服人工报
     package_hours: null,
   });
 });
+
+// ---- M8-13：订单页的「含区域加价」「公里数」，旧预订页报价卡片的「公里数」（规范 site-booking-v2.md 10.2、10.3、10.6） ----
+
+const orderPage = (order: SiteOrder): void => {
+  open({ pathname: "/book/order", hash: `#${TOKEN}` }, (call) => (call.url.pathname === "/site/v1/config" ? json(200, openConfig) : call.url.pathname === "/site/v1/order" ? json(200, envelopeOf(order)) : null));
+};
+
+test("订单页（M8-13）：点对点含公里数的单在「总价」后面一项「公里数」（订单上锁定的数，每公里对外价）；只有一个总价，不写成算式", async () => {
+  orderPage(orderOf({ category: "point_to_point", direction: null, place_id: null, flight_no: null, pickup: { lng: 139.7, lat: 35.69, address: "新宿站" }, dropoff: { lng: 140.39, lat: 35.77, address: "成田机场" }, includes_area_surcharge: false, distance: { included_km: 30, route_meters: 34_200, over_km: 5, over_km_per_km: { amount: "330", currency: "JPY" } } }));
+  const trip = (await screen.findByRole("heading", { name: "行程" })).closest("section") as HTMLElement;
+  const labels = [...trip.querySelectorAll("dt")].map((node) => node.textContent);
+  assert.equal(labels[labels.indexOf("总价") + 1], "公里数");
+  assert.equal(factValue(trip, "公里数")?.textContent, "含 30 公里，本次路线约 34.2 公里，超出 5 公里 × 330 JPY（已含在一口价里）");
+  assert.doesNotMatch(trip.textContent ?? "", /含区域加价|[=＝]|基础价/);
+});
+
+test("订单页（M8-13）：含区域加价的包车单在「总价」下面写「含区域加价，已算在这个价格里」，不写金额、不写区域", async () => {
+  orderPage(orderOf({ category: "charter", direction: null, place_id: null, flight_no: null, package_hours: 8, pickup: { lng: 139.7, lat: 35.69, address: "京王广场酒店" }, dropoff: { lng: 138.76, lat: 35.5, address: "河口湖站" }, price: { total: { amount: "78650", currency: "JPY" }, fx: null }, includes_area_surcharge: true, distance: null }));
+  const trip = (await screen.findByRole("heading", { name: "行程" })).closest("section") as HTMLElement;
+  assert.equal(factValue(trip, "总价")?.querySelector(".site-facts__note")?.textContent, "含区域加价，已算在这个价格里");
+  assert.equal(factValue(trip, "公里数"), null);
+  assert.deepEqual([...new Set((trip.textContent ?? "").match(/[\d,]+ JPY/g) ?? [])], ["78,650 JPY"], "只有一个价格");
+});
+
+test("订单页（M8-13）：旧单（接口没有这两项，或没有加价、没设含公里数）显示和以前一样", async () => {
+  for (const changes of [{}, { includes_area_surcharge: false, distance: null }]) {
+    orderPage(orderOf(changes));
+    const trip = (await screen.findByRole("heading", { name: "行程" })).closest("section") as HTMLElement;
+    assert.equal(factValue(trip, "公里数"), null);
+    assert.equal(trip.querySelector(".site-facts__note"), null);
+    assert.doesNotMatch(trip.textContent ?? "", /区域加价|含 \d+ 公里/);
+    resetBrowser();
+  }
+});
+
+test("旧预订页（M8-13，10.6 第 1 条）：点对点报价卡片车型标识下面写「公里数」那一句，没设含公里数的卡片不写", async () => {
+  const kmQuote: SiteQuote = { ...quote, distance: { included_km: 30, route_meters: 34_200, over_km: 5, over_km_per_km: { amount: "330", currency: "JPY" } } };
+  const plain: SiteQuote = { ...quote, quote_id: "QT20261026PLAINPLAIN", vehicle_group: { ...quote.vehicle_group, id: "66666666-6666-4666-8666-666666666666", code: "VG-STD-5", name: { zh: "舒适 5 座" } } };
+  open("/book", bookingRoutes((call) => (call.method === "POST" && call.url.pathname === "/site/v1/quotes" ? json(200, { currency: "JPY", quotes: [kmQuote, plain], unavailable: [] }) : null)));
+  const actor = user();
+  await fillInquiry(actor);
+  await actor.click(screen.getByRole("button", { name: "查询价格" }));
+  const card = (await screen.findByRole("heading", { name: "商务 7 座" })).closest("li") as HTMLElement;
+  assert.equal(factValue(card, "公里数")?.textContent, "含 30 公里，本次路线约 34.2 公里，超出 5 公里 × 330 JPY（已含在一口价里）");
+  const other = screen.getByRole("heading", { name: "舒适 5 座" }).closest("li") as HTMLElement;
+  assert.equal(factValue(other, "公里数"), null);
+});

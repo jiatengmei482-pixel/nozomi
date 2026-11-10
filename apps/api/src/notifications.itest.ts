@@ -9,7 +9,7 @@ import { after, before, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { Writable } from "node:stream";
-import { NOTIFICATION_EVENTS, type NotificationEvent } from "@nozomi/domain";
+import { type CurrencyCode, type FxQuote, NOTIFICATION_EVENTS, type NotificationEvent, guestMoneyText, sellEquivalentMinor } from "@nozomi/domain";
 import { withPlatformTx, withTenantTx } from "./db/context.ts";
 import { SMTP_SEND_DEADLINE_MS } from "./integrations/smtp.ts";
 import { beginSending, claimDueNotifications, enqueueNotification } from "./repos/notifications.ts";
@@ -202,6 +202,40 @@ test("一口价说明（M8-09，ADR 0070）：接送机客人写「一口价已�
   assert.doesNotMatch(legacy.guest, /费用说明|含所有费用/);
   assert.match(legacy.guest, /已付金额：/);
   assert.doesNotMatch(legacy.tenant, /包车报价/);
+});
+
+test("含公里数、含区域加价（M8-13，ADR 0073 第四部分）：客人确认邮件多「公里数」一行（每公里用对外价，订单上锁定的数）、已付金额后面「（含区域加价）」；供应商那封都没有；没有这些数的单照旧", async () => {
+  const mails = async (settlementPatch: Record<string, unknown> | null): Promise<{ guest: string; tenant: string; orderId: string }> => {
+    smtp.reset();
+    const order = await placeOrder();
+    await payFor(order.orderId);
+    if (settlementPatch !== null) await api.db.owner.query("update orders set settlement = settlement || $2::jsonb where id = $1", [order.orderId, JSON.stringify(settlementPatch)]);
+    await site.app.notificationJobs.tick();
+    const mine = smtp.messages.filter((message) => bodyOf(message).includes(order.orderNo));
+    const guest = mine.find((message) => message.to.includes(GUEST_EMAIL));
+    const tenant = mine.find((message) => message.to.includes(m.a.adminEmail) || message.to.includes(m.b.adminEmail));
+    assert.ok(guest && tenant, `${order.orderNo} 两封都要有`);
+    return { guest: bodyOf(guest), tenant: bodyOf(tenant), orderId: order.orderId };
+  };
+  const km = await mails({ distance: { includedKm: 30, routeMeters: 34_153, overKm: 5, overKmPerKmMinor: 300 } });
+  const sale = (await api.db.owner.query<{ currency: CurrencyCode; markup_bp: number; fx_buffer_bp: number; fx: FxQuote | null; settlement_currency: CurrencyCode }>("select s.currency, s.markup_bp, s.fx_buffer_bp, s.fx, o.settlement_currency from order_sales s join orders o on o.id = s.order_id where s.order_id = $1", [km.orderId])).rows[0]!;
+  const perKm = guestMoneyText(sellEquivalentMinor(300, sale.settlement_currency, { currency: sale.currency, fx: sale.fx, fxBufferBp: sale.fx_buffer_bp, markupBp: sale.markup_bp }), sale.currency);
+  assert.ok(sale.markup_bp > 0, "每公里对外价按这一单的加价比例换算（不是结算价）");
+  assert.ok(km.guest.includes(`\n公里数：含 30 公里，本次路线约 34.2 公里，超出 5 公里 × ${perKm}（已含在一口价里）\n费用说明：`), km.guest);
+  assert.match(km.guest, /已付金额：[^\n（]+\n公里数/, "没有区域加价：已付金额后面不接说明");
+  assert.doesNotMatch(km.tenant, /公里数|区域加价|对外价|已付/);
+
+  const surcharge = await mails({ areaSurcharge: { packageMinor: 10_000, pickup: { areaId: null, priceRuleId: null, amountMinor: 0 }, dropoff: { areaId: randomUUID(), priceRuleId: randomUUID(), amountMinor: 1_000 } } });
+  assert.match(surcharge.guest, /\n已付金额：[^\n]+（含区域加价）\n费用说明：/);
+  assert.doesNotMatch(surcharge.guest, /公里数|1,000|1000 /);
+  assert.doesNotMatch(surcharge.tenant, /区域加价|已付/);
+
+  const zero = await mails({ areaSurcharge: { packageMinor: 10_000, pickup: { areaId: null, priceRuleId: null, amountMinor: 0 }, dropoff: { areaId: null, priceRuleId: null, amountMinor: 0 } } });
+  assert.doesNotMatch(zero.guest, /区域加价|公里数/, "加价是 0：不写");
+
+  const plain = await mails(null);
+  assert.match(plain.guest, /\n已付金额：[^\n（]+\n费用说明：/, "没有这些数的单：和以前一样");
+  assert.doesNotMatch(plain.guest, /区域加价|公里数/);
 });
 
 test("邮件没配置：下单、付款照常；记录留着，原因写明，不算次数；手动重试 409；配好后自动发", async () => {

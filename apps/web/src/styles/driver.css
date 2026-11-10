@@ -69,6 +69,14 @@
   font-weight: var(--font-weight-medium);
 }
 
+/* 「导航到下车点」（M8-13，driver.md 3a）：文字链接，不是按钮；可点的高度够一个手指 */
+.driver-nav {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height-md);
+  font-weight: var(--font-weight-medium);
+}
+
 .driver-page .auth-card .field__label {
   font-size: var(--font-size-md);
 }

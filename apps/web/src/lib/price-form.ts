@@ -16,7 +16,10 @@ import {
   addDays,
   basePrice,
   findPriceRuleOverlaps,
+  fixedPriceWithKm,
   formatExact,
+  hasIncludedKm,
+  overKm,
   isCurrencyCode,
   isSurchargeModel,
   priceCoverage,
@@ -33,7 +36,7 @@ import { CURRENCY_NAMES, amountText, moneyText, readAmount } from "./product-dis
 import { tidyDate } from "./time-input.ts";
 
 /** 一行里的各个数（都是用户敲的字）。 */
-export const PRICE_FIELDS = ["base", "startKm", "startMin", "perKm", "perMin", "min", "pkgKm", "pkgPrice", "overHour", "overKm"] as const;
+export const PRICE_FIELDS = ["base", "startKm", "startMin", "perKm", "perMin", "min", "pkgKm", "pkgPrice", "overHour", "overKm", "inclKm", "kmPrice"] as const;
 export type PriceField = (typeof PRICE_FIELDS)[number];
 export type RowField = PriceField | "from" | "to";
 
@@ -42,6 +45,8 @@ export interface PriceRow {
   key: string;
   id: string | null;
   areaId: string;
+  /** 点对点线路价的下车区域（M8-12，ADR 0073）：null = 区域价 */
+  toAreaId: string | null;
   vehicleGroupId: string;
   direction: PriceDirection | null;
   packageHours: number | null;
@@ -66,10 +71,23 @@ export interface PriceContext {
   station: boolean;
 }
 
-export const FIELD_NAMES: Readonly<Record<PriceField, string>> = { base: "基础价", startKm: "起步里程", startMin: "起步时长", perKm: "超出每公里", perMin: "超出每分钟", min: "最低消费", pkgKm: "套餐公里", pkgPrice: "套餐价", overHour: "超时每小时", overKm: "超公里每公里" };
+export const FIELD_NAMES: Readonly<Record<PriceField, string>> = { base: "基础价", startKm: "起步里程", startMin: "起步时长", perKm: "超出每公里", perMin: "超出每分钟", min: "最低消费", pkgKm: "套餐公里", pkgPrice: "套餐价", overHour: "超时每小时", overKm: "超公里每公里", inclKm: "含公里数", kmPrice: "超出每公里" };
 /** 每种计价方式用到哪几格（按表格里从左到右）。 */
 export const MODEL_FIELDS: Readonly<Record<PricingModel, readonly PriceField[]>> = { fixed: ["base"], mileage_time: ["base", "startKm", "startMin", "perKm", "perMin", "min"], charter_package: ["pkgKm", "pkgPrice", "overHour", "overKm"], charter_area_surcharge: [] };
 const MONEY_FIELDS: readonly PriceField[] = ["base", "perKm", "perMin", "min", "pkgPrice", "overHour", "overKm"];
+/**
+ * 点对点一口价可选的「含公里数」两格（ADR 0073 第二部分第 4 节）：要么都填、要么都不填，不在 MODEL_FIELDS 里（不是必填）。
+ * 「超出每公里」的超出部分不足 1 公里按 1 公里算——和「里程 + 时长」的按比例不同（tenant-prices.md 17.4）。
+ */
+export const KM_FIELDS = ["inclKm", "kmPrice"] as const satisfies readonly PriceField[];
+export const KM_PAIR_PROBLEM = "含公里数和超出每公里要一起填，或者都不填";
+export const INCLUDED_KM_PROBLEM = `含公里数请填 1 到 ${PRICE_LIMITS.maxIncludedKm.toLocaleString("en-US")} 之间的整数`;
+
+/** 这一行能填哪几格：计价方式要的，加上点对点一口价可选的含公里数两格。 */
+export function rowFields(model: PricingModel, category: ServiceCategory): readonly PriceField[] {
+  return model === "fixed" && category === "point_to_point" ? [...MODEL_FIELDS.fixed, ...KM_FIELDS] : MODEL_FIELDS[model];
+}
+
 /** 可以填 0 的（0 = 不另收）。 */
 const ZERO_OK: readonly PriceField[] = ["perKm", "perMin", "overHour", "overKm", "startKm", "startMin"];
 
@@ -86,7 +104,7 @@ export function isStationPlace(type: PlaceType | null | undefined): boolean {
   return priceDirectionNames(type ?? null).pickup !== priceDirectionNames(null).pickup;
 }
 
-const EMPTY_VALUES: Record<PriceField, string> = { base: "", startKm: "", startMin: "", perKm: "", perMin: "", min: "", pkgKm: "", pkgPrice: "", overHour: "", overKm: "" };
+const EMPTY_VALUES: Record<PriceField, string> = { base: "", startKm: "", startMin: "", perKm: "", perMin: "", min: "", pkgKm: "", pkgPrice: "", overHour: "", overKm: "", inclKm: "", kmPrice: "" };
 const halfWidth = (text: string): string => text.replace(/[０-９．，]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xfee0));
 
 /** 整数米 → 填进输入框的公里写法（最多 1 位小数），用字符串换算。只用来回填表单；显示用 distance.ts 的 `kmText`（四舍五入、千分位）。 */
@@ -111,6 +129,7 @@ export function rowFromRule(rule: PriceRuleBody, currency: string): PriceRow {
     key: rule.id,
     id: rule.id,
     areaId: rule.area_id,
+    toAreaId: rule.to_area_id ?? null,
     vehicleGroupId: rule.vehicle_group_id,
     direction: rule.direction,
     packageHours: rule.package_hours,
@@ -125,7 +144,9 @@ export function rowFromRule(rule: PriceRuleBody, currency: string): PriceRow {
       pkgKm: rule.package_km === null ? "" : String(rule.package_km),
       pkgPrice: money(rule.package_price),
       overHour: money(rule.overtime_per_hour),
-      overKm: money(rule.over_km_per_km),
+      overKm: rule.pricing_model === "fixed" ? "" : money(rule.over_km_per_km),
+      inclKm: rule.pricing_model === "fixed" && rule.included_km !== undefined && rule.included_km !== null ? String(rule.included_km) : "",
+      kmPrice: rule.pricing_model === "fixed" && rule.included_km !== undefined && rule.included_km !== null ? money(rule.over_km_per_km) : "",
     },
     from: rule.valid_from,
     to: rule.valid_to ?? "",
@@ -137,14 +158,15 @@ export function rowFromRule(rule: PriceRuleBody, currency: string): PriceRow {
 
 let blankCounter = 0;
 /** 一个还没有价格的组合的空行。 */
-export function blankRow(combo: { areaId: string; vehicleGroupId: string; direction: PriceDirection | null; packageHours: number | null }, model: PricingModel, today: string, values: Partial<Record<PriceField, string>> = {}): PriceRow {
+export function blankRow(combo: { areaId: string; toAreaId?: string | null; vehicleGroupId: string; direction: PriceDirection | null; packageHours: number | null }, model: PricingModel, today: string, values: Partial<Record<PriceField, string>> = {}): PriceRow {
   blankCounter += 1;
-  return { key: `new-${blankCounter}`, id: null, ...combo, model, values: { ...EMPTY_VALUES, ...values }, from: today, to: "", enabled: true, deleted: false, origin: null };
+  return { key: `new-${blankCounter}`, id: null, ...combo, toAreaId: combo.toAreaId ?? null, model, values: { ...EMPTY_VALUES, ...values }, from: today, to: "", enabled: true, deleted: false, origin: null };
 }
 
 /** 这一行还没填任何价格（空行不提交；包车新套餐预先填好的套餐公里不算）。 */
 export function isBlank(row: PriceRow): boolean {
-  return row.id === null && MODEL_FIELDS[row.model].every((field) => (field === "pkgKm" ? true : row.values[field].trim() === ""));
+  const fields = row.model === "fixed" ? [...MODEL_FIELDS.fixed, ...KM_FIELDS] : MODEL_FIELDS[row.model];
+  return row.id === null && fields.every((field) => (field === "pkgKm" ? true : row.values[field].trim() === ""));
 }
 
 export interface RowProblem {
@@ -165,6 +187,27 @@ export interface RowReading {
 function decimalsText(currency: string): string {
   const digits = isCurrencyCode(currency) ? CURRENCIES[currency].minorDigits : 0;
   return digits === 0 ? `${CURRENCY_NAMES[currency] ?? `${currency} `}金额不能有小数` : `${currency} 最多 ${digits} 位小数`;
+}
+
+/** 读含公里数两格（点对点一口价）：都空 = 不设（null）；只填一个、写错了的记进 problems。 */
+function readKmPair(row: PriceRow, currency: string, problems: RowProblem[]): { includedKm: number; overKmPerKmMinor: number } | null {
+  const kmText = halfWidth(row.values.inclKm).replace(/[,\s]/g, "");
+  const price = tidyAmountText(row.values.kmPrice, currency);
+  const priceEmpty = !price.ok && price.reason === "empty";
+  if (kmText === "" && priceEmpty) return null;
+  let includedKm: number | null = null;
+  let perKm: number | null = null;
+  if (kmText === "") problems.push({ field: "inclKm", text: KM_PAIR_PROBLEM });
+  else if (!/^\d+$/.test(kmText) || Number(kmText) < 1 || Number(kmText) > PRICE_LIMITS.maxIncludedKm) problems.push({ field: "inclKm", text: INCLUDED_KM_PROBLEM });
+  else includedKm = Number(kmText);
+  if (priceEmpty) problems.push({ field: "kmPrice", text: KM_PAIR_PROBLEM });
+  else if (!price.ok) problems.push({ field: "kmPrice", text: price.reason === "negative" ? "超出每公里不能是负数" : price.reason === "grouping" ? GROUPING_PROBLEM : price.reason === "other-currency" ? otherCurrencyProblem(currency) : "请填数字" });
+  else {
+    const amount = readAmount(price.text, currency);
+    if (!amount.ok) problems.push({ field: "kmPrice", text: /小数/.test(amount.message) ? decimalsText(currency) : `超出每公里最多 ${moneyText(PRICE_LIMITS.maxAmountMinor, currency)}` });
+    else perKm = amount.minor;
+  }
+  return includedKm === null || perKm === null ? null : { includedKm, overKmPerKmMinor: perKm };
 }
 
 /** 读一行。空行没有问题也没有规则；填了任何一格价格，这一行的必填格就都要填齐。 */
@@ -211,27 +254,31 @@ export function readRow(row: PriceRow, context: PriceContext): RowReading {
   else if ((from = tidyDate(row.from)) === null) problems.push({ field: "from", text: "这不是一个日期，请按 2026-10-08 的格式填写" });
   if (row.to.trim() !== "" && (to = tidyDate(row.to)) === null) problems.push({ field: "to", text: "这不是一个日期，请按 2026-10-08 的格式填写" });
   if (from !== null && to !== null && to < from) problems.push({ field: "to", text: "结束日期不能早于开始日期" });
+  const km = context.category === "point_to_point" && row.model === "fixed" ? readKmPair(row, context.currency, problems) : null;
   if (row.model === "mileage_time" && numbers.base === 0 && numbers.min === null && !problems.some((problem) => problem.field === "min")) problems.push({ field: "min", text: "起步价是 0 时，请填最低消费" });
   if (problems.length > 0 || from === null) return { blank: false, rule: null, input: null, problems, notes: [] };
 
   const n = (field: PriceField): number => numbers[field] as number;
   const pricing: Pricing =
     row.model === "fixed"
-      ? { model: "fixed", basePriceMinor: n("base") }
+      ? { model: "fixed", basePriceMinor: n("base"), ...(km === null ? {} : { includedKm: km.includedKm, overKmPerKmMinor: km.overKmPerKmMinor }) }
       : row.model === "mileage_time"
         ? { model: "mileage_time", startPriceMinor: n("base"), startMeters: n("startKm"), startMinutes: n("startMin"), perKmMinor: n("perKm"), perMinuteMinor: n("perMin"), minPriceMinor: numbers.min ?? null }
         : { model: "charter_package", packageKm: n("pkgKm"), packagePriceMinor: n("pkgPrice"), overtimePerHourMinor: n("overHour"), overKmPerKmMinor: n("overKm") };
   const status = row.enabled ? "enabled" : "disabled";
-  const rule: PriceRule = { areaId: row.areaId, vehicleGroupId: row.vehicleGroupId, direction: row.direction, packageHours: row.packageHours, pricing, validFrom: from, validTo: to, status };
+  const rule: PriceRule = { areaId: row.areaId, ...(row.toAreaId === null ? {} : { toAreaId: row.toAreaId }), vehicleGroupId: row.vehicleGroupId, direction: row.direction, packageHours: row.packageHours, pricing, validFrom: from, validTo: to, status };
   // 兜底：域里的规则还认为不对、而上面没有报过的（正常不会有）
   for (const issue of priceRuleIssues(rule, { category: context.category })) problems.push({ field: "base", text: `这一行不符合要求（${issue.path.slice(1)}）` });
   const input: PriceRuleInput = {
     area_id: row.areaId,
+    // 点对点总带上下车区域和含公里数：修改时不带会被当成「不填」（区域价、不含公里数）
+    ...(context.category === "point_to_point" ? { to_area_id: row.toAreaId } : {}),
     vehicle_group_id: row.vehicleGroupId,
     direction: row.direction,
     package_hours: row.packageHours,
     pricing_model: row.model,
     base_price: pricing.model === "fixed" ? pricing.basePriceMinor : null,
+    ...(context.category === "point_to_point" ? { included_km: pricing.model === "fixed" ? (pricing.includedKm ?? null) : null } : {}),
     start_price: pricing.model === "mileage_time" ? pricing.startPriceMinor : null,
     start_meters: pricing.model === "mileage_time" ? pricing.startMeters : null,
     start_minutes: pricing.model === "mileage_time" ? pricing.startMinutes : null,
@@ -241,7 +288,7 @@ export function readRow(row: PriceRow, context: PriceContext): RowReading {
     package_km: pricing.model === "charter_package" ? pricing.packageKm : null,
     package_price: pricing.model === "charter_package" ? pricing.packagePriceMinor : null,
     overtime_per_hour: pricing.model === "charter_package" ? pricing.overtimePerHourMinor : null,
-    over_km_per_km: pricing.model === "charter_package" ? pricing.overKmPerKmMinor : null,
+    over_km_per_km: pricing.model === "charter_package" ? pricing.overKmPerKmMinor : pricing.model === "fixed" ? (pricing.overKmPerKmMinor ?? null) : null,
     valid_from: from,
     valid_to: to,
     status,
@@ -251,7 +298,7 @@ export function readRow(row: PriceRow, context: PriceContext): RowReading {
 }
 
 const INPUT_KEYS = ["area_id", "vehicle_group_id", "direction", "package_hours", "pricing_model", "base_price", "start_price", "start_meters", "start_minutes", "per_km", "per_minute", "min_price", "package_km", "package_price", "overtime_per_hour", "over_km_per_km", "valid_from", "valid_to", "status"] as const;
-const sameInput = (input: PriceRuleInput, origin: PriceRuleBody): boolean => INPUT_KEYS.every((key) => input[key] === origin[key]);
+const sameInput = (input: PriceRuleInput, origin: PriceRuleBody): boolean => INPUT_KEYS.every((key) => input[key] === origin[key]) && (input.to_area_id ?? null) === (origin.to_area_id ?? null) && (input.included_km ?? null) === (origin.included_km ?? null);
 
 export type RowChange = "none" | "blank" | "new" | "changed" | "deleted";
 
@@ -328,7 +375,7 @@ export function tableCoverage(rows: readonly PriceRow[], context: PriceContext, 
 export function withBlankRows(rows: readonly PriceRow[], context: PriceContext, areaIds: readonly string[], vehicleGroupIds: readonly string[], model: PricingModel, extraPackages: readonly number[] = []): PriceRow[] {
   const coverage = tableCoverage(rows, context, areaIds, vehicleGroupIds);
   const added: PriceRow[] = [];
-  const hasBlank = (areaId: string, vehicleGroupId: string, packageHours: number | null): boolean => [...rows, ...added].some((row) => !row.deleted && row.areaId === areaId && row.vehicleGroupId === vehicleGroupId && row.packageHours === packageHours && isBlank(row));
+  const hasBlank = (areaId: string, vehicleGroupId: string, packageHours: number | null): boolean => [...rows, ...added].some((row) => !row.deleted && row.toAreaId === null && row.areaId === areaId && row.vehicleGroupId === vehicleGroupId && row.packageHours === packageHours && isBlank(row));
   for (const areaId of areaIds) {
     for (const vehicleGroupId of vehicleGroupIds) {
       const missing = coverage.combos.filter((combo) => combo.areaId === areaId && combo.vehicleGroupId === vehicleGroupId && combo.state === "missing");
@@ -348,7 +395,7 @@ export function withBlankRows(rows: readonly PriceRow[], context: PriceContext, 
 
 /** 同一个组合（区域、车型组、方向、套餐都相同）的另一行。 */
 function sameCombo(a: PriceRow, b: PriceRow): boolean {
-  return a.areaId === b.areaId && a.vehicleGroupId === b.vehicleGroupId && a.direction === b.direction && a.packageHours === b.packageHours;
+  return a.areaId === b.areaId && a.toAreaId === b.toAreaId && a.vehicleGroupId === b.vehicleGroupId && a.direction === b.direction && a.packageHours === b.packageHours;
 }
 
 /**
@@ -391,10 +438,41 @@ export function rowState(row: PriceRow, reading: RowReading, overlapping: boolea
   if (rule.validFrom > context.today) return { state: "upcoming", text: `${rule.validFrom} 起生效` };
   if (rule.validTo !== null && rule.validTo <= addDays(context.today, 30)) {
     const next = addDays(rule.validTo, 1);
-    const continued = liveRules(rows, context).some((entry) => entry.row.key !== row.key && entry.rule.status === "enabled" && entry.rule.areaId === rule.areaId && entry.rule.vehicleGroupId === rule.vehicleGroupId && entry.rule.direction === rule.direction && entry.rule.packageHours === rule.packageHours && entry.rule.validFrom <= next && (entry.rule.validTo === null || entry.rule.validTo >= next));
+    const continued = liveRules(rows, context).some((entry) => entry.row.key !== row.key && entry.rule.status === "enabled" && entry.rule.areaId === rule.areaId && (entry.rule.toAreaId ?? null) === (rule.toAreaId ?? null) && entry.rule.vehicleGroupId === rule.vehicleGroupId && entry.rule.direction === rule.direction && entry.rule.packageHours === rule.packageHours && entry.rule.validFrom <= next && (entry.rule.validTo === null || entry.rule.validTo >= next));
     if (!continued) return { state: "expiring", text: `${rule.validTo} 到期，之后没有价格` };
   }
   return { state: "active", text: "生效中" };
+}
+
+const MERGED_ROW_FIELDS = ["direction", "model", "from", "to", "enabled", "deleted"] as const;
+
+/**
+ * 「载入最新内容」（别人先保存了）时按格子合一行（同区域加价的 mergeSurchargeRow）：我改过的格子留我的，我没动的换成最新的；
+ * 同一格我和别人都改了、改得不一样，标为冲突（留的是我的，请人核对）。
+ */
+export function mergePriceRow(mine: PriceRow, latest: PriceRow, currency: string): { row: PriceRow; conflict: boolean } {
+  if (mine.origin === null) return { row: latest, conflict: false };
+  const before = rowFromRule(mine.origin, currency);
+  const norm = (field: PriceField, value: string): string => (MONEY_FIELDS.includes(field) || field === "kmPrice" ? tidyAmountDisplayText(value, currency) : halfWidth(value).replace(/[,\s]/g, ""));
+  const row: PriceRow = { ...latest, values: { ...latest.values } };
+  let conflict = false;
+  for (const field of PRICE_FIELDS) {
+    if (norm(field, mine.values[field]) === norm(field, before.values[field])) continue;
+    if (norm(field, latest.values[field]) !== norm(field, before.values[field]) && norm(field, latest.values[field]) !== norm(field, mine.values[field])) conflict = true;
+    row.values[field] = mine.values[field];
+  }
+  const plain = (field: (typeof MERGED_ROW_FIELDS)[number], value: PriceRow[(typeof MERGED_ROW_FIELDS)[number]]): string => (field === "from" || field === "to" ? (tidyDate(String(value)) ?? String(value).trim()) : String(value));
+  for (const field of MERGED_ROW_FIELDS) {
+    if (plain(field, mine[field]) === plain(field, before[field])) continue;
+    if (plain(field, latest[field]) !== plain(field, before[field]) && plain(field, latest[field]) !== plain(field, mine[field])) conflict = true;
+    (row as unknown as Record<string, unknown>)[field] = mine[field];
+  }
+  return { row, conflict };
+}
+
+function tidyAmountDisplayText(value: string, currency: string): string {
+  const read = tidyAmountText(value, currency);
+  return read.ok ? read.text.replace(/,/g, "") : value.trim();
 }
 
 /** 价格表（基础定价）的行：区域加价另在「区域加价」块里（M8-12a），不当普通行显示。 */
@@ -413,7 +491,7 @@ function exactMoney(amount: ReturnType<typeof basePrice>, currency: string): str
 /** 「这一行的意思」里价格那一段（3.10）。 */
 export function pricingSentence(pricing: Pricing, packageHours: number | null, currency: string): string {
   const money = (minor: number): string => moneyText(minor, currency);
-  if (pricing.model === "fixed") return `每单 ${money(pricing.basePriceMinor)}，不看里程和时长。`;
+  if (pricing.model === "fixed") return hasIncludedKm(pricing) ? includedKmSentence(pricing, currency) : `每单 ${money(pricing.basePriceMinor)}，不看里程和时长。`;
   if (pricing.model === "mileage_time") {
     const included = [pricing.startMeters === 0 ? "起步价里不含里程" : `${kmText(pricing.startMeters)} 公里`, pricing.startMinutes === 0 ? "起步价里不含时长" : `${pricing.startMinutes} 分钟`];
     const within = pricing.startMeters === 0 && pricing.startMinutes === 0 ? `起步价 ${money(pricing.startPriceMinor)}（不含里程和时长）` : `${included.join("、")}${pricing.startMeters > 0 || pricing.startMinutes > 0 ? "以内" : ""} ${money(pricing.startPriceMinor)}`;
@@ -430,11 +508,24 @@ export function validitySentence(rule: Pick<PriceRule, "validFrom" | "validTo" |
   return `${rule.validTo === null ? `${rule.validFrom} 起一直有效。` : `${rule.validFrom} 至 ${rule.validTo} 有效。`}${rule.status === "disabled" ? "现在是停用的，不会用来报价。" : ""}`;
 }
 
+/**
+ * 设了含公里数的一口价那句话（tenant-prices.md 17.4）。例子取「含公里数 + 4.2 公里」，超出公里数和合计用 @nozomi/domain 的
+ * `overKm`、`fixedPriceWithKm`（和报价同一个函数），页面不自己写公式。
+ */
+export function includedKmSentence(pricing: { basePriceMinor: number; includedKm: number; overKmPerKmMinor: number }, currency: string): string {
+  const money = (minor: number): string => moneyText(minor, currency);
+  if (pricing.overKmPerKmMinor === 0) return `每单 ${money(pricing.basePriceMinor)}，含 ${pricing.includedKm} 公里，超出不另收。`;
+  const meters = pricing.includedKm * 1000 + 4200;
+  const over = overKm(meters, pricing.includedKm);
+  const total = fixedPriceWithKm({ model: "fixed", ...pricing }, meters);
+  return `每单 ${money(pricing.basePriceMinor)}，含 ${pricing.includedKm} 公里，超出每公里 ${money(pricing.overKmPerKmMinor)}（不足 1 公里按 1 公里）。按报价时的路线距离算进一口价，客人付的就是这一个价，车开绕路不另收。例：路线 ${kmText(meters)} 公里 = ${money(pricing.basePriceMinor)} + ${over} 公里 × ${money(pricing.overKmPerKmMinor)} = ${money(total)}。`;
+}
+
 /** 这条价格能报出的最低数的写法（覆盖表的格子、试算的选项）：里程 + 时长写「…起」。 */
 export function lowestText(pricing: Pricing, currency: string, withCurrency = false): string {
   const full = exactMoney(basePrice(pricing), currency);
   const text = withCurrency ? full : full.slice(currency.length).trim();
-  return pricing.model === "mileage_time" ? `${text} 起` : text;
+  return pricing.model === "mileage_time" || hasIncludedKm(pricing) ? `${text} 起` : text;
 }
 
 /** 接口里的全部价格 → 启用且没过期的那些（域里的写法）：调价规则的试算、「调完不大于 0」「碰不碰得到」都只看这些。 */

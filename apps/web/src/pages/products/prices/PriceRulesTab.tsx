@@ -42,7 +42,17 @@ import {
   isStationPlace,
   isExtraSegment,
   nextSegment,
+  mergePriceRow,
+  rowFields,
+  KM_FIELDS,
 } from "../../../lib/price-form.ts";
+import { type CopyDraft, type Route, type RouteDraft, NO_ROUTE_DISTANCE_NOTE, ROUTE_LEAD, ROUTE_LEAD_2, applyCopy, copyDraftFor, emptyRouteDraft, isRouteRow, planCopy, planRoute, pricedGroups, reverseOf, routeHasPrices, routeIssue, routeKey, routeOf, routeOrder, routesIn } from "../../../lib/route-prices.ts";
+import { hasIncludedKm } from "@nozomi/domain";
+import { pricingCapable, roleOf } from "../../../lib/area-roles.ts";
+import { AREA_NEW_PATH } from "../../../lib/area-paths.ts";
+import { NewTabLink } from "../../../components/NewTabLink.tsx";
+import { AreaMapButton } from "../../areas/AreaMapDialog.tsx";
+import { AddRouteDialog, CopyRouteDialog, RouteSelects } from "./RouteDialogs.tsx";
 import { comboText, moneyText, plainAmountDisplay, tidyAmountDisplay } from "../../../lib/product-display.ts";
 import type { ServerIssue } from "../../../lib/product-failure.ts";
 import { tidyDate } from "../../../lib/time-input.ts";
@@ -71,8 +81,8 @@ const STATE_LOOK: Readonly<Record<RowState, { icon: IconName; tone: string }>> =
   expiring: { icon: "alert-triangle", tone: "warning" },
   active: { icon: "check", tone: "success" },
 };
-const FIELD_UNITS: Readonly<Partial<Record<PriceField, string>>> = { startKm: "公里", startMin: "分钟", pkgKm: "公里" };
-const FIELD_PER: Readonly<Partial<Record<PriceField, string>>> = { perKm: " / 公里", perMin: " / 分钟", overHour: " / 小时", overKm: " / 公里" };
+const FIELD_UNITS: Readonly<Partial<Record<PriceField, string>>> = { startKm: "公里", startMin: "分钟", pkgKm: "公里", inclKm: "公里" };
+const FIELD_PER: Readonly<Partial<Record<PriceField, string>>> = { perKm: " / 公里", perMin: " / 分钟", overHour: " / 小时", overKm: " / 公里", kmPrice: " / 公里" };
 const cellId = (key: string, field: RowField | "direction"): string => `price-${key}-${field}`;
 
 interface Rejection {
@@ -110,28 +120,38 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   // 包车「区域加价」（M8-12a）：和价格表共用一个保存
   const surcharges = useSurcharges(prices);
   const charter = category === "charter";
+  const p2p = category === "point_to_point";
   const canReadAreas = useTenantCan("area.read");
   const canManageAreas = useTenantCan("area.manage");
-  const tenantAreas = useLoad<TenantArea[]>(`surcharge-areas:${frame.source.portal}:${product.id}`, charter && (onPlatform || canReadAreas) ? frame.source.areas : null);
+  const tenantAreas = useLoad<TenantArea[]>(`surcharge-areas:${frame.source.portal}:${product.id}`, (charter || p2p) && (onPlatform || canReadAreas) ? frame.source.areas : null);
   const [rows, setRows] = useState<PriceRow[]>(() => fresh(prices));
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+  /** 载入最新内容时，同一格我和别人都改了的行（留的是我的，请人核对） */
+  const [review, setReview] = useState<ReadonlySet<string>>(new Set());
   const adopted = useRef(prices);
   // 重新取到了价格（别人先改了之后「载入最新内容」）：换成最新的，没保存的修改重新套上去
   useEffect(() => {
     if (adopted.current === prices) return;
     adopted.current = prices;
-    setRows((current) => {
-      const base = basePriceItems(prices.items).map((item) => rowFromRule(item, prices.currency));
-      const byId = new Map(base.map((row) => [row.id, row]));
-      const extra: PriceRow[] = [];
-      for (const old of current) {
-        const change = rowChange(old, readRow(old, context));
-        if (change === "none" || change === "blank") continue;
-        const latest = old.id === null ? undefined : byId.get(old.id);
-        if (latest) Object.assign(latest, { direction: old.direction, model: old.model, values: old.values, from: old.from, to: old.to, enabled: old.enabled, deleted: old.deleted });
-        else if (change !== "deleted") extra.push({ ...old, id: null, origin: null, key: old.id === null ? old.key : `re-${old.key}` });
-      }
-      return arrange(withBlankRows([...base, ...extra], context, areaIds, groupIds, defaultModel));
-    });
+    // 按格子合（同区域加价）：我改过的格子留我的，没动过的换成最新的；同一格别人也改了的标出来请人核对
+    const base = basePriceItems(prices.items).map((item) => rowFromRule(item, prices.currency));
+    const byId = new Map(base.map((row, index) => [row.id, index]));
+    const merged = [...base];
+    const extra: PriceRow[] = [];
+    const conflicts = new Set<string>();
+    for (const old of rowsRef.current) {
+      const change = rowChange(old, readRow(old, context));
+      if (change === "none" || change === "blank") continue;
+      const at = old.id === null ? undefined : byId.get(old.id);
+      if (at !== undefined) {
+        const result = mergePriceRow(old, merged[at] as PriceRow, prices.currency);
+        merged[at] = result.row;
+        if (result.conflict) conflicts.add(result.row.key);
+      } else if (change !== "deleted") extra.push({ ...old, id: null, origin: null, key: old.id === null ? old.key : `re-${old.key}` });
+    }
+    setRows(arrange(withBlankRows([...merged, ...extra], context, areaIds, groupIds, defaultModel)));
+    setReview(conflicts);
     surcharges.adopt(prices, true);
     setRejection(null);
     setConflictKeys(new Set());
@@ -149,6 +169,13 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   const [addingPackage, setAddingPackage] = useState<{ hours: string; km: string; attempted: boolean } | null>(null);
   const [removingPackage, setRemovingPackage] = useState<number | null>(null);
   const [announce, setAnnounce] = useState("");
+  // 点对点线路价（M8-12）
+  const [routePick, setRoutePick] = useState<Route>({ from: "", to: "" });
+  const [routePickError, setRoutePickError] = useState<string | null>(null);
+  const [routeDraft, setRouteDraft] = useState<RouteDraft | null>(null);
+  const [copyDraft, setCopyDraft] = useState<CopyDraft | null>(null);
+  const [routeGroup, setRouteGroup] = useState("all");
+  const [routeExpired, setRouteExpired] = useState(false);
   const sent = useRef<{ payload: string; key: string; batch: PriceRuleBatch } | null>(null);
 
   const readings = useMemo(() => new Map(rows.map((row) => [row.key, readRow(row, context)])), [rows, context]);
@@ -157,17 +184,19 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   const changes = rows.filter((row) => !["none", "blank"].includes(rowChange(row, readings.get(row.key) ?? readRow(row, context))));
   const changeTotal = changes.length + surcharges.changeCount;
   const hasMileage = rows.some((row) => row.model === "mileage_time" && !row.deleted);
-  const valueFields: readonly PriceField[] = category === "charter" ? MODEL_FIELDS.charter_package : hasMileage ? MODEL_FIELDS.mileage_time : MODEL_FIELDS.fixed;
+  // 点对点的一口价多「含公里数」「超出每公里」两列（17.4）；接送机、包车没有
+  const valueFields: readonly PriceField[] = category === "charter" ? MODEL_FIELDS.charter_package : [...(hasMileage ? MODEL_FIELDS.mileage_time : MODEL_FIELDS.fixed), ...(p2p && models.includes("fixed") ? KM_FIELDS : [])];
 
   const areaName = (id: string): string => (areaIds.includes(id) ? displayName(product.areas.find((area) => area.area_id === id)?.name).text : "已移除的区域");
   const groupName = (id: string): string => (groupIds.includes(id) ? displayName(product.vehicle_groups.find((group) => group.vehicle_group_id === id)?.name).text : "已移除的车型组");
   /** 给已经不在这个商品里的区域 / 车型组设的价格：现在不算数（不参与报价、不算「有可用的价格」），只能看和删 */
-  const isOrphan = (row: PriceRow): boolean => !areaIds.includes(row.areaId) || !groupIds.includes(row.vehicleGroupId);
+  const isOrphan = (row: PriceRow): boolean => !areaIds.includes(row.areaId) || (row.toAreaId !== null && !areaIds.includes(row.toAreaId)) || !groupIds.includes(row.vehicleGroupId);
+  const routeName = (route: Route): string => `${areaName(route.from)} → ${areaName(route.to)}`;
   const variantName = (row: Pick<PriceRow, "direction" | "packageHours">): string => (row.direction !== null ? directionName(row.direction, station) : row.packageHours !== null ? `${row.packageHours} 小时` : "");
-  const rowLabel = (row: PriceRow): string => [areaName(row.areaId), groupName(row.vehicleGroupId), variantName(row)].filter((part) => part !== "").join(" · ");
+  const rowLabel = (row: PriceRow): string => [row.toAreaId !== null ? routeName(routeOf(row)) : areaName(row.areaId), groupName(row.vehicleGroupId), variantName(row)].filter((part) => part !== "").join(" · ");
   const segmentsOf = (row: PriceRow): PriceRow[] => {
     const label = rowLabel(row);
-    return sorted.filter((other) => rowLabel(other) === label);
+    return (isRouteRow(row) ? routeRows : sorted).filter((other) => rowLabel(other) === label);
   };
   /**
    * 同一组合有多段日期时，这一行各个输入框（价格、日期、启用、方向、计价方式）的名字都加上「第几段，共几段」，读屏分得清是哪一段（M1-17）。
@@ -191,9 +220,17 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
     const group = String(groupIds.indexOf(row.vehicleGroupId) < 0 ? 9999 : groupIds.indexOf(row.vehicleGroupId)).padStart(4, "0");
     return `${area}|${group}|${String(row.packageHours ?? 0).padStart(3, "0")}`;
   };
-  const sorted = useMemo(() => [...rows].sort((x, y) => order(x).localeCompare(order(y))), [rows, areaIds, groupIds]);
+  /** 区域价的表只放区域价；线路价另成一块（17.3） */
+  const sorted = useMemo(() => rows.filter((row) => !isRouteRow(row)).sort((x, y) => order(x).localeCompare(order(y))), [rows, areaIds, groupIds]);
+  /** 线路价：按线路分组（商品区域的先后），已经不在这个商品里的线路放最后；组内按车型组，同一车型组保持 rows 的先后 */
+  const routeRows = useMemo(() => {
+    const byRoute = routeOrder(areaIds);
+    const rank = (row: PriceRow): string => `${isOrphan(row) ? 1 : 0}|${byRoute(routeOf(row))}|${String(groupIds.indexOf(row.vehicleGroupId) < 0 ? 9999 : groupIds.indexOf(row.vehicleGroupId)).padStart(4, "0")}`;
+    return rows.filter(isRouteRow).sort((x, y) => rank(x).localeCompare(rank(y)));
+  }, [rows, areaIds, groupIds]);
   const stateOf = (row: PriceRow): { state: RowState; text: string } => {
     const base = rowState(row, readings.get(row.key) ?? readRow(row, context), overlaps.has(row.key) || conflictKeys.has(row.key), context, rows);
+    if (review.has(row.key) && (base.state === "changed" || base.state === "new")) return { state: "overlap", text: "别人也改过这一条，请核对" };
     return base.state === "overlap" && overlaps.has(row.key) ? { state: "overlap", text: `和 ${overlaps.get(row.key)?.length ?? 1} 条价格的日期重叠` } : base;
   };
   const hiddenExpired = sorted.filter((row) => stateOf(row).state === "expired").length;
@@ -256,14 +293,14 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   };
   const validate = (): StepProblem[] => {
     const found: StepProblem[] = [];
-    for (const row of sorted) {
+    for (const row of [...sorted, ...routeRows]) {
       if (row.deleted) continue;
       for (const problem of readings.get(row.key)?.problems ?? []) found.push({ text: `${rowLabel(row)}：${problem.text}`, target: cellId(row.key, problem.field) });
     }
     for (const group of overlapGroups()) found.push({ text: `生效日期重叠——${group.text}`, target: group.target });
     found.push(...surchargeProblems());
     if (found.length === 0 && changeTotal > PRICE_LIMITS.maxBatchChanges) found.push({ text: `一次最多保存 ${PRICE_LIMITS.maxBatchChanges} 条。请先取消一部分修改，或分两次保存。`, target: "price-table" });
-    if (found.length === 0 && product.status === "published" && changes.length > 0 && coverage.priced === 0 && !rows.some((row) => !row.deleted && readings.get(row.key)?.rule?.status === "enabled" && (readings.get(row.key)?.rule?.validTo ?? "9999") >= context.today)) {
+    if (found.length === 0 && product.status === "published" && changes.length > 0 && coverage.priced === 0 && !rows.some((row) => !row.deleted && !isRouteRow(row) && readings.get(row.key)?.rule?.status === "enabled" && (readings.get(row.key)?.rule?.validTo ?? "9999") >= context.today)) {
       found.push({ text: "这个商品已上架，至少要留 1 条启用、没过期的价格。要把价格全部停掉，请先下架。", target: "price-table" });
     }
     return found;
@@ -281,6 +318,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
     adopted.current = saved;
     setRows(fresh(saved));
     surcharges.adopt(saved, false);
+    setReview(new Set());
     setConflictKeys(new Set());
     shared.setPrices(saved);
     frame.saved(saved.version);
@@ -332,6 +370,13 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
       }
       const row = match ? batchRow(match[1] ?? "", Number(match[2]), issue.detail) : undefined;
       if (!row) return [];
+      // 线路价、含公里数、区域用途（M8-12，17.7）：说清是哪个区域、哪一格
+      const path = match?.[3] ?? "";
+      if (isRouteRow(row) || path === "included_km" || (path === "over_km_per_km" && row.model === "fixed") || issue.reason === "AREA_ROLE_NOT_PRICING") {
+        const named = path === "to_area_id" && row.toAreaId !== null ? areaName(row.toAreaId) : areaName(row.areaId);
+        const special = routeIssue(issue.reason, path, named, context.currency);
+        if (special) return [{ text: `${rowLabel(row)}：${special.text}`, target: cellId(row.key, special.field) }];
+      }
       const text = issue.reason === "AREA_NOT_IN_PRODUCT" ? `「${areaName(row.areaId)}」已经不在这个商品里，这条价格保存不了。` : issue.reason === "VEHICLE_GROUP_NOT_IN_PRODUCT" ? `「${groupName(row.vehicleGroupId)}」已经不在这个商品里，这条价格保存不了。` : issue.message;
       return [{ text: `${rowLabel(row)}：${text}`, target: cellId(row.key, FIELD_BY_PATH[match?.[3] ?? ""] ?? "from") }];
     });
@@ -343,8 +388,10 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
       return true;
     }
     const sentBatch = sent.current?.batch;
-    if (err.status === 404 && /区域/.test(err.message) && sentBatch && [...sentBatch.create, ...sentBatch.update].some((entry) => entry.pricing_model === "charter_area_surcharge")) {
-      const count = [...sentBatch.create, ...sentBatch.update].filter((entry) => entry.pricing_model === "charter_area_surcharge" && !(tenantAreas.state.data ?? []).some((area) => area.id === entry.area_id)).length;
+    const usesArea = (entry: { pricing_model: string; to_area_id?: string | null }): boolean => entry.pricing_model === "charter_area_surcharge" || (entry.to_area_id ?? null) !== null;
+    if (err.status === 404 && /区域/.test(err.message) && sentBatch && [...sentBatch.create, ...sentBatch.update].some(usesArea)) {
+      const known = (id: string | null | undefined): boolean => id === null || id === undefined || (tenantAreas.state.data ?? []).some((area) => area.id === id);
+      const count = [...sentBatch.create, ...sentBatch.update].filter((entry) => usesArea(entry) && (!known(entry.area_id) || !known(entry.to_area_id))).length;
       setRejection({ title: "没有保存。", text: `有 ${Math.max(1, count)} 条价格用到的区域已经不在了（可能刚被删除）。请点「重新读取价格」后再保存。`, items: [], reload: true });
       tenantAreas.reload();
       return true;
@@ -451,8 +498,8 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   };
 
   const focusedRow = rows.find((row) => row.key === focused) ?? null;
-  const meaning = (): ReactNode => {
-    if (!focusedRow) return "点表格里的任何一行，这里会用一句话说明这一行的价格。";
+  const meaning = (route: boolean): ReactNode => {
+    if (!focusedRow || isRouteRow(focusedRow) !== route) return route ? "点线路价表里的任何一行，这里会用一句话说明这一行的价格。" : "点表格里的任何一行，这里会用一句话说明这一行的价格。";
     const reading = readings.get(focusedRow.key);
     const label = rowLabel(focusedRow);
     /** 基础价不是取整单位的整数倍时，报价会和填的数不一样（里程 + 时长的不说：它的结果本来就不固定）。数用和报价同一个函数算。 */
@@ -474,7 +521,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
     const overlapWith = (overlaps.get(focusedRow.key) ?? []).map((key) => rows.find((row) => row.key === key)).filter((row): row is PriceRow => row !== undefined);
     return (
       <>
-        {reading.rule ? `${label}——${pricingSentence(reading.rule.pricing, reading.rule.packageHours, context.currency)}${validitySentence(reading.rule)}` : `${label}——`}
+        {reading.rule ? `${label}——${route ? `只管在${areaName(focusedRow.areaId)}上车、在${areaName(focusedRow.toAreaId ?? "")}下车的单，反方向不算。` : ""}${pricingSentence(reading.rule.pricing, reading.rule.packageHours, context.currency)}${route ? "这条线路有了线路价，就不再用区域价，即使区域价更低。" : ""}${validitySentence(reading.rule)}` : `${label}——`}
         {reading.problems.map((problem) => (
           <strong key={`${problem.field}${problem.text}`} className="price-meaning__problem">{` ${problem.text}。`}</strong>
         ))}
@@ -482,6 +529,22 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
           <span key={note}>{` ${note}`}</span>
         ))}
         {roundedNote(reading.rule)}
+        {reading.rule !== null && hasIncludedKm(reading.rule.pricing) && (
+          <span className="price-meaning__rounded">
+            <Icon name="alert-triangle" />
+            {NO_ROUTE_DISTANCE_NOTE}
+          </span>
+        )}
+        {route && reading.rule !== null && !routeHasPrices(rows, reverseOf(routeOf(focusedRow)), context) && (
+          <span>
+            {` 反方向（${routeName(reverseOf(routeOf(focusedRow)))}）还没有线路价，用的是区域价。`}
+            {!readOnly && !isOrphan(focusedRow) && (
+              <Button size="sm" variant="text" onClick={() => setCopyDraft(copyDraftFor(rows, routeOf(focusedRow), context))}>
+                建返程
+              </Button>
+            )}
+          </span>
+        )}
         {overlapWith.map((other) => {
           const [mine, theirs] = [reading.rule, readings.get(other.key)?.rule];
           if (!mine || !theirs) return null;
@@ -526,10 +589,54 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
     });
   };
 
+  // ── 点对点线路价（17.3）──
+  const tenantAreaById = new Map((tenantAreas.state.data ?? []).map((area) => [area.id, area]));
+  /** 两个区域下拉的选项：这个商品的服务区域里能挂价格的（ADR 0075；区域的用途取不到时按「运营 + 报价」算） */
+  const routeAreas = pricingCapable(product.areas.map((area) => ({ id: area.area_id, name: displayName(area.name).text, role: tenantAreaById.get(area.area_id) ? roleOf(tenantAreaById.get(area.area_id) as TenantArea) : undefined })));
+  const routeStates = new Map(routeRows.map((row) => [row.key, stateOf(row).state]));
+  const routeExpiredCount = routeRows.filter((row) => routeStates.get(row.key) === "expired").length;
+  const visibleRoutes = routeRows.filter((row) => {
+    const state = routeStates.get(row.key) ?? "active";
+    if (["error", "overlap", "deleted", "new", "changed"].includes(state)) return true;
+    if (routeGroup !== "all" && row.vehicleGroupId !== routeGroup) return false;
+    return routeExpired || state !== "expired";
+  });
+  const pendingChanges = changeTotal;
+  const confirmRoute = (): void => {
+    if (routePick.from === "" || routePick.to === "") {
+      setRoutePickError("请选上车区域和下车区域");
+      document.getElementById(routePick.from === "" ? "route-pick-from" : "route-pick-to")?.focus();
+      return;
+    }
+    setRoutePickError(null);
+    const priced = pricedGroups(rows, routePick, context);
+    setRouteDraft(emptyRouteDraft(routePick, groupIds.filter((id) => !priced.has(id)), models.includes("fixed") ? "fixed" : defaultModel, context.today));
+  };
+  const addRoute = (draft: RouteDraft): void => {
+    const plan = planRoute(rows, draft, context);
+    setRows((current) => [...current, ...plan.outbound, ...plan.inbound]);
+    setRouteDraft(null);
+    setRoutePick({ from: "", to: "" });
+    setRouteGroup("all");
+    setAnnounce(`已添加 ${plan.outbound.length} 条线路价${plan.inbound.length > 0 ? `和 ${plan.inbound.length} 条返程` : ""}，还没有保存`);
+    const first = plan.outbound[0];
+    if (first) requestAnimationFrame(() => focusAnchor(cellId(first.key, "base")));
+  };
+  const copyRoute = (draft: CopyDraft): void => {
+    const plan = planCopy(rows, draft, context);
+    setRows((current) => applyCopy(current, plan));
+    setCopyDraft(null);
+    setRouteGroup("all");
+    setAnnounce(`已填 ${plan.added.length} 条线路价（${routeName(draft.target)}），还没有保存`);
+    const first = plan.added[0];
+    if (first) requestAnimationFrame(() => focusAnchor(cellId(first.key, "base")));
+  };
+
   const noPackages = category === "charter" && coverage.packages.length === 0;
   const CoverageHeading = charter ? "h4" : "h3";
   const surchargeAreaCount = new Set(surcharges.rows.filter((row) => !surcharges.removing.has(row.areaId) && (row.origin === null ? !row.deleted : row.enabled || surcharges.restoring.has(row.areaId))).map((row) => row.areaId)).size;
   const header = (field: PriceField): string => {
+    if (field === "kmPrice") return `${hasMileage ? "超出含公里数后每公里" : "超出每公里"}（${context.currency} / 公里）`;
     const name = field === "base" ? (hasMileage ? "基础价 / 起步价" : "基础价") : fieldName(field, category === "charter" ? "charter_package" : "mileage_time");
     return FIELD_UNITS[field] ? `${name}（${FIELD_UNITS[field]}）` : `${name}（${context.currency}${FIELD_PER[field] ?? ""}）`;
   };
@@ -539,6 +646,257 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
       {({ busy }) => {
         const locked = busy || readOnly;
         const groupsOverlap = overlapGroups();
+        /** 线路价表里一条线路的组标题：「A → B」、返程有没有、复制（17.3.1） */
+        const routeHeader = (route: Route, orphan: boolean): ReactNode => {
+          const back = reverseOf(route);
+          const hasBack = routeHasPrices(rows, back, context);
+          const name = routeName(route);
+          return (
+            <tr className="price-table__group route-group" id={`route-${routeKey(route)}`}>
+              <th colSpan={30} scope="colgroup">
+                <span className="route-group__head">
+                  <span className="route-group__name">{name}</span>
+                  <span className="route-group__meta">
+                    <span>返程：</span>
+                    {hasBack ? (
+                      <Button size="sm" variant="text" title="两个方向是两组独立的价格" aria-label={`返程：有，到「${routeName(back)}」那一组`} onClick={() => {
+                          const first = routeRows.find((entry) => entry.areaId === back.from && entry.toAreaId === back.to);
+                          if (first) focusAnchor(`price-row-${first.key}`);
+                        }}>
+                        有
+                      </Button>
+                    ) : (
+                      <span>没有</span>
+                    )}
+                    {!readOnly && !orphan && !hasBack && (
+                      <Button size="sm" variant="text" disabled={busy} aria-label={`给「${name}」建返程`} onClick={() => setCopyDraft(copyDraftFor(rows, route, context))}>
+                        建返程
+                      </Button>
+                    )}
+                    {!readOnly && !orphan && (
+                      <Button size="sm" variant="text" disabled={busy || !routeHasPrices(rows, route, context)} aria-label={`复制线路「${name}」`} onClick={() => setCopyDraft(copyDraftFor(rows, route, context))}>
+                        复制
+                      </Button>
+                    )}
+                  </span>
+                </span>
+              </th>
+            </tr>
+          );
+        };
+        /** 价格表的一行（区域价的表、线路价的表共用）。`route`：线路价的表没有「区域」列，车型组是行标题 */
+        const renderRow = (row: PriceRow, index: number, list: readonly PriceRow[], route: boolean): ReactNode => {
+          const reading = readings.get(row.key) ?? readRow(row, context);
+          const state = stateOf(row);
+          const look = STATE_LOOK[state.state];
+          const label = rowLabel(row);
+          const ordinal = segmentOrdinal(row);
+          const bad = (field: RowField): true | undefined => (reading.problems.some((problem) => problem.field === field) || ((field === "from" || field === "to") && state.state === "overlap") ? true : undefined);
+          const group = product.vehicle_groups.find((entry) => entry.vehicle_group_id === row.vehicleGroupId);
+          const area = product.areas.find((entry) => entry.area_id === row.areaId);
+          const orphan = isOrphan(row);
+          const previous = list[index - 1];
+          const firstOrphan = orphan && (index === 0 || !isOrphan(previous as PriceRow));
+          const firstOfArea = index === 0 || previous?.areaId !== row.areaId || (route && previous.toAreaId !== row.toAreaId) || firstOrphan;
+          const rowLocked = locked || row.deleted || orphan;
+          /** 只读查看、已删除待保存、已不在商品里的行：方向和计价方式显示成文字，不用灰掉的下拉（禁用态的字对比度不够，规范 02-components 第 2 节） */
+          const choicesAsText = readOnly || row.deleted || orphan;
+          const flag = ["error", "overlap"].includes(state.state) ? " price-table__row--error" : ["new", "changed"].includes(state.state) ? " price-table__row--unsaved" : "";
+          const cell = (field: PriceField): ReactNode => {
+            if (!rowFields(row.model, category).includes(field)) return <span className="table__muted">—</span>;
+            const money = !FIELD_UNITS[field];
+            return (
+              <input
+                className="input input--sm input--mono price-table__input"
+                id={cellId(row.key, field)}
+                data-col={field}
+                type="text"
+                inputMode={money ? "decimal" : "numeric"}
+                autoComplete="off"
+                aria-label={`${label}${ordinal} 的${fieldName(field, row.model)}`}
+                aria-invalid={bad(field)}
+                readOnly={rowLocked}
+                placeholder={field === "min" ? "不设" : undefined}
+                value={row.values[field]}
+                onChange={(event) => update(row.key, {}, { [field]: event.target.value })}
+                onFocus={(event) => {
+                  // 再聚焦时变回纯数字并全选，方便直接重填。先把输入框里的字换好再全选、然后才记到页面状态里：
+                  // 这样重新渲染时输入框的内容和状态一样，选中的范围不会丢（丢了的话，新敲的数会接在旧数后面）
+                  const input = event.currentTarget;
+                  const plain = money ? plainAmountDisplay(row.values[field], context.currency) : row.values[field];
+                  if (plain !== input.value) input.value = plain;
+                  input.select();
+                  if (plain !== row.values[field]) update(row.key, {}, { [field]: plain });
+                }}
+                onBlur={() => {
+                  if (!money) return;
+                  // 失去焦点：整理成带千分位、不带币种符号的写法（粘贴进来的「¥18,500」「18500円」也一样）
+                  if (!money) return;
+                  const tidy = tidyAmountDisplay(row.values[field], context.currency);
+                  if (tidy !== row.values[field]) update(row.key, {}, { [field]: tidy });
+                }}
+              />
+            );
+          };
+          const date = (field: "from" | "to"): ReactNode => (
+            <input
+              className="input input--sm input--mono price-table__date"
+              id={cellId(row.key, field)}
+              data-col={field}
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              aria-label={`${label}${ordinal} 的生效日期${field === "from" ? "从" : "到"}`}
+              aria-invalid={bad(field)}
+              placeholder={field === "to" ? "一直有效" : "年-月-日"}
+              readOnly={rowLocked}
+              value={row[field]}
+              onChange={(event) => update(row.key, { [field]: event.target.value })}
+              onBlur={() => {
+                const tidy = tidyDate(row[field]);
+                if (tidy !== null && tidy !== row[field]) update(row.key, { [field]: tidy });
+              }}
+            />
+          );
+          return (
+            <Fragment key={row.key}>
+            {firstOrphan && (
+              <tr className="price-table__group">
+                <th colSpan={30} scope="colgroup">
+                  <Icon name="alert-triangle" />
+                  {route ? `已经不在这个商品里的线路或车型组的线路价（${list.filter(isOrphan).length} 条）` : `已经不在这个商品里的区域或车型组的价格（${list.filter(isOrphan).length} 条）`}
+                  <span className="price-table__group-note">{route ? "这些线路价现在不算数；把区域 / 车型组选回来会重新生效。用不到的可以删掉。" : "这些价格现在不算数；把区域 / 车型组选回来会重新生效。用不到的可以删掉。"}</span>
+                </th>
+              </tr>
+            )}
+            {route && firstOfArea && routeHeader(routeOf(row), orphan)}
+            <tr id={`price-row-${row.key}`} className={`price-table__row${flag}${firstOfArea ? " price-table__row--first" : ""}${row.deleted ? " price-table__row--deleted" : ""}`} onFocus={() => setFocused(row.key)}>
+              {route ? (
+                <th scope="row">
+                  <span className="visually-hidden">{`${routeName(routeOf(row))} · `}</span>
+                  {groupName(row.vehicleGroupId)}
+                  {group && <span className="product-code">{comboText(group.passengers, group.luggage)}</span>}
+                </th>
+              ) : (
+                <>
+                  <th scope="row">
+                    <span className={firstOfArea ? undefined : "visually-hidden"}>{areaName(row.areaId)}</span>
+                    {firstOfArea && area?.status === "disabled" && <StatusBadge tone="neutral" label="已停用" />}
+                  </th>
+                  <td>
+                    {groupName(row.vehicleGroupId)}
+                    {group && <span className="product-code">{comboText(group.passengers, group.luggage)}</span>}
+                  </td>
+                </>
+              )}
+              {category === "airport_transfer" && (
+                <td>
+                  {choicesAsText ? (
+                    <span id={cellId(row.key, "direction")}>{directionName(row.direction ?? "both", station)}</span>
+                  ) : (
+                    <select className="input input--sm select" id={cellId(row.key, "direction")} aria-label={`${label}${ordinal} 的方向`} disabled={rowLocked} value={row.direction ?? "both"} onChange={(event) => update(row.key, { direction: event.target.value as PriceDirection })}>
+                      {(["both", "pickup", "dropoff"] as const).filter((direction) => (PRICE_DIRECTIONS as readonly string[]).includes(direction)).map((direction) => (
+                        <option key={direction} value={direction}>
+                          {directionName(direction, station)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </td>
+              )}
+              {category === "charter" && <td>{`${row.packageHours ?? ""} 小时`}</td>}
+              {models.length > 1 && (
+                <td>
+                  {choicesAsText ? (
+                    <span>{row.model === "fixed" ? "一口价" : PRICING_MODEL_NAMES[row.model]}</span>
+                  ) : (
+                    <select className="input input--sm select" aria-label={`${label}${ordinal} 的计价方式`} disabled={rowLocked} value={row.model} onChange={(event) => update(row.key, { model: event.target.value as PricingModel })}>
+                      {models.map((model) => (
+                        <option key={model} value={model}>
+                          {model === "fixed" ? "一口价" : PRICING_MODEL_NAMES[model]}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </td>
+              )}
+              {valueFields.map((field) => (
+                <td key={field} className="price-table__number">
+                  {cell(field)}
+                </td>
+              ))}
+              <td>{date("from")}</td>
+              <td>{date("to")}</td>
+              <td>{readOnly ? (reading.blank ? "—" : row.enabled ? "启用" : "已停用") : <input type="checkbox" aria-label={`启用这条价格：${label}${ordinal}`} checked={row.enabled} disabled={rowLocked} onChange={(event) => update(row.key, { enabled: event.target.checked })} />}</td>
+              <td>
+                <span className={`price-state price-state--${look.tone}`}>
+                  <Icon name={look.icon} />
+                  {state.text}
+                </span>
+                {row.deleted && !readOnly && (
+                  <Button size="sm" variant="text" disabled={busy} onClick={() => update(row.key, { deleted: false })}>
+                    撤销
+                  </Button>
+                )}
+              </td>
+              {!readOnly && (
+                <td>
+                  <Dropdown buttonClassName="icon-button" buttonContent={<Icon name="more" />} label={`${label}${segmentSuffix(row)} 的更多操作`} align="end">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="menu-item"
+                      disabled={busy || reading.blank || orphan}
+                      onClick={() => {
+                        const segment = nextSegment(rows, row, context);
+                        const added: PriceRow = { ...blankRow({ areaId: row.areaId, toAreaId: row.toAreaId, vehicleGroupId: row.vehicleGroupId, direction: row.direction, packageHours: row.packageHours }, row.model, context.today, row.values), from: segment.from, enabled: row.enabled };
+                        setRows((current) => {
+                          const at = current.findIndex((entry) => entry.key === segment.after);
+                          return at < 0 ? [...current, added] : [...current.slice(0, at + 1), added, ...current.slice(at + 1)];
+                        });
+                        setAnnounce(segment.from === "" ? "已在下面加了一行。上一段没有结束日期，请填这一段从哪天开始。" : `已在下面加了一行，从 ${segment.from} 开始`);
+                        requestAnimationFrame(() => focusAnchor(cellId(added.key, "from")));
+                      }}
+                    >
+                      <span className="menu-item__text">再加一段日期</span>
+                    </button>
+                    {route && !orphan && (
+                      <button type="button" role="menuitem" className="menu-item" disabled={busy || reading.rule === null} onClick={() => setCopyDraft(copyDraftFor(rows, routeOf(row), context, row.key))}>
+                        <span className="menu-item__text">复制这条线路…</span>
+                      </button>
+                    )}
+                    {row.id === null && (route || isExtraSegment(rows, row)) ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="menu-item menu-item--danger"
+                        disabled={busy}
+                        onClick={() => {
+                          const index = list.findIndex((entry) => entry.key === row.key);
+                          const neighbour = list[index - 1] ?? list[index + 1];
+                          setRows((current) => withBlankRows(current.filter((entry) => entry.key !== row.key), context, areaIds, groupIds, defaultModel, coverage.packages));
+                          setAnnounce(`已删除这一行：${label}`);
+                          if (neighbour) requestAnimationFrame(() => focusAnchor(cellId(neighbour.key, "from")));
+                        }}
+                      >
+                        <span className="menu-item__text">删除这一行</span>
+                      </button>
+                    ) : row.id === null ? (
+                      <button type="button" role="menuitem" className="menu-item menu-item--danger" disabled={busy || reading.blank} onClick={() => setRows((current) => withBlankRows(current.filter((entry) => entry.key !== row.key), context, areaIds, groupIds, defaultModel, coverage.packages))}>
+                        <span className="menu-item__text">清空这一行</span>
+                      </button>
+                    ) : (
+                      <button type="button" role="menuitem" className="menu-item menu-item--danger" disabled={busy} onClick={() => update(row.key, { deleted: !row.deleted })}>
+                        <span className="menu-item__text">{row.deleted ? "撤销删除" : "删除"}</span>
+                      </button>
+                    )}
+                  </Dropdown>
+                </td>
+              )}
+            </tr>
+            </Fragment>
+          );
+        };
         return (
           <>
             <div role="status" className="visually-hidden">
@@ -569,6 +927,12 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                     )}
                   </Alert>
                 </div>
+              )}
+              {review.size > 0 && (
+                <Alert kind="warning">
+                  <strong className="alert__title">{`有 ${review.size} 条价格别人也改过同一项。`}</strong>
+                  <span>已经载入最新内容：你没动过的格子换成了别人改的；你和别人都改了的格子现在是你的修改（行上标着「别人也改过这一条，请核对」）。请核对后再保存。</span>
+                </Alert>
               )}
               {groupsOverlap.length > 0 && (
                 <Alert kind="danger">
@@ -807,6 +1171,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                   )}
                 </div>
 
+                {p2p && models.includes("fixed") && <p className="field__hint">「含公里数」「超出每公里」选填，只有一口价能填，两格要一起填。报价时按客人这一单的路线距离算，超出的部分不足 1 公里按 1 公里，加进一口价（和「里程 + 时长」的按比例不同）。</p>}
                 <div className="price-table__scroll" id="price-table" tabIndex={-1}>
                   {visible.length === 0 ? (
                     <div className="state-block">
@@ -849,210 +1214,139 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                         </tr>
                       </thead>
                       <tbody>
-                        {visible.map((row, index) => {
-                          const reading = readings.get(row.key) ?? readRow(row, context);
-                          const state = stateOf(row);
-                          const look = STATE_LOOK[state.state];
-                          const label = rowLabel(row);
-                          const ordinal = segmentOrdinal(row);
-                          const bad = (field: RowField): true | undefined => (reading.problems.some((problem) => problem.field === field) || ((field === "from" || field === "to") && state.state === "overlap") ? true : undefined);
-                          const group = product.vehicle_groups.find((entry) => entry.vehicle_group_id === row.vehicleGroupId);
-                          const area = product.areas.find((entry) => entry.area_id === row.areaId);
-                          const orphan = isOrphan(row);
-                          const firstOrphan = orphan && (index === 0 || !isOrphan(visible[index - 1] as PriceRow));
-                          const firstOfArea = index === 0 || visible[index - 1]?.areaId !== row.areaId || firstOrphan;
-                          const rowLocked = locked || row.deleted || orphan;
-                          /** 只读查看、已删除待保存、已不在商品里的行：方向和计价方式显示成文字，不用灰掉的下拉（禁用态的字对比度不够，规范 02-components 第 2 节） */
-                          const choicesAsText = readOnly || row.deleted || orphan;
-                          const flag = ["error", "overlap"].includes(state.state) ? " price-table__row--error" : ["new", "changed"].includes(state.state) ? " price-table__row--unsaved" : "";
-                          const cell = (field: PriceField): ReactNode => {
-                            if (!MODEL_FIELDS[row.model].includes(field)) return <span className="table__muted">—</span>;
-                            const money = !FIELD_UNITS[field];
-                            return (
-                              <input
-                                className="input input--sm input--mono price-table__input"
-                                id={cellId(row.key, field)}
-                                data-col={field}
-                                type="text"
-                                inputMode={money ? "decimal" : "numeric"}
-                                autoComplete="off"
-                                aria-label={`${label}${ordinal} 的${fieldName(field, row.model)}`}
-                                aria-invalid={bad(field)}
-                                readOnly={rowLocked}
-                                placeholder={field === "min" ? "不设" : undefined}
-                                value={row.values[field]}
-                                onChange={(event) => update(row.key, {}, { [field]: event.target.value })}
-                                onFocus={(event) => {
-                                  // 再聚焦时变回纯数字并全选，方便直接重填。先把输入框里的字换好再全选、然后才记到页面状态里：
-                                  // 这样重新渲染时输入框的内容和状态一样，选中的范围不会丢（丢了的话，新敲的数会接在旧数后面）
-                                  const input = event.currentTarget;
-                                  const plain = money ? plainAmountDisplay(row.values[field], context.currency) : row.values[field];
-                                  if (plain !== input.value) input.value = plain;
-                                  input.select();
-                                  if (plain !== row.values[field]) update(row.key, {}, { [field]: plain });
-                                }}
-                                onBlur={() => {
-                                  if (!money) return;
-                                  // 失去焦点：整理成带千分位、不带币种符号的写法（粘贴进来的「¥18,500」「18500円」也一样）
-                                  if (!money) return;
-                                  const tidy = tidyAmountDisplay(row.values[field], context.currency);
-                                  if (tidy !== row.values[field]) update(row.key, {}, { [field]: tidy });
-                                }}
-                              />
-                            );
-                          };
-                          const date = (field: "from" | "to"): ReactNode => (
-                            <input
-                              className="input input--sm input--mono price-table__date"
-                              id={cellId(row.key, field)}
-                              data-col={field}
-                              type="text"
-                              inputMode="numeric"
-                              autoComplete="off"
-                              aria-label={`${label}${ordinal} 的生效日期${field === "from" ? "从" : "到"}`}
-                              aria-invalid={bad(field)}
-                              placeholder={field === "to" ? "一直有效" : "年-月-日"}
-                              readOnly={rowLocked}
-                              value={row[field]}
-                              onChange={(event) => update(row.key, { [field]: event.target.value })}
-                              onBlur={() => {
-                                const tidy = tidyDate(row[field]);
-                                if (tidy !== null && tidy !== row[field]) update(row.key, { [field]: tidy });
-                              }}
-                            />
-                          );
-                          return (
-                            <Fragment key={row.key}>
-                            {firstOrphan && (
-                              <tr className="price-table__group">
-                                <th colSpan={30} scope="colgroup">
-                                  <Icon name="alert-triangle" />
-                                  {`已经不在这个商品里的区域或车型组的价格（${visible.filter(isOrphan).length} 条）`}
-                                  <span className="price-table__group-note">这些价格现在不算数；把区域 / 车型组选回来会重新生效。用不到的可以删掉。</span>
-                                </th>
-                              </tr>
-                            )}
-                            <tr id={`price-row-${row.key}`} className={`price-table__row${flag}${firstOfArea ? " price-table__row--first" : ""}${row.deleted ? " price-table__row--deleted" : ""}`} onFocus={() => setFocused(row.key)}>
-                              <th scope="row">
-                                <span className={firstOfArea ? undefined : "visually-hidden"}>{areaName(row.areaId)}</span>
-                                {firstOfArea && area?.status === "disabled" && <StatusBadge tone="neutral" label="已停用" />}
-                              </th>
-                              <td>
-                                {groupName(row.vehicleGroupId)}
-                                {group && <span className="product-code">{comboText(group.passengers, group.luggage)}</span>}
-                              </td>
-                              {category === "airport_transfer" && (
-                                <td>
-                                  {choicesAsText ? (
-                                    <span id={cellId(row.key, "direction")}>{directionName(row.direction ?? "both", station)}</span>
-                                  ) : (
-                                    <select className="input input--sm select" id={cellId(row.key, "direction")} aria-label={`${label}${ordinal} 的方向`} disabled={rowLocked} value={row.direction ?? "both"} onChange={(event) => update(row.key, { direction: event.target.value as PriceDirection })}>
-                                      {(["both", "pickup", "dropoff"] as const).filter((direction) => (PRICE_DIRECTIONS as readonly string[]).includes(direction)).map((direction) => (
-                                        <option key={direction} value={direction}>
-                                          {directionName(direction, station)}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  )}
-                                </td>
-                              )}
-                              {category === "charter" && <td>{`${row.packageHours ?? ""} 小时`}</td>}
-                              {models.length > 1 && (
-                                <td>
-                                  {choicesAsText ? (
-                                    <span>{row.model === "fixed" ? "一口价" : PRICING_MODEL_NAMES[row.model]}</span>
-                                  ) : (
-                                    <select className="input input--sm select" aria-label={`${label}${ordinal} 的计价方式`} disabled={rowLocked} value={row.model} onChange={(event) => update(row.key, { model: event.target.value as PricingModel })}>
-                                      {models.map((model) => (
-                                        <option key={model} value={model}>
-                                          {model === "fixed" ? "一口价" : PRICING_MODEL_NAMES[model]}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  )}
-                                </td>
-                              )}
-                              {valueFields.map((field) => (
-                                <td key={field} className="price-table__number">
-                                  {cell(field)}
-                                </td>
-                              ))}
-                              <td>{date("from")}</td>
-                              <td>{date("to")}</td>
-                              <td>{readOnly ? (reading.blank ? "—" : row.enabled ? "启用" : "已停用") : <input type="checkbox" aria-label={`启用这条价格：${label}${ordinal}`} checked={row.enabled} disabled={rowLocked} onChange={(event) => update(row.key, { enabled: event.target.checked })} />}</td>
-                              <td>
-                                <span className={`price-state price-state--${look.tone}`}>
-                                  <Icon name={look.icon} />
-                                  {state.text}
-                                </span>
-                                {row.deleted && !readOnly && (
-                                  <Button size="sm" variant="text" disabled={busy} onClick={() => update(row.key, { deleted: false })}>
-                                    撤销
-                                  </Button>
-                                )}
-                              </td>
-                              {!readOnly && (
-                                <td>
-                                  <Dropdown buttonClassName="icon-button" buttonContent={<Icon name="more" />} label={`${label}${segmentSuffix(row)} 的更多操作`} align="end">
-                                    <button
-                                      type="button"
-                                      role="menuitem"
-                                      className="menu-item"
-                                      disabled={busy || reading.blank || orphan}
-                                      onClick={() => {
-                                        const segment = nextSegment(rows, row, context);
-                                        const added: PriceRow = { ...blankRow({ areaId: row.areaId, vehicleGroupId: row.vehicleGroupId, direction: row.direction, packageHours: row.packageHours }, row.model, context.today, row.values), from: segment.from, enabled: row.enabled };
-                                        setRows((current) => {
-                                          const at = current.findIndex((entry) => entry.key === segment.after);
-                                          return at < 0 ? [...current, added] : [...current.slice(0, at + 1), added, ...current.slice(at + 1)];
-                                        });
-                                        setAnnounce(segment.from === "" ? "已在下面加了一行。上一段没有结束日期，请填这一段从哪天开始。" : `已在下面加了一行，从 ${segment.from} 开始`);
-                                        requestAnimationFrame(() => focusAnchor(cellId(added.key, "from")));
-                                      }}
-                                    >
-                                      <span className="menu-item__text">再加一段日期</span>
-                                    </button>
-                                    {row.id === null && isExtraSegment(rows, row) ? (
-                                      <button
-                                        type="button"
-                                        role="menuitem"
-                                        className="menu-item menu-item--danger"
-                                        disabled={busy}
-                                        onClick={() => {
-                                          const index = visible.findIndex((entry) => entry.key === row.key);
-                                          const neighbour = visible[index - 1] ?? visible[index + 1];
-                                          setRows((current) => withBlankRows(current.filter((entry) => entry.key !== row.key), context, areaIds, groupIds, defaultModel, coverage.packages));
-                                          setAnnounce(`已删除这一行：${label}`);
-                                          if (neighbour) requestAnimationFrame(() => focusAnchor(cellId(neighbour.key, "from")));
-                                        }}
-                                      >
-                                        <span className="menu-item__text">删除这一行</span>
-                                      </button>
-                                    ) : row.id === null ? (
-                                      <button type="button" role="menuitem" className="menu-item menu-item--danger" disabled={busy || reading.blank} onClick={() => setRows((current) => withBlankRows(current.filter((entry) => entry.key !== row.key), context, areaIds, groupIds, defaultModel, coverage.packages))}>
-                                        <span className="menu-item__text">清空这一行</span>
-                                      </button>
-                                    ) : (
-                                      <button type="button" role="menuitem" className="menu-item menu-item--danger" disabled={busy} onClick={() => update(row.key, { deleted: !row.deleted })}>
-                                        <span className="menu-item__text">{row.deleted ? "撤销删除" : "删除"}</span>
-                                      </button>
-                                    )}
-                                  </Dropdown>
-                                </td>
-                              )}
-                            </tr>
-                            </Fragment>
-                          );
-                        })}
+                        {visible.map((row, index) => renderRow(row, index, visible, false))}
                       </tbody>
                     </table>
                   )}
                 </div>
                 <p className="price-meaning" aria-live="polite">
                   <strong>这一行的意思：</strong>
-                  {meaning()}
+                  {meaning(false)}
                 </p>
               </>
+            )}
+            {p2p && (
+              <section className="card surcharge route-prices" aria-labelledby="route-title">
+                <h3 className="surcharge__title" id="route-title" tabIndex={-1}>
+                  线路价
+                </h3>
+                <p className="surcharge__lead">
+                  {ROUTE_LEAD}
+                  <br />
+                  {ROUTE_LEAD_2}
+                </p>
+                {!readOnly &&
+                  (routeAreas.length < 2 ? (
+                    <p className="field__hint">
+                      这个商品只有一个服务区域，没有跨区域的线路。要设线路价，先在第 ① 步多选一个服务区域。{" "}
+                      <Link className="link" to={frame.source.paths.step(product.id, "basic", "areas")}>
+                        去第 ① 步选
+                      </Link>
+                    </p>
+                  ) : (
+                    <div className="surcharge-pick route-pick">
+                      <div className="route-pick__row">
+                        <span className="route-pick__label">服务线路</span>
+                        <RouteSelects
+                          idPrefix="route-pick"
+                          areas={routeAreas}
+                          value={routePick}
+                          disabled={busy}
+                          invalid={routePickError !== null}
+                          describedBy={routePickError !== null ? "route-pick-error" : undefined}
+                          onChange={(next) => {
+                            setRoutePick(next);
+                            setRoutePickError(null);
+                          }}
+                        />
+                        <Button size="sm" className="route-pick__add" disabled={busy} onClick={confirmRoute}>
+                          确认添加
+                        </Button>
+                      </div>
+                      {routePickError !== null && (
+                        <p className="field__error" id="route-pick-error">
+                          {routePickError}
+                        </p>
+                      )}
+                      <div className="surcharge-pick__links">
+                        {canManageAreas && !onPlatform && (
+                          <NewTabLink to={`${AREA_NEW_PATH}?biz=point_to_point&role=pricing`} className="link surcharge-pick__new">
+                            新增自定义区域
+                          </NewTabLink>
+                        )}
+                        {(onPlatform || canReadAreas) && <AreaMapButton areaIds={areaIds} {...(frame.source.tenantId !== null ? { tenantId: frame.source.tenantId } : {})} />}
+                      </div>
+                      {canManageAreas && !onPlatform && <p className="field__hint">新区域要先在第 ① 步加进这个商品。</p>}
+                    </div>
+                  ))}
+                {routeRows.length === 0 ? (
+                  <p className="surcharge__lead">{onPlatform || readOnly ? "还没有线路价，每条线路都用上面的区域价。" : "还没有线路价，每条线路都用上面的区域价。某条线路要单独定价（例如市区到机场，去和回不一样的价），在上面选上车区域和下车区域，点「确认添加」。"}</p>
+                ) : (
+                  <>
+                    <div className="price-filters">
+                      <label className="price-filters__item">
+                        <span>车型组</span>
+                        <select className="input input--sm select" aria-label="线路价的车型组" value={routeGroup} onChange={(event) => setRouteGroup(event.target.value)}>
+                          <option value="all">全部</option>
+                          {groups.map((group) => (
+                            <option key={group.vehicle_group_id} value={group.vehicle_group_id}>
+                              {displayName(group.name).text}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="choice">
+                        <input type="checkbox" checked={routeExpired} onChange={(event) => setRouteExpired(event.target.checked)} />
+                        <span className="choice__text">{`显示已过期的线路价${routeExpiredCount > 0 ? `（${routeExpiredCount} 条）` : ""}`}</span>
+                      </label>
+                    </div>
+                    <div className="price-table__scroll" id="route-table" tabIndex={-1}>
+                      {visibleRoutes.length === 0 ? (
+                        <div className="state-block">
+                          <h4 className="state-block__title">没有符合条件的线路价</h4>
+                          <Button
+                            onClick={() => {
+                              setRouteGroup("all");
+                              setRouteExpired(true);
+                            }}
+                          >
+                            清空筛选
+                          </Button>
+                        </div>
+                      ) : (
+                        <table className="price-table" onKeyDown={onTableKey}>
+                          <caption className="visually-hidden">线路价：按线路分组，每一行是一条线路价（只管这一个方向）</caption>
+                          <thead>
+                            <tr>
+                              <th scope="col">车型组</th>
+                              {models.length > 1 && <th scope="col">计价方式</th>}
+                              {valueFields.map((field) => (
+                                <th key={field} scope="col" className="price-table__number">
+                                  {field === "base" && !hasMileage ? `价格（${context.currency}）` : header(field)}
+                                </th>
+                              ))}
+                              <th scope="col">生效日期 从</th>
+                              <th scope="col">到</th>
+                              <th scope="col">启用</th>
+                              <th scope="col">现在怎么样</th>
+                              {!readOnly && (
+                                <th scope="col">
+                                  <span className="visually-hidden">操作</span>
+                                </th>
+                              )}
+                            </tr>
+                          </thead>
+                          <tbody>{visibleRoutes.map((row, index) => renderRow(row, index, visibleRoutes, true))}</tbody>
+                        </table>
+                      )}
+                    </div>
+                    <p className="price-meaning" aria-live="polite">
+                      <strong>这一行的意思：</strong>
+                      {meaning(true)}
+                    </p>
+                  </>
+                )}
+              </section>
             )}
             {charter && (
               <AreaSurchargeBlock
@@ -1073,6 +1367,23 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                 announce={setAnnounce}
                 focusRow={(key) => requestAnimationFrame(() => focusAnchor(surchargeCellId(key, "pickup")))}
               />
+            )}
+            {p2p && (
+              <>
+                <AddRouteDialog
+                  draft={routeDraft}
+                  setDraft={setRouteDraft}
+                  rows={rows}
+                  context={context}
+                  models={models}
+                  groups={groups.map((group) => ({ id: group.vehicle_group_id, name: displayName(group.name).text }))}
+                  priced={routeDraft ? pricedGroups(rows, routeDraft.route, context) : new Set()}
+                  areaName={areaName}
+                  pending={pendingChanges}
+                  onSubmit={addRoute}
+                />
+                <CopyRouteDialog draft={copyDraft} setDraft={setCopyDraft} rows={rows} context={context} areas={routeAreas} groupName={groupName} areaName={areaName} pending={pendingChanges} onSubmit={copyRoute} />
+              </>
             )}
             <Dialog
               open={addingPackage !== null}

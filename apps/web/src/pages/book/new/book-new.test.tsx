@@ -740,3 +740,36 @@ test("包车上车或下车地点不在任何区域（OUT_OF_SERVICE_AREA）：�
   assert.equal(screen.getByRole("link", { name: "+81 3-1234-5678" }).getAttribute("href"), "tel:+81312345678");
   assert.doesNotMatch(document.body.textContent ?? "", /OUT_OF_SERVICE_AREA|含区域加价/);
 });
+
+// ---- M8-13：含公里数那一行（规范 site-booking-v2.md 10.3） ----
+
+const KM_NOTE = "含 30 公里，本次路线约 63.5 公里，超出 34 公里 × 330 JPY（已含在一口价里）";
+const withKm = (): Route => () =>
+  json(200, byPoints({ trip_type: "point_to_point", airport: null, route: { minutes: 52, meters: 63_420, polyline: null }, quotes: [{ ...quoteOf(1, { amount: 30_000 }), distance: { included_km: 30, route_meters: 63_420, over_km: 34, over_km_per_km: { amount: "330", currency: "JPY" } } }, quoteOf(2)] }));
+
+test("含公里数（M8-13）：车型卡车型标识下面「公里数」一句；选了以后右侧栏车费下面同一句；路线一行的公里数和这句的 D 一样（向上取整到 0.1 公里）；只有一个总价、不写成算式", async () => {
+  const { actor } = await openSelected({ quote: withKm() });
+  const card = screen.getByRole("heading", { name: "车型1" }).closest("li") as HTMLElement;
+  const fact = [...card.querySelectorAll(".site-facts__item")].find((item) => item.querySelector("dt")?.textContent === "公里数");
+  assert.equal(fact?.querySelector("dd")?.textContent, KM_NOTE);
+  const other = screen.getByRole("heading", { name: "车型2" }).closest("li") as HTMLElement;
+  assert.doesNotMatch(other.textContent ?? "", /公里数|含 \d+ 公里/, "没设含公里数的车型不写");
+  const aside = screen.getByRole("complementary", { name: "行程摘要" });
+  assert.ok(within(aside).getByText(KM_NOTE));
+  assert.ok(within(aside).getByText("约 52 分钟 · 63.5 公里"), "路线一行用同一个 D（63,420 米向上取整 63.5，不是四舍五入的 63.4）");
+  assert.doesNotMatch(aside.textContent ?? "", /[=＝]|基础价/);
+  const amounts = new Set((aside.textContent ?? "").match(/[\d,]+ JPY/g) ?? []);
+  assert.deepEqual([...amounts].sort(), ["30,000 JPY", "330 JPY"].sort(), "总价一个数，每公里单价只在说明里");
+  await actor.click(screen.getByRole("button", { name: "选择 车型2" }));
+  await waitFor(() => assertAbsent(within(aside).queryByText(KM_NOTE)));
+  assert.ok(within(aside).getByText("约 52 分钟 · 63.4 公里"), "选了没设含公里数的车型：路线一行照旧");
+});
+
+test("含公里数（M8-13）：没超出写「在含的公里数以内」；超出单价是 0 写「超出的公里不另收」", async () => {
+  const quoteWith = (distance: NonNullable<SiteQuote["distance"]>): Route => () => json(200, byPoints({ trip_type: "point_to_point", airport: null, quotes: [{ ...quoteOf(1), distance }] }));
+  await openSelected({ quote: quoteWith({ included_km: 30, route_meters: 30_000, over_km: 0, over_km_per_km: { amount: "330", currency: "JPY" } }) });
+  assert.ok(screen.getAllByText("含 30 公里，本次路线约 30 公里，在含的公里数以内").length >= 1);
+  resetBrowser();
+  await openSelected({ quote: quoteWith({ included_km: 30, route_meters: 34_200, over_km: 5, over_km_per_km: { amount: "0", currency: "JPY" } }) });
+  assert.ok(screen.getAllByText("含 30 公里，本次路线约 34.2 公里，超出的公里不另收").length >= 1);
+});

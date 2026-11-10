@@ -10,6 +10,7 @@ import {
   NOTIFICATION_TEMPLATES,
   OBSERVATION_REASON_NAMES,
   OPTIONAL_LINE_VARIABLES,
+  OPTIONAL_SUFFIX_VARIABLES,
   ORDER_CHANGE_FIELD_NAMES,
   type NotificationTemplate,
   findNotificationTemplate,
@@ -205,6 +206,16 @@ test("缺字段：逐个变量缺失或为空都不发，不会出现 undefined�
           assert.ok(rendered, `${target.event}/${target.audience} 缺 ${name} 照样发`);
           assert.doesNotMatch(rendered.text, /undefined|null|\{\{|(同级车型|最多乘客|最多行李)：\s*$|：，/m, `${target.event}/${target.audience} 缺 ${name} 不留空标签`);
           assert.equal(rendered.text.split("\n").length, renderNotification(target, complete)!.text.split("\n").length - 1, `${target.event}/${target.audience} 缺 ${name} 正好少一行`);
+        }
+        continue;
+      }
+      if ((OPTIONAL_SUFFIX_VARIABLES as readonly string[]).includes(name)) {
+        // 接在别的内容后面的（M8-13「（含区域加价）」）：缺了只少这一截，行数不变
+        for (const partial of [missing, { ...complete, [name]: "" }]) {
+          const rendered = renderNotification(target, partial);
+          assert.ok(rendered, `${target.event}/${target.audience} 缺 ${name} 照样发`);
+          assert.doesNotMatch(rendered.text, /undefined|null|\{\{/, `${target.event}/${target.audience} 缺 ${name}`);
+          assert.equal(rendered.text.split("\n").length, renderNotification(target, complete)!.text.split("\n").length, `${target.event}/${target.audience} 缺 ${name} 行数不变`);
         }
         continue;
       }
