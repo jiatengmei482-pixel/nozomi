@@ -130,7 +130,7 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
     if (item.location !== null) {
       session.current = newSessionToken();
       setStatus({ kind: "idle" });
-      onChange({ name, lat: item.location.lat, lng: item.location.lng, kind: item.kind });
+      onChange({ name, lat: item.location.lat, lng: item.location.lng, kind: item.kind, suggestionName: item.name });
       return;
     }
     setStatus({ kind: "loading" });
@@ -143,7 +143,7 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
         return;
       }
       setStatus({ kind: "idle" });
-      onChange({ name, lat: found.place.location.lat, lng: found.place.location.lng, kind: found.place.kind });
+      onChange({ name, lat: found.place.location.lat, lng: found.place.location.lng, kind: found.place.kind, suggestionName: item.name });
     } catch {
       if (mine !== round.current) return;
       session.current = newSessionToken();

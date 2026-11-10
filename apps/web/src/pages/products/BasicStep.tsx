@@ -30,6 +30,7 @@ import { BrandDialog } from "./BrandDialog.tsx";
 import { type StepController, StepShell } from "./StepShell.tsx";
 import { type ProductFrame, type StepProblem, stepMissing } from "./frame.ts";
 import { AreaMapButton } from "../areas/AreaMapDialog.tsx";
+import { hiddenOperatingText, pricingCapable, roleOf } from "../../lib/area-roles.ts";
 
 const CATEGORY_OPTIONS: readonly { value: ServiceCategory; label: string; hint: string }[] = [
   { value: "airport_transfer", label: PRODUCT_CATEGORY_NAMES.airport_transfer, hint: "机场或车站 ↔ 市内，分接和送。一个商品对应一个机场或车站。" },
@@ -132,7 +133,10 @@ export function BasicStep({ frame }: { frame: ProductFrame }) {
 
   // 区域：这个城市下的全部；能选的是启用中、业务类型匹配的
   const cityAreas = useMemo(() => (allAreas.state.data ?? []).filter((area) => area.city_id === cityId), [allAreas.state.data, cityId]);
-  const matching = category ? cityAreas.filter((area) => areaUsableByCategory(category, area.biz_type)) : [];
+  // 只列能挂价格的（报价区域、运营 + 报价）：运营区域只决定能不能接单，不能给商品勾选（M8-20，ADR 0075）
+  const categoryAreas = category ? cityAreas.filter((area) => areaUsableByCategory(category, area.biz_type)) : [];
+  const matching = pricingCapable(categoryAreas);
+  const operatingOnly = categoryAreas.filter((area) => roleOf(area) === "operating" && area.status === "active").length;
   const usable = matching.filter((area) => area.status === "active");
   const reloadAreas = allAreas.reload;
   useEffect(() => {
@@ -287,7 +291,7 @@ export function BasicStep({ frame }: { frame: ProductFrame }) {
       if (issue.path.startsWith("/areas")) {
         const name = areas[index] ? displayName(areas[index].name).text : "";
         const text =
-          issue.reason === "AREA_DISABLED" ? `「${name}」已经停用，不能新选。` : issue.reason === "UNKNOWN_AREA" ? `「${name}」已经被删除。` : issue.reason === "AREA_NOT_USABLE" || issue.reason === "AREA_OTHER_CITY" ? `「${name}」不能给这个商品用（业务类型或城市不对）。` : issue.message;
+          issue.reason === "AREA_DISABLED" ? `「${name}」已经停用，不能新选。` : issue.reason === "AREA_ROLE_NOT_PRICING" ? `「${name}」是运营区域，不能给商品勾选：运营区域只决定能不能接单，不带价格。请换一个报价区域。` : issue.reason === "UNKNOWN_AREA" ? `「${name}」已经被删除。` : issue.reason === "AREA_NOT_USABLE" || issue.reason === "AREA_OTHER_CITY" ? `「${name}」不能给这个商品用（业务类型或城市不对）。` : issue.message;
         put("areas", "服务区域", text);
       } else if (issue.path.startsWith("/vehicle_groups")) {
         const name = displayName(groupInfo(pickedSorted[index]?.id ?? "")?.name).text;
@@ -354,7 +358,7 @@ export function BasicStep({ frame }: { frame: ProductFrame }) {
   const phones = cleanDispatchers(dispatchers).map((row) => row.phone.replace(/[^0-9+]/g, ""));
   const duplicate = phones.findIndex((phone, index) => phone !== "" && phones.indexOf(phone) < index);
   const lockedCount = category === "airport_transfer" ? "四" : "三";
-  const newAreaPath = `${AREA_NEW_PATH}${cityId && category ? `?city=${cityId}&biz=${category}` : ""}`;
+  const newAreaPath = `${AREA_NEW_PATH}${cityId && category ? `?city=${cityId}&biz=${category}${operatingOnly > 0 ? "&role=pricing" : ""}` : ""}`;
 
   return (
     <StepShell frame={frame} slug="basic" title="① 基础信息" next={{ slug: "service-rules", label: "保存并下一步" }} controller={controller}>
@@ -593,6 +597,11 @@ export function BasicStep({ frame }: { frame: ProductFrame }) {
                                   <>
                                     <strong>{`「${cityName}」下还没有区域。`}</strong>请先在这个城市画一个区域。
                                   </>
+                                ) : matching.length === 0 && operatingOnly > 0 ? (
+                                  <>
+                                    <strong>{`「${cityName}」下只有运营区域，还没有能给${categoryName}商品勾选的报价区域。`}</strong>
+                                    运营区域只决定能不能接单，不带价格。请在运营区域里面画一个报价区域（或把运营区域改成「运营 + 报价」），再回来勾选、设价格。
+                                  </>
                                 ) : matching.length === 0 ? (
                                   <>
                                     <strong>{`「${cityName}」下有 ${cityAreas.length} 个区域，但没有一个能给${categoryName}商品用。`}</strong>
@@ -719,9 +728,10 @@ export function BasicStep({ frame }: { frame: ProductFrame }) {
                       <strong>上架前要把它们重新启用，或在这里移除。</strong>
                     </Warning>
                   )}
+                  {!readOnly && cityId !== null && category !== null && hiddenOperatingText(operatingOnly) !== null && (usable.length > 0 || areas.length > 0) && <p className="field__hint" data-hidden-operating="">{hiddenOperatingText(operatingOnly)}</p>}
                   {cityId !== null && category !== null && (
                     <p className="field__hint">
-                      {onPlatform ? "供应商给这个商品选的区域，排在前面的优先。" : `只能选「${cityName}」下、业务类型是「${categoryName}」或「通用」的启用中的区域。上下移动可以调整顺序，排在前面的优先。`}
+                      {onPlatform ? "供应商给这个商品选的区域，排在前面的优先。" : `只能选「${cityName}」下、业务类型是「${categoryName}」或「通用」的启用中的报价区域（或「运营 + 报价」）。上下移动可以调整顺序，排在前面的优先。`}
                       <strong>现在报价时，一个位置落在好几个区域里的话，每个区域都会算一遍价，取最低的；顺序目前只影响价格规则等页面里区域的排列顺序。</strong>
                     </p>
                   )}
