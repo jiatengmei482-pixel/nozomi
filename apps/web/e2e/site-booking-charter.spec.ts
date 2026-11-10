@@ -11,11 +11,17 @@
  * - 下车地点不在任何区域：「这个地址暂时没有在线报价，请联系客服」+ 客服电话；
  * - 下单：订单带下车地址，订单页「行程」有下车地点。
  * 320 / 360 / 390 宽不横向滚动，亮暗两色 axe；电脑 1280、手机 390 亮暗各存一张截图。
+ * 用官网付款那组 API 和前端（信任一层代理），浏览器带一个本用例的文档专用来源地址：官网按来源地址限速，
+ * 不能占主 API 那些用例在 127.0.0.1 上的额度（不然并行的官网用例会被「操作太频繁」挡住）。订单页的 Stripe.js 换成假 Stripe。
  */
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
+import { E2E_WEB_STRIPE_PORT } from "../playwright.config.ts";
 import { tomorrowInTokyo } from "./book-new-support.ts";
 import { type Ref, createBrand, createProductByApi, createWorld, expectAccessible, post, tenantHeaders } from "./catalog.ts";
+import { routeStripe } from "./fake-stripe.ts";
 import { createActiveTenant, platformAdminHeaders, randomLetters } from "./support.ts";
+
+const SITE = `http://127.0.0.1:${E2E_WEB_STRIPE_PORT}`;
 
 const RULES = {
   booking: { sale_from: null, sale_to: null, service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 0, note: null },
@@ -131,6 +137,10 @@ test("新预订页包车：下车地点必填（旧链接只有上车地点时�
   test.setTimeout(180_000);
   const trip = await charterWorld(request);
   const date = tomorrowInTokyo();
+  await page.setExtraHTTPHeaders({ "x-forwarded-for": `192.0.2.${1 + Math.floor(Math.random() * 250)}` });
+  const fakeStripe = process.env["E2E_FAKE_STRIPE_URL"];
+  if (!fakeStripe) throw new Error("global-setup 没有启动假 Stripe");
+  await routeStripe(page, fakeStripe);
   const charterQuotes: Record<string, unknown>[] = [];
   page.on("request", (sent) => {
     if (sent.method() === "POST" && new URL(sent.url()).pathname === "/site/v1/quotes") charterQuotes.push(sent.postDataJSON() as Record<string, unknown>);
@@ -138,7 +148,7 @@ test("新预订页包车：下车地点必填（旧链接只有上车地点时�
 
   // 手机 390：旧包车链接只有上车地点
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(`/book/new?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&date=${date}&time=10:00`);
+  await page.goto(`${SITE}/book/new?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&date=${date}&time=10:00`);
   const pickup = page.getByRole("combobox", { name: "上车地点" });
   const dropoff = page.getByRole("combobox", { name: "下车地点" });
   await expect(pickup).toHaveValue("上车酒店");
@@ -178,13 +188,13 @@ test("新预订页包车：下车地点必填（旧链接只有上车地点时�
 
   // 电脑 1280：下车地点在商品区域里 → 77,000，不写含区域加价
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto(`/book/new?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.nearby, "市内下车点")}&date=${date}&time=10:00`);
+  await page.goto(`${SITE}/book/new?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.nearby, "市内下车点")}&date=${date}&time=10:00`);
   const plain = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: trip.groupName }) });
   await expect(plain).toContainText("77,000 JPY");
   await expect(page.locator("main")).not.toContainText("含区域加价");
 
   // 下车地点不在任何区域：转人工的说法 + 客服电话
-  await page.goto(`/book/new?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.nowhere, "很远的地方")}&date=${date}&time=10:00`);
+  await page.goto(`${SITE}/book/new?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.nowhere, "很远的地方")}&date=${date}&time=10:00`);
   await expect(page.getByRole("heading", { name: "没有可预订的车" })).toBeVisible();
   await expect(page.locator(".book-new__rejected")).toContainText(MANUAL);
   await expect(page.getByRole("link", { name: SUPPORT_PHONE })).toHaveAttribute("href", "tel:+81300000000");
@@ -192,7 +202,7 @@ test("新预订页包车：下车地点必填（旧链接只有上车地点时�
   await expectBothThemes(page, "新预订页包车电脑（转人工）");
 
   // 加价区域的下车地点（链接带 to）→ 选车 → 右侧栏车费下面含区域加价 → 下单
-  await page.goto(`/book/new?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.station.location, trip.station.name)}&date=${date}&time=10:00`);
+  await page.goto(`${SITE}/book/new?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.station.location, trip.station.name)}&date=${date}&time=10:00`);
   const surcharged = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: trip.groupName }) });
   await expect(surcharged).toContainText("78,100 JPY");
   await surcharged.getByRole("button", { name: `选择 ${trip.groupName}` }).click();
