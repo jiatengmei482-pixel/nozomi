@@ -22,6 +22,8 @@ export interface PasteRequest {
   kind: AreaPolygonKind;
   /** 替换哪一块（从坐标表的「粘贴坐标替换」进来）；不给就是添加 */
   replace?: { key: string; name: string };
+  /** 打开时文本框里已有的内容（区域地图拖进来、选进来的 .geojson 文件，M8-18） */
+  initialText?: string;
 }
 
 type Outcome = { ok: true; parsed: ParsedShapes } | { ok: false; message: string };
@@ -63,7 +65,7 @@ function describe(parsed: ParsedShapes, kind: AreaPolygonKind, replacing: boolea
 export function PasteDialog({ request, existingCount, onClose, onSubmit }: { request: PasteRequest; existingCount: number; onClose(): void; onSubmit(kind: AreaPolygonKind, parsed: ParsedShapes, replaceKey?: string): void }) {
   const id = useId();
   const [kind, setKind] = useState<AreaPolygonKind>(request.kind);
-  const [text, setText] = useState("");
+  const [text, setText] = useState(request.initialText ?? "");
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [attempted, setAttempted] = useState(false);

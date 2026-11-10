@@ -18,7 +18,7 @@ import { SelectField } from "../../components/FormFields.tsx";
 import { Icon } from "../../components/Icon.tsx";
 import { StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
-import { AREA_NEW_PATH, areaEditPath } from "../../lib/area-paths.ts";
+import { AREA_MAP_PATH, AREA_NEW_PATH, areaEditPath } from "../../lib/area-paths.ts";
 import { PRODUCT_LIST_PATH } from "../../lib/product-paths.ts";
 import { MASTER_STATUS_BADGES, displayName, formatLocalDateTime, otherNames } from "../../lib/master-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
@@ -246,7 +246,18 @@ export function AreaListPage() {
 
   return (
     <AppShell pageName="区域" trail={[{ label: "商品配置" }]}>
-      <Page title="区域" {...(canManage ? { action: newButton } : {})}>
+      <Page
+        title="区域"
+        action={
+          <span className="area-overview__actions">
+            <LinkButton to={AREA_MAP_PATH}>
+              <Icon name="map" />
+              在地图上看全部
+            </LinkButton>
+            {canManage && newButton}
+          </span>
+        }
+      >
         <FilterBar search={<SearchBox label="按名称搜索" value={q} onSearch={(value) => setParam({ q: value })} />} paramNames={["city", "biz", "status"]} active={filtered} onClear={clearFilters}>
           <Filters cities={cities.state.data} citiesState={cities.state.status} />
         </FilterBar>

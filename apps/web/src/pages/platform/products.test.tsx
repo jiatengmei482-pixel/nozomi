@@ -171,7 +171,7 @@ test("菜单和首页按权限：超级管理员有「商品」「报价试算�
       { status: "published", has_active_price: "false", limit: "1" },
     ],
   );
-  assert.deepEqual(menuLabels().slice(0, 5), ["首页", "供应商", "资质审核", "商品", "报价试算"]);
+  assert.deepEqual(menuLabels().slice(0, 6), ["首页", "供应商", "资质审核", "商品", "区域地图", "报价试算"]);
 
   // 一个都没有报不出价的：没有提醒行
   resetBrowser();
