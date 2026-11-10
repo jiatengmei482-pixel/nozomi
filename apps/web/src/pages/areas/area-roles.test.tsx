@@ -202,7 +202,7 @@ function fakeFactory(store: { events: SurfaceEvents | null }) {
 
 const ring = (area: Area) => (area.polygons[0]?.geometry.coordinates[0] ?? []).slice(0, -1);
 
-test("画布：运营区域虚线很淡、报价区域实线；超出运营区域的部分画警告色斜线；图例写明；未覆盖需求的点圆 / 方两种，点了显示类型、原因、次数", async () => {
+test("画布：运营区域虚线很淡、报价区域实线；超出运营区域的部分画警告色斜线；图例写明；未覆盖需求的点圆 / 方两种，点了显示类型、用车时间、最近出现、原因、次数", async () => {
   const store: { events: SurfaceEvents | null } = { events: null };
   const areas: OverviewArea[] = [
     { id: OPERATING_ID, name: "东京西部", slot: 0, active: true, role: "operating", polygons: [{ id: "p1", kind: "operate", ring: ring(operating) }] },
@@ -230,6 +230,8 @@ test("画布：运营区域虚线很淡、报价区域实线；超出运营区�
   store.events?.onClick({ lat: 35.7, lng: 139.75 });
   const popup = await screen.findByRole("region", { name: "未覆盖需求" });
   assert.match(popup.textContent ?? "", /点对点/);
+  assert.match(popup.textContent ?? "", /用车时间2026-12-01 09:00（当地）/);
+  assert.match(popup.textContent ?? "", /最近出现2026-11-10 \d{2}:\d{2}/);
   assert.match(popup.textContent ?? "", /上车点/);
   assert.match(popup.textContent ?? "", /在运营区域里，但没有报价区域/);
   assert.match(popup.textContent ?? "", /6 次/);
@@ -255,7 +257,7 @@ test("运营后台区域地图：有 demand.read 才有「显示未覆盖需求�
         fail = false;
         return Promise.reject(new TypeError("fetch failed"));
       }
-      return json(200, { from: "2026-10-12", to: "2026-11-10", items: [{ id: "d1", category: "charter", reason: "OUTSIDE_OPERATING", repeat_count: 1, pickup: { lat: 35.7, lng: 139.7 }, dropoff: null }], truncated: false });
+      return json(200, { from: "2026-10-12", to: "2026-11-10", items: [{ id: "d1", category: "charter", reason: "OUTSIDE_OPERATING", repeat_count: 1, pickup: { lat: 35.7, lng: 139.7 }, dropoff: null, service_local: "2026-11-20T09:30", last_seen_at: "2026-11-09T02:30:00.000Z" }], truncated: false });
     }
     return null;
   });

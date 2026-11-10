@@ -10,7 +10,8 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { MapTiles } from "../../api/areas.ts";
 import { Icon } from "../../components/Icon.tsx";
 import { type LatLngBox, type LatLngPoint, type MapSurface, type Pixel, type SurfaceEvents, createLeafletSurface } from "../../lib/map-surface.ts";
-import { DEMAND_REASON_NAMES, type DemandMapPoint, demandDotRadius, pointText } from "../../lib/uncovered-demand-display.ts";
+import { formatLocalDateTime } from "../../lib/master-display.ts";
+import { DEMAND_REASON_NAMES, type DemandMapPoint, demandDotRadius, pointText, serviceLocalText } from "../../lib/uncovered-demand-display.ts";
 import { hatchLines, Swatch } from "./AreaMap.tsx";
 
 export interface OverviewArea {
@@ -295,6 +296,10 @@ export function AreaOverviewMap({ tiles, areas, selected, onSelect, overlaps, sh
           <dl className="demand-popup__facts">
             <dt>用车类型</dt>
             <dd>{PRODUCT_CATEGORY_NAMES[shownPopup.item.category]}</dd>
+            <dt>用车时间</dt>
+            <dd>{`${serviceLocalText(shownPopup.item.service_local)}（当地）`}</dd>
+            <dt>最近出现</dt>
+            <dd>{formatLocalDateTime(shownPopup.item.last_seen_at)}</dd>
             <dt>这一点</dt>
             <dd>{shownPopup.end === "pickup" ? "上车点" : "下车点"}</dd>
             <dt>原因</dt>
