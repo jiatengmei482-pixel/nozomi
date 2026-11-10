@@ -47,6 +47,8 @@ import { displayName } from "../../../lib/master-display.ts";
 import { CHARTER_OVERAGE_NOTE, addressEnds, defaultServiceDate, guestCancelPolicyText, guestLocalText, newIdempotencyKey, quotesByTotal, siteOrderUrl } from "../../../lib/site-display.ts";
 import { FIELD_HINTS, type OrderErrors, type OrderTrip, orderFailureOf, orderRequestOf, validateOrderForm } from "../../../lib/site-order-form.ts";
 import { useDocumentTitle } from "../../../lib/use-document-title.ts";
+import { MANUAL_QUOTE_CHARTER_HOURS, type ManualQuoteTripDraft } from "../../../lib/manual-quote-form.ts";
+import { ManualQuoteBlock } from "../ManualQuote.tsx";
 import { SiteLayout, siteFailureText, useSiteConfig } from "../SiteLayout.tsx";
 import { SitePrice } from "../SitePrice.tsx";
 import { AddonsBlock, type ContactForm, ContactSection, PayBlock, PriceBlock, type PricedState, RouteBlock, emptyContact } from "./CheckoutParts.tsx";
@@ -506,6 +508,21 @@ export function BookNewPage() {
   }, [step]);
 
   const supportPhone = config.kind === "ready" ? config.config.support_phone : null;
+  const supportWhatsapp = config.kind === "ready" ? config.config.support_whatsapp : null;
+  // 报不出价时「请客服人工报价」带上的行程（M8-21）：用车类型按识别结果，认不出时看两端有没有机场
+  const manualTrip: ManualQuoteTripDraft = {
+    category: draft.mode === "charter" ? "charter" : tripType === "point_to_point" ? "point_to_point" : tripType !== null || draft.from?.kind === "airport" || draft.to?.kind === "airport" ? "airport_transfer" : "point_to_point",
+    cityId: draft.mode === "charter" ? (charterCity?.id ?? null) : outcome?.mode === "transfer" ? (outcome.result.city?.id ?? null) : null,
+    pickup: draft.from === null ? null : { name: draft.from.name, lat: draft.from.lat, lng: draft.from.lng },
+    dropoff: draft.to === null ? null : { name: draft.to.name, lat: draft.to.lat, lng: draft.to.lng },
+    serviceLocal: /^\d{4}-\d{2}-\d{2}$/.test(draft.date) && /^\d{2}:\d{2}$/.test(draft.time) ? `${draft.date}T${draft.time}` : null,
+    passengers: draft.passengers,
+    luggage: draft.luggage,
+    packageHours: draft.mode === "charter" && /^\d+$/.test(draft.packageHours) ? Number(draft.packageHours) : null,
+  };
+  const manualKey = JSON.stringify(manualTrip);
+  /** 包车报不出价（上车地点不在任何能订包车的城市、或城市没有套餐）：时长用通用的几档，给人工报价用 */
+  const charterNoOnline = draft.mode === "charter" && draft.from !== null && (charterCity === null || (packageLoad?.kind === "ready" && packageLoad.items.length === 0));
 
   let body;
   if (config.kind === "loading" || (open && cities.kind === "loading")) {
@@ -592,12 +609,27 @@ export function BookNewPage() {
             <SupportPhone phone={supportPhone} />
           </div>
         )}
+        {draft.mode === "charter" && charterCity !== null && packageLoad?.kind === "ready" && packageLoad.items.length === 0 && (
+          <div className="book-new__notice" role="status">
+            <p>这个城市的包车还没有可以在线预订的套餐，请联系客服</p>
+            <SupportPhone phone={supportPhone} />
+          </div>
+        )}
+        {charterNoOnline && (
+          <SelectField
+            label="包车时长"
+            placeholder="请选择大概的时长"
+            value={draft.packageHours}
+            options={MANUAL_QUOTE_CHARTER_HOURS.map((hours) => ({ value: String(hours), label: `${hours} 小时` }))}
+            hint="没有在线报价时，选一个大概的时长，客服报价时会和您确认"
+            onChange={(packageHours) => update({ packageHours })}
+          />
+        )}
         {draft.mode === "charter" &&
           charterCity !== null &&
+          !charterNoOnline &&
           (packageLoad?.kind === "failed" ? (
             <StateBlock headingLevel="h3" title="包车时长没有读出来" description={packageLoad.message} action={<Button size="lg" onClick={() => setPackages(null)}>重试</Button>} />
-          ) : packageLoad?.kind === "ready" && packageLoad.items.length === 0 ? (
-            <StateBlock headingLevel="h3" tone="neutral" title="暂时没有可选的包车时长" description="这个城市的包车还没有可以预订的套餐，请联系客服。" />
           ) : (
             <SelectField
               label="包车时长"
@@ -624,6 +656,7 @@ export function BookNewPage() {
           <TravellersField passengers={draft.passengers} luggage={draft.luggage} onChange={(value) => update(value)} />
           {arrival && flightField}
         </div>
+        {charterNoOnline && <ManualQuoteBlock key={manualKey} trip={manualTrip} supportWhatsapp={supportWhatsapp} />}
         {!wide && (
           <div className="site-actions">
             <Button variant="primary" size="lg" block onClick={showVehicles}>
@@ -648,6 +681,14 @@ export function BookNewPage() {
           action={current.scope ? <SupportPhone phone={supportPhone} /> : <Button size="lg" onClick={() => setQuoteRound((value) => value + 1)}>重试</Button>}
         />
       );
+      if (current.scope) {
+        vehicles = (
+          <>
+            {vehicles}
+            <ManualQuoteBlock key={manualKey} trip={manualTrip} supportWhatsapp={supportWhatsapp} />
+          </>
+        );
+      }
     } else if (quotes.length === 0) {
       const { texts, support } = rejectionTexts((outcome?.result.unavailable ?? []).flatMap((entry) => entry.reasons));
       vehicles = (
@@ -660,6 +701,12 @@ export function BookNewPage() {
           </ul>
           {support && <SupportPhone phone={supportPhone} />}
         </div>
+      );
+      vehicles = (
+        <>
+          {vehicles}
+          <ManualQuoteBlock key={manualKey} trip={manualTrip} supportWhatsapp={supportWhatsapp} />
+        </>
       );
     } else {
       const expires = quotes.map((entry) => entry.expires_at).sort()[0] ?? null;

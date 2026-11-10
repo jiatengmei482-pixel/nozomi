@@ -1,4 +1,4 @@
-/** 运营后台「供应商」「资质审核」「商品」「区域地图」「报价试算」「未覆盖需求」「渠道」「待审核」「订单」「异常队列」「工单」「救援」「取消政策」「赔付表」「财务结算」「推送记录」「通知中心」「系统设置」（含角色）和「账号安全」的路由（地址见 lib/platform-paths.ts、lib/channel-display.ts）。 */
+/** 运营后台「供应商」「资质审核」「商品」「区域地图」「报价试算」「未覆盖需求」「渠道」「待审核」「订单」「异常队列」「工单」「人工报价」「救援」「取消政策」「赔付表」「财务结算」「推送记录」「通知中心」「系统设置」（含角色、官网设置）和「账号安全」的路由（地址见 lib/platform-paths.ts、lib/channel-display.ts）。 */
 import { Route } from "react-router";
 import { PLATFORM_AREA_MAP_PATH } from "../../lib/area-paths.ts";
 import { AreaOverviewPage } from "../areas/AreaOverviewPage.tsx";
@@ -31,6 +31,9 @@ import { TicketDetailPage } from "./TicketDetailPage.tsx";
 import { CompensationTablePage } from "./CompensationTablePage.tsx";
 import { BankFileDetailPage, PayoutAccountQueuePage } from "./BankFilePages.tsx";
 import { BANK_FILES_PAGE, PLATFORM_PAYOUT_ACCOUNTS_PAGE } from "../../lib/bank-file-display.ts";
+import { MANUAL_QUOTES_PAGE, SITE_SETTINGS_PAGE } from "../../lib/manual-quote-display.ts";
+import { ManualQuoteDetailPage, ManualQuoteListPage } from "./ManualQuotePages.tsx";
+import { SiteSettingsPage } from "./SiteSettingsPage.tsx";
 import { PayoutBatchDetailPage, PayoutBatchListPage, StatementDetailPage, StatementListPage } from "./FinancePages.tsx";
 
 export function platformRoutes() {
@@ -71,6 +74,9 @@ export function platformRoutes() {
       <Route path={PLATFORM_TICKETS_PAGE} element={<TicketListPage />} />
       <Route path={PLATFORM_TICKET_NEW_PATH} element={<TicketNewPage />} />
       <Route path={`${PLATFORM_TICKETS_PAGE}/:id`} element={<TicketDetailPage />} />
+      <Route path={MANUAL_QUOTES_PAGE} element={<ManualQuoteListPage />} />
+      <Route path={`${MANUAL_QUOTES_PAGE}/:id`} element={<ManualQuoteDetailPage />} />
+      <Route path={SITE_SETTINGS_PAGE} element={<SiteSettingsPage />} />
       <Route path={COMPENSATION_TABLE_PAGE} element={<CompensationTablePage />} />
       <Route path={STATEMENTS_PAGE} element={<StatementListPage />} />
       <Route path={`${STATEMENTS_PAGE}/:id`} element={<StatementDetailPage />} />

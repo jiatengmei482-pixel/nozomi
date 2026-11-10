@@ -163,6 +163,14 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
       ["GET", "/platform/v1/notifications"],
       ["GET", "/platform/v1/notification-templates"],
       ["POST", `/platform/v1/notifications/${ids.userId}/retry`],
+      // 人工报价申请、官网设置（M8-21，ADR 0076）
+      ["GET", "/platform/v1/manual-quote-requests"],
+      ["GET", "/platform/v1/manual-quote-requests/assignees"],
+      ["GET", `/platform/v1/manual-quote-requests/${ids.userId}`],
+      ["PATCH", `/platform/v1/manual-quote-requests/${ids.userId}`, { status: "closed" }],
+      ["POST", `/platform/v1/manual-quote-requests/${ids.userId}/notes`, { note: "不该生效" }],
+      ["GET", "/platform/v1/site-settings"],
+      ["PUT", "/platform/v1/site-settings", { support_whatsapp: "+81 3 1234 5678" }],
       // 运营后台填写的第三方密钥（M4-09，ADR 0041）
       ["GET", "/platform/v1/integration-secrets"],
       ["PUT", `/platform/v1/integration-secrets/${ids.integration ?? "google-maps"}`, { api_key: "AIzaBypassBypassBypassBypass0001" }],

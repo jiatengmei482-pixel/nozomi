@@ -65,6 +65,8 @@ export function navEntries(portal: Portal, home: string, role: string | null, pl
   // 订单中心（M4-03）：异常队列和看订单是同一个操作；工单单独一格（`ticket.read`）
   if (portal === "platform" && platformCan("order.read")) entries.push({ to: "/platform/exceptions", label: "异常队列", icon: "alert-triangle", prefix: true });
   if (portal === "platform" && platformCan("ticket.read")) entries.push({ to: "/platform/tickets", label: "工单", icon: "message", prefix: true });
+  // 人工报价（M8-21）：官网报不出价时客人留下的联系方式，客服跟进
+  if (portal === "platform" && platformCan("manual_quote.read")) entries.push({ to: "/platform/manual-quotes", label: "人工报价", icon: "message", prefix: true });
   // 救援改派（M3-04）：看得到订单的就看得到救援队列；发起、发救援单要 rescue.manage（页面上按权限给按钮）
   if (portal === "platform" && platformCan("order.read")) entries.push({ to: "/platform/rescues", label: "救援", icon: "check-circle", prefix: true });
   // 取消政策（M3-03）、赔付表（M4-03）：菜单的显示条件和页面的查看条件一致（能看页面就有入口，M4-10）——都是「看主数据」（`master_data.read`）
@@ -109,6 +111,7 @@ export function navEntries(portal: Portal, home: string, role: string | null, pl
       ...(platformCan("role.read") ? [{ to: "/platform/settings/roles", label: "角色", prefix: true }] : []),
       ...(platformCan("audit_log.read") ? [{ to: "/platform/settings/audit-logs", label: "审计日志", prefix: true }] : []),
       ...(platformCan("integration.read") ? [{ to: "/platform/settings/integrations", label: "系统状态", prefix: true }] : []),
+      ...(platformCan("site_settings.read") ? [{ to: "/platform/settings/site", label: "官网设置", prefix: true }] : []),
     ];
     if (children.length > 0) entries.push({ key: "settings", label: "系统设置", icon: "settings", children, collapsedByDefault: true });
   }

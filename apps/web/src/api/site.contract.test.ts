@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 import { API_PATH_PREFIXES } from "../lib/api-prefixes.ts";
 import { UNAVAILABLE_REASON_TEXT } from "../lib/site-display.ts";
-import { SITE_BASE, SITE_ROUTE_MAP_LIMITS, siteRouteMapUrl, SITE_FX_REFERENCE_FIELDS, SITE_BY_POINTS_REQUEST_FIELDS, SITE_BY_POINTS_RESULT_FIELDS, SITE_ORDER_FIELDS, SITE_ORDER_REQUEST_FIELDS, SITE_ORDER_VEHICLE_GROUP_FIELDS, SITE_QUOTE_REQUEST_FIELDS, SITE_SCHEMA_FIELDS, SITE_TRIP_END_FIELDS } from "./site.ts";
+import { SITE_BASE, SITE_ROUTE_MAP_LIMITS, siteRouteMapUrl, SITE_FX_REFERENCE_FIELDS, SITE_BY_POINTS_REQUEST_FIELDS, SITE_BY_POINTS_RESULT_FIELDS, SITE_ORDER_FIELDS, SITE_ORDER_REQUEST_FIELDS, SITE_ORDER_VEHICLE_GROUP_FIELDS, SITE_QUOTE_REQUEST_FIELDS, SITE_SCHEMA_FIELDS, SITE_TRIP_END_FIELDS, SITE_MANUAL_QUOTE_PATH, SITE_MANUAL_QUOTE_REQUEST_FIELDS, SITE_MANUAL_QUOTE_TRIP_FIELDS } from "./site.ts";
 
 interface Schema {
   $ref?: string;
@@ -42,6 +42,7 @@ test("前端用到的官网接口都在 openapi.yaml 里；订单页的接口要
     ["get", `${SITE_BASE}/route-map`],
     ["post", `${SITE_BASE}/orders`],
     ["post", `${SITE_BASE}/orders/lookup`],
+    ["post", SITE_MANUAL_QUOTE_PATH],
   ];
   const guarded: [string, string][] = [
     ["get", `${SITE_BASE}/order`],
@@ -178,4 +179,14 @@ test("路线小地图（M8-10）：前端发的查询参数正好是接口定义
   const error = schemas["RouteMapUnavailable"]?.properties?.["error"];
   assert.deepEqual(error?.properties?.["code"]?.enum, ["ROUTE_MAP_UNAVAILABLE"]);
   assert.deepEqual(error?.properties?.["details"]?.properties?.["reason"]?.enum, ["NOT_ENABLED", "UNAVAILABLE"], "页面只认 NOT_ENABLED（退回底图），其余只写字");
+});
+
+test("人工报价申请（M8-21）：请求体和行程的字段与 openapi.yaml 一致；只收邮箱、WhatsApp 两项联系方式；应答一律 202", () => {
+  const operation = spec.paths[SITE_MANUAL_QUOTE_PATH]?.["post"] as unknown as { requestBody: { content: Record<string, { schema: Schema }> }; responses: Record<string, unknown> };
+  const body = operation.requestBody.content["application/json"]?.schema;
+  assert.deepEqual(props(body), sorted(SITE_MANUAL_QUOTE_REQUEST_FIELDS));
+  assert.deepEqual(props(schemas["ManualQuoteTripInput"]), sorted(SITE_MANUAL_QUOTE_TRIP_FIELDS));
+  assert.deepEqual(props(body).filter((key) => /name|phone|note/i.test(key)), [], "不收姓名、电话、备注");
+  assert.ok(operation.responses["202"]);
+  assert.equal(operation.responses["200"], undefined);
 });

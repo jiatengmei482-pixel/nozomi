@@ -55,6 +55,9 @@ export const AUDIT_RESOURCES = [
   "bank_file",
   "notification",
   "notification_settings",
+  // 人工报价申请、官网设置（M8-21，ADR 0076）
+  "manual_quote_request",
+  "site_settings",
 ] as const;
 
 export type AuditResource = (typeof AUDIT_RESOURCES)[number];

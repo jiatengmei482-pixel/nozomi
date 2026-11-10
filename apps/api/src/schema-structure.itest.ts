@@ -23,7 +23,8 @@ import { type TestDatabase, createMigratedTestDatabase } from "./testing/db.ts";
  * 以及平台统一取消政策（ADR 0029：全平台一份，租户只读）、改期的对外价、退款（ADR 0029：客人那边的金额，租户碰不到），
  * 以及救援、救援单的平台一侧（ADR 0031：涉及几家供应商、有对外价和加价比例，租户碰不到），
  * 以及赔付表、异常队列、工单的内部备注和客人那边的赔付金额（ADR 0034：全平台一份 / 跨供应商 / 租户碰不到），
- * 以及付款批次（ADR 0040：一个批次里有几家供应商的账单）、运营后台填写的第三方密钥（ADR 0041：密文，租户碰不到）。新增平台表时加到这里。
+ * 以及付款批次（ADR 0040：一个批次里有几家供应商的账单）、运营后台填写的第三方密钥（ADR 0041：密文，租户碰不到），
+ * 以及人工报价申请、跟进记录和官网设置（ADR 0076：客人的联系方式，只给平台的客服、运营）。新增平台表时加到这里。
  */
 const PLATFORM_TABLES = [
   "addons",
@@ -42,6 +43,8 @@ const PLATFORM_TABLES = [
   "holidays",
   "integration_secrets",
   "login_throttles",
+  "manual_quote_request_events",
+  "manual_quote_requests",
   "markup_rules",
   "order_change_sales",
   "order_exceptions",
@@ -68,6 +71,7 @@ const PLATFORM_TABLES = [
   "schema_migrations",
   "site_lookup_failures",
   "site_order_links",
+  "site_settings",
   "static_map_api_usage",
   "static_map_images",
   "tenant_roles",
@@ -305,6 +309,11 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     view_link_requests: ["INSERT", "SELECT", "UPDATE"],
     // 运营代改乘客邮箱的复核（ADR 0065）：一次一行；审核有结论时改状态、清掉两个地址
     passenger_email_changes: ["INSERT", "SELECT", "UPDATE"],
+    // 人工报价申请（ADR 0076）：客人提交一行；客服改状态、指派；清除任务清空密文（不删行）。跟进记录只追加，清除时清空备注的密文
+    manual_quote_requests: ["INSERT", "SELECT", "UPDATE"],
+    manual_quote_request_events: ["INSERT", "SELECT", "UPDATE"],
+    // 官网设置（ADR 0076）：全站一行，第一次保存时写入
+    site_settings: ["INSERT", "SELECT", "UPDATE"],
     // 供应商入驻（ADR 0028）：合同版本、状态记录、履约事件、提醒只追加；资质只改审核结论；每日评分同一天重算时覆盖；企业信息只读；文件只追加
     tenant_contracts: ["INSERT", "SELECT"],
     tenant_documents: ["SELECT", "UPDATE"],

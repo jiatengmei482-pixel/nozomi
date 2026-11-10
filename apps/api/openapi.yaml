@@ -138,6 +138,10 @@ tags:
     description: 订单中心（ADR 0034）：异常队列（系统按触发条件生成，运营认领、关闭）、客人赔付表（可配置，双人复核）
   - name: 工单
     description: 工单（ADR 0034）：客人、渠道、供应商、客服、系统发起；分派、对话和内部备注、征求租户意见、判定（赔付按统一赔付表算）、复核、申诉、关闭
+  - name: 人工报价
+    description: 人工报价申请（M8-21，ADR 0076）：官网一家都报不出价时客人留下邮箱或 WhatsApp，客服在运营后台跟进（指派、改状态、备注）；联系方式加密保存，到期清除
+  - name: 官网设置
+    description: 官网设置（M8-21，ADR 0076）：客服 WhatsApp 号码，官网公开配置里给出
 paths:
   /health:
     get:
@@ -15363,6 +15367,362 @@ paths:
           $ref: "#/components/responses/TicketConflict"
         "429":
           $ref: "#/components/responses/RateLimited"
+  # ---- 人工报价申请、官网设置（M8-21，ADR 0076） ----
+  /site/v1/manual-quote-requests:
+    post:
+      tags: [ 人工报价 ]
+      operationId: submitSiteManualQuoteRequest
+      summary: 客人留下邮箱或 WhatsApp，请客服人工报价
+      description: |
+        官网一家都报不出价时（ADR 0076）。只收两项联系方式：邮箱、WhatsApp（国际格式，以 + 开头），至少一项；不收姓名。
+        行程由页面自动带上（客人不用再填）：用车类型、城市（认得出时）、上车和下车地点（名称、坐标）、用车时间（当地）、人数、行李、包车时长。
+        `consent` 必须是 true：页面在提交按钮旁写明「提交即同意客服通过您留下的方式联系您」。
+        联系方式和两端地点加密保存（ADR 0057 的方案），结束（已转订单、关闭）180 天后、最晚提交 365 天后清除。不发任何邮件。
+        **应答一律 202**：同一个联系方式、同一个行程 24 小时内重复提交只记一次；陷阱字段 `website` 有内容时什么都不记，应答一样。
+        限速（被前面拦下的不占后面的）：每个地址 15 分钟 3 次、每天 10 次（校验之前就计）；每个联系方式每天 3 次；全站每小时 300 次。超限 429。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ consent, trip ]
+              properties:
+                email:
+                  type: [ string, "null" ]
+                  maxLength: 400
+                  description: 邮箱（全角转半角、去首尾空白、不分大小写）。空字符串等于没填
+                whatsapp:
+                  type: [ string, "null" ]
+                  maxLength: 60
+                  description: WhatsApp 号码，以 + 开头的国际格式（可以有空格、连字符、括号、点），国家码不以 0 开头，共 8–15 位数字。空字符串等于没填
+                consent:
+                  type: boolean
+                  enum: [ true ]
+                  description: 同意客服通过留下的方式联系
+                trip:
+                  $ref: "#/components/schemas/ManualQuoteTripInput"
+                website:
+                  type: string
+                  maxLength: 400
+                  description: 陷阱字段：页面不显示、不要填
+      responses:
+        "202":
+          description: 已受理。不说明是不是重复提交
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ status ]
+                properties:
+                  status:
+                    type: string
+                    enum: [ accepted ]
+        "400":
+          description: "`VALIDATION_FAILED`：邮箱、WhatsApp 都没填（`/email` REQUIRED），格式不对（`/email`、`/whatsapp` FORMAT），没有同意（`/consent`），行程和用车类型对不上（`/trip/dropoff` REQUIRED、`/trip/package_hours` REQUIRED 或 NOT_APPLICABLE、`/trip/service_local` INVALID），城市不存在（`/trip/city_id` NOT_FOUND）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          description: "`SITE_NOT_OPEN`：官网暂未开放；`PASSENGER_ENCRYPTION_NOT_CONFIGURED`：服务器没配置数据加密密钥，不能保存联系方式"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/manual-quote-requests:
+    get:
+      tags: [ 人工报价 ]
+      operationId: listManualQuoteRequests
+      summary: 人工报价申请列表（客服跟进）
+      description: |
+        需要操作 `manual_quote.read`（超级管理员、运营、客服）。从新到旧。**没有个人信息**：只有有没有邮箱 / WhatsApp，联系方式和地点要打开详情看（留审计）。
+        `counts` 是各状态的数量（范围内，不受其他筛选影响）。限定了数据范围的员工（ADR 0030）只看得到城市、渠道在范围内的申请；限定了城市时，认不出城市的申请看不到。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/ManualQuoteStatus"
+        - name: assignee
+          in: query
+          description: "`me`：指给我的；`unassigned`：还没人跟进的；或某位同事的编号"
+          schema:
+            type: string
+        - name: contact
+          in: query
+          description: 按联系方式精确查找：完整的邮箱，或带国家码的 WhatsApp 号码（+ 可有可无）。用盲索引比，不解密
+          schema:
+            type: string
+            maxLength: 400
+      responses:
+        "200":
+          description: 一页申请
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items, next_cursor, counts ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ManualQuoteRequestSummary"
+                  next_cursor:
+                    type: [ string, "null" ]
+                  counts:
+                    type: object
+                    additionalProperties: false
+                    required: [ new, following, quoted, converted, closed ]
+                    properties:
+                      new: { type: integer }
+                      following: { type: integer }
+                      quoted: { type: integer }
+                      converted: { type: integer }
+                      closed: { type: integer }
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "503":
+          $ref: "#/components/responses/PassengerEncryptionUnavailable"
+  /platform/v1/manual-quote-requests/assignees:
+    get:
+      tags: [ 人工报价 ]
+      operationId: listManualQuoteAssignees
+      summary: 能被指派跟进的同事
+      description: 需要操作 `manual_quote.manage`。在用的账号、角色有 `manual_quote.read` 的同事，按姓名排序。指派时还会按那一条申请核对对方的数据范围。
+      security:
+        - platformToken: []
+      responses:
+        "200":
+          description: 同事名单
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ManualQuotePerson"
+  /platform/v1/manual-quote-requests/{id}:
+    get:
+      tags: [ 人工报价 ]
+      operationId: getManualQuoteRequest
+      summary: 一条人工报价申请（含联系方式、地点、跟进记录）
+      description: 需要操作 `manual_quote.read`。解密联系方式、两端地点和备注，**每次打开写一条审计**（`view_passenger`，只记申请编号）；已清除的不再有这些内容，也不记审计。数据范围外的和不存在一样（404）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 申请、客人留下的内容（已清除时 `contact`、`pickup`、`dropoff` 为 null）和跟进记录（从早到晚）
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ request, contact, pickup, dropoff, events ]
+                properties:
+                  request:
+                    $ref: "#/components/schemas/ManualQuoteRequestSummary"
+                  contact:
+                    oneOf:
+                      - type: object
+                        additionalProperties: false
+                        required: [ email, whatsapp ]
+                        properties:
+                          email:
+                            type: [ string, "null" ]
+                          whatsapp:
+                            type: [ string, "null" ]
+                            description: 以 + 开头的纯数字，如 +819012345678
+                      - type: "null"
+                  pickup:
+                    oneOf:
+                      - $ref: "#/components/schemas/ManualQuotePlace"
+                      - type: "null"
+                  dropoff:
+                    oneOf:
+                      - $ref: "#/components/schemas/ManualQuotePlace"
+                      - type: "null"
+                  events:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ManualQuoteEvent"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "503":
+          $ref: "#/components/responses/PassengerEncryptionUnavailable"
+    patch:
+      tags: [ 人工报价 ]
+      operationId: updateManualQuoteRequest
+      summary: 改状态、指派跟进人
+      description: |
+        需要操作 `manual_quote.manage`（超级管理员、运营、客服），带 `If-Match`（版本号）。每改一项写一条跟进记录和一条审计（`change` / `assign`，只有状态和跟进人编号）。
+        状态可以改成任何别的状态（关闭后也能重新跟进），不能改回 `new`；进入 `converted`、`closed` 时开始算 180 天保留期，改回别的状态时停止。
+        跟进人要在用、有 `manual_quote.read`、数据范围包含这一条；`null` 是取消指派。什么都没变时原样返回、不写记录。已清除的不能再改（409 `MANUAL_QUOTE_PURGED`）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                status:
+                  $ref: "#/components/schemas/ManualQuoteStatus"
+                assignee_id:
+                  type: [ string, "null" ]
+                  format: uuid
+      responses:
+        "200":
+          description: 改后的申请（没有个人信息）
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ request ]
+                properties:
+                  request:
+                    $ref: "#/components/schemas/ManualQuoteRequestSummary"
+        "400":
+          description: "`VALIDATION_FAILED`：跟进人不能跟进这一条（`/assignee_id` NOT_ELIGIBLE）、字段格式不对"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`VERSION_CONFLICT`：版本对不上；`MANUAL_QUOTE_STATUS_INVALID`：不能改回「新」；`MANUAL_QUOTE_PURGED`：已过保留期"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+  /platform/v1/manual-quote-requests/{id}/notes:
+    post:
+      tags: [ 人工报价 ]
+      operationId: addManualQuoteNote
+      summary: 写一条跟进备注
+      description: 需要操作 `manual_quote.manage`。备注最多 2000 字，加密保存，保留期到了和联系方式一起清除。写审计（`note`，只有备注编号和字数，不含内容）。不改版本号。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ note ]
+              properties:
+                note:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+      responses:
+        "201":
+          description: 新写的这条备注
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ event ]
+                properties:
+                  event:
+                    $ref: "#/components/schemas/ManualQuoteEvent"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`MANUAL_QUOTE_PURGED`：已过保留期"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/PassengerEncryptionUnavailable"
+  /platform/v1/site-settings:
+    get:
+      tags: [ 官网设置 ]
+      operationId: getSiteSettings
+      summary: 官网设置（客服 WhatsApp 号码）
+      description: 需要操作 `site_settings.read`（超级管理员、运营、客服）。`version` 为 0 表示还没有设置过。
+      security:
+        - platformToken: []
+      responses:
+        "200":
+          description: 现在的设置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteSettings"
+    put:
+      tags: [ 官网设置 ]
+      operationId: updateSiteSettings
+      summary: 改官网设置（客服 WhatsApp 号码）
+      description: |
+        需要操作 `site_settings.manage`（只归超级管理员，自建角色勾不了：号码被换掉，客人就会把行程发给别人）。
+        号码写带国家码的格式（+ 可有可无，可以有空格、连字符、括号），存成 wa.me 要的纯数字；`null` 或空字符串是不设，官网不显示 WhatsApp 按钮。
+        已经设置过的要带 `If-Match`（版本号）。写审计（`site_settings` / `update`，前后的号码）。
+      security:
+        - platformToken: []
+      parameters:
+        - name: If-Match
+          in: header
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ support_whatsapp ]
+              properties:
+                support_whatsapp:
+                  type: [ string, "null" ]
+                  maxLength: 60
+      responses:
+        "200":
+          description: 保存后的设置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteSettings"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "409":
+          description: 版本对不上（`VERSION_CONFLICT`）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 webhooks:
   tenantOrderEvent:
     post:
@@ -18901,6 +19261,10 @@ components:
         - statement.review
         - notification.read
         - notification.retry
+        - manual_quote.read
+        - manual_quote.manage
+        - site_settings.read
+        - site_settings.manage
     TenantAction:
       type: string
       enum:
@@ -26934,7 +27298,7 @@ components:
     SiteConfig:
       type: object
       additionalProperties: false
-      required: [ open, currency, payments, support_phone, address_search, map_tiles ]
+      required: [ open, currency, payments, support_phone, support_whatsapp, address_search, map_tiles ]
       properties:
         open:
           type: boolean
@@ -26960,6 +27324,10 @@ components:
           type: [ string, "null" ]
           pattern: "^\\+[1-9][0-9 -]*[0-9]$"
           description: 订单页「需要帮助」里的客服电话（配置 SITE_SUPPORT_PHONE，原样显示）；没有登记时为 null，页面不显示客服区块。官网没开时也照常给出（已下单的客人仍要能联系客服）
+        support_whatsapp:
+          type: [ string, "null" ]
+          pattern: "^[1-9][0-9]{7,14}$"
+          description: 客服 WhatsApp 号码（M8-21，ADR 0076）：运营后台「系统设置 → 官网设置」填的，wa.me 用的纯数字；没设置时为 null，页面不显示「通过 WhatsApp 联系我们」。官网没开时也照常给出
         address_search:
           type: boolean
           description: |
@@ -30076,4 +30444,190 @@ components:
                 payout_status:
                   type: string
                   enum: [ none, pending, paid ]
+            - type: "null"
+    # ---- 人工报价申请、官网设置（M8-21，ADR 0076） ----
+    ManualQuoteStatus:
+      type: string
+      enum: [ new, following, quoted, converted, closed ]
+      description: 新 / 跟进中 / 已报价 / 已转订单 / 关闭
+    ManualQuotePlace:
+      type: object
+      additionalProperties: false
+      required: [ name, lat, lng ]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 300
+          description: 页面上的地点名称（单行）
+        lat:
+          type: number
+          minimum: -90
+          maximum: 90
+        lng:
+          type: number
+          minimum: -180
+          maximum: 180
+    ManualQuoteTripInput:
+      type: object
+      additionalProperties: false
+      required: [ category, pickup, service_local, passengers ]
+      description: 页面自动带上的行程。接送机、点对点要有 `dropoff`；包车要有 `package_hours`（1–72），`dropoff` 可以没有；别的类型不能带 `package_hours`
+      properties:
+        category:
+          $ref: "#/components/schemas/ServiceCategory"
+        city_id:
+          type: [ string, "null" ]
+          format: uuid
+          description: 页面当时的城市（认得出时）
+        pickup:
+          $ref: "#/components/schemas/ManualQuotePlace"
+        dropoff:
+          oneOf:
+            - $ref: "#/components/schemas/ManualQuotePlace"
+            - type: "null"
+        service_local:
+          type: string
+          pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$"
+          description: 用车时间（当地），真实存在的日期和时刻
+        passengers:
+          type: integer
+          minimum: 1
+          maximum: 60
+        luggage:
+          type: integer
+          minimum: 0
+          maximum: 60
+          default: 0
+        package_hours:
+          type: [ integer, "null" ]
+          minimum: 1
+          maximum: 72
+    ManualQuotePerson:
+      type: object
+      additionalProperties: false
+      required: [ id, name ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+    ManualQuoteRequestSummary:
+      type: object
+      additionalProperties: false
+      required: [ id, request_no, status, category, city, service_local, passengers, luggage, package_hours, has_email, has_whatsapp, assignee, version, created_at, updated_at, finished_at, purged_at ]
+      description: 一条申请，没有个人信息（联系方式、地点只在详情里）
+      properties:
+        id:
+          type: string
+          format: uuid
+        request_no:
+          type: string
+          pattern: "^MQ\\d{8}[0-9A-Z]{8}$"
+        status:
+          $ref: "#/components/schemas/ManualQuoteStatus"
+        category:
+          $ref: "#/components/schemas/ServiceCategory"
+        city:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [ id, code, name ]
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                code:
+                  type: string
+                name:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  description: 多语言名称
+            - type: "null"
+        service_local:
+          type: string
+          description: 用车时间（当地）YYYY-MM-DDTHH:mm
+        passengers:
+          type: integer
+        luggage:
+          type: integer
+        package_hours:
+          type: [ integer, "null" ]
+        has_email:
+          type: boolean
+        has_whatsapp:
+          type: boolean
+        assignee:
+          oneOf:
+            - $ref: "#/components/schemas/ManualQuotePerson"
+            - type: "null"
+        version:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: [ string, "null" ]
+          format: date-time
+          description: 进入「已转订单」「关闭」的时间；保留期从这时算
+        purged_at:
+          type: [ string, "null" ]
+          format: date-time
+          description: 过了保留期、联系方式和地点已清除的时间
+    ManualQuoteEvent:
+      type: object
+      additionalProperties: false
+      required: [ id, kind, from_status, to_status, assignee, note, actor, created_at ]
+      description: 一条跟进记录：客人提交（`created`，`actor` 为 null）、改状态、指派（`assignee` 为 null 是取消指派）、备注（清除后 `note` 为 null）
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [ created, status, assign, note ]
+        from_status:
+          oneOf:
+            - $ref: "#/components/schemas/ManualQuoteStatus"
+            - type: "null"
+        to_status:
+          oneOf:
+            - $ref: "#/components/schemas/ManualQuoteStatus"
+            - type: "null"
+        assignee:
+          oneOf:
+            - $ref: "#/components/schemas/ManualQuotePerson"
+            - type: "null"
+        note:
+          type: [ string, "null" ]
+        actor:
+          oneOf:
+            - $ref: "#/components/schemas/ManualQuotePerson"
+            - type: "null"
+        created_at:
+          type: string
+          format: date-time
+    SiteSettings:
+      type: object
+      additionalProperties: false
+      required: [ support_whatsapp, version, updated_at, updated_by ]
+      properties:
+        support_whatsapp:
+          type: [ string, "null" ]
+          pattern: "^[1-9][0-9]{7,14}$"
+          description: 客服 WhatsApp 号码，wa.me 用的纯数字（国家码 + 号码）；null 是没设置
+        version:
+          type: integer
+          description: 0 表示还没有设置过
+        updated_at:
+          type: [ string, "null" ]
+          format: date-time
+        updated_by:
+          oneOf:
+            - $ref: "#/components/schemas/ManualQuotePerson"
             - type: "null"

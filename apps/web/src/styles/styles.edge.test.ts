@@ -131,6 +131,7 @@ const PAYMENT_RETURN_STORE = "lib/payment-return.ts";
 const EXTERNAL_SCRIPT_REGISTRY = "lib/external-scripts.ts";
 const EXTERNAL_SCRIPT_LOADER = "lib/stripe-js.ts";
 const NEW_TAB_LINK_COMPONENT = "components/NewTabLink.tsx";
+const WHATSAPP_LINK_COMPONENT = "components/WhatsappLink.tsx";
 
 test("令牌不进 localStorage、不进 Cookie、不进网址：只有主题用 localStorage，登录状态只用 sessionStorage", () => {
   for (const { name, text: withComments } of sources) {
@@ -143,7 +144,7 @@ test("令牌不进 localStorage、不进 Cookie、不进网址：只有主题用
     assert.doesNotMatch(text, /[?&](token|access_token|password)=/, `${name} 把令牌或密码拼进了查询串`);
     assert.doesNotMatch(text, /window\.open\(/, `${name} 打开新窗口（会带出 opener / Referer）`);
     // 新标签页打开的链接只允许出现在专用的站外链接组件里
-    if (name !== EXTERNAL_LINK_COMPONENT && name !== NEW_TAB_LINK_COMPONENT) assert.doesNotMatch(text, /target="_blank"/, `${name} 打开新窗口（会带出 opener / Referer）`);
+    if (name !== EXTERNAL_LINK_COMPONENT && name !== NEW_TAB_LINK_COMPONENT && name !== WHATSAPP_LINK_COMPONENT) assert.doesNotMatch(text, /target="_blank"/, `${name} 打开新窗口（会带出 opener / Referer）`);
   }
 });
 
@@ -155,6 +156,16 @@ test("站内的新标签页链接组件：rel 写死 noopener，只给通过了�
   assert.match(text, /href=\{to\} target="_blank" rel="noopener"/);
   assert.doesNotMatch(text, /rel=\{/, "rel 不能由调用方传入");
   assert.match(text, /if \(!isInternalPath\(to\)\) return <span>/, "不是站内相对路径的不生成链接");
+});
+
+test("WhatsApp 链接组件（M8-21）：地址只由 domain 的 whatsappChatUrl 拼、号码先核对是纯数字，rel 写死 noopener noreferrer", () => {
+  const component = sources.find((source) => source.name === WHATSAPP_LINK_COMPONENT);
+  assert.ok(component, `找不到 ${WHATSAPP_LINK_COMPONENT}`);
+  const text = stripComments(component.text);
+  assert.equal((text.match(/target="_blank"/g) ?? []).length, 1);
+  assert.match(text, /href=\{whatsappChatUrl\(digits, text\)\} target="_blank" rel="noopener noreferrer"/);
+  assert.doesNotMatch(text, /rel=\{/, "rel 不能由调用方传入");
+  assert.match(text, /if \(!DIGITS\.test\(digits\)\) return <span>/, "不是纯数字的号码不生成链接");
 });
 
 test("区域草稿只用自己的键前缀：不读写登录状态的键，草稿里没有令牌", () => {

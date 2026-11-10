@@ -741,3 +741,73 @@
   font-size: var(--font-size-xs);
   overflow-wrap: anywhere;
 }
+
+/* ---------- 报不出价时：留下联系方式、人工报价（M8-21，site-booking-v2.md 第 11 节） ---------- */
+
+.manual-quote {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.manual-quote__title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+}
+
+.manual-quote__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-self: stretch;
+  min-width: 0;
+}
+
+.manual-quote__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+}
+
+.manual-quote__consent {
+  flex: 1 1 12em;
+  min-width: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.manual-quote__done {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+}
+
+.manual-quote__done > .icon {
+  flex: none;
+  margin-top: var(--space-0-5);
+  color: var(--color-success-text);
+}
+
+.manual-quote__whatsapp {
+  max-width: 100%;
+  white-space: normal;
+}
+
+/* 陷阱字段：人看不到、键盘到不了（不用 display: none——有的机器人会跳过隐藏的框） */
+.manual-quote__trap {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

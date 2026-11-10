@@ -27,7 +27,7 @@ const TOKEN = `nzo_${"A".repeat(43)}`;
 const NEW_TOKEN = `nzo_${"B".repeat(43)}`;
 const HOUR = 3_600_000;
 
-const openConfig: SiteConfig = { open: true, currency: "JPY", payments: null, support_phone: null, address_search: false, map_tiles: null };
+const openConfig: SiteConfig = { open: true, currency: "JPY", payments: null, support_phone: null, support_whatsapp: null, address_search: false, map_tiles: null };
 const city: SiteCity = { id: CITY_ID, code: "CTY-JP-TYO", name: { zh: "东京" }, timezone: "Asia/Tokyo", country_code: "JP", center: { lat: 35.6895, lng: 139.6917 }, categories: ["airport_transfer"] };
 const airport = { id: AIRPORT_ID, code: "NRT", name: { zh: "成田机场" }, location: { lng: 140.3887, lat: 35.7686 } };
 const tiers = [{ min_hours_before: 48, fee_bp: 0 }, { min_hours_before: 24, fee_bp: 5000 }, { min_hours_before: 0, fee_bp: 10000 }];
@@ -562,4 +562,34 @@ test("车型标识（M7-03）：订单页（查订单进来的也是它）的「
   assert.equal(factValue(bare, "同级车型"), null);
   assert.equal(factValue(bare, "最多乘客")?.textContent, "6 人");
   assert.equal([...bare.querySelectorAll("dd")].filter((node) => (node.textContent ?? "").trim() === "").length, 0, "没有空的项");
+});
+
+test("旧预订页报不出价（M8-21）：原因下面有「请客服人工报价」（邮箱、WhatsApp）；提交带上机场和地址两端的行程；没设置客服 WhatsApp 时不显示按钮", async () => {
+  const calls = open(
+    "/book",
+    bookingRoutes((call) => {
+      if (call.method === "POST" && call.url.pathname === "/site/v1/quotes") return json(200, { currency: "JPY", quotes: [], unavailable: [{ vehicle_group_id: null, reasons: ["OUT_OF_SERVICE_AREA"] }] });
+      if (call.method === "POST" && call.url.pathname === "/site/v1/manual-quote-requests") return json(202, { status: "accepted" });
+      return null;
+    }),
+  );
+  const actor = user();
+  await fillInquiry(actor);
+  await actor.click(screen.getByRole("button", { name: "查询价格" }));
+  const region = await screen.findByRole("region", { name: "请客服人工报价" });
+  assert.equal(screen.queryByRole("link", { name: /WhatsApp/ }), null);
+  await actor.type(within(region).getByLabelText("邮箱"), "guest@example.com");
+  await actor.click(within(region).getByRole("button", { name: "提交" }));
+  assert.ok(await screen.findByText(/已收到。/));
+  const body = calls.find((call) => call.path === "/site/v1/manual-quote-requests")?.body as { trip: Record<string, unknown> };
+  assert.deepEqual(body.trip, {
+    category: "airport_transfer",
+    city_id: CITY_ID,
+    pickup: { name: "成田机场（NRT）", lat: 35.7686, lng: 140.3887 },
+    dropoff: { name: "东京站八重洲口", lat: 35.6812, lng: 139.7671 },
+    service_local: "2030-11-20T10:00",
+    passengers: 2,
+    luggage: 1,
+    package_hours: null,
+  });
 });

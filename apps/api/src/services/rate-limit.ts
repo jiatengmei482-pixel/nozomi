@@ -4,7 +4,7 @@
  * 和登录限速（ADR 0008）同一种做法：固定时间窗、计数在数据库里（多实例也有效）、「先占用一次再判断」在一条 SQL 里原子完成，并发请求绕不过去。
  * 判断规则是 domain 的 `evaluateFixedWindow`。限流按渠道计（一个渠道的几个 API 客户端共用一个额度），令牌接口按来源地址计。
  */
-import { type ThrottleDecision, VIEW_LINK_REQUEST_LIMITS, VIEW_LINK_STAFF_LIMIT, evaluateFixedWindow } from "@nozomi/domain";
+import { MANUAL_QUOTE_LIMITS, type ThrottleDecision, VIEW_LINK_REQUEST_LIMITS, VIEW_LINK_STAFF_LIMIT, evaluateFixedWindow } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
 import { AppError } from "../errors.ts";
 
@@ -36,6 +36,14 @@ export const SALES_RATE_LIMITS = {
   site_route_map: { max: 30, windowMs: 60_000 },
   /** 同上，每个地址每天 200 次：一个人刷不光全站的每日上限 */
   site_route_map_day: { max: 200, windowMs: 86_400_000 },
+  /** 人工报价申请（M8-21，ADR 0076，见 domain 的 `MANUAL_QUOTE_LIMITS`）：每个地址 15 分钟 3 次 */
+  site_manual_quote: MANUAL_QUOTE_LIMITS.ip,
+  /** 同上，每个地址每天 10 次（生来就按 /64 计） */
+  site_manual_quote_day: MANUAL_QUOTE_LIMITS.ipDay,
+  /** 同上，每个联系方式（邮箱、WhatsApp 的盲索引）每天 3 次：换地址也不能对同一个人刷 */
+  site_manual_quote_contact: MANUAL_QUOTE_LIMITS.contactDay,
+  /** 同上，全站每小时 300 次：换地址、换联系方式刷库时的总闸 */
+  site_manual_quote_all: MANUAL_QUOTE_LIMITS.globalHour,
   /** 官网的其余接口（配置、城市、机场、订单页）：每个地址每分钟 120 次 */
   site_read: { max: 120, windowMs: 60_000 },
   /** 运营重发订单链接（ADR 0061）：同一张单每小时 5 次 */

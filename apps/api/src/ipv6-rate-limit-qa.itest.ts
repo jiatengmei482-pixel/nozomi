@@ -108,16 +108,18 @@ test("凭链接看订单、看工单（site / order-center 两处的 guest）和
 });
 
 test("ADR「窗口最长 15 分钟」属实：按来源地址的额度窗口都不超过 15 分钟（查订单按订单号、邮箱的四层和运营重发按订单的一层不按地址，不在此列，ADR 0061）", () => {
-  const perAddress = ["token", "site_quote", "site_order", "site_lookup", "site_read", "site_places", "site_autocomplete", "site_route_map"] as const;
+  const perAddress = ["token", "site_quote", "site_order", "site_lookup", "site_read", "site_places", "site_autocomplete", "site_route_map", "site_manual_quote"] as const;
   const longest = Math.max(...perAddress.map((scope) => SALES_RATE_LIMITS[scope].windowMs), LOGIN_THROTTLE_WINDOW_MS);
   assert.equal(longest, 15 * 60_000);
   // 官网地址搜索每个地址每天的额度（M3-12，ADR 0044）窗口是 24 小时，但它和 /64 的限流键同时上线（合并在 M4-11 之后），
   // 从来没有按旧算法写过计数，ADR 0045 说的「上线时 IPv6 计数从零开始」对它不适用
-  // 官网路线小地图每个地址每天的额度（M8-10，ADR 0072）同理：生来就按 /64 计
-  const bornWithSlash64 = ["site_places_day", "site_route_map_day"];
+  // 官网路线小地图每个地址每天的额度（M8-10，ADR 0072）同理：生来就按 /64 计；人工报价申请每个地址每天的额度（M8-21，ADR 0076）也是
+  const bornWithSlash64 = ["site_places_day", "site_route_map_day", "site_manual_quote_day"];
   assert.equal(SALES_RATE_LIMITS.site_places_day.windowMs, 24 * 3_600_000);
   assert.equal(SALES_RATE_LIMITS.site_route_map_day.windowMs, 24 * 3_600_000);
-  const notByAddress = ["quote", "other", "site_link_order_hour", "site_link_order_day", "site_link_email_hour", "site_link_email_day", "staff_view_link"];
+  assert.equal(SALES_RATE_LIMITS.site_manual_quote_day.windowMs, 24 * 3_600_000);
+  // 人工报价申请按联系方式、全站的两层（M8-21）不按地址
+  const notByAddress = ["quote", "other", "site_link_order_hour", "site_link_order_day", "site_link_email_hour", "site_link_email_day", "staff_view_link", "site_manual_quote_contact", "site_manual_quote_all"];
   const addressScopes = Object.keys(SALES_RATE_LIMITS).filter((scope) => !notByAddress.includes(scope) && !bornWithSlash64.includes(scope));
   assert.deepEqual(addressScopes.sort(), [...perAddress].sort(), "新增按地址的额度时要重新核对 ADR 0045 的说法");
 });
