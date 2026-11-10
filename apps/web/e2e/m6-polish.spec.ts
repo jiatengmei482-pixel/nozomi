@@ -4,7 +4,10 @@
  * - 官网宽屏时页脚署名和页眉、正文左右对齐。
  */
 import { expect, test } from "@playwright/test";
-import { adminCredentials, loginAs } from "./support.ts";
+import { adminCredentials, loginAs, OWN_SITE_SOURCE } from "./support.ts";
+
+// 官网按来源地址限速：每条用例带自己的文档专用地址，不和并行的官网用例在 127.0.0.1 上抢同一份额度（M8-17）
+test.use(OWN_SITE_SOURCE);
 
 test("运营后台 360 宽：报价试算这种长页面只在正文里滚动，整个窗口不滚、底下没有空白", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 740 });

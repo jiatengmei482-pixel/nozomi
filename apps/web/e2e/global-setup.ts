@@ -12,7 +12,9 @@
  *    和一个查询它收到了什么的小接口（测试进程和这里不是同一个进程）；SMTP 同样不经配置文件给；
  *    另起一个不配置底图的 API 进程（同一个数据库、同一把签名密钥），给「没有底图」的用例取它真实的 map/config；
  *    另起一组「配了 Stripe」的 API 和前端（M3-08）：Stripe 的三项是本次运行随机生成的测试值，Stripe 的地址指向本机的假 Stripe 服务（e2e/fake-stripe.ts），
- *    假 Stripe 付款有结果后给这个 API 发签了名的通知；这组 API 信任一层代理（TRUST_PROXY_HOPS=1），付款用例各用一个文档专用地址，官网限流不和别的用例抢额度；
+ *    假 Stripe 付款有结果后给这个 API 发签了名的通知；
+ *    官网按来源地址限速、额度记在共用的数据库里：所有连主库、开着官网的 API（主 API、地址搜索、付款、司机链接邮件）都信任一层代理（TRUST_PROXY_HOPS=1，
+ *    和正式环境一样前面有一层反向代理），官网用例用 support.ts 的 `OWN_SITE_SOURCE` 各带一个文档专用地址，不在 127.0.0.1 上抢同一份额度（M8-17）；
  *    另起一组「邮箱验证码登录」专用的 API 和前端（M4-06），用单独的 schema：主库里别的用例会临时填写、清空 SMTP，这组里邮件可不可用只由 email-login.spec.ts 决定；
  * 4. 把管理员账号通过环境变量交给测试进程；另把本次运行的数据库连接串也交过去，
  *    需要「用临时密码创建的管理员」的用例自己再跑一次同一个命令行（见 support.ts）。
@@ -330,6 +332,9 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
       SITE_CLIENT_ID: siteClientId,
       // 订单页「需要帮助」区块登记了客服电话才显示
       SITE_SUPPORT_PHONE: E2E_SUPPORT_PHONE,
+      // 官网用例各带一个文档专用的来源地址（support.ts 的 OWN_SITE_SOURCE）；不信任代理时这个头不算数，几十条官网用例都记在 127.0.0.1 上，
+      // 全量并行时用完「每分钟 120 次」，页面显示「操作太频繁了」（M8-17，CI run 42706508810 等）
+      TRUST_PROXY_HOPS: "1",
     });
     started.push(api);
     await waitUntilUp(api, `${apiOrigin}/health`);
@@ -344,6 +349,8 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
       MAP_TILE_URL_TEMPLATE: `${tileOrigin}/{z}/{x}/{y}.png`,
       MAP_TILE_ATTRIBUTION: "© 端到端测试底图|https://tiles.e2e.example.com/copyright",
       SITE_CLIENT_ID: siteClientId,
+      // 同主 API：官网用例带的来源地址要算数（M8-17）
+      TRUST_PROXY_HOPS: "1",
     });
     started.push(placesApi);
     await waitUntilUp(placesApi, `${placesOrigin}/health`);
