@@ -57,6 +57,8 @@ const MENU_PAGES: Readonly<Record<string, readonly string[]>> = {
   audit_logs: ["/platform/settings/audit-logs"],
   integrations: ["/platform/settings/integrations"],
   notifications: ["/platform/notifications", "/platform/notification-templates"],
+  manual_quotes: ["/platform/manual-quotes"],
+  site_settings: ["/platform/settings/site"],
 };
 
 test("角色页的每个菜单都登记了对应页面（新加菜单要在这里登记）", () => {
@@ -101,6 +103,8 @@ const PAGE_GUARDS: readonly [string, string, PlatformAction][] = [
   ["/platform/notification-templates", "../pages/notifications/NotificationPages.tsx", "notification.read"],
   ["/platform/tenant-documents", "../pages/platform/DocumentQueuePage.tsx", "tenant.read"],
   ["/platform/tickets", "../pages/platform/TicketPages.tsx", "ticket.read"],
+  ["/platform/manual-quotes", "../pages/platform/ManualQuotePages.tsx", "manual_quote.read"],
+  ["/platform/settings/site", "../pages/platform/SiteSettingsPage.tsx", "site_settings.read"],
   ["/platform/finance/statements", "../pages/platform/FinancePages.tsx", "statement.read"],
 ];
 

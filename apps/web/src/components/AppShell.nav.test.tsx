@@ -22,6 +22,7 @@ const PLATFORM_PAGE_VIEW: Readonly<Record<string, PlatformAction>> = {
   "/platform/orders": "order.read",
   "/platform/exceptions": "order.read",
   "/platform/tickets": "ticket.read",
+  "/platform/manual-quotes": "manual_quote.read",
   "/platform/rescues": "order.read",
   "/platform/cancellation-policy": "master_data.read",
   "/platform/compensation-table": "master_data.read",
@@ -40,7 +41,11 @@ const PLATFORM_PAGE_VIEW: Readonly<Record<string, PlatformAction>> = {
   "/platform/settings/roles": "role.read",
   "/platform/settings/audit-logs": "audit_log.read",
   "/platform/settings/integrations": "integration.read",
+  "/platform/settings/site": "site_settings.read",
 };
+
+/** 只管一个页面、别的菜单项和首页卡片都不用的查看权限：不进穷举（组合数会翻倍），单独核对。 */
+const INDEPENDENT_VIEWS: readonly PlatformAction[] = ["manual_quote.read", "site_settings.read"];
 
 /** 限定了数据范围（城市或渠道任一维度）就看不了的页面（ADR 0040：财务结算的接口一律 403）。 */
 const UNSCOPED_ONLY_PAGES: ReadonlySet<string> = new Set(["/platform/finance/statements", "/platform/finance/payout-accounts", "/platform/finance/payout-batches"]);
@@ -118,13 +123,28 @@ test("运营后台菜单：每一项都登记了页面的查看权限（新加�
 
 test("运营后台菜单：菜单条件用到的权限的所有组合 × 数据范围（不限 / 限城市 / 限渠道…）下，菜单里每一项都看得了，看得了的都有入口，首页卡片点进去都看得了", () => {
   // 菜单条件里会用到的权限：各页面的查看权限，加上取消政策、赔付表的发起 / 审核权限（看它们会不会被误当成查看条件）
-  const relevant = [...new Set<PlatformAction>([...Object.values(PLATFORM_PAGE_VIEW), "cancellation_policy.manage", "cancellation_policy.review", "compensation_table.manage", "compensation_table.review"])];
+  // 只管一个页面、别处都不用的查看权限（INDEPENDENT_VIEWS）不进穷举，下面单独的用例逐个核对，否则组合数翻四倍
+  const relevant = [...new Set<PlatformAction>([...Object.values(PLATFORM_PAGE_VIEW), "cancellation_policy.manage", "cancellation_policy.review", "compensation_table.manage", "compensation_table.review"])].filter((action) => !INDEPENDENT_VIEWS.includes(action));
   assert.ok(relevant.length <= 18, "组合数不超过 262,144");
   for (let mask = 0; mask < 1 << relevant.length; mask += 1) {
     const actions = new Set(relevant.filter((_, index) => (mask & (1 << index)) !== 0));
     for (const { name, scope } of SCOPES) {
       const bad = mismatches((action) => actions.has(action), scope, accountCan(actions, scope));
       if (bad.length > 0) assert.fail(`权限 ${[...actions].join("、") || "（无）"}、${name} 时：${bad.join("、")}`);
+    }
+  }
+});
+
+test("运营后台菜单：只管一个页面的查看权限（人工报价、官网设置，M8-21）单独有、或和穷举用到的全部权限一起有 × 数据范围，菜单和页面一致", () => {
+  const others = [...new Set<PlatformAction>([...Object.values(PLATFORM_PAGE_VIEW), "cancellation_policy.manage", "cancellation_policy.review", "compensation_table.manage", "compensation_table.review"])].filter((action) => !INDEPENDENT_VIEWS.includes(action));
+  for (const independent of INDEPENDENT_VIEWS) {
+    assert.equal(Object.values(PLATFORM_PAGE_VIEW).filter((action) => action === independent).length, 1, `${independent} 只管一个页面`);
+    for (const base of [[], others, INDEPENDENT_VIEWS.filter((action) => action !== independent)]) {
+      const actions = new Set<PlatformAction>([...base, independent]);
+      for (const { name, scope } of SCOPES) {
+        const bad = mismatches((action) => actions.has(action), scope, accountCan(actions, scope));
+        assert.deepEqual(bad, [], `${independent}、${name}`);
+      }
     }
   }
 });
