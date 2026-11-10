@@ -428,6 +428,66 @@ test("渠道接口：报价多一项含公里数（只有对外价，只加字�
   for (const key of ["settlement", "to_area_id", "markup_bp"]) assert.ok(!allKeys(res.body).has(key), key);
 });
 
+test("附加服务和命中的线路价、含公里数一起算：附加服务按商品统一定价（和用区域价时一样），结算价 = 线路一口价 + 超出公里 × 单价 + 附加服务，对外价按现有公式；供应商只看到结算价", async () => {
+  // 附加服务（平台目录）：儿童座椅按个（每个 1,000）、举牌按次（500），乙的点对点商品统一提供
+  const catalog = (body: Record<string, unknown>): Promise<any> => ok(api.call("POST", "/platform/v1/master/addons", { token: m.root, body }), 201);
+  const seat = (await catalog({ code: "ADD-P2P_SEAT", categories: ["point_to_point"], charge_unit: "per_item", name: { zh: "儿童座椅" } })).id as string;
+  const board = (await catalog({ code: "ADD-P2P_BOARD", categories: ["point_to_point"], charge_unit: "per_order", name: { zh: "举牌" } })).id as string;
+  await ok(
+    tenantCall(m.b, "PUT", `/products/${p2pB.id}/service-rules`, {
+      version: await version(m.b, p2pB.id),
+      body: { booking: { service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 24 }, free_wait: { general: { mode: "limited", minutes: 15 } }, addons: [{ addon_id: seat, unit_price: 1_000 }, { addon_id: board, unit_price: 500 }] },
+    }),
+  );
+  const addons = [{ addon_id: seat, quantity: 2 }, { addon_id: board, quantity: 1 }];
+  // 官网、渠道询价用的商品目录缓存 30 秒（QUOTE_CATALOG_TTL_MS）：等它过期，询价才看到新的附加服务
+  api.clock.advance(31_000);
+  assert.deepEqual(route, { meters: 34_200, minutes: 50 }, "路线 34.2 公里，比含的 30 公里长");
+
+  // 供应商试算：命中市区 → 机场周边的线路价（18,000，含 30 公里，超出每公里 300）
+  const preview = async (pickup: keyof typeof P, dropoff: keyof typeof P): Promise<any> => {
+    const res = await tenantCall(m.b, "POST", `/products/${p2pB.id}/quote-preview`, { body: { pickup: P[pickup], dropoff: P[dropoff], service_time: SERVICE_LOCAL, passengers: 2, luggage: 1, vehicle_group_ids: [m.ids.biz7], addons } });
+    assertMatchesOpenApi("POST", "/tenant/v1/products/{id}/quote-preview", res);
+    assert.equal(res.status, 200, res.text);
+    for (const key of RULE4_KEYS) assert.ok(!allKeys(res.body).has(key), `供应商试算里有 ${key}`);
+    return res.body.offers[0];
+  };
+  const line = await preview("city", "airport");
+  const s = line.settlement;
+  // 18,000 + ⌈(34.2 − 30)⌉ = 5 公里 × 300 = 19,500；附加服务 2 × 1,000 + 500 = 2,500；合计 22,000
+  assert.deepEqual([line.price_rule_id !== null, s.to_area_id, s.distance], [true, p2pB.airport, { included_km: 30, route_meters: 34_200, over_km: 5, over_km_per_km: 300 }]);
+  assert.deepEqual([s.base, s.adjust, s.urgent, s.night, s.addons, s.driver_language, s.total], [19_500, 0, 0, 0, 2_500, 0, 22_000]);
+  assert.equal(s.base + s.adjust + s.urgent + s.night + s.addons + s.driver_language, s.total, "各项之和等于结算价");
+  assert.deepEqual(s.addon_items.map((item: any) => [item.addon_id, item.charged_quantity, item.unit_price, item.amount]), [[seat, "2", 1_000, 2_000], [board, "1", 500, 500]]);
+  // 同一商品用区域价（同一区域里）：附加服务的钱一模一样（按商品统一定价，ADR 0069 B15）
+  const area = await preview("city", "city2");
+  assert.deepEqual([area.settlement.to_area_id, area.settlement.distance, area.settlement.base, area.settlement.addons, area.settlement.total], [null, null, 10_000, 2_500, 12_500]);
+  assert.deepEqual(area.settlement.addon_items, s.addon_items);
+
+  // 官网：对外价 = 结算价 × 1.1（渠道默认加价 10%，四舍五入到 1 日元）= 24,200；超出每公里对外价 330
+  api.clock.advance(1_000);
+  const quoted = await site.call("POST", "/site/v1/quotes", { body: { category: "point_to_point", city_id: m.ids.tokyo, pickup: P.city, dropoff: P.airport, service_local: SERVICE_LOCAL, passengers: 2, luggage: 1, addons }, ip: nextIp() });
+  assertMatchesOpenApi("POST", "/site/v1/quotes", quoted);
+  assert.equal(quoted.status, 200, quoted.text);
+  const biz = quoted.body.quotes.find((entry: any) => entry.vehicle_group.id === m.ids.biz7);
+  assert.ok(biz, quoted.text);
+  assert.deepEqual([biz.price.total.amount, biz.distance, biz.available_addons.map((addon: any) => addon.id).sort()], ["24200", { included_km: 30, route_meters: 34_200, over_km: 5, over_km_per_km: { amount: "330", currency: "JPY" } }, [seat, board].sort()]);
+  for (const key of ["settlement", "to_area_id", "unit_price", "markup_bp"]) assert.ok(!allKeys(quoted.body).has(key), key);
+  const stored = (await api.db.owner.query("select settlement_minor::int as settlement, sell_minor::int as sell, snapshot->'winner'->'offer'->'settlement'->'addonsMinor' as addons, snapshot->'winner'->'sell'->'overKmPerKmMinor' as per_km from quotes where id = $1", [biz.quote_id])).rows[0];
+  assert.deepEqual([stored.settlement, stored.sell, stored.addons, stored.per_km], [22_000, 24_200, 2_500, 330], "快照里锁定的结算价、对外价、附加服务和每公里对外价");
+
+  // 渠道接口同样（带附加服务询价）
+  const channel = await newChannel(api, m.staff.cm1.token, { name: "渠道-附加服务" });
+  const creds = await salesCredentials(api, m, channel.id, "198.51.100.31");
+  api.clock.advance(1_000);
+  const sales = await api.call("POST", "/sales/v1/quotes", { token: creds.token, body: { city_id: m.ids.tokyo, category: "point_to_point", pickup: P.city, dropoff: P.airport, service_time: "2026-10-20T10:00:00+09:00", passengers: 2, luggage: 1, currency: "JPY", addons, vehicle_group_ids: [m.ids.biz7] } });
+  assertMatchesOperation("POST", "/sales/v1/quotes", sales.status, sales.body);
+  assert.equal(sales.status, 200, sales.text);
+  assert.equal(sales.body.quotes.length, 1, sales.text);
+  assert.deepEqual([sales.body.quotes[0].price.total.amount, sales.body.quotes[0].distance.over_km, sales.body.quotes[0].distance.over_km_per_km.amount], ["24200", 5, "330"]);
+  for (const key of ["settlement", "to_area_id", "unit_price", "markup_bp"]) assert.ok(!allKeys(sales.body).has(key), key);
+});
+
 test("调价规则的检查连同线路价：调完会让一条线路价不大于 0 时不能保存（区域价都没问题也一样）", async () => {
   const cheap = await ok(tenantCall(m.b, "POST", `/products/${p2pB.id}/price-rules`, { version: await version(m.b, p2pB.id), body: line(p2pB.city, p2pB.airport, 100, { vehicle_group_id: m.ids.eco4, valid_from: "2031-01-01" }) }), 201);
   const res = await tenantCall(m.b, "POST", `/products/${p2pB.id}/adjust-rules`, { version: await version(m.b, p2pB.id), body: { name: "市区减 200", cycle: { type: "daily" }, area_ids: [p2pB.city], steps: [{ type: "amount", value: -200 }] } });
