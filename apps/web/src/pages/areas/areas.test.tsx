@@ -293,6 +293,7 @@ test("新增：没有配置底图时页面照常可用——空着保存逐项�
     city_id: TOKYO_ID,
     name: { zh: "东京市区" },
     biz_type: "general",
+    role: "both",
     polygons: [{ kind: "operate", label: null, source: "drawn", geometry: { type: "Polygon", coordinates: closed(OUTER.slice(0, 3)) } }],
   });
 });
@@ -500,7 +501,7 @@ test("编辑：标题是区域的名字，城市不能改；图形按营运区 /
   await screen.findByText("已保存「东京 23 区」");
   const put = writes(second)[0] as ApiCall;
   assert.equal(put.headers["if-match"], '"4"');
-  assert.deepEqual(put.body, { name: { zh: "东京 23 区" }, biz_type: "charter", polygons: [{ id: OPERATE_ID, kind: "operate", label: null, source: "drawn", geometry: operate.geometry }] });
+  assert.deepEqual(put.body, { name: { zh: "东京 23 区" }, biz_type: "charter", role: "both", polygons: [{ id: OPERATE_ID, kind: "operate", label: null, source: "drawn", geometry: operate.geometry }] });
 });
 
 test("编辑：别人先改了（VERSION_CONFLICT）——说明、停用「保存」、可以复制自己画的；「载入最新内容」后换成新内容并能再保存", async () => {

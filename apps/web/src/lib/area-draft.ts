@@ -7,7 +7,7 @@
  * - 主动退出登录时全部清掉；登录过期被送去登录页时不清（那正是要靠它找回来的时候）。
  * - 读出来的内容逐项校验，不合规的当作没有；太大的不存。
  */
-import { AREA_BIZ_TYPES, type AreaBizType, type LocalizedText, MASTER_DATA_LANGUAGES, type Position } from "@nozomi/domain";
+import { AREA_BIZ_TYPES, AREA_ROLES, type AreaBizType, type AreaRole, type LocalizedText, MASTER_DATA_LANGUAGES, type Position } from "@nozomi/domain";
 import type { EditorShape } from "./area-editor.ts";
 
 export const DRAFT_PREFIX = "nozomi.area-draft.";
@@ -28,6 +28,8 @@ export interface AreaDraft {
   cityId: string | null;
   name: LocalizedText;
   bizType: AreaBizType;
+  /** 用途（M8-20）；M8-20 之前存的草稿没有这一项 */
+  role?: AreaRole;
   shapes: EditorShape[];
 }
 
@@ -86,7 +88,8 @@ function parseDraft(raw: string | null): AreaDraft | null {
     return null;
   }
   if (!isRecord(value)) return null;
-  const { savedAt, baseVersion, cityId, name, bizType, shapes } = value;
+  const { savedAt, baseVersion, cityId, name, bizType, role, shapes } = value;
+  if (role !== undefined && !(AREA_ROLES as readonly unknown[]).includes(role)) return null;
   if (typeof savedAt !== "string" || Number.isNaN(Date.parse(savedAt))) return null;
   if (baseVersion !== null && (typeof baseVersion !== "number" || !Number.isInteger(baseVersion))) return null;
   if (cityId !== null && (typeof cityId !== "string" || !SAFE_ID.test(cityId))) return null;
@@ -103,7 +106,7 @@ function parseDraft(raw: string | null): AreaDraft | null {
     cleanShapes.push(read);
   }
   if (new Set(cleanShapes.map((shape) => shape.key)).size !== cleanShapes.length) return null;
-  return { savedAt, baseVersion: baseVersion as number | null, cityId: cityId as string | null, name: cleanName, bizType: bizType as AreaBizType, shapes: cleanShapes };
+  return { savedAt, baseVersion: baseVersion as number | null, cityId: cityId as string | null, name: cleanName, bizType: bizType as AreaBizType, ...(role !== undefined ? { role: role as AreaRole } : {}), shapes: cleanShapes };
 }
 
 export function readAreaDraft(owner: DraftOwner, areaId: string | null): AreaDraft | null {

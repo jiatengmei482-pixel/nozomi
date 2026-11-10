@@ -167,6 +167,7 @@ test("撤销后保存：提交的是撤销以后画面上的内容，被撤销�
   assert.deepEqual(put.body, {
     name: { zh: "东京 23 区" },
     biz_type: "general",
+    role: "both",
     polygons: [
       { id: OPERATE_ID, kind: "operate", label: null, source: "drawn", geometry: { type: "Polygon", coordinates: closed(OUTER.slice(0, 3)) } },
       { id: FORBID_ID, kind: "forbid", label: "皇居", source: "pasted", geometry: forbid.geometry },
