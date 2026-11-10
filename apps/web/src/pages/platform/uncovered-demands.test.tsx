@@ -110,7 +110,7 @@ test("列表：计数（合计、按原因、按城市、按供应商、被限�
   assert.match(document.body.textContent ?? "", /另有 4 条新需求因为防刷限流没有记下来/);
   const row = (await screen.findByText("东京站")).closest("tr") as HTMLElement;
   assert.match(row.textContent ?? "", /点对点/);
-  assert.match(row.textContent ?? "", /2026-11-20 09:30 · 2 人 1 件行李/);
+  assert.match(row.textContent ?? "", /2026-11-20 09:30 · 东京2 人 1 件行李/);
   assert.match(row.textContent ?? "", /→ 35\.6586, 139\.7454/);
   assert.match(row.textContent ?? "", /在运营区域里，但没有报价区域/);
   assert.match(row.textContent ?? "", /甲车队/);

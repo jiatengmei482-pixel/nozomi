@@ -158,7 +158,8 @@ export function UncoveredDemandsPage() {
       cell: (row) => (
         <span className="table__names">
           <span>{tripText(row)}</span>
-          <span className="table__other-names">{`${serviceLocalText(row.service_local)} · ${row.passengers} 人 ${row.luggage} 件行李`}</span>
+          <span className="table__other-names">{`${serviceLocalText(row.service_local)} · ${cityName(row.city_id)}`}</span>
+          <span className="table__other-names">{`${row.passengers} 人 ${row.luggage} 件行李`}</span>
         </span>
       ),
     },
@@ -173,12 +174,11 @@ export function UncoveredDemandsPage() {
         </span>
       ),
     },
-    { key: "city", header: "城市", wrap: true, cell: (row) => cityName(row.city_id) },
     { key: "reason", header: "原因", cell: (row) => <StatusBadge tone={REASON_TONES[row.reason]} label={DEMAND_REASON_NAMES[row.reason]} /> },
     { key: "count", header: "次数", align: "end", cell: (row) => row.repeat_count },
     {
       key: "tenants",
-      header: "运营区域涉及的供应商",
+      header: "涉及的供应商",
       wrap: true,
       cell: (row) => (row.tenant_ids.length === 0 ? <span className="table__muted">没有</span> : row.tenant_ids.slice(0, 3).map(tenantName).join("、") + (row.tenant_ids.length > 3 ? ` 等 ${row.tenant_ids.length} 家` : "")),
     },

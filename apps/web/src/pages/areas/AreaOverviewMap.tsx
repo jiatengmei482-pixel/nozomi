@@ -53,6 +53,8 @@ const MAX_FIT_ZOOM = 15;
 const MARKER_ZOOM = 15;
 /** 区域在画面上小于这么多像素宽时不标名字（免得名字挤成一团） */
 const LABEL_MIN_PIXELS = 48;
+/** 运营区域的名字离上边框多少像素 */
+const OPERATING_LABEL_OFFSET = 16;
 
 function boxOf(rings: readonly (readonly Position[])[]): LatLngBox | null {
   let south = Infinity;
@@ -105,8 +107,8 @@ export function AreaOverviewMap({ tiles, areas, selected, onSelect, overlaps, sh
   const [ready, setReady] = useState(false);
   const [tileTrouble, setTileTrouble] = useState(false);
   const [popup, setPopup] = useState<DemandMapPoint | null>(null);
-  const latest = useRef({ areas, selected, onSelect, demands });
-  latest.current = { areas, selected, onSelect, demands };
+  const latest = useRef({ areas, selected, onSelect, demands, marker });
+  latest.current = { areas, selected, onSelect, demands, marker };
 
   const fitTo = (id: string | null): void => {
     const surface = surfaceRef.current;
@@ -156,7 +158,10 @@ export function AreaOverviewMap({ tiles, areas, selected, onSelect, overlaps, sh
   useEffect(() => {
     if (areasKey === firstKey.current) return;
     firstKey.current = areasKey;
-    if (latest.current.selected === null) fitTo(null);
+    // 有位置标记（定位、从未覆盖需求列表过来）时视野留在标记上，不被区域取回来之后的「看全部」挤走
+    const pinned = latest.current.marker;
+    if (pinned) surfaceRef.current?.setView(pinned.point, MARKER_ZOOM);
+    else if (latest.current.selected === null) fitTo(null);
   }, [areasKey]);
 
   const markerKey = marker ? `${marker.point.lat},${marker.point.lng}` : "";
@@ -244,12 +249,23 @@ export function AreaOverviewMap({ tiles, areas, selected, onSelect, overlaps, sh
             const ys = operate.map((at) => at.y);
             const width = Math.max(...xs) - Math.min(...xs);
             if (width < LABEL_MIN_PIXELS && area.id !== selected) return null;
+            // 运营区域通常很大、里面套着报价区域：名字标在上边框里面，不和里面报价区域的名字叠在一起
+            const y = isOperating(area) ? Math.min(...ys) + OPERATING_LABEL_OFFSET : (Math.max(...ys) + Math.min(...ys)) / 2;
             return (
-              <text key={`l-${area.id}`} className={area.id === selected ? "area-label area-label--selected" : "area-label"} x={(Math.max(...xs) + Math.min(...xs)) / 2} y={(Math.max(...ys) + Math.min(...ys)) / 2} textAnchor="middle">
+              <text key={`l-${area.id}`} className={area.id === selected ? "area-label area-label--selected" : "area-label"} x={(Math.max(...xs) + Math.min(...xs)) / 2} y={y} textAnchor="middle">
                 {area.name}
               </text>
             );
           })}
+          {marker && (
+            <g className="area-probe">
+              <circle className="area-probe__pin" cx={project([marker.point.lng, marker.point.lat]).x} cy={project([marker.point.lng, marker.point.lat]).y} r={7} />
+              <text className="area-label area-label--selected" x={project([marker.point.lng, marker.point.lat]).x + 12} y={project([marker.point.lng, marker.point.lat]).y}>
+                {marker.label}
+              </text>
+            </g>
+          )}
+          {/* 未覆盖需求的点画在位置标记上面：从列表过来时标记和点在同一个位置 */}
           {demands && (
             <g data-demand-layer="on">
               {demands.map((entry) => {
@@ -261,14 +277,6 @@ export function AreaOverviewMap({ tiles, areas, selected, onSelect, overlaps, sh
                   <rect key={entry.key} className={shownPopup?.key === entry.key ? "demand-dot demand-dot--active" : "demand-dot"} x={at.x - radius} y={at.y - radius} width={radius * 2} height={radius * 2} data-demand={entry.key} />
                 );
               })}
-            </g>
-          )}
-          {marker && (
-            <g className="area-probe">
-              <circle className="area-probe__pin" cx={project([marker.point.lng, marker.point.lat]).x} cy={project([marker.point.lng, marker.point.lat]).y} r={7} />
-              <text className="area-label area-label--selected" x={project([marker.point.lng, marker.point.lat]).x + 12} y={project([marker.point.lng, marker.point.lat]).y}>
-                {marker.label}
-              </text>
             </g>
           )}
         </svg>
@@ -315,25 +323,33 @@ export function AreaOverviewMap({ tiles, areas, selected, onSelect, overlaps, sh
               <path className="area-overview-fill area-color--0" d="M2,2H22V12H2Z" />
               <path className="area-overview-stroke area-color--0" d="M2,2H22V12H2Z" />
             </svg>
-            <strong>运营区域</strong> 虚线、很淡：只决定能不能接单
+            <span>
+              <strong>运营区域</strong> 虚线：只决定能不能接单
+            </span>
           </li>
           <li>
             <svg className="legend-swatch" viewBox="0 0 24 14" aria-hidden="true">
               <path className="area-overview-fill area-color--0" d="M2,2H22V12H2Z" />
               <path className="area-overview-stroke area-color--0" d="M2,2H22V12H2Z" />
             </svg>
-            <strong>报价区域 / 运营 + 报价</strong> 实线；颜色和列表的圆点一致
+            <span>
+              <strong>报价区域 / 运营 + 报价</strong> 实线：颜色同列表圆点
+            </span>
           </li>
           <li>
             <Swatch kind="forbid" />
-            <strong>禁行区</strong> 只管它所在的区域
+            <span>
+              <strong>禁行区</strong> 只管它所在的区域
+            </span>
           </li>
           {showOverlaps && (
             <li>
               <svg className="legend-swatch" viewBox="0 0 24 14" aria-hidden="true">
                 <path className="area-overlap" d="M2,2H22V12H2Z" />
               </svg>
-              <strong>重叠的地方</strong> 报价区域之间，报价取最低
+              <span>
+                <strong>重叠的地方</strong> 报价区域之间，取最低价
+              </span>
             </li>
           )}
           {outside !== undefined && (
@@ -342,7 +358,9 @@ export function AreaOverviewMap({ tiles, areas, selected, onSelect, overlaps, sh
                 <path className="area-outside" d="M2,2H22V12H2Z" />
                 <path className="area-hatch area-hatch--outside" d="M6,2L2,6M12,2L2,12M18,2L8,12M22,4L14,12M22,10L20,12" />
               </svg>
-              <strong>超出运营区域</strong> 报价区域的这部分不会报价
+              <span>
+                <strong>超出运营区域</strong> 报价区域的这部分不会报价
+              </span>
             </li>
           )}
           {demands && (
@@ -351,7 +369,9 @@ export function AreaOverviewMap({ tiles, areas, selected, onSelect, overlaps, sh
                 <circle className="demand-dot" cx="6" cy="7" r="4" />
                 <rect className="demand-dot" x="14" y="3" width="8" height="8" />
               </svg>
-              <strong>未覆盖需求</strong> 圆 = 上车点，方 = 下车点；越大次数越多
+              <span>
+                <strong>未覆盖需求</strong> 圆是上车点，方是下车点；越大次数越多
+              </span>
             </li>
           )}
         </ul>
