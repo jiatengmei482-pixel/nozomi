@@ -349,7 +349,7 @@ function DemandDetail({ demand, onClose, tenantName, cityName, canSeeMap }: { de
           </div>
           <div>
             <dt>各商品报不出的原因</dt>
-            <dd>{refusalSummary(demand.refusal_counts)}</dd>
+            <dd>{Object.keys(demand.refusal_counts).length === 0 ? "没有可以比价的商品（这一带没有供应商的商品）" : refusalSummary(demand.refusal_counts)}</dd>
           </div>
           <div>
             <dt>来源</dt>
