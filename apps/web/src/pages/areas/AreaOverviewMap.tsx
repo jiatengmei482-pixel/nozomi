@@ -177,9 +177,6 @@ export function AreaOverviewMap({ tiles, areas, selected, onSelect, overlaps, sh
   const selectedOutsidePath = selected !== null ? (outside ?? []).filter((piece) => piece.areaIds.includes(selected)).map((piece) => path(piece.ring)).join("") : "";
   // 图层关掉、换了一批点：弹出的说明跟着收起
   const shownPopup = popup !== null && demands?.some((entry) => entry.key === popup.key) ? popup : null;
-  const popupPixel = shownPopup ? project([shownPopup.point.lng, shownPopup.point.lat]) : null;
-  // 说明框宽约 256px、在点的正上方：靠近地图左右边时往里挪，不伸出地图（窄屏不横向滚动）
-  const popupAt = popupPixel ? { x: size.x <= 272 ? size.x / 2 : Math.min(Math.max(popupPixel.x, 136), size.x - 136), y: popupPixel.y, below: popupPixel.y < 200 } : null;
 
   return (
     <div className="area-map area-overview-map">
@@ -276,8 +273,9 @@ export function AreaOverviewMap({ tiles, areas, selected, onSelect, overlaps, sh
           )}
         </svg>
       )}
-      {shownPopup && popupAt && (
-        <section className={popupAt.below ? "demand-popup demand-popup--below" : "demand-popup"} aria-label="未覆盖需求" style={{ left: `${popupAt.x}px`, top: `${popupAt.y}px` }}>
+      {/* 说明框固定在地图左上角（不跟着点走：不用内联样式定位，窄屏也不伸出地图）；点了的那个点在图上换成主色 */}
+      {shownPopup && (
+        <section className="demand-popup" aria-label="未覆盖需求">
           <p className="demand-popup__title">
             <strong>未覆盖需求</strong>
             <button type="button" className="icon-button demand-popup__close" aria-label="关闭" onClick={() => setPopup(null)}>

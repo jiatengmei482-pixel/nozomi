@@ -855,9 +855,10 @@
 
 .demand-popup {
   position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
   z-index: var(--z-dropdown);
-  transform: translate(-50%, calc(-100% - var(--space-3)));
-  width: min(16rem, calc(100% - var(--space-4)));
+  width: min(16rem, calc(100% - 4rem));
   padding: var(--space-2) var(--space-3);
   border: var(--border-width) solid var(--color-border-default);
   border-radius: var(--radius-md);
@@ -866,11 +867,6 @@
   color: var(--color-text-primary);
   font-size: var(--font-size-sm);
   overflow-wrap: anywhere;
-}
-
-/* 点靠近地图上边时说明框放在点的下面 */
-.demand-popup--below {
-  transform: translate(-50%, var(--space-3));
 }
 
 .demand-popup__title {
