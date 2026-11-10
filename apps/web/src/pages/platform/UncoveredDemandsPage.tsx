@@ -208,7 +208,7 @@ export function UncoveredDemandsPage() {
     <StateBlock
       tone="neutral"
       title="没有符合条件的未覆盖需求"
-      description={rangeProblem ?? "换个条件试试，或清空筛选。"}
+      description={rangeProblem !== null ? "日期范围不对，改好后再查（见上面的说明）。" : "换个条件试试，或清空筛选。"}
       action={
         <Button variant="secondary" onClick={clearFilters}>
           清空筛选
