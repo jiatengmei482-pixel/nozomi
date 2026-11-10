@@ -176,17 +176,17 @@ test("区域地图：每项写明用途；报价区域超出运营区域时有�
   open("/areas/map", "admin");
   await screen.findByRole("heading", { name: "共 2 个区域" });
   const list = screen.getByRole("list", { name: "区域列表" });
-  const itemOf = (name: string): HTMLElement => within(list).getByRole("button", { name, exact: true }).closest("li") as HTMLElement;
+  const itemOf = (name: string): HTMLElement => within(list).getByRole("button", { name }).closest("li") as HTMLElement;
   assert.match(itemOf("东京西部").textContent ?? "", /运营区域/);
   assert.match(itemOf("东京 23 区").textContent ?? "", /报价区域/);
   assert.match(itemOf("东京 23 区").textContent ?? "", /报价区域超出运营区域：这个报价区域有约 180 平方公里不在任何运营区域里/);
   assert.doesNotMatch(list.textContent ?? "", /重叠/, "运营区域和报价区域之间不算重叠");
   await user.selectOptions(screen.getByRole("combobox", { name: "用途" }), "operating");
   await screen.findByRole("heading", { name: "共 2 个区域，显示 1 个" });
-  assertAbsent(within(list).queryByRole("button", { name: "东京 23 区", exact: true }));
+  assertAbsent(within(list).queryByRole("button", { name: "东京 23 区" }));
   await user.selectOptions(screen.getByRole("combobox", { name: "用途" }), "pricing");
   await screen.findByRole("heading", { name: "共 2 个区域，显示 1 个" });
-  assert.ok(within(screen.getByRole("list", { name: "区域列表" })).getByRole("button", { name: "东京 23 区", exact: true }));
+  assert.ok(within(screen.getByRole("list", { name: "区域列表" })).getByRole("button", { name: "东京 23 区" }));
 });
 
 // ── 画布：假的底图（经度 × 1000 = x，纬度 × −1000 = y） ──
