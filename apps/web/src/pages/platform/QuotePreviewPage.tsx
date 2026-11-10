@@ -30,7 +30,7 @@ import { CURRENCY_NAMES, moneyText } from "../../lib/product-display.ts";
 import { saveFailureText, serverIssues } from "../../lib/product-failure.ts";
 import { platformProductListPath } from "../../lib/platform-paths.ts";
 import { ROUTE_SOURCE_TEXT, routeFailureText } from "../../lib/route-display.ts";
-import { type QuoteField, type QuoteForm, emptyQuoteForm, fieldOfPath, pointsNeeded, readQuoteForm } from "../../lib/quote-form.ts";
+import { type QuoteField, type QuoteForm, emptyQuoteForm, fieldOfPath, optionalPoints, pointsNeeded, readQuoteForm } from "../../lib/quote-form.ts";
 import { tidyDate, tidyTime } from "../../lib/time-input.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useCityOptions } from "../../lib/use-city-options.ts";
@@ -94,6 +94,22 @@ function SettlementDetail({ candidate, currency }: { candidate: QuoteCandidate; 
   const settlement: QuoteSettlement = candidate.offer.settlement;
   const own = settlement.currency;
   const lines: { label: string; value: ReactNode }[] = [{ label: "基础价", value: moneyText(settlement.base, own) }];
+  // 包车区域加价（ADR 0073 第三部分）：基础价 = 套餐价 + 上车加价 + 下车加价，调价作用在合计上
+  const surcharge = settlement.area_surcharge ?? null;
+  if (surcharge) {
+    const inOwnArea = [surcharge.pickup.area_id === null ? "上车点" : null, surcharge.dropoff.area_id === null ? "下车点" : null].filter((end): end is string => end !== null);
+    const sell = candidate.area_surcharge_sell ?? null;
+    lines.push({
+      label: "区域加价",
+      value: (
+        <span className="quote-detail__lines">
+          <span>{`套餐价 ${moneyText(surcharge.package, own)} + 上车加价 ${moneyText(surcharge.pickup.amount, own)} + 下车加价 ${moneyText(surcharge.dropoff.amount, own)}（已含在基础价里）`}</span>
+          {inOwnArea.length > 0 && <span>{`${inOwnArea.join("、")}在商品的服务区域里，不加价`}</span>}
+          {sell && <span>{`对外价参考：上车加价 ${moneyText(sell.pickup, currency)}，下车加价 ${moneyText(sell.dropoff, currency)}（单独换算、取整，已含在对外价里）`}</span>}
+        </span>
+      ),
+    });
+  }
   if (settlement.adjusts.length > 0 || settlement.adjust !== 0) {
     lines.push({
       label: "调价",
@@ -537,6 +553,17 @@ export function QuotePreviewPage() {
           {needed.includes("dropoff") && (
             <div id="quote-dropoff" className="form-grid__wide">
               <CoordinateInput legend="下车点" value={form.dropoff} onChange={(value) => change({ dropoff: value })} errors={{ lat: errors["dropoff.lat"] ?? null, lng: errors["dropoff.lng"] ?? null }} hint="可以把地图软件里复制的「纬度, 经度」直接粘贴进来。" />
+            </div>
+          )}
+          {optionalPoints(form).includes("dropoff") && (
+            <div id="quote-dropoff" className="form-grid__wide">
+              <CoordinateInput
+                legend="下车点（选填）"
+                value={form.dropoff}
+                onChange={(value) => change({ dropoff: value })}
+                errors={{ lat: errors["dropoff.lat"] ?? null, lng: errors["dropoff.lng"] ?? null }}
+                hint="包车填了下车点才按区域加价算：下车点在商品的服务区域里不加价，在加价区域里加这个区域的下车加价。不填只报没设区域加价的包车商品。"
+              />
             </div>
           )}
           {form.category === "charter" && (

@@ -864,3 +864,18 @@ test("M8-20 报价试算：新的内部原因 NO_PRICING_AREA 用后端给的中
   assert.match(section.textContent ?? "", /远方车队PRD-C整个商品这个地点在运营区域里，但商品没有勾选覆盖它的报价区域/);
   assert.doesNotMatch(section.textContent ?? "", /NO_PRICING_AREA/);
 });
+
+test("M8-12a 报价试算的包车区域加价：明细里写出套餐价 + 上车加价 + 下车加价，商品服务区域那一端写不加价；对外价参考单独列", async () => {
+  const charterCandidate = candidateOf(1, "NOZOMI 自营车队", "PRD-A", 21000, {
+    area_surcharge_sell: { pickup: 0, dropoff: 1100 },
+    offer: { vehicle_group_id: GROUP_ID, package_hours: 8, area_id: AREA_ID, price_rule_id: PRICE_ID, settlement: { ...settlementOf(21000), base: 21000, adjust: 0, area_surcharge: { package: 20000, pickup: { area_id: null, price_rule_id: null, amount: 0 }, dropoff: { area_id: AREA_ID, price_rule_id: PRICE_ID, amount: 1000 } } } },
+  });
+  const preview = previewOf();
+  open("/platform/quote-preview", "super_admin", (call) => (call.method === "POST" && call.url.pathname === "/platform/v1/quotes/preview" ? json(200, { ...preview, groups: [{ ...(preview.groups[0] as (typeof preview.groups)[number]), candidates: [charterCandidate] }] }) : null));
+  await fillTransfer();
+  await user().click(screen.getByRole("button", { name: "试算" }));
+  const groupCard = (await screen.findByRole("heading", { level: 3, name: "商务七座" })).closest("section") as HTMLElement;
+  await user().click(within(groupCard).getByRole("button", { name: "看 NOZOMI 自营车队 的结算价明细" }));
+  const detail = groupCard.querySelector(".quote-detail")?.textContent ?? "";
+  for (const part of ["区域加价套餐价 JPY 20,000 + 上车加价 JPY 0 + 下车加价 JPY 1,000（已含在基础价里）", "上车点在商品的服务区域里，不加价", "对外价参考：上车加价 JPY 0，下车加价 JPY 1,100"]) assert.ok(detail.includes(part), `明细应有「${part}」：${detail}`);
+});

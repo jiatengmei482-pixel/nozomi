@@ -51,6 +51,12 @@ import { type StepProblem, focusAnchor } from "../frame.ts";
 import { useDownload } from "../inventory/useDownload.tsx";
 import { importPath } from "../../../lib/product-paths.ts";
 import type { PricesShared } from "./PricesStep.tsx";
+import { AreaSurchargeBlock, surchargeCellId, useSurcharges } from "./AreaSurchargeBlock.tsx";
+import { readSurchargeRow, surchargeOverlaps } from "../../../lib/area-surcharge.ts";
+import { basePriceItems } from "../../../lib/price-form.ts";
+import { useLoad } from "../../../lib/use-load.ts";
+import { useTenantCan } from "../../../lib/use-master-access.ts";
+import type { AreaSummary as TenantArea } from "../../../api/areas.ts";
 
 const STATE_LOOK: Readonly<Record<RowState, { icon: IconName; tone: string }>> = {
   error: { icon: "alert-circle", tone: "danger" },
@@ -99,8 +105,14 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
     };
     return [...list].sort((x, y) => rank(x).localeCompare(rank(y)));
   };
-  const fresh = (data: PriceRules, extraPackages: readonly number[] = []): PriceRow[] => arrange(withBlankRows(data.items.map((item) => rowFromRule(item, data.currency)), context, areaIds, groupIds, defaultModel, extraPackages));
+  const fresh = (data: PriceRules, extraPackages: readonly number[] = []): PriceRow[] => arrange(withBlankRows(basePriceItems(data.items).map((item) => rowFromRule(item, data.currency)), context, areaIds, groupIds, defaultModel, extraPackages));
   const download = useDownload();
+  // 包车「区域加价」（M8-12a）：和价格表共用一个保存
+  const surcharges = useSurcharges(prices);
+  const charter = category === "charter";
+  const canReadAreas = useTenantCan("area.read");
+  const canManageAreas = useTenantCan("area.manage");
+  const tenantAreas = useLoad<TenantArea[]>(`surcharge-areas:${frame.source.portal}:${product.id}`, charter && (onPlatform || canReadAreas) ? frame.source.areas : null);
   const [rows, setRows] = useState<PriceRow[]>(() => fresh(prices));
   const adopted = useRef(prices);
   // 重新取到了价格（别人先改了之后「载入最新内容」）：换成最新的，没保存的修改重新套上去
@@ -108,7 +120,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
     if (adopted.current === prices) return;
     adopted.current = prices;
     setRows((current) => {
-      const base = prices.items.map((item) => rowFromRule(item, prices.currency));
+      const base = basePriceItems(prices.items).map((item) => rowFromRule(item, prices.currency));
       const byId = new Map(base.map((row) => [row.id, row]));
       const extra: PriceRow[] = [];
       for (const old of current) {
@@ -120,6 +132,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
       }
       return arrange(withBlankRows([...base, ...extra], context, areaIds, groupIds, defaultModel));
     });
+    surcharges.adopt(prices, true);
     setRejection(null);
     setConflictKeys(new Set());
   }, [prices]);
@@ -142,6 +155,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   const overlaps = useMemo(() => rowOverlaps(rows, context), [rows, context]);
   const coverage = useMemo(() => tableCoverage(rows, context, areaIds, groupIds), [rows, context, areaIds, groupIds]);
   const changes = rows.filter((row) => !["none", "blank"].includes(rowChange(row, readings.get(row.key) ?? readRow(row, context))));
+  const changeTotal = changes.length + surcharges.changeCount;
   const hasMileage = rows.some((row) => row.model === "mileage_time" && !row.deleted);
   const valueFields: readonly PriceField[] = category === "charter" ? MODEL_FIELDS.charter_package : hasMileage ? MODEL_FIELDS.mileage_time : MODEL_FIELDS.fixed;
 
@@ -217,6 +231,29 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
     }
     return result;
   };
+  const surchargeAreaName = (id: string): string => {
+    const area = tenantAreas.state.data?.find((entry) => entry.id === id);
+    return area ? displayName(area.name).text : tenantAreas.state.status === "ready" ? "（已删除的区域）" : "（区域）";
+  };
+  const surchargeLabel = (row: { areaId: string; vehicleGroupId: string; packageHours: number }): string => `区域加价 · ${surchargeAreaName(row.areaId)} · ${groupName(row.vehicleGroupId)} · ${row.packageHours} 小时`;
+  const surchargeProblems = (): StepProblem[] => {
+    const found: StepProblem[] = [];
+    for (const row of surcharges.rows) {
+      if (row.deleted || surcharges.removing.has(row.areaId)) continue;
+      for (const problem of readSurchargeRow(row, context.currency).problems) found.push({ text: `${surchargeLabel(row)}：${problem.text}`, target: surchargeCellId(row.key, problem.field) });
+    }
+    const seen = new Set<string>();
+    for (const [key, others] of surchargeOverlaps(surcharges.rows, context.currency, surcharges.removing)) {
+      for (const other of others) {
+        const pair = [key, other].sort().join("|");
+        if (seen.has(pair)) continue;
+        seen.add(pair);
+        const row = surcharges.rows.find((entry) => entry.key === key);
+        if (row) found.push({ text: `生效日期重叠——${surchargeLabel(row)}`, target: surchargeCellId(key, "from") });
+      }
+    }
+    return found;
+  };
   const validate = (): StepProblem[] => {
     const found: StepProblem[] = [];
     for (const row of sorted) {
@@ -224,7 +261,8 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
       for (const problem of readings.get(row.key)?.problems ?? []) found.push({ text: `${rowLabel(row)}：${problem.text}`, target: cellId(row.key, problem.field) });
     }
     for (const group of overlapGroups()) found.push({ text: `生效日期重叠——${group.text}`, target: group.target });
-    if (found.length === 0 && changes.length > PRICE_LIMITS.maxBatchChanges) found.push({ text: `一次最多保存 ${PRICE_LIMITS.maxBatchChanges} 条。请先取消一部分修改，或分两次保存。`, target: "price-table" });
+    found.push(...surchargeProblems());
+    if (found.length === 0 && changeTotal > PRICE_LIMITS.maxBatchChanges) found.push({ text: `一次最多保存 ${PRICE_LIMITS.maxBatchChanges} 条。请先取消一部分修改，或分两次保存。`, target: "price-table" });
     if (found.length === 0 && product.status === "published" && changes.length > 0 && coverage.priced === 0 && !rows.some((row) => !row.deleted && readings.get(row.key)?.rule?.status === "enabled" && (readings.get(row.key)?.rule?.validTo ?? "9999") >= context.today)) {
       found.push({ text: "这个商品已上架，至少要留 1 条启用、没过期的价格。要把价格全部停掉，请先下架。", target: "price-table" });
     }
@@ -232,7 +270,9 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   };
   const submit = async (): Promise<string> => {
     setRejection(null);
-    const batch = buildBatch(rows, context);
+    const own = buildBatch(rows, context);
+    const extra = surcharges.batch();
+    const batch: PriceRuleBatch = { create: [...own.create, ...extra.create], update: [...own.update, ...extra.update], delete: [...own.delete, ...extra.delete] };
     const payload = JSON.stringify(batch);
     // 同样的内容重试用同一个幂等键；内容变了就换一个
     if (sent.current?.payload !== payload) sent.current = { payload, key: crypto.randomUUID(), batch };
@@ -240,6 +280,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
     sent.current = null;
     adopted.current = saved;
     setRows(fresh(saved));
+    surcharges.adopt(saved, false);
     setConflictKeys(new Set());
     shared.setPrices(saved);
     frame.saved(saved.version);
@@ -255,6 +296,22 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
     const key = kind === "create" ? batch.create[index]?.ref : kind === "update" ? batch.update[index]?.id : batch.delete[index];
     return rows.find((row) => row.key === key || row.id === key);
   };
+  /** 被拒的是不是一条区域加价：按 ref / id 找，找不到再按提交时的顺序对回去 */
+  const batchSurcharge = (kind: string, index: number, detail: Record<string, unknown> = {}) => {
+    const named = typeof detail["ref"] === "string" ? detail["ref"] : typeof detail["id"] === "string" ? detail["id"] : null;
+    const direct = named === null ? undefined : surcharges.rows.find((row) => row.key === named || row.id === named);
+    if (direct) return direct;
+    const batch = sent.current?.batch;
+    if (!batch) return undefined;
+    const key = kind === "create" ? batch.create[index]?.ref : kind === "update" ? batch.update[index]?.id : batch.delete[index];
+    return surcharges.rows.find((row) => row.key === key || row.id === key);
+  };
+  const SURCHARGE_REASONS: Readonly<Record<string, (name: string) => string>> = {
+    AREA_IS_PRODUCT_AREA: (name) => `「${name}」是商品的服务区域，上车、下车在那里都不加价，不能再设区域加价。请换一个商品服务区域以外的区域。`,
+    AREA_NOT_USABLE: (name) => `「${name}」的业务类型不是包车或通用，不能做包车的加价区域。请换一个区域，或到区域页面改它的业务类型。`,
+    AREA_DISABLED: (name) => `「${name}」已经停用，不能新加区域加价。请先到区域页面启用它，或换一个区域。`,
+    AREA_ROLE_NOT_PRICING: (name) => `「${name}」是运营区域，不能做加价区域：运营区域只决定能不能接单，不带价格。请换一个报价区域（或到区域页面把它改成「运营 + 报价」）。`,
+  };
   const placeServerIssues = (issues: ServerIssue[]): StepProblem[] => {
     const special = issues.find((issue) => issue.reason === "UNKNOWN_PRICE_RULE" || issue.reason === "TOO_MANY");
     if (special) {
@@ -265,6 +322,14 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
     const FIELD_BY_PATH: Readonly<Record<string, RowField>> = { base_price: "base", start_price: "base", start_meters: "startKm", start_minutes: "startMin", per_km: "perKm", per_minute: "perMin", min_price: "min", package_km: "pkgKm", package_price: "pkgPrice", overtime_per_hour: "overHour", over_km_per_km: "overKm", valid_from: "from", valid_to: "to" };
     return issues.flatMap((issue) => {
       const match = /^\/(create|update|delete)\/(\d+)(?:\/([a-z_]+))?/.exec(issue.path);
+      const surcharge = match ? batchSurcharge(match[1] ?? "", Number(match[2]), issue.detail) : undefined;
+      if (surcharge) {
+        const name = surchargeAreaName(surcharge.areaId);
+        const text = SURCHARGE_REASONS[issue.reason]?.(name) ?? issue.message;
+        const field = match?.[3] === "dropoff_surcharge" ? "dropoff" : match?.[3] === "valid_from" ? "from" : match?.[3] === "valid_to" ? "to" : "pickup";
+        surcharges.setExpanded(new Set([...surcharges.expanded, surcharge.areaId]));
+        return [{ text: `${surchargeLabel(surcharge)}：${text}`, target: surchargeCellId(surcharge.key, field) }];
+      }
       const row = match ? batchRow(match[1] ?? "", Number(match[2]), issue.detail) : undefined;
       if (!row) return [];
       const text = issue.reason === "AREA_NOT_IN_PRODUCT" ? `「${areaName(row.areaId)}」已经不在这个商品里，这条价格保存不了。` : issue.reason === "VEHICLE_GROUP_NOT_IN_PRODUCT" ? `「${groupName(row.vehicleGroupId)}」已经不在这个商品里，这条价格保存不了。` : issue.message;
@@ -277,15 +342,30 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
       placeServerIssues((err.details["issues"] as { reason?: string; path?: string }[]).map((issue) => ({ path: issue.path ?? "", reason: issue.reason ?? "", message: "", detail: {} })));
       return true;
     }
+    const sentBatch = sent.current?.batch;
+    if (err.status === 404 && /区域/.test(err.message) && sentBatch && [...sentBatch.create, ...sentBatch.update].some((entry) => entry.pricing_model === "charter_area_surcharge")) {
+      const count = [...sentBatch.create, ...sentBatch.update].filter((entry) => entry.pricing_model === "charter_area_surcharge" && !(tenantAreas.state.data ?? []).some((area) => area.id === entry.area_id)).length;
+      setRejection({ title: "没有保存。", text: `有 ${Math.max(1, count)} 条价格用到的区域已经不在了（可能刚被删除）。请点「重新读取价格」后再保存。`, items: [], reload: true });
+      tenantAreas.reload();
+      return true;
+    }
     if (err.code === "PUBLISH_CHECK_FAILED") {
       setRejection({ title: "没有保存。", text: "这个商品已上架，至少要留 1 条启用、没过期的价格。要把价格全部停掉，请先下架。", items: [] });
       return true;
     }
     if (err.code !== "PRICE_RULE_CONFLICT") return false;
     const conflicts = Array.isArray(err.details["conflicts"]) ? (err.details["conflicts"] as { id?: string; ref?: string; valid_from?: string; valid_to?: string | null; with?: { id?: string; ref?: string; valid_from?: string; valid_to?: string | null }[] }[]) : [];
-    const find = (entry: { id?: string; ref?: string }): PriceRow | undefined => rows.find((row) => (entry.id !== undefined && row.id === entry.id) || (entry.ref !== undefined && row.key === entry.ref));
+    const findBase = (entry: { id?: string; ref?: string }): PriceRow | undefined => rows.find((row) => (entry.id !== undefined && row.id === entry.id) || (entry.ref !== undefined && row.key === entry.ref));
+    const findSurcharge = (entry: { id?: string; ref?: string }) => surcharges.rows.find((row) => (entry.id !== undefined && row.id === entry.id) || (entry.ref !== undefined && row.key === entry.ref));
+    const find = (entry: { id?: string; ref?: string }): { key: string; label: string; target: string; areaId?: string } | undefined => {
+      const base = findBase(entry);
+      if (base) return { key: base.key, label: rowLabel(base), target: cellId(base.key, "from") };
+      const surcharge = findSurcharge(entry);
+      return surcharge ? { key: surcharge.key, label: surchargeLabel(surcharge), target: surchargeCellId(surcharge.key, "from"), areaId: surcharge.areaId } : undefined;
+    };
     const span = (entry: { valid_from?: string; valid_to?: string | null }): string => (entry.valid_to ? `${entry.valid_from} 至 ${entry.valid_to}` : `${entry.valid_from} 起一直有效`);
     const keys = new Set<string>();
+    const openAreas = new Set<string>();
     const items: StepProblem[] = [];
     let unknown = conflicts.length === 0;
     for (const conflict of conflicts) {
@@ -295,13 +375,15 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
         continue;
       }
       keys.add(row.key);
+      if (row.areaId !== undefined) openAreas.add(row.areaId);
       for (const other of conflict.with ?? []) {
         const otherRow = find(other);
         if (otherRow) keys.add(otherRow.key);
         else unknown = true;
-        items.push({ text: `${rowLabel(row)}：${span(conflict)} ↔ ${span(other)}${otherRow ? "" : "（别人刚加的）"}`, target: cellId(row.key, "from") });
+        items.push({ text: `${row.label}：${span(conflict)} ↔ ${span(other)}${otherRow ? "" : "（别人刚加的）"}`, target: row.target });
       }
     }
+    if (openAreas.size > 0) surcharges.setExpanded(new Set([...surcharges.expanded, ...openAreas]));
     setConflictKeys(keys);
     setRejection({ title: "没有保存。", text: `有 ${Math.max(1, conflicts.length)} 条价格的生效日期和已有的价格重叠，所以这一批都没有保存。改好以后再点保存。${unknown ? "请点「重新读取价格」后再检查。" : ""}`, items, reload: unknown });
     return true;
@@ -311,7 +393,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   }, [rejection]);
 
   const controller: StepController = {
-    dirty: changes.length > 0,
+    dirty: changeTotal > 0,
     missing: { count: 0, anchor: null },
     validate,
     submit,
@@ -320,12 +402,14 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
     reload: shared.reloadPrices,
     keepsEditsOnReload: true,
     successText: () => {
-      const batch = buildBatch(rows, context);
-      return batch.create.length + batch.update.length === 0 ? `已删除 ${batch.delete.length} 条价格` : `已保存 ${batch.create.length + batch.update.length + batch.delete.length} 条价格`;
+      const own = buildBatch(rows, context);
+      const extra = surcharges.batch();
+      const [created, updated, deleted] = [own.create.length + extra.create.length, own.update.length + extra.update.length, own.delete.length + extra.delete.length];
+      return created + updated === 0 ? `已删除 ${deleted} 条价格` : `已保存 ${created + updated + deleted} 条价格`;
     },
     summary:
-      changes.length > 0 ? (
-        <span className={changes.length >= 400 ? "price-summary price-summary--warning" : "price-summary"}>{changes.length >= 400 ? `未保存的修改已经有 ${changes.length} 条，一次最多保存 ${PRICE_LIMITS.maxBatchChanges} 条，请先保存。` : `有 ${changes.length} 条未保存的修改`}</span>
+      changeTotal > 0 ? (
+        <span className={changeTotal >= 400 ? "price-summary price-summary--warning" : "price-summary"}>{changeTotal >= 400 ? `未保存的修改已经有 ${changeTotal} 条，一次最多保存 ${PRICE_LIMITS.maxBatchChanges} 条，请先保存。` : `有 ${changeTotal} 条未保存的修改`}</span>
       ) : (
         `${coverage.total} 个组合里 ${coverage.priced} 个有价格`
       ),
@@ -443,6 +527,8 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   };
 
   const noPackages = category === "charter" && coverage.packages.length === 0;
+  const CoverageHeading = charter ? "h4" : "h3";
+  const surchargeAreaCount = new Set(surcharges.rows.filter((row) => !surcharges.removing.has(row.areaId) && (row.origin === null ? !row.deleted : row.enabled || surcharges.restoring.has(row.areaId))).map((row) => row.areaId)).size;
   const header = (field: PriceField): string => {
     const name = field === "base" ? (hasMileage ? "基础价 / 起步价" : "基础价") : fieldName(field, category === "charter" ? "charter_package" : "mileage_time");
     return FIELD_UNITS[field] ? `${name}（${FIELD_UNITS[field]}）` : `${name}（${context.currency}${FIELD_PER[field] ?? ""}）`;
@@ -505,6 +591,28 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
               </Alert>
             )}
             {category === "charter" && <Alert kind="info">{CHARTER_SUPPLIER_PRICE_NOTE}</Alert>}
+            {charter && (
+              <nav className="price-sections" aria-label="本页的分块">
+                <a className="link" href="#base-pricing-title" onClick={(event) => {
+                  event.preventDefault();
+                  focusAnchor("base-pricing-title");
+                }}>
+                  基础定价
+                </a>
+                <span aria-hidden="true">·</span>
+                <a className="link" href="#surcharge-title" onClick={(event) => {
+                  event.preventDefault();
+                  focusAnchor("surcharge-title");
+                }}>
+                  {`区域加价（${surchargeAreaCount} 个区域）`}
+                </a>
+              </nav>
+            )}
+            {charter && (
+              <h3 className="price-section-title" id="base-pricing-title" tabIndex={-1}>
+                基础定价
+              </h3>
+            )}
             {category === "charter" && (
               <div className="price-packages">
                 <span className="price-packages__label">套餐：</span>
@@ -542,7 +650,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
               <>
                 <section className="card coverage" aria-labelledby="coverage-title">
                   <div className="card__title-row">
-                    <h3 className="coverage__title" id="coverage-title">
+                    <CoverageHeading className="coverage__title" id="coverage-title">
                       {coverage.priced === 0 ? (
                         "还没有设价格"
                       ) : coverage.missing === 0 ? (
@@ -559,7 +667,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                           </span>
                         </>
                       )}
-                    </h3>
+                    </CoverageHeading>
                     <Button size="sm" variant="text" aria-expanded={coverageOpen} aria-controls="coverage-table" onClick={() => setCoverageOpen(!coverageOpen)}>
                       {coverageOpen ? "收起覆盖表" : "展开覆盖表"}
                     </Button>
@@ -683,7 +791,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                         <button type="button" role="menuitem" className="menu-item" disabled={download.busy || prices.items.length === 0} onClick={() => void download.run((session) => exportPrices(session, product.id, "all"), "prices.xlsx")}>
                           <span className="menu-item__text">
                             {prices.items.length === 0 ? "导出现有的价格（还没有价格）" : `导出现有的价格（${prices.items.length} 条）`}
-                            {changes.length > 0 && <span className="menu-item__note">不含你没保存的修改</span>}
+                            {changeTotal > 0 && <span className="menu-item__note">不含你没保存的修改</span>}
                           </span>
                         </button>
                         {!readOnly && (
@@ -945,6 +1053,26 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                   {meaning()}
                 </p>
               </>
+            )}
+            {charter && (
+              <AreaSurchargeBlock
+                state={surcharges}
+                product={product}
+                groups={groups.map((group) => ({ id: group.vehicle_group_id, name: displayName(group.name).text, passengers: group.passengers, luggage: group.luggage }))}
+                packages={coverage.packages}
+                currency={context.currency}
+                today={context.today}
+                readOnly={readOnly}
+                busy={busy}
+                onPlatform={onPlatform}
+                canManageAreas={canManageAreas && !onPlatform}
+                areas={onPlatform || canReadAreas ? { status: tenantAreas.state.status, data: tenantAreas.state.data, reload: tenantAreas.reload } : null}
+                {...(frame.source.tenantId !== null ? { tenantId: frame.source.tenantId } : {})}
+                otherChanges={changes.length}
+                conflictKeys={conflictKeys}
+                announce={setAnnounce}
+                focusRow={(key) => requestAnimationFrame(() => focusAnchor(surchargeCellId(key, "pickup")))}
+              />
             )}
             <Dialog
               open={addingPackage !== null}

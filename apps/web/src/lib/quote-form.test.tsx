@@ -1,7 +1,7 @@
 /** 报价试算页表单的读法：哪个品类要填哪几项、写法怎么整理、错了怎么说。（引用了组件里的坐标校验，所以是 .tsx） */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { type QuoteForm, emptyQuoteForm, fieldOfPath, pointsNeeded, readQuoteForm } from "./quote-form.ts";
+import { type QuoteForm, emptyQuoteForm, fieldOfPath, optionalPoints, pointsNeeded, readQuoteForm } from "./quote-form.ts";
 
 const CITY = "11111111-1111-4111-8111-111111111111";
 const PLACE = "22222222-2222-4222-8222-222222222222";
@@ -68,4 +68,15 @@ test("后端在 400 里指出的路径落到页面上的哪一项", () => {
   assert.equal(fieldOfPath("/service_time"), "date");
   assert.equal(fieldOfPath("/assume_route"), "routeKm");
   assert.equal(fieldOfPath("/addons/0/addon_id"), null);
+});
+
+test("包车的下车点选填（M8-12a）：不填是 null；填了就按区域加价算，要填对", () => {
+  const base = { category: "charter" as const, pickup: { lat: "35.6895", lng: "139.6917" }, packageHours: "8" };
+  assert.deepEqual(optionalPoints({ category: "charter" }), ["dropoff"]);
+  assert.deepEqual(optionalPoints({ category: "point_to_point" }), []);
+  assert.equal(readQuoteForm(filled(base)).body?.dropoff, null);
+  assert.deepEqual(readQuoteForm(filled({ ...base, dropoff: { lat: "35.36", lng: "138.73" } })).body?.dropoff, { lat: 35.36, lng: 138.73 });
+  const half = readQuoteForm(filled({ ...base, dropoff: { lat: "35.36", lng: "" } }));
+  assert.equal(half.body, null);
+  assert.ok(half.errors["dropoff.lng"]);
 });
