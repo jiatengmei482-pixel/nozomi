@@ -79,17 +79,17 @@ function placesOf(secret: string): string[] {
 // ───────────── 权限：十个平台角色逐个 ─────────────
 
 /** 期望值单独写在这里（不从 access.ts 现算）：权限表被改动时这条会失败，提醒同时核对页面。 */
-const ROLE_EXPECTATIONS: Readonly<Record<string, { tenants: "manage" | "read" | "none"; staff: boolean; audit: boolean; integrations: boolean }>> = {
-  super_admin: { tenants: "manage", staff: true, audit: true, integrations: true },
-  operations: { tenants: "manage", staff: false, audit: false, integrations: false },
-  tenant_onboarding: { tenants: "manage", staff: false, audit: false, integrations: false },
-  channel_manager: { tenants: "read", staff: false, audit: false, integrations: false },
-  customer_service: { tenants: "none", staff: false, audit: false, integrations: false },
-  finance: { tenants: "none", staff: false, audit: false, integrations: false },
-  risk: { tenants: "none", staff: false, audit: false, integrations: false },
-  master_data: { tenants: "none", staff: false, audit: false, integrations: false },
-  tech: { tenants: "none", staff: false, audit: false, integrations: true },
-  readonly: { tenants: "read", staff: false, audit: false, integrations: false },
+const ROLE_EXPECTATIONS: Readonly<Record<string, { tenants: "manage" | "read" | "none"; staff: boolean; audit: boolean; integrations: boolean; site: boolean }>> = {
+  super_admin: { tenants: "manage", staff: true, audit: true, integrations: true, site: true },
+  operations: { tenants: "manage", staff: false, audit: false, integrations: false, site: true },
+  tenant_onboarding: { tenants: "manage", staff: false, audit: false, integrations: false, site: false },
+  channel_manager: { tenants: "read", staff: false, audit: false, integrations: false, site: false },
+  customer_service: { tenants: "none", staff: false, audit: false, integrations: false, site: true },
+  finance: { tenants: "none", staff: false, audit: false, integrations: false, site: false },
+  risk: { tenants: "none", staff: false, audit: false, integrations: false, site: false },
+  master_data: { tenants: "none", staff: false, audit: false, integrations: false, site: false },
+  tech: { tenants: "none", staff: false, audit: false, integrations: true, site: false },
+  readonly: { tenants: "read", staff: false, audit: false, integrations: false, site: false },
 };
 
 for (const [role, expected] of Object.entries(ROLE_EXPECTATIONS)) {
@@ -100,10 +100,10 @@ for (const [role, expected] of Object.entries(ROLE_EXPECTATIONS)) {
     await waitFor(() => assert.ok(menuLabels().includes("主数据")));
     assert.equal(menuLabels().includes("供应商"), expected.tenants !== "none", "菜单里的「供应商」");
     const settings = screen.queryAllByRole("button", { name: "系统设置" })[0] ?? null;
-    assert.equal(settings !== null, expected.staff || expected.audit || expected.integrations, "菜单里的「系统设置」分组");
+    assert.equal(settings !== null, expected.staff || expected.audit || expected.integrations || expected.site, "菜单里的「系统设置」分组");
     if (settings !== null) {
       if (settings.getAttribute("aria-expanded") === "false") await actor.click(settings);
-      assert.deepEqual([menuLabels().includes("平台员工"), menuLabels().includes("审计日志"), menuLabels().includes("系统状态")], [expected.staff, expected.audit, expected.integrations], "系统设置里的三项");
+      assert.deepEqual([menuLabels().includes("平台员工"), menuLabels().includes("审计日志"), menuLabels().includes("系统状态"), menuLabels().includes("官网设置")], [expected.staff, expected.audit, expected.integrations, expected.site], "系统设置里的四项（M8-21 起有官网设置）");
     }
     await settle();
     assert.equal(document.querySelector('.entry-card a[href="/platform/tenants"], a.entry-card[href="/platform/tenants"]') !== null || screen.queryAllByRole("link", { name: "供应商", description: /正常/ }).length > 0, expected.tenants !== "none", "首页的供应商卡片");
