@@ -96,8 +96,10 @@ test("新增：多边形和圆一起保存；返回完整的区域——城市�
   assert.equal(res.status, 201, res.text);
   const area = res.body;
   assert.deepEqual(Object.keys(area).sort(), [
-    "biz_type", "city", "city_id", "created_at", "forbid_polygon_count", "id", "name", "operate_polygon_count", "polygons", "status", "updated_at", "usage", "version",
+    "biz_type", "city", "city_id", "created_at", "forbid_polygon_count", "id", "name", "operate_polygon_count", "outside_operating_m2", "polygons", "role", "status", "updated_at", "usage", "version",
   ]);
+  // 没给用途：按「运营 + 报价」（ADR 0075）；它自己就是运营范围，没有超出的部分
+  assert.deepEqual([area.role, area.outside_operating_m2], ["both", 0]);
   assert.deepEqual(
     [area.name, area.city_id, area.biz_type, area.status, area.version, area.operate_polygon_count, area.forbid_polygon_count],
     [{ zh: "东京 23 区", ja: "東京23区" }, tokyo.id, "airport_transfer", "active", 1, 2, 1],
@@ -419,7 +421,7 @@ test("列表：按最近修改从新到旧翻页不重不漏，每页的 total �
   assert.deepEqual(seen, [a.id, d.id, c.id, b.id], "刚改过的排最前");
 
   const first = (await call("GET", "/areas?limit=1")).body.items[0];
-  assert.deepEqual(Object.keys(first).sort(), ["biz_type", "city", "city_id", "created_at", "forbid_polygon_count", "id", "name", "operate_polygon_count", "status", "updated_at", "usage", "version"]);
+  assert.deepEqual(Object.keys(first).sort(), ["biz_type", "city", "city_id", "created_at", "forbid_polygon_count", "id", "name", "operate_polygon_count", "role", "status", "updated_at", "usage", "version"]);
   assert.deepEqual([first.operate_polygon_count, first.forbid_polygon_count, first.version, first.city.code], [1, 0, 2, "CTY-JP-TYO"]);
   assert.ok(!JSON.stringify(first).includes("coordinates") || first.city.boundary === null);
 

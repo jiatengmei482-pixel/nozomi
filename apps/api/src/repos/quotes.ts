@@ -2,7 +2,7 @@
  * 报价引擎取数（M2-01，ADR 0020）：把一批商品报价要看的全部事实取出来，拼成 domain 的 QuoteProduct。
  * 每一类数据一条查询取回这一批商品的（不逐个商品查）。在租户事务里只看得到本租户的（行级安全），在平台事务里看得到全部供应商的。
  */
-import { type AddonChargeUnit, type CurrencyCode, type InventoryDay, type Position, type QuoteProduct, type ServiceCategory, type ServiceRules, type TenantStatus, tenantBids } from "@nozomi/domain";
+import { type AddonChargeUnit, type AreaBizType, type CurrencyCode, type InventoryDay, type Position, type QuoteArea, type QuoteProduct, type ServiceCategory, type ServiceRules, type TenantStatus, areaUsableByCategory, tenantBids } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
 import { ADJUST_COLUMNS, PRICE_COLUMNS, toAdjustRule, toPriceRule } from "./prices.ts";
 
@@ -83,12 +83,23 @@ export async function loadQuoteCandidates(db: Db, filter: QuoteCandidateFilter):
       order by r.product_id, r.area_id`,
     [ids, tenantIds],
   );
-  const areaIds = [...new Set([...areas.rows, ...surchargeRows.rows].map((row) => row["area_id"] as string))];
+  // 运营范围（ADR 0075）：这些供应商启用中的运营区域和「运营 + 报价」区域，不限城市；按商品的品类挑业务类型相容的
+  const operatingRows = await db.query<Row>(
+    "select tenant_id, id, biz_type from areas where tenant_id = any($1::uuid[]) and status = 'active' and role in ('operating', 'both') order by tenant_id, created_at, id",
+    [tenantIds],
+  );
+  const areaIds = [...new Set([...areas.rows, ...surchargeRows.rows].map((row) => row["area_id"] as string).concat(operatingRows.rows.map((row) => row["id"] as string)))];
   const polygons = areaIds.length === 0 ? { rows: [] as Row[] } : await db.query<Row>("select id, area_id, kind, geometry from area_polygons where tenant_id = any($2::uuid[]) and area_id = any($1::uuid[]) order by area_id, position, id", [areaIds, tenantIds]);
   const shapes = new Map<string, { id: string; kind: "operate" | "forbid"; ring: Position[] }[]>();
   for (const row of polygons.rows) shapes.set(row["area_id"], [...(shapes.get(row["area_id"]) ?? []), { id: row["id"], kind: row["kind"], ring: (row["geometry"] as { coordinates: Position[][] }).coordinates[0] ?? [] }]);
   const areasByProduct = group(areas.rows, (row) => ({ areaId: row["area_id"] as string, active: row["status"] === "active", shapes: shapes.get(row["area_id"]) ?? [] }));
   const surchargeAreasByProduct = group(surchargeRows.rows, (row) => ({ areaId: row["area_id"] as string, active: row["status"] === "active", shapes: shapes.get(row["area_id"]) ?? [] }));
+  const operatingByTenant = new Map<string, (QuoteArea & { bizType: AreaBizType })[]>();
+  for (const row of operatingRows.rows) {
+    operatingByTenant.set(row["tenant_id"], [...(operatingByTenant.get(row["tenant_id"]) ?? []), { areaId: row["id"], active: true, bizType: row["biz_type"], shapes: shapes.get(row["id"]) ?? [] }]);
+  }
+  const operatingAreas = (tenantId: string, category: ServiceCategory): QuoteArea[] =>
+    (operatingByTenant.get(tenantId) ?? []).filter((area) => areaUsableByCategory(category, area.bizType)).map(({ areaId, active, shapes: areaShapes }) => ({ areaId, active, shapes: areaShapes }));
 
   const vehicleGroups = await db.query<Row>(
     `select pv.product_id, pv.vehicle_group_id, pv.passengers, pv.luggage, vg.status
@@ -133,6 +144,7 @@ export async function loadQuoteCandidates(db: Db, filter: QuoteCandidateFilter):
         pickupPlace: row["place_type"] === null ? null : { type: row["place_type"], flightScope: row["flight_scope"] },
         areas: areasByProduct.get(row["id"]) ?? [],
         surchargeAreas: surchargeAreasByProduct.get(row["id"]) ?? [],
+        operatingAreas: operatingAreas(row["tenant_id"], category),
         vehicleGroups: groupsByProduct.get(row["id"]) ?? [],
         serviceRules,
         addonCatalog: serviceRules.addons.flatMap((chosen) => {

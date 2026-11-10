@@ -11,7 +11,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { MapTilesConfig } from "@nozomi/config";
-import { AREA_BIZ_TYPES, AREA_LIMITS, AREA_POLYGON_KINDS, AREA_POLYGON_SOURCES, type TenantAction, ringToGeoJson, tenantRoleCan } from "@nozomi/domain";
+import { AREA_BIZ_TYPES, AREA_LIMITS, AREA_POLYGON_KINDS, AREA_POLYGON_SOURCES, AREA_ROLES, type TenantAction, ringToGeoJson, tenantRoleCan } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { decodeTimeCursor } from "../pagination.ts";
@@ -59,13 +59,17 @@ const polygonSchema = z.object({
 
 const polygonsSchema = z.array(polygonSchema).max(AREA_LIMITS.maxPolygons * 4);
 
-const createSchema = z.object({ city_id: uuidSchema, name: nameSchema, biz_type: z.enum(AREA_BIZ_TYPES), polygons: polygonsSchema });
-const updateSchema = z.object({ city_id: uuidSchema.optional(), name: nameSchema, biz_type: z.enum(AREA_BIZ_TYPES), polygons: polygonsSchema });
+/**
+ * 用途（ADR 0075）：新建时不给按「运营 + 报价」（和 M8-20 之前新建的区域一样，页面改版前的调用照旧可用）；修改时不给 = 不改。
+ */
+const createSchema = z.object({ city_id: uuidSchema, name: nameSchema, biz_type: z.enum(AREA_BIZ_TYPES), role: z.enum(AREA_ROLES).default("both"), polygons: polygonsSchema });
+const updateSchema = z.object({ city_id: uuidSchema.optional(), name: nameSchema, biz_type: z.enum(AREA_BIZ_TYPES), role: z.enum(AREA_ROLES).optional(), polygons: polygonsSchema });
 
 const listQuerySchema = pageQuerySchema.extend({
   q: z.string().trim().min(1).max(100).optional(),
   city_id: uuidSchema.optional(),
   biz_type: z.enum(AREA_BIZ_TYPES).optional(),
+  role: z.enum(AREA_ROLES).optional(),
   status: z.enum(["active", "disabled", "all"]).default("all"),
 });
 
@@ -101,6 +105,7 @@ export function areaJson(view: AreaView): Json {
     city_id: area.cityId,
     city: city === null ? null : { id: city.id, code: city.code, name: city.name, status: city.status, center: { lng: city.center.lng, lat: city.center.lat }, boundary: city.boundary },
     biz_type: area.bizType,
+    role: area.role,
     status: area.status,
     operate_polygon_count: view.operatePolygonCount,
     forbid_polygon_count: view.forbidPolygonCount,
@@ -109,6 +114,7 @@ export function areaJson(view: AreaView): Json {
     created_at: area.createdAt.toISOString(),
     updated_at: area.updatedAt.toISOString(),
     ...(view.polygons === null ? {} : { polygons: view.polygons.map(polygonJson) }),
+    ...(view.outsideOperatingM2 === undefined ? {} : { outside_operating_m2: view.outsideOperatingM2 }),
   };
 }
 
@@ -156,7 +162,7 @@ export function registerAreaRoutes(app: FastifyInstance, ctx: AppContext): void 
     const page = await listAreas(
       ctx,
       principal.tenantId,
-      { search: query.q, cityId: query.city_id?.toLowerCase(), bizType: query.biz_type, status: query.status === "all" ? undefined : query.status },
+      { search: query.q, cityId: query.city_id?.toLowerCase(), bizType: query.biz_type, role: query.role, status: query.status === "all" ? undefined : query.status },
       query.limit,
       decodeTimeCursor(query.cursor ?? null),
     );
@@ -170,7 +176,7 @@ export function registerAreaRoutes(app: FastifyInstance, ctx: AppContext): void 
     const result = await createArea(
       ctx,
       { principal, ip: request.ip },
-      { cityId: input.city_id.toLowerCase(), name: input.name, bizType: input.biz_type, polygons: toPolygonInputs(input.polygons) },
+      { cityId: input.city_id.toLowerCase(), name: input.name, bizType: input.biz_type, role: input.role, polygons: toPolygonInputs(input.polygons) },
       { scope: "POST /tenant/v1/areas", key },
       areaJson,
     );
@@ -191,6 +197,7 @@ export function registerAreaRoutes(app: FastifyInstance, ctx: AppContext): void 
       cityId: input.city_id?.toLowerCase() ?? null,
       name: input.name,
       bizType: input.biz_type,
+      role: input.role ?? null,
       polygons: toPolygonInputs(input.polygons),
     });
     return areaJson(updated);

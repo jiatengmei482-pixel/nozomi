@@ -7,11 +7,17 @@
  * - 新增带幂等键；修改必须带版本号；内容没变的修改不加版本、不写日志。
  * - 所属城市必须是平台启用中的城市；城市后来被平台停用时，区域原样保留、仍然可以看和改，只是不能再启用（ADR 0015）。
  * - 供应商被平台暂停时仍然可以改自己的区域（需求文档：暂停 = 商品不参与比价，已有订单继续履约；账号照常能用）。
+ * - 用途（ADR 0075）：运营区域 / 报价区域 / 运营 + 报价。改成运营区域时有商品勾着它（任何状态）409 `AREA_IN_USE`；
+ *   改小、停用、删除运营范围（含把运营 + 报价改成报价区域）让已上架商品勾选的报价区域多出不小于 100 平方米「不在运营区域里」的部分时
+ *   409 `PRICING_AREA_OUTSIDE_OPERATING`。报价区域超出运营区域只提醒（详情里的 `outsideOperating`），不拦保存。
  */
 import { isDeepStrictEqual } from "node:util";
 import {
   AREA_LIMITS,
+  AREA_OVERLAP_MIN_M2,
   type AreaBizType,
+  type AreaRole,
+  type OverlapAreaInput,
   type AreaPolygonKind,
   type AreaPolygonSource,
   type AreaShapeIssue,
@@ -20,7 +26,11 @@ import {
   type PointLocation,
   type Position,
   areaNameKeys,
+  areaRoleCanOperate,
+  areaRoleCanPrice,
   areaShapeIssues,
+  areaUsableByCategory,
+  findPricingOutsideOperating,
   circleToRing,
   isLatitude,
   isLongitude,
@@ -41,7 +51,9 @@ import {
   type AreaListItem,
   type AreaPolygon,
   type AreaPolygonDraft,
+  type AreaShapes,
   areaNameTaken as nameTaken,
+  countProductsPricingWithArea,
   countAreasByStatus,
   deleteArea as deleteAreaRow,
   findArea,
@@ -49,6 +61,8 @@ import {
   insertArea,
   listAreaPolygons,
   listAreas as listAreaRows,
+  listPublishedPricingAreas,
+  listTenantAreaShapes,
   lockAreaNames,
   replaceAreaPolygons,
   updateArea as updateAreaRow,
@@ -77,6 +91,7 @@ export interface AreaInput {
   cityId: string;
   name: LocalizedText;
   bizType: AreaBizType;
+  role: AreaRole;
   polygons: AreaPolygonInput[];
 }
 
@@ -89,6 +104,11 @@ export interface AreaView {
   /** 被多少个商品选了、其中多少个已上架 */
   usage: AreaUsage;
   polygons: AreaPolygon[] | null;
+  /**
+   * 报价区域（报价区域、运营 + 报价）有多少平方米不在本租户任何启用中、业务类型相容的运营区域里（ADR 0075 第一部分第 2 节）：
+   * 不小于 100 平方米时给面积，否则 0；只在详情里算（列表、区域地图不算：地图自己用同一个函数算）。运营区域、停用的区域为 null
+   */
+  outsideOperatingM2?: number | null;
 }
 
 const UNUSED: AreaUsage = { productCount: 0, publishedProductCount: 0 };
@@ -202,7 +222,48 @@ function polygonAudit(polygon: AreaPolygon | AreaPolygonDraft): AuditValue {
 }
 
 function areaAudit(area: Area, polygons: readonly (AreaPolygon | AreaPolygonDraft)[]): AuditValues {
-  return { city_id: area.cityId, name: area.name, biz_type: area.bizType, status: area.status, polygons: polygons.map(polygonAudit) };
+  return { city_id: area.cityId, name: area.name, biz_type: area.bizType, role: area.role, status: area.status, polygons: polygons.map(polygonAudit) };
+}
+
+const overlapInput = (area: AreaShapes): OverlapAreaInput => ({ id: area.id, bizType: area.bizType, role: area.role, active: area.status === "active", polygons: area.polygons });
+
+/** 这个报价区域超出本租户运营区域的面积（不小于 100 平方米才算，否则 0）；运营区域、停用的为 null。 */
+function outsideOperatingOf(areaId: string, all: readonly AreaShapes[]): number | null {
+  const area = all.find((entry) => entry.id === areaId);
+  if (area === undefined || area.status !== "active" || !areaRoleCanPrice(area.role)) return null;
+  const operating = all.filter((entry) => areaRoleCanOperate(entry.role)).map(overlapInput);
+  return findPricingOutsideOperating([overlapInput(area)], operating).byArea.get(areaId) ?? 0;
+}
+
+/** 一个区域改成这样之后（`after` 为 null = 停用或删除）本租户全部区域的样子。 */
+type AreaChange = { areaId: string; after: AreaShapes | null };
+
+/**
+ * 改小、停用、删除运营范围之前核对（ADR 0075 第一部分第 2 节的硬拦）：每个已上架的商品勾选的每个报价区域，
+ * 「不在运营区域里」的部分改之后比改之前多出不小于 100 平方米 → 409 `PRICING_AREA_OUTSIDE_OPERATING`，`details` 列出受影响的商品和区域。
+ * 运营范围按商品的品类取（业务类型和品类相容的运营区域，和报价时一样）。
+ */
+async function assertOperatingKept(db: Db, tenantId: string, change: AreaChange): Promise<void> {
+  const products = await listPublishedPricingAreas(db, tenantId);
+  if (products.length === 0) return;
+  const before = await listTenantAreaShapes(db, tenantId);
+  const after = before.flatMap((area) => (area.id !== change.areaId ? [area] : change.after === null ? [] : [change.after]));
+  const outside = (areas: readonly AreaShapes[], product: (typeof products)[number]): Map<string, number> => {
+    const pricing = areas.filter((area) => product.areaIds.includes(area.id) && areaRoleCanPrice(area.role)).map(overlapInput);
+    const operating = areas.filter((area) => areaRoleCanOperate(area.role) && areaUsableByCategory(product.category, area.bizType)).map(overlapInput);
+    return findPricingOutsideOperating(pricing, operating, () => true).byArea;
+  };
+  const affected: { product_id: string; product_code: string; area_id: string; outside_m2: number }[] = [];
+  for (const product of products) {
+    const was = outside(before, product);
+    for (const [areaId, m2] of outside(after, product)) {
+      if (m2 - (was.get(areaId) ?? 0) >= AREA_OVERLAP_MIN_M2) affected.push({ product_id: product.productId, product_code: product.code, area_id: areaId, outside_m2: m2 });
+    }
+  }
+  if (affected.length === 0) return;
+  throw new AppError(409, "PRICING_AREA_OUTSIDE_OPERATING", `这样改之后，${new Set(affected.map((item) => item.product_id)).size} 个已上架商品勾选的报价区域会有一部分不在任何运营区域里，那部分将报不出价。请先补上运营区域，或先把这些商品下架`, {
+    items: affected,
+  });
 }
 
 function counts(polygons: readonly { kind: AreaPolygonKind }[]): { operatePolygonCount: number; forbidPolygonCount: number } {
@@ -216,7 +277,8 @@ async function detail(db: Db, tenantId: string, area: Area): Promise<AreaView> {
   const polygons = await listAreaPolygons(db, tenantId, area.id);
   const city = (await findAreaCities(db, [area.cityId])).get(area.cityId) ?? null;
   const usage = (await areaUsage(db, tenantId, [area.id])).get(area.id) ?? UNUSED;
-  return { area, city, ...counts(polygons), usage, polygons };
+  const outsideOperatingM2 = area.status === "active" && areaRoleCanPrice(area.role) ? outsideOperatingOf(area.id, await listTenantAreaShapes(db, tenantId)) : null;
+  return { area, city, ...counts(polygons), usage, polygons, outsideOperatingM2 };
 }
 
 /** 数据库因为死锁、序列化失败放弃事务时自动重做（接口层对仍不成功的返回 409 CONCURRENT_UPDATE）。 */
@@ -300,7 +362,7 @@ export async function createArea(
       const nameKeys = areaNameKeys(input.name);
       await lockAreaNames(db, tenantId, input.cityId);
       if (await nameTaken(db, tenantId, input.cityId, nameKeys, null)) throw areaNameTaken();
-      const area = await insertArea(db, tenantId, input.cityId, { name: input.name, nameKeys, bizType: input.bizType }, now);
+      const area = await insertArea(db, tenantId, input.cityId, { name: input.name, nameKeys, bizType: input.bizType, role: input.role }, now);
       await replaceAreaPolygons(db, tenantId, area.id, drafts);
       await audit(db, ctx, writer, now, { areaId: area.id, action: "create", before: null, after: areaAudit(area, drafts) });
       return { status: 201, body: respond(await detail(db, tenantId, area)) };
@@ -313,6 +375,8 @@ export interface AreaUpdate {
   cityId: string | null;
   name: LocalizedText;
   bizType: AreaBizType;
+  /** 不给 = 不改 */
+  role: AreaRole | null;
   polygons: AreaPolygonInput[];
 }
 
@@ -341,24 +405,41 @@ export async function updateArea(ctx: DbContext, writer: AreaWriter, id: string,
     const stored = await listAreaPolygons(db, tenantId, id);
     const drafts = buildPolygons(input.polygons, stored);
 
+    const role = input.role ?? current.role;
     const nameChanged = !isDeepStrictEqual(input.name, current.name);
     const bizTypeChanged = input.bizType !== current.bizType;
+    const roleChanged = role !== current.role;
     const polygonsChanged = drafts.length !== stored.length || drafts.some((draft, index) => !samePolygon(stored[index] as AreaPolygon, draft));
-    if (!nameChanged && !bizTypeChanged && !polygonsChanged) return detail(db, tenantId, current);
+    if (!nameChanged && !bizTypeChanged && !roleChanged && !polygonsChanged) return detail(db, tenantId, current);
     // 已经有商品选了这个区域时不能改业务类型：商品只能用业务类型和自己品类相同（或通用）的区域
     if (bizTypeChanged && ((await areaUsage(db, tenantId, [id])).get(id)?.productCount ?? 0) > 0) throw fieldLocked(["biz_type"]);
+    // 改成运营区域：价格没有地方挂了。有商品勾着它（商品区域、区域加价、线路价；草稿也算）就不能改（ADR 0075）
+    if (roleChanged && !areaRoleCanPrice(role)) {
+      const used = await countProductsPricingWithArea(db, tenantId, id);
+      if (used.productCount > 0) {
+        throw new AppError(409, "AREA_IN_USE", `有 ${used.productCount} 个商品勾选了这个区域（商品区域、区域加价或线路价），不能改成运营区域。请先在这些商品里去掉它`, {
+          product_count: used.productCount,
+          published_product_count: used.publishedProductCount,
+        });
+      }
+    }
+    // 运营范围可能变小（图形、业务类型、用途变了）：已上架商品的报价区域不能因此多出「不在运营区域里」的部分
+    if (areaRoleCanOperate(current.role) && current.status === "active" && (polygonsChanged || bizTypeChanged || roleChanged)) {
+      await assertOperatingKept(db, tenantId, { areaId: id, after: { id, bizType: input.bizType, role, status: current.status, polygons: drafts.map((draft) => ({ kind: draft.kind, ring: draft.ring })) } });
+    }
 
     const nameKeys = areaNameKeys(input.name);
     if (nameChanged) {
       await lockAreaNames(db, tenantId, current.cityId);
       if (await nameTaken(db, tenantId, current.cityId, nameKeys, id)) throw areaNameTaken();
     }
-    const updated = await updateAreaRow(db, tenantId, id, { name: input.name, nameKeys, bizType: input.bizType }, current.status, now);
+    const updated = await updateAreaRow(db, tenantId, id, { name: input.name, nameKeys, bizType: input.bizType, role }, current.status, now);
     if (polygonsChanged) await replaceAreaPolygons(db, tenantId, id, drafts);
     const before: AuditValues = {};
     const after: AuditValues = {};
     if (nameChanged) [before["name"], after["name"]] = [current.name, updated.name];
     if (bizTypeChanged) [before["biz_type"], after["biz_type"]] = [current.bizType, updated.bizType];
+    if (roleChanged) [before["role"], after["role"]] = [current.role, updated.role];
     if (polygonsChanged) [before["polygons"], after["polygons"]] = [stored.map(polygonAudit), drafts.map(polygonAudit)];
     await audit(db, ctx, writer, now, { areaId: id, action: "update", before, after });
     return detail(db, tenantId, updated);
@@ -382,6 +463,7 @@ export async function setAreaStatus(ctx: DbContext, writer: AreaWriter, id: stri
     } else {
       const usage = (await areaUsage(db, tenantId, [id])).get(id) ?? UNUSED;
       if (usage.publishedProductCount > 0) throw areaInUse("停用", usage);
+      if (areaRoleCanOperate(current.role)) await assertOperatingKept(db, tenantId, { areaId: id, after: null });
     }
     const updated = await updateAreaRow(db, tenantId, id, null, status, now);
     await audit(db, ctx, writer, now, {
@@ -407,6 +489,7 @@ export async function deleteArea(ctx: DbContext, writer: AreaWriter, id: string)
     if (!current) throw notFound("区域");
     const usage = (await areaUsage(db, tenantId, [id])).get(id) ?? UNUSED;
     if (usage.publishedProductCount > 0) throw areaInUse("删除", usage);
+    if (areaRoleCanOperate(current.role) && current.status === "active") await assertOperatingKept(db, tenantId, { areaId: id, after: null });
     const stored = await listAreaPolygons(db, tenantId, id);
     const usedBy = await productIdsUsingArea(db, tenantId, id);
     // 这个区域下的价格、调价规则里的适用范围：明着删掉 / 去掉，各记日志，相关商品的版本号加一

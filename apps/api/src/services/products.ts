@@ -37,6 +37,7 @@ import {
   sellablePriceRules,
   sellableRouteRules,
   isSurchargeRule,
+  areaRoleCanPrice,
   areaUsableByCategory,
   canPublish,
   contentIssues,
@@ -318,6 +319,8 @@ async function assertRelations(
       else if (!area) issues.push({ path: at, reason: "UNKNOWN_AREA", message: "区域不存在" });
       else if (area.cityId !== product.cityId) issues.push({ path: at, reason: "AREA_OTHER_CITY", message: "只能选商品所在城市的区域" });
       else if (!areaUsableByCategory(product.category, area.bizType)) issues.push({ path: at, reason: "AREA_NOT_USABLE", message: "只能选业务类型和商品品类相同的区域，或「通用」的区域" });
+      // 运营区域只决定能不能接单、不带价格，不能被商品勾选（ADR 0075）；已经勾着的不会是运营区域（改用途时就拦了）
+      else if (!areaRoleCanPrice(area.role)) issues.push({ path: at, reason: "AREA_ROLE_NOT_PRICING", message: "运营区域不带价格，商品只能勾选报价区域（或「运营 + 报价」的区域）" });
       else if (area.status !== "active" && !already.areaIds.has(areaId)) issues.push({ path: at, reason: "AREA_DISABLED", message: "这个区域已停用，不能新选" });
       seen.add(areaId);
     }

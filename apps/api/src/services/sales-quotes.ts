@@ -53,8 +53,10 @@ function salesReason(reason: ComparisonRefusal, route: RouteOutcome): SalesUnava
   switch (reason) {
     case "ROUTE_UNAVAILABLE":
       return route.status === "unavailable" ? guestRouteReason(route.code) : "TEMPORARILY_UNAVAILABLE";
+    // 在运营区域里、但商品没勾报价区域（ADR 0075）：只是平台内部的细分，对外仍是不在服务范围（不给渠道加新的枚举值）
     case "OUT_OF_SERVICE_AREA":
     case "IN_FORBIDDEN_AREA":
+    case "NO_PRICING_AREA":
       return "OUT_OF_SERVICE_AREA";
     // 包车没给下车地点、而商品设了区域加价（ADR 0073）：渠道补上下车地点就能报
     case "DROPOFF_REQUIRED":
