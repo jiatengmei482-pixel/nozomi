@@ -50,7 +50,7 @@ test("商品列表：路径、查询参数（筛选条件一个不差）、应�
   const list = op("get", PLATFORM_PRODUCTS_PATH);
   const query = params(list).filter((parameter) => parameter.in === "query");
   assert.deepEqual(sorted(query.map((parameter) => parameter.name ?? "")), sorted(PLATFORM_PRODUCT_QUERY_KEYS));
-  assert.deepEqual(query.find((parameter) => parameter.name === "status")?.schema?.enum, ["draft", "published", "unpublished", "all"]);
+  assert.deepEqual(query.find((parameter) => parameter.name === "status")?.schema?.enum, ["draft", "published", "unpublished", "qa_listed", "all"]);
   assert.deepEqual(query.find((parameter) => parameter.name === "has_active_price")?.schema?.enum, ["true", "false"]);
   const body = response(list, "200");
   assert.deepEqual(sorted(body?.required ?? []), ["items", "next_cursor", "total"]);
