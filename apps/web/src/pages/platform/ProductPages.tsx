@@ -403,7 +403,7 @@ export function PlatformProductDetailPage() {
   const listPage = readListPage(location.state);
   const listState = useMemo(() => (listPage ? { listPage } : undefined), [listPage?.key, listPage?.stack.length]);
   const source = useMemo(
-    () => (detail ? platformProductSource(PLATFORM_PRODUCT_LIST_PATH, { serviceRules: detail.service_rules, content: { version: detail.product.version, content: detail.content }, priceRules: detail.price_rules, adjustRules: detail.adjust_rules }) : null),
+    () => (detail ? platformProductSource(PLATFORM_PRODUCT_LIST_PATH, { serviceRules: detail.service_rules, content: { version: detail.product.version, content: detail.content }, priceRules: detail.price_rules, adjustRules: detail.adjust_rules, tenantId: detail.tenant.id }) : null),
     [detail],
   );
 
