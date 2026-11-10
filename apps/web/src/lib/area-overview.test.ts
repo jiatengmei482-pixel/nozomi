@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { parsePastedShapes } from "./area-editor.ts";
 import type { AreaMapItem } from "../api/area-map.ts";
-import { AREA_COLOR_SLOTS, areasInGeoJson, areasToGeoJson, checkImportText, colorSlot, computeOverlaps, editorText, exportFileName, filterAreas, overlapAreaText, overlapText, parseLatLngText, shapeSummary } from "./area-overview.ts";
+import { AREA_COLOR_SLOTS, areasInGeoJson, areasToGeoJson, checkImportText, colorSlot, computeOverlaps, editorText, exportFileName, filterAreas, overlapAreaText, overlapText, parseLatLngText, roleInGeoJson, shapeSummary } from "./area-overview.ts";
 
 const stamps = { created_at: "2026-11-01T00:00:00.000Z", updated_at: "2026-11-02T00:00:00.000Z" };
 const city = { id: "c1", code: "CTY-JP-TYO", name: { zh: "东京" }, status: "active" as const, center: { lng: 139.7, lat: 35.7 }, boundary: null };
@@ -86,7 +86,7 @@ describe("区域地图的纯函数", () => {
     const parsed = JSON.parse(text);
     assert.equal(parsed.type, "FeatureCollection");
     assert.equal(parsed.features.length, 2);
-    assert.deepEqual(parsed.features[1].properties, { area_id: "a", area_name: "甲", city_code: "CTY-JP-TYO", biz_type: "general", status: "active", kind: "forbid", name: "禁行 2", label: "皇居" });
+    assert.deepEqual(parsed.features[1].properties, { area_id: "a", area_name: "甲", city_code: "CTY-JP-TYO", biz_type: "general", role: "both", status: "active", kind: "forbid", name: "禁行 2", label: "皇居" });
     const back = parsePastedShapes(text);
     assert.deepEqual(back.polygons.map((polygon) => [(polygon as { kind?: string }).kind, (polygon as { label?: string }).label]), [["operate", ""], ["forbid", "皇居"]]);
     assert.equal(areasInGeoJson(text), 1);
@@ -116,5 +116,28 @@ describe("区域地图的纯函数", () => {
     assert.equal(parseLatLngText("139.6917, 35.6895"), null, "纬度超过 90：多半是写反了，不猜");
     assert.equal(parseLatLngText("成田机场"), null);
     assert.equal(parseLatLngText("35.6"), null);
+  });
+
+  it("M8-20：重叠只在报价区域之间算——运营区域和谁叠在一起都不算；按用途筛（运营 / 报价都含「运营 + 报价」）", () => {
+    const op = item("o", "运营", [operate("po", 0, 0, 0.05)], { role: "operating" });
+    const op2 = item("o2", "运营二", [operate("po2", 0.01, 0.01, 0.05)], { role: "operating" });
+    const a = item("a", "甲", [operate("pa", 0, 0, 0.02)], { role: "pricing" });
+    const b = item("b", "乙", [operate("pb", 0.01, 0.01, 0.02)], { role: "both" });
+    const found = computeOverlaps([op, op2, a, b]);
+    assert.deepEqual(found.pairs.map((pair) => [pair.a, pair.b]), [["a", "b"]]);
+    assert.ok(!found.byArea.has("o") && !found.byArea.has("o2"));
+    const all = [op, a, b];
+    assert.deepEqual(filterAreas(all, { q: "", overlapOnly: false, role: "operating" }, found).map((entry) => entry.id), ["o", "b"]);
+    assert.deepEqual(filterAreas(all, { q: "", overlapOnly: false, role: "pricing" }, found).map((entry) => entry.id), ["a", "b"]);
+    assert.deepEqual(filterAreas(all, { q: "", overlapOnly: false, role: "all" }, found).map((entry) => entry.id), ["o", "a", "b"]);
+  });
+
+  it("M8-20：导出带用途；导入时全部要素用途一致才认，否则让用户自己选", () => {
+    const text = areasToGeoJson([item("a", "甲", [operate("pa", 0, 0, 1)], { role: "operating" })]);
+    assert.equal(roleInGeoJson(text), "operating");
+    const mixed = JSON.stringify({ type: "FeatureCollection", features: [{ properties: { role: "pricing" } }, { properties: { role: "operating" } }] });
+    assert.equal(roleInGeoJson(mixed), null);
+    assert.equal(roleInGeoJson(JSON.stringify({ type: "FeatureCollection", features: [{ properties: { role: "部门" } }] })), null);
+    assert.equal(roleInGeoJson("不是 JSON"), null);
   });
 });

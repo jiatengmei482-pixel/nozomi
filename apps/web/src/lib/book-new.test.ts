@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decodePolyline, guestCurrencyOf, moneyDifference, parseBookingLink, referenceMoney, rejectionTexts, routeMapSize, routeSummaryText, seatPlan, travellersText } from "./book-new.ts";
+import { decodePolyline, guestCurrencyOf, moneyDifference, parseBookingLink, pointName, referenceMoney, rejectionTexts, routeMapSize, routeSummaryText, seatPlan, suggestionNames, travellersText } from "./book-new.ts";
 
 test("链接参数：编码、「纬度,经度」加名称、日期、时间、人数、行李都合法时全部读出", () => {
   assert.deepEqual(parseBookingLink("?from=NRT&to=35.6895,139.6917&to_name=%E4%BA%AC%E7%8E%8B%E5%B9%BF%E5%9C%BA%E9%85%92%E5%BA%97&date=2030-11-20&time=14:30&pax=2&bags=3"), {
@@ -104,4 +104,13 @@ test("路线图要多大的图（M8-10）：按框的实际宽高取整、收进
   assert.deepEqual(routeMapSize(900, 800, 1.5), { width: 640, height: 640, scale: 2 });
   assert.deepEqual(routeMapSize(0, 0, 3), { width: 200, height: 150, scale: 2 });
   assert.deepEqual(routeMapSize(Number.NaN, Number.POSITIVE_INFINITY, 0.9), { width: 200, height: 150, scale: 1 });
+});
+
+test("M8-20 询价带的地点名称：只有从地址联想选的那一端才有，名称最多 200 字，空白的不带", () => {
+  const picked = { name: "京王广场酒店（东京都新宿区）", lat: 35.69, lng: 139.69, kind: "other" as const, suggestionName: "京王广场酒店" };
+  const typed = { name: pointName(35.6, 139.7), lat: 35.6, lng: 139.7, kind: null };
+  assert.deepEqual(suggestionNames(picked, typed), { pickup_name: "京王广场酒店" });
+  assert.deepEqual(suggestionNames(typed, picked), { dropoff_name: "京王广场酒店" });
+  assert.deepEqual(suggestionNames(null, { ...picked, suggestionName: "  " }), {});
+  assert.equal(suggestionNames({ ...picked, suggestionName: "长".repeat(250) }, null).pickup_name?.length, 200);
 });
