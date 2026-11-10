@@ -39,7 +39,7 @@ export interface AreaOverviewMapProps {
   /** 变了就把视野移到选中的区域（没有选中时：全部区域） */
   focusSignal: number;
   marker: OverviewMarker | null;
-  /** 报价区域超出运营区域的部分（M8-20）：警告色斜线；不给 = 不画、图例里不列 */
+  /** 报价区域超出运营区域的部分（M8-20）：警告色斜线；没有时不画、图例里不列 */
   outside?: readonly AreaOverlapPiece[];
   /** 运营后台「未覆盖需求」图层（M8-20）：给了就画、图例里列出；`null` / 不给 = 图层关着 */
   demands?: readonly DemandMapPoint[] | null;
@@ -179,6 +179,8 @@ export function AreaOverviewMap({ tiles, areas, selected, onSelect, overlaps, sh
   const overlapPath = showOverlaps ? overlaps.map((piece) => path(piece.ring)).join("") : "";
   const selectedOverlapPath = showOverlaps && selected !== null ? overlaps.filter((piece) => piece.areaIds.includes(selected)).map((piece) => path(piece.ring)).join("") : "";
   const outsidePath = (outside ?? []).map((piece) => path(piece.ring)).join("");
+  // 图例只列画面上有的：没有运营区域时和改版前一样只有「区域」一行；没有超出的部分时不列「超出运营区域」（图例小一点，少挡地图）
+  const hasOperating = areas.some(isOperating);
   const selectedOutsidePath = selected !== null ? (outside ?? []).filter((piece) => piece.areaIds.includes(selected)).map((piece) => path(piece.ring)).join("") : "";
   // 图层关掉、换了一批点：弹出的说明跟着收起
   const shownPopup = popup !== null && demands?.some((entry) => entry.key === popup.key) ? popup : null;
@@ -318,23 +320,31 @@ export function AreaOverviewMap({ tiles, areas, selected, onSelect, overlaps, sh
       {tileTrouble && <p className="area-map__hint area-map__hint--trouble">底图没有加载出来。区域照常显示，名称和重叠见旁边的列表。</p>}
       <div className="area-map__footer">
         <ul className="area-map__legend" aria-label="图例">
-          <li>
-            <svg className="legend-swatch area-overview--operating" viewBox="0 0 24 14" aria-hidden="true">
-              <path className="area-overview-fill area-color--0" d="M2,2H22V12H2Z" />
-              <path className="area-overview-stroke area-color--0" d="M2,2H22V12H2Z" />
-            </svg>
-            <span>
-              <strong>运营区域</strong> 虚线：只决定能不能接单
-            </span>
-          </li>
+          {hasOperating && (
+            <li>
+              <svg className="legend-swatch area-overview--operating" viewBox="0 0 24 14" aria-hidden="true">
+                <path className="area-overview-fill area-color--0" d="M2,2H22V12H2Z" />
+                <path className="area-overview-stroke area-color--0" d="M2,2H22V12H2Z" />
+              </svg>
+              <span>
+                <strong>运营区域</strong> 虚线：只决定能不能接单
+              </span>
+            </li>
+          )}
           <li>
             <svg className="legend-swatch" viewBox="0 0 24 14" aria-hidden="true">
               <path className="area-overview-fill area-color--0" d="M2,2H22V12H2Z" />
               <path className="area-overview-stroke area-color--0" d="M2,2H22V12H2Z" />
             </svg>
-            <span>
-              <strong>报价区域 / 运营 + 报价</strong> 实线：颜色同列表圆点
-            </span>
+            {hasOperating ? (
+              <span>
+                <strong>报价区域 / 运营 + 报价</strong> 实线：颜色同列表圆点
+              </span>
+            ) : (
+              <span>
+                <strong>区域</strong> 颜色和列表的圆点一致
+              </span>
+            )}
           </li>
           <li>
             <Swatch kind="forbid" />
@@ -352,7 +362,7 @@ export function AreaOverviewMap({ tiles, areas, selected, onSelect, overlaps, sh
               </span>
             </li>
           )}
-          {outside !== undefined && (
+          {outsidePath !== "" && (
             <li>
               <svg className="legend-swatch" viewBox="0 0 24 14" aria-hidden="true">
                 <path className="area-outside" d="M2,2H22V12H2Z" />
