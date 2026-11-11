@@ -808,6 +808,7 @@
           "acceptance": ["查清 PR #150 run 42939235305 上 km-display.spec.ts:157 报价距离是 6800 的原因（路线缓存写入时机、键、并行用例互相覆盖或替身默认值），修测试或修代码，不靠加长等待", "同一类偶发还有 route-estimates-qa.spec.ts:127（PR #150 run 42947593270，官网点对点只有里程计价的商品）：一并查是否同一原因（路线替身 / 路线缓存在并行用例间互相影响）",
           "另一类偶发：manual-quote.spec.ts:77 运营后台人工报价列表 axe color-contrast（PR #151 run 后一轮，同代码上一轮通过），查是否检查时机落在行高亮或过渡动画中",
           "另一类偶发：area-overview.spec.ts:264 第一次点地图选中区域（PR #152 run 43002718531，小区 JUB 的 aria-pressed 仍为 false；同代码上一轮 run 43001107329 e2e 通过），查是否地图加载完成前就点击",
+          "另一类偶发：route-estimates.qa.itest.ts:346 并发用例（main 17753c83 的 CI run 42988235553，期望 2 实际 1；同代码 PR #151 的 CI 通过），导致 #151 合并后没有部署测试环境",
           "该用例本机并行 20 次、CI 连续 3 轮不失败"],
           "evidence": "",
           "updated": "2026-11-11"
@@ -1834,6 +1835,11 @@
       "date": "2026-11-11",
       "by": "Claude",
       "summary": "接手 M8-30：PR #152 最新提交 be9d7f8（只改 roadmap）e2e 1 条失败 area-overview.spec.ts:264，与本 PR 无关（上一提交 8c3fe29 同代码 e2e 通过）；已登记进 M8-29 去偶发，重新触发 CI"
+    },
+    {
+      "date": "2026-11-11",
+      "by": "Claude",
+      "summary": "M8-30：CI check 真失败 rls.itest.ts（结构检查的租户表清单漏了新表 distance_prices；表本身已开行级安全且有策略），补进清单，本机 rls.itest.ts 11 条全过。独立审查已通过（结论写在 PR #152）。另发现 main 17753c83 的 CI 因 route-estimates.qa.itest.ts:346 偶发失败而没部署，测试环境仍是 e2be41a9；11-11 04:16Z 那次部署失败是连不上服务器。夜间计划不登录服务器，30 天全量重算改为合并前后用公开接口 17 条线路逐分比对（基线已存 qa/m830-before.json），用 Actions 只读跑 role-preview 另写改进方案"
     }
   ]
 }

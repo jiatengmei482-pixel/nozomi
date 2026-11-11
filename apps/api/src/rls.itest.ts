@@ -175,7 +175,7 @@ test("结构检查：每张带 tenant_id 的表都开启了行级安全并且有
       order by 1`,
   );
   assert.deepEqual(tables.rows.map((r) => r.table_name), [
-    "adjust_rules", "area_polygons", "areas", "audit_logs", "bank_file_items", "brands", "driver_link_emails", "driver_links", "drivers", "idempotency_keys", "inventory_days", "notification_events", "notifications", "order_assignments", "order_changes", "order_contacts", "order_events", "order_extra_charges", "order_files", "order_locations", "order_no_show_claims", "order_rescue_offers", "order_reviews", "order_todos", "orders", "payout_accounts",
+    "adjust_rules", "area_polygons", "areas", "audit_logs", "bank_file_items", "brands", "distance_prices", "driver_link_emails", "driver_links", "drivers", "idempotency_keys", "inventory_days", "notification_events", "notifications", "order_assignments", "order_changes", "order_contacts", "order_events", "order_extra_charges", "order_files", "order_locations", "order_no_show_claims", "order_rescue_offers", "order_reviews", "order_todos", "orders", "payout_accounts",
     "price_rules", "product_areas", "product_dispatchers", "product_vehicle_groups", "products", "statement_events", "statement_lines", "statements", "tenant_contracts", "tenant_deductions", "tenant_documents", "tenant_files", "tenant_notices", "tenant_notification_settings", "tenant_performance_events", "tenant_profile_changes", "tenant_profiles", "tenant_score_daily", "tenant_sessions",
     "tenant_status_events", "tenant_users", "tenant_webhooks", "ticket_messages", "tickets", "vehicles", "webhook_attempts", "webhook_deliveries",
   ]);
