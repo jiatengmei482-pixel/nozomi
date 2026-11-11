@@ -852,7 +852,7 @@
             "现在能报出的价格一分不变（最近 30 天询价只读回放对比）；客人页标注「按里程计价 / 含里程费 / 含区域加价」",
             "业主 2026-11-11 确认的最终优先级；写 ADR；M8-14 按新规则验收"
           ],
-          "evidence": "分支 m8-30-quote-priority（未开 PR，按指示）；ADR 0080；domain 单元测试 quote-priority 15 条 + quote-compat 新增 1 条（golden 全部样例：今天报得出的价逐分不变）；集成测试 distance-prices.itest.ts 6 条（接口、三种情形、运营上限、路线取不到、订单、只读回放 0 处变化）、tenant-isolation 新增 3 条；本机相关集成测试 14 个文件 227 条通过",
+          "evidence": "分支 m8-30-quote-priority（未开 PR，按指示）；ADR 0080；domain 单元测试 quote-priority 15 条 + quote-compat 新增 1 条（golden 全部样例：今天报得出的价逐分不变）；集成测试 distance-prices.itest.ts 6 条（接口、三种情形、运营上限、路线取不到、订单、只读回放 0 处变化）、tenant-isolation 新增 3 条；本机相关集成测试 25 个文件 375 条、单元测试 2,532 条通过；全套交 CI",
           "updated": "2026-11-11"
         },
         {
