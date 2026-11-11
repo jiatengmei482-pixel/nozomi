@@ -221,6 +221,8 @@ function platformOrderJson(entry: { order: Order; sale: OrderSale; payment: Orde
     payment: paymentJson(entry.payment),
     cancel_policy: cancelPolicyJson(order),
     cancellation: platformCancellationJson(order, sale),
+    // 测试环境验收通道下的验收单（M8-26，ADR 0078）：后台标「验收」；不进结算
+    is_acceptance: order.isAcceptance,
     version: order.version,
   }, known);
 }

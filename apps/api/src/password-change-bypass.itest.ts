@@ -163,6 +163,7 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
       ["GET", "/platform/v1/notifications"],
       ["GET", "/platform/v1/notification-templates"],
       ["POST", `/platform/v1/notifications/${ids.userId}/retry`],
+      ["GET", `/platform/v1/notifications/${ids.userId}/suppressed-content`],
       // 人工报价申请、官网设置（M8-21，ADR 0076）
       ["GET", "/platform/v1/manual-quote-requests"],
       ["GET", "/platform/v1/manual-quote-requests/assignees"],
@@ -334,6 +335,7 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
     ["GET", `/tenant/v1/products/${ids.userId}/publish-check`],
     ["POST", `/tenant/v1/products/${ids.userId}/publish`],
     ["POST", `/tenant/v1/products/${ids.userId}/unpublish`],
+    ["POST", `/tenant/v1/products/${ids.userId}/qa-list`],
     ["GET", `/tenant/v1/products/${ids.userId}/price-rules`],
     ["POST", `/tenant/v1/products/${ids.userId}/price-rules`, PRICE_BODY],
     ["POST", `/tenant/v1/products/${ids.userId}/price-rules/batch`, { create: [PRICE_BODY] }],

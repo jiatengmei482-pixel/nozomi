@@ -137,7 +137,15 @@ interface Sent {
 }
 
 /**
- * 唯一发请求的地方：相对路径、不带 Cookie、不走缓存、带超时。连不上、超时抛 NetworkError；用户自己取消抛 CancelledError。
+ * 官网接口（路径以 site/v1 开头）带同源 Cookie：测试环境验收通道（M8-26，ADR 0078）的会话 Cookie 只发往官网接口路径，
+ * 是 HttpOnly、SameSite=Strict；正式环境和没解锁的浏览器里没有这个 Cookie，请求和以前一样。其余接口一律不带 Cookie。
+ */
+function siteCredentials(url: string): RequestCredentials {
+  return /^\/site\/v1\//.test(url) ? "same-origin" : "omit";
+}
+
+/**
+ * 唯一发请求的地方：相对路径、不带 Cookie（官网接口例外，见 siteCredentials）、不走缓存、带超时。连不上、超时抛 NetworkError；用户自己取消抛 CancelledError。
  */
 async function send(method: string, url: string, init: { headers: Record<string, string>; body: BodyInit | null; timeoutMs: number; signal?: AbortSignal | undefined }): Promise<Sent> {
   const abort = new AbortController();
@@ -153,7 +161,7 @@ async function send(method: string, url: string, init: { headers: Record<string,
     init.signal?.removeEventListener("abort", cancel);
   };
   try {
-    const response = await fetch(url, { method, headers: init.headers, signal: abort.signal, cache: "no-store", credentials: "omit", ...(init.body !== null ? { body: init.body } : {}) });
+    const response = await fetch(url, { method, headers: init.headers, signal: abort.signal, cache: "no-store", credentials: siteCredentials(url), ...(init.body !== null ? { body: init.body } : {}) });
     return { response, done, aborted: () => abort.signal.aborted, timedOut: () => timedOut };
   } catch {
     done();

@@ -29,8 +29,13 @@ export interface QuoteCandidateFilter {
   poiId: string | null;
   /** 只取这一个商品（供应商自己试算） */
   productId?: string;
-  /** 只取已上架的 */
+  /** 只取在卖的（`listing` 那一种状态） */
   publishedOnly: boolean;
+  /**
+   * `publishedOnly` 时「在卖」指哪一种：默认已上架（普通客人、销售端、平台试算）；`qa_listed` 是测试环境的验收会话（M8-26，ADR 0078），
+   * 只取 QA 测试供应商的验收可售商品。两种从不混在一起
+   */
+  listing?: "published" | "qa_listed";
   /**
    * 把这些供应商启用中的每个区域都当作运营范围（不看用途）：迁移 0290 之前，区域还没有用途这一列，迁移会把它们全部填成「运营 + 报价」——
    * 切换前的只读清单（`pnpm areas:role-preview`）用它按「迁移后的用途」回放。报价、试算都不给
@@ -48,7 +53,7 @@ export async function loadQuoteCandidates(db: Db, filter: QuoteCandidateFilter):
   const products = await db.query<Row>(
     `select p.id, p.tenant_id, p.code, p.category, p.status, p.version, p.service_rules, p.inventory_mode, p.city_id,
             b.currency, b.rounding_unit, b.status as brand_status,
-            t.name as tenant_name, t.status as tenant_status,
+            t.name as tenant_name, t.status as tenant_status, t.is_test_tenant,
             c.timezone, c.country_code,
             pl.type as place_type, pl.flight_scope, pl.lng as place_lng, pl.lat as place_lat
        from products p
@@ -59,9 +64,9 @@ export async function loadQuoteCandidates(db: Db, filter: QuoteCandidateFilter):
       where p.city_id = $1 and p.category = $2 and c.status = 'active'
         and ($3::uuid is null or (p.poi_id = $3 and pl.status = 'active'))
         and ($4::uuid is null or p.id = $4)
-        and (not $5::boolean or p.status = 'published')
+        and (not $5::boolean or (p.status = $6 and ($6 = 'published' or t.is_test_tenant)))
       order by p.tenant_id, p.id`,
-    [filter.cityId, filter.category, filter.poiId, filter.productId ?? null, filter.publishedOnly],
+    [filter.cityId, filter.category, filter.poiId, filter.productId ?? null, filter.publishedOnly, filter.listing ?? "published"],
   );
   const ids = products.rows.map((row) => row["id"] as string);
   if (ids.length === 0) return [];
@@ -142,6 +147,8 @@ export async function loadQuoteCandidates(db: Db, filter: QuoteCandidateFilter):
         status: row["status"],
         tenantActive: tenantBids(row["tenant_status"]),
         tenantRefusal: row["tenant_status"] === "suspended" ? "TENANT_SUSPENDED" : "TENANT_NOT_ONBOARDED",
+        // 只在是测试供应商时带（别的商品的事实和以前逐字节相同）
+        ...(row["is_test_tenant"] === true ? { testTenant: true } : {}),
         brandActive: row["brand_status"] === "active",
         currency: row["currency"] as CurrencyCode,
         roundingUnit: row["rounding_unit"],

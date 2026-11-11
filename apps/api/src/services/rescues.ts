@@ -162,6 +162,8 @@ export interface Triggered {
  * 记违约金（应扣款项）、流水、推 `order.status_changed` 给原供应商、审计、服务日志通知运营。
  */
 export async function triggerRescueInTx(db: Db, order: Order, input: TriggerInput, log: OrderLog, now: Date): Promise<Triggered> {
+  // 验收单（M8-26，ADR 0078）只属于 QA 测试供应商：不能改派给真实供应商。要结束它就取消
+  if (order.isAcceptance) throw new AppError(409, "ACCEPTANCE_ORDER_NOT_RESCUABLE", "这是测试环境的验收单，不能救援改派给别的供应商；不需要了请取消", { trigger: input.trigger });
   const open = await findOpenRescue(db, order.id, { lock: true });
   if (open !== null) throw rescueAlreadyOpen(open);
   const tenant = (await db.query<{ status: string }>("select status from tenants where id = $1", [order.tenantId])).rows[0];
@@ -881,7 +883,7 @@ export async function sweepRescues(ctx: AppContext, log: OrderLog = SILENT_ORDER
   const due = await withPlatformTx(ctx.pool, async (db) =>
     (
       await db.query<{ id: string }>(
-        `select id from orders where status = 'confirmed' and dispatch_due_at is not null and service_at <= $2 and dispatch_due_at <= $1
+        `select id from orders where status = 'confirmed' and dispatch_due_at is not null and service_at <= $2 and dispatch_due_at <= $1 and not is_acceptance
           order by service_at, id limit $3`,
         [now, sixHours, JOB_BATCH],
       )

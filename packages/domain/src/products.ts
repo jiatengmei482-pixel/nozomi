@@ -25,10 +25,14 @@ export const PRODUCT_CATEGORY_NAMES: Readonly<Record<ServiceCategory, string>> =
  * 需求文档写的是四个（草稿 → 未上架 → 已上架 → 已下架）；「未上架」和「草稿」在本系统里没有行为上的区别
  * （都是还没上过架、可以改、不参与比价），所以合成一个（ADR 0016）。
  */
-export const PRODUCT_STATUSES = ["draft", "published", "unpublished"] as const;
+/**
+ * 「验收可售」（`qa_listed`，M8-26，ADR 0078）：只有测试环境的 QA 测试供应商能用。它不是上架：官网、销售端、平台试算一律不看它，
+ * 只有带了有效验收会话的官网询价只看它（见 qa-acceptance.ts）。从它可以下架；供应商仍停在申请中。
+ */
+export const PRODUCT_STATUSES = ["draft", "published", "unpublished", "qa_listed"] as const;
 export type ProductStatus = (typeof PRODUCT_STATUSES)[number];
 
-export const PRODUCT_STATUS_NAMES: Readonly<Record<ProductStatus, string>> = { draft: "草稿", published: "已上架", unpublished: "已下架" };
+export const PRODUCT_STATUS_NAMES: Readonly<Record<ProductStatus, string>> = { draft: "草稿", published: "已上架", unpublished: "已下架", qa_listed: "验收可售" };
 
 export const PRODUCT_LIMITS = {
   /** 一个商品最多选多少个区域、车型组、调度人 */

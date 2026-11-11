@@ -2328,10 +2328,10 @@ paths:
             $ref: "#/components/schemas/ServiceCategory"
         - name: status
           in: query
-          description: 按状态筛选（`draft` 草稿、`published` 已上架、`unpublished` 已下架）；不带或 `all` 表示全部
+          description: 按状态筛选（`draft` 草稿、`published` 已上架、`unpublished` 已下架、`qa_listed` 验收可售（M8-26））；不带或 `all` 表示全部
           schema:
             type: string
-            enum: [ draft, published, unpublished, all ]
+            enum: [ draft, published, unpublished, qa_listed, all ]
             default: all
         - name: brand_id
           in: query
@@ -4947,7 +4947,7 @@ paths:
           description: 按状态筛选；不带或 `all` 表示全部
           schema:
             type: string
-            enum: [ draft, published, unpublished, all ]
+            enum: [ draft, published, unpublished, qa_listed, all ]
             default: all
         - name: category
           in: query
@@ -5353,12 +5353,40 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/products/{id}/qa-list:
+    post:
+      tags: [ 商品 ]
+      operationId: qaListProduct
+      summary: 设为「验收可售」（只有测试环境的 QA 测试供应商）
+      description: |
+        M8-26（ADR 0078）。需要操作 `product.manage`。只有 QA 测试供应商（`is_test_tenant`，ADR 0077）能用，别的供应商 409 `NOT_TEST_TENANT`（数据库另有触发器兜底）。
+        和上架用同一份上架校验（没通过 409 `PUBLISH_CHECK_FAILED`）。供应商仍停在申请中、不上架、不参与官网比价；只有带验收会话的官网询价看得到它。
+        已经是验收可售的原样返回；下架用「下架」接口。写审计日志（`action` = `publish`，改后的状态是 `qa_listed`）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 设好之后的商品
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`NOT_TEST_TENANT`：不是 QA 测试供应商；`PUBLISH_CHECK_FAILED`：还有上架条件没有满足"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /tenant/v1/products/{id}/unpublish:
     post:
       tags: [ 商品 ]
       operationId: unpublishProduct
       summary: 下架
-      description: 需要操作 `product.manage`。已上架 → 已下架；已经下架的再次调用原样返回；草稿没有上过架，返回 409。写审计日志（`action` = `unpublish`）。
+      description: 需要操作 `product.manage`。已上架（或验收可售，M8-26）→ 已下架；已经下架的再次调用原样返回；草稿没有上过架，返回 409。写审计日志（`action` = `unpublish`）。
       security:
         - tenantToken: []
       parameters:
@@ -10666,6 +10694,41 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/notifications/{id}/suppressed-content:
+    get:
+      tags: [ Notification ]
+      operationId: getSuppressedNotificationContent
+      summary: 测试环境验收单没发出的那一封的内容
+      description: |
+        M8-26（ADR 0078）。需要操作 `notification.read`；数据范围外的和不存在一样（404）。
+        验收单的邮件只给 qa-staging@nozomi.moveglobal.io 真的发，别的收件人那一封记成 `expired`、错误码 `ACCEPTANCE_SUPPRESSED`，主题和正文存在这里供验收核对。
+        不是这种的记录（正常发出、失败、过期）没有存正文，404。每看一次写审计日志（`action` = `view`，不记内容）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 这一封的主题和正文
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ notification, subject, body, created_at ]
+                properties:
+                  notification:
+                    $ref: "#/components/schemas/Notification"
+                  subject:
+                    type: string
+                  body:
+                    type: string
+                    description: 纯文本正文（含当时生成的链接）
+                  created_at:
+                    type: string
+                    format: date-time
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
   /platform/v1/notification-templates:
     get:
       tags: [ Notification ]
@@ -11978,6 +12041,8 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/SiteCity"
+        "401":
+          $ref: "#/components/responses/QaSessionInvalid"
         "429":
           $ref: "#/components/responses/RateLimited"
         "503":
@@ -12006,6 +12071,8 @@ paths:
                       $ref: "#/components/schemas/SiteAirport"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+        "401":
+          $ref: "#/components/responses/QaSessionInvalid"
         "429":
           $ref: "#/components/responses/RateLimited"
         "503":
@@ -12036,6 +12103,8 @@ paths:
                       $ref: "#/components/schemas/SiteCharterPackage"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+        "401":
+          $ref: "#/components/responses/QaSessionInvalid"
         "429":
           $ref: "#/components/responses/RateLimited"
         "503":
@@ -12439,6 +12508,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/QaSessionInvalid"
         "429":
           $ref: "#/components/responses/RateLimited"
         "503":
@@ -12548,6 +12619,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/QaSessionInvalid"
         "429":
           $ref: "#/components/responses/RateLimited"
         "503":
@@ -12672,6 +12745,8 @@ paths:
         应答的 `link.token` 是这张单的查看令牌（`nzo_…`，**只在这一次出现**；库里只存哈希），页面跳到 `/book/order#<令牌>`。
         Stripe 没配置时照样建单：订单待支付、`payment` 为 null，到付款期限自动取消、释放库存（ADR 0032）；配置了时 `payment.client_secret` 交给 Stripe Elements 确认付款。
         每个地址 10 分钟 10 次。
+        带有效验收会话的 Cookie 时（测试环境，M8-26，ADR 0078）：只能用验收会话询出的报价（普通的报价当作不存在，反过来也一样），下的是验收单；
+        Stripe 必须已配置且是测试模式（没配置 503 `PAYMENT_NOT_CONFIGURED`，正式模式 409 `ACCEPTANCE_REQUIRES_TEST_PAYMENTS`，都不建单）；客人邮箱只能是 …@example.com 或 qa-staging@nozomi.moveglobal.io。
       parameters:
         - name: Idempotency-Key
           in: header
@@ -12708,13 +12783,13 @@ paths:
                   link:
                     $ref: "#/components/schemas/SiteOrderLink"
         "400":
-          description: "`VALIDATION_FAILED`：`UNKNOWN_QUOTE`、`REQUIRED`、`NOT_APPLICABLE`、`INVALID_PHONE`、`INVALID_FLIGHT_NO`、`TOO_LONG`、`INVALID_FORMAT`、`CONSENT_REQUIRED`；没带 `Idempotency-Key`"
+          description: "`VALIDATION_FAILED`：`UNKNOWN_QUOTE`、`REQUIRED`、`NOT_APPLICABLE`、`INVALID_PHONE`、`INVALID_FLIGHT_NO`、`TOO_LONG`、`INVALID_FORMAT`、`CONSENT_REQUIRED`；验收会话下单时客人邮箱不是 …@example.com 或 qa-staging@nozomi.moveglobal.io 为 `ACCEPTANCE_EMAIL_NOT_ALLOWED`（M8-26）；没带 `Idempotency-Key`"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "409":
-          description: "`QUOTE_ALREADY_ORDERED`、`QUOTE_NO_LONGER_AVAILABLE`、`SOLD_OUT`"
+          description: "`QUOTE_ALREADY_ORDERED`、`QUOTE_NO_LONGER_AVAILABLE`、`SOLD_OUT`；验收会话下单而 Stripe 不是测试模式：`ACCEPTANCE_REQUIRES_TEST_PAYMENTS`（M8-26）"
           content:
             application/json:
               schema:
@@ -12731,6 +12806,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/QaSessionInvalid"
         "429":
           $ref: "#/components/responses/RateLimited"
         "502":
@@ -12743,6 +12820,87 @@ paths:
           $ref: "#/components/responses/SiteNotOpen"
         "504":
           description: "`PAYMENT_PROVIDER_TIMEOUT`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /site/v1/qa-acceptance/session:
+    post:
+      tags: [ 官网 ]
+      operationId: unlockQaAcceptanceSession
+      summary: 测试环境：解锁验收会话
+      description: |
+        M8-26（ADR 0078）。只在测试环境、配置了 `QA_ACCEPTANCE_TOKEN` 时存在；没配置（以及 production）时和接口不存在一样 404（在解析请求体之前就答）。
+        口令放在请求体里（不进网址和访问日志），常量时间比较。对了：201，发一个 HttpOnly、Secure、SameSite=Strict、只在 `/site/v1` 下发送的会话 Cookie（`nozomi_qa`，4 小时有效；库里只存它的哈希）。
+        不对：**同样的 404**（不透露这个接口存在），记一条审计（匿名，不记口令）。限速（成功失败都计）：每个地址 15 分钟 10 次，全站每小时 30 次，超限 429。
+        带着这个 Cookie 时，官网的城市、机场、包车套餐、询价（含按两个坐标）只看 QA 测试供应商的「验收可售」商品，下的是验收单（不进结算，邮件只发 qa-staging@nozomi.moveglobal.io）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ token ]
+              properties:
+                token:
+                  type: string
+                  maxLength: 1000
+                  description: 配置里的验收口令
+      responses:
+        "201":
+          description: 已解锁，`Set-Cookie` 里是会话
+          headers:
+            Set-Cookie:
+              description: "`nozomi_qa=…; Path=/site/v1; Max-Age=14400; HttpOnly; Secure; SameSite=Strict`"
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QaAcceptanceSession"
+        "400":
+          description: "`VALIDATION_FAILED`：请求体不对"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: "`NOT_FOUND`：验收通道没开，或者口令不对（两者应答一样）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+    get:
+      tags: [ 官网 ]
+      operationId: getQaAcceptanceSession
+      summary: 测试环境：看这个浏览器的验收会话
+      description: M8-26（ADR 0078）。验收通道没开、没带 Cookie、会话无效或已过期都答 404（和接口不存在一样，探不出通道是否开着）。
+      responses:
+        "200":
+          description: 会话有效
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QaAcceptanceSession"
+        "404":
+          description: "`NOT_FOUND`：验收通道没开，或这个浏览器没有有效会话"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      tags: [ 官网 ]
+      operationId: endQaAcceptanceSession
+      summary: 测试环境：结束验收会话
+      description: M8-26（ADR 0078）。结束这个会话（库里记结束时间、写审计）并清掉 Cookie；会话本来就无效也是 204。验收通道没开时 404。
+      responses:
+        "204":
+          description: 已结束，`Set-Cookie` 清掉会话
+        "404":
+          description: "`NOT_FOUND`：验收通道没开"
           content:
             application/json:
               schema:
@@ -12885,10 +13043,16 @@ paths:
       tags: [ 官网 ]
       operationId: getSiteOrderPayment
       summary: 接着付款
-      description: 待支付的单：还没建付款就建，建好了就查出给 Stripe Elements 的 `client_secret`（不再待支付时为 null）。Stripe 没配置 503 `PAYMENT_NOT_CONFIGURED`。
+      description: 待支付的单：还没建付款就建，建好了就查出给 Stripe Elements 的 `client_secret`（不再待支付时为 null）。Stripe 没配置 503 `PAYMENT_NOT_CONFIGURED`。验收单（M8-26）只在 Stripe 测试模式下建付款，否则 409 `ACCEPTANCE_REQUIRES_TEST_PAYMENTS`。
       security:
         - siteOrderLink: []
       responses:
+        "409":
+          description: "`ACCEPTANCE_REQUIRES_TEST_PAYMENTS`：验收单只能用 Stripe 测试模式收款（M8-26，ADR 0078）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "200":
           description: 付款信息
           content:
@@ -16483,6 +16647,12 @@ components:
             $ref: "#/components/schemas/ErrorResponse"
     SiteNotOpen:
       description: "`SITE_NOT_OPEN`：官网暂未开放预订（没有配置官网的 API 客户端、客户端已吊销或渠道暂停）；下单时另有 `PASSENGER_ENCRYPTION_NOT_CONFIGURED`（服务器没配置数据加密密钥，ADR 0057）"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    QaSessionInvalid:
+      description: "`QA_SESSION_INVALID`：请求带了测试环境验收会话的 Cookie，但会话无效、已过期、已结束，或者验收通道没开（M8-26，ADR 0078）。不会退回普通客人：重新解锁，或清掉这个 Cookie。普通客人从不带这个 Cookie，不会遇到"
       content:
         application/json:
           schema:
@@ -21764,8 +21934,19 @@ components:
               minimum: 0
     ProductStatus:
       type: string
-      enum: [ draft, published, unpublished ]
-      description: "draft：草稿（还没上过架，可以删除）；published：已上架；unpublished：已下架"
+      enum: [ draft, published, unpublished, qa_listed ]
+      description: "draft：草稿（还没上过架，可以删除）；published：已上架；unpublished：已下架；qa_listed：验收可售（只有测试环境的 QA 测试供应商，只对验收会话可见，M8-26）"
+    QaAcceptanceSession:
+      type: object
+      additionalProperties: false
+      required: [ active, expires_at ]
+      properties:
+        active:
+          type: boolean
+          enum: [ true ]
+        expires_at:
+          type: string
+          format: date-time
     Brand:
       type: object
       additionalProperties: false
@@ -24650,7 +24831,7 @@ components:
       additionalProperties: false
       description: |
         运营后台看到的订单：行程、乘客、中标租户、渠道、对外价、结算价、加价比例、汇率快照、付款状态。
-      required: [ notes_masked, passenger_anonymized_at, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, dispatch, fulfilment, landing, tenant, channel, quote_id, channel_order_no, product_id, product_version, sell, settlement, markup_bp, fx, fx_buffer_bp, payment_due_at, payment, cancel_policy, cancellation, version ]
+      required: [ notes_masked, passenger_anonymized_at, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, dispatch, fulfilment, landing, tenant, channel, quote_id, channel_order_no, product_id, product_version, sell, settlement, markup_bp, fx, fx_buffer_bp, payment_due_at, payment, cancel_policy, cancellation, is_acceptance, version ]
       properties:
         notes_masked:
           type: boolean
@@ -24838,6 +25019,9 @@ components:
           $ref: "#/components/schemas/OrderCancelPolicy"
         cancellation:
           $ref: "#/components/schemas/PlatformCancellation"
+        is_acceptance:
+          type: boolean
+          description: 测试环境验收通道下的验收单（M8-26，ADR 0078）：后台标「验收」；不进结算、账单、付款；邮件只发验收专用邮箱
         version:
           type: integer
         open_exceptions:

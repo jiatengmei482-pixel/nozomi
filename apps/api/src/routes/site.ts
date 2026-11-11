@@ -18,6 +18,8 @@
  * - `GET /site/v1/route-map`：行程摘要的路线小地图（谷歌静态地图，后端代调、密钥不进浏览器；灰色调底图、品牌色路线；每个地址每分钟 30 次、每天 200 次；
  *   出不了图 503 `ROUTE_MAP_UNAVAILABLE`，`details.reason` 只有 `NOT_ENABLED`（页面用原来的地图）和 `UNAVAILABLE`（只显示时间和距离），M8-10，ADR 0072）；
  * - `POST /site/v1/orders`：下单（`Idempotency-Key`，每个地址 10 分钟 10 次），应答里有查看链接的令牌（只这一次）。
+ * 测试环境的验收通道（M8-26，ADR 0078）：`POST / GET / DELETE /site/v1/qa-acceptance/session`；带有效验收会话 Cookie 时，城市、机场、包车套餐、
+ * 询价（含按两个坐标）只看 QA 测试供应商的「验收可售」商品，下的是验收单。没带 Cookie 的请求和以前完全一样。
  * 客人自己的订单（凭查看链接的令牌 `Authorization: Bearer nzo_…`；一个令牌只对应一张单，路径里没有订单编号）：
  * - `POST /site/v1/orders/lookup`：订单号 + 下单邮箱，对上了把新链接发到下单邮箱（ADR 0061）。一律 202，不透露订单存不存在；
  *   按地址、订单号、邮箱限速（domain 的 `VIEW_LINK_REQUEST_LIMITS`），和订单存不存在无关；
@@ -26,7 +28,7 @@
  * 订单的应答是 `{ order, timeline, names }`：`order` 是 `/sales/v1` 同一份 `salesOrderJson`（没有结算价、加价比例；付款前没有中标供应商），
  * 只去掉落地信息里司机到达屏照片的文件编号（客人用不上）。
  */
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { CurrencyCode } from "@nozomi/domain";
 import { z } from "zod";
 import { FX_CURRENCIES, MESSAGING_APPS, PLACE_KINDS, PRICE_LIMITS, QUOTE_RULES, SERVICE_CATEGORIES, STATIC_MAP_RULES, STATIC_MAP_THEMES, type RouteMapReason, isGooglePlaceId, isPlaceSessionToken, normalizePlaceQuery, placeQueryIssue, viewLinkLookupEmail } from "@nozomi/domain";
@@ -72,6 +74,9 @@ import { distanceJson, paymentJson, salesOrderJson } from "./sales.ts";
 import { mapConfigJson } from "./areas.ts";
 import type { OrderVehicleGroupRef } from "../repos/master-data.ts";
 import { siteSupportWhatsapp } from "../services/manual-quotes.ts";
+import { QaAcceptanceHidden, currentQaAcceptance, endQaAcceptance, qaAcceptanceActive, sessionCookie, siteAudienceOf, unlockQaAcceptance } from "../services/qa-acceptance.ts";
+import { errorBody } from "../errors.ts";
+import { pathOnly } from "../logging.ts";
 
 type Json = Record<string, unknown>;
 
@@ -244,6 +249,9 @@ const orderSchema = z
   })
   .strict();
 
+/** 解锁验收会话（M8-26，ADR 0078）：口令只在请求体里（不进网址、访问日志）。长度不在这里卡：不合格的口令照样按「不对」处理、照样计数 */
+const qaUnlockSchema = z.object({ token: z.string().max(1_000) }).strict();
+
 /** 查订单：订单号（不分大小写）+ 下单邮箱（全角转半角、不分大小写；手机号不行：链接只发邮箱，ADR 0061）。 */
 const lookupSchema = z
   .object({
@@ -313,7 +321,59 @@ async function siteOrderJson(ctx: AppContext, view: SalesOrderView): Promise<Jso
   };
 }
 
+/** 和接口不存在时一模一样的 404（app.ts 的 `setNotFoundHandler`）：验收通道没开、口令不对时用，不透露这个接口存在。 */
+function routeNotFound(request: FastifyRequest, reply: FastifyReply): FastifyReply {
+  return reply.code(404).send(errorBody("NOT_FOUND", "接口不存在", { method: request.method, path: pathOnly(request.url) }));
+}
+
+/**
+ * 测试环境的验收通道（M8-26，ADR 0078）：`POST` 解锁（口令在请求体里）、`GET` 看这个浏览器的会话、`DELETE` 结束。
+ * 没开（没配口令、production）时三个都在解析请求体之前答 404，和接口不存在一样；口令不对也是同样的 404（另外计数、记审计）。
+ */
+function registerQaAcceptanceRoutes(app: FastifyInstance, ctx: AppContext): void {
+  const path = "/site/v1/qa-acceptance/session";
+  const hidden = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    if (!qaAcceptanceActive(ctx)) await routeNotFound(request, reply);
+  };
+  const hide = (request: FastifyRequest, reply: FastifyReply, err: unknown): FastifyReply => {
+    if (err instanceof QaAcceptanceHidden) return routeNotFound(request, reply);
+    throw err;
+  };
+
+  app.post(path, { onRequest: hidden }, async (request, reply) => {
+    try {
+      const input = parseInput(qaUnlockSchema, request.body, "body");
+      const session = await unlockQaAcceptance(ctx, { token: input.token, ip: request.ip });
+      return reply.code(201).header("set-cookie", sessionCookie(session.value)).send({ active: true, expires_at: session.expiresAt.toISOString() });
+    } catch (err) {
+      return hide(request, reply, err);
+    }
+  });
+
+  app.get(path, { onRequest: hidden }, async (request, reply) => {
+    try {
+      const session = await currentQaAcceptance(ctx, request.headers.cookie);
+      return { active: true, expires_at: session.expiresAt.toISOString() };
+    } catch {
+      // 没有有效会话时也答 404：不让人用 GET 探出测试环境开着验收通道（M8-26 验收观察）
+      return routeNotFound(request, reply);
+    }
+  });
+
+  app.delete(path, { onRequest: hidden }, async (request, reply) => {
+    try {
+      await endQaAcceptance(ctx, { cookieHeader: request.headers.cookie, ip: request.ip });
+      return reply.code(204).header("set-cookie", sessionCookie(null)).send();
+    } catch (err) {
+      return hide(request, reply, err);
+    }
+  });
+}
+
 export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void {
+  registerQaAcceptanceRoutes(app, ctx);
+  /** 这次请求看哪一类商品：没带验收会话是普通客人；带了要有效（M8-26，ADR 0078） */
+  const audience = (request: FastifyRequest) => siteAudienceOf(ctx, request.headers.cookie);
   /** 凭查看链接：限速（按地址）后找到这一张单。 */
   const guest = async (request: FastifyRequest): Promise<{ orderId: string; channelId: string }> => {
     await takeSiteSlot(ctx, "site_read", { ip: request.ip });
@@ -343,19 +403,19 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
 
   app.get("/site/v1/cities", async (request) => {
     await takeSiteSlot(ctx, "site_read", { ip: request.ip });
-    const cities = await siteCities(ctx);
+    const cities = await siteCities(ctx, await audience(request));
     return { items: cities.map((city) => ({ id: city.id, code: city.code, name: city.name, timezone: city.timezone, country_code: city.countryCode, center: { lat: city.center.lat, lng: city.center.lng }, categories: city.categories })) };
   });
 
   app.get("/site/v1/cities/:id/airports", async (request) => {
     await takeSiteSlot(ctx, "site_read", { ip: request.ip });
-    const airports = await siteAirports(ctx, resourceId(request.params, "城市"));
+    const airports = await siteAirports(ctx, resourceId(request.params, "城市"), await audience(request));
     return { items: airports.map((airport) => ({ id: airport.id, code: airport.code, name: airport.name, location: { lng: airport.lng, lat: airport.lat } })) };
   });
 
   app.get("/site/v1/cities/:id/charter-packages", async (request) => {
     await takeSiteSlot(ctx, "site_read", { ip: request.ip });
-    const hours = await siteCharterPackages(ctx, resourceId(request.params, "城市"));
+    const hours = await siteCharterPackages(ctx, resourceId(request.params, "城市"), await audience(request));
     return { items: hours.map((value) => ({ hours: value })) };
   });
 
@@ -454,6 +514,7 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
   app.post("/site/v1/quotes", async (request) => {
     await takeSiteSlot(ctx, "site_quote", { ip: request.ip });
     const input = parseInput(quoteSchema, request.body, "body");
+    const seen = await audience(request);
     const quoteInput: SiteQuoteInput = {
       cityId: input.city_id,
       trip: siteTripOf(input),
@@ -462,6 +523,7 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
       luggage: input.luggage,
       addons: addonsOf(input.addons),
       demand: { ip: request.ip, pickupName: input.pickup_name ?? null, dropoffName: input.dropoff_name ?? null, log: request.log },
+      ...(seen === "acceptance" ? { audience: seen } : {}),
     };
     return quoteResultJson(await siteQuotes(ctx, quoteInput));
   });
@@ -469,6 +531,7 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
   app.post("/site/v1/quotes/by-points", async (request) => {
     await takeSiteSlot(ctx, "site_quote", { ip: request.ip });
     const input = parseInput(byPointsSchema, request.body, "body");
+    const seen = await audience(request);
     const end = (value: z.output<typeof tripEndSchema>) => ({ lat: value.lat, lng: value.lng, kind: value.kind ?? null });
     const result = await siteQuotesByPoints(ctx, {
       pickup: end(input.pickup),
@@ -478,6 +541,7 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
       luggage: input.luggage,
       addons: addonsOf(input.addons),
       demand: { ip: request.ip, pickupName: input.pickup_name ?? null, dropoffName: input.dropoff_name ?? null, log: request.log },
+      ...(seen === "acceptance" ? { audience: seen } : {}),
     });
     return {
       trip_type: result.tripType,
@@ -493,6 +557,7 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
     await takeSiteSlot(ctx, "site_order", { ip: request.ip });
     const key = idempotencyKey(request.headers["idempotency-key"]);
     const input = parseInput(orderSchema, request.body, "body");
+    const seen = await audience(request);
     const created = await placeSiteOrder(
       ctx,
       {
@@ -510,6 +575,7 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
         },
       },
       request.log,
+      seen,
     );
     if (created.replayed) reply.header("idempotent-replayed", "true");
     return reply.code(201).send({ ...(await siteOrderJson(ctx, created.view)), payment: created.payment === null ? null : paymentJson(created.payment), link: linkJson(created.link) });

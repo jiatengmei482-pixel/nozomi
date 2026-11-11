@@ -255,8 +255,11 @@ export async function listProducts(db: Db, tenantId: string, filter: ProductFilt
   return { ...page, total: total.rows[0]?.n ?? 0 };
 }
 
+/** 首页数的商品状态：「验收可售」（M8-26）只有测试供应商有，首页不单列。 */
+export type CountedProductStatus = Exclude<ProductStatus, "qa_listed">;
+
 /** 本租户的商品数量，按状态（首页用）。 */
-export async function countProductsByStatus(db: Db, tenantId: string): Promise<Record<ProductStatus, number>> {
+export async function countProductsByStatus(db: Db, tenantId: string): Promise<Record<CountedProductStatus, number>> {
   const result = await db.query<{ status: ProductStatus; n: number }>("select status, count(*)::int as n from products where tenant_id = $1 group by status", [tenantId]);
   const of = (status: ProductStatus): number => result.rows.find((row) => row.status === status)?.n ?? 0;
   return { draft: of("draft"), published: of("published"), unpublished: of("unpublished") };

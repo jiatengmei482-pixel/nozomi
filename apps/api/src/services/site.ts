@@ -12,6 +12,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
   type AirportMatch,
+  type SiteAudience,
   type LatLng,
   type LocalizedText,
   type PlaceKind,
@@ -65,6 +66,7 @@ import {
   findOrderNames,
   findSiteClient,
   type SitePlaceType,
+  type SiteListing,
   findQuotePackageKm,
   findVehicleGroups,
   insertSiteOrderLink,
@@ -193,10 +195,16 @@ export async function siteConfig(ctx: AppContext): Promise<SiteConfig> {
   return { open, currency: open ? site.channel.settleCurrency : null, payments: open && ctx.payments !== null ? { provider: "stripe", publishableKey: ctx.payments.publishableKey } : null, addressSearch: open && ctx.places.enabled };
 }
 
-/** 渠道卖不卖这个供应商（授权范围、供应商在不在比价的状态）。 */
-function sells(channel: Channel, row: BookableRow): boolean {
+/**
+ * 渠道卖不卖这个供应商（授权范围、供应商在不在比价的状态）。验收会话（M8-26，ADR 0078）取出来的只有 QA 测试供应商的验收可售商品，
+ * 它永远停在申请中、也不在渠道的供应商名单里：这两项不看（城市、品类的授权照旧由调用方查）。
+ */
+function sells(channel: Channel, row: BookableRow, audience: SiteAudience): boolean {
+  if (audience === "acceptance") return true;
   return tenantBids(row.tenantStatus) && channelSellsTenant(channel.scope, row.tenantId);
 }
+
+const listingOf = (audience: SiteAudience): SiteListing => (audience === "acceptance" ? "qa_listed" : "published");
 
 export interface SiteCity {
   id: string;
@@ -211,12 +219,12 @@ export interface SiteCity {
 }
 
 /** 能预订的城市和各自能订的品类：城市启用、城市和品类在渠道授权里、有渠道卖的供应商上架了这个品类的商品。 */
-export async function siteCities(ctx: AppContext): Promise<SiteCity[]> {
+export async function siteCities(ctx: AppContext, audience: SiteAudience = "public"): Promise<SiteCity[]> {
   const { channel } = await requireOpenSite(ctx);
-  const rows = await withPlatformTx(ctx.pool, (db) => listBookableCities(db), { snapshot: true });
+  const rows = await withPlatformTx(ctx.pool, (db) => listBookableCities(db, listingOf(audience)), { snapshot: true });
   const cities = new Map<string, SiteCity>();
   for (const row of rows) {
-    if (!SITE_CATEGORIES.includes(row.category) || !sells(channel, row) || channelScopeRefusal(channel.scope, row.id, row.category) !== null) continue;
+    if (!SITE_CATEGORIES.includes(row.category) || !sells(channel, row, audience) || channelScopeRefusal(channel.scope, row.id, row.category) !== null) continue;
     const city = cities.get(row.id) ?? { id: row.id, code: row.code, name: row.name, timezone: row.timezone, countryCode: row.countryCode, center: row.center, categories: [] };
     if (!city.categories.includes(row.category)) city.categories.push(row.category);
     cities.set(row.id, city);
@@ -232,13 +240,13 @@ export interface SiteAirport {
   lat: number;
 }
 
-export async function siteAirports(ctx: AppContext, cityId: string): Promise<SiteAirport[]> {
+export async function siteAirports(ctx: AppContext, cityId: string, audience: SiteAudience = "public"): Promise<SiteAirport[]> {
   const { channel } = await requireOpenSite(ctx);
   if (channelScopeRefusal(channel.scope, cityId, "airport_transfer") !== null) return [];
-  const rows = await withPlatformTx(ctx.pool, (db) => listBookableAirports(db, cityId), { snapshot: true });
+  const rows = await withPlatformTx(ctx.pool, (db) => listBookableAirports(db, cityId, listingOf(audience)), { snapshot: true });
   const airports = new Map<string, SiteAirport>();
   for (const row of rows) {
-    if (airports.has(row.id) || !sells(channel, row)) continue;
+    if (airports.has(row.id) || !sells(channel, row, audience)) continue;
     airports.set(row.id, { id: row.id, code: row.code, name: row.name, lng: row.lng, lat: row.lat });
   }
   return [...airports.values()];
@@ -248,7 +256,7 @@ export async function siteAirports(ctx: AppContext, cityId: string): Promise<Sit
  * 这个城市能选的包车套餐时长（小时，从短到长）：渠道卖的供应商上架的包车商品里、启用且到城市当地今天还没过期的价格规则的时长。
  * 城市或包车不在渠道授权里时为空。某个时长那一天到底报不报得出价，询价时再看。
  */
-export async function siteCharterPackages(ctx: AppContext, cityId: string): Promise<number[]> {
+export async function siteCharterPackages(ctx: AppContext, cityId: string, audience: SiteAudience = "public"): Promise<number[]> {
   const { channel } = await requireOpenSite(ctx);
   if (channelScopeRefusal(channel.scope, cityId, "charter") !== null) return [];
   return withPlatformTx(
@@ -256,8 +264,8 @@ export async function siteCharterPackages(ctx: AppContext, cityId: string): Prom
     async (db) => {
       const city = await findQuoteCity(db, cityId);
       if (city === null || !city.active) return [];
-      const rows = await listBookableCharterPackages(db, cityId, instantToLocal(ctx.now(), city.timezone).date);
-      return [...new Set(rows.filter((row) => sells(channel, row)).map((row) => row.hours))].sort((a, b) => a - b);
+      const rows = await listBookableCharterPackages(db, cityId, instantToLocal(ctx.now(), city.timezone).date, listingOf(audience));
+      return [...new Set(rows.filter((row) => sells(channel, row, audience)).map((row) => row.hours))].sort((a, b) => a - b);
     },
     { snapshot: true },
   );
@@ -443,6 +451,8 @@ export interface SiteQuoteInput {
   addons: { addonId: string; quantity: number }[];
   /** 一个价都报不出时记「未覆盖需求」用（M8-20，ADR 0075）；不给就不记 */
   demand?: SiteDemand;
+  /** 普通客人（默认）还是验收会话（M8-26，ADR 0078：只报 QA 测试供应商的验收可售商品，报价标成验收的） */
+  audience?: SiteAudience;
 }
 
 /**
@@ -540,7 +550,7 @@ export async function siteQuotes(ctx: AppContext, input: SiteQuoteInput, logExtr
       vehicleGroupIds: [],
       currency: channel.settleCurrency,
     },
-    { request: { ...sales.request, ...logExtra }, ...(input.demand === undefined ? {} : { demand: demandSource(input.demand) }) },
+    { request: { ...sales.request, ...logExtra }, ...(input.demand === undefined ? {} : { demand: demandSource(input.demand) }), ...(input.audience === "acceptance" ? { audience: "acceptance" as const } : {}) },
   );
   const { groups, policy, packageKm, addons } = await withPlatformTx(
     ctx.pool,
@@ -576,6 +586,8 @@ export interface SiteByPointsInput {
   passengers: number;
   luggage: number;
   addons: { addonId: string; quantity: number }[];
+  /** 普通客人（默认）还是验收会话（M8-26，ADR 0078） */
+  audience?: SiteAudience;
 }
 
 export interface SiteByPointsResult extends SiteQuoteResult {
@@ -624,6 +636,7 @@ function endLog(end: TripEnd, match: AirportMatch<AirportCandidateRow> | null): 
  */
 export async function siteQuotesByPoints(ctx: AppContext, input: SiteByPointsInput): Promise<SiteByPointsResult> {
   const { principal, channel } = await requireOpenSite(ctx);
+  const audience = input.audience ?? "public";
   const { airports, cities } = await withPlatformTx(
     ctx.pool,
     async (db) => {
@@ -641,7 +654,7 @@ export async function siteQuotesByPoints(ctx: AppContext, input: SiteByPointsInp
   let siteTrip: SiteTrip | null = null;
   if (trip.tripType === "point_to_point") {
     // 点对点只在官网能订点对点的城市里找（城市和品类在渠道授权里、有渠道卖的供应商上架了点对点商品）
-    const bookable = (await siteCities(ctx)).filter((candidate) => candidate.categories.includes("point_to_point"));
+    const bookable = (await siteCities(ctx, audience)).filter((candidate) => candidate.categories.includes("point_to_point"));
     const found = serviceCityOf(trip.pickup, bookable);
     city = found === null ? null : cityOf(found.id);
     if (city !== null) siteTrip = { category: "point_to_point", pickup: trip.pickup, dropoff: trip.dropoff };
@@ -653,7 +666,7 @@ export async function siteQuotesByPoints(ctx: AppContext, input: SiteByPointsInp
   const cityJson = city === null ? null : { id: city.id, code: city.code, name: city.name, timezone: city.timezone };
   if (city === null || siteTrip === null) {
     // 点对点的出发地不在任何能订的城市里：一个候选都没有，不进询价日志；未覆盖需求照样记一条（ADR 0075：这个口子由它补上）
-    if (input.demand !== undefined && trip.tripType === "point_to_point") {
+    if (input.demand !== undefined && trip.tripType === "point_to_point" && audience === "public") {
       recordUncoveredDemandLater(ctx, demandSource(input.demand), {
         channelId: principal.channelId,
         category: "point_to_point",
@@ -680,7 +693,7 @@ export async function siteQuotesByPoints(ctx: AppContext, input: SiteByPointsInp
     recognition: { trip_type: trip.tripType, airport_id: airport?.id ?? null, pickup: endLog(input.pickup, recognized.pickupAirport), dropoff: endLog(input.dropoff, recognized.dropoffAirport) },
   };
   const [result, route] = await Promise.all([
-    siteQuotes(ctx, { cityId: city.id, trip: siteTrip, serviceLocal: input.serviceLocal, passengers: input.passengers, luggage: input.luggage, addons: input.addons, ...(input.demand === undefined ? {} : { demand: input.demand }) }, logExtra),
+    siteQuotes(ctx, { cityId: city.id, trip: siteTrip, serviceLocal: input.serviceLocal, passengers: input.passengers, luggage: input.luggage, addons: input.addons, ...(input.demand === undefined ? {} : { demand: input.demand }), ...(audience === "acceptance" ? { audience } : {}) }, logExtra),
     routePreviewOrNull(ctx, { lat: input.pickup.lat, lng: input.pickup.lng }, { lat: input.dropoff.lat, lng: input.dropoff.lng }),
   ]);
   const expiresAt = result.quotes.reduce<string | null>((earliest, quote) => (earliest === null || quote.expiresAt < earliest ? quote.expiresAt : earliest), null);
@@ -745,10 +758,13 @@ async function issueLink(ctx: AppContext, orderId: string, serviceAt: Date): Pro
   return { token, expiresAt };
 }
 
-/** 官网下单：同一个下单流程（没配 Stripe 时照样建单、待支付），成功后发一个查看链接。重复提交（同一个幂等键）得到同一张单和一个新链接。 */
-export async function placeSiteOrder(ctx: AppContext, input: SalesOrderInput, log: OrderLog = SILENT_ORDER_LOG): Promise<{ view: SalesOrderView; payment: SalesOrderPayment | null; replayed: boolean; link: SiteLink }> {
+/**
+ * 官网下单：同一个下单流程（没配 Stripe 时照样建单、待支付），成功后发一个查看链接。重复提交（同一个幂等键）得到同一张单和一个新链接。
+ * 验收会话（M8-26，ADR 0078）下的是验收单：只能用验收会话询出的报价、Stripe 必须是测试模式、客人邮箱只能是 @example.com 或验收专用邮箱。
+ */
+export async function placeSiteOrder(ctx: AppContext, input: SalesOrderInput, log: OrderLog = SILENT_ORDER_LOG, audience: SiteAudience = "public"): Promise<{ view: SalesOrderView; payment: SalesOrderPayment | null; replayed: boolean; link: SiteLink }> {
   const { principal } = await requireOpenSite(ctx);
-  const created = await createSiteOrder(ctx, principal, input, log);
+  const created = await createSiteOrder(ctx, principal, input, log, audience);
   return { ...created, link: await issueLink(ctx, created.view.order.id, created.view.order.serviceAt) };
 }
 

@@ -36,6 +36,7 @@ import {
   tripPrice,
 } from "./pricing.ts";
 import { type FreeWait, type ProductStatus, type ServiceRules, addonAllowsFirstFree, effectiveFreeWait, freeWaitItems, minimumFreeWaitMinutes } from "./products.ts";
+import { type SiteAudience, listedFor } from "./qa-acceptance.ts";
 import { type UrgentTier, checkBookingWindow, instantToLocal, localDateTimeToInstant, overlapMinutes } from "./service-time.ts";
 
 // ---- 常数（都来自需求文档和各轮决策）----
@@ -153,6 +154,8 @@ export interface QuoteProduct {
   tenantActive: boolean;
   /** 供应商不参与比价时的原因：暂停（默认）或还没完成入驻 / 已清退（`TENANT_NOT_ONBOARDED`） */
   tenantRefusal?: "TENANT_SUSPENDED" | "TENANT_NOT_ONBOARDED";
+  /** 是不是测试环境的 QA 测试供应商（ADR 0077）；验收会话只报它的「验收可售」商品（M8-26，ADR 0078）。不给 = 不是 */
+  testTenant?: boolean;
   brandActive: boolean;
   /** 子品牌的币种和取整单位 */
   currency: CurrencyCode;
@@ -547,14 +550,16 @@ function addonCharges(product: QuoteProduct, request: QuoteRequest, durationMinu
 /**
  * 一个商品对一次用车请求报价（第 2–9 步里和这个商品有关的全部）。
  * `forOwner`：供应商自己试算——没上架的商品也算（需求文档 `quote-preview`：用未上架商品试算报价），也不看供应商是不是被暂停。
+ * `audience`：`acceptance` 是测试环境的验收会话（M8-26，ADR 0078）——只认测试供应商的「验收可售」商品，不看入驻状态；不给是普通客人（只认已上架）。
  * 请求本身写得对不对由 `quoteRequestIssues` 查，这里假定是对的。
  */
-export function quoteProduct(product: QuoteProduct, request: QuoteRequest, moment: QuoteMoment, options: { forOwner?: boolean } = {}): ProductQuote {
+export function quoteProduct(product: QuoteProduct, request: QuoteRequest, moment: QuoteMoment, options: { forOwner?: boolean; audience?: SiteAudience } = {}): ProductQuote {
   const refuse = (reason: QuoteRefusal): ProductQuote => ({ ok: false, productId: product.productId, tenantId: product.tenantId, reason });
   // 第 2 步：已上架、供应商和子品牌启用中（城市、品类、接送点由找商品的那一层筛）
   if (options.forOwner !== true) {
-    if (product.status !== "published") return refuse("PRODUCT_NOT_PUBLISHED");
-    if (!product.tenantActive) return refuse(product.tenantRefusal ?? "TENANT_SUSPENDED");
+    const refusal = listedFor(options.audience ?? "public", product);
+    if (refusal === "PRODUCT_NOT_PUBLISHED") return refuse("PRODUCT_NOT_PUBLISHED");
+    if (refusal === "TENANT_NOT_ACTIVE") return refuse(product.tenantRefusal ?? "TENANT_SUSPENDED");
     if (moment.trialLimitReached === true) return refuse("TRIAL_DAILY_LIMIT");
   }
   if (!product.brandActive) return refuse("BRAND_DISABLED");

@@ -58,6 +58,8 @@ export const AUDIT_RESOURCES = [
   // 人工报价申请、官网设置（M8-21，ADR 0076）
   "manual_quote_request",
   "site_settings",
+  // 测试环境的验收会话（M8-26，ADR 0078）：解锁（unlock）、口令错误（login_failed）、结束（close）。不记口令
+  "qa_acceptance_session",
 ] as const;
 
 export type AuditResource = (typeof AUDIT_RESOURCES)[number];

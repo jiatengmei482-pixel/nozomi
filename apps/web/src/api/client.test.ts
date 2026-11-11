@@ -1,6 +1,6 @@
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { ApiError, NetworkError, acceptInvite, changePassword, fetchMe, login, logout, parseRetryAfter } from "./client.ts";
+import { ApiError, NetworkError, acceptInvite, apiRequest, changePassword, fetchMe, login, logout, parseRetryAfter } from "./client.ts";
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -111,4 +111,12 @@ test("Retry-After 支持秒数和 HTTP 日期", () => {
   assert.equal(parseRetryAfter("Thu, 01 Jan 2026 00:01:30 GMT", now), 90);
   assert.equal(parseRetryAfter("Thu, 01 Jan 2025 00:00:00 GMT", now), 0);
   assert.equal(parseRetryAfter("soon", now), null);
+});
+
+test("官网接口带同源 Cookie（测试环境验收会话，M8-26），其余接口一律不带", async () => {
+  const seen = stubFetch(() => json(200, {}));
+  await apiRequest("GET", "/site/v1/config");
+  await apiRequest("GET", "/platform/v1/me", { token: "t" });
+  await apiRequest("GET", "/tenant/v1/me", { token: "t" });
+  assert.deepEqual(seen.map((call) => [call.url, call.init.credentials]), [["/site/v1/config", "same-origin"], ["/platform/v1/me", "omit"], ["/tenant/v1/me", "omit"]]);
 });

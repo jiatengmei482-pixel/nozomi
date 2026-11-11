@@ -49,8 +49,8 @@ function complete(extra: Partial<ServiceRules> = {}): ServiceRules {
 const reasons = (rules: ServiceRules, context: Parameters<typeof serviceRuleIssues>[1] = airport): string[] =>
   serviceRuleIssues(rules, context).map((issue) => `${issue.path} ${issue.reason}`);
 
-test("常量：状态三种；上架校验六项（另有只在有提醒时出现的「运营区域」，M8-20）；区域和品类的匹配；接送点只能是机场或车站", () => {
-  assert.deepEqual([...PRODUCT_STATUSES], ["draft", "published", "unpublished"]);
+test("常量：状态三种（另有只有测试环境的 QA 测试供应商能用的「验收可售」，M8-26）；上架校验六项（另有只在有提醒时出现的「运营区域」，M8-20）；区域和品类的匹配；接送点只能是机场或车站", () => {
+  assert.deepEqual([...PRODUCT_STATUSES], ["draft", "published", "unpublished", "qa_listed"]);
   assert.deepEqual([...PUBLISH_CHECK_KEYS], ["basic_info", "service_rules", "price_rules", "content", "adjust_rules", "inventory", "area_coverage"]);
   assert.equal(areaUsableByCategory("charter", "charter"), true);
   assert.equal(areaUsableByCategory("charter", "general"), true);

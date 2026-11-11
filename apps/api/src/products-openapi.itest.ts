@@ -116,6 +116,7 @@ const PRODUCT_OPERATIONS = [
   `GET ${BRANDS}`, `POST ${BRANDS}`, `PUT ${BRAND}`,
   `GET ${PRODUCTS}`, `POST ${PRODUCTS}`, `GET ${ONE}`, `PATCH ${ONE}`, `DELETE ${ONE}`,
   `GET ${RULES}`, `PUT ${RULES}`, `GET ${CONTENT}`, `PUT ${CONTENT}`, `GET ${CHECK}`, `POST ${ONE}/publish`, `POST ${ONE}/unpublish`,
+  `POST ${ONE}/qa-list`,
 ];
 
 const exercised = new Set<string>();
@@ -334,6 +335,7 @@ test("失败的应答：实际会返回的状态码和错误码都写在了定�
   for (const [method, template, options] of [
     ["GET", ONE, {}], ["PATCH", ONE, { headers: ifMatch(1), body: {} }], ["DELETE", ONE, {}], ["GET", RULES, {}], ["PUT", RULES, { headers: ifMatch(1), body: {} }],
     ["GET", CONTENT, {}], ["PUT", CONTENT, { headers: ifMatch(1), body: {} }], ["GET", CHECK, {}], ["POST", `${ONE}/publish`, {}], ["POST", `${ONE}/unpublish`, {}],
+    ["POST", `${ONE}/qa-list`, {}],
   ] as [HttpMethod, string, Options][]) {
     await expectError(method, template, { ...options, id: MISSING }, 404, "NOT_FOUND");
     await expectError(method, template, { ...options, id: "not-a-uuid" }, 404, "NOT_FOUND");
@@ -353,6 +355,8 @@ test("失败的应答：实际会返回的状态码和错误码都写在了定�
   const refused = await expectError("POST", `${ONE}/publish`, { id: product.id }, 409, "PUBLISH_CHECK_FAILED");
   assert.deepEqual(refused.body.error.details.items, (await call("GET", CHECK, { id: product.id })).body.items);
   await expectError("POST", `${ONE}/unpublish`, { id: product.id }, 409, "PRODUCT_STATE_INVALID");
+  // 验收可售（M8-26，ADR 0078）：普通供应商不能用
+  await expectError("POST", `${ONE}/qa-list`, { id: product.id }, 409, "NOT_TEST_TENANT");
   const notDraft = await expectError("DELETE", ONE, { id: published.id }, 409, "PRODUCT_NOT_DRAFT");
   assert.deepEqual(notDraft.body.error.details, { status: "published" });
   // 列表的查询参数

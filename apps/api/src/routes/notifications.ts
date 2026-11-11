@@ -11,7 +11,7 @@ import { z } from "zod";
 import type { AppContext } from "../context.ts";
 import { decodeTimeCursor } from "../pagination.ts";
 import { bearerToken } from "../auth/token.ts";
-import { leaseNotificationForRetry, listNotificationsForPlatform, listNotificationsForTenant, getNotificationSettings, notificationJson, updateNotificationSettings } from "../services/notifications.ts";
+import { getSuppressedContent, leaseNotificationForRetry, listNotificationsForPlatform, listNotificationsForTenant, getNotificationSettings, notificationJson, updateNotificationSettings } from "../services/notifications.ts";
 import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import { authenticateTenant } from "../services/tenant-auth.ts";
 import { ifMatchVersion, pageQuerySchema, parseInput, resourceId, uuidSchema } from "../validation.ts";
@@ -53,6 +53,13 @@ export function registerNotificationRoutes(app: FastifyInstance, ctx: AppContext
     const leased = await leaseNotificationForRetry(ctx, principal, request.ip, resourceId(request.params, "通知"));
     const delivered = await app.notificationJobs.deliverNow(leased);
     return { notification: maskOrderValues(notificationJson(delivered), delivered.orderId === null ? null : ((await orderPassengerNames(ctx, [delivered.orderId])).get(delivered.orderId) ?? null)) };
+  });
+
+  // 测试环境验收单被压下没发的那一封（M8-26，ADR 0078）：收件人打码，主题和正文原样（验收单的客人只能是 @example.com 等测试地址）
+  app.get("/platform/v1/notifications/:id/suppressed-content", async (request) => {
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "notification.read" });
+    const found = await getSuppressedContent(ctx, principal, request.ip, resourceId(request.params, "通知"));
+    return { notification: notificationJson(found.notification), subject: found.subject, body: found.body, created_at: found.createdAt.toISOString() };
   });
 
   app.get("/platform/v1/notification-templates", async (request) => {

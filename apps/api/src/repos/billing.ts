@@ -161,7 +161,7 @@ export async function listBillableItems(db: Db, tenantId: string, until: string)
   const orders = await db.query(
     `select o.id, o.order_no, o.status, o.service_date::text as service_date, o.settlement_minor, o.settlement_currency, o.cancel_tenant_share_minor, o.cancel_fee_bp, o.cancel_reason
        from orders o
-      where o.tenant_id = $1 and o.service_date <= $2::date
+      where o.tenant_id = $1 and not o.is_acceptance and o.service_date <= $2::date
         and (o.status in ('completed', 'no_show') or (o.status = 'cancelled' and o.cancel_tenant_share_minor > 0))
         and not ${billed("'order:' || o.id::text")}`,
     [tenantId, until],
@@ -187,7 +187,7 @@ export async function listBillableItems(db: Db, tenantId: string, until: string)
   const charges = await db.query(
     `select e.id, e.type, e.status, e.amount_minor, e.approved_minor, e.currency, o.id as order_id, o.order_no, o.service_date::text as service_date
        from order_extra_charges e join orders o on o.tenant_id = e.tenant_id and o.id = e.order_id
-      where e.tenant_id = $1 and e.status = 'charged' and o.service_date <= $2::date
+      where e.tenant_id = $1 and e.status = 'charged' and not o.is_acceptance and o.service_date <= $2::date
         and not ${billed("'extra_charge:' || e.id::text")}`,
     [tenantId, until],
   );
@@ -210,7 +210,7 @@ export async function listBillableItems(db: Db, tenantId: string, until: string)
             ${billed("'deduction:' || d.id::text")} as billed,
             ${billed("'deduction_waiver:' || d.id::text")} as waiver_billed
        from tenant_deductions d join orders o on o.tenant_id = d.tenant_id and o.id = d.order_id
-      where d.tenant_id = $1 and o.service_date <= $2::date and d.amount_minor > 0
+      where d.tenant_id = $1 and not o.is_acceptance and o.service_date <= $2::date and d.amount_minor > 0
         and ((d.status = 'pending' and not ${billed("'deduction:' || d.id::text")})
           or (d.status = 'waived' and (not ${billed("'deduction_waiver:' || d.id::text")} or not ${billed("'deduction:' || d.id::text")})))`,
     [tenantId, until],
@@ -260,14 +260,14 @@ export async function listTenantsWithBillableItems(db: Db, until: string): Promi
   const unbilled = (key: string, tenant: string): string => `not exists (select 1 from statement_lines l where l.tenant_id = ${tenant} and l.source_key = ${key} and l.voided_at is null)`;
   const result = await db.query<{ tenant_id: string }>(
     `select tenant_id from orders o
-      where o.service_date <= $1::date and (o.status in ('completed', 'no_show') or (o.status = 'cancelled' and o.cancel_tenant_share_minor > 0))
+      where not o.is_acceptance and o.service_date <= $1::date and (o.status in ('completed', 'no_show') or (o.status = 'cancelled' and o.cancel_tenant_share_minor > 0))
         and ${unbilled("'order:' || o.id::text", "o.tenant_id")}
      union
      select e.tenant_id from order_extra_charges e join orders o on o.tenant_id = e.tenant_id and o.id = e.order_id
-      where e.status = 'charged' and o.service_date <= $1::date and ${unbilled("'extra_charge:' || e.id::text", "e.tenant_id")}
+      where e.status = 'charged' and not o.is_acceptance and o.service_date <= $1::date and ${unbilled("'extra_charge:' || e.id::text", "e.tenant_id")}
      union
      select d.tenant_id from tenant_deductions d join orders o on o.tenant_id = d.tenant_id and o.id = d.order_id
-      where o.service_date <= $1::date and d.amount_minor > 0
+      where not o.is_acceptance and o.service_date <= $1::date and d.amount_minor > 0
         and ((d.status = 'pending' and o.status = any($2::text[]) and ${unbilled("'deduction:' || d.id::text", "d.tenant_id")})
           or (d.status = 'waived' and not ${unbilled("'deduction:' || d.id::text", "d.tenant_id")} and ${unbilled("'deduction_waiver:' || d.id::text", "d.tenant_id")})
           or (d.status = 'waived' and ${unbilled("'deduction:' || d.id::text", "d.tenant_id")} and not ${unbilled("'deduction_waiver:' || d.id::text", "d.tenant_id")}))

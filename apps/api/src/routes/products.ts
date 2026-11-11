@@ -37,6 +37,7 @@ import {
   listBrands,
   listProducts,
   publishProduct,
+  qaListProduct,
   putContent,
   putServiceRules,
   unpublishProduct,
@@ -373,6 +374,12 @@ export function registerProductRoutes(app: FastifyInstance, ctx: AppContext): vo
   app.post("/tenant/v1/products/:id/publish", async (request) => {
     const principal = await authenticate(request, "product.manage");
     return productJson(await publishProduct(ctx, { principal, ip: request.ip }, resourceId(request.params, "商品")));
+  });
+
+  // 验收可售（M8-26，ADR 0078）：只有测试环境的 QA 测试供应商能用，别的 409 NOT_TEST_TENANT
+  app.post("/tenant/v1/products/:id/qa-list", async (request) => {
+    const principal = await authenticate(request, "product.manage");
+    return productJson(await qaListProduct(ctx, { principal, ip: request.ip }, resourceId(request.params, "商品")));
   });
 
   app.post("/tenant/v1/products/:id/unpublish", async (request) => {

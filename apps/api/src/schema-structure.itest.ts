@@ -24,7 +24,8 @@ import { type TestDatabase, createMigratedTestDatabase } from "./testing/db.ts";
  * 以及救援、救援单的平台一侧（ADR 0031：涉及几家供应商、有对外价和加价比例，租户碰不到），
  * 以及赔付表、异常队列、工单的内部备注和客人那边的赔付金额（ADR 0034：全平台一份 / 跨供应商 / 租户碰不到），
  * 以及付款批次（ADR 0040：一个批次里有几家供应商的账单）、运营后台填写的第三方密钥（ADR 0041：密文，租户碰不到），
- * 以及人工报价申请、跟进记录和官网设置（ADR 0076：客人的联系方式，只给平台的客服、运营）。新增平台表时加到这里。
+ * 以及人工报价申请、跟进记录和官网设置（ADR 0076：客人的联系方式，只给平台的客服、运营），
+ * 以及测试环境的验收会话和验收单被压下的邮件内容（ADR 0078：只给平台角色）。新增平台表时加到这里。
  */
 const PLATFORM_TABLES = [
   "addons",
@@ -46,6 +47,7 @@ const PLATFORM_TABLES = [
   "manual_quote_request_events",
   "manual_quote_requests",
   "markup_rules",
+  "notification_suppressions",
   "order_change_sales",
   "order_exceptions",
   "order_payments",
@@ -63,6 +65,7 @@ const PLATFORM_TABLES = [
   "platform_roles",
   "platform_sessions",
   "platform_users",
+  "qa_acceptance_sessions",
   "quote_logs",
   "quotes",
   "route_api_usage",
@@ -314,6 +317,10 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     manual_quote_request_events: ["INSERT", "SELECT", "UPDATE"],
     // 官网设置（ADR 0076）：全站一行，第一次保存时写入
     site_settings: ["INSERT", "SELECT", "UPDATE"],
+    // 测试环境的验收会话（ADR 0078）：解锁时一行，结束时记结束时间；不删
+    qa_acceptance_sessions: ["INSERT", "SELECT", "UPDATE"],
+    // 验收单被压下没发的邮件内容（ADR 0078）：一封一行，只追加
+    notification_suppressions: ["INSERT", "SELECT"],
     // 供应商入驻（ADR 0028）：合同版本、状态记录、履约事件、提醒只追加；资质只改审核结论；每日评分同一天重算时覆盖；企业信息只读；文件只追加
     tenant_contracts: ["INSERT", "SELECT"],
     tenant_documents: ["SELECT", "UPDATE"],

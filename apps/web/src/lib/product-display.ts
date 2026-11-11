@@ -14,6 +14,8 @@ export const PRODUCT_STATUS_BADGES: Readonly<Record<ProductStatus, BadgeSpec>> =
   draft: { tone: "neutral", label: PRODUCT_STATUS_NAMES.draft },
   published: { tone: "success", label: PRODUCT_STATUS_NAMES.published },
   unpublished: { tone: "neutral", label: PRODUCT_STATUS_NAMES.unpublished },
+  // 只有测试环境的 QA 测试供应商会有（M8-26，ADR 0078）
+  qa_listed: { tone: "info", label: PRODUCT_STATUS_NAMES.qa_listed },
 };
 
 /** 商品的显示名：详情里的标题；还没填时是「未命名的{品类}商品」。 */

@@ -102,6 +102,8 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   { method: "GET", url: "/platform/v1/notifications", action: "notification.read" },
   { method: "GET", url: "/platform/v1/notification-templates", action: "notification.read" },
   { method: "POST", url: `/platform/v1/notifications/${MISSING}/retry`, action: "notification.retry" },
+  // 测试环境验收单被压下的邮件内容（M8-26，ADR 0078）：看 notification.read。用不存在的编号：有权限时 404
+  { method: "GET", url: `/platform/v1/notifications/${MISSING}/suppressed-content`, action: "notification.read" },
   // 人工报价申请（M8-21，ADR 0076）：看 manual_quote.read；指派、改状态、备注、看能指派给谁 manual_quote.manage。用不存在的编号：有权限时 404 / 428
   { method: "GET", url: "/platform/v1/manual-quote-requests", action: "manual_quote.read" },
   { method: "GET", url: `/platform/v1/manual-quote-requests/${MISSING}`, action: "manual_quote.read" },
