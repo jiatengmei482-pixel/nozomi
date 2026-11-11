@@ -248,6 +248,10 @@ export function BookNewPage() {
   const reviewHeading = useRef<HTMLHeadingElement>(null);
   const tripHeading = useRef<HTMLHeadingElement>(null);
   const urlStep = bookStepOf(location.search);
+  const latestSearch = useRef(location.search);
+  latestSearch.current = location.search;
+  /** 链接里的地点还在读：读完以前不按「能到哪一步」改网址 */
+  const [linkPending, setLinkPending] = useState(link.from !== null || link.to !== null);
   /** 换步：网址加一条历史记录（浏览器后退回到上一步），其余参数原样保留 */
   const goStep = useCallback(
     (next: BookStep, replace = false): void => {
@@ -288,6 +292,7 @@ export function BookNewPage() {
     let alive = true;
     void Promise.all([resolveLinkEnd(link.from), resolveLinkEnd(link.to)]).then(([fromEnd, toEnd]) => {
       if (!alive) return;
+      setLinkPending(false);
       const from = fromEnd?.kind === "point" ? fromEnd.point : null;
       const to = toEnd?.kind === "point" ? toEnd.point : null;
       setDraft((current) => {
@@ -296,7 +301,7 @@ export function BookNewPage() {
       });
       const text = linkNotice([fromEnd, toEnd], link.mode === "charter" ? "charter" : "transfer");
       if (text !== null) setNotice({ kind: "warning", text });
-      else if (from !== null && to !== null && link.date !== null && link.time !== null && new URLSearchParams(window.location.search).get("step") === null) goStep(2, true);
+      else if (from !== null && to !== null && link.date !== null && link.time !== null && new URLSearchParams(latestSearch.current).get("step") === null) goStep(2, true);
     });
     return () => {
       alive = false;
@@ -604,6 +609,10 @@ export function BookNewPage() {
   const tripReady = cities.kind === "ready" && Object.keys(validate(draft, charterCity)).length === 0;
   const reachable: BookStep = !tripReady ? 1 : selectedId === null || manualOnly ? 2 : !contactConfirmed ? 3 : 4;
   const step = Math.min(urlStep, reachable) as BookStep;
+  // 网址要的步骤还到不了（从网址、前进键打开；或报价变了车型没了）：网址改成能到的那一步，不在后面自己跳过去
+  useEffect(() => {
+    if (cities.kind === "ready" && !linkPending && urlStep > reachable) goStep(reachable, true);
+  }, [cities.kind, linkPending, urlStep, reachable]);
 
   // 换步：焦点移到那一步的标题（第一次打开不动）
   const shownStep = useRef(step);
@@ -985,14 +994,19 @@ export function BookNewPage() {
       </dl>
     );
 
-    /** 侧栏里的车型和一个价格：合计（加了附加服务是带附加服务的那一次），下面含公里数、含区域加价 */
+    /** 侧栏里的车型和一个价格（第 2 步选了车型就出现）：合计（加了附加服务是带附加服务的那一次），下面含公里数、含区域加价 */
     const sidePrice = selected !== null && vehicleName !== null && (
       <div className="book-summary__block">
         <h3 className="book-new__subtitle">车型和价格</h3>
         <p className="book-summary__vehicle-name" lang={vehicleName.lang}>
           {vehicleName.text}
         </p>
-        <p className="book-summary__price">{pricedState.kind === "ready" ? <SitePrice text={moneyText(pricedState.total)} size="lg" /> : <span className="site-muted">正在重新计算…</span>}</p>
+        <p className="book-summary__price">
+          {pricedState.kind === "ready" && <SitePrice text={moneyText(pricedState.total)} size="lg" />}
+          {pricedState.kind === "loading" && <span className="site-muted">正在重新计算…</span>}
+          {pricedState.kind === "unavailable" && <span>这个车型现在加不了所选的附加服务，请减少附加服务或换一个车型。</span>}
+          {pricedState.kind === "failed" && <span>{pricedState.message}</span>}
+        </p>
         {selected.includes_area_surcharge === true && <p className="book-summary__note">{AREA_SURCHARGE_NOTE}</p>}
         {kmNote !== null && <p className="book-summary__note">{kmNote}</p>}
       </div>
@@ -1011,7 +1025,7 @@ export function BookNewPage() {
             {tripFacts}
           </div>
         )}
-        {step > 2 && sidePrice}
+        {step > 1 && sidePrice}
         {step > 3 && (
           <div className="book-summary__block">
             <h3 className="book-new__subtitle">乘客信息</h3>
@@ -1109,7 +1123,7 @@ export function BookNewPage() {
           </span>
           <span className="book-summary-bar__text">
             {draft.from !== null && step > 1 ? `${tripName} · ${draft.from.name}${draft.to !== null ? ` → ${draft.to.name}` : ""}` : "还没有确认的内容"}
-            {step > 2 && pricedState.kind === "ready" ? ` · ${moneyText(pricedState.total)}` : ""}
+            {step > 1 && selected !== null && pricedState.kind === "ready" ? ` · ${moneyText(pricedState.total)}` : ""}
           </span>
           <Icon name="chevron-down" className={summaryOpen ? "book-summary-bar__arrow book-summary-bar__arrow--open" : "book-summary-bar__arrow"} />
         </button>
