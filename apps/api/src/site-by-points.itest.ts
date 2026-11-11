@@ -38,6 +38,7 @@ import { tenantLogin } from "./testing/money.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
 import { FakePaymentProvider } from "./testing/payments.ts";
 import { type SiteApi, siteApi } from "./testing/site.ts";
+import { QUOTE_CATALOG_TTL_MS } from "./services/quote-catalog.ts";
 
 let api: TestApi;
 let m: Market;
@@ -112,10 +113,10 @@ const directQuote = async (body: Record<string, unknown>, app: SiteApi = site): 
 /** 报价里除了 quote_id（每次询价新生成）以外的全部内容 */
 const comparable = (result: { currency: string; quotes: any[]; unavailable: any[] }) => ({ currency: result.currency, quotes: result.quotes.map(({ quote_id: _id, ...rest }) => rest), unavailable: result.unavailable });
 
-/** 给供应商建一个东京的点对点商品（区域盖住整个东京，商务 7 座一口价），再上架。 */
 /** 各供应商点对点商品的报价区域（M8-35 的用例要改它的形状） */
 const p2pAreas: Record<string, string> = {};
 
+/** 给供应商建一个东京的点对点商品（区域盖住整个东京，商务 7 座一口价），再上架。 */
 async function pointToPointProduct(who: TenantFixture, price: number): Promise<void> {
   const token = await tenantLogin(api, who.adminEmail);
   const call = (method: "POST" | "PUT" | "GET", path: string, body?: unknown, version?: number, status = 200): Promise<any> =>
@@ -590,8 +591,8 @@ test("M8-35 往返对称：出发地不在任何城市（轻井泽）、目的�
       body: { city_id: m.ids.tokyo, name: current.name, biz_type: "general", polygons: [{ kind: "operate", geometry: { type: "Polygon", coordinates: [ring(139.0, 35.0, 140.0, 36.0)] } }, { kind: "operate", geometry: { type: "Polygon", coordinates: [ring(138.5, 36.2, 138.8, 36.5)] } }] },
     }),
   );
-  // 报价用的商品目录缓存 30 秒（QUOTE_CATALOG_TTL_MS）
-  api.clock.advance(31_000);
+  // 报价用的商品目录有短时缓存：过了有效期再询价
+  api.clock.advance(QUOTE_CATALOG_TTL_MS + 1_000);
   const go = await okByPoints(ginza, karuizawa);
   const back = await okByPoints(karuizawa, ginza);
   assert.deepEqual([go.trip_type, go.city?.id, back.trip_type, back.city?.id], ["point_to_point", m.ids.tokyo, "point_to_point", m.ids.tokyo]);
