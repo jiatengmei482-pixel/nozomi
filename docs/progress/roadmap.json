@@ -806,6 +806,7 @@
           "role": "tester",
           "status": "todo",
           "acceptance": ["查清 PR #150 run 42939235305 上 km-display.spec.ts:157 报价距离是 6800 的原因（路线缓存写入时机、键、并行用例互相覆盖或替身默认值），修测试或修代码，不靠加长等待", "同一类偶发还有 route-estimates-qa.spec.ts:127（PR #150 run 42947593270，官网点对点只有里程计价的商品）：一并查是否同一原因（路线替身 / 路线缓存在并行用例间互相影响）",
+          "另一类偶发：manual-quote.spec.ts:77 运营后台人工报价列表 axe color-contrast（PR #151 run 后一轮，同代码上一轮通过），查是否检查时机落在行高亮或过渡动画中",
           "该用例本机并行 20 次、CI 连续 3 轮不失败"],
           "evidence": "",
           "updated": "2026-11-11"
