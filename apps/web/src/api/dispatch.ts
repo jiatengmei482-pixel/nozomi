@@ -7,8 +7,8 @@
  * - 供应商的接口里没有对外价和加价比例（规则 4）；司机 H5 的接口里没有任何价格。
  */
 import type { TenantOrderRescue } from "./rescues.ts";
-import type { OrderAreaSurchargeView, OrderDistanceView, OrderPricingRoute } from "../lib/order-area-price-display.ts";
-import type { DriverLinkEmailState, DriverStatus, LocalizedText, OrderStatus, PlateType, TenantWebhookEvent, VehicleStatus } from "@nozomi/domain";
+import type { OrderAreaSurchargeView, OrderDistanceView, OrderMileageView, OrderPricingRoute } from "../lib/order-area-price-display.ts";
+import type { DriverLinkEmailState, DriverStatus, LocalizedText, OrderStatus, PlateType, PricingBasis, TenantWebhookEvent, VehicleStatus } from "@nozomi/domain";
 import { query, TENANT_BASE } from "./areas.ts";
 import { apiDownload, apiRequest, apiUpload } from "./client.ts";
 import { PLATFORM_BASE } from "./platform.ts";
@@ -272,6 +272,10 @@ export interface TenantOrderDetail {
   area_surcharge?: OrderAreaSurchargeView | null;
   /** 点对点用的价格（M8-13）；没有为 null。旧的测试数据里可能没有这一项 */
   pricing_route?: OrderPricingRoute | null;
+  /** 计价方式（M8-30b，和后端约定的字段；ADR 0080）：一口价 / 一口价 + 区域外里程费 / 按计程价。接口还没给时没有这一项 */
+  pricing_basis?: PricingBasis;
+  /** 计程部分（结算价，订单上锁定的）；一口价为 null。接口还没给时没有这一项 */
+  mileage?: OrderMileageView | null;
 }
 
 export interface AssignmentIssue {

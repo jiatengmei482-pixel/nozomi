@@ -18,7 +18,6 @@ import { TextField } from "../../../components/TextField.tsx";
 import { ADDON_QUANTITY, FX_REFERENCE_NOTE, RIDER_NAME_MAX, RIDER_PHONE_MAX, type TripPoint, decodePolyline, lockedRouteSummaryText, referenceMoney, routeSummaryText } from "../../../lib/book-new.ts";
 import { moneyText } from "../../../lib/dispatch-display.ts";
 import { displayName } from "../../../lib/master-display.ts";
-import { AREA_SURCHARGE_NOTE } from "../../../lib/site-display.ts";
 import { CONSENT_HELP, CONSENT_TEXT, FIELD_HINTS, MESSAGING_NAMES, type OrderErrors } from "../../../lib/site-order-form.ts";
 import { SitePrice } from "../SitePrice.tsx";
 import { RoutePicture } from "./StaticRouteMap.tsx";
@@ -71,7 +70,7 @@ export function PriceBlock({
   currency,
   onCurrency,
   reference,
-  areaSurcharge = false,
+  basisNote = null,
   kmNote = null,
 }: {
   fare: SiteMoney;
@@ -79,8 +78,8 @@ export function PriceBlock({
   currency: string;
   onCurrency(currency: string): void;
   reference: SiteFxReference | null;
-  /** 这个车型的报价含区域加价（M8-19）：车费下面说一句「含区域加价，已算在这个价格里」，不写金额 */
-  areaSurcharge?: boolean;
+  /** 计价说明（M8-19 含区域加价、M8-30b 含里程费 / 按里程计价，`sitePriceBasisNote`）：车费后面说一句，不写金额；没有为 null */
+  basisNote?: string | null;
   /** 含公里数那一句（M8-13，规范 10.3）：车费下面一行；没设为 null */
   kmNote?: string | null;
 }) {
@@ -92,7 +91,7 @@ export function PriceBlock({
           <dt>车费</dt>
           <dd>
             {moneyText(fare)}
-            {areaSurcharge && <span className="book-prices__surcharge">{AREA_SURCHARGE_NOTE}</span>}
+            {basisNote !== null && <span className="book-prices__surcharge">{basisNote}</span>}
           </dd>
         </div>
         {kmNote !== null && (

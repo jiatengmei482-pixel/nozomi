@@ -5,9 +5,10 @@
  * - 供应商后台：只有结算价（规则 4），金额币种在前（「JPY 250」，04 第 1 节）；接口里本来就没有对外价。
  * 一口价仍然只有一个总价：这些是说明，不写成算式。没有这些数的订单返回 null（那一项不出现，页面其余照常）。
  */
-import { type LocalizedText, consoleMoneyText, includedKmSummary, isCurrencyCode, parseMajor, routeMetersText, tenantIncludedKmSummary } from "@nozomi/domain";
+import { type LocalizedText, type PricingBasis, consoleMoneyText, includedKmSummary, isCurrencyCode, parseMajor, routeMetersText, tenantIncludedKmSummary } from "@nozomi/domain";
 import { moneyText } from "./dispatch-display.ts";
 import { displayName } from "./master-display.ts";
+import { pricingBasisLines } from "./pricing-basis-display.ts";
 
 type Money = { amount: string; currency: string };
 
@@ -111,4 +112,30 @@ export function tenantSurchargeLines(surcharge: OrderAreaSurchargeView | null | 
     const amount = minor === null || !isCurrencyCode(entry.settlement.currency) ? `${entry.settlement.currency} ${entry.settlement.amount}` : consoleMoneyText(minor, entry.settlement.currency);
     return `${END_LABELS[end]}：${areaName({ name: entry.area_name })} · 加 ${amount}`;
   });
+}
+
+/**
+ * 订单上锁定的计程部分（M8-30，ADR 0080；结算价，已含在基础价里）：一口价 + 区域外里程费、按计程价的订单才有。
+ * 和后端约定的接口形状（订单详情的 `pricing_basis`、`mileage`，同 `distance` 的写法，金额是 `{ amount, currency }`）；旧接口、一口价的订单没有。
+ */
+export interface OrderMileageView {
+  route_meters: number;
+  included_km: number;
+  km: number;
+  start_price: Money;
+  per_km: Money;
+  fee: Money;
+}
+
+/** 金额写法：运营后台「1,500 JPY」，供应商后台「JPY 1,500」（04 第 1 节）；都是结算价 */
+function auditMoney(audience: "platform" | "tenant", money: Money): string {
+  if (audience === "platform") return moneyText(money);
+  const minor = minorOf(money);
+  return minor === null || !isCurrencyCode(money.currency) ? `${money.currency} ${money.amount}` : consoleMoneyText(minor, money.currency);
+}
+
+/** 订单详情「计价方式」那一项的几行；一口价、旧单返回 null（不出现）。 */
+export function orderPricingBasisLines(audience: "platform" | "tenant", basis: PricingBasis | null | undefined, mileage: OrderMileageView | null | undefined): string[] | null {
+  const facts = mileage === null || mileage === undefined ? null : { ...mileage, start_price: auditMoney(audience, mileage.start_price), per_km: auditMoney(audience, mileage.per_km), fee: auditMoney(audience, mileage.fee) };
+  return pricingBasisLines(basis, facts);
 }

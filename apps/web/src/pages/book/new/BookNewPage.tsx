@@ -66,7 +66,7 @@ import {
 } from "../../../lib/book-new.ts";
 import { formatInZone, moneyText } from "../../../lib/dispatch-display.ts";
 import { displayName } from "../../../lib/master-display.ts";
-import { AREA_SURCHARGE_NOTE, CHARTER_OVERAGE_NOTE, addressEnds, defaultServiceDate, guestCancelPolicyText, guestLocalText, newIdempotencyKey, quotesByTotal, siteDistanceNote, siteOrderUrl } from "../../../lib/site-display.ts";
+import { CHARTER_OVERAGE_NOTE, addressEnds, defaultServiceDate, guestCancelPolicyText, guestLocalText, newIdempotencyKey, quotesByTotal, siteDistanceNote, siteOrderUrl, sitePriceBasisNote } from "../../../lib/site-display.ts";
 import { FIELD_HINTS, MESSAGING_NAMES, type OrderErrors, type OrderForm, type OrderTrip, orderFailureOf, orderRequestOf, validateOrderForm } from "../../../lib/site-order-form.ts";
 import { useDocumentTitle } from "../../../lib/use-document-title.ts";
 import { MANUAL_QUOTE_CHARTER_HOURS, type ManualQuoteTripDraft } from "../../../lib/manual-quote-form.ts";
@@ -1028,7 +1028,7 @@ export function BookNewPage() {
       </dl>
     );
 
-    /** 侧栏里的车型和一个价格（第 2 步选了车型就出现）：合计（加了附加服务是带附加服务的那一次），下面含公里数、含区域加价 */
+    /** 侧栏里的车型和一个价格（第 2 步选了车型就出现）：合计（加了附加服务是带附加服务的那一次），下面含公里数、计价说明（含区域加价 / 含里程费 / 按里程计价） */
     const sidePrice = selected !== null && vehicleName !== null && (
       <div className="book-summary__block">
         <h3 className="book-new__subtitle">车型和价格</h3>
@@ -1041,7 +1041,7 @@ export function BookNewPage() {
           {pricedState.kind === "unavailable" && <span>这个车型现在加不了所选的附加服务，请减少附加服务或换一个车型。</span>}
           {pricedState.kind === "failed" && <span>{pricedState.message}</span>}
         </p>
-        {selected.includes_area_surcharge === true && <p className="book-summary__note">{AREA_SURCHARGE_NOTE}</p>}
+        {sitePriceBasisNote(selected) !== null && <p className="book-summary__note">{sitePriceBasisNote(selected)}</p>}
         {kmNote !== null && <p className="book-summary__note">{kmNote}</p>}
       </div>
     );
@@ -1103,7 +1103,7 @@ export function BookNewPage() {
               <p className="book-review__vehicle" lang={vehicleName.lang}>
                 {vehicleName.text}
               </p>
-              <PriceBlock fare={selected.price.total} areaSurcharge={selected.includes_area_surcharge === true} kmNote={kmNote} priced={pricedState} currency={guestCurrency} onCurrency={(code) => setGuestCurrency(code as CurrencyCode)} reference={reference !== null && reference.to === guestCurrency ? reference : null} />
+              <PriceBlock fare={selected.price.total} basisNote={sitePriceBasisNote(selected)} kmNote={kmNote} priced={pricedState} currency={guestCurrency} onCurrency={(code) => setGuestCurrency(code as CurrencyCode)} reference={reference !== null && reference.to === guestCurrency ? reference : null} />
             </>
           )}
         </section>

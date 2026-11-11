@@ -47,7 +47,7 @@ import {
   KM_FIELDS,
 } from "../../../lib/price-form.ts";
 import { type CopyDraft, type Route, type RouteDraft, NO_ROUTE_DISTANCE_NOTE, ROUTE_LEAD, ROUTE_LEAD_2, applyCopy, copyDraftFor, emptyRouteDraft, isRouteRow, planCopy, planRoute, pricedGroups, reverseOf, routeHasPrices, routeIssue, routeKey, routeOf, routeOrder, routesIn } from "../../../lib/route-prices.ts";
-import { hasIncludedKm } from "@nozomi/domain";
+import { distancePriceAllowed, hasIncludedKm } from "@nozomi/domain";
 import { pricingCapable, roleOf } from "../../../lib/area-roles.ts";
 import { AREA_NEW_PATH } from "../../../lib/area-paths.ts";
 import { NewTabLink } from "../../../components/NewTabLink.tsx";
@@ -62,6 +62,7 @@ import { useDownload } from "../inventory/useDownload.tsx";
 import { importPath } from "../../../lib/product-paths.ts";
 import type { PricesShared } from "./PricesStep.tsx";
 import { AreaSurchargeBlock, surchargeCellId, useSurcharges } from "./AreaSurchargeBlock.tsx";
+import { DistancePriceBlock } from "./DistancePriceBlock.tsx";
 import { readSurchargeRow, surchargeOverlaps } from "../../../lib/area-surcharge.ts";
 import { basePriceItems } from "../../../lib/price-form.ts";
 import { useLoad } from "../../../lib/use-load.ts";
@@ -1368,6 +1369,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                 focusRow={(key) => requestAnimationFrame(() => focusAnchor(surchargeCellId(key, "pickup")))}
               />
             )}
+            {distancePriceAllowed(category) && !onPlatform && <DistancePriceBlock frame={frame} currency={context.currency} today={context.today} />}
             {p2p && (
               <>
                 <AddRouteDialog

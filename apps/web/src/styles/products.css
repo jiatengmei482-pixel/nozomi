@@ -3064,6 +3064,12 @@ p.stock-day__status.stock-cell--sold_out {
   overflow-wrap: anywhere;
 }
 
+/* 计程价小块（M8-30b）：表格沿用调价规则的窄屏卡片样式 */
+.distance-prices__empty {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
 .surcharge-pick {
   display: flex;
   flex-direction: column;

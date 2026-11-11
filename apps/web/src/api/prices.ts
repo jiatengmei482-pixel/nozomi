@@ -253,6 +253,56 @@ export function saveRoundingUnit(token: string, brandId: string, version: number
 /** 节假日的查询参数；`country_code` 可以是逗号分隔的几个国家。 */
 export const HOLIDAY_QUERY_KEYS = ["country_code", "from", "to"] as const;
 
+// ───────────── 计程价（M8-30，ADR 0080） ─────────────
+
+/** 一条计程价：按车型组的「起步价 + 每公里单价」（结算价，最小货币单位整数），不挂区域；只有接送机、点对点有 */
+export interface DistancePriceInput {
+  vehicle_group_id: string;
+  start_price: number;
+  per_km: number;
+  valid_from: string;
+  valid_to: string | null;
+  status: PriceRuleStatus;
+}
+
+export interface DistancePriceBody extends DistancePriceInput {
+  id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DistancePrices {
+  version: number;
+  currency: string | null;
+  today: string;
+  items: DistancePriceBody[];
+}
+
+export interface DistancePriceSaved {
+  version: number;
+  distance_price: DistancePriceBody | null;
+}
+
+export function listDistancePrices(token: string, productId: string): Promise<DistancePrices> {
+  return apiRequest("GET", `${product(productId)}/distance-prices`, { token });
+}
+
+export function createDistancePrice(token: string, productId: string, version: number, body: DistancePriceInput, idempotencyKey: string): Promise<DistancePriceSaved> {
+  return apiRequest("POST", `${product(productId)}/distance-prices`, { token, body, headers: { ...ifMatch(version), "idempotency-key": idempotencyKey } });
+}
+
+export function updateDistancePrice(token: string, productId: string, ruleId: string, version: number, body: DistancePriceInput): Promise<DistancePriceSaved> {
+  return apiRequest("PUT", `${product(productId)}/distance-prices/${encodeURIComponent(ruleId)}`, { token, body, headers: ifMatch(version) });
+}
+
+export function deleteDistancePrice(token: string, productId: string, ruleId: string, version: number): Promise<{ version: number }> {
+  return apiRequest("DELETE", `${product(productId)}/distance-prices/${encodeURIComponent(ruleId)}`, { token, headers: ifMatch(version) });
+}
+
+export function setDistancePriceStatus(token: string, productId: string, ruleId: string, action: "enable" | "disable"): Promise<DistancePriceSaved> {
+  return apiRequest("POST", `${product(productId)}/distance-prices/${encodeURIComponent(ruleId)}/${action}`, { token });
+}
+
 export function getHolidays(token: string, values: { country_code?: string; from?: string; to?: string } = {}): Promise<Holidays> {
   return apiRequest("GET", query(`${TENANT_BASE}/holidays`, values), { token });
 }
@@ -269,6 +319,9 @@ export const PRICE_SCHEMA_FIELDS = {
   AdjustRules: ["version", "currency", "rounding_unit", "today", "items"],
   Holiday: ["country_code", "date", "name", "updated_at"],
   Holidays: ["items", "countries"],
+  DistancePrice: ["id", "vehicle_group_id", "start_price", "per_km", "valid_from", "valid_to", "status", "created_at", "updated_at"],
+  DistancePrices: ["version", "currency", "today", "items"],
+  DistancePriceSaved: ["version", "distance_price"],
 } as const satisfies {
   PriceRule: readonly (keyof PriceRuleBody)[];
   PriceCalendar: readonly (keyof PriceCalendar)[];
@@ -278,10 +331,13 @@ export const PRICE_SCHEMA_FIELDS = {
   AdjustRules: readonly (keyof AdjustRules)[];
   Holiday: readonly (keyof Holiday)[];
   Holidays: readonly (keyof Holidays)[];
+  DistancePrice: readonly (keyof DistancePriceBody)[];
+  DistancePrices: readonly (keyof DistancePrices)[];
+  DistancePriceSaved: readonly (keyof DistancePriceSaved)[];
 };
 /** 价格总览里每个商品的字段（schema 是内嵌的，对账时单独比）。 */
 export const PRICE_OVERVIEW_ITEM_FIELDS = ["product_id", "code", "status", "category", "title", "city", "coverage", "inventory_mode", "no_inventory_ahead", "price_rule_count", "has_active_price", "active_price_rule_count", "enabled_adjust_rule_count"] as const satisfies readonly (keyof PriceOverviewItem)[];
 export const NO_PRICE_REASONS = ["NO_RULE", "NOT_IN_EFFECT", "RULE_DISABLED", "NOT_POSITIVE", "OVER_LIMIT"] as const;
-export const PRICE_WRITE_FIELDS = { PriceRuleInput: PRICE_INPUT, AdjustRuleInput: ADJUST_INPUT, PriceRuleBatch: ["create", "update", "delete"], AdjustRuleOrder: ["ids"] } as const;
+export const PRICE_WRITE_FIELDS = { PriceRuleInput: PRICE_INPUT, AdjustRuleInput: ADJUST_INPUT, PriceRuleBatch: ["create", "update", "delete"], AdjustRuleOrder: ["ids"], DistancePriceInput: ["vehicle_group_id", "start_price", "per_km", "valid_from", "valid_to", "status"] } as const;
 /** 页面专门处理的错误码和原因。 */
-export const PRICE_ERROR_CODES = ["PRICE_RULE_CONFLICT", "VERSION_CONFLICT", "PUBLISH_CHECK_FAILED", "CONCURRENT_UPDATE", "IDEMPOTENCY_KEY_REUSED", "AREA_NOT_IN_PRODUCT", "VEHICLE_GROUP_NOT_IN_PRODUCT", "UNKNOWN_PRICE_RULE", "TOO_MANY", "ADJUST_RESULT_NOT_POSITIVE", "ADJUST_RESULT_TOO_LARGE", "ADJUST_STACK_NOT_POSITIVE", "ADJUST_STACK_OVER_LIMIT", "NO_PRICE_IN_SELECTION", "ROUNDING_UNIT_ZEROES_PRICES", "IDS_MISMATCH", "NO_ACTIVE_PRICE_RULE", "ALL_PRICE_RULES_DISABLED", "ALL_PRICE_RULES_EXPIRED"] as const;
+export const PRICE_ERROR_CODES = ["PRICE_RULE_CONFLICT", "VERSION_CONFLICT", "PUBLISH_CHECK_FAILED", "CONCURRENT_UPDATE", "IDEMPOTENCY_KEY_REUSED", "AREA_NOT_IN_PRODUCT", "VEHICLE_GROUP_NOT_IN_PRODUCT", "UNKNOWN_PRICE_RULE", "TOO_MANY", "ADJUST_RESULT_NOT_POSITIVE", "ADJUST_RESULT_TOO_LARGE", "ADJUST_STACK_NOT_POSITIVE", "ADJUST_STACK_OVER_LIMIT", "NO_PRICE_IN_SELECTION", "ROUNDING_UNIT_ZEROES_PRICES", "IDS_MISMATCH", "NO_ACTIVE_PRICE_RULE", "ALL_PRICE_RULES_DISABLED", "ALL_PRICE_RULES_EXPIRED", "DISTANCE_PRICE_CONFLICT", "DISTANCE_PRICE_NOT_ALLOWED"] as const;

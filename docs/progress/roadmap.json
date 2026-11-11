@@ -859,7 +859,7 @@
           "id": "M8-30b",
           "title": "M8-30 的页面：官网四步页 / 右侧栏 / 订单页标注「含里程费」「按里程计价」，供应商价格页的「计程价」小块",
           "role": "frontend",
-          "status": "todo",
+          "status": "doing",
           "acceptance": [
             "官网四步页车型卡、右侧栏、核对页、订单页按 pricing_basis 显示「含里程费」（one_price_outside_km）/「按里程计价」（distance_only），文字用 @nozomi/domain 的 pricingBasisNote；包车「含区域加价」不变；站点数据里不出现「加价」，客人页不显示计程的单价和金额",
             "点对点、接送机商品的价格页加「计程价」小块（按车型组的起步价 + 每公里、生效日期、启停、删除，按 M8-12 的做法），调用 /tenant/v1/products/{id}/distance-prices；包车不显示",
