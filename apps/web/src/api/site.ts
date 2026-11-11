@@ -3,7 +3,7 @@
  * 客人自己的订单凭查看令牌（`nzo_…`，在订单页地址的 `#` 后面），放进 `Authorization` 请求头。要挂 Stripe 表单时令牌从地址移到这条历史记录的 state 里（ADR 0046），不进其他存储。
  * 类型与 `apps/api/openapi.yaml` 对账（site.contract.test.ts）。
  */
-import type { ExtraChargeStatus, ExtraChargeType, LocalizedText, MessagingApp, OrderChangeStatus, OrderStatus } from "@nozomi/domain";
+import type { ExtraChargeStatus, ExtraChargeType, LocalizedText, MessagingApp, OrderChangeStatus, OrderStatus, PricingBasis } from "@nozomi/domain";
 import { apiRequest, apiStatus } from "./client.ts";
 import type { MapTiles } from "./areas.ts";
 import type { CancelTier, OrderCancelPolicy } from "./order-money.ts";
@@ -147,6 +147,8 @@ export interface SiteQuote {
    * 点对点：价格是含公里数的一口价时（M8-11，ADR 0073）——含 X 公里、本次路线 D 米、超出 Z 公里、超出每公里的对外价（已含在 total 里，是说明不是另一笔钱）；没设为 null
    */
   distance?: { included_km: number; route_meters: number; over_km: number; over_km_per_km: SiteMoney } | null;
+  /** 计价方式（M8-30，ADR 0080）：一口价 / 含里程费 / 按里程计价（文字用 @nozomi/domain 的 `pricingBasisNote`）；旧接口可能没有这一项 */
+  pricing_basis?: PricingBasis;
   price: { total: SiteMoney; fx: { rate: string; as_of: string } | null };
   free_wait_minutes: number | null;
   cancel_policy: { category: string; level: string; tiers: CancelTier[] };
@@ -307,6 +309,8 @@ export interface SiteOrder {
   includes_area_surcharge?: boolean;
   /** 点对点：含公里数（M8-13，订单上锁定的，每公里是对外价）；没设为 null。旧接口、旧数据可能没有这一项 */
   distance?: { included_km: number; route_meters: number; over_km: number; over_km_per_km: SiteMoney } | null;
+  /** 计价方式（M8-30，订单上锁定的）；旧接口、旧数据可能没有这一项 */
+  pricing_basis?: PricingBasis;
   payment_status: string;
   payment_due_at: string;
   winning_tenant: { name: string } | null;
@@ -390,7 +394,7 @@ export const SITE_SCHEMA_FIELDS = {
   SiteAirport: ["id", "code", "name", "location"],
   SiteCharterPackage: ["hours"],
   SitePlace: ["id", "type", "code", "name", "address", "location"],
-  SiteQuote: ["quote_id", "expires_at", "service_date", "urgent", "vehicle_group", "package", "includes_area_surcharge", "distance", "price", "free_wait_minutes", "cancel_policy", "available_addons"],
+  SiteQuote: ["quote_id", "expires_at", "service_date", "urgent", "vehicle_group", "package", "includes_area_surcharge", "distance", "pricing_basis", "price", "free_wait_minutes", "cancel_policy", "available_addons"],
   SiteAddonOption: ["id", "code", "name", "charge_unit"],
   SiteOrderLink: ["token", "expires_at"],
   SiteOrderEnvelope: ["order", "timeline", "names"],
@@ -403,7 +407,7 @@ export const SITE_ORDER_VEHICLE_GROUP_FIELDS: readonly (keyof NonNullable<SiteOr
 export const SITE_ORDER_FIELDS: readonly (keyof SiteOrder)[] = [
   "id", "order_no", "status", "category", "city_id", "place_id", "direction", "vehicle_group_id", "package_hours", "service_time", "service_local", "timezone", "service_date", "urgent",
   "passengers", "luggage", "pickup", "dropoff", "addons", "driver_language", "flight_no", "passenger", "messaging", "notes", "free_wait_minutes", "created_at", "confirmed_at", "cancelled_at",
-  "cancel_reason", "quote_id", "channel_order_no", "price", "includes_area_surcharge", "distance", "payment_status", "payment_due_at", "winning_tenant", "driver", "vehicle", "landing", "cancel_policy", "cancellation",
+  "cancel_reason", "quote_id", "channel_order_no", "price", "includes_area_surcharge", "distance", "pricing_basis", "payment_status", "payment_due_at", "winning_tenant", "driver", "vehicle", "landing", "cancel_policy", "cancellation",
   "free_cancel_available", "changes", "extra_charges", "version",
 ];
 

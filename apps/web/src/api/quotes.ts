@@ -4,7 +4,7 @@
  * 只读：不生成可以下单的报价。类型与 `apps/api/openapi.yaml` 对账（`quotes.contract.test.ts`）。
  * 金额是最小货币单位整数；`exact`、`rank_price`、`sell_exact` 等是取整之前的精确值（十进制字符串）。
  */
-import type { RouteSource, ServiceCategory } from "@nozomi/domain";
+import type { PricingBasis, RouteSource, ServiceCategory } from "@nozomi/domain";
 import { apiRequest } from "./client.ts";
 import { PLATFORM_BASE } from "./platform.ts";
 
@@ -61,6 +61,10 @@ export interface QuoteSettlement {
   to_area_id?: string | null;
   /** 点对点含公里数的一口价（结算价，超出的钱已含在 base 里；M8-11）；没设为 null */
   distance?: QuoteDistance | null;
+  /** 计价方式（M8-30，ADR 0080）：一口价 / 一口价 + 区域外里程费 / 按计程价 */
+  pricing_basis?: PricingBasis;
+  /** 计程部分（结算价，已含在 base 里；M8-30）：一口价为 null */
+  mileage?: { distance_price_id: string; route_meters: number; included_km: number; km: number; start_price: number; per_km: number; fee: number } | null;
   free_wait: { item: "pickup" | "dropoff" | "general"; mode: "unlimited" | "limited" | null; minutes: number | null; platform_minimum_minutes: number };
 }
 
@@ -82,7 +86,8 @@ export interface QuoteAreaSurchargeEnd {
 export interface QuoteOffer {
   vehicle_group_id: string;
   package_hours: number | null;
-  area_id: string;
+  /** 按计程价报的没有区域（M8-30） */
+  area_id: string | null;
   price_rule_id: string;
   settlement: QuoteSettlement;
 }
@@ -186,7 +191,7 @@ export const QUOTE_SCHEMA_FIELDS = {
   QuoteCandidate: ["position", "in_band", "rank_price", "tenant_id", "tenant_name", "product_id", "product_code", "product_version", "observation", "score_centi", "completed_orders", "sell", "sell_exact", "markup_bp", "markup_level", "markup_rule_id", "min_margin_applied", "fx_buffer_bp", "fx", "area_surcharge_sell", "over_km_per_km_sell", "offer"],
   QuoteRefusal: ["tenant_id", "tenant_name", "product_id", "product_code", "vehicle_group_id", "reason", "message"],
   QuoteOffer: ["vehicle_group_id", "package_hours", "area_id", "price_rule_id", "settlement"],
-  QuoteSettlement: ["currency", "rounding_unit", "total", "base", "adjust", "urgent", "night", "addons", "driver_language", "exact", "adjusts", "urgent_tier", "night_detail", "addon_items", "driver_language_code", "usage", "area_surcharge", "to_area_id", "distance", "free_wait"],
+  QuoteSettlement: ["currency", "rounding_unit", "total", "base", "adjust", "urgent", "night", "addons", "driver_language", "exact", "adjusts", "urgent_tier", "night_detail", "addon_items", "driver_language_code", "usage", "area_surcharge", "to_area_id", "distance", "pricing_basis", "mileage", "free_wait"],
   QuoteRoute: ["meters", "minutes"],
   QuoteRouteStatus: ["status", "source", "code", "message"],
 } as const satisfies {
