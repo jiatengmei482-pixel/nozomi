@@ -151,8 +151,10 @@ test("官网点对点、包车：选服务 → 上车点从常用地点里选 �
   // 包车：旧 /book 选了包车跳到新预订页的包车（M8-15，ADR 0073：包车要选下车地点）；新预订页的包车下单由 M8-13 的端到端测试覆盖
   await page.goto("/book");
   await page.getByLabel(/^城市/).selectOption({ label: world.city.name });
-  await page.getByRole("group", { name: /服务/ }).getByRole("radio", { name: /包车/ }).check();
+  await page.getByRole("group", { name: /服务/ }).getByRole("radio", { name: /包车/ }).click();
   await expect(page).toHaveURL(/\/book\/new\?mode=charter$/);
   await expect(page.getByRole("heading", { name: "你的行程" })).toBeVisible();
+  // 新预订页四步（M8-27）：第 1 步的「包车」标签已选上（旧页面点了单选就跳走，单选本身不会停在选中状态，所以用 click）
+  await expect(page.getByRole("group", { name: "用车类型" }).getByRole("radio", { name: "包车" })).toBeChecked();
   await expect(page.getByLabel(/^包车时长/)).toHaveCount(0);
 });

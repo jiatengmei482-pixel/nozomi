@@ -155,9 +155,10 @@ test("官网点对点、包车（测试角色补充）：长名称的常用地�
   // 包车：旧 /book 选了包车跳到新预订页的包车（M8-15，ADR 0073：包车要选下车地点）
   await page.goto("/book");
   await page.getByLabel(/^城市/).selectOption({ label: world.city.name });
-  await page.getByRole("group", { name: /服务/ }).getByRole("radio", { name: /包车/ }).check();
+  await page.getByRole("group", { name: /服务/ }).getByRole("radio", { name: /包车/ }).click();
   await expect(page).toHaveURL(/\/book\/new\?mode=charter$/);
   await expect(page.getByRole("heading", { name: "你的行程" })).toBeVisible();
+  await expect(page.getByRole("group", { name: "用车类型" }).getByRole("radio", { name: "包车" })).toBeChecked();
 
   // 包车单的订单页：展开「修改订单」有上车地址和下车地址（M8-19，规范 site-booking-v2.md 10.6），没有航班号
   // 包车下车地点必填（M8-15）：下车点也在商品的区域里，不加价
@@ -206,9 +207,11 @@ test("只上架了点对点的城市：服务里没有包车（只有一种时�
   const services = page.getByRole("group", { name: /服务/ });
   await expect(services.getByRole("radio")).toHaveCount(2);
   // 包车跳到新预订页的包车（M8-15）
-  await services.getByRole("radio", { name: /包车/ }).check();
+  await services.getByRole("radio", { name: /包车/ }).click();
   await expect(page).toHaveURL(/\/book\/new\?mode=charter$/);
   await expect(page.getByRole("heading", { name: "你的行程" })).toBeVisible();
+  // 新预订页四步（M8-27）：第 1 步的「包车」标签已选上（旧页面点了单选就跳走，单选本身不会停在选中状态，所以用 click）
+  await expect(page.getByRole("group", { name: "用车类型" }).getByRole("radio", { name: "包车" })).toBeChecked();
 });
 
 test("缺陷：待付款的点对点 / 包车单（Stripe 没配置时官网的单都是待付款）页面给了「修改订单」，可后端只允许确认后再改——客人改了地址提交必定失败", async ({ page, request }) => {
