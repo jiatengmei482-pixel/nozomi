@@ -164,3 +164,48 @@ test("M8-20：没被选的区域的禁行区盖住一个点、而那个点不在
   }
   assert.ok(changed > 0);
 });
+
+// ---- M8-30（ADR 0080）：一口价 → 一口价 + 区域外里程费 → 计程价 ----
+
+test("M8-30：接送机、点对点加了计程价之后，今天报得出的每一个价逐分不变；只有原来报不出的（一端或两端不在报价区域里）才可能新报出，且都带计价方式", () => {
+  const distancePrices = [
+    { id: "dp-biz", vehicleGroupId: "biz7", startMinor: 3_000, perKmMinor: 300, validFrom: "2026-01-01", validTo: null, status: "enabled" as const },
+    { id: "dp-eco", vehicleGroupId: "eco4", startMinor: 2_000, perKmMinor: 250, validFrom: "2026-01-01", validTo: null, status: "enabled" as const },
+  ];
+  let kept = 0;
+  let added = 0;
+  for (const sample of compatSamples()) {
+    const product = migrated(sample.product);
+    const before = quoteProduct(product, sample.request, sample.moment);
+    const after = quoteProduct(sample.product.category === "charter" ? product : { ...product, distancePrices }, sample.request, sample.moment);
+    if (sample.charterDropoff === null || COMPAT_POINT_IN_PRODUCT_AREA[sample.charterDropoff]) {
+      const golden_ = golden[sample.key];
+      const legacy = JSON.parse(JSON.stringify(compatOutcome(quoteProduct(sample.product, sample.request, sample.moment, { legacyAreaRules: true }))));
+      assert.deepEqual(legacy, golden_, sample.key);
+    }
+    if (before.ok) {
+      assert.ok(after.ok, sample.key);
+      if (!after.ok) continue;
+      for (const offer of before.offers) {
+        assert.deepEqual(after.offers.find((entry) => entry.vehicleGroupId === offer.vehicleGroupId), offer, sample.key);
+        kept += 1;
+      }
+      // 原来按车型组报不出的，现在还是报不出（两端都在报价区域里：情形 1，不走计程）
+      assert.deepEqual(after.refused, before.refused, sample.key);
+      continue;
+    }
+    if (!after.ok) {
+      assert.equal(after.reason, before.reason, sample.key);
+      continue;
+    }
+    // 原来商品层面就报不出、现在报出来的：只能是区域原因（不在报价区域里），而且每个价都标了计价方式
+    assert.ok(["NO_PRICING_AREA", "OUT_OF_SERVICE_AREA", "IN_FORBIDDEN_AREA"].includes(before.reason), sample.key);
+    assert.notEqual(sample.product.category, "charter", sample.key);
+    for (const offer of after.offers) {
+      assert.ok(offer.settlement.pricingBasis === "distance_only" || offer.settlement.pricingBasis === "one_price_outside_km", sample.key);
+      added += 1;
+    }
+  }
+  assert.ok(kept > 200, `今天报得出的 ${kept} 个价不变`);
+  assert.ok(added > 30, `新报出 ${added} 个价`);
+});
