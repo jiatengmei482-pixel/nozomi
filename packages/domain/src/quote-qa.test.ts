@@ -309,10 +309,10 @@ test("QA 区域：点对点起点落在禁行区（没有别的区域能接）�
   assert.equal(outcome(product(), request({ direction: "dropoff", pickup: FORBIDDEN, dropoff: WEST })), "IN_FORBIDDEN_AREA");
 });
 
-test("QA 区域：点对点终点在 A2 的禁行区里（由 A3 接）、起点只在 A2——A2 的价不应被用来报这一单（禁行区只管它所在的区域，但这一单正是进了 A2 的禁行区）", () => {
+test("QA 区域（M8-36）：点对点终点在 A2 的禁行区里、被 A3 的营运区盖住——整个商品不报；反方向一样", () => {
   const p = p2pProduct({ areas: [AREA_1, AREA_2, AREA_3], priceRules: [price(fixed(8_000), { areaId: "a2", direction: null }), price(fixed(12_000), { areaId: "a3", direction: null })] });
-  const quoted = settled(p, p2pRequest(EAST, FORBIDDEN));
-  assert.deepEqual([quoted.areaId, quoted.settlement.totalMinor], ["a3", 12_000]);
+  assert.equal(outcome(p, p2pRequest(EAST, FORBIDDEN)), "IN_FORBIDDEN_AREA");
+  assert.equal(outcome(p, p2pRequest(FORBIDDEN, EAST)), "IN_FORBIDDEN_AREA");
 });
 
 test("QA 容量：人数、行李正好等于组合可以，多一个就不报；只超行李也不报；几个车型组各自判断", () => {

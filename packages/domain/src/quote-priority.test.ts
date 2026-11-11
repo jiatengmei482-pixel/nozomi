@@ -181,6 +181,26 @@ test("点对点：另一端落在那个区域的禁行区里 → 这个区域不
   assert.deepEqual(quoted, { ok: false, productId: "p2p-1", tenantId: "tenant-a", reason: "IN_FORBIDDEN_AREA" });
 });
 
+test("M8-36：一端落在商品报价区域的禁行区里，「一口价 + 区域外里程费」和计程价也不报——那一点被别的报价区域盖住也一样；没进禁行区的照旧", () => {
+  const hole = square(139.75, 35.85, 139.8, 35.9);
+  const withForbid: QuoteArea = { ...CITY, shapes: [...CITY.shapes, { id: "city-no", kind: "forbid", ring: hole }] };
+  const inHole = { lng: 139.78, lat: 35.88 };
+  // 禁行区里那一点不在任何营运区里、另一端在区域外：以前按计程价报，现在不报
+  const only = product({ areas: [withForbid], operatingAreas: [OPERATING] });
+  assert.deepEqual(quoteProduct(only, request(inHole, P.suburb), MOMENT), { ok: false, productId: "p2p-1", tenantId: "tenant-a", reason: "IN_FORBIDDEN_AREA" });
+  // 反方向一样不报（原因按先查到的那一端，和以前一样：起点在区域外 → NO_PRICING_AREA）
+  assert.equal(quoteProduct(only, request(P.suburb, inHole), MOMENT).ok, false, "反方向一样");
+  // 禁行区那一点被另一个报价区域「北区」的营运区盖住、另一端在区域外：以前按北区一口价 + 里程费报，现在不报
+  const north = area("north", square(139.7, 35.8, 139.9, 36.0));
+  const covered = product({ areas: [withForbid, north], operatingAreas: [OPERATING], priceRules: [rule("city-fixed"), rule("north-fixed", { areaId: "north" })] });
+  assert.equal(quoteProduct(covered, request(inHole, P.suburb), MOMENT).ok, false);
+  // 对照：同一个商品，不进禁行区的询价和没有禁行区时一模一样
+  const plain = product({ areas: [CITY, north], operatingAreas: [OPERATING], priceRules: [rule("city-fixed"), rule("north-fixed", { areaId: "north" })] });
+  for (const [from, to] of [[P.city, P.suburb], [P.suburb, P.city], [P.suburb, P.suburb2], [P.city, P.city2]] as const) {
+    assert.deepEqual(quoteProduct(covered, request(from, to), MOMENT), quoteProduct(plain, request(from, to), MOMENT));
+  }
+});
+
 test("接送机：只看非机场一端——在报价区域里是一口价，不在（在运营范围里）是计程价；机场那一端不看区域", () => {
   const inside = offer(quoteProduct(airport(), request(null, P.city, { category: "airport_transfer", direction: "pickup" }), MOMENT));
   assert.equal(inside.settlement.totalMinor, 10_000);
