@@ -38,7 +38,9 @@ export function SharedAreaDialog({ open, cities, initial, onClose, onCreated }: 
   const [role, setRole] = useState<AreaRole>("both");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [key] = useState(newIdempotencyKey);
+  // 每选一个来源用一个幂等键：同一个来源重试原样返回，换一个来源不会撞上上一次的键
+  const [key, setKey] = useState(newIdempotencyKey);
+  useEffect(() => setKey(newIdempotencyKey()), [picked?.id]);
 
   useEffect(() => {
     if (!open) return;
@@ -47,6 +49,8 @@ export function SharedAreaDialog({ open, cities, initial, onClose, onCreated }: 
     setName(initial?.picked ? displayName(initial.picked.name).text : "");
     setResults(null);
     setError(null);
+    setBizType("general");
+    setRole("both");
   }, [open, initial?.cityId, initial?.picked]);
 
   const failure = (err: unknown, action: string): string => {
@@ -147,6 +151,7 @@ export function SharedAreaDialog({ open, cities, initial, onClose, onCreated }: 
                       <span className="field__hint">营运区 {item.operate_polygon_count} 块{item.forbid_polygon_count > 0 ? ` · 禁行区 ${item.forbid_polygon_count} 块` : ""}</span>
                       <Button
                         variant="secondary"
+                        aria-label={`引用「${displayName(item.name).text}」`}
                         onClick={() => {
                           setPicked(item);
                           setName(displayName(item.name).text);

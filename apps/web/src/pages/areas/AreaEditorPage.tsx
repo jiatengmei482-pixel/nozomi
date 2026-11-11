@@ -661,6 +661,9 @@ export function AreaEditorPage() {
           onClose={() => setSharingPick(null)}
           onCreated={(created) => {
             setSharingPick(null);
+            // 改用引用的区域：这张没保存的新建页不要了，不留草稿
+            dropDraft();
+            setDiscarded(true);
             void navigate(areaEditPath(created.id), { state: location.state });
           }}
         />

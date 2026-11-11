@@ -79,14 +79,19 @@ export async function createAreaFromShared(
   idempotency: { scope: string; key: string },
   respond: (view: AreaView) => Record<string, unknown>,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
-  const shared = await getSharedArea(ctx, sharedAreaId);
   return createArea(
     ctx,
     writer,
-    { cityId: shared.area.cityId, name: input.name ?? shared.area.name, bizType: input.bizType, role: input.role, polygons: polygonInputsOf(shared.shapes) },
-    idempotency,
+    // 幂等键之后才读共享库（重试原样返回第一次的应答）
+    async () => {
+      const shared = await getSharedArea(ctx, sharedAreaId);
+      return {
+        input: { cityId: shared.area.cityId, name: input.name ?? shared.area.name, bizType: input.bizType, role: input.role, polygons: polygonInputsOf(shared.shapes) },
+        sharedSource: { areaId: shared.area.id, shapeVersion: shared.area.shapeVersion },
+      };
+    },
+    { ...idempotency, request: { shared_area_id: sharedAreaId, name: input.name, biz_type: input.bizType, role: input.role } },
     respond,
-    { areaId: shared.area.id, shapeVersion: shared.area.shapeVersion },
   );
 }
 

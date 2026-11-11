@@ -344,16 +344,17 @@ export async function getArea(ctx: DbContext, tenantId: string, id: string): Pro
 export async function createArea(
   ctx: DbContext,
   writer: AreaWriter,
-  input: AreaInput,
-  idempotency: { scope: string; key: string },
+  given: AreaInput | (() => Promise<{ input: AreaInput; sharedSource: Area["sharedSource"] }>),
+  /** `request`：幂等键比对用的请求原文；不给时用 `given`（此时它必须是 AreaInput） */
+  idempotency: { scope: string; key: string; request?: unknown },
   respond: (view: AreaView) => Record<string, unknown>,
-  /** 从共享库引用（M8-31）：记住来源区域和图形版本 */
-  sharedSource: Area["sharedSource"] = null,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;
   return writeTx(ctx, tenantId, (db) =>
-    runIdempotent(db, { tenantId, scope: idempotency.scope, key: idempotency.key, request: input, now }, async () => {
+    // 先查幂等键再解析输入：从共享库引用时，同一个键重试要原样返回第一次的结果，不受来源之后被改、被停用影响（M8-31）
+    runIdempotent(db, { tenantId, scope: idempotency.scope, key: idempotency.key, request: idempotency.request ?? given, now }, async () => {
+      const { input, sharedSource } = typeof given === "function" ? await given() : { input: given, sharedSource: null };
       const city = (await findAreaCities(db, [input.cityId])).get(input.cityId);
       if (!city) invalid([{ path: "/city_id", message: "城市不存在" }]);
       const drafts = buildPolygons(input.polygons, []);
@@ -419,7 +420,10 @@ export async function updateArea(
     const bizTypeChanged = input.bizType !== current.bizType;
     const roleChanged = role !== current.role;
     const polygonsChanged = drafts.length !== stored.length || drafts.some((draft, index) => !samePolygon(stored[index] as AreaPolygon, draft));
-    if (!nameChanged && !bizTypeChanged && !roleChanged && !polygonsChanged) return detail(db, tenantId, current);
+    // 共享库的图形版本只看种类和坐标（备注名、圆心半径不共享，变了不算新版本；ADR 0083）
+    const shapeChanged = drafts.length !== stored.length || drafts.some((draft, index) => draft.kind !== (stored[index] as AreaPolygon).kind || !isDeepStrictEqual(draft.ring, (stored[index] as AreaPolygon).ring));
+    const sourceVersionChanged = sharedSourceVersion !== null && current.sharedSource !== null && current.sharedSource.shapeVersion !== sharedSourceVersion;
+    if (!nameChanged && !bizTypeChanged && !roleChanged && !polygonsChanged && !sourceVersionChanged) return detail(db, tenantId, current);
     // 已经有商品选了这个区域时不能改业务类型：商品只能用业务类型和自己品类相同（或通用）的区域
     if (bizTypeChanged && ((await areaUsage(db, tenantId, [id])).get(id)?.productCount ?? 0) > 0) throw fieldLocked(["biz_type"]);
     // 改成运营区域：价格没有地方挂了。有商品勾着它（商品区域、区域加价、线路价；草稿也算）就不能改（ADR 0075）
@@ -444,17 +448,15 @@ export async function updateArea(
     }
     let updated = await updateAreaRow(db, tenantId, id, { name: input.name, nameKeys, bizType: input.bizType, role }, current.status, now);
     // 图形变了：图形版本加一（共享库里别人看到的版本，ADR 0083）；已经引用了这个区域的供应商手上的副本不受影响
-    if (polygonsChanged) {
-      await replaceAreaPolygons(db, tenantId, id, drafts);
-      updated = await bumpShapeVersion(db, tenantId, id, sharedSourceVersion);
-    }
+    if (polygonsChanged) await replaceAreaPolygons(db, tenantId, id, drafts);
+    if (shapeChanged || sourceVersionChanged) updated = await bumpShapeVersion(db, tenantId, id, sharedSourceVersion, shapeChanged);
     const before: AuditValues = {};
     const after: AuditValues = {};
     if (nameChanged) [before["name"], after["name"]] = [current.name, updated.name];
     if (bizTypeChanged) [before["biz_type"], after["biz_type"]] = [current.bizType, updated.bizType];
     if (roleChanged) [before["role"], after["role"]] = [current.role, updated.role];
     if (polygonsChanged) [before["polygons"], after["polygons"]] = [stored.map(polygonAudit), drafts.map(polygonAudit)];
-    if (sharedSourceVersion !== null && current.sharedSource !== null) [before["shared_source_shape_version"], after["shared_source_shape_version"]] = [current.sharedSource.shapeVersion, sharedSourceVersion];
+    if (sourceVersionChanged && current.sharedSource !== null) [before["shared_source_shape_version"], after["shared_source_shape_version"]] = [current.sharedSource.shapeVersion, sharedSourceVersion];
     await audit(db, ctx, writer, now, { areaId: id, action: "update", before, after });
     return detail(db, tenantId, updated);
   });

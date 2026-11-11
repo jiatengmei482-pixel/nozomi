@@ -164,3 +164,43 @@ test("测试供应商的区域不进共享库（标成测试供应商期间看�
   }
   assert.equal(await seen(), true);
 });
+
+test("同一个幂等键重试原样返回第一次的应答：来源之后改名、改图形、停用都不影响；换一个键才会再引用", async () => {
+  const source = await newArea(m.b, "共享·幂等重试", 139.62, 35.52, 0.01);
+  const key = randomUUID();
+  const first = await call(m.a, "POST", "/areas/from-shared", { body: { shared_area_id: source.id, biz_type: "general" }, headers: { "idempotency-key": key } });
+  assert.equal(first.status, 201, first.text);
+  await ok(call(m.b, "PUT", `/areas/${source.id}`, { body: { name: { zh: "共享·幂等重试（改）" }, biz_type: "point_to_point", polygons: [{ kind: "operate", geometry: square(139.63, 35.53, 0.01) }] }, headers: { "if-match": `"${source.version}"` } }));
+  await ok(call(m.b, "POST", `/areas/${source.id}/disable`));
+  const again = await call(m.a, "POST", "/areas/from-shared", { body: { shared_area_id: source.id, biz_type: "general" }, headers: { "idempotency-key": key } });
+  assert.deepEqual([again.status, again.body], [201, first.body]);
+  assert.equal((await call(m.a, "POST", "/areas/from-shared", { body: { shared_area_id: source.id, biz_type: "general" }, headers: { "idempotency-key": randomUUID() } })).status, 404, "来源停用后换新键引用是 404");
+});
+
+test("租户隔离：副本的编号在共享库里查不到；别家不能切换我的区域（404）", async () => {
+  const source = await newArea(m.b, "共享·隔离", 139.64, 35.54, 0.01);
+  const copy = await ok(call(m.a, "POST", "/areas/from-shared", { body: { shared_area_id: source.id, biz_type: "general" }, headers: { "idempotency-key": randomUUID() } }), 201);
+  assert.equal((await call(m.b, "GET", `/shared-areas/${copy.id}`)).status, 404);
+  assert.equal((await call(m.b, "POST", `/areas/${copy.id}/sync-shared`, { headers: { "if-match": `"${copy.version}"` } })).status, 404);
+});
+
+test("只改备注名不算新版本（共享库只共享种类和坐标）", async () => {
+  const source = await newArea(m.b, "共享·只改备注", 139.66, 35.56, 0.01);
+  const relabeled = await ok(call(m.b, "PUT", `/areas/${source.id}`, { body: { name: source.name, biz_type: "point_to_point", polygons: source.polygons.map(({ seq: _seq, ...polygon }: any) => ({ ...polygon, label: "新的备注名" })) }, headers: { "if-match": `"${source.version}"` } }));
+  assert.deepEqual([relabeled.version, relabeled.shape_version, relabeled.polygons[0].label], [source.version + 1, 1, "新的备注名"]);
+});
+
+test("已清退供应商的区域不在共享库里", async () => {
+  const source = await newArea(m.b, "共享·清退不进库", 139.68, 35.58, 0.01);
+  const status = (await api.db.owner.query("select status from tenants where id = $1", [m.b.tenantId])).rows[0].status;
+  await api.db.owner.query("update tenants set status = 'terminated', terminated_at = $2 where id = $1", [m.b.tenantId, api.clock.now()]);
+  try {
+    const list = await ok(call(m.a, "GET", `/shared-areas?city_id=${m.ids.tokyo}&q=${encodeURIComponent("清退不进库")}`));
+    assert.equal(list.items.some((item: any) => item.id === source.id), false);
+    assert.equal((await call(m.a, "GET", `/shared-areas/${source.id}`)).status, 404);
+    const similar = await ok(call(m.a, "POST", "/shared-areas/similar", { body: { city_id: m.ids.tokyo, name: { zh: "共享·清退不进库" } } }));
+    assert.equal(similar.items.some((item: any) => item.id === source.id), false);
+  } finally {
+    await api.db.owner.query("update tenants set status = $2, terminated_at = null where id = $1", [m.b.tenantId, status]);
+  }
+});

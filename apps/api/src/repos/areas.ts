@@ -113,12 +113,12 @@ export async function updateArea(db: Db, tenantId: string, id: string, values: A
  * 图形变了之后（调用方已经改过行、换过图形）：图形版本加一（M8-31）。`sharedSource` 给了时同时改引用来源的版本
  * （切换到共享库的新版本）；给 null 时保持原样。
  */
-export async function bumpShapeVersion(db: Db, tenantId: string, id: string, sharedSourceVersion: number | null): Promise<Area> {
+export async function bumpShapeVersion(db: Db, tenantId: string, id: string, sharedSourceVersion: number | null, increment = true): Promise<Area> {
   const result = await db.query<Row>(
-    `update areas set shape_version = shape_version + 1, shared_source_shape_version = coalesce($3, shared_source_shape_version)
+    `update areas set shape_version = shape_version + (case when $4::boolean then 1 else 0 end), shared_source_shape_version = coalesce($3, shared_source_shape_version)
       where tenant_id = $1 and id = $2
       returning ${AREA_COLUMNS}`,
-    [tenantId, id, sharedSourceVersion],
+    [tenantId, id, sharedSourceVersion, increment],
   );
   return toArea(result.rows[0] as Row);
 }
