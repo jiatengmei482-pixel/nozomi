@@ -349,7 +349,7 @@ export function DistancePriceBlock({ frame, currency, today }: { frame: ProductF
             <SelectField label="车型组" value={draft.group} options={groups} placeholder="请选择" required errors={draft.errors.group ? [draft.errors.group] : []} onChange={(value) => set({ group: value })} />
             <TextField label={`起步价（${currency}）`} inputMode="decimal" autoComplete="off" data-autofocus value={draft.start} errors={draft.errors.start ? [draft.errors.start] : []} hint="不收起步价填 0" onChange={(event) => set({ start: event.target.value })} />
             <TextField label={`每公里（${currency}）`} inputMode="decimal" autoComplete="off" value={draft.perKm} errors={draft.errors.perKm ? [draft.errors.perKm] : []} hint="区域外里程费也按这个单价收" onChange={(event) => set({ perKm: event.target.value })} />
-            <TextField label="生效日期 从" autoComplete="off" placeholder="2026-12-01" value={draft.from} errors={draft.errors.from ? [draft.errors.from] : []} hint="商品所在城市的当地日期，当天也算" onChange={(event) => set({ from: event.target.value })} />
+            <TextField label="生效日期 从" autoComplete="off" placeholder="年-月-日" value={draft.from} errors={draft.errors.from ? [draft.errors.from] : []} hint="商品所在城市的当地日期，当天也算，例如 2026-12-01" onChange={(event) => set({ from: event.target.value })} />
             <TextField label="到（含这一天）" autoComplete="off" placeholder="空着 = 一直有效" value={draft.to} errors={draft.errors.to ? [draft.errors.to] : []} hint="同一个车型组的生效日期不能重叠" onChange={(event) => set({ to: event.target.value })} />
           </form>
         )}
