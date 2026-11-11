@@ -5,12 +5,13 @@
  * 包车也写「含所有费用」（M8-09，ADR 0070）、任何时候都没有「跟踪航班」、手机分步和底部固定条；
  * M8-04：「怎么联系你」的校验和下单、附加服务改数量重新报价和合计差额、参考价可用 / 不可用、路线有 / 无、手机第 3 步；
  * M8-10：路线小地图用后端出的谷歌静态图（出图、没开通退回底图、其他失败只写字）。
- * M8-27：四步（网址 ?step=N、前进后退、换步不丢内容）、三个标签和标签不符的提示、右侧栏逐步累积、手机摘要条、第 3 步乘客信息、第 4 步核对和付款。
+ * M8-27：四步（网址 ?step=N、前进后退、换步不丢内容）、右侧栏逐步累积、手机摘要条、第 3 步乘客信息、第 4 步核对和付款。
+ * M8-33：标签只有「区间 / 包车」（不再有接送机 / 点对点和标签不符的提示）、旧链接 mode=airport / p2p 落到区间、接机还没有报价时按机场默认免费等待。
  * 接口用测试替身（浏览器只连 /site/v1）；真实后端由 e2e/site-booking-new.spec.ts 覆盖。
  */
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter, useLocation, useNavigate } from "react-router";
 import { App } from "../../../App.tsx";
@@ -64,7 +65,8 @@ function quoteOf(index: number, changes: { passengers?: number; luggage?: number
 function byPoints(changes: Partial<SiteByPointsResult> = {}): SiteByPointsResult {
   return {
     trip_type: "pickup",
-    airport: { id: AIRPORT_ID, code: "NRT", name: { zh: "成田国际机场" }, matched_by: "kind", distance_meters: 0 },
+    airport: { id: AIRPORT_ID, code: "NRT", name: { zh: "成田国际机场" }, matched_by: "kind", distance_meters: 0, flight_scope: "international" },
+    fallback_category: null,
     city: { id: CITY_ID, code: "CTY-JP-TYO", name: { zh: "东京" }, timezone: "Asia/Tokyo" },
     currency: "JPY",
     quotes: [quoteOf(1)],
@@ -755,7 +757,7 @@ test("包车：字段顺序 服务 → 上车地点 → 下车地点 → 包车�
   await pickPlace(actor, "上车地点", "京王", /京王广场酒店/);
   await screen.findByLabelText(/包车时长/);
   const labels = [...document.querySelectorAll(".book-new__trip label")].map((label) => label.textContent?.replace("*", "").trim()).filter((text) => text !== "");
-  assert.deepEqual(labels.slice(0, 7), ["接送机", "点对点", "包车", "上车地点", "下车地点", "包车时长", "日期（当地）"]);
+  assert.deepEqual(labels.slice(0, 6), ["区间", "包车", "上车地点", "下车地点", "包车时长", "日期（当地）"]);
   assert.equal((screen.getByRole("radio", { name: "包车" }) as HTMLInputElement).checked, true);
   const dropoff = screen.getByRole("combobox", { name: "下车地点" });
   assert.equal(dropoff.getAttribute("aria-required"), "true");
@@ -907,33 +909,50 @@ test("含公里数（M8-13）：没超出写「在含的公里数以内」；超
 
 // ---- M8-27：四步、标签、右侧栏累积、网址和前进后退 ----
 
-test("标签：接送机 / 点对点 / 包车；选了接送机但两端都不是机场、选了点对点但有一端是机场时一句提示和一键切换，不挡下一步", async () => {
+test("标签只有「区间 / 包车」（M8-33）：客人不选接送机还是点对点，两端是酒店、有一端是机场都不出提示和切换按钮；系统按报价认出的行程处理（有机场 → 航班落地时间）", async () => {
   wideScreen();
-  open();
+  let tripType: SiteByPointsResult["trip_type"] = "point_to_point";
+  open({ quote: () => json(200, byPoints(tripType === "point_to_point" ? { trip_type: tripType, airport: null } : { trip_type: tripType })) });
   const actor = user();
   await screen.findByRole("heading", { name: "你的行程" });
-  assert.deepEqual(screen.getAllByRole("radio").map((radio) => radio.closest("label")?.textContent), ["接送机", "点对点", "包车"]);
-  assert.equal((screen.getByRole("radio", { name: "接送机" }) as HTMLInputElement).checked, true);
+  assert.deepEqual(screen.getAllByRole("radio").map((radio) => radio.closest("label")?.textContent), ["区间", "包车"]);
+  assert.equal((screen.getByRole("radio", { name: "区间" }) as HTMLInputElement).checked, true);
+  assertAbsent(screen.queryByRole("radio", { name: "接送机" }));
+  assertAbsent(screen.queryByRole("radio", { name: "点对点" }));
   await pickPlace(actor, "出发地", "京王", /京王广场酒店/);
   await pickPlace(actor, "目的地", "京王", /京王广场酒店/);
-  assert.ok(screen.getByText("出发地和目的地都不是机场，这是点对点行程。"));
-  await actor.click(screen.getByRole("button", { name: "改选「点对点」" }));
-  assert.equal((screen.getByRole("radio", { name: "点对点" }) as HTMLInputElement).checked, true);
   assertAbsent(screen.queryByText(/这是点对点行程/));
-  assert.equal((screen.getByRole("combobox", { name: "出发地" }) as HTMLInputElement).value, "京王广场酒店（东京都新宿区西新宿 2-2-1）", "换标签不丢两端");
-
+  assertAbsent(screen.queryByRole("button", { name: /改选/ }));
+  tripType = "pickup";
   await pickPlace(actor, "出发地", "成田", /成田国际机场/);
-  assert.ok(await screen.findByText("有一端是机场，这是接送机行程。"));
   const date = screen.getByLabelText("日期（当地）") as HTMLInputElement;
   await actor.clear(date);
   await actor.type(date, "2030-11-20");
   await actor.type(screen.getByLabelText(/时间（当地）/), "14:30");
-  await next(actor, NEXT_VEHICLES);
-  assert.ok(await screen.findByRole("heading", { name: "选择车型" }), "提示不挡下一步");
-  await actor.click(screen.getByRole("button", { name: "上一步" }));
-  await actor.click(screen.getByRole("button", { name: "改选「接送机」" }));
-  assert.equal((screen.getByRole("radio", { name: "接送机" }) as HTMLInputElement).checked, true);
+  assert.ok(await screen.findByLabelText("航班落地时间（当地）", {}, SLOW), "有机场：按接送机处理");
   assertAbsent(screen.queryByText(/这是接送机行程/));
+  assertAbsent(screen.queryByRole("button", { name: /改选/ }));
+});
+
+test("旧链接 mode=airport / mode=p2p / mode=transfer 都落到「区间」；mode=charter 是包车（M8-33）", async () => {
+  for (const [mode, checked] of [["airport", "区间"], ["p2p", "区间"], ["transfer", "区间"], ["charter", "包车"]] as const) {
+    cleanup();
+    resetBrowser();
+    open({ at: `/book/new?mode=${mode}` });
+    await screen.findByRole("heading", { name: "你的行程" });
+    assert.equal((screen.getByRole("radio", { name: checked }) as HTMLInputElement).checked, true, `mode=${mode}`);
+  }
+});
+
+test("接机还没有报价时，免费等待按机场默认：国际线 90 分钟、国内线 60 分钟；有报价按所选商品自己设的（M8-33）", async () => {
+  for (const [scope, minutes] of [["international", 90], ["domestic", 60], [null, 60]] as const) {
+    cleanup();
+    resetBrowser();
+    wideScreen();
+    open({ quote: () => json(200, byPoints({ airport: { id: AIRPORT_ID, code: "NRT", name: { zh: "成田国际机场" }, matched_by: "kind", distance_meters: 0, flight_scope: scope }, quotes: [], unavailable: [{ vehicle_group_id: null, reasons: ["NO_PRODUCT"] }] })) });
+    await fillTrip(user());
+    assert.ok(await screen.findByText(`已识别为接机：司机按航班落地时间等候，落地后免费等待 ${minutes} 分钟`, {}, SLOW), `flight_scope=${scope}`);
+  }
 });
 
 test("右侧栏四步一直在：第 1 步只有路线图和一句说明；之后逐步追加 行程 → 车型和一个价格 → 乘客信息；网址 ?step=N，浏览器后退前进换步，内容不丢；没走到的步骤从网址打开停在能到的那一步", async () => {

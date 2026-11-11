@@ -52,6 +52,7 @@ import {
   SIGN_NAME_MAX,
   type TripPoint,
   VISIBLE_VEHICLES,
+  arrivalFreeWaitMinutes,
   bookStepOf,
   guestCurrencyOf,
   moneyDifference,
@@ -61,7 +62,6 @@ import {
   rejectionTexts,
   searchWithStep,
   suggestionNames,
-  tabMismatch,
   travellersText,
 } from "../../../lib/book-new.ts";
 import { formatInZone, moneyText } from "../../../lib/dispatch-display.ts";
@@ -101,7 +101,7 @@ export type BookMode = "transfer" | "charter";
 
 /** 客人填的行程。M8-04 下单时从这里取乘客数、航班号、两端的地址文字。 */
 export interface TripDraft {
-  /** 第 1 步顶部的标签（M8-27）；`mode` 跟着它：包车是 charter，接送机、点对点都是 transfer */
+  /** 第 1 步顶部的标签（M8-33：区间 / 包车）；`mode` 跟着它 */
   tab: BookTab;
   mode: BookMode;
   /** 接送：出发地；包车：上车地点 */
@@ -186,7 +186,7 @@ function linkNotice(ends: LinkResolution[], mode: BookMode): string | null {
 }
 
 function initialDraft(link: BookingLink): TripDraft {
-  const tab = link.mode ?? "airport";
+  const tab = link.mode ?? "transfer";
   return { tab, mode: tab === "charter" ? "charter" : "transfer", from: null, to: null, date: link.date ?? "", time: link.time ?? "", passengers: link.passengers ?? 2, luggage: link.luggage ?? link.passengers ?? 2, packageHours: "", flightNo: "" };
 }
 
@@ -371,7 +371,10 @@ export function BookNewPage() {
   const selected = quotes.find((entry) => entry.vehicle_group.id === selectedId) ?? null;
   const tripType: SiteByPointsResult["trip_type"] | null = draft.mode === "charter" ? null : recognized !== null && recognized.ends === sameEnds(draft.from, draft.to) ? recognized.tripType : draft.from?.kind === "airport" ? "pickup" : null;
   const arrival = tripType === "pickup";
-  const freeWait = (selected ?? quotes[0] ?? null)?.free_wait_minutes ?? null;
+  // 免费等待（M8-33）：有报价按所选商品自己设的；接机还没有报价时按机场国际 90 / 国内 60 分钟
+  const quotedForWait = selected ?? quotes[0] ?? null;
+  const flightScope = outcome?.mode === "transfer" ? (outcome.result.airport?.flight_scope ?? null) : null;
+  const freeWait = arrival ? arrivalFreeWaitMinutes(quotedForWait, flightScope) : (quotedForWait?.free_wait_minutes ?? null);
   const timezone = outcome?.mode === "charter" ? outcome.city.timezone : (outcome?.result.city?.timezone ?? firstCity?.timezone ?? "Asia/Tokyo");
   const cityName = outcome?.mode === "charter" ? displayName(outcome.city.name).text : outcome?.result.city ? displayName(outcome.result.city.name).text : null;
 
@@ -577,7 +580,7 @@ export function BookNewPage() {
     });
   }, []);
 
-  /** 换标签：接送机 ↔ 点对点只换说法，两端都留着；换到 / 离开包车时套餐时长清空 */
+  /** 换标签（区间 ↔ 包车）：套餐时长清空 */
   const chooseTab = (tab: BookTab): void => {
     const mode: BookMode = tab === "charter" ? "charter" : "transfer";
     update(mode === draft.mode ? { tab } : { tab, mode, packageHours: "" });
@@ -661,12 +664,12 @@ export function BookNewPage() {
     const tiles = config.config.map_tiles;
     const centers: CityCandidate[] = cityList.map((city) => ({ id: city.id, center: city.center }));
     const centerOf = (other: TripPoint | null) => (other !== null ? { lat: other.lat, lng: other.lng } : (firstCity?.center ?? null));
-    const tabs = BOOK_TABS.filter((tab) => cityList.some((city) => city.categories.includes(tab === "airport" ? "airport_transfer" : tab === "p2p" ? "point_to_point" : "charter")));
+    // 区间：城市能订接送机或点对点就有；包车：能订包车
+    const tabs = BOOK_TABS.filter((tab) => cityList.some((city) => (tab === "charter" ? city.categories.includes("charter") : city.categories.includes("airport_transfer") || city.categories.includes("point_to_point"))));
     const charter = draft.mode === "charter";
     const timeLabel = arrival ? "航班落地时间（当地）" : charter ? "上车时间（当地）" : "用车时间（当地）";
     const tripName = charter ? (draft.packageHours !== "" ? `包车 ${draft.packageHours} 小时` : "包车") : tripType !== null ? TRIP_TYPE_NAMES[tripType] : BOOK_TAB_NAMES[draft.tab];
     const whenText = /^\d{4}-\d{2}-\d{2}$/.test(draft.date) && /^\d{2}:\d{2}$/.test(draft.time) ? `${guestLocalText(`${draft.date}T${draft.time}`, timezone, new Date())}${arrival ? " 落地" : ""}` : null;
-    const mismatch = tabMismatch(draft.tab, draft.from, draft.to, recognized !== null && recognized.ends === sameEnds(draft.from, draft.to) ? recognized.tripType : null);
     const vehicleName = selected === null ? null : displayName(selected.vehicle_group.name);
     const kmNote = selected === null ? null : siteDistanceNote(selected.distance);
 
@@ -738,17 +741,6 @@ export function BookNewPage() {
           mapCenter={centerOf(draft.from)}
           cities={centers}
         />
-        {mismatch !== null && tabs.length > 1 && tabs.includes(mismatch.target) && (
-          <div className="book-new__hint" role="status">
-            <p className="book-new__hint-text">
-              <Icon name="info" />
-              <span>{mismatch.text}</span>
-            </p>
-            <Button size="lg" onClick={() => chooseTab(mismatch.target)}>
-              改选「{BOOK_TAB_NAMES[mismatch.target]}」
-            </Button>
-          </div>
-        )}
         {charter && draft.from !== null && charterCity === null && (
           <div className="book-new__notice" role="status">
             <p>这个地址暂时没有在线报价，请联系客服</p>
