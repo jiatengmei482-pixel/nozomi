@@ -199,6 +199,11 @@ export interface OrderDetailsInput {
   channelOrderNo: string | null;
   /** 客人勾选了「同意保存支付方式，用于服务后加收」（第五轮决策 ⑤） */
   savePaymentMethodConsent: boolean;
+  /**
+   * 举牌姓名、为他人预订时的乘车人姓名和电话（M8-32，ADR 0082）：都选填；乘车人姓名和电话要么都给、要么都不给。
+   * 联系人 `passenger` 仍是预订人（确认邮件发给他）。不给（渠道下单）为 undefined
+   */
+  rider?: { signName: string | null; name: string | null; phone: string | null };
 }
 
 /** 这一单的行程：从报价快照来。哪一端有坐标、接送点是机场还是车站。 */
@@ -290,5 +295,21 @@ export function orderDetailsIssues(input: OrderDetailsInput, trip: OrderTripShap
     else if (!/^[\x21-\x7E]+$/.test(input.channelOrderNo)) issues.push({ path: "/channel_order_no", reason: "INVALID_FORMAT" });
   }
   if (!input.savePaymentMethodConsent) issues.push({ path: "/save_payment_method", reason: "CONSENT_REQUIRED" });
+  if (input.rider !== undefined) {
+    const { signName, name, phone } = input.rider;
+    if (!blank(signName) && tooLong(signName as string, ORDER_FIELD_LIMITS.nameMax)) issues.push({ path: "/sign_name", reason: "TOO_LONG" });
+    if (!blank(name) && tooLong(name as string, ORDER_FIELD_LIMITS.nameMax)) issues.push({ path: "/passenger_name", reason: "TOO_LONG" });
+    if (blank(name) && !blank(phone)) issues.push({ path: "/passenger_name", reason: "REQUIRED" });
+    if (!blank(name) && blank(phone)) issues.push({ path: "/passenger_phone", reason: "REQUIRED" });
+    else if (!blank(phone) && !isInternationalPhone(phone as string)) issues.push({ path: "/passenger_phone", reason: "INVALID_PHONE" });
+  }
   return issues;
+}
+
+/** 下单时存进乘客对象的乘车人（M8-32）：去掉首尾空白，电话规范化；三项都空时不存（和旧订单一样没有这个键）。 */
+export function orderRiderOf(rider: OrderDetailsInput["rider"]): { signName: string | null; name: string | null; phone: string | null } | null {
+  if (rider === undefined) return null;
+  const clean = (value: string | null): string | null => (blank(value) ? null : (value as string).trim());
+  const out = { signName: clean(rider.signName), name: clean(rider.name), phone: blank(rider.phone) ? null : normalizePhone((rider.phone as string).trim()) };
+  return out.signName === null && out.name === null && out.phone === null ? null : out;
 }

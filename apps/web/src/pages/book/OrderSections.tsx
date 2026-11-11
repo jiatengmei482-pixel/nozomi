@@ -349,6 +349,7 @@ export function TripSection({ order, names }: { order: SiteOrder; names: SiteOrd
   const group = names.vehicle_group === null ? null : displayName(names.vehicle_group.name);
   // M8-13（规范 site-booking-v2.md 10.2、10.3）：订单上锁定的「含区域加价」「公里数」；旧单没有这些数，显示不变
   const kmNote = siteDistanceNote(order.distance);
+  const forOther = order.rider != null && order.rider.name !== null;
   return (
     <Section id="site-trip-title" title="行程">
       <dl className="site-facts">
@@ -366,11 +367,15 @@ export function TripSection({ order, names }: { order: SiteOrder; names: SiteOrd
         <Fact label="人数 / 行李">
           {order.passengers} 人 / {order.luggage} 件
         </Fact>
-        <Fact label="乘车人">{order.passenger.name}</Fact>
-        <Fact label="乘车人手机号">{order.passenger.phone}</Fact>
-        <Fact label="乘车人邮箱">
+        {/* 为他人预订（M8-32）：联系人是预订人，乘车人单独一项；为自己预订时联系人就是乘车人 */}
+        <Fact label={forOther ? "预订人" : "乘车人"}>{order.passenger.name}</Fact>
+        <Fact label={forOther ? "预订人手机号" : "乘车人手机号"}>{order.passenger.phone}</Fact>
+        <Fact label={forOther ? "预订人邮箱" : "乘车人邮箱"}>
           <span className="site-break">{order.passenger.email}</span>
         </Fact>
+        {forOther && <Fact label="乘车人">{order.rider?.name}</Fact>}
+        {forOther && <Fact label="乘车人电话 / WhatsApp">{order.rider?.phone}</Fact>}
+        {order.rider?.sign_name != null && <Fact label="举牌姓名">{order.rider.sign_name}</Fact>}
         {order.notes !== null && <Fact label="备注">{order.notes}</Fact>}
         <Fact label="总价" total>
           <SitePrice text={moneyText(order.price.total)} size="lg" />

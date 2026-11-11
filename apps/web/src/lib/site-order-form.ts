@@ -19,6 +19,8 @@ export interface OrderForm {
   messagingHandle: string;
   notes: string;
   consent: boolean;
+  /** 举牌姓名、为他人预订时的乘车人姓名和电话（M8-32，ADR 0082）：单独提交，不写进备注；旧下单页不给 */
+  rider?: { signName: string; name: string; phone: string };
 }
 
 export type OrderField = "name" | "phone" | "email" | "flightNo" | "pickupAddress" | "dropoffAddress" | "messagingHandle" | "notes" | "consent";
@@ -83,6 +85,9 @@ export function orderRequestOf(quoteId: string, form: OrderForm, trip: OrderTrip
     messaging: form.messagingApp === "" ? null : { app: form.messagingApp, handle: form.messagingHandle.trim() },
     notes: form.notes.trim() === "" ? null : form.notes.trim(),
     save_payment_method: form.consent,
+    sign_name: blankToNull(form.rider?.signName),
+    passenger_name: blankToNull(form.rider?.name),
+    passenger_phone: blankToNull(form.rider?.phone),
   };
 }
 
@@ -103,4 +108,9 @@ export function orderFailureOf(err: unknown): OrderFailure {
     return { kind: "fields", errors: mapped, text: Object.keys(mapped).length > 0 ? "有几项没有通过检查，请看标红的地方。" : "提交的内容不符合要求，请检查后重试。" };
   }
   return { kind: "other", retrySafe: err instanceof ApiError && err.status >= 500 };
+}
+
+function blankToNull(value: string | undefined): string | null {
+  const text = (value ?? "").trim();
+  return text === "" ? null : text;
 }

@@ -4,7 +4,7 @@
  * 规则 4：这里没有渠道、对外价、加价比例、汇率——`Order` 里本来就没有这些（在平台表 order_sales），这里也只逐个字段列出订单表里的内容。
  * 每个函数都逐个字段列出，不展开整个对象：新加的内部字段不会不知不觉出现在接口和推送里。
  */
-import { type LandingResult, type LocalizedText, NO_SHOW_RULES, departureReminderAt, dispatchEscalationAt, dispatchOverdue, effectiveLanding, landingApplies, orderChangeDecidable, vehicleIsNew, vehicleLabelMailVariables } from "@nozomi/domain";
+import { type LandingResult, type LocalizedText, NO_SHOW_RULES, contactOnly, riderJson, departureReminderAt, dispatchEscalationAt, dispatchOverdue, effectiveLanding, landingApplies, orderChangeDecidable, vehicleIsNew, vehicleLabelMailVariables } from "@nozomi/domain";
 import type { Driver, Vehicle } from "../repos/fleet.ts";
 import type { OrderVehicleGroupRef } from "../repos/master-data.ts";
 import type { Order } from "../repos/orders.ts";
@@ -51,7 +51,9 @@ export function orderTripJson(order: Order): Json {
     addons: order.addons.map((addon) => ({ addon_id: addon.addonId, quantity: addon.quantity })),
     driver_language: order.driverLanguage,
     flight_no: order.flightNo,
-    passenger: order.passenger,
+    // 联系人（预订人）三项；乘车人和举牌姓名单独一项（M8-32，ADR 0082），没有为 null
+    passenger: contactOnly(order.passenger),
+    rider: riderJson(order.passenger),
     messaging: order.messaging,
     notes: order.notes,
     free_wait_minutes: order.freeWaitMinutes,

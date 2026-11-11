@@ -835,7 +835,7 @@
           "id": "M8-32",
           "title": "订单加举牌姓名、乘车人姓名和电话字段 sign_name / passenger_name / passenger_phone（现在暂写在备注最前面，ADR 0079 第 4 节）",
           "role": "backend",
-          "status": "todo",
+          "status": "doing",
           "acceptance": [
           "订单页「为他人」时把预订人和乘车人分开标注（现在把预订人标成「乘车人」，M8-27 验收观察）；排在 M8-30 之后、M8-31 之前","订单加可选的 sign_name（只有接机才有）、passenger_name、passenger_phone（为他人预订时的乘车人；联系人 passenger 仍是预订人，确认邮件发给预订人），下单接口、OpenAPI、校验和长度上限", "司机页、供应商后台订单详情、运营后台订单详情单独显示举牌姓名、乘车人姓名和电话", "前端 /book/new 第 3 步改成单独提交这三个字段，不再拼进给司机的备注最前面（「举牌姓名：/ 乘车人：/ 乘车人电话：」）", "集成测试覆盖校验、跨租户读不到；端到端走一次为他人预订的接机单，司机页看到三项"],
           "evidence": "",
@@ -1845,6 +1845,11 @@
       "date": "2026-11-11",
       "by": "Claude",
       "summary": "M8-33 开发中（分支 m8-33-transfer-tab，ADR 0081）：客人页只剩「区间 / 包车」，去掉标签不符提示；认出机场但接送机商品一个都报不出时改用点对点商品（接送机报得出时不运行，现有报价不变）；应答加 fallback_category、airport.flight_scope；接机还没报价时免费等待按国际 90 / 其余 60；旧链接 mode/type=airport、p2p 落到区间"
+    },
+    {
+      "date": "2026-11-11",
+      "by": "Claude",
+      "summary": "M8-32 开发中（分支 m8-32-rider-fields，ADR 0082）：举牌姓名、乘车人姓名和电话存进乘客对象的 rider（和联系人一起加密、脱敏，不加列、不迁移），接口里是顶层 rider；下单接口新增 sign_name / passenger_name / passenger_phone；司机页、供应商和运营订单详情单独显示（运营默认打码、查看后原文）；改乘客信息不丢乘车人；订单页为他人预订时分开标预订人和乘车人；旧订单的备注不改"
     }
   ]
 }

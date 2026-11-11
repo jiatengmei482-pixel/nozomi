@@ -158,10 +158,10 @@ export interface ContactForm {
   messagingApp: MessagingApp | "";
   messagingHandle: string;
   notes: string;
-  /** 接机的举牌姓名（选填，M8-27）：没改过时跟着乘车人的名字（`signEdited` 为假），订单接口还没有这一栏，下单时写在备注最前面 */
+  /** 接机的举牌姓名（选填，M8-27）：没改过时跟着乘车人的名字（`signEdited` 为假），下单时作为订单的 `sign_name` 单独提交（M8-32） */
   signName: string;
   signEdited: boolean;
-  /** 为他人预订（M8-27）：联系人（收确认邮件的）是预订人，另填乘车人姓名和电话 / WhatsApp，也写在备注最前面（M8-32 前） */
+  /** 为他人预订（M8-27）：联系人（收确认邮件的）是预订人，另填乘车人姓名和电话 / WhatsApp，下单时作为订单的 `passenger_name` / `passenger_phone` 单独提交（M8-32） */
   forOther: boolean;
   riderName: string;
   riderPhone: string;
