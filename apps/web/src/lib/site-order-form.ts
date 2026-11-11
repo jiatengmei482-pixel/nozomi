@@ -29,6 +29,11 @@ export interface OrderTrip {
   transfer: boolean;
   arrival: boolean;
   ends: ("pickup" | "dropoff")[];
+  /**
+   * 认出机场、但报价用的是点对点商品时（M8-33，ADR 0081）：订单是点对点品类，后端不收 `flight_no`，
+   * 航班号由调用方写进给司机的备注（`notesWithExtras`），这里不再单独提交
+   */
+  flightInNotes?: boolean;
 }
 
 export const SERVER_PATHS: Readonly<Record<string, OrderField>> = {
@@ -72,7 +77,7 @@ export function orderRequestOf(quoteId: string, form: OrderForm, trip: OrderTrip
   return {
     quote_id: quoteId,
     passenger: { name: form.name.trim(), phone: form.phone.trim(), email: form.email.trim() },
-    flight_no: !trip.transfer || form.flightNo.trim() === "" ? null : form.flightNo.trim(),
+    flight_no: !trip.transfer || trip.flightInNotes === true || form.flightNo.trim() === "" ? null : form.flightNo.trim(),
     pickup_address: trip.ends.includes("pickup") ? form.pickupAddress.trim() : null,
     dropoff_address: trip.ends.includes("dropoff") ? form.dropoffAddress.trim() : null,
     messaging: form.messagingApp === "" ? null : { app: form.messagingApp, handle: form.messagingHandle.trim() },

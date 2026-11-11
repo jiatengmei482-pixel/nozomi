@@ -35,8 +35,8 @@ export interface BookingLink {
   passengers: number | null;
   luggage: number | null;
   /**
-   * 打开时选哪个标签（M8-27）：`mode=charter` 包车（旧 `/book` 的包车跳过来）、`mode=airport` 接送机、`mode=p2p` 点对点；
-   * 别的值、没给为 null（按两端有没有机场选）
+   * 打开时选哪个标签：`mode=charter` 包车（旧 `/book` 的包车跳过来）；`mode=transfer`，以及 M8-27 的旧值 `airport`、`p2p`，
+   * 都落到「区间」（M8-33）。参数名 `type` 同样认（旧链接）；`mode` 优先。别的值、没给为 null（默认区间）
    */
   mode: BookTab | null;
 }
@@ -92,16 +92,31 @@ export function parseBookingLink(search: string): BookingLink {
     time: validTime(params.get("time")),
     passengers: count(params.get("pax"), TRAVELLER_LIMITS.passengers),
     luggage: count(params.get("bags"), TRAVELLER_LIMITS.luggage),
-    mode: BOOK_TABS.find((tab) => tab === params.get("mode")) ?? null,
+    mode: bookTabOf(params.get("mode")) ?? bookTabOf(params.get("type")),
   };
 }
 
-// ---- 四步（M8-27，ADR 0079）：标签、步骤、标签和两端对不上时的提示 ----
+// ---- 四步（M8-27，ADR 0079）：标签、步骤 ----
 
-/** 第 1 步顶部的三个标签：接送机、点对点、包车。接送机和点对点都按两个坐标报价，标签只决定说法和提示，不改报价规则。 */
-export type BookTab = "airport" | "p2p" | "charter";
-export const BOOK_TABS: readonly BookTab[] = ["airport", "p2p", "charter"];
-export const BOOK_TAB_NAMES: Readonly<Record<BookTab, string>> = { airport: "接送机", p2p: "点对点", charter: "包车" };
+/**
+ * 第 1 步顶部的两个标签（M8-33，ADR 0081）：区间、包车。客人不再选「接送机还是点对点」：
+ * 区间按两个坐标报价，系统按上下车点有没有机场自动判断（有机场按接送机处理：航班号、免费等待、举牌；没有按点对点）。
+ * 说法：中文「区间」、日文「区間」、英文 Transfer（`BOOK_TAB_I18N`，多语言上线时用，M7-07）。
+ */
+export type BookTab = "transfer" | "charter";
+export const BOOK_TABS: readonly BookTab[] = ["transfer", "charter"];
+export const BOOK_TAB_NAMES: Readonly<Record<BookTab, string>> = { transfer: "区间", charter: "包车" };
+export const BOOK_TAB_I18N: Readonly<Record<BookTab, { zh: string; ja: string; en: string }>> = {
+  transfer: { zh: "区间", ja: "区間", en: "Transfer" },
+  charter: { zh: "包车", ja: "貸切", en: "Charter" },
+};
+
+/** 链接里的 `mode`：包车 → charter；区间和 M8-27 的旧值（接送机 airport、点对点 p2p）→ transfer；别的值、没给为 null。 */
+export function bookTabOf(value: string | null): BookTab | null {
+  if (value === "charter") return "charter";
+  if (value === "transfer" || value === "airport" || value === "p2p") return "transfer";
+  return null;
+}
 
 /** 四步的名称（步骤条、网址 `?step=N`）。 */
 export const BOOK_STEPS = ["行程", "车型和价格", "乘客信息", "核对并付款"] as const;
@@ -123,15 +138,12 @@ export function searchWithStep(search: string, step: BookStep): string {
 }
 
 /**
- * 标签和两端对不上时的一句提示和一键切换（不挡下一步）：选了接送机但两端都不是机场 → 点对点；选了点对点但有一端是机场 → 接送机。
- * 有没有机场先看报价认出来的行程（`recognized`，接机 / 送机 / 点对点），没有报价时看地址搜索给的类型。两端没选齐不提示。
+ * 接机提示里的免费等待分钟数（M8-33）：有报价时按所选商品自己设的（报价里的 `free_wait_minutes`，无限等待为 null）；
+ * 还没有报价时按平台默认：国际线机场 90 分钟，国内线、都有或没标明 60 分钟（和供应商后台的最少值同一规则）。
  */
-export function tabMismatch(tab: BookTab, from: TripPoint | null, to: TripPoint | null, recognized: "pickup" | "dropoff" | "point_to_point" | null): { text: string; target: BookTab } | null {
-  if (tab === "charter" || from === null || to === null) return null;
-  const airport = recognized !== null ? recognized !== "point_to_point" : from.kind === "airport" || to.kind === "airport";
-  if (tab === "airport" && !airport) return { text: "出发地和目的地都不是机场，这是点对点行程。", target: "p2p" };
-  if (tab === "p2p" && airport) return { text: "有一端是机场，这是接送机行程。", target: "airport" };
-  return null;
+export function arrivalFreeWaitMinutes(quoted: { free_wait_minutes: number | null } | null, flightScope: "international" | "domestic" | "mixed" | null): number | null {
+  if (quoted !== null) return quoted.free_wait_minutes;
+  return flightScope === "international" ? 90 : 60;
 }
 
 /**
@@ -141,8 +153,10 @@ export function tabMismatch(tab: BookTab, from: TripPoint | null, to: TripPoint 
 export const SIGN_NAME_MAX = 60;
 export const RIDER_NAME_MAX = 100;
 export const RIDER_PHONE_MAX = 40;
-export function notesWithExtras(extras: { signName?: string; riderName?: string; riderPhone?: string }, notes: string): string {
+export function notesWithExtras(extras: { flightNo?: string; signName?: string; riderName?: string; riderPhone?: string }, notes: string): string {
   const lines = [
+    // 改用点对点商品报价的接送机行程（M8-33）：点对点订单没有航班号栏，写在备注最前面
+    ["航班号", extras.flightNo],
     ["举牌姓名", extras.signName],
     ["乘车人", extras.riderName],
     ["乘车人电话", extras.riderPhone],

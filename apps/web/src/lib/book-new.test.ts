@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decodePolyline, guestCurrencyOf, moneyDifference, parseBookingLink, pointName, referenceMoney, rejectionTexts, routeMapSize, routeSummaryText, seatPlan, suggestionNames, travellersText } from "./book-new.ts";
+import { arrivalFreeWaitMinutes, bookTabOf, decodePolyline, guestCurrencyOf, moneyDifference, parseBookingLink, pointName, referenceMoney, rejectionTexts, routeMapSize, routeSummaryText, seatPlan, suggestionNames, travellersText } from "./book-new.ts";
 
 test("链接参数：编码、「纬度,经度」加名称、日期、时间、人数、行李都合法时全部读出", () => {
   assert.deepEqual(parseBookingLink("?from=NRT&to=35.6895,139.6917&to_name=%E4%BA%AC%E7%8E%8B%E5%B9%BF%E5%9C%BA%E9%85%92%E5%BA%97&date=2030-11-20&time=14:30&pax=2&bags=3"), {
@@ -20,10 +20,24 @@ test("链接参数：不合法的那一项为 null（不预填、不报错），
   const link = parseBookingLink("?from=91,10&to=%3Cscript%3E&date=2030-02-30&time=25:00&pax=0&bags=61");
   assert.deepEqual(link, { from: null, to: null, date: null, time: null, passengers: null, luggage: null, mode: null });
   assert.deepEqual(parseBookingLink(""), { from: null, to: null, date: null, time: null, passengers: null, luggage: null, mode: null });
-  assert.equal(parseBookingLink("?mode=transfer").mode, null);
+  assert.equal(parseBookingLink("?mode=bus").mode, null);
   assert.deepEqual(parseBookingLink("?from=35.1,139.2&from_name=%20%20&pax=60&bags=0").from, { kind: "point", lat: 35.1, lng: 139.2, name: null });
   assert.equal(parseBookingLink("?pax=60&bags=0").passengers, 60);
   assert.equal(parseBookingLink("?pax=2.5").passengers, null);
+});
+
+test("链接里的 mode（M8-33）：区间 transfer 和 M8-27 的旧值 airport、p2p 都落到区间；charter 包车；别的值为 null", () => {
+  assert.deepEqual(["transfer", "airport", "p2p", "charter", "bus", null].map((value) => bookTabOf(value)), ["transfer", "transfer", "transfer", "charter", null, null]);
+  assert.equal(parseBookingLink("?mode=airport").mode, "transfer");
+  assert.equal(parseBookingLink("?mode=p2p").mode, "transfer");
+  assert.deepEqual(["?type=airport", "?type=p2p", "?type=charter", "?mode=charter&type=airport"].map((search) => parseBookingLink(search).mode), ["transfer", "transfer", "charter", "charter"], "参数名 type 也认，mode 优先");
+});
+
+test("接机提示的免费等待（M8-33）：有报价按所选商品自己设的（无限为 null）；没有报价时国际线 90、国内线 / 都有 / 没标明 60", () => {
+  assert.equal(arrivalFreeWaitMinutes({ free_wait_minutes: 120 }, "international"), 120);
+  assert.equal(arrivalFreeWaitMinutes({ free_wait_minutes: 45 }, "domestic"), 45);
+  assert.equal(arrivalFreeWaitMinutes({ free_wait_minutes: null }, "international"), null);
+  assert.deepEqual((["international", "domestic", "mixed", null] as const).map((scope) => arrivalFreeWaitMinutes(null, scope)), [90, 60, 60, 60]);
 });
 
 test("乘客 / 行李栏的写法", () => {

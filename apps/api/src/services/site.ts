@@ -40,6 +40,7 @@ import {
   serviceCityOf,
   tenantBids,
   vehicleLevel,
+  type FlightScope,
   type PassengerContact,
   contactLookupKey,
   normalizeEmailForIndex,
@@ -593,7 +594,12 @@ export interface SiteByPointsInput {
 export interface SiteByPointsResult extends SiteQuoteResult {
   tripType: PointsTripType;
   /** 识别到的机场（接机是出发地那一端，送机是目的地那一端）；点对点为 null */
-  airport: { id: string; code: string; name: LocalizedText; matchedBy: "distance" | "kind"; meters: number } | null;
+  airport: { id: string; code: string; name: LocalizedText; matchedBy: "distance" | "kind"; meters: number; flightScope: FlightScope | null } | null;
+  /**
+   * 认出机场、但接送机商品一个都报不出时，改用点对点商品报的价（M8-33，ADR 0081）：`point_to_point`；
+   * 用接送机商品报的、或本来就是点对点行程为 null。行程仍按接送机处理（航班号、免费等待、举牌）
+   */
+  fallbackCategory: "point_to_point" | null;
   /** 按哪个城市报的价；点对点的出发地不在任何能订的城市范围里时为 null（`unavailable` 是 `OUT_OF_SERVICE_AREA`） */
   city: { id: string; code: string; name: LocalizedText; timezone: string } | null;
   /** 最早到期的报价的有效期；没有报价为 null */
@@ -662,7 +668,7 @@ export async function siteQuotesByPoints(ctx: AppContext, input: SiteByPointsInp
     city = cityOf(trip.airport.airport.cityId);
     siteTrip = { category: "airport_transfer", airportId: trip.airport.airport.id, direction: trip.tripType, address: trip.address };
   }
-  const airport = trip.tripType === "point_to_point" ? null : { id: trip.airport.airport.id, code: trip.airport.airport.code, name: trip.airport.airport.name, matchedBy: trip.airport.matchedBy, meters: trip.airport.meters };
+  const airport = trip.tripType === "point_to_point" ? null : { id: trip.airport.airport.id, code: trip.airport.airport.code, name: trip.airport.airport.name, matchedBy: trip.airport.matchedBy, meters: trip.airport.meters, flightScope: trip.airport.airport.flightScope };
   const cityJson = city === null ? null : { id: city.id, code: city.code, name: city.name, timezone: city.timezone };
   if (city === null || siteTrip === null) {
     // 点对点的出发地不在任何能订的城市里：一个候选都没有，不进询价日志；未覆盖需求照样记一条（ADR 0075：这个口子由它补上）
@@ -686,18 +692,36 @@ export async function siteQuotesByPoints(ctx: AppContext, input: SiteByPointsInp
         refusals: [],
       });
     }
-    return { tripType: trip.tripType, airport, city: null, currency: channel.settleCurrency, quotes: [], unavailable: [{ vehicleGroupId: null, reasons: ["OUT_OF_SERVICE_AREA"] }], expiresAt: null, route: null };
+    return { tripType: trip.tripType, airport, fallbackCategory: null, city: null, currency: channel.settleCurrency, quotes: [], unavailable: [{ vehicleGroupId: null, reasons: ["OUT_OF_SERVICE_AREA"] }], expiresAt: null, route: null };
   }
   const logExtra = {
     mode: "by_points",
     recognition: { trip_type: trip.tripType, airport_id: airport?.id ?? null, pickup: endLog(input.pickup, recognized.pickupAirport), dropoff: endLog(input.dropoff, recognized.dropoffAirport) },
   };
-  const [result, route] = await Promise.all([
-    siteQuotes(ctx, { cityId: city.id, trip: siteTrip, serviceLocal: input.serviceLocal, passengers: input.passengers, luggage: input.luggage, addons: input.addons, ...(input.demand === undefined ? {} : { demand: input.demand }), ...(audience === "acceptance" ? { audience } : {}) }, logExtra),
+  const common = { serviceLocal: input.serviceLocal, passengers: input.passengers, luggage: input.luggage, addons: input.addons, ...(input.demand === undefined ? {} : { demand: input.demand }), ...(audience === "acceptance" ? { audience } : {}) };
+  const [first, route] = await Promise.all([
+    siteQuotes(ctx, { cityId: city.id, trip: siteTrip, ...common }, logExtra),
     routePreviewOrNull(ctx, { lat: input.pickup.lat, lng: input.pickup.lng }, { lat: input.dropoff.lat, lng: input.dropoff.lng }),
   ]);
+  let result: SiteQuoteResult = first;
+  let fallbackCategory: SiteByPointsResult["fallbackCategory"] = null;
+  if (trip.tripType !== "point_to_point" && first.quotes.length === 0) {
+    // M8-33（ADR 0081）：有机场先用接送机商品；一个都报不出，再按出发地所在、官网能订点对点的城市用点对点商品报（同样走 M8-30 的规则）。
+    // 接送机报得出时这里不运行，现有报价一分不变。
+    const bookable = (await siteCities(ctx, audience)).filter((candidate) => candidate.categories.includes("point_to_point"));
+    const p2pCity = serviceCityOf({ lat: input.pickup.lat, lng: input.pickup.lng }, bookable);
+    if (p2pCity !== null) {
+      // 第一次（接送机）已经按需记过未覆盖需求，这一次不再记，免得一次询价记两条
+      const { demand: _demand, ...withoutDemand } = common;
+      const fallback = await siteQuotes(ctx, { cityId: p2pCity.id, trip: { category: "point_to_point", pickup: { lat: input.pickup.lat, lng: input.pickup.lng }, dropoff: { lat: input.dropoff.lat, lng: input.dropoff.lng } }, ...withoutDemand }, { ...logExtra, fallback_from: "airport_transfer" });
+      if (fallback.quotes.length > 0) {
+        result = fallback;
+        fallbackCategory = "point_to_point";
+      }
+    }
+  }
   const expiresAt = result.quotes.reduce<string | null>((earliest, quote) => (earliest === null || quote.expiresAt < earliest ? quote.expiresAt : earliest), null);
-  return { ...result, tripType: trip.tripType, airport, city: cityJson, expiresAt, route };
+  return { ...result, tripType: trip.tripType, airport, fallbackCategory, city: cityJson, expiresAt, route };
 }
 
 /**

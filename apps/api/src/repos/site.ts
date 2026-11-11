@@ -2,7 +2,7 @@
  * 官网（ADR 0032）的数据访问：官网用的 API 客户端和渠道、能预订的城市和机场、订单的查看链接、用订单号找回订单。
  * 全在平台事务里调用（官网是一个渠道，这些都是平台的数据）。
  */
-import type { AddonChargeUnit, LocalizedText, ServiceCategory, TenantStatus } from "@nozomi/domain";
+import type { AddonChargeUnit, FlightScope, LocalizedText, ServiceCategory, TenantStatus } from "@nozomi/domain";
 import type { PassengerContact } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
 import { type OrderVehicleGroupRef, findOrderVehicleGroup } from "./master-data.ts";
@@ -309,12 +309,14 @@ export interface AirportCandidateRow {
   cityId: string;
   lat: number;
   lng: number;
+  /** 国际 / 国内 / 都有；没标明为 null（M8-33：还没有报价时，客人页按它显示默认免费等待） */
+  flightScope: FlightScope | null;
 }
 
 export async function listAirportsNear(db: Db, cityIds: readonly string[], boxes: readonly { low: { lat: number; lng: number }; high: { lat: number; lng: number } }[]): Promise<AirportCandidateRow[]> {
   if (cityIds.length === 0 || boxes.length === 0) return [];
-  const rows = await db.query<{ id: string; code: string; name: LocalizedText; city_id: string; lat: string; lng: string }>(
-    `select pl.id, pl.code, pl.name, pl.city_id, pl.lat, pl.lng
+  const rows = await db.query<{ id: string; code: string; name: LocalizedText; city_id: string; lat: string; lng: string; flight_scope: FlightScope | null }>(
+    `select pl.id, pl.code, pl.name, pl.city_id, pl.lat, pl.lng, pl.flight_scope
        from places pl
        join cities c on c.id = pl.city_id and c.status = 'active'
        join jsonb_to_recordset($2::jsonb) as box(low_lat float8, low_lng float8, high_lat float8, high_lng float8)
@@ -326,7 +328,7 @@ export async function listAirportsNear(db: Db, cityIds: readonly string[], boxes
   return rows.rows.flatMap((row) => {
     if (seen.has(row.id)) return [];
     seen.add(row.id);
-    return [{ id: row.id, code: row.code, name: row.name, cityId: row.city_id, lat: Number(row.lat), lng: Number(row.lng) }];
+    return [{ id: row.id, code: row.code, name: row.name, cityId: row.city_id, lat: Number(row.lat), lng: Number(row.lng), flightScope: row.flight_scope }];
   });
 }
 

@@ -29,7 +29,7 @@
   line-height: var(--line-height-tight);
 }
 
-/* ---------- 接送 | 按小时包车：两段式的单选（键盘方向键切换） ---------- */
+/* ---------- 区间 | 包车：两段式的单选（键盘方向键切换，M8-33） ---------- */
 
 .book-mode {
   display: grid;
@@ -39,10 +39,6 @@
   border: var(--border-width) solid var(--color-border-strong);
   border-radius: var(--radius-md);
   overflow: hidden;
-}
-
-.book-mode--3 {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .book-mode__option {
@@ -834,32 +830,6 @@ button.book-steps__link:hover .book-steps__name {
 
 .book-new__actions > .button--block:only-child {
   margin-left: 0;
-}
-
-.book-new__hint {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2) var(--space-3);
-  padding: var(--space-3);
-  border: var(--border-width) solid var(--color-info-border);
-  border-radius: var(--radius-md);
-  background: var(--color-info-bg);
-  color: var(--color-text-primary);
-}
-
-.book-new__hint-text {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  min-width: 0;
-  margin: 0;
-}
-
-.book-new__hint-text > .icon {
-  flex: none;
-  color: var(--color-info-text);
 }
 
 .book-review__block {

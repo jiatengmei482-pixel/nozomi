@@ -550,7 +550,9 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
     });
     return {
       trip_type: result.tripType,
-      airport: result.airport === null ? null : { id: result.airport.id, code: result.airport.code, name: result.airport.name, matched_by: result.airport.matchedBy, distance_meters: result.airport.meters },
+      airport: result.airport === null ? null : { id: result.airport.id, code: result.airport.code, name: result.airport.name, matched_by: result.airport.matchedBy, distance_meters: result.airport.meters, flight_scope: result.airport.flightScope },
+      // M8-33（ADR 0081）：认出机场但接送机商品报不出、改用点对点商品报的为 point_to_point，其余为 null；行程仍按接送机处理
+      fallback_category: result.fallbackCategory,
       city: result.city,
       ...quoteResultJson(result),
       expires_at: result.expiresAt,

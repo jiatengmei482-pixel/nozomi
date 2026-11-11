@@ -164,7 +164,8 @@ test("接机：出发地离成田 500 米 → 认成成田、接机；报价和�
   const pickup = northOf(NARITA, 500);
   const res = await okByPoints({ ...pickup, name: "成田空港 第1ターミナル到着ロビー" }, { ...TOKYO_STATION, name: "東京都千代田区丸の内1-9-1 某某酒店" });
   assert.equal(res.trip_type, "pickup");
-  assert.deepEqual(res.airport, { id: m.ids.narita, code: "NRT", name: { zh: "成田机场" }, matched_by: "distance", distance_meters: 500 });
+  assert.deepEqual(res.airport, { id: m.ids.narita, code: "NRT", name: { zh: "成田机场" }, matched_by: "distance", distance_meters: 500, flight_scope: "international" });
+  assert.equal(res.fallback_category, null, "接送机商品报得出：不改用点对点商品（M8-33）");
   assert.deepEqual(res.city, { id: m.ids.tokyo, code: "CTY-JP-TYO", name: { zh: "东京" }, timezone: "Asia/Tokyo" });
   assert.ok(res.quotes.length >= 2, res.text);
   const direct = await directQuote({ city_id: m.ids.tokyo, airport_id: m.ids.narita, direction: "pickup", address: { lng: TOKYO_STATION.lng, lat: TOKYO_STATION.lat } });
@@ -217,6 +218,40 @@ test("两端都是机场：按出发地（羽田）算接机，目的地（成�
   assert.equal(res.expires_at, null);
   const direct = await directQuote({ city_id: m.ids.tokyo, airport_id: ids["haneda"], direction: "pickup", address: northOf(NARITA, 300) });
   assert.deepEqual(comparable(res), comparable(direct));
+});
+
+test("接送机报不出改用点对点商品（M8-33，ADR 0081）：羽田没有接送机商品 → 按出发地所在的东京用点对点商品报，和直接询价点对点完全一致；仍是接机、免费等待按所选商品自己设的；询价日志记 fallback_from", async () => {
+  reset();
+  const pickup = northOf(HANEDA, 200);
+  const res = await okByPoints(pickup, TOKYO_STATION);
+  assert.equal(res.trip_type, "pickup", "行程仍按接机处理（航班号、免费等待、举牌）");
+  assert.equal(res.airport.id, ids["haneda"]);
+  assert.equal(res.fallback_category, "point_to_point");
+  assert.equal(res.city.id, m.ids.tokyo);
+  const direct = await directQuote({ category: "point_to_point", city_id: m.ids.tokyo, pickup: { lng: pickup.lng, lat: pickup.lat }, dropoff: { lng: TOKYO_STATION.lng, lat: TOKYO_STATION.lat } });
+  assert.ok(direct.quotes.length > 0, "前提：同一段点对点报得出");
+  assert.deepEqual(comparable(res), comparable(direct));
+  assert.deepEqual(res.quotes.map((quote: any) => quote.free_wait_minutes), direct.quotes.map(() => 30), "点对点商品自己设的 30 分钟");
+  const airportOnly = await directQuote({ city_id: m.ids.tokyo, airport_id: ids["haneda"], direction: "pickup", address: { lng: TOKYO_STATION.lng, lat: TOKYO_STATION.lat } });
+  assert.deepEqual([airportOnly.quotes, airportOnly.unavailable], [[], [{ vehicle_group_id: null, reasons: ["NO_PRODUCT"] }]], "接送机本身仍报不出（没有改动接送机的规则）");
+  const logs = (await api.db.owner.query("select category, request from quote_logs where request->>'mode' = 'by_points' and request->'recognition'->>'airport_id' = $1 and request->'recognition'->'pickup'->>'lat' = $2 and request->'recognition'->'dropoff'->>'lat' = $3", [ids["haneda"], String(pickup.lat), String(TOKYO_STATION.lat)])).rows;
+  assert.deepEqual(logs.map((row: any) => [row.category, row.request.fallback_from ?? null]).sort(), [["airport_transfer", null], ["point_to_point", "airport_transfer"]]);
+  // 下单按点对点（报价快照的品类）：两端地址都要，不收航班号（客人页把航班号写进备注）
+  const order = (body: Record<string, unknown>) => site.call("POST", "/site/v1/orders", { headers: { "idempotency-key": randomUUID() }, ip: nextIp(), body: { quote_id: res.quotes[0].quote_id, passenger: { name: "陈小红", phone: "+81 90-2222-3333", email: "fallback.guest@example.com" }, save_payment_method: true, pickup_address: "羽田空港 第3ターミナル", dropoff_address: "東京駅", ...body } });
+  const withFlight = await order({ flight_no: "NH211" });
+  assert.deepEqual([withFlight.status, withFlight.body.error?.details?.issues?.map((issue: any) => [issue.path, issue.reason])], [400, [["/flight_no", "NOT_APPLICABLE"]]]);
+  const created = await order({ notes: "航班号：NH211\n举牌姓名：陈小红" });
+  assert.equal(created.status, 201, created.text);
+  assert.equal(created.body.order.category, "point_to_point");
+});
+
+test("接送机、点对点都报不出：保留接送机的原因，fallback_category 为 null（M8-33）", async () => {
+  reset();
+  const res = await okByPoints(northOf(HANEDA, 200), OUTSIDE_AREA);
+  assert.equal(res.trip_type, "pickup");
+  assert.equal(res.fallback_category, null);
+  assert.deepEqual(res.quotes, []);
+  assert.deepEqual(res.unavailable, [{ vehicle_group_id: null, reasons: ["NO_PRODUCT"] }]);
 });
 
 test("点对点：两端都不是机场 → 按出发地所在的城市（东京）报点对点；和直接询价完全一致，价低的在前", async () => {
