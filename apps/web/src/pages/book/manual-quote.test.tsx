@@ -158,7 +158,7 @@ test("WhatsApp 按钮：没设置客服号码时不显示；设置了显示，wa
 // ───────────── 页面里的位置 ─────────────
 
 const city: SiteCity = { id: CITY_ID, code: "CTY-JP-TYO", name: { zh: "东京" }, timezone: "Asia/Tokyo", country_code: "JP", center: { lat: 35.6895, lng: 139.6917 }, categories: ["airport_transfer", "point_to_point", "charter"] };
-const configOf = (changes: Partial<SiteConfig> = {}): SiteConfig => ({ open: true, currency: "JPY", payments: null, support_phone: "+81 3-0000-0000", support_whatsapp: null, address_search: true, map_tiles: null, ...changes });
+const configOf = (changes: Partial<SiteConfig> = {}): SiteConfig => ({ open: true, currency: "JPY", payments: null, support_phone: "+81 3-0000-0000", support_whatsapp: null, address_search: true, page_width: "standard", map_tiles: null, ...changes });
 const noQuotes: SiteByPointsResult = { trip_type: "point_to_point", airport: null, city: { id: CITY_ID, code: "CTY-JP-TYO", name: { zh: "东京" }, timezone: "Asia/Tokyo" }, currency: "JPY", quotes: [], unavailable: [{ vehicle_group_id: null, reasons: ["NO_PRODUCT"] }], expires_at: null, route: null };
 
 function openPage(at: string, options: { config?: SiteConfig; byPoints?: () => Response; charter?: () => Response } = {}): ApiCall[] {

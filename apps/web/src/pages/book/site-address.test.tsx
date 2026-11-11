@@ -22,7 +22,7 @@ const CENTER = { lat: 35.6895, lng: 139.6917 };
 const city: SiteCity = { id: CITY_ID, code: "CTY-JP-TYO", name: { zh: "东京" }, timezone: "Asia/Tokyo", country_code: "JP", center: CENTER, categories: ["point_to_point"] };
 const station: SitePlace = { id: "66666666-6666-4666-8666-666666666666", type: "station", code: "STN-JP-TOKYO", name: { zh: "东京站" }, address: null, location: { lng: 139.7671, lat: 35.6812 } };
 const tiles: MapTiles = { url_template: "http://127.0.0.1:1/{z}/{x}/{y}.png", dark_url_template: null, min_zoom: 3, max_zoom: 19, tile_size: 256, referrer_policy: "strict-origin", attribution: [{ text: "© OpenStreetMap", href: "https://www.openstreetmap.org/copyright" }] };
-const configOf = (changes: Partial<SiteConfig> = {}): SiteConfig => ({ open: true, currency: "JPY", payments: null, support_phone: null, support_whatsapp: null, address_search: true, map_tiles: null, ...changes });
+const configOf = (changes: Partial<SiteConfig> = {}): SiteConfig => ({ open: true, currency: "JPY", payments: null, support_phone: null, support_whatsapp: null, address_search: true, page_width: "standard", map_tiles: null, ...changes });
 const candidate = { id: "ChIJhotel", name: "东京站大饭店", address: "东京都千代田区丸之内 1-9-1", location: { lat: 35.6813, lng: 139.7662 } };
 const quote: SiteQuote = {
   quote_id: "QT20261026ABCDEFGHIJ",

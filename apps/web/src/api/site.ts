@@ -29,9 +29,8 @@ export interface SiteConfig {
   map_tiles: MapTiles | null;
   /**
    * 官网页面宽度（M8-28，ADR 0079）：运营后台「官网设置 → 页面宽度」。standard 内容最宽约 1200px（默认）、wide 约 1440px、full 接近全屏（最宽约 1920px）。
-   * 后端还没带这一项时（字段缺省）按 standard。
    */
-  page_width?: SitePageWidth;
+  page_width: SitePageWidth;
 }
 
 /** 官网页面宽度的三档（M8-28）。 */
@@ -383,7 +382,7 @@ export interface SiteChangeRequest {
 
 /** 契约测试用：这些类型的字段要和 openapi.yaml 里的定义完全一致。 */
 export const SITE_SCHEMA_FIELDS = {
-  SiteConfig: ["open", "currency", "payments", "support_phone", "support_whatsapp", "address_search", "map_tiles"],
+  SiteConfig: ["open", "currency", "payments", "support_phone", "support_whatsapp", "page_width", "address_search", "map_tiles"],
   SiteCity: ["id", "code", "name", "timezone", "country_code", "center", "categories"],
   SitePlaceCandidate: ["source", "id", "name", "address", "location", "kind"],
   SitePlaceSuggestion: ["source", "id", "name", "address", "location", "kind"],

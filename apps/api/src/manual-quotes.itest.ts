@@ -325,7 +325,7 @@ test("官网设置：客服 WhatsApp 号码只有超级管理员能改；运营�
   const empty = await platform("customer_service", "GET", "/site-settings");
   assert.equal(empty.status, 200);
   assertMatchesOpenApi("GET", "/platform/v1/site-settings", empty);
-  assert.deepEqual(empty.body, { support_whatsapp: null, version: 0, updated_at: null, updated_by: null });
+  assert.deepEqual(empty.body, { support_whatsapp: null, page_width: "standard", version: 0, updated_at: null, updated_by: null });
   assert.equal((await site.call("GET", "/site/v1/config", { ip: nextIp() })).body.support_whatsapp, null, "没设置时不给号码，页面不显示按钮");
 
   for (const { key: role } of PLATFORM_ROLES) {
@@ -354,9 +354,54 @@ test("官网设置：客服 WhatsApp 号码只有超级管理员能改；运营�
 
   const audits = (await api.db.owner.query("select actor_type, action, before, after from audit_logs where resource = 'site_settings' order by id")).rows;
   assert.deepEqual(audits, [
-    { actor_type: "platform_user", action: "update", before: { support_whatsapp: null }, after: { support_whatsapp: "81312345678" } },
-    { actor_type: "platform_user", action: "update", before: { support_whatsapp: "81312345678" }, after: { support_whatsapp: null } },
+    { actor_type: "platform_user", action: "update", before: { support_whatsapp: null, page_width: "standard" }, after: { support_whatsapp: "81312345678", page_width: "standard" } },
+    { actor_type: "platform_user", action: "update", before: { support_whatsapp: "81312345678", page_width: "standard" }, after: { support_whatsapp: null, page_width: "standard" } },
   ]);
+});
+
+test("官网设置的页面宽度（M8-28）：三档、不给是不改、别的值 400；只有超级管理员能改；公开配置里给出；审计前后值", async () => {
+  const current = await ok(platform("super_admin", "GET", "/site-settings"));
+  assert.equal(current.page_width, "standard", "没改过是标准");
+  const config = await site.call("GET", "/site/v1/config", { ip: nextIp() });
+  assertMatchesOpenApi("GET", "/site/v1/config", config);
+  assert.equal(config.body.page_width, "standard");
+  const ifMatch = (version: number) => ({ "if-match": `"${version}"` });
+
+  for (const bad of ["narrow", "", "WIDE", 2, null]) {
+    const res = await platform("super_admin", "PUT", "/site-settings", { support_whatsapp: null, page_width: bad }, ifMatch(current.version));
+    assert.equal(res.status, 400, String(bad));
+    assert.equal(res.body.error.code, "VALIDATION_FAILED");
+    assert.ok(res.body.error.details.issues.some((issue: { path: string }) => issue.path === "/page_width"), res.text);
+  }
+  for (const { key: role } of PLATFORM_ROLES) {
+    if (role !== "super_admin") assert.equal((await platform(role, "PUT", "/site-settings", { support_whatsapp: null, page_width: "wide" }, ifMatch(current.version))).status, 403, role);
+  }
+  assert.equal((await ok(platform("super_admin", "GET", "/site-settings"))).version, current.version, "被拒的请求什么都没改");
+
+  const wide = await platform("super_admin", "PUT", "/site-settings", { support_whatsapp: "+81 3-1234-5678", page_width: "wide" }, ifMatch(current.version));
+  assert.equal(wide.status, 200, wide.text);
+  assertMatchesOpenApi("PUT", "/platform/v1/site-settings", wide);
+  assert.equal(wide.body.page_width, "wide");
+  assert.equal((await site.call("GET", "/site/v1/config", { ip: nextIp() })).body.page_width, "wide");
+
+  const numberOnly = await ok(platform("super_admin", "PUT", "/site-settings", { support_whatsapp: null }, ifMatch(wide.body.version)));
+  assert.equal(numberOnly.page_width, "wide", "只改号码的请求不动页面宽度");
+  assert.equal(numberOnly.support_whatsapp, null);
+
+  const full = await ok(platform("super_admin", "PUT", "/site-settings", { support_whatsapp: null, page_width: "full" }, ifMatch(numberOnly.version)));
+  assert.equal(full.page_width, "full");
+  assert.equal((await site.call("GET", "/site/v1/config", { ip: nextIp() })).body.page_width, "full");
+  const same = await ok(platform("super_admin", "PUT", "/site-settings", { support_whatsapp: null, page_width: "full" }, ifMatch(full.version)));
+  assert.equal(same.version, full.version, "没变化不加版本、不记审计");
+
+  const audits = (await api.db.owner.query("select before, after from audit_logs where resource = 'site_settings' order by id")).rows.slice(-3);
+  assert.deepEqual(audits, [
+    { before: { support_whatsapp: null, page_width: "standard" }, after: { support_whatsapp: "81312345678", page_width: "wide" } },
+    { before: { support_whatsapp: "81312345678", page_width: "wide" }, after: { support_whatsapp: null, page_width: "wide" } },
+    { before: { support_whatsapp: null, page_width: "wide" }, after: { support_whatsapp: null, page_width: "full" } },
+  ]);
+
+  await ok(platform("super_admin", "PUT", "/site-settings", { support_whatsapp: null, page_width: "standard" }, ifMatch(full.version)));
 });
 
 test("到期清除：关闭 180 天后、或提交 365 天后清空联系方式、地点和备注；行和跟进记录留下；之后不能再跟进；每批一条审计", async () => {

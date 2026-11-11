@@ -11,8 +11,8 @@
  * - `GET /platform/v1/manual-quote-requests/{id}`（`manual_quote.read`）：详情，解密联系方式、地点、备注，留审计；
  * - `PATCH /platform/v1/manual-quote-requests/{id}`（`manual_quote.manage`，If-Match）：改状态、指派；
  * - `POST /platform/v1/manual-quote-requests/{id}/notes`（`manual_quote.manage`）：写备注；
- * - `GET /platform/v1/site-settings`（`site_settings.read`）、`PUT`（`site_settings.manage`，只归超级管理员）：客服 WhatsApp 号码。
- * 官网的 `GET /site/v1/config` 多一项 `support_whatsapp`（在 `routes/site.ts`）。
+ * - `GET /platform/v1/site-settings`（`site_settings.read`）、`PUT`（`site_settings.manage`，只归超级管理员）：客服 WhatsApp 号码、页面宽度（M8-28）。
+ * 官网的 `GET /site/v1/config` 多 `support_whatsapp`、`page_width` 两项（在 `routes/site.ts`）。
  */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -130,6 +130,8 @@ const settingsSchema = z
         if (digits === null) issue.addIssue({ code: "custom", message: "请填写带国家码的号码，例如 +81 90 1234 5678（8–15 位数字，国家码不以 0 开头）" });
         return digits;
       }),
+    // 页面宽度（M8-28，ADR 0079）：可选，不给是不改
+    page_width: z.enum(["standard", "wide", "full"]).optional(),
   })
   .strict();
 
@@ -174,7 +176,7 @@ function detailJson(detail: ManualQuoteDetail): Json {
 }
 
 function settingsJson(settings: SiteSettingsRow): Json {
-  return { support_whatsapp: settings.supportWhatsapp, version: settings.version, updated_at: iso(settings.updatedAt), updated_by: settings.updatedBy };
+  return { support_whatsapp: settings.supportWhatsapp, page_width: settings.pageWidth, version: settings.version, updated_at: iso(settings.updatedAt), updated_by: settings.updatedBy };
 }
 
 export function registerManualQuoteRoutes(app: FastifyInstance, ctx: AppContext): void {
@@ -229,6 +231,6 @@ export function registerManualQuoteRoutes(app: FastifyInstance, ctx: AppContext)
     const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "site_settings.manage" });
     const body = parseInput(settingsSchema, request.body, "body");
     const header = request.headers["if-match"];
-    return settingsJson(await updateSiteSettings(ctx, principal, request.ip, body.support_whatsapp, header === undefined ? null : ifMatchVersion(header)));
+    return settingsJson(await updateSiteSettings(ctx, principal, request.ip, body.support_whatsapp, body.page_width ?? null, header === undefined ? null : ifMatchVersion(header)));
   });
 }

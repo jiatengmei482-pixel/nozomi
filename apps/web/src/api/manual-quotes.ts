@@ -89,8 +89,8 @@ export interface ManualQuoteChange {
 
 export interface SiteSettings {
   support_whatsapp: string | null;
-  /** 官网页面宽度（M8-28，ADR 0079）；后端还没带这一项时缺省，按 standard */
-  page_width?: SitePageWidth;
+  /** 官网页面宽度（M8-28，ADR 0079）；没设过是 standard */
+  page_width: SitePageWidth;
   /** 0 表示还没有设置过 */
   version: number;
   updated_at: string | null;
@@ -103,7 +103,7 @@ export const MANUAL_QUOTE_SCHEMA_FIELDS = {
   ManualQuoteEvent: ["id", "kind", "from_status", "to_status", "assignee", "note", "actor", "created_at"],
   ManualQuotePlace: ["name", "lat", "lng"],
   ManualQuotePerson: ["id", "name"],
-  SiteSettings: ["support_whatsapp", "version", "updated_at", "updated_by"],
+  SiteSettings: ["support_whatsapp", "page_width", "version", "updated_at", "updated_by"],
 } as const satisfies Record<string, readonly string[]>;
 export const MANUAL_QUOTE_DETAIL_FIELDS: readonly (keyof ManualQuoteDetail)[] = ["request", "contact", "pickup", "dropoff", "events"];
 export const MANUAL_QUOTE_QUERY_KEYS = ["limit", "cursor", "status", "assignee", "contact"] as const satisfies readonly (keyof ManualQuoteQuery)[];

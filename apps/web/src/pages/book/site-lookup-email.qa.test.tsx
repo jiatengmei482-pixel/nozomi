@@ -20,7 +20,7 @@ afterEach(resetBrowser);
 type Route = (call: ApiCall & { url: URL }) => Response | Promise<Response> | null;
 
 const SENT = /^如信息匹配，链接已发送到下单邮箱/;
-const configOf = (changes: Partial<SiteConfig> = {}): SiteConfig => ({ open: true, currency: "JPY", payments: null, support_phone: null, support_whatsapp: null, address_search: false, map_tiles: null, ...changes });
+const configOf = (changes: Partial<SiteConfig> = {}): SiteConfig => ({ open: true, currency: "JPY", payments: null, support_phone: null, support_whatsapp: null, address_search: false, page_width: "standard", map_tiles: null, ...changes });
 const user = () => userEvent.setup();
 
 function open(entry: string | { pathname: string; hash?: string; search?: string }, route: Route): ApiCall[] {

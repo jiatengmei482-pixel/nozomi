@@ -44,7 +44,9 @@
 | 详情（主栏 + 侧栏） | `layout-content-max-width`；≥ 1024px 时主栏 `minmax(0, 1fr)` + 侧栏 320px，栏间距 `space-6`；更窄时侧栏排到主栏下方 | 订单详情 |
 | 编辑器（表单栏 + 画布） | `layout-content-max-width`；≥ 1024px 时表单栏 `minmax(0, 380px)` + 画布 `minmax(0, 1fr)`，栏间距 `space-6`，画布吸在视口里、占满余下的高度；更窄时单栏，画布排在基本信息之后。两种布局的 DOM 顺序相同 | 区域的新增 / 编辑（`pages/tenant-areas.md` 第 3 节） |
 | 分步编辑（步骤导航 + 当前步骤） | `layout-content-max-width`；≥ 1024px 时步骤导航 `minmax(0, 240px)` + 当前步骤 `minmax(0, 1fr)`，栏间距 `space-6`，步骤导航吸在视口里；当前步骤的内容自己再限制到 `layout-form-max-width`，居左；**主体是表格、覆盖表、月历的步骤（价格规则，`pages/tenant-prices.md` 第 2 节）用满右栏**，里面的表单仍然限制到 `layout-form-max-width`。更窄时单栏，步骤导航收成一个按钮排在标题行下面（`02-components.md` 第 24 节）。两种布局的 DOM 顺序相同 | 商品的新建 / 编辑（`pages/tenant-products.md` 第 3 节）；其中第 ③ 步见 `pages/tenant-prices.md` |
-| 大段文字 | `layout-reading-max-width`（960px） | 条款、帮助说明 |
+| 大段文字 | `layout-reading-max-width`（960px） | 条款、帮助说明（只用于后台的阅读页） |
+| 官网所有页面（M8-28，ADR 0079） | `layout-site-max-width`：标准 1200px；运营后台「官网设置 → 页面宽度」选较宽时换成 `layout-site-max-width-wide`（1440px）、最宽时 `layout-site-max-width-full`（1920px，两侧仍留 `space-6`）。在 `.site[data-width="wide|full"]` 上换变量 | 首页、`/book/new`、下单页、订单页；正文、顶栏、页脚同宽 |
+| 官网预订页右侧栏 | `layout-site-aside-width`（380px），左栏 `minmax(0, 1fr)`：页面变宽时只有左栏变宽 | `/book/new` |
 
 **卡片**：底 `bg-surface`，边框 `border-default`，圆角 `radius-lg`，内边距 `space-4`（≥ 768px 为 `space-6`），无阴影（例外只有首页的入口卡片带 `shadow-card`，见 `02-components.md` 第 18 节）。卡片标题 `font-size-lg` + `font-weight-bold`。卡片里不再套卡片；需要再分区时用标题加分隔线。
 
@@ -75,7 +77,7 @@
 
 控件高度和输入框字号不按屏幕宽度切换，而是按是否触屏切换（`pointer: coarse`，已写在 `tokens.css` 里）：触屏笔记本得到大控件，用鼠标的窄窗口保持紧凑。
 
-**官网下单页、司机 H5** 不用后台框架：单栏，内容最大宽度 480px（司机 H5）或 `layout-reading-max-width`（官网），居中；控件一律用 `lg` 尺寸；主操作按钮固定在屏幕底部并留出 `env(safe-area-inset-bottom)`。具体布局在各自任务的页面说明里写。
+**官网下单页、司机 H5** 不用后台框架：单栏，内容最大宽度 480px（司机 H5）或 `layout-site-max-width`（官网，见上表），居中；控件一律用 `lg` 尺寸；主操作按钮固定在屏幕底部并留出 `env(safe-area-inset-bottom)`。具体布局在各自任务的页面说明里写。
 
 ## 5. 手机宽度不横向滚动
 

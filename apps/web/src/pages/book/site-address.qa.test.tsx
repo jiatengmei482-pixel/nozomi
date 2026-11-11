@@ -28,7 +28,7 @@ const cities: SiteCity[] = [
   { id: OSAKA, code: "CTY-JP-OSA", name: { zh: "大阪" }, timezone: "Asia/Tokyo", country_code: "JP", center: { lat: 34.7, lng: 135.5 }, categories: ["point_to_point"] },
 ];
 const tiles: MapTiles = { url_template: "http://127.0.0.1:1/{z}/{x}/{y}.png", dark_url_template: null, min_zoom: 3, max_zoom: 19, tile_size: 256, referrer_policy: "strict-origin", attribution: [{ text: "© OpenStreetMap", href: "https://www.openstreetmap.org/copyright" }] };
-const configOf = (changes: Partial<SiteConfig> = {}): SiteConfig => ({ open: true, currency: "JPY", payments: null, support_phone: null, support_whatsapp: null, address_search: true, map_tiles: tiles, ...changes });
+const configOf = (changes: Partial<SiteConfig> = {}): SiteConfig => ({ open: true, currency: "JPY", payments: null, support_phone: null, support_whatsapp: null, address_search: true, page_width: "standard", map_tiles: tiles, ...changes });
 const place = (id: string, name: string, lat: number, lng: number) => ({ id, name, address: `${name}的地址`, location: { lat, lng } });
 
 type Route = (call: ApiCall & { url: URL }) => Response | Promise<Response> | null;

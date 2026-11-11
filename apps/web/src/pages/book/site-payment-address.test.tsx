@@ -19,7 +19,7 @@ const TOKEN = `nzo_${"A".repeat(43)}`;
 const OTHER_TOKEN = `nzo_${"B".repeat(43)}`;
 const LINK = `/book/order#${TOKEN}`;
 const CLIENT_SECRET = "pi_1_secret_2";
-const stripeConfig: SiteConfig = { open: true, currency: "JPY", payments: { provider: "stripe", publishable_key: "pk_test_abc" }, support_phone: null, support_whatsapp: null, address_search: false, map_tiles: null };
+const stripeConfig: SiteConfig = { open: true, currency: "JPY", payments: { provider: "stripe", publishable_key: "pk_test_abc" }, support_phone: null, support_whatsapp: null, address_search: false, page_width: "standard", map_tiles: null };
 
 const orderOf = (status: SiteOrder["status"], orderNo: string): SiteOrder =>
   ({

@@ -185,7 +185,7 @@ test("详情：过了保留期的只写已清除，不能再改、不能写备�
 
 // ───────────── 官网设置 ─────────────
 
-const settingsOf = (changes: Partial<SiteSettings> = {}): SiteSettings => ({ support_whatsapp: null, version: 0, updated_at: null, updated_by: null, ...changes });
+const settingsOf = (changes: Partial<SiteSettings> = {}): SiteSettings => ({ support_whatsapp: null, page_width: "standard", version: 0, updated_at: null, updated_by: null, ...changes });
 
 function openSettings(role: string, settings: SiteSettings, put: (call: ApiCall) => Response = (call) => json(200, settingsOf({ support_whatsapp: "810000000000", version: settings.version + 1, updated_at: "2030-11-10T05:00:00.000Z", updated_by: { id: ME, name: "测试员工" } }))): ApiCall[] {
   return openApp("/platform/settings/site", "platform", role, (call) => {

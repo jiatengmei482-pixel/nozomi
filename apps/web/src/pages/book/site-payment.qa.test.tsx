@@ -32,7 +32,7 @@ const SECRET_A = "pi_AAA_secret_a";
 const SECRET_B = "pi_BBB_secret_b";
 const RETURN_KEY = "nozomi.payment-return";
 const LOST = /付款结果已交给银行处理。这个页面没能自动打开您的订单/;
-const config: SiteConfig = { open: true, currency: "JPY", payments: { provider: "stripe", publishable_key: "pk_test_abc" }, support_phone: null, support_whatsapp: null, address_search: false, map_tiles: null };
+const config: SiteConfig = { open: true, currency: "JPY", payments: { provider: "stripe", publishable_key: "pk_test_abc" }, support_phone: null, support_whatsapp: null, address_search: false, page_width: "standard", map_tiles: null };
 
 const order = (changes: Partial<SiteOrder> = {}): SiteOrder =>
   ({
