@@ -961,6 +961,11 @@ button.book-steps__link:hover .book-steps__name {
   transform: rotate(180deg);
 }
 
+/* 换步时焦点移到步骤标题：手机和平板上吸顶的「行程摘要」条不能把它盖住（WCAG 2.4.11，M8-27 验收缺陷 2） */
+.site-section__title[tabindex="-1"] {
+  scroll-margin-top: calc(var(--space-16) + var(--space-4));
+}
+
 .book-summary-bar__panel {
   display: flex;
   flex-direction: column;

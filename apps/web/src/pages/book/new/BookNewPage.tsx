@@ -1162,7 +1162,7 @@ export function BookNewPage() {
           <Icon name="chevron-down" className={summaryOpen ? "book-summary-bar__arrow book-summary-bar__arrow--open" : "book-summary-bar__arrow"} />
         </button>
         {summaryOpen && (
-          <div id="book-summary-panel" className="book-summary-bar__panel book-summary">
+          <div id="book-summary-panel" className="book-summary-bar__panel book-summary" role="region" aria-label="行程摘要" tabIndex={0}>
             {summaryContent}
           </div>
         )}
