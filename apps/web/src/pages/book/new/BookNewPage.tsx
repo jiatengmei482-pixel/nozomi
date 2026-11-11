@@ -953,7 +953,7 @@ export function BookNewPage() {
     const tripFacts = (
       <dl className="book-summary__facts">
         <div className="site-facts__item">
-          <dt>行程</dt>
+          <dt>用车类型</dt>
           <dd>{tripName}</dd>
         </div>
         <div className="site-facts__item">

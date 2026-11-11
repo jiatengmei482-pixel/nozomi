@@ -791,7 +791,7 @@ test("包车含区域加价：车型卡价格下面、右侧栏车费下面写�
   const side = aside();
   assert.ok(within(side).getByText("含区域加价，已算在这个价格里"));
   const facts = [...side.querySelectorAll(".site-facts__item")].map((item) => [item.querySelector("dt")?.textContent, item.querySelector("dd")?.textContent]);
-  assert.deepEqual(facts.slice(0, 3), [["行程", "包车 8 小时"], ["上车地点", "京王广场酒店"], ["下车地点", "成田国际机场"]]);
+  assert.deepEqual(facts.slice(0, 3), [["用车类型", "包车 8 小时"], ["上车地点", "京王广场酒店"], ["下车地点", "成田国际机场"]]);
   const amounts = (document.body.textContent ?? "").replaceAll("车型1", " ").match(/[\d,]+ JPY/g) ?? [];
   assert.deepEqual([...new Set(amounts)], ["78,650 JPY"], "只有一个价格，没有单列的加价金额");
 
