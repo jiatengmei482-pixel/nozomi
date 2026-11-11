@@ -12877,7 +12877,7 @@ paths:
       tags: [ 官网 ]
       operationId: getQaAcceptanceSession
       summary: 测试环境：看这个浏览器的验收会话
-      description: M8-26（ADR 0078）。验收通道没开时 404（和接口不存在一样）；没带 Cookie、会话无效或已过期 401 `QA_SESSION_INVALID`。
+      description: M8-26（ADR 0078）。验收通道没开、没带 Cookie、会话无效或已过期都答 404（和接口不存在一样，探不出通道是否开着）。
       responses:
         "200":
           description: 会话有效
@@ -12885,10 +12885,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/QaAcceptanceSession"
-        "401":
-          $ref: "#/components/responses/QaSessionInvalid"
         "404":
-          description: "`NOT_FOUND`：验收通道没开"
+          description: "`NOT_FOUND`：验收通道没开，或这个浏览器没有有效会话"
           content:
             application/json:
               schema:

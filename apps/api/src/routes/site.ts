@@ -354,8 +354,9 @@ function registerQaAcceptanceRoutes(app: FastifyInstance, ctx: AppContext): void
     try {
       const session = await currentQaAcceptance(ctx, request.headers.cookie);
       return { active: true, expires_at: session.expiresAt.toISOString() };
-    } catch (err) {
-      return hide(request, reply, err);
+    } catch {
+      // 没有有效会话时也答 404：不让人用 GET 探出测试环境开着验收通道（M8-26 验收观察）
+      return routeNotFound(request, reply);
     }
   });
 

@@ -304,8 +304,7 @@ test("口令对了：201 + HttpOnly、Secure、SameSite=Strict、只在 /site/v1
   assert.equal(ended.status, 204);
   assert.match(String(ended.headers["set-cookie"]), /^nozomi_qa=; Path=\/site\/v1; Max-Age=0; HttpOnly; Secure; SameSite=Strict$/);
   const afterEnd = await gated.call("GET", SESSION_PATH, { cookie });
-  assert.deepEqual([afterEnd.status, afterEnd.body.error.code], [401, "QA_SESSION_INVALID"]);
-  assertMatchesOpenApi("GET", SESSION_PATH, afterEnd);
+  assert.equal(afterEnd.status, 404, "没有有效会话时 GET 也答 404，探不出通道开着");
   // 结束了的会话带着去询价：401，不悄悄退回普通客人
   const stale = await siteQuote(gated, cookie);
   assert.deepEqual([stale.status, stale.body.error.code], [401, "QA_SESSION_INVALID"]);
@@ -313,7 +312,7 @@ test("口令对了：201 + HttpOnly、Secure、SameSite=Strict、只在 /site/v1
   // 换了口令：用旧口令解锁的会话立即作废
   const rotated = await siteApp({ token: `${TOKEN}-rotated` });
   const beforeRotation = await unlock(gated);
-  assert.deepEqual([(await rotated.call("GET", SESSION_PATH, { cookie: beforeRotation })).status, (await siteQuote(rotated, beforeRotation)).status], [401, 401]);
+  assert.deepEqual([(await rotated.call("GET", SESSION_PATH, { cookie: beforeRotation })).status, (await siteQuote(rotated, beforeRotation)).status], [404, 401]);
   // 过期的也一样
   const expiring = await unlock(gated);
   api.clock.advance(4 * 3_600_000 + 1);
