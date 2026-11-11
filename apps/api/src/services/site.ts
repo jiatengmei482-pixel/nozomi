@@ -711,7 +711,9 @@ export async function siteQuotesByPoints(ctx: AppContext, input: SiteByPointsInp
     const bookable = (await siteCities(ctx, audience)).filter((candidate) => candidate.categories.includes("point_to_point"));
     const p2pCity = serviceCityOf({ lat: input.pickup.lat, lng: input.pickup.lng }, bookable);
     if (p2pCity !== null) {
-      const fallback = await siteQuotes(ctx, { cityId: p2pCity.id, trip: { category: "point_to_point", pickup: { lat: input.pickup.lat, lng: input.pickup.lng }, dropoff: { lat: input.dropoff.lat, lng: input.dropoff.lng } }, ...common }, { ...logExtra, fallback_from: "airport_transfer" });
+      // 第一次（接送机）已经按需记过未覆盖需求，这一次不再记，免得一次询价记两条
+      const { demand: _demand, ...withoutDemand } = common;
+      const fallback = await siteQuotes(ctx, { cityId: p2pCity.id, trip: { category: "point_to_point", pickup: { lat: input.pickup.lat, lng: input.pickup.lng }, dropoff: { lat: input.dropoff.lat, lng: input.dropoff.lng } }, ...withoutDemand }, { ...logExtra, fallback_from: "airport_transfer" });
       if (fallback.quotes.length > 0) {
         result = fallback;
         fallbackCategory = "point_to_point";

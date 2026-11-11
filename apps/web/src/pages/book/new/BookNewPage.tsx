@@ -446,14 +446,19 @@ export function BookNewPage() {
 
   const tripCategory = draft.mode === "charter" ? "charter" : tripType === "point_to_point" ? "point_to_point" : "airport_transfer";
   const tripDirection = tripCategory === "airport_transfer" && (tripType === "pickup" || tripType === "dropoff") ? tripType : null;
-  const orderTrip: OrderTrip = { transfer: tripCategory === "airport_transfer", arrival, ends: addressEnds(tripCategory, tripDirection) };
+  // 认出机场但用点对点商品报的价（M8-33，ADR 0081）：页面照样按接送机（航班号、免费等待、举牌），
+  // 下单按点对点：两端地址都要，航班号写进备注（点对点订单不收 flight_no）
+  const p2pFallback = tripCategory === "airport_transfer" && outcome?.mode === "transfer" && outcome.result.fallback_category === "point_to_point";
+  const orderTrip: OrderTrip = p2pFallback
+    ? { transfer: true, arrival, ends: addressEnds("point_to_point", null), flightInNotes: true }
+    : { transfer: tripCategory === "airport_transfer", arrival, ends: addressEnds(tripCategory, tripDirection) };
 
   /** 下单用的表单：举牌姓名（接机）写在备注最前面，地址取行程里的名称 */
   /** 举牌姓名：客人没改过时跟着乘车人（为自己是预订人，为他人是乘车人）的名字 */
   const signName = contact.signEdited ? contact.signName : contact.forOther ? contact.riderName : contact.name;
   const orderForm = (): OrderForm => ({
     ...contact,
-    notes: notesWithExtras({ ...(arrival ? { signName } : {}), ...(contact.forOther ? { riderName: contact.riderName, riderPhone: contact.riderPhone } : {}) }, contact.notes), flightNo: draft.flightNo, pickupAddress: draft.from?.name ?? "", dropoffAddress: draft.to?.name ?? "" });
+    notes: notesWithExtras({ ...(p2pFallback ? { flightNo: draft.flightNo } : {}), ...(arrival ? { signName } : {}), ...(contact.forOther ? { riderName: contact.riderName, riderPhone: contact.riderPhone } : {}) }, contact.notes), flightNo: draft.flightNo, pickupAddress: draft.from?.name ?? "", dropoffAddress: draft.to?.name ?? "" });
 
   /** 第 3 步的检查（不含第 4 步的「同意保存银行卡」） */
   const contactIssues = (): OrderErrors => {

@@ -153,8 +153,10 @@ export function arrivalFreeWaitMinutes(quoted: { free_wait_minutes: number | nul
 export const SIGN_NAME_MAX = 60;
 export const RIDER_NAME_MAX = 100;
 export const RIDER_PHONE_MAX = 40;
-export function notesWithExtras(extras: { signName?: string; riderName?: string; riderPhone?: string }, notes: string): string {
+export function notesWithExtras(extras: { flightNo?: string; signName?: string; riderName?: string; riderPhone?: string }, notes: string): string {
   const lines = [
+    // 改用点对点商品报价的接送机行程（M8-33）：点对点订单没有航班号栏，写在备注最前面
+    ["航班号", extras.flightNo],
     ["举牌姓名", extras.signName],
     ["乘车人", extras.riderName],
     ["乘车人电话", extras.riderPhone],

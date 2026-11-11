@@ -236,6 +236,13 @@ test("接送机报不出改用点对点商品（M8-33，ADR 0081）：羽田没�
   assert.deepEqual([airportOnly.quotes, airportOnly.unavailable], [[], [{ vehicle_group_id: null, reasons: ["NO_PRODUCT"] }]], "接送机本身仍报不出（没有改动接送机的规则）");
   const logs = (await api.db.owner.query("select category, request from quote_logs where request->>'mode' = 'by_points' and request->'recognition'->>'airport_id' = $1 and request->'recognition'->'pickup'->>'lat' = $2 and request->'recognition'->'dropoff'->>'lat' = $3", [ids["haneda"], String(pickup.lat), String(TOKYO_STATION.lat)])).rows;
   assert.deepEqual(logs.map((row: any) => [row.category, row.request.fallback_from ?? null]).sort(), [["airport_transfer", null], ["point_to_point", "airport_transfer"]]);
+  // 下单按点对点（报价快照的品类）：两端地址都要，不收航班号（客人页把航班号写进备注）
+  const order = (body: Record<string, unknown>) => site.call("POST", "/site/v1/orders", { headers: { "idempotency-key": randomUUID() }, ip: nextIp(), body: { quote_id: res.quotes[0].quote_id, passenger: { name: "陈小红", phone: "+81 90-2222-3333", email: "fallback.guest@example.com" }, save_payment_method: true, pickup_address: "羽田空港 第3ターミナル", dropoff_address: "東京駅", ...body } });
+  const withFlight = await order({ flight_no: "NH211" });
+  assert.deepEqual([withFlight.status, withFlight.body.error?.details?.issues?.map((issue: any) => [issue.path, issue.reason])], [400, [["/flight_no", "NOT_APPLICABLE"]]]);
+  const created = await order({ notes: "航班号：NH211\n举牌姓名：陈小红" });
+  assert.equal(created.status, 201, created.text);
+  assert.equal(created.body.order.category, "point_to_point");
 });
 
 test("接送机、点对点都报不出：保留接送机的原因，fallback_category 为 null（M8-33）", async () => {

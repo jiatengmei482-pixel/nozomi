@@ -987,6 +987,27 @@ test("右侧栏四步一直在：第 1 步只有路线图和一句说明；之�
   assert.ok(await screen.findByRole("heading", { name: "核对订单" }));
 });
 
+test("接机改用点对点商品报的价（M8-33，fallback_category point_to_point）：页面照样要航班号、显示接机；下单按点对点——两端地址都提交，航班号写进备注最前面、不单独提交 flight_no", async () => {
+  const { calls, actor } = await openSelected({
+    quote: () => json(200, byPoints({ fallback_category: "point_to_point" })),
+    order: () => json(201, { order: {}, timeline: [], names: {}, payment: null, link: { token: `nzo_${"d".repeat(43)}`, expires_at: "2030-12-01T00:00:00.000Z" } }),
+  });
+  await next(actor, NEXT_CONTACT);
+  await actor.type(screen.getByLabelText("乘车人姓名"), "王小明");
+  await actor.type(screen.getByLabelText("邮箱"), "guest@example.com");
+  await actor.type(screen.getByLabelText("手机号（含国家区号）"), "+86 138 0000 0000");
+  await next(actor, NEXT_REVIEW);
+  assert.ok(screen.getByText("接机要填航班号，司机按航班落地时间等候"), "仍按接机要航班号");
+  await actor.type(screen.getByLabelText("航班号"), "NH211");
+  await next(actor, NEXT_REVIEW);
+  await actor.click(screen.getByRole("checkbox", { name: /同意保存这次付款用的银行卡/ }));
+  await actor.click(screen.getByRole("button", { name: "去付款 →" }));
+  await waitFor(() => assert.equal(posts(calls, "/site/v1/orders").length, 1));
+  const body = posts(calls, "/site/v1/orders")[0]?.body as { flight_no: unknown; pickup_address: unknown; dropoff_address: unknown; notes: string };
+  assert.deepEqual([body.flight_no, body.pickup_address, body.dropoff_address], [null, "成田国际机场", "京王广场酒店"]);
+  assert.equal(body.notes, "航班号：NH211\n举牌姓名：王小明");
+});
+
 test("页面宽度（M8-28）：/site/v1/config 的 page_width 写到官网外壳的 data-width 上；没有这一项时按标准", async () => {
   for (const [width, expected] of [["full", "full"], ["wide", "wide"], [undefined, "standard"]] as const) {
     wideScreen();
