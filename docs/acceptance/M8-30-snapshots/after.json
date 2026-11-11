@@ -1,0 +1,208 @@
+{
+  "shinjuku->shibuya": {
+    "trip_type": "point_to_point",
+    "quotes": {
+      "VG-ECO-10": "12100 JPY|one_price|wait 30",
+      "VG-ECO-4": "9350 JPY|one_price|wait 15",
+      "VG-ECO-5": "8800 JPY|one_price|wait 30",
+      "VG-ECO-7": "9900 JPY|one_price|wait 30",
+      "VG-LUX-7": "11000 JPY|one_price|wait 30"
+    },
+    "unavailable": []
+  },
+  "shibuya->shinjuku": {
+    "trip_type": "point_to_point",
+    "quotes": {
+      "VG-ECO-10": "12100 JPY|one_price|wait 30",
+      "VG-ECO-4": "9350 JPY|one_price|wait 15",
+      "VG-ECO-5": "8800 JPY|one_price|wait 30",
+      "VG-ECO-7": "9900 JPY|one_price|wait 30",
+      "VG-LUX-7": "11000 JPY|one_price|wait 30"
+    },
+    "unavailable": []
+  },
+  "tokyo->ikebukuro": {
+    "trip_type": "point_to_point",
+    "quotes": {
+      "VG-ECO-10": "12100 JPY|one_price|wait 30",
+      "VG-ECO-4": "9350 JPY|one_price|wait 15",
+      "VG-ECO-5": "8800 JPY|one_price|wait 30",
+      "VG-ECO-7": "9900 JPY|one_price|wait 30",
+      "VG-LUX-7": "11000 JPY|one_price|wait 30"
+    },
+    "unavailable": []
+  },
+  "ginza->disney": {
+    "trip_type": "point_to_point",
+    "quotes": {
+      "VG-ECO-10": "12100 JPY|one_price|wait 30",
+      "VG-ECO-4": "9350 JPY|one_price|wait 15",
+      "VG-ECO-5": "8800 JPY|one_price|wait 30",
+      "VG-ECO-7": "9900 JPY|one_price|wait 30",
+      "VG-LUX-7": "11000 JPY|one_price|wait 30"
+    },
+    "unavailable": []
+  },
+  "shinjuku->hnd": {
+    "trip_type": "dropoff",
+    "quotes": {
+      "VG-CMF-5": "12500 JPY|one_price|wait 15",
+      "VG-CMF-7": "12500 JPY|one_price|wait 15",
+      "VG-ECO-10": "16500 JPY|one_price|wait 15",
+      "VG-ECO-4": "10399 JPY|one_price|wait 15",
+      "VG-ECO-5": "12500 JPY|one_price|wait 15",
+      "VG-ECO-7": "12500 JPY|one_price|wait 15",
+      "VG-ECO-9": "15500 JPY|one_price|wait 15",
+      "VG-LUX-5": "16100 JPY|one_price|wait 15",
+      "VG-LUX-7": "16500 JPY|one_price|wait 15"
+    },
+    "unavailable": []
+  },
+  "nrt->tokyo": {
+    "trip_type": "pickup",
+    "quotes": {
+      "VG-CMF-5": "22700 JPY|one_price|wait 90",
+      "VG-CMF-7": "22700 JPY|one_price|wait 90",
+      "VG-ECO-10": "18700 JPY|one_price|wait 90",
+      "VG-ECO-4": "18200 JPY|one_price|wait 90",
+      "VG-ECO-5": "14300 JPY|one_price|wait 90",
+      "VG-ECO-7": "15400 JPY|one_price|wait 90",
+      "VG-ECO-9": "27300 JPY|one_price|wait 90",
+      "VG-LUX-5": "28400 JPY|one_price|wait 90",
+      "VG-LUX-7": "16500 JPY|one_price|wait 90"
+    },
+    "unavailable": []
+  },
+  "hnd->yokohama": {
+    "trip_type": "pickup",
+    "quotes": {
+      "VG-ECO-10": "32000 JPY|one_price|wait 90",
+      "VG-ECO-4": "20000 JPY|one_price|wait 90",
+      "VG-ECO-9": "30000 JPY|one_price|wait 90",
+      "VG-LUX-5": "31200 JPY|one_price|wait 90",
+      "VG-LUX-7": "32000 JPY|one_price|wait 90"
+    },
+    "unavailable": []
+  },
+  "shinagawa->kamakura": {
+    "trip_type": "point_to_point",
+    "quotes": {},
+    "unavailable": [
+      "all:OUT_OF_SERVICE_AREA"
+    ]
+  },
+  "shinjuku->hakone": {
+    "trip_type": "point_to_point",
+    "quotes": {},
+    "unavailable": [
+      "all:OUT_OF_SERVICE_AREA"
+    ]
+  },
+  "tokyo->yokohama": {
+    "trip_type": "point_to_point",
+    "quotes": {
+      "VG-ECO-10": "12100 JPY|one_price|wait 30",
+      "VG-ECO-5": "8800 JPY|one_price|wait 30",
+      "VG-ECO-7": "9900 JPY|one_price|wait 30",
+      "VG-LUX-7": "11000 JPY|one_price|wait 30"
+    },
+    "unavailable": []
+  },
+  "kix->osaka": {
+    "trip_type": "pickup",
+    "quotes": {
+      "VG-CMF-5": "18000 JPY|one_price|wait 90",
+      "VG-CMF-7": "18000 JPY|one_price|wait 90",
+      "VG-ECO-10": "22000 JPY|one_price|wait 90",
+      "VG-ECO-4": "14400 JPY|one_price|wait 90",
+      "VG-ECO-5": "18000 JPY|one_price|wait 90",
+      "VG-ECO-7": "18000 JPY|one_price|wait 90",
+      "VG-ECO-9": "21600 JPY|one_price|wait 90",
+      "VG-LUX-5": "25600 JPY|one_price|wait 90",
+      "VG-LUX-7": "23100 JPY|one_price|wait 90"
+    },
+    "unavailable": []
+  },
+  "osaka->kyoto": {
+    "trip_type": "point_to_point",
+    "quotes": {},
+    "unavailable": [
+      "all:OUT_OF_SERVICE_AREA"
+    ]
+  },
+  "kyoto->kix": {
+    "trip_type": "dropoff",
+    "quotes": {
+      "VG-ECO-10": "58600 JPY|one_price|wait 15",
+      "VG-ECO-4": "36700 JPY|one_price|wait 15",
+      "VG-ECO-9": "55000 JPY|one_price|wait 15",
+      "VG-LUX-5": "57200 JPY|one_price|wait 15",
+      "VG-LUX-7": "52000 JPY|one_price|wait 15"
+    },
+    "unavailable": []
+  },
+  "icn->seoul": {
+    "trip_type": "pickup",
+    "quotes": {
+      "VG-BUS-12": "15600 JPY|one_price|wait 90",
+      "VG-BUS-14": "15600 JPY|one_price|wait 90",
+      "VG-CMF-5": "15252 JPY|one_price|wait 90",
+      "VG-CMF-7": "17670 JPY|one_price|wait 90",
+      "VG-ECO-10": "12200 JPY|one_price|wait 90",
+      "VG-ECO-4": "10600 JPY|one_price|wait 90",
+      "VG-ECO-5": "15252 JPY|one_price|wait 90",
+      "VG-ECO-7": "17670 JPY|one_price|wait 90",
+      "VG-ECO-9": "12200 JPY|one_price|wait 90",
+      "VG-EV-5": "10600 JPY|one_price|wait 90",
+      "VG-LUX-5": "14400 JPY|one_price|wait 90"
+    },
+    "unavailable": []
+  },
+  "seoul->icn": {
+    "trip_type": "dropoff",
+    "quotes": {
+      "VG-BUS-12": "15600 JPY|one_price|wait 15",
+      "VG-BUS-14": "15600 JPY|one_price|wait 15",
+      "VG-CMF-5": "15252 JPY|one_price|wait 15",
+      "VG-CMF-7": "17670 JPY|one_price|wait 15",
+      "VG-ECO-10": "12200 JPY|one_price|wait 15",
+      "VG-ECO-4": "10600 JPY|one_price|wait 15",
+      "VG-ECO-5": "15252 JPY|one_price|wait 15",
+      "VG-ECO-7": "17670 JPY|one_price|wait 15",
+      "VG-ECO-9": "12200 JPY|one_price|wait 15",
+      "VG-EV-5": "10600 JPY|one_price|wait 15",
+      "VG-LUX-5": "14400 JPY|one_price|wait 15"
+    },
+    "unavailable": []
+  },
+  "hnd->kamakura": {
+    "trip_type": "pickup",
+    "quotes": {
+      "VG-CMF-5": "26000 JPY|one_price|wait 90",
+      "VG-CMF-7": "26000 JPY|one_price|wait 90",
+      "VG-ECO-10": "36000 JPY|one_price|wait 90",
+      "VG-ECO-4": "27100 JPY|one_price|wait 90",
+      "VG-ECO-5": "26000 JPY|one_price|wait 90",
+      "VG-ECO-7": "26000 JPY|one_price|wait 90",
+      "VG-ECO-9": "42600 JPY|one_price|wait 90",
+      "VG-LUX-5": "42299 JPY|one_price|wait 90",
+      "VG-LUX-7": "36000 JPY|one_price|wait 90"
+    },
+    "unavailable": []
+  },
+  "nrt->hakone": {
+    "trip_type": "pickup",
+    "quotes": {
+      "VG-CMF-5": "49999 JPY|one_price|wait 90",
+      "VG-CMF-7": "49999 JPY|one_price|wait 90",
+      "VG-ECO-10": "60000 JPY|one_price|wait 90",
+      "VG-ECO-4": "40000 JPY|one_price|wait 90",
+      "VG-ECO-5": "49999 JPY|one_price|wait 90",
+      "VG-ECO-7": "49999 JPY|one_price|wait 90",
+      "VG-ECO-9": "60000 JPY|one_price|wait 90",
+      "VG-LUX-5": "62400 JPY|one_price|wait 90",
+      "VG-LUX-7": "64000 JPY|one_price|wait 90"
+    },
+    "unavailable": []
+  }
+}

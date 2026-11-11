@@ -854,7 +854,7 @@
             "现在能报出的价格一分不变（最近 30 天询价只读回放对比）；客人页标注「按里程计价 / 含里程费 / 含区域加价」",
             "业主 2026-11-11 确认的最终优先级；写 ADR；M8-14 按新规则验收"
           ],
-          "evidence": "分支 m8-30-quote-priority（未开 PR，按指示）；ADR 0080；domain 单元测试 quote-priority 15 条 + quote-compat 新增 1 条（golden 全部样例：今天报得出的价逐分不变）；集成测试 distance-prices.itest.ts 6 条（接口、三种情形、运营上限、路线取不到、订单、只读回放 0 处变化）、tenant-isolation 新增 3 条；本机相关集成测试 25 个文件 375 条、单元测试 2,532 条通过；全套交 CI",
+          "evidence": "分支 m8-30-quote-priority（未开 PR，按指示）；ADR 0080；domain 单元测试 quote-priority 15 条 + quote-compat 新增 1 条（golden 全部样例：今天报得出的价逐分不变）；集成测试 distance-prices.itest.ts 6 条（接口、三种情形、运营上限、路线取不到、订单、只读回放 0 处变化）、tenant-isolation 新增 3 条；本机相关集成测试 25 个文件 375 条、单元测试 2,532 条通过；全套交 CI；测试环境部分验收（PR #154 docs/acceptance/M8-30.md）：合并前后 17 条线路 101 个价逐分一致、报不出原因不变，③一口价+里程 ④计程价 ⑤包车加价 ⑦订单 / 邮件标注 要用 QA 账号或验收口令，待有权限的会话补测",
           "updated": "2026-11-11"
         },
         {
@@ -868,7 +868,7 @@
             "端到端：OWN_SITE_SOURCE 下点对点一端在区域外的报价显示「含里程费」、两端都在区域外的显示「按里程计价」；价格页新增 / 停用一条计程价",
             "确认邮件、供应商和运营订单详情加计价方式说明（后端字段已在 settlement.pricingBasis / mileage）"
           ],
-          "evidence": "分支 m8-30-quote-priority（和 M8-30 同一个 PR，未开 PR，按指示）；组件测试新增 16 条（distance-prices.test.tsx 8 条：列表、新增校验、If-Match / 幂等键、409 重叠、400 落栏、编辑、启停、删除二次确认、包车不显示、只读、规则 4；book-new 3 条、site 订单页 1 条、order-pricing-basis 4 条）；端到端 e2e/distance-prices.spec.ts 1 条（真实后端、OWN_SITE_SOURCE：供应商在页面新增计程价、重叠被拒、一端在外「含里程费」、两端在外「按里程计价」、停用；320 / 390 不横向滚动、亮暗 axe）通过；本机相关组件测试 173 条、契约测试 29 条、样式测试 33 条通过；截图 /home/codespace/import/ui-screens/m830-*.png；订单详情接口字段和确认邮件交 M8-30c（后端）",
+          "evidence": "分支 m8-30-quote-priority（和 M8-30 同一个 PR，未开 PR，按指示）；组件测试新增 16 条（distance-prices.test.tsx 8 条：列表、新增校验、If-Match / 幂等键、409 重叠、400 落栏、编辑、启停、删除二次确认、包车不显示、只读、规则 4；book-new 3 条、site 订单页 1 条、order-pricing-basis 4 条）；端到端 e2e/distance-prices.spec.ts 1 条（真实后端、OWN_SITE_SOURCE：供应商在页面新增计程价、重叠被拒、一端在外「含里程费」、两端在外「按里程计价」、停用；320 / 390 不横向滚动、亮暗 axe）通过；本机相关组件测试 173 条、契约测试 29 条、样式测试 33 条通过；截图 /home/codespace/import/ui-screens/m830-*.png；订单详情接口字段和确认邮件交 M8-30c（后端）；测试环境部分验收（PR #154 docs/acceptance/M8-30.md）：合并前后 17 条线路 101 个价逐分一致、报不出原因不变，③一口价+里程 ④计程价 ⑤包车加价 ⑦订单 / 邮件标注 要用 QA 账号或验收口令，待有权限的会话补测",
           "updated": "2026-11-11"
         },
         {
@@ -881,7 +881,7 @@
             "前端已按这个形状做好（apps/web/src/lib/order-area-price-display.ts 的 OrderMileageView、OrderAreaPriceItems 的「计价方式」一项），接口给出后补一条端到端（运营、供应商订单详情）",
             "客人确认邮件在已付金额后面按订单的计价方式加「（含里程费）」/「（按里程计价）」，文字用 @nozomi/domain 的 pricingBasisNote；包车「含区域加价」不变；邮件里不出现计程的单价和金额"
           ],
-          "evidence": "分支 m8-30-quote-priority（和 M8-30、M8-30b 同一个 PR）；运营 / 供应商订单详情加 pricing_basis、mileage（OpenAPI OrderMileage、dispatch 对账表）；客人确认邮件 pricing_basis_note；domain 通知测试新增 1 条、distance-prices.itest.ts 订单详情断言（含甲读不到乙、旧单 null）、notifications.itest.ts 计价方式邮件断言；端到端 distance-prices.spec.ts 加下单后运营、供应商订单详情「计价方式」（本机通过）；本机相关集成测试 7 个文件 102 条通过",
+          "evidence": "分支 m8-30-quote-priority（和 M8-30、M8-30b 同一个 PR）；运营 / 供应商订单详情加 pricing_basis、mileage（OpenAPI OrderMileage、dispatch 对账表）；客人确认邮件 pricing_basis_note；domain 通知测试新增 1 条、distance-prices.itest.ts 订单详情断言（含甲读不到乙、旧单 null）、notifications.itest.ts 计价方式邮件断言；端到端 distance-prices.spec.ts 加下单后运营、供应商订单详情「计价方式」（本机通过）；本机相关集成测试 7 个文件 102 条通过；测试环境部分验收（PR #154 docs/acceptance/M8-30.md）：合并前后 17 条线路 101 个价逐分一致、报不出原因不变，③一口价+里程 ④计程价 ⑤包车加价 ⑦订单 / 邮件标注 要用 QA 账号或验收口令，待有权限的会话补测",
           "updated": "2026-11-11"
         },
         {
@@ -899,6 +899,15 @@
           "role": "frontend",
           "status": "doing",
           "acceptance": ["客人页只剩「区间（区間 / Transfer）/ 包车」两个标签；页面上任何地方都不出现接送机 / 点对点的选择，也不出现「标签不符一键切换」提示", "客人只填上车点、下车点、日期时间；有一端是机场按接送机处理（自动出现航班号、免费等待说明、举牌），否则按点对点", "报价路由：有机场时先用接送机商品报价，接送机商品都报不出时再用点对点商品；两类都按 M8-30 的一口价 → 计程 → 不报价", "免费等待显示客人选中商品自己设的时长，商品没设时国际线 90 分钟 / 国内线 60 分钟；不改供应商数据", "不改供应商后台的商品类型和数据；旧链接 type=airport / p2p 自动落到「区间」；现在能报出的价格一分不变", "业主 2026-11-11；排在 M8-30 之后、M8-32 之前"],
+          "evidence": "",
+          "updated": "2026-11-11"
+        },
+        {
+          "id": "M8-34",
+          "title": "测试环境只读核对（Actions 手动跑 areas:role-preview）与 PR 版本预览（改进方案，待业主决定）",
+          "role": "backend",
+          "status": "todo",
+          "acceptance": ["方案见 docs/delivery/proposals/staging-readonly-check.md：A 测试环境只读核对工作流（只读白名单命令、只能 staging、结果存 Actions 产物、deploy.md 补文档）；B PR 版本预览（二选一或不做）；C main 部署被跳过时提醒", "业主先决定做哪几项；不在 M8-30 里顺手改；不登录服务器、不改正式环境"],
           "evidence": "",
           "updated": "2026-11-11"
         }
@@ -1845,6 +1854,11 @@
       "date": "2026-11-11",
       "by": "Claude",
       "summary": "M8-33 开发中（分支 m8-33-transfer-tab，ADR 0081）：客人页只剩「区间 / 包车」，去掉标签不符提示；认出机场但接送机商品一个都报不出时改用点对点商品（接送机报得出时不运行，现有报价不变）；应答加 fallback_category、airport.flight_scope；接机还没报价时免费等待按国际 90 / 其余 60；旧链接 mode/type=airport、p2p 落到区间"
+    },
+    {
+      "date": "2026-11-11",
+      "by": "Claude",
+      "summary": "M8-30 测试环境部分验收（独立验收 agent）：#152 合并（ad92dbf6）后测试环境自动部署成功，合并前后 17 条线路 101 个价逐分一致，报不出原因不变，结论「部分通过、不需要 revert」；一口价+里程、计程价、包车加价、订单详情和确认邮件标注要用 QA 测试供应商账号或验收口令，夜间规则不输入密码，待有权限的会话补测，M8-30 / 30b / 30c 保持待验收。登记 M8-34（测试环境只读核对改进方案，待业主决定）"
     }
   ]
 }
