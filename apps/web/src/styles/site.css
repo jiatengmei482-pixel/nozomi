@@ -1,9 +1,13 @@
 /*
  * 官网下单页、订单页（M3-05，ADR 0032；docs/design/03-layout.md「官网下单页」）。
- * 单栏、内容最宽 layout-reading-max-width、居中；控件用 lg 尺寸；主操作按钮吸在屏幕底部并留出 safe-area。只用设计令牌，从手机写起。
+ * 单栏、内容最宽 layout-site-max-width（M8-28 起由运营后台「官网设置 → 页面宽度」定，见下）、居中；控件用 lg 尺寸；主操作按钮吸在屏幕底部并留出 safe-area。只用设计令牌，从手机写起。
  */
 
 .site {
+  /*
+   * 官网正文最宽（M8-28，ADR 0079）：运营后台「系统设置 → 官网设置 → 页面宽度」三档，/site/v1/config 的 page_width 带到 .site 的 data-width 上。
+   * 顶栏、正文、页脚都按 layout-site-max-width 这一个令牌对齐（标准档就是令牌本身的值）；手机、平板本来就比这几档窄，不受影响。
+   */
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto 1fr auto;
@@ -11,6 +15,14 @@
   /* 官网的正文和控件文字一律 16px（01-tokens.md 第 3 节「官网的正文」；pages/site-booking.md 第 2 节） */
   --control-font-size: var(--font-size-lg);
   font-size: var(--font-size-lg);
+}
+
+.site[data-width="wide"] {
+  --layout-site-max-width: var(--layout-site-max-width-wide);
+}
+
+.site[data-width="full"] {
+  --layout-site-max-width: var(--layout-site-max-width-full);
 }
 
 /* 官网的字段标签、帮助文字、校验提示用 14px，不用后台的 13px */
@@ -119,7 +131,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
-  width: min(var(--layout-reading-max-width), 100%);
+  width: min(var(--layout-site-max-width), 100%);
   min-width: 0;
   margin: 0 auto;
   padding: var(--space-6) var(--space-4) var(--space-8);
@@ -429,15 +441,15 @@
   }
 
   .site__brand {
-    margin-left: max(var(--space-6), calc((100cqi - var(--layout-reading-max-width)) / 2 + var(--space-6)));
+    margin-left: max(var(--space-6), calc((100cqi - var(--layout-site-max-width)) / 2 + var(--space-6)));
   }
 
   .site__theme {
-    margin-right: max(var(--space-6), calc((100cqi - var(--layout-reading-max-width)) / 2 + var(--space-6)));
+    margin-right: max(var(--space-6), calc((100cqi - var(--layout-site-max-width)) / 2 + var(--space-6)));
   }
 
   .site__nav {
-    padding-inline: max(var(--space-6), calc((100cqi - var(--layout-reading-max-width)) / 2 + var(--space-6)));
+    padding-inline: max(var(--space-6), calc((100cqi - var(--layout-site-max-width)) / 2 + var(--space-6)));
   }
 
   .site-quote {
@@ -450,7 +462,7 @@
 
   /* 页脚署名和页眉、正文左右对齐（M6-07）：正文内容区宽 reading-max-width、居中、两侧 space-6，页脚按同样的宽度和边距排 */
   .site__footer {
-    width: min(var(--layout-reading-max-width), 100%);
+    width: min(var(--layout-site-max-width), 100%);
     margin: 0 auto;
     padding-inline: var(--space-6);
   }

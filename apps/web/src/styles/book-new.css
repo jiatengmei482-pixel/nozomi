@@ -1,6 +1,7 @@
 /*
  * 新预订页 /book/new（M8-03，ADR 0069；docs/design/pages/site-booking-v2.md）。官网的通则（字号、控件、区块卡片、吸底按钮）沿用 site.css。
- * 手机分步、单栏；≥ 1024px 单页两栏：左列「你的行程」「选择车型」，右侧栏「行程摘要」跟着滚动。只用设计令牌。
+ * 四步（M8-27，ADR 0079）：顶部步骤条，每次一步；≥ 1024px 两栏：左边是当前这一步，右侧栏「行程摘要」跟着滚动、宽度固定（layout-site-aside-width），
+ * 页面变宽时只有左边变宽；< 1024px 单栏，右侧栏变成顶部可展开的摘要条。只用设计令牌。
  */
 
 .book-new {
@@ -38,6 +39,10 @@
   border: var(--border-width) solid var(--color-border-strong);
   border-radius: var(--radius-md);
   overflow: hidden;
+}
+
+.book-mode--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .book-mode__option {
@@ -701,7 +706,7 @@
 
 @media (min-width: 1024px) {
   .book-new {
-    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, var(--layout-site-aside-width));
   }
 
   .book-new__aside {
@@ -738,4 +743,242 @@
 
 .route-map__canvas .leaflet-overlay-pane {
   z-index: var(--z-sticky);
+}
+
+/* ---------- 四步（M8-27）：步骤条、每步底部的按钮、标签不符的提示、核对页、手机摘要条 ---------- */
+
+.book-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.book-steps__link {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  min-height: var(--control-height-lg);
+  padding: var(--space-2) var(--space-1);
+  border: 0;
+  border-bottom: var(--focus-ring-width) solid var(--color-border-default);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-tight);
+  text-align: center;
+}
+
+button.book-steps__link {
+  cursor: pointer;
+}
+
+button.book-steps__link:hover .book-steps__name {
+  text-decoration: underline;
+}
+
+.book-steps__link:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-border-focus);
+  outline-offset: calc(var(--focus-ring-width) * -1);
+}
+
+.book-steps__number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-8);
+  height: var(--space-8);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: var(--radius-full);
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-bold);
+}
+
+.book-steps__name {
+  overflow-wrap: anywhere;
+}
+
+.book-steps__item--done .book-steps__link {
+  border-bottom-color: var(--color-primary);
+  color: var(--color-text-primary);
+}
+
+.book-steps__item--current .book-steps__link {
+  border-bottom-color: var(--color-primary);
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-bold);
+}
+
+.book-steps__item--current .book-steps__number {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.book-new__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.book-new__actions > :only-child {
+  margin-left: auto;
+}
+
+.book-new__actions > .button--block:only-child {
+  margin-left: 0;
+}
+
+.book-new__hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-info-border);
+  border-radius: var(--radius-md);
+  background: var(--color-info-bg);
+  color: var(--color-text-primary);
+}
+
+.book-new__hint-text {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+}
+
+.book-new__hint-text > .icon {
+  flex: none;
+  color: var(--color-info-text);
+}
+
+.book-review__block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-top: var(--space-4);
+  border-top: var(--border-width) solid var(--color-border-default);
+}
+
+.book-review__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.book-review__edit {
+  min-height: var(--control-height-lg);
+}
+
+.book-review__vehicle,
+.book-summary__vehicle-name {
+  margin: 0;
+  font-weight: var(--font-weight-bold);
+}
+
+.book-review__pay {
+  padding-top: var(--space-4);
+  border-top: var(--border-width) solid var(--color-border-default);
+}
+
+.book-summary__price {
+  margin: 0;
+}
+
+.book-summary__note {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.book-summary__wrap {
+  overflow-wrap: anywhere;
+}
+
+.book-summary-bar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-card);
+}
+
+.book-summary-bar__toggle {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0 var(--space-2);
+  width: 100%;
+  min-height: var(--control-height-lg);
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.book-summary-bar__toggle:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-border-focus);
+  outline-offset: calc(var(--focus-ring-width) * -1);
+}
+
+.book-summary-bar__title {
+  font-weight: var(--font-weight-bold);
+}
+
+.book-summary-bar__text {
+  grid-column: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-md);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.book-summary-bar__arrow {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.book-summary-bar__arrow--open {
+  transform: rotate(180deg);
+}
+
+/* 换步时焦点移到步骤标题：手机和平板上吸顶的「行程摘要」条不能把它盖住（WCAG 2.4.11，M8-27 验收缺陷 2） */
+.site-section__title[tabindex="-1"] {
+  scroll-margin-top: calc(var(--space-16) + var(--space-4));
+}
+
+.book-summary-bar__panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-height: 70dvh;
+  overflow-y: auto;
+  padding: 0 var(--space-3) var(--space-3);
+}
+
+@media (min-width: 1024px) {
+  .book-steps__link {
+    flex-direction: row;
+    justify-content: center;
+    gap: var(--space-2);
+  }
 }

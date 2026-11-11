@@ -6,6 +6,7 @@
  * - 官网设置：客服 WhatsApp 号码（wa.me 用的纯数字），只有超级管理员能改；第一次保存不带 If-Match。
  */
 import type { LocalizedText, ManualQuoteStatus, ServiceCategory } from "@nozomi/domain";
+import type { SitePageWidth } from "./site.ts";
 import { query } from "./areas.ts";
 import { apiRequest } from "./client.ts";
 import { PLATFORM_BASE } from "./platform.ts";
@@ -88,6 +89,8 @@ export interface ManualQuoteChange {
 
 export interface SiteSettings {
   support_whatsapp: string | null;
+  /** 官网页面宽度（M8-28，ADR 0079）；没设过是 standard */
+  page_width: SitePageWidth;
   /** 0 表示还没有设置过 */
   version: number;
   updated_at: string | null;
@@ -100,7 +103,7 @@ export const MANUAL_QUOTE_SCHEMA_FIELDS = {
   ManualQuoteEvent: ["id", "kind", "from_status", "to_status", "assignee", "note", "actor", "created_at"],
   ManualQuotePlace: ["name", "lat", "lng"],
   ManualQuotePerson: ["id", "name"],
-  SiteSettings: ["support_whatsapp", "version", "updated_at", "updated_by"],
+  SiteSettings: ["support_whatsapp", "page_width", "version", "updated_at", "updated_by"],
 } as const satisfies Record<string, readonly string[]>;
 export const MANUAL_QUOTE_DETAIL_FIELDS: readonly (keyof ManualQuoteDetail)[] = ["request", "contact", "pickup", "dropoff", "events"];
 export const MANUAL_QUOTE_QUERY_KEYS = ["limit", "cursor", "status", "assignee", "contact"] as const satisfies readonly (keyof ManualQuoteQuery)[];
@@ -133,7 +136,9 @@ export function getSiteSettings(token: string): Promise<SiteSettings> {
   return apiRequest("GET", SITE_SETTINGS_PATH, { token });
 }
 
-/** 改客服 WhatsApp 号码；`null` 是不设（官网不显示按钮）。已经设置过（版本 > 0）的带 If-Match。 */
-export function updateSiteSettings(token: string, version: number, supportWhatsapp: string | null): Promise<SiteSettings> {
-  return apiRequest("PUT", SITE_SETTINGS_PATH, { token, body: { support_whatsapp: supportWhatsapp }, ...(version > 0 ? { headers: ifMatch(version) } : {}) });
+/**
+ * 改官网设置。客服 WhatsApp 号码 `null` 是不设（官网不显示按钮）；`page_width` 不给是不改（M8-28）。已经设置过（版本 > 0）的带 If-Match。
+ */
+export function updateSiteSettings(token: string, version: number, supportWhatsapp: string | null, pageWidth?: SitePageWidth): Promise<SiteSettings> {
+  return apiRequest("PUT", SITE_SETTINGS_PATH, { token, body: { support_whatsapp: supportWhatsapp, ...(pageWidth !== undefined ? { page_width: pageWidth } : {}) }, ...(version > 0 ? { headers: ifMatch(version) } : {}) });
 }

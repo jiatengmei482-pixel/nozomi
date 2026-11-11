@@ -4,11 +4,12 @@
  * 用地址搜索专用的那组 API 和前端（配置里有假密钥，见 playwright.config.ts 的 E2E_API_PLACES_PORT）。
  *
  * 平台经接口新建一个本用例专用的机场（坐标随机落在城市中心附近，不和别的用例的机场重叠，按两个坐标报价才认得出是它），
- * 供应商上架这个机场的接送机商品（一口价 20,000 日元，接机免费等待 60 分钟）。客人：
- * - 手机宽：出发地输入机场名 → 平台的机场在候选最前 → 选中；目的地输入「東京駅」→ 谷歌候选 → 选中（取坐标）→ 日期时间 →
- *   自动报价、认出接机（时间标签、免费等待 60 分钟的提示、航班号）→「查看车型和价格」→ 第 2 步车型卡、选中后展开座位示意图、一口价包含、底部固定条；
- * - 电脑宽：单页两栏、右侧栏有所选车型的一口价；
- * - 带参数的链接（from 机场编码、to 坐标加名称、日期、时间、人数、行李）打开就报价。
+ * 供应商上架这个机场的接送机商品（一口价 20,000 日元，接机免费等待 60 分钟）。客人走四步（M8-27，ADR 0079）：
+ * - 手机宽：第 1 步出发地输入机场名 → 平台的机场在候选最前 → 选中；目的地输入「東京駅」→ 谷歌候选 → 选中（取坐标）→ 日期时间 →
+ *   自动报价、认出接机（时间标签、免费等待 60 分钟的提示）→ 第 2 步车型卡、座位示意图、一口价包含、底部固定条 →
+ *   第 3 步乘客信息（航班号、举牌姓名）→ 第 4 步核对；顶部摘要条逐步累积；
+ * - 电脑宽：两栏，右侧栏路线图在最上面、下面是确认过的内容；浏览器后退回到上一步、内容还在；
+ * - 带参数的链接（from 机场编码、to 坐标加名称、日期、时间、人数、行李）打开就报价、到第 2 步。
  * 每一步 320 / 360 / 400 宽不横向滚动，亮暗两色 axe；浏览器只连本站。
  */
 import { expect, test } from "@playwright/test";
@@ -25,8 +26,8 @@ const SITE = `http://127.0.0.1:${E2E_WEB_PLACES_PORT}`;
 const STRIPE_SITE = `http://127.0.0.1:${E2E_WEB_STRIPE_PORT}`;
 const TILE_ORIGIN = `http://127.0.0.1:${E2E_TILE_PORT}`;
 
-test("新预订页：输入即提示选机场和酒店 → 自动报价、认出接机 → 选车型展开座位示意图；电脑单页；带参数的链接打开就报价；窄屏、亮暗 axe；浏览器只连本站", async ({ page, request }) => {
-  test.setTimeout(150_000);
+test("新预订页四步：输入即提示选机场和酒店 → 自动报价、认出接机 → 选车型 → 乘客信息 → 核对；摘要条 / 右侧栏逐步累积；后退回上一步；带参数的链接到第 2 步；窄屏、亮暗 axe；浏览器只连本站", async ({ page, request }) => {
+  test.setTimeout(180_000);
   const world = await createWorld(request);
   const airport = await createAirport(request, world);
   const supplier = await createSupplier(request, world);
@@ -45,6 +46,7 @@ test("新预订页：输入即提示选机场和酒店 → 自动报价、认出
 
   await page.goto(`${SITE}/book/new`);
   await expect(page.getByRole("heading", { level: 1, name: "预订接送车" })).toBeVisible();
+  await expect(page.getByRole("list", { name: "预订步骤" }).getByRole("listitem")).toHaveCount(4);
   await expect(page.getByRole("heading", { name: "选择车型" })).toHaveCount(0);
 
   // 出发地：平台的机场排在谷歌候选前面
@@ -68,19 +70,19 @@ test("新预订页：输入即提示选机场和酒店 → 自动报价、认出
 
   await page.getByLabel("日期（当地）").fill(tomorrowInTokyo());
   await page.getByLabel("航班落地时间（当地）").fill("10:00");
-  // 填齐就自动报价：认出接机，时间标签、提示（免费等待取报价的 60 分钟）、航班号
+  // 填齐就自动报价：认出接机，时间标签、提示（免费等待取报价的 60 分钟）
   await expect(page.getByText("已识别为接机：司机按航班落地时间等候，落地后免费等待 60 分钟")).toBeVisible();
-  await expect(page.getByLabel("航班落地时间（当地）")).toHaveValue("10:00");
-  await page.getByLabel("航班号").fill("NH211");
+  // 标签条按所有可订城市的品类出现（测试库里别的用例的城市也算）；标签和标签不符的提示见组件测试 book-new.test.tsx
   const travellers = page.getByRole("button", { name: "乘客 / 行李 2 人 · 2 件" });
   await travellers.click();
   await page.getByRole("button", { name: "增加乘客" }).click();
   await expect(page.getByRole("button", { name: "乘客 / 行李 3 人 · 2 件" })).toHaveAttribute("aria-expanded", "true");
   await expectNarrowAndAccessible(page, "新预订页第 1 步（认出接机、乘客行李展开）");
 
-  await page.getByRole("button", { name: "查看车型和价格" }).click();
+  await page.getByRole("button", { name: "下一步：选择车型" }).click();
   await expect(page.getByRole("heading", { name: "选择车型" })).toBeFocused();
-  await expect(page.locator(".book-new__strip-text")).toContainText(`接机 ${airport.name} → 東京駅`);
+  await expect(page).toHaveURL(/[?&]step=2/);
+  await expect(page.locator(".book-summary-bar__text")).toContainText(`接机 · ${airport.name} → 東京駅`);
   const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: world.group.name }) });
   await expect(card).toContainText("22,000 JPY");
   await expect(card).toContainText("5 件（行李按 28 寸行李箱计）");
@@ -96,43 +98,64 @@ test("新预订页：输入即提示选机场和酒店 → 自动报价、认出
   await expect(bar).toContainText(`${world.group.name} · 一口价 22,000 JPY`);
   await expectNarrowAndAccessible(page, "新预订页第 2 步（座位示意图展开、底部固定条）");
   await bar.getByRole("button", { name: "下一步" }).click();
-  // 第 3 步：顶部摘要（车费、合计、取消规则），下面「怎么联系你」，吸底「去付款 →」
-  await expect(page.getByRole("heading", { name: "行程摘要" })).toBeFocused();
-  await expect(page.getByRole("heading", { name: "怎么联系你" })).toBeVisible();
-  await expect(page.locator(".book-summary")).toContainText("合计");
-  await expect(page.locator(".book-summary")).toContainText("22,000");
-  await expect(page.getByRole("button", { name: "去付款 →" })).toBeVisible();
-  await expectNarrowAndAccessible(page, "新预订页第 3 步（摘要、怎么联系你）");
 
-  // 电脑宽：单页两栏，右侧栏有所选车型的一口价
+  // 第 3 步：乘客信息（接机的航班号必填、举牌姓名选填）
+  await expect(page.getByRole("heading", { level: 2, name: "乘客信息" })).toBeFocused();
+  await page.getByLabel("航班号").fill("NH211");
+  await page.getByLabel("举牌姓名（选填）").fill("WANG XIAOMING");
+  await page.getByLabel("乘车人姓名").fill("王小明");
+  await page.getByLabel("邮箱").fill(`book-new-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`);
+  await page.getByLabel("手机号（含国家区号）").fill("+81 90-1234-5678");
+  await expectNarrowAndAccessible(page, "新预订页第 3 步（乘客信息）");
+  await page.getByRole("button", { name: "下一步：核对订单" }).click();
+
+  // 第 4 步：核对（各块有「修改」）、取消规则、同意保存银行卡、去付款；摘要条展开是累积的内容
+  await expect(page.getByRole("heading", { name: "核对订单" })).toBeFocused();
+  const review = page.getByRole("region", { name: "核对订单" });
+  await expect(review.getByRole("button", { name: "修改行程" })).toBeVisible();
+  await expect(review).toContainText("WANG XIAOMING");
+  await expect(review).toContainText("22,000");
+  await expect(review).toContainText("取消规则");
+  await expect(page.getByRole("button", { name: "去付款 →" })).toBeVisible();
+  await page.getByRole("button", { name: /^行程摘要/ }).click();
+  const panel = page.locator("#book-summary-panel");
+  await expect(panel).toContainText("3 人 · 2 件");
+  await expect(panel).toContainText(world.group.name);
+  await expect(panel).toContainText("NH211");
+  await expectNarrowAndAccessible(page, "新预订页第 4 步（核对、摘要条展开）");
+
+  // 电脑宽：两栏，右侧栏最上面是路线图，下面是三步确认过的内容
   await page.setViewportSize({ width: 1280, height: 900 });
-  await expect(page.getByRole("heading", { name: "你的行程" })).toBeVisible();
-  await expectRouteLineVisible(page, airport.location);
   const aside = page.getByRole("complementary", { name: "行程摘要" });
+  await expect(aside).toBeVisible();
+  await expectRouteLineVisible(page, airport.location);
   await expect(aside).toContainText(world.group.name);
-  await expect(aside).toContainText("合计");
   await expect(aside).toContainText("22,000");
-  await expect(page.getByRole("heading", { name: "怎么联系你" })).toBeVisible();
   await expect(aside).toContainText("NH211");
   for (const scheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: scheme });
-    await expectAccessible(page, `新预订页电脑单页（${scheme === "light" ? "亮色" : "暗色"}）`);
+    await expectAccessible(page, `新预订页电脑第 4 步（${scheme === "light" ? "亮色" : "暗色"}）`);
   }
   await page.emulateMedia({ colorScheme: "light" });
+  // 浏览器后退：回到第 3 步，填过的还在
+  await page.goBack();
+  await expect(page.getByRole("heading", { level: 2, name: "乘客信息" })).toBeVisible();
+  await expect(page.getByLabel("举牌姓名（选填）")).toHaveValue("WANG XIAOMING");
 
-  // 带参数的链接：出发地写机场编码（按编码取一次平台地点，不调谷歌），目的地是坐标加名称，打开就报价
+  // 带参数的链接：出发地写机场编码（按编码取一次平台地点，不调谷歌），目的地是坐标加名称，打开就报价、到第 2 步
   await page.setViewportSize({ width: 400, height: 800 });
   await page.goto(`${SITE}/book/new?from=${airport.code}&to=${TOKYO_STATION.lat},${TOKYO_STATION.lng}&to_name=${encodeURIComponent("東京駅八重洲口")}&date=${tomorrowInTokyo()}&time=11:30&pax=3&bags=1`);
   await expect(page.getByRole("heading", { name: "选择车型" })).toBeVisible();
-  await expect(page.locator(".book-new__strip-text")).toContainText(`接机 ${airport.name} → 東京駅八重洲口`);
-  await expect(page.locator(".book-new__strip-text")).toContainText("3 人 · 1 件");
+  await expect(page.locator(".book-summary-bar__text")).toContainText(`接机 · ${airport.name} → 東京駅八重洲口`);
+  await page.getByRole("button", { name: /^行程摘要/ }).click();
+  await expect(page.locator("#book-summary-panel")).toContainText("3 人 · 1 件");
   await expect(page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: world.group.name }) })).toContainText("22,000 JPY");
 
   // 浏览器只连本站和底图（不连谷歌）
   expect([...origins].filter((origin) => origin !== SITE && origin !== TILE_ORIGIN)).toEqual([]);
 });
 
-test("新预订页第 3 步：选车 → 加附加服务（重新报价、合计差额）→ 怎么联系你 → 去付款 → 现有订单页用 Stripe 付款（假 Stripe，测试卡 4242）；手机第 3 步和电脑单页窄屏、亮暗 axe", async ({ page, request }) => {
+test("新预订页付款：选车 → 加附加服务（重新报价、右侧栏合计）→ 乘客信息校验 → 核对（车费、差额、合计、参考价）→ 同意保存银行卡 → 去付款 → 现有订单页用 Stripe 付款（假 Stripe，测试卡 4242）；窄屏、亮暗 axe", async ({ page, request }) => {
   test.setTimeout(150_000);
   const world = await createWorld(request);
   const airport = await createAirport(request, world);
@@ -143,50 +166,58 @@ test("新预订页第 3 步：选车 → 加附加服务（重新报价、合计
   await routeStripe(page, fakeStripe);
   const link = `${STRIPE_SITE}/book/new?${airportLink(airport)}&to=${TOKYO_STATION.lat},${TOKYO_STATION.lng}&to_name=${encodeURIComponent("東京駅八重洲口")}&date=${tomorrowInTokyo()}&time=11:30&pax=2&bags=2`;
 
-  // 手机：链接打开到第 2 步 → 选车 → 下一步 → 第 3 步
-  await page.setViewportSize({ width: 360, height: 740 });
+  // 电脑：链接打开到第 2 步 → 选车 → 加附加服务，右侧栏的合计跟着变
+  await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(link);
   const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: world.group.name }) });
   await card.getByRole("button", { name: `选择 ${world.group.name}` }).click();
-  await page.locator(".book-bar").getByRole("button", { name: "下一步" }).click();
-  await expect(page.getByRole("heading", { name: "怎么联系你" })).toBeVisible();
   await expect(page.getByRole("region", { name: "请客服人工报价" })).toHaveCount(0);
-  await expect(page.getByRole("region", { name: "附加服务（选填）" })).toContainText(world.seat.name);
-  await expectNarrowAndAccessible(page, "新预订页手机第 3 步");
-
-  // 电脑：单页，右侧栏加附加服务 → 重新报价 → 合计差额
-  await page.setViewportSize({ width: 1280, height: 900 });
   const aside = page.getByRole("complementary", { name: "行程摘要" });
-  // 有报价时照旧（M8-21b 只改报不出价）：「怎么联系你」在左列，没有人工报价
-  await expect(page.getByRole("heading", { name: "怎么联系你" })).toBeVisible();
-  await expect(page.getByLabel("乘车人姓名")).toBeVisible();
-  await expect(page.getByRole("region", { name: "请客服人工报价" })).toHaveCount(0);
-  await aside.getByRole("button", { name: `增加${world.seat.name}` }).click();
-  await expect(aside).toContainText("附加服务（合计差额）");
-  await expect(aside).toContainText("+1,100 JPY");
+  await page.getByRole("region", { name: "附加服务（选填）" }).getByRole("button", { name: `增加${world.seat.name}` }).click();
   await expect(aside).toContainText("23,100");
-  await expect(aside).toContainText("车费");
-  await expect(aside).toContainText("22,000 JPY");
-  await expect(aside).toContainText("银行卡");
-  await expect(aside.getByText(/^≈ /)).toBeVisible();
-  await expect(aside).toContainText("按当前汇率换算，仅供参考，实际以支付金额为准");
-  for (const scheme of ["light", "dark"] as const) {
-    await page.emulateMedia({ colorScheme: scheme });
-    await expectAccessible(page, `新预订页电脑单页（附加服务、参考价，${scheme === "light" ? "亮色" : "暗色"}）`);
-  }
-  await page.emulateMedia({ colorScheme: "light" });
+  await page.getByRole("button", { name: "下一步：填写乘客信息" }).click();
 
-  // 怎么联系你：空着点「去付款」标红，航班号标在行程里；填好 → 下单 → 现有订单页
-  await aside.getByRole("button", { name: "去付款 →" }).click();
+  // 第 3 步：空着点「下一步」标红（航班号也在这一步）
+  await page.getByRole("button", { name: "下一步：核对订单" }).click();
   await expect(page.getByText("有几项没有填好，请看标红的地方。")).toBeVisible();
   await expect(page.getByLabel("航班号")).toHaveAttribute("aria-invalid", "true");
+  // 为他人预订：预订人收确认邮件，另填乘车人；举牌姓名默认跟乘车人
+  await page.getByText("为他人预订", { exact: true }).click();
   await page.getByLabel("航班号").fill("NH 211");
-  await page.getByLabel("乘车人姓名").fill("王小明");
+  await page.getByLabel("预订人姓名").fill("王小明");
   await page.getByLabel("邮箱").fill(`book-new-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`);
   await page.getByLabel("手机号（含国家区号）").fill("+81 90-1234-5678");
+  await page.getByLabel("乘车人姓名").fill("李华");
+  await page.getByLabel("乘车人电话/WhatsApp").fill("+81 90-5555-6666");
+  await expect(page.getByLabel("举牌姓名（选填）")).toHaveValue("李华");
   await page.getByLabel("给司机的备注（选填）").fill("两个大箱子");
+  await expectNarrowAndAccessible(page, "新预订页第 3 步（为他人预订）");
+  await page.getByRole("button", { name: "下一步：核对订单" }).click();
+  await expect(page.getByRole("region", { name: "核对订单" })).toContainText("+81 90-5555-6666");
+
+  // 第 4 步：车费、附加服务差额、合计、参考价、支付方式
+  const review = page.getByRole("region", { name: "核对订单" });
+  await expect(review).toContainText("附加服务（合计差额）");
+  await expect(review).toContainText("+1,100 JPY");
+  await expect(review).toContainText("23,100");
+  await expect(review).toContainText("22,000 JPY");
+  await expect(review).toContainText("银行卡");
+  await expect(review.getByText(/^≈ /)).toBeVisible();
+  await expect(review).toContainText("按当前汇率换算，仅供参考，实际以支付金额为准");
+  for (const scheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await expectAccessible(page, `新预订页第 4 步（附加服务、参考价，${scheme === "light" ? "亮色" : "暗色"}）`);
+  }
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.setViewportSize({ width: 360, height: 740 });
+  await expectNarrowAndAccessible(page, "新预订页手机第 4 步");
+
+  await page.getByRole("button", { name: "去付款 →" }).click();
+  await expect(page.getByText("需要同意保存支付方式才能下单")).toBeVisible();
   await page.getByRole("checkbox", { name: /同意保存这次付款用的银行卡/ }).check();
-  await aside.getByRole("button", { name: "去付款 →" }).click();
+  const placed = page.waitForRequest((sent) => new URL(sent.url()).pathname === "/site/v1/orders" && sent.method() === "POST");
+  await page.getByRole("button", { name: "去付款 →" }).click();
+  expect(((await placed).postDataJSON() as { notes: string }).notes).toBe("举牌姓名：李华\n乘车人：李华\n乘车人电话：+81 90-5555-6666\n两个大箱子");
   await expect(page.getByRole("heading", { level: 1, name: /^订单 NZ/ })).toBeVisible();
   await expect(page.getByLabel("卡号（假 Stripe）")).toBeVisible();
   await expect(page.locator("main")).toContainText("23,100 JPY");

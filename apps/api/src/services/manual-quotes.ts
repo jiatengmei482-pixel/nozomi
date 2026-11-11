@@ -33,6 +33,7 @@ import {
   type ManualQuoteEventRow,
   type ManualQuoteFilter,
   type ManualQuoteRow,
+  type SitePageWidth,
   type SiteSettingsRow,
   cityExists,
   countManualQuotesByStatus,
@@ -46,7 +47,7 @@ import {
   lockPurgeCandidates,
   purgeManualQuotes,
   readSiteSettings,
-  readSupportWhatsapp,
+  readPublicSiteSettings,
   saveSiteSettings,
   touchManualQuote,
   updateManualQuote,
@@ -405,20 +406,31 @@ export async function getSiteSettings(ctx: AppContext): Promise<SiteSettingsRow>
   return withPlatformTx(ctx.pool, (db) => readSiteSettings(db), { snapshot: true });
 }
 
-/** 改客服 WhatsApp 号码（纯数字，null = 不显示按钮）。版本对不上 409；留审计（号码是公开的客服号，前后值原样记）。 */
-export async function updateSiteSettings(ctx: AppContext, principal: PlatformPrincipal, ip: string, supportWhatsapp: string | null, version: number | null): Promise<SiteSettingsRow> {
+/**
+ * 改客服 WhatsApp 号码（纯数字，null = 不显示按钮）和页面宽度（M8-28，ADR 0079；`null` = 不改）。版本对不上 409；
+ * 留审计（号码是公开的客服号，前后值原样记，页面宽度同样记前后）。
+ */
+export async function updateSiteSettings(ctx: AppContext, principal: PlatformPrincipal, ip: string, supportWhatsapp: string | null, pageWidth: SitePageWidth | null, version: number | null): Promise<SiteSettingsRow> {
   return withPlatformTx(ctx.pool, async (db) => {
     const before = await readSiteSettings(db, true);
     if ((version ?? 0) !== before.version) throw versionConflict(before.version);
-    if (before.version > 0 && before.supportWhatsapp === supportWhatsapp) return before;
+    const width = pageWidth ?? before.pageWidth;
+    if (before.version > 0 && before.supportWhatsapp === supportWhatsapp && before.pageWidth === width) return before;
     const now = ctx.now();
-    if (!(await saveSiteSettings(db, supportWhatsapp, before.version, principal.user.id, now))) throw versionConflict(before.version);
-    await insertAuditLog(db, origin(principal, ip, now), { tenantId: null, resource: "site_settings", resourceId: null, action: "update", before: { support_whatsapp: before.supportWhatsapp }, after: { support_whatsapp: supportWhatsapp } });
+    if (!(await saveSiteSettings(db, supportWhatsapp, width, before.version, principal.user.id, now))) throw versionConflict(before.version);
+    await insertAuditLog(db, origin(principal, ip, now), {
+      tenantId: null,
+      resource: "site_settings",
+      resourceId: null,
+      action: "update",
+      before: { support_whatsapp: before.supportWhatsapp, page_width: before.pageWidth },
+      after: { support_whatsapp: supportWhatsapp, page_width: width },
+    });
     return readSiteSettings(db);
   });
 }
 
-/** 官网公开配置里的客服 WhatsApp 号码（纯数字）；没设置为 null，页面不显示按钮。 */
-export async function siteSupportWhatsapp(ctx: AppContext): Promise<string | null> {
-  return withPlatformTx(ctx.pool, (db) => readSupportWhatsapp(db), { snapshot: true });
+/** 官网公开配置里的客服 WhatsApp 号码（纯数字；没设置为 null，页面不显示按钮）和页面宽度（没设过是 standard）。 */
+export async function sitePublicSettings(ctx: AppContext): Promise<{ supportWhatsapp: string | null; pageWidth: SitePageWidth }> {
+  return withPlatformTx(ctx.pool, (db) => readPublicSiteSettings(db), { snapshot: true });
 }

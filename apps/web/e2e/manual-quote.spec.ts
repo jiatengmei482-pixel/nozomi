@@ -7,7 +7,7 @@
  * - 客服：菜单「人工报价」→ 列表里只写留了哪几项（没有邮箱原文）→ 按邮箱查到 → 详情有邮箱、发信链接、审计提示 → 改成「跟进中」并指派给自己、写备注；
  *   「系统设置 → 官网设置」只读。
  * - 超级管理员：「系统设置 → 官网设置」填「客服 WhatsApp 号码」→ 客人重新打开同一个链接，按钮出现、wa.me 链接带号码和行程要点。
- * - 报不出价时只有人工报价那一块（M8-21b）：电脑单页、手机都没有下单用的「怎么联系你」（姓名、手机号、同意保存银行卡）和「去付款」。
+ * - 报不出价时只有人工报价那一块（M8-21b）：电脑、手机都没有下单用的乘客信息（姓名、手机号、同意保存银行卡）、「去付款」和往第 3 步的「下一步」（M8-27）。
  * 320 / 390 宽不横向滚动，亮暗两色 axe。号码、邮箱都是虚构的；用例结束把客服号码清空（全站一行，不留给别的用例）。
  * 官网按来源地址限速：这组 API 信任一层代理，每个用例用 `OWN_SITE_SOURCE` 带一个文档专用的随机地址，不和别的用例抢额度。
  */
@@ -70,6 +70,7 @@ async function expectManualQuoteOnly(page: Page): Promise<void> {
   await expect(page.getByLabel("手机号（含国家区号）")).toHaveCount(0);
   await expect(page.getByRole("checkbox", { name: /同意保存这次付款用的银行卡/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "去付款 →" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "下一步：填写乘客信息" })).toHaveCount(0);
   await expect(page.getByLabel("邮箱")).toHaveCount(1);
 }
 
@@ -86,7 +87,7 @@ test("报不出价：客人留下邮箱和 WhatsApp → 客服在「人工报价
 
   try {
     // ── 客人 ──
-    // 电脑单页：左列只有行程、车型（报不出价 + 人工报价），没有「怎么联系你」
+    // 电脑：链接带齐了行程，打开就到第 2 步，只有报不出价 + 人工报价，不能往乘客信息走（M8-27 四步）
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(link);
     await expect(page.getByText("这个地址暂时没有在线报价，请联系客服")).toBeVisible();
@@ -168,10 +169,10 @@ test("报不出价：客人留下邮箱和 WhatsApp → 客服在「人工报价
     const field = adminPage.getByLabel("客服 WhatsApp 号码");
     await expect(adminPage.getByText(/填带国家码的号码/)).toBeVisible();
     await field.fill("090-0000");
-    await adminPage.getByRole("button", { name: "保存" }).click();
+    await adminPage.getByRole("region", { name: "客服 WhatsApp" }).getByRole("button", { name: "保存" }).click();
     await expect(adminPage.getByText(/号码的格式不对/)).toBeVisible();
     await field.fill("+81 00 0000 0000");
-    await adminPage.getByRole("button", { name: "保存" }).click();
+    await adminPage.getByRole("region", { name: "客服 WhatsApp" }).getByRole("button", { name: "保存" }).click();
     await expect(adminPage.getByText("已保存，官网的 WhatsApp 按钮用这个号码")).toBeVisible();
     await expect(adminPage.getByLabel("客服 WhatsApp 号码")).toHaveValue(`+${SUPPORT_DIGITS}`);
     await expect(adminPage.getByRole("link", { name: /在 WhatsApp 里打开看看/ })).toHaveAttribute("href", new RegExp(`^https://wa\\.me/${SUPPORT_DIGITS}\\?text=`));

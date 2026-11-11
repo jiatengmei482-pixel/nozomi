@@ -151,6 +151,10 @@
   --layout-content-max-width: 1440px;
   --layout-form-max-width: 720px;
   --layout-reading-max-width: 960px;
+  --layout-site-max-width: 1200px;
+  --layout-site-max-width-wide: var(--layout-content-max-width);
+  --layout-site-max-width-full: 1920px;
+  --layout-site-aside-width: 380px;
   --layout-auth-card-width: 400px;
 
   /*

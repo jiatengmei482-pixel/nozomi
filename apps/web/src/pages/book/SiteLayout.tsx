@@ -3,10 +3,10 @@
  * 单栏、内容最宽 `layout-reading-max-width`、居中；顶部是品牌、主题切换和两个入口；底部是数据来源的署名
  * （页面上有城市、机场的名称：GeoNames CC BY 4.0、OurAirports 公有领域）。
  */
-import { Component, type ReactNode, useCallback, useEffect, useState } from "react";
+import { Component, type ReactNode, useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { Link, Outlet, useLocation } from "react-router";
 import { ApiError } from "../../api/client.ts";
-import { type SiteConfig, getSiteConfig } from "../../api/site.ts";
+import { SITE_PAGE_WIDTHS, type SiteConfig, type SitePageWidth, getSiteConfig } from "../../api/site.ts";
 import { Attributions, placeSources } from "../../components/Attribution.tsx";
 import { Brand } from "../../components/Brand.tsx";
 import { Button } from "../../components/Button.tsx";
@@ -23,14 +23,56 @@ function navCurrent(pathname: string, target: string): "page" | "true" | undefin
   return undefined;
 }
 
+// ---- 页面宽度（M8-28，ADR 0079）：/site/v1/config 的 page_width，所有官网页面共用一个值，写到 .site 的 data-width 上（CSS 变量 --site-max-width） ----
+
+let pageWidth: SitePageWidth = "standard";
+let widthRequested = false;
+const widthListeners = new Set<() => void>();
+
+/** 读到官网配置时记下页面宽度（不认识的值、缺省按标准）。 */
+export function rememberSitePageWidth(value: unknown): void {
+  widthRequested = true;
+  const next = SITE_PAGE_WIDTHS.find((width) => width === value) ?? "standard";
+  if (next === pageWidth) return;
+  pageWidth = next;
+  for (const listener of widthListeners) listener();
+}
+
+/** 测试用：回到还没读过配置的样子。 */
+export function resetSitePageWidth(): void {
+  pageWidth = "standard";
+  widthRequested = false;
+}
+
+function useSitePageWidth(): SitePageWidth {
+  const width = useSyncExternalStore(
+    (listener) => {
+      widthListeners.add(listener);
+      return () => widthListeners.delete(listener);
+    },
+    () => pageWidth,
+  );
+  // 自己不读配置的页面（下单页）直接打开时，补读一次；读不出来就按标准，不报错
+  useEffect(() => {
+    if (widthRequested) return;
+    widthRequested = true;
+    getSiteConfig().then(
+      (config) => rememberSitePageWidth(config.page_width),
+      () => undefined,
+    );
+  }, []);
+  return width;
+}
+
 /**
  * 顶栏：DOM 顺序是品牌、主题切换、入口（F10）。品牌和主题切换在第一行两端（品牌色带上，M6-05），入口在色带下面的第二行；
  * 各宽度都是这样排，Tab 顺序和看到的顺序一致。品牌链接的可读名字仍是「NOZOMI 用车」（标志对读屏隐藏）。
  */
 export function SiteLayout({ children, attribution = true }: { children: ReactNode; attribution?: boolean }) {
   const { pathname } = useLocation();
+  const width = useSitePageWidth();
   return (
-    <div className="site">
+    <div className="site" data-width={width}>
       <header className="site__header">
         <Link to={SITE_HOME_PATH} className="site__brand">
           <Brand tone="on-brand" /> <span className="site__brand-service">用车</span>
@@ -107,13 +149,20 @@ export type ConfigState = { kind: "loading" } | { kind: "failed"; message: strin
 
 /** 官网的配置（开没开、币种、付款）：每个页面进来取一次。 */
 export function useSiteConfig(): { state: ConfigState; reload(): void } {
-  const [state, setState] = useState<ConfigState>({ kind: "loading" });
+  const [state, setState] = useState<ConfigState>(() => {
+    // 这个页面自己读配置（页面宽度也从这里来），外壳不用再读一次
+    widthRequested = true;
+    return { kind: "loading" };
+  });
   const [round, setRound] = useState(0);
   useEffect(() => {
     let alive = true;
     setState({ kind: "loading" });
     getSiteConfig().then(
-      (config) => alive && setState({ kind: "ready", config }),
+      (config) => {
+        rememberSitePageWidth(config.page_width);
+        if (alive) setState({ kind: "ready", config });
+      },
       (err: unknown) => alive && setState({ kind: "failed", message: siteFailureText(err, "打开页面") }),
     );
     return () => {

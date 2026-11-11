@@ -73,7 +73,7 @@ import { changeSchema, disputeSchema, feeJson, salesCancelSchema, salesFeeQueryS
 import { distanceJson, paymentJson, salesOrderJson } from "./sales.ts";
 import { mapConfigJson } from "./areas.ts";
 import type { OrderVehicleGroupRef } from "../repos/master-data.ts";
-import { siteSupportWhatsapp } from "../services/manual-quotes.ts";
+import { sitePublicSettings } from "../services/manual-quotes.ts";
 import { QaAcceptanceHidden, currentQaAcceptance, endQaAcceptance, qaAcceptanceActive, sessionCookie, siteAudienceOf, unlockQaAcceptance } from "../services/qa-acceptance.ts";
 import { errorBody } from "../errors.ts";
 import { pathOnly } from "../logging.ts";
@@ -388,13 +388,16 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
   app.get("/site/v1/config", async (request) => {
     await takeSiteSlot(ctx, "site_read", { ip: request.ip });
     const config = await siteConfig(ctx);
+    const settings = await sitePublicSettings(ctx);
     return {
       open: config.open,
       currency: config.currency,
       payments: config.payments === null ? null : { provider: config.payments.provider, publishable_key: config.payments.publishableKey },
       support_phone: ctx.config.siteSupportPhone,
       // 客服 WhatsApp 号码（M8-21，ADR 0076）：运营后台「官网设置」填的，纯数字；没填为 null，页面不显示 WhatsApp 按钮
-      support_whatsapp: await siteSupportWhatsapp(ctx),
+      support_whatsapp: settings.supportWhatsapp,
+      // 页面宽度（M8-28，ADR 0079）：standard / wide / full，没设过是 standard；官网外壳按它定最宽
+      page_width: settings.pageWidth,
       // 地址搜索（谷歌，后端代调）和地图底图（ADR 0044、0015）：页面按这两项决定显示哪几种选地址的方式
       address_search: config.addressSearch,
       map_tiles: config.open ? mapConfigJson(ctx.config.mapTiles)["tiles"] : null,

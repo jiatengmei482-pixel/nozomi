@@ -34,8 +34,11 @@ export interface BookingLink {
   time: string | null;
   passengers: number | null;
   luggage: number | null;
-  /** `mode=charter`：打开就是包车（旧 `/book` 的包车跳过来）；别的值、没给为 null */
-  mode: "charter" | null;
+  /**
+   * 打开时选哪个标签（M8-27）：`mode=charter` 包车（旧 `/book` 的包车跳过来）、`mode=airport` 接送机、`mode=p2p` 点对点；
+   * 别的值、没给为 null（按两端有没有机场选）
+   */
+  mode: BookTab | null;
 }
 
 const CODE = /^[A-Za-z0-9][A-Za-z0-9_-]{1,39}$/;
@@ -89,8 +92,66 @@ export function parseBookingLink(search: string): BookingLink {
     time: validTime(params.get("time")),
     passengers: count(params.get("pax"), TRAVELLER_LIMITS.passengers),
     luggage: count(params.get("bags"), TRAVELLER_LIMITS.luggage),
-    mode: params.get("mode") === "charter" ? "charter" : null,
+    mode: BOOK_TABS.find((tab) => tab === params.get("mode")) ?? null,
   };
+}
+
+// ---- 四步（M8-27，ADR 0079）：标签、步骤、标签和两端对不上时的提示 ----
+
+/** 第 1 步顶部的三个标签：接送机、点对点、包车。接送机和点对点都按两个坐标报价，标签只决定说法和提示，不改报价规则。 */
+export type BookTab = "airport" | "p2p" | "charter";
+export const BOOK_TABS: readonly BookTab[] = ["airport", "p2p", "charter"];
+export const BOOK_TAB_NAMES: Readonly<Record<BookTab, string>> = { airport: "接送机", p2p: "点对点", charter: "包车" };
+
+/** 四步的名称（步骤条、网址 `?step=N`）。 */
+export const BOOK_STEPS = ["行程", "车型和价格", "乘客信息", "核对并付款"] as const;
+export type BookStep = 1 | 2 | 3 | 4;
+
+/** 网址里的 `?step=N`：1–4 以外、没给都是第 1 步。 */
+export function bookStepOf(search: string): BookStep {
+  const value = new URLSearchParams(search).get("step");
+  return value === "2" || value === "3" || value === "4" ? (Number(value) as BookStep) : 1;
+}
+
+/** 换到第 N 步的网址查询串：其余参数原样保留，第 1 步不写 `step`。 */
+export function searchWithStep(search: string, step: BookStep): string {
+  const params = new URLSearchParams(search);
+  if (step === 1) params.delete("step");
+  else params.set("step", String(step));
+  const text = params.toString();
+  return text === "" ? "" : `?${text}`;
+}
+
+/**
+ * 标签和两端对不上时的一句提示和一键切换（不挡下一步）：选了接送机但两端都不是机场 → 点对点；选了点对点但有一端是机场 → 接送机。
+ * 有没有机场先看报价认出来的行程（`recognized`，接机 / 送机 / 点对点），没有报价时看地址搜索给的类型。两端没选齐不提示。
+ */
+export function tabMismatch(tab: BookTab, from: TripPoint | null, to: TripPoint | null, recognized: "pickup" | "dropoff" | "point_to_point" | null): { text: string; target: BookTab } | null {
+  if (tab === "charter" || from === null || to === null) return null;
+  const airport = recognized !== null ? recognized !== "point_to_point" : from.kind === "airport" || to.kind === "airport";
+  if (tab === "airport" && !airport) return { text: "出发地和目的地都不是机场，这是点对点行程。", target: "p2p" };
+  if (tab === "p2p" && airport) return { text: "有一端是机场，这是接送机行程。", target: "airport" };
+  return null;
+}
+
+/**
+ * 举牌姓名（接机）、为他人预订时的乘车人和乘车人电话（M8-27）：订单接口还没有这几栏（M8-32 加），
+ * 先写在给司机的备注最前面，一项一行，只写有的那几项（ADR 0079 第 4 节）。
+ */
+export const SIGN_NAME_MAX = 60;
+export const RIDER_NAME_MAX = 100;
+export const RIDER_PHONE_MAX = 40;
+export function notesWithExtras(extras: { signName?: string; riderName?: string; riderPhone?: string }, notes: string): string {
+  const lines = [
+    ["举牌姓名", extras.signName],
+    ["乘车人", extras.riderName],
+    ["乘车人电话", extras.riderPhone],
+  ]
+    .map(([label, value]) => [label, (value ?? "").trim()])
+    .filter(([, value]) => value !== "")
+    .map(([label, value]) => `${label}：${value}`);
+  const rest = notes.trim();
+  return [...lines, ...(rest === "" ? [] : [rest])].join("\n");
 }
 
 // ---- 一端（出发地、目的地、包车上车点） ----

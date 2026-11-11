@@ -158,7 +158,7 @@ test("WhatsApp 按钮：没设置客服号码时不显示；设置了显示，wa
 // ───────────── 页面里的位置 ─────────────
 
 const city: SiteCity = { id: CITY_ID, code: "CTY-JP-TYO", name: { zh: "东京" }, timezone: "Asia/Tokyo", country_code: "JP", center: { lat: 35.6895, lng: 139.6917 }, categories: ["airport_transfer", "point_to_point", "charter"] };
-const configOf = (changes: Partial<SiteConfig> = {}): SiteConfig => ({ open: true, currency: "JPY", payments: null, support_phone: "+81 3-0000-0000", support_whatsapp: null, address_search: true, map_tiles: null, ...changes });
+const configOf = (changes: Partial<SiteConfig> = {}): SiteConfig => ({ open: true, currency: "JPY", payments: null, support_phone: "+81 3-0000-0000", support_whatsapp: null, address_search: true, page_width: "standard", map_tiles: null, ...changes });
 const noQuotes: SiteByPointsResult = { trip_type: "point_to_point", airport: null, city: { id: CITY_ID, code: "CTY-JP-TYO", name: { zh: "东京" }, timezone: "Asia/Tokyo" }, currency: "JPY", quotes: [], unavailable: [{ vehicle_group_id: null, reasons: ["NO_PRODUCT"] }], expires_at: null, route: null };
 
 function openPage(at: string, options: { config?: SiteConfig; byPoints?: () => Response; charter?: () => Response } = {}): ApiCall[] {
@@ -182,13 +182,14 @@ function openPage(at: string, options: { config?: SiteConfig; byPoints?: () => R
 
 const P2P_LINK = "/book/new?from=35.6896,139.7006&from_name=%E6%96%B0%E5%AE%BF%E7%AB%99&to=35.6586,139.7454&to_name=%E4%B8%9C%E4%BA%AC%E5%A1%94&date=2030-11-20&time=14:30";
 
-/** 报不出价时只有人工报价那一块：下单用的「怎么联系你」（姓名、手机号、同意保存银行卡）和「去付款」都不出现（M8-21b，规范 11.1） */
+/** 报不出价时只有人工报价那一块：下单用的乘客信息（姓名、手机号、同意保存银行卡）、「去付款」和往第 3 步的「下一步」都不出现（M8-21b，规范 11.1） */
 function assertNoCheckout(): void {
   assertAbsent(screen.queryByRole("heading", { name: "怎么联系你" }));
   assertAbsent(screen.queryByLabelText("乘车人姓名"));
   assertAbsent(screen.queryByLabelText("手机号（含国家区号）"));
   assertAbsent(screen.queryByRole("checkbox", { name: /同意保存这次付款用的银行卡/ }));
   assertAbsent(screen.queryByRole("button", { name: "去付款 →" }));
+  assertAbsent(screen.queryByRole("button", { name: "下一步：填写乘客信息" }));
   assert.equal(screen.getAllByLabelText("邮箱").length, 1, "页面上只有人工报价的一个邮箱框");
 }
 
@@ -258,7 +259,7 @@ test("新预订页没有车（报价列表为空、也没有原因）同样给�
   assertAbsent(screen.queryByRole("region", { name: "请客服人工报价" }));
 });
 
-test("有报价时照旧：「怎么联系你」和「去付款」都在，没有人工报价；从报不出价改了行程、报出价以后「怎么联系你」回来、人工报价收起", async () => {
+test("有报价时照旧：能往第 3 步「乘客信息」走，没有人工报价；从报不出价改了行程、报出价以后可以继续、人工报价收起（M8-27 四步）", async () => {
   wideScreen();
   const quote = {
     quote_id: "QT20301120000000000001",
@@ -284,15 +285,17 @@ test("有报价时照旧：「怎么联系你」和「去付款」都在，没�
   assert.ok(await screen.findByRole("region", { name: "请客服人工报价" }, SLOW));
   assertNoCheckout();
 
+  await actor.click(screen.getByRole("button", { name: "上一步" }));
   const time = screen.getByLabelText("用车时间（当地）");
   await actor.clear(time);
   await actor.type(time, "15:30");
+  await actor.click(screen.getByRole("button", { name: "下一步：选择车型" }));
   assert.ok(await screen.findByRole("heading", { name: "车型1" }, SLOW));
-  assert.ok(screen.getByRole("heading", { name: "怎么联系你" }));
-  assert.ok(screen.getByLabelText("乘车人姓名"));
-  assert.ok(screen.getByLabelText("手机号（含国家区号）"));
   assertAbsent(screen.queryByRole("region", { name: "请客服人工报价" }));
   assertAbsent(screen.queryByRole("link", { name: /通过 WhatsApp 联系我们/ }));
   await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
-  assert.ok(screen.getByRole("button", { name: "去付款 →" }));
+  await actor.click(screen.getByRole("button", { name: "下一步：填写乘客信息" }));
+  assert.ok(await screen.findByRole("heading", { name: "乘客信息", level: 2 }));
+  assert.ok(screen.getByLabelText("乘车人姓名"));
+  assert.ok(screen.getByLabelText("手机号（含国家区号）"));
 });

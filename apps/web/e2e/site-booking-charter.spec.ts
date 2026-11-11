@@ -5,7 +5,7 @@
  * 本用例自己建一个城市（中心随机落在九州一带，离别的用例在东京的城市很远，包车按上车地点找城市只会找到它），
  * 供应商经接口建两个区域：商品区域（城市中心一带）和一个加价区域（东边约 15 公里），上架包车商品：
  * 8 小时套餐 70,000 日元（对外 77,000），加价区域上车加 500、下车加 1,000；平台在加价区域里建一个车站（常用地点，下车地点框里能搜到）。客人：
- * - 旧链接只有上车地点：下车地点空着、框下面提示补选，不报价（没有包车询价请求）；手机上点「查看车型和价格」下车地点标红、焦点移过去；
+ * - 旧链接只有上车地点：下车地点空着、框下面提示补选，不报价（没有包车询价请求）；手机上点「下一步：选择车型」下车地点标红、焦点移过去；
  * - 下车地点在商品区域：77,000，不写「含区域加价」；
  * - 下车地点在框里搜车站（加价区域）：78,100（71,000 × 1.1）——只有这一个价，车型卡和车费下面写「含区域加价，已算在这个价格里」，不写加价金额；
  * - 下车地点不在任何区域：「这个地址暂时没有在线报价，请联系客服」+ 客服电话；
@@ -156,7 +156,7 @@ test("新预订页包车：下车地点必填（旧链接只有上车地点时�
   await expect(page.getByText("请选择下车地点，包车现在按上车和下车地点报价。")).toBeVisible();
   await expect(page.getByText("包车结束时在哪里下车，价格按上车和下车地点算。")).toBeVisible();
   await expect(page.getByLabel(/^包车时长/)).toHaveValue("8");
-  await page.getByRole("button", { name: "查看车型和价格" }).click();
+  await page.getByRole("button", { name: "下一步：选择车型" }).click();
   await expect(page.getByText("请选择下车地点", { exact: true })).toBeVisible();
   await expect(dropoff).toHaveAttribute("aria-invalid", "true");
   await expect(dropoff).toBeFocused();
@@ -169,9 +169,9 @@ test("新预订页包车：下车地点必填（旧链接只有上车地点时�
   await page.getByRole("listbox", { name: "下车地点的候选" }).getByRole("option", { name: new RegExp(trip.station.name) }).click();
   await expect(dropoff).toHaveValue(trip.station.name);
   await expect(page.getByText("请选择下车地点，包车现在按上车和下车地点报价。")).toHaveCount(0);
-  await page.getByRole("button", { name: "查看车型和价格" }).click();
+  await page.getByRole("button", { name: "下一步：选择车型" }).click();
   await expect(page.getByRole("heading", { name: "选择车型" })).toBeFocused();
-  await expect(page.locator(".book-new__strip-text")).toContainText(`包车 8 小时 上车酒店 → ${trip.station.name}`);
+  await expect(page.locator(".book-summary-bar__text")).toContainText(`包车 8 小时 · 上车酒店 → ${trip.station.name}`);
   const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: trip.groupName }) });
   await expect(card).toContainText("78,100 JPY");
   await expect(card).toContainText(NOTE);
@@ -180,11 +180,14 @@ test("新预订页包车：下车地点必填（旧链接只有上车地点时�
   await expectNarrowAndAccessible(page, "新预订页包车第 2 步（含区域加价）");
   await screenshots(page, "mobile-step2");
   await page.locator(".book-bar").getByRole("button", { name: "下一步" }).click();
-  const summary = page.locator(".book-summary");
+  // 第 3 步：顶部摘要条展开，车型和价格下面含区域加价
+  await expect(page.getByRole("heading", { level: 2, name: "乘客信息" })).toBeFocused();
+  await page.getByRole("button", { name: /^行程摘要/ }).click();
+  const summary = page.locator("#book-summary-panel");
   await expect(summary).toContainText(NOTE);
   await expect(summary).toContainText(`下车地点${trip.station.name}`);
   await expect(page.locator("main")).not.toContainText(/1,000 JPY|1,100 JPY|500 JPY|550 JPY|71,000|77,000/);
-  await expectNarrowAndAccessible(page, "新预订页包车第 3 步（车费下面含区域加价）");
+  await expectNarrowAndAccessible(page, "新预订页包车第 3 步（摘要条：含区域加价）");
 
   // 电脑 1280：下车地点在商品区域里 → 77,000，不写含区域加价
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -213,9 +216,12 @@ test("新预订页包车：下车地点必填（旧链接只有上车地点时�
   await expectBothThemes(page, "新预订页包车电脑（含区域加价）");
   await screenshots(page, "desktop");
 
+  await page.getByRole("button", { name: "下一步：填写乘客信息" }).click();
   await page.getByLabel("乘车人姓名").fill("陈小红");
   await page.getByLabel("邮箱").fill(`charter-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`);
   await page.getByLabel("手机号（含国家区号）").fill("+81 90-2222-3333");
+  await page.getByRole("button", { name: "下一步：核对订单" }).click();
+  await expect(page.getByRole("region", { name: "核对订单" })).toContainText(NOTE);
   await page.getByRole("checkbox", { name: /同意保存/ }).check();
   const placed = page.waitForResponse((response) => new URL(response.url()).pathname === "/site/v1/orders" && response.request().method() === "POST");
   await page.getByRole("button", { name: "去付款 →" }).click();

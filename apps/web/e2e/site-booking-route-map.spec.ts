@@ -222,14 +222,16 @@ test("路线小地图经真实后端出图：API 代调（假的）Maps Static A
 test.describe("手机 390（2 倍屏）", () => {
   test.use({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
 
-  test("路线小地图（手机第 3 步）：要 2 倍的图，亮暗各一张；不横向滚动；暂时不可用时只留文字", async ({ page, request, browser }) => {
+  test("路线小地图（手机第 3 步，顶部摘要条展开）：要 2 倍的图，亮暗各一张；不横向滚动；暂时不可用时只留文字", async ({ page, request, browser }) => {
     test.setTimeout(150_000);
     const trip = await prepareTrip(page, request);
     const seen = await serveImages(page, browser);
     await page.goto(trip.link);
     await selectVehicle(page, trip.groupName);
     await page.locator(".book-bar").getByRole("button", { name: "下一步" }).click();
-    await expect(page.getByRole("heading", { name: "行程摘要" })).toBeFocused();
+    // 手机第 3 步：右侧栏是顶部的摘要条，展开后路线图在最上面（M8-27）
+    await expect(page.getByRole("heading", { level: 2, name: "乘客信息" })).toBeFocused();
+    await page.getByRole("button", { name: /^行程摘要/ }).click();
     for (const scheme of ["light", "dark"] as const) {
       await page.emulateMedia({ colorScheme: scheme });
       await expectStaticMap(page, seen, { theme: scheme, scale: 2 });
@@ -248,6 +250,7 @@ test.describe("手机 390（2 倍屏）", () => {
     await page.goto(trip.link);
     await selectVehicle(page, trip.groupName);
     await page.locator(".book-bar").getByRole("button", { name: "下一步" }).click();
+    await page.getByRole("button", { name: /^行程摘要/ }).click();
     await expectTextOnly(page, "手机：503 UNAVAILABLE");
   });
 });

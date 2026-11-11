@@ -185,7 +185,7 @@ test("详情：过了保留期的只写已清除，不能再改、不能写备�
 
 // ───────────── 官网设置 ─────────────
 
-const settingsOf = (changes: Partial<SiteSettings> = {}): SiteSettings => ({ support_whatsapp: null, version: 0, updated_at: null, updated_by: null, ...changes });
+const settingsOf = (changes: Partial<SiteSettings> = {}): SiteSettings => ({ support_whatsapp: null, page_width: "standard", version: 0, updated_at: null, updated_by: null, ...changes });
 
 function openSettings(role: string, settings: SiteSettings, put: (call: ApiCall) => Response = (call) => json(200, settingsOf({ support_whatsapp: "810000000000", version: settings.version + 1, updated_at: "2030-11-10T05:00:00.000Z", updated_by: { id: ME, name: "测试员工" } }))): ApiCall[] {
   return openApp("/platform/settings/site", "platform", role, (call) => {
@@ -195,6 +195,8 @@ function openSettings(role: string, settings: SiteSettings, put: (call: ApiCall)
   });
 }
 
+const whatsapp = () => within(screen.getByRole("region", { name: "客服 WhatsApp" }));
+
 test("官网设置（超级管理员）：「客服 WhatsApp 号码」有格式说明；格式不对不提交；第一次保存不带 If-Match，之后带版本号", async () => {
   const calls = openSettings("super_admin", settingsOf());
   const actor = user();
@@ -202,15 +204,15 @@ test("官网设置（超级管理员）：「客服 WhatsApp 号码」有格式�
   assert.ok(screen.getByText(/填带国家码的号码/));
   assert.ok(screen.getByText("还没有设置过"));
   await actor.type(field, "090-0000");
-  await actor.click(screen.getByRole("button", { name: "保存" }));
+  await actor.click(whatsapp().getByRole("button", { name: "保存" }));
   assert.ok(screen.getByText(/号码的格式不对/));
   assert.equal(calls.filter((call) => call.method === "PUT").length, 0);
   await actor.clear(field);
   await actor.type(field, "+81 00 0000 0000");
-  await actor.click(screen.getByRole("button", { name: "保存" }));
+  await actor.click(whatsapp().getByRole("button", { name: "保存" }));
   await waitFor(() => assert.equal((screen.getByLabelText("客服 WhatsApp 号码") as HTMLInputElement).value, "+810000000000"));
   const put = calls.find((call) => call.method === "PUT");
-  assert.deepEqual(put?.body, { support_whatsapp: "+81 00 0000 0000" });
+  assert.deepEqual(put?.body, { support_whatsapp: "+81 00 0000 0000" }, "只改号码时不带页面宽度");
   assert.equal(put?.headers["if-match"], undefined);
   assert.match(screen.getByRole("link", { name: /在 WhatsApp 里打开看看/ }).getAttribute("href") ?? "", /^https:\/\/wa\.me\/810000000000\?text=/);
   resetBrowser();
@@ -218,7 +220,7 @@ test("官网设置（超级管理员）：「客服 WhatsApp 号码」有格式�
   const filled = (await screen.findByLabelText("客服 WhatsApp 号码")) as HTMLInputElement;
   assert.equal(filled.value, "+810000000000");
   await actor.clear(filled);
-  await actor.click(screen.getByRole("button", { name: "保存" }));
+  await actor.click(whatsapp().getByRole("button", { name: "保存" }));
   await waitFor(() => assert.ok(again.some((call) => call.method === "PUT")));
   const cleared = again.find((call) => call.method === "PUT");
   assert.deepEqual(cleared?.body, { support_whatsapp: null }, "清空就是不设");
@@ -238,4 +240,28 @@ test("官网设置：运营、客服只读（看得到号码，说明只有超�
   const calls = openSettings("finance", settingsOf());
   assert.ok(await screen.findByText("你没有权限查看这里"));
   assert.equal(calls.filter((call) => call.path.includes("site-settings")).length, 0);
+});
+
+test("官网设置 · 页面宽度（M8-28）：超级管理员选标准 / 较宽 / 最宽保存（号码原样带回、带版本号）；没设过是标准；运营只读", async () => {
+  const calls = openSettings("super_admin", settingsOf({ support_whatsapp: "810000000000", version: 3, updated_at: "2030-11-10T05:00:00.000Z", updated_by: { id: ME, name: "测试员工" } }), () =>
+    json(200, settingsOf({ support_whatsapp: "810000000000", page_width: "full", version: 4, updated_at: "2030-11-11T05:00:00.000Z", updated_by: { id: ME, name: "测试员工" } })),
+  );
+  const actor = user();
+  const card = within(await screen.findByRole("region", { name: "页面宽度" }));
+  assert.equal((card.getByRole("radio", { name: /^标准/ }) as HTMLInputElement).checked, true, "没设过是标准");
+  assert.ok(card.getByText(/手机和平板始终是单栏/));
+  await actor.click(card.getByRole("radio", { name: /^最宽/ }));
+  await actor.click(card.getByRole("button", { name: "保存" }));
+  await waitFor(() => assert.ok(calls.some((call) => call.method === "PUT")));
+  const put = calls.find((call) => call.method === "PUT");
+  assert.deepEqual(put?.body, { support_whatsapp: "810000000000", page_width: "full" });
+  assert.equal(put?.headers["if-match"], '"3"');
+  assert.ok(await screen.findByText(/官网页面宽度改为「最宽」/));
+  resetBrowser();
+
+  openSettings("operations", settingsOf({ page_width: "wide", version: 1 }));
+  const readOnly = within(await screen.findByRole("region", { name: "页面宽度" }));
+  assert.ok(readOnly.getByText(/^较宽（/));
+  assert.ok(readOnly.getByText("只有超级管理员能改页面宽度。"));
+  assertAbsent(readOnly.queryByRole("radio"));
 });

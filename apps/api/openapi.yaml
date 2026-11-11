@@ -15846,7 +15846,7 @@ paths:
     get:
       tags: [ 官网设置 ]
       operationId: getSiteSettings
-      summary: 官网设置（客服 WhatsApp 号码）
+      summary: 官网设置（客服 WhatsApp 号码、页面宽度）
       description: 需要操作 `site_settings.read`（超级管理员、运营、客服）。`version` 为 0 表示还没有设置过。
       security:
         - platformToken: []
@@ -15860,11 +15860,12 @@ paths:
     put:
       tags: [ 官网设置 ]
       operationId: updateSiteSettings
-      summary: 改官网设置（客服 WhatsApp 号码）
+      summary: 改官网设置（客服 WhatsApp 号码、页面宽度）
       description: |
         需要操作 `site_settings.manage`（只归超级管理员，自建角色勾不了：号码被换掉，客人就会把行程发给别人）。
         号码写带国家码的格式（+ 可有可无，可以有空格、连字符、括号），存成 wa.me 要的纯数字；`null` 或空字符串是不设，官网不显示 WhatsApp 按钮。
-        已经设置过的要带 `If-Match`（版本号）。写审计（`site_settings` / `update`，前后的号码）。
+        `page_width`（M8-28，ADR 0079）可选，不给是不改（只改号码的老请求不受影响）；别的值 400 `VALIDATION_FAILED`（路径 `/page_width`）。
+        已经设置过的要带 `If-Match`（版本号）。写审计（`site_settings` / `update`，前后的号码和页面宽度）。
       security:
         - platformToken: []
       parameters:
@@ -15884,6 +15885,8 @@ paths:
                 support_whatsapp:
                   type: [ string, "null" ]
                   maxLength: 60
+                page_width:
+                  $ref: "#/components/schemas/SitePageWidth"
       responses:
         "200":
           description: 保存后的设置
@@ -27540,7 +27543,7 @@ components:
     SiteConfig:
       type: object
       additionalProperties: false
-      required: [ open, currency, payments, support_phone, support_whatsapp, address_search, map_tiles ]
+      required: [ open, currency, payments, support_phone, support_whatsapp, page_width, address_search, map_tiles ]
       properties:
         open:
           type: boolean
@@ -27570,6 +27573,8 @@ components:
           type: [ string, "null" ]
           pattern: "^[1-9][0-9]{7,14}$"
           description: 客服 WhatsApp 号码（M8-21，ADR 0076）：运营后台「系统设置 → 官网设置」填的，wa.me 用的纯数字；没设置时为 null，页面不显示「通过 WhatsApp 联系我们」。官网没开时也照常给出
+        page_width:
+          $ref: "#/components/schemas/SitePageWidth"
         address_search:
           type: boolean
           description: |
@@ -30864,15 +30869,21 @@ components:
         created_at:
           type: string
           format: date-time
+    SitePageWidth:
+      type: string
+      enum: [ standard, wide, full ]
+      description: 官网页面宽度（M8-28，ADR 0079）：标准（最宽 1200px）、较宽（1440px）、最宽（1920px）；全站一个值，没设过是 standard。平板、手机不受影响
     SiteSettings:
       type: object
       additionalProperties: false
-      required: [ support_whatsapp, version, updated_at, updated_by ]
+      required: [ support_whatsapp, page_width, version, updated_at, updated_by ]
       properties:
         support_whatsapp:
           type: [ string, "null" ]
           pattern: "^[1-9][0-9]{7,14}$"
           description: 客服 WhatsApp 号码，wa.me 用的纯数字（国家码 + 号码）；null 是没设置
+        page_width:
+          $ref: "#/components/schemas/SitePageWidth"
         version:
           type: integer
           description: 0 表示还没有设置过
