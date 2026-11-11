@@ -141,7 +141,7 @@ interface Sent {
  * 是 HttpOnly、SameSite=Strict；正式环境和没解锁的浏览器里没有这个 Cookie，请求和以前一样。其余接口一律不带 Cookie。
  */
 function siteCredentials(url: string): RequestCredentials {
-  return url.startsWith("/site/v1/") ? "same-origin" : "omit";
+  return /^\/site\/v1\//.test(url) ? "same-origin" : "omit";
 }
 
 /**
