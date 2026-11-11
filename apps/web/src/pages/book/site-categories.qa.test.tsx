@@ -126,7 +126,7 @@ test("换城市：东京选了点对点，换到只有包车的大阪——直�
   const draft = { cityId: TOKYO_ID, category: "charter", airportId: "", direction: "pickup", address: { address: "", coordinates: { lat: "", lng: "" }, placeId: null }, from: { address: "东京站八重洲口", coordinates: { lat: "35.6812", lng: "139.7671" }, placeId: null }, to: { address: "", coordinates: { lat: "", lng: "" }, placeId: null }, packageHours: "8", date: "2030-11-20", time: "09:00", passengers: "3", luggage: "2" };
   const back = open({ pathname: "/book", state: { draft } }, routes());
   assert.ok(await screen.findByRole("heading", { name: "你的行程" }));
-  assert.ok((screen.getByRole("radio", { name: "按小时包车" }) as HTMLInputElement).checked);
+  assert.ok((screen.getByRole("radio", { name: "包车" }) as HTMLInputElement).checked);
   assert.equal(posts(back).length, 0);
 });
 

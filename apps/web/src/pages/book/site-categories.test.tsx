@@ -152,7 +152,7 @@ test("包车：选了包车就跳到新预订页的包车（M8-15，ADR 0073：�
   const services = await screen.findByRole("group", { name: /服务/ });
   await actor.click(within(services).getByRole("radio", { name: /包车/ }));
   assert.ok(await screen.findByRole("heading", { name: "你的行程" }));
-  assert.ok((screen.getByRole("radio", { name: "按小时包车" }) as HTMLInputElement).checked, "打开就是包车");
+  assert.ok((screen.getByRole("radio", { name: "包车" }) as HTMLInputElement).checked, "打开就是包车");
   assert.ok(screen.getAllByText("上车地点").length > 0);
   assertAbsent(screen.queryByLabelText(/^包车时长/));
   assert.equal(calls.filter((call) => call.method === "POST").length, 0);

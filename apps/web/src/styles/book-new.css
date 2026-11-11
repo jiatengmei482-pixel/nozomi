@@ -1,6 +1,6 @@
 /*
  * 新预订页 /book/new（M8-03，ADR 0069；docs/design/pages/site-booking-v2.md）。官网的通则（字号、控件、区块卡片、吸底按钮）沿用 site.css。
- * 四步（M8-27，ADR 0079）：顶部步骤条，每次一步；≥ 1024px 两栏：左边是当前这一步，右侧栏「行程摘要」跟着滚动、宽度固定（--site-aside-width），
+ * 四步（M8-27，ADR 0079）：顶部步骤条，每次一步；≥ 1024px 两栏：左边是当前这一步，右侧栏「行程摘要」跟着滚动、宽度固定（layout-site-aside-width），
  * 页面变宽时只有左边变宽；< 1024px 单栏，右侧栏变成顶部可展开的摘要条。只用设计令牌。
  */
 
@@ -706,7 +706,7 @@
 
 @media (min-width: 1024px) {
   .book-new {
-    grid-template-columns: minmax(0, 1fr) minmax(0, var(--site-aside-width));
+    grid-template-columns: minmax(0, 1fr) minmax(0, var(--layout-site-aside-width));
   }
 
   .book-new__aside {
