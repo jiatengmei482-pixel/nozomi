@@ -72,8 +72,7 @@ test("新预订页四步：输入即提示选机场和酒店 → 自动报价、
   await page.getByLabel("航班落地时间（当地）").fill("10:00");
   // 填齐就自动报价：认出接机，时间标签、提示（免费等待取报价的 60 分钟）
   await expect(page.getByText("已识别为接机：司机按航班落地时间等候，落地后免费等待 60 分钟")).toBeVisible();
-  // 这个城市只卖接送机：只有一个品类时不出现标签条（标签和标签不符的提示见组件测试 book-new.test.tsx）
-  await expect(page.getByRole("radio", { name: "点对点" })).toHaveCount(0);
+  // 标签条按所有可订城市的品类出现（测试库里别的用例的城市也算）；标签和标签不符的提示见组件测试 book-new.test.tsx
   const travellers = page.getByRole("button", { name: "乘客 / 行李 2 人 · 2 件" });
   await travellers.click();
   await page.getByRole("button", { name: "增加乘客" }).click();

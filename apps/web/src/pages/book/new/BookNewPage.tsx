@@ -283,7 +283,7 @@ export function BookNewPage() {
     setDraft((current) => (current.date === "" ? { ...current, date: defaultServiceDate(firstCity.timezone, new Date()) } : current));
   }, [firstCity]);
 
-  // 链接预填（只在打开时一次）：两端都有、日期时间也有时直接报价并到第 2 步（网址里已经写了第几步的不动）；没给 mode 时按两端有没有机场选标签
+  // 链接预填（只在打开时一次）：两端都有、日期时间也有时直接报价并到第 2 步（网址里已经写了第几步的不动）
   const linkDone = useRef(false);
   useEffect(() => {
     if (cities.kind !== "ready" || linkDone.current) return;
@@ -295,10 +295,7 @@ export function BookNewPage() {
       setLinkPending(false);
       const from = fromEnd?.kind === "point" ? fromEnd.point : null;
       const to = toEnd?.kind === "point" ? toEnd.point : null;
-      setDraft((current) => {
-        const tab: BookTab = link.mode ?? (from === null || to === null || from.kind === "airport" || to.kind === "airport" ? current.tab : "p2p");
-        return { ...current, tab, from: current.from ?? from, to: current.to ?? to };
-      });
+      setDraft((current) => ({ ...current, from: current.from ?? from, to: current.to ?? to }));
       const text = linkNotice([fromEnd, toEnd], link.mode === "charter" ? "charter" : "transfer");
       if (text !== null) setNotice({ kind: "warning", text });
       else if (from !== null && to !== null && link.date !== null && link.time !== null && new URLSearchParams(latestSearch.current).get("step") === null) goStep(2, true);
@@ -611,8 +608,10 @@ export function BookNewPage() {
   const step = Math.min(urlStep, reachable) as BookStep;
   // 网址要的步骤还到不了（从网址、前进键打开；或报价变了车型没了）：网址改成能到的那一步，不在后面自己跳过去
   useEffect(() => {
-    if (cities.kind === "ready" && !linkPending && urlStep > reachable) goStep(reachable, true);
-  }, [cities.kind, linkPending, urlStep, reachable]);
+    // 包车时长还在读（只有一种时会替客人选上）：读完再算能到哪一步
+    const packagesPending = draft.mode === "charter" && charterCity !== null && packageLoad?.kind !== "ready" && packageLoad?.kind !== "failed";
+    if (cities.kind === "ready" && !linkPending && !packagesPending && urlStep > reachable) goStep(reachable, true);
+  }, [cities.kind, linkPending, urlStep, reachable, packageLoad?.kind]);
 
   // 换步：焦点移到那一步的标题（第一次打开不动）
   const shownStep = useRef(step);
@@ -717,7 +716,7 @@ export function BookNewPage() {
           mapCenter={centerOf(draft.from)}
           cities={centers}
         />
-        {mismatch !== null && tabs.includes(mismatch.target) && (
+        {mismatch !== null && tabs.length > 1 && tabs.includes(mismatch.target) && (
           <div className="book-new__hint" role="status">
             <p className="book-new__hint-text">
               <Icon name="info" />
