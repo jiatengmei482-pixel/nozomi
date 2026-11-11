@@ -181,12 +181,19 @@ test("新预订页付款：选车 → 加附加服务（重新报价、右侧栏
   await page.getByRole("button", { name: "下一步：核对订单" }).click();
   await expect(page.getByText("有几项没有填好，请看标红的地方。")).toBeVisible();
   await expect(page.getByLabel("航班号")).toHaveAttribute("aria-invalid", "true");
+  // 为他人预订：预订人收确认邮件，另填乘车人；举牌姓名默认跟乘车人
+  await page.getByText("为他人预订", { exact: true }).click();
   await page.getByLabel("航班号").fill("NH 211");
-  await page.getByLabel("乘车人姓名").fill("王小明");
+  await page.getByLabel("预订人姓名").fill("王小明");
   await page.getByLabel("邮箱").fill(`book-new-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`);
   await page.getByLabel("手机号（含国家区号）").fill("+81 90-1234-5678");
+  await page.getByLabel("乘车人姓名").fill("李华");
+  await page.getByLabel("乘车人电话/WhatsApp").fill("+81 90-5555-6666");
+  await expect(page.getByLabel("举牌姓名（选填）")).toHaveValue("李华");
   await page.getByLabel("给司机的备注（选填）").fill("两个大箱子");
+  await expectNarrowAndAccessible(page, "新预订页第 3 步（为他人预订）");
   await page.getByRole("button", { name: "下一步：核对订单" }).click();
+  await expect(page.getByRole("region", { name: "核对订单" })).toContainText("+81 90-5555-6666");
 
   // 第 4 步：车费、附加服务差额、合计、参考价、支付方式
   const review = page.getByRole("region", { name: "核对订单" });
@@ -208,7 +215,9 @@ test("新预订页付款：选车 → 加附加服务（重新报价、右侧栏
   await page.getByRole("button", { name: "去付款 →" }).click();
   await expect(page.getByText("需要同意保存支付方式才能下单")).toBeVisible();
   await page.getByRole("checkbox", { name: /同意保存这次付款用的银行卡/ }).check();
+  const placed = page.waitForRequest((sent) => new URL(sent.url()).pathname === "/site/v1/orders" && sent.method() === "POST");
   await page.getByRole("button", { name: "去付款 →" }).click();
+  expect(((await placed).postDataJSON() as { notes: string }).notes).toBe("举牌姓名：李华\n乘车人：李华\n乘车人电话：+81 90-5555-6666\n两个大箱子");
   await expect(page.getByRole("heading", { level: 1, name: /^订单 NZ/ })).toBeVisible();
   await expect(page.getByLabel("卡号（假 Stripe）")).toBeVisible();
   await expect(page.locator("main")).toContainText("23,100 JPY");

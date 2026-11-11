@@ -134,13 +134,24 @@ export function tabMismatch(tab: BookTab, from: TripPoint | null, to: TripPoint 
   return null;
 }
 
-/** 举牌姓名（接机，M8-27）：订单接口还没有这一栏，先写在给司机的备注最前面（ADR 0079 第 4 节）。 */
+/**
+ * 举牌姓名（接机）、为他人预订时的乘车人和乘车人电话（M8-27）：订单接口还没有这几栏（M8-32 加），
+ * 先写在给司机的备注最前面，一项一行，只写有的那几项（ADR 0079 第 4 节）。
+ */
 export const SIGN_NAME_MAX = 60;
-export function notesWithSign(signName: string, notes: string): string {
-  const sign = signName.trim();
+export const RIDER_NAME_MAX = 100;
+export const RIDER_PHONE_MAX = 40;
+export function notesWithExtras(extras: { signName?: string; riderName?: string; riderPhone?: string }, notes: string): string {
+  const lines = [
+    ["举牌姓名", extras.signName],
+    ["乘车人", extras.riderName],
+    ["乘车人电话", extras.riderPhone],
+  ]
+    .map(([label, value]) => [label, (value ?? "").trim()])
+    .filter(([, value]) => value !== "")
+    .map(([label, value]) => `${label}：${value}`);
   const rest = notes.trim();
-  if (sign === "") return rest;
-  return rest === "" ? `举牌姓名：${sign}` : `举牌姓名：${sign}\n${rest}`;
+  return [...lines, ...(rest === "" ? [] : [rest])].join("\n");
 }
 
 // ---- 一端（出发地、目的地、包车上车点） ----

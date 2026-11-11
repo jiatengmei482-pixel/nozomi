@@ -55,7 +55,7 @@ import {
   bookStepOf,
   guestCurrencyOf,
   moneyDifference,
-  notesWithSign,
+  notesWithExtras,
   parseBookingLink,
   pointName,
   rejectionTexts,
@@ -238,6 +238,7 @@ export function BookNewPage() {
   const [reference, setReference] = useState<SiteFxReference | null>(null);
   const [contact, setContact] = useState<ContactForm>(emptyContact);
   const [contactErrors, setContactErrors] = useState<OrderErrors>({});
+  const [riderErrors, setRiderErrors] = useState<Partial<Record<"riderName" | "riderPhone", string>>>({});
   const [contactNotice, setContactNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
   const [expired, setExpired] = useState(false);
@@ -445,21 +446,36 @@ export function BookNewPage() {
   const orderTrip: OrderTrip = { transfer: tripCategory === "airport_transfer", arrival, ends: addressEnds(tripCategory, tripDirection) };
 
   /** 下单用的表单：举牌姓名（接机）写在备注最前面，地址取行程里的名称 */
-  const orderForm = (): OrderForm => ({ ...contact, notes: arrival ? notesWithSign(contact.signName, contact.notes) : contact.notes, flightNo: draft.flightNo, pickupAddress: draft.from?.name ?? "", dropoffAddress: draft.to?.name ?? "" });
+  /** 举牌姓名：客人没改过时跟着乘车人（为自己是预订人，为他人是乘车人）的名字 */
+  const signName = contact.signEdited ? contact.signName : contact.forOther ? contact.riderName : contact.name;
+  const orderForm = (): OrderForm => ({
+    ...contact,
+    notes: notesWithExtras({ ...(arrival ? { signName } : {}), ...(contact.forOther ? { riderName: contact.riderName, riderPhone: contact.riderPhone } : {}) }, contact.notes), flightNo: draft.flightNo, pickupAddress: draft.from?.name ?? "", dropoffAddress: draft.to?.name ?? "" });
 
   /** 第 3 步的检查（不含第 4 步的「同意保存银行卡」） */
   const contactIssues = (): OrderErrors => {
     const found = validateOrderForm(orderForm(), orderTrip);
     delete found.consent;
-    if (arrival && found.notes === undefined && orderForm().notes.length > ORDER_FIELD_LIMITS.notesMax) found.notes = `举牌姓名和备注加起来最多 ${ORDER_FIELD_LIMITS.notesMax} 个字，请删短一些。`;
+    if (found.notes === undefined && orderForm().notes.length > ORDER_FIELD_LIMITS.notesMax) found.notes = `举牌姓名、乘车人和备注加起来最多 ${ORDER_FIELD_LIMITS.notesMax} 个字，请删短一些。`;
     return found;
+  };
+
+  /** 为他人预订：乘车人姓名、电话 / WhatsApp 都要填 */
+  const riderIssues = (): Partial<Record<"riderName" | "riderPhone", string>> => {
+    if (!contact.forOther) return {};
+    return {
+      ...(contact.riderName.trim() === "" ? { riderName: "请填写乘车人姓名" } : {}),
+      ...(!/^\+?[\d\s()-]{6,}$/.test(contact.riderPhone.trim()) ? { riderPhone: "请填写乘车人的电话或 WhatsApp 号码，如 +81 90-1234-5678" } : {}),
+    };
   };
 
   const confirmContact = (event: FormEvent): void => {
     event.preventDefault();
     const found = contactIssues();
+    const riders = riderIssues();
     setContactErrors(found);
-    if (Object.keys(found).length > 0) {
+    setRiderErrors(riders);
+    if (Object.keys(found).length > 0 || Object.keys(riders).length > 0) {
       setContactNotice({ kind: "danger", text: "有几项没有填好，请看标红的地方。" });
       return;
     }
@@ -486,8 +502,9 @@ export function BookNewPage() {
       return;
     }
     const issues = contactIssues();
-    if (Object.keys(issues).length > 0) {
+    if (Object.keys(issues).length > 0 || Object.keys(riderIssues()).length > 0) {
       setContactErrors(issues);
+      setRiderErrors(riderIssues());
       setContactConfirmed(false);
       setContactNotice({ kind: "danger", text: "有几项没有填好，请看标红的地方。" });
       goStep(3);
@@ -535,10 +552,16 @@ export function BookNewPage() {
   const updateContact = (changes: Partial<ContactForm>): void => {
     setContact((value) => ({ ...value, ...changes }));
     orderKey.current = null;
+    setRiderErrors((value) => {
+      const next = { ...value };
+      if ("riderName" in changes) delete next.riderName;
+      if ("riderPhone" in changes) delete next.riderPhone;
+      return next;
+    });
     setContactErrors((value) => {
       const next = { ...value };
       for (const key of Object.keys(changes)) delete next[key as keyof OrderErrors];
-      if ("signName" in changes) delete next.notes;
+      if ("signName" in changes || "riderName" in changes || "riderPhone" in changes) delete next.notes;
       return next;
     });
   };
@@ -646,7 +669,6 @@ export function BookNewPage() {
     const mismatch = tabMismatch(draft.tab, draft.from, draft.to, recognized !== null && recognized.ends === sameEnds(draft.from, draft.to) ? recognized.tripType : null);
     const vehicleName = selected === null ? null : displayName(selected.vehicle_group.name);
     const kmNote = selected === null ? null : siteDistanceNote(selected.distance);
-    const signName = contact.signName.trim();
 
     const stepper = (
       <ol className="book-steps" aria-label="预订步骤">
@@ -898,7 +920,7 @@ export function BookNewPage() {
             setContactErrors(({ flightNo: _, ...rest }) => rest);
           }}
         />
-        <TextField label="举牌姓名（选填）" size="lg" maxLength={SIGN_NAME_MAX} value={contact.signName} hint="司机在到达口举的牌子上写的名字，如 ZHANG SAN" onChange={(event) => updateContact({ signName: event.target.value })} />
+        <TextField label="举牌姓名（选填）" size="lg" maxLength={SIGN_NAME_MAX} value={signName} hint="司机在到达口举的牌子上写的名字，如 ZHANG SAN" onChange={(event) => updateContact({ signName: event.target.value, signEdited: true })} />
       </div>
     );
 
@@ -913,6 +935,7 @@ export function BookNewPage() {
         }}
         onSubmit={confirmContact}
         headingRef={contactHeading}
+        riderErrors={riderErrors}
         {...(flightFields ? { extra: flightFields } : {})}
         actions={
           <div className="book-new__actions">
@@ -955,7 +978,7 @@ export function BookNewPage() {
     const passengerFacts = (
       <dl className="book-summary__facts">
         <div className="site-facts__item">
-          <dt>乘车人</dt>
+          <dt>{contact.forOther ? "预订人" : "乘车人"}</dt>
           <dd>{contact.name.trim()}</dd>
         </div>
         <div className="site-facts__item">
@@ -972,10 +995,22 @@ export function BookNewPage() {
             <dd>{draft.flightNo.trim().toUpperCase()}</dd>
           </div>
         )}
-        {arrival && signName !== "" && (
+        {contact.forOther && (
+          <>
+            <div className="site-facts__item">
+              <dt>乘车人</dt>
+              <dd>{contact.riderName.trim()}</dd>
+            </div>
+            <div className="site-facts__item">
+              <dt>乘车人电话/WhatsApp</dt>
+              <dd>{contact.riderPhone.trim()}</dd>
+            </div>
+          </>
+        )}
+        {arrival && signName.trim() !== "" && (
           <div className="site-facts__item">
             <dt>举牌姓名</dt>
-            <dd>{signName}</dd>
+            <dd>{signName.trim()}</dd>
           </div>
         )}
         {contact.messagingApp !== "" && (

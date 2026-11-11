@@ -506,6 +506,8 @@ test("乘客信息和付款：第 3 步没填好时标红（姓名、手机、�
   await actor.type(screen.getByLabelText("即时通讯账号"), "wangxm");
   await actor.type(screen.getByLabelText("给司机的备注（选填）"), "两个大箱子");
   await actor.type(screen.getByLabelText("航班号"), "nh 211");
+  assert.equal((screen.getByLabelText("举牌姓名（选填）") as HTMLInputElement).value, "王小明", "为自己预订：举牌姓名默认是乘车人的名字");
+  await actor.clear(screen.getByLabelText("举牌姓名（选填）"));
   await actor.type(screen.getByLabelText("举牌姓名（选填）"), "WANG XIAOMING");
   await next(actor, NEXT_REVIEW);
   const review = screen.getByRole("region", { name: "核对订单" });
@@ -947,4 +949,34 @@ test("页面宽度（M8-28）：/site/v1/config 的 page_width 写到官网外�
     await waitFor(() => assert.equal(document.querySelector(".site")?.getAttribute("data-width"), expected));
     resetBrowser();
   }
+});
+
+test("为他人预订：多出乘车人姓名和电话 / WhatsApp（必填），举牌姓名默认跟乘车人、可以改；核对和右侧栏有预订人、乘车人、举牌姓名；下单时联系人仍是预订人，三项一行一项写在备注最前面", async () => {
+  const { calls, actor } = await openSelected({ order: () => json(201, { order: {}, timeline: [], names: {}, payment: null, link: { token: `nzo_${"c".repeat(43)}`, expires_at: "2030-12-01T00:00:00.000Z" } }) });
+  await next(actor, NEXT_CONTACT);
+  assert.equal((screen.getByRole("radio", { name: "为自己预订" }) as HTMLInputElement).checked, true, "默认为自己");
+  assertAbsent(screen.queryByLabelText("乘车人电话/WhatsApp"));
+  await actor.click(screen.getByRole("radio", { name: "为他人预订" }));
+  await actor.type(screen.getByLabelText("预订人姓名"), "王小明");
+  await actor.type(screen.getByLabelText("邮箱"), "booker@example.com");
+  await actor.type(screen.getByLabelText("手机号（含国家区号）"), "+86 138 0000 0000");
+  await actor.type(screen.getByLabelText("航班号"), "NH211");
+  await next(actor, NEXT_REVIEW);
+  assert.ok(screen.getByText("请填写乘车人姓名"));
+  assert.ok(screen.getByText(/请填写乘车人的电话或 WhatsApp 号码/));
+  assertAbsent(screen.queryByRole("heading", { name: "核对订单" }));
+  await actor.type(screen.getByLabelText("乘车人姓名"), "李华");
+  await actor.type(screen.getByLabelText("乘车人电话/WhatsApp"), "+81 90-5555-6666");
+  assert.equal((screen.getByLabelText("举牌姓名（选填）") as HTMLInputElement).value, "李华", "举牌姓名默认跟乘车人");
+  await next(actor, NEXT_REVIEW);
+  const review = screen.getByRole("region", { name: "核对订单" });
+  for (const text of ["王小明", "李华", "+81 90-5555-6666"]) assert.ok(within(review).getAllByText(text).length >= 1, text);
+  assert.ok(within(aside()).getByText("+81 90-5555-6666"));
+  assert.equal(within(aside()).getAllByText("李华").length, 2, "右侧栏的乘车人和举牌姓名");
+  await actor.click(screen.getByRole("checkbox", { name: /同意保存这次付款用的银行卡/ }));
+  await actor.click(screen.getByRole("button", { name: "去付款 →" }));
+  await waitFor(() => assert.equal(posts(calls, "/site/v1/orders").length, 1));
+  const body = posts(calls, "/site/v1/orders")[0]?.body as { passenger: unknown; notes: string };
+  assert.deepEqual(body.passenger, { name: "王小明", phone: "+86 138 0000 0000", email: "booker@example.com" }, "确认邮件仍发给预订人");
+  assert.equal(body.notes, "举牌姓名：李华\n乘车人：李华\n乘车人电话：+81 90-5555-6666");
 });

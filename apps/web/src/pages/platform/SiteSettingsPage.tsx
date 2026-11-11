@@ -94,7 +94,7 @@ export const PAGE_WIDTH_TEXT: Readonly<Record<SitePageWidth, { name: string; hel
 function WidthEditor({ settings, onSaved, onReload }: { settings: SiteSettings; onSaved(next: SiteSettings): void; onReload(): void }) {
   const { token, handleAuthFailure } = usePortalSession();
   const toast = useToast();
-  const [width, setWidth] = useState<SitePageWidth>(settings.page_width ?? "standard");
+  const [width, setWidth] = useState<SitePageWidth>(settings.page_width);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const save = async (event: FormEvent): Promise<void> => {
@@ -106,7 +106,7 @@ function WidthEditor({ settings, onSaved, onReload }: { settings: SiteSettings; 
       // 号码原样带回去（接口要求有这一项），只改宽度
       const saved = await updateSiteSettings(token, settings.version, settings.support_whatsapp, width);
       onSaved(saved);
-      toast(`已保存，官网页面宽度改为「${PAGE_WIDTH_TEXT[saved.page_width ?? width].name}」，客人刷新页面后生效`);
+      toast(`已保存，官网页面宽度改为「${PAGE_WIDTH_TEXT[saved.page_width].name}」，客人刷新页面后生效`);
     } catch (err) {
       if (handleAuthFailure(err)) return;
       if (err instanceof ApiError && err.code === "VERSION_CONFLICT") {
@@ -208,7 +208,7 @@ export function SiteSettingsPage() {
           ) : (
             <>
               <dl className="details">
-                <Detail label="页面宽度">{`${PAGE_WIDTH_TEXT[settings.page_width ?? "standard"].name}（${PAGE_WIDTH_TEXT[settings.page_width ?? "standard"].help}）`}</Detail>
+                <Detail label="页面宽度">{`${PAGE_WIDTH_TEXT[settings.page_width].name}（${PAGE_WIDTH_TEXT[settings.page_width].help}）`}</Detail>
               </dl>
               <p className="table__muted">只有超级管理员能改页面宽度。</p>
             </>

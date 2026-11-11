@@ -15,7 +15,7 @@ import { Button } from "../../../components/Button.tsx";
 import { SelectField } from "../../../components/FormFields.tsx";
 import { Icon } from "../../../components/Icon.tsx";
 import { TextField } from "../../../components/TextField.tsx";
-import { ADDON_QUANTITY, FX_REFERENCE_NOTE, type TripPoint, decodePolyline, lockedRouteSummaryText, referenceMoney, routeSummaryText } from "../../../lib/book-new.ts";
+import { ADDON_QUANTITY, FX_REFERENCE_NOTE, RIDER_NAME_MAX, RIDER_PHONE_MAX, type TripPoint, decodePolyline, lockedRouteSummaryText, referenceMoney, routeSummaryText } from "../../../lib/book-new.ts";
 import { moneyText } from "../../../lib/dispatch-display.ts";
 import { displayName } from "../../../lib/master-display.ts";
 import { AREA_SURCHARGE_NOTE } from "../../../lib/site-display.ts";
@@ -159,12 +159,17 @@ export interface ContactForm {
   messagingApp: MessagingApp | "";
   messagingHandle: string;
   notes: string;
-  /** 接机的举牌姓名（选填，M8-27）：订单接口还没有这一栏，下单时写在备注最前面 */
+  /** 接机的举牌姓名（选填，M8-27）：没改过时跟着乘车人的名字（`signEdited` 为假），订单接口还没有这一栏，下单时写在备注最前面 */
   signName: string;
+  signEdited: boolean;
+  /** 为他人预订（M8-27）：联系人（收确认邮件的）是预订人，另填乘车人姓名和电话 / WhatsApp，也写在备注最前面（M8-32 前） */
+  forOther: boolean;
+  riderName: string;
+  riderPhone: string;
   consent: boolean;
 }
 
-export const emptyContact = (): ContactForm => ({ name: "", phone: "", email: "", messagingApp: "", messagingHandle: "", notes: "", signName: "", consent: false });
+export const emptyContact = (): ContactForm => ({ name: "", phone: "", email: "", messagingApp: "", messagingHandle: "", notes: "", signName: "", signEdited: false, forOther: false, riderName: "", riderPhone: "", consent: false });
 
 /**
  * 第 3 步「乘客信息」（M8-27；字段和校验沿用 M8-04 的「怎么联系你」）：乘车人姓名、邮箱、手机号（含国家区号）、
@@ -179,6 +184,7 @@ export function ContactSection({
   extra,
   actions,
   headingRef,
+  riderErrors = {},
 }: {
   form: ContactForm;
   errors: OrderErrors;
@@ -190,6 +196,8 @@ export function ContactSection({
   /** 「下一步：核对订单」 */
   actions?: ReactNode;
   headingRef?: Ref<HTMLHeadingElement>;
+  /** 为他人预订时乘车人两栏的校验结果 */
+  riderErrors?: Partial<Record<"riderName" | "riderPhone", string>>;
 }) {
   return (
     <section aria-labelledby="book-contact-title" className="site-section book-new__contact">
@@ -198,9 +206,24 @@ export function ContactSection({
       </h2>
       <form className="site-form" noValidate onSubmit={onSubmit}>
         <AlertSlot notice={notice} />
-        <TextField label="乘车人姓名" size="lg" required autoComplete="name" value={form.name} errors={errors.name ? [errors.name] : []} onChange={(event) => onChange({ name: event.target.value })} />
+        <fieldset className="book-mode">
+          <legend className="visually-hidden">为谁预订</legend>
+          {([false, true] as const).map((forOther) => (
+            <label key={String(forOther)} className={form.forOther === forOther ? "book-mode__option book-mode__option--checked" : "book-mode__option"}>
+              <input type="radio" name="book-for" className="book-mode__input" checked={form.forOther === forOther} onChange={() => onChange({ forOther })} />
+              {forOther ? "为他人预订" : "为自己预订"}
+            </label>
+          ))}
+        </fieldset>
+        <TextField label={form.forOther ? "预订人姓名" : "乘车人姓名"} size="lg" required autoComplete="name" value={form.name} errors={errors.name ? [errors.name] : []} onChange={(event) => onChange({ name: event.target.value })} />
         <TextField label="邮箱" size="lg" required type="email" autoComplete="email" inputMode="email" autoCapitalize="none" spellCheck={false} value={form.email} errors={errors.email ? [errors.email] : []} hint={FIELD_HINTS.email} onChange={(event) => onChange({ email: event.target.value })} />
         <TextField label="手机号（含国家区号）" size="lg" required type="tel" autoComplete="tel" inputMode="tel" value={form.phone} errors={errors.phone ? [errors.phone] : []} hint={FIELD_HINTS.phone} onChange={(event) => onChange({ phone: event.target.value })} />
+        {form.forOther && (
+          <div className="site-form__row">
+            <TextField label="乘车人姓名" size="lg" required maxLength={RIDER_NAME_MAX} value={form.riderName} errors={riderErrors.riderName ? [riderErrors.riderName] : []} hint="确认邮件仍发给上面的预订人" onChange={(event) => onChange({ riderName: event.target.value })} />
+            <TextField label="乘车人电话/WhatsApp" size="lg" required type="tel" inputMode="tel" maxLength={RIDER_PHONE_MAX} value={form.riderPhone} errors={riderErrors.riderPhone ? [riderErrors.riderPhone] : []} hint="司机当天联系乘车人用，如 +81 90-1234-5678" onChange={(event) => onChange({ riderPhone: event.target.value })} />
+          </div>
+        )}
         {extra}
         <div className="site-form__row">
           <SelectField<MessagingApp | "">
