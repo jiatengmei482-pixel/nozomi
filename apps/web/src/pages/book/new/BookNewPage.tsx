@@ -1,22 +1,21 @@
 /**
- * 新预订页 `/book/new`（M8-03，ADR 0069 A3 和「修正版 v2」；规范 docs/design/pages/site-booking-v2.md）。旧的 `/book` 不动，M8-05 验收后再切换。
+ * 新预订页 `/book/new`（M8-03 起；M8-27 改成四步，ADR 0079；规范 docs/design/pages/site-booking-v2.md）。
  *
- * - 「你的行程」：接送 | 按小时包车；接送是出发地、目的地两个地址框（输入即提示），日期、时间、乘客 / 行李、接机才有的航班号（选填）。
- *   接送按两个坐标报价（`POST /site/v1/quotes/by-points`，服务端认机场、接机 / 送机 / 点对点）；包车沿用现有询价（上车点 + 下车点 + 套餐时长，城市按上车点找最近的可订城市）。
- *   包车的下车地点必填（M8-19，ADR 0073，规范 10.1）：和上车地点同一个地址框；报价含区域加价时只说「含区域加价，已算在这个价格里」，不写金额（10.2）。
- *   填齐了就自动报价（停顿一下再查），改了任何一项旧结果立刻收起。
- * - 「选择车型」：价格从低到高，坐不下的接口不返回；默认电脑 4 个、手机 3 个；选中的展开车内俯视示意图；下面「一口价包含」。
- * - 「怎么联系你」（M8-04）：字段、校验、下单（`POST /site/v1/orders`）和旧下单页同一套（`lib/site-order-form.ts`），下单后进现有订单页付款。
- *   报不出价时不出现，只有「请客服人工报价」那一块（M8-21b，规范 11.1）。
- * - 电脑（≥ 1024px）单页：左列三块，右侧栏跟着滚动：行程摘要、路线图、附加服务（改数量带 `addons` 重新报价，显示合计差额）、车费、合计、
- *   参考价（≈ 客人币种）、取消规则、去付款、支付方式。
- *   手机分步：第 1 步行程 →「查看车型和价格」→ 第 2 步车型（底部固定「车型 · 一口价 [下一步]」）→ 第 3 步：右侧栏的内容在顶部，下面「怎么联系你」。
- * - 链接参数 from / to / date / time / pax / bags（parseBookingLink）：打开就预填并报价；不合法的只是不预填。`mode=charter` 打开就是包车（旧 `/book` 的包车跳过来，M8-15），
- *   包车也用 `to` 当下车地点；旧链接只有 `from` 时下车地点空着，框下面请客人补选（10.1）。
+ * 四步，每一步有自己的网址（`?step=2`），浏览器前进后退可用，换步不丢已填的内容；还没走到的步骤从网址打开时停在能到的最后一步：
+ * 1. 行程：顶部「接送机 / 点对点 / 包车」三个标签；出发地、目的地（包车：上车地点、下车地点、套餐时长）、日期时间（接机是航班落地时间）、乘客和行李。
+ *    接送机、点对点都按两个坐标报价（`POST /site/v1/quotes/by-points`，服务端认机场），标签只决定说法：选了接送机但两端都不是机场、
+ *    选了点对点但有一端是机场时，一句提示 + 一键切到对的标签，不挡下一步。包车沿用现有询价（城市按上车点找最近的可订城市）。
+ *    填齐了就在后台报价（停顿一下再查），到第 2 步时价格多半已经出来了。
+ * 2. 车型和价格：现有车型列表、车内示意图、附加服务、「一口价包含」。报不出价时只有人工报价那一块（M8-21b）。
+ * 3. 乘客信息：乘车人、邮箱、手机、接机的航班号（必填）和举牌姓名（选填，暂写在备注最前面）、即时通讯、备注。字段和校验同旧下单页（`lib/site-order-form.ts`）。
+ * 4. 核对并付款：前三步的内容各带「修改」回到那一步，车费合计和参考价、取消规则、同意保存银行卡、去付款（`POST /site/v1/orders`，下单后进现有订单页付款）。
+ * 右侧栏（≥ 1024px）四步一直在：最上面路线图（M8-10 静态图，Leaflet 兜底），下面按步骤追加已确认的内容：行程 → 车型和一个价格 → 乘客信息。
+ * 手机、平板（< 1024px）单栏，右侧栏变成顶部可展开的摘要条。
+ * 链接参数 from / to / date / time / pax / bags / mode（parseBookingLink）：打开就预填并报价，齐了直接到第 2 步；不合法的只是不预填。
  * 四种状态：加载中（骨架）、官网没开 / 没有可订城市（空）、出错（说明 + 重试）、正常。页面上没有供应商、结算价、加价比例。
  */
-import { type CityCandidate, type CurrencyCode, fixedPriceIncludes, isFlightNo, serviceCityOf } from "@nozomi/domain";
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CityCandidate, type CurrencyCode, ORDER_FIELD_LIMITS, fixedPriceIncludes, serviceCityOf } from "@nozomi/domain";
+import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { ApiError } from "../../../api/client.ts";
 import {
@@ -42,17 +41,39 @@ import { SelectField } from "../../../components/FormFields.tsx";
 import { Icon } from "../../../components/Icon.tsx";
 import { Skeleton, StateBlock } from "../../../components/States.tsx";
 import { TextField } from "../../../components/TextField.tsx";
-import { type BookingLink, type LinkEnd, type TripPoint, VISIBLE_VEHICLES, guestCurrencyOf, moneyDifference, parseBookingLink, pointName, rejectionTexts, suggestionNames, travellersText } from "../../../lib/book-new.ts";
+import {
+  BOOK_STEPS,
+  BOOK_TABS,
+  BOOK_TAB_NAMES,
+  type BookStep,
+  type BookTab,
+  type BookingLink,
+  type LinkEnd,
+  SIGN_NAME_MAX,
+  type TripPoint,
+  VISIBLE_VEHICLES,
+  bookStepOf,
+  guestCurrencyOf,
+  moneyDifference,
+  notesWithSign,
+  parseBookingLink,
+  pointName,
+  rejectionTexts,
+  searchWithStep,
+  suggestionNames,
+  tabMismatch,
+  travellersText,
+} from "../../../lib/book-new.ts";
 import { formatInZone, moneyText } from "../../../lib/dispatch-display.ts";
 import { displayName } from "../../../lib/master-display.ts";
-import { CHARTER_OVERAGE_NOTE, addressEnds, defaultServiceDate, guestCancelPolicyText, guestLocalText, newIdempotencyKey, quotesByTotal, siteDistanceNote, siteOrderUrl } from "../../../lib/site-display.ts";
-import { FIELD_HINTS, type OrderErrors, type OrderTrip, orderFailureOf, orderRequestOf, validateOrderForm } from "../../../lib/site-order-form.ts";
+import { AREA_SURCHARGE_NOTE, CHARTER_OVERAGE_NOTE, addressEnds, defaultServiceDate, guestCancelPolicyText, guestLocalText, newIdempotencyKey, quotesByTotal, siteDistanceNote, siteOrderUrl } from "../../../lib/site-display.ts";
+import { FIELD_HINTS, MESSAGING_NAMES, type OrderErrors, type OrderForm, type OrderTrip, orderFailureOf, orderRequestOf, validateOrderForm } from "../../../lib/site-order-form.ts";
 import { useDocumentTitle } from "../../../lib/use-document-title.ts";
 import { MANUAL_QUOTE_CHARTER_HOURS, type ManualQuoteTripDraft } from "../../../lib/manual-quote-form.ts";
 import { ManualQuoteBlock } from "../ManualQuote.tsx";
 import { SiteLayout, siteFailureText, useSiteConfig } from "../SiteLayout.tsx";
 import { SitePrice } from "../SitePrice.tsx";
-import { AddonsBlock, type ContactForm, ContactSection, PayBlock, PriceBlock, type PricedState, RouteBlock, emptyContact } from "./CheckoutParts.tsx";
+import { AddonsBlock, CONTACT_FORM_ID, ConsentField, type ContactForm, ContactSection, PayBlock, PriceBlock, type PricedState, RouteBlock, emptyContact } from "./CheckoutParts.tsx";
 import { PlaceField } from "./PlaceField.tsx";
 import { TravellersField } from "./TravellersField.tsx";
 import { VehicleList } from "./VehicleList.tsx";
@@ -62,7 +83,7 @@ export const QUOTE_DEBOUNCE_MS = 400;
 
 const WIDE_QUERY = "(min-width: 1024px)";
 
-/** 电脑（≥ 1024px）单页、手机分步。 */
+/** 电脑（≥ 1024px）两栏、右侧栏；手机和平板单栏、顶部摘要条。 */
 function useWideScreen(): boolean {
   const query = typeof window.matchMedia === "function" ? window.matchMedia(WIDE_QUERY) : null;
   const [wide, setWide] = useState(query?.matches ?? true);
@@ -80,6 +101,8 @@ export type BookMode = "transfer" | "charter";
 
 /** 客人填的行程。M8-04 下单时从这里取乘客数、航班号、两端的地址文字。 */
 export interface TripDraft {
+  /** 第 1 步顶部的标签（M8-27）；`mode` 跟着它：包车是 charter，接送机、点对点都是 transfer */
+  tab: BookTab;
   mode: BookMode;
   /** 接送：出发地；包车：上车地点 */
   from: TripPoint | null;
@@ -91,7 +114,7 @@ export interface TripDraft {
   luggage: number;
   /** 包车：套餐时长（小时） */
   packageHours: string;
-  /** 接机：航班号（下单时接机必填，和旧下单页同一条规则） */
+  /** 接机：航班号（第 3 步填；下单时接机必填，和旧下单页同一条规则） */
   flightNo: string;
 }
 
@@ -100,7 +123,7 @@ type QuoteState = { kind: "idle" } | { kind: "loading"; key: string } | { kind: 
 /** 加了附加服务的那次报价：所选车型的报价（没报出来为 null） */
 type AddonQuoteState = { kind: "loading"; key: string } | { kind: "ready"; key: string; quote: SiteQuote | null } | { kind: "failed"; key: string; message: string };
 type Load<T> = { kind: "loading" } | { kind: "failed"; message: string } | { kind: "ready"; items: T };
-type Errors = Partial<Record<"from" | "to" | "date" | "time" | "packageHours" | "flightNo", string>>;
+type Errors = Partial<Record<"from" | "to" | "date" | "time" | "packageHours", string>>;
 
 const TRIP_TYPE_NAMES = { pickup: "接机", dropoff: "送机", point_to_point: "点对点" } as const;
 
@@ -163,10 +186,12 @@ function linkNotice(ends: LinkResolution[], mode: BookMode): string | null {
 }
 
 function initialDraft(link: BookingLink): TripDraft {
-  return { mode: link.mode ?? "transfer", from: null, to: null, date: link.date ?? "", time: link.time ?? "", passengers: link.passengers ?? 2, luggage: link.luggage ?? link.passengers ?? 2, packageHours: "", flightNo: "" };
+  const tab = link.mode ?? "airport";
+  return { tab, mode: tab === "charter" ? "charter" : "transfer", from: null, to: null, date: link.date ?? "", time: link.time ?? "", passengers: link.passengers ?? 2, luggage: link.luggage ?? link.passengers ?? 2, packageHours: "", flightNo: "" };
 }
 
-function validate(draft: TripDraft, charterCity: SiteCity | null, arrival: boolean): Errors {
+/** 第 1 步「下一步」前的检查（航班号在第 3 步查）。 */
+function validate(draft: TripDraft, charterCity: SiteCity | null): Errors {
   const errors: Errors = {};
   if (draft.from === null) errors.from = draft.mode === "charter" ? "请从候选里选上车地点" : "请从候选里选出发地";
   else if (draft.mode === "charter" && charterCity === null) errors.from = "这个地址暂时没有在线报价，请联系客服";
@@ -174,7 +199,6 @@ function validate(draft: TripDraft, charterCity: SiteCity | null, arrival: boole
   if (draft.mode === "charter" && charterCity !== null && draft.packageHours === "") errors.packageHours = "请选择包车时长";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.date)) errors.date = "请选择日期";
   if (!/^\d{2}:\d{2}$/.test(draft.time)) errors.time = "请选择时间";
-  if (arrival && draft.flightNo.trim() !== "" && !isFlightNo(draft.flightNo)) errors.flightNo = "航班号的格式不对，如 NH211、MU523";
   return errors;
 }
 
@@ -201,7 +225,8 @@ export function BookNewPage() {
   const [draft, setDraft] = useState<TripDraft>(() => initialDraft(link));
   const [errors, setErrors] = useState<Errors>({});
   const [notice, setNotice] = useState<Notice | null>(null);
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [contactConfirmed, setContactConfirmed] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(false);
   const [quote, setQuote] = useState<QuoteState>({ kind: "idle" });
   const [quoteRound, setQuoteRound] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -219,8 +244,17 @@ export function BookNewPage() {
   const orderKey = useRef<string | null>(null);
   const navigate = useNavigate();
   const vehiclesHeading = useRef<HTMLHeadingElement>(null);
-  const summaryHeading = useRef<HTMLHeadingElement>(null);
+  const contactHeading = useRef<HTMLHeadingElement>(null);
+  const reviewHeading = useRef<HTMLHeadingElement>(null);
   const tripHeading = useRef<HTMLHeadingElement>(null);
+  const urlStep = bookStepOf(location.search);
+  /** 换步：网址加一条历史记录（浏览器后退回到上一步），其余参数原样保留 */
+  const goStep = useCallback(
+    (next: BookStep, replace = false): void => {
+      void navigate({ pathname: location.pathname, search: searchWithStep(location.search, next) }, { replace });
+    },
+    [location.pathname, location.search, navigate],
+  );
 
   const open = config.kind === "ready" && config.config.open;
   useEffect(() => {
@@ -245,7 +279,7 @@ export function BookNewPage() {
     setDraft((current) => (current.date === "" ? { ...current, date: defaultServiceDate(firstCity.timezone, new Date()) } : current));
   }, [firstCity]);
 
-  // 链接预填（只在打开时一次）：两端都有、日期时间也有时直接报价；手机直接到第 2 步
+  // 链接预填（只在打开时一次）：两端都有、日期时间也有时直接报价并到第 2 步（网址里已经写了第几步的不动）；没给 mode 时按两端有没有机场选标签
   const linkDone = useRef(false);
   useEffect(() => {
     if (cities.kind !== "ready" || linkDone.current) return;
@@ -256,10 +290,13 @@ export function BookNewPage() {
       if (!alive) return;
       const from = fromEnd?.kind === "point" ? fromEnd.point : null;
       const to = toEnd?.kind === "point" ? toEnd.point : null;
-      setDraft((current) => ({ ...current, from: current.from ?? from, to: current.to ?? to }));
-      const text = linkNotice([fromEnd, toEnd], link.mode ?? "transfer");
+      setDraft((current) => {
+        const tab: BookTab = link.mode ?? (from === null || to === null || from.kind === "airport" || to.kind === "airport" ? current.tab : "p2p");
+        return { ...current, tab, from: current.from ?? from, to: current.to ?? to };
+      });
+      const text = linkNotice([fromEnd, toEnd], link.mode === "charter" ? "charter" : "transfer");
       if (text !== null) setNotice({ kind: "warning", text });
-      else if (from !== null && to !== null && link.date !== null && link.time !== null) setStep(2);
+      else if (from !== null && to !== null && link.date !== null && link.time !== null && new URLSearchParams(window.location.search).get("step") === null) goStep(2, true);
     });
     return () => {
       alive = false;
@@ -396,9 +433,38 @@ export function BookNewPage() {
     setExpired(false);
   }, [pricedId]);
 
+  // 换了行程后新报价里没有原来选的车型：清掉选择（不能带着看不见的车型走到第 3、4 步）
+  useEffect(() => {
+    if (outcome !== null && selectedId !== null && !quotes.some((entry) => entry.vehicle_group.id === selectedId)) setSelectedId(null);
+  }, [outcome, selectedId]);
+
   const tripCategory = draft.mode === "charter" ? "charter" : tripType === "point_to_point" ? "point_to_point" : "airport_transfer";
   const tripDirection = tripCategory === "airport_transfer" && (tripType === "pickup" || tripType === "dropoff") ? tripType : null;
   const orderTrip: OrderTrip = { transfer: tripCategory === "airport_transfer", arrival, ends: addressEnds(tripCategory, tripDirection) };
+
+  /** 下单用的表单：举牌姓名（接机）写在备注最前面，地址取行程里的名称 */
+  const orderForm = (): OrderForm => ({ ...contact, notes: arrival ? notesWithSign(contact.signName, contact.notes) : contact.notes, flightNo: draft.flightNo, pickupAddress: draft.from?.name ?? "", dropoffAddress: draft.to?.name ?? "" });
+
+  /** 第 3 步的检查（不含第 4 步的「同意保存银行卡」） */
+  const contactIssues = (): OrderErrors => {
+    const found = validateOrderForm(orderForm(), orderTrip);
+    delete found.consent;
+    if (arrival && found.notes === undefined && orderForm().notes.length > ORDER_FIELD_LIMITS.notesMax) found.notes = `举牌姓名和备注加起来最多 ${ORDER_FIELD_LIMITS.notesMax} 个字，请删短一些。`;
+    return found;
+  };
+
+  const confirmContact = (event: FormEvent): void => {
+    event.preventDefault();
+    const found = contactIssues();
+    setContactErrors(found);
+    if (Object.keys(found).length > 0) {
+      setContactNotice({ kind: "danger", text: "有几项没有填好，请看标红的地方。" });
+      return;
+    }
+    setContactNotice(null);
+    setContactConfirmed(true);
+    goStep(4);
+  };
 
   const submitOrder = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
@@ -417,19 +483,25 @@ export function BookNewPage() {
       });
       return;
     }
-    const form = { ...contact, flightNo: draft.flightNo, pickupAddress: draft.from?.name ?? "", dropoffAddress: draft.to?.name ?? "" };
-    const found = validateOrderForm(form, orderTrip);
-    setContactErrors(found);
-    setErrors((value) => (found.flightNo !== undefined ? { ...value, flightNo: found.flightNo } : value));
-    if (Object.keys(found).length > 0) {
-      setContactNotice({ kind: "danger", text: found.flightNo !== undefined && Object.keys(found).length === 1 && wide ? "接机要填航班号，请在上面「你的行程」里填写。" : "有几项没有填好，请看标红的地方。" });
+    const issues = contactIssues();
+    if (Object.keys(issues).length > 0) {
+      setContactErrors(issues);
+      setContactConfirmed(false);
+      setContactNotice({ kind: "danger", text: "有几项没有填好，请看标红的地方。" });
+      goStep(3);
       return;
     }
+    if (!contact.consent) {
+      setContactErrors({ consent: "需要同意保存支付方式才能下单" });
+      setContactNotice({ kind: "danger", text: "请先勾选同意保存银行卡，再点「去付款」。" });
+      return;
+    }
+    setContactErrors({});
     setContactNotice(null);
     orderKey.current ??= newIdempotencyKey();
     setBusy(true);
     try {
-      const created = await createSiteOrder(orderRequestOf(priced.quote_id, form, orderTrip), orderKey.current);
+      const created = await createSiteOrder(orderRequestOf(priced.quote_id, orderForm(), orderTrip), orderKey.current);
       navigate(siteOrderUrl(created.link.token), { state: { placed: true, payment: created.payment } });
     } catch (err) {
       const failure = orderFailureOf(err);
@@ -438,8 +510,12 @@ export function BookNewPage() {
         setContactNotice({ kind: "warning", text: failure.text });
       } else if (failure.kind === "fields") {
         setContactErrors(failure.errors);
-        if (failure.errors.flightNo !== undefined) setErrors((value) => ({ ...value, flightNo: failure.errors.flightNo as string }));
         setContactNotice({ kind: "danger", text: failure.text });
+        // 乘客信息那几栏被后端退回：回到第 3 步标红（只有「同意保存」时留在这一步）
+        if (Object.keys(failure.errors).some((key) => key !== "consent")) {
+          setContactConfirmed(false);
+          goStep(3);
+        }
       } else {
         setContactNotice({ kind: "danger", text: `${siteFailureText(err, "提交订单")}${failure.retrySafe ? "再点一次「去付款」不会重复下单。" : ""}` });
       }
@@ -460,6 +536,7 @@ export function BookNewPage() {
     setContactErrors((value) => {
       const next = { ...value };
       for (const key of Object.keys(changes)) delete next[key as keyof OrderErrors];
+      if ("signName" in changes) delete next.notes;
       return next;
     });
   };
@@ -475,19 +552,13 @@ export function BookNewPage() {
     });
   }, []);
 
-  const showVehicles = (): void => {
-    const found = validate(draft, charterCity, arrival);
-    setErrors(found);
-    if (Object.keys(found).length > 0) {
-      setNotice({ kind: "danger", text: "有几项没有填好，请看标红的地方。" });
-      setFocusInvalid((value) => value + 1);
-      return;
-    }
-    setNotice(null);
-    setStep(2);
+  /** 换标签：接送机 ↔ 点对点只换说法，两端都留着；换到 / 离开包车时套餐时长清空 */
+  const chooseTab = (tab: BookTab): void => {
+    const mode: BookMode = tab === "charter" ? "charter" : "transfer";
+    update(mode === draft.mode ? { tab } : { tab, mode, packageHours: "" });
   };
 
-  // 点「查看车型和价格」时有没填好的：焦点移到第一个标红的框（规范 10.1）
+  // 第 1 步「下一步」有没填好的：焦点移到第一个标红的框（规范 10.1）
   const tripSectionRef = useRef<HTMLElement>(null);
   const [focusInvalid, setFocusInvalid] = useState(0);
   useEffect(() => {
@@ -495,18 +566,17 @@ export function BookNewPage() {
     tripSectionRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
   }, [focusInvalid]);
 
-  // 手机换步：到第 2 步把焦点放到「选择车型」，回第 1 步放到「你的行程」
-  const moved = useRef(false);
-  useEffect(() => {
-    if (!moved.current) {
-      moved.current = true;
+  const showVehicles = (): void => {
+    const found = validate(draft, charterCity);
+    setErrors(found);
+    if (Object.keys(found).length > 0) {
+      setNotice({ kind: "danger", text: "有几项没有填好，请看标红的地方。" });
+      setFocusInvalid((value) => value + 1);
       return;
     }
-    if (wide) return;
-    const target = step === 3 ? summaryHeading.current : step === 2 ? vehiclesHeading.current : tripHeading.current;
-    target?.focus({ preventScroll: true });
-    target?.scrollIntoView?.({ block: "start" });
-  }, [step]);
+    setNotice(null);
+    goStep(2);
+  };
 
   const supportPhone = config.kind === "ready" ? config.config.support_phone : null;
   const supportWhatsapp = config.kind === "ready" ? config.config.support_whatsapp : null;
@@ -526,9 +596,24 @@ export function BookNewPage() {
   const charterNoOnline = draft.mode === "charter" && draft.from !== null && (charterCity === null || (packageLoad?.kind === "ready" && packageLoad.items.length === 0));
   /**
    * 报不出价（任何一种：包车没有在线报价、渠道不卖这一段、报价列表为空）时只给人工报价那一块，
-   * 不出现下单用的「怎么联系你」（M8-21b，规范 site-booking-v2.md 11.1）；有报价时照旧。
+   * 不能往第 3、4 步走（M8-21b，规范 site-booking-v2.md 11.1）；有报价时照旧。
    */
   const manualOnly = charterNoOnline || (current?.kind === "failed" && current.scope) || (current?.kind === "ready" && quotes.length === 0);
+
+  // 现在显示第几步：网址要的那一步，但不超过已经能到的那一步（还没填好的步骤从网址、前进键打开时停在能到的最后一步）
+  const tripReady = cities.kind === "ready" && Object.keys(validate(draft, charterCity)).length === 0;
+  const reachable: BookStep = !tripReady ? 1 : selectedId === null || manualOnly ? 2 : !contactConfirmed ? 3 : 4;
+  const step = Math.min(urlStep, reachable) as BookStep;
+
+  // 换步：焦点移到那一步的标题（第一次打开不动）
+  const shownStep = useRef(step);
+  useEffect(() => {
+    if (shownStep.current === step) return;
+    shownStep.current = step;
+    const target = [tripHeading, vehiclesHeading, contactHeading, reviewHeading][step - 1]?.current ?? null;
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView?.({ block: "start" });
+  }, [step]);
 
   let body;
   if (config.kind === "loading" || (open && cities.kind === "loading")) {
@@ -545,29 +630,43 @@ export function BookNewPage() {
     const tiles = config.config.map_tiles;
     const centers: CityCandidate[] = cityList.map((city) => ({ id: city.id, center: city.center }));
     const centerOf = (other: TripPoint | null) => (other !== null ? { lat: other.lat, lng: other.lng } : (firstCity?.center ?? null));
-    const charterOnly = cityList.some((city) => city.categories.includes("charter"));
-    const transferOnly = cityList.some((city) => city.categories.includes("airport_transfer") || city.categories.includes("point_to_point"));
-    const showStep1 = wide || step === 1;
-    const showStep2 = wide || step === 2;
-    const showStep3 = wide || step === 3;
-    const timeLabel = arrival ? "航班落地时间（当地）" : draft.mode === "charter" ? "上车时间（当地）" : "用车时间（当地）";
-    const tripName = draft.mode === "charter" ? "包车" : tripType !== null ? TRIP_TYPE_NAMES[tripType] : null;
+    const tabs = BOOK_TABS.filter((tab) => cityList.some((city) => city.categories.includes(tab === "airport" ? "airport_transfer" : tab === "p2p" ? "point_to_point" : "charter")));
+    const charter = draft.mode === "charter";
+    const timeLabel = arrival ? "航班落地时间（当地）" : charter ? "上车时间（当地）" : "用车时间（当地）";
+    const tripName = charter ? (draft.packageHours !== "" ? `包车 ${draft.packageHours} 小时` : "包车") : tripType !== null ? TRIP_TYPE_NAMES[tripType] : BOOK_TAB_NAMES[draft.tab];
     const whenText = /^\d{4}-\d{2}-\d{2}$/.test(draft.date) && /^\d{2}:\d{2}$/.test(draft.time) ? `${guestLocalText(`${draft.date}T${draft.time}`, timezone, new Date())}${arrival ? " 落地" : ""}` : null;
+    const mismatch = tabMismatch(draft.tab, draft.from, draft.to, recognized !== null && recognized.ends === sameEnds(draft.from, draft.to) ? recognized.tripType : null);
+    const vehicleName = selected === null ? null : displayName(selected.vehicle_group.name);
+    const kmNote = selected === null ? null : siteDistanceNote(selected.distance);
+    const signName = contact.signName.trim();
 
-    const flightField = (
-      <TextField
-        label="航班号"
-        size="lg"
-        autoCapitalize="characters"
-        value={draft.flightNo}
-        errors={errors.flightNo ? [errors.flightNo] : []}
-        hint={FIELD_HINTS.arrivalFlight}
-        onChange={(event) => update({ flightNo: event.target.value })}
-        onBlur={() => {
-          const issue = validate(draft, charterCity, arrival).flightNo;
-          if (issue !== undefined) setErrors((value) => ({ ...value, flightNo: issue }));
-        }}
-      />
+    const stepper = (
+      <ol className="book-steps" aria-label="预订步骤">
+        {BOOK_STEPS.map((name, index) => {
+          const number = (index + 1) as BookStep;
+          const label = (
+            <>
+              <span className="book-steps__number" aria-hidden="true">
+                {number < step ? <Icon name="check" /> : number}
+              </span>
+              <span className="book-steps__name">{name}</span>
+            </>
+          );
+          return (
+            <li key={name} className={number === step ? "book-steps__item book-steps__item--current" : number < step ? "book-steps__item book-steps__item--done" : "book-steps__item"} aria-current={number === step ? "step" : undefined}>
+              {number < step ? (
+                <button type="button" className="book-steps__link" aria-label={`第 ${number} 步：${name}（已完成，回到这一步）`} onClick={() => goStep(number)}>
+                  {label}
+                </button>
+              ) : (
+                <span className="book-steps__link" aria-label={`第 ${number} 步：${name}${number === step ? "（当前）" : ""}`}>
+                  {label}
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ol>
     );
 
     const tripSection = (
@@ -576,20 +675,20 @@ export function BookNewPage() {
           你的行程
         </h2>
         <AlertSlot notice={notice} />
-        {charterOnly && transferOnly && (
-          <fieldset className="book-mode">
-            <legend className="visually-hidden">服务</legend>
-            {(["transfer", "charter"] as const).map((mode) => (
-              <label key={mode} className={draft.mode === mode ? "book-mode__option book-mode__option--checked" : "book-mode__option"}>
-                <input type="radio" name="book-mode" className="book-mode__input" checked={draft.mode === mode} onChange={() => update({ mode, packageHours: "" })} />
-                {mode === "transfer" ? "接送" : "按小时包车"}
+        {tabs.length > 1 && (
+          <fieldset className={`book-mode book-mode--${tabs.length}`}>
+            <legend className="visually-hidden">用车类型</legend>
+            {tabs.map((tab) => (
+              <label key={tab} className={draft.tab === tab ? "book-mode__option book-mode__option--checked" : "book-mode__option"}>
+                <input type="radio" name="book-mode" className="book-mode__input" checked={draft.tab === tab} onChange={() => chooseTab(tab)} />
+                {BOOK_TAB_NAMES[tab]}
               </label>
             ))}
           </fieldset>
         )}
         <PlaceField
           key={`from-${draft.mode}`}
-          label={draft.mode === "charter" ? "上车地点" : "出发地"}
+          label={charter ? "上车地点" : "出发地"}
           value={draft.from}
           onChange={(from) => update({ from })}
           {...(errors.from !== undefined ? { error: errors.from } : {})}
@@ -599,23 +698,34 @@ export function BookNewPage() {
         />
         <PlaceField
           key={`to-${draft.mode}`}
-          label={draft.mode === "charter" ? "下车地点" : "目的地"}
+          label={charter ? "下车地点" : "目的地"}
           value={draft.to}
           onChange={(to) => update({ to })}
           {...(errors.to !== undefined ? { error: errors.to } : {})}
-          {...(draft.mode === "charter" ? { hint: "包车结束时在哪里下车，价格按上车和下车地点算。" } : {})}
-          {...(draft.mode === "charter" && legacyCharterLink && draft.to === null ? { info: "请选择下车地点，包车现在按上车和下车地点报价。" } : {})}
+          {...(charter ? { hint: "包车结束时在哪里下车，价格按上车和下车地点算。" } : {})}
+          {...(charter && legacyCharterLink && draft.to === null ? { info: "请选择下车地点，包车现在按上车和下车地点报价。" } : {})}
           tiles={tiles}
           mapCenter={centerOf(draft.from)}
           cities={centers}
         />
-        {draft.mode === "charter" && draft.from !== null && charterCity === null && (
+        {mismatch !== null && tabs.includes(mismatch.target) && (
+          <div className="book-new__hint" role="status">
+            <p className="book-new__hint-text">
+              <Icon name="info" />
+              <span>{mismatch.text}</span>
+            </p>
+            <Button size="lg" onClick={() => chooseTab(mismatch.target)}>
+              改选「{BOOK_TAB_NAMES[mismatch.target]}」
+            </Button>
+          </div>
+        )}
+        {charter && draft.from !== null && charterCity === null && (
           <div className="book-new__notice" role="status">
             <p>这个地址暂时没有在线报价，请联系客服</p>
             <SupportPhone phone={supportPhone} />
           </div>
         )}
-        {draft.mode === "charter" && charterCity !== null && packageLoad?.kind === "ready" && packageLoad.items.length === 0 && (
+        {charter && charterCity !== null && packageLoad?.kind === "ready" && packageLoad.items.length === 0 && (
           <div className="book-new__notice" role="status">
             <p>这个城市的包车还没有可以在线预订的套餐，请联系客服</p>
             <SupportPhone phone={supportPhone} />
@@ -631,7 +741,7 @@ export function BookNewPage() {
             onChange={(packageHours) => update({ packageHours })}
           />
         )}
-        {draft.mode === "charter" &&
+        {charter &&
           charterCity !== null &&
           !charterNoOnline &&
           (packageLoad?.kind === "failed" ? (
@@ -658,15 +768,12 @@ export function BookNewPage() {
             <span>{freeWait !== null && freeWait > 0 ? `已识别为接机：司机按航班落地时间等候，落地后免费等待 ${freeWait} 分钟` : "已识别为接机：司机按航班落地时间等候"}</span>
           </p>
         )}
-        <div className="site-form__row">
-          <TravellersField passengers={draft.passengers} luggage={draft.luggage} onChange={(value) => update(value)} />
-          {arrival && flightField}
-        </div>
+        <TravellersField passengers={draft.passengers} luggage={draft.luggage} onChange={(value) => update(value)} />
         {charterNoOnline && <ManualQuoteBlock key={manualKey} trip={manualTrip} supportWhatsapp={supportWhatsapp} />}
-        {!wide && (
-          <div className="site-actions">
-            <Button variant="primary" size="lg" block onClick={showVehicles}>
-              查看车型和价格
+        {!charterNoOnline && (
+          <div className="book-new__actions">
+            <Button variant="primary" size="lg" block={!wide} onClick={showVehicles}>
+              下一步：选择车型
             </Button>
           </div>
         )}
@@ -675,7 +782,7 @@ export function BookNewPage() {
 
     let vehicles;
     if (current === null) {
-      vehicles = <p className="site-muted">{draft.mode === "charter" ? "选好上车地点、下车地点、包车时长、日期和时间后，这里会列出能坐下的车型和价格。" : "填好出发地、目的地、日期和时间后，这里会列出能坐下的车型和一口价。"}</p>;
+      vehicles = <p className="site-muted">{charter ? "选好上车地点、下车地点、包车时长、日期和时间后，这里会列出能坐下的车型和价格。" : "填好出发地、目的地、日期和时间后，这里会列出能坐下的车型和一口价。"}</p>;
     } else if (current.kind === "loading") {
       vehicles = <Skeleton lines={["long", "medium", "long", "medium"]} label="正在查询价格" />;
     } else if (current.kind === "failed") {
@@ -698,25 +805,22 @@ export function BookNewPage() {
     } else if (quotes.length === 0) {
       const { texts, support } = rejectionTexts((outcome?.result.unavailable ?? []).flatMap((entry) => entry.reasons));
       vehicles = (
-        <div className="book-new__rejected" role="status">
-          <h3 className="book-new__subtitle">没有可预订的车</h3>
-          <ul className="site-reasons">
-            {texts.map((text) => (
-              <li key={text}>{text}</li>
-            ))}
-          </ul>
-          {support && <SupportPhone phone={supportPhone} />}
-        </div>
-      );
-      vehicles = (
         <>
-          {vehicles}
+          <div className="book-new__rejected" role="status">
+            <h3 className="book-new__subtitle">没有可预订的车</h3>
+            <ul className="site-reasons">
+              {texts.map((text) => (
+                <li key={text}>{text}</li>
+              ))}
+            </ul>
+            {support && <SupportPhone phone={supportPhone} />}
+          </div>
           <ManualQuoteBlock key={manualKey} trip={manualTrip} supportWhatsapp={supportWhatsapp} />
         </>
       );
     } else {
       const expires = quotes.map((entry) => entry.expires_at).sort()[0] ?? null;
-      const includes = fixedPriceIncludes({ service: draft.mode === "charter" ? "charter" : "transfer", arrival, freeWaitMinutes: freeWait, meetAndGreet: false });
+      const includes = fixedPriceIncludes({ service: charter ? "charter" : "transfer", arrival, freeWaitMinutes: freeWait, meetAndGreet: false });
       vehicles = (
         <>
           <p className="site-muted">
@@ -732,6 +836,7 @@ export function BookNewPage() {
               setSelectedId(entry.vehicle_group.id);
             }}
           />
+          {selected !== null && <AddonsBlock options={selected.available_addons} quantities={addonQuantities} onChange={(id, quantity) => setAddonQuantities((value) => ({ ...value, [id]: quantity }))} />}
           <section aria-labelledby="book-includes-title" className="book-includes">
             <h3 id="book-includes-title" className="book-new__subtitle">
               一口价包含
@@ -744,92 +849,49 @@ export function BookNewPage() {
                 </li>
               ))}
             </ul>
-            {draft.mode === "charter" && <p className="site-muted">{CHARTER_OVERAGE_NOTE}</p>}
+            {charter && <p className="site-muted">{CHARTER_OVERAGE_NOTE}</p>}
           </section>
         </>
       );
     }
-
-    const strip = draft.from !== null && (
-      <div className="book-new__strip">
-        <p className="book-new__strip-text">
-          {tripName !== null && <span className="book-new__strip-type">{draft.mode === "charter" && draft.packageHours !== "" ? `包车 ${draft.packageHours} 小时` : tripName}</span>} {draft.from.name}
-          {draft.to !== null ? ` → ${draft.to.name}` : ""}
-          {whenText !== null ? ` · ${whenText}` : ""} · {travellersText(draft.passengers, draft.luggage)}
-        </p>
-        <Button size="lg" onClick={() => setStep(1)}>
-          修改
-        </Button>
-      </div>
-    );
 
     const vehicleSection = (
       <section aria-labelledby="book-vehicles-title" className="site-section book-new__vehicles">
         <h2 id="book-vehicles-title" ref={vehiclesHeading} tabIndex={-1} className="site-section__title">
           选择车型
         </h2>
-        {!wide && strip}
         {vehicles}
+        <div className="book-new__actions">
+          <Button size="lg" onClick={() => goStep(1)}>
+            上一步
+          </Button>
+          {wide && !manualOnly && (
+            <Button variant="primary" size="lg" disabled={selected === null} onClick={() => goStep(3)}>
+              下一步：填写乘客信息
+            </Button>
+          )}
+        </div>
       </section>
     );
 
-    const routeResult = outcome?.mode === "transfer" ? outcome.result.route : null;
-    const summaryInner = (
-      <section className="site-section book-summary" aria-labelledby="book-summary-title">
-        <h2 id="book-summary-title" ref={summaryHeading} tabIndex={-1} className="site-section__title">
-          行程摘要
-        </h2>
-        <dl className="book-summary__facts">
-          {tripName !== null && (
-            <div className="site-facts__item">
-              <dt>行程</dt>
-              <dd>{draft.mode === "charter" && draft.packageHours !== "" ? `包车 ${draft.packageHours} 小时` : tripName}</dd>
-            </div>
-          )}
-          <div className="site-facts__item">
-            <dt>{draft.mode === "charter" ? "上车地点" : "出发地"}</dt>
-            <dd>{draft.from?.name ?? "—"}</dd>
-          </div>
-          <div className="site-facts__item">
-            <dt>{draft.mode === "charter" ? "下车地点" : "目的地"}</dt>
-            <dd>{draft.to?.name ?? "—"}</dd>
-          </div>
-          <div className="site-facts__item">
-            <dt>{arrival ? "航班落地（当地时间）" : "用车时间（当地时间）"}</dt>
-            <dd>{whenText ?? "—"}</dd>
-          </div>
-          <div className="site-facts__item">
-            <dt>乘客 / 行李</dt>
-            <dd>{travellersText(draft.passengers, draft.luggage)}</dd>
-          </div>
-          {arrival && draft.flightNo.trim() !== "" && (
-            <div className="site-facts__item">
-              <dt>航班号</dt>
-              <dd>{draft.flightNo.trim().toUpperCase()}</dd>
-            </div>
-          )}
-          {selected !== null && (
-            <div className="site-facts__item">
-              <dt>车型</dt>
-              <dd lang={displayName(selected.vehicle_group.name).lang}>{displayName(selected.vehicle_group.name).text}</dd>
-            </div>
-          )}
-        </dl>
-        {draft.mode === "transfer" && draft.from !== null && draft.to !== null && <RouteBlock route={routeResult} tiles={tiles} from={draft.from} to={draft.to} lockedMeters={selected?.distance?.route_meters ?? null} />}
-        {selected === null ? (
-          <p className="site-muted">还没有选择车型</p>
-        ) : (
-          <>
-            <AddonsBlock options={selected.available_addons} quantities={addonQuantities} onChange={(id, quantity) => setAddonQuantities((value) => ({ ...value, [id]: quantity }))} />
-            <PriceBlock fare={selected.price.total} areaSurcharge={selected.includes_area_surcharge === true} kmNote={siteDistanceNote(selected.distance)} priced={pricedState} currency={guestCurrency} onCurrency={(code) => setGuestCurrency(code as CurrencyCode)} reference={reference !== null && reference.to === guestCurrency ? reference : null} />
-            <div className="book-summary__block">
-              <h3 className="book-new__subtitle">取消规则</h3>
-              <p>{guestCancelPolicyText((priced ?? selected).cancel_policy.tiers)}</p>
-            </div>
-            {wide && <PayBlock busy={busy} expired={expired} onRequote={requote} />}
-          </>
-        )}
-      </section>
+    const flightFields = arrival && (
+      <div className="site-form__row">
+        <TextField
+          label="航班号"
+          size="lg"
+          required
+          autoCapitalize="characters"
+          value={draft.flightNo}
+          errors={contactErrors.flightNo ? [contactErrors.flightNo] : []}
+          hint={FIELD_HINTS.arrivalFlight}
+          onChange={(event) => {
+            setDraft((value) => ({ ...value, flightNo: event.target.value }));
+            orderKey.current = null;
+            setContactErrors(({ flightNo: _, ...rest }) => rest);
+          }}
+        />
+        <TextField label="举牌姓名（选填）" size="lg" maxLength={SIGN_NAME_MAX} value={contact.signName} hint="司机在到达口举的牌子上写的名字，如 ZHANG SAN" onChange={(event) => updateContact({ signName: event.target.value })} />
+      </div>
     );
 
     const contactSection = (
@@ -837,42 +899,246 @@ export function BookNewPage() {
         form={contact}
         errors={contactErrors}
         notice={contactNotice}
-        onChange={updateContact}
-        onSubmit={(event) => void submitOrder(event)}
-        {...(!wide && arrival ? { extra: flightField } : {})}
-        {...(!wide ? { actions: <div className="site-actions"><PayBlock busy={busy} expired={expired} onRequote={requote} /></div> } : {})}
+        onChange={(changes) => {
+          updateContact(changes);
+          setContactConfirmed(false);
+        }}
+        onSubmit={confirmContact}
+        headingRef={contactHeading}
+        {...(flightFields ? { extra: flightFields } : {})}
+        actions={
+          <div className="book-new__actions">
+            <Button size="lg" onClick={() => goStep(2)}>
+              上一步
+            </Button>
+            <Button type="submit" variant="primary" size="lg">
+              下一步：核对订单
+            </Button>
+          </div>
+        }
       />
     );
 
-    const bar = !wide && step === 2 && selected !== null && (
+    const tripFacts = (
+      <dl className="book-summary__facts">
+        <div className="site-facts__item">
+          <dt>行程</dt>
+          <dd>{tripName}</dd>
+        </div>
+        <div className="site-facts__item">
+          <dt>{charter ? "上车地点" : "出发地"}</dt>
+          <dd>{draft.from?.name ?? "—"}</dd>
+        </div>
+        <div className="site-facts__item">
+          <dt>{charter ? "下车地点" : "目的地"}</dt>
+          <dd>{draft.to?.name ?? "—"}</dd>
+        </div>
+        <div className="site-facts__item">
+          <dt>{arrival ? "航班落地（当地时间）" : "用车时间（当地时间）"}</dt>
+          <dd>{whenText ?? "—"}</dd>
+        </div>
+        <div className="site-facts__item">
+          <dt>乘客 / 行李</dt>
+          <dd>{travellersText(draft.passengers, draft.luggage)}</dd>
+        </div>
+      </dl>
+    );
+
+    const passengerFacts = (
+      <dl className="book-summary__facts">
+        <div className="site-facts__item">
+          <dt>乘车人</dt>
+          <dd>{contact.name.trim()}</dd>
+        </div>
+        <div className="site-facts__item">
+          <dt>邮箱</dt>
+          <dd className="book-summary__wrap">{contact.email.trim()}</dd>
+        </div>
+        <div className="site-facts__item">
+          <dt>手机号</dt>
+          <dd>{contact.phone.trim()}</dd>
+        </div>
+        {arrival && (
+          <div className="site-facts__item">
+            <dt>航班号</dt>
+            <dd>{draft.flightNo.trim().toUpperCase()}</dd>
+          </div>
+        )}
+        {arrival && signName !== "" && (
+          <div className="site-facts__item">
+            <dt>举牌姓名</dt>
+            <dd>{signName}</dd>
+          </div>
+        )}
+        {contact.messagingApp !== "" && (
+          <div className="site-facts__item">
+            <dt>{MESSAGING_NAMES[contact.messagingApp]}</dt>
+            <dd>{contact.messagingHandle.trim()}</dd>
+          </div>
+        )}
+        {contact.notes.trim() !== "" && (
+          <div className="site-facts__item">
+            <dt>给司机的备注</dt>
+            <dd className="book-summary__wrap">{contact.notes.trim()}</dd>
+          </div>
+        )}
+      </dl>
+    );
+
+    /** 侧栏里的车型和一个价格：合计（加了附加服务是带附加服务的那一次），下面含公里数、含区域加价 */
+    const sidePrice = selected !== null && vehicleName !== null && (
+      <div className="book-summary__block">
+        <h3 className="book-new__subtitle">车型和价格</h3>
+        <p className="book-summary__vehicle-name" lang={vehicleName.lang}>
+          {vehicleName.text}
+        </p>
+        <p className="book-summary__price">{pricedState.kind === "ready" ? <SitePrice text={moneyText(pricedState.total)} size="lg" /> : <span className="site-muted">正在重新计算…</span>}</p>
+        {selected.includes_area_surcharge === true && <p className="book-summary__note">{AREA_SURCHARGE_NOTE}</p>}
+        {kmNote !== null && <p className="book-summary__note">{kmNote}</p>}
+      </div>
+    );
+
+    const routeResult = outcome?.mode === "transfer" ? outcome.result.route : null;
+    const routeBlock = draft.mode === "transfer" && draft.from !== null && draft.to !== null ? <RouteBlock route={routeResult} tiles={tiles} from={draft.from} to={draft.to} lockedMeters={selected?.distance?.route_meters ?? null} /> : null;
+    /** 右侧栏 / 摘要条的内容：路线图在最上面，下面按步骤追加已经确认的内容 */
+    const summaryContent = (
+      <>
+        {routeBlock}
+        {step === 1 && <p className="site-muted">每确认一步，这里会加上那一步的内容。</p>}
+        {step > 1 && (
+          <div className="book-summary__block">
+            <h3 className="book-new__subtitle">行程</h3>
+            {tripFacts}
+          </div>
+        )}
+        {step > 2 && sidePrice}
+        {step > 3 && (
+          <div className="book-summary__block">
+            <h3 className="book-new__subtitle">乘客信息</h3>
+            {passengerFacts}
+          </div>
+        )}
+      </>
+    );
+
+    const editLink = (to: BookStep, what: string): ReactNode => (
+      <Button variant="text" className="book-review__edit" aria-label={`修改${what}`} onClick={() => goStep(to)}>
+        修改
+      </Button>
+    );
+
+    const reviewSection = (
+      <section aria-labelledby="book-review-title" className="site-section book-new__review">
+        <h2 id="book-review-title" ref={reviewHeading} tabIndex={-1} className="site-section__title">
+          核对订单
+        </h2>
+        <section className="book-review__block" aria-labelledby="book-review-trip">
+          <div className="book-review__head">
+            <h3 id="book-review-trip" className="book-new__subtitle">
+              行程
+            </h3>
+            {editLink(1, "行程")}
+          </div>
+          {tripFacts}
+        </section>
+        <section className="book-review__block" aria-labelledby="book-review-vehicle">
+          <div className="book-review__head">
+            <h3 id="book-review-vehicle" className="book-new__subtitle">
+              车型和价格
+            </h3>
+            {editLink(2, "车型和价格")}
+          </div>
+          {selected === null || vehicleName === null ? (
+            <p>{current?.kind === "loading" ? "正在重新查询价格…" : "选的车型现在报不出价了，请点「修改」重新选择车型。"}</p>
+          ) : (
+            <>
+              <p className="book-review__vehicle" lang={vehicleName.lang}>
+                {vehicleName.text}
+              </p>
+              <PriceBlock fare={selected.price.total} areaSurcharge={selected.includes_area_surcharge === true} kmNote={kmNote} priced={pricedState} currency={guestCurrency} onCurrency={(code) => setGuestCurrency(code as CurrencyCode)} reference={reference !== null && reference.to === guestCurrency ? reference : null} />
+            </>
+          )}
+        </section>
+        <section className="book-review__block" aria-labelledby="book-review-passenger">
+          <div className="book-review__head">
+            <h3 id="book-review-passenger" className="book-new__subtitle">
+              乘客信息
+            </h3>
+            {editLink(3, "乘客信息")}
+          </div>
+          {passengerFacts}
+        </section>
+        {selected !== null && (
+          <section className="book-review__block" aria-labelledby="book-review-cancel">
+            <h3 id="book-review-cancel" className="book-new__subtitle">
+              取消规则
+            </h3>
+            <p>{guestCancelPolicyText((priced ?? selected).cancel_policy.tiers)}</p>
+          </section>
+        )}
+        <form id={CONTACT_FORM_ID} className="site-form book-review__pay" noValidate onSubmit={(event) => void submitOrder(event)}>
+          <AlertSlot notice={contactNotice} />
+          <ConsentField checked={contact.consent} error={contactErrors.consent} onChange={(consent) => updateContact({ consent })} />
+          <PayBlock busy={busy} expired={expired} onRequote={requote} />
+        </form>
+        <div className="book-new__actions">
+          <Button size="lg" onClick={() => goStep(3)}>
+            上一步
+          </Button>
+        </div>
+      </section>
+    );
+
+    const bar = !wide && step === 2 && selected !== null && vehicleName !== null && (
       <div className="book-bar">
         <p className="book-bar__text">
-          <span lang={displayName(selected.vehicle_group.name).lang}>{displayName(selected.vehicle_group.name).text}</span> · 一口价 <SitePrice text={moneyText(selected.price.total)} size="sm" />
+          <span lang={vehicleName.lang}>{vehicleName.text}</span> · 一口价 <SitePrice text={moneyText(selected.price.total)} size="sm" />
         </p>
-        <Button variant="primary" size="lg" onClick={() => setStep(3)}>
+        <Button variant="primary" size="lg" onClick={() => goStep(3)}>
           下一步
         </Button>
+      </div>
+    );
+
+    /** 手机、平板：右侧栏变成顶部可展开的摘要条，收起时一行写行程和价格 */
+    const summaryBar = !wide && (
+      <div className="book-summary-bar">
+        <button type="button" className="book-summary-bar__toggle" aria-expanded={summaryOpen} aria-controls="book-summary-panel" onClick={() => setSummaryOpen((value) => !value)}>
+          <span className="book-summary-bar__title" id="book-summary-title">
+            行程摘要
+          </span>
+          <span className="book-summary-bar__text">
+            {draft.from !== null && step > 1 ? `${tripName} · ${draft.from.name}${draft.to !== null ? ` → ${draft.to.name}` : ""}` : "还没有确认的内容"}
+            {step > 2 && pricedState.kind === "ready" ? ` · ${moneyText(pricedState.total)}` : ""}
+          </span>
+          <Icon name="chevron-down" className={summaryOpen ? "book-summary-bar__arrow book-summary-bar__arrow--open" : "book-summary-bar__arrow"} />
+        </button>
+        {summaryOpen && (
+          <div id="book-summary-panel" className="book-summary-bar__panel">
+            {summaryContent}
+          </div>
+        )}
       </div>
     );
 
     body = (
       <div className={bar ? "book-new book-new--with-bar" : "book-new"}>
         <div className="book-new__main">
-          {showStep1 && tripSection}
-          {showStep2 && vehicleSection}
-          {!wide && step === 3 && (
-            <>
-              <Button variant="text" className="book-new__back" onClick={() => setStep(2)}>
-                ← 返回选车型
-              </Button>
-              {summaryInner}
-            </>
-          )}
-          {showStep3 && !manualOnly && contactSection}
+          {stepper}
+          {summaryBar}
+          {step === 1 && tripSection}
+          {step === 2 && vehicleSection}
+          {step === 3 && contactSection}
+          {step === 4 && reviewSection}
         </div>
         {wide && (
           <aside className="book-new__aside" aria-labelledby="book-summary-title">
-            {summaryInner}
+            <section className="site-section book-summary">
+              <h2 id="book-summary-title" className="site-section__title">
+                行程摘要
+              </h2>
+              {summaryContent}
+            </section>
           </aside>
         )}
         {bar}
@@ -888,4 +1154,3 @@ export function BookNewPage() {
     </SiteLayout>
   );
 }
-

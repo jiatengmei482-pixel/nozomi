@@ -7,7 +7,7 @@
  * 页面上没有供应商、结算价、加价比例、附加服务单价。
  */
 import { FX_CURRENCIES, MESSAGING_APPS, type MessagingApp, ORDER_FIELD_LIMITS } from "@nozomi/domain";
-import type { FormEvent, ReactNode } from "react";
+import type { FormEvent, ReactNode, Ref } from "react";
 import type { MapTiles } from "../../../api/areas.ts";
 import type { SiteAddonOption, SiteFxReference, SiteMoney, SiteRoutePreview } from "../../../api/site.ts";
 import { AlertSlot, type Notice } from "../../../components/Alert.tsx";
@@ -159,12 +159,17 @@ export interface ContactForm {
   messagingApp: MessagingApp | "";
   messagingHandle: string;
   notes: string;
+  /** 接机的举牌姓名（选填，M8-27）：订单接口还没有这一栏，下单时写在备注最前面 */
+  signName: string;
   consent: boolean;
 }
 
-export const emptyContact = (): ContactForm => ({ name: "", phone: "", email: "", messagingApp: "", messagingHandle: "", notes: "", consent: false });
+export const emptyContact = (): ContactForm => ({ name: "", phone: "", email: "", messagingApp: "", messagingHandle: "", notes: "", signName: "", consent: false });
 
-/** 「怎么联系你」：乘车人姓名、邮箱、手机号（含国家区号）、即时通讯（选填）、给司机的备注（选填）、同意保存银行卡。 */
+/**
+ * 第 3 步「乘客信息」（M8-27；字段和校验沿用 M8-04 的「怎么联系你」）：乘车人姓名、邮箱、手机号（含国家区号）、
+ * 接机的航班号和举牌姓名（`extra`）、即时通讯（选填）、给司机的备注（选填）。同意保存银行卡在第 4 步付款前。
+ */
 export function ContactSection({
   form,
   errors,
@@ -173,23 +178,25 @@ export function ContactSection({
   onSubmit,
   extra,
   actions,
+  headingRef,
 }: {
   form: ContactForm;
   errors: OrderErrors;
   notice: Notice | null;
   onChange(changes: Partial<ContactForm>): void;
   onSubmit(event: FormEvent): void;
-  /** 手机第 3 步：接机的航班号（行程那一块这时不在屏幕上） */
+  /** 接机的航班号、举牌姓名 */
   extra?: ReactNode;
-  /** 手机：吸底的「去付款 →」；电脑放在右侧栏 */
+  /** 「下一步：核对订单」 */
   actions?: ReactNode;
+  headingRef?: Ref<HTMLHeadingElement>;
 }) {
   return (
     <section aria-labelledby="book-contact-title" className="site-section book-new__contact">
-      <h2 id="book-contact-title" className="site-section__title">
-        怎么联系你
+      <h2 id="book-contact-title" className="site-section__title" tabIndex={-1} ref={headingRef}>
+        乘客信息
       </h2>
-      <form id={CONTACT_FORM_ID} className="site-form" noValidate onSubmit={onSubmit}>
+      <form className="site-form" noValidate onSubmit={onSubmit}>
         <AlertSlot notice={notice} />
         <TextField label="乘车人姓名" size="lg" required autoComplete="name" value={form.name} errors={errors.name ? [errors.name] : []} onChange={(event) => onChange({ name: event.target.value })} />
         <TextField label="邮箱" size="lg" required type="email" autoComplete="email" inputMode="email" autoCapitalize="none" spellCheck={false} value={form.email} errors={errors.email ? [errors.email] : []} hint={FIELD_HINTS.email} onChange={(event) => onChange({ email: event.target.value })} />
@@ -209,25 +216,37 @@ export function ContactSection({
           <label className="field__label" htmlFor="book-notes">
             给司机的备注（选填）
           </label>
-          <textarea id="book-notes" className="input textarea" rows={3} maxLength={ORDER_FIELD_LIMITS.notesMax} value={form.notes} onChange={(event) => onChange({ notes: event.target.value })} />
-        </div>
-        <div className="field">
-          <label className="choice site-consent">
-            <input type="checkbox" checked={form.consent} aria-invalid={errors.consent ? true : undefined} aria-describedby={errors.consent ? "book-consent-error book-consent-help" : "book-consent-help"} onChange={(event) => onChange({ consent: event.target.checked })} />
-            <span className="choice__text">{CONSENT_TEXT}</span>
-          </label>
-          <p className="field__hint" id="book-consent-help">
-            {CONSENT_HELP}
-          </p>
-          {errors.consent && (
-            <p className="field__error" id="book-consent-error">
+          <textarea id="book-notes" className="input textarea" rows={3} maxLength={ORDER_FIELD_LIMITS.notesMax} value={form.notes} aria-invalid={errors.notes ? true : undefined} aria-describedby={errors.notes ? "book-notes-error" : undefined} onChange={(event) => onChange({ notes: event.target.value })} />
+          {errors.notes && (
+            <p className="field__error" id="book-notes-error">
               <Icon name="alert-triangle" className="field__error-icon" />
-              <span>{errors.consent}</span>
+              <span>{errors.notes}</span>
             </p>
           )}
         </div>
         {actions}
       </form>
     </section>
+  );
+}
+
+/** 第 4 步付款前：同意保存银行卡（文字和说明同旧下单页）。 */
+export function ConsentField({ checked, error, onChange }: { checked: boolean; error: string | undefined; onChange(checked: boolean): void }) {
+  return (
+    <div className="field">
+      <label className="choice site-consent">
+        <input type="checkbox" checked={checked} aria-invalid={error !== undefined ? true : undefined} aria-describedby={error !== undefined ? "book-consent-error book-consent-help" : "book-consent-help"} onChange={(event) => onChange(event.target.checked)} />
+        <span className="choice__text">{CONSENT_TEXT}</span>
+      </label>
+      <p className="field__hint" id="book-consent-help">
+        {CONSENT_HELP}
+      </p>
+      {error !== undefined && (
+        <p className="field__error" id="book-consent-error">
+          <Icon name="alert-triangle" className="field__error-icon" />
+          <span>{error}</span>
+        </p>
+      )}
+    </div>
   );
 }

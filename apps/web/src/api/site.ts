@@ -27,7 +27,16 @@ export interface SiteConfig {
   address_search: boolean;
   /** 地图底图（和供应商区域页同一份配置）；null 时不显示地图选点 */
   map_tiles: MapTiles | null;
+  /**
+   * 官网页面宽度（M8-28，ADR 0079）：运营后台「官网设置 → 页面宽度」。standard 内容最宽约 1200px（默认）、wide 约 1440px、full 接近全屏（最宽约 1920px）。
+   * 后端还没带这一项时（字段缺省）按 standard。
+   */
+  page_width?: SitePageWidth;
 }
+
+/** 官网页面宽度的三档（M8-28）。 */
+export type SitePageWidth = "standard" | "wide" | "full";
+export const SITE_PAGE_WIDTHS: readonly SitePageWidth[] = ["standard", "wide", "full"];
 
 /** 官网卖的品类：接送机、点对点、包车（M3-10）。 */
 export type SiteCategory = "airport_transfer" | "point_to_point" | "charter";
