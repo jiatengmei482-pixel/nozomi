@@ -19,7 +19,7 @@ import type { Order, OrderEvent, OrderPayment, OrderSale, PaymentEventRecord } f
 import type { DriverLink, OrderFile } from "../repos/dispatch.ts";
 import { driverLinkEmailJson, getDriverLinkEmail, mailConfigured } from "../services/driver-link-email.ts";
 import type { WebhookDelivery } from "../repos/webhooks.ts";
-import { type DispatchFacts, areaSurchargeDetailJson, pricingRouteJson, distanceMoneyJson, cancelPolicyJson, changeJson, dispatchJson, extraChargeJson, fulfilmentJson, landingJson, orderTripJson, orderVehicleGroupJson, settlementJson, tenantOrderJson } from "../services/order-views.ts";
+import { type DispatchFacts, areaSurchargeDetailJson, pricingRouteJson, distanceMoneyJson, mileageMoneyJson, cancelPolicyJson, changeJson, dispatchJson, extraChargeJson, fulfilmentJson, landingJson, orderTripJson, orderVehicleGroupJson, settlementJson, tenantOrderJson } from "../services/order-views.ts";
 import { customerAmountOf } from "../services/extra-charges.ts";
 import type { OrderRefund } from "../repos/refunds.ts";
 import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
@@ -27,7 +27,7 @@ import { type OrderFulfilmentRecords, assertPlatformOrderInScope, getOrderFile, 
 import { PLATFORM_PROXY_SOURCE } from "../services/fulfilment.ts";
 import { orderPassengerNames, revealPassenger } from "../services/passenger-privacy.ts";
 import { salesMoney } from "../services/sales-quotes.ts";
-import { orderSellDistance } from "../services/order-price-notes.ts";
+import { orderPricingBasis, orderSellDistance } from "../services/order-price-notes.ts";
 import { fxJson } from "./quotes.ts";
 import { authenticateTenant } from "../services/tenant-auth.ts";
 import { dateTimeSchema, pageQuerySchema, parseInput, resourceId, uuidSchema } from "../validation.ts";
@@ -272,6 +272,9 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
       area_surcharge: areaSurchargeDetailJson(found.order, found.surchargeAreaNames),
       // 点对点用的价格（M8-13）：线路价 / 区域价和区域名称，没有金额
       pricing_route: pricingRouteJson(found.pricingRoute),
+      // 计价方式和计程明细（M8-30，ADR 0080）：只有结算价（规则 4）
+      pricing_basis: orderPricingBasis(found.order),
+      mileage: mileageMoneyJson(found.order.settlement, found.order.settlementCurrency),
     };
   });
 
@@ -367,6 +370,9 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
       // 点对点含公里数（M8-11）：结算价 + 超出每公里的对外价参考（只有运营看得到）
       distance: platformDistanceJson(found),
       pricing_route: pricingRouteJson(found.pricingRoute),
+      // 计价方式和计程明细（M8-30，ADR 0080）：结算价
+      pricing_basis: orderPricingBasis(found.order),
+      mileage: mileageMoneyJson(found.order.settlement, found.order.settlementCurrency),
       quote: {
         quote_id: found.quote.quoteId,
         created_at: found.quote.createdAt,

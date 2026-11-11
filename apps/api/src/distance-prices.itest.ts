@@ -16,8 +16,8 @@ import type { ApiResponse, HttpMethod, TenantFixture, TestApi } from "./testing/
 import { createTestApi } from "./testing/api.ts";
 import { type Market, allKeys, buildMarket, newChannel, ok, salesCredentials } from "./testing/market.ts";
 import { tenantLogin } from "./testing/money.ts";
-import { assertMatchesOpenApi } from "./testing/openapi.ts";
-import { FakePaymentProvider } from "./testing/payments.ts";
+import { assertMatchesOpenApi, assertMatchesOperation } from "./testing/openapi.ts";
+import { FakePaymentProvider, deliverWebhook } from "./testing/payments.ts";
 import { routeLookup } from "./testing/routes.ts";
 import { type SiteApi, siteApi } from "./testing/site.ts";
 
@@ -195,13 +195,39 @@ test("运营区域是上限：有一端不在运营范围里不报；拿不到�
   }
 });
 
-test("下单：订单锁定计价方式（官网订单页给 pricing_basis）", async () => {
+test("下单：订单锁定计价方式（官网订单页给 pricing_basis；付款后供应商、运营订单详情给计价方式和计程明细，旧单为一口价 / null）", async () => {
   const quote = await bizQuote("suburb", "suburb2");
   const created = await site.call("POST", "/site/v1/orders", { headers: { "idempotency-key": randomUUID() }, body: { quote_id: quote.quote_id, passenger: { name: "林小青", phone: "+81 90-3333-4444", email: "distance.guest@example.com" }, save_payment_method: true, pickup_address: "郊区酒店", dropoff_address: "郊区车站" }, ip: nextIp() });
   assert.equal(created.status, 201, created.text);
   const guest = await site.call("GET", "/site/v1/order", { token: created.body.link.token, ip: nextIp() });
   assertMatchesOpenApi("GET", "/site/v1/order", guest);
   assert.equal(guest.body.order.pricing_basis, "distance_only");
+
+  // 付款后：供应商、运营订单详情给出订单上锁定的计价方式和计程明细（M8-30c）；供应商只有结算价（规则 4）
+  const orderId = created.body.order.id as string;
+  const intent = pay.intentOf(orderId);
+  assert.ok(intent);
+  pay.pay(intent.id);
+  const raw = pay.event("payment_intent.succeeded", pay.intentObject(intent.id), { created: api.clock.now() });
+  assert.equal((await deliverWebhook(api.app, raw, pay.sign(raw, api.clock.now()))).status, 200);
+  const mileage = { route_meters: 34_200, included_km: 0, km: 35, start_price: { amount: "3000", currency: "JPY" }, per_km: { amount: "300", currency: "JPY" }, fee: { amount: "13500", currency: "JPY" } };
+  const tenant = await tenantCall(m.b, "GET", `/orders/${orderId}`);
+  assertMatchesOpenApi("GET", "/tenant/v1/orders/{id}", tenant);
+  assert.deepEqual([tenant.body.pricing_basis, tenant.body.mileage], ["distance_only", mileage]);
+  for (const key of RULE4_KEYS) assert.ok(!allKeys(tenant.body).has(key), `供应商订单详情里有 ${key}`);
+  const platform = await api.call("GET", `/platform/v1/orders/${orderId}`, { token: m.root });
+  assertMatchesOperation("GET", "/platform/v1/orders/{id}", platform.status, platform.body);
+  assert.deepEqual([platform.body.pricing_basis, platform.body.mileage], ["distance_only", mileage]);
+  // 甲读不到乙的单（租户隔离）
+  const foreign = await tenantCall(m.a, "GET", `/orders/${orderId}`);
+  assert.equal(foreign.status, 404);
+  assert.ok(!foreign.text.includes("distance_only"));
+  // M8-30 之前的单：一口价、计程明细为 null
+  await api.db.owner.query("update orders set settlement = settlement - 'pricingBasis' - 'mileage' where id = $1", [orderId]);
+  const legacy = await tenantCall(m.b, "GET", `/orders/${orderId}`);
+  assertMatchesOpenApi("GET", "/tenant/v1/orders/{id}", legacy);
+  const legacyPlatform = await api.call("GET", `/platform/v1/orders/${orderId}`, { token: m.root });
+  assert.deepEqual([legacy.body.pricing_basis, legacy.body.mileage, legacyPlatform.body.pricing_basis, legacyPlatform.body.mileage], ["one_price", null, "one_price", null]);
 });
 
 test("只读回放（M8-30 部分）：最近 30 天的询价按 M8-30 之前的口径和现在各算一遍——之前报得出的价 0 处变化；新报出的按计价方式列出", async () => {

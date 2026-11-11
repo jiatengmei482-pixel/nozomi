@@ -9368,8 +9368,15 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ order, events, records, changes, extra_charges, rescue, driver_link_email, vehicle_group, area_surcharge, pricing_route ]
+                required: [ order, events, records, changes, extra_charges, rescue, driver_link_email, vehicle_group, area_surcharge, pricing_route, pricing_basis, mileage ]
                 properties:
+                  pricing_basis:
+                    $ref: "#/components/schemas/PricingBasis"
+                  mileage:
+                    description: 计程部分（M8-30，ADR 0080；订单上锁定的结算价明细）：一口价 + 区域外里程费、按计程价的订单才有；一口价、M8-30 之前的订单为 null
+                    oneOf:
+                      - $ref: "#/components/schemas/OrderMileage"
+                      - type: "null"
                   pricing_route:
                     description: 点对点用的价格（M8-13）：线路价 / 区域价和区域名称，没有金额；没有为 null
                     oneOf:
@@ -9557,7 +9564,16 @@ paths:
                   - area_surcharge
                   - distance
                   - pricing_route
+                  - pricing_basis
+                  - mileage
                 properties:
+                  pricing_basis:
+                    $ref: "#/components/schemas/PricingBasis"
+                  mileage:
+                    description: 计程部分（M8-30，ADR 0080；订单上锁定的结算价明细）：一口价 + 区域外里程费、按计程价的订单才有；一口价、M8-30 之前的订单为 null
+                    oneOf:
+                      - $ref: "#/components/schemas/OrderMileage"
+                      - type: "null"
                   order:
                     $ref: "#/components/schemas/PlatformOrder"
                   pricing_route:
@@ -19240,6 +19256,26 @@ components:
               type: [ integer, "null" ]
             platform_minimum_minutes:
               type: integer
+    OrderMileage:
+      type: object
+      additionalProperties: false
+      required: [ route_meters, included_km, km, start_price, per_km, fee ]
+      description: |
+        订单上锁定的计程部分（结算价，M8-30）。一口价 + 区域外里程费：`km` = 路线距离 − 一口价含的公里数，向上取整到 1 公里，`fee` = `km` × `per_km`，`start_price` 为 0；
+        按计程价：`km` = 路线距离向上取整到 1 公里，`fee` = `start_price` + `km` × `per_km`
+      properties:
+        route_meters:
+          type: integer
+        included_km:
+          type: integer
+        km:
+          type: integer
+        start_price:
+          $ref: "#/components/schemas/SalesMoney"
+        per_km:
+          $ref: "#/components/schemas/SalesMoney"
+        fee:
+          $ref: "#/components/schemas/SalesMoney"
     QuoteMileage:
       type: object
       additionalProperties: false

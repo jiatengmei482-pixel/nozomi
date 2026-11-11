@@ -85,6 +85,16 @@ export function settlementJson(order: Order): Json {
  * 含公里数的一口价在这一单上的情况（结算价，M8-11，ADR 0073 第二部分第 4 节）：报价时锁定的路线距离（米）、超出公里数、超出每公里单价。
  * 超出的钱已经含在 `base` 里。没设含公里数的、M8-11 之前的订单为 null。
  */
+/**
+ * 计程部分（M8-30，ADR 0080）：订单上锁定的结算价明细（一口价 + 区域外里程费、按计程价时才有）；一口价、M8-30 之前的订单为 null。
+ * 只有结算价：供应商和运营都用（规则 4）。
+ */
+export function mileageMoneyJson(settlement: Pick<Order["settlement"], "mileage">, currency: Order["settlementCurrency"]): Json | null {
+  const mileage = settlement.mileage;
+  if (mileage === undefined) return null;
+  return { route_meters: mileage.routeMeters, included_km: mileage.includedKm, km: mileage.km, start_price: salesMoney(mileage.startMinor, currency), per_km: salesMoney(mileage.perKmMinor, currency), fee: salesMoney(mileage.feeMinor, currency) };
+}
+
 export function distanceMoneyJson(settlement: Pick<Order["settlement"], "distance">, currency: Order["settlementCurrency"]): Json | null {
   const distance = settlement.distance ?? null;
   if (distance === null) return null;

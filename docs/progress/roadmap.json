@@ -873,13 +873,13 @@
           "id": "M8-30c",
           "title": "M8-30 的后端补充：运营 / 供应商订单详情给出计价方式和计程明细，客人确认邮件加「含里程费 / 按里程计价」",
           "role": "backend",
-          "status": "todo",
+          "status": "review",
           "acceptance": [
             "运营订单详情、供应商订单详情的应答加 pricing_basis 和 mileage（订单上锁定的结算价明细：route_meters、included_km、km、start_price、per_km、fee，金额同 distance 的 { amount, currency } 写法）；一口价、旧单 mileage 为 null；供应商接口只有结算价（规则 4）；OpenAPI 同步",
             "前端已按这个形状做好（apps/web/src/lib/order-area-price-display.ts 的 OrderMileageView、OrderAreaPriceItems 的「计价方式」一项），接口给出后补一条端到端（运营、供应商订单详情）",
             "客人确认邮件在已付金额后面按订单的计价方式加「（含里程费）」/「（按里程计价）」，文字用 @nozomi/domain 的 pricingBasisNote；包车「含区域加价」不变；邮件里不出现计程的单价和金额"
           ],
-          "evidence": "",
+          "evidence": "分支 m8-30-quote-priority（和 M8-30、M8-30b 同一个 PR）；运营 / 供应商订单详情加 pricing_basis、mileage（OpenAPI OrderMileage、dispatch 对账表）；客人确认邮件 pricing_basis_note；domain 通知测试新增 1 条、distance-prices.itest.ts 订单详情断言（含甲读不到乙、旧单 null）、notifications.itest.ts 计价方式邮件断言；端到端 distance-prices.spec.ts 加下单后运营、供应商订单详情「计价方式」（本机通过）；本机相关集成测试 7 个文件 102 条通过",
           "updated": "2026-11-11"
         },
         {
@@ -1818,6 +1818,11 @@
       "date": "2026-11-11",
       "by": "Claude",
       "summary": "M8-30b 前端完成、待验收：官网新预订页车型卡 / 右侧栏 / 核对页和订单页按 pricing_basis 标「含里程费」「按里程计价」（包车照旧「含区域加价」，只有一个总价）；运营报价试算多「计价方式」明细（结算价）；供应商价格页（接送机、点对点）加「计程价」小块（新增 / 编辑 / 启停 / 删除，409 重叠和 400 的中文）。运营 / 供应商订单详情的「计价方式」已按约定字段做好，等后端在订单详情接口给出 pricing_basis、mileage；确认邮件的说明也要后端加（登记 M8-30c）"
+    },
+    {
+      "date": "2026-11-11",
+      "by": "Claude",
+      "summary": "M8-30c 后端完成、待验收：运营、供应商订单详情给出计价方式和计程明细（结算价，旧单为一口价 / null），客人确认邮件已付金额后面加「（含里程费）」/「（按里程计价）」；端到端补下单后两边订单详情的「计价方式」"
     }
   ]
 }

@@ -8,9 +8,12 @@
  * 两条路线的路线预估直接写进路线缓存（用例结束删掉），结果确定：
  * - (a) 一端在报价区域里、一端在外：一口价 + 区域外 ⌈16.4⌉ = 17 公里 × 300 → 新预订页车型卡、右侧栏写「含里程费」；
  * - (b) 两端都在外：起步价 + ⌈21.25⌉ = 22 公里 × 300 → 写「按里程计价」。
- * 都只有一个总价，官网能看到的数据里不出现「加价」、计程的单价。最后在价格页停用这条计程价。
+ * 都只有一个总价，官网能看到的数据里不出现「加价」、计程的单价。
+ * (b) 接着下单（付款这一步不在本任务：用迁移账号标为已付款），运营、供应商订单详情的「计价方式」写计程价和计程明细（M8-30c，结算价；
+ * 供应商页面上没有对外价）。最后在价格页停用这条计程价。
  * 320 / 390 宽不横向滚动，亮暗两色 axe；截图存到 E2E_SCREENSHOT_DIR（没设时存到测试输出目录），名字以 m830- 开头。
  */
+import { randomInt } from "node:crypto";
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { type LatLng, routeCacheKey } from "@nozomi/domain";
 import { withPlatformTx } from "../../api/src/db/context.ts";
@@ -18,7 +21,7 @@ import { createPool } from "../../api/src/db/pool.ts";
 import { E2E_WEB_STRIPE_PORT } from "../playwright.config.ts";
 import { tomorrowInTokyo } from "./book-new-support.ts";
 import { createBrand, createWorld, expectAccessible, post, tenantHeaders } from "./catalog.ts";
-import { OWN_SITE_SOURCE, createActiveTenant, expectNoHorizontalOverflow, loginAs, platformAdminHeaders, randomLetters, settleAnimations } from "./support.ts";
+import { OWN_SITE_SOURCE, adminCredentials, createActiveTenant, expectNoHorizontalOverflow, loginAs, platformAdminHeaders, randomLetters, settleAnimations } from "./support.ts";
 
 test.use(OWN_SITE_SOURCE);
 
@@ -41,6 +44,17 @@ const square = (center: LatLng, half: number): number[][] => [
   [center.lng - half, center.lat - half],
 ];
 const linkPoint = (key: "from" | "to", point: LatLng, name: string): string => `${key}=${point.lat},${point.lng}&${key}_name=${encodeURIComponent(name)}`;
+
+async function asOwner<T>(run: (query: (text: string, values: unknown[]) => Promise<unknown>) => Promise<T>): Promise<T> {
+  const url = process.env["E2E_DATABASE_OWNER_URL"];
+  if (!url) throw new Error("global-setup 没有准备好数据库连接");
+  const pool = createPool(url, { max: 1 });
+  try {
+    return await run((text, values) => pool.query(text, values));
+  } finally {
+    await pool.end();
+  }
+}
 
 async function asPlatform<T>(run: (query: (text: string, values: unknown[]) => Promise<unknown>) => Promise<T>): Promise<T> {
   const url = process.env["E2E_DATABASE_URL"];
@@ -176,8 +190,8 @@ async function expectBasisOnSite(page: Page, trip: Setup, from: LatLng, to: LatL
   await shot(page, `${name}-mobile`);
 }
 
-test("供应商在价格页新增计程价（重叠的被拒）→ 一端在区域外的报价写「含里程费」→ 两端都在外写「按里程计价」→ 停用；窄屏、亮暗 axe", async ({ page, request, browser }) => {
-  test.setTimeout(240_000);
+test("供应商在价格页新增计程价（重叠的被拒）→ 一端在区域外的报价写「含里程费」→ 两端都在外写「按里程计价」→ 下单后运营、供应商订单详情写计价方式 → 停用；窄屏、亮暗 axe", async ({ page, request, browser }) => {
+  test.setTimeout(360_000);
   const trip = await setup(request);
   await seedRoute(trip.inside, trip.outA, 16_400);
   await seedRoute(trip.outA, trip.outB, 21_250);
@@ -221,6 +235,47 @@ test("供应商在价格页新增计程价（重叠的被拒）→ 一端在区�
   // ── (a) 一端在报价区域里：含里程费；(b) 两端都在外：按里程计价 ──
   await expectBasisOnSite(page, trip, trip.inside, trip.outA, "one_price_outside_km", "含里程费", "book-new-outside-km");
   await expectBasisOnSite(page, trip, trip.outA, trip.outB, "distance_only", "按里程计价", "book-new-distance-only");
+
+  // ── (b) 下单 → 运营、供应商订单详情的「计价方式」（M8-30c）：起步价 3,000 + 22 公里 × 300 = 9,600（结算价） ──
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.getByRole("button", { name: "下一步：填写乘客信息" }).click();
+  await page.getByLabel("乘车人姓名").fill("陈小红");
+  await page.getByLabel("邮箱").fill(`mileage-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`);
+  await page.getByLabel("手机号（含国家区号）").fill(`+81 90-${randomInt(1000, 9999)}-${randomInt(1000, 9999)}`);
+  await page.getByRole("button", { name: "下一步：核对订单" }).click();
+  await page.getByRole("checkbox", { name: /同意保存/ }).check();
+  const placed = page.waitForResponse((response) => new URL(response.url()).pathname === "/site/v1/orders" && response.request().method() === "POST");
+  await page.getByRole("button", { name: "去付款 →" }).click();
+  const created = await placed;
+  expect(created.status(), await created.text()).toBe(201);
+  const order = ((await created.json()) as { order: { id: string; order_no: string; pricing_basis: string } }).order;
+  expect(order.pricing_basis).toBe("distance_only");
+  await asOwner(async (query) => {
+    await query("update orders set status = 'confirmed', confirmed_at = now(), dispatch_due_at = service_at - interval '2 hours', updated_at = now() where id = $1", [order.id]);
+    await query("update order_payments set status = 'succeeded', succeeded_at = now() where order_id = $1", [order.id]);
+  });
+  const basisItem = (on: Page) => on.locator("section.card").filter({ has: on.getByRole("heading", { name: "行程" }) }).locator(".details__item").filter({ has: on.locator("dt", { hasText: /^计价方式$/ }) }).locator("dd");
+  const opsContext = await browser.newContext({ locale: "zh-CN", viewport: { width: 1280, height: 900 } });
+  const ops = await opsContext.newPage();
+  const admin = adminCredentials();
+  await loginAs(ops, "platform", admin.email, admin.password);
+  await ops.goto(`/platform/orders/${order.id}`);
+  await expect(ops.getByRole("heading", { level: 1, name: `订单 ${order.order_no}` })).toBeVisible();
+  await expect(basisItem(ops)).toContainText("计程价（起步价 + 每公里）");
+  await expect(basisItem(ops)).toContainText(/起步价 .*3,000.* \+ 22 公里 × .*300.* = .*9,600.*（已含在基础价里）/);
+  await expect(basisItem(ops)).toContainText("路线约 21.3 公里（报价时）");
+  await narrowAndAccessible(ops, "运营订单详情（计价方式）");
+  await shot(ops, "platform-order");
+  await opsContext.close();
+  await tenant.goto(`/orders/${order.id}`);
+  await expect(tenant.getByRole("heading", { level: 1, name: `订单 ${order.order_no}` })).toBeVisible();
+  await expect(basisItem(tenant)).toContainText("起步价 JPY 3,000 + 22 公里 × JPY 300 = JPY 9,600（已含在基础价里）");
+  await expect(tenant.locator("main")).not.toContainText(/对外|加价比例/);
+  await narrowAndAccessible(tenant, "供应商订单详情（计价方式）");
+  await shot(tenant, "tenant-order");
+
+  // ── 回到价格页 ──
+  await tenant.goto(`/products/${trip.productId}/prices`);
 
   // ── 停用：开关立即生效 ──
   await row.getByRole("switch").click();
