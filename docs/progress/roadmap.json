@@ -859,14 +859,14 @@
           "id": "M8-30b",
           "title": "M8-30 的页面：官网四步页 / 右侧栏 / 订单页标注「含里程费」「按里程计价」，供应商价格页的「计程价」小块",
           "role": "frontend",
-          "status": "doing",
+          "status": "review",
           "acceptance": [
             "官网四步页车型卡、右侧栏、核对页、订单页按 pricing_basis 显示「含里程费」（one_price_outside_km）/「按里程计价」（distance_only），文字用 @nozomi/domain 的 pricingBasisNote；包车「含区域加价」不变；站点数据里不出现「加价」，客人页不显示计程的单价和金额",
             "点对点、接送机商品的价格页加「计程价」小块（按车型组的起步价 + 每公里、生效日期、启停、删除，按 M8-12 的做法），调用 /tenant/v1/products/{id}/distance-prices；包车不显示",
             "端到端：OWN_SITE_SOURCE 下点对点一端在区域外的报价显示「含里程费」、两端都在区域外的显示「按里程计价」；价格页新增 / 停用一条计程价",
             "确认邮件、供应商和运营订单详情加计价方式说明（后端字段已在 settlement.pricingBasis / mileage）"
           ],
-          "evidence": "",
+          "evidence": "分支 m8-30-quote-priority（和 M8-30 同一个 PR，未开 PR，按指示）；组件测试新增 15 条（distance-prices.test.tsx 8 条：列表、新增校验、If-Match / 幂等键、409 重叠、400 落栏、编辑、启停、删除二次确认、包车不显示、只读、规则 4；book-new 3 条、site 订单页 1 条、order-pricing-basis 4 条——减去重复为 16 条）；端到端 e2e/distance-prices.spec.ts 1 条（真实后端、OWN_SITE_SOURCE：供应商在页面新增计程价、重叠被拒、一端在外「含里程费」、两端在外「按里程计价」、停用；320 / 390 不横向滚动、亮暗 axe）通过；本机相关组件测试 173 条、契约测试 29 条、样式测试 33 条通过；截图 /home/codespace/import/ui-screens/m830-*.png；订单详情接口字段和确认邮件交 M8-30c（后端）",
           "updated": "2026-11-11"
         },
         {

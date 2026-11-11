@@ -309,7 +309,7 @@ export function DistancePriceBlock({ frame, currency, today }: { frame: ProductF
       <p className="surcharge__lead">
         {DISTANCE_PRICE_LEAD}
         <br />
-        {`按车型组设起步价和每公里单价（结算价，${currency}）：计程价 = 起步价 + 路线公里数 × 每公里，不足 1 公里按 1 公里。`}
+        {`按车型组设起步价和每公里单价（结算价，${currency}）：计程价 = 起步价 + 路线公里数 × 每公里，不足 1 公里按 1 公里。这一块的修改立即保存，不用点下面的「保存」。`}
       </p>
       <div role="alert" className="step__alerts">
         {notice && <Alert kind={notice.kind}>{notice.text}</Alert>}
