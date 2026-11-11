@@ -798,6 +798,15 @@
           "acceptance": ["配置 QA_ACCEPTANCE_TOKEN（密钥，只经 packages/config 读）：production 配了就启动失败；每条代码路径另外判断不是 production（两道关）；没配时测试环境和现在完全一样；口令不进代码、日志、错误说明、审计和应答", "解锁：POST /site/v1/qa-acceptance/session（口令在 JSON 里，不在网址里），常量时间比较；成功发 HttpOnly、Secure、SameSite=Strict 的会话 Cookie（服务端只存随机编号的哈希，几小时有效）；DELETE 结束会话；按地址和全站限速、口令错记审计（不记口令）；没配置时 404，和接口不存在一样", "商品新状态「验收可售」（qa_listed）：只有测试供应商能用（数据库约束 + 服务层 + 测试），供应商仍停在申请中，原有的把关不变", "带有效验收会话时，官网询价（含按两个坐标报价）、城市、机场、包车套餐只看测试供应商的验收可售商品，不和真实供应商混在一起；不带时一切不变（有没有验收可售商品，应答逐字节相同，报价编号除外）；/sales/v1 和平台试算永远不包含；目录缓存不串", "验收通道下的单 is_acceptance（只由服务端设），运营订单列表和详情标「验收」；不进结算、账单、付款；只停用 / 取消，不删除；不能救援改派给别的供应商", "只有 Stripe 处于测试模式时才能下单、建付款，否则明确报错", "验收单的客人邮箱只能是 @example.com 或 qa-staging@nozomi.moveglobal.io（否则 400）；只给 qa-staging@ 真的发邮件，其余（含供应商、司机、运营）都不发，但在发送记录里留存内容可查", "租户隔离不变；新接口登记进所有守卫测试；测试覆盖以上各条"],
           "evidence": "后端完成（分支 m8-26-qa-acceptance-channel，已推送、未开 PR、未部署）：ADR 0078；迁移 0310（products 状态 qa_listed + 只许测试供应商的触发器；orders / quotes / quote_logs 的 is_acceptance，订单的标记建好后不能改；平台表 qa_acceptance_sessions、notification_suppressions）；配置 QA_ACCEPTANCE_TOKEN（production 拒绝启动，日志脱敏）；新接口 POST / GET / DELETE /site/v1/qa-acceptance/session、POST /tenant/v1/products/{id}/qa-list、GET /platform/v1/notifications/{id}/suppressed-content；运营订单多 is_acceptance；出账、毛利试算、自动救援排除验收单，救援改派 409；验收下单要求 Stripe 测试模式、客人邮箱白名单；验收单邮件只发 qa-staging@，其余压下留存。本机：类型检查通过；单元测试全部 2621 条（含新增 domain 6、config 4、service 5）全过；集成测试新增 qa-acceptance.itest.ts 14 条，相关回归 42 个文件 696 条全过（含守卫测试 auth、password-change-bypass、platform-admin、products-openapi、tenant-isolation、schema-structure、rls）；前端商品页组件测试 38 条全过。待办：前端的「验收」徽标、发送记录「查看内容」、「设为验收可售」按钮；运维在测试环境 .env 配口令",
           "updated": "2026-11-10"
+        },
+        {
+          "id": "M8-29",
+          "title": "端到端去偶发：km-display 报价偶尔拿到替身默认路线（6,800 米）而不是测试写入缓存的 34,153 米",
+          "role": "tester",
+          "status": "todo",
+          "acceptance": ["查清 PR #150 run 42939235305 上 km-display.spec.ts:157 报价距离是 6800 的原因（路线缓存写入时机、键、并行用例互相覆盖或替身默认值），修测试或修代码，不靠加长等待", "该用例本机并行 20 次、CI 连续 3 轮不失败"],
+          "evidence": "",
+          "updated": "2026-11-11"
         }
       ]
     }
