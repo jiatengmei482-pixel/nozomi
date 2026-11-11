@@ -211,7 +211,7 @@ test("跨币种询价：最低毛利（日元）按中央汇率换成美元补�
   const [q] = res.body.quotes;
   assert.deepEqual(q.price, { total: { amount: "155.00", currency: "USD" }, fx: { rate: "0.0067", as_of: q.price.fx.as_of } });
   // distance（M8-11，点对点含公里数）只有对外价；接送机恒为 null
-  assert.deepEqual(Object.keys(q).sort(), ["created_at", "distance", "expires_at", "free_wait_minutes", "package_hours", "price", "quote_id", "service_date", "urgent", "vehicle_group_id"]);
+  assert.deepEqual(Object.keys(q).sort(), ["created_at", "distance", "expires_at", "free_wait_minutes", "package_hours", "price", "pricing_basis", "quote_id", "service_date", "urgent", "vehicle_group_id"]);
   assert.equal(q.distance, null);
   assert.deepEqual(Object.keys(res.body).sort(), ["quotes", "unavailable"]);
   const row = (await api.db.owner.query("select sell_minor, settlement_minor, winner_tenant_id, snapshot from quotes where id = $1", [q.quote_id])).rows[0];

@@ -628,6 +628,20 @@ test("订单页（M8-13）：旧单（接口没有这两项，或没有加价、
   }
 });
 
+test("订单页（M8-30b）：按订单上锁定的计价方式在「总价」下面写「含里程费」/「按里程计价」，只有一个总价、不写单价", async () => {
+  for (const [basis, note] of [["one_price_outside_km", "含里程费"], ["distance_only", "按里程计价"]] as const) {
+    orderPage(orderOf({ category: "point_to_point", direction: null, place_id: null, flight_no: null, pickup: { lng: 139.7, lat: 35.69, address: "新宿站" }, dropoff: { lng: 139.1, lat: 35.2, address: "箱根汤本站" }, includes_area_surcharge: false, distance: null, pricing_basis: basis }));
+    const trip = (await screen.findByRole("heading", { name: "行程" })).closest("section") as HTMLElement;
+    assert.equal(factValue(trip, "总价")?.querySelector(".site-facts__note")?.textContent, note);
+    assert.doesNotMatch(trip.textContent ?? "", /每公里|起步价|加价/);
+    assert.equal(new Set((trip.textContent ?? "").match(/[\d,]+ JPY/g) ?? []).size, 1, "只有一个价格");
+    resetBrowser();
+  }
+  orderPage(orderOf({ pricing_basis: "one_price" }));
+  const trip = (await screen.findByRole("heading", { name: "行程" })).closest("section") as HTMLElement;
+  assert.equal(trip.querySelector(".site-facts__note"), null);
+});
+
 test("旧预订页（M8-13，10.6 第 1 条）：点对点报价卡片车型标识下面写「公里数」那一句，没设含公里数的卡片不写", async () => {
   const kmQuote: SiteQuote = { ...quote, distance: { included_km: 30, route_meters: 34_200, over_km: 5, over_km_per_km: { amount: "330", currency: "JPY" } } };
   const plain: SiteQuote = { ...quote, quote_id: "QT20261026PLAINPLAIN", vehicle_group: { ...quote.vehicle_group, id: "66666666-6666-4666-8666-666666666666", code: "VG-STD-5", name: { zh: "舒适 5 座" } } };

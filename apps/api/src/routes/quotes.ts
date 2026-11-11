@@ -112,7 +112,7 @@ export const REFUSAL_MESSAGES: Readonly<Record<ComparisonRefusal, string>> = {
   NO_PRICE_RULE: "这个区域、车型组、方向或套餐没有价格（包车：或者上车点、下车点所在的加价区域没有这个车型组、套餐的加价）",
   PRICE_NOT_IN_EFFECT: "有价格，但用车日期不在它的生效期里",
   PRICE_RULE_DISABLED: "对得上的那条价格停用了",
-  ROUTE_UNAVAILABLE: "价格是「里程 + 时长」或设了含公里数的一口价，需要路线预估，而现在取不到",
+  ROUTE_UNAVAILABLE: "价格是「里程 + 时长」或设了含公里数的一口价，需要路线预估，而现在取不到（按计程价、区域外里程费报价时也一样）",
   PRICE_NOT_POSITIVE: "调价、取整之后价格不大于 0",
   PRICE_OVER_LIMIT: "价格超过了结算价的上限",
   FX_RATE_UNAVAILABLE: "商品的结算币种和客人支付的币种不同，而现在没有可用的汇率（没有，或超过 48 小时没更新）",
@@ -151,6 +151,12 @@ function settlementJson(settlement: SettlementBreakdown): Json {
     to_area_id: settlement.toAreaId ?? null,
     // 含公里数的一口价：报价时锁定的路线距离（米）、超出公里数（向上取整）、超出每公里（结算价）；超出的钱已含在 base 里。没设的为 null
     distance: settlement.distance === undefined || settlement.distance === null ? null : { included_km: settlement.distance.includedKm, route_meters: settlement.distance.routeMeters, over_km: settlement.distance.overKm, over_km_per_km: settlement.distance.overKmPerKmMinor },
+    // 计价方式（M8-30，ADR 0080）：one_price 一口价 / one_price_outside_km 一口价 + 区域外里程费 / distance_only 按计程价；计程部分的结算价明细，一口价为 null
+    pricing_basis: settlement.pricingBasis ?? "one_price",
+    mileage:
+      settlement.mileage === undefined
+        ? null
+        : { distance_price_id: settlement.mileage.distancePriceId, route_meters: settlement.mileage.routeMeters, included_km: settlement.mileage.includedKm, km: settlement.mileage.km, start_price: settlement.mileage.startMinor, per_km: settlement.mileage.perKmMinor, fee: settlement.mileage.feeMinor },
     free_wait: {
       item: settlement.freeWait.item,
       mode: settlement.freeWait.value?.mode ?? null,

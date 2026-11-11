@@ -804,6 +804,33 @@ test("包车含区域加价：车型卡价格下面、右侧栏车费下面写�
   assert.deepEqual([order["pickup_address"], order["dropoff_address"], order["flight_no"]], ["京王广场酒店", "成田国际机场", null]);
 });
 
+// ---- M8-30b：计价方式的标注（ADR 0080 第三部分）----
+
+for (const [basis, note] of [["one_price_outside_km", "含里程费"], ["distance_only", "按里程计价"]] as const) {
+  test(`点对点 ${basis}：车型卡、右侧栏、核对页写「${note}」，只有一个总价，不写计程的单价和金额`, async () => {
+    wideScreen();
+    open({ at: "/book/new?from=35.6905,139.6948&to=35.6581,139.7017&date=2030-11-20&time=14:30", quote: () => json(200, byPoints({ trip_type: "point_to_point", airport: null, quotes: [{ ...quoteOf(1, { amount: 23400 }), pricing_basis: basis }] })) });
+    const actor = user();
+    const card = (await screen.findByRole("heading", { name: "车型1" }, SLOW)).closest("li") as HTMLElement;
+    assert.ok(within(card).getByText(note));
+    await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
+    assert.ok(within(aside()).getByText(note));
+    const amounts = (document.body.textContent ?? "").replaceAll("车型1", " ").match(/[\d,]+ JPY/g) ?? [];
+    assert.deepEqual([...new Set(amounts)], ["23,400 JPY"], "只有一个价格");
+    assert.doesNotMatch(document.body.textContent ?? "", /每公里|起步价|加价/);
+    await toReview(actor, null);
+    assert.ok(within(screen.getByRole("region", { name: "核对订单" })).getByText(note));
+  });
+}
+
+test("一口价（one_price）和旧接口没有 pricing_basis：不出任何计价标注", async () => {
+  wideScreen();
+  open({ at: "/book/new?from=35.772,140.3929&to=35.6905,139.6948&date=2030-11-20&time=14:30", quote: () => json(200, byPoints({ quotes: [{ ...quoteOf(1), pricing_basis: "one_price" }, quoteOf(2)] })) });
+  await screen.findByRole("heading", { name: "车型1" }, SLOW);
+  assertAbsent(screen.queryByText("含里程费"));
+  assertAbsent(screen.queryByText("按里程计价"));
+});
+
 test("包车手机：没选下车地点点「下一步」时下车地点标红「请选择下车地点」、焦点移过去；摘要条「包车 8 小时 · 上车 → 下车」", async () => {
   narrowScreen();
   open({ at: CHARTER_LINK, charter: () => json(200, charterQuotes(false)) });

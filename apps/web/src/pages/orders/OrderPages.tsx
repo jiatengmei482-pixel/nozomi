@@ -440,7 +440,7 @@ export function OrderDetailPage() {
           <Detail label="行程">{routeText(order)}</Detail>
           {order.flight_no && <Detail label="航班号"><span className="mono">{order.flight_no}</span></Detail>}
           <OrderVehicleDetails group={detail.vehicle_group} />
-          <OrderAreaPriceItems audience="tenant" pricingRoute={detail.pricing_route} distance={order.settlement.distance} areaSurcharge={detail.area_surcharge} />
+          <OrderAreaPriceItems audience="tenant" pricingRoute={detail.pricing_route} distance={order.settlement.distance} areaSurcharge={detail.area_surcharge} pricingBasis={detail.pricing_basis} mileage={detail.mileage} />
           <OrderAddonsItem addons={order.addons} cacheKey="tenant-addons-catalog" load={listTenantAddons} />
           <Detail label="乘客">{`${order.passenger.name} · ${order.passenger.phone} · ${order.passengers} 人 ${order.luggage} 件行李`}</Detail>
           {order.messaging && <Detail label="即时通讯">{`${order.messaging.app}：${order.messaging.handle}`}</Detail>}

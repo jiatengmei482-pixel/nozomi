@@ -29,6 +29,7 @@ import { exactTextMoney, isWholeText } from "../../lib/price-calendar.ts";
 import { CURRENCY_NAMES, moneyText } from "../../lib/product-display.ts";
 import { saveFailureText, serverIssues } from "../../lib/product-failure.ts";
 import { platformProductListPath } from "../../lib/platform-paths.ts";
+import { pricingBasisLines } from "../../lib/pricing-basis-display.ts";
 import { ROUTE_SOURCE_TEXT, routeFailureText } from "../../lib/route-display.ts";
 import { type QuoteField, type QuoteForm, emptyQuoteForm, fieldOfPath, optionalPoints, pointsNeeded, readQuoteForm } from "../../lib/quote-form.ts";
 import { tidyDate, tidyTime } from "../../lib/time-input.ts";
@@ -123,6 +124,21 @@ function SettlementDetail({ candidate, currency }: { candidate: QuoteCandidate; 
           <span>{`一口价 ${moneyText(settlement.base - extra, own)} + 超出 ${distance.over_km} 公里 × ${moneyText(distance.over_km_per_km, own)} = ${moneyText(settlement.base, own)}（已含在基础价里）`}</span>
           <span>{`含 ${distance.included_km} 公里，这次路线约 ${kmText(distance.route_meters)} 公里；超出的部分不足 1 公里按 1 公里`}</span>
           {sell !== null && <span>{`对外价参考：超出每公里 ${moneyText(sell, currency)}（单独换算、取整，已含在对外价里）`}</span>}
+        </span>
+      ),
+    });
+  }
+  // 计价方式（M8-30，ADR 0080）：一口价 + 区域外里程费、按计程价时写明细（结算价，已含在基础价里）；一口价不出这一项
+  const mileage = settlement.mileage ?? null;
+  const basis = pricingBasisLines(settlement.pricing_basis, mileage === null ? null : { ...mileage, start_price: moneyText(mileage.start_price, own), per_km: moneyText(mileage.per_km, own), fee: moneyText(mileage.fee, own) });
+  if (basis !== null) {
+    lines.push({
+      label: "计价方式",
+      value: (
+        <span className="quote-detail__lines">
+          {basis.map((line) => (
+            <span key={line}>{line}</span>
+          ))}
         </span>
       ),
     });

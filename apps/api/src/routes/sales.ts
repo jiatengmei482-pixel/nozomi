@@ -25,7 +25,7 @@ import type { OrderChange } from "../repos/order-changes.ts";
 import type { ExtraCharge } from "../repos/extra-charges.ts";
 import type { OrderRefund } from "../repos/refunds.ts";
 import { customerAmountOf } from "../services/extra-charges.ts";
-import { orderIncludesAreaSurcharge, orderSellDistance } from "../services/order-price-notes.ts";
+import { orderIncludesAreaSurcharge, orderPricingBasis, orderSellDistance } from "../services/order-price-notes.ts";
 
 const tokenSchema = z.object({ grant_type: z.literal("client_credentials"), client_id: z.string().min(1).max(100), client_secret: z.string().min(1).max(200) }).strict();
 
@@ -89,6 +89,8 @@ function quoteJson(quote: SalesQuote): Record<string, unknown> {
     free_wait_minutes: quote.freeWaitMinutes,
     // 点对点设了含公里数的价（M8-11，ADR 0073）：含多少公里、报价时的路线距离（米）、超出公里数、超出每公里（对外价，已含在 total 里）；没设为 null
     distance: distanceJson(quote),
+    // 计价方式（M8-30，ADR 0080）：one_price / one_price_outside_km（含里程费）/ distance_only（按里程计价）；只加字段
+    pricing_basis: quote.pricingBasis,
   };
 }
 
@@ -172,6 +174,8 @@ export function salesOrderJson(view: SalesOrderView, now: Date): Record<string, 
     // M8-13（ADR 0073 第四部分）：订单上锁定的价格说明——含区域加价（不给金额）、含公里数（只有对外价）；只加字段
     includes_area_surcharge: orderIncludesAreaSurcharge(order),
     distance: orderDistanceJson(view),
+    // 计价方式（M8-30，ADR 0080），订单上锁定的那一份；M8-30 之前的订单是 one_price
+    pricing_basis: orderPricingBasis(order),
     payment_status: payment?.status ?? "creating",
     payment_due_at: order.paymentDueAt.toISOString(),
     winning_tenant: view.winningTenant,

@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 import { DRIVER_STATUSES, ORDER_STATUSES, PLATE_TYPES, TENANT_WEBHOOK_EVENTS, VEHICLE_STATUSES } from "@nozomi/domain";
 import { DISPATCH_SCHEMA_FIELDS, DRIVERS_PATH, DRIVER_TRIP_PATH, ORDERS_PATH, PLATFORM_DELIVERIES_PATH, VEHICLES_PATH, WEBHOOK_PATH } from "./dispatch.ts";
+import type { OrderMileageView } from "../lib/order-area-price-display.ts";
 
 interface Schema {
   $ref?: string;
@@ -93,6 +94,19 @@ test("供应商、运营后台的订单详情都带车型组（M7-02）：必有
     assert.deepEqual(schema?.properties?.["vehicle_group"]?.oneOf, [{ $ref: "#/components/schemas/OrderVehicleGroup" }, { type: "null" }], path);
   }
   assert.equal(schemas["OrderVehicleGroup"]?.properties?.["combos"]?.items?.$ref, "#/components/schemas/VehicleCombo");
+});
+
+test("供应商、运营后台的订单详情都带计价方式和计程明细（M8-30c）：pricing_basis 必有；mileage 是 OrderMileage 或 null，字段和页面用的 OrderMileageView 一致", () => {
+  const detail = (path: string): Schema | undefined =>
+    (spec.paths[path]?.["get"] as { responses: Record<string, { content: Record<string, { schema: Schema }> }> } | undefined)?.responses["200"]?.content["application/json"]?.schema;
+  for (const path of [`${ORDERS_PATH}/{id}`, "/platform/v1/orders/{id}"]) {
+    const schema = detail(path);
+    for (const field of ["pricing_basis", "mileage"]) assert.ok(schema?.required?.includes(field), `${path} 缺 ${field}`);
+    assert.deepEqual(schema?.properties?.["mileage"]?.oneOf, [{ $ref: "#/components/schemas/OrderMileage" }, { type: "null" }], path);
+  }
+  const fields: readonly (keyof OrderMileageView & string)[] = ["route_meters", "included_km", "km", "start_price", "per_km", "fee"];
+  assert.deepEqual(sorted(Object.keys(schemas["OrderMileage"]?.properties ?? {})), sorted(fields));
+  assert.deepEqual(sorted(schemas["OrderMileage"]?.required ?? []), sorted(fields));
 });
 
 test("枚举与 @nozomi/domain 一致：订单状态、司机和车辆的状态、牌照类型、Webhook 事件", () => {

@@ -632,7 +632,7 @@ export function PlatformOrderDetailPage() {
           <Detail label="行程">{routeText(order)}</Detail>
           {order.flight_no && <Detail label="航班号"><span className="mono">{order.flight_no}</span></Detail>}
           <OrderVehicleDetails group={detail.vehicle_group} />
-          <OrderAreaPriceItems audience="platform" pricingRoute={detail.pricing_route} distance={detail.distance} areaSurcharge={detail.area_surcharge} />
+          <OrderAreaPriceItems audience="platform" pricingRoute={detail.pricing_route} distance={detail.distance} areaSurcharge={detail.area_surcharge} pricingBasis={detail.pricing_basis} mileage={detail.mileage} />
           <OrderAddonsItem addons={order.addons} cacheKey="platform-addons-catalog" load={(token) => listAllMaster("addons", token, { status: "all" })} />
           <Detail label="乘客"><PassengerContact key={order.id} order={order} /></Detail>
           {detail.pending_email_review && (

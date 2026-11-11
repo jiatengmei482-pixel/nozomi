@@ -19,6 +19,8 @@ export const AUDIT_RESOURCES = [
   "product",
   "price_rule",
   "adjust_rule",
+  // 计程价（M8-30，ADR 0080）
+  "distance_price",
   "holiday",
   "inventory",
   "fx_fetch",

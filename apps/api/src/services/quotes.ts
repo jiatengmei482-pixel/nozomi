@@ -182,8 +182,8 @@ async function estimateRoute(ctx: AppContext, log: QuoteLog, request: QuoteReque
 function needsRoute(candidates: readonly QuoteCandidate[]): boolean {
   return candidates.some(({ product }) => {
     const rules = product.serviceRules;
-    // 里程 + 时长、设了含公里数的一口价（M8-11，ADR 0073）按路线距离算钱
-    return product.priceRules.some((rule) => rule.pricing.model === "mileage_time" || hasIncludedKm(rule.pricing)) || (rules.night.enabled && rules.night.chargeUnit === "per_hour") || product.addonCatalog.some((addon) => addon.chargeUnit === "per_duration");
+    // 里程 + 时长、设了含公里数的一口价（M8-11，ADR 0073）、计程价（M8-30，ADR 0080）按路线距离算钱
+    return product.priceRules.some((rule) => rule.pricing.model === "mileage_time" || hasIncludedKm(rule.pricing)) || (product.distancePrices ?? []).length > 0 || (rules.night.enabled && rules.night.chargeUnit === "per_hour") || product.addonCatalog.some((addon) => addon.chargeUnit === "per_duration");
   });
 }
 

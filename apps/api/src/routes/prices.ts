@@ -51,6 +51,8 @@ import {
   setRoundingUnit,
   updateAdjustRule,
 } from "../services/prices.ts";
+import type { StoredDistancePrice } from "../repos/distance-prices.ts";
+import { type DistancePriceSaveResult, createDistancePrice, deleteDistancePrice, getDistancePrices, setDistancePriceStatus, updateDistancePriceRule } from "../services/distance-prices.ts";
 import { type TenantPrincipal, authenticateTenant } from "../services/tenant-auth.ts";
 import { isUuid } from "../pagination.ts";
 import { type InputIssue, idempotencyKey, ifMatchVersion, parseInput, resourceId, uuidSchema, validationFailed } from "../validation.ts";
@@ -325,6 +327,35 @@ function calendarJson(view: CalendarView): Json {
   };
 }
 
+// 计程价（M8-30，ADR 0080）：范围、整数、日期由 domain 查
+const distancePriceSchema = z.object({
+  vehicle_group_id: id,
+  start_price: z.number().finite(),
+  per_km: z.number().finite(),
+  valid_from: date,
+  valid_to: date.nullable().default(null),
+  status: z.enum(PRICE_RULE_STATUSES).default("enabled"),
+});
+
+function toDistancePrice(body: z.output<typeof distancePriceSchema>): { vehicleGroupId: string; startMinor: number; perKmMinor: number; validFrom: string; validTo: string | null; status: "enabled" | "disabled" } {
+  return { vehicleGroupId: body.vehicle_group_id, startMinor: body.start_price, perKmMinor: body.per_km, validFrom: body.valid_from, validTo: body.valid_to, status: body.status };
+}
+
+/** 一条计程价（结算价；没有对外价和加价比例，规则 4） */
+function distancePriceJson(price: StoredDistancePrice): Json {
+  return {
+    id: price.id,
+    vehicle_group_id: price.vehicleGroupId,
+    start_price: price.startMinor,
+    per_km: price.perKmMinor,
+    valid_from: price.validFrom,
+    valid_to: price.validTo,
+    status: price.status,
+    created_at: price.createdAt.toISOString(),
+    updated_at: price.updatedAt.toISOString(),
+  };
+}
+
 const holidayQuerySchema = z.object({
   country_code: z.string().max(200).optional(),
   from: date,
@@ -520,6 +551,52 @@ export function registerPriceRoutes(app: FastifyInstance, ctx: AppContext): void
       const productId = resourceId(request.params, "商品");
       const ruleId = ruleIdParam(request.params, "调价规则");
       return adjustSaved(await setAdjustRuleStatus(ctx, { principal, ip: request.ip }, productId, ruleId, status));
+    });
+  }
+
+  // ---- 计程价（M8-30，ADR 0080）----
+
+  const distanceSaved = (result: DistancePriceSaveResult): Json => ({ version: result.version, distance_price: result.price === null ? null : distancePriceJson(result.price) });
+
+  app.get("/tenant/v1/products/:id/distance-prices", async (request) => {
+    const principal = await authenticate(request, "product.read");
+    const view = await getDistancePrices(ctx, principal.tenantId, resourceId(request.params, "商品"));
+    return { version: view.version, currency: view.currency, today: view.today, items: view.items.map(distancePriceJson) };
+  });
+
+  app.post("/tenant/v1/products/:id/distance-prices", async (request, reply) => {
+    const principal = await authenticate(request, "product.manage");
+    const productId = resourceId(request.params, "商品");
+    const key = idempotencyKey(request.headers["idempotency-key"]);
+    const version = ifMatchVersion(request.headers["if-match"]);
+    const price = toDistancePrice(parseInput(distancePriceSchema, request.body, "body"));
+    const result = await createDistancePrice(ctx, { principal, ip: request.ip }, productId, version, price, { scope: "POST /tenant/v1/products/:id/distance-prices", key }, (saved) => ({ status: 201, body: distanceSaved(saved) }));
+    return reply.code(result.status).send(result.body);
+  });
+
+  app.put("/tenant/v1/products/:id/distance-prices/:ruleId", async (request) => {
+    const principal = await authenticate(request, "product.manage");
+    const productId = resourceId(request.params, "商品");
+    const priceId = ruleIdParam(request.params, "计程价");
+    const version = ifMatchVersion(request.headers["if-match"]);
+    const price = toDistancePrice(parseInput(distancePriceSchema, request.body, "body"));
+    return distanceSaved(await updateDistancePriceRule(ctx, { principal, ip: request.ip }, productId, priceId, version, price));
+  });
+
+  app.delete("/tenant/v1/products/:id/distance-prices/:ruleId", async (request) => {
+    const principal = await authenticate(request, "product.manage");
+    const productId = resourceId(request.params, "商品");
+    const priceId = ruleIdParam(request.params, "计程价");
+    const version = ifMatchVersion(request.headers["if-match"]);
+    return { version: (await deleteDistancePrice(ctx, { principal, ip: request.ip }, productId, priceId, version)).version };
+  });
+
+  for (const [action, status] of [["enable", "enabled"], ["disable", "disabled"]] as const) {
+    app.post(`/tenant/v1/products/:id/distance-prices/:ruleId/${action}`, async (request) => {
+      const principal = await authenticate(request, "product.manage");
+      const productId = resourceId(request.params, "商品");
+      const priceId = ruleIdParam(request.params, "计程价");
+      return distanceSaved(await setDistancePriceStatus(ctx, { principal, ip: request.ip }, productId, priceId, status));
     });
   }
 

@@ -1103,6 +1103,99 @@ test("价格和调价的隔离（数据库层面）：租户事务里只看得�
   assert.deepEqual(await priceRows(), before);
 });
 
+// ---- 计程价（M8-30，ADR 0080）----
+
+const distanceFixture: { a?: string; b?: string } = {};
+
+/** 两边的点对点商品上各建一条计程价（请求体里写对方的 tenant_id、用同一个幂等键：都不生效、互不相干） */
+async function seedDistancePrices(): Promise<{ a: string; b: string }> {
+  const seeded = await seedPrices();
+  for (const [name, fixture] of [["a", a], ["b", b]] as const) {
+    if (distanceFixture[name] !== undefined) continue;
+    const productId = seeded[name].productId;
+    const version = (await api.call("GET", `/tenant/v1/products/${productId}/distance-prices`, { token: fixture.adminToken })).body.version as number;
+    const res = await api.call("POST", `/tenant/v1/products/${productId}/distance-prices`, {
+      token: fixture.adminToken,
+      headers: { "idempotency-key": "shared-key-0030", "if-match": `"${version}"` },
+      body: { vehicle_group_id: seeded.vehicleGroupId, start_price: name === "a" ? 3_000 : 4_000, per_km: 300, valid_from: "2026-10-01", tenant_id: name === "a" ? b.tenantId : a.tenantId },
+    });
+    assert.equal(res.status, 201, res.text);
+    distanceFixture[name] = res.body.distance_price.id as string;
+  }
+  return distanceFixture as { a: string; b: string };
+}
+
+async function distanceRows(): Promise<unknown> {
+  return {
+    rows: (await api.db.owner.query("select tenant_id, id, product_id, vehicle_group_id, start_minor, per_km_minor, valid_from::text, valid_to::text, status, updated_at from distance_prices order by id")).rows,
+    products: (await api.db.owner.query("select id, version, updated_at from products order by id")).rows,
+  };
+}
+
+test("计程价：建在令牌所属的供应商名下（请求体里的 tenant_id 不生效）；各自只看得到自己的", async () => {
+  cover("POST /tenant/v1/products/:id/distance-prices");
+  cover("GET /tenant/v1/products/:id/distance-prices");
+  const ids = await seedDistancePrices();
+  const owners = await api.db.owner.query("select id, tenant_id from distance_prices order by tenant_id");
+  assert.deepEqual(owners.rows.map((row) => [row.id, row.tenant_id]).sort(), [[ids.a, a.tenantId], [ids.b, b.tenantId]].sort());
+  const seeded = await seedPrices();
+  const mine = await api.call("GET", `/tenant/v1/products/${seeded.a.productId}/distance-prices?tenant_id=${b.tenantId}`, { token: a.adminToken });
+  assert.deepEqual(mine.body.items.map((item: any) => [item.id, item.start_price]), [[ids.a, 3_000]]);
+  assert.ok(!mine.text.includes(ids.b) && !mine.text.includes(b.tenantId));
+});
+
+test("计程价的每个接口：别的供应商的商品一律 404（和不存在一样）；对方的计程价编号挂在自己的商品下也 404；对方的数据原样不动", async () => {
+  const ids = await seedDistancePrices();
+  const seeded = await seedPrices();
+  const before = await distanceRows();
+  const body = { vehicle_group_id: seeded.vehicleGroupId, start_price: 1, per_km: 1, valid_from: "2027-01-01", tenant_id: b.tenantId };
+  const requests: [HttpMethod, string, string, unknown?][] = [
+    ["GET", "/tenant/v1/products/:id/distance-prices", "/distance-prices"],
+    ["POST", "/tenant/v1/products/:id/distance-prices", "/distance-prices", body],
+    ["PUT", "/tenant/v1/products/:id/distance-prices/:ruleId", `/distance-prices/${ids.b}`, body],
+    ["DELETE", "/tenant/v1/products/:id/distance-prices/:ruleId", `/distance-prices/${ids.b}`],
+    ["POST", "/tenant/v1/products/:id/distance-prices/:ruleId/enable", `/distance-prices/${ids.b}/enable`],
+    ["POST", "/tenant/v1/products/:id/distance-prices/:ruleId/disable", `/distance-prices/${ids.b}/disable`],
+  ];
+  for (const [method, route, suffix, payload] of requests) {
+    cover(`${method} ${route}`);
+    const send = (productId: string, path = suffix): Promise<ApiResponse> =>
+      api.call(method, `/tenant/v1/products/${productId}${path}`, { token: a.adminToken, headers: { "if-match": '"3"', "idempotency-key": randomUUID() }, ...(payload === undefined ? {} : { body: payload }) });
+    const foreign = await send(seeded.b.productId);
+    assert.equal(foreign.status, 404, `${method} ${route}：${foreign.text}`);
+    assert.equal(foreign.text, (await send(NO_SUCH_ID)).text, `${method} ${route}`);
+    // 自己的商品 + 对方的计程价编号
+    if (suffix.includes(ids.b)) {
+      const mixed = await send(seeded.a.productId);
+      assert.equal(mixed.status, 404, `${method} ${route}（自己的商品）：${mixed.text}`);
+      assert.equal(mixed.text, (await send(seeded.a.productId, suffix.replace(ids.b, NO_SUCH_ID))).text, `${method} ${route}`);
+    }
+  }
+  assert.deepEqual(await distanceRows(), before);
+});
+
+test("计程价的隔离（数据库层面）：租户事务里只看得到、改得到自己的行，写不进别人名下、接不到别人的商品上；平台角色只读", async () => {
+  const ids = await seedDistancePrices();
+  const seeded = await seedPrices();
+  const before = await distanceRows();
+  const seen = await withTenantTx(api.db.pool, a.tenantId, (db) => db.query<{ tenant_id: string }>("select distinct tenant_id from distance_prices"));
+  assert.deepEqual(seen.rows.map((row) => row.tenant_id), [a.tenantId]);
+  const touched = await withTenantTx(api.db.pool, a.tenantId, async (db) => [
+    (await db.query("update distance_prices set per_km_minor = 1 where id = $1", [ids.b])).rowCount,
+    (await db.query("delete from distance_prices where id = $1", [ids.b])).rowCount,
+  ]);
+  assert.deepEqual(touched, [0, 0]);
+  const insert = (tenantId: string, productId: string): Promise<unknown> =>
+    withTenantTx(api.db.pool, a.tenantId, (db) =>
+      db.query("insert into distance_prices (tenant_id, product_id, vehicle_group_id, start_minor, per_km_minor, valid_from, status, created_at, updated_at) values ($1, $2, $3, 1, 1, '2030-01-01', 'enabled', now(), now())", [tenantId, productId, seeded.vehicleGroupId]),
+    );
+  await assert.rejects(insert(b.tenantId, seeded.b.productId), { code: "42501" }, "写进别人名下");
+  await assert.rejects(insert(a.tenantId, seeded.b.productId), { code: "23503" }, "自己的租户编号 + 别人的商品");
+  assert.ok(((await withPlatformTx(api.db.pool, (db) => db.query("select 1 from distance_prices"))).rowCount ?? 0) > 0);
+  await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("delete from distance_prices")), deniedByDatabase);
+  assert.deepEqual(await distanceRows(), before);
+});
+
 // ---- 库存和 Excel 导入导出（M1-05）----
 
 /** 上传一个文件（请求体就是文件本身）。 */

@@ -9,12 +9,14 @@
  * 钱：结算价是商品所属子品牌币种的最小货币单位整数；中间结果用精确分数，只在最后取整一次（pricing.ts / money.ts）。
  */
 import { type AreaPolygonShape, locatePoint } from "./areas.ts";
+import { type DistancePrice, type PricingBasis, selectDistancePrice } from "./distance-price.ts";
 import type { LatLng } from "./geo.ts";
 import { type InventoryDay, type InventoryMode, hasInventory } from "./inventory.ts";
 import type { AddonChargeUnit, FlightScope, PlaceType, ServiceCategory } from "./master-data.ts";
 import { type CurrencyCode, ceilFractionToUnit, minorDigits, roundFractionToUnit } from "./money.ts";
 import {
   type AdjustRule,
+  type AdjustedPrice,
   type ExactAmount,
   type HolidayLookup,
   PRICE_LIMITS,
@@ -23,6 +25,8 @@ import {
   type SurchargeEnd,
   type TripUsage,
   addExact,
+  adjustRuleMatches,
+  applyAdjustRules,
   areaSurchargeFor,
   compareExact,
   exactFromMinor,
@@ -184,6 +188,11 @@ export interface QuoteProduct {
   addonCatalog: readonly { addonId: string; chargeUnit: AddonChargeUnit; usable: boolean }[];
   priceRules: readonly (PriceRule & { id: string })[];
   adjustRules: readonly (AdjustRule & { id: string })[];
+  /**
+   * 计程价（M8-30，ADR 0080）：接送机、点对点按车型组的「起步价 + 每公里单价」，不挂区域。不给 = 没有。
+   * 有了它，只有一端在报价区域里的点对点按「一口价 + 区域外里程费」报，两端都不在的按计程价报；没有它和以前一模一样。
+   */
+  distancePrices?: readonly (DistancePrice & { id: string })[];
   inventoryMode: InventoryMode;
 }
 
@@ -326,6 +335,29 @@ export interface SettlementBreakdown {
    * 超出的钱已经算在 `baseMinor`（和 `exact.base`）里；没设含公里数的报价、M8-11 之前的报价和订单没有这一项。
    */
   distance?: DistanceBreakdown | null;
+  /**
+   * 计价方式（M8-30，ADR 0080）：`one_price_outside_km` 一口价 + 区域外里程费、`distance_only` 按计程价。
+   * 一口价（区域价、线路价、含公里数、包车）的报价、M8-30 之前的报价和订单没有这一项。
+   */
+  pricingBasis?: Exclude<PricingBasis, "one_price">;
+  /** 计程部分的明细（结算价）：有 `pricingBasis` 时才有；钱已经算在 `baseMinor`（和 `exact.base`）里 */
+  mileage?: MileageBreakdown;
+}
+
+/**
+ * 计程部分（M8-30，ADR 0080），结算价：
+ * - 一口价 + 区域外里程费：`km` = 路线距离 − 一口价含的公里数（没设为 0），向上取整到 1 公里；`feeMinor` = `km` × 每公里单价；`startMinor` 是 0。
+ * - 按计程价：`km` = 路线距离向上取整到 1 公里；`feeMinor` = 起步价 + `km` × 每公里单价。
+ */
+export interface MileageBreakdown {
+  distancePriceId: string;
+  /** 报价时谷歌路线的距离（米），锁进报价和订单 */
+  routeMeters: number;
+  includedKm: number;
+  km: number;
+  startMinor: number;
+  perKmMinor: number;
+  feeMinor: number;
 }
 
 /** 含公里数的一口价在这一单上的情况（结算价） */
@@ -354,8 +386,11 @@ export interface AreaSurchargeBreakdown {
 export interface VehicleOffer {
   vehicleGroupId: string;
   packageHours: number | null;
-  /** 用的是哪个区域、哪条价格规则（几个区域都能报时取最低的那个） */
-  areaId: string;
+  /**
+   * 用的是哪个区域、哪条价格规则（几个区域都能报时取最低的那个）。
+   * 按计程价报的（M8-30，`settlement.pricingBasis` 是 `distance_only`）没有区域（null），`priceRuleId` 是那条计程价的编号
+   */
+  areaId: string | null;
   priceRuleId: string;
   settlement: SettlementBreakdown;
 }
@@ -424,6 +459,40 @@ function serviceAreas(product: QuoteProduct, request: QuoteRequest): { areaIds: 
   }
   const areaIds = product.areas.flatMap((area) => (usable.has(area.areaId) && !forbidden.has(area.areaId) ? [area.areaId] : []));
   return areaIds.length === 0 ? { reason: "IN_FORBIDDEN_AREA" } : { areaIds };
+}
+
+/** 接送机、点对点按哪种方式报（M8-30，ADR 0080） */
+type TransferPlan = { basis: "one_price" | "one_price_outside_km"; areaIds: string[] } | { basis: "distance_only"; areaIds: [] };
+
+/**
+ * 接送机、点对点的第 4 步（M8-30，ADR 0080；业主 2026-11-11 定的优先级）：
+ * 1. 要校验的点都在商品的报价区域里 → 一口价，和以前一模一样（`serviceAreas`）；
+ * 2. 点对点只有一端在 → 这一端所在的报价区域的一口价 + 区域外里程费（另一端落在禁行区里的区域不算，同 `serviceAreas`）；
+ * 3. 都不在（接送机：非机场一端不在；机场那一端不看区域）→ 计程价。
+ * 2、3 都要先过运营判断（每一端都要在这个供应商的运营范围里），而且商品要设了计程价；商品没设计程价、没带运营范围（不做运营判断）、
+ * 或 `legacy`（M8-30 之前的口径，只读回放对比用）时和以前一模一样。报不出时的原因一律和以前一样（`serviceAreas` 给的）。
+ * 每个车型组有没有计程价、有没有路线在后面看。
+ */
+function transferAreas(product: QuoteProduct, request: QuoteRequest, legacy: boolean): TransferPlan | { reason: AreaRefusal } {
+  const today = serviceAreas(product, request);
+  if (!("reason" in today)) return { basis: "one_price", areaIds: today.areaIds };
+  if (legacy || product.operatingAreas === undefined || (product.distancePrices ?? []).length === 0) return today;
+  const located: { operating: string[]; forbidden: string[] }[] = [];
+  for (const point of quoteCheckPoints(request)) {
+    const position = request[point];
+    if (position === null) return today;
+    // 有一端不在运营范围里：不报，原因和以前一样
+    if (outsideOperating(product, position) !== null) return today;
+    located.push(locateInAreas(product.areas, position));
+  }
+  const hit = located.filter((entry) => entry.operating.length > 0);
+  // 两端都在报价区域里、只是区域都被另一端的禁行区排除了：和以前一样不报
+  if (hit.length === located.length) return today;
+  if (hit.length === 0) return { basis: "distance_only", areaIds: [] };
+  const inside = hit[0]?.operating ?? [];
+  const forbidden = located.find((entry) => entry.operating.length === 0)?.forbidden ?? [];
+  const areaIds = product.areas.flatMap((area) => (inside.includes(area.areaId) && !forbidden.includes(area.areaId) ? [area.areaId] : []));
+  return areaIds.length === 0 ? today : { basis: "one_price_outside_km", areaIds };
 }
 
 /** 包车一端在哪：在商品本身的区域里（这一端加 0），或者在哪几个加价区域里（按商品挂的先后） */
@@ -553,7 +622,7 @@ function addonCharges(product: QuoteProduct, request: QuoteRequest, durationMinu
  * `audience`：`acceptance` 是测试环境的验收会话（M8-26，ADR 0078）——只认测试供应商的「验收可售」商品，不看入驻状态；不给是普通客人（只认已上架）。
  * 请求本身写得对不对由 `quoteRequestIssues` 查，这里假定是对的。
  */
-export function quoteProduct(product: QuoteProduct, request: QuoteRequest, moment: QuoteMoment, options: { forOwner?: boolean; audience?: SiteAudience } = {}): ProductQuote {
+export function quoteProduct(product: QuoteProduct, request: QuoteRequest, moment: QuoteMoment, options: { forOwner?: boolean; audience?: SiteAudience; legacyAreaRules?: boolean } = {}): ProductQuote {
   const refuse = (reason: QuoteRefusal): ProductQuote => ({ ok: false, productId: product.productId, tenantId: product.tenantId, reason });
   // 第 2 步：已上架、供应商和子品牌启用中（城市、品类、接送点由找商品的那一层筛）
   if (options.forOwner !== true) {
@@ -576,13 +645,14 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
   if (window.urgentTier !== null && urgent.dailyQuota !== null && moment.urgentUsed >= urgent.dailyQuota) return refuse("URGENT_SOLD_OUT");
 
   // 第 4 步：区域校验——每个要校验的点先过运营判断、再过报价判断（ADR 0075）；包车另看下车点和加价区域（ADR 0073）
+  // 接送机、点对点：一口价 → 一口价 + 区域外里程费 → 计程价（M8-30，ADR 0080）
   const charter = product.category === "charter" ? charterEnds(product, request) : null;
   if (charter !== null && "reason" in charter) return refuse(charter.reason);
-  const areas = charter ?? serviceAreas(product, request);
+  const areas: TransferPlan | { reason: AreaRefusal } = charter === null ? transferAreas(product, request, options.legacyAreaRules === true) : { basis: "one_price", areaIds: charter.areaIds };
   if ("reason" in areas) return refuse(areas.reason);
   const ends = charter?.ends ?? null;
-  // 点对点的线路价（ADR 0073 第二部分）：上车点所在的每个区域 × 下车点所在的每个区域（能接这一单的区域里，按商品里的先后，两端不同）
-  const routePairs = product.category === "point_to_point" && request.pickup !== null && request.dropoff !== null ? linePairs(product, areas.areaIds, request.pickup, request.dropoff) : [];
+  // 点对点的线路价（ADR 0073 第二部分）：上车点所在的每个区域 × 下车点所在的每个区域（能接这一单的区域里，按商品里的先后，两端不同）；只有两端都在报价区域里才找
+  const routePairs = areas.basis === "one_price" && product.category === "point_to_point" && request.pickup !== null && request.dropoff !== null ? linePairs(product, areas.areaIds, request.pickup, request.dropoff) : [];
 
   // 调价、夜间都按用车那一刻在城市当地的钟面（夏令时里不存在的时间按拨快之后）
   const local = instantToLocal(localDateTimeToInstant(request.serviceLocal, product.timeZone) as Date, product.timeZone);
@@ -648,6 +718,133 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
     // 点对点先找线路价（ADR 0073 第二部分）：命中了线路价就只在线路价里取最低，不和区域价比；一条都没命中才用区域价（和以前一模一样）
     let best: VehicleOffer | null = null;
     const reasons: QuoteRefusal[] = [];
+    /** 一个候选价（区域价 / 线路价 / 一口价 + 区域外里程费 / 计程价）调完价之后：查上限、加上各项费用、取整，比现在最低的低就换上 */
+    const settle = (candidate: { areaId: string | null; toAreaId: string | null; priceRuleId: string; price: AdjustedPrice<AdjustRule & { id: string }>; overLimit: boolean; usage: RouteEstimate | null; extra: Partial<SettlementBreakdown> }): void => {
+      // 调价后超过上限，或调价后的精确值不大于 0（ADR 0018：调完不大于 0 的价格不报，不靠加急、夜间、附加服务把它补成正数）。
+      // 调价后的价单独取整会变成 0、但精确值大于 0 的照常往下算：只看最后合在一起取整的结算价（ADR 0020）
+      if (candidate.overLimit) {
+        reasons.push("PRICE_OVER_LIMIT");
+        return;
+      }
+      if (compareExact(candidate.price.unrounded, ZERO) <= 0) {
+        reasons.push("PRICE_NOT_POSITIVE");
+        return;
+      }
+      // 总价 = 调价后的价 + 加急 + 夜间 + 附加服务，最后按取整单位取整一次
+      const exactTotal = addExact(candidate.price.unrounded, extras);
+      if (exceedsSettlementLimit(exactTotal)) {
+        reasons.push("PRICE_OVER_LIMIT");
+        return;
+      }
+      const totalMinor = roundFractionToUnit(exactTotal.numerator, exactTotal.denominator, product.roundingUnit);
+      if (totalMinor <= 0) {
+        reasons.push("PRICE_NOT_POSITIVE");
+        return;
+      }
+      if (best !== null && best.settlement.totalMinor <= totalMinor) return;
+      const baseMinor = roundMinor(candidate.price.base);
+      best = {
+        vehicleGroupId,
+        packageHours: request.packageHours,
+        areaId: candidate.areaId,
+        priceRuleId: candidate.priceRuleId,
+        settlement: {
+          currency: product.currency,
+          roundingUnit: product.roundingUnit,
+          totalMinor,
+          baseMinor,
+          // 尾差计入调价项：各项之和恒等于结算价
+          adjustMinor: totalMinor - baseMinor - urgentMinor - nightMinor - addonsMinor - driverLanguageMinor,
+          urgentMinor,
+          nightMinor,
+          addonsMinor,
+          driverLanguageMinor,
+          exact: { base: formatExact(candidate.price.base), adjusted: formatExact(candidate.price.unrounded), night: formatExact(night.fee), addons: formatExact(addons.total), total: formatExact(exactTotal) },
+          adjusts: candidate.price.adjusts.map((entry) => ({ ruleId: entry.rule.id, name: entry.rule.name, steps: entry.steps.map((step) => ({ type: step.step.type, value: step.step.value, delta: formatExact(step.delta), after: formatExact(step.after) })) })),
+          urgentTier: window.urgentTier,
+          night: night.detail,
+          addons: addons.charges,
+          driverLanguage: request.driverLanguage,
+          usage: candidate.usage,
+          freeWait,
+          ...(surcharge === null ? {} : { areaSurcharge: { packageMinor: baseMinor - surchargeMinor, pickup: surcharge.pickup, dropoff: surcharge.dropoff } }),
+          ...(candidate.toAreaId === null ? {} : { toAreaId: candidate.toAreaId }),
+          ...candidate.extra,
+        },
+      };
+    };
+
+    if (areas.basis !== "one_price") {
+      // M8-30（ADR 0080）：要用到这个车型组的计程价和路线距离；哪个没有都不报
+      const chosen = selectDistancePrice(product.distancePrices ?? [], { vehicleGroupId, date: local.date });
+      if (chosen.price === null) {
+        refused.push({ vehicleGroupId, reason: NO_PRICE_REFUSAL[chosen.reason] });
+        continue;
+      }
+      if (moment.route === null) {
+        refused.push({ vehicleGroupId, reason: "ROUTE_UNAVAILABLE" });
+        continue;
+      }
+      const distancePrice = chosen.price;
+      const routeMeters = Math.max(0, Math.trunc(moment.route.meters));
+      if (areas.basis === "distance_only") {
+        // 计程价：起步价 + ⌈路线公里⌉ × 每公里单价。不挂区域：只有适用全部区域的调价规则作用在它上面
+        const km = overKm(routeMeters, 0);
+        const feeMinor = chosen.price.startMinor + km * chosen.price.perKmMinor;
+        const adjustMoment = { date: local.date, minuteOfDay: local.minuteOfDay, areaId: "", vehicleGroupId, direction: request.direction, packageHours: request.packageHours };
+        const matched = product.adjustRules.filter((rule) => rule.areaIds.length === 0 && adjustRuleMatches(rule, adjustMoment, moment.holidays));
+        const price = applyAdjustRules(exactFromMinor(feeMinor), matched, product.roundingUnit);
+        settle({
+          areaId: null,
+          toAreaId: null,
+          priceRuleId: chosen.price.id,
+          price,
+          overLimit: price.finalMinor === null && (exceedsSettlementLimit(price.unrounded) || exceedsSettlementLimit(price.base)),
+          usage: moment.route,
+          extra: { pricingBasis: "distance_only", mileage: { distancePriceId: chosen.price.id, routeMeters, includedKm: 0, km, startMinor: chosen.price.startMinor, perKmMinor: chosen.price.perKmMinor, feeMinor } },
+        });
+      } else {
+        // 一口价 + 区域外里程费：在报价区域里那一端的每个区域各算一遍；只认固定一口价（里程 + 时长本来就按整段路线算，不再叠加），
+        // 区域外公里 = 路线距离 − 一口价含的公里数（没设为 0），向上取整到 1 公里；里程费和一口价一起被调价（同包车区域加价）
+        for (const areaId of areas.areaIds) {
+          const query = { areaId, vehicleGroupId, direction: request.direction, packageHours: request.packageHours, date: local.date };
+          const rule = selectPriceRule(product.priceRules, query);
+          if (rule !== null && rule.pricing.model !== "fixed") {
+            reasons.push("NO_PRICE_RULE");
+            continue;
+          }
+          const includedKm = rule !== null && rule.pricing.model === "fixed" ? (rule.pricing.includedKm ?? 0) : 0;
+          const km = overKm(routeMeters, includedKm);
+          const feeMinor = km * chosen.price.perKmMinor;
+          const priced = tripPrice({
+            priceRules: product.priceRules,
+            adjustRules: product.adjustRules,
+            query,
+            minuteOfDay: local.minuteOfDay,
+            roundingUnit: product.roundingUnit,
+            ...(moment.holidays === undefined ? {} : { holidays: moment.holidays }),
+            ...(feeMinor === 0 ? {} : { surchargeMinor: feeMinor }),
+          });
+          if (priced.priceRule === null || priced.price === null) {
+            reasons.push(priced.noPriceReason === "NOT_IN_EFFECT" ? "PRICE_NOT_IN_EFFECT" : priced.noPriceReason === "RULE_DISABLED" ? "PRICE_RULE_DISABLED" : "NO_PRICE_RULE");
+            continue;
+          }
+          settle({
+            areaId,
+            toAreaId: null,
+            priceRuleId: priced.priceRule.id,
+            price: priced.price,
+            overLimit: priced.noPriceReason === "OVER_LIMIT",
+            usage: moment.route,
+            extra: { pricingBasis: "one_price_outside_km", mileage: { distancePriceId: chosen.price.id, routeMeters, includedKm, km, startMinor: 0, perKmMinor: chosen.price.perKmMinor, feeMinor } },
+          });
+        }
+      }
+      if (best !== null) offers.push(best);
+      else refused.push({ vehicleGroupId, reason: pickRefusal(reasons) });
+      continue;
+    }
+
     const lineHits = routePairs.filter(([areaId, toAreaId]) => selectPriceRule(product.priceRules, { areaId, toAreaId, vehicleGroupId, direction: request.direction, packageHours: request.packageHours, date: local.date }) !== null);
     const tries: [string, string | null][] = lineHits.length > 0 ? lineHits : areas.areaIds.map((areaId) => [areaId, null]);
     for (const [areaId, toAreaId] of tries) {
@@ -673,59 +870,16 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
         reasons.push("ROUTE_UNAVAILABLE");
         continue;
       }
-      // 调价后超过上限，或调价后的精确值不大于 0（ADR 0018：调完不大于 0 的价格不报，不靠加急、夜间、附加服务把它补成正数）。
-      // 调价后的价单独取整会变成 0、但精确值大于 0 的照常往下算：只看最后合在一起取整的结算价（ADR 0020）
-      if (priced.noPriceReason === "OVER_LIMIT") {
-        reasons.push("PRICE_OVER_LIMIT");
-        continue;
-      }
-      if (compareExact(priced.price.unrounded, ZERO) <= 0) {
-        reasons.push("PRICE_NOT_POSITIVE");
-        continue;
-      }
-      // 总价 = 调价后的价 + 加急 + 夜间 + 附加服务，最后按取整单位取整一次
-      const exactTotal = addExact(priced.price.unrounded, extras);
-      if (exceedsSettlementLimit(exactTotal)) {
-        reasons.push("PRICE_OVER_LIMIT");
-        continue;
-      }
-      const totalMinor = roundFractionToUnit(exactTotal.numerator, exactTotal.denominator, product.roundingUnit);
-      if (totalMinor <= 0) {
-        reasons.push("PRICE_NOT_POSITIVE");
-        continue;
-      }
-      if (best !== null && best.settlement.totalMinor <= totalMinor) continue;
-      const baseMinor = roundMinor(priced.price.base);
-      best = {
-        vehicleGroupId,
-        packageHours: request.packageHours,
+      settle({
         areaId,
+        toAreaId,
         priceRuleId: priced.priceRule.id,
-        settlement: {
-          currency: product.currency,
-          roundingUnit: product.roundingUnit,
-          totalMinor,
-          baseMinor,
-          // 尾差计入调价项：各项之和恒等于结算价
-          adjustMinor: totalMinor - baseMinor - urgentMinor - nightMinor - addonsMinor - driverLanguageMinor,
-          urgentMinor,
-          nightMinor,
-          addonsMinor,
-          driverLanguageMinor,
-          exact: { base: formatExact(priced.price.base), adjusted: formatExact(priced.price.unrounded), night: formatExact(night.fee), addons: formatExact(addons.total), total: formatExact(exactTotal) },
-          adjusts: priced.price.adjusts.map((entry) => ({ ruleId: entry.rule.id, name: entry.rule.name, steps: entry.steps.map((step) => ({ type: step.step.type, value: step.step.value, delta: formatExact(step.delta), after: formatExact(step.after) })) })),
-          urgentTier: window.urgentTier,
-          night: night.detail,
-          addons: addons.charges,
-          driverLanguage: request.driverLanguage,
-          // 含公里数的一口价也记下用到的路线预估：改期重算时用同一段路线（距离报价时锁定）
-          usage: pricing.model === "mileage_time" || withKm ? moment.route : null,
-          freeWait,
-          ...(surcharge === null ? {} : { areaSurcharge: { packageMinor: baseMinor - surchargeMinor, pickup: surcharge.pickup, dropoff: surcharge.dropoff } }),
-          ...(toAreaId === null ? {} : { toAreaId }),
-          ...(withKm && moment.route !== null ? { distance: distanceOf(pricing, moment.route.meters) } : {}),
-        },
-      };
+        price: priced.price,
+        overLimit: priced.noPriceReason === "OVER_LIMIT",
+        // 含公里数的一口价也记下用到的路线预估：改期重算时用同一段路线（距离报价时锁定）
+        usage: pricing.model === "mileage_time" || withKm ? moment.route : null,
+        extra: withKm && moment.route !== null ? { distance: distanceOf(pricing, moment.route.meters) } : {},
+      });
     }
     if (best !== null) offers.push(best);
     else refused.push({ vehicleGroupId, reason: pickRefusal(reasons) });

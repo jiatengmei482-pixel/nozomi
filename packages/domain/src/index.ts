@@ -14,6 +14,7 @@ export * from "./master-data.ts";
 export * from "./vehicle-label.ts";
 export * from "./fixed-price-includes.ts";
 export * from "./included-km.ts";
+export * from "./distance-price.ts";
 export * from "./csv.ts";
 export * from "./ourairports.ts";
 export * from "./temporary-password.ts";

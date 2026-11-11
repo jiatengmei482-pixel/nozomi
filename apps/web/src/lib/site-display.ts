@@ -2,7 +2,7 @@
  * 官网（M3-05，ADR 0032）页面上的说法和小规则：客人看到的订单状态、报不出价的原因、「我已落地」什么时候能点、
  * 订单页地址里的令牌、城市当地的日期时间。文案用客人的说法（「付款」「用车时间」），不出现「供应商」「结算价」。
  */
-import { AREA_SURCHARGE_NOTE as DOMAIN_AREA_SURCHARGE_NOTE, CHARTER_OVERAGE_TEXTS, type ExtraChargeStatus, FIXED_PRICE_INCLUDES_TEXTS, LANDING_RULES, type OrderChangeStatus, type OrderStatus, addDays, charterAllInclusiveFor, fixedPriceFeeNote, includedKmNote, isCurrencyCode, parseMajor } from "@nozomi/domain";
+import { AREA_SURCHARGE_NOTE as DOMAIN_AREA_SURCHARGE_NOTE, CHARTER_OVERAGE_TEXTS, type ExtraChargeStatus, FIXED_PRICE_INCLUDES_TEXTS, LANDING_RULES, type OrderChangeStatus, type OrderStatus, type PricingBasis, addDays, charterAllInclusiveFor, fixedPriceFeeNote, includedKmNote, isCurrencyCode, parseMajor, pricingBasisNote } from "@nozomi/domain";
 import type { CancelTier } from "../api/order-money.ts";
 import type { SiteCategory, SiteDirection, SiteOrder, SitePlace, SiteQuote, SiteUnavailableReason } from "../api/site.ts";
 import type { BadgeSpec } from "../components/StatusBadge.tsx";
@@ -55,6 +55,16 @@ export function orderAddressEnds(order: Pick<SiteOrder, "category" | "direction"
 
 /** 报价含区域加价时的说明（ADR 0073 第四部分；规范 site-booking-v2.md 10.2）：只说已含，不写金额、不写是哪个区域。车型卡、车费、订单页「总价」下面和确认邮件同一来源（domain）。 */
 export const AREA_SURCHARGE_NOTE = DOMAIN_AREA_SURCHARGE_NOTE;
+
+/**
+ * 总价下面那一句计价说明（M8-30b，ADR 0080 第三部分）：包车含区域加价 →「含区域加价」；接送机、点对点按 `pricing_basis`
+ * →「含里程费」/「按里程计价」（文字取 domain `pricingBasisNote`）；一口价、旧接口没有这一项 → null（不出现）。
+ * 只说方式，不写计程的单价和金额（钱已含在总价里）。车型卡、右侧栏、核对页、订单页同一个函数。
+ */
+export function sitePriceBasisNote(price: { includes_area_surcharge?: boolean; pricing_basis?: PricingBasis }): string | null {
+  if (price.includes_area_surcharge === true) return AREA_SURCHARGE_NOTE;
+  return pricingBasisNote(price.pricing_basis);
+}
 
 /** 报价、订单上的含公里数（对外价）：`over_km_per_km` 是 `{ amount, currency }` 的十进制写法 */
 export interface SiteDistance {

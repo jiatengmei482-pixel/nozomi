@@ -35,7 +35,6 @@ import { type PaymentMount, usePaymentDriver } from "../../lib/payment-driver.ts
 import { forgetPaymentReturn, intentIdOf, rememberPaymentReturn } from "../../lib/payment-return.ts";
 import {
   ADDRESS_LABELS,
-  AREA_SURCHARGE_NOTE,
   GUEST_CANCEL_REASON_NAMES,
   GUEST_CHANGE_STATUS_BADGES,
   GUEST_EXTRA_STATUS_BADGES,
@@ -52,6 +51,7 @@ import {
   packageText,
   serviceTimeLabels,
   siteDistanceNote,
+  sitePriceBasisNote,
   visibleTimeline,
 } from "../../lib/site-display.ts";
 import { siteFailureText } from "./SiteLayout.tsx";
@@ -374,7 +374,7 @@ export function TripSection({ order, names }: { order: SiteOrder; names: SiteOrd
         {order.notes !== null && <Fact label="备注">{order.notes}</Fact>}
         <Fact label="总价" total>
           <SitePrice text={moneyText(order.price.total)} size="lg" />
-          {order.includes_area_surcharge === true && <span className="site-facts__note">{AREA_SURCHARGE_NOTE}</span>}
+          {sitePriceBasisNote(order) !== null && <span className="site-facts__note">{sitePriceBasisNote(order)}</span>}
         </Fact>
         {kmNote !== null && <Fact label="公里数">{kmNote}</Fact>}
         {orderFeeNote(order) !== null && <Fact label="费用说明">{orderFeeNote(order)}</Fact>}

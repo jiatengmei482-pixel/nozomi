@@ -13,6 +13,7 @@
  */
 import {
   AREA_SURCHARGE_MAIL_NOTE,
+  pricingBasisNote,
   includedKmNote,
   CHARTER_SUPPLIER_PRICE_NOTE,
   charterAllInclusiveFor,
@@ -107,7 +108,7 @@ import { findOrderNames, insertSiteOrderLink } from "../repos/site.ts";
 import { vehicleMailVariables } from "./order-views.ts";
 import { prepareDriverLinkEmail, prepareDriverNotice } from "./driver-link-email.ts";
 import { customerAmountOf } from "./extra-charges.ts";
-import { orderIncludesAreaSurcharge, orderSellDistance } from "./order-price-notes.ts";
+import { orderIncludesAreaSurcharge, orderPricingBasis, orderSellDistance } from "./order-price-notes.ts";
 import { sendMail } from "./mail.ts";
 import type { OrderLog } from "./orders.ts";
 import { newSiteLink } from "./site.ts";
@@ -201,9 +202,11 @@ function guestFeeNote(order: Order): string {
  * 客人确认邮件里的价格说明（M8-13，ADR 0073 第四部分；规范 site-booking-v2.md 10.5）：已付金额后面的「（含区域加价）」、「公里数」一行，
  * 和官网订单页同一个函数、同一个数（订单上锁定的，每公里用对外价）。没有的为空（`area_surcharge_note` 那一截不出现，`distance_note` 整行不出现）。
  */
-function guestPriceNotes(order: Order, sale: OrderSale): { area_surcharge_note: string; distance_note: string } {
+function guestPriceNotes(order: Order, sale: OrderSale): { area_surcharge_note: string; distance_note: string; pricing_basis_note: string } {
   const distance = orderSellDistance(order, sale);
-  return { area_surcharge_note: orderIncludesAreaSurcharge(order) ? AREA_SURCHARGE_MAIL_NOTE : "", distance_note: distance === null ? "" : includedKmNote(distance) };
+  // 计价方式（M8-30c，ADR 0080）：「（含里程费）」/「（按里程计价）」，文字用 pricingBasisNote；一口价为空。不写计程的单价和金额
+  const basis = pricingBasisNote(orderPricingBasis(order));
+  return { area_surcharge_note: orderIncludesAreaSurcharge(order) ? AREA_SURCHARGE_MAIL_NOTE : "", distance_note: distance === null ? "" : includedKmNote(distance), pricing_basis_note: basis === null ? "" : `（${basis}）` };
 }
 
 const changedFieldsText = (fields: unknown): string => (Array.isArray(fields) && fields.length > 0 ? fields.map((field) => ORDER_CHANGE_FIELD_NAMES[String(field)] ?? String(field)).join("、") : "订单信息");

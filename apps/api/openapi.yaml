@@ -5917,6 +5917,199 @@ paths:
           $ref: "#/components/responses/PriceInvalid"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/products/{id}/distance-prices:
+    get:
+      tags: [ 价格 ]
+      operationId: listDistancePrices
+      summary: 一个商品的全部计程价
+      description: |
+        需要操作 `product.read`（M8-30，ADR 0080）。计程价 = 按车型组的「起步价 + 每公里单价」（结算价），不挂区域，只有接送机、点对点商品有：
+        两端都不在商品的报价区域里（接送机：非机场一端不在）时按它报价（起步价 + ⌈路线公里⌉ × 每公里）；点对点只有一端在时，它的每公里单价也是区域外里程费的单价。
+        按创建的先后返回全部（含停用的、过期的）。只有结算价，没有对外价和加价比例。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 计程价
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DistancePrices"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    post:
+      tags: [ 价格 ]
+      operationId: createDistancePrice
+      summary: 新增一条计程价
+      description: |
+        需要操作 `product.manage`。要带 `Idempotency-Key` 和 `If-Match`（商品的版本号）。车型组必须是这个商品现在选的；
+        金额是整数（最小货币单位）、不为负，起步价和每公里单价不能都是 0。只有接送机、点对点商品能设（包车 400 `DISTANCE_PRICE_NOT_ALLOWED`）。
+        同一车型组的生效日期不能重叠（停用的也算），否则 409 `DISTANCE_PRICE_CONFLICT`。计程价不是上架条件。写审计日志（`resource` = `distance_price`）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DistancePriceInput"
+      responses:
+        "201":
+          description: 新增的计程价和商品的新版本号
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DistancePriceSaved"
+        "400":
+          $ref: "#/components/responses/PriceInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `VERSION_CONFLICT`：商品已经被别人改过（`details.current_version` 是现在的版本号）
+            - `DISTANCE_PRICE_CONFLICT`：同一车型组的生效日期重叠（`details.conflicts` 列出撞上的那几条）
+            - `CONCURRENT_UPDATE`：和别人同时进行的修改撞上了，什么都没有改动，请重试
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: |
+            `IDEMPOTENCY_KEY_REUSED`：这个幂等键已经用于另一个内容不同的请求
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+  /tenant/v1/products/{id}/distance-prices/{ruleId}:
+    put:
+      tags: [ 价格 ]
+      operationId: updateDistancePrice
+      summary: 修改一条计程价
+      description: |
+        需要操作 `product.manage`。`If-Match` 带商品的版本号。整体修改；校验同新增（没换车型组时，商品后来不再选的车型组也可以留）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/RuleId"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DistancePriceInput"
+      responses:
+        "200":
+          description: 改完的计程价和商品的新版本号（什么都没改时版本号不变）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DistancePriceSaved"
+        "400":
+          $ref: "#/components/responses/PriceInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `VERSION_CONFLICT`：商品已经被别人改过（`details.current_version` 是现在的版本号）
+            - `DISTANCE_PRICE_CONFLICT`：同一车型组的生效日期重叠
+            - `CONCURRENT_UPDATE`：和别人同时进行的修改撞上了，什么都没有改动，请重试
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+    delete:
+      tags: [ 价格 ]
+      operationId: deleteDistancePrice
+      summary: 删除一条计程价
+      description: |
+        需要操作 `product.manage`。`If-Match` 带商品的版本号。真的删除（审计日志里留有删除前的内容）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/RuleId"
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "200":
+          description: 商品的新版本号
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VersionOnly"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `VERSION_CONFLICT`：商品已经被别人改过（`details.current_version` 是现在的版本号）
+            - `CONCURRENT_UPDATE`：和别人同时进行的修改撞上了，什么都没有改动，请重试
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+  /tenant/v1/products/{id}/distance-prices/{ruleId}/enable:
+    post:
+      tags: [ 价格 ]
+      operationId: enableDistancePrice
+      summary: 启用一条计程价
+      description: |
+        需要操作 `product.manage`。不要求 `If-Match`（列表里的开关）；已经是这个状态的原样返回、版本号不变。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/RuleId"
+      responses:
+        "200":
+          description: 这条计程价和商品的新版本号
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DistancePriceSaved"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `DISTANCE_PRICE_CONFLICT`：同一车型组的生效日期重叠
+            - `CONCURRENT_UPDATE`：和别人同时进行的修改撞上了，什么都没有改动，请重试
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/products/{id}/distance-prices/{ruleId}/disable:
+    post:
+      tags: [ 价格 ]
+      operationId: disableDistancePrice
+      summary: 停用一条计程价
+      description: |
+        需要操作 `product.manage`。不要求 `If-Match`（列表里的开关）；已经是这个状态的原样返回、版本号不变。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/RuleId"
+      responses:
+        "200":
+          description: 这条计程价和商品的新版本号
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DistancePriceSaved"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
   /tenant/v1/price-overview:
     get:
       tags: [ 价格 ]
@@ -9175,8 +9368,15 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ order, events, records, changes, extra_charges, rescue, driver_link_email, vehicle_group, area_surcharge, pricing_route ]
+                required: [ order, events, records, changes, extra_charges, rescue, driver_link_email, vehicle_group, area_surcharge, pricing_route, pricing_basis, mileage ]
                 properties:
+                  pricing_basis:
+                    $ref: "#/components/schemas/PricingBasis"
+                  mileage:
+                    description: 计程部分（M8-30，ADR 0080；订单上锁定的结算价明细）：一口价 + 区域外里程费、按计程价的订单才有；一口价、M8-30 之前的订单为 null
+                    oneOf:
+                      - $ref: "#/components/schemas/OrderMileage"
+                      - type: "null"
                   pricing_route:
                     description: 点对点用的价格（M8-13）：线路价 / 区域价和区域名称，没有金额；没有为 null
                     oneOf:
@@ -9364,7 +9564,16 @@ paths:
                   - area_surcharge
                   - distance
                   - pricing_route
+                  - pricing_basis
+                  - mileage
                 properties:
+                  pricing_basis:
+                    $ref: "#/components/schemas/PricingBasis"
+                  mileage:
+                    description: 计程部分（M8-30，ADR 0080；订单上锁定的结算价明细）：一口价 + 区域外里程费、按计程价的订单才有；一口价、M8-30 之前的订单为 null
+                    oneOf:
+                      - $ref: "#/components/schemas/OrderMileage"
+                      - type: "null"
                   order:
                     $ref: "#/components/schemas/PlatformOrder"
                   pricing_route:
@@ -17865,7 +18074,7 @@ components:
     SalesQuote:
       type: object
       additionalProperties: false
-      required: [ quote_id, created_at, expires_at, vehicle_group_id, package_hours, service_date, urgent, price, free_wait_minutes, distance ]
+      required: [ quote_id, created_at, expires_at, vehicle_group_id, package_hours, service_date, urgent, price, free_wait_minutes, distance, pricing_basis ]
       description: 一个车型组的报价。没有中标租户、结算价、加价比例
       properties:
         quote_id:
@@ -17915,6 +18124,15 @@ components:
           oneOf:
             - $ref: "#/components/schemas/SalesQuoteDistance"
             - type: "null"
+        pricing_basis:
+          $ref: "#/components/schemas/PricingBasis"
+    PricingBasis:
+      type: string
+      enum: [ one_price, one_price_outside_km, distance_only ]
+      description: |
+        计价方式（M8-30，ADR 0080；新增字段）：`one_price` 一口价（区域价、线路价、含公里数、包车，和以前一样）；
+        `one_price_outside_km` 一口价 + 区域外里程费（只有一端在供应商的报价区域里，客人页标「含里程费」）；
+        `distance_only` 按计程价（起步价 + 每公里，两端都不在报价区域里，客人页标「按里程计价」）。只说方式，不给单价和金额，钱都已含在总价里
     SalesQuoteDistance:
       type: object
       additionalProperties: false
@@ -18876,7 +19094,7 @@ components:
         取整只在最后按 `rounding_unit` 做一次，尾差在 `adjust` 里。这里只有供应商自己的结算价。
         包车给了下车点时 `base` 含区域加价（调价作用在「基础定价 + 区域加价」的合计上），`area_surcharge` 是它的明细（M8-15，ADR 0073）。
         点对点用了含公里数的一口价时 `base` 含超出公里的钱，`distance` 是它的明细；用的是线路价时 `to_area_id` 是线路的下车区域（M8-11）。
-      required: [ currency, rounding_unit, total, base, adjust, urgent, night, addons, driver_language, exact, adjusts, urgent_tier, night_detail, addon_items, driver_language_code, usage, area_surcharge, to_area_id, distance, free_wait ]
+      required: [ currency, rounding_unit, total, base, adjust, urgent, night, addons, driver_language, exact, adjusts, urgent_tier, night_detail, addon_items, driver_language_code, usage, area_surcharge, to_area_id, distance, pricing_basis, mileage, free_wait ]
       properties:
         currency:
           type: string
@@ -19015,6 +19233,13 @@ components:
           oneOf:
             - $ref: "#/components/schemas/QuoteDistance"
             - type: "null"
+        pricing_basis:
+          $ref: "#/components/schemas/PricingBasis"
+        mileage:
+          description: 计程部分（M8-30，ADR 0080；结算价，已含在 `base` 里）：一口价 + 区域外里程费、按计程价时才有；一口价为 null
+          oneOf:
+            - $ref: "#/components/schemas/QuoteMileage"
+            - type: "null"
         free_wait:
           type: object
           additionalProperties: false
@@ -19031,6 +19256,49 @@ components:
               type: [ integer, "null" ]
             platform_minimum_minutes:
               type: integer
+    OrderMileage:
+      type: object
+      additionalProperties: false
+      required: [ route_meters, included_km, km, start_price, per_km, fee ]
+      description: |
+        订单上锁定的计程部分（结算价，M8-30）。一口价 + 区域外里程费：`km` = 路线距离 − 一口价含的公里数，向上取整到 1 公里，`fee` = `km` × `per_km`，`start_price` 为 0；
+        按计程价：`km` = 路线距离向上取整到 1 公里，`fee` = `start_price` + `km` × `per_km`
+      properties:
+        route_meters:
+          type: integer
+        included_km:
+          type: integer
+        km:
+          type: integer
+        start_price:
+          $ref: "#/components/schemas/SalesMoney"
+        per_km:
+          $ref: "#/components/schemas/SalesMoney"
+        fee:
+          $ref: "#/components/schemas/SalesMoney"
+    QuoteMileage:
+      type: object
+      additionalProperties: false
+      required: [ distance_price_id, route_meters, included_km, km, start_price, per_km, fee ]
+      description: |
+        计程部分（结算价，最小货币单位整数）。一口价 + 区域外里程费：`km` = 路线距离 − 一口价含的公里数（没设为 0），向上取整到 1 公里，`fee` = `km` × `per_km`，`start_price` 为 0。
+        按计程价：`km` = 路线距离向上取整到 1 公里，`fee` = `start_price` + `km` × `per_km`。路线距离报价时锁定
+      properties:
+        distance_price_id:
+          type: string
+          format: uuid
+        route_meters:
+          type: integer
+        included_km:
+          type: integer
+        km:
+          type: integer
+        start_price:
+          type: integer
+        per_km:
+          type: integer
+        fee:
+          type: integer
     QuoteDistance:
       type: object
       additionalProperties: false
@@ -19088,12 +19356,13 @@ components:
         package_hours:
           type: [ integer, "null" ]
         area_id:
-          type: string
+          type: [ string, "null" ]
           format: uuid
-          description: 用的是哪个区域的价（几个区域都能接时取最低的）
+          description: 用的是哪个区域的价（几个区域都能接时取最低的）；按计程价报的（`settlement.pricing_basis` = `distance_only`）没有区域，为 null（M8-30）
         price_rule_id:
           type: string
           format: uuid
+          description: 用的是哪条价格规则；按计程价报的是那条计程价的编号（M8-30）
         settlement:
           $ref: "#/components/schemas/QuoteSettlement"
     TenantQuotePreview:
@@ -23453,6 +23722,93 @@ components:
           description: 按执行的先后
           items:
             $ref: "#/components/schemas/AdjustRule"
+    DistancePriceInput:
+      type: object
+      additionalProperties: false
+      required: [ vehicle_group_id, start_price, per_km, valid_from ]
+      description: 一条计程价（M8-30，ADR 0080；结算价，子品牌币种的最小货币单位整数）
+      properties:
+        vehicle_group_id:
+          type: string
+          format: uuid
+        start_price:
+          type: number
+          description: 起步价（整数，可以是 0，但不能和每公里单价都是 0）
+        per_km:
+          type: number
+          description: 每公里单价（整数）
+        valid_from:
+          type: string
+          format: date
+          description: 生效日期（城市当地的用车日期，两端都含）
+        valid_to:
+          type: [ string, "null" ]
+          format: date
+          description: 到哪天为止（含）；不填 = 一直有效
+        status:
+          type: string
+          enum: [ enabled, disabled ]
+          default: enabled
+    DistancePrice:
+      type: object
+      additionalProperties: false
+      required: [ id, vehicle_group_id, start_price, per_km, valid_from, valid_to, status, created_at, updated_at ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        vehicle_group_id:
+          type: string
+          format: uuid
+        start_price:
+          type: integer
+        per_km:
+          type: integer
+        valid_from:
+          type: string
+          format: date
+        valid_to:
+          type: [ string, "null" ]
+          format: date
+        status:
+          type: string
+          enum: [ enabled, disabled ]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    DistancePrices:
+      type: object
+      additionalProperties: false
+      required: [ version, currency, today, items ]
+      properties:
+        version:
+          type: integer
+          description: 商品的版本号（改计程价时 `If-Match` 带它）
+        currency:
+          type: [ string, "null" ]
+          description: 子品牌的币种（金额的单位）
+        today:
+          type: string
+          format: date
+          description: 城市当地的今天
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/DistancePrice"
+    DistancePriceSaved:
+      type: object
+      additionalProperties: false
+      required: [ version, distance_price ]
+      properties:
+        version:
+          type: integer
+        distance_price:
+          oneOf:
+            - $ref: "#/components/schemas/DistancePrice"
+            - type: "null"
     AdjustRuleSaved:
       type: object
       additionalProperties: false
@@ -24498,8 +24854,10 @@ components:
       additionalProperties: false
       description: |
         渠道看到的订单：行程、乘客、客人支付的金额、付款状态。**没有结算价、加价比例**；中标租户只在付款成功后、渠道设置了「付款后展示」时出现。
-      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
+      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
       properties:
+        pricing_basis:
+          $ref: "#/components/schemas/PricingBasis"
         includes_area_surcharge:
           type: boolean
           description: 包车：这一单的价格里含区域加价（M8-13，ADR 0073 第四部分；取订单上锁定的值）。只说「含区域加价」，不单列金额；没有区域加价的、M8-15 之前的订单为 false（新增字段）
@@ -27905,8 +28263,10 @@ components:
     SiteQuote:
       type: object
       additionalProperties: false
-      required: [ quote_id, expires_at, service_date, urgent, vehicle_group, package, includes_area_surcharge, distance, price, free_wait_minutes, cancel_policy, available_addons ]
+      required: [ quote_id, expires_at, service_date, urgent, vehicle_group, package, includes_area_surcharge, distance, pricing_basis, price, free_wait_minutes, cancel_policy, available_addons ]
       properties:
+        pricing_basis:
+          $ref: "#/components/schemas/PricingBasis"
         distance:
           description: 点对点：价格是设了含公里数的一口价时，含多少公里、报价时的路线距离（米）、超出公里数、超出每公里的对外价（已含在 `price.total` 里）；没设为 null（M8-11）
           oneOf:
@@ -28153,8 +28513,10 @@ components:
       additionalProperties: false
       description: |
         客人在官网订单页看到的订单：和渠道看到的 `SalesOrder` 字段一样，只是落地信息里没有司机到达屏照片的文件编号（客人用不上，ADR 0032）。
-      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
+      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
       properties:
+        pricing_basis:
+          $ref: "#/components/schemas/PricingBasis"
         includes_area_surcharge:
           type: boolean
           description: 包车：这一单的价格里含区域加价（M8-13，ADR 0073 第四部分；取订单上锁定的值）。只说「含区域加价」，不单列金额；没有区域加价的、M8-15 之前的订单为 false（新增字段）

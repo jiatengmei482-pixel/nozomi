@@ -95,3 +95,4 @@
 | `0300_test_tenant.sql` | 测试环境专用的 QA 测试供应商（M8-16，ADR 0077；0290 留给 M8-20）：`tenants` 加 `is_test_tenant`（默认 false）；检查约束保证测试供应商只能是申请中、审核中、已签约、已清退（不能上架、不参与比价）；部分唯一索引保证全平台最多一家。不含任何数据：这一行只由 `pnpm qa:tenant-ensure` 显式建出 |
 | `0310_qa_acceptance_channel.sql` | 测试环境的验收通道（M8-26，ADR 0078）：商品多一个状态 `qa_listed`（验收可售），触发器保证只有 QA 测试供应商的商品能处在它（还有这种商品的测试供应商不能摘掉测试标记）；`orders.is_acceptance`（默认 false，建好后谁都不能改）、`quotes.is_acceptance`、`quote_logs.is_acceptance`；平台表 `qa_acceptance_sessions`（只存会话编号的 SHA-256）、`notification_suppressions`（验收单被压下的邮件的主题和正文，只给平台角色）。不含任何数据 |
 | `0320_site_page_width.sql` | 官网页面宽度（M8-28，ADR 0079）：`site_settings` 加 `page_width`（`standard` / `wide` / `full`，列默认 `standard`，带检查约束）。只加列，不含任何数据 |
+| `0330_distance_prices.sql` | 计程价（M8-30，ADR 0080）：租户表 `distance_prices`（商品 × 车型组的起步价、每公里单价，结算价整数；生效日期、启停；外键到同一租户的商品，删商品跟着删），行级安全只放行当前租户，平台角色只读（比价用）。不含任何数据 |

@@ -105,7 +105,7 @@ export const NOTIFICATION_CHANNELS = ["email"] as const;
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
 
 /** 客人邮件能用的变量。 */
-export const GUEST_VARIABLES = ["order_no", "passenger_name", "service_time", "route", "vehicle_group", "vehicle_similar", "vehicle_max_persons", "vehicle_max_luggage", "paid_amount", "view_url", "driver_name", "driver_phone", "vehicle_plate", "changed_fields", "change_decline_reason", "change_decline_advice", "extra_charge_amount", "extra_charge_type", "dispute_until", "fee_note", "area_surcharge_note", "distance_note"] as const;
+export const GUEST_VARIABLES = ["order_no", "passenger_name", "service_time", "route", "vehicle_group", "vehicle_similar", "vehicle_max_persons", "vehicle_max_luggage", "paid_amount", "view_url", "driver_name", "driver_phone", "vehicle_plate", "changed_fields", "change_decline_reason", "change_decline_advice", "extra_charge_amount", "extra_charge_type", "dispute_until", "fee_note", "area_surcharge_note", "distance_note", "pricing_basis_note"] as const;
 /** 供应商邮件能用的变量：行程和编号。**不能往这里加对外价、加价比例、客人付的钱**（规则 4）。 */
 export const TENANT_VARIABLES = ["order_no", "service_time", "route", "vehicle_group", "vehicle_similar", "vehicle_max_persons", "vehicle_max_luggage", "passengers", "order_url", "console_url", "dispatch_due_at", "confirm_due_at", "changed_fields", "driver_notice", "ticket_no", "document_type", "expires_on", "days_left", "tenant_status", "reasons", "payout_currency", "payout_account", "reject_reason", "charter_price_note"] as const;
 /** 平台员工邮件能用的变量。 */
@@ -129,8 +129,9 @@ export const OPTIONAL_LINE_VARIABLES = ["vehicle_similar", "vehicle_max_persons"
 /**
  * 可以为空、接在别的内容后面的变量：为空时替换成空字符串，**那一行照常出现**（只是少了这一截）。同样只能用在正文里。
  * - 含区域加价（M8-13，ADR 0073 第四部分）：客人的 `area_surcharge_note`，接在「已付金额」后面（「（含区域加价）」），没有区域加价的单为空。
+ * - 计价方式（M8-30c，ADR 0080）：客人的 `pricing_basis_note`，接在「已付金额」后面（「（含里程费）」/「（按里程计价）」），一口价的单为空。
  */
-export const OPTIONAL_SUFFIX_VARIABLES = ["area_surcharge_note"] as const;
+export const OPTIONAL_SUFFIX_VARIABLES = ["area_surcharge_note", "pricing_basis_note"] as const;
 
 const isOptionalLine = (name: string): boolean => (OPTIONAL_LINE_VARIABLES as readonly string[]).includes(name);
 const isOptionalSuffix = (name: string): boolean => (OPTIONAL_SUFFIX_VARIABLES as readonly string[]).includes(name);
@@ -164,7 +165,7 @@ const zhEmail = (event: NotificationEvent, audience: NotificationAudience, subje
 
 /** 全部模板。加语言 = 在这里加常量（ADR 0049「模板」）。 */
 export const NOTIFICATION_TEMPLATES: readonly NotificationTemplate[] = [
-  zhEmail("order.confirmed", "guest", "预订已确认：{{order_no}}", `{{passenger_name}}，您好：\n\n我们已收到您的付款，订单已确认。\n\n${TRIP}\n已付金额：{{paid_amount}}{{area_surcharge_note}}\n公里数：{{distance_note}}\n费用说明：{{fee_note}}\n\n派好司机后我们会再发邮件告诉您司机信息。${GUEST_FOOTER}`),
+  zhEmail("order.confirmed", "guest", "预订已确认：{{order_no}}", `{{passenger_name}}，您好：\n\n我们已收到您的付款，订单已确认。\n\n${TRIP}\n已付金额：{{paid_amount}}{{area_surcharge_note}}{{pricing_basis_note}}\n公里数：{{distance_note}}\n费用说明：{{fee_note}}\n\n派好司机后我们会再发邮件告诉您司机信息。${GUEST_FOOTER}`),
   zhEmail("order.assigned", "guest", "司机信息：{{order_no}}", `{{passenger_name}}，您好：\n\n您的订单已安排司机。如果之前收到过司机信息，请以这一封为准。\n\n${TRIP}\n司机：{{driver_name}}\n电话：{{driver_phone}}\n车牌：{{vehicle_plate}}${GUEST_FOOTER}`),
   zhEmail("order.service_reminder", "guest", "用车提醒：{{service_time}}（{{order_no}}）", `{{passenger_name}}，您好：\n\n您的用车时间快到了，请按时到达上车点。\n\n${TRIP}${GUEST_FOOTER}`),
   zhEmail("order.driver_arrived", "guest", "司机已到达：{{order_no}}", `{{passenger_name}}，您好：\n\n司机已经到达上车点。\n\n司机：{{driver_name}}\n电话：{{driver_phone}}\n车牌：{{vehicle_plate}}${GUEST_FOOTER}`),

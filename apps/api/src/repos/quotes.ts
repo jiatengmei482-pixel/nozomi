@@ -4,6 +4,7 @@
  */
 import { type AddonChargeUnit, type AreaBizType, type CurrencyCode, type InventoryDay, type Position, type QuoteArea, type QuoteProduct, type ServiceCategory, type ServiceRules, type TenantStatus, areaUsableByCategory, tenantBids } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
+import { listDistancePricesOf } from "./distance-prices.ts";
 import { ADJUST_COLUMNS, PRICE_COLUMNS, toAdjustRule, toPriceRule } from "./prices.ts";
 
 type Row = Record<string, any>;
@@ -124,6 +125,12 @@ export async function loadQuoteCandidates(db: Db, filter: QuoteCandidateFilter):
   const pricesByProduct = group(prices.rows, toPriceRule);
   const adjusts = await db.query<Row>(`select a.product_id, ${columns("a", ADJUST_COLUMNS)} from adjust_rules a where a.tenant_id = any($2::uuid[]) and a.product_id = any($1::uuid[]) order by a.product_id, a.position, a.id`, [ids, tenantIds]);
   const adjustsByProduct = group(adjusts.rows, toAdjustRule);
+  // 计程价（M8-30，ADR 0080）：只有接送机、点对点用；没设的商品不带这一项（事实和以前逐字节相同）
+  const distanceByProduct = new Map<string, { id: string; vehicleGroupId: string; startMinor: number; perKmMinor: number; validFrom: string; validTo: string | null; status: "enabled" | "disabled" }[]>();
+  for (const price of await listDistancePricesOf(db, tenantIds, ids)) {
+    const { productId, createdAt: _created, updatedAt: _updated, ...fact } = price;
+    distanceByProduct.set(productId, [...(distanceByProduct.get(productId) ?? []), fact]);
+  }
 
   const addonIds = [...new Set(products.rows.flatMap((row) => (row["service_rules"] as ServiceRules).addons.map((addon) => addon.addonId)))];
   const addons = addonIds.length === 0 ? { rows: [] as Row[] } : await db.query<Row>("select id, status, categories, charge_unit from addons where id = any($1::uuid[])", [addonIds]);
@@ -165,6 +172,7 @@ export async function loadQuoteCandidates(db: Db, filter: QuoteCandidateFilter):
         }),
         priceRules: pricesByProduct.get(row["id"]) ?? [],
         adjustRules: adjustsByProduct.get(row["id"]) ?? [],
+        ...(category !== "charter" && distanceByProduct.has(row["id"]) ? { distancePrices: distanceByProduct.get(row["id"]) ?? [] } : {}),
         inventoryMode: row["inventory_mode"],
       },
     };

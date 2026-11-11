@@ -22,6 +22,7 @@ export const RESOURCE_NAMES: Readonly<Record<string, string>> = {
   product: "商品",
   price_rule: "价格规则",
   adjust_rule: "调价规则",
+  distance_price: "计程价",
   holiday: "节假日",
   inventory: "库存",
   fx_fetch: "汇率拉取",
