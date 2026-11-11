@@ -267,7 +267,7 @@ test("下单带举牌姓名、乘车人姓名和电话（M8-32，ADR 0082）：�
   assert.ok(!row.passenger_enc.includes("李华"));
   const detail = await api.call("GET", `/platform/v1/orders/${orderId}`, { token: m.root });
   assert.equal(detail.status, 200, detail.text);
-  const masked = detail.body.order?.rider ?? detail.body.rider;
+  const masked = detail.body.order.rider;
   assert.ok(masked !== undefined && masked !== null, detail.text);
   assert.ok(masked.name !== "李华" && masked.phone !== "+819055556666" && masked.sign_name !== "LI HUA", "运营后台默认打码");
   const revealed = await api.call("POST", `/platform/v1/orders/${orderId}/passenger/reveal`, { token: m.root });

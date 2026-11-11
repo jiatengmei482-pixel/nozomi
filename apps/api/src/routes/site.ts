@@ -31,7 +31,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { CurrencyCode } from "@nozomi/domain";
 import { z } from "zod";
-import { FX_CURRENCIES, MESSAGING_APPS, PLACE_KINDS, PRICE_LIMITS, QUOTE_RULES, SERVICE_CATEGORIES, STATIC_MAP_RULES, STATIC_MAP_THEMES, type RouteMapReason, isGooglePlaceId, isPlaceSessionToken, normalizePlaceQuery, placeQueryIssue, viewLinkLookupEmail } from "@nozomi/domain";
+import { FX_CURRENCIES, MESSAGING_APPS, ORDER_FIELD_LIMITS, PLACE_KINDS, PRICE_LIMITS, QUOTE_RULES, SERVICE_CATEGORIES, STATIC_MAP_RULES, STATIC_MAP_THEMES, type RouteMapReason, isGooglePlaceId, isPlaceSessionToken, normalizePlaceQuery, placeQueryIssue, viewLinkLookupEmail } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { AppError } from "../errors.ts";
@@ -247,8 +247,8 @@ const orderSchema = z
     // 客人勾选「同意保存支付方式，用于服务后加收」（第五轮决策 ⑤）；没勾不能下单
     save_payment_method: z.boolean(),
     // 举牌姓名、为他人预订时的乘车人姓名和电话 / WhatsApp（M8-32，ADR 0082）；都选填，乘车人姓名和电话要么都给、要么都不给
-    sign_name: singleLineText(200),
-    passenger_name: singleLineText(200),
+    sign_name: singleLineText(ORDER_FIELD_LIMITS.nameMax),
+    passenger_name: singleLineText(ORDER_FIELD_LIMITS.nameMax),
     passenger_phone: singleLineText(40),
   })
   .strict();

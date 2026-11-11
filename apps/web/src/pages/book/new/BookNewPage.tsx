@@ -14,7 +14,7 @@
  * 链接参数 from / to / date / time / pax / bags / mode（parseBookingLink）：打开就预填并报价，齐了直接到第 2 步；不合法的只是不预填。
  * 四种状态：加载中（骨架）、官网没开 / 没有可订城市（空）、出错（说明 + 重试）、正常。页面上没有供应商、结算价、加价比例。
  */
-import { type CityCandidate, type CurrencyCode, ORDER_FIELD_LIMITS, fixedPriceIncludes, serviceCityOf } from "@nozomi/domain";
+import { type CityCandidate, type CurrencyCode, ORDER_FIELD_LIMITS, fixedPriceIncludes, isInternationalPhone, serviceCityOf } from "@nozomi/domain";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { ApiError } from "../../../api/client.ts";
@@ -478,7 +478,8 @@ export function BookNewPage() {
     if (!contact.forOther) return {};
     return {
       ...(contact.riderName.trim() === "" ? { riderName: "请填写乘车人姓名" } : {}),
-      ...(!/^\+?[\d\s()-]{6,}$/.test(contact.riderPhone.trim()) ? { riderPhone: "请填写乘车人的电话或 WhatsApp 号码，如 +81 90-1234-5678" } : {}),
+      // 和后端同一条规则（isInternationalPhone）：本地号码在这一步就拦下，不要到付款时才被退回
+      ...(!isInternationalPhone(contact.riderPhone) ? { riderPhone: "请填写乘车人的电话或 WhatsApp 号码，以 + 和国家码开头，如 +81 90-1234-5678" } : {}),
     };
   };
 
@@ -542,9 +543,10 @@ export function BookNewPage() {
         setContactNotice({ kind: "warning", text: failure.text });
       } else if (failure.kind === "fields") {
         setContactErrors(failure.errors);
+        setRiderErrors(failure.riderErrors);
         setContactNotice({ kind: "danger", text: failure.text });
-        // 乘客信息那几栏被后端退回：回到第 3 步标红（只有「同意保存」时留在这一步）
-        if (Object.keys(failure.errors).some((key) => key !== "consent")) {
+        // 乘客信息或乘车人那几栏被后端退回：回到第 3 步标红（只有「同意保存」时留在这一步）
+        if (Object.keys(failure.errors).some((key) => key !== "consent") || Object.keys(failure.riderErrors).length > 0) {
           setContactConfirmed(false);
           goStep(3);
         }

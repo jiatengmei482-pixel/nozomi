@@ -1036,6 +1036,12 @@ test("为他人预订：多出乘车人姓名和电话 / WhatsApp（必填），
   assert.ok(screen.getByText(/请填写乘车人的电话或 WhatsApp 号码/));
   assertAbsent(screen.queryByRole("heading", { name: "核对订单" }));
   await actor.type(screen.getByLabelText("乘车人姓名"), "李华");
+  // 本地号码（没有 + 和国家码）在这一步就拦下，和后端规则一致，不要到付款时才被退回
+  await actor.type(screen.getByLabelText("乘车人电话/WhatsApp"), "090-5555-6666");
+  await next(actor, NEXT_REVIEW);
+  assert.ok(screen.getByText(/请填写乘车人的电话或 WhatsApp 号码，以 \+ 和国家码开头/));
+  assertAbsent(screen.queryByRole("heading", { name: "核对订单" }));
+  await actor.clear(screen.getByLabelText("乘车人电话/WhatsApp"));
   await actor.type(screen.getByLabelText("乘车人电话/WhatsApp"), "+81 90-5555-6666");
   assert.equal((screen.getByLabelText("举牌姓名（选填）") as HTMLInputElement).value, "李华", "举牌姓名默认跟乘车人");
   await next(actor, NEXT_REVIEW);
