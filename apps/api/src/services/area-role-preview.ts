@@ -5,6 +5,10 @@
  * - 回放最近 N 天（默认 30）询价日志里的请求：对每个候选商品用「迁移后的区域用途」和「不做运营判断」各算一遍，
  *   对外的结果（报不报、金额、区域、价格规则、对外原因）必须 0 处不同；只在内部原因上变细的（如 `OUT_OF_SERVICE_AREA` → `NO_PRICING_AREA`）单独计数。
  *
+ * - M8-30（ADR 0080）另回放一遍：同一批请求、同一个候选商品，用「M8-30 之前的口径」（`legacyAreaRules`）和现在的优先级
+ *   （一口价 → 一口价 + 区域外里程费 → 计程价）各算一遍：之前报得出的每一个价（车型组、区域、规则、结算价）必须 0 处不同；
+ *   之前报不出、现在新报出的单独计数（这是业主要的变化）。上面 M8-20 的对比两边都按 M8-30 之前的口径算，只看区域用途带来的差别。
+ *
  * 只读：全部在一个平台的只读事务里（`begin … read only`），数据库拒绝任何写入；不写库、不写日志表、不发通知。
  * 迁移之前区域还没有「用途」这一列：按迁移后的样子（每个区域都是运营 + 报价）算；迁移之后按现在的用途算。
  * 回放用的是现在的商品和规则（不是询价当时的）、询价当时的时刻和路线；库存、节假日两边一样地不看——只比较区域判断带来的差别。
@@ -17,6 +21,7 @@ import {
   type QuoteRequest,
   type RouteEstimate,
   SERVICE_CATEGORIES,
+  type VehicleOffer,
   type ServiceCategory,
   instantToLocal,
   quoteProduct,
@@ -78,6 +83,8 @@ export interface RolePreview {
     externalDiffs: ReplayDiff[];
     /** 对外一样、只是内部原因变细的：「原来 → 现在」→ 次数 */
     refinements: Record<string, number>;
+    /** M8-30：之前报得出的价有变化的处数（必须是 0）、之前报不出现在新报出的价（按计价方式分） */
+    priority: { changedCount: number; changed: ReplayDiff[]; keptOffers: number; newOffers: Record<string, number> };
   };
 }
 
@@ -191,7 +198,7 @@ export async function buildRolePreview(db: Db, options: { days: number; now: Dat
   // 回放
   const since = new Date(options.now.getTime() - options.days * 86_400_000);
   const logs = await db.query<Row>("select id, created_at, city_id, category, request, route from quote_logs where created_at >= $1 order by created_at, id", [since]);
-  const replay: RolePreview["replay"] = { days: options.days, since: since.toISOString(), logs: logs.rows.length, replayed: 0, skipped: 0, evaluations: 0, externalDiffCount: 0, externalDiffs: [], refinements: {} };
+  const replay: RolePreview["replay"] = { days: options.days, since: since.toISOString(), logs: logs.rows.length, replayed: 0, skipped: 0, evaluations: 0, externalDiffCount: 0, externalDiffs: [], refinements: {}, priority: { changedCount: 0, changed: [], keptOffers: 0, newOffers: {} } };
   const cities = new Map<string, { timezone: string } | null>();
   const catalogs = new Map<string, QuoteCandidate[]>();
   for (const log of logs.rows) {
@@ -210,8 +217,11 @@ export async function buildRolePreview(db: Db, options: { days: number; now: Dat
     for (const candidate of catalogs.get(key) ?? []) {
       replay.evaluations += 1;
       const { operatingAreas: _operating, ...withoutOperating } = candidate.product;
-      const before = previewOutcome(quoteProduct(withoutOperating, parsed.request, moment));
-      const after = previewOutcome(quoteProduct(candidate.product, parsed.request, moment));
+      const legacy = { legacyAreaRules: true };
+      const before = previewOutcome(quoteProduct(withoutOperating, parsed.request, moment, legacy));
+      const legacyQuote = quoteProduct(candidate.product, parsed.request, moment, legacy);
+      const after = previewOutcome(legacyQuote);
+      comparePriority(replay.priority, log["id"], candidate.code, legacyQuote, quoteProduct(candidate.product, parsed.request, moment));
       if (before.external !== after.external) {
         replay.externalDiffCount += 1;
         if (replay.externalDiffs.length < MAX_LISTED_DIFFS) replay.externalDiffs.push({ logId: log["id"], productCode: candidate.code, before: before.external, after: after.external });
@@ -221,6 +231,25 @@ export async function buildRolePreview(db: Db, options: { days: number; now: Dat
     }
   }
   return { migrated, suppliers: [...suppliers.values()], totalAreas: areas.rows.length, published, replay };
+}
+
+/**
+ * M8-30 的对比：之前（M8-30 之前的口径）报出的每一个价，现在要逐项一样（车型组、套餐、区域、线路、规则、结算价、币种，且没有新的计价方式）；
+ * 之前商品层面报得出、现在报不出也算不同。之前报不出、现在报出来的按计价方式计数。
+ */
+export function comparePriority(target: RolePreview["replay"]["priority"], logId: string, productCode: string, before: ProductQuote, after: ProductQuote): void {
+  const key = (offer: VehicleOffer): string => JSON.stringify([offer.vehicleGroupId, offer.packageHours, offer.areaId, offer.settlement.toAreaId ?? null, offer.priceRuleId, offer.settlement.totalMinor, offer.settlement.currency, offer.settlement.pricingBasis ?? "one_price"]);
+  const beforeOffers = before.ok ? before.offers : [];
+  const afterOffers = after.ok ? after.offers : [];
+  const afterKeys = new Set(afterOffers.map(key));
+  const missing = beforeOffers.filter((offer) => !afterKeys.has(key(offer)));
+  if (missing.length > 0 || (before.ok && !after.ok)) {
+    target.changedCount += 1;
+    if (target.changed.length < MAX_LISTED_DIFFS) target.changed.push({ logId, productCode, before: JSON.stringify(beforeOffers.map(key)), after: after.ok ? JSON.stringify(afterOffers.map(key)) : after.reason });
+  }
+  target.keptOffers += beforeOffers.length - missing.length;
+  const beforeGroups = new Set(beforeOffers.map((offer) => offer.vehicleGroupId));
+  for (const offer of afterOffers) if (!beforeGroups.has(offer.vehicleGroupId)) count(target.newOffers, offer.settlement.pricingBasis ?? "one_price");
 }
 
 /** 清单的文字版（终端打印） */
@@ -243,6 +272,11 @@ export function renderRolePreview(preview: RolePreview): string {
   for (const diff of replay.externalDiffs) lines.push(`  - 询价 ${diff.logId} 商品 ${diff.productCode}：之前 ${diff.before}；之后 ${diff.after}`);
   const refined = Object.entries(replay.refinements);
   lines.push(`只在内部原因上变细的：${refined.length === 0 ? "没有" : refined.map(([change, n]) => `${change} ${n} 次`).join("；")}`);
+  const { priority } = replay;
+  lines.push(`M8-30 报价优先级：之前报得出的 ${priority.keptOffers} 个价不变；有变化 ${priority.changedCount} 处${priority.changedCount === 0 ? "（可以上线）" : "（有变化，不能上线）"}`);
+  for (const diff of priority.changed) lines.push(`  - 询价 ${diff.logId} 商品 ${diff.productCode}：之前 ${diff.before}；之后 ${diff.after}`);
+  const added = Object.entries(priority.newOffers);
+  lines.push(`之前报不出、现在新报出的价：${added.length === 0 ? "没有" : added.map(([basis, n]) => `${basis} ${n} 个`).join("；")}`);
   return lines.join("\n");
 }
 

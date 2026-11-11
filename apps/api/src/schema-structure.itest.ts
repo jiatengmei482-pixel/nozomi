@@ -98,6 +98,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     addons: ["SELECT"],
     // 调价规则：供应商自己的业务数据，可以真的删除（ADR 0018）
     adjust_rules: ["DELETE", "INSERT", "SELECT", "UPDATE"],
+    // 计程价（M8-30，ADR 0080）：同价格规则
+    distance_prices: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     // 区域：供应商自己的业务数据，可以真的删除（ADR 0015）
     area_polygons: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     areas: ["DELETE", "INSERT", "SELECT", "UPDATE"],
@@ -193,6 +195,7 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     addons: ["INSERT", "SELECT", "UPDATE"],
     // 报价用到的租户表对平台只读：比价要把所有供应商的商品放在一起算（ADR 0020）
     adjust_rules: ["SELECT"],
+    distance_prices: ["SELECT"],
     // 双人复核（ADR 0023）：发起、写结论；不删
     approvals: ["INSERT", "SELECT", "UPDATE"],
     area_polygons: ["SELECT"],
@@ -373,7 +376,7 @@ const CROSS_TENANT_POLICIES: Readonly<Record<string, PolicyShape>> = {
   "product_vehicle_groups.product_vehicle_groups_platform_read": { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null },
   // 报价用到的租户表：平台只读（ADR 0020）
   // 调度人：运营后台只读查看商品（ADR 0021）
-  ...Object.fromEntries(["brands", "areas", "area_polygons", "product_areas", "price_rules", "adjust_rules", "inventory_days", "product_dispatchers"].map((table) => [`${table}.${table}_platform_read`, { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null }])),
+  ...Object.fromEntries(["brands", "areas", "area_polygons", "product_areas", "price_rules", "adjust_rules", "distance_prices", "inventory_days", "product_dispatchers"].map((table) => [`${table}.${table}_platform_read`, { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null }])),
   // 订单：销售端下单、支付回调、超时取消、运营后台查看（ADR 0026）
   "orders.orders_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
   "order_events.order_events_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
@@ -579,7 +582,7 @@ test("空库执行完全部迁移：除角色清单和迁移记录外，每张�
     "platform_users", "platform_sessions", "tenants", "tenant_users", "tenant_sessions", "audit_logs", "login_throttles",
     "cities", "places", "vehicle_groups", "addons", "areas", "area_polygons", "idempotency_keys",
     "brands", "products", "product_areas", "product_vehicle_groups", "product_dispatchers",
-    "price_rules", "adjust_rules", "holidays", "inventory_days",
+    "price_rules", "adjust_rules", "distance_prices", "holidays", "inventory_days",
   ]) {
     assert.equal(counts[table], 0, `${table} 应当存在且为空`);
   }

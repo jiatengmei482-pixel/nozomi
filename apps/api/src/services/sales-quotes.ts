@@ -10,7 +10,7 @@
  */
 import { randomInt } from "node:crypto";
 import { performance } from "node:perf_hooks";
-import { type ComparisonRefusal, type SiteAudience, guestRouteReason, type CurrencyCode, type DistanceBreakdown, type FxQuote, type LatLng, type MarkupMatch, type QuoteSnapshot, type ServiceCategory, type TripDirection, formatMajor, instantToLocal, isPickupPlaceType, quoteCheckPoints, quoteSnapshotValid } from "@nozomi/domain";
+import { type ComparisonRefusal, type PricingBasis, type SiteAudience, guestRouteReason, type CurrencyCode, type DistanceBreakdown, type FxQuote, type LatLng, type MarkupMatch, type QuoteSnapshot, type ServiceCategory, type TripDirection, formatMajor, instantToLocal, isPickupPlaceType, quoteCheckPoints, quoteSnapshotValid } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
@@ -111,6 +111,8 @@ export interface SalesQuote {
    * 和超出每公里的**对外价**（客人支付币种的最小单位，单独取整，是说明，已含在 `sellMinor` 里）。没设含公里数为 null。不给结算价（对外接口只给对外价）
    */
   distance: { includedKm: number; routeMeters: number; overKm: number; overKmPerKmMinor: number } | null;
+  /** 计价方式（M8-30，ADR 0080）：一口价 / 一口价 + 区域外里程费（客人页标「含里程费」）/ 按计程价（「按里程计价」）。只说方式，不给计程的单价和金额 */
+  pricingBasis: PricingBasis;
   /**
    * 这个车型组还能加哪些附加服务（M8-02，ADR 0069 B15）：参加了这个车型组比价的候选商品里，有供应商提供（开着、目录里启用、适用这个品类）的附加服务编号，去重排序。
    * 只有编号，不带任何单价；只在刚询价时有（查报价 `getSalesQuote` 不给）
@@ -156,6 +158,7 @@ function toSalesQuote(snapshot: StoredQuoteSnapshot): SalesQuote {
     urgent: snapshot.urgent,
     includesAreaSurcharge: (winner.offer.settlement.areaSurcharge?.pickup.amountMinor ?? 0) + (winner.offer.settlement.areaSurcharge?.dropoff.amountMinor ?? 0) > 0,
     distance: salesDistance(winner.offer.settlement.distance ?? null, winner.sell.overKmPerKmMinor),
+    pricingBasis: winner.offer.settlement.pricingBasis ?? "one_price",
   };
 }
 

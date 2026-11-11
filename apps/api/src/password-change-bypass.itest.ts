@@ -110,6 +110,7 @@ const AREA_BODY = {
 
 /** 每个被拦的业务接口配一份「本来会成功」的请求体：证明被拦不是因为参数不对。 */
 const PRICE_BODY = { area_id: "99999999-9999-4999-8999-999999999999", vehicle_group_id: "99999999-9999-4999-8999-999999999999", pricing_model: "fixed", base_price: 1, valid_from: "2026-10-01" };
+const DISTANCE_BODY = { vehicle_group_id: "99999999-9999-4999-8999-999999999999", start_price: 1, per_km: 1, valid_from: "2026-01-01" };
 const ADJUST_BODY = { name: "不该出现的调价", cycle: { type: "daily" }, steps: [{ type: "percent", value: 1_000 }] };
 
 function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; holiday?: { country: string; date: string }; integration?: string }): [HttpMethod, string, unknown?][] {
@@ -350,6 +351,12 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
     ["DELETE", `/tenant/v1/products/${ids.userId}/adjust-rules/${ids.userId}`],
     ["POST", `/tenant/v1/products/${ids.userId}/adjust-rules/${ids.userId}/enable`],
     ["POST", `/tenant/v1/products/${ids.userId}/adjust-rules/${ids.userId}/disable`],
+    ["GET", `/tenant/v1/products/${ids.userId}/distance-prices`],
+    ["POST", `/tenant/v1/products/${ids.userId}/distance-prices`, DISTANCE_BODY],
+    ["PUT", `/tenant/v1/products/${ids.userId}/distance-prices/${ids.userId}`, DISTANCE_BODY],
+    ["DELETE", `/tenant/v1/products/${ids.userId}/distance-prices/${ids.userId}`],
+    ["POST", `/tenant/v1/products/${ids.userId}/distance-prices/${ids.userId}/enable`],
+    ["POST", `/tenant/v1/products/${ids.userId}/distance-prices/${ids.userId}/disable`],
     ["GET", "/tenant/v1/price-overview"],
     ["GET", `/tenant/v1/products/${ids.userId}/price-rules/export`],
     ["POST", `/tenant/v1/products/${ids.userId}/price-rules/import/preview`, {}],

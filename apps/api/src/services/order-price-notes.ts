@@ -6,7 +6,7 @@
  *   （和报价时 `sellEquivalentMinor` 同一个口径；不含最低毛利、渠道取整）。已含在总价里，只是说明，和总价可能差一个取整单位以内。
  * - 这里会读对外价（`order_sales`）：**不能用在 `/tenant/v1` 和供应商邮件里**（规则 4）。
  */
-import { type IncludedKmFacts, sellEquivalentMinor } from "@nozomi/domain";
+import { type IncludedKmFacts, type PricingBasis, sellEquivalentMinor } from "@nozomi/domain";
 import type { Order, OrderSale } from "../repos/orders.ts";
 
 /** 含公里数（对外价）；没设含公里数的、M8-11 之前的订单为 null。 */
@@ -26,4 +26,9 @@ export function orderSellDistance(order: Pick<Order, "settlement" | "settlementC
 export function orderIncludesAreaSurcharge(order: Pick<Order, "settlement">): boolean {
   const surcharge = order.settlement.areaSurcharge ?? null;
   return surcharge !== null && surcharge.pickup.amountMinor + surcharge.dropoff.amountMinor > 0;
+}
+
+/** 这一单的计价方式（M8-30，ADR 0080）：一口价 / 一口价 + 区域外里程费 / 按计程价。M8-30 之前的订单都是一口价。 */
+export function orderPricingBasis(order: Pick<Order, "settlement">): PricingBasis {
+  return order.settlement.pricingBasis ?? "one_price";
 }

@@ -281,6 +281,8 @@ function quoteJson(quote: SiteQuote): Json {
     includes_area_surcharge: quote.includesAreaSurcharge,
     // 点对点设了含公里数的价（M8-11，ADR 0073 第四部分）：含 X 公里、本次路线 D 米、超出 Z 公里 × 每公里对外价（已含在 price.total 里）；没设为 null
     distance: distanceJson(quote),
+    // 计价方式（M8-30，ADR 0080）：客人页按它标「含里程费」（one_price_outside_km）/「按里程计价」（distance_only）
+    pricing_basis: quote.pricingBasis,
     price: { total: salesMoney(quote.sellMinor, quote.currency), fx: quote.fx === null ? null : { rate: quote.fx.rate, as_of: quote.fx.asOf } },
     free_wait_minutes: quote.freeWaitMinutes,
     cancel_policy: { category: quote.cancelPolicy.category, level: quote.cancelPolicy.level, tiers: quote.cancelPolicy.tiers.map((tier) => ({ min_hours_before: tier.minHoursBefore, fee_bp: tier.feeBp })) },
