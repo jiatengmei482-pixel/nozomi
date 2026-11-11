@@ -662,6 +662,38 @@ test("POST /tenant/v1/areas/{id}/check-point：自测不了别的供应商的区
   assert.ok(!own.text.includes(areas.b.polygons[0].id));
 });
 
+test("区域共享库（M8-31，ADR 0083）：看得到别家的名称和形状但看不到是谁；引用的副本在自己名下；别家不能切换我的副本、也读不到它", async () => {
+  cover("GET /tenant/v1/shared-areas");
+  cover("GET /tenant/v1/shared-areas/:id");
+  cover("POST /tenant/v1/shared-areas/similar");
+  cover("POST /tenant/v1/areas/from-shared");
+  cover("POST /tenant/v1/areas/:id/sync-shared");
+  const areas = await seedAreas();
+  const list = await api.call("GET", `/tenant/v1/shared-areas?city_id=${areas.cityId}`, { token: a.adminToken });
+  assert.equal(list.status, 200, list.text);
+  const ids = list.body.items.map((item: any) => item.id);
+  assert.ok(ids.includes(areas.b.id) && !ids.includes(areas.a.id), list.text);
+  assert.ok(!list.text.includes(b.tenantId) && !list.text.includes(a.tenantId));
+  const detail = await api.call("GET", `/tenant/v1/shared-areas/${areas.b.id}`, { token: a.adminToken });
+  assert.equal(detail.status, 200, detail.text);
+  assert.ok(!detail.text.includes(b.tenantId) && !detail.text.includes(areas.b.polygons[0].id), "不带创建者和别家的图形编号");
+  const similar = await api.call("POST", "/tenant/v1/shared-areas/similar", { token: a.adminToken, body: { city_id: areas.cityId, name: { zh: "市区" } } });
+  assert.deepEqual([similar.status, similar.body.items.map((item: any) => item.id)], [200, [areas.b.id]]);
+  api.clock.advance(1_000);
+  const copy = await api.call("POST", "/tenant/v1/areas/from-shared", { token: a.adminToken, headers: { "idempotency-key": "shared-copy-0001" }, body: { shared_area_id: areas.b.id, name: { zh: "市区（引用）" }, biz_type: "general", tenant_id: b.tenantId } });
+  assert.equal(copy.status, 201, copy.text);
+  const owner = await api.db.owner.query("select tenant_id from areas where id = $1", [copy.body.id]);
+  assert.equal(owner.rows[0].tenant_id, a.tenantId, "副本建在令牌所属的供应商名下，请求体里的 tenant_id 不生效");
+  const missing = await api.call("POST", "/tenant/v1/areas/99999999-9999-4999-8999-999999999999/sync-shared", { token: b.adminToken, headers: { "if-match": "\"1\"" } });
+  const foreign = await api.call("POST", `/tenant/v1/areas/${copy.body.id}/sync-shared`, { token: b.adminToken, headers: { "if-match": `"${copy.body.version}"` } });
+  assert.deepEqual([foreign.status, foreign.text], [404, missing.text]);
+  assert.equal((await api.call("GET", `/tenant/v1/areas/${copy.body.id}`, { token: b.adminToken })).status, 404);
+  // 副本不进共享库；收尾删掉，不影响后面按区域计数的用例
+  const seenByB = await api.call("GET", `/tenant/v1/shared-areas?city_id=${areas.cityId}`, { token: b.adminToken });
+  assert.ok(!seenByB.body.items.some((item: any) => item.id === copy.body.id));
+  assert.equal((await api.call("DELETE", `/tenant/v1/areas/${copy.body.id}`, { token: a.adminToken })).status, 204);
+});
+
 test("GET /tenant/v1/dashboard/summary：只数自己的区域和商品", async () => {
   cover("GET /tenant/v1/dashboard/summary");
   await seedAreas();
