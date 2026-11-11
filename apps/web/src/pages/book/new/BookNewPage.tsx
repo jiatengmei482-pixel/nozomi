@@ -1128,7 +1128,7 @@ export function BookNewPage() {
           <Icon name="chevron-down" className={summaryOpen ? "book-summary-bar__arrow book-summary-bar__arrow--open" : "book-summary-bar__arrow"} />
         </button>
         {summaryOpen && (
-          <div id="book-summary-panel" className="book-summary-bar__panel">
+          <div id="book-summary-panel" className="book-summary-bar__panel book-summary">
             {summaryContent}
           </div>
         )}

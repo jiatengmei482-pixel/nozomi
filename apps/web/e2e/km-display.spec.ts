@@ -201,9 +201,12 @@ test("含公里数的点对点单：新预订页车型卡和车费下面「含 3
   await page.setViewportSize({ width: 1280, height: 900 });
 
   // ── 下单（页面上「去付款」），付款这一步不在本任务：用迁移账号标为已付款 ──
+  await page.getByRole("button", { name: "下一步：填写乘客信息" }).click();
   await page.getByLabel("乘车人姓名").fill("陈小红");
   await page.getByLabel("邮箱").fill(`km-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`);
   await page.getByLabel("手机号（含国家区号）").fill(`+81 90-${randomInt(1000, 9999)}-${randomInt(1000, 9999)}`);
+  await page.getByRole("button", { name: "下一步：核对订单" }).click();
+  await expect(page.getByRole("region", { name: "核对订单" })).toContainText(note);
   await page.getByRole("checkbox", { name: /同意保存/ }).check();
   const placed = page.waitForResponse((response) => new URL(response.url()).pathname === "/site/v1/orders" && response.request().method() === "POST");
   await page.getByRole("button", { name: "去付款 →" }).click();
