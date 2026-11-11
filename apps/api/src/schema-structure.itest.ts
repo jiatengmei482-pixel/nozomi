@@ -437,6 +437,8 @@ const DEFINER_FUNCTIONS = ["locate_tenant_user_by_email", "locate_tenant_user_by
 
 /** 不以 tenant_id 开头的索引：ADR 0009「有意的例外」里逐条说明过的。 */
 const INDEX_EXCEPTIONS = [
+  // 区域共享库跨租户按城市列出启用中的原创区域（平台事务只读；ADR 0083）
+  "areas_shared_library_idx",
   "audit_logs_actor_idx",
   "audit_logs_occurred_idx",
   "audit_logs_pkey",

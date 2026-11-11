@@ -53,6 +53,7 @@ import {
   type AreaShapes,
   areaNameTaken as nameTaken,
   areaShapeInput,
+  bumpShapeVersion,
   countProductsPricingWithArea,
   countAreasByStatus,
   deleteArea as deleteAreaRow,
@@ -346,6 +347,8 @@ export async function createArea(
   input: AreaInput,
   idempotency: { scope: string; key: string },
   respond: (view: AreaView) => Record<string, unknown>,
+  /** 从共享库引用（M8-31）：记住来源区域和图形版本 */
+  sharedSource: Area["sharedSource"] = null,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;
@@ -358,9 +361,11 @@ export async function createArea(
       const nameKeys = areaNameKeys(input.name);
       await lockAreaNames(db, tenantId, input.cityId);
       if (await nameTaken(db, tenantId, input.cityId, nameKeys, null)) throw areaNameTaken();
-      const area = await insertArea(db, tenantId, input.cityId, { name: input.name, nameKeys, bizType: input.bizType, role: input.role }, now);
+      const area = await insertArea(db, tenantId, input.cityId, { name: input.name, nameKeys, bizType: input.bizType, role: input.role }, now, sharedSource);
       await replaceAreaPolygons(db, tenantId, area.id, drafts);
-      await audit(db, ctx, writer, now, { areaId: area.id, action: "create", before: null, after: areaAudit(area, drafts) });
+      const created = areaAudit(area, drafts);
+      if (sharedSource !== null) created["shared_source"] = { shared_area_id: sharedSource.areaId, shape_version: sharedSource.shapeVersion };
+      await audit(db, ctx, writer, now, { areaId: area.id, action: "create", before: null, after: created });
       return { status: 201, body: respond(await detail(db, tenantId, area)) };
     }),
   );
@@ -390,7 +395,15 @@ function samePolygon(stored: AreaPolygon, draft: AreaPolygonDraft): boolean {
 }
 
 /** 修改区域：名称、业务类型、图形整体替换。城市创建后不能改。内容没变时原样返回，不加版本、不写日志。 */
-export async function updateArea(ctx: DbContext, writer: AreaWriter, id: string, expectedVersion: number, input: AreaUpdate): Promise<AreaView> {
+export async function updateArea(
+  ctx: DbContext,
+  writer: AreaWriter,
+  id: string,
+  expectedVersion: number,
+  input: AreaUpdate,
+  /** 切换到共享库的新版本时（M8-31）：图形换成来源的，引用来源的版本改成这个 */
+  sharedSourceVersion: number | null = null,
+): Promise<AreaView> {
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;
   return writeTx(ctx, tenantId, async (db) => {
@@ -429,14 +442,19 @@ export async function updateArea(ctx: DbContext, writer: AreaWriter, id: string,
       await lockAreaNames(db, tenantId, current.cityId);
       if (await nameTaken(db, tenantId, current.cityId, nameKeys, id)) throw areaNameTaken();
     }
-    const updated = await updateAreaRow(db, tenantId, id, { name: input.name, nameKeys, bizType: input.bizType, role }, current.status, now);
-    if (polygonsChanged) await replaceAreaPolygons(db, tenantId, id, drafts);
+    let updated = await updateAreaRow(db, tenantId, id, { name: input.name, nameKeys, bizType: input.bizType, role }, current.status, now);
+    // 图形变了：图形版本加一（共享库里别人看到的版本，ADR 0083）；已经引用了这个区域的供应商手上的副本不受影响
+    if (polygonsChanged) {
+      await replaceAreaPolygons(db, tenantId, id, drafts);
+      updated = await bumpShapeVersion(db, tenantId, id, sharedSourceVersion);
+    }
     const before: AuditValues = {};
     const after: AuditValues = {};
     if (nameChanged) [before["name"], after["name"]] = [current.name, updated.name];
     if (bizTypeChanged) [before["biz_type"], after["biz_type"]] = [current.bizType, updated.bizType];
     if (roleChanged) [before["role"], after["role"]] = [current.role, updated.role];
     if (polygonsChanged) [before["polygons"], after["polygons"]] = [stored.map(polygonAudit), drafts.map(polygonAudit)];
+    if (sharedSourceVersion !== null && current.sharedSource !== null) [before["shared_source_shape_version"], after["shared_source_shape_version"]] = [current.sharedSource.shapeVersion, sharedSourceVersion];
     await audit(db, ctx, writer, now, { areaId: id, action: "update", before, after });
     return detail(db, tenantId, updated);
   });

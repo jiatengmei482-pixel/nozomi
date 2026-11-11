@@ -6,7 +6,7 @@ import { AREA_BIZ_TYPES, AREA_BIZ_TYPE_NAMES, AREA_LIMITS, AREA_ROLES, type Area
 import { Component, type FormEvent, type ReactNode, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { ApiError, NetworkError } from "../../api/client.ts";
-import { type Area, type AreaCreate, type MapConfig, createArea, fetchMapConfig, getArea, listTenantCities, updateArea } from "../../api/areas.ts";
+import { type Area, type AreaCreate, type MapConfig, type SharedArea, type SimilarSharedArea, createArea, fetchMapConfig, getArea, listTenantCities, similarSharedAreas, syncAreaToShared, updateArea } from "../../api/areas.ts";
 import { type AreaMapItem, type AreaMapResponse, fetchTenantAreaMap } from "../../api/area-map.ts";
 import type { City } from "../../api/master.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
@@ -25,7 +25,7 @@ import { useToast } from "../../components/Toast.tsx";
 import { EMPTY_EDITOR, type EditorShape, type PastedPolygon, areaProblems, editorReducer, hasBlockingProblems, sameShapes, shapeName, shapeRing, shapeProblems, shapeWarnings, shapesToGeoJson, toPolygonInputs } from "../../lib/area-editor.ts";
 import { areaProblemText, ringProblemText, shapeProblemText } from "../../lib/area-messages.ts";
 import { type AreaDraft, clearAreaDraft, draftTimeText, readAreaDraft, writeAreaDraft } from "../../lib/area-draft.ts";
-import { AREA_LIST_PATH, AREA_MAP_PATH } from "../../lib/area-paths.ts";
+import { AREA_LIST_PATH, AREA_MAP_PATH, areaEditPath } from "../../lib/area-paths.ts";
 import { areaRing } from "../../lib/area-overview.ts";
 import { AREA_ROLE_FIELD_HINT, AREA_ROLE_OPTIONS, type OutsideImpact, editingOutside, outsideRejectedText, outsideText, readOutsideImpacts, roleInUseText, roleName, roleOf } from "../../lib/area-roles.ts";
 import { PRODUCT_LIST_PATH } from "../../lib/product-paths.ts";
@@ -38,6 +38,7 @@ import { useTenantCan } from "../../lib/use-master-access.ts";
 import { readListPage } from "../master/shared.tsx";
 import { AreaMap, type MapTool, Swatch } from "./AreaMap.tsx";
 import { PasteDialog, type PasteRequest } from "./PasteDialog.tsx";
+import { SharedAreaDialog } from "./SharedAreaDialog.tsx";
 import { type ProbeResult, SelfTest } from "./SelfTest.tsx";
 import { OutsideImpacts } from "./OutsideImpacts.tsx";
 import { ShapeList } from "./ShapeList.tsx";
@@ -138,6 +139,10 @@ export function AreaEditorPage() {
     return text === null ? null : { kind: "operate", initialText: text };
   });
   const [probe, setProbe] = useState<ProbeResult | null>(null);
+  // 区域共享库（M8-31）：新建时的相似区域提示、要引用的那一个；引用来的区域切换到库里的新版本
+  const [similar, setSimilar] = useState<SimilarSharedArea[]>([]);
+  const [sharingPick, setSharingPick] = useState<SharedArea | null>(null);
+  const [syncing, setSyncing] = useState(false);
   const [picked, setPicked] = useState<{ lat: number; lng: number; at: number } | null>(null);
   const [fitSignal, setFitSignal] = useState(0);
   const [mapBroken, setMapBroken] = useState(false);
@@ -170,6 +175,74 @@ export function AreaEditorPage() {
       setNotice({ kind: "info", text: "已载入最新内容。" });
     }
   }, [area, areaKey, adopted, conflict]);
+
+  // 新建时：填了名称或画了营运区，停手 0.8 秒后查一次共享库里有没有同名或重叠的区域（只是提示，不拦保存）
+  const similarKey =
+    mode === "new" && canManage && cityId !== null
+      ? JSON.stringify({
+          cityId,
+          name: Object.fromEntries(Object.entries(name).filter(([, value]) => typeof value === "string" && value.trim() !== "")),
+          rings: editor.shapes.filter((shape) => shape.kind === "operate").map(shapeRing).filter((ring) => ring.length >= 3),
+        })
+      : null;
+  useEffect(() => {
+    if (similarKey === null) {
+      setSimilar([]);
+      return;
+    }
+    const wanted = JSON.parse(similarKey) as { cityId: string; name: LocalizedText; rings: [number, number][][] };
+    if (Object.keys(wanted.name).length === 0 && wanted.rings.length === 0) {
+      setSimilar([]);
+      return;
+    }
+    let live = true;
+    const timer = setTimeout(() => {
+      similarSharedAreas(token, {
+        city_id: wanted.cityId,
+        name: Object.keys(wanted.name).length === 0 ? null : wanted.name,
+        polygons: wanted.rings.map((ring) => ({ kind: "operate" as const, geometry: { type: "Polygon" as const, coordinates: [[...ring, ring[0] as [number, number]]] } })),
+      })
+        .then((result) => {
+          if (live) setSimilar(result.items);
+        })
+        .catch(() => {
+          if (live) setSimilar([]);
+        });
+    }, 800);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [similarKey, token]);
+
+  const syncShared = async (): Promise<void> => {
+    if (!area) return;
+    setSyncing(true);
+    try {
+      await syncAreaToShared(token, area.id, area.version);
+      // 和「载入最新内容」同一条路：取回切换后的区域换到页面上
+      setConflict(true);
+      loaded.reload();
+    } catch (err) {
+      if (handleAuthFailure(err)) return;
+      const code = err instanceof ApiError ? err.code : null;
+      setNotice({
+        kind: "danger",
+        text:
+          code === "SHARED_AREA_UNAVAILABLE"
+            ? "来源区域已经不在共享库里了，你的区域保持现在的形状。"
+            : code === "VERSION_CONFLICT"
+              ? "这个区域刚被改过，请先刷新页面再切换。"
+              : code === "PRICING_AREA_OUTSIDE_OPERATING" || code === "AREA_IN_USE"
+                ? "切换后会让已上架商品的报价区域超出运营区域，没有切换。请先调整运营区域。"
+                : err instanceof NetworkError
+                  ? "网络连接失败，请检查网络后重试。"
+                  : "系统暂时无法切换，请稍后再试。",
+      });
+    } finally {
+      setSyncing(false);
+    }
+  };
   const wantedCity = mode === "new" ? search.get("city") : null;
   const wantedBiz = mode === "new" ? search.get("biz") : null;
   const presetRole = mode === "new" ? (wantedRole(search.get("role")) ?? wantedRole(typeof location.state === "object" && location.state !== null ? (location.state as { importRole?: unknown }).importRole : null)) : null;
@@ -547,6 +620,51 @@ export function AreaEditorPage() {
         )}
       </div>
       <div role="status">{notice && notice.kind === "info" && <Alert kind="info">{notice.text}</Alert>}</div>
+      {mode === "edit" && area?.shared_source && (area.shared_source.latest_shape_version ?? 0) > area.shared_source.shape_version && (
+        <div role="status">
+          <Alert kind="info">
+            <strong className="alert__title">共享库里这个区域有新版本的形状</strong>
+            <span>{`你引用的是第 ${area.shared_source.shape_version} 版，库里现在是第 ${area.shared_source.latest_shape_version} 版。切换后你的形状换成新的（名称、业务类型、用途不变，会做和保存一样的检查）；不切换就保持现在的形状。`}</span>
+            {!readOnly && (
+              <span className="alert__actions">
+                <Button size="sm" loading={syncing} loadingText="切换中…" onClick={() => void syncShared()}>
+                  切换到新版本
+                </Button>
+              </span>
+            )}
+          </Alert>
+        </div>
+      )}
+      {mode === "edit" && area?.shared_source && area.shared_source.latest_shape_version === null && (
+        <p className="field__hint">这个区域引用自共享库；来源已不在库里，你的区域照常可用。</p>
+      )}
+      {mode === "new" && similar.length > 0 && (
+        <div role="status">
+          <Alert kind="info">
+            <strong className="alert__title">共享库里已有相似的区域</strong>
+            <span>可以直接引用，不用自己画；引用后是你自己的区域，还能再改。</span>
+            <span className="alert__actions">
+              {similar.map((item) => (
+                <Button key={item.id} size="sm" onClick={() => setSharingPick(item)}>
+                  {`引用「${displayName(item.name).text}」${item.reasons.includes("name") ? "（同名）" : "（范围重叠）"}`}
+                </Button>
+              ))}
+            </span>
+          </Alert>
+        </div>
+      )}
+      {mode === "new" && (
+        <SharedAreaDialog
+          open={sharingPick !== null}
+          cities={cities.state.data}
+          initial={{ cityId: cityId ?? "", picked: sharingPick }}
+          onClose={() => setSharingPick(null)}
+          onCreated={(created) => {
+            setSharingPick(null);
+            void navigate(areaEditPath(created.id), { state: location.state });
+          }}
+        />
+      )}
       {foundDraft !== null && (
         <div role="status">
           <Alert kind="info">

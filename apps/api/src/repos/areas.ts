@@ -17,6 +17,10 @@ export interface Area {
   role: AreaRole;
   status: AreaStatus;
   version: number;
+  /** 图形版本（M8-31，ADR 0083）：只有图形变了才加一；共享库里的「版本」就是它 */
+  shapeVersion: number;
+  /** 从共享库引用来的副本：来源区域和引用（或上次切换）时的图形版本；自己画的为 null */
+  sharedSource: { areaId: string; shapeVersion: number } | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -57,7 +61,7 @@ export interface AreaCity {
 
 type Row = Record<string, any>;
 
-const AREA_COLUMNS = "id, city_id, name, biz_type, role, status, version, created_at, updated_at";
+const AREA_COLUMNS = "id, city_id, name, biz_type, role, status, version, shape_version, shared_source_area_id, shared_source_shape_version, created_at, updated_at";
 
 export function toArea(row: Row): Area {
   return {
@@ -68,6 +72,8 @@ export function toArea(row: Row): Area {
     role: row["role"],
     status: row["status"],
     version: row["version"],
+    shapeVersion: row["shape_version"],
+    sharedSource: row["shared_source_area_id"] === null || row["shared_source_area_id"] === undefined ? null : { areaId: row["shared_source_area_id"], shapeVersion: row["shared_source_shape_version"] },
     createdAt: row["created_at"],
     updatedAt: row["updated_at"],
   };
@@ -80,12 +86,12 @@ export interface AreaValues {
   role: AreaRole;
 }
 
-export async function insertArea(db: Db, tenantId: string, cityId: string, values: AreaValues, now: Date): Promise<Area> {
+export async function insertArea(db: Db, tenantId: string, cityId: string, values: AreaValues, now: Date, sharedSource: Area["sharedSource"] = null): Promise<Area> {
   const result = await db.query<Row>(
-    `insert into areas (tenant_id, city_id, name, name_keys, biz_type, role, status, created_at, updated_at)
-     values ($1, $2, $3::jsonb, $4, $5, $6, 'active', $7, $7)
+    `insert into areas (tenant_id, city_id, name, name_keys, biz_type, role, status, created_at, updated_at, shared_source_area_id, shared_source_shape_version)
+     values ($1, $2, $3::jsonb, $4, $5, $6, 'active', $7, $7, $8, $9)
      returning ${AREA_COLUMNS}`,
-    [tenantId, cityId, JSON.stringify(values.name), values.nameKeys, values.bizType, values.role, now],
+    [tenantId, cityId, JSON.stringify(values.name), values.nameKeys, values.bizType, values.role, now, sharedSource?.areaId ?? null, sharedSource?.shapeVersion ?? null],
   );
   return toArea(result.rows[0] as Row);
 }
@@ -99,6 +105,20 @@ export async function updateArea(db: Db, tenantId: string, id: string, values: A
       where tenant_id = $1 and id = $2
       returning ${AREA_COLUMNS}`,
     [tenantId, id, status, now, values === null ? null : JSON.stringify(values.name), values?.nameKeys ?? null, values?.bizType ?? null, values?.role ?? null],
+  );
+  return toArea(result.rows[0] as Row);
+}
+
+/**
+ * 图形变了之后（调用方已经改过行、换过图形）：图形版本加一（M8-31）。`sharedSource` 给了时同时改引用来源的版本
+ * （切换到共享库的新版本）；给 null 时保持原样。
+ */
+export async function bumpShapeVersion(db: Db, tenantId: string, id: string, sharedSourceVersion: number | null): Promise<Area> {
+  const result = await db.query<Row>(
+    `update areas set shape_version = shape_version + 1, shared_source_shape_version = coalesce($3, shared_source_shape_version)
+      where tenant_id = $1 and id = $2
+      returning ${AREA_COLUMNS}`,
+    [tenantId, id, sharedSourceVersion],
   );
   return toArea(result.rows[0] as Row);
 }

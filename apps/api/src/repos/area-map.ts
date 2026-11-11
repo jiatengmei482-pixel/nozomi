@@ -43,7 +43,7 @@ export async function listAreaMapRows(db: Db, filter: AreaMapFilter, max: number
   if (filter.status !== undefined) where("a.status = ?", filter.status);
   params.push(max + 1);
   const result = await db.query<Row>(
-    `select a.tenant_id, a.id, a.city_id, a.name, a.biz_type, a.role, a.status, a.version, a.created_at, a.updated_at,
+    `select a.tenant_id, a.id, a.city_id, a.name, a.biz_type, a.role, a.status, a.version, a.shape_version, a.shared_source_area_id, a.shared_source_shape_version, a.created_at, a.updated_at,
             (select count(*)::int from area_polygons p where p.tenant_id = a.tenant_id and p.area_id = a.id and p.kind = 'operate') as operate_count,
             (select count(*)::int from area_polygons p where p.tenant_id = a.tenant_id and p.area_id = a.id and p.kind = 'forbid') as forbid_count
        from areas a
