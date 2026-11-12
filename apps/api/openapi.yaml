@@ -2027,7 +2027,7 @@ paths:
         回放最近 `days` 天询价日志里的请求（M8-20 的区域用途对比、M8-30 的报价优先级对比）。`replay.externalDiffCount`、`replay.priority.changedCount` 都是 0 才算通过。
         **只读**：回放在平台的只读快照事务里（数据库拒绝任何写入），不写业务表；没有客人信息、没有坐标。
         每次调用先占一次限速额度（每个员工 10 分钟 3 次，超过 429），并写一条审计（对象 `area`、操作 `view`，改后值里是 `report`、`days`）。
-        回放有 45 秒的时限，超过返回 503 `REPORT_TIMEOUT`，没有结果——把 `days` 改小再试。
+        回放有 45 秒的时限：每条查询之前看剩下的时间，数据库端的单条语句时限（`statement_timeout`）也跟着剩下的时间往下收；超过返回 503 `REPORT_TIMEOUT`，没有结果——把 `days` 改小再试。
       security:
         - platformToken: []
       parameters:
@@ -2046,6 +2046,24 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AreaRolePreview"
+        "400":
+          description: "`VALIDATION_FAILED`：`days` 不是 1–90 的整数（十进制，最多两位），或带了别的查询参数。`details.issues[]` 每条有 `path`、`message`。不占限速、不写审计"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: "`UNAUTHENTICATED`：没带令牌、令牌无效或过期（供应商的令牌也是）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: "`FORBIDDEN`：角色没有 `quote.preview`；`DATA_SCOPE_DENIED`：角色限定了数据范围；`MFA_REQUIRED`、`PASSWORD_CHANGE_REQUIRED`：会话还没完成两步验证、还在用临时密码"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "429":
           $ref: "#/components/responses/RateLimited"
         "503":

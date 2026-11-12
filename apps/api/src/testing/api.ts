@@ -119,6 +119,8 @@ export interface TestApiOptions {
   integrationSecretsTtlMs?: number;
   /** 发邮件的替身（本机假 SMTP 的证书、缩短的时限）；不给时用真的（testEnv 的主机不解析） */
   mailer?: Mailer;
+  /** 只读核对回放的时限（毫秒，ADR 0086）；不给用默认的 45 秒 */
+  rolePreviewBudgetMs?: number;
 }
 
 export async function createTestApi(options: TestApiOptions = {}): Promise<TestApi> {
@@ -144,6 +146,7 @@ export async function createTestApi(options: TestApiOptions = {}): Promise<TestA
     webhookSender: options.webhookSender ?? localWebhookSender(),
     ...(options.integrationSecretsTtlMs === undefined ? {} : { integrationSecretsTtlMs: options.integrationSecretsTtlMs }),
     ...(options.mailer === undefined ? {} : { mailer: options.mailer }),
+    ...(options.rolePreviewBudgetMs === undefined ? {} : { rolePreviewBudgetMs: options.rolePreviewBudgetMs }),
     logDestination: { write: (line) => void (logs += line) },
   });
 

@@ -3,14 +3,16 @@
  * - 未登录 401、供应商的令牌 401；没有 `quote.preview` 403；限定了数据范围 403 `DATA_SCOPE_DENIED`；只勾了「报价试算」的自建角色能用；
  * - 结果和命令行用的 `buildRolePreview` 完全一样（同一时刻、同一天数），没有坐标、没有客人信息；
  * - 只读：除了审计和限速表，数据库里一个字节都没变；每次调用写一条审计；
- * - 天数校验（1–90、默认 30）；限速（每人 10 分钟 3 次，超过 429 + Retry-After，各人各算）；回放超时 503 `REPORT_TIMEOUT`。
+ * - 天数校验（1–90、默认 30）；限速（每人 10 分钟 3 次，超过 429 + Retry-After，各人各算）；
+ * - 时限：真实请求在时限到了时得到 503 `REPORT_TIMEOUT`（时限可注入）；只读事务里的 `statement_timeout` 跟着剩下的时间收，慢查询也会被数据库取消。
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { performance } from "node:perf_hooks";
 import { withPlatformTx } from "./db/context.ts";
 import { RolePreviewTimeout, buildRolePreview } from "./services/area-role-preview.ts";
-import { reportTimeout } from "./services/area-role-preview-report.ts";
+import { ROLE_PREVIEW_REPORT_BUDGET_MS, reportTimeout, withDeadline } from "./services/area-role-preview-report.ts";
 import { errorBody } from "./errors.ts";
 import { TEST_PASSWORD, type TestApi, createTestApi } from "./testing/api.ts";
 import { type Market, allValues, buildMarket, newChannel, ok, salesCredentials } from "./testing/market.ts";
@@ -131,11 +133,53 @@ test("限速：每人 10 分钟 3 次，第 4 次 429 + Retry-After（不写审�
   await ok(get(token, "?days=1"));
 });
 
-test("回放超时：停在下一条询价之前，抛出超时；接口的 503 REPORT_TIMEOUT 符合定义", async () => {
+test("回放超时：停在下一条询价之前，抛出超时；503 REPORT_TIMEOUT 的写法符合定义", async () => {
   await assert.rejects(withPlatformTx(api.db.pool, (db) => buildRolePreview(db, { days: 30, now: api.clock.now(), expired: () => true }), { snapshot: true }), RolePreviewTimeout);
-  const error = reportTimeout(30);
+  assert.equal(ROLE_PREVIEW_REPORT_BUDGET_MS, 45_000);
+  const error = reportTimeout(30, ROLE_PREVIEW_REPORT_BUDGET_MS);
   assert.equal(error.statusCode, 503);
   const body = errorBody(error.code, error.message, error.details);
   assertMatchesOperation("GET", TEMPLATE, 503, body);
   assert.deepEqual(body.error.details, { days: 30, budget_seconds: 45 });
+});
+
+test("时限到了的真实请求：503 REPORT_TIMEOUT（时限注入为 0）；没有结果、只留审计和限速计数", async () => {
+  const short = await createTestApi({ rolePreviewBudgetMs: 0 });
+  try {
+    const root = await short.superAdminToken();
+    const res = await short.call("GET", `${PATH}?days=7`, { token: root });
+    assert.equal(res.status, 503, res.text);
+    assert.equal(res.body.error.code, "REPORT_TIMEOUT");
+    assert.deepEqual(res.body.error.details, { days: 7, budget_seconds: 0 });
+    assertMatchesOpenApi("GET", TEMPLATE, res);
+    const audits = await short.db.owner.query("select after from audit_logs where resource = 'area' and action = 'view'");
+    assert.deepEqual(audits.rows, [{ after: { report: "area_role_preview", days: 7 } }]);
+    const slots = await short.db.owner.query("select attempt_count from sales_rate_limits where bucket like 'staff_role_preview:%'");
+    assert.deepEqual(slots.rows, [{ attempt_count: 1 }]);
+  } finally {
+    await short.close();
+  }
+});
+
+test("statement_timeout 跟着时限收：事务开头是「默认 10 秒」和「剩下的时间」中较小的一个；慢查询被数据库取消也算超时，不会越过时限", async () => {
+  const timeoutOf = (deadlineMs: number) =>
+    withPlatformTx(api.db.pool, async (db) => {
+      const guarded = await withDeadline(db, performance.now() + deadlineMs);
+      return (await guarded.query<{ statement_timeout: string }>("show statement_timeout")).rows[0]?.statement_timeout;
+    }, { snapshot: true });
+  assert.equal(await timeoutOf(45_000), "10s");
+  const near = await timeoutOf(3_000);
+  assert.match(near ?? "", /^\d+ms$/);
+  assert.ok(Number.parseInt(near ?? "", 10) <= 3_000, near);
+  const started = performance.now();
+  await assert.rejects(
+    withPlatformTx(api.db.pool, async (db) => {
+      const guarded = await withDeadline(db, performance.now() + 300);
+      await guarded.query("select pg_sleep(5)");
+    }, { snapshot: true }),
+    RolePreviewTimeout,
+  );
+  assert.ok(performance.now() - started < 2_000, "慢查询在时限附近就被取消");
+  // 时限已经过了：不再发查询，直接超时
+  await assert.rejects(withPlatformTx(api.db.pool, async (db) => (await withDeadline(db, performance.now() - 1)).query("select 1"), { snapshot: true }), RolePreviewTimeout);
 });

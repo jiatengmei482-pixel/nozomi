@@ -8,7 +8,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AppContext } from "../context.ts";
 import { ROLE_PREVIEW_DEFAULT_DAYS, ROLE_PREVIEW_MAX_DAYS } from "../services/area-role-preview.ts";
-import { runRolePreviewReport } from "../services/area-role-preview-report.ts";
+import { ROLE_PREVIEW_REPORT_BUDGET_MS, runRolePreviewReport } from "../services/area-role-preview-report.ts";
 import { dataScopeDenied } from "../services/errors.ts";
 import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import { parseInput } from "../validation.ts";
@@ -24,11 +24,11 @@ const previewQuerySchema = z
   })
   .strict();
 
-export function registerReportRoutes(app: FastifyInstance, ctx: AppContext): void {
+export function registerReportRoutes(app: FastifyInstance, ctx: AppContext, budgetMs: number = ROLE_PREVIEW_REPORT_BUDGET_MS): void {
   app.get("/platform/v1/reports/area-role-preview", async (request) => {
     const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "quote.preview" });
     if (scopeIsRestricted(principal.grant.scope)) throw dataScopeDenied();
     const query = parseInput(previewQuerySchema, request.query, "querystring");
-    return runRolePreviewReport(ctx, principal, query.days, request.ip);
+    return runRolePreviewReport(ctx, principal, query.days, request.ip, budgetMs);
   });
 }
