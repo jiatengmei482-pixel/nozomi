@@ -40,7 +40,10 @@ export async function createWorld(request: APIRequestContext): Promise<World> {
     const data = { code: `CTY-JP-${tag}`, country_code: "JP", name: { zh: `商品城市${tag}` }, timezone: "Asia/Tokyo", center: CENTER };
     const response = await request.post("/platform/v1/master/cities", { headers, data });
     if (response.status() === 201) city = { id: ((await response.json()) as { id: string }).id, code: data.code, name: data.name.zh };
-    else expect(`${response.status()} ${((await response.json()) as { error?: { code?: string } }).error?.code}`, "新建城市只容许编码已被使用").toBe("409 CODE_TAKEN");
+    else {
+      const text = await response.text();
+      expect(response.status() === 409 && text.includes('"CODE_TAKEN"'), `新建城市只容许编码已被使用：${response.status()} ${text}`).toBe(true);
+    }
   }
   if (city === null) throw new Error("没有建出城市");
   // 机场编码是三字码，全库唯一：并行的用例撞上了就换一个
