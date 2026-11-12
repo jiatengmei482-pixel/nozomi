@@ -1,0 +1,15 @@
+{
+  "source": "GET /platform/v1/reports/area-role-preview?days=30（测试环境，2026-11-12 18:22 UTC，部署 22690318）",
+  "days": 30,
+  "since": "2026-10-13T18:22:55.303Z",
+  "logs": 767,
+  "replayed": 767,
+  "skipped": 0,
+  "evaluations": 1420,
+  "externalDiffCount": 0,
+  "priority": {
+    "changedCount": 0,
+    "keptOffers": 4012,
+    "newOffers": {}
+  }
+}

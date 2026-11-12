@@ -264,6 +264,8 @@ test("每日上限的计数在并发下不超：上限 3 时 8 组不同的起�
     dailyLimit: 3,
     compute: (key, from, to, beforeAttempt) => computeRoute(key, from, to, { url: google.url, beforeAttempt }),
     log: { warn: () => undefined },
+    // 数调用次数：数据库时限放宽（M8-29，生产仍是 500 毫秒；默认值的行为见 route-estimates.qa.itest.ts）
+    dbTimeoutMs: 5_000,
   });
   const results = await Promise.all(Array.from({ length: 8 }, (_, i) => estimator.estimate({ from: { lat: 35.5, lng: 139.5 }, to: { lat: 35.7, lng: 139.3 + i * 0.01 } })));
   assert.equal(results.filter((result) => result.ok).length, 3);

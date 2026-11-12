@@ -241,8 +241,28 @@ async function seedSmallAndBig(request: APIRequestContext, headers: Record<strin
   return { big, small, smallName };
 }
 
+/**
+ * 等地图停下：换了一批区域（运营后台选了供应商）后地图把它们放进视野，缩放级别不变时 Leaflet 用约 0.25 秒平移过去
+ * （`leaflet-pan-anim`，按帧改位置，不是 CSS 动画，`getAnimations` 看不到）。平移途中量出的位置，等点下去时区域已经挪开了几十像素，
+ * 点到旁边的大区域（M8-29，run 43002718531）。隔两帧地图层的位置没变、也不在平移，才算停下。
+ */
+async function mapAtRest(page: Page): Promise<void> {
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const pane = document.querySelector<HTMLElement>(".area-overview-map .leaflet-map-pane");
+        const read = (): string => `${pane?.classList.contains("leaflet-pan-anim") ? "panning" : "idle"} ${pane?.style.transform ?? ""}`;
+        const before = read();
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        return before === read() && before.startsWith("idle") ? "at rest" : "moving";
+      }),
+    )
+    .toBe("at rest");
+}
+
 /** 地图没有完全在视野里、先不滚动，按下鼠标点小区域的正中：选中的是它，内容区一点没滚。 */
 async function clickSmallWithoutJump(page: Page, small: string, smallName: string): Promise<void> {
+  await mapAtRest(page);
   const map = page.locator(".area-overview-map");
   const mapBox = await map.boundingBox();
   if (!mapBox) throw new Error("找不到地图");
