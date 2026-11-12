@@ -216,6 +216,26 @@ test("预览：只校验不写入——逐行给出新增 / 修改 / 没变 / �
   assert.equal(conflicts.can_import, false);
 });
 
+test("M8-25：一行出错（保存同一套检查报的，比如金额超出范围）时，其余行照样查生效日期重叠——和库里已有的价格重叠的是「冲突」，不是「新增」", async () => {
+  const id = await product();
+  const existing = (await ok(call("POST", `/products/${id}/price-rules`, { version: 1, body: { area_id: ids["a1"], vehicle_group_id: ids["biz7"], direction: "pickup", pricing_model: "fixed", base_price: 20_000, valid_from: "2026-10-01", valid_to: "2026-12-31" } }), 201)).price_rule;
+  const body = await preview(id, sheet([
+    TRANSFER_HEADER,
+    fixedRow({ 方向: "送机", 基础价: num(0) }), // 2 出错：金额要大于 0
+    fixedRow({ 方向: "接机", 生效开始: "2026-11-01" }), // 3 和库里的那条重叠
+    fixedRow({ 车型组: "VG-ECO-4", 方向: "接机" }), // 4 新增
+    fixedRow({ 方向: "送机", 基础价: num(0), 生效开始: "2026-11-01" }), // 5 出错，也和第 2 行同组合：出错的行不参加重叠检查，仍是「出错」
+  ]));
+  assert.deepEqual(body.summary, { rows: 4, create: 1, update: 0, unchanged: 0, error: 2, conflict: 1 });
+  assert.deepEqual(body.rows.map((row: any) => [row.row, row.action, row.issues.map((issue: any) => `${issue.cell} ${issue.reason}`), row.conflicts_with.map((other: any) => other.price_rule_id ?? other.row)]), [
+    [2, "error", ["F2 OUT_OF_RANGE"], []],
+    [3, "conflict", [], [existing.id]],
+    [4, "create", [], []],
+    [5, "error", ["F5 OUT_OF_RANGE"], []],
+  ]);
+  assert.equal(body.can_import, false);
+});
+
 test("确认导入：文件指纹和商品版本号都对才写入，全部成功或全部失败；带幂等键；每条变了的价格各有一条审计日志", async () => {
   const id = await product();
   const existing = (await ok(call("POST", `/products/${id}/price-rules`, { version: 1, body: { area_id: ids["a1"], vehicle_group_id: ids["biz7"], direction: "pickup", pricing_model: "fixed", base_price: 20_000, valid_from: "2026-10-01" } }), 201)).price_rule;

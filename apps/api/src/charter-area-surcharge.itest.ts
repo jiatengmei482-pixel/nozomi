@@ -233,6 +233,20 @@ test("导入导出：导出带「上车加价」「下车加价」两列和区�
   const old = writeXlsx([{ name: "价格", rows: [oldHeader, [null, "东京 23 区", "VG-BIZ-7", num(4), num(80), num(40_000), num(5_000), num(400), "2026-01-01", null, null]] }]);
   const oldSeen = await upload(old, "/price-rules/import/preview");
   assert.deepEqual([oldSeen.status, oldSeen.body.can_import, oldSeen.body.rows[0].action, oldSeen.body.rows[0].content.surcharge], [200, true, "create", null], oldSeen.text);
+
+  // M8-25：一行区域加价选了商品本身的区域（AREA_IS_PRODUCT_AREA）时，别的行照样查日期重叠：
+  // 八王子 8 小时的加价上面已经导入（2026-01-01 起），再加一条 2026-06-01 起的就是「冲突」，不能显示成「新增」
+  const mixed = writeXlsx([{ name: "价格", rows: [header,
+    [null, "东京 23 区", "VG-BIZ-7", num(8), null, null, null, null, num(100), num(100), "2026-01-01", null, null],
+    [null, "八王子", "VG-BIZ-7", num(8), null, null, null, null, num(900), num(0), "2026-06-01", null, null],
+  ] }]);
+  const mixedSeen = await upload(mixed, "/price-rules/import/preview");
+  assert.equal(mixedSeen.status, 200, mixedSeen.text);
+  assert.deepEqual(mixedSeen.body.rows.map((row: any) => [row.action, row.issues.map((issue: any) => [issue.column, issue.reason]), row.conflicts_with.length]), [
+    ["error", [["区域", "AREA_IS_PRODUCT_AREA"]], 0],
+    ["conflict", [], 1],
+  ]);
+  assert.deepEqual([mixedSeen.body.summary.conflict, mixedSeen.body.can_import], [1, false]);
 });
 
 test("官网包车：下车地点必填（M8-19，不给 400 REQUIRED）；报价 = 基础定价 + 上车加价 + 下车加价（一口价，已含）；哪里都不在转人工；没有结算价和加价区域的金额", async () => {
