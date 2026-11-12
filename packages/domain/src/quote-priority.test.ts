@@ -188,8 +188,7 @@ test("M8-36：一端落在商品报价区域的禁行区里，「一口价 + 区
   // 禁行区里那一点不在任何营运区里、另一端在区域外：以前按计程价报，现在不报
   const only = product({ areas: [withForbid], operatingAreas: [OPERATING] });
   assert.deepEqual(quoteProduct(only, request(inHole, P.suburb), MOMENT), { ok: false, productId: "p2p-1", tenantId: "tenant-a", reason: "IN_FORBIDDEN_AREA" });
-  // 反方向一样不报（原因按先查到的那一端，和以前一样：起点在区域外 → NO_PRICING_AREA）
-  assert.equal(quoteProduct(only, request(P.suburb, inHole), MOMENT).ok, false, "反方向一样");
+  assert.deepEqual(quoteProduct(only, request(P.suburb, inHole), MOMENT), { ok: false, productId: "p2p-1", tenantId: "tenant-a", reason: "IN_FORBIDDEN_AREA" }, "反方向一样，原因也是禁行区");
   // 禁行区那一点被另一个报价区域「北区」的营运区盖住、另一端在区域外：以前按北区一口价 + 里程费报，现在不报
   const north = area("north", square(139.7, 35.8, 139.9, 36.0));
   const covered = product({ areas: [withForbid, north], operatingAreas: [OPERATING], priceRules: [rule("city-fixed"), rule("north-fixed", { areaId: "north" })] });
@@ -199,6 +198,23 @@ test("M8-36：一端落在商品报价区域的禁行区里，「一口价 + 区
   for (const [from, to] of [[P.city, P.suburb], [P.suburb, P.city], [P.suburb, P.suburb2], [P.city, P.city2]] as const) {
     assert.deepEqual(quoteProduct(covered, request(from, to), MOMENT), quoteProduct(plain, request(from, to), MOMENT));
   }
+});
+
+test("M8-36 补充：接送机非机场一端在禁行区里、被别的报价区域盖住 → 不报；停用区域的禁行区不拦；禁行区画在营运区外面也拦", () => {
+  const hole = square(139.75, 35.85, 139.8, 35.9);
+  const inHole = { lng: 139.78, lat: 35.88 };
+  const withForbid: QuoteArea = { ...CITY, shapes: [...CITY.shapes, { id: "city-no", kind: "forbid", ring: hole }] };
+  const north = area("north", square(139.7, 35.8, 139.9, 36.0));
+  const apt = airport({ areas: [withForbid, north], priceRules: [rule("city-apt", { direction: "dropoff" }), rule("north-apt", { areaId: "north", direction: "dropoff" })] });
+  const refused = quoteProduct(apt, request(inHole, null, { category: "airport_transfer", direction: "dropoff" }), MOMENT);
+  assert.equal(refused.ok ? null : refused.reason, "IN_FORBIDDEN_AREA");
+  // 停用的区域（连同它的禁行区）不算：北区照常接
+  const inactive = airport({ areas: [{ ...withForbid, active: false }, north], priceRules: [rule("city-apt", { direction: "dropoff" }), rule("north-apt", { areaId: "north", direction: "dropoff" })] });
+  assert.equal(quoteProduct(inactive, request(inHole, null, { category: "airport_transfer", direction: "dropoff" }), MOMENT).ok, true);
+  // 禁行区完全画在本区域营运区外面（编辑时会提醒）：M8-36 起也拦——北区盖住它也不报
+  const outsideHole: QuoteArea = { ...CITY, shapes: [...CITY.shapes, { id: "city-far-no", kind: "forbid", ring: square(139.85, 35.92, 139.88, 35.95) }] };
+  const p = product({ areas: [outsideHole, north], priceRules: [rule("city-fixed"), rule("north-fixed", { areaId: "north" })] });
+  assert.equal(quoteProduct(p, request(P.city, { lng: 139.86, lat: 35.93 }), MOMENT).ok, false);
 });
 
 test("接送机：只看非机场一端——在报价区域里是一口价，不在（在运营范围里）是计程价；机场那一端不看区域", () => {

@@ -487,15 +487,13 @@ function transferAreas(product: QuoteProduct, request: QuoteRequest, legacy: boo
     if (outsideOperating(product, position) !== null) return today;
     located.push(locateInAreas(product.areas, position));
   }
-  // 有一端落在这个商品某个报价区域的禁行区里：整个商品不报（M8-36），原因和以前一样
-  if (located.some((entry) => entry.forbidden.length > 0)) return today;
+  // 有一端落在这个商品某个报价区域的禁行区里：整个商品不报（M8-36）
+  if (located.some((entry) => entry.forbidden.length > 0)) return { reason: "IN_FORBIDDEN_AREA" };
   const hit = located.filter((entry) => entry.operating.length > 0);
-  // 两端都在报价区域里、只是区域都被另一端的禁行区排除了：和以前一样不报
-  if (hit.length === located.length) return today;
+  // 走到这里时没有点进禁行区，两端都在报价区域里 `serviceAreas` 就报得出了，所以 hit 只会少于 located
   if (hit.length === 0) return { basis: "distance_only", areaIds: [] };
   const inside = hit[0]?.operating ?? [];
-  const areaIds = product.areas.flatMap((area) => (inside.includes(area.areaId) ? [area.areaId] : []));
-  return areaIds.length === 0 ? today : { basis: "one_price_outside_km", areaIds };
+  return { basis: "one_price_outside_km", areaIds: product.areas.flatMap((area) => (inside.includes(area.areaId) ? [area.areaId] : [])) };
 }
 
 /** 包车一端在哪：在商品本身的区域里（这一端加 0），或者在哪几个加价区域里（按商品挂的先后） */
