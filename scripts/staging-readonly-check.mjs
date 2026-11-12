@@ -2,13 +2,16 @@
  * 测试环境的只读核对（M8-34，ADR 0086）：GitHub Actions 的「Staging readonly check」工作流调用它，不用 SSH、不登录服务器。
  *
  * 用一个只读的平台账号（密码 + 两步验证的动态码）登录测试环境，调用 `GET /platform/v1/reports/area-role-preview?days=N`
- * （和 `pnpm areas:role-preview --json` 同一份清单），把应答原样存成 JSON 文件（工作流把它作为产物保存），最后退出登录。
+ * （和 `pnpm areas:role-preview --json` 同一份清单），最后退出登录（拿到令牌之后不管成败都退出）。
+ *
+ * **仓库是公开的，Actions 的产物和摘要谁都能看**：只写计数摘要（`countsOf`：天数、时间、回放了多少条、两项变化数、新报出的价按计价方式的个数），
+ * 不写、不打印供应商名、商品编号、区域名、价格、规则编号；完整的清单不落盘。要看明细由有权限的人登录后调接口。
  *
  * 退出码：0 = 回放没有变化；2 = 回放有变化（`externalDiffCount` 或 `priority.changedCount` 大于 0）；1 = 没配好或调用失败。
  * 不打印密码、动态码密钥、动态码和令牌；接口的报错只打印状态码和错误代码。
  *
  * 环境变量：STAGING_READONLY_EMAIL、STAGING_READONLY_PASSWORD、STAGING_READONLY_TOTP（验证器的密钥，Base32）、
- * NOZOMI_BASE_URL（https://测试环境域名）、CHECK_DAYS（1–90，默认 30）、CHECK_OUTPUT（JSON 文件路径）、GITHUB_STEP_SUMMARY（可选）。
+ * NOZOMI_BASE_URL（https://测试环境域名）、CHECK_DAYS（1–90，默认 30）、CHECK_OUTPUT（计数摘要的 JSON 文件路径）、GITHUB_STEP_SUMMARY（可选）。
  */
 import { createHmac } from "node:crypto";
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
@@ -92,15 +95,40 @@ export function hasChanges(report) {
   return report.replay.externalDiffCount > 0 || report.replay.priority.changedCount > 0;
 }
 
-/** 给人看的结果（中文，没有客人信息；清单本身也没有） */
-export function summarize(report) {
+const integer = (value) => (Number.isInteger(value) && value >= 0 ? value : 0);
+/** 计价方式只认小写字母和下划线（如 one_price、distance），别的写法不进摘要 */
+const PRICING_BASIS = /^[a-z_]{1,40}$/;
+
+/**
+ * 能公开的计数摘要（产物和工作流摘要只写它）：按字段挑出来，不是在完整清单上删字段——清单以后多了什么也带不出来。
+ * 没有供应商、商品、区域、价格、规则编号。
+ */
+export function countsOf(report, checkedAt) {
   const { replay } = report;
-  const added = Object.entries(replay.priority.newOffers).map(([basis, n]) => `${basis} ${n} 个`).join("、") || "没有";
+  const newOffers = {};
+  for (const [basis, n] of Object.entries(replay.priority.newOffers ?? {})) if (PRICING_BASIS.test(basis)) newOffers[basis] = integer(n);
+  return {
+    checkedAt,
+    days: integer(replay.days),
+    since: typeof replay.since === "string" && !Number.isNaN(Date.parse(replay.since)) ? new Date(replay.since).toISOString() : null,
+    logs: integer(replay.logs),
+    replayed: integer(replay.replayed),
+    skipped: integer(replay.skipped),
+    evaluations: integer(replay.evaluations),
+    externalDiffCount: integer(replay.externalDiffCount),
+    priority: { changedCount: integer(replay.priority.changedCount), keptOffers: integer(replay.priority.keptOffers), newOffers },
+    passed: !hasChanges(report),
+  };
+}
+
+/** 给人看的结果（中文，只用计数摘要里的数） */
+export function summarize(counts) {
+  const added = Object.entries(counts.priority.newOffers).map(([basis, n]) => `${basis} ${n} 个`).join("、") || "没有";
   return [
-    `回放最近 ${replay.days} 天（${replay.since} 起）的询价日志 ${replay.logs} 条：回放 ${replay.replayed} 条、跳过 ${replay.skipped} 条，算了 ${replay.evaluations} 次。`,
-    `区域用途（M8-20）对外结果不同：${replay.externalDiffCount} 处。`,
-    `报价优先级（M8-30）之前报得出的价有变化：${replay.priority.changedCount} 处；没变的 ${replay.priority.keptOffers} 个；之前报不出、现在新报出的：${added}。`,
-    hasChanges(report) ? "结论：有变化，不通过。看产物里的 externalDiffs、priority.changed。" : "结论：0 处变化，通过。",
+    `回放最近 ${counts.days} 天（${counts.since ?? "?"} 起）的询价日志 ${counts.logs} 条：回放 ${counts.replayed} 条、跳过 ${counts.skipped} 条，算了 ${counts.evaluations} 次。`,
+    `区域用途（M8-20）对外结果不同：${counts.externalDiffCount} 处。`,
+    `报价优先级（M8-30）之前报得出的价有变化：${counts.priority.changedCount} 处；没变的 ${counts.priority.keptOffers} 个；之前报不出、现在新报出的：${added}。`,
+    counts.passed ? "结论：0 处变化，通过。" : "结论：有变化，不通过。明细（哪条询价、哪个商品）不进公开的产物：请有权限的人登录后调用 GET /platform/v1/reports/area-role-preview 查看。",
   ];
 }
 
@@ -131,8 +159,11 @@ async function call(fetchImpl, baseUrl, method, path, { token, body, timeoutMs }
   return { status: res.status, body: json };
 }
 
-/** 登录（密码 → 两步验证），返回令牌。同一时间窗的动态码服务端只收一次：碰上 MFA_CODE_REUSED 等到下一个时间窗再试一次。 */
-export async function login(io, credentials) {
+/**
+ * 登录（密码 → 两步验证），返回令牌。同一时间窗的动态码服务端只收一次：碰上 MFA_CODE_REUSED 等到下一个时间窗再试一次。
+ * 一拿到令牌就交给 `onToken`：后面哪一步失败，调用方都能用它退出登录。
+ */
+export async function login(io, credentials, onToken) {
   const signedIn = await call(io.fetch, io.baseUrl, "POST", "/platform/v1/auth/login", { body: { email: credentials.email, password: credentials.password }, timeoutMs: AUTH_TIMEOUT_MS });
   if (signedIn.status !== 200) {
     const hint = signedIn.status === 401 ? "（邮箱或密码不对，请在 staging 环境的 secrets 里核对）" : signedIn.status === 429 ? "（登录尝试太多，过 15 分钟再试）" : "";
@@ -140,13 +171,18 @@ export async function login(io, credentials) {
   }
   const token = signedIn.body?.access_token;
   if (typeof token !== "string") throw new CheckError("登录的应答里没有令牌。");
+  onToken(token);
   if (signedIn.body.must_change_password === true) throw new CheckError("这个账号还在用临时密码：请先用它登录运营后台改密码，再把新密码填进 STAGING_READONLY_PASSWORD。");
   const step = signedIn.body.second_factor?.status;
   if (step === "enrollment_required") throw new CheckError("这个账号还没绑定两步验证：请先用它登录运营后台绑定，把验证器的密钥填进 STAGING_READONLY_TOTP。");
   if (step !== "verify_required") return token;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const verified = await call(io.fetch, io.baseUrl, "POST", "/platform/v1/auth/mfa/verify", { token, body: { code: totp(credentials.totp, io.now()) }, timeoutMs: AUTH_TIMEOUT_MS });
-    if (verified.status === 200) return typeof verified.body?.access_token === "string" ? verified.body.access_token : token;
+    if (verified.status === 200) {
+      const next = typeof verified.body?.access_token === "string" ? verified.body.access_token : token;
+      onToken(next);
+      return next;
+    }
     const code = errorCode(verified.body);
     if (code !== "MFA_CODE_REUSED" || attempt > 0) {
       const hint = code === "MFA_CODE_INVALID" ? "（动态码不对：STAGING_READONLY_TOTP 要是这个账号绑定时的密钥）" : "";
@@ -182,7 +218,7 @@ async function logout(io, token) {
 }
 
 /**
- * 跑一次核对。`io`：fetch、baseUrl、now、sleep、log、writeOutput（存 JSON）、writeSummary（工作流摘要，可选）。
+ * 跑一次核对。`io`：fetch、baseUrl、now、sleep、log、writeOutput（存计数摘要的 JSON）、writeSummary（工作流摘要，可选）。
  * 返回退出码。
  */
 export async function runCheck(env, io) {
@@ -194,18 +230,22 @@ export async function runCheck(env, io) {
   try {
     const days = parseDays(env.CHECK_DAYS);
     const scoped = { ...io, baseUrl: parseBaseUrl(env.NOZOMI_BASE_URL) };
-    const token = await login(scoped, { email: env.STAGING_READONLY_EMAIL.trim(), password: env.STAGING_READONLY_PASSWORD, totp: env.STAGING_READONLY_TOTP.trim() });
+    let token = null;
     let report;
     try {
-      report = await fetchReport(scoped, token, days);
+      const signedIn = await login(scoped, { email: env.STAGING_READONLY_EMAIL.trim(), password: env.STAGING_READONLY_PASSWORD, totp: env.STAGING_READONLY_TOTP.trim() }, (value) => {
+        token = value;
+      });
+      report = await fetchReport(scoped, signedIn, days);
     } finally {
-      await logout(scoped, token);
+      if (token !== null) await logout(scoped, token);
     }
-    await io.writeOutput(`${JSON.stringify(report, null, 2)}\n`);
-    const lines = summarize(report);
+    const counts = countsOf(report, new Date(io.now()).toISOString());
+    await io.writeOutput(`${JSON.stringify(counts, null, 2)}\n`);
+    const lines = summarize(counts);
     for (const line of lines) io.log(line);
     if (io.writeSummary !== undefined) await io.writeSummary(["## 测试环境只读核对", "", ...lines.map((line) => `- ${line}`), ""].join("\n"));
-    return hasChanges(report) ? 2 : 0;
+    return counts.passed ? 0 : 2;
   } catch (err) {
     io.log(err instanceof CheckError ? err.message : "核对失败：未知错误。");
     return 1;
@@ -213,7 +253,7 @@ export async function runCheck(env, io) {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const output = process.env.CHECK_OUTPUT ?? "staging-readonly-check/area-role-preview.json";
+  const output = process.env.CHECK_OUTPUT ?? "staging-readonly-check/summary.json";
   const summaryFile = process.env.GITHUB_STEP_SUMMARY;
   process.exitCode = await runCheck(process.env, {
     fetch: globalThis.fetch,

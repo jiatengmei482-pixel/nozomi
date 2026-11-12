@@ -19,5 +19,18 @@ export function parseDays(raw: string | undefined): number;
 export function parseBaseUrl(raw: string | undefined): string;
 export function totp(secret: string, nowMs: number): string;
 export function hasChanges(report: RolePreviewReport): boolean;
-export function summarize(report: RolePreviewReport): string[];
+export interface ReplayCounts {
+  checkedAt: string;
+  days: number;
+  since: string | null;
+  logs: number;
+  replayed: number;
+  skipped: number;
+  evaluations: number;
+  externalDiffCount: number;
+  priority: { changedCount: number; keptOffers: number; newOffers: Record<string, number> };
+  passed: boolean;
+}
+export function countsOf(report: RolePreviewReport, checkedAt: string): ReplayCounts;
+export function summarize(counts: ReplayCounts): string[];
 export function runCheck(env: Record<string, string | undefined>, io: CheckIo): Promise<number>;

@@ -1,6 +1,6 @@
 /**
  * 测试环境只读核对（M8-34，ADR 0086）：
- * - 脚本 scripts/staging-readonly-check.mjs：登录（密码 → 两步验证）、取清单、存 JSON、按有无变化给退出码；不打印密钥；缺 secrets 清楚提示。
+ * - 脚本 scripts/staging-readonly-check.mjs：登录（密码 → 两步验证）、取清单、只存计数摘要（仓库公开）、按有无变化给退出码；拿到令牌后一定退出登录；不打印密钥；缺 secrets 清楚提示。
  *   全部用替身的 fetch，不联网。
  * - 工作流 .github/workflows/staging-readonly-check.yml 的静态检查：只能手动触发、环境只能是 staging、没有 SSH 和部署钥匙。
  */
@@ -8,7 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
-import { type CheckIo, type RolePreviewReport, hasChanges, missingSecrets, parseBaseUrl, parseDays, runCheck, summarize, totp } from "../../../scripts/staging-readonly-check.mjs";
+import { type CheckIo, type RolePreviewReport, countsOf, hasChanges, missingSecrets, parseBaseUrl, parseDays, runCheck, summarize, totp } from "../../../scripts/staging-readonly-check.mjs";
 
 const ROOT = new URL("../../../", import.meta.url);
 
@@ -18,12 +18,26 @@ const PLACEHOLDER_PASSWORD = "test-placeholder-not-a-real-password";
 const PLACEHOLDER_TOKEN = "test-placeholder-token-0000";
 const ENV = { STAGING_READONLY_EMAIL: "readonly@example.test", STAGING_READONLY_PASSWORD: PLACEHOLDER_PASSWORD, STAGING_READONLY_TOTP: RFC_SECRET, NOZOMI_BASE_URL: "https://staging.example.test", CHECK_DAYS: "7" };
 
+/** 清单里不能公开的内容（仓库公开，产物和摘要谁都能下载）：供应商名、商品编号、区域名、结算价、规则编号、编号 */
+const PRIVATE = ["甲车队", "SUPPLIER-ONLY-NAME", "P-SECRET-CODE", "银座区域", "rule-0f0f0f0f", "98765", "11111111-2222-4333-8444-555555555555", "log-abcdef"];
+const diff = { logId: "log-abcdef", productCode: "P-SECRET-CODE", before: '[["vg",null,"area","rule-0f0f0f0f",98765,"JPY","one_price"]]', after: "NO_PRICING_AREA" };
 const report = (externalDiffCount = 0, changedCount = 0): RolePreviewReport & Record<string, unknown> => ({
   migrated: true,
-  suppliers: [],
-  totalAreas: 0,
-  published: [],
-  replay: { days: 7, since: "2026-11-05T00:00:00.000Z", logs: 3, replayed: 3, skipped: 0, evaluations: 6, externalDiffCount, externalDiffs: [], refinements: {}, priority: { changedCount, changed: [], keptOffers: 4, newOffers: { distance: 1 } } },
+  suppliers: [{ tenantId: "11111111-2222-4333-8444-555555555555", tenantName: "甲车队 SUPPLIER-ONLY-NAME", total: 1, byBizType: { general: 1 }, byStatus: { active: 1 }, byRole: { both: 1 } }],
+  totalAreas: 1,
+  published: [{ tenantName: "甲车队", code: "P-SECRET-CODE", category: "airport_transfer", productAreas: ["银座区域"], surchargeAreas: [], routeAreas: [] }],
+  replay: {
+    days: 7,
+    since: "2026-11-05T00:00:00.000Z",
+    logs: 3,
+    replayed: 3,
+    skipped: 0,
+    evaluations: 6,
+    externalDiffCount,
+    externalDiffs: externalDiffCount > 0 ? [diff] : [],
+    refinements: { "OUT_OF_SERVICE_AREA → NO_PRICING_AREA": 1 },
+    priority: { changedCount, changed: changedCount > 0 ? [diff] : [], keptOffers: 4, newOffers: { distance: 1, "银座区域": 2 } },
+  },
 });
 
 interface Call {
@@ -101,15 +115,30 @@ test("天数、地址、缺哪些 secrets", () => {
   assert.deepEqual(missingSecrets(ENV), []);
 });
 
-test("变化的判定和摘要", () => {
+test("变化的判定；计数摘要只有计数（按字段挑出来），没有供应商、商品、区域、价格、规则编号", () => {
   assert.equal(hasChanges(report()), false);
   assert.equal(hasChanges(report(1, 0)), true);
   assert.equal(hasChanges(report(0, 2)), true);
-  assert.match(summarize(report()).join("\n"), /0 处变化，通过/);
-  assert.match(summarize(report(0, 2)).join("\n"), /有变化，不通过/);
+  const counts = countsOf(report(1, 2), "2026-11-12T00:00:00.000Z");
+  assert.deepEqual(counts, {
+    checkedAt: "2026-11-12T00:00:00.000Z",
+    days: 7,
+    since: "2026-11-05T00:00:00.000Z",
+    logs: 3,
+    replayed: 3,
+    skipped: 0,
+    evaluations: 6,
+    externalDiffCount: 1,
+    priority: { changedCount: 2, keptOffers: 4, newOffers: { distance: 1 } },
+    passed: false,
+  });
+  const text = [JSON.stringify(counts), ...summarize(counts)].join("\n");
+  for (const secret of PRIVATE) assert.ok(!text.includes(secret), `摘要里出现了 ${secret}`);
+  assert.match(summarize(countsOf(report(), "2026-11-12T00:00:00.000Z")).join("\n"), /0 处变化，通过/);
+  assert.match(summarize(counts).join("\n"), /有变化，不通过[\s\S]*登录后调用/);
 });
 
-test("没有变化：密码 → 两步验证 → 取清单 → 退出登录；存原样的 JSON，退出码 0；不打印密钥", async () => {
+test("没有变化：密码 → 两步验证 → 取清单 → 退出登录；存计数摘要，退出码 0；不打印密钥", async () => {
   const body = report();
   const s = stage({ "POST /platform/v1/auth/login": [loggedIn()], "POST /platform/v1/auth/mfa/verify": [verified], "GET /platform/v1/reports/area-role-preview": [{ status: 200, body }], "POST /platform/v1/auth/logout": [loggedOut] });
   assert.equal(await runCheck(ENV, s.io), 0);
@@ -123,16 +152,51 @@ test("没有变化：密码 → 两步验证 → 取清单 → 退出登录；�
   assert.equal(s.calls[0]?.headers["authorization"], undefined);
   assert.deepEqual(s.calls[1]?.body, { code: "287082" });
   for (const call of s.calls.slice(1)) assert.equal(call.headers["authorization"], `Bearer ${PLACEHOLDER_TOKEN}`);
-  assert.deepEqual(JSON.parse(s.outputs[0] ?? ""), body);
+  assert.deepEqual(JSON.parse(s.outputs[0] ?? ""), countsOf(body, "1970-01-01T00:00:59.000Z"));
   assert.match(s.summaries[0] ?? "", /## 测试环境只读核对/);
-  assertNoSecrets([...s.lines, ...s.summaries]);
+  assertNoSecrets([...s.lines, ...s.summaries, ...s.outputs]);
 });
 
-test("回放有变化：照样存清单，退出码 2（工作流失败）", async () => {
+test("回放有变化：照样存计数摘要，退出码 2（工作流失败）", async () => {
   const s = stage({ "POST /platform/v1/auth/login": [loggedIn()], "POST /platform/v1/auth/mfa/verify": [verified], "GET /platform/v1/reports/area-role-preview": [{ status: 200, body: report(1, 0) }], "POST /platform/v1/auth/logout": [loggedOut] });
   assert.equal(await runCheck(ENV, s.io), 2);
   assert.equal(s.outputs.length, 1);
   assert.match(s.lines.join("\n"), /对外结果不同：1 处/);
+});
+
+test("仓库公开：有变化时产物、工作流摘要、日志里也只有计数，没有供应商名、商品编号、区域名、结算价、规则编号", async () => {
+  const s = stage({ "POST /platform/v1/auth/login": [loggedIn()], "POST /platform/v1/auth/mfa/verify": [verified], "GET /platform/v1/reports/area-role-preview": [{ status: 200, body: report(1, 1) }], "POST /platform/v1/auth/logout": [loggedOut] });
+  assert.equal(await runCheck(ENV, s.io), 2);
+  const published = [...s.outputs, ...s.summaries, ...s.lines];
+  assert.ok(published.length >= 3);
+  for (const text of published) {
+    for (const secret of PRIVATE) assert.ok(!text.includes(secret), `公开的输出里出现了 ${secret}`);
+    assert.doesNotMatch(text, /tenantName|productCode|productAreas|totalMinor|priceRuleId|externalDiffs|"changed"|suppliers|published/);
+  }
+  assert.deepEqual(Object.keys(JSON.parse(s.outputs[0] ?? "")).sort(), ["checkedAt", "days", "evaluations", "externalDiffCount", "logs", "passed", "priority", "replayed", "since", "skipped"]);
+});
+
+test("拿到令牌之后不管哪一步失败都退出登录：临时密码、没绑定两步验证、动态码不对、取清单失败", async () => {
+  const error = (status: number, code: string) => ({ status, body: { error: { code, message: "", details: {} } } });
+  const cases: [string, Record<string, { status: number; body: unknown }[]>][] = [
+    ["临时密码", { "POST /platform/v1/auth/login": [loggedIn("verify_required", { must_change_password: true })], "POST /platform/v1/auth/logout": [loggedOut] }],
+    ["没绑定两步验证", { "POST /platform/v1/auth/login": [loggedIn("enrollment_required")], "POST /platform/v1/auth/logout": [loggedOut] }],
+    ["动态码不对", { "POST /platform/v1/auth/login": [loggedIn()], "POST /platform/v1/auth/mfa/verify": [error(400, "MFA_CODE_INVALID")], "POST /platform/v1/auth/logout": [loggedOut] }],
+    ["动态码连续两次被判重用", { "POST /platform/v1/auth/login": [loggedIn()], "POST /platform/v1/auth/mfa/verify": [error(400, "MFA_CODE_REUSED"), error(400, "MFA_CODE_REUSED")], "POST /platform/v1/auth/logout": [loggedOut] }],
+    ["取清单 403", { "POST /platform/v1/auth/login": [loggedIn()], "POST /platform/v1/auth/mfa/verify": [verified], "GET /platform/v1/reports/area-role-preview": [error(403, "FORBIDDEN")], "POST /platform/v1/auth/logout": [loggedOut] }],
+  ];
+  for (const [name, responses] of cases) {
+    const s = stage(responses);
+    assert.equal(await runCheck(ENV, s.io), 1, name);
+    const last = s.calls.at(-1);
+    assert.equal(`${last?.method} ${last?.url}`, "POST https://staging.example.test/platform/v1/auth/logout", name);
+    assert.equal(last?.headers["authorization"], `Bearer ${PLACEHOLDER_TOKEN}`, name);
+    assert.equal(s.calls.filter((call) => call.url.endsWith("/auth/logout")).length, 1, name);
+  }
+  // 密码就不对：没有令牌，不调用退出
+  const s = stage({ "POST /platform/v1/auth/login": [error(401, "INVALID_CREDENTIALS")] });
+  assert.equal(await runCheck(ENV, s.io), 1);
+  assert.equal(s.calls.length, 1);
 });
 
 test("同一时间窗的动态码已经用过（MFA_CODE_REUSED）：等到下一个时间窗再试一次", async () => {
@@ -161,9 +225,9 @@ test("失败的几种情况都给出退出码 1 和中文说明，只有状态�
   const error = (status: number, code: string) => ({ status, body: { error: { code, message: `原文-${PLACEHOLDER_PASSWORD}`, details: {} } } });
   const cases: [string, Record<string, { status: number; body: unknown }[]>, RegExp][] = [
     ["密码不对", { "POST /platform/v1/auth/login": [error(401, "INVALID_CREDENTIALS")] }, /登录失败：401 INVALID_CREDENTIALS（邮箱或密码不对/],
-    ["临时密码", { "POST /platform/v1/auth/login": [loggedIn("verify_required", { must_change_password: true })] }, /临时密码/],
-    ["没绑定两步验证", { "POST /platform/v1/auth/login": [loggedIn("enrollment_required")] }, /还没绑定两步验证/],
-    ["动态码不对", { "POST /platform/v1/auth/login": [loggedIn()], "POST /platform/v1/auth/mfa/verify": [error(400, "MFA_CODE_INVALID")] }, /两步验证失败：400 MFA_CODE_INVALID/],
+    ["临时密码", { "POST /platform/v1/auth/login": [loggedIn("verify_required", { must_change_password: true })], "POST /platform/v1/auth/logout": [loggedOut] }, /临时密码/],
+    ["没绑定两步验证", { "POST /platform/v1/auth/login": [loggedIn("enrollment_required")], "POST /platform/v1/auth/logout": [loggedOut] }, /还没绑定两步验证/],
+    ["动态码不对", { "POST /platform/v1/auth/login": [loggedIn()], "POST /platform/v1/auth/mfa/verify": [error(400, "MFA_CODE_INVALID")], "POST /platform/v1/auth/logout": [loggedOut] }, /两步验证失败：400 MFA_CODE_INVALID/],
     ["没有权限", { "POST /platform/v1/auth/login": [loggedIn()], "POST /platform/v1/auth/mfa/verify": [verified], "GET /platform/v1/reports/area-role-preview": [error(403, "FORBIDDEN")], "POST /platform/v1/auth/logout": [loggedOut] }, /403 FORBIDDEN（这个账号的角色没有「报价试算」）/],
     ["限速", { "POST /platform/v1/auth/login": [loggedIn()], "POST /platform/v1/auth/mfa/verify": [verified], "GET /platform/v1/reports/area-role-preview": [error(429, "RATE_LIMITED")], "POST /platform/v1/auth/logout": [loggedOut] }, /429 RATE_LIMITED/],
     ["超时", { "POST /platform/v1/auth/login": [loggedIn()], "POST /platform/v1/auth/mfa/verify": [verified], "GET /platform/v1/reports/area-role-preview": [error(503, "REPORT_TIMEOUT")], "POST /platform/v1/auth/logout": [loggedOut] }, /把天数改小/],
@@ -175,7 +239,7 @@ test("失败的几种情况都给出退出码 1 和中文说明，只有状态�
     assert.equal(s.outputs.length, 0, name);
     assertNoSecrets(s.lines);
     assert.ok(!s.lines.join("\n").includes("原文-"), `${name}：不打印应答原文`);
-    if (s.calls.some((call) => call.url.includes("/reports/"))) assert.ok(s.calls.at(-1)?.url.endsWith("/auth/logout"), `${name}：取过清单就要退出登录`);
+    if (name !== "密码不对") assert.ok(s.calls.at(-1)?.url.endsWith("/auth/logout"), `${name}：拿到过令牌就要退出登录`);
   }
   const offline = stage({});
   offline.io.fetch = async () => {
