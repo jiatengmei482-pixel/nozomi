@@ -89,7 +89,8 @@ export interface CityCandidate {
 
 /**
  * 点对点按出发地落在哪个城市报价：出发地在城市中心周围的范围里（和地址搜索同一个范围，`cityBounds`）的城市里，中心最近的那个；
- * 距离一样按编号的字典序。都不在为 null（不在服务范围）。区域和商品都挂在城市上，跨城市的行程按出发地的城市（ADR 0069 B8 待核对）。
+ * 距离一样按编号的字典序。都不在为 null（不在服务范围）。区域和商品都挂在城市上，跨城市的行程按出发地的城市（ADR 0069 B8 待核对）；
+ * 出发地不在任何城市时改看目的地，见 `pointToPointCityOf`（M8-35）。
  */
 export function serviceCityOf<C extends CityCandidate>(point: LatLng, cities: readonly C[]): C | null {
   if (!isValidLatLng(point)) throw new RangeError("无效坐标");
@@ -100,4 +101,13 @@ export function serviceCityOf<C extends CityCandidate>(point: LatLng, cities: re
     if (best === null || meters < best.meters || (meters === best.meters && city.id < best.city.id)) best = { city, meters };
   }
   return best?.city ?? null;
+}
+
+/**
+ * 点对点按哪个城市报价（M8-35）：出发地落在某个城市的范围里就用它（和以前一模一样，`serviceCityOf`）；
+ * 出发地哪个城市都不在、目的地在时用目的地的城市——往返对称：「银座 → 轻井泽」能报，「轻井泽 → 银座」也该能报。
+ * 能不能报仍由那个城市里商品的区域决定（两端都要落在商品的区域里，规则不变）。两端都不在为 null。
+ */
+export function pointToPointCityOf<C extends CityCandidate>(pickup: LatLng, dropoff: LatLng, cities: readonly C[]): C | null {
+  return serviceCityOf(pickup, cities) ?? serviceCityOf(dropoff, cities);
 }

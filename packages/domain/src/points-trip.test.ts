@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { haversineMeters } from "./geo.ts";
-import { BY_POINTS_RULES, classifyPointsTrip, recognizeAirport, serviceCityOf } from "./points-trip.ts";
+import { BY_POINTS_RULES, classifyPointsTrip, pointToPointCityOf, recognizeAirport, serviceCityOf } from "./points-trip.ts";
 
 /** 纬度方向每米多少度（和 `haversineMeters` 同一个地球半径） */
 const DEG_PER_METER = 180 / (Math.PI * 6_371_008.8);
@@ -90,4 +90,19 @@ test("点对点的城市：出发地在城市范围（中心周围 80 公里）�
   assert.equal(serviceCityOf({ lat: 35.68, lng: 139.76 }, [osaka]), null);
   assert.equal(serviceCityOf({ lat: 43.06, lng: 141.35 }, [tokyo, osaka]), null, "札幌不在东京、大阪的范围里");
   assert.equal(serviceCityOf({ lat: 35.68, lng: 139.76 }, []), null);
+});
+
+test("点对点往返对称（M8-35）：出发地在城市范围里照旧用出发地的城市；出发地哪里都不在、目的地在时用目的地的城市；两端都不在为 null", () => {
+  const tokyo = { id: "tokyo", center: { lat: 35.6895, lng: 139.6917 } };
+  const osaka = { id: "osaka", center: { lat: 34.7, lng: 135.5 } };
+  const ginza = { lat: 35.6717, lng: 139.765 };
+  // 轻井泽王子大饭店西馆：离东京中心约 146 公里，不在任何城市的 80 公里范围里
+  const karuizawa = { lat: 36.3375, lng: 138.6262 };
+  const sapporo = { lat: 43.06, lng: 141.35 };
+  assert.equal(serviceCityOf(karuizawa, [tokyo, osaka]), null);
+  assert.equal(pointToPointCityOf(ginza, karuizawa, [tokyo, osaka])?.id, "tokyo", "去程：按出发地（和以前一样）");
+  assert.equal(pointToPointCityOf(karuizawa, ginza, [tokyo, osaka])?.id, "tokyo", "返程：出发地不在任何城市，按目的地");
+  assert.equal(pointToPointCityOf(ginza, { lat: 34.69, lng: 135.5 }, [tokyo, osaka])?.id, "tokyo", "两端在不同城市：仍按出发地（不变）");
+  assert.equal(pointToPointCityOf(karuizawa, sapporo, [tokyo, osaka]), null);
+  assert.equal(pointToPointCityOf(karuizawa, ginza, []), null);
 });

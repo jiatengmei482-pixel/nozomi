@@ -38,6 +38,7 @@ import { tenantLogin } from "./testing/money.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
 import { FakePaymentProvider, deliverWebhook } from "./testing/payments.ts";
 import { type SiteApi, siteApi } from "./testing/site.ts";
+import { QUOTE_CATALOG_TTL_MS } from "./services/quote-catalog.ts";
 
 let api: TestApi;
 let m: Market;
@@ -62,6 +63,9 @@ const TOKYO_TOWER = { lat: 35.6586, lng: 139.7454 };
 /** 东京城市范围里、但不在任何供应商营运区（139–140, 35–36）里的点 */
 const OUTSIDE_AREA = { lat: 35.62, lng: 138.95 };
 const SAPPORO = { lat: 43.0618, lng: 141.3545 };
+const GINZA = { lat: 35.6717, lng: 139.765 };
+/** 轻井泽王子大饭店西馆：离东京中心约 146 公里，不在任何城市的 80 公里范围里（M8-35） */
+const KARUIZAWA = { lat: 36.3375, lng: 138.6262 };
 const northOf = (point: { lat: number; lng: number }, meters: number) => ({ lat: Number((point.lat + meters * DEG_PER_METER).toFixed(6)), lng: point.lng });
 /** 测试的时钟从 2026-10-07 开始，离用车足够远 */
 const SERVICE_LOCAL = "2026-10-20T10:00";
@@ -110,6 +114,9 @@ const directQuote = async (body: Record<string, unknown>, app: SiteApi = site): 
 /** 报价里除了 quote_id（每次询价新生成）以外的全部内容 */
 const comparable = (result: { currency: string; quotes: any[]; unavailable: any[] }) => ({ currency: result.currency, quotes: result.quotes.map(({ quote_id: _id, ...rest }) => rest), unavailable: result.unavailable });
 
+/** 各供应商点对点商品的报价区域（M8-35 的用例要改它的形状） */
+const p2pAreas: Record<string, string> = {};
+
 /** 给供应商建一个东京的点对点商品（区域盖住整个东京，商务 7 座一口价），再上架。 */
 async function pointToPointProduct(who: TenantFixture, price: number): Promise<void> {
   const token = await tenantLogin(api, who.adminEmail);
@@ -125,6 +132,7 @@ async function pointToPointProduct(who: TenantFixture, price: number): Promise<v
   const brand = (await call("POST", "/brands", { name: `p2p-${who.tenantId.slice(0, 4)}`, currency: "JPY" }, undefined, 201)).id;
   api.clock.advance(1_000);
   const area = (await call("POST", "/areas", { city_id: m.ids.tokyo, name: { zh: "东京-点对点" }, biz_type: "general", polygons: [{ kind: "operate", geometry: { type: "Polygon", coordinates: [[[139.0, 35.0], [140.0, 35.0], [140.0, 36.0], [139.0, 36.0], [139.0, 35.0]]] } }] }, undefined, 201)).id;
+  p2pAreas[who.tenantId] = area;
   const created = await call("POST", "/products", { brand_id: brand, city_id: m.ids.tokyo, category: "point_to_point", areas: [{ area_id: area }], vehicle_groups: [{ vehicle_group_id: m.ids.biz7, passengers: 6, luggage: 4 }], dispatchers: [{ name: "调度", phone: "0312345678" }] }, undefined, 201);
   const rules = await call("PUT", `/products/${created.id}/service-rules`, { booking: { service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 24 }, free_wait: { general: { mode: "limited", minutes: 30 } } }, 1);
   const version = (await call("PUT", `/products/${created.id}/content`, { zh: { title: "东京市内用车" } }, rules.version)).version as number;
@@ -613,4 +621,41 @@ test("密钥不外泄：新接口的应答、日志里都没有谷歌密钥的�
   }
   assert.ok(!logs.includes(FAKE_SECRETS.googleMapsApiKey), "日志里有密钥");
   assert.match(logs, /"placeFailure":"KEY_RESTRICTED"/);
+});
+
+// 放在最后：这里改了甲车队报价区域的形状，不影响前面的用例
+test("M8-35 往返对称：出发地不在任何城市（轻井泽）、目的地在东京 → 按东京报，和银座 → 轻井泽的价一模一样", async () => {
+  reset();
+  const ginza = { ...GINZA, name: "銀座" };
+  const karuizawa = { ...KARUIZAWA, name: "軽井沢プリンスホテル ウエスト" };
+  // 区域还没覆盖轻井泽时：已经按目的地选到东京，只是商品的区域不接（原因同以前）
+  const before = await okByPoints(karuizawa, ginza);
+  assert.deepEqual([before.city?.id, before.quotes], [m.ids.tokyo, []]);
+  // 甲车队的点对点区域加一块覆盖轻井泽的营运区
+  const token = await tenantLogin(api, m.a.adminEmail);
+  const areaId = p2pAreas[m.a.tenantId] as string;
+  const current = await ok(api.call("GET", `/tenant/v1/areas/${areaId}`, { token }));
+  const ring = (west: number, south: number, east: number, north: number) => [[west, south], [east, south], [east, north], [west, north], [west, south]];
+  await ok(
+    api.call("PUT", `/tenant/v1/areas/${areaId}`, {
+      token,
+      headers: { "if-match": `"${current.version}"` },
+      body: { city_id: m.ids.tokyo, name: current.name, biz_type: "general", polygons: [{ kind: "operate", geometry: { type: "Polygon", coordinates: [ring(139.0, 35.0, 140.0, 36.0)] } }, { kind: "operate", geometry: { type: "Polygon", coordinates: [ring(138.5, 36.2, 138.8, 36.5)] } }] },
+    }),
+  );
+  // 报价用的商品目录有短时缓存：过了有效期再询价
+  api.clock.advance(QUOTE_CATALOG_TTL_MS + 1_000);
+  const go = await okByPoints(ginza, karuizawa);
+  const back = await okByPoints(karuizawa, ginza);
+  assert.deepEqual([go.trip_type, go.city?.id, back.trip_type, back.city?.id], ["point_to_point", m.ids.tokyo, "point_to_point", m.ids.tokyo]);
+  assert.ok(go.quotes.length > 0, JSON.stringify(go));
+  const prices = (res: any) => res.quotes.map((quote: any) => [quote.vehicle_group.code, quote.price.total.amount]);
+  assert.deepEqual(prices(back), prices(go), "往返两个方向报的价一样");
+  // 返程照常算路线、记询价日志（城市是东京）
+  assert.notEqual(back.route, null);
+  const logRow = (await api.db.owner.query("select city_id from quote_logs where request->>'mode' = 'by_points' and request->'pickup'->>'lat' = $1 order by created_at desc limit 1", [String(KARUIZAWA.lat)])).rows[0];
+  assert.equal(logRow?.city_id, m.ids.tokyo);
+  // 直接按东京询价也是同一个价
+  const direct = await directQuote({ category: "point_to_point", city_id: m.ids.tokyo, pickup: { lng: KARUIZAWA.lng, lat: KARUIZAWA.lat }, dropoff: { lng: GINZA.lng, lat: GINZA.lat } });
+  assert.deepEqual(prices(direct), prices(back));
 });
