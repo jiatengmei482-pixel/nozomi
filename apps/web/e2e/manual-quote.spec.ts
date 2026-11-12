@@ -124,7 +124,12 @@ test("报不出价：客人留下邮箱和 WhatsApp → 客服在「人工报价
     await csPage.getByRole("navigation", { name: "主菜单" }).getByRole("link", { name: "人工报价" }).click();
     await expect(csPage.getByRole("heading", { level: 1, name: "人工报价" })).toBeVisible();
     await expect(csPage.locator("main")).not.toContainText(guestEmail);
+    // 查找框停手后才发请求，结果回来前旧列表半透明（.table--stale）。只等「一行」会被查找前的列表提前满足（库里碰巧只有这一条），
+    // 接着的 axe 就落在半透明的表上报 color-contrast（M8-29）。所以等按邮箱查的应答回来、表格不再忙
+    const searched = csPage.waitForResponse((response) => new URL(response.url()).searchParams.get("contact") === guestEmail);
     await csPage.getByRole("searchbox", { name: /按联系方式查找/ }).fill(guestEmail);
+    expect((await searched).status()).toBe(200);
+    await expect(csPage.locator(".table-wrap")).not.toHaveAttribute("aria-busy", "true");
     const row = csPage.getByRole("row").filter({ hasText: /^MQ/ });
     await expect(row).toHaveCount(1);
     await expect(row).toContainText("邮箱、WhatsApp");
