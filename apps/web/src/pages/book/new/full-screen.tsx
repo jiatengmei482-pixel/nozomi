@@ -1,7 +1,7 @@
 /**
  * 手机触屏上的新预订页（M8-37，业主 2026-11-12：移动设备优先保证操作流程）：
  * 地址、日期、时间都是「点一下 → 全屏选择页 → 选好回到页面」，不在页面上弹候选列表（手机键盘、吸顶条、地图都可能盖住它）。
- * 只看「手指操作 + 手机尺寸」（竖屏宽度 < 768，或横屏可见高度 ≤ 500）：电脑、鼠标操作的窄窗口照旧在页面上选。
+ * 只看「手指操作 + 手机尺寸」（竖屏宽度 < 768，或屏幕短边 < 600 的横屏手机）：电脑、鼠标操作的窄窗口照旧在页面上选。
  */
 import { type RefObject, useEffect, useId, useRef, useState } from "react";
 import { Button } from "../../../components/Button.tsx";
@@ -9,11 +9,20 @@ import { FullScreenSheet } from "../../../components/FullScreenSheet.tsx";
 import { Icon } from "../../../components/Icon.tsx";
 import { TextField } from "../../../components/TextField.tsx";
 
-/** 横屏手机（宽约 844、高约 390）键盘一弹几乎没有可见区域，也要全屏（M8-37 审查）；这是 JS 判断，不受 CSS 只写 min-width 的规范限制 */
-export const FULL_SCREEN_PICKER_QUERY = "(pointer: coarse) and (max-width: 767.98px), (pointer: coarse) and (max-height: 500px)";
+export const FULL_SCREEN_PICKER_QUERY = "(pointer: coarse) and (max-width: 767.98px)";
+const COARSE = "(pointer: coarse)";
 
+function query(text: string): boolean {
+  return typeof window.matchMedia === "function" && window.matchMedia(text).matches;
+}
+
+/**
+ * 竖屏手机：触屏且宽度 < 768。横屏手机（宽约 844、高约 390，键盘一弹几乎没有可见区域）也要全屏（M8-37 审查）：
+ * 看屏幕本身的短边（screen 不随键盘变），不看视口高度——安卓上键盘会把视口压矮，按视口判断会在打字时来回切换。
+ */
 function matches(): boolean {
-  return typeof window.matchMedia === "function" && window.matchMedia(FULL_SCREEN_PICKER_QUERY).matches;
+  if (query(FULL_SCREEN_PICKER_QUERY)) return true;
+  return query(COARSE) && typeof screen !== "undefined" && Math.min(screen.width, screen.height) < 600;
 }
 
 /** 是不是要用全屏选择页；横竖屏切换、接上鼠标时跟着变。 */
@@ -21,11 +30,13 @@ export function useFullScreenPickers(): boolean {
   const [on, setOn] = useState(matches);
   useEffect(() => {
     if (typeof window.matchMedia !== "function") return;
-    const media = window.matchMedia(FULL_SCREEN_PICKER_QUERY);
-    const change = (): void => setOn(media.matches);
+    const lists = [window.matchMedia(FULL_SCREEN_PICKER_QUERY), window.matchMedia(COARSE)];
+    const change = (): void => setOn(matches());
     change();
-    media.addEventListener?.("change", change);
-    return () => media.removeEventListener?.("change", change);
+    for (const media of lists) media.addEventListener?.("change", change);
+    return () => {
+      for (const media of lists) media.removeEventListener?.("change", change);
+    };
   }, []);
   return on;
 }
