@@ -993,7 +993,7 @@ for (const [basis, title, items] of [
   });
 }
 
-test("列表里一口价和按里程计价都有：没选车时用按里程计价的说法；选了一口价的车换回「一口价包含」，选了按里程计价的又换回来；旧接口没有 pricing_basis 照旧", async () => {
+test("列表里一口价和按里程计价都有：没选车时用按里程计价的说法；选了一口价的车换回「一口价包含」，选了按里程计价的又换回来；旧接口没有 pricing_basis 照旧；手机底部条「一口价」/「车费」跟着换", async () => {
   wideScreen();
   open({ at: "/book/new?from=35.6905,139.6948&to=35.6581,139.7017&date=2030-11-20&time=14:30", quote: () => json(200, byPoints({ trip_type: "point_to_point", airport: null, quotes: [quoteOf(1), { ...quoteOf(2), pricing_basis: "distance_only" }] })) });
   const actor = user();
@@ -1004,6 +1004,18 @@ test("列表里一口价和按里程计价都有：没选车时用按里程计�
   assert.deepEqual(items("一口价包含"), ONE_PRICE_INCLUDES);
   await actor.click(screen.getByRole("button", { name: "选择 车型2" }));
   assert.deepEqual(items("车费包含"), DISTANCE_INCLUDES);
+
+  // 手机第 2 步底部条：选了按里程计价的车写「车型 · 车费 价格」，选了一口价的写「车型 · 一口价 价格」
+  resetBrowser();
+  narrowScreen();
+  open({ at: "/book/new?from=35.6905,139.6948&to=35.6581,139.7017&date=2030-11-20&time=14:30", quote: () => json(200, byPoints({ trip_type: "point_to_point", airport: null, quotes: [quoteOf(1), { ...quoteOf(2), pricing_basis: "distance_only" }] })) });
+  await screen.findByRole("heading", { name: "车型1" }, SLOW);
+  const bar = (): string => document.querySelector(".book-bar__text")?.textContent ?? "";
+  await actor.click(screen.getByRole("button", { name: "选择 车型2" }));
+  assert.match(bar(), /^车型2 · 车费 /);
+  assert.doesNotMatch(bar(), /一口价/);
+  await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
+  assert.match(bar(), /^车型1 · 一口价 /);
 });
 
 test("包车手机：没选下车地点点「下一步」时下车地点标红「请选择下车地点」、焦点移过去；摘要条「包车 8 小时 · 上车 → 下车」", async () => {

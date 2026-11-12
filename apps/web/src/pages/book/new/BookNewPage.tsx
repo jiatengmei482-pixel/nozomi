@@ -14,7 +14,7 @@
  * 链接参数 from / to / date / time / pax / bags / mode（parseBookingLink）：打开就预填并报价，齐了直接到第 2 步；不合法的只是不预填。
  * 四种状态：加载中（骨架）、官网没开 / 没有可订城市（空）、出错（说明 + 重试）、正常。页面上没有供应商、结算价、加价比例。
  */
-import { type CityCandidate, type CurrencyCode, ORDER_FIELD_LIMITS, fixedPriceIncludes, fixedPriceIncludesTitle, isInternationalPhone, serviceCityOf } from "@nozomi/domain";
+import { type CityCandidate, type CurrencyCode, ORDER_FIELD_LIMITS, fixedPriceIncludes, fixedPriceIncludesTitle, fixedPriceLabel, isInternationalPhone, serviceCityOf } from "@nozomi/domain";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { ApiError } from "../../../api/client.ts";
@@ -1148,7 +1148,7 @@ export function BookNewPage() {
     const bar = !wide && step === 2 && selected !== null && vehicleName !== null && (
       <div className="book-bar">
         <p className="book-bar__text">
-          <span lang={vehicleName.lang}>{vehicleName.text}</span> · 一口价 <SitePrice text={moneyText(selected.price.total)} size="sm" />
+          <span lang={vehicleName.lang}>{vehicleName.text}</span> · {fixedPriceLabel(selected.pricing_basis)} <SitePrice text={moneyText(selected.price.total)} size="sm" />
         </p>
         <Button variant="primary" size="lg" onClick={() => goStep(3)}>
           下一步

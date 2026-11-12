@@ -99,6 +99,18 @@ export const FIXED_PRICE_INCLUDES_TITLES: Readonly<Record<FixedPriceLanguage, { 
   en: { fixedPrice: "Your fixed price includes", distanceOnly: "Your fare includes" },
 };
 
+/** 价格前面的称呼（M8-40，新预订页手机第 2 步底部条「车型 · 一口价 价格」）：按里程计价的写「车费」。 */
+export const FIXED_PRICE_LABELS: Readonly<Record<FixedPriceLanguage, { fixedPrice: string; distanceOnly: string }>> = {
+  zh: { fixedPrice: "一口价", distanceOnly: "车费" },
+  ja: { fixedPrice: "定額料金", distanceOnly: "運賃" },
+  en: { fixedPrice: "Fixed price", distanceOnly: "Fare" },
+};
+
+export function fixedPriceLabel(basis: PricingBasis | null | undefined, language: FixedPriceLanguage = "zh"): string {
+  const labels = FIXED_PRICE_LABELS[language];
+  return basis === "distance_only" ? labels.distanceOnly : labels.fixedPrice;
+}
+
 export function fixedPriceIncludesTitle(basis: PricingBasis | null | undefined, language: FixedPriceLanguage = "zh"): string {
   const titles = FIXED_PRICE_INCLUDES_TITLES[language];
   return basis === "distance_only" ? titles.distanceOnly : titles.fixedPrice;

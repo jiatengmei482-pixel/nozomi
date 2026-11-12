@@ -966,7 +966,7 @@
           "role": "backend",
           "status": "review",
           "acceptance": ["客人确认邮件（apps/api/src/services/notification-jobs.ts）对 distance_only 的单不再写「一口价已含所有费用…」，改用 @nozomi/domain 的 pricingBasisFeeNote（M6-08 已加）", "新预订页第 2 步车型卡「一口价包含」清单对按里程计价的报价换说法（前端，同一文字函数）", "一口价、含里程费、包车照旧；测试覆盖四种计价方式", "来源：M6-08 第 8 条做完后前端角色指出的两处遗留"],
-          "evidence": "分支 m8-40-distance-fee-note（未开 PR）。新增测试 6 个：domain 单元 2 个（fixedPriceIncludes / fixedPriceIncludesTitle 四种计价方式、按里程计价确认邮件费用说明），新预订页组件 4 个（one_price、one_price_outside_km、distance_only 各 1，混合列表选车切换 1），通知集成测试 1 条扩充（含里程费照旧、按里程计价换说法、一口价逐字）；包车沿用原有测试。本机：类型检查通过；domain 相关单元 15、book-new 组件 45、notifications 集成 37 全部通过；全套交 CI。",
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/171 。新增测试 6 个：domain 单元 2 个（fixedPriceIncludes / fixedPriceIncludesTitle 四种计价方式、按里程计价确认邮件费用说明），新预订页组件 4 个（one_price、one_price_outside_km、distance_only 各 1，混合列表选车切换及手机底部条「一口价 / 车费」1），通知集成测试 1 条扩充（含里程费照旧、按里程计价换说法、一口价逐字）；包车沿用原有测试。本机：类型检查通过；domain 相关单元 15、book-new 组件 45、notifications 集成 37 全部通过；全套交 CI。",
           "updated": "2026-11-13"
         }
       ]
