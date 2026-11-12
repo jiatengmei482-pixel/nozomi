@@ -807,7 +807,8 @@ test("路线（M8-10）：平台还没开通静态地图（503 NOT_ENABLED）时
   await openSelected({ config: configOf({ map_tiles: ROUTE_TILES }), quote: withRoute(), routeMap: notEnabled });
   fireEvent.error(staticMap());
   assert.ok(await screen.findByRole("img", { name: ROUTE_LABEL }, SLOW));
-  assert.ok(document.querySelector(".leaflet-container"), "现有底图");
+  // 静态图坏了以后要再问一次接口才知道是 NOT_ENABLED，退回的底图在那之后才挂上：等底图本身出现，不能在找到图片角色后立刻查（PR #171 CI run 43306861619 偶发 null）
+  await waitFor(() => assert.ok(document.querySelector(".leaflet-container"), "现有底图"), SLOW);
   assertAbsent(document.querySelector(".route-map__image"));
   assert.ok(screen.getByRole("link", { name: "© OpenStreetMap" }));
   assert.ok(screen.getByText("约 52 分钟 · 63.4 公里"));
@@ -971,6 +972,51 @@ test("一口价（one_price）和旧接口没有 pricing_basis：不出任何计
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
   assertAbsent(screen.queryByText("含里程费"));
   assertAbsent(screen.queryByText("按里程计价"));
+});
+
+// ---- M8-40：按里程计价的「一口价包含」换说法（标题和第一条都不出现「一口价」）----
+
+const ONE_PRICE_INCLUDES = ["一口价已含所有费用（高速费、停车费等），无需另付", "专车专用，不拼车"];
+const DISTANCE_INCLUDES = ["车费已含高速费、停车费等，无需另付", "专车专用，不拼车"];
+
+for (const [basis, title, items] of [
+  ["one_price", "一口价包含", ONE_PRICE_INCLUDES],
+  ["one_price_outside_km", "一口价包含", ONE_PRICE_INCLUDES],
+  ["distance_only", "车费包含", DISTANCE_INCLUDES],
+] as const) {
+  test(`点对点 ${basis}：清单标题「${title}」，第一条「${items[0]}」`, async () => {
+    wideScreen();
+    open({ at: "/book/new?from=35.6905,139.6948&to=35.6581,139.7017&date=2030-11-20&time=14:30", quote: () => json(200, byPoints({ trip_type: "point_to_point", airport: null, quotes: [{ ...quoteOf(1), pricing_basis: basis }] })) });
+    await screen.findByRole("heading", { name: "车型1" }, SLOW);
+    const includes = screen.getByRole("region", { name: title });
+    assert.deepEqual(within(includes).getAllByRole("listitem").map((item) => item.textContent).slice(0, 2), items);
+    if (basis === "distance_only") assert.doesNotMatch(includes.textContent ?? "", /一口价/);
+  });
+}
+
+test("列表里一口价和按里程计价都有：没选车时用按里程计价的说法；选了一口价的车换回「一口价包含」，选了按里程计价的又换回来；旧接口没有 pricing_basis 照旧；手机底部条「一口价」/「车费」跟着换", async () => {
+  wideScreen();
+  open({ at: "/book/new?from=35.6905,139.6948&to=35.6581,139.7017&date=2030-11-20&time=14:30", quote: () => json(200, byPoints({ trip_type: "point_to_point", airport: null, quotes: [quoteOf(1), { ...quoteOf(2), pricing_basis: "distance_only" }] })) });
+  const actor = user();
+  await screen.findByRole("heading", { name: "车型1" }, SLOW);
+  const items = (title: string): string[] => within(screen.getByRole("region", { name: title })).getAllByRole("listitem").map((item) => item.textContent ?? "").slice(0, 2);
+  assert.deepEqual(items("车费包含"), DISTANCE_INCLUDES);
+  await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
+  assert.deepEqual(items("一口价包含"), ONE_PRICE_INCLUDES);
+  await actor.click(screen.getByRole("button", { name: "选择 车型2" }));
+  assert.deepEqual(items("车费包含"), DISTANCE_INCLUDES);
+
+  // 手机第 2 步底部条：选了按里程计价的车写「车型 · 车费 价格」，选了一口价的写「车型 · 一口价 价格」
+  resetBrowser();
+  narrowScreen();
+  open({ at: "/book/new?from=35.6905,139.6948&to=35.6581,139.7017&date=2030-11-20&time=14:30", quote: () => json(200, byPoints({ trip_type: "point_to_point", airport: null, quotes: [quoteOf(1), { ...quoteOf(2), pricing_basis: "distance_only" }] })) });
+  await screen.findByRole("heading", { name: "车型1" }, SLOW);
+  const bar = (): string => document.querySelector(".book-bar__text")?.textContent ?? "";
+  await actor.click(screen.getByRole("button", { name: "选择 车型2" }));
+  assert.match(bar(), /^车型2 · 车费 /);
+  assert.doesNotMatch(bar(), /一口价/);
+  await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
+  assert.match(bar(), /^车型1 · 一口价 /);
 });
 
 test("包车手机：没选下车地点点「下一步」时下车地点标红「请选择下车地点」、焦点移过去；摘要条「包车 8 小时 · 上车 → 下车」", async () => {

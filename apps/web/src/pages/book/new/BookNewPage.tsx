@@ -14,7 +14,7 @@
  * 链接参数 from / to / date / time / pax / bags / mode（parseBookingLink）：打开就预填并报价，齐了直接到第 2 步；不合法的只是不预填。
  * 四种状态：加载中（骨架）、官网没开 / 没有可订城市（空）、出错（说明 + 重试）、正常。页面上没有供应商、结算价、加价比例。
  */
-import { type CityCandidate, type CurrencyCode, ORDER_FIELD_LIMITS, fixedPriceIncludes, isInternationalPhone, serviceCityOf } from "@nozomi/domain";
+import { type CityCandidate, type CurrencyCode, ORDER_FIELD_LIMITS, fixedPriceIncludes, fixedPriceIncludesTitle, fixedPriceLabel, isInternationalPhone, serviceCityOf } from "@nozomi/domain";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { ApiError } from "../../../api/client.ts";
@@ -856,7 +856,9 @@ export function BookNewPage() {
       );
     } else {
       const expires = quotes.map((entry) => entry.expires_at).sort()[0] ?? null;
-      const includes = fixedPriceIncludes({ service: charter ? "charter" : "transfer", arrival, freeWaitMinutes: freeWait, meetAndGreet: false });
+      // M8-40：按里程计价的不是一口价——选中的车是按里程计价的，或还没选、列表里有按里程计价的，就换说法（这句对一口价也成立）
+      const basis = (selected === null ? quotes.some((entry) => entry.pricing_basis === "distance_only") : selected.pricing_basis === "distance_only") ? "distance_only" : null;
+      const includes = fixedPriceIncludes({ service: charter ? "charter" : "transfer", arrival, freeWaitMinutes: freeWait, meetAndGreet: false, pricingBasis: basis });
       vehicles = (
         <>
           <p className="site-muted">
@@ -875,7 +877,7 @@ export function BookNewPage() {
           {selected !== null && <AddonsBlock options={selected.available_addons} quantities={addonQuantities} onChange={(id, quantity) => setAddonQuantities((value) => ({ ...value, [id]: quantity }))} />}
           <section aria-labelledby="book-includes-title" className="book-includes">
             <h3 id="book-includes-title" className="book-new__subtitle">
-              一口价包含
+              {fixedPriceIncludesTitle(basis)}
             </h3>
             <ul className="book-includes__list">
               {includes.map((item) => (
@@ -1146,7 +1148,7 @@ export function BookNewPage() {
     const bar = !wide && step === 2 && selected !== null && vehicleName !== null && (
       <div className="book-bar">
         <p className="book-bar__text">
-          <span lang={vehicleName.lang}>{vehicleName.text}</span> · 一口价 <SitePrice text={moneyText(selected.price.total)} size="sm" />
+          <span lang={vehicleName.lang}>{vehicleName.text}</span> · {fixedPriceLabel(selected.pricing_basis)} <SitePrice text={moneyText(selected.price.total)} size="sm" />
         </p>
         <Button variant="primary" size="lg" onClick={() => goStep(3)}>
           下一步
