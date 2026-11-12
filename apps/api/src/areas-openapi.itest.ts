@@ -116,6 +116,8 @@ const AREA_OPERATIONS = [
   "POST /tenant/v1/areas/{id}/disable",
   "POST /tenant/v1/areas/{id}/enable",
   "POST /tenant/v1/areas/{id}/check-point",
+  "POST /tenant/v1/areas/from-shared",
+  "POST /tenant/v1/areas/{id}/sync-shared",
   "GET /tenant/v1/map/config",
   "GET /tenant/v1/dashboard/summary",
 ];
@@ -438,6 +440,15 @@ test("定义里的请求字段、必填项、枚举、上限和实现一致", as
   // 自测的请求体
   const point = doc.paths[`${ONE}/check-point`]?.["post"]?.requestBody?.content["application/json"].schema as Schema;
   assert.deepEqual([point["required"], point["properties"]["lat"]["minimum"], point["properties"]["lat"]["maximum"], point["properties"]["lng"]["minimum"], point["properties"]["lng"]["maximum"]], [["lat", "lng"], -90, 90, -180, 180]);
+});
+
+test("共享库的两个写接口（M8-31，ADR 0083）：引用不存在的共享区域 404；自己画的区域切换 409 NOT_FROM_SHARED_LIBRARY（成功的应答在 shared-areas.itest.ts 对账）", async () => {
+  const missing = await call("POST", `${AREAS}/from-shared`, { body: { shared_area_id: MISSING, biz_type: "general" }, headers: key() });
+  assert.equal(missing.status, 404, missing.text);
+  const own = await call("POST", AREAS, { body: body(), headers: key() });
+  assert.equal(own.status, 201, own.text);
+  const notShared = await call("POST", `${ONE}/sync-shared`, { id: own.body.id, headers: ifMatch(own.body.version) });
+  assert.deepEqual([notShared.status, notShared.body.error?.code], [409, "NOT_FROM_SHARED_LIBRARY"]);
 });
 
 test("每个区域接口都对过账；定义里没有实现之外的区域路径", () => {

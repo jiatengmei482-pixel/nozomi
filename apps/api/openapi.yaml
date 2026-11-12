@@ -254,7 +254,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/EmailCodeSent"
         "400":
-          $ref: "#/components/responses/ValidationFailed"
+          $ref: "#/components/responses/AreaInvalid"
         "429":
           $ref: "#/components/responses/TooManyLoginAttempts"
         "503":
@@ -286,7 +286,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/PlatformLoginResponse"
         "400":
-          $ref: "#/components/responses/ValidationFailed"
+          $ref: "#/components/responses/AreaInvalid"
         "401":
           description: "`EMAIL_CODE_INVALID`：邮箱不存在、没发过码、码错、过期、用过、次数用尽，都是这一个"
           content:
@@ -3361,7 +3361,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/EmailCodeSent"
         "400":
-          $ref: "#/components/responses/ValidationFailed"
+          $ref: "#/components/responses/AreaInvalid"
         "429":
           $ref: "#/components/responses/TooManyLoginAttempts"
         "503":
@@ -3393,7 +3393,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/TenantLoginResponse"
         "400":
-          $ref: "#/components/responses/ValidationFailed"
+          $ref: "#/components/responses/AreaInvalid"
         "401":
           description: "`EMAIL_CODE_INVALID`：邮箱不存在、没发过码、码错、过期、用过、次数用尽，都是这一个"
           content:
@@ -4743,6 +4743,213 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AreaPointCheck"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/areas/from-shared:
+    post:
+      tags: [ 区域 ]
+      operationId: createAreaFromShared
+      summary: 引用共享库里的区域
+      description: |
+        需要操作 `area.manage`，必须带请求头 `Idempotency-Key`（M8-31，ADR 0083）。在自己名下新建一个区域：城市、图形照抄来源**现在**的版本
+        （只抄种类和坐标，算作「粘贴的」），记住来源和图形版本（`shared_source`）。名称不给时用来源的名称；业务类型、用途自己定。
+        之后来源改了图形，这个副本不变，由你决定是否切换。检查、审计和新增区域一样（同城重名 409 `AREA_NAME_TAKEN`，改个名字再引用）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ shared_area_id, biz_type ]
+              properties:
+                shared_area_id:
+                  type: string
+                  format: uuid
+                name:
+                  oneOf:
+                    - $ref: "#/components/schemas/LocalizedText"
+                    - type: "null"
+                biz_type:
+                  $ref: "#/components/schemas/AreaBizType"
+                role:
+                  $ref: "#/components/schemas/AreaRole"
+      responses:
+        "201":
+          description: 新建的区域（同一个幂等键再来时原样返回第一次的应答）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Area"
+        "400":
+          $ref: "#/components/responses/AreaInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `AREA_NAME_TAKEN`：这个城市已经有同名的区域
+            - `MASTER_DATA_NOT_READY`：所属城市已被平台停用
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: "`IDEMPOTENCY_KEY_REUSED`：这个幂等键已经用于另一个内容不同的请求"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/areas/{id}/sync-shared:
+    post:
+      tags: [ 区域 ]
+      operationId: syncAreaToShared
+      summary: 切换到共享库里的新版本图形
+      description: |
+        需要操作 `area.manage`，带 `If-Match`（M8-31，ADR 0083）。把引用来的区域的图形换成来源现在的版本，名称、业务类型、用途不动；
+        检查和审计与修改区域一样。已经是最新版本时原样返回（不加版本号）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "200":
+          description: 切换后的区域
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Area"
+        "400":
+          $ref: "#/components/responses/AreaInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `NOT_FROM_SHARED_LIBRARY`：这个区域是自己画的
+            - `SHARED_AREA_UNAVAILABLE`：来源已不在共享库里（停用或删除），你的区域保持现在的图形
+            - `VERSION_CONFLICT`：版本号对不上，请刷新后再试
+            - 以及修改区域的那些（运营范围变小、报价区域超出等）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/shared-areas:
+    get:
+      tags: [ 区域 ]
+      operationId: listSharedAreas
+      summary: 区域共享库：一个城市里的共享区域
+      description: |
+        需要操作 `area.read`（M8-31，ADR 0083）。共享库 = 各供应商启用中的原创区域（不含引用来的副本、测试供应商和已清退供应商的区域），
+        自己建的不出现。只有名称和形状概况，不显示创建者，不带价格和加价。按最近修改从新到旧，最多 50 个；更多时 `truncated` 为真，请输入名称缩小范围。
+      security:
+        - tenantToken: []
+      parameters:
+        - name: city_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: q
+          in: query
+          required: false
+          description: 任意一种语言的名称里包含它（不区分大小写）
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+      responses:
+        "200":
+          description: 共享区域
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items, truncated ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SharedArea"
+                  truncated:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/AreaInvalid"
+  /tenant/v1/shared-areas/similar:
+    post:
+      tags: [ 区域 ]
+      operationId: similarSharedAreas
+      summary: 新建区域前查库里的相似区域
+      description: |
+        需要操作 `area.read`（M8-31，ADR 0083）。同一个城市里名称相同（任意一种语言归一后相同，`reasons` 含 `name`）、
+        或营运区和请求里的营运区重叠（含 `overlap`）的共享区域，名称相同的在前，最多 5 个。不写任何东西。
+      security:
+        - tenantToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ city_id ]
+              properties:
+                city_id:
+                  type: string
+                  format: uuid
+                name:
+                  oneOf:
+                    - $ref: "#/components/schemas/LocalizedText"
+                    - type: "null"
+                polygons:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [ kind, geometry ]
+                    properties:
+                      kind:
+                        $ref: "#/components/schemas/AreaPolygonKind"
+                      geometry:
+                        $ref: "#/components/schemas/AreaGeometry"
+      responses:
+        "200":
+          description: 相似的共享区域
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SimilarSharedArea"
+        "400":
+          $ref: "#/components/responses/AreaInvalid"
+  /tenant/v1/shared-areas/{id}:
+    get:
+      tags: [ 区域 ]
+      operationId: getSharedArea
+      summary: 查看共享库里的一个区域（带形状）
+      description: 需要操作 `area.read`（M8-31，ADR 0083）。不在共享库里（停用、删除、是副本、属于测试供应商）的是 404。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 共享区域和它的图形
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SharedAreaDetail"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
   /tenant/v1/area-map:
@@ -11054,7 +11261,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/TenantNotificationSettings"
         "400":
-          $ref: "#/components/responses/ValidationFailed"
+          $ref: "#/components/responses/AreaInvalid"
         "409":
           description: 版本对不上（`VERSION_CONFLICT`）
           content:
@@ -15893,7 +16100,7 @@ paths:
                       converted: { type: integer }
                       closed: { type: integer }
         "400":
-          $ref: "#/components/responses/ValidationFailed"
+          $ref: "#/components/responses/AreaInvalid"
         "503":
           $ref: "#/components/responses/PassengerEncryptionUnavailable"
   /platform/v1/manual-quote-requests/assignees:
@@ -16059,7 +16266,7 @@ paths:
                   event:
                     $ref: "#/components/schemas/ManualQuoteEvent"
         "400":
-          $ref: "#/components/responses/ValidationFailed"
+          $ref: "#/components/responses/AreaInvalid"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
         "409":
@@ -16123,7 +16330,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/SiteSettings"
         "400":
-          $ref: "#/components/responses/ValidationFailed"
+          $ref: "#/components/responses/AreaInvalid"
         "409":
           description: 版本对不上（`VERSION_CONFLICT`）
           content:
@@ -21737,6 +21944,120 @@ components:
           minimum: 100
           maximum: 100000
           description: 半径（整数米）：0.1 到 100 公里
+    AreaSharedSource:
+      type: object
+      additionalProperties: false
+      description: 引用来源（M8-31，ADR 0083）。来源属于别的供应商，这里只有它在共享库里的编号，不显示是谁
+      required: [ shared_area_id, shape_version ]
+      properties:
+        shared_area_id:
+          type: string
+          format: uuid
+        shape_version:
+          type: integer
+          minimum: 1
+          description: 引用（或上次切换）时来源的图形版本
+        latest_shape_version:
+          type: [ integer, "null" ]
+          minimum: 1
+          description: |
+            只在区域列表、详情、切换的应答里有：来源现在在共享库里的图形版本。比 `shape_version` 大时页面提示「共享库里有新版本」，
+            由供应商自己决定是否切换（`POST /tenant/v1/areas/{id}/sync-shared`）。null = 来源已不在共享库里（停用或删除），副本照旧可用
+    SharedArea:
+      type: object
+      additionalProperties: false
+      description: 共享库里的一个区域：只有名称和形状的概况，不显示创建者，不带业务类型、用途、价格、加价（M8-31，ADR 0083）
+      required: [ id, city_id, name, shape_version, operate_polygon_count, forbid_polygon_count, updated_at ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        city_id:
+          type: string
+          format: uuid
+        name:
+          $ref: "#/components/schemas/LocalizedText"
+        shape_version:
+          type: integer
+          minimum: 1
+        operate_polygon_count:
+          type: integer
+          minimum: 0
+        forbid_polygon_count:
+          type: integer
+          minimum: 0
+        updated_at:
+          type: string
+          format: date-time
+    SharedAreaDetail:
+      type: object
+      additionalProperties: false
+      description: 共享库里的一个区域和它的图形（种类和坐标，按加入的先后；不带备注名）
+      required: [ id, city_id, name, shape_version, operate_polygon_count, forbid_polygon_count, updated_at, polygons ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        city_id:
+          type: string
+          format: uuid
+        name:
+          $ref: "#/components/schemas/LocalizedText"
+        shape_version:
+          type: integer
+          minimum: 1
+        operate_polygon_count:
+          type: integer
+          minimum: 0
+        forbid_polygon_count:
+          type: integer
+          minimum: 0
+        updated_at:
+          type: string
+          format: date-time
+        polygons:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ kind, geometry ]
+            properties:
+              kind:
+                $ref: "#/components/schemas/AreaPolygonKind"
+              geometry:
+                $ref: "#/components/schemas/AreaGeometry"
+    SimilarSharedArea:
+      type: object
+      additionalProperties: false
+      description: 相似的共享区域。`reasons`：name 名称相同；overlap 营运区重叠
+      required: [ id, city_id, name, shape_version, operate_polygon_count, forbid_polygon_count, updated_at, reasons ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        city_id:
+          type: string
+          format: uuid
+        name:
+          $ref: "#/components/schemas/LocalizedText"
+        shape_version:
+          type: integer
+          minimum: 1
+        operate_polygon_count:
+          type: integer
+          minimum: 0
+        forbid_polygon_count:
+          type: integer
+          minimum: 0
+        updated_at:
+          type: string
+          format: date-time
+        reasons:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [ name, overlap ]
     AreaPolygon:
       type: object
       additionalProperties: false
@@ -21825,7 +22146,7 @@ components:
       type: object
       additionalProperties: false
       description: 列表里的一项：不带图形的坐标
-      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, created_at, updated_at ]
+      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, shape_version, shared_source, created_at, updated_at ]
       properties:
         id:
           type: string
@@ -21867,6 +22188,15 @@ components:
         version:
           type: integer
           minimum: 1
+        shape_version:
+          type: integer
+          minimum: 1
+          description: 图形版本（M8-31，ADR 0083）：只有图形变了才加一（改名、改业务类型、改用途、停用启用都不加）；共享库里别人看到的版本就是它
+        shared_source:
+          oneOf:
+            - $ref: "#/components/schemas/AreaSharedSource"
+            - type: "null"
+          description: 从共享库引用来的副本记住的来源；自己画的为 null
         created_at:
           type: string
           format: date-time
@@ -21877,7 +22207,7 @@ components:
       type: object
       additionalProperties: false
       description: 区域的详情：比列表项多全部图形，和「超出运营区域」的提醒
-      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, created_at, updated_at, polygons, outside_operating_m2 ]
+      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, shape_version, shared_source, created_at, updated_at, polygons, outside_operating_m2 ]
       properties:
         id:
           type: string
@@ -21918,6 +22248,15 @@ components:
           type: integer
           minimum: 1
           description: 版本号，每改一次加一；修改时放在请求头 `If-Match` 里
+        shape_version:
+          type: integer
+          minimum: 1
+          description: 图形版本（M8-31，ADR 0083）：只有图形变了才加一（改名、改业务类型、改用途、停用启用都不加）；共享库里别人看到的版本就是它
+        shared_source:
+          oneOf:
+            - $ref: "#/components/schemas/AreaSharedSource"
+            - type: "null"
+          description: 从共享库引用来的副本记住的来源；自己画的为 null
         created_at:
           type: string
           format: date-time
@@ -21940,7 +22279,7 @@ components:
       type: object
       additionalProperties: false
       description: 区域地图的一项：和区域详情相同（带全部图形），另带最近修改人
-      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, created_at, updated_at, polygons, outside_operating_m2, last_editor ]
+      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, shape_version, shared_source, created_at, updated_at, polygons, outside_operating_m2, last_editor ]
       properties:
         id:
           type: string
@@ -21981,6 +22320,15 @@ components:
           type: integer
           minimum: 1
           description: 版本号，每改一次加一；修改时放在请求头 `If-Match` 里
+        shape_version:
+          type: integer
+          minimum: 1
+          description: 图形版本（M8-31，ADR 0083）：只有图形变了才加一（改名、改业务类型、改用途、停用启用都不加）；共享库里别人看到的版本就是它
+        shared_source:
+          oneOf:
+            - $ref: "#/components/schemas/AreaSharedSource"
+            - type: "null"
+          description: 从共享库引用来的副本记住的来源；自己画的为 null
         created_at:
           type: string
           format: date-time
@@ -22005,7 +22353,7 @@ components:
       type: object
       additionalProperties: false
       description: 运营后台区域地图的一项：和供应商后台的 `AreaMapItem` 相同，另带所属供应商
-      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, created_at, updated_at, polygons, outside_operating_m2, last_editor, tenant_id, tenant ]
+      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, shape_version, shared_source, created_at, updated_at, polygons, outside_operating_m2, last_editor, tenant_id, tenant ]
       properties:
         id:
           type: string
@@ -22046,6 +22394,15 @@ components:
           type: integer
           minimum: 1
           description: 版本号，每改一次加一；修改时放在请求头 `If-Match` 里
+        shape_version:
+          type: integer
+          minimum: 1
+          description: 图形版本（M8-31，ADR 0083）：只有图形变了才加一（改名、改业务类型、改用途、停用启用都不加）；共享库里别人看到的版本就是它
+        shared_source:
+          oneOf:
+            - $ref: "#/components/schemas/AreaSharedSource"
+            - type: "null"
+          description: 从共享库引用来的副本记住的来源；自己画的为 null
         created_at:
           type: string
           format: date-time

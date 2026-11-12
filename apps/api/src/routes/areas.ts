@@ -33,6 +33,7 @@ import {
   updateArea,
 } from "../services/areas.ts";
 import { productCounts } from "../services/products.ts";
+import { type SharedArea, type SharedAreaShape, createAreaFromShared, getSharedArea, latestSharedVersions, listSharedAreasFor, similarSharedAreas, syncAreaToShared } from "../services/shared-areas.ts";
 import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import { type TenantPrincipal, authenticateTenant } from "../services/tenant-auth.ts";
 import { idempotencyKey, ifMatchVersion, pageQuerySchema, parseInput, resourceId, uuidSchema } from "../validation.ts";
@@ -111,6 +112,9 @@ export function areaJson(view: AreaView): Json {
     forbid_polygon_count: view.forbidPolygonCount,
     usage: { product_count: view.usage.productCount, published_product_count: view.usage.publishedProductCount },
     version: area.version,
+    // 图形版本和共享库引用来源（M8-31，ADR 0083）
+    shape_version: area.shapeVersion,
+    shared_source: area.sharedSource === null ? null : { shared_area_id: area.sharedSource.areaId, shape_version: area.sharedSource.shapeVersion },
     created_at: area.createdAt.toISOString(),
     updated_at: area.updatedAt.toISOString(),
     ...(view.polygons === null ? {} : { polygons: view.polygons.map(polygonJson) }),
@@ -152,6 +156,36 @@ export function mapConfigJson(tiles: MapTilesConfig | null): Json {
   };
 }
 
+/** 引用来源在库里现在的图形版本补进应答：`latest_shape_version` 为 null 表示来源已不在共享库里（副本照旧可用）。 */
+function withLatest(json: Json, latest: ReadonlyMap<string, number>): Json {
+  const source = json["shared_source"] as { shared_area_id: string; shape_version: number } | null;
+  return source === null ? json : { ...json, shared_source: { ...source, latest_shape_version: latest.get(source.shared_area_id) ?? null } };
+}
+
+function sharedAreaJson(area: SharedArea): Json {
+  return {
+    id: area.id,
+    city_id: area.cityId,
+    name: area.name,
+    shape_version: area.shapeVersion,
+    operate_polygon_count: area.operatePolygonCount,
+    forbid_polygon_count: area.forbidPolygonCount,
+    updated_at: area.updatedAt.toISOString(),
+  };
+}
+
+function sharedShapeJson(shape: SharedAreaShape): Json {
+  return { kind: shape.kind, geometry: ringToGeoJson(shape.ring) };
+}
+
+const sharedListQuerySchema = z.object({ city_id: uuidSchema, q: z.string().trim().min(1).max(100).optional() });
+const fromSharedSchema = z.object({ shared_area_id: uuidSchema, name: nameSchema.nullable().default(null), biz_type: z.enum(AREA_BIZ_TYPES), role: z.enum(AREA_ROLES).default("both") });
+const similarSchema = z.object({
+  city_id: uuidSchema,
+  name: z.record(z.string(), z.string().max(200)).nullable().default(null),
+  polygons: z.array(z.object({ kind: z.enum(AREA_POLYGON_KINDS), geometry: z.object({ type: z.literal("Polygon"), coordinates: z.array(z.array(positionSchema).max(AREA_LIMITS.maxTotalVertices + 1)).max(100) }) })).max(AREA_LIMITS.maxPolygons * 4).default([]),
+});
+
 export function registerAreaRoutes(app: FastifyInstance, ctx: AppContext): void {
   const authenticate = (request: FastifyRequest, action?: TenantAction): Promise<TenantPrincipal> =>
     authenticateTenant(ctx, bearerToken(request.headers.authorization), action === undefined ? {} : { action });
@@ -166,7 +200,8 @@ export function registerAreaRoutes(app: FastifyInstance, ctx: AppContext): void 
       query.limit,
       decodeTimeCursor(query.cursor ?? null),
     );
-    return { items: page.items.map(areaJson), next_cursor: page.nextCursor, total: page.total };
+    const latest = await latestSharedVersions(ctx, page.items.flatMap((item) => (item.area.sharedSource === null ? [] : [item.area.sharedSource.areaId])));
+    return { items: page.items.map((item) => withLatest(areaJson(item), latest)), next_cursor: page.nextCursor, total: page.total };
   });
 
   app.post("/tenant/v1/areas", async (request, reply) => {
@@ -185,7 +220,61 @@ export function registerAreaRoutes(app: FastifyInstance, ctx: AppContext): void 
 
   app.get("/tenant/v1/areas/:id", async (request) => {
     const principal = await authenticate(request, "area.read");
-    return areaJson(await getArea(ctx, principal.tenantId, resourceId(request.params, "区域")));
+    const view = await getArea(ctx, principal.tenantId, resourceId(request.params, "区域"));
+    const latest = await latestSharedVersions(ctx, view.area.sharedSource === null ? [] : [view.area.sharedSource.areaId]);
+    return withLatest(areaJson(view), latest);
+  });
+
+  // 区域共享库（M8-31，ADR 0083）：只有名称和形状，不显示创建者，不共享价格和加价
+  app.get("/tenant/v1/shared-areas", async (request) => {
+    const principal = await authenticate(request, "area.read");
+    const query = parseInput(sharedListQuerySchema, request.query, "querystring");
+    const result = await listSharedAreasFor(ctx, principal.tenantId, { cityId: query.city_id.toLowerCase(), search: query.q });
+    return { items: result.items.map(sharedAreaJson), truncated: result.truncated };
+  });
+
+  app.get("/tenant/v1/shared-areas/:id", async (request) => {
+    await authenticate(request, "area.read");
+    const found = await getSharedArea(ctx, resourceId(request.params, "共享区域"));
+    return { ...sharedAreaJson(found.area), polygons: found.shapes.map(sharedShapeJson) };
+  });
+
+  app.post("/tenant/v1/shared-areas/similar", async (request) => {
+    const principal = await authenticate(request, "area.read");
+    const input = parseInput(similarSchema, request.body, "body");
+    const rings = input.polygons
+      .filter((polygon) => polygon.kind === "operate")
+      .map((polygon) => {
+        const closed = (polygon.geometry.coordinates[0] ?? []).map((point) => [point[0], point[1]] as [number, number]);
+        return closed.length > 1 && closed[0]?.[0] === closed.at(-1)?.[0] && closed[0]?.[1] === closed.at(-1)?.[1] ? closed.slice(0, -1) : closed;
+      })
+      .filter((ring) => ring.length >= 3);
+    const name = input.name === null || Object.values(input.name).every((value) => value.trim() === "") ? null : input.name;
+    const found = await similarSharedAreas(ctx, principal.tenantId, { cityId: input.city_id.toLowerCase(), name, operateRings: rings });
+    return { items: found.map((item) => ({ ...sharedAreaJson(item.area), reasons: item.reasons })) };
+  });
+
+  app.post("/tenant/v1/areas/from-shared", async (request, reply) => {
+    const principal = await authenticate(request, "area.manage");
+    const key = idempotencyKey(request.headers["idempotency-key"]);
+    const input = parseInput(fromSharedSchema, request.body, "body");
+    const result = await createAreaFromShared(
+      ctx,
+      { principal, ip: request.ip },
+      input.shared_area_id.toLowerCase(),
+      { name: input.name, bizType: input.biz_type, role: input.role },
+      { scope: "POST /tenant/v1/areas/from-shared", key },
+      areaJson,
+    );
+    return reply.code(result.status).send(result.body);
+  });
+
+  app.post("/tenant/v1/areas/:id/sync-shared", async (request) => {
+    const principal = await authenticate(request, "area.manage");
+    const id = resourceId(request.params, "区域");
+    const view = await syncAreaToShared(ctx, { principal, ip: request.ip }, id, ifMatchVersion(request.headers["if-match"]));
+    const latest = await latestSharedVersions(ctx, view.area.sharedSource === null ? [] : [view.area.sharedSource.areaId]);
+    return withLatest(areaJson(view), latest);
   });
 
   app.put("/tenant/v1/areas/:id", async (request) => {

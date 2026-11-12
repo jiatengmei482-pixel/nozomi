@@ -54,8 +54,39 @@ export interface AreaSummary {
   forbid_polygon_count: number;
   usage: AreaUsage;
   version: number;
+  /** 图形版本（M8-31，ADR 0083）：只有图形变了才加一 */
+  shape_version?: number;
+  /** 从共享库引用来的副本记住的来源；自己画的为 null */
+  shared_source?: AreaSharedSource | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface AreaSharedSource {
+  shared_area_id: string;
+  /** 引用（或上次切换）时来源的图形版本 */
+  shape_version: number;
+  /** 列表、详情里有：来源现在在库里的图形版本；比 shape_version 大 = 库里有新版本；null = 来源已不在库里 */
+  latest_shape_version?: number | null;
+}
+
+/** 共享库里的一个区域（只有名称和形状概况，不显示创建者） */
+export interface SharedArea {
+  id: string;
+  city_id: string;
+  name: LocalizedText;
+  shape_version: number;
+  operate_polygon_count: number;
+  forbid_polygon_count: number;
+  updated_at: string;
+}
+
+export interface SharedAreaDetail extends SharedArea {
+  polygons: { kind: AreaPolygonKind; geometry: AreaGeometry }[];
+}
+
+export interface SimilarSharedArea extends SharedArea {
+  reasons: ("name" | "overlap")[];
 }
 
 export interface Area extends AreaSummary {
@@ -166,6 +197,30 @@ export function setAreaStatus(token: string, id: string, action: "enable" | "dis
   return apiRequest("POST", `${one(id)}/${action}`, { token });
 }
 
+/** 区域共享库（M8-31）：一个城市里的共享区域，最多 50 个；`truncated` 为真时请输入名称缩小范围 */
+export function listSharedAreas(token: string, cityId: string, q: string): Promise<{ items: SharedArea[]; truncated: boolean }> {
+  return apiRequest("GET", query(`${TENANT_BASE}/shared-areas`, { city_id: cityId, q: q.trim() === "" ? undefined : q.trim() }), { token });
+}
+
+export function getSharedArea(token: string, id: string): Promise<SharedAreaDetail> {
+  return apiRequest("GET", `${TENANT_BASE}/shared-areas/${encodeURIComponent(id)}`, { token });
+}
+
+/** 新建区域前查库里同名或营运区重叠的区域（最多 5 个，同名在前） */
+export function similarSharedAreas(token: string, body: { city_id: string; name: LocalizedText | null; polygons: { kind: AreaPolygonKind; geometry: AreaGeometry }[] }): Promise<{ items: SimilarSharedArea[] }> {
+  return apiRequest("POST", `${TENANT_BASE}/shared-areas/similar`, { token, body });
+}
+
+/** 引用：在自己名下新建一个副本（带幂等键） */
+export function createAreaFromShared(token: string, body: { shared_area_id: string; name: LocalizedText | null; biz_type: AreaBizType; role: AreaRole }, idempotencyKey: string): Promise<Area> {
+  return apiRequest("POST", `${AREAS_PATH}/from-shared`, { token, body, headers: { "idempotency-key": idempotencyKey } });
+}
+
+/** 把引用来的区域切换到来源在库里的新版本图形 */
+export function syncAreaToShared(token: string, id: string, version: number): Promise<Area> {
+  return apiRequest("POST", `${one(id)}/sync-shared`, { token, headers: { "if-match": `"${version}"` } });
+}
+
 export function checkAreaPoint(token: string, id: string, point: { lat: number; lng: number }): Promise<AreaPointCheck> {
   return apiRequest("POST", `${one(id)}/check-point`, { token, body: point });
 }
@@ -200,7 +255,8 @@ export function listTenantPlaces(token: string, cityId: string, type: PlaceType)
 }
 
 /** 对账用：每个类型的字段名清单。 */
-const SUMMARY = ["id", "name", "city_id", "city", "biz_type", "role", "status", "operate_polygon_count", "forbid_polygon_count", "usage", "version", "created_at", "updated_at"] as const;
+const SUMMARY = ["id", "name", "city_id", "city", "biz_type", "role", "status", "operate_polygon_count", "forbid_polygon_count", "usage", "version", "shape_version", "shared_source", "created_at", "updated_at"] as const;
+const SHARED = ["id", "city_id", "name", "shape_version", "operate_polygon_count", "forbid_polygon_count", "updated_at"] as const;
 export const AREA_SCHEMA_FIELDS = {
   AreaSummary: SUMMARY,
   Area: [...SUMMARY, "polygons", "outside_operating_m2"],
@@ -209,6 +265,9 @@ export const AREA_SCHEMA_FIELDS = {
   AreaCircle: ["center", "radius_m"],
   AreaGeometry: ["type", "coordinates"],
   AreaPointCheck: ["result", "operate_polygon_ids", "forbid_polygon_ids"],
+  SharedArea: SHARED,
+  SharedAreaDetail: [...SHARED, "polygons"],
+  SimilarSharedArea: [...SHARED, "reasons"],
 } as const satisfies {
   AreaSummary: readonly (keyof AreaSummary)[];
   Area: readonly (keyof Area)[];
@@ -217,6 +276,9 @@ export const AREA_SCHEMA_FIELDS = {
   AreaCircle: readonly (keyof AreaCircle)[];
   AreaGeometry: readonly (keyof AreaGeometry)[];
   AreaPointCheck: readonly (keyof AreaPointCheck)[];
+  SharedArea: readonly (keyof SharedArea)[];
+  SharedAreaDetail: readonly (keyof SharedAreaDetail)[];
+  SimilarSharedArea: readonly (keyof SimilarSharedArea)[];
 };
 
 export const AREA_WRITE_FIELDS = {
@@ -232,4 +294,4 @@ export const AREA_WRITE_FIELDS = {
 export const MAP_TILE_FIELDS = ["url_template", "dark_url_template", "min_zoom", "max_zoom", "tile_size", "referrer_policy", "attribution"] as const satisfies readonly (keyof MapTiles)[];
 
 /** 前端按错误码或原因代码分别处理的区域错误。 */
-export const AREA_ERROR_CODES = ["VERSION_CONFLICT", "FIELD_LOCKED", "AREA_NAME_TAKEN", "MASTER_DATA_NOT_READY", "CONCURRENT_UPDATE", "IDEMPOTENCY_KEY_REUSED", "AREA_IN_USE", "PRECONDITION_REQUIRED", "PRICING_AREA_OUTSIDE_OPERATING"] as const;
+export const AREA_ERROR_CODES = ["VERSION_CONFLICT", "FIELD_LOCKED", "AREA_NAME_TAKEN", "MASTER_DATA_NOT_READY", "CONCURRENT_UPDATE", "IDEMPOTENCY_KEY_REUSED", "AREA_IN_USE", "PRECONDITION_REQUIRED", "PRICING_AREA_OUTSIDE_OPERATING", "SHARED_AREA_UNAVAILABLE", "NOT_FROM_SHARED_LIBRARY"] as const;

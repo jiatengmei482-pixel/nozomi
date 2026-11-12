@@ -96,3 +96,4 @@
 | `0310_qa_acceptance_channel.sql` | 测试环境的验收通道（M8-26，ADR 0078）：商品多一个状态 `qa_listed`（验收可售），触发器保证只有 QA 测试供应商的商品能处在它（还有这种商品的测试供应商不能摘掉测试标记）；`orders.is_acceptance`（默认 false，建好后谁都不能改）、`quotes.is_acceptance`、`quote_logs.is_acceptance`；平台表 `qa_acceptance_sessions`（只存会话编号的 SHA-256）、`notification_suppressions`（验收单被压下的邮件的主题和正文，只给平台角色）。不含任何数据 |
 | `0320_site_page_width.sql` | 官网页面宽度（M8-28，ADR 0079）：`site_settings` 加 `page_width`（`standard` / `wide` / `full`，列默认 `standard`，带检查约束）。只加列，不含任何数据 |
 | `0330_distance_prices.sql` | 计程价（M8-30，ADR 0080）：租户表 `distance_prices`（商品 × 车型组的起步价、每公里单价，结算价整数；生效日期、启停；外键到同一租户的商品，删商品跟着删），行级安全只放行当前租户，平台角色只读（比价用）。不含任何数据 |
+| `0340_shared_area_library.sql` | 区域共享库（M8-31，ADR 0083）：`areas` 加图形版本 `shape_version`（默认 1）、引用来源 `shared_source_area_id` / `shared_source_shape_version`（成对为空）和共享库查询用的部分索引。共享库就是各供应商启用中的原创区域（不含测试供应商），平台事务读；不含任何数据 |

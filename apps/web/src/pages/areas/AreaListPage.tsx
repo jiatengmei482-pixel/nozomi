@@ -27,6 +27,7 @@ import { useLoad } from "../../lib/use-load.ts";
 import { useTenantCan } from "../../lib/use-master-access.ts";
 import { type ReturnState, readListPage } from "../master/shared.tsx";
 import { AreaMoreItems, useAreaActions } from "./useAreaActions.tsx";
+import { SharedAreaDialog } from "./SharedAreaDialog.tsx";
 
 const DEFAULT_PAGE_SIZE = 50;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -145,6 +146,13 @@ export function AreaListPage() {
   };
   const clearFilters = (): void => setParam(Object.fromEntries(filterParams.map((key) => [key, null])));
 
+  const [sharing, setSharing] = useState(false);
+  const shareButton = (
+    <Button onClick={() => setSharing(true)}>
+      <Icon name="map" />
+      从共享库引用
+    </Button>
+  );
   const newButton = (
     <LinkButton variant="primary" to={AREA_NEW_PATH} state={returnState}>
       <Icon name="plus" />
@@ -266,6 +274,7 @@ export function AreaListPage() {
               <Icon name="map" />
               在地图上看全部
             </LinkButton>
+            {canManage && shareButton}
             {canManage && newButton}
           </span>
         }
@@ -290,6 +299,17 @@ export function AreaListPage() {
         />
         <Attributions sources={placeSources(false)} />
         {actions.dialog}
+        {canManage && (
+          <SharedAreaDialog
+            open={sharing}
+            cities={cities.state.data}
+            onClose={() => setSharing(false)}
+            onCreated={(area) => {
+              setSharing(false);
+              void navigate(areaEditPath(area.id), { state: returnState });
+            }}
+          />
+        )}
       </Page>
     </AppShell>
   );
