@@ -282,6 +282,29 @@ test("缓存过期按毫秒：成功的 7 天减 1 毫秒还命中、正好 7 �
   }
 });
 
+test("M8-29：给客人看的路线（preview）调到的结果不覆盖还没过期的成功缓存——和报价并行时报价读到的里程不变；缓存的失败照常被成功覆盖", async (t) => {
+  t.after(cleanupFuture);
+  const now = new Date("2030-05-01T00:00:00.000Z").getTime();
+  let result: ComputedRoute = { ok: true, meters: 34_153, seconds: 2_700 };
+  const google = countingCompute(() => result);
+  const routes = estimator({ now: () => new Date(now), compute: google.compute });
+  const ab = { from: { lat: 34.51, lng: 135.51 }, to: { lat: 34.61, lng: 135.61 } };
+  assert.deepEqual(await routes.estimate(ab), { ok: true, route: { meters: 34_153, minutes: 45 }, source: "google" });
+  // 之后谷歌答了别的里程：客人看到的路线照谷歌的，报价用的缓存不被改掉
+  result = { ok: true, meters: 6_800, seconds: 1_080 };
+  const shown = await routes.preview(ab);
+  assert.deepEqual([shown.ok, shown.ok ? shown.route.meters : null], [true, 6_800]);
+  assert.deepEqual(await routes.estimate(ab), { ok: true, route: { meters: 34_153, minutes: 45 }, source: "cache" });
+  assert.equal(google.calls(), 2);
+  // 缓存的是失败（没有路线）：preview 拿到成功后覆盖，报价随之能用
+  const cd = { from: { lat: 34.71, lng: 135.71 }, to: { lat: 34.81, lng: 135.81 } };
+  result = { ok: false, code: "NO_ROUTE" };
+  assert.deepEqual(await routes.estimate(cd), { ok: false, code: "NO_ROUTE" });
+  result = { ok: true, meters: 5_000, seconds: 600 };
+  assert.equal((await routes.preview(cd)).ok, true);
+  assert.deepEqual(await routes.estimate(cd), { ok: true, route: { meters: 5_000, minutes: 10 }, source: "cache" });
+});
+
 test("其他失败不进缓存：超时、配额、看不懂之后同一组点（换了密钥、不在冷却）会再问", async (t) => {
   t.after(cleanupFuture);
   let key = "AIzaQaNoNegativeCache00000000001";
