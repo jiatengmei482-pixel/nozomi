@@ -19,7 +19,7 @@ import type { ComputedRoute } from "../integrations/google-maps.ts";
 import { type CachedRoute, findRouteEstimate, recordRouteOutcome, recordRouteRefused, reserveRouteCall, saveRouteEstimate } from "../repos/route-estimates.ts";
 import type { RouteEstimator } from "./quote-deps.ts";
 
-/** 读写缓存和计数的每条查询最多等多久（毫秒）：库慢的时候不拖住询价。生产一律用它（M8-29：只有数调用次数的测试放宽） */
+/** 读写缓存和计数的事务自身语句（新连接自检、begin、切角色、commit）最多等多久（毫秒）：库慢的时候不拖住询价。生产一律用它（M8-29：只有数调用次数的测试放宽） */
 export const ROUTE_DB_TIMEOUT_MS = 500;
 
 export interface RouteEstimatorLog {
@@ -39,7 +39,7 @@ export interface GoogleRouteEstimatorDeps {
   /** 给客人看的路线在进程内保留多久（毫秒）；不给用 `ROUTE_RULES.previewCacheTtlMs`。测试用它验证过期 */
   previewCacheTtlMs?: number;
   /**
-   * 读写缓存、占每日名额的每个事务的客户端时限（毫秒，管 begin、切角色、每条查询、commit）；不给用 `ROUTE_DB_TIMEOUT_MS`（500）。
+   * 读写缓存、占每日名额的每个事务自身语句的客户端时限（毫秒，管新连接自检、begin、切角色、commit；事务里的查询用连接池的默认时限）；不给用 `ROUTE_DB_TIMEOUT_MS`（500）。
    * 生产不传。只给数谷歌调用次数的集成测试放宽（M8-29）：CI 负载下占名额的事务偶尔超过 500 毫秒，按设计这次不调用谷歌，次数就对不上
    */
   dbTimeoutMs?: number;

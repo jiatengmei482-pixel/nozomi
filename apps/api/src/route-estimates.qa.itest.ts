@@ -15,12 +15,13 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { type IncomingHttpHeaders, type Server, createServer } from "node:http";
 import { type LatLng, ROUTE_FAILURE_CODES, ROUTE_FAILURE_MESSAGES, type RouteFailureCode, guestRouteReason, routeCacheKey, routeUsageDay } from "@nozomi/domain";
-import type { Pool } from "./db/pool.ts";
+import { type Pool, createPool, isDriverTimeout } from "./db/pool.ts";
 import { type ComputedRoute, computeRoute } from "./integrations/google-maps.ts";
 import { GoogleRouteEstimator, ROUTE_DB_TIMEOUT_MS } from "./services/route-estimates.ts";
 import { type ApiResponse, type HttpMethod, type TenantFixture, type TestApi, createTestApi } from "./testing/api.ts";
 import { type Market, addStaff, allValues, buildMarket, newChannel, ok, salesCredentials } from "./testing/market.ts";
 import { type SiteApi, siteApi } from "./testing/site.ts";
+import { type TcpProxy, databaseTarget, startTcpProxy } from "./testing/tcp-proxy.ts";
 
 // ---- 本机假谷歌：每个请求按测试给的规则应答（状态、JSON、原文、延迟、跳转、断开、超大且不结束） ----
 
@@ -570,32 +571,68 @@ test("记不了数（数据库连不上）：不调用谷歌（宁可少调）�
   for (const warning of warnings) assert.ok(![...allValues(warning.obj)].some((value) => value.includes(key)) && !warning.msg.includes(key));
 });
 
-test("占名额太慢（生产的默认时限 500 毫秒）：别的事务锁着当天的计数行，等过时限就不调用谷歌（宁可少调），原因是 UNAVAILABLE；锁放开后照常调用", async (t) => {
+/**
+ * 一个经过本机 TCP 转发器（testing/tcp-proxy.ts）连库的连接池，先建好 3 条连接放回池里：
+ * 一次询价最多用 3 个事务（读缓存、占名额、记结果），各用一条现成的连接，库「卡住」时不会卡在建新连接上（那是 5 秒的另一种时限）。
+ * 这 3 条连接都还没做过自检，事务的第一条语句就是自检，受路线预估的数据库时限管。
+ */
+async function proxiedPool(): Promise<{ pool: Pool; proxy: TcpProxy; close: () => Promise<void> }> {
+  const proxy = await startTcpProxy(databaseTarget(api.db.url));
+  const pool = createPool(proxy.rewrite(api.db.url), { max: 3 });
+  const clients = await Promise.all([pool.connect(), pool.connect(), pool.connect()]);
+  for (const client of clients) client.release();
+  return {
+    pool,
+    proxy,
+    close: async () => {
+      proxy.resume();
+      await pool.end();
+      await proxy.close();
+    },
+  };
+}
+
+test("库应答太慢（生产的默认时限 500 毫秒）：读缓存、占名额的事务等过 500 毫秒就放弃，不调用谷歌（宁可少调），原因是 UNAVAILABLE；库恢复后照常调用", async (t) => {
   t.after(cleanupFuture);
   seen.length = 0;
   warnings.length = 0;
   assert.equal(ROUTE_DB_TIMEOUT_MS, 500);
   const now = new Date("2030-09-20T03:00:00.000Z");
-  const day = routeUsageDay(now);
-  await api.db.owner.query("insert into route_api_usage (day) values ($1) on conflict (day) do nothing", [day]);
-  const holder = await api.db.owner.connect();
-  const routes = estimator({ dbTimeoutMs: "production", apiKey: () => "AIzaQaSlowReserve000000000000001", now: () => now, compute: (apiKey, from, to, beforeAttempt) => computeRoute(apiKey, from, to, { url: googleUrl, beforeAttempt }) });
-  try {
-    await holder.query("begin");
-    await holder.query("select calls from route_api_usage where day = $1 for update", [day]);
-    const started = performance.now();
-    assert.deepEqual(await routes.estimate({ from: { lat: 22.1, lng: 123.1 }, to: { lat: 22.2, lng: 123.2 } }), { ok: false, code: "UNAVAILABLE" });
-    const waited = performance.now() - started;
-    assert.ok(waited >= ROUTE_DB_TIMEOUT_MS - 50 && waited < 3_000, `等了 ${Math.round(waited)} 毫秒`);
-    assert.equal(seen.length, 0);
-    assert.ok(warnings.some(({ msg }) => msg.includes("这次不调用谷歌")));
-  } finally {
-    await holder.query("rollback");
-    holder.release();
-  }
-  const fresh = estimator({ dbTimeoutMs: "production", apiKey: () => "AIzaQaSlowReserve000000000000002", now: () => now, compute: (apiKey, from, to, beforeAttempt) => computeRoute(apiKey, from, to, { url: googleUrl, beforeAttempt }) });
+  const compute: Compute = (apiKey, from, to, beforeAttempt) => computeRoute(apiKey, from, to, { url: googleUrl, beforeAttempt });
+  const slow = await proxiedPool();
+  t.after(slow.close);
+  const routes = estimator({ pool: slow.pool, dbTimeoutMs: "production", apiKey: () => "AIzaQaSlowDatabase00000000000001", now: () => now, compute });
+  slow.proxy.stall();
+  const started = performance.now();
+  assert.deepEqual(await routes.estimate({ from: { lat: 22.1, lng: 123.1 }, to: { lat: 22.2, lng: 123.2 } }), { ok: false, code: "UNAVAILABLE" });
+  const waited = performance.now() - started;
+  // 读缓存、占名额、记结果三个事务各等满 500 毫秒；远小于连接池默认的 15 秒客户端时限和 5 秒建连接时限
+  assert.ok(waited >= 3 * ROUTE_DB_TIMEOUT_MS - 50 && waited < 4_000, `等了 ${Math.round(waited)} 毫秒`);
+  assert.equal(seen.length, 0);
+  const reserve = warnings.find(({ msg }) => msg.includes("这次不调用谷歌"));
+  assert.ok(reserve !== undefined && isDriverTimeout((reserve.obj as { err?: unknown }).err), JSON.stringify(warnings.map(({ msg }) => msg)));
+  slow.proxy.resume();
+  const fresh = estimator({ pool: slow.pool, dbTimeoutMs: "production", apiKey: () => "AIzaQaSlowDatabase00000000000002", now: () => now, compute });
   assert.equal((await fresh.estimate({ from: { lat: 22.3, lng: 123.3 }, to: { lat: 22.4, lng: 123.4 } })).ok, true);
   assert.equal(seen.length, 1);
+});
+
+test("数调用次数的用例放宽了数据库时限（5 秒）：库卡住 1 秒也等得到，照常调用一次谷歌（时限确实按传入的值，不是写死的 500 毫秒）", async (t) => {
+  t.after(cleanupFuture);
+  seen.length = 0;
+  warnings.length = 0;
+  const now = new Date("2030-09-21T03:00:00.000Z");
+  const slow = await proxiedPool();
+  t.after(slow.close);
+  const routes = estimator({ pool: slow.pool, apiKey: () => "AIzaQaSlowDatabase00000000000003", now: () => now, compute: (apiKey, from, to, beforeAttempt) => computeRoute(apiKey, from, to, { url: googleUrl, beforeAttempt }) });
+  slow.proxy.stall();
+  const resume = setTimeout(() => slow.proxy.resume(), 1_000);
+  t.after(() => clearTimeout(resume));
+  const started = performance.now();
+  assert.equal((await routes.estimate({ from: { lat: 22.5, lng: 123.5 }, to: { lat: 22.6, lng: 123.6 } })).ok, true);
+  assert.ok(performance.now() - started >= 950);
+  assert.equal(seen.length, 1);
+  assert.deepEqual(warnings, []);
 });
 
 // ---- 降级：14 个原因码，从谷歌应答 / 网络情况到每一种看的人 ----
