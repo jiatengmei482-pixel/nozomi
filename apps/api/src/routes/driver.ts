@@ -7,7 +7,7 @@
  */
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { EVIDENCE_FILE_RULES, NO_SHOW_ITEM_NAMES, ORDER_STATUS_NAMES, freeWaitEnded, fulfilmentEarliestAt, fulfilmentEarliestLocal, nextFulfilmentEvent } from "@nozomi/domain";
+import { EVIDENCE_FILE_RULES, NO_SHOW_ITEM_NAMES, ORDER_STATUS_NAMES, freeWaitEnded, fulfilmentEarliestAt, fulfilmentEarliestLocal, nextFulfilmentEvent, riderJson } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import { tenantIdOfDriverToken } from "../auth/driver-token.ts";
 import type { AppContext } from "../context.ts";
@@ -51,6 +51,8 @@ function tripJson(view: TripView): Record<string, unknown> {
       luggage: order.luggage,
       flight_no: order.flightNo,
       passenger: { name: order.passenger.name, phone: order.passenger.phone },
+      // 乘车人和举牌姓名（M8-32）：司机按这里举牌、联系实际乘车的人；没有为 null
+      rider: riderJson(order.passenger),
       messaging: order.messaging,
       notes: order.notes,
       place: view.place === null ? null : { name: view.place.name, code: view.place.code, lng: view.place.lng, lat: view.place.lat },

@@ -7,14 +7,14 @@
  *    选了点对点但有一端是机场时，一句提示 + 一键切到对的标签，不挡下一步。包车沿用现有询价（城市按上车点找最近的可订城市）。
  *    填齐了就在后台报价（停顿一下再查），到第 2 步时价格多半已经出来了。
  * 2. 车型和价格：现有车型列表、车内示意图、附加服务、「一口价包含」。报不出价时只有人工报价那一块（M8-21b）。
- * 3. 乘客信息：乘车人、邮箱、手机、接机的航班号（必填）和举牌姓名（选填，暂写在备注最前面）、即时通讯、备注。字段和校验同旧下单页（`lib/site-order-form.ts`）。
+ * 3. 乘客信息：乘车人、邮箱、手机、接机的航班号（必填）和举牌姓名（选填，M8-32 起是订单的正式字段）、即时通讯、备注。字段和校验同旧下单页（`lib/site-order-form.ts`）。
  * 4. 核对并付款：前三步的内容各带「修改」回到那一步，车费合计和参考价、取消规则、同意保存银行卡、去付款（`POST /site/v1/orders`，下单后进现有订单页付款）。
  * 右侧栏（≥ 1024px）四步一直在：最上面路线图（M8-10 静态图，Leaflet 兜底），下面按步骤追加已确认的内容：行程 → 车型和一个价格 → 乘客信息。
  * 手机、平板（< 1024px）单栏，右侧栏变成顶部可展开的摘要条。
  * 链接参数 from / to / date / time / pax / bags / mode（parseBookingLink）：打开就预填并报价，齐了直接到第 2 步；不合法的只是不预填。
  * 四种状态：加载中（骨架）、官网没开 / 没有可订城市（空）、出错（说明 + 重试）、正常。页面上没有供应商、结算价、加价比例。
  */
-import { type CityCandidate, type CurrencyCode, ORDER_FIELD_LIMITS, fixedPriceIncludes, serviceCityOf } from "@nozomi/domain";
+import { type CityCandidate, type CurrencyCode, ORDER_FIELD_LIMITS, fixedPriceIncludes, isInternationalPhone, serviceCityOf } from "@nozomi/domain";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { ApiError } from "../../../api/client.ts";
@@ -453,18 +453,23 @@ export function BookNewPage() {
     ? { transfer: true, arrival, ends: addressEnds("point_to_point", null), flightInNotes: true }
     : { transfer: tripCategory === "airport_transfer", arrival, ends: addressEnds(tripCategory, tripDirection) };
 
-  /** 下单用的表单：举牌姓名（接机）写在备注最前面，地址取行程里的名称 */
   /** 举牌姓名：客人没改过时跟着乘车人（为自己是预订人，为他人是乘车人）的名字 */
   const signName = contact.signEdited ? contact.signName : contact.forOther ? contact.riderName : contact.name;
+  /** 下单用的表单：举牌姓名（接机）、乘车人（为他人）是正式字段（M8-32）；地址取行程里的名称 */
   const orderForm = (): OrderForm => ({
     ...contact,
-    notes: notesWithExtras({ ...(p2pFallback ? { flightNo: draft.flightNo } : {}), ...(arrival ? { signName } : {}), ...(contact.forOther ? { riderName: contact.riderName, riderPhone: contact.riderPhone } : {}) }, contact.notes), flightNo: draft.flightNo, pickupAddress: draft.from?.name ?? "", dropoffAddress: draft.to?.name ?? "" });
+    rider: { signName: arrival ? signName : "", name: contact.forOther ? contact.riderName : "", phone: contact.forOther ? contact.riderPhone : "" },
+    notes: notesWithExtras(p2pFallback ? { flightNo: draft.flightNo } : {}, contact.notes),
+    flightNo: draft.flightNo,
+    pickupAddress: draft.from?.name ?? "",
+    dropoffAddress: draft.to?.name ?? "",
+  });
 
   /** 第 3 步的检查（不含第 4 步的「同意保存银行卡」） */
   const contactIssues = (): OrderErrors => {
     const found = validateOrderForm(orderForm(), orderTrip);
     delete found.consent;
-    if (found.notes === undefined && orderForm().notes.length > ORDER_FIELD_LIMITS.notesMax) found.notes = `举牌姓名、乘车人和备注加起来最多 ${ORDER_FIELD_LIMITS.notesMax} 个字，请删短一些。`;
+    if (found.notes === undefined && orderForm().notes.length > ORDER_FIELD_LIMITS.notesMax) found.notes = `${p2pFallback ? "航班号和备注加起来" : "备注"}最多 ${ORDER_FIELD_LIMITS.notesMax} 个字，请删短一些。`;
     return found;
   };
 
@@ -473,7 +478,8 @@ export function BookNewPage() {
     if (!contact.forOther) return {};
     return {
       ...(contact.riderName.trim() === "" ? { riderName: "请填写乘车人姓名" } : {}),
-      ...(!/^\+?[\d\s()-]{6,}$/.test(contact.riderPhone.trim()) ? { riderPhone: "请填写乘车人的电话或 WhatsApp 号码，如 +81 90-1234-5678" } : {}),
+      // 和后端同一条规则（isInternationalPhone）：本地号码在这一步就拦下，不要到付款时才被退回
+      ...(!isInternationalPhone(contact.riderPhone) ? { riderPhone: "请填写乘车人的电话或 WhatsApp 号码，以 + 和国家码开头，如 +81 90-1234-5678" } : {}),
     };
   };
 
@@ -537,9 +543,10 @@ export function BookNewPage() {
         setContactNotice({ kind: "warning", text: failure.text });
       } else if (failure.kind === "fields") {
         setContactErrors(failure.errors);
+        setRiderErrors(failure.riderErrors);
         setContactNotice({ kind: "danger", text: failure.text });
-        // 乘客信息那几栏被后端退回：回到第 3 步标红（只有「同意保存」时留在这一步）
-        if (Object.keys(failure.errors).some((key) => key !== "consent")) {
+        // 乘客信息或乘车人那几栏被后端退回：回到第 3 步标红（只有「同意保存」时留在这一步）
+        if (Object.keys(failure.errors).some((key) => key !== "consent") || Object.keys(failure.riderErrors).length > 0) {
           setContactConfirmed(false);
           goStep(3);
         }

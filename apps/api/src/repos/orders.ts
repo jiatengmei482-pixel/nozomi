@@ -7,7 +7,7 @@
  * - 租户侧的查询只取租户可以看的列（`TENANT_COLUMNS`），而且只取付过款的单。
  */
 import type { CancellationTier, CurrencyCode, FxQuote, LandingSource, MessagingApp, OrderCancelReason, OrderStatus, PaymentStatus, ServiceCategory, SettlementBreakdown, TripDirection, VehicleLevel } from "@nozomi/domain";
-import { type ContactIndexKind, UNREADABLE_PASSENGER, normalizeEmailForIndex, normalizeNameForIndex, normalizePhoneForIndex } from "@nozomi/domain";
+import { type ContactIndexKind, type PassengerContact, UNREADABLE_PASSENGER, normalizeEmailForIndex, normalizeNameForIndex, normalizePhoneForIndex } from "@nozomi/domain";
 import { type Db, passengerCryptoOf } from "../db/context.ts";
 import { isPassengerDecryptFailure } from "../integrations/passenger-crypto.ts";
 import { type Page, type TimeCursor, toPage } from "../pagination.ts";
@@ -86,7 +86,7 @@ export interface Order {
   addons: { addonId: string; quantity: number }[];
   driverLanguage: string | null;
   flightNo: string | null;
-  passenger: { name: string; phone: string; email: string };
+  passenger: PassengerContact;
   /** 什么时候脱敏的（ADR 0055）；没有脱敏为空 */
   passengerAnonymizedAt: Date | null;
   messaging: { app: MessagingApp; handle: string } | null;

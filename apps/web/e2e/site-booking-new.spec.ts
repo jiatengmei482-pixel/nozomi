@@ -217,7 +217,9 @@ test("新预订页付款：选车 → 加附加服务（重新报价、右侧栏
   await page.getByRole("checkbox", { name: /同意保存这次付款用的银行卡/ }).check();
   const placed = page.waitForRequest((sent) => new URL(sent.url()).pathname === "/site/v1/orders" && sent.method() === "POST");
   await page.getByRole("button", { name: "去付款 →" }).click();
-  expect(((await placed).postDataJSON() as { notes: string }).notes).toBe("举牌姓名：李华\n乘车人：李华\n乘车人电话：+81 90-5555-6666\n两个大箱子");
+  // M8-32（ADR 0082）：举牌姓名、乘车人姓名和电话是正式字段，不再写进备注
+  const sent = (await placed).postDataJSON() as { notes: string; sign_name: string | null; passenger_name: string | null; passenger_phone: string | null };
+  expect([sent.notes, sent.sign_name, sent.passenger_name, sent.passenger_phone]).toEqual(["两个大箱子", "李华", "李华", "+81 90-5555-6666"]);
   await expect(page.getByRole("heading", { level: 1, name: /^订单 NZ/ })).toBeVisible();
   await expect(page.getByLabel("卡号（假 Stripe）")).toBeVisible();
   await expect(page.locator("main")).toContainText("23,100 JPY");

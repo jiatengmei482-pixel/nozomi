@@ -18,6 +18,8 @@ export interface SeedOrderOptions {
   driverLanguage?: string | null;
   freeWaitMinutes?: number | null;
   status?: string;
+  /** 乘车人和举牌姓名（M8-32），存在乘客对象里；不给就没有 */
+  rider?: { signName: string | null; name: string | null; phone: string | null };
 }
 
 export interface SeededOrder {
@@ -55,7 +57,7 @@ export async function seedOrder(api: TestApi, market: Market, side: "a" | "b", o
       tenant.tenantId, id, no, options.status ?? "confirmed", market.ids.tokyo, market.ids.narita, direction, productId, options.vehicleGroupId ?? market.ids.biz7, options.serviceAt, local, local.slice(0, 10),
       direction === "dropoff" ? JSON.stringify(city) : null, direction === "pickup" ? JSON.stringify(city) : null, options.driverLanguage ?? null,
       options.flightNo === undefined ? (direction === "pickup" ? "NH211" : null) : options.flightNo,
-      JSON.stringify({ name: "王小明", phone: "+819012345678", email: "guest@example.com" }), JSON.stringify(settlement),
+      JSON.stringify({ name: "王小明", phone: "+819012345678", email: "guest@example.com", ...(options.rider === undefined ? {} : { rider: options.rider }) }), JSON.stringify(settlement),
       options.freeWaitMinutes === undefined ? 90 : options.freeWaitMinutes, new Date(createdAt.getTime() + 30 * 60_000), confirmedAt, dispatchDeadline(confirmedAt, options.serviceAt), createdAt,
     ],
   );
