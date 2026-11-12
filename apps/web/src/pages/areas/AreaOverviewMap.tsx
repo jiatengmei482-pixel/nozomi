@@ -354,7 +354,7 @@ export function AreaOverviewMap({ tiles, areas, selected, onSelect, overlaps, sh
           <li>
             <Swatch kind="forbid" />
             <span>
-              <strong>禁行区</strong> 只管它所在的区域
+              <strong>报价区域的禁行区</strong> 点落在里面，用到这个区域的商品一律不报价
             </span>
           </li>
           {showOverlaps && (

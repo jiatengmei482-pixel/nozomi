@@ -242,10 +242,13 @@ test("一个点落在几个区域里：每个「上车区域 → 下车区域」
   assert.deepEqual(quoted(off, trip("city", "airport")), ["wide→airport", 16_000]);
 });
 
-test("落在禁行区的区域不参与：上车点在某区域的禁行区里时，这个区域出发的线路价不用", () => {
+test("M8-36：上车点落在商品某个报价区域的禁行区里，整个商品不报——别的区域盖住这个点、另一端在哪都一样", () => {
   const cityWithHole: QuoteArea = { areaId: "city", active: true, shapes: [{ id: "c-op", kind: "operate", ring: square(139.5, 35.5, 139.8, 35.9) }, { id: "c-no", kind: "forbid", ring: square(139.65, 35.65, 139.75, 35.75) }] };
   const product = p2p({ areas: [cityWithHole, WIDE_CITY, AIRPORT], priceRules: [...AREA_PRICES, rule("wide-area", { areaId: "wide-city" }, 12_000), line("city→airport", "city", "airport", 1_000)] });
-  assert.deepEqual(quoted(product, trip("city", "airport")), ["airport-area", 8_000]);
+  const refused = quoteProduct(product, trip("city", "airport"), moment());
+  assert.deepEqual(refused.ok ? null : refused.reason, "IN_FORBIDDEN_AREA", "以前由「宽城区」和机场区接（¥8,000），现在不报");
+  const back = quoteProduct(product, trip("airport", "city"), moment());
+  assert.deepEqual(back.ok ? null : back.reason, "IN_FORBIDDEN_AREA", "反方向（下车点在禁行区）也不报");
 });
 
 test("调价规则照常作用在线路价上（按上车区域匹配），各项之和仍等于总价；明细带下车区域", () => {

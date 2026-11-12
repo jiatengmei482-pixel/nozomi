@@ -439,8 +439,9 @@ const notPriced = (product: QuoteProduct): "OUT_OF_SERVICE_AREA" | "NO_PRICING_A
 /**
  * 第 4 步：这个商品的哪些区域能接这次用车；一个都没有时说明原因。每一个要校验的点依次做两道判断（ADR 0075）：
  * 先是运营判断（`outsideOperating`），再是报价判断——
- * - 每一个要校验的点都得落在某个区域的营运区里、且不在那个区域的禁行区里（禁行区只管它所在的区域，ADR 0015）；
- * - 要校验的点里只要有一个落在某个区域的禁行区里，这个区域就不参与这一单的报价——点对点时即使另一端在它的营运区里也一样（ADR 0020）。
+ * - 每一个要校验的点都得落在某个区域的营运区里、且不在那个区域的禁行区里；
+ * - 要校验的点里只要有一个落在这个商品任何一个报价区域的禁行区里，这个商品就一律不报（`IN_FORBIDDEN_AREA`）——
+ *   不管另一端在哪、也不管这个点是不是被别的区域的营运区盖住（M8-36，业主 2026-11-12；以前只是那一个区域不参与，ADR 0015 / 0020）。
  */
 function serviceAreas(product: QuoteProduct, request: QuoteRequest): { areaIds: string[] } | { reason: AreaRefusal } {
   const usable = new Set<string>();
@@ -457,8 +458,9 @@ function serviceAreas(product: QuoteProduct, request: QuoteRequest): { areaIds: 
     for (const areaId of located.operating) usable.add(areaId);
     for (const areaId of located.forbidden) forbidden.add(areaId);
   }
-  const areaIds = product.areas.flatMap((area) => (usable.has(area.areaId) && !forbidden.has(area.areaId) ? [area.areaId] : []));
-  return areaIds.length === 0 ? { reason: "IN_FORBIDDEN_AREA" } : { areaIds };
+  // 落在这个商品任何一个报价区域的禁行区里：整个商品不报（M8-36）
+  if (forbidden.size > 0) return { reason: "IN_FORBIDDEN_AREA" };
+  return { areaIds: product.areas.flatMap((area) => (usable.has(area.areaId) ? [area.areaId] : [])) };
 }
 
 /** 接送机、点对点按哪种方式报（M8-30，ADR 0080） */
@@ -467,10 +469,10 @@ type TransferPlan = { basis: "one_price" | "one_price_outside_km"; areaIds: stri
 /**
  * 接送机、点对点的第 4 步（M8-30，ADR 0080；业主 2026-11-11 定的优先级）：
  * 1. 要校验的点都在商品的报价区域里 → 一口价，和以前一模一样（`serviceAreas`）；
- * 2. 点对点只有一端在 → 这一端所在的报价区域的一口价 + 区域外里程费（另一端落在禁行区里的区域不算，同 `serviceAreas`）；
+ * 2. 点对点只有一端在 → 这一端所在的报价区域的一口价 + 区域外里程费（有一端落在商品报价区域的禁行区里时不报，同 `serviceAreas`，M8-36）；
  * 3. 都不在（接送机：非机场一端不在；机场那一端不看区域）→ 计程价。
  * 2、3 都要先过运营判断（每一端都要在这个供应商的运营范围里），而且商品要设了计程价；商品没设计程价、没带运营范围（不做运营判断）、
- * 或 `legacy`（M8-30 之前的口径，只读回放对比用）时和以前一模一样。报不出时的原因一律和以前一样（`serviceAreas` 给的）。
+ * 或 `legacy`（M8-30 之前的口径，只读回放对比用）时和以前一模一样。报不出时的原因和以前一样（`serviceAreas` 给的）；有一端进了商品报价区域的禁行区时是 `IN_FORBIDDEN_AREA`（M8-36）。
  * 每个车型组有没有计程价、有没有路线在后面看。
  */
 function transferAreas(product: QuoteProduct, request: QuoteRequest, legacy: boolean): TransferPlan | { reason: AreaRefusal } {
@@ -485,14 +487,13 @@ function transferAreas(product: QuoteProduct, request: QuoteRequest, legacy: boo
     if (outsideOperating(product, position) !== null) return today;
     located.push(locateInAreas(product.areas, position));
   }
+  // 有一端落在这个商品某个报价区域的禁行区里：整个商品不报（M8-36）
+  if (located.some((entry) => entry.forbidden.length > 0)) return { reason: "IN_FORBIDDEN_AREA" };
   const hit = located.filter((entry) => entry.operating.length > 0);
-  // 两端都在报价区域里、只是区域都被另一端的禁行区排除了：和以前一样不报
-  if (hit.length === located.length) return today;
+  // 走到这里时没有点进禁行区，两端都在报价区域里 `serviceAreas` 就报得出了，所以 hit 只会少于 located
   if (hit.length === 0) return { basis: "distance_only", areaIds: [] };
   const inside = hit[0]?.operating ?? [];
-  const forbidden = located.find((entry) => entry.operating.length === 0)?.forbidden ?? [];
-  const areaIds = product.areas.flatMap((area) => (inside.includes(area.areaId) && !forbidden.includes(area.areaId) ? [area.areaId] : []));
-  return areaIds.length === 0 ? today : { basis: "one_price_outside_km", areaIds };
+  return { basis: "one_price_outside_km", areaIds: product.areas.flatMap((area) => (inside.includes(area.areaId) ? [area.areaId] : [])) };
 }
 
 /** 包车一端在哪：在商品本身的区域里（这一端加 0），或者在哪几个加价区域里（按商品挂的先后） */
@@ -516,12 +517,12 @@ function charterEnds(product: QuoteProduct, request: QuoteRequest): { areaIds: s
     return "reason" in areas ? areas : { areaIds: areas.areaIds, ends: null };
   }
   const surchargeAreas = (product.surchargeAreas ?? []).filter((area) => surchargeIds.includes(area.areaId));
-  const located = (point: LatLng): { own: string[]; end: CharterEnd; forbidden: boolean } => {
+  const located = (point: LatLng): { own: string[]; end: CharterEnd; forbidden: boolean; inOwnForbidden: boolean } => {
     const own = locateInAreas(product.areas, point);
     const extra = locateInAreas(surchargeAreas, point);
     // 加价区域按商品挂的先后（规则出现的先后）排，一样小的加价取前面的
     const surcharge = surchargeIds.filter((id) => extra.operating.includes(id));
-    return { own: own.operating, end: { inProductArea: own.operating.length > 0, surchargeAreaIds: surcharge }, forbidden: own.forbidden.length + extra.forbidden.length > 0 };
+    return { own: own.operating, end: { inProductArea: own.operating.length > 0, surchargeAreaIds: surcharge }, forbidden: own.forbidden.length + extra.forbidden.length > 0, inOwnForbidden: own.forbidden.length > 0 };
   };
   const pickup = located(request.pickup);
   const dropoff = located(request.dropoff);
@@ -530,6 +531,8 @@ function charterEnds(product: QuoteProduct, request: QuoteRequest): { areaIds: s
     if (outside !== null) return { reason: outside };
     if (!end.end.inProductArea && end.end.surchargeAreaIds.length === 0) return { reason: end.forbidden ? "IN_FORBIDDEN_AREA" : notPriced(product) };
   }
+  // 上车点或下车点落在这个商品某个报价区域的禁行区里：整个商品不报（M8-36；加价区域的禁行区不算，它们不是报价区域）
+  if (pickup.inOwnForbidden || dropoff.inOwnForbidden) return { reason: "IN_FORBIDDEN_AREA" };
   const baseAreas = pickup.own.length > 0 ? pickup.own : dropoff.own.length > 0 ? dropoff.own : product.areas.filter((area) => area.active).map((area) => area.areaId);
   return { areaIds: baseAreas, ends: { pickup: pickup.end, dropoff: dropoff.end } };
 }

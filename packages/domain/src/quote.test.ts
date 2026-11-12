@@ -207,16 +207,29 @@ test("第 4 步 区域校验：接送机只校验非机场一端，点对点两�
   assert.equal(outcome(surcharged, day(WEST, null)), "DROPOFF_REQUIRED");
 });
 
-test("第 4 步 禁行优先：点落在禁行区就不报（没有别的区域能接时）；停用的区域不算；另一个区域的营运区包着这个点时由那个区域接", () => {
+test("第 4 步 禁行优先：点落在禁行区就不报；停用的区域不算；另一个区域的营运区包着这个点也不报（M8-36）", () => {
   assert.equal(outcome(product(), request({ dropoff: FORBIDDEN })), "IN_FORBIDDEN_AREA");
   const p2p = product({ category: "point_to_point", pickupPlace: null, priceRules: [price(fixed(8_000), { direction: null })] });
   assert.equal(outcome(p2p, request({ category: "point_to_point", direction: null, pickup: WEST, dropoff: FORBIDDEN })), "IN_FORBIDDEN_AREA", "起点或终点落入禁行区就不报价");
   assert.equal(outcome(product({ areas: [{ ...AREA_1, active: false }, AREA_2] }), request({ dropoff: WEST })), "OUT_OF_SERVICE_AREA", "只在已停用的区域里");
-  // 第三个区域的营运区盖住了 A2 的禁行区：由它接（禁行区只管它所在的那个区域，ADR 0015）
+  // 第三个区域的营运区盖住了 A2 的禁行区：以前由它接（ADR 0015），M8-36 起整个商品不报
   const cover = { areaId: "a3", active: true, shapes: [{ id: "a3-op", kind: "operate" as const, ring: square(139.75, 35.3, 139.95, 35.7) }] };
   const covered = product({ areas: [AREA_1, AREA_2, cover], priceRules: [price(fixed(20_000), { areaId: "a2" }), price(fixed(26_000), { areaId: "a3" })] });
-  const quoted = offer(covered, request({ dropoff: FORBIDDEN }));
-  assert.deepEqual([quoted.areaId, quoted.settlement.totalMinor], ["a3", 26_000], "A2 更便宜，但这个点在 A2 的禁行区里，不能用 A2 的价");
+  assert.equal(outcome(covered, request({ dropoff: FORBIDDEN })), "IN_FORBIDDEN_AREA", "点在 A2 的禁行区里：A3 盖住它也不报");
+  // 禁行区所在的区域没被商品选：不算（规则只看这个商品的报价区域）
+  const notChosen = product({ areas: [AREA_1, cover], priceRules: [price(fixed(20_000), { areaId: "a1" }), price(fixed(26_000), { areaId: "a3" })] });
+  assert.equal(outcome(notChosen, request({ dropoff: FORBIDDEN })), 26_000);
+});
+
+test("M8-36 包车：上车点或下车点落在商品报价区域的禁行区里，整个商品不报（另一个报价区域盖住也一样）；没进禁行区的照旧", () => {
+  const cover = { areaId: "a3", active: true, shapes: [{ id: "a3-op", kind: "operate" as const, ring: square(139.75, 35.3, 139.95, 35.7) }] };
+  const charterPrice = (areaId: string) => price({ model: "charter_package", packageKm: 300, packagePriceMinor: 98_000, overtimePerHourMinor: 5_000, overKmPerKmMinor: 400 }, { areaId, direction: null, packageHours: 10 });
+  const charter = product({ category: "charter", pickupPlace: null, areas: [AREA_1, AREA_2, cover], priceRules: [charterPrice("a1"), charterPrice("a2"), charterPrice("a3")], serviceRules: rules({ freeWait: { pickup: null, dropoff: null, general: { mode: "unlimited" } } }) });
+  const day = (pickup: typeof WEST, dropoff: typeof WEST | null): QuoteRequest => request({ category: "charter", direction: null, packageHours: 10, pickup, dropoff });
+  assert.equal(outcome(charter, day(FORBIDDEN, WEST)), "IN_FORBIDDEN_AREA");
+  assert.equal(outcome(charter, day(WEST, FORBIDDEN)), "IN_FORBIDDEN_AREA");
+  assert.equal(outcome(charter, day(FORBIDDEN, null)), "IN_FORBIDDEN_AREA", "没给下车点时只看上车点");
+  assert.equal(outcome(charter, day(WEST, EAST)), 98_000);
 });
 
 test("第 4 步 + 已确认的决策：一个点落在同一租户多个区域时每个区域都算、取最低；点对点起终点在不同区域时两端区域的价都算、取最低；一样低取排在前面的区域", () => {

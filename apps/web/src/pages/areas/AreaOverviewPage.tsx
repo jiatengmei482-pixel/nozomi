@@ -376,7 +376,7 @@ export function AreaOverviewPage() {
       {canManage && <ImportDrop onImport={(text, name) => void navigate(AREA_NEW_PATH, { state: { from: AREA_MAP_PATH, importText: text, importName: name, importRole: roleInGeoJson(text) } })} />}
       {!platform && (
         <p className="field__hint">
-          重叠只在报价区域之间算，只是提醒，不影响保存：同一个位置落在几个报价区域里时，报价取最低。区域的禁行区压在别的区域上不算重叠；运营区域之间、运营区域和报价区域之间也不算。报价区域超出运营区域的部分不会报价。详见 <Link className="link" to={AREA_LIST_PATH}>区域列表</Link>。
+          重叠只在报价区域之间算，只是提醒，不影响保存：同一个位置落在几个报价区域里时，报价取最低。区域的禁行区压在别的区域上不算重叠，但同时选了这两个区域的商品在禁行区里不报价；运营区域之间、运营区域和报价区域之间也不算。报价区域超出运营区域的部分不会报价。详见 <Link className="link" to={AREA_LIST_PATH}>区域列表</Link>。
         </p>
       )}
       {actions.dialog}
