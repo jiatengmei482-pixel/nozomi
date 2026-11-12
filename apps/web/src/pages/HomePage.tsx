@@ -19,7 +19,7 @@ import { StatusBadge, TENANT_STATUS_BADGES } from "../components/StatusBadge.tsx
 import { useDocumentTitle } from "../lib/use-document-title.ts";
 import { OrderTodosSection } from "./orders/OrderTodos.tsx";
 import { type TenantNotice, listOwnNotices } from "../api/onboarding.ts";
-import { TENANT_STATUS_HINTS, noticeText, scoreText, standingNotice } from "../lib/onboarding-display.ts";
+import { noticeText, scoreText, standingNotice, tenantStatusHint } from "../lib/onboarding-display.ts";
 import { COMPANY_PATH } from "./company/CompanyPage.tsx";
 import { PERFORMANCE_PATH } from "./company/PerformancePage.tsx";
 import { countTenantTickets } from "../api/order-center.ts";
@@ -135,7 +135,7 @@ export function HomePage() {
                 <EntryCard
                   title="企业资质"
                   to={COMPANY_PATH}
-                  counts={{ status: "text", text: `${TENANT_STATUS_BADGES[tenant.status].label}：${TENANT_STATUS_HINTS[tenant.status]}` }}
+                  counts={{ status: "text", text: `${TENANT_STATUS_BADGES[tenant.status].label}：${tenantStatusHint(tenant)}` }}
                   reminders={[...(tenant.status === "applying" ? [{ text: "填企业信息、上传资质，交齐后提交审核", to: COMPANY_PATH }] : []), ...(notices.state.data?.items ?? []).filter((notice) => notice.kind === "document_expiring" || notice.kind === "document_expired" || notice.kind === "document_reviewed").slice(0, 2).map((notice) => ({ text: noticeText(notice, {}), to: COMPANY_PATH }))]}
                 />
               )}
