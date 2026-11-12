@@ -98,6 +98,19 @@
   min-height: var(--control-height-lg);
 }
 
+/* 全屏选择页里的地址（手机触屏，M8-37）：候选不浮起来，就是页面的一部分，跟在输入框下面往下排，整页滚动 */
+.place-field__panel--sheet {
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.place-field__sheet-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
 .place-field__detail {
   flex-basis: 100%;
   min-width: 0;

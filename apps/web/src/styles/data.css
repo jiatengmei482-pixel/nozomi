@@ -918,6 +918,91 @@
   background: var(--color-bg-overlay);
 }
 
+/*
+ * 全屏选择页（M8-37，components/FullScreenSheet.tsx）：手机上选地址、日期、时间。原生 <dialog> 在页面最上层，占满屏幕；
+ * 上面标题 +「取消」，中间滚动，底部操作；顶部、底部让开刘海和手势条（安全区）。
+ */
+.sheet {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+}
+
+.sheet[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.sheet::backdrop {
+  background: var(--color-bg-overlay);
+}
+
+.sheet__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: calc(var(--space-3) + env(safe-area-inset-top)) var(--space-4) var(--space-3);
+  border-bottom: var(--border-width) solid var(--color-border-default);
+}
+
+.sheet__title {
+  min-width: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+  overflow-wrap: anywhere;
+}
+
+.sheet__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-height: 0;
+  padding: var(--space-4);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.sheet__footer {
+  padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom));
+  border-top: var(--border-width) solid var(--color-border-default);
+}
+
+/* 手机上代替输入框的一格（点一下打开全屏选择页）：长得像输入框，左对齐，右边一个向下的箭头 */
+.picker-trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  text-align: start;
+  cursor: pointer;
+}
+
+.picker-trigger__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-trigger--empty .picker-trigger__text {
+  color: var(--color-text-tertiary);
+}
+
+.picker-trigger__icon {
+  flex: none;
+  color: var(--color-text-secondary);
+}
+
 .dialog__panel {
   display: flex;
   flex-direction: column;
