@@ -8,7 +8,7 @@
  */
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { CENTER, type Ref, choose, createBrand, createWorld, expectAccessible, fillLocked, post, tenantHeaders } from "./catalog.ts";
-import { OWN_SITE_SOURCE, adminCredentials, createActiveTenant, expectNoHorizontalOverflow, loginAs, platformAdminHeaders, randomLetters, snapshot } from "./support.ts";
+import { OWN_SITE_SOURCE, adminCredentials, createActiveTenant, expectMapFollowsTheme, expectNoHorizontalOverflow, loginAs, platformAdminHeaders, randomLetters, snapshot } from "./support.ts";
 
 // 官网按来源地址限速、未覆盖需求按来源限新行：每条用例用自己的来源地址（M8-17）
 test.use(OWN_SITE_SOURCE);
@@ -69,6 +69,14 @@ test("供应商：建运营区域和里面的报价区域；商品只列报价�
   await expect(page.getByRole("group", { name: /用途/ }).getByRole("radio", { name: /^报价区域/ })).toBeChecked();
   await expect(page.locator(".area-map__overlay")).toBeVisible();
   await expect(page.locator("[data-outside-warning]")).toHaveCount(0);
+  await expect(page.getByRole("list", { name: "图例" })).toContainText("营运区 可以报价");
+  // 纯运营区域：图例不说「可以报价」（M6-08）
+  await page.goto(`/areas/${operatingId}`);
+  await expect(page.getByRole("group", { name: /用途/ }).getByRole("radio", { name: /^运营区域/ })).toBeChecked();
+  await expect(page.getByRole("list", { name: "图例" })).toContainText("营运区 能接单的范围，不带价格");
+  await expect(page.getByRole("list", { name: "图例" })).not.toContainText("可以报价");
+  // 切换亮暗主题：编辑页的地图当场跟着变，暗色只压暗瓦片（M6-08）
+  await expectMapFollowsTheme(page, page.locator(".area-map__canvas"), "区域编辑页地图");
   await page.goto(`/areas/${partly.id}`);
   await expect(page.locator("[data-outside-warning]")).toContainText("不在任何运营区域里，那部分不会报价");
   await expect(page.locator('.area-map__overlay [data-outside="editing"]')).toHaveCount(1);
@@ -107,6 +115,11 @@ test("供应商：建运营区域和里面的报价区域；商品只列报价�
     await expect(legend).toContainText("超出运营区域");
     await expectAccessible(page, `区域地图（${scheme}）`);
     await snapshot(page, `m820-overview-${scheme}`);
+    if (scheme === "dark") {
+      // 不刷新切换主题：区域地图当场跟着变，暗色只压暗瓦片、图形颜色不变（M6-08）
+      await expectMapFollowsTheme(page, page.locator(".area-overview-map .area-map__canvas"), "区域地图");
+      await page.emulateMedia({ colorScheme: "dark" });
+    }
     await page.getByRole("combobox", { name: "用途" }).selectOption("operating");
     await expect(page.getByRole("heading", { name: "共 3 个区域，显示 1 个" })).toBeVisible();
     await page.getByRole("combobox", { name: "用途" }).selectOption("pricing");
@@ -164,6 +177,10 @@ test("运营后台：官网询价一家都报不出 → 未覆盖需求列表里
     await expect(row).toContainText("不在任何运营区域里");
     await expect(row).toContainText(`未覆盖终点 ${tag}`);
     await expect(page.getByRole("list", { name: "按原因" })).toContainText("不在任何运营区域里");
+    // 1280 宽：「操作」列不用横向滚动就看得到（M6-08）
+    const scroller = page.getByRole("region", { name: "未覆盖需求", exact: true });
+    expect(await scroller.evaluate((node) => node.scrollWidth - node.clientWidth), "表格不横向滚动").toBeLessThanOrEqual(0);
+    await expect(row.getByRole("link", { name: "在区域地图上查看" })).toBeInViewport();
     await expectAccessible(page, `未覆盖需求（${scheme}）`);
     await snapshot(page, `m820-demands-${scheme}`);
   }
@@ -201,6 +218,10 @@ test("运营后台：官网询价一家都报不出 → 未覆盖需求列表里
     await page.goto("/platform/uncovered-demands");
     await expect(page.getByRole("heading", { level: 1, name: "未覆盖需求" })).toBeVisible();
     await expect(page.getByText(pickupName).first()).toBeVisible();
+    // 手机卡片：「次数」「涉及的供应商」有标签（M6-08）
+    const card = page.getByRole("row").filter({ hasText: pickupName });
+    await expect(card).toContainText("次数：1");
+    await expect(card).toContainText("涉及的供应商：没有");
     await expectNoHorizontalOverflow(page, `未覆盖需求 ${width}px`);
     await page.goto(`/platform/areas/map?demands=1&lat=${pickup.lat}&lng=${pickup.lng}`);
     await expect(page.locator(`circle[data-demand="${demandId}:p"]`)).toHaveCount(1);

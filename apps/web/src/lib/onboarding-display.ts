@@ -27,12 +27,20 @@ export const TENANT_STATUS_HINTS: Readonly<Record<TenantStatus, string>> = {
   terminated: "只能查看历史，不能再修改。",
 };
 
+/** 测试供应商（ADR 0077）已签约时的那一句：它不做测试单、不开始试运营，不能用通用的「完成测试单后开始试运营」（M6-08）。 */
+export const TEST_TENANT_SIGNED_HINT = "测试供应商只用于验收：可以建区域和商品，不上架、不参与比价，停在已签约。";
+
+/** 某个供应商现在能做什么：一般同 `TENANT_STATUS_HINTS`，测试供应商已签约时换成 `TEST_TENANT_SIGNED_HINT`。 */
+export function tenantStatusHint(tenant: Pick<Tenant, "status" | "is_test_tenant">): string {
+  return tenant.status === "signed" && tenant.is_test_tenant === true ? TEST_TENANT_SIGNED_HINT : TENANT_STATUS_HINTS[tenant.status];
+}
+
 /**
  * 入驻进度的那一句（M4-10）：「审核中」按实际走到哪一步说——资质全部通过、合同也生效了就说可以签约，
- * 只差合同就说等合同，资质还没审完才说正在审核。其他状态同 `TENANT_STATUS_HINTS`。
+ * 只差合同就说等合同，资质还没审完才说正在审核。测试供应商已签约用 `TEST_TENANT_SIGNED_HINT`。其他状态同 `TENANT_STATUS_HINTS`。
  */
 export function progressHint(company: Pick<CompanyOverview, "tenant" | "next_step_issues">, audience: "tenant" | "platform"): string {
-  if (company.tenant.status !== "reviewing") return TENANT_STATUS_HINTS[company.tenant.status];
+  if (company.tenant.status !== "reviewing") return tenantStatusHint(company.tenant);
   // 先看要供应商动手的：资质到期了、被驳回或要求补充了，就不是「正在审核」
   if (company.next_step_issues.some((issue) => issue.reason === "DOCUMENT_EXPIRED")) return audience === "platform" ? "有资质已到期，需要供应商重新上传，审核通过、合同生效后签约。" : "有资质已到期，请重新上传已到期的资质。审核通过、合同生效后签约。";
   if (company.next_step_issues.some((issue) => issue.reason === "DOCUMENT_NEEDS_RESUBMISSION")) return audience === "platform" ? "有资质被驳回或要求补充，需要供应商重新提交。" : "有资质被驳回或要求补充，请按平台的意见重新提交。";

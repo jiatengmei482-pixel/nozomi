@@ -176,11 +176,12 @@ export function UncoveredDemandsPage() {
       ),
     },
     { key: "reason", header: "原因", cell: (row) => <StatusBadge tone={REASON_TONES[row.reason]} label={DEMAND_REASON_NAMES[row.reason]} /> },
-    { key: "count", header: "次数", align: "end", cell: (row) => row.repeat_count },
+    { key: "count", header: "次数", align: "end", cardLabel: true, cell: (row) => row.repeat_count },
     {
       key: "tenants",
       header: "涉及的供应商",
       wrap: true,
+      cardLabel: true,
       cell: (row) => (row.tenant_ids.length === 0 ? <span className="table__muted">没有</span> : row.tenant_ids.slice(0, 3).map(tenantName).join("、") + (row.tenant_ids.length > 3 ? ` 等 ${row.tenant_ids.length} 家` : "")),
     },
     {
@@ -189,7 +190,7 @@ export function UncoveredDemandsPage() {
       cell: (row) => {
         const map = canSeeMap ? demandMapLink(row) : null;
         return (
-          <span className="table__actions">
+          <span className="table__actions table__actions--stack">
             <Button variant="text" size="sm" onClick={() => setDetail(row)} aria-label={`详情：${tripText(row)} ${serviceLocalText(row.service_local)}`}>
               详情
             </Button>
@@ -267,7 +268,7 @@ export function UncoveredDemandsPage() {
           {summary.dropped > 0 && <p className="field__hint field__hint--warning">{`另有 ${summary.dropped} 条新需求因为防刷限流没有记下来（每个来源每小时最多 30 条、全站每天最多 5000 条），不分城市和供应商。`}</p>}
         </section>
       )}
-      <div className="card-table">
+      <div className="card-table demand-table">
         <DataTable label="未覆盖需求" columns={columns} rows={rangeProblem !== null ? [] : (page?.items ?? [])} rowKey={(row) => row.id} state={tableState} refreshing={state.status === "loading" && state.data !== null} onRetry={reload} empty={empty} />
       </div>
       <CursorPagination

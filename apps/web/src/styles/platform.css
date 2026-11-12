@@ -935,3 +935,12 @@
 .demand-summary__tops > p {
   margin: 0;
 }
+
+/* 未覆盖需求的表格列多（M6-08）：能折行的三列最窄收到 112px、第二三行（时间、城市、人数）也可以折行，1280 宽时「操作」列不用横向滚动就看得到 */
+.demand-table .table .table__cell--wrap {
+  min-width: 112px;
+}
+
+.demand-table .table__other-names {
+  white-space: normal;
+}

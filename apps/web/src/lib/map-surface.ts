@@ -7,6 +7,8 @@
  */
 import L from "leaflet";
 import type { MapTiles } from "../api/areas.ts";
+import { type ColorScheme, currentColorScheme } from "../theme/use-color-scheme.ts";
+import { applyMapTheme, dimTilesFor, tileUrlFor } from "./map-theme.ts";
 import { QuietTileLayer } from "./quiet-tile-layer.ts";
 import "./leaflet-focus.ts";
 
@@ -32,6 +34,8 @@ export interface MapSurface {
   setView(center: LatLngPoint, zoom: number): void;
   zoomIn(): void;
   zoomOut(): void;
+  /** 切换了亮暗主题：换瓦片或压暗底图（M6-08）；没有主题之分的实现（测试替身）可以不给 */
+  setColorScheme?(scheme: ColorScheme): void;
   destroy(): void;
 }
 
@@ -43,24 +47,18 @@ export interface SurfaceEvents {
   onTileTrouble(trouble: boolean): void;
 }
 
-export function prefersDark(): boolean {
-  const chosen = document.documentElement.dataset["theme"];
-  return chosen === "dark" || (chosen !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-}
-
 /**
  * Leaflet 的实现：自带的控件、署名都关掉（用设计规范的按钮和署名），瓦片按配置的来源页策略单独设（ADR 0015）。
- * 暗色而底图没有暗色样式时，给容器加 `area-map__canvas--dimmed`（只压暗底图那一层）。
+ * 暗色而底图没有暗色样式时，给容器加 `area-map__canvas--dimmed`（只压暗瓦片那一层）；切换主题时由 `setColorScheme` 当场更新（lib/map-theme.ts）。
  */
 export function createLeafletSurface(container: HTMLElement, tiles: MapTiles, events: SurfaceEvents): MapSurface {
   const coarse = window.matchMedia("(pointer: coarse)").matches;
   const map = L.map(container, { dragging: !coarse, zoomControl: false, attributionControl: false, zoomAnimation: false, fadeAnimation: false, minZoom: tiles.min_zoom, maxZoom: tiles.max_zoom });
-  const dark = prefersDark();
-  const url = dark && tiles.dark_url_template !== null ? tiles.dark_url_template : tiles.url_template;
-  if (dark && tiles.dark_url_template === null) container.classList.add("area-map__canvas--dimmed");
+  const opened = currentColorScheme();
+  if (dimTilesFor(tiles, opened)) container.classList.add("area-map__canvas--dimmed");
   let loaded = 0;
   let failed = 0;
-  new QuietTileLayer(url, { tileSize: tiles.tile_size, zoomOffset: tiles.tile_size === 512 ? -1 : 0, minZoom: tiles.min_zoom, maxZoom: tiles.max_zoom, referrerPolicy: tiles.referrer_policy })
+  const layer = new QuietTileLayer(tileUrlFor(tiles, opened), { tileSize: tiles.tile_size, zoomOffset: tiles.tile_size === 512 ? -1 : 0, minZoom: tiles.min_zoom, maxZoom: tiles.max_zoom, referrerPolicy: tiles.referrer_policy })
     .on("tileload", () => {
       loaded += 1;
       events.onTileTrouble(false);
@@ -93,6 +91,9 @@ export function createLeafletSurface(container: HTMLElement, tiles: MapTiles, ev
     },
     zoomOut() {
       map.zoomOut();
+    },
+    setColorScheme(scheme) {
+      applyMapTheme(container, layer, tiles, scheme);
     },
     destroy() {
       map.remove();

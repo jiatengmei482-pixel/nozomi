@@ -127,7 +127,8 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-  margin: 0 0 var(--space-4);
+  /* 上面是页面说明（或提示条）：留出间距（M6-08） */
+  margin: var(--space-4) 0;
   padding: 0;
   list-style: none;
 }
@@ -153,6 +154,11 @@
 .status-counts__item[aria-pressed="true"] {
   border-color: var(--color-primary);
   background: var(--color-bg-selected);
+}
+
+/* 人工报价列表「申请」列：编号是等宽字体，第二行的行程摘要是普通文字，不跟着首列用等宽字体（M6-08） */
+.manual-quote-trip {
+  font-family: var(--font-family-sans);
 }
 
 .status-counts__value {

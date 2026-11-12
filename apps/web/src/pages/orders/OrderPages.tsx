@@ -44,6 +44,7 @@ import { ORDER_LIST_PATH, directionName, driverLinkEmailNotice, driverLinkUrl, o
 import { failureText } from "../../lib/failure.ts";
 import { formatLocalDateTime } from "../../lib/master-display.ts";
 import { TENANT_TICKETS_PAGE, newTenantTicketPath } from "../../lib/order-center-display.ts";
+import { ORDER_NO_EVENTS_TEXT } from "../../lib/order-money-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { tenantOrderNotificationsPath } from "../../lib/notification-display.ts";
 import { useLoad } from "../../lib/use-load.ts";
@@ -593,6 +594,7 @@ export function OrderDetailPage() {
 
       <section className="card">
         <h2 className="card__title">状态流水</h2>
+        {events.length === 0 && <p className="table__muted">{ORDER_NO_EVENTS_TEXT}</p>}
         <ul className="plain-list">
           {events.map((event, index) => (
             <li key={`${event.occurred_at}-${index}`}>

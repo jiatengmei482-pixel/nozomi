@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { CompanyOverview } from "../api/onboarding.ts";
-import { TENANT_STATUS_HINTS, progressHint, requirementExpiryText } from "./onboarding-display.ts";
+import { TENANT_STATUS_HINTS, TEST_TENANT_SIGNED_HINT, progressHint, tenantStatusHint, requirementExpiryText } from "./onboarding-display.ts";
 
 const item = (changes: Partial<Parameters<typeof requirementExpiryText>[0]> = {}): Parameters<typeof requirementExpiryText>[0] => ({ expiry: "required", approved_document_id: null, expires_on: null, days_left: null, ...changes });
 
@@ -39,4 +39,16 @@ test("入驻进度（审核中）按实际阶段说：资质没审完说正在�
   assert.equal(progressHint({ tenant: reviewing, next_step_issues: [{ path: "/documents/vehicle_insurance", reason: "DOCUMENT_EXPIRED" }] }, "tenant"), "有资质已到期，请重新上传已到期的资质。审核通过、合同生效后签约。");
   assert.equal(progressHint({ tenant: reviewing, next_step_issues: [{ path: "/documents/vehicle_insurance", reason: "DOCUMENT_NEEDS_RESUBMISSION" }] }, "platform"), "有资质被驳回或要求补充，需要供应商重新提交。");
   assert.equal(progressHint({ tenant: { status: "signed" } as CompanyOverview["tenant"], next_step_issues: [] }, "platform"), TENANT_STATUS_HINTS.signed);
+});
+
+test("测试供应商已签约（M6-08）：入驻进度和首页都用专门的说法，不出现「完成测试单后开始试运营」；其他状态、真实供应商照常", () => {
+  const qa = { status: "signed", is_test_tenant: true } as CompanyOverview["tenant"];
+  for (const audience of ["platform", "tenant"] as const) {
+    const hint = progressHint({ tenant: qa, next_step_issues: [] }, audience);
+    assert.equal(hint, TEST_TENANT_SIGNED_HINT);
+    assert.doesNotMatch(hint, /试运营|测试单/);
+  }
+  assert.equal(tenantStatusHint(qa), TEST_TENANT_SIGNED_HINT);
+  assert.equal(tenantStatusHint({ status: "signed", is_test_tenant: false }), TENANT_STATUS_HINTS.signed);
+  assert.equal(tenantStatusHint({ status: "reviewing", is_test_tenant: true }), TENANT_STATUS_HINTS.reviewing);
 });

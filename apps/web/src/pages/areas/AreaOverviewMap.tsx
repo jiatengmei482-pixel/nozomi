@@ -12,6 +12,7 @@ import { Icon } from "../../components/Icon.tsx";
 import { type LatLngBox, type LatLngPoint, type MapSurface, type Pixel, type SurfaceEvents, createLeafletSurface } from "../../lib/map-surface.ts";
 import { formatLocalDateTime } from "../../lib/master-display.ts";
 import { DEMAND_REASON_NAMES, type DemandMapPoint, demandDotRadius, pointText, serviceLocalText } from "../../lib/uncovered-demand-display.ts";
+import { useColorScheme } from "../../theme/use-color-scheme.ts";
 import { hatchLines, Swatch } from "./AreaMap.tsx";
 
 export interface OverviewArea {
@@ -104,6 +105,7 @@ export function AreaOverviewMap({ tiles, areas, selected, onSelect, overlaps, sh
   const containerRef = useRef<HTMLDivElement>(null);
   const clipPrefix = `overview-clip-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
   const surfaceRef = useRef<MapSurface | null>(null);
+  const scheme = useColorScheme();
   const [, setView] = useState(0);
   const [ready, setReady] = useState(false);
   const [tileTrouble, setTileTrouble] = useState(false);
@@ -148,6 +150,11 @@ export function AreaOverviewMap({ tiles, areas, selected, onSelect, overlaps, sh
     };
     // 底图配置在页面打开期间不变
   }, [tiles, surfaceFactory]);
+
+  // 切换亮暗主题：换瓦片或压暗底图，图形不动（M6-08）
+  useEffect(() => {
+    surfaceRef.current?.setColorScheme?.(scheme);
+  }, [scheme, tiles, surfaceFactory]);
 
   useEffect(() => {
     if (focusSignal > 0) fitTo(latest.current.selected);

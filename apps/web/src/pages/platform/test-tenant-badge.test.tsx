@@ -10,6 +10,7 @@ import { MemoryRouter } from "react-router";
 import { App } from "../../App.tsx";
 import type { CompanyOverview } from "../../api/onboarding.ts";
 import type { PlatformUser, Tenant } from "../../api/types.ts";
+import { TENANT_STATUS_HINTS, TEST_TENANT_SIGNED_HINT } from "../../lib/onboarding-display.ts";
 import { TEST_TENANT_TEXT, tenantOptionLabel } from "../../lib/platform-display.ts";
 import { roleName } from "../../lib/portal.ts";
 import { type ApiCall, apiError, json, resetBrowser, signIn, stubApiWith, TENANT_EXTRAS } from "../../testing/harness.tsx";
@@ -73,6 +74,8 @@ test("测试供应商详情：标题旁和基本信息里有「测试」标记�
   const progress = (await screen.findByRole("heading", { name: "入驻进度" })).closest("section") as HTMLElement;
   assert.equal(within(progress).queryByRole("button", { name: "开始试运营" }), null);
   assert.ok(within(progress).getByText(/测试供应商不能开始试运营/));
+  assert.ok(within(progress).getByText(TEST_TENANT_SIGNED_HINT));
+  assert.doesNotMatch(progress.textContent ?? "", /完成测试单后开始试运营/);
   assert.ok(within(progress).getByRole("button", { name: "申请清退" }));
 });
 
@@ -84,6 +87,7 @@ test("真实供应商详情：没有「测试」标记和说明，已签约时�
   const progress = (await screen.findByRole("heading", { name: "入驻进度" })).closest("section") as HTMLElement;
   assert.ok(within(progress).getByRole("button", { name: "开始试运营" }));
   assert.equal(within(progress).queryByText(/测试供应商不能开始试运营/), null);
+  assert.ok(within(progress).getByText(TENANT_STATUS_HINTS.signed));
 });
 
 test("开始试运营被接口拒绝 409 TEST_TENANT_NOT_FOR_SALE（页面上的状态过时）：对话框里说明这是测试供应商、不能试运营", async () => {

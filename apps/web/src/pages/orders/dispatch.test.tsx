@@ -11,6 +11,7 @@ import { MemoryRouter } from "react-router";
 import { App } from "../../App.tsx";
 import type { Assignable, Driver, DriverTrip, TenantOrder, TenantOrderDetail, Vehicle, WebhookDelivery, WebhookSettings } from "../../api/dispatch.ts";
 import type { VehicleGroup } from "../../api/master.ts";
+import { ORDER_NO_EVENTS_TEXT } from "../../lib/order-money-display.ts";
 import { type ApiCall, apiError, assertAbsent, json, resetBrowser, signIn, stubApiWith } from "../../testing/harness.tsx";
 
 afterEach(resetBrowser);
@@ -626,4 +627,16 @@ test("司机页面（M8-13）：接机、点对点照旧——没有「导航到
   );
   await screen.findByText("下车：东京站八重洲口");
   assertAbsent(screen.queryByRole("link", { name: "导航到下车点" }));
+});
+
+test("订单详情「状态流水」（M6-08）：没有记录时写明，不留空白；有记录时不出这句", async () => {
+  open(`/orders/${ORDER_ID}`, "dispatch", (call) => (call.method === "GET" && call.url.pathname === `/tenant/v1/orders/${ORDER_ID}` ? json(200, { ...detailOf(), events: [] }) : null));
+  const events = (await screen.findByRole("heading", { name: "状态流水" })).closest("section") as HTMLElement;
+  assert.ok(within(events).getByText(ORDER_NO_EVENTS_TEXT));
+  assert.equal(within(events).queryAllByRole("listitem").length, 0);
+  resetBrowser();
+  open(`/orders/${ORDER_ID}`, "dispatch", (call) => (call.method === "GET" && call.url.pathname === `/tenant/v1/orders/${ORDER_ID}` ? json(200, detailOf()) : null));
+  const filled = (await screen.findByRole("heading", { name: "状态流水" })).closest("section") as HTMLElement;
+  assert.equal(within(filled).queryByText(ORDER_NO_EVENTS_TEXT), null);
+  assert.equal(within(filled).getAllByRole("listitem").length, 1);
 });

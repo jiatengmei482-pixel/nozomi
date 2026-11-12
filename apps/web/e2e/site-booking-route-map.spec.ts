@@ -12,7 +12,7 @@ import { type Browser, type Page, type Route, expect, test } from "@playwright/t
 import { E2E_WEB_PLACES_PORT } from "../playwright.config.ts";
 import { TOKYO_STATION, airportLink, createAirport, encodePolyline, expectRouteLineVisible, publishTransfer, tomorrowInTokyo } from "./book-new-support.ts";
 import { createSupplier, createWorld } from "./catalog.ts";
-import { OWN_SITE_SOURCE } from "./support.ts";
+import { OWN_SITE_SOURCE, expectMapFollowsTheme } from "./support.ts";
 
 // 官网按来源地址限速：每条用例带自己的文档专用地址，不和并行的官网用例在 127.0.0.1 上抢同一份额度（M8-17）
 test.use(OWN_SITE_SOURCE);
@@ -181,6 +181,8 @@ test("路线小地图（电脑 1280）：出图（亮暗各一张，切主题换
   await expectRouteLineVisible(page, TOKYO_STATION);
   await expect(page.locator(".book-summary .route-map__attribution")).toBeVisible();
   await expect(page.locator(".book-summary .route-map__image")).toHaveCount(0);
+  // 切换亮暗主题：现有底图当场跟着变，暗色只压暗瓦片，路线颜色不变（M6-08）
+  await expectMapFollowsTheme(page, page.locator(".book-summary .route-map__canvas"), "新预订页路线图（现有底图）");
   await page.screenshot({ path: test.info().outputPath("m810-desktop-light-not-enabled.png"), fullPage: true });
 
   // 503 UNAVAILABLE、图片坏了（200 但不是能解码的图）、不是图片、连不上：只留文字
