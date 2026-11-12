@@ -840,7 +840,7 @@
           "id": "M8-30",
           "title": "报价规则调整：接送机 / 点对点 一口价 → 计程 → 不报价；包车 服务城市 → 上下车加价区域 → 否则不报价",
           "role": "backend",
-          "status": "review",
+          "status": "done",
           "acceptance": [
             "接送机 / 点对点：两端都命中报价区域 → 原一口价；只一端命中 → 一口价 + 区域外里程费（区域外里程 = 路线距离 − 含公里数，不足 1 公里按 1 公里；产品没设每公里单价则不报）；两端都没命中 → 新增的「计程价」（按车型的起步价 + 每公里，不挂区域）报价；计程价也没设 → 不报价",
             "包车：服务城市不匹配 → 不报；上车点、下车点都命中商品服务区域（加价 0）或加价区域 → 基础价 + 两端区域加价；有一端没命中 → 不报；包车不用计程兜底",
@@ -849,7 +849,7 @@
             "现在能报出的价格一分不变（最近 30 天询价只读回放对比）；客人页标注「按里程计价 / 含里程费 / 含区域加价」",
             "业主 2026-11-11 确认的最终优先级；写 ADR；M8-14 按新规则验收"
           ],
-          "evidence": "分支 m8-30-quote-priority（未开 PR，按指示）；ADR 0080；domain 单元测试 quote-priority 15 条 + quote-compat 新增 1 条（golden 全部样例：今天报得出的价逐分不变）；集成测试 distance-prices.itest.ts 6 条（接口、三种情形、运营上限、路线取不到、订单、只读回放 0 处变化）、tenant-isolation 新增 3 条；本机相关集成测试 25 个文件 375 条、单元测试 2,532 条通过；全套交 CI；测试环境部分验收（PR #154 docs/acceptance/M8-30.md）：合并前后 17 条线路 101 个价逐分一致、报不出原因不变，③一口价+里程 ④计程价 ⑤包车加价 ⑦订单 / 邮件标注 要用 QA 账号或验收口令，待有权限的会话补测；2026-11-12 待补 ①–③ 已在测试环境补完（docs/acceptance/M8-14.md），只剩 ④ 30 天询价回放，等 M8-34",
+          "evidence": "分支 m8-30-quote-priority（未开 PR，按指示）；ADR 0080；domain 单元测试 quote-priority 15 条 + quote-compat 新增 1 条（golden 全部样例：今天报得出的价逐分不变）；集成测试 distance-prices.itest.ts 6 条（接口、三种情形、运营上限、路线取不到、订单、只读回放 0 处变化）、tenant-isolation 新增 3 条；本机相关集成测试 25 个文件 375 条、单元测试 2,532 条通过；全套交 CI；测试环境部分验收（PR #154 docs/acceptance/M8-30.md）：合并前后 17 条线路 101 个价逐分一致、报不出原因不变，③一口价+里程 ④计程价 ⑤包车加价 ⑦订单 / 邮件标注 要用 QA 账号或验收口令，待有权限的会话补测；2026-11-12 待补 ①–③ 已在测试环境补完（docs/acceptance/M8-14.md），只剩 ④ 30 天询价回放，等 M8-34；④ 30 天询价回放 2026-11-12 用 M8-34 的只读接口在测试环境跑：767 条询价，原来报得出的价变化 0 处（docs/acceptance/M8-30.md「补测 ④」）",
           "updated": "2026-11-12"
         },
         {
@@ -912,7 +912,7 @@
           "role": "backend",
           "status": "review",
           "acceptance": ["方案见 docs/delivery/proposals/staging-readonly-check.md：A 测试环境只读核对工作流（只读白名单命令、只能 staging、结果存 Actions 产物、deploy.md 补文档）；B PR 版本预览（二选一或不做）；C main 部署被跳过时提醒", "业主先决定做哪几项；不在 M8-30 里顺手改；不登录服务器、不改正式环境", "业主 2026-11-12 改为 A 不用 SSH：只读平台接口 GET /platform/v1/reports/area-role-preview（quote.preview、只读事务、审计、限速、45 秒时限）+ Actions 手动工作流 staging-readonly-check.yml（只能 staging、只读账号两步验证登录、结果存产物、有变化则失败）；ADR 0086；B、C 本次不做，留作方案"],
-          "evidence": "PR #167（https://github.com/jiatengmei482-pixel/nozomi/pull/167）；分支 m8-34-staging-readonly；ADR 0086；新增单元测试 11 条（scripts/staging-readonly-check.mjs 的登录、两步验证、拿到令牌后一定退出、退出码、不打印密钥、产物和摘要只有计数（仓库公开）；工作流静态检查）、集成测试 7 条（area-role-preview-report.itest.ts：401/403/DATA_SCOPE_DENIED、和 buildRolePreview 逐字段一致、只读（只有审计和限速表变化）、天数校验、限速、接口层 503 REPORT_TIMEOUT、statement_timeout 跟着时限收）；独立审查意见 5 项已改；守卫测试登记 platform-admin PROTECTED、password-change-bypass、ipv6 限速清单。本机相关测试全部通过，全套交 CI。业主要做：按 docs/deploy.md 第九节建只读账号、在 GitHub staging 环境填 3 个 secrets",
+          "evidence": "PR #167（https://github.com/jiatengmei482-pixel/nozomi/pull/167）；分支 m8-34-staging-readonly；ADR 0086；新增单元测试 11 条（scripts/staging-readonly-check.mjs 的登录、两步验证、拿到令牌后一定退出、退出码、不打印密钥、产物和摘要只有计数（仓库公开）；工作流静态检查）、集成测试 7 条（area-role-preview-report.itest.ts：401/403/DATA_SCOPE_DENIED、和 buildRolePreview 逐字段一致、只读（只有审计和限速表变化）、天数校验、限速、接口层 503 REPORT_TIMEOUT、statement_timeout 跟着时限收）；独立审查意见 5 项已改；守卫测试登记 platform-admin PROTECTED、password-change-bypass、ipv6 限速清单。本机相关测试全部通过，全套交 CI。业主要做：按 docs/deploy.md 第九节建只读账号、在 GitHub staging 环境填 3 个 secrets；已合并（PR #167）、已部署；测试环境验收：接口 200（30 天 767 条，变化 0）、400 / 401 正确、有审计；Actions 按钮要负责人在 GitHub staging 环境填 3 个 secrets 后才能跑，未验",
           "updated": "2026-11-12"
         },
         {
@@ -1958,6 +1958,11 @@
       "date": "2026-11-12",
       "by": "Claude",
       "summary": "M8-34 A 部分完成（待验收）：按业主要求不用 SSH，新增只读平台接口「回放最近 N 天询价」和 GitHub 手动工作流「Staging readonly check」，业主在测试环境建一个只勾「报价试算」的账号、在 GitHub 填 3 个 secrets 后即可按按钮核对；B、C 留作方案（ADR 0086）。"
+    },
+    {
+      "date": "2026-11-12",
+      "by": "Claude",
+      "summary": "M8-34 合并部署（PR #167）：只读核对接口在测试环境验收通过，顺带补完 M8-30 ④（30 天 767 条询价，原有报价 0 处变化），M8-30 标为已验收；M8-34 的 Actions 按钮待负责人填 secrets 后验证，保持待验收。"
     }
   ]
 }
