@@ -71,6 +71,7 @@ import { registerSiteRoutes } from "./routes/site.ts";
 import { registerUncoveredDemandRoutes } from "./routes/uncovered-demands.ts";
 import { registerPlatformSecurityRoutes } from "./routes/platform-security.ts";
 import { registerManualQuoteRoutes } from "./routes/manual-quotes.ts";
+import { registerReportRoutes } from "./routes/reports.ts";
 import { ManualQuoteRetentionJobs } from "./services/manual-quotes.ts";
 
 export interface AppDeps {
@@ -84,6 +85,8 @@ export interface AppDeps {
   logDestination?: { write(line: string): void };
   /** /health 整个检查的时限（毫秒） */
   healthTimeoutMs?: number;
+  /** 只读核对回放的时限（毫秒，M8-34，ADR 0086）；默认 45 秒。测试给很小的值验证超时 */
+  rolePreviewBudgetMs?: number;
   /** 时钟；默认系统时间。测试用它验证会话过期、限速窗口、邀请过期 */
   now?: () => Date;
   /** 报价引擎的外部依赖（路线预估、汇率、加价规则、评分）；不给的用默认实现（汇率是汇率中心） */
@@ -384,6 +387,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerInventoryRoutes(app, context);
   registerImportExportRoutes(app, context);
   registerQuoteRoutes(app, context);
+  registerReportRoutes(app, context, deps.rolePreviewBudgetMs);
   registerUncoveredDemandRoutes(app, context);
   registerFxRoutes(app, context);
   registerPlatformProductRoutes(app, context);

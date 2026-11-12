@@ -52,6 +52,8 @@ export const SALES_RATE_LIMITS = {
   site_read: { max: 120, windowMs: 60_000 },
   /** 运营重发订单链接（ADR 0061）：同一张单每小时 5 次 */
   staff_view_link: VIEW_LINK_STAFF_LIMIT,
+  /** 只读核对「回放最近 N 天询价」（M8-34，ADR 0086）：回放较重，每个员工 10 分钟 3 次 */
+  staff_role_preview: { max: 3, windowMs: 600_000 },
 } as const;
 
 export type SalesRateScope = keyof typeof SALES_RATE_LIMITS;

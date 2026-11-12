@@ -18,10 +18,11 @@ const BACKEND_SITES: Readonly<Record<string, ScopeDeniedOperation>> = {
   "routes/billing.ts platform()": "finance",
   "routes/channels.ts POST /platform/v1/channels": "channel.create",
   "routes/rescues.ts POST /platform/v1/tenants/:id/rescue": "tenant.rescue",
+  "routes/reports.ts GET /platform/v1/reports/area-role-preview": "report.area_role_preview",
 };
 
-/** 前端在哪个页面按这个操作隐藏按钮（财务结算整个菜单走 `ACTION_SCOPE_OPERATIONS`，见 AppShell.nav.test.tsx）。 */
-const FRONTEND_USES: Readonly<Record<Exclude<ScopeDeniedOperation, "finance">, string>> = {
+/** 前端在哪个页面按这个操作隐藏按钮（财务结算整个菜单走 `ACTION_SCOPE_OPERATIONS`，见 AppShell.nav.test.tsx；只读核对的回放清单没有页面，只给 Actions 调用）。 */
+const FRONTEND_USES: Readonly<Record<Exclude<ScopeDeniedOperation, "finance" | "report.area_role_preview">, string>> = {
   "channel.create": "../pages/platform/ChannelPages.tsx",
   "tenant.rescue": "../pages/platform/RescuePages.tsx",
 };
@@ -94,10 +95,10 @@ test("scopeDenies：不限、限城市、限渠道、都限时，各操作挡不
   const channel: PlatformDataScope = { cityIds: null, channelIds: ["c4c4c4c4-0000-4000-8000-000000000002"] };
   const both: PlatformDataScope = { cityIds: ["c0c0c0c0-0000-4000-8000-000000000001"], channelIds: [] };
   const table: [PlatformDataScope, Record<ScopeDeniedOperation, boolean>][] = [
-    [UNRESTRICTED_SCOPE, { finance: false, "channel.create": false, "tenant.rescue": false }],
-    [city, { finance: true, "channel.create": false, "tenant.rescue": true }],
-    [channel, { finance: true, "channel.create": true, "tenant.rescue": true }],
-    [both, { finance: true, "channel.create": true, "tenant.rescue": true }],
+    [UNRESTRICTED_SCOPE, { finance: false, "channel.create": false, "tenant.rescue": false, "report.area_role_preview": false }],
+    [city, { finance: true, "channel.create": false, "tenant.rescue": true, "report.area_role_preview": true }],
+    [channel, { finance: true, "channel.create": true, "tenant.rescue": true, "report.area_role_preview": true }],
+    [both, { finance: true, "channel.create": true, "tenant.rescue": true, "report.area_role_preview": true }],
   ];
   for (const [scope, expected] of table) {
     for (const operation of Object.keys(expected) as ScopeDeniedOperation[]) assert.equal(scopeDenies(scope, operation), expected[operation], `${JSON.stringify(scope)} ${operation}`);

@@ -252,6 +252,7 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
       ["GET", `/platform/v1/webhook-deliveries/${ids.userId}`],
       ["POST", `/platform/v1/webhook-deliveries/${ids.userId}/retry`],
       ["POST", "/platform/v1/quotes/preview", { city_id: ids.userId, category: "charter", currency: "JPY", package_hours: 10, pickup: { lng: 139.7, lat: 35.6 }, service_time: "2027-01-01T10:00", passengers: 2 }],
+      ["GET", "/platform/v1/reports/area-role-preview?days=7"],
       ["GET", "/platform/v1/fx-rates"],
       ["GET", "/platform/v1/fx-rates/history"],
       ["GET", "/platform/v1/fx-rates/fetches"],

@@ -1,0 +1,54 @@
+# 测试环境只读核对（M8-34，ADR 0086，说明见 docs/deploy.md「在测试环境跑只读核对」）。
+#
+# 只能手动触发（Actions → Staging readonly check → Run workflow），只针对测试环境。
+# 用一个只读的平台账号（staging 环境的 secrets：STAGING_READONLY_EMAIL、STAGING_READONLY_PASSWORD、STAGING_READONLY_TOTP）
+# 通过 HTTPS 登录测试环境，调用 GET /platform/v1/reports/area-role-preview，和服务器上跑 `pnpm areas:role-preview --json` 是同一份清单。
+# 不用 SSH、不用部署钥匙、不登录服务器、不写任何数据。回放有变化时工作流失败。
+# 仓库是公开的，产物和摘要谁都能看：只存计数摘要（回放了多少条、几处变化），不存供应商、商品、区域、价格；完整清单不落盘。
+# 脚本不打印密码、动态码和令牌；不使用 set -x。
+name: Staging readonly check
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 回放最近几天的询价（1–90）
+        type: string
+        required: true
+        default: "30"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-readonly-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: 回放最近 ${{ inputs.days }} 天的询价（测试环境，只读）
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: 调用只读接口
+        env:
+          STAGING_READONLY_EMAIL: ${{ secrets.STAGING_READONLY_EMAIL }}
+          STAGING_READONLY_PASSWORD: ${{ secrets.STAGING_READONLY_PASSWORD }}
+          STAGING_READONLY_TOTP: ${{ secrets.STAGING_READONLY_TOTP }}
+          NOZOMI_BASE_URL: https://${{ vars.APP_DOMAIN }}
+          CHECK_DAYS: ${{ inputs.days }}
+          CHECK_OUTPUT: staging-readonly-check/summary.json
+        run: node scripts/staging-readonly-check.mjs
+      - name: 保存计数摘要
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-readonly-check-summary
+          path: staging-readonly-check/summary.json
+          if-no-files-found: ignore
+          retention-days: 30
