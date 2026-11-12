@@ -955,17 +955,18 @@ export type AreaSurchargeChoice<P> =
 
 /**
  * 一端（上车或下车）在这几个加价区域里时加多少：每个区域找启用、用车日期在生效期内、车型组和套餐时长对得上的区域加价，
- * 取这一端最小的加价（一样小取 `areaIds` 里排在前面的）。一个都没有时给出原因（没有规则 / 不在生效期 / 停用了），口径同 `tripPrice`。
- * 「在商品本身的区域里这一端算 0」由调用方先判断（那时不用调这个函数）。
+ * 默认取这一端最小的加价，`prefer: "highest"` 时取最大的（一样大小都取 `areaIds` 里排在前面的）。一个都没有时给出原因（没有规则 / 不在生效期 / 停用了），口径同 `tripPrice`。
+ * 包车报价用 `highest`（M8-38，业主确认）：一个点落在几个加价区域里时用设了加价的那个，都设了取最高。
  */
-export function areaSurchargeFor<P extends PriceRule>(rules: readonly P[], query: { areaIds: readonly string[]; vehicleGroupId: string; packageHours: number | null; date: string; end: SurchargeEnd }): AreaSurchargeChoice<P> {
+export function areaSurchargeFor<P extends PriceRule>(rules: readonly P[], query: { areaIds: readonly string[]; vehicleGroupId: string; packageHours: number | null; date: string; end: SurchargeEnd; prefer?: "lowest" | "highest" }): AreaSurchargeChoice<P> {
   const sameCombo = rules.filter((rule) => isSurchargeRule(rule) && query.areaIds.includes(rule.areaId) && rule.vehicleGroupId === query.vehicleGroupId && rule.packageHours === query.packageHours);
   let best: { rule: P; areaId: string; amountMinor: number; order: number } | null = null;
   for (const rule of sameCombo) {
     if (rule.status !== "enabled" || !priceRuleCoversDate(rule, query.date) || rule.pricing.model !== "charter_area_surcharge") continue;
     const amountMinor = query.end === "pickup" ? rule.pricing.pickupSurchargeMinor : rule.pricing.dropoffSurchargeMinor;
     const order = query.areaIds.indexOf(rule.areaId);
-    if (best === null || amountMinor < best.amountMinor || (amountMinor === best.amountMinor && order < best.order)) best = { rule, areaId: rule.areaId, amountMinor, order };
+    const better = query.prefer === "highest" ? amountMinor > (best?.amountMinor ?? -1) : amountMinor < (best?.amountMinor ?? Number.POSITIVE_INFINITY);
+    if (best === null || better || (amountMinor === best.amountMinor && order < best.order)) best = { rule, areaId: rule.areaId, amountMinor, order };
   }
   if (best !== null) return { rule: best.rule, areaId: best.areaId, amountMinor: best.amountMinor, noPriceReason: null };
   const reason = sameCombo.length === 0 ? "NO_RULE" : sameCombo.some((rule) => priceRuleCoversDate(rule, query.date)) ? "RULE_DISABLED" : "NOT_IN_EFFECT";

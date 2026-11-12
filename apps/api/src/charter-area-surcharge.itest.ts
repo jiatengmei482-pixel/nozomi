@@ -52,7 +52,7 @@ async function tenantCall(who: TenantFixture | string, method: HttpMethod, path:
   return api.call(method, `/tenant/v1${path}`, {
     token,
     ...(options.body === undefined ? {} : { body: options.body }),
-    headers: { ...(options.version === undefined ? {} : { "if-match": `"${options.version}"` }), ...(method === "POST" && /^\/(products|brands|areas)$|\/price-rules(\/batch)?$/.test(path) ? { "idempotency-key": randomUUID() } : {}) },
+    headers: { ...(options.version === undefined ? {} : { "if-match": `"${options.version}"` }), ...(method === "POST" && /^\/(products|brands|areas|areas\/from-shared)$|\/price-rules(\/batch)?$/.test(path) ? { "idempotency-key": randomUUID() } : {}) },
   });
 }
 const version = async (who: TenantFixture, productId: string): Promise<number> => (await ok(tenantCall(who, "GET", `/products/${productId}`))).version;
@@ -393,12 +393,15 @@ test("加价区域被已上架的包车商品用着：不能停用、不能删�
   assert.equal(disabled.status, 200, disabled.text);
 });
 
-test("一端落在几个区域：两个加价区域重叠时取小的（800 和 500 取 500）；一端同时在商品本身的区域和加价区域里时算 0", async () => {
-  // 「千叶东」整个在千叶里面，上车加价 800；千叶是 500：千叶站那个点两个都在，取 500
+test("回归 M8-38：一端落在几个加价区域时用设了加价的、都设了取最高（800 和 500 取 800）；商品本身的大区域（加价 0）不能把加价区盖成 0；从共享库引用来的加价区域一样算", async () => {
+  // 「千叶东」整个在千叶里面，加价 800；千叶是 500：千叶站那个点两个都在，取 800
   const chibaEast = await newArea(m.b, m.ids.tokyo, "千叶东", square(140.05, 35.6, 140.25, 35.8));
-  // 「东京西」和商品本身的区域（东京 23 区）重叠，加价 300：东京那个点两个都在，商品本身的区域算 0
+  // 「东京西」和商品本身的区域（东京 23 区）重叠，加价 300：东京那个点两个都在，用 300（不再算 0）
   const tokyoWest = await newArea(m.b, m.ids.tokyo, "东京西", square(139.45, 35.55, 139.75, 35.85));
-  await ok(tenantCall(m.b, "POST", `/products/${charterB.id}/price-rules/batch`, { version: await version(m.b, charterB.id), body: { create: [surcharge(chibaEast, 800, 800), surcharge(tokyoWest, 300, 300)] } }));
+  // 甲画的「东京南」在共享库里，乙引用一份当加价区域（上车 200、下车 600）
+  const source = await newArea(m.a, m.ids.tokyo, "东京南·共享", square(139.55, 35.52, 139.85, 35.65));
+  const copy = (await ok(tenantCall(m.b, "POST", "/areas/from-shared", { body: { shared_area_id: source, biz_type: "general", role: "both" } }), 201)).id;
+  await ok(tenantCall(m.b, "POST", `/products/${charterB.id}/price-rules/batch`, { version: await version(m.b, charterB.id), body: { create: [surcharge(chibaEast, 800, 800), surcharge(tokyoWest, 300, 300), surcharge(copy, 200, 600)] } }));
   const preview = async (pickup: keyof typeof P, dropoff: keyof typeof P): Promise<any> => {
     const res = await tenantCall(m.b, "POST", `/products/${charterB.id}/quote-preview`, { body: { pickup: P[pickup], dropoff: P[dropoff], package_hours: 8, service_time: SERVICE_LOCAL, passengers: 2, luggage: 1, vehicle_group_ids: [m.ids.biz7] } });
     assertMatchesOpenApi("POST", "/tenant/v1/products/{id}/quote-preview", res);
@@ -406,9 +409,8 @@ test("一端落在几个区域：两个加价区域重叠时取小的（800 和 
     assert.equal(res.body.offers.length, 1, res.text);
     return res.body.offers[0].settlement;
   };
-  const both = await preview("chiba", "tokyo");
-  assert.deepEqual(both.area_surcharge, { package: 70_000, pickup: { area_id: charterB.chiba, price_rule_id: both.area_surcharge.pickup.price_rule_id, amount: 500 }, dropoff: { area_id: null, price_rule_id: null, amount: 0 } });
-  assert.equal(both.total, 70_500, "70,000 + 上车 500（不是 800）+ 下车 0（不是 300）");
-  const reverse = await preview("tokyo", "chiba");
-  assert.deepEqual([reverse.area_surcharge.pickup, reverse.area_surcharge.dropoff.area_id, reverse.area_surcharge.dropoff.amount, reverse.total], [{ area_id: null, price_rule_id: null, amount: 0 }, charterB.chiba, 500, 70_500]);
+  const ends = (s: any) => [s.area_surcharge.pickup.area_id, s.area_surcharge.pickup.amount, s.area_surcharge.dropoff.area_id, s.area_surcharge.dropoff.amount, s.total];
+  assert.deepEqual(ends(await preview("chiba", "tokyo")), [chibaEast, 800, tokyoWest, 300, 71_100], "70,000 + 上车 800（千叶东，不是千叶 500）+ 下车 300（东京西，不被商品区域盖成 0）");
+  assert.deepEqual(ends(await preview("tokyo", "chiba")), [tokyoWest, 300, chibaEast, 800, 71_100]);
+  assert.deepEqual(ends(await preview("tokyo2", "tokyo2")), [tokyoWest, 300, copy, 600, 70_900], "上车 东京西 300 > 引用区 200；下车 引用区 600 > 东京西 300");
 });
