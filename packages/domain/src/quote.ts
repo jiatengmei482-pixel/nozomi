@@ -8,7 +8,7 @@
  *
  * 钱：结算价是商品所属子品牌币种的最小货币单位整数；中间结果用精确分数，只在最后取整一次（pricing.ts / money.ts）。
  */
-import { type AreaPolygonShape, locatePoint } from "./areas.ts";
+import { type AreaPolygonShape, type AreaRole, locatePoint } from "./areas.ts";
 import { type DistancePrice, type PricingBasis, selectDistancePrice } from "./distance-price.ts";
 import type { LatLng } from "./geo.ts";
 import { type InventoryDay, type InventoryMode, hasInventory } from "./inventory.ts";
@@ -147,6 +147,8 @@ export interface QuoteArea {
   areaId: string;
   active: boolean;
   shapes: readonly (AreaPolygonShape & { id: string })[];
+  /** 区域用途（ADR 0075）：只有运营范围（`operatingAreas`）里给；用途是「运营」的区域，禁行区挡这家所有商品（M8-36 补充） */
+  role?: AreaRole;
 }
 
 export interface QuoteProduct {
@@ -424,13 +426,26 @@ type AreaRefusal = "OUT_OF_SERVICE_AREA" | "IN_FORBIDDEN_AREA" | "NO_PRICING_ARE
 
 /**
  * 第 4 步的运营判断（ADR 0075 第二部分第 1 节）：点落在这个供应商某个运营区域的营运区里、且不在那个区域的禁行区里。
- * 不满足时给原因（点只落在禁行区里是 `IN_FORBIDDEN_AREA`，口径同今天）；满足、或商品没带运营范围（不做运营判断）时为 null。
+ * 点落在用途是「运营」的区域的禁行区里：一律不报（`IN_FORBIDDEN_AREA`），哪怕别的运营区域的营运区盖住（M8-36 补充，业主 2026-11-12；
+ * 「运营 + 报价」区域的禁行区不在这里一律挡，它按报价区域的口径只挡选了它的商品，ADR 0085）。
+ * 都不在营运区里时给原因（点只落在禁行区里是 `IN_FORBIDDEN_AREA`）；满足、或商品没带运营范围（不做运营判断）时为 null。
  */
 function outsideOperating(product: QuoteProduct, position: LatLng): "OUT_OF_SERVICE_AREA" | "IN_FORBIDDEN_AREA" | null {
   if (product.operatingAreas === undefined) return null;
+  if (inOperatingForbidden(product, [position])) return "IN_FORBIDDEN_AREA";
   const located = locateInAreas(product.operatingAreas, position);
   if (located.operating.length > 0) return null;
   return located.forbidden.length > 0 ? "IN_FORBIDDEN_AREA" : "OUT_OF_SERVICE_AREA";
+}
+
+/**
+ * 要校验的点里有没有一个落在这个供应商某个用途是「运营」的区域的禁行区里（M8-36 补充）。各调用方先把所有点过一遍这个判断，
+ * 再做别的判断：这样不管另一端先在哪一步失败，原因都是 `IN_FORBIDDEN_AREA`（同报价区域禁行区「不管另一端在哪」）。
+ */
+function inOperatingForbidden(product: QuoteProduct, points: readonly (LatLng | null)[]): boolean {
+  const pure = (product.operatingAreas ?? []).filter((area) => area.role === "operating");
+  if (pure.length === 0) return false;
+  return points.some((point) => point !== null && locateInAreas(pure, point).forbidden.length > 0);
 }
 
 /** 报价判断不通过（点不在勾选的报价区域里）的原因：做过运营判断的是 `NO_PRICING_AREA`（在运营范围里，只是没价），没做的照旧 */
@@ -444,6 +459,7 @@ const notPriced = (product: QuoteProduct): "OUT_OF_SERVICE_AREA" | "NO_PRICING_A
  *   不管另一端在哪、也不管这个点是不是被别的区域的营运区盖住（M8-36，业主 2026-11-12；以前只是那一个区域不参与，ADR 0015 / 0020）。
  */
 function serviceAreas(product: QuoteProduct, request: QuoteRequest): { areaIds: string[] } | { reason: AreaRefusal } {
+  if (inOperatingForbidden(product, quoteCheckPoints(request).map((point) => request[point]))) return { reason: "IN_FORBIDDEN_AREA" };
   const usable = new Set<string>();
   const forbidden = new Set<string>();
   for (const point of quoteCheckPoints(request)) {
@@ -516,6 +532,7 @@ function charterEnds(product: QuoteProduct, request: QuoteRequest): { areaIds: s
     const areas = serviceAreas(product, request);
     return "reason" in areas ? areas : { areaIds: areas.areaIds, ends: null };
   }
+  if (inOperatingForbidden(product, [request.pickup, request.dropoff])) return { reason: "IN_FORBIDDEN_AREA" };
   const surchargeAreas = (product.surchargeAreas ?? []).filter((area) => surchargeIds.includes(area.areaId));
   const located = (point: LatLng): { own: string[]; end: CharterEnd; forbidden: boolean; inOwnForbidden: boolean } => {
     const own = locateInAreas(product.areas, point);

@@ -21,13 +21,15 @@ const area = (areaId: string, ring: Position[], forbid: Position[] | null = null
   shapes: [{ id: `${areaId}-op`, kind: "operate", ring }, ...(forbid === null ? [] : [{ id: `${areaId}-no`, kind: "forbid" as const, ring: forbid }])],
 });
 
-test("operatingHits：一个点落在哪些供应商的哪些运营区域里（营运区里、不在那个区域的禁行区里；停用的不算；去重）", () => {
+test("operatingHits：一个点落在哪些供应商的哪些运营区域里（营运区里；落在这家任何一个运营区域的禁行区里时这家不算，M8-36 补充；停用的不算；去重）", () => {
   const suppliers = [
     { tenantId: "t1", operatingAreas: [area("big", square(139, 35, 140, 36)), area("west", square(139, 35, 139.5, 36), square(139.1, 35.4, 139.3, 35.6))] },
     { tenantId: "t2", operatingAreas: [area("off", square(139, 35, 140, 36), null, false)] },
     { tenantId: "t1", operatingAreas: [area("big", square(139, 35, 140, 36))] },
   ];
-  assert.deepEqual(operatingHits(suppliers, { lng: 139.2, lat: 35.5 }), [{ tenantId: "t1", areaId: "big" }]);
+  assert.deepEqual(operatingHits(suppliers, { lng: 139.2, lat: 35.5 }), [{ tenantId: "t1", areaId: "big" }], "west 不是纯运营区域：被 big 盖住照算（和以前一样）");
+  const pure = [{ tenantId: "t1", operatingAreas: [area("big", square(139, 35, 140, 36)), { ...area("west", square(139, 35, 139.5, 36), square(139.1, 35.4, 139.3, 35.6)), role: "operating" as const }] }];
+  assert.deepEqual(operatingHits(pure, { lng: 139.2, lat: 35.5 }), [], "落在用途是「运营」的区域的禁行区里：t1 不算，哪怕 big 盖住（M8-36 补充）");
   assert.deepEqual(operatingHits(suppliers, { lng: 139.45, lat: 35.5 }), [{ tenantId: "t1", areaId: "big" }, { tenantId: "t1", areaId: "west" }]);
   assert.deepEqual(operatingHits(suppliers, { lng: 141, lat: 35.5 }), []);
   assert.deepEqual(operatingHits(suppliers, null), []);

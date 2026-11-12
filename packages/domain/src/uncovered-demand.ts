@@ -52,7 +52,7 @@ export interface DemandOperatingHit {
 }
 
 /**
- * 一个点落在哪些供应商的哪些运营区域里（营运区里、不在那个区域的禁行区里）：按供应商、区域去重，按给的先后。
+ * 一个点落在哪些供应商的哪些运营区域里（营运区里、不在那个区域的禁行区里；落在这家用途是「运营」的区域的禁行区里时这家不算，M8-36 补充）：按供应商、区域去重，按给的先后。
  * `suppliers` 是参加这次比价的供应商各自的运营范围（报价引擎的 `operatingAreas`）。
  */
 export function operatingHits(suppliers: readonly { tenantId: string; operatingAreas: readonly QuoteArea[] }[], point: LatLng | null): DemandOperatingHit[] {
@@ -60,7 +60,10 @@ export function operatingHits(suppliers: readonly { tenantId: string; operatingA
   const seen = new Set<string>();
   const hits: DemandOperatingHit[] = [];
   for (const supplier of suppliers) {
-    for (const areaId of locateInAreas(supplier.operatingAreas, point).operating) {
+    const located = locateInAreas(supplier.operatingAreas, point);
+    // 点落在这家某个用途是「运营」的区域的禁行区里：这家在那里不接，哪怕别的运营区域盖住（M8-36 补充，口径同报价引擎）
+    if (supplier.operatingAreas.some((area) => area.role === "operating" && located.forbidden.includes(area.areaId))) continue;
+    for (const areaId of located.operating) {
       const key = `${supplier.tenantId}|${areaId}`;
       if (seen.has(key)) continue;
       seen.add(key);
