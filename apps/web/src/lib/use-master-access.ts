@@ -5,17 +5,19 @@ import { type CurrentAccount, usePortalSession } from "../auth/PortalSession.tsx
  * 后端对「限定了数据范围」的员工一律 403 `DATA_SCOPE_DENIED` 的操作，和挡住它的维度（`any` = 城市、渠道任一维度限定了就挡）：
  * - `finance`：财务结算的全部接口（ADR 0040：一张账单含一家供应商在各城市、各渠道的订单，切不开）；
  * - `channel.create`：新建渠道（ADR 0030：新渠道不在任何人限定的渠道范围里，建了自己也看不到）——只看渠道维度；
- * - `tenant.rescue`：按供应商批量发起救援（ADR 0030：会动到它名下全部未来订单）。
+ * - `tenant.rescue`：按供应商批量发起救援（ADR 0030：会动到它名下全部未来订单）；
+ * - `report.area_role_preview`：测试环境只读核对的回放清单（M8-34，ADR 0086：跨全部供应商和城市，按范围切不开）。没有页面，只给 Actions 的只读账号调用。
  * 前端在范围挡住时不显示对应的入口和按钮（菜单、首页卡片、页面按钮），免得点了必然 403。
  * 其余操作的数据范围是「列表只列范围内的、范围外按编号 404」，页面照常进得去，不在这里。
  * 和后端的对应关系由 `use-master-access.test.ts` 扫描后端路由核对：后端新加一处 `dataScopeDenied()`，要在这里登记。
  */
-export type ScopeDeniedOperation = "finance" | "channel.create" | "tenant.rescue";
+export type ScopeDeniedOperation = "finance" | "channel.create" | "tenant.rescue" | "report.area_role_preview";
 
 export const SCOPE_DENIED_OPERATIONS: Readonly<Record<ScopeDeniedOperation, "any" | "city" | "channel">> = {
   finance: "any",
   "channel.create": "channel",
   "tenant.rescue": "any",
+  "report.area_role_preview": "any",
 };
 
 /** 这个数据范围挡不挡这个操作。 */

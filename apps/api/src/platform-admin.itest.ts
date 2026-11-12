@@ -119,6 +119,8 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   { method: "POST", url: `/platform/v1/integration-secrets/${MISSING_SECRET}/test`, action: "integration.manage" },
   // 报价试算（ADR 0020）：看得到各供应商的结算价和加价比例
   { method: "POST", url: "/platform/v1/quotes/preview", action: "quote.preview", body: {} },
+  // 只读核对的回放清单（M8-34，ADR 0086）：和试算同一项权限
+  { method: "GET", url: "/platform/v1/reports/area-role-preview", action: "quote.preview" },
   // 汇率中心（ADR 0022）：每个角色都能看；立即拉取、确认 / 放弃挂起的一批要 fx.manage（测试环境的汇率源连不上，拉取记为失败）
   { method: "GET", url: "/platform/v1/fx-rates", action: "master_data.read" },
   { method: "GET", url: "/platform/v1/fx-rates/history", action: "master_data.read" },

@@ -167,8 +167,19 @@ function routeOf(route: Row | null): RouteEstimate | null {
   return typeof route["meters"] === "number" && typeof route["minutes"] === "number" ? { meters: route["meters"], minutes: route["minutes"] } : null;
 }
 
-/** 生成清单（调用方给只读事务） */
-export async function buildRolePreview(db: Db, options: { days: number; now: Date }): Promise<RolePreview> {
+/** 回放超过了调用方给的时限（只读接口用，M8-34）：已经算的丢掉，什么都没写 */
+export class RolePreviewTimeout extends Error {
+  constructor() {
+    super("回放超过了时限");
+    this.name = "RolePreviewTimeout";
+  }
+}
+
+/**
+ * 生成清单（调用方给只读事务）。`expired`（可选）在回放每一条询价之前问一次，返回 true 就停下、抛 `RolePreviewTimeout`；
+ * 命令行不给（不限时），只读接口给一个墙钟时限（M8-34，ADR 0086）。
+ */
+export async function buildRolePreview(db: Db, options: { days: number; now: Date; expired?: () => boolean }): Promise<RolePreview> {
   const migrated = await areaRolesMigrated(db);
   const areas = await db.query<Row>(`select a.tenant_id, t.name as tenant_name, a.id, a.name, a.biz_type, a.status, ${migrated ? "a.role" : "'both'::text as role"} from areas a join tenants t on t.id = a.tenant_id order by t.name, a.tenant_id, a.created_at, a.id`);
   const suppliers = new Map<string, SupplierAreas>();
@@ -202,6 +213,7 @@ export async function buildRolePreview(db: Db, options: { days: number; now: Dat
   const cities = new Map<string, { timezone: string } | null>();
   const catalogs = new Map<string, QuoteCandidate[]>();
   for (const log of logs.rows) {
+    if (options.expired?.() === true) throw new RolePreviewTimeout();
     const cityId = log["city_id"] as string;
     if (!cities.has(cityId)) cities.set(cityId, await findQuoteCity(db, cityId));
     const city = cities.get(cityId);
