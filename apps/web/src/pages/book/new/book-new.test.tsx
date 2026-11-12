@@ -807,7 +807,8 @@ test("路线（M8-10）：平台还没开通静态地图（503 NOT_ENABLED）时
   await openSelected({ config: configOf({ map_tiles: ROUTE_TILES }), quote: withRoute(), routeMap: notEnabled });
   fireEvent.error(staticMap());
   assert.ok(await screen.findByRole("img", { name: ROUTE_LABEL }, SLOW));
-  assert.ok(document.querySelector(".leaflet-container"), "现有底图");
+  // 静态图坏了以后要再问一次接口才知道是 NOT_ENABLED，退回的底图在那之后才挂上：等底图本身出现，不能在找到图片角色后立刻查（PR #171 CI run 43306861619 偶发 null）
+  await waitFor(() => assert.ok(document.querySelector(".leaflet-container"), "现有底图"), SLOW);
   assertAbsent(document.querySelector(".route-map__image"));
   assert.ok(screen.getByRole("link", { name: "© OpenStreetMap" }));
   assert.ok(screen.getByText("约 52 分钟 · 63.4 公里"));
