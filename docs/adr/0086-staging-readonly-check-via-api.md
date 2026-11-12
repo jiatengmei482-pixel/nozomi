@@ -19,7 +19,7 @@
 - 只读：回放在平台角色的只读快照事务里（`begin … read only`，可重复读），数据库拒绝任何写入。
 - 调用本身留痕：先在一个普通事务里占一次限速额度、写一条审计（对象 `area`、操作 `view`，改后值 `{ report: "area_role_preview", days }`），再进只读事务回放。集成测试核对：一次调用之后，整个库里只有 `audit_logs`、`sales_rate_limits` 两张表有变化。
 - 限速：每个员工 10 分钟 3 次（`staff_role_preview`，和其他限速同一张计数表、同一种做法），超过 429 + `Retry-After`。
-- 时限：回放每条询价之前看一次墙钟，超过 45 秒就停下，503 `REPORT_TIMEOUT`，请把天数改小。45 秒比反向代理常见的 60 秒应答时限短，调用方拿到的是清楚的错误码而不是代理的 504。命令行不限时，行为不变。
+- 时限：回放的每条查询之前看一次墙钟（`withDeadline`），时间到了就停下，503 `REPORT_TIMEOUT`，请把天数改小。只读事务开头把 `statement_timeout` 设成「连接池默认的 10 秒」和「剩下的时间」中较小的一个，之后剩下的时间比它短时按整秒（最后一秒按毫秒）往下收：一条慢查询会被数据库取消（`57014`，也算超时），不会越过时限。45 秒比反向代理常见的 60 秒应答时限短，调用方拿到的是清楚的错误码而不是代理的 504。时限可由 `buildApp` 注入（测试用 0 在接口层测到 503）。命令行不限时，行为不变。
 
 ### 2. 手动工作流
 
@@ -27,7 +27,9 @@
 
 - 只有 `workflow_dispatch`（输入 `days`，默认 30）；环境固定 `staging`（不由输入决定）；权限只有 `contents: read`。
 - **不用 SSH、不用部署钥匙**：只用 `actions/checkout`、`actions/setup-node`、`actions/upload-artifact`，运行 `node scripts/staging-readonly-check.mjs`（不需要安装依赖）。
-- 脚本用 staging 环境 secrets 里的 `STAGING_READONLY_EMAIL`、`STAGING_READONLY_PASSWORD`、`STAGING_READONLY_TOTP` 登录（密码 → `/platform/v1/auth/mfa/verify` 两步验证，动态码按 RFC 6238 现算；同一时间窗的码被用过时等下一个窗口再试一次），经 HTTPS（`https://` + 环境变量 `APP_DOMAIN`）调用上面的接口，存成 JSON 产物，最后退出登录。
+- **仓库是公开的，Actions 的摘要和产物任何 GitHub 用户都能看、能下载**：脚本只把计数摘要（天数、时间、回放了多少条、`externalDiffCount`、`priority.changedCount`、没变的价的个数、新报出的价按计价方式的个数、是否通过）写进产物和 `$GITHUB_STEP_SUMMARY`，按字段挑出来而不是在清单上删字段；供应商名、商品编号、区域名、结算价、规则编号、询价编号都不写，完整 JSON 不落盘、不打印。要看明细由有权限的人登录后调接口。
+- 拿到令牌之后不管哪一步失败（临时密码、没绑定两步验证、动态码不对、取清单失败）都退出登录。
+- 脚本用 staging 环境 secrets 里的 `STAGING_READONLY_EMAIL`、`STAGING_READONLY_PASSWORD`、`STAGING_READONLY_TOTP` 登录（密码 → `/platform/v1/auth/mfa/verify` 两步验证，动态码按 RFC 6238 现算；同一时间窗的码被用过时等下一个窗口再试一次），经 HTTPS（`https://` + 环境变量 `APP_DOMAIN`）调用上面的接口，把计数摘要存成产物，最后退出登录。
 - 退出码：0 = 0 处变化；2 = `externalDiffCount` 或 `priority.changedCount` 大于 0（工作流失败）；1 = 没配好或调用失败。缺 secrets 时写明缺哪几项、去哪填，不调用测试环境。
 - 不打印密码、动态码密钥、动态码和令牌；接口报错只打印状态码和错误代码，不打印应答原文。
 - 静态测试（`apps/api/src/staging-readonly-check.test.ts`）核对：只有 dispatch、环境只能是 staging、去掉注释后没有 ssh / 部署钥匙 / production、只用上面三个官方 action、secrets 只经环境变量传给脚本、输入不拼进命令行。
@@ -46,6 +48,8 @@
 
 - 接口占一个 API 进程的连接最多 45 秒；限速和时限把它控制住。测试环境数据量下回放 30 天远小于这个时间。
 - 多了一个长期有效的平台账号密码 + 两步验证密钥存在 GitHub。缓解：只给报价试算权限、只放在 staging 环境、可以随时在运营后台停用。
+- 仓库公开，工作流只能给出「通过 / 不通过」和计数；有变化时看明细要多一步：有权限的人登录后调接口（或由 Claude 用有权限的账号查）。这是有意的：供应商名、商品、区域、结算价不能进任何人都能下载的产物。
+- 时限是按查询检查的：两次查询之间的纯计算（报价引擎回放）超出时，要到下一条询价之前才停下；测试环境的数据量下这段计算远小于 1 秒。
 
 ## 留作方案（这次不做）
 
