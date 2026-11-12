@@ -201,7 +201,9 @@ test("记录失败不影响给客人的应答（只记一条不含请求内容�
   assert.equal((await rows()).length, count);
   const logged = api.logs().split("\n").filter((line) => line.includes("uncovered_demand.record"));
   assert.ok(logged.length >= 1, "记了错误日志");
-  assert.ok(logged.every((line) => !line.includes("152") && !line.includes(CHANNEL_IP)), "日志里没有请求内容");
+  // 只认单独出现的 152（请求里的经度），不算时间戳、耗时、编号里碰巧带着的 152（M8-29：main run 43258748905 因此偶发失败）
+  const requestLng = /(?<![\d.])152(?![\d.])/;
+  assert.ok(logged.every((line) => !requestLng.test(line) && !line.includes(CHANNEL_IP)), `日志里没有请求内容：${logged.join("\n")}`);
 });
 
 test("运营后台列表：按城市、供应商、日期、品类、原因筛；合计和按原因 / 城市 / 供应商的计数、被限掉的条数；游标分页；不认识的参数 400", async () => {
