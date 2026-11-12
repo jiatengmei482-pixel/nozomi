@@ -635,11 +635,14 @@ test("订单页（M8-30b）：按订单上锁定的计价方式在「总价」�
     assert.equal(factValue(trip, "总价")?.querySelector(".site-facts__note")?.textContent, note);
     assert.doesNotMatch(trip.textContent ?? "", /每公里|起步价|加价/);
     assert.equal(new Set((trip.textContent ?? "").match(/[\d,]+ JPY/g) ?? []).size, 1, "只有一个价格");
+    // 费用说明（M6-08）：按里程计价的不写「一口价」；含里程费照旧
+    assert.equal(factValue(trip, "费用说明")?.textContent, basis === "distance_only" ? "车费已含高速费、停车费等，无需另付" : "一口价已含所有费用（高速费、停车费等），无需另付");
     resetBrowser();
   }
   orderPage(orderOf({ pricing_basis: "one_price" }));
   const trip = (await screen.findByRole("heading", { name: "行程" })).closest("section") as HTMLElement;
   assert.equal(trip.querySelector(".site-facts__note"), null);
+  assert.equal(factValue(trip, "费用说明")?.textContent, "一口价已含所有费用（高速费、停车费等），无需另付");
 });
 
 test("旧预订页（M8-13，10.6 第 1 条）：点对点报价卡片车型标识下面写「公里数」那一句，没设含公里数的卡片不写", async () => {
