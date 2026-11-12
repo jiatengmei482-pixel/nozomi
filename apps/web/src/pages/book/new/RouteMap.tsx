@@ -7,11 +7,14 @@
 import L from "leaflet";
 import { useEffect, useRef } from "react";
 import type { MapTiles } from "../../../api/areas.ts";
+import { applyMapTheme, dimTilesFor, tileUrlFor } from "../../../lib/map-theme.ts";
 import { QuietTileLayer } from "../../../lib/quiet-tile-layer.ts";
-import { currentColorScheme } from "../../../theme/use-color-scheme.ts";
+import { currentColorScheme, useColorScheme } from "../../../theme/use-color-scheme.ts";
 
 export function RouteMap({ tiles, points, label }: { tiles: MapTiles; points: readonly { lat: number; lng: number }[]; label: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const layerRef = useRef<L.TileLayer | null>(null);
+  const scheme = useColorScheme();
   const key = points.map((point) => `${point.lat},${point.lng}`).join(";");
   useEffect(() => {
     const container = containerRef.current;
@@ -31,9 +34,9 @@ export function RouteMap({ tiles, points, label }: { tiles: MapTiles; points: re
       minZoom: tiles.min_zoom,
       maxZoom: tiles.max_zoom,
     });
-    const dark = currentColorScheme() === "dark";
-    if (dark && tiles.dark_url_template === null) container.classList.add("area-map__canvas--dimmed");
-    new QuietTileLayer(dark && tiles.dark_url_template !== null ? tiles.dark_url_template : tiles.url_template, {
+    const opened = currentColorScheme();
+    if (dimTilesFor(tiles, opened)) container.classList.add("area-map__canvas--dimmed");
+    layerRef.current = new QuietTileLayer(tileUrlFor(tiles, opened), {
       tileSize: tiles.tile_size,
       zoomOffset: tiles.tile_size === 512 ? -1 : 0,
       minZoom: tiles.min_zoom,
@@ -50,8 +53,15 @@ export function RouteMap({ tiles, points, label }: { tiles: MapTiles; points: re
     container.removeAttribute("tabindex");
     return () => {
       map.remove();
+      layerRef.current = null;
     };
   }, [tiles, key]);
+
+  // 切换亮暗主题：换瓦片或压暗底图，路线不动（M6-08）
+  useEffect(() => {
+    const container = containerRef.current;
+    if (container !== null && layerRef.current !== null) applyMapTheme(container, layerRef.current, tiles, scheme);
+  }, [scheme, tiles, key]);
   return (
     <div className="route-map">
       <div ref={containerRef} className="route-map__canvas" role="img" aria-label={label} />

@@ -10,10 +10,12 @@ import L from "leaflet";
 import { type Dispatch, type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { MapTiles } from "../../api/areas.ts";
 import { Icon } from "../../components/Icon.tsx";
+import { applyMapTheme, dimTilesFor, tileUrlFor } from "../../lib/map-theme.ts";
 import { QuietTileLayer } from "../../lib/quiet-tile-layer.ts";
 import "../../lib/leaflet-focus.ts";
 import { type EditorAction, type EditorShape, locateInEditor, metersToKmText, shapeName, shapeProblems, shapeRing, shapesBounds } from "../../lib/area-editor.ts";
 import { operateLegendText } from "../../lib/area-roles.ts";
+import { currentColorScheme, useColorScheme } from "../../theme/use-color-scheme.ts";
 import type { ProbeResult } from "./SelfTest.tsx";
 
 export type MapTool = "select" | "polygon" | "circle" | "probe";
@@ -91,15 +93,12 @@ function isPlaced(position: Position): boolean {
   return Number.isFinite(position[0]) && Number.isFinite(position[1]);
 }
 
-function isDark(): boolean {
-  const chosen = document.documentElement.dataset["theme"];
-  return chosen === "dark" || (chosen !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-}
-
 export function AreaMap({ tiles, shapes, selected, dispatch, readOnly, tool, newKind, onToolDone, onProbe, probe, cityCenter, fitSignal, outside = [], role = "both" }: AreaMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const clipId = `area-clip-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
   const mapRef = useRef<L.Map | null>(null);
+  const layerRef = useRef<L.TileLayer | null>(null);
+  const scheme = useColorScheme();
   const [, setView] = useState(0);
   const [ready, setReady] = useState(false);
   const [tileTrouble, setTileTrouble] = useState(false);
@@ -127,12 +126,11 @@ export function AreaMap({ tiles, shapes, selected, dispatch, readOnly, tool, new
     if (!container) return;
     const coarse = window.matchMedia("(pointer: coarse)").matches;
     const map = L.map(container, { dragging: !coarse, zoomControl: false, attributionControl: false, zoomAnimation: false, fadeAnimation: false, doubleClickZoom: false, minZoom: tiles.min_zoom, maxZoom: tiles.max_zoom });
-    const dark = isDark();
-    const url = dark && tiles.dark_url_template !== null ? tiles.dark_url_template : tiles.url_template;
-    if (dark && tiles.dark_url_template === null) container.classList.add("area-map__canvas--dimmed");
+    const opened = currentColorScheme();
+    if (dimTilesFor(tiles, opened)) container.classList.add("area-map__canvas--dimmed");
     let loaded = 0;
     let failed = 0;
-    new QuietTileLayer(url, { tileSize: tiles.tile_size, zoomOffset: tiles.tile_size === 512 ? -1 : 0, minZoom: tiles.min_zoom, maxZoom: tiles.max_zoom, referrerPolicy: tiles.referrer_policy })
+    layerRef.current = new QuietTileLayer(tileUrlFor(tiles, opened), { tileSize: tiles.tile_size, zoomOffset: tiles.tile_size === 512 ? -1 : 0, minZoom: tiles.min_zoom, maxZoom: tiles.max_zoom, referrerPolicy: tiles.referrer_policy })
       .on("tileload", () => {
         loaded += 1;
         setTileTrouble(false);
@@ -190,9 +188,16 @@ export function AreaMap({ tiles, shapes, selected, dispatch, readOnly, tool, new
     return () => {
       map.remove();
       mapRef.current = null;
+      layerRef.current = null;
     };
     // 底图配置在页面打开期间不变
   }, [tiles]);
+
+  // 切换亮暗主题：换瓦片或压暗底图，图形不动（M6-08）
+  useEffect(() => {
+    const container = containerRef.current;
+    if (container !== null && layerRef.current !== null) applyMapTheme(container, layerRef.current, tiles, scheme);
+  }, [scheme, tiles]);
 
   // 换了工具：丢掉画了一半的
   useEffect(() => {

@@ -8,7 +8,7 @@
  */
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { CENTER, type Ref, choose, createBrand, createWorld, expectAccessible, fillLocked, post, tenantHeaders } from "./catalog.ts";
-import { OWN_SITE_SOURCE, adminCredentials, createActiveTenant, expectNoHorizontalOverflow, loginAs, platformAdminHeaders, randomLetters, snapshot } from "./support.ts";
+import { OWN_SITE_SOURCE, adminCredentials, createActiveTenant, expectMapFollowsTheme, expectNoHorizontalOverflow, loginAs, platformAdminHeaders, randomLetters, snapshot } from "./support.ts";
 
 // 官网按来源地址限速、未覆盖需求按来源限新行：每条用例用自己的来源地址（M8-17）
 test.use(OWN_SITE_SOURCE);
@@ -75,6 +75,8 @@ test("供应商：建运营区域和里面的报价区域；商品只列报价�
   await expect(page.getByRole("group", { name: /用途/ }).getByRole("radio", { name: /^运营区域/ })).toBeChecked();
   await expect(page.getByRole("list", { name: "图例" })).toContainText("营运区 能接单的范围，不带价格");
   await expect(page.getByRole("list", { name: "图例" })).not.toContainText("可以报价");
+  // 切换亮暗主题：编辑页的地图当场跟着变，暗色只压暗瓦片（M6-08）
+  await expectMapFollowsTheme(page, page.locator(".area-map__canvas"), "区域编辑页地图");
   await page.goto(`/areas/${partly.id}`);
   await expect(page.locator("[data-outside-warning]")).toContainText("不在任何运营区域里，那部分不会报价");
   await expect(page.locator('.area-map__overlay [data-outside="editing"]')).toHaveCount(1);
@@ -113,6 +115,11 @@ test("供应商：建运营区域和里面的报价区域；商品只列报价�
     await expect(legend).toContainText("超出运营区域");
     await expectAccessible(page, `区域地图（${scheme}）`);
     await snapshot(page, `m820-overview-${scheme}`);
+    if (scheme === "dark") {
+      // 不刷新切换主题：区域地图当场跟着变，暗色只压暗瓦片、图形颜色不变（M6-08）
+      await expectMapFollowsTheme(page, page.locator(".area-overview-map .area-map__canvas"), "区域地图");
+      await page.emulateMedia({ colorScheme: "dark" });
+    }
     await page.getByRole("combobox", { name: "用途" }).selectOption("operating");
     await expect(page.getByRole("heading", { name: "共 3 个区域，显示 1 个" })).toBeVisible();
     await page.getByRole("combobox", { name: "用途" }).selectOption("pricing");

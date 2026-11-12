@@ -200,7 +200,8 @@
 }
 
 /* 暗色而底图没有暗色样式：只把底图那一层压暗 */
-.area-map__canvas--dimmed {
+/* 暗色、底图没有暗色样式时只压暗瓦片那一层：路线、起终点、图形、标记都在别的层，颜色不变（M6-08） */
+.area-map__canvas--dimmed .leaflet-tile-pane {
   filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9);
 }
 

@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes, randomInt } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
+import { type APIRequestContext, type Locator, type Page, expect, test } from "@playwright/test";
 import { withPlatformTx } from "../../api/src/db/context.ts";
 import { createPool } from "../../api/src/db/pool.ts";
 import { newSiteLink } from "../../api/src/services/site.ts";
@@ -446,3 +446,24 @@ export const OWN_SITE_SOURCE: Parameters<typeof test.use>[0] = {
     await use({ "x-forwarded-for": siteSourceAddress() });
   },
 };
+
+/**
+ * 地图跟着亮暗主题走（M6-08）：不刷新页面切换系统深浅色后，`canvas`（Leaflet 容器）在暗色时带压暗标记、亮色时没有；
+ * 压暗只作用在瓦片层，容器本身和矢量层（路线、标记）没有滤镜，颜色不变。
+ */
+export async function expectMapFollowsTheme(page: Page, canvas: Locator, what: string): Promise<void> {
+  for (const scheme of ["dark", "light"] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    if (scheme === "dark") await expect(canvas, `${what}：暗色压暗底图`).toHaveClass(/area-map__canvas--dimmed/);
+    else await expect(canvas, `${what}：亮色不压暗`).not.toHaveClass(/area-map__canvas--dimmed/);
+    const filters = await canvas.evaluate((node) => ({
+      canvas: getComputedStyle(node).filter,
+      tiles: getComputedStyle(node.querySelector(".leaflet-tile-pane") as HTMLElement).filter,
+      overlay: getComputedStyle(node.querySelector(".leaflet-overlay-pane") as HTMLElement).filter,
+    }));
+    expect(filters.canvas, `${what}（${scheme}）：容器不加滤镜`).toBe("none");
+    expect(filters.overlay, `${what}（${scheme}）：矢量层不加滤镜`).toBe("none");
+    if (scheme === "dark") expect(filters.tiles, `${what}：暗色只压暗瓦片层`).not.toBe("none");
+    else expect(filters.tiles, `${what}：亮色瓦片层不加滤镜`).toBe("none");
+  }
+}
