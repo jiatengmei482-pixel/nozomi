@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Position } from "@nozomi/domain";
-import { AREA_ROLE_OPTIONS, computeOutside, editingOutside, hiddenOperatingText, outsideImpactText, outsideRejectedText, outsideText, pricingCapable, readOutsideImpacts, roleInUseText, roleOf } from "./area-roles.ts";
+import { AREA_ROLE_OPTIONS, computeOutside, operateLegendText, editingOutside, hiddenOperatingText, outsideImpactText, outsideRejectedText, outsideText, pricingCapable, readOutsideImpacts, roleInUseText, roleOf } from "./area-roles.ts";
 
 const square = (west: number, south: number, size: number): Position[] => [[west, south], [west + size, south], [west + size, south + size], [west, south + size]];
 const area = (id: string, role: "operating" | "pricing" | "both", ring: Position[], extra: { tenant?: string; active?: boolean; bizType?: "general" | "charter" | "airport_transfer" } = {}) => ({ id, tenant: extra.tenant ?? "t1", role, bizType: extra.bizType ?? "general", active: extra.active ?? true, polygons: [{ kind: "operate" as const, ring }] });
@@ -12,6 +12,13 @@ describe("区域用途（M8-20）", () => {
     assert.ok(AREA_ROLE_OPTIONS.every((option) => option.hint.length > 10));
     assert.equal(roleOf({}), "both");
     assert.equal(roleOf({ role: "operating" }), "operating");
+  });
+
+  it("编辑页地图图例「营运区」（M6-08）：纯运营区域写能接单、不带价格，不写「可以报价」；报价区域、运营 + 报价照旧", () => {
+    assert.equal(operateLegendText("operating"), "能接单的范围，不带价格");
+    assert.doesNotMatch(operateLegendText("operating"), /报价/);
+    assert.equal(operateLegendText("pricing"), "可以报价");
+    assert.equal(operateLegendText("both"), "可以报价");
   });
 
   it("选区域只列能挂价格的；被藏掉的运营区域写明原因", () => {

@@ -116,6 +116,10 @@ test("列表：计数（合计、按原因、按城市、按供应商、被限�
   assert.match(row.textContent ?? "", /甲车队/);
   const map = within(row).getByRole("link", { name: "在区域地图上查看" });
   assert.equal(map.getAttribute("href"), "/platform/areas/map?demands=1&lat=35.6812&lng=139.7671");
+  // 手机卡片里「次数」「涉及的供应商」前面有标签（M6-08）；两个操作排在可以上下排的操作区里
+  const labels = [...row.querySelectorAll(".table__card-label")].map((node) => node.textContent);
+  assert.ok(labels.includes("次数：") && labels.includes("涉及的供应商："), labels.join(","));
+  assert.ok(map.closest(".table__actions--stack"));
 });
 
 test("筛选：城市、供应商、日期、用车类型、原因都写进请求；开始晚于结束当场说明、不发请求", async () => {
