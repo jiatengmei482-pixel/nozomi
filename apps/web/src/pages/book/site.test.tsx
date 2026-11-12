@@ -240,7 +240,7 @@ test("下单：接机必填航班号、手机号要带国家码、要同意保�
   const posts = calls.filter((call) => call.method === "POST");
   assert.equal(posts.length, 2);
   assert.equal(posts[0]?.headers["idempotency-key"], posts[1]?.headers["idempotency-key"], "重试用同一个幂等键");
-  assert.deepEqual(posts[1]?.body, { quote_id: quote.quote_id, passenger: { name: "王小明", phone: "+81 90-1234-5678", email: "guest@example.com" }, flight_no: "nh 211", pickup_address: null, dropoff_address: "东京站八重洲口", messaging: null, notes: null, save_payment_method: true });
+  assert.deepEqual(posts[1]?.body, { quote_id: quote.quote_id, passenger: { name: "王小明", phone: "+81 90-1234-5678", email: "guest@example.com" }, flight_no: "nh 211", pickup_address: null, dropoff_address: "东京站八重洲口", messaging: null, notes: null, save_payment_method: true, sign_name: null, passenger_name: null, passenger_phone: null });
   assert.ok(screen.getByText(/订单已提交/));
   assert.ok(screen.getByText(/付款暂未开放/));
   assert.equal(calls.find((call) => urlOf(call).pathname === "/site/v1/order")?.headers["authorization"], `Bearer ${TOKEN}`);

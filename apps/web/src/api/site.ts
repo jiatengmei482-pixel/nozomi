@@ -230,6 +230,10 @@ export interface SiteOrderRequest {
   messaging: { app: MessagingApp; handle: string } | null;
   notes: string | null;
   save_payment_method: boolean;
+  /** 举牌姓名、为他人预订时的乘车人姓名和电话（M8-32）；没有为 null */
+  sign_name: string | null;
+  passenger_name: string | null;
+  passenger_phone: string | null;
 }
 
 export interface SiteOrderPoint {
@@ -298,6 +302,8 @@ export interface SiteOrder {
   driver_language: string | null;
   flight_no: string | null;
   passenger: { name: string; phone: string; email: string };
+  /** 乘车人和举牌姓名（M8-32）：为他人预订时 `passenger` 是联系人（预订人）、这里是乘车人；没有为 null */
+  rider?: { sign_name: string | null; name: string | null; phone: string | null } | null;
   messaging: { app: MessagingApp; handle: string } | null;
   notes: string | null;
   free_wait_minutes: number | null;
@@ -409,7 +415,7 @@ export const SITE_ORDER_VEHICLE_GROUP_FIELDS: readonly (keyof NonNullable<SiteOr
 
 export const SITE_ORDER_FIELDS: readonly (keyof SiteOrder)[] = [
   "id", "order_no", "status", "category", "city_id", "place_id", "direction", "vehicle_group_id", "package_hours", "service_time", "service_local", "timezone", "service_date", "urgent",
-  "passengers", "luggage", "pickup", "dropoff", "addons", "driver_language", "flight_no", "passenger", "messaging", "notes", "free_wait_minutes", "created_at", "confirmed_at", "cancelled_at",
+  "passengers", "luggage", "pickup", "dropoff", "addons", "driver_language", "flight_no", "passenger", "rider", "messaging", "notes", "free_wait_minutes", "created_at", "confirmed_at", "cancelled_at",
   "cancel_reason", "quote_id", "channel_order_no", "price", "includes_area_surcharge", "distance", "pricing_basis", "payment_status", "payment_due_at", "winning_tenant", "driver", "vehicle", "landing", "cancel_policy", "cancellation",
   "free_cancel_available", "changes", "extra_charges", "version",
 ];
@@ -419,7 +425,7 @@ export const SITE_TRIP_END_FIELDS: readonly (keyof SiteTripEnd)[] = ["name", "la
 export const SITE_BY_POINTS_RESULT_FIELDS: readonly (keyof SiteByPointsResult)[] = ["trip_type", "airport", "fallback_category", "city", "currency", "quotes", "unavailable", "expires_at", "route"];
 export const SITE_QUOTE_REQUEST_FIELDS: readonly (keyof SiteQuoteRequest)[] = ["category", "city_id", "airport_id", "direction", "address", "pickup", "dropoff", "package_hours", "service_local", "passengers", "luggage", "addons", "pickup_name", "dropoff_name"];
 export const SITE_FX_REFERENCE_FIELDS: readonly (keyof SiteFxReference)[] = ["available", "from", "to", "rate", "as_of", "reason"];
-export const SITE_ORDER_REQUEST_FIELDS: readonly (keyof SiteOrderRequest)[] = ["quote_id", "passenger", "flight_no", "pickup_address", "dropoff_address", "messaging", "notes", "save_payment_method"];
+export const SITE_ORDER_REQUEST_FIELDS: readonly (keyof SiteOrderRequest)[] = ["quote_id", "passenger", "flight_no", "pickup_address", "dropoff_address", "messaging", "notes", "save_payment_method", "sign_name", "passenger_name", "passenger_phone"];
 
 const guest = (token: string) => ({ token });
 

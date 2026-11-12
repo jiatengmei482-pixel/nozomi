@@ -8750,6 +8750,7 @@ paths:
                 additionalProperties: false
                 required:
                   - passenger
+                  - rider
                   - messaging
                   - notes
                   - anonymized_at
@@ -8757,6 +8758,11 @@ paths:
                 properties:
                   passenger:
                     $ref: "#/components/schemas/OrderPassenger"
+                  rider:
+                    oneOf:
+                      - $ref: "#/components/schemas/OrderRider"
+                      - type: "null"
+                    description: 乘车人和举牌姓名的原文（M8-32）；没有、或已脱敏为 null
                   messaging:
                     oneOf:
                       - $ref: "#/components/schemas/OrderMessaging"
@@ -24625,6 +24631,20 @@ components:
           description: 国际格式（E.164），如 `+819012345678`
         email:
           type: string
+    OrderRider:
+      type: object
+      additionalProperties: false
+      required: [ sign_name, name, phone ]
+      properties:
+        sign_name:
+          type: [ string, "null" ]
+          description: 接机举牌写的名字
+        name:
+          type: [ string, "null" ]
+          description: 乘车人姓名（为他人预订时）
+        phone:
+          type: [ string, "null" ]
+          description: 乘车人电话 / WhatsApp（为他人预订时）
     OrderMessaging:
       type: object
       additionalProperties: false
@@ -24867,7 +24887,7 @@ components:
       additionalProperties: false
       description: |
         渠道看到的订单：行程、乘客、客人支付的金额、付款状态。**没有结算价、加价比例**；中标租户只在付款成功后、渠道设置了「付款后展示」时出现。
-      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
+      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
       properties:
         pricing_basis:
           $ref: "#/components/schemas/PricingBasis"
@@ -24955,6 +24975,11 @@ components:
           description: 航班号（去掉空格、大写），接机必填
         passenger:
           $ref: "#/components/schemas/OrderPassenger"
+        rider:
+          oneOf:
+            - $ref: "#/components/schemas/OrderRider"
+            - type: "null"
+          description: 乘车人和举牌姓名（M8-32，ADR 0082）：为他人预订时的乘车人、接机举牌写的名字；`passenger` 是联系人（预订人）。没有为 null
         messaging:
           oneOf:
             - $ref: "#/components/schemas/OrderMessaging"
@@ -25078,7 +25103,7 @@ components:
       additionalProperties: false
       description: |
         供应商看到的订单：行程、乘客、结算价和明细。**没有渠道、对外价、加价比例、汇率**（规则 4）。只有付过款的单。
-      required: [ pending_change, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, product_id, product_version, settlement, dispatch, fulfilment, landing, cancel_policy, cancellation, version ]
+      required: [ pending_change, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, product_id, product_version, settlement, dispatch, fulfilment, landing, cancel_policy, cancellation, version ]
       properties:
         pending_change:
           type: boolean
@@ -25157,6 +25182,11 @@ components:
           description: 航班号（去掉空格、大写），接机必填
         passenger:
           $ref: "#/components/schemas/OrderPassenger"
+        rider:
+          oneOf:
+            - $ref: "#/components/schemas/OrderRider"
+            - type: "null"
+          description: 乘车人和举牌姓名（M8-32，ADR 0082）：为他人预订时的乘车人、接机举牌写的名字；`passenger` 是联系人（预订人）。没有为 null
         messaging:
           oneOf:
             - $ref: "#/components/schemas/OrderMessaging"
@@ -25205,7 +25235,7 @@ components:
       additionalProperties: false
       description: |
         运营后台看到的订单：行程、乘客、中标租户、渠道、对外价、结算价、加价比例、汇率快照、付款状态。
-      required: [ notes_masked, passenger_anonymized_at, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, dispatch, fulfilment, landing, tenant, channel, quote_id, channel_order_no, product_id, product_version, sell, settlement, markup_bp, fx, fx_buffer_bp, payment_due_at, payment, cancel_policy, cancellation, is_acceptance, version ]
+      required: [ notes_masked, passenger_anonymized_at, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, dispatch, fulfilment, landing, tenant, channel, quote_id, channel_order_no, product_id, product_version, sell, settlement, markup_bp, fx, fx_buffer_bp, payment_due_at, payment, cancel_policy, cancellation, is_acceptance, version ]
       properties:
         notes_masked:
           type: boolean
@@ -25288,6 +25318,11 @@ components:
           description: 航班号（去掉空格、大写），接机必填
         passenger:
           $ref: "#/components/schemas/OrderPassenger"
+        rider:
+          oneOf:
+            - $ref: "#/components/schemas/OrderRider"
+            - type: "null"
+          description: 乘车人和举牌姓名（M8-32，ADR 0082）：为他人预订时的乘车人、接机举牌写的名字；`passenger` 是联系人（预订人）。没有为 null
         messaging:
           oneOf:
             - $ref: "#/components/schemas/OrderMessaging"
@@ -26862,7 +26897,7 @@ components:
         order:
           type: object
           additionalProperties: false
-          required: [ order_no, status, status_name, category, direction, service_time, service_local, timezone, package_hours, passengers, luggage, flight_no, passenger, messaging, notes, place, pickup, dropoff, pickup_point, addons, driver_language, free_wait_minutes ]
+          required: [ order_no, status, status_name, category, direction, service_time, service_local, timezone, package_hours, passengers, luggage, flight_no, passenger, rider, messaging, notes, place, pickup, dropoff, pickup_point, addons, driver_language, free_wait_minutes ]
           properties:
             order_no:
               type: string
@@ -26900,6 +26935,11 @@ components:
                   type: string
                 phone:
                   type: string
+            rider:
+              oneOf:
+                - $ref: "#/components/schemas/OrderRider"
+                - type: "null"
+              description: 乘车人和举牌姓名（M8-32）：司机按 `sign_name` 举牌，为他人预订时联系 `name` / `phone`；没有为 null
             messaging:
               oneOf:
                 - $ref: "#/components/schemas/OrderMessaging"
@@ -28435,6 +28475,18 @@ components:
         save_payment_method:
           type: boolean
           description: 客人同意保存支付方式用于服务后加收（必须为 true）
+        sign_name:
+          type: [ string, "null" ]
+          maxLength: 200
+          description: 举牌姓名（M8-32，ADR 0082）：接机时司机举牌写的名字；选填
+        passenger_name:
+          type: [ string, "null" ]
+          maxLength: 200
+          description: 为他人预订时的乘车人姓名（M8-32）；和 `passenger_phone` 要么都给、要么都不给。`passenger` 仍是联系人（预订人），确认邮件发给他
+        passenger_phone:
+          type: [ string, "null" ]
+          maxLength: 40
+          description: 为他人预订时的乘车人电话 / WhatsApp（国际格式，M8-32）
     SiteOrderLink:
       type: object
       additionalProperties: false
@@ -28526,7 +28578,7 @@ components:
       additionalProperties: false
       description: |
         客人在官网订单页看到的订单：和渠道看到的 `SalesOrder` 字段一样，只是落地信息里没有司机到达屏照片的文件编号（客人用不上，ADR 0032）。
-      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
+      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
       properties:
         pricing_basis:
           $ref: "#/components/schemas/PricingBasis"
@@ -28614,6 +28666,11 @@ components:
           description: 航班号（去掉空格、大写），接机必填
         passenger:
           $ref: "#/components/schemas/OrderPassenger"
+        rider:
+          oneOf:
+            - $ref: "#/components/schemas/OrderRider"
+            - type: "null"
+          description: 乘车人和举牌姓名（M8-32，ADR 0082）：为他人预订时的乘车人、接机举牌写的名字；`passenger` 是联系人（预订人）。没有为 null
         messaging:
           oneOf:
             - $ref: "#/components/schemas/OrderMessaging"

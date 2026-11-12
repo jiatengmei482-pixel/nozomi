@@ -19,6 +19,8 @@ export interface OrderForm {
   messagingHandle: string;
   notes: string;
   consent: boolean;
+  /** 举牌姓名、为他人预订时的乘车人姓名和电话（M8-32，ADR 0082）：单独提交，不写进备注；旧下单页不给 */
+  rider?: { signName: string; name: string; phone: string };
 }
 
 export type OrderField = "name" | "phone" | "email" | "flightNo" | "pickupAddress" | "dropoffAddress" | "messagingHandle" | "notes" | "consent";
@@ -46,6 +48,13 @@ export const SERVER_PATHS: Readonly<Record<string, OrderField>> = {
   "/messaging/handle": "messagingHandle",
   "/notes": "notes",
   "/save_payment_method": "consent",
+};
+
+/** 乘车人两栏（M8-32）：后端退回时标在「为他人预订」的乘车人姓名 / 电话上 */
+export type RiderField = "riderName" | "riderPhone";
+export const RIDER_SERVER_PATHS: Readonly<Record<string, RiderField>> = {
+  "/passenger_name": "riderName",
+  "/passenger_phone": "riderPhone",
 };
 
 export const ADDRESS_FIELDS = { pickup: "pickupAddress", dropoff: "dropoffAddress" } as const;
@@ -83,11 +92,14 @@ export function orderRequestOf(quoteId: string, form: OrderForm, trip: OrderTrip
     messaging: form.messagingApp === "" ? null : { app: form.messagingApp, handle: form.messagingHandle.trim() },
     notes: form.notes.trim() === "" ? null : form.notes.trim(),
     save_payment_method: form.consent,
+    sign_name: blankToNull(form.rider?.signName),
+    passenger_name: blankToNull(form.rider?.name),
+    passenger_phone: blankToNull(form.rider?.phone),
   };
 }
 
 /** 下单失败怎么说：报价不能用了（要重新查价）、字段没过后端校验（对回字段）、其他。 */
-export type OrderFailure = { kind: "expired"; text: string } | { kind: "fields"; errors: OrderErrors; text: string } | { kind: "other"; retrySafe: boolean };
+export type OrderFailure = { kind: "expired"; text: string } | { kind: "fields"; errors: OrderErrors; riderErrors: Partial<Record<RiderField, string>>; text: string } | { kind: "other"; retrySafe: boolean };
 
 export function orderFailureOf(err: unknown): OrderFailure {
   if (err instanceof ApiError && (err.code === "QUOTE_EXPIRED" || err.code === "QUOTE_ALREADY_ORDERED" || err.code === "QUOTE_NO_LONGER_AVAILABLE" || err.code === "SOLD_OUT")) {
@@ -96,11 +108,19 @@ export function orderFailureOf(err: unknown): OrderFailure {
   if (err instanceof ApiError && err.code === "VALIDATION_FAILED") {
     const issues = Array.isArray(err.details["issues"]) ? (err.details["issues"] as { path?: string; message?: string }[]) : [];
     const mapped: OrderErrors = {};
+    const riders: Partial<Record<RiderField, string>> = {};
     for (const issue of issues) {
       const field = SERVER_PATHS[issue.path ?? ""];
       if (field !== undefined && issue.message) mapped[field] = issue.message;
+      const rider = RIDER_SERVER_PATHS[issue.path ?? ""];
+      if (rider !== undefined && issue.message) riders[rider] = issue.message;
     }
-    return { kind: "fields", errors: mapped, text: Object.keys(mapped).length > 0 ? "有几项没有通过检查，请看标红的地方。" : "提交的内容不符合要求，请检查后重试。" };
+    return { kind: "fields", errors: mapped, riderErrors: riders, text: Object.keys(mapped).length + Object.keys(riders).length > 0 ? "有几项没有通过检查，请看标红的地方。" : "提交的内容不符合要求，请检查后重试。" };
   }
   return { kind: "other", retrySafe: err instanceof ApiError && err.status >= 500 };
+}
+
+function blankToNull(value: string | undefined): string | null {
+  const text = (value ?? "").trim();
+  return text === "" ? null : text;
 }

@@ -30,6 +30,7 @@ import {
   localDateTimeToInstant,
   normalizeFlightNo,
   normalizePhone,
+  orderRiderOf,
   onPaymentSucceeded,
   orderDetailsIssues,
   orderNumber,
@@ -319,7 +320,7 @@ async function placeOrder(ctx: AppContext, principal: SalesPrincipal, input: Sal
       addons: request.addons.map((addon) => ({ addonId: addon.addonId, quantity: addon.quantity })),
       driverLanguage: request.driverLanguage,
       flightNo: details.flightNo === null || details.flightNo.trim() === "" ? null : normalizeFlightNo(details.flightNo),
-      passenger: { name: details.passenger.name.trim(), phone: normalizePhone(details.passenger.phone), email: details.passenger.email.trim() },
+      passenger: { name: details.passenger.name.trim(), phone: normalizePhone(details.passenger.phone), email: details.passenger.email.trim(), ...withRider(orderRiderOf(details.rider)) },
       messaging: details.messaging === null ? null : { app: details.messaging.app, handle: details.messaging.handle.trim() },
       notes: details.notes === null || details.notes.trim() === "" ? null : details.notes.trim(),
       settlementMinor: winner.offer.settlement.totalMinor,
@@ -562,4 +563,9 @@ export async function cancelPendingOrder(db: Db, orderId: string, reason: OrderC
   const payment = await findOrderPayment(db, orderId, { lock: true });
   if (payment !== null && payment.status !== "succeeded") await updateOrderPayment(db, payment.id, { status: "canceled" }, now);
   return true;
+}
+
+/** 乘车人（M8-32）只在有内容时放进乘客对象，没有时不存这个键。 */
+function withRider(rider: ReturnType<typeof orderRiderOf>): { rider?: NonNullable<ReturnType<typeof orderRiderOf>> } {
+  return rider === null ? {} : { rider };
 }

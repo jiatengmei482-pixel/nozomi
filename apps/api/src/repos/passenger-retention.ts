@@ -165,14 +165,14 @@ export async function lockRetentionOrder(db: Db, orderId: string, cutoff: Date):
   return still.rows.length === 1;
 }
 
-type Passengerish = { passenger?: { name?: unknown; phone?: unknown; email?: unknown } | null };
+type Passengerish = { passenger?: { name?: unknown; phone?: unknown; email?: unknown; rider?: { signName?: unknown; name?: unknown; phone?: unknown } | null } | null };
 
 function contactsOf(values: readonly Passengerish[]): KnownContacts {
-  const pick = (key: "name" | "phone" | "email"): string[] => [...new Set(values.flatMap((value) => {
-    const item = value.passenger?.[key];
-    return typeof item === "string" && !isPassengerPlaceholder(item) && item !== "" ? [item] : [];
-  }))];
-  return { names: pick("name"), literals: [...pick("phone"), ...pick("email")] };
+  const usable = (item: unknown): string[] => (typeof item === "string" && !isPassengerPlaceholder(item) && item !== "" ? [item] : []);
+  const pick = (key: "name" | "phone" | "email"): string[] => [...new Set(values.flatMap((value) => usable(value.passenger?.[key])))];
+  // 乘车人和举牌姓名（M8-32）也是这单的个人信息：备注、工单等文字里出现时一起换掉
+  const rider = (key: "signName" | "name" | "phone"): string[] => [...new Set(values.flatMap((value) => usable(value.passenger?.rider?.[key])))];
+  return { names: [...new Set([...pick("name"), ...rider("name"), ...rider("signName")])], literals: [...pick("phone"), ...pick("email"), ...rider("phone")] };
 }
 
 /**

@@ -276,6 +276,21 @@ export function DriverTripPage() {
           </a>
           {order.messaging && ` · ${order.messaging.app}：${order.messaging.handle}`}
         </p>
+        {/* 乘车人和举牌姓名（M8-32）：为他人预订时实际乘车的是这一位；举牌按举牌姓名写 */}
+        {order.rider?.name != null && (
+          <p>
+            {`乘车人：${order.rider.name}`}
+            {order.rider.phone !== null && (
+              <>
+                {" · "}
+                <a className="link driver-tel" href={`tel:${order.rider.phone}`}>
+                  {order.rider.phone}
+                </a>
+              </>
+            )}
+          </p>
+        )}
+        {order.rider?.sign_name != null && <p className="driver-key">{`举牌：${order.rider.sign_name}`}</p>}
         {order.flight_no && <p className="driver-key">{`航班 ${order.flight_no}`}</p>}
         {order.notes && <p>{`备注：${order.notes}`}</p>}
         {order.addons.length > 0 && <p>{`附加服务：${order.addons.map((addon) => `${addon.name === null ? "—" : displayName(addon.name).text} × ${addon.quantity}`).join("、")}`}</p>}

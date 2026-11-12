@@ -36,7 +36,7 @@ import { FAKE_SECRETS } from "./testing/fixtures.ts";
 import { type Market, allValues, buildMarket, newChannel, ok, salesCredentials } from "./testing/market.ts";
 import { tenantLogin } from "./testing/money.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
-import { FakePaymentProvider } from "./testing/payments.ts";
+import { FakePaymentProvider, deliverWebhook } from "./testing/payments.ts";
 import { type SiteApi, siteApi } from "./testing/site.ts";
 import { QUOTE_CATALOG_TTL_MS } from "./services/quote-catalog.ts";
 
@@ -47,6 +47,7 @@ let autocomplete: FakeService;
 let details: FakeService;
 let routes: FakeService;
 let site: SiteApi;
+let pay: FakePaymentProvider;
 let siteClientId: string;
 let logs = "";
 const opened: SiteApi[] = [];
@@ -144,7 +145,8 @@ before(async () => {
   autocomplete = await startFakeGoogleAutocomplete();
   details = await startFakeGooglePlaceDetails();
   routes = await startFakeGoogleRoutes();
-  api = await createTestApi({ payments: new FakePaymentProvider(), integrationSecretsTtlMs: 0 });
+  pay = new FakePaymentProvider();
+  api = await createTestApi({ payments: pay, integrationSecretsTtlMs: 0 });
   m = await buildMarket(api);
   await pointToPointProduct(m.a, 15_000);
   await pointToPointProduct(m.b, 16_000);
@@ -158,7 +160,7 @@ before(async () => {
   await ok(api.call("POST", `/platform/v1/master/places/${ids["closedStation"]}/disable`, { token: m.root, body: {} }));
   const channel = await newChannel(api, m.staff.cm1.token, { name: "NOZOMI 官网" });
   siteClientId = (await salesCredentials(api, m, channel.id)).clientId;
-  site = await siteApi(api, siteClientId, new FakePaymentProvider(), googleEnv(), { integrationSecretsTtlMs: 0, logDestination: { write: (line) => void (logs += line) } });
+  site = await siteApi(api, siteClientId, pay, googleEnv(), { integrationSecretsTtlMs: 0, logDestination: { write: (line) => void (logs += line) } });
   reset();
 });
 after(async () => {
@@ -251,6 +253,56 @@ test("接送机报不出改用点对点商品（M8-33，ADR 0081）：羽田没�
   const created = await order({ notes: "航班号：NH211\n举牌姓名：陈小红" });
   assert.equal(created.status, 201, created.text);
   assert.equal(created.body.order.category, "point_to_point");
+});
+
+test("下单带举牌姓名、乘车人姓名和电话（M8-32，ADR 0082）：正式字段、和联系人一起加密；运营后台默认打码、查看后是原文；姓名和电话要么都给要么都不给", async () => {
+  reset();
+  const res = await okByPoints(northOf(NARITA, 500), TOKYO_STATION);
+  const order = (body: Record<string, unknown>, quoteId: string = res.quotes[0].quote_id) =>
+    site.call("POST", "/site/v1/orders", { headers: { "idempotency-key": randomUUID() }, ip: nextIp(), body: { quote_id: quoteId, passenger: { name: "王小明", phone: "+86 138 0000 0000", email: "rider.booker@example.com" }, flight_no: "NH211", dropoff_address: "東京駅", save_payment_method: true, ...body } });
+  const half = await order({ passenger_name: "李华" });
+  assert.deepEqual([half.status, half.body.error?.details?.issues?.map((issue: any) => [issue.path, issue.reason])], [400, [["/passenger_phone", "REQUIRED"]]]);
+  const badPhone = await order({ passenger_name: "李华", passenger_phone: "090-5555-6666" });
+  assert.deepEqual(badPhone.body.error?.details?.issues?.map((issue: any) => [issue.path, issue.reason]), [["/passenger_phone", "INVALID_PHONE"]]);
+  const created = await order({ sign_name: " LI HUA ", passenger_name: "李华", passenger_phone: "+81 90-5555-6666" });
+  assert.equal(created.status, 201, created.text);
+  assertMatchesOpenApi("POST", "/site/v1/orders", created);
+  const orderId = created.body.order.id as string;
+  assert.deepEqual(created.body.order.passenger, { name: "王小明", phone: "+8613800000000", email: "rider.booker@example.com" }, "联系人仍是预订人");
+  assert.deepEqual(created.body.order.rider, { sign_name: "LI HUA", name: "李华", phone: "+819055556666" });
+  const row = (await api.db.owner.query("select passenger, passenger_enc from orders where id = $1", [orderId])).rows[0];
+  assert.ok(typeof row.passenger_enc === "string" && row.passenger_enc.length > 0, "和联系人一起进密文");
+  assert.ok(!row.passenger_enc.includes("李华"));
+  const detail = await api.call("GET", `/platform/v1/orders/${orderId}`, { token: m.root });
+  assert.equal(detail.status, 200, detail.text);
+  const masked = detail.body.order.rider;
+  assert.ok(masked !== undefined && masked !== null, detail.text);
+  assert.ok(masked.name !== "李华" && masked.phone !== "+819055556666" && masked.sign_name !== "LI HUA", "运营后台默认打码");
+  const revealed = await api.call("POST", `/platform/v1/orders/${orderId}/passenger/reveal`, { token: m.root });
+  assert.equal(revealed.status, 200, revealed.text);
+  assertMatchesOpenApi("POST", "/platform/v1/orders/{id}/passenger/reveal", revealed);
+  assert.deepEqual(revealed.body.rider, { sign_name: "LI HUA", name: "李华", phone: "+819055556666" });
+  // 付款后运营代改联系人：只改联系人，乘车人和举牌姓名原样保留；改单记录里只有联系人，没有乘车人
+  const intent = pay.intentOf(orderId);
+  assert.ok(intent);
+  pay.pay(intent.id);
+  const raw = pay.event("payment_intent.succeeded", pay.intentObject(intent.id), { created: api.clock.now() });
+  assert.equal((await deliverWebhook(api.app, raw, pay.sign(raw, api.clock.now()))).status, 200);
+  const paid = await api.call("GET", `/platform/v1/orders/${orderId}`, { token: m.root });
+  const changed = await api.call("PATCH", `/platform/v1/orders/${orderId}`, { token: m.root, headers: { "if-match": `"${paid.body.order.version}"` }, body: { passenger: { name: "王大明" } } });
+  assert.equal(changed.status, 200, changed.text);
+  const afterChange = await api.call("POST", `/platform/v1/orders/${orderId}/passenger/reveal`, { token: m.root });
+  assert.deepEqual([afterChange.body.passenger?.name, afterChange.body.rider], ["王大明", { sign_name: "LI HUA", name: "李华", phone: "+819055556666" }], afterChange.text);
+  const stored = (await api.db.owner.query("select before, after from order_changes where order_id = $1", [orderId])).rows;
+  assert.equal(stored.length, 1);
+  assert.ok(!JSON.stringify(stored).includes("李华") && !JSON.stringify(stored).includes("LI HUA") && !JSON.stringify(stored).includes("sign_name"), JSON.stringify(stored));
+  // 没给这三项的订单：rider 为 null，联系人照旧
+  const again = await okByPoints(northOf(NARITA, 500), TOKYO_STATION);
+  const plain = await order({}, again.quotes[0].quote_id);
+  assert.equal(plain.status, 201, plain.text);
+  assert.equal(plain.body.order.rider, null);
+  const plainRow = (await api.db.owner.query("select passenger from orders where id = $1", [plain.body.order.id])).rows[0];
+  assert.equal(Object.hasOwn(plainRow.passenger, "rider"), false, "没有乘车人时不存这个键（和旧订单一样）");
 });
 
 test("接送机、点对点都报不出：保留接送机的原因，fallback_category 为 null（M8-33）", async () => {

@@ -442,7 +442,9 @@ export function OrderDetailPage() {
           <OrderVehicleDetails group={detail.vehicle_group} />
           <OrderAreaPriceItems audience="tenant" pricingRoute={detail.pricing_route} distance={order.settlement.distance} areaSurcharge={detail.area_surcharge} pricingBasis={detail.pricing_basis} mileage={detail.mileage} />
           <OrderAddonsItem addons={order.addons} cacheKey="tenant-addons-catalog" load={listTenantAddons} />
-          <Detail label="乘客">{`${order.passenger.name} · ${order.passenger.phone} · ${order.passengers} 人 ${order.luggage} 件行李`}</Detail>
+          <Detail label={order.rider?.name != null ? "联系人（预订人）" : "乘客"}>{`${order.passenger.name} · ${order.passenger.phone} · ${order.passengers} 人 ${order.luggage} 件行李`}</Detail>
+          {order.rider?.name != null && <Detail label="乘车人">{order.rider.phone === null ? order.rider.name : `${order.rider.name} · ${order.rider.phone}`}</Detail>}
+          {order.rider?.sign_name != null && <Detail label="举牌姓名">{order.rider.sign_name}</Detail>}
           {order.messaging && <Detail label="即时通讯">{`${order.messaging.app}：${order.messaging.handle}`}</Detail>}
           {order.notes && <Detail label="备注">{order.notes}</Detail>}
           <Detail label="免费等待">{order.free_wait_minutes === null ? "不限" : `${order.free_wait_minutes} 分钟`}</Detail>
