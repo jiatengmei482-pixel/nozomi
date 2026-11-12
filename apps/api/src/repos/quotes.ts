@@ -96,7 +96,7 @@ export async function loadQuoteCandidates(db: Db, filter: QuoteCandidateFilter):
   );
   // 运营范围（ADR 0075）：这些供应商启用中的运营区域和「运营 + 报价」区域，不限城市；按商品的品类挑业务类型相容的
   const operatingRows = await db.query<Row>(
-    `select tenant_id, id, biz_type, role from areas where tenant_id = any($1::uuid[]) and status = 'active' ${filter.everyAreaOperating === true ? "" : "and role in ('operating', 'both')"} order by tenant_id, created_at, id`,
+    `select tenant_id, id, biz_type, ${filter.everyAreaOperating === true ? "'both' as role" : "role"} from areas where tenant_id = any($1::uuid[]) and status = 'active' ${filter.everyAreaOperating === true ? "" : "and role in ('operating', 'both')"} order by tenant_id, created_at, id`,
     [tenantIds],
   );
   const areaIds = [...new Set([...areas.rows, ...surchargeRows.rows].map((row) => row["area_id"] as string).concat(operatingRows.rows.map((row) => row["id"] as string)))];
@@ -109,7 +109,7 @@ export async function loadQuoteCandidates(db: Db, filter: QuoteCandidateFilter):
   for (const row of operatingRows.rows) {
     operatingByTenant.set(row["tenant_id"], [...(operatingByTenant.get(row["tenant_id"]) ?? []), { areaId: row["id"], active: true, bizType: row["biz_type"], role: row["role"], shapes: shapes.get(row["id"]) ?? [] }]);
   }
-  // 用途（M8-36 补充）：用途是「运营」的区域的禁行区挡这家所有商品
+  // 用途（M8-36 补充）：用途是「运营」的区域的禁行区挡这家所有商品；迁移前回放（everyAreaOperating）还没有 role 列，按迁移后的 both 算
   const operatingAreas = (tenantId: string, category: ServiceCategory): QuoteArea[] =>
     (operatingByTenant.get(tenantId) ?? []).filter((area) => areaUsableByCategory(category, area.bizType)).map(({ areaId, active, role, shapes: areaShapes }) => ({ areaId, active, ...(role === undefined ? {} : { role }), shapes: areaShapes }));
 
