@@ -248,7 +248,7 @@ export type PriceConflict = PriceConflictRef & { with: PriceConflictRef[] };
 export interface PriceChangeCheck {
   /** 写得不对的地方（路径指到是哪一条的哪一项） */
   issues: InputIssue[];
-  /** 生效日期重叠：每一条被拒绝的规则和它撞上的那些。有 `issues` 时不再查重叠 */
+  /** 生效日期重叠：每一条被拒绝的规则和它撞上的那些。单条保存或有整批的问题时不查；批量时只有逐条的问题，没问题的那些照样查（M8-25） */
   conflicts: PriceConflict[];
 }
 
@@ -305,14 +305,19 @@ export function checkPriceChanges(context: PricingContext, changes: PriceChanges
   if (remaining.length + changes.update.length + changes.create.length > PRICE_LIMITS.maxPriceRulesPerProduct) {
     issues.push({ path: "/", reason: "TOO_MANY", message: `一个商品最多 ${PRICE_LIMITS.maxPriceRulesPerProduct} 条价格规则`, detail: { max: PRICE_LIMITS.maxPriceRulesPerProduct } });
   }
-  if (issues.length > 0) return { issues, conflicts: [] };
+  // 单条保存、或整批的问题（条数太多）：直接报，不再查重叠。
+  // 批量时某几条有问题，其余没问题的照样查重叠（M8-25）：导入预览里一行出错（比如区域加价选了商品本身的区域），
+  // 别的行和库里已有的价格日期重叠也要标成「冲突」，不能显示成「新增」。保存时有问题先报 400，这里多算的冲突用不上。
+  if (issues.length > 0 && (single || issues.some((issue) => !/^\/(create|update|delete)\/\d+(\/|$)/.test(issue.path)))) return { issues, conflicts: [] };
+  const flagged = new Set(issues.map((issue) => /^\/(create|update)\/(\d+)/.exec(issue.path)).flatMap((match) => (match ? [`${match[1]}/${match[2]}`] : [])));
 
-  // 唯一性：保存之后的全部规则里，同一个组合的生效日期不能重叠（停用的也算）
+  // 唯一性：保存之后的全部规则里，同一个组合的生效日期不能重叠（停用的也算）；自己有问题的改动不参加（它们本来就存不了）。
+  // 有问题的修改连它替换的旧规则一起不参加：这一轮可能少报它的重叠，用户改好那一行再预览时会报出来
   type Entry = { rule: PriceRule; id: string | null; ref: string | null; changed: boolean };
   const after: Entry[] = [
     ...remaining.map((rule): Entry => ({ rule, id: rule.id, ref: null, changed: false })),
-    ...changes.update.map((entry): Entry => ({ rule: entry.rule, id: entry.id, ref: null, changed: true })),
-    ...changes.create.map((entry): Entry => ({ rule: entry.rule, id: null, ref: entry.ref, changed: true })),
+    ...changes.update.flatMap((entry, index): Entry[] => (flagged.has(`update/${index}`) ? [] : [{ rule: entry.rule, id: entry.id, ref: null, changed: true }])),
+    ...changes.create.flatMap((entry, index): Entry[] => (flagged.has(`create/${index}`) ? [] : [{ rule: entry.rule, id: null, ref: entry.ref, changed: true }])),
   ];
   const overlaps = findPriceRuleOverlaps(after.map((entry) => entry.rule));
   const label = (entry: Entry): PriceConflictRef => ({ ...(entry.id === null ? { ref: entry.ref } : { id: entry.id }), valid_from: entry.rule.validFrom, valid_to: entry.rule.validTo });
@@ -321,7 +326,7 @@ export function checkPriceChanges(context: PricingContext, changes: PriceChanges
     const others = overlaps.flatMap(([a, b]) => (a === index ? [b] : b === index ? [a] : []));
     return others.length === 0 ? [] : [{ ...label(entry), with: others.map((other) => label(after[other] as Entry)) }];
   });
-  return { issues: [], conflicts };
+  return { issues, conflicts };
 }
 
 export function priceRuleConflict(conflicts: PriceConflict[]): AppError {
