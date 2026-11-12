@@ -85,6 +85,25 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
   const comboRef = useRef<HTMLDivElement>(null);
   const fullScreen = useFullScreenPickers();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  /** 关掉选择页并作废里面没选完的东西：输入框回到已选的值，候选、状态清空，晚到的查询结果丢掉 */
+  const resetSheet = (): void => {
+    if (timer.current !== null) clearTimeout(timer.current);
+    round.current += 1;
+    setSheetOpen(false);
+    setMapOpen(false);
+    setOpen(false);
+    setItems([]);
+    setStatus({ kind: "idle" });
+    setText(value?.name ?? "");
+  };
+  // 选择页开着时转屏 / 接上鼠标：页面换成输入框，选择页里打了一半的字不能留在输入框里冒充已选的地址（M8-37 审查）
+  const wasFullScreen = useRef(fullScreen);
+  useEffect(() => {
+    if (wasFullScreen.current === fullScreen) return;
+    wasFullScreen.current = fullScreen;
+    resetSheet();
+  }, [fullScreen]);
 
   // 值从外面变了（链接预填、地图选点、清空）：输入框跟着显示它的名称
   const shown = value?.name ?? null;
@@ -147,6 +166,7 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
       setStatus({ kind: "idle" });
       onChange({ name, lat: item.location.lat, lng: item.location.lng, kind: item.kind, suggestionName: item.name });
       setSheetOpen(false);
+      if (fullScreen) setItems([]);
       return;
     }
     setStatus({ kind: "loading" });
@@ -161,6 +181,7 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
       setStatus({ kind: "idle" });
       onChange({ name, lat: found.place.location.lat, lng: found.place.location.lng, kind: found.place.kind, suggestionName: item.name });
       setSheetOpen(false);
+      if (fullScreen) setItems([]);
     } catch {
       if (mine !== round.current) return;
       session.current = newSessionToken();
@@ -176,6 +197,7 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
     onChange({ name: fallback, lat: point.lat, lng: point.lng, kind: null });
     setSheetOpen(false);
     setMapOpen(false);
+    if (fullScreen) setItems([]);
     const city = serviceCityOf(point, cities);
     if (city === null) {
       setStatus({ kind: "notice", warning: false, text: "已选好地图上的位置。" });
@@ -324,23 +346,13 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
 
   if (fullScreen) {
     const pageDescribedBy = [error !== undefined ? errorId : null, info !== undefined ? infoId : null, hint !== undefined ? hintId : null].filter(Boolean).join(" ");
-    const close = (): void => {
-      if (timer.current !== null) clearTimeout(timer.current);
-      round.current += 1;
-      setSheetOpen(false);
-      setMapOpen(false);
-      setOpen(false);
-      setItems([]);
-      setStatus({ kind: "idle" });
-      setText(value?.name ?? "");
-    };
     return (
       <div className="place-field">
         <div className="field">
-          <PickerTrigger label={label} text={value?.name ?? ""} placeholder="点按输入地址" {...(pageDescribedBy !== "" ? { describedBy: pageDescribedBy } : {})} onOpen={() => setSheetOpen(true)} />
+          <PickerTrigger label={label} text={value?.name ?? ""} placeholder="点按输入地址" {...(pageDescribedBy !== "" ? { describedBy: pageDescribedBy } : {})} buttonRef={triggerRef} onOpen={() => setSheetOpen(true)} />
           {notes}
         </div>
-        <FullScreenSheet open={sheetOpen} title={label} onClose={close}>
+        <FullScreenSheet open={sheetOpen} title={label} returnFocusRef={triggerRef} onClose={resetSheet}>
           <div className="field place-field__sheet-field">{combobox}</div>
           {map}
         </FullScreenSheet>

@@ -98,28 +98,6 @@
   min-height: var(--control-height-lg);
 }
 
-/*
- * 窄窗口（< 480px，M8-37）：地址候选紧贴输入框下面，不用组合框通用的「从屏幕底部升起」的面板（data.css）。
- * 手机触屏上地址改用全屏选择页（见下面「全屏选择页里的地址」）；这里管的是鼠标操作的窄窗口。
- * 规范只允许 min-width 媒体查询：所以手机的写法放在外面（任何宽度都先这样），≥ 480px 再把最大高度还原成 data.css 的 320px；
- * 其余几项和 data.css 里 ≥ 480px 的值相同，电脑上不变。PlaceField.tsx 判断手机宽度用 `not all and (min-width: 480px)`，正好是这里的反面。
- */
-.combobox__panel.place-field__panel {
-  position: absolute;
-  top: calc(100% + var(--space-1));
-  bottom: auto;
-  max-height: 50dvh;
-  padding-bottom: var(--space-1);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
-}
-
-@media (min-width: 480px) {
-  .combobox__panel.place-field__panel {
-    max-height: 320px;
-  }
-}
-
 /* 全屏选择页里的地址（手机触屏，M8-37）：候选不浮起来，就是页面的一部分，跟在输入框下面往下排，整页滚动 */
 .place-field__panel--sheet {
   margin: var(--space-2) 0 0;
@@ -132,7 +110,6 @@
   flex-direction: column;
   gap: var(--space-1);
 }
-
 
 .place-field__detail {
   flex-basis: 100%;
