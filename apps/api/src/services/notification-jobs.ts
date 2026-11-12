@@ -13,6 +13,7 @@
  */
 import {
   AREA_SURCHARGE_MAIL_NOTE,
+  pricingBasisFeeNote,
   pricingBasisNote,
   includedKmNote,
   CHARTER_SUPPLIER_PRICE_NOTE,
@@ -192,9 +193,12 @@ async function tripVariables(db: Db, order: Order): Promise<{ service_time: stri
   };
 }
 
-/** 客人邮件的「费用说明」（ADR 0070）：和新预订页同一份清单；分界前下的包车单是按「高速、停车另收」报的价，不写（那一行整行不出现）。 */
+/**
+ * 客人邮件的「费用说明」（ADR 0070）：和新预订页同一份清单；分界前下的包车单是按「高速、停车另收」报的价，不写（那一行整行不出现）。
+ * 按里程计价（`distance_only`，ADR 0080）的不是一口价，用 `pricingBasisFeeNote` 的说法（M8-40，和官网订单页 `orderFeeNote` 一样）。
+ */
 function guestFeeNote(order: Order): string {
-  if (order.category !== "charter") return fixedPriceFeeNote("transfer");
+  if (order.category !== "charter") return pricingBasisFeeNote(orderPricingBasis(order)) ?? fixedPriceFeeNote("transfer");
   return charterAllInclusiveFor(order.createdAt) ? fixedPriceFeeNote("charter") : "";
 }
 

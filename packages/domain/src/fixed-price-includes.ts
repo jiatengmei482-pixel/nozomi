@@ -7,6 +7,8 @@
  * 平台没有自动跟踪航班（B14 决定不做），这里没有、也不能加「跟踪航班」。
  */
 
+import { DISTANCE_ONLY_FEE_NOTES, type PricingBasis } from "./distance-price.ts";
+
 export type FixedPriceLanguage = "zh" | "ja" | "en";
 
 export const FIXED_PRICE_RULES = {
@@ -83,6 +85,23 @@ export interface FixedPriceIncludesInput {
   meetAndGreet: boolean;
   /** 默认取 `FIXED_PRICE_RULES.charterAllInclusive` */
   charterAllInclusive?: boolean;
+  /**
+   * 报价的计价方式（M8-40，ADR 0080）：按里程计价（`distance_only`）不是一口价，「含所有费用」那一条换成
+   * `DISTANCE_ONLY_FEE_NOTES`（和 `pricingBasisFeeNote` 同一句）；不传、一口价、含里程费照旧。
+   */
+  pricingBasis?: PricingBasis | null | undefined;
+}
+
+/** 清单的小标题（M8-40）：按里程计价的不写「一口价」。 */
+export const FIXED_PRICE_INCLUDES_TITLES: Readonly<Record<FixedPriceLanguage, { fixedPrice: string; distanceOnly: string }>> = {
+  zh: { fixedPrice: "一口价包含", distanceOnly: "车费包含" },
+  ja: { fixedPrice: "定額料金に含まれるもの", distanceOnly: "運賃に含まれるもの" },
+  en: { fixedPrice: "Your fixed price includes", distanceOnly: "Your fare includes" },
+};
+
+export function fixedPriceIncludesTitle(basis: PricingBasis | null | undefined, language: FixedPriceLanguage = "zh"): string {
+  const titles = FIXED_PRICE_INCLUDES_TITLES[language];
+  return basis === "distance_only" ? titles.distanceOnly : titles.fixedPrice;
 }
 
 /** 按顺序排好的条目（键 + 文字）。 */
@@ -90,7 +109,7 @@ export function fixedPriceIncludes(input: FixedPriceIncludesInput, language: Fix
   const texts = FIXED_PRICE_INCLUDES_TEXTS[language];
   const items: { key: FixedPriceItemKey; text: string }[] = [];
   const allInclusive = input.service === "transfer" || (input.charterAllInclusive ?? FIXED_PRICE_RULES.charterAllInclusive);
-  if (allInclusive) items.push({ key: "all_inclusive", text: texts.allInclusive });
+  if (allInclusive) items.push({ key: "all_inclusive", text: input.pricingBasis === "distance_only" ? DISTANCE_ONLY_FEE_NOTES[language] : texts.allInclusive });
   items.push({ key: "private_car", text: texts.privateCar });
   if (input.meetAndGreet) items.push({ key: "meet_and_greet", text: texts.meetAndGreet });
   const minutes = input.freeWaitMinutes;

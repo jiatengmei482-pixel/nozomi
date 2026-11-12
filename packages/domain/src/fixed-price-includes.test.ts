@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CHARTER_SUPPLIER_PRICE_NOTE, FIXED_PRICE_INCLUDES_TEXTS, FIXED_PRICE_RULES, fixedPriceFeeNote, fixedPriceIncludes } from "./fixed-price-includes.ts";
+import { DISTANCE_ONLY_FEE_NOTES } from "./distance-price.ts";
+import { CHARTER_SUPPLIER_PRICE_NOTE, FIXED_PRICE_INCLUDES_TEXTS, FIXED_PRICE_RULES, fixedPriceFeeNote, fixedPriceIncludes, fixedPriceIncludesTitle } from "./fixed-price-includes.ts";
 
 const texts = (items: { text: string }[]): string[] => items.map((item) => item.text);
 
@@ -42,5 +43,21 @@ test("三语原文（ADR 0069）；任何语言都没有「跟踪航班」", () 
   for (const language of ["zh", "ja", "en"] as const) {
     const all = JSON.stringify(FIXED_PRICE_INCLUDES_TEXTS[language]) + texts(fixedPriceIncludes({ service: "transfer", arrival: true, freeWaitMinutes: 60, meetAndGreet: true }, language)).join();
     assert.doesNotMatch(all, /跟踪航班|航班跟踪|フライト追跡|flight track/i);
+  }
+});
+
+test("按里程计价（M8-40）：标题和「含所有费用」那一条都换成不带「一口价」的说法，其余条目不变；一口价、含里程费、不传照旧", () => {
+  const input = { service: "transfer", arrival: true, freeWaitMinutes: 60, meetAndGreet: false } as const;
+  const plain = texts(fixedPriceIncludes(input));
+  for (const basis of [undefined, null, "one_price", "one_price_outside_km"] as const) {
+    assert.deepEqual(texts(fixedPriceIncludes({ ...input, pricingBasis: basis })), plain);
+    assert.equal(fixedPriceIncludesTitle(basis), "一口价包含");
+  }
+  assert.deepEqual(texts(fixedPriceIncludes({ ...input, pricingBasis: "distance_only" })), ["车费已含高速费、停车费等，无需另付", ...plain.slice(1)]);
+  assert.equal(fixedPriceIncludesTitle("distance_only"), "车费包含");
+  for (const language of ["zh", "ja", "en"] as const) {
+    const items = fixedPriceIncludes({ ...input, pricingBasis: "distance_only" }, language);
+    assert.deepEqual(items[0], { key: "all_inclusive", text: DISTANCE_ONLY_FEE_NOTES[language] });
+    assert.doesNotMatch(`${fixedPriceIncludesTitle("distance_only", language)} ${items[0]?.text}`, /一口价|定額|fixed price/i);
   }
 });

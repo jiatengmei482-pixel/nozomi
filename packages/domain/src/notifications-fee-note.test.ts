@@ -1,6 +1,7 @@
 /** M8-09：订单确认邮件里的一口价说明（ADR 0070）：客人那封写「费用说明」，供应商那封包车单写「包车报价须包含高速费、停车费」。说法来自 `fixed-price-includes.ts`。 */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { pricingBasisFeeNote } from "./distance-price.ts";
 import { CHARTER_SUPPLIER_PRICE_NOTE, fixedPriceFeeNote } from "./fixed-price-includes.ts";
 import { renderMailHtml } from "./mail-html.ts";
 import { NOTIFICATION_TEMPLATES, TENANT_FORBIDDEN_PATTERN, findNotificationTemplate, renderNotification, templatePlaceholders } from "./notifications.ts";
@@ -21,6 +22,15 @@ test("客人确认邮件：接送机写「一口价已含所有费用」；包�
   const charter = fill("order.confirmed", "guest", { fee_note: fixedPriceFeeNote("charter") });
   assert.match(charter.text, /费用说明：一口价已含所有费用（高速费、停车费等），无需另付；超出套餐的时长和公里服务后按实际收取\n/);
   assert.match(charter.html, /费用说明：一口价已含所有费用（高速费、停车费等），无需另付；超出套餐的时长和公里服务后按实际收取/);
+});
+
+test("按里程计价的单（M8-40）：费用说明写「车费已含高速费、停车费等」，不写「一口价」，也没有计程的单价和金额；HTML 版一致", () => {
+  const note = pricingBasisFeeNote("distance_only");
+  assert.ok(note);
+  const mail = fill("order.confirmed", "guest", { fee_note: note, pricing_basis_note: "（按里程计价）" });
+  assert.match(mail.text, /已付金额：v-paid_amount（按里程计价）\n费用说明：车费已含高速费、停车费等，无需另付\n/);
+  assert.match(mail.html, /费用说明：车费已含高速费、停车费等，无需另付/);
+  assert.doesNotMatch(mail.text, /一口价|每公里|起步/);
 });
 
 test("分界前下的包车单（费用说明为空）：那一行整行不出现，其余照常", () => {

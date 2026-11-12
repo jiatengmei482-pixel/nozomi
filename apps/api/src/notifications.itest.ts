@@ -234,16 +234,21 @@ test("含公里数、含区域加价（M8-13，ADR 0073 第四部分）：客人
   assert.doesNotMatch(zero.guest, /区域加价|公里数/, "加价是 0：不写");
 
   const plain = await mails(null);
-  assert.match(plain.guest, /\n已付金额：[^\n（]+\n费用说明：/, "没有这些数的单：和以前一样");
+  assert.match(plain.guest, /\n已付金额：[^\n（]+\n费用说明：一口价已含所有费用（高速费、停车费等），无需另付\n/, "没有这些数的单：和以前一样");
   assert.doesNotMatch(plain.guest, /区域加价|公里数|里程/);
 
   // M8-30c（ADR 0080）：计价方式接在已付金额后面，不写计程的单价和金额；供应商那封没有
   const mileage = (pricingBasis: string, startMinor: number) => ({ pricingBasis, mileage: { distancePriceId: randomUUID(), routeMeters: 34_200, includedKm: 0, km: 35, startMinor, perKmMinor: 377, feeMinor: startMinor + 35 * 377 } });
-  const cases: [Record<string, unknown>, string][] = [[mileage("one_price_outside_km", 0), "（含里程费）"], [mileage("distance_only", 3_000), "（按里程计价）"]];
-  for (const [patch, suffix] of cases) {
+  // M8-40：按里程计价的不是一口价，费用说明换成 pricingBasisFeeNote；含里程费的照旧
+  const cases: [Record<string, unknown>, string, string][] = [
+    [mileage("one_price_outside_km", 0), "（含里程费）", "一口价已含所有费用（高速费、停车费等），无需另付"],
+    [mileage("distance_only", 3_000), "（按里程计价）", "车费已含高速费、停车费等，无需另付"],
+  ];
+  for (const [patch, suffix, feeNote] of cases) {
     const mail = await mails(patch);
-    assert.ok(mail.guest.includes(`${suffix}\n费用说明：`) && /\n已付金额：[^\n]+（/.test(mail.guest), mail.guest);
+    assert.ok(mail.guest.includes(`${suffix}\n费用说明：${feeNote}\n`) && /\n已付金额：[^\n]+（/.test(mail.guest), mail.guest);
     assert.doesNotMatch(mail.guest, /公里数|每公里|起步/);
+    if (suffix === "（按里程计价）") assert.doesNotMatch(mail.guest, /一口价/);
     assert.doesNotMatch(mail.tenant, /里程|已付/);
   }
 });
