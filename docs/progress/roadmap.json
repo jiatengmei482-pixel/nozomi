@@ -918,7 +918,7 @@
           "role": "backend",
           "status": "review",
           "acceptance": ["方案见 docs/delivery/proposals/staging-readonly-check.md：A 测试环境只读核对工作流（只读白名单命令、只能 staging、结果存 Actions 产物、deploy.md 补文档）；B PR 版本预览（二选一或不做）；C main 部署被跳过时提醒", "业主先决定做哪几项；不在 M8-30 里顺手改；不登录服务器、不改正式环境", "业主 2026-11-12 改为 A 不用 SSH：只读平台接口 GET /platform/v1/reports/area-role-preview（quote.preview、只读事务、审计、限速、45 秒时限）+ Actions 手动工作流 staging-readonly-check.yml（只能 staging、只读账号两步验证登录、结果存产物、有变化则失败）；ADR 0086；B、C 本次不做，留作方案"],
-          "evidence": "分支 m8-34-staging-readonly（未开 PR）；ADR 0086；新增单元测试 11 条（scripts/staging-readonly-check.mjs 的登录、两步验证、拿到令牌后一定退出、退出码、不打印密钥、产物和摘要只有计数（仓库公开）；工作流静态检查）、集成测试 7 条（area-role-preview-report.itest.ts：401/403/DATA_SCOPE_DENIED、和 buildRolePreview 逐字段一致、只读（只有审计和限速表变化）、天数校验、限速、接口层 503 REPORT_TIMEOUT、statement_timeout 跟着时限收）；独立审查意见 5 项已改；守卫测试登记 platform-admin PROTECTED、password-change-bypass、ipv6 限速清单。本机相关测试全部通过，全套交 CI。业主要做：按 docs/deploy.md 第九节建只读账号、在 GitHub staging 环境填 3 个 secrets",
+          "evidence": "PR #167（https://github.com/jiatengmei482-pixel/nozomi/pull/167）；分支 m8-34-staging-readonly；ADR 0086；新增单元测试 11 条（scripts/staging-readonly-check.mjs 的登录、两步验证、拿到令牌后一定退出、退出码、不打印密钥、产物和摘要只有计数（仓库公开）；工作流静态检查）、集成测试 7 条（area-role-preview-report.itest.ts：401/403/DATA_SCOPE_DENIED、和 buildRolePreview 逐字段一致、只读（只有审计和限速表变化）、天数校验、限速、接口层 503 REPORT_TIMEOUT、statement_timeout 跟着时限收）；独立审查意见 5 项已改；守卫测试登记 platform-admin PROTECTED、password-change-bypass、ipv6 限速清单。本机相关测试全部通过，全套交 CI。业主要做：按 docs/deploy.md 第九节建只读账号、在 GitHub staging 环境填 3 个 secrets",
           "updated": "2026-11-12"
         },
         {
