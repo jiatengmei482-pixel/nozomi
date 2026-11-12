@@ -165,6 +165,8 @@ export interface TenantOrder {
   driver_language: string | null;
   flight_no: string | null;
   passenger: { name: string; phone: string; email: string };
+  /** 乘车人和举牌姓名（M8-32）；没有为 null */
+  rider?: { sign_name: string | null; name: string | null; phone: string | null } | null;
   messaging: { app: string; handle: string } | null;
   notes: string | null;
   free_wait_minutes: number | null;
@@ -551,6 +553,8 @@ export interface DriverTrip {
     luggage: number;
     flight_no: string | null;
     passenger: { name: string; phone: string };
+    /** 乘车人和举牌姓名（M8-32）：司机按举牌姓名举牌；没有为 null */
+    rider?: { sign_name: string | null; name: string | null; phone: string | null } | null;
     messaging: { app: string; handle: string } | null;
     notes: string | null;
     place: { name: Record<string, string>; code: string | null; lng: number; lat: number } | null;

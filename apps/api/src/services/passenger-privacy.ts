@@ -3,7 +3,7 @@
  * 权限和数据范围由接口层检查（`order.read`、`assertPlatformOrderInScope`）。审计只记看了谁的、哪些字段、几条，不记内容本身。
  * 工单的文字另要 `ticket.read`，复核的文字另要能看那一类复核：`order.read` 不能绕过这两个权限。
  */
-import { type PassengerContact, grantCan, isOrderApproval, isOrderAudit, maskOrderValues } from "@nozomi/domain";
+import { type PassengerContact, type RiderJson, grantCan, isOrderApproval, isOrderAudit, maskOrderValues, riderJson } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { type Db, withPlatformTx } from "../db/context.ts";
 import type { Approval } from "../repos/approvals.ts";
@@ -18,6 +18,8 @@ import type { PlatformPrincipal } from "./platform-auth.ts";
 
 export interface RevealedPassenger {
   passenger: PassengerContact;
+  /** 乘车人和举牌姓名的原文（M8-32）；没有为 null */
+  rider: RiderJson | null;
   messaging: { app: string; handle: string } | null;
   notes: string | null;
   anonymized_at: string | null;
@@ -36,9 +38,10 @@ export async function revealPassenger(ctx: AppContext, principal: PlatformPrinci
     // 只给确实被打了码的：没有联系方式的文字打码前后一样，页面上本来就是全文。改单的前后值另算：里面的即时通讯账号在详情里是打码的，文字规则认不出。
     // 脱敏后不再给任何原文（ADR 0055）：手写内容已经清过，这里再挡一道
     const texts = (anonymized ? [] : written).filter((entry: HandwrittenText) => entry.source === "change_before" || entry.source === "change_after" || maskOrderValues({ note: entry.text }, names).note !== entry.text).map((entry) => ({ source: entry.source, source_id: entry.sourceId, text: entry.text }));
-    await insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, ctx.now()), { tenantId: null, resource: "order", resourceId: orderId, action: "view_passenger", before: null, after: { order_no: order.orderNo, fields: ["name", "phone", "email", "messaging", "notes"], text_count: texts.length, text_sources: [...new Set(texts.map((entry) => entry.source))] } });
+    await insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, ctx.now()), { tenantId: null, resource: "order", resourceId: orderId, action: "view_passenger", before: null, after: { order_no: order.orderNo, fields: ["name", "phone", "email", "messaging", "notes", ...(riderJson(order.passenger) === null || anonymized ? [] : ["rider"])], text_count: texts.length, text_sources: [...new Set(texts.map((entry) => entry.source))] } });
     return {
       passenger: { name, phone: order.passenger.phone, email: order.passenger.email },
+      rider: anonymized ? null : riderJson(order.passenger),
       messaging: anonymized ? null : order.messaging,
       notes: order.notes,
       anonymized_at: order.passengerAnonymizedAt?.toISOString() ?? null,

@@ -12,6 +12,35 @@ export interface PassengerContact {
   name: string;
   phone: string;
   email: string;
+  /**
+   * 乘车人和举牌姓名（M8-32，ADR 0082）：为他人预订时的乘车人姓名、电话 / WhatsApp，接机举牌写的名字。
+   * 和联系人（预订人）存在同一个乘客对象里，所以一起加密、一起脱敏；没有时不存这个键（旧订单原样）。
+   */
+  rider?: PassengerRider;
+}
+
+export interface PassengerRider {
+  signName: string | null;
+  name: string | null;
+  phone: string | null;
+}
+
+/** 接口里的乘车人（M8-32）：订单 JSON 顶层的 `rider`，没有为 null。 */
+export interface RiderJson {
+  sign_name: string | null;
+  name: string | null;
+  phone: string | null;
+}
+
+export function riderJson(passenger: PassengerContact): RiderJson | null {
+  const rider = passenger.rider;
+  if (rider === undefined || (rider.signName === null && rider.name === null && rider.phone === null)) return null;
+  return { sign_name: rider.signName, name: rider.name, phone: rider.phone };
+}
+
+/** 联系人三项（去掉乘车人）：接口里的 `passenger` 只有这三项，乘车人在顶层的 `rider`。 */
+export function contactOnly(passenger: PassengerContact): PassengerContact {
+  return { name: passenger.name, phone: passenger.phone, email: passenger.email };
 }
 
 /** 脱敏后的占位：固定文字，不留任何原文片段（ADR 0055）。 */
@@ -93,7 +122,8 @@ export function containsPassenger(value: unknown): boolean {
 export function replacePassengers<T>(value: T, replacement: Readonly<PassengerContact>): T {
   if (Array.isArray(value)) return value.map((item) => replacePassengers(item, replacement)) as T;
   if (typeof value !== "object" || value === null) return value;
-  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, key === "passenger" && typeof item === "object" && item !== null ? { ...replacement } : replacePassengers(item, replacement)])) as T;
+  // 乘车人（M8-32）和乘客一样是个人信息：明文位置一起换掉（换成 null），内容只在密文里
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, key === "passenger" && typeof item === "object" && item !== null ? { ...replacement } : key === "rider" && typeof item === "object" && item !== null && !Array.isArray(item) ? null : replacePassengers(item, replacement)])) as T;
 }
 
 /** 内容里出现的每个 `passenger`（顺序同遍历）。 */
@@ -260,15 +290,16 @@ type JsonLike = unknown;
  */
 const SYSTEM_REASON_CODES: ReadonlySet<string> = new Set([...ORDER_CANCEL_REASONS, "CHANGED", "DRIVER_MISSING_REPORTED", "DRIVER_NO_SHOW", "NO_SHOW_APPROVED", "PAYMENT_SUCCEEDED", "RESCUED", "RESCUE_ASSIGNED", "RESCUE_TRIGGERED", "refund_failed", "charge_failed", "chargeback", "paid_after_cancel"]);
 
-function mapOrderValues(value: JsonLike, onPassenger: (passenger: Record<string, unknown>) => JsonLike, onMessaging: (messaging: Record<string, unknown>) => JsonLike, onText: (text: string) => string): JsonLike {
-  if (Array.isArray(value)) return value.map((item) => mapOrderValues(item, onPassenger, onMessaging, onText));
+function mapOrderValues(value: JsonLike, onPassenger: (passenger: Record<string, unknown>) => JsonLike, onMessaging: (messaging: Record<string, unknown>) => JsonLike, onText: (text: string) => string, onRider: (rider: Record<string, unknown>) => JsonLike): JsonLike {
+  if (Array.isArray(value)) return value.map((item) => mapOrderValues(item, onPassenger, onMessaging, onText, onRider));
   if (typeof value !== "object" || value === null) return value;
   const out: Record<string, unknown> = {};
   for (const [key, item] of Object.entries(value)) {
     if (key === "passenger" && typeof item === "object" && item !== null && !Array.isArray(item)) out[key] = onPassenger(item as Record<string, unknown>);
+    else if (key === "rider" && typeof item === "object" && item !== null && !Array.isArray(item)) out[key] = onRider(item as Record<string, unknown>);
     else if (key === "messaging" && typeof item === "object" && item !== null && !Array.isArray(item)) out[key] = onMessaging(item as Record<string, unknown>);
     else if (HANDWRITTEN_KEYS.has(key) && typeof item === "string") out[key] = key === "reason" && SYSTEM_REASON_CODES.has(item) ? item : onText(item);
-    else out[key] = mapOrderValues(item, onPassenger, onMessaging, onText);
+    else out[key] = mapOrderValues(item, onPassenger, onMessaging, onText, onRider);
   }
   return out;
 }
@@ -280,6 +311,11 @@ function passengerNamesIn(value: JsonLike): string[] {
   if (Array.isArray(value)) return value.flatMap(passengerNamesIn);
   if (typeof value !== "object" || value === null) return [];
   return Object.entries(value).flatMap(([key, item]) => {
+    // 乘车人（M8-32）的姓名和举牌姓名同样要从手写内容里找出来打码
+    if (key === "rider") {
+      const rider = (item ?? {}) as { name?: unknown; sign_name?: unknown };
+      return [rider.name, rider.sign_name].filter((each): each is string => typeof each === "string");
+    }
     if (key !== "passenger") return passengerNamesIn(item);
     const name = (item as { name?: unknown } | null)?.name;
     return typeof name === "string" ? [name] : [];
@@ -296,7 +332,14 @@ export function maskOrderValues<T>(values: T, known: string | readonly string[] 
     (passenger) => maskPassenger({ name: textOf(passenger["name"]), phone: textOf(passenger["phone"]), email: textOf(passenger["email"]) }),
     (messaging) => ({ ...messaging, handle: maskHandle(textOf(messaging["handle"])) }),
     (text) => names.reduce((masked, each) => maskContactsInText(masked, each), names.length === 0 ? maskContactsInText(text) : text),
+    (rider) => maskRider(rider),
   ) as T;
+}
+
+/** 乘车人打码（M8-32）：姓名、举牌姓名同联系人姓名的规则，电话同联系人电话。 */
+function maskRider(rider: Record<string, unknown>): RiderJson {
+  const masked = (value: unknown, mask: (text: string) => string): string | null => (typeof value === "string" ? (isPassengerPlaceholder(value) ? value : mask(value)) : null);
+  return { sign_name: masked(rider["sign_name"], maskName), name: masked(rider["name"], maskName), phone: masked(rider["phone"], maskPhone) };
 }
 
 /** 工单详情里能看原文的文字：字段和 `POST /platform/v1/tickets/{id}/texts/reveal` 返回的来源一一对应。 */
@@ -328,7 +371,7 @@ export function maskedTicketTexts(raw: TicketTextFields, masked: TicketTextField
 
 /** 脱敏：前后值、推送内容里的乘客换成占位，手写内容清掉联系方式；即时通讯账号不在这次的范围（ADR 0055）。 */
 export function scrubOrderValues<T>(values: T, names: readonly string[], literals: readonly string[] = []): T {
-  return mapOrderValues(values, () => ({ ...ANONYMIZED_PASSENGER }), (messaging) => messaging, (text) => scrubContactsInText(text, names, literals)) as T;
+  return mapOrderValues(values, () => ({ ...ANONYMIZED_PASSENGER }), (messaging) => messaging, (text) => scrubContactsInText(text, names, literals), () => null) as T;
 }
 
 /** 审计日志里和订单有关的对象：前后值要打码（ADR 0055）。 */
