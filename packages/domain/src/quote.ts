@@ -423,14 +423,16 @@ export function locateInAreas(areas: readonly QuoteArea[], point: LatLng): { ope
 type AreaRefusal = "OUT_OF_SERVICE_AREA" | "IN_FORBIDDEN_AREA" | "NO_PRICING_AREA";
 
 /**
- * 第 4 步的运营判断（ADR 0075 第二部分第 1 节）：点落在这个供应商某个运营区域的营运区里、且不在那个区域的禁行区里。
- * 不满足时给原因（点只落在禁行区里是 `IN_FORBIDDEN_AREA`，口径同今天）；满足、或商品没带运营范围（不做运营判断）时为 null。
+ * 第 4 步的运营判断（ADR 0075 第二部分第 1 节）：点落在这个供应商某个运营区域的营运区里、且不在任何一个运营区域的禁行区里。
+ * 点落在任何一个启用的运营区域的禁行区里就不报（`IN_FORBIDDEN_AREA`）——哪怕被别的运营区域的营运区盖住
+ * （M8-36 补充，业主 2026-11-12：运营区域里的禁行区也一律不报；以前只是那一个区域不算）；
+ * 都不在营运区里是 `OUT_OF_SERVICE_AREA`；满足、或商品没带运营范围（不做运营判断）时为 null。
  */
 function outsideOperating(product: QuoteProduct, position: LatLng): "OUT_OF_SERVICE_AREA" | "IN_FORBIDDEN_AREA" | null {
   if (product.operatingAreas === undefined) return null;
   const located = locateInAreas(product.operatingAreas, position);
-  if (located.operating.length > 0) return null;
-  return located.forbidden.length > 0 ? "IN_FORBIDDEN_AREA" : "OUT_OF_SERVICE_AREA";
+  if (located.forbidden.length > 0) return "IN_FORBIDDEN_AREA";
+  return located.operating.length > 0 ? null : "OUT_OF_SERVICE_AREA";
 }
 
 /** 报价判断不通过（点不在勾选的报价区域里）的原因：做过运营判断的是 `NO_PRICING_AREA`（在运营范围里，只是没价），没做的照旧 */

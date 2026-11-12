@@ -714,10 +714,16 @@ test("第 4 步 两道判断（ADR 0075 增强版 B）：先看点在不在这�
   const SMALL = { areaId: "op-small", active: true, shapes: [{ id: "s-op", kind: "operate" as const, ring: square(139.0, 35.0, 139.4, 36.0) }] };
   assert.equal(outcome(product({ operatingAreas: [SMALL] }), request({ dropoff: WEST })), 20_000);
   assert.equal(outcome(product({ operatingAreas: [SMALL] }), request({ dropoff: { lng: 139.5, lat: 35.5 } })), "OUT_OF_SERVICE_AREA", "A1 里、但在运营区域外");
-  // 运营区域的禁行区：这家在那里不接（`IN_FORBIDDEN_AREA`），除非那个点还在另一个运营区域的营运区里
+  // 运营区域的禁行区：这家在那里不接（`IN_FORBIDDEN_AREA`）——哪怕那个点还在另一个运营区域的营运区里
+  // （M8-36 补充，业主 2026-11-12：运营区域里的禁行区也一律不报；以前被别的运营区域盖住时照报）
   const HOLED = { ...BIG, shapes: [...BIG.shapes, { id: "op-no", kind: "forbid" as const, ring: square(139.1, 35.4, 139.3, 35.6) }] };
   assert.equal(outcome(product({ operatingAreas: [HOLED] }), request({ dropoff: WEST })), "IN_FORBIDDEN_AREA");
-  assert.equal(outcome(product({ operatingAreas: [HOLED, SMALL] }), request({ dropoff: WEST })), 20_000);
+  assert.equal(outcome(product({ operatingAreas: [HOLED, SMALL] }), request({ dropoff: WEST })), "IN_FORBIDDEN_AREA", "被 SMALL 的营运区盖住也不报");
+  assert.equal(outcome(product({ operatingAreas: [SMALL, HOLED] }), request({ dropoff: WEST })), "IN_FORBIDDEN_AREA", "和运营区域的先后无关");
+  // 停用的运营区域的禁行区不算
+  assert.equal(outcome(product({ operatingAreas: [{ ...HOLED, active: false }, SMALL] }), request({ dropoff: WEST })), 20_000);
+  // 禁行区外的点照报
+  assert.equal(outcome(product({ operatingAreas: [HOLED, SMALL] }), request({ dropoff: { lng: 139.35, lat: 35.5 } })), 20_000);
   // 停用的运营区域不算
   assert.equal(outcome(product({ operatingAreas: [{ ...BIG, active: false }] }), request({ dropoff: WEST })), "OUT_OF_SERVICE_AREA");
   // 运营范围是空的（供应商一个运营区域都没有）：不报
