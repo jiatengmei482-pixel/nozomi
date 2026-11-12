@@ -66,7 +66,8 @@ function open(path: string, role: string, routes: Route = () => null): ApiCall[]
   return calls;
 }
 
-const writes = (calls: ApiCall[]): ApiCall[] => calls.filter((call) => call.method !== "GET");
+// 新建页查相似共享区域（M8-31）是只读查询，不算写
+const writes = (calls: ApiCall[]): ApiCall[] => calls.filter((call) => call.method !== "GET" && !call.path.endsWith("/shared-areas/similar"));
 const saveButton = (): HTMLElement => screen.getByRole("button", { name: "保存" });
 
 async function chooseTokyo(user: ReturnType<typeof userEvent.setup>): Promise<void> {

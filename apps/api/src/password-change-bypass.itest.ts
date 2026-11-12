@@ -321,6 +321,12 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
     ["POST", `/tenant/v1/areas/${ids.userId}/disable`],
     ["POST", `/tenant/v1/areas/${ids.userId}/enable`],
     ["POST", `/tenant/v1/areas/${ids.userId}/check-point`, { lat: 35.5, lng: 139.5 }],
+    // 区域共享库（M8-31）
+    ["POST", "/tenant/v1/areas/from-shared", { shared_area_id: ids.userId, biz_type: "general" }],
+    ["POST", `/tenant/v1/areas/${ids.userId}/sync-shared`],
+    ["GET", `/tenant/v1/shared-areas?city_id=${ids.userId}`],
+    ["GET", `/tenant/v1/shared-areas/${ids.userId}`],
+    ["POST", "/tenant/v1/shared-areas/similar", { city_id: ids.userId }],
     ["GET", "/tenant/v1/brands"],
     ["POST", "/tenant/v1/brands", { name: "不该出现的品牌", currency: "JPY" }],
     ["PUT", `/tenant/v1/brands/${ids.userId}`, { name: "被改了" }],
