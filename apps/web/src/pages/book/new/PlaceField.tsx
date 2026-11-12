@@ -5,6 +5,8 @@
  * - 无障碍和组合框（`components/Combobox.tsx`）同一套：`role="combobox"`、↑↓ 移动高亮、Enter 选中、Esc 收起，`aria-activedescendant`；
  *   正在查、没找到、用不了这些话放在输入框下面的状态行（`role="status"`），不放进候选列表；
  * - 后备：有底图时「在地图上选点」（现有的地图选点组件），选中后查这个位置的地址当名称。
+ * - 手机（< 480px，M8-37）：候选紧贴输入框下面，不用组合框通用的「从屏幕底部升起」的面板——手机键盘弹出时页面不变矮，贴底的面板整个在键盘后面，
+ *   客人只看到「找到 N 个地点」却看不到列表。打开时键盘上面放不下就把输入框滚到可见区域上方，列表高度按键盘上面剩下的空间（`visualViewport`）算。
  * 浏览器只连 `/site/v1`，不连谷歌（ADR 0044）。
  */
 import { type CityCandidate, normalizePlaceQuery, placeQueryIssue, serviceCityOf } from "@nozomi/domain";
@@ -20,6 +22,45 @@ import { type LatLngValue, SiteMapPicker } from "../SiteMapPicker.tsx";
 
 /** 停顿多久再查（毫秒）：每输入一个字都查会白花钱。 */
 export const AUTOCOMPLETE_DEBOUNCE_MS = 300;
+
+/** 手机宽度（和 data.css 里组合框面板的 480px 分界一致）：候选紧贴输入框，见文件头 M8-37。 */
+const PHONE_QUERY = "(max-width: 479.98px)";
+/** 候选列表离可见区域底边（手机键盘上沿）留的空隙，和至少要露出的高度（约两个候选） */
+const PANEL_GAP_PX = 8;
+const PANEL_MIN_PX = 120;
+/** 键盘上面至少要放得下这么高的列表，不够就把输入框滚到上面 */
+const PANEL_WANTED_PX = 240;
+
+/**
+ * 手机上候选列表打开时：键盘上面放不下就把输入框滚到可见区域上方（`scroll-margin-top` 让开吸顶的摘要条），
+ * 再按键盘上面剩下的高度给列表定最大高度；键盘收起、页面滚动时跟着重算。不是手机宽度时什么都不做（电脑上不变）。
+ */
+function usePhonePanelFit(open: boolean, input: HTMLInputElement | null, list: HTMLUListElement | null): number | null {
+  const [maxHeight, setMaxHeight] = useState<number | null>(null);
+  useEffect(() => {
+    if (!open || input === null || list === null) return;
+    if (typeof window.matchMedia !== "function" || !window.matchMedia(PHONE_QUERY).matches) return;
+    const visibleBottom = (): number => {
+      const view = window.visualViewport;
+      return view ? view.offsetTop + view.height : window.innerHeight;
+    };
+    const room = (): number => visibleBottom() - input.getBoundingClientRect().bottom - PANEL_GAP_PX;
+    if (room() < Math.min(list.scrollHeight, PANEL_WANTED_PX)) input.scrollIntoView({ block: "start" });
+    const fit = (): void => setMaxHeight(Math.max(Math.floor(room()), PANEL_MIN_PX));
+    fit();
+    const view = window.visualViewport;
+    view?.addEventListener("resize", fit);
+    view?.addEventListener("scroll", fit);
+    window.addEventListener("scroll", fit, { passive: true });
+    return () => {
+      view?.removeEventListener("resize", fit);
+      view?.removeEventListener("scroll", fit);
+      window.removeEventListener("scroll", fit);
+      setMaxHeight(null);
+    };
+  }, [open, input, list]);
+  return maxHeight;
+}
 
 export function newSessionToken(): string {
   return crypto.randomUUID();
@@ -70,6 +111,9 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
   const round = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const [inputEl, setInputEl] = useState<HTMLInputElement | null>(null);
+  const [listEl, setListEl] = useState<HTMLUListElement | null>(null);
+  const panelMax = usePhonePanelFit(open && items.length > 0, inputEl, listEl);
 
   // 值从外面变了（链接预填、地图选点、清空）：输入框跟着显示它的名称
   const shown = value?.name ?? null;
@@ -220,6 +264,7 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
         </label>
         <div className="field__control combobox">
           <input
+            ref={setInputEl}
             id={id}
             className="input input--lg"
             role="combobox"
@@ -241,9 +286,13 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
             }}
             onFocus={(event) => event.target.select()}
             onKeyDown={onKeyDown}
-            onBlur={() => setOpen(false)}
+            onBlur={(event) => {
+              // 焦点移到地址框以外的控件（Tab 走开）才收起；点空白处由上面的 pointerdown 收起。
+              // 手机上点候选时浏览器可能先让输入框失焦（relatedTarget 为空），这里不收，免得点不中（M8-37）
+              if (event.relatedTarget instanceof Node && !rootRef.current?.contains(event.relatedTarget)) setOpen(false);
+            }}
           />
-          <ul id={listId} role="listbox" aria-label={`${label}的候选`} className="combobox__panel place-field__panel" hidden={!open || items.length === 0} onPointerDown={(event) => event.preventDefault()}>
+          <ul ref={setListEl} id={listId} role="listbox" aria-label={`${label}的候选`} className="combobox__panel place-field__panel" hidden={!open || items.length === 0} style={panelMax !== null ? { maxHeight: `${panelMax}px` } : undefined} onPointerDown={(event) => event.preventDefault()}>
             {items.map((item, index) => (
               <li key={`${item.source}-${item.id}`} role="presentation">
                 <div id={`${id}-option-${index}`} role="option" aria-selected={index === active} className={index === active ? "combobox__option combobox__option--active place-field__option" : "combobox__option place-field__option"} onPointerMove={() => setActive(index)} onClick={() => void choose(item)}>
