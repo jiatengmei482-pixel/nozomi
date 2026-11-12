@@ -37,7 +37,7 @@ import {
   platformPlaceSuggestions,
   rateLimitKeyOf,
   regionBounds,
-  serviceCityOf,
+  pointToPointCityOf,
   tenantBids,
   vehicleLevel,
   type FlightScope,
@@ -600,7 +600,7 @@ export interface SiteByPointsResult extends SiteQuoteResult {
    * 用接送机商品报的、或本来就是点对点行程为 null。行程仍按接送机处理（航班号、免费等待、举牌）
    */
   fallbackCategory: "point_to_point" | null;
-  /** 按哪个城市报的价；点对点的出发地不在任何能订的城市范围里时为 null（`unavailable` 是 `OUT_OF_SERVICE_AREA`） */
+  /** 按哪个城市报的价；点对点的出发地、目的地都不在任何能订的城市范围里时为 null（`unavailable` 是 `OUT_OF_SERVICE_AREA`） */
   city: { id: string; code: string; name: LocalizedText; timezone: string } | null;
   /** 最早到期的报价的有效期；没有报价为 null */
   expiresAt: string | null;
@@ -637,7 +637,7 @@ function endLog(end: TripEnd, match: AirportMatch<AirportCandidateRow> | null): 
 
 /**
  * 按两个坐标报价（M8-02，ADR 0069 A1）：认出机场（渠道授权、能卖接送机的城市里启用的机场；3 公里以内，或地址搜索说是机场时 10 公里以内，取最近）、
- * 判断接机 / 送机 / 点对点，点对点按出发地选城市，然后组装成现有的询价请求、走 `siteQuotes`（和 `POST /site/v1/quotes` 同一条路：价格规则、区域、比价、快照、日志都不变）。
+ * 判断接机 / 送机 / 点对点，点对点按出发地选城市（出发地不在任何城市时按目的地，M8-35），然后组装成现有的询价请求、走 `siteQuotes`（和 `POST /site/v1/quotes` 同一条路：价格规则、区域、比价、快照、日志都不变）。
  * 路线（时间、距离、折线）和报价并行取，取不到为 null。
  */
 export async function siteQuotesByPoints(ctx: AppContext, input: SiteByPointsInput): Promise<SiteByPointsResult> {
@@ -661,7 +661,8 @@ export async function siteQuotesByPoints(ctx: AppContext, input: SiteByPointsInp
   if (trip.tripType === "point_to_point") {
     // 点对点只在官网能订点对点的城市里找（城市和品类在渠道授权里、有渠道卖的供应商上架了点对点商品）
     const bookable = (await siteCities(ctx, audience)).filter((candidate) => candidate.categories.includes("point_to_point"));
-    const found = serviceCityOf(trip.pickup, bookable);
+    // 出发地不在任何城市里时改用目的地的城市（M8-35：往返对称）；出发地在某个城市里时和以前一模一样
+    const found = pointToPointCityOf(trip.pickup, trip.dropoff, bookable);
     city = found === null ? null : cityOf(found.id);
     if (city !== null) siteTrip = { category: "point_to_point", pickup: trip.pickup, dropoff: trip.dropoff };
   } else {
@@ -671,7 +672,7 @@ export async function siteQuotesByPoints(ctx: AppContext, input: SiteByPointsInp
   const airport = trip.tripType === "point_to_point" ? null : { id: trip.airport.airport.id, code: trip.airport.airport.code, name: trip.airport.airport.name, matchedBy: trip.airport.matchedBy, meters: trip.airport.meters, flightScope: trip.airport.airport.flightScope };
   const cityJson = city === null ? null : { id: city.id, code: city.code, name: city.name, timezone: city.timezone };
   if (city === null || siteTrip === null) {
-    // 点对点的出发地不在任何能订的城市里：一个候选都没有，不进询价日志；未覆盖需求照样记一条（ADR 0075：这个口子由它补上）
+    // 点对点的出发地、目的地都不在任何能订的城市里：一个候选都没有，不进询价日志；未覆盖需求照样记一条（ADR 0075：这个口子由它补上）
     if (input.demand !== undefined && trip.tripType === "point_to_point" && audience === "public") {
       recordUncoveredDemandLater(ctx, demandSource(input.demand), {
         channelId: principal.channelId,
@@ -706,10 +707,10 @@ export async function siteQuotesByPoints(ctx: AppContext, input: SiteByPointsInp
   let result: SiteQuoteResult = first;
   let fallbackCategory: SiteByPointsResult["fallbackCategory"] = null;
   if (trip.tripType !== "point_to_point" && first.quotes.length === 0) {
-    // M8-33（ADR 0081）：有机场先用接送机商品；一个都报不出，再按出发地所在、官网能订点对点的城市用点对点商品报（同样走 M8-30 的规则）。
+    // M8-33（ADR 0081）：有机场先用接送机商品；一个都报不出，再按出发地（不在时按目的地，M8-35）所在、官网能订点对点的城市用点对点商品报（同样走 M8-30 的规则）。
     // 接送机报得出时这里不运行，现有报价一分不变。
     const bookable = (await siteCities(ctx, audience)).filter((candidate) => candidate.categories.includes("point_to_point"));
-    const p2pCity = serviceCityOf({ lat: input.pickup.lat, lng: input.pickup.lng }, bookable);
+    const p2pCity = pointToPointCityOf({ lat: input.pickup.lat, lng: input.pickup.lng }, { lat: input.dropoff.lat, lng: input.dropoff.lng }, bookable);
     if (p2pCity !== null) {
       // 第一次（接送机）已经按需记过未覆盖需求，这一次不再记，免得一次询价记两条
       const { demand: _demand, ...withoutDemand } = common;

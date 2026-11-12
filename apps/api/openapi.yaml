@@ -254,7 +254,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/EmailCodeSent"
         "400":
-          $ref: "#/components/responses/ValidationFailed"
+          $ref: "#/components/responses/AreaInvalid"
         "429":
           $ref: "#/components/responses/TooManyLoginAttempts"
         "503":
@@ -286,7 +286,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/PlatformLoginResponse"
         "400":
-          $ref: "#/components/responses/ValidationFailed"
+          $ref: "#/components/responses/AreaInvalid"
         "401":
           description: "`EMAIL_CODE_INVALID`：邮箱不存在、没发过码、码错、过期、用过、次数用尽，都是这一个"
           content:
@@ -2081,7 +2081,7 @@ paths:
         一次询价（官网按坐标报价、`POST /site/v1/quotes`、`POST /sales/v1/quotes`）**一个价都报不出**时平台自动记的一条：客人想去哪里、什么时候、什么车，
         两端落在哪些供应商的哪些运营区域里、为什么报不出。同一天（东京时间）同一个指纹（渠道、品类、方向、套餐、两端 3 位小数、用车日期、人数、车型组）只有一行，`repeat_count` 是次数。
         **不含任何客人个人信息**（没有姓名、邮箱、电话、自由文本、IP）；坐标只有 4 位小数（约 10 米）；保留 365 天。供应商后台没有读它的接口。
-        主原因 `reason`：`OUTSIDE_OPERATING`（任一要校验的点不在任何候选供应商的运营区域里，含官网点对点出发地不在任何能订的城市里）、
+        主原因 `reason`：`OUTSIDE_OPERATING`（任一要校验的点不在任何候选供应商的运营区域里，含官网点对点出发地、目的地都不在任何能订的城市里）、
         `NO_PRICING_AREA`（每个点都在某家的运营区域里，但所有商品都因为没勾覆盖它的报价区域或区域原因报不出）、`OTHER`（其余，`refusal_counts` 里有具体原因和次数）。
         按最近出现从新到旧（同一时刻按编号），游标分页。`summary` 是同样筛选下的合计（行数、次数之和）、按原因 / 城市 / 供应商的计数（城市、供应商各最多 100 项，多的在前），
         和这段日期里因为限流没记下来的新需求条数（`dropped`）。`tenants`、`cities` 是这一页和计数里出现的供应商、城市的名字。不认识的查询参数 400。
@@ -3361,7 +3361,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/EmailCodeSent"
         "400":
-          $ref: "#/components/responses/ValidationFailed"
+          $ref: "#/components/responses/AreaInvalid"
         "429":
           $ref: "#/components/responses/TooManyLoginAttempts"
         "503":
@@ -3393,7 +3393,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/TenantLoginResponse"
         "400":
-          $ref: "#/components/responses/ValidationFailed"
+          $ref: "#/components/responses/AreaInvalid"
         "401":
           description: "`EMAIL_CODE_INVALID`：邮箱不存在、没发过码、码错、过期、用过、次数用尽，都是这一个"
           content:
@@ -4743,6 +4743,213 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AreaPointCheck"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/areas/from-shared:
+    post:
+      tags: [ 区域 ]
+      operationId: createAreaFromShared
+      summary: 引用共享库里的区域
+      description: |
+        需要操作 `area.manage`，必须带请求头 `Idempotency-Key`（M8-31，ADR 0083）。在自己名下新建一个区域：城市、图形照抄来源**现在**的版本
+        （只抄种类和坐标，算作「粘贴的」），记住来源和图形版本（`shared_source`）。名称不给时用来源的名称；业务类型、用途自己定。
+        之后来源改了图形，这个副本不变，由你决定是否切换。检查、审计和新增区域一样（同城重名 409 `AREA_NAME_TAKEN`，改个名字再引用）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ shared_area_id, biz_type ]
+              properties:
+                shared_area_id:
+                  type: string
+                  format: uuid
+                name:
+                  oneOf:
+                    - $ref: "#/components/schemas/LocalizedText"
+                    - type: "null"
+                biz_type:
+                  $ref: "#/components/schemas/AreaBizType"
+                role:
+                  $ref: "#/components/schemas/AreaRole"
+      responses:
+        "201":
+          description: 新建的区域（同一个幂等键再来时原样返回第一次的应答）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Area"
+        "400":
+          $ref: "#/components/responses/AreaInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `AREA_NAME_TAKEN`：这个城市已经有同名的区域
+            - `MASTER_DATA_NOT_READY`：所属城市已被平台停用
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: "`IDEMPOTENCY_KEY_REUSED`：这个幂等键已经用于另一个内容不同的请求"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/areas/{id}/sync-shared:
+    post:
+      tags: [ 区域 ]
+      operationId: syncAreaToShared
+      summary: 切换到共享库里的新版本图形
+      description: |
+        需要操作 `area.manage`，带 `If-Match`（M8-31，ADR 0083）。把引用来的区域的图形换成来源现在的版本，名称、业务类型、用途不动；
+        检查和审计与修改区域一样。已经是最新版本时原样返回（不加版本号）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "200":
+          description: 切换后的区域
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Area"
+        "400":
+          $ref: "#/components/responses/AreaInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `NOT_FROM_SHARED_LIBRARY`：这个区域是自己画的
+            - `SHARED_AREA_UNAVAILABLE`：来源已不在共享库里（停用或删除），你的区域保持现在的图形
+            - `VERSION_CONFLICT`：版本号对不上，请刷新后再试
+            - 以及修改区域的那些（运营范围变小、报价区域超出等）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/shared-areas:
+    get:
+      tags: [ 区域 ]
+      operationId: listSharedAreas
+      summary: 区域共享库：一个城市里的共享区域
+      description: |
+        需要操作 `area.read`（M8-31，ADR 0083）。共享库 = 各供应商启用中的原创区域（不含引用来的副本、测试供应商和已清退供应商的区域），
+        自己建的不出现。只有名称和形状概况，不显示创建者，不带价格和加价。按最近修改从新到旧，最多 50 个；更多时 `truncated` 为真，请输入名称缩小范围。
+      security:
+        - tenantToken: []
+      parameters:
+        - name: city_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: q
+          in: query
+          required: false
+          description: 任意一种语言的名称里包含它（不区分大小写）
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+      responses:
+        "200":
+          description: 共享区域
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items, truncated ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SharedArea"
+                  truncated:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/AreaInvalid"
+  /tenant/v1/shared-areas/similar:
+    post:
+      tags: [ 区域 ]
+      operationId: similarSharedAreas
+      summary: 新建区域前查库里的相似区域
+      description: |
+        需要操作 `area.read`（M8-31，ADR 0083）。同一个城市里名称相同（任意一种语言归一后相同，`reasons` 含 `name`）、
+        或营运区和请求里的营运区重叠（含 `overlap`）的共享区域，名称相同的在前，最多 5 个。不写任何东西。
+      security:
+        - tenantToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ city_id ]
+              properties:
+                city_id:
+                  type: string
+                  format: uuid
+                name:
+                  oneOf:
+                    - $ref: "#/components/schemas/LocalizedText"
+                    - type: "null"
+                polygons:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [ kind, geometry ]
+                    properties:
+                      kind:
+                        $ref: "#/components/schemas/AreaPolygonKind"
+                      geometry:
+                        $ref: "#/components/schemas/AreaGeometry"
+      responses:
+        "200":
+          description: 相似的共享区域
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SimilarSharedArea"
+        "400":
+          $ref: "#/components/responses/AreaInvalid"
+  /tenant/v1/shared-areas/{id}:
+    get:
+      tags: [ 区域 ]
+      operationId: getSharedArea
+      summary: 查看共享库里的一个区域（带形状）
+      description: 需要操作 `area.read`（M8-31，ADR 0083）。不在共享库里（停用、删除、是副本、属于测试供应商）的是 404。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 共享区域和它的图形
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SharedAreaDetail"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
   /tenant/v1/area-map:
@@ -8750,6 +8957,7 @@ paths:
                 additionalProperties: false
                 required:
                   - passenger
+                  - rider
                   - messaging
                   - notes
                   - anonymized_at
@@ -8757,6 +8965,11 @@ paths:
                 properties:
                   passenger:
                     $ref: "#/components/schemas/OrderPassenger"
+                  rider:
+                    oneOf:
+                      - $ref: "#/components/schemas/OrderRider"
+                      - type: "null"
+                    description: 乘车人和举牌姓名的原文（M8-32）；没有、或已脱敏为 null
                   messaging:
                     oneOf:
                       - $ref: "#/components/schemas/OrderMessaging"
@@ -11048,7 +11261,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/TenantNotificationSettings"
         "400":
-          $ref: "#/components/responses/ValidationFailed"
+          $ref: "#/components/responses/AreaInvalid"
         "409":
           description: 版本对不上（`VERSION_CONFLICT`）
           content:
@@ -12731,12 +12944,12 @@ paths:
       description: |
         M8-02，ADR 0069 A1。客人只给出发地、目的地两个地址（坐标 + 地址搜索给的类型）、用车时间（当地；接机是航班落地时间）、人数、行李。服务端：
         1. **认机场**：一端离某个启用的机场（渠道授权、能卖接送机的城市里的）不超过 3 公里，或地址搜索说它是机场（`kind: airport`）且不超过 10 公里；几个机场都在范围里取最近的；
-        2. **判断方向**：出发地是机场 → 接机（`pickup`）；目的地是机场 → 送机（`dropoff`）；两端都是机场 → 按出发地算接机；两端都不是 → 点对点，按出发地落在哪个能订点对点的城市（中心周围 80 公里，取最近）报价；
+        2. **判断方向**：出发地是机场 → 接机（`pickup`）；目的地是机场 → 送机（`dropoff`）；两端都是机场 → 按出发地算接机；两端都不是 → 点对点，按出发地落在哪个能订点对点的城市（中心周围 80 公里，取最近）报价；出发地不在任何这样的城市里、目的地在时按目的地的城市报（M8-35，往返对称；能不能报仍看商品的区域）；
         3. 组装成 `POST /site/v1/quotes` 同样的请求、走**同一个**询价（价格规则、区域、比价、30 分钟报价快照、取消政策都不变），按价格从低到高排；
         4. 顺带用路线预估（谷歌 Routes，ADR 0042）算出发地到目的地的行车时间、距离和路线折线（`route`；同一对坐标 10 分钟内复用，受 `GOOGLE_ROUTES_DAILY_LIMIT` 限制）。取不到为 null，不影响报价。
-        5. **接送机报不出时改用点对点商品**（M8-33，ADR 0081）：认出机场、但接送机商品一个都报不出时，按出发地落在哪个能订点对点的城市，用点对点商品再报一次（同样走 M8-30 的报价规则），`fallback_category` 为 `point_to_point`；`trip_type` 仍是接机 / 送机，客人页照样要航班号、显示免费等待和举牌。接送机报得出时不运行这一步，现有报价不变。
+        5. **接送机报不出时改用点对点商品**（M8-33，ADR 0081）：认出机场、但接送机商品一个都报不出时，按出发地（出发地不在时按目的地，M8-35）落在哪个能订点对点的城市，用点对点商品再报一次（同样走 M8-30 的报价规则），`fallback_category` 为 `point_to_point`；`trip_type` 仍是接机 / 送机，客人页照样要航班号、显示免费等待和举牌。接送机报得出时不运行这一步，现有报价不变。
         报不出价时 `quotes` 为空，原因在 `unavailable`（现有的面向客人的原因：时间太近 `LEAD_TIME_TOO_SHORT`、人数太多 `CAPACITY_EXCEEDED`、地址不在服务范围 `OUT_OF_SERVICE_AREA` 等）。
-        点对点的出发地不在任何能订的城市里时 `city` 为 null、原因是 `OUT_OF_SERVICE_AREA`。包车不走这个接口（用 `POST /site/v1/quotes`）。
+        点对点的出发地、目的地都不在任何能订的城市里时 `city` 为 null、原因是 `OUT_OF_SERVICE_AREA`。包车不走这个接口（用 `POST /site/v1/quotes`）。
         **没有中标供应商、结算价、加价比例。** 地址的名称只做校验，不进询价日志。和询价共用每个地址每分钟 30 次。
       requestBody:
         required: true
@@ -12809,7 +13022,7 @@ paths:
                             $ref: "#/components/schemas/LocalizedText"
                           timezone:
                             type: string
-                    description: 按哪个城市报的价；点对点的出发地不在任何能订的城市里时为 null
+                    description: 按哪个城市报的价；点对点的出发地、目的地都不在任何能订的城市里时为 null
                   currency:
                     type: string
                   quotes:
@@ -15887,7 +16100,7 @@ paths:
                       converted: { type: integer }
                       closed: { type: integer }
         "400":
-          $ref: "#/components/responses/ValidationFailed"
+          $ref: "#/components/responses/AreaInvalid"
         "503":
           $ref: "#/components/responses/PassengerEncryptionUnavailable"
   /platform/v1/manual-quote-requests/assignees:
@@ -16053,7 +16266,7 @@ paths:
                   event:
                     $ref: "#/components/schemas/ManualQuoteEvent"
         "400":
-          $ref: "#/components/responses/ValidationFailed"
+          $ref: "#/components/responses/AreaInvalid"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
         "409":
@@ -16117,7 +16330,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/SiteSettings"
         "400":
-          $ref: "#/components/responses/ValidationFailed"
+          $ref: "#/components/responses/AreaInvalid"
         "409":
           description: 版本对不上（`VERSION_CONFLICT`）
           content:
@@ -17192,7 +17405,7 @@ components:
         city_id:
           type: [ string, "null" ]
           format: uuid
-          description: 按哪个城市报的价；官网点对点的出发地不在任何能订的城市里时为 null
+          description: 按哪个城市报的价；官网点对点的出发地、目的地都不在任何能订的城市里时为 null
         airport_id:
           type: [ string, "null" ]
           format: uuid
@@ -21731,6 +21944,120 @@ components:
           minimum: 100
           maximum: 100000
           description: 半径（整数米）：0.1 到 100 公里
+    AreaSharedSource:
+      type: object
+      additionalProperties: false
+      description: 引用来源（M8-31，ADR 0083）。来源属于别的供应商，这里只有它在共享库里的编号，不显示是谁
+      required: [ shared_area_id, shape_version ]
+      properties:
+        shared_area_id:
+          type: string
+          format: uuid
+        shape_version:
+          type: integer
+          minimum: 1
+          description: 引用（或上次切换）时来源的图形版本
+        latest_shape_version:
+          type: [ integer, "null" ]
+          minimum: 1
+          description: |
+            只在区域列表、详情、切换的应答里有：来源现在在共享库里的图形版本。比 `shape_version` 大时页面提示「共享库里有新版本」，
+            由供应商自己决定是否切换（`POST /tenant/v1/areas/{id}/sync-shared`）。null = 来源已不在共享库里（停用或删除），副本照旧可用
+    SharedArea:
+      type: object
+      additionalProperties: false
+      description: 共享库里的一个区域：只有名称和形状的概况，不显示创建者，不带业务类型、用途、价格、加价（M8-31，ADR 0083）
+      required: [ id, city_id, name, shape_version, operate_polygon_count, forbid_polygon_count, updated_at ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        city_id:
+          type: string
+          format: uuid
+        name:
+          $ref: "#/components/schemas/LocalizedText"
+        shape_version:
+          type: integer
+          minimum: 1
+        operate_polygon_count:
+          type: integer
+          minimum: 0
+        forbid_polygon_count:
+          type: integer
+          minimum: 0
+        updated_at:
+          type: string
+          format: date-time
+    SharedAreaDetail:
+      type: object
+      additionalProperties: false
+      description: 共享库里的一个区域和它的图形（种类和坐标，按加入的先后；不带备注名）
+      required: [ id, city_id, name, shape_version, operate_polygon_count, forbid_polygon_count, updated_at, polygons ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        city_id:
+          type: string
+          format: uuid
+        name:
+          $ref: "#/components/schemas/LocalizedText"
+        shape_version:
+          type: integer
+          minimum: 1
+        operate_polygon_count:
+          type: integer
+          minimum: 0
+        forbid_polygon_count:
+          type: integer
+          minimum: 0
+        updated_at:
+          type: string
+          format: date-time
+        polygons:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ kind, geometry ]
+            properties:
+              kind:
+                $ref: "#/components/schemas/AreaPolygonKind"
+              geometry:
+                $ref: "#/components/schemas/AreaGeometry"
+    SimilarSharedArea:
+      type: object
+      additionalProperties: false
+      description: 相似的共享区域。`reasons`：name 名称相同；overlap 营运区重叠
+      required: [ id, city_id, name, shape_version, operate_polygon_count, forbid_polygon_count, updated_at, reasons ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        city_id:
+          type: string
+          format: uuid
+        name:
+          $ref: "#/components/schemas/LocalizedText"
+        shape_version:
+          type: integer
+          minimum: 1
+        operate_polygon_count:
+          type: integer
+          minimum: 0
+        forbid_polygon_count:
+          type: integer
+          minimum: 0
+        updated_at:
+          type: string
+          format: date-time
+        reasons:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [ name, overlap ]
     AreaPolygon:
       type: object
       additionalProperties: false
@@ -21819,7 +22146,7 @@ components:
       type: object
       additionalProperties: false
       description: 列表里的一项：不带图形的坐标
-      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, created_at, updated_at ]
+      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, shape_version, shared_source, created_at, updated_at ]
       properties:
         id:
           type: string
@@ -21861,6 +22188,15 @@ components:
         version:
           type: integer
           minimum: 1
+        shape_version:
+          type: integer
+          minimum: 1
+          description: 图形版本（M8-31，ADR 0083）：只有图形变了才加一（改名、改业务类型、改用途、停用启用都不加）；共享库里别人看到的版本就是它
+        shared_source:
+          oneOf:
+            - $ref: "#/components/schemas/AreaSharedSource"
+            - type: "null"
+          description: 从共享库引用来的副本记住的来源；自己画的为 null
         created_at:
           type: string
           format: date-time
@@ -21871,7 +22207,7 @@ components:
       type: object
       additionalProperties: false
       description: 区域的详情：比列表项多全部图形，和「超出运营区域」的提醒
-      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, created_at, updated_at, polygons, outside_operating_m2 ]
+      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, shape_version, shared_source, created_at, updated_at, polygons, outside_operating_m2 ]
       properties:
         id:
           type: string
@@ -21912,6 +22248,15 @@ components:
           type: integer
           minimum: 1
           description: 版本号，每改一次加一；修改时放在请求头 `If-Match` 里
+        shape_version:
+          type: integer
+          minimum: 1
+          description: 图形版本（M8-31，ADR 0083）：只有图形变了才加一（改名、改业务类型、改用途、停用启用都不加）；共享库里别人看到的版本就是它
+        shared_source:
+          oneOf:
+            - $ref: "#/components/schemas/AreaSharedSource"
+            - type: "null"
+          description: 从共享库引用来的副本记住的来源；自己画的为 null
         created_at:
           type: string
           format: date-time
@@ -21934,7 +22279,7 @@ components:
       type: object
       additionalProperties: false
       description: 区域地图的一项：和区域详情相同（带全部图形），另带最近修改人
-      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, created_at, updated_at, polygons, outside_operating_m2, last_editor ]
+      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, shape_version, shared_source, created_at, updated_at, polygons, outside_operating_m2, last_editor ]
       properties:
         id:
           type: string
@@ -21975,6 +22320,15 @@ components:
           type: integer
           minimum: 1
           description: 版本号，每改一次加一；修改时放在请求头 `If-Match` 里
+        shape_version:
+          type: integer
+          minimum: 1
+          description: 图形版本（M8-31，ADR 0083）：只有图形变了才加一（改名、改业务类型、改用途、停用启用都不加）；共享库里别人看到的版本就是它
+        shared_source:
+          oneOf:
+            - $ref: "#/components/schemas/AreaSharedSource"
+            - type: "null"
+          description: 从共享库引用来的副本记住的来源；自己画的为 null
         created_at:
           type: string
           format: date-time
@@ -21999,7 +22353,7 @@ components:
       type: object
       additionalProperties: false
       description: 运营后台区域地图的一项：和供应商后台的 `AreaMapItem` 相同，另带所属供应商
-      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, created_at, updated_at, polygons, outside_operating_m2, last_editor, tenant_id, tenant ]
+      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, shape_version, shared_source, created_at, updated_at, polygons, outside_operating_m2, last_editor, tenant_id, tenant ]
       properties:
         id:
           type: string
@@ -22040,6 +22394,15 @@ components:
           type: integer
           minimum: 1
           description: 版本号，每改一次加一；修改时放在请求头 `If-Match` 里
+        shape_version:
+          type: integer
+          minimum: 1
+          description: 图形版本（M8-31，ADR 0083）：只有图形变了才加一（改名、改业务类型、改用途、停用启用都不加）；共享库里别人看到的版本就是它
+        shared_source:
+          oneOf:
+            - $ref: "#/components/schemas/AreaSharedSource"
+            - type: "null"
+          description: 从共享库引用来的副本记住的来源；自己画的为 null
         created_at:
           type: string
           format: date-time
@@ -24625,6 +24988,20 @@ components:
           description: 国际格式（E.164），如 `+819012345678`
         email:
           type: string
+    OrderRider:
+      type: object
+      additionalProperties: false
+      required: [ sign_name, name, phone ]
+      properties:
+        sign_name:
+          type: [ string, "null" ]
+          description: 接机举牌写的名字
+        name:
+          type: [ string, "null" ]
+          description: 乘车人姓名（为他人预订时）
+        phone:
+          type: [ string, "null" ]
+          description: 乘车人电话 / WhatsApp（为他人预订时）
     OrderMessaging:
       type: object
       additionalProperties: false
@@ -24867,7 +25244,7 @@ components:
       additionalProperties: false
       description: |
         渠道看到的订单：行程、乘客、客人支付的金额、付款状态。**没有结算价、加价比例**；中标租户只在付款成功后、渠道设置了「付款后展示」时出现。
-      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
+      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
       properties:
         pricing_basis:
           $ref: "#/components/schemas/PricingBasis"
@@ -24955,6 +25332,11 @@ components:
           description: 航班号（去掉空格、大写），接机必填
         passenger:
           $ref: "#/components/schemas/OrderPassenger"
+        rider:
+          oneOf:
+            - $ref: "#/components/schemas/OrderRider"
+            - type: "null"
+          description: 乘车人和举牌姓名（M8-32，ADR 0082）：为他人预订时的乘车人、接机举牌写的名字；`passenger` 是联系人（预订人）。没有为 null
         messaging:
           oneOf:
             - $ref: "#/components/schemas/OrderMessaging"
@@ -25078,7 +25460,7 @@ components:
       additionalProperties: false
       description: |
         供应商看到的订单：行程、乘客、结算价和明细。**没有渠道、对外价、加价比例、汇率**（规则 4）。只有付过款的单。
-      required: [ pending_change, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, product_id, product_version, settlement, dispatch, fulfilment, landing, cancel_policy, cancellation, version ]
+      required: [ pending_change, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, product_id, product_version, settlement, dispatch, fulfilment, landing, cancel_policy, cancellation, version ]
       properties:
         pending_change:
           type: boolean
@@ -25157,6 +25539,11 @@ components:
           description: 航班号（去掉空格、大写），接机必填
         passenger:
           $ref: "#/components/schemas/OrderPassenger"
+        rider:
+          oneOf:
+            - $ref: "#/components/schemas/OrderRider"
+            - type: "null"
+          description: 乘车人和举牌姓名（M8-32，ADR 0082）：为他人预订时的乘车人、接机举牌写的名字；`passenger` 是联系人（预订人）。没有为 null
         messaging:
           oneOf:
             - $ref: "#/components/schemas/OrderMessaging"
@@ -25205,7 +25592,7 @@ components:
       additionalProperties: false
       description: |
         运营后台看到的订单：行程、乘客、中标租户、渠道、对外价、结算价、加价比例、汇率快照、付款状态。
-      required: [ notes_masked, passenger_anonymized_at, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, dispatch, fulfilment, landing, tenant, channel, quote_id, channel_order_no, product_id, product_version, sell, settlement, markup_bp, fx, fx_buffer_bp, payment_due_at, payment, cancel_policy, cancellation, is_acceptance, version ]
+      required: [ notes_masked, passenger_anonymized_at, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, dispatch, fulfilment, landing, tenant, channel, quote_id, channel_order_no, product_id, product_version, sell, settlement, markup_bp, fx, fx_buffer_bp, payment_due_at, payment, cancel_policy, cancellation, is_acceptance, version ]
       properties:
         notes_masked:
           type: boolean
@@ -25288,6 +25675,11 @@ components:
           description: 航班号（去掉空格、大写），接机必填
         passenger:
           $ref: "#/components/schemas/OrderPassenger"
+        rider:
+          oneOf:
+            - $ref: "#/components/schemas/OrderRider"
+            - type: "null"
+          description: 乘车人和举牌姓名（M8-32，ADR 0082）：为他人预订时的乘车人、接机举牌写的名字；`passenger` 是联系人（预订人）。没有为 null
         messaging:
           oneOf:
             - $ref: "#/components/schemas/OrderMessaging"
@@ -26862,7 +27254,7 @@ components:
         order:
           type: object
           additionalProperties: false
-          required: [ order_no, status, status_name, category, direction, service_time, service_local, timezone, package_hours, passengers, luggage, flight_no, passenger, messaging, notes, place, pickup, dropoff, pickup_point, addons, driver_language, free_wait_minutes ]
+          required: [ order_no, status, status_name, category, direction, service_time, service_local, timezone, package_hours, passengers, luggage, flight_no, passenger, rider, messaging, notes, place, pickup, dropoff, pickup_point, addons, driver_language, free_wait_minutes ]
           properties:
             order_no:
               type: string
@@ -26900,6 +27292,11 @@ components:
                   type: string
                 phone:
                   type: string
+            rider:
+              oneOf:
+                - $ref: "#/components/schemas/OrderRider"
+                - type: "null"
+              description: 乘车人和举牌姓名（M8-32）：司机按 `sign_name` 举牌，为他人预订时联系 `name` / `phone`；没有为 null
             messaging:
               oneOf:
                 - $ref: "#/components/schemas/OrderMessaging"
@@ -28435,6 +28832,18 @@ components:
         save_payment_method:
           type: boolean
           description: 客人同意保存支付方式用于服务后加收（必须为 true）
+        sign_name:
+          type: [ string, "null" ]
+          maxLength: 200
+          description: 举牌姓名（M8-32，ADR 0082）：接机时司机举牌写的名字；选填
+        passenger_name:
+          type: [ string, "null" ]
+          maxLength: 200
+          description: 为他人预订时的乘车人姓名（M8-32）；和 `passenger_phone` 要么都给、要么都不给。`passenger` 仍是联系人（预订人），确认邮件发给他
+        passenger_phone:
+          type: [ string, "null" ]
+          maxLength: 40
+          description: 为他人预订时的乘车人电话 / WhatsApp（国际格式，M8-32）
     SiteOrderLink:
       type: object
       additionalProperties: false
@@ -28526,7 +28935,7 @@ components:
       additionalProperties: false
       description: |
         客人在官网订单页看到的订单：和渠道看到的 `SalesOrder` 字段一样，只是落地信息里没有司机到达屏照片的文件编号（客人用不上，ADR 0032）。
-      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
+      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
       properties:
         pricing_basis:
           $ref: "#/components/schemas/PricingBasis"
@@ -28614,6 +29023,11 @@ components:
           description: 航班号（去掉空格、大写），接机必填
         passenger:
           $ref: "#/components/schemas/OrderPassenger"
+        rider:
+          oneOf:
+            - $ref: "#/components/schemas/OrderRider"
+            - type: "null"
+          description: 乘车人和举牌姓名（M8-32，ADR 0082）：为他人预订时的乘车人、接机举牌写的名字；`passenger` 是联系人（预订人）。没有为 null
         messaging:
           oneOf:
             - $ref: "#/components/schemas/OrderMessaging"

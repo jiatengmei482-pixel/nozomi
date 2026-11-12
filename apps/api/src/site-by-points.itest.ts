@@ -36,8 +36,9 @@ import { FAKE_SECRETS } from "./testing/fixtures.ts";
 import { type Market, allValues, buildMarket, newChannel, ok, salesCredentials } from "./testing/market.ts";
 import { tenantLogin } from "./testing/money.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
-import { FakePaymentProvider } from "./testing/payments.ts";
+import { FakePaymentProvider, deliverWebhook } from "./testing/payments.ts";
 import { type SiteApi, siteApi } from "./testing/site.ts";
+import { QUOTE_CATALOG_TTL_MS } from "./services/quote-catalog.ts";
 
 let api: TestApi;
 let m: Market;
@@ -46,6 +47,7 @@ let autocomplete: FakeService;
 let details: FakeService;
 let routes: FakeService;
 let site: SiteApi;
+let pay: FakePaymentProvider;
 let siteClientId: string;
 let logs = "";
 const opened: SiteApi[] = [];
@@ -61,6 +63,9 @@ const TOKYO_TOWER = { lat: 35.6586, lng: 139.7454 };
 /** 东京城市范围里、但不在任何供应商营运区（139–140, 35–36）里的点 */
 const OUTSIDE_AREA = { lat: 35.62, lng: 138.95 };
 const SAPPORO = { lat: 43.0618, lng: 141.3545 };
+const GINZA = { lat: 35.6717, lng: 139.765 };
+/** 轻井泽王子大饭店西馆：离东京中心约 146 公里，不在任何城市的 80 公里范围里（M8-35） */
+const KARUIZAWA = { lat: 36.3375, lng: 138.6262 };
 const northOf = (point: { lat: number; lng: number }, meters: number) => ({ lat: Number((point.lat + meters * DEG_PER_METER).toFixed(6)), lng: point.lng });
 /** 测试的时钟从 2026-10-07 开始，离用车足够远 */
 const SERVICE_LOCAL = "2026-10-20T10:00";
@@ -109,6 +114,9 @@ const directQuote = async (body: Record<string, unknown>, app: SiteApi = site): 
 /** 报价里除了 quote_id（每次询价新生成）以外的全部内容 */
 const comparable = (result: { currency: string; quotes: any[]; unavailable: any[] }) => ({ currency: result.currency, quotes: result.quotes.map(({ quote_id: _id, ...rest }) => rest), unavailable: result.unavailable });
 
+/** 各供应商点对点商品的报价区域（M8-35 的用例要改它的形状） */
+const p2pAreas: Record<string, string> = {};
+
 /** 给供应商建一个东京的点对点商品（区域盖住整个东京，商务 7 座一口价），再上架。 */
 async function pointToPointProduct(who: TenantFixture, price: number): Promise<void> {
   const token = await tenantLogin(api, who.adminEmail);
@@ -124,6 +132,7 @@ async function pointToPointProduct(who: TenantFixture, price: number): Promise<v
   const brand = (await call("POST", "/brands", { name: `p2p-${who.tenantId.slice(0, 4)}`, currency: "JPY" }, undefined, 201)).id;
   api.clock.advance(1_000);
   const area = (await call("POST", "/areas", { city_id: m.ids.tokyo, name: { zh: "东京-点对点" }, biz_type: "general", polygons: [{ kind: "operate", geometry: { type: "Polygon", coordinates: [[[139.0, 35.0], [140.0, 35.0], [140.0, 36.0], [139.0, 36.0], [139.0, 35.0]]] } }] }, undefined, 201)).id;
+  p2pAreas[who.tenantId] = area;
   const created = await call("POST", "/products", { brand_id: brand, city_id: m.ids.tokyo, category: "point_to_point", areas: [{ area_id: area }], vehicle_groups: [{ vehicle_group_id: m.ids.biz7, passengers: 6, luggage: 4 }], dispatchers: [{ name: "调度", phone: "0312345678" }] }, undefined, 201);
   const rules = await call("PUT", `/products/${created.id}/service-rules`, { booking: { service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 24 }, free_wait: { general: { mode: "limited", minutes: 30 } } }, 1);
   const version = (await call("PUT", `/products/${created.id}/content`, { zh: { title: "东京市内用车" } }, rules.version)).version as number;
@@ -136,7 +145,8 @@ before(async () => {
   autocomplete = await startFakeGoogleAutocomplete();
   details = await startFakeGooglePlaceDetails();
   routes = await startFakeGoogleRoutes();
-  api = await createTestApi({ payments: new FakePaymentProvider(), integrationSecretsTtlMs: 0 });
+  pay = new FakePaymentProvider();
+  api = await createTestApi({ payments: pay, integrationSecretsTtlMs: 0 });
   m = await buildMarket(api);
   await pointToPointProduct(m.a, 15_000);
   await pointToPointProduct(m.b, 16_000);
@@ -150,7 +160,7 @@ before(async () => {
   await ok(api.call("POST", `/platform/v1/master/places/${ids["closedStation"]}/disable`, { token: m.root, body: {} }));
   const channel = await newChannel(api, m.staff.cm1.token, { name: "NOZOMI 官网" });
   siteClientId = (await salesCredentials(api, m, channel.id)).clientId;
-  site = await siteApi(api, siteClientId, new FakePaymentProvider(), googleEnv(), { integrationSecretsTtlMs: 0, logDestination: { write: (line) => void (logs += line) } });
+  site = await siteApi(api, siteClientId, pay, googleEnv(), { integrationSecretsTtlMs: 0, logDestination: { write: (line) => void (logs += line) } });
   reset();
 });
 after(async () => {
@@ -243,6 +253,56 @@ test("接送机报不出改用点对点商品（M8-33，ADR 0081）：羽田没�
   const created = await order({ notes: "航班号：NH211\n举牌姓名：陈小红" });
   assert.equal(created.status, 201, created.text);
   assert.equal(created.body.order.category, "point_to_point");
+});
+
+test("下单带举牌姓名、乘车人姓名和电话（M8-32，ADR 0082）：正式字段、和联系人一起加密；运营后台默认打码、查看后是原文；姓名和电话要么都给要么都不给", async () => {
+  reset();
+  const res = await okByPoints(northOf(NARITA, 500), TOKYO_STATION);
+  const order = (body: Record<string, unknown>, quoteId: string = res.quotes[0].quote_id) =>
+    site.call("POST", "/site/v1/orders", { headers: { "idempotency-key": randomUUID() }, ip: nextIp(), body: { quote_id: quoteId, passenger: { name: "王小明", phone: "+86 138 0000 0000", email: "rider.booker@example.com" }, flight_no: "NH211", dropoff_address: "東京駅", save_payment_method: true, ...body } });
+  const half = await order({ passenger_name: "李华" });
+  assert.deepEqual([half.status, half.body.error?.details?.issues?.map((issue: any) => [issue.path, issue.reason])], [400, [["/passenger_phone", "REQUIRED"]]]);
+  const badPhone = await order({ passenger_name: "李华", passenger_phone: "090-5555-6666" });
+  assert.deepEqual(badPhone.body.error?.details?.issues?.map((issue: any) => [issue.path, issue.reason]), [["/passenger_phone", "INVALID_PHONE"]]);
+  const created = await order({ sign_name: " LI HUA ", passenger_name: "李华", passenger_phone: "+81 90-5555-6666" });
+  assert.equal(created.status, 201, created.text);
+  assertMatchesOpenApi("POST", "/site/v1/orders", created);
+  const orderId = created.body.order.id as string;
+  assert.deepEqual(created.body.order.passenger, { name: "王小明", phone: "+8613800000000", email: "rider.booker@example.com" }, "联系人仍是预订人");
+  assert.deepEqual(created.body.order.rider, { sign_name: "LI HUA", name: "李华", phone: "+819055556666" });
+  const row = (await api.db.owner.query("select passenger, passenger_enc from orders where id = $1", [orderId])).rows[0];
+  assert.ok(typeof row.passenger_enc === "string" && row.passenger_enc.length > 0, "和联系人一起进密文");
+  assert.ok(!row.passenger_enc.includes("李华"));
+  const detail = await api.call("GET", `/platform/v1/orders/${orderId}`, { token: m.root });
+  assert.equal(detail.status, 200, detail.text);
+  const masked = detail.body.order.rider;
+  assert.ok(masked !== undefined && masked !== null, detail.text);
+  assert.ok(masked.name !== "李华" && masked.phone !== "+819055556666" && masked.sign_name !== "LI HUA", "运营后台默认打码");
+  const revealed = await api.call("POST", `/platform/v1/orders/${orderId}/passenger/reveal`, { token: m.root });
+  assert.equal(revealed.status, 200, revealed.text);
+  assertMatchesOpenApi("POST", "/platform/v1/orders/{id}/passenger/reveal", revealed);
+  assert.deepEqual(revealed.body.rider, { sign_name: "LI HUA", name: "李华", phone: "+819055556666" });
+  // 付款后运营代改联系人：只改联系人，乘车人和举牌姓名原样保留；改单记录里只有联系人，没有乘车人
+  const intent = pay.intentOf(orderId);
+  assert.ok(intent);
+  pay.pay(intent.id);
+  const raw = pay.event("payment_intent.succeeded", pay.intentObject(intent.id), { created: api.clock.now() });
+  assert.equal((await deliverWebhook(api.app, raw, pay.sign(raw, api.clock.now()))).status, 200);
+  const paid = await api.call("GET", `/platform/v1/orders/${orderId}`, { token: m.root });
+  const changed = await api.call("PATCH", `/platform/v1/orders/${orderId}`, { token: m.root, headers: { "if-match": `"${paid.body.order.version}"` }, body: { passenger: { name: "王大明" } } });
+  assert.equal(changed.status, 200, changed.text);
+  const afterChange = await api.call("POST", `/platform/v1/orders/${orderId}/passenger/reveal`, { token: m.root });
+  assert.deepEqual([afterChange.body.passenger?.name, afterChange.body.rider], ["王大明", { sign_name: "LI HUA", name: "李华", phone: "+819055556666" }], afterChange.text);
+  const stored = (await api.db.owner.query("select before, after from order_changes where order_id = $1", [orderId])).rows;
+  assert.equal(stored.length, 1);
+  assert.ok(!JSON.stringify(stored).includes("李华") && !JSON.stringify(stored).includes("LI HUA") && !JSON.stringify(stored).includes("sign_name"), JSON.stringify(stored));
+  // 没给这三项的订单：rider 为 null，联系人照旧
+  const again = await okByPoints(northOf(NARITA, 500), TOKYO_STATION);
+  const plain = await order({}, again.quotes[0].quote_id);
+  assert.equal(plain.status, 201, plain.text);
+  assert.equal(plain.body.order.rider, null);
+  const plainRow = (await api.db.owner.query("select passenger from orders where id = $1", [plain.body.order.id])).rows[0];
+  assert.equal(Object.hasOwn(plainRow.passenger, "rider"), false, "没有乘车人时不存这个键（和旧订单一样）");
 });
 
 test("接送机、点对点都报不出：保留接送机的原因，fallback_category 为 null（M8-33）", async () => {
@@ -561,4 +621,41 @@ test("密钥不外泄：新接口的应答、日志里都没有谷歌密钥的�
   }
   assert.ok(!logs.includes(FAKE_SECRETS.googleMapsApiKey), "日志里有密钥");
   assert.match(logs, /"placeFailure":"KEY_RESTRICTED"/);
+});
+
+// 放在最后：这里改了甲车队报价区域的形状，不影响前面的用例
+test("M8-35 往返对称：出发地不在任何城市（轻井泽）、目的地在东京 → 按东京报，和银座 → 轻井泽的价一模一样", async () => {
+  reset();
+  const ginza = { ...GINZA, name: "銀座" };
+  const karuizawa = { ...KARUIZAWA, name: "軽井沢プリンスホテル ウエスト" };
+  // 区域还没覆盖轻井泽时：已经按目的地选到东京，只是商品的区域不接（原因同以前）
+  const before = await okByPoints(karuizawa, ginza);
+  assert.deepEqual([before.city?.id, before.quotes], [m.ids.tokyo, []]);
+  // 甲车队的点对点区域加一块覆盖轻井泽的营运区
+  const token = await tenantLogin(api, m.a.adminEmail);
+  const areaId = p2pAreas[m.a.tenantId] as string;
+  const current = await ok(api.call("GET", `/tenant/v1/areas/${areaId}`, { token }));
+  const ring = (west: number, south: number, east: number, north: number) => [[west, south], [east, south], [east, north], [west, north], [west, south]];
+  await ok(
+    api.call("PUT", `/tenant/v1/areas/${areaId}`, {
+      token,
+      headers: { "if-match": `"${current.version}"` },
+      body: { city_id: m.ids.tokyo, name: current.name, biz_type: "general", polygons: [{ kind: "operate", geometry: { type: "Polygon", coordinates: [ring(139.0, 35.0, 140.0, 36.0)] } }, { kind: "operate", geometry: { type: "Polygon", coordinates: [ring(138.5, 36.2, 138.8, 36.5)] } }] },
+    }),
+  );
+  // 报价用的商品目录有短时缓存：过了有效期再询价
+  api.clock.advance(QUOTE_CATALOG_TTL_MS + 1_000);
+  const go = await okByPoints(ginza, karuizawa);
+  const back = await okByPoints(karuizawa, ginza);
+  assert.deepEqual([go.trip_type, go.city?.id, back.trip_type, back.city?.id], ["point_to_point", m.ids.tokyo, "point_to_point", m.ids.tokyo]);
+  assert.ok(go.quotes.length > 0, JSON.stringify(go));
+  const prices = (res: any) => res.quotes.map((quote: any) => [quote.vehicle_group.code, quote.price.total.amount]);
+  assert.deepEqual(prices(back), prices(go), "往返两个方向报的价一样");
+  // 返程照常算路线、记询价日志（城市是东京）
+  assert.notEqual(back.route, null);
+  const logRow = (await api.db.owner.query("select city_id from quote_logs where request->>'mode' = 'by_points' and request->'pickup'->>'lat' = $1 order by created_at desc limit 1", [String(KARUIZAWA.lat)])).rows[0];
+  assert.equal(logRow?.city_id, m.ids.tokyo);
+  // 直接按东京询价也是同一个价
+  const direct = await directQuote({ category: "point_to_point", city_id: m.ids.tokyo, pickup: { lng: KARUIZAWA.lng, lat: KARUIZAWA.lat }, dropoff: { lng: GINZA.lng, lat: GINZA.lat } });
+  assert.deepEqual(prices(direct), prices(back));
 });

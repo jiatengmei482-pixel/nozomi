@@ -45,6 +45,8 @@ import {
   quoteProduct,
   isSurchargeRule,
   sellPrice,
+  contactOnly,
+  type PassengerContact,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { type Db, isUniqueViolation, passengerCryptoOf, withPlatformTx } from "../db/context.ts";
@@ -168,7 +170,8 @@ function planChange(order: Order, input: OrderChangeInput, placeType: string | n
     if (given.email !== undefined && (!EMAIL_SHAPE.test(email) || email.length > 254)) issue("/passenger/email", "INVALID_FORMAT");
     if (held !== null && !held.reviewed) issues.push({ path: "/email_review", reason: "REQUIRED", message: "改乘客邮箱要另一位同事批准：请写明怎么核实的客人身份（核实方式、原因）" });
     next.passenger = passenger;
-    record("passenger", order.passenger, passenger);
+    // 改单记录只记联系人三项；乘车人（M8-32）不在改单范围，生效时原样保留（见 applyChange）
+    record("passenger", contactOnly(order.passenger), passenger);
   }
   if (input.flightNo !== undefined) {
     const atAirport = order.category === "airport_transfer" && placeType === "airport";
@@ -308,7 +311,9 @@ async function applyChange(db: Db, order: Order, change: OrderChange, sale: Orde
   const dueAt = change.reschedule && order.confirmedAt !== null ? dispatchDeadline(order.confirmedAt, serviceAt) : order.dispatch.dueAt;
   const fields = Object.keys(after).filter((field) => field !== "service_local");
   // 改了乘客才重新加密；没改的不碰这几列（明文列可能只是占位，不能把解密后的内容写回去，ADR 0057）
-  const sealed = "passenger" in change.after ? passengerCryptoOf(db).sealOrderPassenger(order.tenantId, order.id, pick("passenger", order.passenger)) : null;
+  // 改单只改联系人三项；这一单的乘车人和举牌姓名（M8-32）原样带上，不随改单丢失
+  const passengerAfter: PassengerContact = { ...pick<PassengerContact>("passenger", order.passenger), ...(order.passenger.rider === undefined ? {} : { rider: order.passenger.rider }) };
+  const sealed = "passenger" in change.after ? passengerCryptoOf(db).sealOrderPassenger(order.tenantId, order.id, passengerAfter) : null;
   await db.query(
     `update orders set passenger = coalesce($3::jsonb, passenger), passenger_enc = case when $19::boolean then $20 else passenger_enc end, passenger_email_bidx = case when $19::boolean then $21 else passenger_email_bidx end,
             passenger_phone_bidx = case when $19::boolean then $22 else passenger_phone_bidx end, passenger_name_bidx = case when $19::boolean then $23 else passenger_name_bidx end, flight_no = $4, messaging = $5::jsonb, notes = $6, pickup = $7::jsonb, dropoff = $8::jsonb, passengers = $9, luggage = $10,
@@ -599,8 +604,9 @@ export async function applyApprovedPassengerEmail(db: Db, order: Order, email: s
     requestedAt: now,
     status: "applied",
     reschedule: false,
-    before: { passenger: order.passenger },
-    after: { passenger },
+    // 改单记录只记联系人；乘车人和举牌姓名（M8-32）随订单原样带上，不进改单记录
+    before: { passenger: contactOnly(order.passenger) },
+    after: { passenger: contactOnly(passenger) },
     settlementAfterMinor: order.settlementMinor,
     settlementAfter: null,
     confirmDueAt: null,

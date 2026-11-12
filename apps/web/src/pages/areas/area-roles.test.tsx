@@ -66,7 +66,8 @@ function open(path: string, role: string, routes: Route = () => null): ApiCall[]
   return calls;
 }
 
-const writes = (calls: ApiCall[]): ApiCall[] => calls.filter((call) => call.method !== "GET");
+// 新建页查相似共享区域（M8-31）是只读查询，不算写
+const writes = (calls: ApiCall[]): ApiCall[] => calls.filter((call) => call.method !== "GET" && !call.path.endsWith("/shared-areas/similar"));
 
 test("新增：用途有三个选项、各有说明，默认「运营 + 报价」；选「运营区域」后提交带 role", async () => {
   const user = userEvent.setup();

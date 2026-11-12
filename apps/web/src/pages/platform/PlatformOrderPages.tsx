@@ -286,6 +286,7 @@ function PassengerContact({ order }: { order: PlatformOrder }) {
     }
   };
   const shown = revealed?.passenger ?? order.passenger;
+  const shownRider = revealed === null ? order.rider : revealed.rider;
   const anonymized = order.passenger_anonymized_at !== null && order.passenger_anonymized_at !== undefined;
   if (anonymized) {
     return (
@@ -298,6 +299,9 @@ function PassengerContact({ order }: { order: PlatformOrder }) {
   return (
     <>
       {`${shown.name} · ${shown.phone}${revealed === null ? "" : ` · ${shown.email}`} · ${order.passengers} 人 ${order.luggage} 件行李`}
+      {/* 乘车人和举牌姓名（M8-32）：和联系人一样默认打码，点「查看」后是原文 */}
+      {shownRider?.name != null && <span className="field__hint">{`乘车人：${shownRider.name}${shownRider.phone === null ? "" : ` · ${shownRider.phone}`}（上面是联系人 / 预订人）`}</span>}
+      {shownRider?.sign_name != null && <span className="field__hint">{`举牌姓名：${shownRider.sign_name}`}</span>}
       {revealed !== null && (
         <>
           {revealed.messaging !== null && <span className="field__hint">{`即时通讯：${revealed.messaging.app} ${revealed.messaging.handle}`}</span>}

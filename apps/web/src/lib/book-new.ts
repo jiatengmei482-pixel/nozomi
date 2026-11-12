@@ -146,26 +146,19 @@ export function arrivalFreeWaitMinutes(quoted: { free_wait_minutes: number | nul
   return flightScope === "international" ? 90 : 60;
 }
 
-/**
- * 举牌姓名（接机）、为他人预订时的乘车人和乘车人电话（M8-27）：订单接口还没有这几栏（M8-32 加），
- * 先写在给司机的备注最前面，一项一行，只写有的那几项（ADR 0079 第 4 节）。
- */
+/** 举牌姓名、乘车人姓名和电话的长度上限（M8-27 定，M8-32 起作为订单的正式字段单独提交，ADR 0082）。 */
 export const SIGN_NAME_MAX = 60;
 export const RIDER_NAME_MAX = 100;
 export const RIDER_PHONE_MAX = 40;
-export function notesWithExtras(extras: { flightNo?: string; signName?: string; riderName?: string; riderPhone?: string }, notes: string): string {
-  const lines = [
-    // 改用点对点商品报价的接送机行程（M8-33）：点对点订单没有航班号栏，写在备注最前面
-    ["航班号", extras.flightNo],
-    ["举牌姓名", extras.signName],
-    ["乘车人", extras.riderName],
-    ["乘车人电话", extras.riderPhone],
-  ]
-    .map(([label, value]) => [label, (value ?? "").trim()])
-    .filter(([, value]) => value !== "")
-    .map(([label, value]) => `${label}：${value}`);
+
+/**
+ * 给司机的备注（M8-33、M8-32）：举牌姓名、乘车人已经是订单的正式字段，不再写进备注；
+ * 只有改用点对点商品报价的接机 / 送机（点对点订单没有航班号栏）把航班号写在备注最前面。
+ */
+export function notesWithExtras(extras: { flightNo?: string }, notes: string): string {
+  const flight = (extras.flightNo ?? "").trim().toUpperCase();
   const rest = notes.trim();
-  return [...lines, ...(rest === "" ? [] : [rest])].join("\n");
+  return [...(flight === "" ? [] : [`航班号：${flight}`]), ...(rest === "" ? [] : [rest])].join("\n");
 }
 
 // ---- 一端（出发地、目的地、包车上车点） ----

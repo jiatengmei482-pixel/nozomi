@@ -308,3 +308,32 @@ test("价格日历：给了下车区域就算这条线路的价（线路价）�
   assert.deepEqual(day(null).map((segment) => [segment.priceRule?.id, segment.price?.finalMinor]), [["area", 10_000]]);
   assert.deepEqual(day("port").map((segment) => [segment.priceRule, segment.noPriceReason]), [[null, "NO_RULE"]]);
 });
+
+test("M8-35 轻井泽 ↔ 银座往返对称：一个点落在几个重叠的区域里，两端都拿所有命中的区域去配线路价，能报的取最低；去、返程各用自己方向的线路价", () => {
+  // 轻井泽一端同时在「轻井泽-nozomi」「轻井泽地区」和覆盖两地的「东京运营区」里；银座在「东京运营区」和「东京市」里
+  const kNozomi = area("k-nozomi", square(138.6, 36.32, 138.65, 36.36));
+  const kRegion = area("k-region", square(138.5, 36.25, 138.75, 36.45));
+  const tokyoOps = area("tokyo-ops", square(138.4, 35.3, 140.2, 36.6));
+  const tokyoCity = area("tokyo-city", square(139.6, 35.6, 139.9, 35.8));
+  const karuizawa = { lng: 138.6262, lat: 36.3375 };
+  const ginza = { lng: 139.765, lat: 35.6717 };
+  const go = (pickup: { lng: number; lat: number }, dropoff: { lng: number; lat: number }, product: QuoteProduct) => {
+    const quoted = quoteProduct(product, { ...trip("city", "city"), pickup, dropoff }, moment());
+    assert.ok(quoted.ok && quoted.offers.length === 1, JSON.stringify(quoted));
+    const offer = quoted.offers[0] as (typeof quoted.offers)[number];
+    return [offer.areaId, offer.settlement.toAreaId ?? null, offer.settlement.totalMinor];
+  };
+  const tax = adjust("加 10%", [{ type: "percent", value: 1_000 }]);
+  const routes = p2p({
+    areas: [kRegion, tokyoOps, kNozomi, tokyoCity],
+    priceRules: [line("k-region-to-city", "k-region", "tokyo-city", 60_000), line("k-nozomi-to-city", "k-nozomi", "tokyo-city", 45_000), line("city-to-k-nozomi", "tokyo-city", "k-nozomi", 45_000), line("city-to-k-region", "tokyo-city", "k-region", 52_000), rule("ops-area", { areaId: "tokyo-ops" }, 8_000)],
+    adjustRules: [tax],
+  });
+  // 线路价优先：命中的组合里取最低（不和东京运营区的区域价比，同 ADR 0073）
+  assert.deepEqual(go(karuizawa, ginza, routes), ["k-nozomi", "tokyo-city", 49_500], "轻井泽 → 银座");
+  assert.deepEqual(go(ginza, karuizawa, routes), ["tokyo-city", "k-nozomi", 49_500], "银座 → 轻井泽");
+  // 只有区域价：两端命中的区域合在一起都算，取最低；方向反过来结果一样
+  const areaOnly = p2p({ areas: [kRegion, tokyoOps, kNozomi, tokyoCity], priceRules: [rule("k-nozomi-area", { areaId: "k-nozomi" }, 45_000), rule("k-region-area", { areaId: "k-region" }, 50_000)], adjustRules: [tax] });
+  assert.deepEqual(go(karuizawa, ginza, areaOnly), ["k-nozomi", null, 49_500]);
+  assert.deepEqual(go(ginza, karuizawa, areaOnly), ["k-nozomi", null, 49_500]);
+});

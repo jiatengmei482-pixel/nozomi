@@ -472,7 +472,7 @@ type TransferPlan = { basis: "one_price" | "one_price_outside_km"; areaIds: stri
  * 2. 点对点只有一端在 → 这一端所在的报价区域的一口价 + 区域外里程费（有一端落在商品报价区域的禁行区里时不报，同 `serviceAreas`，M8-36）；
  * 3. 都不在（接送机：非机场一端不在；机场那一端不看区域）→ 计程价。
  * 2、3 都要先过运营判断（每一端都要在这个供应商的运营范围里），而且商品要设了计程价；商品没设计程价、没带运营范围（不做运营判断）、
- * 或 `legacy`（M8-30 之前的口径，只读回放对比用）时和以前一模一样。报不出时的原因一律和以前一样（`serviceAreas` 给的）。
+ * 或 `legacy`（M8-30 之前的口径，只读回放对比用）时和以前一模一样。报不出时的原因和以前一样（`serviceAreas` 给的）；有一端进了商品报价区域的禁行区时是 `IN_FORBIDDEN_AREA`（M8-36）。
  * 每个车型组有没有计程价、有没有路线在后面看。
  */
 function transferAreas(product: QuoteProduct, request: QuoteRequest, legacy: boolean): TransferPlan | { reason: AreaRefusal } {
