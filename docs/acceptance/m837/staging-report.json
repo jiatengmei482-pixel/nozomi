@@ -1,0 +1,73 @@
+{
+  "iphone13": {
+    "steps": [
+      "出发地: sheet 0,0 390x664 (viewport 390x664)",
+      "出发地: input focused = true",
+      "出发地: first option y=118 h=57 not covered=true",
+      "出发地: chosen → 成田国际机场",
+      "目的地: sheet 0,0 390x664 (viewport 390x664)",
+      "目的地: input focused = true",
+      "目的地: first option y=118 h=57 not covered=true",
+      "目的地: chosen → 東京国際空港",
+      "date: set 2026-11-22",
+      "time: set 14:30",
+      "step 2: url=?step=2 headings=2"
+    ],
+    "ok": true
+  },
+  "pixel7": {
+    "steps": [
+      "出发地: sheet 0,0 412x839 (viewport 412x839)",
+      "出发地: input focused = true",
+      "出发地: first option y=118 h=57 not covered=true",
+      "出发地: chosen → 成田国际机场",
+      "目的地: sheet 0,0 412x839 (viewport 412x839)",
+      "目的地: input focused = true",
+      "目的地: first option y=118 h=57 not covered=true",
+      "目的地: chosen → 東京国際空港",
+      "date: set 2026-11-22",
+      "time: set 14:30",
+      "step 2: url=?step=2 headings=2"
+    ],
+    "ok": true
+  },
+  "w390": {
+    "steps": [
+      "出发地: sheet 0,0 390x844 (viewport 390x844)",
+      "出发地: input focused = true",
+      "出发地: first option y=118 h=57 not covered=true",
+      "出发地: chosen → 成田国际机场",
+      "目的地: sheet 0,0 390x844 (viewport 390x844)",
+      "目的地: input focused = true",
+      "目的地: first option y=118 h=57 not covered=true",
+      "目的地: chosen → 東京国際空港",
+      "date: set 2026-11-22",
+      "time: set 14:30",
+      "step 2: url=?step=2 headings=2"
+    ],
+    "ok": true
+  },
+  "iphone13-landscape": {
+    "steps": [
+      "出发地: sheet 0,0 750x342 (viewport 750x342)",
+      "出发地: input focused = true",
+      "出发地: first option y=118 h=57 not covered=true",
+      "出发地: chosen → 成田国际机场",
+      "目的地: sheet 0,0 750x342 (viewport 750x342)",
+      "目的地: input focused = true",
+      "目的地: first option y=118 h=57 not covered=true",
+      "目的地: chosen → 東京国際空港",
+      "date: set 2026-11-22",
+      "time: set 14:30",
+      "step 2: url=?step=2 headings=2"
+    ],
+    "ok": true
+  },
+  "desktop": {
+    "steps": [
+      "desktop: inline combobox, 6 options",
+      "desktop: picker trigger present = 0"
+    ],
+    "ok": true
+  }
+}
