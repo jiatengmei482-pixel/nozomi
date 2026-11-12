@@ -19,8 +19,8 @@ import type { ComputedRoute } from "../integrations/google-maps.ts";
 import { type CachedRoute, findRouteEstimate, recordRouteOutcome, recordRouteRefused, reserveRouteCall, saveRouteEstimate } from "../repos/route-estimates.ts";
 import type { RouteEstimator } from "./quote-deps.ts";
 
-/** 读写缓存和计数的每条查询最多等多久（毫秒）：库慢的时候不拖住询价 */
-const ROUTE_DB_TIMEOUT_MS = 500;
+/** 读写缓存和计数的事务自身语句（新连接自检、begin、切角色、commit）最多等多久（毫秒）：库慢的时候不拖住询价。生产一律用它（M8-29：只有数调用次数的测试放宽） */
+export const ROUTE_DB_TIMEOUT_MS = 500;
 
 export interface RouteEstimatorLog {
   warn(obj: object, msg: string): void;
@@ -38,6 +38,11 @@ export interface GoogleRouteEstimatorDeps {
   log: RouteEstimatorLog;
   /** 给客人看的路线在进程内保留多久（毫秒）；不给用 `ROUTE_RULES.previewCacheTtlMs`。测试用它验证过期 */
   previewCacheTtlMs?: number;
+  /**
+   * 读写缓存、占每日名额的每个事务自身语句的客户端时限（毫秒，管新连接自检、begin、切角色、commit；事务里的查询用连接池的默认时限）；不给用 `ROUTE_DB_TIMEOUT_MS`（500）。
+   * 生产不传。只给数谷歌调用次数的集成测试放宽（M8-29）：CI 负载下占名额的事务偶尔超过 500 毫秒，按设计这次不调用谷歌，次数就对不上
+   */
+  dbTimeoutMs?: number;
 }
 
 /** 给客人看的路线：约多少分钟（四舍五入）、多少米、路线折线（谷歌的 encoded polyline；取不到为 null）。 */
@@ -70,6 +75,7 @@ function fingerprint(apiKey: string): string {
 
 export class GoogleRouteEstimator implements RouteEstimator, RoutePreviewer {
   readonly #deps: GoogleRouteEstimatorDeps;
+  readonly #dbTimeoutMs: number;
   /** 正在查的缓存键：同一组起终点同时来几次，只查一次、只调一次谷歌 */
   readonly #inflight = new Map<string, Promise<RouteLookup>>();
   readonly #previewInflight = new Map<string, Promise<RoutePreviewLookup>>();
@@ -80,6 +86,7 @@ export class GoogleRouteEstimator implements RouteEstimator, RoutePreviewer {
 
   constructor(deps: GoogleRouteEstimatorDeps) {
     this.#deps = deps;
+    this.#dbTimeoutMs = deps.dbTimeoutMs ?? ROUTE_DB_TIMEOUT_MS;
   }
 
   estimate(input: { from: LatLng; to: LatLng }): Promise<RouteLookup> {
@@ -94,7 +101,7 @@ export class GoogleRouteEstimator implements RouteEstimator, RoutePreviewer {
 
   async #lookup(cacheKey: RouteCacheKey): Promise<RouteLookup> {
     try {
-      const cached = await withPlatformTx(this.#deps.pool, (db) => findRouteEstimate(db, cacheKey.key, this.#deps.now()), { queryTimeoutMs: ROUTE_DB_TIMEOUT_MS });
+      const cached = await withPlatformTx(this.#deps.pool, (db) => findRouteEstimate(db, cacheKey.key, this.#deps.now()), { queryTimeoutMs: this.#dbTimeoutMs });
       if (cached !== null) return fromCached(cached, "cache");
     } catch (err) {
       this.#deps.log.warn({ err }, "读路线缓存失败，直接问谷歌");
@@ -147,7 +154,7 @@ export class GoogleRouteEstimator implements RouteEstimator, RoutePreviewer {
     if (cooling !== null && cooling.key === keyId && cooling.day === routeUsageDay(this.#deps.now()) && performance.now() < cooling.until) {
       // 到了每日上限后的冷却期里直接挡下的，同样记一次「被挡下」（记不了不影响报价）
       if (cooling.code === "DAILY_LIMIT_REACHED") {
-        await withPlatformTx(pool, (db) => recordRouteRefused(db, routeUsageDay(this.#deps.now())), { queryTimeoutMs: ROUTE_DB_TIMEOUT_MS }).catch((err: unknown) => log.warn({ err }, "记「被挡下」失败"));
+        await withPlatformTx(pool, (db) => recordRouteRefused(db, routeUsageDay(this.#deps.now())), { queryTimeoutMs: this.#dbTimeoutMs }).catch((err: unknown) => log.warn({ err }, "记「被挡下」失败"));
       }
       return { ok: false, code: cooling.code };
     }
@@ -156,7 +163,7 @@ export class GoogleRouteEstimator implements RouteEstimator, RoutePreviewer {
     let reserveFailed = false;
     const beforeAttempt = async (): Promise<boolean> => {
       try {
-        return await withPlatformTx(pool, (db) => reserveRouteCall(db, day, (used) => routeCallAllowed(used, this.#deps.dailyLimit)), { queryTimeoutMs: ROUTE_DB_TIMEOUT_MS });
+        return await withPlatformTx(pool, (db) => reserveRouteCall(db, day, (used) => routeCallAllowed(used, this.#deps.dailyLimit)), { queryTimeoutMs: this.#dbTimeoutMs });
       } catch (err) {
         // 记不了数就不调用（费用控制宁可少调）；原因按「暂时出错」报
         log.warn({ err }, "占用路线预估的每日调用名额失败，这次不调用谷歌");
@@ -184,7 +191,7 @@ export class GoogleRouteEstimator implements RouteEstimator, RoutePreviewer {
           if (result.ok) await saveRouteEstimate(db, cacheKey.key, { ok: true, meters: result.meters, seconds: result.seconds }, at, routeCacheExpiry(at, true));
           else if (routeFailureCacheable(result.code)) await saveRouteEstimate(db, cacheKey.key, { ok: false, code: result.code as "NO_ROUTE" | "INVALID_POINTS" }, at, routeCacheExpiry(at, false));
         },
-        { queryTimeoutMs: ROUTE_DB_TIMEOUT_MS },
+        { queryTimeoutMs: this.#dbTimeoutMs },
       );
     } catch (err) {
       log.warn({ err }, "写路线缓存或调用计数失败（这次的结果照常使用）");

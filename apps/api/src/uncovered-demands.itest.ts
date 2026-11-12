@@ -192,7 +192,7 @@ test("记录失败不影响给客人的应答（只记一条不含请求内容�
   const count = (await rows()).length;
   await api.db.owner.query("alter table uncovered_demands rename to uncovered_demands_moved");
   try {
-    const res = await salesQuote({ dropoff: { lng: 152, lat: 12 } });
+    const res = await salesQuote({ dropoff: { lng: 152.3719, lat: 12 } });
     assert.deepEqual([res.status, res.body.quotes, res.body.unavailable], [200, [], [{ vehicle_group_id: null, reasons: ["OUT_OF_SERVICE_AREA"] }]]);
     await settle();
   } finally {
@@ -201,7 +201,8 @@ test("记录失败不影响给客人的应答（只记一条不含请求内容�
   assert.equal((await rows()).length, count);
   const logged = api.logs().split("\n").filter((line) => line.includes("uncovered_demand.record"));
   assert.ok(logged.length >= 1, "记了错误日志");
-  assert.ok(logged.every((line) => !line.includes("152") && !line.includes(CHANNEL_IP)), "日志里没有请求内容");
+  // 经度用 152.3719，查「152.37」：不会碰巧出现在时间戳、耗时里（M8-29：原来查「152」，main run 43258748905 被时间戳误伤），各种写法（152.3719、152.3719000）的泄露都抓得到
+  assert.ok(logged.every((line) => !line.includes("152.37") && !line.includes(CHANNEL_IP)), `日志里没有请求内容：${logged.join("\n")}`);
 });
 
 test("运营后台列表：按城市、供应商、日期、品类、原因筛；合计和按原因 / 城市 / 供应商的计数、被限掉的条数；游标分页；不认识的参数 400", async () => {
