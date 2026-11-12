@@ -1,10 +1,13 @@
 /**
- * 端到端：手机上新预订页 `/book/new` 的地址候选（M8-37，用户反馈）。
- * 以前 < 480px 时候选是贴在屏幕底部升起的面板；手机键盘弹出时页面不变矮，面板整个在键盘后面，客人只看到「找到 N 个地点」却选不了。
- * 现在候选紧贴输入框下面，打开时把输入框滚到屏幕上半部（键盘上面），列表高度按键盘上面剩下的空间算。
- * 模拟器里没有软键盘：用 `visualViewport` 模拟键盘弹出（可见区域只剩上面 364px，和真机一样页面本身不变矮），核对「候选贴在输入框下面、
- * 输入框和候选都在键盘上面、第一项没有被别的东西盖住、用手指点得中」。旧的贴底面板在 372–664，整个在「键盘」后面，这几条都会失败（见 PR 里的探测记录）。
- * 走一遍：在地图上选点（地图打开、选中间位置、收起）→ 出发地输入机场名、点候选 → 目的地输入「東京駅」、点候选 → 日期时间 → 第 2 步。
+ * 端到端：手机上的新预订页 `/book/new`（M8-37，用户反馈：手机上地址候选被输入框、键盘盖住选不了）。
+ * 业主 2026-11-12 的方案：移动设备优先保证操作流程——手机触屏上地址、日期、时间都是「点一下 → 全屏选择页 → 选好回到页面」。
+ * 全屏选择页是原生 <dialog>（在页面最上层），这里核对：
+ * - 选择页占满屏幕、在最上层（候选正中这一点上就是候选本身，没有别的东西盖住）；
+ * - 用 `visualViewport` 模拟手机键盘已经弹出（可见区域只剩上面 364px，真机上页面不变矮）：输入框和第一条候选都在键盘上面；
+ * - 用手指点选后选择页关闭、页面上显示选中的值；「取消」不改原来的值；
+ * - 在地图上选点（选择页里打开地图、选中间位置）后回到页面；
+ * - 日期、时间的选择页「确定」后回到页面；
+ * - 走到第 2 步。电脑和鼠标操作的窄窗口不受影响（site-booking-new.spec.ts 照旧在页面上选）。
  * 用地址搜索专用的那组 API 和前端（假谷歌，见 site-booking-new.spec.ts），不调用真实的谷歌。
  */
 import { type Locator, type Page, expect, test } from "@playwright/test";
@@ -20,6 +23,8 @@ test.use({ viewport: PHONE, hasTouch: true, isMobile: true });
 /** 键盘弹出后的可见高度：iPhone 键盘约占 300px，键盘上沿在 364 */
 const KEYBOARD_TOP = 364;
 
+const SITE = `http://127.0.0.1:${E2E_WEB_PLACES_PORT}`;
+
 /** 模拟手机键盘已经弹出：`visualViewport` 只剩上面一截（真机上页面和 `innerHeight` 不变，只有可见区域变矮）。 */
 async function simulateKeyboard(page: Page): Promise<void> {
   await page.addInitScript((top) => {
@@ -28,30 +33,31 @@ async function simulateKeyboard(page: Page): Promise<void> {
   }, KEYBOARD_TOP);
 }
 
-const SITE = `http://127.0.0.1:${E2E_WEB_PLACES_PORT}`;
+/** 打开某一格的全屏选择页，确认它占满屏幕。 */
+async function openSheet(page: Page, label: string): Promise<Locator> {
+  await page.getByRole("button", { name: new RegExp(`^${label}`) }).tap();
+  const sheet = page.getByRole("dialog", { name: label });
+  await expect(sheet).toBeVisible();
+  const box = await sheet.boundingBox();
+  if (box === null) throw new Error(`${label}：量不到选择页`);
+  expect([Math.round(box.x), Math.round(box.y), Math.round(box.width), Math.round(box.height)], `${label}：选择页应占满屏幕`).toEqual([0, 0, PHONE.width, PHONE.height]);
+  return sheet;
+}
 
-/** 手机上输入地址 → 候选紧贴输入框、在屏幕上半部、没被盖住 → 用手指点选。 */
-async function pickByTouch(page: Page, label: string, query: string, option: RegExp): Promise<Locator> {
-  const input = page.getByRole("combobox", { name: label });
-  await input.tap();
-  // 手指点一下不一定全选（地图选点后里面已有地址），先清空再像在手机上一样一个字一个字打
+/** 地址：打开选择页 → 一个字一个字输入 → 候选在键盘上面、没被盖住 → 用手指点选 → 回到页面。 */
+async function pickByTouch(page: Page, label: string, query: string, option: RegExp): Promise<void> {
+  const sheet = await openSheet(page, label);
+  const input = sheet.getByRole("combobox", { name: label });
+  await expect(input).toBeFocused();
   await input.clear();
   await input.pressSequentially(query);
-  const list = page.getByRole("listbox", { name: `${label}的候选` });
-  const first = list.getByRole("option", { name: option }).first();
+  const first = sheet.getByRole("listbox", { name: `${label}的候选` }).getByRole("option", { name: option }).first();
   await expect(first).toBeVisible();
-  await expect(input).toHaveAttribute("aria-expanded", "true");
   const field = await input.boundingBox();
-  const panel = await list.boundingBox();
-  if (field === null || panel === null) throw new Error(`${label}：量不到输入框或候选列表`);
-  const fieldBottom = field.y + field.height;
-  // 紧贴输入框下面（旧的贴底面板在输入框上面、和输入框重叠）
-  expect(panel.y, `${label}：候选应在输入框下面`).toBeGreaterThanOrEqual(fieldBottom - 1);
-  expect(panel.y - fieldBottom, `${label}：候选应紧贴输入框`).toBeLessThan(16);
-  // 输入框滚到了键盘上面，候选整个在键盘上面（高度按键盘上面剩下的空间算）
-  expect(fieldBottom, `${label}：输入框应在键盘上面`).toBeLessThan(KEYBOARD_TOP);
-  expect(panel.y + panel.height, `${label}：候选应整个在键盘上面`).toBeLessThanOrEqual(KEYBOARD_TOP);
-  // 第一项正中这一点上没有别的东西（摘要条、地图、底部按钮）盖着
+  const item = await first.boundingBox();
+  if (field === null || item === null) throw new Error(`${label}：量不到输入框或候选`);
+  expect(field.y + field.height, `${label}：输入框应在键盘上面`).toBeLessThan(KEYBOARD_TOP);
+  expect(item.y + item.height, `${label}：第一条候选应在键盘上面`).toBeLessThan(KEYBOARD_TOP);
   const uncovered = await first.evaluate((element) => {
     const box = element.getBoundingClientRect();
     const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
@@ -59,11 +65,19 @@ async function pickByTouch(page: Page, label: string, query: string, option: Reg
   });
   expect(uncovered, `${label}：第一条候选被盖住了`).toBe(true);
   await first.tap();
-  await expect(list).toBeHidden();
-  return input;
+  await expect(sheet).toBeHidden();
 }
 
-test("M8-37 手机：出发地、目的地输入地址后候选紧贴输入框、在屏幕上半部、点得中；在地图上选点能用；进入第 2 步", async ({ page, request }) => {
+/** 日期、时间：打开选择页 → 填 → 「确定」→ 回到页面，页面上显示选的值。 */
+async function pickValue(page: Page, label: string, value: string): Promise<void> {
+  const sheet = await openSheet(page, label);
+  await sheet.getByLabel(label).fill(value);
+  await sheet.getByRole("button", { name: "确定" }).tap();
+  await expect(sheet).toBeHidden();
+  await expect(page.getByRole("button", { name: new RegExp(`^${label}`) })).toContainText(value);
+}
+
+test("M8-37 手机：地址、日期、时间都是全屏选择页（占满屏幕、在最上层、候选在键盘上面、点得中），选好回到页面；取消不改；在地图上选点能用；进入第 2 步", async ({ page, request }) => {
   test.setTimeout(150_000);
   const world = await createWorld(request);
   const airport = await createAirport(request, world);
@@ -73,31 +87,35 @@ test("M8-37 手机：出发地、目的地输入地址后候选紧贴输入框�
 
   await page.goto(`${SITE}/book/new`);
   await expect(page.getByRole("heading", { level: 1, name: "预订接送车" })).toBeVisible();
-  // 手指操作（PlaceField 里点候选时失焦不收的那一支只在 pointer: coarse 下生效）
   expect(await page.evaluate(() => window.matchMedia("(pointer: coarse)").matches)).toBe(true);
+  // 页面上没有直接打字的地址框，只有点了打开选择页的那一格
+  await expect(page.getByRole("combobox", { name: "出发地" })).toHaveCount(0);
 
-  // 在地图上选点：手机上地图打开、在屏幕宽度以内，选地图中间的位置后出发地有了值，再收起
-  const fromMap = page.getByRole("group", { name: "出发地的地图" });
-  await fromMap.getByRole("button", { name: "在地图上选点" }).tap();
-  const canvas = fromMap.getByRole("application");
-  await expect(canvas).toBeVisible();
-  const mapBox = await canvas.boundingBox();
-  if (mapBox === null) throw new Error("量不到地图");
-  expect(mapBox.x).toBeGreaterThanOrEqual(0);
-  expect(mapBox.x + mapBox.width).toBeLessThanOrEqual(PHONE.width);
-  await fromMap.getByRole("button", { name: "选地图中间这个位置" }).tap();
-  await expect(page.getByRole("combobox", { name: "出发地" })).not.toHaveValue("");
-  await fromMap.getByRole("button", { name: "收起地图" }).tap();
-  await expect(canvas).toHaveCount(0);
+  // 在地图上选点：选择页里打开地图、选中间位置 → 回到页面，出发地有了值
+  const mapSheet = await openSheet(page, "出发地");
+  await mapSheet.getByRole("button", { name: "在地图上选点" }).tap();
+  await expect(mapSheet.getByRole("application")).toBeVisible();
+  await mapSheet.getByRole("button", { name: "选地图中间这个位置" }).tap();
+  await expect(mapSheet).toBeHidden();
+  const fromCell = page.getByRole("button", { name: /^出发地/ });
+  await expect(fromCell).not.toContainText("点按输入地址");
+  const picked = (await fromCell.textContent()) ?? "";
 
-  // 出发地：平台的机场（覆盖掉地图选的点）；目的地：谷歌候选（选中后后端取坐标）
-  const from = await pickByTouch(page, "出发地", airport.name, new RegExp(airport.name));
-  await expect(from).toHaveValue(airport.name);
-  const to = await pickByTouch(page, "目的地", "東京駅", /東京駅/);
-  await expect(to).toHaveValue(/^東京駅/);
+  // 取消：选择页里打了字也不改原来的值
+  const cancelSheet = await openSheet(page, "出发地");
+  await cancelSheet.getByRole("combobox", { name: "出发地" }).fill("随便打的字");
+  await cancelSheet.getByRole("button", { name: "取消" }).tap();
+  await expect(cancelSheet).toBeHidden();
+  await expect(fromCell).toHaveText(picked);
 
-  await page.getByLabel("日期（当地）").fill(tomorrowInTokyo());
-  await page.getByLabel("航班落地时间（当地）").fill("10:00");
+  // 出发地：平台的机场（覆盖地图选的点）；目的地：谷歌候选（选中后后端取坐标）
+  await pickByTouch(page, "出发地", airport.name, new RegExp(airport.name));
+  await expect(fromCell).toContainText(airport.name);
+  await pickByTouch(page, "目的地", "東京駅", /東京駅/);
+  await expect(page.getByRole("button", { name: /^目的地/ })).toContainText("東京駅");
+
+  await pickValue(page, "日期（当地）", tomorrowInTokyo());
+  await pickValue(page, "航班落地时间（当地）", "10:00");
   await expect(page.getByText(/^已识别为接机/)).toBeVisible();
   await page.getByRole("button", { name: "下一步：选择车型" }).tap();
   await expect(page.getByRole("heading", { name: "选择车型" })).toBeFocused();

@@ -75,6 +75,7 @@ import { SiteLayout, siteFailureText, useSiteConfig } from "../SiteLayout.tsx";
 import { SitePrice } from "../SitePrice.tsx";
 import { AddonsBlock, CONTACT_FORM_ID, ConsentField, type ContactForm, ContactSection, PayBlock, PriceBlock, type PricedState, RouteBlock, emptyContact } from "./CheckoutParts.tsx";
 import { PlaceField } from "./PlaceField.tsx";
+import { PickerTextField } from "./full-screen.tsx";
 import { TravellersField } from "./TravellersField.tsx";
 import { VehicleList } from "./VehicleList.tsx";
 
@@ -793,8 +794,9 @@ export function BookNewPage() {
             />
           ))}
         <div className="site-form__row">
-          <TextField label="日期（当地）" size="lg" type="date" required value={draft.date} errors={errors.date ? [errors.date] : []} onChange={(event) => update({ date: event.target.value })} />
-          <TextField label={timeLabel} size="lg" type="time" required value={draft.time} errors={errors.time ? [errors.time] : []} {...(cityName !== null ? { hint: `${cityName}的当地时间` } : {})} onChange={(event) => update({ time: event.target.value })} />
+          {/* 手机触屏上日期、时间也是全屏选择页（M8-37），电脑上是输入框 */}
+          <PickerTextField label="日期（当地）" type="date" value={draft.date} errors={errors.date ? [errors.date] : []} onValue={(date) => update({ date })} />
+          <PickerTextField label={timeLabel} type="time" value={draft.time} errors={errors.time ? [errors.time] : []} {...(cityName !== null ? { hint: `${cityName}的当地时间` } : {})} onValue={(time) => update({ time })} />
         </div>
         {arrival && (
           <p className="book-new__arrival" role="status">
