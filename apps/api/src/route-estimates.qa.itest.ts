@@ -17,7 +17,7 @@ import { type IncomingHttpHeaders, type Server, createServer } from "node:http";
 import { type LatLng, ROUTE_FAILURE_CODES, ROUTE_FAILURE_MESSAGES, type RouteFailureCode, guestRouteReason, routeCacheKey, routeUsageDay } from "@nozomi/domain";
 import type { Pool } from "./db/pool.ts";
 import { type ComputedRoute, computeRoute } from "./integrations/google-maps.ts";
-import { GoogleRouteEstimator } from "./services/route-estimates.ts";
+import { GoogleRouteEstimator, ROUTE_DB_TIMEOUT_MS } from "./services/route-estimates.ts";
 import { type ApiResponse, type HttpMethod, type TenantFixture, type TestApi, createTestApi } from "./testing/api.ts";
 import { type Market, addStaff, allValues, buildMarket, newChannel, ok, salesCredentials } from "./testing/market.ts";
 import { type SiteApi, siteApi } from "./testing/site.ts";
@@ -232,8 +232,23 @@ async function cleanupFuture(): Promise<void> {
   await api.db.owner.query("delete from route_api_usage where day >= '2030-01-01'");
   await api.db.owner.query("delete from route_estimates where fetched_at >= '2030-01-01'");
 }
-function estimator(options: { now: () => Date; compute: Compute; apiKey?: () => string | null; dailyLimit?: number; pool?: Pool }): GoogleRouteEstimator {
-  return new GoogleRouteEstimator({ pool: options.pool ?? api.db.pool, now: options.now, apiKey: options.apiKey ?? (() => "AIzaQaEstimatorKey000000000000001"), dailyLimit: options.dailyLimit ?? 1_000, compute: options.compute, log: { warn: (obj, msg) => void warnings.push({ obj, msg }) } });
+/**
+ * 本文件数谷歌调用次数的用例，数据库时限放宽到 5 秒（M8-29）：生产的 500 毫秒管 begin、切角色、commit、新连接自检，
+ * CI 负载下占每日名额的事务偶尔超过它（见过 863 毫秒，平时约 310 毫秒），按设计这次不调用谷歌，次数就差一次。
+ * 「数据库出错 / 太慢就不调用谷歌」用生产的默认值单独验证（`dbTimeoutMs: "production"`）。
+ */
+const COUNTING_DB_TIMEOUT_MS = 5_000;
+
+function estimator(options: { now: () => Date; compute: Compute; apiKey?: () => string | null; dailyLimit?: number; pool?: Pool; dbTimeoutMs?: "production" }): GoogleRouteEstimator {
+  return new GoogleRouteEstimator({
+    pool: options.pool ?? api.db.pool,
+    now: options.now,
+    apiKey: options.apiKey ?? (() => "AIzaQaEstimatorKey000000000000001"),
+    dailyLimit: options.dailyLimit ?? 1_000,
+    compute: options.compute,
+    log: { warn: (obj, msg) => void warnings.push({ obj, msg }) },
+    ...(options.dbTimeoutMs === "production" ? {} : { dbTimeoutMs: COUNTING_DB_TIMEOUT_MS }),
+  });
 }
 /** 不联网的谷歌替身：记下调用次数，按 `next` 给结果；照真实实现，发请求前先占名额 */
 function countingCompute(next: () => ComputedRoute, delayMs = 0): { compute: Compute; calls: () => number } {
@@ -548,11 +563,39 @@ test("记不了数（数据库连不上）：不调用谷歌（宁可少调）�
   warnings.length = 0;
   const broken = { connect: async () => Promise.reject(new Error("connection refused")) } as unknown as Pool;
   const key = "AIzaQaBrokenPool0000000000000001";
-  const routes = estimator({ pool: broken, apiKey: () => key, now: () => new Date("2030-09-17T03:00:00.000Z"), compute: (apiKey, from, to, beforeAttempt) => computeRoute(apiKey, from, to, { url: googleUrl, beforeAttempt }) });
+  const routes = estimator({ pool: broken, dbTimeoutMs: "production", apiKey: () => key, now: () => new Date("2030-09-17T03:00:00.000Z"), compute: (apiKey, from, to, beforeAttempt) => computeRoute(apiKey, from, to, { url: googleUrl, beforeAttempt }) });
   assert.deepEqual(await routes.estimate({ from: { lat: 25.1, lng: 126.1 }, to: { lat: 25.2, lng: 126.2 } }), { ok: false, code: "UNAVAILABLE" });
   assert.equal(seen.length, 0);
   assert.ok(warnings.length >= 2);
   for (const warning of warnings) assert.ok(![...allValues(warning.obj)].some((value) => value.includes(key)) && !warning.msg.includes(key));
+});
+
+test("占名额太慢（生产的默认时限 500 毫秒）：别的事务锁着当天的计数行，等过时限就不调用谷歌（宁可少调），原因是 UNAVAILABLE；锁放开后照常调用", async (t) => {
+  t.after(cleanupFuture);
+  seen.length = 0;
+  warnings.length = 0;
+  assert.equal(ROUTE_DB_TIMEOUT_MS, 500);
+  const now = new Date("2030-09-20T03:00:00.000Z");
+  const day = routeUsageDay(now);
+  await api.db.owner.query("insert into route_api_usage (day) values ($1) on conflict (day) do nothing", [day]);
+  const holder = await api.db.owner.connect();
+  const routes = estimator({ dbTimeoutMs: "production", apiKey: () => "AIzaQaSlowReserve000000000000001", now: () => now, compute: (apiKey, from, to, beforeAttempt) => computeRoute(apiKey, from, to, { url: googleUrl, beforeAttempt }) });
+  try {
+    await holder.query("begin");
+    await holder.query("select calls from route_api_usage where day = $1 for update", [day]);
+    const started = performance.now();
+    assert.deepEqual(await routes.estimate({ from: { lat: 22.1, lng: 123.1 }, to: { lat: 22.2, lng: 123.2 } }), { ok: false, code: "UNAVAILABLE" });
+    const waited = performance.now() - started;
+    assert.ok(waited >= ROUTE_DB_TIMEOUT_MS - 50 && waited < 3_000, `等了 ${Math.round(waited)} 毫秒`);
+    assert.equal(seen.length, 0);
+    assert.ok(warnings.some(({ msg }) => msg.includes("这次不调用谷歌")));
+  } finally {
+    await holder.query("rollback");
+    holder.release();
+  }
+  const fresh = estimator({ dbTimeoutMs: "production", apiKey: () => "AIzaQaSlowReserve000000000000002", now: () => now, compute: (apiKey, from, to, beforeAttempt) => computeRoute(apiKey, from, to, { url: googleUrl, beforeAttempt }) });
+  assert.equal((await fresh.estimate({ from: { lat: 22.3, lng: 123.3 }, to: { lat: 22.4, lng: 123.4 } })).ok, true);
+  assert.equal(seen.length, 1);
 });
 
 // ---- 降级：14 个原因码，从谷歌应答 / 网络情况到每一种看的人 ----
