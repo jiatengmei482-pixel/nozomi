@@ -2015,6 +2015,45 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/reports/area-role-preview:
+    get:
+      tags: [ 报价 ]
+      operationId: getAreaRolePreviewReport
+      summary: 只读核对：回放最近 N 天的询价（和 `pnpm areas:role-preview --json` 同一份清单）
+      description: |
+        M8-34（ADR 0086）。给 GitHub Actions 的「测试环境只读核对」工作流用，不用登录服务器。需要操作 `quote.preview`（超级管理员、运营、招商、渠道经理、客服，或勾了「报价试算」的自建角色）；
+        限定了数据范围的员工（ADR 0030）不能用（清单跨全部供应商、城市，切不开）：403 `DATA_SCOPE_DENIED`。
+        内容和命令行 `pnpm areas:role-preview --json` 完全一样（字段名也一样，是驼峰写法）：每个供应商的区域数、已上架商品勾选的报价区域、
+        回放最近 `days` 天询价日志里的请求（M8-20 的区域用途对比、M8-30 的报价优先级对比）。`replay.externalDiffCount`、`replay.priority.changedCount` 都是 0 才算通过。
+        **只读**：回放在平台的只读快照事务里（数据库拒绝任何写入），不写业务表；没有客人信息、没有坐标。
+        每次调用先占一次限速额度（每个员工 10 分钟 3 次，超过 429），并写一条审计（对象 `area`、操作 `view`，改后值里是 `report`、`days`）。
+        回放有 45 秒的时限，超过返回 503 `REPORT_TIMEOUT`，没有结果——把 `days` 改小再试。
+      security:
+        - platformToken: []
+      parameters:
+        - name: days
+          in: query
+          description: 回放最近几天的询价，1–90，默认 30
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 90
+            default: 30
+      responses:
+        "200":
+          description: 清单
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AreaRolePreview"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          description: "`REPORT_TIMEOUT`：回放超过 45 秒还没算完（`details.days`、`details.budget_seconds`），没有结果；把天数改小再试"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /platform/v1/quotes/preview:
     post:
       tags: [ 报价 ]
@@ -19651,6 +19690,73 @@ components:
                 $ref: "#/components/schemas/QuoteRefusalReason"
               message:
                 type: string
+    AreaRolePreviewDiff:
+      type: object
+      additionalProperties: false
+      required: [ logId, productCode, before, after ]
+      properties:
+        logId: { type: string, description: 询价日志的编号 }
+        productCode: { type: string }
+        before: { type: string, description: 之前的结果（JSON 写法的字符串：车型组、区域、规则、结算价，或原因代码）}
+        after: { type: string, description: 现在的结果，写法同上 }
+    AreaRolePreview:
+      type: object
+      additionalProperties: false
+      description: 和 `pnpm areas:role-preview --json` 同一份结构（M8-20、M8-30、M8-34）。没有客人信息、没有坐标
+      required: [ migrated, suppliers, totalAreas, published, replay ]
+      properties:
+        migrated: { type: boolean, description: 迁移 0290（区域用途）是不是已经执行过 }
+        suppliers:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ tenantId, tenantName, total, byBizType, byStatus, byRole ]
+            properties:
+              tenantId: { type: string, format: uuid }
+              tenantName: { type: string }
+              total: { type: integer }
+              byBizType: { type: object, additionalProperties: { type: integer } }
+              byStatus: { type: object, additionalProperties: { type: integer } }
+              byRole: { type: object, additionalProperties: { type: integer } }
+        totalAreas: { type: integer }
+        published:
+          type: array
+          description: 已上架商品勾选的报价区域（区域名称）
+          items:
+            type: object
+            additionalProperties: false
+            required: [ tenantName, code, category, productAreas, surchargeAreas, routeAreas ]
+            properties:
+              tenantName: { type: string }
+              code: { type: string }
+              category: { type: string, enum: [ airport_transfer, point_to_point, charter ] }
+              productAreas: { type: array, items: { type: string } }
+              surchargeAreas: { type: array, items: { type: string } }
+              routeAreas: { type: array, items: { type: string } }
+        replay:
+          type: object
+          additionalProperties: false
+          required: [ days, since, logs, replayed, skipped, evaluations, externalDiffCount, externalDiffs, refinements, priority ]
+          properties:
+            days: { type: integer }
+            since: { type: string, format: date-time }
+            logs: { type: integer, description: 这段时间的询价日志条数 }
+            replayed: { type: integer }
+            skipped: { type: integer, description: 请求认不出（旧格式、城市或地点已经不在了）跳过的 }
+            evaluations: { type: integer, description: 「候选商品 × 询价」算了几次 }
+            externalDiffCount: { type: integer, description: 对外结果不同的处数，必须是 0 }
+            externalDiffs: { type: array, maxItems: 50, items: { $ref: "#/components/schemas/AreaRolePreviewDiff" } }
+            refinements: { type: object, description: 对外一样、只是内部原因变细的：「原来 → 现在」→ 次数, additionalProperties: { type: integer } }
+            priority:
+              type: object
+              additionalProperties: false
+              required: [ changedCount, changed, keptOffers, newOffers ]
+              properties:
+                changedCount: { type: integer, description: 之前报得出的价有变化的处数，必须是 0 }
+                changed: { type: array, maxItems: 50, items: { $ref: "#/components/schemas/AreaRolePreviewDiff" } }
+                keptOffers: { type: integer }
+                newOffers: { type: object, description: 之前报不出、现在新报出的价，按计价方式计数, additionalProperties: { type: integer } }
     PlatformQuotePreview:
       type: object
       additionalProperties: false

@@ -71,6 +71,7 @@ import { registerSiteRoutes } from "./routes/site.ts";
 import { registerUncoveredDemandRoutes } from "./routes/uncovered-demands.ts";
 import { registerPlatformSecurityRoutes } from "./routes/platform-security.ts";
 import { registerManualQuoteRoutes } from "./routes/manual-quotes.ts";
+import { registerReportRoutes } from "./routes/reports.ts";
 import { ManualQuoteRetentionJobs } from "./services/manual-quotes.ts";
 
 export interface AppDeps {
@@ -384,6 +385,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerInventoryRoutes(app, context);
   registerImportExportRoutes(app, context);
   registerQuoteRoutes(app, context);
+  registerReportRoutes(app, context);
   registerUncoveredDemandRoutes(app, context);
   registerFxRoutes(app, context);
   registerPlatformProductRoutes(app, context);
