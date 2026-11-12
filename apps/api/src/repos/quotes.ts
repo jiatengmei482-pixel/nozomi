@@ -96,7 +96,7 @@ export async function loadQuoteCandidates(db: Db, filter: QuoteCandidateFilter):
   );
   // 运营范围（ADR 0075）：这些供应商启用中的运营区域和「运营 + 报价」区域，不限城市；按商品的品类挑业务类型相容的
   const operatingRows = await db.query<Row>(
-    `select tenant_id, id, biz_type from areas where tenant_id = any($1::uuid[]) and status = 'active' ${filter.everyAreaOperating === true ? "" : "and role in ('operating', 'both')"} order by tenant_id, created_at, id`,
+    `select tenant_id, id, biz_type, role from areas where tenant_id = any($1::uuid[]) and status = 'active' ${filter.everyAreaOperating === true ? "" : "and role in ('operating', 'both')"} order by tenant_id, created_at, id`,
     [tenantIds],
   );
   const areaIds = [...new Set([...areas.rows, ...surchargeRows.rows].map((row) => row["area_id"] as string).concat(operatingRows.rows.map((row) => row["id"] as string)))];
@@ -107,10 +107,11 @@ export async function loadQuoteCandidates(db: Db, filter: QuoteCandidateFilter):
   const surchargeAreasByProduct = group(surchargeRows.rows, (row) => ({ areaId: row["area_id"] as string, active: row["status"] === "active", shapes: shapes.get(row["area_id"]) ?? [] }));
   const operatingByTenant = new Map<string, (QuoteArea & { bizType: AreaBizType })[]>();
   for (const row of operatingRows.rows) {
-    operatingByTenant.set(row["tenant_id"], [...(operatingByTenant.get(row["tenant_id"]) ?? []), { areaId: row["id"], active: true, bizType: row["biz_type"], shapes: shapes.get(row["id"]) ?? [] }]);
+    operatingByTenant.set(row["tenant_id"], [...(operatingByTenant.get(row["tenant_id"]) ?? []), { areaId: row["id"], active: true, bizType: row["biz_type"], role: row["role"], shapes: shapes.get(row["id"]) ?? [] }]);
   }
+  // 用途（M8-36 补充）：用途是「运营」的区域的禁行区挡这家所有商品
   const operatingAreas = (tenantId: string, category: ServiceCategory): QuoteArea[] =>
-    (operatingByTenant.get(tenantId) ?? []).filter((area) => areaUsableByCategory(category, area.bizType)).map(({ areaId, active, shapes: areaShapes }) => ({ areaId, active, shapes: areaShapes }));
+    (operatingByTenant.get(tenantId) ?? []).filter((area) => areaUsableByCategory(category, area.bizType)).map(({ areaId, active, role, shapes: areaShapes }) => ({ areaId, active, ...(role === undefined ? {} : { role }), shapes: areaShapes }));
 
   const vehicleGroups = await db.query<Row>(
     `select pv.product_id, pv.vehicle_group_id, pv.passengers, pv.luggage, vg.status

@@ -141,7 +141,7 @@ test("提醒：禁行区在营运区外面、营运区整个在禁行区里、�
   const warnings = shapeWarnings(state.shapes, { lat: 35.7, lng: 139.7 });
   const texts = (key: string): string[] => (warnings.get(key) ?? []).map((warning) => warningText(warning, "东京", "禁行 1"));
   assert.deepEqual(texts("s1"), ["这块营运区整个在「禁行 1」里。禁行区优先，所以这一块实际上不会报价。"]);
-  assert.deepEqual(texts("s3"), ["这块禁行区完全在营运区外面。点落在它里面时，用到这个区域的商品一律不报价（即使别的区域盖住这个点），请确认这是想要的。"]);
+  assert.deepEqual(texts("s3"), ["这块禁行区完全在营运区外面。点落在它里面时，用到这个区域的商品一律不报价；如果这是用途为「运营」的区域，这家供应商相容品类的商品在那里都不报价（即使别的区域盖住这个点）。请确认这是想要的。"]);
   assert.equal(hasBlockingProblems(state.shapes), false);
   const far = shapeWarnings(run([{ type: "addPolygon", kind: "operate", ring: [[35.6, 139.6], [35.8, 139.6], [35.8, 139.8]] }]).shapes, { lat: 35.7, lng: 139.7 });
   assert.equal(far.size, 0, "坐标本身不合法的（纬度 139）是问题，不是提醒");

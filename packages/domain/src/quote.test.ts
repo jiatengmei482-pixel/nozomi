@@ -716,9 +716,12 @@ test("第 4 步 两道判断（ADR 0075 增强版 B）：先看点在不在这�
   assert.equal(outcome(product({ operatingAreas: [SMALL] }), request({ dropoff: { lng: 139.5, lat: 35.5 } })), "OUT_OF_SERVICE_AREA", "A1 里、但在运营区域外");
   // 运营区域的禁行区：这家在那里不接（`IN_FORBIDDEN_AREA`）——哪怕那个点还在另一个运营区域的营运区里
   // （M8-36 补充，业主 2026-11-12：运营区域里的禁行区也一律不报；以前被别的运营区域盖住时照报）
-  const HOLED = { ...BIG, shapes: [...BIG.shapes, { id: "op-no", kind: "forbid" as const, ring: square(139.1, 35.4, 139.3, 35.6) }] };
+  // 只有用途是「运营」的区域这样算；「运营 + 报价」（没带 role / both）的禁行区仍是被别的运营区域盖住就照报
+  const HOLED = { ...BIG, role: "operating" as const, shapes: [...BIG.shapes, { id: "op-no", kind: "forbid" as const, ring: square(139.1, 35.4, 139.3, 35.6) }] };
   assert.equal(outcome(product({ operatingAreas: [HOLED] }), request({ dropoff: WEST })), "IN_FORBIDDEN_AREA");
   assert.equal(outcome(product({ operatingAreas: [HOLED, SMALL] }), request({ dropoff: WEST })), "IN_FORBIDDEN_AREA", "被 SMALL 的营运区盖住也不报");
+  assert.equal(outcome(product({ operatingAreas: [{ ...HOLED, role: "both" as const }, SMALL] }), request({ dropoff: WEST })), 20_000, "both 区域的禁行区被 SMALL 盖住：照报（和以前一样）");
+  assert.equal(outcome(product({ operatingAreas: [{ ...HOLED, role: "both" as const }] }), request({ dropoff: WEST })), "IN_FORBIDDEN_AREA", "both 区域的禁行区、没有别的运营区域盖住：和以前一样不报");
   assert.equal(outcome(product({ operatingAreas: [SMALL, HOLED] }), request({ dropoff: WEST })), "IN_FORBIDDEN_AREA", "和运营区域的先后无关");
   // 停用的运营区域的禁行区不算
   assert.equal(outcome(product({ operatingAreas: [{ ...HOLED, active: false }, SMALL] }), request({ dropoff: WEST })), 20_000);
@@ -730,6 +733,31 @@ test("第 4 步 两道判断（ADR 0075 增强版 B）：先看点在不在这�
   assert.equal(outcome(product({ operatingAreas: [] }), request({ dropoff: WEST })), "OUT_OF_SERVICE_AREA");
   // 接送机只看非机场一端：机场不要求在运营区域里
   assert.equal(outcome(product({ operatingAreas: [SMALL] }), request({ dropoff: WEST, pickup: { lng: 142.5, lat: 35.5 } })), 20_000);
+});
+
+test("M8-36 补充：用途是「运营」的区域的禁行区一律不报——点对点、包车两端，不管另一端先在哪一步失败、不管被别的运营区域盖住；接送机机场那一端不看", () => {
+  const BIG = { areaId: "op", active: true, shapes: [{ id: "op-op", kind: "operate" as const, ring: square(138.5, 34.5, 141.5, 36.5) }] };
+  // 另一个运营区域 HOLE：营运区盖住 A1 西边，禁行区在 WEST 那里
+  const HOLE = { areaId: "op-hole", active: true, role: "operating" as const, shapes: [{ id: "h-op", kind: "operate" as const, ring: square(139.0, 35.0, 139.4, 36.0) }, { id: "h-no", kind: "forbid" as const, ring: square(139.1, 35.4, 139.3, 35.6) }] };
+  const OUTSIDE = { lng: 142.5, lat: 35.5 };
+  const p2p = product({ category: "point_to_point", pickupPlace: null, operatingAreas: [BIG, HOLE], priceRules: [price(fixed(8_000), { direction: null })], serviceRules: rules({ freeWait: { pickup: null, dropoff: null, general: { mode: "limited", minutes: 15 } } }) });
+  const trip = (pickup: typeof WEST, dropoff: typeof WEST): QuoteRequest => request({ category: "point_to_point", direction: null, pickup, dropoff });
+  assert.equal(outcome(p2p, trip(EAST, OVERLAP)), 8_000, "两端都不在禁行区：照报");
+  assert.equal(outcome(p2p, trip(EAST, WEST)), "IN_FORBIDDEN_AREA", "下车点在 HOLE 的禁行区里，被 BIG 盖住也不报");
+  assert.equal(outcome(p2p, trip(FAR, WEST)), "IN_FORBIDDEN_AREA", "上车点没价（以前先给 NO_PRICING_AREA）：原因仍是禁行区");
+  assert.equal(outcome(p2p, trip(OUTSIDE, WEST)), "IN_FORBIDDEN_AREA", "上车点在运营范围外：原因仍是禁行区");
+
+  const charter = product({ category: "charter", pickupPlace: null, operatingAreas: [BIG, HOLE], priceRules: [price({ model: "charter_package", packageKm: 300, packagePriceMinor: 98_000, overtimePerHourMinor: 5_000, overKmPerKmMinor: 400 }, { direction: null, packageHours: 10 })], serviceRules: rules({ freeWait: { pickup: null, dropoff: null, general: { mode: "unlimited" } } }) });
+  const day = (pickup: typeof WEST, dropoff: typeof WEST | null): QuoteRequest => request({ category: "charter", direction: null, packageHours: 10, pickup, dropoff });
+  assert.equal(outcome(charter, day(OVERLAP, EAST)), 98_000);
+  assert.equal(outcome(charter, day(WEST, null)), "IN_FORBIDDEN_AREA", "只给上车点");
+  assert.equal(outcome(charter, day(EAST, WEST)), "IN_FORBIDDEN_AREA", "下车点");
+  assert.equal(outcome(charter, day(FAR, WEST)), "IN_FORBIDDEN_AREA", "上车点先没价也一样");
+
+  // 接送机：机场那一端（送机的下车点）不看区域，落在禁行区也照报
+  const transfer = product({ operatingAreas: [BIG, HOLE] });
+  assert.equal(outcome(transfer, request({ direction: "dropoff", pickup: EAST, dropoff: WEST })), outcome(product({ operatingAreas: [BIG] }), request({ direction: "dropoff", pickup: EAST, dropoff: WEST })));
+  assert.equal(outcome(transfer, request({ dropoff: WEST })), "IN_FORBIDDEN_AREA", "接机看下车点（非机场一端）");
 });
 
 test("第 4 步 两道判断：点对点两端都要过；包车上车、下车（给了时）都要过，基础价和加价只来自勾选的报价区域", () => {

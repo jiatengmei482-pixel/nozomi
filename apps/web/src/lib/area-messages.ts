@@ -62,7 +62,7 @@ export function areaProblemText(reason: string, detail: Detail = {}): string | n
 export function warningText(warning: AreaShapeWarning, cityName: string, forbidName: string): string {
   switch (warning.reason) {
     case "FORBID_OUTSIDE_OPERATE":
-      return "这块禁行区完全在营运区外面。点落在它里面时，用到这个区域的商品一律不报价（即使别的区域盖住这个点），请确认这是想要的。";
+      return "这块禁行区完全在营运区外面。点落在它里面时，用到这个区域的商品一律不报价；如果这是用途为「运营」的区域，这家供应商相容品类的商品在那里都不报价（即使别的区域盖住这个点）。请确认这是想要的。";
     case "OPERATE_INSIDE_FORBID":
       return `这块营运区整个在「${forbidName}」里。禁行区优先，所以这一块实际上不会报价。`;
     case "FAR_FROM_CITY":
