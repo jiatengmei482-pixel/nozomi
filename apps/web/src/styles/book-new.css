@@ -921,8 +921,23 @@ button.book-steps__link:hover .book-steps__name {
   outline-offset: calc(var(--focus-ring-width) * -1);
 }
 
+.book-summary-bar__head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0 var(--space-2);
+  grid-column: 1;
+  min-width: 0;
+}
+
 .book-summary-bar__title {
   font-weight: var(--font-weight-bold);
+}
+
+/* 选好车型后的价格放在标题这一行的右边，下面一行的地点名再长也不会把它挤掉（M6-08） */
+.book-summary-bar__price {
+  font-weight: var(--font-weight-bold);
+  font-variant-numeric: tabular-nums;
 }
 
 .book-summary-bar__text {
@@ -936,15 +951,17 @@ button.book-steps__link:hover .book-steps__name {
   white-space: nowrap;
 }
 
-/* 行程类型、箭头、价格不缩；地点名各自单行省略（规范 10.1，M6-08） */
+/* 行程类型和箭头不缩；地点名各自单行省略（规范 10.1，M6-08） */
 .book-summary-bar__fixed {
   flex: none;
   white-space: pre;
 }
 
+/* 两端平分剩下的宽度（短的那端不占满，多出来的让给长的那端） */
 .book-summary-bar__place {
-  flex: 0 1 auto;
+  flex: 1 1 0;
   min-width: var(--space-8);
+  max-width: max-content;
   overflow: hidden;
   text-overflow: ellipsis;
 }

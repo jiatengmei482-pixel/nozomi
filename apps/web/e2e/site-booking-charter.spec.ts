@@ -129,8 +129,8 @@ async function expectBothThemes(page: Page, what: string): Promise<void> {
 const LONG_PICKUP = "京王广场酒店本馆南口出租车乘车处（新宿区西新宿二丁目 2-1）";
 
 /**
- * 手机第 2 步顶部的行程条（规范 10.1，M6-08）：390、320 宽都只占一行；上车地点名被省略（不折行），
- * 「包车 8 小时」和价格完整可见；完整的地点名在按钮的读屏名里。
+ * 手机第 2 步顶部的行程条（规范 10.1，M6-08）：390、320 宽地点那一行都只占一行；上车地点名被省略（不折行），
+ * 「包车 8 小时」完整可见；价格在标题那一行完整可见；完整的地点名在按钮的读屏名里。
  */
 async function expectSummaryBarOneLine(page: Page, placeName: string): Promise<void> {
   const viewport = page.viewportSize() ?? { width: 390, height: 844 };
@@ -139,17 +139,21 @@ async function expectSummaryBarOneLine(page: Page, placeName: string): Promise<v
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 844 });
     const text = page.locator(".book-summary-bar__text");
-    await expect(text).toContainText("78,100");
+    await expect(page.locator(".book-summary-bar__price")).toHaveText("78,100 JPY");
     const metrics = await text.evaluate((node) => {
+      const inside = (outer: DOMRect, inner: DOMRect): boolean => inner.left >= outer.left - 0.5 && inner.right <= outer.right + 0.5;
       const box = node.getBoundingClientRect();
       const lineHeight = Number.parseFloat(getComputedStyle(node).lineHeight);
       const place = node.querySelector(".book-summary-bar__place") as HTMLElement;
       const fixed = [...node.querySelectorAll(".book-summary-bar__fixed")].map((item) => item.getBoundingClientRect());
-      return { width: box.width, fixedWidths: fixed.map((item) => Math.round(item.width)).join("+"), height: box.height, lineHeight, placeClipped: place.scrollWidth > place.clientWidth, fixedInside: fixed.every((item) => item.left >= box.left - 0.5 && item.right <= box.right + 0.5) };
+      const toggleBox = (node.closest("button") as HTMLElement).getBoundingClientRect();
+      const price = (document.querySelector(".book-summary-bar__price") as HTMLElement).getBoundingClientRect();
+      return { height: box.height, lineHeight, placeClipped: place.scrollWidth > place.clientWidth, fixedInside: fixed.every((item) => inside(box, item)), priceInside: inside(toggleBox, price) };
     });
-    expect(metrics.height, `${width}px 行程条只占一行`).toBeLessThan(metrics.lineHeight * 1.5);
+    expect(metrics.height, `${width}px 地点那一行只占一行`).toBeLessThan(metrics.lineHeight * 1.5);
     expect(metrics.placeClipped, `${width}px 上车地点名单行省略`).toBe(true);
-    expect(metrics.fixedInside, `${width}px 行程类型和价格完整可见 ${JSON.stringify(metrics)}`).toBe(true);
+    expect(metrics.fixedInside, `${width}px 行程类型完整可见`).toBe(true);
+    expect(metrics.priceInside, `${width}px 价格完整可见`).toBe(true);
   }
   await page.setViewportSize(viewport);
 }

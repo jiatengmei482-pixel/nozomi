@@ -1158,10 +1158,13 @@ export function BookNewPage() {
     const summaryBar = !wide && (
       <div className="book-summary-bar">
         <button type="button" className="book-summary-bar__toggle" aria-expanded={summaryOpen} aria-controls="book-summary-panel" onClick={() => setSummaryOpen((value) => !value)}>
-          <span className="book-summary-bar__title" id="book-summary-title">
-            行程摘要
+          <span className="book-summary-bar__head">
+            <span className="book-summary-bar__title" id="book-summary-title">
+              行程摘要
+            </span>
+            {step > 1 && selected !== null && pricedState.kind === "ready" && <span className="book-summary-bar__price">{moneyText(pricedState.total)}</span>}
           </span>
-          {/* 规范 10.1：地点名各自单行省略，行程类型和价格总是看得到；完整的地点名照样在按钮的读屏名里 */}
+          {/* 规范 10.1：地点名各自单行省略（价格在上面一行），行程类型总是看得到；完整的地点名照样在按钮的读屏名里 */}
           <span className="book-summary-bar__text">
             {draft.from !== null && step > 1 ? (
               <>
@@ -1177,7 +1180,6 @@ export function BookNewPage() {
             ) : (
               "还没有确认的内容"
             )}
-            {step > 1 && selected !== null && pricedState.kind === "ready" && <span className="book-summary-bar__fixed">{` · ${moneyText(pricedState.total)}`}</span>}
           </span>
           <Icon name="chevron-down" className={summaryOpen ? "book-summary-bar__arrow book-summary-bar__arrow--open" : "book-summary-bar__arrow"} />
         </button>
