@@ -38,20 +38,18 @@ test("取哪套瓦片、要不要压暗：暗色有暗色瓦片就换，没有�
   assert.equal(dimTilesFor(tilesOf(null), "light"), false);
 });
 
-test("applyMapTheme：切到暗色加压暗标记、切回去去掉；瓦片地址变了才换", () => {
+test("applyMapTheme：切到暗色加压暗标记、切回去去掉；瓦片地址按主题交给图层（地址相同时 Leaflet 自己不重绘）", () => {
   const container = document.createElement("div");
   const calls: string[] = [];
-  const layer = { _url: LIGHT, setUrl(url: string) { calls.push(url); this._url = url; return this as never; } };
+  const layer = { setUrl(url: string) { calls.push(url); return this as never; } };
   applyMapTheme(container, layer, tilesOf(null), "dark");
   assert.ok(container.classList.contains(DIMMED_CLASS));
-  assert.deepEqual(calls, [], "没有暗色瓦片：不换地址");
+  assert.deepEqual(calls, [LIGHT], "没有暗色瓦片：仍用亮色地址");
   applyMapTheme(container, layer, tilesOf(null), "light");
   assert.ok(!container.classList.contains(DIMMED_CLASS));
   applyMapTheme(container, layer, tilesOf(DARK), "dark");
-  assert.deepEqual(calls, [DARK]);
+  assert.deepEqual(calls, [LIGHT, LIGHT, DARK]);
   assert.ok(!container.classList.contains(DIMMED_CLASS), "有暗色瓦片就不压暗");
-  applyMapTheme(container, layer, tilesOf(DARK), "dark");
-  assert.deepEqual(calls, [DARK], "地址没变不重取");
 });
 
 test("新预订页路线图（Leaflet 后备）：打开后切换主题，压暗标记跟着变；路线还在、地图不重建", async () => {

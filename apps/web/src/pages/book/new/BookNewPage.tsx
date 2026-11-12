@@ -1164,7 +1164,7 @@ export function BookNewPage() {
             </span>
             {step > 1 && selected !== null && pricedState.kind === "ready" && <span className="book-summary-bar__price">{moneyText(pricedState.total)}</span>}
           </span>
-          {/* 规范 10.1：地点名各自单行省略（价格在上面一行），行程类型总是看得到；完整的地点名照样在按钮的读屏名里 */}
+          {/* site-booking-v2 第 2 节：地点名各自单行省略（价格在上面一行），行程类型总是看得到；完整的地点名照样在按钮的读屏名里 */}
           <span className="book-summary-bar__text">
             {draft.from !== null && step > 1 ? (
               <>

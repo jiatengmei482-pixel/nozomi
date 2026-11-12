@@ -20,9 +20,8 @@ export function dimTilesFor(tiles: Pick<MapTiles, "dark_url_template">, scheme: 
   return scheme === "dark" && tiles.dark_url_template === null;
 }
 
-/** 把已经建好的地图换到这个主题：容器的压暗标记、瓦片地址（变了才换，换了会重新取瓦片）。 */
-export function applyMapTheme(container: HTMLElement, layer: Pick<L.TileLayer, "setUrl"> & { _url?: string }, tiles: Pick<MapTiles, "url_template" | "dark_url_template">, scheme: ColorScheme): void {
+/** 把已经建好的地图换到这个主题：容器的压暗标记、瓦片地址（Leaflet 1.9 的 setUrl 地址相同时不重绘，变了才重新取瓦片）。 */
+export function applyMapTheme(container: HTMLElement, layer: Pick<L.TileLayer, "setUrl">, tiles: Pick<MapTiles, "url_template" | "dark_url_template">, scheme: ColorScheme): void {
   container.classList.toggle(DIMMED_CLASS, dimTilesFor(tiles, scheme));
-  const url = tileUrlFor(tiles, scheme);
-  if (layer._url !== url) layer.setUrl(url);
+  layer.setUrl(tileUrlFor(tiles, scheme));
 }
