@@ -302,6 +302,23 @@
   outline-offset: -1px;
 }
 
+/*
+ * 日期、时间框里浏览器自带的日历小按钮获得焦点时，宿主输入框不匹配 :focus-visible（焦点在它的内部），
+ * 用 :focus-within 给整个输入框画同样的 2px 聚焦环（M6-07 验收问题 1，M6-08）
+ */
+input[type="date"]:focus-within,
+input[type="time"]:focus-within,
+input[type="datetime-local"]:focus-within {
+  outline: var(--focus-ring-width) solid var(--color-border-focus);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.input[type="date"]:focus-within,
+.input[type="time"]:focus-within,
+.input[type="datetime-local"]:focus-within {
+  outline-offset: -1px;
+}
+
 /* 出错：边框加粗到 2px，内边距相应减 1px，文字不抖动 */
 .input[aria-invalid="true"] {
   border-width: calc(var(--border-width) * 2);

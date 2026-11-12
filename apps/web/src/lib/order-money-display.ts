@@ -73,6 +73,12 @@ const ORDER_EVENT_NOTES: Readonly<Record<string, string>> = {
   EXTRA_CHARGE_DISPUTED: "客人对加收提异议",
 };
 
+/** 订单详情「收款与退款」一笔都没有时（M6-08）。 */
+export const ORDER_NO_PAYMENTS_TEXT = "还没有收款或退款。客人付款、平台退款后，每一笔都会列在这里。";
+
+/** 订单详情「状态流水」一条都没有时（M6-08）。 */
+export const ORDER_NO_EVENTS_TEXT = "还没有状态变化的记录。";
+
 /** 状态流水一行后面的括号：取消写取消原因，其余按上表；没有要说的返回空串。 */
 export function orderEventNote(event: { to_status: string; reason: string | null }, paid: boolean): string {
   if (event.reason === null) return "";
