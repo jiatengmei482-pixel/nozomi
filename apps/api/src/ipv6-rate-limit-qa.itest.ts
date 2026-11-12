@@ -118,8 +118,8 @@ test("ADR「窗口最长 15 分钟」属实：按来源地址的额度窗口都�
   assert.equal(SALES_RATE_LIMITS.site_places_day.windowMs, 24 * 3_600_000);
   assert.equal(SALES_RATE_LIMITS.site_route_map_day.windowMs, 24 * 3_600_000);
   assert.equal(SALES_RATE_LIMITS.site_manual_quote_day.windowMs, 24 * 3_600_000);
-  // 人工报价申请按联系方式、全站的两层（M8-21）不按地址；测试环境验收通道的全站一层（M8-26，ADR 0078）也不按地址
-  const notByAddress = ["quote", "other", "site_link_order_hour", "site_link_order_day", "site_link_email_hour", "site_link_email_day", "staff_view_link", "site_manual_quote_contact", "site_manual_quote_all", "site_qa_unlock_all"];
+  // 人工报价申请按联系方式、全站的两层（M8-21）不按地址；测试环境验收通道的全站一层（M8-26，ADR 0078）也不按地址；只读核对的回放（M8-34，ADR 0086）按员工计
+  const notByAddress = ["quote", "other", "site_link_order_hour", "site_link_order_day", "site_link_email_hour", "site_link_email_day", "staff_view_link", "staff_role_preview", "site_manual_quote_contact", "site_manual_quote_all", "site_qa_unlock_all"];
   const addressScopes = Object.keys(SALES_RATE_LIMITS).filter((scope) => !notByAddress.includes(scope) && !bornWithSlash64.includes(scope));
   assert.deepEqual(addressScopes.sort(), [...perAddress].sort(), "新增按地址的额度时要重新核对 ADR 0045 的说法");
 });

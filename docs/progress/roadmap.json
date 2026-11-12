@@ -917,10 +917,10 @@
           "id": "M8-34",
           "title": "测试环境只读核对（Actions 手动跑 areas:role-preview）与 PR 版本预览（改进方案，待业主决定）",
           "role": "backend",
-          "status": "todo",
-          "acceptance": ["方案见 docs/delivery/proposals/staging-readonly-check.md：A 测试环境只读核对工作流（只读白名单命令、只能 staging、结果存 Actions 产物、deploy.md 补文档）；B PR 版本预览（二选一或不做）；C main 部署被跳过时提醒", "业主先决定做哪几项；不在 M8-30 里顺手改；不登录服务器、不改正式环境"],
-          "evidence": "",
-          "updated": "2026-11-11"
+          "status": "review",
+          "acceptance": ["方案见 docs/delivery/proposals/staging-readonly-check.md：A 测试环境只读核对工作流（只读白名单命令、只能 staging、结果存 Actions 产物、deploy.md 补文档）；B PR 版本预览（二选一或不做）；C main 部署被跳过时提醒", "业主先决定做哪几项；不在 M8-30 里顺手改；不登录服务器、不改正式环境", "业主 2026-11-12 改为 A 不用 SSH：只读平台接口 GET /platform/v1/reports/area-role-preview（quote.preview、只读事务、审计、限速、45 秒时限）+ Actions 手动工作流 staging-readonly-check.yml（只能 staging、只读账号两步验证登录、结果存产物、有变化则失败）；ADR 0086；B、C 本次不做，留作方案"],
+          "evidence": "分支 m8-34-staging-readonly（未开 PR）；ADR 0086；新增单元测试 9 条（scripts/staging-readonly-check.mjs 的登录、两步验证、退出码、不打印密钥；工作流静态检查）、集成测试 5 条（area-role-preview-report.itest.ts：401/403/DATA_SCOPE_DENIED、和 buildRolePreview 逐字段一致、只读（只有审计和限速表变化）、天数校验、限速）；守卫测试登记 platform-admin PROTECTED、password-change-bypass、ipv6 限速清单。本机相关测试全部通过，全套交 CI。业主要做：按 docs/deploy.md 第九节建只读账号、在 GitHub staging 环境填 3 个 secrets",
+          "updated": "2026-11-12"
         },
         {
           "id": "M8-35",
@@ -1946,6 +1946,11 @@
       "date": "2026-11-12",
       "by": "Claude",
       "summary": "日间收尾：M8-33、M8-32 标为完成（缺口写在证据里）；M8-35 待业主确认 VG-ECO-4 变化、M8-31 有一条未做、M8-36 测试环境未实测，三条保持进行中；M8-29、M8-25 各修一项；M8-14 和 M8-30 待补前三项要业主登录后台，未做。进度报告 docs/progress/2026-11-12.md。"
+    },
+    {
+      "date": "2026-11-12",
+      "by": "Claude",
+      "summary": "M8-34 A 部分完成（待验收）：按业主要求不用 SSH，新增只读平台接口「回放最近 N 天询价」和 GitHub 手动工作流「Staging readonly check」，业主在测试环境建一个只勾「报价试算」的账号、在 GitHub 填 3 个 secrets 后即可按按钮核对；B、C 留作方案（ADR 0086）。"
     }
   ]
 }
