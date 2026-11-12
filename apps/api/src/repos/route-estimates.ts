@@ -18,13 +18,19 @@ export async function findRouteEstimate(db: Db, key: string, now: Date): Promise
   return row.failure_code === null ? { ok: true, meters: row.distance_meters as number, seconds: row.duration_seconds as number } : { ok: false, code: row.failure_code };
 }
 
-/** 写入（覆盖）一组起终点的结果；顺手删掉一批过期一天以上的行（每次最多 100 行，不让一次写入变慢）。 */
+/**
+ * 写入一组起终点的结果；顺手删掉一批过期一天以上的行（每次最多 100 行，不让一次写入变慢）。
+ * 已有一条**还没过期的成功**结果时不覆盖（M8-29）：官网按两个坐标报价时，报价读缓存和「给客人看的路线」调谷歌是并行的，
+ * 后者写回的结果不该在缓存有效期内改掉报价用的里程（同一组点几次询价里程一致）。缓存的失败、过期的行照常覆盖。
+ * 代价：有效期内（最长 7 天）谷歌给的新路线不会写进缓存；客人看到的路线照谷歌的新结果，报价和带公里数的车型仍按缓存的里程（页面显示的是报价锁定的里程）。
+ */
 export async function saveRouteEstimate(db: Db, key: string, route: CachedRoute, fetchedAt: Date, expiresAt: Date): Promise<void> {
   await db.query(
     `insert into route_estimates (cache_key, failure_code, distance_meters, duration_seconds, fetched_at, expires_at)
      values ($1, $2, $3, $4, $5, $6)
      on conflict (cache_key) do update set failure_code = excluded.failure_code, distance_meters = excluded.distance_meters,
-       duration_seconds = excluded.duration_seconds, fetched_at = excluded.fetched_at, expires_at = excluded.expires_at`,
+       duration_seconds = excluded.duration_seconds, fetched_at = excluded.fetched_at, expires_at = excluded.expires_at
+     where route_estimates.failure_code is not null or route_estimates.expires_at <= excluded.fetched_at`,
     [key, route.ok ? null : route.code, route.ok ? route.meters : null, route.ok ? route.seconds : null, fetchedAt, expiresAt],
   );
   await db.query(
