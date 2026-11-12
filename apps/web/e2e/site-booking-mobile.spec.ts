@@ -73,6 +73,8 @@ test("M8-37 手机：出发地、目的地输入地址后候选紧贴输入框�
 
   await page.goto(`${SITE}/book/new`);
   await expect(page.getByRole("heading", { level: 1, name: "预订接送车" })).toBeVisible();
+  // 手指操作（PlaceField 里点候选时失焦不收的那一支只在 pointer: coarse 下生效）
+  expect(await page.evaluate(() => window.matchMedia("(pointer: coarse)").matches)).toBe(true);
 
   // 在地图上选点：手机上地图打开、在屏幕宽度以内，选地图中间的位置后出发地有了值，再收起
   const fromMap = page.getByRole("group", { name: "出发地的地图" });

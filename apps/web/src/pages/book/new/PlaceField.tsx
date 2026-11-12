@@ -31,9 +31,11 @@ const COARSE_QUERY = "(pointer: coarse)";
 function mediaMatches(query: string): boolean {
   return typeof window.matchMedia === "function" && window.matchMedia(query).matches;
 }
-/** 候选列表离可见区域底边（手机键盘上沿）留的空隙，和至少要露出的高度（约两个候选） */
+/** 候选列表离可见区域底边（手机键盘上沿）留的空隙；列表最大高度按 40px 一档取整，最少 120（约两个候选）、最多 320（和电脑一样） */
 const PANEL_GAP_PX = 8;
 const PANEL_MIN_PX = 120;
+const PANEL_MAX_PX = 320;
+const PANEL_STEP_PX = 40;
 /** 键盘上面至少要放得下这么高的列表，不够就把输入框滚到上面 */
 const PANEL_WANTED_PX = 240;
 
@@ -45,7 +47,8 @@ function visibleArea(): { top: number; bottom: number } {
 
 /**
  * 手机上候选列表打开时：键盘上面放不下就把输入框滚到可见区域的上沿（让开 `scroll-margin-top`，即吸顶的摘要条），
- * 再按键盘上面剩下的高度给列表定最大高度；键盘收起、页面滚动、横竖屏切换时跟着重算（每帧最多一次）。
+ * 再按键盘上面剩下的高度给列表定最大高度（按 40px 一档，写在 `data-room` 上，book-new.css 按档给 max-height——组件里不写内联样式）；
+ * 键盘收起、页面滚动、横竖屏切换时跟着重算（每帧最多一次）。
  * 按可见区域而不是页面视口对齐：iOS 键盘弹出时页面滚不动的话，可见区域会往下平移（`visualViewport.offsetTop > 0`）。
  * 不是手机宽度时什么都不做（电脑上不变）；打开期间变成不是手机宽度（横过来）就去掉最大高度，用回 data.css 的。
  */
@@ -62,7 +65,8 @@ function usePhonePanelFit(open: boolean, input: HTMLInputElement | null, list: H
     let frame = 0;
     const fit = (): void => {
       frame = 0;
-      setMaxHeight(mediaMatches(PHONE_QUERY) ? Math.max(Math.floor(room()), PANEL_MIN_PX) : null);
+      const fits = Math.floor(room() / PANEL_STEP_PX) * PANEL_STEP_PX;
+      setMaxHeight(mediaMatches(PHONE_QUERY) ? Math.min(Math.max(fits, PANEL_MIN_PX), PANEL_MAX_PX) : null);
     };
     const schedule = (): void => {
       if (frame === 0) frame = window.requestAnimationFrame(fit);
@@ -319,7 +323,7 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
               setOpen(false);
             }}
           />
-          <ul ref={setListEl} id={listId} role="listbox" aria-label={`${label}的候选`} className="combobox__panel place-field__panel" hidden={!open || items.length === 0} style={panelMax !== null ? { maxHeight: `${panelMax}px` } : undefined} onPointerDown={(event) => event.preventDefault()}>
+          <ul ref={setListEl} id={listId} role="listbox" aria-label={`${label}的候选`} className="combobox__panel place-field__panel" hidden={!open || items.length === 0} data-room={panelMax ?? undefined} onPointerDown={(event) => event.preventDefault()}>
             {items.map((item, index) => (
               <li key={`${item.source}-${item.id}`} role="presentation">
                 <div id={`${id}-option-${index}`} role="option" aria-selected={index === active} className={index === active ? "combobox__option combobox__option--active place-field__option" : "combobox__option place-field__option"} onPointerMove={() => setActive(index)} onClick={() => void choose(item)}>
