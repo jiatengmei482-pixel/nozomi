@@ -296,6 +296,14 @@ test("M8-29：给客人看的路线（preview）调到的结果不覆盖还没�
   assert.deepEqual([shown.ok, shown.ok ? shown.route.meters : null], [true, 6_800]);
   assert.deepEqual(await routes.estimate(ab), { ok: true, route: { meters: 34_153, minutes: 45 }, source: "cache" });
   assert.equal(google.calls(), 2);
+  // preview 拿到的是失败：也不覆盖还没过期的成功（换一组点：同一组点的 preview 在进程内留 10 分钟，不会再调谷歌）
+  const ef = { from: { lat: 34.91, lng: 135.91 }, to: { lat: 34.95, lng: 135.95 } };
+  result = { ok: true, meters: 12_000, seconds: 1_200 };
+  assert.deepEqual(await routes.estimate(ef), { ok: true, route: { meters: 12_000, minutes: 20 }, source: "google" });
+  result = { ok: false, code: "NO_ROUTE" };
+  assert.equal((await routes.preview(ef)).ok, false);
+  assert.deepEqual(await routes.estimate(ef), { ok: true, route: { meters: 12_000, minutes: 20 }, source: "cache" });
+  assert.equal(google.calls(), 4);
   // 缓存的是失败（没有路线）：preview 拿到成功后覆盖，报价随之能用
   const cd = { from: { lat: 34.71, lng: 135.71 }, to: { lat: 34.81, lng: 135.81 } };
   result = { ok: false, code: "NO_ROUTE" };

@@ -22,6 +22,7 @@ export async function findRouteEstimate(db: Db, key: string, now: Date): Promise
  * 写入一组起终点的结果；顺手删掉一批过期一天以上的行（每次最多 100 行，不让一次写入变慢）。
  * 已有一条**还没过期的成功**结果时不覆盖（M8-29）：官网按两个坐标报价时，报价读缓存和「给客人看的路线」调谷歌是并行的，
  * 后者写回的结果不该在缓存有效期内改掉报价用的里程（同一组点几次询价里程一致）。缓存的失败、过期的行照常覆盖。
+ * 代价：有效期内（最长 7 天）谷歌给的新路线不会写进缓存；客人看到的路线照谷歌的新结果，报价和带公里数的车型仍按缓存的里程（页面显示的是报价锁定的里程）。
  */
 export async function saveRouteEstimate(db: Db, key: string, route: CachedRoute, fetchedAt: Date, expiresAt: Date): Promise<void> {
   await db.query(
