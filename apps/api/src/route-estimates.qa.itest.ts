@@ -373,8 +373,15 @@ test("并发：同一组正在查时失败了，等着的都拿到同一个原�
   assert.equal(google.calls(), 1);
   for (const result of results) assert.deepEqual(result, { ok: false, code: "UNAVAILABLE" });
   key = "AIzaQaConcurrentFailure000000002";
+  const warned = warnings.length;
   await routes.estimate(pair);
-  assert.equal(google.calls(), 2);
+  // 偶发「期望 2 实际 1」（main run 42988235553）：疑为占每日名额的事务在 CI 负载下碰上 500 毫秒的数据库超时、按设计不调用谷歌（M8-29）。
+  // 失败时把这次的警告带出来，看得到是不是这个原因
+  const seenWarnings = warnings.slice(warned).map(({ obj, msg }) => {
+    const err = (obj as { err?: unknown }).err;
+    return err instanceof Error ? `${msg}（${err.message}）` : msg;
+  });
+  assert.equal(google.calls(), 2, `换了密钥后应再调用一次谷歌；这次的警告：${JSON.stringify(seenWarnings)}`);
 });
 
 /** 把单调时钟（冷却用的 performance.now）换成可控的；只在不经网络的替身测试里用 */
