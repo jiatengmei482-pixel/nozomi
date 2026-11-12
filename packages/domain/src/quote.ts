@@ -704,10 +704,14 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
     // 包车的区域加价：上车、下车两端各取这一端最小的加价（在商品本身的区域里是 0）；有一端没有能用的加价，这个车型组不报
     let surcharge: { pickup: AreaSurchargeEnd; dropoff: AreaSurchargeEnd } | null = null;
     if (ends !== null) {
+      // 一端落在加价区域里、而且这个车型组 / 套餐 / 日期有能用的区域加价：用它（几个都有时取最高），
+      // 哪怕这一端同时也在商品本身的（大范围）区域里——大运营区不能把小加价区盖成 0（M8-38，业主确认）。
+      // 加价区域都没有能用的加价时：在商品区域里算 0，否则报不出（和以前一样）。
       const endCharge = (end: CharterEnd, which: SurchargeEnd): AreaSurchargeEnd | QuoteRefusal => {
+        const chosen = end.surchargeAreaIds.length === 0 ? null : areaSurchargeFor(product.priceRules, { areaIds: end.surchargeAreaIds, vehicleGroupId, packageHours: request.packageHours, date: local.date, end: which, prefer: "highest" });
+        if (chosen !== null && chosen.rule !== null) return { areaId: chosen.areaId, priceRuleId: chosen.rule.id, amountMinor: chosen.amountMinor };
         if (end.inProductArea) return { areaId: null, priceRuleId: null, amountMinor: 0 };
-        const chosen = areaSurchargeFor(product.priceRules, { areaIds: end.surchargeAreaIds, vehicleGroupId, packageHours: request.packageHours, date: local.date, end: which });
-        return chosen.rule === null ? NO_PRICE_REFUSAL[chosen.noPriceReason] : { areaId: chosen.areaId, priceRuleId: chosen.rule.id, amountMinor: chosen.amountMinor };
+        return chosen === null ? NO_PRICE_REFUSAL.NO_RULE : NO_PRICE_REFUSAL[chosen.noPriceReason];
       };
       const [pickupCharge, dropoffCharge] = [endCharge(ends.pickup, "pickup"), endCharge(ends.dropoff, "dropoff")];
       if (typeof pickupCharge === "string" || typeof dropoffCharge === "string") {

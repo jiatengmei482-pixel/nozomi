@@ -184,14 +184,30 @@ test("ADR 的例子：东京上车、富士山下车 = 基础价 + 0 + 1000；�
   assert.deepEqual(settlementOf(charter(), trip("tokyo", "tokyo")).areaSurcharge, { packageMinor: 50_000, pickup: { areaId: null, priceRuleId: null, amountMinor: 0 }, dropoff: { areaId: null, priceRuleId: null, amountMinor: 0 } });
 });
 
-test("一端落在几个区域：取最小，商品本身的区域算 0；上车点、下车点各判各的", () => {
-  // 宽千叶（300）包住千叶（500）：千叶的点取 300
+test("一端落在几个加价区域：用设了加价的，都设了取最高（M8-38，业主确认）；上车点、下车点各判各的", () => {
+  // 宽千叶（300 / 700）包住千叶（500 / 500）：上车取 500，下车取 700
   const product = charter({ surchargeAreas: [FUJI, CHIBA, HACHIOJI, WIDE_CHIBA], priceRules: [pkg("base-8"), ...SURCHARGES, surcharge("s-wide", "wide-chiba", 300, 700)] });
-  assert.equal(total(product, trip("chiba", "tokyo")), 50_300);
-  assert.equal(total(product, trip("tokyo", "chiba")), 50_500, "下车：千叶 500 比宽千叶 700 小");
-  // 商品本身的区域盖住加价区域时算 0
-  const covered = charter({ areas: [area("tokyo", square(139.1, 35.5, 139.9, 35.9))] });
-  assert.equal(total(covered, trip("hachioji", "tokyo")), 50_000);
+  assert.equal(total(product, trip("chiba", "tokyo")), 50_500, "上车：千叶 500 比宽千叶 300 高");
+  assert.equal(total(product, trip("tokyo", "chiba")), 50_700, "下车：宽千叶 700 比千叶 500 高");
+  // 宽千叶这个车型组没设加价（只挂着别的车型组的规则）：用千叶的
+  const onlyChiba = charter({ surchargeAreas: [FUJI, CHIBA, HACHIOJI, WIDE_CHIBA], priceRules: [pkg("base-8"), ...SURCHARGES, surcharge("s-wide", "wide-chiba", 300, 700, { vehicleGroupId: "eco4" })] });
+  assert.equal(total(onlyChiba, trip("chiba", "tokyo")), 50_500);
+});
+
+test("回归 M8-38：大范围的商品区域（加价 0）盖住小加价区时，用加价区的加价，不被盖成 0；加价区没有能用的加价时才算 0", () => {
+  // 商品本身的「东京运营区」扩大到包住八王子和富士山（像测试环境的东京运营区包住箱根、富士山）
+  const bigTokyo = area("tokyo", square(138.5, 35.1, 139.9, 35.9));
+  const covered = charter({ areas: [bigTokyo] });
+  assert.equal(total(covered, trip("hachioji", "tokyo")), 50_800, "上车八王子 800");
+  assert.equal(total(covered, trip("tokyo", "fuji")), 51_000, "下车富士山 1000");
+  assert.equal(total(covered, trip("hachioji", "fuji")), 51_800, "基础价 + 两端加价");
+  const s = settlementOf(covered, trip("hachioji", "fuji"));
+  assert.deepEqual(s.areaSurcharge, { packageMinor: 50_000, pickup: { areaId: "hachioji", priceRuleId: "s-hachioji", amountMinor: 800 }, dropoff: { areaId: "fuji", priceRuleId: "s-fuji", amountMinor: 1_000 } });
+  // 两端都只在大东京区、不在任何加价区：和以前一样 0
+  assert.equal(total(covered, trip("tokyo", "tokyo")), 50_000);
+  // 富士山的区域加价停用了：这一端在商品区域里，算 0（不是报不出）
+  const fujiOff = charter({ areas: [bigTokyo], priceRules: [pkg("base-8"), ...SURCHARGES.filter((rule) => rule.areaId !== "fuji"), surcharge("s-fuji", "fuji", 1_000, 1_000, { status: "disabled" })] });
+  assert.equal(total(fujiOff, trip("tokyo", "fuji")), 50_000);
 });
 
 test("哪里都不在 = 不报价、转人工（OUT_OF_SERVICE_AREA）；落在禁行区里而没有别的区域接 = IN_FORBIDDEN_AREA；停用的加价区域不算", () => {
