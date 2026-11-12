@@ -5,6 +5,9 @@
  * - 无障碍和组合框（`components/Combobox.tsx`）同一套：`role="combobox"`、↑↓ 移动高亮、Enter 选中、Esc 收起，`aria-activedescendant`；
  *   正在查、没找到、用不了这些话放在输入框下面的状态行（`role="status"`），不放进候选列表；
  * - 后备：有底图时「在地图上选点」（现有的地图选点组件），选中后查这个位置的地址当名称。
+ * - 手机触屏（M8-37，业主 2026-11-12：移动设备优先保证操作流程）：页面上是一格「出发地 / 目的地」，点一下打开全屏选择页
+ *   （`FullScreenSheet`，在页面最上层，手机键盘、吸顶条、地图都盖不住），里面是输入框、候选列表和「在地图上选点」；选中后回到页面，「取消」不改原来的值。
+ *   电脑和鼠标操作的窄窗口照旧在页面上选（窄窗口候选紧贴输入框下面）。
  * 浏览器只连 `/site/v1`，不连谷歌（ADR 0044）。
  */
 import { type CityCandidate, normalizePlaceQuery, placeQueryIssue, serviceCityOf } from "@nozomi/domain";
@@ -17,9 +20,18 @@ import { Icon } from "../../../components/Icon.tsx";
 import { type TripPoint, pointName } from "../../../lib/book-new.ts";
 import { addressText } from "../AddressFields.tsx";
 import { type LatLngValue, SiteMapPicker } from "../SiteMapPicker.tsx";
+import { FullScreenSheet } from "../../../components/FullScreenSheet.tsx";
+import { PickerTrigger, useFullScreenPickers } from "./full-screen.tsx";
 
 /** 停顿多久再查（毫秒）：每输入一个字都查会白花钱。 */
 export const AUTOCOMPLETE_DEBOUNCE_MS = 300;
+
+/** 手指操作（手机、平板）：点候选时输入框可能先失焦、没有新的焦点 */
+const COARSE_QUERY = "(pointer: coarse)";
+
+function mediaMatches(query: string): boolean {
+  return typeof window.matchMedia === "function" && window.matchMedia(query).matches;
+}
 
 export function newSessionToken(): string {
   return crypto.randomUUID();
@@ -69,7 +81,29 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
   const session = useRef(newSessionToken());
   const round = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const rootRef = useRef<HTMLDivElement>(null);
+  /** 输入框 + 候选列表：在这里面算「还在地址框里」；同一块里的地图、地图按钮不算（M8-37 审查） */
+  const comboRef = useRef<HTMLDivElement>(null);
+  const fullScreen = useFullScreenPickers();
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  /** 关掉选择页并作废里面没选完的东西：输入框回到已选的值，候选、状态清空，晚到的查询结果丢掉 */
+  const resetSheet = (): void => {
+    if (timer.current !== null) clearTimeout(timer.current);
+    round.current += 1;
+    setSheetOpen(false);
+    setMapOpen(false);
+    setOpen(false);
+    setItems([]);
+    setStatus({ kind: "idle" });
+    setText(value?.name ?? "");
+  };
+  // 选择页开着时转屏 / 接上鼠标：页面换成输入框，选择页里打了一半的字不能留在输入框里冒充已选的地址（M8-37 审查）
+  const wasFullScreen = useRef(fullScreen);
+  useEffect(() => {
+    if (wasFullScreen.current === fullScreen) return;
+    wasFullScreen.current = fullScreen;
+    resetSheet();
+  }, [fullScreen]);
 
   // 值从外面变了（链接预填、地图选点、清空）：输入框跟着显示它的名称
   const shown = value?.name ?? null;
@@ -82,7 +116,7 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
   useEffect(() => {
     if (!open) return;
     const close = (event: Event): void => {
-      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) setOpen(false);
+      if (event.target instanceof Node && !comboRef.current?.contains(event.target)) setOpen(false);
     };
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
@@ -131,6 +165,8 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
       session.current = newSessionToken();
       setStatus({ kind: "idle" });
       onChange({ name, lat: item.location.lat, lng: item.location.lng, kind: item.kind, suggestionName: item.name });
+      setSheetOpen(false);
+      if (fullScreen) setItems([]);
       return;
     }
     setStatus({ kind: "loading" });
@@ -144,6 +180,8 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
       }
       setStatus({ kind: "idle" });
       onChange({ name, lat: found.place.location.lat, lng: found.place.location.lng, kind: found.place.kind, suggestionName: item.name });
+      setSheetOpen(false);
+      if (fullScreen) setItems([]);
     } catch {
       if (mine !== round.current) return;
       session.current = newSessionToken();
@@ -157,6 +195,9 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
     const fallback = pointName(point.lat, point.lng);
     setText(fallback);
     onChange({ name: fallback, lat: point.lat, lng: point.lng, kind: null });
+    setSheetOpen(false);
+    setMapOpen(false);
+    if (fullScreen) setItems([]);
     const city = serviceCityOf(point, cities);
     if (city === null) {
       setStatus({ kind: "notice", warning: false, text: "已选好地图上的位置。" });
@@ -197,7 +238,7 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
       const item = active >= 0 ? items[active] : undefined;
       if (item !== undefined) void choose(item);
       else setOpen(false);
-    } else if (event.key === "Escape" && open) {
+    } else if (event.key === "Escape" && open && !fullScreen) {
       event.preventDefault();
       setOpen(false);
     }
@@ -212,83 +253,120 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
   const warning = status.kind === "notice" && status.warning;
   const describedBy = [error !== undefined ? errorId : null, info !== undefined ? infoId : null, hint !== undefined ? hintId : null, statusText !== "" ? statusId : null].filter(Boolean).join(" ");
 
-  return (
-    <div className="place-field" ref={rootRef}>
-      <div className="field">
-        <label className="field__label" htmlFor={id}>
-          {label}
-        </label>
-        <div className="field__control combobox">
-          <input
-            id={id}
-            className="input input--lg"
-            role="combobox"
-            aria-expanded={open}
-            aria-controls={listId}
-            aria-autocomplete="list"
-            aria-activedescendant={open && active >= 0 && items[active] !== undefined ? `${id}-option-${active}` : undefined}
-            aria-invalid={error !== undefined || undefined}
-            aria-describedby={describedBy || undefined}
-            aria-required="true"
-            autoComplete="off"
-            spellCheck={false}
-            enterKeyHint="search"
-            value={text}
-            onChange={(event) => {
-              setText(event.target.value);
-              if (value !== null) onChange(null);
-              lookup(event.target.value);
-            }}
-            onFocus={(event) => event.target.select()}
-            onKeyDown={onKeyDown}
-            onBlur={() => setOpen(false)}
-          />
-          <ul id={listId} role="listbox" aria-label={`${label}的候选`} className="combobox__panel place-field__panel" hidden={!open || items.length === 0} onPointerDown={(event) => event.preventDefault()}>
-            {items.map((item, index) => (
-              <li key={`${item.source}-${item.id}`} role="presentation">
-                <div id={`${id}-option-${index}`} role="option" aria-selected={index === active} className={index === active ? "combobox__option combobox__option--active place-field__option" : "combobox__option place-field__option"} onPointerMove={() => setActive(index)} onClick={() => void choose(item)}>
-                  <span className="combobox__option-label">{item.name}</span>
-                  {suggestionDetail(item) !== "" && <span className="place-field__detail">{suggestionDetail(item)}</span>}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-        {error !== undefined && (
-          <ul className="field__errors" id={errorId}>
-            <li className="field__error">
-              <Icon name="alert-triangle" className="field__error-icon" />
-              <span>{error}</span>
+  const combobox = (
+    <>
+      <label className="field__label" htmlFor={id}>
+        {label}
+      </label>
+      <div className="field__control combobox" ref={comboRef}>
+        <input
+          id={id}
+          className="input input--lg"
+          role="combobox"
+          aria-expanded={open}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          aria-activedescendant={open && active >= 0 && items[active] !== undefined ? `${id}-option-${active}` : undefined}
+          aria-invalid={error !== undefined || undefined}
+          aria-describedby={describedBy || undefined}
+          aria-required="true"
+          autoComplete="off"
+          spellCheck={false}
+          enterKeyHint="search"
+          value={text}
+          onChange={(event) => {
+            setText(event.target.value);
+            // 全屏选择页里打字不清掉页面上原来的值：选中才换，「取消」回到原来的
+            if (value !== null && !fullScreen) onChange(null);
+            lookup(event.target.value);
+          }}
+          onFocus={(event) => event.target.select()}
+          data-autofocus={fullScreen || undefined}
+          onKeyDown={onKeyDown}
+          onBlur={(event) => {
+            const next = event.relatedTarget;
+            if (next instanceof Node && comboRef.current?.contains(next)) return;
+            // 手指操作时点候选，浏览器可能先让输入框失焦、却没有新的焦点（relatedTarget 为空）：这时不收，免得点不中；
+            // 点别处由上面的 pointerdown 收起（M8-37）。鼠标和键盘照旧：失焦就收起（Tab 走开、切换窗口）。
+            if (next === null && mediaMatches(COARSE_QUERY)) return;
+            setOpen(false);
+          }}
+        />
+        <ul id={listId} role="listbox" aria-label={`${label}的候选`} className={fullScreen ? "place-field__panel place-field__panel--sheet" : "combobox__panel place-field__panel"} hidden={items.length === 0 || (!open && !fullScreen)} onPointerDown={(event) => event.preventDefault()}>
+          {items.map((item, index) => (
+            <li key={`${item.source}-${item.id}`} role="presentation">
+              <div id={`${id}-option-${index}`} role="option" aria-selected={index === active} className={index === active ? "combobox__option combobox__option--active place-field__option" : "combobox__option place-field__option"} onPointerMove={() => setActive(index)} onClick={() => void choose(item)}>
+                <span className="combobox__option-label">{item.name}</span>
+                {suggestionDetail(item) !== "" && <span className="place-field__detail">{suggestionDetail(item)}</span>}
+              </div>
             </li>
-          </ul>
-        )}
-        {info !== undefined && (
-          <p id={infoId} className="site-address__status place-field__info">
-            <Icon name="info" />
-            {info}
-          </p>
-        )}
-        {hint !== undefined && (
-          <p className="field__hint" id={hintId}>
-            {hint}
-          </p>
-        )}
-        <p id={statusId} className={warning ? "site-address__status site-address__status--warning" : "site-address__status"} role="status">
-          {warning && <Icon name="alert-triangle" />}
-          {statusText}
-        </p>
+          ))}
+        </ul>
       </div>
-      {tiles !== null && mapCenter !== null && (
-        <div className="site-address__map" role="group" aria-label={`${label}的地图`}>
-          <Button className="site-address__map-toggle" aria-expanded={mapOpen} aria-controls={mapId} onClick={() => setMapOpen((current) => !current)}>
-            <Icon name="map" />
-            {mapOpen ? "收起地图" : "在地图上选点"}
-          </Button>
-          <div id={mapId} hidden={!mapOpen}>
-            {mapOpen && <SiteMapPicker tiles={tiles} center={mapCenter} point={value === null ? null : { lat: value.lat, lng: value.lng }} word={label} onPick={(point) => void pickOnMap(point)} />}
-          </div>
-        </div>
+      <p id={statusId} className={warning ? "site-address__status site-address__status--warning" : "site-address__status"} role="status">
+        {warning && <Icon name="alert-triangle" />}
+        {statusText}
+      </p>
+    </>
+  );
+  const map = tiles !== null && mapCenter !== null && (
+    <div className="site-address__map" role="group" aria-label={`${label}的地图`}>
+      <Button className="site-address__map-toggle" aria-expanded={mapOpen} aria-controls={mapId} onClick={() => setMapOpen((current) => !current)}>
+        <Icon name="map" />
+        {mapOpen ? "收起地图" : "在地图上选点"}
+      </Button>
+      <div id={mapId} hidden={!mapOpen}>
+        {mapOpen && <SiteMapPicker tiles={tiles} center={mapCenter} point={value === null ? null : { lat: value.lat, lng: value.lng }} word={label} onPick={(point) => void pickOnMap(point)} />}
+      </div>
+    </div>
+  );
+  const notes = (
+    <>
+      {error !== undefined && (
+        <ul className="field__errors" id={errorId}>
+          <li className="field__error">
+            <Icon name="alert-triangle" className="field__error-icon" />
+            <span>{error}</span>
+          </li>
+        </ul>
       )}
+      {info !== undefined && (
+        <p id={infoId} className="site-address__status place-field__info">
+          <Icon name="info" />
+          {info}
+        </p>
+      )}
+      {hint !== undefined && (
+        <p className="field__hint" id={hintId}>
+          {hint}
+        </p>
+      )}
+    </>
+  );
+
+  if (fullScreen) {
+    const pageDescribedBy = [error !== undefined ? errorId : null, info !== undefined ? infoId : null, hint !== undefined ? hintId : null].filter(Boolean).join(" ");
+    return (
+      <div className="place-field">
+        <div className="field">
+          <PickerTrigger label={label} text={value?.name ?? ""} placeholder="点按输入地址" {...(pageDescribedBy !== "" ? { describedBy: pageDescribedBy } : {})} buttonRef={triggerRef} onOpen={() => setSheetOpen(true)} />
+          {notes}
+        </div>
+        <FullScreenSheet open={sheetOpen} title={label} returnFocusRef={triggerRef} onClose={resetSheet}>
+          <div className="field place-field__sheet-field">{combobox}</div>
+          {map}
+        </FullScreenSheet>
+      </div>
+    );
+  }
+
+  return (
+    <div className="place-field">
+      <div className="field">
+        {combobox}
+        {notes}
+      </div>
+      {map}
     </div>
   );
 }

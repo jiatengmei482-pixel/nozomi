@@ -165,7 +165,10 @@ for (const portal of PORTALS) {
       assert.ok(!rejected.text.includes(token), "超长被拒时不回显令牌");
       assert.ok(!api.logs().includes(token), "日志里没有令牌原文");
       // 随机部分 = 去掉固定前缀后的 base64url（它自己也可能含「_」，不能按「_」切，否则会切出两三个字符、碰巧出现在日志里）
-      const secret = token.slice(token.lastIndexOf(".") + 1).replace(/^[a-z]+_/, "");
+      // 带租户的令牌是 nzr_<租户>.<随机>：取「.」后面就是随机部分，不能再去前缀，
+      // 否则随机部分恰好以「小写字母 + _」开头时会被切掉（约 1% 的偶发，main run 43172522892）
+      const dot = token.lastIndexOf(".");
+      const secret = dot >= 0 ? token.slice(dot + 1) : token.replace(/^[a-z]+_/, "");
       assert.ok(secret.length >= 40, `随机部分应有 43 个字符：${secret.length}`);
       assert.ok(!api.logs().includes(secret), "日志里也没有令牌的随机部分");
     });

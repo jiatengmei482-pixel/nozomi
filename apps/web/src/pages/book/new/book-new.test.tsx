@@ -11,10 +11,11 @@
  */
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter, useLocation, useNavigate } from "react-router";
 import { App } from "../../../App.tsx";
+import { FULL_SCREEN_PICKER_QUERY } from "./full-screen.tsx";
 import type { MapTiles } from "../../../api/areas.ts";
 import type { SiteByPointsResult, SiteCity, SiteConfig, SiteQuote, SiteQuoteResult } from "../../../api/site.ts";
 import { type ApiCall, apiError, assertAbsent, assertFocused, currentLocation, json, narrowScreen, resetBrowser, stubApiWith } from "../../../testing/harness.tsx";
@@ -240,6 +241,142 @@ test("地址框：谷歌用不了时只有平台的地点，状态行说明", as
   await actor.type(await screen.findByRole("combobox", { name: "出发地" }), "成田");
   assert.ok(await screen.findByText(/地址提示暂时用不了，下面只有平台的机场和车站/, {}, SLOW));
   assert.equal(within(screen.getByRole("listbox", { name: "出发地的候选" })).getAllByRole("option").length, 1);
+});
+
+test("地址框（M8-37）：候选开着时 Tab 走到同一块里的「在地图上选点」，候选收起（不盖住获得焦点的按钮）；点页面别处也收起", async () => {
+  wideScreen();
+  open({ config: configOf({ map_tiles: ROUTE_TILES }) });
+  const actor = user();
+  const from = await screen.findByRole("combobox", { name: "出发地" });
+  await actor.type(from, "成田");
+  await screen.findByRole("listbox", { name: "出发地的候选" }, SLOW);
+  assert.equal(from.getAttribute("aria-expanded"), "true");
+  await actor.tab();
+  assert.equal(document.activeElement, within(screen.getByRole("group", { name: "出发地的地图" })).getByRole("button", { name: "在地图上选点" }));
+  assert.equal(from.getAttribute("aria-expanded"), "false");
+  assertAbsent(screen.queryByRole("listbox", { name: "出发地的候选" }));
+
+  await actor.type(from, "机场");
+  await screen.findByRole("listbox", { name: "出发地的候选" }, SLOW);
+  await actor.click(screen.getByRole("heading", { level: 1 }));
+  assert.equal(from.getAttribute("aria-expanded"), "false");
+});
+
+test("地址框（M8-37）：手指操作时输入框失焦却没有新的焦点（点候选时手机浏览器会这样），候选不收、点得中；鼠标操作时照旧收起", async () => {
+  const coarse = { value: true };
+  window.matchMedia = ((query: string) => ({ matches: query.includes("min-width: 1024px") || (query === "(pointer: coarse)" && coarse.value), media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false })) as typeof window.matchMedia;
+  open();
+  const actor = user();
+  const from = await screen.findByRole("combobox", { name: "出发地" });
+  await actor.type(from, "成田");
+  await screen.findByRole("listbox", { name: "出发地的候选" }, SLOW);
+  fireEvent.blur(from, { relatedTarget: null });
+  assert.equal(from.getAttribute("aria-expanded"), "true", "手指操作：失焦没有新焦点时不收");
+  fireEvent.click(screen.getByRole("option", { name: /成田国际机场/ }));
+  await waitFor(() => assert.equal((from as HTMLInputElement).value, "成田国际机场"));
+  assert.equal(from.getAttribute("aria-expanded"), "false");
+
+  coarse.value = false;
+  await actor.clear(from);
+  await actor.type(from, "成田");
+  await screen.findByRole("listbox", { name: "出发地的候选" }, SLOW);
+  fireEvent.blur(from, { relatedTarget: null });
+  assert.equal(from.getAttribute("aria-expanded"), "false", "鼠标操作：失焦就收起（和以前一样）");
+});
+
+test("手机触屏（M8-37）：地址、日期、时间都是全屏选择页——点那一格打开，选中候选 / 确定后回到页面、焦点回到那一格；取消不改原来的值；页面上没有直接打字的地址框", async () => {
+  window.matchMedia = ((query: string) => ({ matches: query === FULL_SCREEN_PICKER_QUERY || query === "(pointer: coarse)", media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false })) as typeof window.matchMedia;
+  open();
+  const actor = user();
+  const fromCell = await screen.findByRole("button", { name: /^出发地/ });
+  assertAbsent(screen.queryByRole("combobox", { name: "出发地" }));
+  assert.equal(fromCell.getAttribute("aria-haspopup"), "dialog");
+  assert.match(fromCell.textContent ?? "", /点按输入地址/);
+
+  await actor.click(fromCell);
+  const sheet = await screen.findByRole("dialog", { name: "出发地" });
+  const input = within(sheet).getByRole("combobox", { name: "出发地" });
+  assert.equal(document.activeElement, input, "打开后焦点在输入框");
+  await actor.type(input, "成田");
+  await within(sheet).findByRole("listbox", { name: "出发地的候选" }, SLOW);
+  await actor.click(within(sheet).getByRole("option", { name: /成田国际机场/ }));
+  await waitFor(() => assertAbsent(screen.queryByRole("dialog", { name: "出发地" })));
+  assert.match(fromCell.textContent ?? "", /成田国际机场/);
+  assert.equal(document.activeElement, fromCell, "回到页面后焦点在那一格");
+
+  // 取消：选择页里打的字不改原来的值
+  await actor.click(fromCell);
+  const again = await screen.findByRole("dialog", { name: "出发地" });
+  await actor.clear(within(again).getByRole("combobox", { name: "出发地" }));
+  await actor.type(within(again).getByRole("combobox", { name: "出发地" }), "京王");
+  await actor.click(within(again).getByRole("button", { name: "取消" }));
+  await waitFor(() => assertAbsent(screen.queryByRole("dialog", { name: "出发地" })));
+  assert.match(fromCell.textContent ?? "", /成田国际机场/);
+
+  // 日期：确定后回到页面；取消不改
+  const dateCell = screen.getByRole("button", { name: /^日期（当地）/ });
+  await actor.click(dateCell);
+  const dateSheet = await screen.findByRole("dialog", { name: "日期（当地）" });
+  fireEvent.change(within(dateSheet).getByLabelText("日期（当地）"), { target: { value: "2030-11-20" } });
+  await actor.click(within(dateSheet).getByRole("button", { name: "确定" }));
+  await waitFor(() => assertAbsent(screen.queryByRole("dialog", { name: "日期（当地）" })));
+  assert.match(dateCell.textContent ?? "", /2030-11-20/);
+  await actor.click(dateCell);
+  const dateAgain = await screen.findByRole("dialog", { name: "日期（当地）" });
+  fireEvent.change(within(dateAgain).getByLabelText("日期（当地）"), { target: { value: "2030-12-01" } });
+  await actor.click(within(dateAgain).getByRole("button", { name: "取消" }));
+  await waitFor(() => assertAbsent(screen.queryByRole("dialog", { name: "日期（当地）" })));
+  assert.match(dateCell.textContent ?? "", /2030-11-20/);
+});
+
+test("手机触屏（M8-37 审查）：选择页开着时转屏换成页面输入框——选择页关掉、打了一半的字不留在输入框里冒充已选地址、转回来不自己弹出；浏览器自己关掉选择页（返回键）后还能再打开", async () => {
+  let full = true;
+  const listeners = new Set<() => void>();
+  window.matchMedia = ((query: string) => ({
+    get matches() {
+      return query === FULL_SCREEN_PICKER_QUERY ? full : query === "(pointer: coarse)";
+    },
+    media: query,
+    onchange: null,
+    addEventListener: (_type: string, listener: () => void) => listeners.add(listener),
+    removeEventListener: (_type: string, listener: () => void) => listeners.delete(listener),
+    addListener() {},
+    removeListener() {},
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia;
+  const flip = (next: boolean): void => {
+    full = next;
+    act(() => {
+      for (const listener of [...listeners]) listener();
+    });
+  };
+  open();
+  const actor = user();
+  await actor.click(await screen.findByRole("button", { name: /^出发地/ }));
+  const sheet = await screen.findByRole("dialog", { name: "出发地" });
+  await actor.type(within(sheet).getByRole("combobox", { name: "出发地" }), "成田");
+  await within(sheet).findByRole("listbox", { name: "出发地的候选" }, SLOW);
+
+  flip(false);
+  await waitFor(() => assertAbsent(screen.queryByRole("dialog", { name: "出发地" })));
+  const input = (await screen.findByRole("combobox", { name: "出发地" })) as HTMLInputElement;
+  assert.equal(input.value, "", "选择页里打了一半的「成田」不留在页面输入框里");
+  assert.equal(input.getAttribute("aria-expanded"), "false");
+
+  flip(true);
+  const cell = await screen.findByRole("button", { name: /^出发地/ });
+  assertAbsent(screen.queryByRole("dialog", { name: "出发地" }));
+
+  // 浏览器自己关掉 dialog（安卓返回键的 cancel 不可取消时）：React 跟着关，下次点还能打开
+  await actor.click(cell);
+  const native = (await screen.findByRole("dialog", { name: "出发地" })) as HTMLDialogElement;
+  act(() => {
+    native.close();
+    native.dispatchEvent(new Event("close"));
+  });
+  await waitFor(() => assertAbsent(screen.queryByRole("dialog", { name: "出发地" })));
+  await actor.click(screen.getByRole("button", { name: /^出发地/ }));
+  assert.ok(await screen.findByRole("dialog", { name: "出发地" }), "还能再打开");
 });
 
 test("认出接机：时间标签变「航班落地时间（当地）」，提示「已识别为接机…落地后免费等待 N 分钟」N 取报价；第 3 步接机才有航班号（必填、查格式）和举牌姓名；送机没有", async () => {
