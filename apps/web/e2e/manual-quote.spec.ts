@@ -131,6 +131,13 @@ test("报不出价：客人留下邮箱和 WhatsApp → 客服在「人工报价
     await expect(row).toContainText("点对点 · 城市未识别");
     await expect(row).toContainText("新");
     await expect(csPage.locator("table")).not.toContainText(guestEmail);
+    // 行程摘要不用等宽字体（编号仍是等宽）；状态数量按钮和上面的说明文字之间留出间距（M6-08）
+    const trip = row.getByText("点对点 · 城市未识别");
+    expect(await trip.evaluate((node) => getComputedStyle(node).fontFamily)).not.toMatch(/monospace/);
+    expect(await row.getByRole("link", { name: /^MQ/ }).evaluate((node) => getComputedStyle(node).fontFamily)).toMatch(/monospace/);
+    const leadBottom = await csPage.locator(".page__lead").evaluate((node) => node.getBoundingClientRect().bottom);
+    const countsTop = await csPage.getByRole("list", { name: "各状态的数量" }).evaluate((node) => node.getBoundingClientRect().top);
+    expect(countsTop - leadBottom, "说明文字和状态数量之间的间距").toBeGreaterThanOrEqual(12);
     await checkNarrow(csPage, "人工报价列表", "m821-platform-list");
     await row.getByRole("link", { name: /^MQ/ }).click();
     await expect(csPage.getByRole("heading", { level: 1, name: /^申请 MQ/ })).toBeVisible();

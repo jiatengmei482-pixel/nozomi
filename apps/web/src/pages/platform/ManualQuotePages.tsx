@@ -125,7 +125,7 @@ export function ManualQuoteListPage() {
           <Link className="link mono" to={manualQuotePath(row.id)}>
             {row.request_no}
           </Link>
-          <span className="table__muted">{manualQuoteTripText(row)}</span>
+          <span className="table__muted manual-quote-trip">{manualQuoteTripText(row)}</span>
         </span>
       ),
     },

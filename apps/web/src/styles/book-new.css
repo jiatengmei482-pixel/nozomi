@@ -926,6 +926,7 @@ button.book-steps__link:hover .book-steps__name {
 }
 
 .book-summary-bar__text {
+  display: flex;
   grid-column: 1;
   min-width: 0;
   overflow: hidden;
@@ -933,6 +934,19 @@ button.book-steps__link:hover .book-steps__name {
   font-size: var(--font-size-md);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 行程类型、箭头、价格不缩；地点名各自单行省略（规范 10.1，M6-08） */
+.book-summary-bar__fixed {
+  flex: none;
+  white-space: pre;
+}
+
+.book-summary-bar__place {
+  flex: 0 1 auto;
+  min-width: var(--space-8);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .book-summary-bar__arrow {

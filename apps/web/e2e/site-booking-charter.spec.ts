@@ -125,6 +125,35 @@ async function expectBothThemes(page: Page, what: string): Promise<void> {
   await page.emulateMedia({ colorScheme: "light" });
 }
 
+/** 很长的上车地点名：手机第 2 步顶部的行程条里要单行省略（规范 10.1，M6-08） */
+const LONG_PICKUP = "京王广场酒店本馆南口出租车乘车处（新宿区西新宿二丁目 2-1）";
+
+/**
+ * 手机第 2 步顶部的行程条（规范 10.1，M6-08）：390、320 宽都只占一行；上车地点名被省略（不折行），
+ * 「包车 8 小时」和价格完整可见；完整的地点名在按钮的读屏名里。
+ */
+async function expectSummaryBarOneLine(page: Page, placeName: string): Promise<void> {
+  const viewport = page.viewportSize() ?? { width: 390, height: 844 };
+  const toggle = page.getByRole("button", { name: /^行程摘要/ });
+  await expect(toggle).toHaveAccessibleName(new RegExp(placeName.replace(/[()（）]/g, ".")));
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    const text = page.locator(".book-summary-bar__text");
+    await expect(text).toContainText("78,100");
+    const metrics = await text.evaluate((node) => {
+      const box = node.getBoundingClientRect();
+      const lineHeight = Number.parseFloat(getComputedStyle(node).lineHeight);
+      const place = node.querySelector(".book-summary-bar__place") as HTMLElement;
+      const fixed = [...node.querySelectorAll(".book-summary-bar__fixed")].map((item) => item.getBoundingClientRect());
+      return { width: box.width, fixedWidths: fixed.map((item) => Math.round(item.width)).join("+"), height: box.height, lineHeight, placeClipped: place.scrollWidth > place.clientWidth, fixedInside: fixed.every((item) => item.left >= box.left - 0.5 && item.right <= box.right + 0.5) };
+    });
+    expect(metrics.height, `${width}px 行程条只占一行`).toBeLessThan(metrics.lineHeight * 1.5);
+    expect(metrics.placeClipped, `${width}px 上车地点名单行省略`).toBe(true);
+    expect(metrics.fixedInside, `${width}px 行程类型和价格完整可见 ${JSON.stringify(metrics)}`).toBe(true);
+  }
+  await page.setViewportSize(viewport);
+}
+
 async function screenshots(page: Page, name: string): Promise<void> {
   for (const scheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: scheme });
@@ -148,10 +177,10 @@ test("新预订页包车：下车地点必填（旧链接只有上车地点时�
 
   // 手机 390：旧包车链接只有上车地点
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(`${SITE}/book/new?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&date=${date}&time=10:00`);
+  await page.goto(`${SITE}/book/new?mode=charter&${linkPoint("from", trip.pickup, LONG_PICKUP)}&date=${date}&time=10:00`);
   const pickup = page.getByRole("combobox", { name: "上车地点" });
   const dropoff = page.getByRole("combobox", { name: "下车地点" });
-  await expect(pickup).toHaveValue("上车酒店");
+  await expect(pickup).toHaveValue(LONG_PICKUP);
   await expect(dropoff).toHaveValue("");
   await expect(page.getByText("请选择下车地点，包车现在按上车和下车地点报价。")).toBeVisible();
   await expect(page.getByText("包车结束时在哪里下车，价格按上车和下车地点算。")).toBeVisible();
@@ -171,12 +200,13 @@ test("新预订页包车：下车地点必填（旧链接只有上车地点时�
   await expect(page.getByText("请选择下车地点，包车现在按上车和下车地点报价。")).toHaveCount(0);
   await page.getByRole("button", { name: "下一步：选择车型" }).click();
   await expect(page.getByRole("heading", { name: "选择车型" })).toBeFocused();
-  await expect(page.locator(".book-summary-bar__text")).toContainText(`包车 8 小时 · 上车酒店 → ${trip.station.name}`);
+  await expect(page.locator(".book-summary-bar__text")).toContainText(`包车 8 小时 · ${LONG_PICKUP} → ${trip.station.name}`);
   const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: trip.groupName }) });
   await expect(card).toContainText("78,100 JPY");
   await expect(card).toContainText(NOTE);
   expect(charterQuotes.at(-1)).toMatchObject({ category: "charter", pickup: trip.pickup, dropoff: trip.station.location, package_hours: 8, service_local: `${date}T10:00` });
   await card.getByRole("button", { name: `选择 ${trip.groupName}` }).click();
+  await expectSummaryBarOneLine(page, LONG_PICKUP);
   await expectNarrowAndAccessible(page, "新预订页包车第 2 步（含区域加价）");
   await screenshots(page, "mobile-step2");
   await page.locator(".book-bar").getByRole("button", { name: "下一步" }).click();
