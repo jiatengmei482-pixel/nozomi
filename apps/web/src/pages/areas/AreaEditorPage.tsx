@@ -863,6 +863,7 @@ export function AreaEditorPage() {
                 cityCenter={{ lat: city.center.lat, lng: city.center.lng }}
                 fitSignal={fitSignal}
                 outside={outside?.pieces ?? []}
+                role={role}
               />
             </MapBoundary>
           ) : (

@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Position } from "./areas.ts";
-import { type DistancePrice, PRICING_BASIS_NOTES, distancePriceAllowed, distancePriceConflicts, distancePriceIssues, pricingBasisNote, selectDistancePrice } from "./distance-price.ts";
+import { type DistancePrice, DISTANCE_ONLY_FEE_NOTES, PRICING_BASIS_NOTES, distancePriceAllowed, distancePriceConflicts, distancePriceIssues, pricingBasisFeeNote, pricingBasisNote, selectDistancePrice } from "./distance-price.ts";
 import type { AdjustRule, PriceRule } from "./pricing.ts";
 import { emptyServiceRules } from "./products.ts";
 import { type QuoteArea, type QuoteMoment, type QuoteProduct, type QuoteRequest, quoteProduct } from "./quote.ts";
@@ -255,4 +255,13 @@ test("客人看到的标注（业主定的说法）：按里程计价 / 含里�
   assert.equal(pricingBasisNote("one_price_outside_km"), "含里程费");
   assert.equal(pricingBasisNote(undefined), null);
   assert.equal(PRICING_BASIS_NOTES.one_price, null);
+});
+
+test("按里程计价的「费用说明」（M6-08）：不写「一口价」，只说车费已含高速费、停车费；一口价、含里程费、没有这一项返回 null（照旧用一口价的说法）", () => {
+  assert.equal(pricingBasisFeeNote("distance_only"), "车费已含高速费、停车费等，无需另付");
+  for (const language of ["zh", "ja", "en"] as const) {
+    assert.equal(pricingBasisFeeNote("distance_only", language), DISTANCE_ONLY_FEE_NOTES[language]);
+    assert.doesNotMatch(DISTANCE_ONLY_FEE_NOTES[language], /一口价|定額|fixed price/i);
+  }
+  for (const basis of ["one_price", "one_price_outside_km", null, undefined] as const) assert.equal(pricingBasisFeeNote(basis), null);
 });

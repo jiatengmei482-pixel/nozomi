@@ -7,6 +7,7 @@
  * - 金额都是商品子品牌币种的最小货币单位整数（结算价）；对外价照旧由比价那一步按渠道加价算。
  * 检查函数只返回路径和原因代码，不返回句子（同 pricing.ts）。
  */
+import type { FixedPriceLanguage } from "./fixed-price-includes.ts";
 import type { ServiceCategory } from "./master-data.ts";
 import { type PriceIssue, type PriceRuleStatus, PRICE_LIMITS, dateRangesOverlap, priceRuleCoversDate } from "./pricing.ts";
 import { isLocalDate } from "./service-time.ts";
@@ -81,4 +82,19 @@ export const PRICING_BASIS_NOTES: Readonly<Record<PricingBasis, string | null>> 
 /** 客人看到的标注：一口价为 null（包车的区域加价另用 `AREA_SURCHARGE_NOTE`） */
 export function pricingBasisNote(basis: PricingBasis | null | undefined): string | null {
   return basis === undefined || basis === null ? null : PRICING_BASIS_NOTES[basis];
+}
+
+/**
+ * 按里程计价（`distance_only`）的单「费用说明」那一句（M6-08，M8-14 验收观察 1）：它不是一口价，不能写「一口价已含所有费用…」，
+ * 只说车费里已经含了高速费、停车费（规则和一口价一样，不另收）。一口价、含里程费、旧接口没有这一项都返回 null，
+ * 由调用的地方照旧用 `fixedPriceFeeNote`。
+ */
+export const DISTANCE_ONLY_FEE_NOTES: Readonly<Record<FixedPriceLanguage, string>> = {
+  zh: "车费已含高速费、停车费等，无需另付",
+  ja: "運賃には高速料金・駐車料金などが含まれており、追加のお支払いはありません",
+  en: "The fare includes tolls, parking and other fees — nothing extra to pay",
+};
+
+export function pricingBasisFeeNote(basis: PricingBasis | null | undefined, language: FixedPriceLanguage = "zh"): string | null {
+  return basis === "distance_only" ? DISTANCE_ONLY_FEE_NOTES[language] : null;
 }

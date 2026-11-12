@@ -857,6 +857,14 @@
   gap: var(--space-1);
 }
 
+/* 列多的表格（未覆盖需求，M6-08）：是表格时两个操作上下排，操作列窄一些，1280 宽不用横向滚动就看得到；手机卡片里照常一行 */
+@media (min-width: 768px) {
+  .table__actions--stack {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
 .table__inline {
   display: inline-flex;
   flex-wrap: wrap;

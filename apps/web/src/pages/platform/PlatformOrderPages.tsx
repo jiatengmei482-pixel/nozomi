@@ -67,6 +67,8 @@ import {
   PLATFORM_CANCEL_REASONS,
   PLATFORM_ORDER_LIST_PATH,
   POLICY_CATEGORY_NAMES,
+  ORDER_NO_EVENTS_TEXT,
+  ORDER_NO_PAYMENTS_TEXT,
   REFUND_STATUS_BADGES,
   REVIEW_REASON_NAMES,
   amountToMinor,
@@ -695,6 +697,7 @@ export function PlatformOrderDetailPage() {
 
       <section className="card">
         <h2 className="card__title">收款与退款</h2>
+        {detail.payments.length === 0 && detail.refunds.length === 0 && <p className="table__muted">{ORDER_NO_PAYMENTS_TEXT}</p>}
         <ul className="plain-list">
           {detail.payments.map((payment) => (
             <li key={payment.id}>{`${payment.kind === "order" ? "下单付款" : payment.kind === "change" ? "改期补差价" : "事后加收"} · ${moneyText(payment.amount)} · ${paymentStatusName(payment.status)}${payment.refunded.amount !== "0" && payment.refunded.amount !== "0.00" ? ` · 已退 ${moneyText(payment.refunded)}` : ""}${payment.last_error?.decline_code ? ` · 被拒：${payment.last_error.decline_code}` : ""}`}</li>
@@ -899,6 +902,7 @@ export function PlatformOrderDetailPage() {
 
       <section className="card">
         <h2 className="card__title">状态流水</h2>
+        {detail.events.length === 0 && <p className="table__muted">{ORDER_NO_EVENTS_TEXT}</p>}
         <ul className="plain-list">
           {detail.events.map((event, index) => (
             <li key={`${event.occurred_at}-${index}`}>

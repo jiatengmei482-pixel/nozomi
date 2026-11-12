@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { screen, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import type { PlatformOrder, PlatformOrderDetail } from "../../api/order-money.ts";
-import { orderEventNote } from "../../lib/order-money-display.ts";
+import { ORDER_NO_EVENTS_TEXT, ORDER_NO_PAYMENTS_TEXT, orderEventNote } from "../../lib/order-money-display.ts";
 import { NOT_DISPATCHED, NO_RECORDS, ORDER_ID, TENANT_ID, type Route, openApp, stamps } from "../../testing/order-center-fixtures.tsx";
 import { json, resetBrowser } from "../../testing/harness.tsx";
 
@@ -206,4 +206,13 @@ test("乘客默认打码：只读员工也要点「查看联系方式」才看�
   await user.click(await screen.findByRole("button", { name: "查看联系方式" }));
   assert.ok(await screen.findByText(/系统暂时无法查看/));
   assert.match(sectionText(/^行程/), /王\*\*/);
+});
+
+test("「收款与退款」「状态流水」（M6-08）：没有记录时写明，不留空白；有记录时不出这句", async () => {
+  await openDetail(detailOf(orderOf({ status: "pending_payment" })));
+  assert.match(sectionText(/^收款与退款$/), new RegExp(ORDER_NO_PAYMENTS_TEXT));
+  assert.match(sectionText(/^状态流水$/), new RegExp(ORDER_NO_EVENTS_TEXT));
+  resetBrowser();
+  await openDetail(detailOf(orderOf({ status: "departed" }), { events: [{ from_status: "assigned", to_status: "departed", actor: "driver", reason: "DEPARTED", occurred_at: "2026-10-20T00:10:00.000Z", source: null, recorded_at: null }] }));
+  assert.doesNotMatch(sectionText(/^状态流水$/), new RegExp(ORDER_NO_EVENTS_TEXT));
 });

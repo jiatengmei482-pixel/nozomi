@@ -13,7 +13,9 @@ import { type PointerEvent as ReactPointerEvent, useEffect, useLayoutEffect, use
 import type { MapTiles } from "../../api/areas.ts";
 import { Button } from "../../components/Button.tsx";
 import { Icon } from "../../components/Icon.tsx";
+import { applyMapTheme, dimTilesFor, tileUrlFor } from "../../lib/map-theme.ts";
 import { QuietTileLayer } from "../../lib/quiet-tile-layer.ts";
+import { currentColorScheme, useColorScheme } from "../../theme/use-color-scheme.ts";
 
 export interface LatLngValue {
   lat: number;
@@ -34,11 +36,6 @@ export interface SiteMapPickerProps {
 const CITY_ZOOM = 12;
 const POINT_ZOOM = 16;
 
-function isDark(): boolean {
-  const chosen = document.documentElement.dataset["theme"];
-  return chosen === "dark" || (chosen !== "light" && (window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false));
-}
-
 /** 地图给的坐标保留 6 位小数（约 0.1 米），和坐标栏里的写法一致。 */
 export function roundPoint(point: LatLngValue): LatLngValue {
   return { lat: Number(point.lat.toFixed(6)), lng: Number(L.Util.wrapNum(point.lng, [-180, 180], true).toFixed(6)) };
@@ -47,6 +44,8 @@ export function roundPoint(point: LatLngValue): LatLngValue {
 export function SiteMapPicker({ tiles, center, point, word, onPick }: SiteMapPickerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
+  const layerRef = useRef<L.TileLayer | null>(null);
+  const scheme = useColorScheme();
   const [, setView] = useState(0);
   const [tileTrouble, setTileTrouble] = useState(false);
   const [dragAt, setDragAt] = useState<{ x: number; y: number } | null>(null);
@@ -58,11 +57,11 @@ export function SiteMapPicker({ tiles, center, point, word, onPick }: SiteMapPic
     const container = containerRef.current;
     if (container === null) return;
     const map = L.map(container, { zoomControl: false, attributionControl: false, zoomAnimation: false, fadeAnimation: false, markerZoomAnimation: false, keyboard: true, minZoom: tiles.min_zoom, maxZoom: tiles.max_zoom });
-    const dark = isDark();
-    if (dark && tiles.dark_url_template === null) container.classList.add("area-map__canvas--dimmed");
+    const opened = currentColorScheme();
+    if (dimTilesFor(tiles, opened)) container.classList.add("area-map__canvas--dimmed");
     let loaded = 0;
     let failed = 0;
-    new QuietTileLayer(dark && tiles.dark_url_template !== null ? tiles.dark_url_template : tiles.url_template, {
+    layerRef.current = new QuietTileLayer(tileUrlFor(tiles, opened), {
       tileSize: tiles.tile_size,
       zoomOffset: tiles.tile_size === 512 ? -1 : 0,
       minZoom: tiles.min_zoom,
@@ -87,9 +86,16 @@ export function SiteMapPicker({ tiles, center, point, word, onPick }: SiteMapPic
     return () => {
       map.remove();
       mapRef.current = null;
+      layerRef.current = null;
     };
     // 只在打开时用一次起始位置；之后的变化由下面的 effect 处理
   }, [tiles]);
+
+  // 切换亮暗主题：换瓦片或压暗底图，标记不动（M6-08）
+  useEffect(() => {
+    const container = containerRef.current;
+    if (container !== null && layerRef.current !== null) applyMapTheme(container, layerRef.current, tiles, scheme);
+  }, [scheme, tiles]);
 
   // 坐标从外面变了：不在视野里就移过去
   const pointKey = point === null ? "" : `${point.lat},${point.lng}`;

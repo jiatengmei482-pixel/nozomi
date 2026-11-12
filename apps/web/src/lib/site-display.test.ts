@@ -118,6 +118,11 @@ test("包车一口价全含（M8-09）：询价说明写含所有费用、超出
   for (const category of ["airport_transfer", "point_to_point"] as const) assert.equal(orderFeeNote({ category, created_at: "2026-10-01T00:00:00.000Z" }), "一口价已含所有费用（高速费、停车费等），无需另付");
   assert.equal(orderFeeNote({ category: "charter", created_at: "2026-11-09T15:00:00.000Z" }), "一口价已含所有费用（高速费、停车费等），无需另付；超出套餐的时长和公里服务后按实际收取");
   assert.equal(orderFeeNote({ category: "charter", created_at: "2026-11-09T14:59:59.999Z" }), null);
+  // 按里程计价（M6-08）：不写「一口价」；一口价、含里程费照旧
+  for (const category of ["airport_transfer", "point_to_point"] as const) {
+    assert.equal(orderFeeNote({ category, created_at: "2026-11-12T00:00:00.000Z", pricing_basis: "distance_only" }), "车费已含高速费、停车费等，无需另付");
+    for (const basis of ["one_price", "one_price_outside_km"] as const) assert.equal(orderFeeNote({ category, created_at: "2026-11-12T00:00:00.000Z", pricing_basis: basis }), "一口价已含所有费用（高速费、停车费等），无需另付");
+  }
 });
 
 test("要写哪几端的地址（M8-19）：包车新单两端都写；已下的包车单没有下车点时只有上车点；接送机、点对点不变；含区域加价的说法不带金额", () => {

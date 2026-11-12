@@ -250,6 +250,9 @@ test("供应商在价格页新增计程价（重叠的被拒）→ 一端在区�
   expect(created.status(), await created.text()).toBe(201);
   const order = ((await created.json()) as { order: { id: string; order_no: string; pricing_basis: string } }).order;
   expect(order.pricing_basis).toBe("distance_only");
+  // 官网订单页「费用说明」（M6-08）：按里程计价的不写「一口价已含所有费用」
+  await expect(page.locator("main")).toContainText("车费已含高速费、停车费等，无需另付");
+  await expect(page.locator("main")).not.toContainText("一口价已含所有费用");
   await asOwner(async (query) => {
     await query("update orders set status = 'confirmed', confirmed_at = now(), dispatch_due_at = service_at - interval '2 hours', updated_at = now() where id = $1", [order.id]);
     await query("update order_payments set status = 'succeeded', succeeded_at = now() where order_id = $1", [order.id]);

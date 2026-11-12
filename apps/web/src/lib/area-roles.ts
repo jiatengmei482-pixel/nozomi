@@ -21,6 +21,14 @@ export const AREA_ROLE_OPTIONS: readonly { value: AreaRole; label: string; hint:
   { value: "both", label: AREA_ROLE_NAMES.both, hint: "这块地方就是接单范围，也按它定价。只想画一个区域、按一个价时选它（以前画的区域都是这一种）。" },
 ];
 
+/**
+ * 区域编辑页地图图例「营运区」那一行的说明（M6-08）：纯运营区域不带价格，营运区只是能接单的范围，不能写「可以报价」；
+ * 报价区域、运营 + 报价照旧。
+ */
+export function operateLegendText(role: AreaRole): string {
+  return role === "operating" ? "能接单的范围，不带价格" : "可以报价";
+}
+
 export const AREA_ROLE_FIELD_HINT = "一个地点要同时在你的某个运营区域里、又在商品勾选的报价区域里，这个商品才报价。没勾选的地方不会被按别处的价格报出去。";
 
 /** 能被商品勾选、挂价格的区域（商品的服务区域、包车区域加价、点对点线路两端的选择都只列这些）。 */
