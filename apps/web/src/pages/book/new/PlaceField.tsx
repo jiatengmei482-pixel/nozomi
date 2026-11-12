@@ -23,39 +23,62 @@ import { type LatLngValue, SiteMapPicker } from "../SiteMapPicker.tsx";
 /** 停顿多久再查（毫秒）：每输入一个字都查会白花钱。 */
 export const AUTOCOMPLETE_DEBOUNCE_MS = 300;
 
-/** 手机宽度（和 data.css 里组合框面板的 480px 分界一致）：候选紧贴输入框，见文件头 M8-37。 */
-const PHONE_QUERY = "(max-width: 479.98px)";
+/** 手机宽度：正好是 data.css 里组合框面板 `min-width: 480px` 的反面（book-new.css 用同一句），候选紧贴输入框，见文件头 M8-37。 */
+const PHONE_QUERY = "not all and (min-width: 480px)";
+/** 手指操作（手机、平板）：点候选时输入框可能先失焦、没有新的焦点 */
+const COARSE_QUERY = "(pointer: coarse)";
+
+function mediaMatches(query: string): boolean {
+  return typeof window.matchMedia === "function" && window.matchMedia(query).matches;
+}
 /** 候选列表离可见区域底边（手机键盘上沿）留的空隙，和至少要露出的高度（约两个候选） */
 const PANEL_GAP_PX = 8;
 const PANEL_MIN_PX = 120;
 /** 键盘上面至少要放得下这么高的列表，不够就把输入框滚到上面 */
 const PANEL_WANTED_PX = 240;
 
+/** 可见区域（键盘上面那一块）在页面视口里的上下沿；没有 `visualViewport` 时就是整个视口。 */
+function visibleArea(): { top: number; bottom: number } {
+  const view = window.visualViewport;
+  return view ? { top: view.offsetTop, bottom: view.offsetTop + view.height } : { top: 0, bottom: window.innerHeight };
+}
+
 /**
- * 手机上候选列表打开时：键盘上面放不下就把输入框滚到可见区域上方（`scroll-margin-top` 让开吸顶的摘要条），
- * 再按键盘上面剩下的高度给列表定最大高度；键盘收起、页面滚动时跟着重算。不是手机宽度时什么都不做（电脑上不变）。
+ * 手机上候选列表打开时：键盘上面放不下就把输入框滚到可见区域的上沿（让开 `scroll-margin-top`，即吸顶的摘要条），
+ * 再按键盘上面剩下的高度给列表定最大高度；键盘收起、页面滚动、横竖屏切换时跟着重算（每帧最多一次）。
+ * 按可见区域而不是页面视口对齐：iOS 键盘弹出时页面滚不动的话，可见区域会往下平移（`visualViewport.offsetTop > 0`）。
+ * 不是手机宽度时什么都不做（电脑上不变）；打开期间变成不是手机宽度（横过来）就去掉最大高度，用回 data.css 的。
  */
 function usePhonePanelFit(open: boolean, input: HTMLInputElement | null, list: HTMLUListElement | null): number | null {
   const [maxHeight, setMaxHeight] = useState<number | null>(null);
   useEffect(() => {
     if (!open || input === null || list === null) return;
-    if (typeof window.matchMedia !== "function" || !window.matchMedia(PHONE_QUERY).matches) return;
-    const visibleBottom = (): number => {
-      const view = window.visualViewport;
-      return view ? view.offsetTop + view.height : window.innerHeight;
+    if (!mediaMatches(PHONE_QUERY)) return;
+    const room = (): number => visibleArea().bottom - input.getBoundingClientRect().bottom - PANEL_GAP_PX;
+    if (room() < Math.min(list.scrollHeight, PANEL_WANTED_PX)) {
+      const margin = Number.parseFloat(getComputedStyle(input).scrollMarginTop) || 0;
+      window.scrollBy(0, input.getBoundingClientRect().top - visibleArea().top - margin);
+    }
+    let frame = 0;
+    const fit = (): void => {
+      frame = 0;
+      setMaxHeight(mediaMatches(PHONE_QUERY) ? Math.max(Math.floor(room()), PANEL_MIN_PX) : null);
     };
-    const room = (): number => visibleBottom() - input.getBoundingClientRect().bottom - PANEL_GAP_PX;
-    if (room() < Math.min(list.scrollHeight, PANEL_WANTED_PX)) input.scrollIntoView({ block: "start" });
-    const fit = (): void => setMaxHeight(Math.max(Math.floor(room()), PANEL_MIN_PX));
+    const schedule = (): void => {
+      if (frame === 0) frame = window.requestAnimationFrame(fit);
+    };
     fit();
     const view = window.visualViewport;
-    view?.addEventListener("resize", fit);
-    view?.addEventListener("scroll", fit);
-    window.addEventListener("scroll", fit, { passive: true });
+    view?.addEventListener("resize", schedule);
+    view?.addEventListener("scroll", schedule);
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
     return () => {
-      view?.removeEventListener("resize", fit);
-      view?.removeEventListener("scroll", fit);
-      window.removeEventListener("scroll", fit);
+      if (frame !== 0) window.cancelAnimationFrame(frame);
+      view?.removeEventListener("resize", schedule);
+      view?.removeEventListener("scroll", schedule);
+      window.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
       setMaxHeight(null);
     };
   }, [open, input, list]);
@@ -110,7 +133,8 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
   const session = useRef(newSessionToken());
   const round = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const rootRef = useRef<HTMLDivElement>(null);
+  /** 输入框 + 候选列表：在这里面算「还在地址框里」；同一块里的地图、地图按钮不算（M8-37 审查） */
+  const comboRef = useRef<HTMLDivElement>(null);
   const [inputEl, setInputEl] = useState<HTMLInputElement | null>(null);
   const [listEl, setListEl] = useState<HTMLUListElement | null>(null);
   const panelMax = usePhonePanelFit(open && items.length > 0, inputEl, listEl);
@@ -126,7 +150,7 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
   useEffect(() => {
     if (!open) return;
     const close = (event: Event): void => {
-      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) setOpen(false);
+      if (event.target instanceof Node && !comboRef.current?.contains(event.target)) setOpen(false);
     };
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
@@ -257,12 +281,12 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
   const describedBy = [error !== undefined ? errorId : null, info !== undefined ? infoId : null, hint !== undefined ? hintId : null, statusText !== "" ? statusId : null].filter(Boolean).join(" ");
 
   return (
-    <div className="place-field" ref={rootRef}>
+    <div className="place-field">
       <div className="field">
         <label className="field__label" htmlFor={id}>
           {label}
         </label>
-        <div className="field__control combobox">
+        <div className="field__control combobox" ref={comboRef}>
           <input
             ref={setInputEl}
             id={id}
@@ -287,9 +311,12 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
             onFocus={(event) => event.target.select()}
             onKeyDown={onKeyDown}
             onBlur={(event) => {
-              // 焦点移到地址框以外的控件（Tab 走开）才收起；点空白处由上面的 pointerdown 收起。
-              // 手机上点候选时浏览器可能先让输入框失焦（relatedTarget 为空），这里不收，免得点不中（M8-37）
-              if (event.relatedTarget instanceof Node && !rootRef.current?.contains(event.relatedTarget)) setOpen(false);
+              const next = event.relatedTarget;
+              if (next instanceof Node && comboRef.current?.contains(next)) return;
+              // 手指操作时点候选，浏览器可能先让输入框失焦、却没有新的焦点（relatedTarget 为空）：这时不收，免得点不中；
+              // 点别处由上面的 pointerdown 收起（M8-37）。鼠标和键盘照旧：失焦就收起（Tab 走开、切换窗口）。
+              if (next === null && mediaMatches(COARSE_QUERY)) return;
+              setOpen(false);
             }}
           />
           <ul ref={setListEl} id={listId} role="listbox" aria-label={`${label}的候选`} className="combobox__panel place-field__panel" hidden={!open || items.length === 0} style={panelMax !== null ? { maxHeight: `${panelMax}px` } : undefined} onPointerDown={(event) => event.preventDefault()}>

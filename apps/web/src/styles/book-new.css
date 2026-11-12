@@ -101,9 +101,10 @@
 /*
  * 手机（< 480px，M8-37）：地址候选紧贴输入框下面，不用组合框通用的「从屏幕底部升起」的面板（data.css）。
  * 手机键盘弹出时页面不变矮，贴底的面板整个在键盘后面，客人看不到候选。最大高度由 PlaceField 按键盘上面剩下的空间设在元素上，这里是兜底。
- * 输入框滚到上面时让开吸顶的行程摘要条（book-summary-bar）。
+ * 输入框滚到上面时让开吸顶的行程摘要条（book-summary-bar，最多两行；和步骤标题的 scroll-margin-top 一样）。
+ * 媒体查询正好是 data.css 里 `min-width: 480px` 的反面，PlaceField.tsx 里判断手机宽度用同一句。
  */
-@media (max-width: 479.98px) {
+@media not all and (min-width: 480px) {
   .combobox__panel.place-field__panel {
     position: absolute;
     top: calc(100% + var(--space-1));
@@ -115,7 +116,7 @@
   }
 
   .place-field .input {
-    scroll-margin-top: calc(var(--control-height-lg) + var(--space-4));
+    scroll-margin-top: calc(var(--space-16) + var(--space-4));
   }
 }
 

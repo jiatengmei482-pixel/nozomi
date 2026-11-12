@@ -242,6 +242,47 @@ test("地址框：谷歌用不了时只有平台的地点，状态行说明", as
   assert.equal(within(screen.getByRole("listbox", { name: "出发地的候选" })).getAllByRole("option").length, 1);
 });
 
+test("地址框（M8-37）：候选开着时 Tab 走到同一块里的「在地图上选点」，候选收起（不盖住获得焦点的按钮）；点页面别处也收起", async () => {
+  wideScreen();
+  open({ config: configOf({ map_tiles: ROUTE_TILES }) });
+  const actor = user();
+  const from = await screen.findByRole("combobox", { name: "出发地" });
+  await actor.type(from, "成田");
+  await screen.findByRole("listbox", { name: "出发地的候选" }, SLOW);
+  assert.equal(from.getAttribute("aria-expanded"), "true");
+  await actor.tab();
+  assert.equal(document.activeElement, within(screen.getByRole("group", { name: "出发地的地图" })).getByRole("button", { name: "在地图上选点" }));
+  assert.equal(from.getAttribute("aria-expanded"), "false");
+  assertAbsent(screen.queryByRole("listbox", { name: "出发地的候选" }));
+
+  await actor.type(from, "机场");
+  await screen.findByRole("listbox", { name: "出发地的候选" }, SLOW);
+  await actor.click(screen.getByRole("heading", { level: 1 }));
+  assert.equal(from.getAttribute("aria-expanded"), "false");
+});
+
+test("地址框（M8-37）：手指操作时输入框失焦却没有新的焦点（点候选时手机浏览器会这样），候选不收、点得中；鼠标操作时照旧收起", async () => {
+  const coarse = { value: true };
+  window.matchMedia = ((query: string) => ({ matches: query.includes("min-width: 1024px") || (query === "(pointer: coarse)" && coarse.value), media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false })) as typeof window.matchMedia;
+  open();
+  const actor = user();
+  const from = await screen.findByRole("combobox", { name: "出发地" });
+  await actor.type(from, "成田");
+  await screen.findByRole("listbox", { name: "出发地的候选" }, SLOW);
+  fireEvent.blur(from, { relatedTarget: null });
+  assert.equal(from.getAttribute("aria-expanded"), "true", "手指操作：失焦没有新焦点时不收");
+  fireEvent.click(screen.getByRole("option", { name: /成田国际机场/ }));
+  await waitFor(() => assert.equal((from as HTMLInputElement).value, "成田国际机场"));
+  assert.equal(from.getAttribute("aria-expanded"), "false");
+
+  coarse.value = false;
+  await actor.clear(from);
+  await actor.type(from, "成田");
+  await screen.findByRole("listbox", { name: "出发地的候选" }, SLOW);
+  fireEvent.blur(from, { relatedTarget: null });
+  assert.equal(from.getAttribute("aria-expanded"), "false", "鼠标操作：失焦就收起（和以前一样）");
+});
+
 test("认出接机：时间标签变「航班落地时间（当地）」，提示「已识别为接机…落地后免费等待 N 分钟」N 取报价；第 3 步接机才有航班号（必填、查格式）和举牌姓名；送机没有", async () => {
   wideScreen();
   let tripType: SiteByPointsResult["trip_type"] = "pickup";

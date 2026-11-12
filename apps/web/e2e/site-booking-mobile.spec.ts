@@ -40,7 +40,7 @@ async function pickByTouch(page: Page, label: string, query: string, option: Reg
   const list = page.getByRole("listbox", { name: `${label}的候选` });
   const first = list.getByRole("option", { name: option }).first();
   await expect(first).toBeVisible();
-  await expect(page.getByText(/^找到 \d+ 个地点/)).toBeVisible();
+  await expect(input).toHaveAttribute("aria-expanded", "true");
   const field = await input.boundingBox();
   const panel = await list.boundingBox();
   if (field === null || panel === null) throw new Error(`${label}：量不到输入框或候选列表`);
