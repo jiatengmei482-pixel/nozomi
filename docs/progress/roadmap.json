@@ -1011,7 +1011,7 @@
           "role": "frontend",
           "status": "review",
           "acceptance": ["地图选点（出发地、目的地、经停点）后查到的地址，只在这一格当前的值仍是那次地图选点时写入；客人已改选别的地点就丢弃，不覆盖", "和选择页里打字、点「取消」无关：查地址期间打开选择页打字再取消，查回来后仍换成地址；取消不改这一格的值（M8-37 已有行为不变）", "组件测试：① 反查慢、期间打开选择页打字再取消 → 反查回来后换成地址（去掉修复时失败）；② 反查慢、期间选了别的候选 → 反查回来后不覆盖新选的地点；不删不弱化已有断言", "来源：PR #204（M8-29 测试角色发现，PlaceField 的反查和搜索共用 round 计数）"],
-          "evidence": "PR #205（https://github.com/jiatengmei482-pixel/nozomi/pull/205）。只改 PlaceField.tsx：反查结果按「这一格的值是否还是那次选点」决定写不写，不再看搜索的 round；选择页开着时值变了不盖住正在打的字。新增组件测试 2 个（book-new.test.tsx，①在旧代码上失败）；本机组件测试 book-new / waypoints / manual-quote / map-theme 共 75 条通过，端到端 site-booking-mobile.spec.ts 单线程 --repeat-each=3 3/3 通过（带上与 PR #204 相同的测试改动：等反查回来再记原来的值），类型检查通过；未做测试环境验收",
+          "evidence": "PR #205（https://github.com/jiatengmei482-pixel/nozomi/pull/205）。只改 PlaceField.tsx：反查结果按「这一格的值是否还是那次选点」决定写不写，不再看搜索的 round；选择页开着时值变了不盖住正在打的字。新增组件测试 4 个（book-new.test.tsx：①在旧代码上失败；按审查意见补的「选择页开着时反查回来不盖住客人打的字」去掉该条件时失败；「切换区间 / 包车后旧地址框的反查不覆盖新框选的地点」去掉卸载判断时失败）；地址框卸载后旧的反查不再写入（审查顺带指出的旧问题）；本机组件测试 book-new / waypoints / manual-quote / map-theme 共 77 条通过，端到端 site-booking-mobile.spec.ts 单线程 --repeat-each=3 3/3 通过（带上与 PR #204 相同的测试改动：等反查回来再记原来的值），类型检查通过；未做测试环境验收",
           "updated": "2026-11-13"
         }
       ]
@@ -1100,6 +1100,69 @@
           "status": "blocked",
           "blockedBy": "等业主决定选套餐规则（A 维持最小覆盖套餐 / B 取最便宜，推荐 B）",
           "acceptance": ["业主决定选套餐规则：A. 维持 ADR 0089 第 3 节「能覆盖总时长的最小套餐」（客人看到的套餐时长最直观，可能不是最便宜）；B. 在能覆盖的套餐和更短套餐 + 超时之间取对外价最低的（对客人最划算，但套餐时长可能比行程短）。推荐 B", "定了 B 时新开实现任务：回放核对、改 ADR 0089；同时只把选中的那档写进返回结果，未选中的档次的询价日志标注「试算」以免占回放和统计"],
+          "evidence": "",
+          "updated": "2026-11-13"
+        }
+      ]
+    },
+    {
+      "id": "M9E",
+      "name": "嵌入预订组件",
+      "goal": "业主 2026-11-13 新需求第 ③ 部分：合作网站放一行脚本，区间 / 包车两个标签，提交后跳主站预订页；嵌入码绑定域名白名单（ADR 0090）",
+      "tasks": [
+        {
+          "id": "M9E-00",
+          "title": "嵌入组件 ADR 0090：预订草稿 + 短编号、/embed/v1 域名白名单",
+          "role": "product",
+          "status": "review",
+          "acceptance": ["ADR 0090 写清草稿内容（区间 / 包车、上下车点、经停点含停留、日期时间、人数行李、包车时长；不含价格和个人信息）、草稿表和 2 小时有效期、嵌入码与白名单、/embed/v1 的 CORS 规则、return_url 校验、来源只做统计、组件脚本、测试计划和分 PR；写明取代 ADR 0087 草稿里的对应部分", "独立审查通过"],
+          "evidence": "PR #191（https://github.com/jiatengmei482-pixel/nozomi/pull/191）；独立审查第一轮「需要修改」9 条已按意见改（模型线路和订单行程方式如实写成这次不做并立 M9E-04 / M9E-05、CORS 和组件失败说法、待业主确认一节、5,000 上限已知限制、无效 draft_id 忽略、来源单独平台表、地址框提示、谷歌标识、验收补价格一致）；pnpm roadmap:check 通过",
+          "updated": "2026-11-13"
+        },
+        {
+          "id": "M9E-01",
+          "title": "嵌入组件·预订草稿：草稿表、GET /site/v1/booking-drafts/{id}、清理任务、/book/new?draft= 预填",
+          "role": "backend",
+          "status": "todo",
+          "acceptance": ["domain BookingDraft 类型和 bookingDraftIssues 校验，单元测试覆盖区间 / 包车、经停点上限和停留规则、多余键和个人信息键被拒、16 KB", "迁移只建表 booking_drafts（id 43 位 base64url、content ≤ 16 KB、来源列可空、2 小时有效期），应用角色只有 select / insert / delete；不预置任何数据", "GET /site/v1/booking-drafts/{id}：200 只给 draft 和 expires_at；过期、不存在、格式不对同一个 404 BOOKING_DRAFT_NOT_FOUND；每地址每分钟 60 次；不带 CORS 头；集成测试", "清理任务每小时删过期草稿，只删过期的（集成测试）", "/book/new?draft=：区间、包车按时长、包车带经停点三种都能预填并自动询价，价格等于在主站手填同样条件；404 显示「链接已过期，请重新填写」和空白表单；不带 draft 时旧链接参数照旧（组件测试）", "地址框提示「只填地点，不要填姓名、电话」", "OpenAPI 同步；独立审查、合并、部署后测试站验收（随便编一个编号确认 404 口径和无 CORS 头）"],
+          "evidence": "",
+          "updated": "2026-11-13"
+        },
+        {
+          "id": "M9E-02",
+          "title": "嵌入组件·嵌入码与白名单、/embed/v1、来源统计",
+          "role": "backend",
+          "status": "todo",
+          "acceptance": ["embed_keys 表和平台接口（列表、新建、详情、If-Match 修改、停用），权限 embed.read / embed.manage，新建、改白名单、停用写审计；不预置任何嵌入码", "一个迁移：embed_keys、quote_embed_sources、order_embed_sources 三张平台表，只建结构、不回填；租户角色无权限；两张来源表平台角色只有 select / insert（写入后不能改）", "运营后台「渠道 → 嵌入组件」：列表、新建、编辑、停用，详情页显示嵌入代码和「复制代码」；只读角色只能看", "/embed/v1/config、/embed/v1/places/autocomplete|details、POST /embed/v1/booking-drafts：嵌入码和 Origin 的核对在解析请求体之前；Origin 完全等于白名单某项才处理，通过后所有应答（200 / 201 / 400 / 413 / 429）都带 Access-Control-Allow-Origin 和 Vary: Origin；null、缺失、不在白名单、嵌入码停用 403 EMBED_ORIGIN_NOT_ALLOWED 且不带 Access-Control-Allow-Origin；预检同样；16 KB 413；每地址 10 分钟 30 次、每嵌入码每分钟 60 次、有效草稿 5,000 个上限（集成测试）", "return_url 按 ADR 0090 第五节第 2 小节校验，列出的用例都有单元测试；不合格时忽略不报错", "来源：报价带有效 draft_id 时记下来源（draft_id 格式不对、不存在、过期都忽略，不报错、不影响报价），下单时再核嵌入码和当前白名单，通过记 embed，否则记 book、不拒单；运营后台订单显示来源，官网订单页有合格 return_url 时显示「返回原网站」；/tenant/v1 和供应商 Webhook 不给来源字段（集成测试扫键）", "/site/v1、/platform/v1、/tenant/v1、/sales/v1、/driver/v1 带白名单 Origin 也不带 CORS 头（集成测试）；api-prefixes、edge-config、smoke 同步", "同一嵌入码有效草稿到 4,000 个时写告警日志 embed.draft_limit_near", "OpenAPI 同步；独立审查、合并、部署后测试站验收"],
+          "evidence": "",
+          "updated": "2026-11-13"
+        },
+        {
+          "id": "M9E-03",
+          "title": "嵌入组件·widget-v1.js：区间 / 包车两个标签、Shadow DOM、先建草稿再跳转",
+          "role": "frontend",
+          "status": "todo",
+          "acceptance": ["apps/web 单独构建入口产出 /embed/widget-v1.js，gzip ≤ 60 KB，不加载第三方资源；edge-config 给它单开响应头（JavaScript 类型、CORP cross-origin、nosniff、max-age 300），不存在时 404", "NozomiBooking.init({ key, root, lang, services, redirectUrl })：root 找不到时控制台报错不渲染；lang、services 不合法用后台默认", "两个标签：区间（出发地、目的地、日期、时间、人数、行李）；包车（上车点、经停点 + 停留、下车点、日期、时间、人数、行李，不填经停点时选包车时长）；地址输入即提示走 /embed/v1/places，候选下方显示「Powered by Google」（同主站），地址框提示「只填地点」", "点「查询价格」先建草稿，成功后整页跳 /book/new?draft=，价格等于在主站手填同样条件；400、429（RATE_LIMITED / EMBED_DRAFT_LIMIT）、413 和读不出的失败按 ADR 0090 第四节各显示一句、不跳转；取配置失败（未授权和连不上分不出）显示「预订组件暂时无法使用…」和主站链接、不显示表单", "Shadow DOM 隔离：宿主页把 div、input、button 设成红底时组件外观不变；320 px 不横向滚动；键盘能走完；axe 无严重问题（端到端，两个本机 origin：白名单内、外）", "独立审查、合并、部署后测试站验收：演示站 embed-demo.moveglobal.io 加入白名单、业主在工厂后台放代码后，区间和包车各用 Stripe 测试卡完整下一单；非白名单域名被拒"],
+          "evidence": "",
+          "updated": "2026-11-13"
+        },
+        {
+          "id": "M9E-04",
+          "title": "模型线路：后台配置常用线路（预填地点和停留），三个入口共用——待业主确认后排期",
+          "role": "backend",
+          "status": "blocked",
+          "blockedBy": "等业主确认要不要按需求 03 原样做（ADR 0090 第八节）",
+          "acceptance": ["业主确认要不要按需求 03 第 1.7 节（R21–R23）原样做（ADR 0090 第八节）", "确认后另写验收标准：后台配置、/book/new 预填、价格等于手填同样条件"],
+          "evidence": "",
+          "updated": "2026-11-13"
+        },
+        {
+          "id": "M9E-05",
+          "title": "统一订单格式的「行程方式」（需求 03 F1–F3：transfer / charter_package / charter_route）——待业主确认后排期",
+          "role": "backend",
+          "status": "blocked",
+          "blockedBy": "等业主确认要不要按需求 03 原样做（ADR 0090 第八节）",
+          "acceptance": ["业主确认要不要按需求 03 第二部分原样做（ADR 0090 第八节）", "确认后另写验收标准：新订单记行程方式、旧订单显示不变、/tenant/v1 不给来源"],
           "evidence": "",
           "updated": "2026-11-13"
         }
@@ -2254,8 +2317,23 @@
     },
     {
       "date": "2026-11-13",
+      "by": "Claude",
+      "summary": "新增 ADR 0090 和里程碑 M9E（嵌入预订组件）：组件先把预订条件交给主站暂存成 2 小时有效的预订草稿，再整页跳 /book/new?draft=<43 位短编号>；跨域只开 /embed/v1，只对嵌入码白名单里的网站放行；来源只做统计。取代 ADR 0087 草稿（#186，未合并）中草稿和嵌入组件的部分，线路式包车部分已由 ADR 0088 / 0089 实现。分 M9E-01 草稿、M9E-02 嵌入码与白名单、M9E-03 组件脚本三个 PR。"
+    },
+    {
+      "date": "2026-11-13",
+      "by": "Claude",
+      "summary": "ADR 0090 按 #191 独立审查意见修改：模型线路、订单行程方式这次不做（新增 M9E-04、M9E-05，待业主确认）；/embed/v1 来源核对在解析请求体之前，通过后所有应答带 CORS 头，组件对读不出的失败统一说「暂时无法使用」；新增「待业主确认」一节（Q7、Q8、Q9、Q10、Q11、Q14、Q16，地点名 200 字、途经点 10 个），答复前按推荐做；来源记在单独的平台表；M9E-01 / 03 验收补「价格等于手填同样条件」。"
+    },
+    {
+      "date": "2026-11-13",
       "by": "frontend",
       "summary": "M8-42 开发完成，待验收：官网预订页在地图上选点后，查地址期间客人又打开选择页打字或点「取消」，出发地不会再一直显示坐标，查回来照样换成地址；已经改选别的地点时，不会被查回来的地址覆盖。新增组件测试 2 个，PR #205。"
+    },
+    {
+      "date": "2026-11-13",
+      "by": "frontend",
+      "summary": "M8-42 按 #205 独立审查意见修改：选择页开着时查回来的地址不盖住客人正在打的字，补了测试；切换「区间 / 包车」时旧地址框查回来的地址不再覆盖新框里选的地点（以前就有的小问题），补了测试。仍待验收。"
     }
   ]
 }
