@@ -523,6 +523,11 @@ export interface SiteItinerary {
 }
 
 /** 按行程计价时某一段路线取不到：不按行程报价，页面提示联系客服（`leg` 从 1 起，第 1 段是上车点到第一个经停点） */
+/** 询价的城市不存在或停用：400 `UNKNOWN_CITY`（普通询价和按行程计价同一种说法） */
+function unknownQuoteCity(): AppError {
+  return validationFailed("body", [{ path: "/city_id", reason: "UNKNOWN_CITY", message: "城市不存在或暂不开放" }]);
+}
+
 export function itineraryRouteUnavailable(leg: number, reason: string): AppError {
   return new AppError(422, "ITINERARY_ROUTE_UNAVAILABLE", `第 ${leg} 段路线暂时算不出来，没法按行程报价，请联系客服人工报价`, { leg, reason });
 }
@@ -556,8 +561,15 @@ async function itineraryRoute(ctx: AppContext, trip: Extract<SiteTrip, { categor
  * 一个车型组只留一个报价；都报不出时原因用最先试的那一档的。
  */
 async function itineraryQuotes(ctx: AppContext, input: SiteQuoteInput, trip: Extract<SiteTrip, { category: "charter_itinerary" }>, logExtra: Record<string, unknown>): Promise<SiteQuoteResult> {
-  const itinerary = await itineraryRoute(ctx, trip);
+  // 先核城市、查套餐，再估路线（M9W-06）：城市不对和普通询价一样 400 `UNKNOWN_CITY`；没有能选的套餐直接 `NO_PRODUCT`，都不调谷歌
+  const { channel } = await requireOpenSite(ctx);
+  await withPlatformTx(ctx.pool, async (db) => {
+    const found = await findQuoteCity(db, input.cityId);
+    if (found === null || !found.active) throw unknownQuoteCity();
+  }, { snapshot: true });
   const packages = await siteCharterPackages(ctx, input.cityId, input.audience ?? "public");
+  if (packages.length === 0) return { currency: channel.settleCurrency, quotes: [], unavailable: [{ vehicleGroupId: null, reasons: ["NO_PRODUCT"] }] };
+  const itinerary = await itineraryRoute(ctx, trip);
   const covering = packages.filter((hours) => hours * 60 >= itinerary.totalMinutes);
   const shorter = packages.filter((hours) => hours * 60 < itinerary.totalMinutes).reverse();
   const order = [...covering, ...shorter];
@@ -572,7 +584,7 @@ async function itineraryQuotes(ctx: AppContext, input: SiteQuoteInput, trip: Ext
     for (const quote of result.quotes) if (!chosen.has(quote.vehicleGroupId)) chosen.set(quote.vehicleGroupId, quote);
   }
   const quotes = [...chosen.values()].sort((a, b) => a.sellMinor - b.sellMinor || a.vehicleGroup.seats - b.vehicleGroup.seats);
-  const currency = first?.currency ?? (await requireOpenSite(ctx)).channel.settleCurrency;
+  const currency = first?.currency ?? channel.settleCurrency;
   const unavailable: SiteQuoteResult["unavailable"] = quotes.length > 0 ? [] : (first?.unavailable ?? [{ vehicleGroupId: null, reasons: ["NO_PRODUCT"] }]);
   return { currency, quotes, unavailable, itinerary };
 }
@@ -620,7 +632,7 @@ export async function siteQuotes(ctx: AppContext, input: SiteQuoteInput, logExtr
   const trip = input.trip;
   const city = await withPlatformTx(ctx.pool, async (db) => {
     const found = await findQuoteCity(db, input.cityId);
-    if (found === null || !found.active) throw validationFailed("body", [{ path: "/city_id", reason: "UNKNOWN_CITY", message: "城市不存在或暂不开放" }]);
+    if (found === null || !found.active) throw unknownQuoteCity();
     if (trip.category === "airport_transfer") {
       const airport = await findQuotePlace(db, trip.airportId);
       if (airport === null || airport.type !== "airport" || airport.cityId !== found.id || !airport.active) throw validationFailed("body", [{ path: "/airport_id", reason: "UNKNOWN_PLACE", message: "机场不存在、已停用，或者不在这个城市" }]);
