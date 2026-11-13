@@ -80,6 +80,13 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
   const [mapOpen, setMapOpen] = useState(false);
   const session = useRef(newSessionToken());
   const round = useRef(0);
+  /** 最新的字段值：地图选点的反查回来时，看字段是不是还是那次选点（M8-42） */
+  const latestValue = useRef(value);
+  latestValue.current = value;
+  const change = (next: TripPoint | null): void => {
+    latestValue.current = next;
+    onChange(next);
+  };
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** 输入框 + 候选列表：在这里面算「还在地址框里」；同一块里的地图、地图按钮不算（M8-37 审查） */
   const comboRef = useRef<HTMLDivElement>(null);
@@ -105,10 +112,10 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
     resetSheet();
   }, [fullScreen]);
 
-  // 值从外面变了（链接预填、地图选点、清空）：输入框跟着显示它的名称
+  // 值从外面变了（链接预填、地图选点、清空）：输入框跟着显示它的名称；选择页开着时不盖住客人正在打的字（M8-42）
   const shown = value?.name ?? null;
   useEffect(() => {
-    if (shown !== null) setText(shown);
+    if (shown !== null && !sheetOpen) setText(shown);
   }, [shown]);
   useEffect(() => () => {
     if (timer.current !== null) clearTimeout(timer.current);
@@ -164,7 +171,7 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
     if (item.location !== null) {
       session.current = newSessionToken();
       setStatus({ kind: "idle" });
-      onChange({ name, lat: item.location.lat, lng: item.location.lng, kind: item.kind, suggestionName: item.name });
+      change({ name, lat: item.location.lat, lng: item.location.lng, kind: item.kind, suggestionName: item.name });
       setSheetOpen(false);
       if (fullScreen) setItems([]);
       return;
@@ -179,7 +186,7 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
         return;
       }
       setStatus({ kind: "idle" });
-      onChange({ name, lat: found.place.location.lat, lng: found.place.location.lng, kind: found.place.kind, suggestionName: item.name });
+      change({ name, lat: found.place.location.lat, lng: found.place.location.lng, kind: found.place.kind, suggestionName: item.name });
       setSheetOpen(false);
       if (fullScreen) setItems([]);
     } catch {
@@ -194,7 +201,8 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
     setOpen(false);
     const fallback = pointName(point.lat, point.lng);
     setText(fallback);
-    onChange({ name: fallback, lat: point.lat, lng: point.lng, kind: null });
+    const picked: TripPoint = { name: fallback, lat: point.lat, lng: point.lng, kind: null };
+    change(picked);
     setSheetOpen(false);
     setMapOpen(false);
     if (fullScreen) setItems([]);
@@ -204,16 +212,23 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
       return;
     }
     setStatus({ kind: "loading" });
+    // 反查的结果只看字段是不是还是这次选点：之后在选择页打字、取消都不作废它；选了别的地点才丢掉（M8-42）
+    const stillPicked = (): boolean => {
+      const current = latestValue.current;
+      return current !== null && current.name === picked.name && current.lat === picked.lat && current.lng === picked.lng && current.kind === null;
+    };
     try {
       const found = await reverseSitePlace(city.id, point);
-      if (mine !== round.current) return;
+      if (!stillPicked()) return;
+      const quiet = mine !== round.current;
       if (found.address === null) {
-        setStatus({ kind: "notice", warning: false, text: "已选好地图上的位置。" });
+        if (!quiet) setStatus({ kind: "notice", warning: false, text: "已选好地图上的位置。" });
         return;
       }
       const name = addressText(found.address, null);
+      change({ name, lat: point.lat, lng: point.lng, kind: null });
+      if (quiet) return;
       setText(name);
-      onChange({ name, lat: point.lat, lng: point.lng, kind: null });
       setStatus({ kind: "notice", warning: false, text: "已填入这个位置的地址。" });
     } catch {
       if (mine !== round.current) return;
@@ -277,7 +292,7 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
           onChange={(event) => {
             setText(event.target.value);
             // 全屏选择页里打字不清掉页面上原来的值：选中才换，「取消」回到原来的
-            if (value !== null && !fullScreen) onChange(null);
+            if (value !== null && !fullScreen) change(null);
             lookup(event.target.value);
           }}
           onFocus={(event) => event.target.select()}
