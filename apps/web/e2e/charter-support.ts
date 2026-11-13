@@ -1,6 +1,9 @@
 /**
  * 新预订页包车的端到端准备（M8-19 起 site-booking-charter.spec.ts 用；M8-37b 手机地址栏的用例也用）：
- * 本用例自己建一个城市（中心随机落在九州一带，离别的用例在东京的城市很远，包车按上车地点找城市只会找到它），
+ * 本用例自己建一个城市（中心随机落在九州一带，离别的用例在东京的城市很远），
+ * 上车点就放在城市中心：新预订页包车按上车地点选「中心最近」的包车城市（`serviceCityOf`），并行的几个用例各建一个城市、中心都在同一片随机，
+ * 上车点若离中心 1.4 公里，别的用例的城市中心偶尔更近、页面就按它报价（M8-29，CI run 43486735721：另一个城市中心离上车点 385 米）；
+ * 放在中心时距离是 0，只有中心坐标（6 位小数随机）完全相同的城市才会抢走它。
  * 供应商经接口建两个区域：商品区域（城市中心一带）和一个加价区域（东边约 15 公里），上架包车商品：
  * 8 小时套餐 70,000 日元（对外 77,000），加价区域上车加 500、下车加 1,000；平台在加价区域里建一个车站。
  */
@@ -33,7 +36,7 @@ export interface CharterWorld {
   /** 本用例建的城市（M9W-02：经停点用例在里面再建几个车站） */
   cityId: string;
   center: Point;
-  /** 商品区域里的上车点、下车点 */
+  /** 商品区域里的上车点（就是城市中心，见文件开头）、下车点 */
   pickup: Point;
   nearby: Point;
   /** 加价区域里的车站 */
@@ -86,5 +89,5 @@ export async function charterWorld(request: APIRequestContext): Promise<CharterW
   }
   const published = await request.post(`/tenant/v1/products/${product.id}/publish`, { headers });
   expect(published.status(), await published.text()).toBe(200);
-  return { cityId: city.id, center, pickup: offset(center, 0.01, 0.01), nearby: offset(center, -0.02, 0.02), station, nowhere: offset(center, 0.4, 0.4), groupName: world.group.name };
+  return { cityId: city.id, center, pickup: center, nearby: offset(center, -0.02, 0.02), station, nowhere: offset(center, 0.4, 0.4), groupName: world.group.name };
 }
