@@ -16,8 +16,10 @@ export const BOOKING_DRAFT_RULES = {
   ttlMinutes: 120,
   /** 序列化后的上限（字节），库里有同样的 check 约束 */
   maxBytes: 16_384,
-  /** 地点名称的长度（同 `/site/v1/quotes` 经停点名称） */
+  /** 地点名称的长度：UTF-16 单元数，和 `/site/v1/quotes` 的名称校验（zod `.max(200)`）同一种算法 */
   maxNameLength: 200,
+  /** 坐标最多几位小数（7 位约 1 厘米，谷歌给的坐标也是这个精度）：挡住 1e-300 这类写法——库里的 jsonb 会把它展开成几百位 */
+  maxCoordDecimals: 7,
   /** 经停点停留：30 分钟一档，30–480（同 `/book/new` 页面的选项） */
   stayStepMinutes: 30,
   minStayMinutes: 30,
@@ -70,7 +72,8 @@ const LOCAL_FORMAT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const isIntIn = (value: unknown, min: number, max: number): value is number => typeof value === "number" && Number.isInteger(value) && value >= min && value <= max;
-const isCoord = (value: unknown, limit: number): value is number => typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= limit;
+const isCoord = (value: unknown, limit: number): value is number =>
+  typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= limit && Number(value.toFixed(BOOKING_DRAFT_RULES.maxCoordDecimals)) === value;
 
 function unknownKeys(value: Record<string, unknown>, allowed: readonly string[], path: string, issues: BookingDraftIssue[]): void {
   for (const key of Object.keys(value)) if (!allowed.includes(key)) issues.push({ path: `${path}/${key}`, reason: "UNKNOWN_KEY" });
@@ -82,7 +85,7 @@ function pointIssues(value: unknown, path: string, keys: readonly string[], issu
   unknownKeys(value, keys, path, issues);
   const name = value.name;
   if (typeof name !== "string" || name.trim() === "") issues.push({ path: `${path}/name`, reason: "REQUIRED" });
-  else if (name !== name.trim() || [...name].length > BOOKING_DRAFT_RULES.maxNameLength) issues.push({ path: `${path}/name`, reason: "OUT_OF_RANGE" });
+  else if (name !== name.trim() || name.length > BOOKING_DRAFT_RULES.maxNameLength) issues.push({ path: `${path}/name`, reason: "OUT_OF_RANGE" });
   if (!isCoord(value.lat, 90)) issues.push({ path: `${path}/lat`, reason: "OUT_OF_RANGE" });
   if (!isCoord(value.lng, 180)) issues.push({ path: `${path}/lng`, reason: "OUT_OF_RANGE" });
 }

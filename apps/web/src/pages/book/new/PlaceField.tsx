@@ -52,8 +52,8 @@ export interface PlaceFieldProps {
   value: TripPoint | null;
   onChange(value: TripPoint | null): void;
   error?: string;
-  /** 输入框下面的帮助文字（如包车下车地点「包车结束时在哪里下车…」） */
-  hint?: string;
+  /** 输入框下面的帮助文字（如包车下车地点「包车结束时在哪里下车…」）；几句时逐句一个 <span> */
+  hint?: string | readonly string[];
   /** 输入框下面的信息提示（不是出错，如旧链接没有下车地点时请客人补选） */
   info?: string;
   /** 地图选点的底图；null 时没有「在地图上选点」 */
@@ -338,7 +338,7 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
       )}
       {hint !== undefined && (
         <p className="field__hint" id={hintId}>
-          {hint}
+          {typeof hint === "string" ? hint : hint.map((line, index) => <span key={index}>{index > 0 ? " " : ""}{line}</span>)}
         </p>
       )}
     </>

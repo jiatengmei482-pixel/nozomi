@@ -113,3 +113,14 @@ test("编号写法、到期时刻", () => {
   assert.equal(isBookingDraftId(`${"A".repeat(42)}/`), false);
   assert.equal(bookingDraftExpiresAt(new Date("2026-12-01T00:00:00Z")).toISOString(), "2026-12-01T02:00:00.000Z");
 });
+
+test("名称按 UTF-16 单元数算（和 /site/v1/quotes 一样）：100 个 emoji 正好 200，101 个超；坐标最多 7 位小数，1e-300 这类写法拒", () => {
+  const emoji = (count: number) => "🚕".repeat(count);
+  assert.deepEqual(reasons({ ...transfer(), pickup: { ...transfer().pickup, name: emoji(100) } }), []);
+  assert.deepEqual(reasons({ ...transfer(), pickup: { ...transfer().pickup, name: emoji(101) } }), ["/pickup/name:OUT_OF_RANGE"]);
+  assert.deepEqual(reasons({ ...transfer(), pickup: { ...transfer().pickup, lat: 35.6812345, lng: 139.7671234 } }), [], "7 位小数");
+  assert.deepEqual(reasons({ ...transfer(), pickup: { ...transfer().pickup, lat: 35.68123456 } }), ["/pickup/lat:OUT_OF_RANGE"], "8 位小数");
+  assert.deepEqual(reasons({ ...transfer(), pickup: { ...transfer().pickup, lat: 1e-300, lng: 5e-324 } }), ["/pickup/lat:OUT_OF_RANGE", "/pickup/lng:OUT_OF_RANGE"]);
+  assert.deepEqual(reasons({ ...transfer(), pickup: { ...transfer().pickup, lat: 0, lng: -0 } }), []);
+});
+

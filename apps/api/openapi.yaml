@@ -29026,8 +29026,12 @@ components:
                 maxLength: 200
               lat:
                 type: number
+                minimum: -90
+                maximum: 90
               lng:
                 type: number
+                minimum: -180
+                maximum: 180
               stay_minutes:
                 type: integer
                 minimum: 30
@@ -29035,7 +29039,9 @@ components:
                 description: 30 分钟一档
         package_hours:
           type: [ integer, "null" ]
-          description: 只有包车且没有经停点时可以给，客人在 `/book/new` 还能改
+          minimum: 1
+          maximum: 72
+          description: 只有包车且没有经停点时可以给（1–72）；不在城市套餐里时 `/book/new` 清空、请客人重选
         passengers:
           type: integer
           minimum: 1
@@ -29050,6 +29056,7 @@ components:
     BookingDraftPoint:
       type: object
       additionalProperties: false
+      description: 名称 1–200 个 UTF-16 单元（同 `/site/v1/quotes`）；坐标最多 7 位小数
       required: [ name, lat, lng ]
       properties:
         name:
@@ -29058,8 +29065,12 @@ components:
           maxLength: 200
         lat:
           type: number
+          minimum: -90
+          maximum: 90
         lng:
           type: number
+          minimum: -180
+          maximum: 180
     SiteConfig:
       type: object
       additionalProperties: false
