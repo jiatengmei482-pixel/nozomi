@@ -1006,6 +1006,49 @@
           "updated": "2026-11-13"
         }
       ]
+    },
+    {
+      "id": "M9W",
+      "name": "包车途经加价（第一期，从简）",
+      "goal": "业主 2026-11-13：在现有包车上加经停点和「途经加价」，不填经停点时报价完全不变（ADR 0088）",
+      "tasks": [
+        {
+          "id": "M9W-00",
+          "title": "只读回放加「报价结果摘要值」（途经加价改动前后比对用）",
+          "role": "backend",
+          "status": "review",
+          "acceptance": ["GET /platform/v1/reports/area-role-preview 加固定截止时间参数 until（两次跑同一批日志）、结果摘要 resultDigest 与条数、逐条（日志 × 商品）摘要、状态摘要 stateDigest（商品 + 价格规则 + 区域当前状态的哈希）；同输入同摘要、改一分钱结果摘要变、改规则状态摘要变、行顺序不影响有单元测试", "Actions 只读核对的计数摘要带上 resultDigest、resultLines（不含价格明细）", "用途写进 ADR 0086：引擎改动部署前后紧挨着各跑一次，并核对期间没有价格 / 区域改动", "比对口径：前后两次 until、天数相同，stateDigest 相同时 resultDigest 必须相同；stateDigest 不同判比对无效、重跑"],
+          "evidence": "PR #188（https://github.com/jiatengmei482-pixel/nozomi/pull/188）；分支 m9w-00-replay-digest；ADR 0086 补充、docs/deploy.md 第九节补充；新增单元测试 7 条（apps/api/src/services/replay-digest.test.ts 6 条：同输入同摘要、改一分钱 / 加价明细 / 区域 / 规则 / 币种 / 计价方式 / 原因 resultDigest 变且逐行摘要只变那一行、行和车型组的先后不影响、不看时间和快照、改规则参数 / 生效日期 / 状态 / 图形版本 / 商品版本 stateDigest 变、回放窗口含起点不含截止；staging-readonly-check.test.ts 1 条：CHECK_UNTIL 的写法和传参），新增集成测试 3 条（area-role-preview.itest.ts：改一分钱两个摘要都变、改回来都还原，逐行摘要按（询价编号, 商品编码）定位到变了的行；改取整单位、停用车型组 stateDigest 变、改回来还原；area-role-preview-report.itest.ts：until 的窗口边界、晚于现在和写法不对 400 不占限速不写审计、同一 until 两次摘要一样），已有用例补充审计记 until、公开计数摘要只带 until / resultDigest / resultLines / stateDigest 不带逐行摘要、工作流输入 until；本机跑：单元测试 2693 条全过（第一轮），相关集成测试 5 个文件 53 条、3 个文件 19 条全过，类型检查通过",
+          "updated": "2026-11-13"
+        },
+        {
+          "id": "M9W-01",
+          "title": "包车途经加价·后端：价格规则加「途经加价」、报价请求加经停点、引擎累加、简单价格明细、供应商后台加列",
+          "role": "backend",
+          "status": "todo",
+          "acceptance": ["按 ADR 0088：charter_area_surcharge 规则 params 加可选 waypointSurchargeMinor（没设 = 没有规则）；/tenant/v1 价格规则接口、导入导出（旧模板照旧能导入）、供应商后台「区域加价」表加「途经加价」列和批量设置", "POST /site/v1/quotes 包车加可选 waypoints（名称、坐标、停留分钟，≤10）；随 snapshot.request 锁定；救援改派补传经停点", "订单加 waypoints jsonb 列（一个迁移，可空，不回填），下单时从 snapshot.request.waypoints 写入，加进订单现有的不可改列触发器；供应商订单详情、司机端从这一列读；经停点的租户隔离集成测试（租户 A 读不到 B 的、司机链接只能读自己那单）", "引擎：经停点过运营 / 禁行判断；重叠取最高归一个区域；同区一次；已因上 / 下车计价的区域不再加；在商品区域内不加；哪里都不在报 WAYPOINT_NOT_PRICED；合计并进现有加价，调价照旧作用在合计上；结算价明细 areaSurcharge 加 waypoints；/site/v1 应答加 price_breakdown（对外价，各项之和等于总价）", "不带经停点时报价、明细、快照与现在完全一致：改引擎前在 main 上生成「包车带加价区域」golden，改后逐分一致；area-surcharge.test.ts 原样通过；部署前后测试站回放（同一 until、天数）stateDigest 相同且 resultDigest 相同", "需求 charter-waypoint-surcharge.md 13.9 的 8 条（第 8 条按取消重下验证）和 13.4 算例做成测试；租户隔离；/tenant/v1 只给结算价", "独立审查、合并、部署后测试站验收（QA 测试供应商）"],
+          "evidence": "",
+          "updated": "2026-11-13"
+        },
+        {
+          "id": "M9W-02",
+          "title": "包车途经加价·官网下单页：经停点编辑和价格明细",
+          "role": "frontend",
+          "status": "todo",
+          "acceptance": ["包车上车点下方「经停点（选填）」：搜索或地图选点、拖动排序、删除，最多 10 个，每个带停留时长", "车型卡和右侧栏显示价格明细（套餐、上 / 下车加价、途经 区域名 +金额），提示「价格按您填的经停点计算；当天临时去其他区域可能会加收」", "经停点不在任何区域时显示转人工并指出是哪个点；不填经停点时页面和报价与现在完全一致", "手机 360 / 390 宽、亮暗两色、axe 0；独立审查、合并、部署后测试站验收（验收通道下单）"],
+          "evidence": "",
+          "updated": "2026-11-13"
+        },
+        {
+          "id": "M9W-03",
+          "title": "包车途经加价·订单详情与司机端显示行程",
+          "role": "frontend",
+          "status": "todo",
+          "acceptance": ["官网订单页、运营 / 供应商订单详情显示行程点（上车 → 经停 1…N → 下车，名称、停留）和价格明细（供应商只看结算价）", "司机页显示完整行程点和停留，不显示价格", "旧订单（没有经停点）显示与现在完全一致；独立审查、合并、部署后测试站验收"],
+          "evidence": "",
+          "updated": "2026-11-13"
+        }
+      ]
     }
   ],
   "log": [
@@ -2108,6 +2151,11 @@
       "date": "2026-11-13",
       "by": "backend",
       "summary": "M8-39 开发完成，待验收：测试环境验收会话里提交的人工报价留资记成验收留资（is_acceptance，服务端设、触发器保证建好后不能改，迁移 0360，不回填已有数据）；带了 Cookie 但会话无效、过期是 401 QA_SESSION_INVALID（和询价一样），production 不看 Cookie。运营后台人工报价列表和各状态数量默认不算验收留资，参数 acceptance=only / include 才列；详情页标「验收」徽标。验收留资不发任何提醒、不记未覆盖需求。新增集成测试 8 个、组件测试 1 个；ADR 0078 补一节。"
+    },
+    {
+      "date": "2026-11-13",
+      "by": "Claude",
+      "summary": "业主要求包车「途经加价」第一期从简：只加经停点和途经加价一列，不填经停点时报价完全不变（ADR 0088，方案原文 docs/requirements/charter-waypoint-surcharge.md）；新增 M9W-00 回放摘要、M9W-01 后端、M9W-02 下单页、M9W-03 订单与司机端；#186（M9 大方案）暂不合并。"
     },
     {
       "date": "2026-11-13",
