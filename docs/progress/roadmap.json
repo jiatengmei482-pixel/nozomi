@@ -984,7 +984,7 @@
           "role": "backend",
           "status": "review",
           "acceptance": ["带有效验收会话 Cookie 提交 POST /site/v1/manual-quote-requests 时，留资记成验收留资（同 ADR 0078 对订单的做法：服务端设、建好后不能改）", "运营后台人工报价列表默认不显示验收留资，或标「验收」徽标（按 ADR 定）；不发给客服的提醒", "集成测试：带会话 / 不带会话各一条；租户隔离不变", "来源：M8-14 验收观察 2（MQ2026111207VMAEYF 在运营后台和真实留资混在一起）"],
-          "evidence": "分支 m8-39-acceptance-leads（未开 PR）。迁移 0360_manual_quote_acceptance.sql（manual_quote_requests.is_acceptance 默认 false + 建好后不能改的触发器，不回填）；做法写在 ADR 0078「补充：验收留资」。新增测试 9 个：集成 8 个（apps/api/src/manual-quotes-acceptance.itest.ts：不带会话照旧、带有效会话记成验收留资且列表默认不列 / acceptance=only|include 才列 / 数量跟着筛选、去重分开、过期 / 已结束 / 写坏 / 通道没开 401 且不记、不发通知不记未覆盖需求、触发器不能改、production 不看 Cookie、租户隔离），组件 1 个（详情页「验收」徽标）；接口对账登记 is_acceptance、acceptance。本机：类型检查通过；相关集成测试（本文件、manual-quotes、qa-acceptance、schema-structure、platform-admin、password-change-bypass、ipv6-rate-limit-qa、uncovered-demands）和 openapi、migration-order 共 106 条、人工报价组件 11 条、接口对账 4 条全部通过；全套交 CI",
+          "evidence": "PR #185（https://github.com/jiatengmei482-pixel/nozomi/pull/185）。迁移 0360_manual_quote_acceptance.sql（manual_quote_requests.is_acceptance 默认 false + 建好后不能改的触发器，不回填）；做法写在 ADR 0078「补充：验收留资」。新增测试 9 个：集成 8 个（apps/api/src/manual-quotes-acceptance.itest.ts：不带会话照旧、带有效会话记成验收留资且列表默认不列 / acceptance=only|include 才列 / 数量跟着筛选、去重分开、过期 / 已结束 / 写坏 / 通道没开 401 且不记、不发通知不记未覆盖需求、触发器不能改、production 不看 Cookie、租户隔离），组件 1 个（详情页「验收」徽标）；接口对账登记 is_acceptance、acceptance。本机：类型检查通过；相关集成测试（本文件、manual-quotes、qa-acceptance、schema-structure、platform-admin、password-change-bypass、ipv6-rate-limit-qa、uncovered-demands）和 openapi、migration-order 共 106 条、人工报价组件 11 条、接口对账 4 条全部通过；全套交 CI",
           "updated": "2026-11-13"
         },
         {
