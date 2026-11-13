@@ -822,7 +822,7 @@
           "title": "端到端去偶发：km-display 报价偶尔拿到替身默认路线（6,800 米）而不是测试写入缓存的 34,153 米",
           "role": "tester",
           "status": "doing",
-          "acceptance": ["查清 PR #150 run 42939235305 上 km-display.spec.ts:157 报价距离是 6800 的原因（路线缓存写入时机、键、并行用例互相覆盖或替身默认值），修测试或修代码，不靠加长等待", "同一类偶发还有 route-estimates-qa.spec.ts:127（PR #150 run 42947593270，官网点对点只有里程计价的商品）：一并查是否同一原因（路线替身 / 路线缓存在并行用例间互相影响）", "偶发（未修，待查）：e2e manual-quote.spec.ts:58 checkNarrow 的 axe 无障碍检查（catalog.ts:107）——#164 CI run 43202178851 报「人工报价列表（亮色）color-contrast」；#164 未改前端，同一用例在 main(c3c17425) 本地 3/3、#164 分支本地 2/3 同一行失败（本地为浏览器 Target crashed），main 与 #161 的 CI 均通过。疑为亮暗切换过渡中取样或内存压力。处理：登记后重跑", "已修：main run 43172522892（#160 合并后）token-check.qa.itest.ts:169「随机部分应有 43 个字符：38」——测试自身取随机部分的写法在 nzr_<租户>.<随机> 上又去了一次前缀，随机部分以「小写字母 + _」开头时（约 1%）被切短；与 #160 无关，不是产品问题。修法：有「.」时只取「.」后面；20 万次模拟旧写法错 2106 次、新写法 0 次", "另一类偶发：manual-quote.spec.ts:77 运营后台人工报价列表 axe color-contrast（PR #151 run 后一轮，同代码上一轮通过），查是否检查时机落在行高亮或过渡动画中", "另一类偶发：area-overview.spec.ts:264 第一次点地图选中区域（PR #152 run 43002718531，小区 JUB 的 aria-pressed 仍为 false；同代码上一轮 run 43001107329 e2e 通过），查是否地图加载完成前就点击", "另一类偶发：route-estimates.qa.itest.ts:346 并发用例（main 17753c83 的 CI run 42988235553，期望 2 实际 1；同代码 PR #151 的 CI 通过），导致 #151 合并后没有部署测试环境", "另一类偶发：site-payment.spec.ts:152 官网下单后用 Stripe 付款（测试卡 4242）付款成功等待确认（PR #154 只改文档，run 43029966780 e2e 失败一次，其余 409 个通过），查是否等待支付回调的时机问题", "该用例本机并行 20 次、CI 连续 3 轮不失败", "进展（2026-11-12，分支 m8-29-route-cache-race）：km-display.spec.ts:157 的原因查到——官网按两个坐标报价时，报价读路线缓存和「给客人看的路线」调谷歌（e2e 里是替身，一律 6,800 米）并行，后者把结果写回缓存，覆盖了用例写进去的里程；改为还没过期的成功缓存不覆盖（`saveRouteEstimate`），补 itest。route-estimates-qa.spec.ts:127 走旧的 /book 页面（POST /site/v1/quotes，不经过按两个坐标报价和 preview），不是这个原因，仍未查明；其余 4 类偶发也未处理", "另一类偶发（未修，已登记后重跑）：itest passenger-retention-ops.qa.itest.ts:228「批次上限」（PR #167 run 43264801551）——clone() 用 'NZ20260101' + md5 前 8 位给复制的订单编号，一次复制两千多单，撞上 orders_order_no_key 唯一约束（NZ2026010139434D8C）；与 #167 无关。修法：编号改用 generate_series 序号或 gen_random_uuid 拼足位数，保证不重复", "2026-11-12 结论（分支 m8-29-flaky-rest）：manual-quote.spec.ts:58/:77 已修——查找应答回来前旧表格半透明（.table--stale，opacity 0.6），axe 扫到它报 color-contrast；改为等按邮箱查找的应答回来、表格不再 aria-busy 再检查（人为推迟应答 2.5 秒时旧写法必失败、新写法 3/3 通过；单独运行 5/5）", "area-overview.spec.ts:264 已修——选了供应商后地图 fitBounds 平移约 170ms（leaflet-pan-anim），在平移途中量小区域位置再点会点歪；改为等地图停下（连续两帧位置不变、不在平移）再点；本机 --repeat-each=10 60/60（旧写法本机未复现失败，原因以 CI 那次和逐帧记录为证据）", "site-payment.spec.ts:152 已修——不是付款回调问题，是 createWorld 建城市编码（5 位随机字母）撞号 409 CODE_TAKEN；改为撞号换 tag 重建（同建机场的做法），本机 3×5 通过。另有约 12 个辅助函数用同样写法建城市，后续收进公共函数（未做）", "route-estimates.qa.itest.ts:346 已修——占每日名额事务的客户端时限 500ms 写死，CI 负载下偶尔超时、按设计不调谷歌；GoogleRouteEstimator 加可选 dbTimeoutMs（生产不传，仍 500），数调用次数的集成测试放宽到 5 秒；新增「库应答太慢（默认 500ms）就不调谷歌」和「放宽后照常调用」两条（用 tcp-proxy 卡住连接）；本机 41 条连跑 4 次全过；断言信息带上本次警告", "uncovered-demands.itest.ts:204 已修——main run 43258748905（#166 只改文档）失败：检查「日志里没有请求内容」用 includes(\"152\")，日志时间戳 / 耗时里碰巧带 152 就误报；改为只认单独出现的 152", "route-estimates-qa.spec.ts:127 已修（2026-11-13 业主决定 ② 允许改这个文件）——失败在 beforeAll 的前提检查：三个点各自在中心 ±0.08 度随机，路线缓存键取整到 3 位小数，偶尔有两个点落进同一格（测试数据问题，不是产品问题）。改为上车点在中心 ±0.06 度随机，两个下车点按固定偏移（+0.012/-0.015、-0.013/+0.011 度）从上车点算出，三点两两至少差 10 格、仍在区域内；前提检查和断言不变。本地模拟 100 万次：旧写法撞格 114 次（约 1/8800，与查到的频率一致）、新写法 0 次；该文件本机 --repeat-each=5 10/10 通过，类型检查通过", "已修（2026-11-13，分支 m8-29-route-map-theme）：e2e site-booking-route-map.spec.ts:185 expectMapFollowsTheme 报 getComputedStyle 参数不是 Element（PR #171 run 43310897506、main run 43324427085）。原因已证实：新预订页路线图按「起终点 + 主题」重建静态图组件，静态地图没开通（503 NOT_ENABLED）退回现有底图后，每切一次主题都重新要一次新主题的静态图、再问一次原因、再退回一次——本机在用例里逐帧记录：切两次主题多发 4 个 /site/v1/route-map 请求，.route-map__canvas 换成新节点，中间有一段是没有瓦片层的加载骨架；亮色那一轮「不压暗」在骨架上立刻成立，紧接着取瓦片层就是 null。这和 M6-08「切换主题时已打开的地图当场换瓦片或压暗，不重建地图」不符。改法：组件（StaticRouteMap.tsx）知道没开通以后把退回状态记在外层，切主题、换路线都直接用现有底图，不再要静态图，底图当场压暗或换瓦片；测试侧 expectMapFollowsTheme 取样式前先等瓦片层和矢量层出现（断言不变），用例加「切主题后还是同一个地图容器、不再请求静态图」。验证：新增组件测试 1 条（同一容器、同一瓦片层和路线、不再请求；旧组件上失败），book-new + map-theme 组件测试 52 条全过；类型检查通过；端到端 site-booking-route-map.spec.ts 单线程 --repeat-each=10 共 30/30 通过，area-roles.spec.ts（共用这个检查）2/2 通过", "已修：itest area-role-preview-report.itest.ts「statement_timeout 跟着时限收」（M8-34 新加，main run 43321503555 失败）——测试只认「2999ms」写法，PostgreSQL 显示整秒时写成「2s」，剩余时间刚好被收成整秒就失败；改为按单位换算成毫秒再比「不超过 3 秒」，要验证的内容不变；本机连跑 3 次通过", "业主决定（2026-11-13）：允许修改 route-estimates-qa.spec.ts：让测试挑的地点保证不会离得太近，不删断言（分支 m8-29-route-estimates-qa-points 在做）", "已修：itest area-role-preview-report.itest.ts「结果和命令行的 buildRolePreview 完全一样…」扫「应答里不能有坐标 145」偶发误报——M9W-00 加的 64 位十六进制摘要值随机含「145」片段（PR #189 CI）；扫坐标时跳过摘要值（不可能带出坐标），其余值照常检查", "（2026-11-13 深夜登记）site-booking-mobile.spec.ts:109「取消不改」：地图选点后断言出发地是占位名「地图上选的位置（坐标）」，坐标反查地址偶尔先回来、把名字换成反查到的地址（PR #191 的 CI，纯文档改动），断言等的是时序而不是行为；修法是等反查完成后再取「当前值」做比较，或让反查替身可控，不删不弱化断言"],
+          "acceptance": ["查清 PR #150 run 42939235305 上 km-display.spec.ts:157 报价距离是 6800 的原因（路线缓存写入时机、键、并行用例互相覆盖或替身默认值），修测试或修代码，不靠加长等待", "同一类偶发还有 route-estimates-qa.spec.ts:127（PR #150 run 42947593270，官网点对点只有里程计价的商品）：一并查是否同一原因（路线替身 / 路线缓存在并行用例间互相影响）", "偶发（未修，待查）：e2e manual-quote.spec.ts:58 checkNarrow 的 axe 无障碍检查（catalog.ts:107）——#164 CI run 43202178851 报「人工报价列表（亮色）color-contrast」；#164 未改前端，同一用例在 main(c3c17425) 本地 3/3、#164 分支本地 2/3 同一行失败（本地为浏览器 Target crashed），main 与 #161 的 CI 均通过。疑为亮暗切换过渡中取样或内存压力。处理：登记后重跑", "已修：main run 43172522892（#160 合并后）token-check.qa.itest.ts:169「随机部分应有 43 个字符：38」——测试自身取随机部分的写法在 nzr_<租户>.<随机> 上又去了一次前缀，随机部分以「小写字母 + _」开头时（约 1%）被切短；与 #160 无关，不是产品问题。修法：有「.」时只取「.」后面；20 万次模拟旧写法错 2106 次、新写法 0 次", "另一类偶发：manual-quote.spec.ts:77 运营后台人工报价列表 axe color-contrast（PR #151 run 后一轮，同代码上一轮通过），查是否检查时机落在行高亮或过渡动画中", "另一类偶发：area-overview.spec.ts:264 第一次点地图选中区域（PR #152 run 43002718531，小区 JUB 的 aria-pressed 仍为 false；同代码上一轮 run 43001107329 e2e 通过），查是否地图加载完成前就点击", "另一类偶发：route-estimates.qa.itest.ts:346 并发用例（main 17753c83 的 CI run 42988235553，期望 2 实际 1；同代码 PR #151 的 CI 通过），导致 #151 合并后没有部署测试环境", "另一类偶发：site-payment.spec.ts:152 官网下单后用 Stripe 付款（测试卡 4242）付款成功等待确认（PR #154 只改文档，run 43029966780 e2e 失败一次，其余 409 个通过），查是否等待支付回调的时机问题", "该用例本机并行 20 次、CI 连续 3 轮不失败", "进展（2026-11-12，分支 m8-29-route-cache-race）：km-display.spec.ts:157 的原因查到——官网按两个坐标报价时，报价读路线缓存和「给客人看的路线」调谷歌（e2e 里是替身，一律 6,800 米）并行，后者把结果写回缓存，覆盖了用例写进去的里程；改为还没过期的成功缓存不覆盖（`saveRouteEstimate`），补 itest。route-estimates-qa.spec.ts:127 走旧的 /book 页面（POST /site/v1/quotes，不经过按两个坐标报价和 preview），不是这个原因，仍未查明；其余 4 类偶发也未处理", "另一类偶发（未修，已登记后重跑）：itest passenger-retention-ops.qa.itest.ts:228「批次上限」（PR #167 run 43264801551）——clone() 用 'NZ20260101' + md5 前 8 位给复制的订单编号，一次复制两千多单，撞上 orders_order_no_key 唯一约束（NZ2026010139434D8C）；与 #167 无关。修法：编号改用 generate_series 序号或 gen_random_uuid 拼足位数，保证不重复", "2026-11-12 结论（分支 m8-29-flaky-rest）：manual-quote.spec.ts:58/:77 已修——查找应答回来前旧表格半透明（.table--stale，opacity 0.6），axe 扫到它报 color-contrast；改为等按邮箱查找的应答回来、表格不再 aria-busy 再检查（人为推迟应答 2.5 秒时旧写法必失败、新写法 3/3 通过；单独运行 5/5）", "area-overview.spec.ts:264 已修——选了供应商后地图 fitBounds 平移约 170ms（leaflet-pan-anim），在平移途中量小区域位置再点会点歪；改为等地图停下（连续两帧位置不变、不在平移）再点；本机 --repeat-each=10 60/60（旧写法本机未复现失败，原因以 CI 那次和逐帧记录为证据）", "site-payment.spec.ts:152 已修——不是付款回调问题，是 createWorld 建城市编码（5 位随机字母）撞号 409 CODE_TAKEN；改为撞号换 tag 重建（同建机场的做法），本机 3×5 通过。另有约 12 个辅助函数用同样写法建城市，后续收进公共函数（未做）", "route-estimates.qa.itest.ts:346 已修——占每日名额事务的客户端时限 500ms 写死，CI 负载下偶尔超时、按设计不调谷歌；GoogleRouteEstimator 加可选 dbTimeoutMs（生产不传，仍 500），数调用次数的集成测试放宽到 5 秒；新增「库应答太慢（默认 500ms）就不调谷歌」和「放宽后照常调用」两条（用 tcp-proxy 卡住连接）；本机 41 条连跑 4 次全过；断言信息带上本次警告", "uncovered-demands.itest.ts:204 已修——main run 43258748905（#166 只改文档）失败：检查「日志里没有请求内容」用 includes(\"152\")，日志时间戳 / 耗时里碰巧带 152 就误报；改为只认单独出现的 152", "route-estimates-qa.spec.ts:127 已修（2026-11-13 业主决定 ② 允许改这个文件）——失败在 beforeAll 的前提检查：三个点各自在中心 ±0.08 度随机，路线缓存键取整到 3 位小数，偶尔有两个点落进同一格（测试数据问题，不是产品问题）。改为上车点在中心 ±0.06 度随机，两个下车点按固定偏移（+0.012/-0.015、-0.013/+0.011 度）从上车点算出，三点两两至少差 10 格、仍在区域内；前提检查和断言不变。本地模拟 100 万次：旧写法撞格 114 次（约 1/8800，与查到的频率一致）、新写法 0 次；该文件本机 --repeat-each=5 10/10 通过，类型检查通过", "已修（2026-11-13，分支 m8-29-route-map-theme）：e2e site-booking-route-map.spec.ts:185 expectMapFollowsTheme 报 getComputedStyle 参数不是 Element（PR #171 run 43310897506、main run 43324427085）。原因已证实：新预订页路线图按「起终点 + 主题」重建静态图组件，静态地图没开通（503 NOT_ENABLED）退回现有底图后，每切一次主题都重新要一次新主题的静态图、再问一次原因、再退回一次——本机在用例里逐帧记录：切两次主题多发 4 个 /site/v1/route-map 请求，.route-map__canvas 换成新节点，中间有一段是没有瓦片层的加载骨架；亮色那一轮「不压暗」在骨架上立刻成立，紧接着取瓦片层就是 null。这和 M6-08「切换主题时已打开的地图当场换瓦片或压暗，不重建地图」不符。改法：组件（StaticRouteMap.tsx）知道没开通以后把退回状态记在外层，切主题、换路线都直接用现有底图，不再要静态图，底图当场压暗或换瓦片；测试侧 expectMapFollowsTheme 取样式前先等瓦片层和矢量层出现（断言不变），用例加「切主题后还是同一个地图容器、不再请求静态图」。验证：新增组件测试 1 条（同一容器、同一瓦片层和路线、不再请求；旧组件上失败），book-new + map-theme 组件测试 52 条全过；类型检查通过；端到端 site-booking-route-map.spec.ts 单线程 --repeat-each=10 共 30/30 通过，area-roles.spec.ts（共用这个检查）2/2 通过", "已修：itest area-role-preview-report.itest.ts「statement_timeout 跟着时限收」（M8-34 新加，main run 43321503555 失败）——测试只认「2999ms」写法，PostgreSQL 显示整秒时写成「2s」，剩余时间刚好被收成整秒就失败；改为按单位换算成毫秒再比「不超过 3 秒」，要验证的内容不变；本机连跑 3 次通过", "业主决定（2026-11-13）：允许修改 route-estimates-qa.spec.ts：让测试挑的地点保证不会离得太近，不删断言（分支 m8-29-route-estimates-qa-points 在做）", "已修：itest area-role-preview-report.itest.ts「结果和命令行的 buildRolePreview 完全一样…」扫「应答里不能有坐标 145」偶发误报——M9W-00 加的 64 位十六进制摘要值随机含「145」片段（PR #189 CI）；扫坐标时跳过摘要值（不可能带出坐标），其余值照常检查", "（2026-11-13 深夜登记）site-booking-mobile.spec.ts:109「取消不改」：地图选点后断言出发地是占位名「地图上选的位置（坐标）」，坐标反查地址偶尔先回来、把名字换成反查到的地址（PR #191 的 CI，纯文档改动），断言等的是时序而不是行为；修法是等反查完成后再取「当前值」做比较，或让反查替身可控，不删不弱化断言", "（2026-11-13 深夜登记）site-booking-waypoints.spec.ts:99 第一步（没有经停点、包车按 8 小时）车型卡 10 秒内没出来（PR #195 的 CI run 43486735721；同一分支本机连跑 2 次都通过，这一步不经过 #195 改的按行程计价）；原因待查：先看首屏询价在 CI 上的耗时和是否被别的请求挡住，不加长等待、不删断言"],
           "evidence": "PR #159（https://github.com/jiatengmei482-pixel/nozomi/pull/159）：修了 km-display 一类（路线预览不再覆盖未过期的成功缓存）；未做测试环境验收；其余 5 类未查；分支 m8-29-flaky-rest：修了 manual-quote axe、area-overview 第一次点击、site-payment 建城市撞号、route-estimates 并发（时限可注入）、uncovered-demands 日志误报 5 类；PR #175（分支 m8-29-route-map-theme）：修了新预订页路线图切主题重建地图（site-booking-route-map:185）、statement_timeout 显示格式（原 #173）、route-estimates-qa:127（下车点按固定偏移从上车点算出，不再撞缓存格；本机 10/10）；passenger-retention-ops 订单编号撞号已登记未修",
           "updated": "2026-11-13"
         },
@@ -1058,12 +1058,40 @@
           "updated": "2026-11-13"
         },
         {
+          "id": "M9W-08",
+          "title": "官网经停点：选谷歌候选后取坐标还没回来时先选停留时长，坐标回来会把停留时长清掉",
+          "role": "frontend",
+          "status": "review",
+          "acceptance": ["经停点一行的修改按最新的列表合并，取坐标晚回来不覆盖期间选好的停留时长和别的行", "组件测试：取坐标变慢、期间选停留时长，回来后停留时长还在、询价带上这个点和停留；去掉修复这条测试失败", "独立审查、合并、部署后测试站验收"],
+          "evidence": "PR #198（https://github.com/jiatengmei482-pixel/nozomi/pull/198）；本机 waypoints.test.tsx 8 条、book-new.test.tsx 46 条全过",
+          "updated": "2026-11-13"
+        },
+        {
           "id": "M9W-04",
           "title": "包车按行程计价·订单对外价明细、超公里 / 超时结算项、人工报价带经停点",
           "role": "backend",
           "status": "review",
           "acceptance": ["官网订单页显示锁定的对外价明细：/site/v1 订单应答 price_breakdown 取下单用的报价快照里的明细（和报价时同一个函数拆，不按现在的价格重算），各项之和等于订单对外价；只有包车按行程计价的单有，别的单、旧单、对不上（改期重算过价）时为 null，页面只显示总价", "供应商 / 运营订单详情「超公里 / 超时」写全程、套餐含量、超出量 × 单价 = 钱，只有结算价；/tenant/v1 应答没有对外价、加价比例、price_breakdown（规则 4，有测试断言）", "人工报价申请能带包车经停点：官网提交带 waypoints（≤10，名称、坐标、停留），有经停点时包车可以不带时长；经停点只放在密文里（ADR 0057），运营后台详情按顺序显示；别的类型带经停点 400；没有经停点时请求、去重键和以前完全一样", "OpenAPI 同步；旧订单显示不变；独立审查、合并、部署后测试站验收"],
           "evidence": "分支 m9w-04-order-itinerary-money；本机：单元 19 条（order-price-notes 2、order-area-price-display 5、domain manual-quote 12）、组件 106 条（site / dispatch / order-money 74，manual-quotes / manual-quote / waypoints 32）、契约 110 + OpenAPI 4、集成 13 个文件 147 条（含 charter-waypoints、manual-quotes 新增用例）全部通过，类型检查通过；全套以 CI 为准",
+          "updated": "2026-11-13"
+        },
+        {
+          "id": "M9W-06",
+          "title": "M9W-01 审查遗留：按行程计价先核城市和套餐再估路线；修改区域加价没带途经加价时保留原值",
+          "role": "backend",
+          "status": "review",
+          "acceptance": ["按行程计价：城市不存在或停用 400 UNKNOWN_CITY（和普通询价一致）；城市没有能选的包车套餐直接 NO_PRODUCT；两种都不调路线估算（集成测试数调用次数）", "修改包车区域加价（PUT、批量 update）时请求里没有 waypoint_surcharge 键 = 保留原值，显式 null 才清掉；和导入旧模版同一口径；OpenAPI、ADR 0088 补充", "另两条（多档套餐都写询价日志；最短覆盖套餐不一定最便宜）不在本任务：前者没法在不改变报价结果的前提下提前停，后者是业主在 ADR 0089 第 3 节定的规则，记 M9W-07 待业主决定", "独立审查、合并、部署后测试站验收"],
+          "evidence": "",
+          "updated": "2026-11-13"
+        },
+        {
+          "id": "M9W-07",
+          "title": "按行程计价选套餐：最短覆盖套餐不一定最便宜、每档都写询价日志（待业主决定）",
+          "role": "product",
+          "status": "blocked",
+          "blockedBy": "等业主决定选套餐规则（A 维持最小覆盖套餐 / B 取最便宜，推荐 B）",
+          "acceptance": ["业主决定选套餐规则：A. 维持 ADR 0089 第 3 节「能覆盖总时长的最小套餐」（客人看到的套餐时长最直观，可能不是最便宜）；B. 在能覆盖的套餐和更短套餐 + 超时之间取对外价最低的（对客人最划算，但套餐时长可能比行程短）。推荐 B", "定了 B 时新开实现任务：回放核对、改 ADR 0089；同时只把选中的那档写进返回结果，未选中的档次的询价日志标注「试算」以免占回放和统计"],
+          "evidence": "",
           "updated": "2026-11-13"
         }
       ]
@@ -2267,6 +2295,16 @@
       "date": "2026-11-13",
       "by": "Claude",
       "summary": "M9W-04 开发完成待验收：官网订单页给下单时那份对外价明细（从报价快照拆，只有包车按行程计价的单；对不上时不给）；供应商 / 运营订单详情加「超公里 / 超时」一项（结算价）；人工报价申请能带包车经停点（只在密文里，有经停点时可以不带时长；迁移 0380 只放宽时长约束）。"
+    },
+    {
+      "date": "2026-11-13",
+      "by": "Claude",
+      "summary": "测试站复跑 M9W 报价时发现：经停点选了谷歌候选、坐标还没取回来就选停留时长，坐标回来后停留时长被清空（更新这一行时用的是渲染时的旧列表）。新增 M9W-08 并修复（PR #198）。"
+    },
+    {
+      "date": "2026-11-13",
+      "by": "backend",
+      "summary": "M9W-06 开发完成，待验收：#189 审查遗留的两项——按行程计价先核城市、查套餐再估路线（城市不对 400 UNKNOWN_CITY，没有套餐 NO_PRODUCT，都不调谷歌）；修改包车区域加价时没带途经加价这一项就保留原值（显式 null 才清掉）。另两项转 M9W-07 待业主决定。"
     },
     {
       "date": "2026-11-13",
