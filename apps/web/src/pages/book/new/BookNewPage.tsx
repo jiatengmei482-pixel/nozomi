@@ -33,6 +33,7 @@ import {
   getSiteFxReference,
   listSiteCharterPackages,
   getSitePlaceByCode,
+  getSiteBookingDraft,
   listSiteCities,
 } from "../../../api/site.ts";
 import { AlertSlot, type Notice } from "../../../components/Alert.tsx";
@@ -72,6 +73,7 @@ import { useDocumentTitle } from "../../../lib/use-document-title.ts";
 import { MANUAL_QUOTE_CHARTER_HOURS, type ManualQuoteTripDraft } from "../../../lib/manual-quote-form.ts";
 import { ITINERARY_NOTE, type WaypointDraft, breakdownLines, durationText, itineraryPackageHours, itineraryRouteFailureText, itineraryText, scheduleRows, waypointErrors, waypointUnavailableTexts, waypointsBody } from "../../../lib/charter-itinerary.ts";
 import { TripStops } from "../../../components/TripStops.tsx";
+import { DRAFT_EXPIRED_TEXT, DRAFT_FAILED_TEXT, draftReadyToQuote, draftTrip } from "../../../lib/booking-draft.ts";
 import { ManualQuoteBlock } from "../ManualQuote.tsx";
 import { SiteLayout, siteFailureText, useSiteConfig } from "../SiteLayout.tsx";
 import { SitePrice } from "../SitePrice.tsx";
@@ -266,7 +268,7 @@ export function BookNewPage() {
   const latestSearch = useRef(location.search);
   latestSearch.current = location.search;
   /** 链接里的地点还在读：读完以前不按「能到哪一步」改网址 */
-  const [linkPending, setLinkPending] = useState(link.from !== null || link.to !== null);
+  const [linkPending, setLinkPending] = useState(link.from !== null || link.to !== null || link.draft !== null);
   /** 换步：网址加一条历史记录（浏览器后退回到上一步），其余参数原样保留 */
   const goStep = useCallback(
     (next: BookStep, replace = false): void => {
@@ -303,8 +305,28 @@ export function BookNewPage() {
   useEffect(() => {
     if (cities.kind !== "ready" || linkDone.current) return;
     linkDone.current = true;
-    if (link.from === null && link.to === null) return;
     let alive = true;
+    // 嵌入组件建的预订草稿（M9E-01，ADR 0090）：读到就整份预填；过期、不存在、读不出来时说一句，留空白表单
+    if (link.draft !== null) {
+      getSiteBookingDraft(link.draft).then(
+        ({ draft: saved }) => {
+          if (!alive) return;
+          setLinkPending(false);
+          const trip = draftTrip(saved);
+          setDraft((current) => ({ ...current, tab: trip.tab, mode: trip.tab, from: trip.from, to: trip.to, date: trip.date, time: trip.time, passengers: trip.passengers, luggage: trip.luggage, packageHours: trip.packageHours, waypoints: trip.waypoints }));
+          if (draftReadyToQuote(trip) && new URLSearchParams(latestSearch.current).get("step") === null) goStep(2, true);
+        },
+        (err: unknown) => {
+          if (!alive) return;
+          setLinkPending(false);
+          setNotice({ kind: "warning", text: err instanceof ApiError && err.status === 404 ? DRAFT_EXPIRED_TEXT : DRAFT_FAILED_TEXT });
+        },
+      );
+      return () => {
+        alive = false;
+      };
+    }
+    if (link.from === null && link.to === null) return;
     void Promise.all([resolveLinkEnd(link.from), resolveLinkEnd(link.to)]).then(([fromEnd, toEnd]) => {
       if (!alive) return;
       setLinkPending(false);

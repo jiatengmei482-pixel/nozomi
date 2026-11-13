@@ -415,8 +415,33 @@ export interface SiteChangeRequest {
   luggage?: number;
 }
 
+/** 预订草稿里的一个地点（M9E-01，ADR 0090） */
+export interface BookingDraftPoint {
+  name: string;
+  lat: number;
+  lng: number;
+}
+
+/** 预订草稿：嵌入组件交给主站暂存的预订条件 v1（M9E-01，ADR 0090）。不含价格和个人信息。 */
+export interface BookingDraft {
+  v: 1;
+  tab: "transfer" | "charter";
+  /** 城市当地 `YYYY-MM-DDTHH:mm` */
+  service_local: string;
+  pickup: BookingDraftPoint;
+  dropoff: BookingDraftPoint;
+  waypoints: (BookingDraftPoint & { stay_minutes: number })[];
+  /** 只有包车且没有经停点时可能有 */
+  package_hours: number | null;
+  passengers: number;
+  luggage: number;
+  lang: "zh" | "ja" | "en";
+}
+
 /** 契约测试用：这些类型的字段要和 openapi.yaml 里的定义完全一致。 */
 export const SITE_SCHEMA_FIELDS = {
+  BookingDraft: ["v", "tab", "service_local", "pickup", "dropoff", "waypoints", "package_hours", "passengers", "luggage", "lang"],
+  BookingDraftPoint: ["name", "lat", "lng"],
   SiteConfig: ["open", "currency", "payments", "support_phone", "support_whatsapp", "page_width", "address_search", "map_tiles"],
   SiteCity: ["id", "code", "name", "timezone", "country_code", "center", "categories"],
   SitePlaceCandidate: ["source", "id", "name", "address", "location", "kind"],
@@ -557,6 +582,11 @@ export function searchSitePlaces(cityId: string | null, query: string): Promise<
  */
 export function getSitePlaceByCode(code: string): Promise<SitePlace> {
   return apiRequest("GET", `${SITE_BASE}/places/by-code?code=${encodeURIComponent(code)}`);
+}
+
+/** 读嵌入组件建的预订草稿（M9E-01，ADR 0090）：过期、不存在都是 404 `BOOKING_DRAFT_NOT_FOUND`。 */
+export function getSiteBookingDraft(id: string): Promise<{ draft: BookingDraft; expires_at: string }> {
+  return apiRequest("GET", `${SITE_BASE}/booking-drafts/${encodeURIComponent(id)}`);
 }
 
 /** 输入即提示：一次「输入 → 选中」用同一个 `session`（如 `crypto.randomUUID()`）。 */

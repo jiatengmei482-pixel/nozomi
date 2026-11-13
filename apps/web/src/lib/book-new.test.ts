@@ -11,6 +11,7 @@ test("链接参数：编码、「纬度,经度」加名称、日期、时间、�
     passengers: 2,
     luggage: 3,
     mode: null,
+    draft: null,
   });
   // 旧 /book 的包车跳过来（M8-15）
   assert.equal(parseBookingLink("?mode=charter").mode, "charter");
@@ -18,12 +19,23 @@ test("链接参数：编码、「纬度,经度」加名称、日期、时间、�
 
 test("链接参数：不合法的那一项为 null（不预填、不报错），其余照常", () => {
   const link = parseBookingLink("?from=91,10&to=%3Cscript%3E&date=2030-02-30&time=25:00&pax=0&bags=61");
-  assert.deepEqual(link, { from: null, to: null, date: null, time: null, passengers: null, luggage: null, mode: null });
-  assert.deepEqual(parseBookingLink(""), { from: null, to: null, date: null, time: null, passengers: null, luggage: null, mode: null });
+  assert.deepEqual(link, { from: null, to: null, date: null, time: null, passengers: null, luggage: null, mode: null, draft: null });
+  assert.deepEqual(parseBookingLink(""), { from: null, to: null, date: null, time: null, passengers: null, luggage: null, mode: null, draft: null });
   assert.equal(parseBookingLink("?mode=bus").mode, null);
   assert.deepEqual(parseBookingLink("?from=35.1,139.2&from_name=%20%20&pax=60&bags=0").from, { kind: "point", lat: 35.1, lng: 139.2, name: null });
   assert.equal(parseBookingLink("?pax=60&bags=0").passengers, 60);
   assert.equal(parseBookingLink("?pax=2.5").passengers, null);
+});
+
+test("链接里的预订草稿编号（M9E-01）：43 个 base64url 字符才认，认了之后其余参数一律不看；写法不对按没带", () => {
+  const id = "aZ09_-".repeat(7) + "x";
+  assert.deepEqual(parseBookingLink(`?draft=${id}&from=NRT&date=2030-11-20&mode=charter&pax=3`), { from: null, to: null, date: null, time: null, passengers: null, luggage: null, mode: null, draft: id });
+  for (const bad of ["short", `${id}A`, `${id.slice(0, 42)}=`, ""]) {
+    const link = parseBookingLink(`?draft=${encodeURIComponent(bad)}&from=NRT&pax=3`);
+    assert.equal(link.draft, null, bad);
+    assert.deepEqual(link.from, { kind: "code", code: "NRT" }, "编号不对时旧参数照旧");
+    assert.equal(link.passengers, 3);
+  }
 });
 
 test("链接里的 mode（M8-33）：区间 transfer 和 M8-27 的旧值 airport、p2p 都落到区间；charter 包车；别的值为 null", () => {

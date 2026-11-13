@@ -12,6 +12,7 @@
  *   搜索可以不带城市（渠道授权的范围里搜），候选带类型（机场 / 其他），平台的机场、车站排在最前（M8-02，ADR 0069）；
  * - `GET /site/v1/places/autocomplete`、`GET /site/v1/places/details`：输入即提示和选中后取坐标（谷歌 Autocomplete / Place Details，同一个会话令牌；
  *   每个地址每分钟 60 次，和搜索、反查共用每天 300 次，M8-02，ADR 0069 B1）；
+ * - `GET /site/v1/booking-drafts/{id}`：嵌入组件建的预订草稿（M9E-01，ADR 0090）：只给预订条件和到期时刻；过期、不存在、格式不对同一个 404（每个地址每分钟 60 次）；
  * - `GET /site/v1/fx/reference?to=`：订单币种 → 客人币种的参考汇率（只读汇率中心现在生效的汇率，只用于显示，M8-02，ADR 0069 B16）；
  * - `POST /site/v1/quotes`：询价，三种品类，可带附加服务（每个地址每分钟 30 次；报价带「这个车型能加哪些附加服务」，M8-02）；
  * - `POST /site/v1/quotes/by-points`：按两个坐标报价——认出机场和接机 / 送机 / 点对点后走同一个询价，顺带给路线的时间、距离（和询价共用每分钟 30 次，M8-02，ADR 0069 A1）；
@@ -74,6 +75,7 @@ import { distanceJson, paymentJson, salesOrderJson } from "./sales.ts";
 import { mapConfigJson } from "./areas.ts";
 import type { OrderVehicleGroupRef } from "../repos/master-data.ts";
 import { sitePublicSettings } from "../services/manual-quotes.ts";
+import { readBookingDraftForSite } from "../services/booking-drafts.ts";
 import { QaAcceptanceHidden, currentQaAcceptance, endQaAcceptance, qaAcceptanceActive, sessionCookie, siteAudienceOf, unlockQaAcceptance } from "../services/qa-acceptance.ts";
 import { errorBody } from "../errors.ts";
 import { pathOnly } from "../logging.ts";
@@ -413,6 +415,14 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
     if (view === null) throw notFound("订单");
     return siteOrderJson(ctx, view);
   };
+
+  // 预订草稿（M9E-01，ADR 0090）：只给预订条件和到期时刻；过期、不存在、格式不对同一个 404
+  app.get("/site/v1/booking-drafts/:id", async (request) => {
+    await takeSiteSlot(ctx, "site_booking_draft", { ip: request.ip });
+    const { id } = request.params as { id: string };
+    const found = await readBookingDraftForSite(ctx, id);
+    return { draft: found.draft, expires_at: found.expiresAt.toISOString() };
+  });
 
   app.get("/site/v1/config", async (request) => {
     await takeSiteSlot(ctx, "site_read", { ip: request.ip });

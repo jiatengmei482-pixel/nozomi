@@ -12647,6 +12647,45 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "429":
           $ref: "#/components/responses/RateLimited"
+  /site/v1/booking-drafts/{id}:
+    get:
+      tags: [ 官网 ]
+      operationId: getSiteBookingDraft
+      summary: 读预订草稿（嵌入组件跳过来时预填用）
+      description: |
+        M9E-01，ADR 0090：嵌入组件先把预订条件交给主站暂存成草稿，再跳 `/book/new?draft=<id>`。只给预订条件和到期时刻，
+        不给来源（哪个嵌入码、哪个网站、返回地址）。草稿 2 小时有效，有效期内可以反复打开。
+        过期、不存在、编号格式不对一律 404 `BOOKING_DRAFT_NOT_FOUND`，不区分。不需要登录；每个地址每分钟 60 次；永远不带 CORS 头。
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 43 个 base64url 字符（256 位随机数）
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 草稿
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ draft, expires_at ]
+                properties:
+                  draft:
+                    $ref: "#/components/schemas/BookingDraft"
+                  expires_at:
+                    type: string
+                    format: date-time
+        "404":
+          description: "`BOOKING_DRAFT_NOT_FOUND`：过期、不存在或编号格式不对（不区分）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
   /site/v1/config:
     get:
       tags: [ 官网 ]
@@ -28952,6 +28991,75 @@ components:
         urgent:
           type: boolean
           description: 这家是按加急报的价（离用车太近）
+    BookingDraft:
+      type: object
+      description: 预订条件 v1（ADR 0090 第二节）。不含价格、报价编号、任何客人个人信息；多一个键就拒。
+      additionalProperties: false
+      required: [ v, tab, service_local, pickup, dropoff, waypoints, package_hours, passengers, luggage, lang ]
+      properties:
+        v:
+          type: integer
+          enum: [ 1 ]
+        tab:
+          type: string
+          enum: [ transfer, charter ]
+          description: 区间（接送机 / 点对点由 `/book/new` 按地点判断）或包车
+        service_local:
+          type: string
+          description: 城市当地 `YYYY-MM-DDTHH:mm`
+        pickup:
+          $ref: "#/components/schemas/BookingDraftPoint"
+        dropoff:
+          $ref: "#/components/schemas/BookingDraftPoint"
+        waypoints:
+          type: array
+          maxItems: 10
+          description: 只有包车能有；有经停点时按行程计价（ADR 0089）
+          items:
+            type: object
+            additionalProperties: false
+            required: [ name, lat, lng, stay_minutes ]
+            properties:
+              name:
+                type: string
+                minLength: 1
+                maxLength: 200
+              lat:
+                type: number
+              lng:
+                type: number
+              stay_minutes:
+                type: integer
+                minimum: 30
+                maximum: 480
+                description: 30 分钟一档
+        package_hours:
+          type: [ integer, "null" ]
+          description: 只有包车且没有经停点时可以给，客人在 `/book/new` 还能改
+        passengers:
+          type: integer
+          minimum: 1
+          maximum: 60
+        luggage:
+          type: integer
+          minimum: 0
+          maximum: 60
+        lang:
+          type: string
+          enum: [ zh, ja, en ]
+    BookingDraftPoint:
+      type: object
+      additionalProperties: false
+      required: [ name, lat, lng ]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        lat:
+          type: number
+        lng:
+          type: number
     SiteConfig:
       type: object
       additionalProperties: false

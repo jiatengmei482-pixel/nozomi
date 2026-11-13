@@ -1068,9 +1068,9 @@
           "id": "M9E-01",
           "title": "嵌入组件·预订草稿：草稿表、GET /site/v1/booking-drafts/{id}、清理任务、/book/new?draft= 预填",
           "role": "backend",
-          "status": "todo",
+          "status": "review",
           "acceptance": ["domain BookingDraft 类型和 bookingDraftIssues 校验，单元测试覆盖区间 / 包车、经停点上限和停留规则、多余键和个人信息键被拒、16 KB", "迁移只建表 booking_drafts（id 43 位 base64url、content ≤ 16 KB、来源列可空、2 小时有效期），应用角色只有 select / insert / delete；不预置任何数据", "GET /site/v1/booking-drafts/{id}：200 只给 draft 和 expires_at；过期、不存在、格式不对同一个 404 BOOKING_DRAFT_NOT_FOUND；每地址每分钟 60 次；不带 CORS 头；集成测试", "清理任务每小时删过期草稿，只删过期的（集成测试）", "/book/new?draft=：区间、包车按时长、包车带经停点三种都能预填并自动询价；404 显示「链接已过期，请重新填写」和空白表单；不带 draft 时旧链接参数照旧（组件测试）", "OpenAPI 同步；独立审查、合并、部署后测试站验收（随便编一个编号确认 404 口径和无 CORS 头）"],
-          "evidence": "",
+          "evidence": "分支 m9e-01-booking-drafts（叠在 m9e-00-embed-adr 上）。迁移 0380_booking_drafts.sql；domain booking-draft.ts（单元测试 10 条）；GET /site/v1/booking-drafts/{id}、BookingDraftRetentionJobs；集成测试 booking-drafts.itest.ts 8 条（只给条件不给来源、1 小时 59 分还能打开、过期 / 不存在 / 格式不对同一个 404、无 CORS 头、每地址每分钟 60 次、库里内容不合格按不存在、库约束、清理只删过期的、平台角色不能 update、租户角色无权限）；schema-structure.itest.ts 登记新表和权限（12 条通过）；前端 lib/book-new.test.ts 15 条、lib/booking-draft.test.ts 4 条、book-new.test.tsx + waypoints.test.tsx + site.contract.test.ts 共 65 条通过（新增 3 条：区间预填直接报价、包车带经停点按行程询价、过期 / 读不出两种提示）；openapi.test.ts 4 条；pnpm typecheck 通过",
           "updated": "2026-11-13"
         },
         {
@@ -2219,6 +2219,11 @@
       "date": "2026-11-13",
       "by": "Claude",
       "summary": "新增 ADR 0090 和里程碑 M9E（嵌入预订组件）：组件先把预订条件交给主站暂存成 2 小时有效的预订草稿，再整页跳 /book/new?draft=<43 位短编号>；跨域只开 /embed/v1，只对嵌入码白名单里的网站放行；来源只做统计。取代 ADR 0087 草稿（#186，未合并）中草稿和嵌入组件的部分，线路式包车部分已由 ADR 0088 / 0089 实现。分 M9E-01 草稿、M9E-02 嵌入码与白名单、M9E-03 组件脚本三个 PR。"
+    },
+    {
+      "date": "2026-11-13",
+      "by": "backend",
+      "summary": "M9E-01 开发完成，待验收：预订草稿表（迁移 0380，只建结构；平台角色只有 select / insert / delete）、domain 的 BookingDraft 校验（区间 / 包车、经停点 ≤ 10 个且停留 30 分钟一档、有经停点时不给时长、多一个键就拒）、GET /site/v1/booking-drafts/{id}（只给条件和到期时刻，过期和不存在同一个 404，每地址每分钟 60 次，无 CORS）、每小时删过期草稿；/book/new?draft= 整份预填并在条件齐全时直接报价，过期时提示「链接已过期，请重新填写」。建草稿的接口随 M9E-02。"
     }
   ]
 }
