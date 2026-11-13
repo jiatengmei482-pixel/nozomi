@@ -113,6 +113,8 @@ export function previewOutcome(quote: ProductQuote): { external: string; interna
   };
 }
 
+const isRouteUsage = (value: unknown): value is { meters: number; minutes: number } => typeof value === "object" && value !== null && typeof (value as Row)["meters"] === "number" && typeof (value as Row)["minutes"] === "number";
+
 /** 询价日志里记的请求（渠道的、官网的两种写法）→ 报价引擎的请求；认不出返回 null */
 async function replayRequest(db: Db, raw: Row, timezone: string): Promise<{ category: ServiceCategory; placeId: string | null; request: QuoteRequest } | null> {
   const category = raw["category"] as ServiceCategory;
@@ -166,6 +168,8 @@ async function replayRequest(db: Db, raw: Row, timezone: string): Promise<{ cate
     driverLanguage: raw["driver_language"] ?? null,
     vehicleGroupIds: Array.isArray(raw["vehicle_group_ids"]) ? (raw["vehicle_group_ids"] as string[]) : [],
     ...(waypoints.length === 0 ? {} : { waypoints }),
+    // 包车按行程计价（ADR 0088 补充）：日志里记的全程、总时长照原样带上
+    ...(isRouteUsage(raw["route_usage"]) ? { routeUsage: { meters: raw["route_usage"].meters, minutes: raw["route_usage"].minutes } } : {}),
   };
   return quoteRequestIssues(request).length > 0 ? null : { category, placeId, request };
 }
