@@ -1238,6 +1238,10 @@ a.entry-card__title:focus-visible::after {
   outline-offset: var(--focus-ring-offset);
 }
 
+a.entry-card__title:focus-visible {
+  outline-color: transparent;
+}
+
 @media (hover: hover) {
   .entry-card--link:hover {
     border-color: var(--color-border-strong);

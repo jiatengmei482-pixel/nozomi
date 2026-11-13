@@ -97,3 +97,29 @@ test("M6-10 手机宽度（400px）：点开收起的步骤导航再点一步，
   await expectNoHorizontalOverflow(page, "手机宽度的商品详情");
   await snapshot(page, "step-title-pointer-mobile");
 });
+
+test("M6-10 首页入口卡片（聚焦环的第三处例外）：键盘聚焦时整张卡片一圈 2px 环，标题链接自身没有环；亮暗两色", async ({ page, request }) => {
+  const world = await createWorld(request);
+  const supplier = await createSupplier(request, world);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await loginAs(page, "tenant", supplier.tenant.adminEmail, supplier.tenant.password);
+  const link = page.locator(".entry-card").getByRole("link", { name: /^商品/ }).first();
+  for (const scheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.locator("main").focus();
+    for (let presses = 0; presses < 40 && !(await link.evaluate((node) => node === document.activeElement)); presses += 1) await page.keyboard.press("Tab");
+    await expect(link).toBeFocused();
+    const rings = await link.evaluate((node) => {
+      const own = getComputedStyle(node);
+      const card = getComputedStyle(node, "::after");
+      const box = node.closest(".entry-card")?.getBoundingClientRect();
+      const after = { width: Number.parseFloat(card.width), height: Number.parseFloat(card.height) };
+      return { visible: node.matches(":focus-visible"), ownColor: own.outlineColor, ownStyle: own.outlineStyle, card: `${card.outlineWidth} ${card.outlineStyle}`, coversCard: box !== undefined && Math.abs(after.width - box.width) < 3 && Math.abs(after.height - box.height) < 3 };
+    });
+    expect(rings.visible).toBe(true);
+    expect(rings.ownColor, "标题链接自身的环是透明的").toBe("rgba(0, 0, 0, 0)");
+    expect(rings.card, "卡片一圈 2px 环").toBe("2px solid");
+    expect(rings.coversCard, "环画在整张卡片上").toBe(true);
+    await snapshot(page, `entry-card-focus-${scheme}`);
+  }
+});

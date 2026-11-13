@@ -102,9 +102,10 @@ test("不用 100vw / 100vh，不去掉聚焦环，不在 html / body 上藏横�
 
 /**
  * 藏聚焦环的写法（docs/design/01-tokens.md 第 5 节）：outline: none / 0 / … transparent、outline-style: none、outline-width: 0、outline-color: transparent。
- * 只有两个选择器可以（整串相等）：换页后的正文区，和分步配置里鼠标 / 触屏换步后的步骤标题（M6-10）。
+ * 只有三个选择器可以（整串相等）：换页后的正文区；分步配置里鼠标 / 触屏换步后的步骤标题（M6-10）；
+ * 首页入口卡片的标题链接——它的环由铺满卡片的 ::after 画在整张卡片上（02-components 入口卡片）。
  */
-const FOCUS_RING_EXCEPTIONS = new Set(["main:focus", '.step__title[tabindex="-1"][data-focus-source="pointer"]:focus']);
+const FOCUS_RING_EXCEPTIONS = new Set(["main:focus", '.step__title[tabindex="-1"][data-focus-source="pointer"]:focus', "a.entry-card__title:focus-visible"]);
 const ZERO_LENGTH = /^[+-]?0*\.?0+[a-z%]*$/i;
 
 function hidesFocusRing(property: string, value: string): boolean {
@@ -137,14 +138,15 @@ function hiddenFocusRings(css: string): { selector: string; declaration: string 
   return found;
 }
 
-test("藏聚焦环的检查：两个例外整串放行，别的选择器用任何写法藏环都拦下", () => {
+test("藏聚焦环的检查：三个例外整串放行，别的选择器用任何写法藏环都拦下", () => {
   assert.deepEqual(hiddenFocusRings("main:focus { outline: none; }"), []);
+  assert.deepEqual(hiddenFocusRings("a.entry-card__title:focus-visible { outline-color: transparent; }"), []);
   assert.deepEqual(hiddenFocusRings('.step__title[tabindex="-1"][data-focus-source="pointer"]:focus {\n  outline: none;\n}'), []);
   for (const declaration of ["outline: none", "outline: 0", "outline: 0px", "outline-style: none", "outline-style: hidden", "outline-width: 0", "outline-width: 0px", "outline-color: transparent", "outline: 2px solid transparent", "outline: var(--focus-ring-width) solid transparent", "outline: none !important"]) {
     assert.equal(hiddenFocusRings(`.button:focus-visible { color: inherit; ${declaration}; }`).length, 1, `${declaration} 应当被拦下`);
   }
   // 例外只认整串：前缀、多一个选择器、换成键盘 / 不知道的标记、去掉 tabindex 都不行
-  for (const selector of ["main:focus-visible", "main:focus, .button:focus", ".step__title:focus", '.step__title[data-focus-source="pointer"]:focus', '.step__title[tabindex="-1"][data-focus-source="keyboard"]:focus', '.step__title[tabindex="-1"][data-focus-source="pointer"]:focus, .link:focus', '.page .step__title[tabindex="-1"][data-focus-source="pointer"]:focus']) {
+  for (const selector of ["main:focus-visible", "main:focus, .button:focus", ".step__title:focus", "a.entry-card__reminder:focus-visible", "a.entry-card__title:focus", ".entry-card__title:focus-visible", "a.entry-card__title:focus-visible, a.link:focus-visible", '.step__title[data-focus-source="pointer"]:focus', '.step__title[tabindex="-1"][data-focus-source="keyboard"]:focus', '.step__title[tabindex="-1"][data-focus-source="pointer"]:focus, .link:focus', '.page .step__title[tabindex="-1"][data-focus-source="pointer"]:focus']) {
     assert.equal(hiddenFocusRings(`${selector} { outline: none; }`).length, 1, `${selector} 不在例外里`);
   }
   // 媒体查询里面的规则一样检查；画环的写法不算藏
@@ -159,4 +161,14 @@ test("分步配置的步骤标题：鼠标的不画框，键盘和拿不准的�
   assert.ok(rules.some((rule) => rule.selector === '.step__title[tabindex="-1"][data-focus-source="keyboard"]:focus, .step__title[tabindex="-1"][data-focus-source="unknown"]:focus' && rule.body === "outline: var(--focus-ring-width) solid var(--color-border-focus); outline-offset: var(--focus-ring-offset);"));
   const others = rules.filter((rule) => rule.selector.includes("data-focus-source"));
   assert.equal(others.length, 2, "data-focus-source 只用在规范给的这两条规则里");
+});
+
+test("首页入口卡片：标题链接自身的环去掉，同一条件下由铺满卡片的 ::after 画 2px 环（不能只藏不补）", () => {
+  const css = sheets.find((sheet) => sheet.name === "data.css")?.css ?? "";
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((rule) => ({ selector: (rule[1] ?? "").trim().replace(/\s+/g, " "), body: (rule[2] ?? "").replace(/\s+/g, " ").trim() }));
+  assert.ok(rules.some((rule) => rule.selector === "a.entry-card__title:focus-visible" && rule.body === "outline-color: transparent;"));
+  const ring = rules.find((rule) => rule.selector === "a.entry-card__title:focus-visible::after");
+  assert.match(ring?.body ?? "", /outline: var\(--focus-ring-width\) solid var\(--color-border-focus\);/);
+  assert.match(ring?.body ?? "", /outline-offset: var\(--focus-ring-offset\);/);
+  assert.ok(rules.some((rule) => rule.selector === "a.entry-card__title::after" && /position: absolute;/.test(rule.body) && /inset: 0;/.test(rule.body)), "::after 铺满整张卡片");
 });
