@@ -37,6 +37,10 @@ test("区间、包车带经停点生成的草稿都通过主站的同一套校�
   const long = draftOf(form({ pickup: { name: ` ${"地".repeat(250)} `, lat: 35, lng: 139 } }), "ja");
   assert.equal([...(long["pickup"] as { name: string }).name].length, 200, "名称超过 200 字截断");
   assert.deepEqual(bookingDraftIssues(long), []);
+  const emoji = draftOf(form({ pickup: { name: "🚕".repeat(150), lat: 35.681234567891, lng: 139.767123456789 } }), "ja");
+  assert.equal((emoji["pickup"] as { name: string }).name, "🚕".repeat(100), "按 UTF-16 单元截到 200，不切开 emoji");
+  assert.deepEqual([(emoji["pickup"] as { lat: number }).lat, (emoji["pickup"] as { lng: number }).lng], [35.6812346, 139.7671235], "坐标保留 7 位小数");
+  assert.deepEqual(bookingDraftIssues(emoji), []);
 });
 
 test("查询前的检查：地点、经停点和停留、日期、时间", () => {

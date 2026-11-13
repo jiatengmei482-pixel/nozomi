@@ -65,8 +65,18 @@ export function formProblems(form: WidgetForm): FormProblem[] {
   return problems;
 }
 
-const trimName = (name: string): string => [...name.trim()].slice(0, 200).join("");
-const point = (value: WidgetPoint): WidgetPoint => ({ name: trimName(value.name), lat: value.lat, lng: value.lng });
+/** 名称最多 200 个 UTF-16 单元（和主站询价同一种算法），按字截断，不切开 emoji */
+function trimName(name: string): string {
+  let out = "";
+  for (const char of name.trim()) {
+    if (out.length + char.length > 200) break;
+    out += char;
+  }
+  return out;
+}
+/** 坐标保留 7 位小数（约 1 厘米；主站只收这个精度） */
+const coord = (value: number): number => Number(value.toFixed(7));
+const point = (value: WidgetPoint): WidgetPoint => ({ name: trimName(value.name), lat: coord(value.lat), lng: coord(value.lng) });
 
 /** 表单 → 预订条件 v1（ADR 0090 第二节第 2 小节）。调用前先确认 `formProblems` 为空 */
 export function draftOf(form: WidgetForm, lang: WidgetLang): Record<string, unknown> {
