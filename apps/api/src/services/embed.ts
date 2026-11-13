@@ -205,7 +205,8 @@ export async function createEmbedDraft(ctx: AppContext, gate: EmbedGate, ip: str
     if (Number(active.rows[0]?.count ?? 0) >= EMBED_RULES.activeDraftsPerKey) throw embedDraftLimit();
     const count = Number(active.rows[0]?.count ?? 0) + 1;
     // 到上限的 80% 写告警日志（运维告警按它报）：可能有人伪造 Origin 在占满上限，运营可以给合作网站换码（ADR 0090 第五节第 1 小节）
-    if (count >= EMBED_RULES.activeDraftsWarnAt) log?.warn({ event: "embed.draft_limit_near", embed_key_id: gate.embedKey.id, active: count, limit: EMBED_RULES.activeDraftsPerKey }, "嵌入码的有效预订草稿接近上限");
+    // 只在刚到 4,000 和之后每多 250 个时写一条，不是每建一个都写
+    if (count >= EMBED_RULES.activeDraftsWarnAt && (count - EMBED_RULES.activeDraftsWarnAt) % 250 === 0) log?.warn({ event: "embed.draft_limit_near", embed_key_id: gate.embedKey.id, active: count, limit: EMBED_RULES.activeDraftsPerKey }, "嵌入码的有效预订草稿接近上限");
     return insertBookingDraft(db, body.draft as BookingDraft, { embedKeyId: gate.embedKey.id, embedOrigin: gate.origin, returnUrl }, now);
   });
 }

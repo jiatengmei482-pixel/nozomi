@@ -59,7 +59,7 @@ test("新建：一行一个网站，按区间、包车的顺序提交；服务�
   await actor.type(screen.getByLabelText(/^名称/), "MoveGlobal 演示站");
   await actor.type(screen.getByLabelText(/^允许的网站/), "https://embed-demo.moveglobal.io\nhttps://*.bad.example");
   await actor.click(screen.getByRole("button", { name: "生成嵌入码" }));
-  assert.ok(await screen.findByText("第 2 行写法不对：要写成「https:// + 域名」，可带端口，不带路径"));
+  assert.ok(await screen.findByText("第 2 行写法不对：要以 https 开头、只写到域名，可带端口，不带路径"));
   const input = screen.getByLabelText(/^允许的网站/) as HTMLTextAreaElement;
   await actor.clear(input);
   await actor.type(input, "  https://embed-demo.moveglobal.io  \n\n");
@@ -69,7 +69,7 @@ test("新建：一行一个网站，按区间、包车的顺序提交；服务�
   assert.deepEqual(posted, { name: "MoveGlobal 演示站", allowed_origins: ["https://embed-demo.moveglobal.io"], default_lang: "ja", default_services: ["transfer", "charter"], note: null });
 });
 
-test("停用：带版本号，状态改成停用，其余原样", async () => {
+test("停用：先确认；带版本号，状态改成停用，其余原样", async () => {
   let current = keyOf();
   const calls = openApp("/platform/embed-keys", "platform", "operations", (call) => {
     if (call.method === "GET" && call.url.pathname === "/platform/v1/embed-keys") return json(200, { items: [current] });
@@ -82,6 +82,9 @@ test("停用：带版本号，状态改成停用，其余原样", async () => {
   const actor = userEvent.setup();
   const card = await screen.findByRole("region", { name: /MoveGlobal 演示站/ });
   await actor.click(within(card).getByRole("button", { name: "停用" }));
+  const dialog = await screen.findByRole("dialog", { name: "停用「MoveGlobal 演示站」？" });
+  assert.equal(calls.filter((call) => call.method === "PATCH").length, 0, "点「停用」先确认，不直接改");
+  await actor.click(within(dialog).getByRole("button", { name: "停用" }));
   await waitFor(() => assert.ok(screen.getByText("已停用")));
   const patch = calls.find((call) => call.method === "PATCH");
   assert.equal(patch?.headers?.["if-match"], '"1"');

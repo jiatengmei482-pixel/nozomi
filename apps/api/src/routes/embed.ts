@@ -63,6 +63,8 @@ function splitKey(query: unknown): { key: unknown; rest: Record<string, unknown>
 
 function allowCors(reply: FastifyReply, gate: EmbedGate): void {
   reply.header("access-control-allow-origin", gate.origin);
+  // 429 的 Retry-After 让组件读得到
+  reply.header("access-control-expose-headers", "Retry-After");
   reply.header("vary", "Origin");
 }
 
@@ -102,6 +104,8 @@ export function registerEmbedRoutes(app: FastifyInstance, ctx: AppContext): void
   const gates = new WeakMap<FastifyRequest, EmbedGate>();
   const gateHook = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     reply.header("vary", "Origin");
+    // 被拒的 403 也不让任何缓存保存
+    reply.header("cache-control", "no-store");
     const { key } = splitKey(request.query);
     const gate = await embedGate(ctx, key, request.headers.origin);
     allowCors(reply, gate);
@@ -132,9 +136,10 @@ export function registerEmbedRoutes(app: FastifyInstance, ctx: AppContext): void
   app.options("/embed/v1/places/autocomplete", guarded, preflight("GET"));
   app.get("/embed/v1/places/autocomplete", guarded, async (request) => {
     const { gate, rest } = gateOf(request);
-    await takeEmbedPlacesSlot(ctx, gate);
+    // 先按地址、再按嵌入码（同建草稿）：被限的地址不再消耗这个嵌入码的额度，一个地址打不满别人的
     await takeSiteSlot(ctx, "site_autocomplete", { ip: request.ip });
     await takeSiteSlot(ctx, "site_places_day", { ip: request.ip });
+    await takeEmbedPlacesSlot(ctx, gate);
     const input = parseInput(placeAutocompleteSchema, rest, "querystring");
     const found = await siteAutocomplete(ctx, placeQueryOf(input.q), input.session);
     return { available: found.available, items: found.items.map(placeItemJson) };
@@ -143,9 +148,10 @@ export function registerEmbedRoutes(app: FastifyInstance, ctx: AppContext): void
   app.options("/embed/v1/places/details", guarded, preflight("GET"));
   app.get("/embed/v1/places/details", guarded, async (request) => {
     const { gate, rest } = gateOf(request);
-    await takeEmbedPlacesSlot(ctx, gate);
+    // 先按地址、再按嵌入码（同建草稿）：被限的地址不再消耗这个嵌入码的额度，一个地址打不满别人的
     await takeSiteSlot(ctx, "site_autocomplete", { ip: request.ip });
     await takeSiteSlot(ctx, "site_places_day", { ip: request.ip });
+    await takeEmbedPlacesSlot(ctx, gate);
     const input = parseInput(placeDetailsSchema, rest, "querystring");
     const found = await sitePlaceDetails(ctx, input.id, input.session ?? null);
     return { available: found.available, place: found.place === null ? null : { id: found.place.id, address: found.place.address, location: { lat: found.place.location.lat, lng: found.place.location.lng }, kind: found.place.kind } };

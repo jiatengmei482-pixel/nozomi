@@ -12,6 +12,7 @@ import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
 import { Button } from "../../components/Button.tsx";
+import { Dialog } from "../../components/Dialog.tsx";
 import { CheckboxGroup, CopyButton, RadioGroup } from "../../components/FormFields.tsx";
 import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
@@ -30,7 +31,7 @@ export const EMBED_LANG_NAMES: Readonly<Record<EmbedLang, string>> = { zh: "中�
 export const EMBED_SERVICE_NAMES: Readonly<Record<EmbedService, string>> = { transfer: "区间", charter: "包车" };
 const LANG_OPTIONS = (["ja", "zh", "en"] as const).map((value) => ({ value, label: EMBED_LANG_NAMES[value] }));
 const SERVICE_OPTIONS = (["transfer", "charter"] as const).map((value) => ({ value, label: EMBED_SERVICE_NAMES[value] }));
-const ORIGINS_HINT = "一行一个合作网站的地址，写成「https:// + 域名」，可带端口，不带路径；不支持 *。最多 20 个。";
+const ORIGINS_HINT = "一行一个合作网站的地址，以 https 开头、只写到域名（可带端口），不带路径；不支持 *。最多 20 个。";
 const CSP_NOTE = "合作网站如果设了内容安全策略（CSP），要在 script-src 和 connect-src 里放行主站域名，否则组件加载不出来。";
 
 interface Draft {
@@ -64,7 +65,7 @@ function errorsOf(err: unknown): FieldErrors | null {
     if (issue.path === "/name") found.name = "请填名称，最多 60 个字";
     else if (issue.path.startsWith("/allowed_origins")) {
       const index = Number(issue.path.split("/")[2]);
-      found.origins = Number.isInteger(index) ? `第 ${index + 1} 行${issue.reason === "DUPLICATE" ? "和前面的重复了" : "写法不对：要写成「https:// + 域名」，可带端口，不带路径"}` : "请填 1–20 个网站地址";
+      found.origins = Number.isInteger(index) ? `第 ${index + 1} 行${issue.reason === "DUPLICATE" ? "和前面的重复了" : "写法不对：要以 https 开头、只写到域名，可带端口，不带路径"}` : "请填 1–20 个网站地址";
     } else if (issue.path === "/default_services") found.services = "至少选一个";
     else if (issue.path === "/note") found.note = "备注最多 500 个字";
   }
@@ -127,6 +128,7 @@ function KeyCard({ embedKey, canManage, onChanged }: { embedKey: EmbedKey; canMa
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const titleId = `embed-key-${embedKey.id}`;
   const active = embedKey.status === "active";
   const toggle = async (): Promise<void> => {
@@ -135,7 +137,8 @@ function KeyCard({ embedKey, canManage, onChanged }: { embedKey: EmbedKey; canMa
     try {
       const { snippet: _snippet, ...rest } = embedKey;
       await updateEmbedKey(token, embedKey.id, embedKey.version, { name: rest.name, allowed_origins: rest.allowed_origins, default_lang: rest.default_lang, default_services: rest.default_services, note: rest.note, status: active ? "disabled" : "active" });
-      toast(active ? `已停用「${embedKey.name}」，合作网站上的组件最迟 60 秒后显示未授权` : `已启用「${embedKey.name}」`);
+      setConfirming(false);
+      toast(active ? `已停用「${embedKey.name}」，合作网站上的组件最迟 60 秒后显示「暂时无法使用」` : `已启用「${embedKey.name}」`);
       onChanged();
     } catch (err) {
       if (handleAuthFailure(err)) return;
@@ -147,6 +150,26 @@ function KeyCard({ embedKey, canManage, onChanged }: { embedKey: EmbedKey; canMa
   };
   return (
     <section className="card" aria-labelledby={titleId}>
+      {confirming && (
+        <Dialog
+          open
+          title={`停用「${embedKey.name}」？`}
+          busy={busy}
+          onClose={() => setConfirming(false)}
+          footer={
+            <>
+              <Button variant="text" disabled={busy} onClick={() => setConfirming(false)}>
+                取消
+              </Button>
+              <Button variant="danger" loading={busy} loadingText="停用中…" onClick={() => void toggle()}>
+                停用
+              </Button>
+            </>
+          }
+        >
+          <p>停用后，{embedKey.allowed_origins.join("、")} 上的预订组件最迟 60 秒后显示「暂时无法使用」，客人不能再从那里查询价格。之后可以再启用。</p>
+        </Dialog>
+      )}
       <h2 className="card__title" id={titleId}>
         {embedKey.name} <StatusBadge tone={active ? "success" : "neutral"} label={active ? "启用中" : "已停用"} />
       </h2>
@@ -189,7 +212,7 @@ function KeyCard({ embedKey, canManage, onChanged }: { embedKey: EmbedKey; canMa
               <Button variant="secondary" onClick={() => setEditing(true)}>
                 修改
               </Button>
-              <Button variant="secondary" loading={busy} loadingText={active ? "停用中…" : "启用中…"} onClick={() => void toggle()}>
+              <Button variant="secondary" loading={busy && !active} loadingText="启用中…" onClick={() => (active ? setConfirming(true) : void toggle())}>
                 {active ? "停用" : "启用"}
               </Button>
             </div>
