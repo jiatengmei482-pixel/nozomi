@@ -59,7 +59,7 @@ test("新建：一行一个网站，按区间、包车的顺序提交；服务�
   await actor.type(screen.getByLabelText(/^名称/), "MoveGlobal 演示站");
   await actor.type(screen.getByLabelText(/^允许的网站/), "https://embed-demo.moveglobal.io\nhttps://*.bad.example");
   await actor.click(screen.getByRole("button", { name: "生成嵌入码" }));
-  assert.ok(await screen.findByText("第 2 行写法不对：要写成 https://域名，可带端口，不带路径"));
+  assert.ok(await screen.findByText("第 2 行写法不对：要写成「https:// + 域名」，可带端口，不带路径"));
   const input = screen.getByLabelText(/^允许的网站/) as HTMLTextAreaElement;
   await actor.clear(input);
   await actor.type(input, "  https://embed-demo.moveglobal.io  \n\n");

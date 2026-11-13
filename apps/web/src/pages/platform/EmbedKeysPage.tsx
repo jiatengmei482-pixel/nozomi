@@ -30,7 +30,7 @@ export const EMBED_LANG_NAMES: Readonly<Record<EmbedLang, string>> = { zh: "中�
 export const EMBED_SERVICE_NAMES: Readonly<Record<EmbedService, string>> = { transfer: "区间", charter: "包车" };
 const LANG_OPTIONS = (["ja", "zh", "en"] as const).map((value) => ({ value, label: EMBED_LANG_NAMES[value] }));
 const SERVICE_OPTIONS = (["transfer", "charter"] as const).map((value) => ({ value, label: EMBED_SERVICE_NAMES[value] }));
-const ORIGINS_HINT = "一行一个合作网站的地址，如 https://www.example.com（可带端口，不带路径；不支持 *）。最多 20 个。";
+const ORIGINS_HINT = "一行一个合作网站的地址，写成「https:// + 域名」，可带端口，不带路径；不支持 *。最多 20 个。";
 const CSP_NOTE = "合作网站如果设了内容安全策略（CSP），要在 script-src 和 connect-src 里放行主站域名，否则组件加载不出来。";
 
 interface Draft {
@@ -64,7 +64,7 @@ function errorsOf(err: unknown): FieldErrors | null {
     if (issue.path === "/name") found.name = "请填名称，最多 60 个字";
     else if (issue.path.startsWith("/allowed_origins")) {
       const index = Number(issue.path.split("/")[2]);
-      found.origins = Number.isInteger(index) ? `第 ${index + 1} 行${issue.reason === "DUPLICATE" ? "和前面的重复了" : "写法不对：要写成 https://域名，可带端口，不带路径"}` : "请填 1–20 个网站地址";
+      found.origins = Number.isInteger(index) ? `第 ${index + 1} 行${issue.reason === "DUPLICATE" ? "和前面的重复了" : "写法不对：要写成「https:// + 域名」，可带端口，不带路径"}` : "请填 1–20 个网站地址";
     } else if (issue.path === "/default_services") found.services = "至少选一个";
     else if (issue.path === "/note") found.note = "备注最多 500 个字";
   }
