@@ -115,6 +115,40 @@
   font-weight: var(--font-weight-bold);
 }
 
+/*
+ * 吸底按钮条（M6-08，driver.md 3b；业主 2026-11-13 决定）：「下一步」的主按钮和按钮旁的提示固定在屏幕底部。
+ * 所有宽度都吸底是有意统一：司机页只在手机上用，平板、电脑上不另做一套版式（按钮条内容和卡片对齐）。
+ * 只是 CSS 定位，DOM 位置不变：信息顺序、Tab 顺序、读屏顺序照旧。
+ * --driver-bar-height 是页面脚本用 ResizeObserver 量出来的按钮条实际高度（写在 <html> 上，不是设计令牌）；
+ * 量到之前（没有 ResizeObserver 的浏览器）按「上下内边距 + 主按钮 + 上边线 + 安全区」估。
+ * 页面底部留出这个高度再加 space-6，最后一行不被挡住；滚动容器（<html>）的 scroll-padding-bottom 也用它，
+ * 用 Tab 或输入时滚到的控件停在按钮条上面。
+ */
+.auth-page.driver-page--bar {
+  padding-bottom: calc(var(--driver-bar-height, calc(var(--control-height-lg) + var(--space-4) + var(--space-3) * 2 + var(--border-width) + env(safe-area-inset-bottom))) + var(--space-6));
+}
+
+:root:has(.driver-next-bar) {
+  scroll-padding-bottom: calc(var(--driver-bar-height, calc(var(--control-height-lg) + var(--space-4) + var(--space-3) * 2 + var(--border-width) + env(safe-area-inset-bottom))) + var(--space-4));
+}
+
+/* 左右内边距让按钮和卡片里的内容对齐：手机上 = 页面边距 + 卡片内边距；更宽时按卡片居中 */
+.driver-next-bar {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: var(--z-sticky);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) max(calc(var(--space-2) + var(--space-4)), calc((100% - var(--layout-auth-card-width)) / 2 + var(--space-6)))
+    calc(var(--space-3) + env(safe-area-inset-bottom));
+  border-top: var(--border-width) solid var(--color-border-default);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-md);
+}
+
 /* 还没到时间：警告色的提示条，文字写明最早几点 */
 .driver-page .auth-card .driver-wait {
   padding: var(--space-3);

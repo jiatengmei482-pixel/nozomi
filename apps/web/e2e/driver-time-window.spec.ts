@@ -4,9 +4,14 @@
  * - 远期的单打开司机链接，按钮下面写着最早几点可以点；点了显示服务器的说明，订单还是「已派车」；
  * - 把用车时间挪到 5 小时后：出发、到达可以点；接到客人还要等到用车前 3 小时，点了有说明。
  * 「已经付过款」的订单由用例用迁移账号写进本次运行的 schema（只在测试里构造，运行结束随 schema 删除）。先造远期订单、派好车再挪时间。
+ *
+ * 吸底按钮条（M6-08，driver.md 3b；业主 2026-11-13 决定）：手机宽 320 / 360 / 390、亮暗两色，打开链接不滚动就看得到「下一步」按钮和「还没到时间」提示；
+ * 滚到底最后一行（链接有效期）不被按钮条挡住（字号放大到 150% 也一样）；不横向滚动；axe 零违规；按钮照常能点；
+ * 没有提示时（出发后）最后一行也不被挡；包车「服务完成」缺分钟、公里时按钮旁写明原因，用 Tab 到公里输入框时它停在按钮条上面。
  */
+import { mkdirSync } from "node:fs";
 import { randomInt, randomUUID } from "node:crypto";
-import { expect, test } from "@playwright/test";
+import { type APIRequestContext, type Locator, type Page, expect, test } from "@playwright/test";
 import { createPool } from "../../api/src/db/pool.ts";
 import { createProductByApi, createSupplier, createWorld, expectAccessible, post } from "./catalog.ts";
 
@@ -23,12 +28,19 @@ async function owner<T>(run: (client: ReturnType<typeof createPool>) => Promise<
   }
 }
 
+/** 元素的下沿在吸底按钮条的上沿之上（没被挡住）。 */
+async function aboveBar(page: Page, target: Locator): Promise<boolean> {
+  const box = await target.boundingBox();
+  const bar = await page.locator(".driver-next-bar").boundingBox();
+  return box !== null && bar !== null && box.y + box.height <= bar.y + 0.5;
+}
+
 /** 东京当地时间 `YYYY-MM-DD HH:mm`（整分钟的时刻）。 */
 const tokyo = (at: Date): string => new Date(at.getTime() + 9 * HOUR).toISOString().slice(0, 16).replace("T", " ");
 /** 现在之后 `hours` 小时，对齐到整分钟（真实订单的用车时间都是整分钟）。 */
 const inHours = (hours: number): Date => new Date(Math.ceil((Date.now() + hours * HOUR) / 60_000) * 60_000);
 
-async function writeServiceTime(orderId: string, at: Date, status: "confirmed" | "assigned"): Promise<void> {
+async function writeServiceTime(orderId: string, at: Date, status: "confirmed" | "assigned" | "arrived"): Promise<void> {
   const local = tokyo(at).replace(" ", "T");
   await owner(async (db) => {
     const moved = await db.query("update orders set service_at = $2, service_local = $3, service_date = $4 where id = $1 and status = $5", [orderId, at, local, local.slice(0, 10), status]);
@@ -36,12 +48,11 @@ async function writeServiceTime(orderId: string, at: Date, status: "confirmed" |
   });
 }
 
-test("司机点得太早：按钮下面写明最早几点；点了显示说明、状态不变；用车时间临近后出发、到达可以点，接到客人还要等到用车前 3 小时", async ({ request, browser }) => {
-  test.setTimeout(120_000);
+/** 造一张「已经付过款」的接机单（用车时间 serviceAt），供应商经真实接口派车；返回订单编号和司机链接。 */
+async function assignedTrip(request: APIRequestContext, serviceAt: Date): Promise<{ orderId: string; path: string }> {
   const world = await createWorld(request);
   const supplier = await createSupplier(request, world);
   const product = await createProductByApi(request, supplier, world, "airport_transfer");
-  const serviceAt = inHours(3 * 24);
   const local = tokyo(serviceAt).replace(" ", "T");
   const alphabet = "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ";
   const orderNo = `NZ${new Date().toISOString().slice(0, 10).replaceAll("-", "")}${Array.from({ length: 8 }, () => alphabet[randomInt(alphabet.length)]).join("")}`;
@@ -71,6 +82,13 @@ test("司机点得太早：按钮下面写明最早几点；点了显示说明�
   const assigned = await request.post(`/tenant/v1/orders/${orderId}/assign`, { headers: { ...headers, "if-match": `"${version}"` }, data: { driver_id: driver.id, vehicle_id: vehicle.id } });
   expect(assigned.ok(), await assigned.text()).toBe(true);
   const path = ((await assigned.json()) as { driver_link: { path: string } }).driver_link.path;
+  return { orderId, path };
+}
+
+test("司机点得太早：按钮下面写明最早几点；点了显示说明、状态不变；用车时间临近后出发、到达可以点，接到客人还要等到用车前 3 小时", async ({ request, browser }) => {
+  test.setTimeout(120_000);
+  const serviceAt = inHours(3 * 24);
+  const { orderId, path } = await assignedTrip(request, serviceAt);
 
   const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: "zh-CN" });
   const page = await phone.newPage();
@@ -99,5 +117,118 @@ test("司机点得太早：按钮下面写明最早几点；点了显示说明�
   await page.getByRole("button", { name: "接到客人了" }).click();
   await expect(page.getByText(new RegExp(`现在还不能点「接到客人了」：最早在用车前 3 小时，也就是 ${pickEarliest}`))).toBeVisible();
   await expect(page.getByRole("button", { name: "接到客人了" })).toBeVisible();
+  await phone.close();
+});
+
+const SHOTS = process.env["DRIVER_SHOTS_DIR"];
+
+test("司机页吸底按钮条（M6-08）：手机宽首屏看得到「下一步」和提示；滚到底最后一行不被挡；不横向滚动；亮暗两色 axe 零违规；点击照常", async ({ request, browser }) => {
+  test.setTimeout(120_000);
+  const serviceAt = inHours(3 * 24);
+  const { orderId, path } = await assignedTrip(request, serviceAt);
+  const departEarliest = tokyo(new Date(serviceAt.getTime() - 24 * HOUR));
+  if (SHOTS) mkdirSync(SHOTS, { recursive: true });
+
+  for (const width of [320, 360, 390]) {
+    const context = await browser.newContext({ viewport: { width, height: width === 390 ? 844 : 640 }, locale: "zh-CN", hasTouch: true, isMobile: true });
+    for (const scheme of ["light", "dark"] as const) {
+      // 每种颜色开一个新标签页：同一个页面再 goto 同一个 # 链接不会重新加载，会停在上次滚到的位置
+      const page = await context.newPage();
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.goto(path);
+      await expect(page.getByText("王小明 · 2 人 1 件行李")).toBeVisible();
+      // 不滚动：按钮和「还没到时间」提示都在首屏里
+      const button = page.getByRole("button", { name: "我出发了" });
+      const hint = page.getByText(`还没到时间：最早 ${departEarliest}（Asia/Tokyo 当地时间）才能点「我出发了」。行程有变请联系调度。`);
+      await expect(button).toBeInViewport({ ratio: 1 });
+      await expect(hint).toBeInViewport({ ratio: 1 });
+      expect(await page.evaluate(() => window.scrollY), `${width}px 打开时没有滚动`).toBe(0);
+      await expect(button).toHaveAttribute("aria-describedby", (await hint.getAttribute("id")) ?? "");
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), `${width}px 不横向滚动`).toBe(0);
+      await expectAccessible(page, `司机页吸底按钮条（${width}px，${scheme === "light" ? "亮色" : "暗色"}）`);
+      if (SHOTS) await page.screenshot({ path: `${SHOTS}/driver-${width}-${scheme}-top.png` });
+
+      // 滚到底：最后一行（链接有效期）完整地在按钮条上面
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+      const footnote = page.getByText(/^链接有效期到 /);
+      await expect(footnote).toBeInViewport({ ratio: 1 });
+      expect(await aboveBar(page, footnote), `${width}px 最后一行没被按钮条挡住`).toBe(true);
+      await expect(button).toBeInViewport({ ratio: 1 });
+      if (SHOTS) await page.screenshot({ path: `${SHOTS}/driver-${width}-${scheme}-bottom.png` });
+      if (width === 320 && scheme === "light") {
+        // 字号放大到 150%：提示折成更多行、按钮条更高，页面留白跟着按钮条的实际高度变
+        await page.evaluate(() => {
+          document.documentElement.style.fontSize = "150%";
+        });
+        await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+        await expect(footnote).toBeInViewport({ ratio: 1 });
+        expect(await aboveBar(page, footnote), "字号放大后最后一行也没被挡住").toBe(true);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), "字号放大后也不横向滚动").toBe(0);
+        if (SHOTS) await page.screenshot({ path: `${SHOTS}/driver-320-light-zoom150-bottom.png` });
+      }
+      await page.close();
+    }
+    await context.close();
+  }
+
+  // 点击照常：用车时间挪到 5 小时后，360px 首屏直接点「我出发了」，下一步换成「已到达上车点」，仍在首屏
+  await writeServiceTime(orderId, inHours(5), "assigned");
+  const phone = await browser.newContext({ viewport: { width: 360, height: 640 }, locale: "zh-CN", hasTouch: true, isMobile: true });
+  const page = await phone.newPage();
+  await page.goto(path);
+  await expect(page.getByText(/还没到时间/)).toHaveCount(0);
+  await page.getByRole("button", { name: "我出发了" }).tap();
+  const arrived = page.getByRole("button", { name: "已到达上车点" });
+  await expect(arrived).toBeInViewport({ ratio: 1 });
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  const status = await owner(async (db) => (await db.query<{ status: string }>("select status from orders where id = $1", [orderId])).rows[0]?.status);
+  expect(status).toBe("departed");
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/driver-360-light-departed.png` });
+
+  // 没有提示时（出发后）滚到底，最后一行也不被挡
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  const footnote = page.getByText(/^链接有效期到 /);
+  await expect(footnote).toBeInViewport({ ratio: 1 });
+  expect(await aboveBar(page, footnote), "出发后最后一行没被按钮条挡住").toBe(true);
+
+  // 包车「服务完成」：到达 → 用车时间挪到 1 小时后 → 接到客人，再把这一单改成包车（只在测试里构造）
+  await arrived.tap();
+  await expect(page.getByRole("button", { name: "接到客人了" })).toBeVisible();
+  await writeServiceTime(orderId, inHours(1), "arrived");
+  await page.reload();
+  await page.getByRole("button", { name: "接到客人了" }).tap();
+  await expect(page.getByRole("button", { name: "服务完成" })).toBeVisible();
+  await owner(async (db) => {
+    const moved = await db.query("update orders set category = 'charter', package_hours = 8, direction = null, place_id = null, pickup = $2::jsonb where id = $1 and status = 'in_service'", [orderId, JSON.stringify({ lng: 139.7, lat: 35.69, address: "京王广场酒店" })]);
+    expect(moved.rowCount).toBe(1);
+  });
+  await page.reload();
+  const done = page.getByRole("button", { name: "服务完成" });
+  await expect(done).toBeDisabled();
+  const why = page.getByText("先填实际用了多少分钟和公里数");
+  await expect(why).toBeInViewport({ ratio: 1 });
+  await expect(done).toHaveAttribute("aria-describedby", (await why.getAttribute("id")) ?? "");
+  await expectAccessible(page, "司机页包车服务完成（缺分钟、公里）");
+  // 分钟框放在屏幕最下沿（按钮条后面），用 Tab 到公里框：公里框停在按钮条上面
+  const minutes = page.getByLabel("实际用了多少分钟");
+  const km = page.getByLabel("实际跑了多少公里");
+  await minutes.evaluate((element) => {
+    const top = element.getBoundingClientRect().top + window.scrollY;
+    window.scrollTo(0, Math.max(0, top - window.innerHeight + element.getBoundingClientRect().height));
+  });
+  await minutes.evaluate((element) => (element as HTMLInputElement).focus({ preventScroll: true }));
+  await page.keyboard.type("480");
+  await page.keyboard.press("Tab");
+  await expect(km).toBeFocused();
+  await expect(km).toBeInViewport({ ratio: 1 });
+  expect(await aboveBar(page, km), "Tab 到公里框时它没被按钮条挡住").toBe(true);
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/driver-360-light-charter-km-focused.png` });
+  await km.fill("120");
+  await expect(why).toHaveCount(0);
+  await expect(done).toBeEnabled();
+  await done.tap();
+  await expect(page.getByRole("button", { name: "服务完成" })).toHaveCount(0);
+  await expect(page.locator(".driver-next-bar")).toHaveCount(0);
   await phone.close();
 });

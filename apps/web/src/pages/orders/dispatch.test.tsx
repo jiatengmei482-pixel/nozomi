@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
+import { DRIVER_ACTION_LABELS } from "@nozomi/domain";
 import { App } from "../../App.tsx";
 import type { Assignable, Driver, DriverTrip, TenantOrder, TenantOrderDetail, Vehicle, WebhookDelivery, WebhookSettings } from "../../api/dispatch.ts";
 import type { VehicleGroup } from "../../api/master.ts";
@@ -15,6 +16,7 @@ import { ORDER_NO_EVENTS_TEXT } from "../../lib/order-money-display.ts";
 import { type ApiCall, apiError, assertAbsent, json, resetBrowser, signIn, stubApiWith } from "../../testing/harness.tsx";
 
 afterEach(resetBrowser);
+const DRIVER_DONE = DRIVER_ACTION_LABELS.completed;
 
 const stamps = { created_at: "2026-10-06T00:12:00.000Z", updated_at: "2026-10-08T05:30:00.000Z" };
 const ORDER_ID = "0a0a0a0a-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -639,4 +641,78 @@ test("订单详情「状态流水」（M6-08）：没有记录时写明，不留
   const filled = (await screen.findByRole("heading", { name: "状态流水" })).closest("section") as HTMLElement;
   assert.equal(within(filled).queryByText(ORDER_NO_EVENTS_TEXT), null);
   assert.equal(within(filled).getAllByRole("listitem").length, 1);
+});
+
+test("司机页面吸底按钮条（M6-08，driver.md 3b）：「下一步」按钮和「还没到时间」提示在按钮条里，DOM 顺序、Tab 顺序、读屏名不变；没有下一步时没有按钮条", async () => {
+  denyGeolocation();
+  let current = tripOf({ server_time: "2026-10-17T10:29:00.000Z" });
+  stubApiWith((call) => (call.url.pathname === "/driver/v1/trip" && call.method === "GET" ? json(200, current) : null));
+  render(
+    <MemoryRouter initialEntries={[{ pathname: "/driver", hash: `#${LINK_TOKEN}` }]}>
+      <App />
+    </MemoryRouter>,
+  );
+  const button = await screen.findByRole("button", { name: "我出发了" });
+  const bar = button.closest(".driver-next-bar") as HTMLElement;
+  assert.ok(bar, "主按钮在吸底按钮条里");
+  const hint = screen.getByText(/^还没到时间：最早 2026-10-19 10:00/);
+  assert.ok(bar.contains(hint), "「还没到时间」提示和按钮在同一个按钮条里");
+  assert.equal(button.getAttribute("aria-describedby"), hint.id);
+  assert.equal(bar.closest("section")?.querySelector("h2")?.textContent, "下一步", "DOM 里仍在「下一步」区块里");
+  assert.ok((document.querySelector(".driver-page") as HTMLElement).classList.contains("driver-page--bar"), "页面底部给按钮条留空白");
+  assert.match(document.documentElement.style.getPropertyValue("--driver-bar-height"), /^\d+px$/, "量出来的按钮条高度写在 <html> 上");
+  // 信息顺序不变：调度电话 → 下一步 → 航班落地
+  const dispatcher = screen.getByRole("link", { name: "0312345678" });
+  const landing = screen.getByRole("heading", { name: "航班落地" });
+  assert.ok(dispatcher.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING, "按钮在调度电话之后");
+  assert.ok(button.compareDocumentPosition(landing) & Node.DOCUMENT_POSITION_FOLLOWING, "按钮在「航班落地」之前");
+  // Tab 顺序照旧：调度电话之后下一个就是「我出发了」
+  dispatcher.focus();
+  await user().tab();
+  assert.equal(document.activeElement, button);
+  resetBrowser();
+
+  current = tripOf();
+  stubApiWith((call) => (call.url.pathname === "/driver/v1/trip" && call.method === "GET" ? json(200, current) : null));
+  render(
+    <MemoryRouter initialEntries={[{ pathname: "/driver", hash: `#${LINK_TOKEN}` }]}>
+      <App />
+    </MemoryRouter>,
+  );
+  assert.equal((await screen.findByRole("button", { name: "我出发了" })).getAttribute("aria-describedby"), null, "到了时间没有提示");
+  resetBrowser();
+
+  current = tripOf({ next_event: null, order: { ...tripOf().order, status: "completed", status_name: "已完成" } });
+  stubApiWith((call) => (call.url.pathname === "/driver/v1/trip" && call.method === "GET" ? json(200, current) : null));
+  render(
+    <MemoryRouter initialEntries={[{ pathname: "/driver", hash: `#${LINK_TOKEN}` }]}>
+      <App />
+    </MemoryRouter>,
+  );
+  await screen.findByText(/王小明/);
+  assert.equal(document.querySelector(".driver-next-bar"), null);
+  assert.equal(document.documentElement.style.getPropertyValue("--driver-bar-height"), "", "没有按钮条时不留变量");
+  assert.ok(!(document.querySelector(".driver-page") as HTMLElement).classList.contains("driver-page--bar"), "没有下一步时页面底部照旧");
+});
+
+test("司机页面吸底按钮条（M6-08）：包车「完成」没填分钟、公里时按钮禁用，按钮条里写明原因并关联到按钮；填齐后提示去掉、可以点", async () => {
+  denyGeolocation();
+  const charter = tripOf({ next_event: null, landing: null, order: { ...tripOf().order, status: "in_service", status_name: "服务中", category: "charter", direction: null, flight_no: null, package_hours: 8, place: null, pickup: { lng: 139.7, lat: 35.69, address: "京王广场酒店" } } });
+  stubApiWith((call) => (call.url.pathname === "/driver/v1/trip" && call.method === "GET" ? json(200, charter) : null));
+  render(
+    <MemoryRouter initialEntries={[{ pathname: "/driver", hash: `#${LINK_TOKEN}` }]}>
+      <App />
+    </MemoryRouter>,
+  );
+  const button = (await screen.findByRole("button", { name: DRIVER_DONE })) as HTMLButtonElement;
+  assert.ok(button.disabled);
+  const why = screen.getByText("先填实际用了多少分钟和公里数");
+  assert.ok(button.closest(".driver-next-bar")?.contains(why), "原因在按钮条里，紧挨按钮");
+  assert.equal(button.getAttribute("aria-describedby"), why.id);
+  await user().type(screen.getByLabelText("实际用了多少分钟"), "480");
+  assert.ok(screen.getByText("先填实际用了多少分钟和公里数"), "只填了一项还提示");
+  await user().type(screen.getByLabelText("实际跑了多少公里"), "120");
+  assert.equal(screen.queryByText("先填实际用了多少分钟和公里数"), null);
+  assert.ok(!button.disabled);
+  assert.equal(button.getAttribute("aria-describedby"), null);
 });
