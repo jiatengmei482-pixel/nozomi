@@ -111,12 +111,35 @@
   gap: var(--space-1);
 }
 
+/*
+ * 选择页里候选列表和输入框在同一个 .field__control 里（它是横排的 flex，给输入框右端的按钮用）：
+ * 候选不浮起来时会排到输入框右边、两个各占半行（M8-37b，用户 2026-11-13 iPhone 真机截图）。这里竖排：输入框占满整行，候选在正下方、同样整行宽。
+ */
+.place-field__sheet-field > .field__control {
+  flex-direction: column;
+  align-items: stretch;
+}
+
 .place-field__detail {
   flex-basis: 100%;
   min-width: 0;
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
   overflow-wrap: anywhere;
+}
+
+/* 手机触屏上地址那一格（M8-37b，用户 2026-11-13 真机反馈）：整行宽、长地址折行显示全，框跟着变高（压过官网控件统一的 lg 固定高度；多带一个类提高优先级，不依赖样式文件的引入顺序）；日期、时间仍单行 */
+.site .input.picker-trigger.picker-trigger--wrap {
+  height: auto;
+  min-height: var(--control-height-lg);
+  padding-block: var(--space-2);
+}
+
+.picker-trigger--wrap .picker-trigger__text {
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 /* ---------- 识别为接机、包车地址不在服务范围 ---------- */
@@ -940,14 +963,22 @@ button.book-steps__link:hover .book-steps__name {
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * 地点那一部分：手机（< 768px）两端各占一行、各自用满整行宽（M8-37b，用户 2026-11-13 真机反馈：左右并排时两端各只剩半行）；
+ * ≥ 768px（平板）照旧一行，两端平分剩下的宽度（M6-08）。
+ */
 .book-summary-bar__text {
   display: flex;
+  flex-direction: column;
   grid-column: 1;
   min-width: 0;
-  overflow: hidden;
   color: var(--color-text-secondary);
   font-size: var(--font-size-md);
-  text-overflow: ellipsis;
+}
+
+.book-summary-bar__end {
+  display: flex;
+  min-width: 0;
   white-space: nowrap;
 }
 
@@ -957,13 +988,40 @@ button.book-steps__link:hover .book-steps__name {
   white-space: pre;
 }
 
-/* 两端平分剩下的宽度（短的那端不占满，多出来的让给长的那端） */
+/* 手机上箭头在第二行开头：不留前面的空格，后面隔一点 */
+.book-summary-bar__to {
+  margin-inline-end: var(--space-1);
+  white-space: normal;
+}
+
 .book-summary-bar__place {
   flex: 1 1 0;
-  min-width: var(--space-8);
-  max-width: max-content;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+@media (min-width: 768px) {
+  .book-summary-bar__text {
+    flex-direction: row;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  .book-summary-bar__end {
+    display: contents;
+  }
+
+  .book-summary-bar__to {
+    margin-inline-end: 0;
+    white-space: pre;
+  }
+
+  /* 两端平分剩下的宽度（短的那端不占满，多出来的让给长的那端） */
+  .book-summary-bar__place {
+    min-width: var(--space-8);
+    max-width: max-content;
+  }
 }
 
 .book-summary-bar__arrow {

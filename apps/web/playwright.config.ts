@@ -58,5 +58,12 @@ export default defineConfig({
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    /**
+     * iPhone 上的 Safari 内核（M8-37b，用户 iPhone 真机截图）：只跑手机地址那条用例（全屏选择页的输入框、候选列表、摘要条），
+     * 它自己按 360 / 390 宽开触屏的页面；别的用例只在 chromium 里跑。CI 多装一个 webkit（ci.yml）。
+     */
+    { name: "webkit-iphone", testMatch: /site-booking-mobile-address\.spec\.ts$/, grep: /M8-37b 手机/, use: { ...devices["iPhone 13"] } },
+  ],
 });
