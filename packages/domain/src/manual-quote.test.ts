@@ -57,6 +57,7 @@ const trip = (overrides: Partial<ManualQuoteTrip> = {}): ManualQuoteTrip => ({
   passengers: 2,
   luggage: 1,
   packageHours: null,
+  waypoints: [],
   ...overrides,
 });
 
@@ -67,6 +68,11 @@ test("行程按用车类型核对：接送机、点对点要下车地点；包�
   assert.deepEqual(manualQuoteTripIssues(trip({ category: "charter" })), [{ field: "package_hours", reason: "REQUIRED" }]);
   assert.deepEqual(manualQuoteTripIssues(trip({ packageHours: 4 })), [{ field: "package_hours", reason: "NOT_APPLICABLE" }]);
   assert.deepEqual(manualQuoteTripIssues(trip({ serviceLocal: "2026-02-30T09:30" })), [{ field: "service_local", reason: "INVALID" }]);
+  // M9W-04：包车有经停点（按行程计价）时可以不填套餐时长；别的品类不能有经停点
+  const stop = { name: "河口湖", lat: 35.5, lng: 138.76, stayMinutes: 60 };
+  assert.deepEqual(manualQuoteTripIssues(trip({ category: "charter", waypoints: [stop] })), []);
+  assert.deepEqual(manualQuoteTripIssues(trip({ category: "charter", waypoints: [stop], packageHours: 10 })), []);
+  assert.deepEqual(manualQuoteTripIssues(trip({ waypoints: [stop] })), [{ field: "waypoints", reason: "NOT_APPLICABLE" }]);
 });
 
 test("用车时间：真实存在的日期和时刻（闰年 2 月 29 日可以，24 点、13 月不行）", () => {
