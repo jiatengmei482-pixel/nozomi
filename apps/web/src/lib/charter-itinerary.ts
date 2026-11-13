@@ -10,6 +10,7 @@ import { isCurrencyCode, parseMajor } from "@nozomi/domain";
 import type { SiteMoney, SiteOrder, SitePriceBreakdownItem, SiteQuote, SiteQuoteResult } from "../api/site.ts";
 import type { TripPoint } from "./book-new.ts";
 import { moneyText } from "./dispatch-display.ts";
+import { kmText as roundedKmText } from "./distance.ts";
 import { displayName } from "./master-display.ts";
 
 /** 订单上的一个经停点（M9W-01）：名称、坐标、停留分钟 */
@@ -85,10 +86,20 @@ export function itineraryPackageHours(quote: Pick<SiteQuote, "package"> | null):
   return quote?.package?.hours ?? null;
 }
 
-/** 米 → 「54.3 公里」（向上取整到 0.1 公里，整数不带 .0） */
+/**
+ * 米 → 「约」的口径「54.3 公里」（M9W-09）：**四舍五入**到 0.1 公里（50 米进位），整数不带 .0，带千分位（`lib/distance.ts`，04 第 2 节）。
+ * 按行程计价的超公里按米计（ADR 0089），不按整公里向上取，所以「约」取最近的值（265,722 米 → 265.7），和后台算式里的精确数 265.722 一致。
+ */
 export function kmText(meters: number): string {
-  const tenths = Math.ceil(meters / 100);
-  return `${tenths % 10 === 0 ? String(tenths / 10) : (tenths / 10).toFixed(1)} 公里`;
+  return `${roundedKmText(Math.max(0, Math.trunc(meters)))} 公里`;
+}
+
+/** 米 → 精确的「65.722 公里」（M9W-09，后台超公里算式用）：按米精确到 0.001 公里，去掉末尾的 0，带千分位；和按米算的金额对得上。 */
+export function exactKmText(meters: number): string {
+  const value = BigInt(Math.max(0, Math.trunc(meters)));
+  const whole = String(value / 1_000n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const fraction = String(value % 1_000n).padStart(3, "0").replace(/0+$/, "");
+  return `${whole}${fraction === "" ? "" : `.${fraction}`} 公里`;
 }
 
 /** 「按行程预计 7 小时 30 分（行驶 4 小时 + 停留 3 小时 30 分），全程约 254 公里，套餐 8 小时」；没有路线时 null。时长、全程只用服务器算的数 */

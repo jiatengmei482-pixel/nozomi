@@ -6,7 +6,7 @@
  * 一口价仍然只有一个总价：这些是说明，不写成算式。没有这些数的订单返回 null（那一项不出现，页面其余照常）。
  */
 import { type LocalizedText, type PricingBasis, consoleMoneyText, includedKmSummary, isCurrencyCode, parseMajor, routeMetersText, tenantIncludedKmSummary } from "@nozomi/domain";
-import { durationText, kmText } from "./charter-itinerary.ts";
+import { durationText, exactKmText } from "./charter-itinerary.ts";
 import { moneyText } from "./dispatch-display.ts";
 import { displayName } from "./master-display.ts";
 import { pricingBasisLines } from "./pricing-basis-display.ts";
@@ -166,15 +166,23 @@ export interface OrderItineraryMoneyView {
   overtime_per_hour: Money;
 }
 
+/** 超出米数 × 每公里单价不是整的最小单位（65,722 米 × JPY 100 = 6,572.2）时，算式后面注明「按米计，四舍五入」；单价读不出来时不注 */
+function overKmRoundingNote(overMeters: number, perKm: Money): string {
+  const minor = minorOf(perKm);
+  if (minor === null) return "";
+  return (BigInt(Math.max(0, Math.trunc(overMeters))) * BigInt(minor)) % 1_000n === 0n ? "" : "（按米计，四舍五入）";
+}
+
 /**
  * 「超公里 / 超时」那一项的两行（结算价）：
  * 「超公里：全程 260 公里，套餐含 200 公里，超出 60 公里 × 每公里 JPY 300 = JPY 18,000」「超时：预计 9 小时（含停留），套餐 10 小时，超出 0 分钟 × 每小时 JPY 5,000 = JPY 0」；没有为 null。
+ * 全程、超出的公里数按米精确显示（M9W-09：「超出 65.722 公里 × 每公里 JPY 100 = JPY 6,572（按米计，四舍五入）」），和按米算的金额对得上；不再向上取到 0.1 公里。
  */
 export function itineraryOverageLines(audience: "platform" | "tenant", itinerary: OrderItineraryMoneyView | null | undefined): string[] | null {
   if (itinerary === null || itinerary === undefined) return null;
   const money = (value: Money): string => auditMoney(audience, value);
   return [
-    `超公里：全程 ${kmText(itinerary.route_meters)}，套餐含 ${itinerary.package_km} 公里，超出 ${kmText(itinerary.over_meters)} × 每公里 ${money(itinerary.over_km_per_km)} = ${money(itinerary.over_km_fee)}`,
+    `超公里：全程 ${exactKmText(itinerary.route_meters)}，套餐含 ${itinerary.package_km} 公里，超出 ${exactKmText(itinerary.over_meters)} × 每公里 ${money(itinerary.over_km_per_km)} = ${money(itinerary.over_km_fee)}${overKmRoundingNote(itinerary.over_meters, itinerary.over_km_per_km)}`,
     `超时：预计 ${durationText(itinerary.route_minutes)}（含停留），套餐 ${durationText(itinerary.package_minutes)}，超出 ${durationText(itinerary.overtime_minutes)} × 每小时 ${money(itinerary.overtime_per_hour)} = ${money(itinerary.overtime_fee)}`,
   ];
 }
