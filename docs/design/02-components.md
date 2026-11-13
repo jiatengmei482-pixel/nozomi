@@ -4,7 +4,7 @@
 
 通用约定：
 
-- 聚焦环写法见 `01-tokens.md` 第 5 节，所有可聚焦元素都要有。不画环的例外只有两处（换页后移进正文区的 `main:focus`；供应商后台分步配置的步骤标题在鼠标 / 触屏触发时），见同一节；除此之外不许用任何办法藏聚焦环。
+- 聚焦环写法见 `01-tokens.md` 第 5 节，所有可聚焦元素都要有。去掉或挪走聚焦环的例外只有三处（换页后移进正文区的 `main:focus`；供应商后台分步配置的步骤标题在鼠标 / 触屏触发时；入口卡片的标题链接，环改画在整张卡片上，第 18 节），见同一节；除此之外不许用任何办法藏聚焦环。
 - 悬停样式只在 `@media (hover: hover)` 下生效，避免触屏点完后「粘住」。
 - 颜色过渡 `var(--duration-fast)`。
 - 可点击区域最小 24×24px；触屏下控件高度由令牌自动变为 44px。
@@ -364,7 +364,7 @@
 ```
 
 - 容器：卡片样式（`03-layout.md` 第 2 节），内边距 `space-4` / `space-5`，三行之间间距 `space-3`（M6-03 由 `space-2` 放宽）；另加 `shadow-card`（ADR 0066，后台只有入口卡片带阴影，暗色下靠描边）。栅格用 `repeat(auto-fill, minmax(min(240px, 100%), 1fr))`，间距 `space-4`。同一行的卡片等高；提醒行贴卡片底部（`margin-top: auto`），同一行里有的卡片有提醒、有的没有时，提醒行上下对齐（M6-03）。
-- **标题行**：模块名是一个 `<a>`（`font-size-lg`，`font-weight-bold`，`text-primary`），右侧 16px 向右箭头（`text-tertiary`，`aria-hidden`）。链接用 `::after { position: absolute; inset: 0 }` 把可点区域铺满整张卡片（卡片 `position: relative`）。悬停：卡片边框换成 `border-strong`，模块名和箭头换成 `text-link`；聚焦环画在整张卡片上（`:focus-within` 时给卡片加聚焦环，链接自身的去掉）。
+- **标题行**：模块名是一个 `<a>`（`font-size-lg`，`font-weight-bold`，`text-primary`），右侧 16px 向右箭头（`text-tertiary`，`aria-hidden`）。链接用 `::after { position: absolute; inset: 0 }` 把可点区域铺满整张卡片（卡片 `position: relative`）。悬停：卡片边框换成 `border-strong`，模块名和箭头换成 `text-link`；聚焦环画在整张卡片上：在铺满卡片的 `::after` 层上画（`a.entry-card__title:focus-visible::after`），链接自身的环用 `a.entry-card__title:focus-visible { outline-color: transparent; }` 去掉，避免两圈环。这是 `01-tokens.md` 第 5 节列出的第三处聚焦环例外，样式检查白名单里有这个精确选择器；不能照搬到别的组件。
 - **数量行**：一到三组「数字 + 说明」，组与组之间用「·」分隔，放不下自动换行，组间距 `space-5`。数字 `font-size-3xl`（M6-03 由 `font-size-2xl` 放大一级，数字比模块名更醒目）、`font-weight-bold`、`text-primary`、等宽数字、带千分位；说明 `font-size-sm`、`text-secondary`，在数字右侧，间距 `space-1`。**数字的含义全靠说明文字表达，不用颜色区分「启用」和「停用」。** 数量行用 `<dl>`（说明是 `<dt>`，数字是 `<dd>`，视觉上数字在前）。
 - **提醒行**（有需要处理的事才显示，一张卡片最多两条）：底 `warning-bg`，边框 `warning-border`，圆角 `radius-md`，内边距 `space-1` / `space-2`；16px 三角警示图标（`warning-text`）+ 文字（`font-size-sm`，`text-primary`）+ 右侧向右箭头（`warning-text`；状态底色上不能用 `text-tertiary`）。它自己是一个 `<a>`，去到已经筛好的列表；要加 `position: relative`，这样它盖在标题链接铺开的那一层上面、能单独点到（不写 `z-index` 数字）。
 - **还没有对应页面的模块**：只显示模块名和数量，模块名是普通文字不是链接，没有箭头，没有悬停效果。不写「即将上线」之类的话。

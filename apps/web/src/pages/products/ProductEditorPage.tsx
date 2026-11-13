@@ -27,6 +27,7 @@ import { type Inventory, getInventory } from "../../api/inventory.ts";
 import type { ProductFrame } from "./frame.ts";
 import { PRODUCT_STEP_TITLES, ProductSteps, checkContextOf, firstPendingStep } from "./ProductSteps.tsx";
 import { TENANT_PRODUCT_SOURCE } from "./source.ts";
+import { useLinkStepSources } from "./step-title.tsx";
 import { ProductMoreItems, useProductActions } from "./useProductActions.tsx";
 
 /** 只用来给「取一天的库存」这个请求填日期（要的是应答里的模式）；页面上的「今天」一律用接口给的。 */
@@ -50,6 +51,7 @@ export function ProductEditorPage() {
   const { portal, account } = usePortalSession();
   const canRead = useTenantCan("product.read");
   const canManage = useTenantCan("product.manage");
+  useLinkStepSources();
   const loaded = useLoad<Product>(`product:${id ?? "new"}`, !isNew && validId && canRead ? (token) => getProduct(token, id) : null);
   const checked = useLoad<PublishCheckResult>(`product-check:${id ?? "new"}`, !isNew && validId && canRead ? (token) => getPublishCheck(token, id) : null);
   const product = isNew ? null : loaded.state.data;

@@ -469,9 +469,9 @@
           "id": "M6-10",
           "title": "供应商后台分步配置换步后，标题聚焦框只在键盘换步时显示（先改设计规范）",
           "role": "designer",
-          "status": "doing",
+          "status": "review",
           "acceptance": ["designer 先改 docs/design/01-tokens 第 5 节（程序聚焦的例外：鼠标 / 触屏换步不显示聚焦框，键盘换步照常显示），写明理由", "前端按规范实现，焦点仍移到标题（读屏不受影响），只改可见的框", "组件 / 端到端测试：键盘换步有框、鼠标换步没框；亮暗两色", "来源：业主 2026-11-13 决定（M6-08 待决定项 ②）"],
-          "evidence": "规范已改（PR https://github.com/jiatengmei482-pixel/nozomi/pull/180 ，分支 m6-10-keyboard-focus-spec），前端实现待做",
+          "evidence": "规范 PR https://github.com/jiatengmei482-pixel/nozomi/pull/180 ；前端实现 PR https://github.com/jiatengmei482-pixel/nozomi/pull/183 （分支 m6-10-keyboard-focus-impl）。新增测试：组件测试 9 条（products.test.tsx 4 条：鼠标点步骤导航 pointer、键盘 Enter keyboard、直接打开网址 / 浏览器后退 unknown、「保存并下一步」按触发方式定且等保存期间不变、标题上按非修饰键变 keyboard、失去焦点去标记、点标题文字 pointer、「载入最新内容」按点按钮的方式；离开确认「继续编辑」/ 关闭后记录作废；step-title.test.tsx 5 条，含没用掉的记录不残留、带 download 等链接不记；另在 inventory.test.tsx 导入后「回到库存」按点击方式断言 pointer），样式检查 3 条（藏环写法的白名单整串匹配三个例外加反例断言、标题三种标记的 CSS、入口卡片的环画在整张卡片上），端到端 3 条（step-title-focus.spec.ts：亮暗两色键盘换步 2px 环、鼠标换步无环、方向键后出现、后退有环、axe 0 违规；400px 手机宽度；首页入口卡片聚焦只有卡片一圈环、标题链接自身无环）。入口卡片按第三处聚焦环例外处理。本机：商品相关组件测试 526 条全过，样式检查 9 条全过，端到端 step-title-focus / products / products-qa / prices / inventory / platform-products 共 32 条全过",
           "updated": "2026-11-13"
         },
         {
@@ -2088,6 +2088,16 @@
       "date": "2026-11-13",
       "by": "Claude",
       "summary": "M8-31b 标为已验收：按监工代业主的决定，「标为重复」不在测试环境实测，以集成测试和测试环境只读验收为准（docs/acceptance/M8-31b.md）。"
+    },
+    {
+      "date": "2026-11-13",
+      "by": "frontend",
+      "summary": "M6-10 第二步：前端按 01-tokens.md 第 5 节「程序聚焦的例外」实现。分步配置的步骤标题（①②⑤ 的外壳、③ 价格规则、④ 库存、上架检查）改用 StepTitle：移焦点前写 data-focus-source，pointer 不画框，keyboard / unknown 用 :focus 强制画 2px 环，没有标记沿用 :focus-visible；运营后台的只读查看不写标记。输入方式在触发的那次点击 / 按键当时由事件本身定（click 的 detail、keydown），连同要去的地址作为这次换步的参数记下，只给同一次导航用；浏览器后退 / 前进、直接打开网址算 unknown，不经过 location.state。标题自己的 pointerdown 写 pointer、非修饰键写 keyboard、失去焦点去掉。顺带修正：第 ① 步和上架检查进来时焦点被外壳交给 <main> 盖掉，改为晚一帧聚焦（和 ③ ④ 一样）。样式检查改为整串匹配三个例外选择器（main:focus、步骤标题的 pointer 标记、首页入口卡片的 a.entry-card__title:focus-visible——按协调者决定和同分支的规范修改列为第三处例外，保持原视觉：环由铺满卡片的 ::after 画在整张卡片上），拦 outline: none / 0 / transparent、outline-style: none、outline-width: 0、outline-color: transparent，带反例断言（别的 a.xxx:focus-visible 用 transparent 仍被拦）；入口卡片另有样式断言和端到端断言（键盘聚焦时卡片一圈 2px 环、标题链接自身透明，亮暗两色）。"
+    },
+    {
+      "date": "2026-11-13",
+      "by": "frontend",
+      "summary": "M6-10 按 PR #183 审查意见修改：没用掉的换步记录不再残留（标题聚焦时对不上的导航会清掉记录；离开确认里点「继续编辑」或关掉对话框时作废被拦下的那次点击）；导入完成页「回到库存 / 价格规则」按点按钮的方式记下输入方式；带 download 属性的链接不记。补组件测试 4 条、1 处断言。"
     }
   ]
 }

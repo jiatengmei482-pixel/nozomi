@@ -44,6 +44,7 @@ import { tidyDate, tidyTime } from "../../../lib/time-input.ts";
 import { useLeaveGuard } from "../../../lib/use-leave-guard.ts";
 import { useLoad } from "../../../lib/use-load.ts";
 import { focusAnchor } from "../frame.ts";
+import { clearStepChange, inputSourceOf, markStepChange } from "../step-title.tsx";
 import { TOO_LARGE_TEXT, nonPositiveCount, resultTooLarge } from "./AdjustRulesTab.tsx";
 import type { CalendarHandoff } from "./CalendarTab.tsx";
 import type { PricesShared } from "./PricesStep.tsx";
@@ -1028,20 +1029,29 @@ export function AdjustRuleForm({ shared, ruleId }: { shared: PricesShared; ruleI
       <Dialog
         open={leaving !== null}
         title="这条调价规则有未保存的修改"
-        onClose={() => setLeaving(null)}
+        onClose={() => {
+          // 留下：被拦下的那次点击记下的换步没有发生
+          clearStepChange();
+          setLeaving(null);
+        }}
         footer={
           <>
-            <Button variant="text" data-autofocus onClick={() => setLeaving(null)}>
+            <Button variant="text" data-autofocus onClick={() => {
+                clearStepChange();
+                setLeaving(null);
+              }}>
               继续编辑
             </Button>
             <Button
               variant="secondary"
               className="button--danger-text"
-              onClick={() => {
+              onClick={(event) => {
                 const to = leaving;
                 setLeaving(null);
                 setInitial(JSON.stringify(form));
-                if (to !== null) requestAnimationFrame(() => void navigate(to));
+                if (to === null) return;
+                markStepChange(inputSourceOf(event), to);
+                requestAnimationFrame(() => void navigate(to));
               }}
             >
               不保存，离开

@@ -12,8 +12,12 @@ import { App } from "../../../App.tsx";
 import type { Inventory, InventoryDayBody, InventoryImportPreview, PriceImportPreview } from "../../../api/inventory.ts";
 import type { Product, PublishCheckItemBody, PublishCheckResult } from "../../../api/products.ts";
 import { type ApiCall, apiError, assertAbsent, assertFocused, json, narrowScreen, resetBrowser, signIn, stubApiWith } from "../../../testing/harness.tsx";
+import { clearStepChange } from "../step-title.tsx";
 
-afterEach(resetBrowser);
+afterEach(() => {
+  resetBrowser();
+  clearStepChange();
+});
 
 const stamps = { created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-02T03:04:00.000Z" };
 const PRODUCT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -551,7 +555,10 @@ test("导入库存：检查通过 → 确认时再传一次同一个文件，带
   assert.equal(document.querySelector(".import-steps [aria-current=step]")?.textContent, "3 完成");
   assert.ok(screen.getByRole("button", { name: "再导入一份" }));
   await actor.click(screen.getByRole("button", { name: "回到库存" }));
-  await screen.findByRole("heading", { level: 2, name: "④ 库存" });
+  const back = await screen.findByRole("heading", { level: 2, name: "④ 库存" });
+  // M6-10：回到这一步按点这个按钮的方式算——鼠标点的，标题不画框，焦点照样在标题上
+  await waitFor(() => assertFocused(back));
+  assert.equal(back.getAttribute("data-focus-source"), "pointer");
   assertNoInternalWords();
 });
 

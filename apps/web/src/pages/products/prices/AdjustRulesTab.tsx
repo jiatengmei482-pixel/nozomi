@@ -25,6 +25,7 @@ import { moneyText } from "../../../lib/product-display.ts";
 import { PRODUCT_FORBIDDEN_TEXT, saveFailureText, serverIssues } from "../../../lib/product-failure.ts";
 import { useLeaveGuard } from "../../../lib/use-leave-guard.ts";
 import { focusAnchor } from "../frame.ts";
+import { type InputSource, clearStepChange, inputSourceOf, markStepChange } from "../step-title.tsx";
 import type { PricesShared } from "./PricesStep.tsx";
 
 interface ListNotice {
@@ -237,7 +238,8 @@ export function AdjustRulesTab({ shared, loadStatus }: { shared: PricesShared; l
     });
   };
 
-  const saveOrder = async (then: string | null): Promise<void> => {
+  /** `input`：点「保存并继续」的那一下是鼠标还是键盘；保存后换到别的步骤时，标题的聚焦框按它画 */
+  const saveOrder = async (then: string | null, input?: InputSource): Promise<void> => {
     if (working !== null || adjusts === null) return;
     setWorking("order");
     setNotice(null);
@@ -250,7 +252,10 @@ export function AdjustRulesTab({ shared, loadStatus }: { shared: PricesShared; l
       setOrder(null);
       frame.saved(result.version);
       toast("已保存顺序");
-      if (then !== null) void navigate(then);
+      if (then !== null) {
+        if (input !== undefined) markStepChange(input, then);
+        void navigate(then);
+      }
     } catch (err) {
       const mismatch = err instanceof ApiError && (err.code === "IDS_MISMATCH" || serverIssues(err).some((issue) => issue.reason === "IDS_MISMATCH"));
       if (mismatch) {
@@ -522,21 +527,30 @@ export function AdjustRulesTab({ shared, loadStatus }: { shared: PricesShared; l
         open={leaving !== null}
         title="顺序改了，还没有保存"
         busy={working === "order"}
-        onClose={() => setLeaving(null)}
+        onClose={() => {
+          // 留下：被拦下的那次点击记下的换步没有发生
+          clearStepChange();
+          setLeaving(null);
+        }}
         footer={
           <>
-            <Button variant="text" data-autofocus disabled={working !== null} onClick={() => setLeaving(null)}>
+            <Button variant="text" data-autofocus disabled={working !== null} onClick={() => {
+                clearStepChange();
+                setLeaving(null);
+              }}>
               继续编辑
             </Button>
             <Button
               variant="secondary"
               className="button--danger-text"
               disabled={working !== null}
-              onClick={() => {
+              onClick={(event) => {
                 const to = leaving;
                 setLeaving(null);
                 setOrder(null);
-                if (to !== null) requestAnimationFrame(() => void navigate(to));
+                if (to === null) return;
+                markStepChange(inputSourceOf(event), to);
+                requestAnimationFrame(() => void navigate(to));
               }}
             >
               不保存
@@ -545,10 +559,10 @@ export function AdjustRulesTab({ shared, loadStatus }: { shared: PricesShared; l
               variant="primary"
               loading={working === "order"}
               loadingText="保存中…"
-              onClick={() => {
+              onClick={(event) => {
                 const to = leaving;
                 setLeaving(null);
-                void saveOrder(to);
+                void saveOrder(to, inputSourceOf(event));
               }}
             >
               保存并继续
