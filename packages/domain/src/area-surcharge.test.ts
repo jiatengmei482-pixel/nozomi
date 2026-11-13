@@ -11,6 +11,7 @@ import {
   type Pricing,
   areaSurchargeFor,
   basePrice,
+  charterPriceWithSurcharges,
   findPriceRuleOverlaps,
   isSurchargeRule,
   priceCoverage,
@@ -276,4 +277,14 @@ test("对外价参考：上车、下车加价各自按这一单的汇率、缓�
   // 没有区域加价的报价不带这一项
   const plain = compareQuotes({ request: trip("tokyo", null), currency: "JPY", now: moment.now, entries: [{ quote: quoteProduct(charter({ priceRules: [pkg("b")] }), trip("tokyo", null), moment), productVersion: 1, standing: { scoreCenti: null, completedOrders: 0, observation: false }, markupBp: () => 1_500, fx: null }] });
   assert.equal(plain.groups[0]?.snapshot.winner.sell.areaSurcharge, undefined);
+});
+
+test("包车价 = 套餐价 + 上车加价 + 途经加价 + 下车加价（价格页「这一行的意思」的例子用，M8-25）：整数相加，0 照加；负数、非整数、超出安全整数都抛错", () => {
+  assert.equal(charterPriceWithSurcharges({ packageMinor: 98_000, pickupMinor: 0, dropoffMinor: 800 }), 98_800);
+  assert.equal(charterPriceWithSurcharges({ packageMinor: 98_000, pickupMinor: 500, dropoffMinor: 800, waypointMinor: 1_000 }), 100_300);
+  // 美元按美分：0.1 + 0.2 这类浮点误差不会出现
+  assert.equal(charterPriceWithSurcharges({ packageMinor: 10, pickupMinor: 20, dropoffMinor: 0 }), 30);
+  assert.throws(() => charterPriceWithSurcharges({ packageMinor: 98_000, pickupMinor: -1, dropoffMinor: 0 }), RangeError);
+  assert.throws(() => charterPriceWithSurcharges({ packageMinor: 98_000.5, pickupMinor: 0, dropoffMinor: 0 }), RangeError);
+  assert.throws(() => charterPriceWithSurcharges({ packageMinor: Number.MAX_SAFE_INTEGER, pickupMinor: 1, dropoffMinor: 0 }), RangeError);
 });

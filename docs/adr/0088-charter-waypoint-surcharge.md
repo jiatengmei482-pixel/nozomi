@@ -91,6 +91,7 @@
 第 3 节第 4 条：经停点落在加价区域里、但那些区域对这个车型组 × 套餐都没有可用的途经规则（没设、停用、未生效），且点不在商品区域里 → 这个车型组不报，原因码沿用上 / 下车那一端的（`NO_PRICE_RULE` / `PRICE_RULE_DISABLED` / `PRICE_NOT_IN_EFFECT`）。这条**在引擎和平台内部不变**；本补充只改**对外**怎么说：
 
 - 引擎：只有经停点那一端报不出（上车、下车两端都报得出）时，拒绝里另带 `stopSeq`（第一个报不出的经停点，从 1 起），原因码照旧。上 / 下车有一端报不出时和以前完全一样，不带 `stopSeq`（去掉经停点也报不出，不能叫客人去掉经停点）。
+  - 例外（M9W-01 起就这样，本次不改）：经停点**哪个区域都不在**时，这个判断排在上 / 下车之前（`packages/domain/src/quote.ts` 的 `WAYPOINT_NOT_PRICED` 分支），即使上车或下车那一端也报不出，对外仍是 `WAYPOINT_NOT_PRICED` 并指出经停点。要统一成「上 / 下车先判」需另开任务（会改变对外原因，先回放核对）。
 - 对外（`sales-quotes.ts`，官网和渠道共用）：凡带 `stopSeq` 的拒绝一律报 `WAYPOINT_NOT_PRICED`，`waypoint_stop_seqs` 指出是第几个经停点——和「经停点哪个区域都不在」同一个说法，官网转人工报价并指出是哪个点。以前这种情况落到默认分支变成 `NOT_AVAILABLE`，页面叫客人「换一个时间」，对客人是误导。
 - 平台内部（询价日志 `quote_logs.rejects`、未覆盖需求的 `refusal_counts`、报价试算）仍是原始原因码，方便运营找到是哪个区域缺了途经加价。平台端询价日志接口 `GET /platform/v1/channels/{id}/quote-logs` 另给每条拒绝的商品、车型组和原始原因码（`rejects`）；`/tenant/v1` 没有询价日志。
 - **只影响对外的原因，不影响价格**：报得出的报价、明细、快照逐分不变；不带经停点的询价报价和原因都不变（golden、`area-surcharge.test.ts`、`charter-waypoints.itest.ts` 原样通过）。

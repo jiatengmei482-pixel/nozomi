@@ -251,18 +251,24 @@ export interface AreaSummary {
 
 const widen = (range: Range | null, value: number): Range => (range === null ? { min: value, max: value } : { min: Math.min(range.min, value), max: Math.max(range.max, value) });
 
-/** 一个加价区域在「看：」范围里的汇总：只看启用、现在或以后生效的，加上没保存的修改。 */
-export function areaSummary(rows: readonly SurchargeRow[], areaId: string, groupIds: readonly string[], packages: readonly number[], currency: string, today: string): AreaSummary {
+/**
+ * 一个加价区域在「看：」范围里的汇总：只看启用、现在或以后生效的，加上没保存的修改。
+ * `optionalPackages`：基础定价里没有、只设了区域加价的套餐——填了的照算进范围，没填的不算「没填」，也不算进组合数。
+ */
+export function areaSummary(rows: readonly SurchargeRow[], areaId: string, groupIds: readonly string[], packages: readonly number[], currency: string, today: string, optionalPackages: readonly number[] = []): AreaSummary {
   const live = liveSurcharges(rows.filter((row) => row.areaId === areaId), currency).filter((entry) => priceRuleIsActive(entry.rule, today));
   let pickup: Range | null = null;
   let dropoff: Range | null = null;
   let waypoint: Range | null = null;
   let waypointUnset = 0;
   let missing = 0;
+  let total = 0;
   for (const groupId of groupIds) {
     for (const hours of packages) {
       const found = live.filter((entry) => entry.rule.vehicleGroupId === groupId && entry.rule.packageHours === hours);
-      if (found.length === 0) missing += 1;
+      const optional = optionalPackages.includes(hours);
+      if (!optional) total += 1;
+      if (found.length === 0 && !optional) missing += 1;
       for (const entry of found) {
         if (entry.rule.pricing.model !== SURCHARGE_MODEL) continue;
         pickup = widen(pickup, entry.rule.pricing.pickupSurchargeMinor);
@@ -273,7 +279,7 @@ export function areaSummary(rows: readonly SurchargeRow[], areaId: string, group
       }
     }
   }
-  return { pickup, dropoff, waypoint, waypointUnset, missing, total: groupIds.length * packages.length };
+  return { pickup, dropoff, waypoint, waypointUnset, missing, total };
 }
 
 /** 汇总格的数：一样写一个数，不一样写「最小–最大」（不带币种，千分位）。 */
