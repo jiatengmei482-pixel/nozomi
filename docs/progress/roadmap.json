@@ -1086,9 +1086,9 @@
           "id": "M9E-03",
           "title": "嵌入组件·widget-v1.js：区间 / 包车两个标签、Shadow DOM、先建草稿再跳转",
           "role": "frontend",
-          "status": "todo",
+          "status": "doing",
           "acceptance": ["apps/web 单独构建入口产出 /embed/widget-v1.js，gzip ≤ 60 KB，不加载第三方资源；edge-config 给它单开响应头（JavaScript 类型、CORP cross-origin、nosniff、max-age 300），不存在时 404", "NozomiBooking.init({ key, root, lang, services, redirectUrl })：root 找不到时控制台报错不渲染；lang、services 不合法用后台默认", "两个标签：区间（出发地、目的地、日期、时间、人数、行李）；包车（上车点、经停点 + 停留、下车点、日期、时间、人数、行李，不填经停点时选包车时长）；地址输入即提示走 /embed/v1/places，候选下方显示「Powered by Google」（同主站），地址框提示「只填地点」", "点「查询价格」先建草稿，成功后整页跳 /book/new?draft=，价格等于在主站手填同样条件；400、429（RATE_LIMITED / EMBED_DRAFT_LIMIT）、413 和读不出的失败按 ADR 0090 第四节各显示一句、不跳转；取配置失败（未授权和连不上分不出）显示「预订组件暂时无法使用…」和主站链接、不显示表单", "Shadow DOM 隔离：宿主页把 div、input、button 设成红底时组件外观不变；320 px 不横向滚动；键盘能走完；axe 无严重问题（端到端，两个本机 origin：白名单内、外）", "独立审查、合并、部署后测试站验收：演示站 embed-demo.moveglobal.io 加入白名单、业主在工厂后台放代码后，区间和包车各用 Stripe 测试卡完整下一单；非白名单域名被拒"],
-          "evidence": "",
+          "evidence": "分支 m9e-03-widget（叠在 m9e-02-embed-keys 上）。apps/web/src/embed/：widget-core.ts（单元测试 5 条：init 参数、草稿通过主站同一套校验、查询前检查、失败说法、三语文案）、widget-ui.ts（Shadow DOM 界面，组件测试 widget.test.tsx 5 条：取配置失败只显示暂时无法使用、两个标签、地址提示带嵌入码不带 Cookie 且谷歌候选有 Powered by Google、先建草稿再跳转、400 / 429 两种 / 网络错误各一句、包车经停点和停留）；vite.widget.config.ts 单独构建 dist/embed/widget-v1.js（gzip 约 7 KB，超 60 KB 构建失败）；Caddyfile 给脚本单开响应头（deploy-web.test.ts 12 条）、smoke 检查脚本 200 / JavaScript / CORP；pnpm typecheck 通过。还差：两个本机 origin 的端到端（宿主页全红样式、320 px、axe、键盘走完），见 PR",
           "updated": "2026-11-13"
         },
         {
@@ -1108,6 +1108,15 @@
           "status": "blocked",
           "blockedBy": "等业主确认要不要按需求 03 原样做（ADR 0090 第八节）",
           "acceptance": ["业主确认要不要按需求 03 第二部分原样做（ADR 0090 第八节）", "确认后另写验收标准：新订单记行程方式、旧订单显示不变、/tenant/v1 不给来源"],
+          "evidence": "",
+          "updated": "2026-11-13"
+        },
+        {
+          "id": "M9E-06",
+          "title": "主站 /book/new 地址候选显示「Powered by Google」（M9E-03 时发现主站没有，嵌入组件已有）",
+          "role": "frontend",
+          "status": "todo",
+          "acceptance": ["候选里有谷歌来源的一项时，列表下方显示 Powered by Google（按谷歌的标识要求）；只有平台地点时不显示", "组件测试覆盖两种情况；独立审查、合并、部署后测试站看一眼"],
           "evidence": "",
           "updated": "2026-11-13"
         }
@@ -2254,6 +2263,11 @@
       "date": "2026-11-13",
       "by": "backend",
       "summary": "M9E-02 开发完成，待验收：运营后台「嵌入组件」（生成嵌入码、改域名白名单、停用、复制代码；运营、渠道经理能改，只读能看）；/embed/v1 配置、地址提示、建草稿只对白名单网站跨域开放，来源在解析请求体前核对，通过后所有应答都带 CORS 头；询价带有效草稿时记来源，下单再核一次白名单，运营后台订单显示「来源：嵌入组件 · 网站」，官网订单页显示「返回原网站」；供应商看不到来源。"
+    },
+    {
+      "date": "2026-11-13",
+      "by": "frontend",
+      "summary": "M9E-03 嵌入组件脚本（进行中）：合作网站放一行脚本 + NozomiBooking.init，区间 / 包车两个标签画在 Shadow DOM 里，地址提示经主站 /embed/v1，点「查询价格」先建预订草稿再整页跳到 /book/new?draft=；取不到配置（未授权或连不上）只显示「暂时无法使用」和主站链接；脚本单独构建，gzip 约 7 KB。两个本机网站的端到端还没做。发现主站地址候选没有「Powered by Google」，新增 M9E-06。"
     }
   ]
 }
