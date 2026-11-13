@@ -58,6 +58,8 @@ function tripJson(view: TripView): Record<string, unknown> {
       place: view.place === null ? null : { name: view.place.name, code: view.place.code, lng: view.place.lng, lat: view.place.lat },
       pickup: order.pickup,
       dropoff: order.dropoff,
+      // 包车的经停点（M9W-01，ADR 0088）：名称、坐标、停留分钟，不含任何价格；没有为 null
+      waypoints: order.waypoints,
       pickup_point: view.pickup,
       addons: order.addons.map((addon) => ({ addon_id: addon.addonId, quantity: addon.quantity, name: view.addonNames.get(addon.addonId) ?? null })),
       driver_language: order.driverLanguage,

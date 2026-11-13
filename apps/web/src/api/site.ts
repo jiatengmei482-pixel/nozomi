@@ -312,6 +312,8 @@ export interface SiteOrder {
   luggage: number;
   pickup: SiteOrderPoint | null;
   dropoff: SiteOrderPoint | null;
+  /** 包车的经停点（M9W-01）：名称、坐标、停留分钟；没有为 null。订单页显示在 M9W-03 */
+  waypoints?: { name: string; lat: number; lng: number; stay_minutes: number }[] | null;
   addons: { addon_id: string; quantity: number }[];
   driver_language: string | null;
   flight_no: string | null;
@@ -429,7 +431,7 @@ export const SITE_ORDER_VEHICLE_GROUP_FIELDS: readonly (keyof NonNullable<SiteOr
 
 export const SITE_ORDER_FIELDS: readonly (keyof SiteOrder)[] = [
   "id", "order_no", "status", "category", "city_id", "place_id", "direction", "vehicle_group_id", "package_hours", "service_time", "service_local", "timezone", "service_date", "urgent",
-  "passengers", "luggage", "pickup", "dropoff", "addons", "driver_language", "flight_no", "passenger", "rider", "messaging", "notes", "free_wait_minutes", "created_at", "confirmed_at", "cancelled_at",
+  "passengers", "luggage", "pickup", "dropoff", "waypoints", "addons", "driver_language", "flight_no", "passenger", "rider", "messaging", "notes", "free_wait_minutes", "created_at", "confirmed_at", "cancelled_at",
   "cancel_reason", "quote_id", "channel_order_no", "price", "includes_area_surcharge", "distance", "pricing_basis", "payment_status", "payment_due_at", "winning_tenant", "driver", "vehicle", "landing", "cancel_policy", "cancellation",
   "free_cancel_available", "changes", "extra_charges", "version",
 ];

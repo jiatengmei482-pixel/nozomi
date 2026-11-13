@@ -48,6 +48,8 @@ export function orderTripJson(order: Order): Json {
     luggage: order.luggage,
     pickup: order.pickup,
     dropoff: order.dropoff,
+    // 包车的经停点（M9W-01，ADR 0088）：按顺序的名称、坐标、停留分钟；没有为 null
+    waypoints: order.waypoints,
     addons: order.addons.map((addon) => ({ addon_id: addon.addonId, quantity: addon.quantity })),
     driver_language: order.driverLanguage,
     flight_no: order.flightNo,

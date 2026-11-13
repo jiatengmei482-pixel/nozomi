@@ -146,6 +146,13 @@ async function replayRequest(db: Db, raw: Row, timezone: string): Promise<{ cate
     dropoff = await pointOf(raw["dropoff"]);
   }
   if (pickup === undefined || dropoff === undefined) return null;
+  // 包车的经停点（ADR 0088，官网询价日志里只记坐标）：照原样带上回放；没有经停点的日志和以前一模一样
+  const waypoints: LatLng[] = [];
+  for (const stop of Array.isArray(raw["waypoints"]) ? (raw["waypoints"] as unknown[]) : []) {
+    const point = await pointOf(stop);
+    if (point === null || point === undefined) return null;
+    waypoints.push(point);
+  }
   const request: QuoteRequest = {
     category,
     pickup,
@@ -158,6 +165,7 @@ async function replayRequest(db: Db, raw: Row, timezone: string): Promise<{ cate
     addons,
     driverLanguage: raw["driver_language"] ?? null,
     vehicleGroupIds: Array.isArray(raw["vehicle_group_ids"]) ? (raw["vehicle_group_ids"] as string[]) : [],
+    ...(waypoints.length === 0 ? {} : { waypoints }),
   };
   return quoteRequestIssues(request).length > 0 ? null : { category, placeId, request };
 }

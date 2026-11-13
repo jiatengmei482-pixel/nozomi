@@ -25558,6 +25558,21 @@ components:
           $ref: "#/components/schemas/SalesMoney"
         driver_language:
           $ref: "#/components/schemas/SalesMoney"
+    OrderWaypoint:
+      type: object
+      additionalProperties: false
+      required: [ name, lat, lng, stay_minutes ]
+      description: 包车订单的一个经停点（M9W-01，ADR 0088）
+      properties:
+        name:
+          type: string
+        lat:
+          type: number
+        lng:
+          type: number
+        stay_minutes:
+          type: integer
+          minimum: 0
     OrderSettlementSurchargeEnd:
       type: object
       additionalProperties: false
@@ -25700,7 +25715,7 @@ components:
       additionalProperties: false
       description: |
         渠道看到的订单：行程、乘客、客人支付的金额、付款状态。**没有结算价、加价比例**；中标租户只在付款成功后、渠道设置了「付款后展示」时出现。
-      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
+      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, waypoints, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
       properties:
         pricing_basis:
           $ref: "#/components/schemas/PricingBasis"
@@ -25783,6 +25798,11 @@ components:
                 type: integer
         driver_language:
           type: [ string, "null" ]
+        waypoints:
+          description: 包车的经停点（M9W-01，ADR 0088），按顺序：名称、坐标、停留分钟；下单后不能改。没有经停点的单、以前的单为 null（新增字段）
+          type: [ array, "null" ]
+          items:
+            $ref: "#/components/schemas/OrderWaypoint"
         flight_no:
           type: [ string, "null" ]
           description: 航班号（去掉空格、大写），接机必填
@@ -25916,7 +25936,7 @@ components:
       additionalProperties: false
       description: |
         供应商看到的订单：行程、乘客、结算价和明细。**没有渠道、对外价、加价比例、汇率**（规则 4）。只有付过款的单。
-      required: [ pending_change, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, product_id, product_version, settlement, dispatch, fulfilment, landing, cancel_policy, cancellation, version ]
+      required: [ pending_change, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, waypoints, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, product_id, product_version, settlement, dispatch, fulfilment, landing, cancel_policy, cancellation, version ]
       properties:
         pending_change:
           type: boolean
@@ -25990,6 +26010,11 @@ components:
                 type: integer
         driver_language:
           type: [ string, "null" ]
+        waypoints:
+          description: 包车的经停点（M9W-01，ADR 0088），按顺序：名称、坐标、停留分钟；下单后不能改。没有经停点的单、以前的单为 null（新增字段）
+          type: [ array, "null" ]
+          items:
+            $ref: "#/components/schemas/OrderWaypoint"
         flight_no:
           type: [ string, "null" ]
           description: 航班号（去掉空格、大写），接机必填
@@ -26048,7 +26073,7 @@ components:
       additionalProperties: false
       description: |
         运营后台看到的订单：行程、乘客、中标租户、渠道、对外价、结算价、加价比例、汇率快照、付款状态。
-      required: [ notes_masked, passenger_anonymized_at, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, dispatch, fulfilment, landing, tenant, channel, quote_id, channel_order_no, product_id, product_version, sell, settlement, markup_bp, fx, fx_buffer_bp, payment_due_at, payment, cancel_policy, cancellation, is_acceptance, version ]
+      required: [ notes_masked, passenger_anonymized_at, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, waypoints, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, dispatch, fulfilment, landing, tenant, channel, quote_id, channel_order_no, product_id, product_version, sell, settlement, markup_bp, fx, fx_buffer_bp, payment_due_at, payment, cancel_policy, cancellation, is_acceptance, version ]
       properties:
         notes_masked:
           type: boolean
@@ -26126,6 +26151,11 @@ components:
                 type: integer
         driver_language:
           type: [ string, "null" ]
+        waypoints:
+          description: 包车的经停点（M9W-01，ADR 0088），按顺序：名称、坐标、停留分钟；下单后不能改。没有经停点的单、以前的单为 null（新增字段）
+          type: [ array, "null" ]
+          items:
+            $ref: "#/components/schemas/OrderWaypoint"
         flight_no:
           type: [ string, "null" ]
           description: 航班号（去掉空格、大写），接机必填
@@ -27710,7 +27740,7 @@ components:
         order:
           type: object
           additionalProperties: false
-          required: [ order_no, status, status_name, category, direction, service_time, service_local, timezone, package_hours, passengers, luggage, flight_no, passenger, rider, messaging, notes, place, pickup, dropoff, pickup_point, addons, driver_language, free_wait_minutes ]
+          required: [ order_no, status, status_name, category, direction, service_time, service_local, timezone, package_hours, passengers, luggage, flight_no, passenger, rider, messaging, notes, place, pickup, dropoff, waypoints, pickup_point, addons, driver_language, free_wait_minutes ]
           properties:
             order_no:
               type: string
@@ -27785,6 +27815,11 @@ components:
               oneOf:
                 - $ref: "#/components/schemas/OrderPoint"
                 - type: "null"
+            waypoints:
+              description: 包车的经停点（M9W-01，ADR 0088），按顺序：名称、坐标、停留分钟（行程显示在 M9W-03）；没有为 null。不含任何价格
+              type: [ array, "null" ]
+              items:
+                $ref: "#/components/schemas/OrderWaypoint"
             pickup_point:
               description: 上车点的坐标（一键导航）：接机是机场，其他是客人填的上车点
               oneOf:
@@ -29453,7 +29488,7 @@ components:
       additionalProperties: false
       description: |
         客人在官网订单页看到的订单：和渠道看到的 `SalesOrder` 字段一样，只是落地信息里没有司机到达屏照片的文件编号（客人用不上，ADR 0032）。
-      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
+      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, waypoints, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
       properties:
         pricing_basis:
           $ref: "#/components/schemas/PricingBasis"
@@ -29536,6 +29571,11 @@ components:
                 type: integer
         driver_language:
           type: [ string, "null" ]
+        waypoints:
+          description: 包车的经停点（M9W-01，ADR 0088），按顺序：名称、坐标、停留分钟；下单后不能改。没有经停点的单、以前的单为 null（新增字段）
+          type: [ array, "null" ]
+          items:
+            $ref: "#/components/schemas/OrderWaypoint"
         flight_no:
           type: [ string, "null" ]
           description: 航班号（去掉空格、大写），接机必填
