@@ -111,6 +111,8 @@ export interface SiteQuoteRequest {
   /** 地址联想里选中的那一项的名称（M8-20：只在一个价都报不出时记进未覆盖需求；手打的文字不要带） */
   pickup_name?: string | null;
   dropoff_name?: string | null;
+  /** 从嵌入组件的预订草稿来时带上（M9E-02，ADR 0090）：只用于记来源，不影响报价 */
+  draft_id?: string;
 }
 
 /** 询价时选的一项附加服务（从报价的 `available_addons` 里选）。 */
@@ -214,6 +216,8 @@ export interface SiteByPointsRequest {
   /** 地址联想里选中的那一项的名称（M8-20：只在一个价都报不出时记进未覆盖需求；手打的文字不要带） */
   pickup_name?: string | null;
   dropoff_name?: string | null;
+  /** 从嵌入组件的预订草稿来时带上（M9E-02，ADR 0090）：只用于记来源，不影响报价 */
+  draft_id?: string;
 }
 
 /** 出发地到目的地的行车路线（谷歌 Routes，只用来给客人看，不影响价格）。 */
@@ -371,6 +375,8 @@ export interface SiteOrderNames {
 }
 
 export interface SiteOrderEnvelope {
+  /** 从嵌入组件来、下单时核对过白名单的「返回原网站」地址（M9E-02，ADR 0090）；没有为 null。测试替身可以不给 */
+  return_url?: string | null;
   order: SiteOrder;
   timeline: SiteTimelineEntry[];
   names: SiteOrderNames;
@@ -455,7 +461,7 @@ export const SITE_SCHEMA_FIELDS = {
   SiteQuote: ["quote_id", "expires_at", "service_date", "urgent", "vehicle_group", "package", "includes_area_surcharge", "distance", "pricing_basis", "price", "price_breakdown", "free_wait_minutes", "cancel_policy", "available_addons"],
   SiteAddonOption: ["id", "code", "name", "charge_unit"],
   SiteOrderLink: ["token", "expires_at"],
-  SiteOrderEnvelope: ["order", "timeline", "names", "price_breakdown"],
+  SiteOrderEnvelope: ["return_url", "order", "timeline", "names", "price_breakdown"],
   SiteOrderNames: ["city", "place", "vehicle_group"],
 } as const;
 
@@ -469,10 +475,10 @@ export const SITE_ORDER_FIELDS: readonly (keyof SiteOrder)[] = [
   "free_cancel_available", "changes", "extra_charges", "version",
 ];
 
-export const SITE_BY_POINTS_REQUEST_FIELDS: readonly (keyof SiteByPointsRequest)[] = ["pickup", "dropoff", "service_local", "passengers", "luggage", "addons", "pickup_name", "dropoff_name"];
+export const SITE_BY_POINTS_REQUEST_FIELDS: readonly (keyof SiteByPointsRequest)[] = ["pickup", "dropoff", "service_local", "passengers", "luggage", "addons", "pickup_name", "dropoff_name", "draft_id"];
 export const SITE_TRIP_END_FIELDS: readonly (keyof SiteTripEnd)[] = ["name", "lat", "lng", "kind"];
 export const SITE_BY_POINTS_RESULT_FIELDS: readonly (keyof SiteByPointsResult)[] = ["trip_type", "airport", "fallback_category", "city", "currency", "quotes", "unavailable", "expires_at", "route"];
-export const SITE_QUOTE_REQUEST_FIELDS: readonly (keyof SiteQuoteRequest)[] = ["category", "city_id", "airport_id", "direction", "address", "pickup", "dropoff", "waypoints", "itinerary_pricing", "package_hours", "service_local", "passengers", "luggage", "addons", "pickup_name", "dropoff_name"];
+export const SITE_QUOTE_REQUEST_FIELDS: readonly (keyof SiteQuoteRequest)[] = ["category", "city_id", "airport_id", "direction", "address", "pickup", "dropoff", "waypoints", "itinerary_pricing", "package_hours", "service_local", "passengers", "luggage", "addons", "pickup_name", "dropoff_name", "draft_id"];
 export const SITE_FX_REFERENCE_FIELDS: readonly (keyof SiteFxReference)[] = ["available", "from", "to", "rate", "as_of", "reason"];
 export const SITE_ORDER_REQUEST_FIELDS: readonly (keyof SiteOrderRequest)[] = ["quote_id", "passenger", "flight_no", "pickup_address", "dropoff_address", "messaging", "notes", "save_payment_method", "sign_name", "passenger_name", "passenger_phone"];
 

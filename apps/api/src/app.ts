@@ -75,6 +75,7 @@ import { registerManualQuoteRoutes } from "./routes/manual-quotes.ts";
 import { registerReportRoutes } from "./routes/reports.ts";
 import { ManualQuoteRetentionJobs } from "./services/manual-quotes.ts";
 import { BookingDraftRetentionJobs } from "./services/booking-drafts.ts";
+import { registerEmbedRoutes } from "./routes/embed.ts";
 
 export interface AppDeps {
   config: AppConfig;
@@ -416,6 +417,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerTenantOnboardingRoutes(app, context);
   registerTenantProfileRoutes(app, context);
   registerSiteRoutes(app, context);
+  registerEmbedRoutes(app, context);
   registerViewLinkRoutes(app, context);
   registerManualQuoteRoutes(app, context);
 

@@ -63,6 +63,7 @@ export const RESOURCE_NAMES: Readonly<Record<string, string>> = {
   site_settings: "官网设置",
   qa_acceptance_session: "验收会话",
   shared_area_duplicate: "共享库重复区域",
+  embed_key: "嵌入组件的嵌入码",
 };
 
 export const ACTION_NAMES: Readonly<Record<string, string>> = {
@@ -192,6 +193,7 @@ export const ACTION_NAMES_BY_RESOURCE: Readonly<Record<string, Readonly<Record<s
   qa_acceptance_session: { unlock: "解锁验收会话", login_failed: "验收口令不对", close: "结束验收会话" },
   // 共享库去重（M8-31b）
   shared_area_duplicate: { create: "标为重复（在共享库里隐藏）", revoke: "撤销重复标记" },
+  embed_key: { create: "生成嵌入码", update: "修改嵌入码（名称、允许的网站、默认值、启用 / 停用）" },
 };
 
 export const ACTOR_TYPE_NAMES: Readonly<Record<AuditActorType, string>> = { platform_user: "平台员工", tenant_user: "供应商的账号", system: "系统（命令行或定时任务）", anonymous: "没有登录的访问者" };

@@ -64,6 +64,8 @@ export const AUDIT_RESOURCES = [
   "qa_acceptance_session",
   // 共享库去重（M8-31b，ADR 0083 补充）：标为重复（create）、撤销（revoke）；对象编号是标记本身，前后值里有两个区域的编号
   "shared_area_duplicate",
+  // 嵌入组件的嵌入码（M9E-02，ADR 0090）：新建（create）、修改名称 / 白名单 / 默认值 / 状态（update）；前后值是嵌入码本身（公开标识，不是密钥）
+  "embed_key",
 ] as const;
 
 export type AuditResource = (typeof AUDIT_RESOURCES)[number];

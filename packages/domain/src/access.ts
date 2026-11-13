@@ -89,6 +89,8 @@ export const PLATFORM_ACTIONS = [
   "manual_quote.manage",
   "site_settings.read",
   "site_settings.manage",
+  "embed.read",
+  "embed.manage",
 ] as const;
 
 export type PlatformAction = (typeof PLATFORM_ACTIONS)[number];
@@ -188,6 +190,8 @@ export type TenantAction = (typeof TENANT_ACTIONS)[number];
  * 只读、财务、风控等不给：他们的工作用不到客人的联系方式（和 `order.read` 不同，这里没有对账、风控的用途）。
  * 官网设置（M8-21，ADR 0076：客服 WhatsApp 号码）：看（`site_settings.read`）给运营、客服（要知道客人联系的是哪个号）；
  * 改（`site_settings.manage`）只归超级管理员——号码填错或被换掉，客人就会把行程发给别人（和第三方密钥同一种风险，自建角色也勾不了）。
+ * 嵌入组件（M9E-02，ADR 0090）：嵌入码和域名白名单——看（`embed.read`）给运营、渠道经理、只读；新建、改白名单、停用（`embed.manage`）给运营、渠道经理
+ * （合作网站是渠道经理谈的，上线和下线由运营处理）。嵌入码是公开标识，不涉及金额和个人信息。
  */
 const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformAction[]>> = {
   super_admin: PLATFORM_ACTIONS,
@@ -196,16 +200,16 @@ const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformActio
     "order.manage", "order.proxy_fulfilment", "order.proxy_review", "order.change_decide", "order.view_link_resend", "order.view_link_review", "payment.manage", "cancellation_policy.manage", "cancellation_policy.review",
     "rescue.manage", "rescue.review",
     "exception.manage", "ticket.read", "ticket.manage", "ticket.review", "compensation_table.manage", "compensation_table.review", "notification.read", "notification.retry",
-    "manual_quote.read", "manual_quote.manage", "site_settings.read",
+    "manual_quote.read", "manual_quote.manage", "site_settings.read", "embed.read", "embed.manage",
   ],
   tenant_onboarding: ["tenant.read", "tenant.create", "tenant.edit", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "demand.read", "product.read", "channel.read", "approval.read"],
-  channel_manager: ["tenant.read", "master_data.read", "quote.preview", "demand.read", "product.read", "channel.read", "channel.manage", "channel.review", "approval.read"],
+  channel_manager: ["tenant.read", "master_data.read", "quote.preview", "demand.read", "product.read", "channel.read", "channel.manage", "channel.review", "approval.read", "embed.read", "embed.manage"],
   customer_service: ["master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend", "order.manage", "order.view_link_resend", "rescue.manage", "exception.manage", "ticket.read", "ticket.manage", "notification.read", "notification.retry", "manual_quote.read", "manual_quote.manage", "site_settings.read"],
   finance: ["master_data.read", "channel.read", "approval.read", "order.read", "order.proxy_review", "payment.manage", "cancellation_policy.review", "exception.manage", "ticket.read", "compensation_table.review", "statement.read", "statement.manage", "statement.review"],
   risk: ["master_data.read", "product.read", "channel.read", "approval.read", "order.read", "ticket.read"],
   master_data: ["master_data.read", "master_data.manage", "fx.manage", "fx.review", "approval.read"],
   tech: ["integration.read", "master_data.read", "channel.read", "approval.read"],
-  readonly: ["tenant.read", "master_data.read", "product.read", "channel.read", "approval.read", "order.read", "ticket.read", "statement.read"],
+  readonly: ["tenant.read", "master_data.read", "product.read", "channel.read", "approval.read", "order.read", "ticket.read", "statement.read", "embed.read"],
 };
 
 /**
@@ -340,6 +344,8 @@ export const PLATFORM_MENUS = [
   // 未覆盖需求（M8-20，ADR 0075）：单独一格，不并进「报价试算」——已有的自建角色不会因此多出看各供应商运营区域分布的权限
   { key: "uncovered_demands", name: "未覆盖需求", operations: { view: ["demand.read"] } },
   { key: "channels", name: "渠道", operations: { view: ["channel.read"], edit: ["channel.manage"], review: ["channel.review"] } },
+  // 嵌入组件（M9E-02，ADR 0090）：单独一格，不并进「渠道」——已有的自建角色不会因此多出改白名单的权限
+  { key: "embed_keys", name: "嵌入组件", operations: { view: ["embed.read"], edit: ["embed.manage"] } },
   // 订单中心（M3-02、M3-03）：手动重推、代客人取消、改单、审核事后加收、发起免收取消费算编辑；
   // 重试失败的退款和扣款、审核「多退给客人」的代取消（`payment.manage`，需求「人工退款超过阈值」的复核）算审核
   { key: "orders", name: "订单", operations: { view: ["order.read"], edit: ["order.resend", "order.manage"], review: ["payment.manage"] } },
