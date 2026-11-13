@@ -101,6 +101,8 @@ export function navEntries(portal: Portal, home: string, role: string | null, pl
         { to: "/platform/master/vehicle-groups", label: "车型组", prefix: true },
         { to: "/platform/master/addons", label: "附加服务", prefix: true },
         { to: "/platform/master/fx-rates", label: "汇率", prefix: true },
+        // 共享区域去重（M8-31b）：看和主数据同一个权限，标记、撤销要 master_data.manage（页面上按权限给按钮）
+        { to: "/platform/master/shared-areas", label: "共享区域", prefix: true },
       ],
     });
   }

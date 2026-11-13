@@ -162,7 +162,7 @@ function withLatest(json: Json, latest: ReadonlyMap<string, number>): Json {
   return source === null ? json : { ...json, shared_source: { ...source, latest_shape_version: latest.get(source.shared_area_id) ?? null } };
 }
 
-function sharedAreaJson(area: SharedArea): Json {
+export function sharedAreaJson(area: SharedArea): Json {
   return {
     id: area.id,
     city_id: area.cityId,
