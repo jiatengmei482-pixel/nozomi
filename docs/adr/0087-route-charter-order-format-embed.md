@@ -49,7 +49,7 @@
 | 位置 | 上限 | 原因 |
 | --- | --- | --- |
 | 接口和库里的地点名称（按行程询价请求、`route_itineraries`、`orders.itinerary`、模型线路的地点） | 1–240 字 | 与地址联想候选 `SitePlaceSuggestion.name`（maxLength 240）一致，谷歌给的名称不截断 |
-| 链接（预订条件 `d=`）里的地点名称 | ≤ 40 字，编码时超出截断并加「…」 | 链接长度预算（见第三节第 1 小节）；名称只用于预填显示，坐标才是准的，客人在 `/book` 上可以重选 |
+| 链接（预订条件 `d=`）里的地点名称 | ≤ 30 字，编码时超出截断并加「…」 | 链接长度预算（见第三节第 1 小节）；名称只用于预填显示，坐标才是准的，客人在 `/book` 上可以重选 |
 | 模型线路自己的名称（线路标题，不是地点名） | 每种语言 ≤ 60 字 | 显示在卡片标题上 |
 
 ### 2. 被否的方案
@@ -92,11 +92,18 @@
 }
 ```
 
-- 链接：`/book?d=<base64url(JSON)>`，`d` 的值 **≤ 8,000 字符**，整个网址的路径加查询串 ≤ 8,100 字符；`domain` 的 `parseBookingDraft` / `encodeBookingDraft`，逐项校验（不合格的那一项为 null，整份解不开为 null），前端和组件共用同一份（组件构建时打包进去）。
-- **为什么是 8,000**：最坏情况是 10 个地点、每个名称 40 个 4 字节字符（编码前约 230 字节 / 点）、来源凭证带最长的 `return_url`（2,000 字符）和最长的来源（约 270 字符），JSON 约 5,800 字节，base64url 后约 7,800 字符；4,000 放不下。
-- **反向代理同步**：网址到 8,100 字符会超过 nginx 默认的请求行缓冲（`large_client_header_buffers 4 8k`）的余量；部署时在 **nozomi 自己的 nginx server 块**里设 `large_client_header_buffers 4 16k`（测试、正式两台；共用机器上只改 nozomi 的配置，不动别的服务）。Caddy 的默认上限更大，不用改。`deploy/ci/smoke.sh` 加一条：带 8,100 字符查询串请求 `/book` 得到 200。
-- **组件跳转前检查长度**：编码后超过 8,000 时，先把地点名称截到 20 字再编一次；仍超过就不跳转，提示「途经点太多或名称太长，请减少途经点」（按上面的上限计算不会走到这一步，是兜底）。
-- **往返测试**：10 个地点、名称都取 40 个 4 字节字符、停留取 480、`return_url` 取 2,000 字符、来源取最长 → 编码长度 ≤ 8,000，解码后与编码前逐项相等（名称是截断后的）。
+- 链接：`/book?d=<base64url(JSON)>`，`d` 的值 **≤ 7,000 字符**，整个网址的路径加查询串 ≤ 7,200 字符；`domain` 的 `parseBookingDraft` / `encodeBookingDraft`，逐项校验（不合格的那一项为 null，整份解不开为 null），前端和组件共用同一份（组件构建时打包进去）。
+- **为什么是这个上限——整个请求要放进 nginx 的默认缓冲，不调 nginx**：测试服务器前面的 nginx 是业主机器上原有服务的（正式服务器如果也放在别的服务的 nginx 后面，同样处理），nozomi 的 server 段由业主自己加在共用配置里（`docs/deploy.md` 第 2 节）。nginx 默认 `large_client_header_buffers 4 8k`：整个请求行（`GET ` + 网址 + ` HTTP/1.1` + 换行）必须装进一个 8 KB（8,192 字节）缓冲；这个指令写在 server 级可能不生效（请求行在选虚拟主机之前就读完了），改 http 级又超出「只新增 nozomi 配置」的边界。所以不改 nginx，而是把链接控制在默认缓冲以内并留足余量。网址 ≤ 7,200 时请求行 ≤ 4 + 7,200 + 11 = 7,215 字节，离 8,192 还有 977 字节。
+- **最坏情况的计算**（链接里地点名称 ≤ **30** 字、来源凭证里的 `return_url` ≤ **1,000** 字符）：
+  - 每个地点：名称 30 个 4 字节字符 = 120 字节（4 字节字符比要转义的 `"`（2 字节）更长，是最坏情况；控制字符编码前已清掉）+ 其余键和值（`{"name":"",` `"lat":-89.123456,` `"lng":-179.123456,` `"stay_minutes":480},`）约 66 字节 = 186 字节；10 个地点 1,860 字节。
+  - 其余字段（`v`、`tab`、`charter_mode`、`package_hours`、`service_local`、`passengers`、`luggage`、40 字符的 `route_template`、`lang` 和键名）约 230 字节。
+  - 来源凭证：载荷 `{k: 36 位编号, o: ≤ 270 字符（https:// + 253 字符主机名 + :65535）, r: ≤ 1,000 字符（URL 解析后的 href，都是 ASCII）, e: 10 位}` 加键名约 1,346 字节，base64url 后 1,795 字符，加「.」和 43 字符签名 = 1,839 字符，JSON 里连引号约 1,850 字节。
+  - JSON 合计约 1,860 + 230 + 1,850 = 3,940 字节，base64url 后 ⌈3,940 ÷ 3⌉ × 4 = 5,256 字符；网址 `/book?d=` + 5,256 = 5,264 字符；请求行约 5,279 字节。比 7,000 / 7,200 的上限还有约 1,700 字符余量，比 8,192 有约 2,900 字节余量。
+- 从演示站整页跳过来时，浏览器发的 `Referer` 是对方页面的地址（不是这条长链接）；主站页面是 `Referrer-Policy: no-referrer`（ADR 0046），之后的请求也不带这条长链接，所以请求头里不会出现第二份。
+- **组件跳转前检查长度**：编码后 `d` 超过 7,000 或网址超过 7,200 时，先把地点名称截到 20 字再编一次；仍超过就不跳转，提示「途经点太多或名称太长，请减少途经点」（按上面的上限算不会走到这一步，是兜底）。
+- **往返测试**（`booking-draft.test.ts`）：10 个地点、名称都取 30 个 4 字节字符、停留取 480、`route_template` 取 40 字符、`return_url` 取 1,000 字符、来源取最长 → `d` ≤ 7,000、网址 ≤ 7,200，解码后与编码前逐项相等（名称是截断后的）。
+- **证据从哪里来**：`deploy/ci/smoke.sh` 只测到 Caddy 容器，前面没有测试服务器上那台 nginx，**不能作为这一项的证据**；smoke 里只核对「7,200 字符网址的 `/book` 在 Caddy 上是 200」。经过外层 nginx 的证据是测试站验收（需求 03 F10：在浏览器里打开最坏情况的链接，不需要登录服务器）。
+- 万一以后确实要调 nginx 的缓冲：由**业主按 `docs/deploy.md` 第 2 节自己改**，记进业主待办，不写成部署步骤。
 - 坐标最多 6 位小数；名称清理控制字符（同现有链接参数的 `cleanName`），长度见第二节第 1 小节的表。
 - **没有价格、没有报价编号**。
 - 旧参数（`from`、`to`、`date`、`time`、`pax`、`bags`、`mode`）照旧；同时给了 `d` 和旧参数时以 `d` 为准。
@@ -195,7 +202,7 @@
   - `apps/web/src/lib/api-prefixes.ts`：`API_PATH_PREFIXES` 加 `/embed/v1`（Vite 开发和端到端的代理、`edge-config.ts` 生成的 Caddy 转发规则都从这张表来，自动跟上）；`portal.test.ts` 的「前端路由不落在 API 前缀下」照常检查。
   - `apps/web/build/edge-config.ts`：给 `/embed/widget-v1.js` 单开一条响应头：`Content-Type: text/javascript; charset=utf-8`、`Cache-Control: public, max-age=300`、`Cross-Origin-Resource-Policy: cross-origin`、`X-Content-Type-Options: nosniff`；不加 HTML 页面的内容安全策略（它不是页面）；文件不存在时 404，**不能**落到单页应用的 `index.html` 兜底。`deploy-web.test.ts` 核对生成的片段。
   - `apps/web/vite.config.ts`：多一个构建入口；开发服务器同样能给 `/embed/widget-v1.js`。
-  - `deploy/ci/smoke.sh`：真实容器上核对 ① `/embed/widget-v1.js` 200、`Content-Type` 是 JavaScript、带 `Cross-Origin-Resource-Policy: cross-origin`；② `/embed/v1/config?key=nze_不存在` 带一个随便的 `Origin` 是 403 且没有 `Access-Control-Allow-Origin`；③ `/site/v1/config` 带 `Origin` 没有任何 CORS 头；④ 8,100 字符查询串的 `/book` 是 200（第三节第 1 小节）。
+  - `deploy/ci/smoke.sh`：真实容器上核对 ① `/embed/widget-v1.js` 200、`Content-Type` 是 JavaScript、带 `Cross-Origin-Resource-Policy: cross-origin`；② `/embed/v1/config?key=nze_不存在` 带一个随便的 `Origin` 是 403 且没有 `Access-Control-Allow-Origin`；③ `/site/v1/config` 带 `Origin` 没有任何 CORS 头；④ 7,200 字符网址的 `/book` 在 Caddy 上是 200（只测到 Caddy，不能证明外层 nginx，见第三节第 1 小节）。
 
 ## 五、安全
 
@@ -218,14 +225,14 @@
 
 **`redirectUrl` / `return_url` 的校验（写死在 `packages/domain` 的 `embedReturnUrl`，签发和下单两处都调它）**：
 
-1. 长度 ≤ 2,000 字符；用 WHATWG URL 解析，解析失败就拒。
+1. 长度 ≤ 1,000 字符（按 URL 解析后的 href 计；上限来自链接长度预算，见第三节第 1 小节）；用 WHATWG URL 解析，解析失败就拒。
 2. 协议只能是 `https:`（测试环境另允许 `http:`，且只限 `localhost`、`127.0.0.1`，同白名单规则）；`javascript:`、`data:`、`blob:`、`file:` 等一律拒。
 3. 不能带用户名、密码（`https://user:pass@…`）。
 4. 解析后的 origin（协议 + 主机 + 端口，规范化同白名单）必须**完全等于**白名单里的某一项，**并且等于这张凭证的 `o`**（客人从哪个网站来，只能回哪个网站）；不按后缀、不按主机名比较。
 5. 下单时再核一次：`r` 的 origin 仍在**当前**白名单里，才把它存进订单、在订单页显示「返回原网站」；不在就当作没有（来源可能仍记 `embed`，只是没有返回链接）。
 6. 订单页的链接 `rel="noopener noreferrer"`，地址原样来自通过校验的值。
 
-测试用例至少有：`javascript:alert(1)`、`data:text/html,…`、`https://user:pass@embed-demo.moveglobal.io/`、`https://embed-demo.moveglobal.io.evil.example/`、`https://evil.example/?u=https://embed-demo.moveglobal.io`、`https://embed-demo.moveglobal.io:8443/`（白名单没写端口时拒、写了 `:8443` 时过）、`http://embed-demo.moveglobal.io/`、2,001 字符、白名单里有但不等于凭证 `o` 的另一个域名、签发后从白名单移除再下单。
+测试用例至少有：`javascript:alert(1)`、`data:text/html,…`、`https://user:pass@embed-demo.moveglobal.io/`、`https://embed-demo.moveglobal.io.evil.example/`、`https://evil.example/?u=https://embed-demo.moveglobal.io`、`https://embed-demo.moveglobal.io:8443/`（白名单没写端口时拒、写了 `:8443` 时过）、`http://embed-demo.moveglobal.io/`、正好 1,000 字符（过）和 1,001 字符（拒）、白名单里有但不等于凭证 `o` 的另一个域名、签发后从白名单移除再下单。
 
 ### 3. 为什么不用 iframe、CSP 怎么办
 
@@ -246,7 +253,7 @@
 
 | 层 | 内容 |
 | --- | --- |
-| domain 单元 | `route-charter.test.ts`：选 H（等于、差 1 分钟、超出最大、可选列表为空）、合计、预计超出公里（含 0.2 公里进 1）、时间表跨午夜 / 跨两天 / 夏令时城市、输入校验每个原因码、总公里正好 2 倍和多 1 米；`booking-draft.test.ts`：编码解码往返（含「10 个地点、名称取 40 个 4 字节字符、`return_url` 2,000 字符」编码后 ≤ 8,000）、逐项校验、超长、未知版本、注入字符；`embed-origin.test.ts`：origin 规范化、大小写、punycode、带路径、带通配符、http 与 https、`.evil` 后缀、带端口、`null`；`embed-return-url.test.ts`：第五节第 2 小节列的全部用例；`embed-ref.test.ts`：签名、过期（正好 2 小时那一刻）、改一位、换嵌入码、长度不同的签名 |
+| domain 单元 | `route-charter.test.ts`：选 H（等于、差 1 分钟、超出最大、可选列表为空）、合计、预计超出公里（含 0.2 公里进 1）、时间表跨午夜 / 跨两天 / 夏令时城市、输入校验每个原因码、总公里正好 2 倍和多 1 米；`booking-draft.test.ts`：编码解码往返（含「10 个地点、名称取 30 个 4 字节字符、`return_url` 1,000 字符」编码后 `d` ≤ 7,000、网址 ≤ 7,200）、逐项校验、超长、未知版本、注入字符；`embed-origin.test.ts`：origin 规范化、大小写、punycode、带路径、带通配符、http 与 https、`.evil` 后缀、带端口、`null`；`embed-return-url.test.ts`：第五节第 2 小节列的全部用例；`embed-ref.test.ts`：签名、过期（正好 2 小时那一刻）、改一位、换嵌入码、长度不同的签名 |
 | 引擎不变 | `quote-compat` 888 个样例逐分一致；M9 的每个 PR 的文件列表里没有 `packages/domain/src/quote.ts`、`packages/domain/src/pricing.ts`（审查核对） |
 | 集成（真实 PostgreSQL，谷歌用本机替身） | 按行程询价 = 同条件 `POST /site/v1/quotes`（包车 H）逐分一致；途经点进加价区域、禁行区价格不变；车型组退到更大套餐；转人工各原因；下单写订单行程、来源；幂等并发只写一次；`/tenant/v1` 和 Webhook 扫键无对外金额（规则 4）；租户 A 读不到租户 B 的订单行程；模型线路、嵌入码的权限矩阵（各平台角色、租户令牌 401）、`If-Match` 409、审计；`/embed/v1` 的 CORS 头只对白名单 origin（`Origin: null`、缺 `Origin` 都 403）、`/site/v1` 永不带 CORS；凭证核对各失败情况都记 `book`；`/tenant/v1` 和供应商 Webhook 没有来源字段；普通包车报价也写 `quote_route_rates`，改价格规则后订单页单价不变；行程清理（`nozomi_platform` 跑、报价保留、`itinerary_id` 置空） |
 | 前端组件 | `/book` 按行程：加删途经点、停留下拉、时间表、卡片明细、转人工；模型线路预填；`d=` 预填；运营后台两个页面；订单页、供应商详情、司机页的地点列表 |
@@ -260,7 +267,7 @@
 | 任务 | 角色 | 内容 | 依赖 | 这一步的验收 |
 | --- | --- | --- | --- | --- |
 | M9-01 | 产品 | 本篇、需求 03、roadmap | — | 独立审查通过；业主答复待确认项（未答复按推荐） |
-| M9-02 | 后端 + 前端（同一个 PR，后端先做接口和迁移，前端接着做 `/book?d=`） | 统一订单格式：`booking-draft`、订单加列、所有新官网订单写订单行程和来源（`book` / `route_template` 先占位）、订单应答加字段、`/book?d=`、`/book` 带 `d` 时转新页面（M8-05 之前）、nozomi nginx 的 `large_client_header_buffers`、smoke 第 ④ 条 | M9-01 | 需求 03 第 2.3 节 F1–F10 |
+| M9-02 | 后端 + 前端（同一个 PR，后端先做接口和迁移，前端接着做 `/book?d=`） | 统一订单格式：`booking-draft`、订单加列、所有新官网订单写订单行程和来源（`book` / `route_template` 先占位）、订单应答加字段、`/book?d=`、`/book` 带 `d` 时转新页面（M8-05 之前）、链接长度上限和往返测试、smoke 第 ④ 条（只测 Caddy） | M9-01 | 需求 03 第 2.3 节 F1–F10 |
 | M9-03 | 后端 | 按行程询价接口、换算、行程表、`quote_route_rates`（含普通包车报价）、`SiteQuote` 加字段、订单行程（`charter_route`）、行程清理任务、人工报价带途经点、供应商 / 司机 / 邮件显示的接口部分 | M9-02 | 需求 03 第四部分 R1–R17、R21–R23 的接口部分 |
 | M9-03b | 前端 | `/book` 包车「按行程」：途经点、停留、时间表、卡片明细（含预计合计）、转人工；订单页、供应商详情、司机页地点列表 | M9-03 | R1–R17、R21–R23 的页面部分；亮暗、320 / 360、axe |
 | M9-03c | 后端 + 前端（同一个 PR，后端先做表和接口，前端接着做两个页面） | 模型线路：运营后台页面和接口、官网列表和 `/book?route=` 预填 | M9-03b | R18–R20 |
