@@ -4,17 +4,10 @@
  */
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { gzipSync } from "node:zlib";
 import { type Plugin, defineConfig } from "vite";
-import { WIDGET_GZIP_BUDGET } from "./src/embed/widget-core.ts";
+import { widgetSizeProblem } from "./src/embed/widget-size.ts";
 
 const outDir = fileURLToPath(new URL("./dist/embed", import.meta.url));
-
-/** gzip 后的大小 ≤ 预算，否则构建失败 */
-export function widgetSizeProblem(source: string | Uint8Array, budget = WIDGET_GZIP_BUDGET): string | null {
-  const size = gzipSync(source).length;
-  return size > budget ? `嵌入组件脚本 gzip 后 ${size} 字节，超过预算 ${budget} 字节` : null;
-}
 
 function sizeBudget(): Plugin {
   return {

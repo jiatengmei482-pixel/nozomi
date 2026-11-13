@@ -12,6 +12,7 @@
  */
 import {
   FAILURE_TEXT_KEY,
+  problemOfIssuePath,
   type InitOptions,
   MAX_WAYPOINTS,
   STAY_OPTIONS,
@@ -27,6 +28,7 @@ import {
   resolveServices,
   tomorrow,
 } from "./widget-core.ts";
+import { tellDeveloper } from "./developer-notice.ts";
 import { WIDGET_CSS } from "./widget-style.ts";
 
 interface Suggestion {
@@ -37,15 +39,25 @@ interface Suggestion {
   location: { lat: number; lng: number } | null;
 }
 
-/** 主站的 origin：取自脚本自己的地址（合作网站页面上，相对路径会指向合作网站） */
-const SCRIPT_ORIGIN = (() => {
-  const script = typeof document === "undefined" ? null : (document.currentScript as HTMLScriptElement | null);
+/** 组件脚本固定的路径：只认从这个路径加载的 <script> */
+export const WIDGET_SCRIPT_PATH = "/embed/widget-v1.js";
+
+/**
+ * 主站的 origin：取自加载本脚本的那个 <script> 的地址。宿主页可以用 `<img name="currentScript" src="https://别的网站/…">`
+ * 把 `document.currentScript` 换成别的元素（DOM clobbering），所以要确认它真的是 <script>、路径真的是组件脚本；
+ * 拿不到就是 null（不退回宿主页自己的地址——那不是主站）。
+ */
+export function scriptOriginOf(candidate: unknown): string | null {
+  if (typeof HTMLScriptElement === "undefined" || !(candidate instanceof HTMLScriptElement)) return null;
   try {
-    return script?.src ? new URL(script.src).origin : null;
+    const url = new URL(candidate.src);
+    return (url.protocol === "https:" || url.protocol === "http:") && url.pathname === WIDGET_SCRIPT_PATH ? url.origin : null;
   } catch {
     return null;
   }
-})();
+}
+
+const SCRIPT_ORIGIN = typeof document === "undefined" ? null : scriptOriginOf(document.currentScript);
 
 let uid = 0;
 const nextId = (prefix: string): string => `nzb-${prefix}-${++uid}`;
@@ -126,7 +138,7 @@ class Widget {
     if (config.status !== 200 || config.body === null) {
       this.lang = resolveLang(this.options.lang, "ja");
       this.renderUnavailable();
-      if (typeof console !== "undefined") console.warn("NozomiBooking：取不到组件配置。请确认本网站已加入嵌入码的白名单，嵌入码未停用。");
+      tellDeveloper("取不到组件配置。请确认本网站已加入嵌入码的白名单，嵌入码未停用。");
       return;
     }
     this.lang = resolveLang(this.options.lang, config.body.lang);
@@ -170,7 +182,7 @@ class Widget {
     if (charter) {
       this.form.waypoints.forEach((stop, index) => formEl.append(this.waypointRow(index, stop)));
       if (this.form.waypoints.length < MAX_WAYPOINTS) {
-        const add = el("button", { type: "button", class: "nzb-secondary", "data-action": "add-waypoint" }, [t.addWaypoint]);
+        const add = el("button", { type: "button", class: "nzb-secondary", "data-action": "add-waypoint", "data-focus": "add-waypoint" }, [t.addWaypoint]);
         add.addEventListener("click", () => {
           this.form.waypoints.push({ point: null, stay: null });
           this.render(`waypoint-${this.form.waypoints.length - 1}`);
@@ -211,7 +223,7 @@ class Widget {
 
   private count(label: string, name: string, min: number, max: number, value: number, set: (value: number) => void): HTMLElement {
     const id = nextId(name);
-    const select = el("select", { id, name, class: "nzb-input" });
+    const select = el("select", { id, name, class: "nzb-input", "data-focus": name });
     for (let n = min; n <= Math.min(max, 20); n += 1) select.append(el("option", { value: String(n), ...(n === value ? { selected: "" } : {}) }, [String(n)]));
     select.addEventListener("change", () => set(Number(select.value)));
     return el("div", { class: "nzb-field" }, [el("label", { for: id, class: "nzb-label" }, [label]), select]);
@@ -294,8 +306,8 @@ class Widget {
         });
         list.append(option);
       });
-      // 候选来自谷歌时按谷歌的要求标明来源
-      if (items.some((item) => item.source === "google")) list.append(el("li", { class: "nzb-google", role: "presentation" }, ["Powered by Google"]));
+      // 候选来自谷歌、又没有显示谷歌地图时，按谷歌地图平台的署名要求标明「Google Maps」（文字署名；不翻译、不改写）
+      if (items.some((item) => item.source === "google")) list.append(el("li", { class: "nzb-google", role: "presentation", lang: "en", translate: "no" }, ["Google Maps"]));
       list.hidden = items.length === 0;
       input.setAttribute("aria-expanded", String(items.length > 0));
     };
@@ -368,22 +380,40 @@ class Widget {
       submit.removeAttribute("aria-disabled");
     }
     message.textContent = t[FAILURE_TEXT_KEY[draftFailureOf(status, typeof body?.error?.code === "string" ? body.error.code : null)]];
+    // 400：标出服务端说的那一项，焦点移过去（ADR 0090 第四节）
+    if (status === 400) {
+      const issues: { path?: unknown }[] = Array.isArray(body?.error?.details?.issues) ? body.error.details.issues : [];
+      const problem = issues.map((issue) => (typeof issue.path === "string" ? problemOfIssuePath(issue.path) : null)).find((found) => found !== null) ?? null;
+      const target = problem === null ? null : (this.shadow.querySelector(`[data-focus="${problem}"]`) as HTMLElement | null);
+      if (target !== null) {
+        target.setAttribute("aria-invalid", "true");
+        target.focus();
+      }
+    }
   }
 
 }
 
 export function init(options: InitOptions): void {
+  initFrom(SCRIPT_ORIGIN, options);
+}
+
+/** init 的实际逻辑：主站地址拿不到（脚本不是从主站的组件路径加载的）就报错、不渲染 */
+export function initFrom(base: string | null, options: InitOptions, go?: (url: string) => void): void {
+  if (base === null) {
+    tellDeveloper(`请直接从主站的 ${WIDGET_SCRIPT_PATH} 加载组件脚本（不要改名、转存或合并进别的文件）。`);
+    return;
+  }
   if (typeof options !== "object" || options === null || typeof options.key !== "string") {
-    console.error("NozomiBooking.init：需要 key（嵌入码）和 root（容器）");
+    tellDeveloper("init 需要 key（嵌入码）和 root（容器）。");
     return;
   }
   const host = typeof options.root === "string" ? document.querySelector(options.root) : options.root;
   if (!(host instanceof Element)) {
-    console.error(`NozomiBooking.init：找不到容器 ${String(options.root)}`);
+    tellDeveloper("init 找不到 root 指定的容器。");
     return;
   }
-  const base = SCRIPT_ORIGIN ?? window.location.origin;
-  void new Widget(host, base, options).start();
+  void new Widget(host, base, options, go).start();
 }
 
 /** 测试用：指定主站地址（正式环境取自脚本地址） */

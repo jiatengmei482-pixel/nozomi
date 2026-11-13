@@ -5,7 +5,7 @@
  */
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { initWithBase } from "./widget-ui.ts";
+import { initFrom, initWithBase, scriptOriginOf } from "./widget-ui.ts";
 
 const BASE = "https://nozomi.example";
 const KEY = `nze_${"A".repeat(32)}`;
@@ -92,7 +92,7 @@ test("区间：地址提示经主站（带嵌入码和会话令牌、不带 Cook
   toInput.value = "東京";
   toInput.dispatchEvent(new Event("input"));
   await wait(400);
-  assert.ok($(".nzb-google").textContent === "Powered by Google");
+  assert.equal($(".nzb-google").textContent, "Google Maps", "谷歌候选按谷歌地图平台的要求署名");
   ($('[data-field="dropoff"] [role="option"]') as HTMLElement).click();
   await wait(20);
   const auto = calls.find((call) => call.url.pathname === "/embed/v1/places/autocomplete");
@@ -162,3 +162,56 @@ test("包车：添加经停点、选停留，草稿里带经停点和停留；�
   assert.deepEqual((drafted as { draft: Record<string, unknown> } | null)?.draft["waypoints"], [{ name: "東京駅", lat: 35.6812, lng: 139.7671, stay_minutes: 60 }]);
   assert.equal((drafted as { draft: Record<string, unknown> } | null)?.draft["package_hours"], null);
 });
+
+test("主站地址只认从 /embed/widget-v1.js 加载的 <script>：宿主页用 <img name=\"currentScript\"> 冒充时拿不到，组件报错、不渲染、不请求任何地址", async () => {
+  document.body.innerHTML = '<img name="currentScript" src="https://evil.example/x.png"><div id="nozomi-booking"></div>';
+  const img = document.querySelector("img");
+  assert.equal(scriptOriginOf(img), null, "冒充的 <img> 不算");
+  assert.equal(scriptOriginOf((document as unknown as { currentScript: unknown }).currentScript), null);
+  const script = (src: string): HTMLScriptElement => {
+    const node = document.createElement("script");
+    node.src = src;
+    return node;
+  };
+  assert.equal(scriptOriginOf(script("https://evil.example/x.js")), null, "别的路径的脚本也不算");
+  assert.equal(scriptOriginOf(script("https://evil.example/embed/widget-v1.js.png")), null);
+  assert.equal(scriptOriginOf(script("javascript:alert(1)")), null);
+  assert.equal(scriptOriginOf(script(`${BASE}/embed/widget-v1.js`)), BASE);
+  assert.equal(scriptOriginOf(script(`${BASE}/embed/widget-v1.js?v=2`)), BASE);
+  const errors: string[] = [];
+  const original = console.error;
+  console.error = (message: string) => errors.push(message);
+  try {
+    handler = () => {
+      throw new Error("不应请求任何地址");
+    };
+    initFrom(null, { key: KEY, root: "#nozomi-booking" });
+    await wait(20);
+  } finally {
+    console.error = original;
+  }
+  assert.equal(calls.length, 0);
+  assert.equal(document.querySelector("#nozomi-booking")?.shadowRoot ?? null, null, "不渲染");
+  assert.ok((errors[0] ?? "").startsWith("NozomiBooking：请直接从主站的 /embed/widget-v1.js 加载"), errors[0]);
+});
+
+test("建草稿 400：标出服务端说的那一项并把焦点移过去；删除经停点后焦点回到「添加经停点」", async () => {
+  const invalid = { status: 400, body: { error: { code: "VALIDATION_FAILED", details: { location: "body", issues: [{ path: "/draft/dropoff/name", reason: "OUT_OF_RANGE" }] } } } };
+  handler = (url, init) => {
+    if (url.pathname === "/embed/v1/booking-drafts") return invalid;
+    return places(url, init);
+  };
+  await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh", services: ["charter"] }, () => undefined);
+  await pick("pickup", "成田", "成田国際空港");
+  await pick("dropoff", "東京", "東京駅");
+  $<HTMLFormElement>("form").dispatchEvent(new Event("submit", { cancelable: true }));
+  await wait(30);
+  const dropoff = $<HTMLInputElement>('[data-field="dropoff"] input');
+  assert.equal(dropoff.getAttribute("aria-invalid"), "true");
+  assert.equal(shadow().activeElement, dropoff);
+  assert.equal($('[data-role="message"]').textContent, "有几项填得不对，请检查后再试。");
+  ($('[data-action="add-waypoint"]') as HTMLButtonElement).click();
+  ($('[aria-label="删除经停点 1"]') as HTMLButtonElement).click();
+  assert.equal(shadow().activeElement, $('[data-action="add-waypoint"]'), "删除后焦点回到「添加经停点」");
+});
+

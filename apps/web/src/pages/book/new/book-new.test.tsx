@@ -599,6 +599,21 @@ test("预订草稿（M9E-01）：包车按时长，时长不在城市套餐里�
   assert.equal(hours.value, "", "时长清空，等客人重选");
 });
 
+test("预订草稿（M9E-03）：嵌入组件的包车、没填经停点（不带时长）——停在第 1 步，客人在预订页选时长后报价", async () => {
+  wideScreen();
+  const draft = draftOf({ tab: "charter", pickup: { name: "银座", lat: 35.6717, lng: 139.765 }, dropoff: { name: "新宿站", lat: 35.6896, lng: 139.7006 }, package_hours: null });
+  const calls = open({ at: `/book/new?draft=${DRAFT_ID}`, packages: [4, 8], draft: () => json(200, { draft, expires_at: "2030-11-19T02:00:00.000Z" }) });
+  const hours = (await screen.findByLabelText(/^包车时长/, {}, SLOW)) as HTMLSelectElement;
+  await waitFor(() => assert.equal((screen.getByRole("combobox", { name: "上车地点" }) as HTMLInputElement).value, "银座"));
+  await waitFor(() => assert.ok([...hours.options].some((option) => option.value === "8")));
+  assert.equal(hours.value, "");
+  assert.equal(posts(calls, "/site/v1/quotes").length, 0);
+  assert.equal(search().includes("step=2"), false);
+  await user().selectOptions(hours, "8");
+  await waitFor(() => assert.equal(posts(calls, "/site/v1/quotes").length > 0, true), SLOW);
+  assert.equal((posts(calls, "/site/v1/quotes")[0]?.body as Record<string, unknown>).package_hours, 8);
+});
+
 test("预订草稿（M9E-01）：过期或不存在时说「链接已过期」并留空白表单；读不出来（限速、网络）另一种说法；都不报价", async () => {
   wideScreen();
   const calls = open({ at: `/book/new?draft=${DRAFT_ID}` });

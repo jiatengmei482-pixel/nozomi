@@ -53,11 +53,12 @@ export type FormProblem = "pickup" | "dropoff" | "date" | "time" | `waypoint-${n
 /** 点「查询价格」前的检查（服务端会按同一套规则再查一次） */
 export function formProblems(form: WidgetForm): FormProblem[] {
   const problems: FormProblem[] = [];
-  if (form.pickup === null) problems.push("pickup");
-  if (form.dropoff === null) problems.push("dropoff");
+  const unnamed = (point: WidgetPoint | null): boolean => point === null || trimName(point.name) === "";
+  if (unnamed(form.pickup)) problems.push("pickup");
+  if (unnamed(form.dropoff)) problems.push("dropoff");
   if (form.tab === "charter")
     form.waypoints.forEach((stop, index) => {
-      if (stop.point === null) problems.push(`waypoint-${index}`);
+      if (unnamed(stop.point)) problems.push(`waypoint-${index}`);
       if (stop.stay === null || !STAY_OPTIONS.includes(stop.stay)) problems.push(`stay-${index}`);
     });
   if (!/^\d{4}-\d{2}-\d{2}$/.test(form.date)) problems.push("date");
@@ -66,13 +67,14 @@ export function formProblems(form: WidgetForm): FormProblem[] {
 }
 
 /** 名称最多 200 个 UTF-16 单元（和主站询价同一种算法），按字截断，不切开 emoji */
-function trimName(name: string): string {
+export function trimName(name: string): string {
   let out = "";
   for (const char of name.trim()) {
     if (out.length + char.length > 200) break;
     out += char;
   }
-  return out;
+  // 截断点落在空格上时结尾会留空格：主站要求名称首尾没有空格
+  return out.trimEnd();
 }
 /** 坐标保留 7 位小数（约 1 厘米；主站只收这个精度） */
 const coord = (value: number): number => Number(value.toFixed(7));
@@ -94,6 +96,17 @@ export function draftOf(form: WidgetForm, lang: WidgetLang): Record<string, unkn
     luggage: form.luggage,
     lang,
   };
+}
+
+/** 服务端 400 里的问题路径（`/draft/pickup/name`、`/draft/waypoints/2/stay_minutes`…）→ 组件里对应的那一项；对不上为 null */
+export function problemOfIssuePath(path: string): FormProblem | "passengers" | "luggage" | null {
+  const parts = path.split("/").filter((part) => part !== "");
+  if (parts[0] !== "draft") return null;
+  const [field, index, sub] = parts.slice(1);
+  if (field === "pickup" || field === "dropoff" || field === "passengers" || field === "luggage") return field;
+  if (field === "service_local") return "date";
+  if (field === "waypoints" && index !== undefined && /^\d+$/.test(index)) return sub === "stay_minutes" ? `stay-${Number(index)}` : `waypoint-${Number(index)}`;
+  return null;
 }
 
 /** 建草稿失败时组件里显示哪一句（ADR 0090 第四节）。`status` 为 null 是读不出的失败（网络错误或被拒的 403） */

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { bookingDraftIssues } from "@nozomi/domain";
-import { STAY_OPTIONS, TEXTS, type WidgetForm, draftFailureOf, draftOf, formProblems, resolveLang, resolveServices, tomorrow } from "./widget-core.ts";
+import { STAY_OPTIONS, TEXTS, type WidgetForm, draftFailureOf, draftOf, formProblems, problemOfIssuePath, resolveLang, resolveServices, tomorrow, trimName } from "./widget-core.ts";
 
 const form = (changes: Partial<WidgetForm> = {}): WidgetForm => ({
   tab: "transfer",
@@ -64,3 +64,23 @@ test("三种语言的文案键一样；默认日期是明天", () => {
   assert.deepEqual(Object.keys(TEXTS.en).sort(), Object.keys(TEXTS.zh).sort());
   assert.equal(tomorrow(new Date(2026, 11, 31, 23, 0)), "2027-01-01");
 });
+
+test("名称截到 200 个 UTF-16 单元后再去掉结尾空格：截断点落在空格上也不会被主站拒；截完是空的按没选地点", () => {
+  const cut = trimName(`${"地".repeat(199)} 東京`);
+  assert.equal(cut, "地".repeat(199));
+  assert.deepEqual(bookingDraftIssues(draftOf(form({ pickup: { name: `${"地".repeat(199)} 東京`, lat: 35, lng: 139 } }), "ja")), []);
+  assert.equal(trimName("   "), "");
+  assert.deepEqual(formProblems(form({ pickup: { name: "   ", lat: 35, lng: 139 } })), ["pickup"]);
+});
+
+test("服务端 400 的问题路径对到组件里的那一项", () => {
+  assert.equal(problemOfIssuePath("/draft/pickup/name"), "pickup");
+  assert.equal(problemOfIssuePath("/draft/dropoff/lat"), "dropoff");
+  assert.equal(problemOfIssuePath("/draft/waypoints/2/name"), "waypoint-2");
+  assert.equal(problemOfIssuePath("/draft/waypoints/0/stay_minutes"), "stay-0");
+  assert.equal(problemOfIssuePath("/draft/service_local"), "date");
+  assert.equal(problemOfIssuePath("/draft/passengers"), "passengers");
+  assert.equal(problemOfIssuePath("/draft/waypoints"), null);
+  assert.equal(problemOfIssuePath("/return_url"), null);
+});
+

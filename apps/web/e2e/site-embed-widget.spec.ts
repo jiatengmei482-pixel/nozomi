@@ -20,10 +20,10 @@ test.use(OWN_SITE_SOURCE);
 /** 有假谷歌密钥的那一组（地址输入即提示要用） */
 const SITE = `http://127.0.0.1:${E2E_WEB_PLACES_PORT}`;
 
-/** 宿主页：所有 div、input、button 红底白字，看组件会不会被染上 */
+/** 宿主页：所有 div、input、button 红底白字、30px、粗体、字距、大写、斜体（都加 !important），看组件会不会被染上（会继承的几项最容易穿进 Shadow DOM） */
 function hostPage(key: string): string {
   return `<!doctype html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>合作网站</title>
-<style>div, input, button { background: rgb(255, 0, 0) !important; color: rgb(255, 255, 255) !important; font-size: 30px !important; } body { margin: 0; }</style></head>
+<style>div, input, button { background: rgb(255, 0, 0) !important; color: rgb(255, 255, 255) !important; font-size: 30px !important; font-weight: 700 !important; letter-spacing: 6px !important; text-transform: uppercase !important; font-style: italic !important; } body { margin: 0; }</style></head>
 <body><main><h1>合作网站</h1><div id="nozomi-booking"></div></main>
 <script src="${SITE}/embed/widget-v1.js"></script>
 <script>NozomiBooking.init({ key: ${JSON.stringify(key)}, root: "#nozomi-booking", lang: "zh", services: ["transfer", "charter"], redirectUrl: location.origin + "/thanks" });</script>
@@ -94,15 +94,21 @@ test("嵌入组件：白名单网站上样式不受宿主页影响、320 px、ax
       const node = shadow?.querySelector(selector);
       if (node === null || node === undefined) return null;
       const style = getComputedStyle(node);
-      return { background: style.backgroundColor, color: style.color, fontSize: style.fontSize };
+      return { background: style.backgroundColor, color: style.color, fontSize: style.fontSize, fontWeight: style.fontWeight, letterSpacing: style.letterSpacing, textTransform: style.textTransform, fontStyle: style.fontStyle };
     };
-    return { box: pick(".nzb"), input: pick("input"), button: pick(".nzb-primary"), widgetOverflow: (shadow?.querySelector(".nzb") as HTMLElement | null)?.scrollWidth ?? 0, page: document.documentElement.scrollWidth };
+    return { box: pick(".nzb"), input: pick("input"), button: pick(".nzb-primary"), hint: pick(".nzb-hint"), widgetOverflow: (shadow?.querySelector(".nzb") as HTMLElement | null)?.scrollWidth ?? 0, page: document.documentElement.scrollWidth };
   });
   for (const part of [styles.box, styles.input]) {
     expect(part?.background).toBe("rgb(255, 255, 255)");
     expect(part?.fontSize).not.toBe("30px");
   }
   expect(styles.button?.background).not.toBe("rgb(255, 0, 0)");
+  for (const part of [styles.box, styles.hint, styles.input]) {
+    expect(part?.fontWeight, "宿主页的粗体进不来").toBe("400");
+    expect(part?.letterSpacing).toBe("normal");
+    expect(part?.textTransform).toBe("none");
+    expect(part?.fontStyle).toBe("normal");
+  }
   expect(styles.page, "320 px 不横向滚动").toBeLessThanOrEqual(320);
   expect(styles.widgetOverflow).toBeLessThanOrEqual(320);
   const axe = await new AxeBuilder({ page }).include("#nozomi-booking").withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
@@ -121,7 +127,7 @@ test("嵌入组件：白名单网站上样式不受宿主页影响、320 px、ax
   await page.keyboard.type("東京駅");
   const toList = page.getByRole("listbox", { name: "目的地的候选" });
   await expect(toList.getByRole("option", { name: /東京駅/ }).first()).toBeVisible();
-  await expect(toList.getByText("Powered by Google")).toBeVisible();
+  await expect(toList.getByText("Google Maps", { exact: true })).toBeVisible();
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Enter");
   await expect(toBox).toHaveValue(/東京駅/);
