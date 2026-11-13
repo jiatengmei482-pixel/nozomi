@@ -119,6 +119,10 @@ test("没有经停点：询价请求和以前完全一样（字段、顺序都�
   assertAbsent(screen.queryByLabelText("价格明细"));
   assertAbsent(screen.queryByText(/价格按您填的经停点计算/));
   assertAbsent(screen.queryByText("行程时间表"));
+  // M9W-05：不按行程计价的包车，「一口价包含」下面的说法照旧
+  const includes = screen.getByRole("heading", { name: "一口价包含" }).closest("section") as HTMLElement;
+  assert.ok(within(includes).getByText("超出套餐的时长和公里服务后按实际收取：先通知您，48 小时内可以在订单页提异议。"));
+  assert.doesNotMatch(includes.textContent ?? "", /按预计行程/);
 });
 
 test("经停点：添加、上下移动（焦点跟着这一行、播报新位置）、删除（焦点到下一行的删除）；第一行上移、最后一行下移禁用；最多 10 个", async () => {
@@ -214,6 +218,10 @@ test("按行程计价：车型卡、右侧栏、核对页显示明细（套餐�
     ["上车京王广场酒店", "行驶约 2 小时经停 1五合目停留 1 小时", "行驶约 30 分钟经停 2河口湖停留 1 小时 30 分", "行驶约 10 分钟经停 3忠灵塔停留 30 分钟", "行驶约 1 小时 50 分下车新宿站"],
   );
   assert.ok(screen.getByText("价格按您填的经停点计算；当天临时去其他区域或超出预计可能会加收。"));
+  // M9W-05：按行程计价时超公里、超时已算进价格，「一口价包含」下面不再说「超出套餐服务后按实际收取」
+  const includes = screen.getByRole("heading", { name: "一口价包含" }).closest("section") as HTMLElement;
+  assert.ok(within(includes).getByText("超公里、超时已按预计行程算进价格，只有当天超出预计的部分服务后按实际收取：先通知您，48 小时内可以在订单页提异议。"));
+  assert.doesNotMatch(includes.textContent ?? "", /超出套餐的时长和公里/);
 
   await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
   const side = screen.getByRole("complementary", { name: "行程摘要" });
