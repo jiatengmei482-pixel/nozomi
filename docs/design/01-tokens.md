@@ -229,12 +229,13 @@
 
 输入框例外：`outline-offset: -1px`，让聚焦环压在边框上，不撑出容器。
 
-不允许写 `outline: none`（或用 `outline-style: none`、`outline-width: 0`、`outline-color: transparent`、`outline: 0` 等任何办法把聚焦环藏起来）而不给替代样式。**例外只有两处**，都是脚本为读屏移过去的、不可操作的落点：
+不允许写 `outline: none`（或用 `outline-style: none`、`outline-width: 0`、`outline-color: transparent`、`outline: 0` 等任何办法把聚焦环藏起来）而不给替代样式。**例外只有三处**：前两处是脚本为读屏移过去的、不可操作的落点；第三处是把环挪到更大的范围上画，焦点仍然看得见。
 
 1. `main:focus { outline: none; }`（`apps/web/src/styles/base.css`）：换页后脚本把焦点移进正文区 `<main>`，正文区不是控件，不画环。
 2. 分步配置的步骤标题，鼠标 / 触屏触发时不画环，见下面「程序聚焦的例外」。
+3. `a.entry-card__title:focus-visible { outline-color: transparent; }`（`apps/web/src/styles/data.css`，`02-components.md` 第 18 节入口卡片）：入口卡片的标题链接用 `::after` 铺满整张卡片，聚焦环画在这一层上（`a.entry-card__title:focus-visible::after`），也就是围着整张卡片画；链接自身的环去掉，否则聚焦时会有两圈环。焦点照样看得见，符合 WCAG 2.4.7。
 
-除这两个选择器外，任何地方都不许藏聚焦环；样式检查（`apps/web/src/styles/styles.test.ts`）按下面「样式检查的配套改动」把关。
+除这三个选择器外，任何地方都不许藏聚焦环；样式检查（`apps/web/src/styles/styles.test.ts`）按下面「样式检查的配套改动」把关。
 
 ### 程序聚焦的例外（M6-10）
 
@@ -286,8 +287,8 @@
 
 **样式检查的配套改动**（和前端实现同一个 PR）：
 
-- `styles.test.ts` 里「不去掉聚焦环」的白名单从只允许 `main:focus`，**精确**放宽到两个选择器：`main:focus` 和 `.step__title[tabindex="-1"][data-focus-source="pointer"]:focus`（整串相等，不用前缀或模糊匹配）。
-- 检查范围扩大：除这两个选择器外，任何规则里出现 `outline: none`、`outline: 0`、`outline-style: none`、`outline-width: 0`、`outline-color: transparent`、`outline: … transparent` 都判失败；测试里要有反例断言（构造一条别的选择器用上述任一写法，检查会拦下）。
+- `styles.test.ts` 里「不去掉聚焦环」的白名单从只允许 `main:focus`，**精确**放宽到三个选择器：`main:focus`、`.step__title[tabindex="-1"][data-focus-source="pointer"]:focus`、`a.entry-card__title:focus-visible`（整串相等，不用前缀或模糊匹配）。
+- 检查范围扩大：除这三个选择器外，任何规则里出现 `outline: none`、`outline: 0`、`outline-style: none`、`outline-width: 0`、`outline-color: transparent`、`outline: … transparent` 都判失败；测试里要有反例断言（构造一条别的选择器用上述任一写法，检查会拦下）。
 
 ## 6. 控件尺寸
 
