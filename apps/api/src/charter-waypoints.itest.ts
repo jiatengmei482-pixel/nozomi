@@ -50,8 +50,12 @@ const nextIp = (): string => `10.89.${(ipSeq += 1)}.9`;
 
 /** 路线替身：每一段 130 公里、`legMinutes` 分钟；到海上那个点算不出 */
 let legMinutes = 225;
-const routeLookup = async (input: { from: LatLng; to: LatLng }): Promise<RouteLookup> =>
-  input.to.lat === P.island.lat || input.from.lat === P.island.lat ? { ok: false, code: "NO_ROUTE" } : { ok: true, route: { meters: 130_000, minutes: legMinutes }, source: "google" };
+/** 路线替身被调了几次（M9W-06：城市不对、没有套餐时不调谷歌） */
+let routeCalls = 0;
+const routeLookup = async (input: { from: LatLng; to: LatLng }): Promise<RouteLookup> => {
+  routeCalls += 1;
+  return input.to.lat === P.island.lat || input.from.lat === P.island.lat ? { ok: false, code: "NO_ROUTE" } : { ok: true, route: { meters: 130_000, minutes: legMinutes }, source: "google" };
+};
 
 async function tenantCall(who: TenantFixture | string, method: HttpMethod, path: string, options: { body?: unknown; version?: number } = {}): Promise<ApiResponse> {
   const token = typeof who === "string" ? who : await tenantLogin(api, who.adminEmail);
@@ -295,6 +299,45 @@ test("下单：订单存经停点（之后谁都不能改）；供应商详情�
   assert.equal(moved.status, 200, moved.text);
   const change = await api.db.owner.query<{ before: string; after: string }>("select settlement_before_minor::text as before, settlement_after_minor::text as after from order_changes where order_id = $1", [orderId]);
   assert.deepEqual(change.rows.map((entry) => [entry.before, entry.after]), [["71000", "71000"]]);
+});
+
+test("M9W-06：修改包车区域加价时请求里没有 waypoint_surcharge 这个键 → 保留原来的途经加价（批量、单条）；显式传 null 才清掉", async () => {
+  const find = async () => (await ok(tenantCall(m.b, "GET", `/products/${charter.id}/price-rules`))).items.find((item: any) => item.area_id === charter.fuji && item.package_hours === 8);
+  const original = await find();
+  const { id, base: _base, created_at: _c, updated_at: _u, waypoint_surcharge: _w, ...legacy } = original;
+  assert.equal(original.waypoint_surcharge, 10_000);
+  const batch = await tenantCall(m.b, "POST", `/products/${charter.id}/price-rules/batch`, { version: await version(m.b, charter.id), body: { update: [{ ...legacy, id, pickup_surcharge: 11_000 }] } });
+  assert.equal(batch.status, 200, batch.text);
+  assert.deepEqual([(await find()).pickup_surcharge, (await find()).waypoint_surcharge], [11_000, 10_000]);
+  const single = await tenantCall(m.b, "PUT", `/products/${charter.id}/price-rules/${id}`, { version: await version(m.b, charter.id), body: { ...legacy, pickup_surcharge: 12_000 } });
+  assertMatchesOpenApi("PUT", "/tenant/v1/products/{id}/price-rules/{ruleId}", single);
+  assert.equal(single.status, 200, single.text);
+  assert.deepEqual([(await find()).pickup_surcharge, (await find()).waypoint_surcharge], [12_000, 10_000]);
+  const cleared = await tenantCall(m.b, "POST", `/products/${charter.id}/price-rules/batch`, { version: await version(m.b, charter.id), body: { update: [{ ...legacy, id, waypoint_surcharge: null }] } });
+  assert.equal(cleared.status, 200, cleared.text);
+  assert.equal((await find()).waypoint_surcharge, null);
+  const restored = await tenantCall(m.b, "POST", `/products/${charter.id}/price-rules/batch`, { version: await version(m.b, charter.id), body: { update: [{ ...legacy, id, waypoint_surcharge: 10_000 }] } });
+  assert.equal(restored.status, 200, restored.text);
+  const back = await find();
+  assert.deepEqual([back.pickup_surcharge, back.dropoff_surcharge, back.waypoint_surcharge], [original.pickup_surcharge, original.dropoff_surcharge, 10_000]);
+});
+
+test("M9W-06：按行程计价先核城市、查套餐再估路线——城市不存在 400 UNKNOWN_CITY（和普通询价一样）；城市没有能选的包车套餐报 NO_PRODUCT；两种都不调路线估算", async () => {
+  const body = { category: "charter", pickup: P.shinjuku, dropoff: P.shinjuku, waypoints: [{ name: "河口湖", ...P.kawaguchiko, stay_minutes: 90 }], itinerary_pricing: true, service_local: SERVICE_LOCAL, passengers: 2, luggage: 1 };
+  const calls = routeCalls;
+  api.clock.advance(1_000);
+  const unknown = await site.call("POST", "/site/v1/quotes", { body: { ...body, city_id: randomUUID() }, ip: nextIp() });
+  assertMatchesOpenApi("POST", "/site/v1/quotes", unknown);
+  api.clock.advance(1_000);
+  const plain = await site.call("POST", "/site/v1/quotes", { body: { ...body, city_id: randomUUID(), itinerary_pricing: undefined, waypoints: undefined, package_hours: 10 }, ip: nextIp() });
+  assert.deepEqual([unknown.status, unknown.body.error.details.issues.map((issue: any) => [issue.path, issue.reason])], [400, [["/city_id", "UNKNOWN_CITY"]]]);
+  assert.deepEqual([plain.status, plain.body.error.details.issues.map((issue: any) => [issue.path, issue.reason])], [400, [["/city_id", "UNKNOWN_CITY"]]]);
+  api.clock.advance(1_000);
+  const empty = await site.call("POST", "/site/v1/quotes", { body: { ...body, city_id: m.ids.osaka }, ip: nextIp() });
+  assertMatchesOpenApi("POST", "/site/v1/quotes", empty);
+  assert.equal(empty.status, 200, empty.text);
+  assert.deepEqual([empty.body.quotes, empty.body.unavailable], [[], [{ vehicle_group_id: null, reasons: ["NO_PRODUCT"] }]]);
+  assert.equal(routeCalls, calls, "城市不对、没有套餐时不调路线估算");
 });
 
 test("13.9 用例 8（按取消重下）：下单后要去掉一个途经区域——取消原单，重新询价下单，新价少了镰仓的途经加价", async () => {
