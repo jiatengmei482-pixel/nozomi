@@ -70,12 +70,19 @@ async function breakOrder(orderId: string): Promise<() => Promise<void>> {
   };
 }
 
+/**
+ * 把一单复制 count 份。订单编号 = NZ20260101 + 「Q + 两位批次号」+ 五位序号：批次号每调用一次加一，序号来自 generate_series，同一个库里保证不重复。
+ * （原来用 md5(random()) 截 8 位、只有 14 种字符且 2、3 出现概率加倍，一次复制两千多单约 0.3% 撞上 orders_order_no_key，M8-29。）
+ */
+let cloneBatch = 0;
 async function clone(source: string, count: number, ended: Date): Promise<void> {
+  cloneBatch += 1;
+  assert.ok(cloneBatch < 100 && count < 100_000, "clone 的批次号两位、序号五位");
   await q(
     `insert into orders (tenant_id, id, order_no, status, category, city_id, place_id, direction, product_id, product_version, vehicle_group_id, service_at, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, settlement_minor, settlement_currency, settlement, inventory_held, payment_due_at, confirmed_at, dispatch_due_at, cancelled_at, cancel_reason, created_at, updated_at)
-     select tenant_id, gen_random_uuid(), 'NZ20260101' || upper(substr(translate(md5(random()::text), '01il', '2345'), 1, 8)), status, category, city_id, place_id, direction, product_id, product_version, vehicle_group_id, $3, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, settlement_minor, settlement_currency, settlement, inventory_held, $3, $4, dispatch_due_at, $3, cancel_reason, $4, $3
-       from orders, generate_series(1, $2) where id = $1`,
-    [source, count, ended, new Date(ended.getTime() - 3_600_000)],
+     select tenant_id, gen_random_uuid(), 'NZ20260101' || $5 || lpad(g::text, 5, '0'), status, category, city_id, place_id, direction, product_id, product_version, vehicle_group_id, $3, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, settlement_minor, settlement_currency, settlement, inventory_held, $3, $4, dispatch_due_at, $3, cancel_reason, $4, $3
+       from orders, generate_series(1, $2) as g where id = $1`,
+    [source, count, ended, new Date(ended.getTime() - 3_600_000), `Q${String(cloneBatch).padStart(2, "0")}`],
   );
 }
 
