@@ -104,7 +104,7 @@ export function WaypointsField({ value, onChange, errors, tiles, mapCenter, citi
                   <SelectField
                     label={`经停点 ${index + 1} 停留时长`}
                     required
-                    placeholder="请选择停留时长"
+                    placeholder="停留多久"
                     value={entry.stay}
                     options={STAY_CHOICES}
                     errors={rowErrors.stay !== undefined ? [rowErrors.stay] : []}
