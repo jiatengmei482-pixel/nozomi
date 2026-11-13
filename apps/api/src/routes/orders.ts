@@ -9,6 +9,7 @@
  * M3-02：订单带上派车（截止时间、超时没有、司机、车辆）、履约时间点、落地时间；详情另有派车记录、司机链接的状态（没有令牌）、照片、联系记录、定位、no-show 申请；
  * 照片原文用 `GET …/orders/{id}/files/{fileId}` 取。运营后台的详情另有推给供应商的全部 Webhook 投递。
  */
+import { type OrderEntrySource, orderEntrySource } from "../services/embed.ts";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { type CurrencyCode, type LocalizedText, maskOrderValues, ORDER_STATUSES, SERVICE_CATEGORIES, isLocalDate, portionBasisPoints } from "@nozomi/domain";
@@ -373,6 +374,8 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
       // 计价方式和计程明细（M8-30，ADR 0080）：结算价
       pricing_basis: orderPricingBasis(found.order),
       mileage: mileageMoneyJson(found.order.settlement, found.order.settlementCurrency),
+      // 来源（M9E-02，ADR 0090）：只做统计；只有运营后台有，供应商接口没有
+      entry_source: entrySourceJson(await orderEntrySource(ctx, found.order.id)),
       quote: {
         quote_id: found.quote.quoteId,
         created_at: found.quote.createdAt,
@@ -396,4 +399,8 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
       },
     };
   });
+}
+
+function entrySourceJson(source: OrderEntrySource): Record<string, unknown> {
+  return source.kind === "embed" ? { kind: "embed", embed_key_id: source.embedKeyId, embed_key_name: source.embedKeyName, embed_origin: source.embedOrigin } : { kind: "book", embed_key_id: null, embed_key_name: null, embed_origin: null };
 }

@@ -54,9 +54,9 @@ test("平台账号管理和审计日志只有超级管理员能碰", () => {
 
 test("租户管理归招商和运营；只读角色只能看；技术只能看集成状态", () => {
   for (const role of ["operations", "tenant_onboarding"] as const) {
-    assert.deepEqual(platformPermissions(role), ["tenant.read", "tenant.create", "tenant.edit", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "demand.read", "product.read", "channel.read", "approval.read", ...(role === "operations" ? ["order.read", "order.resend", "order.manage", "order.proxy_fulfilment", "order.proxy_review", "order.change_decide", "order.view_link_resend", "order.view_link_review", "payment.manage", "cancellation_policy.manage", "cancellation_policy.review", "rescue.manage", "rescue.review", "exception.manage", "ticket.read", "ticket.manage", "ticket.review", "compensation_table.manage", "compensation_table.review", "notification.read", "notification.retry", "manual_quote.read", "manual_quote.manage", "site_settings.read"] : [])]);
+    assert.deepEqual(platformPermissions(role), ["tenant.read", "tenant.create", "tenant.edit", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "demand.read", "product.read", "channel.read", "approval.read", ...(role === "operations" ? ["order.read", "order.resend", "order.manage", "order.proxy_fulfilment", "order.proxy_review", "order.change_decide", "order.view_link_resend", "order.view_link_review", "payment.manage", "cancellation_policy.manage", "cancellation_policy.review", "rescue.manage", "rescue.review", "exception.manage", "ticket.read", "ticket.manage", "ticket.review", "compensation_table.manage", "compensation_table.review", "notification.read", "notification.retry", "manual_quote.read", "manual_quote.manage", "site_settings.read", "embed.read", "embed.manage"] : [])]);
   }
-  assert.deepEqual(platformPermissions("readonly"), ["tenant.read", "master_data.read", "product.read", "channel.read", "approval.read", "order.read", "ticket.read", "statement.read"]);
+  assert.deepEqual(platformPermissions("readonly"), ["tenant.read", "master_data.read", "product.read", "channel.read", "approval.read", "order.read", "ticket.read", "statement.read", "embed.read"]);
   assert.deepEqual(platformPermissions("tech"), ["integration.read", "master_data.read", "channel.read", "approval.read"]);
   assert.equal(platformRoleCan("readonly", "tenant.create"), false);
   assert.equal(platformRoleCan("operations", "integration.read"), false);
@@ -301,4 +301,12 @@ test("人工报价申请（M8-21，ADR 0076）：看和跟进只归运营、客�
   assert.deepEqual(actionsOfGrants(["manual_quotes:view", "manual_quotes:edit"]), ["manual_quote.read", "manual_quote.manage"]);
   assert.deepEqual(actionsOfGrants(["site_settings:view", "site_settings:edit"]), ["site_settings.read"], "改号码只归超级管理员");
   assert.deepEqual(actionsOfGrants(["orders:view", "orders:edit", "tickets:view", "tickets:edit"]).filter((action) => action.startsWith("manual_quote.")), [], "已有的自建角色不会多出看客人联系方式的权限");
+});
+
+test("嵌入组件（M9E-02，ADR 0090）：看给运营、渠道经理、只读；新建、改白名单、停用给运营、渠道经理；勾选表单独一格", () => {
+  const holders = (action: (typeof PLATFORM_ACTIONS)[number]): string[] => PLATFORM_ROLES.filter((role) => platformRoleCan(role.key, action)).map((role) => role.key);
+  assert.deepEqual(holders("embed.read"), ["super_admin", "operations", "channel_manager", "readonly"]);
+  assert.deepEqual(holders("embed.manage"), ["super_admin", "operations", "channel_manager"]);
+  assert.deepEqual(actionsOfGrants(["embed_keys:view", "embed_keys:edit"]), ["embed.read", "embed.manage"]);
+  assert.deepEqual(actionsOfGrants(["channels:view", "channels:edit", "channels:review"]).filter((action) => action.startsWith("embed.")), [], "已有的自建角色不会多出改白名单的权限");
 });

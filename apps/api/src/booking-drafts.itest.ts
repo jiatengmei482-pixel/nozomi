@@ -42,12 +42,18 @@ after(async () => {
 });
 
 test("读到草稿：只给预订条件和到期时刻，不给来源；有效期内可以反复打开", async () => {
-  const stored = await store(charter, { embedKeyId: "00000000-0000-4000-8000-000000000001", embedOrigin: "https://partner.example", returnUrl: "https://partner.example/thanks" });
+  await api.superAdminToken();
+  const adminId = (await api.db.owner.query<{ id: string }>("select id from platform_users limit 1")).rows[0]?.id;
+  const key = await api.db.owner.query<{ id: string }>(
+    "insert into embed_keys (key, name, allowed_origins, default_lang, default_services, created_at, updated_at, created_by, updated_by) values ($1, '测试', array['https://partner.example'], 'ja', array['transfer'], now(), now(), $2, $2) returning id",
+    [`nze_${"A".repeat(32)}`, adminId],
+  );
+  const stored = await store(charter, { embedKeyId: key.rows[0]?.id as string, embedOrigin: "https://partner.example", returnUrl: "https://partner.example/thanks" });
   assert.match(stored.id, /^[A-Za-z0-9_-]{43}$/);
   const first = await read(stored.id);
   assert.equal(first.status, 200, first.text);
   assert.deepEqual(first.body, { draft: charter, expires_at: new Date(api.clock.now().getTime() + 120 * 60_000).toISOString() });
-  assert.doesNotMatch(first.text, /partner\.example|embed|return_url|00000000-0000-4000/);
+  assert.doesNotMatch(first.text, /partner\.example|embed|return_url|nze_/);
   assertMatchesOpenApi("get", "/site/v1/booking-drafts/{id}", first);
   api.clock.advance(119 * 60_000);
   const again = await read(stored.id);
