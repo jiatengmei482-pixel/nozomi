@@ -45,5 +45,7 @@ export function draftReadyToQuote(trip: DraftTrip): boolean {
   return trip.tab === "transfer" || trip.waypoints.length > 0 || trip.packageHours !== "";
 }
 
+/** 地址框的提示：地点名称是自由文本，只填地点（ADR 0090） */
+export const ADDRESS_ONLY_HINT = "只填地点，不要填姓名、电话。";
 export const DRAFT_EXPIRED_TEXT = "链接已过期，请重新填写。";
 export const DRAFT_FAILED_TEXT = "没能读取预订信息，请重新填写，或稍后刷新页面。";
