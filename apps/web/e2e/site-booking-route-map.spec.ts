@@ -8,7 +8,7 @@
  * 核对：按框的实际大小、像素比、亮暗要图；出图后不叠底图署名、不画 Leaflet；没开通退回现有底图画线；其他失败只留「约 X 分钟 · Y 公里」，不报错、不留空框。
  * 电脑 1280 和手机 390（2 倍屏）亮暗截图留在本用例的输出目录（m810-*.png）。
  */
-import { type Browser, type Page, type Route, expect, test } from "@playwright/test";
+import { type Browser, type Page, type Request, type Route, expect, test } from "@playwright/test";
 import { E2E_WEB_PLACES_PORT } from "../playwright.config.ts";
 import { TOKYO_STATION, airportLink, createAirport, encodePolyline, expectRouteLineVisible, publishTransfer, tomorrowInTokyo } from "./book-new-support.ts";
 import { createSupplier, createWorld } from "./catalog.ts";
@@ -181,8 +181,18 @@ test("路线小地图（电脑 1280）：出图（亮暗各一张，切主题换
   await expectRouteLineVisible(page, TOKYO_STATION);
   await expect(page.locator(".book-summary .route-map__attribution")).toBeVisible();
   await expect(page.locator(".book-summary .route-map__image")).toHaveCount(0);
-  // 切换亮暗主题：现有底图当场跟着变，暗色只压暗瓦片，路线颜色不变（M6-08）
-  await expectMapFollowsTheme(page, page.locator(".book-summary .route-map__canvas"), "新预订页路线图（现有底图）");
+  // 切换亮暗主题：现有底图当场跟着变，暗色只压暗瓦片，路线颜色不变（M6-08）；已知没开通，不再按新主题要静态图、不重建地图（M8-29）
+  const fallbackCanvas = page.locator(".book-summary .route-map__canvas");
+  await fallbackCanvas.evaluate((node) => node.setAttribute("data-e2e-opened", ""));
+  let askedAgain = 0;
+  const countRouteMap = (sent: Request): void => {
+    if (new URL(sent.url()).pathname === "/site/v1/route-map") askedAgain += 1;
+  };
+  page.on("request", countRouteMap);
+  await expectMapFollowsTheme(page, fallbackCanvas, "新预订页路线图（现有底图）");
+  page.off("request", countRouteMap);
+  await expect(fallbackCanvas, "切换主题后还是同一个地图容器").toHaveAttribute("data-e2e-opened", "");
+  expect(askedAgain, "切换主题后不再请求静态图").toBe(0);
   await page.screenshot({ path: test.info().outputPath("m810-desktop-light-not-enabled.png"), fullPage: true });
 
   // 503 UNAVAILABLE、图片坏了（200 但不是能解码的图）、不是图片、连不上：只留文字
