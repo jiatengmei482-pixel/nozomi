@@ -210,8 +210,26 @@ export function getPriceRules(ctx: DbContext, tenantId: string, productId: strin
 /** 一次保存里的改动：新增（可带页面自己起的 `ref`，冲突时用它指回去）、修改、删除。 */
 export interface PriceChanges {
   create: { ref: string | null; rule: PriceRule }[];
-  update: { id: string; rule: PriceRule }[];
+  /** `keepWaypointSurcharge`：请求里没有 `waypoint_surcharge` 这个键（旧页面、旧对接方），保留这条规则原来的途经加价（M9W-06） */
+  update: { id: string; rule: PriceRule; keepWaypointSurcharge?: boolean }[];
   remove: string[];
+}
+
+/**
+ * 修改包车区域加价时没带途经加价这一项：沿用库里原来的值，不当成「清掉」（和导入没有「途经加价」列的旧模版同一口径）。
+ * 只在改之前、改之后都是包车区域加价时生效；显式传 null 才清掉。
+ */
+export function keepOmittedWaypointSurcharge(stored: readonly StoredPriceRule[], changes: PriceChanges): PriceChanges {
+  const byId = new Map(stored.map((rule) => [rule.id, rule]));
+  return {
+    ...changes,
+    update: changes.update.map((entry) => {
+      const before = byId.get(entry.id);
+      if (entry.keepWaypointSurcharge !== true || before === undefined || before.pricing.model !== "charter_area_surcharge" || entry.rule.pricing.model !== "charter_area_surcharge") return entry;
+      const kept = before.pricing.waypointSurchargeMinor;
+      return kept === undefined || entry.rule.pricing.waypointSurchargeMinor !== undefined ? entry : { ...entry, rule: { ...entry.rule, pricing: { ...entry.rule.pricing, waypointSurchargeMinor: kept } } };
+    }),
+  };
 }
 
 function priceAudit(rule: PriceRule): AuditValues {
@@ -428,7 +446,7 @@ export async function savePriceRules(
   const work = async (db: Db): Promise<{ status: number; body: Record<string, unknown> }> => {
     const context = await loadPricingContext(db, tenantId, productId, now, { lock: true });
     if (context.product.version !== expectedVersion) throw versionConflict(context.product.version);
-    return options.respond(await applyPriceChanges(db, writer, context, changes, options.single, now));
+    return options.respond(await applyPriceChanges(db, writer, context, keepOmittedWaypointSurcharge(context.priceRules, changes), options.single, now));
   };
   return writeTx(ctx, tenantId, async (db) => {
     const { idempotency } = options;
