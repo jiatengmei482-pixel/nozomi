@@ -65,6 +65,10 @@ const itineraryResult = (breakdown = FUJI_BREAKDOWN, total = 71_500): SiteQuoteR
 });
 const plainResult: SiteQuoteResult = { currency: "JPY", quotes: [quoteOf(1, 77_000, [{ kind: "base", amount: yen(77_000), area_name: null, stop_seqs: null }])], unavailable: [] };
 
+/** 谷歌候选：没有坐标，选中后再调 /site/v1/places/details 取（M9W-08 用它让取坐标变慢） */
+const GOOGLE_SPOT = { source: "google", id: "ChIJgogome", name: "富士山五合目園地", address: "山梨県富士吉田市上吉田", location: null, kind: "other" } as const;
+let placeDetails: () => Response | Promise<Response> = () => json(200, { available: true, place: { id: GOOGLE_SPOT.id, address: GOOGLE_SPOT.address, location: { lat: 35.395, lng: 138.733 }, kind: "other" } });
+
 function open(charter: (call: ApiCall) => Response = () => json(200, plainResult), order?: () => Response): ApiCall[] {
   const calls = stubApiWith((call) => {
     const path = call.url.pathname;
@@ -73,8 +77,10 @@ function open(charter: (call: ApiCall) => Response = () => json(200, plainResult
     if (path === "/site/v1/places/autocomplete") {
       const q = call.url.searchParams.get("q") ?? "";
       const name = Object.keys(SPOTS).find((spot) => q.includes(spot));
+      if (q.includes(GOOGLE_SPOT.name)) return json(200, { available: true, items: [GOOGLE_SPOT] });
       return json(200, { available: true, items: name === undefined ? [] : [{ source: "platform", id: `spot-${name}`, name, address: "", location: SPOTS[name], kind: "station" }] });
     }
+    if (path === "/site/v1/places/details") return placeDetails();
     if (path === `/site/v1/cities/${CITY_ID}/charter-packages`) return json(200, { items: [{ hours: 8 }] });
     if (path === "/site/v1/fx/reference") return json(200, { available: false, from: "JPY", to: call.url.searchParams.get("to"), rate: null, as_of: null, reason: "NO_RATE" });
     if (call.method === "POST" && path === "/site/v1/quotes") return charter(call);
@@ -289,4 +295,35 @@ test("按行程计价有一段路线算不出来（422 ITINERARY_ROUTE_UNAVAILAB
   assert.ok(await screen.findByText("「五合目」到「新宿站」这一段路线暂时算不出来，没有在线报价。请联系客服人工报价，或调整经停点再试。", {}, SLOW));
   assert.ok(screen.getByRole("heading", { name: "没有在线报价" }));
   assertAbsent(screen.queryByRole("button", { name: "重试" }));
+});
+
+test("M9W-08：选了谷歌候选、坐标还没取回来时先选停留时长——坐标回来后停留时长不被清掉，询价带上这个点和停留", async () => {
+  wideScreen();
+  let release: (() => void) | undefined;
+  const slow = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const fast = placeDetails;
+  placeDetails = async () => {
+    await slow;
+    return fast();
+  };
+  try {
+    const calls = open((call) => json(200, (call.body as Record<string, unknown>)["itinerary_pricing"] === true ? itineraryResult() : plainResult));
+    const actor = user();
+    await screen.findByRole("heading", { name: "车型1" }, SLOW);
+    await actor.click(screen.getByRole("button", { name: "上一步" }));
+    await actor.click(screen.getByRole("button", { name: "添加经停点" }));
+    const box = screen.getByRole("combobox", { name: "经停点 1" });
+    await actor.type(box, GOOGLE_SPOT.name);
+    await actor.click(await screen.findByRole("option", { name: new RegExp(GOOGLE_SPOT.name) }, SLOW));
+    await waitFor(() => assert.ok(calls.some((call) => call.path.includes("/places/details"))));
+    await actor.selectOptions(screen.getByLabelText(/^经停点 1 停留时长/), "120");
+    release?.();
+    await waitFor(() => assert.ok(quotes(calls).some((body) => Array.isArray(body["waypoints"]))), SLOW);
+    assert.equal((screen.getByLabelText(/^经停点 1 停留时长/) as HTMLSelectElement).value, "120");
+    assert.deepEqual((quotes(calls).at(-1) as Record<string, unknown>)["waypoints"], [{ name: `${GOOGLE_SPOT.name}（${GOOGLE_SPOT.address}）`, lat: 35.395, lng: 138.733, stay_minutes: 120 }]);
+  } finally {
+    placeDetails = fast;
+  }
 });
