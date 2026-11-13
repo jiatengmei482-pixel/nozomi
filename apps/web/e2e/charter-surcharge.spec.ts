@@ -169,7 +169,7 @@ test("供应商在价格页设包车区域加价（两个区域）→ 运营报�
   // 添加时已经展开着（保存后保持）
   await expect(block.getByRole("button", { name: `收起「${trip.west.name}」的各车型组和套餐` })).toHaveAttribute("aria-expanded", "true");
   await block.getByLabel(`区域加价 · ${trip.west.name} · ${trip.groupName} · 8 小时 的上车加价`).focus();
-  await expect(block.locator(".price-meaning")).toContainText(`上车点在${trip.west.name}时加 JPY 800，下车点在${trip.west.name}时加 JPY 1,000。`);
+  await expect(block.locator(".price-meaning")).toContainText(`上车点在${trip.west.name}时加 JPY 800，下车点在${trip.west.name}时加 JPY 1,000，途经景点在${trip.west.name}的单（没设途经加价）不报价。`);
   await expect(page.locator("main")).not.toContainText(/对外价|加价比例/);
   await bothThemes(page, "区域加价（保存后，展开一个区域）");
   await shot(page, "desktop-saved");

@@ -146,6 +146,8 @@ interface DialogDraft {
   areaId: string;
   pickup: string;
   dropoff: string;
+  /** 途经加价（可以空着：新填的组合不设途经加价，已经填了的不改） */
+  waypoint: string;
   /** 编辑时范围里各组合不同：留空 = 不改这一项 */
   pickupVaries: boolean;
   dropoffVaries: boolean;
@@ -273,8 +275,9 @@ export function AreaSurchargeBlock(props: {
   const openDialog = (mode: "add" | "edit", areaId: string): void => {
     const pickup = mode === "edit" ? commonAmount(rows, areaId, "pickup", currency, today) : "";
     const dropoff = mode === "edit" ? commonAmount(rows, areaId, "dropoff", currency, today) : "";
+    const waypoint = mode === "edit" ? commonAmount(rows, areaId, "waypoint", currency, today) : "";
     const hasAny = liveSurcharges(rows.filter((row) => row.areaId === areaId), currency).length > 0;
-    setDraft({ mode, areaId, pickup, dropoff, pickupVaries: mode === "edit" && hasAny && pickup === "", dropoffVaries: mode === "edit" && hasAny && dropoff === "", from: today, to: "", groups: [...groupIds], packages: [...packages], existing: "overwrite", attempted: false });
+    setDraft({ mode, areaId, pickup, dropoff, waypoint, pickupVaries: mode === "edit" && hasAny && pickup === "", dropoffVaries: mode === "edit" && hasAny && dropoff === "", from: today, to: "", groups: [...groupIds], packages: [...packages], existing: "overwrite", attempted: false });
   };
 
   const confirmAdd = (): void => {
@@ -295,8 +298,12 @@ export function AreaSurchargeBlock(props: {
   };
 
   // ── 对话框 ──
-  const draftIssues = (current: DialogDraft): Partial<Record<"pickup" | "dropoff" | "from" | "to" | "groups" | "packages", string>> => {
-    const issues: Partial<Record<"pickup" | "dropoff" | "from" | "to" | "groups" | "packages", string>> = {};
+  const draftIssues = (current: DialogDraft): Partial<Record<"pickup" | "dropoff" | "waypoint" | "from" | "to" | "groups" | "packages", string>> => {
+    const issues: Partial<Record<"pickup" | "dropoff" | "waypoint" | "from" | "to" | "groups" | "packages", string>> = {};
+    if (current.waypoint.trim() !== "") {
+      const read = readSurchargeAmount(current.waypoint, "waypoint", currency);
+      if ("problem" in read) issues.waypoint = read.problem;
+    }
     for (const field of ["pickup", "dropoff"] as const) {
       const varies = field === "pickup" ? current.pickupVaries : current.dropoffVaries;
       if (varies && current[field].trim() === "") continue;
@@ -317,7 +324,7 @@ export function AreaSurchargeBlock(props: {
   const expandCount = plan ? plan.fill + plan.overwrite : 0;
   const pendingOther = props.otherChanges + state.changeCount;
   const overLimit = expandCount + pendingOther > PRICE_LIMITS.maxBatchChanges;
-  const nothingToChange = draft !== null && draft.mode === "edit" && draft.pickup.trim() === "" && draft.dropoff.trim() === "" && (plan?.fill ?? 0) === 0;
+  const nothingToChange = draft !== null && draft.mode === "edit" && draft.pickup.trim() === "" && draft.dropoff.trim() === "" && draft.waypoint.trim() === "" && (plan?.fill ?? 0) === 0;
   const submitDraft = (): void => {
     if (!draft) return;
     const issues = draftIssues(draft);
@@ -325,7 +332,7 @@ export function AreaSurchargeBlock(props: {
       setDraft({ ...draft, attempted: true });
       return;
     }
-    const request: FillRequest = { areaId: draft.areaId, groupIds: draft.groups, packages: draft.packages, pickup: draft.pickup, dropoff: draft.dropoff, from: tidyDate(draft.from) ?? draft.from, to: draft.to.trim() === "" ? "" : (tidyDate(draft.to) ?? draft.to), existing: draft.mode === "add" ? "skip" : draft.existing };
+    const request: FillRequest = { areaId: draft.areaId, groupIds: draft.groups, packages: draft.packages, pickup: draft.pickup, dropoff: draft.dropoff, waypoint: draft.waypoint, from: tidyDate(draft.from) ?? draft.from, to: draft.to.trim() === "" ? "" : (tidyDate(draft.to) ?? draft.to), existing: draft.mode === "add" ? "skip" : draft.existing };
     const result = applyFill(rows, request, currency);
     state.setRows(() => result.rows);
     if (draft.mode === "add" && !listed.includes(draft.areaId)) state.setAdded([...added, draft.areaId]);
@@ -364,13 +371,14 @@ export function AreaSurchargeBlock(props: {
     return result;
   };
 
-  const summaryCell = (areaId: string, field: "pickup" | "dropoff"): ReactNode => {
+  const summaryCell = (areaId: string, field: "pickup" | "dropoff" | "waypoint"): ReactNode => {
     const summary = areaSummary(rows, areaId, viewGroups, viewPackages, currency, today);
     const range = summary[field];
     return (
       <span className="surcharge-sum">
-        <span className="surcharge-sum__value">{rangeText(range, currency)}</span>
+        <span className="surcharge-sum__value">{field === "waypoint" && range === null && summary.waypointUnset > 0 ? "没设" : rangeText(range, currency)}</span>
         {range !== null && range.min !== range.max && <span className="surcharge-sum__note">各组合不同</span>}
+        {field === "waypoint" && range !== null && summary.waypointUnset > 0 && <span className="surcharge-sum__note">{`${summary.waypointUnset} 个组合没设`}</span>}
       </span>
     );
   };
@@ -400,7 +408,9 @@ export function AreaSurchargeBlock(props: {
     if (!reading.rule || reading.rule.pricing.model !== "charter_area_surcharge") return `${label}——${reading.problems.map((problem) => problem.text).join("；")}。`;
     const firstArea = product.areas[0];
     const example = firstArea ? `例：${displayName(firstArea.name).text}上车、${name}下车 = 套餐价 + 0 + ${moneyText(reading.rule.pricing.dropoffSurchargeMinor, currency)}（调价规则前）。` : "";
-    return `${label}——${surchargeSentence(name, reading.rule.pricing.pickupSurchargeMinor, reading.rule.pricing.dropoffSurchargeMinor, currency)}${example}${surchargeValidity(reading.rule)}调价规则（节假日、旺季等）会按合计再调。`;
+    const way = reading.rule.pricing.waypointSurchargeMinor ?? null;
+    const wayExample = firstArea && way !== null ? `${displayName(firstArea.name).text}出发、途经${name}再回来 = 套餐价 + ${moneyText(way, currency)}。` : "";
+    return `${label}——${surchargeSentence(name, reading.rule.pricing.pickupSurchargeMinor, reading.rule.pricing.dropoffSurchargeMinor, currency, way)}${example}${wayExample}${surchargeValidity(reading.rule)}调价规则（节假日、旺季等）会按合计再调。`;
   };
 
   const productAreaNames = product.areas.map((area) => displayName(area.name).text);
@@ -418,9 +428,9 @@ export function AreaSurchargeBlock(props: {
     );
   }
 
-  const amountInput = (row: SurchargeRow, field: "pickup" | "dropoff", label: string, bad: boolean, rowLocked: boolean): ReactNode =>
+  const amountInput = (row: SurchargeRow, field: "pickup" | "dropoff" | "waypoint", label: string, bad: boolean, rowLocked: boolean): ReactNode =>
     readOnly ? (
-      <span className="surcharge-detail__text">{row[field] === "" ? "—" : row[field]}</span>
+      <span className="surcharge-detail__text">{row[field] === "" ? (field === "waypoint" ? "没设" : "—") : row[field]}</span>
     ) : (
       <input
         className="input input--sm input--mono price-table__input"
@@ -428,7 +438,8 @@ export function AreaSurchargeBlock(props: {
         type="text"
         inputMode="decimal"
         autoComplete="off"
-        aria-label={`${label} 的${field === "pickup" ? "上车加价" : "下车加价"}`}
+        aria-label={`${label} 的${field === "pickup" ? "上车加价" : field === "dropoff" ? "下车加价" : "途经加价"}`}
+        placeholder={field === "waypoint" ? "没设" : undefined}
         aria-invalid={bad || undefined}
         readOnly={rowLocked}
         value={row[field]}
@@ -482,6 +493,7 @@ export function AreaSurchargeBlock(props: {
               <th scope="col">套餐</th>
               <th scope="col" className="price-table__number">{`上车加价（${currency}）`}</th>
               <th scope="col" className="price-table__number">{`下车加价（${currency}）`}</th>
+              <th scope="col" className="price-table__number">{`途经加价（${currency}）`}</th>
               <th scope="col">生效日期 从</th>
               <th scope="col">到</th>
               <th scope="col">启用</th>
@@ -514,6 +526,7 @@ export function AreaSurchargeBlock(props: {
                   <td>{`${row.packageHours} 小时`}</td>
                   <td className="price-table__number">{amountInput(row, "pickup", label, bad("pickup"), rowLocked)}</td>
                   <td className="price-table__number">{amountInput(row, "dropoff", label, bad("dropoff"), rowLocked)}</td>
+                  <td className="price-table__number">{amountInput(row, "waypoint", label, bad("waypoint"), rowLocked)}</td>
                   <td>{dateInput(row, "from", label, bad("from"), rowLocked)}</td>
                   <td>{dateInput(row, "to", label, bad("to"), rowLocked)}</td>
                   <td>{readOnly ? (reading.blank ? "—" : row.enabled ? "启用" : "已停用") : <input type="checkbox" aria-label={`启用这条区域加价：${label}`} checked={row.enabled} disabled={rowLocked} onChange={(event) => update(row, { enabled: event.target.checked })} />}</td>
@@ -562,7 +575,9 @@ export function AreaSurchargeBlock(props: {
         )}
       </h3>
       <p className="surcharge__lead">
-        上车点或下车点不在商品的服务区域里时，按所在区域加钱：包车价 = 套餐价 + 上车加价 + 下车加价。
+        上车点、下车点或客人填的途经景点不在商品的服务区域里时，按所在区域加钱：包车价 = 套餐价 + 上车加价 + 途经加价 + 下车加价。
+        <br />
+        途经加价同一区域一单只加一次，上车或下车已经在这个区域的不再加；途经加价空着 = 途经景点落在这个区域时不报价（不加钱请填 0）。
         <br />
         {`上车点或下车点哪个区域都不在的单不报价，客人会看到「${NO_ONLINE_QUOTE}」。`}
       </p>
@@ -667,9 +682,10 @@ export function AreaSurchargeBlock(props: {
         <caption className="visually-hidden">{`区域加价（${currency}，结算价）：商品的服务区域不加价，每个加价区域一行`}</caption>
         <thead>
           <tr>
-            <th scope="col">区域（上车点或下车点所在）</th>
+            <th scope="col">区域（上车点、下车点或途经景点所在）</th>
             <th scope="col" className="price-table__number">{`上车加价（${currency}）`}</th>
             <th scope="col" className="price-table__number">{`下车加价（${currency}）`}</th>
+            <th scope="col" className="price-table__number">{`途经加价（${currency}）`}</th>
             <th scope="col">操作</th>
           </tr>
         </thead>
@@ -683,6 +699,9 @@ export function AreaSurchargeBlock(props: {
                 0
               </td>
               <td className="price-table__number" data-label="下车加价">
+                0
+              </td>
+              <td className="price-table__number" data-label="途经加价">
                 0
               </td>
               <td className="surcharge-table__own-note">商品的服务区域，不加价</td>
@@ -720,6 +739,9 @@ export function AreaSurchargeBlock(props: {
                 <td className="price-table__number" data-label="下车加价">
                   {summaryCell(areaId, "dropoff")}
                 </td>
+                <td className="price-table__number" data-label="途经加价">
+                  {summaryCell(areaId, "waypoint")}
+                </td>
                 <td className="surcharge-table__actions">
                   {readOnly ? null : marked === "remove" ? (
                     <Button size="sm" variant="text" disabled={busy} aria-label={`撤销删除「${name}」`} onClick={() => state.setRemoving(new Set([...removing].filter((id) => id !== areaId)))}>
@@ -744,7 +766,7 @@ export function AreaSurchargeBlock(props: {
               </tr>,
               open ? (
                 <tr key={`${areaId}-detail`} id={`surcharge-detail-${areaId}`} className="surcharge-table__detail">
-                  <td colSpan={4}>{detail(areaId)}</td>
+                  <td colSpan={5}>{detail(areaId)}</td>
                 </tr>
               ) : null,
             ];
@@ -774,11 +796,12 @@ export function AreaSurchargeBlock(props: {
               const before = rows.filter((row) => row.areaId === areaId && row.origin !== null);
               const pickups = before.map((row) => row.origin?.pickup_surcharge ?? 0);
               const dropoffs = before.map((row) => row.origin?.dropoff_surcharge ?? 0);
+              const ways = before.flatMap((row) => (row.origin?.waypoint_surcharge === null || row.origin?.waypoint_surcharge === undefined ? [] : [row.origin.waypoint_surcharge]));
               const span = (values: number[]): string => rangeText(values.length === 0 ? null : { min: Math.min(...values), max: Math.max(...values) }, currency);
               return (
                 <li key={areaId} className="surcharge-deleted__item">
                   <span className="surcharge-table__name">{nameOf(areaId)}</span>
-                  <span className="surcharge-sum__note">{`删除前：上车加价 ${span(pickups)} · 下车加价 ${span(dropoffs)}（${currency}）`}</span>
+                  <span className="surcharge-sum__note">{`删除前：上车加价 ${span(pickups)} · 下车加价 ${span(dropoffs)} · 途经加价 ${ways.length === 0 ? "没设" : span(ways)}（${currency}）`}</span>
                   {!readOnly && (
                     <Button size="sm" variant="text" disabled={busy} aria-label={`恢复加价区域「${nameOf(areaId)}」`} onClick={() => restoreArea(areaId)}>
                       恢复
@@ -847,6 +870,30 @@ export function AreaSurchargeBlock(props: {
                 </div>
               );
             })}
+            <div className="field">
+              <label className="field__label" htmlFor="surcharge-dialog-waypoint">
+                途经加价
+              </label>
+              <div className="surcharge-dialog__amount">
+                <input
+                  className="input input--mono"
+                  id="surcharge-dialog-waypoint"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  placeholder="没设"
+                  aria-invalid={issues.waypoint !== undefined || undefined}
+                  aria-describedby="surcharge-dialog-waypoint-hint"
+                  value={draft.waypoint}
+                  onChange={(event) => setDraft({ ...draft, waypoint: event.target.value })}
+                  onBlur={() => setDraft((current) => (current ? { ...current, waypoint: current.waypoint.trim() === "" ? "" : tidyAmountDisplay(current.waypoint, currency) } : current))}
+                />
+                <span className="surcharge-dialog__currency" aria-hidden="true">{currency}</span>
+              </div>
+              {issues.waypoint !== undefined && <p className="field__error">{issues.waypoint}</p>}
+              <p className="field__hint" id="surcharge-dialog-waypoint-hint">
+                {draft.mode === "edit" ? `客人的途经景点在${draftName}时加多少（同一区域一单只加一次）。留空 = 已经填了的组合不改这一项、新填的组合不设` : `客人的途经景点在${draftName}时加多少（同一区域一单只加一次）。选填：留空 = 途经景点落在这里时不报价，不加钱填 0`}
+              </p>
+            </div>
             <fieldset className="field surcharge-dialog__dates">
               <legend className="field__label">生效日期</legend>
               <span className="surcharge-dialog__date">

@@ -80,7 +80,7 @@ test("汇总：一样写一个数，不一样写最小–最大；没填的组�
     surchargeRowFromRule(rule({ id: "r4", vehicle_group_id: "g2", package_hours: 10, status: "disabled" }), "JPY"),
   ];
   const summary = areaSummary(rows, "fuji", ["g1", "g2"], [8, 10], "JPY", TODAY);
-  assert.deepEqual(summary, { pickup: { min: 500, max: 1000 }, dropoff: { min: 1500, max: 1500 }, missing: 2, total: 4 });
+  assert.deepEqual(summary, { pickup: { min: 500, max: 1000 }, dropoff: { min: 1500, max: 1500 }, waypoint: null, waypointUnset: 2, missing: 2, total: 4 });
   assert.equal(rangeText(summary.pickup, "JPY"), "500–1,000");
   assert.equal(rangeText(summary.dropoff, "JPY"), "1,500");
   assert.equal(commonAmount(rows, "fuji", "dropoff", "JPY", TODAY), "1,500");
@@ -112,7 +112,8 @@ test("日期重叠用 domain 的规则：同一个加价区域 × 车型组 × �
 });
 
 test("读回：填 0 写成不加钱，金额带币种", () => {
-  assert.equal(surchargeSentence("富士山", 0, 1000, "JPY"), "上车点在富士山时不加钱，下车点在富士山时加 JPY 1,000。");
+  assert.equal(surchargeSentence("富士山", 0, 1000, "JPY"), "上车点在富士山时不加钱，下车点在富士山时加 JPY 1,000，途经景点在富士山的单（没设途经加价）不报价。");
+  assert.equal(surchargeSentence("富士山", 0, 1000, "JPY", 10_000), "上车点在富士山时不加钱，下车点在富士山时加 JPY 1,000，途经景点在富士山时加 JPY 10,000（几个景点都在这里只加一次；上车或下车已经在富士山的不再加）。");
 });
 
 test("载入最新内容时按格子合：我改的留我的，我没动的换成最新的；同一格两人改得不一样标为冲突", () => {
@@ -122,4 +123,21 @@ test("载入最新内容时按格子合：我改的留我的，我没动的换�
   const same = surchargeRowFromRule(rule({ pickup_surcharge: 1500 }), "JPY");
   assert.equal(mergeSurchargeRow(mine, same, "JPY").conflict, true);
   assert.equal(mergeSurchargeRow(mine, surchargeRowFromRule(rule({ pickup_surcharge: 1200 }), "JPY"), "JPY").conflict, false);
+});
+
+test("途经加价（M9W-01）：可以空着（= 没有途经规则，不当 0）；填了就读成数、进批量保存；批量填写可以一起填；汇总单列", () => {
+  const today = "2026-10-08";
+  const row = { ...blankSurchargeRow("fuji", "biz7", 8, today), pickup: "1,000", dropoff: "1,000" };
+  const unset = readSurchargeRow(row, "JPY");
+  assert.deepEqual([unset.problems, unset.input?.waypoint_surcharge, unset.rule?.pricing], [[], null, { model: "charter_area_surcharge", pickupSurchargeMinor: 1000, dropoffSurchargeMinor: 1000 }]);
+  const set = readSurchargeRow({ ...row, waypoint: "10,000" }, "JPY");
+  assert.deepEqual([set.input?.waypoint_surcharge, set.rule?.pricing], [10_000, { model: "charter_area_surcharge", pickupSurchargeMinor: 1000, dropoffSurchargeMinor: 1000, waypointSurchargeMinor: 10_000 }]);
+  assert.deepEqual(readSurchargeRow({ ...row, waypoint: "-1" }, "JPY").problems, [{ field: "waypoint", text: "途经加价不能是负数" }]);
+  assert.deepEqual(buildSurchargeBatch([{ ...row, waypoint: "0" }], "JPY", new Set()).create.map((entry) => entry.waypoint_surcharge), [0]);
+  const filled = applyFill([], { areaId: "fuji", groupIds: ["biz7"], packages: [8, 10], pickup: "1000", dropoff: "1000", waypoint: "10000", from: today, to: "", existing: "skip" }, "JPY");
+  assert.deepEqual(filled.rows.map((entry) => entry.waypoint), ["10,000", "10,000"]);
+  const summary = areaSummary(filled.rows, "fuji", ["biz7"], [8, 10], "JPY", today);
+  assert.deepEqual([summary.waypoint, summary.waypointUnset], [{ min: 10_000, max: 10_000 }, 0]);
+  assert.equal(commonAmount(filled.rows, "fuji", "waypoint", "JPY", today), "10,000");
+  assert.equal(commonAmount([...filled.rows.slice(0, 1), { ...filled.rows[1] as (typeof filled.rows)[number], waypoint: "" }], "fuji", "waypoint", "JPY", today), "", "有的没设：预先填的是空");
 });

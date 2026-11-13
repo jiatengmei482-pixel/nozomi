@@ -189,7 +189,7 @@ test("导入导出：导出带「上车加价」「下车加价」两列和区�
   const exported = await api.app.inject({ method: "GET", url: `/tenant/v1/products/${charterB.id}/price-rules/export`, headers: { authorization: `Bearer ${token}` } });
   assert.equal(exported.statusCode, 200);
   const rows = readXlsx(exported.rawPayload).map((cells) => cells.map((cell) => (cell.type === "text" || cell.type === "number" ? cell.text : null)));
-  assert.deepEqual(rows[0], ["价格编号", "区域", "车型组", "套餐时长(小时)", "套餐公里", "套餐价", "超时单价(每小时)", "超公里单价(每公里)", "上车加价", "下车加价", "生效开始", "生效结束", "状态"]);
+  assert.deepEqual(rows[0], ["价格编号", "区域", "车型组", "套餐时长(小时)", "套餐公里", "套餐价", "超时单价(每小时)", "超公里单价(每公里)", "上车加价", "下车加价", "途经加价", "生效开始", "生效结束", "状态"]);
   const exportedRows = rows.slice(1).map((row) => [row[1], row[3], row[5], row[8], row[9]]);
   assert.deepEqual(exportedRows[0], ["东京 23 区", "8", "70000", null, null]);
   assert.deepEqual(exportedRows.slice(1).sort((a, b) => Number(a[3]) - Number(b[3])), [["千叶", "8", null, "500", "500"], ["富士山", "8", null, "1000", "1000"]]);
@@ -200,7 +200,8 @@ test("导入导出：导出带「上车加价」「下车加价」两列和区�
     return { status: res.statusCode, headers: res.headers, text: res.body, body: res.json() };
   };
   const num = (value: number): XlsxWriteCell => ({ number: String(value) });
-  const header = rows[0] as string[];
+  // M8-15 的模版（M9W-01 加「途经加价」列之前）：照样导入，导入的区域加价没有途经加价
+  const header = (rows[0] as string[]).filter((column) => column !== "途经加价");
   const file = writeXlsx([
     {
       name: "价格",
@@ -216,9 +217,9 @@ test("导入导出：导出带「上车加价」「下车加价」两列和区�
   assertMatchesOpenApi("POST", "/tenant/v1/products/{id}/price-rules/import/preview", seen);
   assert.equal(seen.status, 200, seen.text);
   assert.deepEqual(seen.body.rows.map((row: any) => [row.action, row.content.pricing_model, row.content.surcharge, row.issues.map((issue: any) => [issue.column, issue.reason])]), [
-    ["create", "charter_area_surcharge", { pickup: 800, dropoff: 0 }, []],
-    ["error", "charter_area_surcharge", { pickup: 300, dropoff: 300 }, [["套餐公里", "NOT_APPLICABLE"]]],
-    ["error", "charter_area_surcharge", { pickup: 1, dropoff: 1 }, [["区域", "UNKNOWN_AREA"]]],
+    ["create", "charter_area_surcharge", { pickup: 800, dropoff: 0, waypoint: null }, []],
+    ["error", "charter_area_surcharge", { pickup: 300, dropoff: 300, waypoint: null }, [["套餐公里", "NOT_APPLICABLE"]]],
+    ["error", "charter_area_surcharge", { pickup: 1, dropoff: 1, waypoint: null }, [["区域", "UNKNOWN_AREA"]]],
   ]);
   const clean = writeXlsx([{ name: "价格", rows: [header, [null, "八王子", "VG-BIZ-7", num(8), null, null, null, null, num(800), num(0), "2026-01-01", null, "启用"]] }]);
   const checked = await upload(clean, "/price-rules/import/preview");
@@ -226,7 +227,7 @@ test("导入导出：导出带「上车加价」「下车加价」两列和区�
   const imported = await upload(clean, `/price-rules/import?file_sha256=${checked.body.file_sha256}`, { "if-match": `"${checked.body.version}"`, "idempotency-key": randomUUID() });
   assert.equal(imported.status, 200, imported.text);
   const after = await ok(tenantCall(m.b, "GET", `/products/${charterB.id}/price-rules`));
-  assert.deepEqual(after.items.filter((item: any) => item.area_id === charterB.hachioji).map((item: any) => [item.pricing_model, item.pickup_surcharge, item.dropoff_surcharge]), [["charter_area_surcharge", 800, 0]]);
+  assert.deepEqual(after.items.filter((item: any) => item.area_id === charterB.hachioji).map((item: any) => [item.pricing_model, item.pickup_surcharge, item.dropoff_surcharge, item.waypoint_surcharge]), [["charter_area_surcharge", 800, 0, null]]);
 
   // 旧模版（没有那两列）：只导入套餐价，照样能用
   const oldHeader = ["价格编号", "区域", "车型组", "套餐时长(小时)", "套餐公里", "套餐价", "超时单价(每小时)", "超公里单价(每公里)", "生效开始", "生效结束", "状态"];

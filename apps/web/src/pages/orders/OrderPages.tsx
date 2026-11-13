@@ -38,6 +38,7 @@ import { ORDER_STATUS_BADGES, StatusBadge } from "../../components/StatusBadge.t
 import { useToast } from "../../components/Toast.tsx";
 import { OrderAddonsItem } from "../../components/OrderAddons.tsx";
 import { OrderAreaPriceItems } from "../../components/OrderAreaPriceItems.tsx";
+import { OrderStopsItem } from "../../components/TripStops.tsx";
 import { OrderVehicleDetails } from "../../components/VehicleLabelFacts.tsx";
 import { listTenantAddons } from "../../api/products.ts";
 import { ORDER_LIST_PATH, directionName, driverLinkEmailNotice, driverLinkUrl, orderCategoryText, formatInZone, landingSourceName, moneyText, orderPath, routeText, serviceLocalText } from "../../lib/dispatch-display.ts";
@@ -439,6 +440,7 @@ export function OrderDetailPage() {
           <Detail label={`用车时间（当地，${order.timezone}）`}><time dateTime={order.service_time}>{serviceLocalText(order)}</time></Detail>
           <Detail label="品类">{orderCategoryText(order)}</Detail>
           <Detail label="行程">{routeText(order)}</Detail>
+          <OrderStopsItem order={order} />
           {order.flight_no && <Detail label="航班号"><span className="mono">{order.flight_no}</span></Detail>}
           <OrderVehicleDetails group={detail.vehicle_group} />
           <OrderAreaPriceItems audience="tenant" pricingRoute={detail.pricing_route} distance={order.settlement.distance} areaSurcharge={detail.area_surcharge} pricingBasis={detail.pricing_basis} mileage={detail.mileage} />

@@ -172,13 +172,13 @@ test("新增一条价格：要带幂等键和商品的版本号；三种计价�
   assert.equal(created.version, 2);
   assert.deepEqual(Object.keys(created.price_rule).sort(), [
     "area_id", "base", "base_price", "created_at", "direction", "dropoff_surcharge", "id", "included_km", "min_price", "over_km_per_km", "overtime_per_hour", "package_hours", "package_km", "package_price", "per_km", "per_minute",
-    "pickup_surcharge", "pricing_model", "start_meters", "start_minutes", "start_price", "status", "to_area_id", "updated_at", "valid_from", "valid_to", "vehicle_group_id",
+    "pickup_surcharge", "pricing_model", "start_meters", "start_minutes", "start_price", "status", "to_area_id", "updated_at", "valid_from", "valid_to", "vehicle_group_id", "waypoint_surcharge",
   ]);
   const { id: ruleId, created_at: _created, updated_at: _updated, ...rule } = created.price_rule;
   assert.deepEqual(rule, {
     area_id: ids["a1"], to_area_id: null, vehicle_group_id: ids["biz7"], direction: "pickup", package_hours: null, pricing_model: "fixed", base_price: 20_000, included_km: null,
     start_price: null, start_meters: null, start_minutes: null, per_km: null, per_minute: null, min_price: null, package_km: null, package_price: null, overtime_per_hour: null, over_km_per_km: null,
-    pickup_surcharge: null, dropoff_surcharge: null,
+    pickup_surcharge: null, dropoff_surcharge: null, waypoint_surcharge: null,
     base: "20000", valid_from: "2026-10-01", valid_to: null, status: "enabled",
   });
   // 同一个键同样的内容再来：原样返回，只建了一条

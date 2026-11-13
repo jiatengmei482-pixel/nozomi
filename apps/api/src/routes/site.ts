@@ -99,6 +99,12 @@ const addonsOf = (addons: z.output<typeof addonsSchema>): { addonId: string; qua
 const demandNameSchema = z.string().max(200).nullable().optional();
 
 /**
+ * 包车的经停点（ADR 0088）：名称、坐标、停留分钟，按顺序，最多 10 个（`QUOTE_RULES.maxWaypoints`）。
+ * 只有包车能给（别的品类 400 `NOT_APPLICABLE`）；空数组和不给一样。
+ */
+const waypointSchema = z.object({ name: z.string().trim().min(1).max(200), lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180), stay_minutes: z.number().int().min(0).max(1_440) }).strict();
+
+/**
  * 询价请求：`category` 不填是接送机（M3-05 的请求照旧能用）。各品类要的字段：
  * 接送机 `airport_id` + `direction` + `address`；点对点 `pickup` + `dropoff`；包车 `pickup` + `dropoff` + `package_hours`
  * （下车点 M8-15 暂为可选，M8-19 新预订页加了下车地点输入框后改回必填，ADR 0073；`/sales/v1` 仍可选）。
@@ -113,6 +119,9 @@ const quoteSchema = z
     address: pointSchema.optional(),
     pickup: pointSchema.optional(),
     dropoff: pointSchema.optional(),
+    waypoints: z.array(waypointSchema).max(QUOTE_RULES.maxWaypoints).optional(),
+    // 包车按行程计价（ADR 0088 补充）：不填套餐时长，服务器按路线和停留算总时长、选套餐、收超公里 / 超时
+    itinerary_pricing: z.boolean().optional(),
     package_hours: z.number().int().min(1).max(PRICE_LIMITS.maxPackageHours).optional(),
     service_local: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, "写成当地时间 YYYY-MM-DDTHH:mm"),
     passengers: z.number().int().min(1).max(60),
@@ -136,13 +145,17 @@ const CATEGORY_NAMES: Readonly<Record<QuoteBody["category"], string>> = { airpor
 
 /** 按品类核对该给的字段给了、不该给的没给，换成服务层的行程。 */
 export function siteTripOf(body: QuoteBody): SiteTrip {
-  const needed = TRIP_FIELDS[body.category];
+  const itinerary = body.itinerary_pricing === true;
+  if (itinerary && body.category !== "charter") throw validationFailed("body", [{ path: "/itinerary_pricing", reason: "NOT_APPLICABLE", message: "只有包车可以按行程计价" }]);
+  const needed: readonly TripField[] = itinerary ? ["pickup", "dropoff"] : TRIP_FIELDS[body.category];
   const issues: InputIssue[] = [];
   for (const field of Object.keys(TRIP_FIELD_NAMES) as TripField[]) {
     const given = body[field] !== undefined;
     if (needed.includes(field) && !given) issues.push({ path: `/${field}`, reason: "REQUIRED", message: `${CATEGORY_NAMES[body.category]}要填${TRIP_FIELD_NAMES[field]}` });
     if (!needed.includes(field) && given) issues.push({ path: `/${field}`, reason: "NOT_APPLICABLE", message: `${CATEGORY_NAMES[body.category]}不用填${TRIP_FIELD_NAMES[field]}（请删掉）` });
   }
+  const waypoints = body.waypoints ?? [];
+  if (waypoints.length > 0 && body.category !== "charter") issues.push({ path: "/waypoints", reason: "NOT_APPLICABLE", message: `${CATEGORY_NAMES[body.category]}不用填经停点（只有包车可以填，请删掉）` });
   if (issues.length > 0) throw validationFailed("body", issues);
   const { airport_id: airportId, direction, address, pickup, dropoff, package_hours: packageHours } = body;
   switch (body.category) {
@@ -151,7 +164,8 @@ export function siteTripOf(body: QuoteBody): SiteTrip {
     case "point_to_point":
       return { category: "point_to_point", pickup: pickup as { lng: number; lat: number }, dropoff: dropoff as { lng: number; lat: number } };
     case "charter":
-      return { category: "charter", pickup: pickup as { lng: number; lat: number }, dropoff: dropoff as { lng: number; lat: number }, packageHours: packageHours as number };
+      if (itinerary) return { category: "charter_itinerary", pickup: pickup as { lng: number; lat: number }, dropoff: dropoff as { lng: number; lat: number }, waypoints };
+      return { category: "charter", pickup: pickup as { lng: number; lat: number }, dropoff: dropoff as { lng: number; lat: number }, packageHours: packageHours as number, ...(waypoints.length === 0 ? {} : { waypoints }) };
   }
 }
 
@@ -288,6 +302,13 @@ function quoteJson(quote: SiteQuote): Json {
     // 计价方式（M8-30，ADR 0080）：客人页按它标「含里程费」（one_price_outside_km）/「按里程计价」（distance_only）
     pricing_basis: quote.pricingBasis,
     price: { total: salesMoney(quote.sellMinor, quote.currency), fx: quote.fx === null ? null : { rate: quote.fx.rate, as_of: quote.fx.asOf } },
+    // 对外价的简单明细（ADR 0088 第 4 节）：基础价 / 套餐、上 / 下车加价、各途经区域、调价、其他费用；各项之和等于 price.total。不给结算价、不给加价比例
+    price_breakdown: quote.sellBreakdown.map((item) => ({
+      kind: item.kind,
+      amount: salesMoney(item.amountMinor, quote.currency),
+      area_name: item.areaId === null ? null : (quote.areaNames.get(item.areaId) ?? null),
+      stop_seqs: item.stopSeqs ?? null,
+    })),
     free_wait_minutes: quote.freeWaitMinutes,
     cancel_policy: { category: quote.cancelPolicy.category, level: quote.cancelPolicy.level, tiers: quote.cancelPolicy.tiers.map((tier) => ({ min_hours_before: tier.minHoursBefore, fee_bp: tier.feeBp })) },
     // 只有目录信息（编码、名称、计费方式），不带供应商单价、也不带对外单价：价格只在加了之后重新询价的合计里（ADR 0069 B15）
@@ -296,7 +317,9 @@ function quoteJson(quote: SiteQuote): Json {
 }
 
 function quoteResultJson(result: SiteQuoteResult): Json {
-  return { currency: result.currency, quotes: result.quotes.map(quoteJson), unavailable: result.unavailable.map((entry) => ({ vehicle_group_id: entry.vehicleGroupId, reasons: entry.reasons })) };
+  // `waypoint_stop_seqs`：原因里有 WAYPOINT_NOT_PRICED 时是哪几个经停点（从 1 起，ADR 0088）；没有时不给（只增字段）
+  const itinerary = result.itinerary === undefined ? {} : { itinerary_route: { legs: result.itinerary.legs.map((leg) => ({ minutes: leg.minutes, meters: leg.meters })), drive_minutes: result.itinerary.driveMinutes, stay_minutes: result.itinerary.stayMinutes, total_minutes: result.itinerary.totalMinutes, total_meters: result.itinerary.totalMeters } };
+  return { currency: result.currency, ...itinerary, quotes: result.quotes.map(quoteJson), unavailable: result.unavailable.map((entry) => ({ vehicle_group_id: entry.vehicleGroupId, reasons: entry.reasons, ...(entry.stopSeqs === undefined ? {} : { waypoint_stop_seqs: entry.stopSeqs }) })) };
 }
 
 /** 渠道看到的那一份订单，落地信息去掉司机到达屏照片的文件编号（照片只给平台和供应商核对）。 */

@@ -1,6 +1,7 @@
 /**
  * 包车「区域加价」块的表格模型（docs/design/pages/tenant-prices.md 17.2，ADR 0073 第三部分，M8-12a）。
- * 一条区域加价 = 加价区域 × 车型组 × 套餐时长 × 生效日期 + 上车加价、下车加价（结算价，商品币种的最小货币单位整数，可以是 0）。
+ * 一条区域加价 = 加价区域 × 车型组 × 套餐时长 × 生效日期 + 上车加价、下车加价（结算价，商品币种的最小货币单位整数，可以是 0），
+ * 和可选的途经加价（M9W-01，ADR 0088：经停点在这个区域时加，同一区域一单一次；空着 = 这个区域对经停点没有价格，不当 0）。
  * 这里只管：把用户敲的字读成数、和接口的数据互相转换、一个区域的汇总、「一次给所有车型组和套餐填同一个加价」展开成一条条、组成批量保存的请求。
  * 日期重叠用 @nozomi/domain 的 findPriceRuleOverlaps（和后端同一份）；不用浮点数算钱。不依赖浏览器，用 node:test 直接测。
  */
@@ -11,9 +12,9 @@ import { CURRENCY_NAMES, moneyText, readAmount, tidyAmountDisplay } from "./prod
 import { tidyDate } from "./time-input.ts";
 
 export const SURCHARGE_MODEL = "charter_area_surcharge" as const;
-export type SurchargeAmountField = "pickup" | "dropoff";
+export type SurchargeAmountField = "pickup" | "dropoff" | "waypoint";
 export type SurchargeField = SurchargeAmountField | "from" | "to";
-export const SURCHARGE_FIELD_NAMES: Readonly<Record<SurchargeAmountField, string>> = { pickup: "上车加价", dropoff: "下车加价" };
+export const SURCHARGE_FIELD_NAMES: Readonly<Record<SurchargeAmountField, string>> = { pickup: "上车加价", dropoff: "下车加价", waypoint: "途经加价" };
 
 /** 价格规则里是不是区域加价（价格表不显示它们，只在「区域加价」块里）。 */
 export function isSurchargeItem(item: Pick<PriceRuleBody, "pricing_model">): boolean {
@@ -29,6 +30,8 @@ export interface SurchargeRow {
   packageHours: number;
   pickup: string;
   dropoff: string;
+  /** 途经加价（可以空着 = 没有途经规则） */
+  waypoint: string;
   from: string;
   to: string;
   enabled: boolean;
@@ -60,6 +63,7 @@ export function surchargeRowFromRule(rule: PriceRuleBody, currency: string): Sur
     packageHours: rule.package_hours ?? 0,
     pickup: amountShown(rule.pickup_surcharge ?? null, currency),
     dropoff: amountShown(rule.dropoff_surcharge ?? null, currency),
+    waypoint: amountShown(rule.waypoint_surcharge ?? null, currency),
     from: rule.valid_from,
     to: rule.valid_to ?? "",
     enabled: rule.status === "enabled",
@@ -74,7 +78,7 @@ export function blankSurchargeKey(areaId: string, vehicleGroupId: string, packag
 }
 
 export function blankSurchargeRow(areaId: string, vehicleGroupId: string, packageHours: number, today: string): SurchargeRow {
-  return { key: blankSurchargeKey(areaId, vehicleGroupId, packageHours), id: null, areaId, vehicleGroupId, packageHours, pickup: "", dropoff: "", from: today, to: "", enabled: true, deleted: false, origin: null };
+  return { key: blankSurchargeKey(areaId, vehicleGroupId, packageHours), id: null, areaId, vehicleGroupId, packageHours, pickup: "", dropoff: "", waypoint: "", from: today, to: "", enabled: true, deleted: false, origin: null };
 }
 
 let counter = 0;
@@ -84,7 +88,7 @@ export function newSurchargeKey(): string {
 }
 
 export function isBlankSurcharge(row: SurchargeRow): boolean {
-  return row.id === null && row.pickup.trim() === "" && row.dropoff.trim() === "";
+  return row.id === null && row.pickup.trim() === "" && row.dropoff.trim() === "" && row.waypoint.trim() === "";
 }
 
 /** 读一个金额格：不能空（不加钱填 0）、不能是负数、不能有多余的小数、不能超过上限。 */
@@ -107,7 +111,7 @@ export function readSurchargeAmount(text: string, field: SurchargeAmountField, c
   return { minor: amount.minor };
 }
 
-/** 读一行。空行没有问题也没有规则；填了任何一格，两个金额和开始日期就都要填。 */
+/** 读一行。空行没有问题也没有规则；填了任何一格，上车、下车加价和开始日期就都要填（途经加价可以空着 = 没有途经规则）。 */
 export function readSurchargeRow(row: SurchargeRow, currency: string): SurchargeReading {
   if (isBlankSurcharge(row)) return { blank: true, rule: null, input: null, problems: [] };
   const problems: SurchargeProblem[] = [];
@@ -117,6 +121,12 @@ export function readSurchargeRow(row: SurchargeRow, currency: string): Surcharge
     if ("problem" in read) problems.push({ field, text: read.problem });
     else amounts[field] = read.minor;
   }
+  let waypoint: number | null = null;
+  if (row.waypoint.trim() !== "") {
+    const read = readSurchargeAmount(row.waypoint, "waypoint", currency);
+    if ("problem" in read) problems.push({ field: "waypoint", text: read.problem });
+    else waypoint = read.minor;
+  }
   let from: string | null = null;
   let to: string | null = null;
   if (row.from.trim() === "") problems.push({ field: "from", text: "请填开始日期" });
@@ -125,14 +135,14 @@ export function readSurchargeRow(row: SurchargeRow, currency: string): Surcharge
   if (from !== null && to !== null && to < from) problems.push({ field: "to", text: "结束日期不能早于开始日期" });
   if (problems.length > 0 || from === null || amounts.pickup === undefined || amounts.dropoff === undefined) return { blank: false, rule: null, input: null, problems };
   const status = row.enabled ? "enabled" : "disabled";
-  const rule: PriceRule = { areaId: row.areaId, vehicleGroupId: row.vehicleGroupId, direction: null, packageHours: row.packageHours, pricing: { model: SURCHARGE_MODEL, pickupSurchargeMinor: amounts.pickup, dropoffSurchargeMinor: amounts.dropoff }, validFrom: from, validTo: to, status };
+  const rule: PriceRule = { areaId: row.areaId, vehicleGroupId: row.vehicleGroupId, direction: null, packageHours: row.packageHours, pricing: { model: SURCHARGE_MODEL, pickupSurchargeMinor: amounts.pickup, dropoffSurchargeMinor: amounts.dropoff, ...(waypoint === null ? {} : { waypointSurchargeMinor: waypoint }) }, validFrom: from, validTo: to, status };
   // 兜底：域里的规则还认为不对、而上面没有报过的（正常不会有）
-  for (const issue of priceRuleIssues(rule, { category: "charter" })) problems.push({ field: issue.path === "/dropoff_surcharge" ? "dropoff" : issue.path === "/valid_to" ? "to" : issue.path === "/valid_from" ? "from" : "pickup", text: `这一行不符合要求（${issue.path.slice(1)}）` });
+  for (const issue of priceRuleIssues(rule, { category: "charter" })) problems.push({ field: issue.path === "/dropoff_surcharge" ? "dropoff" : issue.path === "/waypoint_surcharge" ? "waypoint" : issue.path === "/valid_to" ? "to" : issue.path === "/valid_from" ? "from" : "pickup", text: `这一行不符合要求（${issue.path.slice(1)}）` });
   if (problems.length > 0) return { blank: false, rule: null, input: null, problems };
-  return { blank: false, rule, input: surchargeInput(row, amounts.pickup, amounts.dropoff, from, to, status), problems };
+  return { blank: false, rule, input: surchargeInput(row, { pickup: amounts.pickup, dropoff: amounts.dropoff, waypoint }, from, to, status), problems };
 }
 
-function surchargeInput(row: Pick<SurchargeRow, "areaId" | "vehicleGroupId" | "packageHours">, pickup: number, dropoff: number, from: string, to: string | null, status: "enabled" | "disabled"): PriceRuleInput {
+function surchargeInput(row: Pick<SurchargeRow, "areaId" | "vehicleGroupId" | "packageHours">, amounts: { pickup: number; dropoff: number; waypoint: number | null }, from: string, to: string | null, status: "enabled" | "disabled"): PriceRuleInput {
   return {
     area_id: row.areaId,
     vehicle_group_id: row.vehicleGroupId,
@@ -150,15 +160,16 @@ function surchargeInput(row: Pick<SurchargeRow, "areaId" | "vehicleGroupId" | "p
     package_price: null,
     overtime_per_hour: null,
     over_km_per_km: null,
-    pickup_surcharge: pickup,
-    dropoff_surcharge: dropoff,
+    pickup_surcharge: amounts.pickup,
+    dropoff_surcharge: amounts.dropoff,
+    waypoint_surcharge: amounts.waypoint,
     valid_from: from,
     valid_to: to,
     status,
   };
 }
 
-const COMPARED = ["area_id", "vehicle_group_id", "package_hours", "pickup_surcharge", "dropoff_surcharge", "valid_from", "valid_to", "status"] as const;
+const COMPARED = ["area_id", "vehicle_group_id", "package_hours", "pickup_surcharge", "dropoff_surcharge", "waypoint_surcharge", "valid_from", "valid_to", "status"] as const;
 const sameAsOrigin = (input: PriceRuleInput, origin: PriceRuleBody): boolean => COMPARED.every((key) => (input[key] ?? null) === (origin[key] ?? null));
 
 export type SurchargeChange = "none" | "blank" | "new" | "changed" | "deleted";
@@ -180,7 +191,7 @@ export function buildSurchargeBatch(rows: readonly SurchargeRow[], currency: str
     if (removing.has(row.areaId)) {
       const origin = row.origin;
       if (row.id !== null && origin !== null && origin.status === "enabled") {
-        batch.update.push({ ...surchargeInput(row, origin.pickup_surcharge ?? 0, origin.dropoff_surcharge ?? 0, origin.valid_from, origin.valid_to, "disabled"), id: row.id });
+        batch.update.push({ ...surchargeInput(row, { pickup: origin.pickup_surcharge ?? 0, dropoff: origin.dropoff_surcharge ?? 0, waypoint: origin.waypoint_surcharge ?? null }, origin.valid_from, origin.valid_to, "disabled"), id: row.id });
       }
       continue;
     }
@@ -229,6 +240,10 @@ export interface Range {
 export interface AreaSummary {
   pickup: Range | null;
   dropoff: Range | null;
+  /** 设了途经加价的那些组合的范围；一个都没设为 null */
+  waypoint: Range | null;
+  /** 填了区域加价、但途经加价空着的组合数（经停点只落在这里时报不出） */
+  waypointUnset: number;
   /** 范围里有几个「车型组 × 套餐」组合没有启用中（或以后生效）的加价 */
   missing: number;
   total: number;
@@ -241,6 +256,8 @@ export function areaSummary(rows: readonly SurchargeRow[], areaId: string, group
   const live = liveSurcharges(rows.filter((row) => row.areaId === areaId), currency).filter((entry) => priceRuleIsActive(entry.rule, today));
   let pickup: Range | null = null;
   let dropoff: Range | null = null;
+  let waypoint: Range | null = null;
+  let waypointUnset = 0;
   let missing = 0;
   for (const groupId of groupIds) {
     for (const hours of packages) {
@@ -250,10 +267,13 @@ export function areaSummary(rows: readonly SurchargeRow[], areaId: string, group
         if (entry.rule.pricing.model !== SURCHARGE_MODEL) continue;
         pickup = widen(pickup, entry.rule.pricing.pickupSurchargeMinor);
         dropoff = widen(dropoff, entry.rule.pricing.dropoffSurchargeMinor);
+        const way = entry.rule.pricing.waypointSurchargeMinor;
+        if (way === undefined) waypointUnset += 1;
+        else waypoint = widen(waypoint, way);
       }
     }
   }
-  return { pickup, dropoff, missing, total: groupIds.length * packages.length };
+  return { pickup, dropoff, waypoint, waypointUnset, missing, total: groupIds.length * packages.length };
 }
 
 /** 汇总格的数：一样写一个数，不一样写「最小–最大」（不带币种，千分位）。 */
@@ -270,6 +290,8 @@ export interface FillRequest {
   /** 空 = 不改这一项（只在编辑、范围里各组合不同时允许） */
   pickup: string;
   dropoff: string;
+  /** 途经加价：空 = 新填的组合不设途经加价、已经填了的组合不改这一项 */
+  waypoint?: string;
   from: string;
   to: string;
   /** 已经填了的组合：改成这次填的 / 跳过 */
@@ -318,12 +340,13 @@ export function applyFill(rows: readonly SurchargeRow[], request: FillRequest, c
   let first: string | null = null;
   let count = 0;
   const tidy = (text: string): string => tidyAmountDisplay(text, currency);
+  const waypoint = request.waypoint ?? "";
   for (const groupId of request.groupIds) {
     for (const hours of request.packages) {
       const filled = filledRows(next, request.areaId, groupId, hours);
       if (filled.length === 0) {
         if (request.pickup.trim() === "" || request.dropoff.trim() === "") continue;
-        const values = { pickup: tidy(request.pickup), dropoff: tidy(request.dropoff), from: request.from, to: request.to, enabled: true };
+        const values = { pickup: tidy(request.pickup), dropoff: tidy(request.dropoff), waypoint: waypoint.trim() === "" ? "" : tidy(waypoint), from: request.from, to: request.to, enabled: true };
         const at = next.findIndex((row) => sameCombo(row, request.areaId, groupId, hours) && row.id === null && !row.deleted);
         let key: string;
         if (at >= 0) {
@@ -339,7 +362,7 @@ export function applyFill(rows: readonly SurchargeRow[], request: FillRequest, c
       } else if (request.existing === "overwrite") {
         const latest = [...filled].sort((x, y) => ending(y).localeCompare(ending(x)))[0] as SurchargeRow;
         const at = next.findIndex((row) => row.key === latest.key);
-        next[at] = { ...latest, ...(request.pickup.trim() === "" ? {} : { pickup: tidy(request.pickup) }), ...(request.dropoff.trim() === "" ? {} : { dropoff: tidy(request.dropoff) }) };
+        next[at] = { ...latest, ...(request.pickup.trim() === "" ? {} : { pickup: tidy(request.pickup) }), ...(request.dropoff.trim() === "" ? {} : { dropoff: tidy(request.dropoff) }), ...(waypoint.trim() === "" ? {} : { waypoint: tidy(waypoint) }) };
         first ??= latest.key;
         count += 1;
       }
@@ -351,15 +374,17 @@ export function applyFill(rows: readonly SurchargeRow[], request: FillRequest, c
 /** 编辑对话框预先填的数：范围里填了的组合都一样就是那个数，不一样（或一个都没填）是空。 */
 export function commonAmount(rows: readonly SurchargeRow[], areaId: string, field: SurchargeAmountField, currency: string, today: string): string {
   const live = liveSurcharges(rows.filter((row) => row.areaId === areaId), currency).filter((entry) => priceRuleIsActive(entry.rule, today));
-  const values = new Set(live.map((entry) => (entry.rule.pricing.model === SURCHARGE_MODEL ? (field === "pickup" ? entry.rule.pricing.pickupSurchargeMinor : entry.rule.pricing.dropoffSurchargeMinor) : -1)));
-  if (values.size !== 1) return "";
+  // 途经加价没设的记成 -1：和设了的不一样，预先填的就是空
+  const values = new Set(live.map((entry) => (entry.rule.pricing.model === SURCHARGE_MODEL ? (field === "pickup" ? entry.rule.pricing.pickupSurchargeMinor : field === "dropoff" ? entry.rule.pricing.dropoffSurchargeMinor : (entry.rule.pricing.waypointSurchargeMinor ?? -1)) : -1)));
+  if (values.size !== 1 || values.has(-1)) return "";
   return amountShown([...values][0] as number, currency);
 }
 
-/** 「这一行的意思」里加价那一段（17.2.3）。填 0 写成人话。 */
-export function surchargeSentence(areaName: string, pickupMinor: number, dropoffMinor: number, currency: string): string {
-  const part = (end: "上车点" | "下车点", minor: number): string => (minor === 0 ? `${end}在${areaName}时不加钱` : `${end}在${areaName}时加 ${moneyText(minor, currency)}`);
-  return `${part("上车点", pickupMinor)}，${part("下车点", dropoffMinor)}。`;
+/** 「这一行的意思」里加价那一段（17.2.3）。填 0 写成人话；途经加价没设（null）说明经停点只落在这里时不报价。 */
+export function surchargeSentence(areaName: string, pickupMinor: number, dropoffMinor: number, currency: string, waypointMinor: number | null = null): string {
+  const part = (end: "上车点" | "下车点" | "途经景点", minor: number): string => (minor === 0 ? `${end}在${areaName}时不加钱` : `${end}在${areaName}时加 ${moneyText(minor, currency)}`);
+  const way = waypointMinor === null ? `途经景点在${areaName}的单（没设途经加价）不报价` : `${part("途经景点", waypointMinor)}（几个景点都在这里只加一次；上车或下车已经在${areaName}的不再加）`;
+  return `${part("上车点", pickupMinor)}，${part("下车点", dropoffMinor)}，${way}。`;
 }
 
 /** 生效日期的一句话（同价格表）。 */
@@ -384,7 +409,7 @@ export function surchargeState(row: SurchargeRow, reading: SurchargeReading, ove
   return { state: "active", text: "生效中" };
 }
 
-const MERGED_FIELDS = ["pickup", "dropoff", "from", "to", "enabled", "deleted"] as const;
+const MERGED_FIELDS = ["pickup", "dropoff", "waypoint", "from", "to", "enabled", "deleted"] as const;
 type MergedField = (typeof MERGED_FIELDS)[number];
 
 /**
@@ -397,7 +422,7 @@ export function mergeSurchargeRow(mine: SurchargeRow, latest: SurchargeRow, curr
   const before = surchargeRowFromRule(mine.origin, currency);
   const norm = (field: MergedField, value: SurchargeRow[MergedField]): string => {
     if (typeof value === "boolean") return String(value);
-    if (field === "pickup" || field === "dropoff") return tidyAmountDisplay(value, currency).trim();
+    if (field === "pickup" || field === "dropoff" || field === "waypoint") return tidyAmountDisplay(value, currency).trim();
     return tidyDate(value) ?? value.trim();
   };
   const row: SurchargeRow = { ...latest };

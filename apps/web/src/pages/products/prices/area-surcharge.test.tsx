@@ -212,7 +212,7 @@ test("编辑：预先填好一样的数；改成新的数、已经填了的组�
   await actor.clear(cell);
   await actor.type(cell, "800");
   await actor.tab();
-  assert.match(document.querySelector(".surcharge .price-meaning")?.textContent ?? "", /上车点在富士山时加 JPY 1,200，下车点在富士山时加 JPY 800。/);
+  assert.match(document.querySelector(".surcharge .price-meaning")?.textContent ?? "", /上车点在富士山时加 JPY 1,200，下车点在富士山时加 JPY 800，途经景点在富士山的单（没设途经加价）不报价。/);
   await save(actor);
   await waitFor(() => assert.equal(writes(calls).length, 1));
   const batch = batchOf(writes(calls)[0]);
@@ -251,7 +251,7 @@ test("删除加价区域 = 停用：页面内确认（写明停用、可恢复�
   // 保存后：富士山不在列表里，在「已删除的加价区域」里；下拉里可以选（会恢复）
   await waitFor(() => assert.equal(document.getElementById(`surcharge-area-${FUJI}`), null));
   const deleted = within(section).getByText("已删除的加价区域（1）").closest("details") as HTMLElement;
-  assert.match(deleted.textContent ?? "", /删除前：上车加价 1,000 · 下车加价 1,000（JPY）/);
+  assert.match(deleted.textContent ?? "", /删除前：上车加价 1,000 · 下车加价 1,000 · 途经加价 没设（JPY）/);
   const select = within(section).getByLabelText("选择要加价的区域") as HTMLSelectElement;
   assert.equal([...select.options].find((option) => option.value === FUJI)?.textContent, "富士山（已删除，选了会恢复原来的加价）");
   await actor.click(within(deleted).getByRole("button", { name: "恢复加价区域「富士山」" }));
@@ -375,4 +375,46 @@ test("别人先改了（409）→「载入最新内容，保留我的修改」�
   await waitFor(() => assert.equal(writes(calls).length, 2));
   const batch = batchOf(writes(calls)[1]);
   assert.deepEqual(batch.update.map((entry) => [entry["id"], entry["pickup_surcharge"], entry["dropoff_surcharge"]]).sort(), [["s2", 1300, 1000], [SURCHARGE_ID, 1200, 2000]].sort());
+});
+
+test("途经加价（M9W-01）：列表多「途经加价」一列（没设写「没设」）；批量设置弹窗可填途经加价（选填）→ 保存时带 waypoint_surcharge；这一行的意思说清途经规则", async () => {
+  const actor = user();
+  const rules = [...BASE_RULES, surcharge(), surcharge({ id: "s-way", vehicle_group_id: BUSINESS, waypoint_surcharge: 10000 })];
+  const saved = { ...pricesOf(rules, 8), created_ids: [] };
+  const calls = open("admin", pricesOf(rules), (call) => (call.method === "POST" && call.url.pathname === `${BASE}/price-rules/batch` ? json(200, saved) : null));
+  const section = await block();
+  const table = within(section).getByRole("table", { name: /区域加价/ });
+  assert.ok(within(table).getByRole("columnheader", { name: "途经加价（JPY）" }));
+  const fuji = document.getElementById(`surcharge-area-${FUJI}`) as HTMLElement;
+  assert.equal(fuji.querySelectorAll(".surcharge-sum__value")[2]?.textContent, "10,000");
+  assert.match(fuji.textContent ?? "", /1 个组合没设/);
+  assert.match(section.textContent ?? "", /途经加价同一区域一单只加一次/);
+  const select = within(section).getByLabelText("选择要加价的区域") as HTMLSelectElement;
+  await waitFor(() => assert.ok(select.options.length > 1));
+  await actor.selectOptions(select, CHIBA);
+  await actor.click(within(section).getByRole("button", { name: "确认添加" }));
+  const dialog = await screen.findByRole("dialog", { name: "给「千叶」设区域加价" });
+  assert.match(dialog.textContent ?? "", /选填：留空 = 途经景点落在这里时不报价，不加钱填 0/);
+  await actor.type(within(dialog).getByLabelText(/^上车加价/), "500");
+  await actor.type(within(dialog).getByLabelText(/^下车加价/), "500");
+  await actor.type(within(dialog).getByLabelText(/^途经加价/), "-1");
+  await actor.click(within(dialog).getByRole("button", { name: "添加" }));
+  await within(dialog).findByText("途经加价不能是负数");
+  await actor.clear(within(dialog).getByLabelText(/^途经加价/));
+  await actor.type(within(dialog).getByLabelText(/^途经加价/), "6000");
+  await actor.click(within(dialog).getByRole("button", { name: "添加" }));
+  await waitFor(() => assert.equal(screen.queryByRole("dialog"), null));
+  const chiba = document.getElementById(`surcharge-area-${CHIBA}`) as HTMLElement;
+  assert.equal(chiba.querySelectorAll(".surcharge-sum__value")[2]?.textContent, "6,000");
+  await save(actor);
+  await waitFor(() => assert.equal(writes(calls).length, 1));
+  const batch = batchOf(writes(calls)[0]);
+  assert.deepEqual([...new Set(batch.create.map((entry) => entry["waypoint_surcharge"]))], [6000]);
+  // 展开富士山，点有途经加价的那一行：「这一行的意思」写出途经规则
+  await actor.click(within(section).getByRole("button", { name: "展开「富士山」的各车型组和套餐" }));
+  const cell = await screen.findByLabelText("区域加价 · 富士山 · 商务七座 · 8 小时 的途经加价");
+  assert.equal((cell as HTMLInputElement).value, "10,000");
+  cell.focus();
+  await waitFor(() => assert.match(section.textContent ?? "", /途经景点在富士山时加 JPY 10,000（几个景点都在这里只加一次/));
+  assertNoRetailWords();
 });

@@ -66,15 +66,19 @@ import {
 } from "../../../lib/book-new.ts";
 import { formatInZone, moneyText } from "../../../lib/dispatch-display.ts";
 import { displayName } from "../../../lib/master-display.ts";
-import { CHARTER_OVERAGE_NOTE, addressEnds, defaultServiceDate, guestCancelPolicyText, guestLocalText, newIdempotencyKey, quotesByTotal, siteDistanceNote, siteOrderUrl, sitePriceBasisNote } from "../../../lib/site-display.ts";
+import { CHARTER_OVERAGE_NOTE, UNAVAILABLE_REASON_TEXT, addressEnds, defaultServiceDate, guestCancelPolicyText, guestLocalText, newIdempotencyKey, quotesByTotal, siteDistanceNote, siteOrderUrl, sitePriceBasisNote } from "../../../lib/site-display.ts";
 import { FIELD_HINTS, MESSAGING_NAMES, type OrderErrors, type OrderForm, type OrderTrip, orderFailureOf, orderRequestOf, validateOrderForm } from "../../../lib/site-order-form.ts";
 import { useDocumentTitle } from "../../../lib/use-document-title.ts";
 import { MANUAL_QUOTE_CHARTER_HOURS, type ManualQuoteTripDraft } from "../../../lib/manual-quote-form.ts";
+import { ITINERARY_NOTE, type WaypointDraft, breakdownLines, durationText, itineraryPackageHours, itineraryRouteFailureText, itineraryText, scheduleRows, waypointErrors, waypointUnavailableTexts, waypointsBody } from "../../../lib/charter-itinerary.ts";
+import { TripStops } from "../../../components/TripStops.tsx";
 import { ManualQuoteBlock } from "../ManualQuote.tsx";
 import { SiteLayout, siteFailureText, useSiteConfig } from "../SiteLayout.tsx";
 import { SitePrice } from "../SitePrice.tsx";
 import { AddonsBlock, CONTACT_FORM_ID, ConsentField, type ContactForm, ContactSection, PayBlock, PriceBlock, type PricedState, RouteBlock, emptyContact } from "./CheckoutParts.tsx";
 import { PlaceField } from "./PlaceField.tsx";
+import { PriceBreakdown } from "./PriceBreakdown.tsx";
+import { WaypointsField } from "./WaypointsField.tsx";
 import { PickerTextField } from "./full-screen.tsx";
 import { TravellersField } from "./TravellersField.tsx";
 import { VehicleList } from "./VehicleList.tsx";
@@ -113,8 +117,10 @@ export interface TripDraft {
   time: string;
   passengers: number;
   luggage: number;
-  /** 包车：套餐时长（小时） */
+  /** 包车：套餐时长（小时）；有经停点时不用（按行程由服务端选） */
   packageHours: string;
+  /** 包车：经停点（M9W-02），按顺序；有至少一个时按行程计价 */
+  waypoints: WaypointDraft[];
   /** 接机：航班号（第 3 步填；下单时接机必填，和旧下单页同一条规则） */
   flightNo: string;
 }
@@ -124,7 +130,7 @@ type QuoteState = { kind: "idle" } | { kind: "loading"; key: string } | { kind: 
 /** 加了附加服务的那次报价：所选车型的报价（没报出来为 null） */
 type AddonQuoteState = { kind: "loading"; key: string } | { kind: "ready"; key: string; quote: SiteQuote | null } | { kind: "failed"; key: string; message: string };
 type Load<T> = { kind: "loading" } | { kind: "failed"; message: string } | { kind: "ready"; items: T };
-type Errors = Partial<Record<"from" | "to" | "date" | "time" | "packageHours", string>>;
+type Errors = Partial<Record<"from" | "to" | "date" | "time" | "packageHours" | "waypoints", string>>;
 
 const TRIP_TYPE_NAMES = { pickup: "接机", dropoff: "送机", point_to_point: "点对点" } as const;
 
@@ -146,8 +152,12 @@ function requestOf(draft: TripDraft, charterCity: SiteCity | null, addons: reado
   if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.date) || !/^\d{2}:\d{2}$/.test(draft.time) || draft.from === null) return null;
   const serviceLocal = `${draft.date}T${draft.time}`;
   if (draft.mode === "charter") {
-    if (charterCity === null || draft.packageHours === "" || draft.to === null) return null;
-    const body: SiteQuoteRequest = { category: "charter", city_id: charterCity.id, pickup: { lat: draft.from.lat, lng: draft.from.lng }, dropoff: { lat: draft.to.lat, lng: draft.to.lng }, package_hours: Number(draft.packageHours), service_local: serviceLocal, passengers: draft.passengers, luggage: draft.luggage, ...(addons.length > 0 ? { addons: [...addons] } : {}), ...suggestionNames(draft.from, draft.to) };
+    // 经停点（M9W-02）：有没填好的不报价；至少一个时按行程计价（服务端选套餐，不给 package_hours）；一个都没有时请求和以前完全一样
+    const stops = waypointsBody(draft.waypoints);
+    if (stops === null) return null;
+    const itinerary = stops.length > 0;
+    if (charterCity === null || (!itinerary && draft.packageHours === "") || draft.to === null) return null;
+    const body: SiteQuoteRequest = { category: "charter", city_id: charterCity.id, pickup: { lat: draft.from.lat, lng: draft.from.lng }, dropoff: { lat: draft.to.lat, lng: draft.to.lng }, ...(itinerary ? { itinerary_pricing: true, waypoints: stops } : { package_hours: Number(draft.packageHours) }), service_local: serviceLocal, passengers: draft.passengers, luggage: draft.luggage, ...(addons.length > 0 ? { addons: [...addons] } : {}), ...suggestionNames(draft.from, draft.to) };
     return { key: JSON.stringify(body), run: async () => ({ mode: "charter", result: await createSiteQuotes(body), city: charterCity }) };
   }
   if (draft.to === null) return null;
@@ -188,7 +198,7 @@ function linkNotice(ends: LinkResolution[], mode: BookMode): string | null {
 
 function initialDraft(link: BookingLink): TripDraft {
   const tab = link.mode ?? "transfer";
-  return { tab, mode: tab === "charter" ? "charter" : "transfer", from: null, to: null, date: link.date ?? "", time: link.time ?? "", passengers: link.passengers ?? 2, luggage: link.luggage ?? link.passengers ?? 2, packageHours: "", flightNo: "" };
+  return { tab, mode: tab === "charter" ? "charter" : "transfer", from: null, to: null, date: link.date ?? "", time: link.time ?? "", passengers: link.passengers ?? 2, luggage: link.luggage ?? link.passengers ?? 2, packageHours: "", waypoints: [], flightNo: "" };
 }
 
 /** 第 1 步「下一步」前的检查（航班号在第 3 步查）。 */
@@ -197,7 +207,8 @@ function validate(draft: TripDraft, charterCity: SiteCity | null): Errors {
   if (draft.from === null) errors.from = draft.mode === "charter" ? "请从候选里选上车地点" : "请从候选里选出发地";
   else if (draft.mode === "charter" && charterCity === null) errors.from = "这个地址暂时没有在线报价，请联系客服";
   if (draft.to === null) errors.to = draft.mode === "charter" ? "请选择下车地点" : "请从候选里选目的地";
-  if (draft.mode === "charter" && charterCity !== null && draft.packageHours === "") errors.packageHours = "请选择包车时长";
+  if (draft.mode === "charter" && charterCity !== null && draft.waypoints.length === 0 && draft.packageHours === "") errors.packageHours = "请选择包车时长";
+  if (draft.mode === "charter" && Object.keys(waypointErrors(draft.waypoints)).length > 0) errors.waypoints = "请把经停点填完整";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.date)) errors.date = "请选择日期";
   if (!/^\d{2}:\d{2}$/.test(draft.time)) errors.time = "请选择时间";
   return errors;
@@ -225,6 +236,8 @@ export function BookNewPage() {
   const [round, setRound] = useState(0);
   const [draft, setDraft] = useState<TripDraft>(() => initialDraft(link));
   const [errors, setErrors] = useState<Errors>({});
+  /** 点过「下一步」而经停点没填完整：之后每一行的问题随改随显示 */
+  const [waypointCheck, setWaypointCheck] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [contactConfirmed, setContactConfirmed] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
@@ -356,7 +369,10 @@ export function BookNewPage() {
         (err: unknown) => {
           if (!alive) return;
           const scope = err instanceof ApiError && err.code === "CHANNEL_SCOPE_DENIED";
-          setQuote({ kind: "failed", key: current.key, scope, message: scope ? "这个地址暂时没有在线报价，请联系客服" : siteFailureText(err, "查询价格") });
+          // 按行程计价有一段路线算不出来（M9W-01）：和报不出价一样转人工，说清是哪一段
+          const routeFailed = err instanceof ApiError && err.code === "ITINERARY_ROUTE_UNAVAILABLE";
+          const points = [draft.from?.name ?? "上车地点", ...draft.waypoints.map((entry, index) => entry.point?.name ?? `第 ${index + 1} 个经停点`), draft.to?.name ?? "下车地点"];
+          setQuote({ kind: "failed", key: current.key, scope: scope || routeFailed, message: scope ? "这个地址暂时没有在线报价，请联系客服" : routeFailed ? itineraryRouteFailureText(err.details["leg"], points) : siteFailureText(err, "查询价格") });
         },
       );
     }, QUOTE_DEBOUNCE_MS);
@@ -378,6 +394,13 @@ export function BookNewPage() {
   const freeWait = arrival ? arrivalFreeWaitMinutes(quotedForWait, flightScope) : (quotedForWait?.free_wait_minutes ?? null);
   const timezone = outcome?.mode === "charter" ? outcome.city.timezone : (outcome?.result.city?.timezone ?? firstCity?.timezone ?? "Asia/Tokyo");
   const cityName = outcome?.mode === "charter" ? displayName(outcome.city.name).text : outcome?.result.city ? displayName(outcome.result.city.name).text : null;
+  // 包车按行程计价（M9W-02）：有经停点时套餐由服务端按行程选，明细、时间表按这一次报价
+  const itinerary = draft.mode === "charter" && draft.waypoints.length > 0;
+  const stops = itinerary ? (waypointsBody(draft.waypoints) ?? []) : [];
+  const charterResult = outcome?.mode === "charter" ? outcome.result : null;
+  const itineraryPackage = itinerary && charterResult !== null ? itineraryPackageHours(selected ?? quotes[0] ?? null) : null;
+  const itinerarySummary = itinerary && charterResult !== null ? itineraryText(charterResult.itinerary_route, itineraryPackage) : null;
+  const schedule = itinerary && draft.from !== null ? scheduleRows(draft.from.name, draft.to?.name ?? null, stops, charterResult?.itinerary_route?.legs ?? null) : null;
 
   // 附加服务：所选车型带上客人选的数量再报一次价，合计用这一次的；车型列表仍是不带附加服务的那一次（带了以后不提供的车型会被筛掉）
   const addonList = useMemo<SiteAddonRequest[]>(
@@ -610,6 +633,7 @@ export function BookNewPage() {
   const showVehicles = (): void => {
     const found = validate(draft, charterCity);
     setErrors(found);
+    if (found.waypoints !== undefined) setWaypointCheck(true);
     if (Object.keys(found).length > 0) {
       setNotice({ kind: "danger", text: "有几项没有填好，请看标红的地方。" });
       setFocusInvalid((value) => value + 1);
@@ -681,7 +705,7 @@ export function BookNewPage() {
     const tabs = BOOK_TABS.filter((tab) => cityList.some((city) => (tab === "charter" ? city.categories.includes("charter") : city.categories.includes("airport_transfer") || city.categories.includes("point_to_point"))));
     const charter = draft.mode === "charter";
     const timeLabel = arrival ? "航班落地时间（当地）" : charter ? "上车时间（当地）" : "用车时间（当地）";
-    const tripName = charter ? (draft.packageHours !== "" ? `包车 ${draft.packageHours} 小时` : "包车") : tripType !== null ? TRIP_TYPE_NAMES[tripType] : BOOK_TAB_NAMES[draft.tab];
+    const tripName = charter ? (itinerary ? (itineraryPackage !== null ? `包车 ${itineraryPackage} 小时（按行程）` : "包车（按行程）") : draft.packageHours !== "" ? `包车 ${draft.packageHours} 小时` : "包车") : tripType !== null ? TRIP_TYPE_NAMES[tripType] : BOOK_TAB_NAMES[draft.tab];
     const whenText = /^\d{4}-\d{2}-\d{2}$/.test(draft.date) && /^\d{2}:\d{2}$/.test(draft.time) ? `${guestLocalText(`${draft.date}T${draft.time}`, timezone, new Date())}${arrival ? " 落地" : ""}` : null;
     const vehicleName = selected === null ? null : displayName(selected.vehicle_group.name);
     const kmNote = selected === null ? null : siteDistanceNote(selected.distance);
@@ -742,6 +766,16 @@ export function BookNewPage() {
           mapCenter={centerOf(draft.to)}
           cities={centers}
         />
+        {charter && (
+          <WaypointsField
+            value={draft.waypoints}
+            onChange={(waypoints) => update({ waypoints })}
+            errors={waypointCheck ? waypointErrors(draft.waypoints) : {}}
+            tiles={tiles}
+            mapCenter={centerOf(draft.from)}
+            cities={centers}
+          />
+        )}
         <PlaceField
           key={`to-${draft.mode}`}
           label={charter ? "下车地点" : "目的地"}
@@ -776,9 +810,18 @@ export function BookNewPage() {
             onChange={(packageHours) => update({ packageHours })}
           />
         )}
+        {charter && charterCity !== null && !charterNoOnline && itinerary && (
+          <div className="book-itinerary" role="status">
+            <p>
+              <strong>包车时长：按行程自动选套餐</strong>
+            </p>
+            <p className="site-muted">{itinerarySummary ?? "有经停点时，按各段行驶时间和停留时长算出总时长，自动选合适的套餐。"}</p>
+          </div>
+        )}
         {charter &&
           charterCity !== null &&
           !charterNoOnline &&
+          !itinerary &&
           (packageLoad?.kind === "failed" ? (
             <StateBlock headingLevel="h3" title="包车时长没有读出来" description={packageLoad.message} action={<Button size="lg" onClick={() => setPackages(null)}>重试</Button>} />
           ) : (
@@ -839,7 +882,12 @@ export function BookNewPage() {
         );
       }
     } else if (quotes.length === 0) {
-      const { texts, support } = rejectionTexts((outcome?.result.unavailable ?? []).flatMap((entry) => entry.reasons));
+      const unavailable = outcome?.result.unavailable ?? [];
+      const rejected = rejectionTexts(unavailable.flatMap((entry) => entry.reasons));
+      // 经停点报不出价（M9W-02）：指出是第几个经停点，代替笼统的那一句
+      const stopTexts = itinerary ? waypointUnavailableTexts(unavailable, stops) : [];
+      const texts = stopTexts.length > 0 ? [...stopTexts, ...rejected.texts.filter((text) => text !== UNAVAILABLE_REASON_TEXT.WAYPOINT_NOT_PRICED)] : rejected.texts;
+      const support = rejected.support || stopTexts.length > 0;
       vehicles = (
         <>
           <div className="book-new__rejected" role="status">
@@ -864,7 +912,18 @@ export function BookNewPage() {
           <p className="site-muted">
             按价格从低到高 · 坐不下的已隐藏。报价 30 分钟内有效（到当地时间 {formatInZone(expires, timezone).slice(11)}），过了请重新查询。
           </p>
+          {itinerary && schedule !== null && (
+            <section aria-labelledby="book-itinerary-title" className="book-itinerary">
+              <h3 id="book-itinerary-title" className="book-new__subtitle">
+                行程时间表
+              </h3>
+              {itinerarySummary !== null && <p>{itinerarySummary}</p>}
+              <TripStops rows={schedule} />
+              <p className="price-breakdown__note">{ITINERARY_NOTE}</p>
+            </section>
+          )}
           <VehicleList
+            {...(itinerary ? { breakdownOf: (entry: SiteQuote) => breakdownLines(entry, itineraryPackageHours(entry)) } : {})}
             key={current.key}
             quotes={quotes}
             limit={wide ? VISIBLE_VEHICLES.wide : VISIBLE_VEHICLES.narrow}
@@ -968,10 +1027,30 @@ export function BookNewPage() {
           <dt>{charter ? "上车地点" : "出发地"}</dt>
           <dd>{draft.from?.name ?? "—"}</dd>
         </div>
+        {charter && schedule !== null && (
+          <div className="site-facts__item">
+            <dt>经停点</dt>
+            <dd>
+              <ol className="book-summary__stops">
+                {stops.map((stop, index) => (
+                  <li key={`${index}-${stop.name}`}>
+                    {stop.name}（停留 {durationText(stop.stay_minutes)}）
+                  </li>
+                ))}
+              </ol>
+            </dd>
+          </div>
+        )}
         <div className="site-facts__item">
           <dt>{charter ? "下车地点" : "目的地"}</dt>
           <dd>{draft.to?.name ?? "—"}</dd>
         </div>
+        {charter && itinerarySummary !== null && (
+          <div className="site-facts__item">
+            <dt>行程时长</dt>
+            <dd>{itinerarySummary}</dd>
+          </div>
+        )}
         <div className="site-facts__item">
           <dt>{arrival ? "航班落地（当地时间）" : "用车时间（当地时间）"}</dt>
           <dd>{whenText ?? "—"}</dd>
@@ -1036,6 +1115,10 @@ export function BookNewPage() {
       </dl>
     );
 
+    /** 包车按行程计价（M9W-02）：下单用的那一次报价的对外价明细 + 提示；明细对不上总价时只有提示 */
+    const pricedForBreakdown = priced ?? (addonList.length === 0 ? selected : null);
+    const itineraryPrice = itinerary && pricedForBreakdown !== null && <PriceBreakdown lines={breakdownLines(pricedForBreakdown, itineraryPackageHours(pricedForBreakdown))} total={moneyText(pricedForBreakdown.price.total)} />;
+
     /** 侧栏里的车型和一个价格（第 2 步选了车型就出现）：合计（加了附加服务是带附加服务的那一次），下面含公里数、计价说明（含区域加价 / 含里程费 / 按里程计价） */
     const sidePrice = selected !== null && vehicleName !== null && (
       <div className="book-summary__block">
@@ -1051,6 +1134,7 @@ export function BookNewPage() {
         </p>
         {sitePriceBasisNote(selected) !== null && <p className="book-summary__note">{sitePriceBasisNote(selected)}</p>}
         {kmNote !== null && <p className="book-summary__note">{kmNote}</p>}
+        {itineraryPrice}
       </div>
     );
 
@@ -1112,6 +1196,7 @@ export function BookNewPage() {
                 {vehicleName.text}
               </p>
               <PriceBlock fare={selected.price.total} basisNote={sitePriceBasisNote(selected)} kmNote={kmNote} priced={pricedState} currency={guestCurrency} onCurrency={(code) => setGuestCurrency(code as CurrencyCode)} reference={reference !== null && reference.to === guestCurrency ? reference : null} />
+              {itineraryPrice}
             </>
           )}
         </section>

@@ -198,9 +198,10 @@ const P = {
   packagePrice: "套餐价",
   overtime: "超时单价(每小时)",
   overKm: "超公里单价(每公里)",
-  // 包车区域加价（M8-15，ADR 0073）：填了这两列的行是一条区域加价，「区域」是加价区域
+  // 包车区域加价（M8-15，ADR 0073）：填了这几列的行是一条区域加价，「区域」是加价区域；途经加价（M9W-01，ADR 0088）可以留空 = 对经停点没有规则
   pickupSurcharge: "上车加价",
   dropoffSurcharge: "下车加价",
+  waypointSurcharge: "途经加价",
   validFrom: "生效开始",
   validTo: "生效结束",
   status: "状态",
@@ -208,9 +209,9 @@ const P = {
 
 /** 各种计价方式自己的那几列（一种方式用不到的要留空） */
 const MODEL_COLUMNS: readonly string[] = [P.basePrice, P.includedKm, P.overKmPerKm, P.startPrice, P.startKm, P.startMinutes, P.perKm, P.perMinute, P.minPrice];
-/** 包车：套餐价那几列和区域加价那两列，一行只能填其中一组 */
+/** 包车：套餐价那几列和区域加价那几列，一行只能填其中一组 */
 const PACKAGE_COLUMNS: readonly string[] = [P.packageKm, P.packagePrice, P.overtime, P.overKm];
-const SURCHARGE_COLUMNS: readonly string[] = [P.pickupSurcharge, P.dropoffSurcharge];
+const SURCHARGE_COLUMNS: readonly string[] = [P.pickupSurcharge, P.dropoffSurcharge, P.waypointSurcharge];
 /** 后来加的列：表头里没有也照样能导入（旧模版，ADR 0073 第五部分） */
 const OPTIONAL_HEADER_COLUMNS: readonly string[] = [P.id, P.validTo, P.status, P.minPrice, ...SURCHARGE_COLUMNS, P.toArea, P.includedKm, P.overKmPerKm];
 
@@ -222,7 +223,7 @@ const STATUS_NAMES: Readonly<Record<PriceRuleStatus, string>> = { enabled: "启�
 function priceColumns(category: ServiceCategory): string[] {
   const middle =
     category === "charter"
-      ? [P.packageHours, P.packageKm, P.packagePrice, P.overtime, P.overKm, P.pickupSurcharge, P.dropoffSurcharge]
+      ? [P.packageHours, P.packageKm, P.packagePrice, P.overtime, P.overKm, P.pickupSurcharge, P.dropoffSurcharge, P.waypointSurcharge]
       : category === "point_to_point"
         ? [P.model, P.basePrice, P.includedKm, P.overKmPerKm, P.startPrice, P.startKm, P.startMinutes, P.perKm, P.perMinute, P.minPrice]
         : [P.direction, P.model, P.basePrice, P.startPrice, P.startKm, P.startMinutes, P.perKm, P.perMinute, P.minPrice];
@@ -252,6 +253,7 @@ const FIELD_COLUMNS: Readonly<Record<string, string>> = {
   over_km_per_km: P.overKm,
   pickup_surcharge: P.pickupSurcharge,
   dropoff_surcharge: P.dropoffSurcharge,
+  waypoint_surcharge: P.waypointSurcharge,
   valid_from: P.validFrom,
   valid_to: P.validTo,
   status: P.status,
@@ -331,7 +333,7 @@ function priceRow(rule: StoredPriceRule, names: PriceNames, currency: CurrencyCo
       [P.minPrice]: money(pricing.minPriceMinor, currency),
     });
   } else if (pricing.model === "charter_area_surcharge") {
-    Object.assign(values, { [P.pickupSurcharge]: money(pricing.pickupSurchargeMinor, currency), [P.dropoffSurcharge]: money(pricing.dropoffSurchargeMinor, currency) });
+    Object.assign(values, { [P.pickupSurcharge]: money(pricing.pickupSurchargeMinor, currency), [P.dropoffSurcharge]: money(pricing.dropoffSurchargeMinor, currency), [P.waypointSurcharge]: money(pricing.waypointSurchargeMinor ?? null, currency) });
   } else {
     Object.assign(values, { [P.packageKm]: whole(pricing.packageKm), [P.packagePrice]: money(pricing.packagePriceMinor, currency), [P.overtime]: money(pricing.overtimePerHourMinor, currency), [P.overKm]: money(pricing.overKmPerKmMinor, currency) });
   }
@@ -369,7 +371,8 @@ export function exportPriceRules(ctx: AppContext, tenantId: string, productId: s
         ? [
             [`包车：每一行要填「${P.packageHours}」「${P.packageKm}」「${P.packagePrice}」「${P.overtime}」「${P.overKm}」。`],
             [`区域加价：「${P.area}」填加价区域（下面列出的），填「${P.packageHours}」「${P.pickupSurcharge}」「${P.dropoffSurcharge}」（可以填 0），「${P.packageKm}」「${P.packagePrice}」「${P.overtime}」「${P.overKm}」留空。上车点、下车点在这个区域时分别加这么多。`],
-            [`旧模版没有「${P.pickupSurcharge}」「${P.dropoffSurcharge}」两列也能导入（只导入套餐价）。`],
+            [`「${P.waypointSurcharge}」可以留空：客人的途经景点（经停点）落在这个区域时加这么多，同一区域一单只加一次；上车或下车已经在这个区域的不再加。留空 = 这个区域对途经景点没有价格（只落在这个区域的途经景点报不出价），不加钱请填 0。`],
+            [`旧模版没有「${P.pickupSurcharge}」「${P.dropoffSurcharge}」「${P.waypointSurcharge}」这几列也能导入（没有区域加价的列只导入套餐价；没有「${P.waypointSurcharge}」列的区域加价没有途经加价）。`],
           ]
         : [
             [`「${P.model}」填 ${pricingModelsFor(category).map((model) => PRICING_MODEL_NAMES[model]).join(" 或 ")}。`],
@@ -425,8 +428,8 @@ export interface PriceRowContent extends PriceComboText {
   pricingModel: PricingModel | null;
   /** 主价格（最小货币单位）：一口价的基础价、里程 + 时长的起步价、包车的套餐价；区域加价是 null（见 `surcharge`） */
   mainPriceMinor: number | null;
-  /** 包车区域加价的行：上车加价、下车加价（最小货币单位，读不出来的是 null）；别的行是 null */
-  surcharge: { pickupMinor: number | null; dropoffMinor: number | null } | null;
+  /** 包车区域加价的行：上车加价、下车加价、途经加价（最小货币单位，读不出来或途经加价留空的是 null）；别的行是 null */
+  surcharge: { pickupMinor: number | null; dropoffMinor: number | null; waypointMinor: number | null } | null;
   /** 点对点一口价的含公里数、超出每公里（最小货币单位）；没填的是 null */
   includedKm: number | null;
   overKmPerKmMinor: number | null;
@@ -581,9 +584,13 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
     if (surchargeRow) {
       packageHours = read.integer(P.packageHours, true);
       for (const column of PACKAGE_COLUMNS) if (read.text(column) !== null) read.problem(column, "NOT_APPLICABLE", `区域加价的行不填这一列，请留空（套餐价另起一行）`);
-      const [pickupSurcharge, dropoffSurcharge] = [amount(P.pickupSurcharge), amount(P.dropoffSurcharge)];
-      Object.assign(content, { packageHours, pricingModel: "charter_area_surcharge", surcharge: { pickupMinor: pickupSurcharge, dropoffMinor: dropoffSurcharge } });
-      if (pickupSurcharge !== null && dropoffSurcharge !== null) pricing = { model: "charter_area_surcharge", pickupSurchargeMinor: pickupSurcharge, dropoffSurchargeMinor: dropoffSurcharge };
+      const [pickupSurcharge, dropoffSurcharge, waypointSurcharge] = [amount(P.pickupSurcharge), amount(P.dropoffSurcharge), amount(P.waypointSurcharge, true)];
+      Object.assign(content, { packageHours, pricingModel: "charter_area_surcharge", surcharge: { pickupMinor: pickupSurcharge, dropoffMinor: dropoffSurcharge, waypointMinor: waypointSurcharge } });
+      if (pickupSurcharge !== null && dropoffSurcharge !== null && !issues.some((issue) => issue.column === P.waypointSurcharge)) {
+        // 旧模版没有「途经加价」这一列：修改的行沿用它原来的途经加价（不因为模版旧就清掉）
+        const kept = !sheet.has(P.waypointSurcharge) && before !== null && before.pricing.model === "charter_area_surcharge" ? (before.pricing.waypointSurchargeMinor ?? null) : waypointSurcharge;
+        pricing = { model: "charter_area_surcharge", pickupSurchargeMinor: pickupSurcharge, dropoffSurchargeMinor: dropoffSurcharge, ...(kept === null ? {} : { waypointSurchargeMinor: kept }) };
+      }
     } else if (category === "charter") {
       packageHours = read.integer(P.packageHours, true);
       const packageKm = read.integer(P.packageKm, true);

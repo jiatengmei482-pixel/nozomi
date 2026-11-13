@@ -710,3 +710,20 @@ test("区域价（M8-13）：旧单、接送机（没有这些数、或接口里
   assert.equal(tripValue("用的价格")?.textContent, "区域价 · （已删除的区域）");
   assert.match(tripValue("公里数")?.textContent ?? "", /含 30 公里 · 路线约 28\.4 公里（报价时）· 在含的公里数以内每公里 对外 — \/ 结算 250 JPY/);
 });
+
+test("包车经停点（M9W-03）：运营订单详情「经停点」按顺序写上车 → 经停（停留）→ 下车；区域加价里途经加价逐区域写对外 / 结算", async () => {
+  const charter = platformDetail(
+    platformOrder({ category: "charter", direction: null, flight_no: null, package_hours: 10, pickup: { lng: 139.7, lat: 35.69, address: "京王广场酒店" }, dropoff: { lng: 139.7, lat: 35.69, address: "新宿站" }, waypoints: [{ name: "五合目", lat: 35.395, lng: 138.733, stay_minutes: 60 }] }),
+    {
+      pricing_route: null,
+      distance: null,
+      area_surcharge: { package_settlement: money("55000"), pickup: { area_id: null, area_name: null, settlement: money("0"), sell: null }, dropoff: { area_id: null, area_name: null, settlement: money("0"), sell: null }, waypoints: [{ area_id: "a3", area_name: { zh: "富士山地区" }, settlement: money("10000"), sell: money("11000"), stop_seqs: [1] }] },
+    },
+  );
+  open(`/platform/orders/${ORDER_ID}`, "operations", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}` ? json(200, charter) : null), "platform");
+  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
+  const list = (tripValue("经停点") as HTMLElement).querySelector("ol") as HTMLElement;
+  assert.equal(list.getAttribute("aria-label"), "包车行程");
+  assert.deepEqual([...list.querySelectorAll("li")].map((item) => item.textContent), ["上车京王广场酒店", "经停 1五合目停留 1 小时", "下车新宿站"]);
+  assert.deepEqual([...(tripValue("区域加价")?.querySelectorAll(".details__lines > span") ?? [])].map((line) => line.textContent), ["上车：在服务区域里，不加价", "下车：在服务区域里，不加价", "经停（第 1 个经停点）：富士山地区 · 对外 11,000 JPY / 结算 10,000 JPY"]);
+});

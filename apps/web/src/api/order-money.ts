@@ -10,6 +10,7 @@ import { apiRequest, apiUpload } from "./client.ts";
 import type { ListPage, Money, OrderDispatch, OrderEvent, OrderFile, OrderFulfilment, OrderLanding, OrderRecords, OrderVehicleGroup } from "./dispatch.ts";
 import type { Approval } from "./channels.ts";
 import { PLATFORM_BASE } from "./platform.ts";
+import type { OrderItinerary, OrderWaypoint } from "../lib/charter-itinerary.ts";
 import type { PlatformRescue } from "./rescues.ts";
 
 export const TENANT_POLICY_PATH = `${TENANT_BASE}/cancellation-policy`;
@@ -212,6 +213,10 @@ export interface PlatformOrder {
   luggage: number;
   pickup: { lng: number; lat: number; address: string } | null;
   dropoff: { lng: number; lat: number; address: string } | null;
+  /** 包车的经停点（M9W-01），按顺序；没有经停点的单、旧接口为 null 或没有这一项 */
+  waypoints?: OrderWaypoint[] | null;
+  /** 包车按行程计价锁定的量（M9W-01，没有金额）；没有为 null 或没有这一项 */
+  itinerary?: OrderItinerary | null;
   /** 附加服务（编号和数量；名称从附加服务目录取） */
   addons: { addon_id: string; quantity: number }[];
   flight_no: string | null;

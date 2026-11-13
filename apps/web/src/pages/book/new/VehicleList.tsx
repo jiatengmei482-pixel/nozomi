@@ -13,9 +13,12 @@ import { moneyText } from "../../../lib/dispatch-display.ts";
 import { displayName } from "../../../lib/master-display.ts";
 import { packageText, siteDistanceNote, sitePriceBasisNote } from "../../../lib/site-display.ts";
 import { SitePrice } from "../SitePrice.tsx";
+import type { BreakdownLine } from "../../../lib/charter-itinerary.ts";
+import { PriceBreakdown } from "./PriceBreakdown.tsx";
 import { SeatMap } from "./SeatMap.tsx";
 
-function VehicleCard({ quote, selected, onSelect }: { quote: SiteQuote; selected: boolean; onSelect(): void }) {
+/** `breakdown`：包车按行程计价时的对外价明细（M9W-02）；不按行程计价时没有这一项，卡片和以前一样 */
+function VehicleCard({ quote, selected, onSelect, breakdown }: { quote: SiteQuote; selected: boolean; onSelect(): void; breakdown?: readonly BreakdownLine[] | null }) {
   const group = quote.vehicle_group;
   const name = displayName(group.name);
   const label = vehicleLabel(group);
@@ -32,6 +35,7 @@ function VehicleCard({ quote, selected, onSelect }: { quote: SiteQuote; selected
         </p>
       </div>
       {basisNote !== null && <p className="book-vehicle__note">{basisNote}</p>}
+      {breakdown !== undefined && breakdown !== null && <PriceBreakdown lines={breakdown} note={false} />}
       <dl className="site-facts book-vehicle__facts">
         {quote.package !== null && (
           <div className="site-facts__item">
@@ -56,7 +60,7 @@ function VehicleCard({ quote, selected, onSelect }: { quote: SiteQuote; selected
   );
 }
 
-export function VehicleList({ quotes, limit, selectedId, onSelect }: { quotes: readonly SiteQuote[]; limit: number; selectedId: string | null; onSelect(quote: SiteQuote): void }) {
+export function VehicleList({ quotes, limit, selectedId, onSelect, breakdownOf }: { quotes: readonly SiteQuote[]; limit: number; selectedId: string | null; onSelect(quote: SiteQuote): void; breakdownOf?: (quote: SiteQuote) => readonly BreakdownLine[] | null }) {
   const [showAll, setShowAll] = useState(false);
   const listRef = useRef<HTMLUListElement>(null);
   const revealed = useRef(false);
@@ -71,7 +75,7 @@ export function VehicleList({ quotes, limit, selectedId, onSelect }: { quotes: r
     <>
       <ul className="book-vehicles" ref={listRef}>
         {visible.map((quote) => (
-          <VehicleCard key={quote.quote_id} quote={quote} selected={quote.vehicle_group.id === selectedId} onSelect={() => onSelect(quote)} />
+          <VehicleCard key={quote.quote_id} quote={quote} selected={quote.vehicle_group.id === selectedId} onSelect={() => onSelect(quote)} {...(breakdownOf !== undefined ? { breakdown: breakdownOf(quote) } : {})} />
         ))}
       </ul>
       {!showAll && quotes.length > visible.length && (

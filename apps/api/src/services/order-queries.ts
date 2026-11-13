@@ -147,7 +147,7 @@ export interface TenantOrderDetail {
 /** 这一单的包车区域加价用到的加价区域现在的名称（只查这个供应商自己的区域）。 */
 async function surchargeAreaNamesOf(db: Db, order: Order): Promise<Map<string, LocalizedText>> {
   const surcharge = order.settlement.areaSurcharge ?? null;
-  const ids = surcharge === null ? [] : [...new Set([surcharge.pickup.areaId, surcharge.dropoff.areaId].filter((id): id is string => id !== null))];
+  const ids = surcharge === null ? [] : [...new Set([surcharge.pickup.areaId, surcharge.dropoff.areaId, ...(surcharge.waypoints ?? []).map((entry) => entry.areaId)].filter((id): id is string => id !== null))];
   const found = await findAreasForProduct(db, order.tenantId, ids);
   return new Map([...found].map(([id, area]) => [id, area.name]));
 }

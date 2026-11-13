@@ -145,6 +145,13 @@ export async function findSitePlaceByCode(db: Db, code: string, cityIds: readonl
 }
 
 /** 包车报价用的价格规则里的套餐公里数（按报价编号）。 */
+/** 价格明细里加价区域的名称（ADR 0088 第 4 节，官网显示「途经 富士山地区」用）：只取名称，区域被删了的不在里面。平台事务。 */
+export async function findSurchargeAreaNames(db: Db, areaIds: readonly string[]): Promise<Map<string, LocalizedText>> {
+  if (areaIds.length === 0) return new Map();
+  const rows = await db.query<{ id: string; name: LocalizedText }>("select id, name from areas where id = any($1::uuid[])", [areaIds]);
+  return new Map(rows.rows.map((row) => [row.id, row.name]));
+}
+
 export async function findQuotePackageKm(db: Db, quoteIds: readonly string[]): Promise<Map<string, number>> {
   if (quoteIds.length === 0) return new Map();
   const rows = await db.query<{ id: string; package_km: number | null }>(

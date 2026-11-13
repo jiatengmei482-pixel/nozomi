@@ -254,11 +254,13 @@ export interface CharterPackagePricing {
 /**
  * 包车区域加价（ADR 0073 第三部分）：上车点在这个区域时加 `pickupSurchargeMinor`，下车点在这个区域时加 `dropoffSurchargeMinor`。
  * 都是整数、可以是 0；套餐时长在价格规则的组合里（`packageHours`），区域是规则的 `areaId`。
+ * `waypointSurchargeMinor`（途经加价，ADR 0088）：经停点在这个区域时加的钱，同一区域一单只加一次。可选——**没设 = 这个区域对经停点没有规则**（不当 0；不加钱要明填 0）。
  */
 export interface CharterAreaSurchargePricing {
   model: "charter_area_surcharge";
   pickupSurchargeMinor: number;
   dropoffSurchargeMinor: number;
+  waypointSurchargeMinor?: number;
 }
 
 export type Pricing = FixedPricing | MileageTimePricing | CharterPackagePricing | CharterAreaSurchargePricing;
@@ -374,6 +376,7 @@ export function priceRuleIssues(rule: PriceRule, context: { category: ServiceCat
     // 加价可以是 0（这一端不加钱，但这个区域能接）
     integerIssue(issues, "/pickup_surcharge", pricing.pickupSurchargeMinor, 0, max);
     integerIssue(issues, "/dropoff_surcharge", pricing.dropoffSurchargeMinor, 0, max);
+    if (pricing.waypointSurchargeMinor !== undefined) integerIssue(issues, "/waypoint_surcharge", pricing.waypointSurchargeMinor, 0, max);
   } else {
     integerIssue(issues, "/package_km", pricing.packageKm, 1, PRICE_LIMITS.maxPackageKm);
     integerIssue(issues, "/package_price", pricing.packagePriceMinor, 1, max);
@@ -510,9 +513,26 @@ export function basePrice(pricing: Pricing, usage: TripUsage = {}, packageHours:
     const floor = pricing.minPriceMinor === null ? null : exactFromMinor(pricing.minPriceMinor);
     return floor !== null && compareExact(total, floor) < 0 ? floor : total;
   }
-  const overtime = times(exactFromMinor(pricing.overtimePerHourMinor), over(minutes, BigInt((packageHours ?? 0) * 60)), 60n);
-  const overDistance = times(exactFromMinor(pricing.overKmPerKmMinor), over(meters, BigInt(pricing.packageKm) * 1_000n), 1_000n);
-  return plus(plus(exactFromMinor(pricing.packagePriceMinor), overtime), overDistance);
+  const overage = charterOverage(pricing, usage, packageHours);
+  return plus(plus(exactFromMinor(pricing.packagePriceMinor), overage.overtime), overage.overKm);
+}
+
+/**
+ * 包车套餐的超时、超公里（`basePrice` 里包车的后两项，同一个公式）：超时 = max(0, T − H) × 每小时单价，超公里 = max(0, D − D_pkg) × 每公里单价；
+ * 分钟、米换算成小时、公里时不取整（精确值）。没给的用量按「不超出」算。包车「按行程计价」（ADR 0088 补充）的明细用它拆出这两项。
+ */
+export function charterOverage(pricing: CharterPackagePricing, usage: TripUsage, packageHours: number | null): { overtimeMinutes: number; overMeters: number; overtime: ExactAmount; overKm: ExactAmount } {
+  const meters = BigInt(Math.max(0, Math.trunc(usage.meters ?? 0)));
+  const minutes = BigInt(Math.max(0, Math.trunc(usage.minutes ?? 0)));
+  const over = (used: bigint, included: bigint): bigint => (used > included ? used - included : 0n);
+  const overtimeMinutes = over(minutes, BigInt((packageHours ?? 0) * 60));
+  const overMeters = over(meters, BigInt(pricing.packageKm) * 1_000n);
+  return {
+    overtimeMinutes: Number(overtimeMinutes),
+    overMeters: Number(overMeters),
+    overtime: times(exactFromMinor(pricing.overtimePerHourMinor), overtimeMinutes, 60n),
+    overKm: times(exactFromMinor(pricing.overKmPerKmMinor), overMeters, 1_000n),
+  };
 }
 
 // ---- 调价规则 ----
@@ -939,8 +959,8 @@ export function tripPrice<P extends PriceRule, A extends AdjustRule>(input: {
 
 // ---- 包车区域加价（ADR 0073 第三部分）----
 
-/** 上车那一端还是下车那一端：各用各的加价 */
-export type SurchargeEnd = "pickup" | "dropoff";
+/** 上车那一端、下车那一端，还是经停点（ADR 0088）：各用各的加价 */
+export type SurchargeEnd = "pickup" | "dropoff" | "waypoint";
 
 /** 这个商品挂着的加价区域：有启用的区域加价规则的区域（不看生效日期；按规则的先后，去重）。 */
 export function surchargeAreaIds(rules: readonly Pick<PriceRule, "areaId" | "status" | "pricing">[]): string[] {
@@ -957,13 +977,21 @@ export type AreaSurchargeChoice<P> =
  * 一端（上车或下车）在这几个加价区域里时加多少：每个区域找启用、用车日期在生效期内、车型组和套餐时长对得上的区域加价，
  * 默认取这一端最小的加价，`prefer: "highest"` 时取最大的（一样大小都取 `areaIds` 里排在前面的）。一个都没有时给出原因（没有规则 / 不在生效期 / 停用了），口径同 `tripPrice`。
  * 包车报价用 `highest`（M8-38，业主确认）：一个点落在几个加价区域里时用设了加价的那个，都设了取最高。
+ * 经停点（`end: "waypoint"`，ADR 0088）：没设途经加价的规则在挑规则这一步就不算（没设 = 这个区域对经停点没有规则），所以都没设时原因是「没有规则」。
  */
 export function areaSurchargeFor<P extends PriceRule>(rules: readonly P[], query: { areaIds: readonly string[]; vehicleGroupId: string; packageHours: number | null; date: string; end: SurchargeEnd; prefer?: "lowest" | "highest" }): AreaSurchargeChoice<P> {
-  const sameCombo = rules.filter((rule) => isSurchargeRule(rule) && query.areaIds.includes(rule.areaId) && rule.vehicleGroupId === query.vehicleGroupId && rule.packageHours === query.packageHours);
+  const sameCombo = rules.filter(
+    (rule) =>
+      isSurchargeRule(rule) &&
+      query.areaIds.includes(rule.areaId) &&
+      rule.vehicleGroupId === query.vehicleGroupId &&
+      rule.packageHours === query.packageHours &&
+      (query.end !== "waypoint" || (rule.pricing.model === "charter_area_surcharge" && rule.pricing.waypointSurchargeMinor !== undefined)),
+  );
   let best: { rule: P; areaId: string; amountMinor: number; order: number } | null = null;
   for (const rule of sameCombo) {
     if (rule.status !== "enabled" || !priceRuleCoversDate(rule, query.date) || rule.pricing.model !== "charter_area_surcharge") continue;
-    const amountMinor = query.end === "pickup" ? rule.pricing.pickupSurchargeMinor : rule.pricing.dropoffSurchargeMinor;
+    const amountMinor = query.end === "pickup" ? rule.pricing.pickupSurchargeMinor : query.end === "dropoff" ? rule.pricing.dropoffSurchargeMinor : (rule.pricing.waypointSurchargeMinor ?? 0);
     const order = query.areaIds.indexOf(rule.areaId);
     const better = query.prefer === "highest" ? amountMinor > (best?.amountMinor ?? -1) : amountMinor < (best?.amountMinor ?? Number.POSITIVE_INFINITY);
     if (best === null || better || (amountMinor === best.amountMinor && order < best.order)) best = { rule, areaId: rule.areaId, amountMinor, order };

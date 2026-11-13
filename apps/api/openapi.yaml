@@ -5868,7 +5868,7 @@ paths:
         一条价格 = 区域 × 车型组 ×（接送机：方向；包车：套餐时长）× 生效日期 + 计价方式和它的几个数。区域、车型组必须是这个商品现在选的。
         三种计价方式各填各的数（别的留空）：`fixed` 填 `base_price`；`mileage_time` 填 `start_price`、`start_meters`、`start_minutes`、`per_km`、`per_minute`，`min_price` 可不填；
         `charter_package` 填 `package_km`、`package_price`、`overtime_per_hour`、`over_km_per_km`（套餐时长是 `package_hours`）。
-        包车区域加价 `charter_area_surcharge`（M8-15，ADR 0073）填 `pickup_surcharge`、`dropoff_surcharge` 和 `package_hours`；它的 `area_id` 是加价区域：
+        包车区域加价 `charter_area_surcharge`（M8-15，ADR 0073）填 `pickup_surcharge`、`dropoff_surcharge` 和 `package_hours`，`waypoint_surcharge`（途经加价，M9W-01，ADR 0088）可不填（不填 = 对经停点没有规则）；它的 `area_id` 是加价区域：
         本租户的报价区域就行（不必是商品选的；不能是商品本身的区域 400 `AREA_IS_PRODUCT_AREA`；业务类型要是包车或通用 400 `AREA_NOT_USABLE`；用途要是报价区域或运营 + 报价 400 `AREA_ROLE_NOT_PRICING`（M8-20）；新选的不能是停用的 400 `AREA_DISABLED`）；
         区域不存在或是别的租户的：404（不区分）。加价区域不加进商品的区域列表。
         点对点（M8-11，ADR 0073 第二部分）：
@@ -13115,6 +13115,12 @@ paths:
         报价里含区域加价时 `includes_area_surcharge` 为 true（只说「含区域加价」，不单列金额）。包车下单时要填 `dropoff_address`（询价给了下车点的单都要填）。
         应答里每个车型组一个对外价，带车型组的名称、免费等待、按现在的平台取消政策下单后适用的阶梯。**没有中标供应商、结算价、加价比例。**
         每个地址每分钟 30 次。
+
+        **包车按行程计价**（M9W-01，ADR 0088 补充「最终报价公式」，业主 2026-11-13）：包车给 `itinerary_pricing: true` + `pickup` + `dropoff` + 可选 `waypoints`（含停留分钟），**不给 `package_hours`**（给了 400 `NOT_APPLICABLE`）。
+        服务器按上车点 → 经停点 1…N → 下车点逐段估路线（同一对坐标有缓存、受每日上限），全程米数 = 各段之和，总时长 = 各段行驶 + 各点停留；
+        每个车型组选能覆盖总时长的最小套餐（都覆盖不了时用最大套餐 + 超时费）。最终价 = 套餐价 + 上车加价 + 经停加价（同区一次）+ 下车加价 + 超公里费（全程 − 套餐含公里）× 超公里单价
+        + 超时费（总时长 − 套餐时长）× 超时单价，再过调价和平台加价；`price_breakdown` 逐项列出。应答多一项 `itinerary_route`（不叫 `route`：按两个坐标报价的应答里 `route` 已是路线预览）。全程和时长只由服务器算。
+        某一段路线取不到：422 `ITINERARY_ROUTE_UNAVAILABLE`（`details.leg` 是第几段，从 1 起），页面提示联系客服。不给 `itinerary_pricing` 时一切和以前一样。
       requestBody:
         required: true
         content:
@@ -13133,6 +13139,8 @@ paths:
                 properties:
                   currency:
                     type: string
+                  itinerary_route:
+                    $ref: "#/components/schemas/SiteItineraryRoute"
                   quotes:
                     type: array
                     items:
@@ -13148,7 +13156,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "422":
-          description: "`CHANNEL_SCOPE_DENIED`：这个城市或品类官网不卖"
+          description: "`CHANNEL_SCOPE_DENIED`：这个城市或品类官网不卖；`ITINERARY_ROUTE_UNAVAILABLE`：按行程计价时有一段路线算不出来（`details.leg`、`details.reason`），转人工报价"
           content:
             application/json:
               schema:
@@ -18625,7 +18633,8 @@ components:
             没报出价的车型组（请求里指定了车型组时逐个列；没指定、又一个都没报出时一条 `vehicle_group_id` 为 null 的）。原因只有面向客人的几种：
             `NO_PRODUCT`（这里没有可卖的商品）、`OUT_OF_SERVICE_AREA`、`DROPOFF_REQUIRED`（包车没给下车地点，而商品设了区域加价；给了下车地点再询价，M8-15）、`LEAD_TIME_TOO_SHORT`、`SOLD_OUT`、`OUTSIDE_SERVICE_TIME`、`SERVICE_TIME_PASSED`、
             `CAPACITY_EXCEEDED`、`ADDON_NOT_OFFERED`、`DRIVER_LANGUAGE_NOT_OFFERED`、
-            `NO_ROUTE`（里程计价：两点之间没有可行驶的路线，换个地点）、`TEMPORARILY_UNAVAILABLE`（里程计价：路线预估暂时不可用，稍后再试；ADR 0042）、`NOT_AVAILABLE`（其他）
+            `NO_ROUTE`（里程计价：两点之间没有可行驶的路线，换个地点）、`TEMPORARILY_UNAVAILABLE`（里程计价：路线预估暂时不可用，稍后再试；ADR 0042）、`NOT_AVAILABLE`（其他）。
+            `WAYPOINT_NOT_PRICED`（包车经停点不在任何区域里，M9W-01）只在官网带经停点的询价里出现：渠道接口不开放经停点，不会给出
           items:
             type: object
             additionalProperties: false
@@ -18638,7 +18647,7 @@ components:
                 type: array
                 items:
                   type: string
-                  enum: [ NO_PRODUCT, OUT_OF_SERVICE_AREA, DROPOFF_REQUIRED, LEAD_TIME_TOO_SHORT, SOLD_OUT, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, CAPACITY_EXCEEDED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, NO_ROUTE, TEMPORARILY_UNAVAILABLE, NOT_AVAILABLE ]
+                  enum: [ NO_PRODUCT, OUT_OF_SERVICE_AREA, DROPOFF_REQUIRED, WAYPOINT_NOT_PRICED, LEAD_TIME_TOO_SHORT, SOLD_OUT, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, CAPACITY_EXCEEDED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, NO_ROUTE, TEMPORARILY_UNAVAILABLE, NOT_AVAILABLE ]
     FxCurrency:
       type: string
       enum: [ JPY, KRW, CNY, USD, HKD, TWD, THB, SGD ]
@@ -19333,12 +19342,12 @@ components:
         `OUTSIDE_SALE_PERIOD`、`OUTSIDE_SERVICE_TIME`、`SERVICE_TIME_PASSED`、`LEAD_TIME_TOO_SHORT`、`URGENT_SOLD_OUT`、`OUT_OF_SERVICE_AREA`、`IN_FORBIDDEN_AREA`、
         `NO_PRICING_AREA`（M8-20，ADR 0075：地点在这个供应商的运营区域里，但商品没有勾选覆盖它的报价区域——这个商品不报，不退回基础价；
         只在报价试算、询价日志里出现，给渠道和官网的是 `OUT_OF_SERVICE_AREA`）、
-        `DROPOFF_REQUIRED`（包车没给下车地点、而商品设了区域加价，M8-15）、
+        `DROPOFF_REQUIRED`（包车没给下车地点、而商品设了区域加价，M8-15）、`WAYPOINT_NOT_PRICED`（包车有经停点不在这个商品的任何区域里，M9W-01，ADR 0088）、
         `ADDON_NOT_OFFERED`、`DRIVER_LANGUAGE_NOT_OFFERED`、`SOLD_OUT`。包车的上车点、下车点都要在商品本身的区域或某个加价区域里，否则是 `OUT_OF_SERVICE_AREA` / `IN_FORBIDDEN_AREA`（ADR 0073）。
         车型组层面的（包车两端所在的加价区域没有这个车型组、套餐的区域加价也报 `NO_PRICE_RULE` / `PRICE_NOT_IN_EFFECT` / `PRICE_RULE_DISABLED`）：`VEHICLE_GROUP_NOT_OFFERED`、`VEHICLE_GROUP_DISABLED`、`CAPACITY_EXCEEDED`、
         `NO_PRICE_RULE`、`PRICE_NOT_IN_EFFECT`、`PRICE_RULE_DISABLED`、`ROUTE_UNAVAILABLE`、`PRICE_NOT_POSITIVE`、`PRICE_OVER_LIMIT`。
         只在平台侧比价时出现的：`FX_RATE_UNAVAILABLE`、`SELL_PRICE_OVER_LIMIT`。
-      enum: [ PRODUCT_NOT_PUBLISHED, TENANT_SUSPENDED, TENANT_NOT_ONBOARDED, TRIAL_DAILY_LIMIT, BRAND_DISABLED, SERVICE_RULES_INCOMPLETE, INVALID_SERVICE_TIME, OUTSIDE_SALE_PERIOD, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, LEAD_TIME_TOO_SHORT, URGENT_SOLD_OUT, OUT_OF_SERVICE_AREA, IN_FORBIDDEN_AREA, NO_PRICING_AREA, DROPOFF_REQUIRED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, SOLD_OUT, VEHICLE_GROUP_NOT_OFFERED, VEHICLE_GROUP_DISABLED, CAPACITY_EXCEEDED, NO_PRICE_RULE, PRICE_NOT_IN_EFFECT, PRICE_RULE_DISABLED, ROUTE_UNAVAILABLE, PRICE_NOT_POSITIVE, PRICE_OVER_LIMIT, FX_RATE_UNAVAILABLE, SELL_PRICE_OVER_LIMIT ]
+      enum: [ PRODUCT_NOT_PUBLISHED, TENANT_SUSPENDED, TENANT_NOT_ONBOARDED, TRIAL_DAILY_LIMIT, BRAND_DISABLED, SERVICE_RULES_INCOMPLETE, INVALID_SERVICE_TIME, OUTSIDE_SALE_PERIOD, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, LEAD_TIME_TOO_SHORT, URGENT_SOLD_OUT, OUT_OF_SERVICE_AREA, IN_FORBIDDEN_AREA, NO_PRICING_AREA, DROPOFF_REQUIRED, WAYPOINT_NOT_PRICED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, SOLD_OUT, VEHICLE_GROUP_NOT_OFFERED, VEHICLE_GROUP_DISABLED, CAPACITY_EXCEEDED, NO_PRICE_RULE, PRICE_NOT_IN_EFFECT, PRICE_RULE_DISABLED, ROUTE_UNAVAILABLE, PRICE_NOT_POSITIVE, PRICE_OVER_LIMIT, FX_RATE_UNAVAILABLE, SELL_PRICE_OVER_LIMIT ]
     QuoteRouteEstimate:
       type: object
       additionalProperties: false
@@ -19791,6 +19800,32 @@ components:
           $ref: "#/components/schemas/QuoteAreaSurchargeEnd"
         dropoff:
           $ref: "#/components/schemas/QuoteAreaSurchargeEnd"
+        waypoints:
+          description: |
+            途经加价（M9W-01，ADR 0088）：每个收了途经加价的加价区域一项，`stop_seqs` 是落在这个区域的经停点（从 1 起）。同一区域只收一次；
+            上 / 下车已经计价的区域、只在商品区域里的经停点不在这里。只有带经停点的报价才有这一项（没带经停点时没有这个键）
+          type: array
+          items:
+            $ref: "#/components/schemas/QuoteAreaSurchargeWaypoint"
+    QuoteAreaSurchargeWaypoint:
+      type: object
+      additionalProperties: false
+      required: [ area_id, price_rule_id, amount, stop_seqs ]
+      properties:
+        area_id:
+          type: string
+          format: uuid
+        price_rule_id:
+          type: string
+          format: uuid
+        amount:
+          type: integer
+          minimum: 0
+        stop_seqs:
+          type: array
+          items:
+            type: integer
+            minimum: 1
     QuoteAreaSurchargeEnd:
       type: object
       additionalProperties: false
@@ -23913,7 +23948,8 @@ components:
       description: |
         fixed：固定一口价；mileage_time：里程 + 时长；charter_package：包车套餐；
         charter_area_surcharge：包车区域加价（M8-15，ADR 0073 第三部分）——`area_id` 是加价区域（本租户的报价区域，不必是商品选的，也不能是商品本身的区域），
-        按车型组 × 套餐时长填 `pickup_surcharge`（上车点在这个区域时加）、`dropoff_surcharge`（下车点在这个区域时加），都可以是 0。
+        按车型组 × 套餐时长填 `pickup_surcharge`（上车点在这个区域时加）、`dropoff_surcharge`（下车点在这个区域时加），都可以是 0；
+        `waypoint_surcharge`（途经加价，M9W-01，ADR 0088：经停点在这个区域时加，同一区域一单一次）可选，不填 = 这个区域对经停点没有规则。
         区域加价不是基础定价：不算进缺价统计和上架检查；冲突只和同一区域 × 车型组 × 套餐时长的区域加价比（和同一区域的套餐价不冲突）
     PriceDirection:
       type: string
@@ -24034,6 +24070,11 @@ components:
           type: [ integer, "null" ]
           minimum: 0
           maximum: 1000000000
+        waypoint_surcharge:
+          description: 包车区域加价：途经加价——经停点在这个区域时加多少，同一区域一单只加一次（可以是 0；M9W-01，ADR 0088）。可以不填（null）：不填 = 这个区域对经停点没有规则（不当 0），经停点只落在这个区域时报不出
+          type: [ integer, "null" ]
+          minimum: 0
+          maximum: 1000000000
         valid_from:
           type: string
           format: date
@@ -24047,7 +24088,7 @@ components:
     PriceRule:
       type: object
       additionalProperties: false
-      required: [ id, area_id, to_area_id, vehicle_group_id, direction, package_hours, pricing_model, base_price, included_km, start_price, start_meters, start_minutes, per_km, per_minute, min_price, package_km, package_price, overtime_per_hour, over_km_per_km, pickup_surcharge, dropoff_surcharge, base, valid_from, valid_to, status, created_at, updated_at ]
+      required: [ id, area_id, to_area_id, vehicle_group_id, direction, package_hours, pricing_model, base_price, included_km, start_price, start_meters, start_minutes, per_km, per_minute, min_price, package_km, package_price, overtime_per_hour, over_km_per_km, pickup_surcharge, dropoff_surcharge, waypoint_surcharge, base, valid_from, valid_to, status, created_at, updated_at ]
       properties:
         id:
           type: string
@@ -24144,6 +24185,11 @@ components:
           maximum: 1000000000
         dropoff_surcharge:
           description: 包车区域加价：下车点在这个区域时加多少（可以是 0；M8-15）
+          type: [ integer, "null" ]
+          minimum: 0
+          maximum: 1000000000
+        waypoint_surcharge:
+          description: 包车区域加价：途经加价——经停点在这个区域时加多少，同一区域一单只加一次（可以是 0；M9W-01，ADR 0088）。可以不填（null）：不填 = 这个区域对经停点没有规则（不当 0），经停点只落在这个区域时报不出
           type: [ integer, "null" ]
           minimum: 0
           maximum: 1000000000
@@ -24701,7 +24747,7 @@ components:
           oneOf:
             - type: object
               additionalProperties: false
-              required: [ price_rule_id, pickup_surcharge, dropoff_surcharge, valid_from, valid_to ]
+              required: [ price_rule_id, pickup_surcharge, dropoff_surcharge, waypoint_surcharge, valid_from, valid_to ]
               properties:
                 price_rule_id:
                   type: string
@@ -24711,6 +24757,10 @@ components:
                   minimum: 0
                 dropoff_surcharge:
                   type: integer
+                  minimum: 0
+                waypoint_surcharge:
+                  description: 途经加价（M9W-01，ADR 0088）；没设为 null
+                  type: [ integer, "null" ]
                   minimum: 0
                 valid_from:
                   type: string
@@ -25202,15 +25252,17 @@ components:
                     type: [ integer, "null" ]
                     description: 主价格（最小货币单位）：一口价的基础价、里程 + 时长的起步价、包车的套餐价；区域加价的行是 null
                   surcharge:
-                    description: 包车区域加价的行（填了「上车加价」「下车加价」的行，M8-15）：两项加价（最小货币单位，读不出来的是 null）；别的行是 null
+                    description: 包车区域加价的行（填了「上车加价」「下车加价」「途经加价」的行，M8-15、M9W-01）：几项加价（最小货币单位，读不出来、途经加价留空的是 null）；别的行是 null
                     oneOf:
                       - type: object
                         additionalProperties: false
-                        required: [ pickup, dropoff ]
+                        required: [ pickup, dropoff, waypoint ]
                         properties:
                           pickup:
                             type: [ integer, "null" ]
                           dropoff:
+                            type: [ integer, "null" ]
+                          waypoint:
                             type: [ integer, "null" ]
                       - type: "null"
                   valid_from:
@@ -25509,6 +25561,32 @@ components:
       description: 结算价和明细（中标租户的结算币种），来自报价快照；各项之和等于 `total`
       required: [ total, base, adjust, urgent, night, addons, driver_language, area_surcharge, to_area_id, distance ]
       properties:
+        itinerary:
+          description: 包车按行程计价（M9W-01，ADR 0088 补充）：锁定的全程、套餐含量、超出量，和超公里费、超时费、两个单价（结算价；钱已含在 `base` 里）。没按行程计价的单没有这一项
+          type: object
+          additionalProperties: false
+          required: [ route_meters, route_minutes, package_km, package_minutes, over_meters, overtime_minutes, over_km_fee, overtime_fee, over_km_per_km, overtime_per_hour ]
+          properties:
+            route_meters:
+              type: integer
+            route_minutes:
+              type: integer
+            package_km:
+              type: integer
+            package_minutes:
+              type: integer
+            over_meters:
+              type: integer
+            overtime_minutes:
+              type: integer
+            over_km_fee:
+              $ref: "#/components/schemas/SalesMoney"
+            overtime_fee:
+              $ref: "#/components/schemas/SalesMoney"
+            over_km_per_km:
+              $ref: "#/components/schemas/SalesMoney"
+            overtime_per_hour:
+              $ref: "#/components/schemas/SalesMoney"
         to_area_id:
           description: 点对点用的是线路价时，线路的下车区域；区域价、别的品类、M8-11 之前的订单为 null（M8-11，ADR 0073 第二部分）
           type: [ string, "null" ]
@@ -25533,6 +25611,24 @@ components:
                   $ref: "#/components/schemas/OrderSettlementSurchargeEnd"
                 dropoff:
                   $ref: "#/components/schemas/OrderSettlementSurchargeEnd"
+                waypoints:
+                  description: 途经加价（M9W-01，ADR 0088）：每个收了途经加价的区域一项；没有经停点的单没有这一项
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [ area_id, amount, stop_seqs ]
+                    properties:
+                      area_id:
+                        type: string
+                        format: uuid
+                      amount:
+                        $ref: "#/components/schemas/SalesMoney"
+                      stop_seqs:
+                        type: array
+                        items:
+                          type: integer
+                          minimum: 1
             - type: "null"
         total:
           $ref: "#/components/schemas/SalesMoney"
@@ -25548,6 +25644,39 @@ components:
           $ref: "#/components/schemas/SalesMoney"
         driver_language:
           $ref: "#/components/schemas/SalesMoney"
+    OrderItinerary:
+      type: object
+      additionalProperties: false
+      required: [ route_meters, route_minutes, package_km, package_minutes, over_meters, overtime_minutes ]
+      description: 包车按行程计价（M9W-01）询价时锁定的量：全程米数、总时长（行驶 + 停留，分钟）、套餐含公里、套餐时长（分钟）、超出的米数、超出的分钟。没有金额
+      properties:
+        route_meters:
+          type: integer
+        route_minutes:
+          type: integer
+        package_km:
+          type: integer
+        package_minutes:
+          type: integer
+        over_meters:
+          type: integer
+        overtime_minutes:
+          type: integer
+    OrderWaypoint:
+      type: object
+      additionalProperties: false
+      required: [ name, lat, lng, stay_minutes ]
+      description: 包车订单的一个经停点（M9W-01，ADR 0088）
+      properties:
+        name:
+          type: string
+        lat:
+          type: number
+        lng:
+          type: number
+        stay_minutes:
+          type: integer
+          minimum: 0
     OrderSettlementSurchargeEnd:
       type: object
       additionalProperties: false
@@ -25572,6 +25701,30 @@ components:
           $ref: "#/components/schemas/OrderAreaSurchargeEnd"
         dropoff:
           $ref: "#/components/schemas/OrderAreaSurchargeEnd"
+        waypoints:
+          description: 途经加价（M9W-01，ADR 0088）：每个收了途经加价的加价区域一项（结算价）；没有经停点的单没有这一项
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderAreaSurchargeWaypoint"
+    OrderAreaSurchargeWaypoint:
+      type: object
+      additionalProperties: false
+      required: [ area_id, area_name, settlement, stop_seqs ]
+      properties:
+        area_id:
+          type: [ string, "null" ]
+          format: uuid
+        area_name:
+          oneOf:
+            - $ref: "#/components/schemas/LocalizedText"
+            - type: "null"
+        settlement:
+          $ref: "#/components/schemas/SalesMoney"
+        stop_seqs:
+          type: array
+          items:
+            type: integer
+            minimum: 1
     OrderAreaSurchargeEnd:
       type: object
       additionalProperties: false
@@ -25667,6 +25820,11 @@ components:
           $ref: "#/components/schemas/PlatformOrderAreaSurchargeEnd"
         dropoff:
           $ref: "#/components/schemas/PlatformOrderAreaSurchargeEnd"
+        waypoints:
+          description: 途经加价（M9W-01，ADR 0088）：每个收了途经加价的加价区域一项（结算价）；没有经停点的单没有这一项
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderAreaSurchargeWaypoint"
     PlatformOrderAreaSurchargeEnd:
       type: object
       additionalProperties: false
@@ -25690,7 +25848,7 @@ components:
       additionalProperties: false
       description: |
         渠道看到的订单：行程、乘客、客人支付的金额、付款状态。**没有结算价、加价比例**；中标租户只在付款成功后、渠道设置了「付款后展示」时出现。
-      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
+      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, waypoints, itinerary, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
       properties:
         pricing_basis:
           $ref: "#/components/schemas/PricingBasis"
@@ -25773,6 +25931,16 @@ components:
                 type: integer
         driver_language:
           type: [ string, "null" ]
+        waypoints:
+          description: 包车的经停点（M9W-01，ADR 0088），按顺序：名称、坐标、停留分钟；下单后不能改。没有经停点的单、以前的单为 null（新增字段）
+          type: [ array, "null" ]
+          items:
+            $ref: "#/components/schemas/OrderWaypoint"
+        itinerary:
+          description: 包车按行程计价（M9W-01，ADR 0088 补充）锁定的全程、总时长、套餐含量和超出量（没有金额）；没按行程计价的单为 null（新增字段）
+          oneOf:
+            - $ref: "#/components/schemas/OrderItinerary"
+            - type: "null"
         flight_no:
           type: [ string, "null" ]
           description: 航班号（去掉空格、大写），接机必填
@@ -25906,7 +26074,7 @@ components:
       additionalProperties: false
       description: |
         供应商看到的订单：行程、乘客、结算价和明细。**没有渠道、对外价、加价比例、汇率**（规则 4）。只有付过款的单。
-      required: [ pending_change, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, product_id, product_version, settlement, dispatch, fulfilment, landing, cancel_policy, cancellation, version ]
+      required: [ pending_change, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, waypoints, itinerary, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, product_id, product_version, settlement, dispatch, fulfilment, landing, cancel_policy, cancellation, version ]
       properties:
         pending_change:
           type: boolean
@@ -25980,6 +26148,16 @@ components:
                 type: integer
         driver_language:
           type: [ string, "null" ]
+        waypoints:
+          description: 包车的经停点（M9W-01，ADR 0088），按顺序：名称、坐标、停留分钟；下单后不能改。没有经停点的单、以前的单为 null（新增字段）
+          type: [ array, "null" ]
+          items:
+            $ref: "#/components/schemas/OrderWaypoint"
+        itinerary:
+          description: 包车按行程计价（M9W-01，ADR 0088 补充）锁定的全程、总时长、套餐含量和超出量（没有金额）；没按行程计价的单为 null（新增字段）
+          oneOf:
+            - $ref: "#/components/schemas/OrderItinerary"
+            - type: "null"
         flight_no:
           type: [ string, "null" ]
           description: 航班号（去掉空格、大写），接机必填
@@ -26038,7 +26216,7 @@ components:
       additionalProperties: false
       description: |
         运营后台看到的订单：行程、乘客、中标租户、渠道、对外价、结算价、加价比例、汇率快照、付款状态。
-      required: [ notes_masked, passenger_anonymized_at, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, dispatch, fulfilment, landing, tenant, channel, quote_id, channel_order_no, product_id, product_version, sell, settlement, markup_bp, fx, fx_buffer_bp, payment_due_at, payment, cancel_policy, cancellation, is_acceptance, version ]
+      required: [ notes_masked, passenger_anonymized_at, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, waypoints, itinerary, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, dispatch, fulfilment, landing, tenant, channel, quote_id, channel_order_no, product_id, product_version, sell, settlement, markup_bp, fx, fx_buffer_bp, payment_due_at, payment, cancel_policy, cancellation, is_acceptance, version ]
       properties:
         notes_masked:
           type: boolean
@@ -26116,6 +26294,16 @@ components:
                 type: integer
         driver_language:
           type: [ string, "null" ]
+        waypoints:
+          description: 包车的经停点（M9W-01，ADR 0088），按顺序：名称、坐标、停留分钟；下单后不能改。没有经停点的单、以前的单为 null（新增字段）
+          type: [ array, "null" ]
+          items:
+            $ref: "#/components/schemas/OrderWaypoint"
+        itinerary:
+          description: 包车按行程计价（M9W-01，ADR 0088 补充）锁定的全程、总时长、套餐含量和超出量（没有金额）；没按行程计价的单为 null（新增字段）
+          oneOf:
+            - $ref: "#/components/schemas/OrderItinerary"
+            - type: "null"
         flight_no:
           type: [ string, "null" ]
           description: 航班号（去掉空格、大写），接机必填
@@ -27700,7 +27888,7 @@ components:
         order:
           type: object
           additionalProperties: false
-          required: [ order_no, status, status_name, category, direction, service_time, service_local, timezone, package_hours, passengers, luggage, flight_no, passenger, rider, messaging, notes, place, pickup, dropoff, pickup_point, addons, driver_language, free_wait_minutes ]
+          required: [ order_no, status, status_name, category, direction, service_time, service_local, timezone, package_hours, passengers, luggage, flight_no, passenger, rider, messaging, notes, place, pickup, dropoff, waypoints, itinerary, pickup_point, addons, driver_language, free_wait_minutes ]
           properties:
             order_no:
               type: string
@@ -27774,6 +27962,16 @@ components:
             dropoff:
               oneOf:
                 - $ref: "#/components/schemas/OrderPoint"
+                - type: "null"
+            waypoints:
+              description: 包车的经停点（M9W-01，ADR 0088），按顺序：名称、坐标、停留分钟（行程显示在 M9W-03）；没有为 null。不含任何价格
+              type: [ array, "null" ]
+              items:
+                $ref: "#/components/schemas/OrderWaypoint"
+            itinerary:
+              description: 包车按行程计价锁定的全程、总时长（M9W-01；没有金额）；没按行程计价为 null
+              oneOf:
+                - $ref: "#/components/schemas/OrderItinerary"
                 - type: "null"
             pickup_point:
               description: 上车点的坐标（一键导航）：接机是机场，其他是客人填的上车点
@@ -29050,6 +29248,38 @@ components:
         dropoff:
           $ref: "#/components/schemas/SitePoint"
           description: 点对点、包车（必填；包车 M8-15 暂为可选，M8-19 改回必填，ADR 0073）：下车点的坐标
+        itinerary_pricing:
+          type: boolean
+          description: 包车按行程计价（M9W-01，ADR 0088 补充）：true 时不填 `package_hours`，服务器估路线、选套餐、收超公里 / 超时（见接口说明）；别的品类填 true 400 `NOT_APPLICABLE`
+        waypoints:
+          type: array
+          maxItems: 10
+          description: |
+            包车的经停点（途经景点，M9W-01，ADR 0088），按顺序，最多 10 个；选填，空数组和不填一样。别的品类填了 400 `NOT_APPLICABLE`（`/waypoints`）。
+            经停点落在供应商的加价区域里时按那个区域的途经加价收（同一区域一单只收一次；上 / 下车已经在这个区域的不再收；只在商品服务区域里的不加）；
+            有经停点哪个区域都不在时报不出（`unavailable` 的原因 `WAYPOINT_NOT_PRICED`，`waypoint_stop_seqs` 指出是第几个），转人工报价。
+            名称、停留分钟随报价锁定，下单时抄进订单（不影响价格）
+          items:
+            type: object
+            additionalProperties: false
+            required: [ name, lat, lng, stay_minutes ]
+            properties:
+              name:
+                type: string
+                minLength: 1
+                maxLength: 200
+              lat:
+                type: number
+                minimum: -90
+                maximum: 90
+              lng:
+                type: number
+                minimum: -180
+                maximum: 180
+              stay_minutes:
+                type: integer
+                minimum: 0
+                maximum: 1440
         package_hours:
           type: integer
           minimum: 1
@@ -29119,8 +29349,35 @@ components:
     SiteQuote:
       type: object
       additionalProperties: false
-      required: [ quote_id, expires_at, service_date, urgent, vehicle_group, package, includes_area_surcharge, distance, pricing_basis, price, free_wait_minutes, cancel_policy, available_addons ]
+      required: [ quote_id, expires_at, service_date, urgent, vehicle_group, package, includes_area_surcharge, distance, pricing_basis, price, price_breakdown, free_wait_minutes, cancel_policy, available_addons ]
       properties:
+        price_breakdown:
+          description: |
+            对外价的简单明细（M9W-01，ADR 0088 第 4 节和补充；客人支付币种），按顺序：`base` 基础价（包车是套餐价）、`pickup` 上车加价、`waypoint` 一个区域的途经加价（逐区域）、
+            `dropoff` 下车加价、`over_km` 超公里、`overtime` 超时（这两项只在按行程计价时有）、`adjust` 调价、`other` 加急 / 夜间 / 附加服务 / 司机语言。除 `base` 外各项按这一单的汇率、缓冲、加价比例换算、各自取整；`base` 倒算吸收尾差，
+            **各项之和等于 `price.total`**。是 0 的调价、其他费用不列；没有加价区域的报价只有 `base` 一项（新增字段）
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ kind, amount, area_name, stop_seqs ]
+            properties:
+              kind:
+                type: string
+                enum: [ base, pickup, waypoint, dropoff, over_km, overtime, adjust, other ]
+              amount:
+                $ref: "#/components/schemas/SalesMoney"
+              area_name:
+                description: 上 / 下车加价、途经加价的加价区域现在的名称；别的项、区域被删了为 null
+                oneOf:
+                  - $ref: "#/components/schemas/LocalizedText"
+                  - type: "null"
+              stop_seqs:
+                description: 途经加价：落在这个区域的是第几个经停点（从 1 起）；别的项为 null
+                type: [ array, "null" ]
+                items:
+                  type: integer
+                  minimum: 1
         pricing_basis:
           $ref: "#/components/schemas/PricingBasis"
         distance:
@@ -29233,6 +29490,31 @@ components:
           description: 这个车型还能加哪些附加服务（M8-02）。选了以后带上 `addons` 重新询价，合计里就含附加服务费；没有可加的为空数组
           items:
             $ref: "#/components/schemas/SiteAddonOption"
+    SiteItineraryRoute:
+      type: object
+      additionalProperties: false
+      required: [ legs, drive_minutes, stay_minutes, total_minutes, total_meters ]
+      description: 包车按行程计价时服务器算的路线（M9W-01）：逐段行驶（上车点 → 经停点 → 下车点）、行驶合计、停留合计、总时长（= 行驶 + 停留）、全程米数。只有 `itinerary_pricing` 的询价才有
+      properties:
+        legs:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ minutes, meters ]
+            properties:
+              minutes:
+                type: integer
+              meters:
+                type: integer
+        drive_minutes:
+          type: integer
+        stay_minutes:
+          type: integer
+        total_minutes:
+          type: integer
+        total_meters:
+          type: integer
     SiteUnavailable:
       type: object
       additionalProperties: false
@@ -29241,11 +29523,17 @@ components:
         vehicle_group_id:
           type: [ string, "null" ]
           format: uuid
+        waypoint_stop_seqs:
+          description: 原因里有 `WAYPOINT_NOT_PRICED` 时：哪几个经停点不在任何区域里（从 1 起，M9W-01，ADR 0088）；没有这个原因时不给
+          type: array
+          items:
+            type: integer
+            minimum: 1
         reasons:
           type: array
           items:
             type: string
-            enum: [ NO_PRODUCT, OUT_OF_SERVICE_AREA, DROPOFF_REQUIRED, LEAD_TIME_TOO_SHORT, SOLD_OUT, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, CAPACITY_EXCEEDED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, NO_ROUTE, TEMPORARILY_UNAVAILABLE, NOT_AVAILABLE ]
+            enum: [ NO_PRODUCT, OUT_OF_SERVICE_AREA, DROPOFF_REQUIRED, WAYPOINT_NOT_PRICED, LEAD_TIME_TOO_SHORT, SOLD_OUT, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, CAPACITY_EXCEEDED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, NO_ROUTE, TEMPORARILY_UNAVAILABLE, NOT_AVAILABLE ]
     SiteOrderRequest:
       type: object
       additionalProperties: false
@@ -29381,7 +29669,7 @@ components:
       additionalProperties: false
       description: |
         客人在官网订单页看到的订单：和渠道看到的 `SalesOrder` 字段一样，只是落地信息里没有司机到达屏照片的文件编号（客人用不上，ADR 0032）。
-      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
+      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, waypoints, itinerary, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
       properties:
         pricing_basis:
           $ref: "#/components/schemas/PricingBasis"
@@ -29464,6 +29752,16 @@ components:
                 type: integer
         driver_language:
           type: [ string, "null" ]
+        waypoints:
+          description: 包车的经停点（M9W-01，ADR 0088），按顺序：名称、坐标、停留分钟；下单后不能改。没有经停点的单、以前的单为 null（新增字段）
+          type: [ array, "null" ]
+          items:
+            $ref: "#/components/schemas/OrderWaypoint"
+        itinerary:
+          description: 包车按行程计价（M9W-01，ADR 0088 补充）锁定的全程、总时长、套餐含量和超出量（没有金额）；没按行程计价的单为 null（新增字段）
+          oneOf:
+            - $ref: "#/components/schemas/OrderItinerary"
+            - type: "null"
         flight_no:
           type: [ string, "null" ]
           description: 航班号（去掉空格、大写），接机必填
