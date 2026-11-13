@@ -20,6 +20,8 @@ export interface ManualQuoteRow {
   hasEmail: boolean;
   hasWhatsapp: boolean;
   contactEnc: string | null;
+  /** 验收会话里提交的（M8-39，ADR 0078 补充）：服务端设，建好之后不能改 */
+  isAcceptance: boolean;
   assignee: { id: string; name: string } | null;
   version: number;
   createdAt: Date;
@@ -46,6 +48,7 @@ interface Row {
   has_email: boolean;
   has_whatsapp: boolean;
   contact_enc: string | null;
+  is_acceptance: boolean;
   assignee_id: string | null;
   assignee_name: string | null;
   version: number;
@@ -57,7 +60,7 @@ interface Row {
 }
 
 const SELECT = `select m.id, m.request_no, m.status, m.category, m.city_id, c.code as city_code, c.name as city_name, m.channel_id, m.service_local,
-       m.passengers, m.luggage, m.package_hours, m.has_email, m.has_whatsapp, m.contact_enc, m.assignee_id, u.name as assignee_name,
+       m.passengers, m.luggage, m.package_hours, m.has_email, m.has_whatsapp, m.contact_enc, m.is_acceptance, m.assignee_id, u.name as assignee_name,
        m.version, m.created_at, m.updated_at, m.finished_at, m.purged_at, m.created_at::text as created_at_text
   from manual_quote_requests m
   left join cities c on c.id = m.city_id
@@ -78,6 +81,7 @@ function toRow(row: Row): ManualQuoteRow {
     hasEmail: row.has_email,
     hasWhatsapp: row.has_whatsapp,
     contactEnc: row.contact_enc,
+    isAcceptance: row.is_acceptance,
     assignee: row.assignee_id === null ? null : { id: row.assignee_id, name: row.assignee_name ?? "" },
     version: row.version,
     createdAt: row.created_at,
@@ -104,6 +108,8 @@ export interface NewManualQuote {
   emailBidx: string | null;
   whatsappBidx: string | null;
   dedupKey: string;
+  /** 验收会话里提交的 */
+  isAcceptance: boolean;
 }
 
 /** 同一个去重键在这段时间之后有没有提交过（没清除的）。 */
@@ -115,9 +121,9 @@ export async function hasRecentDuplicate(db: Db, dedupKey: string, since: Date):
 export async function insertManualQuote(db: Db, input: NewManualQuote, now: Date): Promise<void> {
   await db.query(
     `insert into manual_quote_requests (id, request_no, category, city_id, channel_id, service_local, passengers, luggage, package_hours, has_email, has_whatsapp,
-                                        contact_enc, email_bidx, whatsapp_bidx, dedup_key, consent_at, created_at, updated_at)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16, $16)`,
-    [input.id, input.requestNo, input.category, input.cityId, input.channelId, input.serviceLocal, input.passengers, input.luggage, input.packageHours, input.hasEmail, input.hasWhatsapp, input.contactEnc, input.emailBidx, input.whatsappBidx, input.dedupKey, now],
+                                        contact_enc, email_bidx, whatsapp_bidx, dedup_key, is_acceptance, consent_at, created_at, updated_at)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $17, $17)`,
+    [input.id, input.requestNo, input.category, input.cityId, input.channelId, input.serviceLocal, input.passengers, input.luggage, input.packageHours, input.hasEmail, input.hasWhatsapp, input.contactEnc, input.emailBidx, input.whatsappBidx, input.dedupKey, input.isAcceptance, now],
   );
   await db.query("insert into manual_quote_request_events (request_id, kind, created_at) values ($1, 'created', $2)", [input.id, now]);
 }
@@ -134,27 +140,34 @@ export interface ManualQuoteFilter {
   contactBidx: string | null;
 }
 
+/** 验收留资（M8-39）：默认 `exclude`（只列真实客人的）；`only` 只列验收的；`include` 两种都列。 */
+export type ManualQuoteAcceptanceFilter = "exclude" | "only" | "include";
+
+/** 验收留资的条件（参数是 `exclude` / `only` / `include`）。 */
+const acceptanceWhere = (param: string): string => `(${param}::text = 'include' or m.is_acceptance = (${param}::text = 'only'))`;
+
 /** 数据范围（ADR 0030）：限定了城市的只看这些城市的申请（认不出城市的看不到）；限定了渠道的只看这些渠道的。 */
 const SCOPE_WHERE = "($1::uuid[] is null or m.city_id = any($1::uuid[])) and ($2::uuid[] is null or m.channel_id = any($2::uuid[]))";
 
-export async function listManualQuotes(db: Db, filter: ManualQuoteFilter, scope: PlatformDataScope, limit: number, cursor: TimeCursor | null): Promise<ManualQuoteRow[]> {
+export async function listManualQuotes(db: Db, filter: ManualQuoteFilter, acceptance: ManualQuoteAcceptanceFilter, scope: PlatformDataScope, limit: number, cursor: TimeCursor | null): Promise<ManualQuoteRow[]> {
   const result = await db.query<Row>(
     `${SELECT}
       where ${SCOPE_WHERE}
+        and ${acceptanceWhere("$9")}
         and ($3::text is null or m.status = $3)
         and ($4::text is null or ($4 = 'unassigned' and m.assignee_id is null) or m.assignee_id::text = $4)
         and ($5::text is null or m.email_bidx = $5 or m.whatsapp_bidx = $5)
         and ($6::timestamptz is null or (m.created_at, m.id) < ($6::timestamptz, $7::uuid))
       order by m.created_at desc, m.id desc
       limit $8`,
-    [scope.cityIds, scope.channelIds, filter.status, filter.assignee, filter.contactBidx, cursor?.t ?? null, cursor?.id ?? null, limit + 1],
+    [scope.cityIds, scope.channelIds, filter.status, filter.assignee, filter.contactBidx, cursor?.t ?? null, cursor?.id ?? null, limit + 1, acceptance],
   );
   return result.rows.map(toRow);
 }
 
-/** 各状态的数量（范围内、不带别的筛选）：列表上方的计数。 */
-export async function countManualQuotesByStatus(db: Db, scope: PlatformDataScope): Promise<Record<ManualQuoteStatus, number>> {
-  const result = await db.query<{ status: ManualQuoteStatus; n: number }>(`select m.status, count(*)::int as n from manual_quote_requests m where ${SCOPE_WHERE} group by m.status`, [scope.cityIds, scope.channelIds]);
+/** 各状态的数量（范围内、只按验收留资的筛选，不带别的筛选）：列表上方的计数。默认不数验收留资（「新」的数量只算真实客人的）。 */
+export async function countManualQuotesByStatus(db: Db, acceptance: ManualQuoteAcceptanceFilter, scope: PlatformDataScope): Promise<Record<ManualQuoteStatus, number>> {
+  const result = await db.query<{ status: ManualQuoteStatus; n: number }>(`select m.status, count(*)::int as n from manual_quote_requests m where ${SCOPE_WHERE} and ${acceptanceWhere("$3")} group by m.status`, [scope.cityIds, scope.channelIds, acceptance]);
   const counts: Record<ManualQuoteStatus, number> = { new: 0, following: 0, quoted: 0, converted: 0, closed: 0 };
   for (const row of result.rows) counts[row.status] = row.n;
   return counts;
