@@ -456,6 +456,8 @@ export async function expectMapFollowsTheme(page: Page, canvas: Locator, what: s
     await page.emulateMedia({ colorScheme: scheme });
     if (scheme === "dark") await expect(canvas, `${what}：暗色压暗底图`).toHaveClass(/area-map__canvas--dimmed/);
     else await expect(canvas, `${what}：亮色不压暗`).not.toHaveClass(/area-map__canvas--dimmed/);
+    // 先等瓦片层、矢量层都在（M8-29：地图挂上之前取到 null，getComputedStyle 报参数不是 Element）
+    await expect.poll(() => canvas.evaluate((node) => node.querySelector(".leaflet-tile-pane") !== null && node.querySelector(".leaflet-overlay-pane") !== null), `${what}（${scheme}）：地图的瓦片层和矢量层已挂上`).toBe(true);
     const filters = await canvas.evaluate((node) => ({
       canvas: getComputedStyle(node).filter,
       tiles: getComputedStyle(node.querySelector(".leaflet-tile-pane") as HTMLElement).filter,

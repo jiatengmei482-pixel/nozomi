@@ -35,8 +35,10 @@ const METERED = { pricing_model: "mileage_time", start_price: 3_000, start_meter
 const GUEST_NO_ROUTE = "这两个地点之间没有可行驶的路线，请换一个地址。";
 const GUEST_TEMPORARY = "暂时算不出这段路程的价格，请稍后再试，或改订包车。";
 
-/** 区域（中心 ±0.1 度）里的一个随机点，4 位小数 */
-const randomPoint = (): LatLng => ({ lat: Number((CENTER.lat - 0.08 + Math.random() * 0.16).toFixed(4)), lng: Number((CENTER.lng - 0.08 + Math.random() * 0.16).toFixed(4)) });
+/** 区域（中心 ±0.1 度）里的一个随机点（中心 ±spread 度），4 位小数 */
+const randomPoint = (spread = 0.08): LatLng => ({ lat: Number((CENTER.lat - spread + Math.random() * spread * 2).toFixed(4)), lng: Number((CENTER.lng - spread + Math.random() * spread * 2).toFixed(4)) });
+/** 从 point 按固定偏移（度）算出的点，4 位小数 */
+const offsetPoint = (point: LatLng, dLat: number, dLng: number): LatLng => ({ lat: Number((point.lat + dLat).toFixed(4)), lng: Number((point.lng + dLng).toFixed(4)) });
 
 async function db<T>(fn: (query: (text: string, values: unknown[]) => Promise<unknown>) => Promise<T>): Promise<T> {
   const url = process.env["E2E_DATABASE_URL"];
@@ -96,9 +98,11 @@ test.beforeAll(async ({ request }) => {
   test.setTimeout(120_000);
   world = await createWorld(request);
   await publishMetered(request, await createSupplier(request, world), world);
-  pickup = randomPoint();
-  noRoute = randomPoint();
-  cached = randomPoint();
+  // 三个点各自随机时偶尔有两个落进同一个缓存格（键取整到 3 位小数，约每 8 千次一次）：上车点随机，两个下车点按固定偏移算出，
+  // 两两至少差 0.011 度（11 格以上），仍在区域内（±0.06 再偏 0.015 以内）
+  pickup = randomPoint(0.06);
+  noRoute = offsetPoint(pickup, 0.012, -0.015);
+  cached = offsetPoint(pickup, -0.013, 0.011);
   const bad = routeCacheKey(pickup, noRoute);
   const good = routeCacheKey(pickup, cached);
   expect(bad.samePoint || good.samePoint || bad.key === good.key).toBe(false);
