@@ -3,7 +3,7 @@
  * 表里每一行是一条价格；每个还没有价格的组合也占一行，空着等填。改完一批，一次保存（全部成功或一条都不保存）。
  * 行怎么读、缺不缺价、日期重不重叠都在 lib/price-form.ts（规则来自 @nozomi/domain）。
  */
-import { CHARTER_SUPPLIER_PRICE_NOTE, PRICE_DIRECTIONS, PRICE_LIMITS, PRICING_MODEL_NAMES, type PriceDirection, type PriceRule, type PricingModel, VEHICLE_GRADES, addDays, applyAdjustRules, basePrice } from "@nozomi/domain";
+import { CHARTER_SUPPLIER_PRICE_NOTE, PRICE_DIRECTIONS, PRICE_LIMITS, PRICING_MODEL_NAMES, type PriceDirection, type PriceRule, type PricingModel, VEHICLE_GRADES, addDays, applyAdjustRules, basePrice, selectPriceRule } from "@nozomi/domain";
 import { Fragment, type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { ApiError } from "../../../api/client.ts";
@@ -182,6 +182,19 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   const readings = useMemo(() => new Map(rows.map((row) => [row.key, readRow(row, context)])), [rows, context]);
   const overlaps = useMemo(() => rowOverlaps(rows, context), [rows, context]);
   const coverage = useMemo(() => tableCoverage(rows, context, areaIds, groupIds), [rows, context, areaIds, groupIds]);
+  /**
+   * 「这一行的意思」例子里的套餐价（tenant-prices.md 17.2.3）：商品第一个服务区域、这个车型组和套餐、今天生效的基础定价（含没保存的修改）；没有为 null。
+   */
+  const charterPackagePrice = (vehicleGroupId: string, packageHours: number): number | null => {
+    const firstArea = areaIds[0];
+    if (firstArea === undefined) return null;
+    const live = rows.flatMap((row) => {
+      const rule = row.deleted ? null : (readings.get(row.key)?.rule ?? null);
+      return rule ? [rule] : [];
+    });
+    const rule = selectPriceRule(live, { areaId: firstArea, vehicleGroupId, direction: null, packageHours, date: context.today });
+    return rule !== null && rule.pricing.model === "charter_package" ? rule.pricing.packagePriceMinor : null;
+  };
   const changes = rows.filter((row) => !["none", "blank"].includes(rowChange(row, readings.get(row.key) ?? readRow(row, context))));
   const changeTotal = changes.length + surcharges.changeCount;
   const hasMileage = rows.some((row) => row.model === "mileage_time" && !row.deleted);
@@ -319,6 +332,8 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
     adopted.current = saved;
     setRows(fresh(saved));
     surcharges.adopt(saved, false);
+    // 读屏状态区里上一句（如「……将删除，点保存后生效」）保存以后已经不对了，清掉（M8-12a 验收缺陷 7）
+    setAnnounce("");
     setReview(new Set());
     setConflictKeys(new Set());
     shared.setPrices(saved);
@@ -540,7 +555,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
           <span>
             {` 反方向（${routeName(reverseOf(routeOf(focusedRow)))}）还没有线路价，用的是区域价。`}
             {!readOnly && !isOrphan(focusedRow) && (
-              <Button size="sm" variant="text" onClick={() => setCopyDraft(copyDraftFor(rows, routeOf(focusedRow), context))}>
+              <Button size="sm" variant="text" onClick={() => setCopyDraft(copyDraftFor(rows, routeOf(focusedRow), context, null, undefined, groupIds))}>
                 建返程
               </Button>
             )}
@@ -670,12 +685,12 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                       <span>没有</span>
                     )}
                     {!readOnly && !orphan && !hasBack && (
-                      <Button size="sm" variant="text" disabled={busy} aria-label={`给「${name}」建返程`} onClick={() => setCopyDraft(copyDraftFor(rows, route, context))}>
+                      <Button size="sm" variant="text" disabled={busy} aria-label={`给「${name}」建返程`} onClick={() => setCopyDraft(copyDraftFor(rows, route, context, null, undefined, groupIds))}>
                         建返程
                       </Button>
                     )}
                     {!readOnly && !orphan && (
-                      <Button size="sm" variant="text" disabled={busy || !routeHasPrices(rows, route, context)} aria-label={`复制线路「${name}」`} onClick={() => setCopyDraft(copyDraftFor(rows, route, context))}>
+                      <Button size="sm" variant="text" disabled={busy || !routeHasPrices(rows, route, context)} aria-label={`复制线路「${name}」`} onClick={() => setCopyDraft(copyDraftFor(rows, route, context, null, undefined, groupIds))}>
                         复制
                       </Button>
                     )}
@@ -1366,6 +1381,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                 otherChanges={changes.length}
                 conflictKeys={conflictKeys}
                 announce={setAnnounce}
+                packagePrice={charterPackagePrice}
                 focusRow={(key) => requestAnimationFrame(() => focusAnchor(surchargeCellId(key, "pickup")))}
               />
             )}
@@ -1384,7 +1400,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                   pending={pendingChanges}
                   onSubmit={addRoute}
                 />
-                <CopyRouteDialog draft={copyDraft} setDraft={setCopyDraft} rows={rows} context={context} areas={routeAreas} groupName={groupName} areaName={areaName} pending={pendingChanges} onSubmit={copyRoute} />
+                <CopyRouteDialog draft={copyDraft} setDraft={setCopyDraft} rows={rows} context={context} areas={routeAreas} groupName={groupName} groupOrder={groupIds} areaName={areaName} pending={pendingChanges} onSubmit={copyRoute} />
               </>
             )}
             <Dialog

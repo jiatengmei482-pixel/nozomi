@@ -157,10 +157,10 @@ function rowReader(sheet: Sheet, row: number, issues: CellIssue[]) {
     const plain = value.type === "number" ? storedNumberDecimal(value.text) : plainDecimal(value.text);
     return plain ?? problem(column, options.reason, options.hint);
   };
-  const integer = (column: string, isRequired: boolean): number | null => {
-    const plain = decimal(column, { required: isRequired, reason: "NOT_INTEGER", hint: "必须是整数" });
+  const integer = (column: string, isRequired: boolean, hint = "必须是整数"): number | null => {
+    const plain = decimal(column, { required: isRequired, reason: "NOT_INTEGER", hint });
     if (plain === null) return null;
-    return plainInteger(plain) ?? problem(column, "NOT_INTEGER", "必须是整数");
+    return plainInteger(plain) ?? problem(column, "NOT_INTEGER", hint);
   };
   const DATE_HINT = "不是合法的日期，请写成 2026-10-01 这样（不要带时间）";
   const date = (column: string, isRequired: boolean): string | null => {
@@ -277,8 +277,13 @@ const SAVE_MESSAGES: Readonly<Record<string, string>> = {
 const amountLimitText = (currency: CurrencyCode): string => formatMajor(PRICE_LIMITS.maxAmountMinor, currency).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 const amountRangeMessage = (currency: CurrencyCode): string => `金额不能是负数，最多 ${amountLimitText(currency)} ${currency}。请检查是不是多打了位数`;
 
+/** 含公里数（点对点一口价）不是整数或超范围、只填了两格中的一格：和价格页上同样的说法（设计 tenant-prices.md 17.4、17.12） */
+const INCLUDED_KM_MESSAGE = `含公里数请填 1 到 ${PRICE_LIMITS.maxIncludedKm.toLocaleString("en-US")} 之间的整数`;
+const KM_PAIR_MESSAGE = "含公里数和超出每公里要一起填，或者都不填";
+
 /** 保存时的检查说「超出范围」：按是哪一列说清楚确切的范围。 */
 function outOfRangeMessage(column: string, currency: CurrencyCode): string {
+  if (column === P.includedKm) return INCLUDED_KM_MESSAGE;
   if (column === P.packageHours) return `套餐时长要在 1 到 ${PRICE_LIMITS.maxPackageHours} 小时之间`;
   if (column === P.packageKm) return `套餐公里要在 1 到 ${PRICE_LIMITS.maxPackageKm} 之间`;
   if (column === P.startKm) return `起步里程要在 0 到 ${PRICE_LIMITS.maxStartMeters / 1_000} 公里之间，最多 1 位小数`;
@@ -605,7 +610,7 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
         blank([P.basePrice, P.includedKm, P.overKmPerKm]);
         const base = amount(P.basePrice);
         // 含公里数（只有点对点的模版有这两列）：只填了一个由保存的检查报到空着的那一格
-        const includedKm = read.integer(P.includedKm, false);
+        const includedKm = read.integer(P.includedKm, false, INCLUDED_KM_MESSAGE);
         const perKm = amount(P.overKmPerKm, true);
         Object.assign(content, { mainPriceMinor: base, includedKm, overKmPerKmMinor: perKm });
         if (base !== null && !issues.some((issue) => issue.column === P.includedKm || issue.column === P.overKmPerKm)) {
@@ -663,7 +668,9 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
     // 「超出每公里」：点对点的一口价是「超出每公里」这一列，包车套餐是「超公里单价(每公里)」
     const column = field === "over_km_per_km" && category === "point_to_point" ? P.overKmPerKm : (FIELD_COLUMNS[field] ?? P.id);
     target.action = "error";
-    const message = issue.reason === "OUT_OF_RANGE" ? outOfRangeMessage(column, currency) : (SAVE_MESSAGES[issue.reason ?? ""] ?? issue.message);
+    // 点对点一口价的含公里数两格只填了一格：空着的那一格说「要一起填」，不说「必填」（两格都空是可以的）
+    const kmPairMissing = issue.reason === "REQUIRED" && (column === P.includedKm || column === P.overKmPerKm);
+    const message = kmPairMissing ? KM_PAIR_MESSAGE : issue.reason === "OUT_OF_RANGE" || (issue.reason === "NOT_INTEGER" && column === P.includedKm) ? outOfRangeMessage(column, currency) : (SAVE_MESSAGES[issue.reason ?? ""] ?? issue.message);
     target.issues.push({ cell: sheet.cell(target.row - 1, column).at, column, reason: issue.reason ?? "INVALID", message });
   }
   const rowOf = new Map<string, PriceImportRow>([...origin.update.map((row): [string, PriceImportRow] => [`id:${row.priceRuleId}`, row]), ...origin.create.map((row): [string, PriceImportRow] => [`ref:row:${row.row}`, row])]);

@@ -4,8 +4,9 @@
  * 状态放在 `useSurcharges` 里由页签持有（保存、被拒、重新读取都要用到）；这里只管显示和操作。
  * 金额都是结算价、商品币种；这里不出现对外价和加价比例（规则 4）。
  */
-import { type LocalizedText, PRICE_LIMITS, areaUsableByCategory } from "@nozomi/domain";
+import { type LocalizedText, PRICE_LIMITS, areaUsableByCategory, charterPriceWithSurcharges } from "@nozomi/domain";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type AreaMapItem, type AreaMapResponse, fetchTenantAreaMap } from "../../../api/area-map.ts";
 import type { AreaSummary as TenantArea } from "../../../api/areas.ts";
 import type { PriceRuleBatch, PriceRules } from "../../../api/prices.ts";
 import type { Product } from "../../../api/products.ts";
@@ -15,7 +16,7 @@ import { Dialog } from "../../../components/Dialog.tsx";
 import { Icon } from "../../../components/Icon.tsx";
 import { NewTabLink } from "../../../components/NewTabLink.tsx";
 import { StatusBadge } from "../../../components/StatusBadge.tsx";
-import { hiddenOperatingText, pricingCapable, roleOf } from "../../../lib/area-roles.ts";
+import { hiddenOperatingText, outsideText, pricingCapable, roleOf } from "../../../lib/area-roles.ts";
 import { AREA_NEW_PATH } from "../../../lib/area-paths.ts";
 import {
   type FillRequest,
@@ -44,11 +45,14 @@ import {
 import { displayName } from "../../../lib/master-display.ts";
 import { comboText, moneyText, plainAmountDisplay, tidyAmountDisplay } from "../../../lib/product-display.ts";
 import { tidyDate } from "../../../lib/time-input.ts";
+import { useLoad } from "../../../lib/use-load.ts";
 import { AreaMapButton } from "../../areas/AreaMapDialog.tsx";
 import { focusAnchor } from "../frame.ts";
 
 export const surchargeCellId = (key: string, field: SurchargeField): string => `surcharge-${key}-${field}`;
 const NO_ONLINE_QUOTE = "这个地址暂时没有在线报价，请联系客服";
+/** 「新增自定义区域」默认是报价区域（ADR 0075）：只画它、不在运营区域里的地方不报价（M8-12a 验收缺陷 6） */
+const NEW_AREA_ROLE_HINT = "新增的区域默认是「报价区域」：还要落在你的某个运营区域里才会报价。那里还没有运营区域时，在区域页面把用途选成「运营 + 报价」。";
 
 export interface SurchargeState {
   rows: SurchargeRow[];
@@ -177,6 +181,8 @@ export function AreaSurchargeBlock(props: {
   otherChanges: number;
   conflictKeys: ReadonlySet<string>;
   announce(text: string): void;
+  /** 「这一行的意思」例子里的套餐价：商品第一个服务区域、这个车型组和套餐今天生效的基础定价；没有为 null */
+  packagePrice(vehicleGroupId: string, packageHours: number): number | null;
   focusRow(key: string): void;
 }) {
   const { state, product, groups, packages, currency, today, readOnly, busy, onPlatform, areas } = props;
@@ -230,9 +236,16 @@ export function AreaSurchargeBlock(props: {
   const deletedAreas = savedOrder.filter(isDeletedArea);
 
   const overlaps = useMemo(() => surchargeOverlaps(rows, currency, removing), [rows, currency, removing]);
+  // 列表里有纯「报价区域」时，取区域地图看它有没有部分不在任何运营区域里（那部分不报价；M8-12a 验收缺陷 6）
+  const pricingOnly = listed.filter((id) => areaById.get(id)?.status === "active" && roleOf(areaById.get(id) as TenantArea) === "pricing");
+  const outsideMap = useLoad<AreaMapResponse<AreaMapItem>>(`surcharge-outside:${pricingOnly.join(",")}`, onPlatform || pricingOnly.length === 0 ? null : (token) => fetchTenantAreaMap(token));
+  const outsideOf = (areaId: string): number => outsideMap.state.data?.items.find((item) => item.id === areaId)?.outside_operating_m2 ?? 0;
   const groupIds = groups.map((group) => group.id);
+  // 只设了区域加价、基础定价里没有的套餐（接口或导入能建出来）：也进「套餐」筛选和汇总，不算「没填」（M8-12a 验收缺陷 4）
+  const extraPackages = [...new Set(rows.filter((row) => !row.deleted && !packages.includes(row.packageHours) && row.packageHours > 0).map((row) => row.packageHours))].sort((x, y) => x - y);
+  const allPackages = [...packages, ...extraPackages].sort((x, y) => x - y);
   const viewGroups = filterGroup === "all" ? groupIds : groupIds.filter((id) => id === filterGroup);
-  const viewPackages = filterPackage === "all" ? [...packages] : packages.filter((hours) => String(hours) === filterPackage);
+  const viewPackages = filterPackage === "all" ? allPackages : allPackages.filter((hours) => String(hours) === filterPackage);
   const missingTotal = listed.filter((id) => !removing.has(id)).reduce((sum, id) => sum + areaSummary(rows, id, groupIds, packages, currency, today).missing, 0);
 
   const hasProblem = (areaId: string): boolean =>
@@ -364,15 +377,16 @@ export function AreaSurchargeBlock(props: {
     for (const groupId of viewGroups) {
       for (const hours of viewPackages) {
         const combo = own.filter((row) => row.vehicleGroupId === groupId && row.packageHours === hours).sort((x, y) => x.from.localeCompare(y.from));
-        result.push(...(combo.length > 0 ? combo : [blankSurchargeRow(areaId, groupId, hours, today)]));
+        // 基础定价里没有的套餐只列已经有的行，不补空行（不提醒去填）
+        result.push(...(combo.length > 0 ? combo : packages.includes(hours) ? [blankSurchargeRow(areaId, groupId, hours, today)] : []));
       }
     }
-    if (filterGroup === "all" && filterPackage === "all") result.push(...own.filter((row) => !groupIds.includes(row.vehicleGroupId) || !packages.includes(row.packageHours)));
+    if (filterGroup === "all" && filterPackage === "all") result.push(...own.filter((row) => !groupIds.includes(row.vehicleGroupId) || !allPackages.includes(row.packageHours)));
     return result;
   };
 
   const summaryCell = (areaId: string, field: "pickup" | "dropoff" | "waypoint"): ReactNode => {
-    const summary = areaSummary(rows, areaId, viewGroups, viewPackages, currency, today);
+    const summary = areaSummary(rows, areaId, viewGroups, viewPackages, currency, today, extraPackages);
     const range = summary[field];
     return (
       <span className="surcharge-sum">
@@ -383,7 +397,7 @@ export function AreaSurchargeBlock(props: {
     );
   };
   const areaNotes = (areaId: string): ReactNode => {
-    const summary = areaSummary(rows, areaId, viewGroups, viewPackages, currency, today);
+    const summary = areaSummary(rows, areaId, viewGroups, viewPackages, currency, today, extraPackages);
     const unsaved = removing.has(areaId) || restoring.has(areaId) || rows.some((row) => row.areaId === areaId && !["none", "blank"].includes(surchargeChange(row, readSurchargeRow(row, currency))));
     return (
       <>
@@ -407,10 +421,19 @@ export function AreaSurchargeBlock(props: {
     if (reading.blank) return `${label}——还没填区域加价。上车点或下车点只在${name}、坐${groupName(focusedRow.vehicleGroupId)}、订 ${focusedRow.packageHours} 小时的单不报价。`;
     if (!reading.rule || reading.rule.pricing.model !== "charter_area_surcharge") return `${label}——${reading.problems.map((problem) => problem.text).join("；")}。`;
     const firstArea = product.areas[0];
-    const example = firstArea ? `例：${displayName(firstArea.name).text}上车、${name}下车 = 套餐价 + 0 + ${moneyText(reading.rule.pricing.dropoffSurchargeMinor, currency)}（调价规则前）。` : "";
     const way = reading.rule.pricing.waypointSurchargeMinor ?? null;
-    const wayExample = firstArea && way !== null ? `${displayName(firstArea.name).text}出发、途经${name}再回来 = 套餐价 + ${moneyText(way, currency)}。` : "";
-    return `${label}——${surchargeSentence(name, reading.rule.pricing.pickupSurchargeMinor, reading.rule.pricing.dropoffSurchargeMinor, currency, way)}${example}${wayExample}${surchargeValidity(reading.rule)}调价规则（节假日、旺季等）会按合计再调。`;
+    // 例子代入这个车型组和套餐今天生效的套餐价，合计用 domain 的函数算（tenant-prices.md 17.2.3）；没有套餐价时不写例子
+    const packageMinor = firstArea ? props.packagePrice(focusedRow.vehicleGroupId, focusedRow.packageHours) : null;
+    const dropoff = reading.rule.pricing.dropoffSurchargeMinor;
+    const example =
+      firstArea === undefined
+        ? ""
+        : packageMinor === null
+          ? "这个车型组和套餐还没有套餐价。"
+          : `例：${displayName(firstArea.name).text}上车、${name}下车 = 套餐价 ${moneyText(packageMinor, currency)} + 0 + ${moneyText(dropoff, currency)} = ${moneyText(charterPriceWithSurcharges({ packageMinor, pickupMinor: 0, dropoffMinor: dropoff }), currency)}（调价规则前）。`;
+    const wayExample =
+      firstArea && way !== null && packageMinor !== null ? `${displayName(firstArea.name).text}出发、途经${name}再回来 = 套餐价 ${moneyText(packageMinor, currency)} + ${moneyText(way, currency)} = ${moneyText(charterPriceWithSurcharges({ packageMinor, pickupMinor: 0, dropoffMinor: 0, waypointMinor: way }), currency)}。` : "";
+    return `${label}——${surchargeSentence(name, reading.rule.pricing.pickupSurchargeMinor, dropoff, currency, way)}${example}${wayExample}${surchargeValidity(reading.rule)}调价规则（节假日、旺季等）会按合计再调。`;
   };
 
   const productAreaNames = product.areas.map((area) => displayName(area.name).text);
@@ -644,6 +667,7 @@ export function AreaSurchargeBlock(props: {
                 )}
                 <AreaMapButton areaIds={[...productAreaIds, ...listed.filter((id) => areaById.has(id))]} />
               </div>
+              {props.canManageAreas && <p className="field__hint">{NEW_AREA_ROLE_HINT}</p>}
             </>
           )}
         </div>
@@ -666,8 +690,8 @@ export function AreaSurchargeBlock(props: {
           <span>套餐</span>
           <select className="input input--sm select" value={filterPackage} onChange={(event) => setFilterPackage(event.target.value)}>
             <option value="all">全部</option>
-            {packages.map((hours) => (
-              <option key={hours} value={String(hours)}>{`${hours} 小时`}</option>
+            {allPackages.map((hours) => (
+              <option key={hours} value={String(hours)}>{packages.includes(hours) ? `${hours} 小时` : `${hours} 小时（基础定价里没有这个套餐）`}</option>
             ))}
           </select>
         </label>
@@ -727,6 +751,12 @@ export function AreaSurchargeBlock(props: {
                     <span className="surcharge-table__disabled">
                       <StatusBadge tone="neutral" label="区域已停用" />
                       <span className="surcharge-sum__note">区域停用后这里的区域加价不再用到</span>
+                    </span>
+                  )}
+                  {area?.status === "active" && roleOf(area) === "pricing" && outsideOf(areaId) > 0 && (
+                    <span className="surcharge-sum__missing">
+                      <Icon name="alert-triangle" />
+                      {`${outsideText(outsideOf(areaId))}：在区域页面补画运营区域，或把它的用途改成「运营 + 报价」`}
                     </span>
                   )}
                   {marked === "remove" && <span className="price-state price-state--muted">将删除</span>}
@@ -801,6 +831,12 @@ export function AreaSurchargeBlock(props: {
               return (
                 <li key={areaId} className="surcharge-deleted__item">
                   <span className="surcharge-table__name">{nameOf(areaId)}</span>
+                  {areaById.get(areaId)?.status === "disabled" && (
+                    <span className="surcharge-table__disabled">
+                      <StatusBadge tone="neutral" label="区域已停用" />
+                      <span className="surcharge-sum__note">恢复以后也用不到，要先到区域页面启用这个区域</span>
+                    </span>
+                  )}
                   <span className="surcharge-sum__note">{`删除前：上车加价 ${span(pickups)} · 下车加价 ${span(dropoffs)} · 途经加价 ${ways.length === 0 ? "没设" : span(ways)}（${currency}）`}</span>
                   {!readOnly && (
                     <Button size="sm" variant="text" disabled={busy} aria-label={`恢复加价区域「${nameOf(areaId)}」`} onClick={() => restoreArea(areaId)}>
