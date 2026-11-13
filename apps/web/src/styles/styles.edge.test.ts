@@ -101,7 +101,12 @@ test("简写属性里的边框宽度、阴影、时长也只用令牌", () => {
 });
 
 test("组件代码里没有内联样式、没有写死的颜色，SVG 图标的颜色跟随文字（currentColor）", () => {
-  for (const { name, text } of sources) {
+  // 唯一的例外：司机页把吸底按钮条量出来的高度写进 <html> 的 --driver-bar-height（只是长度，不是颜色、字号；driver.md 3b，M6-08）。
+  // 只放行这一个文件里、写这一个变量的 setProperty / removeProperty。
+  const driverPage = sources.find((source) => source.name === "pages/driver/DriverTripPage.tsx");
+  assert.match(driverPage?.text ?? "", /export const BAR_HEIGHT_VARIABLE = "--driver-bar-height";/);
+  for (const { name, text: raw } of sources) {
+    const text = name === "pages/driver/DriverTripPage.tsx" ? raw.replaceAll(".style.setProperty(BAR_HEIGHT_VARIABLE,", "") : raw;
     assert.doesNotMatch(text, /\bstyle=\{/, `${name} 用了内联样式`);
     assert.doesNotMatch(text, /\.style\.[a-zA-Z]+\s*=|\.style\.setProperty\(|cssText/, `${name} 用脚本改样式`);
     assert.doesNotMatch(text, /["'`]#[0-9a-fA-F]{3,8}["'`]/, `${name} 里有十六进制颜色`);
