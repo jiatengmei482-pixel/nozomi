@@ -1093,6 +1093,15 @@
           "acceptance": ["业主决定选套餐规则：A. 维持 ADR 0089 第 3 节「能覆盖总时长的最小套餐」（客人看到的套餐时长最直观，可能不是最便宜）；B. 在能覆盖的套餐和更短套餐 + 超时之间取对外价最低的（对客人最划算，但套餐时长可能比行程短）。推荐 B", "定了 B 时新开实现任务：回放核对、改 ADR 0089；同时只把选中的那档写进返回结果，未选中的档次的询价日志标注「试算」以免占回放和统计"],
           "evidence": "",
           "updated": "2026-11-13"
+        },
+        {
+          "id": "M9W-10",
+          "title": "经停点所在加价区域没设途经加价时转人工报价并指出是哪个点；通用原因不再叫客人换时间",
+          "role": "backend",
+          "status": "review",
+          "acceptance": ["经停点那一端报不出（NO_PRICE_RULE / PRICE_RULE_DISABLED / PRICE_NOT_IN_EFFECT）时拒绝里带上 stopSeq；sales-quotes 凡带 stopSeq 的拒绝对外一律报 WAYPOINT_NOT_PRICED 并带 stopSeqs，询价日志、未覆盖需求保留原始原因码；上 / 下车那一端的原因码不变；不带经停点的询价报价和原因完全不变（golden、area-surcharge、charter-waypoints 测试原样通过）", "ADR 0088 补一节：对外原因口径与第 3 节第 4 条「沿用上 / 下车那一端的原因码」的关系，只影响对外原因、不影响价格", "NOT_AVAILABLE 通用文案不再让客人换时间，改为「这个行程暂时无法在线报价，请联系客服人工报价，或调整行程后再试。」；查清只用于供应商内部原因，和时间有关的各有各的原因", "测试：domain 单元测试（经停点那端各原因带 stopSeq）；charter-waypoints.itest.ts（加价区域只设上下车加价、经停点落在里面 → 官网应答 WAYPOINT_NOT_PRICED + waypoint_stop_seqs，未覆盖需求里仍是 NO_PRICE_RULE）；前端组件测试（新文案、WAYPOINT_NOT_PRICED 指出是哪个点）；不删不弱化已有断言", "可选：平台端 GET /platform/v1/channels/{id}/quote-logs 返回每条拒绝的 reason 和 product_id（不出现在 /tenant/v1），OpenAPI 同步、集成测试覆盖", "独立审查、合并、部署后测试站验收"],
+          "evidence": "PR #210（https://github.com/jiatengmei482-pixel/nozomi/pull/210）；本机 typecheck 通过；domain + api 单元测试 2211 条通过；web 组件测试 132 条、单元 / 契约 56 条通过；集成测试 92 条通过（charter-waypoints 11 条含新增 1 条、sales、charter-area-surcharge、charter-all-inclusive、uncovered-demands、quotes、quotes-qa、manual-quotes、platform-roles）；可选第 4 条已做",
+          "updated": "2026-11-13"
         }
       ]
     },
@@ -2349,6 +2358,11 @@
       "date": "2026-11-13",
       "by": "frontend",
       "summary": "M9E-03 开发完成，待验收：补齐端到端（两个本机宿主网站、样式隔离、320 px、axe、键盘、建草稿跳主站后价格等于手填）；跳转地址改为取脚本所在的主站；组件生成的草稿按 #193 审查后的规则保留 7 位小数坐标、名称按 UTF-16 截断。"
+    },
+    {
+      "date": "2026-11-13",
+      "by": "backend",
+      "summary": "M9W-10 开发完成，待验收：经停点落在没设途经加价的加价区域里（不在商品区域）时，官网不再显示「请换一个时间再试」，改报「第 N 个经停点暂时没有在线报价」并转人工报价；内部日志仍记原始原因；通用原因文案改为请联系客服或调整行程；平台询价日志接口给出每条拒绝的商品和原因（可选项已做）。价格不变。PR #210。"
     }
   ]
 }
