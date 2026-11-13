@@ -34,6 +34,7 @@ import { BANK_FILES_PAGE, PLATFORM_PAYOUT_ACCOUNTS_PAGE } from "../../lib/bank-f
 import { MANUAL_QUOTES_PAGE, SITE_SETTINGS_PAGE } from "../../lib/manual-quote-display.ts";
 import { ManualQuoteDetailPage, ManualQuoteListPage } from "./ManualQuotePages.tsx";
 import { SiteSettingsPage } from "./SiteSettingsPage.tsx";
+import { EMBED_KEYS_PAGE, EmbedKeysPage } from "./EmbedKeysPage.tsx";
 import { PayoutBatchDetailPage, PayoutBatchListPage, StatementDetailPage, StatementListPage } from "./FinancePages.tsx";
 
 export function platformRoutes() {
@@ -77,6 +78,7 @@ export function platformRoutes() {
       <Route path={MANUAL_QUOTES_PAGE} element={<ManualQuoteListPage />} />
       <Route path={`${MANUAL_QUOTES_PAGE}/:id`} element={<ManualQuoteDetailPage />} />
       <Route path={SITE_SETTINGS_PAGE} element={<SiteSettingsPage />} />
+      <Route path={EMBED_KEYS_PAGE} element={<EmbedKeysPage />} />
       <Route path={COMPENSATION_TABLE_PAGE} element={<CompensationTablePage />} />
       <Route path={STATEMENTS_PAGE} element={<StatementListPage />} />
       <Route path={`${STATEMENTS_PAGE}/:id`} element={<StatementDetailPage />} />

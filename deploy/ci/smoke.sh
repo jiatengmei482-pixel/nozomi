@@ -278,11 +278,24 @@ check_frontend() {
 
   # 接口前缀仍然到 API：前缀本身、带查询串、带下级路径。API 对不存在的路径返回统一格式的 JSON 错误。
   [[ "$(status_of "/health?probe=1")" == "200" ]] || fail "$label：/health 带查询串应仍由 API 返回 200"
-  for path in /platform/v1 "/platform/v1?probe=1" /tenant/v1 "/tenant/v1?probe=1" /sales/v1 "/sales/v1?probe=1" /driver/v1 "/driver/v1?probe=1" /site/v1 "/site/v1?probe=1" /webhooks "/webhooks?probe=1" /health/nothing /sales/v1/nothing/here; do
+  for path in /platform/v1 "/platform/v1?probe=1" /tenant/v1 "/tenant/v1?probe=1" /sales/v1 "/sales/v1?probe=1" /driver/v1 "/driver/v1?probe=1" /site/v1 "/site/v1?probe=1" /embed/v1 "/embed/v1?probe=1" /webhooks "/webhooks?probe=1" /health/nothing /sales/v1/nothing/here; do
     body="$(request --max-time 10 "$base_url$path")"
     [[ "$body" == '{"error":{"code":'* ]] || fail "$label：$path 应由 API 回答（统一格式的 JSON 错误），实际是：${body:0:120}"
     [[ "$(status_of "$path")" == "404" ]] || fail "$label：$path 在 API 里不存在，应返回 404"
   done
+
+  # 嵌入组件脚本（ADR 0090）：200、JavaScript 类型、跨站可读
+  widget_headers="$(headers_of "/embed/widget-v1.js")"
+  grep -q '^http/[0-9.]* 200' <<<"$widget_headers" || fail "$label：/embed/widget-v1.js 应返回 200"
+  grep -q '^content-type: text/javascript' <<<"$widget_headers" || fail "$label：/embed/widget-v1.js 应是 JavaScript"
+  grep -q '^cross-origin-resource-policy: cross-origin$' <<<"$widget_headers" || fail "$label：/embed/widget-v1.js 应允许跨站加载"
+
+  # 跨域只开在 /embed/v1（ADR 0090）：不存在的嵌入码带 Origin 是 403 且没有 CORS 头；/site/v1 带 Origin 也没有 CORS 头。
+  embed_headers="$(request --max-time 10 --dump-header - --output /dev/null --header 'origin: https://smoke.invalid' "$base_url/embed/v1/config?key=nze_smoke" | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
+  grep -q '^http/[0-9.]* 403' <<<"$embed_headers" || fail "$label：/embed/v1/config 对不存在的嵌入码应返回 403"
+  ! grep -q '^access-control-' <<<"$embed_headers" || fail "$label：/embed/v1 拒绝时不应带 CORS 头"
+  site_headers="$(request --max-time 10 --dump-header - --output /dev/null --header 'origin: https://smoke.invalid' "$base_url/site/v1/config" | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
+  ! grep -q '^access-control-' <<<"$site_headers" || fail "$label：/site/v1 永远不应带 CORS 头"
 
   # /assets/：真实存在的文件长缓存；不存在的是 404，而不是 index.html。
   asset="$(grep -o '/assets/[A-Za-z0-9._-]*\.js' <<<"$index" | head -n 1)"

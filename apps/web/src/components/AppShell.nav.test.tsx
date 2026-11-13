@@ -44,10 +44,11 @@ const PLATFORM_PAGE_VIEW: Readonly<Record<string, PlatformAction>> = {
   "/platform/settings/audit-logs": "audit_log.read",
   "/platform/settings/integrations": "integration.read",
   "/platform/settings/site": "site_settings.read",
+  "/platform/embed-keys": "embed.read",
 };
 
 /** 只管一个页面、别的菜单项和首页卡片都不用的查看权限：不进穷举（组合数会翻倍），单独核对。 */
-const INDEPENDENT_VIEWS: readonly PlatformAction[] = ["manual_quote.read", "site_settings.read"];
+const INDEPENDENT_VIEWS: readonly PlatformAction[] = ["manual_quote.read", "site_settings.read", "embed.read"];
 
 /** 限定了数据范围（城市或渠道任一维度）就看不了的页面（ADR 0040：财务结算的接口一律 403）。 */
 const UNSCOPED_ONLY_PAGES: ReadonlySet<string> = new Set(["/platform/finance/statements", "/platform/finance/payout-accounts", "/platform/finance/payout-batches"]);

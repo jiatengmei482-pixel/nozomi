@@ -124,6 +124,8 @@ tags:
     description: |
       推送给供应商（ADR 0027）：供应商设置接收地址和订阅的事件，平台签名（HMAC-SHA256，`X-Timestamp` + `X-Signature: v1=…`，5 分钟防重放）后推送，
       失败按 1–5–30 分钟、2–6–24 小时重试，最终失败可在供应商后台和运营后台看到并手动重推。出站请求防 SSRF。
+  - name: 嵌入组件
+    description: 合作网站上的预订组件（ADR 0090）：运营后台管理嵌入码和域名白名单；`/embed/v1` 只对白名单里的网站跨域开放
   - name: 官网
     description: |
       `/site/v1`：官网（自营渠道）给浏览器的公开接口（ADR 0032；M3-10 起接送机、点对点、包车都能订，ADR 0035）。浏览器不持有渠道密钥：服务端以 `SITE_CLIENT_ID` 指定的 API 客户端身份调用和 `/sales/v1` 同一套询价、下单、取消、改单、落地、异议流程。
@@ -10002,7 +10004,10 @@ paths:
                   - pricing_route
                   - pricing_basis
                   - mileage
+                  - entry_source
                 properties:
+                  entry_source:
+                    $ref: "#/components/schemas/OrderEntrySource"
                   pricing_basis:
                     $ref: "#/components/schemas/PricingBasis"
                   mileage:
@@ -12647,6 +12652,338 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "429":
           $ref: "#/components/responses/RateLimited"
+  /platform/v1/embed-keys:
+    get:
+      tags: [ 嵌入组件 ]
+      operationId: listEmbedKeys
+      summary: 嵌入码列表
+      description: M9E-02，ADR 0090。需要 `embed.read`（超级管理员、运营、渠道经理、只读）。
+      security:
+        - platformToken: []
+      responses:
+        "200":
+          description: 嵌入码
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EmbedKey"
+    post:
+      tags: [ 嵌入组件 ]
+      operationId: createEmbedKey
+      summary: 新建嵌入码
+      description: 需要 `embed.manage`（超级管理员、运营、渠道经理）。嵌入码由服务端生成；白名单 1–20 个 origin，规范化后存。写审计。
+      security:
+        - platformToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmbedKeyWrite"
+      responses:
+        "201":
+          description: 建好的嵌入码
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmbedKey"
+  /platform/v1/embed-keys/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [ 嵌入组件 ]
+      operationId: getEmbedKey
+      summary: 嵌入码详情（含合作网站要放的代码）
+      description: 需要 `embed.read`。
+      security:
+        - platformToken: []
+      responses:
+        "200":
+          description: 嵌入码
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmbedKey"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    patch:
+      tags: [ 嵌入组件 ]
+      operationId: updateEmbedKey
+      summary: 修改嵌入码（名称、白名单、默认值、启用 / 停用）
+      description: 需要 `embed.manage`，请求头 `If-Match` 带当前版本号。改白名单、停用在服务端立即生效（组件的配置应答浏览器缓存 60 秒）。写审计。
+      security:
+        - platformToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/EmbedKeyWrite"
+                - type: object
+                  required: [ status ]
+                  properties:
+                    status:
+                      type: string
+                      enum: [ active, disabled ]
+      responses:
+        "200":
+          description: 改好的嵌入码
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmbedKey"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`VERSION_CONFLICT`：别人已经先改过了"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          description: "`PRECONDITION_REQUIRED`：没带 If-Match"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /embed/v1/config:
+    get:
+      tags: [ 嵌入组件 ]
+      operationId: getEmbedConfig
+      summary: 组件的配置（跨域）
+      description: |
+        合作网站页面上的组件调用。`Origin` 规范化后完全等于这个嵌入码白名单的某一项才回 200 和 `Access-Control-Allow-Origin`；
+        `null`、缺失、不在白名单、嵌入码不存在或停用一律 403，不带 CORS 头。`Cache-Control: private, max-age=60`。
+      security: []
+      parameters:
+        - name: key
+          in: query
+          required: true
+          description: 公开嵌入码（`nze_` 开头）
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 配置
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ lang, services, site_origin ]
+                properties:
+                  lang:
+                    type: string
+                    enum: [ zh, ja, en ]
+                  services:
+                    type: array
+                    items:
+                      type: string
+                      enum: [ transfer, charter ]
+                  site_origin:
+                    type: string
+                    description: 主站的 origin（组件跳转到这里的 /book/new）
+        "403":
+          description: "`EMBED_ORIGIN_NOT_ALLOWED`：嵌入码不存在或停用，或请求的 Origin 不在白名单里（不区分）；不带 CORS 头"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /embed/v1/places/autocomplete:
+    get:
+      tags: [ 嵌入组件 ]
+      operationId: embedPlaceAutocomplete
+      summary: 地址输入即提示（跨域）
+      description: 同 `GET /site/v1/places/autocomplete` 的实现、每地址额度和每日上限；先核白名单，另加每个嵌入码每分钟 600 次。
+      security: []
+      parameters:
+        - name: key
+          in: query
+          required: true
+          description: 公开嵌入码（`nze_` 开头）
+          schema:
+            type: string
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: session
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 候选
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ available, items ]
+                properties:
+                  available:
+                    type: boolean
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SitePlaceSuggestion"
+        "403":
+          description: "`EMBED_ORIGIN_NOT_ALLOWED`：嵌入码不存在或停用，或请求的 Origin 不在白名单里（不区分）；不带 CORS 头"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /embed/v1/places/details:
+    get:
+      tags: [ 嵌入组件 ]
+      operationId: embedPlaceDetails
+      summary: 选中候选后取坐标（跨域）
+      description: 同 `GET /site/v1/places/details`；先核白名单，另加每个嵌入码每分钟 600 次。
+      security: []
+      parameters:
+        - name: key
+          in: query
+          required: true
+          description: 公开嵌入码（`nze_` 开头）
+          schema:
+            type: string
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: session
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 地点
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ available, place ]
+                properties:
+                  available:
+                    type: boolean
+                  place:
+                    oneOf:
+                      - type: object
+                        additionalProperties: false
+                        required: [ id, address, location, kind ]
+                        properties:
+                          id:
+                            type: string
+                          address:
+                            type: [ string, "null" ]
+                          location:
+                            type: object
+                            additionalProperties: false
+                            required: [ lat, lng ]
+                            properties:
+                              lat:
+                                type: number
+                              lng:
+                                type: number
+                          kind:
+                            type: string
+                      - type: "null"
+        "403":
+          description: "`EMBED_ORIGIN_NOT_ALLOWED`：嵌入码不存在或停用，或请求的 Origin 不在白名单里（不区分）；不带 CORS 头"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /embed/v1/booking-drafts:
+    post:
+      tags: [ 嵌入组件 ]
+      operationId: createEmbedBookingDraft
+      summary: 建预订草稿（跨域），返回要跳转的主站地址
+      description: |
+        请求体超过 16 KB 在解析前 413。`draft` 按预订条件 v1 逐项严格校验（多一个键就 400）；`return_url` 不合格时忽略（不报错、不存）。
+        限速：每个来源地址 10 分钟 30 次、每个嵌入码每分钟 60 次（429 `RATE_LIMITED`）；每个嵌入码同时有效的草稿最多 5,000 个（429 `EMBED_DRAFT_LIMIT`）。
+        草稿 2 小时有效；来源（嵌入码、网站、返回地址）由服务端记下，只做统计。
+      security: []
+      parameters:
+        - name: key
+          in: query
+          required: true
+          description: 公开嵌入码（`nze_` 开头）
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ draft ]
+              properties:
+                draft:
+                  $ref: "#/components/schemas/BookingDraft"
+                return_url:
+                  type: string
+                  maxLength: 2000
+                  description: 付款后订单页「返回原网站」的地址；它的 origin 必须等于当前网站、并在白名单里
+      responses:
+        "201":
+          description: 建好的草稿
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ id, expires_at, url ]
+                properties:
+                  id:
+                    type: string
+                  expires_at:
+                    type: string
+                    format: date-time
+                  url:
+                    type: string
+                    description: 主站 /book/new?draft=<id>
+        "403":
+          description: "`EMBED_ORIGIN_NOT_ALLOWED`：嵌入码不存在或停用，或请求的 Origin 不在白名单里（不区分）；不带 CORS 头"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: "`PAYLOAD_TOO_LARGE`：请求体超过 16 KB"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: "`RATE_LIMITED` 或 `EMBED_DRAFT_LIMIT`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /site/v1/booking-drafts/{id}:
     get:
       tags: [ 官网 ]
@@ -13473,8 +13810,11 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ order, timeline, names, price_breakdown, payment, link ]
+                required: [ order, timeline, names, price_breakdown, return_url, payment, link ]
                 properties:
+                  return_url:
+                    type: [ string, "null" ]
+                    description: 见 `SiteOrderEnvelope.return_url`（M9E-02）
                   order:
                     $ref: "#/components/schemas/SiteOrder"
                   timeline:
@@ -13710,8 +14050,11 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ order, timeline, names, price_breakdown, change ]
+                required: [ order, timeline, names, price_breakdown, return_url, change ]
                 properties:
+                  return_url:
+                    type: [ string, "null" ]
+                    description: 见 `SiteOrderEnvelope.return_url`（M9E-02）
                   order:
                     $ref: "#/components/schemas/SiteOrder"
                   timeline:
@@ -13854,8 +14197,11 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ order, timeline, names, price_breakdown, replayed ]
+                required: [ order, timeline, names, price_breakdown, return_url, replayed ]
                 properties:
+                  return_url:
+                    type: [ string, "null" ]
+                    description: 见 `SiteOrderEnvelope.return_url`（M9E-02）
                   order:
                     $ref: "#/components/schemas/SiteOrder"
                   timeline:
@@ -13946,8 +14292,11 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ order, timeline, names, price_breakdown, extra_charge ]
+                required: [ order, timeline, names, price_breakdown, return_url, extra_charge ]
                 properties:
+                  return_url:
+                    type: [ string, "null" ]
+                    description: 见 `SiteOrderEnvelope.return_url`（M9E-02）
                   order:
                     $ref: "#/components/schemas/SiteOrder"
                   timeline:
@@ -20376,6 +20725,8 @@ components:
         - manual_quote.manage
         - site_settings.read
         - site_settings.manage
+        - embed.read
+        - embed.manage
     TenantAction:
       type: string
       enum:
@@ -29098,6 +29449,94 @@ components:
           type: number
           minimum: -180
           maximum: 180
+    OrderEntrySource:
+      type: object
+      additionalProperties: false
+      description: 订单从哪里来（M9E-02，ADR 0090）。只做统计，不作为分佣、结算的依据；只给运营后台
+      required: [ kind, embed_key_id, embed_key_name, embed_origin ]
+      properties:
+        kind:
+          type: string
+          enum: [ book, embed ]
+          description: "`book` 主站（含旧订单），`embed` 嵌入组件（下单时核对过嵌入码启用、来源在白名单里）"
+        embed_key_id:
+          type: [ string, "null" ]
+        embed_key_name:
+          type: [ string, "null" ]
+        embed_origin:
+          type: [ string, "null" ]
+          description: 合作网站的 origin，如 https://embed-demo.moveglobal.io
+    EmbedKey:
+      type: object
+      additionalProperties: false
+      required: [ id, key, name, allowed_origins, default_lang, default_services, status, note, version, created_at, updated_at, snippet ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        key:
+          type: string
+          description: 公开嵌入码（`nze_` 开头），写在合作网站页面里；不是密钥
+        name:
+          type: string
+          maxLength: 60
+        allowed_origins:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            type: string
+          description: 规范化后的 origin（https://域名，可带端口；测试环境另收本机 http）
+        default_lang:
+          type: string
+          enum: [ zh, ja, en ]
+        default_services:
+          type: array
+          items:
+            type: string
+            enum: [ transfer, charter ]
+        status:
+          type: string
+          enum: [ active, disabled ]
+        note:
+          type: [ string, "null" ]
+        version:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        snippet:
+          type: string
+          description: 合作网站要放的代码
+    EmbedKeyWrite:
+      type: object
+      additionalProperties: false
+      required: [ name, allowed_origins, default_lang, default_services ]
+      properties:
+        name:
+          type: string
+          maxLength: 60
+        allowed_origins:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            type: string
+        default_lang:
+          type: string
+          enum: [ zh, ja, en ]
+        default_services:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [ transfer, charter ]
+        note:
+          type: [ string, "null" ]
+          maxLength: 500
     SiteConfig:
       type: object
       additionalProperties: false
@@ -29338,6 +29777,10 @@ components:
           description: 客人选的附加服务和数量（M8-02，ADR 0069 B15）。照原样交给报价引擎：没有商品提供的车型组报不出价（`ADDON_NOT_OFFERED`）；价格只在报价的合计里，不单独给单价
           items:
             $ref: "#/components/schemas/SiteAddonRequest"
+        draft_id:
+          type: string
+          maxLength: 64
+          description: 可选（M9E-02，ADR 0090）：从嵌入组件的预订草稿来时带上草稿编号。只用于记来源（统计），不影响报价；过期、不存在的照常报价、不记
         pickup_name:
           type: [ string, "null" ]
           maxLength: 200
@@ -29451,6 +29894,10 @@ components:
           description: 客人选的附加服务和数量（M8-02，ADR 0069 B15）。照原样交给报价引擎：没有商品提供的车型组报不出价（`ADDON_NOT_OFFERED`）；价格只在报价的合计里，不单独给单价
           items:
             $ref: "#/components/schemas/SiteAddonRequest"
+        draft_id:
+          type: string
+          maxLength: 64
+          description: 可选（M9E-02，ADR 0090）：从嵌入组件的预订草稿来时带上草稿编号。只用于记来源（统计），不影响报价；过期、不存在的照常报价、不记
         pickup_name:
           type: [ string, "null" ]
           maxLength: 200
@@ -30070,8 +30517,11 @@ components:
     SiteOrderEnvelope:
       type: object
       additionalProperties: false
-      required: [ order, timeline, names, price_breakdown ]
+      required: [ order, timeline, names, price_breakdown, return_url ]
       properties:
+        return_url:
+          type: [ string, "null" ]
+          description: 从嵌入组件来、下单时核对过白名单的「返回原网站」地址（M9E-02，ADR 0090）；没有为 null
         price_breakdown:
           description: |
             订单的对外价明细（M9W-04，ADR 0089 第 5 节）：只有包车按行程计价的单才有——取下单用的那份报价快照里的明细（和下单页看到的一样，不按现在的价格重算），
