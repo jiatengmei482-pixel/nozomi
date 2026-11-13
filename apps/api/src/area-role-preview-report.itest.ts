@@ -3,7 +3,7 @@
  * - 未登录 401、供应商的令牌 401；没有 `quote.preview` 403；限定了数据范围 403 `DATA_SCOPE_DENIED`；只勾了「报价试算」的自建角色能用；
  * - 结果和命令行用的 `buildRolePreview` 完全一样（同一时刻、同一天数），没有坐标、没有客人信息；
  * - 只读：除了审计和限速表，数据库里一个字节都没变；每次调用写一条审计；
- * - 天数校验（1–90、默认 30）；限速（每人 10 分钟 3 次，超过 429 + Retry-After，各人各算）；
+ * - 天数校验（1–90、默认 30）；截止时间 `until`（默认现在、不能晚于现在，回放 [until − days, until)，同一个 until 两次摘要一样）；限速（每人 10 分钟 3 次，超过 429 + Retry-After，各人各算）；
  * - 时限：真实请求在时限到了时得到 503 `REPORT_TIMEOUT`（时限可注入）；只读事务里的 `statement_timeout` 跟着剩下的时间收，慢查询也会被数据库取消。
  */
 import { after, before, test } from "node:test";
@@ -55,6 +55,8 @@ before(async () => {
     await ok(api.call("POST", "/sales/v1/quotes", { token: creds.token, body: { city_id: m.ids.tokyo, category: "airport_transfer", place_id: m.ids.narita, direction: "pickup", dropoff, service_time: "2026-10-20T10:00:00+09:00", passengers: 2, luggage: 1, currency: "JPY" } }));
   }
   await api.app.backgroundIdle();
+  // 回放窗口不含截止时间（默认现在）：测试的时钟是停着的，往前走 1 毫秒，刚才的询价才在窗口里（真实环境里时间总在走）
+  api.clock.advance(1);
   const readonlyRole = await ok(api.call("POST", "/platform/v1/roles", { token: m.root, body: { name: "只读核对", grants: ["quote_preview:view"], data_scope: { city_ids: null, channel_ids: null } } }), 201);
   reader = await staffWithRole("readonly-check@platform.test", readonlyRole.key);
   const scopedRole = await ok(api.call("POST", "/platform/v1/roles", { token: m.root, body: { name: "官网试算", grants: ["quote_preview:view"], data_scope: { city_ids: null, channel_ids: [channel.id] } } }), 201);
@@ -99,7 +101,9 @@ test("结果和命令行的 buildRolePreview 完全一样；没有坐标、没�
   const changed = Object.keys(after).filter((table) => after[table] !== before[table]).sort();
   assert.deepEqual(changed, ["audit_logs", "sales_rate_limits"]);
   const audit = await api.db.owner.query("select actor_email, source, resource, resource_id, action, before, after from audit_logs where resource = 'area' and action = 'view' order by occurred_at desc, id desc limit 1");
-  assert.deepEqual(audit.rows[0], { actor_email: "readonly-check@platform.test", source: "console", resource: "area", resource_id: null, action: "view", before: null, after: { report: "area_role_preview", days: 7 } });
+  assert.deepEqual(audit.rows[0], { actor_email: "readonly-check@platform.test", source: "console", resource: "area", resource_id: null, action: "view", before: null, after: { report: "area_role_preview", days: 7, until: api.clock.now().toISOString() } });
+  assert.equal(res.body.replay.until, api.clock.now().toISOString());
+  assert.equal(res.body.replay.resultLines, res.body.replay.resultLineDigests.length);
 });
 
 test("天数：1–90 的整数，默认 30；其他写法 400，不占限速、不写审计", async () => {
@@ -115,6 +119,31 @@ test("天数：1–90 的整数，默认 30；其他写法 400，不占限速、
   assert.equal((await ok(get(token))).replay.days, 30);
   assert.equal((await ok(get(token, "?days=90"))).replay.days, 90);
   assert.equal((await ok(get(token, "?days=1"))).replay.days, 1);
+});
+
+test("截止时间 until：回放 [until − days, until)；同一个 until 两次摘要一样；不是带时区的时间、晚于现在 400（不占限速、不写审计）", async () => {
+  const token = await staffWithRole(`until-${randomUUID().slice(0, 8)}@platform.test`, "operations");
+  const now = api.clock.now();
+  const before = await snapshot();
+  for (const query of ["?until=x", "?until=2026-11-13", "?until=2026-11-13T00:00:00", `?until=${encodeURIComponent(new Date(now.getTime() + 1000).toISOString())}`, "?until=a&until=b"]) {
+    const res = await get(token, query);
+    assert.equal(res.status, 400, `${query} ${res.text}`);
+    assert.equal(res.body.error.code, "VALIDATION_FAILED");
+    assertMatchesOpenApi("GET", TEMPLATE, res);
+  }
+  assert.deepEqual(await snapshot(), before);
+  const created = (await api.db.owner.query("select min(created_at) as first, max(created_at) as last from quote_logs")).rows[0];
+  const at = (date: Date) => `?days=7&until=${encodeURIComponent(date.toISOString())}`;
+  // 截止时间不含这一刻：until 等于最早一条询价的时间，那一条不算
+  const empty = await ok(get(token, at(created.first)));
+  assert.equal(empty.replay.logs, 0);
+  assert.equal(empty.replay.until, new Date(created.first).toISOString());
+  assert.equal(empty.replay.since, new Date(new Date(created.first).getTime() - 7 * 86_400_000).toISOString());
+  const until = new Date(new Date(created.last).getTime() + 1);
+  const first = await ok(get(token, at(until)));
+  assert.equal(first.replay.logs, 2);
+  const second = await withPlatformTx(api.db.pool, (db) => buildRolePreview(db, { days: 7, now: api.clock.now(), until }), { snapshot: true });
+  assert.deepEqual([second.replay.resultDigest, second.replay.stateDigest, second.replay.resultLines], [first.replay.resultDigest, first.replay.stateDigest, first.replay.resultLines]);
 });
 
 test("限速：每人 10 分钟 3 次，第 4 次 429 + Retry-After（不写审计）；别人不受影响；10 分钟后恢复", async () => {
@@ -153,7 +182,7 @@ test("时限到了的真实请求：503 REPORT_TIMEOUT（时限注入为 0）；
     assert.deepEqual(res.body.error.details, { days: 7, budget_seconds: 0 });
     assertMatchesOpenApi("GET", TEMPLATE, res);
     const audits = await short.db.owner.query("select after from audit_logs where resource = 'area' and action = 'view'");
-    assert.deepEqual(audits.rows, [{ after: { report: "area_role_preview", days: 7 } }]);
+    assert.deepEqual(audits.rows, [{ after: { report: "area_role_preview", days: 7, until: short.clock.now().toISOString() } }]);
     const slots = await short.db.owner.query("select attempt_count from sales_rate_limits where bucket like 'staff_role_preview:%'");
     assert.deepEqual(slots.rows, [{ attempt_count: 1 }]);
   } finally {

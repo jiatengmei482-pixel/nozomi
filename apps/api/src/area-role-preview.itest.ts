@@ -41,6 +41,8 @@ before(async () => {
   await ok(site.call("POST", "/site/v1/quotes", { body: { city_id: m.ids.tokyo, airport_id: m.ids.narita, direction: "dropoff", address: { lng: 140.5, lat: 35.5 }, service_local: "2026-10-21T08:00", passengers: 1 } }));
   await api.app.backgroundIdle();
   await site.app.backgroundIdle();
+  // 回放窗口不含截止时间（默认现在）：测试的时钟是停着的，往前走 1 毫秒，刚才的询价才在窗口里（真实环境里时间总在走）
+  api.clock.advance(1);
 });
 after(async () => {
   await site?.close();
@@ -62,6 +64,13 @@ test("清单：每个供应商的区域数（按业务类型、启停、用途�
   const text = renderRolePreview(result);
   assert.match(text, /对外结果不同：0 处（可以上线）/);
   assert.match(text, /OUT_OF_SERVICE_AREA → NO_PRICING_AREA 2 次/);
+  // 报价结果摘要值：每次「询价 × 候选商品」一行；同样的数据再跑一次摘要不变
+  assert.equal(result.replay.resultLines, result.replay.evaluations);
+  assert.match(result.replay.resultDigest, /^[0-9a-f]{64}$/);
+  assert.equal((await preview()).replay.resultDigest, result.replay.resultDigest);
+  assert.ok(text.includes(`10 行）：${result.replay.resultDigest}；回放用到的数据的状态摘要：${result.replay.stateDigest}`));
+  assert.match(result.replay.stateDigest, /^[0-9a-f]{64}$/);
+  assert.equal(result.replay.until, api.clock.now().toISOString());
   assert.ok(!text.includes("140.5") && !text.includes("35.5"), "不打印坐标");
   // 回放的天数：询价都在今天，0 天以前的不算
   assert.equal((await preview(1)).replay.logs, 5);
@@ -72,6 +81,49 @@ test("只读：清单在平台的只读事务里，数据库拒绝写入；命�
   assert.deepEqual(readPreviewOptions([]), { days: 30, json: false });
   assert.deepEqual(readPreviewOptions(["--days", "7", "--json"]), { days: 7, json: true });
   for (const argv of [["--execute"], ["--apply"], ["--days", "0"], ["--days", "91"], ["--days", "x"], ["extra"]]) assert.throws(() => readPreviewOptions(argv), /参数不正确|--days/, argv.join(" "));
+});
+
+test("摘要值：供应商的价改一分钱，结果摘要和状态摘要都变；改回来，两个摘要都和原来一样（引擎改动前后比对用）", async () => {
+  const original = (await preview()).replay;
+  const bump = async (delta: number) => {
+    const updated = await api.db.owner.query("update price_rules set params = jsonb_set(params, '{basePriceMinor}', to_jsonb((params->>'basePriceMinor')::bigint + $2)) where tenant_id = $1 and pricing_model = 'fixed'", [m.a.tenantId, delta]);
+    assert.ok((updated.rowCount ?? 0) > 0);
+  };
+  await bump(1);
+  const changed = (await preview()).replay;
+  assert.notEqual(changed.resultDigest, original.resultDigest);
+  assert.notEqual(changed.stateDigest, original.stateDigest);
+  assert.equal(changed.resultLines, original.resultLines);
+  // 逐行摘要按（询价编号, 商品编码）比对，能定位到变了的行：都是甲的商品
+  const byKey = (entries: { logId: string; productCode: string; digest: string }[]) => {
+    const map = new Map<string, string[]>();
+    for (const entry of entries) map.set(`${entry.logId}|${entry.productCode}`, [...(map.get(`${entry.logId}|${entry.productCode}`) ?? []), entry.digest].sort());
+    return map;
+  };
+  const was = byKey(original.resultLineDigests);
+  const now = byKey(changed.resultLineDigests);
+  assert.deepEqual([...now.keys()].sort(), [...was.keys()].sort());
+  const moved = [...now.keys()].filter((key) => JSON.stringify(now.get(key)) !== JSON.stringify(was.get(key)));
+  const codesOfA = new Set((await api.db.owner.query("select code from products where tenant_id = $1", [m.a.tenantId])).rows.map((row) => row.code as string));
+  assert.ok(moved.length > 0 && moved.length < was.size, JSON.stringify(moved));
+  for (const key of moved) assert.ok(codesOfA.has(key.slice(key.indexOf("|") + 1)), key);
+  await bump(-1);
+  const restored = (await preview()).replay;
+  assert.deepEqual([restored.resultDigest, restored.stateDigest], [original.resultDigest, original.stateDigest]);
+});
+
+test("状态摘要也看子品牌、车型组：改取整单位、停用车型组，stateDigest 都变；改回来还原", async () => {
+  const original = (await preview()).replay.stateDigest;
+  const brand = (await api.db.owner.query("select b.id, b.rounding_unit from brands b where b.tenant_id = $1 and b.id in (select brand_id from products where tenant_id = $1) limit 1", [m.a.tenantId])).rows[0];
+  await api.db.owner.query("update brands set rounding_unit = $2 where id = $1", [brand.id, brand.rounding_unit === 100 ? 10 : 100]);
+  assert.notEqual((await preview()).replay.stateDigest, original);
+  await api.db.owner.query("update brands set rounding_unit = $2 where id = $1", [brand.id, brand.rounding_unit]);
+  assert.equal((await preview()).replay.stateDigest, original);
+  const group = (await api.db.owner.query("select vg.id from vehicle_groups vg where vg.status = 'active' and vg.id in (select vehicle_group_id from product_vehicle_groups where tenant_id = $1) limit 1", [m.a.tenantId])).rows[0];
+  await api.db.owner.query("update vehicle_groups set status = 'disabled' where id = $1", [group.id]);
+  assert.notEqual((await preview()).replay.stateDigest, original);
+  await api.db.owner.query("update vehicle_groups set status = 'active' where id = $1", [group.id]);
+  assert.equal((await preview()).replay.stateDigest, original);
 });
 
 test("迁移之前（区域还没有用途这一列）：按迁移后的样子算——每个区域都是运营 + 报价，回放结果和迁移之后一样", async () => {
