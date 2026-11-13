@@ -128,8 +128,8 @@
   overflow-wrap: anywhere;
 }
 
-/* 手机触屏上地址那一格（M8-37b，用户 2026-11-13 真机反馈）：整行宽、长地址折行显示全，框跟着变高（压过官网控件统一的 lg 固定高度）；日期、时间仍单行 */
-.site .input.picker-trigger--wrap {
+/* 手机触屏上地址那一格（M8-37b，用户 2026-11-13 真机反馈）：整行宽、长地址折行显示全，框跟着变高（压过官网控件统一的 lg 固定高度；多带一个类提高优先级，不依赖样式文件的引入顺序）；日期、时间仍单行 */
+.site .input.picker-trigger.picker-trigger--wrap {
   height: auto;
   min-height: var(--control-height-lg);
   padding-block: var(--space-2);
