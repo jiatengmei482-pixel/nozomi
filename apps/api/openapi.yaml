@@ -2331,6 +2331,162 @@ paths:
                   truncated:
                     type: boolean
                     description: 符合条件的区域超过 300 个，只给了最近修改的 300 个
+  /platform/v1/shared-areas:
+    get:
+      tags: [ 供应商商品（平台） ]
+      operationId: listPlatformSharedAreas
+      summary: 区域共享库去重：一个城市里库里的全部区域
+      description: |
+        M8-31b（ADR 0083 补充）。需要操作 `master_data.read`。共享库 = 各供应商启用中的原创区域（不含副本、测试供应商和已清退供应商的），
+        这里连同被平台标为重复、隐藏中的一起列出（`duplicate` 不为 null），才能撤销。按最近修改从新到旧，一个城市最多 500 个（超过时 `truncated` 为 true）。
+        每一项带 `similar`：同城里和它同名（`areaNameKeys` 归一后任意一种语言相同）或营运区重叠、都没有隐藏的其他区域（和供应商新建区域时的相似提示同一个判断），
+        和 `copy_count`（各供应商从它引用的副本数，参考留哪份）。不显示创建者。`q` 只筛列出的项，疑似重复仍在全城里找。只读：不写库、不写审计。
+      security:
+        - platformToken: []
+      parameters:
+        - name: city_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: q
+          in: query
+          required: false
+          description: 任意一种语言的名称里包含它（不区分大小写）
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+      responses:
+        "200":
+          description: 共享区域
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items, truncated ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PlatformSharedArea"
+                  truncated:
+                    type: boolean
+        "400":
+          description: "`VALIDATION_FAILED`：参数不合规，`details.issues[]` 每条有 `path`、`message`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/shared-areas/{id}/mark-duplicate:
+    post:
+      tags: [ 供应商商品（平台） ]
+      operationId: markSharedAreaDuplicate
+      summary: 把共享库里的一个区域标为另一份的重复（隐藏它，以后的引用指向保留的那份）
+      description: |
+        M8-31b（ADR 0083 补充，业主 2026-11-13 决定）。需要操作 `master_data.manage`。`{id}` 是要隐藏的那份，`keep_area_id` 是保留的那份。
+        之后：`{id}` 不再出现在供应商看到的共享库列表、详情、相似提示里；供应商引用 `{id}` 时（`POST /tenant/v1/areas/from-shared`）改为复制保留的那份，
+        副本的来源记保留的那份。**不改任何供应商的区域、已有副本和报价**：`{id}` 在它自己的供应商那里照常可用；已经从 `{id}` 引用的副本来源不变，
+        照旧看得到它的新版本、能切换。所以不走双人复核；写审计（对象 `shared_area_duplicate`，操作 `create`）。
+        规则保证不形成链：被隐藏的不能当保留的，保留的不能被隐藏（先撤销指向它的标记）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ keep_area_id, reason ]
+              properties:
+                keep_area_id:
+                  type: string
+                  format: uuid
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+                  description: 为什么是重复（进审计和标记记录）
+      responses:
+        "200":
+          description: 生效中的标记
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SharedAreaDuplicate"
+        "400":
+          description: "`VALIDATION_FAILED`：参数不合规，`details.issues[]` 每条有 `path`、`message`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: "`NOT_FOUND`：要隐藏的区域不在共享库里（不存在、停用、是副本、属于测试或已清退的供应商）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: |
+            `SHARED_AREA_ALREADY_HIDDEN`：已经标为重复（要改指向先撤销）；`SHARED_AREA_IS_KEEP_TARGET`：它是别的区域的保留那份（先撤销那些标记）；
+            `DUPLICATE_KEEP_UNAVAILABLE`：保留的那份不存在、不在库里或自己也被隐藏了；`DUPLICATE_CITY_MISMATCH`：两个区域不在同一个城市；
+            `DUPLICATE_SAME_AREA`：标成自己的重复
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/shared-areas/{id}/unmark-duplicate:
+    post:
+      tags: [ 供应商商品（平台） ]
+      operationId: unmarkSharedAreaDuplicate
+      summary: 撤销重复标记（区域重新出现在共享库里）
+      description: |
+        M8-31b（ADR 0083 补充）。需要操作 `master_data.manage`。撤销后 `{id}` 重新出现在共享库里，以后引用它的照常引用它；
+        标记期间已经转到保留那份的副本不变（来源仍是保留的那份）。标记行留下做历史；写审计（对象 `shared_area_duplicate`，操作 `revoke`）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                reason:
+                  oneOf:
+                    - type: string
+                      minLength: 1
+                      maxLength: 500
+                    - type: "null"
+      responses:
+        "200":
+          description: 撤销后的标记（`revoked_at` 不为 null）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SharedAreaDuplicate"
+        "400":
+          description: "`VALIDATION_FAILED`：参数不合规，`details.issues[]` 每条有 `path`、`message`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`SHARED_AREA_NOT_HIDDEN`：这个区域没有生效中的重复标记"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /platform/v1/map/config:
     get:
       tags: [ 供应商商品（平台） ]
@@ -4811,6 +4967,7 @@ paths:
         需要操作 `area.manage`，必须带请求头 `Idempotency-Key`（M8-31，ADR 0083）。在自己名下新建一个区域：城市、图形照抄来源**现在**的版本
         （只抄种类和坐标，算作「粘贴的」），记住来源和图形版本（`shared_source`）。名称不给时用来源的名称；业务类型、用途自己定。
         之后来源改了图形，这个副本不变，由你决定是否切换。检查、审计和新增区域一样（同城重名 409 `AREA_NAME_TAKEN`，改个名字再引用）。
+        `shared_area_id` 是被平台标为重复、在库里隐藏的那份时（M8-31b），改为复制它指向的保留那份，`shared_source.shared_area_id` 记保留的那份。
       security:
         - tenantToken: []
       parameters:
@@ -4867,7 +5024,7 @@ paths:
       summary: 切换到共享库里的新版本图形
       description: |
         需要操作 `area.manage`，带 `If-Match`（M8-31，ADR 0083）。把引用来的区域的图形换成来源现在的版本，名称、业务类型、用途不动；
-        检查和审计与修改区域一样。已经是最新版本时原样返回（不加版本号）。
+        检查和审计与修改区域一样。已经是最新版本时原样返回（不加版本号）。来源被平台标为重复、在库里隐藏后照常能切换（已有副本的来源不变，M8-31b）。
       security:
         - tenantToken: []
       parameters:
@@ -4995,7 +5152,7 @@ paths:
       tags: [ 区域 ]
       operationId: getSharedArea
       summary: 查看共享库里的一个区域（带形状）
-      description: 需要操作 `area.read`（M8-31，ADR 0083）。不在共享库里（停用、删除、是副本、属于测试供应商）的是 404。
+      description: 需要操作 `area.read`（M8-31，ADR 0083）。不在共享库里（停用、删除、是副本、属于测试供应商）的是 404；被平台标为重复、隐藏中的也是 404（M8-31b）。
       security:
         - tenantToken: []
       parameters:
@@ -22086,7 +22243,8 @@ components:
           minimum: 1
           description: |
             只在区域列表、详情、切换的应答里有：来源现在在共享库里的图形版本。比 `shape_version` 大时页面提示「共享库里有新版本」，
-            由供应商自己决定是否切换（`POST /tenant/v1/areas/{id}/sync-shared`）。null = 来源已不在共享库里（停用或删除），副本照旧可用
+            由供应商自己决定是否切换（`POST /tenant/v1/areas/{id}/sync-shared`）。null = 来源已不在共享库里（停用或删除），副本照旧可用。
+            来源被平台标为重复、在库里隐藏时照常给（已有副本的来源不变，M8-31b）
     SharedArea:
       type: object
       additionalProperties: false
@@ -22113,6 +22271,122 @@ components:
         updated_at:
           type: string
           format: date-time
+    PlatformSharedArea:
+      type: object
+      additionalProperties: false
+      description: 运营后台去重列表里的一个共享区域（M8-31b）：`SharedArea` 的字段，加副本数、隐藏标记和疑似重复。不显示创建者
+      required: [ id, city_id, name, shape_version, operate_polygon_count, forbid_polygon_count, updated_at, copy_count, duplicate, similar ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        city_id:
+          type: string
+          format: uuid
+        name:
+          $ref: "#/components/schemas/LocalizedText"
+        shape_version:
+          type: integer
+          minimum: 1
+        operate_polygon_count:
+          type: integer
+          minimum: 0
+        forbid_polygon_count:
+          type: integer
+          minimum: 0
+        updated_at:
+          type: string
+          format: date-time
+        copy_count:
+          type: integer
+          minimum: 0
+          description: 各供应商从它引用的副本数（不论副本现在的状态）
+        duplicate:
+          description: 被标为重复、隐藏中时的标记；没有隐藏为 null
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required: [ id, keep_area_id, keep_area_name, keep_area_listed, reason, marked_by, marked_at ]
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                keep_area_id:
+                  type: string
+                  format: uuid
+                keep_area_name:
+                  description: 保留那份的名称；它已不在共享库里时为 null
+                  oneOf:
+                    - $ref: "#/components/schemas/LocalizedText"
+                    - type: "null"
+                keep_area_listed:
+                  type: boolean
+                  description: 保留的那份现在还在共享库里（为 false 时以后引用这一份会 404，请撤销或改指向）
+                reason:
+                  type: string
+                marked_by:
+                  $ref: "#/components/schemas/SharedAreaDuplicateActor"
+                marked_at:
+                  type: string
+                  format: date-time
+        similar:
+          type: array
+          description: 疑似重复：同城、都没有隐藏的其他共享区域。`reasons`：name 名称相同；overlap 营运区重叠
+          items:
+            type: object
+            additionalProperties: false
+            required: [ id, reasons ]
+            properties:
+              id:
+                type: string
+                format: uuid
+              reasons:
+                type: array
+                items:
+                  type: string
+                  enum: [ name, overlap ]
+    SharedAreaDuplicateActor:
+      type: object
+      additionalProperties: false
+      required: [ id, name ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+    SharedAreaDuplicate:
+      type: object
+      additionalProperties: false
+      description: 共享库的一条重复标记（M8-31b）：隐藏 `area_id`，以后引用它的改为引用 `keep_area_id`；撤销后 `revoked_*` 有值
+      required: [ id, area_id, keep_area_id, reason, marked_by, marked_at, revoked_by, revoked_at, revoke_reason ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        area_id:
+          type: string
+          format: uuid
+        keep_area_id:
+          type: string
+          format: uuid
+        reason:
+          type: string
+        marked_by:
+          $ref: "#/components/schemas/SharedAreaDuplicateActor"
+        marked_at:
+          type: string
+          format: date-time
+        revoked_by:
+          oneOf:
+            - $ref: "#/components/schemas/SharedAreaDuplicateActor"
+            - type: "null"
+        revoked_at:
+          type: [ string, "null" ]
+          format: date-time
+        revoke_reason:
+          type: [ string, "null" ]
     SharedAreaDetail:
       type: object
       additionalProperties: false

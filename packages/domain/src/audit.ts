@@ -62,6 +62,8 @@ export const AUDIT_RESOURCES = [
   "site_settings",
   // 测试环境的验收会话（M8-26，ADR 0078）：解锁（unlock）、口令错误（login_failed）、结束（close）。不记口令
   "qa_acceptance_session",
+  // 共享库去重（M8-31b，ADR 0083 补充）：标为重复（create）、撤销（revoke）；对象编号是标记本身，前后值里有两个区域的编号
+  "shared_area_duplicate",
 ] as const;
 
 export type AuditResource = (typeof AUDIT_RESOURCES)[number];
