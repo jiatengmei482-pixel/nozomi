@@ -1,5 +1,5 @@
 /**
- * 订单详情「行程」卡片里的「用的价格」「计价方式」「公里数」「区域加价」几项（M8-13，ADR 0073 第四部分；规范 platform-orders.md 3d；计价方式 M8-30b）。
+ * 订单详情「行程」卡片里的「用的价格」「计价方式」「公里数」「区域加价」「超公里 / 超时」（M9W-04）几项（M8-13，ADR 0073 第四部分；规范 platform-orders.md 3d；计价方式 M8-30b）。
  * 放在「车型」那一组后面；没有这些数的订单（旧单、没设含公里数、没有区域加价、接送机）一项都不出，页面其余照常。
  * - `audience="platform"`：结算价和对外价都写；
  * - `audience="tenant"`：只有结算价（规则 4）——用的是供应商接口给的数，里面本来就没有对外价。
@@ -10,8 +10,10 @@ import type { ReactNode } from "react";
 import {
   type OrderAreaSurchargeView,
   type OrderDistanceView,
+  type OrderItineraryMoneyView,
   type OrderMileageView,
   type OrderPricingRoute,
+  itineraryOverageLines,
   orderPricingBasisLines,
   platformDistanceLines,
   platformSurchargeLines,
@@ -46,6 +48,7 @@ export function OrderAreaPriceItems({
   areaSurcharge,
   pricingBasis,
   mileage,
+  itinerary,
 }: {
   audience: "platform" | "tenant";
   pricingRoute: OrderPricingRoute | null | undefined;
@@ -54,12 +57,15 @@ export function OrderAreaPriceItems({
   /** 计价方式和计程明细（M8-30b，结算价）；一口价、旧接口没有 */
   pricingBasis?: PricingBasis | null | undefined;
   mileage?: OrderMileageView | null | undefined;
+  /** 包车按行程计价的超公里、超时（M9W-04，结算价）；没按行程计价、旧接口没有 */
+  itinerary?: OrderItineraryMoneyView | null | undefined;
 }) {
   const route = pricingRouteText(pricingRoute);
   const basis = orderPricingBasisLines(audience, pricingBasis, mileage);
   const surcharge = audience === "platform" ? platformSurchargeLines(areaSurcharge) : tenantSurchargeLines(areaSurcharge);
   const platformKm = audience === "platform" ? platformDistanceLines(distance) : null;
   const tenantKm = audience === "tenant" ? tenantDistanceLines(distance) : null;
+  const overage = itineraryOverageLines(audience, itinerary);
   return (
     <>
       {route !== null && <Item label="用的价格">{route}</Item>}
@@ -88,6 +94,11 @@ export function OrderAreaPriceItems({
       {surcharge !== null && (
         <Item label="区域加价">
           <Lines lines={surcharge} />
+        </Item>
+      )}
+      {overage !== null && (
+        <Item label="超公里 / 超时">
+          <Lines lines={overage} />
         </Item>
       )}
     </>

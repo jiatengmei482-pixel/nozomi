@@ -740,6 +740,24 @@ test("包车经停点（M9W-03）：供应商订单详情「经停点」一项�
   assert.equal(tripItem("经停点"), null);
 });
 
+test("包车按行程计价（M9W-04）：供应商订单详情「超公里 / 超时」写全程、套餐含量、超出量 × 单价 = 钱（只有结算价，币种在前）；没按行程计价的单不出这一项", async () => {
+  const base = orderOf({ category: "charter", direction: null, place_id: null, flight_no: null, package_hours: 10, pickup: { lng: 139.7, lat: 35.69, address: "京王广场酒店" }, dropoff: { lng: 139.7, lat: 35.69, address: "新宿站" }, waypoints: STOPS });
+  const itinerary = { route_meters: 260_000, route_minutes: 650, package_km: 200, package_minutes: 600, over_meters: 60_000, overtime_minutes: 50, over_km_fee: yen("18000"), overtime_fee: yen("4167"), over_km_per_km: yen("300"), overtime_per_hour: yen("5000") };
+  const charter = { ...base, settlement: { ...base.settlement, total: yen("87167"), itinerary } };
+  open(`/orders/${ORDER_ID}`, "dispatch", (call) => (call.method === "GET" && call.url.pathname === `/tenant/v1/orders/${ORDER_ID}` ? json(200, { ...detailOf(charter), pricing_route: null, area_surcharge: null }) : null));
+  await screen.findByRole("heading", { name: "行程" });
+  assert.deepEqual([...(tripItem("超公里 / 超时")?.querySelectorAll(".details__lines > span") ?? [])].map((line) => line.textContent), [
+    "超公里：全程 260 公里，套餐含 200 公里，超出 60 公里 × 每公里 JPY 300 = JPY 18,000",
+    "超时：预计 10 小时 50 分（含停留），套餐 10 小时，超出 50 分钟 × 每小时 JPY 5,000 = JPY 4,167",
+  ]);
+  assert.doesNotMatch(document.body.textContent ?? "", /对外/);
+
+  resetBrowser();
+  open(`/orders/${ORDER_ID}`, "dispatch", (call) => (call.method === "GET" && call.url.pathname === `/tenant/v1/orders/${ORDER_ID}` ? json(200, { ...detailOf(base), pricing_route: null, area_surcharge: null }) : null));
+  await screen.findByRole("heading", { name: "行程" });
+  assert.equal(tripItem("超公里 / 超时"), null);
+});
+
 test("司机页面（M9W-03）：包车经停点按顺序写名称、停留和「导航到经停 N」，在上车和下车之间；没有任何价格", async () => {
   denyGeolocation();
   const trip = tripOf({ order: { ...tripOf().order, category: "charter", direction: null, flight_no: null, package_hours: 10, place: null, pickup: { lng: 139.7, lat: 35.69, address: "京王广场酒店" }, dropoff: { lng: 139.7, lat: 35.69, address: "新宿站" }, waypoints: STOPS, pickup_point: { lng: 139.7, lat: 35.69 } } });

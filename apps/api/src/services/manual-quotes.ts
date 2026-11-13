@@ -14,6 +14,7 @@ import {
   MANUAL_QUOTE_FINISHED,
   MANUAL_QUOTE_RULES,
   type ManualQuotePlace,
+  type ManualQuoteWaypoint,
   type ManualQuoteStatus,
   type ManualQuoteTrip,
   grantCan,
@@ -76,12 +77,13 @@ export interface ManualQuoteSubmission {
   acceptance: boolean;
 }
 
-/** 密文里的内容：联系方式和两端地点。 */
+/** 密文里的内容：联系方式、两端地点和包车的经停点（M9W-04；没有经停点时不写这一项，M9W-04 之前的也没有）。 */
 interface SealedContact {
   email: string | null;
   whatsapp: string | null;
   pickup: ManualQuotePlace;
   dropoff: ManualQuotePlace | null;
+  waypoints?: ManualQuoteWaypoint[];
 }
 
 const NO_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -92,10 +94,15 @@ function newRequestNo(now: Date): string {
   return `MQ${day}${tail}`;
 }
 
-/** 去重比的行程要点：坐标按 4 位小数（约 10 米），地点名称不算（同一个点换个写法还是同一个行程）。 */
+/**
+ * 去重比的行程要点：坐标按 4 位小数（约 10 米），地点名称不算（同一个点换个写法还是同一个行程）。
+ * 有经停点时（M9W-04）再加上经停点的坐标和停留；没有经停点时和以前完全一样。
+ */
 function tripKey(trip: ManualQuoteTrip): string {
   const point = (place: ManualQuotePlace | null) => (place === null ? null : [place.lat.toFixed(4), place.lng.toFixed(4)]);
-  return JSON.stringify([trip.category, point(trip.pickup), point(trip.dropoff), trip.serviceLocal, trip.passengers, trip.luggage, trip.packageHours]);
+  const parts: unknown[] = [trip.category, point(trip.pickup), point(trip.dropoff), trip.serviceLocal, trip.passengers, trip.luggage, trip.packageHours];
+  if (trip.waypoints.length > 0) parts.push(trip.waypoints.map((stop) => [point(stop), stop.stayMinutes]));
+  return JSON.stringify(parts);
 }
 
 /** 占一次按联系方式、全站的额度：单独的事务先提交，后面出错这一次照样算数。 */
@@ -127,7 +134,7 @@ export async function submitManualQuote(ctx: AppContext, input: ManualQuoteSubmi
     await db.query("select pg_advisory_xact_lock(hashtext($1))", [`nozomi.manual-quote:${dedupKey}`]);
     if (await hasRecentDuplicate(db, dedupKey, new Date(now.getTime() - MANUAL_QUOTE_RULES.duplicateWindowMs))) return;
     const id = randomUUID();
-    const sealed: SealedContact = { email: input.email, whatsapp: input.whatsapp, pickup: input.trip.pickup, dropoff: input.trip.dropoff };
+    const sealed: SealedContact = { email: input.email, whatsapp: input.whatsapp, pickup: input.trip.pickup, dropoff: input.trip.dropoff, ...(input.trip.waypoints.length === 0 ? {} : { waypoints: input.trip.waypoints }) };
     await insertManualQuote(
       db,
       {
