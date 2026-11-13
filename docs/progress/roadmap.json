@@ -471,7 +471,7 @@
           "role": "designer",
           "status": "doing",
           "acceptance": ["designer 先改 docs/design/01-tokens 第 5 节（程序聚焦的例外：鼠标 / 触屏换步不显示聚焦框，键盘换步照常显示），写明理由", "前端按规范实现，焦点仍移到标题（读屏不受影响），只改可见的框", "组件 / 端到端测试：键盘换步有框、鼠标换步没框；亮暗两色", "来源：业主 2026-11-13 决定（M6-08 待决定项 ②）"],
-          "evidence": "规范已改（分支 m6-10-keyboard-focus-spec），前端实现待做",
+          "evidence": "规范已改（PR https://github.com/jiatengmei482-pixel/nozomi/pull/180 ，分支 m6-10-keyboard-focus-spec），前端实现待做",
           "updated": "2026-11-13"
         },
         {
@@ -2078,6 +2078,11 @@
       "date": "2026-11-13",
       "by": "designer",
       "summary": "M6-10 第一步（业主 2026-11-13 决定）：设计规范 01-tokens.md 第 5 节新增「程序聚焦的例外」——脚本为读屏把焦点移到 tabindex=-1 的标题时，鼠标 / 触屏换步不显示聚焦框、键盘换步照常显示 2px 聚焦环，焦点照样移过去；按钮、链接、输入框、提示条、出错字段不在例外内。写明理由，以及建议页面记录最近一次输入方式（pointerdown / keydown）而不用单纯的 :focus-visible（各浏览器对程序聚焦判断不一致）。02-components.md 通用约定和第 24 节步骤导航、tenant-products.md 3.1、第 11 节、第 13 节检查清单引用这条例外。只改规范，前端实现待做；分支 m6-10-keyboard-focus-spec。"
+    },
+    {
+      "date": "2026-11-13",
+      "by": "designer",
+      "summary": "M6-10 规范按 PR #180 审查意见修改：01-tokens.md 第 5 节写明不画聚焦环的例外只有两处（已有的 main:focus 和分步配置的步骤标题）；标题分 pointer / keyboard / unknown 三种标记，pointer 不画，keyboard 和 unknown 用 :focus 强制画 2px 环，没有标记沿用全站 :focus-visible；输入方式在触发的点击 / 按键当时记下带到换步那一刻，浏览器后退 / 前进和直接打开网址算 unknown；鼠标直接点标题、进入上架检查、「载入最新内容」后聚焦标题同样适用；写出具体 CSS 和样式检查配套改动（白名单精确放宽到 .step__title[tabindex=\"-1\"][data-focus-source=\"pointer\"]:focus，并拦 outline-color: transparent、outline-style: none 等藏环写法，要有反例断言）；理由补 WCAG 2.4.7。tenant-products.md 3.1、8.2、第 13 节同步。只改规范。"
     }
   ]
 }
