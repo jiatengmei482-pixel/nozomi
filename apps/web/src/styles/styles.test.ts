@@ -5,6 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
+import { MEASURED_LENGTHS } from "../lib/measured-length.ts";
 
 const STYLES_DIR = new URL("./", import.meta.url);
 const TOKENS_URL = new URL("../../../../docs/design/tokens.css", import.meta.url);
@@ -59,18 +60,34 @@ test("字号、字重、行高、层级、圆角、阴影只引用令牌", () =>
   }
 });
 
-/**
- * 不是设计令牌、由页面脚本量出来的尺寸变量（只能是长度，不能是颜色、字号）。每加一个都要在对应页面规范里写明：
- * --driver-bar-height：司机页吸底按钮条的实际高度（docs/design/pages/driver.md 3b，M6-08）。
- */
-const MEASURED_VARIABLES = new Set(["--driver-bar-height"]);
+/** 不是设计令牌、由页面脚本量出来的尺寸变量：名单和「谁可以引用」都只在 lib/measured-length.ts 登记，和 styles.edge.test.ts 共用这一份。 */
+const MEASURED_VARIABLES = new Map<string, readonly string[]>(Object.entries(MEASURED_LENGTHS));
 
 test("引用的每个令牌都在 docs/design/tokens.css 里定义过", () => {
-  const defined = new Set([...tokens.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((match) => match[1]).concat([...MEASURED_VARIABLES]));
+  const defined = new Set([...tokens.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((match) => match[1]).concat([...MEASURED_VARIABLES.keys()]));
   for (const { name, css } of sheets) {
     for (const match of css.matchAll(/var\((--[a-z0-9-]+)/g)) {
       assert.ok(defined.has(match[1]), `${name} 引用了不存在的令牌 ${match[1]}`);
     }
+  }
+});
+
+test("实测尺寸变量只在登记的样式表里引用：--driver-bar-height 只许 driver.css 用", () => {
+  assert.deepEqual([...MEASURED_VARIABLES.keys()], ["--driver-bar-height"]);
+  assert.deepEqual(MEASURED_VARIABLES.get("--driver-bar-height"), ["driver.css"]);
+  let used = 0;
+  for (const { name, css } of sheets) {
+    for (const match of css.matchAll(/--[a-z0-9-]+/g)) {
+      const allowed = MEASURED_VARIABLES.get(match[0]);
+      if (allowed === undefined) continue;
+      assert.ok(allowed.includes(name), `${name} 引用了实测尺寸变量 ${match[0]}，只有 ${allowed.join("、")} 可以用`);
+      used += 1;
+    }
+  }
+  assert.ok(used >= 2, "driver.css 用它给页面底部留白、给滚动留边");
+  for (const [variable, allowed] of MEASURED_VARIABLES) {
+    for (const sheet of allowed) assert.ok(sheets.some((found) => found.name === sheet), `${variable} 登记的样式表 ${sheet} 不存在`);
+    assert.ok(!tokens.includes(`${variable}:`), `${variable} 和设计令牌重名`);
   }
 });
 

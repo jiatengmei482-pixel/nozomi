@@ -13,7 +13,7 @@ import type { AreaSummary } from "../../api/areas.ts";
 import type { Addon, City, Place, VehicleGroup } from "../../api/master.ts";
 import type { Brand, Product, ProductServiceRules, ProductSummary, PublishCheckItemBody, PublishCheckResult, ServiceRulesBody } from "../../api/products.ts";
 import { type ApiCall, apiError, assertAbsent, assertFocused, json, resetBrowser, signIn, stubApiWith } from "../../testing/harness.tsx";
-import { clearStepChange } from "./step-title.tsx";
+import { clearStepChange, navigationSource } from "./step-title.tsx";
 
 afterEach(() => {
   resetBrowser();
@@ -443,6 +443,20 @@ test("有未保存的修改时换步骤：先问；「不保存」直接走，�
   await screen.findByRole("heading", { level: 2, name: "⑤ 商品详情" });
   assert.equal(writes(calls).length, 1);
   assert.equal(writes(calls)[0]?.method, "PATCH");
+});
+
+test("离开确认里「保存并继续」保存失败：留在这一步，被拦下那次点击记下的输入方式清掉，之后去同一个地址的导航不沿用（M6-11）", async () => {
+  const actor = user();
+  const calls = open(`/products/${PRODUCT_ID}/basic`, "admin", productRoutes({}, (call) => (call.method === "PATCH" ? apiError(500, "INTERNAL", "boom") : null)));
+  await actor.type(await screen.findByLabelText("第 1 个调度人的姓名"), "二");
+  const link = within(screen.getByRole("navigation", { name: "配置步骤" })).getByRole("link", { name: /商品详情/ });
+  const target = new URL((link as HTMLAnchorElement).href).pathname;
+  await actor.click(link);
+  await actor.click(within(await screen.findByRole("dialog", { name: "这一步有未保存的修改" })).getByRole("button", { name: "保存并继续" }));
+  await waitFor(() => assert.equal(writes(calls).length, 1));
+  await waitFor(() => assert.ok(!(screen.getByRole("button", { name: "保存草稿" }) as HTMLButtonElement).disabled));
+  assert.ok(screen.getByRole("heading", { level: 2, name: "① 基础信息" }), "没存成，留在这一步");
+  assert.equal(navigationSource({ pathname: target, key: "after-failure" }, "PUSH"), "unknown");
 });
 
 // ───────────── ② 服务规则 ─────────────

@@ -11,12 +11,12 @@
  * - 客人没出现：记联系记录、拍举牌照片、免等结束后申请离开；5 项证据齐了才能提交（页面实时显示还差什么）。
  * - 版式（M6-04，docs/design/pages/driver.md）：关键信息大字加粗，「下一步」是框起来的整宽主按钮，样式在 styles/driver.css。
  * - 吸底按钮条（M6-08，driver.md 3b；业主 2026-11-13 决定）：「下一步」的主按钮和「还没到时间」提示固定在屏幕底部（只是 CSS 定位，DOM 位置不变，
- *   所以信息顺序、Tab 顺序、读屏名都照旧）。按钮条的实际高度用 ResizeObserver 量出来写进 <html> 的 --driver-bar-height（字号放大、换行、提示出现都会变），
+ *   所以信息顺序、Tab 顺序、读屏名都照旧）。按钮条的实际高度由 lib/measured-length.ts 量出来写进 <html> 的 --driver-bar-height（字号放大、换行、提示出现都会变），
  *   样式表用它给页面底部留白、给滚动留边（scroll-padding-bottom），不挡最后一行和正在输入的框。包车「完成」缺分钟、公里时按钮旁写明原因。
  */
 import { CHANGE_FIELD_NAMES } from "../../lib/order-money-display.ts";
 import { DRIVER_ACTION_LABELS, EVIDENCE_FILE_RULES, localDateTimeToInstant } from "@nozomi/domain";
-import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router";
 import { ApiError } from "../../api/client.ts";
 import {
@@ -42,10 +42,9 @@ import { directionName, formatInZone, landingSourceName } from "../../lib/dispat
 import { displayName } from "../../lib/master-display.ts";
 import { durationText, orderItineraryText } from "../../lib/charter-itinerary.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
+import { useMeasuredHeight } from "../../lib/measured-length.ts";
 
 const PING_INTERVAL_MS = 60_000;
-/** 吸底按钮条量出来的高度写在 <html> 上的这个变量里（driver.css 用它留白和留滚动边；driver.md 3b）。 */
-export const BAR_HEIGHT_VARIABLE = "--driver-bar-height";
 /** setTimeout 一次最多能等的毫秒数（再长会立刻触发）：更远的分几次等 */
 const MAX_TIMER_MS = 2_147_483_647;
 const NEXT_ACTION: Partial<Record<DriverTrip["order"]["status"], { type: FulfilmentEventType; label: string }>> = {
@@ -191,19 +190,8 @@ export function DriverTripPage() {
     return () => clearTimeout(timer);
   }, [earliestAt, serverTime, load]);
 
-  // 吸底按钮条的实际高度（绘制前量好，第一帧就留够白）；按钮条消失时去掉变量，页面底部照旧
-  useLayoutEffect(() => {
-    if (bar === null) return;
-    const root = document.documentElement;
-    const measure = (): void => root.style.setProperty(BAR_HEIGHT_VARIABLE, `${Math.ceil(bar.getBoundingClientRect().height)}px`);
-    measure();
-    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
-    observer?.observe(bar);
-    return () => {
-      observer?.disconnect();
-      root.style.removeProperty(BAR_HEIGHT_VARIABLE);
-    };
-  }, [bar]);
+  // 吸底按钮条的实际高度（driver.css 用它留白和留滚动边）；按钮条消失时去掉变量，页面底部照旧
+  useMeasuredHeight(bar, "--driver-bar-height");
 
   const status = trip?.order.status;
   useEffect(() => {
