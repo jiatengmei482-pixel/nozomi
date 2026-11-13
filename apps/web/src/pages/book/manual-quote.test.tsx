@@ -142,6 +142,35 @@ test("行程不齐（包车没选时长、没选时间）时不提交，请客�
   assert.deepEqual(missingTripParts({ ...trip, pickup: null, dropoff: null }), ["出发地", "目的地"]);
 });
 
+test("包车带经停点（M9W-04）：按行程计价没选时长也能提交，请求带按顺序的经停点和停留、package_hours 为 null；别的类型不带经停点", async () => {
+  const stops = [
+    { name: "五合目", lat: 35.395, lng: 138.733, stayMinutes: 60 },
+    { name: "河口湖", lat: 35.498, lng: 138.769, stayMinutes: 30 },
+  ];
+  const charterTrip: ManualQuoteTripDraft = { ...trip, category: "charter", packageHours: null, waypoints: stops };
+  assert.deepEqual(missingTripParts(charterTrip), []);
+  assert.deepEqual(missingTripParts({ ...charterTrip, waypoints: [] }), ["包车时长"]);
+  const calls = openBlock({ trip: charterTrip });
+  const actor = user();
+  await actor.type(screen.getByLabelText("邮箱"), "guest@example.com");
+  await actor.click(screen.getByRole("button", { name: "提交" }));
+  assert.ok(await screen.findByText(/已收到/));
+  const body = manualPosts(calls)[0]?.body as { trip: Record<string, unknown> };
+  assert.equal(body.trip["package_hours"], null);
+  assert.deepEqual(body.trip["waypoints"], [
+    { name: "五合目", lat: 35.395, lng: 138.733, stay_minutes: 60 },
+    { name: "河口湖", lat: 35.498, lng: 138.769, stay_minutes: 30 },
+  ]);
+  resetBrowser();
+
+  // 不是包车：就算草稿里有经停点也不带（请求和以前一样）
+  const plainCalls = openBlock({ trip: { ...trip, waypoints: stops } });
+  await actor.type(screen.getByLabelText("邮箱"), "guest@example.com");
+  await actor.click(screen.getByRole("button", { name: "提交" }));
+  assert.ok(await screen.findByText(/已收到/));
+  assert.equal("waypoints" in ((manualPosts(plainCalls)[0]?.body as { trip: Record<string, unknown> }).trip), false);
+});
+
 test("WhatsApp 按钮：没设置客服号码时不显示；设置了显示，wa.me 链接带预先写好的行程要点（没有客人的个人信息），新标签页打开", () => {
   openBlock();
   assertAbsent(screen.queryByRole("link", { name: /WhatsApp/ }));

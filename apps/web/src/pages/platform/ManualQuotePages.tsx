@@ -24,6 +24,7 @@ import { useToast } from "../../components/Toast.tsx";
 import { WhatsappLink } from "../../components/WhatsappLink.tsx";
 import { localOffsetLabel } from "../../lib/audit-display.ts";
 import { failureText } from "../../lib/failure.ts";
+import { durationText } from "../../lib/charter-itinerary.ts";
 import { ACCEPTANCE_BADGE, MANUAL_QUOTES_PAGE, MANUAL_QUOTE_STATUS_BADGES, PURGED_BADGE, contactKindsText, contactQueryValid, guestWhatsappDigits, guestWhatsappGreeting, manualQuoteEventText, manualQuotePath, manualQuoteStatusOf, manualQuoteTripText } from "../../lib/manual-quote-display.ts";
 import { auditLogPath } from "../../lib/platform-paths.ts";
 import { pageSizeOf, useCursorPages } from "../../lib/use-cursor-pages.ts";
@@ -234,6 +235,19 @@ function ContactSection({ detail }: { detail: ManualQuoteDetail }) {
           )}
         </Detail>
         <Detail label={detail.request.category === "charter" ? "上车地点" : "出发地"}>{pickup === null ? null : <PlaceText place={pickup} />}</Detail>
+        {/* 包车的经停点（M9W-04）：按顺序写地点和停留；有经停点时客人没选时长，按行程定套餐 */}
+        {detail.waypoints != null && detail.waypoints.length > 0 && (
+          <Detail label="经停点">
+            <ol className="details__lines" aria-label="经停点">
+              {detail.waypoints.map((stop, index) => (
+                <li key={`${index}-${stop.lat}-${stop.lng}`}>
+                  <span>{`经停 ${index + 1} · 停留 ${durationText(stop.stay_minutes)}`}</span>
+                  <PlaceText place={stop} />
+                </li>
+              ))}
+            </ol>
+          </Detail>
+        )}
         <Detail label={detail.request.category === "charter" ? "下车地点" : "目的地"}>{dropoff === null ? null : <PlaceText place={dropoff} />}</Detail>
       </dl>
     </section>

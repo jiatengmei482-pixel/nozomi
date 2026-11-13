@@ -139,6 +139,23 @@ test("详情：联系方式、两端地点；邮箱点开发信、WhatsApp 去 w
   assertAbsent(screen.queryByText("验收"));
 });
 
+test("详情：包车经停点（M9W-04）在上车和下车地点之间按顺序写「经停 N · 停留」和地点；没有经停点的不出这一项", async () => {
+  const stops = [
+    { name: "五合目", lat: 35.395, lng: 138.733, stay_minutes: 60 },
+    { name: "河口湖", lat: 35.498, lng: 138.769, stay_minutes: 90 },
+  ];
+  openDetail(detailOf({ request: summaryOf({ category: "charter", package_hours: null }), dropoff: { name: "新宿站南口", lat: 35.6887, lng: 139.7005 }, waypoints: stops }));
+  const list = await screen.findByRole("list", { name: "经停点" });
+  assert.deepEqual([...list.querySelectorAll("li")].map((item) => item.textContent), ["经停 1 · 停留 1 小时五合目35.39500, 138.73300", "经停 2 · 停留 1 小时 30 分河口湖35.49800, 138.76900"]);
+  const labels = [...document.querySelectorAll("#mq-contact ~ dl dt, section[aria-labelledby='mq-contact'] dt")].map((node) => node.textContent);
+  assert.deepEqual(labels.slice(labels.indexOf("上车地点"), labels.indexOf("下车地点") + 1), ["上车地点", "经停点", "下车地点"]);
+  resetBrowser();
+
+  openDetail(detailOf());
+  await screen.findByRole("heading", { level: 1, name: "申请 MQ20301120AB12CD34" });
+  assertAbsent(screen.queryByRole("list", { name: "经停点" }));
+});
+
 test("详情：验收留资（M8-39）在状态徽标旁标「验收」；真实客人的没有", async () => {
   openDetail(detailOf({ request: summaryOf({ is_acceptance: true }) }));
   const card = (await screen.findByRole("heading", { level: 2, name: "行程" })).closest("section") as HTMLElement;
