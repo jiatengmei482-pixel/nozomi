@@ -11,11 +11,12 @@
  * - 客人没出现：记联系记录、拍举牌照片、免等结束后申请离开；5 项证据齐了才能提交（页面实时显示还差什么）。
  * - 版式（M6-04，docs/design/pages/driver.md）：关键信息大字加粗，「下一步」是框起来的整宽主按钮，样式在 styles/driver.css。
  * - 吸底按钮条（M6-08，driver.md 3b；业主 2026-11-13 决定）：「下一步」的主按钮和「还没到时间」提示固定在屏幕底部（只是 CSS 定位，DOM 位置不变，
- *   所以信息顺序、Tab 顺序、读屏名都照旧）。页面根节点带上 driver-page--bar（有提示时再加 driver-page--bar-wait），样式表按它在页面底部留出按钮条的高度。
+ *   所以信息顺序、Tab 顺序、读屏名都照旧）。按钮条的实际高度用 ResizeObserver 量出来写进 <html> 的 --driver-bar-height（字号放大、换行、提示出现都会变），
+ *   样式表用它给页面底部留白、给滚动留边（scroll-padding-bottom），不挡最后一行和正在输入的框。包车「完成」缺分钟、公里时按钮旁写明原因。
  */
 import { CHANGE_FIELD_NAMES } from "../../lib/order-money-display.ts";
 import { DRIVER_ACTION_LABELS, EVIDENCE_FILE_RULES, localDateTimeToInstant } from "@nozomi/domain";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLocation } from "react-router";
 import { ApiError } from "../../api/client.ts";
 import {
@@ -42,6 +43,8 @@ import { displayName } from "../../lib/master-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 
 const PING_INTERVAL_MS = 60_000;
+/** 吸底按钮条量出来的高度写在 <html> 上的这个变量里（driver.css 用它留白和留滚动边；driver.md 3b）。 */
+export const BAR_HEIGHT_VARIABLE = "--driver-bar-height";
 /** setTimeout 一次最多能等的毫秒数（再长会立刻触发）：更远的分几次等 */
 const MAX_TIMER_MS = 2_147_483_647;
 const NEXT_ACTION: Partial<Record<DriverTrip["order"]["status"], { type: FulfilmentEventType; label: string }>> = {
@@ -142,6 +145,7 @@ export function DriverTripPage() {
   /** 页面开着时已经到了的「最早时间」：到点后不再提示「还没到时间」 */
   const [reachedAt, setReachedAt] = useState<string | null>(null);
   const problemRef = useRef<HTMLDivElement>(null);
+  const [bar, setBar] = useState<HTMLDivElement | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     if (token === null) return;
@@ -185,6 +189,20 @@ export function DriverTripPage() {
     arm();
     return () => clearTimeout(timer);
   }, [earliestAt, serverTime, load]);
+
+  // 吸底按钮条的实际高度（绘制前量好，第一帧就留够白）；按钮条消失时去掉变量，页面底部照旧
+  useLayoutEffect(() => {
+    if (bar === null) return;
+    const root = document.documentElement;
+    const measure = (): void => root.style.setProperty(BAR_HEIGHT_VARIABLE, `${Math.ceil(bar.getBoundingClientRect().height)}px`);
+    measure();
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
+    observer?.observe(bar);
+    return () => {
+      observer?.disconnect();
+      root.style.removeProperty(BAR_HEIGHT_VARIABLE);
+    };
+  }, [bar]);
 
   const status = trip?.order.status;
   useEffect(() => {
@@ -261,10 +279,11 @@ export function DriverTripPage() {
     void run(() => driverLanding(token, { landed_at: at.toISOString(), file_id: screenId }));
   };
 
-  const pageClass = next === undefined ? "driver-page" : notYet === null ? "driver-page driver-page--bar" : "driver-page driver-page--bar driver-page--bar-wait";
+  const fieldsMissing = charterCompleting && (!/^\d+$/.test(actual.minutes) || !/^\d+$/.test(actual.km));
+  const describedBy = [fieldsMissing ? "driver-next-fields" : null, notYet === null ? null : "driver-next-hint"].filter((id) => id !== null).join(" ");
 
   return (
-    <AuthLayout className={pageClass}>
+    <AuthLayout className={next === undefined ? "driver-page" : "driver-page driver-page--bar"}>
       <h1 className="auth-card__title driver-title">{`${directionName(order)} · ${order.service_local.replace("T", " ")}`}</h1>
       <p className="driver-meta">
         <StatusBadge {...ORDER_STATUS_BADGES[order.status]} /> <span className="mono driver-meta__no">{order.order_no}</span>
@@ -340,10 +359,15 @@ export function DriverTripPage() {
               <TextField label="实际跑了多少公里" inputMode="numeric" value={actual.km} onChange={(event) => setActual((current) => ({ ...current, km: event.target.value.trim() }))} />
             </>
           )}
-          <div className="driver-next-bar">
-            <Button variant="primary" size="lg" block loading={working} loadingText="提交中…" disabled={charterCompleting && (!/^\d+$/.test(actual.minutes) || !/^\d+$/.test(actual.km))} aria-describedby={notYet === null ? undefined : "driver-next-hint"} onClick={() => act(next.type)}>
+          <div className="driver-next-bar" ref={setBar}>
+            <Button variant="primary" size="lg" block loading={working} loadingText="提交中…" disabled={fieldsMissing} aria-describedby={describedBy === "" ? undefined : describedBy} onClick={() => act(next.type)}>
               {next.label}
             </Button>
+            {fieldsMissing && (
+              <p className="field__hint" id="driver-next-fields">
+                先填实际用了多少分钟和公里数
+              </p>
+            )}
             {notYet !== null && <p className="field__hint driver-wait" id="driver-next-hint">{`还没到时间：最早 ${notYet.earliest_local}（${zone} 当地时间）才能点「${next.label}」。行程有变请联系调度。`}</p>}
           </div>
           <p className="field__hint">点按钮时会带上手机的定位（到达时用来核对是否在上车点 300 米内）。</p>

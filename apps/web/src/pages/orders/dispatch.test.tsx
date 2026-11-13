@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
+import { DRIVER_ACTION_LABELS } from "@nozomi/domain";
 import { App } from "../../App.tsx";
 import type { Assignable, Driver, DriverTrip, TenantOrder, TenantOrderDetail, Vehicle, WebhookDelivery, WebhookSettings } from "../../api/dispatch.ts";
 import type { VehicleGroup } from "../../api/master.ts";
@@ -15,6 +16,7 @@ import { ORDER_NO_EVENTS_TEXT } from "../../lib/order-money-display.ts";
 import { type ApiCall, apiError, assertAbsent, json, resetBrowser, signIn, stubApiWith } from "../../testing/harness.tsx";
 
 afterEach(resetBrowser);
+const DRIVER_DONE = DRIVER_ACTION_LABELS.completed;
 
 const stamps = { created_at: "2026-10-06T00:12:00.000Z", updated_at: "2026-10-08T05:30:00.000Z" };
 const ORDER_ID = "0a0a0a0a-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -657,8 +659,8 @@ test("司机页面吸底按钮条（M6-08，driver.md 3b）：「下一步」按
   assert.ok(bar.contains(hint), "「还没到时间」提示和按钮在同一个按钮条里");
   assert.equal(button.getAttribute("aria-describedby"), hint.id);
   assert.equal(bar.closest("section")?.querySelector("h2")?.textContent, "下一步", "DOM 里仍在「下一步」区块里");
-  const page = document.querySelector(".driver-page") as HTMLElement;
-  assert.ok(page.classList.contains("driver-page--bar") && page.classList.contains("driver-page--bar-wait"), "页面底部按按钮条加提示的高度留空白");
+  assert.ok((document.querySelector(".driver-page") as HTMLElement).classList.contains("driver-page--bar"), "页面底部给按钮条留空白");
+  assert.match(document.documentElement.style.getPropertyValue("--driver-bar-height"), /^\d+px$/, "量出来的按钮条高度写在 <html> 上");
   // 信息顺序不变：调度电话 → 下一步 → 航班落地
   const dispatcher = screen.getByRole("link", { name: "0312345678" });
   const landing = screen.getByRole("heading", { name: "航班落地" });
@@ -677,9 +679,7 @@ test("司机页面吸底按钮条（M6-08，driver.md 3b）：「下一步」按
       <App />
     </MemoryRouter>,
   );
-  await screen.findByRole("button", { name: "我出发了" });
-  const ready = document.querySelector(".driver-page") as HTMLElement;
-  assert.ok(ready.classList.contains("driver-page--bar") && !ready.classList.contains("driver-page--bar-wait"), "没有提示时只留按钮条的高度");
+  assert.equal((await screen.findByRole("button", { name: "我出发了" })).getAttribute("aria-describedby"), null, "到了时间没有提示");
   resetBrowser();
 
   current = tripOf({ next_event: null, order: { ...tripOf().order, status: "completed", status_name: "已完成" } });
@@ -691,5 +691,28 @@ test("司机页面吸底按钮条（M6-08，driver.md 3b）：「下一步」按
   );
   await screen.findByText(/王小明/);
   assert.equal(document.querySelector(".driver-next-bar"), null);
+  assert.equal(document.documentElement.style.getPropertyValue("--driver-bar-height"), "", "没有按钮条时不留变量");
   assert.ok(!(document.querySelector(".driver-page") as HTMLElement).classList.contains("driver-page--bar"), "没有下一步时页面底部照旧");
+});
+
+test("司机页面吸底按钮条（M6-08）：包车「完成」没填分钟、公里时按钮禁用，按钮条里写明原因并关联到按钮；填齐后提示去掉、可以点", async () => {
+  denyGeolocation();
+  const charter = tripOf({ next_event: null, landing: null, order: { ...tripOf().order, status: "in_service", status_name: "服务中", category: "charter", direction: null, flight_no: null, package_hours: 8, place: null, pickup: { lng: 139.7, lat: 35.69, address: "京王广场酒店" } } });
+  stubApiWith((call) => (call.url.pathname === "/driver/v1/trip" && call.method === "GET" ? json(200, charter) : null));
+  render(
+    <MemoryRouter initialEntries={[{ pathname: "/driver", hash: `#${LINK_TOKEN}` }]}>
+      <App />
+    </MemoryRouter>,
+  );
+  const button = (await screen.findByRole("button", { name: DRIVER_DONE })) as HTMLButtonElement;
+  assert.ok(button.disabled);
+  const why = screen.getByText("先填实际用了多少分钟和公里数");
+  assert.ok(button.closest(".driver-next-bar")?.contains(why), "原因在按钮条里，紧挨按钮");
+  assert.equal(button.getAttribute("aria-describedby"), why.id);
+  await user().type(screen.getByLabelText("实际用了多少分钟"), "480");
+  assert.ok(screen.getByText("先填实际用了多少分钟和公里数"), "只填了一项还提示");
+  await user().type(screen.getByLabelText("实际跑了多少公里"), "120");
+  assert.equal(screen.queryByText("先填实际用了多少分钟和公里数"), null);
+  assert.ok(!button.disabled);
+  assert.equal(button.getAttribute("aria-describedby"), null);
 });

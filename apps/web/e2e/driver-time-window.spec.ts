@@ -6,11 +6,12 @@
  * 「已经付过款」的订单由用例用迁移账号写进本次运行的 schema（只在测试里构造，运行结束随 schema 删除）。先造远期订单、派好车再挪时间。
  *
  * 吸底按钮条（M6-08，driver.md 3b；业主 2026-11-13 决定）：手机宽 320 / 360 / 390、亮暗两色，打开链接不滚动就看得到「下一步」按钮和「还没到时间」提示；
- * 滚到底最后一行（链接有效期）不被按钮条挡住；不横向滚动；axe 零违规；按钮照常能点。
+ * 滚到底最后一行（链接有效期）不被按钮条挡住（字号放大到 150% 也一样）；不横向滚动；axe 零违规；按钮照常能点；
+ * 没有提示时（出发后）最后一行也不被挡；包车「服务完成」缺分钟、公里时按钮旁写明原因，用 Tab 到公里输入框时它停在按钮条上面。
  */
 import { mkdirSync } from "node:fs";
 import { randomInt, randomUUID } from "node:crypto";
-import { type APIRequestContext, expect, test } from "@playwright/test";
+import { type APIRequestContext, type Locator, type Page, expect, test } from "@playwright/test";
 import { createPool } from "../../api/src/db/pool.ts";
 import { createProductByApi, createSupplier, createWorld, expectAccessible, post } from "./catalog.ts";
 
@@ -27,12 +28,19 @@ async function owner<T>(run: (client: ReturnType<typeof createPool>) => Promise<
   }
 }
 
+/** 元素的下沿在吸底按钮条的上沿之上（没被挡住）。 */
+async function aboveBar(page: Page, target: Locator): Promise<boolean> {
+  const box = await target.boundingBox();
+  const bar = await page.locator(".driver-next-bar").boundingBox();
+  return box !== null && bar !== null && box.y + box.height <= bar.y + 0.5;
+}
+
 /** 东京当地时间 `YYYY-MM-DD HH:mm`（整分钟的时刻）。 */
 const tokyo = (at: Date): string => new Date(at.getTime() + 9 * HOUR).toISOString().slice(0, 16).replace("T", " ");
 /** 现在之后 `hours` 小时，对齐到整分钟（真实订单的用车时间都是整分钟）。 */
 const inHours = (hours: number): Date => new Date(Math.ceil((Date.now() + hours * HOUR) / 60_000) * 60_000);
 
-async function writeServiceTime(orderId: string, at: Date, status: "confirmed" | "assigned"): Promise<void> {
+async function writeServiceTime(orderId: string, at: Date, status: "confirmed" | "assigned" | "arrived"): Promise<void> {
   const local = tokyo(at).replace(" ", "T");
   await owner(async (db) => {
     const moved = await db.query("update orders set service_at = $2, service_local = $3, service_date = $4 where id = $1 and status = $5", [orderId, at, local, local.slice(0, 10), status]);
@@ -144,11 +152,21 @@ test("司机页吸底按钮条（M6-08）：手机宽首屏看得到「下一步
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
       const footnote = page.getByText(/^链接有效期到 /);
       await expect(footnote).toBeInViewport({ ratio: 1 });
-      const footBox = await footnote.boundingBox();
-      const barBox = await page.locator(".driver-next-bar").boundingBox();
-      expect(footBox && barBox && footBox.y + footBox.height <= barBox.y, `${width}px 最后一行没被按钮条挡住`).toBe(true);
+      expect(await aboveBar(page, footnote), `${width}px 最后一行没被按钮条挡住`).toBe(true);
       await expect(button).toBeInViewport({ ratio: 1 });
       if (SHOTS) await page.screenshot({ path: `${SHOTS}/driver-${width}-${scheme}-bottom.png` });
+      if (width === 320 && scheme === "light") {
+        // 字号放大到 150%：提示折成更多行、按钮条更高，页面留白跟着按钮条的实际高度变
+        await page.evaluate(() => {
+          document.documentElement.style.fontSize = "150%";
+        });
+        await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+        await expect(footnote).toBeInViewport({ ratio: 1 });
+        expect(await aboveBar(page, footnote), "字号放大后最后一行也没被挡住").toBe(true);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), "字号放大后也不横向滚动").toBe(0);
+        if (SHOTS) await page.screenshot({ path: `${SHOTS}/driver-320-light-zoom150-bottom.png` });
+      }
       await page.close();
     }
     await context.close();
@@ -167,5 +185,50 @@ test("司机页吸底按钮条（M6-08）：手机宽首屏看得到「下一步
   const status = await owner(async (db) => (await db.query<{ status: string }>("select status from orders where id = $1", [orderId])).rows[0]?.status);
   expect(status).toBe("departed");
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/driver-360-light-departed.png` });
+
+  // 没有提示时（出发后）滚到底，最后一行也不被挡
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  const footnote = page.getByText(/^链接有效期到 /);
+  await expect(footnote).toBeInViewport({ ratio: 1 });
+  expect(await aboveBar(page, footnote), "出发后最后一行没被按钮条挡住").toBe(true);
+
+  // 包车「服务完成」：到达 → 用车时间挪到 1 小时后 → 接到客人，再把这一单改成包车（只在测试里构造）
+  await arrived.tap();
+  await expect(page.getByRole("button", { name: "接到客人了" })).toBeVisible();
+  await writeServiceTime(orderId, inHours(1), "arrived");
+  await page.reload();
+  await page.getByRole("button", { name: "接到客人了" }).tap();
+  await expect(page.getByRole("button", { name: "服务完成" })).toBeVisible();
+  await owner(async (db) => {
+    const moved = await db.query("update orders set category = 'charter', package_hours = 8, direction = null, place_id = null, pickup = $2::jsonb where id = $1 and status = 'in_service'", [orderId, JSON.stringify({ lng: 139.7, lat: 35.69, address: "京王广场酒店" })]);
+    expect(moved.rowCount).toBe(1);
+  });
+  await page.reload();
+  const done = page.getByRole("button", { name: "服务完成" });
+  await expect(done).toBeDisabled();
+  const why = page.getByText("先填实际用了多少分钟和公里数");
+  await expect(why).toBeInViewport({ ratio: 1 });
+  await expect(done).toHaveAttribute("aria-describedby", (await why.getAttribute("id")) ?? "");
+  await expectAccessible(page, "司机页包车服务完成（缺分钟、公里）");
+  // 分钟框放在屏幕最下沿（按钮条后面），用 Tab 到公里框：公里框停在按钮条上面
+  const minutes = page.getByLabel("实际用了多少分钟");
+  const km = page.getByLabel("实际跑了多少公里");
+  await minutes.evaluate((element) => {
+    const top = element.getBoundingClientRect().top + window.scrollY;
+    window.scrollTo(0, Math.max(0, top - window.innerHeight + element.getBoundingClientRect().height));
+  });
+  await minutes.evaluate((element) => (element as HTMLInputElement).focus({ preventScroll: true }));
+  await page.keyboard.type("480");
+  await page.keyboard.press("Tab");
+  await expect(km).toBeFocused();
+  await expect(km).toBeInViewport({ ratio: 1 });
+  expect(await aboveBar(page, km), "Tab 到公里框时它没被按钮条挡住").toBe(true);
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/driver-360-light-charter-km-focused.png` });
+  await km.fill("120");
+  await expect(why).toHaveCount(0);
+  await expect(done).toBeEnabled();
+  await done.tap();
+  await expect(page.getByRole("button", { name: "服务完成" })).toHaveCount(0);
+  await expect(page.locator(".driver-next-bar")).toHaveCount(0);
   await phone.close();
 });
