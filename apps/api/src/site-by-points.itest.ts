@@ -255,6 +255,28 @@ test("接送机报不出改用点对点商品（M8-33，ADR 0081）：羽田没�
   assert.equal(created.body.order.category, "point_to_point");
 });
 
+test("M8-41：改用点对点商品报出价时，应答的 city 是点对点用的城市（不是机场所在的城市）；点对点也报不出时仍是机场所在的城市", async () => {
+  reset();
+  // 一个登记在大阪、坐标却在东京范围里的机场（大阪没有接送机商品）：接机报不出，改按出发地所在的东京用点对点商品报
+  const chofu = { lat: 35.6717, lng: 139.5281 };
+  const airportId = (await ok(api.call("POST", "/platform/v1/master/places", { token: m.root, body: { type: "airport", code: "QZM", city_id: m.ids.osaka, name: { zh: "M8-41 测试机场" }, location: chofu, flight_scope: "domestic" } }), 201)).id as string;
+  try {
+    const res = await okByPoints(northOf(chofu, 200), TOKYO_STATION);
+    assert.deepEqual([res.trip_type, res.airport?.id, res.fallback_category], ["pickup", airportId, "point_to_point"]);
+    assert.deepEqual(res.city, { id: m.ids.tokyo, code: "CTY-JP-TYO", name: { zh: "东京" }, timezone: "Asia/Tokyo" }, "city 跟着实际报价的城市（东京）走");
+    const pickup = northOf(chofu, 200);
+    const direct = await directQuote({ category: "point_to_point", city_id: m.ids.tokyo, pickup: { lng: pickup.lng, lat: pickup.lat }, dropoff: { lng: TOKYO_STATION.lng, lat: TOKYO_STATION.lat } });
+    assert.deepEqual(comparable(res), comparable(direct), "报价和直接按东京询价点对点一样（价格不变）");
+    const logRow = (await api.db.owner.query("select city_id from quote_logs where request->>'mode' = 'by_points' and request->>'fallback_from' = 'airport_transfer' and request->'recognition'->>'airport_id' = $1", [airportId])).rows;
+    assert.deepEqual(logRow.map((row: any) => row.city_id), [m.ids.tokyo], "询价日志的城市和应答一致");
+    // 点对点也报不出（目的地不在营运区）：保留接送机的结果，city 仍是机场所在的大阪
+    const none = await okByPoints(northOf(chofu, 200), OUTSIDE_AREA);
+    assert.deepEqual([none.fallback_category, none.quotes, none.city?.id], [null, [], m.ids.osaka]);
+  } finally {
+    await ok(api.call("POST", `/platform/v1/master/places/${airportId}/disable`, { token: m.root, body: {} }));
+  }
+});
+
 test("下单带举牌姓名、乘车人姓名和电话（M8-32，ADR 0082）：正式字段、和联系人一起加密；运营后台默认打码、查看后是原文；姓名和电话要么都给要么都不给", async () => {
   reset();
   const res = await okByPoints(northOf(NARITA, 500), TOKYO_STATION);

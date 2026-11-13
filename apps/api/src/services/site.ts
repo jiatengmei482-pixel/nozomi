@@ -705,7 +705,10 @@ export interface SiteByPointsResult extends SiteQuoteResult {
    * 用接送机商品报的、或本来就是点对点行程为 null。行程仍按接送机处理（航班号、免费等待、举牌）
    */
   fallbackCategory: "point_to_point" | null;
-  /** 按哪个城市报的价；点对点的出发地、目的地都不在任何能订的城市范围里时为 null（`unavailable` 是 `OUT_OF_SERVICE_AREA`） */
+  /**
+   * 按哪个城市报的价（`quotes` 用的城市，用车时间按它的时区算）：接送机是机场所在的城市；改用点对点商品报出价时（`fallbackCategory` 为 `point_to_point`）
+   * 是点对点选到的城市（M8-41，可能和机场所在的城市不同）。点对点的出发地、目的地都不在任何能订的城市范围里时为 null（`unavailable` 是 `OUT_OF_SERVICE_AREA`）
+   */
   city: { id: string; code: string; name: LocalizedText; timezone: string } | null;
   /** 最早到期的报价的有效期；没有报价为 null */
   expiresAt: string | null;
@@ -811,6 +814,7 @@ export async function siteQuotesByPoints(ctx: AppContext, input: SiteByPointsInp
   ]);
   let result: SiteQuoteResult = first;
   let fallbackCategory: SiteByPointsResult["fallbackCategory"] = null;
+  let quotedCity = cityJson;
   if (trip.tripType !== "point_to_point" && first.quotes.length === 0) {
     // M8-33（ADR 0081）：有机场先用接送机商品；一个都报不出，再按出发地（不在时按目的地，M8-35）所在、官网能订点对点的城市用点对点商品报（同样走 M8-30 的规则）。
     // 接送机报得出时这里不运行，现有报价一分不变。
@@ -823,11 +827,13 @@ export async function siteQuotesByPoints(ctx: AppContext, input: SiteByPointsInp
       if (fallback.quotes.length > 0) {
         result = fallback;
         fallbackCategory = "point_to_point";
+        // M8-41：应答的城市跟着采用的报价走（用车时间是按这个城市的时区算的）；没采用时仍是机场所在的城市
+        quotedCity = { id: p2pCity.id, code: p2pCity.code, name: p2pCity.name, timezone: p2pCity.timezone };
       }
     }
   }
   const expiresAt = result.quotes.reduce<string | null>((earliest, quote) => (earliest === null || quote.expiresAt < earliest ? quote.expiresAt : earliest), null);
-  return { ...result, tripType: trip.tripType, airport, fallbackCategory, city: cityJson, expiresAt, route };
+  return { ...result, tripType: trip.tripType, airport, fallbackCategory, city: quotedCity, expiresAt, route };
 }
 
 /**
