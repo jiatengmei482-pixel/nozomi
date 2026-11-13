@@ -40,6 +40,8 @@ export interface OrderAreaSurchargeView {
   package_settlement: Money;
   pickup: OrderAreaSurchargeEndView;
   dropoff: OrderAreaSurchargeEndView;
+  /** 途经加价（M9W-01，和后端约定）：每个收了途经加价的区域一项，`stop_seqs` 是第几个经停点（从 1 起）；没有经停点、旧接口没有这一项 */
+  waypoints?: (OrderAreaSurchargeEndView & { stop_seqs: number[] })[];
 }
 
 export const DELETED_AREA = "（已删除的区域）";

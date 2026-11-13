@@ -780,3 +780,46 @@ input[type="datetime-local"]:focus-within {
   margin: var(--space-1) 0;
   padding-left: var(--space-5);
 }
+
+/* 包车行程（M9W-02 / M9W-03）：上车 → 经停 1…N（停留）→ 下车；左边一条竖线把各点连起来 */
+.trip-stops {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0 0 0 var(--space-4);
+  border-left: var(--border-width) solid var(--color-border-strong);
+  list-style: none;
+}
+
+.trip-stops__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  min-width: 0;
+}
+
+.trip-stops__line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-0-5) var(--space-2);
+  min-width: 0;
+}
+
+.trip-stops__label {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+
+.trip-stops__name {
+  min-width: 0;
+  font-weight: var(--font-weight-medium);
+  overflow-wrap: anywhere;
+}
+
+.trip-stops__drive,
+.trip-stops__stay {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}

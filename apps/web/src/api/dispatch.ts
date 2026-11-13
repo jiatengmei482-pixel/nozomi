@@ -7,6 +7,7 @@
  * - 供应商的接口里没有对外价和加价比例（规则 4）；司机 H5 的接口里没有任何价格。
  */
 import type { TenantOrderRescue } from "./rescues.ts";
+import type { OrderWaypoint } from "./site.ts";
 import type { OrderAreaSurchargeView, OrderDistanceView, OrderMileageView, OrderPricingRoute } from "../lib/order-area-price-display.ts";
 import type { DriverLinkEmailState, DriverStatus, LocalizedText, OrderStatus, PlateType, PricingBasis, TenantWebhookEvent, VehicleStatus } from "@nozomi/domain";
 import { query, TENANT_BASE } from "./areas.ts";
@@ -161,6 +162,8 @@ export interface TenantOrder {
   luggage: number;
   pickup: OrderPoint | null;
   dropoff: OrderPoint | null;
+  /** 包车的经停点（M9W-01），按顺序；没有经停点的单、旧接口为 null 或没有这一项 */
+  waypoints?: OrderWaypoint[] | null;
   addons: { addon_id: string; quantity: number }[];
   driver_language: string | null;
   flight_no: string | null;
@@ -560,6 +563,8 @@ export interface DriverTrip {
     place: { name: Record<string, string>; code: string | null; lng: number; lat: number } | null;
     pickup: OrderPoint | null;
     dropoff: OrderPoint | null;
+    /** 包车的经停点（M9W-01），按顺序（名称、停留，不含价格）；没有为 null 或没有这一项 */
+    waypoints?: OrderWaypoint[] | null;
     pickup_point: { lng: number; lat: number } | null;
     addons: { addon_id: string; quantity: number; name: Record<string, string> | null }[];
     driver_language: string | null;

@@ -34,6 +34,8 @@ export interface PriceRuleInput {
   /** 包车区域加价（M8-15，ADR 0073）：上车点 / 下车点在这个区域（area_id）时加多少 */
   pickup_surcharge?: number | null;
   dropoff_surcharge?: number | null;
+  /** 途经加价（M9W-01，ADR 0088）：经停点在这个区域时加多少，同一区域一单一次；null = 没设（这个区域对经停点没有规则） */
+  waypoint_surcharge?: number | null;
   valid_from: string;
   valid_to: string | null;
   status: PriceRuleStatus;
@@ -139,7 +141,7 @@ export interface CalendarDay {
   /** 点对点给了 to_area_id 时：这一天用的是线路价（true）还是退回了区域价（false）；没给为 null（M8-11） */
   route_rule?: boolean | null;
   /** 包车：这个区域作为加价区域时这一天用的区域加价（M8-15）；没有为 null */
-  surcharge?: { price_rule_id: string; pickup_surcharge: number; dropoff_surcharge: number; valid_from: string; valid_to: string | null } | null;
+  surcharge?: { price_rule_id: string; pickup_surcharge: number; dropoff_surcharge: number; waypoint_surcharge: number | null; valid_from: string; valid_to: string | null } | null;
   segments: CalendarSegment[];
 }
 
@@ -308,7 +310,7 @@ export function getHolidays(token: string, values: { country_code?: string; from
 }
 
 /** 对账用：每个类型的字段名清单。 */
-const PRICE_INPUT = ["area_id", "to_area_id", "vehicle_group_id", "direction", "package_hours", "pricing_model", "base_price", "included_km", "start_price", "start_meters", "start_minutes", "per_km", "per_minute", "min_price", "package_km", "package_price", "overtime_per_hour", "over_km_per_km", "pickup_surcharge", "dropoff_surcharge", "valid_from", "valid_to", "status"] as const;
+const PRICE_INPUT = ["area_id", "to_area_id", "vehicle_group_id", "direction", "package_hours", "pricing_model", "base_price", "included_km", "start_price", "start_meters", "start_minutes", "per_km", "per_minute", "min_price", "package_km", "package_price", "overtime_per_hour", "over_km_per_km", "pickup_surcharge", "dropoff_surcharge", "waypoint_surcharge", "valid_from", "valid_to", "status"] as const;
 const ADJUST_INPUT = ["name", "travel_from", "travel_to", "cycle", "time_slot", "area_ids", "vehicle_group_ids", "directions", "package_hours", "steps", "status"] as const;
 export const PRICE_SCHEMA_FIELDS = {
   PriceRule: ["id", ...PRICE_INPUT, "base", "created_at", "updated_at"],
