@@ -6,7 +6,7 @@
  */
 export const WIDGET_CSS = `
 :host { all: initial; display: block; }
-.nzb { all: initial; display: block; text-align: start; box-sizing: border-box; font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", "PingFang SC", sans-serif; font-size: 15px; line-height: 1.5; color: #1f2933; background: #ffffff; border: 1px solid #d5dae1; border-radius: 12px; padding: 16px; max-width: 100%; overflow-wrap: anywhere; }
+.nzb { all: initial; direction: ltr; display: block; text-align: start; box-sizing: border-box; font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", "PingFang SC", sans-serif; font-size: 15px; line-height: 1.5; color: #1f2933; background: #ffffff; border: 1px solid #d5dae1; border-radius: 12px; padding: 16px; max-width: 100%; overflow-wrap: anywhere; }
 .nzb *, .nzb *::before, .nzb *::after { box-sizing: border-box; }
 .nzb-tabs { display: flex; gap: 4px; margin: 0 0 12px; border-bottom: 1px solid #d5dae1; }
 .nzb-tab { flex: 1 1 0; min-height: 44px; padding: 8px 12px; border: 0; border-bottom: 3px solid transparent; background: transparent; color: #52606d; font: inherit; font-weight: 600; cursor: pointer; }
