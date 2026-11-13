@@ -30,6 +30,8 @@ const square = (center: Point, half: number): number[][] => [
 export const linkPoint = (key: "from" | "to", point: Point, name: string): string => `${key}=${point.lat},${point.lng}&${key}_name=${encodeURIComponent(name)}`;
 
 export interface CharterWorld {
+  /** 本用例建的城市（M9W-02：经停点用例在里面再建几个车站） */
+  cityId: string;
   center: Point;
   /** 商品区域里的上车点、下车点 */
   pickup: Point;
@@ -84,5 +86,5 @@ export async function charterWorld(request: APIRequestContext): Promise<CharterW
   }
   const published = await request.post(`/tenant/v1/products/${product.id}/publish`, { headers });
   expect(published.status(), await published.text()).toBe(200);
-  return { center, pickup: offset(center, 0.01, 0.01), nearby: offset(center, -0.02, 0.02), station, nowhere: offset(center, 0.4, 0.4), groupName: world.group.name };
+  return { cityId: city.id, center, pickup: offset(center, 0.01, 0.01), nearby: offset(center, -0.02, 0.02), station, nowhere: offset(center, 0.4, 0.4), groupName: world.group.name };
 }

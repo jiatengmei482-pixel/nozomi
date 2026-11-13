@@ -1054,3 +1054,94 @@ button.book-steps__link:hover .book-steps__name {
     gap: var(--space-2);
   }
 }
+
+/* 包车经停点（M9W-02）：可排序的已选列表（02-components 第 26 节），每行一个地址框 + 停留时长 */
+.book-waypoints {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.book-waypoint__fields {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.book-waypoints__add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.book-itinerary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-subtle);
+}
+
+/* 对外价明细（M9W-02）：一行一项，金额靠右；各项之和 = 合计 */
+.price-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.price-breakdown__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+}
+
+.price-breakdown__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--font-size-sm);
+}
+
+.price-breakdown__row dt {
+  min-width: 0;
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.price-breakdown__row dd {
+  margin: 0;
+}
+
+.price-breakdown__amount {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.price-breakdown__row--total {
+  padding-top: var(--space-1);
+  border-top: var(--border-width) solid var(--color-border-default);
+  font-weight: var(--font-weight-medium);
+}
+
+.price-breakdown__note {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.book-summary__stops {
+  margin: 0;
+  padding-left: var(--space-5);
+  overflow-wrap: anywhere;
+}

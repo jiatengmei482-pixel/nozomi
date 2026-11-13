@@ -55,6 +55,7 @@ import { TextField } from "../../components/TextField.tsx";
 import { OrderAddonsItem } from "../../components/OrderAddons.tsx";
 import { OrderVehicleDetails } from "../../components/VehicleLabelFacts.tsx";
 import { OrderAreaPriceItems } from "../../components/OrderAreaPriceItems.tsx";
+import { OrderStopsItem } from "../../components/TripStops.tsx";
 import { listAllMaster } from "../../api/master.ts";
 import { useToast } from "../../components/Toast.tsx";
 import { formatInZone, moneyText, routeText } from "../../lib/dispatch-display.ts";
@@ -636,6 +637,7 @@ export function PlatformOrderDetailPage() {
           <Detail label="订单号"><span className="mono">{order.order_no}</span></Detail>
           <Detail label={`用车时间（当地，${zone}）`}><time dateTime={order.service_time}>{order.service_local.replace("T", " ")}</time></Detail>
           <Detail label="行程">{routeText(order)}</Detail>
+          <OrderStopsItem order={order} />
           {order.flight_no && <Detail label="航班号"><span className="mono">{order.flight_no}</span></Detail>}
           <OrderVehicleDetails group={detail.vehicle_group} />
           <OrderAreaPriceItems audience="platform" pricingRoute={detail.pricing_route} distance={detail.distance} areaSurcharge={detail.area_surcharge} pricingBasis={detail.pricing_basis} mileage={detail.mileage} />

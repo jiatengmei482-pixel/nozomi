@@ -657,3 +657,41 @@ test("旧预订页（M8-13，10.6 第 1 条）：点对点报价卡片车型标�
   const other = screen.getByRole("heading", { name: "舒适 5 座" }).closest("li") as HTMLElement;
   assert.equal(factValue(other, "公里数"), null);
 });
+
+test("订单页（M9W-03）：包车有经停点时「经停点」按顺序写上车 → 经停（停留）→ 下车；总价下面写可能加收的提示、全程和预计时长；没有经停点的单不变", async () => {
+  const stops = [
+    { name: "五合目", lat: 35.395, lng: 138.733, stay_minutes: 60 },
+    { name: "河口湖", lat: 35.498, lng: 138.769, stay_minutes: 30 },
+  ];
+  const yen = (amount: string) => ({ amount, currency: "JPY" });
+  orderPage(
+    orderOf({
+      category: "charter",
+      direction: null,
+      place_id: null,
+      flight_no: null,
+      package_hours: 10,
+      pickup: { lng: 139.7, lat: 35.69, address: "京王广场酒店" },
+      dropoff: { lng: 139.7, lat: 35.69, address: "新宿站" },
+      waypoints: stops,
+      itinerary: { route_meters: 254_000, route_minutes: 450, package_km: 200, package_minutes: 600, over_meters: 54_000, overtime_minutes: 0 },
+      price: { total: yen("71500"), fx: null },
+      includes_area_surcharge: true,
+      distance: null,
+    }),
+  );
+  const trip = (await screen.findByRole("heading", { name: "行程" })).closest("section") as HTMLElement;
+  const list = within(factValue(trip, "经停点") as HTMLElement).getByRole("list", { name: "包车行程" });
+  assert.deepEqual([...list.querySelectorAll("li")].map((item) => item.textContent), ["上车京王广场酒店", "经停 1五合目停留 1 小时", "经停 2河口湖停留 30 分钟", "下车新宿站"]);
+  assert.ok(within(trip).getByText("全程约 254 公里，预计 7 小时 30 分（含停留）"));
+  // 官网订单应答没有对外价明细（只有报价时有）：总价下面只写可能加收的提示，只有一个价格
+  assert.equal(factValue(trip, "总价")?.querySelector(".price-breakdown__row"), null);
+  assert.deepEqual([...new Set((trip.textContent ?? "").match(/[\d,]+ JPY/g) ?? [])], ["71,500 JPY"]);
+  assert.ok(within(trip).getByText(/价格按您填的经停点计算/));
+  resetBrowser();
+
+  orderPage(orderOf({ category: "charter", direction: null, place_id: null, flight_no: null, package_hours: 8, pickup: { lng: 139.7, lat: 35.69, address: "京王广场酒店" }, dropoff: { lng: 138.76, lat: 35.5, address: "河口湖站" }, waypoints: null }));
+  const plain = (await screen.findByRole("heading", { name: "行程" })).closest("section") as HTMLElement;
+  assert.equal(factValue(plain, "经停点"), null);
+  assert.equal(plain.querySelector(".price-breakdown"), null);
+});

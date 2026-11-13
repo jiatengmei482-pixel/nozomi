@@ -716,3 +716,43 @@ test("司机页面吸底按钮条（M6-08）：包车「完成」没填分钟、
   assert.ok(!button.disabled);
   assert.equal(button.getAttribute("aria-describedby"), null);
 });
+
+// ---- M9W-03：包车经停点（ADR 0088）----
+
+const STOPS = [
+  { name: "五合目", lat: 35.395, lng: 138.733, stay_minutes: 60 },
+  { name: "河口湖", lat: 35.498, lng: 138.769, stay_minutes: 90 },
+];
+
+test("包车经停点（M9W-03）：供应商订单详情「经停点」一项按顺序写上车 → 经停（停留）→ 下车；区域加价里途经加价逐区域写（只有结算价，没有对外价）；没有经停点的单不出这一项", async () => {
+  const charter = orderOf({ category: "charter", direction: null, place_id: null, flight_no: null, package_hours: 10, pickup: { lng: 139.7, lat: 35.69, address: "京王广场酒店" }, dropoff: { lng: 139.7, lat: 35.69, address: "新宿站" }, waypoints: STOPS });
+  const surcharge = { package_settlement: yen("55000"), pickup: { area_id: null, area_name: null, settlement: yen("0") }, dropoff: { area_id: null, area_name: null, settlement: yen("0") }, waypoints: [{ area_id: "a3", area_name: { zh: "富士山地区" }, settlement: yen("10000"), stop_seqs: [1, 2] }] };
+  open(`/orders/${ORDER_ID}`, "dispatch", (call) => (call.method === "GET" && call.url.pathname === `/tenant/v1/orders/${ORDER_ID}` ? json(200, { ...detailOf(charter), pricing_route: null, area_surcharge: surcharge }) : null));
+  await screen.findByRole("heading", { name: "行程" });
+  const stops = within(tripItem("经停点") as HTMLElement).getByRole("list", { name: "包车行程" });
+  assert.deepEqual([...stops.querySelectorAll("li")].map((item) => item.textContent), ["上车京王广场酒店", "经停 1五合目停留 1 小时", "经停 2河口湖停留 1 小时 30 分", "下车新宿站"]);
+  assert.deepEqual([...(tripItem("区域加价")?.querySelectorAll(".details__lines > span") ?? [])].map((line) => line.textContent), ["上车：在服务区域里，不加价", "下车：在服务区域里，不加价", "经停（第 1、2 个经停点）：富士山地区 · 加 JPY 10,000"]);
+  assert.doesNotMatch(document.body.textContent ?? "", /对外/);
+
+  resetBrowser();
+  open(`/orders/${ORDER_ID}`, "dispatch", (call) => (call.method === "GET" && call.url.pathname === `/tenant/v1/orders/${ORDER_ID}` ? json(200, { ...detailOf({ ...charter, waypoints: null }), pricing_route: null, area_surcharge: null }) : null));
+  await screen.findByRole("heading", { name: "行程" });
+  assert.equal(tripItem("经停点"), null);
+});
+
+test("司机页面（M9W-03）：包车经停点按顺序写名称、停留和「导航到经停 N」，在上车和下车之间；没有任何价格", async () => {
+  denyGeolocation();
+  const trip = tripOf({ order: { ...tripOf().order, category: "charter", direction: null, flight_no: null, package_hours: 10, place: null, pickup: { lng: 139.7, lat: 35.69, address: "京王广场酒店" }, dropoff: { lng: 139.7, lat: 35.69, address: "新宿站" }, waypoints: STOPS, pickup_point: { lng: 139.7, lat: 35.69 } } });
+  stubApiWith((call) => (call.url.pathname === "/driver/v1/trip" && call.method === "GET" ? json(200, trip) : null));
+  render(
+    <MemoryRouter initialEntries={[{ pathname: "/driver", hash: `#${LINK_TOKEN}` }]}>
+      <App />
+    </MemoryRouter>,
+  );
+  const list = await screen.findByRole("list", { name: "经停点" });
+  assert.deepEqual([...list.querySelectorAll("li")].map((item) => item.textContent), ["经停 1五合目停留 1 小时导航到经停 1", "经停 2河口湖停留 1 小时 30 分导航到经停 2"]);
+  assert.equal(screen.getByRole("link", { name: "导航到经停 2" }).getAttribute("href"), "geo:35.498,138.769?q=35.498,138.769");
+  const order = [...document.querySelectorAll(".driver-key, [aria-label='经停点']")].map((node) => node.textContent ?? "");
+  assert.ok(order.findIndex((text) => text.startsWith("上车：")) < order.findIndex((text) => text.startsWith("经停 1")) && order.findIndex((text) => text.startsWith("经停 1")) < order.findIndex((text) => text.startsWith("下车：")));
+  assert.doesNotMatch(document.body.textContent ?? "", /JPY|价格|结算|对外价|加价|区域|公里数/);
+});
