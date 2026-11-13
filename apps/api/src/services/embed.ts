@@ -191,7 +191,7 @@ export async function takeEmbedPlacesSlot(ctx: AppContext, gate: EmbedGate): Pro
 export const embedDraftLimit = (): AppError => new AppError(429, "EMBED_DRAFT_LIMIT", "这个嵌入码同时有效的预订草稿太多了，请稍后再试");
 
 /** 建草稿：内容逐项校验，`return_url` 不合格就忽略；每地址 10 分钟 30 次、每嵌入码每分钟 60 次、每嵌入码有效草稿 5,000 个 */
-export async function createEmbedDraft(ctx: AppContext, gate: EmbedGate, ip: string, body: { draft: unknown; return_url?: unknown }): Promise<StoredBookingDraft> {
+export async function createEmbedDraft(ctx: AppContext, gate: EmbedGate, ip: string, body: { draft: unknown; return_url?: unknown }, log?: { warn(obj: object, msg: string): void }): Promise<StoredBookingDraft> {
   await take(ctx, "embed_draft_ip", bucket("ip", rateLimitKeyOf(ip)));
   await take(ctx, "embed_draft_key", bucket("key", gate.embedKey.id));
   const issues = bookingDraftIssues(body.draft);
@@ -203,6 +203,9 @@ export async function createEmbedDraft(ctx: AppContext, gate: EmbedGate, ip: str
     await db.query("select pg_advisory_xact_lock(hashtext(current_schema() || ':nozomi.embed-drafts:' || $1::text))", [gate.embedKey.id]);
     const active = await db.query<{ count: string }>("select count(*) from booking_drafts where embed_key_id = $1 and expires_at > $2", [gate.embedKey.id, now]);
     if (Number(active.rows[0]?.count ?? 0) >= EMBED_RULES.activeDraftsPerKey) throw embedDraftLimit();
+    const count = Number(active.rows[0]?.count ?? 0) + 1;
+    // 到上限的 80% 写告警日志（运维告警按它报）：可能有人伪造 Origin 在占满上限，运营可以给合作网站换码（ADR 0090 第五节第 1 小节）
+    if (count >= EMBED_RULES.activeDraftsWarnAt) log?.warn({ event: "embed.draft_limit_near", embed_key_id: gate.embedKey.id, active: count, limit: EMBED_RULES.activeDraftsPerKey }, "嵌入码的有效预订草稿接近上限");
     return insertBookingDraft(db, body.draft as BookingDraft, { embedKeyId: gate.embedKey.id, embedOrigin: gate.origin, returnUrl }, now);
   });
 }

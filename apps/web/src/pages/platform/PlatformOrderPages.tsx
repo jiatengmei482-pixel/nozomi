@@ -8,6 +8,7 @@
  * - 派车、履约时间点、落地（M4-19）；代供应商回传履约（M4-18，`order.proxy_fulfilment`）。
  */
 import { ANONYMIZED_TEXT, VIEW_LINK_VERIFICATIONS, VIEW_LINK_VERIFICATION_NAMES, type ViewLinkVerification } from "@nozomi/domain";
+import { entrySourceText } from "../../lib/embed-display.ts";
 import { TextAreaField } from "../../components/TextAreaField.tsx";
 import { APPROVALS_PAGE_PATH } from "../../lib/channel-display.ts";
 import { RevealedTexts } from "./PassengerReveal.tsx";
@@ -656,6 +657,7 @@ export function PlatformOrderDetailPage() {
           {order.notes && <Detail label="备注">{order.notes}</Detail>}
           <Detail label="供应商">{order.tenant.name}</Detail>
           <Detail label="渠道">{`${order.channel.name}${order.channel_order_no ? `（${order.channel_order_no}）` : ""}`}</Detail>
+          {detail.entry_source !== undefined && <Detail label="来源">{entrySourceText(detail.entry_source)}</Detail>}
           <Detail label="对外价 / 结算价"><span className="price">{`${moneyText(order.sell)} / ${moneyText(order.settlement.total)}（加价 ${order.markup_bp / 100}%）`}</span></Detail>
           <Detail label="取消政策">{order.cancel_policy === null ? "按现在的平台政策" : `第 ${order.cancel_policy.version} 版 · ${levelName(order.cancel_policy.level)}：${tiersText(order.cancel_policy.tiers)}`}</Detail>
         </dl>

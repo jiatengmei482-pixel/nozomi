@@ -143,6 +143,7 @@ test("/embed/v1/config：Origin 完全等于白名单某项才 200 + CORS 头；
     assert.equal(res.status, 403, String(origin));
     assert.equal(res.body.error.code, "EMBED_ORIGIN_NOT_ALLOWED");
     assert.deepEqual(corsHeaders(res.headers), [], String(origin));
+    assert.match(String(res.headers["vary"]), /Origin/, "拒绝的应答也带 Vary: Origin");
   }
   assert.equal((await embed("GET", "/embed/v1/config", `nze_${"Z".repeat(32)}`, PARTNER)).status, 403);
   assert.equal((await api.call("GET", "/embed/v1/config", { headers: { origin: PARTNER } })).status, 403, "没带 key");
@@ -198,6 +199,11 @@ test("建草稿：201 + 主站地址，主站读得到；多余键 400、16 KB 4
   assert.equal(stay.status, 400);
   const huge = await embed("POST", "/embed/v1/booking-drafts", key.key, PARTNER, { draft: draft(), return_url: "x".repeat(16_400) });
   assert.equal(huge.status, 413);
+  assert.equal(huge.headers["access-control-allow-origin"], PARTNER, "核对来源在解析请求体之前：413 也带 CORS 头");
+  assert.match(String(huge.headers["vary"]), /Origin/);
+  const hugeDenied = await embed("POST", "/embed/v1/booking-drafts", key.key, "https://evil.example", { draft: draft(), return_url: "x".repeat(16_400) });
+  assert.equal(hugeDenied.status, 403, "来源不对时先 403，不解析请求体");
+  assert.deepEqual(corsHeaders(hugeDenied.headers), []);
 
   for (const returnUrl of ["javascript:alert(1)", "https://user:pass@partner.example/", `${PARTNER}.evil.example/`, `${OTHER}/thanks`, "https://partner.example:8443/", `${PARTNER}/${"a".repeat(2_000)}`]) {
     const res = await embed("POST", "/embed/v1/booking-drafts", key.key, PARTNER, { draft: draft(), return_url: returnUrl });
@@ -217,6 +223,7 @@ test("建草稿限速：同一地址 10 分钟第 31 次、同一嵌入码 1 分
   for (let i = 0; i < 30; i += 1) assert.equal((await embed("POST", "/embed/v1/booking-drafts", key.key, PARTNER, { draft: draft() })).status, 201);
   const perKey = await embed("POST", "/embed/v1/booking-drafts", key.key, PARTNER, { draft: draft() });
   assert.equal(perKey.status, 429, "同一嵌入码 1 分钟里第 61 次");
+  assert.equal(perKey.headers["access-control-allow-origin"], PARTNER, "429 也带 CORS 头，组件读得到原因");
   api.clock.advance(61_000);
 
   const full = await newKey();
@@ -259,6 +266,8 @@ test("来源：草稿 → 询价 → 下单记「嵌入组件」和返回地址�
   assert.deepEqual((await ok(api.call("GET", `/platform/v1/orders/${plain.order.id}`, { token: m.root }))).entry_source, { kind: "book", embed_key_id: null, embed_key_name: null, embed_origin: null });
   const unknownDraft = await place(await quoteAndOrder("x".repeat(43)));
   assert.equal(unknownDraft.return_url, null, "草稿不存在照常报价下单、不记来源");
+  const malformed = await place(await quoteAndOrder("not-a-draft"));
+  assert.equal(malformed.return_url, null, "草稿编号格式不对也只是忽略，不报错");
 
   const quoteId = await quoteAndOrder(draftId);
   await ok(api.call("PATCH", `/platform/v1/embed-keys/${key.id}`, { token: m.root, headers: { "if-match": `"${key.version}"` }, body: { name: key.name, allowed_origins: [OTHER], default_lang: "ja", default_services: ["transfer"], status: "active" } }));

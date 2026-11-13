@@ -97,34 +97,41 @@ export function registerEmbedRoutes(app: FastifyInstance, ctx: AppContext): void
   });
 
   // ---- /embed/v1 ----
-  const gateOf = async (request: FastifyRequest, reply: FastifyReply): Promise<{ gate: EmbedGate; rest: Record<string, unknown> }> => {
-    const { key, rest } = splitKey(request.query);
-    const gate = await embedGate(ctx, key, request.headers.origin);
-    allowCors(reply, gate);
-    reply.header("cache-control", "no-store");
-    return { gate, rest };
-  };
-
-  const preflight = (methods: string) => async (request: FastifyRequest, reply: FastifyReply) => {
+  // 嵌入码和 Origin 的核对放在 onRequest（解析请求体、限速之前，ADR 0090 第三节第 2 小节）：
+  // 拒绝时只带 Vary: Origin；通过后这次请求的所有应答（含 400 / 413 / 429）都带 Access-Control-Allow-Origin，组件才读得到原因
+  const gates = new WeakMap<FastifyRequest, EmbedGate>();
+  const gateHook = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    reply.header("vary", "Origin");
     const { key } = splitKey(request.query);
     const gate = await embedGate(ctx, key, request.headers.origin);
     allowCors(reply, gate);
+    reply.header("cache-control", "no-store");
+    gates.set(request, gate);
+  };
+  const gateOf = (request: FastifyRequest): { gate: EmbedGate; rest: Record<string, unknown> } => {
+    const gate = gates.get(request);
+    if (gate === undefined) throw new Error("embed gate missing");
+    return { gate, rest: splitKey(request.query).rest };
+  };
+  const guarded = { onRequest: gateHook };
+
+  const preflight = (methods: string) => async (_request: FastifyRequest, reply: FastifyReply) => {
     reply.header("access-control-allow-methods", methods);
     reply.header("access-control-allow-headers", "content-type");
     reply.header("access-control-max-age", "600");
     return reply.code(204).send();
   };
 
-  app.options("/embed/v1/config", preflight("GET"));
-  app.get("/embed/v1/config", async (request, reply) => {
-    const { gate } = await gateOf(request, reply);
+  app.options("/embed/v1/config", guarded, preflight("GET"));
+  app.get("/embed/v1/config", guarded, async (request, reply) => {
+    const { gate } = gateOf(request);
     reply.header("cache-control", `private, max-age=${EMBED_RULES.configMaxAgeSeconds}`);
     return { lang: gate.embedKey.defaultLang, services: gate.embedKey.defaultServices, site_origin: new URL(ctx.config.publicBaseUrl).origin };
   });
 
-  app.options("/embed/v1/places/autocomplete", preflight("GET"));
-  app.get("/embed/v1/places/autocomplete", async (request, reply) => {
-    const { gate, rest } = await gateOf(request, reply);
+  app.options("/embed/v1/places/autocomplete", guarded, preflight("GET"));
+  app.get("/embed/v1/places/autocomplete", guarded, async (request) => {
+    const { gate, rest } = gateOf(request);
     await takeEmbedPlacesSlot(ctx, gate);
     await takeSiteSlot(ctx, "site_autocomplete", { ip: request.ip });
     await takeSiteSlot(ctx, "site_places_day", { ip: request.ip });
@@ -133,9 +140,9 @@ export function registerEmbedRoutes(app: FastifyInstance, ctx: AppContext): void
     return { available: found.available, items: found.items.map(placeItemJson) };
   });
 
-  app.options("/embed/v1/places/details", preflight("GET"));
-  app.get("/embed/v1/places/details", async (request, reply) => {
-    const { gate, rest } = await gateOf(request, reply);
+  app.options("/embed/v1/places/details", guarded, preflight("GET"));
+  app.get("/embed/v1/places/details", guarded, async (request) => {
+    const { gate, rest } = gateOf(request);
     await takeEmbedPlacesSlot(ctx, gate);
     await takeSiteSlot(ctx, "site_autocomplete", { ip: request.ip });
     await takeSiteSlot(ctx, "site_places_day", { ip: request.ip });
@@ -144,11 +151,11 @@ export function registerEmbedRoutes(app: FastifyInstance, ctx: AppContext): void
     return { available: found.available, place: found.place === null ? null : { id: found.place.id, address: found.place.address, location: { lat: found.place.location.lat, lng: found.place.location.lng }, kind: found.place.kind } };
   });
 
-  app.options("/embed/v1/booking-drafts", preflight("POST"));
-  app.post("/embed/v1/booking-drafts", { bodyLimit: BOOKING_DRAFT_RULES.maxBytes }, async (request, reply) => {
-    const { gate } = await gateOf(request, reply);
+  app.options("/embed/v1/booking-drafts", guarded, preflight("POST"));
+  app.post("/embed/v1/booking-drafts", { ...guarded, bodyLimit: BOOKING_DRAFT_RULES.maxBytes }, async (request, reply) => {
+    const { gate } = gateOf(request);
     const body = parseInput(draftBodySchema, request.body, "body");
-    const stored = await createEmbedDraft(ctx, gate, request.ip, { draft: body.draft, return_url: body.return_url });
+    const stored = await createEmbedDraft(ctx, gate, request.ip, { draft: body.draft, return_url: body.return_url }, request.log);
     const url = new URL("/book/new", ctx.config.publicBaseUrl);
     url.searchParams.set("draft", stored.id);
     return reply.code(201).send({ id: stored.id, expires_at: stored.expiresAt.toISOString(), url: url.href });

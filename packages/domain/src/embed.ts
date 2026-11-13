@@ -15,6 +15,8 @@ export const EMBED_RULES = {
   maxReturnUrlLength: 2_000,
   /** 每个嵌入码同时有效（没过期）的草稿最多几个：防止有人伪造 Origin 用一个嵌入码把表刷大 */
   activeDraftsPerKey: 5_000,
+  /** 到这个数写告警日志（上限的 80%） */
+  activeDraftsWarnAt: 4_000,
   /** 配置应答的浏览器缓存（秒）：改白名单、停用后 60 秒内在浏览器侧生效 */
   configMaxAgeSeconds: 60,
 } as const;
