@@ -353,6 +353,8 @@ export interface SiteOrder {
   cancel_reason: string | null;
   quote_id: string;
   channel_order_no: string | null;
+  /** 对外价明细（M9W-03，和后端约定；同报价的 `price_breakdown`，订单上锁定的）；旧单、接口还没给时没有这一项 */
+  price_breakdown?: SitePriceBreakdownItem[];
   price: { total: SiteMoney; fx: { rate: string; as_of: string } | null };
   /** 包车：这一单的价格里含区域加价（M8-13，订单上锁定的）；只说「含区域加价」，不写金额。旧接口、旧数据可能没有这一项 */
   includes_area_surcharge?: boolean;

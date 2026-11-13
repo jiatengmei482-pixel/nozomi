@@ -3,7 +3,7 @@
  * 官网下单页（带各段行驶分钟）、官网订单页、运营 / 供应商订单详情、司机页共用；这里**不含任何价格**。
  * 没有经停点的订单不用它（页面照旧只写上车、下车地点）。
  */
-import { type ScheduleRow, durationText } from "../lib/charter-itinerary.ts";
+import { type ScheduleRow, durationText, scheduleRows } from "../lib/charter-itinerary.ts";
 
 export function TripStops({ rows, label = "行程" }: { rows: readonly ScheduleRow[]; label?: string }) {
   return (
@@ -19,5 +19,25 @@ export function TripStops({ rows, label = "行程" }: { rows: readonly ScheduleR
         </li>
       ))}
     </ol>
+  );
+}
+
+/** 订单上的经停点 → 行程的各行（上车、经停、下车的名称用订单上的地址） */
+export function orderStopRows(order: { pickup: { address: string } | null; dropoff: { address: string } | null; waypoints?: readonly { name: string; stay_minutes: number }[] | null | undefined }): ScheduleRow[] | null {
+  if (order.waypoints === null || order.waypoints === undefined || order.waypoints.length === 0) return null;
+  return scheduleRows(order.pickup?.address ?? "—", order.dropoff === null ? null : order.dropoff.address, order.waypoints);
+}
+
+/** 运营、供应商订单详情「行程」卡片里的「经停点」一项（`details` 列表的一行）；没有经停点时不出 */
+export function OrderStopsItem({ order }: { order: Parameters<typeof orderStopRows>[0] }) {
+  const rows = orderStopRows(order);
+  if (rows === null) return null;
+  return (
+    <div className="details__item">
+      <dt>经停点</dt>
+      <dd>
+        <TripStops rows={rows} label="包车行程" />
+      </dd>
+    </div>
   );
 }

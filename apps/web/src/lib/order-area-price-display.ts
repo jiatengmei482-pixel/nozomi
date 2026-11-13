@@ -87,11 +87,14 @@ export function tenantDistanceLines(distance: OrderDistanceView | null | undefin
 
 /** 至少一端在加价区域里才写「区域加价」这一项（两端都在服务区域里 = 没有加价，不出现）。 */
 export function hasAreaSurcharge(surcharge: OrderAreaSurchargeView | null | undefined): surcharge is OrderAreaSurchargeView {
-  return surcharge !== null && surcharge !== undefined && (surcharge.pickup.area_id !== null || surcharge.dropoff.area_id !== null);
+  return surcharge !== null && surcharge !== undefined && (surcharge.pickup.area_id !== null || surcharge.dropoff.area_id !== null || (surcharge.waypoints?.length ?? 0) > 0);
 }
 
 const END_LABELS = { pickup: "上车", dropoff: "下车" } as const;
 const IN_SERVICE_AREA = "在服务区域里，不加价";
+
+/** 途经加价那几行的开头：「经停（第 1、3 个经停点）」 */
+const waypointLabel = (seqs: readonly number[]): string => (seqs.length === 0 ? "经停" : `经停（第 ${seqs.join("、")} 个经停点）`);
 
 /** 运营后台「区域加价」：「上车：富士山 · 对外 1,100 JPY / 结算 1,000 JPY」「下车：在服务区域里，不加价」。 */
 export function platformSurchargeLines(surcharge: OrderAreaSurchargeView | null | undefined): string[] | null {
@@ -101,7 +104,7 @@ export function platformSurchargeLines(surcharge: OrderAreaSurchargeView | null 
     if (entry.area_id === null) return `${END_LABELS[end]}：${IN_SERVICE_AREA}`;
     const sell = entry.sell ?? null;
     return `${END_LABELS[end]}：${areaName({ name: entry.area_name })} · 对外 ${sell === null ? "—" : moneyText(sell)} / 结算 ${moneyText(entry.settlement)}`;
-  });
+  }).concat((surcharge.waypoints ?? []).map((entry) => `${waypointLabel(entry.stop_seqs)}：${areaName({ name: entry.area_name })} · 对外 ${entry.sell == null ? "—" : moneyText(entry.sell)} / 结算 ${moneyText(entry.settlement)}`));
 }
 
 /** 供应商后台「区域加价」：「上车：富士山 · 加 JPY 1,000」「下车：在服务区域里，不加价」。只有结算价。 */
@@ -110,10 +113,13 @@ export function tenantSurchargeLines(surcharge: OrderAreaSurchargeView | null | 
   return (["pickup", "dropoff"] as const).map((end) => {
     const entry = surcharge[end];
     if (entry.area_id === null) return `${END_LABELS[end]}：${IN_SERVICE_AREA}`;
-    const minor = minorOf(entry.settlement);
-    const amount = minor === null || !isCurrencyCode(entry.settlement.currency) ? `${entry.settlement.currency} ${entry.settlement.amount}` : consoleMoneyText(minor, entry.settlement.currency);
-    return `${END_LABELS[end]}：${areaName({ name: entry.area_name })} · 加 ${amount}`;
-  });
+    return `${END_LABELS[end]}：${areaName({ name: entry.area_name })} · 加 ${settlementText(entry.settlement)}`;
+  }).concat((surcharge.waypoints ?? []).map((entry) => `${waypointLabel(entry.stop_seqs)}：${areaName({ name: entry.area_name })} · 加 ${settlementText(entry.settlement)}`));
+}
+
+function settlementText(money: Money): string {
+  const minor = minorOf(money);
+  return minor === null || !isCurrencyCode(money.currency) ? `${money.currency} ${money.amount}` : consoleMoneyText(minor, money.currency);
 }
 
 /**

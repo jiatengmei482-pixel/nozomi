@@ -40,6 +40,7 @@ import { ORDER_STATUS_BADGES, StatusBadge } from "../../components/StatusBadge.t
 import { TextField } from "../../components/TextField.tsx";
 import { directionName, formatInZone, landingSourceName } from "../../lib/dispatch-display.ts";
 import { displayName } from "../../lib/master-display.ts";
+import { durationText } from "../../lib/charter-itinerary.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 
 const PING_INTERVAL_MS = 60_000;
@@ -322,6 +323,23 @@ export function DriverTripPage() {
 
       <Section title="行程">
         <p className="driver-key">{`上车：${order.pickup?.address ?? placeName ?? "—"}`}</p>
+        {/* 包车经停点（M9W-03）：按顺序，名称、停留和导航；没有价格 */}
+        {order.waypoints != null && order.waypoints.length > 0 && (
+          <ol className="trip-stops" aria-label="经停点">
+            {order.waypoints.map((stop, index) => (
+              <li key={`${index}-${stop.name}`} className="trip-stops__item">
+                <span className="trip-stops__line">
+                  <span className="trip-stops__label">{`经停 ${index + 1}`}</span>
+                  <span className="trip-stops__name driver-key">{stop.name}</span>
+                </span>
+                <span className="trip-stops__stay">{`停留 ${durationText(stop.stay_minutes)}`}</span>
+                <a className="link driver-nav" href={mapLink(stop)}>
+                  {`导航到经停 ${index + 1}`}
+                </a>
+              </li>
+            ))}
+          </ol>
+        )}
         <p className="driver-key">{`下车：${dropoffText(order, placeName)}`}</p>
         {order.pickup_point !== null && (
           <>
