@@ -6,6 +6,7 @@
  * 一口价仍然只有一个总价：这些是说明，不写成算式。没有这些数的订单返回 null（那一项不出现，页面其余照常）。
  */
 import { type LocalizedText, type PricingBasis, consoleMoneyText, includedKmSummary, isCurrencyCode, parseMajor, routeMetersText, tenantIncludedKmSummary } from "@nozomi/domain";
+import { durationText, kmText } from "./charter-itinerary.ts";
 import { moneyText } from "./dispatch-display.ts";
 import { displayName } from "./master-display.ts";
 import { pricingBasisLines } from "./pricing-basis-display.ts";
@@ -146,4 +147,34 @@ function auditMoney(audience: "platform" | "tenant", money: Money): string {
 export function orderPricingBasisLines(audience: "platform" | "tenant", basis: PricingBasis | null | undefined, mileage: OrderMileageView | null | undefined): string[] | null {
   const facts = mileage === null || mileage === undefined ? null : { ...mileage, start_price: auditMoney(audience, mileage.start_price), per_km: auditMoney(audience, mileage.per_km), fee: auditMoney(audience, mileage.fee) };
   return pricingBasisLines(basis, facts);
+}
+
+/**
+ * 包车按行程计价锁定在订单上的超公里、超时（M9W-04，ADR 0089 第 5 节；接口 `settlement.itinerary`，结算价）：量、单价和各自的钱，已含在结算价里。
+ * 供应商、运营都只写结算价（规则 4）。没按行程计价的单、旧接口没有这一项。
+ */
+export interface OrderItineraryMoneyView {
+  route_meters: number;
+  route_minutes: number;
+  package_km: number;
+  package_minutes: number;
+  over_meters: number;
+  overtime_minutes: number;
+  over_km_fee: Money;
+  overtime_fee: Money;
+  over_km_per_km: Money;
+  overtime_per_hour: Money;
+}
+
+/**
+ * 「超公里 / 超时」那一项的两行（结算价）：
+ * 「超公里：全程 260 公里，套餐含 200 公里，超出 60 公里 × 每公里 JPY 300 = JPY 18,000」「超时：预计 9 小时（含停留），套餐 10 小时，超出 0 分钟 × 每小时 JPY 5,000 = JPY 0」；没有为 null。
+ */
+export function itineraryOverageLines(audience: "platform" | "tenant", itinerary: OrderItineraryMoneyView | null | undefined): string[] | null {
+  if (itinerary === null || itinerary === undefined) return null;
+  const money = (value: Money): string => auditMoney(audience, value);
+  return [
+    `超公里：全程 ${kmText(itinerary.route_meters)}，套餐含 ${itinerary.package_km} 公里，超出 ${kmText(itinerary.over_meters)} × 每公里 ${money(itinerary.over_km_per_km)} = ${money(itinerary.over_km_fee)}`,
+    `超时：预计 ${durationText(itinerary.route_minutes)}（含停留），套餐 ${durationText(itinerary.package_minutes)}，超出 ${durationText(itinerary.overtime_minutes)} × 每小时 ${money(itinerary.overtime_per_hour)} = ${money(itinerary.overtime_fee)}`,
+  ];
 }

@@ -13,6 +13,7 @@ import {
   type SiteOrderEnvelope,
   type SiteOrderNames,
   type SitePayment,
+  type SitePriceBreakdownItem,
   type SiteTimelineEntry,
   cancelSiteOrder,
   changeSiteOrder,
@@ -58,7 +59,7 @@ import { siteFailureText } from "./SiteLayout.tsx";
 import { SitePrice } from "./SitePrice.tsx";
 import { PriceBreakdown } from "./new/PriceBreakdown.tsx";
 import { TripStops, orderStopRows } from "../../components/TripStops.tsx";
-import { orderItineraryText } from "../../lib/charter-itinerary.ts";
+import { breakdownLines, orderItineraryText } from "../../lib/charter-itinerary.ts";
 
 type Changed = (envelope: SiteOrderEnvelope) => void;
 
@@ -348,7 +349,7 @@ function routeFacts(order: SiteOrder, names: SiteOrderNames): { label: string; t
   return order.direction === "pickup" ? [{ label: "接机", text: `${airport} → ${dropoffAddress}` }] : [{ label: "送机", text: `${pickupAddress} → ${airport}` }];
 }
 
-export function TripSection({ order, names }: { order: SiteOrder; names: SiteOrderNames }) {
+export function TripSection({ order, names, breakdown = null }: { order: SiteOrder; names: SiteOrderNames; breakdown?: SitePriceBreakdownItem[] | null }) {
   const group = names.vehicle_group === null ? null : displayName(names.vehicle_group.name);
   // M8-13（规范 site-booking-v2.md 10.2、10.3）：订单上锁定的「含区域加价」「公里数」；旧单没有这些数，显示不变
   const kmNote = siteDistanceNote(order.distance);
@@ -390,7 +391,8 @@ export function TripSection({ order, names }: { order: SiteOrder; names: SiteOrd
         <Fact label="总价" total>
           <SitePrice text={moneyText(order.price.total)} size="lg" />
           {sitePriceBasisNote(order) !== null && <span className="site-facts__note">{sitePriceBasisNote(order)}</span>}
-          {order.waypoints != null && order.waypoints.length > 0 && <PriceBreakdown lines={null} />}
+          {/* 包车按行程计价（M9W-04）：下单时那份对外价明细；各项之和对不上总价、旧单没有明细时只显示总价和提示 */}
+          {((order.waypoints != null && order.waypoints.length > 0) || breakdown !== null) && <PriceBreakdown lines={breakdown === null ? null : breakdownLines({ price: order.price, price_breakdown: breakdown }, order.package_hours)} />}
         </Fact>
         {kmNote !== null && <Fact label="公里数">{kmNote}</Fact>}
         {orderFeeNote(order) !== null && <Fact label="费用说明">{orderFeeNote(order)}</Fact>}

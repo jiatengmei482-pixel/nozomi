@@ -135,6 +135,38 @@ test("包车：下车地点可以没有、要有时长；接送机的两端都�
   assert.deepEqual(row, { category: "charter", package_hours: 8 });
 });
 
+test("包车带经停点（M9W-04）：可以不带时长（按行程计价）；经停点只在密文里，详情按顺序解出来；别的类型带经停点、包车没时长也没经停点 400；数据库仍不许别的类型有时长", async () => {
+  const stops = [
+    { name: "富士山五合目", lat: 35.3951, lng: 138.7331, stay_minutes: 60 },
+    { name: "河口湖", lat: 35.4981, lng: 138.7691, stay_minutes: 90 },
+  ];
+  const email = nextEmail();
+  const res = await submit({ email, trip: trip({ category: "charter", dropoff: { name: "新宿站", lat: 35.6896, lng: 139.7006 }, waypoints: stops }) });
+  assert.equal(res.status, 202, res.text);
+  const row = (await api.db.owner.query("select id, category, package_hours, contact_enc::text as enc from manual_quote_requests order by created_at desc limit 1")).rows[0];
+  assert.deepEqual([row.category, row.package_hours], ["charter", null]);
+  assert.doesNotMatch(row.enc, /河口湖|五合目|138\.769/);
+  const detail = await platform("customer_service", "GET", `/manual-quote-requests/${row.id}`);
+  assertMatchesOpenApi("GET", "/platform/v1/manual-quote-requests/{id}", detail);
+  assert.deepEqual(detail.body.waypoints, stops);
+  assert.equal(detail.body.request.package_hours, null);
+  // 换了经停点是另一个行程，不当重复
+  assert.equal((await submit({ email, trip: trip({ category: "charter", dropoff: null, waypoints: stops.slice(1) }) })).status, 202);
+  assert.equal((await api.db.owner.query("select count(*)::int as n from manual_quote_requests where contact_enc is not null and category = 'charter' and package_hours is null")).rows[0]?.n, 2);
+
+  // 没有经停点的单，详情的 waypoints 是 null
+  await submit({ email: nextEmail(), trip: trip({ category: "charter", dropoff: null, package_hours: 6 }) });
+  assert.equal((await platform("customer_service", "GET", `/manual-quote-requests/${(await latest()).id}`)).body.waypoints, null);
+
+  const bad = await submit({ email: nextEmail(), trip: trip({ waypoints: stops }) });
+  assert.deepEqual([bad.status, bad.body.error.details.issues.map((issue: { path: string; reason: string }) => [issue.path, issue.reason])], [400, [["/trip/waypoints", "NOT_APPLICABLE"]]]);
+  const noHours = await submit({ email: nextEmail(), trip: trip({ category: "charter", dropoff: null }) });
+  assert.deepEqual([noHours.status, noHours.body.error.details.issues.map((issue: { path: string; reason: string }) => [issue.path, issue.reason])], [400, [["/trip/package_hours", "REQUIRED"]]]);
+  const tooMany = await submit({ email: nextEmail(), trip: trip({ category: "charter", waypoints: Array.from({ length: 11 }, () => stops[0]) }) });
+  assert.equal(tooMany.status, 400);
+  await assert.rejects(api.db.owner.query("update manual_quote_requests set package_hours = 4 where category <> 'charter'"), /manual_quote_requests_package_check/);
+});
+
 test("防刷：陷阱字段有内容时照样 202、什么都不记；同一个联系方式同一个行程 24 小时内只记一次，过了 24 小时再记", async () => {
   const before = await countRows();
   const bot = await submit({ email: nextEmail(), website: "http://spam.example" });
