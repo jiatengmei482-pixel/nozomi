@@ -115,6 +115,45 @@
   font-weight: var(--font-weight-bold);
 }
 
+/*
+ * 吸底按钮条（M6-08，driver.md 3b；业主 2026-11-13 决定）：「下一步」的主按钮和「还没到时间」提示固定在屏幕底部，所有宽度都一样
+ * （司机页只在手机上用，电脑上也吸底、和卡片对齐）。只是 CSS 定位，DOM 位置不变：信息顺序、Tab 顺序、读屏顺序照旧。
+ * 按钮条的高度 = 上下内边距 + 主按钮（再高 space-4）+ 上边线 + 安全区；有「还没到时间」提示时再加间距和提示条（按 320px 宽最多 5 行算）。
+ * 页面底部留出这个高度再加 space-6，最后一行不被挡住；用 Tab 或输入时滚到的控件也停在按钮条上面。
+ */
+.auth-page.driver-page--bar {
+  padding-bottom: calc(var(--control-height-lg) + var(--space-4) + var(--space-3) * 2 + var(--border-width) + env(safe-area-inset-bottom) + var(--space-6));
+}
+
+.auth-page.driver-page--bar-wait {
+  padding-bottom: calc(var(--control-height-lg) + var(--space-4) + var(--space-3) * 2 + var(--border-width) + env(safe-area-inset-bottom) + var(--space-3) * 3 + var(--border-width) * 2 + var(--font-size-md) * var(--line-height-normal) * 5 + var(--space-6));
+}
+
+.driver-page--bar .auth-card :is(a, button, input, label) {
+  scroll-margin-bottom: calc(var(--control-height-lg) + var(--space-4) + var(--space-3) * 2 + var(--border-width) + env(safe-area-inset-bottom) + var(--space-4));
+}
+
+.driver-page--bar-wait .auth-card :is(a, button, input, label) {
+  scroll-margin-bottom: calc(var(--control-height-lg) + var(--space-4) + var(--space-3) * 2 + var(--border-width) + env(safe-area-inset-bottom) + var(--space-3) * 3 + var(--border-width) * 2 + var(--font-size-md) * var(--line-height-normal) * 5 + var(--space-4));
+}
+
+/* 左右内边距让按钮和卡片里的内容对齐：手机上 = 页面边距 + 卡片内边距；更宽时按卡片居中 */
+.driver-next-bar {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: var(--z-sticky);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) max(calc(var(--space-2) + var(--space-4)), calc((100% - var(--layout-auth-card-width)) / 2 + var(--space-6)))
+    calc(var(--space-3) + env(safe-area-inset-bottom));
+  border-top: var(--border-width) solid var(--color-border-default);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-md);
+}
+
 /* 还没到时间：警告色的提示条，文字写明最早几点 */
 .driver-page .auth-card .driver-wait {
   padding: var(--space-3);
