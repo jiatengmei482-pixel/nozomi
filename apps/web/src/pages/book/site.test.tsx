@@ -748,3 +748,20 @@ test("订单页（M9W-04）：包车按行程计价的单，总价下面列下�
   const none = (await screen.findByRole("heading", { name: "行程" })).closest("section") as HTMLElement;
   assert.equal(factValue(none, "总价")?.querySelector(".price-breakdown__row"), null);
 });
+
+test("订单页「费用说明」（M9W-05）：按行程计价的包车写超公里、超时已按预计行程算进价格；不按行程计价的包车、接送机照旧", async () => {
+  const charter = { category: "charter" as const, direction: null, place_id: null, flight_no: null, package_hours: 10, created_at: "2026-11-13T01:00:00.000Z", pickup: { lng: 139.7, lat: 35.69, address: "京王广场酒店" }, dropoff: { lng: 139.7, lat: 35.69, address: "新宿站" } };
+  orderPage(orderOf({ ...charter, waypoints: [{ name: "河口湖", lat: 35.498, lng: 138.769, stay_minutes: 90 }], itinerary: { route_meters: 260_000, route_minutes: 540, package_km: 200, package_minutes: 600, over_meters: 60_000, overtime_minutes: 0 } }));
+  const itinerary = (await screen.findByRole("heading", { name: "行程" })).closest("section") as HTMLElement;
+  assert.equal(factValue(itinerary, "费用说明")?.textContent, "一口价已含所有费用（高速费、停车费等），无需另付；超公里、超时已按预计行程算进价格，只有当天超出预计的部分服务后按实际收取");
+  resetBrowser();
+
+  orderPage(orderOf({ ...charter, waypoints: null, itinerary: null }));
+  const plain = (await screen.findByRole("heading", { name: "行程" })).closest("section") as HTMLElement;
+  assert.equal(factValue(plain, "费用说明")?.textContent, "一口价已含所有费用（高速费、停车费等），无需另付；超出套餐的时长和公里服务后按实际收取");
+  resetBrowser();
+
+  orderPage(orderOf({ created_at: "2026-11-13T01:00:00.000Z" }));
+  const transfer = (await screen.findByRole("heading", { name: "行程" })).closest("section") as HTMLElement;
+  assert.equal(factValue(transfer, "费用说明")?.textContent, "一口价已含所有费用（高速费、停车费等），无需另付");
+});

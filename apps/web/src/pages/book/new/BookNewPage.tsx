@@ -66,7 +66,7 @@ import {
 } from "../../../lib/book-new.ts";
 import { formatInZone, moneyText } from "../../../lib/dispatch-display.ts";
 import { displayName } from "../../../lib/master-display.ts";
-import { CHARTER_OVERAGE_NOTE, UNAVAILABLE_REASON_TEXT, addressEnds, defaultServiceDate, guestCancelPolicyText, guestLocalText, newIdempotencyKey, quotesByTotal, siteDistanceNote, siteOrderUrl, sitePriceBasisNote } from "../../../lib/site-display.ts";
+import { CHARTER_ITINERARY_OVERAGE_NOTE, CHARTER_OVERAGE_NOTE, UNAVAILABLE_REASON_TEXT, addressEnds, defaultServiceDate, guestCancelPolicyText, guestLocalText, newIdempotencyKey, quotesByTotal, siteDistanceNote, siteOrderUrl, sitePriceBasisNote } from "../../../lib/site-display.ts";
 import { FIELD_HINTS, MESSAGING_NAMES, type OrderErrors, type OrderForm, type OrderTrip, orderFailureOf, orderRequestOf, validateOrderForm } from "../../../lib/site-order-form.ts";
 import { useDocumentTitle } from "../../../lib/use-document-title.ts";
 import { MANUAL_QUOTE_CHARTER_HOURS, type ManualQuoteTripDraft } from "../../../lib/manual-quote-form.ts";
@@ -950,7 +950,8 @@ export function BookNewPage() {
                 </li>
               ))}
             </ul>
-            {charter && <p className="site-muted">{CHARTER_OVERAGE_NOTE}</p>}
+            {/* 按行程计价（报价带 itinerary_route，M9W-05）：超公里、超时已算进价格；不按行程计价的包车照旧 */}
+            {charter && <p className="site-muted">{charterResult?.itinerary_route != null ? CHARTER_ITINERARY_OVERAGE_NOTE : CHARTER_OVERAGE_NOTE}</p>}
           </section>
         </>
       );
