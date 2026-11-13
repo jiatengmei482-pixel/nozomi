@@ -134,11 +134,11 @@ test("首页：数量加载失败——入口照常可用，数量显示「—�
   assertAbsent(screen.queryByText(/个机场待指定城市/));
 });
 
-test("菜单：首页 + 主数据分组（城市、地点、车型组、附加服务、汇率）；分组可以收起；编辑页所属的列表项是当前页", async () => {
+test("菜单：首页 + 主数据分组（城市、地点、车型组、附加服务、汇率、共享区域）；分组可以收起；编辑页所属的列表项是当前页", async () => {
   open(`/platform/master/cities/${TOKYO_ID}`, "master_data", (call) => (call.url.pathname === `/platform/v1/master/cities/${TOKYO_ID}` ? json(200, tokyo) : null));
   await screen.findByDisplayValue("东京");
   const nav = document.querySelector('.sidebar--pinned nav[aria-label="主菜单"]') as HTMLElement;
-  assert.deepEqual(within(nav).getAllByRole("link").map((link) => link.textContent), ["首页", "待审核", "取消政策", "赔付表", "城市", "地点", "车型组", "附加服务", "汇率"], "菜单和页面条件一致（M4-10）：主数据运营看得了取消政策、赔付表，菜单里就有");
+  assert.deepEqual(within(nav).getAllByRole("link").map((link) => link.textContent), ["首页", "待审核", "取消政策", "赔付表", "城市", "地点", "车型组", "附加服务", "汇率", "共享区域"], "菜单和页面条件一致（M4-10）：主数据运营看得了取消政策、赔付表，菜单里就有");
   assert.equal(within(nav).getByRole("link", { name: "城市" }).getAttribute("aria-current"), "page");
   const toggle = within(nav).getByRole("button", { name: "主数据" });
   assert.equal(toggle.getAttribute("aria-expanded"), "true");

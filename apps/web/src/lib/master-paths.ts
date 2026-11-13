@@ -3,6 +3,8 @@ import type { MasterKind } from "../api/master.ts";
 
 export const MASTER_ROOT = "/platform/master";
 export const PENDING_AIRPORTS_PATH = `${MASTER_ROOT}/places/pending`;
+/** 共享区域去重（M8-31b） */
+export const SHARED_AREAS_PATH = `${MASTER_ROOT}/shared-areas`;
 
 export function masterListPath(kind: MasterKind): string {
   return `${MASTER_ROOT}/${kind}`;
