@@ -1002,20 +1002,6 @@
   white-space: nowrap;
 }
 
-/* 地址（M8-37b，用户真机反馈）：整行宽、长地址折行显示全，框跟着变高；日期、时间仍单行 */
-.picker-trigger--wrap {
-  height: auto;
-  min-height: var(--control-height-lg);
-  padding-block: var(--space-2);
-}
-
-.picker-trigger--wrap .picker-trigger__text {
-  overflow: visible;
-  overflow-wrap: anywhere;
-  text-overflow: clip;
-  white-space: normal;
-}
-
 .picker-trigger--empty .picker-trigger__text {
   color: var(--color-text-tertiary);
 }
