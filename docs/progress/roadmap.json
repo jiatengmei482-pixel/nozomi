@@ -1017,16 +1017,16 @@
           "title": "线路包车、统一订单格式、嵌入组件的需求与 ADR（需求 03、ADR 0087）",
           "role": "product",
           "status": "review",
-          "acceptance": ["需求文档 docs/requirements/03-route-charter-order-embed.md 逐字保留业主原话；三部分各有可逐条测试的验收表（F1–F9、R1–R20、E1–E11）；末尾「待业主确认」14 条，每条有推荐项", "ADR 0087 第一节回答可行性并指到代码行：报价接口和引擎都不收总时长、总公里；package_hours 必须等于已配置的套餐时长；超时、超公里报价时恒为 0、服务后另收；对外单价现有应答里没有，可只扩应答（sellEquivalentMinor）给出", "数据结构只加列、加表，现有订单和 /sales/v1 不变；跨域只开 /embed/v1；写清白名单的安全边界（Origin / Referer 可伪造，下单仍走主站现有校验，嵌入码是公开标识）", "roadmap 新增 M9（M9-01～M9-05，含 M9-03b、M9-03c、M9-04b），node scripts/check-roadmap.mjs 通过", "独立审查通过；文档里没有演示数据和密钥"],
+          "acceptance": ["需求文档 docs/requirements/03-route-charter-order-embed.md 逐字保留业主原话；三部分各有可逐条测试的验收表（F1–F10、R1–R23、E1–E15）；末尾「待业主确认」14 条，每条有推荐项", "ADR 0087 第一节回答可行性并指到代码行：报价接口和引擎都不收总时长、总公里；package_hours 必须等于已配置的套餐时长；超时、超公里报价时恒为 0、服务后另收；对外单价现有应答里没有，可只扩应答（sellEquivalentMinor）给出", "数据结构只加列、加表，现有订单和 /sales/v1 不变；跨域只开 /embed/v1；写清白名单的安全边界（Origin / Referer 可伪造，下单仍走主站现有校验，嵌入码是公开标识）", "roadmap 新增 M9（M9-01～M9-05，含 M9-03b、M9-03c、M9-04b），node scripts/check-roadmap.mjs 通过", "独立审查通过；文档里没有演示数据和密钥"],
           "evidence": "分支 m9-route-charter-adr：docs/requirements/03-route-charter-order-embed.md、docs/adr/0087-route-charter-order-format-embed.md；需求 02 末尾加第七轮决策指向需求 03",
           "updated": "2026-11-13"
         },
         {
           "id": "M9-02",
-          "title": "统一订单格式：预订条件（/book?d=）、订单行程和来源（后端 + 前端）",
+          "title": "统一订单格式：预订条件（/book?d=）、订单行程和来源（后端 + 前端两个角色、同一个 PR：后端先做迁移和接口，前端接着做 /book?d=）",
           "role": "backend",
           "status": "todo",
-          "acceptance": ["新官网区间单（成田机场 → 东京站）下单后订单行程方式 transfer、地点 2 个、停留为空、来源 book；按时长包车 8 小时单方式 charter_package、套餐 8 小时", "M9-02 上线前的订单行程为 null，官网订单页、运营 / 供应商订单详情与上线前截图一致；/sales/v1 渠道单 itinerary 为 null，已有字段不变（OpenAPI 只加字段）", "/book?d=<合法预订条件> 自动预填并询价，价格与手填同条件逐分一致；停留 45 分钟的途经点不预填并提示「停留时长按 30 分钟一档」；d 不是 base64url、超过 4,000 字符、v 为 2 时整份忽略、页面无报错；M8-05 之前 /book 带 d 时转到新预订页", "同一 Idempotency-Key 并发提交两次只有一张单、订单行程只写一次；订单行程里没有任何金额", "租户 A 的令牌读租户 B 的订单行程 404；/tenant/v1 订单详情和供应商 Webhook 扫全部键没有对外金额、加价比例（规则 4）", "报价引擎计算无改动：quote-compat 888 个样例逐分一致；迁移只加可空列；PR 独立审查、合并、部署后测试站按需求 03 第 2.3 节 F1–F9 验收"],
+          "acceptance": ["新官网区间单（成田机场 → 东京站）下单后订单行程方式 transfer、地点 2 个、停留为空、来源 book；按时长包车 8 小时单方式 charter_package、套餐 8 小时", "M9-02 上线前的订单行程为 null，官网订单页、运营 / 供应商订单详情与上线前截图一致；/sales/v1 渠道单 itinerary 为 null，已有字段不变（OpenAPI 只加字段）", "/book?d=<合法预订条件> 自动预填并询价，价格与手填同条件逐分一致；停留 45 分钟的途经点不预填并提示「停留时长按 30 分钟一档」；d 不是 base64url、超过 8,000 字符、v 为 2 时整份忽略、页面无报错；M8-05 之前 /book 带 d 时转到新预订页", "链接长度：链接里地点名称超过 40 字截断加「…」；往返测试「10 个地点、名称各 40 个 4 字节字符、停留 480、返回地址 2,000 字符」编码后 d ≤ 8,000、解码逐项相同；nozomi 的 nginx server 块设 large_client_header_buffers 4 16k（只改 nozomi 的配置），smoke.sh 核对 8,100 字符查询串的 /book 返回 200；测试环境按需求 03 F10 实测", "同一 Idempotency-Key 并发提交两次只有一张单、订单行程只写一次；订单行程里没有任何金额", "租户 A 的令牌读租户 B 的订单行程 404；/tenant/v1 订单详情和供应商 Webhook 扫全部键没有对外金额、加价比例（规则 4），也没有 entry_source、embed_origin 等来源字段", "报价引擎无改动：PR 文件列表里没有 packages/domain/src/quote.ts、pricing.ts，quote-compat 888 个样例逐分一致；迁移只加可空列；PR 独立审查、合并、部署后测试站按需求 03 第 2.3 节 F1–F10 验收"],
           "evidence": "",
           "updated": "2026-11-13"
         },
@@ -1035,7 +1035,7 @@
           "title": "线路式包车（后端）：按行程询价、选套餐、时间表、锁定单价、转人工",
           "role": "backend",
           "status": "todo",
-          "acceptance": ["POST /site/v1/quotes/charter-route：3 段 40 / 70 / 50 分钟、25,100 / 60,000 / 35,200 米，途经点停 60、90 分钟 → T = 310 分、H = 8（可选 4、8、10 小时）、总公里 120,300 米；每个车型对外价与同条件 POST /site/v1/quotes（包车 8 小时）逐分一致", "T = 480 分 → H = 8；T = 481 分 → H = 10；T = 601 分（最大 10 小时）→ 不报价、原因 ROUTE_TOO_LONG；某车型的供应商没有 8 小时套餐时按 10 小时报价，最多再试 2 个更大的套餐", "总公里 183,200 米、套餐含 150 公里、超公里结算 400 / 公里、加价 10% → 预计超出 34 公里、对外单价 440、预计另收 JPY 14,960；付款金额仍等于引擎对外价；CNY / USD 两位小数币种有单元测试", "途经点落在加价区域（上下车加价各 3,000）或禁行区里、H 不变时，价格与不带途经点完全相同；报价快照的 request 里没有途经点", "出发 22:30、行驶 160 分、停留 30 分 → 时间表最后到达「次日 01:40」；夏令时城市的时间表有单元测试；某段 NO_ROUTE 转人工、路线服务到每日上限为 TEMPORARILY_UNAVAILABLE", "途经点 9 个、停留 45 / 0 / 510 分钟 → 400 VALIDATION_FAILED；限速与官网询价共用每地址每分钟 30 次（第 31 次 429）；超时、超公里的结算单价和对外单价询价时锁定，之后改价格规则不影响已询的价", "下单后订单行程方式 charter_route；供应商订单详情、Webhook、司机页接口有地点、停留、计划时间，没有对外金额（扫键测试）；租户 A 读不到租户 B；改期按同一商品、同一 H 重新报价、时间表平移；人工报价留资带途经点（加密，ADR 0076）", "报价引擎计算无改动（quote-compat 逐分一致）；未下单的行程 24 小时后清理；OpenAPI 同步；PR 独立审查、合并、部署后测试站验收"],
+          "acceptance": ["POST /site/v1/quotes/charter-route：3 段 40 / 70 / 50 分钟、25,100 / 60,000 / 35,200 米，途经点停 60、90 分钟 → T = 310 分、H = 8（可选 4、8、10 小时）、总公里 120,300 米；每个车型对外价与同条件 POST /site/v1/quotes（包车 8 小时）逐分一致", "T = 480 分 → H = 8；T = 481 分 → H = 10；T = 601 分（最大 10 小时）→ 不报价、原因 ROUTE_TOO_LONG；某车型的供应商没有 8 小时套餐时按 10 小时报价，最多再试 2 个更大的套餐", "总公里 183,200 米、套餐含 150 公里、超公里结算 400 / 公里、加价 10%、引擎对外价 JPY 55,000 → 预计超出 34 公里、对外单价 440、预计另收 JPY 14,960、预计合计 JPY 69,960；付款金额（Stripe）JPY 55,000；CNY / USD 两位小数币种有单元测试", "总公里正好 300,000 米（含 150 公里的 2 倍）照常报价，300,001 米这个车型组 ROUTE_TOO_FAR；T = 470 分仍是 H = 8（不升档），应答带「接近套餐时长」标记", "对外单价、预计另收在 apps/api 服务层用报价快照 + 询价时的规则参数 + sellEquivalentMinor 算；普通 POST /site/v1/quotes 的包车也写 quote_route_rates（post_service_rates 从这里读）；询价后把超公里单价从 400 改成 600，订单页仍是 440", "途经点落在加价区域（上下车加价各 3,000）或禁行区里、H 不变时，价格与不带途经点完全相同；报价快照的 request 里没有途经点", "出发 22:30、行驶 160 分、停留 30 分 → 时间表最后到达「次日 01:40」；夏令时城市的时间表有单元测试；某段 NO_ROUTE 转人工、路线服务到每日上限为 TEMPORARILY_UNAVAILABLE", "途经点 9 个、停留 45 / 0 / 510 分钟 → 400 VALIDATION_FAILED；限速与官网询价共用每地址每分钟 30 次（第 31 次 429）；超时、超公里的结算单价和对外单价询价时锁定，之后改价格规则不影响已询的价", "下单后订单行程方式 charter_route；供应商订单详情、Webhook、司机页接口有地点、停留、计划时间，没有对外金额（扫键测试）；租户 A 读不到租户 B；改期按同一商品、同一 H 重新报价、时间表平移；人工报价留资带途经点（加密，ADR 0076）", "行程 24 小时后清理：任务用 nozomi_platform 跑（该角色对 route_itineraries 只有 select、insert、delete），清理后行程删除、报价保留、quotes.itinerary_id 为 null（on delete set null）、订单的 itinerary 不变；quote_route_rates 跟报价保留", "报价引擎无改动：PR 文件列表里没有 quote.ts、pricing.ts，quote-compat 逐分一致；OpenAPI 同步；PR 独立审查、合并、部署后测试站按需求 03 R1–R17、R21–R23 验收"],
           "evidence": "",
           "updated": "2026-11-13"
         },
@@ -1044,13 +1044,13 @@
           "title": "线路式包车（前端）：/book 包车「按行程」、时间表、价格明细、订单和司机页地点列表",
           "role": "frontend",
           "status": "todo",
-          "acceptance": ["包车标签有「按时长」「按行程」两种方式；按行程可加 0–8 个途经点，每个停留下拉 30–480 分钟（30 分钟一档），没选停留不能询价", "每个车型卡片：对外价、「8 小时套餐 · 含 150 公里」、本行程约多少时间和公里、预计超出时写「预计超出 34 公里 × ¥440 ≈ ¥14,960，服务后按实际公里收取」、超时和超公里的对外单价；不超出时写「本行程预计不超出套餐公里」", "行程时间表：每点的到达、停留、出发和下一段的分钟、公里，跨午夜写「次日」；注明不含实时路况", "ROUTE_TOO_LONG、NO_ROUTE 显示人工报价表单（带途经点）和 WhatsApp 按钮；TEMPORARILY_UNAVAILABLE 另有「稍后再试」", "订单页、确认邮件、供应商订单详情、司机页（逐点「导航到这里」）显示地点列表和停留；供应商订单详情、司机页没有对外价", "亮暗两套、320 / 360 / 390 不横向滚动、axe 通过；端到端：按行程询价 → 选车 → 付款（假 Stripe）→ 订单页有时间表；PR 独立审查、合并、部署后测试站验收"],
+          "acceptance": ["包车标签有「按时长」「按行程」两种方式；按行程可加 0–8 个途经点，每个停留下拉 30–480 分钟（30 分钟一档），没选停留不能询价", "每个车型卡片：对外价、「8 小时套餐 · 含 150 公里」、本行程约多少时间和公里、预计超出时写「预计超出 34 公里 × ¥440 ≈ ¥14,960，服务后按实际公里收取」、超时和超公里的对外单价；不超出时写「本行程预计不超出套餐公里」", "卡片显示预计合计：引擎价 ¥55,000、预计另收 ¥14,960 时写「预计合计约 ¥69,960（现在付 ¥55,000，预计另收 ¥14,960 服务后按实际收取）」，付款页和 Stripe 金额都是 ¥55,000；不超出时写「预计合计 ¥55,000（不另收）」；余量不足 30 分钟时有「行程接近套餐时长」提醒；ROUTE_TOO_FAR 的车型不显示价格", "行程时间表：每点的到达、停留、出发和下一段的分钟、公里，跨午夜写「次日」；注明不含实时路况", "ROUTE_TOO_LONG、NO_ROUTE 显示人工报价表单（带途经点）和 WhatsApp 按钮；TEMPORARILY_UNAVAILABLE 另有「稍后再试」", "订单页、确认邮件、供应商订单详情、司机页（逐点「导航到这里」）显示地点列表和停留；供应商订单详情、司机页没有对外价", "亮暗两套、320 / 360 / 390 不横向滚动、axe 通过；端到端：按行程询价 → 选车 → 付款（假 Stripe）→ 订单页有时间表；PR 独立审查、合并、部署后测试站验收"],
           "evidence": "",
           "updated": "2026-11-13"
         },
         {
           "id": "M9-03c",
-          "title": "包车模型线路：运营后台配置、官网列表和 /book?route= 预填",
+          "title": "包车模型线路：运营后台配置、官网列表和 /book?route= 预填（后端 + 前端两个角色、同一个 PR：后端先做表和接口，前端接着做两个页面）",
           "role": "backend",
           "status": "todo",
           "acceptance": ["运营后台「内容运营 → 包车模型线路」：编码（唯一、建后不改）、名称（中文必填）、城市、上车点、0–8 个途经点和停留、下车点、建议出发时间、简介、排序、状态；不含任何价格", "运营、超级管理员能新增、编辑、上下线；客服、只读只能看（改是 403）；供应商令牌 401；两人同时改同一条，后保存的 409（If-Match）；每次改动写审计", "官网 /book 包车「按行程」列出本城市已上线的线路；打开 /book?mode=charter&route=<编码> 预填地点和停留，客人改一个停留后按改后条件询价；下线的线路提示「这条线路已下线」、不预填；订单来源记 route_template", "从模型线路进入询价，价格与手填同样条件逐分一致；迁移不写任何行（没有演示数据）", "亮暗两套、360px 不横向滚动、axe 通过；新接口有集成测试；PR 独立审查、合并、部署后测试站验收"],
@@ -1059,19 +1059,19 @@
         },
         {
           "id": "M9-04",
-          "title": "嵌入码与域名白名单（后端 + 运营后台）：生成嵌入代码、/embed/v1 跨域、来源凭证",
+          "title": "嵌入码与域名白名单：生成嵌入代码、/embed/v1 跨域、来源凭证（后端 + 前端两个角色、同一个 PR：后端先做，前端接着做运营后台页面）",
           "role": "backend",
           "status": "todo",
-          "acceptance": ["运营后台「渠道 → 嵌入组件」：新建嵌入码（nze_ 开头）、名称、1–20 个白名单域名、默认语言和标签、启停；详情页显示「容器 + 脚本 + init」代码和「复制代码」；超级管理员、运营、渠道经理能管，只读只看，供应商令牌 401；改动写审计，If-Match 并发 409", "白名单域名规范化：大小写统一、国际化域名存 punycode、不收路径和通配符；正式环境只收 https；测试环境另收 http://localhost:端口、http://127.0.0.1:端口", "GET /embed/v1/config：白名单里的 origin → 200，Access-Control-Allow-Origin 等于该 origin、Vary: Origin；https://embed-demo.moveglobal.io.evil.example、http://embed-demo.moveglobal.io、未加入的 http://localhost:5173 → 403 EMBED_ORIGIN_NOT_ALLOWED 且没有 Access-Control-Allow-Origin；停用或移出白名单后 60 秒内生效", "/site/v1、/platform/v1、/tenant/v1 带白名单 Origin 请求也没有任何 CORS 头；/embed/v1 的地址提示和 /site/v1 共用同一份谷歌每日上限，另有每个嵌入码每分钟 600 次", "来源凭证 2 小时有效：核对通过的订单记 embed 和来源域名；改一个字符、过期（正好 2 小时那一刻算过期）、嵌入码停用、域名已移出白名单 → 订单照常建、来源记 book、不报错；redirectUrl 不在白名单域名下时不进凭证；签名密钥由现有主密钥派生，不新增密钥", "迁移不写任何嵌入码；OpenAPI 同步；PR 独立审查、合并、部署后测试站验收"],
+          "acceptance": ["运营后台「渠道 → 嵌入组件」：新建嵌入码（nze_ 开头）、名称、1–20 个白名单域名、默认语言和标签、启停；详情页显示「容器 + 脚本 + init」代码和「复制代码」；超级管理员、运营、渠道经理能管，只读只看，供应商令牌 401；改动写审计，If-Match 并发 409", "白名单域名规范化：大小写统一、国际化域名存 punycode、不收路径和通配符；正式环境只收 https；测试环境另收 http://localhost:端口、http://127.0.0.1:端口", "GET /embed/v1/config：Origin 规范化后与白名单某一项完全相等 → 200，Access-Control-Allow-Origin 等于该 origin、Vary: Origin；https://embed-demo.moveglobal.io.evil.example、http://embed-demo.moveglobal.io、未加入的 http://localhost:5173、Origin: null、不带 Origin → 403 EMBED_ORIGIN_NOT_ALLOWED 且没有 Access-Control-Allow-Origin；停用或移出白名单后 60 秒内生效", "路由同步：api-prefixes.ts 加 /embed/v1；edge-config.ts 给 /embed/widget-v1.js 单开响应头（text/javascript、Cache-Control public max-age=300、Cross-Origin-Resource-Policy: cross-origin、nosniff，不存在时 404 不落到 index.html）；Vite 开发代理跟随；smoke.sh 核对组件脚本、/embed/v1/config 403 无 CORS 头、/site/v1 带 Origin 无 CORS 头", "redirectUrl 校验（domain 的 embedReturnUrl，签发和下单两处调用）：≤ 2,000 字符、URL 解析、只收 https（测试环境另收 localhost）、拒绝 userinfo 和 javascript: / data: 等、origin 完全等于白名单某项且等于凭证 o；下单时 r 的 origin 再对当前白名单核一次；单元测试含 javascript:、userinfo、.evil 后缀、带端口、2,001 字符", "/site/v1、/platform/v1、/tenant/v1 带白名单 Origin 请求也没有任何 CORS 头；/embed/v1 的地址提示和 /site/v1 共用同一份谷歌每日上限，另有每个嵌入码每分钟 600 次", "来源凭证 2 小时有效：核对通过的订单记 embed 和来源域名；改一个字符、过期（正好 2 小时那一刻算过期）、嵌入码停用、域名已移出白名单 → 订单照常建、来源记 book、不报错；签名用常数时间比较（长度不同的签名也有测试）；签名密钥由现有主密钥派生，不新增密钥；来源 embed 只作统计，不作分佣和金额依据（写进运营后台说明）；/tenant/v1 和供应商 Webhook 没有来源字段", "迁移不写任何嵌入码；OpenAPI 同步；PR 独立审查、合并、部署后测试站验收"],
           "evidence": "",
           "updated": "2026-11-13"
         },
         {
           "id": "M9-04b",
-          "title": "嵌入组件 widget.js：一行脚本 + NozomiBooking.init、区间 / 包车标签、Shadow DOM、跳主站 /book",
+          "title": "嵌入组件 /embed/widget-v1.js：一行脚本 + NozomiBooking.init、区间 / 包车标签、Shadow DOM、跳主站 /book",
           "role": "frontend",
           "status": "todo",
-          "acceptance": ["NozomiBooking.init({ key, root, lang, services, redirectUrl })：root 找不到时控制台报错、不渲染；lang 只认 zh / ja / en，其他按后台默认；services 里不认识的值忽略，忽略后为空按后台默认", "两个标签：区间（出发地、目的地、日期、时间、人数、行李），包车（上车点、0–8 个途经点和停留、下车点、日期、时间、人数、行李）；地址经 /embed/v1 输入即提示", "点「查询价格」整页跳到主站 /book?d=<预订条件>（不带价格和报价编号）；成田机场 → 东京站 2 人 2 件、银座 → 途经 1 个停 60 分 → 新宿两个例子，主站报价与直接在主站填同样条件逐分一致", "宿主页把所有 div、input、button 设成红底，组件外观不变（截图对比）；不在白名单的宿主页只显示「此网站未获授权使用预订组件」", "脚本 gzip 后 ≤ 60 KB，不加载任何第三方资源；容器 320 px 不横向滚动、axe 无严重问题、键盘可走完全部操作", "端到端：两个本机 origin（白名单内、外）各一个宿主页；PR 独立审查、合并、部署后测试站验收"],
+          "acceptance": ["NozomiBooking.init({ key, root, lang, services, redirectUrl })：root 找不到时控制台报错、不渲染；lang 只认 zh / ja / en，其他按后台默认；services 里不认识的值忽略，忽略后为空按后台默认", "两个标签：区间（出发地、目的地、日期、时间、人数、行李），包车（上车点、0–8 个途经点和停留、下车点、日期、时间、人数、行李）；地址经 /embed/v1 输入即提示", "点「查询价格」时重新取一次配置拿新的来源凭证（页面打开 2 小时 10 分后再点，下单来源仍是嵌入组件），编码后检查 d ≤ 8,000（超出先把名称截到 20 字，仍超出不跳转并提示），再整页跳到主站 /book?d=<预订条件>（不带价格和报价编号）；成田机场 → 东京站 2 人 2 件、银座 → 途经 1 个停 60 分 → 新宿两个例子，主站报价与直接在主站填同样条件逐分一致", "宿主页把所有 div、input、button 设成红底，组件外观不变（截图对比）；不在白名单的宿主页只显示「此网站未获授权使用预订组件」", "脚本 gzip 后 ≤ 60 KB，不加载任何第三方资源；容器 320 px 不横向滚动、axe 无严重问题、键盘可走完全部操作", "端到端：两个本机 origin（白名单内、外）各一个宿主页；PR 独立审查、合并、部署后测试站验收"],
           "evidence": "",
           "updated": "2026-11-13"
         },
@@ -1080,7 +1080,7 @@
           "title": "M9 验收：三个入口同价、演示站 embed-demo.moveglobal.io 嵌入下单、非白名单被拒",
           "role": "acceptance",
           "status": "todo",
-          "acceptance": ["准备（业主）：在 MoveGlobal 工厂后台（站点 ID 73）把运营后台生成的嵌入代码放到 embed-demo.moveglobal.io，按需求 03 Q10 处理该站的 Good Journey 占位组件；运营在测试环境的嵌入码白名单里加入 https://embed-demo.moveglobal.io", "三个入口同价：同一条件（区间一条、按行程包车一条）分别从主站 /book、模型线路、演示站嵌入组件进入，每个车型价格相同，并等于运营后台报价试算（包车用同一套餐时长）", "演示站嵌入组件区间、包车各用 Stripe 测试卡 4242 4242 4242 4242 完整下一单（验收通道 + QA 测试供应商的验收可售商品，ADR 0078，不用真实供应商）：订单确认，订单页和确认邮件有地点列表，运营后台来源为「嵌入组件 · embed-demo.moveglobal.io」，订单页「返回原网站」链接正确", "非白名单被拒：同一嵌入码放在不在白名单的来源上，只显示未授权提示，取配置 403", "供应商订单详情、司机页有途经点和停留、没有对外价；截图存 /home/codespace/import/ui-screens/（m9- 开头）；验收报告 docs/acceptance/M9.md"],
+          "acceptance": ["准备（业主）：在 MoveGlobal 工厂后台（站点 ID 73）把运营后台生成的嵌入代码放到 embed-demo.moveglobal.io，按需求 03 Q10 处理该站的 Good Journey 占位组件；运营在测试环境的嵌入码白名单里加入 https://embed-demo.moveglobal.io", "三个入口同价：在同一个验收会话里，同一条件（区间一条、按行程包车一条）分别从主站 /book、模型线路、演示站嵌入组件进入，每个车型价格相同；基准是同一验收会话里直接调 POST /site/v1/quotes 的价格（区间用同样两端；包车用同样上车点、下车点和页面选出的同一套餐时长），不用运营后台试算", "演示站嵌入组件区间、包车各用 Stripe 测试卡 4242 4242 4242 4242 完整下一单（验收通道 + QA 测试供应商的验收可售商品，ADR 0078，不用真实供应商）：订单确认，订单页和确认邮件有地点列表，运营后台来源为「嵌入组件 · embed-demo.moveglobal.io」，订单页「返回原网站」链接正确", "非白名单被拒：同一嵌入码放在不在白名单的来源上，只显示未授权提示，取配置 403", "供应商订单详情、司机页有途经点和停留、没有对外价；截图存 /home/codespace/import/ui-screens/（m9- 开头）；验收报告 docs/acceptance/M9.md"],
           "evidence": "",
           "updated": "2026-11-13"
         }

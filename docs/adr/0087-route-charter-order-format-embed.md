@@ -20,6 +20,10 @@
 
 **所以按业主给的后备方案做**：销售端（官网服务层）把行程换算成引擎现有的输入（上车点、下车点、出发时间、套餐时长 H、人数、行李、附加服务），引擎原样报价；超时、超公里的对外单价和「预计超出」只作说明另列，不进付款金额（需求 03 待确认 Q1 推荐 A）。
 
+**对业主原话「只在销售端用引擎规则单价拼总价」的解释**：拼出来的总价是页面上显示的「**预计合计 = 引擎对外价 + 预计另收（预计超出公里 × 超公里对外单价）**」，每个车型卡片都显示；**付款金额仍是引擎对外价**，预计另收部分服务后按实际公里走现有加收流程。这样「拼总价」满足了（客人看到包含超公里的合计），同时不动下单、付款、结算、退款。业主如要求按预计合计收款，就是 Q1-B，另写 ADR。
+
+**「引擎一行不改」的落实口径（P1）**：超时 / 超公里的对外单价、`routeRates`、预计另收，都在 `apps/api` 的服务层（官网报价服务）里算——输入是报价快照（中标的 `priceRuleId`、`sell` 的汇率 / 缓冲 / 加价比例）+ 询价那一刻读到的价格规则参数，用现有的 `sellEquivalentMinor` 换算；`packages/domain/src/quote.ts`、`pricing.ts` 在 M9 的所有 PR 里**没有 diff**（审查时看 PR 的文件列表核对）。新的纯函数放新文件 `packages/domain/src/route-charter.ts`，只调用现有函数（`overKm`、`sellEquivalentMinor`、时间换算），不复制计价逻辑。
+
 ## 二、决定
 
 ### 1. 换算规则（`packages/domain/src/route-charter.ts`，纯函数）
@@ -28,15 +32,25 @@
 | --- | --- |
 | 各段 | 地点列表相邻两点一段；每段用现有 `RouteEstimator`（ADR 0042：缓存键、7 天缓存、每日上限、冷却都不变），分钟按 ADR 0042 四舍五入，米数原样 |
 | 合计 | T = Σ 段分钟 + Σ 停留分钟；D = Σ 段米数 |
-| 选 H | `pickPackageHours(available, T)`：可选时长升序，取第一个满足 `H × 60 ≥ T` 的；没有 → `ROUTE_TOO_LONG` |
+| 选 H | `pickPackageHours(available, T)`：可选时长升序，取第一个满足 `H × 60 ≥ T` 的；没有 → `ROUTE_TOO_LONG`。余量（H × 60 − T）小于 30 分钟时**不升档**（需求 Q5 推荐 A），卡片上加一句提醒「行程接近套餐时长，超出按每小时 ¥X 另收」 |
+| 总公里过远（需求 Q4 推荐 C） | 引擎报价后，某车型组中标规则的含公里 K：`D > 2 × K × 1000` 时这个车型组不给在线价，原因 `ROUTE_TOO_FAR`（转人工）；正好等于 2 倍照常报价 |
 | 某车型组在 H 报 `NO_PRICE_RULE` | 只对这些车型组，按更大的下一个可选时长再询价，最多再试 2 个；每个车型组取第一个报得出的 |
 | 只交两端给引擎 | `QuoteRequest.pickup` = 第一个点，`dropoff` = 最后一个点；途经点不进 `QuoteRequest`，也不进报价快照的 `request`。所以途经点**结构上**不可能参与区域判断、区域加价、禁行区 |
 | 预计超出 | `overKm(D, packageKm)`（现有函数，向上取整到 1 公里）；超出分钟 `max(0, T − H × 60)` 按选 H 的规则恒为 0 |
-| 对外单价 | `sellEquivalentMinor(结算单价, 结算币种, 中标 sell)`，整数最小单位 |
+| 对外单价 | `sellEquivalentMinor(结算单价, 结算币种, 中标 sell)`，整数最小单位（在 `apps/api` 服务层算，见第一节末） |
 | 预计另收 | 超出公里数 × 超公里对外单价（整数 × 整数），不进 `sellMinor` |
+| 预计合计 | 引擎对外价 + 预计另收（整数相加），只显示，不收款 |
 | 时间表 | 出发时刻（城市当地 → 瞬间，`localDateTimeToInstant`）逐段累加分钟，再换回当地钟面；跨午夜按日期差写「次日 / 第 N 天」；按瞬间计算，夏令时城市也对 |
 
-输入校验（`routeCharterIssues`）：地点 2–10 个（途经点 0–8，常量 `ROUTE_CHARTER_LIMITS`）；途经点停留必填、30 的倍数、30–480；首尾两点没有停留；坐标范围；名称 1–300 字。原因码 `REQUIRED`、`OUT_OF_RANGE`、`NOT_A_STEP`、`NOT_APPLICABLE`。
+输入校验（`routeCharterIssues`）：地点 2–10 个（途经点 0–8，常量 `ROUTE_CHARTER_LIMITS`）；途经点停留必填、30 的倍数、30–480；首尾两点没有停留；坐标范围；地点名称 1–240 字。原因码 `REQUIRED`、`OUT_OF_RANGE`、`NOT_A_STEP`、`NOT_APPLICABLE`。
+
+**名称长度三处不同，原因各自如下（统一由 `ROUTE_CHARTER_LIMITS` 定义）**：
+
+| 位置 | 上限 | 原因 |
+| --- | --- | --- |
+| 接口和库里的地点名称（按行程询价请求、`route_itineraries`、`orders.itinerary`、模型线路的地点） | 1–240 字 | 与地址联想候选 `SitePlaceSuggestion.name`（maxLength 240）一致，谷歌给的名称不截断 |
+| 链接（预订条件 `d=`）里的地点名称 | ≤ 40 字，编码时超出截断并加「…」 | 链接长度预算（见第三节第 1 小节）；名称只用于预填显示，坐标才是准的，客人在 `/book` 上可以重选 |
+| 模型线路自己的名称（线路标题，不是地点名） | 每种语言 ≤ 60 字 | 显示在卡片标题上 |
 
 ### 2. 被否的方案
 
@@ -78,8 +92,12 @@
 }
 ```
 
-- 链接：`/book?d=<base64url(JSON)>`，≤ 4,000 字符；`domain` 的 `parseBookingDraft` / `encodeBookingDraft`，逐项校验（不合格的那一项为 null，整份解不开为 null），前端和组件共用同一份（组件构建时打包进去）。
-- 坐标最多 6 位小数；名称清理控制字符、≤ 120 字（同现有链接参数的 `cleanName`）。
+- 链接：`/book?d=<base64url(JSON)>`，`d` 的值 **≤ 8,000 字符**，整个网址的路径加查询串 ≤ 8,100 字符；`domain` 的 `parseBookingDraft` / `encodeBookingDraft`，逐项校验（不合格的那一项为 null，整份解不开为 null），前端和组件共用同一份（组件构建时打包进去）。
+- **为什么是 8,000**：最坏情况是 10 个地点、每个名称 40 个 4 字节字符（编码前约 230 字节 / 点）、来源凭证带最长的 `return_url`（2,000 字符）和最长的来源（约 270 字符），JSON 约 5,800 字节，base64url 后约 7,800 字符；4,000 放不下。
+- **反向代理同步**：网址到 8,100 字符会超过 nginx 默认的请求行缓冲（`large_client_header_buffers 4 8k`）的余量；部署时在 **nozomi 自己的 nginx server 块**里设 `large_client_header_buffers 4 16k`（测试、正式两台；共用机器上只改 nozomi 的配置，不动别的服务）。Caddy 的默认上限更大，不用改。`deploy/ci/smoke.sh` 加一条：带 8,100 字符查询串请求 `/book` 得到 200。
+- **组件跳转前检查长度**：编码后超过 8,000 时，先把地点名称截到 20 字再编一次；仍超过就不跳转，提示「途经点太多或名称太长，请减少途经点」（按上面的上限计算不会走到这一步，是兜底）。
+- **往返测试**：10 个地点、名称都取 40 个 4 字节字符、停留取 480、`return_url` 取 2,000 字符、来源取最长 → 编码长度 ≤ 8,000，解码后与编码前逐项相等（名称是截断后的）。
+- 坐标最多 6 位小数；名称清理控制字符（同现有链接参数的 `cleanName`），长度见第二节第 1 小节的表。
 - **没有价格、没有报价编号**。
 - 旧参数（`from`、`to`、`date`、`time`、`pax`、`bags`、`mode`）照旧；同时给了 `d` 和旧参数时以 `d` 为准。
 
@@ -90,7 +108,7 @@
 | 列 | 说明 |
 | --- | --- |
 | `id` uuid | |
-| `created_at`、`expires_at` | 询价时刻；+ 24 小时（未下单的行程到期后由现有定时任务删除，坐标不长留） |
+| `created_at`、`expires_at` | 询价时刻；+ 24 小时。到期后整行删除（下单的单已把行程抄进 `orders.itinerary`，不再需要这一行），坐标不长留 |
 | `city_id`、`service_local`、`timezone` | |
 | `mode` | `transfer` / `charter_package` / `charter_route` |
 | `stops` jsonb | `[{ seq, role: pickup/via/dropoff, name, lat, lng, stay_minutes }]` |
@@ -98,7 +116,15 @@
 | `drive_minutes`、`stay_minutes`、`total_minutes`、`total_meters` | 整数 |
 | `source` jsonb | `{ entry, route_template_id, embed_key_id, embed_origin }`（询价时已知的部分；下单时再核对凭证） |
 
-`quotes` 加一列 `itinerary_id uuid null references route_itineraries(id)`；另建 `quote_route_rates`（`quote_id` 主键，`package_hours`、`package_km`、`overtime_per_hour_minor`、`over_km_per_km_minor`（结算、商品币种）、`settlement_currency`、`overtime_per_hour_sell_minor`、`over_km_per_km_sell_minor`、`over_km_estimate`、`over_km_estimate_sell_minor`（客人币种））——**询价时锁定**，下单、订单页都读这里，不再读当前的价格规则（避免 `findQuotePackageKm` 那样读到改过的规则）。
+`quotes` 加一列 `itinerary_id uuid null references route_itineraries(id) on delete set null`：行程按上面的规则删除时，报价上的引用自动置空，报价本身保留（报价是交易记录，现在没有清理）。
+
+另建 `quote_route_rates`（`quote_id` 主键、外键到 `quotes(id) on delete cascade`；`package_hours`、`package_km`、`overtime_per_hour_minor`、`over_km_per_km_minor`（结算、商品币种）、`settlement_currency`、`overtime_per_hour_sell_minor`、`over_km_per_km_sell_minor`、`over_km_estimate`（按行程才有，否则 null）、`over_km_estimate_sell_minor`（客人币种，按行程才有））——**询价时锁定**：
+- **所有包车报价都写**：按行程询价，和普通 `POST /site/v1/quotes` 的包车（按时长，`post_service_rates` 也从这里读）都写；下单、订单页、`SiteQuote.post_service_rates` 都读这里，**不再读当前的价格规则**（避免 `findQuotePackageKm` 那样读到改过的规则）。
+- 保留期：跟报价走（报价不删，它也不删；以后报价有了清理，按外键一起删）。里面只有单价和数量，没有地点和个人信息。
+
+**清理任务**（`RouteItineraryRetentionJobs`，跑在 API 进程里，做法同 ADR 0076 的 `ManualQuoteRetentionJobs`）：启动 20 秒后第一次，之后每小时一轮；每轮最多 10 批、每批 500 行；一批一个事务，开头抢事务级 advisory lock，抢不到就跳过这一轮；`delete … where expires_at < now()`，行用 `for update skip locked`。
+- 数据库角色：用平台连接 `nozomi_platform`。迁移给它 `route_itineraries` 的 `select, insert, delete`（不给 `update`：行程写入后不改），`quote_route_rates` 的 `select, insert`；租户角色 `nozomi_app` 对这两张表没有任何权限。
+- `on delete set null` 是 PostgreSQL 的外键动作，由 `quotes` 表的所有者执行，不需要给 `nozomi_platform` 加 `quotes` 的 `update` 权限；集成测试用 `nozomi_platform` 跑一轮清理，核对行程被删、报价还在、`itinerary_id` 为 null、订单的 `itinerary` 不变。
 
 ### 3. 订单上（迁移同一个文件，`orders` 只加可空列）
 
@@ -108,6 +134,7 @@
 | `orders.entry_source` text null | `book` / `route_template` / `embed`（check 约束）；M9 之前的单、渠道单为 null |
 | `orders.route_template_id` uuid null | 外键到模型线路；线路删除（只会下线，不删）不影响 |
 | `orders.embed_key_id` uuid null、`orders.embed_origin` text null | 核对通过的来源凭证才写 |
+| （说明） | `entry_source`、`route_template_id`、`embed_key_id`、`embed_origin` **只给官网订单应答和运营后台**：`/tenant/v1` 订单详情、列表和给供应商的 Webhook 都不给（供应商不需要知道客人从哪个网站来；集成测试扫键核对） |
 | 平台侧 `order_sales.route_estimate` jsonb null | 对外单价和预计另收（客人币种），只给官网订单应答和运营后台 |
 | 结算价明细（`price_snapshot`）加 `routeRates` | 超时、超公里的结算单价（供应商可见，规则 4 允许） |
 
@@ -132,7 +159,7 @@
 | --- | --- |
 | `POST /site/v1/quotes/charter-route`（新） | 入参：`city_id`、`service_local`、`stops`（2–10 个，途经点带 `stay_minutes`）、`passengers`、`luggage`、`addons`、`route_template`（可空）。应答：`currency`、`itinerary`（时间表、各段、合计、选中的 H）、`quotes[]`（`SiteQuote` + `post_service_rates` + `route_estimate`）、`unavailable[]`（原因多 `ROUTE_TOO_LONG`）。限速与官网询价共用 |
 | `SiteQuote` | 加 `post_service_rates`：`{ overtime_per_hour: SalesMoney, over_km_per_km: SalesMoney }` 或 null（包车才有；普通 `POST /site/v1/quotes` 的包车也给，便于「按时长」也显示单价）；加 `route_estimate`：`{ over_km, amount: SalesMoney }` 或 null（只有按行程） |
-| `SiteUnavailable.reasons` | 加 `ROUTE_TOO_LONG` |
+| `SiteUnavailable.reasons` | 加 `ROUTE_TOO_LONG`（总时长超过最大套餐）、`ROUTE_TOO_FAR`（总公里超过中标规则含公里的 2 倍，需求 Q4） |
 | `SiteOrderRequest` | 加可选 `source: { entry, route_template, ref }`（`entry` 是 `book` / `route_template` / `embed`，后两项是字符串或 null）；不给按 `book` |
 | `SiteOrder`（订单应答） | 加 `itinerary`（订单行程 v1 或 null）、`entry_source`、`route_estimate`（对外，或 null）、`return_url`（来源凭证里的 `redirectUrl`，或 null） |
 | `GET /site/v1/route-templates?city_id=`（新） | 已上线的模型线路（编码、名称、简介、地点和停留、建议出发时间），不含任何价格 |
@@ -148,18 +175,27 @@
 ### 供应商 `/tenant/v1` 和给供应商的 Webhook
 
 - 订单详情、`order.confirmed` / `order.changed` 载荷加 `itinerary`（地点、停留、计划时间、各段、合计、套餐）——**没有任何对外金额**；结算单价沿用结算价明细。租户编号只来自令牌，跨租户 404。
+- **不给**来源相关的字段：`entry_source`、`route_template_id`、`embed_key_id`、`embed_origin`、`return_url` 都不出现在 `/tenant/v1` 和供应商 Webhook 里（集成测试扫键）。
 - 司机页：地点列表逐个「导航到这里」，停留时长和计划时间。
 
 ### 嵌入 `/embed/v1`（新前缀，**跨域只开在这里**）
 
 | 接口 | 说明 |
 | --- | --- |
-| `GET /embed/v1/widget.js` | 组件脚本（静态文件，前端独立构建入口）；`Cache-Control: public, max-age=300`；如果静态资源统一加了 `Cross-Origin-Resource-Policy`，这个文件必须是 `cross-origin` |
-| `GET /embed/v1/config?key=&return_url=` | 浏览器 `Origin` 在这个嵌入码的白名单里：200 + `Access-Control-Allow-Origin: <这个 origin>`、`Vary: Origin`，应答 `{ lang, services, site_origin, ref, ref_expires_at }`；`return_url` 不在白名单域名下时忽略（不进 `ref`）。不在白名单、嵌入码不存在或停用：403 `EMBED_ORIGIN_NOT_ALLOWED`，**不带** `Access-Control-Allow-Origin`（浏览器读不到）。`Cache-Control: private, max-age=60` |
-| `GET /embed/v1/places/autocomplete`、`GET /embed/v1/places/details` | 和 `/site/v1/places/*` 同一个实现、同一份每日上限；先按 `key` + `Origin` 核对白名单（同上），再按现有每地址限速 + 每个嵌入码每分钟 600 次 |
+| `GET /embed/v1/config?key=&return_url=` | 浏览器 `Origin` 与这个嵌入码白名单里的某一项**完全相等**：200 + `Access-Control-Allow-Origin: <这个 origin>`、`Vary: Origin`，应答 `{ lang, services, site_origin, ref, ref_expires_at }`；`return_url` 按第五节第 2 小节校验，不合格时忽略（不进 `ref`，不报错）。不在白名单、**`Origin: null`、没有 `Origin` 请求头**、嵌入码不存在或停用：一律 403 `EMBED_ORIGIN_NOT_ALLOWED`，**不带** `Access-Control-Allow-Origin`（浏览器读不到）。`Cache-Control: private, max-age=60` |
+| `GET /embed/v1/places/autocomplete`、`GET /embed/v1/places/details` | 和 `/site/v1/places/*` 同一个实现、同一份每日上限；先按 `key` + `Origin` 核对白名单（规则同上，`null` / 缺失也 403），再按现有每地址限速 + 每个嵌入码每分钟 600 次 |
 
 - 不开 `Access-Control-Allow-Credentials`；组件所有请求 `credentials: "omit"`；只有 GET、不带自定义请求头（简单请求，没有预检）。`/site/v1`、`/platform/v1`、`/tenant/v1` 永远不带任何 CORS 头（集成测试核对）。
 - 报价、下单不开跨域：组件不询价、不下单。
+
+### 组件脚本放在哪、路由怎么同步
+
+- **脚本是前端的构建产物，不归 API**：`apps/web` 加一个独立构建入口，产出 `dist/embed/widget-v1.js`（文件名带大版本，不带内容哈希，合作网站的代码不用改），网址 `https://<主站>/embed/widget-v1.js`，由 Caddy 和其他静态文件一样直接给。不放在 `/embed/v1/` 下：那个前缀整个归 API，混放就要在反向代理里写「这个前缀下一个文件例外」的规则，容易错。
+- 同步改的地方：
+  - `apps/web/src/lib/api-prefixes.ts`：`API_PATH_PREFIXES` 加 `/embed/v1`（Vite 开发和端到端的代理、`edge-config.ts` 生成的 Caddy 转发规则都从这张表来，自动跟上）；`portal.test.ts` 的「前端路由不落在 API 前缀下」照常检查。
+  - `apps/web/build/edge-config.ts`：给 `/embed/widget-v1.js` 单开一条响应头：`Content-Type: text/javascript; charset=utf-8`、`Cache-Control: public, max-age=300`、`Cross-Origin-Resource-Policy: cross-origin`、`X-Content-Type-Options: nosniff`；不加 HTML 页面的内容安全策略（它不是页面）；文件不存在时 404，**不能**落到单页应用的 `index.html` 兜底。`deploy-web.test.ts` 核对生成的片段。
+  - `apps/web/vite.config.ts`：多一个构建入口；开发服务器同样能给 `/embed/widget-v1.js`。
+  - `deploy/ci/smoke.sh`：真实容器上核对 ① `/embed/widget-v1.js` 200、`Content-Type` 是 JavaScript、带 `Cross-Origin-Resource-Policy: cross-origin`；② `/embed/v1/config?key=nze_不存在` 带一个随便的 `Origin` 是 403 且没有 `Access-Control-Allow-Origin`；③ `/site/v1/config` 带 `Origin` 没有任何 CORS 头；④ 8,100 字符查询串的 `/book` 是 200（第三节第 1 小节）。
 
 ## 五、安全
 
@@ -167,15 +203,29 @@
 
 - 浏览器发跨域请求时自动带 `Origin`，网页脚本改不了；主站只对白名单里的 origin 回 `Access-Control-Allow-Origin`，所以**在浏览器里**，未授权网站上的组件读不到配置、读不到地址提示，显示「此网站未获授权使用预订组件」。
 - `Origin`、`Referer` 对非浏览器程序都可以伪造：伪造者能拿到的只是公开的标签、语言配置和地址提示（和直接用主站一样，受同样的限速和每日上限）。所以白名单**不是**访问控制，防的是「别人把组件放到未授权网站上」。
+- 比较方式：把请求的 `Origin` 按同一个函数规范化（小写、punycode、去掉默认端口）后，和白名单逐项**完全相等**才算；不按后缀、不按主机名、不按包含。`Origin: null`（沙箱 iframe、`file:`、部分跳转）和没有 `Origin` 都不放行。
+- 同样因为可伪造：**订单来源 `embed` 只用于统计**，不作为分佣、结算或任何金额的依据。以后要给合作网站分佣（需求 Q11-B），先重新设计来源的证明方式（例如合作方服务端签名），另写 ADR。
 - 下单安全不靠白名单：仍是 `/book` 和 `/site/v1` 现有的校验（报价有效期、库存、下单校验、限速、Stripe）。
 - 嵌入码是公开标识，不是密钥：可以出现在网页源码、日志里，不进 `packages/config`，不需要业主在设置页面填。
 
 ### 2. 来源凭证（`ref`）
 
-- 内容：`{ k: 嵌入码编号, o: origin, r: return_url | null, e: 过期时刻（签发后 2 小时） }`，base64url + HMAC-SHA256 签名。
+- 内容：`{ k: 嵌入码编号, o: origin, r: return_url 或 null, e: 过期时刻（签发后 2 小时） }`，base64url + HMAC-SHA256 签名。
 - 签名密钥：从现有的 `DATA_ENCRYPTION_KEY` 按 ADR 0057 的派生方式派生新用途 `embed-ref`（不新增密钥，业主不用做事）；没配主密钥时不签发凭证，来源一律记 `book`。
-- 下单时核对：签名对、没过期、嵌入码仍启用、origin 仍在白名单 → 记 `embed`；否则记 `book`，**不拒单、不报错**，只在日志记原因码（不记凭证原文）。
-- `return_url` 只能来自核对通过的凭证，所以订单页「返回原网站」不会被拿来做开放跳转。
+- 核对签名用**常数时间比较**（`crypto.timingSafeEqual`，先比长度）。
+- 下单时核对：签名对、没过期、嵌入码仍启用、`o` 仍在**当前**白名单里 → 记 `embed`；否则记 `book`，**不拒单、不报错**，只在日志记原因码（不记凭证原文）。
+- **凭证过期不静默变 `book`**：组件在客人点「查询价格」时**重新取一次配置**拿新凭证再跳转（不用页面打开时拿的那张）；跳到 `/book` 后 2 小时内下单都能记上来源。
+
+**`redirectUrl` / `return_url` 的校验（写死在 `packages/domain` 的 `embedReturnUrl`，签发和下单两处都调它）**：
+
+1. 长度 ≤ 2,000 字符；用 WHATWG URL 解析，解析失败就拒。
+2. 协议只能是 `https:`（测试环境另允许 `http:`，且只限 `localhost`、`127.0.0.1`，同白名单规则）；`javascript:`、`data:`、`blob:`、`file:` 等一律拒。
+3. 不能带用户名、密码（`https://user:pass@…`）。
+4. 解析后的 origin（协议 + 主机 + 端口，规范化同白名单）必须**完全等于**白名单里的某一项，**并且等于这张凭证的 `o`**（客人从哪个网站来，只能回哪个网站）；不按后缀、不按主机名比较。
+5. 下单时再核一次：`r` 的 origin 仍在**当前**白名单里，才把它存进订单、在订单页显示「返回原网站」；不在就当作没有（来源可能仍记 `embed`，只是没有返回链接）。
+6. 订单页的链接 `rel="noopener noreferrer"`，地址原样来自通过校验的值。
+
+测试用例至少有：`javascript:alert(1)`、`data:text/html,…`、`https://user:pass@embed-demo.moveglobal.io/`、`https://embed-demo.moveglobal.io.evil.example/`、`https://evil.example/?u=https://embed-demo.moveglobal.io`、`https://embed-demo.moveglobal.io:8443/`（白名单没写端口时拒、写了 `:8443` 时过）、`http://embed-demo.moveglobal.io/`、2,001 字符、白名单里有但不等于凭证 `o` 的另一个域名、签发后从白名单移除再下单。
 
 ### 3. 为什么不用 iframe、CSP 怎么办
 
@@ -196,9 +246,9 @@
 
 | 层 | 内容 |
 | --- | --- |
-| domain 单元 | `route-charter.test.ts`：选 H（等于、差 1 分钟、超出最大、可选列表为空）、合计、预计超出公里（含 0.2 公里进 1）、时间表跨午夜 / 跨两天 / 夏令时城市、输入校验每个原因码；`booking-draft.test.ts`：编码解码往返、逐项校验、超长、未知版本、注入字符；`embed-origin.test.ts`：origin 规范化、大小写、punycode、带路径、带通配符、http 与 https、`.evil` 后缀；`embed-ref.test.ts`：签名、过期（正好 2 小时那一刻）、改一位、换嵌入码 |
-| 引擎不变 | `quote-compat` 888 个样例逐分一致；M9 的 PR 在 `quote.ts`、`pricing.ts` 的计算函数上没有 diff（审查核对） |
-| 集成（真实 PostgreSQL，谷歌用本机替身） | 按行程询价 = 同条件 `POST /site/v1/quotes`（包车 H）逐分一致；途经点进加价区域、禁行区价格不变；车型组退到更大套餐；转人工各原因；下单写订单行程、来源；幂等并发只写一次；`/tenant/v1` 和 Webhook 扫键无对外金额（规则 4）；租户 A 读不到租户 B 的订单行程；模型线路、嵌入码的权限矩阵（各平台角色、租户令牌 401）、`If-Match` 409、审计；`/embed/v1` 的 CORS 头只对白名单 origin、`/site/v1` 永不带 CORS；凭证核对各失败情况都记 `book`；未下单行程 24 小时后清理 |
+| domain 单元 | `route-charter.test.ts`：选 H（等于、差 1 分钟、超出最大、可选列表为空）、合计、预计超出公里（含 0.2 公里进 1）、时间表跨午夜 / 跨两天 / 夏令时城市、输入校验每个原因码、总公里正好 2 倍和多 1 米；`booking-draft.test.ts`：编码解码往返（含「10 个地点、名称取 40 个 4 字节字符、`return_url` 2,000 字符」编码后 ≤ 8,000）、逐项校验、超长、未知版本、注入字符；`embed-origin.test.ts`：origin 规范化、大小写、punycode、带路径、带通配符、http 与 https、`.evil` 后缀、带端口、`null`；`embed-return-url.test.ts`：第五节第 2 小节列的全部用例；`embed-ref.test.ts`：签名、过期（正好 2 小时那一刻）、改一位、换嵌入码、长度不同的签名 |
+| 引擎不变 | `quote-compat` 888 个样例逐分一致；M9 的每个 PR 的文件列表里没有 `packages/domain/src/quote.ts`、`packages/domain/src/pricing.ts`（审查核对） |
+| 集成（真实 PostgreSQL，谷歌用本机替身） | 按行程询价 = 同条件 `POST /site/v1/quotes`（包车 H）逐分一致；途经点进加价区域、禁行区价格不变；车型组退到更大套餐；转人工各原因；下单写订单行程、来源；幂等并发只写一次；`/tenant/v1` 和 Webhook 扫键无对外金额（规则 4）；租户 A 读不到租户 B 的订单行程；模型线路、嵌入码的权限矩阵（各平台角色、租户令牌 401）、`If-Match` 409、审计；`/embed/v1` 的 CORS 头只对白名单 origin（`Origin: null`、缺 `Origin` 都 403）、`/site/v1` 永不带 CORS；凭证核对各失败情况都记 `book`；`/tenant/v1` 和供应商 Webhook 没有来源字段；普通包车报价也写 `quote_route_rates`，改价格规则后订单页单价不变；行程清理（`nozomi_platform` 跑、报价保留、`itinerary_id` 置空） |
 | 前端组件 | `/book` 按行程：加删途经点、停留下拉、时间表、卡片明细、转人工；模型线路预填；`d=` 预填；运营后台两个页面；订单页、供应商详情、司机页的地点列表 |
 | 端到端（Playwright） | 两个本机 origin（一个在白名单、一个不在）各起一个宿主页：白名单的显示表单、跳 `/book` 并报价，非白名单显示未授权；宿主页把元素全改红后组件不变；组件 320 px 不横向滚动、axe；`/book` 按行程从询价到付款（假 Stripe，ADR 0046 的做法） |
 | 测试环境验收 | 见 M9-05 |
@@ -210,12 +260,12 @@
 | 任务 | 角色 | 内容 | 依赖 | 这一步的验收 |
 | --- | --- | --- | --- | --- |
 | M9-01 | 产品 | 本篇、需求 03、roadmap | — | 独立审查通过；业主答复待确认项（未答复按推荐） |
-| M9-02 | 后端 + 前端 | 统一订单格式：`booking-draft`、订单加列、所有新官网订单写订单行程和来源（`book` / `route_template` 先占位）、订单应答加字段、`/book?d=`、`/book` 带 `d` 时转新页面（M8-05 之前） | M9-01 | 需求 03 第 2.3 节 F1–F9 |
-| M9-03 | 后端 | 按行程询价接口、换算、行程表、锁定单价、`SiteQuote` 加字段、订单行程（`charter_route`）、人工报价带途经点、供应商 / 司机 / 邮件显示的接口部分 | M9-02 | 需求 03 第四部分 R1–R17 的接口部分 |
-| M9-03b | 前端 | `/book` 包车「按行程」：途经点、停留、时间表、卡片明细、转人工；订单页、供应商详情、司机页地点列表 | M9-03 | R1–R17 的页面部分；亮暗、320 / 360、axe |
-| M9-03c | 后端 + 前端 | 模型线路：运营后台页面和接口、官网列表和 `/book?route=` 预填 | M9-03b | R18–R20 |
-| M9-04 | 后端 + 前端 | 嵌入码与白名单：表、运营后台页面、生成代码、`/embed/v1/config` 和地址提示的 CORS、来源凭证、下单记来源 | M9-02 | 需求 03 第 3.6 节 E2–E4、E8–E10 的接口部分 |
-| M9-04b | 前端 | `widget.js`：init、两个标签、Shadow DOM、跳 `/book`、语言、未授权提示、大小预算 | M9-04、M9-03b | E1、E5–E7、E11 |
+| M9-02 | 后端 + 前端（同一个 PR，后端先做接口和迁移，前端接着做 `/book?d=`） | 统一订单格式：`booking-draft`、订单加列、所有新官网订单写订单行程和来源（`book` / `route_template` 先占位）、订单应答加字段、`/book?d=`、`/book` 带 `d` 时转新页面（M8-05 之前）、nozomi nginx 的 `large_client_header_buffers`、smoke 第 ④ 条 | M9-01 | 需求 03 第 2.3 节 F1–F10 |
+| M9-03 | 后端 | 按行程询价接口、换算、行程表、`quote_route_rates`（含普通包车报价）、`SiteQuote` 加字段、订单行程（`charter_route`）、行程清理任务、人工报价带途经点、供应商 / 司机 / 邮件显示的接口部分 | M9-02 | 需求 03 第四部分 R1–R17、R21–R23 的接口部分 |
+| M9-03b | 前端 | `/book` 包车「按行程」：途经点、停留、时间表、卡片明细（含预计合计）、转人工；订单页、供应商详情、司机页地点列表 | M9-03 | R1–R17、R21–R23 的页面部分；亮暗、320 / 360、axe |
+| M9-03c | 后端 + 前端（同一个 PR，后端先做表和接口，前端接着做两个页面） | 模型线路：运营后台页面和接口、官网列表和 `/book?route=` 预填 | M9-03b | R18–R20 |
+| M9-04 | 后端 + 前端（同一个 PR，后端先做，前端接着做运营后台页面） | 嵌入码与白名单：表、运营后台页面、生成代码、`/embed/v1/config` 和地址提示的 CORS、来源凭证、`return_url` 校验、下单记来源；`api-prefixes.ts`、`edge-config.ts`、`smoke.sh` 第 ①～③ 条 | M9-02 | 需求 03 第 3.6 节 E2–E4、E8–E10、E12–E14 的接口部分 |
+| M9-04b | 前端 | `widget-v1.js`：独立构建入口、init、两个标签、Shadow DOM、点「查询价格」时重取配置、跳 `/book`、跳转前查长度、语言、未授权提示、大小预算 | M9-04、M9-03b | E1、E5–E7、E11 |
 | M9-05 | 验收 | 测试环境 + 演示站全链路 | 全部；业主在工厂后台放代码 | 需求 03 的「验收」原话三条 |
 
 单个 PR 如果仍超过 3 天工作量，按后端 / 前端再拆，顺序不变。同时最多 2 个开发角色，不自批（ADR 0073 的做法）。
