@@ -944,3 +944,16 @@
 .demand-table .table__other-names {
   white-space: normal;
 }
+
+/* 嵌入组件的代码（M9E-02）：等宽、自动换行，不横向滚动 */
+.code-block {
+  margin: 0;
+  padding: var(--space-3);
+  background: var(--color-bg-surface);
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

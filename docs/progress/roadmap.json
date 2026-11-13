@@ -1123,9 +1123,9 @@
           "id": "M9E-02",
           "title": "嵌入组件·嵌入码与白名单、/embed/v1、来源统计",
           "role": "backend",
-          "status": "todo",
+          "status": "review",
           "acceptance": ["embed_keys 表和平台接口（列表、新建、详情、If-Match 修改、停用），权限 embed.read / embed.manage，新建、改白名单、停用写审计；不预置任何嵌入码", "一个迁移：embed_keys、quote_embed_sources、order_embed_sources 三张平台表，只建结构、不回填；租户角色无权限；两张来源表平台角色只有 select / insert（写入后不能改）", "运营后台「渠道 → 嵌入组件」：列表、新建、编辑、停用，详情页显示嵌入代码和「复制代码」；只读角色只能看", "/embed/v1/config、/embed/v1/places/autocomplete|details、POST /embed/v1/booking-drafts：嵌入码和 Origin 的核对在解析请求体之前；Origin 完全等于白名单某项才处理，通过后所有应答（200 / 201 / 400 / 413 / 429）都带 Access-Control-Allow-Origin 和 Vary: Origin；null、缺失、不在白名单、嵌入码停用 403 EMBED_ORIGIN_NOT_ALLOWED 且不带 Access-Control-Allow-Origin；预检同样；16 KB 413；每地址 10 分钟 30 次、每嵌入码每分钟 60 次、有效草稿 5,000 个上限（集成测试）", "return_url 按 ADR 0090 第五节第 2 小节校验，列出的用例都有单元测试；不合格时忽略不报错", "来源：报价带有效 draft_id 时记下来源（draft_id 格式不对、不存在、过期都忽略，不报错、不影响报价），下单时再核嵌入码和当前白名单，通过记 embed，否则记 book、不拒单；运营后台订单显示来源，官网订单页有合格 return_url 时显示「返回原网站」；/tenant/v1 和供应商 Webhook 不给来源字段（集成测试扫键）", "/site/v1、/platform/v1、/tenant/v1、/sales/v1、/driver/v1 带白名单 Origin 也不带 CORS 头（集成测试）；api-prefixes、edge-config、smoke 同步", "同一嵌入码有效草稿到 4,000 个时写告警日志 embed.draft_limit_near", "OpenAPI 同步；独立审查、合并、部署后测试站验收"],
-          "evidence": "",
+          "evidence": "分支 m9e-02-embed-keys（叠在 m9e-01-booking-drafts 上）。迁移 0400_embed_keys.sql；domain embed.ts（单元测试 6 条，含 return_url 全部用例）、access 权限 embed.read / embed.manage（access.test.ts 等 38 条）；/platform/v1/embed-keys、/embed/v1（onRequest 核对来源，通过后所有应答带 CORS 头）；来源表 quote_embed_sources / order_embed_sources；集成测试 embed.itest.ts 8 条（权限矩阵、白名单完全相等、预检、停用 / 移出白名单即 403、建草稿 201 / 400 / 413 带 CORS、return_url 不合格忽略、限速、5,000 上限及过期恢复、草稿 → 询价 → 下单记来源、移出白名单记主站、无效 draft_id 忽略、供应商看不到来源、/site /platform /tenant 无 CORS）；platform-admin.itest.ts 16 条、booking-drafts.itest.ts 8 条、schema-structure.itest.ts 12 条、site.itest / site-categories.itest 通过；前端 embed-keys.test.tsx 4 条、site-polish.test.tsx 12 条（返回原网站）、embed.contract / site.contract / order-money 契约、AppShell 菜单 13 条、platform-display 13 条、embed-display 1 条；deploy-web.test.ts 11 条（smoke 加 /embed/v1）；pnpm typecheck 通过；#196 审查后：地址提示先按地址再按嵌入码（复现「一个地址刷 601 次后别人 429」的集成测试）、audit-display 加 embed_key、运营页说明不写网址、Caddy 给 /embed/widget-v1.js 单开响应头（不存在 404，不落到 index.html；deploy-web 12 条、smoke 一条）、/embed/v1/places 集成测试、CORS 扫描加 /sales/v1 和 /driver/v1、供应商 Webhook 推送内容扫键、告警日志测试（4,000 写一条、之后每 250 个一条）、记报价来源出错只写日志、Expose-Headers Retry-After、403 带 no-store、停用前确认框；迁移改 0400；embed.itest.ts 11 条",
           "updated": "2026-11-13"
         },
         {
@@ -2320,6 +2320,11 @@
       "date": "2026-11-13",
       "by": "Claude",
       "summary": "ADR 0090 按 #191 独立审查意见修改：模型线路、订单行程方式这次不做（新增 M9E-04、M9E-05，待业主确认）；/embed/v1 来源核对在解析请求体之前，通过后所有应答带 CORS 头，组件对读不出的失败统一说「暂时无法使用」；新增「待业主确认」一节（Q7、Q8、Q9、Q10、Q11、Q14、Q16，地点名 200 字、途经点 10 个），答复前按推荐做；来源记在单独的平台表；M9E-01 / 03 验收补「价格等于手填同样条件」。"
+    },
+    {
+      "date": "2026-11-13",
+      "by": "backend",
+      "summary": "M9E-02 开发完成，待验收：运营后台「嵌入组件」（生成嵌入码、改域名白名单、停用、复制代码；运营、渠道经理能改，只读能看）；/embed/v1 配置、地址提示、建草稿只对白名单网站跨域开放，来源在解析请求体前核对，通过后所有应答都带 CORS 头；询价带有效草稿时记来源，下单再核一次白名单，运营后台订单显示「来源：嵌入组件 · 网站」，官网订单页显示「返回原网站」；供应商看不到来源。"
     }
   ]
 }

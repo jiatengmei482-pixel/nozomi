@@ -27,7 +27,7 @@ import { type TestDatabase, createMigratedTestDatabase } from "./testing/db.ts";
  * 以及人工报价申请、跟进记录和官网设置（ADR 0076：客人的联系方式，只给平台的客服、运营），
  * 以及测试环境的验收会话和验收单被压下的邮件内容（ADR 0078：只给平台角色），
  * 以及共享库去重的标记（ADR 0083 补充：两个区域分属不同供应商，平台维护），
- * 以及嵌入组件的预订草稿（ADR 0090：不属于任何供应商，只有预订条件）。新增平台表时加到这里。
+ * 以及嵌入组件的预订草稿、嵌入码和来源记录（ADR 0090：不属于任何供应商；来源只给平台，供应商看不到）。新增平台表时加到这里。
  */
 const PLATFORM_TABLES = [
   "addons",
@@ -40,6 +40,7 @@ const PLATFORM_TABLES = [
   "cities",
   "compensation_tables",
   "email_login_codes",
+  "embed_keys",
   "fx_fetches",
   "fx_locks",
   "fx_rates",
@@ -51,6 +52,7 @@ const PLATFORM_TABLES = [
   "markup_rules",
   "notification_suppressions",
   "order_change_sales",
+  "order_embed_sources",
   "order_exceptions",
   "order_payments",
   "order_refunds",
@@ -69,6 +71,7 @@ const PLATFORM_TABLES = [
   "platform_sessions",
   "platform_users",
   "qa_acceptance_sessions",
+  "quote_embed_sources",
   "quote_logs",
   "quotes",
   "route_api_usage",
@@ -328,6 +331,11 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     shared_area_duplicates: ["INSERT", "SELECT", "UPDATE"],
     // 预订草稿（ADR 0090）：建一次、不改；读的时候只读没过期的；清理任务删过期的
     booking_drafts: ["DELETE", "INSERT", "SELECT"],
+    // 嵌入码（ADR 0090）：新建、修改白名单和状态；不删（停用）
+    embed_keys: ["INSERT", "SELECT", "UPDATE"],
+    // 询价和订单的来源（ADR 0090）：只追加
+    quote_embed_sources: ["INSERT", "SELECT"],
+    order_embed_sources: ["INSERT", "SELECT"],
     // 测试环境的验收会话（ADR 0078）：解锁时一行，结束时记结束时间；不删
     qa_acceptance_sessions: ["INSERT", "SELECT", "UPDATE"],
     // 验收单被压下没发的邮件内容（ADR 0078）：一封一行，只追加

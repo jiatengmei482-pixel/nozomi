@@ -112,6 +112,8 @@ export const PLATFORM_ACTION_PHRASES: Readonly<Record<PlatformAction, string>> =
   "manual_quote.manage": "跟进人工报价申请（指派、改状态、写备注）",
   "site_settings.read": "看官网设置",
   "site_settings.manage": "修改官网设置（客服 WhatsApp 号码）",
+  "embed.read": "看嵌入组件（嵌入码和域名白名单）",
+  "embed.manage": "管理嵌入组件（生成嵌入码、改域名白名单、停用）",
 };
 
 /**
