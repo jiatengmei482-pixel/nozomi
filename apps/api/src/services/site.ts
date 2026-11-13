@@ -18,6 +18,8 @@ import {
   type RouteUsage,
   type LocalizedText,
   type PlaceKind,
+  type QuoteSnapshot,
+  type SellBreakdownItem,
   type PointsTripType,
   type ServiceCategory,
   type TripEnd,
@@ -93,6 +95,7 @@ import { validationFailed } from "../validation.ts";
 import { notFound } from "./errors.ts";
 import { type SalesOrderInput, type SalesOrderPayment, type SalesOrderView, type OrderLog, SILENT_ORDER_LOG, createSiteOrder } from "./orders.ts";
 import { type BackgroundLog, inBackground } from "./background.ts";
+import { orderSellBreakdown } from "./order-price-notes.ts";
 import { type SalesRateScope, rateLimited, takeRateSlot } from "./rate-limit.ts";
 import { lastUsedIsStale } from "./sales-auth.ts";
 import type { SalesPrincipal } from "./sales-auth.ts";
@@ -978,16 +981,28 @@ export interface SiteOrderExtras {
   /** 状态时间线：从什么到什么、原因、时间。不给操作人和派车细节 */
   events: { fromStatus: string | null; toStatus: string; reason: string | null; occurredAt: Date }[];
   names: OrderNames;
+  /**
+   * 对外价明细（M9W-04，ADR 0089 第 5 节）：只有包车按行程计价的单，从下单用的报价快照拆出来（`orderSellBreakdown`），各项之和等于对外价；
+   * 别的单、旧单、对不上时为 null。`areaNames` 是明细里加价区域现在的名称
+   */
+  priceBreakdown: SellBreakdownItem[] | null;
+  areaNames: Map<string, LocalizedText>;
 }
 
 export async function siteOrderExtras(ctx: AppContext, view: SalesOrderView): Promise<SiteOrderExtras> {
-  const { order } = view;
+  const { order, sale } = view;
   return withPlatformTx(
     ctx.pool,
-    async (db) => ({
-      events: (await listOrderEvents(db, order.tenantId, order.id)).map((event) => ({ fromStatus: event.fromStatus, toStatus: event.toStatus, reason: event.reason, occurredAt: event.occurredAt })),
-      names: await findOrderNames(db, { cityId: order.cityId, placeId: order.placeId, vehicleGroupId: order.vehicleGroupId }),
-    }),
+    async (db) => {
+      const snapshot = order.settlement.itinerary === undefined ? null : ((await db.query<{ snapshot: QuoteSnapshot }>("select snapshot from quotes where id = $1", [sale.quoteId])).rows[0]?.snapshot ?? null);
+      const priceBreakdown = orderSellBreakdown(snapshot, sale);
+      return {
+        events: (await listOrderEvents(db, order.tenantId, order.id)).map((event) => ({ fromStatus: event.fromStatus, toStatus: event.toStatus, reason: event.reason, occurredAt: event.occurredAt })),
+        names: await findOrderNames(db, { cityId: order.cityId, placeId: order.placeId, vehicleGroupId: order.vehicleGroupId }),
+        priceBreakdown,
+        areaNames: await findSurchargeAreaNames(db, [...new Set((priceBreakdown ?? []).flatMap((item) => (item.areaId === null ? [] : [item.areaId])))]),
+      };
+    },
     { snapshot: true },
   );
 }

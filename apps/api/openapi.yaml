@@ -13434,7 +13434,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ order, timeline, names, payment, link ]
+                required: [ order, timeline, names, price_breakdown, payment, link ]
                 properties:
                   order:
                     $ref: "#/components/schemas/SiteOrder"
@@ -13442,6 +13442,11 @@ paths:
                     $ref: "#/components/schemas/SiteOrderTimeline"
                   names:
                     $ref: "#/components/schemas/SiteOrderNames"
+                  price_breakdown:
+                    description: 同 `SiteOrderEnvelope.price_breakdown`（M9W-04）
+                    oneOf:
+                      - $ref: "#/components/schemas/SitePriceBreakdown"
+                      - type: "null"
                   payment:
                     oneOf:
                       - $ref: "#/components/schemas/SalesOrderPayment"
@@ -13666,7 +13671,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ order, timeline, names, change ]
+                required: [ order, timeline, names, price_breakdown, change ]
                 properties:
                   order:
                     $ref: "#/components/schemas/SiteOrder"
@@ -13674,6 +13679,11 @@ paths:
                     $ref: "#/components/schemas/SiteOrderTimeline"
                   names:
                     $ref: "#/components/schemas/SiteOrderNames"
+                  price_breakdown:
+                    description: 同 `SiteOrderEnvelope.price_breakdown`（M9W-04）
+                    oneOf:
+                      - $ref: "#/components/schemas/SitePriceBreakdown"
+                      - type: "null"
                   change:
                     oneOf:
                       - $ref: "#/components/schemas/SalesOrderChange"
@@ -13805,7 +13815,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ order, timeline, names, replayed ]
+                required: [ order, timeline, names, price_breakdown, replayed ]
                 properties:
                   order:
                     $ref: "#/components/schemas/SiteOrder"
@@ -13813,6 +13823,11 @@ paths:
                     $ref: "#/components/schemas/SiteOrderTimeline"
                   names:
                     $ref: "#/components/schemas/SiteOrderNames"
+                  price_breakdown:
+                    description: 同 `SiteOrderEnvelope.price_breakdown`（M9W-04）
+                    oneOf:
+                      - $ref: "#/components/schemas/SitePriceBreakdown"
+                      - type: "null"
                   replayed:
                     type: boolean
         "401":
@@ -13892,7 +13907,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ order, timeline, names, extra_charge ]
+                required: [ order, timeline, names, price_breakdown, extra_charge ]
                 properties:
                   order:
                     $ref: "#/components/schemas/SiteOrder"
@@ -13900,6 +13915,11 @@ paths:
                     $ref: "#/components/schemas/SiteOrderTimeline"
                   names:
                     $ref: "#/components/schemas/SiteOrderNames"
+                  price_breakdown:
+                    description: 同 `SiteOrderEnvelope.price_breakdown`（M9W-04）
+                    oneOf:
+                      - $ref: "#/components/schemas/SitePriceBreakdown"
+                      - type: "null"
                   extra_charge:
                     oneOf:
                       - $ref: "#/components/schemas/SalesExtraCharge"
@@ -29352,32 +29372,7 @@ components:
       required: [ quote_id, expires_at, service_date, urgent, vehicle_group, package, includes_area_surcharge, distance, pricing_basis, price, price_breakdown, free_wait_minutes, cancel_policy, available_addons ]
       properties:
         price_breakdown:
-          description: |
-            对外价的简单明细（M9W-01，ADR 0088 第 4 节和补充；客人支付币种），按顺序：`base` 基础价（包车是套餐价）、`pickup` 上车加价、`waypoint` 一个区域的途经加价（逐区域）、
-            `dropoff` 下车加价、`over_km` 超公里、`overtime` 超时（这两项只在按行程计价时有）、`adjust` 调价、`other` 加急 / 夜间 / 附加服务 / 司机语言。除 `base` 外各项按这一单的汇率、缓冲、加价比例换算、各自取整；`base` 倒算吸收尾差，
-            **各项之和等于 `price.total`**。是 0 的调价、其他费用不列；没有加价区域的报价只有 `base` 一项（新增字段）
-          type: array
-          items:
-            type: object
-            additionalProperties: false
-            required: [ kind, amount, area_name, stop_seqs ]
-            properties:
-              kind:
-                type: string
-                enum: [ base, pickup, waypoint, dropoff, over_km, overtime, adjust, other ]
-              amount:
-                $ref: "#/components/schemas/SalesMoney"
-              area_name:
-                description: 上 / 下车加价、途经加价的加价区域现在的名称；别的项、区域被删了为 null
-                oneOf:
-                  - $ref: "#/components/schemas/LocalizedText"
-                  - type: "null"
-              stop_seqs:
-                description: 途经加价：落在这个区域的是第几个经停点（从 1 起）；别的项为 null
-                type: [ array, "null" ]
-                items:
-                  type: integer
-                  minimum: 1
+          $ref: "#/components/schemas/SitePriceBreakdown"
         pricing_basis:
           $ref: "#/components/schemas/PricingBasis"
         distance:
@@ -29919,11 +29914,46 @@ components:
             within_delay_allowance:
               type: boolean
         - type: "null"
+    SitePriceBreakdown:
+      description: |
+        对外价的简单明细（M9W-01，ADR 0088 第 4 节和补充；客人支付币种），按顺序：`base` 基础价（包车是套餐价）、`pickup` 上车加价、`waypoint` 一个区域的途经加价（逐区域）、
+        `dropoff` 下车加价、`over_km` 超公里、`overtime` 超时（这两项只在按行程计价时有）、`adjust` 调价、`other` 加急 / 夜间 / 附加服务 / 司机语言。除 `base` 外各项按这一单的汇率、缓冲、加价比例换算、各自取整；`base` 倒算吸收尾差，
+        **各项之和等于 `price.total`**。是 0 的调价、其他费用不列；没有加价区域的报价只有 `base` 一项（新增字段）
+      type: array
+      items:
+        type: object
+        additionalProperties: false
+        required: [ kind, amount, area_name, stop_seqs ]
+        properties:
+          kind:
+            type: string
+            enum: [ base, pickup, waypoint, dropoff, over_km, overtime, adjust, other ]
+          amount:
+            $ref: "#/components/schemas/SalesMoney"
+          area_name:
+            description: 上 / 下车加价、途经加价的加价区域现在的名称；别的项、区域被删了为 null
+            oneOf:
+              - $ref: "#/components/schemas/LocalizedText"
+              - type: "null"
+          stop_seqs:
+            description: 途经加价：落在这个区域的是第几个经停点（从 1 起）；别的项为 null
+            type: [ array, "null" ]
+            items:
+              type: integer
+              minimum: 1
     SiteOrderEnvelope:
       type: object
       additionalProperties: false
-      required: [ order, timeline, names ]
+      required: [ order, timeline, names, price_breakdown ]
       properties:
+        price_breakdown:
+          description: |
+            订单的对外价明细（M9W-04，ADR 0089 第 5 节）：只有包车按行程计价的单才有——取下单用的那份报价快照里的明细（和下单页看到的一样，不按现在的价格重算），
+            格式同 `SiteQuote.price_breakdown`，各项之和等于 `order.price.total`。别的单、旧单为 null；改期重算过价、明细和现在的总价对不上时也是 null（页面只显示总价）。
+            区域名称是现在的名称（新增字段）
+          oneOf:
+            - $ref: "#/components/schemas/SitePriceBreakdown"
+            - type: "null"
         order:
           $ref: "#/components/schemas/SiteOrder"
         timeline:

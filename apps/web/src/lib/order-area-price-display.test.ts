@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { hasAreaSurcharge, platformDistanceLines, pricingRouteText, tenantDistanceLines, tenantSurchargeLines } from "./order-area-price-display.ts";
+import { hasAreaSurcharge, itineraryOverageLines, platformDistanceLines, pricingRouteText, tenantDistanceLines, tenantSurchargeLines } from "./order-area-price-display.ts";
 import { siteDistanceNote } from "./site-display.ts";
 
 const yen = (amount: string) => ({ amount, currency: "JPY" });
@@ -36,4 +36,12 @@ test("官网含公里数那一句：对外价的十进制写法换成最小单�
   assert.equal(siteDistanceNote({ included_km: 30, route_meters: 34_200, over_km: 5, over_km_per_km: { amount: "3.3", currency: "JPY" } }), null);
   assert.equal(siteDistanceNote(null), null);
   assert.equal(siteDistanceNote(undefined), null);
+});
+
+test("超公里 / 超时（M9W-04）：运营「18,000 JPY」、供应商「JPY 18,000」，都是结算价；没超出写 0；没按行程计价为 null", () => {
+  const itinerary = { route_meters: 254_300, route_minutes: 450, package_km: 200, package_minutes: 480, over_meters: 54_300, overtime_minutes: 0, over_km_fee: yen("16290"), overtime_fee: yen("0"), over_km_per_km: yen("300"), overtime_per_hour: yen("5000") };
+  assert.deepEqual(itineraryOverageLines("platform", itinerary), ["超公里：全程 254.3 公里，套餐含 200 公里，超出 54.3 公里 × 每公里 300 JPY = 16,290 JPY", "超时：预计 7 小时 30 分（含停留），套餐 8 小时，超出 0 分钟 × 每小时 5,000 JPY = 0 JPY"]);
+  assert.deepEqual(itineraryOverageLines("tenant", itinerary), ["超公里：全程 254.3 公里，套餐含 200 公里，超出 54.3 公里 × 每公里 JPY 300 = JPY 16,290", "超时：预计 7 小时 30 分（含停留），套餐 8 小时，超出 0 分钟 × 每小时 JPY 5,000 = JPY 0"]);
+  assert.equal(itineraryOverageLines("tenant", null), null);
+  assert.equal(itineraryOverageLines("platform", undefined), null);
 });

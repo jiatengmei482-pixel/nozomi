@@ -8,7 +8,7 @@
  */
 import type { TenantOrderRescue } from "./rescues.ts";
 import type { OrderItinerary, OrderWaypoint } from "../lib/charter-itinerary.ts";
-import type { OrderAreaSurchargeView, OrderDistanceView, OrderMileageView, OrderPricingRoute } from "../lib/order-area-price-display.ts";
+import type { OrderAreaSurchargeView, OrderDistanceView, OrderItineraryMoneyView, OrderMileageView, OrderPricingRoute } from "../lib/order-area-price-display.ts";
 import type { DriverLinkEmailState, DriverStatus, LocalizedText, OrderStatus, PlateType, PricingBasis, TenantWebhookEvent, VehicleStatus } from "@nozomi/domain";
 import { query, TENANT_BASE } from "./areas.ts";
 import { apiDownload, apiRequest, apiUpload } from "./client.ts";
@@ -191,6 +191,8 @@ export interface TenantOrder {
     driver_language: Money;
     /** 点对点含公里数（M8-11，结算价，订单上锁定的）；没设为 null。旧的测试数据里可能没有这一项 */
     distance?: OrderDistanceView | null;
+    /** 包车按行程计价锁定的超公里、超时（M9W-04，结算价）；没按行程计价的单没有这一项 */
+    itinerary?: OrderItineraryMoneyView;
   };
   dispatch: OrderDispatch;
   fulfilment: OrderFulfilment;

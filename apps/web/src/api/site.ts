@@ -374,6 +374,8 @@ export interface SiteOrderEnvelope {
   order: SiteOrder;
   timeline: SiteTimelineEntry[];
   names: SiteOrderNames;
+  /** 对外价明细（M9W-04）：只有包车按行程计价的单，下单时那份明细，各项之和等于 `order.price.total`；别的单、旧单、对不上时为 null */
+  price_breakdown?: SitePriceBreakdownItem[] | null;
 }
 
 export interface SitePayment {
@@ -428,7 +430,7 @@ export const SITE_SCHEMA_FIELDS = {
   SiteQuote: ["quote_id", "expires_at", "service_date", "urgent", "vehicle_group", "package", "includes_area_surcharge", "distance", "pricing_basis", "price", "price_breakdown", "free_wait_minutes", "cancel_policy", "available_addons"],
   SiteAddonOption: ["id", "code", "name", "charge_unit"],
   SiteOrderLink: ["token", "expires_at"],
-  SiteOrderEnvelope: ["order", "timeline", "names"],
+  SiteOrderEnvelope: ["order", "timeline", "names", "price_breakdown"],
   SiteOrderNames: ["city", "place", "vehicle_group"],
 } as const;
 
