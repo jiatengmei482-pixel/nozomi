@@ -28,6 +28,8 @@ import {
   adjustRuleMatches,
   applyAdjustRules,
   areaSurchargeFor,
+  type CharterPackagePricing,
+  charterOverage,
   compareExact,
   exactFromMinor,
   exceedsSettlementLimit,
@@ -76,6 +78,9 @@ export const QUOTE_RULES = {
   maxAddonQuantity: 20,
   /** 包车一单最多几个经停点（ADR 0088） */
   maxWaypoints: 10,
+  /** 包车按行程计价的全程上限：5000 公里、7 天（同试算的假定路线） */
+  maxRouteMeters: 5_000_000,
+  maxRouteMinutes: 10_080,
 } as const;
 
 // ---- 入参（第 1 步）----
@@ -105,6 +110,11 @@ export interface QuoteRequest {
    * 不给或空 = 没有经停点，报价和 M9W-01 之前逐分一致。只有包车能给，给了就要有下车点。
    */
   waypoints?: readonly QuoteWaypoint[];
+  /**
+   * 包车「按行程计价」（ADR 0088 补充「最终报价公式」）：服务器按上车点 → 经停点 → 下车点逐段估出的全程米数、总时长（行驶 + 各点停留，分钟）。
+   * 给了就按套餐的含公里、套餐时长收超公里、超时（和套餐价、区域加价一起过调价）；不给 = 和以前一样不预收（服务后按实际加收）。只有包车能给。
+   */
+  routeUsage?: RouteEstimate;
 }
 
 /** 一个经停点：引擎只看坐标；官网带来的名称、停留分钟（`snapshot.request.waypoints` 的写法 `{ name, lat, lng, stay_minutes }`）原样留在快照里，下单时抄进订单 */
@@ -131,6 +141,11 @@ export function quoteRequestIssues(request: QuoteRequest): QuoteRequestIssue[] {
   if (waypoints.length > 0 && category !== "charter") issues.push({ path: "/waypoints", reason: "NOT_APPLICABLE" });
   else if (waypoints.length > QUOTE_RULES.maxWaypoints) issues.push({ path: "/waypoints", reason: "OUT_OF_RANGE" });
   else if (waypoints.length > 0 && request.dropoff === null) issues.push({ path: "/dropoff", reason: "REQUIRED" });
+  const routeUsage = request.routeUsage;
+  if (routeUsage !== undefined) {
+    if (category !== "charter") issues.push({ path: "/route_usage", reason: "NOT_APPLICABLE" });
+    else if (![routeUsage.meters, routeUsage.minutes].every((value) => Number.isSafeInteger(value) && value >= 0) || routeUsage.meters > QUOTE_RULES.maxRouteMeters || routeUsage.minutes > QUOTE_RULES.maxRouteMinutes) issues.push({ path: "/route_usage", reason: "OUT_OF_RANGE" });
+  }
   const seen = new Set<string>();
   for (const [index, addon] of request.addons.entries()) {
     if (seen.has(addon.addonId)) issues.push({ path: `/addons/${index}/addon_id`, reason: "DUPLICATE" });
@@ -366,6 +381,22 @@ export interface SettlementBreakdown {
   pricingBasis?: Exclude<PricingBasis, "one_price">;
   /** 计程部分的明细（结算价）：有 `pricingBasis` 时才有；钱已经算在 `baseMinor`（和 `exact.base`）里 */
   mileage?: MileageBreakdown;
+  /** 包车按行程计价（ADR 0088 补充）：全程、套餐含量、超出量和超公里 / 超时费（结算价）；钱已经算在 `baseMinor` 里。没按行程计价的报价没有这一项 */
+  itinerary?: ItineraryBreakdown;
+}
+
+/** 包车按行程计价的超公里、超时（结算价）。金额是各自四舍五入到最小单位的数（展示用），结算价用的是精确值 */
+export interface ItineraryBreakdown {
+  routeMeters: number;
+  routeMinutes: number;
+  packageKm: number;
+  packageMinutes: number;
+  overMeters: number;
+  overtimeMinutes: number;
+  overKmPerKmMinor: number;
+  overtimePerHourMinor: number;
+  overKmMinor: number;
+  overtimeMinor: number;
 }
 
 /**
@@ -631,6 +662,23 @@ function linePairs(product: QuoteProduct, usable: readonly string[], pickup: Lat
   return pickupIds.flatMap((areaId) => dropoffIds.filter((toAreaId) => toAreaId !== areaId).map((toAreaId): [string, string] => [areaId, toAreaId]));
 }
 
+/** 包车按行程计价的超公里、超时明细（结算价，ADR 0088 补充）：和 `basePrice` 同一个公式（`charterOverage`） */
+function itineraryOf(pricing: CharterPackagePricing, route: RouteEstimate, packageHours: number | null): ItineraryBreakdown {
+  const overage = charterOverage(pricing, route, packageHours);
+  return {
+    routeMeters: route.meters,
+    routeMinutes: route.minutes,
+    packageKm: pricing.packageKm,
+    packageMinutes: (packageHours ?? 0) * 60,
+    overMeters: overage.overMeters,
+    overtimeMinutes: overage.overtimeMinutes,
+    overKmPerKmMinor: pricing.overKmPerKmMinor,
+    overtimePerHourMinor: pricing.overtimePerHourMinor,
+    overKmMinor: roundMinor(overage.overKm),
+    overtimeMinor: roundMinor(overage.overtime),
+  };
+}
+
 /** 含公里数的一口价在这段路线上的明细（结算价）。 */
 function distanceOf(pricing: { includedKm: number; overKmPerKmMinor: number }, meters: number): DistanceBreakdown {
   const routeMeters = Math.max(0, Math.trunc(meters));
@@ -762,7 +810,8 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
   const item = freeWaitItems(product.category).length === 1 ? ("general" as const) : request.direction === "dropoff" ? ("dropoff" as const) : ("pickup" as const);
   const freeWait: SettlementBreakdown["freeWait"] = { item, value: effectiveFreeWait(product.category, product.serviceRules.freeWait[item]), platformMinimumMinutes: minimumFreeWaitMinutes(product.category, item, product.pickupPlace) };
   // 包车报价时 H = 套餐时长、里程不超套餐（超时、超公里履约后按实际结算），不看路线预估；其他品类把预估交给计价公式
-  const usage: TripUsage = moment.route === null || product.category === "charter" ? {} : { meters: moment.route.meters, minutes: moment.route.minutes };
+  // 包车按行程计价（ADR 0088 补充）时用服务器估的全程和总时长：超时、超公里由套餐公式算出，和套餐价一起过调价；不按行程计价的照旧不看用量
+  const usage: TripUsage = product.category === "charter" ? (request.routeUsage === undefined ? {} : { meters: request.routeUsage.meters, minutes: request.routeUsage.minutes }) : moment.route === null ? {} : { meters: moment.route.meters, minutes: moment.route.minutes };
 
   const offers: VehicleOffer[] = [];
   const refused: VehicleRefusal[] = [];
@@ -864,7 +913,7 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
           driverLanguage: request.driverLanguage,
           usage: candidate.usage,
           freeWait,
-          ...(surcharge === null ? {} : { areaSurcharge: { packageMinor: baseMinor - surchargeMinor, ...surcharge } }),
+          ...(surcharge === null ? {} : { areaSurcharge: { packageMinor: baseMinor - surchargeMinor - (candidate.extra.itinerary === undefined ? 0 : candidate.extra.itinerary.overKmMinor + candidate.extra.itinerary.overtimeMinor), ...surcharge } }),
           ...(candidate.toAreaId === null ? {} : { toAreaId: candidate.toAreaId }),
           ...candidate.extra,
         },
@@ -975,7 +1024,7 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
         overLimit: priced.noPriceReason === "OVER_LIMIT",
         // 含公里数的一口价也记下用到的路线预估：改期重算时用同一段路线（距离报价时锁定）
         usage: pricing.model === "mileage_time" || withKm ? moment.route : null,
-        extra: withKm && moment.route !== null ? { distance: distanceOf(pricing, moment.route.meters) } : {},
+        extra: withKm && moment.route !== null ? { distance: distanceOf(pricing, moment.route.meters) } : pricing.model === "charter_package" && request.routeUsage !== undefined ? { itinerary: itineraryOf(pricing, request.routeUsage, request.packageHours) } : {},
       });
     }
     if (best !== null) offers.push(best);
@@ -1173,8 +1222,11 @@ export function sellEquivalentMinor(amountMinor: number, settlementCurrency: Cur
 
 /** 对外价明细的一项（ADR 0088 第 4 节）：客人支付币种的最小单位 */
 export interface SellBreakdownItem {
-  /** `base` 基础价（包车是套餐价）、`pickup` / `dropoff` 上 / 下车加价、`waypoint` 一个区域的途经加价、`adjust` 调价、`other` 加急 / 夜间 / 附加服务 / 司机语言 */
-  kind: "base" | "pickup" | "dropoff" | "waypoint" | "adjust" | "other";
+  /**
+   * `base` 基础价（包车是套餐价）、`pickup` 上车加价、`waypoint` 一个区域的途经加价、`dropoff` 下车加价、`over_km` 超公里、`overtime` 超时（包车按行程计价才有）、
+   * `adjust` 调价、`other` 加急 / 夜间 / 附加服务 / 司机语言
+   */
+  kind: "base" | "pickup" | "waypoint" | "dropoff" | "over_km" | "overtime" | "adjust" | "other";
   /** 加价区域（上 / 下车加价、途经加价才有） */
   areaId: string | null;
   /** 途经加价：落在这个区域的是第几个经停点（从 1 起） */
@@ -1183,7 +1235,7 @@ export interface SellBreakdownItem {
 }
 
 /**
- * 对外价的简单明细（ADR 0088 第 4 节，给官网看）：基础价 / 套餐、上车加价、下车加价、各途经区域、调价、其他费用。
+ * 对外价的简单明细（ADR 0088 第 4 节和补充，给官网看）：基础价 / 套餐、上车加价、各途经区域、下车加价、超公里、超时（按行程计价时）、调价、其他费用。
  * 除基础价以外的每项用 `sellEquivalentMinor` 按这一单的汇率、缓冲、加价比例换算；基础价倒算（= 对外总价 − 其余各项），
  * 吸收最低毛利、渠道取整和各项单独四舍五入的尾差，所以各项之和恒等于对外价。是 0 的调价、其他费用不列。
  */
@@ -1193,8 +1245,13 @@ export function sellBreakdown(settlement: SettlementBreakdown, sell: Pick<SellPr
   const surcharge = settlement.areaSurcharge;
   if (surcharge !== undefined && surcharge !== null) {
     if (surcharge.pickup.areaId !== null) items.push({ kind: "pickup", areaId: surcharge.pickup.areaId, amountMinor: convert(surcharge.pickup.amountMinor) });
-    if (surcharge.dropoff.areaId !== null) items.push({ kind: "dropoff", areaId: surcharge.dropoff.areaId, amountMinor: convert(surcharge.dropoff.amountMinor) });
     for (const entry of surcharge.waypoints ?? []) items.push({ kind: "waypoint", areaId: entry.areaId, stopSeqs: [...entry.stopSeqs], amountMinor: convert(entry.amountMinor) });
+    if (surcharge.dropoff.areaId !== null) items.push({ kind: "dropoff", areaId: surcharge.dropoff.areaId, amountMinor: convert(surcharge.dropoff.amountMinor) });
+  }
+  const itinerary = settlement.itinerary;
+  if (itinerary !== undefined) {
+    items.push({ kind: "over_km", areaId: null, amountMinor: convert(itinerary.overKmMinor) });
+    items.push({ kind: "overtime", areaId: null, amountMinor: convert(itinerary.overtimeMinor) });
   }
   if (settlement.adjustMinor !== 0) items.push({ kind: "adjust", areaId: null, amountMinor: convert(settlement.adjustMinor) });
   const otherMinor = settlement.urgentMinor + settlement.nightMinor + settlement.addonsMinor + settlement.driverLanguageMinor;

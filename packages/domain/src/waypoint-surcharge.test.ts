@@ -277,7 +277,7 @@ test("对外价明细（price_breakdown）：各项按这一单的汇率、缓�
     const winner = comparison.groups[0]?.snapshot.winner;
     assert.ok(winner !== undefined);
     const items = sellBreakdown(winner.offer.settlement, winner.sell);
-    assert.deepEqual(items.map((item) => item.kind), ["base", "pickup", "dropoff", "waypoint", "adjust", "other"]);
+    assert.deepEqual(items.map((item) => item.kind), ["base", "pickup", "waypoint", "dropoff", "adjust", "other"]);
     assert.equal(items.reduce((sum, item) => sum + item.amountMinor, 0), winner.sell.sellMinor, currency);
     assert.ok(items.every((item) => Number.isSafeInteger(item.amountMinor)));
     // 快照的请求里带着经停点（锁定）
@@ -289,12 +289,44 @@ test("对外价明细（price_breakdown）：各项按这一单的汇率、缓�
   assert.ok(winner !== undefined);
   assert.deepEqual(sellBreakdown(winner.offer.settlement, winner.sell).slice(1, 4), [
     { kind: "pickup", areaId: "kamakura", amountMinor: 6_600 },
-    { kind: "dropoff", areaId: "fuji", amountMinor: 11_000 },
     { kind: "waypoint", areaId: "hakone", stopSeqs: [2], amountMinor: 8_800 },
+    { kind: "dropoff", areaId: "fuji", amountMinor: 11_000 },
   ]);
   // 没有加价区域的报价只有一项基础价（= 对外价）
   const plain = quoted(trip("shinjuku", undefined, "shinjuku"), product({ priceRules: [pkg], surchargeAreas: [] }));
   const plainWinner = compareQuotes({ request: trip("shinjuku", undefined, "shinjuku"), currency: "JPY", now: moment.now, entries: [{ quote: plain, productVersion: 1, standing: { scoreCenti: null, completedOrders: 0, observation: false }, markupBp: () => 1_000, fx: null }] }).groups[0]?.snapshot.winner;
   assert.ok(plainWinner !== undefined);
   assert.deepEqual(sellBreakdown(plainWinner.offer.settlement, plainWinner.sell), [{ kind: "base", areaId: null, amountMinor: 60_500 }]);
+});
+
+// ---- 按行程计价（ADR 0088 补充「最终报价公式」，业主 2026-11-13）：超公里、超时由引擎按套餐公式算，和套餐、区域加价一起过调价 ----
+
+const itineraryProduct = (extra: Partial<QuoteProduct> = {}): QuoteProduct =>
+  product({ priceRules: [rule("p-10", "tokyo", { model: "charter_package", packageKm: 200, packagePriceMinor: 55_000, overtimePerHourMinor: 5_000, overKmPerKmMinor: 300 }), ...RULES.slice(1)], ...extra });
+
+test("按行程计价：10 小时套餐含 200 公里、全程 260 公里、超公里 300 → +18,000；总时长 11.5 小时、超时 5,000/小时 → +7,500；途经富士山 +10,000", () => {
+  const request = trip("shinjuku", ["gogome"], "shinjuku", { routeUsage: { meters: 260_000, minutes: 690 } });
+  const s = settlement(request, itineraryProduct());
+  assert.equal(s.totalMinor, 55_000 + 10_000 + 18_000 + 7_500);
+  assert.deepEqual(s.itinerary, { routeMeters: 260_000, routeMinutes: 690, packageKm: 200, packageMinutes: 600, overMeters: 60_000, overtimeMinutes: 90, overKmPerKmMinor: 300, overtimePerHourMinor: 5_000, overKmMinor: 18_000, overtimeMinor: 7_500 });
+  assert.equal(s.areaSurcharge?.packageMinor, 55_000, "套餐价单列，不含超公里、超时");
+  const quote = quoted(request, itineraryProduct());
+  const winner = compareQuotes({ request, currency: "JPY", now: moment.now, entries: [{ quote, productVersion: 1, standing: { scoreCenti: null, completedOrders: 0, observation: false }, markupBp: () => 1_000, fx: null }] }).groups[0]?.snapshot.winner;
+  assert.ok(winner !== undefined);
+  const items = sellBreakdown(winner.offer.settlement, winner.sell);
+  assert.deepEqual(items.map((item) => [item.kind, item.amountMinor]), [["base", 60_500], ["waypoint", 11_000], ["over_km", 19_800], ["overtime", 8_250]]);
+  assert.equal(items.reduce((sum, item) => sum + item.amountMinor, 0), winner.sell.sellMinor);
+  // 不超出：两项都是 0；调价作用在合计上
+  const within = settlement(trip("shinjuku", ["asakusa"], "shinjuku", { routeUsage: { meters: 150_000, minutes: 540 } }), itineraryProduct());
+  assert.deepEqual([within.totalMinor, within.itinerary?.overKmMinor, within.itinerary?.overtimeMinor], [55_000, 0, 0]);
+  const peak = itineraryProduct({ adjustRules: [{ id: "peak", name: "旺季 +10%", travelFrom: null, travelTo: null, cycle: { type: "daily" }, timeSlot: null, areaIds: [], vehicleGroupIds: [], directions: [], packageHours: [], steps: [{ type: "percent", value: 1_000 }], status: "enabled" }] });
+  assert.equal(settlement(request, peak).totalMinor, Math.round((55_000 + 10_000 + 18_000 + 7_500) * 1.1));
+});
+
+test("按行程计价：不带 routeUsage 时和以前一样不预收（超公里、超时服务后按实际加收）；routeUsage 只有包车能给、要是非负整数", () => {
+  const plain = quoted(trip("shinjuku", ["gogome"], "shinjuku"), itineraryProduct());
+  assert.ok(plain.ok && plain.offers[0] !== undefined);
+  assert.deepEqual([plain.offers[0].settlement.totalMinor, "itinerary" in plain.offers[0].settlement], [65_000, false]);
+  assert.deepEqual(quoteRequestIssues({ ...trip("shinjuku", undefined, "shinjuku"), category: "point_to_point", packageHours: null, routeUsage: { meters: 1, minutes: 1 } }), [{ path: "/route_usage", reason: "NOT_APPLICABLE" }]);
+  assert.deepEqual(quoteRequestIssues({ ...trip("shinjuku", undefined, "shinjuku"), routeUsage: { meters: -1, minutes: 1.5 } }), [{ path: "/route_usage", reason: "OUT_OF_RANGE" }]);
 });

@@ -513,9 +513,26 @@ export function basePrice(pricing: Pricing, usage: TripUsage = {}, packageHours:
     const floor = pricing.minPriceMinor === null ? null : exactFromMinor(pricing.minPriceMinor);
     return floor !== null && compareExact(total, floor) < 0 ? floor : total;
   }
-  const overtime = times(exactFromMinor(pricing.overtimePerHourMinor), over(minutes, BigInt((packageHours ?? 0) * 60)), 60n);
-  const overDistance = times(exactFromMinor(pricing.overKmPerKmMinor), over(meters, BigInt(pricing.packageKm) * 1_000n), 1_000n);
-  return plus(plus(exactFromMinor(pricing.packagePriceMinor), overtime), overDistance);
+  const overage = charterOverage(pricing, usage, packageHours);
+  return plus(plus(exactFromMinor(pricing.packagePriceMinor), overage.overtime), overage.overKm);
+}
+
+/**
+ * 包车套餐的超时、超公里（`basePrice` 里包车的后两项，同一个公式）：超时 = max(0, T − H) × 每小时单价，超公里 = max(0, D − D_pkg) × 每公里单价；
+ * 分钟、米换算成小时、公里时不取整（精确值）。没给的用量按「不超出」算。包车「按行程计价」（ADR 0088 补充）的明细用它拆出这两项。
+ */
+export function charterOverage(pricing: CharterPackagePricing, usage: TripUsage, packageHours: number | null): { overtimeMinutes: number; overMeters: number; overtime: ExactAmount; overKm: ExactAmount } {
+  const meters = BigInt(Math.max(0, Math.trunc(usage.meters ?? 0)));
+  const minutes = BigInt(Math.max(0, Math.trunc(usage.minutes ?? 0)));
+  const over = (used: bigint, included: bigint): bigint => (used > included ? used - included : 0n);
+  const overtimeMinutes = over(minutes, BigInt((packageHours ?? 0) * 60));
+  const overMeters = over(meters, BigInt(pricing.packageKm) * 1_000n);
+  return {
+    overtimeMinutes: Number(overtimeMinutes),
+    overMeters: Number(overMeters),
+    overtime: times(exactFromMinor(pricing.overtimePerHourMinor), overtimeMinutes, 60n),
+    overKm: times(exactFromMinor(pricing.overKmPerKmMinor), overMeters, 1_000n),
+  };
 }
 
 // ---- 调价规则 ----
