@@ -18,7 +18,7 @@ import { App } from "../../../App.tsx";
 import { FULL_SCREEN_PICKER_QUERY } from "./full-screen.tsx";
 import type { MapTiles } from "../../../api/areas.ts";
 import type { BookingDraft, SiteByPointsResult, SiteCity, SiteConfig, SiteQuote, SiteQuoteResult } from "../../../api/site.ts";
-import { type ApiCall, apiError, assertAbsent, assertFocused, currentLocation, json, narrowScreen, resetBrowser, stubApiWith } from "../../../testing/harness.tsx";
+import { type ApiCall, apiError, assertAbsent, assertFocused, currentLocation, deferred, json, narrowScreen, resetBrowser, stubApiWith } from "../../../testing/harness.tsx";
 
 const originalMatchMedia = window.matchMedia;
 afterEach(() => {
@@ -93,6 +93,8 @@ interface Options {
   packages?: number[];
   /** 路线图的图片没出来以后，前端再问一次原因（M8-10） */
   routeMap?: Route;
+  /** 地图选点后按坐标查地址（M8-42） */
+  reverse?: Route;
   at?: string;
 }
 
@@ -113,6 +115,7 @@ function open(options: Options = {}): ApiCall[] {
       if (custom) return custom;
       return call.url.searchParams.get("code") === "NRT" ? json(200, { id: AIRPORT_ID, type: "airport", code: "NRT", name: { zh: "成田国际机场" }, address: null, location: { lat: 35.772, lng: 140.3929 } }) : apiError(404, "PLACE_NOT_FOUND", "没有这个地点");
     }
+    if (path === "/site/v1/places/reverse") return options.reverse?.(call) ?? null;
     if (path.startsWith("/site/v1/booking-drafts/")) return options.draft?.(call) ?? apiError(404, "BOOKING_DRAFT_NOT_FOUND", "链接已过期，请重新填写");
     if (path === `/site/v1/cities/${CITY_ID}/charter-packages`) return json(200, { items: (options.packages ?? [8]).map((hours) => ({ hours })) });
     if (call.method === "POST" && path === "/site/v1/quotes/by-points") return options.quote?.(call) ?? json(200, byPoints());
@@ -336,6 +339,113 @@ test("手机触屏（M8-37）：地址、日期、时间都是全屏选择页—
   await actor.click(within(dateAgain).getByRole("button", { name: "取消" }));
   await waitFor(() => assertAbsent(screen.queryByRole("dialog", { name: "日期（当地）" })));
   assert.match(dateCell.textContent ?? "", /2030-11-20/);
+});
+
+/** 手机全屏选择页：打开出发地的选择页，在地图上按「选地图中间这个位置」（从城市中心开始），选择页关上。 */
+async function pickFromOnMapInSheet(actor: ReturnType<typeof user>): Promise<HTMLElement> {
+  window.matchMedia = ((query: string) => ({ matches: query === FULL_SCREEN_PICKER_QUERY || query === "(pointer: coarse)", media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false })) as typeof window.matchMedia;
+  const fromCell = await screen.findByRole("button", { name: /^出发地/ });
+  await actor.click(fromCell);
+  const sheet = await screen.findByRole("dialog", { name: "出发地" });
+  await actor.click(within(within(sheet).getByRole("group", { name: "出发地的地图" })).getByRole("button", { name: "在地图上选点" }));
+  await actor.click(within(sheet).getByRole("button", { name: "选地图中间这个位置" }));
+  await waitFor(() => assertAbsent(screen.queryByRole("dialog", { name: "出发地" })));
+  assert.match(fromCell.textContent ?? "", /地图上选的位置（/);
+  return fromCell;
+}
+
+test("手机地图选点（M8-42）：反查还没回来时又打开选择页打字、再点「取消」，反查回来后出发地仍换成地址（取消不改值，也不作废反查）", async () => {
+  const pending = deferred();
+  const calls = open({ config: configOf({ map_tiles: ROUTE_TILES }), reverse: () => pending.promise });
+  const actor = user();
+  const fromCell = await pickFromOnMapInSheet(actor);
+  await waitFor(() => assert.equal(calls.filter((call) => call.path.includes("/places/reverse")).length, 1));
+
+  await actor.click(fromCell);
+  const again = await screen.findByRole("dialog", { name: "出发地" });
+  await actor.clear(within(again).getByRole("combobox", { name: "出发地" }));
+  await actor.type(within(again).getByRole("combobox", { name: "出发地" }), "京王");
+  await actor.click(within(again).getByRole("button", { name: "取消" }));
+  await waitFor(() => assertAbsent(screen.queryByRole("dialog", { name: "出发地" })));
+  assert.match(fromCell.textContent ?? "", /地图上选的位置（/, "取消不改原来的值");
+
+  pending.resolve(json(200, { available: true, address: "日本、〒160-0023 東京都新宿区西新宿２丁目８−１" }));
+  await waitFor(() => assert.match(fromCell.textContent ?? "", /東京都新宿区西新宿２丁目８−１/));
+  assert.doesNotMatch(fromCell.textContent ?? "", /地图上选的位置/);
+});
+
+test("手机地图选点（M8-42）：选择页开着、客人正在打字时反查回来，输入框里还是客人打的字，页面那一格已换成地址；再点「取消」出发地是地址", async () => {
+  const pending = deferred();
+  const calls = open({ config: configOf({ map_tiles: ROUTE_TILES }), reverse: () => pending.promise });
+  const actor = user();
+  const fromCell = await pickFromOnMapInSheet(actor);
+  await waitFor(() => assert.equal(calls.filter((call) => call.path.includes("/places/reverse")).length, 1));
+
+  await actor.click(fromCell);
+  const again = await screen.findByRole("dialog", { name: "出发地" });
+  const input = within(again).getByRole("combobox", { name: "出发地" });
+  await actor.clear(input);
+  await actor.type(input, "京王");
+  pending.resolve(json(200, { available: true, address: "日本、〒160-0023 東京都新宿区西新宿２丁目８−１" }));
+  await waitFor(() => assert.match(fromCell.textContent ?? "", /東京都新宿区西新宿２丁目８−１/), SLOW);
+  // 页面那一格换成地址后，输入框的同步要等 effect 引起的那次渲染提交：先把待提交的更新全部冲刷掉再读（不靠固定等待）
+  await act(async () => {});
+  assert.equal((input as HTMLInputElement).value, "京王", "选择页里客人打的字不被反查结果盖掉");
+
+  await actor.click(within(again).getByRole("button", { name: "取消" }));
+  await waitFor(() => assertAbsent(screen.queryByRole("dialog", { name: "出发地" })));
+  assert.match(fromCell.textContent ?? "", /東京都新宿区西新宿２丁目８−１/);
+  assert.doesNotMatch(fromCell.textContent ?? "", /地图上选的位置|京王/);
+});
+
+test("手机地图选点（M8-42）：反查还没回来时切换到「包车」（地址框换成新的），在新框里改选了候选，旧框的反查回来后不覆盖", async () => {
+  const pending = deferred();
+  const calls = open({ config: configOf({ map_tiles: ROUTE_TILES }), reverse: () => pending.promise });
+  const actor = user();
+  await pickFromOnMapInSheet(actor);
+  await waitFor(() => assert.equal(calls.filter((call) => call.path.includes("/places/reverse")).length, 1));
+
+  await actor.click(screen.getByRole("radio", { name: "包车" }));
+  const pickupCell = await screen.findByRole("button", { name: /^上车地点/ });
+  assert.match(pickupCell.textContent ?? "", /地图上选的位置（/, "切换后上车地点沿用地图选的点");
+  await actor.click(pickupCell);
+  const sheet = await screen.findByRole("dialog", { name: "上车地点" });
+  await actor.clear(within(sheet).getByRole("combobox", { name: "上车地点" }));
+  await actor.type(within(sheet).getByRole("combobox", { name: "上车地点" }), "成田");
+  await within(sheet).findByRole("listbox", { name: "上车地点的候选" }, SLOW);
+  await actor.click(within(sheet).getByRole("option", { name: /成田国际机场/ }));
+  await waitFor(() => assertAbsent(screen.queryByRole("dialog", { name: "上车地点" })));
+  assert.match(pickupCell.textContent ?? "", /成田国际机场/);
+
+  pending.resolve(json(200, { available: true, address: "日本、〒160-0023 東京都新宿区西新宿２丁目８−１" }));
+  await act(async () => {
+    await new Promise((done) => setTimeout(done, 50));
+  });
+  assert.match(screen.getByRole("button", { name: /^上车地点/ }).textContent ?? "", /成田国际机场/);
+  assert.doesNotMatch(screen.getByRole("button", { name: /^上车地点/ }).textContent ?? "", /西新宿|地图上选的位置/);
+});
+
+test("手机地图选点（M8-42）：反查还没回来时客人改选了别的候选，反查回来后不覆盖新选的地点", async () => {
+  const pending = deferred();
+  open({ config: configOf({ map_tiles: ROUTE_TILES }), reverse: () => pending.promise });
+  const actor = user();
+  const fromCell = await pickFromOnMapInSheet(actor);
+
+  await actor.click(fromCell);
+  const again = await screen.findByRole("dialog", { name: "出发地" });
+  await actor.clear(within(again).getByRole("combobox", { name: "出发地" }));
+  await actor.type(within(again).getByRole("combobox", { name: "出发地" }), "成田");
+  await within(again).findByRole("listbox", { name: "出发地的候选" }, SLOW);
+  await actor.click(within(again).getByRole("option", { name: /成田国际机场/ }));
+  await waitFor(() => assertAbsent(screen.queryByRole("dialog", { name: "出发地" })));
+  assert.match(fromCell.textContent ?? "", /成田国际机场/);
+
+  pending.resolve(json(200, { available: true, address: "日本、〒160-0023 東京都新宿区西新宿２丁目８−１" }));
+  await act(async () => {
+    await new Promise((done) => setTimeout(done, 50));
+  });
+  assert.match(fromCell.textContent ?? "", /成田国际机场/);
+  assert.doesNotMatch(fromCell.textContent ?? "", /西新宿|地图上选的位置/);
 });
 
 test("手机触屏（M8-37 审查）：选择页开着时转屏换成页面输入框——选择页关掉、打了一半的字不留在输入框里冒充已选地址、转回来不自己弹出；浏览器自己关掉选择页（返回键）后还能再打开", async () => {
