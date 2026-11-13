@@ -696,6 +696,13 @@ test("订单页（M9W-03）：包车有经停点时「经停点」按顺序写�
   assert.equal(plain.querySelector(".price-breakdown"), null);
 });
 
+test("订单页（M9W-09）：全程 265,722 米写「全程约 265.7 公里」（四舍五入到 0.1，不再向上取成 265.8）", async () => {
+  orderPage(orderOf({ category: "charter", direction: null, place_id: null, flight_no: null, package_hours: 10, pickup: { lng: 139.7, lat: 35.69, address: "京王广场酒店" }, dropoff: { lng: 139.7, lat: 35.69, address: "新宿站" }, waypoints: [{ name: "河口湖", lat: 35.498, lng: 138.769, stay_minutes: 90 }], itinerary: { route_meters: 265_722, route_minutes: 540, package_km: 200, package_minutes: 600, over_meters: 65_722, overtime_minutes: 0 }, includes_area_surcharge: true, distance: null }));
+  const trip = (await screen.findByRole("heading", { name: "行程" })).closest("section") as HTMLElement;
+  assert.ok(within(trip).getByText("全程约 265.7 公里，预计 9 小时（含停留）"));
+  assert.doesNotMatch(trip.textContent ?? "", /265\.8/);
+});
+
 test("订单页（M9W-04）：包车按行程计价的单，总价下面列下单时那份对外价明细（套餐、经停加价、超公里、超时）；明细对不上总价时只显示总价", async () => {
   const yen = (amount: string) => ({ amount, currency: "JPY" });
   const charter = orderOf({

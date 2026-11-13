@@ -743,3 +743,11 @@ test("包车按行程计价（M9W-04）：运营订单详情「超公里 / 超�
   await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
   assert.equal(tripValue("超公里 / 超时"), null);
 });
+
+test("包车按行程计价（M9W-09）：运营订单详情超公里算式按米精确——全程 265.722、超出 65.722 公里 × 每公里 100 JPY = 6,572 JPY（按米计，四舍五入）", async () => {
+  const order = platformOrder({ category: "charter", direction: null, flight_no: null, package_hours: 10, pickup: { lng: 139.7, lat: 35.69, address: "京王广场酒店" }, dropoff: { lng: 139.7, lat: 35.69, address: "新宿站" }, waypoints: [{ name: "河口湖", lat: 35.498, lng: 138.769, stay_minutes: 90 }] });
+  const itinerary = { route_meters: 265_722, route_minutes: 540, package_km: 200, package_minutes: 600, over_meters: 65_722, overtime_minutes: 0, over_km_fee: money("6572"), overtime_fee: money("0"), over_km_per_km: money("100"), overtime_per_hour: money("5000") };
+  open(`/platform/orders/${ORDER_ID}`, "operations", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}` ? json(200, platformDetail({ ...order, settlement: { total: money("61572"), itinerary } }, { pricing_route: null, distance: null, area_surcharge: null })) : null), "platform");
+  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
+  assert.equal(tripValue("超公里 / 超时")?.querySelector(".details__lines > span")?.textContent, "超公里：全程 265.722 公里，套餐含 200 公里，超出 65.722 公里 × 每公里 100 JPY = 6,572 JPY（按米计，四舍五入）");
+});
