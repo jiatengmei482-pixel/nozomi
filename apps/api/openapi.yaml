@@ -2024,9 +2024,10 @@ paths:
         M8-34（ADR 0086）。给 GitHub Actions 的「测试环境只读核对」工作流用，不用登录服务器。需要操作 `quote.preview`（超级管理员、运营、招商、渠道经理、客服，或勾了「报价试算」的自建角色）；
         限定了数据范围的员工（ADR 0030）不能用（清单跨全部供应商、城市，切不开）：403 `DATA_SCOPE_DENIED`。
         内容和命令行 `pnpm areas:role-preview --json` 完全一样（字段名也一样，是驼峰写法）：每个供应商的区域数、已上架商品勾选的报价区域、
-        回放最近 `days` 天询价日志里的请求（M8-20 的区域用途对比、M8-30 的报价优先级对比）。`replay.externalDiffCount`、`replay.priority.changedCount` 都是 0 才算通过。
+        回放 `[until − days, until)` 询价日志里的请求（M8-20 的区域用途对比、M8-30 的报价优先级对比）。`replay.externalDiffCount`、`replay.priority.changedCount` 都是 0 才算通过。
+        报价引擎改动前后比对：两次用同一个 `until` 和 `days`，`replay.stateDigest` 一样时 `replay.resultDigest` 必须一样；`stateDigest` 不一样说明中间改了数据，比对无效，要重跑（ADR 0086）。
         **只读**：回放在平台的只读快照事务里（数据库拒绝任何写入），不写业务表；没有客人信息、没有坐标。
-        每次调用先占一次限速额度（每个员工 10 分钟 3 次，超过 429），并写一条审计（对象 `area`、操作 `view`，改后值里是 `report`、`days`）。
+        每次调用先占一次限速额度（每个员工 10 分钟 3 次，超过 429），并写一条审计（对象 `area`、操作 `view`，改后值里是 `report`、`days`、`until`）。
         回放有 45 秒的时限：每条查询之前看剩下的时间，数据库端的单条语句时限（`statement_timeout`）也跟着剩下的时间往下收；超过返回 503 `REPORT_TIMEOUT`，没有结果——把 `days` 改小再试。
       security:
         - platformToken: []
@@ -2039,6 +2040,12 @@ paths:
             minimum: 1
             maximum: 90
             default: 30
+        - name: until
+          in: query
+          description: 回放的截止时间（带时区的 ISO 8601 时间，不含这一刻），默认现在，不能晚于现在。引擎改动前后比对时两次给同一个值
+          schema:
+            type: string
+            format: date-time
       responses:
         "200":
           description: 清单
@@ -2047,7 +2054,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/AreaRolePreview"
         "400":
-          description: "`VALIDATION_FAILED`：`days` 不是 1–90 的整数（十进制，最多两位），或带了别的查询参数。`details.issues[]` 每条有 `path`、`message`。不占限速、不写审计"
+          description: "`VALIDATION_FAILED`：`days` 不是 1–90 的整数（十进制，最多两位），`until` 不是带时区的 ISO 8601 时间或晚于现在，或带了别的查询参数。`details.issues[]` 每条有 `path`、`message`。不占限速、不写审计"
           content:
             application/json:
               schema:
@@ -19961,10 +19968,11 @@ components:
         replay:
           type: object
           additionalProperties: false
-          required: [ days, since, logs, replayed, skipped, evaluations, externalDiffCount, externalDiffs, refinements, priority ]
+          required: [ days, since, until, logs, replayed, skipped, evaluations, externalDiffCount, externalDiffs, refinements, priority, resultDigest, resultLines, resultLineDigests, stateDigest ]
           properties:
             days: { type: integer }
-            since: { type: string, format: date-time }
+            since: { type: string, format: date-time, description: 回放窗口的起点（含），等于 until 减 days 天 }
+            until: { type: string, format: date-time, description: 回放窗口的截止时间（不含），请求没给时是现在 }
             logs: { type: integer, description: 这段时间的询价日志条数 }
             replayed: { type: integer }
             skipped: { type: integer, description: 请求认不出（旧格式、城市或地点已经不在了）跳过的 }
@@ -19981,6 +19989,32 @@ components:
                 changed: { type: array, maxItems: 50, items: { $ref: "#/components/schemas/AreaRolePreviewDiff" } }
                 keptOffers: { type: integer }
                 newOffers: { type: object, description: 之前报不出、现在新报出的价，按计价方式计数, additionalProperties: { type: integer } }
+            resultDigest:
+              type: string
+              pattern: "^[0-9a-f]{64}$"
+              description: >-
+                用现在的规则回放出来的结果的摘要值（SHA-256，十六进制）：每条「询价 × 候选商品」一行（询价日志编号、商品编码，每个车型组的报出 / 报不出、
+                结算价金额与币种、计价方式、区域编号、价格规则编号、包车区域加价的明细金额，报不出的原因代码），不含时间和快照编号，所有行排序后取摘要。
+                引擎改动部署前后用同一个 until、同样的 days 各跑一次比较：stateDigest 一样时必须一样（ADR 0086）
+            resultLines: { type: integer, description: 参与摘要的行数（「询价 × 候选商品」的个数） }
+            resultLineDigests:
+              type: array
+              description: 逐行的摘要（按询价编号、商品编码排序），给有权限的人定位哪一行变了；只读核对工作流的公开产物不放这一项
+              items:
+                type: object
+                additionalProperties: false
+                required: [ logId, productCode, digest ]
+                properties:
+                  logId: { type: string, description: 询价日志的编号 }
+                  productCode: { type: string }
+                  digest: { type: string, pattern: "^[0-9a-f]{64}$", description: 这一行的 SHA-256 }
+            stateDigest:
+              type: string
+              pattern: "^[0-9a-f]{64}$"
+              description: >-
+                回放用到的数据当前状态的摘要（SHA-256）：候选商品（编码、版本、状态）、它们的价格规则（编号、参数、生效日期、状态等）、调价规则、计程价、报价区域、
+                车型组（座位、行李、启停）、子品牌（币种、取整单位、启停）、供应商（入驻状态、是否测试供应商）、附加服务（启停、品类、计费单位）、城市（启停、时区）、
+                地点（启停、类型、航班范围、坐标），以及这些供应商的区域（编号、版本、启用状态、图形版本、用途）。两次比对时这一项不一样，说明中间改了数据，resultDigest 的比对无效，要重跑
     PlatformQuotePreview:
       type: object
       additionalProperties: false

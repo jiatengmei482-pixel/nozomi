@@ -4,14 +4,15 @@
  * 用一个只读的平台账号（密码 + 两步验证的动态码）登录测试环境，调用 `GET /platform/v1/reports/area-role-preview?days=N`
  * （和 `pnpm areas:role-preview --json` 同一份清单），最后退出登录（拿到令牌之后不管成败都退出）。
  *
- * **仓库是公开的，Actions 的产物和摘要谁都能看**：只写计数摘要（`countsOf`：天数、时间、回放了多少条、两项变化数、新报出的价按计价方式的个数），
+ * **仓库是公开的，Actions 的产物和摘要谁都能看**：只写计数摘要（`countsOf`：天数、时间、回放了多少条、两项变化数、新报出的价按计价方式的个数、
+ * 报价结果摘要值 `resultDigest`、行数和数据状态摘要 `stateDigest`——都是 SHA-256，反推不出价格明细；引擎改动前后比对用；逐行的摘要不放），
  * 不写、不打印供应商名、商品编号、区域名、价格、规则编号；完整的清单不落盘。要看明细由有权限的人登录后调接口。
  *
  * 退出码：0 = 回放没有变化；2 = 回放有变化（`externalDiffCount` 或 `priority.changedCount` 大于 0）；1 = 没配好或调用失败。
  * 不打印密码、动态码密钥、动态码和令牌；接口的报错只打印状态码和错误代码。
  *
  * 环境变量：STAGING_READONLY_EMAIL、STAGING_READONLY_PASSWORD、STAGING_READONLY_TOTP（验证器的密钥，Base32）、
- * NOZOMI_BASE_URL（https://测试环境域名）、CHECK_DAYS（1–90，默认 30）、CHECK_OUTPUT（计数摘要的 JSON 文件路径）、GITHUB_STEP_SUMMARY（可选）。
+ * NOZOMI_BASE_URL（https://测试环境域名）、CHECK_DAYS（1–90，默认 30）、CHECK_UNTIL（可选，回放的截止时间，带时区的 ISO 8601 时间；引擎改动前后两次给同一个值）、CHECK_OUTPUT（计数摘要的 JSON 文件路径）、GITHUB_STEP_SUMMARY（可选）。
  */
 import { createHmac } from "node:crypto";
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
@@ -45,6 +46,15 @@ export function parseDays(raw) {
   const days = /^\d{1,2}$/.test(text) ? Number(text) : Number.NaN;
   if (!Number.isInteger(days) || days < 1 || days > MAX_DAYS) throw new CheckError(`天数要是 1 到 ${MAX_DAYS} 之间的整数（现在是「${text}」）。`);
   return days;
+}
+
+/** 回放的截止时间：不填是 null（接口按现在算）；填了要是带时区的 ISO 8601 时间，统一写成 UTC */
+export function parseUntil(raw) {
+  if (raw === undefined || raw === null || String(raw).trim() === "") return null;
+  const text = String(raw).trim();
+  const ok = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/.test(text) && !Number.isNaN(Date.parse(text));
+  if (!ok) throw new CheckError(`截止时间要是带时区的 ISO 8601 时间，如 2026-11-13T00:00:00Z（现在是「${text}」）。`);
+  return new Date(text).toISOString();
 }
 
 /** 测试环境的地址：只认 https，不带路径 */
@@ -98,10 +108,14 @@ export function hasChanges(report) {
 const integer = (value) => (Number.isInteger(value) && value >= 0 ? value : 0);
 /** 计价方式只认小写字母和下划线（如 one_price、distance），别的写法不进摘要 */
 const PRICING_BASIS = /^[a-z_]{1,40}$/;
+/** 报价结果摘要值只认 64 位小写十六进制（SHA-256），别的写法记成 null */
+const DIGEST = /^[0-9a-f]{64}$/;
+const digestOf = (value) => (typeof value === "string" && DIGEST.test(value) ? value : null);
+const timeOf = (value) => (typeof value === "string" && !Number.isNaN(Date.parse(value)) ? new Date(value).toISOString() : null);
 
 /**
  * 能公开的计数摘要（产物和工作流摘要只写它）：按字段挑出来，不是在完整清单上删字段——清单以后多了什么也带不出来。
- * 没有供应商、商品、区域、价格、规则编号。
+ * 没有供应商、商品、区域、价格、规则编号；`resultDigest`、`stateDigest` 是整批结果、整批数据的 SHA-256，只能用来比较前后两次一样不一样；逐行的摘要不放。
  */
 export function countsOf(report, checkedAt) {
   const { replay } = report;
@@ -110,13 +124,17 @@ export function countsOf(report, checkedAt) {
   return {
     checkedAt,
     days: integer(replay.days),
-    since: typeof replay.since === "string" && !Number.isNaN(Date.parse(replay.since)) ? new Date(replay.since).toISOString() : null,
+    since: timeOf(replay.since),
+    until: timeOf(replay.until),
     logs: integer(replay.logs),
     replayed: integer(replay.replayed),
     skipped: integer(replay.skipped),
     evaluations: integer(replay.evaluations),
     externalDiffCount: integer(replay.externalDiffCount),
     priority: { changedCount: integer(replay.priority.changedCount), keptOffers: integer(replay.priority.keptOffers), newOffers },
+    resultDigest: digestOf(replay.resultDigest),
+    resultLines: integer(replay.resultLines),
+    stateDigest: digestOf(replay.stateDigest),
     passed: !hasChanges(report),
   };
 }
@@ -125,9 +143,10 @@ export function countsOf(report, checkedAt) {
 export function summarize(counts) {
   const added = Object.entries(counts.priority.newOffers).map(([basis, n]) => `${basis} ${n} 个`).join("、") || "没有";
   return [
-    `回放最近 ${counts.days} 天（${counts.since ?? "?"} 起）的询价日志 ${counts.logs} 条：回放 ${counts.replayed} 条、跳过 ${counts.skipped} 条，算了 ${counts.evaluations} 次。`,
+    `回放 ${counts.days} 天（${counts.since ?? "?"} 起、${counts.until ?? "?"} 止）的询价日志 ${counts.logs} 条：回放 ${counts.replayed} 条、跳过 ${counts.skipped} 条，算了 ${counts.evaluations} 次。`,
     `区域用途（M8-20）对外结果不同：${counts.externalDiffCount} 处。`,
     `报价优先级（M8-30）之前报得出的价有变化：${counts.priority.changedCount} 处；没变的 ${counts.priority.keptOffers} 个；之前报不出、现在新报出的：${added}。`,
+    `报价结果摘要值（${counts.resultLines} 行，引擎改动前后比对用）：${counts.resultDigest ?? "没有"}；数据状态摘要：${counts.stateDigest ?? "没有"}（前后两次一样时，结果摘要值也必须一样；不一样说明中间改了数据，要重跑）。`,
     counts.passed ? "结论：0 处变化，通过。" : "结论：有变化，不通过。明细（哪条询价、哪个商品）不进公开的产物：请有权限的人登录后调用 GET /platform/v1/reports/area-role-preview 查看。",
   ];
 }
@@ -195,8 +214,9 @@ export async function login(io, credentials, onToken) {
 }
 
 /** 取清单 */
-export async function fetchReport(io, token, days) {
-  const res = await call(io.fetch, io.baseUrl, "GET", `/platform/v1/reports/area-role-preview?days=${days}`, { token, timeoutMs: REPORT_TIMEOUT_MS });
+export async function fetchReport(io, token, days, until = null) {
+  const query = until === null ? `days=${days}` : `days=${days}&until=${encodeURIComponent(until)}`;
+  const res = await call(io.fetch, io.baseUrl, "GET", `/platform/v1/reports/area-role-preview?${query}`, { token, timeoutMs: REPORT_TIMEOUT_MS });
   if (res.status === 200 && typeof res.body?.replay === "object" && res.body.replay !== null) return res.body;
   const code = errorCode(res.body);
   const hints = {
@@ -229,6 +249,7 @@ export async function runCheck(env, io) {
   }
   try {
     const days = parseDays(env.CHECK_DAYS);
+    const until = parseUntil(env.CHECK_UNTIL);
     const scoped = { ...io, baseUrl: parseBaseUrl(env.NOZOMI_BASE_URL) };
     let token = null;
     let report;
@@ -236,7 +257,7 @@ export async function runCheck(env, io) {
       const signedIn = await login(scoped, { email: env.STAGING_READONLY_EMAIL.trim(), password: env.STAGING_READONLY_PASSWORD, totp: env.STAGING_READONLY_TOTP.trim() }, (value) => {
         token = value;
       });
-      report = await fetchReport(scoped, signedIn, days);
+      report = await fetchReport(scoped, signedIn, days, until);
     } finally {
       if (token !== null) await logout(scoped, token);
     }

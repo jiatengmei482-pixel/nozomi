@@ -1,8 +1,9 @@
 /**
  * 只读核对的接口版（M8-34，ADR 0086）：`GET /platform/v1/reports/area-role-preview`。
  * 和命令行 `pnpm areas:role-preview --json` 是同一份清单（`buildRolePreview`），给 GitHub Actions 的手动工作流用，不用登录服务器。
+ * 回放的截止时间 `until` 由调用方给（默认现在）：引擎改动前后用同一个 `until` 比较摘要值。
  *
- * - 先在一个普通平台事务里占一次限速额度（每个员工 10 分钟 3 次）、写一条审计（谁、几天）；
+ * - 先在一个普通平台事务里占一次限速额度（每个员工 10 分钟 3 次）、写一条审计（谁、几天、截止时间）；
  * - 再在平台的只读快照事务里（`begin … read only`，可重复读）回放，数据库拒绝任何写入；
  * - 回放有时限（默认 `ROLE_PREVIEW_REPORT_BUDGET_MS`）：每条查询之前看剩下多少时间，到了就停；数据库端的单条语句时限（`statement_timeout`）
  *   跟着剩下的时间往下收，一条慢查询也不会越过时限。超过返回 503 `REPORT_TIMEOUT`，请调用方把天数改小。
@@ -55,18 +56,18 @@ export async function withDeadline(db: Db, deadline: number, clock: () => number
   return { query } as Db;
 }
 
-export async function runRolePreviewReport(ctx: AppContext, principal: PlatformPrincipal, days: number, ip: string, budgetMs: number = ROLE_PREVIEW_REPORT_BUDGET_MS): Promise<RolePreview> {
-  const now = ctx.now();
+export async function runRolePreviewReport(ctx: AppContext, principal: PlatformPrincipal, window: { days: number; until: Date; now: Date }, ip: string, budgetMs: number = ROLE_PREVIEW_REPORT_BUDGET_MS): Promise<RolePreview> {
+  const { days, until, now } = window;
   await withPlatformTx(ctx.pool, async (db) => {
     const slot = await takeRateSlot(db, principal.user.id, "staff_role_preview", now);
     if (!slot.allowed) throw rateLimited(slot.retryAfterSeconds);
-    await insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), { tenantId: null, resource: "area", resourceId: null, action: "view", before: null, after: { report: "area_role_preview", days } });
+    await insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), { tenantId: null, resource: "area", resourceId: null, action: "view", before: null, after: { report: "area_role_preview", days, until: until.toISOString() } });
   });
   const deadline = performance.now() + budgetMs;
   try {
     return await withPlatformTx(
       ctx.pool,
-      async (db) => buildRolePreview(await withDeadline(db, deadline), { days, now, expired: () => performance.now() > deadline }),
+      async (db) => buildRolePreview(await withDeadline(db, deadline), { days, now, until, expired: () => performance.now() > deadline }),
       { snapshot: true },
     );
   } catch (err) {
