@@ -95,7 +95,8 @@ test("结果和命令行的 buildRolePreview 完全一样；没有坐标、没�
   assert.equal(res.body.replay.logs, 2);
   assert.equal(res.body.replay.externalDiffCount, 0);
   assert.equal(res.body.replay.priority.changedCount, 0);
-  const values = [...allValues(res.body)].join("\n");
+  // 摘要值是 64 位十六进制哈希（M9W-00），随机含「145」这类片段、不可能带出坐标：扫坐标时跳过它们，其余值照常检查
+  const values = [...allValues(res.body)].filter((value) => !/^[0-9a-f]{64}$/.test(String(value))).join("\n");
   for (const coordinate of ["139.7", "35.6", "145", "35.5"]) assert.ok(!values.includes(coordinate), `应答里不能有坐标 ${coordinate}`);
   const after = await snapshot();
   const changed = Object.keys(after).filter((table) => after[table] !== before[table]).sort();
