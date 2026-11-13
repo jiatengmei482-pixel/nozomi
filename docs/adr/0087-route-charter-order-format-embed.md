@@ -71,11 +71,15 @@
 | `services/orders.ts` 第 347–350 行（`order_sales`） | `winner.sell.sellMinor`、`markupBp`、`fx`、`fxBufferBp` | `sellMinor` 改读 `quote_route_charges.final_sell_minor`；加价比例、汇率仍读 `winner.sell`（同一个候选） |
 | `services/orders.ts` 第 353 行（Stripe 金额） | `winner.sell.sellMinor` | 改读最终对外价 |
 | `services/order-queries.ts` 第 172–174 行（订单用的区域） | `snapshot.winner` 的租户、商品是否等于订单的 | 不改：两者都是最终中标候选，比对通过（集成测试） |
-| `services/order-changes.ts` 第 268 行（改期用的渠道取整规则） | `winner.sell.channel` | 不改：同一候选；改期金额按第四节第 3 小节重算 |
+| `services/order-changes.ts` 第 268 行（改期用的渠道取整规则） | `winner.sell.channel` | 不改：同一候选 |
+| `services/order-changes.ts` 第 248–282 行 `reprice`（改期重新报价，第 433 行调用，结果写进订单结算价第 320 行并据此算对外价差额、退差价） | 引擎重算的套餐部分 `{ settlement: offer.settlement, sellMinor }` | **要改**：按行程的单在返回值上加上 `routeCharge`——超出部分的结算价用 `basePrice` 求差、取整一次（同第二节），对外价用 `sellEquivalentMinor` 代入这一单 `sale` 的加价比例、汇率、缓冲，渠道有取整单位时向上取整；结算价明细同时更新。不改的话改期会丢掉超时 / 超公里（例：R3 会把 ¥3,666 当差价退回，供应商结算价从 53,333 掉回 50,000）。R16 的集成测试断言改期后订单结算价和对外价都仍含超时那一项 |
+| `services/order-queries.ts` 第 317 行 → `routes/orders.ts` 第 382–394 行（运营订单详情的比价候选，原样渲染 `snapshot.candidates`） | 快照候选 | 不改形状：按行程的单显示的是最终价；不同套餐时长的候选混在一张表里，所以每个候选带上可选的 `package_hours`，页面在价格旁注明几小时 |
 | `routes/orders.ts` 第 177 行（区域加价对外参考） | `winner.sell.areaSurcharge` | 不改 |
 | `routes/quotes.ts` 第 209 行（运营报价试算） | 引擎 `group.snapshot.winner` | 不改：运营试算走引擎原流程，不是按行程 |
 | `repos/site.ts` `findQuotePackageKm` | 按 `quotes.winner_tenant_id` + 快照 `priceRuleId` 读当前规则 | 按行程和按时长包车都改读 `quote_route_charges.package_km`（锁定值） |
 | `services/sales-quotes.ts` 第 146–161、244、262–263、328–336 行 | 引擎快照 | 不改：按行程报价用新的存储函数；`/sales/v1` 和普通官网报价的路径完全不变 |
+
+按行程报价新写的存储函数必须沿用现有存储流程的两件事：① 写 `quote_logs`（`quotes.quote_log_id` 不能为空；未覆盖需求统计、`area-role-preview`、生效前试算都读这张表），写法照 `sales-quotes.ts` 第 244 行；② 照 `sales-quotes.ts` 第 300 行 `offeredAddonIds` 算出可选附加服务列表，否则 `/book` 的附加服务显示不对。
 | 救援改派 `services/rescues.ts` | 引擎 `group.ranked`（按套餐价） | 按行程的单：对接手候选用同一函数算最终结算价、**按最终价排序**（和原单中标口径一致），差价按最终结算价算 |
 
 - 集成测试：R6（只有 8 小时套餐，甲套餐价低、超公里贵，乙最终价低）→ 订单落在乙：`orders.tenant_id` = 乙，订单结算价 = 乙的 50,000 + 乙的超公里 8,000 = 58,000，Stripe 金额 63,800；`order-queries` 的「同一个中标」比对通过（`pricing_route` 不为 null 的情形照旧可读）。R2 → 订单 `package_hours` = 10。
