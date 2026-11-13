@@ -374,6 +374,8 @@ export interface SiteOrderEnvelope {
   order: SiteOrder;
   timeline: SiteTimelineEntry[];
   names: SiteOrderNames;
+  /** 对外价明细（M9W-04）：只有包车按行程计价的单，下单时那份明细，各项之和等于 `order.price.total`；别的单、旧单、对不上时为 null */
+  price_breakdown?: SitePriceBreakdownItem[] | null;
 }
 
 export interface SitePayment {
@@ -453,7 +455,7 @@ export const SITE_SCHEMA_FIELDS = {
   SiteQuote: ["quote_id", "expires_at", "service_date", "urgent", "vehicle_group", "package", "includes_area_surcharge", "distance", "pricing_basis", "price", "price_breakdown", "free_wait_minutes", "cancel_policy", "available_addons"],
   SiteAddonOption: ["id", "code", "name", "charge_unit"],
   SiteOrderLink: ["token", "expires_at"],
-  SiteOrderEnvelope: ["order", "timeline", "names"],
+  SiteOrderEnvelope: ["order", "timeline", "names", "price_breakdown"],
   SiteOrderNames: ["city", "place", "vehicle_group"],
 } as const;
 
@@ -490,6 +492,8 @@ export interface SiteManualQuoteTrip {
   passengers: number;
   luggage: number;
   package_hours: number | null;
+  /** 包车的经停点（M9W-04），按顺序；没有经停点时不给 */
+  waypoints?: { name: string; lat: number; lng: number; stay_minutes: number }[];
 }
 
 export interface SiteManualQuoteRequest {
@@ -503,7 +507,7 @@ export interface SiteManualQuoteRequest {
 
 export const SITE_MANUAL_QUOTE_PATH = `${SITE_BASE}/manual-quote-requests`;
 export const SITE_MANUAL_QUOTE_REQUEST_FIELDS: readonly (keyof SiteManualQuoteRequest)[] = ["email", "whatsapp", "consent", "trip", "website"];
-export const SITE_MANUAL_QUOTE_TRIP_FIELDS: readonly (keyof SiteManualQuoteTrip)[] = ["category", "city_id", "pickup", "dropoff", "service_local", "passengers", "luggage", "package_hours"];
+export const SITE_MANUAL_QUOTE_TRIP_FIELDS: readonly (keyof SiteManualQuoteTrip)[] = ["category", "city_id", "pickup", "dropoff", "service_local", "passengers", "luggage", "package_hours", "waypoints"];
 
 /** 客人留下邮箱或 WhatsApp，请客服人工报价。应答一律 202（不说明是不是重复提交）。 */
 export function submitSiteManualQuote(body: SiteManualQuoteRequest): Promise<{ status: "accepted" }> {

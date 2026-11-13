@@ -65,6 +65,10 @@ const itineraryResult = (breakdown = FUJI_BREAKDOWN, total = 71_500): SiteQuoteR
 });
 const plainResult: SiteQuoteResult = { currency: "JPY", quotes: [quoteOf(1, 77_000, [{ kind: "base", amount: yen(77_000), area_name: null, stop_seqs: null }])], unavailable: [] };
 
+/** 谷歌候选：没有坐标，选中后再调 /site/v1/places/details 取（M9W-08 用它让取坐标变慢） */
+const GOOGLE_SPOT = { source: "google", id: "ChIJgogome", name: "富士山五合目園地", address: "山梨県富士吉田市上吉田", location: null, kind: "other" } as const;
+let placeDetails: () => Response | Promise<Response> = () => json(200, { available: true, place: { id: GOOGLE_SPOT.id, address: GOOGLE_SPOT.address, location: { lat: 35.395, lng: 138.733 }, kind: "other" } });
+
 function open(charter: (call: ApiCall) => Response = () => json(200, plainResult), order?: () => Response): ApiCall[] {
   const calls = stubApiWith((call) => {
     const path = call.url.pathname;
@@ -73,12 +77,15 @@ function open(charter: (call: ApiCall) => Response = () => json(200, plainResult
     if (path === "/site/v1/places/autocomplete") {
       const q = call.url.searchParams.get("q") ?? "";
       const name = Object.keys(SPOTS).find((spot) => q.includes(spot));
+      if (q.includes(GOOGLE_SPOT.name)) return json(200, { available: true, items: [GOOGLE_SPOT] });
       return json(200, { available: true, items: name === undefined ? [] : [{ source: "platform", id: `spot-${name}`, name, address: "", location: SPOTS[name], kind: "station" }] });
     }
+    if (path === "/site/v1/places/details") return placeDetails();
     if (path === `/site/v1/cities/${CITY_ID}/charter-packages`) return json(200, { items: [{ hours: 8 }] });
     if (path === "/site/v1/fx/reference") return json(200, { available: false, from: "JPY", to: call.url.searchParams.get("to"), rate: null, as_of: null, reason: "NO_RATE" });
     if (call.method === "POST" && path === "/site/v1/quotes") return charter(call);
     if (call.method === "POST" && path === "/site/v1/orders") return order?.() ?? null;
+    if (call.method === "POST" && path === "/site/v1/manual-quote-requests") return json(202, { status: "accepted" });
     return null;
   });
   render(
@@ -119,6 +126,10 @@ test("没有经停点：询价请求和以前完全一样（字段、顺序都�
   assertAbsent(screen.queryByLabelText("价格明细"));
   assertAbsent(screen.queryByText(/价格按您填的经停点计算/));
   assertAbsent(screen.queryByText("行程时间表"));
+  // M9W-05：不按行程计价的包车，「一口价包含」下面的说法照旧
+  const includes = screen.getByRole("heading", { name: "一口价包含" }).closest("section") as HTMLElement;
+  assert.ok(within(includes).getByText("超出套餐的时长和公里服务后按实际收取：先通知您，48 小时内可以在订单页提异议。"));
+  assert.doesNotMatch(includes.textContent ?? "", /按预计行程/);
 });
 
 test("经停点：添加、上下移动（焦点跟着这一行、播报新位置）、删除（焦点到下一行的删除）；第一行上移、最后一行下移禁用；最多 10 个", async () => {
@@ -214,6 +225,10 @@ test("按行程计价：车型卡、右侧栏、核对页显示明细（套餐�
     ["上车京王广场酒店", "行驶约 2 小时经停 1五合目停留 1 小时", "行驶约 30 分钟经停 2河口湖停留 1 小时 30 分", "行驶约 10 分钟经停 3忠灵塔停留 30 分钟", "行驶约 1 小时 50 分下车新宿站"],
   );
   assert.ok(screen.getByText("价格按您填的经停点计算；当天临时去其他区域或超出预计可能会加收。"));
+  // M9W-05：按行程计价时超公里、超时已算进价格，「一口价包含」下面不再说「超出套餐服务后按实际收取」
+  const includes = screen.getByRole("heading", { name: "一口价包含" }).closest("section") as HTMLElement;
+  assert.ok(within(includes).getByText("超公里、超时已按预计行程算进价格，只有当天超出预计的部分服务后按实际收取：先通知您，48 小时内可以在订单页提异议。"));
+  assert.doesNotMatch(includes.textContent ?? "", /超出套餐的时长和公里/);
 
   await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
   const side = screen.getByRole("complementary", { name: "行程摘要" });
@@ -253,9 +268,9 @@ test("明细加起来不等于总价：不显示明细，只显示总价（价�
   assertAbsent(screen.queryByText("60,500 JPY"));
 });
 
-test("经停点不在任何区域（WAYPOINT_NOT_PRICED）：指出第几个经停点和它的名字，转人工报价，不显示内部代码", async () => {
+test("经停点不在任何区域（WAYPOINT_NOT_PRICED）：指出第几个经停点和它的名字，转人工报价，不显示内部代码；人工报价带上经停点、不带之前选的时长（M9W-04）", async () => {
   wideScreen();
-  open((call) =>
+  const calls = open((call) =>
     json(200, (call.body as Record<string, unknown>)["itinerary_pricing"] === true ? ({ currency: "JPY", quotes: [], unavailable: [{ vehicle_group_id: null, reasons: ["WAYPOINT_NOT_PRICED"], waypoint_stop_seqs: [2] }] } satisfies SiteQuoteResult) : plainResult),
   );
   const actor = user();
@@ -268,6 +283,14 @@ test("经停点不在任何区域（WAYPOINT_NOT_PRICED）：指出第几个经�
   assert.ok(screen.getByRole("heading", { name: "没有可预订的车" }));
   assert.equal(screen.getByRole("link", { name: "+81 3-1234-5678" }).getAttribute("href"), "tel:+81312345678");
   assert.doesNotMatch(document.body.textContent ?? "", /WAYPOINT_NOT_PRICED/);
+  const manual = screen.getByRole("region", { name: "请客服人工报价" });
+  await actor.type(within(manual).getByLabelText("邮箱"), "guest@example.com");
+  await actor.click(within(manual).getByRole("button", { name: "提交" }));
+  assert.ok(await screen.findByText(/已收到/, {}, SLOW));
+  const sent = calls.filter((call) => call.method === "POST" && call.path === "/site/v1/manual-quote-requests").map((call) => (call.body as { trip: Record<string, unknown> }).trip);
+  assert.deepEqual(sent.map((trip) => [trip["category"], trip["package_hours"], trip["waypoints"]]), [
+    ["charter", null, [{ name: "五合目", ...SPOTS["五合目"], stay_minutes: 60 }, { name: "河口湖", ...SPOTS["河口湖"], stay_minutes: 60 }]],
+  ]);
 });
 
 test("按行程计价有一段路线算不出来（422 ITINERARY_ROUTE_UNAVAILABLE）：说清是哪两个点之间，转人工报价", async () => {
@@ -281,4 +304,35 @@ test("按行程计价有一段路线算不出来（422 ITINERARY_ROUTE_UNAVAILAB
   assert.ok(await screen.findByText("「五合目」到「新宿站」这一段路线暂时算不出来，没有在线报价。请联系客服人工报价，或调整经停点再试。", {}, SLOW));
   assert.ok(screen.getByRole("heading", { name: "没有在线报价" }));
   assertAbsent(screen.queryByRole("button", { name: "重试" }));
+});
+
+test("M9W-08：选了谷歌候选、坐标还没取回来时先选停留时长——坐标回来后停留时长不被清掉，询价带上这个点和停留", async () => {
+  wideScreen();
+  let release: (() => void) | undefined;
+  const slow = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const fast = placeDetails;
+  placeDetails = async () => {
+    await slow;
+    return fast();
+  };
+  try {
+    const calls = open((call) => json(200, (call.body as Record<string, unknown>)["itinerary_pricing"] === true ? itineraryResult() : plainResult));
+    const actor = user();
+    await screen.findByRole("heading", { name: "车型1" }, SLOW);
+    await actor.click(screen.getByRole("button", { name: "上一步" }));
+    await actor.click(screen.getByRole("button", { name: "添加经停点" }));
+    const box = screen.getByRole("combobox", { name: "经停点 1" });
+    await actor.type(box, GOOGLE_SPOT.name);
+    await actor.click(await screen.findByRole("option", { name: new RegExp(GOOGLE_SPOT.name) }, SLOW));
+    await waitFor(() => assert.ok(calls.some((call) => call.path.includes("/places/details"))));
+    await actor.selectOptions(screen.getByLabelText(/^经停点 1 停留时长/), "120");
+    release?.();
+    await waitFor(() => assert.ok(quotes(calls).some((body) => Array.isArray(body["waypoints"]))), SLOW);
+    assert.equal((screen.getByLabelText(/^经停点 1 停留时长/) as HTMLSelectElement).value, "120");
+    assert.deepEqual((quotes(calls).at(-1) as Record<string, unknown>)["waypoints"], [{ name: `${GOOGLE_SPOT.name}（${GOOGLE_SPOT.address}）`, lat: 35.395, lng: 138.733, stay_minutes: 120 }]);
+  } finally {
+    placeDetails = fast;
+  }
 });

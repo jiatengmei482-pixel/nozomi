@@ -695,3 +695,73 @@ test("订单页（M9W-03）：包车有经停点时「经停点」按顺序写�
   assert.equal(factValue(plain, "经停点"), null);
   assert.equal(plain.querySelector(".price-breakdown"), null);
 });
+
+test("订单页（M9W-04）：包车按行程计价的单，总价下面列下单时那份对外价明细（套餐、经停加价、超公里、超时）；明细对不上总价时只显示总价", async () => {
+  const yen = (amount: string) => ({ amount, currency: "JPY" });
+  const charter = orderOf({
+    category: "charter",
+    direction: null,
+    place_id: null,
+    flight_no: null,
+    package_hours: 10,
+    pickup: { lng: 139.7, lat: 35.69, address: "京王广场酒店" },
+    dropoff: { lng: 139.7, lat: 35.69, address: "新宿站" },
+    waypoints: [{ name: "河口湖", lat: 35.498, lng: 138.769, stay_minutes: 90 }],
+    itinerary: { route_meters: 260_000, route_minutes: 540, package_km: 200, package_minutes: 600, over_meters: 60_000, overtime_minutes: 0 },
+    price: { total: yen("91300"), fx: null },
+    includes_area_surcharge: true,
+    distance: null,
+  });
+  const breakdown: NonNullable<SiteOrderEnvelope["price_breakdown"]> = [
+    { kind: "base", amount: yen("60500"), area_name: null, stop_seqs: null },
+    { kind: "waypoint", amount: yen("11000"), area_name: { zh: "富士山地区" }, stop_seqs: [1] },
+    { kind: "over_km", amount: yen("19800"), area_name: null, stop_seqs: null },
+    { kind: "overtime", amount: yen("0"), area_name: null, stop_seqs: null },
+  ];
+  const show = (items: SiteOrderEnvelope["price_breakdown"]): void => {
+    open({ pathname: "/book/order", hash: `#${TOKEN}` }, (call) => (call.url.pathname === "/site/v1/config" ? json(200, openConfig) : call.url.pathname === "/site/v1/order" ? json(200, { ...envelopeOf(charter), price_breakdown: items }) : null));
+  };
+  show(breakdown);
+  const trip = (await screen.findByRole("heading", { name: "行程" })).closest("section") as HTMLElement;
+  const total = factValue(trip, "总价") as HTMLElement;
+  const rows = [...within(total).getByLabelText("价格明细").querySelectorAll(".price-breakdown__row")].map((row) => [row.querySelector("dt")?.textContent, row.querySelector("dd")?.textContent]);
+  assert.deepEqual(rows, [
+    ["包车套餐 10 小时", "60,500 JPY"],
+    ["经停加价（富士山地区，第 1 个经停点）", "11,000 JPY"],
+    ["超公里费", "19,800 JPY"],
+    ["超时费", "0 JPY"],
+  ]);
+  // 总价就在明细上面（「总价」一项），明细里不再重复写合计
+  assert.match(total.textContent ?? "", /^91,300 JPY/);
+  assert.ok(within(trip).getByText(/价格按您填的经停点计算/));
+  resetBrowser();
+
+  // 各项之和对不上总价：只显示总价和提示，不列明细
+  show([{ kind: "base", amount: yen("60600"), area_name: null, stop_seqs: null }, ...breakdown.slice(1)]);
+  const mismatch = (await screen.findByRole("heading", { name: "行程" })).closest("section") as HTMLElement;
+  assert.equal(factValue(mismatch, "总价")?.querySelector(".price-breakdown__row"), null);
+  assert.ok(within(mismatch).getByText(/价格按您填的经停点计算/));
+  resetBrowser();
+
+  // 接口给 null（旧单、没按行程计价）：和以前一样
+  show(null);
+  const none = (await screen.findByRole("heading", { name: "行程" })).closest("section") as HTMLElement;
+  assert.equal(factValue(none, "总价")?.querySelector(".price-breakdown__row"), null);
+});
+
+test("订单页「费用说明」（M9W-05）：按行程计价的包车写超公里、超时已按预计行程算进价格；不按行程计价的包车、接送机照旧", async () => {
+  const charter = { category: "charter" as const, direction: null, place_id: null, flight_no: null, package_hours: 10, created_at: "2026-11-13T01:00:00.000Z", pickup: { lng: 139.7, lat: 35.69, address: "京王广场酒店" }, dropoff: { lng: 139.7, lat: 35.69, address: "新宿站" } };
+  orderPage(orderOf({ ...charter, waypoints: [{ name: "河口湖", lat: 35.498, lng: 138.769, stay_minutes: 90 }], itinerary: { route_meters: 260_000, route_minutes: 540, package_km: 200, package_minutes: 600, over_meters: 60_000, overtime_minutes: 0 } }));
+  const itinerary = (await screen.findByRole("heading", { name: "行程" })).closest("section") as HTMLElement;
+  assert.equal(factValue(itinerary, "费用说明")?.textContent, "一口价已含所有费用（高速费、停车费等），无需另付；超公里、超时已按预计行程算进价格，只有当天超出预计的部分服务后按实际收取");
+  resetBrowser();
+
+  orderPage(orderOf({ ...charter, waypoints: null, itinerary: null }));
+  const plain = (await screen.findByRole("heading", { name: "行程" })).closest("section") as HTMLElement;
+  assert.equal(factValue(plain, "费用说明")?.textContent, "一口价已含所有费用（高速费、停车费等），无需另付；超出套餐的时长和公里服务后按实际收取");
+  resetBrowser();
+
+  orderPage(orderOf({ created_at: "2026-11-13T01:00:00.000Z" }));
+  const transfer = (await screen.findByRole("heading", { name: "行程" })).closest("section") as HTMLElement;
+  assert.equal(factValue(transfer, "费用说明")?.textContent, "一口价已含所有费用（高速费、停车费等），无需另付");
+});

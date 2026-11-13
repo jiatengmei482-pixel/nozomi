@@ -13473,7 +13473,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ order, timeline, names, payment, link ]
+                required: [ order, timeline, names, price_breakdown, payment, link ]
                 properties:
                   order:
                     $ref: "#/components/schemas/SiteOrder"
@@ -13481,6 +13481,11 @@ paths:
                     $ref: "#/components/schemas/SiteOrderTimeline"
                   names:
                     $ref: "#/components/schemas/SiteOrderNames"
+                  price_breakdown:
+                    description: 同 `SiteOrderEnvelope.price_breakdown`（M9W-04）
+                    oneOf:
+                      - $ref: "#/components/schemas/SitePriceBreakdown"
+                      - type: "null"
                   payment:
                     oneOf:
                       - $ref: "#/components/schemas/SalesOrderPayment"
@@ -13705,7 +13710,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ order, timeline, names, change ]
+                required: [ order, timeline, names, price_breakdown, change ]
                 properties:
                   order:
                     $ref: "#/components/schemas/SiteOrder"
@@ -13713,6 +13718,11 @@ paths:
                     $ref: "#/components/schemas/SiteOrderTimeline"
                   names:
                     $ref: "#/components/schemas/SiteOrderNames"
+                  price_breakdown:
+                    description: 同 `SiteOrderEnvelope.price_breakdown`（M9W-04）
+                    oneOf:
+                      - $ref: "#/components/schemas/SitePriceBreakdown"
+                      - type: "null"
                   change:
                     oneOf:
                       - $ref: "#/components/schemas/SalesOrderChange"
@@ -13844,7 +13854,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ order, timeline, names, replayed ]
+                required: [ order, timeline, names, price_breakdown, replayed ]
                 properties:
                   order:
                     $ref: "#/components/schemas/SiteOrder"
@@ -13852,6 +13862,11 @@ paths:
                     $ref: "#/components/schemas/SiteOrderTimeline"
                   names:
                     $ref: "#/components/schemas/SiteOrderNames"
+                  price_breakdown:
+                    description: 同 `SiteOrderEnvelope.price_breakdown`（M9W-04）
+                    oneOf:
+                      - $ref: "#/components/schemas/SitePriceBreakdown"
+                      - type: "null"
                   replayed:
                     type: boolean
         "401":
@@ -13931,7 +13946,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ order, timeline, names, extra_charge ]
+                required: [ order, timeline, names, price_breakdown, extra_charge ]
                 properties:
                   order:
                     $ref: "#/components/schemas/SiteOrder"
@@ -13939,6 +13954,11 @@ paths:
                     $ref: "#/components/schemas/SiteOrderTimeline"
                   names:
                     $ref: "#/components/schemas/SiteOrderNames"
+                  price_breakdown:
+                    description: 同 `SiteOrderEnvelope.price_breakdown`（M9W-04）
+                    oneOf:
+                      - $ref: "#/components/schemas/SitePriceBreakdown"
+                      - type: "null"
                   extra_charge:
                     oneOf:
                       - $ref: "#/components/schemas/SalesExtraCharge"
@@ -16425,7 +16445,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ request, contact, pickup, dropoff, events ]
+                required: [ request, contact, pickup, dropoff, waypoints, events ]
                 properties:
                   request:
                     $ref: "#/components/schemas/ManualQuoteRequestSummary"
@@ -16448,6 +16468,13 @@ paths:
                   dropoff:
                     oneOf:
                       - $ref: "#/components/schemas/ManualQuotePlace"
+                      - type: "null"
+                  waypoints:
+                    description: 包车的经停点（M9W-04），按顺序；没有经停点、已清除为 null
+                    oneOf:
+                      - type: array
+                        items:
+                          $ref: "#/components/schemas/ManualQuoteWaypoint"
                       - type: "null"
                   events:
                     type: array
@@ -24110,7 +24137,7 @@ components:
           minimum: 0
           maximum: 1000000000
         waypoint_surcharge:
-          description: 包车区域加价：途经加价——经停点在这个区域时加多少，同一区域一单只加一次（可以是 0；M9W-01，ADR 0088）。可以不填（null）：不填 = 这个区域对经停点没有规则（不当 0），经停点只落在这个区域时报不出
+          description: 包车区域加价：途经加价——经停点在这个区域时加多少，同一区域一单只加一次（可以是 0；M9W-01，ADR 0088）。可以不填（null）：不填 = 这个区域对经停点没有规则（不当 0），经停点只落在这个区域时报不出。修改已有规则（PUT、批量 update）时请求里没有这个键 = 保留原来的途经加价（M9W-06，旧页面改上 / 下车加价不会清掉它）；要清掉请显式传 null
           type: [ integer, "null" ]
           minimum: 0
           maximum: 1000000000
@@ -29471,32 +29498,7 @@ components:
       required: [ quote_id, expires_at, service_date, urgent, vehicle_group, package, includes_area_surcharge, distance, pricing_basis, price, price_breakdown, free_wait_minutes, cancel_policy, available_addons ]
       properties:
         price_breakdown:
-          description: |
-            对外价的简单明细（M9W-01，ADR 0088 第 4 节和补充；客人支付币种），按顺序：`base` 基础价（包车是套餐价）、`pickup` 上车加价、`waypoint` 一个区域的途经加价（逐区域）、
-            `dropoff` 下车加价、`over_km` 超公里、`overtime` 超时（这两项只在按行程计价时有）、`adjust` 调价、`other` 加急 / 夜间 / 附加服务 / 司机语言。除 `base` 外各项按这一单的汇率、缓冲、加价比例换算、各自取整；`base` 倒算吸收尾差，
-            **各项之和等于 `price.total`**。是 0 的调价、其他费用不列；没有加价区域的报价只有 `base` 一项（新增字段）
-          type: array
-          items:
-            type: object
-            additionalProperties: false
-            required: [ kind, amount, area_name, stop_seqs ]
-            properties:
-              kind:
-                type: string
-                enum: [ base, pickup, waypoint, dropoff, over_km, overtime, adjust, other ]
-              amount:
-                $ref: "#/components/schemas/SalesMoney"
-              area_name:
-                description: 上 / 下车加价、途经加价的加价区域现在的名称；别的项、区域被删了为 null
-                oneOf:
-                  - $ref: "#/components/schemas/LocalizedText"
-                  - type: "null"
-              stop_seqs:
-                description: 途经加价：落在这个区域的是第几个经停点（从 1 起）；别的项为 null
-                type: [ array, "null" ]
-                items:
-                  type: integer
-                  minimum: 1
+          $ref: "#/components/schemas/SitePriceBreakdown"
         pricing_basis:
           $ref: "#/components/schemas/PricingBasis"
         distance:
@@ -30038,11 +30040,46 @@ components:
             within_delay_allowance:
               type: boolean
         - type: "null"
+    SitePriceBreakdown:
+      description: |
+        对外价的简单明细（M9W-01，ADR 0088 第 4 节和补充；客人支付币种），按顺序：`base` 基础价（包车是套餐价）、`pickup` 上车加价、`waypoint` 一个区域的途经加价（逐区域）、
+        `dropoff` 下车加价、`over_km` 超公里、`overtime` 超时（这两项只在按行程计价时有）、`adjust` 调价、`other` 加急 / 夜间 / 附加服务 / 司机语言。除 `base` 外各项按这一单的汇率、缓冲、加价比例换算、各自取整；`base` 倒算吸收尾差，
+        **各项之和等于 `price.total`**。是 0 的调价、其他费用不列；没有加价区域的报价只有 `base` 一项（新增字段）
+      type: array
+      items:
+        type: object
+        additionalProperties: false
+        required: [ kind, amount, area_name, stop_seqs ]
+        properties:
+          kind:
+            type: string
+            enum: [ base, pickup, waypoint, dropoff, over_km, overtime, adjust, other ]
+          amount:
+            $ref: "#/components/schemas/SalesMoney"
+          area_name:
+            description: 上 / 下车加价、途经加价的加价区域现在的名称；别的项、区域被删了为 null
+            oneOf:
+              - $ref: "#/components/schemas/LocalizedText"
+              - type: "null"
+          stop_seqs:
+            description: 途经加价：落在这个区域的是第几个经停点（从 1 起）；别的项为 null
+            type: [ array, "null" ]
+            items:
+              type: integer
+              minimum: 1
     SiteOrderEnvelope:
       type: object
       additionalProperties: false
-      required: [ order, timeline, names ]
+      required: [ order, timeline, names, price_breakdown ]
       properties:
+        price_breakdown:
+          description: |
+            订单的对外价明细（M9W-04，ADR 0089 第 5 节）：只有包车按行程计价的单才有——取下单用的那份报价快照里的明细（和下单页看到的一样，不按现在的价格重算），
+            格式同 `SiteQuote.price_breakdown`，各项之和等于 `order.price.total`。别的单、旧单为 null；改期重算过价、明细和现在的总价对不上时也是 null（页面只显示总价）。
+            区域名称是现在的名称（新增字段）
+          oneOf:
+            - $ref: "#/components/schemas/SitePriceBreakdown"
+            - type: "null"
         order:
           $ref: "#/components/schemas/SiteOrder"
         timeline:
@@ -32381,7 +32418,7 @@ components:
       type: object
       additionalProperties: false
       required: [ category, pickup, service_local, passengers ]
-      description: 页面自动带上的行程。接送机、点对点要有 `dropoff`；包车要有 `package_hours`（1–72），`dropoff` 可以没有；别的类型不能带 `package_hours`
+      description: 页面自动带上的行程。接送机、点对点要有 `dropoff`；包车要有 `package_hours`（1–72）或经停点 `waypoints`，`dropoff` 可以没有；别的类型不能带 `package_hours`、`waypoints`
       properties:
         category:
           $ref: "#/components/schemas/ServiceCategory"
@@ -32412,6 +32449,35 @@ components:
           type: [ integer, "null" ]
           minimum: 1
           maximum: 72
+        waypoints:
+          type: array
+          maxItems: 10
+          default: []
+          description: 包车的经停点（M9W-04），按顺序；有经停点时可以不带 `package_hours`（按行程计价，由客服定套餐）。别的类型不能带
+          items:
+            $ref: "#/components/schemas/ManualQuoteWaypoint"
+    ManualQuoteWaypoint:
+      type: object
+      additionalProperties: false
+      required: [ name, lat, lng, stay_minutes ]
+      description: 包车的一个经停点（M9W-04）：地点和停留分钟
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 300
+        lat:
+          type: number
+          minimum: -90
+          maximum: 90
+        lng:
+          type: number
+          minimum: -180
+          maximum: 180
+        stay_minutes:
+          type: integer
+          minimum: 0
+          maximum: 1440
     ManualQuotePerson:
       type: object
       additionalProperties: false

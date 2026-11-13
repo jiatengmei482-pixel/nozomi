@@ -50,8 +50,12 @@ const nextIp = (): string => `10.89.${(ipSeq += 1)}.9`;
 
 /** 路线替身：每一段 130 公里、`legMinutes` 分钟；到海上那个点算不出 */
 let legMinutes = 225;
-const routeLookup = async (input: { from: LatLng; to: LatLng }): Promise<RouteLookup> =>
-  input.to.lat === P.island.lat || input.from.lat === P.island.lat ? { ok: false, code: "NO_ROUTE" } : { ok: true, route: { meters: 130_000, minutes: legMinutes }, source: "google" };
+/** 路线替身被调了几次（M9W-06：城市不对、没有套餐时不调谷歌） */
+let routeCalls = 0;
+const routeLookup = async (input: { from: LatLng; to: LatLng }): Promise<RouteLookup> => {
+  routeCalls += 1;
+  return input.to.lat === P.island.lat || input.from.lat === P.island.lat ? { ok: false, code: "NO_ROUTE" } : { ok: true, route: { meters: 130_000, minutes: legMinutes }, source: "google" };
+};
 
 async function tenantCall(who: TenantFixture | string, method: HttpMethod, path: string, options: { body?: unknown; version?: number } = {}): Promise<ApiResponse> {
   const token = typeof who === "string" ? who : await tenantLogin(api, who.adminEmail);
@@ -291,10 +295,51 @@ test("下单：订单存经停点（之后谁都不能改）；供应商详情�
   const view = await site.call("GET", "/site/v1/order", { token, ip: nextIp() });
   assertMatchesOpenApi("GET", "/site/v1/order", view);
   assert.deepEqual(view.body.order.waypoints, expectedStops);
+  // M9W-04：没按行程计价（选了套餐时长）的单不给对外价明细，订单页和以前一样
+  assert.equal(view.body.price_breakdown, null);
   const moved = await site.call("PATCH", "/site/v1/order", { token, ip: nextIp(), headers: { "if-match": `"${view.body.order.version}"` }, body: { service_time: "2026-10-21T10:00:00+09:00" } });
   assert.equal(moved.status, 200, moved.text);
   const change = await api.db.owner.query<{ before: string; after: string }>("select settlement_before_minor::text as before, settlement_after_minor::text as after from order_changes where order_id = $1", [orderId]);
   assert.deepEqual(change.rows.map((entry) => [entry.before, entry.after]), [["71000", "71000"]]);
+});
+
+test("M9W-06：修改包车区域加价时请求里没有 waypoint_surcharge 这个键 → 保留原来的途经加价（批量、单条）；显式传 null 才清掉", async () => {
+  const find = async () => (await ok(tenantCall(m.b, "GET", `/products/${charter.id}/price-rules`))).items.find((item: any) => item.area_id === charter.fuji && item.package_hours === 8);
+  const original = await find();
+  const { id, base: _base, created_at: _c, updated_at: _u, waypoint_surcharge: _w, ...legacy } = original;
+  assert.equal(original.waypoint_surcharge, 10_000);
+  const batch = await tenantCall(m.b, "POST", `/products/${charter.id}/price-rules/batch`, { version: await version(m.b, charter.id), body: { update: [{ ...legacy, id, pickup_surcharge: 11_000 }] } });
+  assert.equal(batch.status, 200, batch.text);
+  assert.deepEqual([(await find()).pickup_surcharge, (await find()).waypoint_surcharge], [11_000, 10_000]);
+  const single = await tenantCall(m.b, "PUT", `/products/${charter.id}/price-rules/${id}`, { version: await version(m.b, charter.id), body: { ...legacy, pickup_surcharge: 12_000 } });
+  assertMatchesOpenApi("PUT", "/tenant/v1/products/{id}/price-rules/{ruleId}", single);
+  assert.equal(single.status, 200, single.text);
+  assert.deepEqual([(await find()).pickup_surcharge, (await find()).waypoint_surcharge], [12_000, 10_000]);
+  const cleared = await tenantCall(m.b, "POST", `/products/${charter.id}/price-rules/batch`, { version: await version(m.b, charter.id), body: { update: [{ ...legacy, id, waypoint_surcharge: null }] } });
+  assert.equal(cleared.status, 200, cleared.text);
+  assert.equal((await find()).waypoint_surcharge, null);
+  const restored = await tenantCall(m.b, "POST", `/products/${charter.id}/price-rules/batch`, { version: await version(m.b, charter.id), body: { update: [{ ...legacy, id, waypoint_surcharge: 10_000 }] } });
+  assert.equal(restored.status, 200, restored.text);
+  const back = await find();
+  assert.deepEqual([back.pickup_surcharge, back.dropoff_surcharge, back.waypoint_surcharge], [original.pickup_surcharge, original.dropoff_surcharge, 10_000]);
+});
+
+test("M9W-06：按行程计价先核城市、查套餐再估路线——城市不存在 400 UNKNOWN_CITY（和普通询价一样）；城市没有能选的包车套餐报 NO_PRODUCT；两种都不调路线估算", async () => {
+  const body = { category: "charter", pickup: P.shinjuku, dropoff: P.shinjuku, waypoints: [{ name: "河口湖", ...P.kawaguchiko, stay_minutes: 90 }], itinerary_pricing: true, service_local: SERVICE_LOCAL, passengers: 2, luggage: 1 };
+  const calls = routeCalls;
+  api.clock.advance(1_000);
+  const unknown = await site.call("POST", "/site/v1/quotes", { body: { ...body, city_id: randomUUID() }, ip: nextIp() });
+  assertMatchesOpenApi("POST", "/site/v1/quotes", unknown);
+  api.clock.advance(1_000);
+  const plain = await site.call("POST", "/site/v1/quotes", { body: { ...body, city_id: randomUUID(), itinerary_pricing: undefined, waypoints: undefined, package_hours: 10 }, ip: nextIp() });
+  assert.deepEqual([unknown.status, unknown.body.error.details.issues.map((issue: any) => [issue.path, issue.reason])], [400, [["/city_id", "UNKNOWN_CITY"]]]);
+  assert.deepEqual([plain.status, plain.body.error.details.issues.map((issue: any) => [issue.path, issue.reason])], [400, [["/city_id", "UNKNOWN_CITY"]]]);
+  api.clock.advance(1_000);
+  const empty = await site.call("POST", "/site/v1/quotes", { body: { ...body, city_id: m.ids.osaka }, ip: nextIp() });
+  assertMatchesOpenApi("POST", "/site/v1/quotes", empty);
+  assert.equal(empty.status, 200, empty.text);
+  assert.deepEqual([empty.body.quotes, empty.body.unavailable], [[], [{ vehicle_group_id: null, reasons: ["NO_PRODUCT"] }]]);
+  assert.equal(routeCalls, calls, "城市不对、没有套餐时不调路线估算");
 });
 
 test("13.9 用例 8（按取消重下）：下单后要去掉一个途经区域——取消原单，重新询价下单，新价少了镰仓的途经加价", async () => {
@@ -346,6 +391,30 @@ test("按行程计价：逐段估路线、按总时长选套餐（能覆盖的�
   assertMatchesOpenApi("GET", "/tenant/v1/orders/{id}", tenant);
   assert.deepEqual([tenant.body.order.settlement.itinerary.over_km_fee.amount, tenant.body.order.settlement.total.amount], ["18000", "83000"]);
   for (const key of RULE4_KEYS) assert.ok(!allKeys(tenant.body).has(key), key);
+
+  // M9W-04：官网订单页给下单时那份对外价明细（和报价时一模一样，之和等于订单总价）；运营详情的结算价明细有超公里 / 超时的量、单价和钱
+  const guestView = await site.call("GET", "/site/v1/order", { token: placed.token, ip: nextIp() });
+  assertMatchesOpenApi("GET", "/site/v1/order", guestView);
+  assert.deepEqual(guestView.body.price_breakdown, offer.price_breakdown);
+  assert.deepEqual(placed.body.price_breakdown, offer.price_breakdown);
+  assert.equal(guestView.body.price_breakdown.reduce((sum: number, item: any) => sum + Number(item.amount.amount), 0), Number(guestView.body.order.price.total.amount));
+  assert.deepEqual(guestView.body.price_breakdown.find((item: any) => item.kind === "waypoint").area_name, { zh: "富士山地区" });
+  const platformView = await api.call("GET", `/platform/v1/orders/${placed.orderId}`, { token: m.root });
+  assertMatchesOperation("GET", "/platform/v1/orders/{id}", platformView.status, platformView.body);
+  const lockedItinerary = platformView.body.order.settlement.itinerary;
+  assert.deepEqual([lockedItinerary.over_meters, lockedItinerary.over_km_per_km.amount, lockedItinerary.over_km_fee.amount, lockedItinerary.overtime_minutes, lockedItinerary.overtime_per_hour.amount, lockedItinerary.overtime_fee.amount], [60_000, "300", "18000", 0, "5000", "0"]);
+  // 人工救援改派（manualSettlement）会把订单结算明细整份换成只有总价的（没有 itinerary），客人付的钱、报价快照不变：明细照旧给（审查 #192）。
+  // 这里直接把结算明细换成那个样子，只模拟这一个效果；救援流程本身见 rescues.itest.ts
+  await api.db.owner.query("update orders set settlement = settlement - 'itinerary' where id = $1", [placed.orderId]);
+  const rescued = await site.call("GET", "/site/v1/order", { token: placed.token, ip: nextIp() });
+  assert.equal(rescued.body.order.itinerary, null);
+  assert.deepEqual(rescued.body.price_breakdown, offer.price_breakdown);
+  await api.db.owner.query("update orders set settlement = jsonb_set(settlement, '{itinerary}', $2::jsonb) where id = $1", [placed.orderId, JSON.stringify((await api.db.owner.query<{ s: any }>("select snapshot->'winner'->'offer'->'settlement'->'itinerary' as s from quotes where id = $1", [offer.quote_id])).rows[0]?.s)]);
+  // 改期重算过价、总价变了：明细和现在的总价对不上就不给（页面只显示总价）
+  await api.db.owner.query("update order_sales set sell_minor = sell_minor + 100 where order_id = $1", [placed.orderId]);
+  const repriced = await site.call("GET", "/site/v1/order", { token: placed.token, ip: nextIp() });
+  assert.equal(repriced.body.price_breakdown, null);
+  await api.db.owner.query("update order_sales set sell_minor = sell_minor - 100 where order_id = $1", [placed.orderId]);
 
   // 参数检查：按行程计价不填套餐时长；别的品类不能按行程计价；某一段路线取不到 422
   api.clock.advance(1_000);

@@ -2,7 +2,7 @@
  * 官网（M3-05，ADR 0032）页面上的说法和小规则：客人看到的订单状态、报不出价的原因、「我已落地」什么时候能点、
  * 订单页地址里的令牌、城市当地的日期时间。文案用客人的说法（「付款」「用车时间」），不出现「供应商」「结算价」。
  */
-import { AREA_SURCHARGE_NOTE as DOMAIN_AREA_SURCHARGE_NOTE, CHARTER_OVERAGE_TEXTS, type ExtraChargeStatus, FIXED_PRICE_INCLUDES_TEXTS, LANDING_RULES, type OrderChangeStatus, type OrderStatus, type PricingBasis, addDays, charterAllInclusiveFor, fixedPriceFeeNote, includedKmNote, isCurrencyCode, parseMajor, pricingBasisFeeNote, pricingBasisNote } from "@nozomi/domain";
+import { AREA_SURCHARGE_NOTE as DOMAIN_AREA_SURCHARGE_NOTE, CHARTER_ITINERARY_OVERAGE_TEXTS, CHARTER_OVERAGE_TEXTS, type ExtraChargeStatus, FIXED_PRICE_INCLUDES_TEXTS, LANDING_RULES, type OrderChangeStatus, type OrderStatus, type PricingBasis, addDays, charterAllInclusiveFor, fixedPriceFeeNote, includedKmNote, isCurrencyCode, parseMajor, pricingBasisFeeNote, pricingBasisNote } from "@nozomi/domain";
 import type { CancelTier } from "../api/order-money.ts";
 import type { SiteCategory, SiteDirection, SiteOrder, SitePlace, SiteQuote, SiteUnavailableReason } from "../api/site.ts";
 import type { BadgeSpec } from "../components/StatusBadge.tsx";
@@ -24,6 +24,9 @@ export const SITE_CATEGORY_HINTS: Readonly<Record<SiteCategory, string>> = {
 /** 包车超出套餐的部分怎么收（M8-09：包车一口价全含之后，只有超出套餐的时长和公里另收）。 */
 export const CHARTER_OVERAGE_NOTE = `${CHARTER_OVERAGE_TEXTS.zh}：先通知您，48 小时内可以在订单页提异议。`;
 
+/** 包车按行程计价（M9W-05，ADR 0089）：超公里、超时已按预计行程算进价格，只有当天超出预计的部分另收。不按行程计价的包车照旧用 `CHARTER_OVERAGE_NOTE` */
+export const CHARTER_ITINERARY_OVERAGE_NOTE = `${CHARTER_ITINERARY_OVERAGE_TEXTS.zh}：先通知您，48 小时内可以在订单页提异议。`;
+
 /**
  * 价格包含什么（询价结果上方的一句）。包车也是一口价全含（ADR 0070）：高速费、停车费不另收，只有超出套餐的时长和公里服务后按实际收取。
  * 「含所有费用」的说法取 domain `fixed-price-includes.ts`（和新预订页、确认邮件同一来源）。
@@ -35,11 +38,12 @@ export function priceNote(category: SiteCategory): string {
 /**
  * 订单页的「费用说明」（ADR 0070）：接送机、点对点写含所有费用；按里程计价（`pricing_basis = distance_only`）的不是一口价，
  * 换成 domain `pricingBasisFeeNote` 的说法（M6-08）；包车按下单时间——分界后下的写含所有费用、超出套餐另收，
- * 分界前下的是按「高速、停车另收」报的价，不写（返回 null）。
+ * 分界前下的是按「高速、停车另收」报的价，不写（返回 null）。按行程计价的包车写超公里、超时已算进价格（M9W-05）。
  */
-export function orderFeeNote(order: Pick<SiteOrder, "category" | "created_at"> & { pricing_basis?: PricingBasis | undefined }): string | null {
+export function orderFeeNote(order: Pick<SiteOrder, "category" | "created_at"> & { pricing_basis?: PricingBasis | undefined; itinerary?: SiteOrder["itinerary"] | undefined }): string | null {
   if (order.category !== "charter") return pricingBasisFeeNote(order.pricing_basis) ?? fixedPriceFeeNote("transfer");
-  return charterAllInclusiveFor(new Date(order.created_at)) ? fixedPriceFeeNote("charter") : null;
+  // 按行程计价的包车（订单上有锁定的 itinerary，M9W-05）：超公里、超时已算进价格
+  return charterAllInclusiveFor(new Date(order.created_at)) ? fixedPriceFeeNote("charter", "zh", { itinerary: order.itinerary != null }) : null;
 }
 
 /** 一单要客人写哪几端的地址：接送机只写机场之外的那一端；点对点、包车两端（包车的下车点 M8-19 起必填，ADR 0073）。 */

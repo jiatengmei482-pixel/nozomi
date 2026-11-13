@@ -202,6 +202,14 @@ test("一口价说明（M8-09，ADR 0070）：接送机客人写「一口价已�
   assert.doesNotMatch(legacy.guest, /费用说明|含所有费用/);
   assert.match(legacy.guest, /已付金额：/);
   assert.doesNotMatch(legacy.tenant, /包车报价/);
+  // M9W-05：按行程计价的包车（结算价明细里有锁定的 itinerary）：超公里、超时已算进价格，只有当天超出预计的另收
+  const itinerary = { routeMeters: 260_000, routeMinutes: 540, packageKm: 200, packageMinutes: 600, overMeters: 60_000, overtimeMinutes: 0, overKmPerKmMinor: 300, overtimePerHourMinor: 5_000, overKmMinor: 18_000, overtimeMinor: 0 };
+  const planned = await mails(async (orderId) => {
+    await charterAt(orderId, "2026-11-12T00:00:00+09:00");
+    await api.db.owner.query("update orders set settlement = settlement || $2::jsonb where id = $1", [orderId, JSON.stringify({ itinerary })]);
+  });
+  assert.match(planned.guest, /费用说明：一口价已含所有费用（高速费、停车费等），无需另付；超公里、超时已按预计行程算进价格，只有当天超出预计的部分服务后按实际收取\n/);
+  assert.doesNotMatch(planned.guest, /超出套餐的时长和公里/);
 });
 
 test("含公里数、含区域加价（M8-13，ADR 0073 第四部分）：客人确认邮件多「公里数」一行（每公里用对外价，订单上锁定的数）、已付金额后面「（含区域加价）」；供应商那封都没有；没有这些数的单照旧", async () => {
