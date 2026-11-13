@@ -578,6 +578,7 @@ test("预订草稿（M9E-01）：过期或不存在时说「链接已过期」�
   wideScreen();
   const calls = open({ at: `/book/new?draft=${DRAFT_ID}` });
   assert.ok(await screen.findByText("链接已过期，请重新填写。", {}, SLOW));
+  assert.ok(screen.getByText("只填地点，不要填姓名、电话。"), "出发地框提示只填地点（ADR 0090）");
   assert.equal((screen.getByRole("combobox", { name: "出发地" }) as HTMLInputElement).value, "");
   assert.equal((screen.getByRole("combobox", { name: "目的地" }) as HTMLInputElement).value, "");
   assert.equal(posts(calls).length, 0);
