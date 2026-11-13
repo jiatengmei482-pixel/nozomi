@@ -580,7 +580,7 @@ test("导出再原样导入，全部「没变」：一口价、里程 + 时长�
     const seen = await ok(upload(`/products/${id}/price-rules/import/preview`, exported.bytes));
     assert.deepEqual([seen.summary, seen.can_import, rowSummary(seen).filter((row: any) => row[1] !== "unchanged")], [{ rows: count, create: 0, update: 0, unchanged: count, error: 0, conflict: 0 }, false, []]);
     // 「上车加价」「下车加价」是包车区域加价的两列（结算价，M8-15），不是加价比例
-    assert.doesNotMatch(JSON.stringify(exported.rows), /markup|sell_price|对外价|(?<![上下]车)加价/i);
+    assert.doesNotMatch(JSON.stringify(exported.rows), /markup|sell_price|对外价|(?<![上下]车|途经)加价/i); // 「途经加价」和上 / 下车加价一样是供应商自己设的区域加价（ADR 0088），不是平台加价比例
   }
   const usdRows = (await download(`/products/${charter}/price-rules/export`)).rows;
   assert.deepEqual(usdRows[1]?.slice(3, 8), ["8", "100", "450.50", "50.01", "0.99"], "美元：主单位、两位小数");
