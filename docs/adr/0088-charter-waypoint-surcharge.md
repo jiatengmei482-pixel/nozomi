@@ -20,7 +20,7 @@
 
 - 包车报价请求（`POST /site/v1/quotes`，`category: charter`）加可选 `waypoints: [{ name, lat, lng, stay_minutes }]`，有顺序，最多 10 个；其他品类给了 400 `NOT_APPLICABLE`。引擎的 `QuoteRequest` 加可选 `waypoints: [{ lat, lng }]`（只用坐标）；名称和停留分钟只存在报价快照的 `snapshot.request.waypoints`（`[{ name, lat, lng, stay_minutes }]`），引擎不看。
 - 经停点随报价快照的 `snapshot.request` 锁定，价格明细随结算价明细（`orders.settlement`，租户可读）锁定。
-- **订单加一列 `waypoints jsonb`（一个迁移，可空，不回填）**，下单时从 `snapshot.request.waypoints` 写入。原因：报价快照所在的 `quotes`、`order_sales` 只授权给平台账号（迁移 0020、0024），供应商订单详情和司机端走租户事务读不到；救援改派后的新供应商同样读不到原报价；改授权会把报价快照里的对外价暴露给租户（违反规则 4）。供应商、司机、官网、运营都从 `orders.waypoints` 读；订单的供应商可写列触发器把这一列列为不可改。
+- **订单加一列 `waypoints jsonb`（一个迁移，可空，不回填）**，下单时从 `snapshot.request.waypoints` 写入。原因：报价快照所在的 `quotes`、`order_sales` 只授权给平台账号（迁移 0020、0024），供应商订单详情和司机端走租户事务读不到；救援改派后的新供应商同样读不到原报价；改授权会把报价快照里的对外价暴露给租户（违反规则 4）。供应商、司机、官网、运营都从 `orders.waypoints` 读；这一列加进订单现有的「不可改列」触发器（迁移 0031、0035 等里的 before update of 触发器），下单后谁都不能改。
 - 改期重新报价用 `quote.request`（展开），自动带上经停点；**救援改派（`rescues.ts` 第 372 行起逐个字段传给 `previewPlatformQuote`）要显式加上 `waypoints`**。
 
 ### 3. 引擎（在现有上 / 下车加价之后）
