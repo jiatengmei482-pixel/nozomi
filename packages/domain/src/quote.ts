@@ -114,8 +114,11 @@ export interface QuoteRequest {
    * 包车「按行程计价」（ADR 0088 补充「最终报价公式」）：服务器按上车点 → 经停点 → 下车点逐段估出的全程米数、总时长（行驶 + 各点停留，分钟）。
    * 给了就按套餐的含公里、套餐时长收超公里、超时（和套餐价、区域加价一起过调价）；不给 = 和以前一样不预收（服务后按实际加收）。只有包车能给。
    */
-  routeUsage?: RouteEstimate;
+  routeUsage?: RouteUsage;
 }
+
+/** 包车按行程计价的全程（ADR 0088 补充）：`meters`、`minutes` 是引擎用的合计；`legs`（逐段行驶）、`stayMinutes`（停留合计）只随快照锁定，引擎不看 */
+export type RouteUsage = RouteEstimate & { readonly legs?: readonly RouteEstimate[]; readonly stayMinutes?: number };
 
 /** 一个经停点：引擎只看坐标；官网带来的名称、停留分钟（`snapshot.request.waypoints` 的写法 `{ name, lat, lng, stay_minutes }`）原样留在快照里，下单时抄进订单 */
 export type QuoteWaypoint = LatLng & { readonly name?: string; readonly stay_minutes?: number };

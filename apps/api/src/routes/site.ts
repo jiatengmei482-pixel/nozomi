@@ -120,6 +120,8 @@ const quoteSchema = z
     pickup: pointSchema.optional(),
     dropoff: pointSchema.optional(),
     waypoints: z.array(waypointSchema).max(QUOTE_RULES.maxWaypoints).optional(),
+    // 包车按行程计价（ADR 0088 补充）：不填套餐时长，服务器按路线和停留算总时长、选套餐、收超公里 / 超时
+    itinerary_pricing: z.boolean().optional(),
     package_hours: z.number().int().min(1).max(PRICE_LIMITS.maxPackageHours).optional(),
     service_local: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, "写成当地时间 YYYY-MM-DDTHH:mm"),
     passengers: z.number().int().min(1).max(60),
@@ -143,7 +145,9 @@ const CATEGORY_NAMES: Readonly<Record<QuoteBody["category"], string>> = { airpor
 
 /** 按品类核对该给的字段给了、不该给的没给，换成服务层的行程。 */
 export function siteTripOf(body: QuoteBody): SiteTrip {
-  const needed = TRIP_FIELDS[body.category];
+  const itinerary = body.itinerary_pricing === true;
+  if (itinerary && body.category !== "charter") throw validationFailed("body", [{ path: "/itinerary_pricing", reason: "NOT_APPLICABLE", message: "只有包车可以按行程计价" }]);
+  const needed: readonly TripField[] = itinerary ? ["pickup", "dropoff"] : TRIP_FIELDS[body.category];
   const issues: InputIssue[] = [];
   for (const field of Object.keys(TRIP_FIELD_NAMES) as TripField[]) {
     const given = body[field] !== undefined;
@@ -160,6 +164,7 @@ export function siteTripOf(body: QuoteBody): SiteTrip {
     case "point_to_point":
       return { category: "point_to_point", pickup: pickup as { lng: number; lat: number }, dropoff: dropoff as { lng: number; lat: number } };
     case "charter":
+      if (itinerary) return { category: "charter_itinerary", pickup: pickup as { lng: number; lat: number }, dropoff: dropoff as { lng: number; lat: number }, waypoints };
       return { category: "charter", pickup: pickup as { lng: number; lat: number }, dropoff: dropoff as { lng: number; lat: number }, packageHours: packageHours as number, ...(waypoints.length === 0 ? {} : { waypoints }) };
   }
 }
@@ -313,7 +318,8 @@ function quoteJson(quote: SiteQuote): Json {
 
 function quoteResultJson(result: SiteQuoteResult): Json {
   // `waypoint_stop_seqs`：原因里有 WAYPOINT_NOT_PRICED 时是哪几个经停点（从 1 起，ADR 0088）；没有时不给（只增字段）
-  return { currency: result.currency, quotes: result.quotes.map(quoteJson), unavailable: result.unavailable.map((entry) => ({ vehicle_group_id: entry.vehicleGroupId, reasons: entry.reasons, ...(entry.stopSeqs === undefined ? {} : { waypoint_stop_seqs: entry.stopSeqs }) })) };
+  const itinerary = result.itinerary === undefined ? {} : { itinerary_route: { legs: result.itinerary.legs.map((leg) => ({ minutes: leg.minutes, meters: leg.meters })), drive_minutes: result.itinerary.driveMinutes, stay_minutes: result.itinerary.stayMinutes, total_minutes: result.itinerary.totalMinutes, total_meters: result.itinerary.totalMeters } };
+  return { currency: result.currency, ...itinerary, quotes: result.quotes.map(quoteJson), unavailable: result.unavailable.map((entry) => ({ vehicle_group_id: entry.vehicleGroupId, reasons: entry.reasons, ...(entry.stopSeqs === undefined ? {} : { waypoint_stop_seqs: entry.stopSeqs }) })) };
 }
 
 /** 渠道看到的那一份订单，落地信息去掉司机到达屏照片的文件编号（照片只给平台和供应商核对）。 */

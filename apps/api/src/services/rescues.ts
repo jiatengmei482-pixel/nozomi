@@ -390,6 +390,7 @@ export async function rescueCandidates(ctx: AppContext, orderId: string, log?: Q
       assumeRoute: order.settlement.usage,
       // 包车的经停点（ADR 0088）：按原报价锁定的经停点重新比价，救援供应商同样按途经加价报
       ...(request.waypoints === undefined ? {} : { waypoints: request.waypoints }),
+      ...(request.routeUsage === undefined ? {} : { routeUsage: request.routeUsage }),
     },
     log === undefined ? {} : { log },
   );

@@ -10,7 +10,7 @@
  */
 import { randomInt } from "node:crypto";
 import { performance } from "node:perf_hooks";
-import { type AreaSurchargeBreakdown, type ComparisonRefusal, type PricingBasis, type QuoteWaypoint, type SellBreakdownItem, sellBreakdown, type SiteAudience, guestRouteReason, type CurrencyCode, type DistanceBreakdown, type FxQuote, type LatLng, type MarkupMatch, type QuoteSnapshot, type ServiceCategory, type TripDirection, formatMajor, instantToLocal, isPickupPlaceType, quoteCheckPoints, quoteSnapshotValid } from "@nozomi/domain";
+import { type AreaSurchargeBreakdown, type ComparisonRefusal, type PricingBasis, type QuoteWaypoint, type RouteUsage, type SellBreakdownItem, sellBreakdown, type SiteAudience, guestRouteReason, type CurrencyCode, type DistanceBreakdown, type FxQuote, type LatLng, type MarkupMatch, type QuoteSnapshot, type ServiceCategory, type TripDirection, formatMajor, instantToLocal, isPickupPlaceType, quoteCheckPoints, quoteSnapshotValid } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
@@ -41,6 +41,8 @@ export interface SalesQuoteInput {
   currency: string;
   /** 包车的经停点（ADR 0088）：只有官网给（`/sales/v1` 不开放）；不给 = 没有 */
   waypoints?: readonly QuoteWaypoint[];
+  /** 包车按行程计价（ADR 0088 补充）：只有官网给 */
+  routeUsage?: RouteUsage;
 }
 
 /** 给渠道看的「为什么没有这个车型组的价」：只有面向客人的几种。 */
@@ -237,6 +239,7 @@ export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincip
       vehicleGroupIds: input.vehicleGroupIds,
       assumeRoute: null,
       ...(input.waypoints === undefined ? {} : { waypoints: input.waypoints }),
+      ...(input.routeUsage === undefined ? {} : { routeUsage: input.routeUsage }),
     },
     { fresh: false, ...(options.log === undefined ? {} : { log: options.log }), ...(acceptance ? { audience: "acceptance" as const } : {}) },
   );

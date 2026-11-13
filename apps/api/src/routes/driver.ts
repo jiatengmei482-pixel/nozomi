@@ -12,7 +12,7 @@ import { bearerToken } from "../auth/token.ts";
 import { tenantIdOfDriverToken } from "../auth/driver-token.ts";
 import type { AppContext } from "../context.ts";
 import { type TripView, addDriverContact, driverLinkInvalid, getTrip, readDriverFile, reportDriverEvent, reportDriverLanding, reportDriverLocation, requestLeave, submitNoShow, uploadDriverFile } from "../services/driver-trip.ts";
-import { landingJson } from "../services/order-views.ts";
+import { itineraryAmountsJson, landingJson } from "../services/order-views.ts";
 import { dateTimeSchema, parseInput, resourceId, uuidSchema } from "../validation.ts";
 import { fileJson, sendFile } from "./orders.ts";
 import { fulfilmentSchema, locationSchema, toLocation } from "./dispatch.ts";
@@ -60,6 +60,8 @@ function tripJson(view: TripView): Record<string, unknown> {
       dropoff: order.dropoff,
       // 包车的经停点（M9W-01，ADR 0088）：名称、坐标、停留分钟，不含任何价格；没有为 null
       waypoints: order.waypoints,
+      // 包车按行程计价锁定的全程、总时长（没有金额）；没按行程计价为 null
+      itinerary: order.settlement.itinerary === undefined ? null : itineraryAmountsJson(order.settlement.itinerary),
       pickup_point: view.pickup,
       addons: order.addons.map((addon) => ({ addon_id: addon.addonId, quantity: addon.quantity, name: view.addonNames.get(addon.addonId) ?? null })),
       driver_language: order.driverLanguage,

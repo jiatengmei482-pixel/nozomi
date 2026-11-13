@@ -587,7 +587,9 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
       const [pickupSurcharge, dropoffSurcharge, waypointSurcharge] = [amount(P.pickupSurcharge), amount(P.dropoffSurcharge), amount(P.waypointSurcharge, true)];
       Object.assign(content, { packageHours, pricingModel: "charter_area_surcharge", surcharge: { pickupMinor: pickupSurcharge, dropoffMinor: dropoffSurcharge, waypointMinor: waypointSurcharge } });
       if (pickupSurcharge !== null && dropoffSurcharge !== null && !issues.some((issue) => issue.column === P.waypointSurcharge)) {
-        pricing = { model: "charter_area_surcharge", pickupSurchargeMinor: pickupSurcharge, dropoffSurchargeMinor: dropoffSurcharge, ...(waypointSurcharge === null ? {} : { waypointSurchargeMinor: waypointSurcharge }) };
+        // 旧模版没有「途经加价」这一列：修改的行沿用它原来的途经加价（不因为模版旧就清掉）
+        const kept = !sheet.has(P.waypointSurcharge) && before !== null && before.pricing.model === "charter_area_surcharge" ? (before.pricing.waypointSurchargeMinor ?? null) : waypointSurcharge;
+        pricing = { model: "charter_area_surcharge", pickupSurchargeMinor: pickupSurcharge, dropoffSurchargeMinor: dropoffSurcharge, ...(kept === null ? {} : { waypointSurchargeMinor: kept }) };
       }
     } else if (category === "charter") {
       packageHours = read.integer(P.packageHours, true);
