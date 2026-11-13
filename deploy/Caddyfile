@@ -89,6 +89,15 @@
 			file_server
 		}
 
+		# 嵌入组件脚本（ADR 0090）：合作网站跨站加载，所以放行跨源读取；短缓存（发新版 5 分钟内生效）。
+		# 不存在时 404，不回退到 index.html（合作网站拿到一份 HTML 当脚本执行会报错）。
+		@widget path /embed/widget-v1.js
+		handle @widget {
+			header Cache-Control "public, max-age=300"
+			header Cross-Origin-Resource-Policy "cross-origin"
+			file_server
+		}
+
 		# 前端路由（/login、/platform/login、/accept-invite 等）没有对应的文件：一律返回 index.html，由前端自己路由。
 		# index.html 每次都要向服务器确认是不是最新的——它指向当前版本的 /assets/ 文件名。
 		handle {

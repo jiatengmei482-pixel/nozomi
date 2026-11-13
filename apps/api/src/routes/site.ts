@@ -12,6 +12,7 @@
  *   搜索可以不带城市（渠道授权的范围里搜），候选带类型（机场 / 其他），平台的机场、车站排在最前（M8-02，ADR 0069）；
  * - `GET /site/v1/places/autocomplete`、`GET /site/v1/places/details`：输入即提示和选中后取坐标（谷歌 Autocomplete / Place Details，同一个会话令牌；
  *   每个地址每分钟 60 次，和搜索、反查共用每天 300 次，M8-02，ADR 0069 B1）；
+ * - `GET /site/v1/booking-drafts/{id}`：嵌入组件建的预订草稿（M9E-01，ADR 0090）：只给预订条件和到期时刻；过期、不存在、格式不对同一个 404（每个地址每分钟 60 次）；
  * - `GET /site/v1/fx/reference?to=`：订单币种 → 客人币种的参考汇率（只读汇率中心现在生效的汇率，只用于显示，M8-02，ADR 0069 B16）；
  * - `POST /site/v1/quotes`：询价，三种品类，可带附加服务（每个地址每分钟 30 次；报价带「这个车型能加哪些附加服务」，M8-02）；
  * - `POST /site/v1/quotes/by-points`：按两个坐标报价——认出机场和接机 / 送机 / 点对点后走同一个询价，顺带给路线的时间、距离（和询价共用每分钟 30 次，M8-02，ADR 0069 A1）；
@@ -74,6 +75,8 @@ import { distanceJson, paymentJson, salesOrderJson } from "./sales.ts";
 import { mapConfigJson } from "./areas.ts";
 import type { OrderVehicleGroupRef } from "../repos/master-data.ts";
 import { sitePublicSettings } from "../services/manual-quotes.ts";
+import { readBookingDraftForSite } from "../services/booking-drafts.ts";
+import { orderEntrySource, recordOrderEmbedSource, recordQuoteEmbedSources } from "../services/embed.ts";
 import { QaAcceptanceHidden, currentQaAcceptance, endQaAcceptance, qaAcceptanceActive, sessionCookie, siteAudienceOf, unlockQaAcceptance } from "../services/qa-acceptance.ts";
 import { errorBody } from "../errors.ts";
 import { pathOnly } from "../logging.ts";
@@ -129,6 +132,8 @@ const quoteSchema = z
     addons: addonsSchema,
     pickup_name: demandNameSchema,
     dropoff_name: demandNameSchema,
+    // 从嵌入组件的预订草稿来（M9E-02，ADR 0090）：只用于记来源，不影响报价；过期、不存在的照常报价、不记
+    draft_id: z.string().max(64).optional(),
   })
   .strict();
 
@@ -173,9 +178,9 @@ export function siteTripOf(body: QuoteBody): SiteTrip {
 const placeSearchSchema = z.object({ city_id: uuidSchema.optional(), q: z.string().max(400) }).strict();
 /** 输入即提示：关键字 + 浏览器生成的会话令牌（一次「输入 → 选中」同一个，见 domain 的 `isPlaceSessionToken`）。 */
 const sessionSchema = z.string().refine(isPlaceSessionToken, "会话令牌是 16–36 个字母、数字、下划线或连字符（推荐用 UUID）");
-const placeAutocompleteSchema = z.object({ q: z.string().max(400), session: sessionSchema }).strict();
+export const placeAutocompleteSchema = z.object({ q: z.string().max(400), session: sessionSchema }).strict();
 /** 输入即提示选中之后：谷歌的地点 ID + 同一个会话令牌（不给也行，按单次计费）。 */
-const placeDetailsSchema = z.object({ id: z.string().refine(isGooglePlaceId, "不是谷歌地点 ID 的格式"), session: sessionSchema.optional() }).strict();
+export const placeDetailsSchema = z.object({ id: z.string().refine(isGooglePlaceId, "不是谷歌地点 ID 的格式"), session: sessionSchema.optional() }).strict();
 
 /** 按两个坐标报价的一端：名称（客人看到的地址文字，只校验、不进日志）、坐标、地址搜索给的类型（手填的不给）。 */
 const tripEndSchema = z
@@ -196,6 +201,8 @@ const byPointsSchema = z
     addons: addonsSchema,
     pickup_name: demandNameSchema,
     dropoff_name: demandNameSchema,
+    // 从嵌入组件的预订草稿来（M9E-02，ADR 0090）：只用于记来源，不影响报价；过期、不存在的照常报价、不记
+    draft_id: z.string().max(64).optional(),
   })
   .strict();
 
@@ -228,14 +235,14 @@ function routeMapUnavailable(reason: RouteMapReason): AppError {
 const fxReferenceSchema = z.object({ to: z.enum(FX_CURRENCIES as [string, ...string[]]) }).strict();
 
 /** 关键字规范化后核对长短（搜索、输入即提示同一个规则）。 */
-function placeQueryOf(raw: string): string {
+export function placeQueryOf(raw: string): string {
   const query = normalizePlaceQuery(raw);
   const issue = placeQueryIssue(query);
   if (issue !== null) throw validationFailed("querystring", [{ path: "/q", reason: issue, message: issue === "TOO_SHORT" ? "请至少输入 2 个字（字母、数字、汉字或假名），如酒店名、地址" : "关键字太长了，最多 100 个字" }]);
   return query;
 }
 
-function placeItemJson(item: SitePlaceItem): Json {
+export function placeItemJson(item: SitePlaceItem): Json {
   return { source: item.source, id: item.id, name: item.name, address: item.address, location: item.location === null ? null : { lat: item.location.lat, lng: item.location.lng }, kind: item.kind };
 }
 /** 地图上一个位置：城市 + 坐标。 */
@@ -343,7 +350,10 @@ function siteOrderVehicleGroupJson(group: OrderVehicleGroupRef | null): Json | n
  */
 async function siteOrderJson(ctx: AppContext, view: SalesOrderView): Promise<Json> {
   const extras = await siteOrderExtras(ctx, view);
+  const source = await orderEntrySource(ctx, view.order.id);
   return {
+    // 从嵌入组件来、下单时核对过白名单的「返回原网站」地址（M9E-02，ADR 0090）；没有为 null
+    return_url: source.kind === "embed" ? source.returnUrl : null,
     order: guestOrderJson(view, ctx.now()),
     timeline: extras.events.map((event) => ({ from_status: event.fromStatus, to_status: event.toStatus, reason: event.reason, occurred_at: event.occurredAt.toISOString() })),
     names: { city: extras.names.city, place: extras.names.place, vehicle_group: siteOrderVehicleGroupJson(extras.names.vehicleGroup) },
@@ -415,6 +425,14 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
     if (view === null) throw notFound("订单");
     return siteOrderJson(ctx, view);
   };
+
+  // 预订草稿（M9E-01，ADR 0090）：只给预订条件和到期时刻；过期、不存在、格式不对同一个 404
+  app.get("/site/v1/booking-drafts/:id", async (request) => {
+    await takeSiteSlot(ctx, "site_booking_draft", { ip: request.ip });
+    const { id } = request.params as { id: string };
+    const found = await readBookingDraftForSite(ctx, id);
+    return { draft: found.draft, expires_at: found.expiresAt.toISOString() };
+  });
 
   app.get("/site/v1/config", async (request) => {
     await takeSiteSlot(ctx, "site_read", { ip: request.ip });
@@ -559,7 +577,10 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
       demand: { ip: request.ip, pickupName: input.pickup_name ?? null, dropoffName: input.dropoff_name ?? null, log: request.log },
       ...(seen === "acceptance" ? { audience: seen } : {}),
     };
-    return quoteResultJson(await siteQuotes(ctx, quoteInput));
+    const result = await siteQuotes(ctx, quoteInput);
+    // 来源只做统计（ADR 0090）：记不下来只写日志，不影响报价
+    await recordQuoteEmbedSources(ctx, input.draft_id, result.quotes.map((quote) => quote.quoteId)).catch((err: unknown) => request.log.warn({ event: "embed.quote_source_failed", code: (err as { code?: string }).code ?? null }, "报价来源没记下来"));
+    return quoteResultJson(result);
   });
 
   app.post("/site/v1/quotes/by-points", async (request) => {
@@ -577,6 +598,8 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
       demand: { ip: request.ip, pickupName: input.pickup_name ?? null, dropoffName: input.dropoff_name ?? null, log: request.log },
       ...(seen === "acceptance" ? { audience: seen } : {}),
     });
+    // 来源只做统计（ADR 0090）：记不下来只写日志，不影响报价
+    await recordQuoteEmbedSources(ctx, input.draft_id, result.quotes.map((quote) => quote.quoteId)).catch((err: unknown) => request.log.warn({ event: "embed.quote_source_failed", code: (err as { code?: string }).code ?? null }, "报价来源没记下来"));
     return {
       trip_type: result.tripType,
       airport: result.airport === null ? null : { id: result.airport.id, code: result.airport.code, name: result.airport.name, matched_by: result.airport.matchedBy, distance_meters: result.airport.meters, flight_scope: result.airport.flightScope },
@@ -615,6 +638,8 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
       seen,
     );
     if (created.replayed) reply.header("idempotent-replayed", "true");
+    // 来源只做统计（M9E-02，ADR 0090）：记不下来不影响下单
+    await recordOrderEmbedSource(ctx, created.view.order.id, input.quote_id).catch((err: unknown) => request.log.warn({ event: "embed.order_source_failed", code: (err as { code?: string }).code ?? null }, "订单来源没记下来"));
     return reply.code(201).send({ ...(await siteOrderJson(ctx, created.view)), payment: created.payment === null ? null : paymentJson(created.payment), link: linkJson(created.link) });
   });
 

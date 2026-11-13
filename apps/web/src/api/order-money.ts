@@ -4,6 +4,7 @@
  * 供应商的接口里没有客人付的金额（对外价、退款、加收的客人金额，规则 4）；运营后台的有。
  */
 import type { OrderAreaSurchargeView, OrderDistanceView, OrderItineraryMoneyView, OrderMileageView, OrderPricingRoute } from "../lib/order-area-price-display.ts";
+import type { OrderEntrySource } from "./embed.ts";
 import type { ExceptionStatus, ExceptionType, ExtraChargeStatus, ExtraChargeType, FulfilmentEventType, OrderCancelReason, OrderChangeStatus, OrderStatus, PaymentStatus, PricingBasis, RefundStatus, ServiceCategory, TicketPriority, TicketStatus, TicketType, VehicleLevel, ViewLinkVerification } from "@nozomi/domain";
 import { query, TENANT_BASE } from "./areas.ts";
 import { apiRequest, apiUpload } from "./client.ts";
@@ -326,6 +327,8 @@ export interface PlatformOrderDetail {
   pricing_basis?: PricingBasis;
   /** 计程部分（结算价，订单上锁定的）；一口价为 null。接口还没给时没有这一项 */
   mileage?: OrderMileageView | null;
+  /** 从哪里来（M9E-02，ADR 0090）：主站或嵌入组件，只做统计。旧的测试数据里可能没有这一项 */
+  entry_source?: OrderEntrySource;
 }
 
 /** 运营代改乘客邮箱的复核（ADR 0065）：只有打码后的地址。 */

@@ -48,6 +48,14 @@ export const SALES_RATE_LIMITS = {
   site_qa_unlock: QA_ACCEPTANCE_RULES.unlockPerIp,
   /** 同上，全站每小时 30 次：换地址也猜不动口令 */
   site_qa_unlock_all: QA_ACCEPTANCE_RULES.unlockGlobal,
+  /** 官网读预订草稿（M9E-01，ADR 0090）：每个地址每分钟 60 次，编号不可猜之外再挡一层枚举 */
+  site_booking_draft: { max: 60, windowMs: 60_000 },
+  /** 嵌入组件建预订草稿（M9E-02，ADR 0090）：每个地址 10 分钟 30 次（IPv6 按 /64） */
+  embed_draft_ip: { max: 30, windowMs: 600_000 },
+  /** 同上，每个嵌入码每分钟 60 次 */
+  embed_draft_key: { max: 60, windowMs: 60_000 },
+  /** 嵌入组件的地址提示：每个嵌入码每分钟 600 次（每个地址另按官网的输入即提示额度算） */
+  embed_places_key: { max: 600, windowMs: 60_000 },
   /** 官网的其余接口（配置、城市、机场、订单页）：每个地址每分钟 120 次 */
   site_read: { max: 120, windowMs: 60_000 },
   /** 运营重发订单链接（ADR 0061）：同一张单每小时 5 次 */

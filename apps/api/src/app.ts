@@ -74,6 +74,8 @@ import { registerPlatformSecurityRoutes } from "./routes/platform-security.ts";
 import { registerManualQuoteRoutes } from "./routes/manual-quotes.ts";
 import { registerReportRoutes } from "./routes/reports.ts";
 import { ManualQuoteRetentionJobs } from "./services/manual-quotes.ts";
+import { BookingDraftRetentionJobs } from "./services/booking-drafts.ts";
+import { registerEmbedRoutes } from "./routes/embed.ts";
 
 export interface AppDeps {
   config: AppConfig;
@@ -137,6 +139,7 @@ declare module "fastify" {
     passengerEncryption: PassengerEncryptionJobs;
     /** 人工报价申请的到期清除（M8-21，ADR 0076；服务进程用 `jobs` 启动它；测试直接调 `tick`） */
     manualQuoteRetention: ManualQuoteRetentionJobs;
+    bookingDraftRetention: BookingDraftRetentionJobs;
     /** 推送给供应商的 Webhook 的投递任务（服务进程用 `jobs` 启动它；测试直接调 `tick`） */
     webhookJobs: WebhookJobs;
     /** 供应商账单：每月出上个月的账、确认期满视为确认（服务进程用 `jobs` 启动它；测试直接调 `tick`） */
@@ -347,6 +350,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   app.decorate("passengerEncryption", passengerEncryption);
   const manualQuoteRetention = new ManualQuoteRetentionJobs(context, app.log);
   app.decorate("manualQuoteRetention", manualQuoteRetention);
+  const bookingDraftRetention = new BookingDraftRetentionJobs(context, app.log);
+  app.decorate("bookingDraftRetention", bookingDraftRetention);
   const billingJobs = new BillingJobs(context, app.log);
   app.decorate("billingJobs", billingJobs);
   // 发验证码在应答之后的后台做（ADR 0050）：关闭前等它们结束，别在连接池关掉之后还去写库
@@ -365,6 +370,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     passengerEncryption.start();
     uncoveredDemandJobs.start();
     manualQuoteRetention.start();
+    bookingDraftRetention.start();
     app.addHook("onClose", () => fx.stop());
     app.addHook("onClose", () => orderJobs.stop());
     app.addHook("onClose", () => webhookJobs.stop());
@@ -375,6 +381,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     app.addHook("onClose", () => passengerEncryption.stop());
     app.addHook("onClose", () => uncoveredDemandJobs.stop());
     app.addHook("onClose", () => manualQuoteRetention.stop());
+    app.addHook("onClose", () => bookingDraftRetention.stop());
   }
   registerPlatformRoutes(app, context);
   registerPlatformSecurityRoutes(app, context);
@@ -410,6 +417,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerTenantOnboardingRoutes(app, context);
   registerTenantProfileRoutes(app, context);
   registerSiteRoutes(app, context);
+  registerEmbedRoutes(app, context);
   registerViewLinkRoutes(app, context);
   registerManualQuoteRoutes(app, context);
 
