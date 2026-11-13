@@ -20,6 +20,7 @@ import { PRODUCT_FORBIDDEN_TEXT, saveFailureText } from "../../lib/product-failu
 import { localToday } from "../../lib/time-input.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import type { ProductFrame } from "./frame.ts";
+import { StepTitle, useStepTitleFocus } from "./step-title.tsx";
 import { useProductActions } from "./useProductActions.tsx";
 
 const STATE_LOOK: Readonly<Record<CheckItemState, { icon: IconName; tone: string }>> = {
@@ -41,6 +42,8 @@ export function PublishStep({ frame, product, onReload, checkStatus }: { frame: 
   const toast = useToast();
   const navigate = useNavigate();
   const heading = useRef<HTMLHeadingElement>(null);
+  const marksFocus = !onPlatform;
+  const focusTitle = useStepTitleFocus(marksFocus);
   const rejection = useRef<HTMLDivElement>(null);
   const [confirming, setConfirming] = useState(false);
   const [working, setWorking] = useState(false);
@@ -54,10 +57,11 @@ export function PublishStep({ frame, product, onReload, checkStatus }: { frame: 
     onStale: frame.refresh,
   });
 
-  // 进入这一页就重新检查一次，不用别处缓存的
+  // 进入这一页就重新检查一次，不用别处缓存的。焦点晚一帧放到标题上：换页时外壳会把焦点交给正文（<main>），它的副作用在这之后才跑
   useEffect(() => {
     onReload();
-    heading.current?.focus();
+    const frameId = requestAnimationFrame(() => focusTitle(heading.current));
+    return () => cancelAnimationFrame(frameId);
   }, []);
   useEffect(() => {
     if (rejected) rejection.current?.focus();
@@ -92,9 +96,9 @@ export function PublishStep({ frame, product, onReload, checkStatus }: { frame: 
 
   const title = (
     <div className="step__title-row">
-      <h2 className="step__title" ref={heading} tabIndex={-1}>
+      <StepTitle ref={heading} enabled={marksFocus}>
         上架检查
-      </h2>
+      </StepTitle>
       <Button variant="text" size="sm" disabled={checkStatus === "loading"} onClick={recheck}>
         <Icon name="refresh" />
         重新检查

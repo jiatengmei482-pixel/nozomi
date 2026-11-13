@@ -17,6 +17,7 @@ import { PRODUCT_FORBIDDEN_TEXT, type ServerIssue, saveFailureText, serverIssues
 import { PRODUCT_LIST_PATH, type ProductStepSlug, productPath } from "../../lib/product-paths.ts";
 import { useLeaveGuard } from "../../lib/use-leave-guard.ts";
 import { type ProductFrame, type StepProblem, focusAnchor } from "./frame.ts";
+import { type InputSource, StepTitle, inputSourceOf, markStepChange, useStepTitleFocus } from "./step-title.tsx";
 
 const LOCKED_FIELD_NAMES: Readonly<Record<string, string>> = { brand_id: "子品牌", city_id: "城市", category: "品类", poi_id: "接送点" };
 
@@ -101,14 +102,20 @@ export function StepShell({
   const heading = useRef<HTMLHeadingElement>(null);
   const created = frame.product === null;
   const status = frame.product?.status ?? "draft";
+  const marksFocus = frame.source.portal === "tenant";
+  const focusTitle = useStepTitleFocus(marksFocus);
 
   useLeaveGuard(controller.dirty && saving === null && !frame.readOnly, setLeaving);
 
-  // 进入这一步：带着锚点来的（上架检查的「去填」）把焦点带到那个字段，否则到标题
+  // 进入这一步：带着锚点来的（上架检查的「去填」）把焦点带到那个字段，否则到标题。
+  // 晚一帧：换页时外壳会把焦点交给正文（<main>），它的副作用在这一步之后才跑（第 ① 步不用等加载，和外壳在同一次提交里）
   const anchor = location.hash.slice(1);
   useEffect(() => {
-    if (anchor !== "" && focusAnchor(anchor)) setHint(anchor);
-    else heading.current?.focus();
+    const frameId = requestAnimationFrame(() => {
+      if (anchor !== "" && focusAnchor(anchor)) setHint(anchor);
+      else focusTitle(heading.current);
+    });
+    return () => cancelAnimationFrame(frameId);
   }, [slug, anchor]);
 
   const showProblems = (found: StepProblem[]): void => {
@@ -161,8 +168,11 @@ export function StepShell({
     }
   };
 
-  /** 保存这一步。`then`："stay" 留在这一步；"next" 去下一步；其他是要去的地址（离开确认里的「保存并继续」）。 */
-  const save = async (then: "stay" | "next" | string): Promise<void> => {
+  /**
+   * 保存这一步。`then`："stay" 留在这一步；"next" 去下一步；其他是要去的地址（离开确认里的「保存并继续」）。
+   * `input`：点保存的那一下是鼠标还是键盘，换步后标题的聚焦框按它画（等保存期间不变）。
+   */
+  const save = async (then: "stay" | "next" | string, input: InputSource): Promise<void> => {
     if (saving !== null || conflict || locked !== null || (controller.blocked ?? null) !== null) return;
     setAttempted(true);
     setNotice(null);
@@ -170,9 +180,13 @@ export function StepShell({
     if (found.length > 0) return showProblems(found);
     setProblems([]);
     const destination = (id: string): string | null => (then === "next" ? productPath(id, next.slug) : then === "stay" ? (created ? productPath(id, "basic") : null) : then);
+    const go = (to: string, options: { replace?: boolean; state?: unknown } = {}): void => {
+      markStepChange(input, to);
+      void navigate(to, options);
+    };
     if (!controller.dirty && controller.pending !== true && frame.product !== null) {
       const to = destination(frame.product.id);
-      if (to !== null) void navigate(to);
+      if (to !== null) go(to);
       return;
     }
     setSaving(then === "stay" ? "stay" : then === "next" ? "next" : "leave");
@@ -182,7 +196,7 @@ export function StepShell({
       toast(created ? "已创建商品，现在是草稿" : successText);
       setAttempted(false);
       const to = destination(id);
-      if (to !== null) void navigate(to, created ? { replace: true, state: { created: true } } : {});
+      if (to !== null) go(to, created ? { replace: true, state: { created: true } } : {});
     } catch (err) {
       rejected(err);
     } finally {
@@ -204,9 +218,9 @@ export function StepShell({
   return (
     <div className="step">
       {!hideTitle && (
-        <h2 className="step__title" ref={heading} tabIndex={-1}>
+        <StepTitle ref={heading} enabled={marksFocus}>
           {title}
-        </h2>
+        </StepTitle>
       )}
       <div role="alert" className="step__alerts">
         {problems.length > 0 && (
@@ -228,14 +242,14 @@ export function StepShell({
             <span className="alert__actions">
               <Button
                 size="sm"
-                onClick={() => {
+                onClick={(event) => {
                   frame.refresh();
                   controller.reload();
                   setConflict(false);
                   setProblems([]);
                   setAttempted(false);
                   setNotice({ kind: "info", text: controller.keepsEditsOnReload ? "已载入最新内容，你的修改还在，检查后再点保存。" : "已载入最新内容。" });
-                  heading.current?.focus();
+                  focusTitle(heading.current, inputSourceOf(event));
                 }}
               >
                 {controller.keepsEditsOnReload ? "载入最新内容，保留我的修改" : "载入最新内容"}
@@ -302,10 +316,10 @@ export function StepShell({
           <Button variant="text" disabled={busy} onClick={cancel}>
             取消
           </Button>
-          <Button variant="secondary" disabled={disabled || (busy && saving !== "stay")} loading={saving === "stay"} loadingText="保存中…" onClick={() => void save("stay")}>
+          <Button variant="secondary" disabled={disabled || (busy && saving !== "stay")} loading={saving === "stay"} loadingText="保存中…" onClick={(event) => void save("stay", inputSourceOf(event))}>
             {saveLabel}
           </Button>
-          <Button variant="primary" disabled={disabled || (busy && saving !== "next")} loading={saving === "next"} loadingText="保存中…" onClick={() => void save("next")}>
+          <Button variant="primary" disabled={disabled || (busy && saving !== "next")} loading={saving === "next"} loadingText="保存中…" onClick={(event) => void save("next", inputSourceOf(event))}>
             {next.label}
           </Button>
         </div>
@@ -324,10 +338,12 @@ export function StepShell({
               variant="secondary"
               className="button--danger-text"
               disabled={busy}
-              onClick={() => {
+              onClick={(event) => {
                 const to = leaving;
                 setLeaving(null);
-                if (to !== null) void navigate(to, to === frame.listPath ? { state: frame.listState } : {});
+                if (to === null) return;
+                markStepChange(inputSourceOf(event), to);
+                void navigate(to, to === frame.listPath ? { state: frame.listState } : {});
               }}
             >
               不保存
@@ -337,10 +353,10 @@ export function StepShell({
               loading={saving === "leave"}
               loadingText="保存中…"
               disabled={disabled}
-              onClick={() => {
+              onClick={(event) => {
                 const to = leaving;
                 setLeaving(null);
-                if (to !== null) void save(to);
+                if (to !== null) void save(to, inputSourceOf(event));
               }}
             >
               保存并继续

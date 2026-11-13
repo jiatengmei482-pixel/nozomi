@@ -50,6 +50,7 @@ import { useLoad } from "../../../lib/use-load.ts";
 import { isNarrowScreen as isNarrow } from "../../../lib/use-scroll-to-today.ts";
 import { focusAnchor } from "../frame.ts";
 import type { ProductFrame } from "../frame.ts";
+import { StepTitle, useStepTitleFocus } from "../step-title.tsx";
 import { useDownload } from "./useDownload.tsx";
 
 /** 只用来给第一次请求定月份（网址里没有月份时）；页面上的「今天」一律用接口给的。 */
@@ -68,6 +69,8 @@ export function InventoryStep({ frame, product }: { frame: ProductFrame; product
   const published = product.status === "published";
   const cityName = product.city ? displayName(product.city.name).text : "";
   const heading = useRef<HTMLHeadingElement>(null);
+  const marksFocus = frame.source.portal === "tenant";
+  const focusTitle = useStepTitleFocus(marksFocus);
   const [tick, setTick] = useState(0);
   const wanted = params.get("month");
   const [fallbackMonth, setFallbackMonth] = useState(requestMonth);
@@ -89,7 +92,7 @@ export function InventoryStep({ frame, product }: { frame: ProductFrame; product
 
   // 换页时外壳会把焦点交给正文（<main>）；这里晚一帧再把焦点放到这一步的标题上，读屏读到的是标题。不滚动：手机上日历可能已经滚到今天
   useEffect(() => {
-    const frameId = requestAnimationFrame(() => heading.current?.focus({ preventScroll: true }));
+    const frameId = requestAnimationFrame(() => focusTitle(heading.current, undefined, { preventScroll: true }));
     return () => cancelAnimationFrame(frameId);
   }, []);
   // 月份：没写在网址里时看本月（城市当地的）；超出能看的范围换成本月
@@ -164,9 +167,9 @@ export function InventoryStep({ frame, product }: { frame: ProductFrame; product
     <p className="price-info">{`库存按${cityName}当地的用车日期算。一天一个数，不分时段，也不分车型组。`}</p>
   );
   const title = (
-    <h2 className="step__title" ref={heading} tabIndex={-1}>
+    <StepTitle ref={heading} enabled={marksFocus}>
       ④ 库存
-    </h2>
+    </StepTitle>
   );
   const bar = (
     <div className="form-bar step__bar">

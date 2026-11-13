@@ -4,16 +4,21 @@
  */
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
+import type { ReactNode } from "react";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useNavigate } from "react-router";
 import { App } from "../../App.tsx";
 import type { AreaSummary } from "../../api/areas.ts";
 import type { Addon, City, Place, VehicleGroup } from "../../api/master.ts";
 import type { Brand, Product, ProductServiceRules, ProductSummary, PublishCheckItemBody, PublishCheckResult, ServiceRulesBody } from "../../api/products.ts";
 import { type ApiCall, apiError, assertAbsent, assertFocused, json, resetBrowser, signIn, stubApiWith } from "../../testing/harness.tsx";
+import { resetStepChange } from "./step-title.tsx";
 
-afterEach(resetBrowser);
+afterEach(() => {
+  resetBrowser();
+  resetStepChange();
+});
 
 const stamps = { created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-02T03:04:00.000Z" };
 const CITY_ID = "11111111-1111-4111-8111-111111111111";
@@ -57,7 +62,7 @@ const page = <T,>(items: T[], total = items.length) => json(200, { items, next_c
 type Route = (call: ApiCall & { url: URL }) => Response | Promise<Response> | null;
 
 /** 登录成指定角色并渲染；`routes` 没接住的接口里，账号、首页数量、主数据清单、子品牌、区域清单有默认应答。 */
-function open(path: string, role: string, routes: Route = () => null): ApiCall[] {
+function open(path: string, role: string, routes: Route = () => null, extra: ReactNode = null): ApiCall[] {
   signIn("tenant", "tenant-token");
   const calls = stubApiWith((call) => {
     const custom = routes(call);
@@ -78,6 +83,7 @@ function open(path: string, role: string, routes: Route = () => null): ApiCall[]
   render(
     <MemoryRouter initialEntries={[path]}>
       <App />
+      {extra}
     </MemoryRouter>,
   );
   return calls;
@@ -871,4 +877,96 @@ test("M8-20 上架检查「运营区域」：报价区域超出运营区域只�
   assert.match(row.textContent ?? "", /报价区域「东京 23 区」有约 2\.5 平方公里不在任何运营区域里，那部分不会报价/);
   assert.equal(within(row).getByRole("link", { name: /^去看区域/ }).getAttribute("href"), `/areas/${AREA_ID}`);
   assert.ok(screen.getByRole("button", { name: "上架" }));
+});
+
+// ───────────── M6-10 换步后标题的聚焦框 ─────────────
+
+/** 浏览器的「后退」：测试里用路由的 navigate(-1)（POP），不经过页面里的链接和按钮 */
+function BrowserBack() {
+  const navigate = useNavigate();
+  return (
+    <span hidden>
+      <button type="button" data-testid="browser-back" onClick={() => void navigate(-1)} />
+    </span>
+  );
+}
+
+const titleNamed = (name: string): HTMLElement => screen.getByRole("heading", { level: 2, name });
+const focusSource = (element: HTMLElement): string | null => element.getAttribute("data-focus-source");
+/** 等到焦点落在这个步骤标题上（有的步骤先显示加载中的标题，取到内容后换成能聚焦的那个） */
+async function focusedTitle(name: string): Promise<HTMLElement> {
+  await waitFor(() => assertFocused(titleNamed(name)), { timeout: 3000 });
+  return titleNamed(name);
+}
+const stepLink = (name: RegExp): HTMLElement => within(screen.getByRole("navigation", { name: "配置步骤" })).getByRole("link", { name });
+
+test("M6-10 换步后标题的聚焦框：鼠标点步骤导航是 pointer；键盘 Enter 是 keyboard；直接打开网址、浏览器后退是 unknown；焦点都在标题上", async () => {
+  const actor = user();
+  open(`/products/${PRODUCT_ID}/service-rules`, "admin", productRoutes({}), <BrowserBack />);
+  const rules = await focusedTitle("② 服务规则");
+  assert.equal(focusSource(rules), "unknown", "直接打开带步骤的网址：拿不准，画框");
+  assert.equal(rules.getAttribute("tabindex"), "-1");
+
+  await actor.click(stepLink(/商品详情/));
+  assert.equal(focusSource(await focusedTitle("⑤ 商品详情")), "pointer", "鼠标点步骤导航：不画框，焦点照样在标题上");
+
+  stepLink(/基础信息/).focus();
+  await actor.keyboard("{Enter}");
+  assert.equal(focusSource(await focusedTitle("① 基础信息")), "keyboard", "键盘 Enter 换步：画框");
+
+  await actor.click(stepLink(/上架检查/));
+  assert.equal(focusSource(await focusedTitle("上架检查")), "pointer", "进入上架检查同样适用");
+
+  // 后退回到 ①：记下的「鼠标」属于去上架检查的那一次，不能从历史里带回来
+  await actor.click(screen.getByTestId("browser-back"));
+  assert.equal(focusSource(await focusedTitle("① 基础信息")), "unknown", "浏览器后退：画框");
+});
+
+test("M6-10「保存并下一步」：按鼠标点还是键盘按定（等保存期间不变）；标题上按非修饰键框出现，只按 Shift 不算；失去焦点去掉标记；直接点标题文字是 pointer", async () => {
+  const actor = user();
+  let release: () => void = () => undefined;
+  const saved = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  open(`/products/${PRODUCT_ID}/basic`, "admin", productRoutes({}, (call) => (call.method === "PATCH" ? saved.then(() => json(200, productOf({ version: 8, dispatchers: [{ name: "山田二", phone: "+81 90 1234 5678" }] }))) : call.method === "PUT" ? json(200, rulesOf(call.body as ServiceRulesBody, 9)) : null)));
+  await actor.type(await screen.findByLabelText("第 1 个调度人的姓名"), "二");
+  await actor.click(screen.getByRole("button", { name: "保存并下一步" }));
+  // 保存还没回来时在键盘上按了别的键：不影响这次换步按「鼠标」算
+  await actor.keyboard("{Tab}");
+  release();
+  const rules = await focusedTitle("② 服务规则");
+  assert.equal(focusSource(rules), "pointer");
+
+  await actor.keyboard("{Shift}");
+  assert.equal(focusSource(rules), "pointer", "只按修饰键不算键盘操作");
+  await actor.keyboard("{ArrowDown}");
+  assert.equal(focusSource(rules), "keyboard", "鼠标换步后在标题上按方向键：框出现");
+  rules.blur();
+  assert.equal(focusSource(rules), null, "失去焦点时去掉标记");
+
+  await actor.click(rules);
+  assertFocused(rules);
+  assert.equal(focusSource(rules), "pointer", "鼠标直接点标题文字：不画");
+
+  screen.getByRole("button", { name: "保存并下一步" }).focus();
+  await actor.keyboard("{Enter}");
+  assert.equal(focusSource(await focusedTitle("③ 价格规则")), "keyboard", "键盘按「保存并下一步」：画框");
+});
+
+test("M6-10「载入最新内容」后焦点回到标题：按点这个按钮的方式算", async () => {
+  const actor = user();
+  open(`/products/${PRODUCT_ID}/basic`, "admin", productRoutes({}, (call) => (call.method === "PATCH" ? apiError(409, "VERSION_CONFLICT", "stale") : null)));
+  for (const way of ["pointer", "keyboard"] as const) {
+    await actor.type(await screen.findByLabelText("第 1 个调度人的姓名"), "二");
+    await actor.click(screen.getByRole("button", { name: "保存草稿" }));
+    const reload = await screen.findByRole("button", { name: "载入最新内容" });
+    if (way === "pointer") await actor.click(reload);
+    else {
+      reload.focus();
+      await actor.keyboard(" ");
+    }
+    await screen.findByText("已载入最新内容。");
+    assertFocused(titleNamed("① 基础信息"));
+    assert.equal(focusSource(titleNamed("① 基础信息")), way);
+  }
 });

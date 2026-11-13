@@ -25,6 +25,7 @@ import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { useTenantCan } from "../../lib/use-master-access.ts";
 import { type ReturnState, readListPage } from "../master/shared.tsx";
+import { useLinkStepSources } from "./step-title.tsx";
 import { ProductMoreItems, useProductActions } from "./useProductActions.tsx";
 
 const DEFAULT_PAGE_SIZE = 50;
@@ -80,6 +81,8 @@ export function ProductListPage() {
   useDocumentTitle(`商品 · NOZOMI ${portal.name}`);
   const canRead = useTenantCan("product.read");
   const canManage = useTenantCan("product.manage");
+  // 点商品名、「编辑」、上架进度进到编辑页：标题的聚焦框按这一下是鼠标还是键盘（M6-10）
+  useLinkStepSources();
   const canManageAreas = useTenantCan("area.manage");
   const canReadAreas = useTenantCan("area.read");
   const location = useLocation();

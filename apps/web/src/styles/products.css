@@ -144,6 +144,17 @@
   line-height: var(--line-height-tight);
 }
 
+/* 换步后脚本聚焦的标题：鼠标 / 触屏触发的不画框，键盘或拿不准的强制画（01-tokens 第 5 节「程序聚焦的例外」，M6-10）。没有标记时沿用全站 :focus-visible */
+.step__title[tabindex="-1"][data-focus-source="pointer"]:focus {
+  outline: none;
+}
+
+.step__title[tabindex="-1"][data-focus-source="keyboard"]:focus,
+.step__title[tabindex="-1"][data-focus-source="unknown"]:focus {
+  outline: var(--focus-ring-width) solid var(--color-border-focus);
+  outline-offset: var(--focus-ring-offset);
+}
+
 .step__title-row {
   display: flex;
   flex-wrap: wrap;

@@ -96,8 +96,67 @@ test("不用 100vw / 100vh，不去掉聚焦环，不在 html / body 上藏横�
     assert.doesNotMatch(css, /\b100vw\b|\b100vh\b/, `${name} 用了 100vw 或 100vh`);
     assert.doesNotMatch(css, /overflow-x\s*:\s*hidden/, `${name} 用了 overflow-x: hidden`);
     assert.doesNotMatch(css, /(^|\})\s*(html|body)[^{]*\{[^}]*overflow\s*:\s*hidden/, `${name} 在 html / body 上藏溢出`);
-    for (const rule of css.matchAll(/([^{}]+)\{([^{}]*outline\s*:\s*none[^{}]*)\}/g)) {
-      assert.match((rule[1] ?? "").trim(), /^main:focus$/, `${name}：${(rule[1] ?? "").trim()} 去掉了聚焦环`);
+    for (const hidden of hiddenFocusRings(css)) assert.fail(`${name}：${hidden.selector} 用 ${hidden.declaration} 藏了聚焦环`);
+  }
+});
+
+/**
+ * 藏聚焦环的写法（docs/design/01-tokens.md 第 5 节）：outline: none / 0 / … transparent、outline-style: none、outline-width: 0、outline-color: transparent。
+ * 只有两个选择器可以（整串相等）：换页后的正文区，和分步配置里鼠标 / 触屏换步后的步骤标题（M6-10）。
+ */
+const FOCUS_RING_EXCEPTIONS = new Set(["main:focus", '.step__title[tabindex="-1"][data-focus-source="pointer"]:focus']);
+const ZERO_LENGTH = /^[+-]?0*\.?0+[a-z%]*$/i;
+
+function hidesFocusRing(property: string, value: string): boolean {
+  const words = value.replace(/!important$/i, "").trim().toLowerCase().split(/\s+(?![^(]*\))/);
+  switch (property) {
+    case "outline":
+      return words.some((word) => word === "none" || word === "hidden" || word === "transparent" || ZERO_LENGTH.test(word));
+    case "outline-style":
+      return words.some((word) => word === "none" || word === "hidden");
+    case "outline-width":
+      return words.some((word) => ZERO_LENGTH.test(word));
+    case "outline-color":
+      return words.includes("transparent");
+    default:
+      return false;
+  }
+}
+
+function hiddenFocusRings(css: string): { selector: string; declaration: string }[] {
+  const found: { selector: string; declaration: string }[] = [];
+  for (const rule of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const selector = (rule[1] ?? "").trim().replace(/\s+/g, " ");
+    if (FOCUS_RING_EXCEPTIONS.has(selector)) continue;
+    for (const match of (rule[2] ?? "").matchAll(/([a-z-]+)\s*:\s*([^;]+)/gi)) {
+      const property = (match[1] ?? "").toLowerCase();
+      const value = (match[2] ?? "").trim();
+      if (hidesFocusRing(property, value)) found.push({ selector, declaration: `${property}: ${value}` });
     }
   }
+  return found;
+}
+
+test("藏聚焦环的检查：两个例外整串放行，别的选择器用任何写法藏环都拦下", () => {
+  assert.deepEqual(hiddenFocusRings("main:focus { outline: none; }"), []);
+  assert.deepEqual(hiddenFocusRings('.step__title[tabindex="-1"][data-focus-source="pointer"]:focus {\n  outline: none;\n}'), []);
+  for (const declaration of ["outline: none", "outline: 0", "outline: 0px", "outline-style: none", "outline-style: hidden", "outline-width: 0", "outline-width: 0px", "outline-color: transparent", "outline: 2px solid transparent", "outline: var(--focus-ring-width) solid transparent", "outline: none !important"]) {
+    assert.equal(hiddenFocusRings(`.button:focus-visible { color: inherit; ${declaration}; }`).length, 1, `${declaration} 应当被拦下`);
+  }
+  // 例外只认整串：前缀、多一个选择器、换成键盘 / 不知道的标记、去掉 tabindex 都不行
+  for (const selector of ["main:focus-visible", "main:focus, .button:focus", ".step__title:focus", '.step__title[data-focus-source="pointer"]:focus', '.step__title[tabindex="-1"][data-focus-source="keyboard"]:focus', '.step__title[tabindex="-1"][data-focus-source="pointer"]:focus, .link:focus', '.page .step__title[tabindex="-1"][data-focus-source="pointer"]:focus']) {
+    assert.equal(hiddenFocusRings(`${selector} { outline: none; }`).length, 1, `${selector} 不在例外里`);
+  }
+  // 媒体查询里面的规则一样检查；画环的写法不算藏
+  assert.equal(hiddenFocusRings("@media (min-width: 1024px) {\n  .x:focus { outline-width: 0; }\n}").length, 1);
+  assert.deepEqual(hiddenFocusRings(".x:focus-visible { outline: var(--focus-ring-width) solid var(--color-border-focus); outline-offset: var(--focus-ring-offset); outline-color: var(--color-on-brand); }"), []);
+});
+
+test("分步配置的步骤标题：鼠标的不画框，键盘和拿不准的强制画 2px 环（M6-10）", () => {
+  const css = sheets.find((sheet) => sheet.name === "products.css")?.css ?? "";
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((rule) => ({ selector: (rule[1] ?? "").trim().replace(/\s+/g, " "), body: (rule[2] ?? "").replace(/\s+/g, " ").trim() }));
+  assert.ok(rules.some((rule) => rule.selector === '.step__title[tabindex="-1"][data-focus-source="pointer"]:focus' && rule.body === "outline: none;"));
+  assert.ok(rules.some((rule) => rule.selector === '.step__title[tabindex="-1"][data-focus-source="keyboard"]:focus, .step__title[tabindex="-1"][data-focus-source="unknown"]:focus' && rule.body === "outline: var(--focus-ring-width) solid var(--color-border-focus); outline-offset: var(--focus-ring-offset);"));
+  const others = rules.filter((rule) => rule.selector.includes("data-focus-source"));
+  assert.equal(others.length, 2, "data-focus-source 只用在规范给的这两条规则里");
 });

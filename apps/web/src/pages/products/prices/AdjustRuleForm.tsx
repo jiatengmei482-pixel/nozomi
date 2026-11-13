@@ -44,6 +44,7 @@ import { tidyDate, tidyTime } from "../../../lib/time-input.ts";
 import { useLeaveGuard } from "../../../lib/use-leave-guard.ts";
 import { useLoad } from "../../../lib/use-load.ts";
 import { focusAnchor } from "../frame.ts";
+import { inputSourceOf, markStepChange } from "../step-title.tsx";
 import { TOO_LARGE_TEXT, nonPositiveCount, resultTooLarge } from "./AdjustRulesTab.tsx";
 import type { CalendarHandoff } from "./CalendarTab.tsx";
 import type { PricesShared } from "./PricesStep.tsx";
@@ -1037,11 +1038,13 @@ export function AdjustRuleForm({ shared, ruleId }: { shared: PricesShared; ruleI
             <Button
               variant="secondary"
               className="button--danger-text"
-              onClick={() => {
+              onClick={(event) => {
                 const to = leaving;
                 setLeaving(null);
                 setInitial(JSON.stringify(form));
-                if (to !== null) requestAnimationFrame(() => void navigate(to));
+                if (to === null) return;
+                markStepChange(inputSourceOf(event), to);
+                requestAnimationFrame(() => void navigate(to));
               }}
             >
               不保存，离开
