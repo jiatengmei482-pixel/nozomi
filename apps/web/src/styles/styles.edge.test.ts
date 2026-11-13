@@ -125,7 +125,7 @@ test("实测尺寸模块（M6-11）：只有一处 setProperty，变量名先核
   const module = sources.find((source) => source.name === MEASURED_LENGTH_MODULE);
   assert.ok(module, `找不到 ${MEASURED_LENGTH_MODULE}`);
   const text = stripComments(module.text);
-  assert.equal((text.match(/setProperty\(/g) ?? []).length, 1, "只有一处 setProperty");
+  assert.equal((text.match(/\bsetProperty\b/g) ?? []).length, 1, "只有一处 setProperty");
   assert.ok(text.includes(MEASURED_LENGTH_WRITE), "setProperty 的值只能经 measuredPixels");
   assert.match(text, /if \(!isMeasuredLengthName\(name\)\) throw /, "变量名不在名单里就报错，不写");
   assert.match(text, /return `\$\{Number\.isFinite\(length\) && length > 0 \? Math\.ceil\(length\) : 0\}px`;/, "值是向上取整的整数加 px");
