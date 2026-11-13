@@ -994,7 +994,8 @@ export async function siteOrderExtras(ctx: AppContext, view: SalesOrderView): Pr
   return withPlatformTx(
     ctx.pool,
     async (db) => {
-      const snapshot = order.settlement.itinerary === undefined ? null : ((await db.query<{ snapshot: QuoteSnapshot }>("select snapshot from quotes where id = $1", [sale.quoteId])).rows[0]?.snapshot ?? null);
+      // 给不给明细只看下单时的报价快照（orderSellBreakdown）：人工救援改派会整份换掉结算明细（没有 itinerary），客人付的钱和快照都没变，明细照给
+      const snapshot = order.category !== "charter" ? null : ((await db.query<{ snapshot: QuoteSnapshot }>("select snapshot from quotes where id = $1", [sale.quoteId])).rows[0]?.snapshot ?? null);
       const priceBreakdown = orderSellBreakdown(snapshot, sale);
       return {
         events: (await listOrderEvents(db, order.tenantId, order.id)).map((event) => ({ fromStatus: event.fromStatus, toStatus: event.toStatus, reason: event.reason, occurredAt: event.occurredAt })),

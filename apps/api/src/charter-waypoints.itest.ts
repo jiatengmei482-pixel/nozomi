@@ -360,6 +360,13 @@ test("按行程计价：逐段估路线、按总时长选套餐（能覆盖的�
   assertMatchesOperation("GET", "/platform/v1/orders/{id}", platformView.status, platformView.body);
   const lockedItinerary = platformView.body.order.settlement.itinerary;
   assert.deepEqual([lockedItinerary.over_meters, lockedItinerary.over_km_per_km.amount, lockedItinerary.over_km_fee.amount, lockedItinerary.overtime_minutes, lockedItinerary.overtime_per_hour.amount, lockedItinerary.overtime_fee.amount], [60_000, "300", "18000", 0, "5000", "0"]);
+  // 人工救援改派（manualSettlement）会把订单结算明细整份换成只有总价的（没有 itinerary），客人付的钱、报价快照不变：明细照旧给（审查 #192）。
+  // 这里直接把结算明细换成那个样子，只模拟这一个效果；救援流程本身见 rescues.itest.ts
+  await api.db.owner.query("update orders set settlement = settlement - 'itinerary' where id = $1", [placed.orderId]);
+  const rescued = await site.call("GET", "/site/v1/order", { token: placed.token, ip: nextIp() });
+  assert.equal(rescued.body.order.itinerary, null);
+  assert.deepEqual(rescued.body.price_breakdown, offer.price_breakdown);
+  await api.db.owner.query("update orders set settlement = jsonb_set(settlement, '{itinerary}', $2::jsonb) where id = $1", [placed.orderId, JSON.stringify((await api.db.owner.query<{ s: any }>("select snapshot->'winner'->'offer'->'settlement'->'itinerary' as s from quotes where id = $1", [offer.quote_id])).rows[0]?.s)]);
   // 改期重算过价、总价变了：明细和现在的总价对不上就不给（页面只显示总价）
   await api.db.owner.query("update order_sales set sell_minor = sell_minor + 100 where order_id = $1", [placed.orderId]);
   const repriced = await site.call("GET", "/site/v1/order", { token: placed.token, ip: nextIp() });
