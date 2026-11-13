@@ -6,6 +6,8 @@
  * - 运营后台：列表没有个人信息；打开详情才解密，每次留审计（`view_passenger`）；指派、改状态、写备注各留审计（内容不进审计）。
  * - 清除：结束 180 天、提交 365 天后清空密文、盲索引和备注（`ManualQuoteRetentionJobs`，每小时一轮，每批一条审计）。
  * - 不写进 M8-20 的「未覆盖需求」：以后那边加一列可空的申请编号指过来，个人信息只在这里。
+ * - 验收留资（M8-39，ADR 0078 补充）：带有效验收会话提交的记成 `is_acceptance`（由接口层按会话判断，库里建好后不能改）；
+ *   去重和真实客人的分开；运营后台列表和各状态的数量默认不算它，按筛选参数才列出来。
  */
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
@@ -30,6 +32,7 @@ import { AppError } from "../errors.ts";
 import { passengerEncryptionNotConfigured } from "../integrations/passenger-crypto.ts";
 import { type AuditOrigin, insertAuditLog } from "../repos/audit-logs.ts";
 import {
+  type ManualQuoteAcceptanceFilter,
   type ManualQuoteEventRow,
   type ManualQuoteFilter,
   type ManualQuoteRow,
@@ -69,6 +72,8 @@ export interface ManualQuoteSubmission {
   whatsapp: string | null;
   cityId: string | null;
   trip: ManualQuoteTrip;
+  /** 带有效验收会话提交的（接口层用 `siteAudienceOf` 判断；production 永远是 false） */
+  acceptance: boolean;
 }
 
 /** 密文里的内容：联系方式和两端地点。 */
@@ -112,7 +117,10 @@ export async function submitManualQuote(ctx: AppContext, input: ManualQuoteSubmi
   for (const bidx of [emailBidx, whatsappBidx]) if (bidx !== null) await takeSlot(ctx, bidx, "site_manual_quote_contact");
   await takeSlot(ctx, "all", "site_manual_quote_all");
   const now = ctx.now();
-  const dedupKey = crypto.manualQuoteFingerprint(JSON.stringify([emailBidx, whatsappBidx, tripKey(input.trip)]));
+  // 验收留资和真实客人的留资各自去重：真实客人的一条不会因为验收先提交过同一行程而被当成重复丢掉（反过来也一样）。真实客人的键和以前完全相同
+  const dedupParts: unknown[] = [emailBidx, whatsappBidx, tripKey(input.trip)];
+  if (input.acceptance) dedupParts.push("acceptance");
+  const dedupKey = crypto.manualQuoteFingerprint(JSON.stringify(dedupParts));
   await withPlatformTx(ctx.pool, async (db) => {
     if (input.cityId !== null && !(await cityExists(db, input.cityId))) throw validationFailed("body", [{ path: "/trip/city_id", reason: "NOT_FOUND", message: "没有这个城市" }]);
     // 同一个去重键并发提交两次：事务级的锁让第二次看得到第一次
@@ -138,6 +146,7 @@ export async function submitManualQuote(ctx: AppContext, input: ManualQuoteSubmi
         emailBidx,
         whatsappBidx,
         dedupKey,
+        isAcceptance: input.acceptance,
       },
       now,
     );
@@ -177,6 +186,8 @@ export interface ManualQuoteListQuery {
   /** `me`：指给自己的；`unassigned`：没人跟进的；或某位员工的编号 */
   assignee: string | null;
   contact: string | null;
+  /** 验收留资：默认 `exclude` */
+  acceptance: ManualQuoteAcceptanceFilter;
 }
 
 export async function listManualQuoteRequests(
@@ -192,9 +203,9 @@ export async function listManualQuoteRequests(
     contactBidx: query.contact === null ? null : contactSearchIndex(ctx, query.contact),
   };
   return withPlatformTx(ctx.pool, async (db) => {
-    const rows = await listManualQuotes(db, filter, principal.grant.scope, limit, cursor);
+    const rows = await listManualQuotes(db, filter, query.acceptance, principal.grant.scope, limit, cursor);
     const page = toPage(rows, limit, (row) => row, (row) => ({ t: row.createdAtText, id: row.id }));
-    return { ...page, counts: await countManualQuotesByStatus(db, principal.grant.scope) };
+    return { ...page, counts: await countManualQuotesByStatus(db, query.acceptance, principal.grant.scope) };
   }, { snapshot: true });
 }
 

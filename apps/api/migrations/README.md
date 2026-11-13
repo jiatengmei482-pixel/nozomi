@@ -98,3 +98,4 @@
 | `0330_distance_prices.sql` | 计程价（M8-30，ADR 0080）：租户表 `distance_prices`（商品 × 车型组的起步价、每公里单价，结算价整数；生效日期、启停；外键到同一租户的商品，删商品跟着删），行级安全只放行当前租户，平台角色只读（比价用）。不含任何数据 |
 | `0340_shared_area_library.sql` | 区域共享库（M8-31，ADR 0083）：`areas` 加图形版本 `shape_version`（默认 1）、引用来源 `shared_source_area_id` / `shared_source_shape_version`（成对为空）和共享库查询用的部分索引。共享库就是各供应商启用中的原创区域（不含测试供应商），平台事务读；不含任何数据 |
 | `0350_shared_area_duplicates.sql` | 区域共享库去重（M8-31b，ADR 0083 补充）：平台表 `shared_area_duplicates`（被隐藏的区域、保留的区域、谁何时为什么标记、撤销记录；同一区域同时最多一条生效中的），只给平台角色读、增、改。不改 `areas` 的任何行，不含任何数据 |
+| `0360_manual_quote_acceptance.sql` | 验收留资（M8-39，ADR 0078 补充）：`manual_quote_requests` 加 `is_acceptance`（默认 false，只由服务端在验收会话里提交时设），触发器保证建好之后谁都不能改。只加结构，不回填已有的行，不含任何数据 |

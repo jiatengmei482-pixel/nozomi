@@ -16207,6 +16207,9 @@ paths:
         联系方式和两端地点加密保存（ADR 0057 的方案），结束（已转订单、关闭）180 天后、最晚提交 365 天后清除。不发任何邮件。
         **应答一律 202**：同一个联系方式、同一个行程 24 小时内重复提交只记一次；陷阱字段 `website` 有内容时什么都不记，应答一样。
         限速（被前面拦下的不占后面的）：每个地址 15 分钟 3 次、每天 10 次（校验之前就计）；每个联系方式每天 3 次；全站每小时 300 次。超限 429。
+        测试环境的验收通道（M8-39，ADR 0078 补充）：带**有效**验收会话 Cookie 提交的记成验收留资（`is_acceptance`，建好后不能改），和真实客人的留资分开去重；
+        运营后台列表默认不列它。带了 Cookie 但会话无效、过期、已结束，或通道没开：401 `QA_SESSION_INVALID`，什么都不记（和询价一样，不悄悄按普通客人记）。
+        不带 Cookie 一切照旧；production 不看 Cookie。
       requestBody:
         required: true
         content:
@@ -16253,6 +16256,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/QaSessionInvalid"
         "429":
           $ref: "#/components/responses/RateLimited"
         "503":
@@ -16268,7 +16273,7 @@ paths:
       summary: 人工报价申请列表（客服跟进）
       description: |
         需要操作 `manual_quote.read`（超级管理员、运营、客服）。从新到旧。**没有个人信息**：只有有没有邮箱 / WhatsApp，联系方式和地点要打开详情看（留审计）。
-        `counts` 是各状态的数量（范围内，不受其他筛选影响）。限定了数据范围的员工（ADR 0030）只看得到城市、渠道在范围内的申请；限定了城市时，认不出城市的申请看不到。
+        `counts` 是各状态的数量（范围内，只跟着 `acceptance` 筛选，不受其他筛选影响）。限定了数据范围的员工（ADR 0030）只看得到城市、渠道在范围内的申请；限定了城市时，认不出城市的申请看不到。
       security:
         - platformToken: []
       parameters:
@@ -16289,6 +16294,13 @@ paths:
           schema:
             type: string
             maxLength: 400
+        - name: acceptance
+          in: query
+          description: "验收留资（测试环境验收会话里提交的，M8-39，ADR 0078 补充）：`exclude`（默认）只列真实客人的；`only` 只列验收留资；`include` 两种都列。`counts` 跟着这一项"
+          schema:
+            type: string
+            enum: [ exclude, only, include ]
+            default: exclude
       responses:
         "200":
           description: 一页申请
@@ -31962,7 +31974,7 @@ components:
     ManualQuoteRequestSummary:
       type: object
       additionalProperties: false
-      required: [ id, request_no, status, category, city, service_local, passengers, luggage, package_hours, has_email, has_whatsapp, assignee, version, created_at, updated_at, finished_at, purged_at ]
+      required: [ id, request_no, status, category, city, service_local, passengers, luggage, package_hours, has_email, has_whatsapp, is_acceptance, assignee, version, created_at, updated_at, finished_at, purged_at ]
       description: 一条申请，没有个人信息（联系方式、地点只在详情里）
       properties:
         id:
@@ -32005,6 +32017,9 @@ components:
           type: boolean
         has_whatsapp:
           type: boolean
+        is_acceptance:
+          type: boolean
+          description: 测试环境验收会话里提交的验收留资（M8-39，ADR 0078 补充），不是真实客人；建好之后不会变
         assignee:
           oneOf:
             - $ref: "#/components/schemas/ManualQuotePerson"

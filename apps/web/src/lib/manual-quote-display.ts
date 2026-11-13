@@ -25,6 +25,9 @@ export const MANUAL_QUOTE_STATUS_BADGES: Readonly<Record<ManualQuoteStatus, Badg
 
 export const PURGED_BADGE: BadgeSpec = { tone: "neutral", label: "已清除联系方式" };
 
+/** 验收留资（M8-39，ADR 0078 补充）：测试环境验收会话里提交的，不是真实客人。中性色，和测试供应商的「测试」徽标同一种写法。 */
+export const ACCEPTANCE_BADGE: BadgeSpec = { tone: "neutral", label: "验收" };
+
 /** 网址里的状态：认得的才用。 */
 export function manualQuoteStatusOf(value: string | null): ManualQuoteStatus | null {
   return (MANUAL_QUOTE_STATUSES as readonly string[]).includes(value ?? "") ? (value as ManualQuoteStatus) : null;

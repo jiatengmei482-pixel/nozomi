@@ -30,6 +30,7 @@ const summaryOf = (changes: Partial<ManualQuoteSummary> = {}): ManualQuoteSummar
   package_hours: null,
   has_email: true,
   has_whatsapp: true,
+  is_acceptance: false,
   assignee: null,
   version: 3,
   created_at: "2030-11-10T01:00:00.000Z",
@@ -135,6 +136,15 @@ test("详情：联系方式、两端地点；邮箱点开发信、WhatsApp 去 w
   assert.ok(screen.getByText("新宿站"));
   assert.ok(screen.getByText("成田机场"));
   assert.ok(screen.getByText("客人提交"));
+  assertAbsent(screen.queryByText("验收"));
+});
+
+test("详情：验收留资（M8-39）在状态徽标旁标「验收」；真实客人的没有", async () => {
+  openDetail(detailOf({ request: summaryOf({ is_acceptance: true }) }));
+  const card = (await screen.findByRole("heading", { level: 2, name: "行程" })).closest("section") as HTMLElement;
+  const badges = within(card).getByText("验收").closest(".badge-row") as HTMLElement;
+  assert.deepEqual([...badges.querySelectorAll(".badge")].map((badge) => badge.textContent), ["新", "验收"]);
+  assert.ok(within(badges).getByText("验收").closest(".badge--neutral"));
 });
 
 test("详情：改状态、指派带版本号（If-Match）；不是「新」以后状态里没有「新」；保存后跟进记录重新读", async () => {
