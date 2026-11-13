@@ -288,3 +288,21 @@ test("租户隔离：被隐藏区域的供应商、别的供应商都看不到�
   assert.equal((await tenant(m.a, "GET", `/areas/${copy.id}`)).status, 404, "甲读不到丙的副本");
   await ok(unmark(hide.id));
 });
+
+test("引用被隐藏的那份、而保留的那份正是自己的区域：不复制，409 SHARED_AREA_IS_YOURS（不落到同城重名上）；别家照常转到保留的那份", async () => {
+  const hide = await newArea(m.b, "去重·自己的", 139.63, 35.53, 0.01);
+  const keep = await newArea(m.a, "去重·自己的", 139.631, 35.531, 0.01);
+  await ok(mark(hide.id, keep.id));
+  const before = (await api.db.owner.query("select count(*)::int as n from areas where tenant_id = $1", [m.a.tenantId])).rows[0].n;
+  const mine = await reference(m.a, hide.id);
+  assert.deepEqual([mine.status, mine.body.error?.code], [409, "SHARED_AREA_IS_YOURS"], mine.text);
+  assertMatchesOpenApi("POST", "/tenant/v1/areas/from-shared", mine);
+  assert.ok(!mine.text.includes(m.b.tenantId) && !mine.text.includes(hide.id));
+  assert.equal((await api.db.owner.query("select count(*)::int as n from areas where tenant_id = $1", [m.a.tenantId])).rows[0].n, before, "甲名下没有多出区域");
+  // 直接拿自己的区域编号来引用也一样
+  assert.equal((await reference(m.a, keep.id)).body.error?.code, "SHARED_AREA_IS_YOURS");
+  // 丙照常转到保留的那份
+  const copy = await ok(reference(c, hide.id, "自己的（丙）"), 201);
+  assert.equal(copy.shared_source.shared_area_id, keep.id);
+  await ok(unmark(hide.id));
+});

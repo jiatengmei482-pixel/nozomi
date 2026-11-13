@@ -106,12 +106,12 @@ export const SHARED_AREAS_PER_CITY = 500;
  * 查相似用：一个城市里全部共享区域和它们的图形（`exceptTenantId` 的除外；平台看全部时传 null）。一个城市的区域数有限（每家几十个），一次取完。
  * 被隐藏的不算，除非 `includeHidden`（平台的去重列表要看到隐藏的，才能撤销）。
  */
-export async function listSharedAreaShapes(db: Db, cityId: string, exceptTenantId: string | null, options: { includeHidden?: boolean } = {}): Promise<(SharedArea & { shapes: SharedAreaShape[] })[]> {
+export async function listSharedAreaShapes(db: Db, cityId: string, exceptTenantId: string | null, options: { includeHidden?: boolean; limit?: number } = {}): Promise<(SharedArea & { shapes: SharedAreaShape[] })[]> {
   const areas = await db.query<Row>(
     `select ${COLUMNS}, a.tenant_id from areas a join tenants t on t.id = a.tenant_id
       where ${options.includeHidden ? IN_LIBRARY : LISTED} and a.city_id = $1 and ($2::uuid is null or a.tenant_id <> $2)
-      order by a.updated_at desc, a.id desc limit ${SHARED_AREAS_PER_CITY}`,
-    [cityId, exceptTenantId],
+      order by a.updated_at desc, a.id desc limit $3`,
+    [cityId, exceptTenantId, options.limit ?? SHARED_AREAS_PER_CITY],
   );
   if (areas.rows.length === 0) return [];
   const polygons = await db.query<Row>(
@@ -219,4 +219,10 @@ export async function sharedCopyCounts(db: Db, ids: readonly string[]): Promise<
   if (ids.length === 0) return new Map();
   const result = await db.query<Row>("select shared_source_area_id as id, count(*)::int as n from areas where shared_source_area_id = any($1::uuid[]) group by shared_source_area_id", [[...ids]]);
   return new Map(result.rows.map((row) => [row["id"] as string, row["n"] as number]));
+}
+
+/** 区域属于哪个供应商（不存在为 null）。引用前判断「要复制的是不是自己的区域」用；结果不出现在任何应答里。 */
+export async function areaTenantOf(db: Db, areaId: string): Promise<string | null> {
+  const result = await db.query<{ tenant_id: string }>("select tenant_id from areas where id = $1", [areaId]);
+  return result.rows[0]?.tenant_id ?? null;
 }

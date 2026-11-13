@@ -22,6 +22,7 @@ import {
   type SharedAreaDuplicate,
   type SharedAreaShape,
   activeDuplicates,
+  areaTenantOf,
   duplicateCandidate,
   findSharedArea,
   insertDuplicate,
@@ -107,7 +108,7 @@ export async function createAreaFromShared(
     writer,
     // 幂等键之后才读共享库（重试原样返回第一次的应答）
     async () => {
-      const shared = await sharedAreaForReference(ctx, sharedAreaId);
+      const shared = await sharedAreaForReference(ctx, writer.principal.tenantId, sharedAreaId);
       return {
         input: { cityId: shared.area.cityId, name: input.name ?? shared.area.name, bizType: input.bizType, role: input.role, polygons: polygonInputsOf(shared.shapes) },
         sharedSource: { areaId: shared.area.id, shapeVersion: shared.area.shapeVersion },
@@ -148,18 +149,25 @@ export function latestSharedVersions(ctx: DbContext, sourceIds: readonly string[
   return withPlatformTx(ctx.pool, (db) => sharedShapeVersions(db, [...new Set(sourceIds)]), { snapshot: true });
 }
 
-/** 引用时实际复制的那份：被隐藏的转到保留的那份（规则保证最多转一次）；都不在库里时 404。 */
-async function sharedAreaForReference(ctx: DbContext, id: string): Promise<{ area: SharedArea; shapes: SharedAreaShape[] }> {
+/**
+ * 引用时实际复制的那份：被隐藏的转到保留的那份（规则保证最多转一次）；都不在库里时 404。
+ * 实际要复制的是引用方自己名下的区域时（典型情况：被隐藏的那份指向的保留那份正是他自己画的）不复制，
+ * 409 SHARED_AREA_IS_YOURS——否则会落到看不懂的「同城重名」上，而且他本来就有这块区域。
+ */
+async function sharedAreaForReference(ctx: DbContext, tenantId: string, id: string): Promise<{ area: SharedArea; shapes: SharedAreaShape[] }> {
   const found = await withPlatformTx(
     ctx.pool,
     async (db) => {
       const keep = await keepAreaOf(db, id);
-      return findSharedArea(db, keep ?? id);
+      const target = keep ?? id;
+      const shared = await findSharedArea(db, target);
+      return shared === null ? null : { shared, mine: (await areaTenantOf(db, target)) === tenantId };
     },
     { snapshot: true },
   );
   if (found === null) throw notFound("共享区域");
-  return found;
+  if (found.mine) throw new AppError(409, "SHARED_AREA_IS_YOURS", "这块区域你名下已经有了（共享库里的这一份就是你自己建的区域），直接用它即可");
+  return found.shared;
 }
 
 // ---- 平台：共享库去重（M8-31b） ----
@@ -188,7 +196,9 @@ export async function listSharedAreasForPlatform(ctx: DbContext, filter: { cityI
   return withPlatformTx(
     ctx.pool,
     async (db) => {
-      const all = await listSharedAreaShapes(db, filter.cityId, null, { includeHidden: true });
+      // 多取一条：正好 500 个时不算截断
+      const fetched = await listSharedAreaShapes(db, filter.cityId, null, { includeHidden: true, limit: SHARED_AREAS_PER_CITY + 1 });
+      const all = fetched.slice(0, SHARED_AREAS_PER_CITY);
       const ids = all.map((area) => area.id);
       const duplicates = await activeDuplicates(db, ids);
       const counts = await sharedCopyCounts(db, ids);
@@ -217,7 +227,7 @@ export async function listSharedAreasForPlatform(ctx: DbContext, filter: { cityI
           similar,
         };
       });
-      return { items, truncated: all.length >= SHARED_AREAS_PER_CITY };
+      return { items, truncated: fetched.length > SHARED_AREAS_PER_CITY };
     },
     { snapshot: true },
   );

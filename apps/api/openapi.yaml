@@ -4967,7 +4967,8 @@ paths:
         需要操作 `area.manage`，必须带请求头 `Idempotency-Key`（M8-31，ADR 0083）。在自己名下新建一个区域：城市、图形照抄来源**现在**的版本
         （只抄种类和坐标，算作「粘贴的」），记住来源和图形版本（`shared_source`）。名称不给时用来源的名称；业务类型、用途自己定。
         之后来源改了图形，这个副本不变，由你决定是否切换。检查、审计和新增区域一样（同城重名 409 `AREA_NAME_TAKEN`，改个名字再引用）。
-        `shared_area_id` 是被平台标为重复、在库里隐藏的那份时（M8-31b），改为复制它指向的保留那份，`shared_source.shared_area_id` 记保留的那份。
+        `shared_area_id` 是被平台标为重复、在库里隐藏的那份时（M8-31b），改为复制它指向的保留那份，`shared_source.shared_area_id` 记保留的那份
+        （和请求里的不同，页面据此提示「已改为引用…」）；保留的那份是你自己的区域时 409 `SHARED_AREA_IS_YOURS`。
       security:
         - tenantToken: []
       parameters:
@@ -5007,6 +5008,7 @@ paths:
           description: |
             - `AREA_NAME_TAKEN`：这个城市已经有同名的区域
             - `MASTER_DATA_NOT_READY`：所属城市已被平台停用
+            - `SHARED_AREA_IS_YOURS`：实际要复制的就是你自己名下的区域（例如你引用的那份被平台标为重复，保留的那份正是你建的），不复制，直接用你自己的区域（M8-31b）
           content:
             application/json:
               schema:
