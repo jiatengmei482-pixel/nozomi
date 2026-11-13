@@ -467,6 +467,8 @@ export interface SiteManualQuoteTrip {
   passengers: number;
   luggage: number;
   package_hours: number | null;
+  /** 包车的经停点（M9W-04），按顺序；没有经停点时不给 */
+  waypoints?: { name: string; lat: number; lng: number; stay_minutes: number }[];
 }
 
 export interface SiteManualQuoteRequest {
@@ -480,7 +482,7 @@ export interface SiteManualQuoteRequest {
 
 export const SITE_MANUAL_QUOTE_PATH = `${SITE_BASE}/manual-quote-requests`;
 export const SITE_MANUAL_QUOTE_REQUEST_FIELDS: readonly (keyof SiteManualQuoteRequest)[] = ["email", "whatsapp", "consent", "trip", "website"];
-export const SITE_MANUAL_QUOTE_TRIP_FIELDS: readonly (keyof SiteManualQuoteTrip)[] = ["category", "city_id", "pickup", "dropoff", "service_local", "passengers", "luggage", "package_hours"];
+export const SITE_MANUAL_QUOTE_TRIP_FIELDS: readonly (keyof SiteManualQuoteTrip)[] = ["category", "city_id", "pickup", "dropoff", "service_local", "passengers", "luggage", "package_hours", "waypoints"];
 
 /** 客人留下邮箱或 WhatsApp，请客服人工报价。应答一律 202（不说明是不是重复提交）。 */
 export function submitSiteManualQuote(body: SiteManualQuoteRequest): Promise<{ status: "accepted" }> {
