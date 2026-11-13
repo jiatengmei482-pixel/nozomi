@@ -473,6 +473,15 @@
           "acceptance": ["designer 先改 docs/design/01-tokens 第 5 节（程序聚焦的例外：鼠标 / 触屏换步不显示聚焦框，键盘换步照常显示），写明理由", "前端按规范实现，焦点仍移到标题（读屏不受影响），只改可见的框", "组件 / 端到端测试：键盘换步有框、鼠标换步没框；亮暗两色", "来源：业主 2026-11-13 决定（M6-08 待决定项 ②）"],
           "evidence": "",
           "updated": "2026-11-13"
+        },
+        {
+          "id": "M6-11",
+          "title": "样式检查的「实测高度」例外收进公用模块（M6-08 司机页吸底条审查的后续）",
+          "role": "frontend",
+          "status": "todo",
+          "acceptance": ["把「量元素高度、写进 CSS 变量」收进一个公用小模块（例如 lib/measured-length.ts 的 useMeasuredHeight(element, name)）：变量名只接受规定的几个，值固定写成「整数px」", "两个样式测试共用同一份变量名单；例外改为「只有这个模块可以调 setProperty」，不再按文件名替换字符串", "变量名单改成「变量 → 允许引用它的样式表」，--driver-bar-height 只许 driver.css 引用", "styles.edge.test.ts 的注释只提 setProperty（原规则本来不拦 removeProperty）", "来源：PR #177 独立复查（2026-11-13），不挡 #177 合并"],
+          "evidence": "",
+          "updated": "2026-11-13"
         }
       ]
     },
