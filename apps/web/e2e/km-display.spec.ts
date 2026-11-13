@@ -21,7 +21,7 @@ import { E2E_WEB_STRIPE_PORT } from "../playwright.config.ts";
 import { tomorrowInTokyo } from "./book-new-support.ts";
 import { type Ref, createBrand, createWorld, expectAccessible, post, tenantHeaders } from "./catalog.ts";
 import { routeStripe } from "./fake-stripe.ts";
-import { OWN_SITE_SOURCE, adminCredentials, createActiveTenant, expectNoHorizontalOverflow, loginAs, platformAdminHeaders, randomLetters, settleAnimations } from "./support.ts";
+import { createTestCity, OWN_SITE_SOURCE, adminCredentials, createActiveTenant, expectNoHorizontalOverflow, loginAs, platformAdminHeaders, randomLetters, settleAnimations } from "./support.ts";
 
 test.use(OWN_SITE_SOURCE);
 
@@ -83,10 +83,10 @@ interface KmTrip {
 async function kmTrip(request: APIRequestContext): Promise<KmTrip> {
   const world = await createWorld(request);
   const admin = await platformAdminHeaders(request);
-  const tag = randomLetters(5);
   // 冲绳本岛一带：离别的用例的城市、和别的用例当作「哪个城市都不在」的点（manual-quote、area-roles 用北海道）都在 80 公里（城市的服务范围）以外
   const center = { lat: Number((26.2 + Math.random() * 0.3).toFixed(4)), lng: Number((127.65 + Math.random() * 0.2).toFixed(4)) };
-  const city = await post<{ id: string }>(request, admin, "/platform/v1/master/cities", { code: `CTY-JP-${tag}`, country_code: "JP", name: { zh: `公里城市${tag}` }, timezone: "Asia/Tokyo", center }, "新建城市");
+  const city = await createTestCity(request, admin, (tag) => ({ name: { zh: `公里城市${tag}` }, timezone: "Asia/Tokyo", center }));
+  const tag = city.tag;
   const tenant = await createActiveTenant(request);
   const headers = await tenantHeaders(request, tenant.adminEmail, tenant.password);
   const brand = await createBrand(request, headers, `品牌 ${randomLetters(4)}`);

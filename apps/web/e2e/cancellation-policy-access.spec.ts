@@ -6,7 +6,7 @@
  */
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { CENTER, createProductByApi, createSupplier, createWorld } from "./catalog.ts";
-import { loginAs, newPassword, platformAdminHeaders, randomLetters, uniqueEmail } from "./support.ts";
+import { createTestCity, loginAs, newPassword, platformAdminHeaders, uniqueEmail } from "./support.ts";
 
 async function staffWith(request: APIRequestContext, page: Page, grants: string[]): Promise<void> {
   const headers = await platformAdminHeaders(request);
@@ -53,11 +53,8 @@ test("只有渠道查看：手改地址打开新建渠道，写没有权限，�
 });
 
 test("下拉里的英文城市名不在单词中间折行：放不下时编码换到下一行，面板不横向溢出", async ({ page, request }) => {
-  const tag = randomLetters(5);
-  const name = `Yamaguchi${tag}`;
   const headers = await platformAdminHeaders(request);
-  const city = await request.post("/platform/v1/master/cities", { headers, data: { code: `CTY-JP-${tag}`, country_code: "JP", name: { zh: name }, timezone: "Asia/Tokyo", center: CENTER } });
-  expect(city.status(), await city.text()).toBe(201);
+  const { name } = await createTestCity(request, headers, (tag) => ({ name: { zh: `Yamaguchi${tag}` }, timezone: "Asia/Tokyo", center: CENTER }));
   await staffWith(request, page, ["quote_preview:view"]);
 
   const measure = async (): Promise<{ labelLines: number; labelFullWidth: boolean; detailBelow: boolean; panelOverflow: boolean }> => {

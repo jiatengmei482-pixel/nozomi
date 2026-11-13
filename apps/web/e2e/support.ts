@@ -326,6 +326,38 @@ export function randomLetters(length = 3): string {
   return Array.from(randomBytes(length), (byte) => String.fromCharCode(65 + (byte % 26))).join("");
 }
 
+export interface TestCity {
+  id: string;
+  code: string;
+  name: string;
+  /** 城市编码里的随机字母；城市建成就占住了它，用它拼的车型组、附加服务等编码不会和别的用例撞。 */
+  tag: string;
+}
+
+/**
+ * 经平台接口建一个测试城市，编码 `CTY-<国家>-<tag>`，tag 是随机大写字母。同一次运行里各用例要建几百个城市，5 位字母偶尔撞上
+ * 并行用例建过的编码（M8-29：run 43029966780 的 409 CODE_TAKEN）：撞上就换一个 tag 重建，别的错误照常失败。
+ * `body` 拿到 tag，返回编码、国家以外的请求体（名称、时区、中心点）；`nextTag` 只给验证「撞上就重建」的用例指定 tag。
+ */
+export async function createTestCity(
+  request: APIRequestContext,
+  headers: Record<string, string>,
+  body: (tag: string) => { name: { zh: string } } & Record<string, unknown>,
+  options: { country?: string; tagLength?: number; nextTag?: () => string } = {},
+): Promise<TestCity> {
+  const country = options.country ?? "JP";
+  const nextTag = options.nextTag ?? (() => randomLetters(options.tagLength ?? 5));
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const tag = nextTag();
+    const data = { ...body(tag), code: `CTY-${country}-${tag}`, country_code: country };
+    const response = await request.post("/platform/v1/master/cities", { headers, data });
+    const text = await response.text();
+    if (response.status() === 201) return { id: (JSON.parse(text) as { id: string }).id, code: data.code, name: data.name.zh, tag };
+    expect(response.status() === 409 && text.includes('"CODE_TAKEN"'), `新建城市只容许编码已被使用：${response.status()} ${text}`).toBe(true);
+  }
+  throw new Error("连续 8 次撞上已用的城市编码，没有建出城市");
+}
+
 /**
  * 用真实的导入命令 `masterdata-import-airports.ts --file` 导入一小份测试里构造的机场清单（OurAirports 的 CSV 格式）。
  * 不联网；导入进来的机场是停用的、没有所属城市，和正式导入完全一样。

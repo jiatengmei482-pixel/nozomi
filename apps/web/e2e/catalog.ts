@@ -4,7 +4,7 @@
  */
 import { AxeBuilder } from "@axe-core/playwright";
 import { type APIRequestContext, type Locator, type Page, expect } from "@playwright/test";
-import { createActiveTenant, newPassword, platformAdminHeaders, randomLetters, uniqueEmail, settleAnimations } from "./support.ts";
+import { createActiveTenant, createTestCity, newPassword, platformAdminHeaders, randomLetters, uniqueEmail, settleAnimations } from "./support.ts";
 
 export const CENTER = { lat: 35.6895, lng: 139.6917 };
 
@@ -31,21 +31,9 @@ export async function post<T>(request: APIRequestContext, headers: Record<string
 export async function createWorld(request: APIRequestContext): Promise<World> {
   const headers = await platformAdminHeaders(request);
   const master = async (kind: string, data: { code: string; name: { zh: string } } & Record<string, unknown>): Promise<Ref> => ({ id: (await post<{ id: string }>(request, headers, `/platform/v1/master/${kind}`, data, `新建${kind}`)).id, code: data.code, name: data.name.zh });
-  // 城市编码只有 5 个随机字母（车型组编码的等级段最多 8 位，`BIZ` + 5 位已经满了，不能再长），一次全量运行要建几百个城市，
-  // 偶尔撞上并行用例建过的编码（M8-29，run 43029966780 的 CODE_TAKEN）：撞上就换一个 tag 重建。城市建成就占住了这个 tag，后面的车型组、附加服务编码不会再撞
-  let city: Ref | null = null;
-  let tag = "";
-  for (let attempt = 0; city === null && attempt < 8; attempt += 1) {
-    tag = randomLetters(5);
-    const data = { code: `CTY-JP-${tag}`, country_code: "JP", name: { zh: `商品城市${tag}` }, timezone: "Asia/Tokyo", center: CENTER };
-    const response = await request.post("/platform/v1/master/cities", { headers, data });
-    if (response.status() === 201) city = { id: ((await response.json()) as { id: string }).id, code: data.code, name: data.name.zh };
-    else {
-      const text = await response.text();
-      expect(response.status() === 409 && text.includes('"CODE_TAKEN"'), `新建城市只容许编码已被使用：${response.status()} ${text}`).toBe(true);
-    }
-  }
-  if (city === null) throw new Error("没有建出城市");
+  // 城市编码只有 5 个随机字母（车型组编码的等级段最多 8 位，`BIZ` + 5 位已经满了，不能再长）；撞上并行用例建过的编码就换一个 tag 重建（createTestCity）
+  const city = await createTestCity(request, headers, (tag) => ({ name: { zh: `商品城市${tag}` }, timezone: "Asia/Tokyo", center: CENTER }));
+  const tag = city.tag;
   // 机场编码是三字码，全库唯一：并行的用例撞上了就换一个
   let airport: Ref | null = null;
   for (let attempt = 0; airport === null && attempt < 8; attempt += 1) {

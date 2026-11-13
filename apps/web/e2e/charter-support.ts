@@ -6,7 +6,7 @@
  */
 import { type APIRequestContext, expect } from "@playwright/test";
 import { type Ref, createBrand, createProductByApi, createWorld, post, tenantHeaders } from "./catalog.ts";
-import { createActiveTenant, platformAdminHeaders, randomLetters } from "./support.ts";
+import { createActiveTenant, createTestCity, platformAdminHeaders, randomLetters } from "./support.ts";
 
 const RULES = {
   booking: { sale_from: null, sale_to: null, service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 0, note: null },
@@ -51,10 +51,10 @@ async function version(request: APIRequestContext, headers: Record<string, strin
 export async function charterWorld(request: APIRequestContext): Promise<CharterWorld> {
   const world = await createWorld(request);
   const admin = await platformAdminHeaders(request);
-  const tag = randomLetters(5);
   const center = { lat: Number((33.2 + Math.random() * 0.6).toFixed(6)), lng: Number((130.3 + Math.random() * 0.5).toFixed(6)) };
-  const city = await post<{ id: string }>(request, admin, "/platform/v1/master/cities", { code: `CTY-JP-${tag}`, country_code: "JP", name: { zh: `包车城市${tag}` }, timezone: "Asia/Tokyo", center }, "新建城市");
-  const cityRef: Ref = { id: city.id, code: `CTY-JP-${tag}`, name: `包车城市${tag}` };
+  const city = await createTestCity(request, admin, (tag) => ({ name: { zh: `包车城市${tag}` }, timezone: "Asia/Tokyo", center }));
+  const tag = city.tag;
+  const cityRef: Ref = { id: city.id, code: city.code, name: city.name };
   const surchargeCenter = offset(center, 0, 0.16);
   const station = { name: `加价站${tag}`, location: offset(surchargeCenter, 0.005, 0.005) };
   const placed = await request.post("/platform/v1/master/places", { headers: admin, data: { type: "station", code: `STN-JP-${randomLetters(6)}`, city_id: city.id, category: "rail", name: { zh: station.name }, location: station.location } });
