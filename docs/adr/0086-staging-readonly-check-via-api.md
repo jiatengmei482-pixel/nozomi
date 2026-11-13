@@ -20,6 +20,11 @@
 - 调用本身留痕：先在一个普通事务里占一次限速额度、写一条审计（对象 `area`、操作 `view`，改后值 `{ report: "area_role_preview", days }`），再进只读事务回放。集成测试核对：一次调用之后，整个库里只有 `audit_logs`、`sales_rate_limits` 两张表有变化。
 - 限速：每个员工 10 分钟 3 次（`staff_role_preview`，和其他限速同一张计数表、同一种做法），超过 429 + `Retry-After`。
 - 时限：回放的每条查询之前看一次墙钟（`withDeadline`），时间到了就停下，503 `REPORT_TIMEOUT`，请把天数改小。只读事务开头把 `statement_timeout` 设成「连接池默认的 10 秒」和「剩下的时间」中较小的一个，之后剩下的时间比它短时按整秒（最后一秒按毫秒）往下收：一条慢查询会被数据库取消（`57014`，也算超时），不会越过时限。45 秒比反向代理常见的 60 秒应答时限短，调用方拿到的是清楚的错误码而不是代理的 504。时限可由 `buildApp` 注入（测试用 0 在接口层测到 503）。命令行不限时，行为不变。
+- 回放的截止时间与摘要值（2026-11-13 补充）：接口接受可选的 `until`（带时区的 ISO 8601 时间，默认现在，不能晚于现在，否则 400），回放 `[until − days, until)` 的询价日志，审计的改后值里记 `until`；手动工作流的输入 `until`（环境变量 `CHECK_UNTIL`）可选传入。应答给三个摘要：
+  - `replay.resultDigest`：「用现在的规则回放出来的结果」的 SHA-256——每条「询价 × 候选商品」一行（询价日志编号、商品编码，每个车型组的报出 / 报不出、结算价金额与币种、区域编号、价格规则编号、包车区域加价的明细金额、报不出的原因代码；不含时间和报价快照编号），所有行排序后取摘要；`resultLines` 是行数。
+  - `replay.stateDigest`：回放用到的供应商数据当前状态的 SHA-256——候选商品（编码、版本、状态）、它们的价格规则（编号、参数、生效日期、状态等）、调价规则、计程价、报价区域，以及这些供应商的区域（编号、版本、启用状态、图形版本、用途）；按列挑出来、键排序后序列化。
+  - `replay.resultLineDigests`：逐条「询价日志编号 × 商品编码 → 这一行的 SHA-256」，只在接口应答里给，供有权限的人定位哪一行变了；工作流的公开产物只放 `resultDigest`、`resultLines`、`stateDigest` 三个值。
+  - **用途：报价引擎改动（如包车「途经加价」）部署前后各在测试环境跑一次，两次用同一个 `until` 和同样的天数。`stateDigest` 相同时 `resultDigest` 必须相同（相同 = 这批报价逐分不变）；`stateDigest` 不同说明两次之间供应商改了数据，比对无效，要重跑。**
 
 ### 2. 手动工作流
 
@@ -27,7 +32,7 @@
 
 - 只有 `workflow_dispatch`（输入 `days`，默认 30）；环境固定 `staging`（不由输入决定）；权限只有 `contents: read`。
 - **不用 SSH、不用部署钥匙**：只用 `actions/checkout`、`actions/setup-node`、`actions/upload-artifact`，运行 `node scripts/staging-readonly-check.mjs`（不需要安装依赖）。
-- **仓库是公开的，Actions 的摘要和产物任何 GitHub 用户都能看、能下载**：脚本只把计数摘要（天数、时间、回放了多少条、`externalDiffCount`、`priority.changedCount`、没变的价的个数、新报出的价按计价方式的个数、是否通过）写进产物和 `$GITHUB_STEP_SUMMARY`，按字段挑出来而不是在清单上删字段；供应商名、商品编号、区域名、结算价、规则编号、询价编号都不写，完整 JSON 不落盘、不打印。要看明细由有权限的人登录后调接口。
+- **仓库是公开的，Actions 的摘要和产物任何 GitHub 用户都能看、能下载**：脚本只把计数摘要（天数、时间、回放了多少条、`externalDiffCount`、`priority.changedCount`、没变的价的个数、新报出的价按计价方式的个数、回放的截止时间、`resultDigest`、`resultLines`、`stateDigest`、是否通过）写进产物和 `$GITHUB_STEP_SUMMARY`，按字段挑出来而不是在清单上删字段；供应商名、商品编号、区域名、结算价、规则编号、询价编号都不写，完整 JSON 不落盘、不打印。要看明细由有权限的人登录后调接口。
 - 拿到令牌之后不管哪一步失败（临时密码、没绑定两步验证、动态码不对、取清单失败）都退出登录。
 - 脚本用 staging 环境 secrets 里的 `STAGING_READONLY_EMAIL`、`STAGING_READONLY_PASSWORD`、`STAGING_READONLY_TOTP` 登录（密码 → `/platform/v1/auth/mfa/verify` 两步验证，动态码按 RFC 6238 现算；同一时间窗的码被用过时等下一个窗口再试一次），经 HTTPS（`https://` + 环境变量 `APP_DOMAIN`）调用上面的接口，把计数摘要存成产物，最后退出登录。
 - 退出码：0 = 0 处变化；2 = `externalDiffCount` 或 `priority.changedCount` 大于 0（工作流失败）；1 = 没配好或调用失败。缺 secrets 时写明缺哪几项、去哪填，不调用测试环境。

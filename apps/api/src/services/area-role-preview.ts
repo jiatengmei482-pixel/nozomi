@@ -8,6 +8,8 @@
  * - M8-30（ADR 0080）另回放一遍：同一批请求、同一个候选商品，用「M8-30 之前的口径」（`legacyAreaRules`）和现在的优先级
  *   （一口价 → 一口价 + 区域外里程费 → 计程价）各算一遍：之前报得出的每一个价（车型组、区域、规则、结算价）必须 0 处不同；
  *   之前报不出、现在新报出的单独计数（这是业主要的变化）。上面 M8-20 的对比两边都按 M8-30 之前的口径算，只看区域用途带来的差别。
+ * - 另给出「用现在的规则报出来的结果」的摘要值 `resultDigest` 和回放用到的数据的状态摘要 `stateDigest`（replay-digest.ts）：
+ *   引擎改动部署前后用同一个截止时间 `until`、同样的天数各跑一次比较，证明没受影响的报价逐分不变（ADR 0086）。
  *
  * 只读：全部在一个平台的只读事务里（`begin … read only`），数据库拒绝任何写入；不写库、不写日志表、不发通知。
  * 迁移之前区域还没有「用途」这一列：按迁移后的样子（每个区域都是运营 + 报价）算；迁移之后按现在的用途算。
@@ -29,6 +31,7 @@ import {
 } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
 import { type QuoteCandidate, findQuoteCity, findQuotePlace, loadQuoteCandidates } from "../repos/quotes.ts";
+import { type DigestLine, type LineDigest, replayDigest, replayDigestLine, stateDigest } from "./replay-digest.ts";
 
 type Row = Record<string, any>;
 
@@ -71,7 +74,9 @@ export interface RolePreview {
   published: PublishedProductAreas[];
   replay: {
     days: number;
+    /** 回放的询价日志是 [since, until)：until 默认是现在，前后两次比对要给同一个 */
     since: string;
+    until: string;
     logs: number;
     replayed: number;
     /** 请求认不出（旧格式、城市或地点已经不在了）的询价 */
@@ -85,6 +90,17 @@ export interface RolePreview {
     refinements: Record<string, number>;
     /** M8-30：之前报得出的价有变化的处数（必须是 0）、之前报不出现在新报出的价（按计价方式分） */
     priority: { changedCount: number; changed: ReplayDiff[]; keptOffers: number; newOffers: Record<string, number> };
+    /**
+     * 用现在的规则报出来的结果的摘要值（SHA-256，十六进制，见 replay-digest.ts）：引擎改动部署前后用同一个 until、同样的天数各跑一次比较。
+     * `stateDigest` 一样时必须一样；`stateDigest` 不一样说明中间改了数据，比对无效，要重跑（ADR 0086）
+     */
+    resultDigest: string;
+    /** 参与摘要的行数（「询价 × 候选商品」的个数，等于 `evaluations`） */
+    resultLines: number;
+    /** 逐行的摘要（询价编号 × 商品编码），给有权限的人定位哪一行变了；不进公开的产物 */
+    resultLineDigests: LineDigest[];
+    /** 回放用到的供应商数据（商品、价格规则、调价规则、计程价、商品的报价区域、区域）当前状态的摘要 */
+    stateDigest: string;
   };
 }
 
@@ -177,9 +193,9 @@ export class RolePreviewTimeout extends Error {
 
 /**
  * 生成清单（调用方给只读事务）。`expired`（可选）在回放每一条询价之前问一次，返回 true 就停下、抛 `RolePreviewTimeout`；
- * 命令行不给（不限时），只读接口给一个墙钟时限（M8-34，ADR 0086）。
+ * 命令行不给（不限时），只读接口给一个墙钟时限（M8-34，ADR 0086）。`until`（可选，默认 `now`）是回放的截止时间，见 `replayWindow`。
  */
-export async function buildRolePreview(db: Db, options: { days: number; now: Date; expired?: () => boolean }): Promise<RolePreview> {
+export async function buildRolePreview(db: Db, options: { days: number; now: Date; until?: Date; expired?: () => boolean }): Promise<RolePreview> {
   const migrated = await areaRolesMigrated(db);
   const areas = await db.query<Row>(`select a.tenant_id, t.name as tenant_name, a.id, a.name, a.biz_type, a.status, ${migrated ? "a.role" : "'both'::text as role"} from areas a join tenants t on t.id = a.tenant_id order by t.name, a.tenant_id, a.created_at, a.id`);
   const suppliers = new Map<string, SupplierAreas>();
@@ -207,9 +223,10 @@ export async function buildRolePreview(db: Db, options: { days: number; now: Dat
   const published = products.rows.map((row) => ({ tenantName: row["tenant_name"], code: row["code"], category: row["category"], productAreas: names(row["product_areas"]), surchargeAreas: names(row["surcharge_areas"]), routeAreas: names(row["route_areas"]) }));
 
   // 回放
-  const since = new Date(options.now.getTime() - options.days * 86_400_000);
-  const logs = await db.query<Row>("select id, created_at, city_id, category, request, route from quote_logs where created_at >= $1 order by created_at, id", [since]);
-  const replay: RolePreview["replay"] = { days: options.days, since: since.toISOString(), logs: logs.rows.length, replayed: 0, skipped: 0, evaluations: 0, externalDiffCount: 0, externalDiffs: [], refinements: {}, priority: { changedCount: 0, changed: [], keptOffers: 0, newOffers: {} } };
+  const { since, until } = replayWindow(options.days, options.until ?? options.now);
+  const logs = await db.query<Row>("select id, created_at, city_id, category, request, route from quote_logs where created_at >= $1 and created_at < $2 order by created_at, id", [since, until]);
+  const replay: RolePreview["replay"] = { days: options.days, since: since.toISOString(), until: until.toISOString(), logs: logs.rows.length, replayed: 0, skipped: 0, evaluations: 0, externalDiffCount: 0, externalDiffs: [], refinements: {}, priority: { changedCount: 0, changed: [], keptOffers: 0, newOffers: {} }, ...replayDigest([]), stateDigest: "" };
+  const digestLines: DigestLine[] = [];
   const cities = new Map<string, { timezone: string } | null>();
   const catalogs = new Map<string, QuoteCandidate[]>();
   for (const log of logs.rows) {
@@ -233,7 +250,9 @@ export async function buildRolePreview(db: Db, options: { days: number; now: Dat
       const before = previewOutcome(quoteProduct(withoutOperating, parsed.request, moment, legacy));
       const legacyQuote = quoteProduct(candidate.product, parsed.request, moment, legacy);
       const after = previewOutcome(legacyQuote);
-      comparePriority(replay.priority, log["id"], candidate.code, legacyQuote, quoteProduct(candidate.product, parsed.request, moment));
+      const current = quoteProduct(candidate.product, parsed.request, moment);
+      comparePriority(replay.priority, log["id"], candidate.code, legacyQuote, current);
+      digestLines.push(replayDigestLine(log["id"], candidate.code, current));
       if (before.external !== after.external) {
         replay.externalDiffCount += 1;
         if (replay.externalDiffs.length < MAX_LISTED_DIFFS) replay.externalDiffs.push({ logId: log["id"], productCode: candidate.code, before: before.external, after: after.external });
@@ -242,7 +261,36 @@ export async function buildRolePreview(db: Db, options: { days: number; now: Dat
       }
     }
   }
+  Object.assign(replay, replayDigest(digestLines), { stateDigest: await replayStateDigest(db, [...catalogs.values()].flat(), migrated) });
   return { migrated, suppliers: [...suppliers.values()], totalAreas: areas.rows.length, published, replay };
+}
+
+/** 回放的窗口 [until − days, until)：截止时间固定下来，前后两次回放的是同一批询价 */
+export function replayWindow(days: number, until: Date): { since: Date; until: Date } {
+  return { since: new Date(until.getTime() - days * 86_400_000), until };
+}
+
+/** 询价日志的时间在不在回放的窗口里（和查询的条件一样：含 since、不含 until） */
+export function inReplayWindow(createdAt: Date, window: { since: Date; until: Date }): boolean {
+  return createdAt.getTime() >= window.since.getTime() && createdAt.getTime() < window.until.getTime();
+}
+
+/**
+ * 回放用到的数据的状态摘要：候选商品（编码、版本、状态）、它们的价格规则、调价规则、计程价、报价区域，以及这些供应商的全部区域（编号、版本、启用状态、图形版本、用途）。
+ * 按列挑出来（不是整行），表结构以后加了列也不会让摘要变；不含创建、修改时间。
+ */
+async function replayStateDigest(db: Db, candidates: QuoteCandidate[], migrated: boolean): Promise<string> {
+  const productIds = [...new Set(candidates.map((candidate) => candidate.product.productId))];
+  const tenantIds = [...new Set(candidates.map((candidate) => candidate.product.tenantId))];
+  const rows = async (sql: string, values: unknown[]): Promise<Row[]> => (await db.query<Row>(sql, values)).rows;
+  return stateDigest({
+    products: await rows("select id, code, version, status from products where id = any($1::uuid[])", [productIds]),
+    price_rules: await rows("select id, product_id, area_id, to_area_id, vehicle_group_id, direction, package_hours, pricing_model, params, valid_from::text as valid_from, valid_to::text as valid_to, status from price_rules where product_id = any($1::uuid[])", [productIds]),
+    adjust_rules: await rows("select id, product_id, travel_from::text as travel_from, travel_to::text as travel_to, cycle, time_slot, area_ids, vehicle_group_ids, directions, package_hours, steps, position, status from adjust_rules where product_id = any($1::uuid[])", [productIds]),
+    distance_prices: await rows("select id, product_id, vehicle_group_id, start_minor, per_km_minor, valid_from::text as valid_from, valid_to::text as valid_to, status from distance_prices where product_id = any($1::uuid[])", [productIds]),
+    product_areas: await rows("select product_id, area_id, priority from product_areas where product_id = any($1::uuid[])", [productIds]),
+    areas: await rows(`select id, version, status, shape_version, ${migrated ? "role" : "'both'::text as role"} from areas where tenant_id = any($1::uuid[])`, [tenantIds]),
+  });
 }
 
 /**
@@ -289,6 +337,7 @@ export function renderRolePreview(preview: RolePreview): string {
   for (const diff of priority.changed) lines.push(`  - 询价 ${diff.logId} 商品 ${diff.productCode}：之前 ${diff.before}；之后 ${diff.after}`);
   const added = Object.entries(priority.newOffers);
   lines.push(`之前报不出、现在新报出的价：${added.length === 0 ? "没有" : added.map(([basis, n]) => `${basis} ${n} 个`).join("；")}`);
+  lines.push(`报价结果摘要值（现在的规则，截止 ${replay.until}，${replay.resultLines} 行）：${replay.resultDigest}；回放用到的数据的状态摘要：${replay.stateDigest}`);
   return lines.join("\n");
 }
 

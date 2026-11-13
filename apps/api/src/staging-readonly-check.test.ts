@@ -8,7 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
-import { type CheckIo, type RolePreviewReport, countsOf, hasChanges, missingSecrets, parseBaseUrl, parseDays, runCheck, summarize, totp } from "../../../scripts/staging-readonly-check.mjs";
+import { type CheckIo, type RolePreviewReport, countsOf, hasChanges, missingSecrets, parseBaseUrl, parseDays, parseUntil, runCheck, summarize, totp } from "../../../scripts/staging-readonly-check.mjs";
 
 const ROOT = new URL("../../../", import.meta.url);
 
@@ -21,6 +21,11 @@ const ENV = { STAGING_READONLY_EMAIL: "readonly@example.test", STAGING_READONLY_
 /** 清单里不能公开的内容（仓库公开，产物和摘要谁都能下载）：供应商名、商品编号、区域名、结算价、规则编号、编号 */
 const PRIVATE = ["甲车队", "SUPPLIER-ONLY-NAME", "P-SECRET-CODE", "银座区域", "rule-0f0f0f0f", "98765", "11111111-2222-4333-8444-555555555555", "log-abcdef"];
 const diff = { logId: "log-abcdef", productCode: "P-SECRET-CODE", before: '[["vg",null,"area","rule-0f0f0f0f",98765,"JPY","one_price"]]', after: "NO_PRICING_AREA" };
+/** 报价结果摘要值（SHA-256 的十六进制写法，测试用的固定值） */
+const DIGEST = "a".repeat(64);
+const STATE = "b".repeat(64);
+/** 逐行的摘要：只在接口应答里，不能进公开的产物 */
+const LINE_DIGEST = "c".repeat(64);
 const report = (externalDiffCount = 0, changedCount = 0): RolePreviewReport & Record<string, unknown> => ({
   migrated: true,
   suppliers: [{ tenantId: "11111111-2222-4333-8444-555555555555", tenantName: "甲车队 SUPPLIER-ONLY-NAME", total: 1, byBizType: { general: 1 }, byStatus: { active: 1 }, byRole: { both: 1 } }],
@@ -29,6 +34,7 @@ const report = (externalDiffCount = 0, changedCount = 0): RolePreviewReport & Re
   replay: {
     days: 7,
     since: "2026-11-05T00:00:00.000Z",
+    until: "2026-11-12T00:00:00.000Z",
     logs: 3,
     replayed: 3,
     skipped: 0,
@@ -37,6 +43,10 @@ const report = (externalDiffCount = 0, changedCount = 0): RolePreviewReport & Re
     externalDiffs: externalDiffCount > 0 ? [diff] : [],
     refinements: { "OUT_OF_SERVICE_AREA → NO_PRICING_AREA": 1 },
     priority: { changedCount, changed: changedCount > 0 ? [diff] : [], keptOffers: 4, newOffers: { distance: 1, "银座区域": 2 } },
+    resultDigest: DIGEST,
+    resultLines: 6,
+    resultLineDigests: [{ logId: "log-abcdef", productCode: "P-SECRET-CODE", digest: LINE_DIGEST }],
+    stateDigest: STATE,
   },
 });
 
@@ -93,6 +103,21 @@ function assertNoSecrets(texts: readonly string[]): void {
   }
 }
 
+test("截止时间：不填是 null（接口按现在算）；填了要带时区，统一写成 UTC；别的写法清楚报错；传给接口时按查询参数编码", async () => {
+  assert.equal(parseUntil(undefined), null);
+  assert.equal(parseUntil(" "), null);
+  assert.equal(parseUntil("2026-11-13T09:00:00+09:00"), "2026-11-13T00:00:00.000Z");
+  assert.equal(parseUntil("2026-11-13T00:00Z"), "2026-11-13T00:00:00.000Z");
+  for (const raw of ["2026-11-13", "2026-11-13T00:00:00", "yesterday", "2026-13-40T00:00:00Z"]) assert.throws(() => parseUntil(raw), /带时区的 ISO 8601/, raw);
+  const s = stage({ "POST /platform/v1/auth/login": [loggedIn()], "POST /platform/v1/auth/mfa/verify": [verified], "GET /platform/v1/reports/area-role-preview": [{ status: 200, body: report() }], "POST /platform/v1/auth/logout": [loggedOut] });
+  assert.equal(await runCheck({ ...ENV, CHECK_UNTIL: "2026-11-12T09:00:00+09:00" }, s.io), 0);
+  assert.equal(s.calls[2]?.url, "https://staging.example.test/platform/v1/reports/area-role-preview?days=7&until=2026-11-12T00%3A00%3A00.000Z");
+  const bad = stage({});
+  assert.equal(await runCheck({ ...ENV, CHECK_UNTIL: "昨天" }, bad.io), 1);
+  assert.deepEqual(bad.calls, []);
+  assert.match(bad.lines.join("\n"), /带时区的 ISO 8601/);
+});
+
 test("动态码：RFC 6238 附录 B 的 SHA-1 测试向量（取后 6 位）", () => {
   assert.equal(totp(RFC_SECRET, 59_000), "287082");
   assert.equal(totp(RFC_SECRET, 1_111_111_109_000), "081804");
@@ -124,18 +149,28 @@ test("变化的判定；计数摘要只有计数（按字段挑出来），没�
     checkedAt: "2026-11-12T00:00:00.000Z",
     days: 7,
     since: "2026-11-05T00:00:00.000Z",
+    until: "2026-11-12T00:00:00.000Z",
     logs: 3,
     replayed: 3,
     skipped: 0,
     evaluations: 6,
     externalDiffCount: 1,
     priority: { changedCount: 2, keptOffers: 4, newOffers: { distance: 1 } },
+    resultDigest: DIGEST,
+    resultLines: 6,
+    stateDigest: STATE,
     passed: false,
   });
   const text = [JSON.stringify(counts), ...summarize(counts)].join("\n");
-  for (const secret of PRIVATE) assert.ok(!text.includes(secret), `摘要里出现了 ${secret}`);
+  for (const secret of [...PRIVATE, LINE_DIGEST]) assert.ok(!text.includes(secret), `摘要里出现了 ${secret}`);
   assert.match(summarize(countsOf(report(), "2026-11-12T00:00:00.000Z")).join("\n"), /0 处变化，通过/);
   assert.match(summarize(counts).join("\n"), /有变化，不通过[\s\S]*登录后调用/);
+  assert.match(summarize(counts).join("\n"), new RegExp(`报价结果摘要值（6 行[^）]*）：${DIGEST}；数据状态摘要：${STATE}`));
+  assert.match(summarize(counts).join("\n"), /2026-11-05T00:00:00.000Z 起、2026-11-12T00:00:00.000Z 止/);
+  const odd = report();
+  odd.replay = { ...odd.replay, resultDigest: "甲车队 98765", resultLines: -1, stateDigest: "P-SECRET-CODE", until: "银座区域" };
+  const oddCounts = countsOf(odd, "2026-11-12T00:00:00.000Z");
+  assert.deepEqual([oddCounts.resultDigest, oddCounts.resultLines, oddCounts.stateDigest, oddCounts.until], [null, 0, null, null]);
 });
 
 test("没有变化：密码 → 两步验证 → 取清单 → 退出登录；存计数摘要，退出码 0；不打印密钥", async () => {
@@ -170,10 +205,10 @@ test("仓库公开：有变化时产物、工作流摘要、日志里也只有�
   const published = [...s.outputs, ...s.summaries, ...s.lines];
   assert.ok(published.length >= 3);
   for (const text of published) {
-    for (const secret of PRIVATE) assert.ok(!text.includes(secret), `公开的输出里出现了 ${secret}`);
-    assert.doesNotMatch(text, /tenantName|productCode|productAreas|totalMinor|priceRuleId|externalDiffs|"changed"|suppliers|published/);
+    for (const secret of [...PRIVATE, LINE_DIGEST]) assert.ok(!text.includes(secret), `公开的输出里出现了 ${secret}`);
+    assert.doesNotMatch(text, /tenantName|productCode|productAreas|totalMinor|priceRuleId|externalDiffs|"changed"|suppliers|published|resultLineDigests/);
   }
-  assert.deepEqual(Object.keys(JSON.parse(s.outputs[0] ?? "")).sort(), ["checkedAt", "days", "evaluations", "externalDiffCount", "logs", "passed", "priority", "replayed", "since", "skipped"]);
+  assert.deepEqual(Object.keys(JSON.parse(s.outputs[0] ?? "")).sort(), ["checkedAt", "days", "evaluations", "externalDiffCount", "logs", "passed", "priority", "replayed", "resultDigest", "resultLines", "since", "skipped", "stateDigest", "until"]);
 });
 
 test("拿到令牌之后不管哪一步失败都退出登录：临时密码、没绑定两步验证、动态码不对、取清单失败", async () => {
@@ -269,7 +304,8 @@ test("工作流：只能手动触发；环境只能是 staging；不用 SSH、�
   const text = await readFile(new URL(".github/workflows/staging-readonly-check.yml", ROOT), "utf8");
   const workflow = parse(text) as Workflow;
   assert.deepEqual(Object.keys(workflow.on), ["workflow_dispatch"]);
-  assert.deepEqual(Object.keys(workflow.on["workflow_dispatch"]?.inputs ?? {}), ["days"]);
+  assert.deepEqual(Object.keys(workflow.on["workflow_dispatch"]?.inputs ?? {}), ["days", "until"]);
+  assert.equal(workflow.on["workflow_dispatch"]?.inputs?.["until"]?.default, "");
   assert.equal(workflow.on["workflow_dispatch"]?.inputs?.["days"]?.default, "30");
   assert.deepEqual(workflow.permissions, { contents: "read" });
   const jobs = Object.values(workflow.jobs);
@@ -286,10 +322,11 @@ test("工作流：只能手动触发；环境只能是 staging；不用 SSH、�
   const runs = steps.flatMap((step) => (step.run === undefined ? [] : [step.run.trim()]));
   assert.deepEqual(runs, ["node scripts/staging-readonly-check.mjs"]);
   const call = steps.find((step) => step.run !== undefined);
-  assert.deepEqual(Object.keys(call?.env ?? {}).sort(), ["CHECK_DAYS", "CHECK_OUTPUT", "NOZOMI_BASE_URL", "STAGING_READONLY_EMAIL", "STAGING_READONLY_PASSWORD", "STAGING_READONLY_TOTP"]);
+  assert.deepEqual(Object.keys(call?.env ?? {}).sort(), ["CHECK_DAYS", "CHECK_OUTPUT", "CHECK_UNTIL", "NOZOMI_BASE_URL", "STAGING_READONLY_EMAIL", "STAGING_READONLY_PASSWORD", "STAGING_READONLY_TOTP"]);
   for (const name of ["STAGING_READONLY_EMAIL", "STAGING_READONLY_PASSWORD", "STAGING_READONLY_TOTP"]) assert.equal(call?.env?.[name], `\${{ secrets.${name} }}`);
   // 输入只经由环境变量进脚本，不拼进命令行
   assert.equal(call?.env?.["CHECK_DAYS"], "${{ inputs.days }}");
+  assert.equal(call?.env?.["CHECK_UNTIL"], "${{ inputs.until }}");
   const upload = steps.find((step) => step.uses?.startsWith("actions/upload-artifact@") === true);
   assert.equal(upload?.if, "always()");
   assert.equal(upload?.with?.["path"], call?.env?.["CHECK_OUTPUT"]);

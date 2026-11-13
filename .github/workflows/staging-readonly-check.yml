@@ -16,6 +16,11 @@ on:
         type: string
         required: true
         default: "30"
+      until:
+        description: 回放的截止时间（可选，带时区的 ISO 8601 时间，如 2026-11-13T00:00:00Z；引擎改动前后两次填同一个值）
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -42,6 +47,7 @@ jobs:
           STAGING_READONLY_TOTP: ${{ secrets.STAGING_READONLY_TOTP }}
           NOZOMI_BASE_URL: https://${{ vars.APP_DOMAIN }}
           CHECK_DAYS: ${{ inputs.days }}
+          CHECK_UNTIL: ${{ inputs.until }}
           CHECK_OUTPUT: staging-readonly-check/summary.json
         run: node scripts/staging-readonly-check.mjs
       - name: 保存计数摘要
