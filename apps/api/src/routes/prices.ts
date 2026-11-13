@@ -70,15 +70,15 @@ const MODEL_FIELDS = {
   fixed: { base_price: "basePriceMinor", included_km: "includedKm", over_km_per_km: "overKmPerKmMinor" },
   mileage_time: { start_price: "startPriceMinor", start_meters: "startMeters", start_minutes: "startMinutes", per_km: "perKmMinor", per_minute: "perMinuteMinor", min_price: "minPriceMinor" },
   charter_package: { package_km: "packageKm", package_price: "packagePriceMinor", overtime_per_hour: "overtimePerHourMinor", over_km_per_km: "overKmPerKmMinor" },
-  // 包车区域加价（ADR 0073）：area_id 是加价区域
-  charter_area_surcharge: { pickup_surcharge: "pickupSurchargeMinor", dropoff_surcharge: "dropoffSurchargeMinor" },
+  // 包车区域加价（ADR 0073）：area_id 是加价区域；waypoint_surcharge 途经加价（ADR 0088）可以不填，不填 = 这个区域对经停点没有规则（不存这个键）
+  charter_area_surcharge: { pickup_surcharge: "pickupSurchargeMinor", dropoff_surcharge: "dropoffSurchargeMinor", waypoint_surcharge: "waypointSurchargeMinor" },
 } as const;
 const PRICE_FIELDS = [...new Set(Object.values(MODEL_FIELDS).flatMap((fields) => Object.keys(fields)))];
 /**
  * 可以不填（null）的数：里程 + 时长的最低消费（存成 null）；一口价的含公里数、超出每公里（不填就不存这两个键，和 M8-11 之前的一口价一模一样；
- * 只填了一个由 domain 报 REQUIRED）。
+ * 只填了一个由 domain 报 REQUIRED）；包车区域加价的途经加价（不填就不存这个键，和 M9W-01 之前的规则一模一样）。
  */
-const OPTIONAL_FIELDS: Readonly<Partial<Record<keyof typeof MODEL_FIELDS, readonly string[]>>> = { mileage_time: ["min_price"], fixed: ["included_km", "over_km_per_km"] };
+const OPTIONAL_FIELDS: Readonly<Partial<Record<keyof typeof MODEL_FIELDS, readonly string[]>>> = { mileage_time: ["min_price"], fixed: ["included_km", "over_km_per_km"], charter_area_surcharge: ["waypoint_surcharge"] };
 
 // 这里只管类型；范围、整数、日期、品类和计价方式对不对由 domain 查，报出原因代码
 const priceRuleSchema = z.object({
@@ -103,6 +103,7 @@ const priceRuleSchema = z.object({
   over_km_per_km: amount,
   pickup_surcharge: amount,
   dropoff_surcharge: amount,
+  waypoint_surcharge: amount,
   valid_from: date,
   valid_to: date.nullable().default(null),
   status: z.enum(PRICE_RULE_STATUSES).default("enabled"),
@@ -129,7 +130,7 @@ function toPriceRule(body: PriceRuleBody, at: string, issues: InputIssue[]): Pri
     } else if (value === null && !optional.includes(field)) {
       issues.push({ path: `${at}/${field}`, reason: "REQUIRED", message: "必填" });
       pricing[target] = 0;
-    } else if (value !== null || body.pricing_model !== "fixed") pricing[target] = value;
+    } else if (value !== null || body.pricing_model === "mileage_time") pricing[target] = value;
   }
   return {
     areaId: body.area_id,
@@ -291,11 +292,11 @@ function calendarDaysJson(days: CalendarView["groups"][number]["days"]): Json[] 
       price_rule: rule === null ? null : { id: rule.id, pricing_model: rule.pricing.model, to_area_id: rule.toAreaId ?? null, direction: rule.direction, valid_from: rule.validFrom, valid_to: rule.validTo },
       // 点对点给了下车区域时：这一天用的是线路价（true）还是这个车型组没有线路价、退回了区域价（false）；没给下车区域为 null
       route_rule: day.routeRule,
-      // 包车：这个区域作为加价区域时这一天的上车加价、下车加价（ADR 0073 第五部分「区域加价按区域分行」）；没有能用的区域加价为 null
+      // 包车：这个区域作为加价区域时这一天的上车加价、下车加价、途经加价（ADR 0073 第五部分「区域加价按区域分行」、ADR 0088；途经加价没设为 null）；没有能用的区域加价为 null
       surcharge:
         day.surcharge === null || day.surcharge.pricing.model !== "charter_area_surcharge"
           ? null
-          : { price_rule_id: day.surcharge.id, pickup_surcharge: day.surcharge.pricing.pickupSurchargeMinor, dropoff_surcharge: day.surcharge.pricing.dropoffSurchargeMinor, valid_from: day.surcharge.validFrom, valid_to: day.surcharge.validTo },
+          : { price_rule_id: day.surcharge.id, pickup_surcharge: day.surcharge.pricing.pickupSurchargeMinor, dropoff_surcharge: day.surcharge.pricing.dropoffSurchargeMinor, waypoint_surcharge: day.surcharge.pricing.waypointSurchargeMinor ?? null, valid_from: day.surcharge.validFrom, valid_to: day.surcharge.validTo },
       segments: day.segments.map((segment) => ({
         from: clock(segment.fromMinute),
         to: clock(segment.toMinute),

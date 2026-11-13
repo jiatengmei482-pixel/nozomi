@@ -65,7 +65,7 @@ function pricePreviewJson(preview: PriceImportPreview): Json {
         pricing_model: row.content.pricingModel,
         main_price: row.content.mainPriceMinor,
         // 包车区域加价的行（ADR 0073）：上车加价、下车加价（最小货币单位）；别的行为 null
-        surcharge: row.content.surcharge === null ? null : { pickup: row.content.surcharge.pickupMinor, dropoff: row.content.surcharge.dropoffMinor },
+        surcharge: row.content.surcharge === null ? null : { pickup: row.content.surcharge.pickupMinor, dropoff: row.content.surcharge.dropoffMinor, waypoint: row.content.surcharge.waypointMinor },
         // 点对点一口价的含公里数、超出每公里（最小货币单位）；没填为 null
         included_km: row.content.includedKm,
         over_km_per_km: row.content.overKmPerKmMinor,
