@@ -24,7 +24,7 @@ import { useToast } from "../../components/Toast.tsx";
 import { WhatsappLink } from "../../components/WhatsappLink.tsx";
 import { localOffsetLabel } from "../../lib/audit-display.ts";
 import { failureText } from "../../lib/failure.ts";
-import { MANUAL_QUOTES_PAGE, MANUAL_QUOTE_STATUS_BADGES, PURGED_BADGE, contactKindsText, contactQueryValid, guestWhatsappDigits, guestWhatsappGreeting, manualQuoteEventText, manualQuotePath, manualQuoteStatusOf, manualQuoteTripText } from "../../lib/manual-quote-display.ts";
+import { ACCEPTANCE_BADGE, MANUAL_QUOTES_PAGE, MANUAL_QUOTE_STATUS_BADGES, PURGED_BADGE, contactKindsText, contactQueryValid, guestWhatsappDigits, guestWhatsappGreeting, manualQuoteEventText, manualQuotePath, manualQuoteStatusOf, manualQuoteTripText } from "../../lib/manual-quote-display.ts";
 import { auditLogPath } from "../../lib/platform-paths.ts";
 import { pageSizeOf, useCursorPages } from "../../lib/use-cursor-pages.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
@@ -396,6 +396,7 @@ export function ManualQuoteDetailPage() {
             <span className="badge-row">
               <StatusBadge {...MANUAL_QUOTE_STATUS_BADGES[request.status]} />
               {request.purged_at !== null && <StatusBadge {...PURGED_BADGE} />}
+              {request.is_acceptance && <StatusBadge {...ACCEPTANCE_BADGE} />}
             </span>
           </div>
           <p>{manualQuoteTripText(request)}</p>

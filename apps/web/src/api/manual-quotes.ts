@@ -31,6 +31,8 @@ export interface ManualQuoteSummary {
   package_hours: number | null;
   has_email: boolean;
   has_whatsapp: boolean;
+  /** 测试环境验收会话里提交的验收留资（M8-39，ADR 0078 补充），不是真实客人 */
+  is_acceptance: boolean;
   assignee: ManualQuotePerson | null;
   version: number;
   created_at: string;
@@ -80,6 +82,8 @@ export interface ManualQuoteQuery {
   assignee?: string;
   /** 完整的邮箱，或带国家码的 WhatsApp 号码 */
   contact?: string;
+  /** 验收留资：不给是只列真实客人的（M8-39） */
+  acceptance?: "exclude" | "only" | "include";
 }
 
 export interface ManualQuoteChange {
@@ -99,14 +103,14 @@ export interface SiteSettings {
 
 /** 与 openapi.yaml 对账的字段（manual-quotes.contract.test.ts）。 */
 export const MANUAL_QUOTE_SCHEMA_FIELDS = {
-  ManualQuoteRequestSummary: ["id", "request_no", "status", "category", "city", "service_local", "passengers", "luggage", "package_hours", "has_email", "has_whatsapp", "assignee", "version", "created_at", "updated_at", "finished_at", "purged_at"],
+  ManualQuoteRequestSummary: ["id", "request_no", "status", "category", "city", "service_local", "passengers", "luggage", "package_hours", "has_email", "has_whatsapp", "is_acceptance", "assignee", "version", "created_at", "updated_at", "finished_at", "purged_at"],
   ManualQuoteEvent: ["id", "kind", "from_status", "to_status", "assignee", "note", "actor", "created_at"],
   ManualQuotePlace: ["name", "lat", "lng"],
   ManualQuotePerson: ["id", "name"],
   SiteSettings: ["support_whatsapp", "page_width", "version", "updated_at", "updated_by"],
 } as const satisfies Record<string, readonly string[]>;
 export const MANUAL_QUOTE_DETAIL_FIELDS: readonly (keyof ManualQuoteDetail)[] = ["request", "contact", "pickup", "dropoff", "events"];
-export const MANUAL_QUOTE_QUERY_KEYS = ["limit", "cursor", "status", "assignee", "contact"] as const satisfies readonly (keyof ManualQuoteQuery)[];
+export const MANUAL_QUOTE_QUERY_KEYS = ["limit", "cursor", "status", "assignee", "contact", "acceptance"] as const satisfies readonly (keyof ManualQuoteQuery)[];
 
 const one = (id: string): string => `${MANUAL_QUOTES_PATH}/${encodeURIComponent(id)}`;
 const ifMatch = (version: number): Record<string, string> => ({ "if-match": `"${version}"` });

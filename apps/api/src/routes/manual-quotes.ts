@@ -5,8 +5,9 @@
  * - `POST /site/v1/manual-quote-requests`：一家都报不出价时，客人留下邮箱或 WhatsApp（至少一项），行程由页面自动带上。
  *   每个地址 15 分钟 3 次、每天 10 次，每个联系方式每天 3 次，全站每小时 300 次；`website` 是给机器人填的陷阱字段（页面不显示），
  *   填了照样 202、什么都不记。应答一律 202 `{ status: "accepted" }`，重复提交也一样。
+ *   带有效验收会话 Cookie 的记成验收留资（M8-39，ADR 0078 补充）；带了但会话无效、过期是 401 `QA_SESSION_INVALID`，和询价一样；production 不看 Cookie。
  * 运营后台：
- * - `GET /platform/v1/manual-quote-requests`（`manual_quote.read`）：列表，没有个人信息，带各状态的数量；
+ * - `GET /platform/v1/manual-quote-requests`（`manual_quote.read`）：列表，没有个人信息，带各状态的数量；默认不列验收留资（`acceptance=only|include` 才列）；
  * - `GET /platform/v1/manual-quote-requests/assignees`（`manual_quote.manage`）：能被指派跟进的同事；
  * - `GET /platform/v1/manual-quote-requests/{id}`（`manual_quote.read`）：详情，解密联系方式、地点、备注，留审计；
  * - `PATCH /platform/v1/manual-quote-requests/{id}`（`manual_quote.manage`，If-Match）：改状态、指派；
@@ -33,6 +34,7 @@ import {
   updateSiteSettings,
 } from "../services/manual-quotes.ts";
 import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
+import { siteAudienceOf } from "../services/qa-acceptance.ts";
 import { takeSiteSlot } from "../services/site.ts";
 import { type InputIssue, ifMatchVersion, pageQuerySchema, parseInput, resourceId, singleLine, uuidSchema, validationFailed, visibleText } from "../validation.ts";
 
@@ -106,6 +108,8 @@ const listSchema = pageQuerySchema.extend({
   status: z.enum(MANUAL_QUOTE_STATUSES).optional(),
   assignee: z.union([z.literal("me"), z.literal("unassigned"), uuidSchema.transform((value) => value.toLowerCase())]).optional(),
   contact: z.string().trim().min(1).max(400).optional(),
+  // 验收留资（M8-39）：不给是 exclude，只列真实客人的
+  acceptance: z.enum(["exclude", "only", "include"]).default("exclude"),
 });
 
 const changeSchema = z
@@ -151,6 +155,7 @@ function summaryJson(row: ManualQuoteRow): Json {
     package_hours: row.packageHours,
     has_email: row.hasEmail,
     has_whatsapp: row.hasWhatsapp,
+    is_acceptance: row.isAcceptance,
     assignee: row.assignee,
     version: row.version,
     created_at: row.createdAt.toISOString(),
@@ -185,14 +190,16 @@ export function registerManualQuoteRoutes(app: FastifyInstance, ctx: AppContext)
     await takeSiteSlot(ctx, "site_manual_quote_day", { ip: request.ip });
     const body = parseInput(submitSchema, request.body, "body");
     const input = submissionOf(body);
-    if (body.website === undefined || body.website === "") await submitManualQuote(ctx, input);
+    // 和询价同一个判断：带了验收会话的 Cookie 但会话无效、过期，401，不悄悄按普通客人记（陷阱字段也一样，先判断会话）
+    const acceptance = (await siteAudienceOf(ctx, request.headers.cookie)) === "acceptance";
+    if (body.website === undefined || body.website === "") await submitManualQuote(ctx, { ...input, acceptance });
     return reply.code(202).send({ status: "accepted" });
   });
 
   app.get("/platform/v1/manual-quote-requests", async (request) => {
     const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "manual_quote.read" });
     const query = parseInput(listSchema, request.query, "querystring");
-    const page = await listManualQuoteRequests(ctx, principal, { status: query.status ?? null, assignee: query.assignee ?? null, contact: query.contact ?? null }, query.limit, decodeTimeCursor(query.cursor ?? null));
+    const page = await listManualQuoteRequests(ctx, principal, { status: query.status ?? null, assignee: query.assignee ?? null, contact: query.contact ?? null, acceptance: query.acceptance }, query.limit, decodeTimeCursor(query.cursor ?? null));
     return { items: page.items.map(summaryJson), next_cursor: page.nextCursor, counts: page.counts };
   });
 
