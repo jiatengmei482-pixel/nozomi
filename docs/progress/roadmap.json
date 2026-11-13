@@ -1020,7 +1020,7 @@
           "role": "frontend",
           "status": "review",
           "acceptance": ["新预订页「在地图上选点」还没选任何地址时，地图不再从城市列表第一项（测试站是北京）打开：另一端选好了从另一端打开；都没有时从能订当前标签（区间 / 包车）、官网能订的品类最多的城市打开，一样多按列表顺序（城市编码）取第一个；不写死城市、国家；组件测试证明默认中心不是列表第一项而是按规则选出的城市", "包车按行程计价的价格明细（车型卡、右侧栏、核对页、订单页同一个组件）：金额为 0 的「超公里费」「超时费」不显示，不是 0 的照旧显示，其他项目照旧；先按全部项目核对各项之和等于总价再去掉 0；后端 price_breakdown 不改；单元测试和组件测试覆盖 0 不显示、非 0 显示，已改的旧断言在 PR 里逐条说明", "右侧栏「经停点」的内容和其他项左边对齐、不多缩进，只用设计令牌；样式测试 + 端到端（1280 宽包车加经停点后的右侧栏）量左边位置相同", "亮暗两色、390 / 360 宽不横向滚动、axe 0：相关端到端用例（site-booking-waypoints、site-booking-new）本机跑过"],
-          "evidence": "",
+          "evidence": "PR #211（https://github.com/jiatengmei482-pixel/nozomi/pull/211）。新增测试：单元 5 条（default-map-city.test.ts 4、charter-itinerary.test.ts 1），组件 4 条（map-center.test.tsx 3、waypoints.test.tsx 1），样式 1 条，端到端 site-booking-waypoints.spec.ts 加右侧栏经停点左对齐断言；改 1 条旧断言（site.test.tsx 订单页明细去掉「超时费 0 JPY」，PR 里说明）。本机：typecheck 通过，apps/web 单元 558 条、pages/book 组件 + 样式 332 条全过，端到端（chromium）site-booking-waypoints / new / mobile / mobile-address / categories 共 7 条全过（webkit 本机缺依赖，交 CI）",
           "updated": "2026-11-14"
         },
         {
