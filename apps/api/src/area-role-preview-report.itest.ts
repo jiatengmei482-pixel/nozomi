@@ -169,8 +169,11 @@ test("statement_timeout 跟着时限收：事务开头是「默认 10 秒」和�
     }, { snapshot: true });
   assert.equal(await timeoutOf(45_000), "10s");
   const near = await timeoutOf(3_000);
-  assert.match(near ?? "", /^\d+ms$/);
-  assert.ok(Number.parseInt(near ?? "", 10) <= 3_000, near);
+  // PostgreSQL 显示 statement_timeout 时把整秒写成「2s」、其余写成「2999ms」（M8-29：main run 43321503555 拿到 2s，原来只认 ms 写法）；换算成毫秒再比
+  const unit = /^(\d+)(ms|s)$/.exec(near ?? "");
+  assert.ok(unit !== null, `statement_timeout 的写法：${near}`);
+  const nearMs = Number(unit[1]) * (unit[2] === "s" ? 1_000 : 1);
+  assert.ok(nearMs > 0 && nearMs <= 3_000, `收到不超过剩下的 3 秒：${near}`);
   const started = performance.now();
   await assert.rejects(
     withPlatformTx(api.db.pool, async (db) => {
