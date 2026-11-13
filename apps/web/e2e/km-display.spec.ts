@@ -75,6 +75,9 @@ interface KmTrip {
   groupName: string;
   from: Ref;
   to: Ref;
+  /** 上车点就是城市中心：官网按两个坐标报价时按上车点选「中心最近」的城市（serviceCityOf），这个用例并行跑几份时各建的城市都在冲绳同一片随机，
+   * 上车点离中心 1.5 公里时别的那份的城市中心偶尔更近、就按它报价（M8-29，本机 --repeat-each=20 --workers=4 复现：报价城市是另一份的「公里城市」）；
+   * 放在中心距离是 0，只有中心坐标（4 位小数随机）完全相同的城市才会抢走它 */
   pickup: LatLng;
   dropoff: LatLng;
 }
@@ -117,7 +120,7 @@ async function kmTrip(request: APIRequestContext): Promise<KmTrip> {
   expect(batch.status(), await batch.text()).toBe(200);
   const published = await request.post(`/tenant/v1/products/${product.id}/publish`, { headers });
   expect(published.status(), await published.text()).toBe(200);
-  return { tenant, headers, groupId: world.group.id, groupName: world.group.name, from: fromArea, to: toArea, pickup: offset(center, 0.01, 0.01), dropoff: offset(toCenter, -0.01, 0.01) };
+  return { tenant, headers, groupId: world.group.id, groupName: world.group.name, from: fromArea, to: toArea, pickup: center, dropoff: offset(toCenter, -0.01, 0.01) };
 }
 
 async function shot(page: Page, name: string): Promise<void> {
