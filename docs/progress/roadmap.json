@@ -1049,6 +1049,49 @@
           "updated": "2026-11-13"
         }
       ]
+    },
+    {
+      "id": "M9E",
+      "name": "嵌入预订组件",
+      "goal": "业主 2026-11-13 新需求第 ③ 部分：合作网站放一行脚本，区间 / 包车两个标签，提交后跳主站预订页；嵌入码绑定域名白名单（ADR 0090）",
+      "tasks": [
+        {
+          "id": "M9E-00",
+          "title": "嵌入组件 ADR 0090：预订草稿 + 短编号、/embed/v1 域名白名单",
+          "role": "product",
+          "status": "todo",
+          "acceptance": ["ADR 0090 写清草稿内容（区间 / 包车、上下车点、经停点含停留、日期时间、人数行李、包车时长；不含价格和个人信息）、草稿表和 2 小时有效期、嵌入码与白名单、/embed/v1 的 CORS 规则、return_url 校验、来源只做统计、组件脚本、测试计划和分 PR；写明取代 ADR 0087 草稿里的对应部分", "独立审查通过"],
+          "evidence": "",
+          "updated": "2026-11-13"
+        },
+        {
+          "id": "M9E-01",
+          "title": "嵌入组件·预订草稿：草稿表、GET /site/v1/booking-drafts/{id}、清理任务、/book/new?draft= 预填",
+          "role": "backend",
+          "status": "todo",
+          "acceptance": ["domain BookingDraft 类型和 bookingDraftIssues 校验，单元测试覆盖区间 / 包车、经停点上限和停留规则、多余键和个人信息键被拒、16 KB", "迁移只建表 booking_drafts（id 43 位 base64url、content ≤ 16 KB、来源列可空、2 小时有效期），应用角色只有 select / insert / delete；不预置任何数据", "GET /site/v1/booking-drafts/{id}：200 只给 draft 和 expires_at；过期、不存在、格式不对同一个 404 BOOKING_DRAFT_NOT_FOUND；每地址每分钟 60 次；不带 CORS 头；集成测试", "清理任务每小时删过期草稿，只删过期的（集成测试）", "/book/new?draft=：区间、包车按时长、包车带经停点三种都能预填并自动询价；404 显示「链接已过期，请重新填写」和空白表单；不带 draft 时旧链接参数照旧（组件测试）", "OpenAPI 同步；独立审查、合并、部署后测试站验收（随便编一个编号确认 404 口径和无 CORS 头）"],
+          "evidence": "",
+          "updated": "2026-11-13"
+        },
+        {
+          "id": "M9E-02",
+          "title": "嵌入组件·嵌入码与白名单、/embed/v1、来源统计",
+          "role": "backend",
+          "status": "todo",
+          "acceptance": ["embed_keys 表和平台接口（列表、新建、详情、If-Match 修改、停用），权限 embed.read / embed.manage，新建、改白名单、停用写审计；不预置任何嵌入码", "运营后台「渠道 → 嵌入组件」：列表、新建、编辑、停用，详情页显示嵌入代码和「复制代码」；只读角色只能看", "/embed/v1/config、/embed/v1/places/autocomplete|details、POST /embed/v1/booking-drafts：Origin 完全等于白名单某项才回 CORS 头；null、缺失、不在白名单、嵌入码停用 403 EMBED_ORIGIN_NOT_ALLOWED 且无 CORS 头；预检同样；16 KB 413；每地址 10 分钟 30 次、每嵌入码每分钟 60 次、有效草稿 5,000 个上限（集成测试）", "return_url 按 ADR 0090 第五节第 2 小节校验，列出的用例都有单元测试；不合格时忽略不报错", "来源：报价带 draft_id 时把来源写进快照 source，下单时再核嵌入码和当前白名单，通过记 embed，否则记 book、不拒单；运营后台订单显示来源，官网订单页有合格 return_url 时显示「返回原网站」；/tenant/v1 和供应商 Webhook 不给来源字段（集成测试扫键）", "/site/v1、/platform/v1、/tenant/v1、/sales/v1、/driver/v1 带白名单 Origin 也不带 CORS 头（集成测试）；api-prefixes、edge-config、smoke 同步", "OpenAPI 同步；独立审查、合并、部署后测试站验收"],
+          "evidence": "",
+          "updated": "2026-11-13"
+        },
+        {
+          "id": "M9E-03",
+          "title": "嵌入组件·widget-v1.js：区间 / 包车两个标签、Shadow DOM、先建草稿再跳转",
+          "role": "frontend",
+          "status": "todo",
+          "acceptance": ["apps/web 单独构建入口产出 /embed/widget-v1.js，gzip ≤ 60 KB，不加载第三方资源；edge-config 给它单开响应头（JavaScript 类型、CORP cross-origin、nosniff、max-age 300），不存在时 404", "NozomiBooking.init({ key, root, lang, services, redirectUrl })：root 找不到时控制台报错不渲染；lang、services 不合法用后台默认", "两个标签：区间（出发地、目的地、日期、时间、人数、行李）；包车（上车点、经停点 + 停留、下车点、日期、时间、人数、行李，不填经停点时选包车时长）；地址输入即提示走 /embed/v1/places", "点「查询价格」先建草稿，成功后整页跳 /book/new?draft=；403 / 429 / 400 / 网络错误在组件里提示、不跳转；未授权网站只显示「此网站未获授权使用预订组件」", "Shadow DOM 隔离：宿主页把 div、input、button 设成红底时组件外观不变；320 px 不横向滚动；键盘能走完；axe 无严重问题（端到端，两个本机 origin：白名单内、外）", "独立审查、合并、部署后测试站验收：演示站 embed-demo.moveglobal.io 加入白名单、业主在工厂后台放代码后，区间和包车各用 Stripe 测试卡完整下一单；非白名单域名被拒"],
+          "evidence": "",
+          "updated": "2026-11-13"
+        }
+      ]
     }
   ],
   "log": [
@@ -2171,6 +2214,11 @@
       "date": "2026-11-13",
       "by": "Claude",
       "summary": "M9W-01 后端完成待验收：价格规则加可选「途经加价」（没设 = 没有规则），引擎按 ADR 0088 累加途经加价（同区一次、上下车已计价不再加、哪都不在报 WAYPOINT_NOT_PRICED）；业主定的最终报价公式同步实现——官网包车可按行程计价（服务器逐段估路线、按行驶 + 停留总时长选套餐、收超公里 / 超时），price_breakdown 逐项列出、各项之和等于总价；订单加 waypoints 列（迁移 0370，下单后不能改），供应商 / 运营详情、司机页能读到；供应商后台区域加价表加「途经加价」列和批量设置。不带经停点时报价逐分不变（golden 2548 个样例在改引擎前生成）。"
+    },
+    {
+      "date": "2026-11-13",
+      "by": "Claude",
+      "summary": "新增 ADR 0090 和里程碑 M9E（嵌入预订组件）：组件先把预订条件交给主站暂存成 2 小时有效的预订草稿，再整页跳 /book/new?draft=<43 位短编号>；跨域只开 /embed/v1，只对嵌入码白名单里的网站放行；来源只做统计。取代 ADR 0087 草稿（#186，未合并）中草稿和嵌入组件的部分，线路式包车部分已由 ADR 0088 / 0089 实现。分 M9E-01 草稿、M9E-02 嵌入码与白名单、M9E-03 组件脚本三个 PR。"
     }
   ]
 }
