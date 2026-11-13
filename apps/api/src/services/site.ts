@@ -522,12 +522,12 @@ export interface SiteItinerary {
   totalMeters: number;
 }
 
-/** 按行程计价时某一段路线取不到：不按行程报价，页面提示联系客服（`leg` 从 1 起，第 1 段是上车点到第一个经停点） */
 /** 询价的城市不存在或停用：400 `UNKNOWN_CITY`（普通询价和按行程计价同一种说法） */
 function unknownQuoteCity(): AppError {
   return validationFailed("body", [{ path: "/city_id", reason: "UNKNOWN_CITY", message: "城市不存在或暂不开放" }]);
 }
 
+/** 按行程计价时某一段路线取不到：不按行程报价，页面提示联系客服（`leg` 从 1 起，第 1 段是上车点到第一个经停点） */
 export function itineraryRouteUnavailable(leg: number, reason: string): AppError {
   return new AppError(422, "ITINERARY_ROUTE_UNAVAILABLE", `第 ${leg} 段路线暂时算不出来，没法按行程报价，请联系客服人工报价`, { leg, reason });
 }
@@ -556,7 +556,7 @@ async function itineraryRoute(ctx: AppContext, trip: Extract<SiteTrip, { categor
 }
 
 /**
- * 包车按行程计价（ADR 0088 补充）：先估路线，再按这个城市能选的套餐时长逐个询价（带上全程和总时长，超公里、超时由引擎算），
+ * 包车按行程计价（ADR 0088 补充）：先核城市、查这个城市能选的套餐（没有就 NO_PRODUCT，不估路线、应答里也没有 itinerary_route），再估路线，按套餐时长逐个询价（带上全程和总时长，超公里、超时由引擎算），
  * 每个车型组取「能覆盖总时长的最小套餐」那一档的报价；所有套餐都覆盖不了（或覆盖的那几档这个车型组报不出）时取报得出的最大套餐（加超时费）。
  * 一个车型组只留一个报价；都报不出时原因用最先试的那一档的。
  */
