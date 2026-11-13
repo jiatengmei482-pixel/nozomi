@@ -383,6 +383,8 @@ test("手机地图选点（M8-42）：选择页开着、客人正在打字时反
   await actor.type(input, "京王");
   pending.resolve(json(200, { available: true, address: "日本、〒160-0023 東京都新宿区西新宿２丁目８−１" }));
   await waitFor(() => assert.match(fromCell.textContent ?? "", /東京都新宿区西新宿２丁目８−１/), SLOW);
+  // 页面那一格换成地址后，输入框的同步要等 effect 引起的那次渲染提交：先把待提交的更新全部冲刷掉再读（不靠固定等待）
+  await act(async () => {});
   assert.equal((input as HTMLInputElement).value, "京王", "选择页里客人打的字不被反查结果盖掉");
 
   await actor.click(within(again).getByRole("button", { name: "取消" }));
