@@ -18,6 +18,7 @@ import { type Market, allKeys, buildMarket, newChannel, ok, salesCredentials } f
 import { tenantLogin } from "./testing/money.ts";
 import { assertMatchesOpenApi, assertMatchesOperation } from "./testing/openapi.ts";
 import { FakePaymentProvider, deliverWebhook } from "./testing/payments.ts";
+import { QUOTE_CATALOG_TTL_MS } from "./services/quote-catalog.ts";
 import { routeLookup } from "./testing/routes.ts";
 import { type SiteApi, siteApi } from "./testing/site.ts";
 
@@ -237,4 +238,69 @@ test("只读回放（M8-30 部分）：最近 30 天的询价按 M8-30 之前的
   assert.ok(priority.keptOffers > 0);
   assert.ok((priority.newOffers["one_price_outside_km"] ?? 0) > 0 && (priority.newOffers["distance_only"] ?? 0) > 0, JSON.stringify(priority.newOffers));
   assert.equal(preview30.replay.externalDiffCount, 0);
+});
+
+// 放在最后：这里给乙另建了一个商品，不影响前面的用例
+test("一口价 + 区域外里程：只有一端在报价区域里时往返对称——两个方向都报，金额按在区域里那一端所在区域的一口价算（M8-41）", async () => {
+  // 乙另建一个点对点商品：两个报价区域（西区 8,000、东区 12,000）、只有经济 4 座，计程价起步 3,000、每公里 200。
+  // 原来那个商品的经济 4 座只在「市区」有一口价、没有计程价，下面这几程它报不出，官网上的经济 4 座只会来自这个商品。
+  const west = await newArea("西区", square(139.0, 35.0, 139.3, 35.3), "pricing");
+  const east = await newArea("东区", square(140.3, 35.0, 140.6, 35.3), "pricing");
+  const brand = (await ok(tenantCall(m.b, "POST", "/brands", { body: { name: `对称-${randomUUID().slice(0, 6)}`, currency: "JPY" } }), 201)).id;
+  const created = await ok(
+    tenantCall(m.b, "POST", "/products", {
+      body: { brand_id: brand, city_id: m.ids.tokyo, category: "point_to_point", areas: [{ area_id: west }, { area_id: east }], vehicle_groups: [{ vehicle_group_id: m.ids.eco4, passengers: 3, luggage: 2 }], dispatchers: [{ name: "调度", phone: "0312345678" }] },
+    }),
+    201,
+  );
+  const id = created.id as string;
+  const rules = await ok(tenantCall(m.b, "PUT", `/products/${id}/service-rules`, { version: 1, body: { booking: { service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 24 }, free_wait: { general: { mode: "limited", minutes: 15 } } } }));
+  const content = await ok(tenantCall(m.b, "PUT", `/products/${id}/content`, { version: rules.version, body: { zh: { title: "两区用车" } } }));
+  const create = [
+    { area_id: west, vehicle_group_id: m.ids.eco4, pricing_model: "fixed", base_price: 8_000, valid_from: "2026-01-01" },
+    { area_id: east, vehicle_group_id: m.ids.eco4, pricing_model: "fixed", base_price: 12_000, valid_from: "2026-01-01" },
+  ];
+  await ok(tenantCall(m.b, "POST", `/products/${id}/price-rules/batch`, { version: content.version, body: { create } }));
+  await ok(tenantCall(m.b, "POST", `/products/${id}/distance-prices`, { body: { vehicle_group_id: m.ids.eco4, start_price: 3_000, per_km: 200, valid_from: "2026-01-01" }, version: await version(id) }), 201);
+  await ok(tenantCall(m.b, "POST", `/products/${id}/publish`));
+  // 报价用的商品目录有短时缓存：过了有效期再询价
+  api.clock.advance(QUOTE_CATALOG_TTL_MS + 1_000);
+
+  type Point = { lng: number; lat: number };
+  const W: Point = { lng: 139.15, lat: 35.15 };
+  const E: Point = { lng: 140.45, lat: 35.15 };
+  /** 在运营范围里、不在任何报价区域里（也不在「市区」） */
+  const OUT: Point = { lng: 139.9, lat: 35.15 };
+  const settle = async (pickup: Point, dropoff: Point): Promise<unknown[]> => {
+    const res = await tenantCall(m.b, "POST", `/products/${id}/quote-preview`, { body: { pickup, dropoff, service_time: SERVICE_LOCAL, passengers: 2, luggage: 1 } });
+    assertMatchesOpenApi("POST", "/tenant/v1/products/{id}/quote-preview", res);
+    assert.equal(res.status, 200, res.text);
+    for (const key of RULE4_KEYS) assert.ok(!allKeys(res.body).has(key), `供应商试算里有 ${key}`);
+    assert.equal(res.body.offers.length, 1, res.text);
+    const offer = res.body.offers[0];
+    return [offer.area_id, offer.settlement.pricing_basis, offer.settlement.total, offer.settlement.mileage.km, offer.settlement.mileage.fee];
+  };
+  // 路线 34.2 公里 → 35 公里 × 200 = 7,000；西区 8,000 + 7,000 = 15,000，东区 12,000 + 7,000 = 19,000
+  const westGo = await settle(W, OUT);
+  assert.deepEqual(westGo, [west, "one_price_outside_km", 15_000, 35, 7_000]);
+  assert.deepEqual(await settle(OUT, W), westGo, "西区 ⇄ 区域外：往返一样（区域在下车那一端也按西区的一口价）");
+  const eastGo = await settle(E, OUT);
+  assert.deepEqual(eastGo, [east, "one_price_outside_km", 19_000, 35, 7_000]);
+  assert.deepEqual(await settle(OUT, E), eastGo, "东区 ⇄ 区域外：往返一样，按东区的一口价");
+
+  // 官网（对外价）：两个方向都报，计价方式、金额都一样；西区、东区各按各的
+  const ecoQuote = async (pickup: Point, dropoff: Point): Promise<[string, string]> => {
+    const res = await site.call("POST", "/site/v1/quotes", { body: { category: "point_to_point", city_id: m.ids.tokyo, pickup, dropoff, service_local: SERVICE_LOCAL, passengers: 2, luggage: 1 }, ip: nextIp() });
+    assertMatchesOpenApi("POST", "/site/v1/quotes", res);
+    assert.equal(res.status, 200, res.text);
+    const quote = res.body.quotes.find((entry: any) => entry.vehicle_group.id === m.ids.eco4);
+    assert.ok(quote, res.text);
+    return [quote.pricing_basis, quote.price.total.amount];
+  };
+  const siteWest = await ecoQuote(W, OUT);
+  const siteEast = await ecoQuote(E, OUT);
+  assert.deepEqual([siteWest[0], siteEast[0]], ["one_price_outside_km", "one_price_outside_km"]);
+  assert.deepEqual(await ecoQuote(OUT, W), siteWest, "官网西区 ⇄ 区域外往返一样");
+  assert.deepEqual(await ecoQuote(OUT, E), siteEast, "官网东区 ⇄ 区域外往返一样");
+  assert.ok(Number(siteEast[1]) > Number(siteWest[1]), "东区的一口价高，含里程费的总价也高");
 });
