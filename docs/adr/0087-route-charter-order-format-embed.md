@@ -29,15 +29,17 @@
 | --- | --- |
 | 各段 | 地点列表相邻两点一段；每段用现有 `RouteEstimator`（ADR 0042：缓存、7 天、每日上限、冷却都不变），分钟按 ADR 0042 四舍五入，米数原样 |
 | 合计 | T = Σ 段分钟 + Σ 停留分钟；D = Σ 段米数 |
-| 试哪些套餐时长 | `candidatePackageHours(available, T)`：城市能卖的套餐时长里满足 `T − H × 60 ≤ 120`（超时不超过 2 小时，需求 Q2）的，从小到大**最多 4 个**。一个都没有 → `ROUTE_TOO_LONG`（T 超过最大套餐 + 2 小时）或 `NO_PRODUCT`，转人工 |
-| 每个套餐时长报一次 | 商品、规则、汇率、评分**只取一次**，对每个 H 调现有的 `quoteCandidates` + `compareQuotes`（`services/quotes.ts` 第 348、371 行那一套），得到每个车型组的**全部候选**（`comparison.groups[].ranked`）。最多 4 轮，纯计算、在进程内 |
+| 试哪些套餐时长 | `candidatePackageHours(rules, T, D)`：商品、规则、汇率、评分**只取一次**；用取出的、启用中的 `charter_package` 规则**先预筛**套餐时长 H——要同时满足 ① `T − H × 60 ≤ 120`（超时不超过 2 小时，需求 Q2）② 至少有一条这个 H 的规则 `D ≤ 2 × 含公里 × 1000`（需求 Q4，先排除注定被 2 倍规则过滤的 H，不浪费轮数）——再从小到大取 **4 个**。预筛后一个都没有：没有满足 ① 的 → `ROUTE_TOO_LONG`；有满足 ① 但都不满足 ② 的 → `ROUTE_TOO_FAR`；城市没有包车套餐 → `NO_PRODUCT`；都转人工 |
+| 每个套餐时长报一次 | 对每个 H 调现有的 `quoteCandidates`（`services/quotes.ts` 第 348 行）一次，得到每个商品对每个车型组的套餐部分报价。4 轮之后仍有车型组一个候选都没有（例如那几个 H 的规则在这个车型组都报不出），而预筛后还有更大的 H：只为这些车型组按从小到大再补试，**最多再 2 轮，总轮数上限 6** |
+| 每个商品单独算对外价 | 对每个商品的报价**单独**调一次现有的 `compareQuotes`（只传这一个商品的 `ComparisonEntry`），得到它每个车型组的 `sell` 和以它为中标的快照。原因：`compareQuotes` 内部用 `rankCandidates` 按**套餐价**每个租户只留一个商品（`quote.ts` 第 1140–1142 行），把所有商品一起传会在算超时超公里之前就丢掉同一供应商的其他商品。单独调用只多了对外价换算和排序这类整数运算（引擎计价 `quoteCandidates` 每个 H 仍只跑一次），城市 100 个商品 × 6 个 H 也只是 600 次轻量调用，计入第 5 小节的 P95 实测 |
 | 只交两端给引擎 | `QuoteRequest.pickup` = 第一个点，`dropoff` = 最后一个点；途经点不进 `QuoteRequest`、不进快照的 `request`，结构上不可能参与区域判断、区域加价、禁行区 |
 | 每个候选的超时、超公里（结算价，精确值） | 用这个候选自己命中的 `charter_package` 规则：超时 = `basePrice(p, { minutes: T }, H) − basePrice(p, {}, H)`，超公里 = `basePrice(p, { meters: D }, H) − basePrice(p, {}, H)`——**直接调用引擎的包车公式**：`超时 = 每小时单价 × max(0, T − H × 60) ÷ 60`、`超公里 = 每公里单价 × max(0, D − 含公里 × 1000) ÷ 1000`（`pricing.ts` 第 513–514 行，`times` 是精确分数乘除，第 139–141 行），按分钟、按米**成比例、不向上取整**（第 494 行注释「超出 500 米就收 0.5 公里的钱」） |
 | 结算价取整 | 两项精确值相加后，按商品的取整单位四舍五入**一次**（`roundFractionToUnit`，同引擎第 763 行结算总价的取整），得到超出部分结算价 X；明细里超时项单独四舍五入，超公里项 = X − 超时项（尾差计入超公里项，各项之和恒等于 X）。**最终结算价 = 引擎结算总价 + X** |
 | 对外价 | 超出部分对外价 Y = `sellEquivalentMinor(X, 结算币种, 这个候选的 sell)`（这个候选的汇率、缓冲、加价比例，四舍五入一次）；渠道设了对外价取整单位（> 1）时 Y 向上取整到这个单位（同 ADR 0023 只往上取）。**最终对外价 = 引擎对外价 `sellMinor` + Y**。和引擎「对外价由取整后的整数结算价换算」同一口径；每个金额只从它自己的精确值取整一次 |
 | 单价的对外参考 | 每小时、每公里的对外单价用 `sellEquivalentMinor` 单独换算，只用于页面说明和事后补收参考（同 ADR 0073 `over_km_per_km` 口径），不参与最终价 |
 | 总公里过远（需求 Q4） | 某个候选 `D > 2 × 含公里 × 1000` 时不参加排序；某车型组所有候选都被排除 → `ROUTE_TOO_FAR`（转人工）；正好 2 倍照常 |
-| 中标 | 同一车型组把**各套餐时长的全部候选**放在一起，每个候选的 `sellMinor` 换成最终对外价，交给现有 `rankCandidates(候选, bandBp)`：同一个 3% 价格带、观察期 +5%、评分、完成单数、价低者的规则，同一租户只留最终价最低的那个。中标候选的套餐时长就是这一单的 H |
+| 上限 | 最终结算价再过一遍现有的 `exceedsSettlementLimit`（`pricing.ts` 第 160 行），最终对外价不超过 `QUOTE_RULES.maxSellMinor`；超了这个候选不参加（原因 `PRICE_OVER_LIMIT`，同引擎） |
+| 中标 | 同一车型组把**各套餐时长、各商品**的候选放在一起，每个候选的 `sellMinor` 换成最终对外价，交给现有 `rankCandidates(候选, bandBp)`：同一个 3% 价格带、观察期 +5%、评分、完成单数、价低者的规则，同一租户只留最终价最低的那个。中标候选的套餐时长就是这一单的 H |
 | 时间表 | 出发时刻（城市当地 → 瞬间）逐段累加，再换回当地钟面；跨午夜写「次日 / 第 N 天」；按瞬间计算，夏令时城市也对 |
 
 输入校验（`routeCharterIssues`）：地点 2–10 个（途经点 0–8，常量 `ROUTE_CHARTER_LIMITS`）；途经点停留必填、30 的倍数、30–480；首尾两点没有停留；坐标范围；地点名称 1–240 字（与地址联想候选 `SitePlaceSuggestion.name` 的上限一致；接口、草稿、库里、模型线路的地点都是这一个上限）。模型线路自己的标题每种语言 ≤ 60 字（卡片标题）。
@@ -48,10 +50,37 @@
 
 ### 3. 中标比较——核对代码的结论
 
-- 引擎在内存里**已经给出每个车型组的全部候选**：`compareQuotes` 返回 `groups[].ranked`，每个候选带完整的 `offer`（含 `priceRuleId`、结算价明细）和 `sell`（汇率、缓冲、加价比例）（`quote.ts` 第 1220–1234、1296–1306 行）；`previewPlatformQuote` 把整个 `comparison` 交回服务层（`services/quotes.ts` 第 371–374 行）；救援改派已经在服务层直接用 `group.ranked`（`services/rescues.ts` 第 397 行）。
-- 存进库的快照 `snapshot.candidates` **没有** `priceRuleId`（`quote.ts` 第 1182 行），所以按最终价排序必须在询价当场、在内存里做。
-- `rankCandidates` 是导出的纯函数，按传入的 `sellMinor` 排序。服务层把 `sellMinor` 换成最终对外价再调它：**比价规则一字不改，比较的是最终价**。客人拿到含超时、超公里最低的那家（需求 02「比价按对外价取最低，保证客人拿到最低价」）。
+- `compareQuotes` 返回的 `groups[].ranked` 每个候选带完整的 `offer`（含 `priceRuleId`、结算价明细）和 `sell`（`quote.ts` 第 1220–1234、1296–1306 行），`previewPlatformQuote` 把它交回服务层（`services/quotes.ts` 第 371–374 行），救援改派已在服务层用 `group.ranked`（`services/rescues.ts` 第 397 行）。
+- 但它**不是全部候选**：`compareQuotes` 里的 `rankCandidates` 已按**套餐价**每个租户只留一个商品（`quote.ts` 第 1140–1142 行）。所以按第 1 小节，服务层**对每个商品单独调一次 `compareQuotes`**，拿到每个商品自己的 `sell` 和快照，再统一按最终价排。
+- 两个仍然存在的限制（引擎内部、不改）：① 一个商品对一个车型组只出一个报价——商品的几个区域都能报时，引擎按套餐结算价取最低的区域（`quote.ts` 第 768 行），不看各区域规则的超时、超公里单价；同一商品不同区域设了不同超公里单价才有影响，罕见，写进供应商价格页说明。② 存进库的 `snapshot.candidates` 没有 `priceRuleId`（第 1182 行），按最终价排序只能在询价当场、在内存里做。
+- `rankCandidates` 是导出的纯函数，按传入的 `sellMinor` 排序。服务层传最终对外价：**比价规则一字不改，比较的是最终价**，客人拿到含超时、超公里最低的那家（需求 02「保证客人拿到最低价」）。
 - 不选「沿用引擎按套餐价选的中标再加超时超公里」：套餐价低、超公里单价高的供应商会中标，客人付的不是最低价。
+
+### 3a. 订单锁定哪个候选（存库快照怎么写、读取点怎么改）
+
+按最终价中标的可能不是任何一个 H 里引擎（按套餐价）选的中标，也可能在另一个 H（例：需求 03 R6 的乙、R2 的 10 小时）。所以：
+
+- **存库快照** = 中标候选**自己那个商品单独调 `compareQuotes`** 得到的、中标套餐时长那一组的 `snapshot`：`winner` 就是这个候选（它自己的 `offer`、`sell`），`request.packageHours` = 中标的 H，`request` 里没有途经点。`snapshot.candidates` 换成按最终价重排后的全部候选（字段形状不变：`settlementMinor`、`sellMinor` 写**最终**结算价、对外价，`rankPrice`、`inBand`、`position` 是按最终价算的），另外每个候选多 `packageHours`、`packageSellMinor`、`routeChargeSellMinor`。
+- `quotes` 行：`winner_tenant_id`、`product_id`、`package_hours` = 中标候选的；`sell_minor`、`settlement_minor` = **最终**价；最终价的组成在 `quote_route_charges`。
+- 读取点逐个处理：
+
+| 位置 | 现在读什么 | 按行程报价时 |
+| --- | --- | --- |
+| `services/orders.ts` 第 292–310 行（车型、免费等待、`packageHours`） | `winner.offer` | 不改：winner 已是最终中标候选 |
+| `services/orders.ts` 第 326–328 行（订单结算价、明细） | `winner.offer.settlement.totalMinor` / `settlement` | 结算价改读 `quote_route_charges.final_settlement_minor`（有这一行时）；明细仍是 `winner.offer.settlement`，另附 `routeCharge` |
+| `services/orders.ts` 第 347–350 行（`order_sales`） | `winner.sell.sellMinor`、`markupBp`、`fx`、`fxBufferBp` | `sellMinor` 改读 `quote_route_charges.final_sell_minor`；加价比例、汇率仍读 `winner.sell`（同一个候选） |
+| `services/orders.ts` 第 353 行（Stripe 金额） | `winner.sell.sellMinor` | 改读最终对外价 |
+| `services/order-queries.ts` 第 172–174 行（订单用的区域） | `snapshot.winner` 的租户、商品是否等于订单的 | 不改：两者都是最终中标候选，比对通过（集成测试） |
+| `services/order-changes.ts` 第 268 行（改期用的渠道取整规则） | `winner.sell.channel` | 不改：同一候选；改期金额按第四节第 3 小节重算 |
+| `routes/orders.ts` 第 177 行（区域加价对外参考） | `winner.sell.areaSurcharge` | 不改 |
+| `routes/quotes.ts` 第 209 行（运营报价试算） | 引擎 `group.snapshot.winner` | 不改：运营试算走引擎原流程，不是按行程 |
+| `repos/site.ts` `findQuotePackageKm` | 按 `quotes.winner_tenant_id` + 快照 `priceRuleId` 读当前规则 | 按行程和按时长包车都改读 `quote_route_charges.package_km`（锁定值） |
+| `services/sales-quotes.ts` 第 146–161、244、262–263、328–336 行 | 引擎快照 | 不改：按行程报价用新的存储函数；`/sales/v1` 和普通官网报价的路径完全不变 |
+| 救援改派 `services/rescues.ts` | 引擎 `group.ranked`（按套餐价） | 按行程的单：对接手候选用同一函数算最终结算价、**按最终价排序**（和原单中标口径一致），差价按最终结算价算 |
+
+- 集成测试：R6（只有 8 小时套餐，甲套餐价低、超公里贵，乙最终价低）→ 订单落在乙：`orders.tenant_id` = 乙，订单结算价 = 乙的 50,000 + 乙的超公里 8,000 = 58,000，Stripe 金额 63,800；`order-queries` 的「同一个中标」比对通过（`pricing_route` 不为 null 的情形照旧可读）。R2 → 订单 `package_hours` = 10。
+- `/sales/v1` 不受影响：渠道接口不提供按行程报价，询价、下单、快照读取都是原路径。
+- ADR 0033 生效前试算（按快照重算候选的对外价）：**排除按行程的报价**（`quotes.itinerary_id` 指向 `charter_route` 的行程，或有 `quote_route_charges.final_sell_minor`），试算结果里单独列「按行程报价 N 条，未试算」——快照里的价格含超时超公里，试算只会重算套餐部分，算出来会误导。
 
 ### 4. 例子（与需求 03 R 系列同一组数，加价 10%、同币种、取整单位 1）
 
@@ -69,7 +98,7 @@
 
 - 调价规则、夜间费只作用于套餐部分；超时费、超公里费按规则单价原价算（和事后补收一致）。夜间费按套餐时长算（引擎现有），超时部分不另算夜间费。
 - 最终价按谷歌不含路况的路线和客人填的停留锁定；当天路况慢了不另收，只有客人自己延长停留、改线路使实际超出锁定的时长 / 公里才补收（第四节第 4 小节）。
-- 性能：一次按行程询价 = 最多 9 段路线（缓存命中不花钱）+ 一次取数 + 最多 4 轮引擎计算 + 每个候选三次 `basePrice`。目标 P95 ≤ 1.2 秒（不含谷歌首次调用），M9-03 的 PR 里用 4 个套餐 × 现有基准数据量实测并写进 PR。限速只计一次（和官网询价共用每地址每分钟 30 次）。
+- 性能：一次按行程询价 = 最多 9 段路线（缓存命中不花钱）+ 一次取数 + 最多 6 轮引擎计价（通常 4 轮）+ 每个商品每轮一次轻量 `compareQuotes` + 每个候选三次 `basePrice`。目标 P95 ≤ 1.2 秒（不含谷歌首次调用），M9-03 的 PR 里用 6 个套餐 × 现有基准数据量实测并写进 PR。限速只计一次（和官网询价共用每地址每分钟 30 次）。
 
 ### 6. 被否的方案
 
@@ -119,7 +148,7 @@
 ```
 
 - 地点 2–10 个，名称 1–240 字，坐标最多 6 位小数；停留规则同第二节；区间（`tab: transfer`）正好 2 个地点、没有停留。
-- **不含价格、报价编号、任何客人个人信息**：JSON Schema `additionalProperties: false`，只有上面这些键；姓名、电话、邮箱在 `/book` 填，不进草稿（集成测试：多给一个 `passenger` 键 400）。地点是客人选的地址，和订单上下车地址同一口径（ADR 0055）。
+- **不含价格、报价编号、任何客人个人信息**：JSON Schema `additionalProperties: false`，只有上面这些键；姓名、电话、邮箱在 `/book` 填，不进草稿（集成测试：多给一个 `passenger` 键 400）。地点是客人选的地址，和订单上下车地址同一口径（ADR 0055）。**已知限制**：地点名称是自由文本（客人可以手打），可能被填进电话、姓名；不做内容识别（误判多、收益小），靠 2 小时过期删除兜底，组件和 `/book` 的地址框提示「只填地点」。
 - **为什么 2 小时**：客人从合作网站跳过来后要比价、选车、填信息、付款（报价 30 分钟有效、待支付 30 分钟），中间可能刷新、退回改条件，2 小时足够；更长只是让坐标多留在库里。2 小时也就是来源归属的窗口（第 4 小节）。常量 `BOOKING_DRAFT_TTL_MINUTES = 120`，需求 Q16。
 - 有效期内可以重复打开（刷新页面、退回再进都行），不是「用一次就失效」。
 - **清理任务** `BookingDraftRetentionJobs`（同 ADR 0076 的做法）：启动 20 秒后第一次，之后每小时一轮；每轮最多 10 批、每批 500 行；一批一个事务，先抢事务级 advisory lock，抢不到跳过；`delete … where expires_at < now()`，`for update skip locked`。数据库角色 `nozomi_platform`：`booking_drafts` 只给 `select, insert, delete`（不给 `update`：草稿写入后不改）；租户角色 `nozomi_app` 没有任何权限。
@@ -128,7 +157,7 @@
 
 | 接口 | 规则 |
 | --- | --- |
-| `POST /embed/v1/booking-drafts?key=nze_…`（组件跨域调用） | `Origin` 规范化后与这个嵌入码白名单某项**完全相等**才处理；`Origin: null`、缺 `Origin`、不在白名单、嵌入码不存在或停用 → 403 `EMBED_ORIGIN_NOT_ALLOWED`，不带 CORS 头。请求体 `{ draft, return_url }`：`Content-Length` > 16 KB 在解析前 413；`draft` 按 `bookingDraftIssues` **逐项严格校验**（任何一项不合格 400，和 `/book` 同一份规则）；`return_url` 不合格时忽略（不报错，不存）。成功 201 `{ id, expires_at }` + `Access-Control-Allow-Origin: <origin>`、`Vary: Origin`。限速：每个来源地址 10 分钟 30 次（IPv6 按 /64）、每个嵌入码每分钟 300 次，超限 429。`Content-Type: application/json` 会触发预检：`OPTIONS` 同样按 `key`（在查询串里）+ `Origin` 核对，只回 `Access-Control-Allow-Methods: POST`、`Access-Control-Allow-Headers: content-type`、`Access-Control-Max-Age: 600`；不开 `Access-Control-Allow-Credentials` |
+| `POST /embed/v1/booking-drafts?key=nze_…`（组件跨域调用） | `Origin` 规范化后与这个嵌入码白名单某项**完全相等**才处理；`Origin: null`、缺 `Origin`、不在白名单、嵌入码不存在或停用 → 403 `EMBED_ORIGIN_NOT_ALLOWED`，不带 CORS 头。请求体 `{ draft, return_url }`：`Content-Length` > 16 KB 在解析前 413；`draft` 按 `bookingDraftIssues` **逐项严格校验**（任何一项不合格 400，和 `/book` 同一份规则）；`return_url` 不合格时忽略（不报错，不存）。成功 201 `{ id, expires_at }` + `Access-Control-Allow-Origin: <origin>`、`Vary: Origin`。限速：每个来源地址 10 分钟 30 次（IPv6 按 /64）、每个嵌入码每分钟 60 次，超限 429 `RATE_LIMITED`；另外每个嵌入码**有效（未过期）草稿最多 5,000 条**（常量 `BOOKING_DRAFT_LIMITS.activePerKey`），满了 429 `EMBED_DRAFT_LIMIT`，等旧草稿过期（2 小时内）自然恢复——防止有人伪造 `Origin` 用一个嵌入码把表刷大：一个嵌入码最多占 5,000 × 16 KB ≈ 80 MB。`Content-Type: application/json` 会触发预检：`OPTIONS` 同样按 `key`（在查询串里）+ `Origin` 核对，只回 `Access-Control-Allow-Methods: POST`、`Access-Control-Allow-Headers: content-type`、`Access-Control-Max-Age: 600`；不开 `Access-Control-Allow-Credentials` |
 | `GET /site/v1/booking-drafts/{id}`（同源，`/book` 读取） | 200 `{ draft, expires_at }`（不返回嵌入码编号、来源、`return_url`）；**过期和不存在都是 404 `BOOKING_DRAFT_NOT_FOUND`，不区分**；id 格式不对也 404；每个地址每分钟 60 次。不带任何 CORS 头 |
 
 `/book?draft=<id>`：读到就预填并自动询价；404 时显示「链接已过期，请重新填写」并留空白表单。旧链接参数（`from`、`to`、`date`、`time`、`pax`、`bags`、`mode`）照旧。M8-05 之前 `/book` 带 `draft` 时转到新预订页。
@@ -156,7 +185,7 @@
 
 `quote_route_charges`（`quote_id` 主键、外键 `on delete cascade`）——**询价时锁定**：H、含公里、两项结算单价和结算币种、两项对外单价参考；按行程才有的：T、D、超时分钟、超出米数、超时结算项、超公里结算项、X、Y、最终结算价、最终对外价、按最终价重排后的候选（`tenantId`、`productId`、H、套餐部分对外价、Y、最终对外价、`rankPrice`、`inBand`、`position`）。普通 `POST /site/v1/quotes` 的包车也写（只有单价，给 `post_service_rates`），之后都读这里，不读当前规则。跟报价保留，没有地点和个人信息。
 
-`quotes.sell_minor`、`quotes.settlement_minor` 存**最终**价；引擎快照（`snapshot.winner`）照旧是套餐部分，最终价的组成在 `quote_route_charges` 里。
+`quotes.sell_minor`、`quotes.settlement_minor` 存**最终**价；快照的 `winner` 是按最终价中标的候选（它的 `offer`、`sell` 是套餐部分），最终价的组成在 `quote_route_charges` 里；存法和各读取点见第二节第 3a 小节。
 
 清理任务 `RouteItineraryRetentionJobs` 做法同第三节第 2 小节；`nozomi_platform` 对 `route_itineraries` 只有 `select, insert, delete`，对 `quote_route_charges` 只有 `select, insert`；`on delete set null` 由 `quotes` 表主执行，不用加 `update` 权限。集成测试用 `nozomi_platform` 跑一轮，核对行程被删、报价在、`itinerary_id` 为 null、订单行程不变。
 
@@ -181,7 +210,8 @@
 | 下单付款 | Stripe 收 `order_sales.sell_minor` = 最终对外价 |
 | 取消 | ADR 0029：客人扣「对外价 × M%」、供应商得「结算价 × M%」，用的是订单上的对外价和结算价 → 自动按最终价算；退款 = 实际付了的 − 取消费 |
 | 改期 | ADR 0029「同一商品重新报价」：套餐部分照旧由引擎按新时间报；`locked` 的分钟、米数不变（行程不变），两项单价从同一商品当前规则重读（和套餐价一样是「重新报价」），超出部分按第二节同一函数重算；新最终价与旧的差价走 ADR 0029 现有的补收 / 退差价。时间表整体平移。改途经点、停留不在线改：联系客服或取消重下 |
-| 救援改派 | ADR 0031 在服务层用 `group.ranked` 找下一家（`services/rescues.ts` 第 397 行）：按行程的单用同一个函数算接手供应商的最终结算价，差价按最终结算价算（M9-03 的范围） |
+| 救援改派 | ADR 0031 在服务层用 `group.ranked` 找下一家（`services/rescues.ts` 第 397 行）：按行程的单对接手候选用同一个函数算最终结算价，**按最终价排序**（和原单中标同一口径），差价按最终结算价算（M9-03 的范围） |
+| ADR 0033 生效前试算 | 排除按行程的报价，单独列条数（见第二节第 3a 小节） |
 | 账单 | ADR 0040 按订单结算价出账 → 含 X |
 | 供应商看到的 | 结算价（含超时、超公里两项和单价、数量）；没有对外价（规则 4） |
 
@@ -189,7 +219,10 @@
 
 - 可补收的量：超时分钟 = 实际 − max(H × 60, T)；超公里 = 实际 − max(含公里 × 1000, D)。客人已经为 T、D 付过钱，只有超过它们（且超过套餐）的部分才补。
 - 走现有流程（ADR 0029、0070）：供应商在服务结束 24 小时内提交 `charter_overtime` / `charter_over_km`，客人 48 小时内可提异议，到期用 Stripe 保存的支付方式离线扣款；单笔超过对外价 50%、无凭证、有异议转人工审核。
-- 最小补充（M9-03b）：供应商后台提交事后加收时，按行程的单显示锁定的 T、D、H、含公里和两项结算单价，写明「只收超出锁定部分」；金额仍由供应商填，规则不变。
+- 最小补充（M9-03b 页面、M9-03 接口；`packages/domain/src/extra-charges.ts` 和 `apps/api`，不碰引擎）：
+  - 供应商后台提交事后加收时，按行程的单显示锁定的 T、D、H、含公里和两项结算单价，写明「只收超出锁定部分」；金额仍由供应商填。
+  - 新审核原因 `ROUTE_LOCKED_USAGE`（加进 `EXTRA_CHARGE_REVIEW_REASONS`）：按行程的单提交 `charter_overtime`、`charter_over_km` 时**一律转人工审核**，不在异议期后自动扣款——平台核对它只收了超出锁定的部分。
+  - 运营审核页对这类加收显示锁定的 T、D、H、含公里、两项结算单价，以及按供应商填的实际量算出的「可补的量」（实际 − max(H × 60, T) 分钟、实际 − max(含公里 × 1000, D) 米）和按同一公式算的参考金额。
 - 「付款链接、客人不付由司机现场收现金」**现有流程没有**：ADR 0069 第二批确认 ② 只是方案，只针对支付宝 / 微信订单，随 M8-07 做（受阻）；现有代码写着平台订单不收现金（`extra-charges.ts` 第 9、12 行）。本期不做，列为需求 Q15（推荐：M9 沿用离线扣款，付款链接和现金按 ADR 0069 ② 另立任务）。
 
 ## 五、接口变化（只加，不改已有字段；`/sales/v1` 不变）
@@ -274,9 +307,9 @@
 
 | 层 | 内容 |
 | --- | --- |
-| domain 单元 | `route-charter.test.ts`：候选套餐（超时正好 120 / 121 分、最多 4 个、列表为空）、超时 / 超公里与 `basePrice` 差值一致、两项相加后只取整一次、尾差计入超公里、JPY / CNY / USD、渠道取整单位向上、2 倍含公里正好 / 多 1 米、第二节第 4 小节三个例子、时间表跨午夜 / 跨两天 / 夏令时、输入校验每个原因码；`booking-draft.test.ts`：10 个地点 × 240 字名称 ≤ 16 KB、多余键、个人信息键被拒、区间 / 包车的地点数；`embed-origin.test.ts`、`embed-return-url.test.ts`：第六节全部用例 |
+| domain 单元 | `route-charter.test.ts`：候选套餐（超时正好 120 / 121 分、按 2 倍含公里预筛、取 4 个、补试到 6 轮、列表为空；城市 2、3、4、5、8、10 小时、T = 130 分、D = 300 公里时预筛后只试 8、10 小时，不误判 `ROUTE_TOO_FAR`）、最终价超过 `exceedsSettlementLimit` 的候选被排除、超时 / 超公里与 `basePrice` 差值一致、两项相加后只取整一次、尾差计入超公里、JPY / CNY / USD、渠道取整单位向上、2 倍含公里正好 / 多 1 米、第二节第 4 小节三个例子、时间表跨午夜 / 跨两天 / 夏令时、输入校验每个原因码；`booking-draft.test.ts`：10 个地点 × 240 字名称 ≤ 16 KB、多余键、个人信息键被拒、区间 / 包车的地点数；`embed-origin.test.ts`、`embed-return-url.test.ts`：第六节全部用例 |
 | 引擎不变 | `quote-compat` 888 个样例逐分一致；M9 每个 PR 的文件列表里没有 `quote.ts`、`pricing.ts` |
-| 集成（真实 PostgreSQL，谷歌替身） | 按行程最终价 = 中标候选的引擎对外价 + Y，且套餐部分 = 同条件 `POST /site/v1/quotes`（包车 H）逐分一致；按最终价重排（造一个套餐价低、超公里贵的供应商，确认它不中标）；Stripe 金额 = 最终价；取消费按最终价；改期重算；救援差价按最终结算价；`/tenant/v1` 有 `routeCharge`、扫键无对外金额和来源字段；租户 A 读不到 B；草稿：白名单 / null / 缺 Origin、预检、16 KB、限速、过期和不存在同 404、重复打开、清理任务角色；行程清理；模型线路、嵌入码权限矩阵、`If-Match` 409、审计；`/site/v1` 永不带 CORS |
+| 集成（真实 PostgreSQL，谷歌替身） | 按行程最终价 = 中标候选的引擎对外价 + Y，且套餐部分 = 同条件 `POST /site/v1/quotes`（包车 H）逐分一致；按最终价重排（R6：订单落在乙，`orders.tenant_id` = 乙、订单结算价 58,000、Stripe 63,800、`order-queries` 同一中标比对通过；R2：订单 `package_hours` = 10）；同一供应商两个商品、套餐价低的那个超公里贵时，另一个商品仍参加并可中标（逐商品调 `compareQuotes`）；Stripe 金额 = 最终价；`/sales/v1` 询价下单回归不变；ADR 0033 试算排除按行程报价；按行程单的超时 / 超公里加收进 `ROUTE_LOCKED_USAGE` 审核；草稿每嵌入码每分钟 60 次、有效草稿 5,000 条上限；取消费按最终价；改期重算；救援差价按最终结算价；`/tenant/v1` 有 `routeCharge`、扫键无对外金额和来源字段；租户 A 读不到 B；草稿：白名单 / null / 缺 Origin、预检、16 KB、限速、过期和不存在同 404、重复打开、清理任务角色；行程清理；模型线路、嵌入码权限矩阵、`If-Match` 409、审计；`/site/v1` 永不带 CORS |
 | 前端组件 | `/book` 按行程（途经点、停留、时间表、最终价明细、转人工）；`?draft=` 预填和过期提示；模型线路预填；运营后台两个页面；订单页、供应商详情（含补收提交的锁定值）、司机页 |
 | 端到端 | 两个本机 origin（白名单内、外）的宿主页：白名单的建草稿 → 跳 `/book?draft=` → 报价 → 付款（假 Stripe）；非白名单显示未授权；宿主页全红样式不影响组件；320 px、axe |
 | 测试环境验收 | 见 M9-05 |
@@ -289,8 +322,8 @@
 | --- | --- | --- | --- | --- |
 | M9-01 | 产品 | 本篇、需求 03、roadmap | — | 独立审查通过 |
 | M9-02 | 后端 + 前端（同一个 PR，后端先做） | 统一订单格式：`BookingDraft` 类型和校验、`booking_drafts` 表和读取接口、清理任务、`/book?draft=`、订单行程和来源列、订单应答加字段 | M9-01 | 需求 03 F1–F3、F5、F10–F12（草稿用测试直接写入；建草稿接口随 M9-04） |
-| M9-03 | 后端 | 按行程询价（候选套餐、最终价、按最终价排序）、`quote_route_charges`、`route_itineraries`、订单和结算价明细、取消 / 改期 / 救援 / 账单按最终价、人工报价带途经点 | M9-02 | 需求 03 R1–R20 接口部分 |
-| M9-03b | 前端 | `/book` 按行程页面、最终价明细、订单页、供应商详情（含补收提交显示锁定值）、司机页 | M9-03 | R 系列页面部分 |
+| M9-03 | 后端 | 按行程询价（预筛候选套餐、逐商品对外价、最终价、按最终价排序、上限检查）、存库快照换成最终中标候选及第二节第 3a 小节各读取点、`quote_route_charges`、`route_itineraries`、订单和结算价明细、取消 / 改期 / 救援（按最终价排序）/ 账单按最终价、ADR 0033 试算排除、`ROUTE_LOCKED_USAGE` 审核原因、人工报价带途经点 | M9-02 | 需求 03 R1–R20、R24–R26 接口部分 |
+| M9-03b | 前端 | `/book` 按行程页面、最终价明细、订单页、供应商详情（含补收提交显示锁定值）、运营加收审核页（锁定值和可补的量）、司机页 | M9-03 | R 系列页面部分 |
 | M9-03c | 后端 + 前端（同一个 PR） | 模型线路 | M9-03b | R21–R23 |
 | M9-04 | 后端 + 前端（同一个 PR） | 嵌入码与白名单、运营后台生成代码、`/embed/v1` 配置 / 地址提示 / 建草稿的 CORS、`return_url` 校验、来源归属、路由同步、smoke ①～③ | M9-02 | F4、F6–F9、E2–E4、E8–E10、E13、E14 |
 | M9-04b | 前端 | `widget-v1.js`：init、两个标签、Shadow DOM、点「查询价格」先建草稿再跳 `/book?draft=`、未授权提示、大小预算 | M9-04、M9-03b | E1、E5–E7、E11、E12、E15 |
