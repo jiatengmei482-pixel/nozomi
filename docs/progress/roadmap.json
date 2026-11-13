@@ -1025,9 +1025,9 @@
           "id": "M9W-01",
           "title": "包车途经加价·后端：价格规则加「途经加价」、报价请求加经停点、引擎累加、简单价格明细、供应商后台加列",
           "role": "backend",
-          "status": "doing",
+          "status": "review",
           "acceptance": ["按 ADR 0088：charter_area_surcharge 规则 params 加可选 waypointSurchargeMinor（没设 = 没有规则）；/tenant/v1 价格规则接口、导入导出（旧模板照旧能导入）、供应商后台「区域加价」表加「途经加价」列和批量设置", "POST /site/v1/quotes 包车加可选 waypoints（名称、坐标、停留分钟，≤10）；随 snapshot.request 锁定；救援改派补传经停点", "订单加 waypoints jsonb 列（一个迁移，可空，不回填），下单时从 snapshot.request.waypoints 写入，加进订单现有的不可改列触发器；供应商订单详情、司机端从这一列读；经停点的租户隔离集成测试（租户 A 读不到 B 的、司机链接只能读自己那单）", "引擎：经停点过运营 / 禁行判断；重叠取最高归一个区域；同区一次；已因上 / 下车计价的区域不再加；在商品区域内不加；哪里都不在报 WAYPOINT_NOT_PRICED；合计并进现有加价，调价照旧作用在合计上；结算价明细 areaSurcharge 加 waypoints；/site/v1 应答加 price_breakdown（对外价，各项之和等于总价）", "不带经停点时报价、明细、快照与现在完全一致：改引擎前在 main 上生成「包车带加价区域」golden，改后逐分一致；area-surcharge.test.ts 原样通过；部署前后测试站回放（同一 until、天数）stateDigest 相同且 resultDigest 相同", "需求 charter-waypoint-surcharge.md 13.9 的 8 条（第 8 条按取消重下验证）和 13.4 算例做成测试；租户隔离；/tenant/v1 只给结算价", "独立审查、合并、部署后测试站验收（QA 测试供应商）"],
-          "evidence": "",
+          "evidence": "分支 m9w-01-waypoint-engine（未开 PR）。golden 先于引擎改动单独提交（8c8b979c，2548 个样例，改引擎后逐字段一致）；本机：packages 单元 1594、api 单元 591（0 失败）、前端价格页组件 92、契约 114、相关集成 29 个文件 402 条（含新增 charter-waypoints.itest.ts 8 条，13.4 五个算例、13.9 八条、按行程计价、导入导出往返、租户隔离、司机页）全部通过；全套以 CI 为准",
           "updated": "2026-11-13"
         },
         {
@@ -2156,6 +2156,11 @@
       "date": "2026-11-13",
       "by": "Claude",
       "summary": "业主要求包车「途经加价」第一期从简：只加经停点和途经加价一列，不填经停点时报价完全不变（ADR 0088，方案原文 docs/requirements/charter-waypoint-surcharge.md）；新增 M9W-00 回放摘要、M9W-01 后端、M9W-02 下单页、M9W-03 订单与司机端；#186（M9 大方案）暂不合并。"
+    },
+    {
+      "date": "2026-11-13",
+      "by": "backend",
+      "summary": "M9W-01 后端完成待验收：价格规则加可选「途经加价」（没设 = 没有规则），引擎按 ADR 0088 累加途经加价（同区一次、上下车已计价不再加、哪都不在报 WAYPOINT_NOT_PRICED）；业主定的最终报价公式同步实现——官网包车可按行程计价（服务器逐段估路线、按行驶 + 停留总时长选套餐、收超公里 / 超时），price_breakdown 逐项列出、各项之和等于总价；订单加 waypoints 列（迁移 0370，下单后不能改），供应商 / 运营详情、司机页能读到；供应商后台区域加价表加「途经加价」列和批量设置。不带经停点时报价逐分不变（golden 2548 个样例在改引擎前生成）。"
     }
   ]
 }
