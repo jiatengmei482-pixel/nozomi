@@ -220,6 +220,17 @@ test("复制成反方向（建返程）：默认选好反方向；按比例上�
   assert.deepEqual([created[0]?.["area_id"], created[0]?.["to_area_id"], created[0]?.["base_price"], created[0]?.["included_km"], created[0]?.["over_km_per_km"]], [NARITA, TOKYO, 19800, 60, 250]);
 });
 
+test("复制对话框的车型组按页面上车型组的顺序（舒适五座在前），不随服务器给的顺序或改过哪一行而变（M8-12 验收观察 3）", async () => {
+  const actor = user();
+  // 页面内部按生效日期、编号排行：商务七座那条的编号排在前面（验收时改过一条以后就成了这样）
+  open("admin", pricesOf([...AREA_RULES, routePrice(), routePrice({ id: "00000000-0000-4000-8000-00000000b17e", vehicle_group_id: BUSINESS })]));
+  await block();
+  await actor.click(screen.getByRole("button", { name: "复制线路「东京 23 区 → 成田周边」" }));
+  const dialog = await screen.findByRole("dialog", { name: "复制线路：东京 23 区 → 成田周边" });
+  const group = within(dialog).getByRole("group", { name: "复制哪些车型组" });
+  assert.deepEqual(within(group).getAllByRole("checkbox").map((box) => box.closest("label")?.textContent), ["全部（2 个）", "舒适五座", "商务七座"]);
+});
+
 test("改一条已有的线路价：update 带着下车区域和含公里数（不会被当成区域价）", async () => {
   const actor = user();
   const calls = open("admin", pricesOf([...AREA_RULES, routePrice()]), (call) => (call.method === "POST" && call.url.pathname === `${BASE}/price-rules/batch` ? json(200, { ...pricesOf([...AREA_RULES, routePrice({ base_price: 19000 })], 8), created_ids: [] }) : null));
