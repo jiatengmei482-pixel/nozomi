@@ -28,22 +28,26 @@ let pending: { source: InputSource; path: string; key: string | null } | null = 
 
 /** 触发换步的处理函数里调用：`to` 是要去的地址。 */
 export function markStepChange(source: InputSource, to: string): void {
-  pending = { source, path: new URL(to, window.location.href).pathname, key: null };
+  // 站内地址直接截掉查询和锚点（不拿 window.location 作基准：它可能是 about:blank 之类，new URL 会抛错，换步就断了）
+  const path = to.startsWith("/") ? (to.split(/[?#]/)[0] ?? to) : new URL(to).pathname;
+  pending = { source, path, key: null };
 }
 
-/** 只给测试用：清掉记下的换步。 */
-export function resetStepChange(): void {
+/** 记下的换步没有发生（离开确认里点了「继续编辑」、关掉了对话框）：清掉，免得被后面别的导航拿去用。 */
+export function clearStepChange(): void {
   pending = null;
 }
 
 /**
  * 这一次导航带没带输入方式。地址是记下的那个（或它下面的步骤：从列表点进 `/products/{id}`，再转到第一个没完成的步骤）才算；
- * 同一次导航可以取多次（开发模式下副作用会跑两遍），换了导航就不算了。
+ * 同一次导航可以取多次（开发模式下副作用会跑两遍）。对不上的（后退 / 前进、去了别的地址、已经换了导航）一律 unknown，并清掉记录，不留给以后。
  */
 export function navigationSource(location: { pathname: string; key: string }, type: `${NavigationType}`): FocusSource {
-  if (type === "POP" || pending === null) return "unknown";
-  if (pending.key === null && (location.pathname === pending.path || location.pathname.startsWith(`${pending.path}/`))) pending.key = location.key;
-  return pending.key === location.key ? pending.source : "unknown";
+  if (pending === null) return "unknown";
+  if (type !== "POP" && pending.key === null && (location.pathname === pending.path || location.pathname.startsWith(`${pending.path}/`))) pending.key = location.key;
+  if (type !== "POP" && pending.key === location.key) return pending.source;
+  pending = null;
+  return "unknown";
 }
 
 /**
@@ -56,7 +60,7 @@ export function useLinkStepSources(enabled = true): void {
     const onClick = (event: MouseEvent): void => {
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       const anchor = event.target instanceof Element ? event.target.closest("a[href]") : null;
-      if (!(anchor instanceof HTMLAnchorElement) || anchor.target === "_blank") return;
+      if (!(anchor instanceof HTMLAnchorElement) || anchor.target === "_blank" || anchor.hasAttribute("download")) return;
       const url = new URL(anchor.href, window.location.href);
       if (url.origin !== window.location.origin) return;
       markStepChange(inputSourceOf(event), url.pathname);

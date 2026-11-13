@@ -13,11 +13,11 @@ import type { AreaSummary } from "../../api/areas.ts";
 import type { Addon, City, Place, VehicleGroup } from "../../api/master.ts";
 import type { Brand, Product, ProductServiceRules, ProductSummary, PublishCheckItemBody, PublishCheckResult, ServiceRulesBody } from "../../api/products.ts";
 import { type ApiCall, apiError, assertAbsent, assertFocused, json, resetBrowser, signIn, stubApiWith } from "../../testing/harness.tsx";
-import { resetStepChange } from "./step-title.tsx";
+import { clearStepChange } from "./step-title.tsx";
 
 afterEach(() => {
   resetBrowser();
-  resetStepChange();
+  clearStepChange();
 });
 
 const stamps = { created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-02T03:04:00.000Z" };
@@ -969,4 +969,27 @@ test("M6-10「载入最新内容」后焦点回到标题：按点这个按钮的
     assertFocused(titleNamed("① 基础信息"));
     assert.equal(focusSource(titleNamed("① 基础信息")), way);
   }
+});
+
+/** 不经过页面上的链接和按钮、也没有记下输入方式的一次导航（PUSH） */
+function GoWithoutMark({ to }: { to: string }) {
+  const navigate = useNavigate();
+  return (
+    <span hidden>
+      <button type="button" data-testid="go-without-mark" onClick={() => void navigate(to)} />
+    </span>
+  );
+}
+
+test("M6-10 离开确认里点「继续编辑」或关掉对话框：被拦下的那次点击记下的「鼠标」作废，之后没有记录的导航按 unknown 画框", async () => {
+  const actor = user();
+  open(`/products/${PRODUCT_ID}/basic`, "admin", productRoutes({}), <GoWithoutMark to={`/products/${PRODUCT_ID}/content`} />);
+  await actor.type(await screen.findByLabelText("第 1 个调度人的姓名"), "二");
+  await actor.click(stepLink(/商品详情/));
+  await actor.click(within(await screen.findByRole("dialog", { name: "这一步有未保存的修改" })).getByRole("button", { name: "继续编辑" }));
+  await actor.click(stepLink(/商品详情/));
+  await actor.click(within(await screen.findByRole("dialog", { name: "这一步有未保存的修改" })).getByRole("button", { name: "关闭" }));
+  await waitFor(() => assertAbsent(screen.queryByRole("dialog", { name: "这一步有未保存的修改" })));
+  await actor.click(screen.getByTestId("go-without-mark"));
+  assert.equal(focusSource(await focusedTitle("⑤ 商品详情")), "unknown");
 });

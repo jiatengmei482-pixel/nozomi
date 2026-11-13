@@ -17,7 +17,7 @@ import { PRODUCT_FORBIDDEN_TEXT, type ServerIssue, saveFailureText, serverIssues
 import { PRODUCT_LIST_PATH, type ProductStepSlug, productPath } from "../../lib/product-paths.ts";
 import { useLeaveGuard } from "../../lib/use-leave-guard.ts";
 import { type ProductFrame, type StepProblem, focusAnchor } from "./frame.ts";
-import { type InputSource, StepTitle, inputSourceOf, markStepChange, useStepTitleFocus } from "./step-title.tsx";
+import { type InputSource, StepTitle, clearStepChange, inputSourceOf, markStepChange, useStepTitleFocus } from "./step-title.tsx";
 
 const LOCKED_FIELD_NAMES: Readonly<Record<string, string>> = { brand_id: "子品牌", city_id: "城市", category: "品类", poi_id: "接送点" };
 
@@ -328,10 +328,17 @@ export function StepShell({
         open={leaving !== null}
         title="这一步有未保存的修改"
         busy={saving === "leave"}
-        onClose={() => setLeaving(null)}
+        onClose={() => {
+          // 留下：被拦下的那次点击记下的换步没有发生
+          clearStepChange();
+          setLeaving(null);
+        }}
         footer={
           <>
-            <Button variant="text" data-autofocus disabled={busy} onClick={() => setLeaving(null)}>
+            <Button variant="text" data-autofocus disabled={busy} onClick={() => {
+                clearStepChange();
+                setLeaving(null);
+              }}>
               继续编辑
             </Button>
             <Button

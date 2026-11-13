@@ -25,7 +25,7 @@ import { moneyText } from "../../../lib/product-display.ts";
 import { PRODUCT_FORBIDDEN_TEXT, saveFailureText, serverIssues } from "../../../lib/product-failure.ts";
 import { useLeaveGuard } from "../../../lib/use-leave-guard.ts";
 import { focusAnchor } from "../frame.ts";
-import { type InputSource, inputSourceOf, markStepChange } from "../step-title.tsx";
+import { type InputSource, clearStepChange, inputSourceOf, markStepChange } from "../step-title.tsx";
 import type { PricesShared } from "./PricesStep.tsx";
 
 interface ListNotice {
@@ -527,10 +527,17 @@ export function AdjustRulesTab({ shared, loadStatus }: { shared: PricesShared; l
         open={leaving !== null}
         title="顺序改了，还没有保存"
         busy={working === "order"}
-        onClose={() => setLeaving(null)}
+        onClose={() => {
+          // 留下：被拦下的那次点击记下的换步没有发生
+          clearStepChange();
+          setLeaving(null);
+        }}
         footer={
           <>
-            <Button variant="text" data-autofocus disabled={working !== null} onClick={() => setLeaving(null)}>
+            <Button variant="text" data-autofocus disabled={working !== null} onClick={() => {
+                clearStepChange();
+                setLeaving(null);
+              }}>
               继续编辑
             </Button>
             <Button

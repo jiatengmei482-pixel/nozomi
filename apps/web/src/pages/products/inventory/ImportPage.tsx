@@ -32,6 +32,7 @@ import { CURRENCY_NAMES, checkItemName, checkReasons, isUnavailable } from "../.
 import { PRODUCT_FORBIDDEN_TEXT } from "../../../lib/product-failure.ts";
 import { inventoryPath, pricePath } from "../../../lib/product-paths.ts";
 import type { ProductFrame } from "../frame.ts";
+import { inputSourceOf, markStepChange } from "../step-title.tsx";
 import { useDownload } from "./useDownload.tsx";
 
 type Kind = "prices" | "inventory";
@@ -318,7 +319,15 @@ export function ImportPage({ kind, frame, product }: { kind: Kind; frame: Produc
           </Alert>
         </div>
         <div className="import-page__actions">
-          <Button variant="primary" onClick={() => void navigate(kind === "inventory" && done.date !== null ? `${back}?month=${done.date.slice(0, 7)}` : back, kind === "inventory" && done.date !== null ? { state: { inventoryDate: done.date } } : {})}>{`回到${backName}`}</Button>
+          <Button
+            variant="primary"
+            onClick={(event) => {
+              const to = kind === "inventory" && done.date !== null ? `${back}?month=${done.date.slice(0, 7)}` : back;
+              // 回到那一步时标题的聚焦框按这一下是鼠标还是键盘（M6-10）
+              markStepChange(inputSourceOf(event), to);
+              void navigate(to, kind === "inventory" && done.date !== null ? { state: { inventoryDate: done.date } } : {});
+            }}
+          >{`回到${backName}`}</Button>
           <Button
             variant="secondary"
             onClick={() => {

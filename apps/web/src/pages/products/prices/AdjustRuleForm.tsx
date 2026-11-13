@@ -44,7 +44,7 @@ import { tidyDate, tidyTime } from "../../../lib/time-input.ts";
 import { useLeaveGuard } from "../../../lib/use-leave-guard.ts";
 import { useLoad } from "../../../lib/use-load.ts";
 import { focusAnchor } from "../frame.ts";
-import { inputSourceOf, markStepChange } from "../step-title.tsx";
+import { clearStepChange, inputSourceOf, markStepChange } from "../step-title.tsx";
 import { TOO_LARGE_TEXT, nonPositiveCount, resultTooLarge } from "./AdjustRulesTab.tsx";
 import type { CalendarHandoff } from "./CalendarTab.tsx";
 import type { PricesShared } from "./PricesStep.tsx";
@@ -1029,10 +1029,17 @@ export function AdjustRuleForm({ shared, ruleId }: { shared: PricesShared; ruleI
       <Dialog
         open={leaving !== null}
         title="这条调价规则有未保存的修改"
-        onClose={() => setLeaving(null)}
+        onClose={() => {
+          // 留下：被拦下的那次点击记下的换步没有发生
+          clearStepChange();
+          setLeaving(null);
+        }}
         footer={
           <>
-            <Button variant="text" data-autofocus onClick={() => setLeaving(null)}>
+            <Button variant="text" data-autofocus onClick={() => {
+                clearStepChange();
+                setLeaving(null);
+              }}>
               继续编辑
             </Button>
             <Button
