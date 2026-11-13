@@ -2,10 +2,11 @@
  * 只读回放的摘要值（M8-34 补充，ADR 0086）：引擎改动（如包车「途经加价」）部署前后各在测试环境回放一次（同一个截止时间 `until`、同样的天数），比较摘要。
  *
  * - `resultDigest`：每条「询价 × 候选商品」写成一行：询价日志编号、商品编码，加上用现在的规则报出来的结果里稳定的部分——
- *   商品层面报不出时是原因代码；报得出时是每个车型组（含套餐小时数）的结算价金额与币种、区域编号（线路价的下车区域）、价格规则编号、
+ *   商品层面报不出时是原因代码；报得出时是每个车型组（含套餐小时数）的结算价金额与币种、计价方式、区域编号（线路价的下车区域）、价格规则编号、
  *   包车区域加价的明细金额（套餐价、上车、下车加了多少），以及报不出的车型组和原因（排序后）。不含时间戳、随机编号、报价快照编号。
  *   所有行排序后用换行连起来取 SHA-256（十六进制），行的先后不影响结果。`resultLineDigests` 是逐行的 SHA-256，给有权限的人定位哪一行变了。
- * - `stateDigest`：回放用到的供应商数据（商品、价格规则、调价规则、计程价、商品的报价区域、区域）当前状态的 SHA-256，按列挑出来、键排序后序列化。
+ * - `stateDigest`：回放用到的数据（商品、价格规则、调价规则、计程价、报价区域、区域、车型组、子品牌、供应商、附加服务、城市、地点）当前状态的 SHA-256，
+ *   按列挑出来、键排序后序列化（见 area-role-preview.ts 的 `replayStateDigest`）。
  *   两次的 `stateDigest` 一样时 `resultDigest` 必须一样；`stateDigest` 不一样说明中间有人改了数据，比对无效，要重跑。
  */
 import { createHash } from "node:crypto";
@@ -27,6 +28,9 @@ export interface LineDigest {
   digest: string;
 }
 
+/**
+ * 一个报价里参与摘要的字段。引擎改动的 PR（如途经加价）不能改这里：改了，部署前后两次的口径就不一样，摘要不能比（docs/deploy.md 第九节）。
+ */
 function offerParts(offer: VehicleOffer): unknown[] {
   const { settlement } = offer;
   const surcharge = settlement.areaSurcharge ?? null;
@@ -35,6 +39,7 @@ function offerParts(offer: VehicleOffer): unknown[] {
     offer.packageHours,
     settlement.totalMinor,
     settlement.currency,
+    settlement.pricingBasis ?? "one_price",
     offer.areaId,
     settlement.toAreaId ?? null,
     offer.priceRuleId,

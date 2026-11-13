@@ -130,13 +130,16 @@ export function previewOutcome(quote: ProductQuote): { external: string; interna
 }
 
 /** 询价日志里记的请求（渠道的、官网的两种写法）→ 报价引擎的请求；认不出返回 null */
-async function replayRequest(db: Db, raw: Row, timezone: string): Promise<{ category: ServiceCategory; placeId: string | null; request: QuoteRequest } | null> {
+async function replayRequest(db: Db, raw: Row, timezone: string, usedPlaces: Set<string>): Promise<{ category: ServiceCategory; placeId: string | null; request: QuoteRequest } | null> {
   const category = raw["category"] as ServiceCategory;
   if (!(SERVICE_CATEGORIES as readonly string[]).includes(category)) return null;
   const pointOf = async (value: unknown): Promise<LatLng | null | undefined> => {
     if (value === null || value === undefined) return null;
     const point = value as Row;
-    if (typeof point["place_id"] === "string") return (await findQuotePlace(db, point["place_id"]))?.location ?? undefined;
+    if (typeof point["place_id"] === "string") {
+      usedPlaces.add(point["place_id"]);
+      return (await findQuotePlace(db, point["place_id"]))?.location ?? undefined;
+    }
     return typeof point["lat"] === "number" && typeof point["lng"] === "number" ? { lat: point["lat"], lng: point["lng"] } : undefined;
   };
   const addons = Array.isArray(raw["addons"]) ? (raw["addons"] as Row[]).map((addon) => ({ addonId: String(addon["addon_id"]), quantity: Number(addon["quantity"] ?? 1) })) : [];
@@ -227,6 +230,7 @@ export async function buildRolePreview(db: Db, options: { days: number; now: Dat
   const logs = await db.query<Row>("select id, created_at, city_id, category, request, route from quote_logs where created_at >= $1 and created_at < $2 order by created_at, id", [since, until]);
   const replay: RolePreview["replay"] = { days: options.days, since: since.toISOString(), until: until.toISOString(), logs: logs.rows.length, replayed: 0, skipped: 0, evaluations: 0, externalDiffCount: 0, externalDiffs: [], refinements: {}, priority: { changedCount: 0, changed: [], keptOffers: 0, newOffers: {} }, ...replayDigest([]), stateDigest: "" };
   const digestLines: DigestLine[] = [];
+  const usedPlaces = new Set<string>();
   const cities = new Map<string, { timezone: string } | null>();
   const catalogs = new Map<string, QuoteCandidate[]>();
   for (const log of logs.rows) {
@@ -234,7 +238,7 @@ export async function buildRolePreview(db: Db, options: { days: number; now: Dat
     const cityId = log["city_id"] as string;
     if (!cities.has(cityId)) cities.set(cityId, await findQuoteCity(db, cityId));
     const city = cities.get(cityId);
-    const parsed = city === null || city === undefined ? null : await replayRequest(db, log["request"] as Row, city.timezone);
+    const parsed = city === null || city === undefined ? null : await replayRequest(db, log["request"] as Row, city.timezone, usedPlaces);
     if (parsed === null) {
       replay.skipped += 1;
       continue;
@@ -261,7 +265,7 @@ export async function buildRolePreview(db: Db, options: { days: number; now: Dat
       }
     }
   }
-  Object.assign(replay, replayDigest(digestLines), { stateDigest: await replayStateDigest(db, [...catalogs.values()].flat(), migrated) });
+  Object.assign(replay, replayDigest(digestLines), { stateDigest: await replayStateDigest(db, [...catalogs.values()].flat(), [...usedPlaces], migrated) });
   return { migrated, suppliers: [...suppliers.values()], totalAreas: areas.rows.length, published, replay };
 }
 
@@ -276,10 +280,12 @@ export function inReplayWindow(createdAt: Date, window: { since: Date; until: Da
 }
 
 /**
- * 回放用到的数据的状态摘要：候选商品（编码、版本、状态）、它们的价格规则、调价规则、计程价、报价区域，以及这些供应商的全部区域（编号、版本、启用状态、图形版本、用途）。
+ * 回放用到的数据的状态摘要（`loadQuoteCandidates` 读进来、影响结算价或报不报的）：候选商品（编码、版本、状态）、它们的价格规则、调价规则、计程价、报价区域、
+ * 车型组（座位、行李、启停）、子品牌（币种、取整单位、启停）、供应商（入驻状态、是否测试供应商）、附加服务（启停、品类、计费单位）、城市（启停、时区）、
+ * 地点（商品的接送点和询价里引用的地点：启停、类型、航班范围、坐标），以及这些供应商的全部区域（编号、版本、启用状态、图形版本、用途）。
  * 按列挑出来（不是整行），表结构以后加了列也不会让摘要变；不含创建、修改时间。
  */
-async function replayStateDigest(db: Db, candidates: QuoteCandidate[], migrated: boolean): Promise<string> {
+async function replayStateDigest(db: Db, candidates: QuoteCandidate[], usedPlaces: string[], migrated: boolean): Promise<string> {
   const productIds = [...new Set(candidates.map((candidate) => candidate.product.productId))];
   const tenantIds = [...new Set(candidates.map((candidate) => candidate.product.tenantId))];
   const rows = async (sql: string, values: unknown[]): Promise<Row[]> => (await db.query<Row>(sql, values)).rows;
@@ -290,6 +296,16 @@ async function replayStateDigest(db: Db, candidates: QuoteCandidate[], migrated:
     distance_prices: await rows("select id, product_id, vehicle_group_id, start_minor, per_km_minor, valid_from::text as valid_from, valid_to::text as valid_to, status from distance_prices where product_id = any($1::uuid[])", [productIds]),
     product_areas: await rows("select product_id, area_id, priority from product_areas where product_id = any($1::uuid[])", [productIds]),
     areas: await rows(`select id, version, status, shape_version, ${migrated ? "role" : "'both'::text as role"} from areas where tenant_id = any($1::uuid[])`, [tenantIds]),
+    product_vehicle_groups: await rows("select product_id, vehicle_group_id, passengers, luggage, position from product_vehicle_groups where product_id = any($1::uuid[])", [productIds]),
+    vehicle_groups: await rows("select id, status from vehicle_groups where id in (select vehicle_group_id from product_vehicle_groups where product_id = any($1::uuid[]))", [productIds]),
+    brands: await rows("select id, currency, rounding_unit, status from brands where id in (select brand_id from products where id = any($1::uuid[]))", [productIds]),
+    tenants: await rows("select id, status, is_test_tenant from tenants where id = any($1::uuid[])", [tenantIds]),
+    addons: await rows(
+      "select id, status, categories, charge_unit from addons where id::text in (select x->>'addonId' from products p cross join lateral jsonb_array_elements(coalesce(p.service_rules->'addons', '[]'::jsonb)) as x where p.id = any($1::uuid[]))",
+      [productIds],
+    ),
+    cities: await rows("select id, status, timezone from cities where id in (select city_id from products where id = any($1::uuid[]))", [productIds]),
+    places: await rows("select id, status, type, flight_scope, lng::text as lng, lat::text as lat from places where id in (select poi_id from products where id = any($1::uuid[])) or id::text = any($2::text[])", [productIds, usedPlaces]),
   });
 }
 

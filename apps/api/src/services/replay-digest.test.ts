@@ -65,7 +65,7 @@ test("行的先后、车型组的先后、报不出原因的先后都不影响�
   assert.deepEqual(replayDigest([...lines].reverse()).resultLineDigests, replayDigest(lines).resultLineDigests);
 });
 
-test("改一分钱、改加价明细、改区域 / 规则 / 币种 / 原因，摘要都会变", () => {
+test("改一分钱、改加价明细、改区域 / 规则 / 币种 / 计价方式 / 原因，摘要都会变", () => {
   const base = replayDigest(sample()).resultDigest;
   const changed = (line: DigestLine): string => {
     const lines = sample();
@@ -79,6 +79,8 @@ test("改一分钱、改加价明细、改区域 / 规则 / 币种 / 原因，�
   assert.notEqual(changed(replayDigestLine("log-1", "CH-1", ok([offer("vg-a", 45_000, { ...surcharge(5_000), currency: "USD" }), offer("vg-b", 60_000)], refused))), base);
   assert.notEqual(changed(replayDigestLine("log-1", "CH-1", ok([{ ...offer("vg-a", 45_000, surcharge(5_000)), areaId: "area-2" }, offer("vg-b", 60_000)], refused))), base);
   assert.notEqual(changed(replayDigestLine("log-1", "CH-1", ok([{ ...offer("vg-a", 45_000, surcharge(5_000)), priceRuleId: "rule-2" }, offer("vg-b", 60_000)], refused))), base);
+  // 计价方式变了（金额一样）也算变
+  assert.notEqual(changed(replayDigestLine("log-1", "CH-1", ok([offer("vg-a", 45_000, { ...surcharge(5_000), pricingBasis: "one_price_outside_km" }), offer("vg-b", 60_000)], refused))), base);
   assert.notEqual(changed(replayDigestLine("log-1", "CH-1", ok([offer("vg-a", 45_000, surcharge(5_000)), offer("vg-b", 60_000)], [{ vehicleGroupId: "vg-c", reason: "VEHICLE_GROUP_DISABLED" }]))), base);
   assert.notEqual(changed(replayDigestLine("log-1", "CH-1", { ok: false, productId: "p-1", tenantId: "t-1", reason: "OUT_OF_SERVICE_AREA" })), base);
   // 改了一分钱的那一行，逐行摘要只有这一行变

@@ -94,12 +94,36 @@ test("摘要值：供应商的价改一分钱，结果摘要和状态摘要都�
   assert.notEqual(changed.resultDigest, original.resultDigest);
   assert.notEqual(changed.stateDigest, original.stateDigest);
   assert.equal(changed.resultLines, original.resultLines);
-  // 逐行摘要能定位到变了的行：甲的商品的每一行
-  const moved = changed.resultLineDigests.filter((entry, i) => entry.digest !== original.resultLineDigests[i]?.digest);
-  assert.ok(moved.length > 0 && moved.length < original.resultLines);
+  // 逐行摘要按（询价编号, 商品编码）比对，能定位到变了的行：都是甲的商品
+  const byKey = (entries: { logId: string; productCode: string; digest: string }[]) => {
+    const map = new Map<string, string[]>();
+    for (const entry of entries) map.set(`${entry.logId}|${entry.productCode}`, [...(map.get(`${entry.logId}|${entry.productCode}`) ?? []), entry.digest].sort());
+    return map;
+  };
+  const was = byKey(original.resultLineDigests);
+  const now = byKey(changed.resultLineDigests);
+  assert.deepEqual([...now.keys()].sort(), [...was.keys()].sort());
+  const moved = [...now.keys()].filter((key) => JSON.stringify(now.get(key)) !== JSON.stringify(was.get(key)));
+  const codesOfA = new Set((await api.db.owner.query("select code from products where tenant_id = $1", [m.a.tenantId])).rows.map((row) => row.code as string));
+  assert.ok(moved.length > 0 && moved.length < was.size, JSON.stringify(moved));
+  for (const key of moved) assert.ok(codesOfA.has(key.slice(key.indexOf("|") + 1)), key);
   await bump(-1);
   const restored = (await preview()).replay;
   assert.deepEqual([restored.resultDigest, restored.stateDigest], [original.resultDigest, original.stateDigest]);
+});
+
+test("状态摘要也看子品牌、车型组：改取整单位、停用车型组，stateDigest 都变；改回来还原", async () => {
+  const original = (await preview()).replay.stateDigest;
+  const brand = (await api.db.owner.query("select b.id, b.rounding_unit from brands b where b.tenant_id = $1 and b.id in (select brand_id from products where tenant_id = $1) limit 1", [m.a.tenantId])).rows[0];
+  await api.db.owner.query("update brands set rounding_unit = $2 where id = $1", [brand.id, brand.rounding_unit === 100 ? 10 : 100]);
+  assert.notEqual((await preview()).replay.stateDigest, original);
+  await api.db.owner.query("update brands set rounding_unit = $2 where id = $1", [brand.id, brand.rounding_unit]);
+  assert.equal((await preview()).replay.stateDigest, original);
+  const group = (await api.db.owner.query("select vg.id from vehicle_groups vg where vg.status = 'active' and vg.id in (select vehicle_group_id from product_vehicle_groups where tenant_id = $1) limit 1", [m.a.tenantId])).rows[0];
+  await api.db.owner.query("update vehicle_groups set status = 'disabled' where id = $1", [group.id]);
+  assert.notEqual((await preview()).replay.stateDigest, original);
+  await api.db.owner.query("update vehicle_groups set status = 'active' where id = $1", [group.id]);
+  assert.equal((await preview()).replay.stateDigest, original);
 });
 
 test("迁移之前（区域还没有用途这一列）：按迁移后的样子算——每个区域都是运营 + 报价，回放结果和迁移之后一样", async () => {
