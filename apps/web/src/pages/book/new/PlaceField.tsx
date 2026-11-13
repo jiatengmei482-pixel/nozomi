@@ -349,7 +349,7 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
     return (
       <div className="place-field">
         <div className="field">
-          <PickerTrigger label={label} text={value?.name ?? ""} placeholder="点按输入地址" {...(pageDescribedBy !== "" ? { describedBy: pageDescribedBy } : {})} buttonRef={triggerRef} onOpen={() => setSheetOpen(true)} />
+          <PickerTrigger label={label} text={value?.name ?? ""} placeholder="点按输入地址" wrap {...(pageDescribedBy !== "" ? { describedBy: pageDescribedBy } : {})} buttonRef={triggerRef} onOpen={() => setSheetOpen(true)} />
           {notes}
         </div>
         <FullScreenSheet open={sheetOpen} title={label} returnFocusRef={triggerRef} onClose={resetSheet}>

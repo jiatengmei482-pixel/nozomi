@@ -1156,7 +1156,7 @@ export function BookNewPage() {
       </div>
     );
 
-    /** 手机、平板：右侧栏变成顶部可展开的摘要条，收起时一行写行程和价格 */
+    /** 手机、平板：右侧栏变成顶部可展开的摘要条，收起时写行程和价格（手机上两端各占一行） */
     const summaryBar = !wide && (
       <div className="book-summary-bar">
         <button type="button" className="book-summary-bar__toggle" aria-expanded={summaryOpen} aria-controls="book-summary-panel" onClick={() => setSummaryOpen((value) => !value)}>
@@ -1166,17 +1166,19 @@ export function BookNewPage() {
             </span>
             {step > 1 && selected !== null && pricedState.kind === "ready" && <span className="book-summary-bar__price">{moneyText(pricedState.total)}</span>}
           </span>
-          {/* site-booking-v2 第 2 节：地点名各自单行省略（价格在上面一行），行程类型总是看得到；完整的地点名照样在按钮的读屏名里 */}
+          {/* site-booking-v2 第 0 节：地点名各自单行省略（价格在上面一行），行程类型总是看得到；< 768 两端各占一行（M8-37b）；完整的地点名照样在按钮的读屏名里 */}
           <span className="book-summary-bar__text">
             {draft.from !== null && step > 1 ? (
               <>
-                <span className="book-summary-bar__fixed">{`${tripName} · `}</span>
-                <span className="book-summary-bar__place">{draft.from.name}</span>
+                <span className="book-summary-bar__end">
+                  <span className="book-summary-bar__fixed">{`${tripName} · `}</span>
+                  <span className="book-summary-bar__place">{draft.from.name}</span>
+                </span>
                 {draft.to !== null && (
-                  <>
-                    <span className="book-summary-bar__fixed">{" → "}</span>
+                  <span className="book-summary-bar__end">
+                    <span className="book-summary-bar__fixed book-summary-bar__to">{" → "}</span>
                     <span className="book-summary-bar__place">{draft.to.name}</span>
-                  </>
+                  </span>
                 )}
               </>
             ) : (
