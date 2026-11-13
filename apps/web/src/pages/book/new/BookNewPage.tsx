@@ -55,6 +55,8 @@ import {
   VISIBLE_VEHICLES,
   arrivalFreeWaitMinutes,
   bookStepOf,
+  cityOffersTab,
+  defaultMapCity,
   guestCurrencyOf,
   moneyDifference,
   notesWithExtras,
@@ -737,9 +739,11 @@ export function BookNewPage() {
   } else {
     const tiles = config.config.map_tiles;
     const centers: CityCandidate[] = cityList.map((city) => ({ id: city.id, center: city.center }));
-    const centerOf = (other: TripPoint | null) => (other !== null ? { lat: other.lat, lng: other.lng } : (firstCity?.center ?? null));
+    // 地图从另一端打开；另一端还没选时从当前标签的默认城市打开（M8-43，规则见 defaultMapCity）
+    const fallbackCenter = defaultMapCity(cityList, draft.tab)?.center ?? null;
+    const centerOf = (other: TripPoint | null) => (other !== null ? { lat: other.lat, lng: other.lng } : fallbackCenter);
     // 区间：城市能订接送机或点对点就有；包车：能订包车
-    const tabs = BOOK_TABS.filter((tab) => cityList.some((city) => (tab === "charter" ? city.categories.includes("charter") : city.categories.includes("airport_transfer") || city.categories.includes("point_to_point"))));
+    const tabs = BOOK_TABS.filter((tab) => cityList.some((city) => cityOffersTab(city, tab)));
     const charter = draft.mode === "charter";
     const timeLabel = arrival ? "航班落地时间（当地）" : charter ? "上车时间（当地）" : "用车时间（当地）";
     const tripName = charter ? (itinerary ? (itineraryPackage !== null ? `包车 ${itineraryPackage} 小时（按行程）` : "包车（按行程）") : draft.packageHours !== "" ? `包车 ${draft.packageHours} 小时` : "包车") : tripType !== null ? TRIP_TYPE_NAMES[tripType] : BOOK_TAB_NAMES[draft.tab];
