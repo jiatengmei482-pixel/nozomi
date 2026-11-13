@@ -6,6 +6,7 @@
  * - 最多 10 个：满了「添加经停点」禁用，旁边写「最多 10 个」。
  */
 import type { CityCandidate } from "@nozomi/domain";
+import { ADDRESS_ONLY_HINT } from "../../../lib/booking-draft.ts";
 import { type KeyboardEvent, useRef, useState } from "react";
 import type { MapTiles } from "../../../api/areas.ts";
 import { Button, IconButton } from "../../../components/Button.tsx";
@@ -97,6 +98,7 @@ export function WaypointsField({ value, onChange, errors, tiles, mapCenter, citi
                     value={entry.point}
                     onChange={(point) => update(entry.key, { point })}
                     {...(rowErrors.point !== undefined ? { error: rowErrors.point } : {})}
+                    hint={ADDRESS_ONLY_HINT}
                     tiles={tiles}
                     mapCenter={entry.point ?? mapCenter}
                     cities={cities}

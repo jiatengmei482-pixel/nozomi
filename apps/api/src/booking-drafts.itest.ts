@@ -7,7 +7,7 @@
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import type { BookingDraft } from "@nozomi/domain";
+import { type BookingDraft, bookingDraftIssues } from "@nozomi/domain";
 import { withPlatformTx, withTenantTx } from "./db/context.ts";
 import { insertBookingDraft, newBookingDraftId } from "./services/booking-drafts.ts";
 import { type TestApi, createTestApi } from "./testing/api.ts";
@@ -110,7 +110,7 @@ test("库的约束：编号写法、16 KB、到期晚于创建", async () => {
   const later = new Date(now.getTime() + 60_000);
   const insert = (id: string, content: unknown, expires = later) => api.db.owner.query("insert into booking_drafts (id, content, created_at, expires_at) values ($1, $2, $3, $4)", [id, JSON.stringify(content), now, expires]);
   await assert.rejects(insert("short", charter), /booking_drafts_id_check/);
-  await assert.rejects(insert(newBookingDraftId(), { pad: "x".repeat(16_384) }), /booking_drafts_content_size/);
+  await assert.rejects(insert(newBookingDraftId(), { pad: "x".repeat(32_768) }), /booking_drafts_content_size/);
   await assert.rejects(insert(newBookingDraftId(), charter, now), /booking_drafts_expiry_check/);
 });
 
@@ -140,3 +140,42 @@ test("数据库角色：平台角色不能改草稿（写入后不改），租�
     (err: unknown) => (err as { code?: string }).code === "42501",
   );
 });
+
+test("domain 通过的最坏草稿一定写得进库：12 个地点、每个名称 100 个 emoji（200 个 UTF-16 单元）、7 位小数的坐标；1e-300 这类坐标 domain 就拒", async () => {
+  const name = "🚕".repeat(100);
+  const at = (index: number) => ({ name, lat: Number((-89.1234567 + index * 0.0000001).toFixed(7)), lng: Number((-179.1234567 + index * 0.0000001).toFixed(7)) });
+  const worst: BookingDraft = { ...charter, pickup: at(0), dropoff: at(11), waypoints: Array.from({ length: 10 }, (_, index) => ({ ...at(index + 1), stay_minutes: 480 })) };
+  assert.deepEqual(bookingDraftIssues(worst), []);
+  const stored = await store(worst);
+  const read = await api.db.owner.query<{ bytes: number }>("select octet_length(content::text) as bytes from booking_drafts where id = $1", [stored.id]);
+  assert.ok((read.rows[0]?.bytes ?? 0) < 32_768, "库里的 jsonb 文本离上限还有余量");
+  const tiny = { ...charter, waypoints: Array.from({ length: 10 }, (_, index) => ({ name, lat: 1e-300 * (index + 1), lng: 5e-324, stay_minutes: 60 })) };
+  assert.notDeepEqual(bookingDraftIssues(tiny), [], "1e-300 这类坐标过不了 domain，不会走到写库");
+});
+
+test("清理任务分批：每批 500、一轮最多 10 批；别的进程正在清（拿不到锁）时这一轮跳过", async () => {
+  await api.db.owner.query("delete from booking_drafts");
+  const now = api.clock.now();
+  const insertExpired = (count: number) =>
+    api.db.owner.query(
+      "insert into booking_drafts (id, content, created_at, expires_at) select rpad(md5(random()::text || g::text), 43, 'x'), $1::jsonb, $2, $3 from generate_series(1, $4::int) g",
+      [JSON.stringify(charter), new Date(now.getTime() - 3 * 3_600_000), new Date(now.getTime() - 3_600_000), count],
+    );
+  await insertExpired(1_200);
+  assert.deepEqual(await api.app.bookingDraftRetention.tick(), { deleted: 1_200, batches: 3, busy: false });
+  await insertExpired(5_600);
+  assert.deepEqual(await api.app.bookingDraftRetention.tick(), { deleted: 5_000, batches: 10, busy: false }, "一轮最多 10 批，剩下的下一轮");
+  assert.deepEqual(await api.app.bookingDraftRetention.tick(), { deleted: 600, batches: 2, busy: false });
+
+  await insertExpired(10);
+  const holder = await api.db.owner.connect();
+  try {
+    await holder.query("select pg_advisory_lock(hashtext(current_schema() || ':nozomi.booking-draft-purge'))");
+    assert.deepEqual(await api.app.bookingDraftRetention.tick(), { deleted: 0, batches: 0, busy: true });
+    await holder.query("select pg_advisory_unlock(hashtext(current_schema() || ':nozomi.booking-draft-purge'))");
+  } finally {
+    holder.release();
+  }
+  assert.deepEqual(await api.app.bookingDraftRetention.tick(), { deleted: 10, batches: 1, busy: false });
+});
+

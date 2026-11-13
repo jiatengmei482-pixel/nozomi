@@ -14,7 +14,9 @@ create table booking_drafts (
   created_at timestamptz not null,
   expires_at timestamptz not null,
   constraint booking_drafts_id_check check (id ~ '^[A-Za-z0-9_-]{43}$'),
-  constraint booking_drafts_content_size check (octet_length(content::text) <= 16384),
+  -- 接口按 JSON.stringify 量 16 KB（domain 的 BOOKING_DRAFT_RULES.maxBytes）；jsonb 转文本会在键值之间加空格，这里留一倍余量，
+  -- 只作兜底（坐标限定 7 位小数，不会再有 1e-300 展开成几百位的情况）
+  constraint booking_drafts_content_size check (octet_length(content::text) <= 32768),
   constraint booking_drafts_return_url_length check (return_url is null or char_length(return_url) <= 2000),
   constraint booking_drafts_expiry_check check (expires_at > created_at)
 );

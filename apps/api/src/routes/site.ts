@@ -576,7 +576,8 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
       ...(seen === "acceptance" ? { audience: seen } : {}),
     };
     const result = await siteQuotes(ctx, quoteInput);
-    await recordQuoteEmbedSources(ctx, input.draft_id, result.quotes.map((quote) => quote.quoteId));
+    // 来源只做统计（ADR 0090）：记不下来只写日志，不影响报价
+    await recordQuoteEmbedSources(ctx, input.draft_id, result.quotes.map((quote) => quote.quoteId)).catch((err: unknown) => request.log.warn({ event: "embed.quote_source_failed", code: (err as { code?: string }).code ?? null }, "报价来源没记下来"));
     return quoteResultJson(result);
   });
 
@@ -595,7 +596,8 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
       demand: { ip: request.ip, pickupName: input.pickup_name ?? null, dropoffName: input.dropoff_name ?? null, log: request.log },
       ...(seen === "acceptance" ? { audience: seen } : {}),
     });
-    await recordQuoteEmbedSources(ctx, input.draft_id, result.quotes.map((quote) => quote.quoteId));
+    // 来源只做统计（ADR 0090）：记不下来只写日志，不影响报价
+    await recordQuoteEmbedSources(ctx, input.draft_id, result.quotes.map((quote) => quote.quoteId)).catch((err: unknown) => request.log.warn({ event: "embed.quote_source_failed", code: (err as { code?: string }).code ?? null }, "报价来源没记下来"));
     return {
       trip_type: result.tripType,
       airport: result.airport === null ? null : { id: result.airport.id, code: result.airport.code, name: result.airport.name, matched_by: result.airport.matchedBy, distance_meters: result.airport.meters, flight_scope: result.airport.flightScope },

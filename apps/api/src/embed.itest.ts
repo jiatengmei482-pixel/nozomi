@@ -15,6 +15,7 @@ import { type TestApi, createTestApi } from "./testing/api.ts";
 import { type Market, buildMarket, newChannel, ok, salesCredentials } from "./testing/market.ts";
 import { tenantLogin } from "./testing/money.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
+import { type FakeReceiver, startFakeReceiver } from "./testing/dispatch.ts";
 import { FakePaymentProvider, deliverWebhook } from "./testing/payments.ts";
 import { type SiteApi, siteApi } from "./testing/site.ts";
 
@@ -22,6 +23,7 @@ let api: TestApi;
 let m: Market;
 let site: SiteApi;
 let pay: FakePaymentProvider;
+let receiver: FakeReceiver;
 const PARTNER = "https://partner.example";
 const OTHER = "https://other.example";
 
@@ -85,11 +87,14 @@ before(async () => {
   api = await createTestApi({ payments: pay });
   m = await buildMarket(api);
   await p2pProduct(m.a);
+  receiver = await startFakeReceiver();
+  await ok(api.call("PUT", "/tenant/v1/webhooks", { token: m.a.adminToken, body: { url: receiver.url, events: ["order.confirmed"] } }), 201);
   const channelId = (await newChannel(api, m.staff.cm1.token, { name: "NOZOMI 官网" })).id;
   site = await siteApi(api, (await salesCredentials(api, m, channelId)).clientId, pay);
 });
 
 after(async () => {
+  await receiver?.close();
   await site?.close();
   await api.close();
 });
@@ -288,6 +293,11 @@ test("来源：草稿 → 询价 → 下单记「嵌入组件」和返回地址�
   const tenantView = await api.call("GET", `/tenant/v1/orders/${embedded.order.id}`, { token: tenantToken });
   assert.equal(tenantView.status, 200, tenantView.text);
   assert.doesNotMatch(tenantView.text, /partner\.example|entry_source|embed|return_url/);
+  // 推给供应商的 Webhook（真的投递到本机的假接收方）：推送内容里同样没有来源
+  await api.app.webhookJobs.tick();
+  const pushed = receiver.received.filter((item) => item.body.includes(embedded.order.id));
+  assert.ok(pushed.length > 0, "付款后有推给供应商的 order.confirmed");
+  for (const item of pushed) assert.doesNotMatch(item.body, /partner\.example|entry_source|embed_|return_url/);
 });
 
 test("/site/v1、/platform/v1、/tenant/v1 带白名单里的 Origin 也不带任何 CORS 头", async () => {
@@ -298,7 +308,68 @@ test("/site/v1、/platform/v1、/tenant/v1 带白名单里的 Origin 也不带�
     await site.call("GET", "/site/v1/cities", { headers: { origin: PARTNER }, ip: nextIp() }),
     await api.call("GET", "/platform/v1/embed-keys", { token: m.root, headers: { origin: PARTNER } }),
     await api.call("GET", "/tenant/v1/orders", { token: tenantToken, headers: { origin: PARTNER } }),
+    await api.call("GET", "/sales/v1/quotes/QT20261007ABCDEFGHIJ", { headers: { origin: PARTNER } }),
+    await api.call("GET", "/driver/v1/trip", { headers: { origin: PARTNER } }),
   ]) {
     assert.deepEqual(corsHeaders(res.headers), []);
   }
 });
+
+const SESSION = "embed-session-0123456789";
+/** 地址提示要官网开着（配了 SITE_CLIENT_ID 的那个应用） */
+const onSite = (path: string, key: string, origin: string | null, ip = nextIp()) => site.call("GET", `${path}&key=${encodeURIComponent(key)}`, { ip, headers: origin === null ? {} : { origin } });
+const autocomplete = (key: string, origin: string | null, ip: string) => onSite(`/embed/v1/places/autocomplete?q=${encodeURIComponent("东京")}&session=${SESSION}`, key, origin, ip);
+
+test("/embed/v1/places：白名单才处理并带 CORS 头，不在白名单 403；详情同样", async () => {
+  const key = await newKey();
+  const okRes = await autocomplete(key.key, PARTNER, nextIp());
+  assert.equal(okRes.status, 200, okRes.text);
+  assertMatchesOpenApi("GET", "/embed/v1/places/autocomplete", okRes);
+  assert.equal(okRes.headers["access-control-allow-origin"], PARTNER);
+  assert.equal(okRes.headers["access-control-expose-headers"], "Retry-After");
+  const denied = await autocomplete(key.key, OTHER, nextIp());
+  assert.equal(denied.status, 403);
+  assert.deepEqual(corsHeaders(denied.headers), []);
+  assert.equal(denied.headers["cache-control"], "no-store");
+  const details = await onSite(`/embed/v1/places/details?id=%3Cbad%3E&session=${SESSION}`, key.key, PARTNER);
+  assert.equal(details.status, 400, "写法不对的地点编号 400，照样带 CORS 头");
+  assert.equal(details.headers["access-control-allow-origin"], PARTNER);
+  assert.equal((await onSite(`/embed/v1/places/details?id=%3Cbad%3E&session=${SESSION}`, key.key, OTHER)).status, 403);
+});
+
+test("/embed/v1/places 限速先按地址、再按嵌入码：一个地址被限以后继续刷，也不占这个嵌入码的额度，别的地址照常；每个嵌入码每分钟 600 次", async () => {
+  const key = await newKey();
+  const flooder = "10.95.0.1";
+  const statuses: number[] = [];
+  for (let i = 0; i < 601; i += 1) statuses.push((await autocomplete(key.key, PARTNER, flooder)).status);
+  assert.equal(statuses.filter((status) => status === 200).length, 60, "同一个地址每分钟 60 次");
+  assert.equal(statuses.at(-1), 429);
+  assert.equal((await autocomplete(key.key, PARTNER, "10.95.9.9")).status, 200, "别的地址照常能用");
+  api.clock.advance(61_000);
+
+  const other = await newKey();
+  for (let i = 0; i < 600; i += 1) assert.equal((await autocomplete(other.key, PARTNER, `10.96.${Math.floor(i / 200)}.${i % 200}`)).status, 200, `第 ${i + 1} 次`);
+  const limited = await autocomplete(other.key, PARTNER, "10.96.9.9");
+  assert.equal(limited.status, 429, "同一个嵌入码每分钟第 601 次");
+  assert.equal(limited.headers["access-control-allow-origin"], PARTNER);
+  api.clock.advance(61_000);
+});
+
+test("有效草稿到 4,000 个时写告警日志 embed.draft_limit_near，之后每多 250 个才再写一条", async () => {
+  const key = await newKey();
+  const now = api.clock.now();
+  await api.db.owner.query(
+    `insert into booking_drafts (id, content, embed_key_id, embed_origin, created_at, expires_at)
+     select rpad(md5('near' || g::text), 43, 'y'), $1::jsonb, $2, $3, $4, $5 from generate_series(1, 3998) g`,
+    [JSON.stringify(draft()), key.id, PARTNER, now, new Date(now.getTime() + 600_000)],
+  );
+  const count = () => (api.logs().match(new RegExp(`"event":"embed\\.draft_limit_near"[^\\n]*"embed_key_id":"${key.id}"`, "g")) ?? []).length;
+  assert.equal((await embed("POST", "/embed/v1/booking-drafts", key.key, PARTNER, { draft: draft() })).status, 201);
+  assert.equal(count(), 0, "第 3,999 个不写");
+  assert.equal((await embed("POST", "/embed/v1/booking-drafts", key.key, PARTNER, { draft: draft() })).status, 201);
+  assert.equal(count(), 1, "第 4,000 个写一条");
+  assert.equal((await embed("POST", "/embed/v1/booking-drafts", key.key, PARTNER, { draft: draft() })).status, 201);
+  assert.equal(count(), 1, "第 4,001 个不再写");
+  api.clock.advance(61_000);
+});
+

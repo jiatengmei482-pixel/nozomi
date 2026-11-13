@@ -302,6 +302,8 @@ export function BookNewPage() {
 
   // 链接预填（只在打开时一次）：两端都有、日期时间也有时直接报价并到第 2 步（网址里已经写了第几步的不动）
   const linkDone = useRef(false);
+  /** 草稿里包车按时长的时长：等城市套餐读到后核对，在套餐里才自动报价 */
+  const draftHours = useRef<string | null>(null);
   useEffect(() => {
     if (cities.kind !== "ready" || linkDone.current) return;
     linkDone.current = true;
@@ -314,7 +316,9 @@ export function BookNewPage() {
           setLinkPending(false);
           const trip = draftTrip(saved);
           setDraft((current) => ({ ...current, tab: trip.tab, mode: trip.tab, from: trip.from, to: trip.to, date: trip.date, time: trip.time, passengers: trip.passengers, luggage: trip.luggage, packageHours: trip.packageHours, waypoints: trip.waypoints }));
-          if (draftReadyToQuote(trip) && new URLSearchParams(latestSearch.current).get("step") === null) goStep(2, true);
+          // 包车按时长：草稿里的时长要等城市的套餐读到、确认在里面才去报价（嵌入组件不知道城市有哪几档）
+          if (trip.tab === "charter" && trip.waypoints.length === 0 && trip.packageHours !== "") draftHours.current = trip.packageHours;
+          else if (draftReadyToQuote(trip) && new URLSearchParams(latestSearch.current).get("step") === null) goStep(2, true);
         },
         (err: unknown) => {
           if (!alive) return;
@@ -358,7 +362,14 @@ export function BookNewPage() {
         if (!alive) return;
         const hours = items.map((item) => item.hours);
         setPackages({ cityId, load: { kind: "ready", items: hours } });
-        setDraft((current) => (hours.length === 1 && current.packageHours === "" ? { ...current, packageHours: String(hours[0]) } : current));
+        setDraft((current) => {
+          // 草稿带来的时长不在这个城市的套餐里：清空，让客人在第 1 步重选（M9E-01）
+          const kept = current.packageHours !== "" && !hours.includes(Number(current.packageHours)) ? { ...current, packageHours: "" } : current;
+          return hours.length === 1 && kept.packageHours === "" ? { ...kept, packageHours: String(hours[0]) } : kept;
+        });
+        const wanted = draftHours.current;
+        draftHours.current = null;
+        if (wanted !== null && hours.includes(Number(wanted)) && new URLSearchParams(latestSearch.current).get("step") === null) goStep(2, true);
       },
       (err: unknown) => alive && setPackages({ cityId, load: { kind: "failed", message: siteFailureText(err, "读取包车时长") } }),
     );
@@ -805,7 +816,7 @@ export function BookNewPage() {
           value={draft.to}
           onChange={(to) => update({ to })}
           {...(errors.to !== undefined ? { error: errors.to } : {})}
-          {...(charter ? { hint: "包车结束时在哪里下车，价格按上车和下车地点算。" } : {})}
+          hint={charter ? ["包车结束时在哪里下车，价格按上车和下车地点算。", ADDRESS_ONLY_HINT] : ADDRESS_ONLY_HINT}
           {...(charter && legacyCharterLink && draft.to === null ? { info: "请选择下车地点，包车现在按上车和下车地点报价。" } : {})}
           tiles={tiles}
           mapCenter={centerOf(draft.from)}
