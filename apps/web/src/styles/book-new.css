@@ -111,6 +111,15 @@
   gap: var(--space-1);
 }
 
+/*
+ * 选择页里候选列表和输入框在同一个 .field__control 里（它是横排的 flex，给输入框右端的按钮用）：
+ * 候选不浮起来时会排到输入框右边、两个各占半行（M8-37b，用户 2026-11-13 iPhone 真机截图）。这里竖排：输入框占满整行，候选在正下方、同样整行宽。
+ */
+.place-field__sheet-field > .field__control {
+  flex-direction: column;
+  align-items: stretch;
+}
+
 .place-field__detail {
   flex-basis: 100%;
   min-width: 0;

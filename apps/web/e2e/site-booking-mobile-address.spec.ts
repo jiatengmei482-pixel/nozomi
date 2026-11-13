@@ -2,11 +2,13 @@
  * 端到端：手机上新预订页的地址显示（M8-37b，用户 2026-11-13 真机反馈：上车 / 下车地点左右两栏，地址显示宽度被压缩）。
  * 规范 site-booking-v2.md 第 0 节「手机上的地址（M8-37b）」。核对：
  * - 手机触屏 360 / 390 宽，「区间」「包车」两个标签：第 1 步出发地 / 目的地（包车的上车 / 下车地点）上下排、各占整行，
- *   长地址折行显示全（框跟着变高，字不被裁掉）；地址选择页（M8-37 的全屏选择页）占满屏幕、输入框接近整行宽；
+ *   长地址折行显示全（框跟着变高，字不被裁掉）；地址选择页（M8-37 的全屏选择页）占满屏幕，四个入口输入后输入框占满整行、
+ *   候选列表在正下方同样整行宽（用户 iPhone 真机截图：候选排到输入框右边各占半行）；
  * - 第 2–4 步顶部「行程摘要」条：两端各占一行、各自用满整行宽，各自单行省略；完整地名在读屏名里，展开后折行显示全；
  * - 不横向滚动；亮暗两色 axe；
  * - 电脑 1280 宽布局不变：地址框整行上下排、日期时间并排、右侧栏地名折行显示全；平板 800 宽摘要条照旧一行。
- * 地点用链接参数给（坐标 + 很长的名称），不用输入即提示；用地址搜索那组 API 和前端（假谷歌路线），不调用真实的谷歌。
+ * 地点用链接参数给（坐标 + 很长的名称）；选择页里输入平台的机场 / 车站名看候选；用地址搜索那组 API 和前端（假谷歌），不调用真实的谷歌。
+ * 手机用例在 chromium 和 webkit-iphone 两个项目里都跑（playwright.config.ts），电脑用例只在 chromium 里跑。
  */
 import { type APIRequestContext, type Browser, type BrowserContext, type Locator, type Page, expect, test } from "@playwright/test";
 import { E2E_WEB_PLACES_PORT } from "../playwright.config.ts";
@@ -29,6 +31,8 @@ interface Tab {
   name: "区间" | "包车";
   link: string;
   labels: [string, string];
+  /** 选择页里输入它，候选里有平台的地点 */
+  query: string;
 }
 
 async function phone(browser: Browser, size: { width: number; height: number }): Promise<{ context: BrowserContext; page: Page }> {
@@ -89,16 +93,30 @@ async function expectStep1Rows(page: Page, tab: Tab, width: number): Promise<voi
   expect(dateBox.height, `${what}：日期仍是一行高`).toBeLessThan(fromBox.height);
 }
 
-/** 地址选择页：占满屏幕，输入框接近整行宽；取消回到页面。 */
-async function expectSheetFullWidth(page: Page, label: string, size: { width: number; height: number }): Promise<void> {
+/**
+ * 地址选择页：占满屏幕；输入几个字、候选出来以后，输入框占满整行（≈ 选择页内容宽），候选列表在输入框正下方、同样整行宽
+ * （M8-37b，用户 iPhone 真机截图：候选排到输入框右边、两个各占半行）；取消回到页面。
+ */
+async function expectSheetFullWidth(page: Page, label: string, query: string, size: { width: number; height: number }): Promise<void> {
+  const what = `${size.width}px ${label}选择页`;
   await page.getByRole("button", { name: new RegExp(`^${label}`) }).tap();
   const sheet = page.getByRole("dialog", { name: label });
   await expect(sheet).toBeVisible();
-  const sheetBox = await box(sheet, `${label}的选择页`);
-  expect([Math.round(sheetBox.x), Math.round(sheetBox.y), Math.round(sheetBox.width), Math.round(sheetBox.height)], `${size.width}px ${label}：选择页占满屏幕`).toEqual([0, 0, size.width, size.height]);
-  const input = await box(sheet.getByRole("combobox", { name: label }), `${label}的输入框`);
-  expect(input.width, `${size.width}px ${label}：选择页里的输入框接近整行宽`).toBeGreaterThan(size.width * 0.8);
-  await expectNoOverflow(page, `${size.width}px ${label}选择页`);
+  const sheetBox = await box(sheet, what);
+  expect([Math.round(sheetBox.x), Math.round(sheetBox.y), Math.round(sheetBox.width), Math.round(sheetBox.height)], `${what}：占满屏幕`).toEqual([0, 0, size.width, size.height]);
+  const combobox = sheet.getByRole("combobox", { name: label });
+  await combobox.fill(query);
+  const list = sheet.getByRole("listbox", { name: `${label}的候选` });
+  await expect(list.getByRole("option").first()).toBeVisible();
+  const body = await box(sheet.locator(".sheet__body"), `${what}的内容区`);
+  const padding = await sheet.locator(".sheet__body").evaluate((node) => Number.parseFloat(getComputedStyle(node).paddingLeft) + Number.parseFloat(getComputedStyle(node).paddingRight));
+  const input = await box(combobox, `${what}的输入框`);
+  const options = await box(list, `${what}的候选列表`);
+  expect(input.width, `${what}：输入框占满整行`).toBeGreaterThanOrEqual(body.width - padding - 1);
+  expect(options.y, `${what}：候选在输入框下面`).toBeGreaterThanOrEqual(input.y + input.height - 0.5);
+  expect(Math.abs(options.x - input.x), `${what}：候选和输入框左边对齐`).toBeLessThanOrEqual(1);
+  expect(Math.abs(options.width - input.width), `${what}：候选和输入框一样宽`).toBeLessThanOrEqual(1);
+  await expectNoOverflow(page, what);
   await sheet.getByRole("button", { name: "取消" }).tap();
   await expect(sheet).toBeHidden();
 }
@@ -141,8 +159,8 @@ async function walk(page: Page, tab: Tab, size: { width: number; height: number 
   await expect(page.getByRole("heading", { name: "你的行程" })).toBeVisible();
   await expect(page.getByRole("radio", { name: tab.name })).toBeChecked();
   await expectStep1Rows(page, tab, width);
-  await expectSheetFullWidth(page, tab.labels[0], size);
-  await expectSheetFullWidth(page, tab.labels[1], size);
+  await expectSheetFullWidth(page, tab.labels[0], tab.query, size);
+  await expectSheetFullWidth(page, tab.labels[1], tab.query, size);
   await expectNoOverflow(page, `${width}px ${tab.name}第 1 步`);
   await expectBothThemes(page, `${width}px ${tab.name}第 1 步`);
 
@@ -180,12 +198,12 @@ async function tabs(request: APIRequestContext): Promise<Tab[]> {
   const trip = await charterWorld(request);
   const date = tomorrowInTokyo();
   return [
-    { name: "区间", link: `${linkPoint("from", airport.location, LONG_FROM)}&${linkPoint("to", TOKYO_STATION, LONG_TO)}&date=${date}&time=10:00`, labels: ["出发地", "目的地"] },
-    { name: "包车", link: `mode=charter&${linkPoint("from", trip.pickup, LONG_FROM)}&${linkPoint("to", trip.station.location, LONG_TO)}&date=${date}&time=10:00`, labels: ["上车地点", "下车地点"] },
+    { name: "区间", link: `${linkPoint("from", airport.location, LONG_FROM)}&${linkPoint("to", TOKYO_STATION, LONG_TO)}&date=${date}&time=10:00`, labels: ["出发地", "目的地"], query: airport.name },
+    { name: "包车", link: `mode=charter&${linkPoint("from", trip.pickup, LONG_FROM)}&${linkPoint("to", trip.station.location, LONG_TO)}&date=${date}&time=10:00`, labels: ["上车地点", "下车地点"], query: trip.station.name },
   ];
 }
 
-test("M8-37b 手机 360 / 390「区间」「包车」：第 1 步两端上下排、整行宽、长地址折行显示全；地址选择页占满屏幕；第 2–4 步摘要条两端各占一行；不横向滚动；亮暗 axe", async ({ browser, request }) => {
+test("M8-37b 手机 360 / 390「区间」「包车」：第 1 步两端上下排、整行宽、长地址折行显示全；四个入口的地址选择页占满屏幕、输入框整行、候选在正下方整行宽；第 2–4 步摘要条两端各占一行；不横向滚动；亮暗 axe", async ({ browser, request }) => {
   test.setTimeout(300_000);
   for (const tab of await tabs(request)) {
     for (const size of PHONES) {
