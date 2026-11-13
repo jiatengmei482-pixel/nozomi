@@ -149,6 +149,14 @@ test("Caddyfile：前缀表和哈希都不手抄——从前端镜像里的片�
   assert.match(code, /\n\theader \{\n\t\tStrict-Transport-Security "max-age=31536000"\n\t\tX-Content-Type-Options "nosniff"\n\t\tX-Frame-Options "DENY"\n\t\tReferrer-Policy "no-referrer"\n\t\t-Server\n\t\t-Via\n\t\tdefer\n\t\}\n/);
 });
 
+test("Caddyfile：嵌入组件脚本（ADR 0090）跨站可读、短缓存，不存在时 404 不回退到 index.html；在前端路由回退之前", () => {
+  const code = caddyfile.replace(/^\s*#.*$/gm, "");
+  const block = code.slice(code.indexOf("\t\t@widget path /embed/widget-v1.js"), code.indexOf("\t\thandle {\n\t\t\ttry_files"));
+  assert.match(block, /@widget path \/embed\/widget-v1\.js\n\t\thandle @widget \{\n\t\t\theader Cache-Control "public, max-age=300"\n\t\t\theader Cross-Origin-Resource-Policy "cross-origin"\n\t\t\tfile_server\n\t\t\}/);
+  assert.ok(!block.includes("try_files") && !block.includes("index.html"), "脚本不存在时不能回退到 index.html");
+  assert.ok(code.indexOf("@widget path") < code.indexOf("try_files {path} /index.html"));
+});
+
 test("Caddyfile：前端路由回退到 index.html 且不缓存；/assets/ 只有真实存在的文件才长缓存，不存在的不回退", () => {
   const code = codeOf(caddyfile);
   const assets = code.slice(code.indexOf("\t\t@asset path /assets/*"), code.indexOf("\t\thandle {\n\t\t\ttry_files"));

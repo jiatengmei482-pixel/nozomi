@@ -330,6 +330,14 @@ function OrderView({ token, hashToken, heldToken, arrival }: { token: string; ha
         </Alert>
       )}
       {hashToken === null && arrival?.placed !== true && <HiddenLinkNote url={shareUrl} />}
+      {/* 从合作网站的嵌入组件来（M9E-02，ADR 0090）：服务端下单时核对过白名单的地址才有 */}
+      {typeof loaded.envelope.return_url === "string" && order.status !== "pending_payment" && (
+        <p className="site-order__return">
+          <a className="link" href={loaded.envelope.return_url} rel="noopener noreferrer">
+            返回原网站
+          </a>
+        </p>
+      )}
       {/* 区块按订单编号区分：同一个标签页换成另一张单的链接时，展开的表单、确认框都重新开始，不带上一张单的内容 */}
       {orderSectionSequence(primary).map((key) => (
         <Fragment key={`${order.id}-${key}`}>{sections[key]}</Fragment>
