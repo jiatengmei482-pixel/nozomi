@@ -910,9 +910,9 @@
           "id": "M8-31b",
           "title": "区域共享库：平台编辑 / 合并重复区域（M8-31 验收标准第 2 条后半句）",
           "role": "backend",
-          "status": "review",
+          "status": "done",
           "acceptance": ["业主先定：平台改的是某家供应商名下的原创区域（会直接改它的报价范围）？还是只在共享库里隐藏重复的一份、把以后的引用指向另一份？", "按定下的规则实现，已引用的副本和报价一分不变；写进 ADR 0083 的补充", "来源：M8-31（ADR 0083「不在这次做」）", "业主决定（2026-11-13）：选 B：只在共享库里隐藏重复的一份，以后的引用指向另一份；不动任何供应商现有的区域和报价"],
-          "evidence": "PR #178（https://github.com/jiatengmei482-pixel/nozomi/pull/178）；ADR 0083 补充一节；迁移 0350 只建平台表 shared_area_duplicates（不改 areas 任何行、不含数据）；平台接口 GET /platform/v1/shared-areas（master_data.read）、POST …/{id}/mark-duplicate、…/unmark-duplicate（master_data.manage，沿用现有权限、角色矩阵不变），写审计（shared_area_duplicate create / revoke），不走双人复核；供应商侧：被隐藏的那份不出现在共享库列表、详情、相似提示，引用它自动转到保留的那份，已有副本来源不变（照旧提示新版本、能切换）；运营后台「主数据 → 共享区域」页。新增测试 28 条：集成 shared-areas-dedupe.itest.ts 8 条（含保留的那份是自己的区域时 409 SHARED_AREA_IS_YOURS）（标记后列表 / 详情 / 相似不含、引用转到保留的那份、被隐藏区域和已有副本的区域表逐行一致、同一询价前后逐字段一致、撤销恢复、审计、规则与并发反向标记、权限 403 / 租户令牌 401、租户隔离），domain 单元 7 条，前端组件 7 条、页面逻辑 2 条、引用被转到保留那份时的提示文字（纯函数）2 条、接口对账 2 条；另把新接口登记进权限矩阵、改密拦截、表授权清单。本机（第一轮）：API 相关集成测试 13 个文件 244 条全过；审查修改后又跑 shared-areas-dedupe、shared-areas、areas-openapi 集成 24 条、前端 34 条、接口对账全过，domain 单元 1474 条全过，前端相关组件 / 单元 11 个文件全过，类型检查通过；全套交 CI；已合并部署（#178，迁移 0350 已在测试环境执行）；测试环境只读验收：共享区域列表 33 块、有疑似重复、没有创建者和租户编号（结论在 PR #178）；没有实际标记，以集成测试为证据",
+          "evidence": "PR #178（https://github.com/jiatengmei482-pixel/nozomi/pull/178）；ADR 0083 补充一节；迁移 0350 只建平台表 shared_area_duplicates（不改 areas 任何行、不含数据）；平台接口 GET /platform/v1/shared-areas（master_data.read）、POST …/{id}/mark-duplicate、…/unmark-duplicate（master_data.manage，沿用现有权限、角色矩阵不变），写审计（shared_area_duplicate create / revoke），不走双人复核；供应商侧：被隐藏的那份不出现在共享库列表、详情、相似提示，引用它自动转到保留的那份，已有副本来源不变（照旧提示新版本、能切换）；运营后台「主数据 → 共享区域」页。新增测试 28 条：集成 shared-areas-dedupe.itest.ts 8 条（含保留的那份是自己的区域时 409 SHARED_AREA_IS_YOURS）（标记后列表 / 详情 / 相似不含、引用转到保留的那份、被隐藏区域和已有副本的区域表逐行一致、同一询价前后逐字段一致、撤销恢复、审计、规则与并发反向标记、权限 403 / 租户令牌 401、租户隔离），domain 单元 7 条，前端组件 7 条、页面逻辑 2 条、引用被转到保留那份时的提示文字（纯函数）2 条、接口对账 2 条；另把新接口登记进权限矩阵、改密拦截、表授权清单。本机（第一轮）：API 相关集成测试 13 个文件 244 条全过；审查修改后又跑 shared-areas-dedupe、shared-areas、areas-openapi 集成 24 条、前端 34 条、接口对账全过，domain 单元 1474 条全过，前端相关组件 / 单元 11 个文件全过，类型检查通过；全套交 CI；已合并部署（#178，迁移 0350 已在测试环境执行）；测试环境只读验收：共享区域列表 33 块、有疑似重复、没有创建者和租户编号（结论在 PR #178）；没有实际标记，以集成测试为证据；监工代业主 2026-11-13 决定：不在测试环境实测「标为重复」（共享库对真实供应商可见，QA 测试供应商区域被排除），以自动化测试 + 只读验收为准，标为已验收（docs/acceptance/M8-31b.md）",
           "updated": "2026-11-13"
         },
         {
@@ -2083,6 +2083,11 @@
       "date": "2026-11-13",
       "by": "designer",
       "summary": "M6-10 规范按 PR #180 审查意见修改：01-tokens.md 第 5 节写明不画聚焦环的例外只有两处（已有的 main:focus 和分步配置的步骤标题）；标题分 pointer / keyboard / unknown 三种标记，pointer 不画，keyboard 和 unknown 用 :focus 强制画 2px 环，没有标记沿用全站 :focus-visible；输入方式在触发的点击 / 按键当时记下带到换步那一刻，浏览器后退 / 前进和直接打开网址算 unknown；鼠标直接点标题、进入上架检查、「载入最新内容」后聚焦标题同样适用；写出具体 CSS 和样式检查配套改动（白名单精确放宽到 .step__title[tabindex=\"-1\"][data-focus-source=\"pointer\"]:focus，并拦 outline-color: transparent、outline-style: none 等藏环写法，要有反例断言）；理由补 WCAG 2.4.7。tenant-products.md 3.1、8.2、第 13 节同步。只改规范。"
+    },
+    {
+      "date": "2026-11-13",
+      "by": "Claude",
+      "summary": "M8-31b 标为已验收：按监工代业主的决定，「标为重复」不在测试环境实测，以集成测试和测试环境只读验收为准（docs/acceptance/M8-31b.md）。"
     },
     {
       "date": "2026-11-13",
