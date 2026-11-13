@@ -8,7 +8,7 @@
  */
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { CENTER, type World, createWorld } from "./catalog.ts";
-import { loginAs, newPassword, platformAdminHeaders, randomLetters, uniqueEmail } from "./support.ts";
+import { createTestCity, loginAs, newPassword, platformAdminHeaders, uniqueEmail } from "./support.ts";
 
 const PLATFORM_DEFAULT_EMPTY = "平台还没有启用中的城市";
 
@@ -34,11 +34,7 @@ async function customStaff(request: APIRequestContext, grants: string[], cityIds
 /** 一个已停用的城市（没有地点）。 */
 async function disabledCity(request: APIRequestContext): Promise<{ id: string; name: string }> {
   const headers = await platformAdminHeaders(request);
-  const tag = randomLetters(5);
-  const name = `已停用城市${tag}`;
-  const created = await request.post("/platform/v1/master/cities", { headers, data: { code: `CTY-JP-${tag}`, country_code: "JP", name: { zh: name }, timezone: "Asia/Tokyo", center: CENTER } });
-  expect(created.status(), await created.text()).toBe(201);
-  const { id } = (await created.json()) as { id: string };
+  const { id, name } = await createTestCity(request, headers, (tag) => ({ name: { zh: `已停用城市${tag}` }, timezone: "Asia/Tokyo", center: CENTER }));
   expect((await request.post(`/platform/v1/master/cities/${id}/disable`, { headers })).ok()).toBe(true);
   return { id, name };
 }

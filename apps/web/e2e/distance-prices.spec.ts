@@ -21,7 +21,7 @@ import { createPool } from "../../api/src/db/pool.ts";
 import { E2E_WEB_STRIPE_PORT } from "../playwright.config.ts";
 import { tomorrowInTokyo } from "./book-new-support.ts";
 import { createBrand, createWorld, expectAccessible, post, tenantHeaders } from "./catalog.ts";
-import { OWN_SITE_SOURCE, adminCredentials, createActiveTenant, expectNoHorizontalOverflow, loginAs, platformAdminHeaders, randomLetters, settleAnimations } from "./support.ts";
+import { createTestCity, OWN_SITE_SOURCE, adminCredentials, createActiveTenant, expectNoHorizontalOverflow, loginAs, platformAdminHeaders, randomLetters, settleAnimations } from "./support.ts";
 
 test.use(OWN_SITE_SOURCE);
 
@@ -81,10 +81,10 @@ interface Setup {
 async function setup(request: APIRequestContext): Promise<Setup> {
   const world = await createWorld(request);
   const admin = await platformAdminHeaders(request);
-  const tag = randomLetters(5);
   // 宫古岛一带：离别的用例的城市（冲绳本岛、九州、四国、北海道……）都在 80 公里（城市的服务范围）以外
   const center = { lat: Number((24.7 + Math.random() * 0.15).toFixed(4)), lng: Number((125.25 + Math.random() * 0.15).toFixed(4)) };
-  const city = await post<{ id: string }>(request, admin, "/platform/v1/master/cities", { code: `CTY-JP-${tag}`, country_code: "JP", name: { zh: `计程城市${tag}` }, timezone: "Asia/Tokyo", center }, "新建城市");
+  const city = await createTestCity(request, admin, (tag) => ({ name: { zh: `计程城市${tag}` }, timezone: "Asia/Tokyo", center }));
+  const tag = city.tag;
   const tenant = await createActiveTenant(request);
   const headers = await tenantHeaders(request, tenant.adminEmail, tenant.password);
   const brand = await createBrand(request, headers, `品牌 ${randomLetters(4)}`);

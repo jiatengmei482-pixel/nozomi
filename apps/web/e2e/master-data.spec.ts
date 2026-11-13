@@ -5,7 +5,7 @@
  */
 import { AxeBuilder } from "@axe-core/playwright";
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
-import { adminCredentials, expectNoHorizontalOverflow, fillLogin, importAirports, loginAs, newPassword, platformAdminHeaders, randomLetters, uniqueEmail, settleAnimations } from "./support.ts";
+import { adminCredentials, createTestCity, expectNoHorizontalOverflow, fillLogin, importAirports, loginAs, newPassword, platformAdminHeaders, randomLetters, uniqueEmail, settleAnimations } from "./support.ts";
 
 async function expectAccessible(page: Page, what: string): Promise<void> {
   await settleAnimations(page);
@@ -27,11 +27,8 @@ interface CreatedCity {
 
 async function createCity(request: APIRequestContext, country: string, timezone: string): Promise<CreatedCity> {
   const headers = await platformAdminHeaders(request);
-  const code = `CTY-${country}-${randomLetters(5)}`;
-  const name = `端到端城市${code.slice(-5)}`;
-  const response = await request.post("/platform/v1/master/cities", { headers, data: { code, country_code: country, name: { zh: name }, timezone, center: { lng: 174.763336, lat: -36.848461 } } });
-  expect(response.status(), "接口新建城市").toBe(201);
-  return { id: ((await response.json()) as { id: string }).id, code, name };
+  const { id, code, name } = await createTestCity(request, headers, (tag) => ({ name: { zh: `端到端城市${tag}` }, timezone, center: { lng: 174.763336, lat: -36.848461 } }), { country });
+  return { id, code, name };
 }
 
 /** 在搜索框里输入并等查询条件写进网址（停止输入 300ms 后才查询）。 */

@@ -6,7 +6,7 @@
 import { AxeBuilder } from "@axe-core/playwright";
 import { type APIRequestContext, type Locator, type Page, expect, test } from "@playwright/test";
 import { E2E_API_NO_MAP_PORT, E2E_TILE_PORT } from "../playwright.config.ts";
-import { createActiveTenant, expectNoHorizontalOverflow, loginAs, newPassword, platformAdminHeaders, randomLetters, snapshot, uniqueEmail, settleAnimations } from "./support.ts";
+import { createActiveTenant, createTestCity, expectNoHorizontalOverflow, loginAs, newPassword, platformAdminHeaders, randomLetters, snapshot, uniqueEmail, settleAnimations } from "./support.ts";
 
 const CENTER = { lat: 35.6895, lng: 139.6917 };
 
@@ -18,11 +18,8 @@ interface City {
 
 async function createCity(request: APIRequestContext): Promise<City> {
   const headers = await platformAdminHeaders(request);
-  const code = `CTY-JP-${randomLetters(5)}`;
-  const name = `区域城市${code.slice(-5)}`;
-  const response = await request.post("/platform/v1/master/cities", { headers, data: { code, country_code: "JP", name: { zh: name }, timezone: "Asia/Tokyo", center: CENTER } });
-  expect(response.status(), "接口新建城市").toBe(201);
-  return { id: ((await response.json()) as { id: string }).id, code, name };
+  const { id, code, name } = await createTestCity(request, headers, (tag) => ({ name: { zh: `区域城市${tag}` }, timezone: "Asia/Tokyo", center: CENTER }));
+  return { id, code, name };
 }
 
 async function tenantHeaders(request: APIRequestContext, email: string, password: string): Promise<Record<string, string>> {

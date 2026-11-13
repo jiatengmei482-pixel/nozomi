@@ -14,7 +14,7 @@ import { type APIRequestContext, type Page, expect, test } from "@playwright/tes
 import { E2E_WEB_STRIPE_PORT } from "../playwright.config.ts";
 import { tomorrowInTokyo } from "./book-new-support.ts";
 import { type Ref, createBrand, createProductByApi, createWorld, expectAccessible, post, tenantHeaders } from "./catalog.ts";
-import { OWN_SITE_SOURCE, adminCredentials, createActiveTenant, expectNoHorizontalOverflow, loginAs, platformAdminHeaders, randomLetters, settleAnimations } from "./support.ts";
+import { createTestCity, OWN_SITE_SOURCE, adminCredentials, createActiveTenant, expectNoHorizontalOverflow, loginAs, platformAdminHeaders, randomLetters, settleAnimations } from "./support.ts";
 
 test.use(OWN_SITE_SOURCE);
 
@@ -61,10 +61,9 @@ async function version(request: APIRequestContext, headers: Record<string, strin
 async function charterTrip(request: APIRequestContext): Promise<Trip> {
   const world = await createWorld(request);
   const admin = await platformAdminHeaders(request);
-  const tag = randomLetters(5);
   const center = { lat: Number((33.7 + Math.random() * 0.4).toFixed(6)), lng: Number((133.0 + Math.random() * 0.6).toFixed(6)) };
-  const created = await post<{ id: string }>(request, admin, "/platform/v1/master/cities", { code: `CTY-JP-${tag}`, country_code: "JP", name: { zh: `区域甲城市${tag}` }, timezone: "Asia/Tokyo", center }, "新建城市");
-  const city: Ref = { id: created.id, code: `CTY-JP-${tag}`, name: `区域甲城市${tag}` };
+  const city = await createTestCity(request, admin, (tag) => ({ name: { zh: `区域甲城市${tag}` }, timezone: "Asia/Tokyo", center }));
+  const tag = city.tag;
   const tenant = await createActiveTenant(request);
   const headers = await tenantHeaders(request, tenant.adminEmail, tenant.password);
   const brand = await createBrand(request, headers, `品牌 ${randomLetters(4)}`);
