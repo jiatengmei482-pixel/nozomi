@@ -116,7 +116,8 @@ test("嵌入组件：白名单网站上样式不受宿主页影响、320 px、ax
 
   // 键盘：出发地选平台的机场，目的地选谷歌候选，日期改成后天，Tab 到「查询价格」回车
   await fromBox.focus();
-  await page.keyboard.type(airport.name.slice(0, 6));
+  // 打完整名称（带随机后缀）：只打前几个字时，并行用例建的「新预订机场XXXXX」也会排在候选里，方向键可能选到别人的（M8-29 同类）
+  await page.keyboard.type(airport.name);
   await expect(page.getByRole("listbox", { name: "出发地的候选" }).getByRole("option", { name: new RegExp(airport.name) })).toBeVisible();
   await page.keyboard.press("ArrowDown");
   await expect(page.getByRole("listbox", { name: "出发地的候选" }).getByRole("option").first()).toBeFocused();
