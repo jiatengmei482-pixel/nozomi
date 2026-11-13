@@ -787,6 +787,9 @@ test("第 4 步 两道判断：点对点两端都要过；包车上车、下车�
   assert.equal(outcome(surcharged, day(WEST, FAR)), 98_700);
   // 没给下车点、商品设了区域加价：照旧 DROPOFF_REQUIRED（不论上车点在不在运营范围里，和今天的先后一样）
   assert.equal(outcome(surcharged, day(OUTSIDE, null)), "DROPOFF_REQUIRED");
+  // 经停点（ADR 0088）也要过运营判断；在运营范围里、但不在商品区域也不在加价区域：这个商品不报（WAYPOINT_NOT_PRICED）
+  assert.equal(outcome(charter, { ...day(WEST, EAST), waypoints: [EAST, FAR] }), "WAYPOINT_NOT_PRICED");
+  assert.equal(outcome(charter, { ...day(WEST, EAST), waypoints: [EAST] }), 98_000);
 });
 
 test("每一个报不出价的原因都有测试触发过（上面各条）", () => {

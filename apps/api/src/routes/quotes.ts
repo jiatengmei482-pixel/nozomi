@@ -103,13 +103,14 @@ export const REFUSAL_MESSAGES: Readonly<Record<ComparisonRefusal, string>> = {
   IN_FORBIDDEN_AREA: "地址在禁行区里",
   NO_PRICING_AREA: "这个地点在运营区域里，但商品没有勾选覆盖它的报价区域",
   DROPOFF_REQUIRED: "这个包车商品设了区域加价，要给下车地点才能报价",
+  WAYPOINT_NOT_PRICED: "有经停点不在这个商品的任何区域里（不在商品的区域、也不在任何加价区域，或不在这个供应商的运营区域里），转人工报价",
   ADDON_NOT_OFFERED: "要的附加服务这个商品不提供",
   DRIVER_LANGUAGE_NOT_OFFERED: "要的司机语言这个商品不提供",
   SOLD_OUT: "这一天的库存不足",
   VEHICLE_GROUP_NOT_OFFERED: "这个商品没有选这个车型组",
   VEHICLE_GROUP_DISABLED: "这个车型组已被平台停用",
   CAPACITY_EXCEEDED: "人数或行李数超过了这个车型组的组合",
-  NO_PRICE_RULE: "这个区域、车型组、方向或套餐没有价格（包车：或者上车点、下车点所在的加价区域没有这个车型组、套餐的加价）",
+  NO_PRICE_RULE: "这个区域、车型组、方向或套餐没有价格（包车：或者上车点、下车点、经停点所在的加价区域没有这个车型组、套餐的加价 / 途经加价）",
   PRICE_NOT_IN_EFFECT: "有价格，但用车日期不在它的生效期里",
   PRICE_RULE_DISABLED: "对得上的那条价格停用了",
   ROUTE_UNAVAILABLE: "价格是「里程 + 时长」或设了含公里数的一口价，需要路线预估，而现在取不到（按计程价、区域外里程费报价时也一样）",
@@ -119,11 +120,12 @@ export const REFUSAL_MESSAGES: Readonly<Record<ComparisonRefusal, string>> = {
   SELL_PRICE_OVER_LIMIT: "对外价超过了上限",
 };
 
-/** 包车区域加价的结算价明细（报价试算、订单共用的样子）：金额是结算币种的最小货币单位整数。 */
+/** 包车区域加价的结算价明细（报价试算、订单共用的样子）：金额是结算币种的最小货币单位整数。`waypoints`（途经加价，ADR 0088）只在带经停点的报价上有。 */
 export function areaSurchargeJson(surcharge: AreaSurchargeBreakdown | null): Json | null {
   if (surcharge === null) return null;
   const end = (entry: AreaSurchargeBreakdown["pickup"]): Json => ({ area_id: entry.areaId, price_rule_id: entry.priceRuleId, amount: entry.amountMinor });
-  return { package: surcharge.packageMinor, pickup: end(surcharge.pickup), dropoff: end(surcharge.dropoff) };
+  const waypoints = surcharge.waypoints === undefined ? {} : { waypoints: surcharge.waypoints.map((entry) => ({ area_id: entry.areaId, price_rule_id: entry.priceRuleId, amount: entry.amountMinor, stop_seqs: entry.stopSeqs })) };
+  return { package: surcharge.packageMinor, pickup: end(surcharge.pickup), dropoff: end(surcharge.dropoff), ...waypoints };
 }
 
 /** 结算价的明细。两个接口共用——里面只有供应商自己的结算价，没有对外价和加价比例。 */

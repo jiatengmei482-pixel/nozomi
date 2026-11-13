@@ -74,6 +74,8 @@ export const QUOTE_RULES = {
   maxLuggage: 60,
   maxAddonKinds: 20,
   maxAddonQuantity: 20,
+  /** 包车一单最多几个经停点（ADR 0088） */
+  maxWaypoints: 10,
 } as const;
 
 // ---- 入参（第 1 步）----
@@ -98,7 +100,15 @@ export interface QuoteRequest {
   driverLanguage: string | null;
   /** 只看这些车型组；空 = 商品选的全部 */
   vehicleGroupIds: readonly string[];
+  /**
+   * 包车的经停点（ADR 0088），按顺序，最多 10 个；引擎只用坐标（名称、停留分钟只存在报价快照里）。
+   * 不给或空 = 没有经停点，报价和 M9W-01 之前逐分一致。只有包车能给，给了就要有下车点。
+   */
+  waypoints?: readonly LatLng[];
 }
+
+/** 请求里的经停点（不给按没有） */
+const waypointsOf = (request: Pick<QuoteRequest, "waypoints">): readonly LatLng[] => request.waypoints ?? [];
 
 export type QuoteRequestIssue = { path: string; reason: "REQUIRED" | "NOT_APPLICABLE" | "OUT_OF_RANGE" | "INVALID_SERVICE_TIME" | "DUPLICATE" };
 
@@ -114,6 +124,10 @@ export function quoteRequestIssues(request: QuoteRequest): QuoteRequestIssue[] {
   if (!Number.isInteger(request.passengers) || request.passengers < 1 || request.passengers > QUOTE_RULES.maxPassengers) issues.push({ path: "/passengers", reason: "OUT_OF_RANGE" });
   if (!Number.isInteger(request.luggage) || request.luggage < 0 || request.luggage > QUOTE_RULES.maxLuggage) issues.push({ path: "/luggage", reason: "OUT_OF_RANGE" });
   if (request.addons.length > QUOTE_RULES.maxAddonKinds) issues.push({ path: "/addons", reason: "OUT_OF_RANGE" });
+  const waypoints = waypointsOf(request);
+  if (waypoints.length > 0 && category !== "charter") issues.push({ path: "/waypoints", reason: "NOT_APPLICABLE" });
+  else if (waypoints.length > QUOTE_RULES.maxWaypoints) issues.push({ path: "/waypoints", reason: "OUT_OF_RANGE" });
+  else if (waypoints.length > 0 && request.dropoff === null) issues.push({ path: "/dropoff", reason: "REQUIRED" });
   const seen = new Set<string>();
   for (const [index, addon] of request.addons.entries()) {
     if (seen.has(addon.addonId)) issues.push({ path: `/addons/${index}/addon_id`, reason: "DUPLICATE" });
@@ -249,6 +263,11 @@ export const QUOTE_REFUSALS = [
   "NO_PRICING_AREA",
   /** 包车没给下车地点，而这个商品设了区域加价（渠道接口暂时可以不给下车地点，ADR 0073 第三部分第 4 节）：不知道下车点就不知道加多少，不报 */
   "DROPOFF_REQUIRED",
+  /**
+   * 包车有经停点不在这个商品的任何区域里（既不在商品的报价区域、也不在任何加价区域，或不在这个供应商的运营范围里，ADR 0088）：
+   * 这个商品的车型组都不报，官网转人工报价；`refused` 里的 `stopSeq` 是第几个经停点（从 1 起）。
+   */
+  "WAYPOINT_NOT_PRICED",
   /** 要的附加服务这个商品不提供（没开、被平台停用、不适用） */
   "ADDON_NOT_OFFERED",
   /** 要的司机语言这个商品不提供 */
@@ -383,6 +402,18 @@ export interface AreaSurchargeBreakdown {
   packageMinor: number;
   pickup: AreaSurchargeEnd;
   dropoff: AreaSurchargeEnd;
+  /**
+   * 途经加价（ADR 0088）：每个收了途经加价的加价区域一项（按第一个落进去的经停点的先后），`stopSeqs` 是落在这个区域里的经停点（从 1 起）。
+   * 同一区域只收一次；上 / 下车已经计价的区域、只在商品区域里的经停点不在这里。只有带经停点的报价才有这一项。
+   */
+  waypoints?: AreaSurchargeWaypoint[];
+}
+
+export interface AreaSurchargeWaypoint {
+  areaId: string;
+  priceRuleId: string;
+  amountMinor: number;
+  stopSeqs: number[];
 }
 
 export interface VehicleOffer {
@@ -401,7 +432,14 @@ export type ProductQuote =
   /** 商品层面就报不出（对所有车型组都一样） */
   | { ok: false; productId: string; tenantId: string; reason: QuoteRefusal }
   /** 报得出的车型组各一个价；报不出的车型组各有原因 */
-  | { ok: true; productId: string; tenantId: string; serviceDate: string; urgent: boolean; offers: VehicleOffer[]; refused: { vehicleGroupId: string; reason: QuoteRefusal }[] };
+  | { ok: true; productId: string; tenantId: string; serviceDate: string; urgent: boolean; offers: VehicleOffer[]; refused: VehicleRefusal[] };
+
+/** 一个车型组报不出的原因；`WAYPOINT_NOT_PRICED` 带上是第几个经停点（从 1 起，ADR 0088） */
+export interface VehicleRefusal {
+  vehicleGroupId: string;
+  reason: QuoteRefusal;
+  stopSeq?: number;
+}
 
 const ZERO: ExactAmount = { numerator: 0n, denominator: 1n };
 const roundMinor = (amount: ExactAmount): number => roundFractionToUnit(amount.numerator, amount.denominator, 1);
@@ -518,6 +556,17 @@ interface CharterEnd {
   surchargeAreaIds: string[];
 }
 
+/** 包车的一个经停点在哪（ADR 0088）：同 `CharterEnd`；`unpriced` = 哪个区域都不在（或不在这个供应商的运营范围里），这个商品不报 */
+interface CharterWaypoint extends CharterEnd {
+  unpriced: boolean;
+}
+
+/** 包车区域判断的结果：基础定价用哪些区域；给了下车点时两端（和经停点）各在哪 */
+interface CharterAreas {
+  areaIds: string[];
+  ends: { pickup: CharterEnd; dropoff: CharterEnd; waypoints: CharterWaypoint[] } | null;
+}
+
 /**
  * 包车的区域判断（ADR 0073 第三部分）：
  * - 没给下车点（只有渠道接口暂时允许）：商品没挂加价区域的照旧只看上车点（和以前一模一样）；挂了的不报（`DROPOFF_REQUIRED`）。
@@ -525,14 +574,16 @@ interface CharterEnd {
  *   哪里都不在的不报（转人工，`NO_PRICING_AREA`——不做运营判断时是 `OUT_OF_SERVICE_AREA`——或 `IN_FORBIDDEN_AREA`）。
  *   基础定价用哪个区域的：上车点所在的商品区域（和以前一样）；上车点只在加价区域里时用下车点所在的商品区域；两端都只在加价区域里时商品的每个区域都算（取最低在后面做）。
  */
-function charterEnds(product: QuoteProduct, request: QuoteRequest): { areaIds: string[]; ends: { pickup: CharterEnd; dropoff: CharterEnd } | null } | { reason: AreaRefusal | "DROPOFF_REQUIRED" } {
+function charterEnds(product: QuoteProduct, request: QuoteRequest): CharterAreas | { reason: AreaRefusal | "DROPOFF_REQUIRED" } {
   const surchargeIds = surchargeAreaIds(product.priceRules);
+  const waypoints = waypointsOf(request);
   if (request.dropoff === null || request.pickup === null) {
-    if (surchargeIds.length > 0) return { reason: "DROPOFF_REQUIRED" };
+    if (surchargeIds.length > 0 || waypoints.length > 0) return { reason: "DROPOFF_REQUIRED" };
     const areas = serviceAreas(product, request);
     return "reason" in areas ? areas : { areaIds: areas.areaIds, ends: null };
   }
-  if (inOperatingForbidden(product, [request.pickup, request.dropoff])) return { reason: "IN_FORBIDDEN_AREA" };
+  // 经停点和上 / 下车点一样过运营区域的禁行判断（ADR 0088 第 3 节第 1 条）
+  if (inOperatingForbidden(product, [request.pickup, request.dropoff, ...waypoints])) return { reason: "IN_FORBIDDEN_AREA" };
   const surchargeAreas = (product.surchargeAreas ?? []).filter((area) => surchargeIds.includes(area.areaId));
   const located = (point: LatLng): { own: string[]; end: CharterEnd; forbidden: boolean; inOwnForbidden: boolean } => {
     const own = locateInAreas(product.areas, point);
@@ -548,10 +599,21 @@ function charterEnds(product: QuoteProduct, request: QuoteRequest): { areaIds: s
     if (outside !== null) return { reason: outside };
     if (!end.end.inProductArea && end.end.surchargeAreaIds.length === 0) return { reason: end.forbidden ? "IN_FORBIDDEN_AREA" : notPriced(product) };
   }
-  // 上车点或下车点落在这个商品某个报价区域的禁行区里：整个商品不报（M8-36；加价区域的禁行区不算，它们不是报价区域）
-  if (pickup.inOwnForbidden || dropoff.inOwnForbidden) return { reason: "IN_FORBIDDEN_AREA" };
+  // 经停点（ADR 0088 第 3 节）：运营判断不过、或哪个区域都不在 = 这个商品不报（各车型组报 `WAYPOINT_NOT_PRICED`，指出是第几个点）；
+  // 只落在加价区域的禁行区里、哪里都不在 = 同上 / 下车那一端，`IN_FORBIDDEN_AREA`
+  const stops = waypoints.map((position) => ({ position, at: located(position) }));
+  const placed: CharterWaypoint[] = [];
+  for (const { position, at } of stops) {
+    const outside = outsideOperating(product, position);
+    if (outside === "IN_FORBIDDEN_AREA") return { reason: outside };
+    const nowhere = !at.end.inProductArea && at.end.surchargeAreaIds.length === 0;
+    if (nowhere && at.forbidden) return { reason: "IN_FORBIDDEN_AREA" };
+    placed.push({ ...at.end, unpriced: outside !== null || nowhere });
+  }
+  // 上车点、下车点或经停点落在这个商品某个报价区域的禁行区里：整个商品不报（M8-36；加价区域的禁行区不算，它们不是报价区域）
+  if (pickup.inOwnForbidden || dropoff.inOwnForbidden || stops.some((stop) => stop.at.inOwnForbidden)) return { reason: "IN_FORBIDDEN_AREA" };
   const baseAreas = pickup.own.length > 0 ? pickup.own : dropoff.own.length > 0 ? dropoff.own : product.areas.filter((area) => area.active).map((area) => area.areaId);
-  return { areaIds: baseAreas, ends: { pickup: pickup.end, dropoff: dropoff.end } };
+  return { areaIds: baseAreas, ends: { pickup: pickup.end, dropoff: dropoff.end, waypoints: placed } };
 }
 
 /**
@@ -700,7 +762,7 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
   const usage: TripUsage = moment.route === null || product.category === "charter" ? {} : { meters: moment.route.meters, minutes: moment.route.minutes };
 
   const offers: VehicleOffer[] = [];
-  const refused: { vehicleGroupId: string; reason: QuoteRefusal }[] = [];
+  const refused: VehicleRefusal[] = [];
   // 请求里同一个车型组写了几次只算一次：一个车型组只出一个价
   const wanted = request.vehicleGroupIds.length === 0 ? product.vehicleGroups.map((group) => group.vehicleGroupId) : [...new Set(request.vehicleGroupIds)];
   for (const vehicleGroupId of wanted) {
@@ -719,7 +781,7 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
       continue;
     }
     // 包车的区域加价：上车、下车两端各取这一端最小的加价（在商品本身的区域里是 0）；有一端没有能用的加价，这个车型组不报
-    let surcharge: { pickup: AreaSurchargeEnd; dropoff: AreaSurchargeEnd } | null = null;
+    let surcharge: Omit<AreaSurchargeBreakdown, "packageMinor"> | null = null;
     if (ends !== null) {
       // 一端落在加价区域里、而且这个车型组 / 套餐 / 日期有能用的区域加价：用它（几个都有时取最高），
       // 哪怕这一端同时也在商品本身的（大范围）区域里——大运营区不能把小加价区盖成 0（M8-38，业主确认）。
@@ -731,13 +793,21 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
         return chosen === null ? NO_PRICE_REFUSAL.NO_RULE : NO_PRICE_REFUSAL[chosen.noPriceReason];
       };
       const [pickupCharge, dropoffCharge] = [endCharge(ends.pickup, "pickup"), endCharge(ends.dropoff, "dropoff")];
-      if (typeof pickupCharge === "string" || typeof dropoffCharge === "string") {
-        refused.push({ vehicleGroupId, reason: pickRefusal([pickupCharge, dropoffCharge].filter((entry): entry is QuoteRefusal => typeof entry === "string")) });
+      // 经停点哪个区域都不在：这个车型组不报，指出第一个这样的经停点（ADR 0088 第 3 节第 4 条）
+      const unpriced = ends.waypoints.findIndex((stop) => stop.unpriced);
+      if (unpriced >= 0) {
+        refused.push({ vehicleGroupId, reason: "WAYPOINT_NOT_PRICED", stopSeq: unpriced + 1 });
         continue;
       }
-      surcharge = { pickup: pickupCharge, dropoff: dropoffCharge };
+      const waypointCharges = ends.waypoints.map((stop) => endCharge(stop, "waypoint"));
+      const failures = [pickupCharge, dropoffCharge, ...waypointCharges].filter((entry): entry is QuoteRefusal => typeof entry === "string");
+      if (typeof pickupCharge === "string" || typeof dropoffCharge === "string" || failures.length > 0) {
+        refused.push({ vehicleGroupId, reason: pickRefusal(failures) });
+        continue;
+      }
+      surcharge = { pickup: pickupCharge, dropoff: dropoffCharge, ...(ends.waypoints.length === 0 ? {} : { waypoints: waypointSurcharges(waypointCharges as AreaSurchargeEnd[], [pickupCharge.areaId, dropoffCharge.areaId]) }) };
     }
-    const surchargeMinor = surcharge === null ? 0 : surcharge.pickup.amountMinor + surcharge.dropoff.amountMinor;
+    const surchargeMinor = surcharge === null ? 0 : surcharge.pickup.amountMinor + surcharge.dropoff.amountMinor + (surcharge.waypoints ?? []).reduce((sum, entry) => sum + entry.amountMinor, 0);
     // 第 5–7 步：每个能接的区域各算一遍，取结算价最低的；一样低的取商品里排在前面的区域。
     // 点对点先找线路价（ADR 0073 第二部分）：命中了线路价就只在线路价里取最低，不和区域价比；一条都没命中才用区域价（和以前一模一样）
     let best: VehicleOffer | null = null;
@@ -791,7 +861,7 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
           driverLanguage: request.driverLanguage,
           usage: candidate.usage,
           freeWait,
-          ...(surcharge === null ? {} : { areaSurcharge: { packageMinor: baseMinor - surchargeMinor, pickup: surcharge.pickup, dropoff: surcharge.dropoff } }),
+          ...(surcharge === null ? {} : { areaSurcharge: { packageMinor: baseMinor - surchargeMinor, ...surcharge } }),
           ...(candidate.toAreaId === null ? {} : { toAreaId: candidate.toAreaId }),
           ...candidate.extra,
         },
@@ -909,6 +979,21 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
     else refused.push({ vehicleGroupId, reason: pickRefusal(reasons) });
   }
   return { ok: true, productId: product.productId, tenantId: product.tenantId, serviceDate: local.date, urgent: window.urgentTier !== null, offers, refused };
+}
+
+/**
+ * 经停点的途经加价合到区域上（ADR 0088 第 3 节第 5 条）：每个经停点已经归到途经加价最高的那个加价区域（只在商品区域里的为 null，不加）；
+ * 同一区域只加一次；上车、下车各自选中的那个加价区域（`chargedAreaIds`，那一端只在商品区域里时是 null）不再加，选中的加价是 0 也算。
+ */
+function waypointSurcharges(stops: readonly AreaSurchargeEnd[], chargedAreaIds: readonly (string | null)[]): AreaSurchargeWaypoint[] {
+  const byArea = new Map<string, AreaSurchargeWaypoint>();
+  for (const [index, stop] of stops.entries()) {
+    if (stop.areaId === null || stop.priceRuleId === null || chargedAreaIds.includes(stop.areaId)) continue;
+    const entry = byArea.get(stop.areaId);
+    if (entry === undefined) byArea.set(stop.areaId, { areaId: stop.areaId, priceRuleId: stop.priceRuleId, amountMinor: stop.amountMinor, stopSeqs: [index + 1] });
+    else entry.stopSeqs.push(index + 1);
+  }
+  return [...byArea.values()];
 }
 
 /** 几个区域各有各的原因时报哪一个：离「报得出」最近的那个（方便排查）。 */
@@ -1081,6 +1166,38 @@ export function sellEquivalentMinor(amountMinor: number, settlementCurrency: Cur
     amount = scaleExact(amount, BigInt(10_000 + sell.fxBufferBp), 10_000n);
   }
   return roundMinor(scaleExact(amount, BigInt(10_000 + sell.markupBp), 10_000n));
+}
+
+/** 对外价明细的一项（ADR 0088 第 4 节）：客人支付币种的最小单位 */
+export interface SellBreakdownItem {
+  /** `base` 基础价（包车是套餐价）、`pickup` / `dropoff` 上 / 下车加价、`waypoint` 一个区域的途经加价、`adjust` 调价、`other` 加急 / 夜间 / 附加服务 / 司机语言 */
+  kind: "base" | "pickup" | "dropoff" | "waypoint" | "adjust" | "other";
+  /** 加价区域（上 / 下车加价、途经加价才有） */
+  areaId: string | null;
+  /** 途经加价：落在这个区域的是第几个经停点（从 1 起） */
+  stopSeqs?: number[];
+  amountMinor: number;
+}
+
+/**
+ * 对外价的简单明细（ADR 0088 第 4 节，给官网看）：基础价 / 套餐、上车加价、下车加价、各途经区域、调价、其他费用。
+ * 除基础价以外的每项用 `sellEquivalentMinor` 按这一单的汇率、缓冲、加价比例换算；基础价倒算（= 对外总价 − 其余各项），
+ * 吸收最低毛利、渠道取整和各项单独四舍五入的尾差，所以各项之和恒等于对外价。是 0 的调价、其他费用不列。
+ */
+export function sellBreakdown(settlement: SettlementBreakdown, sell: Pick<SellPrice, "currency" | "fx" | "fxBufferBp" | "markupBp" | "sellMinor">): SellBreakdownItem[] {
+  const convert = (amountMinor: number): number => sellEquivalentMinor(amountMinor, settlement.currency, sell);
+  const items: SellBreakdownItem[] = [];
+  const surcharge = settlement.areaSurcharge;
+  if (surcharge !== undefined && surcharge !== null) {
+    if (surcharge.pickup.areaId !== null) items.push({ kind: "pickup", areaId: surcharge.pickup.areaId, amountMinor: convert(surcharge.pickup.amountMinor) });
+    if (surcharge.dropoff.areaId !== null) items.push({ kind: "dropoff", areaId: surcharge.dropoff.areaId, amountMinor: convert(surcharge.dropoff.amountMinor) });
+    for (const entry of surcharge.waypoints ?? []) items.push({ kind: "waypoint", areaId: entry.areaId, stopSeqs: [...entry.stopSeqs], amountMinor: convert(entry.amountMinor) });
+  }
+  if (settlement.adjustMinor !== 0) items.push({ kind: "adjust", areaId: null, amountMinor: convert(settlement.adjustMinor) });
+  const otherMinor = settlement.urgentMinor + settlement.nightMinor + settlement.addonsMinor + settlement.driverLanguageMinor;
+  if (otherMinor !== 0) items.push({ kind: "other", areaId: null, amountMinor: convert(otherMinor) });
+  const rest = items.reduce((sum, item) => sum + item.amountMinor, 0);
+  return [{ kind: "base", areaId: null, amountMinor: sell.sellMinor - rest }, ...items];
 }
 
 /** 最低毛利金额换到客人支付的币种（精确值，不加缓冲）。要换却没有对得上的汇率返回 `FX_RATE_UNAVAILABLE`。 */
