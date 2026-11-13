@@ -243,6 +243,8 @@ export interface QuoteLogEntry {
   candidate_count: number;
   quote_count: number;
   reject_count: number;
+  /** 没报出价的每一条（M9W-10）：商品、车型组、平台内部的原始原因码 */
+  rejects: { product_id: string | null; vehicle_group_id: string | null; reason: string }[];
   duration_ms: number;
   request: Record<string, unknown>;
   quotes: { quote_id: string; vehicle_group_id: string; winner_tenant_id: string }[];
@@ -366,7 +368,7 @@ export const CHANNEL_SCHEMA_FIELDS = {
   PricingImpactOrderSection: ["total", "truncated", "count", "skipped", "before", "after", "diff", "winner_changed", "min_margin_raised_before", "min_margin_raised_after", "became_unquotable", "became_quotable", "cancelled_with_fee", "cancelled_free"],
   PricingImpactTotals: ["sell_minor", "settlement_minor", "margin_minor"],
   ApiClient: ["id", "client_id", "name", "secret_last4", "secret_generation", "previous_valid_until", "status", "created_at", "rotated_at", "revoked_at", "last_used_at"],
-  QuoteLogEntry: ["id", "created_at", "client_id", "currency", "city_id", "category", "candidate_count", "quote_count", "reject_count", "duration_ms", "request", "quotes"],
+  QuoteLogEntry: ["id", "created_at", "client_id", "currency", "city_id", "category", "candidate_count", "quote_count", "reject_count", "rejects", "duration_ms", "request", "quotes"],
 } as const satisfies {
   Channel: readonly (keyof Channel)[];
   ChannelPricing: readonly (keyof ChannelPricing)[];
