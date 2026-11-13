@@ -478,9 +478,9 @@
           "id": "M6-11",
           "title": "样式检查的「实测高度」例外收进公用模块（M6-08 司机页吸底条审查的后续）",
           "role": "frontend",
-          "status": "todo",
+          "status": "review",
           "acceptance": ["把「量元素高度、写进 CSS 变量」收进一个公用小模块（例如 lib/measured-length.ts 的 useMeasuredHeight(element, name)）：变量名只接受规定的几个，值固定写成「整数px」", "两个样式测试共用同一份变量名单；例外改为「只有这个模块可以调 setProperty」，不再按文件名替换字符串", "变量名单改成「变量 → 允许引用它的样式表」，--driver-bar-height 只许 driver.css 引用", "styles.edge.test.ts 的注释只提 setProperty（原规则本来不拦 removeProperty）", "来源：PR #177 独立复查（2026-11-13），不挡 #177 合并", "附带边角（#183 复查，不急）：离开确认里「保存并继续」保存失败后，紧接一次没有记录、目标地址相同的导航，可能沿用那次点击的 pointer 记录；保存失败时清掉记录即可"],
-          "evidence": "",
+          "evidence": "PR #202（https://github.com/jiatengmei482-pixel/nozomi/pull/202）；本机 typecheck 通过，样式和组件测试 9 个文件 159 条全过（新增 8 条），端到端 driver-time-window.spec.ts 2 条通过；反向试验确认原来能拦住的脚本改样式写法仍被拦下；全量见 PR 的 CI",
           "updated": "2026-11-13"
         }
       ]
@@ -2218,6 +2218,11 @@
       "date": "2026-11-13",
       "by": "Claude",
       "summary": "测试站复跑 M9W 报价时发现：经停点选了谷歌候选、坐标还没取回来就选停留时长，坐标回来后停留时长被清空（更新这一行时用的是渲染时的旧列表）。新增 M9W-08 并修复（PR #198）。"
+    },
+    {
+      "date": "2026-11-13",
+      "by": "Claude",
+      "summary": "M6-11 开发完成待验收：「量元素高度、写进 CSS 变量」收进公用模块 useMeasuredHeight（变量名只接受登记的、值固定整数px），两个样式测试共用同一份「变量 → 允许引用它的样式表」名单，只有这个模块可以调 setProperty；离开确认里「保存并继续」保存失败后不再沿用那次点击的记录（PR #202）。"
     }
   ]
 }

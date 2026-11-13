@@ -562,6 +562,8 @@ export function AdjustRulesTab({ shared, loadStatus }: { shared: PricesShared; l
               onClick={(event) => {
                 const to = leaving;
                 setLeaving(null);
+                // 被拦下的那次点击记下的换步作废：存好了由 saveOrder 按这次点击重新记；保存失败就不留记录（M6-11）
+                clearStepChange();
                 void saveOrder(to, inputSourceOf(event));
               }}
             >
