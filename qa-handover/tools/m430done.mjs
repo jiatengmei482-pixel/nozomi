@@ -1,0 +1,13 @@
+import { readFileSync, writeFileSync } from "node:fs";
+const p = "docs/progress/roadmap.json";
+const lines = readFileSync(p, "utf8").split("\n");
+const i = lines.findIndex((l) => l.includes('"id": "M4-30"'));
+if (i < 0) throw new Error("row");
+const ev = /"evidence": "([^"]*)"/.exec(lines[i])[1].replace(/；测试环境真实收信待业主补测（步骤见交付说明）$/, "");
+lines[i] = lines[i].replace(/"status": "[a-z]+"/, '"status": "done"').replace(/"evidence": "[^"]*"/, `"evidence": "${ev}；2026-11-03 业主本人在测试环境验收通过：填错邮箱不发信；用下单邮箱查询后 20:20:45（东京）「您的订单链接」已发送（服务器已接收），20:21:48 订单页打开成功（服务器记录已核对）"`).replace(/"updated": "[^"]*"/, '"updated": "2026-11-03"');
+let s = lines.join("\n");
+const entry = `{\n      "date": "2026-11-03",\n      "by": "Claude",\n      "summary": "M4-30 已验收：业主用下单邮箱查订单收到链接邮件并打开，填错邮箱不发信，服务器记录已核对。"\n    }\n  ]\n}`;
+const tail = /\}\n  \]\n\}\s*$/;
+if (!tail.test(s)) throw new Error("tail");
+s = s.replace(tail, `},\n    ${entry}\n`);
+JSON.parse(s); writeFileSync(p, s);

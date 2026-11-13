@@ -1,0 +1,22 @@
+import { open } from "./pw.mjs";
+import { readFileSync } from "node:fs";
+const key = process.argv[2];
+const line = readFileSync(".orders", "utf8").trim().split("\n").filter((l) => l.startsWith(key + "\t")).pop();
+const url = line.split("\t")[2];
+const { browser, context } = await open({ unlock: false });
+const page = await context.newPage();
+await page.goto(url);
+await page.getByRole("heading", { level: 1, name: /^订单 NZ/ }).waitFor();
+const frame = page.frameLocator('iframe[title*="付款"], iframe[title*="payment"], iframe[name^="__privateStripeFrame"]').first();
+await frame.locator('input[name="number"]').fill("4242424242424242", { timeout: 30000 });
+await frame.locator('input[name="expiry"]').fill("12 / 34");
+await frame.locator('input[name="cvc"]').fill("123");
+await page.getByRole("button", { name: /^付款 / }).click();
+await page.getByRole("button", { name: "确认支付" }).click();
+try { await page.getByText(/已确认|付款成功/).first().waitFor({ timeout: 60000 }); } catch (e) { await page.screenshot({ path: `shots/${key}-pay-fail.png`, fullPage: true }); console.log((await page.locator("main").innerText()).replace(/nzo_[A-Za-z0-9_-]+/g,"nzo_***").slice(0,1500)); await browser.close(); process.exit(1); }
+await page.waitForTimeout(3000);
+await page.reload(); await page.getByRole("heading", { level: 1, name: /^订单 NZ/ }).waitFor(); await page.waitForTimeout(2000);
+const main = await page.locator("main").innerText();
+console.log(main.replace(/\n+/g, " | ").replace(/nzo_[A-Za-z0-9_-]+/g, "nzo_***").slice(0, 2500));
+await page.screenshot({ path: `shots/${key}-6-paid.png`, fullPage: true });
+await browser.close();

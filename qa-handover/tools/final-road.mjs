@@ -1,0 +1,17 @@
+import { readFileSync, writeFileSync } from "node:fs";
+const p = "docs/progress/roadmap.json";
+const lines = readFileSync(p, "utf8").split("\n");
+const at = (id) => { const i = lines.findIndex((l) => l.includes(`"id": "${id}"`)); if (i < 0) throw new Error(id); return i; };
+const setEv = (id, ev, status) => { const i = at(id); lines[i] = lines[i].replace(/"evidence": "[^"]*"/, `"evidence": "${ev}"`).replace(/"updated": "[^"]*"/, '"updated": "2026-11-02"'); if (status) lines[i] = lines[i].replace(/"status": "[a-z]+"/, `"status": "${status}"`); };
+const getEv = (id) => /"evidence": "([^"]*)"/.exec(lines[at(id)])[1];
+setEv("M4-28", "PR #107、#108；测试环境批次 JP-2026-11-B3（业主 2.0 后台的多边形围栏）：28 个机场商品（全部草稿未上架）、110 个区域、1,362 条价格；验收角色全量核对：1,247 格官网显示价等于表上价、115 格低 1 日元、0 格报不出；负责人原有数据改动 0、官网报价不变、可整批撤回（docs/acceptance/M4.md）。上架由业主决定，待决事项见交付说明", "done");
+setEv("M4-32", getEv("M4-32") + "；2026-11-02 验收：本地完整系统 6 条全部通过，测试环境已部署 c446720，ADR 0064 的只读查询查出 NZ202611023YAEPLFX（docs/acceptance/M4.md）", "done");
+setEv("M4-30", getEv("M4-30") + "；2026-11-02 本地完整系统 4 条全部通过、测试环境只读检查通过；测试环境真实收信待业主补测（步骤见交付说明）");
+setEv("M4-31", getEv("M4-31") + "；2026-11-02 本地完整系统 5 条全部通过、测试环境部署和权限已核对；测试环境复核流程待第二位真人（步骤见交付说明）");
+setEv("M4-29", getEv("M4-29") + "；测试环境改单流程待业主按交付说明的步骤走一遍");
+let s = lines.join("\n");
+const entry = `{\n      "date": "2026-11-02",\n      "by": "Claude",\n      "summary": "收尾：M4-28（日本第一批价格草稿）和 M4-32 已验收；M4-29、M4-30、M4-31 本地验收通过，测试环境那一步要业主或第二位真人，步骤写进交付说明；交付说明改为最终版。"\n    }\n  ]\n}`;
+const tail = /\}\n  \]\n\}\s*$/;
+if (!tail.test(s)) throw new Error("tail");
+s = s.replace(tail, `},\n    ${entry}\n`);
+JSON.parse(s); writeFileSync(p, s);

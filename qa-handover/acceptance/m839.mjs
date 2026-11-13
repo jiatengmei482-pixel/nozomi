@@ -1,0 +1,13 @@
+import { open, P } from "./pw.mjs";
+const { browser, context } = await open({ viewport: { width: 390, height: 844 } });
+const page = await context.newPage();
+const pt = (k, n) => `${k}=${P[n].lat},${P[n].lng}&${k}_name=${encodeURIComponent(P[n].name)}`;
+await page.goto(`/book/new?${pt("from", "karuizawa")}&${pt("to", "shinjuku")}&date=2026-11-27&time=10:00&pax=2&bags=1`);
+await page.waitForTimeout(8000); console.log((await page.locator("main").innerText()).replace(/\n+/g," | ").slice(0,600)); await page.screenshot({path:"shots/m839.png",fullPage:true});
+const form = page.getByRole("region", { name: "请客服人工报价" });
+await form.getByLabel("邮箱").fill("m839-acc@example.com");
+const resp = page.waitForResponse((r) => r.url().includes("/site/v1/manual-quote-requests"));
+await form.getByRole("button", { name: "提交" }).click();
+const r = await resp; console.log("POST", r.status());
+const s = await context.request.delete("/site/v1/qa-acceptance/session"); console.log("session end", s.status());
+await browser.close();

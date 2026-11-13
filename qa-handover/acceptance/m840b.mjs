@@ -1,0 +1,13 @@
+import { open, P } from "./pw.mjs";
+const { browser, context } = await open({ viewport: { width: 390, height: 844 } });
+const page = await context.newPage();
+const pt = (k, n) => `${k}=${P[n].lat},${P[n].lng}&${k}_name=${encodeURIComponent(P[n].name)}`;
+await page.goto(`/book/new?${pt("from", "shibuya")}&${pt("to", "kawasaki")}&date=2026-11-25&time=10:00&pax=2&bags=1`);
+await page.getByRole("heading", { name: "选择车型" }).waitFor({ timeout: 30000 });
+await page.waitForTimeout(1500);
+await page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: "经济5座" }) }).getByRole("button", { name: "选择 经济5座" }).click();
+await page.waitForTimeout(1000);
+const hits = await page.evaluate(() => { const out = []; const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT); let n; while ((n = w.nextNode())) if (n.textContent.includes("一口价")) out.push(n.textContent.trim().slice(0, 60) + "  <" + n.parentElement.tagName + "." + n.parentElement.className + ">"); return out; });
+console.log(hits.join("\n"));
+await context.request.delete("/site/v1/qa-acceptance/session");
+await browser.close();
