@@ -823,3 +823,10 @@ input[type="datetime-local"]:focus-within {
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
 }
+
+.trip-stops__summary {
+  display: block;
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}

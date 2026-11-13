@@ -58,7 +58,7 @@ import { siteFailureText } from "./SiteLayout.tsx";
 import { SitePrice } from "./SitePrice.tsx";
 import { PriceBreakdown } from "./new/PriceBreakdown.tsx";
 import { TripStops, orderStopRows } from "../../components/TripStops.tsx";
-import { breakdownLines } from "../../lib/charter-itinerary.ts";
+import { orderItineraryText } from "../../lib/charter-itinerary.ts";
 
 type Changed = (envelope: SiteOrderEnvelope) => void;
 
@@ -365,6 +365,7 @@ export function TripSection({ order, names }: { order: SiteOrder; names: SiteOrd
         {order.waypoints != null && order.waypoints.length > 0 && (
           <Fact label="经停点">
             <TripStops rows={orderStopRows(order) ?? []} label="包车行程" />
+            {orderItineraryText(order.itinerary) !== null && <span className="trip-stops__summary">{orderItineraryText(order.itinerary)}</span>}
           </Fact>
         )}
         <Fact label={serviceTimeLabels(order.category, order.direction).fact}>
@@ -389,7 +390,7 @@ export function TripSection({ order, names }: { order: SiteOrder; names: SiteOrd
         <Fact label="总价" total>
           <SitePrice text={moneyText(order.price.total)} size="lg" />
           {sitePriceBasisNote(order) !== null && <span className="site-facts__note">{sitePriceBasisNote(order)}</span>}
-          {order.waypoints != null && order.waypoints.length > 0 && <PriceBreakdown lines={breakdownLines(order, order.package_hours)} />}
+          {order.waypoints != null && order.waypoints.length > 0 && <PriceBreakdown lines={null} />}
         </Fact>
         {kmNote !== null && <Fact label="公里数">{kmNote}</Fact>}
         {orderFeeNote(order) !== null && <Fact label="费用说明">{orderFeeNote(order)}</Fact>}

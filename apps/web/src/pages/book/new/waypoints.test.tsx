@@ -12,7 +12,7 @@ import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { App } from "../../../App.tsx";
 import type { SiteCity, SiteConfig, SiteQuote, SiteQuoteResult } from "../../../api/site.ts";
-import { type ApiCall, assertAbsent, assertFocused, json, resetBrowser, stubApiWith } from "../../../testing/harness.tsx";
+import { type ApiCall, apiError, assertAbsent, assertFocused, json, resetBrowser, stubApiWith } from "../../../testing/harness.tsx";
 
 const originalMatchMedia = window.matchMedia;
 afterEach(() => {
@@ -61,8 +61,7 @@ const itineraryResult = (breakdown = FUJI_BREAKDOWN, total = 71_500): SiteQuoteR
   currency: "JPY",
   quotes: [quoteOf(1, total, breakdown)],
   unavailable: [],
-  route: { legs: [{ minutes: 120, meters: 120_000 }, { minutes: 30, meters: 20_000 }, { minutes: 10, meters: 4_000 }, { minutes: 110, meters: 110_000 }], total_minutes: 270, total_meters: 254_000 },
-  package_hours: 10,
+  itinerary_route: { legs: [{ minutes: 120, meters: 120_000 }, { minutes: 30, meters: 20_000 }, { minutes: 10, meters: 4_000 }, { minutes: 110, meters: 110_000 }], drive_minutes: 270, stay_minutes: 180, total_minutes: 450, total_meters: 254_000 },
 });
 const plainResult: SiteQuoteResult = { currency: "JPY", quotes: [quoteOf(1, 77_000, [{ kind: "base", amount: yen(77_000), area_name: null, stop_seqs: null }])], unavailable: [] };
 
@@ -178,7 +177,7 @@ test("停留时长必填：选了地点没选停留时不报价，点「下一�
   await waitFor(() => assertAbsent(screen.queryByText("请选择停留时长")));
   await addStop(actor, "河口湖", "90");
   await addStop(actor, "忠灵塔", "30");
-  await waitFor(() => assert.ok(screen.getByText("按行程预计 7 小时 30 分，套餐 10 小时")), SLOW);
+  await waitFor(() => assert.ok(screen.getByText("按行程预计 7 小时 30 分（行驶 4 小时 30 分 + 停留 3 小时），全程约 254 公里，套餐 10 小时")), SLOW);
   const body = quotes(calls).at(-1) as Record<string, unknown>;
   assert.equal(body["itinerary_pricing"], true);
   assert.equal("package_hours" in body, false);
@@ -269,4 +268,17 @@ test("经停点不在任何区域（WAYPOINT_NOT_PRICED）：指出第几个经�
   assert.ok(screen.getByRole("heading", { name: "没有可预订的车" }));
   assert.equal(screen.getByRole("link", { name: "+81 3-1234-5678" }).getAttribute("href"), "tel:+81312345678");
   assert.doesNotMatch(document.body.textContent ?? "", /WAYPOINT_NOT_PRICED/);
+});
+
+test("按行程计价有一段路线算不出来（422 ITINERARY_ROUTE_UNAVAILABLE）：说清是哪两个点之间，转人工报价", async () => {
+  wideScreen();
+  open((call) => ((call.body as Record<string, unknown>)["itinerary_pricing"] === true ? apiError(422, "ITINERARY_ROUTE_UNAVAILABLE", "路线取不到", { leg: 2, reason: "NO_ROUTE" }) : json(200, plainResult)));
+  const actor = user();
+  await screen.findByRole("heading", { name: "车型1" }, SLOW);
+  await actor.click(screen.getByRole("button", { name: "上一步" }));
+  await addStop(actor, "五合目", "60");
+  await actor.click(screen.getByRole("button", { name: "下一步：选择车型" }));
+  assert.ok(await screen.findByText("「五合目」到「新宿站」这一段路线暂时算不出来，没有在线报价。请联系客服人工报价，或调整经停点再试。", {}, SLOW));
+  assert.ok(screen.getByRole("heading", { name: "没有在线报价" }));
+  assertAbsent(screen.queryByRole("button", { name: "重试" }));
 });

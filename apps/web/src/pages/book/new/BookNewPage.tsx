@@ -70,7 +70,7 @@ import { CHARTER_OVERAGE_NOTE, UNAVAILABLE_REASON_TEXT, addressEnds, defaultServ
 import { FIELD_HINTS, MESSAGING_NAMES, type OrderErrors, type OrderForm, type OrderTrip, orderFailureOf, orderRequestOf, validateOrderForm } from "../../../lib/site-order-form.ts";
 import { useDocumentTitle } from "../../../lib/use-document-title.ts";
 import { MANUAL_QUOTE_CHARTER_HOURS, type ManualQuoteTripDraft } from "../../../lib/manual-quote-form.ts";
-import { ITINERARY_NOTE, type WaypointDraft, breakdownLines, durationText, itineraryPackageHours, itineraryText, scheduleRows, waypointErrors, waypointUnavailableTexts, waypointsBody } from "../../../lib/charter-itinerary.ts";
+import { ITINERARY_NOTE, type WaypointDraft, breakdownLines, durationText, itineraryPackageHours, itineraryRouteFailureText, itineraryText, scheduleRows, waypointErrors, waypointUnavailableTexts, waypointsBody } from "../../../lib/charter-itinerary.ts";
 import { TripStops } from "../../../components/TripStops.tsx";
 import { ManualQuoteBlock } from "../ManualQuote.tsx";
 import { SiteLayout, siteFailureText, useSiteConfig } from "../SiteLayout.tsx";
@@ -369,7 +369,10 @@ export function BookNewPage() {
         (err: unknown) => {
           if (!alive) return;
           const scope = err instanceof ApiError && err.code === "CHANNEL_SCOPE_DENIED";
-          setQuote({ kind: "failed", key: current.key, scope, message: scope ? "这个地址暂时没有在线报价，请联系客服" : siteFailureText(err, "查询价格") });
+          // 按行程计价有一段路线算不出来（M9W-01）：和报不出价一样转人工，说清是哪一段
+          const routeFailed = err instanceof ApiError && err.code === "ITINERARY_ROUTE_UNAVAILABLE";
+          const points = [draft.from?.name ?? "上车地点", ...draft.waypoints.map((entry, index) => entry.point?.name ?? `第 ${index + 1} 个经停点`), draft.to?.name ?? "下车地点"];
+          setQuote({ kind: "failed", key: current.key, scope: scope || routeFailed, message: scope ? "这个地址暂时没有在线报价，请联系客服" : routeFailed ? itineraryRouteFailureText(err.details["leg"], points) : siteFailureText(err, "查询价格") });
         },
       );
     }, QUOTE_DEBOUNCE_MS);
@@ -395,9 +398,9 @@ export function BookNewPage() {
   const itinerary = draft.mode === "charter" && draft.waypoints.length > 0;
   const stops = itinerary ? (waypointsBody(draft.waypoints) ?? []) : [];
   const charterResult = outcome?.mode === "charter" ? outcome.result : null;
-  const itineraryPackage = itinerary && charterResult !== null ? itineraryPackageHours(charterResult, selected ?? quotes[0] ?? null) : null;
-  const itinerarySummary = itinerary && charterResult !== null ? itineraryText(charterResult.route, stops, itineraryPackage) : null;
-  const schedule = itinerary && draft.from !== null ? scheduleRows(draft.from.name, draft.to?.name ?? null, stops, charterResult?.route?.legs ?? null) : null;
+  const itineraryPackage = itinerary && charterResult !== null ? itineraryPackageHours(selected ?? quotes[0] ?? null) : null;
+  const itinerarySummary = itinerary && charterResult !== null ? itineraryText(charterResult.itinerary_route, itineraryPackage) : null;
+  const schedule = itinerary && draft.from !== null ? scheduleRows(draft.from.name, draft.to?.name ?? null, stops, charterResult?.itinerary_route?.legs ?? null) : null;
 
   // 附加服务：所选车型带上客人选的数量再报一次价，合计用这一次的；车型列表仍是不带附加服务的那一次（带了以后不提供的车型会被筛掉）
   const addonList = useMemo<SiteAddonRequest[]>(
@@ -920,7 +923,7 @@ export function BookNewPage() {
             </section>
           )}
           <VehicleList
-            {...(itinerary ? { breakdownOf: (entry: SiteQuote) => breakdownLines(entry, itineraryPackageHours(charterResult ?? {}, entry)) } : {})}
+            {...(itinerary ? { breakdownOf: (entry: SiteQuote) => breakdownLines(entry, itineraryPackageHours(entry)) } : {})}
             key={current.key}
             quotes={quotes}
             limit={wide ? VISIBLE_VEHICLES.wide : VISIBLE_VEHICLES.narrow}
@@ -1114,7 +1117,7 @@ export function BookNewPage() {
 
     /** 包车按行程计价（M9W-02）：下单用的那一次报价的对外价明细 + 提示；明细对不上总价时只有提示 */
     const pricedForBreakdown = priced ?? (addonList.length === 0 ? selected : null);
-    const itineraryPrice = itinerary && pricedForBreakdown !== null && <PriceBreakdown lines={breakdownLines(pricedForBreakdown, itineraryPackageHours(charterResult ?? {}, pricedForBreakdown))} total={moneyText(pricedForBreakdown.price.total)} />;
+    const itineraryPrice = itinerary && pricedForBreakdown !== null && <PriceBreakdown lines={breakdownLines(pricedForBreakdown, itineraryPackageHours(pricedForBreakdown))} total={moneyText(pricedForBreakdown.price.total)} />;
 
     /** 侧栏里的车型和一个价格（第 2 步选了车型就出现）：合计（加了附加服务是带附加服务的那一次），下面含公里数、计价说明（含区域加价 / 含里程费 / 按里程计价） */
     const sidePrice = selected !== null && vehicleName !== null && (

@@ -98,12 +98,9 @@ export interface SiteQuoteRequest {
   dropoff?: SitePoint;
   /** 包车：经停点（途经景点，M9W-01，ADR 0088），按顺序，最多 10 个；不填 = 没有。页面编辑在 M9W-02 */
   waypoints?: { name: string; lat: number; lng: number; stay_minutes: number }[];
-  /**
-   * 包车按行程计价（M9W-02，和后端约定）：有经停点时为 true，服务端按路线（行驶 + 停留）算总时长、自动选套餐，这时不给 `package_hours`。
-   * 没有经停点时不给（请求和以前完全一样）
-   */
+  /** 包车按行程计价（M9W-01）：true 时不给 package_hours，服务器估路线、选套餐、收超公里 / 超时 */
   itinerary_pricing?: boolean;
-  /** 包车：套餐时长（小时）；按行程计价时不给 */
+  /** 包车：套餐时长（小时） */
   package_hours?: number;
   /** 城市当地时间 `YYYY-MM-DDTHH:mm` */
   service_local: string;
@@ -167,7 +164,7 @@ export interface SiteQuote {
 
 /** 对外价明细的一项（M9W-01）：基础价 / 套餐、上 / 下车加价、一个区域的途经加价、调价、其他费用 */
 export interface SitePriceBreakdownItem {
-  kind: "base" | "pickup" | "dropoff" | "waypoint" | "adjust" | "other";
+  kind: "base" | "pickup" | "waypoint" | "dropoff" | "over_km" | "overtime" | "adjust" | "other";
   amount: SiteMoney;
   area_name: LocalizedText | null;
   stop_seqs: number[] | null;
@@ -189,28 +186,11 @@ export type SiteUnavailableReason =
   | "TEMPORARILY_UNAVAILABLE"
   | "NOT_AVAILABLE";
 
-/** 包车按行程计价时服务端算的路线（M9W-02，和后端约定）：`legs` 是上车 → 经停 1 → … → 下车 各段的行驶分钟和米数 */
-export interface SiteItineraryRoute {
-  legs: { minutes: number; meters: number }[];
-  total_minutes: number;
-  total_meters: number;
-}
-
-/** 订单上的一个经停点（M9W-01）：名称、坐标、停留分钟 */
-export interface OrderWaypoint {
-  name: string;
-  lat: number;
-  lng: number;
-  stay_minutes: number;
-}
-
 export interface SiteQuoteResult {
   currency: string;
+  /** 包车按行程计价时服务器算的路线（M9W-01） */
+  itinerary_route?: { legs: { minutes: number; meters: number }[]; drive_minutes: number; stay_minutes: number; total_minutes: number; total_meters: number };
   quotes: SiteQuote[];
-  /** 包车按行程计价时的路线（M9W-02）；没有经停点、旧接口没有这一项 */
-  route?: SiteItineraryRoute | null;
-  /** 包车按行程计价时服务端选的套餐时长（小时，M9W-02）；没有为 null 或没有这一项 */
-  package_hours?: number | null;
   /** `waypoint_stop_seqs`：原因里有 WAYPOINT_NOT_PRICED 时是哪几个经停点（从 1 起，M9W-01） */
   unavailable: { vehicle_group_id: string | null; reasons: SiteUnavailableReason[]; waypoint_stop_seqs?: number[] }[];
 }
@@ -244,7 +224,7 @@ export interface SiteRoutePreview {
   polyline: string | null;
 }
 
-export interface SiteByPointsResult extends Omit<SiteQuoteResult, "route" | "package_hours"> {
+export interface SiteByPointsResult extends SiteQuoteResult {
   /** pickup 接机 / dropoff 送机 / point_to_point 点对点 */
   trip_type: "pickup" | "dropoff" | "point_to_point";
   /** 识别到的机场；`flight_scope` 国际 / 国内 / 都有，没标明为 null（还没有报价时按它显示默认免费等待，M8-33） */
@@ -336,8 +316,10 @@ export interface SiteOrder {
   luggage: number;
   pickup: SiteOrderPoint | null;
   dropoff: SiteOrderPoint | null;
-  /** 包车的经停点（M9W-01），按顺序；没有经停点的单、旧接口为 null 或没有这一项 */
-  waypoints?: OrderWaypoint[] | null;
+  /** 包车的经停点（M9W-01）：名称、坐标、停留分钟；没有为 null。订单页显示在 M9W-03 */
+  waypoints?: { name: string; lat: number; lng: number; stay_minutes: number }[] | null;
+  /** 包车按行程计价锁定的全程、总时长、超出量（M9W-01，没有金额）；没按行程计价为 null */
+  itinerary?: { route_meters: number; route_minutes: number; package_km: number; package_minutes: number; over_meters: number; overtime_minutes: number } | null;
   addons: { addon_id: string; quantity: number }[];
   driver_language: string | null;
   flight_no: string | null;
@@ -353,8 +335,6 @@ export interface SiteOrder {
   cancel_reason: string | null;
   quote_id: string;
   channel_order_no: string | null;
-  /** 对外价明细（M9W-03，和后端约定；同报价的 `price_breakdown`，订单上锁定的）；旧单、接口还没给时没有这一项 */
-  price_breakdown?: SitePriceBreakdownItem[];
   price: { total: SiteMoney; fx: { rate: string; as_of: string } | null };
   /** 包车：这一单的价格里含区域加价（M8-13，订单上锁定的）；只说「含区域加价」，不写金额。旧接口、旧数据可能没有这一项 */
   includes_area_surcharge?: boolean;
@@ -457,7 +437,7 @@ export const SITE_ORDER_VEHICLE_GROUP_FIELDS: readonly (keyof NonNullable<SiteOr
 
 export const SITE_ORDER_FIELDS: readonly (keyof SiteOrder)[] = [
   "id", "order_no", "status", "category", "city_id", "place_id", "direction", "vehicle_group_id", "package_hours", "service_time", "service_local", "timezone", "service_date", "urgent",
-  "passengers", "luggage", "pickup", "dropoff", "addons", "driver_language", "flight_no", "passenger", "rider", "messaging", "notes", "free_wait_minutes", "created_at", "confirmed_at", "cancelled_at",
+  "passengers", "luggage", "pickup", "dropoff", "waypoints", "itinerary", "addons", "driver_language", "flight_no", "passenger", "rider", "messaging", "notes", "free_wait_minutes", "created_at", "confirmed_at", "cancelled_at",
   "cancel_reason", "quote_id", "channel_order_no", "price", "includes_area_surcharge", "distance", "pricing_basis", "payment_status", "payment_due_at", "winning_tenant", "driver", "vehicle", "landing", "cancel_policy", "cancellation",
   "free_cancel_available", "changes", "extra_charges", "version",
 ];
@@ -465,7 +445,7 @@ export const SITE_ORDER_FIELDS: readonly (keyof SiteOrder)[] = [
 export const SITE_BY_POINTS_REQUEST_FIELDS: readonly (keyof SiteByPointsRequest)[] = ["pickup", "dropoff", "service_local", "passengers", "luggage", "addons", "pickup_name", "dropoff_name"];
 export const SITE_TRIP_END_FIELDS: readonly (keyof SiteTripEnd)[] = ["name", "lat", "lng", "kind"];
 export const SITE_BY_POINTS_RESULT_FIELDS: readonly (keyof SiteByPointsResult)[] = ["trip_type", "airport", "fallback_category", "city", "currency", "quotes", "unavailable", "expires_at", "route"];
-export const SITE_QUOTE_REQUEST_FIELDS: readonly (keyof SiteQuoteRequest)[] = ["category", "city_id", "airport_id", "direction", "address", "pickup", "dropoff", "waypoints", "package_hours", "service_local", "passengers", "luggage", "addons", "pickup_name", "dropoff_name"];
+export const SITE_QUOTE_REQUEST_FIELDS: readonly (keyof SiteQuoteRequest)[] = ["category", "city_id", "airport_id", "direction", "address", "pickup", "dropoff", "waypoints", "itinerary_pricing", "package_hours", "service_local", "passengers", "luggage", "addons", "pickup_name", "dropoff_name"];
 export const SITE_FX_REFERENCE_FIELDS: readonly (keyof SiteFxReference)[] = ["available", "from", "to", "rate", "as_of", "reason"];
 export const SITE_ORDER_REQUEST_FIELDS: readonly (keyof SiteOrderRequest)[] = ["quote_id", "passenger", "flight_no", "pickup_address", "dropoff_address", "messaging", "notes", "save_payment_method", "sign_name", "passenger_name", "passenger_phone"];
 

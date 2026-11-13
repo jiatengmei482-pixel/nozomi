@@ -3,7 +3,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MAX_WAYPOINTS, STAY_OPTIONS, breakdownLines, durationText, itineraryText, moveWaypoint, scheduleRows, waypointErrors, waypointUnavailableTexts, waypointsBody } from "./charter-itinerary.ts";
+import { MAX_WAYPOINTS, STAY_OPTIONS, breakdownLines, durationText, itineraryRouteFailureText, itineraryText, orderItineraryText, moveWaypoint, scheduleRows, waypointErrors, waypointUnavailableTexts, waypointsBody } from "./charter-itinerary.ts";
 
 const point = (name: string) => ({ name, lat: 35.5, lng: 138.7, kind: null });
 const yen = (amount: number) => ({ amount: String(amount), currency: "JPY" });
@@ -33,11 +33,20 @@ test("上下移动：到头了不动", () => {
   assert.deepEqual(moveWaypoint(["a", "b", "c"], 2, 1), ["a", "b", "c"]);
 });
 
-test("按行程预计时长 = 各段行驶 + 各点停留；没有路线时没有这一句", () => {
-  const route = { legs: [{ minutes: 100, meters: 1 }, { minutes: 50, meters: 1 }], total_minutes: 150, total_meters: 2 };
-  assert.equal(itineraryText(route, [{ stay_minutes: 90 }], 8), "按行程预计 4 小时，套餐 8 小时");
-  assert.equal(itineraryText(route, [{ stay_minutes: 30 }], null), "按行程预计 3 小时");
-  assert.equal(itineraryText(null, [{ stay_minutes: 30 }], 8), null);
+test("按行程预计：只用服务器算的总时长、行驶、停留和全程；公里向上取整到 0.1；没有路线时没有这一句", () => {
+  const route = { legs: [{ minutes: 100, meters: 60_000 }, { minutes: 50, meters: 30_020 }], drive_minutes: 150, stay_minutes: 90, total_minutes: 240, total_meters: 90_020 };
+  assert.equal(itineraryText(route, 8), "按行程预计 4 小时（行驶 2 小时 30 分 + 停留 1 小时 30 分），全程约 90.1 公里，套餐 8 小时");
+  assert.equal(itineraryText({ ...route, stay_minutes: 0, total_minutes: 150, total_meters: 90_000 }, null), "按行程预计 2 小时 30 分，全程约 90 公里");
+  assert.equal(itineraryText(undefined, 8), null);
+  assert.equal(orderItineraryText({ route_meters: 254_000, route_minutes: 450, package_km: 200, package_minutes: 600, over_meters: 54_000, overtime_minutes: 0 }), "全程约 254 公里，预计 7 小时 30 分（含停留）");
+  assert.equal(orderItineraryText(null), null);
+});
+
+test("按行程计价有一段路线算不出来：说清是哪两个点之间；段号不对时笼统地说", () => {
+  const points = ["新宿", "五合目", "河口湖", "新宿站"];
+  assert.equal(itineraryRouteFailureText(2, points), "「五合目」到「河口湖」这一段路线暂时算不出来，没有在线报价。请联系客服人工报价，或调整经停点再试。");
+  assert.equal(itineraryRouteFailureText(9, points), "有一段路线暂时算不出来，没有在线报价。请联系客服人工报价，或调整经停点再试。");
+  assert.equal(itineraryRouteFailureText("x", points), "有一段路线暂时算不出来，没有在线报价。请联系客服人工报价，或调整经停点再试。");
 });
 
 test("明细：各项之和等于总价才给；对不上、币种不同、读不出来、没有明细都是 null", () => {

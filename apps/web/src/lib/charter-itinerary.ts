@@ -7,10 +7,17 @@
  * - 经停点报不出价（`WAYPOINT_NOT_PRICED`）时指出是哪个经停点。
  */
 import { isCurrencyCode, parseMajor } from "@nozomi/domain";
-import type { OrderWaypoint, SiteItineraryRoute, SiteMoney, SitePriceBreakdownItem, SiteQuote, SiteQuoteResult } from "../api/site.ts";
+import type { SiteMoney, SiteOrder, SitePriceBreakdownItem, SiteQuote, SiteQuoteResult } from "../api/site.ts";
 import type { TripPoint } from "./book-new.ts";
 import { moneyText } from "./dispatch-display.ts";
 import { displayName } from "./master-display.ts";
+
+/** 订单上的一个经停点（M9W-01）：名称、坐标、停留分钟 */
+export type OrderWaypoint = NonNullable<SiteOrder["waypoints"]>[number];
+/** 包车按行程计价锁定在订单上的量（M9W-01）：全程米数、总时长（行驶 + 停留）、套餐含量、超出量；没有金额 */
+export type OrderItinerary = NonNullable<SiteOrder["itinerary"]>;
+/** 包车按行程计价时服务器算的路线（M9W-01）：逐段行驶、行驶 / 停留合计、总时长、全程 */
+export type SiteItineraryRoute = NonNullable<SiteQuoteResult["itinerary_route"]>;
 
 /** 最多几个经停点（和后端 `maxItems` 一致） */
 export const MAX_WAYPOINTS = 10;
@@ -73,23 +80,40 @@ export function moveWaypoint<T>(list: readonly T[], index: number, delta: -1 | 1
   return next;
 }
 
-/** 按行程计价的时长：各段行驶分钟之和 + 各点停留分钟之和 */
-export function itineraryMinutes(route: SiteItineraryRoute, stops: readonly { stay_minutes: number }[]): { drive: number; stay: number; total: number } {
-  const drive = route.legs.reduce((sum, leg) => sum + leg.minutes, 0);
-  const stay = stops.reduce((sum, stop) => sum + stop.stay_minutes, 0);
-  return { drive, stay, total: drive + stay };
+/** 服务器按行程选的套餐时长：每个报价的 `package.hours`（每个车型组各自选） */
+export function itineraryPackageHours(quote: Pick<SiteQuote, "package"> | null): number | null {
+  return quote?.package?.hours ?? null;
 }
 
-/** 服务端选的套餐时长：应答上的 `package_hours`，没有时用这个报价的套餐 */
-export function itineraryPackageHours(result: Pick<SiteQuoteResult, "package_hours">, quote: Pick<SiteQuote, "package"> | null): number | null {
-  return result.package_hours ?? quote?.package?.hours ?? null;
+/** 米 → 「54.3 公里」（向上取整到 0.1 公里，整数不带 .0） */
+export function kmText(meters: number): string {
+  const tenths = Math.ceil(meters / 100);
+  return `${tenths % 10 === 0 ? String(tenths / 10) : (tenths / 10).toFixed(1)} 公里`;
 }
 
-/** 「按行程预计 7 小时 30 分，套餐 8 小时」；没有路线时 null */
-export function itineraryText(route: SiteItineraryRoute | null | undefined, stops: readonly { stay_minutes: number }[], packageHours: number | null): string | null {
+/** 「按行程预计 7 小时 30 分（行驶 4 小时 + 停留 3 小时 30 分），全程约 254 公里，套餐 8 小时」；没有路线时 null。时长、全程只用服务器算的数 */
+export function itineraryText(route: SiteItineraryRoute | null | undefined, packageHours: number | null): string | null {
   if (route === null || route === undefined) return null;
-  const { total } = itineraryMinutes(route, stops);
-  return `按行程预计 ${durationText(total)}${packageHours === null ? "" : `，套餐 ${packageHours} 小时`}`;
+  const parts = route.stay_minutes > 0 ? `（行驶 ${durationText(route.drive_minutes)} + 停留 ${durationText(route.stay_minutes)}）` : "";
+  return `按行程预计 ${durationText(route.total_minutes)}${parts}，全程约 ${kmText(route.total_meters)}${packageHours === null ? "" : `，套餐 ${packageHours} 小时`}`;
+}
+
+/** 订单上锁定的量（M9W-01）：「全程约 254 公里，预计 7 小时 30 分（含停留）」；没有为 null */
+export function orderItineraryText(itinerary: OrderItinerary | null | undefined): string | null {
+  if (itinerary === null || itinerary === undefined) return null;
+  return `全程约 ${kmText(itinerary.route_meters)}，预计 ${durationText(itinerary.route_minutes)}（含停留）`;
+}
+
+/**
+ * 按行程计价有一段路线算不出来（422 `ITINERARY_ROUTE_UNAVAILABLE`，`details.leg` 从 1 起）：说清是哪两个点之间，请客人联系客服或调整经停点。
+ * `points` 是上车、经停 1…N、下车的名称。
+ */
+export function itineraryRouteFailureText(leg: unknown, points: readonly string[]): string {
+  const index = typeof leg === "number" && Number.isInteger(leg) ? leg : null;
+  const from = index === null ? undefined : points[index - 1];
+  const to = index === null ? undefined : points[index];
+  const where = from !== undefined && to !== undefined ? `「${from}」到「${to}」这一段` : "有一段";
+  return `${where}路线暂时算不出来，没有在线报价。请联系客服人工报价，或调整经停点再试。`;
 }
 
 export interface BreakdownLine {

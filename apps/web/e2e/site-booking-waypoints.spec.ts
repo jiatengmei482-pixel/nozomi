@@ -5,8 +5,8 @@
  *
  * **报价替身**（和 site-booking-new.spec.ts 改路线的做法一样，只改应答里约定的新字段）：本分支的后端（M9W-01 在另一个分支）还不收经停点，
  * 浏览器发出的按行程计价询价（`itinerary_pricing` + `waypoints`）由用例去掉这两项、带上 8 小时套餐转给真实后端，真实报价（报价编号、总价）原样用，
- * 只在应答上加约定的 `route`（各段行驶分钟）、`package_hours` 和 `price_breakdown`（套餐 = 总价 − 途经 11,000，各项之和等于总价）；
- * 订单页的应答同样只加上 `waypoints` 和 `price_breakdown`。M9W-01 合进 main 后去掉替身，改成真实接口。
+ * 只在应答上加约定的 `itinerary_route`（各段行驶分钟、行驶 / 停留合计、全程）和 `price_breakdown`（套餐 = 总价 − 途经 11,000，各项之和等于总价）；
+ * 订单页的应答同样只加上 `waypoints` 和 `itinerary`（锁定的全程、时长，没有金额）。M9W-01 合进 main 后去掉替身，改成真实接口。
  *
  * 流程：电脑 1280 打开带上下车地点的包车链接（没有经停点：请求没有 itinerary_pricing）→ 回第 1 步加 3 个经停点（选地点、选停留）、
  * 一个上移排序 → 包车时长换成「按行程自动选套餐」→ 车型卡显示明细、行程时间表 → 选车，右侧栏明细 → 乘客信息 → 核对 → 去付款，
@@ -83,14 +83,14 @@ test("包车加 3 个经停点：增删排序、停留必填 → 按行程计价
     const { itinerary_pricing: _pricing, waypoints: _stops, ...rest } = body;
     const response = await route.fetch({ postData: JSON.stringify({ ...rest, package_hours: 8 }) });
     const real = (await response.json()) as { quotes: { price: { total: Money } }[] };
-    return route.fulfill({ response, json: { ...real, route: { legs: LEGS, total_minutes: 110, total_meters: 54_000 }, package_hours: 8, quotes: real.quotes.map((quote) => ({ ...quote, price_breakdown: split(quote.price.total) })) } });
+    return route.fulfill({ response, json: { ...real, itinerary_route: { legs: LEGS, drive_minutes: 110, stay_minutes: 180, total_minutes: 290, total_meters: 54_000 }, quotes: real.quotes.map((quote) => ({ ...quote, price_breakdown: split(quote.price.total) })) } });
   });
   await page.route(`${SITE}/site/v1/order`, async (route: Route) => {
     if (route.request().method() !== "GET") return route.continue();
     const response = await route.fetch();
-    const real = (await response.json()) as { order: { price: { total: Money } } };
+    const real = (await response.json()) as { order: Record<string, unknown> };
     const stops = itineraryBodies.at(-1)?.["waypoints"] ?? null;
-    return route.fulfill({ response, json: { ...real, order: { ...real.order, waypoints: stops, price_breakdown: split(real.order.price.total) } } });
+    return route.fulfill({ response, json: { ...real, order: { ...real.order, waypoints: stops, itinerary: { route_meters: 54_000, route_minutes: 290, package_km: 150, package_minutes: 480, over_meters: 0, overtime_minutes: 0 } } } });
   });
 
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -146,7 +146,7 @@ test("包车加 3 个经停点：增删排序、停留必填 → 按行程计价
   const rows = card.getByLabel("价格明细").locator(".price-breakdown__row");
   await expect(rows).toHaveText(["包车套餐 8 小时66,000 JPY", "经停加价（富士山地区，第 3 个经停点）11,000 JPY"]);
   // 行程时间表：行驶 25 + 30 + 20 + 35 = 110 分钟，停留 90 + 60 + 30 = 180 分钟，共 4 小时 50 分
-  await expect(page.getByText("按行程预计 4 小时 50 分，套餐 8 小时").first()).toBeVisible();
+  await expect(page.getByText("按行程预计 4 小时 50 分（行驶 1 小时 50 分 + 停留 3 小时），全程约 54 公里，套餐 8 小时").first()).toBeVisible();
   await expect(page.getByRole("list", { name: "行程" }).getByRole("listitem")).toHaveText([
     "上车上车酒店",
     `行驶约 25 分钟经停 1${first.name}停留 1 小时 30 分`,
@@ -186,6 +186,7 @@ test("包车加 3 个经停点：增删排序、停留必填 → 按行程计价
     `经停 3${trip.station.name}停留 30 分钟`,
     "下车市内下车点",
   ]);
+  await expect(tripSection.getByText("全程约 54 公里，预计 4 小时 50 分（含停留）")).toBeVisible();
   await expect(page.getByText("77,000 JPY").first()).toBeVisible();
   await expectBothThemes(page, "订单页（包车有经停点）");
   await expectNoOverflowAt390(page, "订单页（包车有经停点）");

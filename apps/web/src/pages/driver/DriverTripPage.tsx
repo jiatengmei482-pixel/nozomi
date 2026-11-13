@@ -40,7 +40,7 @@ import { ORDER_STATUS_BADGES, StatusBadge } from "../../components/StatusBadge.t
 import { TextField } from "../../components/TextField.tsx";
 import { directionName, formatInZone, landingSourceName } from "../../lib/dispatch-display.ts";
 import { displayName } from "../../lib/master-display.ts";
-import { durationText } from "../../lib/charter-itinerary.ts";
+import { durationText, orderItineraryText } from "../../lib/charter-itinerary.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 
 const PING_INTERVAL_MS = 60_000;
@@ -341,6 +341,7 @@ export function DriverTripPage() {
           </ol>
         )}
         <p className="driver-key">{`下车：${dropoffText(order, placeName)}`}</p>
+        {orderItineraryText(order.itinerary) !== null && <p>{orderItineraryText(order.itinerary)}</p>}
         {order.pickup_point !== null && (
           <>
             <a className="button button--secondary button--block" href={mapLink(order.pickup_point)}>
