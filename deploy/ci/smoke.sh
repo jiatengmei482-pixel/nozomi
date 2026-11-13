@@ -284,8 +284,11 @@ check_frontend() {
     [[ "$(status_of "$path")" == "404" ]] || fail "$label：$path 在 API 里不存在，应返回 404"
   done
 
-  # 嵌入组件脚本的地址（ADR 0090）：不能落到 index.html（合作网站会把一份 HTML 当脚本执行）
-  ! grep -q '^content-type: text/html' <<<"$(headers_of "/embed/widget-v1.js")" || fail "$label：/embed/widget-v1.js 不应返回 index.html"
+  # 嵌入组件脚本（ADR 0090）：200、JavaScript 类型、跨站可读
+  widget_headers="$(headers_of "/embed/widget-v1.js")"
+  grep -q '^http/[0-9.]* 200' <<<"$widget_headers" || fail "$label：/embed/widget-v1.js 应返回 200"
+  grep -q '^content-type: text/javascript' <<<"$widget_headers" || fail "$label：/embed/widget-v1.js 应是 JavaScript"
+  grep -q '^cross-origin-resource-policy: cross-origin$' <<<"$widget_headers" || fail "$label：/embed/widget-v1.js 应允许跨站加载"
 
   # 跨域只开在 /embed/v1（ADR 0090）：不存在的嵌入码带 Origin 是 403 且没有 CORS 头；/site/v1 带 Origin 也没有 CORS 头。
   embed_headers="$(request --max-time 10 --dump-header - --output /dev/null --header 'origin: https://smoke.invalid' "$base_url/embed/v1/config?key=nze_smoke" | tr -d '\r' | tr '[:upper:]' '[:lower:]')"

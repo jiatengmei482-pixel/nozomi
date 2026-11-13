@@ -119,7 +119,13 @@ test("组件代码里没有内联样式、没有写死的颜色，SVG 图标的�
 });
 
 test("组件代码不把字符串当 HTML 用，不用 eval，不留调试输出和没有任务编号的 TODO", () => {
-  for (const { name, text } of sources) {
+  // 唯一的例外：嵌入组件给合作网站开发者的控制台提示（M9E-03，ADR 0090 第四节：容器找不到、网站没进白名单时，放代码的人只能从控制台知道）。
+  // 只放行 embed/developer-notice.ts 里这一行固定前缀的 console.error；组件别处一律不许直接写控制台。
+  const NOTICE_FILE = "embed/developer-notice.ts";
+  const NOTICE_LINE = "console.error(`NozomiBooking：${message}`);";
+  assert.ok(sources.find((source) => source.name === NOTICE_FILE)?.text.includes(NOTICE_LINE), `${NOTICE_FILE} 应当只有这一行控制台输出`);
+  for (const { name, text: raw } of sources) {
+    const text = name === NOTICE_FILE ? raw.replace(NOTICE_LINE, "") : raw;
     assert.doesNotMatch(text, /dangerouslySetInnerHTML|\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\(/, `${name} 把字符串当 HTML 插入页面`);
     assert.doesNotMatch(text, /\beval\(|new Function\(/, `${name} 用了 eval`);
     assert.doesNotMatch(text, /\bconsole\.(log|debug|info|warn|error|trace)\(|\bdebugger\b/, `${name} 留了调试输出`);
