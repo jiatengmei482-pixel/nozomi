@@ -33,6 +33,7 @@ import {
   getSiteFxReference,
   listSiteCharterPackages,
   getSitePlaceByCode,
+  getSiteBookingDraft,
   listSiteCities,
 } from "../../../api/site.ts";
 import { AlertSlot, type Notice } from "../../../components/Alert.tsx";
@@ -72,6 +73,7 @@ import { useDocumentTitle } from "../../../lib/use-document-title.ts";
 import { MANUAL_QUOTE_CHARTER_HOURS, type ManualQuoteTripDraft } from "../../../lib/manual-quote-form.ts";
 import { ITINERARY_NOTE, type WaypointDraft, breakdownLines, durationText, itineraryPackageHours, itineraryRouteFailureText, itineraryText, scheduleRows, waypointErrors, waypointUnavailableTexts, waypointsBody } from "../../../lib/charter-itinerary.ts";
 import { TripStops } from "../../../components/TripStops.tsx";
+import { ADDRESS_ONLY_HINT, DRAFT_EXPIRED_TEXT, DRAFT_FAILED_TEXT, draftReadyToQuote, draftTrip } from "../../../lib/booking-draft.ts";
 import { ManualQuoteBlock } from "../ManualQuote.tsx";
 import { SiteLayout, siteFailureText, useSiteConfig } from "../SiteLayout.tsx";
 import { SitePrice } from "../SitePrice.tsx";
@@ -266,7 +268,7 @@ export function BookNewPage() {
   const latestSearch = useRef(location.search);
   latestSearch.current = location.search;
   /** 链接里的地点还在读：读完以前不按「能到哪一步」改网址 */
-  const [linkPending, setLinkPending] = useState(link.from !== null || link.to !== null);
+  const [linkPending, setLinkPending] = useState(link.from !== null || link.to !== null || link.draft !== null);
   /** 换步：网址加一条历史记录（浏览器后退回到上一步），其余参数原样保留 */
   const goStep = useCallback(
     (next: BookStep, replace = false): void => {
@@ -300,11 +302,35 @@ export function BookNewPage() {
 
   // 链接预填（只在打开时一次）：两端都有、日期时间也有时直接报价并到第 2 步（网址里已经写了第几步的不动）
   const linkDone = useRef(false);
+  /** 草稿里包车按时长的时长：等城市套餐读到后核对，在套餐里才自动报价 */
+  const draftHours = useRef<string | null>(null);
   useEffect(() => {
     if (cities.kind !== "ready" || linkDone.current) return;
     linkDone.current = true;
-    if (link.from === null && link.to === null) return;
     let alive = true;
+    // 嵌入组件建的预订草稿（M9E-01，ADR 0090）：读到就整份预填；过期、不存在、读不出来时说一句，留空白表单
+    if (link.draft !== null) {
+      getSiteBookingDraft(link.draft).then(
+        ({ draft: saved }) => {
+          if (!alive) return;
+          setLinkPending(false);
+          const trip = draftTrip(saved);
+          setDraft((current) => ({ ...current, tab: trip.tab, mode: trip.tab, from: trip.from, to: trip.to, date: trip.date, time: trip.time, passengers: trip.passengers, luggage: trip.luggage, packageHours: trip.packageHours, waypoints: trip.waypoints }));
+          // 包车按时长：草稿里的时长要等城市的套餐读到、确认在里面才去报价（嵌入组件不知道城市有哪几档）
+          if (trip.tab === "charter" && trip.waypoints.length === 0 && trip.packageHours !== "") draftHours.current = trip.packageHours;
+          else if (draftReadyToQuote(trip) && new URLSearchParams(latestSearch.current).get("step") === null) goStep(2, true);
+        },
+        (err: unknown) => {
+          if (!alive) return;
+          setLinkPending(false);
+          setNotice({ kind: "warning", text: err instanceof ApiError && err.status === 404 ? DRAFT_EXPIRED_TEXT : DRAFT_FAILED_TEXT });
+        },
+      );
+      return () => {
+        alive = false;
+      };
+    }
+    if (link.from === null && link.to === null) return;
     void Promise.all([resolveLinkEnd(link.from), resolveLinkEnd(link.to)]).then(([fromEnd, toEnd]) => {
       if (!alive) return;
       setLinkPending(false);
@@ -336,7 +362,14 @@ export function BookNewPage() {
         if (!alive) return;
         const hours = items.map((item) => item.hours);
         setPackages({ cityId, load: { kind: "ready", items: hours } });
-        setDraft((current) => (hours.length === 1 && current.packageHours === "" ? { ...current, packageHours: String(hours[0]) } : current));
+        setDraft((current) => {
+          // 草稿带来的时长不在这个城市的套餐里：清空，让客人在第 1 步重选（M9E-01）
+          const kept = current.packageHours !== "" && !hours.includes(Number(current.packageHours)) ? { ...current, packageHours: "" } : current;
+          return hours.length === 1 && kept.packageHours === "" ? { ...kept, packageHours: String(hours[0]) } : kept;
+        });
+        const wanted = draftHours.current;
+        draftHours.current = null;
+        if (wanted !== null && hours.includes(Number(wanted)) && new URLSearchParams(latestSearch.current).get("step") === null) goStep(2, true);
       },
       (err: unknown) => alive && setPackages({ cityId, load: { kind: "failed", message: siteFailureText(err, "读取包车时长") } }),
     );
@@ -766,6 +799,7 @@ export function BookNewPage() {
           value={draft.from}
           onChange={(from) => update({ from })}
           {...(errors.from !== undefined ? { error: errors.from } : {})}
+          hint={ADDRESS_ONLY_HINT}
           tiles={tiles}
           mapCenter={centerOf(draft.to)}
           cities={centers}
@@ -786,7 +820,7 @@ export function BookNewPage() {
           value={draft.to}
           onChange={(to) => update({ to })}
           {...(errors.to !== undefined ? { error: errors.to } : {})}
-          {...(charter ? { hint: "包车结束时在哪里下车，价格按上车和下车地点算。" } : {})}
+          hint={charter ? ["包车结束时在哪里下车，价格按上车和下车地点算。", ADDRESS_ONLY_HINT] : ADDRESS_ONLY_HINT}
           {...(charter && legacyCharterLink && draft.to === null ? { info: "请选择下车地点，包车现在按上车和下车地点报价。" } : {})}
           tiles={tiles}
           mapCenter={centerOf(draft.from)}

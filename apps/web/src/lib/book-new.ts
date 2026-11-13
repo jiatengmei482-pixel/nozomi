@@ -39,6 +39,8 @@ export interface BookingLink {
    * 都落到「区间」（M8-33）。参数名 `type` 同样认（旧链接）；`mode` 优先。别的值、没给为 null（默认区间）
    */
   mode: BookTab | null;
+  /** 嵌入组件建的预订草稿编号（`?draft=`，M9E-01，ADR 0090）：43 个 base64url 字符；带了它时其余参数一律不看 */
+  draft: string | null;
 }
 
 const CODE = /^[A-Za-z0-9][A-Za-z0-9_-]{1,39}$/;
@@ -85,6 +87,8 @@ function count(value: string | null, limits: { min: number; max: number }): numb
 /** 读链接参数：每一项单独判断，不合法的那一项为 null（页面不预填，不报错）。 */
 export function parseBookingLink(search: string): BookingLink {
   const params = new URLSearchParams(search);
+  const draft = params.get("draft");
+  if (draft !== null && /^[A-Za-z0-9_-]{43}$/.test(draft)) return { from: null, to: null, date: null, time: null, passengers: null, luggage: null, mode: null, draft };
   return {
     from: linkEnd(params.get("from"), params.get("from_name")),
     to: linkEnd(params.get("to"), params.get("to_name")),
@@ -93,6 +97,7 @@ export function parseBookingLink(search: string): BookingLink {
     passengers: count(params.get("pax"), TRAVELLER_LIMITS.passengers),
     luggage: count(params.get("bags"), TRAVELLER_LIMITS.luggage),
     mode: bookTabOf(params.get("mode")) ?? bookTabOf(params.get("type")),
+    draft: null,
   };
 }
 

@@ -26,7 +26,8 @@ import { type TestDatabase, createMigratedTestDatabase } from "./testing/db.ts";
  * 以及付款批次（ADR 0040：一个批次里有几家供应商的账单）、运营后台填写的第三方密钥（ADR 0041：密文，租户碰不到），
  * 以及人工报价申请、跟进记录和官网设置（ADR 0076：客人的联系方式，只给平台的客服、运营），
  * 以及测试环境的验收会话和验收单被压下的邮件内容（ADR 0078：只给平台角色），
- * 以及共享库去重的标记（ADR 0083 补充：两个区域分属不同供应商，平台维护）。新增平台表时加到这里。
+ * 以及共享库去重的标记（ADR 0083 补充：两个区域分属不同供应商，平台维护），
+ * 以及嵌入组件的预订草稿（ADR 0090：不属于任何供应商，只有预订条件）。新增平台表时加到这里。
  */
 const PLATFORM_TABLES = [
   "addons",
@@ -59,6 +60,7 @@ const PLATFORM_TABLES = [
   "passenger_email_changes",
   "payment_events",
   "bank_files",
+  "booking_drafts",
   "payout_batches",
   "place_api_usage",
   "places",
@@ -324,6 +326,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     site_settings: ["INSERT", "SELECT", "UPDATE"],
     // 共享库去重（M8-31b，ADR 0083 补充）：标记一行，撤销时记撤销人和时间；不删
     shared_area_duplicates: ["INSERT", "SELECT", "UPDATE"],
+    // 预订草稿（ADR 0090）：建一次、不改；读的时候只读没过期的；清理任务删过期的
+    booking_drafts: ["DELETE", "INSERT", "SELECT"],
     // 测试环境的验收会话（ADR 0078）：解锁时一行，结束时记结束时间；不删
     qa_acceptance_sessions: ["INSERT", "SELECT", "UPDATE"],
     // 验收单被压下没发的邮件内容（ADR 0078）：一封一行，只追加
