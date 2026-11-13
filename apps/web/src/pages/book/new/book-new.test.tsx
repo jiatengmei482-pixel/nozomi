@@ -303,6 +303,10 @@ test("手机触屏（M8-37）：地址、日期、时间都是全屏选择页—
   await waitFor(() => assertAbsent(screen.queryByRole("dialog", { name: "出发地" })));
   assert.match(fromCell.textContent ?? "", /成田国际机场/);
   assert.equal(document.activeElement, fromCell, "回到页面后焦点在那一格");
+  // 地址那一格整行宽、长地址折行显示全（M8-37b）；日期、时间仍单行
+  assert.ok(fromCell.classList.contains("picker-trigger--wrap"), "地址那一格折行显示全");
+  assert.ok(screen.getByRole("button", { name: /^目的地/ }).classList.contains("picker-trigger--wrap"));
+  assert.ok(!screen.getByRole("button", { name: /^日期（当地）/ }).classList.contains("picker-trigger--wrap"), "日期仍单行");
 
   // 取消：选择页里打的字不改原来的值
   await actor.click(fromCell);
@@ -1034,6 +1038,10 @@ test("包车手机：没选下车地点点「下一步」时下车地点标红�
   await next(actor, NEXT_VEHICLES);
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
   assert.match(document.querySelector(".book-summary-bar__text")?.textContent ?? "", /^包车 8 小时 · 京王广场酒店 → 成田国际机场/);
+  // 手机上两端各占一行（M8-37b）：上车、下车各自一块，读屏名里两端都完整
+  const ends = [...document.querySelectorAll(".book-summary-bar__text > .book-summary-bar__end")].map((end) => end.textContent);
+  assert.deepEqual(ends, ["包车 8 小时 · 京王广场酒店", " → 成田国际机场"]);
+  assert.match(screen.getByRole("button", { name: /^行程摘要/ }).textContent ?? "", /京王广场酒店 → 成田国际机场/);
 });
 
 test("旧包车链接只有上车地点：预填上车地点，下车地点空着，框下面信息提示「请选择下车地点，包车现在按上车和下车地点报价。」（不报错、不报价）；选了以后提示收起", async () => {

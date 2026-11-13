@@ -940,14 +940,22 @@ button.book-steps__link:hover .book-steps__name {
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * 地点那一部分：手机（< 768px）两端各占一行、各自用满整行宽（M8-37b，用户 2026-11-13 真机反馈：左右并排时两端各只剩半行）；
+ * ≥ 768px（平板）照旧一行，两端平分剩下的宽度（M6-08）。
+ */
 .book-summary-bar__text {
   display: flex;
+  flex-direction: column;
   grid-column: 1;
   min-width: 0;
-  overflow: hidden;
   color: var(--color-text-secondary);
   font-size: var(--font-size-md);
-  text-overflow: ellipsis;
+}
+
+.book-summary-bar__end {
+  display: flex;
+  min-width: 0;
   white-space: nowrap;
 }
 
@@ -957,13 +965,40 @@ button.book-steps__link:hover .book-steps__name {
   white-space: pre;
 }
 
-/* 两端平分剩下的宽度（短的那端不占满，多出来的让给长的那端） */
+/* 手机上箭头在第二行开头：不留前面的空格，后面隔一点 */
+.book-summary-bar__to {
+  margin-inline-end: var(--space-1);
+  white-space: normal;
+}
+
 .book-summary-bar__place {
   flex: 1 1 0;
-  min-width: var(--space-8);
-  max-width: max-content;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+@media (min-width: 768px) {
+  .book-summary-bar__text {
+    flex-direction: row;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  .book-summary-bar__end {
+    display: contents;
+  }
+
+  .book-summary-bar__to {
+    margin-inline-end: 0;
+    white-space: pre;
+  }
+
+  /* 两端平分剩下的宽度（短的那端不占满，多出来的让给长的那端） */
+  .book-summary-bar__place {
+    min-width: var(--space-8);
+    max-width: max-content;
+  }
 }
 
 .book-summary-bar__arrow {
