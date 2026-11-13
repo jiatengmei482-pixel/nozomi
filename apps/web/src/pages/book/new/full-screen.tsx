@@ -50,18 +50,21 @@ export interface PickerTriggerProps {
   onOpen(): void;
   /** 选择页关闭后焦点回到这一格 */
   buttonRef?: RefObject<HTMLButtonElement | null>;
+  /** 长的值折行显示全（地址，M8-37b）；不给时单行省略（日期、时间） */
+  wrap?: boolean;
 }
 
 /** 页面上代替输入框的那一格：看起来像输入框，点一下打开全屏选择页。名称是「标签 + 当前值」。 */
-export function PickerTrigger({ label, text, placeholder, describedBy, onOpen, buttonRef }: PickerTriggerProps) {
+export function PickerTrigger({ label, text, placeholder, describedBy, onOpen, buttonRef, wrap = false }: PickerTriggerProps) {
   const labelId = useId();
   const textId = useId();
+  const className = ["input input--lg picker-trigger", text === "" ? "picker-trigger--empty" : null, wrap ? "picker-trigger--wrap" : null].filter(Boolean).join(" ");
   return (
     <>
       <span className="field__label" id={labelId}>
         {label}
       </span>
-      <button ref={buttonRef} type="button" className={text === "" ? "input input--lg picker-trigger picker-trigger--empty" : "input input--lg picker-trigger"} aria-haspopup="dialog" aria-labelledby={`${labelId} ${textId}`} aria-describedby={describedBy} onClick={onOpen}>
+      <button ref={buttonRef} type="button" className={className} aria-haspopup="dialog" aria-labelledby={`${labelId} ${textId}`} aria-describedby={describedBy} onClick={onOpen}>
         <span id={textId} className="picker-trigger__text">
           {text === "" ? placeholder : text}
         </span>
