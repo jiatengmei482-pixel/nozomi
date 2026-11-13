@@ -38,6 +38,7 @@ const PLATFORM_PAGE_VIEW: Readonly<Record<string, PlatformAction>> = {
   "/platform/master/vehicle-groups": "master_data.read",
   "/platform/master/addons": "master_data.read",
   "/platform/master/fx-rates": "master_data.read",
+  "/platform/master/shared-areas": "master_data.read",
   "/platform/settings/staff": "staff.read",
   "/platform/settings/roles": "role.read",
   "/platform/settings/audit-logs": "audit_log.read",
