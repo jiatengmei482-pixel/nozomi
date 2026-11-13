@@ -20,6 +20,7 @@ import {
   type OrderCancelReason,
   type OrderDetailsInput,
   type OrderDetailsIssueReason,
+  type OrderItinerary,
   type OrderStatus,
   type PaymentStatus,
   type VehicleGrade,
@@ -27,6 +28,7 @@ import {
   dispatchDeadline,
   freeCancelAfterUnconfirmedChange,
   landingReportIssue,
+  type LocalizedText,
   localDateTimeToInstant,
   normalizeFlightNo,
   normalizePhone,
@@ -38,7 +40,9 @@ import {
   paymentMatchesOrder,
   paymentOverdue,
   paymentStatusOf,
+  placeStopName,
   quoteSnapshotValid,
+  simpleOrderItinerary,
   TENANT_RULES,
   QA_ACCEPTANCE_MAIL_RECIPIENT,
   type SiteAudience,
@@ -82,6 +86,7 @@ import {
 import { type InputIssue, validationFailed } from "../validation.ts";
 import { requestHash } from "./idempotency.ts";
 import { countOrdersSince } from "../repos/tenant-onboarding.ts";
+import { findQuotePackageKm } from "../repos/site.ts";
 import { idempotencyKeyReused, notFound } from "./errors.ts";
 import type { SalesPrincipal } from "./sales-auth.ts";
 import { QuoteExpired, type StoredQuoteSnapshot } from "./sales-quotes.ts";
@@ -203,7 +208,14 @@ interface ProductRow {
   tenant_status: string;
   timezone: string;
   place_type: string | null;
+  place_code: string | null;
+  place_name: LocalizedText | null;
+  place_lng: string | null;
+  place_lat: string | null;
 }
+
+/** 下单的入口：渠道接口 `/sales/v1`，还是官网 `/site/v1`（官网的单写订单行程和来源，M9-02）。 */
+type OrderEntry = "sales" | "site";
 
 function noLongerAvailable(reason: "PRODUCT_UNPUBLISHED" | "TENANT_SUSPENDED" | "TENANT_NOT_ONBOARDED" | "TRIAL_DAILY_LIMIT"): AppError {
   return new AppError(409, "QUOTE_NO_LONGER_AVAILABLE", "这个报价的车已经不能预订了，请重新询价", { reason });
@@ -217,7 +229,7 @@ function soldOut(reason: "SOLD_OUT" | "URGENT_SOLD_OUT"): AppError {
  * 第 1 步：在一个平台事务里校验、占库存、建单。同一个幂等键以前用过返回那张单的编号（`replayed`）。
  * `acceptance`（M8-26，ADR 0078）：验收会话下单——只认验收会话询出的报价（普通的报价当作不存在，反过来也一样）、商品是测试供应商的验收可售，建出来的是验收单。
  */
-async function placeOrder(ctx: AppContext, principal: SalesPrincipal, input: SalesOrderInput, hash: string, acceptance: boolean): Promise<{ orderId: string; replayed: boolean }> {
+async function placeOrder(ctx: AppContext, principal: SalesPrincipal, input: SalesOrderInput, hash: string, acceptance: boolean, entry: OrderEntry): Promise<{ orderId: string; replayed: boolean }> {
   const now = ctx.now();
   return withPlatformTx(ctx.pool, async (db) => {
     const existing = await findSaleByIdempotencyKey(db, principal.channelId, input.idempotencyKey);
@@ -243,7 +255,8 @@ async function placeOrder(ctx: AppContext, principal: SalesPrincipal, input: Sal
 
     const product = (
       await db.query<ProductRow>(
-        `select p.status, p.inventory_mode, p.service_rules, p.city_id, p.poi_id, t.status as tenant_status, t.is_test_tenant, c.timezone, pl.type as place_type
+        `select p.status, p.inventory_mode, p.service_rules, p.city_id, p.poi_id, t.status as tenant_status, t.is_test_tenant, c.timezone, pl.type as place_type,
+                pl.code as place_code, pl.name as place_name, pl.lng as place_lng, pl.lat as place_lat
            from products p join tenants t on t.id = p.tenant_id join cities c on c.id = p.city_id left join places pl on pl.id = p.poi_id
           where p.tenant_id = $1 and p.id = $2`,
         [winner.tenantId, winner.productId],
@@ -296,6 +309,7 @@ async function placeOrder(ctx: AppContext, principal: SalesPrincipal, input: Sal
     const freeWait = winner.offer.settlement.freeWait.value;
     const point = (position: { lng: number; lat: number } | null, address: string | null) => (position === null ? null : { lng: position.lng, lat: position.lat, address: (address ?? "").trim() });
     const orderNo = orderNumber(now, orderNoRandom());
+    const itinerary = entry === "site" ? await siteOrderItinerary(db, input.quoteId, snapshot, product, details) : null;
     await insertOrder(db, {
       tenantId: winner.tenantId,
       id: orderId,
@@ -332,6 +346,9 @@ async function placeOrder(ctx: AppContext, principal: SalesPrincipal, input: Sal
       createdAt: now,
       cancelPolicy,
       isAcceptance: acceptance,
+      // 订单行程和来源只有官网的单写（M9-02，ADR 0087）：同一个事务里和订单一起建，幂等重放不再写；渠道的单为 null
+      itinerary,
+      entrySource: entry === "site" ? "book" : null,
     });
     await insertOrderEvent(db, { tenantId: winner.tenantId, id: orderId }, { fromStatus: null, toStatus: "pending_payment", actor: "channel", reason: null, occurredAt: now });
     await insertOrderSale(db, {
@@ -353,6 +370,28 @@ async function placeOrder(ctx: AppContext, principal: SalesPrincipal, input: Sal
     await insertOrderPayment(db, { orderId, supplierTenantId: winner.tenantId, amountMinor: winner.sell.sellMinor, currency: snapshot.currency, saveConsentAt: now, now });
     await db.query("update quote_logs set ordered = true where id = $1", [quote.quote_log_id]);
     return { orderId, replayed: false };
+  });
+}
+
+/**
+ * 官网区间、按时长包车的订单行程（M9-02，ADR 0087 第三节第 3 小节）：上车点、下车点从报价快照的坐标和客人填的地址来，
+ * 机场 / 车站那一端用商品的接送点（名称、坐标）；包车带套餐时长和中标价格规则的含公里数。没有任何金额。客人提交的内容只有地址文字进来（已过下单校验）。
+ */
+async function siteOrderItinerary(db: Db, quoteId: string, snapshot: StoredQuoteSnapshot, product: ProductRow, details: OrderDetailsInput): Promise<OrderItinerary> {
+  const request = snapshot.request;
+  const place =
+    product.place_name === null || product.place_lng === null || product.place_lat === null
+      ? null
+      : { name: placeStopName(product.place_name, product.place_code ?? ""), lat: Number(product.place_lat), lng: Number(product.place_lng) };
+  const end = (position: { lng: number; lat: number } | null, address: string | null) => (position === null ? place : { name: (address ?? "").trim(), lat: position.lat, lng: position.lng });
+  const packageKm = request.category === "charter" ? ((await findQuotePackageKm(db, [quoteId])).get(quoteId) ?? null) : null;
+  return simpleOrderItinerary({
+    category: request.category,
+    serviceLocal: request.serviceLocal,
+    packageHours: snapshot.winner.offer.packageHours,
+    packageKm,
+    pickup: end(request.pickup, details.pickupAddress),
+    dropoff: end(request.dropoff, details.dropoffAddress),
   });
 }
 
@@ -405,7 +444,7 @@ async function ensurePayment(ctx: AppContext, provider: PaymentProvider, orderId
 /** 下单。返回订单和给前端的付款信息；同一个幂等键再来一次返回同一张单（`replayed`）。没配置 Stripe 时 503（`/sales/v1`）。 */
 export async function createSalesOrder(ctx: AppContext, principal: SalesPrincipal, input: SalesOrderInput, log: OrderLog = SILENT_ORDER_LOG): Promise<{ view: SalesOrderView; payment: SalesOrderPayment; replayed: boolean }> {
   const provider = requirePayments(ctx);
-  const created = await createOrder(ctx, principal, input, provider, log, false);
+  const created = await createOrder(ctx, principal, input, provider, log, false, "sales");
   return { ...created, payment: created.payment as SalesOrderPayment };
 }
 
@@ -418,20 +457,20 @@ export async function createSiteOrder(ctx: AppContext, principal: SalesPrincipal
   if (audience === "acceptance") {
     const provider = requireAcceptancePayments(ctx);
     assertAcceptanceGuestEmail(input.details);
-    return createOrder(ctx, principal, input, provider, log, true);
+    return createOrder(ctx, principal, input, provider, log, true, "site");
   }
-  return createOrder(ctx, principal, input, ctx.payments, log, false);
+  return createOrder(ctx, principal, input, ctx.payments, log, false, "site");
 }
 
-async function createOrder(ctx: AppContext, principal: SalesPrincipal, input: SalesOrderInput, provider: PaymentProvider | null, log: OrderLog, acceptance: boolean): Promise<{ view: SalesOrderView; payment: SalesOrderPayment | null; replayed: boolean }> {
+async function createOrder(ctx: AppContext, principal: SalesPrincipal, input: SalesOrderInput, provider: PaymentProvider | null, log: OrderLog, acceptance: boolean, entry: OrderEntry): Promise<{ view: SalesOrderView; payment: SalesOrderPayment | null; replayed: boolean }> {
   const hash = requestHash({ quote_id: input.quoteId, details: input.details });
   let placed: { orderId: string; replayed: boolean };
   try {
-    placed = await placeOrder(ctx, principal, input, hash, acceptance);
+    placed = await placeOrder(ctx, principal, input, hash, acceptance, entry);
   } catch (err) {
     // 同时来了两次（同一个键，或同一个报价）：后到的那次在唯一约束上等前一次提交、整体回滚，再走一遍——
     // 同一个键就按「用过的键」返回那张单，换了键就是「这个报价已经下过单了」
-    if (isUniqueViolation(err, "order_sales_idempotency_key") || isUniqueViolation(err, "order_sales_quote_id_key")) placed = await placeOrder(ctx, principal, input, hash, acceptance);
+    if (isUniqueViolation(err, "order_sales_idempotency_key") || isUniqueViolation(err, "order_sales_quote_id_key")) placed = await placeOrder(ctx, principal, input, hash, acceptance, entry);
     else throw err;
   }
   const intent = provider === null ? null : await ensurePayment(ctx, provider, placed.orderId, log);

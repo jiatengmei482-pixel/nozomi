@@ -25414,6 +25414,137 @@ components:
         phone:
           type: [ string, "null" ]
           description: 乘车人电话 / WhatsApp（为他人预订时）
+    OrderItinerary:
+      type: object
+      additionalProperties: false
+      description: |
+        订单行程 v1（M9-02，需求 03 第 2.2 节、ADR 0087 第三节第 3 小节）：所有新的官网订单都有；M9-02 之前的订单、`/sales/v1` 渠道订单为 null。
+        **没有任何金额**（对外金额只在平台侧，结算单价在结算价明细里），也没有订单来源。由服务端从报价快照算出后写入，客人提交的内容不直接进来。
+        区间（接送机、点对点）是 `transfer`、按时长包车是 `charter_package`：地点是上车点和下车点，停留为空，`legs` 为空、`totals` 和 `estimate` 为 null；
+        按行程包车（`charter_route`，M9-03）才有途经点、停留、各段、合计、预计超出。
+      required: [ version, mode, stops, legs, totals, package, estimate ]
+      properties:
+        version:
+          type: integer
+          enum: [ 1 ]
+        mode:
+          type: string
+          enum: [ transfer, charter_package, charter_route ]
+        stops:
+          type: array
+          minItems: 1
+          maxItems: 10
+          description: 有顺序；第一个是上车点（区间是出发地），最后一个是下车点（区间是目的地），中间是途经点。机场 / 车站那一端是商品的接送点
+          items:
+            $ref: "#/components/schemas/OrderItineraryStop"
+        legs:
+          type: array
+          maxItems: 9
+          items:
+            $ref: "#/components/schemas/OrderItineraryLeg"
+        totals:
+          description: 合计（分钟、米）；区间和按时长包车为 null
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required: [ drive_minutes, stay_minutes, total_minutes, total_meters ]
+              properties:
+                drive_minutes:
+                  type: integer
+                  minimum: 0
+                stay_minutes:
+                  type: integer
+                  minimum: 0
+                total_minutes:
+                  type: integer
+                  minimum: 0
+                total_meters:
+                  type: integer
+                  minimum: 0
+        package:
+          description: 包车的套餐时长（小时）和中标价格规则的含公里数（没设为 null）；区间为 null
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required: [ hours, km ]
+              properties:
+                hours:
+                  type: integer
+                  minimum: 1
+                km:
+                  type: [ integer, "null" ]
+                  minimum: 0
+        estimate:
+          description: 预计超出的数量（只有按行程包车）：公里数、分钟数。只有数量，没有金额
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required: [ over_km, overtime_minutes ]
+              properties:
+                over_km:
+                  type: integer
+                  minimum: 0
+                overtime_minutes:
+                  type: integer
+                  minimum: 0
+    OrderItineraryStop:
+      type: object
+      additionalProperties: false
+      required: [ seq, role, name, lat, lng, stay_minutes, planned_arrival_local, planned_departure_local ]
+      properties:
+        seq:
+          type: integer
+          minimum: 1
+          description: 从 1 开始的顺序号
+        role:
+          type: string
+          enum: [ pickup, via, dropoff ]
+        name:
+          type: string
+          description: 地点名称：有坐标的那一端是客人下单时填的地址，机场 / 车站那一端是接送点的名称（中文名优先）
+        lat:
+          type: number
+          minimum: -90
+          maximum: 90
+        lng:
+          type: number
+          minimum: -180
+          maximum: 180
+        stay_minutes:
+          type: [ integer, "null" ]
+          description: 途经点的停留分钟（30 分钟一档、30–480）；上车点、下车点为 null
+        planned_arrival_local:
+          type: [ string, "null" ]
+          description: 计划到达（城市当地 `YYYY-MM-DDTHH:mm`）；上车点、算不出来的为 null
+        planned_departure_local:
+          type: [ string, "null" ]
+          description: 计划出发（城市当地 `YYYY-MM-DDTHH:mm`）；上车点是用车时间；下车点、算不出来的为 null
+    OrderItineraryLeg:
+      type: object
+      additionalProperties: false
+      required: [ from_seq, to_seq, meters, minutes ]
+      properties:
+        from_seq:
+          type: integer
+          minimum: 1
+        to_seq:
+          type: integer
+          minimum: 1
+        meters:
+          type: integer
+          minimum: 0
+        minutes:
+          type: integer
+          minimum: 0
+    OrderEntrySource:
+      type: string
+      enum: [ book, route_template, embed ]
+      description: |
+        订单从哪个入口来（M9-02，ADR 0087）：`book` 直接打开主站 `/book`、`route_template` 模型线路、`embed` 嵌入组件。只是记录，不改渠道、不改加价；
+        `embed` 能被非浏览器程序伪造，只用于统计。只给官网订单应答和运营后台，`/tenant/v1` 和给供应商的 Webhook 没有
     OrderMessaging:
       type: object
       additionalProperties: false
@@ -25656,8 +25787,13 @@ components:
       additionalProperties: false
       description: |
         渠道看到的订单：行程、乘客、客人支付的金额、付款状态。**没有结算价、加价比例**；中标租户只在付款成功后、渠道设置了「付款后展示」时出现。
-      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
+      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version, itinerary ]
       properties:
+        itinerary:
+          description: 订单行程（M9-02，新增字段）：地点、停留、计划时间、套餐，没有任何金额；M9-02 之前的订单、`/sales/v1` 渠道订单为 null
+          oneOf:
+            - $ref: "#/components/schemas/OrderItinerary"
+            - type: "null"
         pricing_basis:
           $ref: "#/components/schemas/PricingBasis"
         includes_area_surcharge:
@@ -25872,8 +26008,13 @@ components:
       additionalProperties: false
       description: |
         供应商看到的订单：行程、乘客、结算价和明细。**没有渠道、对外价、加价比例、汇率**（规则 4）。只有付过款的单。
-      required: [ pending_change, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, product_id, product_version, settlement, dispatch, fulfilment, landing, cancel_policy, cancellation, version ]
+      required: [ pending_change, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, product_id, product_version, settlement, dispatch, fulfilment, landing, cancel_policy, cancellation, version, itinerary ]
       properties:
+        itinerary:
+          description: 订单行程（M9-02，新增字段）：地点、停留、计划时间、套餐，没有任何金额；M9-02 之前的订单、`/sales/v1` 渠道订单为 null
+          oneOf:
+            - $ref: "#/components/schemas/OrderItinerary"
+            - type: "null"
         pending_change:
           type: boolean
           description: 有修改申请在等处理（页面显示「修改待确认」）。确认前订单内容还是原来的（ADR 0060）
@@ -26004,8 +26145,18 @@ components:
       additionalProperties: false
       description: |
         运营后台看到的订单：行程、乘客、中标租户、渠道、对外价、结算价、加价比例、汇率快照、付款状态。
-      required: [ notes_masked, passenger_anonymized_at, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, dispatch, fulfilment, landing, tenant, channel, quote_id, channel_order_no, product_id, product_version, sell, settlement, markup_bp, fx, fx_buffer_bp, payment_due_at, payment, cancel_policy, cancellation, is_acceptance, version ]
+      required: [ notes_masked, passenger_anonymized_at, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, dispatch, fulfilment, landing, tenant, channel, quote_id, channel_order_no, product_id, product_version, sell, settlement, markup_bp, fx, fx_buffer_bp, payment_due_at, payment, cancel_policy, cancellation, is_acceptance, version, itinerary, entry_source ]
       properties:
+        itinerary:
+          description: 订单行程（M9-02，新增字段）：地点、停留、计划时间、套餐，没有任何金额；M9-02 之前的订单、`/sales/v1` 渠道订单为 null
+          oneOf:
+            - $ref: "#/components/schemas/OrderItinerary"
+            - type: "null"
+        entry_source:
+          description: 订单从哪个入口来（M9-02，新增字段）；M9-02 之前的订单、渠道订单为 null
+          oneOf:
+            - $ref: "#/components/schemas/OrderEntrySource"
+            - type: "null"
         notes_masked:
           type: boolean
           description: 备注里有联系方式被打了码（ADR 0055）。为真时编辑不能用 `notes` 做初始值，否则打码后的内容会被存回去
@@ -29347,8 +29498,18 @@ components:
       additionalProperties: false
       description: |
         客人在官网订单页看到的订单：和渠道看到的 `SalesOrder` 字段一样，只是落地信息里没有司机到达屏照片的文件编号（客人用不上，ADR 0032）。
-      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
+      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version, itinerary, entry_source ]
       properties:
+        itinerary:
+          description: 订单行程（M9-02，新增字段）：地点、停留、计划时间、套餐，没有任何金额；M9-02 之前的订单、`/sales/v1` 渠道订单为 null
+          oneOf:
+            - $ref: "#/components/schemas/OrderItinerary"
+            - type: "null"
+        entry_source:
+          description: 订单从哪个入口来（M9-02，新增字段）；M9-02 之前的订单、渠道订单为 null
+          oneOf:
+            - $ref: "#/components/schemas/OrderEntrySource"
+            - type: "null"
         pricing_basis:
           $ref: "#/components/schemas/PricingBasis"
         includes_area_surcharge:

@@ -299,9 +299,10 @@ function quoteResultJson(result: SiteQuoteResult): Json {
   return { currency: result.currency, quotes: result.quotes.map(quoteJson), unavailable: result.unavailable.map((entry) => ({ vehicle_group_id: entry.vehicleGroupId, reasons: entry.reasons })) };
 }
 
-/** 渠道看到的那一份订单，落地信息去掉司机到达屏照片的文件编号（照片只给平台和供应商核对）。 */
+/** 渠道看到的那一份订单加上订单来源，落地信息去掉司机到达屏照片的文件编号（照片只给平台和供应商核对）。 */
 function guestOrderJson(view: SalesOrderView, now: Date): Json {
-  const order = salesOrderJson(view, now);
+  // 订单从哪个入口来（M9-02，ADR 0087）：官网订单应答和运营后台才有；M9-02 之前的单为 null
+  const order: Json = { ...salesOrderJson(view, now), entry_source: view.order.entrySource };
   const landing = order["landing"] as Json | null;
   if (landing === null) return order;
   const { driver_photo_file_id: _photo, ...guestLanding } = landing;

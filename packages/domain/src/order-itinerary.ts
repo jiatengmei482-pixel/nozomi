@@ -7,7 +7,7 @@
  *
  * 键名直接是接口里的写法（下划线），存进库和给出去是同一份。
  */
-import type { ServiceCategory } from "./master-data.ts";
+import type { LocalizedText, ServiceCategory } from "./master-data.ts";
 
 export const ORDER_ITINERARY_VERSION = 1;
 export const ORDER_ITINERARY_MODES = ["transfer", "charter_package", "charter_route"] as const;
@@ -58,6 +58,12 @@ export interface ItineraryEnd {
   name: string;
   lat: number;
   lng: number;
+}
+
+/** 机场 / 车站那一端在订单行程里的名称：中文名优先，再日文、英文、韩文，都没有用编码（和官网订单页的地点名称同一个顺序）。 */
+export function placeStopName(name: LocalizedText, code: string): string {
+  for (const text of [name.zh, name.ja, name.en, name.ko]) if (text !== undefined && text.trim() !== "") return text.trim();
+  return code;
 }
 
 /** 下单时的行程方式：接送机、点对点是 `transfer`，包车（按时长）是 `charter_package`。 */

@@ -223,6 +223,8 @@ function platformOrderJson(entry: { order: Order; sale: OrderSale; payment: Orde
     cancellation: platformCancellationJson(order, sale),
     // 测试环境验收通道下的验收单（M8-26，ADR 0078）：后台标「验收」；不进结算
     is_acceptance: order.isAcceptance,
+    // 订单从哪个入口来（M9-02，ADR 0087）：只给运营后台和官网订单应答，供应商看不到；M9-02 之前的单、渠道单为 null
+    entry_source: order.entrySource,
     version: order.version,
   }, known);
 }

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ORDER_ENTRY_SOURCES, itineraryModeOf, simpleOrderItinerary } from "./order-itinerary.ts";
+import { ORDER_ENTRY_SOURCES, itineraryModeOf, placeStopName, simpleOrderItinerary } from "./order-itinerary.ts";
 
 const narita = { name: "成田国際空港", lat: 35.772, lng: 140.3929 };
 const tokyo = { name: "東京駅", lat: 35.6812, lng: 139.7671 };
@@ -49,4 +49,11 @@ test("方式与来源的取值", () => {
   assert.equal(itineraryModeOf("charter"), "charter_package");
   assert.equal(itineraryModeOf("point_to_point"), "transfer");
   assert.deepEqual([...ORDER_ENTRY_SOURCES], ["book", "route_template", "embed"]);
+});
+
+test("机场那一端的名称：中文名优先，没有依次用日文、英文、韩文，都没有用编码", () => {
+  assert.equal(placeStopName({ zh: "成田机场", ja: "成田国際空港", en: "Narita" }, "NRT"), "成田机场");
+  assert.equal(placeStopName({ zh: " ", ja: "成田国際空港" }, "NRT"), "成田国際空港");
+  assert.equal(placeStopName({ en: "Narita" }, "NRT"), "Narita");
+  assert.equal(placeStopName({}, "NRT"), "NRT");
 });

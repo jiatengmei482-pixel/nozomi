@@ -6,7 +6,7 @@
  * - `order_sales`、`order_payments`、`payment_events` 是平台表，只在平台事务里用；租户角色对它们没有任何权限。
  * - 租户侧的查询只取租户可以看的列（`TENANT_COLUMNS`），而且只取付过款的单。
  */
-import type { CancellationTier, CurrencyCode, FxQuote, LandingSource, MessagingApp, OrderCancelReason, OrderStatus, PaymentStatus, ServiceCategory, SettlementBreakdown, TripDirection, VehicleLevel } from "@nozomi/domain";
+import type { CancellationTier, CurrencyCode, FxQuote, LandingSource, MessagingApp, OrderCancelReason, OrderEntrySource, OrderItinerary, OrderStatus, PaymentStatus, ServiceCategory, SettlementBreakdown, TripDirection, VehicleLevel } from "@nozomi/domain";
 import { type ContactIndexKind, type PassengerContact, UNREADABLE_PASSENGER, normalizeEmailForIndex, normalizeNameForIndex, normalizePhoneForIndex } from "@nozomi/domain";
 import { type Db, passengerCryptoOf } from "../db/context.ts";
 import { isPassengerDecryptFailure } from "../integrations/passenger-crypto.ts";
@@ -110,6 +110,13 @@ export interface Order {
   rescuedAt: Date | null;
   /** 测试环境验收通道下的验收单（M8-26，ADR 0078）：只由服务端下单时设，之后不能改；不进结算，邮件只发验收专用邮箱 */
   isAcceptance: boolean;
+  /** 订单行程 v1（M9-02，ADR 0087 第三节第 3 小节）：官网新订单才有，没有金额；M9-02 之前的订单、渠道订单为 null。供应商可以看 */
+  itinerary: OrderItinerary | null;
+  /**
+   * 订单从哪个入口来（`book` / `route_template` / `embed`）；只有官网新订单有，只是记录。
+   * **只给官网订单应答和运营后台**：给供应商的序列化（`/tenant/v1`、Webhook）逐个字段列出，不列它
+   */
+  entrySource: OrderEntrySource | null;
   version: number;
   createdAt: Date;
   updatedAt: Date;
@@ -122,7 +129,7 @@ const ORDER_COLUMNS = `o.tenant_id, o.id, o.order_no, o.status, o.category, o.ci
   o.cancel_reason, o.version, o.created_at, o.updated_at, o.dispatch_due_at, o.dispatch_overdue_at, o.departure_overdue_at, o.driver_id, o.vehicle_id, o.assigned_at,
   o.departed_at, o.arrived_at, o.arrival_distance_m, o.picked_up_at, o.completed_at, o.completed_recorded_at, o.actual_minutes, o.actual_km, o.leave_requested_at, o.guest_landed_at, o.driver_landed_at,
   o.driver_landed_file_id, o.landed_at, o.landed_source, o.cancel_policy, o.cancel_fee_bp, o.cancel_tenant_share_minor, o.cancel_note, o.rescued_at, o.arrival_overdue_at,
-  o.driver_missing_reported_at, o.is_acceptance`;
+  o.driver_missing_reported_at, o.is_acceptance, o.itinerary, o.entry_source`;
 
 /** 这一行解不开时：单张的抛 503；列表（`tolerant`）里只这一行显示「无法读取」，别的行正常（ADR 0057）。 */
 function readPassenger(db: Db, row: Row, tolerant: boolean): Order["passenger"] {
@@ -179,6 +186,8 @@ function toOrder(db: Db, row: Row, tolerant = false): Order {
     cancelNote: row["cancel_note"],
     rescuedAt: row["rescued_at"],
     isAcceptance: row["is_acceptance"] === true,
+    itinerary: row["itinerary"] ?? null,
+    entrySource: row["entry_source"] ?? null,
     version: row["version"],
     createdAt: row["created_at"],
     updatedAt: row["updated_at"],
@@ -217,15 +226,15 @@ export async function insertOrder(db: Db, order: NewOrder): Promise<void> {
     `insert into orders (tenant_id, id, order_no, status, category, city_id, place_id, direction, product_id, product_version, vehicle_group_id, package_hours,
                          service_at, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no,
                          passenger, messaging, notes, settlement_minor, settlement_currency, settlement, free_wait_minutes, inventory_held, payment_due_at, created_at, updated_at, cancel_policy,
-                         passenger_enc, passenger_email_bidx, passenger_phone_bidx, passenger_name_bidx, is_acceptance)
+                         passenger_enc, passenger_email_bidx, passenger_phone_bidx, passenger_name_bidx, is_acceptance, itinerary, entry_source)
      values ($1, $2, $3, 'pending_payment', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb, $20::jsonb, $21::jsonb, $22, $23,
-             $24::jsonb, $25::jsonb, $26, $27, $28, $29::jsonb, $30, $31, $32, $33, $33, $34::jsonb, $35, $36, $37, $38, $39)`,
+             $24::jsonb, $25::jsonb, $26, $27, $28, $29::jsonb, $30, $31, $32, $33, $33, $34::jsonb, $35, $36, $37, $38, $39, $40::jsonb, $41)`,
     [
       order.tenantId, order.id, order.orderNo, order.category, order.cityId, order.placeId, order.direction, order.productId, order.productVersion, order.vehicleGroupId, order.packageHours,
       order.serviceAt, order.serviceLocal, order.timezone, order.serviceDate, order.urgent, order.passengers, order.luggage, json(order.pickup), json(order.dropoff), JSON.stringify(order.addons),
       order.driverLanguage, order.flightNo, JSON.stringify(sealed.plain), json(order.messaging), order.notes, order.settlementMinor, order.settlementCurrency, JSON.stringify(order.settlement),
       order.freeWaitMinutes, order.inventoryHeld, order.paymentDueAt, order.createdAt, json(order.cancelPolicy),
-      sealed.enc, sealed.emailBidx, sealed.phoneBidx, sealed.nameBidx, order.isAcceptance,
+      sealed.enc, sealed.emailBidx, sealed.phoneBidx, sealed.nameBidx, order.isAcceptance, json(order.itinerary), order.entrySource,
     ],
   );
 }

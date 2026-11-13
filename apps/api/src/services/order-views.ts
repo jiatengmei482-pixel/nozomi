@@ -8,6 +8,7 @@ import { type LandingResult, type LocalizedText, NO_SHOW_RULES, contactOnly, rid
 import type { Driver, Vehicle } from "../repos/fleet.ts";
 import type { OrderVehicleGroupRef } from "../repos/master-data.ts";
 import type { Order } from "../repos/orders.ts";
+import type { OrderItinerary } from "@nozomi/domain";
 import type { OrderChange } from "../repos/order-changes.ts";
 import type { ExtraCharge } from "../repos/extra-charges.ts";
 import { salesMoney } from "./sales-quotes.ts";
@@ -27,7 +28,33 @@ export function vehicleMailVariables(group: OrderVehicleGroupRef | null): Return
   return vehicleLabelMailVariables(group === null ? null : { sample_models: group.sampleModels, combos: group.combos });
 }
 
-/** 行程和乘客：租户、平台、渠道都能看的部分（没有任何金额）。 */
+/**
+ * 订单行程 v1（M9-02，ADR 0087 第三节第 3 小节）：地点、停留、计划时间、各段、合计、套餐、预计超出的数量——**没有任何金额**，也没有来源，
+ * 租户、平台、渠道都能看。逐个字段列出（库里的 jsonb 以后多了键也不会不知不觉出现在接口和推送里）。M9-02 之前的订单、渠道订单为 null。
+ */
+export function orderItineraryJson(itinerary: OrderItinerary | null): Json | null {
+  if (itinerary === null) return null;
+  return {
+    version: itinerary.version,
+    mode: itinerary.mode,
+    stops: itinerary.stops.map((stop) => ({
+      seq: stop.seq,
+      role: stop.role,
+      name: stop.name,
+      lat: stop.lat,
+      lng: stop.lng,
+      stay_minutes: stop.stay_minutes,
+      planned_arrival_local: stop.planned_arrival_local,
+      planned_departure_local: stop.planned_departure_local,
+    })),
+    legs: itinerary.legs.map((leg) => ({ from_seq: leg.from_seq, to_seq: leg.to_seq, meters: leg.meters, minutes: leg.minutes })),
+    totals: itinerary.totals === null ? null : { drive_minutes: itinerary.totals.drive_minutes, stay_minutes: itinerary.totals.stay_minutes, total_minutes: itinerary.totals.total_minutes, total_meters: itinerary.totals.total_meters },
+    package: itinerary.package === null ? null : { hours: itinerary.package.hours, km: itinerary.package.km },
+    estimate: itinerary.estimate === null ? null : { over_km: itinerary.estimate.over_km, overtime_minutes: itinerary.estimate.overtime_minutes },
+  };
+}
+
+/** 行程和乘客：租户、平台、渠道都能看的部分（没有任何金额）。订单的来源（`entrySource`）不在这里：只给官网订单应答和运营后台。 */
 export function orderTripJson(order: Order): Json {
   return {
     id: order.id,
@@ -61,6 +88,7 @@ export function orderTripJson(order: Order): Json {
     confirmed_at: iso(order.confirmedAt),
     cancelled_at: iso(order.cancelledAt),
     cancel_reason: order.cancelReason,
+    itinerary: orderItineraryJson(order.itinerary),
   };
 }
 
