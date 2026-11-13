@@ -35,6 +35,17 @@ test("费用说明：接送机只写含所有费用；包车再接「超出套�
   assert.match(CHARTER_SUPPLIER_PRICE_NOTE, /包车报价须包含高速费、停车费/);
 });
 
+test("费用说明（M9W-05）：按行程计价的包车写超公里、超时已算进价格、只有当天超出预计的另收；不按行程计价和接送机完全不变", () => {
+  assert.equal(fixedPriceFeeNote("charter", "zh", { itinerary: true }), "一口价已含所有费用（高速费、停车费等），无需另付；超公里、超时已按预计行程算进价格，只有当天超出预计的部分服务后按实际收取");
+  assert.match(fixedPriceFeeNote("charter", "en", { itinerary: true }), /; Extra distance and time for the planned itinerary are already included; only usage beyond the plan/);
+  assert.match(fixedPriceFeeNote("charter", "ja", { itinerary: true }), /予定の行程で料金に含まれています/);
+  for (const language of ["zh", "ja", "en"] as const) {
+    assert.equal(fixedPriceFeeNote("charter", language, { itinerary: false }), fixedPriceFeeNote("charter", language));
+    assert.equal(fixedPriceFeeNote("transfer", language, { itinerary: true }), fixedPriceFeeNote("transfer", language));
+    assert.doesNotMatch(fixedPriceFeeNote("charter", language, { itinerary: true }), /超出套餐|beyond the package|パッケージを超えた/);
+  }
+});
+
 test("三语原文（ADR 0069）；任何语言都没有「跟踪航班」", () => {
   const ja = texts(fixedPriceIncludes({ service: "transfer", arrival: true, freeWaitMinutes: 90, meetAndGreet: true }, "ja"));
   assert.deepEqual(ja, ["高速料金・駐車料金などすべて込みの定額料金で、追加のお支払いはありません", "専用車（相乗りなし）", "ネームボードでお出迎え", "着陸後 90 分間の無料待機"]);

@@ -66,7 +66,10 @@ export function WaypointsField({ value, onChange, errors, tiles, mapCenter, citi
     requestAnimationFrame(() => listRef.current?.querySelector<HTMLElement>(`[data-waypoint="${created.key}"] input, [data-waypoint="${created.key}"] button`)?.focus());
   };
 
-  const update = (key: string, changes: Partial<WaypointDraft>): void => onChange(value.map((entry) => (entry.key === key ? { ...entry, ...changes } : entry)));
+  // 地点框选中谷歌候选后要异步取坐标，回来时可能已经过了好几次渲染（比如客人先选了停留时长）：按最新的列表改这一行，不能用渲染那一刻的旧列表（M9W-08）
+  const latest = useRef(value);
+  latest.current = value;
+  const update = (key: string, changes: Partial<WaypointDraft>): void => onChange(latest.current.map((entry) => (entry.key === key ? { ...entry, ...changes } : entry)));
 
   return (
     <fieldset className="field fieldset picked book-waypoints">

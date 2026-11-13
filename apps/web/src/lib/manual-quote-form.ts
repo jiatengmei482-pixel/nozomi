@@ -26,6 +26,13 @@ export interface ManualQuoteTripDraft {
   passengers: number;
   luggage: number;
   packageHours: number | null;
+  /** 包车填好的经停点（M9W-04），按顺序；没有或不是包车为空数组（可以不给，等于空） */
+  waypoints?: readonly ManualQuoteWaypointDraft[];
+}
+
+/** 包车的一个经停点（M9W-04）：地点和停留分钟 */
+export interface ManualQuoteWaypointDraft extends ManualQuotePlaceDraft {
+  stayMinutes: number;
 }
 
 export interface ManualQuoteContact {
@@ -48,12 +55,18 @@ export const MANUAL_QUOTE_TEXTS = {
   success: "已收到。客服会通过您留下的邮箱或 WhatsApp 联系您报价，请留意消息。",
 } as const;
 
+/** 包车的经停点；不是包车时不算 */
+function charterStops(trip: ManualQuoteTripDraft): readonly ManualQuoteWaypointDraft[] {
+  return trip.category === "charter" ? (trip.waypoints ?? []) : [];
+}
+
 /** 行程还缺什么（客人要先在上面补上的），按页面上的顺序；齐了返回空数组。 */
 export function missingTripParts(trip: ManualQuoteTripDraft): string[] {
   const missing: string[] = [];
   if (trip.pickup === null) missing.push(trip.category === "charter" ? "上车地点" : "出发地");
   if (trip.category !== "charter" && trip.dropoff === null) missing.push("目的地");
-  if (trip.category === "charter" && trip.packageHours === null) missing.push("包车时长");
+  // 有经停点时按行程计价，没有选时长（客服按行程定套餐，M9W-04）
+  if (trip.category === "charter" && trip.packageHours === null && charterStops(trip).length === 0) missing.push("包车时长");
   if (trip.serviceLocal === null || !isRealLocalDateTime(trip.serviceLocal)) missing.push("日期和时间");
   return missing;
 }
@@ -88,6 +101,8 @@ export function manualQuoteRequestOf(contact: ManualQuoteContact, trip: ManualQu
       passengers: trip.passengers,
       luggage: trip.luggage,
       package_hours: trip.category === "charter" ? trip.packageHours : null,
+      // 包车的经停点（M9W-04）：有才给，没有时请求和以前一样
+      ...(charterStops(trip).length === 0 ? {} : { waypoints: charterStops(trip).map((stop) => ({ ...place(stop), stay_minutes: stop.stayMinutes })) }),
     },
     website: contact.website,
   };

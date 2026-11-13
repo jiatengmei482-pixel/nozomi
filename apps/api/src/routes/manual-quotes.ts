@@ -58,6 +58,8 @@ const tripSchema = z
     passengers: z.number().int().min(1).max(MANUAL_QUOTE_RULES.maxPassengers),
     luggage: z.number().int().min(0).max(MANUAL_QUOTE_RULES.maxLuggage).default(0),
     package_hours: z.number().int().min(1).max(MANUAL_QUOTE_RULES.maxPackageHours).nullable().default(null),
+    // 包车的经停点（M9W-04）：页面上客人填好的经停点按顺序带上；没有可以不给
+    waypoints: z.array(placeSchema.extend({ stay_minutes: z.number().int().min(0).max(MANUAL_QUOTE_RULES.maxStayMinutes) }).strict()).max(MANUAL_QUOTE_RULES.maxWaypoints).default([]),
   })
   .strict();
 
@@ -75,7 +77,8 @@ const submitSchema = z
 
 const TRIP_ISSUE_MESSAGES = {
   dropoff: { REQUIRED: "接送机、点对点要有下车地点" },
-  package_hours: { REQUIRED: "包车要有套餐时长", NOT_APPLICABLE: "只有包车有套餐时长（请删掉）" },
+  package_hours: { REQUIRED: "包车要有套餐时长（或经停点）", NOT_APPLICABLE: "只有包车有套餐时长（请删掉）" },
+  waypoints: { NOT_APPLICABLE: "只有包车有经停点（请删掉）" },
   service_local: { INVALID: "用车时间不是真实存在的日期和时刻" },
 } as const;
 
@@ -96,6 +99,7 @@ function submissionOf(body: z.output<typeof submitSchema>) {
     passengers: body.trip.passengers,
     luggage: body.trip.luggage,
     packageHours: body.trip.package_hours,
+    waypoints: body.trip.waypoints.map((stop) => ({ name: stop.name, lat: stop.lat, lng: stop.lng, stayMinutes: stop.stay_minutes })),
   };
   for (const issue of manualQuoteTripIssues(trip)) {
     issues.push({ path: `/trip/${issue.field}`, reason: issue.reason, message: (TRIP_ISSUE_MESSAGES[issue.field] as Record<string, string>)[issue.reason] ?? "行程信息不对" });
@@ -176,6 +180,8 @@ function detailJson(detail: ManualQuoteDetail): Json {
     contact: contact === null ? null : { email: contact.email, whatsapp: contact.whatsapp === null ? null : `+${contact.whatsapp}` },
     pickup: contact === null ? null : contact.pickup,
     dropoff: contact === null ? null : contact.dropoff,
+    // 包车的经停点（M9W-04），按顺序；没有经停点、清除后为 null
+    waypoints: contact === null || contact.waypoints === undefined || contact.waypoints.length === 0 ? null : contact.waypoints.map((stop) => ({ name: stop.name, lat: stop.lat, lng: stop.lng, stay_minutes: stop.stayMinutes })),
     events: detail.events.map(eventJson),
   };
 }

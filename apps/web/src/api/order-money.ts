@@ -3,7 +3,7 @@
  * 字段与 `apps/api/openapi.yaml` 对齐，由 order-money.contract.test.ts 保证。
  * 供应商的接口里没有客人付的金额（对外价、退款、加收的客人金额，规则 4）；运营后台的有。
  */
-import type { OrderAreaSurchargeView, OrderDistanceView, OrderMileageView, OrderPricingRoute } from "../lib/order-area-price-display.ts";
+import type { OrderAreaSurchargeView, OrderDistanceView, OrderItineraryMoneyView, OrderMileageView, OrderPricingRoute } from "../lib/order-area-price-display.ts";
 import type { OrderEntrySource } from "./embed.ts";
 import type { ExceptionStatus, ExceptionType, ExtraChargeStatus, ExtraChargeType, FulfilmentEventType, OrderCancelReason, OrderChangeStatus, OrderStatus, PaymentStatus, PricingBasis, RefundStatus, ServiceCategory, TicketPriority, TicketStatus, TicketType, VehicleLevel, ViewLinkVerification } from "@nozomi/domain";
 import { query, TENANT_BASE } from "./areas.ts";
@@ -234,7 +234,8 @@ export interface PlatformOrder {
   channel: { id: string; name: string };
   channel_order_no: string | null;
   sell: Money;
-  settlement: { total: Money };
+  /** 结算价；包车按行程计价的单另有锁定的超公里、超时（M9W-04） */
+  settlement: { total: Money; itinerary?: OrderItineraryMoneyView };
   markup_bp: number;
   payment: PlatformPayment | null;
   cancel_policy: OrderCancelPolicy | null;

@@ -38,6 +38,10 @@ export const MANUAL_QUOTE_RULES = {
   maxLuggage: 60,
   /** 包车套餐时长的上限（和价格规则的 `PRICE_LIMITS.maxPackageHours` 一样） */
   maxPackageHours: 72,
+  /** 包车经停点最多几个（M9W-04；和官网包车询价的经停点一样） */
+  maxWaypoints: 10,
+  /** 一个经停点最长停留多少分钟（和官网包车询价的经停点一样，ADR 0088） */
+  maxStayMinutes: 1_440,
 } as const;
 
 /**
@@ -79,6 +83,11 @@ export interface ManualQuotePlace {
   lng: number;
 }
 
+/** 包车的一个经停点（M9W-04）：名称、坐标、停留分钟 */
+export interface ManualQuoteWaypoint extends ManualQuotePlace {
+  stayMinutes: number;
+}
+
 /** 页面自动带上的行程（客人不用再填）。 */
 export interface ManualQuoteTrip {
   category: ServiceCategory;
@@ -89,11 +98,13 @@ export interface ManualQuoteTrip {
   serviceLocal: string;
   passengers: number;
   luggage: number;
-  /** 包车套餐时长，只有包车有、而且必填 */
+  /** 包车套餐时长，只有包车有；没有经停点时必填（有经停点时按行程计价，由客服按行程定套餐，可以不填） */
   packageHours: number | null;
+  /** 包车的经停点（M9W-04，ADR 0088），按顺序；没有为空数组。只有包车能有 */
+  waypoints: ManualQuoteWaypoint[];
 }
 
-export type ManualQuoteTripIssue = { field: "dropoff" | "package_hours" | "service_local"; reason: "REQUIRED" | "NOT_APPLICABLE" | "INVALID" };
+export type ManualQuoteTripIssue = { field: "dropoff" | "package_hours" | "service_local" | "waypoints"; reason: "REQUIRED" | "NOT_APPLICABLE" | "INVALID" };
 
 /** 用车时间是不是真实存在的日期和时刻（格式由接口先核对）。 */
 export function isRealLocalDateTime(value: string): boolean {
@@ -108,8 +119,9 @@ export function isRealLocalDateTime(value: string): boolean {
 export function manualQuoteTripIssues(trip: ManualQuoteTrip): ManualQuoteTripIssue[] {
   const issues: ManualQuoteTripIssue[] = [];
   if (trip.category !== "charter" && trip.dropoff === null) issues.push({ field: "dropoff", reason: "REQUIRED" });
-  if (trip.category === "charter" && trip.packageHours === null) issues.push({ field: "package_hours", reason: "REQUIRED" });
+  if (trip.category === "charter" && trip.packageHours === null && trip.waypoints.length === 0) issues.push({ field: "package_hours", reason: "REQUIRED" });
   if (trip.category !== "charter" && trip.packageHours !== null) issues.push({ field: "package_hours", reason: "NOT_APPLICABLE" });
+  if (trip.category !== "charter" && trip.waypoints.length > 0) issues.push({ field: "waypoints", reason: "NOT_APPLICABLE" });
   if (!isRealLocalDateTime(trip.serviceLocal)) issues.push({ field: "service_local", reason: "INVALID" });
   return issues;
 }

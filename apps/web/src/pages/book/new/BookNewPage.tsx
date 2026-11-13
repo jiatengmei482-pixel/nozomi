@@ -67,7 +67,7 @@ import {
 } from "../../../lib/book-new.ts";
 import { formatInZone, moneyText } from "../../../lib/dispatch-display.ts";
 import { displayName } from "../../../lib/master-display.ts";
-import { CHARTER_OVERAGE_NOTE, UNAVAILABLE_REASON_TEXT, addressEnds, defaultServiceDate, guestCancelPolicyText, guestLocalText, newIdempotencyKey, quotesByTotal, siteDistanceNote, siteOrderUrl, sitePriceBasisNote } from "../../../lib/site-display.ts";
+import { CHARTER_ITINERARY_OVERAGE_NOTE, CHARTER_OVERAGE_NOTE, UNAVAILABLE_REASON_TEXT, addressEnds, defaultServiceDate, guestCancelPolicyText, guestLocalText, newIdempotencyKey, quotesByTotal, siteDistanceNote, siteOrderUrl, sitePriceBasisNote } from "../../../lib/site-display.ts";
 import { FIELD_HINTS, MESSAGING_NAMES, type OrderErrors, type OrderForm, type OrderTrip, orderFailureOf, orderRequestOf, validateOrderForm } from "../../../lib/site-order-form.ts";
 import { useDocumentTitle } from "../../../lib/use-document-title.ts";
 import { MANUAL_QUOTE_CHARTER_HOURS, type ManualQuoteTripDraft } from "../../../lib/manual-quote-form.ts";
@@ -679,6 +679,8 @@ export function BookNewPage() {
   const supportPhone = config.kind === "ready" ? config.config.support_phone : null;
   const supportWhatsapp = config.kind === "ready" ? config.config.support_whatsapp : null;
   // 报不出价时「请客服人工报价」带上的行程（M8-21）：用车类型按识别结果，认不出时看两端有没有机场
+  // 包车的经停点（M9W-04）：都填好了才带上（有没填完的一个都不带，和询价一样），按页面上的顺序
+  const manualStops = draft.mode === "charter" ? (waypointsBody(draft.waypoints) ?? []).map((stop) => ({ name: stop.name, lat: stop.lat, lng: stop.lng, stayMinutes: stop.stay_minutes })) : [];
   const manualTrip: ManualQuoteTripDraft = {
     category: draft.mode === "charter" ? "charter" : tripType === "point_to_point" ? "point_to_point" : tripType !== null || draft.from?.kind === "airport" || draft.to?.kind === "airport" ? "airport_transfer" : "point_to_point",
     cityId: draft.mode === "charter" ? (charterCity?.id ?? null) : outcome?.mode === "transfer" ? (outcome.result.city?.id ?? null) : null,
@@ -687,7 +689,9 @@ export function BookNewPage() {
     serviceLocal: /^\d{4}-\d{2}-\d{2}$/.test(draft.date) && /^\d{2}:\d{2}$/.test(draft.time) ? `${draft.date}T${draft.time}` : null,
     passengers: draft.passengers,
     luggage: draft.luggage,
-    packageHours: draft.mode === "charter" && /^\d+$/.test(draft.packageHours) ? Number(draft.packageHours) : null,
+    // 有经停点时按行程计价，页面不用包车时长（下拉换成「按行程自动选套餐」），也就不带上（M9W-04）
+    packageHours: draft.mode === "charter" && manualStops.length === 0 && /^\d+$/.test(draft.packageHours) ? Number(draft.packageHours) : null,
+    waypoints: manualStops,
   };
   const manualKey = JSON.stringify(manualTrip);
   /** 包车报不出价（上车地点不在任何能订包车的城市、或城市没有套餐）：时长用通用的几档，给人工报价用 */
@@ -980,7 +984,8 @@ export function BookNewPage() {
                 </li>
               ))}
             </ul>
-            {charter && <p className="site-muted">{CHARTER_OVERAGE_NOTE}</p>}
+            {/* 按行程计价（报价带 itinerary_route，M9W-05）：超公里、超时已算进价格；不按行程计价的包车照旧 */}
+            {charter && <p className="site-muted">{charterResult?.itinerary_route != null ? CHARTER_ITINERARY_OVERAGE_NOTE : CHARTER_OVERAGE_NOTE}</p>}
           </section>
         </>
       );

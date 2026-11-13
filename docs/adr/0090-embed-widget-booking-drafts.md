@@ -133,9 +133,9 @@
 
 ### 3. 来源只做统计
 
-- `POST /site/v1/quotes`、`/quotes/by-points` 加可选 `draft_id`。`draft_id` 格式不对、不存在、已过期、草稿没有来源时**一律忽略**：不报错、不影响报价，只是不记来源（集成测试覆盖）。草稿有效时，服务端把草稿上的来源（`embed_key_id`、`embed_origin`、`return_url`）写进这次报价的快照 `source`（不进 `request`、不影响价格和比价）。
+- `POST /site/v1/quotes`、`/quotes/by-points` 加可选 `draft_id`。`draft_id` 格式不对、不存在、已过期、草稿没有来源时**一律忽略**：不报错、不影响报价，只是不记来源（集成测试覆盖）。草稿有效时，服务端把草稿上的来源（`embed_key_id`、`embed_origin`、`return_url`）按报价编号记进平台表 `quote_embed_sources`（不进报价快照、不影响价格和比价）。
 - 下单时取报价的来源，再核一次「嵌入码仍启用、`embed_origin` 仍在当前白名单」：通过记一行订单来源（嵌入码、网站、`return_url`——`return_url` 也再按当前白名单核一次才存）；否则不记，按主站（`book`）算，**不拒单、不报错**。
-- **存在哪里**：报价的来源、订单的来源各放一张平台表（`quote_embed_sources`、`order_embed_sources`），**不加在 `quotes` / `orders` 上**：租户角色（`nozomi_app`）能读 `orders`、`quotes`，放在单独的平台表里，从库权限上就保证供应商读不到来源。一个迁移（M9E-02），只建表、不回填：旧订单没有这一行，按主站显示。写入后不能改：平台角色对这两张表只有 `select` / `insert`（没有 `update` / `delete`），作用等同 `orders` 的「不可改列」触发器。
+- **存在哪里**：报价的来源、订单的来源各放一张平台表（`quote_embed_sources`、`order_embed_sources`），**不加在 `quotes` / `orders` 上**：租户角色（`nozomi_app`）对 `orders` 是整表 `select`（行级安全只按行过滤、不按列），来源加成列供应商在库里就读得到；`quotes` 虽然只给平台角色，报价、订单的来源也一起放单独的平台表，口径一致、写入后不能改。一个迁移（M9E-02），只建表、不回填：旧订单没有这一行，按主站显示。写入后不能改：平台角色对这两张表只有 `select` / `insert`（没有 `update` / `delete`），作用等同 `orders` 的「不可改列」触发器。
 - 订单来源只给官网订单应答（只给 `return_url`，用来显示「返回原网站」）和运营后台（来源「嵌入组件 · <网站>」）；`/tenant/v1` 和供应商 Webhook 不给（集成测试扫键）。
 - 来源**只用于统计**，不作为分佣、结算或任何金额的依据：非浏览器程序可以伪造 `Origin`。以后要分佣，先重新设计来源证明（例如合作方服务端签名），另写 ADR。
 

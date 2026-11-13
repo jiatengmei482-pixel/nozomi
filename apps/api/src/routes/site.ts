@@ -30,7 +30,7 @@
  * 只去掉落地信息里司机到达屏照片的文件编号（客人用不上）。
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import type { CurrencyCode } from "@nozomi/domain";
+import type { CurrencyCode, LocalizedText, SellBreakdownItem } from "@nozomi/domain";
 import { z } from "zod";
 import { FX_CURRENCIES, MESSAGING_APPS, ORDER_FIELD_LIMITS, PLACE_KINDS, PRICE_LIMITS, QUOTE_RULES, SERVICE_CATEGORIES, STATIC_MAP_RULES, STATIC_MAP_THEMES, type RouteMapReason, isGooglePlaceId, isPlaceSessionToken, normalizePlaceQuery, placeQueryIssue, viewLinkLookupEmail } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
@@ -293,6 +293,11 @@ function linkJson(link: SiteLink): Json {
   return { token: link.token, expires_at: link.expiresAt.toISOString() };
 }
 
+/** 对外价明细的每一项（报价和订单同一个格式）：金额是客人支付币种；加价区域给现在的名称 */
+function priceBreakdownJson(items: readonly SellBreakdownItem[], currency: CurrencyCode, areaNames: ReadonlyMap<string, LocalizedText>): Json[] {
+  return items.map((item) => ({ kind: item.kind, amount: salesMoney(item.amountMinor, currency), area_name: item.areaId === null ? null : (areaNames.get(item.areaId) ?? null), stop_seqs: item.stopSeqs ?? null }));
+}
+
 function quoteJson(quote: SiteQuote): Json {
   const group = quote.vehicleGroup;
   return {
@@ -310,12 +315,7 @@ function quoteJson(quote: SiteQuote): Json {
     pricing_basis: quote.pricingBasis,
     price: { total: salesMoney(quote.sellMinor, quote.currency), fx: quote.fx === null ? null : { rate: quote.fx.rate, as_of: quote.fx.asOf } },
     // 对外价的简单明细（ADR 0088 第 4 节）：基础价 / 套餐、上 / 下车加价、各途经区域、调价、其他费用；各项之和等于 price.total。不给结算价、不给加价比例
-    price_breakdown: quote.sellBreakdown.map((item) => ({
-      kind: item.kind,
-      amount: salesMoney(item.amountMinor, quote.currency),
-      area_name: item.areaId === null ? null : (quote.areaNames.get(item.areaId) ?? null),
-      stop_seqs: item.stopSeqs ?? null,
-    })),
+    price_breakdown: priceBreakdownJson(quote.sellBreakdown, quote.currency, quote.areaNames),
     free_wait_minutes: quote.freeWaitMinutes,
     cancel_policy: { category: quote.cancelPolicy.category, level: quote.cancelPolicy.level, tiers: quote.cancelPolicy.tiers.map((tier) => ({ min_hours_before: tier.minHoursBefore, fee_bp: tier.feeBp })) },
     // 只有目录信息（编码、名称、计费方式），不带供应商单价、也不带对外单价：价格只在加了之后重新询价的合计里（ADR 0069 B15）
@@ -357,6 +357,8 @@ async function siteOrderJson(ctx: AppContext, view: SalesOrderView): Promise<Jso
     order: guestOrderJson(view, ctx.now()),
     timeline: extras.events.map((event) => ({ from_status: event.fromStatus, to_status: event.toStatus, reason: event.reason, occurred_at: event.occurredAt.toISOString() })),
     names: { city: extras.names.city, place: extras.names.place, vehicle_group: siteOrderVehicleGroupJson(extras.names.vehicleGroup) },
+    // 对外价明细（M9W-04，ADR 0089 第 5 节）：包车按行程计价的单，下单时报价快照里那份明细，各项之和等于 order.price.total；别的单、旧单、对不上时为 null
+    price_breakdown: extras.priceBreakdown === null ? null : priceBreakdownJson(extras.priceBreakdown, view.sale.currency, extras.areaNames),
   };
 }
 

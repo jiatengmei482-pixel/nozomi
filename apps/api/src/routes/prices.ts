@@ -80,6 +80,11 @@ const PRICE_FIELDS = [...new Set(Object.values(MODEL_FIELDS).flatMap((fields) =>
  */
 const OPTIONAL_FIELDS: Readonly<Partial<Record<keyof typeof MODEL_FIELDS, readonly string[]>>> = { mileage_time: ["min_price"], fixed: ["included_km", "over_km_per_km"], charter_area_surcharge: ["waypoint_surcharge"] };
 
+/** 修改的那条请求里压根没有 `waypoint_surcharge` 这个键（不是传了 null）：保留原来的途经加价（M9W-06，旧页面、旧对接方改上 / 下车加价时不清掉它） */
+function omitsWaypointSurcharge(entry: unknown): boolean {
+  return typeof entry === "object" && entry !== null && !Object.hasOwn(entry, "waypoint_surcharge");
+}
+
 // 这里只管类型；范围、整数、日期、品类和计价方式对不对由 domain 查，报出原因代码
 const priceRuleSchema = z.object({
   area_id: id,
@@ -411,7 +416,7 @@ export function registerPriceRoutes(app: FastifyInstance, ctx: AppContext): void
     const issues: InputIssue[] = [];
     const changes: PriceChanges = {
       create: input.create.map((entry, index) => ({ ref: entry.ref, rule: toPriceRule(entry, `/create/${index}`, issues) })),
-      update: input.update.map((entry, index) => ({ id: entry.id, rule: toPriceRule(entry, `/update/${index}`, issues) })),
+      update: input.update.map((entry, index) => ({ id: entry.id, rule: toPriceRule(entry, `/update/${index}`, issues), keepWaypointSurcharge: omitsWaypointSurcharge((request.body as { update?: unknown[] }).update?.[index]) })),
       remove: input.delete,
     };
     if (issues.length > 0) throw validationFailed("body", issues);
@@ -431,7 +436,7 @@ export function registerPriceRoutes(app: FastifyInstance, ctx: AppContext): void
     const issues: InputIssue[] = [];
     const rule = toPriceRule(parseInput(priceRuleSchema, request.body, "body"), "", issues);
     if (issues.length > 0) throw validationFailed("body", issues);
-    const result = await savePriceRules(ctx, { principal, ip: request.ip }, productId, version, { create: [], update: [{ id: ruleId, rule }], remove: [] }, {
+    const result = await savePriceRules(ctx, { principal, ip: request.ip }, productId, version, { create: [], update: [{ id: ruleId, rule, keepWaypointSurcharge: omitsWaypointSurcharge(request.body) }], remove: [] }, {
       single: true,
       idempotency: null,
       respond: (saved) => ({ status: 200, body: single(saved.view.version, saved.view.items.find((item) => item.id === ruleId)) }),

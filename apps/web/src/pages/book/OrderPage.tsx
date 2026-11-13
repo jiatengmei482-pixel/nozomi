@@ -306,7 +306,7 @@ function OrderView({ token, hashToken, heldToken, arrival }: { token: string; ha
   const sections: Readonly<Record<OrderSectionKey, ReactNode>> = {
     // 地址里的令牌还没移走（只差这一帧）：先按「还在读配置」显示占位，不挂表单
     payment: order.status === "pending_payment" && <PaymentSection token={token} order={order} configPayments={config.kind === "ready" && !(hashToken !== null && payable) ? payments : undefined} initial={arrival?.payment ?? null} returnFailed={arrival?.paymentReturnFailed === true} onRefresh={refresh} />,
-    trip: <TripSection order={order} names={names} />,
+    trip: <TripSection order={order} names={names} breakdown={loaded.envelope.price_breakdown ?? null} />,
     timeline: <TimelineSection order={order} timeline={timeline} />,
     driver: <DriverSection order={order} />,
     landing: <LandingSection token={token} order={order} onChanged={replaceKeeping("landing")} />,
