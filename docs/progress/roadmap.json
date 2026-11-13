@@ -469,9 +469,9 @@
           "id": "M6-10",
           "title": "供应商后台分步配置换步后，标题聚焦框只在键盘换步时显示（先改设计规范）",
           "role": "designer",
-          "status": "doing",
+          "status": "review",
           "acceptance": ["designer 先改 docs/design/01-tokens 第 5 节（程序聚焦的例外：鼠标 / 触屏换步不显示聚焦框，键盘换步照常显示），写明理由", "前端按规范实现，焦点仍移到标题（读屏不受影响），只改可见的框", "组件 / 端到端测试：键盘换步有框、鼠标换步没框；亮暗两色", "来源：业主 2026-11-13 决定（M6-08 待决定项 ②）"],
-          "evidence": "规范已改（PR https://github.com/jiatengmei482-pixel/nozomi/pull/180 ，分支 m6-10-keyboard-focus-spec），前端实现待做",
+          "evidence": "规范 PR https://github.com/jiatengmei482-pixel/nozomi/pull/180 ；前端实现在分支 m6-10-keyboard-focus-impl（PR 待开）。新增测试：组件测试 6 条（products.test.tsx 3 条：鼠标点步骤导航 pointer、键盘 Enter keyboard、直接打开网址 / 浏览器后退 unknown、「保存并下一步」按触发方式定且等保存期间不变、标题上按非修饰键变 keyboard、失去焦点去标记、点标题文字 pointer、「载入最新内容」按点按钮的方式；step-title.test.tsx 3 条），样式检查 2 条（藏环写法的白名单整串匹配加反例断言、标题三种标记的 CSS），端到端 2 条（step-title-focus.spec.ts：亮暗两色键盘换步 2px 环、鼠标换步无环、方向键后出现、后退有环、axe 0 违规；400px 手机宽度）。本机：商品相关组件测试 526 条全过，样式检查 8 条全过，端到端 step-title-focus / products / products-qa / prices / inventory / platform-products 共 31 条全过",
           "updated": "2026-11-13"
         },
         {
@@ -2083,6 +2083,11 @@
       "date": "2026-11-13",
       "by": "designer",
       "summary": "M6-10 规范按 PR #180 审查意见修改：01-tokens.md 第 5 节写明不画聚焦环的例外只有两处（已有的 main:focus 和分步配置的步骤标题）；标题分 pointer / keyboard / unknown 三种标记，pointer 不画，keyboard 和 unknown 用 :focus 强制画 2px 环，没有标记沿用全站 :focus-visible；输入方式在触发的点击 / 按键当时记下带到换步那一刻，浏览器后退 / 前进和直接打开网址算 unknown；鼠标直接点标题、进入上架检查、「载入最新内容」后聚焦标题同样适用；写出具体 CSS 和样式检查配套改动（白名单精确放宽到 .step__title[tabindex=\"-1\"][data-focus-source=\"pointer\"]:focus，并拦 outline-color: transparent、outline-style: none 等藏环写法，要有反例断言）；理由补 WCAG 2.4.7。tenant-products.md 3.1、8.2、第 13 节同步。只改规范。"
+    },
+    {
+      "date": "2026-11-13",
+      "by": "frontend",
+      "summary": "M6-10 第二步：前端按 01-tokens.md 第 5 节「程序聚焦的例外」实现。分步配置的步骤标题（①②⑤ 的外壳、③ 价格规则、④ 库存、上架检查）改用 StepTitle：移焦点前写 data-focus-source，pointer 不画框，keyboard / unknown 用 :focus 强制画 2px 环，没有标记沿用 :focus-visible；运营后台的只读查看不写标记。输入方式在触发的那次点击 / 按键当时由事件本身定（click 的 detail、keydown），连同要去的地址作为这次换步的参数记下，只给同一次导航用；浏览器后退 / 前进、直接打开网址算 unknown，不经过 location.state。标题自己的 pointerdown 写 pointer、非修饰键写 keyboard、失去焦点去掉。顺带修正：第 ① 步和上架检查进来时焦点被外壳交给 <main> 盖掉，改为晚一帧聚焦（和 ③ ④ 一样）。样式检查改为整串匹配两个例外选择器，拦 outline: none / 0 / transparent、outline-style: none、outline-width: 0、outline-color: transparent，带反例断言；首页入口卡片原来用 outline-color: transparent 去掉链接自身的环（02-components 入口卡片要求），新检查不允许，已去掉，现在链接和卡片都有环，交 designer 决定是否列为第三个例外或改写法。"
     }
   ]
 }
