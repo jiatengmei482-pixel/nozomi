@@ -96,6 +96,8 @@ export interface SiteQuoteRequest {
   pickup?: SitePoint;
   /** 点对点：下车点 */
   dropoff?: SitePoint;
+  /** 包车：经停点（途经景点，M9W-01，ADR 0088），按顺序，最多 10 个；不填 = 没有。页面编辑在 M9W-02 */
+  waypoints?: { name: string; lat: number; lng: number; stay_minutes: number }[];
   /** 包车：套餐时长（小时） */
   package_hours?: number;
   /** 城市当地时间 `YYYY-MM-DDTHH:mm` */
@@ -150,16 +152,27 @@ export interface SiteQuote {
   /** 计价方式（M8-30，ADR 0080）：一口价 / 含里程费 / 按里程计价（文字用 @nozomi/domain 的 `pricingBasisNote`）；旧接口可能没有这一项 */
   pricing_basis?: PricingBasis;
   price: { total: SiteMoney; fx: { rate: string; as_of: string } | null };
+  /** 对外价的简单明细（M9W-01，ADR 0088 第 4 节）：各项之和等于 price.total；旧接口可能没有这一项。页面显示在 M9W-02 */
+  price_breakdown?: SitePriceBreakdownItem[];
   free_wait_minutes: number | null;
   cancel_policy: { category: string; level: string; tiers: CancelTier[] };
   /** 这个车型还能加哪些附加服务（M8-02）；没有为空数组 */
   available_addons: SiteAddonOption[];
 }
 
+/** 对外价明细的一项（M9W-01）：基础价 / 套餐、上 / 下车加价、一个区域的途经加价、调价、其他费用 */
+export interface SitePriceBreakdownItem {
+  kind: "base" | "pickup" | "dropoff" | "waypoint" | "adjust" | "other";
+  amount: SiteMoney;
+  area_name: LocalizedText | null;
+  stop_seqs: number[] | null;
+}
+
 export type SiteUnavailableReason =
   | "NO_PRODUCT"
   | "OUT_OF_SERVICE_AREA"
   | "DROPOFF_REQUIRED"
+  | "WAYPOINT_NOT_PRICED"
   | "LEAD_TIME_TOO_SHORT"
   | "SOLD_OUT"
   | "OUTSIDE_SERVICE_TIME"
@@ -174,7 +187,8 @@ export type SiteUnavailableReason =
 export interface SiteQuoteResult {
   currency: string;
   quotes: SiteQuote[];
-  unavailable: { vehicle_group_id: string | null; reasons: SiteUnavailableReason[] }[];
+  /** `waypoint_stop_seqs`：原因里有 WAYPOINT_NOT_PRICED 时是哪几个经停点（从 1 起，M9W-01） */
+  unavailable: { vehicle_group_id: string | null; reasons: SiteUnavailableReason[]; waypoint_stop_seqs?: number[] }[];
 }
 
 /** 按两个坐标报价的一端（M8-02，ADR 0069 A1）：地址文字（只校验）、坐标、地址搜索给的类型（手填、地图选点的不给）。 */
@@ -403,7 +417,7 @@ export const SITE_SCHEMA_FIELDS = {
   SiteAirport: ["id", "code", "name", "location"],
   SiteCharterPackage: ["hours"],
   SitePlace: ["id", "type", "code", "name", "address", "location"],
-  SiteQuote: ["quote_id", "expires_at", "service_date", "urgent", "vehicle_group", "package", "includes_area_surcharge", "distance", "pricing_basis", "price", "free_wait_minutes", "cancel_policy", "available_addons"],
+  SiteQuote: ["quote_id", "expires_at", "service_date", "urgent", "vehicle_group", "package", "includes_area_surcharge", "distance", "pricing_basis", "price", "price_breakdown", "free_wait_minutes", "cancel_policy", "available_addons"],
   SiteAddonOption: ["id", "code", "name", "charge_unit"],
   SiteOrderLink: ["token", "expires_at"],
   SiteOrderEnvelope: ["order", "timeline", "names"],
@@ -423,7 +437,7 @@ export const SITE_ORDER_FIELDS: readonly (keyof SiteOrder)[] = [
 export const SITE_BY_POINTS_REQUEST_FIELDS: readonly (keyof SiteByPointsRequest)[] = ["pickup", "dropoff", "service_local", "passengers", "luggage", "addons", "pickup_name", "dropoff_name"];
 export const SITE_TRIP_END_FIELDS: readonly (keyof SiteTripEnd)[] = ["name", "lat", "lng", "kind"];
 export const SITE_BY_POINTS_RESULT_FIELDS: readonly (keyof SiteByPointsResult)[] = ["trip_type", "airport", "fallback_category", "city", "currency", "quotes", "unavailable", "expires_at", "route"];
-export const SITE_QUOTE_REQUEST_FIELDS: readonly (keyof SiteQuoteRequest)[] = ["category", "city_id", "airport_id", "direction", "address", "pickup", "dropoff", "package_hours", "service_local", "passengers", "luggage", "addons", "pickup_name", "dropoff_name"];
+export const SITE_QUOTE_REQUEST_FIELDS: readonly (keyof SiteQuoteRequest)[] = ["category", "city_id", "airport_id", "direction", "address", "pickup", "dropoff", "waypoints", "package_hours", "service_local", "passengers", "luggage", "addons", "pickup_name", "dropoff_name"];
 export const SITE_FX_REFERENCE_FIELDS: readonly (keyof SiteFxReference)[] = ["available", "from", "to", "rate", "as_of", "reason"];
 export const SITE_ORDER_REQUEST_FIELDS: readonly (keyof SiteOrderRequest)[] = ["quote_id", "passenger", "flight_no", "pickup_address", "dropoff_address", "messaging", "notes", "save_payment_method", "sign_name", "passenger_name", "passenger_phone"];
 

@@ -10,7 +10,7 @@
  */
 import { randomInt } from "node:crypto";
 import { performance } from "node:perf_hooks";
-import { type ComparisonRefusal, type PricingBasis, type SiteAudience, guestRouteReason, type CurrencyCode, type DistanceBreakdown, type FxQuote, type LatLng, type MarkupMatch, type QuoteSnapshot, type ServiceCategory, type TripDirection, formatMajor, instantToLocal, isPickupPlaceType, quoteCheckPoints, quoteSnapshotValid } from "@nozomi/domain";
+import { type AreaSurchargeBreakdown, type ComparisonRefusal, type PricingBasis, type QuoteWaypoint, type SellBreakdownItem, sellBreakdown, type SiteAudience, guestRouteReason, type CurrencyCode, type DistanceBreakdown, type FxQuote, type LatLng, type MarkupMatch, type QuoteSnapshot, type ServiceCategory, type TripDirection, formatMajor, instantToLocal, isPickupPlaceType, quoteCheckPoints, quoteSnapshotValid } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
@@ -39,6 +39,8 @@ export interface SalesQuoteInput {
   driverLanguage: string | null;
   vehicleGroupIds: string[];
   currency: string;
+  /** 包车的经停点（ADR 0088）：只有官网给（`/sales/v1` 不开放）；不给 = 没有 */
+  waypoints?: readonly QuoteWaypoint[];
 }
 
 /** 给渠道看的「为什么没有这个车型组的价」：只有面向客人的几种。 */
@@ -46,8 +48,9 @@ export interface SalesQuoteInput {
  * 给渠道看的「为什么没有这个车型组的价」：只有面向客人的几种。
  * 里程 + 时长的价格取不到路线时（ADR 0042）：`NO_ROUTE`（两点之间没有可行驶的路线）或 `TEMPORARILY_UNAVAILABLE`（路线服务暂时不可用，稍后再试）。
  * 包车没给下车地点、而这个商品设了区域加价（M8-15，ADR 0073）：`DROPOFF_REQUIRED`（给了下车地点再询价就可能报得出；以后下车地点改为必填）。
+ * 包车有经停点不在任何区域里（M9W-01，ADR 0088）：`WAYPOINT_NOT_PRICED`（转人工报价）；经停点只有官网能给，渠道接口不会出现。
  */
-export const SALES_UNAVAILABLE_REASONS = ["NO_PRODUCT", "OUT_OF_SERVICE_AREA", "DROPOFF_REQUIRED", "LEAD_TIME_TOO_SHORT", "SOLD_OUT", "OUTSIDE_SERVICE_TIME", "SERVICE_TIME_PASSED", "CAPACITY_EXCEEDED", "ADDON_NOT_OFFERED", "DRIVER_LANGUAGE_NOT_OFFERED", "NO_ROUTE", "TEMPORARILY_UNAVAILABLE", "NOT_AVAILABLE"] as const;
+export const SALES_UNAVAILABLE_REASONS = ["NO_PRODUCT", "OUT_OF_SERVICE_AREA", "DROPOFF_REQUIRED", "WAYPOINT_NOT_PRICED", "LEAD_TIME_TOO_SHORT", "SOLD_OUT", "OUTSIDE_SERVICE_TIME", "SERVICE_TIME_PASSED", "CAPACITY_EXCEEDED", "ADDON_NOT_OFFERED", "DRIVER_LANGUAGE_NOT_OFFERED", "NO_ROUTE", "TEMPORARILY_UNAVAILABLE", "NOT_AVAILABLE"] as const;
 export type SalesUnavailableReason = (typeof SALES_UNAVAILABLE_REASONS)[number];
 
 function salesReason(reason: ComparisonRefusal, route: RouteOutcome): SalesUnavailableReason {
@@ -62,6 +65,9 @@ function salesReason(reason: ComparisonRefusal, route: RouteOutcome): SalesUnava
     // 包车没给下车地点、而商品设了区域加价（ADR 0073）：渠道补上下车地点就能报
     case "DROPOFF_REQUIRED":
       return "DROPOFF_REQUIRED";
+    // 包车有经停点不在任何区域里（ADR 0088）：官网转人工报价，并指出是第几个经停点
+    case "WAYPOINT_NOT_PRICED":
+      return "WAYPOINT_NOT_PRICED";
     case "LEAD_TIME_TOO_SHORT":
       return "LEAD_TIME_TOO_SHORT";
     case "SOLD_OUT":
@@ -104,8 +110,10 @@ export interface SalesQuote {
   fx: { rate: string; asOf: string } | null;
   freeWaitMinutes: number | null;
   urgent: boolean;
-  /** 包车：这个价里含区域加价（上车或下车不在中标商品本身的区域里，ADR 0073）；别的都是 false。只说「含」，不给金额 */
+  /** 包车：这个价里含区域加价（上车、下车或经停点在加价区域里且加了钱，ADR 0073、0088）；别的都是 false。只说「含」，不给金额 */
   includesAreaSurcharge: boolean;
+  /** 对外价的简单明细（ADR 0088 第 4 节，客人支付币种；各项之和等于 `sellMinor`）：只有官网的应答给，渠道接口不给 */
+  sellBreakdown: SellBreakdownItem[];
   /**
    * 点对点：中标的价格是设了含公里数的一口价时（M8-11，ADR 0073 第四部分）——含多少公里、报价时锁定的路线距离（米）、超出公里数，
    * 和超出每公里的**对外价**（客人支付币种的最小单位，单独取整，是说明，已含在 `sellMinor` 里）。没设含公里数为 null。不给结算价（对外接口只给对外价）
@@ -122,7 +130,8 @@ export interface SalesQuote {
 
 export interface SalesQuoteResult {
   quotes: SalesQuote[];
-  unavailable: { vehicleGroupId: string | null; reasons: SalesUnavailableReason[] }[];
+  /** `stopSeqs`：原因里有 `WAYPOINT_NOT_PRICED` 时，哪几个经停点不在区域里（从 1 起，ADR 0088）；没有时不给 */
+  unavailable: { vehicleGroupId: string | null; reasons: SalesUnavailableReason[]; stopSeqs?: number[] }[];
 }
 
 const ID_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -141,6 +150,12 @@ function salesDistance(distance: DistanceBreakdown | null, sellPerKmMinor: numbe
   return { includedKm: distance.includedKm, routeMeters: distance.routeMeters, overKm: distance.overKm, overKmPerKmMinor: sellPerKmMinor };
 }
 
+/** 区域加价合计（结算价）：上车 + 下车 + 途经 */
+function areaSurchargeTotal(surcharge: AreaSurchargeBreakdown | null): number {
+  if (surcharge === null) return 0;
+  return surcharge.pickup.amountMinor + surcharge.dropoff.amountMinor + (surcharge.waypoints ?? []).reduce((sum, entry) => sum + entry.amountMinor, 0);
+}
+
 function toSalesQuote(snapshot: StoredQuoteSnapshot): SalesQuote {
   const { winner } = snapshot;
   const freeWait = winner.offer.settlement.freeWait.value;
@@ -156,7 +171,8 @@ function toSalesQuote(snapshot: StoredQuoteSnapshot): SalesQuote {
     fx: winner.sell.fx === null ? null : { rate: winner.sell.fx.rate, asOf: winner.sell.fx.asOf },
     freeWaitMinutes: freeWait === null ? null : freeWait.mode === "limited" ? freeWait.minutes : null,
     urgent: snapshot.urgent,
-    includesAreaSurcharge: (winner.offer.settlement.areaSurcharge?.pickup.amountMinor ?? 0) + (winner.offer.settlement.areaSurcharge?.dropoff.amountMinor ?? 0) > 0,
+    includesAreaSurcharge: areaSurchargeTotal(winner.offer.settlement.areaSurcharge ?? null) > 0,
+    sellBreakdown: sellBreakdown(winner.offer.settlement, winner.sell),
     distance: salesDistance(winner.offer.settlement.distance ?? null, winner.sell.overKmPerKmMinor),
     pricingBasis: winner.offer.settlement.pricingBasis ?? "one_price",
   };
@@ -220,6 +236,7 @@ export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincip
       driverLanguage: input.driverLanguage,
       vehicleGroupIds: input.vehicleGroupIds,
       assumeRoute: null,
+      ...(input.waypoints === undefined ? {} : { waypoints: input.waypoints }),
     },
     { fresh: false, ...(options.log === undefined ? {} : { log: options.log }), ...(acceptance ? { audience: "acceptance" as const } : {}) },
   );
@@ -340,14 +357,20 @@ function storedSnapshots(preview: PlatformQuotePreview, now: Date): StoredQuoteS
 
 function unavailable(preview: PlatformQuotePreview, requested: readonly string[]): SalesQuoteResult["unavailable"] {
   const quoted = new Set(preview.comparison.groups.map((group) => group.vehicleGroupId));
+  const refusedFor = (vehicleGroupId: string | null) => preview.comparison.refused.filter((entry) => entry.vehicleGroupId === null || entry.vehicleGroupId === vehicleGroupId || vehicleGroupId === null);
   const reasonsFor = (vehicleGroupId: string | null): SalesUnavailableReason[] => {
     if (preview.candidates.length === 0) return ["NO_PRODUCT"];
-    const reasons = preview.comparison.refused.filter((entry) => entry.vehicleGroupId === null || entry.vehicleGroupId === vehicleGroupId || vehicleGroupId === null).map((entry) => salesReason(entry.reason, preview.routeOutcome));
+    const reasons = refusedFor(vehicleGroupId).map((entry) => salesReason(entry.reason, preview.routeOutcome));
     const distinct = [...new Set(reasons)].sort();
     return distinct.length === 0 ? ["NOT_AVAILABLE"] : distinct;
   };
-  if (requested.length === 0) return quoted.size === 0 ? [{ vehicleGroupId: null, reasons: reasonsFor(null) }] : [];
-  return [...new Set(requested)].filter((id) => !quoted.has(id)).map((id) => ({ vehicleGroupId: id, reasons: reasonsFor(id) }));
+  // 经停点不在区域里的是第几个（几个商品各报各的，合在一起）；没有这种原因时不带这个键
+  const entry = (vehicleGroupId: string | null): SalesQuoteResult["unavailable"][number] => {
+    const stopSeqs = [...new Set(refusedFor(vehicleGroupId).flatMap((refusal) => (refusal.stopSeq === undefined ? [] : [refusal.stopSeq])))].sort((a, b) => a - b);
+    return { vehicleGroupId, reasons: reasonsFor(vehicleGroupId), ...(stopSeqs.length === 0 ? {} : { stopSeqs }) };
+  };
+  if (requested.length === 0) return quoted.size === 0 ? [entry(null)] : [];
+  return [...new Set(requested)].filter((id) => !quoted.has(id)).map(entry);
 }
 
 export class QuoteExpired extends AppError {

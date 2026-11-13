@@ -69,6 +69,7 @@ import {
   type SitePlaceType,
   type SiteListing,
   findQuotePackageKm,
+  findSurchargeAreaNames,
   findVehicleGroups,
   insertSiteOrderLink,
   listBookableAirports,
@@ -93,7 +94,7 @@ import { type BackgroundLog, inBackground } from "./background.ts";
 import { type SalesRateScope, rateLimited, takeRateSlot } from "./rate-limit.ts";
 import { lastUsedIsStale } from "./sales-auth.ts";
 import type { SalesPrincipal } from "./sales-auth.ts";
-import { type SalesQuote, type SalesUnavailableReason, createSalesQuotes } from "./sales-quotes.ts";
+import { type SalesQuote, type SalesQuoteResult, type SalesUnavailableReason, createSalesQuotes } from "./sales-quotes.ts";
 import { type DemandSource, recordUncoveredDemandLater } from "./uncovered-demands.ts";
 
 /** 官网卖的品类：接送机（M3-05）、点对点和包车（M3-10，ADR 0035）。和需求的三种品类一致；渠道没授权的品类照样不卖。 */
@@ -438,8 +439,19 @@ export type SiteTrip =
   | { category: "airport_transfer"; airportId: string; direction: "pickup" | "dropoff"; address: Point }
   /** 点对点：上车点、下车点的坐标 */
   | { category: "point_to_point"; pickup: Point; dropoff: Point }
-  /** 包车：上车点、下车点的坐标、套餐时长（小时）。下车点暂时可以不给（ADR 0073，M8-13 改为必填）：不给时只报没设区域加价的商品 */
-  | { category: "charter"; pickup: Point; dropoff: Point | null; packageHours: number };
+  /**
+   * 包车：上车点、下车点的坐标、套餐时长（小时）。下车点暂时可以不给（ADR 0073，M8-13 改为必填）：不给时只报没设区域加价的商品。
+   * `waypoints`：有序的经停点（ADR 0088，最多 10 个）；不给或空 = 没有
+   */
+  | { category: "charter"; pickup: Point; dropoff: Point | null; packageHours: number; waypoints?: SiteWaypoint[] };
+
+/** 包车的一个经停点（ADR 0088）：名称、坐标、停留分钟。原样进报价快照的 `snapshot.request.waypoints`，下单时抄进订单 */
+export interface SiteWaypoint {
+  name: string;
+  lat: number;
+  lng: number;
+  stay_minutes: number;
+}
 
 export interface SiteQuoteInput {
   cityId: string;
@@ -476,6 +488,8 @@ export interface SiteCancelPolicy {
 
 export interface SiteQuote extends SalesQuote {
   vehicleGroup: SiteVehicleGroup;
+  /** 价格明细里加价区域现在的名称（ADR 0088 第 4 节）；区域被删了的不在里面 */
+  areaNames: Map<string, LocalizedText>;
   /** 包车：套餐含多少公里（超出的服务后按实际加收）；其他品类 null */
   packageKm: number | null;
   /** 按现在的平台取消政策：这个车型组下单后适用的阶梯（下单时抄进订单） */
@@ -487,11 +501,11 @@ export interface SiteQuote extends SalesQuote {
 export interface SiteQuoteResult {
   currency: string;
   quotes: SiteQuote[];
-  unavailable: { vehicleGroupId: string | null; reasons: SalesUnavailableReason[] }[];
+  unavailable: SalesQuoteResult["unavailable"];
 }
 
 /** 询价请求里给渠道询价用的那几项（各品类的起终点、方向、套餐），和询价日志里记的原始请求。 */
-function salesTrip(input: SiteQuoteInput): { category: ServiceCategory; placeId: string | null; direction: "pickup" | "dropoff" | null; pickup: Point | null; dropoff: Point | null; packageHours: number | null; request: Record<string, unknown> } {
+function salesTrip(input: SiteQuoteInput): { category: ServiceCategory; placeId: string | null; direction: "pickup" | "dropoff" | null; pickup: Point | null; dropoff: Point | null; packageHours: number | null; waypoints: SiteWaypoint[]; request: Record<string, unknown> } {
   const { trip } = input;
   const common = { source: "site", category: trip.category, city_id: input.cityId, service_local: input.serviceLocal, passengers: input.passengers, luggage: input.luggage, addons: input.addons.map((addon) => ({ addon_id: addon.addonId, quantity: addon.quantity })) };
   switch (trip.category) {
@@ -503,12 +517,17 @@ function salesTrip(input: SiteQuoteInput): { category: ServiceCategory; placeId:
         pickup: trip.direction === "dropoff" ? trip.address : null,
         dropoff: trip.direction === "pickup" ? trip.address : null,
         packageHours: null,
+        waypoints: [],
         request: { ...common, airport_id: trip.airportId, direction: trip.direction, address: trip.address },
       };
     case "point_to_point":
-      return { category: trip.category, placeId: null, direction: null, pickup: trip.pickup, dropoff: trip.dropoff, packageHours: null, request: { ...common, pickup: trip.pickup, dropoff: trip.dropoff } };
-    case "charter":
-      return { category: trip.category, placeId: null, direction: null, pickup: trip.pickup, dropoff: trip.dropoff, packageHours: trip.packageHours, request: { ...common, pickup: trip.pickup, ...(trip.dropoff === null ? {} : { dropoff: trip.dropoff }), package_hours: trip.packageHours } };
+      return { category: trip.category, placeId: null, direction: null, pickup: trip.pickup, dropoff: trip.dropoff, packageHours: null, waypoints: [], request: { ...common, pickup: trip.pickup, dropoff: trip.dropoff } };
+    case "charter": {
+      // 询价日志只记经停点的坐标（回放报价要用，ADR 0088），不记名称
+      const waypoints = trip.waypoints ?? [];
+      const logged = waypoints.length === 0 ? {} : { waypoints: waypoints.map((stop) => ({ lat: stop.lat, lng: stop.lng })) };
+      return { category: trip.category, placeId: null, direction: null, pickup: trip.pickup, dropoff: trip.dropoff, packageHours: trip.packageHours, waypoints, request: { ...common, pickup: trip.pickup, ...(trip.dropoff === null ? {} : { dropoff: trip.dropoff }), package_hours: trip.packageHours, ...logged } };
+    }
   }
 }
 
@@ -550,16 +569,18 @@ export async function siteQuotes(ctx: AppContext, input: SiteQuoteInput, logExtr
       driverLanguage: null,
       vehicleGroupIds: [],
       currency: channel.settleCurrency,
+      ...(sales.waypoints.length === 0 ? {} : { waypoints: sales.waypoints }),
     },
     { request: { ...sales.request, ...logExtra }, ...(input.demand === undefined ? {} : { demand: demandSource(input.demand) }), ...(input.audience === "acceptance" ? { audience: "acceptance" as const } : {}) },
   );
-  const { groups, policy, packageKm, addons } = await withPlatformTx(
+  const { groups, policy, packageKm, addons, areaNames } = await withPlatformTx(
     ctx.pool,
     async (db) => ({
       groups: await findVehicleGroups(db, result.quotes.map((quote) => quote.vehicleGroupId)),
       addons: await findAddons(db, [...new Set(result.quotes.flatMap((quote) => quote.offeredAddonIds ?? []))]),
       policy: await currentCancellationPolicy(db),
       packageKm: trip.category === "charter" ? await findQuotePackageKm(db, result.quotes.map((quote) => quote.quoteId)) : new Map<string, number>(),
+      areaNames: await findSurchargeAreaNames(db, [...new Set(result.quotes.flatMap((quote) => quote.sellBreakdown.flatMap((item) => (item.areaId === null ? [] : [item.areaId]))))]),
     }),
     { snapshot: true },
   );
@@ -569,7 +590,7 @@ export async function siteQuotes(ctx: AppContext, input: SiteQuoteInput, logExtr
     const level = vehicleLevel(group.grade as VehicleGrade, group.seats);
     const rule = cancellationRuleFor(policy.rules, sales.category, level);
     const availableAddons = (quote.offeredAddonIds ?? []).flatMap((id) => addons.get(id) ?? []);
-    return [{ ...quote, vehicleGroup: group, packageKm: packageKm.get(quote.quoteId) ?? null, cancelPolicy: { category: sales.category, level, tiers: rule.tiers.map((tier) => ({ minHoursBefore: tier.minHoursBefore, feeBp: tier.feeBp })) }, availableAddons }];
+    return [{ ...quote, vehicleGroup: group, areaNames, packageKm: packageKm.get(quote.quoteId) ?? null, cancelPolicy: { category: sales.category, level, tiers: rule.tiers.map((tier) => ({ minHoursBefore: tier.minHoursBefore, feeBp: tier.feeBp })) }, availableAddons }];
   });
   // 价低的在前：客人先看到最便宜的
   quotes.sort((a, b) => a.sellMinor - b.sellMinor || a.vehicleGroup.seats - b.vehicleGroup.seats);

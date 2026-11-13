@@ -20,6 +20,7 @@ import {
   type ProductQuote,
   type QuoteComparison,
   type QuoteRequest,
+  type QuoteWaypoint,
   type RouteEstimate,
   type RouteFailureCode,
   type RouteSource,
@@ -72,6 +73,8 @@ export interface QuotePreviewInput {
   vehicleGroupIds: string[];
   /** 试算时假定的路线里程和时长：给了就不去估路线（路线服务还没接上、或想看某个里程下的价时用） */
   assumeRoute: RouteEstimate | null;
+  /** 包车的经停点（ADR 0088，只有官网和救援改派会给）：原样进报价请求和快照；不给或空 = 没有 */
+  waypoints?: readonly QuoteWaypoint[];
 }
 
 const REQUEST_MESSAGES: Readonly<Record<string, string>> = {
@@ -103,6 +106,8 @@ function toRequest(category: ServiceCategory, input: QuotePreviewInput): QuoteRe
     addons: input.addons,
     driverLanguage: input.driverLanguage,
     vehicleGroupIds: input.vehicleGroupIds,
+    // 没有经停点时不带这个键：报价请求、快照和以前一模一样
+    ...(input.waypoints === undefined || input.waypoints.length === 0 ? {} : { waypoints: input.waypoints }),
   };
 }
 

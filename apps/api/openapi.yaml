@@ -18618,7 +18618,8 @@ components:
             没报出价的车型组（请求里指定了车型组时逐个列；没指定、又一个都没报出时一条 `vehicle_group_id` 为 null 的）。原因只有面向客人的几种：
             `NO_PRODUCT`（这里没有可卖的商品）、`OUT_OF_SERVICE_AREA`、`DROPOFF_REQUIRED`（包车没给下车地点，而商品设了区域加价；给了下车地点再询价，M8-15）、`LEAD_TIME_TOO_SHORT`、`SOLD_OUT`、`OUTSIDE_SERVICE_TIME`、`SERVICE_TIME_PASSED`、
             `CAPACITY_EXCEEDED`、`ADDON_NOT_OFFERED`、`DRIVER_LANGUAGE_NOT_OFFERED`、
-            `NO_ROUTE`（里程计价：两点之间没有可行驶的路线，换个地点）、`TEMPORARILY_UNAVAILABLE`（里程计价：路线预估暂时不可用，稍后再试；ADR 0042）、`NOT_AVAILABLE`（其他）
+            `NO_ROUTE`（里程计价：两点之间没有可行驶的路线，换个地点）、`TEMPORARILY_UNAVAILABLE`（里程计价：路线预估暂时不可用，稍后再试；ADR 0042）、`NOT_AVAILABLE`（其他）。
+            `WAYPOINT_NOT_PRICED`（包车经停点不在任何区域里，M9W-01）只在官网带经停点的询价里出现：渠道接口不开放经停点，不会给出
           items:
             type: object
             additionalProperties: false
@@ -18631,7 +18632,7 @@ components:
                 type: array
                 items:
                   type: string
-                  enum: [ NO_PRODUCT, OUT_OF_SERVICE_AREA, DROPOFF_REQUIRED, LEAD_TIME_TOO_SHORT, SOLD_OUT, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, CAPACITY_EXCEEDED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, NO_ROUTE, TEMPORARILY_UNAVAILABLE, NOT_AVAILABLE ]
+                  enum: [ NO_PRODUCT, OUT_OF_SERVICE_AREA, DROPOFF_REQUIRED, WAYPOINT_NOT_PRICED, LEAD_TIME_TOO_SHORT, SOLD_OUT, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, CAPACITY_EXCEEDED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, NO_ROUTE, TEMPORARILY_UNAVAILABLE, NOT_AVAILABLE ]
     FxCurrency:
       type: string
       enum: [ JPY, KRW, CNY, USD, HKD, TWD, THB, SGD ]
@@ -29059,6 +29060,35 @@ components:
         dropoff:
           $ref: "#/components/schemas/SitePoint"
           description: 点对点、包车（必填；包车 M8-15 暂为可选，M8-19 改回必填，ADR 0073）：下车点的坐标
+        waypoints:
+          type: array
+          maxItems: 10
+          description: |
+            包车的经停点（途经景点，M9W-01，ADR 0088），按顺序，最多 10 个；选填，空数组和不填一样。别的品类填了 400 `NOT_APPLICABLE`（`/waypoints`）。
+            经停点落在供应商的加价区域里时按那个区域的途经加价收（同一区域一单只收一次；上 / 下车已经在这个区域的不再收；只在商品服务区域里的不加）；
+            有经停点哪个区域都不在时报不出（`unavailable` 的原因 `WAYPOINT_NOT_PRICED`，`waypoint_stop_seqs` 指出是第几个），转人工报价。
+            名称、停留分钟随报价锁定，下单时抄进订单（不影响价格）
+          items:
+            type: object
+            additionalProperties: false
+            required: [ name, lat, lng, stay_minutes ]
+            properties:
+              name:
+                type: string
+                minLength: 1
+                maxLength: 200
+              lat:
+                type: number
+                minimum: -90
+                maximum: 90
+              lng:
+                type: number
+                minimum: -180
+                maximum: 180
+              stay_minutes:
+                type: integer
+                minimum: 0
+                maximum: 1440
         package_hours:
           type: integer
           minimum: 1
@@ -29128,8 +29158,35 @@ components:
     SiteQuote:
       type: object
       additionalProperties: false
-      required: [ quote_id, expires_at, service_date, urgent, vehicle_group, package, includes_area_surcharge, distance, pricing_basis, price, free_wait_minutes, cancel_policy, available_addons ]
+      required: [ quote_id, expires_at, service_date, urgent, vehicle_group, package, includes_area_surcharge, distance, pricing_basis, price, price_breakdown, free_wait_minutes, cancel_policy, available_addons ]
       properties:
+        price_breakdown:
+          description: |
+            对外价的简单明细（M9W-01，ADR 0088 第 4 节；客人支付币种）：`base` 基础价（包车是套餐价）、`pickup` / `dropoff` 上 / 下车加价、`waypoint` 一个区域的途经加价、
+            `adjust` 调价、`other` 加急 / 夜间 / 附加服务 / 司机语言。除 `base` 外各项按这一单的汇率、缓冲、加价比例换算、各自取整；`base` 倒算吸收尾差，
+            **各项之和等于 `price.total`**。是 0 的调价、其他费用不列；没有加价区域的报价只有 `base` 一项（新增字段）
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ kind, amount, area_name, stop_seqs ]
+            properties:
+              kind:
+                type: string
+                enum: [ base, pickup, dropoff, waypoint, adjust, other ]
+              amount:
+                $ref: "#/components/schemas/SalesMoney"
+              area_name:
+                description: 上 / 下车加价、途经加价的加价区域现在的名称；别的项、区域被删了为 null
+                oneOf:
+                  - $ref: "#/components/schemas/LocalizedText"
+                  - type: "null"
+              stop_seqs:
+                description: 途经加价：落在这个区域的是第几个经停点（从 1 起）；别的项为 null
+                type: [ array, "null" ]
+                items:
+                  type: integer
+                  minimum: 1
         pricing_basis:
           $ref: "#/components/schemas/PricingBasis"
         distance:
@@ -29250,11 +29307,17 @@ components:
         vehicle_group_id:
           type: [ string, "null" ]
           format: uuid
+        waypoint_stop_seqs:
+          description: 原因里有 `WAYPOINT_NOT_PRICED` 时：哪几个经停点不在任何区域里（从 1 起，M9W-01，ADR 0088）；没有这个原因时不给
+          type: array
+          items:
+            type: integer
+            minimum: 1
         reasons:
           type: array
           items:
             type: string
-            enum: [ NO_PRODUCT, OUT_OF_SERVICE_AREA, DROPOFF_REQUIRED, LEAD_TIME_TOO_SHORT, SOLD_OUT, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, CAPACITY_EXCEEDED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, NO_ROUTE, TEMPORARILY_UNAVAILABLE, NOT_AVAILABLE ]
+            enum: [ NO_PRODUCT, OUT_OF_SERVICE_AREA, DROPOFF_REQUIRED, WAYPOINT_NOT_PRICED, LEAD_TIME_TOO_SHORT, SOLD_OUT, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, CAPACITY_EXCEEDED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, NO_ROUTE, TEMPORARILY_UNAVAILABLE, NOT_AVAILABLE ]
     SiteOrderRequest:
       type: object
       additionalProperties: false

@@ -6,7 +6,7 @@
  * - `order_sales`、`order_payments`、`payment_events` 是平台表，只在平台事务里用；租户角色对它们没有任何权限。
  * - 租户侧的查询只取租户可以看的列（`TENANT_COLUMNS`），而且只取付过款的单。
  */
-import type { CancellationTier, CurrencyCode, FxQuote, LandingSource, MessagingApp, OrderCancelReason, OrderStatus, PaymentStatus, ServiceCategory, SettlementBreakdown, TripDirection, VehicleLevel } from "@nozomi/domain";
+import type { CancellationTier, CurrencyCode, FxQuote, LandingSource, MessagingApp, OrderCancelReason, OrderStatus, PaymentStatus, QuoteWaypoint, ServiceCategory, SettlementBreakdown, TripDirection, VehicleLevel } from "@nozomi/domain";
 import { type ContactIndexKind, type PassengerContact, UNREADABLE_PASSENGER, normalizeEmailForIndex, normalizeNameForIndex, normalizePhoneForIndex } from "@nozomi/domain";
 import { type Db, passengerCryptoOf } from "../db/context.ts";
 import { isPassengerDecryptFailure } from "../integrations/passenger-crypto.ts";
@@ -60,6 +60,23 @@ export interface OrderCancelPolicy {
   tiers: CancellationTier[];
 }
 
+/**
+ * 包车的一个经停点（M9W-01，ADR 0088）：名称、坐标、停留分钟。写法和报价快照的 `snapshot.request.waypoints` 一样（键名照存），
+ * 下单时整列抄进 `orders.waypoints`，之后谁都不能改（迁移 0370 的触发器）。
+ */
+export interface OrderWaypoint {
+  name: string;
+  lat: number;
+  lng: number;
+  stay_minutes: number;
+}
+
+/** 报价快照里的经停点 → 订单的 `waypoints` 列（没有经停点为 null）。 */
+export function orderWaypoints(waypoints: readonly QuoteWaypoint[] | undefined): OrderWaypoint[] | null {
+  if (waypoints === undefined || waypoints.length === 0) return null;
+  return waypoints.map((stop) => ({ name: stop.name ?? "", lat: stop.lat, lng: stop.lng, stay_minutes: stop.stay_minutes ?? 0 }));
+}
+
 /** 订单本身（租户也能看的部分）。 */
 export interface Order {
   tenantId: string;
@@ -83,6 +100,8 @@ export interface Order {
   luggage: number;
   pickup: OrderPoint | null;
   dropoff: OrderPoint | null;
+  /** 包车的经停点，按顺序（M9W-01，ADR 0088）；没有经停点的单、以前的单为 null */
+  waypoints: OrderWaypoint[] | null;
   addons: { addonId: string; quantity: number }[];
   driverLanguage: string | null;
   flightNo: string | null;
@@ -122,7 +141,7 @@ const ORDER_COLUMNS = `o.tenant_id, o.id, o.order_no, o.status, o.category, o.ci
   o.cancel_reason, o.version, o.created_at, o.updated_at, o.dispatch_due_at, o.dispatch_overdue_at, o.departure_overdue_at, o.driver_id, o.vehicle_id, o.assigned_at,
   o.departed_at, o.arrived_at, o.arrival_distance_m, o.picked_up_at, o.completed_at, o.completed_recorded_at, o.actual_minutes, o.actual_km, o.leave_requested_at, o.guest_landed_at, o.driver_landed_at,
   o.driver_landed_file_id, o.landed_at, o.landed_source, o.cancel_policy, o.cancel_fee_bp, o.cancel_tenant_share_minor, o.cancel_note, o.rescued_at, o.arrival_overdue_at,
-  o.driver_missing_reported_at, o.is_acceptance`;
+  o.driver_missing_reported_at, o.is_acceptance, o.waypoints`;
 
 /** 这一行解不开时：单张的抛 503；列表（`tolerant`）里只这一行显示「无法读取」，别的行正常（ADR 0057）。 */
 function readPassenger(db: Db, row: Row, tolerant: boolean): Order["passenger"] {
@@ -157,6 +176,7 @@ function toOrder(db: Db, row: Row, tolerant = false): Order {
     luggage: row["luggage"],
     pickup: row["pickup"],
     dropoff: row["dropoff"],
+    waypoints: row["waypoints"] ?? null,
     addons: row["addons"],
     driverLanguage: row["driver_language"],
     flightNo: row["flight_no"],
@@ -217,15 +237,15 @@ export async function insertOrder(db: Db, order: NewOrder): Promise<void> {
     `insert into orders (tenant_id, id, order_no, status, category, city_id, place_id, direction, product_id, product_version, vehicle_group_id, package_hours,
                          service_at, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no,
                          passenger, messaging, notes, settlement_minor, settlement_currency, settlement, free_wait_minutes, inventory_held, payment_due_at, created_at, updated_at, cancel_policy,
-                         passenger_enc, passenger_email_bidx, passenger_phone_bidx, passenger_name_bidx, is_acceptance)
+                         passenger_enc, passenger_email_bidx, passenger_phone_bidx, passenger_name_bidx, is_acceptance, waypoints)
      values ($1, $2, $3, 'pending_payment', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb, $20::jsonb, $21::jsonb, $22, $23,
-             $24::jsonb, $25::jsonb, $26, $27, $28, $29::jsonb, $30, $31, $32, $33, $33, $34::jsonb, $35, $36, $37, $38, $39)`,
+             $24::jsonb, $25::jsonb, $26, $27, $28, $29::jsonb, $30, $31, $32, $33, $33, $34::jsonb, $35, $36, $37, $38, $39, $40::jsonb)`,
     [
       order.tenantId, order.id, order.orderNo, order.category, order.cityId, order.placeId, order.direction, order.productId, order.productVersion, order.vehicleGroupId, order.packageHours,
       order.serviceAt, order.serviceLocal, order.timezone, order.serviceDate, order.urgent, order.passengers, order.luggage, json(order.pickup), json(order.dropoff), JSON.stringify(order.addons),
       order.driverLanguage, order.flightNo, JSON.stringify(sealed.plain), json(order.messaging), order.notes, order.settlementMinor, order.settlementCurrency, JSON.stringify(order.settlement),
       order.freeWaitMinutes, order.inventoryHeld, order.paymentDueAt, order.createdAt, json(order.cancelPolicy),
-      sealed.enc, sealed.emailBidx, sealed.phoneBidx, sealed.nameBidx, order.isAcceptance,
+      sealed.enc, sealed.emailBidx, sealed.phoneBidx, sealed.nameBidx, order.isAcceptance, json(order.waypoints),
     ],
   );
 }

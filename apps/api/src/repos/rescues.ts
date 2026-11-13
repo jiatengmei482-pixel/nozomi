@@ -446,12 +446,12 @@ export async function insertRescuedOrder(
                          service_at, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no,
                          passenger, messaging, notes, settlement_minor, settlement_currency, settlement, free_wait_minutes, inventory_held, payment_due_at, confirmed_at,
                          dispatch_due_at, guest_landed_at, landed_at, landed_source, cancel_policy, version, created_at, updated_at,
-                         passenger_enc, passenger_email_bidx, passenger_phone_bidx, passenger_name_bidx, is_acceptance)
+                         passenger_enc, passenger_email_bidx, passenger_phone_bidx, passenger_name_bidx, is_acceptance, waypoints)
      select $3, o.id, o.order_no, 'confirmed', o.category, o.city_id, o.place_id, o.direction, $4, $5, o.vehicle_group_id, o.package_hours,
             o.service_at, o.service_local, o.timezone, o.service_date, $6, o.passengers, o.luggage, o.pickup, o.dropoff, o.addons, o.driver_language, o.flight_no,
             $13::jsonb, o.messaging, o.notes, $7, $8, $9::jsonb, o.free_wait_minutes, $10, o.payment_due_at, $11,
             $12, o.guest_landed_at, o.guest_landed_at, case when o.guest_landed_at is null then null else 'guest' end, o.cancel_policy, o.version + 1, o.created_at, $11,
-            $14, $15, $16, $17, o.is_acceptance
+            $14, $15, $16, $17, o.is_acceptance, o.waypoints
        from orders o where o.tenant_id = $1 and o.id = $2`,
     [input.original.tenantId, input.original.id, input.tenantId, input.productId, input.productVersion, input.urgent, input.settlementMinor, input.settlementCurrency, JSON.stringify(input.settlement), input.inventoryHeld, input.now, input.dispatchDueAt, JSON.stringify(sealed.plain), sealed.enc, sealed.emailBidx, sealed.phoneBidx, sealed.nameBidx],
   );

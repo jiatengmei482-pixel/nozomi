@@ -74,6 +74,7 @@ import {
   insertOrderPayment,
   insertOrderSale,
   lockUrgentQuota,
+  orderWaypoints,
   releaseHeldInventory,
   sellHeldInventory,
   updateOrderPayment,
@@ -317,6 +318,8 @@ async function placeOrder(ctx: AppContext, principal: SalesPrincipal, input: Sal
       luggage: request.luggage,
       pickup: point(request.pickup, details.pickupAddress),
       dropoff: point(request.dropoff, details.dropoffAddress),
+      // 包车的经停点（ADR 0088）：照报价快照里锁定的抄进订单
+      waypoints: orderWaypoints(request.waypoints),
       addons: request.addons.map((addon) => ({ addonId: addon.addonId, quantity: addon.quantity })),
       driverLanguage: request.driverLanguage,
       flightNo: details.flightNo === null || details.flightNo.trim() === "" ? null : normalizeFlightNo(details.flightNo),

@@ -104,11 +104,14 @@ export interface QuoteRequest {
    * 包车的经停点（ADR 0088），按顺序，最多 10 个；引擎只用坐标（名称、停留分钟只存在报价快照里）。
    * 不给或空 = 没有经停点，报价和 M9W-01 之前逐分一致。只有包车能给，给了就要有下车点。
    */
-  waypoints?: readonly LatLng[];
+  waypoints?: readonly QuoteWaypoint[];
 }
 
+/** 一个经停点：引擎只看坐标；官网带来的名称、停留分钟（`snapshot.request.waypoints` 的写法 `{ name, lat, lng, stay_minutes }`）原样留在快照里，下单时抄进订单 */
+export type QuoteWaypoint = LatLng & { readonly name?: string; readonly stay_minutes?: number };
+
 /** 请求里的经停点（不给按没有） */
-const waypointsOf = (request: Pick<QuoteRequest, "waypoints">): readonly LatLng[] => request.waypoints ?? [];
+const waypointsOf = (request: Pick<QuoteRequest, "waypoints">): readonly QuoteWaypoint[] => request.waypoints ?? [];
 
 export type QuoteRequestIssue = { path: string; reason: "REQUIRED" | "NOT_APPLICABLE" | "OUT_OF_RANGE" | "INVALID_SERVICE_TIME" | "DUPLICATE" };
 
@@ -1353,8 +1356,8 @@ export interface ComparisonGroup {
 export interface QuoteComparison {
   /** 每个车型组（包车再按套餐）一组，只有一个中标价；按车型组编号排 */
   groups: ComparisonGroup[];
-  /** 没能参加比价的：商品层面的（`vehicleGroupId` 为 null）和某个车型组的 */
-  refused: { tenantId: string; productId: string; vehicleGroupId: string | null; reason: ComparisonRefusal }[];
+  /** 没能参加比价的：商品层面的（`vehicleGroupId` 为 null）和某个车型组的；`WAYPOINT_NOT_PRICED` 带上是第几个经停点（ADR 0088） */
+  refused: { tenantId: string; productId: string; vehicleGroupId: string | null; reason: ComparisonRefusal; stopSeq?: number }[];
 }
 
 /**
@@ -1374,7 +1377,7 @@ export function compareQuotes(input: { request: QuoteRequest; currency: Currency
       refused.push({ tenantId: quote.tenantId, productId: quote.productId, vehicleGroupId: null, reason: quote.reason });
       continue;
     }
-    for (const item of quote.refused) refused.push({ tenantId: quote.tenantId, productId: quote.productId, vehicleGroupId: item.vehicleGroupId, reason: item.reason });
+    for (const item of quote.refused) refused.push({ tenantId: quote.tenantId, productId: quote.productId, vehicleGroupId: item.vehicleGroupId, reason: item.reason, ...(item.stopSeq === undefined ? {} : { stopSeq: item.stopSeq }) });
     for (const offer of quote.offers) {
       const sell = sellPrice({
         settlementMinor: offer.settlement.totalMinor,
