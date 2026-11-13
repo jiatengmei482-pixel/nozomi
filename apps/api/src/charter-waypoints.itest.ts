@@ -295,6 +295,8 @@ test("下单：订单存经停点（之后谁都不能改）；供应商详情�
   const view = await site.call("GET", "/site/v1/order", { token, ip: nextIp() });
   assertMatchesOpenApi("GET", "/site/v1/order", view);
   assert.deepEqual(view.body.order.waypoints, expectedStops);
+  // M9W-04：没按行程计价（选了套餐时长）的单不给对外价明细，订单页和以前一样
+  assert.equal(view.body.price_breakdown, null);
   const moved = await site.call("PATCH", "/site/v1/order", { token, ip: nextIp(), headers: { "if-match": `"${view.body.order.version}"` }, body: { service_time: "2026-10-21T10:00:00+09:00" } });
   assert.equal(moved.status, 200, moved.text);
   const change = await api.db.owner.query<{ before: string; after: string }>("select settlement_before_minor::text as before, settlement_after_minor::text as after from order_changes where order_id = $1", [orderId]);
@@ -389,6 +391,30 @@ test("按行程计价：逐段估路线、按总时长选套餐（能覆盖的�
   assertMatchesOpenApi("GET", "/tenant/v1/orders/{id}", tenant);
   assert.deepEqual([tenant.body.order.settlement.itinerary.over_km_fee.amount, tenant.body.order.settlement.total.amount], ["18000", "83000"]);
   for (const key of RULE4_KEYS) assert.ok(!allKeys(tenant.body).has(key), key);
+
+  // M9W-04：官网订单页给下单时那份对外价明细（和报价时一模一样，之和等于订单总价）；运营详情的结算价明细有超公里 / 超时的量、单价和钱
+  const guestView = await site.call("GET", "/site/v1/order", { token: placed.token, ip: nextIp() });
+  assertMatchesOpenApi("GET", "/site/v1/order", guestView);
+  assert.deepEqual(guestView.body.price_breakdown, offer.price_breakdown);
+  assert.deepEqual(placed.body.price_breakdown, offer.price_breakdown);
+  assert.equal(guestView.body.price_breakdown.reduce((sum: number, item: any) => sum + Number(item.amount.amount), 0), Number(guestView.body.order.price.total.amount));
+  assert.deepEqual(guestView.body.price_breakdown.find((item: any) => item.kind === "waypoint").area_name, { zh: "富士山地区" });
+  const platformView = await api.call("GET", `/platform/v1/orders/${placed.orderId}`, { token: m.root });
+  assertMatchesOperation("GET", "/platform/v1/orders/{id}", platformView.status, platformView.body);
+  const lockedItinerary = platformView.body.order.settlement.itinerary;
+  assert.deepEqual([lockedItinerary.over_meters, lockedItinerary.over_km_per_km.amount, lockedItinerary.over_km_fee.amount, lockedItinerary.overtime_minutes, lockedItinerary.overtime_per_hour.amount, lockedItinerary.overtime_fee.amount], [60_000, "300", "18000", 0, "5000", "0"]);
+  // 人工救援改派（manualSettlement）会把订单结算明细整份换成只有总价的（没有 itinerary），客人付的钱、报价快照不变：明细照旧给（审查 #192）。
+  // 这里直接把结算明细换成那个样子，只模拟这一个效果；救援流程本身见 rescues.itest.ts
+  await api.db.owner.query("update orders set settlement = settlement - 'itinerary' where id = $1", [placed.orderId]);
+  const rescued = await site.call("GET", "/site/v1/order", { token: placed.token, ip: nextIp() });
+  assert.equal(rescued.body.order.itinerary, null);
+  assert.deepEqual(rescued.body.price_breakdown, offer.price_breakdown);
+  await api.db.owner.query("update orders set settlement = jsonb_set(settlement, '{itinerary}', $2::jsonb) where id = $1", [placed.orderId, JSON.stringify((await api.db.owner.query<{ s: any }>("select snapshot->'winner'->'offer'->'settlement'->'itinerary' as s from quotes where id = $1", [offer.quote_id])).rows[0]?.s)]);
+  // 改期重算过价、总价变了：明细和现在的总价对不上就不给（页面只显示总价）
+  await api.db.owner.query("update order_sales set sell_minor = sell_minor + 100 where order_id = $1", [placed.orderId]);
+  const repriced = await site.call("GET", "/site/v1/order", { token: placed.token, ip: nextIp() });
+  assert.equal(repriced.body.price_breakdown, null);
+  await api.db.owner.query("update order_sales set sell_minor = sell_minor - 100 where order_id = $1", [placed.orderId]);
 
   // 参数检查：按行程计价不填套餐时长；别的品类不能按行程计价；某一段路线取不到 422
   api.clock.advance(1_000);

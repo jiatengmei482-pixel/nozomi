@@ -63,7 +63,14 @@ export interface ManualQuoteDetail {
   contact: { email: string | null; whatsapp: string | null } | null;
   pickup: ManualQuotePlace | null;
   dropoff: ManualQuotePlace | null;
+  /** 包车的经停点（M9W-04），按顺序；没有经停点、已清除为 null。旧接口没有这一项 */
+  waypoints?: ManualQuoteWaypoint[] | null;
   events: ManualQuoteEvent[];
+}
+
+/** 包车的一个经停点（M9W-04）：地点和停留分钟 */
+export interface ManualQuoteWaypoint extends ManualQuotePlace {
+  stay_minutes: number;
 }
 
 export type ManualQuoteCounts = Record<ManualQuoteStatus, number>;
@@ -106,10 +113,11 @@ export const MANUAL_QUOTE_SCHEMA_FIELDS = {
   ManualQuoteRequestSummary: ["id", "request_no", "status", "category", "city", "service_local", "passengers", "luggage", "package_hours", "has_email", "has_whatsapp", "is_acceptance", "assignee", "version", "created_at", "updated_at", "finished_at", "purged_at"],
   ManualQuoteEvent: ["id", "kind", "from_status", "to_status", "assignee", "note", "actor", "created_at"],
   ManualQuotePlace: ["name", "lat", "lng"],
+  ManualQuoteWaypoint: ["name", "lat", "lng", "stay_minutes"],
   ManualQuotePerson: ["id", "name"],
   SiteSettings: ["support_whatsapp", "page_width", "version", "updated_at", "updated_by"],
 } as const satisfies Record<string, readonly string[]>;
-export const MANUAL_QUOTE_DETAIL_FIELDS: readonly (keyof ManualQuoteDetail)[] = ["request", "contact", "pickup", "dropoff", "events"];
+export const MANUAL_QUOTE_DETAIL_FIELDS: readonly (keyof ManualQuoteDetail)[] = ["request", "contact", "pickup", "dropoff", "waypoints", "events"];
 export const MANUAL_QUOTE_QUERY_KEYS = ["limit", "cursor", "status", "assignee", "contact", "acceptance"] as const satisfies readonly (keyof ManualQuoteQuery)[];
 
 const one = (id: string): string => `${MANUAL_QUOTES_PATH}/${encodeURIComponent(id)}`;

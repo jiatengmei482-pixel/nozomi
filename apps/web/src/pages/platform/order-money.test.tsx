@@ -727,3 +727,19 @@ test("包车经停点（M9W-03）：运营订单详情「经停点」按顺序�
   assert.deepEqual([...list.querySelectorAll("li")].map((item) => item.textContent), ["上车京王广场酒店", "经停 1五合目停留 1 小时", "下车新宿站"]);
   assert.deepEqual([...(tripValue("区域加价")?.querySelectorAll(".details__lines > span") ?? [])].map((line) => line.textContent), ["上车：在服务区域里，不加价", "下车：在服务区域里，不加价", "经停（第 1 个经停点）：富士山地区 · 对外 11,000 JPY / 结算 10,000 JPY"]);
 });
+
+test("包车按行程计价（M9W-04）：运营订单详情「超公里 / 超时」写全程、套餐含量、超出量 × 结算单价 = 结算金额；没按行程计价的单不出这一项", async () => {
+  const order = platformOrder({ category: "charter", direction: null, flight_no: null, package_hours: 10, pickup: { lng: 139.7, lat: 35.69, address: "京王广场酒店" }, dropoff: { lng: 139.7, lat: 35.69, address: "新宿站" }, waypoints: [{ name: "河口湖", lat: 35.498, lng: 138.769, stay_minutes: 90 }] });
+  const itinerary = { route_meters: 260_000, route_minutes: 540, package_km: 200, package_minutes: 600, over_meters: 60_000, overtime_minutes: 0, over_km_fee: money("18000"), overtime_fee: money("0"), over_km_per_km: money("300"), overtime_per_hour: money("5000") };
+  open(`/platform/orders/${ORDER_ID}`, "operations", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}` ? json(200, platformDetail({ ...order, settlement: { total: money("83000"), itinerary } }, { pricing_route: null, distance: null, area_surcharge: null })) : null), "platform");
+  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
+  assert.deepEqual([...(tripValue("超公里 / 超时")?.querySelectorAll(".details__lines > span") ?? [])].map((line) => line.textContent), [
+    "超公里：全程 260 公里，套餐含 200 公里，超出 60 公里 × 每公里 300 JPY = 18,000 JPY",
+    "超时：预计 9 小时（含停留），套餐 10 小时，超出 0 分钟 × 每小时 5,000 JPY = 0 JPY",
+  ]);
+
+  resetBrowser();
+  open(`/platform/orders/${ORDER_ID}`, "operations", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}` ? json(200, platformDetail(order, { pricing_route: null, distance: null, area_surcharge: null })) : null), "platform");
+  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
+  assert.equal(tripValue("超公里 / 超时"), null);
+});

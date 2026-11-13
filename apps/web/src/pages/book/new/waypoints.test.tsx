@@ -79,6 +79,7 @@ function open(charter: (call: ApiCall) => Response = () => json(200, plainResult
     if (path === "/site/v1/fx/reference") return json(200, { available: false, from: "JPY", to: call.url.searchParams.get("to"), rate: null, as_of: null, reason: "NO_RATE" });
     if (call.method === "POST" && path === "/site/v1/quotes") return charter(call);
     if (call.method === "POST" && path === "/site/v1/orders") return order?.() ?? null;
+    if (call.method === "POST" && path === "/site/v1/manual-quote-requests") return json(202, { status: "accepted" });
     return null;
   });
   render(
@@ -261,9 +262,9 @@ test("明细加起来不等于总价：不显示明细，只显示总价（价�
   assertAbsent(screen.queryByText("60,500 JPY"));
 });
 
-test("经停点不在任何区域（WAYPOINT_NOT_PRICED）：指出第几个经停点和它的名字，转人工报价，不显示内部代码", async () => {
+test("经停点不在任何区域（WAYPOINT_NOT_PRICED）：指出第几个经停点和它的名字，转人工报价，不显示内部代码；人工报价带上经停点、不带之前选的时长（M9W-04）", async () => {
   wideScreen();
-  open((call) =>
+  const calls = open((call) =>
     json(200, (call.body as Record<string, unknown>)["itinerary_pricing"] === true ? ({ currency: "JPY", quotes: [], unavailable: [{ vehicle_group_id: null, reasons: ["WAYPOINT_NOT_PRICED"], waypoint_stop_seqs: [2] }] } satisfies SiteQuoteResult) : plainResult),
   );
   const actor = user();
@@ -276,6 +277,14 @@ test("经停点不在任何区域（WAYPOINT_NOT_PRICED）：指出第几个经�
   assert.ok(screen.getByRole("heading", { name: "没有可预订的车" }));
   assert.equal(screen.getByRole("link", { name: "+81 3-1234-5678" }).getAttribute("href"), "tel:+81312345678");
   assert.doesNotMatch(document.body.textContent ?? "", /WAYPOINT_NOT_PRICED/);
+  const manual = screen.getByRole("region", { name: "请客服人工报价" });
+  await actor.type(within(manual).getByLabelText("邮箱"), "guest@example.com");
+  await actor.click(within(manual).getByRole("button", { name: "提交" }));
+  assert.ok(await screen.findByText(/已收到/, {}, SLOW));
+  const sent = calls.filter((call) => call.method === "POST" && call.path === "/site/v1/manual-quote-requests").map((call) => (call.body as { trip: Record<string, unknown> }).trip);
+  assert.deepEqual(sent.map((trip) => [trip["category"], trip["package_hours"], trip["waypoints"]]), [
+    ["charter", null, [{ name: "五合目", ...SPOTS["五合目"], stay_minutes: 60 }, { name: "河口湖", ...SPOTS["河口湖"], stay_minutes: 60 }]],
+  ]);
 });
 
 test("按行程计价有一段路线算不出来（422 ITINERARY_ROUTE_UNAVAILABLE）：说清是哪两个点之间，转人工报价", async () => {
