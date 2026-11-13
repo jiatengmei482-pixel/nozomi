@@ -357,8 +357,9 @@ class Widget {
     } catch {
       status = null;
     }
-    if (status === 201 && typeof body?.url === "string") {
-      this.go(body.url);
+    // 跳到脚本所在的主站（不用应答里的 url：主站地址以加载脚本的那个为准）
+    if (status === 201 && typeof body?.id === "string") {
+      this.go(`${this.base}/book/new?draft=${encodeURIComponent(body.id)}`);
       return;
     }
     this.busy = false;

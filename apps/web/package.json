@@ -9,7 +9,7 @@
     "build": "vite build && vite build -c vite.widget.config.ts",
     "preview": "vite preview",
     "test:components": "node --import ./test/register.mjs --test \"src/**/*.test.tsx\"",
-    "test:e2e": "vite build && playwright test"
+    "test:e2e": "vite build && vite build -c vite.widget.config.ts && playwright test"
   },
   "dependencies": {
     "@nozomi/domain": "workspace:*",

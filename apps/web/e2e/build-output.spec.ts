@@ -33,7 +33,8 @@ test("产物只有 index.html 和带哈希的 JS / CSS，没有 source map", () 
   const names = files.map(relative).sort();
   expect(names.filter((name) => name.endsWith(".map"))).toEqual([]);
   expect(names).toContain("index.html");
-  for (const name of names) expect(name, "出现了预期之外的产物").toMatch(/^(index\.html|assets\/index-[\w-]{8,}\.(js|css))$/);
+  // 嵌入组件脚本（M9E-03，ADR 0090）：固定文件名，合作网站页面直接引用
+  for (const name of names) expect(name, "出现了预期之外的产物").toMatch(/^(index\.html|assets\/index-[\w-]{8,}\.(js|css)|embed\/widget-v1\.js)$/);
   for (const { name, text } of textFiles) expect(text.includes("sourceMappingURL"), `${name} 指向了 source map`).toBe(false);
 });
 
