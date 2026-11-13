@@ -117,8 +117,14 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
   useEffect(() => {
     if (shown !== null && !sheetOpen) setText(shown);
   }, [shown]);
-  useEffect(() => () => {
-    if (timer.current !== null) clearTimeout(timer.current);
+  // 卸载（如切换「区间 / 包车」换了一个新的地址框）后，旧的反查回来不再写入：新框里可能已改选了地点（M8-42）
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (timer.current !== null) clearTimeout(timer.current);
+    };
   }, []);
   useEffect(() => {
     if (!open) return;
@@ -215,7 +221,7 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
     // 反查的结果只看字段是不是还是这次选点：之后在选择页打字、取消都不作废它；选了别的地点才丢掉（M8-42）
     const stillPicked = (): boolean => {
       const current = latestValue.current;
-      return current !== null && current.name === picked.name && current.lat === picked.lat && current.lng === picked.lng && current.kind === null;
+      return mounted.current && current !== null && current.name === picked.name && current.lat === picked.lat && current.lng === picked.lng && current.kind === null;
     };
     try {
       const found = await reverseSitePlace(city.id, point);

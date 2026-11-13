@@ -369,6 +369,55 @@ test("手机地图选点（M8-42）：反查还没回来时又打开选择页打
   assert.doesNotMatch(fromCell.textContent ?? "", /地图上选的位置/);
 });
 
+test("手机地图选点（M8-42）：选择页开着、客人正在打字时反查回来，输入框里还是客人打的字，页面那一格已换成地址；再点「取消」出发地是地址", async () => {
+  const pending = deferred();
+  const calls = open({ config: configOf({ map_tiles: ROUTE_TILES }), reverse: () => pending.promise });
+  const actor = user();
+  const fromCell = await pickFromOnMapInSheet(actor);
+  await waitFor(() => assert.equal(calls.filter((call) => call.path.includes("/places/reverse")).length, 1));
+
+  await actor.click(fromCell);
+  const again = await screen.findByRole("dialog", { name: "出发地" });
+  const input = within(again).getByRole("combobox", { name: "出发地" });
+  await actor.clear(input);
+  await actor.type(input, "京王");
+  pending.resolve(json(200, { available: true, address: "日本、〒160-0023 東京都新宿区西新宿２丁目８−１" }));
+  await waitFor(() => assert.match(fromCell.textContent ?? "", /東京都新宿区西新宿２丁目８−１/), SLOW);
+  assert.equal((input as HTMLInputElement).value, "京王", "选择页里客人打的字不被反查结果盖掉");
+
+  await actor.click(within(again).getByRole("button", { name: "取消" }));
+  await waitFor(() => assertAbsent(screen.queryByRole("dialog", { name: "出发地" })));
+  assert.match(fromCell.textContent ?? "", /東京都新宿区西新宿２丁目８−１/);
+  assert.doesNotMatch(fromCell.textContent ?? "", /地图上选的位置|京王/);
+});
+
+test("手机地图选点（M8-42）：反查还没回来时切换到「包车」（地址框换成新的），在新框里改选了候选，旧框的反查回来后不覆盖", async () => {
+  const pending = deferred();
+  const calls = open({ config: configOf({ map_tiles: ROUTE_TILES }), reverse: () => pending.promise });
+  const actor = user();
+  await pickFromOnMapInSheet(actor);
+  await waitFor(() => assert.equal(calls.filter((call) => call.path.includes("/places/reverse")).length, 1));
+
+  await actor.click(screen.getByRole("radio", { name: "包车" }));
+  const pickupCell = await screen.findByRole("button", { name: /^上车地点/ });
+  assert.match(pickupCell.textContent ?? "", /地图上选的位置（/, "切换后上车地点沿用地图选的点");
+  await actor.click(pickupCell);
+  const sheet = await screen.findByRole("dialog", { name: "上车地点" });
+  await actor.clear(within(sheet).getByRole("combobox", { name: "上车地点" }));
+  await actor.type(within(sheet).getByRole("combobox", { name: "上车地点" }), "成田");
+  await within(sheet).findByRole("listbox", { name: "上车地点的候选" }, SLOW);
+  await actor.click(within(sheet).getByRole("option", { name: /成田国际机场/ }));
+  await waitFor(() => assertAbsent(screen.queryByRole("dialog", { name: "上车地点" })));
+  assert.match(pickupCell.textContent ?? "", /成田国际机场/);
+
+  pending.resolve(json(200, { available: true, address: "日本、〒160-0023 東京都新宿区西新宿２丁目８−１" }));
+  await act(async () => {
+    await new Promise((done) => setTimeout(done, 50));
+  });
+  assert.match(screen.getByRole("button", { name: /^上车地点/ }).textContent ?? "", /成田国际机场/);
+  assert.doesNotMatch(screen.getByRole("button", { name: /^上车地点/ }).textContent ?? "", /西新宿|地图上选的位置/);
+});
+
 test("手机地图选点（M8-42）：反查还没回来时客人改选了别的候选，反查回来后不覆盖新选的地点", async () => {
   const pending = deferred();
   open({ config: configOf({ map_tiles: ROUTE_TILES }), reverse: () => pending.promise });
