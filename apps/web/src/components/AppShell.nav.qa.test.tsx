@@ -61,6 +61,7 @@ const MENU_PAGES: Readonly<Record<string, readonly string[]>> = {
   notifications: ["/platform/notifications", "/platform/notification-templates"],
   manual_quotes: ["/platform/manual-quotes"],
   site_settings: ["/platform/settings/site"],
+  embed_keys: ["/platform/embed-keys"],
 };
 
 test("角色页的每个菜单都登记了对应页面（新加菜单要在这里登记）", () => {
