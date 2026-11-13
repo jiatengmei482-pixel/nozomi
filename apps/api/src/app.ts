@@ -16,6 +16,7 @@ import { checkHealth } from "./health.ts";
 import { FxCenter } from "./services/fx-center.ts";
 import { REDACTED, pathOnly, secretValues, serializeError, serializeRequest } from "./logging.ts";
 import { registerAreaRoutes } from "./routes/areas.ts";
+import { registerPlatformSharedAreaRoutes } from "./routes/platform-shared-areas.ts";
 import { registerMasterDataRoutes } from "./routes/master-data.ts";
 import { registerMasterOptionRoutes } from "./routes/master-options.ts";
 import { registerImportExportRoutes } from "./routes/import-export.ts";
@@ -382,6 +383,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerMasterDataRoutes(app, context);
   registerMasterOptionRoutes(app, context);
   registerAreaRoutes(app, context);
+  registerPlatformSharedAreaRoutes(app, context);
   registerProductRoutes(app, context);
   registerPriceRoutes(app, context);
   registerInventoryRoutes(app, context);

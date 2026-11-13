@@ -234,6 +234,10 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   // 未覆盖需求（M8-20，ADR 0075）：单独的 demand.read（超级管理员、运营、招商、渠道经理）
   { method: "GET", url: "/platform/v1/uncovered-demands", action: "demand.read" },
   { method: "GET", url: "/platform/v1/uncovered-demands/points", action: "demand.read" },
+  // 共享库去重（M8-31b，ADR 0083 补充）：看用 master_data.read，标记、撤销用 master_data.manage（和改主数据同一批人）
+  { method: "GET", url: "/platform/v1/shared-areas", action: "master_data.read" },
+  { method: "POST", url: `/platform/v1/shared-areas/${MISSING}/mark-duplicate`, action: "master_data.manage", body: {} },
+  { method: "POST", url: `/platform/v1/shared-areas/${MISSING}/unmark-duplicate`, action: "master_data.manage", body: {} },
   { method: "GET", url: `/platform/v1/products/${MISSING}`, action: "product.read" },
   ...MASTER_PATHS.flatMap((path) => [
     { method: "GET", url: `/platform/v1/master/${path}`, action: "master_data.read" } as const,

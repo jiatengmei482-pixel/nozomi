@@ -11,6 +11,7 @@ import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { Button } from "../../components/Button.tsx";
 import { Dialog } from "../../components/Dialog.tsx";
+import { useToast } from "../../components/Toast.tsx";
 import { NETWORK_FAILURE_TEXT } from "../../lib/failure.ts";
 import { displayName } from "../../lib/master-display.ts";
 import { newIdempotencyKey } from "../../lib/site-display.ts";
@@ -26,6 +27,7 @@ export interface SharedAreaDialogProps {
 
 export function SharedAreaDialog({ open, cities, initial, onClose, onCreated }: SharedAreaDialogProps) {
   const { token, handleAuthFailure } = usePortalSession();
+  const toast = useToast();
   const ids = { city: useId(), q: useId(), name: useId(), biz: useId(), role: useId() };
   const activeCities = (cities ?? []).filter((city) => city.status === "active");
   const [cityId, setCityId] = useState(initial?.cityId ?? "");
@@ -56,6 +58,7 @@ export function SharedAreaDialog({ open, cities, initial, onClose, onCreated }: 
   const failure = (err: unknown, action: string): string => {
     if (err instanceof NetworkError) return NETWORK_FAILURE_TEXT;
     if (err instanceof ApiError && err.code === "AREA_NAME_TAKEN") return "这个城市里你已经有同名的区域了，请改个名字再引用。";
+    if (err instanceof ApiError && err.code === "SHARED_AREA_IS_YOURS") return "这块区域你名下已经有了（共享库里保留的就是你自己建的那份），直接用它即可，不用再引用。";
     if (err instanceof ApiError && err.status === 404) return "这个区域已经不在共享库里了（可能被停用），请换一个。";
     if (err instanceof ApiError && err.code === "MASTER_DATA_NOT_READY") return "这个城市已被平台停用，不能在它下面新增区域。";
     return `系统暂时无法${action}，请稍后再试。`;
@@ -87,6 +90,9 @@ export function SharedAreaDialog({ open, cities, initial, onClose, onCreated }: 
     try {
       const sameName = name.trim() === displayName(picked.name).text;
       const area = await createAreaFromShared(token, { shared_area_id: picked.id, name: sameName ? null : { zh: name.trim() }, biz_type: bizType, role }, key);
+      // 选的那份被平台标为重复（M8-31b）：后端改为复制了保留的那份，应答里的来源和选的不同，说一声
+      const redirectedTo = redirectedName(area, picked.id, sameName);
+      if (redirectedTo !== undefined) toast(redirectedTo === null ? "你选的那份已被平台合并，已改为引用共享库里保留的同一块区域" : `你选的那份已被平台合并，已改为引用「${redirectedTo}」`);
       onCreated(area);
     } catch (err) {
       if (!handleAuthFailure(err)) setError(failure(err, "引用这个区域"));
@@ -196,4 +202,14 @@ export function SharedAreaDialog({ open, cities, initial, onClose, onCreated }: 
       )}
     </Dialog>
   );
+}
+
+/**
+ * 引用后实际的来源和选的不同（被平台转到保留的那份）时，给提示用的名称：没改名时副本的名称就是保留那份的名称；
+ * 改了名拿不到保留那份的名称，为 null。来源和选的相同时为 undefined（不用提示）。
+ */
+export function redirectedName(area: Area, pickedId: string, sameName: boolean): string | null | undefined {
+  const source = area.shared_source?.shared_area_id;
+  if (source === undefined || source.toLowerCase() === pickedId.toLowerCase()) return undefined;
+  return sameName ? displayName(area.name).text : null;
 }
