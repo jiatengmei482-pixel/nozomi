@@ -8,6 +8,7 @@
  * - 手机触屏（M8-37，业主 2026-11-12：移动设备优先保证操作流程）：页面上是一格「出发地 / 目的地」，点一下打开全屏选择页
  *   （`FullScreenSheet`，在页面最上层，手机键盘、吸顶条、地图都盖不住），里面是输入框、候选列表和「在地图上选点」；选中后回到页面，「取消」不改原来的值。
  *   电脑和鼠标操作的窄窗口照旧在页面上选（窄窗口候选紧贴输入框下面）。
+ * - 候选里有谷歌来源的一项时，列表末尾署名「Google Maps」（M9E-06，`components/GoogleMapsAttribution.tsx`，和嵌入组件同一份写法）。
  * 浏览器只连 `/site/v1`，不连谷歌（ADR 0044）。
  */
 import { type CityCandidate, normalizePlaceQuery, placeQueryIssue, serviceCityOf } from "@nozomi/domain";
@@ -16,6 +17,7 @@ import { ApiError } from "../../../api/client.ts";
 import type { MapTiles } from "../../../api/areas.ts";
 import { type SitePlaceSuggestion, autocompleteSitePlaces, getSitePlaceDetails, reverseSitePlace } from "../../../api/site.ts";
 import { Button } from "../../../components/Button.tsx";
+import { GoogleMapsAttribution } from "../../../components/GoogleMapsAttribution.tsx";
 import { Icon } from "../../../components/Icon.tsx";
 import { type TripPoint, pointName } from "../../../lib/book-new.ts";
 import { addressText } from "../AddressFields.tsx";
@@ -322,6 +324,7 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
               </div>
             </li>
           ))}
+          <GoogleMapsAttribution items={items} listbox />
         </ul>
       </div>
       <p id={statusId} className={warning ? "site-address__status site-address__status--warning" : "site-address__status"} role="status">

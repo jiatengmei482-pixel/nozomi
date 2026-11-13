@@ -545,6 +545,23 @@
   font-size: var(--font-size-sm);
 }
 
+/* 地址候选末尾的谷歌署名（M9E-06，lib/google-attribution.ts）：按谷歌地图平台的要求原样、不折行、字号 12、字重 400、
+   灰色且对比 ≥ 4.5:1（亮色 text-secondary #4A5361 / 暗色 #B3BAC6），靠右，和候选之间留白分开 */
+.google-attribution {
+  display: block;
+  padding: var(--space-2) var(--space-3) var(--space-1);
+  color: var(--color-text-secondary);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-xs);
+  font-style: normal;
+  font-weight: var(--font-weight-regular);
+  letter-spacing: normal;
+  text-align: right;
+  text-transform: none;
+  white-space: nowrap;
+  list-style: none;
+}
+
 /* 名称放不下时次要文字（编码等）换到下一行，名称不在单词中间折行；一个词比整行还长才折 */
 .combobox__option {
   display: flex;

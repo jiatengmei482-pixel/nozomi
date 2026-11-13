@@ -30,6 +30,7 @@ import {
 } from "./widget-core.ts";
 import { tellDeveloper } from "./developer-notice.ts";
 import { WIDGET_CSS } from "./widget-style.ts";
+import { GOOGLE_MAPS_ATTRIBUTION, GOOGLE_MAPS_ATTRIBUTION_ATTRIBUTES, hasGoogleSource } from "../lib/google-attribution.ts";
 
 interface Suggestion {
   source: "platform" | "google";
@@ -306,8 +307,8 @@ class Widget {
         });
         list.append(option);
       });
-      // 候选来自谷歌、又没有显示谷歌地图时，按谷歌地图平台的署名要求标明「Google Maps」（文字署名；不翻译、不改写）
-      if (items.some((item) => item.source === "google")) list.append(el("li", { class: "nzb-google", role: "presentation", lang: "en", translate: "no" }, ["Google Maps"]));
+      // 候选来自谷歌、又没有显示谷歌地图时，按谷歌地图平台的署名要求标明「Google Maps」（文字署名；不翻译、不改写）；和主站同一份写法（lib/google-attribution.ts，M9E-06）
+      if (hasGoogleSource(items)) list.append(el("li", { class: "nzb-google", role: "presentation", ...GOOGLE_MAPS_ATTRIBUTION_ATTRIBUTES }, [GOOGLE_MAPS_ATTRIBUTION]));
       list.hidden = items.length === 0;
       input.setAttribute("aria-expanded", String(items.length > 0));
     };

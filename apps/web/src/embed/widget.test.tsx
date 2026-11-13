@@ -6,6 +6,7 @@
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { initFrom, initWithBase, scriptOriginOf } from "./widget-ui.ts";
+import { GOOGLE_MAPS_ATTRIBUTION, GOOGLE_MAPS_ATTRIBUTION_ATTRIBUTES } from "../lib/google-attribution.ts";
 
 const BASE = "https://nozomi.example";
 const KEY = `nze_${"A".repeat(32)}`;
@@ -93,6 +94,11 @@ test("区间：地址提示经主站（带嵌入码和会话令牌、不带 Cook
   toInput.dispatchEvent(new Event("input"));
   await wait(400);
   assert.equal($(".nzb-google").textContent, "Google Maps", "谷歌候选按谷歌地图平台的要求署名");
+  // 和主站同一份写法（M9E-06，lib/google-attribution.ts）：文字、英文、不翻译；不是候选
+  assert.equal($(".nzb-google").textContent, GOOGLE_MAPS_ATTRIBUTION);
+  for (const [name, value] of Object.entries(GOOGLE_MAPS_ATTRIBUTION_ATTRIBUTES)) assert.equal($(".nzb-google").getAttribute(name), value);
+  assert.equal($(".nzb-google").getAttribute("role"), "presentation");
+  assert.equal(shadow().querySelectorAll(".nzb-google").length, 1, "整个列表只署一次");
   ($('[data-field="dropoff"] [role="option"]') as HTMLElement).click();
   await wait(20);
   const auto = calls.find((call) => call.url.pathname === "/embed/v1/places/autocomplete");

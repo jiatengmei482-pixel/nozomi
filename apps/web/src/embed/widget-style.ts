@@ -24,7 +24,7 @@ export const WIDGET_CSS = `
 .nzb-option { display: grid; padding: 8px 12px; cursor: pointer; }
 .nzb-option:hover, .nzb-option:focus { background: #e8f1fb; }
 .nzb-option-address { font-size: 13px; color: #52606d; }
-.nzb-google { padding: 4px 12px; font-size: 12px; color: #52606d; text-align: right; }
+.nzb-google { padding: 4px 12px; font-size: 12px; font-weight: 400; font-style: normal; letter-spacing: normal; text-transform: none; white-space: nowrap; color: #4a5361; text-align: right; }
 .nzb-waypoint { display: grid; gap: 8px; margin: 0; padding: 12px; border: 1px dashed #9aa5b1; border-radius: 8px; min-width: 0; }
 .nzb-primary, .nzb-secondary { min-height: 44px; padding: 8px 16px; border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer; }
 .nzb-primary { border: 0; background: #0b5cad; color: #ffffff; }
