@@ -1,28 +1,62 @@
 # ADR 0094：AI 行程报价——行程编排层、跨段规则、城市间长途移动、地图与 AI 解析
 
-- 状态：**草案**（2026-11-14 第一稿，待独立审查；审查通过、业主确认第十一节后再拆实施任务）。设计任务 M10-00。
+- 状态：**草案第二稿**（2026-11-14）。
+  - 第一稿经 #232 独立审查，「需要修改」。第二稿改了 4 条必改、8 条建议，对照见第十二节末尾。
+  - 审查通过、业主确认第十一节后再拆实施任务。
+  - 设计任务 M10-00。
 - 依据：业主《NOZOMI AI 行程报价 · 设计方案（草案 v1，2026-11-14）》，原文存档 `docs/requirements/ai-trip-quote-design-2026-11-14.md`（下称「原文」，含第 3.7 节和第 8 节追加的 5 行），以及监工 2026-11-14 的补充要求（3.7 节写进 ADR；特别确认高速费、新干线站点主数据、谷歌公共交通接口三件事）。
 - 编号：main 上最大是 0093；0087（#186）、0092（#219）已被未合并的 PR 占用，这里用 0094。
-- **硬约束（原文第 0 节）**：现有接送机、点对点、包车报价程序**原样保留**，本篇只在上面加一层「行程编排」。新功能只新增表、新增接口、新增模块；不改现有表结构，不改 `quoteProduct` 和各报价服务的入参与结果。确实绕不开的接入点（付款回调、取消退款、结算）在第五节第 4 小节逐条列出，都是**新增分支**，现有单张订单的行为不变，并由现有测试和 golden 守住。
-- 与在途 ADR 的关系：
-  - **ADR 0093（包车三层区域，草案第六稿，M9P 全部未开始）**和 **ADR 0091（缓冲 T）**是本篇包车段的前提：编排器只调用包车引擎，不自己算区域加价、选套餐。M9P-03（各商品自选套餐、13 小时拦截）上线前，行程报价的包车段按当时的引擎结果报。
-  - **需求一「机场开始 / 结束套餐」（M9P-09，未开始）**：原文第 2 节的「接机 + 包车」「包车 + 送机」比价依赖它；它上线前，编排器只比「接机 + 单独包车」的拆法。
+- **硬约束（原文第 0 节）**：现有接送机、点对点、包车报价程序**原样保留**，本篇只在上面加一层「行程编排」。
+  - **报价**：只新增表、新增接口、新增模块；不改现有表结构，不改 `quoteProduct` 和各报价服务的入参与结果。
+  - **两处做不到「只加不改」，明确写出来**：
+    1. **跨城市一车到底**：现有包车引擎要求上下车点都在商品的①或③里，跨城市的移动日、异地用车日、返程都报不出价。基价要靠新增规则，并且只读商品自己的套餐价（第五节第 5 小节）。这部分单列为 P1d，不在同城的 P1a 里。
+    2. **行程订单「多张子订单、一次付款」**：现有下单、付款、超时取消、退款、异常队列、乘客资料保留、取消服务都以「一单一笔 `order_payments`」为前提。要把下单核心抽出来、把「这张单付了多少」统一成一个读取口径，属于**重构现有代码**（第五节第 4 小节）。这部分由现有测试和 golden 守住单张订单行为不变，建议另写一篇付款 ADR。
+- 与在途 ADR 的关系（依赖统一按「硬依赖 / 软依赖」写）：
+  - **硬依赖**：
+    - **ADR 0093 的 M9P-02**（按上下车点匹配商品，#230）：包车段按点找商品，编排器才能不预先指定城市。
+    - **M9P-03**（各商品自选套餐、13 小时拦截）：多日每天选套餐、工时拦截。
+    - **M9P-06**（基础价区域优先、同层不重叠）：「过夜点是否在①基础价区域」是住宿、同车判断的依据，这个判断要以 M9P-06 的区域定义为准。
+    - **ADR 0091**（缓冲 T）：工时计算用它的 T。
+    - 编排器只调用包车引擎，不自己算区域加价、选套餐。
+  - **软依赖：需求一「机场开始 / 结束套餐」（M9P-09，未开始）**。原文第 2 节「接机 + 包车」「包车 + 送机」两种段型的比价要用它；它上线前编排器只比「接机 + 单独包车」「包车 + 单独送机」的拆法，**不阻塞 P1**。M9P-09 上线后，把机场套餐加进拆法候选即可（第三节第 4 小节）。
   - **ADR 0070（包车一口价全含高速费、停车费）**：不变；长途高速费的处理见第六节第 5 小节。
-  - **ADR 0017（前端地图用 Leaflet）**：行程地图是否改用 Google Maps JS 见第七节，**本篇只提方案，业主确认后另行修订 0017**。
+  - **ADR 0017（前端地图用 Leaflet）**：按谷歌《服务专用条款》，Routes、Places 的内容不能用在非谷歌地图上。所以行程地图**定为 Google Maps JS**（第七节）。0017 要另写一篇 ADR 修订，现有官网 Leaflet 路线后备图的合规风险另开任务 M10-01。
 
 ---
 
 ## 〇、结论摘要
 
-1. **现有引擎能直接复用的多**：深夜早朝加价、节假日 / 日期加价、附加项、免费等待、超公里、取消规则、30 分钟锁价、多供应商比价、改期和救援都已有，三种产品共用一个入口 `quoteProduct`。行程编排只需按段调用。
+1. **现有引擎能直接复用的多**：深夜早朝加价、节假日 / 日期加价、附加项、免费等待、超公里、取消规则、30 分钟锁价、多供应商比价、改期和救援都已有，三种产品共用一个入口 `quoteProduct`。**同城**的每一段，行程编排只需按段调用。
 2. **要新做的集中在「跨段」**：司机住宿、长途返程、多日停驻、工时合规、长途档位价、单日上限与备选方案、新干线方案对比——现有代码里**一条都没有**（第一节第 2 小节）。
+   - **跨城市一车到底，现有引擎根本报不出价**：东京的车开到大阪、在大阪继续用、最后返程，下车点或上车点都不在东京商品的区域里，引擎直接不报（`D/quote.ts:614`，ADR 0093 第 178 行）。
+   - 所以 3.2 返程、3.7 方案 B、跨城市的 3.1 住宿都要新的基价规则，放在 P1d；P1a 只做同城多日，3.7 方案 A（新干线 + 两边本地车）在 P1c。
 3. **三件特别确认**：
    - **高速费**：制度上已全含（ADR 0070），但价格里**没有任何高速费成分**，系统也不估算高速费。按「套餐 + 超公里」算时，超公里单价在量级上远高于高速费，可以说已覆盖；按新增的「长途档位价」算时**不保证覆盖**，要么档位价明确含高速费，要么单列预估高速费（建议后者，第六节第 5 小节）。
    - **新干线站点**：表结构支持（`places.type = 'station'`、`category = 'shinkansen'`），但**没有任何站点数据**，也没有导入程序，要新做。
-   - **谷歌公共交通**：Routes API 的 `TRANSIT` 模式能给时长；票价字段 `transitFare` 只有在每一段都能定出票价时才返回，官方文档说「功能因地区而异」，日本没有找到官方保证，社区还有 2026 年 7 月日本公共交通查询返回空结果的报告。**结论：主要线路的时长和票价用固定表，谷歌接口只作可选参考**（第一节第 3 小节）。
-4. **订单与付款是最大的集成风险**：现有模型是「一个报价一张单、一张单一笔款」（`order_sales.quote_id` 唯一、`order_payments` 每单一笔下单付款）。行程订单要「多张子订单、一次付款」，付款回调、取消退款、服务后加收和结算各要加一个新分支（第五节第 4 小节）。
-5. **AI 只出行程单，不碰价格**：推荐 Claude Opus 5.5（`claude-opus-5-5`），用 JSON Schema 结构化输出，每个字段带来源和置信度；客人上传的内容只当数据。一次一句话解析约 ¥6–15，一份三页 PDF 约 ¥15–25（第八节）。
-6. **分期**：P1 底层约 30–38 人日（最大，含付款和结算接入），P2 地图 10–12，P3 一句话 10–12，P4 上传 7–9，P5 入口 8–10；P1 依赖 M9P 和需求一上线（第十节）。
+   - **谷歌公共交通**：Routes API 的 `TRANSIT` 模式能给时长。票价字段 `transitFare` 只有在每一步都能定出票价时才返回，官方文档没有日本公共交通的覆盖说明；社区还有 2026 年 7 月日本公共交通查询返回空结果的报告。**结论：主要线路的时长和票价用固定表，谷歌接口只作可选参考**（第一节第 3 小节）。
+4. **订单与付款是最大的集成风险**：现有模型是「一个报价一张单、一张单一笔款」。行程订单要「多张子订单、一次付款」，现有下单服务**不能原样调用**：
+   - 它自己开事务；
+   - 每张单各建一笔 `order_payments` 和一笔 Stripe 付款；
+   - 超时检查会把子订单逐张取消；
+   - 退款表的外键只认 `order_payments`。
+   
+   第二稿改为：下单核心抽成可注入事务、不建付款的函数；新增行程级的付款、分摊、退款表；十几处读付款的地方统一改用一个「订单付款视图」（第五节第 4 小节）。
+5. **AI 只出行程单，不碰价格**：推荐 Claude Opus 5.5（`claude-opus-5-5`），用 `output_config.format`（JSON Schema）结构化输出，每个字段带来源和置信度；客人上传的内容只当数据。一次一句话解析约 ¥6–15，一份三页 PDF 约 ¥15–25（第八节）。
+6. **地图定为 Google Maps JS**：按谷歌《服务专用条款》19.2（Routes）、14.2（Places），这些内容不能用在非谷歌地图上，继续用 Leaflet 不合规（第七节）。
+7. **分期（第二稿重估）**：
+
+   | 期 | 内容 | 人日 |
+   | --- | --- | --- |
+   | P1a | 同城多日底层 | 18–22 |
+   | P1b | 行程下单与一次付款 | 16–20 |
+   | P1c | 新干线方案 | 8–10 |
+   | P1d | 跨城市一车到底 | 12–16 |
+   | P2 | 地图 | 10–12 |
+   | P3 | 一句话 | 10–12 |
+   | P4 | 上传 | 7–9 |
+   | P5 | 入口 | 8–10 |
+
+   合计约 89–111 人日，P1 合计 54–68 人日。依赖见第十节。
 
 ---
 
@@ -38,12 +72,12 @@
 | 节假日 / 日期加价 | **已有**，三种产品 | 调价规则周期 `daily / weekly / dates / holidays`（`D/pricing.ts:544`）、出行日期范围（`D/pricing.ts:549-550`）；节假日表 `holidays`（`apps/api/migrations/0014_price_rules.sql:94`）、`holidayLookup`（`D/pricing.ts:646`）。旺季用日期范围或日期列表配 | 原文第 8 节「节假日加价：先确认现有系统是否已有」→ **已有，不新做日期表** |
 | 附加项 | **部分有** | 附加项目录 `addons`（`apps/api/migrations/0007_master_data.sql:151`），按次 / 按件 / 按人 / 按时长；商品逐项启用定价（`D/products.ts:116`）；计算 `addonCharges()`（`D/quote.ts:725`）。司机语言按语言单价（`D/products.ts:118`）。**举牌不是收费附加项**，只是「一口价包含」里的一行（`D/fixed-price-includes.ts:136`） | 每段照常带附加项。多段行程里「儿童座椅」这类按次附加项会**每段收一次**，见第四节第 9 条 |
 | 接机免费等待 | **已有** | 平台最低值：国际线 90、国内线 60、接站 30、送机 / 点对点 15、包车 0（`minimumFreeWaitMinutes`，`D/products.ts:146-160`），供应商只能设得更长（`D/products.ts:115`） | 原文第 2 节「接机含免费等待 90/60 分钟」由接送机引擎自带 |
-| 包车三层区域（ADR 0093） | **要新做（已立项）** | ADR 0093 为草案第六稿，M9P-01…13 全部「未开始」；代码里仍是旧的两层：区域套餐价（`D/pricing.ts:246`）+ 区域加价（`D/pricing.ts:259`）、`charterPriceWithSurcharges`（`D/pricing.ts:1009`） | 包车段直接调用；三层区域上线后结果自动跟着变 |
+| 包车三层区域（ADR 0093） | **要新做（已立项）** | ADR 0093 为草案第六稿，M9P-01…13 全部「未开始」；代码里仍是旧的两层：区域套餐价（`D/pricing.ts:246`）+ 区域加价（`D/pricing.ts:259`）、`charterPriceWithSurcharges`（`D/pricing.ts:1009`）。**匹配条件**：上车点、下车点都要落在商品自己的区域或加价区域里，否则不报（`D/quote.ts:614`；ADR 0093 第 178 行新做法同样要求两端都在①或③） | 同城的包车段直接调用；三层区域上线后结果自动跟着变。**跨城市（一端在别的城市）引擎不报**，见第五节第 5 小节 |
 | 选套餐（ADR 0091 / 0093） | **部分有** | 现在服务层 `itineraryQuotes()`（`apps/api/src/services/site.ts:591`）按「行驶 + 停留」取能覆盖的最短套餐、逐档询价；ADR 0093 第四节「各商品按套餐价 + 超公里费取最低」在 M9P-03，未开始 | 包车段用 M9P-03 之后的引擎；之前按现状 |
 | 机场套餐（需求一） | **要新做（已立项）** | 需求见 `docs/requirements/charter-airport-packages-2026-11-14.md` 第一节；roadmap M9P-09「未开始」、原 M9W-12「受阻」；代码里没有 `airport_start` / `airport_end` | 原文第 2 节「接机 + 包车」「包车 + 送机」两种段型依赖它 |
 | 超公里费 | **已有**（包车、点对点） | 包车 `packageKm / overtimePerHourMinor / overKmPerKmMinor`（`D/pricing.ts:246-252`），`charterOverage()`（`D/pricing.ts:524`）精确计算；下单时只有传 `routeUsage` 才预收（`D/quote.ts:113-117`），否则服务后加收。点对点一口价 + 含公里（`D/pricing.ts:202-229`）。**单价只有一个，没有分档** | 长途移动日的「套餐算法」直接用；长途档位价要新做 |
 | 取消规则 | **已有**，按「品类 × 车型级别」 | 平台统一阶梯（`D/cancellation.ts:58`、默认 `D/cancellation.ts:79`），查 `cancellationRuleFor`（`D/cancellation.ts:128`）。**不是按商品或供应商** | 原文 3.6「按段取消」= 每张子订单按它自己的品类规则，现成；跨段费用的取消口径要新定（第四节第 8 条） |
-| 报价锁价和有效期 | **已有** | 快照有效期 30 分钟（`D/quote.ts:50-52`、`quoteExpiresAt` `D/quote.ts:1371`）；`quotes` 表（`apps/api/migrations/0020_sales_quotes.sql:58`），订单经 `order_sales.quote_id` 唯一引用（`apps/api/migrations/0024_orders.sql:126`），过期下单报 `QuoteExpired`（`apps/api/src/services/orders.ts:229`）；汇率走快照 | 行程报价 = 多个段报价 + 跨段费用，有效期取最早到期者（第五节第 3 小节） |
+| 报价锁价和有效期 | **已有** | 快照有效期 30 分钟（`D/quote.ts:50-52`、`quoteExpiresAt` `D/quote.ts:1371`）；`quotes` 表（`apps/api/migrations/0020_sales_quotes.sql:58`），订单经 `order_sales.quote_id` 唯一引用（`apps/api/migrations/0024_orders.sql:126`），过期下单报 `QuoteExpired`（`apps/api/src/services/orders.ts:233`）；汇率走快照 | 行程报价 = 多个段报价 + 跨段费用，有效期取最早到期者（第五节第 3 小节） |
 | 多商品比价 | **已有** | `compareQuotes()`（`D/quote.ts:1433`）、`rankCandidates()`（`D/quote.ts:1322`），3% 价格带；每个车型组（包车再分套餐）出一个中标供应商 | 每段直接拿中标结果；段与段之间可以是不同供应商 |
 | 改期 | **已有** | 订单改动重跑 `quoteProduct`（`reprice`，`apps/api/src/services/order-changes.ts:248`、`:264`），差价多退少补 | 子订单各自改期；改动牵涉跨段规则（例如改了过夜城市）时，P1 先转人工（第四节第 8 条） |
 | 救援 | **已有**（供应商违约后的改派，不是道路救援） | `D/rescue.ts:1-7`；改派经 `previewPlatformQuote` 重新比价（`apps/api/src/services/rescues.ts:356`） | 子订单各自救援；一包到底的多日单换供应商时，跨段费用跟着新供应商结算（第五节第 4 小节） |
@@ -52,13 +86,13 @@
 
 | 规则 | 结论 | 依据（找到了什么 / 没找到什么） |
 | --- | --- | --- |
-| 3.1 司机住宿费 | **要新做** | 在 `packages/domain/src`、`apps/api/src`、`apps/api/migrations` 里搜 `住宿 / accommodation / lodging / multi.?day / 多日`，只有无关的测试命中。包车请求只有一个 `packageHours` 和一个用车时间（`D/quote.ts:97`），没有「多天」概念 |
-| 3.2 长途返程费 | **要新做** | 搜 `回程 / 空驶 / 回送 / deadhead` 无命中。现有的空驶覆盖只有包车上 / 下车加价（`D/pricing.ts:259`，规格 `charter-pricing-spec-2026-11-14.md:61`「空驶由上下车加价覆盖」）和点对点区域外里程（`D/distance-price.ts:15`），都按市内口径 |
+| 3.1 司机住宿费 | **要新做** | 在 `packages/domain/src`、`apps/api/src`、`apps/api/migrations` 里搜 `住宿 / accommodation / lodging / multi.?day / 多日`，只有无关的测试命中。包车请求只有一个 `packageHours` 和一个用车时间（`D/quote.ts:97`），没有「多天」概念。**同城**（过夜点在商品的③上下车加价区域里，例如东京商品覆盖的箱根）每天的基价引擎能报，P1a 做；**跨城市**过夜那几天引擎报不出基价，P1d 做 |
+| 3.2 长途返程费 | **要新做（且引擎无基价）** | 搜 `回程 / 空驶 / 回送 / deadhead` 无命中。现有的空驶覆盖只有包车上 / 下车加价（`D/pricing.ts:259`，规格 `charter-pricing-spec-2026-11-14.md:61`「空驶由上下车加价覆盖」）和点对点区域外里程（`D/distance-price.ts:15`），都按市内口径。原文的触发条件「下车点不在任何①③」恰好是引擎不报价的情况（`D/quote.ts:614`），所以返程连同那一天的基价都要新规则，P1d |
 | 3.3 多日连续用车 | **要新做** | 同 3.1；停驻费、「车回基地再来」两段返程比价都没有 |
 | 3.4 司机工时合规 | **部分有（计划中）** | 只有单日：ADR 0093 第四节第 10 条「T 超过 13 小时不能在线下单」（M9P-03，未开始）。**两天之间休息 ≥ 11 小时、换司机、第二司机费都没有**（搜 `拘束 / second.?driver / 双司机` 无命中） |
 | 3.5 时间类加价 | **已有** | 深夜早朝、节假日、日期都已有，包车也能用（见上表）。只需在编排器里按**每段自己的开始时间**交给引擎，不新做 |
 | 3.6 其他 | **部分有** | 附加项、按段取消、单段锁价已有；**跨城市方案对比、组合优惠、行程级报价编号要新做** |
-| 3.7 城市间长途移动 | **要新做** | 无分档长途价（距离价只有起步价 + 每公里一个单价，`D/distance-price.ts:15-30`；`mileage_time` 也只有一个单价，`D/pricing.ts:235`）；无新干线站点数据、无铁路时长票价、无高速费估算（见下） |
+| 3.7 城市间长途移动 | **要新做** | 方案 A（新干线 + 两边本地车）的每段都在各自城市内，引擎能报，P1c；方案 B（一包到底）的移动日下车点在外地，引擎不报，P1d。无分档长途价（距离价只有起步价 + 每公里一个单价，`D/distance-price.ts:15-30`；`mileage_time` 也只有一个单价，`D/pricing.ts:235`）；无新干线站点数据、无铁路时长票价、无高速费估算（见下） |
 
 ### 3. 三件特别确认
 
@@ -84,9 +118,9 @@
 查的是官方文档（Routes API「Get a transit route」、Routes API 覆盖范围、Directions API 服务条款）：
 
 - **时长：能。** `computeRoutes` 设 `travelMode: "TRANSIT"`（不支持中间经停点），可传 `departureTime` / `arrivalTime`、`transitPreferences`。返回路线时长和每步的 `transitDetails`（线路、站名、发车到达时间）。
-- **票价：有条件。** 字段 `routes.travelAdvisory.transitFare`（以及本地化的 `routes.localizedValues.transitFare`）。官方原话：*transitFare is only provided if the API can determine transit fare information for all steps*（只有每一步都能定出票价时才返回）。文档还写明 *Functionality varies by region*（功能因地区而异）。
+- **票价：有条件。** 字段 `routes.travelAdvisory.transitFare`（以及本地化的 `routes.localizedValues.transitFare`）。官方原话：*transitFare is only provided if the API can determine transit fare information for all steps*（只有每一步都能定出票价时才返回）。
 - **日本的限制**：
-  - 覆盖页没有日本公共交通的逐国说明，找不到「日本能返回票价」的官方保证。
+  - Routes API 覆盖页和公共交通页都没有日本公共交通（时长或票价）的逐国说明，找不到「日本能返回票价」的官方保证。第一稿引用的「Functionality varies by region」在官方页面上是给欧洲经济区客户的说明，不是公共交通的地区说明，第二稿删去。
   - 谷歌开发者论坛 2026-07 有一条报告：旧版 Directions API 在日本查公共交通返回 `ZERO_RESULTS`，同一路线在谷歌地图应用里正常，无官方答复。
   - 即使返回票价，新干线票价 = 乘车券 + 特急券，还分指定席 / 自由席、希望号（のぞみ）/ 光号（ひかり），谷歌的单一票价字段很难对应到我们要显示的「参考票价」口径。
 - **结论**：
@@ -104,19 +138,22 @@
 
 | 表 | 归属 | 主要列 | 说明 |
 | --- | --- | --- | --- |
-| `trips` 行程单 | 平台 | `id`（`TR`+日期+随机）、`channel_id`、`source`（`form / ai_text / ai_upload / embed / service_desk`）、`status`（`draft / parsed / confirmed / quoted / ordered / handed_off / expired`）、`raw_input_enc`（原始输入，加密）、`upload_file_ids`、`itinerary`（标准行程单 JSON，带 `schemaVersion`）、`assumptions`（AI / 系统做的假设）、`ai_meta`（模型、token、费用、耗时）、`confirmed_at`、`expires_at`、`purged_at` | 不存客人姓名电话（下单时才进订单，走现有加密）。`raw_input_enc` 用现有 `secret-box` 加密，新增一个用途键 |
+| `trips` 行程单 | 平台 | `id`（`TR`+日期+随机）、`channel_id`、`source`（`form / ai_text / ai_upload / embed / service_desk`）、`status`（`draft / parsed / confirmed / quoted / ordered / handed_off / expired`）、`raw_input_enc`（原始输入，加密）、`texts_enc`（行程单里所有自由文字：每个点的 `note`、AI 的 `evidence` 原文片段、`notes`，加密）、`upload_file_ids`、`itinerary`（标准行程单 JSON，带 `schemaVersion`，**只放结构化字段**，自由文字用键引用 `texts_enc`）、`assumptions`（AI / 系统做的假设，只放模板化文字）、`ai_meta`（模型、token、费用、耗时）、`confirmed_at`、`expires_at`、`purged_at` | 不存客人姓名电话（下单时才进订单，走现有加密）。`raw_input_enc`、`texts_enc` 用现有 `secret-box` 加密，各新增一个用途键；30 天清理一起清空（第八节第 6 小节） |
 | `trip_plans` 方案 | 平台 | `id`、`trip_id`、`kind`（`one_car / shinkansen / local_cars / one_car_then_local`）、`recommended`、`sell_minor`、`settlement_minor`、`currency`、`door_to_door_minutes`、`transfers`、`warnings`（行李、老人小孩提示）、`status` | 原文「1–2 个方案对比」和 3.7「方案对比卡片」的落点 |
 | `trip_segments` 服务段 | 平台 | `id`、`trip_id`、`plan_id`、`seq`、`day_index`、`service_date`、`segment_type`（`airport_pickup / airport_dropoff / p2p / charter / airport_start_charter / charter_airport_end / rail_reference / idle_day`）、`start_local`、`end_local`、`points`（起点、经停和停留、终点）、`vehicle_group_id`、`category`、`quote_id`（引用现有 `quotes`）、`breakdown`（段报价明细快照）、`route`（公里、分钟、折线键）、`order_id`（子订单） | `rail_reference` 段（客人坐新干线）不卖、不下单，只显示参考时长和票价；`idle_day` 只挂停驻费 |
-| `trip_fees` 跨段费用 | 平台 | `id`、`trip_id`、`plan_id`、`fee_type`（`lodging / return / idle / second_driver / long_tier_adjust / long_toll / bundle_discount`）、`rule_config_id`、`rule_version`、`supplier_tenant_id`（钱给谁）、`settlement_minor`、`sell_minor`、`currency`、`segment_ids`、`night_index`、`area_id`、`label`（明细文字）、`calc`（算式快照） | 时间类加价不在这里（每段自带）。`bundle_discount` 预留，默认关 |
+| `trip_fees` 跨段费用 | 平台 | `id`、`trip_id`、`plan_id`、`fee_type`（`lodging / return / idle / second_driver / long_toll / bundle_discount`）、`rule_config_id`、`rule_version`、`supplier_tenant_id`（钱给谁）、`settlement_minor`、`sell_minor`、`currency`、`segment_ids`、`night_index`、`area_id`、`label`（明细文字）、`calc`（算式快照） | 时间类加价不在这里（每段自带）。`bundle_discount` 预留，默认关 |
 | `trip_quotes` 行程报价 | 平台 | `id`（`TQ`+…，即对客「报价编号」）、`trip_id`、`plan_id`、`segment_quote_ids`、`fees_snapshot`、`sell_minor`、`currency`、`expires_at`、`created_at` | 一个方案一个报价编号；下单时整体校验 |
-| `trip_orders` 行程订单 | 平台 | `id`、`order_no`（`NT`+…）、`trip_quote_id`（唯一）、`channel_id`、`idempotency_key`、`sell_minor`、`currency`、`status`（`pending_payment / confirmed / partially_cancelled / cancelled / completed`）、`created_at` | 下挂多张子订单（`trip_segments.order_id`） |
-| `trip_payments` 行程付款 | 平台 | `id`、`trip_order_id`、`provider`（`stripe`）、`intent_id`（唯一）、`customer_id`、`payment_method_id`、`amount_minor`、`currency`、`status`、`refunded_minor`、`save_consent_at`、`succeeded_at` | 列和约束照抄 `order_payments`（`0024_orders.sql:147-181`），一张行程订单一笔下单付款 |
+| `trip_orders` 行程订单 | 平台 | `id`、`order_no`（`NT`+…）、`trip_quote_id`（唯一）、`channel_id`、`idempotency_key`、`sell_minor`、`currency`、`status`（`pending_payment / confirmed / partially_cancelled / cancelled / completed`）、`payment_due_at`、`created_at` | 下挂多张子订单；付款期限在行程订单上，子订单不各自超时 |
+| `trip_order_items` 子订单归属 | 平台 | `order_id`（主键）、`trip_order_id`、`segment_id`、`allocated_minor`（这张子订单分到的对客金额） | 「这张单属不属于行程」的唯一判断依据；超时检查、付款视图都查它 |
+| `trip_payments` 行程付款 | 平台 | `id`、`trip_order_id`、`kind`（`order / change / extra_charge`）、`provider`（`stripe`）、`intent_id`（唯一）、`customer_id`、`payment_method_id`、`amount_minor`、`currency`、`status`、`refunded_minor`、`disputed`、`paid_after_cancel`、`last_error`、`save_consent_at`、`succeeded_at` | 列和约束照抄 `order_payments`（`0024_orders.sql:147-181`、`0031…sql:240-256`）；一张行程订单一笔 `order` 付款 |
+| `trip_payment_allocations` 付款分摊 | 平台 | `trip_payment_id`、`order_id`（子订单，或 null 表示跨段费用）、`trip_fee_id`、`amount_minor`、`refunded_minor` | 一笔行程付款按子订单和跨段费用拆开记；每张子订单「付了多少、退了多少」从这里读 |
+| `trip_refunds` 行程退款 | 平台 | `id`、`trip_payment_id`、`order_id`（可空）、`trip_fee_id`（可空）、`purpose`（`cancellation / change`）、`change_id`、`amount_minor`、`currency`、`provider_refund_id`、`status`、`last_error`、`created_at`、`succeeded_at` | 现有 `order_refunds.payment_id` 必填、外键只认 `order_payments`（`0031…sql:268`），行程付款的退款落这里；退款回调按 `provider_refund_id` 先查 `order_refunds` 再查这里 |
 | `trip_fee_settlements` 跨段费用结算 | 平台 | `trip_fee_id`、`supplier_tenant_id`、`settlement_minor`、`currency`、`status`、`statement_id` | 跨段费用按供应商进月结（第五节第 4 小节） |
 | `trip_rule_configs` 规则配置 | **租户** | `tenant_id`、`product_id`、`version`、`config`（JSON，见第四节）、`effective_from`、`updated_by` | 商品级；只能经 `/tenant/v1` 由该供应商改，平台可看。版本号进报价快照 |
-| `trip_long_tiers` 长途档位价 | **租户** | `tenant_id`、`product_id`、`vehicle_group_id`、`from_km`、`to_km`、`price_minor`、`includes_toll` | 拆出来是因为它按车型组填，是二维表 |
+| `trip_long_tiers` 长途档位价 | **租户** | `tenant_id`、`product_id`、`vehicle_group_id`、`from_km`、`to_km`、`price_minor`、`includes_toll` | 拆出来是因为它按车型组填，是二维表。P1d |
 | `rail_routes` 主要铁路线路参考表 | 平台主数据 | `from_station_id`、`to_station_id`、`line`、`minutes`、`transfers`、`reserved_fare_minor`、`source`、`as_of` | 平台运营在后台维护，必须写来源和日期，不是演示数据（第六节第 7 小节） |
 | `toll_estimates` 长途高速费参考表 | 平台主数据 | `from_city_id`、`to_city_id`、`vehicle_class`（`ordinary / medium / large`）、`toll_minor`、`source`、`as_of` | 谷歌估不出时的后备 |
-| `trip_handoffs` 转人工记录 | 平台 | `trip_id`、`reason`（第九节）、`manual_quote_request_id`、`created_at` | 把行程单和现有人工报价单连起来，不改 `manual_quote_requests` |
+| `trip_handoffs` 转人工记录 | 平台 | `trip_id`、`reason`（第九节）、`manual_quote_request_id`、`summary_enc`（行程摘要，加密）、`purged_at`、`created_at` | 把行程单和现有人工报价单连起来，不改 `manual_quote_requests`；摘要随人工报价单的清除一起清（第九节） |
 
 ### 2. 和现有 `orders` 的关系
 
@@ -127,7 +164,8 @@
   2. 跨段费用：它不属于任何一段的报价快照，`orders.settlement_minor` 里没有它。
   3. 行程级的「整单取消」「整单状态」。
 
-  这三件由 `trip_orders`、`trip_payments`、`trip_fee_settlements` 承担，接入点见第五节第 4 小节。
+  这三件由 `trip_orders`、`trip_order_items`、`trip_payments`、`trip_payment_allocations`、`trip_refunds`、`trip_fee_settlements` 承担。
+- **子订单不走现有下单服务原样调用**：子订单本身仍是普通 `orders` + `order_sales`，但没有自己的 `order_payments`。怎么建、怎么付、怎么退，见第五节第 4 小节。
 
 ### 3. 标准行程单（`itinerary`，`schemaVersion: 1`）
 
@@ -145,7 +183,7 @@
         { "kind": "arrive_flight", "place": { "placeId": "…", "kind": "airport" },
           "flightNo": "NH920", "time": "14:30" },
         { "kind": "stop", "place": { "googlePlaceId": "…", "name": "…", "lat": 35.6, "lng": 139.7, "kind": "hotel" },
-          "stayMinutes": 30, "note": "放行李" },
+          "stayMinutes": 30, "note": { "textRef": "t1" } },
         { "kind": "stop", "place": { "…": "…" }, "stayMinutes": 120 }
       ],
       "nightAt": { "googlePlaceId": "…", "name": "…", "lat": 35.6, "lng": 139.7 }
@@ -157,6 +195,19 @@
 
 - `place` 可以是平台地点（机场、车站，用 `placeId`），也可以是谷歌地点或坐标；`kind` 取 `airport / station / hotel / poi / address`。
 - `provenance` 记每个字段的来源：`stated`（客人说的）、`inferred`（AI 推出来的）、`default`（系统默认）、`user_edited`（确认页改过），以及置信度 `high / medium / low`。表单、嵌入组件、客服录单提交时都是 `stated`。
+- **`provenance` 里不放原文片段**。AI 的 `evidence` 和每个点的 `note` 都是自由文字，可能含姓名、电话、预订号，所以只在 `itinerary` 里留引用键（例如 `"note": {"textRef": "t3"}`），正文加密在 `trips.texts_enc`，30 天清理时一起清空（第八节第 6 小节）。
+- **上限**（服务端 zod 校验和 AI 输出模式的 `maxItems` / `maxLength` 用同一组常量，防止超长输入或注入把地点解析、路线调用放大）：
+
+  | 项 | 上限 |
+  | --- | --- |
+  | 天数 | 14 |
+  | 每天的点（含起止） | 12 |
+  | 全程不同地点 | 60 |
+  | 附加项 | 10 |
+  | 每条 `note` | 200 字 |
+  | `notes` 总计 | 2,000 字 |
+
+  超出时，AI 解析那一层截断并提示「行程较长，请分段提交或联系客服」；表单直接报校验错误。
 
 ---
 
@@ -227,6 +278,12 @@
 
 「同一辆车」的默认判断：相邻两天都是包车、过夜地点不在车辆基地附近（不在商品①基础价区域内），或客人明确要「一车到底」。
 
+**同城 / 跨城的划分**（决定哪些天引擎能报）：
+
+- 一个包车日的上车点、下车点都落在某个商品的①或③里 → **同城日**，引擎照常报（P1a）。
+- 有一端不在这个商品的①③里（例如东京的车在大阪接客、或开到大阪下客）→ **异地日**，引擎不报（`D/quote.ts:614`），基价走第五节第 5 小节的新规则（P1d）。
+- P1d 上线前，`one_car` 方案遇到异地日就不出，只出 `local_cars` / `shinkansen`，并在 `unquoted` 里写 `CROSS_CITY_ONE_CAR_NOT_AVAILABLE`。
+
 ### 4. 同一天合并比价
 
 - 候选拆法只在「自然断点」拆：酒店、机场、车站，或停留 ≥ 60 分钟（可配）的点。每天最多枚举 4 种拆法（防止组合爆炸和地图接口调用暴涨），超出时只保留「不拆」「在酒店拆」两种。
@@ -242,10 +299,10 @@
 
 | 方案 | 何时出 | 组成 |
 | --- | --- | --- |
-| 一车到底（`one_car`） | 总是出（除非某天超上限且无备选） | 每天包车 + 住宿 + 停驻 + 返程 + 长途移动日 |
-| 各城市本地车（`local_cars`） | 跨城市（原文 3.6） | 每个城市用本地商品；城市间移动给出铁路参考 |
-| 新干线方案（`shinkansen`） | 满足 3.7 判断和成立条件 | 送站点对点 + 铁路参考 + 接站点对点 + 到达城市本地包车 |
-| 一包到底 + 到达后本地车（`one_car_then_local`） | 3.7「对比方案」：到达城市有本地供应商 | 移动日一包到底 + 返程费 + 之后用本地车 |
+| 一车到底（`one_car`） | 同城：总是出（除非某天超上限且无备选），P1a；有异地日的：P1d 起 | 每天包车 + 住宿 + 停驻；跨城时再加长途移动日 + 返程 |
+| 各城市本地车（`local_cars`） | 跨城市（原文 3.6），P1c | 每个城市用本地商品；城市间移动给出铁路参考 |
+| 新干线方案（`shinkansen`） | 满足 3.7 判断和成立条件，P1c | 送站点对点 + 铁路参考 + 接站点对点 + 到达城市本地包车 |
+| 一包到底 + 到达后本地车（`one_car_then_local`） | 3.7「对比方案」：到达城市有本地供应商，P1d | 移动日一包到底 + 返程费 + 之后用本地车 |
 
 「推荐」标记规则：总价低 10% 以上，或门到门快 60 分钟以上且总价差在 10% 以内（两个阈值平台可配）。最多同时展示 3 个方案，按推荐、总价排序。
 
@@ -254,6 +311,17 @@
 ## 四、规则引擎扩展点（商品级可配置，命中才加入报价）
 
 新模块 `packages/domain/src/trip/`（纯函数，不碰数据库和网络），输入「已经报好价的各段 + 商品的 `trip_rule_configs`」，输出 `trip_fees` 和告警。**不改 `quote.ts`、`pricing.ts`。**
+
+各条规则在哪一期能交付（第十节）：
+
+| 规则 | 同城（P1a） | 跨城（P1d） |
+| --- | --- | --- |
+| 住宿 | 过夜点在商品③里时 | 异地过夜 |
+| 返程 | 不适用（同城不触发） | 有 |
+| 多日停驻 | 有 | 异地停驻 |
+| 工时、第二司机 | 有 | 有 |
+| 长途档位价 | 不适用 | 有 |
+| 单日上限与备选 | 有（备选里的「新干线方案」P1c 起） | 有 |
 
 `trip_rule_configs.config` 结构（金额为结算币种最小单位，比例为基点）：
 
@@ -265,6 +333,7 @@
 | `workHours` | `{ maxBindMinutes, hardMaxBindMinutes, minRestMinutes, absoluteMinRestMinutes, maxDriveMinutes, maxDailyKm, garageMinutes }` | 780 / 900 / 660 / 540 / 540 / 600 / 60 |
 | `secondDriver` | `{ enabled, mode: "shortest_package" \| "fixed", fixedMinor }` | 开，按该车型组最短套餐价 |
 | `longDistance` | `{ thresholdKm, tierStepKm, tiersRef: "trip_long_tiers", tollMode: "estimate" \| "included_in_tier" }` | 300 km、每 100 km 一档、单列预估高速费 |
+| `awayService` | `{ enabled, maxDays, areaSurchargeMode: "none" }`：是否接受「车开到外地继续用」（P1d，第五节第 5 小节） | **关**（供应商主动开才参与跨城一车到底） |
 | `fallbackOrder` | 超上限时的备选顺序 | `["second_driver", "split_days", "shinkansen", "handoff"]` |
 | `bundleDiscount` | 组合优惠 | 关 |
 
@@ -285,7 +354,7 @@
    - 两天之间休息 = 次日开始 − 当日结束 − 出入库时间。
    - 超过 `maxBindMinutes`（13 小时）或休息少于 `minRestMinutes`（11 小时）→ 按 `fallbackOrder` 出备选；超过 `hardMaxBindMinutes`（15 小时）或休息少于 `absoluteMinRestMinutes`（9 小时）→ 该方案不能在线下单。
    - 单日的 13 小时拦截由 ADR 0093 的引擎做（`ITINERARY_TOO_LONG`），编排器只把它翻成「备选方案」。
-5. **长途档位价（3.7）**：见第六节第 3 小节。
+5. **长途档位价（3.7）**：见第六节第 3 小节和第五节第 5 小节。
 6. **返程单价（3.7）**：`ratioBp` × 该商品该车型组的超公里单价，按 `D/money.ts` 统一取整。
 7. **单日上限与备选顺序（3.7）**：行驶公里、驾驶时间、拘束时间任一超限 → 按 `fallbackOrder` 依次尝试，每种备选都重新报价，能报出来的都列给客人，首个能报的标「推荐」。
 8. **按段取消、改期**：子订单各自按现有取消规则退款。跨段费用的取消：
@@ -302,7 +371,7 @@
 
 ## 五、和现有报价接口的边界
 
-### 1. 只调用，不修改
+### 1. 报价：只调用，不修改
 
 | 编排器要做的事 | 调用的现有函数 / 接口 |
 | --- | --- |
@@ -310,17 +379,18 @@
 | 一段报价（渠道口径，P5） | `createSalesQuotes(ctx, principal, input, …)`（`apps/api/src/services/sales-quotes.ts:216`） |
 | 只要比价结果、不落库（枚举拆法时） | `previewPlatformQuote(ctx, input, { fresh })`（`apps/api/src/services/quotes.ts:294`），内部调 `quoteProduct`（`D/quote.ts:764`）和 `compareQuotes`（`D/quote.ts:1433`） |
 | 路线公里和时长 | 现有 `computeRoute` 和 `route_estimates` 缓存（`apps/api/src/integrations/google-maps.ts`，`0110_route_estimates.sql`） |
-| 子订单下单 | 现有下单服务（`POST /site/v1/orders` 背后的服务），每段一次，同一个数据库事务里建全部子订单和库存预占 |
+
+下单不在这张表里：现有下单服务**不能原样调用**，见第 4 小节。
 
 枚举拆法阶段用 `previewPlatformQuote`（不写 `quotes`），选定拆法后再对选中的段用 `siteQuotes` 落正式报价，避免为没选中的拆法写一堆 30 分钟后作废的报价行。
 
 ### 2. 编排器不做的事
 
-- 不算任何一段的价格；
+- 不算任何一段**同城日**的价格；
 - 不复制区域加价、选套餐、比价逻辑；
-- 不读供应商价格表。
+- 同城时不读供应商价格表。
 
-需要的只有引擎返回的明细和超公里单价（第四节第 6 条用；从段报价快照的明细里取，不另查价格表）。
+同城需要的只有引擎返回的明细和超公里单价（第四节第 6 条用；从段报价快照的明细里取，不另查价格表）。**唯一的例外是 P1d 的异地日**，见第 5 小节。
 
 ### 3. 锁价和有效期怎么组合
 
@@ -331,20 +401,102 @@
 - 汇率：每段报价的汇率都在它自己的快照里；跨段费用用同一次报价里第一段快照的汇率换算，保证同一行程只有一个汇率。
 - 远期行程（例如三个月后）照样按「现在」报价、30 分钟有效，和单段一致。
 
-### 4. 绕不开的接入点（都是新增分支，现有单张订单行为不变）
+### 4. 行程下单与一次付款（第二稿重写）
 
-| 接入点 | 现状 | 新增 | 风险 |
-| --- | --- | --- | --- |
-| 付款 | 一单一笔，Stripe PaymentIntent（`apps/api/src/integrations/stripe.ts:230`），回调按 `order_payments.intent_id` 找单 | 行程订单一笔 PaymentIntent，存 `trip_payments`；回调先查 `order_payments`，查不到再查 `trip_payments`，命中后逐张确认子订单（复用现有确认逻辑） | 高：回调分支要有完整的集成测试（金额核对、重复事件、部分子订单已取消） |
-| 取消退款 | 按子订单的 `order_payments` 退 | 子订单属于行程时，从 `trip_payments` 部分退款，记 `refunded_minor` | 中 |
-| 改期补差价 / 服务后加收 | 用 `order_payments` 里保存的支付方式离线扣款 | 子订单属于行程时，读 `trip_payments` 保存的支付方式 | 中 |
-| 结算 | 月结按订单结算价 | `trip_fee_settlements` 作为新的结算来源进对账单；救援换供应商时跨段费用跟到新供应商 | 中：要和财务对账规则一起审 |
+**现有下单服务为什么不能原样调用**（`apps/api/src/services/orders.ts`）：
 
-**备选方案（不推荐，列出供审查）**：每张子订单各自一笔付款，客人只输一次卡，第一笔在线付并保存支付方式，其余离线扣。好处是现有付款代码完全不动。坏处有三：
+| 现有行为 | 依据 | 对子订单的问题 |
+| --- | --- | --- |
+| `placeOrder` 自己开平台事务 | `orders.ts:223` `withPlatformTx(ctx.pool, …)` | 做不到「同一个事务里建全部子订单」，中途失败会留下半张行程 |
+| 每张单建一行下单付款 | `orders.ts:356` `insertOrderPayment` | 子订单各自多出一笔 `order_payments` |
+| 每张单在 Stripe 建一笔付款 | `ensurePayment`，`orders.ts:377` 起 `provider.createOrderPayment` | 客人要付 N 次 |
+| 付款期限到了逐张取消 | `ensurePayment` `orders.ts:371-374`；定时任务 `listOverduePendingOrders`（`apps/api/src/repos/orders.ts:637`）→ `order-jobs.ts:143-145`：查不到付款记录就直接取消 | 没有自己付款记录的子订单会被逐张当成超时取消 |
+| 退款必须对着一笔 `order_payments` | `order_refunds.payment_id not null references order_payments`（`0031_cancel_change_extra_charges.sql:268`） | 从行程付款退款没有表可落 |
+
+**做法：抽出下单核心 + 新写行程下单路径**（这是对现有代码的重构，不是纯新增）：
+
+1. **抽出下单核心**：
+   - 把 `placeOrder` 事务里的「校验报价 → 占库存 → 建 `orders` / `order_sales` → 标记 `quote_logs`」抽成 `placeOrderInTx(db, principal, input, hash, acceptance, { payment: "own" | "none" })`。
+   - 现有 `placeOrder` = `withPlatformTx` + `placeOrderInTx(…, { payment: "own" })` + `insertOrderPayment`，**行为逐字节不变**，由现有下单、幂等、库存、验收会话的集成测试守住。
+2. **行程下单** `placeTripOrder`：
+   - 在**一个**平台事务里，对选中方案的每段调 `placeOrderInTx(…, { payment: "none" })`；
+   - 同时写 `trip_orders`、`trip_order_items`（含每张子订单分到的对客金额）、`trip_payments` 一行（`creating`）、`trip_payment_allocations`、跨段费用行；
+   - 任何一段报价过期、售罄或下架，整个事务回滚，返回「行程需要重新报价」。
+   - 子订单的 `payment_due_at` 写行程订单的付款期限，保持现有列的含义一致。
+   - 子订单幂等键 = 行程订单幂等键 + 段序号。
+3. **建付款**：`ensureTripPayment` 只给行程订单在 Stripe 建**一笔** PaymentIntent。金额 = 行程总价，元数据带行程订单号，`setup_future_usage: "off_session"` 保存支付方式（和现有单张订单相同的同意文字）。
+4. **付款回调**（`payment-webhooks.ts`）：先按 `intent_id` 查 `order_payments`，查不到再查 `trip_payments`。命中行程付款后：
+   - 在一个事务里核对金额币种，再逐张确认子订单。确认逻辑从 `confirmPaidOrder`（`orders.ts:534`）抽出「确认订单」部分（转已确认、库存预占转已售、发通知），付款记录部分各走各的。
+   - 已被取消的子订单收到钱，记 `trip_payments.paid_after_cancel`，进异常队列。
+5. **超时**：
+   - 现有超时扫描 `listOverduePendingOrders` 加条件「`not exists trip_order_items`」，跳过子订单（改现有查询）。
+   - 新增行程超时扫描：先在 Stripe 取消行程付款，再对每张子订单调现有 `cancelPendingOrder(…, "PAYMENT_TIMEOUT")`，同一个事务。
+6. **统一付款口径**：新增 repo 函数 `orderPaymentView(db, orderId)`，返回这张单的已付、已退、可退、争议、取消后到账、保存的支付方式：
+   - 普通订单读 `order_payments` / `order_refunds`，结果和现在完全一样；
+   - 子订单读 `trip_payment_allocations` / `trip_refunds` / `trip_payments`。
+   
+   下表各处改为调用它。
+7. **退款**：子订单取消、改期退差价时写 `trip_refunds`，从行程付款做部分退款，分摊到 `trip_payment_allocations.refunded_minor`。退款回调按 Stripe 退款编号先查 `order_refunds` 再查 `trip_refunds`。
+8. **整单取消**：逐张子订单走现有取消服务，各自按自己的阶梯算；跨段费用按第四节第 8 条。
+
+**要适配的现有读写点**（`grep findOrderPayment / netPaidMinor / order_payments`，main `1605e8fc`）：
+
+| 位置 | 现在怎么判断 | 子订单的口径 |
+| --- | --- | --- |
+| 下单 `services/orders.ts`（`:223`、`:356`、`:371-377`、`:534`） | 一单一笔，自建付款，自确认 | 按上面第 1–4 条拆分 |
+| 超时任务 `services/order-jobs.ts:143-170`、`repos/orders.ts:637` | 查不到付款记录就取消 | 跳过子订单，由行程超时扫描统一处理 |
+| 付款回调 `services/payment-webhooks.ts:93` | 按 `intent_id` 找 `order_payments` | 先查 `order_payments`，再查 `trip_payments` |
+| 取消服务 `services/cancellations.ts:91-94` | `pending_payment` 视为未付；否则 `netPaidMinor` | 行程已付时用 `orderPaymentView` 的分摊额；行程未付时整单走超时 / 整单取消，不单独取消某段 |
+| 退款 `services/order-money.ts:36`（`netPaidMinor`）、`repos/refunds.ts:142` | 只看 `order_payments` / `order_refunds` | 改为调用 `orderPaymentView`；行程退款写 `trip_refunds` |
+| 工单退款 `services/tickets.ts:566` | `netPaidMinor` | 同上 |
+| 改单补差价 `services/order-changes.ts:462` | `order_payments` 里保存的支付方式离线扣 | 子订单取 `trip_payments` 的支付方式；补收的钱记 `trip_payments` 的 `change` 行 |
+| 服务后加收 `services/extra-charges.ts:227` | 同上 | 同上，记 `extra_charge` 行 |
+| 订单详情 `services/order-queries.ts:324` | 显示这单的付款记录 | 显示「随行程订单 NT… 付款」和分摊额 |
+| 异常队列 `repos/exceptions.ts:59`（争议）、`:62`（取消后才到账） | 只扫 `order_payments` | 再扫 `trip_payments` 的 `disputed`、`paid_after_cancel`。一笔行程争议在异常队列里显示为一条，列出全部子订单 |
+| 乘客资料保留 `repos/passenger-retention.ts:41`（付款未结）、`:48`（争议 / 取消后到账）、`refund` 条件 | 只看 `order_payments` / `order_refunds` | 同样看子订单所属的 `trip_payments` / `trip_refunds`：行程付款未结、有争议或退款未完成时，子订单不脱敏 |
+
+**结算**：跨段费用由 `trip_fee_settlements` 作为新的结算来源进对账单；救援换供应商时，跨段费用跟到新供应商。要和财务对账规则一起审。
+
+**风险与守护**：
+- 第 1、4、5、6 条改的是现有代码。要求：现有订单、付款、取消、退款、异常、保留的集成测试**一条不改**全部通过；另加「普通订单经 `orderPaymentView` 的结果与改前快照一致」的对照测试。
+- 建议 P1b 开工前由后端另写一篇「行程订单付款」ADR，财务口径一起审。
+
+**备选方案（不推荐，列出供审查）**：每张子订单各自一笔付款，客人只输一次卡，第一笔在线付并保存支付方式，其余离线扣。好处是现有付款代码基本不动。坏处有三：
 
 - 客人账单上出现多笔扣款；
 - 日本信用卡交易已普遍要求 3-D Secure，离线扣款可能被发卡行要求验证而失败，导致行程「付了一半」，回滚复杂；
 - 不符合业主「一次付款」的原意。
+
+### 5. 跨城市一车到底的基价（P1d）
+
+**问题**：东京商品的车开到大阪，以下三种情况引擎都报不出价（`D/quote.ts:614`：上下车点都要在商品的①或③里），第一稿默认「每段单独调用现有引擎」，在这里不成立：
+
+| 情况 | 例子 | 为什么不报 |
+| --- | --- | --- |
+| 移动日 | 东京酒店 → 大阪酒店 | 下车点在大阪 |
+| 异地用车日 | 在大阪继续用同一辆东京车 | 上车点也在大阪 |
+| 返程 | 行程在大阪结束 | 3.2 的触发条件本身就是「下车点不在任何①③」 |
+
+**做法：新增两条规则，只读商品自己的套餐价**
+
+| 情况 | 基价从哪里来 |
+| --- | --- |
+| 移动日 | 两种取低：<br>① 长途档位价（`trip_long_tiers`，供应商填）；<br>② 「套餐价 + 超公里」：用这个商品自己的包车套餐价、含公里、超公里单价，经现有导出的 `charterOverage`（`D/pricing.ts:524`）算，**不加任何区域加价**（区域加价按本地区域定，在异地没有意义） |
+| 异地用车日 | 同②：商品自己的套餐价 + 超公里，按当天 T 选套餐（与 M9P-03 同一个「取最低」口径，调用同一个纯函数）；不加区域加价 |
+| 返程 | 第四节第 2 条（返程公里 × 返程单价，返程单价取自同一份套餐价规则） |
+
+- **为什么例外地读价格表**：
+  - 读的是这个商品**自己的**、已经上架的套餐价，不是新价格。
+  - 供应商开 `awayService.enabled` 才参与（默认关），等于供应商同意「车开到外地后按本商品套餐价收」。
+  - 只读不写，经现有 `loadQuoteFacts`（`apps/api/src/services/quotes.ts:214`）取，不新增价格查询。
+- **比价**：跨城一车到底只能是**同一家供应商**，不跨供应商比价。编排器对每家开了 `awayService` 的候选商品各算一遍全程，取总价最低的。车型组按客人要求，不在异地换车型组。
+- **和「只调用、不改」的关系**：`quoteProduct`、`charterEnds`、`compareQuotes` 都不改。新规则在 `packages/domain/src/trip/away.ts`，只调用 `charterOverage` 和 M9P-03 的选套餐纯函数。
+- **快照**：异地日的报价写一行 `quotes`（`snapshot` 里标 `source: "trip_away"`、引用规则版本），以便子订单照常引用 `quote_id`。需要确认 `quotes.snapshot` 的读方（改期、救援）遇到 `trip_away` 时的口径：
+  - 改期：P1d 起改日期转人工；
+  - 救援：按同一规则对其他开了 `awayService` 的供应商重新算。
+  
+  这两点在 P1d 的实施 ADR 里细化。
+- **P1d 上线前**：`one_car` 方案遇到异地日不出（第三节第 3 小节），客人只看到新干线方案和各城市本地车方案，并能一键转人工要「一车到底」报价。
 
 ---
 
@@ -370,16 +522,16 @@
 
 ### 3. 方案 B：一包到底
 
-- **成立条件**：方案 A 不成立时只出 B；A 成立时 A、B 并列。
-- **移动日计费，两种算法取低**：
-  1. **套餐算法**：引擎直接报——当天包车套餐价 + max(0, 当天总公里 − 含公里) × 超公里单价（M9P-03 的「各商品自选套餐」本来就是这个算式）。
+- **交付期**：P1d（移动日的下车点在外地，现有引擎不报，第五节第 5 小节）。P1d 上线前只出方案 A 和各城市本地车。
+- **成立条件**：方案 A 不成立时只出 B；A 成立时 A、B 并列。只有开了 `awayService` 的商品参与。
+- **移动日计费，两种算法取低**（都由第五节第 5 小节的新规则算，不经 `quoteProduct`）：
+  1. **套餐算法**：这个商品自己的包车套餐价 + max(0, 当天总公里 − 含公里) × 超公里单价，用现有 `charterOverage` 计算，和 M9P-03「各商品自选套餐」同一个算式；不加区域加价。
   2. **长途档位算法**（新）：
      - 按当天**全天**行驶公里查 `trip_long_tiers`（例 300–400 / 400–500 / 500–600 km 各一价，含司机工时）；
      - 档位价按每 100 km 一档，「≥ 下限、< 上限」；
-     - 当天另有区域加价（行程区域、上下车）照引擎结果加；
      - `tollMode = "estimate"` 时再加预估高速费。
-     
-     编排器把引擎结果和档位价比较，档位价更低时在 `trip_fees` 记一笔 `long_tier_adjust`（负数，等于两者之差），**不改引擎结果**。
+
+     两者取低，移动日那一行的明细写明用了哪种算法。
   - 原因（原文）：超公里单价按市内用车定，长距离直接乘会偏高；档位价让长途报价合理、可预期。
 - **后续费用**：
   - 到达城市继续用同一辆车 → 每晚住宿（3.1）；
@@ -404,7 +556,7 @@
 - 套餐算法不加（第一节第 3 小节①：量级上已覆盖）。
 - 档位算法加「长途高速费（预估）」：
   - **来源**：
-    1. Routes API `extraComputations: ["TOLLS"]` + `routeModifiers.tollPasses: ["JP_ETC"]`，取 `travelAdvisory.tollInfo`。按官方文档，请求收费信息按更高档计费；不传通行卡时返回现金价，通常最高。
+    1. Routes API `extraComputations: ["TOLLS"]` + `routeModifiers.tollPasses: ["JP_ETC"]`，取 `travelAdvisory.tollInfo`。按官方 SKU 说明，收费计算属于 **Compute Routes Enterprise**（$15 / 千次，每月免费 1,000 次）；不传通行卡时返回现金价，通常最高。
     2. 谷歌估不出时，查 `toll_estimates` 固定表（东京—名古屋、东京—京都、东京—大阪等主要城市对）。
   - **车型折算**：谷歌给的是普通车价；中型车（例如小巴）、大型车按高速公路公司的车种系数折算（参考：中型约 ×1.2、大型约 ×1.65，以官方公布为准）。
   - **结算**：预估高速费全额给供应商（`supplier_tenant_id`），服务后不按实际多退少补，和 ADR 0070「一口价全含」一致。
@@ -436,7 +588,7 @@
 
 按规格样例的价位：东京经济 7 座，10 小时套餐 55,000，超公里 500 / 公里。东京 3 天 → 大阪 2 天、行程在大阪结束：
 
-- **方案 B 移动日**：
+- **方案 B 移动日**（P1d 起，按第五节第 5 小节的新规则算）：
   - 套餐算法约 55,000 + (500 − 含公里) × 500，含公里取 200 时为 205,000；
   - 档位算法取供应商填的 500–600 km 档位价（假设 150,000）+ 预估高速费约 11,000 = 161,000；
   - 两者取低，再加返程 500 km × 250 = 125,000 和 2 晚住宿 30,000。
@@ -455,23 +607,31 @@
 - 官网路线小地图用谷歌静态地图、服务器缓存 1 天（ADR 0072，`0250_static_map_images.sql`）。
 - 区域多边形只在供应商 / 平台的区域页上画（`apps/web/src/pages/areas/AreaMap.tsx`）。
 
-### 2. 方案
+### 2. 方案：定为 Google Maps JavaScript API（第二稿）
 
-原文要求用现有 Google 地图 key。这里给两个方案：
+**条款已能定论**（谷歌地图平台《服务专用条款》，现行版本）：
+- 19.2（Routes API）：*Customer must not use Google Maps Content from the Routes API in conjunction with a non-Google map.*
+- 14.2（Places API）：对 Places 内容有同样的话。
+- 6.2（Geocoding API）、4.2（Directions API）：也有同样的话。
 
-| | 甲：Google Maps JavaScript API（推荐） | 乙：继续 Leaflet |
+所以把 Routes 折线、Places 地点画在 Leaflet + 非谷歌瓦片上**不合规**。行程地图只能用谷歌地图：
+
+| | 甲：Google Maps JavaScript API（**采用**） | 乙：继续 Leaflet（**不合规，不采用**） |
 | --- | --- | --- |
 | 底图、地点图标 | 谷歌底图，客人熟悉 | 现有瓦片 |
-| 路线 | 后端给折线，前端 `google.maps.Polyline` 画；按天一种颜色 | 同样的折线画在 Leaflet 上 |
-| 条款 | 谷歌内容画在谷歌地图上，没有疑问 | 谷歌《服务专用条款》对 Directions API 明确写了「不得与非谷歌地图一起使用」；Routes API 是否同样限制要在开工前核实。现有官网路线图后备（`RouteMap.tsx`）也有同样的问题，一并核 |
-| 密钥 | **不能用现有服务器 key**（它没有网页来源限制，放进浏览器会被盗用）。在同一个谷歌云项目里**新建一把浏览器 key**：只开 Maps JavaScript API、限定 HTTP 来源为官网域名。由业主在谷歌云控制台建好、填进平台后台，不经聊天 | 不需要 |
-| 安全策略（CSP） | 要放行 `maps.googleapis.com`、`maps.gstatic.com` 等，修订 `deploy/bin/compose.sh` 的 CSP 生成和对应测试 | 不变 |
-| 计费 | 每次地图加载计 Dynamic Maps（见第 4 小节） | 无新增 |
-| 需要的决策 | 修订 ADR 0017（新增一篇 ADR） | 无 |
+| 路线 | 后端给折线，前端 `google.maps.Polyline` 画；按天一种颜色 | 同样的折线画在 Leaflet 上 → 违反 19.2。要用乙，只能换一个非谷歌的路线来源（例如自建 OSRM），那就和现有报价用的谷歌里程不一致，不考虑 |
+| 密钥 | **不能用现有服务器 key**（它没有网页来源限制，放进浏览器会被盗用）。在同一个谷歌云项目里**新建一把浏览器 key**：只开 Maps JavaScript API、限定 HTTP 来源为官网域名。由业主在谷歌云控制台建好、填进平台后台，不经聊天 | — |
+| 安全策略（CSP） | 要放行 `maps.googleapis.com`、`maps.gstatic.com` 等，修订 `deploy/bin/compose.sh` 的 CSP 生成和对应测试 | — |
+| 计费 | 每次地图加载计 Dynamic Maps（见第 4 小节） | — |
+| 需要的决策 | 另写一篇 ADR 修订 0017（官网对客的路线地图改用谷歌地图；后台区域编辑器不显示谷歌内容的可以继续用 Leaflet） | — |
 
-推荐甲，理由：条款风险最小，客人体验好，原文点名。**业主确认前不动 0017**。
+**已知风险（现有功能，不在本 PR 修）**：
+- 官网路线图的后备 `apps/web/src/pages/book/new/RouteMap.tsx`：谷歌静态地图未开通时，把 Routes 折线画在 Leaflet 上（文件头注释第 2 行）。
+- 官网地图选点 `SiteMapPicker.tsx`：Leaflet 底图配合 Places 地址搜索、Geocoding 反查的结果。
 
-### 3. 交互（两个方案相同）
+这两处可能已经违反 19.2 / 14.2 / 6.2。已在 roadmap 另开任务 **M10-01**：核实并整改，例如后备图改为不画地图只显示文字，选点改谷歌地图。
+
+### 3. 交互
 
 - **路线**：每天一种颜色；经停点按顺序编号；机场、车站、酒店用专用图标；每段标时长和公里。
 - **区域图层**：基础价区域、行程区域、上下车加价区域三层淡色铺底（数据来自 `area_polygons`，只给对客需要的形状，**不给价格**），图例说明「为什么这里加价」。
@@ -490,9 +650,9 @@
 
 | SKU | 单价（每千次，首档） | 每月免费 | 一次「5 天、20 个点」的完整行程报价约用 |
 | --- | --- | --- | --- |
-| Dynamic Maps（方案甲的地图加载） | $7 | 10,000 | 2 次（报价页 + 确认页）≈ $0.014 |
+| Dynamic Maps（地图加载） | $7 | 10,000 | 2 次（报价页 + 确认页）≈ $0.014 |
 | Routes：Compute Routes Essentials | $5 | 10,000 | 约 25 次（20 段 + 方案 A/B 的车站段和长途段；有 7 天缓存，重复路线不再计）≈ $0.125 |
-| Routes：收费信息（长途移动日） | 更高档（文档只写「按更高价」，按 Pro $10 估） | 5,000 | 1–2 次 ≈ $0.02 |
+| Routes：收费信息（长途移动日，P1d） | Compute Routes Enterprise $15 | 1,000 | 1–2 次 ≈ $0.03 |
 | Places：输入即提示 + 地点详情 Essentials | $2.83 / $5 | 10,000 | AI 解析出的地名约 15 个，每个一次详情 ≈ $0.075（地点 ID 可长期缓存；用免费的「只返回 ID」文本搜索再取详情，不用 $32 的 Text Search Pro） |
 | Static Maps | $2 | 10,000 | 1 张缩略图（缓存 1 天）≈ $0.002 |
 | 公共交通（可选参考） | 按 Essentials 估 | — | 0–2 次 |
@@ -521,13 +681,17 @@
 ### 2. 结构化输出
 
 - 用 Messages API 的 **`output_config.format`（JSON Schema 结构化输出）**，模式即第二节第 3 小节标准行程单的「草稿版」`TripDraft`。
-  - Opus 5.5 不支持强制指定工具（`tool_choice` 为 `any` / `tool` 会报错），所以不用「强制调用工具」的老办法。
-  - 也可以用 `strict: true` 的工具定义，效果相同，二选一，P3 实现时定。
+  - **只用 `output_config.format`**。
+  - Opus 5.5 不支持强制指定工具（`tool_choice` 为 `any` / `tool` 会返回 400），不能用「强制调用工具」的办法。
+  - `strict: true` 的工具在 `tool_choice: auto` 下不保证一定被调用，也不用。
+  - 将来如换成支持强制 `tool_choice` 的模型，可以改用「强制工具 + `strict: true`」，效果等价；在此之前固定用 `output_config.format`。
+- 模式带上限：`days` 的 `maxItems` 14、每天点数 12、`notes` / `note` 的 `maxLength`，与第二节第 3 小节同一组常量。
 - 模式里**没有任何价格字段**；文档里出现的价格只能进 `notes`，编排器不读。
+- **`notes`、`note`、`evidence` 都是客人的原文**：确认页、客服页、运营后台显示时一律按纯文本转义（React 默认转义，禁止 `dangerouslySetInnerHTML`），邮件模板走现有 `mail-html.ts` 的转义；不拼进任何提示词以外的指令位置。
 - 每个字段旁带：
   - `source`：`stated / inferred / default`；
   - `confidence`：`high / medium / low`；
-  - `evidence`：原文片段，≤ 60 字，确认页悬停显示「我们是从这句话理解的」。
+  - `evidence`：原文片段，≤ 60 字，确认页悬停显示「我们是从这句话理解的」。服务端收到后**立即移进 `trips.texts_enc` 加密存放**，`itinerary.provenance` 只留引用键（第二节第 3 小节）。
 - 另有三个顶层数组：
   - `assumptions[]`：例如「停留时长按 2 小时」；
   - `questions[]`：缺日期、缺人数时只追问这几项（原文第 1 节）；
@@ -566,6 +730,7 @@
 - **模型没有任何工具**：不联网、不查库、不下单。输出只能是模式规定的 JSON，越界内容进不了下游。
 - **价格与 AI 完全隔离**：模式无价格字段，编排器不读 `notes`；即使文档里写「请按 1 万日元报价」，最终价格仍由引擎算。
 - 最后一道防线是客人确认页：AI 理解错了，客人在地图和时间表上一眼能看到。
+- **上限防放大**：模式和服务端校验都限天数、点数、地点数（第二节第 3 小节）。即使注入内容让模型输出几百个地点，也只会被截断或拒收，不会触发几百次地点和路线调用。行程报价另有单独的日调用上限（第七节第 4 小节）。
 - 监控：解析结果里出现「指令性」备注（例如含「忽略」「system」等词）时打标记，进运营抽查列表。
 
 ### 6. 个人信息
@@ -575,9 +740,12 @@
   - 文本发送前，服务端先用规则把邮箱、电话、护照号、信用卡号样式的字符串替换为占位符；
   - 图片和 PDF 无法预先脱敏，上传页明确提示「请勿上传含证件号码的页面」。
 - **存储**：
-  - `raw_input_enc` 用现有 `secret-box`（AES-256-GCM，按用途派生密钥）加密；
+  - `raw_input_enc`、`texts_enc`（所有自由文字：`note`、`notes`、AI 的 `evidence` 原文片段）用现有 `secret-box`（AES-256-GCM，按用途派生密钥）加密；
+  - `itinerary` 明文里只有结构化字段（日期、时间、人数、行李数、地点的坐标和谷歌地点 ID、停留分钟），`provenance` 只有来源和置信度，不含原文片段；
   - 日志只记 token 数、耗时、模型、结果状态，不记内容；
-  - 未下单的行程单 30 天后清空原始输入和上传原件，只留结构化行程（不含个人信息），用于「未覆盖需求」统计。
+  - **30 天清理**（未下单的行程单）：同一个任务里清空 `raw_input_enc`、`texts_enc`、上传原件，`itinerary` 里的酒店等地点只保留坐标（四舍五入到 4 位小数，和 `uncovered_demands` 同口径）、清掉名称，记 `purged_at`。留下的只做「未覆盖需求」统计；
+  - 清理任务的集成测试断言：清理后整行不含任何原始文字（对 `evidence`、`note` 的样例逐个检查）；
+  - 下单的行程单：自由文字随行程订单按 ADR 0055 的 180 天口径清理。
 - **第三方**：内容会发给 Anthropic API 处理。按 Anthropic 商业条款，API 数据默认不用于训练；保留期以合同为准，需要时可申请零数据保留。隐私政策和上传页要写明「由 AI 服务商处理」。是否需要零数据保留，列入第十一节。
 
 ### 7. token 与成本（量级）
@@ -613,8 +781,16 @@
   - 特殊车辆（大巴、无障碍车）；
   - 第四节第 8 条的跨段改动。
 - **做法**：
-  - 「转人工」= 现有人工报价单。官网 `POST /site/v1/manual-quote-requests`（`apps/api/src/routes/manual-quotes.ts:194`），客人留邮箱或 WhatsApp，联系方式加密存（`0280_manual_quote_requests.sql:27`）。人工报价单的 `category` 只能是三种产品之一，所以取行程里第一段的品类，行程全文进备注，`trip_handoffs` 把两边连起来。
-  - 「未覆盖需求」= 现有 `uncovered_demands`（`0290_area_roles_uncovered_demands.sql:19`，不含个人信息）。引擎报不出的段照现有逻辑自动记（`apps/api/src/services/sales-quotes.ts:289`、`site.ts:819`）；行程特有的原因（工时、长途、AI 低置信、特殊车辆）因为 `reason` 只允许三个值（`0290…sql:54`），记为 `OTHER`，细分原因记在 `trip_handoffs.reason`，运营后台的未覆盖需求页加一个「行程原因」筛选（新增查询，不改表）。
+  - 「转人工」= 现有人工报价单。官网 `POST /site/v1/manual-quote-requests`（`apps/api/src/routes/manual-quotes.ts:194`），客人留邮箱或 WhatsApp，联系方式加密存（`0280_manual_quote_requests.sql:27`）。人工报价单的 `category` 只能是三种产品之一，所以取行程里第一段的品类，`trip_handoffs` 把两边连起来。
+  - **行程全文放哪里（第二稿更正）**：`manual_quote_requests` 没有备注列，客人可见的备注只能在跟进记录 `manual_quote_request_events.note_enc`（加密，`0280_manual_quote_requests.sql:78`）。但现有约束要求：
+    - 备注只能挂在 `kind = 'note'` 的记录上（`:84`）；
+    - 除「提交」外每条记录都必须有操作员工（`:85`）。
+    
+    系统在客人提交时写不进去。改约束就是改现有表，不做。所以：
+    - 行程摘要（每天的地点、时间、人数，**不含**客人联系方式）加密存在 `trip_handoffs.summary_enc`（同一套 `secret-box`），平台的人工报价详情页解密显示；
+    - 运营员工跟进时自己写的备注照常进 `note_enc`；
+    - **清理**：现有清除任务 `purgeManualQuotes`（`apps/api/src/repos/manual-quotes.ts:272-276`）清空 `note_enc` 和联系方式时，同一个事务里加一句清空对应 `trip_handoffs.summary_enc`、记 `purged_at`（改现有函数一行，加集成测试：清除后摘要为空）。保留期和人工报价单完全一致（结束 180 天或提交 365 天）。
+  - 「未覆盖需求」= 现有 `uncovered_demands`（`0290_area_roles_uncovered_demands.sql:19`，不含个人信息）。引擎报不出的段照现有逻辑自动记（`apps/api/src/services/sales-quotes.ts:289`、`site.ts:819`）；行程特有的原因（工时、长途、AI 低置信、特殊车辆）因为 `reason` 只允许三个值（取值约束在 `0290_area_roles_uncovered_demands.sql:67`），记为 `OTHER`，细分原因记在 `trip_handoffs.reason`，运营后台的未覆盖需求页加一个「行程原因」筛选（新增查询，不改表）。
 - 运营据此补规则：例如某城市对长途单程需求多 → 请供应商配档位价。
 
 ---
@@ -625,13 +801,21 @@
 
 | 期 | 内容 | 工作量 | 主要风险 | 依赖 | 验收方式 |
 | --- | --- | --- | --- | --- | --- |
-| **P1 底层** | 第二节全部新表；标准行程单校验；编排接口（结构化输入）；分段判定与合并比价；住宿 / 返程 / 多日停驻 / 工时 / 长途档位 / 单日上限与备选；方案对比（含新干线方案）；新干线站点导入、`rail_routes` / `toll_estimates` 后台；供应商后台规则配置页；行程订单、一次付款、退款、结算接入；30 条真实需求固定测试集 | **30–38 人日，约 6–7 轮**（建议拆 P1a 模型 + 编排 + 规则；P1b 3.7 长途和新干线；P1c 下单付款结算） | 付款回调和退款新分支（高）；跨段费用结算口径；M9P 在途改引擎导致包车段结果变；拆法枚举的路线调用量 | M9P-03（自选套餐、13 小时）、M9P-09（机场套餐）上线；业主确认第十一节；新干线站点数据许可核实；谷歌 `TRANSIT` 探查 | 固定测试集 30 条逐条比对期望（段型、拆法、每笔跨段费用、方案数、推荐标记）；租户隔离集成测试；测试站用测试供应商（ADR 0077）完整下一单行程、付款、取消一段、退款 |
-| **P2 地图** | 行程报价页和包车页完整地图（方案甲或乙）、区域图层、明细联动、按天切换、手机布局、缩略图 | **10–12 人日，约 2–3 轮** | 谷歌条款核实结果；CSP 修订；手机性能（多日、几十个点） | 业主选方案甲 / 乙；甲需业主建浏览器 key；美工出页面规范 | 端到端测试（点明细高亮、拖动重算、按天切换、360px 不横滚）；测试站真机检查 |
+| **P1a 同城多日底层** | 第二节行程单、方案、段、跨段费用、规则配置表；标准行程单校验和上限；编排接口（结构化输入）；分段判定与合并比价；同城的住宿、多日停驻、工时、第二司机、单日上限与备选；`one_car`（同城）方案；供应商后台规则配置页；30 条真实需求固定测试集（同城部分） | **18–22 人日，约 3–4 轮** | M9P 在途改引擎导致包车段结果变；拆法枚举的路线调用量 | **M9P-02**（按上下车点找商品）、**M9P-03**（自选套餐、13 小时）、**M9P-06**（基础价区域优先，住宿判断依赖①的定义）上线；业主确认第十一节。M9P-09 是软依赖，上线前只比「接机 + 单独包车」 | 固定测试集逐条比对期望（段型、拆法、每笔跨段费用、方案数、推荐标记）；租户隔离集成测试 |
+| **P1b 行程下单与一次付款** | 抽出 `placeOrderInTx`；`placeTripOrder`；行程付款、分摊、退款表；付款回调、退款回调分支；行程超时扫描、现有超时扫描跳过子订单；`orderPaymentView` 及第五节第 4 小节表中各处的读付款口径改造；异常队列、乘客资料保留适配；跨段费用结算进对账单；先写一篇付款 ADR | **16–20 人日，约 3–4 轮** | **高**：改的是下单、付款、退款的现有代码；Stripe 回调和部分退款；财务对账口径 | P1a；付款 ADR 审查和财务确认 | 现有订单、付款、取消、退款、异常、保留集成测试一条不改全过；普通订单经 `orderPaymentView` 与改前快照一致的对照测试；行程付款的回调（重复、金额不符、部分子订单已取消）、部分退款、整单超时集成测试；测试站用测试供应商（ADR 0077）完整下一单行程、付款、取消一段、退款 |
+| **P1c 新干线方案与各城市本地车** | 新干线站点导入；`rail_routes` 后台；方案 A 成立判断、门到门时间、行李提醒；`local_cars` 方案；方案对比卡片的数据；谷歌 `TRANSIT` 探查 | **8–10 人日，约 2 轮** | 站点数据许可；铁路固定表的维护负担 | P1a；站点数据许可核实 | 固定测试集里跨城市的条目（东京—大阪、东京—京都、新大阪—博多等）方案 A 成立 / 不成立判断全对 |
+| **P1d 跨城市一车到底** | 异地日基价规则（`awayService`、套餐价 + 超公里、长途档位价）；返程费；异地住宿；长途高速费估算（Routes 收费信息 + `toll_estimates`）；`one_car_then_local`；异地日的报价快照和改期 / 救援口径（另写实施 ADR） | **12–16 人日，约 3 轮** | 例外地读商品套餐价；供应商是否愿意开 `awayService`；高速费估算偏差 | P1a、P1b；业主定第十一节的档位价、返程、高速费三项；至少一家供应商愿意试点 | 固定测试集跨城一车到底条目；套餐算法与档位算法取低、返程、住宿逐笔比对；不开 `awayService` 的商品绝不出现在一车到底方案里 |
+| **P2 地图** | 行程报价页和包车页完整地图（Google Maps JS）、区域图层、明细联动、按天切换、手机布局、缩略图；修订 ADR 0017 | **10–12 人日，约 2–3 轮** | CSP 修订；手机性能（多日、几十个点）；Dynamic Maps 计费 | P1a；业主新建浏览器 key 并填进后台；美工出页面规范 | 端到端测试（点明细高亮、拖动重算、按天切换、360px 不横滚）；测试站真机检查 |
 | **P3 AI 一句话** | 一句话 → `TripDraft` → 校验 → 地点解析 → 编排；确认页；追问；成本与调用上限；注入防护测试 | **10–12 人日，约 2–3 轮** | 地名歧义和日期推断的准确率；成本超预期；提示词注入 | P1；业主填 Anthropic API key；隐私政策更新 | 固定测试集（≥ 50 句，中 / 日 / 英，含 10 条注入样例）字段级准确率 ≥ 95%、注入样例 0 次影响价格；测试站人工抽查 |
 | **P4 上传行程** | PDF / 图片 / Excel 识别、文件限制、原件加密与 30 天清理、脱敏 | **7–9 人日，约 2 轮** | 扫描件质量；Excel 格式千奇百怪；个人信息 | P3 | 固定测试集（≥ 20 份真实行程单，去掉个人信息后入库）准确率 ≥ 90%；删除任务集成测试 |
 | **P5 入口铺开** | 嵌入组件加「一句话报价」框；**客服录单**（现在没有，要新做：客服粘贴客人消息 → 解析 → 代客确认 → 发付款链接）；渠道 API `/sales/v1/trip-*` | **8–10 人日，约 2 轮** | 客服代客下单的权限和审计；嵌入组件体积 | P3（P4 可并行）；客服角色权限 | 端到端：嵌入组件 → 主站确认页；客服录单全流程审计日志；渠道 API 契约测试 |
 
-**合计约 65–81 人日**。P1 是关键路径。P2 可在 P1a 完成后并行；P3 可在 P1a 完成后开始，用 P1 的编排接口。
+**合计约 89–111 人日**（第一稿 65–81，按审查第 1、2 条重估）。
+
+- P1 合计 54–68 人日，是关键路径。
+- P1a → P1b 串行；P1c 可在 P1a 后与 P1b 并行；P1d 在 P1b 之后。
+- P2、P3 可在 P1a 完成后开始，用 P1a 的编排接口；P3 的「下单」要等 P1b。
+- 业主想先看到效果的话，P1a + P1c + P2 + P3 就能出「同城多日 + 新干线方案 + 地图 + 一句话」的报价，但还不能下单。P1d 可以按试点供应商的意愿后移。
 
 ---
 
@@ -647,25 +831,43 @@
 | 空闲日停驻费 | 每天 ¥10,000 或 4 小时套餐价，取低 | **同意，另加当晚住宿** | 按规格样例 4 小时套餐 28,000，取低后实际就是 10,000。注意 10,000 只够停车和司机待命的一部分，司机日薪通常高于这个数 → 金额**待业主定**（建议问一两家供应商） |
 | 换司机 | 超 13 小时自动报两名司机方案（第二位司机按半日费） | **同意；「半日费」= 该车型组最短套餐的结算价** | 系统里没有「半日费」这个价，最短套餐（多为 4 小时）最接近；不需要供应商另填 |
 | 节假日加价 | 先确认现有系统是否已有，没有则做成日期表，默认 0 | **已有，不新做** | 调价规则已支持节假日、指定日期、日期范围（第一节第 1 小节），每段报价自动带上；默认就是供应商没配 = 0 |
-| 长途判断距离 | ≥ 300 km 同时算两个方案 | **同意 300 km** | 东京—名古屋约 350 km 是新干线明显占优的最短典型城市对；300 km 以下（东京—轻井泽、东京—仙台以南）开车门到门往往不慢 |
+| 长途判断距离 | ≥ 300 km 同时算两个方案 | **同意 300 km** | 公路距离：东京—名古屋约 350 km，是新干线明显占优的典型城市对；300 km 以下的常见行程（东京—轻井泽、东京—日光都约 150 km），开车门到门往往不比铁路慢，还省掉两次上下车和换乘 |
 | 新干线方案成立 | 两端有站且在服务区、比开车快 60 分钟以上、最多换乘 1 次 | **同意；另加「进站候车 30 分钟、出站 15 分钟」计入门到门** | 不计进出站时间会高估铁路优势 |
 | 长途档位价 | 每 100 km 一档，与「套餐 + 超公里」取低（金额待定） | **同意每 100 km 一档；金额待业主定**。给供应商的填写参考：档位价 ≈ 10 小时套餐价 + (档位上限 − 含公里) × 超公里单价 × 60% | 档位价是供应商的商业决定；参考公式只是让第一批数据有个起点。高速费是否含在档位价里，见下一行 |
 | 长途高速费（本篇新增） | 原文 3.7「不覆盖的话单独计入」 | **档位算法单列预估高速费（含在一口价里，服务后不另收）；套餐算法不加** → **待业主定**明细里是否让客人看到这一行 | 第一节第 3 小节①：套餐算法量级上已覆盖，档位算法不保证 |
 | 返程单价 | 超公里单价的 50%，与「司机新干线 + 车辆回送」取低 | **同意 50%**；后半同「长途返程费」一行 | 空车回程无乘客，行业常按去程的一半左右收空驶费 |
-| 单日上限 | 行驶 600 km、驾驶 9 小时、拘束 13 小时；超出时依次给双司机、分两天、新干线方案 | **同意**；驾驶 9 小时注明是参考值 | 拘束 13 / 15 小时、休息 11 / 9 小时来自厚生劳动省《改善基准告示》（出租、包车类，2024 年 4 月起）。「驾驶 9 小时」「单日 500–600 km」是旅游巴士的标准，对出租、包车类没有直接的法定上限，作为保守的运营参考合适 |
+| 单日上限 | 行驶 600 km、驾驶 9 小时、拘束 13 小时；超出时依次给双司机、分两天、新干线方案 | **同意**，全部定位为**保守的运营参数**（不是法定上限） | 取自厚生劳动省《改善基准告示》（2024 年 4 月起）里**出租车日勤**和**巴士**的标准：<br>• 出租车日勤：拘束 13 小时、上限 15 小时（超过 14 小时的每周以 3 次为限）；休息继续 11 小时为努力目标、不少于 9 小时；巴士的休息时间相同。<br>• 「驾驶 9 小时」来自巴士标准。<br>• 厚生劳动省说明：出租车的这张表**不适用于ハイヤー（包车）驾驶员**。包车如按ハイヤー营业，这些数字没有直接的法定约束。<br>• 单日行驶 600 km 是业务基准。<br>所以都做成商品级可改，文案写「为安全起见的运营上限」，不写「法定」 |
 | 跨段附加项去重（本篇新增） | — | **建议开**：同一辆车多日包车，儿童座椅等按次附加项只收一次 | 客人不会理解同一张座椅每天收一次 |
 | AI 模型（本篇新增） | — | **Opus 5.5；P3 测试集评估后再决定是否换 Sonnet 5.5** → **待业主定** | 准确率优先；成本量级每月几十到一百多美元 |
 | 零数据保留（本篇新增） | — | **待业主定** | 取决于业主对客人上传内容的隐私承诺 |
-| 地图方案（本篇新增） | 原文「用现有 Google 地图 key」 | **甲：Google Maps JS + 新建浏览器 key** → **待业主定** | 第七节第 2 小节 |
+| 地图方案（本篇新增） | 原文「用现有 Google 地图 key」 | **定为 Google Maps JS + 新建一把限定官网来源的浏览器 key**（业主要做的：在谷歌云控制台建 key、填进平台后台） | 谷歌条款 19.2 / 14.2：Routes、Places 内容不能用在非谷歌地图上，Leaflet 方案不合规（第七节第 2 小节） |
 
 ---
 
 ## 十二、未决问题与审查重点
 
-1. 付款与结算的新分支（第五节第 4 小节）是否单独再写一篇 ADR；建议 P1c 开工前由后端出细化设计、财务口径一起审。
+1. 行程订单付款（第五节第 4 小节）：P1b 开工前由后端另写一篇付款 ADR，财务口径一起审。
 2. 第四节第 9 条「附加项去重用负数费用抵掉」是否被接受；若不接受，就只能改引擎入参（违背只做加法），或接受每段各收。
-3. 谷歌《服务专用条款》中 Routes API 与非谷歌地图的关系（第七节第 2 小节），以及新干线站点数据的许可，都要在开工前核实。
+3. 新干线站点数据的许可开工前核实；现有官网 Leaflet 路线后备图和地图选点的谷歌条款风险，由 M10-01 处理。
 4. 3.7 示意数字只用于说明算法，任何文档、测试、迁移里都不得作为预置价格。
+5. P1d 异地日基价例外读商品套餐价（第五节第 5 小节）是否接受；不接受时，跨城一车到底只能整单转人工。
+
+### 第二稿对照 #232 审查
+
+| 审查条目 | 改在哪里 |
+| --- | --- |
+| 必改 1 跨城一车到底引擎报不出价 | 开头硬约束、〇第 2 条、一第 1/2 小节、三第 3/5 小节、四开头表、五第 2 小节、新增五第 5 小节、六第 3 小节、十（拆出 P1d，依赖加 M9P-02 / M9P-06） |
+| 必改 2 多张子订单一次付款 | 二第 1/2 小节（新增 `trip_order_items`、`trip_payment_allocations`、`trip_refunds`）、五第 4 小节重写（抽下单核心、行程下单路径、超时、回调、退款、十几处读付款适配，含异常队列、乘客资料保留、取消服务）、十 P1b 重估 16–20 人日 |
+| 必改 3 地图条款 | 开头、〇第 6 条、七第 2 小节定为 Google Maps JS、乙标不合规；`RouteMap.tsx` 和地图选点列为已知风险，roadmap 开 M10-01 |
+| 必改 4 个人信息 | 二第 1/3 小节（`texts_enc`，`provenance` 不放原文）、八第 2/6 小节（30 天清理范围和测试）、九（`note_enc` 写不进的原因、`trip_handoffs.summary_enc` 随人工报价单清除） |
+| 建议 5 收费计费档 | 六第 5 小节、七第 4 小节：Compute Routes Enterprise，$15 / 千次，每月免费 1,000 |
+| 建议 6 「Functionality varies by region」 | 一第 3 小节③删去该引用并说明 |
+| 建议 7 工时数字来源 | 十一「单日上限」行 |
+| 建议 8 分期与依赖 | 开头依赖按硬 / 软统一（M9P-09 为软依赖）、十 |
+| 建议 9 结构化输出 | 八第 2 小节：只用 `output_config.format` |
+| 建议 10 模式上限、`notes` 转义 | 二第 3 小节上限表、八第 2/5 小节 |
+| 建议 11 300 km 理由 | 十一「长途判断距离」行 |
+| 建议 12 行号 | `orders.ts:233`、`0290…sql:67` |
 
 ## 参考
 
@@ -674,5 +876,6 @@
 - Routes API `TollPass`（含 `JP_ETC`、`JP_ETC2`）：https://developers.google.com/maps/documentation/routes/reference/rest/v2/RouteModifiers
 - Routes API 计费档：https://developers.google.com/maps/documentation/routes/usage-and-billing
 - 谷歌地图平台价格表：https://developers.google.com/maps/billing-and-pricing/pricing
-- 谷歌地图平台服务专用条款：https://cloud.google.com/maps-platform/terms/maps-service-terms
+- 谷歌地图平台服务专用条款（19.2 Routes、14.2 Places、6.2 Geocoding、4.2 Directions）：https://cloud.google.com/maps-platform/terms/maps-service-terms
+- 厚生劳动省「自動車運転者の労働時間等の改善のための基準」（はたらきかたススメ）：https://driver-roudou-jikan.mhlw.go.jp/
 - 谷歌开发者论坛（2026-07，日本公共交通返回空结果的报告）：https://discuss.google.dev/t/directions-api-transit-mode-returns-zero-results/378267
