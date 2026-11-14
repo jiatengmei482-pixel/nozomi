@@ -1550,9 +1550,9 @@
           "id": "M9P-06",
           "title": "引擎基础价区域优先；后台保存校验（同层不重叠、基础价与上下车加价区域不重叠、同一区域不能既是基础价又设上下车加价）；上架覆盖检查、空格提示（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
           "role": "backend",
-          "status": "todo",
+          "status": "review",
           "acceptance": ["点在任一基础价区域 → 上下车、经停都不加价（P1 #3）", "保存时同商品同层重叠 → 400 AREA_LAYER_OVERLAP（两区域名 + 重叠面积）；基础价与上下车加价重叠 → AREA_BASE_SURCHARGE_OVERLAP；保留 AREA_IS_PRODUCT_AREA（新文案）", "places 加 charter_coverage 列（只加列、不预置数据）；包车上架检查 charter_coverage 列出不在任何区域的清单地标（提醒）；空格提醒", "包车 golden 变化（charter-golden 里 M8-38 的「大区盖小加价区」「重叠取最高」落在基础价区域里的样例、itinerary-golden 里 big 商品的样例）按 ADR 0093 第六节第 4 小节逐条列在 PR 里（旧值 → 新值），旧 golden 文件不重新生成；报不出的样例原因码不变", "规格第六节用例 9、14、15 做成集成测试；回放差异归到第六节第 5 小节第 9、10 类", "独立审查、合并、部署后测试站验收", "#229 审查建议（M9P-01 后续）：itinerary-golden.test.ts 对 adjusted 商品的变化只断言「≥ 3,000」，M9P-06 改这份 golden 时一并收紧为「3,000 × 调价系数，误差不超过一个取整单位」"],
-          "evidence": "",
+          "evidence": "PR #247（https://github.com/jiatengmei482-pixel/nozomi/pull/247，基于 #245）：引擎基础价区域优先；保存校验 AREA_LAYER_OVERLAP / AREA_BASE_SURCHARGE_OVERLAP / AREA_IS_PRODUCT_AREA（价格保存、商品服务区域保存两处）；places.charter_coverage（迁移 0460，只加列）和平台地点接口；上架检查加「热门地标覆盖」「加价表空格」两项提醒；包车 golden 变化单列：charter-golden 115 条、itinerary-golden 48 条，全是 big 商品、只变便宜、报不出的原因不变（逐条旧值 → 新值在 *.m9p-06.json）；接送机、点对点 golden 0 条；adjusted 断言收紧为 3,000 × 调价系数（#229 建议）；规格用例 9、14、15 做成集成测试（charter-layers.itest.ts 5 条）；部署前回放基线同 M9P-05（until 2026-11-14T09:13:00Z、30 天，resultDigest e36bac08…、stateDigest 024d1a09…）",
           "updated": "2026-11-14"
         },
         {
@@ -3119,6 +3119,11 @@
       "date": "2026-11-14",
       "by": "backend",
       "summary": "M9P-05 开 PR #245：三层区域的数据结构（迁移 0450 只做加法：行程加价 charter_itinerary_surcharge、②③套餐可空、包车套餐 area_id 可空、products.charter_layout 只有迁移账号能写）；引擎按商品标志切换新旧表（迁移过的商品经停只看行程加价、套餐价只看整商品套餐价；没迁移过的逐字不变）；价格接口 CHARTER_LAYOUT_NOT_MIGRATED / CHARTER_LEGACY_READ_ONLY；上架检查每个车型组至少一档；导入导出只认新模版（LEGACY_TEMPLATE）；迁移脚本 dry-run / apply（一个事务、可重复、审计、报告七项，日志只打计数、完整报告在服务器 reports/）和部署流水线 CHARTER_THREE_LAYER_MIGRATION 四跳传递（production 设了直接中止）；「套餐价不一致」只读接口（平台 / 租户）。按 ADR 0093 的依赖，「减去」工具属 M9P-13，不在本任务。golden 0 条变化。前端价格页（M9P-07）上线前不在测试站执行迁移。待独立审查、CI、合并。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "backend",
+      "summary": "M9P-06 开 PR #247（基于 #245）：包车基础价区域优先（上 / 下车点、经停点落在任一基础价区域里就不加价，取代 M8-38「大运营区不能把小加价区盖成 0」）；保存时校验同商品同层不重叠、基础价与上下车加价区域不重叠、同一区域不能既是基础价又设上下车加价（价格保存和商品服务区域保存都查，只查新加的区域，已有的重叠不回头拦）；places.charter_coverage（迁移 0460）和平台地点接口勾选；包车上架检查加热门地标覆盖、加价表空格两项提醒（不拦）。包车 golden：charter 115 条、itinerary 48 条变化（只有大东京商品、只变便宜），逐条单列；接送机、点对点 0 条。已有测试里重叠的包车区域改成不重叠或直接写库模拟旧配置。待独立审查、CI，#245 合并后合并 main。"
     }
   ]
 }
