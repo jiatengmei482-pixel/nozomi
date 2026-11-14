@@ -3,8 +3,9 @@
  *
  * - 令牌从这条历史记录的 state 里取（下单时放的，同 M3-13，不进地址），其次是本标签页的 `nozomi.embed-order`（按地址里的草稿号）；令牌从不发给宿主。
  * - 第二期**不在 iframe 里付款**（付款进 iframe 是第三期 M9E-19，ADR 0095 第十一节）：待付款时给「在新窗口打开订单页付款」（主站 `/book/order#<令牌>`，
- *   新标签页），这一页每隔几秒读一次订单；变成已付款（不再是待付款、也没取消）就显示付款已提交，发 `step: paid` 和
+ *   新标签页），这一页每隔几秒读一次订单（标签页在后台时暂停，回来马上读一次）；变成已付款（不再是待付款、也没取消）就显示付款已提交，发 `step: paid` 和
  *   `completed{ orderNo, status: "submitted" }`（每张单只发一次），删掉 `nozomi.embed-order`。已取消也删。
+ * - 进来时焦点移到订单号标题。
  * - 取消、改单不在 iframe 里做：一律「在新窗口打开订单页」（减少宿主页被入侵后用遮罩诱导点击的机会）。
  */
 import { useEffect, useRef, useState } from "react";
@@ -71,14 +72,37 @@ export function EmbedOrderPage() {
   const status = loaded.kind === "ready" ? loaded.envelope.order.status : null;
   const orderNo = loaded.kind === "ready" ? loaded.envelope.order.order_no : null;
 
+  // 标签页在后台（客人正在新窗口付款）时不轮询；回到这个标签页时马上读一次
+  const [visible, setVisible] = useState(() => document.visibilityState !== "hidden");
+  useEffect(() => {
+    const onChange = (): void => {
+      const now = document.visibilityState !== "hidden";
+      setVisible(now);
+      if (now) setRound((value) => value + 1);
+    };
+    document.addEventListener("visibilitychange", onChange);
+    return () => document.removeEventListener("visibilitychange", onChange);
+  }, []);
+
   // 待付款：告诉宿主到了付款这一步，隔几秒再读一次（客人在新窗口付完回来，这一页自己更新）
   useEffect(() => {
     if (status !== "pending_payment") return;
     if (!sawPending.current) send({ type: "step", step: "payment" });
     sawPending.current = true;
+    if (!visible) return;
     const timer = setTimeout(() => setRound((value) => value + 1), ORDER_POLL.ms);
     return () => clearTimeout(timer);
-  }, [status, round]);
+  }, [status, round, visible]);
+
+  // 进订单页时焦点移到订单号标题（点「去付款」的按钮已经卸载，焦点不能掉到 body；同四步换步的做法）
+  const heading = useRef<HTMLHeadingElement>(null);
+  const focused = useRef(false);
+  useEffect(() => {
+    if (loaded.kind !== "ready" || focused.current) return;
+    focused.current = true;
+    heading.current?.focus({ preventScroll: true });
+    heading.current?.scrollIntoView?.({ block: "start" });
+  }, [loaded.kind]);
 
   // 付款已提交（不再待付款、也没取消）：这张单是这里下的，就告诉宿主一次；存储里的记录用完即删。已取消也删
   useEffect(() => {
@@ -124,7 +148,7 @@ export function EmbedOrderPage() {
       <EmbedHeader />
       <section className="embed-book__section" aria-labelledby="embed-order-no">
         <div className="embed-book__order-head">
-          <h2 id="embed-order-no" className="embed-book__subtitle">
+          <h2 id="embed-order-no" ref={heading} tabIndex={-1} className="embed-book__subtitle">
             {t.orderNo} {order.order_no}
           </h2>
           <span lang="zh-CN">

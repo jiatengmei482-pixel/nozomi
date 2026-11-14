@@ -199,7 +199,8 @@ test("四步：读草稿带 key、host，对得上时询价带 draft_id；一直
 
   await actor.click(screen.getByRole("checkbox", { name: /同意保存这次付款用的银行卡/ }));
   await actor.click(screen.getByRole("button", { name: "去付款 →" }));
-  await screen.findByRole("heading", { name: `${EMBED_TEXTS.ja.orderNo} ${ORDER_NO}` }, SLOW);
+  const orderHeading = await screen.findByRole("heading", { name: `${EMBED_TEXTS.ja.orderNo} ${ORDER_NO}` }, SLOW);
+  await waitFor(() => assert.equal(document.activeElement, orderHeading, "进订单页时焦点在订单号标题上（「去付款」按钮已经卸载）"));
   assert.equal(window.location.pathname, "/embed/book/order");
   keepsFrameParams();
   assert.equal(new URLSearchParams(window.location.search).has("step"), false);
@@ -243,6 +244,33 @@ test("订单页：待付款时隔几秒读一次；客人在新窗口付完（�
   assert.deepEqual(messages()[3], { ns: "nozomi-booking", v: 1, ch: CH, type: "completed", orderNo: ORDER_NO, status: "submitted" });
   assert.equal(screen.getByRole("link", { name: new RegExp(EMBED_TEXTS.ja.openOrder) }).getAttribute("target"), "_blank");
   assert.equal(screen.queryByRole("button", { name: /取消/ }), null, "iframe 里不放取消按钮");
+});
+
+test("订单页：标签页在后台（客人在新窗口付款）时不轮询；回到这个标签页马上读一次", async () => {
+  ORDER_POLL.ms = 20;
+  const original = Object.getOwnPropertyDescriptor(document, "visibilityState");
+  let state: DocumentVisibilityState = "visible";
+  Object.defineProperty(document, "visibilityState", { configurable: true, get: () => state });
+  try {
+    const calls = stub();
+    sessionStorage.setItem(EMBED_ORDER_KEY, JSON.stringify({ draft: DRAFT, token: TOKEN, at: Date.now() }));
+    open(`/embed/book/order${query}#ch=${CH}`);
+    await screen.findByRole("heading", { name: `${EMBED_TEXTS.ja.orderNo} ${ORDER_NO}` }, SLOW);
+    const reads = () => calls.filter((call) => call.path === "/site/v1/order").length;
+    await waitFor(() => assert.ok(reads() >= 2, "在前台时照常轮询"));
+    state = "hidden";
+    document.dispatchEvent(new Event("visibilitychange"));
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    const hidden = reads();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    assert.equal(reads(), hidden, "在后台时不再读订单");
+    state = "visible";
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() => assert.ok(reads() > hidden, "回到前台马上读一次"));
+  } finally {
+    if (original === undefined) delete (document as unknown as Record<string, unknown>)["visibilityState"];
+    else Object.defineProperty(document, "visibilityState", original);
+  }
 });
 
 test("订单页：令牌失效（401）删掉记录、说找不到；没有令牌（没有 state、存储里也没有）直接说找不到，给主站查订单（新标签页）", async () => {
