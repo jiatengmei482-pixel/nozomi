@@ -222,8 +222,8 @@ export async function frameAncestorOf(ctx: AppContext, key: unknown, host: unkno
   // 规范化前后必须一样：带路径、结尾斜杠、大写的都不算（iframe 地址里的 host 由组件按 location.origin 填，本来就是规范的）
   const origin = normalizeEmbedOrigin(host, originOptions(ctx));
   if (origin === null || origin !== host || !FRAME_ANCESTOR_SOURCE.test(origin)) return null;
-  const embedKey = await withPlatformTx(ctx.pool, (db) => findActiveKey(db, key), { snapshot: true });
-  if (embedKey === null || !embedKey.allowHostPage || !embedKey.allowedOrigins.includes(origin)) return null;
+  const embedKey = await withPlatformTx(ctx.pool, (db) => findKey(db, key), { snapshot: true });
+  if (embedKey === null || embedKey.status !== "active" || !embedKey.allowHostPage || !embedKey.allowedOrigins.includes(origin)) return null;
   return origin;
 }
 
