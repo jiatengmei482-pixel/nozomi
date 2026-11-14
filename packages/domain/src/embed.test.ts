@@ -78,22 +78,23 @@ test("嵌入码的新建 / 修改校验：名称、白名单 1–20 个（规范
   assert.deepEqual(reasons({ default_services: ["airport"] }), ["/default_services:INVALID"]);
   assert.deepEqual(reasons({ default_services: ["charter", "charter"] }), ["/default_services:DUPLICATE"]);
   assert.deepEqual(reasons({ note: "x".repeat(501) }), ["/note:OUT_OF_RANGE"]);
+  assert.deepEqual(reasons({ layout: "auto" }), []);
   assert.deepEqual(reasons({ layout: "card" }), []);
   assert.deepEqual(reasons({ layout: "bar" }), []);
   assert.deepEqual(reasons({ layout: "banner" }), ["/layout:INVALID"]);
   assert.deepEqual(reasons({ layout: "" }), ["/layout:INVALID"]);
 });
 
-test("外观只有卡片、横条两种，卡片在前（默认）", () => {
-  assert.deepEqual([...EMBED_LAYOUTS], ["card", "bar"]);
+test("外观三种：自动（默认，在前）、卡片、横条", () => {
+  assert.deepEqual([...EMBED_LAYOUTS], ["auto", "card", "bar"]);
 });
 
 test("嵌入码写法和合作网站要放的代码", () => {
   assert.match("nze_" + "A".repeat(32), EMBED_KEY_FORMAT);
   assert.doesNotMatch("nze_" + "A".repeat(31), EMBED_KEY_FORMAT);
-  const snippet = embedSnippet("https://nozomi.moveglobal.io", "nze_" + "A".repeat(32), "ja", ["transfer", "charter"], "card");
+  const snippet = embedSnippet("https://nozomi.moveglobal.io", "nze_" + "A".repeat(32), "ja", ["transfer", "charter"]);
   assert.match(snippet, /<script src="https:\/\/nozomi\.moveglobal\.io\/embed\/widget-v1\.js" defer><\/script>/);
-  assert.match(snippet, /NozomiBooking\.init\(\{ key: "nze_A{32}", root: "#nozomi-booking", lang: "ja", services: \["transfer","charter"\], layout: "card" \}\);/);
-  const bar = embedSnippet("https://nozomi.moveglobal.io", "nze_" + "A".repeat(32), "zh", ["charter"], "bar");
-  assert.match(bar, /NozomiBooking\.init\(\{ key: "nze_A{32}", root: "#nozomi-booking", lang: "zh", services: \["charter"\], layout: "bar" \}\);/);
+  assert.match(snippet, /NozomiBooking\.init\(\{ key: "nze_A{32}", root: "#nozomi-booking", lang: "ja", services: \["transfer","charter"\] \}\);/);
+  // 外观不写进代码（M9E-14）：组件从配置里取，后台改了不用合作网站改代码
+  assert.doesNotMatch(snippet, /layout/);
 });
