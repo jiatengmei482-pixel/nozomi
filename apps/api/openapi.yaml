@@ -5901,7 +5901,7 @@ paths:
         这三种只有迁移过三层区域的商品（价格规则应答的 `charter_layout = three_layer`）能用，否则 400 `CHARTER_LAYOUT_NOT_MIGRATED`；
         迁移过的商品不能新建、修改按服务区域的套餐价和上下车加价里的 `waypoint_surcharge`（迁移前的旧数据，只读；删除可以）：400 `CHARTER_LEGACY_READ_ONLY`。批量保存同样。
         包车同层不重叠（M9P-06，ADR 0093 第七节）：这次新加进行程加价 / 上下车加价的区域，和同一层已有的区域重叠（≥ 0.01 平方公里）→ 400 `AREA_LAYER_OVERLAP`；
-        新加进上下车加价的区域和商品的服务区域重叠 → 400 `AREA_BASE_SURCHARGE_OVERLAP`。`details` 有 `areas`（两个区域名）、`area_ids`、`overlap_km2`、`layer`、`overlaps`（全部）。已有的重叠不拦。
+        新加进上下车加价的区域和商品的服务区域重叠 → 400 `AREA_BASE_SURCHARGE_OVERLAP`。`details` 有 `areas`（两个区域名）、`area_ids`、`overlap_km2`（平方公里，两位小数）、`layer`、`overlaps`（全部）。已有的重叠不拦。
         点对点（M8-11，ADR 0073 第二部分）：
         - `to_area_id`（下车区域）可填：不填 = 区域价（和以前一样）；填了 = **单向线路价**，只管上车点在 `area_id`、下车点在 `to_area_id` 的单。
           必须是这个商品选的区域（400 `AREA_NOT_IN_PRODUCT`，路径 `/to_area_id`），不能等于 `area_id`（400 `SAME_AREA`）；不存在或是别的租户的区域 404。

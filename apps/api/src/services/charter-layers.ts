@@ -19,7 +19,7 @@ const nameOf = (name: LocalizedText | undefined): string => name?.zh ?? name?.ja
 
 /**
  * 查这次保存之后的三层区域，有新的重叠抛 400：同层 `AREA_LAYER_OVERLAP`、①和③ `AREA_BASE_SURCHARGE_OVERLAP`。
- * `details`：`areas`（两个区域的名称）、`area_ids`、`overlap_km2`（一位小数）、`layer`，另有 `overlaps` 列出全部（第一条就是 `areas` 那一对）。
+ * `details`：`areas`（两个区域的名称）、`area_ids`、`overlap_km2`（两位小数）、`layer`，另有 `overlaps` 列出全部（第一条就是 `areas` 那一对）。
  */
 export async function assertNoCharterLayerOverlap(
   db: Db,
@@ -33,7 +33,8 @@ export async function assertNoCharterLayerOverlap(
   const overlaps = charterLayerOverlaps(shapes, layers, added);
   const [first] = overlaps;
   if (first === undefined) return;
-  const km2 = (m2: number): number => Math.round(m2 / 100_000) / 10;
+  // 两位小数：0.01 平方公里（阈值）以上的重叠都显示得出来，不会显示成 0
+  const km2 = (m2: number): number => Math.round(m2 / 10_000) / 100;
   const describe = (entry: CharterLayerOverlap) => ({ code: entry.code, layer: entry.layer, areas: [nameOf(names(entry.a)), nameOf(names(entry.b))], area_ids: [entry.a, entry.b], overlap_km2: km2(entry.areaM2) });
   const [a, b] = [nameOf(names(first.a)), nameOf(names(first.b))];
   const message =

@@ -41,3 +41,15 @@ test("①③重叠 → AREA_BASE_SURCHARGE_OVERLAP（a 是①、b 是③）；�
   // 停用的区域不算
   assert.deepEqual(charterLayerOverlaps(SHAPES.map((shape) => (shape.id === "yokohama" ? { ...shape, active: false } : shape)), { base: ["tokyo"], itinerary: [], updown: ["yokohama"] }, { updown: ["yokohama"] }), []);
 });
+
+test("阈值 0.01 平方公里（ADR 0093 第七节第 1 条）：约 0.005 平方公里的重叠不拦，约 0.02 平方公里的拦；区域地图标红的 100 平方米阈值不用在这里", () => {
+  // 东京市内东边界 139.95；纬度 35.6 附近 0.0007° × 0.0007° ≈ 63 米 × 78 米 ≈ 0.005 平方公里，0.0015° × 0.0015° ≈ 0.022 平方公里
+  const small = area("small", square(139.9493, 35.7, 140.1, 35.7007));
+  const large = area("large", square(139.9485, 35.7, 140.1, 35.7015));
+  const shapes = [...SHAPES, small, large];
+  assert.deepEqual(charterLayerOverlaps(shapes, { base: ["tokyo"], itinerary: [], updown: ["small"] }, { updown: ["small"] }), []);
+  const found = charterLayerOverlaps(shapes, { base: ["tokyo"], itinerary: [], updown: ["large"] }, { updown: ["large"] });
+  assert.deepEqual(found.map((entry) => entry.code), ["AREA_BASE_SURCHARGE_OVERLAP"]);
+  assert.ok((found[0]?.areaM2 ?? 0) > 10_000 && (found[0]?.areaM2 ?? 0) < 40_000, String(found[0]?.areaM2));
+});
+

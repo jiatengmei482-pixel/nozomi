@@ -28,6 +28,7 @@ const P = {
   shinjuku: { lng: 139.7, lat: 35.69 },
   /** 东京市内∩横滨（羽田那种重叠处） */
   haneda: { lng: 139.78, lat: 35.55 },
+  asakusa: { lng: 139.7967, lat: 35.7148 },
   yokohama: { lng: 139.63, lat: 35.45 },
   kawaguchiko: { lng: 138.75, lat: 35.516 },
 } satisfies Record<string, LatLng>;
@@ -108,6 +109,7 @@ async function settle(pickup: Place, stops: Place[], dropoff: Place): Promise<st
 test("用例 9：上车点在基础价区域∩上下车加价区域（羽田∩横滨）→ 上车加价 0；经停在那里也不加；①外（横滨南部）照收", async () => {
   assert.equal(await settle("haneda", [], "shinjuku"), "60500", "55,000 × 1.1，M9P-06 之前收横滨 3,000（63,800）");
   assert.equal(await settle("shinjuku", ["haneda"], "shinjuku"), "60500", "市内经停不加价");
+  assert.equal(await settle("haneda", ["asakusa"], "shinjuku"), "60500", "规格用例 9 原样：羽田上车 → 浅草经停 → 新宿下车，加价 0");
   assert.equal(await settle("yokohama", [], "shinjuku"), String(Math.round(58_000 * 1.1)), "横滨南部不在①里：上车 3,000");
   assert.equal(await settle("shinjuku", ["kawaguchiko"], "shinjuku"), String(Math.round(65_000 * 1.1)), "①外经停照收");
 });
@@ -157,6 +159,30 @@ test("已有的重叠不回头拦：横滨的③（旧配置，和东京市内�
   const fuji = items.find((item: any) => item.area_id === charter.fuji);
   const { waypoint_surcharge: _f, ...fujiRest } = updown(charter.fuji, 11_000);
   assert.equal((await batch(charter.id, { update: [{ id: fuji.id, ...fujiRest }] })).status, 200);
+});
+
+test("已有的重叠不回头拦（商品基础信息）：旧配置里①①（东京市内∩东京北）、①③（东京市内∩横滨）都重叠——服务区域原样保存、只调先后、改车型组和调度人都照常 200", async () => {
+  // 旧配置：东京北当第二个服务区域，直接写库（现在经接口加不进来，用例 15）
+  await api.db.owner.query("insert into product_areas (tenant_id, product_id, area_id, priority) values ($1, $2, $3, 1)", [m.b.tenantId, charter.id, bigYokohama]);
+  try {
+    const patch = async (body: Record<string, unknown>): Promise<ApiResponse> => tenantCall(m.b, "PATCH", `/products/${charter.id}`, { version: (await ok(tenantCall(m.b, "GET", `/products/${charter.id}`))).version, body });
+    for (const body of [
+      { areas: [{ area_id: charter.tokyo }, { area_id: bigYokohama }] },
+      { areas: [{ area_id: bigYokohama }, { area_id: charter.tokyo }] },
+      { vehicle_groups: [{ vehicle_group_id: m.ids.biz7, passengers: 6, luggage: 4 }, { vehicle_group_id: m.ids.eco4, passengers: 3, luggage: 2 }] },
+      { dispatchers: [{ name: "调度二号", phone: "0312345679" }] },
+    ]) {
+      const res = await patch(body);
+      assert.equal(res.status, 200, `${JSON.stringify(body)}：${res.text}`);
+    }
+    // 去掉一个服务区域也可以（不新增）
+    assert.equal((await patch({ areas: [{ area_id: charter.tokyo }] })).status, 200);
+  } finally {
+    await api.db.owner.query("delete from product_areas where product_id = $1 and area_id = $2", [charter.id, bigYokohama]);
+    // 车型组恢复成只有商务 7 座（后面的上架检查用例从这个状态开始）
+    const detail = await ok(tenantCall(m.b, "GET", `/products/${charter.id}`));
+    await ok(tenantCall(m.b, "PATCH", `/products/${charter.id}`, { version: detail.version, body: { vehicle_groups: [{ vehicle_group_id: m.ids.biz7, passengers: 6, luggage: 4 }] } }));
+  }
 });
 
 test("上架检查：热门地标覆盖（运营在平台地点接口勾选）和加价表空格，都只提醒、不拦上架", async () => {
