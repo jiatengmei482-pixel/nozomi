@@ -10,6 +10,7 @@ import { createHash, randomBytes } from "node:crypto";
 import {
   type BookingDraft,
   EMBED_RULES,
+  type EmbedDelivery,
   type EmbedKeyStatus,
   type EmbedLang,
   type EmbedLayout,
@@ -18,6 +19,7 @@ import {
   embedKeyIssues,
   embedOriginAllowed,
   embedReturnUrl,
+  normalizeEmbedOrigin,
   rateLimitKeyOf,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
@@ -39,6 +41,8 @@ export interface EmbedKey {
   defaultLang: EmbedLang;
   defaultServices: EmbedService[];
   layout: EmbedLayout;
+  /** 允许整页嵌入（M9E-16，ADR 0095 Q13）：打开了 /embed/v1/frame-check 才放行 /embed/book 被白名单里的网站嵌入；默认关 */
+  allowHostPage: boolean;
   status: EmbedKeyStatus;
   note: string | null;
   version: number;
@@ -54,6 +58,7 @@ interface EmbedKeyRow {
   default_lang: EmbedLang;
   default_services: EmbedService[];
   layout: EmbedLayout;
+  allow_host_page: boolean;
   status: EmbedKeyStatus;
   note: string | null;
   version: number;
@@ -61,7 +66,7 @@ interface EmbedKeyRow {
   updated_at: Date;
 }
 
-const COLUMNS = "id, key, name, allowed_origins, default_lang, default_services, layout, status, note, version, created_at, updated_at";
+const COLUMNS = "id, key, name, allowed_origins, default_lang, default_services, layout, allow_host_page, status, note, version, created_at, updated_at";
 const fromRow = (row: EmbedKeyRow): EmbedKey => ({
   id: row.id,
   key: row.key,
@@ -70,6 +75,7 @@ const fromRow = (row: EmbedKeyRow): EmbedKey => ({
   defaultLang: row.default_lang,
   defaultServices: row.default_services,
   layout: row.layout,
+  allowHostPage: row.allow_host_page,
   status: row.status,
   note: row.note,
   version: row.version,
@@ -103,6 +109,8 @@ export interface EmbedKeyWrite {
   defaultServices: readonly string[];
   /** 外观；不填时新建按卡片、修改保持原值 */
   layout?: string | undefined;
+  /** 允许整页嵌入（M9E-16）；不填时新建按关、修改保持原值 */
+  allowHostPage?: boolean | undefined;
   note: string | null;
 }
 
@@ -121,7 +129,7 @@ const ISSUE_TEXT: Readonly<Record<string, string>> = {
   DUPLICATE: "重复了",
 };
 
-const auditJson = (key: EmbedKey) => ({ key: key.key, name: key.name, allowed_origins: key.allowedOrigins, default_lang: key.defaultLang, default_services: key.defaultServices, layout: key.layout, status: key.status, note: key.note });
+const auditJson = (key: EmbedKey) => ({ key: key.key, name: key.name, allowed_origins: key.allowedOrigins, default_lang: key.defaultLang, default_services: key.defaultServices, layout: key.layout, allow_host_page: key.allowHostPage, status: key.status, note: key.note });
 
 export async function createEmbedKey(ctx: AppContext, principal: PlatformPrincipal, ip: string, input: EmbedKeyWrite): Promise<EmbedKey> {
   const { name, origins, layout, note } = checked(ctx, input);
@@ -129,9 +137,9 @@ export async function createEmbedKey(ctx: AppContext, principal: PlatformPrincip
     const now = ctx.now();
     const key = `nze_${randomBytes(24).toString("base64url")}`;
     const result = await db.query<EmbedKeyRow>(
-      `insert into embed_keys (key, name, allowed_origins, default_lang, default_services, layout, note, created_at, updated_at, created_by, updated_by)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $9) returning ${COLUMNS}`,
-      [key, name, origins, input.defaultLang, [...input.defaultServices], layout ?? "card", note, now, principal.user.id],
+      `insert into embed_keys (key, name, allowed_origins, default_lang, default_services, layout, allow_host_page, note, created_at, updated_at, created_by, updated_by)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10, $10) returning ${COLUMNS}`,
+      [key, name, origins, input.defaultLang, [...input.defaultServices], layout ?? "card", input.allowHostPage ?? false, note, now, principal.user.id],
     );
     const created = fromRow(result.rows[0] as EmbedKeyRow);
     await insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), { tenantId: null, resource: "embed_key", resourceId: created.id, action: "create", before: null, after: auditJson(created) });
@@ -149,10 +157,10 @@ export async function updateEmbedKey(ctx: AppContext, principal: PlatformPrincip
     if (before.version !== version) throw versionConflict(before.version);
     const now = ctx.now();
     const result = await db.query<EmbedKeyRow>(
-      `update embed_keys set name = $2, allowed_origins = $3, default_lang = $4, default_services = $5, layout = $6, note = $7, status = $8, version = version + 1, updated_at = $9, updated_by = $10
+      `update embed_keys set name = $2, allowed_origins = $3, default_lang = $4, default_services = $5, layout = $6, allow_host_page = $11, note = $7, status = $8, version = version + 1, updated_at = $9, updated_by = $10
        where id = $1 returning ${COLUMNS}`,
-      // 没填外观就保持原值（只会改名称、白名单的旧客户端不会把横条改回卡片）
-      [id, name, origins, input.defaultLang, [...input.defaultServices], layout ?? before.layout, note, input.status, now, principal.user.id],
+      // 没填外观、整页嵌入开关就保持原值（只会改名称、白名单的旧客户端不会把横条改回卡片，也不会关掉整页嵌入）
+      [id, name, origins, input.defaultLang, [...input.defaultServices], layout ?? before.layout, note, input.status, now, principal.user.id, input.allowHostPage ?? before.allowHostPage],
     );
     const after = fromRow(result.rows[0] as EmbedKeyRow);
     await insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), { tenantId: null, resource: "embed_key", resourceId: id, action: "update", before: auditJson(before), after: auditJson(after) });
@@ -184,6 +192,28 @@ export async function embedGate(ctx: AppContext, key: unknown, originHeader: str
   return { embedKey, origin };
 }
 
+// ---- /embed/v1/frame-check（M9E-16，ADR 0095 第五节第 1 小节）----
+
+/**
+ * `/embed/book` 能不能被 `host` 这个网站嵌入：嵌入码存在、启用、打开了「允许整页嵌入」，`host` 是规范的 origin 并且完全等于白名单某一项，
+ * 才返回这个 origin（只有协议、主机名、端口，没有空格、分号、引号，可以原样写进 frame-ancestors）；其余一律 null，不区分原因。
+ * 不看请求的 `Origin`（iframe 的页面导航不带它，而且调用方是 Caddy）：这是 ADR 0090「Origin 不在白名单一律 403」的例外。
+ */
+export async function frameAncestorOf(ctx: AppContext, key: unknown, host: unknown): Promise<string | null> {
+  if (typeof key !== "string" || key.length > 64 || typeof host !== "string" || host.length > 300) return null;
+  // 规范化前后必须一样：带路径、结尾斜杠、大写的都不算（iframe 地址里的 host 由组件按 location.origin 填，本来就是规范的）
+  const origin = normalizeEmbedOrigin(host, originOptions(ctx));
+  if (origin === null || origin !== host) return null;
+  const embedKey = await withPlatformTx(ctx.pool, (db) => findActiveKey(db, key), { snapshot: true });
+  if (embedKey === null || !embedKey.allowHostPage || !embedKey.allowedOrigins.includes(origin)) return null;
+  return origin;
+}
+
+/** frame-check 的限速：按来源地址单独一档（不和官网的 site_read 共用），每地址每分钟 60 次 */
+export async function takeFrameCheckSlot(ctx: AppContext, ip: string): Promise<void> {
+  await take(ctx, "embed_frame_check", bucket("ip", rateLimitKeyOf(ip)));
+}
+
 const bucket = (kind: "ip" | "key", value: string): string => createHash("sha256").update(`embed-${kind}:${value}`, "utf8").digest("hex");
 
 async function take(ctx: AppContext, scope: SalesRateScope, key: string): Promise<void> {
@@ -198,8 +228,11 @@ export async function takeEmbedPlacesSlot(ctx: AppContext, gate: EmbedGate): Pro
 
 export const embedDraftLimit = (): AppError => new AppError(429, "EMBED_DRAFT_LIMIT", "这个嵌入码同时有效的预订草稿太多了，请稍后再试");
 
-/** 建草稿：内容逐项校验，`return_url` 不合格就忽略；每地址 10 分钟 30 次、每嵌入码每分钟 60 次、每嵌入码有效草稿 5,000 个 */
-export async function createEmbedDraft(ctx: AppContext, gate: EmbedGate, ip: string, body: { draft: unknown; return_url?: unknown }, log?: { warn(obj: object, msg: string): void }): Promise<StoredBookingDraft> {
+/**
+ * 建草稿：内容逐项校验，`return_url` 不合格就忽略；每地址 10 分钟 30 次、每嵌入码每分钟 60 次、每嵌入码有效草稿 5,000 个。
+ * `delivery`（M9E-16）：组件传了 bookingUrl 时是 host_page，没传时不带（存空，按 redirect 算）；只做统计
+ */
+export async function createEmbedDraft(ctx: AppContext, gate: EmbedGate, ip: string, body: { draft: unknown; return_url?: unknown; delivery?: EmbedDelivery | undefined }, log?: { warn(obj: object, msg: string): void }): Promise<StoredBookingDraft> {
   await take(ctx, "embed_draft_ip", bucket("ip", rateLimitKeyOf(ip)));
   await take(ctx, "embed_draft_key", bucket("key", gate.embedKey.id));
   const issues = bookingDraftIssues(body.draft);
@@ -215,7 +248,7 @@ export async function createEmbedDraft(ctx: AppContext, gate: EmbedGate, ip: str
     // 到上限的 80% 写告警日志（运维告警按它报）：可能有人伪造 Origin 在占满上限，运营可以给合作网站换码（ADR 0090 第五节第 1 小节）
     // 只在刚到 4,000 和之后每多 250 个时写一条，不是每建一个都写
     if (count >= EMBED_RULES.activeDraftsWarnAt && (count - EMBED_RULES.activeDraftsWarnAt) % 250 === 0) log?.warn({ event: "embed.draft_limit_near", embed_key_id: gate.embedKey.id, active: count, limit: EMBED_RULES.activeDraftsPerKey }, "嵌入码的有效预订草稿接近上限");
-    return insertBookingDraft(db, body.draft as BookingDraft, { embedKeyId: gate.embedKey.id, embedOrigin: gate.origin, returnUrl }, now);
+    return insertBookingDraft(db, body.draft as BookingDraft, { embedKeyId: gate.embedKey.id, embedOrigin: gate.origin, returnUrl, delivery: body.delivery ?? null }, now);
   });
 }
 
@@ -229,37 +262,40 @@ export async function recordQuoteEmbedSources(ctx: AppContext, draftId: string |
     const draft = await findLiveBookingDraft(db, draftId, now);
     if (draft === null || draft.source === null) return;
     for (const quoteId of quoteIds) {
-      await db.query("insert into quote_embed_sources (quote_id, embed_key_id, embed_origin, return_url, created_at) values ($1, $2, $3, $4, $5) on conflict (quote_id) do nothing", [
+      await db.query("insert into quote_embed_sources (quote_id, embed_key_id, embed_origin, return_url, delivery, created_at) values ($1, $2, $3, $4, $5, $6) on conflict (quote_id) do nothing", [
         quoteId,
         draft.source.embedKeyId,
         draft.source.embedOrigin,
         draft.source.returnUrl,
+        draft.source.delivery,
         now,
       ]);
     }
   });
 }
 
-export type OrderEntrySource = { kind: "embed"; embedKeyId: string; embedKeyName: string; embedOrigin: string; returnUrl: string | null } | { kind: "book" };
+/** delivery（M9E-16）：redirect 跳主站下单、host_page 在合作网站页面里下单；旧来源为空，按 redirect 算 */
+export type OrderEntrySource = { kind: "embed"; embedKeyId: string; embedKeyName: string; embedOrigin: string; returnUrl: string | null; delivery: EmbedDelivery } | { kind: "book" };
 
 /** 下单后：按报价的来源再核一次当前的嵌入码和白名单，通过才记到订单上（同一张单只记一次）。返回记下的来源 */
 export async function recordOrderEmbedSource(ctx: AppContext, orderId: string, quoteId: string): Promise<OrderEntrySource> {
   return withPlatformTx(ctx.pool, async (db) => {
-    const source = await db.query<{ embed_key_id: string; embed_origin: string; return_url: string | null }>("select embed_key_id, embed_origin, return_url from quote_embed_sources where quote_id = $1", [quoteId]);
+    const source = await db.query<{ embed_key_id: string; embed_origin: string; return_url: string | null; delivery: EmbedDelivery | null }>("select embed_key_id, embed_origin, return_url, delivery from quote_embed_sources where quote_id = $1", [quoteId]);
     const row = source.rows[0];
     if (row === undefined) return { kind: "book" };
     const key = await db.query<EmbedKeyRow>(`select ${COLUMNS} from embed_keys where id = $1 and status = 'active'`, [row.embed_key_id]);
     const embedKey = key.rows[0] === undefined ? null : fromRow(key.rows[0]);
     if (embedKey === null || !embedKey.allowedOrigins.includes(row.embed_origin)) return { kind: "book" };
     const returnUrl = row.return_url === null ? null : embedReturnUrl(row.return_url, row.embed_origin, embedKey.allowedOrigins, originOptions(ctx));
-    await db.query("insert into order_embed_sources (order_id, embed_key_id, embed_origin, return_url, created_at) values ($1, $2, $3, $4, $5) on conflict (order_id) do nothing", [
+    await db.query("insert into order_embed_sources (order_id, embed_key_id, embed_origin, return_url, delivery, created_at) values ($1, $2, $3, $4, $5, $6) on conflict (order_id) do nothing", [
       orderId,
       embedKey.id,
       row.embed_origin,
       returnUrl,
+      row.delivery,
       ctx.now(),
     ]);
-    return { kind: "embed", embedKeyId: embedKey.id, embedKeyName: embedKey.name, embedOrigin: row.embed_origin, returnUrl };
+    return { kind: "embed", embedKeyId: embedKey.id, embedKeyName: embedKey.name, embedOrigin: row.embed_origin, returnUrl, delivery: row.delivery ?? "redirect" };
   });
 }
 
@@ -268,12 +304,12 @@ export async function orderEntrySource(ctx: AppContext, orderId: string): Promis
   const result = await withPlatformTx(
     ctx.pool,
     (db) =>
-      db.query<{ embed_key_id: string; name: string; embed_origin: string; return_url: string | null }>(
-        "select s.embed_key_id, k.name, s.embed_origin, s.return_url from order_embed_sources s join embed_keys k on k.id = s.embed_key_id where s.order_id = $1",
+      db.query<{ embed_key_id: string; name: string; embed_origin: string; return_url: string | null; delivery: EmbedDelivery | null }>(
+        "select s.embed_key_id, k.name, s.embed_origin, s.return_url, s.delivery from order_embed_sources s join embed_keys k on k.id = s.embed_key_id where s.order_id = $1",
         [orderId],
       ),
     { snapshot: true },
   );
   const row = result.rows[0];
-  return row === undefined ? { kind: "book" } : { kind: "embed", embedKeyId: row.embed_key_id, embedKeyName: row.name, embedOrigin: row.embed_origin, returnUrl: row.return_url };
+  return row === undefined ? { kind: "book" } : { kind: "embed", embedKeyId: row.embed_key_id, embedKeyName: row.name, embedOrigin: row.embed_origin, returnUrl: row.return_url, delivery: row.delivery ?? "redirect" };
 }

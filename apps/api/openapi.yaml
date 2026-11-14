@@ -12952,6 +12952,10 @@ paths:
                   type: string
                   maxLength: 2000
                   description: 付款后订单页「返回原网站」的地址；它的 origin 必须等于当前网站、并在白名单里
+                delivery:
+                  type: string
+                  enum: [ redirect, host_page ]
+                  description: 选填（M9E-16，ADR 0095）：组件传了 `bookingUrl`、草稿建好后跳合作网站自己的预订页时带 `host_page`；不带按跳主站算。只做统计
       responses:
         "201":
           description: 建好的草稿
@@ -12988,6 +12992,51 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /embed/v1/frame-check:
+    get:
+      tags: [ 嵌入组件 ]
+      operationId: checkEmbedFrameAncestor
+      summary: 嵌入预订页 /embed/book 能不能被这个网站嵌入（Caddy 调用）
+      description: |
+        M9E-16，ADR 0095 第五节第 1 小节。Caddy 打开 `/embed/book` 前用 `forward_auth` 问一次（只转 `key`、`host` 两个参数），
+        204 时把 `X-Nozomi-Frame-Ancestor` 拼进 `frame-ancestors`；非 2xx 的应答原样回给浏览器。
+        **ADR 0090 共同规则的例外**：不看请求的 `Origin`、不回任何 CORS 头，按查询参数 `host` 核对：嵌入码存在、启用、打开了「允许整页嵌入」，
+        `host` 是规范的 origin 并完全等于白名单某一项才放行。其余一律 403，不区分原因。每次都查库（`no-store`）：改白名单、停用在下一次打开时生效。
+        按来源地址单独限速（每分钟 60 次，不占官网的额度），超了 429，同样等于不能嵌。
+      security: []
+      parameters:
+        - name: key
+          in: query
+          required: true
+          description: 公开嵌入码（`nze_` 开头）
+          schema:
+            type: string
+        - name: host
+          in: query
+          required: true
+          description: 宿主网站的 origin（`https://域名`，可带端口）
+          schema:
+            type: string
+      responses:
+        "204":
+          description: 能嵌。`Cache-Control` 为 `no-store`
+          headers:
+            X-Nozomi-Frame-Ancestor:
+              description: 规范化后的宿主 origin，原样写进 `frame-ancestors`
+              schema:
+                type: string
+        "403":
+          description: "不能嵌：一页极简 HTML，带 `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'` 和 `X-Frame-Options: DENY`"
+          content:
+            text/html:
+              schema:
+                type: string
+        "429":
+          description: 超过限速（同样等于不能嵌），正文同 403，带 `Retry-After`
+          content:
+            text/html:
+              schema:
+                type: string
   /site/v1/booking-drafts/{id}:
     get:
       tags: [ 官网 ]
@@ -29608,7 +29657,7 @@ components:
       type: object
       additionalProperties: false
       description: 订单从哪里来（M9E-02，ADR 0090）。只做统计，不作为分佣、结算的依据；只给运营后台
-      required: [ kind, embed_key_id, embed_key_name, embed_origin ]
+      required: [ kind, embed_key_id, embed_key_name, embed_origin, delivery ]
       properties:
         kind:
           type: string
@@ -29621,10 +29670,14 @@ components:
         embed_origin:
           type: [ string, "null" ]
           description: 合作网站的 origin，如 https://embed-demo.moveglobal.io
+        delivery:
+          type: [ string, "null" ]
+          enum: [ redirect, host_page, null ]
+          description: "M9E-16，ADR 0095：`redirect` 跳主站下单、`host_page` 在合作网站页面里下单（嵌入预订流程）；主站来的单为 null"
     EmbedKey:
       type: object
       additionalProperties: false
-      required: [ id, key, name, allowed_origins, default_lang, default_services, layout, status, note, version, created_at, updated_at, snippet ]
+      required: [ id, key, name, allowed_origins, default_lang, default_services, layout, allow_host_page, status, note, version, created_at, updated_at, snippet ]
       properties:
         id:
           type: string
@@ -29654,6 +29707,9 @@ components:
           type: string
           enum: [ card, bar ]
           description: 组件的外观（M9E-10）：`card` 卡片、`bar` 横条。写进要放的代码（`layout`）；`/embed/v1/config` 不返回它
+        allow_host_page:
+          type: boolean
+          description: 允许整页嵌入（M9E-16，ADR 0095 Q13，默认关）：打开了 `/embed/book` 才能被这个嵌入码白名单里的网站嵌入（`/embed/v1/frame-check`）
         status:
           type: string
           enum: [ active, disabled ]
@@ -29697,6 +29753,9 @@ components:
           type: string
           enum: [ card, bar ]
           description: 选填。新建不填按 `card`；修改不填保持原值
+        allow_host_page:
+          type: boolean
+          description: 选填（M9E-16）。允许整页嵌入；新建不填按关，修改不填保持原值
         note:
           type: [ string, "null" ]
           maxLength: 500

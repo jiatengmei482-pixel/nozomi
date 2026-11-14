@@ -105,3 +105,4 @@
 | `0400_embed_keys.sql` | 嵌入码与白名单、来源记录（M9E-02，ADR 0090 第三节）：平台表 `embed_keys`、`quote_embed_sources`、`order_embed_sources`，`booking_drafts` 的来源外键；租户角色无权限，两张来源表平台角色只能读、增。只建结构，不含任何数据（不预置嵌入码） |
 | `0410_rescue_deduction_base.sql` | 救援差价的基准（M9P-01，ADR 0093 第二节救援 B）：`order_rescues` 加 `deduction_base_minor`、`deduction_base`（成对为空 = 之前的救援，按原结算价；有值时基准不低于原结算价）。只加列，不回填，不含任何数据 |
 | `0420_embed_key_layout.sql` | 嵌入码的外观（M9E-10，ADR 0090 第四节）：`embed_keys` 加 `layout`（`card` 卡片 / `bar` 横条，默认 `card`，带检查约束），运营后台生成的嵌入代码按它写 `layout`；公开的 `/embed/v1/config` 不返回它。只加列，不含任何数据（0410 由 M9P-01 使用） |
+| `0440_embed_host_page.sql` | 预订流程嵌在合作网站页面里·第一期（M9E-16，ADR 0095）：`booking_drafts`、`quote_embed_sources`、`order_embed_sources` 加 `delivery`（`redirect` 跳主站 / `host_page` 跳合作网站自己的预订页，带检查约束，旧行为空按 `redirect`）；`embed_keys` 加「允许整页嵌入」`allow_host_page`（默认关）。只加列，不回填，不含任何数据（0430 由 M9E-14 使用） |

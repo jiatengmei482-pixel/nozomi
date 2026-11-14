@@ -31,6 +31,12 @@ export type EmbedLang = (typeof EMBED_LANGS)[number];
 /** 组件的外观（M9E-10）：card 卡片（默认）、bar 横条 */
 export const EMBED_LAYOUTS = ["card", "bar"] as const;
 export type EmbedLayout = (typeof EMBED_LAYOUTS)[number];
+/**
+ * 草稿交给谁接着走（M9E-16，ADR 0095 第三节第 1 小节、第九节第 1 小节）：redirect 整页跳主站 /book/new（旧行为，库里为空也按它算）、
+ * host_page 跳合作网站自己的预订页、在那里嵌入预订流程（组件传了 bookingUrl）。只做统计
+ */
+export const EMBED_DELIVERIES = ["redirect", "host_page"] as const;
+export type EmbedDelivery = (typeof EMBED_DELIVERIES)[number];
 export const EMBED_KEY_STATUSES = ["active", "disabled"] as const;
 export type EmbedKeyStatus = (typeof EMBED_KEY_STATUSES)[number];
 

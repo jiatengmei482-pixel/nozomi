@@ -23,6 +23,8 @@ export interface EmbedKey {
   default_lang: EmbedLang;
   default_services: EmbedService[];
   layout: EmbedLayout;
+  /** 允许整页嵌入（M9E-16，ADR 0095 Q13）：默认关 */
+  allow_host_page: boolean;
   status: EmbedKeyStatus;
   note: string | null;
   version: number;
@@ -39,6 +41,8 @@ export interface EmbedKeyWrite {
   default_services: EmbedService[];
   /** 服务端是选填（不填时新建按卡片、修改保持原值）；后台页面总是带上 */
   layout: EmbedLayout;
+  /** 服务端是选填（不填时新建按关、修改保持原值）；后台页面总是带上 */
+  allow_host_page: boolean;
   note: string | null;
 }
 
@@ -48,13 +52,15 @@ export interface OrderEntrySource {
   embed_key_id: string | null;
   embed_key_name: string | null;
   embed_origin: string | null;
+  /** M9E-16：redirect 跳主站下单、host_page 在合作网站页面里下单；主站来的单为 null */
+  delivery: "redirect" | "host_page" | null;
 }
 
 /** 与 openapi.yaml 对账的字段（embed.contract.test.ts）。 */
 export const EMBED_SCHEMA_FIELDS = {
-  EmbedKey: ["id", "key", "name", "allowed_origins", "default_lang", "default_services", "layout", "status", "note", "version", "created_at", "updated_at", "snippet"],
-  EmbedKeyWrite: ["name", "allowed_origins", "default_lang", "default_services", "layout", "note"],
-  OrderEntrySource: ["kind", "embed_key_id", "embed_key_name", "embed_origin"],
+  EmbedKey: ["id", "key", "name", "allowed_origins", "default_lang", "default_services", "layout", "allow_host_page", "status", "note", "version", "created_at", "updated_at", "snippet"],
+  EmbedKeyWrite: ["name", "allowed_origins", "default_lang", "default_services", "layout", "allow_host_page", "note"],
+  OrderEntrySource: ["kind", "embed_key_id", "embed_key_name", "embed_origin", "delivery"],
 } as const satisfies Record<string, readonly string[]>;
 
 const one = (id: string): string => `${EMBED_KEYS_PATH}/${encodeURIComponent(id)}`;

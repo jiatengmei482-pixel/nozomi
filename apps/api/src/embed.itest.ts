@@ -313,11 +313,11 @@ test("来源：草稿 → 询价 → 下单记「嵌入组件」和返回地址�
   const embedded = await place(await quoteAndOrder(draftId));
   assert.equal(embedded.return_url, `${PARTNER}/thanks`);
   const detail = await ok(api.call("GET", `/platform/v1/orders/${embedded.order.id}`, { token: m.root }));
-  assert.deepEqual(detail.entry_source, { kind: "embed", embed_key_id: key.id, embed_key_name: "合作网站", embed_origin: PARTNER });
+  assert.deepEqual(detail.entry_source, { kind: "embed", embed_key_id: key.id, embed_key_name: "合作网站", embed_origin: PARTNER, delivery: "redirect" });
 
   const plain = await place(await quoteAndOrder(null));
   assert.equal(plain.return_url, null);
-  assert.deepEqual((await ok(api.call("GET", `/platform/v1/orders/${plain.order.id}`, { token: m.root }))).entry_source, { kind: "book", embed_key_id: null, embed_key_name: null, embed_origin: null });
+  assert.deepEqual((await ok(api.call("GET", `/platform/v1/orders/${plain.order.id}`, { token: m.root }))).entry_source, { kind: "book", embed_key_id: null, embed_key_name: null, embed_origin: null, delivery: null });
   const unknownDraft = await place(await quoteAndOrder("x".repeat(43)));
   assert.equal(unknownDraft.return_url, null, "草稿不存在照常报价下单、不记来源");
   const malformed = await place(await quoteAndOrder("not-a-draft"));

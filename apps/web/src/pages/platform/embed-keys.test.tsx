@@ -21,6 +21,7 @@ const keyOf = (changes: Partial<EmbedKey> = {}): EmbedKey => ({
   default_lang: "ja",
   default_services: ["transfer", "charter"],
   layout: "card",
+  allow_host_page: false,
   status: "active",
   note: null,
   version: 1,
@@ -68,7 +69,7 @@ test("新建：一行一个网站，按区间、包车的顺序提交；服务�
   await actor.click(screen.getByRole("button", { name: "生成嵌入码" }));
   await screen.findByRole("region", { name: /MoveGlobal 演示站/ });
   const posted = calls.filter((call) => call.method === "POST").at(-1)?.body;
-  assert.deepEqual(posted, { name: "MoveGlobal 演示站", allowed_origins: ["https://embed-demo.moveglobal.io"], default_lang: "ja", default_services: ["transfer", "charter"], layout: "card", note: null });
+  assert.deepEqual(posted, { name: "MoveGlobal 演示站", allowed_origins: ["https://embed-demo.moveglobal.io"], default_lang: "ja", default_services: ["transfer", "charter"], layout: "card", allow_host_page: false, note: null });
 });
 
 test("外观：新建时默认卡片、可选横条并提交；详情显示外观，要放的代码里带 layout", async () => {
@@ -114,7 +115,39 @@ test("修改外观：表单带出现在的外观，改成横条后随其余字�
   await actor.click(within(card).getByRole("button", { name: "保存" }));
   await waitFor(() => assertAbsent(screen.queryByRole("radio", { name: "横条" })));
   assert.ok(within(screen.getByRole("region", { name: /MoveGlobal 演示站/ })).getByText("横条"), "保存后详情显示横条");
-  assert.deepEqual(calls.find((call) => call.method === "PATCH")?.body, { name: "MoveGlobal 演示站", allowed_origins: ["https://embed-demo.moveglobal.io"], default_lang: "ja", default_services: ["transfer", "charter"], layout: "bar", note: null, status: "active" });
+  assert.deepEqual(calls.find((call) => call.method === "PATCH")?.body, { name: "MoveGlobal 演示站", allowed_origins: ["https://embed-demo.moveglobal.io"], default_lang: "ja", default_services: ["transfer", "charter"], layout: "bar", allow_host_page: false, note: null, status: "active" });
+});
+
+test("整页嵌入（M9E-16，Q13）：默认不允许；修改时打开，带版本号随其余字段一起提交；详情显示；停用时原样带上不关掉", async () => {
+  let current = keyOf();
+  const calls = openApp("/platform/embed-keys", "platform", "operations", (call) => {
+    if (call.method === "GET" && call.url.pathname === "/platform/v1/embed-keys") return json(200, { items: [current] });
+    if (call.method === "PATCH") {
+      const body = call.body as { allow_host_page: boolean; status: "active" | "disabled" };
+      current = keyOf({ allow_host_page: body.allow_host_page, status: body.status, version: current.version + 1 });
+      return json(200, current);
+    }
+    return null;
+  }, OPS);
+  const actor = userEvent.setup();
+  const card = await screen.findByRole("region", { name: /MoveGlobal 演示站/ });
+  assert.ok(within(card).getByText("不允许（客人跳到主站预订）"), "默认关");
+  await actor.click(within(card).getByRole("button", { name: "修改" }));
+  const group = within(card).getByRole("group", { name: /^整页嵌入/ });
+  assert.equal((within(group).getByRole("radio", { name: "不允许（客人跳到主站预订）" }) as HTMLInputElement).checked, true);
+  await actor.click(within(group).getByRole("radio", { name: "允许（预订流程嵌在合作网站页面里）" }));
+  await actor.click(within(card).getByRole("button", { name: "保存" }));
+  await waitFor(() => assert.ok(within(screen.getByRole("region", { name: /MoveGlobal 演示站/ })).getByText("允许（预订流程嵌在合作网站页面里）")));
+  const saved = calls.find((call) => call.method === "PATCH");
+  assert.equal(saved?.headers?.["if-match"], '"1"');
+  assert.deepEqual(saved?.body, { name: "MoveGlobal 演示站", allowed_origins: ["https://embed-demo.moveglobal.io"], default_lang: "ja", default_services: ["transfer", "charter"], layout: "card", allow_host_page: true, note: null, status: "active" });
+
+  await actor.click(within(screen.getByRole("region", { name: /MoveGlobal 演示站/ })).getByRole("button", { name: "停用" }));
+  await actor.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "停用" }));
+  await waitFor(() => assert.ok(screen.getByText("已停用")));
+  const disabled = calls.filter((call) => call.method === "PATCH").at(-1);
+  assert.equal(disabled?.headers?.["if-match"], '"2"');
+  assert.equal((disabled?.body as { allow_host_page: boolean }).allow_host_page, true, "停用不顺手关掉整页嵌入");
 });
 
 test("停用：先确认；带版本号，状态改成停用，其余原样", async () => {
@@ -136,7 +169,7 @@ test("停用：先确认；带版本号，状态改成停用，其余原样", as
   await waitFor(() => assert.ok(screen.getByText("已停用")));
   const patch = calls.find((call) => call.method === "PATCH");
   assert.equal(patch?.headers?.["if-match"], '"1"');
-  assert.deepEqual(patch?.body, { name: "MoveGlobal 演示站", allowed_origins: ["https://embed-demo.moveglobal.io"], default_lang: "ja", default_services: ["transfer", "charter"], layout: "card", note: null, status: "disabled" });
+  assert.deepEqual(patch?.body, { name: "MoveGlobal 演示站", allowed_origins: ["https://embed-demo.moveglobal.io"], default_lang: "ja", default_services: ["transfer", "charter"], layout: "card", allow_host_page: false, note: null, status: "disabled" });
 });
 
 test("没有 embed.read 的角色看到无权限说明，不请求列表", async () => {

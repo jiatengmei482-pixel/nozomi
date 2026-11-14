@@ -5,6 +5,8 @@
  * - 外观（M9E-10）：卡片 / 横条，写进要放的代码；合作网站放代码时也可以自己改。
  * - 白名单一行一个网站地址（`https://域名`，可带端口，不带路径）；改了在服务端立即生效，合作网站页面上最迟 60 秒。
  * - 合作网站如果设了内容安全策略，要在 `script-src`、`connect-src` 放行主站域名（代码下面写明）。
+ * - 允许整页嵌入（M9E-16，ADR 0095 Q13）：默认关；打开后合作网站可以把整个预订流程（/embed/book）嵌在自己的页面里，只限白名单里的网站。
+ *   和其他字段一起保存（同一个 If-Match 版本号、同一条审计）。
  */
 import { type FormEvent, type ReactNode, useState } from "react";
 import { ApiError } from "../../api/client.ts";
@@ -32,6 +34,9 @@ export const EMBED_LANG_NAMES: Readonly<Record<EmbedLang, string>> = { zh: "中�
 export const EMBED_SERVICE_NAMES: Readonly<Record<EmbedService, string>> = { transfer: "区间", charter: "包车" };
 export const EMBED_LAYOUT_NAMES: Readonly<Record<EmbedLayout, string>> = { card: "卡片", bar: "横条" };
 const LAYOUT_OPTIONS = (["card", "bar"] as const).map((value) => ({ value, label: EMBED_LAYOUT_NAMES[value] }));
+export const HOST_PAGE_NAMES: Readonly<Record<"off" | "on", string>> = { off: "不允许（客人跳到主站预订）", on: "允许（预订流程嵌在合作网站页面里）" };
+const HOST_PAGE_OPTIONS = (["off", "on"] as const).map((value) => ({ value, label: HOST_PAGE_NAMES[value] }));
+const HOST_PAGE_HINT = "打开后，白名单里的网站可以用 NozomiBooking.mountBooking 把整个预订流程嵌在自己的页面里（ADR 0095）；关掉后下一次打开就嵌不进去。";
 const LANG_OPTIONS = (["ja", "zh", "en"] as const).map((value) => ({ value, label: EMBED_LANG_NAMES[value] }));
 const SERVICE_OPTIONS = (["transfer", "charter"] as const).map((value) => ({ value, label: EMBED_SERVICE_NAMES[value] }));
 const ORIGINS_HINT = "一行一个合作网站的地址，以 https 开头、只写到域名（可带端口），不带路径；不支持 *。最多 20 个。";
@@ -43,13 +48,14 @@ interface Draft {
   lang: EmbedLang;
   services: EmbedService[];
   layout: EmbedLayout;
+  allowHostPage: boolean;
   note: string;
 }
 
 const draftOf = (key: EmbedKey | null): Draft =>
   key === null
-    ? { name: "", origins: "", lang: "ja", services: ["transfer", "charter"], layout: "card", note: "" }
-    : { name: key.name, origins: key.allowed_origins.join("\n"), lang: key.default_lang, services: [...key.default_services], layout: key.layout, note: key.note ?? "" };
+    ? { name: "", origins: "", lang: "ja", services: ["transfer", "charter"], layout: "card", allowHostPage: false, note: "" }
+    : { name: key.name, origins: key.allowed_origins.join("\n"), lang: key.default_lang, services: [...key.default_services], layout: key.layout, allowHostPage: key.allow_host_page, note: key.note ?? "" };
 
 const bodyOf = (draft: Draft): EmbedKeyWrite => ({
   name: draft.name.trim(),
@@ -58,6 +64,7 @@ const bodyOf = (draft: Draft): EmbedKeyWrite => ({
   // 按「区间、包车」的固定顺序
   default_services: SERVICE_OPTIONS.map((option) => option.value).filter((value) => draft.services.includes(value)),
   layout: draft.layout,
+  allow_host_page: draft.allowHostPage,
   note: draft.note.trim() === "" ? null : draft.note.trim(),
 });
 
@@ -117,6 +124,7 @@ function KeyForm({ initial, submitLabel, onSubmit, onCancel }: { initial: EmbedK
       <RadioGroup legend="默认语言" name={`embed-lang-${initial?.id ?? "new"}`} options={LANG_OPTIONS} value={draft.lang} onChange={(lang) => setDraft({ ...draft, lang })} />
       <CheckboxGroup legend="默认标签" name={`embed-services-${initial?.id ?? "new"}`} options={SERVICE_OPTIONS} value={draft.services} errors={errors.services === undefined ? [] : [errors.services]} hint="合作网站放代码时可以另外指定" onChange={(services) => setDraft({ ...draft, services })} />
       <RadioGroup legend="外观" name={`embed-layout-${initial?.id ?? "new"}`} options={LAYOUT_OPTIONS} value={draft.layout} hint="横条适合放在页面顶部或横幅里；合作网站放代码时可以另外指定" onChange={(layout) => setDraft({ ...draft, layout })} />
+      <RadioGroup legend="整页嵌入" name={`embed-host-page-${initial?.id ?? "new"}`} options={HOST_PAGE_OPTIONS} value={draft.allowHostPage ? "on" : "off"} hint={HOST_PAGE_HINT} onChange={(value) => setDraft({ ...draft, allowHostPage: value === "on" })} />
       <TextAreaField label="备注（选填）" rows={2} maxLength={500} value={draft.note} errors={errors.note === undefined ? [] : [errors.note]} onChange={(event) => setDraft({ ...draft, note: event.target.value })} />
       <div className="form__actions">
         <Button type="submit" variant="primary" loading={busy} loadingText="保存中…">
@@ -144,7 +152,7 @@ function KeyCard({ embedKey, canManage, onChanged }: { embedKey: EmbedKey; canMa
     setProblem(null);
     try {
       const { snippet: _snippet, ...rest } = embedKey;
-      await updateEmbedKey(token, embedKey.id, embedKey.version, { name: rest.name, allowed_origins: rest.allowed_origins, default_lang: rest.default_lang, default_services: rest.default_services, layout: rest.layout, note: rest.note, status: active ? "disabled" : "active" });
+      await updateEmbedKey(token, embedKey.id, embedKey.version, { name: rest.name, allowed_origins: rest.allowed_origins, default_lang: rest.default_lang, default_services: rest.default_services, layout: rest.layout, allow_host_page: rest.allow_host_page, note: rest.note, status: active ? "disabled" : "active" });
       setConfirming(false);
       toast(active ? `已停用「${embedKey.name}」，合作网站上的组件最迟 60 秒后显示「暂时无法使用」` : `已启用「${embedKey.name}」`);
       onChanged();
@@ -204,6 +212,7 @@ function KeyCard({ embedKey, canManage, onChanged }: { embedKey: EmbedKey; canMa
             <Detail label="默认语言">{EMBED_LANG_NAMES[embedKey.default_lang]}</Detail>
             <Detail label="默认标签">{embedKey.default_services.map((service) => EMBED_SERVICE_NAMES[service]).join("、")}</Detail>
             <Detail label="外观">{EMBED_LAYOUT_NAMES[embedKey.layout]}</Detail>
+            <Detail label="整页嵌入">{HOST_PAGE_NAMES[embedKey.allow_host_page ? "on" : "off"]}</Detail>
             {embedKey.note !== null && <Detail label="备注">{embedKey.note}</Detail>}
             <Detail label="最后修改">
               <LocalTime iso={embedKey.updated_at} />
