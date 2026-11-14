@@ -284,10 +284,10 @@ check_frontend() {
     [[ "$(status_of "$path")" == "404" ]] || fail "$label：$path 在 API 里不存在，应返回 404"
   done
 
-  # 嵌入组件脚本（ADR 0090）：200、JavaScript 类型、跨站可读
+  # 嵌入组件脚本（ADR 0090）：200、UTF-8 的 JavaScript 类型（M9E-07）、跨站可读
   widget_headers="$(headers_of "/embed/widget-v1.js")"
   grep -q '^http/[0-9.]* 200' <<<"$widget_headers" || fail "$label：/embed/widget-v1.js 应返回 200"
-  grep -q '^content-type: text/javascript' <<<"$widget_headers" || fail "$label：/embed/widget-v1.js 应是 JavaScript"
+  grep -q '^content-type: text/javascript; charset=utf-8$' <<<"$widget_headers" || fail "$label：/embed/widget-v1.js 应是 JavaScript 且声明 charset=utf-8"
   grep -q '^cross-origin-resource-policy: cross-origin$' <<<"$widget_headers" || fail "$label：/embed/widget-v1.js 应允许跨站加载"
 
   # 跨域只开在 /embed/v1（ADR 0090）：不存在的嵌入码带 Origin 是 403 且没有 CORS 头；/site/v1 带 Origin 也没有 CORS 头。
