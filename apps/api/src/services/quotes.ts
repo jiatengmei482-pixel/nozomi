@@ -21,6 +21,8 @@ import {
   type QuoteComparison,
   type QuoteRequest,
   type QuoteWaypoint,
+  type QuoteOptions,
+  type LockedItinerary,
   type RouteUsage,
   type RouteEstimate,
   type RouteFailureCode,
@@ -235,11 +237,20 @@ export async function loadQuoteFacts(db: Db, candidates: readonly QuoteCandidate
 }
 
 /** 给一批候选商品各报一次价（纯计算）。`audience` 是官网的验收会话时只认测试供应商的验收可售（M8-26，ADR 0078）。 */
-function quoteCandidates(candidates: readonly QuoteCandidate[], facts: QuoteFacts, request: QuoteRequest, now: Date, route: RouteEstimate | null, forOwner: boolean, audience: SiteAudience = "public"): Quoted[] {
+function quoteCandidates(candidates: readonly QuoteCandidate[], facts: QuoteFacts, request: QuoteRequest, now: Date, route: RouteEstimate | null, forOwner: boolean, audience: SiteAudience = "public", itinerary: ItineraryQuoteOptions = {}): Quoted[] {
   return candidates.map((candidate) => ({
     candidate,
-    quote: quoteProduct(candidate.product, request, { now, holidays: facts.holidays, route, inventoryDay: facts.inventory.get(candidate.product.productId) ?? null, urgentUsed: facts.urgentUsed.get(candidate.product.productId) ?? 0, trialLimitReached: facts.trialCapped.has(candidate.product.tenantId) }, { forOwner, audience }),
+    quote: quoteProduct(candidate.product, request, { now, holidays: facts.holidays, route, inventoryDay: facts.inventory.get(candidate.product.productId) ?? null, urgentUsed: facts.urgentUsed.get(candidate.product.productId) ?? 0, trialLimitReached: facts.trialCapped.has(candidate.product.tenantId) }, { forOwner, audience, ...itinerary }),
   }));
+}
+
+/**
+ * 包车按行程计价的引擎参数（ADR 0091）：`packageCheck` 只由官网、渠道的新询价传；`lockedItinerary` 只由救援改派传（订单锁定的预计用时）。
+ * 平台试算、回放不传。两者都不进报价快照的 `request`、不进询价日志。
+ */
+export interface ItineraryQuoteOptions {
+  packageCheck?: NonNullable<QuoteOptions["packageCheck"]>;
+  lockedItinerary?: LockedItinerary;
 }
 
 // ---- 平台侧试算 ----
@@ -291,7 +302,7 @@ export const markupKey = (productId: string, vehicleGroupId: string): string => 
  * `fresh`（默认）：不用缓存里的旧目录，现取现算——试算要看的是现在的规则。正式的询价（M2-04）走同一个函数、`fresh: false`：
  * 候选商品和规则用 30 秒内的缓存，库存、节假日、评分仍然现查。
  */
-export async function previewPlatformQuote(ctx: AppContext, input: PlatformQuoteInput, options: { fresh?: boolean; log?: QuoteLog; audience?: SiteAudience } = {}): Promise<PlatformQuotePreview> {
+export async function previewPlatformQuote(ctx: AppContext, input: PlatformQuoteInput, options: { fresh?: boolean; log?: QuoteLog; audience?: SiteAudience } & ItineraryQuoteOptions = {}): Promise<PlatformQuotePreview> {
   const now = ctx.now();
   const log = options.log ?? SILENT;
   // 官网的验收会话（M8-26，ADR 0078）：只取 QA 测试供应商的验收可售商品，不看渠道授权的供应商名单（城市、品类的授权照旧）；
@@ -354,7 +365,10 @@ export async function previewPlatformQuote(ctx: AppContext, input: PlatformQuote
   ]);
   const route = routeOf(routeOutcome);
   const rates = new Map(fxQuotes);
-  const quoted = quoteCandidates(candidates, facts, request, now, route, false, acceptance ? "acceptance" : "public");
+  const quoted = quoteCandidates(candidates, facts, request, now, route, false, acceptance ? "acceptance" : "public", {
+    ...(options.packageCheck === undefined ? {} : { packageCheck: options.packageCheck }),
+    ...(options.lockedItinerary === undefined ? {} : { lockedItinerary: options.lockedItinerary }),
+  });
   const markups = new Map<string, MarkupMatch>();
   const entries = quoted.map(({ candidate, quote }): ComparisonEntry => ({
     quote,

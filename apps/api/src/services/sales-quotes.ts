@@ -10,13 +10,13 @@
  */
 import { randomInt } from "node:crypto";
 import { performance } from "node:perf_hooks";
-import { type AreaSurchargeBreakdown, type ComparisonRefusal, type PricingBasis, type QuoteWaypoint, type RouteUsage, type SellBreakdownItem, sellBreakdown, type SiteAudience, guestRouteReason, type CurrencyCode, type DistanceBreakdown, type FxQuote, type LatLng, type MarkupMatch, type QuoteSnapshot, type ServiceCategory, type TripDirection, formatMajor, instantToLocal, isPickupPlaceType, quoteCheckPoints, quoteSnapshotValid } from "@nozomi/domain";
+import { type AreaSurchargeBreakdown, type ComparisonRefusal, type ItineraryBreakdown, type QuoteComparison, type PricingBasis, type QuoteWaypoint, type RouteUsage, type SellBreakdownItem, sellBreakdown, type SiteAudience, guestRouteReason, type CurrencyCode, type DistanceBreakdown, type FxQuote, type LatLng, type MarkupMatch, type QuoteSnapshot, type ServiceCategory, type TripDirection, formatMajor, instantToLocal, isPickupPlaceType, quoteCheckPoints, quoteSnapshotValid } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
 import { findQuoteCity, findQuotePlace } from "../repos/quotes.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
-import { type PlatformQuotePreview, type QuoteLog, type RouteOutcome, markupKey, previewPlatformQuote } from "./quotes.ts";
+import { type ItineraryQuoteOptions, type PlatformQuotePreview, type QuoteLog, type RouteOutcome, markupKey, previewPlatformQuote } from "./quotes.ts";
 import { type DemandFacts, type DemandSource, recordUncoveredDemandLater } from "./uncovered-demands.ts";
 import type { SalesPrincipal } from "./sales-auth.ts";
 
@@ -51,8 +51,9 @@ export interface SalesQuoteInput {
  * 里程 + 时长的价格取不到路线时（ADR 0042）：`NO_ROUTE`（两点之间没有可行驶的路线）或 `TEMPORARILY_UNAVAILABLE`（路线服务暂时不可用，稍后再试）。
  * 包车没给下车地点、而这个商品设了区域加价（M8-15，ADR 0073）：`DROPOFF_REQUIRED`（给了下车地点再询价就可能报得出；以后下车地点改为必填）。
  * 包车有经停点不在任何区域里（M9W-01，ADR 0088）：`WAYPOINT_NOT_PRICED`（转人工报价）；经停点只有官网能给，渠道接口不会出现。
+ * 包车选的时长比商品的最低套餐（或按行程算出的预计用时）短（M9W-11，ADR 0091）：`PACKAGE_TOO_SHORT`，另给 `min_package_hours`（选不短于它的时长再询价就可能报得出）。
  */
-export const SALES_UNAVAILABLE_REASONS = ["NO_PRODUCT", "OUT_OF_SERVICE_AREA", "DROPOFF_REQUIRED", "WAYPOINT_NOT_PRICED", "LEAD_TIME_TOO_SHORT", "SOLD_OUT", "OUTSIDE_SERVICE_TIME", "SERVICE_TIME_PASSED", "CAPACITY_EXCEEDED", "ADDON_NOT_OFFERED", "DRIVER_LANGUAGE_NOT_OFFERED", "NO_ROUTE", "TEMPORARILY_UNAVAILABLE", "NOT_AVAILABLE"] as const;
+export const SALES_UNAVAILABLE_REASONS = ["NO_PRODUCT", "OUT_OF_SERVICE_AREA", "DROPOFF_REQUIRED", "WAYPOINT_NOT_PRICED", "PACKAGE_TOO_SHORT", "LEAD_TIME_TOO_SHORT", "SOLD_OUT", "OUTSIDE_SERVICE_TIME", "SERVICE_TIME_PASSED", "CAPACITY_EXCEEDED", "ADDON_NOT_OFFERED", "DRIVER_LANGUAGE_NOT_OFFERED", "NO_ROUTE", "TEMPORARILY_UNAVAILABLE", "NOT_AVAILABLE"] as const;
 export type SalesUnavailableReason = (typeof SALES_UNAVAILABLE_REASONS)[number];
 
 function salesReason(reason: ComparisonRefusal, route: RouteOutcome): SalesUnavailableReason {
@@ -70,6 +71,10 @@ function salesReason(reason: ComparisonRefusal, route: RouteOutcome): SalesUnava
     // 包车有经停点不在任何区域里（ADR 0088）：官网转人工报价，并指出是第几个经停点
     case "WAYPOINT_NOT_PRICED":
       return "WAYPOINT_NOT_PRICED";
+    // 选的时长比最低套餐 / 预计用时短（ADR 0091）：客人选长一点就能报，不能落到 NOT_AVAILABLE
+    case "BELOW_MIN_PACKAGE":
+    case "PACKAGE_TOO_SHORT":
+      return "PACKAGE_TOO_SHORT";
     case "LEAD_TIME_TOO_SHORT":
       return "LEAD_TIME_TOO_SHORT";
     case "SOLD_OUT":
@@ -124,6 +129,11 @@ export interface SalesQuote {
   /** 计价方式（M8-30，ADR 0080）：一口价 / 一口价 + 区域外里程费（客人页标「含里程费」）/ 按计程价（「按里程计价」）。只说方式，不给计程的单价和金额 */
   pricingBasis: PricingBasis;
   /**
+   * 包车按行程计价（ADR 0091）：中标商品的预计用时 T（分钟，= 行驶 + 停留 + 经停点默认占用 + 整单缓冲）、
+   * 它的占用或缓冲是不是不为 0（页面写「含缓冲」）。没按行程计价的报价没有这一项；只有官网的应答给
+   */
+  itinerary?: { estimatedMinutes: number; includesBuffer: boolean };
+  /**
    * 这个车型组还能加哪些附加服务（M8-02，ADR 0069 B15）：参加了这个车型组比价的候选商品里，有供应商提供（开着、目录里启用、适用这个品类）的附加服务编号，去重排序。
    * 只有编号，不带任何单价；只在刚询价时有（查报价 `getSalesQuote` 不给）
    */
@@ -132,9 +142,19 @@ export interface SalesQuote {
 
 export interface SalesQuoteResult {
   quotes: SalesQuote[];
-  /** `stopSeqs`：原因里有 `WAYPOINT_NOT_PRICED` 时，哪几个经停点报不出（不在任何区域里，或所在加价区域没有可用的途经规则；从 1 起，ADR 0088、M9W-10）；没有时不给 */
-  unavailable: { vehicleGroupId: string | null; reasons: SalesUnavailableReason[]; stopSeqs?: number[] }[];
+  /**
+   * `stopSeqs`：原因里有 `WAYPOINT_NOT_PRICED` 时，哪几个经停点报不出（不在任何区域里，或所在加价区域没有可用的途经规则；从 1 起，ADR 0088、M9W-10）；没有时不给。
+   * `minPackageHours`：原因里有 `PACKAGE_TOO_SHORT` 时，这个车型组里各商品能接受的最短档的最小值（小时，ADR 0091）；没有时不给
+   */
+  unavailable: { vehicleGroupId: string | null; reasons: SalesUnavailableReason[]; stopSeqs?: number[]; minPackageHours?: number }[];
+  /** 平台内部（不给渠道）：这次比价的全部拒绝和原始原因码。官网按行程计价据此判断要不要重询（ADR 0091） */
+  refused?: QuoteComparison["refused"];
+  /** 平台内部：调用方要求自己决定记不记「未覆盖需求」（`deferDemand`）、而这次一个价都没报出时，这次询价的事实 */
+  demandFacts?: DemandFacts;
 }
+
+/** 选档判断的拒绝（ADR 0091）：客人选短了，不是缺供应商——这种询价不记「未覆盖需求」 */
+export const PACKAGE_REFUSALS: readonly ComparisonRefusal[] = ["BELOW_MIN_PACKAGE", "PACKAGE_TOO_SHORT"];
 
 const ID_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
@@ -177,7 +197,14 @@ function toSalesQuote(snapshot: StoredQuoteSnapshot): SalesQuote {
     sellBreakdown: sellBreakdown(winner.offer.settlement, winner.sell),
     distance: salesDistance(winner.offer.settlement.distance ?? null, winner.sell.overKmPerKmMinor),
     pricingBasis: winner.offer.settlement.pricingBasis ?? "one_price",
+    ...itineraryEstimateOf(winner.offer.settlement.itinerary),
   };
+}
+
+/** 按行程计价的预计用时（ADR 0091）：明细里有 `estimatedMinutes`（占用或缓冲不为 0）用它，否则就是「行驶 + 停留」 */
+function itineraryEstimateOf(itinerary: ItineraryBreakdown | undefined): Pick<SalesQuote, "itinerary"> {
+  if (itinerary === undefined) return {};
+  return { itinerary: { estimatedMinutes: itinerary.estimatedMinutes ?? itinerary.routeMinutes, includesBuffer: (itinerary.stopOccupancyMinutes ?? 0) > 0 || (itinerary.bufferMinutes ?? 0) > 0 } };
 }
 
 /** 起点 / 终点里的地点编号换成坐标；地点要存在、启用、在这个城市。 */
@@ -212,8 +239,11 @@ async function resolvePoints(ctx: AppContext, input: SalesQuoteInput): Promise<{
 /**
  * 询价：比价、生成 quote_id、存快照和询价日志。
  * 一个价都报不出、又给了 `demand`（官网、渠道的正式询价）时，应答之后另记一条「未覆盖需求」（M8-20，ADR 0075 第四部分），不影响应答。
+ * 只因选档判断（`BELOW_MIN_PACKAGE`、`PACKAGE_TOO_SHORT`，ADR 0091）有商品报不出时不记：客人选短了，不是缺供应商。
+ * `deferDemand`：不在这里记，没报出价时把事实放进结果的 `demandFacts`，由调用方等最终结果再决定（官网按行程计价逐档询价，ADR 0091）。
+ * `packageCheck`：包车的选档判断（ADR 0091），只由新询价传；不进快照、不进询价日志。
  */
-export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincipal, input: SalesQuoteInput, options: { log?: QuoteLog; request: Record<string, unknown>; demand?: DemandSource; audience?: SiteAudience }): Promise<SalesQuoteResult> {
+export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincipal, input: SalesQuoteInput, options: { log?: QuoteLog; request: Record<string, unknown>; demand?: DemandSource; deferDemand?: boolean; audience?: SiteAudience; packageCheck?: ItineraryQuoteOptions["packageCheck"] }): Promise<SalesQuoteResult> {
   const started = performance.now();
   // 官网的验收会话（M8-26，ADR 0078）：报价和询价日志标成验收的，只能下成验收单；不记「未覆盖需求」（那是给运营看的真实需求）
   const acceptance = options.audience === "acceptance";
@@ -241,11 +271,11 @@ export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincip
       ...(input.waypoints === undefined ? {} : { waypoints: input.waypoints }),
       ...(input.routeUsage === undefined ? {} : { routeUsage: input.routeUsage }),
     },
-    { fresh: false, ...(options.log === undefined ? {} : { log: options.log }), ...(acceptance ? { audience: "acceptance" as const } : {}) },
+    { fresh: false, ...(options.log === undefined ? {} : { log: options.log }), ...(acceptance ? { audience: "acceptance" as const } : {}), ...(options.packageCheck === undefined ? {} : { packageCheck: options.packageCheck }) },
   );
   const now = ctx.now();
   const snapshots = storedSnapshots(preview, now);
-  const result: SalesQuoteResult = { quotes: snapshots.map((snapshot) => ({ ...toSalesQuote(snapshot), offeredAddonIds: offeredAddonIds(preview, snapshot) })), unavailable: unavailable(preview, input.vehicleGroupIds) };
+  const result: SalesQuoteResult = { quotes: snapshots.map((snapshot) => ({ ...toSalesQuote(snapshot), offeredAddonIds: offeredAddonIds(preview, snapshot) })), unavailable: unavailable(preview, input.vehicleGroupIds), refused: preview.comparison.refused };
   const durationMs = Math.round(performance.now() - started);
   await withPlatformTx(ctx.pool, async (db) => {
     const log = await db.query<{ id: string }>(
@@ -286,7 +316,10 @@ export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincip
       );
     }
   });
-  if (snapshots.length === 0 && options.demand !== undefined && !acceptance) recordUncoveredDemandLater(ctx, options.demand, demandFacts(principal, input, points, serviceLocal, preview));
+  if (snapshots.length === 0 && !acceptance) {
+    if (options.deferDemand === true) result.demandFacts = demandFacts(principal, input, points, serviceLocal, preview);
+    else if (options.demand !== undefined && !preview.comparison.refused.some((entry) => PACKAGE_REFUSALS.includes(entry.reason))) recordUncoveredDemandLater(ctx, options.demand, demandFacts(principal, input, points, serviceLocal, preview));
+  }
   return result;
 }
 
@@ -370,9 +403,12 @@ function unavailable(preview: PlatformQuotePreview, requested: readonly string[]
     return distinct.length === 0 ? ["NOT_AVAILABLE"] : distinct;
   };
   // 经停点不在区域里的是第几个（几个商品各报各的，合在一起）；没有这种原因时不带这个键
+  // 选短了（ADR 0091）：各商品能接受的最短档里最小的那个；没有这种原因时不带这个键
   const entry = (vehicleGroupId: string | null): SalesQuoteResult["unavailable"][number] => {
-    const stopSeqs = [...new Set(refusedFor(vehicleGroupId).flatMap((refusal) => (refusal.stopSeq === undefined ? [] : [refusal.stopSeq])))].sort((a, b) => a - b);
-    return { vehicleGroupId, reasons: reasonsFor(vehicleGroupId), ...(stopSeqs.length === 0 ? {} : { stopSeqs }) };
+    const refusals = refusedFor(vehicleGroupId);
+    const stopSeqs = [...new Set(refusals.flatMap((refusal) => (refusal.stopSeq === undefined ? [] : [refusal.stopSeq])))].sort((a, b) => a - b);
+    const shortest = refusals.flatMap((refusal) => (PACKAGE_REFUSALS.includes(refusal.reason) && refusal.minPackageHours !== undefined ? [refusal.minPackageHours] : []));
+    return { vehicleGroupId, reasons: reasonsFor(vehicleGroupId), ...(stopSeqs.length === 0 ? {} : { stopSeqs }), ...(shortest.length === 0 ? {} : { minPackageHours: Math.min(...shortest) }) };
   };
   if (requested.length === 0) return quoted.size === 0 ? [entry(null)] : [];
   return [...new Set(requested)].filter((id) => !quoted.has(id)).map(entry);

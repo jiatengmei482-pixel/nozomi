@@ -11,6 +11,7 @@
  */
 import type { AreaBizType } from "./areas.ts";
 import { type AddonChargeUnit, type FlightScope, type LocalizedText, MASTER_DATA_LANGUAGES, type PlaceType, type ServiceCategory, hasVisibleText } from "./master-data.ts";
+import { PRICE_LIMITS } from "./pricing.ts";
 import { type DailyWindow, dailyWindowIssue, isLocalDate, normalizeDailyWindow } from "./service-time.ts";
 
 /** 商品品类就是主数据里的三个品类：接送机、点对点、包车。 */
@@ -59,6 +60,9 @@ export const PRODUCT_LIMITS = {
   maxGuideLength: 2000,
   /** 子品牌名称 */
   maxBrandNameLength: 50,
+  /** 包车按行程计价（ADR 0091）：经停点默认占用、整单缓冲的上限（分钟） */
+  maxStopOccupancyMinutes: 120,
+  maxBufferMinutes: 240,
 } as const;
 
 /** 这个区域能不能给这个品类的商品用：业务类型和品类相同，或者是「通用」。 */
@@ -116,6 +120,34 @@ export interface ServiceRules {
   addons: { addonId: string; enabled: boolean; unitPriceMinor: number; firstFree: boolean }[];
   /** 司机语言：每种语言一个单价 */
   driverLanguages: { language: string; unitPriceMinor: number }[];
+  /**
+   * 包车按行程计价自动选套餐的三项（ADR 0091 第一节）：没有这个键 = 默认值（0 / 0 / 不限），和 M9W-11 之前一模一样。
+   * 存的时候三项都是默认值就不留这个键（`normalizeServiceRules`），所以旧数据、没填过的商品版本不变。只有包车能设。
+   */
+  charterItinerary?: CharterItineraryRules;
+}
+
+/** 包车按行程计价的三项商品配置（ADR 0091）：经停点默认占用、整单缓冲（分钟，0 = 不加），最低套餐（小时，null = 不限） */
+export interface CharterItineraryRules {
+  stopOccupancyMinutes: number;
+  bufferMinutes: number;
+  minPackageHours: number | null;
+}
+
+/** 三项的默认值：行为和 M9W-11 之前一样（ADR 0091：默认不取业主建议值） */
+export const DEFAULT_CHARTER_ITINERARY: Readonly<CharterItineraryRules> = { stopOccupancyMinutes: 0, bufferMinutes: 0, minPackageHours: null };
+
+/** 业主建议值（ADR 0091 第一节）：只在页面上作灰色提示，不预填、不当默认值 */
+export const SUGGESTED_CHARTER_ITINERARY = { stopOccupancyMinutes: 15, bufferMinutes: 60, minPackageHours: 5 } as const;
+
+/** 商品实际生效的三项：没设的按默认值 */
+export function charterItineraryOf(rules: Pick<ServiceRules, "charterItinerary">): CharterItineraryRules {
+  return rules.charterItinerary ?? { ...DEFAULT_CHARTER_ITINERARY };
+}
+
+/** 三项是不是都是默认值（0 / 0 / 不限） */
+export function isDefaultCharterItinerary(value: CharterItineraryRules): boolean {
+  return value.stopOccupancyMinutes === 0 && value.bufferMinutes === 0 && value.minPackageHours === null;
 }
 
 /** 司机语言能选的语言：就是平台支持的那几种（和商品详情的语言一致）。 */
@@ -309,6 +341,16 @@ export function serviceRuleIssues(rules: ServiceRules, context: ServiceRuleConte
     seenLanguages.add(entry.language);
     amountIssue(`${at}/unit_price`, entry.unitPriceMinor, issues);
   }
+  const itinerary = rules.charterItinerary;
+  if (itinerary !== undefined) {
+    // 只有包车能设（ADR 0091）；别的品类给了不当默认值吞掉，明说不适用
+    if (context.category !== "charter") issues.push({ path: "/charter_itinerary", reason: "NOT_APPLICABLE" });
+    else {
+      integerIssue("/charter_itinerary/stop_occupancy_minutes", itinerary.stopOccupancyMinutes, 0, PRODUCT_LIMITS.maxStopOccupancyMinutes, issues);
+      integerIssue("/charter_itinerary/buffer_minutes", itinerary.bufferMinutes, 0, PRODUCT_LIMITS.maxBufferMinutes, issues);
+      if (itinerary.minPackageHours !== null) integerIssue("/charter_itinerary/min_package_hours", itinerary.minPackageHours, 1, PRICE_LIMITS.maxPackageHours, issues);
+    }
+  }
   return issues;
 }
 
@@ -346,8 +388,11 @@ export function addonAllowsFirstFree(chargeUnit: AddonChargeUnit): boolean {
  *   商品里原来勾着的「首个免费」不再生效，也不拦供应商保存）。`firstFreeAllowed` 说不清的（附加服务不存在）原样留着，由保存时去报。
  */
 export function normalizeServiceRules(rules: ServiceRules, firstFreeAllowed: (addonId: string) => boolean | undefined): ServiceRules {
+  // 包车按行程计价的三项（ADR 0091）：都是默认值时不留这个键——显式存一份默认值和没设是同一回事，不该让商品版本、回放的状态摘要变
+  const { charterItinerary, ...rest } = rules;
   return {
-    ...rules,
+    ...rest,
+    ...(charterItinerary === undefined || isDefaultCharterItinerary(charterItinerary) ? {} : { charterItinerary }),
     booking: { ...rules.booking, serviceTime: rules.booking.serviceTime === null ? null : normalizeDailyWindow(rules.booking.serviceTime) },
     night: { ...rules.night, window: rules.night.window === null ? null : normalizeDailyWindow(rules.night.window) },
     addons: rules.addons.map((addon) => (addon.firstFree && firstFreeAllowed(addon.addonId) === false ? { ...addon, firstFree: false } : addon)),
@@ -415,7 +460,7 @@ export function contentTitles(content: ProductContent): LocalizedText {
 
 // ---- 上架校验 ----
 
-export const PUBLISH_CHECK_KEYS = ["basic_info", "service_rules", "price_rules", "content", "adjust_rules", "inventory", "area_coverage"] as const;
+export const PUBLISH_CHECK_KEYS = ["basic_info", "service_rules", "price_rules", "content", "adjust_rules", "inventory", "area_coverage", "charter_min_package"] as const;
 export type PublishCheckKey = (typeof PUBLISH_CHECK_KEYS)[number];
 
 export const PUBLISH_CHECK_NAMES: Readonly<Record<PublishCheckKey, string>> = {
@@ -426,6 +471,7 @@ export const PUBLISH_CHECK_NAMES: Readonly<Record<PublishCheckKey, string>> = {
   adjust_rules: "调价规则",
   inventory: "库存",
   area_coverage: "运营区域",
+  charter_min_package: "最低套餐",
 };
 
 export type PublishIssueReason =
@@ -464,6 +510,8 @@ export type PublishIssueReason =
   | "NO_INVENTORY_AHEAD"
   /** 勾选的报价区域有不小于 100 平方米的部分不在任何运营区域里：那部分报不出价（ADR 0075，提醒、不拦上架） */
   | "PRICING_AREA_OUTSIDE_OPERATING"
+  /** 包车的最低套餐比这个商品所有启用的套餐都长：这个商品将报不出价（ADR 0091，提醒、不拦上架） */
+  | "MIN_PACKAGE_ABOVE_ALL"
   /** 这项功能还没有上线，所以这一项现在一定不满足（或对可选项：没有东西可查） */
   | "FEATURE_NOT_AVAILABLE";
 
@@ -516,6 +564,19 @@ export interface PublishFacts {
   inventory?: { mode: "unlimited" | "limited"; sellableDaysAhead: number };
   /** 勾选的报价区域里不在任何运营区域里的部分（ADR 0075，`productPricingOutsideOperating`）：区域编号和面积（平方米）；不给或空 = 没有 */
   pricingOutsideOperating?: readonly { areaId: string; outsideM2: number }[];
+  /** 包车：现在选着的区域 × 车型组里启用、未过期的套餐价格规则的时长（小时）。不给 = 不查最低套餐（ADR 0091） */
+  charterPackageHours?: readonly number[];
+}
+
+/**
+ * 最低套餐比这个商品所有启用的套餐都长（ADR 0091 第一节）：保存不拒（套餐规则可能稍后再加），但这个商品将报不出价——
+ * 保存应答、上架检查、服务规则页都给提醒。没设最低套餐、或一条套餐都没有（价格规则那一项已经拦了）时为 null。
+ */
+export function minPackageAboveAll(rules: Pick<ServiceRules, "charterItinerary">, packageHours: readonly number[]): { minPackageHours: number; longestPackageHours: number } | null {
+  const min = charterItineraryOf(rules).minPackageHours;
+  if (min === null || packageHours.length === 0) return null;
+  const longest = Math.max(...packageHours);
+  return min > longest ? { minPackageHours: min, longestPackageHours: longest } : null;
 }
 
 /**
@@ -526,6 +587,7 @@ export interface PublishFacts {
  * - 调价规则：可以没有；有启用中的规则会把某条价格调到不大于 0 时指出来（不拦上架）。
  * - 库存：可以不设（默认不限量）。限量、而从今天起没有一天还有库存时指出来（不拦上架）。
  * - 运营区域（ADR 0075）：勾选的报价区域有一部分不在任何运营区域里时多一项提醒（不拦上架）；没有这种情况时没有这一项。
+ * - 最低套餐（ADR 0091）：包车的最低套餐比所有启用的套餐都长时多一项提醒（不拦上架）；没有这种情况时没有这一项。
  */
 export function publishCheck(facts: PublishFacts): PublishCheckItem[] {
   const basic: PublishIssue[] = [];
@@ -573,6 +635,8 @@ export function publishCheck(facts: PublishFacts): PublishCheckItem[] {
 
   const item = (key: PublishCheckKey, required: boolean, issues: PublishIssue[]): PublishCheckItem => ({ key, required, passed: issues.length === 0, issues });
   const coverage: PublishIssue[] = (facts.pricingOutsideOperating ?? []).map((entry): PublishIssue => ({ path: `/areas/${entry.areaId}`, reason: "PRICING_AREA_OUTSIDE_OPERATING", detail: { outside_m2: entry.outsideM2 } }));
+  const above = facts.category === "charter" && facts.charterPackageHours !== undefined ? minPackageAboveAll(facts.serviceRules, facts.charterPackageHours) : null;
+  const minPackage: PublishIssue[] = above === null ? [] : [{ path: "/charter_itinerary/min_package_hours", reason: "MIN_PACKAGE_ABOVE_ALL", detail: { min_package_hours: above.minPackageHours, longest_package_hours: above.longestPackageHours } }];
   return [
     item("basic_info", true, basic),
     item("service_rules", true, rules),
@@ -581,6 +645,7 @@ export function publishCheck(facts: PublishFacts): PublishCheckItem[] {
     item("adjust_rules", false, adjust),
     item("inventory", false, inventory),
     ...(coverage.length === 0 ? [] : [item("area_coverage", false, coverage)]),
+    ...(minPackage.length === 0 ? [] : [item("charter_min_package", false, minPackage)]),
   ];
 }
 

@@ -52,6 +52,8 @@ import {
   isPickupPlaceType,
   minimumFreeWaitMinutes,
   normalizeServiceRules,
+  charterItineraryOf,
+  minPackageAboveAll,
   publishCheck,
   publishCheckSummary,
   serviceRuleIssues,
@@ -568,6 +570,7 @@ const RULE_MESSAGES: Readonly<Record<PublishIssueReason, string>> = {
   ADJUST_STACK_OVER_LIMIT: "调价规则生效时，有些价格调完超过了结算价的上限",
   NO_INVENTORY_AHEAD: "库存是限量的，但从今天起没有一天还有可售的库存，客人询价时报不出价",
   PRICING_AREA_OUTSIDE_OPERATING: "这个报价区域有一部分不在任何运营区域里，那部分不会报价。需要的话请补画运营区域",
+  MIN_PACKAGE_ABOVE_ALL: "最低套餐比这个商品所有启用的套餐都长，这个商品将报不出价",
   FEATURE_NOT_AVAILABLE: "这项功能还没有上线",
 };
 
@@ -578,6 +581,7 @@ function ruleMessage(issue: RuleIssue | PublishIssue): string {
   if (issue.reason === "TIER_NOT_WITHIN_LEAD_TIME" && detail["lead_time_hours"] !== undefined) return `加急的小时数不能超过提前预订时长（${detail["lead_time_hours"]} 小时）`;
   if (issue.reason === "OUT_OF_RANGE" && detail["min"] !== undefined && detail["max"] !== undefined) return `请填 ${detail["min"]} 到 ${detail["max"]} 之间的整数`;
   if (issue.reason === "BELOW_PLATFORM_MINIMUM" && detail["min"] !== undefined) return `不能短于平台规定的免等时长（${detail["min"]} 分钟）`;
+  if (issue.reason === "MIN_PACKAGE_ABOVE_ALL" && detail["min_package_hours"] !== undefined) return `最低套餐 ${detail["min_package_hours"]} 小时比这个商品所有启用的套餐（最长 ${detail["longest_package_hours"]} 小时）都长，这个商品将报不出价`;
   return RULE_MESSAGES[issue.reason];
 }
 
@@ -608,25 +612,43 @@ export interface ServiceRulesView {
   currency: CurrencyCode | null;
   /** 这个商品每一项免等最少要设多少分钟（平台规定）；这个品类不填的项是 null */
   freeWaitMinimums: Record<FreeWaitItem, number | null>;
+  /** 包车的最低套餐比所有启用的套餐都长（ADR 0091）：这个商品将报不出价，保存不拒、给提醒；没有这种情况为 null */
+  minPackageAboveAll: { minPackageHours: number; longestPackageHours: number } | null;
 }
 
+/** 包车商品现在选着的区域 × 车型组里启用、未过期的套餐时长（小时）：最低套餐的提醒用（ADR 0091），和上架检查同一个口径 */
+async function charterPackageHours(db: Db, tenantId: string, product: Product, now: Date): Promise<number[]> {
+  const view = await detail(db, tenantId, product);
+  const today = instantToLocal(now, view.city?.timezone ?? "UTC").date;
+  const selected = { areaIds: (view.areas ?? []).map((area) => area.areaId), vehicleGroupIds: (view.vehicleGroups ?? []).map((group) => group.vehicleGroupId) };
+  return packageHoursOf(sellablePriceRules(await listPriceRules(db, tenantId, product.id), selected, today));
+}
+
+/** 价格规则里包车套餐的时长 */
+const packageHoursOf = (rules: readonly StoredPriceRule[]): number[] => rules.flatMap((rule) => (rule.pricing.model === "charter_package" && rule.packageHours !== null ? [rule.packageHours] : []));
+
 /** 服务规则连同币种和平台规定的免等最低值。租户事务、平台事务（运营后台查看商品）都用它。 */
-export async function serviceRulesView(db: Db, tenantId: string, product: Product): Promise<ServiceRulesView> {
+export async function serviceRulesView(db: Db, tenantId: string, product: Product, now: Date): Promise<ServiceRulesView> {
   const context = await ruleContext(db, product);
   const applicable = freeWaitItems(product.category);
   const minimum = (item: FreeWaitItem): number | null => (applicable.includes(item) ? minimumFreeWaitMinutes(product.category, item, context.pickupPlace) : null);
+  const serviceRules = await effectiveServiceRules(db, product.serviceRules);
+  // 只有设了最低套餐的包车才去查套餐（别的商品不多查库）
+  const minPackage = product.category === "charter" && charterItineraryOf(serviceRules).minPackageHours !== null ? minPackageAboveAll(serviceRules, await charterPackageHours(db, tenantId, product, now)) : null;
   return {
-    product: { ...product, serviceRules: await effectiveServiceRules(db, product.serviceRules) },
+    product: { ...product, serviceRules },
     currency: (await findBrands(db, tenantId, [product.brandId])).get(product.brandId)?.currency ?? null,
     freeWaitMinimums: { pickup: minimum("pickup"), dropoff: minimum("dropoff"), general: minimum("general") },
+    minPackageAboveAll: minPackage,
   };
 }
 
 export async function getServiceRules(ctx: DbContext, tenantId: string, id: string): Promise<ServiceRulesView> {
+  const now = ctx.now();
   return readTx(ctx, tenantId, async (db) => {
     const product = await findProduct(db, tenantId, id, { lock: false });
     if (!product) throw notFound("商品");
-    return serviceRulesView(db, tenantId, product);
+    return serviceRulesView(db, tenantId, product, now);
   });
 }
 
@@ -634,14 +656,17 @@ export async function getServiceRules(ctx: DbContext, tenantId: string, id: stri
  * 整体保存服务规则。可以只填一部分（草稿）：只查填了的写得对不对。
  * 附加服务必须是平台目录里的；开着的必须是启用中、适用于这个品类的。
  * 存的是整理之后的一份（时段只留一种写法；「首个免费」只有按个计费的附加服务能设，别的计费方式下带了也当作没设，不拒绝）。
+ * 包车按行程计价的三项（`charterItinerary`，ADR 0091）：`input` 里没有这个键 = 保留原值（旧页面保存不会把它清掉）；给了三项默认值 = 清掉。
  */
-export async function putServiceRules(ctx: DbContext, writer: ProductWriter, id: string, expectedVersion: number, input: ServiceRules): Promise<ServiceRulesView> {
+export async function putServiceRules(ctx: DbContext, writer: ProductWriter, id: string, expectedVersion: number, given: ServiceRules): Promise<ServiceRulesView> {
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;
   return writeTx(ctx, tenantId, async (db) => {
     const current = await findProduct(db, tenantId, id, { lock: true });
     if (!current) throw notFound("商品");
     if (current.version !== expectedVersion) throw versionConflict(current.version);
+    const kept = current.serviceRules.charterItinerary;
+    const input: ServiceRules = given.charterItinerary === undefined && kept !== undefined ? { ...given, charterItinerary: kept } : given;
     // 已上架的商品开了新的附加服务：先和平台停用附加服务互斥，再查它们是不是启用的
     if (current.status === "published") await lockMasterReferences(db, current, [], input);
     const rules = await effectiveServiceRules(db, input);
@@ -655,7 +680,7 @@ export async function putServiceRules(ctx: DbContext, writer: ProductWriter, id:
       else if (chosen.enabled && !addon.categories.includes(current.category)) issues.push({ path: `${at}/addon_id`, reason: "ADDON_NOT_APPLICABLE", message: RULE_MESSAGES.ADDON_NOT_APPLICABLE });
     }
     if (issues.length > 0) invalid(issues);
-    if (isDeepStrictEqual(rules, current.serviceRules)) return serviceRulesView(db, tenantId, current);
+    if (isDeepStrictEqual(rules, current.serviceRules)) return serviceRulesView(db, tenantId, current, now);
     const updated = await updateProductRow(db, tenantId, id, { serviceRules: rules }, now);
     await assertStillPublishable(db, tenantId, updated, now);
     await audit(db, writer, now, {
@@ -665,7 +690,7 @@ export async function putServiceRules(ctx: DbContext, writer: ProductWriter, id:
       before: { service_rules: current.serviceRules as unknown as AuditValue },
       after: { service_rules: updated.serviceRules as unknown as AuditValue },
     });
-    return serviceRulesView(db, tenantId, updated);
+    return serviceRulesView(db, tenantId, updated, now);
   });
 }
 
@@ -804,6 +829,8 @@ async function runPublishCheck(db: Db, tenantId: string, product: Product, now: 
     adjustStackProblems: stacks,
     // 勾选的报价区域超出运营区域的部分（ADR 0075）：提醒、不拦上架；列表概况、修改保护不算
     ...(options.light === true ? {} : { pricingOutsideOperating: await pricingOutsideOperating(db, tenantId, product, view.areas ?? [], allPriceRules) }),
+    // 包车的最低套餐比所有启用的套餐都长时提醒（ADR 0091，不拦上架）
+    ...(product.category === "charter" ? { charterPackageHours: packageHoursOf(activePrices) } : {}),
   };
   return { items: publishCheck(facts), adjustRules: adjustRules.map((rule) => ({ id: rule.id, name: rule.name })), stacks };
 }

@@ -234,9 +234,16 @@ export function registerSalesRoutes(app: FastifyInstance, ctx: AppContext): void
         currency: input.currency,
       },
       // 一个价都报不出时另记「未覆盖需求」（ADR 0075）：限流按 API 客户端，渠道接口没有地点名称
-      { log: request.log, request: { ...input, service_time: input.service_time.toISOString() }, demand: { channelKind: "sales", sourceKey: principal.apiClientId, pickupName: null, dropoffName: null, log: request.log } },
+      // 包车：渠道选的时长比商品的最低套餐短时不报（ADR 0091 待确认第 3 条推荐「拦」，同一个商品对所有渠道同一口径）
+      {
+        log: request.log,
+        request: { ...input, service_time: input.service_time.toISOString() },
+        demand: { channelKind: "sales", sourceKey: principal.apiClientId, pickupName: null, dropoffName: null, log: request.log },
+        ...(input.category === "charter" ? { packageCheck: "manual" as const } : {}),
+      },
     );
-    return { quotes: result.quotes.map(quoteJson), unavailable: result.unavailable.map((entry) => ({ vehicle_group_id: entry.vehicleGroupId, reasons: entry.reasons })) };
+    // `min_package_hours`：原因里有 PACKAGE_TOO_SHORT 时才给（ADR 0091）
+    return { quotes: result.quotes.map(quoteJson), unavailable: result.unavailable.map((entry) => ({ vehicle_group_id: entry.vehicleGroupId, reasons: entry.reasons, ...(entry.minPackageHours === undefined ? {} : { min_package_hours: entry.minPackageHours }) })) };
   });
 
   app.post("/sales/v1/orders", async (request, reply) => {

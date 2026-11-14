@@ -41,7 +41,7 @@ import {
   surchargeAreaIds,
   tripPrice,
 } from "./pricing.ts";
-import { type FreeWait, type ProductStatus, type ServiceRules, addonAllowsFirstFree, effectiveFreeWait, freeWaitItems, minimumFreeWaitMinutes } from "./products.ts";
+import { type FreeWait, type ProductStatus, type ServiceRules, addonAllowsFirstFree, charterItineraryOf, effectiveFreeWait, freeWaitItems, minimumFreeWaitMinutes } from "./products.ts";
 import { type SiteAudience, listedFor } from "./qa-acceptance.ts";
 import { type UrgentTier, checkBookingWindow, instantToLocal, localDateTimeToInstant, overlapMinutes } from "./service-time.ts";
 
@@ -311,6 +311,10 @@ export const QUOTE_REFUSALS = [
   "PRICE_NOT_POSITIVE",
   /** 结算价超过了上限 */
   "PRICE_OVER_LIMIT",
+  /** 包车：这一档比商品设的最低套餐短（ADR 0091）。只在服务层传了 `packageCheck` 时判断；对外报 `PACKAGE_TOO_SHORT` */
+  "BELOW_MIN_PACKAGE",
+  /** 包车按行程计价：这一档比这个商品算出的预计用时 T 短（ADR 0091）。只在 `packageCheck` 是 auto（或带行程的 manual）时判断 */
+  "PACKAGE_TOO_SHORT",
 ] as const;
 export type QuoteRefusal = (typeof QUOTE_REFUSALS)[number];
 
@@ -391,6 +395,7 @@ export interface SettlementBreakdown {
 /** 包车按行程计价的超公里、超时（结算价）。金额是各自四舍五入到最小单位的数（展示用），结算价用的是精确值 */
 export interface ItineraryBreakdown {
   routeMeters: number;
+  /** 行驶 + 停留（`routeUsage.minutes`），不含经停点默认占用和整单缓冲 */
   routeMinutes: number;
   packageKm: number;
   packageMinutes: number;
@@ -400,6 +405,51 @@ export interface ItineraryBreakdown {
   overtimePerHourMinor: number;
   overKmMinor: number;
   overtimeMinor: number;
+  /**
+   * 经停点默认占用、整单缓冲（ADR 0091）：经停点个数、两项配置（分钟）和预计用时 T（= 行驶 + 停留 + 个数 × 占用 + 缓冲，超时按它算）。
+   * 只在占用或缓冲不为 0 时写（默认值下明细和以前逐字一样）；改期、救援传 `lockedItinerary` 时原样写回。四项同时有或同时没有
+   */
+  stops?: number;
+  stopOccupancyMinutes?: number;
+  bufferMinutes?: number;
+  estimatedMinutes?: number;
+}
+
+/**
+ * 服务层怎么做选档判断（ADR 0091 第二节第 3 小节）。不传（改期、救援、平台试算、回放、golden）= 不做任何判断，和以前逐字一样。
+ * - `auto`：按行程计价第一轮——档 < 最低套餐 → `BELOW_MIN_PACKAGE`；档 × 60 < T → `PACKAGE_TOO_SHORT`；
+ * - `fallback`：按行程计价第二轮（退路）——只判最低套餐，比 T 短也报（加超时费）；
+ * - `manual`：客人自选时长——只判最低套餐；带了行程（`routeUsage`）时另判 T（同 `auto`）。
+ * 传了时超时费的用时按 T（`routeUsage` 给了才有）。可以按车型组给不同的判断（客人手动升档时，ADR 0091 第三节第 1 小节）。
+ * 不是 `QuoteRequest` 的一部分：不进报价快照的 `request`，也不进询价日志。
+ */
+export type PackageCheck = "auto" | "fallback" | "manual";
+
+/**
+ * 订单锁定的预计用时（ADR 0091 第四节第 2 小节）：改期、救援从订单结算价明细的 `itinerary` 读出来传给引擎（只在明细里有 `estimatedMinutes` 时）。
+ * 引擎按 `estimatedMinutes` 算超时，并把四项原样写进新的结算价明细；要求请求带 `routeUsage`、`estimatedMinutes` 不小于 `routeUsage.minutes`。
+ * 不是 `QuoteRequest` 的一部分：不进报价快照的 `request`。
+ */
+export interface LockedItinerary {
+  stops: number;
+  stopOccupancyMinutes: number;
+  bufferMinutes: number;
+  estimatedMinutes: number;
+}
+
+/** 订单结算价明细里锁定的预计用时：有 `estimatedMinutes`（下单时占用或缓冲不为 0）才有，否则 null（照旧按 `routeUsage.minutes`） */
+export function lockedItineraryOf(itinerary: ItineraryBreakdown | null | undefined): LockedItinerary | null {
+  if (itinerary === undefined || itinerary === null || itinerary.estimatedMinutes === undefined) return null;
+  return { stops: itinerary.stops ?? 0, stopOccupancyMinutes: itinerary.stopOccupancyMinutes ?? 0, bufferMinutes: itinerary.bufferMinutes ?? 0, estimatedMinutes: itinerary.estimatedMinutes };
+}
+
+/** 引擎的调用参数：选档判断（只由服务层的新询价传）和改期 / 救援锁定的预计用时 */
+export interface QuoteOptions {
+  forOwner?: boolean;
+  audience?: SiteAudience;
+  legacyAreaRules?: boolean;
+  packageCheck?: PackageCheck | ((vehicleGroupId: string) => PackageCheck);
+  lockedItinerary?: LockedItinerary;
 }
 
 /**
@@ -479,6 +529,8 @@ export interface VehicleRefusal {
   vehicleGroupId: string;
   reason: QuoteRefusal;
   stopSeq?: number;
+  /** `BELOW_MIN_PACKAGE`、`PACKAGE_TOO_SHORT`：这个商品能接受的最短档（小时）= max(最低套餐, ⌈T ÷ 60⌉)（ADR 0091） */
+  minPackageHours?: number;
 }
 
 const ZERO: ExactAmount = { numerator: 0n, denominator: 1n };
@@ -668,9 +720,12 @@ function linePairs(product: QuoteProduct, usable: readonly string[], pickup: Lat
   return pickupIds.flatMap((areaId) => dropoffIds.filter((toAreaId) => toAreaId !== areaId).map((toAreaId): [string, string] => [areaId, toAreaId]));
 }
 
-/** 包车按行程计价的超公里、超时明细（结算价，ADR 0088 补充）：和 `basePrice` 同一个公式（`charterOverage`） */
-function itineraryOf(pricing: CharterPackagePricing, route: RouteEstimate, packageHours: number | null): ItineraryBreakdown {
-  const overage = charterOverage(pricing, route, packageHours);
+/**
+ * 包车按行程计价的超公里、超时明细（结算价，ADR 0088 补充）：和 `basePrice` 同一个公式（`charterOverage`）。
+ * `estimate` 是 ADR 0091 的预计用时（超时按它的 `estimatedMinutes` 算，四项写进明细）；没有时按 `route.minutes`，和以前一样
+ */
+function itineraryOf(pricing: CharterPackagePricing, route: RouteEstimate, packageHours: number | null, estimate: LockedItinerary | null): ItineraryBreakdown {
+  const overage = charterOverage(pricing, estimate === null ? route : { meters: route.meters, minutes: estimate.estimatedMinutes }, packageHours);
   return {
     routeMeters: route.meters,
     routeMinutes: route.minutes,
@@ -682,7 +737,18 @@ function itineraryOf(pricing: CharterPackagePricing, route: RouteEstimate, packa
     overtimePerHourMinor: pricing.overtimePerHourMinor,
     overKmMinor: roundMinor(overage.overKm),
     overtimeMinor: roundMinor(overage.overtime),
+    ...(estimate === null ? {} : { stops: estimate.stops, stopOccupancyMinutes: estimate.stopOccupancyMinutes, bufferMinutes: estimate.bufferMinutes, estimatedMinutes: estimate.estimatedMinutes }),
   };
+}
+
+/**
+ * 预计用时 T（ADR 0091 第二节第 1 小节）= 行驶 + 停留（`routeUsage.minutes`）+ 经停点个数 × 经停点默认占用 + 整单缓冲，按商品的配置。
+ * `minutes` 是 T；`breakdown` 是要写进结算价明细的四项——只在占用或缓冲不为 0 时有（默认值下明细和以前逐字一样）。
+ */
+export function itineraryEstimate(rules: Pick<ServiceRules, "charterItinerary">, routeUsage: Pick<RouteUsage, "minutes">, stops: number): { minutes: number; breakdown: LockedItinerary | null } {
+  const config = charterItineraryOf(rules);
+  const minutes = routeUsage.minutes + stops * config.stopOccupancyMinutes + config.bufferMinutes;
+  return { minutes, breakdown: config.stopOccupancyMinutes === 0 && config.bufferMinutes === 0 ? null : { stops, stopOccupancyMinutes: config.stopOccupancyMinutes, bufferMinutes: config.bufferMinutes, estimatedMinutes: minutes } };
 }
 
 /** 含公里数的一口价在这段路线上的明细（结算价）。 */
@@ -761,8 +827,14 @@ function addonCharges(product: QuoteProduct, request: QuoteRequest, durationMinu
  * `audience`：`acceptance` 是测试环境的验收会话（M8-26，ADR 0078）——只认测试供应商的「验收可售」商品，不看入驻状态；不给是普通客人（只认已上架）。
  * 请求本身写得对不对由 `quoteRequestIssues` 查，这里假定是对的。
  */
-export function quoteProduct(product: QuoteProduct, request: QuoteRequest, moment: QuoteMoment, options: { forOwner?: boolean; audience?: SiteAudience; legacyAreaRules?: boolean } = {}): ProductQuote {
+export function quoteProduct(product: QuoteProduct, request: QuoteRequest, moment: QuoteMoment, options: QuoteOptions = {}): ProductQuote {
   const refuse = (reason: QuoteRefusal): ProductQuote => ({ ok: false, productId: product.productId, tenantId: product.tenantId, reason });
+  // 改期、救援传的锁定用时（ADR 0091）：必须同时有行程，而且不比「行驶 + 停留」短——不满足说明数据坏了，当程序错误，不悄悄吞掉
+  const locked = options.lockedItinerary ?? null;
+  if (locked !== null) {
+    if (options.packageCheck !== undefined) throw new Error("lockedItinerary 只给改期、救援用，不能和 packageCheck 一起传");
+    if (request.routeUsage === undefined || !Number.isSafeInteger(locked.estimatedMinutes) || locked.estimatedMinutes < request.routeUsage.minutes) throw new Error("lockedItinerary 要求请求带 routeUsage，且 estimatedMinutes 不小于 routeUsage.minutes");
+  }
   // 第 2 步：已上架、供应商和子品牌启用中（城市、品类、接送点由找商品的那一层筛）
   if (options.forOwner !== true) {
     const refusal = listedFor(options.audience ?? "public", product);
@@ -817,7 +889,10 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
   const freeWait: SettlementBreakdown["freeWait"] = { item, value: effectiveFreeWait(product.category, product.serviceRules.freeWait[item]), platformMinimumMinutes: minimumFreeWaitMinutes(product.category, item, product.pickupPlace) };
   // 包车报价时 H = 套餐时长、里程不超套餐（超时、超公里履约后按实际结算），不看路线预估；其他品类把预估交给计价公式
   // 包车按行程计价（ADR 0088 补充）时用服务器估的全程和总时长：超时、超公里由套餐公式算出，和套餐价一起过调价；不按行程计价的照旧不看用量
-  const usage: TripUsage = product.category === "charter" ? (request.routeUsage === undefined ? {} : { meters: request.routeUsage.meters, minutes: request.routeUsage.minutes }) : moment.route === null ? {} : { meters: moment.route.meters, minutes: moment.route.minutes };
+  // 预计用时（ADR 0091）：传了 packageCheck 时按商品配置算 T（超时按 T），改期、救援按锁定的；都没有时就是「行驶 + 停留」，和以前一样
+  const estimate = product.category !== "charter" || request.routeUsage === undefined ? null : locked !== null ? { minutes: locked.estimatedMinutes, breakdown: locked } : options.packageCheck !== undefined ? itineraryEstimate(product.serviceRules, request.routeUsage, waypointsOf(request).length) : null;
+  const usage: TripUsage = product.category === "charter" ? (request.routeUsage === undefined ? {} : { meters: request.routeUsage.meters, minutes: estimate?.minutes ?? request.routeUsage.minutes }) : moment.route === null ? {} : { meters: moment.route.meters, minutes: moment.route.minutes };
+  const minPackageHours = product.category === "charter" ? charterItineraryOf(product.serviceRules).minPackageHours : null;
 
   const offers: VehicleOffer[] = [];
   const refused: VehicleRefusal[] = [];
@@ -837,6 +912,20 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
     if (request.passengers > group.passengers || request.luggage > group.luggage) {
       refused.push({ vehicleGroupId, reason: "CAPACITY_EXCEEDED" });
       continue;
+    }
+    // 选档判断（ADR 0091 第二节第 3 小节）：只在服务层传了 packageCheck 时做
+    const check = typeof options.packageCheck === "function" ? options.packageCheck(vehicleGroupId) : options.packageCheck;
+    if (check !== undefined && product.category === "charter" && request.packageHours !== null) {
+      const judged = estimate !== null && (check === "auto" || check === "manual") ? estimate.minutes : null;
+      const needHours = Math.max(minPackageHours ?? 0, judged === null ? 0 : Math.ceil(judged / 60));
+      if (minPackageHours !== null && request.packageHours < minPackageHours) {
+        refused.push({ vehicleGroupId, reason: "BELOW_MIN_PACKAGE", minPackageHours: needHours });
+        continue;
+      }
+      if (judged !== null && request.packageHours * 60 < judged) {
+        refused.push({ vehicleGroupId, reason: "PACKAGE_TOO_SHORT", minPackageHours: needHours });
+        continue;
+      }
     }
     // 包车的区域加价：上车、下车两端各取这一端最小的加价（在商品本身的区域里是 0）；有一端没有能用的加价，这个车型组不报
     let surcharge: Omit<AreaSurchargeBreakdown, "packageMinor"> | null = null;
@@ -1033,7 +1122,7 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
         overLimit: priced.noPriceReason === "OVER_LIMIT",
         // 含公里数的一口价也记下用到的路线预估：改期重算时用同一段路线（距离报价时锁定）
         usage: pricing.model === "mileage_time" || withKm ? moment.route : null,
-        extra: withKm && moment.route !== null ? { distance: distanceOf(pricing, moment.route.meters) } : pricing.model === "charter_package" && request.routeUsage !== undefined ? { itinerary: itineraryOf(pricing, request.routeUsage, request.packageHours) } : {},
+        extra: withKm && moment.route !== null ? { distance: distanceOf(pricing, moment.route.meters) } : pricing.model === "charter_package" && request.routeUsage !== undefined ? { itinerary: itineraryOf(pricing, request.routeUsage, request.packageHours, estimate?.breakdown ?? null) } : {},
       });
     }
     if (best !== null) offers.push(best);
@@ -1423,7 +1512,7 @@ export interface QuoteComparison {
   /** 每个车型组（包车再按套餐）一组，只有一个中标价；按车型组编号排 */
   groups: ComparisonGroup[];
   /** 没能参加比价的：商品层面的（`vehicleGroupId` 为 null）和某个车型组的；`WAYPOINT_NOT_PRICED` 带上是第几个经停点（ADR 0088） */
-  refused: { tenantId: string; productId: string; vehicleGroupId: string | null; reason: ComparisonRefusal; stopSeq?: number }[];
+  refused: { tenantId: string; productId: string; vehicleGroupId: string | null; reason: ComparisonRefusal; stopSeq?: number; minPackageHours?: number }[];
 }
 
 /**
@@ -1443,7 +1532,7 @@ export function compareQuotes(input: { request: QuoteRequest; currency: Currency
       refused.push({ tenantId: quote.tenantId, productId: quote.productId, vehicleGroupId: null, reason: quote.reason });
       continue;
     }
-    for (const item of quote.refused) refused.push({ tenantId: quote.tenantId, productId: quote.productId, vehicleGroupId: item.vehicleGroupId, reason: item.reason, ...(item.stopSeq === undefined ? {} : { stopSeq: item.stopSeq }) });
+    for (const item of quote.refused) refused.push({ tenantId: quote.tenantId, productId: quote.productId, vehicleGroupId: item.vehicleGroupId, reason: item.reason, ...(item.stopSeq === undefined ? {} : { stopSeq: item.stopSeq }), ...(item.minPackageHours === undefined ? {} : { minPackageHours: item.minPackageHours }) });
     for (const offer of quote.offers) {
       const sell = sellPrice({
         settlementMinor: offer.settlement.totalMinor,

@@ -101,7 +101,8 @@ import { type SalesRateScope, rateLimited, takeRateSlot } from "./rate-limit.ts"
 import { lastUsedIsStale } from "./sales-auth.ts";
 import type { SalesPrincipal } from "./sales-auth.ts";
 import { type SalesQuote, type SalesQuoteResult, type SalesUnavailableReason, createSalesQuotes } from "./sales-quotes.ts";
-import { type DemandSource, recordUncoveredDemandLater } from "./uncovered-demands.ts";
+import type { ItineraryQuoteOptions } from "./quotes.ts";
+import { type DemandFacts, type DemandSource, recordUncoveredDemandLater } from "./uncovered-demands.ts";
 
 /** 官网卖的品类：接送机（M3-05）、点对点和包车（M3-10，ADR 0035）。和需求的三种品类一致；渠道没授权的品类照样不卖。 */
 export const SITE_CATEGORIES: readonly ServiceCategory[] = ["airport_transfer", "point_to_point", "charter"];
@@ -476,9 +477,10 @@ export type SiteTrip =
   | { category: "charter"; pickup: Point; dropoff: Point | null; packageHours: number; waypoints?: SiteWaypoint[]; routeUsage?: RouteUsage }
   /**
    * 包车按行程计价（ADR 0088 补充「最终报价公式」）：不选套餐——服务器按上车点 → 经停点 → 下车点逐段估路线，
-   * 总时长 = 各段行驶 + 各点停留，按总时长选套餐（`siteQuotes` 里的 `itineraryQuotes`）
+   * 总时长 = 各段行驶 + 各点停留，按预计用时选套餐（`siteQuotes` 里的 `itineraryQuotes`，ADR 0091）。
+   * `packageHours`：客人手动升的套餐（ADR 0091 第三节第 1 小节）——不短于这个车型组的自动档就报，短于就报 `PACKAGE_TOO_SHORT`
    */
-  | { category: "charter_itinerary"; pickup: Point; dropoff: Point; waypoints: SiteWaypoint[] };
+  | { category: "charter_itinerary"; pickup: Point; dropoff: Point; waypoints: SiteWaypoint[]; packageHours?: number };
 
 /** 包车的一个经停点（ADR 0088）：名称、坐标、停留分钟。原样进报价快照的 `snapshot.request.waypoints`，下单时抄进订单 */
 export interface SiteWaypoint {
@@ -501,6 +503,12 @@ export interface SiteQuoteInput {
   demand?: SiteDemand;
   /** 普通客人（默认）还是验收会话（M8-26，ADR 0078：只报 QA 测试供应商的验收可售商品，报价标成验收的） */
   audience?: SiteAudience;
+  /**
+   * 包车的选档判断（ADR 0091）：只由按行程计价逐档询价时传（auto / fallback / 按车型组）；不传时包车按客人自选时长（manual），别的品类不判断
+   */
+  packageCheck?: ItineraryQuoteOptions["packageCheck"];
+  /** 不在这一次询价里记「未覆盖需求」，没报出价时把事实放进结果，由按行程计价等最终结果再记（ADR 0091） */
+  deferDemand?: boolean;
 }
 
 /**
@@ -531,6 +539,8 @@ export interface SiteQuote extends SalesQuote {
   cancelPolicy: SiteCancelPolicy;
   /** 这个车型还能加哪些附加服务（参加比价的供应商里有人提供的；只有目录信息，不带任何单价，M8-02） */
   availableAddons: SiteAddonInfo[];
+  /** 包车按行程计价：这个车型组自动选出的那一档（= 客人能选的最短档，ADR 0091）；客人手动升档时也给 */
+  autoPackageHours?: number;
 }
 
 export interface SiteQuoteResult {
@@ -539,6 +549,10 @@ export interface SiteQuoteResult {
   /** 包车按行程计价时服务器算的路线（逐段、合计）；别的询价没有 */
   itinerary?: SiteItinerary;
   unavailable: SalesQuoteResult["unavailable"];
+  /** 平台内部：这次比价的全部拒绝（按行程计价判断要不要重询，ADR 0091） */
+  refused?: SalesQuoteResult["refused"];
+  /** 平台内部：`deferDemand` 而没报出价时这次询价的事实 */
+  demandFacts?: DemandFacts;
 }
 
 /** 包车按行程计价的路线（ADR 0088 补充）：逐段行驶（上车点 → 经停点 → 下车点）、行驶合计、停留合计、总时长、全程米数 */
@@ -583,10 +597,71 @@ async function itineraryRoute(ctx: AppContext, trip: Extract<SiteTrip, { categor
   return { legs, driveMinutes, stayMinutes, totalMinutes: driveMinutes + stayMinutes, totalMeters: legs.reduce((sum, leg) => sum + leg.meters, 0) };
 }
 
+type PackageMode = "auto" | "fallback";
+
+/** 自动选档的结果：每个车型组选中的那一档、报价和它是哪一轮选出来的；询过的每一档（按「判断|时长」）的结果，客人手动升档时复用 */
+interface AutoPackages {
+  chosen: Map<string, { quote: SiteQuote; hours: number; mode: PackageMode }>;
+  asked: Map<string, SiteQuoteResult>;
+  /** 按询价的先后 */
+  results: SiteQuoteResult[];
+}
+
 /**
- * 包车按行程计价（ADR 0088 补充）：先核城市、查这个城市能选的套餐（没有就 NO_PRODUCT，不估路线、应答里也没有 itinerary_route），再估路线，按套餐时长逐个询价（带上全程和总时长，超公里、超时由引擎算），
- * 每个车型组取「能覆盖总时长的最小套餐」那一档的报价；所有套餐都覆盖不了（或覆盖的那几档这个车型组报不出）时取报得出的最大套餐（加超时费）。
- * 一个车型组只留一个报价；都报不出时原因用最先试的那一档的。
+ * 按行程计价的自动选档（ADR 0091 第二节第 4 小节）：
+ * - 第一轮（`auto`）：不短于「行驶 + 停留」的档从短到长逐档询价（和以前第一轮询的档相同），引擎按各商品的预计用时 T 和最低套餐判断；
+ * - 第二轮（`fallback`）：从长到短——比「行驶 + 停留」短的档照旧每次都询；不短于的档只在第一轮这一档有车型组因 `PACKAGE_TOO_SHORT` 被拒、
+ *   而这个车型组到第一轮结束还没报出时重询（T 超过最长档时报「最长档 + 超时」，不退到更短的档）。
+ * 每个车型组取最先报出的那一档。三项都是默认值时不会出现 `PACKAGE_TOO_SHORT`，询的档、快照、询价日志和以前逐字一样。
+ */
+async function autoPackages(packages: readonly number[], baseMinutes: number, ask: (hours: number, mode: PackageMode) => Promise<SiteQuoteResult>): Promise<AutoPackages> {
+  const chosen: AutoPackages["chosen"] = new Map();
+  const asked: AutoPackages["asked"] = new Map();
+  const results: SiteQuoteResult[] = [];
+  const run = async (hours: number, mode: PackageMode): Promise<SiteQuoteResult> => {
+    const result = await ask(hours, mode);
+    asked.set(`${mode}|${hours}`, result);
+    results.push(result);
+    for (const quote of result.quotes) if (!chosen.has(quote.vehicleGroupId)) chosen.set(quote.vehicleGroupId, { quote, hours, mode });
+    return result;
+  };
+  const covering = packages.filter((hours) => hours * 60 >= baseMinutes);
+  const tooShort = new Map<number, Set<string>>();
+  for (const hours of covering) {
+    const result = await run(hours, "auto");
+    const groups = new Set((result.refused ?? []).flatMap((entry) => (entry.reason === "PACKAGE_TOO_SHORT" && entry.vehicleGroupId !== null ? [entry.vehicleGroupId] : [])));
+    if (groups.size > 0) tooShort.set(hours, groups);
+  }
+  const retry = covering.filter((hours) => [...(tooShort.get(hours) ?? [])].some((group) => !chosen.has(group)));
+  const shorter = packages.filter((hours) => hours * 60 < baseMinutes);
+  for (const hours of [...retry, ...shorter].sort((a, b) => b - a)) await run(hours, "fallback");
+  return { chosen, asked, results };
+}
+
+/**
+ * 各档都报不出时对外的原因（ADR 0091 第四节第 3 小节）：各档最终结果的原因合并、去重，经停点合并。
+ * 自动选档里「档比预计用时 / 最低套餐短」不是客人能改的（不让客人选档），不对外报；合并后什么都不剩时报 NOT_AVAILABLE。
+ */
+function mergedUnavailable(results: readonly SiteQuoteResult[]): SiteQuoteResult["unavailable"] {
+  const reasons = new Set(results.flatMap((result) => result.unavailable.flatMap((entry) => entry.reasons)));
+  reasons.delete("PACKAGE_TOO_SHORT");
+  const stopSeqs = [...new Set(results.flatMap((result) => result.unavailable.flatMap((entry) => entry.stopSeqs ?? [])))].sort((a, b) => a - b);
+  return [{ vehicleGroupId: null, reasons: reasons.size === 0 ? ["NOT_AVAILABLE"] : [...reasons].sort(), ...(stopSeqs.length === 0 ? {} : { stopSeqs }) }];
+}
+
+/** 各档都报不出时的「未覆盖需求」：只记一次，事实取第一档那次询价的，拒绝原因用各档合起来的（ADR 0091 第三节第 1 小节） */
+function mergedDemand(results: readonly SiteQuoteResult[]): DemandFacts | null {
+  const facts = results.flatMap((result) => (result.demandFacts === undefined ? [] : [result.demandFacts]));
+  const first = facts[0];
+  return first === undefined ? null : { ...first, refusals: facts.flatMap((entry) => entry.refusals) };
+}
+
+/**
+ * 包车按行程计价（ADR 0088 补充、ADR 0091）：先核城市、查这个城市能选的套餐（没有就 NO_PRODUCT，不估路线、应答里也没有 itinerary_route），再估路线，
+ * 按套餐时长逐档询价（带上全程和总时长，超公里、超时由引擎算），每个车型组取自动选出的那一档（`autoPackages`）。
+ * 一个车型组只留一个报价；全部车型组都报不出时原因用各档合并的，「未覆盖需求」只记一次。
+ * 客人带了 `packageHours`（手动升档）：先自动选一遍档，再询客人选的那一档——不短于这个车型组自动档的放行（自动档来自第一轮的按 `auto` 判断，
+ * 来自退路的按 `fallback`），短于的报 `PACKAGE_TOO_SHORT`、`minPackageHours` = 自动档；自动选档时已用同一种判断询过这一档的直接复用结果。
  */
 async function itineraryQuotes(ctx: AppContext, input: SiteQuoteInput, trip: Extract<SiteTrip, { category: "charter_itinerary" }>, logExtra: Record<string, unknown>): Promise<SiteQuoteResult> {
   // 先核城市、查套餐，再估路线（M9W-06）：城市不对和普通询价一样 400 `UNKNOWN_CITY`；没有能选的套餐直接 `NO_PRODUCT`，都不调谷歌
@@ -598,23 +673,34 @@ async function itineraryQuotes(ctx: AppContext, input: SiteQuoteInput, trip: Ext
   const packages = await siteCharterPackages(ctx, input.cityId, input.audience ?? "public");
   if (packages.length === 0) return { currency: channel.settleCurrency, quotes: [], unavailable: [{ vehicleGroupId: null, reasons: ["NO_PRODUCT"] }] };
   const itinerary = await itineraryRoute(ctx, trip);
-  const covering = packages.filter((hours) => hours * 60 >= itinerary.totalMinutes);
-  const shorter = packages.filter((hours) => hours * 60 < itinerary.totalMinutes).reverse();
-  const order = [...covering, ...shorter];
   const routeUsage: RouteUsage = { meters: itinerary.totalMeters, minutes: itinerary.totalMinutes, legs: itinerary.legs, stayMinutes: itinerary.stayMinutes };
-  const chosen = new Map<string, SiteQuote>();
-  let first: SiteQuoteResult | null = null;
-  // 「未覆盖需求」只在第一档报不出时记一次
+  // 各档询价都不记「未覆盖需求」，等最终结果出来再决定（ADR 0091）
   const { demand, ...rest } = input;
-  for (const packageHours of order) {
-    const result = await siteQuotes(ctx, { ...rest, ...(first === null && demand !== undefined ? { demand } : {}), trip: { category: "charter", pickup: trip.pickup, dropoff: trip.dropoff, packageHours, waypoints: trip.waypoints, routeUsage } }, logExtra);
-    first ??= result;
-    for (const quote of result.quotes) if (!chosen.has(quote.vehicleGroupId)) chosen.set(quote.vehicleGroupId, quote);
+  const ask = (packageHours: number, packageCheck: NonNullable<SiteQuoteInput["packageCheck"]>): Promise<SiteQuoteResult> =>
+    siteQuotes(ctx, { ...rest, packageCheck, deferDemand: true, trip: { category: "charter", pickup: trip.pickup, dropoff: trip.dropoff, packageHours, waypoints: trip.waypoints, routeUsage } }, logExtra);
+  const auto = await autoPackages(packages, itinerary.totalMinutes, ask);
+  const currency = auto.results[0]?.currency ?? channel.settleCurrency;
+  const byPrice = (a: SiteQuote, b: SiteQuote): number => a.sellMinor - b.sellMinor || a.vehicleGroup.seats - b.vehicleGroup.seats;
+  if (auto.chosen.size === 0) {
+    const facts = mergedDemand(auto.results);
+    if (facts !== null && demand !== undefined) recordUncoveredDemandLater(ctx, demandSource(demand), facts);
+    return { currency, quotes: [], unavailable: mergedUnavailable(auto.results), itinerary };
   }
-  const quotes = [...chosen.values()].sort((a, b) => a.sellMinor - b.sellMinor || a.vehicleGroup.seats - b.vehicleGroup.seats);
-  const currency = first?.currency ?? channel.settleCurrency;
-  const unavailable: SiteQuoteResult["unavailable"] = quotes.length > 0 ? [] : (first?.unavailable ?? [{ vehicleGroupId: null, reasons: ["NO_PRODUCT"] }]);
-  return { currency, quotes, unavailable, itinerary };
+  const chosen = [...auto.chosen.entries()];
+  const wanted = trip.packageHours;
+  if (wanted === undefined) return { currency, quotes: chosen.map(([, entry]) => ({ ...entry.quote, autoPackageHours: entry.hours })).sort(byPrice), unavailable: [], itinerary };
+
+  // 客人手动升档：短于自动档的车型组不报；其余按自动档的同一种判断询这一档（询过的复用）
+  const allowed = chosen.filter(([, entry]) => entry.hours <= wanted);
+  const cached = (mode: PackageMode): SiteQuoteResult | undefined => auto.asked.get(`${mode}|${wanted}`);
+  const fresh = allowed.some(([, entry]) => cached(entry.mode) === undefined) ? await ask(wanted, (vehicleGroupId) => auto.chosen.get(vehicleGroupId)?.mode ?? "auto") : null;
+  const quotes = allowed.flatMap(([vehicleGroupId, entry]): SiteQuote[] => {
+    const quote = (cached(entry.mode) ?? fresh)?.quotes.find((item) => item.vehicleGroupId === vehicleGroupId);
+    return quote === undefined ? [] : [{ ...quote, autoPackageHours: entry.hours }];
+  });
+  const tooShort: SiteQuoteResult["unavailable"] = chosen.filter(([, entry]) => entry.hours > wanted).map(([vehicleGroupId, entry]) => ({ vehicleGroupId, reasons: ["PACKAGE_TOO_SHORT"], minPackageHours: entry.hours }));
+  const unavailable = quotes.length > 0 || tooShort.length > 0 ? tooShort : mergedUnavailable(fresh === null ? allowed.flatMap(([, entry]) => cached(entry.mode) ?? []) : [fresh]);
+  return { currency, quotes: quotes.sort(byPrice), unavailable, itinerary };
 }
 
 /** 询价请求里给渠道询价用的那几项（各品类的起终点、方向、套餐），和询价日志里记的原始请求。 */
@@ -692,7 +778,14 @@ export async function siteQuotes(ctx: AppContext, input: SiteQuoteInput, logExtr
       ...(sales.waypoints.length === 0 ? {} : { waypoints: sales.waypoints }),
       ...(sales.routeUsage === null ? {} : { routeUsage: sales.routeUsage }),
     },
-    { request: { ...sales.request, ...logExtra }, ...(input.demand === undefined ? {} : { demand: demandSource(input.demand) }), ...(input.audience === "acceptance" ? { audience: "acceptance" as const } : {}) },
+    {
+      request: { ...sales.request, ...logExtra },
+      ...(input.demand === undefined ? {} : { demand: demandSource(input.demand) }),
+      ...(input.deferDemand === true ? { deferDemand: true } : {}),
+      ...(input.audience === "acceptance" ? { audience: "acceptance" as const } : {}),
+      // 包车：按行程计价逐档询价时由调用方给判断；客人自选时长的只判最低套餐（ADR 0091）
+      ...(trip.category === "charter" ? { packageCheck: input.packageCheck ?? ("manual" as const) } : {}),
+    },
   );
   const { groups, policy, packageKm, addons, areaNames } = await withPlatformTx(
     ctx.pool,
@@ -715,7 +808,20 @@ export async function siteQuotes(ctx: AppContext, input: SiteQuoteInput, logExtr
   });
   // 价低的在前：客人先看到最便宜的
   quotes.sort((a, b) => a.sellMinor - b.sellMinor || a.vehicleGroup.seats - b.vehicleGroup.seats);
-  return { currency: channel.settleCurrency, quotes, unavailable: result.unavailable };
+  // 客人自选时长选短了（ADR 0091）：「改选 X 小时」的 X 取这个城市能选的、不短于各商品最短档的那一档（没有这样的档时照原数）
+  const unavailable = trip.category === "charter" && input.packageCheck === undefined ? await roundUpMinPackage(ctx, input, result.unavailable) : result.unavailable;
+  return { currency: channel.settleCurrency, quotes, unavailable, ...(result.refused === undefined ? {} : { refused: result.refused }), ...(result.demandFacts === undefined ? {} : { demandFacts: result.demandFacts }) };
+}
+
+/** 报不出的原因里有 PACKAGE_TOO_SHORT 时，把 `minPackageHours` 进到这个城市能选的套餐档上（只在出现这种原因时多查一次档次） */
+async function roundUpMinPackage(ctx: AppContext, input: SiteQuoteInput, unavailable: SiteQuoteResult["unavailable"]): Promise<SiteQuoteResult["unavailable"]> {
+  if (!unavailable.some((entry) => entry.minPackageHours !== undefined)) return unavailable;
+  const packages = await siteCharterPackages(ctx, input.cityId, input.audience ?? "public");
+  return unavailable.map((entry) => {
+    if (entry.minPackageHours === undefined) return entry;
+    const minimum = entry.minPackageHours;
+    return { ...entry, minPackageHours: packages.find((hours) => hours >= minimum) ?? minimum };
+  });
 }
 
 /** 按两个坐标报价的一端（M8-02，ADR 0069 A1）：坐标和地址搜索给的类型（手填、地图选点的为 null）。名称只用来校验，不进日志。 */

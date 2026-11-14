@@ -24,6 +24,7 @@ import {
   type OrderStatus,
   type PlatformDataScope,
   type QuoteRequest,
+  lockedItineraryOf,
   RESCUE_RULES,
   RESCUE_TRIGGER_NAMES,
   type RescueTrigger,
@@ -365,9 +366,11 @@ export async function rescueCandidates(ctx: AppContext, orderId: string, log?: Q
     const snapshot = ((await db.query<{ snapshot: StoredQuoteSnapshot }>("select snapshot from quotes where id = $1", [sale.quoteId])).rows[0] as { snapshot: StoredQuoteSnapshot }).snapshot;
     const holders = (await db.query<{ tenant_id: string }>("select tenant_id from orders where id = $1", [orderId])).rows.map((row) => row.tenant_id);
     const offers = await listRescueOffers(db, rescue.id);
-    return { order, sale, rescue, snapshot, holders, offers };
+    // 订单锁定的预计用时（ADR 0091）：和快照在同一个平台事务里读；有才传（下单时占用或缓冲不为 0）
+    const locked = lockedItineraryOf(order.settlement.itinerary);
+    return { order, sale, rescue, snapshot, holders, offers, locked };
   });
-  const { order, sale, rescue, snapshot, holders, offers } = loaded;
+  const { order, sale, rescue, snapshot, holders, offers, locked } = loaded;
   const request = rescueRequest(snapshot, order);
   const preview = await previewPlatformQuote(
     ctx,
@@ -392,7 +395,8 @@ export async function rescueCandidates(ctx: AppContext, orderId: string, log?: Q
       ...(request.waypoints === undefined ? {} : { waypoints: request.waypoints }),
       ...(request.routeUsage === undefined ? {} : { routeUsage: request.routeUsage }),
     },
-    log === undefined ? {} : { log },
+    // 不做选档判断（ADR 0091：救援不被最低套餐、预计用时卡住）；超时按原订单锁定的用时算，不按救援供应商商品的配置
+    { ...(log === undefined ? {} : { log }), ...(locked === null ? {} : { lockedItinerary: locked }) },
   );
   const offered = new Map(offers.map((offer) => [offer.tenantId, offer.status]));
   const skip = new Set(holders);

@@ -13504,11 +13504,17 @@ paths:
         应答里每个车型组一个对外价，带车型组的名称、免费等待、按现在的平台取消政策下单后适用的阶梯。**没有中标供应商、结算价、加价比例。**
         每个地址每分钟 30 次。
 
-        **包车按行程计价**（M9W-01，ADR 0088 补充「最终报价公式」，业主 2026-11-13）：包车给 `itinerary_pricing: true` + `pickup` + `dropoff` + 可选 `waypoints`（含停留分钟），**不给 `package_hours`**（给了 400 `NOT_APPLICABLE`）。
+        **包车按行程计价**（M9W-01，ADR 0088 补充「最终报价公式」，业主 2026-11-13）：包车给 `itinerary_pricing: true` + `pickup` + `dropoff` + 可选 `waypoints`（含停留分钟），`package_hours` 可不给（M9W-11 起可以给：客人手动升档，见下）。
         服务器按上车点 → 经停点 1…N → 下车点逐段估路线（同一对坐标有缓存、受每日上限），全程米数 = 各段之和，总时长 = 各段行驶 + 各点停留；
         每个车型组选能覆盖总时长的最小套餐（都覆盖不了时用最大套餐 + 超时费）。最终价 = 套餐价 + 上车加价 + 经停加价（同区一次）+ 下车加价 + 超公里费（全程 − 套餐含公里）× 超公里单价
         + 超时费（总时长 − 套餐时长）× 超时单价，再过调价和平台加价；`price_breakdown` 逐项列出。应答多一项 `itinerary_route`（不叫 `route`：按两个坐标报价的应答里 `route` 已是路线预览）。全程和时长只由服务器算。
         某一段路线取不到：422 `ITINERARY_ROUTE_UNAVAILABLE`（`details.leg` 是第几段，从 1 起），页面提示联系客服。不给 `itinerary_pricing` 时一切和以前一样。
+
+        **经停点默认占用、整单缓冲、最低套餐**（M9W-11，ADR 0091）：选套餐用的是各商品的预计用时 T = 行驶 + 停留 + 经停点个数 × 经停点默认占用 + 整单缓冲（商品服务规则 `charter_itinerary`，默认 0 / 0 / 不限，和以前一样）；
+        每个车型组取不短于 T、不短于最低套餐、至少有一个商品能卖的最短一档，都不够时按最长一档 + 超时费（超时按 T 算）。按行程计价的报价多 `estimated_minutes`（T）、`includes_buffer`、`auto_package_hours`（自动选出的那一档）。
+        带了 `package_hours`（客人手动升档）：服务器先自动选一遍档，这个车型组的自动档不长于客人选的就按客人选的报，长于的车型组报 `PACKAGE_TOO_SHORT` + `min_package_hours`（= 自动档）；`auto_package_hours` 照样给。
+        不带经停点、客人自选时长的包车：比商品最低套餐短的不报，原因 `PACKAGE_TOO_SHORT` + `min_package_hours`（进到这个城市能选的档上）。
+        「未覆盖需求」：按行程计价时全部车型组最终都报不出才记一次（原因是各档合并的）；只因选短了（`PACKAGE_TOO_SHORT`）报不出时不记。
       requestBody:
         required: true
         content:
@@ -19080,7 +19086,8 @@ components:
             `NO_PRODUCT`（这里没有可卖的商品）、`OUT_OF_SERVICE_AREA`、`DROPOFF_REQUIRED`（包车没给下车地点，而商品设了区域加价；给了下车地点再询价，M8-15）、`LEAD_TIME_TOO_SHORT`、`SOLD_OUT`、`OUTSIDE_SERVICE_TIME`、`SERVICE_TIME_PASSED`、
             `CAPACITY_EXCEEDED`、`ADDON_NOT_OFFERED`、`DRIVER_LANGUAGE_NOT_OFFERED`、
             `NO_ROUTE`（里程计价：两点之间没有可行驶的路线，换个地点）、`TEMPORARILY_UNAVAILABLE`（里程计价：路线预估暂时不可用，稍后再试；ADR 0042）、`NOT_AVAILABLE`（其他）。
-            `WAYPOINT_NOT_PRICED`（包车经停点不在任何区域里，M9W-01）只在官网带经停点的询价里出现：渠道接口不开放经停点，不会给出
+            `WAYPOINT_NOT_PRICED`（包车经停点不在任何区域里，M9W-01）只在官网带经停点的询价里出现：渠道接口不开放经停点，不会给出。
+            `PACKAGE_TOO_SHORT`（M9W-11，ADR 0091）：包车选的 `package_hours` 比商品设的最低套餐短；另给 `min_package_hours`，选不短于它的时长再询价
           items:
             type: object
             additionalProperties: false
@@ -19089,11 +19096,15 @@ components:
               vehicle_group_id:
                 type: [ string, "null" ]
                 format: uuid
+              min_package_hours:
+                type: integer
+                minimum: 1
+                description: 原因里有 `PACKAGE_TOO_SHORT` 时：这个车型组里各商品能接受的最短套餐（小时）的最小值；没有这个原因时不给（M9W-11）
               reasons:
                 type: array
                 items:
                   type: string
-                  enum: [ NO_PRODUCT, OUT_OF_SERVICE_AREA, DROPOFF_REQUIRED, WAYPOINT_NOT_PRICED, LEAD_TIME_TOO_SHORT, SOLD_OUT, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, CAPACITY_EXCEEDED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, NO_ROUTE, TEMPORARILY_UNAVAILABLE, NOT_AVAILABLE ]
+                  enum: [ NO_PRODUCT, OUT_OF_SERVICE_AREA, DROPOFF_REQUIRED, WAYPOINT_NOT_PRICED, PACKAGE_TOO_SHORT, LEAD_TIME_TOO_SHORT, SOLD_OUT, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, CAPACITY_EXCEEDED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, NO_ROUTE, TEMPORARILY_UNAVAILABLE, NOT_AVAILABLE ]
     FxCurrency:
       type: string
       enum: [ JPY, KRW, CNY, USD, HKD, TWD, THB, SGD ]
@@ -19793,7 +19804,8 @@ components:
         车型组层面的（包车两端所在的加价区域没有这个车型组、套餐的区域加价也报 `NO_PRICE_RULE` / `PRICE_NOT_IN_EFFECT` / `PRICE_RULE_DISABLED`）：`VEHICLE_GROUP_NOT_OFFERED`、`VEHICLE_GROUP_DISABLED`、`CAPACITY_EXCEEDED`、
         `NO_PRICE_RULE`、`PRICE_NOT_IN_EFFECT`、`PRICE_RULE_DISABLED`、`ROUTE_UNAVAILABLE`、`PRICE_NOT_POSITIVE`、`PRICE_OVER_LIMIT`。
         只在平台侧比价时出现的：`FX_RATE_UNAVAILABLE`、`SELL_PRICE_OVER_LIMIT`。
-      enum: [ PRODUCT_NOT_PUBLISHED, TENANT_SUSPENDED, TENANT_NOT_ONBOARDED, TRIAL_DAILY_LIMIT, BRAND_DISABLED, SERVICE_RULES_INCOMPLETE, INVALID_SERVICE_TIME, OUTSIDE_SALE_PERIOD, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, LEAD_TIME_TOO_SHORT, URGENT_SOLD_OUT, OUT_OF_SERVICE_AREA, IN_FORBIDDEN_AREA, NO_PRICING_AREA, DROPOFF_REQUIRED, WAYPOINT_NOT_PRICED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, SOLD_OUT, VEHICLE_GROUP_NOT_OFFERED, VEHICLE_GROUP_DISABLED, CAPACITY_EXCEEDED, NO_PRICE_RULE, PRICE_NOT_IN_EFFECT, PRICE_RULE_DISABLED, ROUTE_UNAVAILABLE, PRICE_NOT_POSITIVE, PRICE_OVER_LIMIT, FX_RATE_UNAVAILABLE, SELL_PRICE_OVER_LIMIT ]
+        包车选档判断（M9W-11，ADR 0091，只在官网、渠道的新询价里判断，试算、改期、救援不判断）：`BELOW_MIN_PACKAGE`（比商品的最低套餐短）、`PACKAGE_TOO_SHORT`（按行程计价时比预计用时短）；对外都报 `PACKAGE_TOO_SHORT`。
+      enum: [ PRODUCT_NOT_PUBLISHED, TENANT_SUSPENDED, TENANT_NOT_ONBOARDED, TRIAL_DAILY_LIMIT, BRAND_DISABLED, SERVICE_RULES_INCOMPLETE, INVALID_SERVICE_TIME, OUTSIDE_SALE_PERIOD, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, LEAD_TIME_TOO_SHORT, URGENT_SOLD_OUT, OUT_OF_SERVICE_AREA, IN_FORBIDDEN_AREA, NO_PRICING_AREA, DROPOFF_REQUIRED, WAYPOINT_NOT_PRICED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, SOLD_OUT, VEHICLE_GROUP_NOT_OFFERED, VEHICLE_GROUP_DISABLED, CAPACITY_EXCEEDED, NO_PRICE_RULE, PRICE_NOT_IN_EFFECT, PRICE_RULE_DISABLED, ROUTE_UNAVAILABLE, PRICE_NOT_POSITIVE, PRICE_OVER_LIMIT, BELOW_MIN_PACKAGE, PACKAGE_TOO_SHORT, FX_RATE_UNAVAILABLE, SELL_PRICE_OVER_LIMIT ]
     QuoteRouteEstimate:
       type: object
       additionalProperties: false
@@ -24043,6 +24055,28 @@ components:
               unit_price:
                 type: integer
                 minimum: 0
+        charter_itinerary:
+          type: object
+          additionalProperties: false
+          description: |
+            包车按行程计价自动选套餐的三项（M9W-11，ADR 0091），只有包车能填（别的品类填了 400 `NOT_APPLICABLE`）。**不带这个键 = 保留原值**；三项都是默认值（0 / 0 / null）= 清掉。
+            T = 行驶 + 停留 + 经停点个数 × `stop_occupancy_minutes` + `buffer_minutes`；每个车型组取不短于 T、不短于 `min_package_hours` 的最短套餐。建议值 15 / 60 / 5（页面只作提示，不预填）
+          properties:
+            stop_occupancy_minutes:
+              type: integer
+              minimum: 0
+              maximum: 120
+              description: 经停点默认占用（分钟）：每个经停点额外算的时间，和客人填的停留分开；不带为 0
+            buffer_minutes:
+              type: integer
+              minimum: 0
+              maximum: 240
+              description: 整单缓冲（分钟），0 = 关闭；不带为 0
+            min_package_hours:
+              type: [ integer, "null" ]
+              minimum: 1
+              maximum: 72
+              description: 最低套餐（小时）；null = 不限。比这个商品所有启用的套餐都长时保存不拒，但这个商品将报不出价（应答的 `min_package_above_all`）
     ProductServiceRules:
       type: object
       additionalProperties: false
@@ -24055,6 +24089,18 @@ components:
         currency:
           type: [ string, "null" ]
           description: 金额的币种（子品牌的币种）
+        min_package_above_all:
+          description: 只有包车有（M9W-11，ADR 0091）：最低套餐比这个商品所有启用的套餐都长时给出（这个商品将报不出价，保存不拒），否则 null
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required: [ min_package_hours, longest_package_hours ]
+              properties:
+                min_package_hours:
+                  type: integer
+                longest_package_hours:
+                  type: integer
         free_wait_minimums:
           type: object
           additionalProperties: false
@@ -24169,6 +24215,18 @@ components:
                     type: string
                   unit_price:
                     type: integer
+            charter_itinerary:
+              type: object
+              additionalProperties: false
+              required: [ stop_occupancy_minutes, buffer_minutes, min_package_hours ]
+              description: 只有包车有（M9W-11，ADR 0091）：经停点默认占用、整单缓冲（分钟）、最低套餐（小时，null = 不限）；没设过的是 0 / 0 / null
+              properties:
+                stop_occupancy_minutes:
+                  type: integer
+                buffer_minutes:
+                  type: integer
+                min_package_hours:
+                  type: [ integer, "null" ]
     ProductContentText:
       type: object
       additionalProperties: false
@@ -24240,8 +24298,8 @@ components:
             properties:
               key:
                 type: string
-                enum: [ basic_info, service_rules, price_rules, content, adjust_rules, inventory, area_coverage ]
-                description: "`area_coverage`（运营区域，M8-20）只在有提醒时出现、从不必须：勾选的报价区域有一部分不在任何运营区域里（原因 `PRICING_AREA_OUTSIDE_OPERATING`，`path` 是 `/areas/{区域编号}`，`detail.outside_m2` 是面积）"
+                enum: [ basic_info, service_rules, price_rules, content, adjust_rules, inventory, area_coverage, charter_min_package ]
+                description: "`area_coverage`（运营区域，M8-20）只在有提醒时出现、从不必须：勾选的报价区域有一部分不在任何运营区域里（原因 `PRICING_AREA_OUTSIDE_OPERATING`，`path` 是 `/areas/{区域编号}`，`detail.outside_m2` 是面积）。`charter_min_package`（最低套餐，M9W-11）同样只在有提醒时出现、从不必须：包车的最低套餐比所有启用的套餐都长（原因 `MIN_PACKAGE_ABOVE_ALL`，`detail.min_package_hours`、`detail.longest_package_hours`）"
               required:
                 type: boolean
                 description: 这一项不通过就不能上架
@@ -24253,7 +24311,7 @@ components:
                   不通过的原因。`path` 是相对于这一项的字段位置（如 `/areas/0`、`/booking/service_time`、`/zh/pickup_guide`；没有具体位置时是 `/`）。
                   `reason` 除了 `ProductInvalid` 里列的规则代码，还有：`NO_AREA`、`NO_VEHICLE_GROUP`、`NO_DISPATCHER`、`BRAND_DISABLED`、`CITY_DISABLED`、
                   `PICKUP_PLACE_MISSING`、`PICKUP_PLACE_DISABLED`、`PICKUP_PLACE_OTHER_CITY`（接送点被平台改到了别的城市）、`AREA_DISABLED`、`AREA_CITY_DISABLED`、`AREA_NOT_USABLE`、`VEHICLE_GROUP_DISABLED`、
-                  `VEHICLE_COMBO_NOT_OFFERED`、`ADDON_DISABLED`、`ADDON_NOT_APPLICABLE`、`NO_ACTIVE_PRICE_RULE`、`NO_PRICE_IN_SELECTION`、`ALL_PRICE_RULES_DISABLED`、`ALL_PRICE_RULES_EXPIRED`、`ADJUST_RESULT_NOT_POSITIVE`、`ADJUST_STACK_NOT_POSITIVE`、`ADJUST_STACK_OVER_LIMIT`、`NO_INVENTORY_AHEAD`、`PRICING_AREA_OUTSIDE_OPERATING`（M8-20）。
+                  `VEHICLE_COMBO_NOT_OFFERED`、`ADDON_DISABLED`、`ADDON_NOT_APPLICABLE`、`NO_ACTIVE_PRICE_RULE`、`NO_PRICE_IN_SELECTION`、`ALL_PRICE_RULES_DISABLED`、`ALL_PRICE_RULES_EXPIRED`、`ADJUST_RESULT_NOT_POSITIVE`、`ADJUST_STACK_NOT_POSITIVE`、`ADJUST_STACK_OVER_LIMIT`、`NO_INVENTORY_AHEAD`、`PRICING_AREA_OUTSIDE_OPERATING`（M8-20）、`MIN_PACKAGE_ABOVE_ALL`（M9W-11）。
                   （`FEATURE_NOT_AVAILABLE` 只在 `@nozomi/domain` 的 `publishCheck` 不知道价格条数时出现，接口不再返回它。）
                 items:
                   type: object
@@ -29877,7 +29935,7 @@ components:
           description: 点对点、包车（必填；包车 M8-15 暂为可选，M8-19 改回必填，ADR 0073）：下车点的坐标
         itinerary_pricing:
           type: boolean
-          description: 包车按行程计价（M9W-01，ADR 0088 补充）：true 时不填 `package_hours`，服务器估路线、选套餐、收超公里 / 超时（见接口说明）；别的品类填 true 400 `NOT_APPLICABLE`
+          description: 包车按行程计价（M9W-01，ADR 0088 补充）：服务器估路线、自动选套餐、收超公里 / 超时（见接口说明）；可以带 `package_hours` 手动升档（M9W-11，ADR 0091）；别的品类填 true 400 `NOT_APPLICABLE`
         waypoints:
           type: array
           maxItems: 10
@@ -29912,7 +29970,7 @@ components:
           type: integer
           minimum: 1
           maximum: 72
-          description: 包车：套餐时长（小时），从 `GET /site/v1/cities/{id}/charter-packages` 里选
+          description: 包车：套餐时长（小时），从 `GET /site/v1/cities/{id}/charter-packages` 里选；按行程计价时可不填（填了 = 客人手动升到这一档，M9W-11）
         service_local:
           type: string
           pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$"
@@ -29983,6 +30041,17 @@ components:
       additionalProperties: false
       required: [ quote_id, expires_at, service_date, urgent, vehicle_group, package, includes_area_surcharge, distance, pricing_basis, price, price_breakdown, free_wait_minutes, cancel_policy, available_addons ]
       properties:
+        estimated_minutes:
+          type: integer
+          minimum: 0
+          description: 只有按行程计价的报价有（M9W-11，ADR 0091）：中标商品的预计用时（分钟）= 行驶 + 停留 + 经停点个数 × 经停点默认占用 + 整单缓冲。页面写「预计用时 X 小时 Y 分钟」
+        includes_buffer:
+          type: boolean
+          description: 只有按行程计价的报价有（M9W-11）：中标商品的经停点默认占用或整单缓冲不为 0（页面在预计用时后面写「（含缓冲）」）
+        auto_package_hours:
+          type: integer
+          minimum: 1
+          description: 只有按行程计价的报价有（M9W-11）：这个车型组自动选出的那一档（客人能选的最短档）；客人手动升档时也给
         price_breakdown:
           $ref: "#/components/schemas/SitePriceBreakdown"
         pricing_basis:
@@ -30136,11 +30205,15 @@ components:
           items:
             type: integer
             minimum: 1
+        min_package_hours:
+          description: 原因里有 `PACKAGE_TOO_SHORT` 时（M9W-11，ADR 0091）：这个车型最短能选几小时（页面显示「这个车型最短 X 小时」「改选 X 小时」）；没有这个原因时不给
+          type: integer
+          minimum: 1
         reasons:
           type: array
           items:
             type: string
-            enum: [ NO_PRODUCT, OUT_OF_SERVICE_AREA, DROPOFF_REQUIRED, WAYPOINT_NOT_PRICED, LEAD_TIME_TOO_SHORT, SOLD_OUT, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, CAPACITY_EXCEEDED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, NO_ROUTE, TEMPORARILY_UNAVAILABLE, NOT_AVAILABLE ]
+            enum: [ NO_PRODUCT, OUT_OF_SERVICE_AREA, DROPOFF_REQUIRED, WAYPOINT_NOT_PRICED, PACKAGE_TOO_SHORT, LEAD_TIME_TOO_SHORT, SOLD_OUT, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, CAPACITY_EXCEEDED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, NO_ROUTE, TEMPORARILY_UNAVAILABLE, NOT_AVAILABLE ]
     SiteOrderRequest:
       type: object
       additionalProperties: false
