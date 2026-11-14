@@ -1445,7 +1445,7 @@
             "组件测试断言请求体里的 draft_id；端到端：组件建草稿 → 询价带 draft_id → 下单 → 假 Stripe 测试卡 4242 付款 → 平台订单详情 entry_source.kind 为 embed、带嵌入码名称 → 订单页「返回原网站」链到 return_url；去掉 draft_id 后新测试失败",
             "测试站：从演示站用组件下一单，测试卡 4242 付款，订单页有「返回原网站」，运营后台订单详情来源为「嵌入组件 · 演示站」"
           ],
-          "evidence": "PR https://github.com/jiatengmei482-pixel/nozomi/pull/239 ；根因：BookNewPage 的 requestOf() 包车、接送两个分支都没带 draft_id，后端收不到就按主站记；book-new.test.tsx 全文件 73 个通过（草稿相关新增 4 个、改 4 个断言：区间、包车按行程 / 按时长 / 到主站选时长并改下车点、M9P-03 手动升档、附加服务重新报价都带 draft_id；404 不带、429 照样带）；embed.itest 12 个通过（来源用例补草稿过期一段）；端到端 site-embed-widget 新增 1 条（组件建草稿 → 询价带 draft_id → 下单 → 假 Stripe 4242 付款 → 平台订单 entry_source 为 embed、带嵌入码名称 → 订单页返回原网站链到 return_url），PR CI check / e2e / deploy-smoke 全绿；变异：去掉 draft_id 组件测试 6 条失败（含升档那条）；ADR 0090 第三节第 3 小节补一句「改了行程仍算这个嵌入码」；后续 M9E-21（来源统计）、M9E-22（draft_id 超长 400）",
+          "evidence": "PR https://github.com/jiatengmei482-pixel/nozomi/pull/239 ；根因：BookNewPage 的 requestOf() 包车、接送两个分支都没带 draft_id，后端收不到就按主站记；book-new.test.tsx 全文件 73 个通过（草稿相关新增 4 个、改 4 个断言：区间、包车按行程 / 按时长 / 到主站选时长并改下车点、M9P-03 手动升档、附加服务重新报价都带 draft_id；404 不带、429 照样带）；embed.itest 12 个通过（来源用例补草稿过期一段）；端到端 site-embed-widget 新增 1 条（组件建草稿 → 询价带 draft_id → 下单 → 假 Stripe 4242 付款 → 平台订单 entry_source 为 embed、带嵌入码名称 → 订单页返回原网站链到 return_url），PR CI check / e2e / deploy-smoke 全绿；变异：去掉 draft_id 组件测试 6 条失败（含升档那条）；ADR 0090 第三节第 3 小节补一句「改了行程仍算这个嵌入码」；后续 M9E-21（来源统计）、M9E-23（draft_id 超长 400）",
           "updated": "2026-11-14"
         },
         {
@@ -1461,7 +1461,7 @@
           "updated": "2026-11-14"
         },
         {
-          "id": "M9E-22",
+          "id": "M9E-23",
           "title": "询价接口的 draft_id 超过 64 字时 400：按 ADR 0090「格式不对一律忽略」应只忽略、照常报价（M9E-12 审查登记）",
           "role": "backend",
           "status": "todo",
