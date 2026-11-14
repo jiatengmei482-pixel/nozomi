@@ -1,11 +1,12 @@
 /**
- * 嵌入组件（M9E-03，ADR 0090 第四节）在浏览器环境（happy-dom）里的行为：界面在 Shadow DOM 里；取配置失败只显示「暂时无法使用」；
+ * 嵌入组件（M9E-03，ADR 0090 第四节）在浏览器环境（happy-dom）里的行为：界面在 Shadow DOM 里；取配置被拒只显示「暂时无法使用」，
+ * 超时、连不上、5xx 按 init 的参数显示表单（M9E-22）；
  * 两个标签；地址提示经 `/embed/v1/places`、带嵌入码、不带 Cookie，谷歌候选有「Powered by Google」；
  * 点「查看价格」先建草稿再跳转；400 / 429 / 网络错误各一句、不跳转。接口用替身（不连主站）。
  */
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { LOCATE_TIMEOUT, initFrom, initWithBase, scriptOriginOf } from "./widget-ui.ts";
+import { CONFIG_TIMEOUT, LOCATE_TIMEOUT, initFrom, initWithBase, scriptOriginOf } from "./widget-ui.ts";
 import { GOOGLE_MAPS_ATTRIBUTION, GOOGLE_MAPS_ATTRIBUTION_ATTRIBUTES } from "../lib/google-attribution.ts";
 import { readFile } from "node:fs/promises";
 import { WIDGET_CSS } from "./widget-style.ts";
@@ -13,7 +14,8 @@ import { luminance } from "./widget-core.ts";
 
 const BASE = "https://nozomi.example";
 const KEY = `nze_${"A".repeat(32)}`;
-type Reply = { status: number; body: unknown } | "network";
+/** "network" 是连不上；"blocked" 是主站应答了但不带 CORS 头（浏览器里被拒的 403）：跨域请求读不出、no-cors 请求成功 */
+type Reply = { status: number; body: unknown } | "network" | "blocked";
 type Handler = (url: URL, init: RequestInit | undefined) => Reply | Promise<Reply>;
 let calls: { url: URL; init: RequestInit | undefined }[] = [];
 let handler: Handler = () => "network";
@@ -26,7 +28,8 @@ beforeEach(() => {
     const url = new URL(String(input));
     calls.push({ url, init });
     const result = await handler(url, init);
-    if (result === "network") throw new TypeError("Failed to fetch");
+    if (result === "network" || (result === "blocked" && init?.mode !== "no-cors")) throw new TypeError("Failed to fetch");
+    if (result === "blocked") return new Response(null, { status: 200 });
     return new Response(JSON.stringify(result.body), { status: result.status, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
 });
@@ -61,14 +64,20 @@ const places: Handler = (url) => {
   return "network";
 };
 
-test("取配置失败（未授权和连不上分不出）：只显示「暂时无法使用」和主站链接，不显示表单", async () => {
-  handler = () => "network";
+test("取配置被拒（浏览器里 403 不带 CORS 头读不出，主站有应答）：只显示「暂时无法使用」和主站链接，不显示表单（M9E-22）", async () => {
+  handler = () => "blocked";
   await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh" });
   assert.match($('[role="status"]').textContent ?? "", /预订组件暂时无法使用/);
   assert.equal($<HTMLAnchorElement>("a").getAttribute("href"), `${BASE}/book/new`);
   assert.equal(shadow().querySelector("form"), null);
   assert.equal(calls[0]?.url.href, `${BASE}/embed/v1/config?key=${KEY}`);
   assert.equal(calls[0]?.init?.credentials, "omit");
+  assert.equal(calls[0]?.init?.mode, "cors");
+  assert.deepEqual(
+    calls.slice(1).map((call) => [call.url.href, call.init?.mode, call.init?.credentials]),
+    [[`${BASE}/embed/v1/config?key=${KEY}`, "no-cors", "omit"]],
+    "读不出时再发一个 no-cors 请求看主站有没有应答",
+  );
 });
 
 test("界面在 Shadow DOM 里，合作网站的样式进不来；两个标签按 services 排，语言用 init 给的", async () => {
@@ -150,7 +159,11 @@ test("建草稿失败：400、429 两种、网络错误各显示一句，不跳�
   reply = { status: 429, body: { error: { code: "EMBED_DRAFT_LIMIT" } } };
   assert.equal(await submit(), "暂时无法查询，请稍后再试或直接到主站预订。");
   reply = "network";
-  assert.equal(await submit(), "暂时连不上，请稍后再试或直接到主站预订。");
+  assert.equal(await submit(), "暂时连不上，请稍后再试或直接到主站预订。 到主站预订", "读不出的失败后面跟主站链接（M9E-22）");
+  assert.equal($<HTMLAnchorElement>('[data-role="message"] a').getAttribute("href"), `${BASE}/book/new`);
+  reply = { status: 429, body: { error: { code: "RATE_LIMITED" } } };
+  assert.equal(await submit(), "操作太频繁，请稍等一分钟再试。", "下一次失败换掉上一次的链接");
+  assert.equal(shadow().querySelector('[data-role="message"] a'), null);
   assert.deepEqual(went, []);
 });
 
@@ -976,4 +989,213 @@ test("#233 审查：同一个容器再 init 时，旧组件的 ResizeObserver �
     document.addEventListener = add;
     document.removeEventListener = remove;
   }
+});
+
+/** M9E-22：取配置的应答由测试放行（release 之前一直挂着） */
+function heldConfig(answer: Reply): { handler: Handler; release: () => void } {
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return {
+    release,
+    handler: async (url, init) => {
+      if (url.pathname !== "/embed/v1/config") return places(url, init);
+      await gate;
+      return answer;
+    },
+  };
+}
+async function withConfigTimeout(ms: number, run: () => Promise<void>): Promise<void> {
+  const original = CONFIG_TIMEOUT.ms;
+  CONFIG_TIMEOUT.ms = ms;
+  try {
+    await run();
+  } finally {
+    CONFIG_TIMEOUT.ms = original;
+  }
+}
+const tabTitles = (): (string | null | undefined)[] => [...shadow().querySelectorAll('[role="tab"] .nzb-tab-title')].map((tab) => tab.textContent);
+const noCorsCalls = (): number => calls.filter((call) => call.init?.mode === "no-cors").length;
+
+test("M9E-22 取配置 8 秒没回：之前不画，到时按 init 的 layout / lang / services 显示表单；没传的用 auto、日文、两个标签", async () => {
+  assert.equal(CONFIG_TIMEOUT.ms, 8_000, "默认等 8 秒");
+  await withConfigTimeout(80, async () => {
+    handler = heldConfig(config).handler;
+    await withResize(async (resize) => {
+      const starting = initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "en", services: ["charter"], layout: "bar" });
+      resize(800);
+      await wait(30);
+      assert.equal(shadow().querySelector(".nzb-shell"), null, "没到 8 秒（测试里调成 80 毫秒）什么都不画");
+      await starting;
+      assert.ok(shadow().querySelector("form"), "超时后显示表单");
+      assert.equal(layout(), "bar", "init 的 layout");
+      assert.equal($(".nzb-primary").textContent, "See prices", "init 的 lang");
+      assert.deepEqual(tabTitles(), [], "init 只给了包车：没有标签");
+      assert.match(shadow().textContent ?? "", /Add a stop/, "包车表单");
+    });
+    await withResize(async (resize) => {
+      document.body.innerHTML = '<div id="nozomi-booking"></div>';
+      const starting = initWithBase(BASE, { key: KEY, root: "#nozomi-booking" });
+      resize(1200);
+      await starting;
+      assert.equal($(".nzb-primary").textContent, "料金を見る", "没传 lang 用日文");
+      assert.deepEqual(tabTitles(), ["片道送迎", "時間貸し"], "没传 services 两个都显示");
+      assert.equal(layout(), "bar", "没传 layout 按 auto：1200 px 横条");
+      resize(899);
+      assert.equal(layout(), "card", "auto：899 px 卡片");
+    });
+  });
+});
+
+test("M9E-22 取配置连不上（no-cors 也失败）、5xx：马上按 init 的参数显示表单，不等 8 秒", async () => {
+  for (const reply of ["network", { status: 500, body: null }, { status: 503, body: { error: { code: "UNAVAILABLE" } } }] as Reply[]) {
+    document.body.innerHTML = '<div id="nozomi-booking"></div>';
+    calls = [];
+    handler = (url, init) => (url.pathname === "/embed/v1/config" ? reply : places(url, init));
+    const started = Date.now();
+    await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh", services: ["transfer"] });
+    assert.ok(Date.now() - started < 2_000, `${JSON.stringify(reply)}：不等 8 秒`);
+    assert.ok(shadow().querySelector("form"), `${JSON.stringify(reply)}：显示表单`);
+    assert.equal(shadow().querySelector('[role="status"]'), null, "不显示「暂时无法使用」");
+    assert.equal($(".nzb-primary").textContent, "查看价格");
+    assert.deepEqual(tabTitles(), []);
+    assert.equal(noCorsCalls(), reply === "network" ? 1 : 0, "读得到状态的不再试 no-cors");
+  }
+});
+
+test("M9E-22 取配置读得到的 4xx（嵌入码无效 / 停用、不在白名单）：仍只显示「暂时无法使用」和主站链接，不显示表单", async () => {
+  for (const status of [401, 403, 404]) {
+    document.body.innerHTML = '<div id="nozomi-booking"></div>';
+    calls = [];
+    handler = (url, init) => (url.pathname === "/embed/v1/config" ? { status, body: { error: { code: "EMBED_ORIGIN_NOT_ALLOWED" } } } : places(url, init));
+    await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "en" });
+    assert.match($('[role="status"]').textContent ?? "", /The booking form is unavailable right now/, `${status}`);
+    assert.equal($<HTMLAnchorElement>("a").getAttribute("href"), `${BASE}/book/new`);
+    assert.equal(shadow().querySelector("form"), null, `${status}：不显示表单`);
+    assert.equal(noCorsCalls(), 0);
+  }
+});
+
+test("M9E-22 表单已显示后配置才回来（正常）：init 没传 layout 时换成后台设的外观，不重画，已填的、焦点不丢；语言和标签不变", async () => {
+  const late = { status: 200, body: { lang: "en", services: ["charter"], layout: "bar", site_origin: BASE } };
+  await withConfigTimeout(50, async () => {
+    const held = heldConfig(late);
+    handler = held.handler;
+    await withResize(async (resize) => {
+      const starting = initWithBase(BASE, { key: KEY, root: "#nozomi-booking" });
+      resize(800);
+      await starting;
+      assert.equal(layout(), "card", "先按 auto：800 px 卡片");
+      await pick("pickup", "成田", "成田国際空港");
+      const dropoff = $<HTMLInputElement>('[data-field="dropoff"] input');
+      dropoff.value = "東京";
+      $<HTMLButtonElement>('[aria-label="人数を増やす"]').click();
+      dropoff.focus();
+      const shell = $(".nzb-shell");
+      held.release();
+      await wait(20);
+      assert.equal(layout(), "bar", "换成后台设的横条（800 px 够横条）");
+      assert.equal($(".nzb-shell"), shell, "同一个元素，没有重画");
+      assert.equal($<HTMLInputElement>('[data-field="pickup"] input').value, "成田国際空港");
+      assert.equal($<HTMLInputElement>('[data-field="dropoff"] input').value, "東京", "打了一半的字还在");
+      assert.match($(".nzb-trigger-text").textContent ?? "", /3/);
+      assert.equal(shadow().activeElement, dropoff, "焦点还在");
+      assert.equal($(".nzb-primary").textContent, "料金を見る", "语言不变");
+      assert.deepEqual(tabTitles(), ["片道送迎", "時間貸し"], "标签不变");
+      assert.equal($('[data-role="message"]').textContent, "");
+      resize(767);
+      assert.equal(layout(), "card", "之后按后台设的 bar 的规则：窄于 768 退成卡片");
+    });
+  });
+  await withConfigTimeout(50, async () => {
+    const held = heldConfig(late);
+    handler = held.handler;
+    await withResize(async (resize) => {
+      document.body.innerHTML = '<div id="nozomi-booking"></div>';
+      const starting = initWithBase(BASE, { key: KEY, root: "#nozomi-booking", layout: "card" });
+      resize(1200);
+      await starting;
+      held.release();
+      await wait(20);
+      assert.equal(layout(), "card", "init 传了 card，晚回来的 bar 也不管");
+    });
+  });
+  await withConfigTimeout(50, async () => {
+    const held = heldConfig(late);
+    handler = held.handler;
+    await withResize(async (resize) => {
+      document.body.innerHTML = '<div id="nozomi-booking"></div>';
+      const host = document.querySelector("#nozomi-booking") as HTMLElement;
+      const starting = initWithBase(BASE, { key: KEY, root: host });
+      resize(1200);
+      await starting;
+      handler = places;
+      await initWithBase(BASE, { key: KEY, root: host, layout: "card" });
+      resize(1200);
+      held.release();
+      await wait(20);
+      assert.equal(layout(), "card", "同一容器再 init 后，旧组件晚回来的配置不再动外观");
+    });
+  });
+});
+
+test("M9E-22 表单已显示后配置才回来（被拒）：表单和已填的都保留，提示行说明并给主站链接，切标签重画后仍在；晚回来的 5xx 不管", async () => {
+  await withConfigTimeout(50, async () => {
+    const held = heldConfig("blocked");
+    handler = held.handler;
+    await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh" });
+    await pick("pickup", "成田", "成田国際空港");
+    const dropoff = $<HTMLInputElement>('[data-field="dropoff"] input');
+    dropoff.value = "東京";
+    assert.equal($('[data-role="message"]').textContent, "");
+    held.release();
+    await wait(20);
+    assert.ok(shadow().querySelector("form"), "表单还在");
+    assert.equal(shadow().querySelector('[role="status"]'), null, "不换成「暂时无法使用」");
+    assert.equal($<HTMLInputElement>('[data-field="pickup"] input').value, "成田国際空港");
+    assert.equal($<HTMLInputElement>('[data-field="dropoff"] input'), dropoff, "没有重画");
+    assert.equal(dropoff.value, "東京");
+    assert.equal($('[data-role="message"]').textContent, "这个网站暂时不能直接预订，请到主站预订。 到主站预订");
+    assert.equal($<HTMLAnchorElement>('[data-role="message"] a').getAttribute("href"), `${BASE}/book/new`);
+    $<HTMLButtonElement>('[data-tab="charter"]').click();
+    assert.equal($('[data-role="message"]').textContent, "这个网站暂时不能直接预订，请到主站预订。 到主站预订", "切标签重画后仍在");
+    assert.equal($<HTMLInputElement>('[data-field="pickup"] input').value, "成田国際空港");
+  });
+  await withConfigTimeout(50, async () => {
+    const held = heldConfig({ status: 503, body: null });
+    handler = held.handler;
+    document.body.innerHTML = '<div id="nozomi-booking"></div>';
+    await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh" });
+    const shell = $(".nzb-shell");
+    held.release();
+    await wait(20);
+    assert.equal($(".nzb-shell"), shell);
+    assert.equal($('[data-role="message"]').textContent, "", "晚回来的 5xx 不提示");
+  });
+});
+
+test("M9E-22 配置没回来先显示的表单，提交时被拒（401 / 403 / 404）：说明这个网站暂时不能直接预订并给主站链接，不跳转；读不出的失败也给链接", async () => {
+  const went: string[] = [];
+  let reply: Reply = { status: 403, body: { error: { code: "EMBED_ORIGIN_NOT_ALLOWED" } } };
+  handler = (url, init) => (url.pathname === "/embed/v1/config" ? "network" : url.pathname === "/embed/v1/booking-drafts" ? reply : places(url, init));
+  await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh" }, (url) => went.push(url));
+  await pick("pickup", "成田", "成田国際空港");
+  await pick("dropoff", "東京", "東京駅");
+  const submit = async (): Promise<string> => {
+    $<HTMLFormElement>("form").dispatchEvent(new Event("submit", { cancelable: true }));
+    await wait(30);
+    return $('[data-role="message"]').textContent ?? "";
+  };
+  for (const status of [403, 401, 404]) {
+    reply = { status, body: { error: { code: "EMBED_ORIGIN_NOT_ALLOWED" } } };
+    assert.equal(await submit(), "这个网站暂时不能直接预订，请到主站预订。 到主站预订", `${status}`);
+    assert.equal($<HTMLAnchorElement>('[data-role="message"] a').getAttribute("href"), `${BASE}/book/new`);
+    assert.equal($(".nzb-primary").textContent, "查看价格", "按钮恢复");
+  }
+  reply = "blocked";
+  assert.equal(await submit(), "暂时连不上，请稍后再试或直接到主站预订。 到主站预订", "浏览器里被拒读不出：按连不上说，也给链接");
+  assert.equal($<HTMLAnchorElement>('[data-role="message"] a').getAttribute("href"), `${BASE}/book/new`);
+  assert.equal(calls.filter((call) => call.url.pathname === "/embed/v1/booking-drafts").length, 4, "每次都发给服务端核对");
+  assert.deepEqual(went, []);
 });

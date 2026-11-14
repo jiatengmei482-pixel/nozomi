@@ -115,11 +115,15 @@ export function problemOfIssuePath(path: string): FormProblem | "passengers" | "
   return null;
 }
 
-/** 建草稿失败时组件里显示哪一句（ADR 0090 第四节）。`status` 为 null 是读不出的失败（网络错误或被拒的 403） */
-export type DraftFailure = "invalid" | "too_fast" | "busy" | "unreachable";
+/**
+ * 建草稿失败时组件里显示哪一句（ADR 0090 第四节）。`status` 为 null 是读不出的失败（网络错误，或浏览器里被拒的 403——不带 CORS 头读不出）；
+ * 读得到的 401 / 403 / 404 是嵌入码无效、停用或网站不在白名单（M9E-22）
+ */
+export type DraftFailure = "invalid" | "too_fast" | "busy" | "refused" | "unreachable";
 export function draftFailureOf(status: number | null, code: string | null): DraftFailure {
   if (status === 400) return "invalid";
   if (status === 429) return code === "EMBED_DRAFT_LIMIT" ? "busy" : "too_fast";
+  if (status === 401 || status === 403 || status === 404) return "refused";
   return "unreachable";
 }
 
@@ -133,7 +137,7 @@ type Texts = Record<
   | "transferSub" | "charterSub" | "when" | "placeholder" | "swap" | "guests" | "decPassengers" | "incPassengers" | "decLuggage" | "incLuggage" | "done"
   | "transfer" | "charter" | "from" | "to" | "pickup" | "dropoff" | "waypoint" | "stay" | "addWaypoint" | "removeWaypoint" | "date" | "time" | "passengers" | "luggage"
   | "submit" | "submitting" | "placeOnly" | "pickPlace" | "pickStay" | "pickDate" | "pickTime" | "noMatch" | "searching" | "locating" | "locateFailed" | "unavailable" | "goToSite"
-  | "invalid" | "tooFast" | "busy" | "unreachable" | "packageNote" | "minutes" | "tabs" | "suggestions",
+  | "invalid" | "tooFast" | "busy" | "refused" | "unreachable" | "packageNote" | "minutes" | "tabs" | "suggestions",
   string
 >;
 
@@ -143,7 +147,7 @@ export const TEXTS: Readonly<Record<WidgetLang, Texts>> = {
     date: "日期", time: "时间", passengers: "乘客", luggage: "行李", submit: "查看价格", submitting: "正在跳转…", placeOnly: "只填地点，不要填姓名、电话。",
     pickPlace: "请从候选里选一个地点", pickStay: "请选择停留时长", pickDate: "请选择日期", pickTime: "请选择时间", noMatch: "没有找到，换个说法试试", searching: "正在查找…", locating: "正在取位置…", locateFailed: "取不到这个地点的位置，请重新选一个",
     unavailable: "预订组件暂时无法使用。请稍后刷新，或直接到主站预订。", goToSite: "到主站预订",
-    invalid: "有几项填得不对，请检查后再试。", tooFast: "操作太频繁，请稍等一分钟再试。", busy: "暂时无法查询，请稍后再试或直接到主站预订。", unreachable: "暂时连不上，请稍后再试或直接到主站预订。",
+    invalid: "有几项填得不对，请检查后再试。", tooFast: "操作太频繁，请稍等一分钟再试。", busy: "暂时无法查询，请稍后再试或直接到主站预订。", refused: "这个网站暂时不能直接预订，请到主站预订。", unreachable: "暂时连不上，请稍后再试或直接到主站预订。",
     packageNote: "不填经停点时，到预订页选包车时长。", minutes: "分钟", tabs: "用车类型", suggestions: "的候选",
     placeholder: "地址、机场、酒店等", swap: "交换起点和终点", guests: "人数和行李", decPassengers: "减少乘客", incPassengers: "增加乘客", decLuggage: "减少行李", incLuggage: "增加行李", done: "完成",
   },
@@ -152,7 +156,7 @@ export const TEXTS: Readonly<Record<WidgetLang, Texts>> = {
     date: "日付", time: "時刻", passengers: "人数", luggage: "荷物", submit: "料金を見る", submitting: "移動しています…", placeOnly: "場所のみ入力してください（氏名・電話番号は不要です）。",
     pickPlace: "候補から場所を選んでください", pickStay: "滞在時間を選んでください", pickDate: "日付を選んでください", pickTime: "時刻を選んでください", noMatch: "見つかりませんでした。別の言葉でお試しください", searching: "検索しています…", locating: "位置を確認しています…", locateFailed: "この場所の位置を取得できませんでした。もう一度選んでください",
     unavailable: "予約フォームは現在ご利用いただけません。しばらくしてから再読み込みするか、本サイトでご予約ください。", goToSite: "本サイトで予約",
-    invalid: "入力内容に誤りがあります。ご確認ください。", tooFast: "操作が多すぎます。1 分ほどおいてからお試しください。", busy: "ただいま混み合っています。しばらくしてからお試しいただくか、本サイトでご予約ください。", unreachable: "接続できませんでした。しばらくしてからお試しいただくか、本サイトでご予約ください。",
+    invalid: "入力内容に誤りがあります。ご確認ください。", tooFast: "操作が多すぎます。1 分ほどおいてからお試しください。", busy: "ただいま混み合っています。しばらくしてからお試しいただくか、本サイトでご予約ください。", refused: "このサイトからは現在ご予約いただけません。本サイトでご予約ください。", unreachable: "接続できませんでした。しばらくしてからお試しいただくか、本サイトでご予約ください。",
     packageNote: "経由地がない場合、貸切時間は予約ページで選びます。", minutes: "分", tabs: "ご利用の種類", suggestions: "の候補",
     placeholder: "住所・空港・ホテルなど", swap: "出発地と目的地を入れ替える", guests: "人数と荷物", decPassengers: "人数を減らす", incPassengers: "人数を増やす", decLuggage: "荷物を減らす", incLuggage: "荷物を増やす", done: "完了",
   },
@@ -161,13 +165,13 @@ export const TEXTS: Readonly<Record<WidgetLang, Texts>> = {
     date: "Date", time: "Time", passengers: "Passengers", luggage: "Luggage", submit: "See prices", submitting: "Redirecting…", placeOnly: "Enter a place only — no names or phone numbers.",
     pickPlace: "Choose a place from the list", pickStay: "Choose how long you stay", pickDate: "Choose a date", pickTime: "Choose a time", noMatch: "No matches. Try other words", searching: "Searching…", locating: "Finding the location…", locateFailed: "Couldn't get this place's location. Please choose again",
     unavailable: "The booking form is unavailable right now. Please refresh later or book on our site.", goToSite: "Book on our site",
-    invalid: "Some fields are not right. Please check and try again.", tooFast: "Too many attempts. Please wait a minute and try again.", busy: "We can't search right now. Please try again later or book on our site.", unreachable: "Can't connect right now. Please try again later or book on our site.",
+    invalid: "Some fields are not right. Please check and try again.", tooFast: "Too many attempts. Please wait a minute and try again.", busy: "We can't search right now. Please try again later or book on our site.", refused: "Booking isn't available from this site right now. Please book on our site.", unreachable: "Can't connect right now. Please try again later or book on our site.",
     packageNote: "Without stops, you choose the charter hours on the booking page.", minutes: "min", tabs: "Service", suggestions: " suggestions",
     placeholder: "Address, airport, hotel, etc.", swap: "Swap start and end", guests: "Passengers and luggage", decPassengers: "Fewer passengers", incPassengers: "More passengers", decLuggage: "Less luggage", incLuggage: "More luggage", done: "Done",
   },
 };
 
-export const FAILURE_TEXT_KEY: Readonly<Record<DraftFailure, keyof Texts>> = { invalid: "invalid", too_fast: "tooFast", busy: "busy", unreachable: "unreachable" };
+export const FAILURE_TEXT_KEY: Readonly<Record<DraftFailure, keyof Texts>> = { invalid: "invalid", too_fast: "tooFast", busy: "busy", refused: "refused", unreachable: "unreachable" };
 
 /** 人数、行李加减器的范围（和原来的下拉一样：乘客 1–20、行李 0–20） */
 export const GUEST_LIMITS = { passengers: { min: 1, max: 20 }, luggage: { min: 0, max: 20 } } as const;
