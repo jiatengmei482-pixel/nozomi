@@ -33,7 +33,7 @@ T = 行驶分钟（逐段之和，ADR 0089 第 4 节） + Σ 客人填的停留�
   + 整单缓冲
 ```
 
-- 经停点个数 = `waypoints.length`（上车点、下车点不算）。T 由请求里本来就有的 `waypoints`、`routeUsage`（`routeUsage.minutes` = 行驶 + 停留）和商品配置算出来，**不新增请求参数**。
+- 经停点个数 = `waypoints.length`（上车点、下车点不算；ADR 0093 的 `dropoffCountsAsStop` 只影响行程加价，下车点不计入 T 的经停数）。T 由请求里本来就有的 `waypoints`、`routeUsage`（`routeUsage.minutes` = 行驶 + 停留）和商品配置算出来，**不新增请求参数**。
 - T 按商品算：同一次询价里，不同商品的三项配置不同，T 也不同。
 - D = 全程米数（`routeUsage.meters`，原样）。
 - `itinerary_route.total_minutes` 仍是「行驶 + 停留」（原样）；T 另给（应答字段 `estimated_minutes`、`includes_buffer`，见 ADR 0093 第四节第 9 条）。
@@ -86,7 +86,7 @@ ADR 0093 在同一个键里再加 `dropoffCountsAsStop`（下车点当经停的�
 | 请求 | `charterSelection` | 超时费 |
 | --- | --- | --- |
 | 官网 / 渠道新询价（自动选档、手动升档） | `auto` / `manual` | **不收** |
-| 平台报价试算（按行程计价） | `auto` | **不收**（同新询价；试算结果旁注明选了哪一档、T 是多少） |
+| 平台报价试算（运营后台试算路由 `routes/quotes.ts`） | 现在不传：试算接口不收经停点、路线用量（`previewInput` 只收 `assume_route`），不能按行程计价；**以后开放按行程计价时**由试算路由传 `auto` | 现在不涉及；开放后**不收**（同新询价，结果旁注明选了哪一档、T 是多少） |
 | 新口径下的单改期、救援改派 | `locked`（按订单的档） | **不收** |
 | 部署前下的单改期、救援改派 | 快照里没有 → 不传 | **照旧按原公式收**（逐字不变；预收过超时费的单不会因改期突然变便宜，见第五节第 2 条） |
 | 旧询价日志回放、旧 golden | 不传 | 照旧（逐字不变） |
@@ -94,10 +94,15 @@ ADR 0093 在同一个键里再加 `dropoffCountsAsStop`（下车点当经停的�
 - 不按行程计价的包车（客人自选时长、`routeUsage` 为空）：超时费本来就是 0，不变。接送机、点对点不涉及。
 - 新口径下套餐单价规则里的 `overtimePerHourMinor` 不改，留给服务后补收用。
 - 部署前用 `prepaidOvertime` 参数区分旧单的做法（第三稿）**作废**：0093 的 `charterSelection` 已经能区分（旧快照没有它），不需要再加参数。
+- **救援走的是 `previewPlatformQuote`，传参要写清**（复审必改）：`rescues.ts` 的 `rescueCandidates` 不像改期那样展开快照直接调 `quoteProduct`，而是调 `previewPlatformQuote`、逐个字段重拼入参（不展开快照的 `request`）。所以：
+  - `PlatformQuoteInput`（`apps/api/src/services/quotes.ts`）加可选 `charterSelection`，原样传给引擎；**函数内部不设默认值**（不传 = 不带这个字段，引擎走旧口径）。
+  - `rescueCandidates` 按快照决定：快照 `request` 里有 `charterSelection` → 传 `charterSelection: "locked"`、`packageHours: order.packageHours`（新口径快照的 `request.packageHours` 是 null，必须换成订单的档，否则按档找候选那一步 `entry.packageHours === order.packageHours` 会找不到）；没有 → 不传，`packageHours` 照旧取快照的。这样部署前的单救援时，候选的超时费和档位都和现在一样。
+  - 只有平台试算路由在以后开放按行程计价时才传 `auto`；官网经 `sales-quotes.ts` 调 `previewPlatformQuote` 时按 0093 第四节传 `auto` / `manual`。任何调用方都不靠默认值。
 
 ### 2. 结算价明细和对外价明细
 
-- 新口径的结算价明细 `itinerary`：`overtimeMinutes` 仍记（= max(0, 行驶 + 停留 − 套餐分钟)，供服务后参考），`overtimeMinor = 0`，另记 `overtimeAtBooking: false`（旧单没有这个键，读作 `true`）；三项配置不为 0 时另记 `stops`、`stopOccupancyMinutes`、`bufferMinutes`、`estimatedMinutes`（= 中标商品的 T）。改期、救援时这些键原样抄进新明细，连续改期也不会丢。
+- 新口径的结算价明细 `itinerary`：`overtimeMinutes` 仍记（= max(0, 行驶 + 停留 − 套餐分钟)，供服务后参考），`overtimeMinor = 0`，另记 `overtimeAtBooking: false`（旧单没有这个键，读作 `true`）；三项配置不为 0 时另记 `stops`、`stopOccupancyMinutes`、`bufferMinutes`、`estimatedMinutes`（= 中标商品的 T）。
+- 改期、救援时谁写这些键：`overtimeAtBooking` 由**引擎**写——带 `charterSelection`（含 `locked`）时写 `false`，不带时不写（旧单改期后的新明细同样没有这个键，仍读作 `true`）。`stops`、`stopOccupancyMinutes`、`bufferMinutes`、`estimatedMinutes` 由**服务层**（`order-changes.ts` 改期、`rescues.ts` 救援）在引擎算完后从原订单的 `order.settlement.itinerary` 原样抄进新明细（`locked` 不重算 T，引擎拿不到原值）；连续改期也不会丢。
 - **对外价明细 `price_breakdown`（`sellBreakdown`，`packages/domain/src/quote.ts`）：`overtime` 项只在 `overtimeMinor > 0` 时才写**（现在是只要有 `itinerary` 就固定写一项，金额 0 也写）。
   - 新口径的报价、新订单自然没有 `overtime` 项；
   - 部署前预收了超时费的旧订单，订单页（`order-price-notes.ts` 用同一个 `sellBreakdown` 按锁定的快照重新拆明细）**照旧显示超时费那一行**，`base` 不会把超时费吞进去——旧单的订单页明细保持不变（M9W-04「旧订单显示不变」）；
@@ -109,10 +114,12 @@ ADR 0093 在同一个键里再加 `dropoffCountsAsStop`（下车点当经停的�
 
 现在 `apps/api/src/services/order-views.ts` 给出 `overtime_minutes`、`overtime_fee`、`overtime_per_hour`，页面（`apps/web/src/lib/order-area-price-display.ts`）写「超时：预计 X（含停留），套餐 Y，超出 Z × 每小时 单价 = 金额」（M9W-04）。新订单如果照这个写，会出现「超出 60 分钟 × 单价 = 0」，供应商会以为平台少算了钱，或者以为这段时间不能收费。改为：
 
-- 订单详情的 `itinerary` 加 `overtime_at_booking: boolean`（结算价明细里 `overtimeAtBooking` 缺键 = `true`）。只给结算价，`/tenant/v1` 照旧没有对外价、加价比例（规则 4）。
+- 订单详情结算价部分的 `settlement.itinerary`（`order-views.ts` 第 88 行那一处）加 `overtime_at_booking: boolean`（结算价明细里 `overtimeAtBooking` 缺键 = `true`）。**不加在** `itineraryAmountsJson`（司机、渠道也能看到的用量）。只给结算价，`/tenant/v1` 照旧没有对外价、加价比例（规则 4）。
+- 结算价明细里有 `estimatedMinutes` 时，同一处再给 `estimated_minutes`，页面在超时一行前加「预计用时（含缓冲）X」（见下面「客人和供应商看到的『超出』可能不一致」）。
 - **`overtime_at_booking: false`（新订单）**：超出大于 0 时写「超时：预计 X（含停留），套餐 Y，**预计超出 Z 分钟，未预收，服务后按实际提交**」；没超出时写「超时：预计 X（含停留），套餐 Y，未超出套餐时长」。不写单价和「= 金额」。
 - **`overtime_at_booking: true`（部署前的旧单，都按下单时的规则预收过）**：照旧写「超出 Z × 每小时 单价 = 金额」，一字不变。
 - 「超公里」那一行不变（M9W-09 只改公里数的显示精度，见第三节第 5 小节）。
+- **客人和供应商看到的「超出」可能不一致**：客人页的提示（第五节第 1 条）按 T 判断，T 含经停占用和缓冲；供应商 / 运营详情的「预计超出」按「行驶 + 停留 − 套餐」算，不含。例：行驶 + 停留 11.5 小时、缓冲 60 分钟、最长套餐 12 小时——客人看到「预计用时超过套餐时长，超出部分服务后收取」，供应商详情却写「未超出套餐时长」。处理：供应商详情在有 `estimatedMinutes` 时一并写「预计用时（含缓冲）12 小时 30 分」，让两边看到同一个预计用时；「预计超出」仍按行驶 + 停留算（缓冲是平台为选档留的余量，不是预计会发生的用时），服务后按实际用时提交。这一点写进给业主的说明。
 - 司机页本来就只显示用量、不显示金额，不改。
 - **M9W-04 的这部分会被本篇改动**：M9W-04（待验收）的验收标准「超出量 × 单价 = 钱」只对旧单成立；本篇上线后，新订单按上面的写法。roadmap M9W-04 已加注，验收时不要按旧口径核对新订单。
 
@@ -124,16 +131,18 @@ ADR 0093 在同一个键里再加 `dropoffCountsAsStop`（下车点当经停的�
 
 ### 5. 和 M9W-09 的关系
 
-M9W-09（超公里算式按米精确显示公里数）由 PR #199（M9W-04 验收，在 roadmap 里登记 M9W-09）和 PR #206（M9W-09 实现）在做，两个 PR 都还没合并；main 和本分支的 roadmap 里暂时没有这个任务。#206 改的是 `order-area-price-display.ts` 里「超公里」那一行的公里数精度，和本篇第 3 小节改「超时」那一行在同一个文件、同一个函数，内容不冲突；后合并的一方按对方的改法合并即可。
+M9W-09（超公里算式按米精确显示公里数）由 PR #199（M9W-04 验收，在 roadmap 里登记 M9W-09）和 PR #206（M9W-09 实现）在做，两个 PR 都还没合并；main 和本分支的 roadmap 里暂时没有这个任务。#206 改的是 `order-area-price-display.ts` 里「超公里」那一行的公里数精度，以及 `apps/web/src/lib/charter-itinerary.ts` 的 `kmText`（官网订单页、司机页「全程约」改成四舍五入到 0.1 公里），没有碰 `HIDDEN_WHEN_ZERO`；和本篇第 3 小节改「超时」那一行在同一个文件、同一个函数，内容不冲突；后合并的一方按对方的改法合并即可。
 
 ## 四、测试与验收（本篇的三件事；选档、比价的测试见 ADR 0093）
 
 - domain 单元：T 的公式（默认值时 T = `routeUsage.minutes`；占用 × 经停数；缓冲）；`sellBreakdown` 在 `overtimeMinor = 0` 时不写 `overtime`、大于 0 时写（旧单预收的样例），各项之和恒等于对外价。
 - 集成（真实 PostgreSQL，测试数据在测试代码里构造、测试后清理）：
   - 服务规则新字段的读写、PUT 不带键保留原值、GET 不把默认值写回库、非包车 400、租户隔离；最低套餐比所有套餐都长时的提醒；
-  - 新口径询价、平台试算：行程比套餐长时总价不含超时费，`price_breakdown` 没有 `overtime`，结算价明细 `overtimeAtBooking: false`、`overtimeMinutes` 照记；
-  - 部署前格式（快照没有 `charterSelection`、预收了超时费）的订单：订单页明细仍有超时费那一行、`base` 不变；改期、救援照旧收超时费；
-  - 订单详情：新订单 `overtime_at_booking: false`，旧单 `true`；`/tenant/v1` 没有对外价（规则 4）。
+  - 新口径询价：行程比套餐长时总价不含超时费，`price_breakdown` 没有 `overtime`，结算价明细 `overtimeAtBooking: false`、`overtimeMinutes` 照记；
+  - 部署前格式（快照没有 `charterSelection`、预收了超时费）的订单：订单页明细仍有超时费那一行、`base` 不变；改期照旧收超时费；
+  - **救援（经过 `previewPlatformQuote`，不能只测引擎）**：部署前格式的单开救援、调 `rescueCandidates`，候选的超时费和档位都和原单一致（不传 `charterSelection`）；新口径的单救援传 `locked` + 订单的档，候选能按订单的档找到、没有超时费；
+  - 改期、救援后新明细：新口径单 `overtimeAtBooking: false`，`estimatedMinutes` 等从原订单抄来，连续改期两次仍在；
+  - 订单详情：新订单 `settlement.itinerary.overtime_at_booking: false`，旧单 `true`；司机、渠道看到的用量里没有这个字段；`/tenant/v1` 没有对外价（规则 4）。
 - 组件：订单详情「超时」两种写法（新订单「预计超出 Z 分钟，未预收，服务后按实际提交」、旧单原样）；官网明细没有超时费一行。
 - golden：不带 `charterSelection` 的 golden 超时费逐字段不变；新口径样例进 ADR 0093 的 `charter-spec-golden`。
 - 回放：按 ADR 0093 第六节第 5 小节分类（旧日志不带 `charterSelection`，按旧口径重算，超时费不变）。
@@ -148,6 +157,6 @@ M9W-09（超公里算式按米精确显示公里数）由 PR #199（M9W-04 验�
 | 3 | 最低套餐拦哪些：① 官网不带经停点、客人自选时长的包车；② `/sales/v1` 渠道（OTA）；③ 已下订单的改期、救援 | ① **拦**（否则 P0 第 2 条做不到）；② **拦**（同一个商品对所有渠道同一口径）；③ **不拦**（已成交的单） |
 | 4 | 默认值 0 / 0 / 不限（行为不变），建议值由业主在后台填 | 按此 |
 | 5 | 三项放进商品服务规则（不加列、不迁移） | 按此 |
-| 6 | 不带经停点的包车要不要也自动选套餐（T = 行驶 + 缓冲） | **这次不改**：仍由客人自选时长，只用最低套餐拦；新规格对无经停单的口径由 ADR 0093 第二节第 4 小节一并定 |
+| 6 | 不带经停点的包车要不要也自动选套餐（T = 行驶 + 缓冲） | **这次不改**：仍由客人自选时长，只用最低套餐拦；无经停单怎么选档见 ADR 0093 第四节第 12 条（沿用本条） |
 
-**给业主的说明（不需要决定）**：按新规格，按行程计价的报价不再含超时费：只影响行程比所选套餐长的那些单，价格会变低，超出部分服务后收；供应商订单详情里新订单写「预计超出 X 分钟，未预收，服务后按实际提交」，旧单照旧显示已收的超时费。
+**给业主的说明（不需要决定）**：按新规格，按行程计价的报价不再含超时费：只影响行程比所选套餐长的那些单，价格会变低，超出部分服务后收；供应商订单详情里新订单写「预计超出 X 分钟，未预收，服务后按实际提交」，旧单照旧显示已收的超时费。客人页按含缓冲的预计用时提示「可能超时」，供应商详情的「预计超出」按行驶 + 停留算，两边可能一边说超、一边说没超；供应商详情会同时写出含缓冲的预计用时（第三节第 3 小节）。
