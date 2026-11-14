@@ -170,6 +170,8 @@ export interface SitePriceBreakdownItem {
   amount: SiteMoney;
   area_name: LocalizedText | null;
   stop_seqs: number[] | null;
+  /** 下车点行程加价（M9P-01）：只有那一项带，`stop_seqs` 为空数组；页面上的「下车点」字样在 M9P-04 */
+  from_dropoff?: true;
 }
 
 export type SiteUnavailableReason =
