@@ -62,6 +62,10 @@ test("报不出价：三种原因按方案的说法，「没有商品」也说�
   assert.deepEqual(rejectionTexts(["OUT_OF_SERVICE_AREA", "NO_PRODUCT"]), { texts: ["这个地址暂时没有在线报价，请联系客服"], support: true });
   assert.deepEqual(rejectionTexts(["SOLD_OUT"]), { texts: ["这一天已经订满了，请换一天。"], support: false });
   assert.equal(rejectionTexts([]).texts.length, 1);
+  // M9W-10：其他原因不再让客人「换一个时间」，转人工报价（给客服电话）；没有原因时同样
+  assert.deepEqual(rejectionTexts(["NOT_AVAILABLE"]), { texts: ["这个行程暂时无法在线报价，请联系客服人工报价，或调整行程后再试。"], support: true });
+  assert.deepEqual(rejectionTexts([]), rejectionTexts(["NOT_AVAILABLE"]));
+  assert.doesNotMatch(JSON.stringify(rejectionTexts(["NOT_AVAILABLE"])), /换一个时间/);
   assert.doesNotMatch(JSON.stringify(rejectionTexts(["LEAD_TIME_TOO_SHORT", "OUT_OF_SERVICE_AREA", "CAPACITY_EXCEEDED", "NO_ROUTE"])), /[A-Z]{2,}_[A-Z]/);
 });
 

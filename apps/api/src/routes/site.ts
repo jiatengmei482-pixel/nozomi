@@ -66,6 +66,8 @@ import {
   siteReversePlace,
   siteRouteMap,
   siteSearchPlaces,
+  sitePlacesGoogleGuard,
+  placeUnavailableJson,
   takeSiteSlot,
 } from "../services/site.ts";
 import { salesMoney } from "../services/sales-quotes.ts";
@@ -487,37 +489,38 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
     return { id: place.id, type: place.type, code: place.code, name: place.name, address: place.address, location: { lng: place.lng, lat: place.lat } };
   });
 
-  /** 地址搜索、反查的限速：每个地址每分钟、每天各一份额度（每次都可能花钱调谷歌） */
+  /**
+   * 地址搜索、反查的限速：每个地址每分钟一份额度（防刷，入口就扣，超了 429）。
+   * 每天的额度（M8-45，`site_places_google_day`）只在真要调谷歌时扣（命中缓存、只有平台地点的不扣），用完了不调谷歌、200 + `available: false` + `unavailable_reason`
+   */
   const placeSlot = async (request: FastifyRequest): Promise<void> => {
     await takeSiteSlot(ctx, "site_places", { ip: request.ip });
-    await takeSiteSlot(ctx, "site_places_day", { ip: request.ip });
   };
 
   app.get("/site/v1/places/search", async (request) => {
     await placeSlot(request);
     const input = parseInput(placeSearchSchema, request.query, "querystring");
-    const found = await siteSearchPlaces(ctx, input.city_id ?? null, placeQueryOf(input.q));
-    return { available: found.available, items: found.items.map(placeItemJson) };
+    const found = await siteSearchPlaces(ctx, input.city_id ?? null, placeQueryOf(input.q), sitePlacesGoogleGuard(ctx, request.ip));
+    return { available: found.available, ...placeUnavailableJson(found.unavailableReason), items: found.items.map(placeItemJson) };
   });
 
-  /** 输入即提示每输入几个字就调一次（页面防抖 300 毫秒）：每分钟的额度比搜索宽，每天的额度和搜索、反查共用 */
+  /** 输入即提示每输入几个字就调一次（页面防抖 300 毫秒）：每分钟的额度比搜索宽；每天的额度只计真调谷歌的，和搜索、反查共用（M8-45，见上） */
   const autocompleteSlot = async (request: FastifyRequest): Promise<void> => {
     await takeSiteSlot(ctx, "site_autocomplete", { ip: request.ip });
-    await takeSiteSlot(ctx, "site_places_day", { ip: request.ip });
   };
 
   app.get("/site/v1/places/autocomplete", async (request) => {
     await autocompleteSlot(request);
     const input = parseInput(placeAutocompleteSchema, request.query, "querystring");
-    const found = await siteAutocomplete(ctx, placeQueryOf(input.q), input.session);
-    return { available: found.available, items: found.items.map(placeItemJson) };
+    const found = await siteAutocomplete(ctx, placeQueryOf(input.q), input.session, sitePlacesGoogleGuard(ctx, request.ip));
+    return { available: found.available, ...placeUnavailableJson(found.unavailableReason), items: found.items.map(placeItemJson) };
   });
 
   app.get("/site/v1/places/details", async (request) => {
     await autocompleteSlot(request);
     const input = parseInput(placeDetailsSchema, request.query, "querystring");
-    const found = await sitePlaceDetails(ctx, input.id, input.session ?? null);
-    return { available: found.available, place: found.place === null ? null : { id: found.place.id, address: found.place.address, location: { lat: found.place.location.lat, lng: found.place.location.lng }, kind: found.place.kind } };
+    const found = await sitePlaceDetails(ctx, input.id, input.session ?? null, sitePlacesGoogleGuard(ctx, request.ip));
+    return { available: found.available, ...placeUnavailableJson(found.unavailableReason), place: found.place === null ? null : { id: found.place.id, address: found.place.address, location: { lat: found.place.location.lat, lng: found.place.location.lng }, kind: found.place.kind } };
   });
 
   app.get("/site/v1/places/reverse", async (request) => {
@@ -527,7 +530,8 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
     const missing = (["lat", "lng"] as const).filter((name) => query[name] === undefined || (typeof query[name] === "string" && (query[name] as string).trim() === ""));
     if (missing.length > 0) throw validationFailed("querystring", missing.map((name) => ({ path: `/${name}`, reason: "REQUIRED", message: name === "lat" ? "请给出纬度" : "请给出经度" })));
     const input = parseInput(placeReverseSchema, request.query, "querystring");
-    return siteReversePlace(ctx, input.city_id, { lat: input.lat, lng: input.lng });
+    const found = await siteReversePlace(ctx, input.city_id, { lat: input.lat, lng: input.lng }, sitePlacesGoogleGuard(ctx, request.ip));
+    return { available: found.available, ...placeUnavailableJson(found.unavailableReason), address: found.address };
   });
 
   // 按客人币种显示参考价（M8-02，ADR 0069 B16）：只读汇率中心现在生效的汇率，不拉外部服务；不可用时 200 + available false

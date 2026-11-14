@@ -56,6 +56,12 @@ test("新预订页四步：输入即提示选机场和酒店 → 自动报价、
   await expect(fromList.getByRole("option").first()).toContainText(airport.name);
   await expect(fromList.getByRole("option").first()).toContainText("机场");
   await expect(fromList.getByRole("option", { name: /東京駅/ })).toBeVisible();
+  // 有谷歌候选：候选列表下面、同一个面板里署名「Google Maps」一次（M9E-06），不在 listbox 里；亮暗两色、窄屏的 axe 在下面一起核对
+  const fromPanel = fromList.locator("xpath=..");
+  await expect(fromPanel.getByText("Google Maps", { exact: true })).toBeVisible();
+  await expect(fromPanel.getByText("Google Maps", { exact: true })).toHaveCount(1);
+  await expect(fromList.getByText("Google Maps", { exact: true })).toHaveCount(0);
+  await expect(fromPanel.locator(".google-attribution")).toHaveAttribute("translate", "no");
   await expectNarrowAndAccessible(page, "新预订页（候选展开）");
   await from.press("Enter");
   await expect(from).toHaveValue(airport.name);

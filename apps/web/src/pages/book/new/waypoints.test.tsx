@@ -315,6 +315,25 @@ test("经停点不在任何区域（WAYPOINT_NOT_PRICED）：指出第几个经�
   ]);
 });
 
+test("M9W-10：经停点所在加价区域没设途经加价（对外同样是 WAYPOINT_NOT_PRICED）、另有商品报 NOT_AVAILABLE：指出是哪个经停点，其余用新的通用说法，不叫客人换时间", async () => {
+  wideScreen();
+  open((call) =>
+    json(200, (call.body as Record<string, unknown>)["itinerary_pricing"] === true ? ({ currency: "JPY", quotes: [], unavailable: [{ vehicle_group_id: null, reasons: ["NOT_AVAILABLE", "WAYPOINT_NOT_PRICED"], waypoint_stop_seqs: [1] }] } satisfies SiteQuoteResult) : plainResult),
+  );
+  const actor = user();
+  await screen.findByRole("heading", { name: "车型1" }, SLOW);
+  await actor.click(screen.getByRole("button", { name: "上一步" }));
+  await addStop(actor, "五合目", "60");
+  await addStop(actor, "河口湖", "60");
+  await actor.click(screen.getByRole("button", { name: "下一步：选择车型" }));
+  assert.ok(await screen.findByText("第 1 个经停点「五合目」暂时没有在线报价，请联系客服人工报价，或去掉这个经停点再试。", {}, SLOW));
+  assert.ok(screen.getByText("这个行程暂时无法在线报价，请联系客服人工报价，或调整行程后再试。"));
+  assertAbsent(screen.queryByText(/河口湖」暂时没有在线报价/));
+  assert.equal(screen.getByRole("link", { name: "+81 3-1234-5678" }).getAttribute("href"), "tel:+81312345678");
+  assert.doesNotMatch(document.body.textContent ?? "", /换一个时间|WAYPOINT_NOT_PRICED|NOT_AVAILABLE/);
+  assert.ok(screen.getByRole("region", { name: "请客服人工报价" }));
+});
+
 test("按行程计价有一段路线算不出来（422 ITINERARY_ROUTE_UNAVAILABLE）：说清是哪两个点之间，转人工报价", async () => {
   wideScreen();
   open((call) => ((call.body as Record<string, unknown>)["itinerary_pricing"] === true ? apiError(422, "ITINERARY_ROUTE_UNAVAILABLE", "路线取不到", { leg: 2, reason: "NO_ROUTE" }) : json(200, plainResult)));

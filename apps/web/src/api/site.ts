@@ -549,9 +549,16 @@ export interface SitePlaceCandidate {
   kind: SitePlaceKind;
 }
 
-/** `available` 为 false：谷歌这次用不了（没配置、到了每日上限、谷歌出错），`items` 只有平台的地点；页面退回常用地点、地图和手填。 */
+/**
+ * `available` 为 false 时客人要知道的原因（M8-45）：`IP_DAILY_LIMIT` 这个地址今天调谷歌的额度用完了（页面说「今天的地址提示次数用完了」）；
+ * 其余（没配置、全站上限、谷歌出错）不带这个字段，页面照旧说「暂时用不了」。
+ */
+export type SitePlaceUnavailableReason = "IP_DAILY_LIMIT";
+
+/** `available` 为 false：谷歌这次用不了（没配置、到了每日上限、谷歌出错、这个地址今天的额度用完），`items` 只有平台的地点；页面退回常用地点、地图和手填。 */
 export interface SitePlaceSearchResult {
   available: boolean;
+  unavailable_reason?: SitePlaceUnavailableReason;
   items: SitePlaceCandidate[];
 }
 
@@ -567,16 +574,19 @@ export interface SitePlaceSuggestion {
 
 export interface SitePlaceSuggestionResult {
   available: boolean;
+  unavailable_reason?: SitePlaceUnavailableReason;
   items: SitePlaceSuggestion[];
 }
 
 export interface SitePlaceDetailsResult {
   available: boolean;
+  unavailable_reason?: SitePlaceUnavailableReason;
   place: { id: string; address: string; location: { lat: number; lng: number }; kind: SitePlaceKind } | null;
 }
 
 export interface SiteReverseResult {
   available: boolean;
+  unavailable_reason?: SitePlaceUnavailableReason;
   /** 这个位置的地址；查不到为 null */
   address: string | null;
 }

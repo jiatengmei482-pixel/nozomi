@@ -7863,7 +7863,7 @@ paths:
       tags: [ 渠道 ]
       operationId: listChannelQuoteLogs
       summary: 渠道的询价日志
-      description: 需要操作 `channel.read`。按时间从新到旧。每次 `/sales/v1/quotes` 一条：请求、候选数、报出的报价和中标租户。全部候选的排序依据和没报出价的原因存在库里（`quote_logs.bids` / `rejects`）。
+      description: 需要操作 `channel.read`。按时间从新到旧。每次 `/sales/v1/quotes` 一条：请求、候选数、报出的报价和中标租户、没报出价的每一条（商品、车型组、原始原因码，M9W-10）。全部候选的排序依据存在库里（`quote_logs.bids`）。
       security:
         - platformToken: []
       parameters:
@@ -12838,6 +12838,8 @@ paths:
                 properties:
                   available:
                     type: boolean
+                  unavailable_reason:
+                    $ref: "#/components/schemas/SitePlaceUnavailableReason"
                   items:
                     type: array
                     items:
@@ -12886,6 +12888,8 @@ paths:
                 properties:
                   available:
                     type: boolean
+                  unavailable_reason:
+                    $ref: "#/components/schemas/SitePlaceUnavailableReason"
                   place:
                     oneOf:
                       - type: object
@@ -13209,7 +13213,7 @@ paths:
         `kind`：机场（谷歌的主类型是机场，或平台的机场、航站楼）为 `airport`，其余 `other`——按两个坐标报价时用它认机场。
         关键字先规范化（全角转半角、空白并成一个），规范化后 2–100 个字。同一范围同一关键字 10 分钟内在服务端直接复用（进程内短时缓存，谷歌的名称、地址不存库）。
         谷歌没配置、到了每日上限（`GOOGLE_PLACES_DAILY_LIMIT`，和反查、输入即提示合计）、出错、超时时**不报错**：200 + `available: false`，`items` 只有平台的地点，页面退回「从常用地点选」、地图点选和手填。
-        带了城市、而城市不存在、停用或不在官网渠道的授权里 400 `UNKNOWN_CITY`。每个地址每分钟 20 次、每天 300 次（和反查、输入即提示合计）。
+        带了城市、而城市不存在、停用或不在官网渠道的授权里 400 `UNKNOWN_CITY`。每个地址每分钟 20 次（超了 429）；每天 300 次（M8-45 起只计真调谷歌的，和反查、输入即提示、取坐标合计，嵌入组件共用；命中缓存的不计），用完了不 429，而是 200 + `available: false` + `unavailable_reason: IP_DAILY_LIMIT`、只有平台的地点。
       parameters:
         - name: city_id
           in: query
@@ -13237,6 +13241,8 @@ paths:
                 properties:
                   available:
                     type: boolean
+                  unavailable_reason:
+                    $ref: "#/components/schemas/SitePlaceUnavailableReason"
                   items:
                     type: array
                     maxItems: 10
@@ -13262,7 +13268,7 @@ paths:
         平台的机场、航站楼、车站在前（`source: platform`，带坐标，规则同地址搜索）；谷歌的候选在后（`source: google`，Places API (New) Autocomplete，后端代调、密钥不进浏览器），
         **还没有坐标**（`location: null`），客人选中后用 `GET /site/v1/places/details` 带同一个 `session` 取坐标和类型。谷歌只给官网渠道授权的国家、授权城市合起来的范围里的。
         同一关键字 10 分钟内在服务端直接复用（不分会话）。谷歌没配置、到了每日上限（`GOOGLE_PLACES_DAILY_LIMIT`，和搜索、反查合计）、出错时 200 + `available: false`，只有平台的地点。
-        每个地址每分钟 60 次（和取坐标合计），每天 300 次（和搜索、反查合计）。
+        每个地址每分钟 60 次（和取坐标合计，超了 429）；每天 300 次（M8-45 起只计真调谷歌的，和取坐标、搜索、反查合计，嵌入组件共用；命中缓存、只有平台地点的不计），用完了不 429，而是 200 + `available: false` + `unavailable_reason: IP_DAILY_LIMIT`、只有平台的地点。
       parameters:
         - name: q
           in: query
@@ -13290,6 +13296,8 @@ paths:
                 properties:
                   available:
                     type: boolean
+                  unavailable_reason:
+                    $ref: "#/components/schemas/SitePlaceUnavailableReason"
                   items:
                     type: array
                     maxItems: 10
@@ -13313,7 +13321,7 @@ paths:
       description: |
         M8-02，ADR 0069 B1。用输入即提示给的谷歌地点 ID 和同一个会话令牌调 Place Details（只要地址、坐标、类型；Essentials 一档）。名称用输入即提示给的。
         同一个地点 10 分钟内在服务端直接复用。谷歌用不了时 200 + `available: false`、`place` 为 null（页面退回常用地点、地图点选和手填）。
-        每个地址每分钟 60 次（和输入即提示合计），每天 300 次（和搜索、反查合计）。
+        每个地址每分钟 60 次（和输入即提示合计，超了 429）；每天 300 次（M8-45 起只计真调谷歌的，和输入即提示、搜索、反查合计），用完了 200 + `available: false` + `unavailable_reason: IP_DAILY_LIMIT`。
       parameters:
         - name: id
           in: query
@@ -13341,6 +13349,8 @@ paths:
                 properties:
                   available:
                     type: boolean
+                  unavailable_reason:
+                    $ref: "#/components/schemas/SitePlaceUnavailableReason"
                   place:
                     oneOf:
                       - type: "null"
@@ -13377,7 +13387,7 @@ paths:
         M3-12，ADR 0044。客人在地图上点选或拖动标记后，页面用它把地址填进地址栏。服务端调谷歌 Geocoding API 反查（密钥只在服务端），
         坐标先取整到小数点后 4 位（约 11 米，同一个格子 10 分钟内直接复用）。
         坐标要在城市中心周围 80 公里以内，否则 400 `OUT_OF_CITY`；城市的规则同地址搜索（`UNKNOWN_CITY`）。
-        谷歌用不了时 200 + `available: false`；这里没有地址（海上、山里）时 `address` 为 null。每个地址每分钟 20 次、每天 300 次（和搜索合计）。
+        谷歌用不了时 200 + `available: false`；这里没有地址（海上、山里）时 `address` 为 null。每个地址每分钟 20 次（和搜索合计，超了 429）；每天 300 次（M8-45 起只计真调谷歌的，和搜索、输入即提示、取坐标合计），用完了 200 + `available: false` + `unavailable_reason: IP_DAILY_LIMIT`。
         **报价只看坐标**：地址文字只给司机看，服务区按询价请求里的坐标判断。
       parameters:
         - name: city_id
@@ -13412,6 +13422,8 @@ paths:
                 properties:
                   available:
                     type: boolean
+                  unavailable_reason:
+                    $ref: "#/components/schemas/SitePlaceUnavailableReason"
                   address:
                     type: [ string, "null" ]
                     maxLength: 240
@@ -18802,7 +18814,7 @@ components:
           items:
             type: object
             additionalProperties: false
-            required: [ id, created_at, client_id, currency, city_id, category, candidate_count, quote_count, reject_count, duration_ms, request, quotes ]
+            required: [ id, created_at, client_id, currency, city_id, category, candidate_count, quote_count, reject_count, rejects, duration_ms, request, quotes ]
             properties:
               id:
                 type: string
@@ -18825,6 +18837,25 @@ components:
                 type: integer
               reject_count:
                 type: integer
+              rejects:
+                description: |
+                  没报出价的每一条（M9W-10，`reject_count` 就是它的条数）：哪个商品、哪个车型组（商品层面的为 null）、平台内部的原始原因码
+                  （和报价试算的 `QuoteRefusal` 同一套，另有 `NOT_IN_CHANNEL_SCOPE` = 商品不在渠道的授权范围里）。不是给渠道看的：
+                  例如经停点所在加价区域没设途经加价时，这里是 `NO_PRICE_RULE`，渠道 / 官网看到的是 `WAYPOINT_NOT_PRICED`
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [ product_id, vehicle_group_id, reason ]
+                  properties:
+                    product_id:
+                      type: [ string, "null" ]
+                      format: uuid
+                    vehicle_group_id:
+                      type: [ string, "null" ]
+                      format: uuid
+                    reason:
+                      type: string
               duration_ms:
                 type: integer
               request:
@@ -19757,7 +19788,7 @@ components:
         `OUTSIDE_SALE_PERIOD`、`OUTSIDE_SERVICE_TIME`、`SERVICE_TIME_PASSED`、`LEAD_TIME_TOO_SHORT`、`URGENT_SOLD_OUT`、`OUT_OF_SERVICE_AREA`、`IN_FORBIDDEN_AREA`、
         `NO_PRICING_AREA`（M8-20，ADR 0075：地点在这个供应商的运营区域里，但商品没有勾选覆盖它的报价区域——这个商品不报，不退回基础价；
         只在报价试算、询价日志里出现，给渠道和官网的是 `OUT_OF_SERVICE_AREA`）、
-        `DROPOFF_REQUIRED`（包车没给下车地点、而商品设了区域加价，M8-15）、`WAYPOINT_NOT_PRICED`（包车有经停点不在这个商品的任何区域里，M9W-01，ADR 0088）、
+        `DROPOFF_REQUIRED`（包车没给下车地点、而商品设了区域加价，M8-15）、`WAYPOINT_NOT_PRICED`（包车有经停点不在这个商品的任何区域里，M9W-01，ADR 0088；经停点所在加价区域没有可用途经加价时这里仍是下面的 `NO_PRICE_RULE` 等，对外才报 `WAYPOINT_NOT_PRICED`，M9W-10）、
         `ADDON_NOT_OFFERED`、`DRIVER_LANGUAGE_NOT_OFFERED`、`SOLD_OUT`。包车的上车点、下车点都要在商品本身的区域或某个加价区域里，否则是 `OUT_OF_SERVICE_AREA` / `IN_FORBIDDEN_AREA`（ADR 0073）。
         车型组层面的（包车两端所在的加价区域没有这个车型组、套餐的区域加价也报 `NO_PRICE_RULE` / `PRICE_NOT_IN_EFFECT` / `PRICE_RULE_DISABLED`）：`VEHICLE_GROUP_NOT_OFFERED`、`VEHICLE_GROUP_DISABLED`、`CAPACITY_EXCEEDED`、
         `NO_PRICE_RULE`、`PRICE_NOT_IN_EFFECT`、`PRICE_RULE_DISABLED`、`ROUTE_UNAVAILABLE`、`PRICE_NOT_POSITIVE`、`PRICE_OVER_LIMIT`。
@@ -29702,6 +29733,13 @@ components:
           $ref: "#/components/schemas/SitePoint"
         kind:
           $ref: "#/components/schemas/SitePlaceKind"
+    SitePlaceUnavailableReason:
+      type: string
+      enum: [ IP_DAILY_LIMIT ]
+      description: |
+        M8-45。只在 `available: false` 且客人需要知道原因时出现：`IP_DAILY_LIMIT` 这个来源地址（IPv6 按 /64）今天调谷歌的额度（每天 300 次，
+        输入即提示、取坐标、搜索、反查合计，官网和嵌入组件共用）用完了——这次没调谷歌，`items` 只有平台的地点；页面提示「今天的地址提示次数用完了」。
+        谷歌没配置、全站每日上限、谷歌出错时不带这个字段（页面照旧说「暂时用不了」）。
     SitePlaceSuggestion:
       type: object
       additionalProperties: false
@@ -29846,7 +29884,8 @@ components:
           description: |
             包车的经停点（途经景点，M9W-01，ADR 0088），按顺序，最多 10 个；选填，空数组和不填一样。别的品类填了 400 `NOT_APPLICABLE`（`/waypoints`）。
             经停点落在供应商的加价区域里时按那个区域的途经加价收（同一区域一单只收一次；上 / 下车已经在这个区域的不再收；只在商品服务区域里的不加）；
-            有经停点哪个区域都不在时报不出（`unavailable` 的原因 `WAYPOINT_NOT_PRICED`，`waypoint_stop_seqs` 指出是第几个），转人工报价。
+            有经停点哪个区域都不在，或落在加价区域里、但那些区域对这个车型组和套餐没有可用的途经加价（且不在商品服务区域里）时报不出
+            （`unavailable` 的原因 `WAYPOINT_NOT_PRICED`，`waypoint_stop_seqs` 指出是第几个，M9W-10），转人工报价。
             名称、停留分钟随报价锁定，下单时抄进订单（不影响价格）
           items:
             type: object
@@ -30092,7 +30131,7 @@ components:
           type: [ string, "null" ]
           format: uuid
         waypoint_stop_seqs:
-          description: 原因里有 `WAYPOINT_NOT_PRICED` 时：哪几个经停点不在任何区域里（从 1 起，M9W-01，ADR 0088）；没有这个原因时不给
+          description: 原因里有 `WAYPOINT_NOT_PRICED` 时：哪几个经停点报不出——不在任何区域里，或所在的加价区域没有可用的途经加价（从 1 起，M9W-01、M9W-10，ADR 0088）；没有这个原因时不给
           type: array
           items:
             type: integer
