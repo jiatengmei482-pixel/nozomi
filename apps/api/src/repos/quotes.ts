@@ -52,7 +52,7 @@ const columns = (prefix: string, list: string): string => list.split(", ").map((
  */
 export async function loadQuoteCandidates(db: Db, filter: QuoteCandidateFilter): Promise<QuoteCandidate[]> {
   const products = await db.query<Row>(
-    `select p.id, p.tenant_id, p.code, p.category, p.status, p.version, p.service_rules, p.inventory_mode, p.city_id,
+    `select p.id, p.tenant_id, p.code, p.category, p.status, p.version, p.service_rules, p.inventory_mode, p.city_id, p.charter_layout,
             b.currency, b.rounding_unit, b.status as brand_status,
             t.name as tenant_name, t.status as tenant_status, t.is_test_tenant,
             c.timezone, c.country_code,
@@ -90,7 +90,7 @@ export async function loadQuoteCandidates(db: Db, filter: QuoteCandidateFilter):
   const surchargeRows = await db.query<Row>(
     `select distinct r.product_id, r.area_id, a.status
        from price_rules r join areas a on a.tenant_id = r.tenant_id and a.id = r.area_id
-      where r.tenant_id = any($2::uuid[]) and r.product_id = any($1::uuid[]) and r.pricing_model = 'charter_area_surcharge'
+      where r.tenant_id = any($2::uuid[]) and r.product_id = any($1::uuid[]) and r.pricing_model in ('charter_area_surcharge', 'charter_itinerary_surcharge')
       order by r.product_id, r.area_id`,
     [ids, tenantIds],
   );
@@ -164,6 +164,8 @@ export async function loadQuoteCandidates(db: Db, filter: QuoteCandidateFilter):
         pickupPlace: row["place_type"] === null ? null : { type: row["place_type"], flightScope: row["flight_scope"] },
         areas: areasByProduct.get(row["id"]) ?? [],
         surchargeAreas: surchargeAreasByProduct.get(row["id"]) ?? [],
+        // 包车迁移过三层区域（ADR 0093 第一节）：只在迁移过时带（没迁移过的商品的事实和以前逐字节相同）
+        ...(row["charter_layout"] === "three_layer" ? { charterLayout: "three_layer" as const } : {}),
         operatingAreas: operatingAreas(row["tenant_id"], category),
         vehicleGroups: groupsByProduct.get(row["id"]) ?? [],
         serviceRules,

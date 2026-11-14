@@ -72,8 +72,9 @@ const moment = (date: string, time: string, extra: Record<string, unknown> = {})
 };
 
 test("枚举：计价方式都有中文名；接送机和点对点用一口价、里程 + 时长，包车的基础定价只有套餐（需求文档的表），另有区域加价（M8-15，ADR 0073）", () => {
-  assert.deepEqual([...PRICING_MODELS], ["fixed", "mileage_time", "charter_package", "charter_area_surcharge"]);
-  assert.deepEqual(PRICING_MODELS.map((model) => PRICING_MODEL_NAMES[model]), ["固定一口价", "里程 + 时长", "包车套餐", "区域加价"]);
+  // M9P-05（ADR 0093 第一节）：③「区域加价」改名「上下车加价」，另有②行程加价
+  assert.deepEqual([...PRICING_MODELS], ["fixed", "mileage_time", "charter_package", "charter_area_surcharge", "charter_itinerary_surcharge"]);
+  assert.deepEqual(PRICING_MODELS.map((model) => PRICING_MODEL_NAMES[model]), ["固定一口价", "里程 + 时长", "包车套餐", "上下车加价", "行程加价"]);
   assert.deepEqual(pricingModelsFor("airport_transfer"), ["fixed", "mileage_time"]);
   assert.deepEqual(pricingModelsFor("point_to_point"), ["fixed", "mileage_time"]);
   assert.deepEqual(pricingModelsFor("charter"), ["charter_package"]);

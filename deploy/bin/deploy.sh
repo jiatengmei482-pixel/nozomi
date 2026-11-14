@@ -221,6 +221,27 @@ validate_edge() {
   esac
 }
 
+# 包车三层区域的数据迁移（M9P-05，ADR 0093 第六节第 1 小节）：由 GitHub Environment 变量 CHARTER_THREE_LAYER_MIGRATION 决定。
+# 不设 = 不运行（正式站默认）；dry-run = 只出报告不写库；apply = 写库。只认这三种，其他值直接中止；正式环境设了也中止
+# （只在测试环境执行，见 docs/deploy.md「测试环境执行三层区域迁移」）。每次部署都打一行，日志里看得出这次跑没跑。
+validate_three_layer_migration() {
+  case "${CHARTER_THREE_LAYER_MIGRATION:-}" in
+    "") log "三层迁移：未设" ;;
+    dry-run | apply)
+      [[ "$APP_ENV" != "production" ]] ||
+        die "$EXIT_USAGE" "CHARTER_THREE_LAYER_MIGRATION 只能在测试环境设：请到正式环境的 Environment variables 删掉它再部署"
+      log "三层迁移：$CHARTER_THREE_LAYER_MIGRATION"
+      ;;
+    *) die "$EXIT_USAGE" "CHARTER_THREE_LAYER_MIGRATION 只能不设、或设成 dry-run / apply（现在是「$CHARTER_THREE_LAYER_MIGRATION」）" ;;
+  esac
+}
+
+# 迁移报告目录（<根目录>/reports，权限 700，只有部署账号读得到）：migrate 容器把完整报告写在这里，不进部署日志。
+ensure_reports_dir() {
+  mkdir -p "$root_dir/reports"
+  chmod 700 "$root_dir/reports"
+}
+
 # 入口模式决定下面三项，不让人手填：
 #   API 信任几层反向代理   standalone 1（Caddy）；behind-proxy 2（外层代理 + Caddy）
 #   Caddy 的站点地址       standalone 是域名（监听 80/443）；behind-proxy 是容器内的 HTTP 端口
@@ -245,6 +266,7 @@ EDGE_MODE=$EDGE_MODE
 EDGE_LISTEN=$EDGE_LISTEN
 CADDY_SITE_ADDRESS=$site_address
 TRUST_PROXY_HOPS=$proxy_hops
+REPORTS_DIR=$root_dir/reports
 ENV
 }
 
@@ -306,6 +328,7 @@ cmd_deploy() {
   [[ -z "${ACME_EMAIL:-}" || "$ACME_EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$ ]] ||
     die "$EXIT_USAGE" "ACME_EMAIL 不是合法的邮箱地址"
   validate_edge
+  validate_three_layer_migration
   # 真实环境必须用部署专用账号：用 root 部署会留下 root 属主的文件，之后部署账号就写不进去了。
   [[ "$APP_ENV" == "ci" || "$(id -u)" -ne 0 ]] ||
     die "$EXIT_USAGE" "不要用 root 部署。请改用初始化流程建好的 nozomi 账号（GitHub 上是这个环境的 VPS_SSH_USER；手工部署是 NOZOMI_SSH_USER）再重新部署"
@@ -331,6 +354,7 @@ cmd_deploy() {
   fi
   normalize_permissions
   write_release_env
+  ensure_reports_dir
   registry_login
 
   if [[ "${DEPLOY_SKIP_PULL:-}" == "1" ]]; then
@@ -369,6 +393,15 @@ cmd_deploy() {
   log "执行数据库迁移"
   "$release_dir/bin/compose.sh" run --rm --no-deps -T migrate node apps/api/src/db/migrate-cli.ts ||
     die "$EXIT_NOT_SWITCHED" "数据库迁移失败（出错的那个迁移已整体撤销），旧版本没有被替换"
+
+  # 包车三层区域的数据迁移：在数据库迁移之后、新版本启动之前，用同一个临时 migrate 容器、迁移账号执行。
+  # 以部署账号的身份运行，报告才写得进只有部署账号能进的报告目录；日志里只有计数。失败（apply 已整体回滚）同样中止部署。
+  if [[ -n "${CHARTER_THREE_LAYER_MIGRATION:-}" ]]; then
+    log "执行包车三层区域的数据迁移（$CHARTER_THREE_LAYER_MIGRATION）"
+    "$release_dir/bin/compose.sh" run --rm --no-deps -T --user "$(id -u):$(id -g)" -e CHARTER_THREE_LAYER_MIGRATION="$CHARTER_THREE_LAYER_MIGRATION" -e CHARTER_THREE_LAYER_REPORT_DIR=/reports \
+      migrate node apps/api/src/db/charter-three-layer-cli.ts ||
+      die "$EXIT_NOT_SWITCHED" "包车三层区域的数据迁移失败（$CHARTER_THREE_LAYER_MIGRATION，写入已整体撤销），旧版本没有被替换"
+  fi
 
   log "启动新版本并等待健康检查通过（最多 $HEALTH_TIMEOUT_SECONDS 秒）"
   if activate "$release_dir"; then

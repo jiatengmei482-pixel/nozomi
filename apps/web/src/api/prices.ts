@@ -36,6 +36,8 @@ export interface PriceRuleInput {
   dropoff_surcharge?: number | null;
   /** 途经加价（M9W-01，ADR 0088）：经停点在这个区域时加多少，同一区域一单一次；null = 没设（这个区域对经停点没有规则） */
   waypoint_surcharge?: number | null;
+  /** 包车②行程加价（M9P-05，ADR 0093）：只有迁移过三层区域的商品能用；价格页的新表在 M9P-07 */
+  itinerary_surcharge?: number | null;
   valid_from: string;
   valid_to: string | null;
   status: PriceRuleStatus;
@@ -58,6 +60,8 @@ export interface PriceRules {
   available_models: PricingModel[];
   /** 加价类的价格方式（包车：charter_area_surcharge，M8-15）；别的品类是空数组 */
   surcharge_models?: PricingModel[];
+  /** 包车用哪套价格表（M9P-05）：null = 旧表；three_layer = 新表（价格页按它显示三张表，M9P-07） */
+  charter_layout?: "three_layer" | null;
   /** 商品所在城市当地的今天 */
   today: string;
   items: PriceRuleBody[];
@@ -310,13 +314,13 @@ export function getHolidays(token: string, values: { country_code?: string; from
 }
 
 /** 对账用：每个类型的字段名清单。 */
-const PRICE_INPUT = ["area_id", "to_area_id", "vehicle_group_id", "direction", "package_hours", "pricing_model", "base_price", "included_km", "start_price", "start_meters", "start_minutes", "per_km", "per_minute", "min_price", "package_km", "package_price", "overtime_per_hour", "over_km_per_km", "pickup_surcharge", "dropoff_surcharge", "waypoint_surcharge", "valid_from", "valid_to", "status"] as const;
+const PRICE_INPUT = ["area_id", "to_area_id", "vehicle_group_id", "direction", "package_hours", "pricing_model", "base_price", "included_km", "start_price", "start_meters", "start_minutes", "per_km", "per_minute", "min_price", "package_km", "package_price", "overtime_per_hour", "over_km_per_km", "pickup_surcharge", "dropoff_surcharge", "waypoint_surcharge", "itinerary_surcharge", "valid_from", "valid_to", "status"] as const;
 const ADJUST_INPUT = ["name", "travel_from", "travel_to", "cycle", "time_slot", "area_ids", "vehicle_group_ids", "directions", "package_hours", "steps", "status"] as const;
 export const PRICE_SCHEMA_FIELDS = {
   PriceRule: ["id", ...PRICE_INPUT, "base", "created_at", "updated_at"],
   PriceCalendar: ["version", "currency", "rounding_unit", "today", "days", "groups"],
   PriceCalendarDay: ["date", "weekday", "holiday", "price_rule", "route_rule", "surcharge", "segments"],
-  PriceRules: ["version", "currency", "rounding_unit", "available_models", "surcharge_models", "today", "items", "coverage"],
+  PriceRules: ["version", "currency", "rounding_unit", "available_models", "surcharge_models", "charter_layout", "today", "items", "coverage"],
   AdjustRule: ["id", ...ADJUST_INPUT, "ended", "created_at", "updated_at"],
   AdjustRules: ["version", "currency", "rounding_unit", "today", "items"],
   Holiday: ["country_code", "date", "name", "updated_at"],

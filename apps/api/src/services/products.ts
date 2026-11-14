@@ -571,6 +571,7 @@ const RULE_MESSAGES: Readonly<Record<PublishIssueReason, string>> = {
   NO_INVENTORY_AHEAD: "库存是限量的，但从今天起没有一天还有可售的库存，客人询价时报不出价",
   PRICING_AREA_OUTSIDE_OPERATING: "这个报价区域有一部分不在任何运营区域里，那部分不会报价。需要的话请补画运营区域",
   MIN_PACKAGE_ABOVE_ALL: "最低套餐比这个商品所有启用的套餐都长，这个商品将报不出价",
+  CHARTER_GROUP_NO_PACKAGE: "这个车型组还没有套餐价（按车型组 × 套餐填一次），报不出价",
   FEATURE_NOT_AVAILABLE: "这项功能还没有上线",
 };
 
@@ -791,11 +792,13 @@ async function runPublishCheck(db: Db, tenantId: string, product: Product, now: 
   const today = instantToLocal(now, view.city?.timezone ?? "UTC").date;
   // 区域加价（ADR 0073）不算在上架检查的价格统计里：它的区域本来就不在商品的区域列表里，不是「已不在选择范围内的价格」
   const allPriceRules = await listPriceRules(db, tenantId, product.id);
-  const priceRules = allPriceRules.filter((rule) => !isSurchargeRule(rule));
+  // 迁移过三层区域的包车（ADR 0093 第五节）：套餐价只用整商品套餐价，按服务区域的旧行只读、报价不读，不算
+  const layered = product.category === "charter" && product.charterLayout === "three_layer";
+  const priceRules = allPriceRules.filter((rule) => !isSurchargeRule(rule) && (!layered || rule.areaId === null));
   const adjustRules = await listAdjustRules(db, tenantId, product.id);
   // 「可以卖的价格」：启用、未过期，而且区域和车型组都是商品现在选着的（price-overview、修改保护用的是同一个判断）
   const selected = { areaIds: (view.areas ?? []).map((area) => area.areaId), vehicleGroupIds: (view.vehicleGroups ?? []).map((group) => group.vehicleGroupId) };
-  const inSelection = priceRules.filter((rule) => selected.areaIds.includes(rule.areaId) && selected.vehicleGroupIds.includes(rule.vehicleGroupId));
+  const inSelection = priceRules.filter((rule) => (rule.areaId === null || selected.areaIds.includes(rule.areaId)) && selected.vehicleGroupIds.includes(rule.vehicleGroupId));
   const activePrices = sellablePriceRules(priceRules, selected, today);
   // 调价规则的检查连同点对点的线路价一起看（它们不算上架条件，但同样会被报出去，ADR 0073）
   const adjustedPrices = [...activePrices, ...sellableRouteRules(priceRules, selected, today)];
@@ -836,13 +839,15 @@ async function runPublishCheck(db: Db, tenantId: string, product: Product, now: 
     ...(options.light === true ? {} : { pricingOutsideOperating: await pricingOutsideOperating(db, tenantId, product, view.areas ?? [], allPriceRules) }),
     // 包车的最低套餐比所有启用的套餐都长时提醒（ADR 0091，不拦上架）
     ...(product.category === "charter" ? { charterPackageHours: packageHoursOf(activePrices) } : {}),
+    // 迁移过三层区域的包车：每个车型组至少一档整商品套餐价（规格 P1 #7「上架拦下」）
+    ...(layered ? { charterGroupsWithoutPackage: selected.vehicleGroupIds.flatMap((groupId, index) => (activePrices.some((rule) => rule.vehicleGroupId === groupId) ? [] : [index])) } : {}),
   };
   return { items: publishCheck(facts), adjustRules: adjustRules.map((rule) => ({ id: rule.id, name: rule.name })), stacks };
 }
 
 /** 商品勾选的报价区域（商品区域、启用的包车区域加价的区域）里，有多少不在本租户运营范围里（ADR 0075，按商品品类取运营区域）。 */
 async function pricingOutsideOperating(db: Db, tenantId: string, product: Product, areas: readonly { areaId: string }[], rules: readonly StoredPriceRule[]): Promise<{ areaId: string; outsideM2: number }[]> {
-  const pricingIds = [...new Set([...areas.map((area) => area.areaId), ...rules.filter((rule) => isSurchargeRule(rule) && rule.status === "enabled").map((rule) => rule.areaId)])];
+  const pricingIds = [...new Set([...areas.map((area) => area.areaId), ...rules.flatMap((rule) => (isSurchargeRule(rule) && rule.status === "enabled" && rule.areaId !== null ? [rule.areaId] : []))])];
   if (pricingIds.length === 0) return [];
   const outside = productPricingOutsideOperating((await listTenantAreaShapes(db, tenantId)).map(areaShapeInput), pricingIds, product.category);
   return [...outside].map(([areaId, outsideM2]) => ({ areaId, outsideM2 }));

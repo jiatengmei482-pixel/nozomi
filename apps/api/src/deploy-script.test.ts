@@ -11,7 +11,7 @@
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { chmod, cp, mkdir, mkdtemp, readFile, readdir, readlink, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readFile, readdir, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -916,4 +916,52 @@ test("在只含后端的旧部署之上部署的新版本不健康：回退到�
   assert.equal(back.code, 0, back.output);
   assert.equal(await linkTarget("current"), "releases/legacy");
   assert.ok((await calls()).some((line) => activationOf("legacy").test(line)));
+});
+
+// ---- 包车三层区域的数据迁移（M9P-05，ADR 0093 第六节第 1 小节）：变量控制、在数据库迁移之后新版本启动之前、报告目录、失败中止 ----
+
+const THREE_LAYER = /run --rm --no-deps -T --user \d+:\d+ -e CHARTER_THREE_LAYER_MIGRATION=(dry-run|apply) -e CHARTER_THREE_LAYER_REPORT_DIR=\/reports migrate node apps\/api\/src\/db\/charter-three-layer-cli\.ts$/;
+
+test("三层区域迁移：不设变量时不运行，日志打一行「未设」；报告目录照样建好（权限 700），release.env 记着它", linuxOnly, async () => {
+  const result = await deploy("v1");
+  assert.equal(result.code, 0, result.output);
+  assert.match(result.output, /三层迁移：未设/);
+  assert.equal(indexOfCall(await calls(), /charter-three-layer-cli/), -1);
+  assert.ok((await releaseEnv("v1")).split("\n").includes(`REPORTS_DIR=${join(sandbox.root, "reports")}`));
+  assert.equal((await stat(join(sandbox.root, "reports"))).mode & 0o777, 0o700);
+});
+
+test("三层区域迁移：dry-run / apply 在数据库迁移之后、新版本启动之前，用 migrate 容器、部署账号的身份、报告写进 /reports", linuxOnly, async () => {
+  for (const [id, mode] of [["v1", "dry-run"], ["v2", "apply"]] as const) {
+    await clearCalls();
+    const result = await deploy(id, { CHARTER_THREE_LAYER_MIGRATION: mode });
+    assert.equal(result.code, 0, result.output);
+    assert.match(result.output, new RegExp(`三层迁移：${mode}`));
+    const log = await calls();
+    const migrate = indexOfCall(log, /run --rm --no-deps -T migrate node apps\/api\/src\/db\/migrate-cli\.ts$/);
+    const layered = indexOfCall(log, THREE_LAYER);
+    const start = indexOfCall(log, activationOf(id));
+    assert.ok(migrate >= 0 && layered > migrate && start > layered, log.join("\n"));
+    assert.equal(THREE_LAYER.exec(log[layered] ?? "")?.[1], mode);
+  }
+});
+
+test("三层区域迁移：变量是别的值、或在正式环境设了 → 不动线上就中止（参数错误）；迁移失败 → 中止部署，旧版本照常", linuxOnly, async () => {
+  const wrong = await deploy("v1", { CHARTER_THREE_LAYER_MIGRATION: "yes" });
+  assert.equal(wrong.code, 1, wrong.output);
+  assert.match(wrong.output, /只能不设、或设成 dry-run \/ apply/);
+  assert.equal(indexOfCall(await calls(), /migrate/), -1);
+
+  const production = await deploy("v1", { APP_ENV: "production", CHARTER_THREE_LAYER_MIGRATION: "apply" });
+  assert.equal(production.code, 1, production.output);
+  assert.match(production.output, /只能在测试环境设/);
+
+  assert.equal((await deploy("v1")).code, 0);
+  await clearCalls();
+  await failWhen("charter-three-layer-cli");
+  const failed = await deploy("v2", { CHARTER_THREE_LAYER_MIGRATION: "apply" });
+  assert.equal(failed.code, 10, failed.output);
+  assert.match(failed.output, /包车三层区域的数据迁移失败（apply，写入已整体撤销），旧版本没有被替换/);
+  assert.equal(await linkTarget("current"), "releases/v1");
+  assert.equal(indexOfCall(await calls(), activationOf("v2")), -1);
 });
