@@ -258,15 +258,15 @@ export function AreaSurchargeBlock(props: {
     state.setExpanded(next);
   };
 
-  // ── 选择区域的选项（本供应商启用中、能挂价格、包车能用的；商品自己的区域、已添加的列出来但不能选） ──
+  // ── 选择区域的选项（本供应商启用中、能挂价格、包车能用的；已添加的列出来但不能选；商品自己的服务区域也能选，ADR 0092） ──
   const usable = pricingCapable(areaList.filter((area) => area.status === "active" && areaUsableByCategory("charter", area.biz_type)));
   const operatingHidden = areaList.filter((area) => area.status === "active" && areaUsableByCategory("charter", area.biz_type) && roleOf(area) === "operating").length;
-  const optionNote = (id: string): string | null => (productAreaIds.includes(id) ? "商品的服务区域，不加价" : listed.includes(id) ? "已添加" : deletedAreas.includes(id) ? "已删除，选了会恢复原来的加价" : null);
-  const selectable = usable.filter((area) => optionNote(area.id) === null || deletedAreas.includes(area.id));
+  const optionNote = (id: string): string | null => (listed.includes(id) ? "已添加" : deletedAreas.includes(id) ? "已删除，选了会恢复原来的加价" : productAreaIds.includes(id) ? "商品的服务区域" : null);
+  const selectable = usable.filter((area) => !listed.includes(area.id));
   const cities = [...new Map(usable.map((area) => [area.city_id, displayName(area.city.name as LocalizedText).text])).entries()].sort((x, y) => (x[0] === productCityId ? -1 : y[0] === productCityId ? 1 : x[1].localeCompare(y[1], "zh")));
   const optionOf = (area: TenantArea): ReactNode => {
     const note = optionNote(area.id);
-    const disabled = note !== null && !deletedAreas.includes(area.id);
+    const disabled = listed.includes(area.id);
     return (
       <option key={area.id} value={area.id} disabled={disabled} aria-disabled={disabled || undefined}>
         {`${displayName(area.name).text}${note ? `（${note}）` : ""}`}
@@ -598,7 +598,7 @@ export function AreaSurchargeBlock(props: {
         )}
       </h3>
       <p className="surcharge__lead">
-        上车点、下车点或客人填的途经景点不在商品的服务区域里时，按所在区域加钱：包车价 = 套餐价 + 上车加价 + 途经加价 + 下车加价。
+        上车点、下车点或客人填的途经景点落在加价区域里时，按所在区域加钱：包车价 = 套餐价 + 上车加价 + 途经加价 + 下车加价。商品的服务区域也可以设加价（例如机场）；没设加价的服务区域不加钱。
         <br />
         途经加价同一区域一单只加一次，上车或下车已经在这个区域的不再加；途经加价空着 = 途经景点落在这个区域时不报价（不加钱请填 0）。
         <br />
@@ -703,7 +703,7 @@ export function AreaSurchargeBlock(props: {
       </div>
 
       <table className="surcharge-table">
-        <caption className="visually-hidden">{`区域加价（${currency}，结算价）：商品的服务区域不加价，每个加价区域一行`}</caption>
+        <caption className="visually-hidden">{`区域加价（${currency}，结算价）：没设加价的服务区域不加价，每个加价区域一行`}</caption>
         <thead>
           <tr>
             <th scope="col">区域（上车点、下车点或途经景点所在）</th>
@@ -714,7 +714,7 @@ export function AreaSurchargeBlock(props: {
           </tr>
         </thead>
         <tbody>
-          {product.areas.map((area) => (
+          {product.areas.filter((area) => !listed.includes(area.area_id)).map((area) => (
             <tr key={area.area_id} className="surcharge-table__own">
               <th scope="row" data-label="区域">
                 <span className="surcharge-table__name">{displayName(area.name).text}</span>
@@ -746,6 +746,7 @@ export function AreaSurchargeBlock(props: {
                     </button>
                     <span className="surcharge-table__name">{name}</span>
                     {cityNote(areaId) !== null && <span className="surcharge-table__city">{`· ${cityNote(areaId)}`}</span>}
+                    {productAreaIds.includes(areaId) && <span className="surcharge-table__city">· 也是商品的服务区域</span>}
                   </span>
                   {area?.status === "disabled" && (
                     <span className="surcharge-table__disabled">

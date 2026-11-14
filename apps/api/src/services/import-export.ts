@@ -267,7 +267,6 @@ const SAVE_MESSAGES: Readonly<Record<string, string>> = {
   REQUIRED: "这一格必填",
   NOT_APPLICABLE: "这个商品的品类不填这一列，请留空",
   MODEL_NOT_ALLOWED: "这个商品的品类不能用这种计价方式，请按「填写说明」里列出的填",
-  AREA_IS_PRODUCT_AREA: "这是商品本身的区域，上车、下车在这里都不加价。区域加价请填商品区域以外的区域",
   AREA_NOT_USABLE: "区域加价只能用业务类型是包车或「通用」的区域",
   AREA_DISABLED: "这个区域已停用，不能新设区域加价",
   SAME_AREA: "「下车区域」不能和「区域」相同；同一个区域里的单用区域价，「下车区域」留空",
@@ -411,9 +410,9 @@ export function exportPriceRules(ctx: AppContext, tenantId: string, productId: s
   });
 }
 
-/** 包车区域加价可以选的区域：本租户启用中的、业务类型是包车或通用的、用途能挂价格的（ADR 0075）、不是商品本身的区域（ADR 0073）。 */
+/** 包车区域加价可以选的区域：本租户启用中的、业务类型是包车或通用的、用途能挂价格的（ADR 0075）；商品本身的区域也可以（ADR 0092）。 */
 function surchargeAreaChoices(context: PricingContext): string[] {
-  return [...context.tenantAreas].flatMap(([id, area]) => (area.status === "active" && areaUsableByCategory("charter", area.bizType) && areaRoleCanPrice(area.role) && !context.areaIds.includes(id) ? [id] : []));
+  return [...context.tenantAreas].flatMap(([id, area]) => (area.status === "active" && areaUsableByCategory("charter", area.bizType) && areaRoleCanPrice(area.role) ? [id] : []));
 }
 
 export type ImportRowAction = "create" | "update" | "unchanged" | "error" | "conflict";

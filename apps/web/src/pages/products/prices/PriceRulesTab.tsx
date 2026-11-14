@@ -361,7 +361,6 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
     return surcharges.rows.find((row) => row.key === key || row.id === key);
   };
   const SURCHARGE_REASONS: Readonly<Record<string, (name: string) => string>> = {
-    AREA_IS_PRODUCT_AREA: (name) => `「${name}」是商品的服务区域，上车、下车在那里都不加价，不能再设区域加价。请换一个商品服务区域以外的区域。`,
     AREA_NOT_USABLE: (name) => `「${name}」的业务类型不是包车或通用，不能做包车的加价区域。请换一个区域，或到区域页面改它的业务类型。`,
     AREA_DISABLED: (name) => `「${name}」已经停用，不能新加区域加价。请先到区域页面启用它，或换一个区域。`,
     AREA_ROLE_NOT_PRICING: (name) => `「${name}」是运营区域，不能做加价区域：运营区域只决定能不能接单，不带价格。请换一个报价区域（或到区域页面把它改成「运营 + 报价」）。`,

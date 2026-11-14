@@ -1,6 +1,6 @@
 /**
  * M8-15：包车区域加价（ADR 0073 第三部分），经真实接口、真实 PostgreSQL；收款服务用替身。
- * - 价格规则：新价格方式 `charter_area_surcharge`（批量新增、冲突键含价格方式、加价区域是本租户的任何报价区域、不能是商品本身的区域、别人的区域 404）；
+ * - 价格规则：新价格方式 `charter_area_surcharge`（批量新增、冲突键含价格方式、加价区域是本租户的任何报价区域、也可以是商品本身的区域（ADR 0092，M8-46）、别人的区域 404）；
  * - 价格日历按区域分行；导入导出加「上车加价」「下车加价」两列；
  * - 官网包车：下车地点暂时可选（同渠道接口，不给时设了区域加价的商品不报 DROPOFF_REQUIRED，M8-13 改为必填）；给了下车地点时下车地址必填；报价 = 基础定价 + 上车加价 + 下车加价；哪里都不在转人工；订单存下车点和加价；
  *   供应商订单详情只有结算价，运营订单详情另有对外价参考；
@@ -116,10 +116,12 @@ test("冲突键含价格方式：同一区域同时有套餐价和区域加价�
   assert.deepEqual([conflict.status, conflict.body.error.code], [409, "PRICE_RULE_CONFLICT"]);
   const fourHours = await tenantCall(m.b, "POST", `/products/${charterB.id}/price-rules`, { version: await version(m.b, charterB.id), body: surcharge(charterB.chiba, 300, 300, { package_hours: 4 }) });
   assert.equal(fourHours.status, 201, fourHours.text);
-  // 商品区域（东京）里的套餐价 + 同一区域的区域加价：区域加价那条被拒，但原因是「商品本身的区域」，不是冲突
+  // 商品区域（东京）里的套餐价 + 同一区域的区域加价：不冲突（价格方式不同）；ADR 0092 起也不再按「商品本身的区域」拒绝（M8-46）。
+  // 这条只验证能存，存完删掉：后面的报价用例要东京没有加价
   const own = await tenantCall(m.b, "POST", `/products/${charterB.id}/price-rules`, { version: await version(m.b, charterB.id), body: surcharge(charterB.tokyo, 100, 100) });
   assertMatchesOpenApi("POST", "/tenant/v1/products/{id}/price-rules", own);
-  assert.deepEqual([own.status, own.body.error.details.issues.map((issue: any) => [issue.path, issue.reason])], [400, [["/area_id", "AREA_IS_PRODUCT_AREA"]]]);
+  assert.equal(own.status, 201, own.text);
+  await ok(tenantCall(m.b, "DELETE", `/products/${charterB.id}/price-rules/${own.body.price_rule.id}`, { version: await version(m.b, charterB.id) }));
   // 删掉 4 小时那条（删除 = 页面上的「删除」，和价格规则一样）
   const deleted = await tenantCall(m.b, "DELETE", `/products/${charterB.id}/price-rules/${fourHours.body.price_rule.id}`, { version: await version(m.b, charterB.id) });
   assert.equal(deleted.status, 200, deleted.text);
@@ -235,16 +237,18 @@ test("导入导出：导出带「上车加价」「下车加价」两列和区�
   const oldSeen = await upload(old, "/price-rules/import/preview");
   assert.deepEqual([oldSeen.status, oldSeen.body.can_import, oldSeen.body.rows[0].action, oldSeen.body.rows[0].content.surcharge], [200, true, "create", null], oldSeen.text);
 
-  // M8-25：一行区域加价选了商品本身的区域（AREA_IS_PRODUCT_AREA）时，别的行照样查日期重叠：
-  // 八王子 8 小时的加价上面已经导入（2026-01-01 起），再加一条 2026-06-01 起的就是「冲突」，不能显示成「新增」
+  // M8-25：一行区域加价保存检查不过（业务类型是接送机的区域，AREA_NOT_USABLE）时，别的行照样查日期重叠：
+  // 八王子 8 小时的加价上面已经导入（2026-01-01 起），再加一条 2026-06-01 起的就是「冲突」，不能显示成「新增」。
+  // （M8-46 以前这一行用的是商品本身的区域 AREA_IS_PRODUCT_AREA，ADR 0092 放开了那条，换一个同样在保存检查里报的原因）
+  await newArea(m.b, m.ids.tokyo, "接送机专用区", square(140.7, 35.5, 140.8, 35.6), "airport_transfer");
   const mixed = writeXlsx([{ name: "价格", rows: [header,
-    [null, "东京 23 区", "VG-BIZ-7", num(8), null, null, null, null, num(100), num(100), "2026-01-01", null, null],
+    [null, "接送机专用区", "VG-BIZ-7", num(8), null, null, null, null, num(100), num(100), "2026-01-01", null, null],
     [null, "八王子", "VG-BIZ-7", num(8), null, null, null, null, num(900), num(0), "2026-06-01", null, null],
   ] }]);
   const mixedSeen = await upload(mixed, "/price-rules/import/preview");
   assert.equal(mixedSeen.status, 200, mixedSeen.text);
   assert.deepEqual(mixedSeen.body.rows.map((row: any) => [row.action, row.issues.map((issue: any) => [issue.column, issue.reason]), row.conflicts_with.length]), [
-    ["error", [["区域", "AREA_IS_PRODUCT_AREA"]], 0],
+    ["error", [["区域", "AREA_NOT_USABLE"]], 0],
     ["conflict", [], 1],
   ]);
   assert.deepEqual([mixedSeen.body.summary.conflict, mixedSeen.body.can_import], [1, false]);
@@ -414,4 +418,44 @@ test("回归 M8-38：一端落在几个加价区域时用设了加价的、都�
   assert.deepEqual(ends(await preview("chiba", "tokyo")), [chibaEast, 800, tokyoWest, 300, 71_100], "70,000 + 上车 800（千叶东，不是千叶 500）+ 下车 300（东京西，不被商品区域盖成 0）");
   assert.deepEqual(ends(await preview("tokyo", "chiba")), [tokyoWest, 300, chibaEast, 800, 71_100]);
   assert.deepEqual(ends(await preview("tokyo2", "tokyo2")), [tokyoWest, 300, copy, 600, 70_900], "上车 东京西 300 > 引用区 200；下车 引用区 600 > 东京西 300");
+});
+
+test("M8-46（ADR 0092）：服务区域含成田、成田同时设区域加价 → 批量保存成功（同一批还有别的修改）；报价收成田的加价；没设加价时报价和以前一样", async () => {
+  // 单独一个商品（不动上面东京商品的数据）：服务区域「东京 46」和「成田 46」，套餐价都是 33,000
+  const tokyo = await newArea(m.b, m.ids.tokyo, "东京 46", square(139.5, 35.95, 139.9, 36.2), "charter");
+  const narita = await newArea(m.b, m.ids.tokyo, "成田 46", square(140.3, 35.95, 140.5, 36.2));
+  const brand = (await ok(tenantCall(m.b, "POST", "/brands", { body: { name: `包车-${randomUUID().slice(0, 6)}`, currency: "JPY" } }), 201)).id;
+  const created = await ok(tenantCall(m.b, "POST", "/products", { body: { brand_id: brand, city_id: m.ids.tokyo, category: "charter", areas: [{ area_id: tokyo }, { area_id: narita }], vehicle_groups: [{ vehicle_group_id: m.ids.biz7, passengers: 6, luggage: 4 }], dispatchers: [{ name: "调度", phone: "0312345678" }] } }), 201);
+  const productId: string = created.id;
+  await ok(tenantCall(m.b, "PUT", `/products/${productId}/service-rules`, { version: 1, body: { booking: { service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 24 }, free_wait: { general: { mode: "limited", minutes: 0 } } } }));
+  const pkg = (areaId: string) => ({ area_id: areaId, vehicle_group_id: m.ids.biz7, package_hours: 8, pricing_model: "charter_package", package_km: 150, package_price: 33_000, overtime_per_hour: 5_000, over_km_per_km: 400, valid_from: "2026-01-01" });
+  await ok(tenantCall(m.b, "POST", `/products/${productId}/price-rules/batch`, { version: await version(m.b, productId), body: { create: [pkg(tokyo), pkg(narita)] } }));
+  const at = { narita: { lng: 140.4, lat: 36.05 }, tokyo: { lng: 139.7, lat: 36.05 }, tokyo2: { lng: 139.6, lat: 36.1 } };
+  const preview = async (pickup: keyof typeof at, dropoff: keyof typeof at): Promise<any> => {
+    const res = await tenantCall(m.b, "POST", `/products/${productId}/quote-preview`, { body: { pickup: at[pickup], dropoff: at[dropoff], package_hours: 8, service_time: SERVICE_LOCAL, passengers: 2, luggage: 1, vehicle_group_ids: [m.ids.biz7] } });
+    assertMatchesOpenApi("POST", "/tenant/v1/products/{id}/quote-preview", res);
+    assert.equal(res.status, 200, res.text);
+    assert.equal(res.body.offers.length, 1, res.text);
+    const s = res.body.offers[0].settlement;
+    return [s.total, s.area_surcharge?.pickup.area_id ?? null, s.area_surcharge?.pickup.amount ?? 0, s.area_surcharge?.dropoff.area_id ?? null, s.area_surcharge?.dropoff.amount ?? 0];
+  };
+  // 回归：还没设加价时，成田上车和东京里跑一样，都是套餐价，不加钱
+  assert.deepEqual(await preview("narita", "tokyo"), [33_000, null, 0, null, 0]);
+  assert.deepEqual(await preview("tokyo", "tokyo2"), [33_000, null, 0, null, 0]);
+
+  // 价格页一次保存：成田的区域加价（上车 14,000、下车 9,000）+ 东京套餐价改成 34,000，同一批
+  const listed = await ok(tenantCall(m.b, "GET", `/products/${productId}/price-rules`));
+  const tokyoRule = listed.items.find((item: any) => item.area_id === tokyo && item.pricing_model === "charter_package");
+  const saved = await tenantCall(m.b, "POST", `/products/${productId}/price-rules/batch`, { version: await version(m.b, productId), body: { create: [{ ...surcharge(narita, 14_000, 9_000), ref: "narita-8" }], update: [{ ...pkg(tokyo), package_price: 34_000, id: tokyoRule.id }] } });
+  assertMatchesOpenApi("POST", "/tenant/v1/products/{id}/price-rules/batch", saved);
+  assert.equal(saved.status, 200, saved.text);
+  assert.deepEqual(saved.body.items.filter((item: any) => item.pricing_model === "charter_area_surcharge").map((item: any) => [item.area_id, item.pickup_surcharge, item.dropoff_surcharge]), [[narita, 14_000, 9_000]]);
+  // 加价区域不加进、也不挤掉商品的区域列表
+  assert.deepEqual((await ok(tenantCall(m.b, "GET", `/products/${productId}`))).areas.map((entry: any) => entry.area_id), [tokyo, narita]);
+
+  // 报价（M8-38 口径）：成田上车 = 成田的套餐价 33,000 + 成田上车加价 14,000；东京上车、成田下车 = 东京 34,000 + 成田下车加价 9,000
+  assert.deepEqual(await preview("narita", "tokyo"), [47_000, narita, 14_000, null, 0]);
+  assert.deepEqual(await preview("tokyo", "narita"), [43_000, null, 0, narita, 9_000]);
+  // 两端都不在成田：只有套餐价，和以前一样（套餐价是刚改的 34,000）
+  assert.deepEqual(await preview("tokyo", "tokyo2"), [34_000, null, 0, null, 0]);
 });

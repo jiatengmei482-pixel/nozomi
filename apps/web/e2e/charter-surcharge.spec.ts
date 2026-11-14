@@ -142,7 +142,9 @@ test("供应商在价格页设包车区域加价（两个区域）→ 运营报�
   await expect(block).toContainText("包车现在要看下车地点。");
   await expect(block).toContainText("另有 1 个运营区域没有列出");
   const options = await block.getByLabel("选择要加价的区域").locator("option").allTextContents();
-  expect(options.some((text) => text.startsWith("市区") && text.includes("商品的服务区域，不加价"))).toBe(true);
+  // 商品的服务区域也能选来设加价（ADR 0092，M8-46），只标出来
+  expect(options.some((text) => text.startsWith("市区") && text.includes("（商品的服务区域）"))).toBe(true);
+  expect(await block.getByLabel("选择要加价的区域").locator("option", { hasText: "市区" }).isDisabled()).toBe(false);
   expect(options.some((text) => text.startsWith("运营范围"))).toBe(false);
   await expect(block.getByRole("link", { name: /^新增自定义区域\s*（在新标签页打开）$/ })).toHaveAttribute("href", /role=pricing/);
   await block.getByRole("button", { name: "确认添加" }).click();
