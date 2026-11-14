@@ -6,7 +6,7 @@
  */
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { CONFIG_TIMEOUT, LOCATE_TIMEOUT, initFrom, initWithBase, scriptOriginOf } from "./widget-ui.ts";
+import { CONFIG_TIMEOUT, LOCATE_TIMEOUT, REFUSED_NOTICE, initFrom, initWithBase, scriptOriginOf } from "./widget-ui.ts";
 import { GOOGLE_MAPS_ATTRIBUTION, GOOGLE_MAPS_ATTRIBUTION_ATTRIBUTES } from "../lib/google-attribution.ts";
 import { readFile } from "node:fs/promises";
 import { WIDGET_CSS } from "./widget-style.ts";
@@ -64,9 +64,18 @@ const places: Handler = (url) => {
   return "network";
 };
 
-test("取配置被拒（浏览器里 403 不带 CORS 头读不出，主站有应答）：只显示「暂时无法使用」和主站链接，不显示表单（M9E-22）", async () => {
+test("取配置被拒（浏览器里 403 不带 CORS 头读不出，主站有应答）：只显示「暂时无法使用」和主站链接，不显示表单；控制台按顺序列出要查的原因，第一条是嵌入码停用（M9E-22）", async () => {
   handler = () => "blocked";
-  await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh" });
+  const logged: unknown[][] = [];
+  const originalError = console.error;
+  console.error = (...args: unknown[]) => void logged.push(args);
+  try {
+    await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh" });
+  } finally {
+    console.error = originalError;
+  }
+  assert.deepEqual(logged, [[`NozomiBooking：${REFUSED_NOTICE}`]]);
+  assert.match(REFUSED_NOTICE, /① 嵌入码是否已在 NOZOMI 运营后台停用；② 嵌入码是否填错；③ 本网站的域名是否在这个嵌入码的白名单里；④ 组件脚本是否直接从主站加载。NOZOMI 运维可在主站日志 embed\.gate_refused/);
   assert.match($('[role="status"]').textContent ?? "", /预订组件暂时无法使用/);
   assert.equal($<HTMLAnchorElement>("a").getAttribute("href"), `${BASE}/book/new`);
   assert.equal(shadow().querySelector("form"), null);
@@ -1172,6 +1181,18 @@ test("M9E-22 表单已显示后配置才回来（被拒）：表单和已填的�
     await wait(20);
     assert.equal($(".nzb-shell"), shell);
     assert.equal($('[data-role="message"]').textContent, "", "晚回来的 5xx 不提示");
+  });
+  await withConfigTimeout(50, async () => {
+    const held = heldConfig("blocked");
+    handler = held.handler;
+    document.body.innerHTML = '<div id="nozomi-booking"></div>';
+    const host = document.querySelector("#nozomi-booking") as HTMLElement;
+    await initWithBase(BASE, { key: KEY, root: host, lang: "zh" });
+    handler = places;
+    await initWithBase(BASE, { key: KEY, root: host, lang: "zh" });
+    held.release();
+    await wait(20);
+    assert.equal($('[data-role="message"]').textContent, "", "同一容器再 init 后，旧组件晚回来的被拒不写进新组件的提示行");
   });
 });
 

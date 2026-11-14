@@ -115,6 +115,13 @@ async function getJson(url: string, timeoutMs?: number): Promise<{ status: numbe
 /** 取配置最多等这么久（M9E-22）：过了就先按 init 的参数显示表单，请求不取消，晚回来的配置见 Widget.lateConfig；测试里调短 */
 export const CONFIG_TIMEOUT = { ms: 8_000 };
 
+/**
+ * 取配置被拒时控制台的那句（M9E-22）：被拒的 403 不带 CORS 头，浏览器读不到是哪种原因（主站也故意不区分，ADR 0090 第三节第 2 小节），
+ * 所以按最常见的顺序列出来；具体原因 NOZOMI 运维在主站日志 embed.gate_refused 里查
+ */
+export const REFUSED_NOTICE =
+  "主站拒绝了取配置的请求（浏览器读不到具体原因）。请依次检查：① 嵌入码是否已在 NOZOMI 运营后台停用；② 嵌入码是否填错；③ 本网站的域名是否在这个嵌入码的白名单里；④ 组件脚本是否直接从主站加载。NOZOMI 运维可在主站日志 embed.gate_refused 查到是哪一种。";
+
 type ConfigOutcome = { kind: "ok"; body: any } | { kind: "refused" } | { kind: "failed" };
 
 /**
@@ -246,7 +253,7 @@ class Widget {
     if (first !== "timeout" && first.kind === "refused") {
       this.lang = resolveLang(this.options.lang, "ja");
       this.renderUnavailable();
-      tellDeveloper("取不到组件配置。请确认本网站已加入嵌入码的白名单，嵌入码未停用。");
+      tellDeveloper(REFUSED_NOTICE);
       return;
     }
     const config = first !== "timeout" && first.kind === "ok" ? first.body : null;
@@ -275,7 +282,7 @@ class Widget {
       this.refusedLate = true;
       const message = this.shadow.querySelector<HTMLElement>('[data-role="message"]');
       if (message !== null) this.failWith(message, "refused");
-      tellDeveloper("取不到组件配置。请确认本网站已加入嵌入码的白名单，嵌入码未停用。");
+      tellDeveloper(REFUSED_NOTICE);
     }
   }
 

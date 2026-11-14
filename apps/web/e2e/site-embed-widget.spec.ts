@@ -10,6 +10,8 @@
  * - 包车（M9E-07）：选「包车」标签、不填经停点 → 跳 /book/new?draft= 后停在第 1 步等客人选时长、不询价 → 选 8 小时后报价。
  * - 外观（M9E-14）：init 没传 layout 时用嵌入码后台设的（默认 auto：容器 ≥ 900 px 横条、窄了卡片），改窗口宽度来回换、已填的不丢；
  *   后台改成横条后新打开的页面是横条；宿主 init 传了 card 以 init 为准。
+ * - 被拒（M9E-22）：白名单网站 + 启用的嵌入码显示表单；嵌入码停用后显示「暂时无法使用」、没有表单，控制台写明先查停用；
+ *   取配置超时 / 连不上时先显示表单由组件测试覆盖（widget.test.tsx）。
  */
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -214,7 +216,8 @@ test("嵌入组件建草稿失败：网络错误、429 两种、400 各显示一
     return route.fulfill({ response, status: reply.status, contentType: "application/json", body: JSON.stringify({ error: { code: reply.code, message: "e2e" } }) });
   });
   await submit.click();
-  await expect(message).toHaveText("暂时连不上，请稍后再试或直接到主站预订。");
+  await expect(message).toHaveText("暂时连不上，请稍后再试或直接到主站预订。 到主站预订");
+  await expect(message.getByRole("link", { name: "到主站预订" })).toHaveAttribute("href", `${SITE}/book/new`);
   await expect(submit).toHaveText("查看价格");
 
   reply = { status: 429, code: "RATE_LIMITED" };
@@ -337,4 +340,42 @@ test("嵌入组件外观（M9E-14）：默认自动——窗口 1280 横条、89
   const cardPage = await open(1280, "?layout=card");
   expect(await layoutOf(cardPage), "宿主 init 传了 card：后台设横条也用卡片").toBe("card");
   await cardPage.context().close();
+});
+
+test("嵌入组件（M9E-22）：白名单网站 + 启用的嵌入码显示表单；嵌入码停用后显示「暂时无法使用」、没有表单，控制台写明要先查嵌入码是否停用", async ({ browser, request }) => {
+  test.setTimeout(90_000);
+  await useNewEmbedKey(request);
+  const open = async (): Promise<{ page: Page; errors: string[] }> => {
+    // 新的浏览器上下文：配置应答在浏览器里缓存 60 秒
+    const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const page = await context.newPage();
+    const errors: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "error") errors.push(message.text());
+    });
+    await page.goto(allowedHost.origin);
+    return { page, errors };
+  };
+
+  // (a) 白名单网站 + 启用的嵌入码：显示表单，控制台没有组件的报错
+  const active = await open();
+  await expect(active.page.getByRole("combobox", { name: "出发地" })).toBeVisible();
+  await expect(active.page.getByRole("button", { name: "查看价格" })).toBeVisible();
+  await expect(active.page.getByText("预订组件暂时无法使用", { exact: false })).toHaveCount(0);
+  expect(active.errors.filter((text) => text.startsWith("NozomiBooking"))).toEqual([]);
+  await active.page.context().close();
+
+  // (b) 运营后台停用这个嵌入码：被拒，显示「暂时无法使用」和主站链接、不显示表单；控制台写明原因要先查停用
+  const listed = (await (await request.get("/platform/v1/embed-keys", { headers: await platformAdminHeaders(request) })).json()) as { items: { id: string; key: string; version: number; name: string; allowed_origins: string[] }[] };
+  const current = listed.items.find((item) => item.key === embedKey);
+  expect(current).toBeDefined();
+  const { id, version, name, allowed_origins } = current as NonNullable<typeof current>;
+  const disabled = await request.patch(`/platform/v1/embed-keys/${id}`, { headers: { ...(await platformAdminHeaders(request)), "if-match": `"${version}"` }, data: { name, allowed_origins, default_lang: "zh", default_services: ["transfer", "charter"], note: null, status: "disabled" } });
+  expect(disabled.status(), await disabled.text()).toBe(200);
+  const refused = await open();
+  await expect(refused.page.getByText("预订组件暂时无法使用。请稍后刷新，或直接到主站预订。")).toBeVisible();
+  await expect(refused.page.getByRole("link", { name: "到主站预订" })).toHaveAttribute("href", `${SITE}/book/new`);
+  await expect(refused.page.getByRole("button", { name: "查看价格" })).toHaveCount(0);
+  await expect.poll(() => refused.errors.find((text) => text.startsWith("NozomiBooking：主站拒绝了取配置的请求")) ?? null).toMatch(/嵌入码是否已在 NOZOMI 运营后台停用/);
+  await refused.page.context().close();
 });
