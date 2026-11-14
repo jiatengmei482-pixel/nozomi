@@ -128,7 +128,7 @@ export function areaSurchargeMoneyJson(settlement: Pick<Order["settlement"], "ar
   if (surcharge === null) return null;
   const money = (minor: number): Json => salesMoney(minor, currency);
   const end = (entry: typeof surcharge.pickup): Json => ({ area_id: entry.areaId, amount: money(entry.amountMinor) });
-  const waypoints = surcharge.waypoints === undefined ? {} : { waypoints: surcharge.waypoints.map((entry) => ({ area_id: entry.areaId, amount: money(entry.amountMinor), stop_seqs: entry.stopSeqs })) };
+  const waypoints = surcharge.waypoints === undefined ? {} : { waypoints: surcharge.waypoints.map((entry) => ({ area_id: entry.areaId, amount: money(entry.amountMinor), stop_seqs: entry.stopSeqs, ...(entry.fromDropoff === true ? { from_dropoff: true } : {}) })) };
   return { package: money(surcharge.packageMinor), pickup: end(surcharge.pickup), dropoff: end(surcharge.dropoff), ...waypoints };
 }
 
@@ -140,8 +140,8 @@ export function areaSurchargeDetailJson(order: Order, names: ReadonlyMap<string,
   const surcharge = order.settlement.areaSurcharge ?? null;
   if (surcharge === null) return null;
   const end = (entry: typeof surcharge.pickup): Json => ({ area_id: entry.areaId, area_name: entry.areaId === null ? null : (names.get(entry.areaId) ?? null), settlement: salesMoney(entry.amountMinor, order.settlementCurrency) });
-  // 途经加价（M9W-01，ADR 0088）：每个收了途经加价的区域一项；没有经停点的单没有这一项
-  const waypoints = surcharge.waypoints === undefined ? {} : { waypoints: surcharge.waypoints.map((entry) => ({ ...end({ areaId: entry.areaId, priceRuleId: entry.priceRuleId, amountMinor: entry.amountMinor }), stop_seqs: entry.stopSeqs })) };
+  // 行程加价（M9W-01，ADR 0088、0093）：每个收了行程加价的区域一项；下车点行程加价那一项带 `from_dropoff: true`（M9P-01）
+  const waypoints = surcharge.waypoints === undefined ? {} : { waypoints: surcharge.waypoints.map((entry) => ({ ...end({ areaId: entry.areaId, priceRuleId: entry.priceRuleId, amountMinor: entry.amountMinor }), stop_seqs: entry.stopSeqs, ...(entry.fromDropoff === true ? { from_dropoff: true } : {}) })) };
   return { package_settlement: salesMoney(surcharge.packageMinor, order.settlementCurrency), pickup: end(surcharge.pickup), dropoff: end(surcharge.dropoff), ...waypoints };
 }
 

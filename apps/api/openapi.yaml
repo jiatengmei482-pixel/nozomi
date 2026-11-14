@@ -20337,8 +20337,9 @@ components:
           $ref: "#/components/schemas/QuoteAreaSurchargeEnd"
         waypoints:
           description: |
-            途经加价（M9W-01，ADR 0088）：每个收了途经加价的加价区域一项，`stop_seqs` 是落在这个区域的经停点（从 1 起）。同一区域只收一次；
-            上 / 下车已经计价的区域、只在商品区域里的经停点不在这里。只有带经停点的报价才有这一项（没带经停点时没有这个键）
+            行程加价（途经加价，M9W-01，ADR 0088；ADR 0093 第二节）：每个收了行程加价的区域一项，`stop_seqs` 是落在这个区域的经停点（从 1 起）。同一区域只收一次；
+            只在商品区域里的经停点不在这里；上 / 下车也在这个区域时照收（M9P-01 起不再被上下车加价抵消）。带经停点的报价都有这个键；
+            没带经停点的只在收了下车点行程加价时有（那一项 `from_dropoff: true`、`stop_seqs` 为空）
           type: array
           items:
             $ref: "#/components/schemas/QuoteAreaSurchargeWaypoint"
@@ -20361,6 +20362,10 @@ components:
           items:
             type: integer
             minimum: 1
+        from_dropoff:
+          type: boolean
+          enum: [ true ]
+          description: 下车点行程加价（M9P-01，ADR 0093 第二节第 4 小节）：没有市外经停、下车点在这个区域里，算作一次经停收的；只有这一项带这个键，`stop_seqs` 为空
     QuoteAreaSurchargeEnd:
       type: object
       additionalProperties: false
@@ -24132,6 +24137,19 @@ components:
               unit_price:
                 type: integer
                 minimum: 0
+        charter_itinerary:
+          type: object
+          additionalProperties: false
+          description: |
+            包车行程计价的商品级配置（M9P-01，ADR 0093 第二节第 4 小节）。只有包车能设（别的品类给了非默认值 400 `NOT_APPLICABLE`）。
+            **不带这个键 = 保留原值**（旧页面保存服务规则不会把它清掉）；带了时没给的项按默认值。
+          properties:
+            dropoff_itinerary_surcharge:
+              type: boolean
+              default: true
+              description: |
+                下车点行程加价，默认开：这一单没有落在基础价区域（服务区域）以外的经停点（没填，或都在服务区域里），下车点在某个行程区域里时，
+                把这个区域算作一次经停、收一次行程加价（不看上车点）。商品还没迁移到三层区域时，按下车点所在加价区域的「途经加价」收，没设途经加价就不收、照常报价。
     ProductServiceRules:
       type: object
       additionalProperties: false
@@ -24258,6 +24276,15 @@ components:
                     type: string
                   unit_price:
                     type: integer
+            charter_itinerary:
+              type: object
+              additionalProperties: false
+              required: [ dropoff_itinerary_surcharge ]
+              description: 只有包车商品有这一项（M9P-01）；没设过的给默认值
+              properties:
+                dropoff_itinerary_surcharge:
+                  type: boolean
+                  description: 下车点行程加价（默认开），见 `ServiceRules.charter_itinerary`
     ProductContentText:
       type: object
       additionalProperties: false
@@ -26149,7 +26176,7 @@ components:
                 dropoff:
                   $ref: "#/components/schemas/OrderSettlementSurchargeEnd"
                 waypoints:
-                  description: 途经加价（M9W-01，ADR 0088）：每个收了途经加价的区域一项；没有经停点的单没有这一项
+                  description: 行程加价（途经加价，M9W-01，ADR 0088、0093）：每个收了行程加价的区域一项；没有经停点、也没收下车点行程加价的单没有这一项
                   type: array
                   items:
                     type: object
@@ -26166,6 +26193,10 @@ components:
                         items:
                           type: integer
                           minimum: 1
+                      from_dropoff:
+                        type: boolean
+                        enum: [ true ]
+                        description: 下车点行程加价（M9P-01，ADR 0093 第二节第 4 小节）：没有市外经停、下车点在这个区域里，算作一次经停收的；只有这一项带这个键，`stop_seqs` 为空
             - type: "null"
         total:
           $ref: "#/components/schemas/SalesMoney"
@@ -26239,7 +26270,7 @@ components:
         dropoff:
           $ref: "#/components/schemas/OrderAreaSurchargeEnd"
         waypoints:
-          description: 途经加价（M9W-01，ADR 0088）：每个收了途经加价的加价区域一项（结算价）；没有经停点的单没有这一项
+          description: 行程加价（途经加价，M9W-01，ADR 0088、0093）：每个收了行程加价的区域一项（结算价）；没有经停点、也没收下车点行程加价的单没有这一项
           type: array
           items:
             $ref: "#/components/schemas/OrderAreaSurchargeWaypoint"
@@ -26262,6 +26293,10 @@ components:
           items:
             type: integer
             minimum: 1
+        from_dropoff:
+          type: boolean
+          enum: [ true ]
+          description: 下车点行程加价（M9P-01，ADR 0093 第二节第 4 小节）：没有市外经停、下车点在这个区域里，算作一次经停收的；只有这一项带这个键，`stop_seqs` 为空
     OrderAreaSurchargeEnd:
       type: object
       additionalProperties: false
@@ -26358,7 +26393,7 @@ components:
         dropoff:
           $ref: "#/components/schemas/PlatformOrderAreaSurchargeEnd"
         waypoints:
-          description: 途经加价（M9W-01，ADR 0088）：每个收了途经加价的加价区域一项（结算价）；没有经停点的单没有这一项
+          description: 行程加价（途经加价，M9W-01，ADR 0088、0093）：每个收了行程加价的区域一项（结算价）；没有经停点、也没收下车点行程加价的单没有这一项
           type: array
           items:
             $ref: "#/components/schemas/OrderAreaSurchargeWaypoint"
@@ -30638,11 +30673,15 @@ components:
               - $ref: "#/components/schemas/LocalizedText"
               - type: "null"
           stop_seqs:
-            description: 途经加价：落在这个区域的是第几个经停点（从 1 起）；别的项为 null
+            description: 途经加价：落在这个区域的是第几个经停点（从 1 起；下车点行程加价是空数组）；别的项为 null
             type: [ array, "null" ]
             items:
               type: integer
               minimum: 1
+          from_dropoff:
+            type: boolean
+            enum: [ true ]
+            description: 下车点行程加价（M9P-01，ADR 0093 第二节第 4 小节）：没有市外经停、下车点在这个区域里，算作一次经停收的；只有这一项带这个键，`stop_seqs` 为空
     SiteOrderEnvelope:
       type: object
       additionalProperties: false

@@ -256,6 +256,10 @@ class Widget {
       event.preventDefault();
       void this.submit(message);
     });
+    // 客人改了被标出错的那一项，就去掉标记（M9E-07）：读屏不再把改好的那项读成「无效」
+    const clearInvalid = (event: Event): void => (event.target as Element).removeAttribute("aria-invalid");
+    formEl.addEventListener("input", clearInvalid);
+    formEl.addEventListener("change", clearInvalid);
     root.append(formEl);
     this.shadow.append(root);
     if (focus !== undefined) (this.shadow.querySelector(`[data-focus="${focus}"]`) as HTMLElement | null ?? this.shadow.querySelector(`[data-tab="${focus.replace("tab-", "")}"]`) as HTMLElement | null)?.focus();
@@ -433,6 +437,8 @@ class Widget {
     }
     this.busy = true;
     message.textContent = "";
+    // 上一次 400 标的那一项：这次以服务端新的结论为准
+    for (const marked of this.shadow.querySelectorAll("[aria-invalid]")) marked.removeAttribute("aria-invalid");
     const submit = this.shadow.querySelector(".nzb-primary");
     if (submit !== null) {
       submit.textContent = t.submitting;

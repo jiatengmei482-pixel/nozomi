@@ -196,7 +196,8 @@ test("13.4 的 5 个算例（客人价 = 结算价 × 1.1）；price_breakdown �
     ["shinjuku", ["gogome", "kawaguchiko", "chureito"], "shinjuku", "71500"],
     ["shinjuku", ["tsurugaoka", "daibutsu"], "shinjuku", "67100"],
     ["shinjuku", ["daibutsu", "kawaguchiko"], "shinjuku", "78100"],
-    ["shinjuku", ["gogome"], "kawaguchikoStation", "71500"],
+    // M9P-01（新规格 P0 #1）：经停富士山、富士山下车 → 行程加价和下车加价都收（以前 71,500：途经被下车抵消）
+    ["shinjuku", ["gogome"], "kawaguchikoStation", "82500"],
     ["shinjuku", ["asakusa"], "shinjuku", "60500"],
   ];
   for (const [pickup, stops, dropoff, expected] of cases) {
@@ -213,18 +214,19 @@ test("13.4 的 5 个算例（客人价 = 结算价 × 1.1）；price_breakdown �
   ]);
   assert.equal(three.body.quotes[0].includes_area_surcharge, true);
   for (const key of ["settlement", "area_surcharge", "markup_bp", "waypoint_surcharge"]) assert.ok(!allKeys(three.body).has(key), key);
-  // 下车已在富士山：只有下车加价
+  // 下车也在富士山：M9P-01 起行程加价照收、不被下车加价抵消（以前只有下车加价）
   const station = await quote("shinjuku", ["gogome"], "kawaguchikoStation");
-  assert.deepEqual(station.body.quotes[0].price_breakdown.map((item: any) => [item.kind, item.amount.amount]), [["base", "60500"], ["dropoff", "11000"]]);
+  assert.deepEqual(station.body.quotes[0].price_breakdown.map((item: any) => [item.kind, item.amount.amount, item.stop_seqs]), [["base", "60500", null], ["waypoint", "11000", [1]], ["dropoff", "11000", null]]);
   // 报价快照锁定经停点（名称、坐标、停留分钟）
   const snapshot = await api.db.owner.query<{ snapshot: any }>("select snapshot from quotes where id = $1", [three.body.quotes[0].quote_id]);
   assert.deepEqual(snapshot.rows[0]?.snapshot.request.waypoints, [{ name: "景点 1", ...P.daibutsu, stay_minutes: 30 }, { name: "景点 2", ...P.kawaguchiko, stay_minutes: 30 }]);
 });
 
-test("13.9 用例 1–7：同区一次、两区各一次、下车同区只收下车、东京市内不加、不在任何区域转人工并指出第几个、不填途经点和现在完全一致", async () => {
+test("13.9 用例 1–7：同区一次、两区各一次、下车同区行程照收（M9P-01）、东京市内不加、不在任何区域转人工并指出第几个、不填途经点在东京下车和现在完全一致", async () => {
   assert.equal(total(await quote("shinjuku", ["gogome", "kawaguchiko", "chureito"], "shinjuku")), "71500");
   assert.equal(total(await quote("shinjuku", ["tsurugaoka", "gogome", "daibutsu", "chureito"], "shinjuku")), "78100");
-  assert.equal(total(await quote("shinjuku", ["gogome", "chureito"], "kawaguchikoStation")), "71500");
+  // M9P-01（新规格 P0 #1）：以前 71,500（只收下车），现在行程 + 下车
+  assert.equal(total(await quote("shinjuku", ["gogome", "chureito"], "kawaguchikoStation")), "82500");
   assert.equal(total(await quote("shinjuku", ["asakusa", "shinjuku"], "shinjuku")), "60500");
   const nowhere = await quote("shinjuku", ["gogome", "sendai"], "shinjuku");
   assert.deepEqual([nowhere.body.quotes, nowhere.body.unavailable], [[], [{ vehicle_group_id: null, reasons: ["WAYPOINT_NOT_PRICED"], waypoint_stop_seqs: [2] }]]);

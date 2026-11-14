@@ -116,6 +116,33 @@ export interface ServiceRules {
   addons: { addonId: string; enabled: boolean; unitPriceMinor: number; firstFree: boolean }[];
   /** 司机语言：每种语言一个单价 */
   driverLanguages: { language: string; unitPriceMinor: number }[];
+  /**
+   * 包车行程计价的商品级配置（ADR 0093 第二节第 4 小节；键名沿用 ADR 0091 的 `charterItinerary`，M9P-03 再加三项）。
+   * 没有这个键 = 默认值；存的时候都是默认值就不留这个键（`normalizeServiceRules`），所以旧数据、没设过的商品版本不变。只有包车能设。
+   */
+  charterItinerary?: CharterItineraryRules;
+}
+
+/** 包车行程计价的商品级配置（M9P-01） */
+export interface CharterItineraryRules {
+  /**
+   * 下车点行程加价（规格步骤 4，ADR 0093 第二节第 4 小节）：没有落在基础价区域以外的经停点（没填，或都在商品区域里）、
+   * 下车点在某个行程区域里时，把这个区域算一次经停、收一次行程加价。默认开。
+   */
+  dropoffItinerarySurcharge: boolean;
+}
+
+/** 默认值：下车点行程加价开 */
+export const DEFAULT_CHARTER_ITINERARY: Readonly<CharterItineraryRules> = { dropoffItinerarySurcharge: true };
+
+/** 商品实际生效的配置：没设的项按默认值 */
+export function charterItineraryOf(rules: Pick<ServiceRules, "charterItinerary">): CharterItineraryRules {
+  return { ...DEFAULT_CHARTER_ITINERARY, ...rules.charterItinerary };
+}
+
+/** 是不是全是默认值 */
+export function isDefaultCharterItinerary(value: CharterItineraryRules): boolean {
+  return value.dropoffItinerarySurcharge === DEFAULT_CHARTER_ITINERARY.dropoffItinerarySurcharge;
 }
 
 /** 司机语言能选的语言：就是平台支持的那几种（和商品详情的语言一致）。 */
@@ -309,6 +336,9 @@ export function serviceRuleIssues(rules: ServiceRules, context: ServiceRuleConte
     seenLanguages.add(entry.language);
     amountIssue(`${at}/unit_price`, entry.unitPriceMinor, issues);
   }
+  // 包车行程计价的配置（M9P-01）只有包车能设：别的品类给了这个键就报不适用。保存时先规整（normalizeServiceRules），
+  // 全是默认值的会先被去掉，所以经接口给默认值（true）不报错、也不存；只有给了非默认值才到这里报 400
+  if (rules.charterItinerary !== undefined && context.category !== "charter") issues.push({ path: "/charter_itinerary", reason: "NOT_APPLICABLE" });
   return issues;
 }
 
@@ -346,8 +376,12 @@ export function addonAllowsFirstFree(chargeUnit: AddonChargeUnit): boolean {
  *   商品里原来勾着的「首个免费」不再生效，也不拦供应商保存）。`firstFreeAllowed` 说不清的（附加服务不存在）原样留着，由保存时去报。
  */
 export function normalizeServiceRules(rules: ServiceRules, firstFreeAllowed: (addonId: string) => boolean | undefined): ServiceRules {
+  // 包车行程计价的配置（M9P-01）：都是默认值时不留这个键——显式存一份默认值和没设是同一回事，不该让商品版本、回放的状态摘要变
+  const { charterItinerary, ...rest } = rules;
+  const itinerary = charterItinerary === undefined ? undefined : charterItineraryOf(rules);
   return {
-    ...rules,
+    ...rest,
+    ...(itinerary === undefined || isDefaultCharterItinerary(itinerary) ? {} : { charterItinerary: itinerary }),
     booking: { ...rules.booking, serviceTime: rules.booking.serviceTime === null ? null : normalizeDailyWindow(rules.booking.serviceTime) },
     night: { ...rules.night, window: rules.night.window === null ? null : normalizeDailyWindow(rules.night.window) },
     addons: rules.addons.map((addon) => (addon.firstFree && firstFreeAllowed(addon.addonId) === false ? { ...addon, firstFree: false } : addon)),

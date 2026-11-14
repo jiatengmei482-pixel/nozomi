@@ -120,11 +120,14 @@ export const REFUSAL_MESSAGES: Readonly<Record<ComparisonRefusal, string>> = {
   SELL_PRICE_OVER_LIMIT: "对外价超过了上限",
 };
 
-/** 包车区域加价的结算价明细（报价试算、订单共用的样子）：金额是结算币种的最小货币单位整数。`waypoints`（途经加价，ADR 0088）只在带经停点的报价上有。 */
+/**
+ * 包车区域加价的结算价明细（报价试算、订单共用的样子）：金额是结算币种的最小货币单位整数。`waypoints`（行程加价，ADR 0088、0093）在带经停点的报价上有；
+ * 不带经停点的只在收了下车点行程加价时有（那一项 `from_dropoff: true`、`stop_seqs` 为空，M9P-01）。
+ */
 export function areaSurchargeJson(surcharge: AreaSurchargeBreakdown | null): Json | null {
   if (surcharge === null) return null;
   const end = (entry: AreaSurchargeBreakdown["pickup"]): Json => ({ area_id: entry.areaId, price_rule_id: entry.priceRuleId, amount: entry.amountMinor });
-  const waypoints = surcharge.waypoints === undefined ? {} : { waypoints: surcharge.waypoints.map((entry) => ({ area_id: entry.areaId, price_rule_id: entry.priceRuleId, amount: entry.amountMinor, stop_seqs: entry.stopSeqs })) };
+  const waypoints = surcharge.waypoints === undefined ? {} : { waypoints: surcharge.waypoints.map((entry) => ({ area_id: entry.areaId, price_rule_id: entry.priceRuleId, amount: entry.amountMinor, stop_seqs: entry.stopSeqs, ...(entry.fromDropoff === true ? { from_dropoff: true } : {}) })) };
   return { package: surcharge.packageMinor, pickup: end(surcharge.pickup), dropoff: end(surcharge.dropoff), ...waypoints };
 }
 

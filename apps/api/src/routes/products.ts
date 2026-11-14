@@ -17,6 +17,7 @@ import {
   type ProductContentText,
   SERVICE_CATEGORIES,
   type ServiceRules,
+  charterItineraryOf,
   type TenantAction,
   contentTitles,
 } from "@nozomi/domain";
@@ -124,6 +125,8 @@ const serviceRulesSchema = z.object({
     .default({}),
   addons: z.array(z.object({ addon_id: id, enabled: z.boolean().default(true), unit_price: amount, first_free: z.boolean().default(false) })).max(500).default([]),
   driver_languages: z.array(z.object({ language: z.string().max(10), unit_price: amount })).max(100).default([]),
+  // 包车行程计价的配置（M9P-01，ADR 0093 第二节第 4 小节）：没有这个键 = 保留原值（旧页面保存服务规则时不会把它清掉）
+  charter_itinerary: z.object({ dropoff_itinerary_surcharge: z.boolean().default(true) }).strict().optional(),
 });
 
 function toServiceRules(input: z.output<typeof serviceRulesSchema>): ServiceRules {
@@ -140,11 +143,13 @@ function toServiceRules(input: z.output<typeof serviceRulesSchema>): ServiceRule
     freeWait: { pickup: input.free_wait.pickup, dropoff: input.free_wait.dropoff, general: input.free_wait.general },
     addons: input.addons.map((addon) => ({ addonId: addon.addon_id, enabled: addon.enabled, unitPriceMinor: addon.unit_price, firstFree: addon.first_free })),
     driverLanguages: input.driver_languages.map((entry) => ({ language: entry.language, unitPriceMinor: entry.unit_price })),
+    ...(input.charter_itinerary === undefined ? {} : { charterItinerary: { dropoffItinerarySurcharge: input.charter_itinerary.dropoff_itinerary_surcharge } }),
   };
 }
 
 export function serviceRulesJson(view: ServiceRulesView): Json {
   const rules = view.product.serviceRules;
+  const itinerary = charterItineraryOf(rules);
   return {
     version: view.product.version,
     currency: view.currency,
@@ -162,6 +167,8 @@ export function serviceRulesJson(view: ServiceRulesView): Json {
       free_wait: { pickup: rules.freeWait.pickup, dropoff: rules.freeWait.dropoff, general: rules.freeWait.general },
       addons: rules.addons.map((addon) => ({ addon_id: addon.addonId, enabled: addon.enabled, unit_price: addon.unitPriceMinor, first_free: addon.firstFree })),
       driver_languages: rules.driverLanguages.map((entry) => ({ language: entry.language, unit_price: entry.unitPriceMinor })),
+      // 包车行程计价的配置（M9P-01）：没设过的给默认值（不写回库）；别的品类没有这个键
+      ...(view.product.category === "charter" ? { charter_itinerary: { dropoff_itinerary_surcharge: itinerary.dropoffItinerarySurcharge } } : {}),
     },
   };
 }

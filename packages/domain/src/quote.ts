@@ -41,7 +41,7 @@ import {
   surchargeAreaIds,
   tripPrice,
 } from "./pricing.ts";
-import { type FreeWait, type ProductStatus, type ServiceRules, addonAllowsFirstFree, effectiveFreeWait, freeWaitItems, minimumFreeWaitMinutes } from "./products.ts";
+import { type FreeWait, type ProductStatus, type ServiceRules, addonAllowsFirstFree, charterItineraryOf, effectiveFreeWait, freeWaitItems, minimumFreeWaitMinutes } from "./products.ts";
 import { type SiteAudience, listedFor } from "./qa-acceptance.ts";
 import { type UrgentTier, checkBookingWindow, instantToLocal, localDateTimeToInstant, overlapMinutes } from "./service-time.ts";
 
@@ -440,8 +440,9 @@ export interface AreaSurchargeBreakdown {
   pickup: AreaSurchargeEnd;
   dropoff: AreaSurchargeEnd;
   /**
-   * 途经加价（ADR 0088）：每个收了途经加价的加价区域一项（按第一个落进去的经停点的先后），`stopSeqs` 是落在这个区域里的经停点（从 1 起）。
-   * 同一区域只收一次；上 / 下车已经计价的区域、只在商品区域里的经停点不在这里。只有带经停点的报价才有这一项。
+   * 行程加价（途经加价，ADR 0088；ADR 0093 第二节）：每个收了行程加价的区域一项（按第一个落进去的经停点的先后），`stopSeqs` 是落在这个区域里的经停点（从 1 起）。
+   * 同一区域只收一次；只在商品区域里的经停点不在这里。上 / 下车也在这个区域时照收（M9P-01：不再被上下车加价抵消）。
+   * 带经停点的报价都有这一项（可能是空数组）；不带经停点的只在「下车点行程加价」收了钱时才有（那一项 `fromDropoff: true`）。
    */
   waypoints?: AreaSurchargeWaypoint[];
 }
@@ -450,7 +451,13 @@ export interface AreaSurchargeWaypoint {
   areaId: string;
   priceRuleId: string;
   amountMinor: number;
+  /** 落在这个区域里的经停点（从 1 起）；下车点行程加价那一项是空数组 */
   stopSeqs: number[];
+  /**
+   * 下车点行程加价（规格步骤 4，ADR 0093 第二节第 4 小节）：没有落在商品区域以外的经停点、下车点在这个区域里，把它算作一次经停收的。
+   * 只有这一项带这个键（`true`），别的项没有这个键。
+   */
+  fromDropoff?: true;
 }
 
 export interface VehicleOffer {
@@ -866,7 +873,18 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
         refused.push({ vehicleGroupId, reason: pickRefusal(failures), ...(failedStop >= 0 ? { stopSeq: failedStop + 1 } : {}) });
         continue;
       }
-      surcharge = { pickup: pickupCharge, dropoff: dropoffCharge, ...(ends.waypoints.length === 0 ? {} : { waypoints: waypointSurcharges(waypointCharges as AreaSurchargeEnd[], [pickupCharge.areaId, dropoffCharge.areaId]) }) };
+      // 行程加价（ADR 0093 第二节）：只看经停点；上 / 下车也在同一区域照收，不抵消（M9P-01，规格 P0 #1）
+      const stopCharges = waypointSurcharges(waypointCharges as AreaSurchargeEnd[]);
+      // 下车点行程加价（规格步骤 4 伪代码末段，ADR 0093 第二节第 4 小节，商品级开关默认开）：按伪代码字面只看「已收区域为空」
+      // （①外的经停要么收了行程加价、要么前面已经报不出，所以这就等于没有①外经停），下车点不在商品区域里时，下车点所在的行程区域收一次；不看上车点。
+      // 不另用 locateInAreas 判断经停在不在①：M9P-06（①优先）之前，①∩③里的经停照现行规则收途经加价、进已收区域，另判会让同一区域收两次。
+      // 没迁移三层区域之前（M9P-05）查下车点所在加价区域的途经加价（几个重叠时取最高）：没设、停用、不在生效期都跳过、不拒（它不是客人填的经停点）。
+      const fromDropoff =
+        charterItineraryOf(product.serviceRules).dropoffItinerarySurcharge && stopCharges.length === 0 && !ends.dropoff.inProductArea && ends.dropoff.surchargeAreaIds.length > 0
+          ? areaSurchargeFor(product.priceRules, { areaIds: ends.dropoff.surchargeAreaIds, vehicleGroupId, packageHours: request.packageHours, date: local.date, end: "waypoint", prefer: "highest" })
+          : null;
+      if (fromDropoff !== null && fromDropoff.rule !== null) stopCharges.push({ areaId: fromDropoff.areaId, priceRuleId: fromDropoff.rule.id, amountMinor: fromDropoff.amountMinor, stopSeqs: [], fromDropoff: true });
+      surcharge = { pickup: pickupCharge, dropoff: dropoffCharge, ...(ends.waypoints.length === 0 && stopCharges.length === 0 ? {} : { waypoints: stopCharges }) };
     }
     const surchargeMinor = surcharge === null ? 0 : surcharge.pickup.amountMinor + surcharge.dropoff.amountMinor + (surcharge.waypoints ?? []).reduce((sum, entry) => sum + entry.amountMinor, 0);
     // 第 5–7 步：每个能接的区域各算一遍，取结算价最低的；一样低的取商品里排在前面的区域。
@@ -1043,13 +1061,13 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
 }
 
 /**
- * 经停点的途经加价合到区域上（ADR 0088 第 3 节第 5 条）：每个经停点已经归到途经加价最高的那个加价区域（只在商品区域里的为 null，不加）；
- * 同一区域只加一次；上车、下车各自选中的那个加价区域（`chargedAreaIds`，那一端只在商品区域里时是 null）不再加，选中的加价是 0 也算。
+ * 经停点的行程加价合到区域上（ADR 0088 第 3 节第 5 条；ADR 0093 第二节）：每个经停点已经归到途经加价最高的那个加价区域（只在商品区域里的为 null，不加）；
+ * 同一区域只加一次。上车、下车在同一区域也照收（M9P-01 去掉了 ADR 0088 的「上 / 下车已计价的区域不再加」）。
  */
-function waypointSurcharges(stops: readonly AreaSurchargeEnd[], chargedAreaIds: readonly (string | null)[]): AreaSurchargeWaypoint[] {
+function waypointSurcharges(stops: readonly AreaSurchargeEnd[]): AreaSurchargeWaypoint[] {
   const byArea = new Map<string, AreaSurchargeWaypoint>();
   for (const [index, stop] of stops.entries()) {
-    if (stop.areaId === null || stop.priceRuleId === null || chargedAreaIds.includes(stop.areaId)) continue;
+    if (stop.areaId === null || stop.priceRuleId === null) continue;
     const entry = byArea.get(stop.areaId);
     if (entry === undefined) byArea.set(stop.areaId, { areaId: stop.areaId, priceRuleId: stop.priceRuleId, amountMinor: stop.amountMinor, stopSeqs: [index + 1] });
     else entry.stopSeqs.push(index + 1);
@@ -1238,8 +1256,10 @@ export interface SellBreakdownItem {
   kind: "base" | "pickup" | "waypoint" | "dropoff" | "over_km" | "overtime" | "adjust" | "other";
   /** 加价区域（上 / 下车加价、途经加价才有） */
   areaId: string | null;
-  /** 途经加价：落在这个区域的是第几个经停点（从 1 起） */
+  /** 途经加价：落在这个区域的是第几个经停点（从 1 起）；下车点行程加价是空数组 */
   stopSeqs?: number[];
+  /** 下车点行程加价（M9P-01）：只有那一项带这个键 */
+  fromDropoff?: true;
   amountMinor: number;
 }
 
@@ -1254,7 +1274,7 @@ export function sellBreakdown(settlement: SettlementBreakdown, sell: Pick<SellPr
   const surcharge = settlement.areaSurcharge;
   if (surcharge !== undefined && surcharge !== null) {
     if (surcharge.pickup.areaId !== null) items.push({ kind: "pickup", areaId: surcharge.pickup.areaId, amountMinor: convert(surcharge.pickup.amountMinor) });
-    for (const entry of surcharge.waypoints ?? []) items.push({ kind: "waypoint", areaId: entry.areaId, stopSeqs: [...entry.stopSeqs], amountMinor: convert(entry.amountMinor) });
+    for (const entry of surcharge.waypoints ?? []) items.push({ kind: "waypoint", areaId: entry.areaId, stopSeqs: [...entry.stopSeqs], ...(entry.fromDropoff === true ? { fromDropoff: true as const } : {}), amountMinor: convert(entry.amountMinor) });
     if (surcharge.dropoff.areaId !== null) items.push({ kind: "dropoff", areaId: surcharge.dropoff.areaId, amountMinor: convert(surcharge.dropoff.amountMinor) });
   }
   const itinerary = settlement.itinerary;

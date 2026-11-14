@@ -50,8 +50,12 @@ async function version(request: APIRequestContext, headers: Record<string, strin
   return ((await (await request.get(`/tenant/v1/products/${id}`, { headers })).json()) as { version: number }).version;
 }
 
-/** 平台建城市和车站；供应商建两个区域、上架包车商品（套餐价 + 加价区域的区域加价）。 */
-export async function charterWorld(request: APIRequestContext): Promise<CharterWorld> {
+/**
+ * 平台建城市和车站；供应商建两个区域、上架包车商品（套餐价 + 加价区域的区域加价）。
+ * `extraPackageHours`：商品区域再多上架一档套餐（M9E-07 嵌入组件包车用）。城市只有 8 小时一档时 `/book/new` 会替客人选上，
+ * 多一档才能看到「停在第 1 步等客人选时长」。这一档 40,000 日元、没有区域加价。
+ */
+export async function charterWorld(request: APIRequestContext, options: { extraPackageHours?: number } = {}): Promise<CharterWorld> {
   const world = await createWorld(request);
   const admin = await platformAdminHeaders(request);
   const tag = randomLetters(5);
@@ -82,6 +86,7 @@ export async function charterWorld(request: APIRequestContext): Promise<CharterW
   const prices = [
     { ...EMPTY_PRICE, area_id: productArea.id, vehicle_group_id: world.group.id, package_hours: 8, pricing_model: "charter_package", package_km: 150, package_price: 70000, overtime_per_hour: 5000, over_km_per_km: 400, valid_from: today },
     { area_id: surchargeArea.id, vehicle_group_id: world.group.id, package_hours: 8, pricing_model: "charter_area_surcharge", pickup_surcharge: 500, dropoff_surcharge: 1000, valid_from: today },
+    ...(options.extraPackageHours === undefined ? [] : [{ ...EMPTY_PRICE, area_id: productArea.id, vehicle_group_id: world.group.id, package_hours: options.extraPackageHours, pricing_model: "charter_package", package_km: 80, package_price: 40000, overtime_per_hour: 5000, over_km_per_km: 400, valid_from: today }]),
   ];
   for (const price of prices) {
     const created = await request.post(`/tenant/v1/products/${product.id}/price-rules`, { headers: { ...headers, "if-match": `"${await version(request, headers, product.id)}"`, "idempotency-key": crypto.randomUUID() }, data: price });
