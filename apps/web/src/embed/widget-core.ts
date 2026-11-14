@@ -18,8 +18,10 @@ export interface InitOptions {
   lang?: string;
   services?: readonly string[];
   redirectUrl?: string;
-  /** 外观（M9E-10）：card（默认）/ bar，见 resolveLayout */
+  /** 外观（M9E-10、M9E-14）：auto / card / bar；不传用嵌入码后台设的，见 resolveLayout */
   layout?: string;
+  /** auto 时换横条的容器宽度（px，M9E-14），默认 900，见 resolveAutoBreakpoint */
+  autoBreakpoint?: number;
   /** 主题（M9E-10）：都可选，见 resolveTheme */
   theme?: WidgetTheme;
 }
@@ -179,17 +181,38 @@ export function guestsSummary(lang: WidgetLang, passengers: number, luggage: num
 }
 
 /**
- * 两种外观（M9E-10）：card 竖向卡片（默认）、bar 横向搜索条。init 的 layout 不认识就用 card。
- * bar 只在组件容器（不是视口：宿主容器多宽不一定）不窄于 768 px 时用，窄了自动改成 card；量不到宽度（0）也按 card。
+ * 外观（M9E-10、M9E-14）：card 竖向卡片、bar 横向搜索条、auto 按组件容器宽度自动选（默认）。
+ * 宽度一律量组件容器（宿主给的 root，不是视口：宿主容器多宽不一定）；量不到宽度（0）按 card。
+ * - auto：容器 ≥ autoBreakpoint（默认 900 px）用 bar，窄于它用 card；
+ * - bar：容器不窄于 768 px 时用 bar，窄了自动改成 card；
+ * - card：一直是 card。
  */
 export type WidgetLayout = "card" | "bar";
-export const WIDGET_LAYOUTS: readonly WidgetLayout[] = ["card", "bar"];
+export type WantedLayout = "auto" | WidgetLayout;
+export const WANTED_LAYOUTS: readonly WantedLayout[] = ["auto", "card", "bar"];
 export const BAR_MIN_WIDTH = 768;
-export function resolveLayout(given: unknown): WidgetLayout {
-  return WIDGET_LAYOUTS.includes(given as WidgetLayout) ? (given as WidgetLayout) : "card";
+export const AUTO_BREAKPOINT = 900;
+/** autoBreakpoint 能填的范围：低于 768 横条放不下（bar 自己的门槛），高于 4000 没有意义 */
+export const AUTO_BREAKPOINT_RANGE = { min: BAR_MIN_WIDTH, max: 4000 } as const;
+
+/**
+ * 要哪种外观：init 传了（而且认识）以 init 为准；没传或不认识，用嵌入码在后台设的（`/embed/v1/config` 的 layout）；
+ * 两边都没有或都不认识，用 auto。
+ */
+export function resolveLayout(given: unknown, configured?: unknown): WantedLayout {
+  if (WANTED_LAYOUTS.includes(given as WantedLayout)) return given as WantedLayout;
+  return WANTED_LAYOUTS.includes(configured as WantedLayout) ? (configured as WantedLayout) : "auto";
 }
-export function layoutFor(wanted: WidgetLayout, width: number): WidgetLayout {
-  return wanted === "bar" && width >= BAR_MIN_WIDTH ? "bar" : "card";
+
+/** init 的 autoBreakpoint：768–4000 之间的数（取整）；没传、写错、超出范围用 900 */
+export function resolveAutoBreakpoint(given: unknown): number {
+  return typeof given === "number" && Number.isFinite(given) && given >= AUTO_BREAKPOINT_RANGE.min && given <= AUTO_BREAKPOINT_RANGE.max ? Math.round(given) : AUTO_BREAKPOINT;
+}
+
+/** 按容器宽度实际用哪种 */
+export function layoutFor(wanted: WantedLayout, width: number, autoBreakpoint: number = AUTO_BREAKPOINT): WidgetLayout {
+  if (wanted === "card") return "card";
+  return width >= (wanted === "auto" ? Math.max(autoBreakpoint, BAR_MIN_WIDTH) : BAR_MIN_WIDTH) ? "bar" : "card";
 }
 
 /** init 的 theme 参数（M9E-10）：先只留接口，做成 CSS 变量；颜色写 #rgb / #rrggbb。跟随宿主网站的颜色以后再做 */
