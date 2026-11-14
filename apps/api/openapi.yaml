@@ -17743,7 +17743,7 @@ components:
     ImportFileInvalid:
       description: |
         `IMPORT_FILE_INVALID`：文件本身读不了，`details.reason` 是：`NOT_XLSX`（不是 .xlsx）、`CORRUPT`（损坏）、`TOO_LARGE`（解压后太大、行列或单元格超限）、
-        `UNSAFE`（有不允许的 XML 声明，或工作表指向文件外面）、`EMPTY`（没有表头）、`MISSING_COLUMNS`（`details.columns` 是缺的列）、`TOO_MANY_ROWS`（`details.max`）。
+        `UNSAFE`（有不允许的 XML 声明，或工作表指向文件外面）、`EMPTY`（没有表头）、`MISSING_COLUMNS`（`details.columns` 是缺的列）、`TOO_MANY_ROWS`（`details.max`）、`LEGACY_TEMPLATE`（价格：商品已经迁移到三层区域，这是迁移前的旧模版，M9P-05）。
         确认导入时没带或写错 `file_sha256`、没带幂等键是 `VALIDATION_FAILED`。
       content:
         application/json:
@@ -21950,6 +21950,7 @@ components:
             - set
             - replace
             - clear
+            - migrate
         before:
           type:
             - object

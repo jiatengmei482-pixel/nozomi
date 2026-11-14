@@ -125,6 +125,7 @@ export const ACTION_NAMES: Readonly<Record<string, string>> = {
   set: "填写",
   replace: "更换",
   clear: "清空",
+  migrate: "数据迁移",
   assign: "指派",
   reassign: "改派",
   issue: "生成",

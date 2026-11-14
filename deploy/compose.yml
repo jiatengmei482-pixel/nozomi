@@ -146,6 +146,10 @@ services:
     read_only: true
     tmpfs:
       - /tmp
+    # 包车三层区域迁移的完整报告（M9P-05，ADR 0093 第六节第 1 小节）：只挂部署目录下的 reports/（bin/deploy.sh 建好、权限 700），
+    # 报告不进部署日志。z：开着 SELinux 的系统上让容器写得进这个从主机挂进来的目录。
+    volumes:
+      - ${REPORTS_DIR:?缺少 REPORTS_DIR，请通过 bin/deploy.sh 部署}:/reports:z
     cap_drop:
       - ALL
     security_opt:
