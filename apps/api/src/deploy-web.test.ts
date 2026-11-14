@@ -13,8 +13,13 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 import {
+  API_UPSTREAM,
   EDGE_CONFIG_PATH,
+  EMBED_BOOK_URI_PATTERN,
+  FRAME_CHECK_PATH,
   SITE_PAGE_URI_PATTERN,
+  isEmbedBookPagePath,
+  isSitePagePath,
   WEB_ROOT_PATH,
   apiPathPatterns,
   contentSecurityPolicy,
@@ -116,22 +121,61 @@ test("归 API 的路径：Caddy 的匹配器、前端的 isApiPath、Vite 代理
   assert.throws(() => apiPathPatterns([]), /空的/);
 });
 
-test("生成的 Caddy 片段：@api 匹配器、官网页面和其余页面两个互斥的匹配器、各一条内容安全策略，策略里的哈希来自传入的页面", () => {
+test("生成的 Caddy 片段：@api 匹配器、官网页面 / 嵌入预订页 / 其余页面三个互斥的匹配器、各一条内容安全策略，策略里的哈希来自传入的页面", () => {
   const lines = codeOf(renderEdgeConfig(indexHtml)).split("\n").filter(Boolean);
-  assert.equal(lines.length, 5);
+  const isSite = `{http.request.orig_uri}.matches("(?i)${SITE_PAGE_URI_PATTERN}")`;
+  const isEmbed = `{http.request.orig_uri}.matches("(?i)${EMBED_BOOK_URI_PATTERN}")`;
+  const hashes = inlineScriptHashes(indexHtml);
   assert.equal(lines[0], `@api path ${apiPathPatterns().join(" ")}`);
   // 官网页面的策略多放行 Stripe.js（ADR 0046）；其余页面（两个后台、登录）不放行。按没解码的原始地址匹配，不用会解码、规整的 path 匹配器
-  assert.equal(lines[1], `@site_pages expression \`{http.request.orig_uri}.matches("(?i)${SITE_PAGE_URI_PATTERN}")\``);
-  assert.equal(lines[2], `@other_pages expression \`!{http.request.orig_uri}.matches("(?i)${SITE_PAGE_URI_PATTERN}")\``);
+  assert.equal(lines[1], `@site_pages expression \`${isSite}\``);
+  // 嵌入预订页（M9E-16，ADR 0095 第五节第 1 小节）单独一个匹配器；其余页面排除前两者，三个互斥
+  assert.equal(lines[2], `@embed_book_pages expression \`${isEmbed}\``);
+  assert.equal(lines[3], `@other_pages expression \`!${isSite} && !${isEmbed}\``);
   // 图片来源里有一个 Caddy 的环境变量占位：部署时由 MAP_TILE_CSP_SOURCES 填入（地图底图的来源，ADR 0015），没配就是空
-  assert.equal(lines[3], `header @site_pages Content-Security-Policy "${contentSecurityPolicy(inlineScriptHashes(indexHtml), ["{$MAP_TILE_CSP_SOURCES}"], { payments: true })}"`);
-  assert.equal(lines[4], `header @other_pages Content-Security-Policy "${contentSecurityPolicy(inlineScriptHashes(indexHtml), ["{$MAP_TILE_CSP_SOURCES}"])}"`);
-  assert.ok(!/stripe/.test(lines[4] ?? ""), "后台和登录页的策略不放行 Stripe");
-  for (const line of lines.slice(3)) {
+  assert.equal(lines[4], `header @site_pages Content-Security-Policy "${contentSecurityPolicy(hashes, ["{$MAP_TILE_CSP_SOURCES}"], { payments: true })}"`);
+  assert.equal(lines[5], `header @other_pages Content-Security-Policy "${contentSecurityPolicy(hashes, ["{$MAP_TILE_CSP_SOURCES}"])}"`);
+  assert.ok(!/stripe/.test(lines[5] ?? ""), "后台和登录页的策略不放行 Stripe");
+  // 嵌入预订页：整段在 route 里按书写顺序执行——删伪造头 → forward_auth（只转 key、host，不带原地址、Cookie、Authorization）→ 加策略 → 不缓存 → index.html
+  assert.deepEqual(lines.slice(6), [
+    "handle @embed_book_pages {",
+    "\troute {",
+    "\t\trequest_header -X-Nozomi-Frame-Ancestor",
+    `\t\tforward_auth ${API_UPSTREAM} {`,
+    `\t\t\turi ${FRAME_CHECK_PATH}?key={query.key}&host={query.host}`,
+    `\t\t\theader_up X-Forwarded-Uri ${FRAME_CHECK_PATH}`,
+    "\t\t\theader_up -Cookie",
+    "\t\t\theader_up -Authorization",
+    "\t\t\tcopy_headers X-Nozomi-Frame-Ancestor",
+    "\t\t}",
+    `\t\theader Content-Security-Policy "${contentSecurityPolicy(hashes, ["{$MAP_TILE_CSP_SOURCES}"], { payments: true, frameAncestor: "{http.request.header.X-Nozomi-Frame-Ancestor}" })}"`,
+    '\t\theader Cache-Control "no-store"',
+    `\t\troot * ${WEB_ROOT_PATH}`,
+    "\t\ttry_files {path} /index.html",
+    "\t\tfile_server",
+    "\t}",
+    "}",
+  ]);
+  const policies = lines.filter((line) => line.includes("Content-Security-Policy"));
+  assert.equal(policies.length, 3);
+  for (const line of policies) {
     assert.match(line, /; img-src 'self' \{\$MAP_TILE_CSP_SOURCES\}; font-src 'self';/);
     assert.equal(line.split("{$").length, 2, "整条策略里只有这一处按环境变化");
   }
+  assert.match(policies[2] ?? "", /; frame-ancestors \{http\.request\.header\.X-Nozomi-Frame-Ancestor\}"$/, "嵌入页的 frame-ancestors 只来自 API 回的那一个宿主，不带 'none'");
   assert.notEqual(renderEdgeConfig(indexHtml.replace("nozomi.theme", "nozomi.theme2")), renderEdgeConfig(indexHtml), "页面里的脚本变了，策略跟着变");
+});
+
+test("嵌入预订页的路径（ADR 0095 第十节）：只有 /embed/book、/embed/book/order（结尾斜杠、查询串、大小写不同）；长得像的、编码绕过的不算；和官网页面、API 前缀互斥", () => {
+  for (const path of ["/embed/book", "/embed/book/", "/embed/book?key=k&host=h", "/embed/book/order", "/embed/book/order/", "/embed/book/order?payment_intent=pi_1", "/Embed/Book", "/embed/book#ch=x"]) {
+    assert.equal(isEmbedBookPagePath(path), true, path);
+    assert.equal(isSitePagePath(path), false, path);
+    assert.equal(isApiPath(path.split("?")[0] ?? ""), false, path);
+  }
+  for (const path of ["/embed/booking", "/embed/book/x", "/embed/book%2F..", "/embed/book%2Forder", "/platform/..%2Fembed/book", "/embed//book", "/embed/book/order/x", "/embed/v1/frame-check", "/embed/widget-v1.js", "/book", "/embed", "/xembed/book"]) {
+    assert.equal(isEmbedBookPagePath(path), false, path);
+  }
+  assert.equal(isApiPath(FRAME_CHECK_PATH), true, "frame-check 在 /embed/v1 下，归 API");
 });
 
 test("Caddyfile：前缀表和哈希都不手抄——从前端镜像里的片段 import；接口走 @api，其余归前端", () => {
@@ -142,6 +186,8 @@ test("Caddyfile：前缀表和哈希都不手抄——从前端镜像里的片�
   }
   assert.ok(!/sha256-|Content-Security-Policy/.test(code), "内容安全策略不写在 Caddyfile 里，由构建时生成");
   assert.match(code, /\n\thandle @api \{\n\t\timport proxy_api\n\t\}\n/);
+  // 生成的片段里 forward_auth 用的上游和这里转给 API 的是同一个地址
+  assert.match(code, new RegExp(`\\(proxy_api\\) \\{\\n\\treverse_proxy ${API_UPSTREAM}\\n\\}`));
   // 站点里只有这一处转给 API（另一处是容器内健康检查专用的 8081）
   assert.equal(code.match(/import proxy_api/g)?.length, 2);
   assert.match(code, new RegExp(`\\n\\thandle \\{\\n\\t\\troot \\* ${WEB_ROOT_PATH}\\n`));
@@ -169,7 +215,8 @@ test("Caddyfile：前端路由回退到 index.html 且不缓存；/assets/ 只�
 
 test("前端镜像：最终镜像只是官方 Caddy 加静态文件和生成的片段；片段从构建产物现算；构建上下文是白名单", async () => {
   const stages = [...webDockerfile.matchAll(/^FROM (\S+)(?: AS (\S+))?$/gm)].map((match) => `${match[1]}${match[2] ? ` as ${match[2]}` : ""}`);
-  assert.deepEqual(stages, ["node:24-bookworm-slim as build", "caddy:2"]);
+  // Caddy 固定到具体版本和摘要（M9E-16，ADR 0095：≥ 2.11.4，forward_auth 的伪造请求头漏洞）；真实容器测试读同一行
+  assert.deepEqual(stages, ["node:24-bookworm-slim as build", "caddy:2.11.9@sha256:4e2425f6009577e7c651010f16679c28f7d12df3e7b1914f941a7a3370746b3c"]);
   const apiDockerfile = await readText("apps/api/Dockerfile");
   assert.ok(apiDockerfile.includes("FROM node:24-bookworm-slim AS build"), "两个镜像用同一个 Node 版本构建");
   const final = webDockerfile.slice(webDockerfile.lastIndexOf("\nFROM "));
@@ -284,9 +331,10 @@ test("冒烟：两种入口模式都经反向代理检查前端、接口前缀�
 
 test("端到端测试用的 vite preview 带同一条内容安全策略（同一个函数、同一份构建产物）；文档写明了做法", async () => {
   const viteConfig = await readText("apps/web/vite.config.ts");
-  assert.match(viteConfig, /import \{ contentSecurityPolicy, inlineScriptHashes, isSitePagePath \} from "\.\/build\/edge-config\.ts";/);
-  // 第一个参数必须是这份构建产物的脚本哈希；可以带第二个参数（图片来源，地图底图用，ADR 0015）；官网页面那一条带 payments（ADR 0046）
-  assert.match(viteConfig, /configurePreviewServer\(server\) \{[\s\S]*const policy = contentSecurityPolicy\(inlineScriptHashes\(indexHtml\)(?:, [A-Za-z]+)?\);[\s\S]*const sitePolicy = contentSecurityPolicy\(inlineScriptHashes\(indexHtml\), [A-Za-z]+, \{ payments: true \}\);[\s\S]*response\.setHeader\("Content-Security-Policy", isSitePagePath\(request\.url \?\? ""\) \? sitePolicy : policy\)/);
+  assert.match(viteConfig, /import \{ inlineScriptHashes \} from "\.\/build\/edge-config\.ts";/);
+  // 三条策略和嵌入预订页的 frame-check 规则在 build/preview-headers.ts（和 renderEdgeConfig 同一个函数，src/lib/preview-headers.test.ts 核对逐字一致）；
+  // 第一个参数必须是这份构建产物的脚本哈希，嵌入页问的是端到端测试的 API（NOZOMI_API_ORIGIN）
+  assert.match(viteConfig, /configurePreviewServer\(server\) \{[\s\S]*server\.middlewares\.use\(previewHeadersMiddleware\(inlineScriptHashes\(indexHtml\), imageSources, apiOrigin\)\);/);
   assert.match(viteConfig, /plugins: \[react\(\), previewContentSecurityPolicy\(\)\]/);
 
   const adr = await readText("docs/adr/0007-vps-deployment.md");
