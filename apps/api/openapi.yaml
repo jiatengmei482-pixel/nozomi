@@ -13057,6 +13057,20 @@ paths:
           description: 43 个 base64url 字符（256 位随机数）
           schema:
             type: string
+        - name: key
+          in: query
+          required: false
+          description: 嵌入页（`/embed/book`，M9E-17，ADR 0095）必传：iframe 地址里的嵌入码。带了 `key` 或 `host` 时应答多一个 `source_matches`
+          schema:
+            type: string
+            maxLength: 300
+        - name: host
+          in: query
+          required: false
+          description: 嵌入页必传：iframe 地址里的宿主 origin
+          schema:
+            type: string
+            maxLength: 300
       responses:
         "200":
           description: 草稿
@@ -13072,6 +13086,11 @@ paths:
                   expires_at:
                     type: string
                     format: date-time
+                  source_matches:
+                    type: boolean
+                    description: |
+                      只在带了 `key` 或 `host` 时有：草稿上记的嵌入码、宿主 origin 和这次的完全一样为 true（两个都要带）。
+                      false 时嵌入页照常预填和报价，但询价不带 `draft_id`，来源按主站记。不返回嵌入码和来源本身。
         "404":
           description: "`BOOKING_DRAFT_NOT_FOUND`：过期、不存在或编号格式不对（不区分）"
           content:
