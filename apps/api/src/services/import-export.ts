@@ -515,9 +515,10 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
   const currency = context.currency ?? "JPY";
   const layered = category === "charter" && context.product.charterLayout === "three_layer";
   const columns = priceColumns(category, layered);
-  const sheet = new Sheet(sheetRows(bytes, PRICE_SHEET), columns.filter((column) => !OPTIONAL_HEADER_COLUMNS.includes(column)));
-  // 迁移过三层区域的商品只认新格式（ADR 0093 第五节）：旧模版带「途经加价」列，整份不收，请重新下载
-  if (layered && sheet.has(P.waypointSurcharge)) throw fileInvalid("LEGACY_TEMPLATE", `这个商品已经迁移到三层区域，这是迁移前的旧模版（有「${P.waypointSurcharge}」列）。请重新下载模版：经停加价填在「${P.itinerarySurcharge}」里，套餐价的「${P.area}」留空`);
+  const raw = sheetRows(bytes, PRICE_SHEET);
+  // 迁移过三层区域的商品只认新格式（ADR 0093 第五节）：旧模版带「途经加价」列，整份不收，请重新下载（先于缺列的检查：旧模版本来就缺「行程加价」）
+  if (layered && (raw.rows[0] ?? []).some((cell) => (cell.type === "text" || cell.type === "number") && cell.text.trim() === P.waypointSurcharge)) throw fileInvalid("LEGACY_TEMPLATE", `这个商品已经迁移到三层区域，这是迁移前的旧模版（有「${P.waypointSurcharge}」列）。请重新下载模版：经停加价填在「${P.itinerarySurcharge}」里，套餐价的「${P.area}」留空`);
+  const sheet = new Sheet(raw, columns.filter((column) => !OPTIONAL_HEADER_COLUMNS.includes(column)));
   const dataRows = sheet.dataRows();
   if (dataRows.length > IMPORT_LIMITS.maxPriceRows) throw fileInvalid("TOO_MANY_ROWS", `一次最多导入 ${IMPORT_LIMITS.maxPriceRows} 行，这个文件有 ${dataRows.length} 行。请分几次导入`, { max: IMPORT_LIMITS.maxPriceRows, rows: dataRows.length });
 

@@ -520,7 +520,7 @@ export function getPriceCoverage(ctx: DbContext, tenantId: string, productId: st
   const now = ctx.now();
   return readTx(ctx, tenantId, async (db) => {
     const context = await loadPricingContext(db, tenantId, productId, now, { lock: false });
-    const coverage = priceCoverage({ category: context.product.category, areaIds: context.areaIds, vehicleGroupIds: context.vehicleGroupIds, rules: context.priceRules, today: context.today });
+    const coverage = priceCoverage({ category: context.product.category, areaIds: context.areaIds, vehicleGroupIds: context.vehicleGroupIds, rules: context.priceRules, today: context.today, productWide: layeredCharter(context.product) });
     return { today: context.today, coverage, rules: context.priceRules };
   });
 }
@@ -859,8 +859,8 @@ export function getPriceOverview(ctx: DbContext, tenantId: string, summaryOnly: 
     if (summaryOnly) return { ...totals, items: null };
     const shapes = await listPriceCoverageInputs(db, tenantId);
     const items = rows.map((row): PriceOverviewItem => {
-      const shape = shapes.get(row.productId) ?? { areaIds: [], vehicleGroupIds: [], rules: [] };
-      const coverage = priceCoverage({ category: row.category, areaIds: shape.areaIds, vehicleGroupIds: shape.vehicleGroupIds, rules: shape.rules, today: row.today });
+      const shape = shapes.get(row.productId) ?? { areaIds: [], vehicleGroupIds: [], rules: [], productWide: false };
+      const coverage = priceCoverage({ category: row.category, areaIds: shape.areaIds, vehicleGroupIds: shape.vehicleGroupIds, rules: shape.rules, today: row.today, productWide: shape.productWide });
       return { ...row, coverage: { total: coverage.total, missing: coverage.total - coverage.priced } };
     });
     return { ...totals, items };
