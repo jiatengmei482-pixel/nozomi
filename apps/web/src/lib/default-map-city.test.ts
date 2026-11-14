@@ -1,10 +1,10 @@
 /**
- * 「在地图上选点」还没有地点可参照时默认打开的城市（M8-43，`defaultMapCity`）。
+ * 「在地图上选点」还没有地点可参照时默认打开的城市（M8-43，`defaultMapCity`）；默认日期按哪个城市的时区算（M8-44，`defaultDateCity`）。
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { SiteCity } from "../api/site.ts";
-import { cityOffersTab, defaultMapCity } from "./book-new.ts";
+import { cityOffersTab, defaultDateCity, defaultMapCity } from "./book-new.ts";
 
 const city = (code: string, categories: SiteCity["categories"]) => ({ code, categories });
 
@@ -31,4 +31,18 @@ test("品类一样多时按列表顺序；没有能订当前标签的城市时�
 test("能订哪个标签：区间看接送机或点对点，包车看包车", () => {
   assert.deepEqual([cityOffersTab(city("x", ["airport_transfer"]), "transfer"), cityOffersTab(city("x", ["point_to_point"]), "transfer"), cityOffersTab(city("x", ["charter"]), "transfer")], [true, true, false]);
   assert.deepEqual([cityOffersTab(city("x", ["charter"]), "charter"), cityOffersTab(city("x", ["airport_transfer", "point_to_point"]), "charter")], [true, false]);
+});
+
+// ---- 默认日期按哪个城市的时区算（M8-44，`defaultDateCity`）----
+const placed = (code: string, categories: SiteCity["categories"], center: { lat: number; lng: number }) => ({ id: code, code, categories, center });
+const BEIJING = placed("CTY-CN-BJ", ["airport_transfer"], { lat: 39.9042, lng: 116.4074 });
+const TOKYO = placed("CTY-JP-TYO", ["airport_transfer", "point_to_point", "charter"], { lat: 35.6895, lng: 139.6917 });
+
+test("默认日期的城市：上车点落在哪个城市就是哪个；没选上车点、或上车点哪个城市都不在时用地图默认城市；列表空为 null", () => {
+  assert.equal(defaultDateCity([BEIJING, TOKYO], "transfer", { lat: 39.91, lng: 116.41 })?.code, "CTY-CN-BJ");
+  assert.equal(defaultDateCity([BEIJING, TOKYO], "transfer", { lat: 35.69, lng: 139.7 })?.code, "CTY-JP-TYO");
+  assert.equal(defaultDateCity([BEIJING, TOKYO], "transfer", null)?.code, "CTY-JP-TYO", "不是列表第一项北京");
+  assert.equal(defaultDateCity([BEIJING, TOKYO], "charter", { lat: 0, lng: 0 })?.code, "CTY-JP-TYO");
+  assert.equal(defaultDateCity([BEIJING], "charter", null)?.code, "CTY-CN-BJ", "一个能订的都没有时退回列表第一项");
+  assert.equal(defaultDateCity([], "transfer", null), null);
 });
