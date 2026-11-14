@@ -1102,6 +1102,15 @@
           "acceptance": ["业主决定选套餐规则：A. 维持 ADR 0089 第 3 节「能覆盖总时长的最小套餐」（客人看到的套餐时长最直观，可能不是最便宜）；B. 在能覆盖的套餐和更短套餐 + 超时之间取对外价最低的（对客人最划算，但套餐时长可能比行程短）。推荐 B", "定了 B 时新开实现任务：回放核对、改 ADR 0089；同时只把选中的那档写进返回结果，未选中的档次的询价日志标注「试算」以免占回放和统计"],
           "evidence": "",
           "updated": "2026-11-13"
+        },
+        {
+          "id": "M9W-10",
+          "title": "经停点所在加价区域没设途经加价时转人工报价并指出是哪个点；通用原因不再叫客人换时间",
+          "role": "backend",
+          "status": "review",
+          "acceptance": ["经停点那一端报不出（NO_PRICE_RULE / PRICE_RULE_DISABLED / PRICE_NOT_IN_EFFECT）时拒绝里带上 stopSeq；sales-quotes 凡带 stopSeq 的拒绝对外一律报 WAYPOINT_NOT_PRICED 并带 stopSeqs，询价日志、未覆盖需求保留原始原因码；上 / 下车那一端的原因码不变；不带经停点的询价报价和原因完全不变（golden、area-surcharge、charter-waypoints 测试原样通过）", "ADR 0088 补一节：对外原因口径与第 3 节第 4 条「沿用上 / 下车那一端的原因码」的关系，只影响对外原因、不影响价格", "NOT_AVAILABLE 通用文案不再让客人换时间，改为「这个行程暂时无法在线报价，请联系客服人工报价，或调整行程后再试。」；查清只用于供应商内部原因，和时间有关的各有各的原因", "测试：domain 单元测试（经停点那端各原因带 stopSeq）；charter-waypoints.itest.ts（加价区域只设上下车加价、经停点落在里面 → 官网应答 WAYPOINT_NOT_PRICED + waypoint_stop_seqs，未覆盖需求里仍是 NO_PRICE_RULE）；前端组件测试（新文案、WAYPOINT_NOT_PRICED 指出是哪个点）；不删不弱化已有断言", "可选：平台端 GET /platform/v1/channels/{id}/quote-logs 返回每条拒绝的 reason 和 product_id（不出现在 /tenant/v1），OpenAPI 同步、集成测试覆盖", "独立审查、合并、部署后测试站验收"],
+          "evidence": "PR #210（https://github.com/jiatengmei482-pixel/nozomi/pull/210）；本机 typecheck 通过；domain + api 单元测试 2211 条通过；web 组件测试 132 条、单元 / 契约 56 条通过；集成测试 92 条通过（charter-waypoints 11 条含新增 1 条、sales、charter-area-surcharge、charter-all-inclusive、uncovered-demands、quotes、quotes-qa、manual-quotes、platform-roles）；可选第 4 条已做",
+          "updated": "2026-11-13"
         }
       ]
     },
@@ -1172,7 +1181,7 @@
           "role": "frontend",
           "status": "review",
           "acceptance": ["候选里有谷歌来源的一项、页面上又没有谷歌地图时，列表下方显示「Google Maps」文字署名（不翻译、不改写），和嵌入组件一致；只有平台地点时不显示；上线前对一次谷歌地图平台现行的署名要求", "组件测试覆盖两种情况；独立审查、合并、部署后测试站看一眼", "署名始终可见：在候选列表（listbox）外、同一个弹出面板里，候选多（8–10 个）时也不被滚出可视区；listbox 里只有候选（#212 审查）", "上线前二选一（#212 审查，颜色和谷歌文档不一致）：请美工加署名专用令牌（亮色 #5E5E5E、暗色白色，主站和嵌入组件一起改），或改用谷歌的 Google Maps 标志"],
-          "evidence": "PR https://github.com/jiatengmei482-pixel/nozomi/pull/212 ；新增组件测试 6 个（google-attribution.test.tsx），嵌入组件测试补断言；本机相关组件 / 样式测试 348 个通过；端到端 site-booking-new（新增署名断言、亮暗 axe、320/360/400 宽）等 9 个通过",
+          "evidence": "PR https://github.com/jiatengmei482-pixel/nozomi/pull/212 ；新增组件测试 6 个（google-attribution.test.tsx），嵌入组件测试补断言；本机相关组件 / 样式测试 349 个通过；按审查修改后新增端到端 site-google-attribution（10 个候选时署名始终可见，电脑、窄窗口、手机选择页、嵌入组件，亮暗 axe）4 个，相关端到端共 14 个通过（chromium）",
           "updated": "2026-11-13"
         }
       ]
@@ -2376,8 +2385,18 @@
     },
     {
       "date": "2026-11-13",
+      "by": "backend",
+      "summary": "M9W-10 开发完成，待验收：经停点落在没设途经加价的加价区域里（不在商品区域）时，官网不再显示「请换一个时间再试」，改报「第 N 个经停点暂时没有在线报价」并转人工报价；内部日志仍记原始原因；通用原因文案改为请联系客服或调整行程；平台询价日志接口给出每条拒绝的商品和原因（可选项已做）。价格不变。PR #210。"
+    },
+    {
+      "date": "2026-11-13",
       "by": "frontend",
       "summary": "M9E-06 开发完成，待验收：官网预订页（出发地、目的地、手机全屏选择页、包车经停点）和旧询价页的地址候选里有谷歌给的地点时，列表最下面显示「Google Maps」小字，只有平台的机场、车站时不显示；和嵌入组件用同一份写法。依据谷歌 Places API 署名要求（地方小时可用文字），颜色用设计令牌的灰色，和谷歌文档给的色值略有不同，上线前请按谷歌文档核对。新增组件测试 6 个，PR #212。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "frontend",
+      "summary": "M9E-06 按 #212 独立审查修改：候选多的时候「Google Maps」不会再被滚到看不见——移到候选列表外、同一个弹出面板里固定在下方（电脑下拉、手机选择页、经停点、嵌入组件都改了），读屏也能读到；旧询价页的署名改在结果列表后面，不算进结果数；补了 10 个候选的端到端测试和嵌入组件样式测试。颜色和谷歌文档不一致这一点记进验收标准，上线前二选一（加专用颜色或改用谷歌标志）。仍待验收。"
     }
   ]
 }

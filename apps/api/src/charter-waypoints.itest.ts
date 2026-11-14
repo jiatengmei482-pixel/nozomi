@@ -26,6 +26,8 @@ let m: Market;
 let pay: FakePaymentProvider;
 let site: SiteApi;
 let charter: { id: string; tokyo: string; fuji: string; kamakura: string };
+/** 官网用的渠道 */
+let siteChannelId: string;
 
 const square = (west: number, south: number, east: number, north: number) => ({ type: "Polygon", coordinates: [[[west, south], [east, south], [east, north], [west, north], [west, south]]] });
 const P = {
@@ -38,6 +40,8 @@ const P = {
   tsurugaoka: { lng: 139.556, lat: 35.326 },
   daibutsu: { lng: 139.536, lat: 35.317 },
   sendai: { lng: 140.87, lat: 38.27 },
+  /** M9W-10 的箱根加价区域里（只设上 / 下车加价、没设途经加价） */
+  hakone: { lng: 139.05, lat: 35.2 },
   /** 路线替身对这个点算不出路线 */
   island: { lng: 139.6, lat: 34.0 },
 } satisfies Record<string, LatLng>;
@@ -88,6 +92,7 @@ before(async () => {
   await ok(tenantCall(m.b, "POST", `/products/${created.id}/publish`));
   charter = { id: created.id, tokyo, fuji, kamakura };
   const channel = await newChannel(api, m.staff.cm1.token, { name: "NOZOMI 官网" });
+  siteChannelId = channel.id;
   site = await siteApi(api, (await salesCredentials(api, m, channel.id)).clientId, pay, {}, { quote: { routes: { estimate: routeLookup } } });
 });
 after(async () => {
@@ -427,4 +432,43 @@ test("按行程计价：逐段估路线、按总时长选套餐（能覆盖的�
   api.clock.advance(1_000);
   const p2p = await site.call("POST", "/site/v1/quotes", { body: { category: "point_to_point", city_id: m.ids.tokyo, pickup: P.shinjuku, dropoff: P.asakusa, itinerary_pricing: true, service_local: SERVICE_LOCAL, passengers: 2, luggage: 1 }, ip: nextIp() });
   assert.deepEqual([p2p.status, p2p.body.error?.details?.issues?.[0]?.path], [400, "/itinerary_pricing"]);
+});
+
+test("M9W-10：经停点落在只设了上 / 下车加价的区域里（没设途经加价）、不在商品区域 → 官网对外报 WAYPOINT_NOT_PRICED 并指出第几个；询价日志、未覆盖需求里仍是 NO_PRICE_RULE；上 / 下车在那里照常报价", async () => {
+  const hakone = await newArea(m.b, "箱根", square(138.95, 35.1, 139.1, 35.24), "charter");
+  await ok(tenantCall(m.b, "POST", `/products/${charter.id}/price-rules/batch`, { version: await version(m.b, charter.id), body: { create: [surcharge(hakone, 10, 7_000, 7_000, null), surcharge(hakone, 8, 7_000, 7_000, null)] } }));
+  // 报价的目录有 30 秒缓存：建完规则之后让时间走过去
+  api.clock.advance(31_000);
+  // 上 / 下车在箱根：照常收上 / 下车加价（55,000 + 7,000）× 1.1
+  assert.equal(total(await quote("hakone", undefined, "shinjuku")), "68200");
+  assert.equal(total(await quote("shinjuku", ["kawaguchiko"], "hakone")), "79200");
+  await api.app.backgroundIdle();
+  await site.app.backgroundIdle();
+  await api.db.owner.query("delete from uncovered_demands");
+  const res = await quote("shinjuku", ["kawaguchiko", "hakone"], "shinjuku");
+  assert.equal(res.status, 200, res.text);
+  assert.deepEqual([res.body.quotes, res.body.unavailable], [[], [{ vehicle_group_id: null, reasons: ["WAYPOINT_NOT_PRICED"], waypoint_stop_seqs: [2] }]]);
+  // 平台内部：询价日志里这个商品的拒绝原因仍是原始的 NO_PRICE_RULE
+  const log = await api.db.owner.query<{ rejects: any[] }>("select rejects from quote_logs order by created_at desc, id desc limit 1");
+  assert.deepEqual(log.rows[0]?.rejects.filter((entry: any) => entry.product_id === charter.id).map((entry: any) => entry.reason), ["NO_PRICE_RULE"]);
+  // 平台端的询价日志接口也给出每条拒绝的商品和原始原因码（第 4 条）
+  const platformLogs = await api.call("GET", `/platform/v1/channels/${siteChannelId}/quote-logs`, { token: m.staff.readonly.token });
+  assertMatchesOperation("GET", "/platform/v1/channels/{id}/quote-logs", platformLogs.status, platformLogs.body);
+  const latest = platformLogs.body.items[0];
+  assert.equal(latest.reject_count, latest.rejects.length);
+  assert.deepEqual(latest.rejects.filter((entry: any) => entry.product_id === charter.id), [{ product_id: charter.id, vehicle_group_id: m.ids.biz7, reason: "NO_PRICE_RULE" }]);
+  await api.app.backgroundIdle();
+  await site.app.backgroundIdle();
+  const demands = (await api.db.owner.query<{ reason: string; refusal_counts: Record<string, number> }>("select reason, refusal_counts from uncovered_demands")).rows;
+  assert.equal(demands.length, 1);
+  assert.equal(demands[0]?.reason, "OTHER");
+  assert.ok((demands[0]?.refusal_counts["NO_PRICE_RULE"] ?? 0) >= 1, JSON.stringify(demands[0]));
+  assert.equal(demands[0]?.refusal_counts["WAYPOINT_NOT_PRICED"], undefined);
+  // 按行程计价同样：每档套餐都报不出，对外同一个原因、同一个经停点
+  legMinutes = 120;
+  const itinerary = await quote("shinjuku", ["kawaguchiko", "hakone"], "shinjuku", { itinerary_pricing: true, package_hours: undefined });
+  assert.equal(itinerary.status, 200, itinerary.text);
+  assert.deepEqual([itinerary.body.quotes, itinerary.body.unavailable], [[], [{ vehicle_group_id: null, reasons: ["WAYPOINT_NOT_PRICED"], waypoint_stop_seqs: [2] }]]);
+  // 不带经停点的询价完全不变
+  assert.equal(total(await quote("shinjuku", undefined, "shinjuku")), "60500");
 });

@@ -211,6 +211,31 @@ test("规则：途经加价没设 = 这个区域对经停点没有规则（不�
   assert.deepEqual(prices(trip("shinjuku", ["fujiHakone"], "shinjuku"), partly), [63_000, 69_300]);
 });
 
+test("M9W-10：只有经停点那一端报不出（没设 / 停用 / 未生效）→ 原因码不变，另带上第一个报不出的经停点；上 / 下车那一端报不出的照旧不带", () => {
+  const refusedOf = (request: QuoteRequest, item: QuoteProduct) => {
+    const quote = quoted(request, item);
+    assert.ok(quote.ok, JSON.stringify(quote));
+    return quote.refused;
+  };
+  const unset = product({ priceRules: [pkg, surcharge("s-fuji", "fuji", 10_000, 10_000, undefined), surcharge("s-kama", "kamakura", 6_000, 6_000, 6_000)] });
+  // 第 1 个点在镰仓（有途经加价），第 2、3 个在富士山（没设）：指出第 2 个
+  assert.deepEqual(refusedOf(trip("shinjuku", ["daibutsu", "gogome", "kawaguchiko"], "shinjuku"), unset), [{ vehicleGroupId: "eco7", reason: "NO_PRICE_RULE", stopSeq: 2 }]);
+  const fuji8 = surcharge("s-fuji-8", "fuji", 1, 1, 1, { packageHours: 8 });
+  const disabled = product({ priceRules: [pkg, fuji8, surcharge("s-fuji", "fuji", 1, 1, 10_000, { status: "disabled" })] });
+  assert.deepEqual(refusedOf(trip("shinjuku", ["asakusa", "gogome"], "shinjuku"), disabled), [{ vehicleGroupId: "eco7", reason: "PRICE_RULE_DISABLED", stopSeq: 2 }]);
+  const later = product({ priceRules: [pkg, fuji8, surcharge("s-fuji", "fuji", 1, 1, 10_000, { validFrom: "2027-01-01" })] });
+  assert.deepEqual(refusedOf(trip("shinjuku", ["gogome"], "shinjuku"), later), [{ vehicleGroupId: "eco7", reason: "PRICE_NOT_IN_EFFECT", stopSeq: 1 }]);
+  // 上 / 下车那一端报不出（下车在富士山、富士山对这个套餐没有能用的规则）：原因照旧，不带经停点——经停点那一端也报不出时同样不带
+  const noFuji = product({ priceRules: [pkg, fuji8] });
+  assert.deepEqual(refusedOf(trip("shinjuku", undefined, "gogome"), noFuji), [{ vehicleGroupId: "eco7", reason: "NO_PRICE_RULE" }]);
+  assert.deepEqual(refusedOf(trip("shinjuku", ["kawaguchiko"], "gogome"), noFuji), [{ vehicleGroupId: "eco7", reason: "NO_PRICE_RULE" }]);
+  assert.deepEqual(refusedOf(trip("gogome", ["asakusa"], "shinjuku"), noFuji), [{ vehicleGroupId: "eco7", reason: "NO_PRICE_RULE" }]);
+  // 比价结果的拒绝里也带着
+  const request = trip("shinjuku", ["gogome"], "shinjuku");
+  const comparison = compareQuotes({ request, currency: "JPY", now: moment.now, entries: [{ quote: quoted(request, unset), productVersion: 1, standing: { scoreCenti: null, completedOrders: 0, observation: false }, markupBp: () => 1_000, fx: null }] });
+  assert.deepEqual(comparison.refused, [{ tenantId: "tenant-a", productId: "charter-1", vehicleGroupId: "eco7", reason: "NO_PRICE_RULE", stopSeq: 1 }]);
+});
+
 test("规则：经停点同时在商品区域和有途经规则的加价区域里 → 按 M8-38 收加价区域的；加价区域没有可用途经规则 → 在商品区域里不加", () => {
   const bigTokyo = area("tokyo", square(138.5, 35.1, 139.95, 35.85));
   assert.deepEqual(prices(trip("shinjuku", ["gogome"], "shinjuku"), product({ areas: [bigTokyo] })), [65_000, 71_500]);
