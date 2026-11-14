@@ -143,7 +143,7 @@ test("允许整页嵌入（Q13）：新建不填按关、可填开；修改不�
     ],
   );
   const config = await api.call("GET", `/embed/v1/config?key=${plain.key}`, { ip: nextIp(), headers: { origin: PARTNER } });
-  assert.deepEqual(Object.keys(config.body).sort(), ["lang", "services", "site_origin"], "公开的配置接口不返回开关");
+  assert.deepEqual(Object.keys(config.body).sort(), ["lang", "layout", "services", "site_origin"], "公开的配置接口不返回开关");
 });
 
 test("frame-check：开了开关的启用嵌入码 + 白名单里的规范 origin → 204 + X-Nozomi-Frame-Ancestor；不看 Origin、不带 CORS 头、不缓存", async () => {

@@ -2,7 +2,7 @@
  * 运营后台「嵌入组件」（M9E-02，ADR 0090）：给合作网站生成嵌入码、管理域名白名单、复制要放的代码。
  * - 看（`embed.read`）：超级管理员、运营、渠道经理、只读；新建、修改、停用（`embed.manage`）：超级管理员、运营、渠道经理。
  * - 嵌入码是公开标识，写在合作网站页面里，不是密钥；改不了，要换就停用后新建。
- * - 外观（M9E-10）：卡片 / 横条，写进要放的代码；合作网站放代码时也可以自己改。
+ * - 外观（M9E-10、M9E-14）：自动（默认）/ 卡片 / 横条；组件从 /embed/v1/config 取，不写进要放的代码；合作网站在 init 里写了 layout 的以它为准。
  * - 白名单一行一个网站地址（`https://域名`，可带端口，不带路径）；改了在服务端立即生效，合作网站页面上最迟 60 秒。
  * - 合作网站如果设了内容安全策略，要在 `script-src`、`connect-src` 放行主站域名（代码下面写明）。
  * - 允许整页嵌入（M9E-16，ADR 0095 Q13）：默认关；打开后合作网站可以把整个预订流程（/embed/book）嵌在自己的页面里，只限白名单里的网站。
@@ -32,8 +32,8 @@ export const EMBED_KEYS_PAGE = "/platform/embed-keys";
 
 export const EMBED_LANG_NAMES: Readonly<Record<EmbedLang, string>> = { zh: "中文", ja: "日文", en: "英文" };
 export const EMBED_SERVICE_NAMES: Readonly<Record<EmbedService, string>> = { transfer: "区间", charter: "包车" };
-export const EMBED_LAYOUT_NAMES: Readonly<Record<EmbedLayout, string>> = { card: "卡片", bar: "横条" };
-const LAYOUT_OPTIONS = (["card", "bar"] as const).map((value) => ({ value, label: EMBED_LAYOUT_NAMES[value] }));
+export const EMBED_LAYOUT_NAMES: Readonly<Record<EmbedLayout, string>> = { auto: "自动", card: "卡片", bar: "横条" };
+const LAYOUT_OPTIONS = (["auto", "card", "bar"] as const).map((value) => ({ value, label: EMBED_LAYOUT_NAMES[value] }));
 export const HOST_PAGE_NAMES: Readonly<Record<"off" | "on", string>> = { off: "不允许（客人跳到主站预订）", on: "允许（预订流程嵌在合作网站页面里）" };
 const HOST_PAGE_OPTIONS = (["off", "on"] as const).map((value) => ({ value, label: HOST_PAGE_NAMES[value] }));
 const HOST_PAGE_HINT = "打开后，白名单里的网站可以用 NozomiBooking.mountBooking 把整个预订流程嵌在自己的页面里（ADR 0095）；关掉后下一次打开就嵌不进去。";
@@ -54,7 +54,7 @@ interface Draft {
 
 const draftOf = (key: EmbedKey | null): Draft =>
   key === null
-    ? { name: "", origins: "", lang: "ja", services: ["transfer", "charter"], layout: "card", allowHostPage: false, note: "" }
+    ? { name: "", origins: "", lang: "ja", services: ["transfer", "charter"], layout: "auto", allowHostPage: false, note: "" }
     : { name: key.name, origins: key.allowed_origins.join("\n"), lang: key.default_lang, services: [...key.default_services], layout: key.layout, allowHostPage: key.allow_host_page, note: key.note ?? "" };
 
 const bodyOf = (draft: Draft): EmbedKeyWrite => ({
@@ -123,7 +123,7 @@ function KeyForm({ initial, submitLabel, onSubmit, onCancel }: { initial: EmbedK
       <TextAreaField label="允许的网站" required rows={3} value={draft.origins} errors={errors.origins === undefined ? [] : [errors.origins]} hint={ORIGINS_HINT} onChange={(event) => setDraft({ ...draft, origins: event.target.value })} />
       <RadioGroup legend="默认语言" name={`embed-lang-${initial?.id ?? "new"}`} options={LANG_OPTIONS} value={draft.lang} onChange={(lang) => setDraft({ ...draft, lang })} />
       <CheckboxGroup legend="默认标签" name={`embed-services-${initial?.id ?? "new"}`} options={SERVICE_OPTIONS} value={draft.services} errors={errors.services === undefined ? [] : [errors.services]} hint="合作网站放代码时可以另外指定" onChange={(services) => setDraft({ ...draft, services })} />
-      <RadioGroup legend="外观" name={`embed-layout-${initial?.id ?? "new"}`} options={LAYOUT_OPTIONS} value={draft.layout} hint="横条适合放在页面顶部或横幅里；合作网站放代码时可以另外指定" onChange={(layout) => setDraft({ ...draft, layout })} />
+      <RadioGroup legend="外观" name={`embed-layout-${initial?.id ?? "new"}`} options={LAYOUT_OPTIONS} value={draft.layout} hint="自动：组件所在区域宽 900 px 以上显示横条，窄了（侧栏、手机）显示卡片。保存后合作网站的页面最迟约 1 分钟生效；合作网站代码里写了 layout 的以代码为准" onChange={(layout) => setDraft({ ...draft, layout })} />
       <RadioGroup legend="整页嵌入" name={`embed-host-page-${initial?.id ?? "new"}`} options={HOST_PAGE_OPTIONS} value={draft.allowHostPage ? "on" : "off"} hint={HOST_PAGE_HINT} onChange={(value) => setDraft({ ...draft, allowHostPage: value === "on" })} />
       <TextAreaField label="备注（选填）" rows={2} maxLength={500} value={draft.note} errors={errors.note === undefined ? [] : [errors.note]} onChange={(event) => setDraft({ ...draft, note: event.target.value })} />
       <div className="form__actions">

@@ -139,7 +139,7 @@ export async function createEmbedKey(ctx: AppContext, principal: PlatformPrincip
     const result = await db.query<EmbedKeyRow>(
       `insert into embed_keys (key, name, allowed_origins, default_lang, default_services, layout, allow_host_page, note, created_at, updated_at, created_by, updated_by)
        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10, $10) returning ${COLUMNS}`,
-      [key, name, origins, input.defaultLang, [...input.defaultServices], layout ?? "card", input.allowHostPage ?? false, note, now, principal.user.id],
+      [key, name, origins, input.defaultLang, [...input.defaultServices], layout ?? "auto", input.allowHostPage ?? false, note, now, principal.user.id],
     );
     const created = fromRow(result.rows[0] as EmbedKeyRow);
     await insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), { tenantId: null, resource: "embed_key", resourceId: created.id, action: "create", before: null, after: auditJson(created) });

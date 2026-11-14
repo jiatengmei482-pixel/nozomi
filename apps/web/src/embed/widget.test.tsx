@@ -562,7 +562,7 @@ async function withResize(run: (resize: (width: number) => void) => Promise<void
 }
 const layout = (): string | null => $(".nzb-shell").getAttribute("data-layout");
 
-test("M9E-10 外观：默认 card；layout: \"bar\" 只在组件容器不窄于 768 px 时用，容器变窄自动换成 card（按容器宽度，不按视口），不重画、已填的不丢", async () => {
+test("M9E-10 外观：layout: \"bar\" 只在组件容器不窄于 768 px 时用，容器变窄自动换成 card（按容器宽度，不按视口），不重画、已填的不丢", async () => {
   handler = places;
   await withResize(async (resize) => {
     await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh", layout: "bar" });
@@ -580,7 +580,140 @@ test("M9E-10 外观：默认 card；layout: \"bar\" 只在组件容器不窄于 
     document.body.innerHTML = '<div id="nozomi-booking"></div>';
     await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh", layout: "grid" });
     resize(1440);
-    assert.equal(layout(), "card", "不认识的 layout 用 card");
+    assert.equal(layout(), "bar", "不认识的 layout 按没传：配置里也没有，用 auto（≥ 900 px 横条）");
+    resize(800);
+    assert.equal(layout(), "card");
+  });
+});
+
+/** M9E-14：配置里带上嵌入码后台设的外观 */
+const configWith = (layout: unknown): Handler => (url, init) => (url.pathname === "/embed/v1/config" ? { status: 200, body: { ...config.body, layout } } : places(url, init));
+
+test("M9E-14 优先级：init 没传 layout 时用配置里的（后台设的 bar）；init 传了 card 以 init 为准；配置里不认识或没有时用 auto", async () => {
+  handler = configWith("bar");
+  await withResize(async (resize) => {
+    const starting = initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh" });
+    resize(800);
+    await starting;
+    assert.equal(layout(), "bar", "后台设的 bar：800 px（768–899）也是横条");
+    resize(767);
+    assert.equal(layout(), "card", "bar 窄于 768 px 仍退成卡片");
+  });
+  await withResize(async (resize) => {
+    document.body.innerHTML = '<div id="nozomi-booking"></div>';
+    const starting = initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh", layout: "card" });
+    resize(1440);
+    await starting;
+    assert.equal(layout(), "card", "init 传了 card，后台设 bar 也不管");
+  });
+  await withResize(async (resize) => {
+    handler = configWith("card");
+    document.body.innerHTML = '<div id="nozomi-booking"></div>';
+    const starting = initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh", layout: "auto" });
+    resize(1440);
+    await starting;
+    assert.equal(layout(), "bar", "init 传了 auto，后台设 card 也不管");
+  });
+  for (const configured of ["banner", undefined, "auto"]) {
+    await withResize(async (resize) => {
+      handler = configWith(configured);
+      document.body.innerHTML = '<div id="nozomi-booking"></div>';
+      const starting = initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh" });
+      resize(1440);
+      await starting;
+      assert.equal(layout(), "bar", `配置里是 ${String(configured)}：按 auto`);
+      resize(899);
+      assert.equal(layout(), "card", `配置里是 ${String(configured)}：按 auto`);
+    });
+  }
+});
+
+test("M9E-14 auto：容器 900 px 横条、899 px 卡片（按容器宽度，不按视口）；autoBreakpoint 能改门槛，写错用 900", async () => {
+  handler = configWith("auto");
+  await withResize(async (resize) => {
+    await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh" });
+    assert.equal(layout(), "card", "量不到宽度时按 card");
+    for (const [width, expected] of [[900, "bar"], [899, "card"], [1440, "bar"], [390, "card"], [768, "card"], [900, "bar"]] as const) {
+      resize(width);
+      assert.equal(layout(), expected, `${width} px`);
+    }
+  });
+  await withResize(async (resize) => {
+    document.body.innerHTML = '<div id="nozomi-booking"></div>';
+    await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh", autoBreakpoint: 1100 });
+    resize(1099);
+    assert.equal(layout(), "card");
+    resize(1100);
+    assert.equal(layout(), "bar");
+  });
+  await withResize(async (resize) => {
+    document.body.innerHTML = '<div id="nozomi-booking"></div>';
+    await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh", autoBreakpoint: 300 });
+    resize(899);
+    assert.equal(layout(), "card", "门槛低于 768 不认，用 900");
+    resize(900);
+    assert.equal(layout(), "bar");
+  });
+});
+
+test("M9E-14 不闪：配置回来之前不画表单，配置回来后第一次画出来就是后台设的外观（不会先卡片再变横条）", async () => {
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  handler = async (url, init) => {
+    if (url.pathname === "/embed/v1/config") await gate;
+    return configWith("bar")(url, init);
+  };
+  await withResize(async (resize) => {
+    const seen: (string | null)[] = [];
+    const host = document.querySelector("#nozomi-booking") as HTMLElement;
+    const starting = initWithBase(BASE, { key: KEY, root: host, lang: "zh" });
+    resize(1200);
+    await wait(20);
+    assert.equal(shadow().querySelector(".nzb-shell"), null, "配置回来之前什么都不画");
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) if (node instanceof HTMLElement && node.classList.contains("nzb-shell")) seen.push(node.getAttribute("data-layout"));
+        if (record.type === "attributes" && record.attributeName === "data-layout") seen.push((record.target as HTMLElement).getAttribute("data-layout"));
+      }
+    });
+    observer.observe(shadow(), { childList: true, subtree: true, attributes: true, attributeFilter: ["data-layout"] });
+    release();
+    await starting;
+    await wait(0);
+    observer.disconnect();
+    assert.deepEqual(seen, ["bar"], "只出现过横条");
+  });
+});
+
+test("M9E-14 auto 下来回换外观（窗口变宽变窄）：已填的地点、打了一半的字、人数、日期、选中的标签和焦点都不丢，不重画", async () => {
+  handler = configWith("auto");
+  await withResize(async (resize) => {
+    const starting = initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh" });
+    resize(1280);
+    await starting;
+    assert.equal(layout(), "bar");
+    await pick("pickup", "成田", "成田国際空港");
+    const dropoff = $<HTMLInputElement>('[data-field="dropoff"] input');
+    dropoff.value = "東京";
+    $<HTMLButtonElement>('[aria-label="增加乘客"]').click();
+    const date = $<HTMLInputElement>('input[type="date"]');
+    date.value = "2030-05-06";
+    date.dispatchEvent(new Event("input", { bubbles: true }));
+    date.dispatchEvent(new Event("change", { bubbles: true }));
+    dropoff.focus();
+    const shell = $(".nzb-shell");
+    for (const width of [899, 900, 390, 1440, 899]) {
+      resize(width);
+      assert.equal(layout(), width >= 900 ? "bar" : "card", `${width} px`);
+      assert.equal($(".nzb-shell"), shell, "同一个元素，没有重画");
+      assert.equal($<HTMLInputElement>('[data-field="pickup"] input').value, "成田国際空港");
+      assert.equal($<HTMLInputElement>('[data-field="dropoff"] input').value, "東京", "打了一半的字还在");
+      assert.equal($<HTMLInputElement>('input[type="date"]').value, "2030-05-06");
+      assert.match($(".nzb-trigger-text").textContent ?? "", /3 位乘客/);
+      assert.equal(shadow().activeElement, dropoff, "焦点还在原来的框里");
+    }
   });
 });
 

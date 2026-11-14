@@ -102,6 +102,7 @@
 | `allowed_origins` text[] | 1–20 个 origin，规范化后存（第五节第 1 小节） |
 | `default_lang` | `zh` / `ja` / `en` |
 | `default_services` text[] | `transfer`、`charter` 的非空子集，顺序即标签顺序 |
+| `layout` | 外观 `auto`（默认）/ `card` / `bar`（M9E-10 加列，M9E-14 加 `auto` 并改为默认，见第四节） |
 | `status` | `active` / `disabled` |
 | `note` | ≤ 500 字 |
 | `version` int | `If-Match` 乐观锁 |
@@ -112,13 +113,14 @@
 - 权限：`embed.read`（超级管理员、运营、渠道经理、只读）、`embed.manage`（超级管理员、运营、渠道经理）；不按城市 / 渠道范围限定（嵌入码是全平台的）。
 - 平台接口：`GET/POST /platform/v1/embed-keys`、`GET/PATCH /platform/v1/embed-keys/{id}`（`If-Match`，409 版本冲突）；新建、改白名单、停用 / 启用都写审计。
 - 运营后台「渠道 → 嵌入组件」：列表、新建、编辑、停用；详情页显示嵌入代码（第六节）和「复制代码」，并写明合作网站的内容安全策略要在 `script-src`、`connect-src` 放行主站域名。
-- 生效：服务端每次请求都查库（嵌入码按 `key` 有唯一索引），改白名单、停用立即生效；组件的配置应答 `Cache-Control: private, max-age=60`，所以浏览器侧 60 秒内生效。
+- 生效：服务端每次请求都查库（嵌入码按 `key` 有唯一索引，不另设缓存），改白名单、停用、外观立即生效；组件的配置应答 `Cache-Control: private, max-age=60`（只有访客自己的浏览器能存，前面的 nginx / Caddy 不存），所以浏览器侧 60 秒内生效。已经打开着的页面不重新取配置，访客下次打开或刷新页面时才按新设置。
+  组件脚本 `widget-v1.js` 是 `public, max-age=300`：它只影响**组件新版本**多久到访客那里（部署后最多 5 分钟），不影响后台设置的生效时间。
 
 ### 2. `/embed/v1`（跨域只开在这里）
 
 | 接口 | 规则 |
 | --- | --- |
-| `GET /embed/v1/config?key=` | 200 `{ lang, services, site_origin }` |
+| `GET /embed/v1/config?key=` | 200 `{ lang, services, layout, site_origin }`（`layout` 自 M9E-14） |
 | `GET /embed/v1/places/autocomplete`、`/places/details` | 同 `/site/v1/places/*` 的实现、每日上限、每地址限速；另加每个嵌入码每分钟 600 次 |
 | `POST /embed/v1/booking-drafts?key=` | 请求体 `{ draft, return_url? }`；超过 16 KB 在解析前 413；`draft` 按 `bookingDraftIssues` 严格校验，不合格 400 `VALIDATION_FAILED`；`return_url` 不合格时忽略（不报错、不存）；成功 201 `{ id, expires_at, url }`（`url` = 主站 `/book/new?draft=<id>`）。限速：每个来源地址 10 分钟 30 次（IPv6 按 /64）、每个嵌入码每分钟 60 次，超了 429 `RATE_LIMITED`；每个嵌入码同时有效的草稿最多 5,000 个（`BOOKING_DRAFT_LIMITS.activePerKey`），满了 429 `EMBED_DRAFT_LIMIT` |
 | 以上接口的 `OPTIONS` 预检 | 同样按 `key` + `Origin` 核对；通过回 `Access-Control-Allow-Methods: GET, POST`、`Access-Control-Allow-Headers: content-type`、`Access-Control-Max-Age: 600` |
@@ -146,7 +148,14 @@
 - **主站地址**取自加载组件的那个 `<script>`：必须真是 `<script>` 元素（宿主页可以用 `<img name="currentScript">` 冒充 `document.currentScript`），而且路径是 `/embed/widget-v1.js`；拿不到时控制台报错、不渲染，**不退回宿主页自己的地址**。配置、地址提示、建草稿、跳转、「到主站预订」链接都用这个地址。
 - `NozomiBooking.init({ key, root, lang?, services?, redirectUrl? })`：`root` 是选择器或元素，找不到时控制台报错、不渲染；`lang`、`services` 不合法时用后台默认；`redirectUrl` 原样交给建草稿接口，由服务端校验。
 - M9E-10 补两个可选参数（只影响外观，不改接口、提交和跳转）：`NozomiBooking.init({ …, layout?, theme? })`。
-  - `layout`：`"card"`（默认，竖向卡片）或 `"bar"`（横向搜索条）；不认识的按 `card`。`bar` 只在组件容器（宿主给的 root，不是视口）不窄于 768 px 时用，窄了自动换成 `card`。运营后台嵌入码可选「外观：卡片 / 横条」，生成的代码里带上 `layout`（`embed_keys.layout`，默认 `card`；`/embed/v1/config` 不变）。
+  - `layout`：`"auto"`、`"card"`（竖向卡片）或 `"bar"`（横向搜索条）。**M9E-14 修订**（业主 2026-11-14：「像 Good Journey 的组件一样，不用选外观，按屏幕自动适配」）：
+    - **取哪个**：init 传了（而且认识）以 init 为准；没传或不认识，用嵌入码在运营后台设的外观（`embed_keys.layout`，`/embed/v1/config` 返回）；两边都没有，用 `auto`。后台默认就是「自动」。
+    - **`auto`**：按组件容器（宿主给的 root，不是视口）的宽度，用 `ResizeObserver` 量：容器 **≥ 900 px 用横条，< 900 px 用卡片**；宽度变了随时换。门槛可用 init 的 `autoBreakpoint`（768–4000 的数，默认 900；写错、超出范围用 900）改。
+    - **`bar`**：容器不窄于 768 px 时用横条，窄了自动换成卡片（M9E-10 的规则不变）。**`card`**：一直是卡片。量不到宽度（0）都按卡片。
+    - **不闪、不丢**：取到配置之前组件不画表单，第一次画出来就是最终外观（不会先卡片再变横条）；两种外观是同一套 DOM，换外观只改 `data-layout`、不重画，已填的地点、打了一半的字、人数、日期、焦点都不动。
+    - 生成的嵌入代码**不再写 `layout`**（外观从配置里取，运营在后台改了合作网站不用改代码）；合作网站自己在 init 里写了的，以它为准。
+    - 已有数据（迁移 0430）：`card` 改成 `auto`——0420 加列时已有的嵌入码都按默认值填了 `card`、后台新建也默认选卡片，分不出是不是特意选的，按业主的意思（不用选、自动）当成没选；`bar` 只能是特意选的，不变。
+    - M9E-10 原文（已被上面替代）：`layout` 默认 `card`，后台外观只写进生成的代码、`/embed/v1/config` 不返回。
   - `theme`：`{ primary?, accent?, radius?, fontFamily? }`，组件把它们变成 Shadow DOM 里的 CSS 变量。颜色只认 `#rgb` / `#rrggbb`，写错的项用默认（深蓝 `#1B2A5C`、浅米色点缀、圆角 24 px、系统字体）；主色、点缀色上的字在白色和深色（`#1A1F29`）里取对比度高的，高的那个也不到 4.5:1 时退到纯黑或纯白里高的那个（两者中总有一个 ≥ 4.58:1，例如 `#777777` 用纯黑 4.69:1）；白底上主色当文字（选中标签的字、链接、焦点环）不够 4.5:1 时改用深色；主色当白底上的标记条（卡片选中标签的底条、横条选中标签的顶条）不够 3:1 时也改用深色（例如 `#FFCC00`）。跟随宿主网站的颜色（读宿主页 CSS 变量）以后再做。
   - 日期、时间按组件自己的语言（`lang`）显示，不按访客浏览器的语言；原生输入框只负责输入（键盘、读屏、手机的选择器照常）。用键盘编辑时原生输入框显示出来（看得到在改哪一段），失焦后回到格式化的文字；清空某一段时显示「请选择日期 / 时间」。横条的每格浅灰底加一条细边框，边框对白色长条、对格子底色都够 3:1（WCAG 1.4.11）；横条选中的标签除了 accent 底色，还有一条 3px 的主色顶条（不只靠颜色区分）。
 - 两个标签：「区间」（出发地、目的地、日期、时间、人数、行李）、「包车」（上车点、经停点 + 停留、下车点、日期、时间、人数、行李；不填经停点时**不选包车时长**，跳到 `/book/new` 后在那里选——城市能订哪几档只有主站知道，组件里写死会选到报不出价的档；见第八节）。地址经 `/embed/v1/places/*` 输入即提示，地址框提示「只填地点」（M9E-10 起只在表单底部写一行，各地址框用 `aria-describedby` 关联）。

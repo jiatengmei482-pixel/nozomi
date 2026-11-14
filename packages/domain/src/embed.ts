@@ -28,8 +28,8 @@ export const EMBED_SERVICES = ["transfer", "charter"] as const;
 export type EmbedService = (typeof EMBED_SERVICES)[number];
 export const EMBED_LANGS = ["zh", "ja", "en"] as const;
 export type EmbedLang = (typeof EMBED_LANGS)[number];
-/** 组件的外观（M9E-10）：card 卡片（默认）、bar 横条 */
-export const EMBED_LAYOUTS = ["card", "bar"] as const;
+/** 组件的外观（M9E-10、M9E-14）：auto 按组件容器宽度自动选（默认，≥ 900 px 横条、窄了卡片）、card 卡片、bar 横条 */
+export const EMBED_LAYOUTS = ["auto", "card", "bar"] as const;
 export type EmbedLayout = (typeof EMBED_LAYOUTS)[number];
 /**
  * 草稿交给谁接着走（M9E-16，ADR 0095 第三节第 1 小节、第九节第 1 小节）：redirect 整页跳主站 /book/new（旧行为，库里为空也按它算）、
@@ -130,14 +130,17 @@ export function embedKeyIssues(input: EmbedKeyInput, options: EmbedOriginOptions
   return { issues, origins };
 }
 
-/** 合作网站要放的代码（ADR 0090 第六节）。`siteOrigin` 是主站的 origin */
-export function embedSnippet(siteOrigin: string, key: string, lang: EmbedLang, services: readonly EmbedService[], layout: EmbedLayout): string {
+/**
+ * 合作网站要放的代码（ADR 0090 第六节）。`siteOrigin` 是主站的 origin。
+ * 不写 layout（M9E-14）：组件从 `/embed/v1/config` 取嵌入码的外观，运营在后台改了不用合作网站改代码
+ */
+export function embedSnippet(siteOrigin: string, key: string, lang: EmbedLang, services: readonly EmbedService[]): string {
   return [
     '<div id="nozomi-booking"></div>',
     `<script src="${siteOrigin}/embed/widget-v1.js" defer></script>`,
     "<script>",
     '  window.addEventListener("DOMContentLoaded", function () {',
-    `    NozomiBooking.init({ key: "${key}", root: "#nozomi-booking", lang: "${lang}", services: ${JSON.stringify(services)}, layout: "${layout}" });`,
+    `    NozomiBooking.init({ key: "${key}", root: "#nozomi-booking", lang: "${lang}", services: ${JSON.stringify(services)} });`,
     "  });",
     "</script>",
   ].join("\n");

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { bookingDraftIssues } from "@nozomi/domain";
 import { WIDGET_CSS, themeCss } from "./widget-style.ts";
-import { BAR_MIN_WIDTH, GUEST_LIMITS, formatDate, formatTime, toneContrast, toneOn, STAY_OPTIONS, TEXTS, type WidgetForm, contrastWithWhite, guestsSummary, hexOf, luminance, layoutFor, resolveLayout, resolveTheme, draftFailureOf,draftOf, formProblems, problemOfIssuePath, resolveLang, resolveServices, tomorrow, trimName } from "./widget-core.ts";
+import { AUTO_BREAKPOINT, BAR_MIN_WIDTH, resolveAutoBreakpoint, GUEST_LIMITS, formatDate, formatTime, toneContrast, toneOn, STAY_OPTIONS, TEXTS, type WidgetForm, contrastWithWhite, guestsSummary, hexOf, luminance, layoutFor, resolveLayout, resolveTheme, draftFailureOf,draftOf, formProblems, problemOfIssuePath, resolveLang, resolveServices, tomorrow, trimName } from "./widget-core.ts";
 
 const form = (changes: Partial<WidgetForm> = {}): WidgetForm => ({
   tab: "transfer",
@@ -86,15 +86,51 @@ test("服务端 400 的问题路径对到组件里的那一项", () => {
   assert.equal(problemOfIssuePath("/return_url"), null);
 });
 
-test("M9E-10 外观：layout 不认识用 card；bar 只在容器不窄于 768 px 时用（按容器宽度，不按视口），量不到宽度按 card", () => {
-  assert.equal(resolveLayout(undefined), "card");
-  assert.equal(resolveLayout("bar"), "bar");
-  assert.equal(resolveLayout("grid"), "card");
+test("M9E-10 外观：bar 只在容器不窄于 768 px 时用（按容器宽度，不按视口），量不到宽度按 card", () => {
   assert.equal(BAR_MIN_WIDTH, 768);
   assert.equal(layoutFor("bar", 768), "bar");
   assert.equal(layoutFor("bar", 767), "card");
   assert.equal(layoutFor("bar", 0), "card");
   assert.equal(layoutFor("card", 1440), "card");
+});
+
+test("M9E-14 外观的优先级：init 传了（认识的）为准 > 嵌入码后台设的 > auto；不认识的值跳过", () => {
+  assert.equal(resolveLayout(undefined), "auto");
+  assert.equal(resolveLayout(undefined, undefined), "auto");
+  assert.equal(resolveLayout(undefined, "bar"), "bar");
+  assert.equal(resolveLayout(undefined, "card"), "card");
+  assert.equal(resolveLayout(undefined, "auto"), "auto");
+  assert.equal(resolveLayout("card", "bar"), "card");
+  assert.equal(resolveLayout("bar", "card"), "bar");
+  assert.equal(resolveLayout("auto", "bar"), "auto");
+  assert.equal(resolveLayout("grid", "bar"), "bar", "init 写错按没传，用后台的");
+  assert.equal(resolveLayout("grid", "banner"), "auto");
+  assert.equal(resolveLayout(null, 3), "auto");
+});
+
+test("M9E-14 auto：容器 ≥ 900 px 用 bar、< 900 px 用 card（899 / 900 两边）；门槛可用 autoBreakpoint 改，但不低于 768", () => {
+  assert.equal(AUTO_BREAKPOINT, 900);
+  assert.equal(layoutFor("auto", 900), "bar");
+  assert.equal(layoutFor("auto", 899), "card");
+  assert.equal(layoutFor("auto", 899.5), "card");
+  assert.equal(layoutFor("auto", 1440), "bar");
+  assert.equal(layoutFor("auto", 0), "card");
+  assert.equal(layoutFor("auto", 1000, 1024), "card");
+  assert.equal(layoutFor("auto", 1024, 1024), "bar");
+  assert.equal(layoutFor("auto", 800, 500), "bar", "门槛低于 768 时按 768");
+  assert.equal(layoutFor("auto", 767, 500), "card");
+  assert.equal(layoutFor("bar", 800), "bar", "明确要 bar 时 768–899 也是 bar");
+  assert.equal(layoutFor("card", 900), "card");
+  assert.equal(resolveAutoBreakpoint(undefined), 900);
+  assert.equal(resolveAutoBreakpoint(1024), 1024);
+  assert.equal(resolveAutoBreakpoint(1000.6), 1001);
+  assert.equal(resolveAutoBreakpoint(768), 768);
+  assert.equal(resolveAutoBreakpoint(767), 900);
+  assert.equal(resolveAutoBreakpoint(4000), 4000);
+  assert.equal(resolveAutoBreakpoint(4001), 900);
+  assert.equal(resolveAutoBreakpoint("1024"), 900);
+  assert.equal(resolveAutoBreakpoint(Number.NaN), 900);
+  assert.equal(resolveAutoBreakpoint(Number.POSITIVE_INFINITY), 900);
 });
 
 test("M9E-10 主题：没给或写错的项为 null（用样式表的默认值）；主色、点缀色上的字自动挑够 4.5:1 的；白底上主色不够 4.5:1 时文字改用深色", () => {

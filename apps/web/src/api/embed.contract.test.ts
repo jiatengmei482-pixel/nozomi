@@ -27,8 +27,8 @@ test("类型的字段和枚举与 openapi.yaml 一致", () => {
   const key = spec.components.schemas["EmbedKey"]?.properties ?? {};
   assert.deepEqual(key["default_lang"]?.enum, ["zh", "ja", "en"] satisfies string[]);
   assert.deepEqual(key["default_services"]?.items?.enum, ["transfer", "charter"] satisfies string[]);
-  assert.deepEqual(key["layout"]?.enum, ["card", "bar"] satisfies EmbedLayout[]);
-  assert.deepEqual(spec.components.schemas["EmbedKeyWrite"]?.properties?.["layout"]?.enum, ["card", "bar"] satisfies EmbedLayout[]);
+  assert.deepEqual(key["layout"]?.enum, ["auto", "card", "bar"] satisfies EmbedLayout[]);
+  assert.deepEqual(spec.components.schemas["EmbedKeyWrite"]?.properties?.["layout"]?.enum, ["auto", "card", "bar"] satisfies EmbedLayout[]);
   assert.deepEqual(key["status"]?.enum, ["active", "disabled"] satisfies string[]);
   assert.deepEqual(spec.components.schemas["OrderEntrySource"]?.properties?.["kind"]?.enum, ["book", "embed"] satisfies string[]);
   assert.deepEqual(spec.components.schemas["OrderEntrySource"]?.properties?.["delivery"]?.enum, ["redirect", "host_page", null] satisfies OrderEntrySource["delivery"][]);

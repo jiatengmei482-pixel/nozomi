@@ -12783,7 +12783,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ lang, services, site_origin ]
+                required: [ lang, services, layout, site_origin ]
                 properties:
                   lang:
                     type: string
@@ -12793,6 +12793,10 @@ paths:
                     items:
                       type: string
                       enum: [ transfer, charter ]
+                  layout:
+                    type: string
+                    enum: [ auto, card, bar ]
+                    description: 嵌入码在运营后台设的外观（M9E-14）。组件 init 没传 `layout` 时用它；`auto` 按组件容器宽度选（≥ 900 px 横条，窄了卡片）
                   site_origin:
                     type: string
                     description: 主站的 origin（组件跳转到这里的 /book/new）
@@ -29705,8 +29709,8 @@ components:
             enum: [ transfer, charter ]
         layout:
           type: string
-          enum: [ card, bar ]
-          description: 组件的外观（M9E-10）：`card` 卡片、`bar` 横条。写进要放的代码（`layout`）；`/embed/v1/config` 不返回它
+          enum: [ auto, card, bar ]
+          description: 组件的外观（M9E-10、M9E-14）：`auto` 自动（按组件容器宽度，≥ 900 px 横条、窄了卡片）、`card` 卡片、`bar` 横条。由 `/embed/v1/config` 返回给组件（合作网站 init 传了 `layout` 时以 init 为准）；不写进要放的代码
         allow_host_page:
           type: boolean
           description: 允许整页嵌入（M9E-16，ADR 0095 Q13，默认关）：打开了 `/embed/book` 才能被这个嵌入码白名单里的网站嵌入（`/embed/v1/frame-check`）
@@ -29751,8 +29755,8 @@ components:
             enum: [ transfer, charter ]
         layout:
           type: string
-          enum: [ card, bar ]
-          description: 选填。新建不填按 `card`；修改不填保持原值
+          enum: [ auto, card, bar ]
+          description: 选填。新建不填按 `auto`；修改不填保持原值
         allow_host_page:
           type: boolean
           description: 选填（M9E-16）。允许整页嵌入；新建不填按关，修改不填保持原值
