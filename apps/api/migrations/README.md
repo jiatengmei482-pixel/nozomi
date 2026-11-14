@@ -106,3 +106,4 @@
 | `0410_rescue_deduction_base.sql` | 救援差价的基准（M9P-01，ADR 0093 第二节救援 B）：`order_rescues` 加 `deduction_base_minor`、`deduction_base`（成对为空 = 之前的救援，按原结算价；有值时基准不低于原结算价）。只加列，不回填，不含任何数据 |
 | `0420_embed_key_layout.sql` | 嵌入码的外观（M9E-10，ADR 0090 第四节）：`embed_keys` 加 `layout`（`card` 卡片 / `bar` 横条，默认 `card`，带检查约束），运营后台生成的嵌入代码按它写 `layout`；公开的 `/embed/v1/config` 不返回它。只加列，不含任何数据（0410 由 M9P-01 使用） |
 | `0430_embed_key_layout_auto.sql` | 嵌入码的外观加「自动」（M9E-14，ADR 0090 第四节）：`layout` 加 `auto`（按组件容器宽度，≥ 900 px 横条、窄了卡片）并改为默认值；`/embed/v1/config` 从此返回 `layout`，生成的嵌入代码不再写 `layout`。已有的 `card` 改成 `auto`（0420 加列时按默认值填的、后台也默认卡片，分不出是否特意选的），`bar` 不变；不动版本号，不新增数据 |
+| `0450_charter_three_layer.sql` | 包车三层区域的数据结构（M9P-05，ADR 0093）：价格方式加 `charter_itinerary_surcharge`（②行程加价）；②③的 `package_hours` 可空（= 所有套餐）；`price_rules.area_id` 对包车套餐可空（= 整商品套餐价，其他价格方式仍必填）；`products.charter_layout`（空 = 旧表，`three_layer` = 新表，只有包车能设），触发器保证只有迁移账号能写它。只做加法，不改已有的行，不含任何数据（0440 由 M9E-16 占用） |

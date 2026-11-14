@@ -9,6 +9,7 @@ import type {
   AreaBizType,
   AreaRole,
   AreaStatus,
+  CharterLayout,
   CurrencyCode,
   FlightScope,
   LocalizedText,
@@ -95,9 +96,11 @@ export interface Product {
   publishedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  /** 包车用哪套价格表（M9P-05，ADR 0093 第一节）：null = 旧表；只由迁移脚本写，接口改不了 */
+  charterLayout: CharterLayout | null;
 }
 
-const PRODUCT_COLUMNS = "id, code, brand_id, city_id, category, poi_id, status, service_rules, content, version, published_at, created_at, updated_at";
+const PRODUCT_COLUMNS = "id, code, brand_id, city_id, category, poi_id, status, service_rules, content, version, published_at, created_at, updated_at, charter_layout";
 
 function toProduct(row: Row): Product {
   return {
@@ -114,6 +117,7 @@ function toProduct(row: Row): Product {
     publishedAt: row["published_at"],
     createdAt: row["created_at"],
     updatedAt: row["updated_at"],
+    charterLayout: row["charter_layout"] ?? null,
   };
 }
 
