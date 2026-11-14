@@ -9,6 +9,8 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import type { BookingDraft } from "@nozomi/domain";
+import { withPlatformTx } from "./db/context.ts";
+import { insertBookingDraft, newBookingDraftId } from "./services/booking-drafts.ts";
 import type { TenantFixture } from "./testing/api.ts";
 import { type TestApi, createTestApi } from "./testing/api.ts";
 import { type Market, buildMarket, newChannel, ok, salesCredentials } from "./testing/market.ts";
@@ -258,4 +260,49 @@ test("建草稿带 delivery：host_page 记在草稿上，询价、下单后订�
   const viaSite = await order(redirect.body.id);
   assert.equal(viaSite.orderDelivery, null, "库里不回填，空着");
   assert.equal(viaSite.entry.delivery, "redirect", "旧行为（空）按跳主站算");
+});
+
+test("M9E-17 读草稿带 key、host：草稿上记的嵌入码和宿主都对得上才 source_matches=true；不带两个参数时应答和以前一样；不返回来源本身", async () => {
+  const key = await newKey({ allow_host_page: true });
+  const other = await newKey({ allow_host_page: true });
+  const created = await api.call("POST", `/embed/v1/booking-drafts?key=${key.key}`, { ip: nextIp(), headers: { origin: PARTNER }, body: { draft: draft(), delivery: "host_page" } });
+  assert.equal(created.status, 201, created.text);
+  const read = (id: string, query: string) => site.call("GET", `/site/v1/booking-drafts/${id}${query}`, { ip: nextIp() });
+  const claim = (embedKey: string, host: string): string => `?key=${embedKey}&host=${encodeURIComponent(host)}`;
+
+  const plain = await read(created.body.id, "");
+  assert.equal(plain.status, 200, plain.text);
+  assert.deepEqual(Object.keys(plain.body).sort(), ["draft", "expires_at"], "主站不带参数：应答和以前逐字一样");
+  assertMatchesOpenApi("get", "/site/v1/booking-drafts/{id}", plain);
+
+  const both = await read(created.body.id, claim(key.key, PARTNER));
+  assert.equal(both.status, 200, both.text);
+  assert.equal(both.body.source_matches, true);
+  assert.deepEqual(Object.keys(both.body).sort(), ["draft", "expires_at", "source_matches"], "只多一个布尔，不给嵌入码、来源、返回地址");
+  assert.deepEqual(both.body.draft, plain.body.draft, "预填内容不变");
+  assertMatchesOpenApi("get", "/site/v1/booking-drafts/{id}", both);
+
+  const mismatches: [string, string][] = [
+    [claim(other.key, PARTNER), "别的嵌入码"],
+    [claim(key.key, OTHER), "别的宿主"],
+    [claim(key.key, `${PARTNER}/`), "宿主写法不规范"],
+    [`?key=${key.key}`, "只带 key"],
+    [`?host=${encodeURIComponent(PARTNER)}`, "只带 host"],
+  ];
+  for (const [query, why] of mismatches) {
+    const res = await read(created.body.id, query);
+    assert.equal(res.status, 200, `${why}：${res.text}`);
+    assert.equal(res.body.source_matches, false, why);
+  }
+
+  // 没有来源的草稿（不是嵌入组件建的）：嵌入页拿来用也对不上
+  const bare = await withPlatformTx(api.db.pool, (db) => insertBookingDraft(db, draft(), null, api.clock.now()));
+  const bareRead = await read(bare.id, claim(key.key, PARTNER));
+  assert.equal(bareRead.status, 200, bareRead.text);
+  assert.equal(bareRead.body.source_matches, false, "没有来源的草稿");
+
+  // 不存在仍是同一个 404，不因为带了参数而不同
+  const missing = await read(newBookingDraftId(), claim(key.key, PARTNER));
+  assert.equal(missing.status, 404);
+  assert.equal(missing.body.error.code, "BOOKING_DRAFT_NOT_FOUND");
 });
