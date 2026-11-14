@@ -3,7 +3,8 @@
  *
  * 运营后台（`embed.read` / `embed.manage`）：
  * - `GET /platform/v1/embed-keys`、`POST /platform/v1/embed-keys`：列表、新建（嵌入码由服务端生成）；
- * - `GET /platform/v1/embed-keys/{id}`、`PATCH /platform/v1/embed-keys/{id}`（`If-Match`）：详情（含合作网站要放的代码）、修改名称 / 白名单 / 默认值 / 状态。
+ * - `GET /platform/v1/embed-keys/{id}`、`PATCH /platform/v1/embed-keys/{id}`（`If-Match`）：详情（含合作网站要放的代码）、修改名称 / 白名单 / 默认值 / 外观 / 状态。
+ *   外观 `layout`（M9E-10）只写进要放的代码，`/embed/v1/config` 不返回它。
  *
  * 跨域只开在 `/embed/v1`（合作网站页面上的组件调用；查询串带 `key`）：
  * - `GET /embed/v1/config`：默认语言、默认标签、主站地址（浏览器缓存 60 秒）；
@@ -15,7 +16,7 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { BOOKING_DRAFT_RULES, EMBED_KEY_STATUSES, EMBED_LANGS, EMBED_RULES, EMBED_SERVICES, embedSnippet } from "@nozomi/domain";
+import { BOOKING_DRAFT_RULES, EMBED_KEY_STATUSES, EMBED_LANGS, EMBED_LAYOUTS, EMBED_RULES, EMBED_SERVICES, embedSnippet } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { type EmbedGate, type EmbedKey, createEmbedDraft, createEmbedKey, embedGate, getEmbedKey, listEmbedKeys, takeEmbedPlacesSlot, updateEmbedKey } from "../services/embed.ts";
 import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
@@ -32,6 +33,8 @@ const writeSchema = z
     allowed_origins: z.array(z.string().max(300)).max(50),
     default_lang: z.enum(EMBED_LANGS),
     default_services: z.array(z.enum(EMBED_SERVICES)).max(4),
+    // 选填（M9E-10）：新建不填按卡片，修改不填保持原值，原有的调用方不用改
+    layout: z.enum(EMBED_LAYOUTS).optional(),
     note: z.string().max(2_000).nullable().default(null),
   })
   .strict();
@@ -46,12 +49,13 @@ function embedKeyJson(ctx: AppContext, key: EmbedKey): Json {
     allowed_origins: key.allowedOrigins,
     default_lang: key.defaultLang,
     default_services: key.defaultServices,
+    layout: key.layout,
     status: key.status,
     note: key.note,
     version: key.version,
     created_at: key.createdAt.toISOString(),
     updated_at: key.updatedAt.toISOString(),
-    snippet: embedSnippet(new URL(ctx.config.publicBaseUrl).origin, key.key, key.defaultLang, key.defaultServices),
+    snippet: embedSnippet(new URL(ctx.config.publicBaseUrl).origin, key.key, key.defaultLang, key.defaultServices, key.layout),
   };
 }
 
@@ -78,7 +82,7 @@ export function registerEmbedRoutes(app: FastifyInstance, ctx: AppContext): void
   app.post("/platform/v1/embed-keys", async (request, reply) => {
     const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "embed.manage" });
     const body = parseInput(writeSchema, request.body, "body");
-    const created = await createEmbedKey(ctx, principal, request.ip, { name: body.name, allowedOrigins: body.allowed_origins, defaultLang: body.default_lang, defaultServices: body.default_services, note: body.note });
+    const created = await createEmbedKey(ctx, principal, request.ip, { name: body.name, allowedOrigins: body.allowed_origins, defaultLang: body.default_lang, defaultServices: body.default_services, layout: body.layout, note: body.note });
     return reply.code(201).send(embedKeyJson(ctx, created));
   });
 
@@ -94,7 +98,7 @@ export function registerEmbedRoutes(app: FastifyInstance, ctx: AppContext): void
     if (header === undefined) throw versionRequired();
     const version = ifMatchVersion(header);
     const body = parseInput(updateSchema, request.body, "body");
-    const updated = await updateEmbedKey(ctx, principal, request.ip, id, version, { name: body.name, allowedOrigins: body.allowed_origins, defaultLang: body.default_lang, defaultServices: body.default_services, note: body.note, status: body.status });
+    const updated = await updateEmbedKey(ctx, principal, request.ip, id, version, { name: body.name, allowedOrigins: body.allowed_origins, defaultLang: body.default_lang, defaultServices: body.default_services, layout: body.layout, note: body.note, status: body.status });
     return embedKeyJson(ctx, updated);
   });
 

@@ -1,7 +1,7 @@
 /**
  * M9E-02：嵌入组件的嵌入码与白名单、`/embed/v1` 的跨域规则、建草稿、来源统计（ADR 0090），经真实接口、真实 PostgreSQL。
  *
- * 覆盖：运营后台的权限矩阵、校验、`If-Match`、审计；`/embed/v1` 白名单（完全相等；null、缺失、只差一点、http、停用都 403 且无 CORS 头）、预检；
+ * 覆盖：运营后台的权限矩阵、校验、`If-Match`、审计、外观（M9E-10，选填、修改不填保持原值、写进要放的代码）；`/embed/v1` 白名单（完全相等；null、缺失、只差一点、http、停用都 403 且无 CORS 头）、预检；
  * 建草稿（201 + 主站地址、多余键 400、16 KB 413、return_url 不合格被忽略、每地址 / 每嵌入码限速、5,000 个有效草稿上限、过期后恢复）；
  * 来源：草稿 → 询价 → 下单记「嵌入组件」和返回地址，下单前移出白名单记主站、不拒单；`/tenant/v1` 订单详情没有来源；
  * `/site/v1`、`/platform/v1`、`/tenant/v1` 带白名单 Origin 也不带 CORS 头。测试数据全在本文件里建出来，随测试 schema 一起删除。
@@ -130,6 +130,55 @@ test("运营后台：运营、渠道经理能建能改，只读只能看，客�
   const detail = await api.call("GET", `/platform/v1/embed-keys/${created.id}`, { token: m.staff.cm1.token });
   assertMatchesOpenApi("GET", "/platform/v1/embed-keys/{id}", detail);
   assert.equal((await api.call("GET", `/platform/v1/embed-keys/${randomUUID()}`, { token: m.root })).status, 404);
+});
+
+test("外观（M9E-10）：新建不填按卡片、可填横条；修改不填保持原值、填了才改；要放的代码带 layout；写进审计；取值不对 400；/embed/v1/config 不返回它", async () => {
+  const plain = await newKey();
+  assert.equal(plain.layout, "card", "不填按卡片");
+  assert.match(plain.snippet, /services: \["transfer","charter"\], layout: "card" \}\);/);
+  const body = { name: "横条网站", allowed_origins: [PARTNER], default_lang: "zh", default_services: ["charter"] };
+  const barRes = await api.call("POST", "/platform/v1/embed-keys", { token: m.staff.operations.token, body: { ...body, layout: "bar" } });
+  assert.equal(barRes.status, 201, barRes.text);
+  assertMatchesOpenApi("POST", "/platform/v1/embed-keys", barRes);
+  const bar = barRes.body;
+  assert.equal(bar.layout, "bar");
+  assert.match(bar.snippet, new RegExp(`NozomiBooking\\.init\\(\\{ key: "${bar.key}", root: "#nozomi-booking", lang: "zh", services: \\["charter"\\], layout: "bar" \\}\\);`));
+  const stored = await api.db.owner.query<{ layout: string }>("select layout from embed_keys where id = $1", [bar.id]);
+  assert.equal(stored.rows[0]?.layout, "bar");
+
+  for (const layout of ["banner", "", "CARD", null]) {
+    const res = await api.call("POST", "/platform/v1/embed-keys", { token: m.staff.operations.token, body: { ...body, layout } });
+    assert.equal(res.status, 400, String(layout));
+    assert.equal(res.body.error.code, "VALIDATION_FAILED");
+  }
+
+  const patch = (version: number, changes: Record<string, unknown>) =>
+    api.call("PATCH", `/platform/v1/embed-keys/${bar.id}`, { token: m.staff.operations.token, headers: { "if-match": `"${version}"` }, body: { ...body, status: "active", ...changes } });
+  const kept = await patch(bar.version, { name: "横条网站 · 改名" });
+  assert.equal(kept.status, 200, kept.text);
+  assertMatchesOpenApi("PATCH", "/platform/v1/embed-keys/{id}", kept);
+  assert.equal(kept.body.layout, "bar", "不填保持原值");
+  assert.match(kept.body.snippet, /layout: "bar"/);
+  const changed = await patch(kept.body.version, { layout: "card" });
+  assert.equal(changed.status, 200, changed.text);
+  assert.equal(changed.body.layout, "card");
+  assert.match(changed.body.snippet, /layout: "card"/);
+  assert.equal((await patch(changed.body.version, { layout: "banner" })).status, 400);
+  assert.equal((await api.call("GET", `/platform/v1/embed-keys/${bar.id}`, { token: m.staff.readonly.token })).body.layout, "card");
+
+  const audits = await api.db.owner.query<{ action: string; before: { layout?: string } | null; after: { layout?: string } }>("select action, before, after from audit_logs where resource = 'embed_key' and resource_id = $1 order by id", [bar.id]);
+  assert.deepEqual(
+    audits.rows.map((row) => [row.action, row.before?.layout ?? null, row.after.layout]),
+    [
+      ["create", null, "bar"],
+      ["update", "bar", "bar"],
+      ["update", "bar", "card"],
+    ],
+  );
+
+  const config = await embed("GET", "/embed/v1/config", bar.key, PARTNER);
+  assert.equal(config.status, 200, config.text);
+  assert.deepEqual(Object.keys(config.body).sort(), ["lang", "services", "site_origin"], "公开的配置接口不变");
 });
 
 test("/embed/v1/config：Origin 完全等于白名单某项才 200 + CORS 头；null、缺失、只差一点、http、别的网站、嵌入码不存在都 403 且无 CORS 头", async () => {
