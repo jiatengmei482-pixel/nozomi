@@ -195,9 +195,9 @@ function AddressSearch({ word, lookup, onPick }: { word: string; lookup: Address
               </button>
             </li>
           ))}
-          <GoogleMapsAttribution items={state.items} />
         </ul>
       )}
+      {state.kind === "results" && <GoogleMapsAttribution items={state.items} />}
     </div>
   );
 }

@@ -256,13 +256,16 @@ class Widget {
     const listId = `${id}-list`;
     const hintId = `${id}-hint`;
     const input = el("input", { id, type: "text", class: "nzb-input", role: "combobox", "aria-autocomplete": "list", "aria-expanded": "false", "aria-controls": listId, "aria-describedby": hintId, autocomplete: "off", "data-focus": name, value: value?.name ?? "" });
-    const list = el("ul", { id: listId, role: "listbox", class: "nzb-list", "aria-label": `${label}${t.suggestions}`, hidden: "" });
+    const list = el("ul", { id: listId, role: "listbox", class: "nzb-list", "aria-label": `${label}${t.suggestions}` });
+    // 谷歌署名（M9E-06）：在候选列表（listbox）外面、同一个弹出面板里，固定在面板底部（滚动的是候选列表），候选多了也不会被滚出可视区
+    const attribution = el("p", { class: "nzb-google", ...GOOGLE_MAPS_ATTRIBUTION_ATTRIBUTES, hidden: "" }, [GOOGLE_MAPS_ATTRIBUTION]);
+    const panel = el("div", { class: "nzb-panel", hidden: "" }, [list, attribution]);
     const status = el("p", { class: "nzb-hint", "aria-live": "polite" });
     let session = sessionToken();
     let timer: ReturnType<typeof setTimeout> | null = null;
     let round = 0;
     const close = (): void => {
-      list.hidden = true;
+      panel.hidden = true;
       input.setAttribute("aria-expanded", "false");
     };
     const choose = async (item: Suggestion): Promise<void> => {
@@ -308,8 +311,8 @@ class Widget {
         list.append(option);
       });
       // 候选来自谷歌、又没有显示谷歌地图时，按谷歌地图平台的署名要求标明「Google Maps」（文字署名；不翻译、不改写）；和主站同一份写法（lib/google-attribution.ts，M9E-06）
-      if (hasGoogleSource(items)) list.append(el("li", { class: "nzb-google", role: "presentation", ...GOOGLE_MAPS_ATTRIBUTION_ATTRIBUTES }, [GOOGLE_MAPS_ATTRIBUTION]));
-      list.hidden = items.length === 0;
+      attribution.hidden = !hasGoogleSource(items);
+      panel.hidden = items.length === 0;
       input.setAttribute("aria-expanded", String(items.length > 0));
     };
     input.addEventListener("input", () => {
@@ -323,7 +326,7 @@ class Widget {
       timer = setTimeout(() => void search(query), 300);
     });
     input.addEventListener("keydown", (event) => {
-      if (event.key === "ArrowDown" && !list.hidden) {
+      if (event.key === "ArrowDown" && !panel.hidden) {
         event.preventDefault();
         (list.querySelector('[role="option"]') as HTMLElement | null)?.focus();
       } else if (event.key === "Escape") close();
@@ -332,7 +335,7 @@ class Widget {
       el("label", { for: id, class: hideLabel ? "nzb-label nzb-visually-hidden" : "nzb-label" }, [label]),
       input,
       el("p", { id: hintId, class: "nzb-hint" }, [t.placeOnly]),
-      list,
+      panel,
       status,
     ]);
     return field;

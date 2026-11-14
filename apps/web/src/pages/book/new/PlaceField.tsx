@@ -315,17 +315,20 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
             setOpen(false);
           }}
         />
-        <ul id={listId} role="listbox" aria-label={`${label}的候选`} className={fullScreen ? "place-field__panel place-field__panel--sheet" : "combobox__panel place-field__panel"} hidden={items.length === 0 || (!open && !fullScreen)} onPointerDown={(event) => event.preventDefault()}>
-          {items.map((item, index) => (
-            <li key={`${item.source}-${item.id}`} role="presentation">
-              <div id={`${id}-option-${index}`} role="option" aria-selected={index === active} className={index === active ? "combobox__option combobox__option--active place-field__option" : "combobox__option place-field__option"} onPointerMove={() => setActive(index)} onClick={() => void choose(item)}>
-                <span className="combobox__option-label">{item.name}</span>
-                {suggestionDetail(item) !== "" && <span className="place-field__detail">{suggestionDetail(item)}</span>}
-              </div>
-            </li>
-          ))}
-          <GoogleMapsAttribution items={items} listbox />
-        </ul>
+        {/* 弹出面板：候选列表 + 谷歌署名（M9E-06：署名在 listbox 外、固定在面板底部） */}
+        <div className={fullScreen ? "place-field__panel place-field__panel--sheet" : "combobox__panel place-field__panel"} hidden={items.length === 0 || (!open && !fullScreen)} onPointerDown={(event) => event.preventDefault()}>
+          <ul id={listId} role="listbox" aria-label={`${label}的候选`} className="place-field__list">
+            {items.map((item, index) => (
+              <li key={`${item.source}-${item.id}`} role="presentation">
+                <div id={`${id}-option-${index}`} role="option" aria-selected={index === active} className={index === active ? "combobox__option combobox__option--active place-field__option" : "combobox__option place-field__option"} onPointerMove={() => setActive(index)} onClick={() => void choose(item)}>
+                  <span className="combobox__option-label">{item.name}</span>
+                  {suggestionDetail(item) !== "" && <span className="place-field__detail">{suggestionDetail(item)}</span>}
+                </div>
+              </li>
+            ))}
+          </ul>
+          <GoogleMapsAttribution items={items} />
+        </div>
       </div>
       <p id={statusId} className={warning ? "site-address__status site-address__status--warning" : "site-address__status"} role="status">
         {warning && <Icon name="alert-triangle" />}

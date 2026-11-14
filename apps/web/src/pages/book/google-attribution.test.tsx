@@ -1,8 +1,9 @@
 /**
  * 地址候选的谷歌署名（M9E-06，ADR 0090 第四节）的组件测试：
- * - 新预订页 `/book/new` 的地址框（电脑页面上、手机全屏选择页）和包车经停点：候选里有谷歌来源时列表末尾署名「Google Maps」，
- *   不是候选（不进 ↑↓、不算进「找到 N 个地点」）；只有平台的机场、车站时不署名；
- * - 旧询价页 `/book` 的地址搜索：有谷歌来源时搜索结果末尾署名，只有平台地点时不署名；
+ * - 新预订页 `/book/new` 的地址框（电脑页面上、手机全屏选择页）和包车经停点：候选里有谷歌来源时，候选列表（listbox）后面、同一个面板里
+ *   署名「Google Maps」，listbox 里只有候选（不进 ↑↓、不算进「找到 N 个地点」）；只有平台的机场、车站时不署名；
+ * - 旧询价页 `/book` 的地址搜索：有谷歌来源时搜索结果列表后面署名（列表项数不含署名），只有平台地点时不署名；
+ * - 候选很多时署名始终在可视区里：jsdom 量不了布局，由 e2e/site-google-attribution.spec.ts 核对（10 个候选）；
  * - 嵌入组件和主站共用同一份写法（`lib/google-attribution.ts`）：文字、英文、不让浏览器翻译；源代码里别处不再写死这几个字。
  * 接口用测试替身（浏览器只连 /site/v1）。
  */
@@ -70,19 +71,26 @@ function open(at = "/book/new"): void {
 
 const user = () => userEvent.setup();
 
-/** 署名：列表末尾一项，原样「Google Maps」、英文、不翻译；在组合框的候选列表里不是候选 */
-function assertAttribution(list: HTMLElement, listbox: boolean): void {
-  const last = list.lastElementChild as HTMLElement;
-  assert.equal(last.textContent, GOOGLE_MAPS_ATTRIBUTION);
-  assert.equal(last.textContent, "Google Maps", "文字原样：不翻译、不改写");
-  assert.equal(last.getAttribute("lang"), "en");
-  assert.equal(last.getAttribute("translate"), "no");
-  assert.ok(last.classList.contains("google-attribution"));
-  if (listbox) {
-    assert.equal(last.getAttribute("role"), "presentation", "不是候选");
-    assert.equal(last.querySelector('[role="option"]'), null);
+/**
+ * 署名：紧跟在候选列表后面、同一个容器（弹出面板）里，不在列表里面；原样「Google Maps」、英文、不翻译，是读屏能读到的普通文字；
+ * 列表里只有候选（listbox 里只有 option，普通列表的项数不含署名）；整个容器只署一次。
+ */
+function assertAttribution(list: HTMLElement): void {
+  const next = list.nextElementSibling as HTMLElement;
+  assert.ok(next, "列表后面有署名");
+  assert.equal(next.tagName, "P");
+  assert.equal(next.textContent, GOOGLE_MAPS_ATTRIBUTION);
+  assert.equal(next.textContent, "Google Maps", "文字原样：不翻译、不改写");
+  assert.equal(next.getAttribute("lang"), "en");
+  assert.equal(next.getAttribute("translate"), "no");
+  assert.equal(next.getAttribute("role"), null);
+  assert.equal(next.getAttribute("aria-hidden"), null, "读屏能读到");
+  assert.ok(next.classList.contains("google-attribution"));
+  assertAbsent(within(list).queryByText("Google Maps"));
+  if (list.getAttribute("role") === "listbox") {
+    for (const child of list.querySelectorAll(":scope > li")) assert.ok(child.querySelector('[role="option"]'), "listbox 里只有候选");
   }
-  assert.equal(within(list).getAllByText("Google Maps").length, 1, "整个列表只署一次，不是每个候选都带");
+  assert.equal(within(list.parentElement as HTMLElement).getAllByText("Google Maps").length, 1, "只署一次，不是每个候选都带");
 }
 
 test("共用的写法：有谷歌来源才署名；文字、属性只在 lib/google-attribution.ts 定义一次", () => {
@@ -91,12 +99,12 @@ test("共用的写法：有谷歌来源才署名；文字、属性只在 lib/goo
   assert.equal(hasGoogleSource([airport, hotel]), true);
   assert.equal(hasGoogleSource([airport, station]), false);
   assert.equal(hasGoogleSource([]), false);
-  const { container, rerender } = render(<ul>{<GoogleMapsAttribution items={[airport]} />}</ul>);
-  assert.equal(container.querySelector("li"), null, "只有平台地点：什么都不画");
-  rerender(<ul role="listbox" aria-label="候选">{<GoogleMapsAttribution items={[airport, hotel]} listbox />}</ul>);
-  assertAttribution(container.querySelector("ul") as HTMLElement, true);
-  rerender(<ul aria-label="结果">{<GoogleMapsAttribution items={[hotel]} />}</ul>);
-  assert.equal(container.querySelector("li")?.getAttribute("role"), null, "普通列表里是普通的一项");
+  const { container, rerender } = render(<GoogleMapsAttribution items={[airport]} />);
+  assert.equal(container.innerHTML, "", "只有平台地点：什么都不画");
+  rerender(<GoogleMapsAttribution items={[airport, hotel]} />);
+  const mark = container.querySelector("p") as HTMLElement;
+  assert.equal(mark.textContent, "Google Maps");
+  assert.equal(mark.className, "google-attribution");
 });
 
 test("嵌入组件和主站共用同一份写法：widget-ui.ts 引用 lib/google-attribution.ts，源代码里别处不写死「Google Maps」", async () => {
@@ -122,7 +130,7 @@ test("/book/new 电脑：有谷歌候选时列表末尾署名「Google Maps」�
   await actor.type(from, "成田");
   const list = await screen.findByRole("listbox", { name: "出发地的候选" }, SLOW);
   await waitFor(() => assert.equal(within(list).getAllByRole("option").length, 2));
-  assertAttribution(list, true);
+  assertAttribution(list);
   assert.ok(screen.getByText("找到 2 个地点，用 ↑↓ 选择、回车确认。"), "个数只算候选");
   // ↑↓ 只在两个候选之间走，不会停在署名上
   await actor.keyboard("{ArrowDown}{ArrowDown}");
@@ -132,8 +140,8 @@ test("/book/new 电脑：有谷歌候选时列表末尾署名「Google Maps」�
   await actor.type(to, "新宿");
   const toList = await screen.findByRole("listbox", { name: "目的地的候选" }, SLOW);
   await within(toList).findByRole("option", { name: /新宿站/ }, SLOW);
-  assertAbsent(within(toList).queryByText("Google Maps"));
-  assertAbsent(toList.querySelector(".google-attribution"));
+  assertAbsent(within(toList.parentElement as HTMLElement).queryByText("Google Maps"));
+  assertAbsent((toList.parentElement as HTMLElement).querySelector(".google-attribution"));
 });
 
 test("/book/new 手机全屏选择页：有谷歌候选时署名；只有平台地点时不署名", async () => {
@@ -146,7 +154,7 @@ test("/book/new 手机全屏选择页：有谷歌候选时署名；只有平台�
   await actor.type(input, "京王");
   const list = await within(sheet).findByRole("listbox", { name: "出发地的候选" }, SLOW);
   await within(list).findByRole("option", { name: /京王广场酒店/ }, SLOW);
-  assertAttribution(list, true);
+  assertAttribution(list);
 
   await actor.clear(input);
   await actor.type(input, "新宿");
@@ -163,12 +171,12 @@ test("/book/new 包车经停点：有谷歌候选时署名；只有平台地点�
   await actor.type(box, "京王");
   const list = await screen.findByRole("listbox", { name: "经停点 1的候选" }, SLOW);
   await within(list).findByRole("option", { name: /京王广场酒店/ }, SLOW);
-  assertAttribution(list, true);
+  assertAttribution(list);
 
   await actor.clear(box);
   await actor.type(box, "新宿");
   await within(list).findByRole("option", { name: /新宿站/ }, SLOW);
-  assertAbsent(within(list).queryByText("Google Maps"));
+  assertAbsent(within(list.parentElement as HTMLElement).queryByText("Google Maps"));
 });
 
 test("旧询价页 /book 地址搜索：有谷歌来源时搜索结果末尾署名一次；只有平台地点时不署名", async () => {
@@ -177,10 +185,11 @@ test("旧询价页 /book 地址搜索：有谷歌来源时搜索结果末尾署�
   await actor.type(await screen.findByRole("searchbox", { name: "搜索上车地点（选填）" }), "成田{Enter}");
   const results = await screen.findByRole("list", { name: "搜索到的上车地点" }, SLOW);
   assert.equal(within(results).getAllByRole("button").length, 2, "署名不是可选的结果");
-  assertAttribution(results, false);
+  assert.equal(within(results).getAllByRole("listitem").length, 2, "读屏报的项数只算结果，不含署名");
+  assertAttribution(results);
 
   await actor.type(screen.getByRole("searchbox", { name: "搜索下车地点（选填）" }), "新宿{Enter}");
   const dropoff = await screen.findByRole("list", { name: "搜索到的下车地点" }, SLOW);
   within(dropoff).getByRole("button", { name: /新宿站/ });
-  assertAbsent(within(dropoff).queryByText("Google Maps"));
+  assertAbsent(within(dropoff.parentElement as HTMLElement).queryByText("Google Maps"));
 });

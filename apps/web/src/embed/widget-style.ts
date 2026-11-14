@@ -19,12 +19,13 @@ export const WIDGET_CSS = `
 .nzb-hint { margin: 0; font-size: 13px; color: #52606d; }
 .nzb-error { margin: 0; color: #b42318; font-weight: 600; min-height: 0; }
 .nzb-error:empty { display: none; }
-.nzb-list { list-style: none; margin: 0; padding: 4px 0; border: 1px solid #d5dae1; border-radius: 8px; background: #ffffff; max-height: 260px; overflow-y: auto; }
-.nzb-list[hidden] { display: none; }
+.nzb-panel { display: flex; flex-direction: column; margin: 0; border: 1px solid #d5dae1; border-radius: 8px; background: #ffffff; max-height: 260px; overflow: hidden; }
+.nzb-panel[hidden], .nzb-google[hidden] { display: none; }
+.nzb-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; list-style: none; margin: 0; padding: 4px 0; }
 .nzb-option { display: grid; padding: 8px 12px; cursor: pointer; }
 .nzb-option:hover, .nzb-option:focus { background: #e8f1fb; }
 .nzb-option-address { font-size: 13px; color: #52606d; }
-.nzb-google { padding: 4px 12px; font-size: 12px; font-weight: 400; font-style: normal; letter-spacing: normal; text-transform: none; white-space: nowrap; color: #4a5361; text-align: right; }
+.nzb-google { flex: none; margin: 0; background: #ffffff; border-top: 1px solid #d5dae1; padding: 4px 12px; font-size: 12px; font-weight: 400; font-style: normal; letter-spacing: normal; text-transform: none; white-space: nowrap; color: #4a5361; text-align: right; }
 .nzb-waypoint { display: grid; gap: 8px; margin: 0; padding: 12px; border: 1px dashed #9aa5b1; border-radius: 8px; min-width: 0; }
 .nzb-primary, .nzb-secondary { min-height: 44px; padding: 8px 16px; border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer; }
 .nzb-primary { border: 0; background: #0b5cad; color: #ffffff; }
