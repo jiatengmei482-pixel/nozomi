@@ -7863,7 +7863,7 @@ paths:
       tags: [ 渠道 ]
       operationId: listChannelQuoteLogs
       summary: 渠道的询价日志
-      description: 需要操作 `channel.read`。按时间从新到旧。每次 `/sales/v1/quotes` 一条：请求、候选数、报出的报价和中标租户。全部候选的排序依据和没报出价的原因存在库里（`quote_logs.bids` / `rejects`）。
+      description: 需要操作 `channel.read`。按时间从新到旧。每次 `/sales/v1/quotes` 一条：请求、候选数、报出的报价和中标租户、没报出价的每一条（商品、车型组、原始原因码，M9W-10）。全部候选的排序依据存在库里（`quote_logs.bids`）。
       security:
         - platformToken: []
       parameters:
@@ -18814,7 +18814,7 @@ components:
           items:
             type: object
             additionalProperties: false
-            required: [ id, created_at, client_id, currency, city_id, category, candidate_count, quote_count, reject_count, duration_ms, request, quotes ]
+            required: [ id, created_at, client_id, currency, city_id, category, candidate_count, quote_count, reject_count, rejects, duration_ms, request, quotes ]
             properties:
               id:
                 type: string
@@ -18837,6 +18837,25 @@ components:
                 type: integer
               reject_count:
                 type: integer
+              rejects:
+                description: |
+                  没报出价的每一条（M9W-10，`reject_count` 就是它的条数）：哪个商品、哪个车型组（商品层面的为 null）、平台内部的原始原因码
+                  （和报价试算的 `QuoteRefusal` 同一套，另有 `NOT_IN_CHANNEL_SCOPE` = 商品不在渠道的授权范围里）。不是给渠道看的：
+                  例如经停点所在加价区域没设途经加价时，这里是 `NO_PRICE_RULE`，渠道 / 官网看到的是 `WAYPOINT_NOT_PRICED`
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [ product_id, vehicle_group_id, reason ]
+                  properties:
+                    product_id:
+                      type: [ string, "null" ]
+                      format: uuid
+                    vehicle_group_id:
+                      type: [ string, "null" ]
+                      format: uuid
+                    reason:
+                      type: string
               duration_ms:
                 type: integer
               request:
@@ -19769,7 +19788,7 @@ components:
         `OUTSIDE_SALE_PERIOD`、`OUTSIDE_SERVICE_TIME`、`SERVICE_TIME_PASSED`、`LEAD_TIME_TOO_SHORT`、`URGENT_SOLD_OUT`、`OUT_OF_SERVICE_AREA`、`IN_FORBIDDEN_AREA`、
         `NO_PRICING_AREA`（M8-20，ADR 0075：地点在这个供应商的运营区域里，但商品没有勾选覆盖它的报价区域——这个商品不报，不退回基础价；
         只在报价试算、询价日志里出现，给渠道和官网的是 `OUT_OF_SERVICE_AREA`）、
-        `DROPOFF_REQUIRED`（包车没给下车地点、而商品设了区域加价，M8-15）、`WAYPOINT_NOT_PRICED`（包车有经停点不在这个商品的任何区域里，M9W-01，ADR 0088）、
+        `DROPOFF_REQUIRED`（包车没给下车地点、而商品设了区域加价，M8-15）、`WAYPOINT_NOT_PRICED`（包车有经停点不在这个商品的任何区域里，M9W-01，ADR 0088；经停点所在加价区域没有可用途经加价时这里仍是下面的 `NO_PRICE_RULE` 等，对外才报 `WAYPOINT_NOT_PRICED`，M9W-10）、
         `ADDON_NOT_OFFERED`、`DRIVER_LANGUAGE_NOT_OFFERED`、`SOLD_OUT`。包车的上车点、下车点都要在商品本身的区域或某个加价区域里，否则是 `OUT_OF_SERVICE_AREA` / `IN_FORBIDDEN_AREA`（ADR 0073）。
         车型组层面的（包车两端所在的加价区域没有这个车型组、套餐的区域加价也报 `NO_PRICE_RULE` / `PRICE_NOT_IN_EFFECT` / `PRICE_RULE_DISABLED`）：`VEHICLE_GROUP_NOT_OFFERED`、`VEHICLE_GROUP_DISABLED`、`CAPACITY_EXCEEDED`、
         `NO_PRICE_RULE`、`PRICE_NOT_IN_EFFECT`、`PRICE_RULE_DISABLED`、`ROUTE_UNAVAILABLE`、`PRICE_NOT_POSITIVE`、`PRICE_OVER_LIMIT`。
@@ -29865,7 +29884,8 @@ components:
           description: |
             包车的经停点（途经景点，M9W-01，ADR 0088），按顺序，最多 10 个；选填，空数组和不填一样。别的品类填了 400 `NOT_APPLICABLE`（`/waypoints`）。
             经停点落在供应商的加价区域里时按那个区域的途经加价收（同一区域一单只收一次；上 / 下车已经在这个区域的不再收；只在商品服务区域里的不加）；
-            有经停点哪个区域都不在时报不出（`unavailable` 的原因 `WAYPOINT_NOT_PRICED`，`waypoint_stop_seqs` 指出是第几个），转人工报价。
+            有经停点哪个区域都不在，或落在加价区域里、但那些区域对这个车型组和套餐没有可用的途经加价（且不在商品服务区域里）时报不出
+            （`unavailable` 的原因 `WAYPOINT_NOT_PRICED`，`waypoint_stop_seqs` 指出是第几个，M9W-10），转人工报价。
             名称、停留分钟随报价锁定，下单时抄进订单（不影响价格）
           items:
             type: object
@@ -30111,7 +30131,7 @@ components:
           type: [ string, "null" ]
           format: uuid
         waypoint_stop_seqs:
-          description: 原因里有 `WAYPOINT_NOT_PRICED` 时：哪几个经停点不在任何区域里（从 1 起，M9W-01，ADR 0088）；没有这个原因时不给
+          description: 原因里有 `WAYPOINT_NOT_PRICED` 时：哪几个经停点报不出——不在任何区域里，或所在的加价区域没有可用的途经加价（从 1 起，M9W-01、M9W-10，ADR 0088）；没有这个原因时不给
           type: array
           items:
             type: integer
