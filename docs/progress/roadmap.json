@@ -1423,7 +1423,7 @@
           "role": "product",
           "status": "review",
           "acceptance": ["原文逐字存档 docs/requirements/ai-trip-quote-design-2026-11-14.md（含 3.7 节和第 8 节追加的 5 行）", "差距盘点：现有引擎各项能力和原文 3.1–3.7 逐条标「已有 / 部分有 / 要新做」并写依据（文件:行）；特别确认超公里单价是否覆盖长途高速费、新干线站点主数据、谷歌公共交通时长和票价", "ADR 0094 草案覆盖数据模型（只新增表，与 orders 的关系、一次付款）、编排接口（结构化输入、分段判定、合并比价、多方案对比）、规则扩展点、与现有报价接口的边界和锁价、地图与计费估算、AI 解析（模型、结构化输出、置信度、上传、防注入、个人信息、成本、AI 不定价）、转人工、3.7", "P1–P5 分期估算（工作量、风险、依赖、验收方式）；原文第 8 节逐条建议默认值，拿不准的标「待业主定」", "独立审查通过；业主确认第十一节后再拆实施任务"],
-          "evidence": "PR 待补；只有文档和 roadmap，node scripts/check-roadmap.mjs 通过",
+          "evidence": "PR #232（https://github.com/jiatengmei482-pixel/nozomi/pull/232）；只有文档和 roadmap，node scripts/check-roadmap.mjs 通过",
           "updated": "2026-11-14"
         }
       ]
