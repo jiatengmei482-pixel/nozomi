@@ -196,7 +196,8 @@ export const UNAVAILABLE_REASON_TEXT: Readonly<Record<SiteUnavailableReason, str
   DRIVER_LANGUAGE_NOT_OFFERED: "所选的司机语言暂不提供。",
   NO_ROUTE: "这两个地点之间没有可行驶的路线，请换一个地址。",
   TEMPORARILY_UNAVAILABLE: "暂时算不出这段路程的价格，请稍后再试，或改订包车。",
-  NOT_AVAILABLE: "暂时没有可预订的车，请换一个时间再试。",
+  // 其他原因（供应商没设价、停用、价格超限……）：多半不是时间的问题，不让客人去换时间（M9W-10）；真的和时间有关的各有各的原因
+  NOT_AVAILABLE: "这个行程暂时无法在线报价，请联系客服人工报价，或调整行程后再试。",
 };
 
 const GUEST_LANDING_STATUSES: ReadonlySet<OrderStatus> = new Set(["confirmed", "assigned", "departed", "arrived"]);

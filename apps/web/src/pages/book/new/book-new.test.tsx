@@ -745,6 +745,8 @@ test("报不出价：时间太近、人数太多、地址不在服务范围各�
     ["LEAD_TIME_TOO_SHORT", "时间太近，请选更晚的时间或联系客服"],
     ["CAPACITY_EXCEEDED", "人数或行李超过所有车型，可以分两辆车预订或联系客服"],
     ["OUT_OF_SERVICE_AREA", "这个地址暂时没有在线报价，请联系客服"],
+    // M9W-10：其他原因不让客人「换一个时间」，请客服人工报价
+    ["NOT_AVAILABLE", "这个行程暂时无法在线报价，请联系客服人工报价，或调整行程后再试。"],
   ] as const) {
     wideScreen();
     open({ at: "/book/new?from=35.772,140.3929&to=35.6905,139.6948&date=2030-11-20&time=14:30", quote: () => json(200, byPoints({ quotes: [], unavailable: [{ vehicle_group_id: null, reasons: [reason] }] })) });
@@ -752,6 +754,7 @@ test("报不出价：时间太近、人数太多、地址不在服务范围各�
     assert.ok(screen.getByRole("heading", { name: "没有可预订的车" }));
     assert.equal(screen.getByRole("link", { name: "+81 3-1234-5678" }).getAttribute("href"), "tel:+81312345678");
     assert.doesNotMatch(document.body.textContent ?? "", new RegExp(reason));
+    assert.doesNotMatch(document.body.textContent ?? "", /换一个时间/);
     resetBrowser();
   }
 });

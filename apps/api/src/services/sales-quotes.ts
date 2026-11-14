@@ -132,7 +132,7 @@ export interface SalesQuote {
 
 export interface SalesQuoteResult {
   quotes: SalesQuote[];
-  /** `stopSeqs`：原因里有 `WAYPOINT_NOT_PRICED` 时，哪几个经停点不在区域里（从 1 起，ADR 0088）；没有时不给 */
+  /** `stopSeqs`：原因里有 `WAYPOINT_NOT_PRICED` 时，哪几个经停点报不出（不在任何区域里，或所在加价区域没有可用的途经规则；从 1 起，ADR 0088、M9W-10）；没有时不给 */
   unavailable: { vehicleGroupId: string | null; reasons: SalesUnavailableReason[]; stopSeqs?: number[] }[];
 }
 
@@ -363,7 +363,9 @@ function unavailable(preview: PlatformQuotePreview, requested: readonly string[]
   const refusedFor = (vehicleGroupId: string | null) => preview.comparison.refused.filter((entry) => entry.vehicleGroupId === null || entry.vehicleGroupId === vehicleGroupId || vehicleGroupId === null);
   const reasonsFor = (vehicleGroupId: string | null): SalesUnavailableReason[] => {
     if (preview.candidates.length === 0) return ["NO_PRODUCT"];
-    const reasons = refusedFor(vehicleGroupId).map((entry) => salesReason(entry.reason, preview.routeOutcome));
+    // 带经停点的拒绝（经停点哪个区域都不在，或经停点所在的加价区域没有可用的途经规则）对外一律是 WAYPOINT_NOT_PRICED（M9W-10，ADR 0088 补充）；
+    // 询价日志、未覆盖需求里仍是原始原因码
+    const reasons = refusedFor(vehicleGroupId).map((entry) => (entry.stopSeq === undefined ? salesReason(entry.reason, preview.routeOutcome) : "WAYPOINT_NOT_PRICED"));
     const distinct = [...new Set(reasons)].sort();
     return distinct.length === 0 ? ["NOT_AVAILABLE"] : distinct;
   };
