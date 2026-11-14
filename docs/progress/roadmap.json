@@ -1047,7 +1047,7 @@
           "role": "frontend",
           "status": "review",
           "acceptance": ["默认日期（「当地的明天」）按上车点（出发地 / 包车的上车地点）所在城市的时区算；还没选上车点、或上车点哪个城市都不在时，按地图默认打开的城市（M8-43 的 defaultMapCity）的时区算；城市都没有时退回列表第一项", "客人定过的日期（自己改过、链接或预订草稿带了）不被改掉：之后换上车点、换标签都不覆盖", "组件测试用假时钟：东京 00:30（北京前一天 23:30）时默认日期是东京的明天；已选上车点在别的时区的城市（北京）时按那个城市；客人改过日期后再换上车点不覆盖；不删不弱化已有断言", "来源：PR #211 独立审查（不阻塞建议 a，2026-11-14）"],
-          "evidence": "EVIDENCE",
+          "evidence": "PR #214（https://github.com/jiatengmei482-pixel/nozomi/pull/214，依赖 #211）。新增测试：组件 6 条（default-date.test.tsx，假时钟东京 00:30）、单元 1 条（default-map-city.test.ts 的 defaultDateCity）；没有删改已有断言。本机：typecheck、roadmap:check 通过，pages/book 组件 + book-new 相关单元 + 嵌入组件 328 条全过，apps/web src/lib 单元 333 条全过，合并最新 main 后 book/new 相关 79 条再跑全过",
           "updated": "2026-11-14"
         }
       ]
