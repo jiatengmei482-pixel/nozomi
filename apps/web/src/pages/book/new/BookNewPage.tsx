@@ -23,6 +23,7 @@ import {
   type SiteByPointsRequest,
   type SiteByPointsResult,
   type SiteCity,
+  type SiteQuotedCity,
   type SiteFxReference,
   type SiteQuote,
   type SiteQuoteRequest,
@@ -31,7 +32,7 @@ import {
   createSiteQuotes,
   createSiteQuotesByPoints,
   getSiteFxReference,
-  listSiteCharterPackages,
+  listSiteCharterPackagesAt,
   getSitePlaceByCode,
   getSiteBookingDraft,
   listSiteCities,
@@ -130,7 +131,9 @@ export interface TripDraft {
   flightNo: string;
 }
 
-type Outcome = { mode: "transfer"; result: SiteByPointsResult } | { mode: "charter"; result: SiteQuoteResult; city: SiteCity };
+type Outcome = { mode: "transfer"; result: SiteByPointsResult } | { mode: "charter"; result: SiteQuoteResult; city: SiteQuotedCity };
+/** 包车按上下车点匹配到的城市和套餐时长（M9P-02）：`city` 为 null = 上下车点不在任何能订的包车商品的区域里 */
+type CharterMatch = { city: SiteQuotedCity | null; hours: number[] };
 type QuoteState = { kind: "idle" } | { kind: "loading"; key: string } | { kind: "ready"; key: string; outcome: Outcome } | { kind: "failed"; key: string; message: string; scope: boolean };
 /** 加了附加服务的那次报价：所选车型的报价（没报出来为 null） */
 type AddonQuoteState = { kind: "loading"; key: string } | { kind: "ready"; key: string; quote: SiteQuote | null } | { kind: "failed"; key: string; message: string };
@@ -145,15 +148,18 @@ function end(point: TripPoint): SiteByPointsRequest["pickup"] {
   return { name: point.name, lat: point.lat, lng: point.lng, ...(point.kind === null ? {} : { kind: point.kind }) };
 }
 
-/** 包车按上车地点找城市：上车点在城市范围里、能订包车的城市里中心最近的。 */
-function charterCityOf(point: TripPoint | null, cities: readonly SiteCity[]): SiteCity | null {
+/**
+ * 上车地点附近能订包车的城市（城市范围里、中心最近的）：只在报不出价、请客服人工报价时带上（M8-21）。
+ * 能不能在线报价不看它——包车按上下车点匹配商品（M9P-02，`listSiteCharterPackagesAt`）。
+ */
+function nearbyCharterCity(point: TripPoint | null, cities: readonly SiteCity[]): SiteCity | null {
   if (point === null) return null;
   const found = serviceCityOf(point, cities.filter((city) => city.categories.includes("charter")));
   return found === null ? null : (cities.find((city) => city.id === found.id) ?? null);
 }
 
-/** 填齐了时的询价请求（和它的键）；没填齐为 null。 */
-function requestOf(draft: TripDraft, charterCity: SiteCity | null, addons: readonly SiteAddonRequest[] = []): { key: string; run(): Promise<Outcome> } | null {
+/** 填齐了时的询价请求（和它的键）；没填齐为 null。包车要等上下车点匹配到城市（`charterCity`）才报价。 */
+function requestOf(draft: TripDraft, charterCity: SiteQuotedCity | null, addons: readonly SiteAddonRequest[] = []): { key: string; run(): Promise<Outcome> } | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.date) || !/^\d{2}:\d{2}$/.test(draft.time) || draft.from === null) return null;
   const serviceLocal = `${draft.date}T${draft.time}`;
   if (draft.mode === "charter") {
@@ -162,8 +168,15 @@ function requestOf(draft: TripDraft, charterCity: SiteCity | null, addons: reado
     if (stops === null) return null;
     const itinerary = stops.length > 0;
     if (charterCity === null || (!itinerary && draft.packageHours === "") || draft.to === null) return null;
-    const body: SiteQuoteRequest = { category: "charter", city_id: charterCity.id, pickup: { lat: draft.from.lat, lng: draft.from.lng }, dropoff: { lat: draft.to.lat, lng: draft.to.lng }, ...(itinerary ? { itinerary_pricing: true, waypoints: stops } : { package_hours: Number(draft.packageHours) }), service_local: serviceLocal, passengers: draft.passengers, luggage: draft.luggage, ...(addons.length > 0 ? { addons: [...addons] } : {}), ...suggestionNames(draft.from, draft.to) };
-    return { key: JSON.stringify(body), run: async () => ({ mode: "charter", result: await createSiteQuotes(body), city: charterCity }) };
+    // 不带城市（M9P-02）：服务器按上下车点匹配商品、自己找城市
+    const body: SiteQuoteRequest = { category: "charter", pickup: { lat: draft.from.lat, lng: draft.from.lng }, dropoff: { lat: draft.to.lat, lng: draft.to.lng }, ...(itinerary ? { itinerary_pricing: true, waypoints: stops } : { package_hours: Number(draft.packageHours) }), service_local: serviceLocal, passengers: draft.passengers, luggage: draft.luggage, ...(addons.length > 0 ? { addons: [...addons] } : {}), ...suggestionNames(draft.from, draft.to) };
+    return {
+      key: JSON.stringify(body),
+      run: async () => {
+        const result = await createSiteQuotes(body);
+        return { mode: "charter", result, city: result.city ?? charterCity };
+      },
+    };
   }
   if (draft.to === null) return null;
   const body: SiteByPointsRequest = { pickup: end(draft.from), dropoff: end(draft.to), service_local: serviceLocal, passengers: draft.passengers, luggage: draft.luggage, ...(addons.length > 0 ? { addons: [...addons] } : {}), ...suggestionNames(draft.from, draft.to) };
@@ -206,13 +219,16 @@ function initialDraft(link: BookingLink): TripDraft {
   return { tab, mode: tab === "charter" ? "charter" : "transfer", from: null, to: null, date: link.date ?? "", time: link.time ?? "", passengers: link.passengers ?? 2, luggage: link.luggage ?? link.passengers ?? 2, packageHours: "", waypoints: [], flightNo: "" };
 }
 
-/** 第 1 步「下一步」前的检查（航班号在第 3 步查）。 */
-function validate(draft: TripDraft, charterCity: SiteCity | null): Errors {
+/**
+ * 第 1 步「下一步」前的检查（航班号在第 3 步查）。`charterCity`：包车上下车点匹配到的城市；null = 没匹配到；undefined = 还在查（或还没选齐两端）。
+ * 还在查时不拦：查完以后时长没选的，「能到哪一步」会把页面退回第 1 步（和以前读城市套餐时一样）。
+ */
+function validate(draft: TripDraft, charterCity: SiteQuotedCity | null | undefined): Errors {
   const errors: Errors = {};
   if (draft.from === null) errors.from = draft.mode === "charter" ? "请从候选里选上车地点" : "请从候选里选出发地";
-  else if (draft.mode === "charter" && charterCity === null) errors.from = "这个地址暂时没有在线报价，请联系客服";
+  else if (draft.mode === "charter" && draft.to !== null && charterCity === null) errors.from = "这个地址暂时没有在线报价，请联系客服";
   if (draft.to === null) errors.to = draft.mode === "charter" ? "请选择下车地点" : "请从候选里选目的地";
-  if (draft.mode === "charter" && charterCity !== null && draft.waypoints.length === 0 && draft.packageHours === "") errors.packageHours = "请选择包车时长";
+  if (draft.mode === "charter" && charterCity !== null && charterCity !== undefined && draft.waypoints.length === 0 && draft.packageHours === "") errors.packageHours = "请选择包车时长";
   if (draft.mode === "charter" && Object.keys(waypointErrors(draft.waypoints)).length > 0) errors.waypoints = "请把经停点填完整";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.date)) errors.date = "请选择日期";
   if (!/^\d{2}:\d{2}$/.test(draft.time)) errors.time = "请选择时间";
@@ -252,7 +268,9 @@ export function BookNewPage() {
   const [quoteRound, setQuoteRound] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [recognized, setRecognized] = useState<{ ends: string; tripType: SiteByPointsResult["trip_type"] } | null>(null);
-  const [packages, setPackages] = useState<{ cityId: string; load: Load<number[]> } | null>(null);
+  const [charterMatch, setCharterMatch] = useState<{ key: string; load: Load<CharterMatch> } | null>(null);
+  /** 包车套餐读失败后点「重试」：加一次重读 */
+  const [charterRetry, setCharterRetry] = useState(0);
   const [addonQuantities, setAddonQuantities] = useState<Record<string, number>>({});
   const [addonQuote, setAddonQuote] = useState<AddonQuoteState | null>(null);
   const [guestCurrency, setGuestCurrency] = useState<CurrencyCode>(() => guestCurrencyOf(navigator.languages?.length ? navigator.languages : [navigator.language]));
@@ -353,22 +371,23 @@ export function BookNewPage() {
     };
   }, [cities.kind, link]);
 
-  const charterCity = draft.mode === "charter" ? charterCityOf(draft.from, cityList) : null;
   /** 旧的包车链接：只有上车地点（`from`）没有下车地点（`to`），下车地点框下面请客人补选（规范 10.1） */
   const legacyCharterLink = link.mode === "charter" && link.from !== null && link.to === null;
 
-  // 包车时长：按上车地点所在的城市读；只有一种时替客人选上
+  // 包车按上下车点匹配商品（M9P-02，规格步骤 1）：上车点、下车点都落在某个包车商品的区域里才能在线报价，套餐时长按匹配到的商品列；只有一种时替客人选上
+  const charterEnds = draft.mode === "charter" && draft.from !== null && draft.to !== null ? { from: draft.from, to: draft.to } : null;
+  const charterKey = charterEnds === null ? null : sameEnds(charterEnds.from, charterEnds.to);
   useEffect(() => {
-    if (charterCity === null) return;
-    if (packages !== null && packages.cityId === charterCity.id && packages.load.kind !== "failed") return;
+    if (charterEnds === null || charterKey === null) return;
+    if (charterMatch !== null && charterMatch.key === charterKey && charterMatch.load.kind !== "failed") return;
     let alive = true;
-    const cityId = charterCity.id;
-    setPackages({ cityId, load: { kind: "loading" } });
-    listSiteCharterPackages(cityId).then(
-      ({ items }) => {
+    const key = charterKey;
+    setCharterMatch({ key, load: { kind: "loading" } });
+    listSiteCharterPackagesAt({ lat: charterEnds.from.lat, lng: charterEnds.from.lng }, { lat: charterEnds.to.lat, lng: charterEnds.to.lng }).then(
+      ({ city, items }) => {
         if (!alive) return;
         const hours = items.map((item) => item.hours);
-        setPackages({ cityId, load: { kind: "ready", items: hours } });
+        setCharterMatch({ key, load: { kind: "ready", items: { city, hours } } });
         setDraft((current) => {
           // 草稿带来的时长不在这个城市的套餐里：清空，让客人在第 1 步重选（M9E-01）
           const kept = current.packageHours !== "" && !hours.includes(Number(current.packageHours)) ? { ...current, packageHours: "" } : current;
@@ -378,16 +397,19 @@ export function BookNewPage() {
         draftHours.current = null;
         if (wanted !== null && hours.includes(Number(wanted)) && new URLSearchParams(latestSearch.current).get("step") === null) goStep(2, true);
       },
-      (err: unknown) => alive && setPackages({ cityId, load: { kind: "failed", message: siteFailureText(err, "读取包车时长") } }),
+      (err: unknown) => alive && setCharterMatch({ key, load: { kind: "failed", message: siteFailureText(err, "读取包车时长") } }),
     );
     return () => {
       alive = false;
     };
-  }, [charterCity?.id]);
-  const packageLoad = charterCity !== null && packages !== null && packages.cityId === charterCity.id ? packages.load : null;
+  }, [charterKey, charterRetry]);
+  const matchLoad = charterKey !== null && charterMatch !== null && charterMatch.key === charterKey ? charterMatch.load : null;
+  /** 包车匹配到的城市：null = 没匹配到（不能在线报价）；undefined = 还没选齐两端或还在查 */
+  const charterCity: SiteQuotedCity | null | undefined = matchLoad?.kind === "ready" ? matchLoad.items.city : undefined;
+  const packageLoad: Load<number[]> | null = matchLoad === null || charterCity === null ? null : matchLoad.kind === "ready" ? { kind: "ready", items: matchLoad.items.hours } : matchLoad;
 
   // 填齐了就报价：停顿一下再查；改了任何一项旧结果立刻收起（键对不上的结果不显示）
-  const request = requestOf(draft, charterCity);
+  const request = requestOf(draft, charterCity ?? null);
   const requestKey = request?.key ?? null;
   const latestRequest = useRef(request);
   latestRequest.current = request;
@@ -451,7 +473,7 @@ export function BookNewPage() {
         .map(([addon_id, quantity]) => ({ addon_id, quantity })),
     [addonQuantities],
   );
-  const addonRequest = selected !== null && addonList.length > 0 ? requestOf(draft, charterCity, addonList) : null;
+  const addonRequest = selected !== null && addonList.length > 0 ? requestOf(draft, charterCity ?? null, addonList) : null;
   const addonKey = addonRequest?.key ?? null;
   const latestAddonRequest = useRef(addonRequest);
   latestAddonRequest.current = addonRequest;
@@ -691,7 +713,7 @@ export function BookNewPage() {
   const manualStops = draft.mode === "charter" ? (waypointsBody(draft.waypoints) ?? []).map((stop) => ({ name: stop.name, lat: stop.lat, lng: stop.lng, stayMinutes: stop.stay_minutes })) : [];
   const manualTrip: ManualQuoteTripDraft = {
     category: draft.mode === "charter" ? "charter" : tripType === "point_to_point" ? "point_to_point" : tripType !== null || draft.from?.kind === "airport" || draft.to?.kind === "airport" ? "airport_transfer" : "point_to_point",
-    cityId: draft.mode === "charter" ? (charterCity?.id ?? null) : outcome?.mode === "transfer" ? (outcome.result.city?.id ?? null) : null,
+    cityId: draft.mode === "charter" ? (charterCity?.id ?? nearbyCharterCity(draft.from, cityList)?.id ?? null) : outcome?.mode === "transfer" ? (outcome.result.city?.id ?? null) : null,
     pickup: draft.from === null ? null : { name: draft.from.name, lat: draft.from.lat, lng: draft.from.lng },
     dropoff: draft.to === null ? null : { name: draft.to.name, lat: draft.to.lat, lng: draft.to.lng },
     serviceLocal: /^\d{4}-\d{2}-\d{2}$/.test(draft.date) && /^\d{2}:\d{2}$/.test(draft.time) ? `${draft.date}T${draft.time}` : null,
@@ -702,8 +724,8 @@ export function BookNewPage() {
     waypoints: manualStops,
   };
   const manualKey = JSON.stringify(manualTrip);
-  /** 包车报不出价（上车地点不在任何能订包车的城市、或城市没有套餐）：时长用通用的几档，给人工报价用 */
-  const charterNoOnline = draft.mode === "charter" && draft.from !== null && (charterCity === null || (packageLoad?.kind === "ready" && packageLoad.items.length === 0));
+  /** 包车报不出价（上下车点不在任何能订的包车商品的区域里、或匹配到的商品没有套餐）：时长用通用的几档，给人工报价用 */
+  const charterNoOnline = draft.mode === "charter" && draft.from !== null && draft.to !== null && (charterCity === null || (packageLoad?.kind === "ready" && packageLoad.items.length === 0));
   /**
    * 报不出价（任何一种：包车没有在线报价、渠道不卖这一段、报价列表为空）时只给人工报价那一块，
    * 不能往第 3、4 步走（M8-21b，规范 site-booking-v2.md 11.1）；有报价时照旧。
@@ -717,9 +739,9 @@ export function BookNewPage() {
   // 网址要的步骤还到不了（从网址、前进键打开；或报价变了车型没了）：网址改成能到的那一步，不在后面自己跳过去
   useEffect(() => {
     // 包车时长还在读（只有一种时会替客人选上）：读完再算能到哪一步
-    const packagesPending = draft.mode === "charter" && charterCity !== null && packageLoad?.kind !== "ready" && packageLoad?.kind !== "failed";
+    const packagesPending = draft.mode === "charter" && charterKey !== null && matchLoad?.kind !== "ready" && matchLoad?.kind !== "failed";
     if (cities.kind === "ready" && !linkPending && !packagesPending && urlStep > reachable) goStep(reachable, true);
-  }, [cities.kind, linkPending, urlStep, reachable, packageLoad?.kind]);
+  }, [cities.kind, linkPending, urlStep, reachable, matchLoad?.kind]);
 
   // 换步：焦点移到那一步的标题（第一次打开不动）
   const shownStep = useRef(step);
@@ -836,7 +858,7 @@ export function BookNewPage() {
           mapCenter={centerOf(draft.from)}
           cities={centers}
         />
-        {charter && draft.from !== null && charterCity === null && (
+        {charter && charterCity === null && (
           <div className="book-new__notice" role="status">
             <p>这个地址暂时没有在线报价，请联系客服</p>
             <SupportPhone phone={supportPhone} />
@@ -844,7 +866,7 @@ export function BookNewPage() {
         )}
         {charter && charterCity !== null && packageLoad?.kind === "ready" && packageLoad.items.length === 0 && (
           <div className="book-new__notice" role="status">
-            <p>这个城市的包车还没有可以在线预订的套餐，请联系客服</p>
+            <p>这段行程的包车还没有可以在线预订的套餐，请联系客服</p>
             <SupportPhone phone={supportPhone} />
           </div>
         )}
@@ -858,7 +880,7 @@ export function BookNewPage() {
             onChange={(packageHours) => update({ packageHours })}
           />
         )}
-        {charter && charterCity !== null && !charterNoOnline && itinerary && (
+        {charter && charterCity !== null && charterCity !== undefined && !charterNoOnline && itinerary && (
           <div className="book-itinerary" role="status">
             <p>
               <strong>包车时长：按行程自动选套餐</strong>
@@ -866,24 +888,24 @@ export function BookNewPage() {
             <p className="site-muted">{itinerarySummary ?? "有经停点时，按各段行驶时间和停留时长算出总时长，自动选合适的套餐。"}</p>
           </div>
         )}
+        {charter && packageLoad?.kind === "failed" && <StateBlock headingLevel="h3" title="包车时长没有读出来" description={packageLoad.message} action={<Button size="lg" onClick={() => setCharterRetry((value) => value + 1)}>重试</Button>} />}
         {charter &&
+          draft.from !== null &&
           charterCity !== null &&
           !charterNoOnline &&
           !itinerary &&
-          (packageLoad?.kind === "failed" ? (
-            <StateBlock headingLevel="h3" title="包车时长没有读出来" description={packageLoad.message} action={<Button size="lg" onClick={() => setPackages(null)}>重试</Button>} />
-          ) : (
+          packageLoad?.kind !== "failed" && (
             <SelectField
               label="包车时长"
               required
-              placeholder={packageLoad?.kind === "ready" ? "请选择时长" : "正在读取"}
+              placeholder={charterKey === null ? "先选上车、下车地点" : packageLoad?.kind === "ready" ? "请选择时长" : "正在读取"}
               value={draft.packageHours}
               options={(packageLoad?.kind === "ready" ? packageLoad.items : []).map((hours) => ({ value: String(hours), label: `${hours} 小时` }))}
               errors={errors.packageHours ? [errors.packageHours] : []}
               hint="超出套餐的时长和公里服务后按实际收取"
               onChange={(packageHours) => update({ packageHours })}
             />
-          ))}
+          )}
         <div className="site-form__row">
           {/* 手机触屏上日期、时间也是全屏选择页（M8-37），电脑上是输入框 */}
           <PickerTextField label="日期（当地）" type="date" value={draft.date} errors={errors.date ? [errors.date] : []} onValue={(date) => update({ date })} />

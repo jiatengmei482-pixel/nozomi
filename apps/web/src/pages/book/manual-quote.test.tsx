@@ -196,6 +196,8 @@ function openPage(at: string, options: { config?: SiteConfig; byPoints?: () => R
     if (path === "/site/v1/config") return json(200, options.config ?? configOf());
     if (path === "/site/v1/cities") return json(200, { items: [city] });
     if (path === `/site/v1/cities/${CITY_ID}/charter-packages`) return json(200, { items: [{ hours: 8 }] });
+    // 包车按上下车点匹配（M9P-02）：冲绳（那霸一带）哪个包车商品都匹配不到，其余按东京
+    if (path === "/site/v1/charter-packages") return (call.url.searchParams.get("pickup") ?? "").startsWith("26.") ? json(200, { city: null, items: [] }) : json(200, { city: { id: CITY_ID, code: "CTY-JP-TYO", name: { zh: "东京" }, timezone: "Asia/Tokyo" }, items: [{ hours: 8 }] });
     if (call.method === "POST" && path === "/site/v1/quotes/by-points") return options.byPoints?.() ?? json(200, noQuotes);
     if (call.method === "POST" && path === "/site/v1/quotes") return options.charter?.() ?? null;
     if (call.method === "POST" && path === "/site/v1/manual-quote-requests") return json(202, { status: "accepted" });

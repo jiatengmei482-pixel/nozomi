@@ -122,11 +122,11 @@ test("13.4 算例 3：新宿 → 镰仓大佛 → 河口湖 → 新宿 = 55,000 
   ]);
 });
 
-test("13.4 算例 4：新宿 → 五合目 → 河口湖站（下车）= 55,000 + 下车加价 10,000 = 65,000，客人 71,500（下车已在富士山，途经不再加）", () => {
+test("13.4 算例 4（M9P-01 起按新规格 P0 #1）：新宿 → 五合目 → 河口湖站（下车）= 55,000 + 富士山行程 10,000 + 富士山下车 10,000 = 75,000，客人 82,500（以前 65,000：途经被下车抵消）", () => {
   const request = trip("shinjuku", ["gogome"], "kawaguchikoStation");
-  assert.deepEqual(prices(request), [65_000, 71_500]);
+  assert.deepEqual(prices(request), [75_000, 82_500]);
   const s = settlement(request).areaSurcharge;
-  assert.deepEqual([s?.dropoff, s?.waypoints], [{ areaId: "fuji", priceRuleId: "s-fuji", amountMinor: 10_000 }, []]);
+  assert.deepEqual([s?.dropoff, s?.waypoints], [{ areaId: "fuji", priceRuleId: "s-fuji", amountMinor: 10_000 }, [{ areaId: "fuji", priceRuleId: "s-fuji", amountMinor: 10_000, stopSeqs: [1] }]]);
 });
 
 test("13.4 算例 5：新宿 → 浅草 → 新宿 = 55,000，客人 60,500（都在服务区域）", () => {
@@ -144,10 +144,10 @@ test("13.9 用例 2：途经镰仓 + 富士山 → 两个区域各加 1 次", ()
   assert.deepEqual(prices(trip("shinjuku", ["tsurugaoka", "gogome", "daibutsu", "chureito"], "shinjuku")), [71_000, 78_100]);
 });
 
-test("13.9 用例 3：下车在富士山、途经也在富士山 → 只加下车加价", () => {
-  assert.deepEqual(prices(trip("shinjuku", ["gogome", "chureito"], "kawaguchikoStation")), [65_000, 71_500]);
-  // 上车在富士山也一样
-  assert.deepEqual(prices(trip("kawaguchikoStation", ["gogome"], "shinjuku")), [65_000, 71_500]);
+test("13.9 用例 3（M9P-01 起按新规格 P0 #1）：下车在富士山、途经也在富士山 → 行程加价和下车加价都收（以前只收下车 65,000）", () => {
+  assert.deepEqual(prices(trip("shinjuku", ["gogome", "chureito"], "kawaguchikoStation")), [75_000, 82_500]);
+  // 上车在富士山也一样：上车加价 + 行程加价
+  assert.deepEqual(prices(trip("kawaguchikoStation", ["gogome"], "shinjuku")), [75_000, 82_500]);
 });
 
 test("13.9 用例 4：途经点在东京市内 → 不加价", () => {
@@ -172,13 +172,20 @@ test("13.9 用例 6：一个点落在两个重叠区域 → 只按途经加价�
   assert.deepEqual(prices(trip("shinjuku", ["fujiHakone", "gogome", "hakone"], "shinjuku")), [73_000, 80_300]);
 });
 
-test("13.9 用例 7：不填途经点 → 报价与现在完全一致（不给、给空数组都一样，明细里没有 waypoints）", () => {
+test("13.9 用例 7：不填途经点 → 不给、给空数组一样；关掉「下车点行程加价」时和 M9P-01 之前完全一致（明细里没有 waypoints）", () => {
+  const off = product({ serviceRules: { ...product().serviceRules, charterItinerary: { dropoffItinerarySurcharge: false } } });
   for (const [pickup, dropoff] of [["shinjuku", "shinjuku"], ["shinjuku", "kawaguchikoStation"], ["daibutsu", "gogome"]] as const) {
-    const before = quoted(trip(pickup, undefined, dropoff));
-    assert.deepEqual(quoted(trip(pickup, [], dropoff)), before);
-    assert.ok(before.ok && before.offers[0] !== undefined);
-    assert.equal("waypoints" in (before.offers[0].settlement.areaSurcharge ?? {}), false);
+    for (const item of [product(), off]) {
+      const before = quoted(trip(pickup, undefined, dropoff), item);
+      assert.deepEqual(quoted(trip(pickup, [], dropoff), item), before);
+    }
+    const plain = quoted(trip(pickup, undefined, dropoff), off);
+    assert.ok(plain.ok && plain.offers[0] !== undefined);
+    assert.equal("waypoints" in (plain.offers[0].settlement.areaSurcharge ?? {}), false);
   }
+  // 开关开着（默认）：下车在富士山的两单多收一次富士山行程加价（M9P-01，规格步骤 4）；东京下车的不变
+  assert.deepEqual([prices(trip("shinjuku", undefined, "shinjuku")), prices(trip("shinjuku", undefined, "kawaguchikoStation")), prices(trip("daibutsu", undefined, "gogome"))], [[55_000, 60_500], [75_000, 82_500], [81_000, 89_100]]);
+  assert.deepEqual([prices(trip("shinjuku", undefined, "kawaguchikoStation"), off), prices(trip("daibutsu", undefined, "gogome"), off)], [[65_000, 71_500], [71_000, 78_100]]);
 });
 
 test("13.9 用例 8（按取消重下）：去掉一个途经区域重新报价，新价少了那个区域的途经加价", () => {
@@ -244,9 +251,10 @@ test("规则：经停点同时在商品区域和有途经规则的加价区域�
   assert.deepEqual(settlement(trip("shinjuku", ["gogome"], "shinjuku"), unset).areaSurcharge?.waypoints, []);
 });
 
-test("规则：「已计价」只认上 / 下车最终选中的区域；选中的加价是 0 也算（待确认第 2 条）；那一端只在商品区域里就没有已计价区域", () => {
+test("规则（M9P-01 起）：没有「已计价」——上 / 下车在同一区域、下车加价是 0 也照收行程加价；下车点落在重叠处选中别的区域时同样照收", () => {
   const zeroDrop = product({ priceRules: [pkg, surcharge("s-fuji", "fuji", 10_000, 0, 10_000)] });
-  assert.deepEqual(prices(trip("shinjuku", ["gogome"], "kawaguchikoStation"), zeroDrop), [55_000, 60_500]);
+  // 以前 55,000（下车加价 0 也算已计价，途经不加）
+  assert.deepEqual(prices(trip("shinjuku", ["gogome"], "kawaguchikoStation"), zeroDrop), [65_000, 71_500]);
   // 下车点落在富士山 / 箱根重叠处，下车选中的是箱根（下车加价更高）：途经富士山照收
   const hakoneDrop = product({ priceRules: [pkg, surcharge("s-fuji", "fuji", 10_000, 1_000, 10_000), surcharge("s-hakone", "hakone", 8_000, 8_000, 8_000)] });
   assert.deepEqual(prices(trip("shinjuku", ["gogome"], "fujiHakone"), hakoneDrop), [73_000, 80_300]);
@@ -302,18 +310,19 @@ test("对外价明细（price_breakdown）：各项按这一单的汇率、缓�
     const winner = comparison.groups[0]?.snapshot.winner;
     assert.ok(winner !== undefined);
     const items = sellBreakdown(winner.offer.settlement, winner.sell);
-    assert.deepEqual(items.map((item) => item.kind), ["base", "pickup", "waypoint", "dropoff", "adjust", "other"]);
+    assert.deepEqual(items.map((item) => item.kind), ["base", "pickup", "waypoint", "waypoint", "dropoff", "adjust", "other"]);
     assert.equal(items.reduce((sum, item) => sum + item.amountMinor, 0), winner.sell.sellMinor, currency);
     assert.ok(items.every((item) => Number.isSafeInteger(item.amountMinor)));
     // 快照的请求里带着经停点（锁定）
     assert.deepEqual(comparison.groups[0]?.snapshot.request.waypoints, [P.gogome, P.hakone]);
   }
-  // 同币种：上车镰仓 6,000 → 6,600；下车富士山 10,000 → 11,000；途经箱根 8,000 → 8,800
+  // 同币种：上车镰仓 6,000 → 6,600；途经富士山 10,000 → 11,000（M9P-01 起不再被富士山下车抵消）；途经箱根 8,000 → 8,800；下车富士山 10,000 → 11,000
   const comparison = compareQuotes({ request, currency: "JPY", now: moment.now, entries: [{ quote, productVersion: 1, standing: { scoreCenti: null, completedOrders: 0, observation: false }, markupBp: () => 1_000, fx: null }] });
   const winner = comparison.groups[0]?.snapshot.winner;
   assert.ok(winner !== undefined);
-  assert.deepEqual(sellBreakdown(winner.offer.settlement, winner.sell).slice(1, 4), [
+  assert.deepEqual(sellBreakdown(winner.offer.settlement, winner.sell).slice(1, 5), [
     { kind: "pickup", areaId: "kamakura", amountMinor: 6_600 },
+    { kind: "waypoint", areaId: "fuji", stopSeqs: [1], amountMinor: 11_000 },
     { kind: "waypoint", areaId: "hakone", stopSeqs: [2], amountMinor: 8_800 },
     { kind: "dropoff", areaId: "fuji", amountMinor: 11_000 },
   ]);
