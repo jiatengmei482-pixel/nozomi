@@ -2508,6 +2508,11 @@
       "date": "2026-11-14",
       "by": "product",
       "summary": "按 #218 复审补 ADR 0091：救援走 previewPlatformQuote，PlatformQuoteInput 加可选 charterSelection（函数内不设默认值），快照有 charterSelection 时传 locked 加订单的档、没有时不传，平台试算接口现在不能按行程计价、以后开放时才传 auto，补一条经 previewPlatformQuote 的救援集成测试；写明 overtime_at_booking 加在订单详情的 settlement.itinerary、引擎写 overtimeAtBooking、服务层从原订单抄 estimatedMinutes 等；客人和供应商看到的「超出」可能不一致的说明；#206 还改了「全程约」的显示；M9W-07 标题和 evidence 更新。本 PR 引用的 M9P 任务在 #222 里，建议先合并 #222。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "更正 ADR 0091 第三节第 4 小节：规格「报价含高速费、停车费，服务后不再另收」已由 ADR 0070 实现（2026-11-10 起下的包车单不能再加收高速费、停车费），不需要 ADR 0093 认领，也不另开任务（按 #222 复审第 6 条）。"
     }
   ]
 }
