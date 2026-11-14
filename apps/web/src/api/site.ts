@@ -87,7 +87,8 @@ export interface SitePlace {
  */
 export interface SiteQuoteRequest {
   category: SiteCategory;
-  city_id: string;
+  /** 接送机、点对点必填；包车不给（M9P-02：服务器按上下车点找城市） */
+  city_id?: string;
   airport_id?: string;
   direction?: SiteDirection;
   /** 接送机：地址那一端的坐标 */
@@ -190,8 +191,18 @@ export type SiteUnavailableReason =
   | "TEMPORARILY_UNAVAILABLE"
   | "NOT_AVAILABLE";
 
+/** 按哪个城市报的价（包车，M9P-02） */
+export interface SiteQuotedCity {
+  id: string;
+  code: string;
+  name: LocalizedText;
+  timezone: string;
+}
+
 export interface SiteQuoteResult {
   currency: string;
+  /** 包车：按哪个城市报的价；上下车点不在任何包车商品的区域里时为 null（M9P-02）。别的品类没有 */
+  city?: SiteQuotedCity | null;
   /** 包车按行程计价时服务器算的路线（M9W-01） */
   itinerary_route?: { legs: { minutes: number; meters: number }[]; drive_minutes: number; stay_minutes: number; total_minutes: number; total_meters: number };
   quotes: SiteQuote[];
@@ -532,6 +543,12 @@ export function listSiteAirports(cityId: string): Promise<{ items: SiteAirport[]
 
 export function listSiteCharterPackages(cityId: string): Promise<{ items: SiteCharterPackage[] }> {
   return apiRequest("GET", `${SITE_BASE}/cities/${encodeURIComponent(cityId)}/charter-packages`);
+}
+
+/** 按上下车点列包车套餐时长（M9P-02）：匹配到的城市和套餐；不匹配时城市为 null、列表为空 */
+export function listSiteCharterPackagesAt(pickup: { lat: number; lng: number }, dropoff: { lat: number; lng: number }): Promise<{ city: SiteQuotedCity | null; items: SiteCharterPackage[] }> {
+  const query = new URLSearchParams({ pickup: `${pickup.lat},${pickup.lng}`, dropoff: `${dropoff.lat},${dropoff.lng}` });
+  return apiRequest("GET", `${SITE_BASE}/charter-packages?${query.toString()}`);
 }
 
 export function listSitePlaces(cityId: string): Promise<{ items: SitePlace[] }> {

@@ -35,6 +35,7 @@ const SLOW = { timeout: 3000 };
 const CITY_ID = "11111111-1111-4111-8111-111111111111";
 const AIRPORT_ID = "22222222-2222-4222-8222-222222222222";
 const city: SiteCity = { id: CITY_ID, code: "CTY-JP-TYO", name: { zh: "东京" }, timezone: "Asia/Tokyo", country_code: "JP", center: { lat: 35.6895, lng: 139.6917 }, categories: ["airport_transfer", "point_to_point", "charter"] };
+const quotedCity = { id: CITY_ID, code: city.code, name: city.name, timezone: city.timezone };
 const configOf = (changes: Partial<SiteConfig> = {}): SiteConfig => ({ open: true, currency: "JPY", payments: null, support_phone: "+81 3-1234-5678", support_whatsapp: null, address_search: true, page_width: "standard", map_tiles: null, ...changes });
 const airportSuggestion = { source: "platform", id: AIRPORT_ID, name: "成田国际机场", address: "", location: { lat: 35.772, lng: 140.3929 }, kind: "airport" } as const;
 const hotelSuggestion = { source: "google", id: "ChIJkeio", name: "京王广场酒店", address: "东京都新宿区西新宿 2-2-1", location: null, kind: "other" } as const;
@@ -91,6 +92,8 @@ interface Options {
   draft?: Route;
   /** 城市的包车套餐时长（默认只有 8 小时） */
   packages?: number[];
+  /** 按上下车点列包车套餐（M9P-02）；不给时匹配到东京、套餐 `packages` */
+  charterPackages?: Route;
   /** 路线图的图片没出来以后，前端再问一次原因（M8-10） */
   routeMap?: Route;
   /** 地图选点后按坐标查地址（M8-42） */
@@ -117,7 +120,8 @@ function open(options: Options = {}): ApiCall[] {
     }
     if (path === "/site/v1/places/reverse") return options.reverse?.(call) ?? null;
     if (path.startsWith("/site/v1/booking-drafts/")) return options.draft?.(call) ?? apiError(404, "BOOKING_DRAFT_NOT_FOUND", "链接已过期，请重新填写");
-    if (path === `/site/v1/cities/${CITY_ID}/charter-packages`) return json(200, { items: (options.packages ?? [8]).map((hours) => ({ hours })) });
+    // 包车按上下车点匹配（M9P-02）：默认匹配到东京
+    if (path === "/site/v1/charter-packages") return options.charterPackages?.(call) ?? json(200, { city: quotedCity, items: (options.packages ?? [8]).map((hours) => ({ hours })) });
     if (call.method === "POST" && path === "/site/v1/quotes/by-points") return options.quote?.(call) ?? json(200, byPoints());
     if (path === "/site/v1/fx/reference") return options.fx?.(call) ?? json(200, { available: false, from: "JPY", to: call.url.searchParams.get("to"), rate: null, as_of: null, reason: "NO_RATE" });
     if (call.method === "POST" && path === "/site/v1/orders") return options.order?.(call) ?? null;
@@ -738,7 +742,7 @@ test("预订草稿（M9E-01）：包车按时长，时长不在城市套餐里�
   wideScreen();
   const draft = draftOf({ tab: "charter", pickup: { name: "银座", lat: 35.6717, lng: 139.765 }, dropoff: { name: "新宿站", lat: 35.6896, lng: 139.7006 }, package_hours: 5 });
   const calls = open({ at: `/book/new?draft=${DRAFT_ID}`, packages: [4, 8], draft: () => json(200, { draft, expires_at: "2030-11-19T02:00:00.000Z" }) });
-  await waitFor(() => assert.ok(calls.some((call) => call.path.endsWith("/charter-packages"))), SLOW);
+  await waitFor(() => assert.ok(calls.some((call) => call.path.startsWith("/site/v1/charter-packages?"))), SLOW);
   await waitFor(() => assert.equal((screen.getByRole("combobox", { name: "上车地点" }) as HTMLInputElement).value, "银座"));
   await new Promise((resolve) => setTimeout(resolve, 800));
   assert.equal(posts(calls, "/site/v1/quotes").length, 0, "时长不在套餐里不询价");
@@ -814,7 +818,8 @@ test("一口价包含：接送写「含所有费用」、专车、免费等待�
   await next(actor, NEXT_VEHICLES);
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
   const charter = posts(calls, "/site/v1/quotes").at(-1)?.body as Record<string, unknown>;
-  assert.deepEqual([charter["category"], charter["city_id"], charter["package_hours"]], ["charter", CITY_ID, 8]);
+  // 不带城市（M9P-02）：服务器按上下车点找
+  assert.deepEqual([charter["category"], "city_id" in charter, charter["package_hours"]], ["charter", false, 8]);
   const charterIncludes = screen.getByRole("region", { name: "一口价包含" });
   assert.deepEqual(within(charterIncludes).getAllByRole("listitem").map((item) => item.textContent), ["一口价已含所有费用（高速费、停车费等），无需另付", "专车专用，不拼车"]);
   assert.doesNotMatch(document.body.textContent ?? "", /跟踪航班|高速费、停车费服务后/);
@@ -1344,6 +1349,28 @@ test("包车上车或下车地点不在任何区域（OUT_OF_SERVICE_AREA）：�
   assert.ok(screen.getByRole("heading", { name: "没有可预订的车" }));
   assert.equal(screen.getByRole("link", { name: "+81 3-1234-5678" }).getAttribute("href"), "tel:+81312345678");
   assert.doesNotMatch(document.body.textContent ?? "", /OUT_OF_SERVICE_AREA|含区域加价/);
+});
+
+test("M9P-02：河口湖上车（离东京中心约 85 公里，不在任何城市范围里）也去按上下车点查套餐；匹配到东京就照常报价，询价不带城市", async () => {
+  wideScreen();
+  const calls = open({ at: "/book/new?mode=charter&from=35.5106,138.7637&from_name=%E6%B2%B3%E5%8F%A3%E6%B9%96&to=35.6905,139.6948&to_name=%E6%96%B0%E5%AE%BF&date=2030-11-20&time=09:00", packages: [10], charter: () => json(200, { city: quotedCity, ...charterQuotes(true) }) });
+  await waitFor(() => assert.ok(calls.some((call) => call.path.startsWith("/site/v1/charter-packages?"))), SLOW);
+  const asked = new URLSearchParams(calls.find((call) => call.path.startsWith("/site/v1/charter-packages?"))?.path.split("?")[1] ?? "");
+  assert.deepEqual([asked.get("pickup"), asked.get("dropoff")], ["35.5106,138.7637", "35.6905,139.6948"]);
+  assertAbsent(screen.queryByText("这个地址暂时没有在线报价，请联系客服"));
+  // 只有一种时长时替客人选上；链接带齐了两端和时间，直接到第 2 步报价
+  await screen.findByRole("heading", { name: "车型1" }, SLOW);
+  const body = posts(calls, "/site/v1/quotes").at(-1)?.body as Record<string, unknown>;
+  assert.deepEqual([body["category"], "city_id" in body, body["pickup"], body["package_hours"]], ["charter", false, { lat: 35.5106, lng: 138.7637 }, 10]);
+});
+
+test("M9P-02：上下车点不在任何包车商品的区域里（如甲府）：不询价，说「这个地址暂时没有在线报价，请联系客服」，给人工报价", async () => {
+  wideScreen();
+  const calls = open({ at: "/book/new?mode=charter&from=35.6622,138.5683&from_name=%E7%94%B2%E5%BA%9C&to=35.6905,139.6948&to_name=%E6%96%B0%E5%AE%BF&date=2030-11-20&time=09:00", charterPackages: () => json(200, { city: null, items: [] }) });
+  assert.ok(await screen.findByText("这个地址暂时没有在线报价，请联系客服", {}, SLOW));
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  assert.equal(posts(calls, "/site/v1/quotes").length, 0);
+  assert.ok(screen.getByRole("heading", { name: "请客服人工报价" }));
 });
 
 // ---- M8-13：含公里数那一行（规范 site-booking-v2.md 10.3） ----

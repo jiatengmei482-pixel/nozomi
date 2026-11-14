@@ -54,7 +54,10 @@ function open(at = "/book/new", draft: BookingDraft | null = null, cities: SiteC
     }
     // 报价一律报不出（503）：第 2 步右侧栏的时间只能按页面自己选的城市解读
     if (call.method === "POST" && path === "/site/v1/quotes/by-points") return apiError(503, "SERVICE_UNAVAILABLE", "暂时不可用");
-    if (path.endsWith("/charter-packages")) return json(200, { items: [{ hours: 8 }] });
+    if (path === "/site/v1/charter-packages") {
+      const found = cities.find((entry) => entry.categories.includes("charter")) ?? null;
+      return json(200, { city: found === null ? null : { id: found.id, code: found.code, name: found.name, timezone: found.timezone }, items: found === null ? [] : [{ hours: 8 }] });
+    }
     if (path === "/site/v1/fx/reference") return json(200, { available: false, from: "JPY", to: call.url.searchParams.get("to"), rate: null, as_of: null, reason: "NO_RATE" });
     return null;
   });
