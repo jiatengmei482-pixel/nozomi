@@ -58,6 +58,17 @@ test("嵌入预订页放行：和 Caddy 片段同一条策略（frame-ancestors 
   assert.equal(frameCheckUrl(API, "/embed/book"), `${API}/embed/v1/frame-check?key=&host=`);
 });
 
+test("frame-check 带上浏览器请求的 X-Forwarded-For（同 Caddy forward_auth 按客人地址限速）；没有就不带；别的请求头一概不转", async () => {
+  const seen: Record<string, string>[] = [];
+  const fetchImpl = async (_url: string, init: { headers: Record<string, string> }): Promise<Response> => {
+    seen.push(init.headers);
+    return new Response(null, { status: 204, headers: { "x-nozomi-frame-ancestor": HOST } });
+  };
+  await previewDecision("/embed/book?key=k&host=h", HASHES, [], API, fetchImpl, "198.51.100.7");
+  await previewDecision("/embed/book?key=k&host=h", HASHES, [], API, fetchImpl);
+  assert.deepEqual(seen, [{ "x-forwarded-for": "198.51.100.7" }, {}]);
+});
+
 test("嵌入预订页拒绝：API 的 403 / 429 原样回给浏览器（状态码、frame-ancestors 'none'、正文）；API 放行却回了写不进 frame-ancestors 的值、连不上，都按 403", async () => {
   const refusal = { "content-type": "text/html; charset=utf-8", "content-security-policy": "default-src 'none'; frame-ancestors 'none'", "x-frame-options": "DENY", "cache-control": "no-store" };
   for (const status of [403, 429]) {

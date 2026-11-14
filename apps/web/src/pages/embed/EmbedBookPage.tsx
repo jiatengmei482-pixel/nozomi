@@ -154,7 +154,8 @@ export function EmbedBookPage() {
     let last = 0;
     const measure = (): void => {
       frame = 0;
-      const height = Math.ceil(document.documentElement.scrollHeight);
+      // 量内容本身的底边（不用 scrollHeight：内容比 iframe 矮时它等于 iframe 的高度，iframe 就缩不回来）
+      const height = Math.ceil(node.getBoundingClientRect().bottom + window.scrollY);
       if (height === last) return;
       last = height;
       sendRef.current({ type: "resize", height });

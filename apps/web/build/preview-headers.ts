@@ -29,14 +29,17 @@ export type PreviewDecision =
   | { kind: "page"; headers: Record<string, string> }
   | { kind: "refused"; status: number; headers: Record<string, string>; body: string };
 
-/** 一个请求该带哪些头（嵌入预订页要先问 API） */
-export async function previewDecision(requestUrl: string, scriptHashes: readonly string[], imageSources: readonly string[], apiOrigin: string, fetchImpl: Fetch = fetch): Promise<PreviewDecision> {
+/**
+ * 一个请求该带哪些头（嵌入预订页要先问 API）。`forwardedFor` 是浏览器请求带来的 X-Forwarded-For（端到端每条用例一个来源地址，support.ts 的 OWN_SITE_SOURCE）：
+ * 原样转给 frame-check，和 Caddy 的 forward_auth 一样按客人的地址限速，并行的用例不共用一份额度
+ */
+export async function previewDecision(requestUrl: string, scriptHashes: readonly string[], imageSources: readonly string[], apiOrigin: string, fetchImpl: Fetch = fetch, forwardedFor?: string): Promise<PreviewDecision> {
   const policies = edgePolicies(scriptHashes, imageSources);
   const base = { "x-frame-options": "DENY" };
   if (!isEmbedBookPagePath(requestUrl)) return { kind: "page", headers: { ...base, "content-security-policy": isSitePagePath(requestUrl) ? policies.site : policies.other } };
   let response: Response;
   try {
-    response = await fetchImpl(frameCheckUrl(apiOrigin, requestUrl), { redirect: "manual", headers: {} });
+    response = await fetchImpl(frameCheckUrl(apiOrigin, requestUrl), { redirect: "manual", headers: forwardedFor === undefined ? {} : { "x-forwarded-for": forwardedFor } });
   } catch {
     return { kind: "refused", ...REFUSED, headers: { ...base, ...REFUSED.headers } };
   }
@@ -68,7 +71,8 @@ function keepCacheControl(response: ServerResponse): void {
 /** 挂到 vite preview 上的中间件 */
 export function previewHeadersMiddleware(scriptHashes: readonly string[], imageSources: readonly string[], apiOrigin: string, fetchImpl: Fetch = fetch) {
   return (request: IncomingMessage, response: ServerResponse, next: () => void): void => {
-    void previewDecision(request.url ?? "", scriptHashes, imageSources, apiOrigin, fetchImpl).then(
+    const forwardedFor = request.headers["x-forwarded-for"];
+    void previewDecision(request.url ?? "", scriptHashes, imageSources, apiOrigin, fetchImpl, typeof forwardedFor === "string" ? forwardedFor : undefined).then(
       (decision) => {
         for (const [name, value] of Object.entries(decision.headers)) response.setHeader(name, value);
         if (decision.kind === "page") {

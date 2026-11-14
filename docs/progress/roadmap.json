@@ -1345,8 +1345,7 @@
           "id": "M9E-16",
           "title": "嵌在宿主页·第一期：init 加 bookingUrl（跳宿主页 ?nzdraft=）、mountBooking 骨架（iframe、超时后备、postMessage 核对、自动高度）、/embed/v1/frame-check + Caddy forward_auth 按嵌入码生成 frame-ancestors（ADR 0095 第三、五、六节）",
           "role": "frontend",
-          "status": "blocked",
-          "blockedBy": "等 ADR 0095 采纳（业主 / 监工答复第十二节 Q1–Q15）；M9E-12、M9E-14（layout:auto，占迁移 0430）合并",
+          "status": "doing",
           "acceptance": [
             "不传 bookingUrl 时组件行为逐字不变（现有组件测试、site-embed-widget.spec.ts 原样通过）；传了合格的跳 bookingUrl?nzdraft=<草稿号>，不合格（不同 origin、非 https 等）按没传处理并在控制台报一句",
             "/embed/book 只能被白名单里、本次声明的那一个宿主嵌入：非白名单、伪造 host、停用嵌入码、嵌套两层都被拒；其余页面仍 frame-ancestors 'none' + X-Frame-Options: DENY（security.spec.ts、deploy-web-csp-paths.qa.test.ts 在真实 caddy:2 上核对；伪造 X-Nozomi-Frame-Ancestor 请求头无效）",
@@ -1358,7 +1357,7 @@
             "宿主页 sessionStorage 的 nozomi.host-draft：收到 completed、草稿 404 时删除，并显示「重新查询」入口",
             "迁移排在 0430 之后，只加 delivery 列（booking_drafts、quote_embed_sources、order_embed_sources）和嵌入码的「允许整页嵌入」开关，不回填"
           ],
-          "evidence": "",
+          "evidence": "PR #242（草稿，等 M9E-12、M9E-14 合并后合入 main 再转正式）",
           "updated": "2026-11-14"
         },
         {
@@ -3001,6 +3000,11 @@
       "date": "2026-11-14",
       "by": "product",
       "summary": "ADR 0095 复审通过前补三处小改：合作网站页面上暂存的草稿号在下单完成或草稿过期时删掉，并给出「重新查询」；嵌入页的安全检查只把嵌入码和网站两个参数转给后端，银行回跳带回来的付款凭据不会进后端日志；运营后台加「允许整页嵌入」开关，放进第一期（M9E-16），工作量多半天，合计 18.5–21.5 人日（做日英界面 22.5–26.5 人日）。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "frontend",
+      "summary": "M9E-16 开发（PR #242，草稿，等 M9E-12、M9E-14 先合并）：合作网站的查价表单可以把客人带回合作网站自己的预订页，在那一页里用 iframe 显示主站的嵌入预订页（第一期是占位页：显示这次要订的内容，给「到主站继续预订」）；只有运营在后台打开「允许整页嵌入」、并且网站在白名单里才嵌得进去，其他网站、其他页面都嵌不进；嵌不进去时 15 秒后显示「到主站继续预订」；订单来源能区分「在合作网站页面里下单」。Caddy 固定到修过伪造请求头漏洞的 2.11.9；测试站外层 nginx 不另加安全头。本机跨站自动测试 chromium、webkit 各 6 条通过。"
     }
   ]
 }

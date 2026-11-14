@@ -93,6 +93,7 @@ const FRAME_CSS = `${WIDGET_CSS}
 .nzb-frame { display: block; width: 100%; border: 0; }
 .nzb-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0 0 12px; }
 .nzb-notice .nzb-message { margin: 0; }
+.nzb-notice[hidden] { display: none; }
 .nzb-restart { all: initial; font: inherit; font-family: var(--nzb-font); font-size: 15px; font-weight: 600; color: var(--nzb-ink); text-decoration: underline; cursor: pointer; }
 .nzb-restart:focus-visible, .nzb-link:focus-visible { outline: 3px solid var(--nzb-ink); outline-offset: 2px; border-radius: 4px; }
 `;
