@@ -56,6 +56,7 @@ import {
   arrivalFreeWaitMinutes,
   bookStepOf,
   cityOffersTab,
+  defaultDateCity,
   defaultMapCity,
   guestCurrencyOf,
   moneyDifference,
@@ -239,6 +240,8 @@ export function BookNewPage() {
   const [cities, setCities] = useState<Load<SiteCity[]>>({ kind: "loading" });
   const [round, setRound] = useState(0);
   const [draft, setDraft] = useState<TripDraft>(() => initialDraft(link));
+  /** 日期是客人定的（链接、草稿带了，或自己改过）：之后换上车点、换标签都不再改成默认日期（M8-44） */
+  const dateChosen = useRef(link.date !== null);
   const [errors, setErrors] = useState<Errors>({});
   /** 点过「下一步」而经停点没填完整：之后每一行的问题随改随显示 */
   const [waypointCheck, setWaypointCheck] = useState(false);
@@ -294,13 +297,14 @@ export function BookNewPage() {
   }, [open, round]);
 
   const cityList = useMemo(() => (cities.kind === "ready" ? cities.items : []), [cities]);
-  const firstCity = cityList[0] ?? null;
 
-  // 默认日期：第一个可订城市当地的明天
+  // 默认日期：上车点所在城市当地的明天；还没选上车点时按地图默认打开的城市（M8-44，规则见 defaultDateCity）
+  const dateCity = defaultDateCity(cityList, draft.tab, draft.from);
   useEffect(() => {
-    if (firstCity === null) return;
-    setDraft((current) => (current.date === "" ? { ...current, date: defaultServiceDate(firstCity.timezone, new Date()) } : current));
-  }, [firstCity]);
+    if (dateCity === null || dateChosen.current) return;
+    const date = defaultServiceDate(dateCity.timezone, new Date());
+    setDraft((current) => (current.date === date ? current : { ...current, date }));
+  }, [dateCity]);
 
   // 链接预填（只在打开时一次）：两端都有、日期时间也有时直接报价并到第 2 步（网址里已经写了第几步的不动）
   const linkDone = useRef(false);
@@ -317,6 +321,7 @@ export function BookNewPage() {
           if (!alive) return;
           setLinkPending(false);
           const trip = draftTrip(saved);
+          if (trip.date !== "") dateChosen.current = true;
           setDraft((current) => ({ ...current, tab: trip.tab, mode: trip.tab, from: trip.from, to: trip.to, date: trip.date, time: trip.time, passengers: trip.passengers, luggage: trip.luggage, packageHours: trip.packageHours, waypoints: trip.waypoints }));
           // 包车按时长：草稿里的时长要等城市的套餐读到、确认在里面才去报价（嵌入组件不知道城市有哪几档）
           if (trip.tab === "charter" && trip.waypoints.length === 0 && trip.packageHours !== "") draftHours.current = trip.packageHours;
@@ -427,7 +432,7 @@ export function BookNewPage() {
   const quotedForWait = selected ?? quotes[0] ?? null;
   const flightScope = outcome?.mode === "transfer" ? (outcome.result.airport?.flight_scope ?? null) : null;
   const freeWait = arrival ? arrivalFreeWaitMinutes(quotedForWait, flightScope) : (quotedForWait?.free_wait_minutes ?? null);
-  const timezone = outcome?.mode === "charter" ? outcome.city.timezone : (outcome?.result.city?.timezone ?? firstCity?.timezone ?? "Asia/Tokyo");
+  const timezone = outcome?.mode === "charter" ? outcome.city.timezone : (outcome?.result.city?.timezone ?? dateCity?.timezone ?? "Asia/Tokyo");
   const cityName = outcome?.mode === "charter" ? displayName(outcome.city.name).text : outcome?.result.city ? displayName(outcome.result.city.name).text : null;
   // 包车按行程计价（M9W-02）：有经停点时套餐由服务端按行程选，明细、时间表按这一次报价
   const itinerary = draft.mode === "charter" && draft.waypoints.length > 0;
@@ -641,6 +646,7 @@ export function BookNewPage() {
   };
 
   const update = useCallback((changes: Partial<TripDraft>): void => {
+    if ("date" in changes) dateChosen.current = true;
     setDraft((value) => ({ ...value, ...changes }));
     setNotice(null);
     orderKey.current = null;

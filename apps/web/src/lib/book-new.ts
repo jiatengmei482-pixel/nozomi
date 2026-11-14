@@ -3,7 +3,7 @@
  * 链接参数、报不出价的说法、车型列表默认显示几个、乘客 / 行李栏的写法、车内俯视示意图的排布。
  * 价格、报价、下单逻辑都不在这里：报价走 `POST /site/v1/quotes/by-points`（包车走 `POST /site/v1/quotes`），只负责显示。
  */
-import { type CurrencyCode, formatMajor, isCurrencyCode, minorDigits, parseMajor, rateToFraction, roundFractionHalfAwayFromZero, routeKmText } from "@nozomi/domain";
+import { type CityCandidate, type CurrencyCode, type LatLng, formatMajor, isCurrencyCode, minorDigits, parseMajor, rateToFraction, roundFractionHalfAwayFromZero, routeKmText, serviceCityOf } from "@nozomi/domain";
 import { SITE_ROUTE_MAP_LIMITS, type SiteCity, type SitePlaceKind, type SiteUnavailableReason } from "../api/site.ts";
 import { UNAVAILABLE_REASON_TEXT } from "./site-display.ts";
 
@@ -134,6 +134,16 @@ export function defaultMapCity<T extends Pick<SiteCity, "categories">>(cities: r
     if (best === null || city.categories.length > best.categories.length) best = city;
   }
   return best ?? cities[0] ?? null;
+}
+
+/**
+ * 默认日期（「当地的明天」）按哪个城市的时区算（M8-44）：上车点（出发地 / 包车的上车地点）落在某个城市的范围里就用它；
+ * 还没选上车点、或上车点哪个城市都不在时，用地图默认打开的城市（`defaultMapCity`，列表空为 null）。
+ * 以前按列表第一项算：第一项是北京、客人在东京下单时，东京 00:00–01:00 之间「北京的明天」就是「东京的今天」。
+ */
+export function defaultDateCity<T extends Pick<SiteCity, "categories"> & CityCandidate>(cities: readonly T[], tab: BookTab, pickup: LatLng | null): T | null {
+  const found = pickup === null ? null : serviceCityOf(pickup, cities);
+  return found ?? defaultMapCity(cities, tab);
 }
 
 /** 链接里的 `mode`：包车 → charter；区间和 M8-27 的旧值（接送机 airport、点对点 p2p）→ transfer；别的值、没给为 null。 */
