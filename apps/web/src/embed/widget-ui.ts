@@ -43,7 +43,6 @@ interface Suggestion {
 /** 选了谷歌候选、正在取坐标的那个地址框（M9E-08）：name 是选中的候选（重画时框里照样显示）；重画后 view.status 换成新的提示行 */
 interface Locating {
   name: string;
-  done: Promise<void>;
   view: { status: HTMLElement };
 }
 
@@ -78,9 +77,12 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string,
   return node;
 }
 
-async function getJson(url: string): Promise<{ status: number | null; body: any }> {
+/** 取位置最多等这么久（M9E-08 审查）：一直不回就按「取不到这个地点的位置」处理，不让「查询价格」一直停在「正在取位置…」；测试里调短 */
+export const LOCATE_TIMEOUT = { ms: 10_000 };
+
+async function getJson(url: string, timeoutMs?: number): Promise<{ status: number | null; body: any }> {
   try {
-    const res = await fetch(url, { credentials: "omit", mode: "cors" });
+    const res = await fetch(url, { credentials: "omit", mode: "cors", ...(timeoutMs === undefined ? {} : { signal: AbortSignal.timeout(timeoutMs) }) });
     let body: unknown = null;
     try {
       body = await res.json();
@@ -110,6 +112,8 @@ class Widget {
   private readonly lostPlaces = new Set<unknown>();
   /** 点了「查询价格」、在等取坐标（按钮显示「正在取位置…」） */
   private waiting = false;
+  /** 提交在等取坐标时：正在取坐标的记录一有变化（取完、被换掉 / 删掉、切标签、删经停点）就叫醒它重新看 */
+  private wake: (() => void) | null = null;
   private readonly go: (url: string) => void;
 
   constructor(host: Element, base: string, options: InitOptions, go: (url: string) => void = (url) => window.location.assign(url)) {
@@ -170,7 +174,28 @@ class Widget {
     this.shadow.append(el("div", { class: "nzb", role: "status" }, [el("p", { class: "nzb-message" }, [this.t.unavailable]), link]));
   }
 
+  /** 改正在取坐标的记录（job 为 null 是删掉），并叫醒在等的提交；返回删之前有没有这一项 */
+  private setLocating(slot: unknown, job: Locating | null): boolean {
+    const had = this.locating.has(slot);
+    if (job === null) this.locating.delete(slot);
+    else this.locating.set(slot, job);
+    this.changed();
+    return had;
+  }
+
+  private changed(): void {
+    const wake = this.wake;
+    this.wake = null;
+    wake?.();
+  }
+
+  /** 提交要等的取坐标：出发地、目的地，包车时再加现有的经停点（切到「区间」后不等经停点） */
+  private blockingLocates(): number {
+    return [...this.locating.keys()].filter((slot) => typeof slot === "string" || (this.form.tab === "charter" && this.form.waypoints.includes(slot as WidgetForm["waypoints"][number]))).length;
+  }
+
   private render(focus?: string): void {
+    this.changed();
     this.clear();
     const t = this.t;
     const root = el("div", { class: "nzb", lang: this.lang === "zh" ? "zh-CN" : this.lang });
@@ -258,9 +283,9 @@ class Widget {
     wrap.append(el("div", { class: "nzb-field" }, [el("label", { for: id, class: "nzb-label" }, [`${t.waypoint} ${index + 1} ${t.stay}`]), select]));
     const remove = el("button", { type: "button", class: "nzb-secondary", "aria-label": `${t.removeWaypoint} ${index + 1}` }, [t.removeWaypoint]);
     remove.addEventListener("click", () => {
-      this.locating.delete(stop);
       this.lostPlaces.delete(stop);
       this.form.waypoints.splice(index, 1);
+      this.setLocating(stop, null);
       this.render("add-waypoint");
     });
     wrap.append(remove);
@@ -299,27 +324,27 @@ class Widget {
       const used = session;
       session = sessionToken();
       if (item.location !== null) {
-        this.locating.delete(slot);
         status.textContent = "";
         set({ name: item.name, lat: item.location.lat, lng: item.location.lng });
+        this.setLocating(slot, null);
         return;
       }
       set(null);
       status.textContent = t.locating;
-      const job: Locating = { name: item.name, view: { status }, done: Promise.resolve() };
-      job.done = getJson(this.url("/embed/v1/places/details", { id: item.id, session: used })).then((details) => {
+      const job: Locating = { name: item.name, view: { status } };
+      void getJson(this.url("/embed/v1/places/details", { id: item.id, session: used }), LOCATE_TIMEOUT.ms).then((details) => {
         if (this.locating.get(slot) !== job) return;
-        this.locating.delete(slot);
         const location: { lat: number; lng: number } | null = details.status === 200 ? (details.body?.place?.location ?? null) : null;
         if (location === null) {
           this.lostPlaces.add(slot);
           job.view.status.textContent = t.locateFailed;
-          return;
+        } else {
+          job.view.status.textContent = "";
+          set({ name: item.name, lat: location.lat, lng: location.lng });
         }
-        job.view.status.textContent = "";
-        set({ name: item.name, lat: location.lat, lng: location.lng });
+        this.setLocating(slot, null);
       });
-      this.locating.set(slot, job);
+      this.setLocating(slot, job);
     };
     const search = async (query: string): Promise<void> => {
       const mine = ++round;
@@ -353,7 +378,7 @@ class Widget {
     };
     input.addEventListener("input", () => {
       set(null);
-      if (this.locating.delete(slot)) status.textContent = "";
+      if (this.setLocating(slot, null)) status.textContent = "";
       if (this.lostPlaces.delete(slot)) status.textContent = "";
       if (timer !== null) clearTimeout(timer);
       const query = input.value.trim();
@@ -382,12 +407,13 @@ class Widget {
   private async submit(message: HTMLElement): Promise<void> {
     if (this.busy) return;
     const t = this.t;
-    // 还在取坐标（M9E-08）：按钮显示「正在取位置…」、不重复提交，等取完（期间又选了别的就再等那一次）再接着查
-    if (this.locating.size > 0) {
+    // 还在取坐标（M9E-08）：按钮显示「正在取位置…」、不重复提交，等取完再接着查；记录一有变化就重新看，
+    // 被换掉 / 删掉的旧请求、切到「区间」后的经停点不再挡着（取位置本身有超时，见 LOCATE_TIMEOUT）
+    if (this.blockingLocates() > 0) {
       this.busy = this.waiting = true;
       this.shadow.querySelector(".nzb-primary")?.setAttribute("aria-disabled", "true");
       this.shadow.querySelector(".nzb-primary")?.replaceChildren(t.locating);
-      while (this.locating.size > 0) await Promise.all([...this.locating.values()].map((job) => job.done));
+      while (this.blockingLocates() > 0) await new Promise<void>((resolve) => (this.wake = resolve));
       this.busy = this.waiting = false;
       this.shadow.querySelector(".nzb-primary")?.removeAttribute("aria-disabled");
       this.shadow.querySelector(".nzb-primary")?.replaceChildren(t.submit);

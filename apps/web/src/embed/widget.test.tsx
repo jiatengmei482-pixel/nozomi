@@ -5,7 +5,7 @@
  */
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { initFrom, initWithBase, scriptOriginOf } from "./widget-ui.ts";
+import { LOCATE_TIMEOUT, initFrom, initWithBase, scriptOriginOf } from "./widget-ui.ts";
 import { GOOGLE_MAPS_ATTRIBUTION, GOOGLE_MAPS_ATTRIBUTION_ATTRIBUTES } from "../lib/google-attribution.ts";
 import { readFile } from "node:fs/promises";
 import { WIDGET_CSS } from "./widget-style.ts";
@@ -250,7 +250,7 @@ test("谷歌署名的样式（M9E-06 审查）：和主站同一个灰色（toke
   assert.match(WIDGET_CSS, /\.nzb-list \{[^}]*overflow-y: auto;/, "滚动的是候选列表，署名在列表下面");
 });
 
-/** M9E-08：慢的取坐标替身。谷歌候选按 q 给（東京駅 / 新宿駅），取坐标要等测试放行；放行时可以指定成功或失败 */
+/** M9E-08：慢的取坐标替身。谷歌候选按 q 给（東京駅 / 新宿駅），取坐标要等测试放行（不放行就一直不回）；放行时可以指定成功或失败；组件超时取消时按浏览器那样失败 */
 function slowDetails(): { handler: Handler; release: (id: string, reply?: Reply) => void; drafts: unknown[] } {
   const waiting = new Map<string, (reply: Reply) => void>();
   const drafts: unknown[] = [];
@@ -263,7 +263,10 @@ function slowDetails(): { handler: Handler; release: (id: string, reply?: Reply)
     if (url.pathname === "/embed/v1/places/autocomplete" && (url.searchParams.get("q") ?? "").includes("新宿")) return { status: 200, body: { available: true, items: [{ source: "google", id: "ChIJshinjuku", name: "新宿駅", address: "東京都新宿区", location: null, kind: "other" }] } };
     if (url.pathname === "/embed/v1/places/details") {
       const id = url.searchParams.get("id") ?? "";
-      return new Promise<Reply>((resolve) => waiting.set(id, resolve));
+      return new Promise<Reply>((resolve, reject) => {
+        waiting.set(id, resolve);
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("The operation was aborted.", "TimeoutError")));
+      });
     }
     return places(url, init);
   };
@@ -391,4 +394,75 @@ test("M9E-08 ③：取坐标失败如实提示、不建草稿，客人重选后�
   submitForm();
   await wait(30);
   assert.deepEqual((slow.drafts[0] as { draft: Record<string, unknown> }).draft["dropoff"], { name: "新宿駅", lat: 35.6896, lng: 139.7006 });
+});
+
+test("M9E-08 审查：取位置一直不回时，客人改选自带坐标的候选后能正常提交（被换掉的旧请求不再挡提交）", async () => {
+  const slow = slowDetails();
+  handler = slow.handler;
+  const went: string[] = [];
+  await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh" }, (url) => went.push(url));
+  await pick("pickup", "成田", "成田国際空港");
+  await type("dropoff", "東京");
+  clickOption("dropoff");
+  submitForm();
+  await wait(20);
+  assert.equal($(".nzb-primary").textContent, "正在取位置…");
+  await type("dropoff", "成田");
+  assert.equal($(".nzb-primary").textContent, "查询价格", "改字后不再等那次取位置");
+  assert.equal($(".nzb-primary").getAttribute("aria-disabled"), null);
+  clickOption("dropoff");
+  submitForm();
+  await wait(30);
+  assert.equal(slow.drafts.length, 1);
+  assert.deepEqual((slow.drafts[0] as { draft: Record<string, unknown> }).draft["dropoff"], { name: "成田国際空港", lat: 35.772, lng: 140.3929 });
+  assert.equal(went.length, 1);
+});
+
+test("M9E-08 审查：取位置超时按「取不到这个地点的位置」提示、按钮恢复，重选后可以提交", async () => {
+  const slow = slowDetails();
+  handler = slow.handler;
+  const original = LOCATE_TIMEOUT.ms;
+  LOCATE_TIMEOUT.ms = 80;
+  try {
+    await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh" }, () => undefined);
+    await pick("pickup", "成田", "成田国際空港");
+    await type("dropoff", "東京");
+    clickOption("dropoff");
+    submitForm();
+    await wait(20);
+    assert.equal($(".nzb-primary").textContent, "正在取位置…");
+    await wait(150);
+    assert.equal($('[data-field="dropoff"] [aria-live]').textContent, "取不到这个地点的位置，请重新选一个");
+    assert.equal($('[data-role="message"]').textContent, "取不到这个地点的位置，请重新选一个");
+    assert.equal($(".nzb-primary").textContent, "查询价格");
+    assert.equal($(".nzb-primary").getAttribute("aria-disabled"), null);
+    assert.equal(slow.drafts.length, 0);
+    await type("dropoff", "新宿");
+    clickOption("dropoff");
+    slow.release("ChIJshinjuku");
+    await wait(20);
+    submitForm();
+    await wait(30);
+    assert.deepEqual((slow.drafts[0] as { draft: Record<string, unknown> }).draft["dropoff"], { name: "新宿駅", lat: 35.6896, lng: 139.7006 });
+  } finally {
+    LOCATE_TIMEOUT.ms = original;
+  }
+});
+
+test("M9E-08 审查：包车经停点在取位置时切到「区间」，提交不再等经停点", async () => {
+  const slow = slowDetails();
+  handler = slow.handler;
+  await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh", services: ["charter", "transfer"] }, () => undefined);
+  await pick("pickup", "成田", "成田国際空港");
+  await pick("dropoff", "成田", "成田国際空港");
+  ($('[data-action="add-waypoint"]') as HTMLButtonElement).click();
+  await type("waypoint-0", "新宿");
+  clickOption("waypoint-0");
+  submitForm();
+  await wait(20);
+  assert.equal($(".nzb-primary").textContent, "正在取位置…", "包车时等经停点");
+  ($('[data-tab="transfer"]') as HTMLButtonElement).click();
+  await wait(30);
+  assert.equal(slow.drafts.length, 1, "切到区间后不再等经停点，接着建草稿");
+  assert.equal((slow.drafts[0] as { draft: Record<string, unknown> }).draft["tab"], "transfer");
 });
