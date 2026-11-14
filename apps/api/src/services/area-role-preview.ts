@@ -28,6 +28,7 @@ import {
   instantToLocal,
   quoteProduct,
   quoteRequestIssues,
+  type CharterSelection,
 } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
 import { type QuoteCandidate, findQuoteCity, findQuotePlace, loadQuoteCandidates } from "../repos/quotes.ts";
@@ -132,7 +133,7 @@ export function previewOutcome(quote: ProductQuote): { external: string; interna
 const isRouteUsage = (value: unknown): value is { meters: number; minutes: number } => typeof value === "object" && value !== null && typeof (value as Row)["meters"] === "number" && typeof (value as Row)["minutes"] === "number";
 
 /** 询价日志里记的请求（渠道的、官网的两种写法）→ 报价引擎的请求；认不出返回 null */
-async function replayRequest(db: Db, raw: Row, timezone: string, usedPlaces: Set<string>): Promise<{ category: ServiceCategory; placeId: string | null; request: QuoteRequest } | null> {
+export async function replayRequest(db: Db, raw: Row, timezone: string, usedPlaces: Set<string>): Promise<{ category: ServiceCategory; placeId: string | null; request: QuoteRequest } | null> {
   const category = raw["category"] as ServiceCategory;
   if (!(SERVICE_CATEGORIES as readonly string[]).includes(category)) return null;
   const pointOf = async (value: unknown): Promise<LatLng | null | undefined> => {
@@ -189,6 +190,8 @@ async function replayRequest(db: Db, raw: Row, timezone: string, usedPlaces: Set
     ...(waypoints.length === 0 ? {} : { waypoints }),
     // 包车按行程计价（ADR 0088 补充）：日志里记的全程、总时长照原样带上
     ...(isRouteUsage(raw["route_usage"]) ? { routeUsage: { meters: raw["route_usage"].meters, minutes: raw["route_usage"].minutes } } : {}),
+    // 包车怎么定套餐（M9P-03，ADR 0093 第四节）：新口径的日志记了 charter_selection，回放据此重现选档、不收超时费；旧日志没有，按旧口径（选档、超时费逐字不变）
+    ...(typeof raw["charter_selection"] === "string" ? { charterSelection: raw["charter_selection"] as CharterSelection } : {}),
   };
   return quoteRequestIssues(request).length > 0 ? null : { category, placeId, request };
 }

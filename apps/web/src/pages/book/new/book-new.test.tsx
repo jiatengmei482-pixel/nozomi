@@ -777,7 +777,7 @@ test("预订草稿（M9E-03）：嵌入组件的包车、没填经停点（不�
   assert.deepEqual([changed.dropoff, changed.draft_id], [{ lat: 35.6905, lng: 139.6948 }, DRAFT_ID]);
 });
 
-test("预订草稿（M9E-12）：草稿过期、不存在或读不出来时，客人手填后的询价不带草稿编号，照常报价", async () => {
+test("预订草稿（M9E-12）：草稿过期或不存在（404）时客人手填后的询价不带草稿编号；读不出来（429）时照样带链接里的编号（服务端核对）；都照常报价", async () => {
   for (const reply of [undefined, () => apiError(429, "RATE_LIMITED", "太频繁", {}, { "retry-after": "30" })]) {
     wideScreen();
     const calls = open({ at: `/book/new?draft=${DRAFT_ID}`, ...(reply === undefined ? {} : { draft: reply }) });
@@ -785,11 +785,35 @@ test("预订草稿（M9E-12）：草稿过期、不存在或读不出来时，�
     assert.ok(await screen.findByText(reply === undefined ? "链接已过期，请重新填写。" : "没能读取预订信息，请重新填写，或稍后刷新页面。", {}, SLOW));
     await fillTrip(actor);
     await waitFor(() => assert.equal(posts(calls).length > 0, true), SLOW);
-    for (const call of posts(calls)) assert.equal("draft_id" in (call.body as Record<string, unknown>), false);
+    for (const call of posts(calls)) assert.equal((call.body as Record<string, unknown>).draft_id, reply === undefined ? undefined : DRAFT_ID);
     await next(actor, NEXT_VEHICLES);
     await screen.findByRole("heading", { name: "车型1" }, SLOW);
     resetBrowser();
   }
+});
+
+test("预订草稿（M9E-12）：包车有经停点、客人在主站手动升到更长的套餐（M9P-03）后重新报价也带草稿编号", async () => {
+  wideScreen();
+  const draft = draftOf({ tab: "charter", pickup: { name: "银座", lat: 35.6717, lng: 139.765 }, dropoff: { name: "新宿站", lat: 35.6896, lng: 139.7006 }, waypoints: [{ name: "浅草寺", lat: 35.7148, lng: 139.7967, stay_minutes: 60 }] });
+  const calls = open({
+    at: `/book/new?draft=${DRAFT_ID}`,
+    packages: [4, 5, 8, 10],
+    draft: () => json(200, { draft, expires_at: "2030-11-19T02:00:00.000Z" }),
+    charter: (call) => {
+      const hours = (call.body as { package_hours?: number }).package_hours ?? 5;
+      return json(200, { currency: "JPY", quotes: [{ ...quoteOf(1, { freeWait: 0, package: { hours, km: 200 } }), estimated_minutes: 270, includes_buffer: false, auto_package_hours: 5 }], unavailable: [] } satisfies SiteQuoteResult);
+    },
+  });
+  const actor = user();
+  await waitFor(() => assert.equal(posts(calls, "/site/v1/quotes").length > 0, true), SLOW);
+  await actor.click(await screen.findByRole("button", { name: "上一步" }, SLOW));
+  const select = (await screen.findByLabelText(/^包车时长/, {}, SLOW)) as HTMLSelectElement;
+  await waitFor(() => assert.ok([...select.options].some((option) => option.value === "10")), SLOW);
+  await actor.selectOptions(select, "10");
+  await waitFor(() => assert.equal((posts(calls, "/site/v1/quotes").at(-1)?.body as Record<string, unknown>).package_hours, 10), SLOW);
+  const upgraded = posts(calls, "/site/v1/quotes").at(-1)?.body as Record<string, unknown>;
+  assert.deepEqual([upgraded.itinerary_pricing, upgraded.draft_id], [true, DRAFT_ID]);
+  for (const call of posts(calls, "/site/v1/quotes")) assert.equal((call.body as Record<string, unknown>).draft_id, DRAFT_ID);
 });
 
 test("预订草稿（M9E-12）：加了附加服务重新报价（下单用这一次的报价）也带草稿编号", async () => {

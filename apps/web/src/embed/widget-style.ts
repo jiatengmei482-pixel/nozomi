@@ -7,7 +7,7 @@ import type { ResolvedTheme } from "./widget-core.ts";
  * （文字 --color-text-primary / secondary / tertiary、边框 --color-border-default / strong、背景 --color-bg-page / subtle、悬停 --color-bg-selected、成功 / 危险、阴影）。
  * 主题只有 CSS 变量，默认值写在 .nzb-shell 上（中性配色：主色 tokens.css --color-brand 深蓝、浅米色点缀、圆角 24 px、系统字体）；
  * init 的 theme 由 themeCss 生成一条同选择器、排在后面的规则覆盖：--nzb-primary、--nzb-on-primary、--nzb-ink、--nzb-accent、--nzb-on-accent、--nzb-radius、--nzb-font。
- * 外观看 `.nzb-shell[data-layout]`（card / bar；bar 在容器窄于 768 px 时由组件换成 card）。容器 320 px 起不横向滚动；焦点环清楚可见；输入框字号 16px（iOS 小于 16px 聚焦时会放大页面）。
+ * 外观看 `.nzb-shell[data-layout]`（card / bar，由组件按要的外观和容器宽度定，见 widget-core.ts 的 layoutFor）。容器 320 px 起不横向滚动；焦点环清楚可见；输入框字号 16px（iOS 小于 16px 聚焦时会放大页面）。
  */
 export const WIDGET_CSS = `
 :host { all: initial; display: block; }

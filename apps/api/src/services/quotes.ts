@@ -23,6 +23,7 @@ import {
   type QuoteWaypoint,
   type RouteUsage,
   type RouteEstimate,
+  type CharterSelection,
   type RouteFailureCode,
   type RouteSource,
   type ServiceCategory,
@@ -78,6 +79,11 @@ export interface QuotePreviewInput {
   waypoints?: readonly QuoteWaypoint[];
   /** 包车按行程计价（ADR 0088 补充）：服务器算出的全程和总时长；不给 = 不按行程计价 */
   routeUsage?: RouteUsage;
+  /**
+   * 包车怎么定套餐（ADR 0093 第四节，进快照和询价日志）：官网、渠道的新询价传 `auto` / `manual`，新口径的单改期、救援传 `locked`。
+   * **这里不设默认值**（ADR 0091 第三节第 1 小节）：不给 = 部署前的口径（选档、超时费照旧），部署前的单救援就是这样传的
+   */
+  charterSelection?: CharterSelection;
 }
 
 const REQUEST_MESSAGES: Readonly<Record<string, string>> = {
@@ -112,6 +118,7 @@ function toRequest(category: ServiceCategory, input: QuotePreviewInput): QuoteRe
     // 没有经停点时不带这个键：报价请求、快照和以前一模一样
     ...(input.waypoints === undefined || input.waypoints.length === 0 ? {} : { waypoints: input.waypoints }),
     ...(input.routeUsage === undefined ? {} : { routeUsage: input.routeUsage }),
+    ...(input.charterSelection === undefined ? {} : { charterSelection: input.charterSelection }),
   };
 }
 
@@ -340,7 +347,9 @@ export async function previewPlatformQuote(ctx: AppContext, input: PlatformQuote
   );
   const { city, place, candidates, excluded, facts, standings, channel } = loaded;
   const pricing = channel?.channel.pricing ?? null;
-  const bandBp = pricing?.bandBp ?? ctx.quote.markup.bandBp;
+  // 包车新口径（带 charterSelection）严格取总价最低：同价区间 0，价格完全相同时才看评分（ADR 0093 第三节第 4 条，业主确认第 5 条按推荐）；
+  // 接送机、点对点和部署前的包车单（改期、救援）照旧用渠道的
+  const bandBp = request.category === "charter" && request.charterSelection !== undefined ? 0 : (pricing?.bandBp ?? ctx.quote.markup.bandBp);
   const markupFloorBp = pricing?.markupFloorBp ?? ctx.quote.markup.floorBp;
   // 最低毛利是渠道结算币种的金额：客人付别的币种时要汇率
   const marginCurrency = channel !== null && pricing !== null && pricing.minMarginMinor > 0 && channel.channel.settleCurrency !== currency ? channel.channel.settleCurrency : null;

@@ -23,8 +23,10 @@ import {
   type WidgetService,
   type ResolvedTheme,
   type WidgetLayout,
+  type WantedLayout,
   GUEST_LIMITS,
   layoutFor,
+  resolveAutoBreakpoint,
   resolveLayout,
   draftFailureOf,
   draftOf,
@@ -130,10 +132,15 @@ class Widget {
   /** 提交在等取坐标时：正在取坐标的记录一有变化（取完、被换掉 / 删掉、切标签、删经停点）就叫醒它重新看 */
   private wake: (() => void) | null = null;
   private readonly go: (url: string) => void;
-  /** 外观（M9E-10）：wanted 是 init 要的，layout 是按容器宽度实际用的（见 watchSize）；主题在 init 时定 */
+  /**
+   * 外观（M9E-10、M9E-14）：wanted 是要的（init 传的 > 嵌入码后台设的 > auto，取到配置后才定，见 start），
+   * layout 是按容器宽度实际用的（见 watchSize），width 是最近一次量到的容器宽度；主题在 init 时定
+   */
   private readonly theme: ResolvedTheme;
-  private readonly wanted: WidgetLayout;
+  private wanted: WantedLayout;
+  private readonly autoBreakpoint: number;
   private layout: WidgetLayout = "card";
+  private width = 0;
   private root: HTMLElement | null = null;
   /** 底部隐私提示的 id（地址框的 aria-describedby） */
   private noteId = "";
@@ -151,6 +158,7 @@ class Widget {
     this.form = { tab: "transfer", pickup: null, dropoff: null, waypoints: [], date: tomorrow(new Date()), time: "10:00", passengers: 2, luggage: 1 };
     this.theme = resolveTheme(options.theme);
     this.wanted = resolveLayout(options.layout);
+    this.autoBreakpoint = resolveAutoBreakpoint(options.autoBreakpoint);
     this.applyStyles();
     this.watchSize(host);
     if (typeof document !== "undefined") {
@@ -211,6 +219,9 @@ class Widget {
     this.lang = resolveLang(this.options.lang, config.body.lang);
     this.services = resolveServices(this.options.services, config.body.services);
     this.form.tab = this.services[0] ?? "transfer";
+    // 取到配置之前表单还没画（只有样式表），所以第一次画出来就是最终的外观，不会先卡片再变横条
+    this.wanted = resolveLayout(this.options.layout, config.body.layout);
+    this.layout = layoutFor(this.wanted, this.width, this.autoBreakpoint);
     this.render();
   }
 
@@ -228,10 +239,14 @@ class Widget {
     return shell;
   }
 
-  /** 按组件容器（宿主给的那个元素）的宽度定外观，不按视口（M9E-10）：要 bar 但容器窄于 768 px 时用 card；只改 data-layout、不重画 */
+  /**
+   * 按组件容器（宿主给的那个元素）的宽度定外观，不按视口（M9E-10、M9E-14，规则见 layoutFor）。
+   * 两种外观是同一套 DOM，换外观只改 data-layout、不重画：已填的内容、焦点、打开的候选都不动。
+   */
   private watchSize(host: Element): void {
     const apply = (width: number): void => {
-      this.layout = layoutFor(this.wanted, width);
+      this.width = width;
+      this.layout = layoutFor(this.wanted, width, this.autoBreakpoint);
       this.root?.setAttribute("data-layout", this.layout);
     };
     apply(host.getBoundingClientRect().width);

@@ -12,8 +12,8 @@ export const EMBED_KEYS_PATH = `${PLATFORM_BASE}/embed-keys`;
 export type EmbedLang = "zh" | "ja" | "en";
 export type EmbedService = "transfer" | "charter";
 export type EmbedKeyStatus = "active" | "disabled";
-/** 组件的外观（M9E-10）：卡片、横条 */
-export type EmbedLayout = "card" | "bar";
+/** 组件的外观（M9E-10、M9E-14）：自动（按组件容器宽度）、卡片、横条 */
+export type EmbedLayout = "auto" | "card" | "bar";
 
 export interface EmbedKey {
   id: string;
@@ -37,7 +37,7 @@ export interface EmbedKeyWrite {
   allowed_origins: string[];
   default_lang: EmbedLang;
   default_services: EmbedService[];
-  /** 服务端是选填（不填时新建按卡片、修改保持原值）；后台页面总是带上 */
+  /** 服务端是选填（不填时新建按自动、修改保持原值）；后台页面总是带上 */
   layout: EmbedLayout;
   note: string | null;
 }

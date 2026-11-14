@@ -163,6 +163,10 @@ export interface SiteQuote {
   cancel_policy: { category: string; level: string; tiers: CancelTier[] };
   /** 这个车型还能加哪些附加服务（M8-02）；没有为空数组 */
   available_addons: SiteAddonOption[];
+  /** 包车按行程计价（M9P-03，ADR 0091、0093）：中标商品的预计用时（分钟）、是否含经停点默认占用或整单缓冲、这个车型自动选的套餐（小时）；别的报价都是 null */
+  estimated_minutes?: number | null;
+  includes_buffer?: boolean | null;
+  auto_package_hours?: number | null;
 }
 
 /** 对外价明细的一项（M9W-01）：基础价 / 套餐、上 / 下车加价、一个区域的途经加价、调价、其他费用 */
@@ -180,6 +184,8 @@ export type SiteUnavailableReason =
   | "OUT_OF_SERVICE_AREA"
   | "DROPOFF_REQUIRED"
   | "WAYPOINT_NOT_PRICED"
+  | "PACKAGE_TOO_SHORT"
+  | "ITINERARY_TOO_LONG"
   | "LEAD_TIME_TOO_SHORT"
   | "SOLD_OUT"
   | "OUTSIDE_SERVICE_TIME"
@@ -207,7 +213,8 @@ export interface SiteQuoteResult {
   itinerary_route?: { legs: { minutes: number; meters: number }[]; drive_minutes: number; stay_minutes: number; total_minutes: number; total_meters: number };
   quotes: SiteQuote[];
   /** `waypoint_stop_seqs`：原因里有 WAYPOINT_NOT_PRICED 时是哪几个经停点（从 1 起，M9W-01） */
-  unavailable: { vehicle_group_id: string | null; reasons: SiteUnavailableReason[]; waypoint_stop_seqs?: number[] }[];
+  /** `min_package_hours`：原因里有 PACKAGE_TOO_SHORT 时，这个车型最短能选几小时（M9P-03） */
+  unavailable: { vehicle_group_id: string | null; reasons: SiteUnavailableReason[]; waypoint_stop_seqs?: number[]; min_package_hours?: number }[];
 }
 
 /** 按两个坐标报价的一端（M8-02，ADR 0069 A1）：地址文字（只校验）、坐标、地址搜索给的类型（手填、地图选点的不给）。 */
@@ -471,7 +478,7 @@ export const SITE_SCHEMA_FIELDS = {
   SiteAirport: ["id", "code", "name", "location"],
   SiteCharterPackage: ["hours"],
   SitePlace: ["id", "type", "code", "name", "address", "location"],
-  SiteQuote: ["quote_id", "expires_at", "service_date", "urgent", "vehicle_group", "package", "includes_area_surcharge", "distance", "pricing_basis", "price", "price_breakdown", "free_wait_minutes", "cancel_policy", "available_addons"],
+  SiteQuote: ["quote_id", "expires_at", "service_date", "urgent", "vehicle_group", "package", "includes_area_surcharge", "distance", "pricing_basis", "price", "price_breakdown", "free_wait_minutes", "cancel_policy", "available_addons", "estimated_minutes", "includes_buffer", "auto_package_hours"],
   SiteAddonOption: ["id", "code", "name", "charge_unit"],
   SiteOrderLink: ["token", "expires_at"],
   SiteOrderEnvelope: ["return_url", "order", "timeline", "names", "price_breakdown"],

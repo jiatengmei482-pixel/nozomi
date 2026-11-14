@@ -145,6 +145,8 @@ export interface ProductServiceRules {
   currency: string | null;
   /** 平台规定的各项免费等待最少分钟数；这个品类不填的项是 null */
   free_wait_minimums: { pickup: number | null; dropoff: number | null; general: number | null };
+  /** 包车：最低套餐比所有启用的套餐都长时的提醒（M9P-03，ADR 0091）；没有这种情况、别的品类为 null */
+  min_package_above_all?: { min_package_hours: number; longest_package_hours: number } | null;
   rules: ServiceRulesBody;
 }
 
@@ -297,7 +299,7 @@ export const PRODUCT_SCHEMA_FIELDS = {
   ProductSummary: [...BASE, "check"],
   Product: [...BASE, "areas", "vehicle_groups", "dispatchers"],
   Dispatcher: ["name", "phone"],
-  ProductServiceRules: ["version", "currency", "free_wait_minimums", "rules"],
+  ProductServiceRules: ["version", "currency", "free_wait_minimums", "min_package_above_all", "rules"],
   ProductContentText: ["title", "summary", "includes", "excludes", "itinerary", "pickup_guide"],
   ProductContentResponse: ["version", "content"],
   PublishCheck: ["can_publish", "items"],

@@ -8,6 +8,8 @@
  * - 建草稿失败（M9E-07，ADR 0090 第七节）：网络错误、429 两种（拦截改写应答）、400（客人填了不存在的日期，真实 API 拒绝）各显示第四节的那一句、不跳转；
  *   400 标出日期并把焦点移过去，改正后去掉标记。
  * - 包车（M9E-07）：选「包车」标签、不填经停点 → 跳 /book/new?draft= 后停在第 1 步等客人选时长、不询价 → 选 8 小时后报价。
+ * - 外观（M9E-14）：init 没传 layout 时用嵌入码后台设的（默认 auto：容器 ≥ 900 px 横条、窄了卡片），改窗口宽度来回换、已填的不丢；
+ *   后台改成横条后新打开的页面是横条；宿主 init 传了 card 以 init 为准。
  * - 来源（M9E-12）：配了 Stripe 的那一组主站上，组件建草稿 → 询价带 `draft_id` → 下单 → 假 Stripe 测试卡 4242 付款 →
  *   平台订单详情 `entry_source.kind` 是 `embed`、带嵌入码名称和网站 → 订单页「返回原网站」链到建草稿时的 return_url。
  */
@@ -30,22 +32,24 @@ const SITE = `http://127.0.0.1:${E2E_WEB_PLACES_PORT}`;
 const STRIPE_SITE = `http://127.0.0.1:${E2E_WEB_STRIPE_PORT}`;
 
 /** 宿主页：所有 div、input、button 红底白字、30px、粗体、字距、大写、斜体（都加 !important），看组件会不会被染上（会继承的几项最容易穿进 Shadow DOM） */
-function hostPage(key: string, site: string): string {
+function hostPage(key: string, layout: string | null = null, site = SITE): string {
   return `<!doctype html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>合作网站</title>
 <style>div, input, button { background: rgb(255, 0, 0) !important; color: rgb(255, 255, 255) !important; font-size: 30px !important; font-weight: 700 !important; letter-spacing: 6px !important; text-transform: uppercase !important; font-style: italic !important; } body { margin: 0; }</style></head>
 <body><main><h1>合作网站</h1><div id="nozomi-booking"></div></main>
 <script src="${site}/embed/widget-v1.js"></script>
-<script>NozomiBooking.init({ key: ${JSON.stringify(key)}, root: "#nozomi-booking", lang: "zh", services: ["transfer", "charter"], redirectUrl: location.origin + "/thanks" });</script>
+<script>NozomiBooking.init({ key: ${JSON.stringify(key)}, root: "#nozomi-booking", lang: "zh", services: ["transfer", "charter"], redirectUrl: location.origin + "/thanks"${layout === null ? "" : `, layout: ${JSON.stringify(layout)}`} });</script>
 </body></html>`;
 }
 
 async function startHost(key: () => string, site = SITE): Promise<{ server: Server; origin: string }> {
   const server = createServer((request, response) => {
-    if (request.url !== "/" && request.url !== "/index.html") {
+    const url = new URL(request.url ?? "/", "http://host");
+    if (url.pathname !== "/" && url.pathname !== "/index.html") {
       response.writeHead(404).end();
       return;
     }
-    response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(hostPage(key(), site));
+    // ?layout=card：宿主页的 init 传 layout（M9E-14）
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(hostPage(key(), url.searchParams.get("layout"), site));
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   return { server, origin: `http://127.0.0.1:${(server.address() as AddressInfo).port}` };
@@ -297,6 +301,51 @@ test("嵌入组件包车：选「包车」、不填经停点 → 跳 /book/new?d
   const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: trip.groupName }) });
   await expect(card).toContainText("78,100 JPY");
   expect(charterQuotes.at(-1)).toMatchObject({ category: "charter", pickup: trip.pickup, dropoff: trip.station.location, package_hours: 8, service_local: `${date}T10:00` });
+});
+
+test("嵌入组件外观（M9E-14）：默认自动——窗口 1280 横条、899 卡片、900 横条、390 卡片，来回换已填的不丢；后台改成横条后新页面 800 px 也是横条；宿主 init 传 card 以 init 为准", async ({ browser, request }) => {
+  test.setTimeout(120_000);
+  const world = await createWorld(request);
+  const airport = await createAirport(request, world);
+  await useNewEmbedKey(request);
+  const layoutOf = (page: Page) => page.evaluate(() => document.querySelector("#nozomi-booking")?.shadowRoot?.querySelector(".nzb-shell")?.getAttribute("data-layout") ?? null);
+  // 每次新开一个浏览器上下文：配置应答在浏览器里缓存 60 秒，同一上下文里刷新可能拿到旧的
+  const open = async (width: number, query = ""): Promise<Page> => {
+    const context = await browser.newContext({ viewport: { width, height: 900 } });
+    const page = await context.newPage();
+    await page.goto(`${allowedHost.origin}/${query}`);
+    await expect(page.getByRole("combobox", { name: "出发地" })).toBeVisible();
+    return page;
+  };
+
+  const page = await open(1280);
+  expect(await layoutOf(page), "后台默认自动：1280 宽横条").toBe("bar");
+  await choosePlace(page, "出发地", airport.name);
+  const toBox = page.getByRole("combobox", { name: "目的地" });
+  await toBox.fill("打了一半");
+  await page.getByLabel("日期").fill(dayAfterTomorrow());
+  for (const [width, expected] of [[899, "card"], [900, "bar"], [390, "card"], [1440, "bar"]] as const) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect.poll(() => layoutOf(page), { message: `${width} px` }).toBe(expected);
+    await expect(page.getByRole("combobox", { name: "出发地" })).toHaveValue(airport.name);
+    await expect(toBox).toHaveValue("打了一半");
+    await expect(page.getByLabel("日期")).toHaveValue(dayAfterTomorrow());
+  }
+  await page.context().close();
+
+  const listed = (await (await request.get("/platform/v1/embed-keys", { headers: await platformAdminHeaders(request) })).json()) as { items: { id: string; key: string; version: number; name: string; allowed_origins: string[] }[] };
+  const current = listed.items.find((item) => item.key === embedKey);
+  expect(current).toBeDefined();
+  const { id, version, name, allowed_origins } = current as NonNullable<typeof current>;
+  const patched = await request.patch(`/platform/v1/embed-keys/${id}`, { headers: { ...(await platformAdminHeaders(request)), "if-match": `"${version}"` }, data: { name, allowed_origins, default_lang: "zh", default_services: ["transfer", "charter"], layout: "bar", note: null, status: "active" } });
+  expect(patched.status(), await patched.text()).toBe(200);
+  const barPage = await open(800);
+  expect(await layoutOf(barPage), "后台设横条：800 宽（自动时是卡片）也是横条").toBe("bar");
+  await barPage.context().close();
+
+  const cardPage = await open(1280, "?layout=card");
+  expect(await layoutOf(cardPage), "宿主 init 传了 card：后台设横条也用卡片").toBe("card");
+  await cardPage.context().close();
 });
 
 test("嵌入组件来的单记来源（M9E-12）：建草稿 → 询价带 draft_id → 下单 → 测试卡 4242 付款 → 平台订单详情来源是嵌入组件（带嵌入码名称）→ 订单页「返回原网站」链到 return_url", async ({ page, request }) => {
