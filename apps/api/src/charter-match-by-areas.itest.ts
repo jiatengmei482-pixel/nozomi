@@ -101,6 +101,11 @@ async function quote(pickup: Place, dropoff: Place, hours: number, stops: Place[
 const ends = (res: ApiResponse): [string, string, string | undefined][] =>
   res.body.quotes[0].price_breakdown.filter((item: any) => item.kind === "pickup" || item.kind === "dropoff").map((item: any) => [item.kind, item.amount.amount, item.area_name?.zh]);
 const cityCode = (res: ApiResponse): string | null => res.body.city?.code ?? null;
+/** 第一个报价的询价日志：城市、原始请求里的 city_id、城市是怎么来的（`city_by`：客人带的 request，或服务器按点选的 only / requested / …） */
+async function loggedCity(res: ApiResponse): Promise<{ city_id: string; request_city: string; city_by: string } | undefined> {
+  const found = await api.db.owner.query<{ city_id: string; request_city: string; city_by: string }>("select l.city_id, l.request->>'city_id' as request_city, l.request->>'city_by' as city_by from quotes q join quote_logs l on l.id = q.quote_log_id where q.id = $1", [res.body.quotes[0]?.quote_id]);
+  return found.rows[0];
+}
 
 test("用例 18：河口湖上车 → 新宿下车（不带 city_id、不填经停）：由东京包车报价，套餐按东京市内价，收富士山上车加价（55,000 + 10,000）× 1.1", async () => {
   const res = await quote("kawaguchiko", "shinjuku", 10);
@@ -109,8 +114,7 @@ test("用例 18：河口湖上车 → 新宿下车（不带 city_id、不填经�
   assert.equal(res.body.quotes[0].price.total.amount, "71500");
   assert.deepEqual(ends(res), [["pickup", "11000", "富士山"]]);
   // 询价日志的城市是找到的那个城市（quote_logs.city_id 不可空）
-  const logged = await api.db.owner.query<{ city_id: string; request_city: string }>("select l.city_id, l.request->>'city_id' as request_city from quotes q join quote_logs l on l.id = q.quote_log_id where q.id = $1", [res.body.quotes[0].quote_id]);
-  assert.deepEqual(logged.rows, [{ city_id: m.ids.tokyo, request_city: m.ids.tokyo }]);
+  assert.deepEqual(await loggedCity(res), { city_id: m.ids.tokyo, request_city: m.ids.tokyo, city_by: "only" });
 });
 
 test("用例 4：河口湖上车 → 忍野八海 → 河口湖下车：由东京包车报价，收富士山上车加价、下车加价", async () => {
@@ -166,9 +170,19 @@ test("按行程计价（不带 city_id）同样按点找城市；带 city_id 的
   assert.deepEqual(ends(itinerary), [["pickup", "11000", "富士山"]]);
   const withCity = await quote("kawaguchiko", "shinjuku", 10, [], { city_id: m.ids.tokyo });
   assert.deepEqual([cityCode(withCity), withCity.body.quotes[0].price.total.amount], ["CTY-JP-TYO", "71500"]);
+  // 带的 city_id 和按点匹配到的城市不一样（大阪 vs 东京，此时大阪还没有包车商品）：以匹配到的为准（ADR 0093 第三节第 2 条：city_id 只在匹配到几个城市时用来挑），
+  // 只匹配到一个城市，不写多城市警告日志；询价日志记服务器选的城市、city_by = only
+  logs = "";
+  const otherCity = await quote("kawaguchiko", "shinjuku", 10, [], { city_id: m.ids.osaka });
+  assert.deepEqual([otherCity.body.city?.id, otherCity.body.quotes[0]?.price.total.amount], [m.ids.tokyo, "71500"], otherCity.text);
+  assert.ok(!logs.includes("site.charter_multi_city"), "只匹配到一个城市，不写多城市警告");
+  assert.deepEqual(await loggedCity(otherCity), { city_id: m.ids.tokyo, request_city: m.ids.tokyo, city_by: "only" });
   const nowhere = await quote("kofu", "shinjuku", 10, [], { city_id: m.ids.tokyo });
   assert.deepEqual([nowhere.body.quotes, nowhere.body.unavailable], [[], [{ vehicle_group_id: null, reasons: ["OUT_OF_SERVICE_AREA"] }]]);
   assert.equal(nowhere.body.city?.id, m.ids.tokyo);
+  // 一个都没匹配到、按客人带的城市照旧询价：询价日志 city_by = request
+  const nowhereLog = await api.db.owner.query<{ city_by: string }>("select request->>'city_by' as city_by from quote_logs where request->'pickup' = $1::jsonb order by created_at desc limit 1", [JSON.stringify(P.kofu)]);
+  assert.deepEqual(nowhereLog.rows, [{ city_by: "request" }]);
   api.clock.advance(1_000);
   const unknown = await site.call("POST", "/site/v1/quotes", { body: { category: "charter", city_id: randomUUID(), pickup: P.kawaguchiko, dropoff: P.shinjuku, package_hours: 10, service_local: SERVICE_LOCAL, passengers: 2, luggage: 1 }, ip: nextIp() });
   assert.deepEqual([unknown.status, unknown.body.error.details.issues.map((issue: any) => [issue.path, issue.reason])], [400, [["/city_id", "UNKNOWN_CITY"]]]);
@@ -208,6 +222,37 @@ test("GET /site/v1/charter-packages?pickup=&dropoff=：按匹配到的商品列�
   api.clock.advance(1_000);
   const byCity = await site.call("GET", `/site/v1/cities/${m.ids.tokyo}/charter-packages`, { ip: nextIp() });
   assert.deepEqual(byCity.body.items, [{ hours: 5 }, { hours: 10 }]);
+});
+
+test("按点匹配只看渠道卖的供应商的上架商品：没上架的商品、渠道不卖的供应商（被暂停）的商品，区域盖住甲府也不匹配，套餐接口为空、询价 OUT_OF_SERVICE_AREA", async () => {
+  // 甲：没上架的包车商品（只建到能上架为止），区域盖住甲府和新宿
+  const brandA = (await ok(tenantCall(m.a, "POST", "/brands", { body: { name: `包车-${randomUUID().slice(0, 6)}`, currency: "JPY" } }), 201)).id;
+  const areaA = await newArea(m.a, m.ids.tokyo, "甲府到新宿（没上架）", square(138.5, 35.6, 139.8, 35.75), "charter");
+  const draft = await ok(tenantCall(m.a, "POST", "/products", { body: { brand_id: brandA, city_id: m.ids.tokyo, category: "charter", areas: [{ area_id: areaA }], vehicle_groups: [{ vehicle_group_id: m.ids.biz7, passengers: 6, luggage: 4 }], dispatchers: [{ name: "调度", phone: "0312345678" }] } }), 201);
+  await ok(tenantCall(m.a, "POST", `/products/${draft.id}/price-rules/batch`, { version: draft.version, body: { create: [pkg(areaA, 10, 40_000)] } }));
+  // 丙：上架的包车商品，区域同样盖住甲府和新宿；之后供应商被暂停（渠道不卖）
+  const c = await api.tenantWithAdmin(m.root, "丙车队", "admin@match-c.test");
+  const areaC = await newArea(c, m.ids.tokyo, "甲府到新宿（暂停的供应商）", square(138.5, 35.6, 139.8, 35.75), "charter");
+  await charterProduct(c, m.ids.tokyo, areaC, [pkg(areaC, 10, 40_000)]);
+  const at = (place: Place): string => `${P[place].lat},${P[place].lng}`;
+  const packages = async (): Promise<ApiResponse> => {
+    api.clock.advance(1_000);
+    const res = await site.call("GET", `/site/v1/charter-packages?pickup=${encodeURIComponent(at("kofu"))}&dropoff=${encodeURIComponent(at("shinjuku"))}`, { ip: nextIp() });
+    assertMatchesOpenApi("GET", "/site/v1/charter-packages", res);
+    return res;
+  };
+  // 丙暂停前：丙的商品匹配到东京（证明区域和套餐都齐，后面变成空只因为渠道不卖）
+  assert.deepEqual((await packages()).body, { city: { id: m.ids.tokyo, code: "CTY-JP-TYO", name: { zh: "东京" }, timezone: "Asia/Tokyo" }, items: [{ hours: 10 }] });
+  await api.db.owner.query("update tenants set status = 'suspended', suspended_from = 'active', suspension_reasons = '{manual}', suspended_at = $2 where id = $1", [c.tenantId, api.clock.now()]);
+  try {
+    assert.deepEqual((await packages()).body, { city: null, items: [] });
+    const res = await quote("kofu", "shinjuku", 10);
+    assert.deepEqual([res.body.city, res.body.quotes, res.body.unavailable], [null, [], [{ vehicle_group_id: null, reasons: ["OUT_OF_SERVICE_AREA"] }]]);
+  } finally {
+    // 恢复成正式，再把丙的商品下架：不影响后面的用例
+    await api.db.owner.query("update tenants set status = 'active', suspended_from = null, suspension_reasons = '{}', suspended_at = null where id = $1", [c.tenantId]);
+    await api.db.owner.query("update products set status = 'unpublished' where tenant_id = $1", [c.tenantId]);
+  }
 });
 
 // 放在最后：这里给甲建一个大阪城市的包车商品，区域盖住河口湖、忍野八海，之后这两处会匹配到两个城市

@@ -761,12 +761,14 @@ export async function siteQuotes(ctx: AppContext, input: SiteQuoteInput, logExtr
       return { currency: channel.settleCurrency, city: null, quotes: [], unavailable: [{ vehicleGroupId: null, reasons: ["OUT_OF_SERVICE_AREA"] }] };
     }
     const scoped = { ...input, cityId };
-    const result = trip.category === "charter_itinerary" ? await itineraryQuotes(ctx, scoped, trip, logExtra) : await cityQuotes(ctx, scoped, logExtra);
+    // 询价日志记城市是怎么来的：`request` = 客人带的（一个都没匹配到时照旧按它询价）；其余是服务器按点选的（`only` 只匹配到一个，`requested` 匹配到几个、取了客人带的那个，`pickup_city`、`smallest_id` 见 `chooseCharterCity`）
+    const charterLog = { ...logExtra, city_by: match.chosen?.by ?? "request" };
+    const result = trip.category === "charter_itinerary" ? await itineraryQuotes(ctx, scoped, trip, charterLog) : await cityQuotes(ctx, scoped, charterLog);
     const city = match.cities.find((entry) => entry.id === cityId);
     return { ...result, city: city === undefined ? null : quotedCityOf(city) };
   }
-  if (input.cityId === null) throw validationFailed("body", [{ path: "/city_id", reason: "REQUIRED", message: "接送机、点对点要填城市" }]);
-  return cityQuotes(ctx, { ...input, cityId: input.cityId }, logExtra);
+  // 接送机、点对点的 city_id 必填由路由（`POST /site/v1/quotes`）先拦；按两个坐标报价总是给城市
+  return cityQuotes(ctx, { ...input, cityId: input.cityId as string }, logExtra);
 }
 
 /** 询价的城市要存在并启用（400 `UNKNOWN_CITY`） */
