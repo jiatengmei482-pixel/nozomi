@@ -62,3 +62,16 @@
 .embed-book .book-new {
   grid-template-columns: minmax(0, 1fr);
 }
+
+/*
+ * iframe 的高度跟着内容（宿主按 resize 调），iframe 自己的视口就是整页内容：吸底的条落在内容最末尾，客人在宿主页上不一定看得到。
+ * 所以第 2 步的底部条在嵌入页里放回正文末尾、不吸底，正文也不再给它留位置；吸顶的摘要条同理不吸顶
+ */
+.embed-book .book-bar,
+.embed-book .book-summary-bar {
+  position: static;
+}
+
+.embed-book .book-new--with-bar {
+  padding-bottom: 0;
+}

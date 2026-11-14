@@ -8,6 +8,11 @@
  * - 草稿过期：iframe 报 DRAFT_NOT_FOUND → 宿主删存储、显示「重新查询」、onEvent 收到 error → 点了回到查价表单。
  * - 嵌不进去（不在白名单、嵌入码没开「允许整页嵌入」、宿主页再被别的网站嵌一层）：15 秒后显示后备一句话和「到主站继续预订」。
  * - 主站别的页面仍不能被嵌（frame-ancestors 'none' + X-Frame-Options: DENY）。
+ * 第二期（M9E-17，ADR 0095 第四、八、九节）：
+ * - iframe 里走完 /book/new 的四步（询价带 draft_id、单栏、没有 Leaflet），键盘提交，下单后进 iframe 里的订单页（令牌不进地址、不发给宿主）；
+ *   iframe 自己刷新、宿主页刷新都接着显示这张待付款的单；平台订单详情来源是「宿主页内」；390 宽、axe；
+ * - A 网站建的草稿在 B 网站打开：询价不带 draft_id（来源按主站记）。
+ * 付款放进 iframe、completed 事件的跨站端到端是第三期 M9E-19（这一期 completed 由组件测试 embed-flow.test.tsx 覆盖）。
  */
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -107,6 +112,8 @@ test("跨站：宿主首页查价 → 跳宿主 /booking/（nzdraft 进存储、
   test.setTimeout(150_000);
   const world = await createWorld(request);
   const airport = await createAirport(request, world);
+  // 第二期起 iframe 里是完整的四步（M9E-17）：要有能报价的商品，四步才显示（否则是「暂时没有可预订的城市」）
+  await publishTransfer(request, await createSupplier(request, world), { ...world, airport });
   const host = await newHost(request);
   await searchFromHostHome(page, host, airport.name);
 
@@ -132,7 +139,9 @@ test("跨站：宿主首页查价 → 跳宿主 /booking/（nzdraft 进存储、
   expect(new Set(messages.map((message) => message.origin))).toEqual(new Set([SITE]));
   const raw = messages.map((message) => message.data).join("\n");
   for (const secret of [airport.name, "東京駅", stored.id as string, host.key]) expect(raw, "消息里没有草稿内容、草稿号、嵌入码").not.toContain(secret);
-  expect(await page.evaluate(() => (window as unknown as { __events: unknown[] }).__events), "ready、resize 不转给 onEvent").toEqual([]);
+  // ready、resize 不转给 onEvent；第二期起四步换步时有 step（M9E-17）
+  const events = (await page.evaluate(() => (window as unknown as { __events: { type: string }[] }).__events)) ?? [];
+  expect(new Set(events.map((event) => event.type)), "ready、resize 不转给 onEvent").toEqual(new Set(["step"]));
 
   // 嵌入页里 390 宽不横向滚动；整页（含跨站 iframe）axe 无问题
   await page.setViewportSize({ width: 390, height: 844 });
