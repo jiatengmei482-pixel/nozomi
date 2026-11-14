@@ -103,4 +103,5 @@
 | `0380_manual_quote_waypoints.sql` | 人工报价带包车经停点（M9W-04，ADR 0088 / 0089）：放宽 `manual_quote_requests_package_check`——包车有经停点时按行程计价，可以没有 `package_hours`；别的品类仍不能有时长、时长仍在 1–72。经停点只在加密的 `contact_enc` 里，不加明文列。只改约束，不含任何数据 |
 | `0390_booking_drafts.sql` | 预订草稿（M9E-01，ADR 0090 第二节）：平台表 `booking_drafts`（43 位编号、预订条件 JSON、来源列可空、2 小时有效），平台角色只有读、增、删，租户角色无权限；过期由清理任务删除。只建结构，不含任何数据 |
 | `0400_embed_keys.sql` | 嵌入码与白名单、来源记录（M9E-02，ADR 0090 第三节）：平台表 `embed_keys`、`quote_embed_sources`、`order_embed_sources`，`booking_drafts` 的来源外键；租户角色无权限，两张来源表平台角色只能读、增。只建结构，不含任何数据（不预置嵌入码） |
+| `0410_rescue_deduction_base.sql` | 救援差价的基准（M9P-01，ADR 0093 第二节救援 B）：`order_rescues` 加 `deduction_base_minor`、`deduction_base`（成对为空 = 之前的救援，按原结算价；有值时基准不低于原结算价）。只加列，不回填，不含任何数据 |
 | `0420_embed_key_layout.sql` | 嵌入码的外观（M9E-10，ADR 0090 第四节）：`embed_keys` 加 `layout`（`card` 卡片 / `bar` 横条，默认 `card`，带检查约束），运营后台生成的嵌入代码按它写 `layout`；公开的 `/embed/v1/config` 不返回它。只加列，不含任何数据（0410 由 M9P-01 使用） |

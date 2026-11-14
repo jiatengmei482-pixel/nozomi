@@ -6,7 +6,8 @@
  * - 旧链接只有上车地点：下车地点空着、框下面提示补选，不报价（没有包车询价请求）；手机上点「下一步：选择车型」下车地点标红、焦点移过去；
  * - 下车地点在商品区域：77,000，不写「含区域加价」；
  * - 下车地点在框里搜车站（加价区域）：78,100（71,000 × 1.1）——只有这一个价，车型卡和车费下面写「含区域加价，已算在这个价格里」，不写加价金额；
- * - 下车地点不在任何区域：「这个地址暂时没有在线报价，请联系客服」+ 客服电话；
+ * - 上车地点在加价区域（车站）、下车地点在商品区域：由这个包车商品报价，77,550（70,500 × 1.1，M9P-02：按上下车点匹配商品，不按上车点所在城市）；
+ * - 下车地点不在任何区域：第 1 步就说「这个地址暂时没有在线报价，请联系客服」+ 客服电话（M9P-02：按上下车点没匹配到商品，不询价）；
  * - 下单：订单带下车地址，订单页「行程」有下车地点。
  * 320 / 360 / 390 宽不横向滚动，亮暗两色 axe；电脑 1280、手机 390 亮暗各存一张截图。
  * 用官网付款那组 API 和前端（信任一层代理），浏览器带一个本用例的文档专用来源地址：官网按来源地址限速，
@@ -110,7 +111,8 @@ test("新预订页包车：下车地点必填（旧链接只有上车地点时�
   await expect(dropoff).toHaveValue("");
   await expect(page.getByText("请选择下车地点，包车现在按上车和下车地点报价。")).toBeVisible();
   await expect(page.getByText("包车结束时在哪里下车，价格按上车和下车地点算。")).toBeVisible();
-  await expect(page.getByLabel(/^包车时长/)).toHaveValue("8");
+  // M9P-02：套餐时长按上下车点匹配到的商品列，没选下车地点时还没有可选的时长
+  await expect(page.getByLabel(/^包车时长/)).toHaveValue("");
   await page.getByRole("button", { name: "下一步：选择车型" }).click();
   await expect(page.getByText("请选择下车地点", { exact: true })).toBeVisible();
   await expect(dropoff).toHaveAttribute("aria-invalid", "true");
@@ -124,6 +126,8 @@ test("新预订页包车：下车地点必填（旧链接只有上车地点时�
   await page.getByRole("listbox", { name: "下车地点的候选" }).getByRole("option", { name: new RegExp(trip.station.name) }).click();
   await expect(dropoff).toHaveValue(trip.station.name);
   await expect(page.getByText("请选择下车地点，包车现在按上车和下车地点报价。")).toHaveCount(0);
+  // 选齐两端后读到匹配商品的套餐，只有一种时替客人选上
+  await expect(page.getByLabel(/^包车时长/)).toHaveValue("8");
   await page.getByRole("button", { name: "下一步：选择车型" }).click();
   await expect(page.getByRole("heading", { name: "选择车型" })).toBeFocused();
   await expect(page.locator(".book-summary-bar__text")).toContainText(`包车 8 小时 · ${LONG_PICKUP} → ${trip.station.name}`);
@@ -152,11 +156,15 @@ test("新预订页包车：下车地点必填（旧链接只有上车地点时�
   await expect(plain).toContainText("77,000 JPY");
   await expect(page.locator("main")).not.toContainText("含区域加价");
 
-  // 下车地点不在任何区域：转人工的说法 + 客服电话
+  // 上车地点在加价区域（M9P-02）：同一个包车商品报价，收上车加价 500
+  await page.goto(`${SITE}/book/new?mode=charter&${linkPoint("from", trip.station.location, trip.station.name)}&${linkPoint("to", trip.nearby, "市内下车点")}&date=${date}&time=10:00`);
+  await expect(page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: trip.groupName }) })).toContainText("77,550 JPY");
+
+  // 下车地点不在任何区域：按上下车点没匹配到包车商品，第 1 步就说转人工 + 客服电话，不询价（M9P-02）
   await page.goto(`${SITE}/book/new?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.nowhere, "很远的地方")}&date=${date}&time=10:00`);
-  await expect(page.getByRole("heading", { name: "没有可预订的车" })).toBeVisible();
-  await expect(page.locator(".book-new__rejected")).toContainText(MANUAL);
-  await expect(page.getByRole("link", { name: SUPPORT_PHONE })).toHaveAttribute("href", "tel:+81300000000");
+  await expect(page.locator(".book-new__notice")).toContainText(MANUAL);
+  await expect(page.getByRole("heading", { name: "请客服人工报价" })).toBeVisible();
+  await expect(page.getByRole("link", { name: SUPPORT_PHONE }).first()).toHaveAttribute("href", "tel:+81300000000");
   await expect(page.locator("main")).not.toContainText("OUT_OF_SERVICE_AREA");
   await expectBothThemes(page, "新预订页包车电脑（转人工）");
 

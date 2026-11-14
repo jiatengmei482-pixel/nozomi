@@ -41,7 +41,10 @@ function open(cities: SiteCity[], at = "/book/new"): ApiCall[] {
     if (path === "/site/v1/config") return json(200, config);
     if (path === "/site/v1/cities") return json(200, { items: cities });
     if (path === "/site/v1/places/reverse") return json(200, { available: true, address: "某个地址" });
-    if (path.endsWith("/charter-packages")) return json(200, { items: [{ hours: 8 }] });
+    if (path === "/site/v1/charter-packages") {
+      const found = cities.find((entry) => entry.categories.includes("charter")) ?? null;
+      return json(200, { city: found === null ? null : { id: found.id, code: found.code, name: found.name, timezone: found.timezone }, items: found === null ? [] : [{ hours: 8 }] });
+    }
     if (path === "/site/v1/fx/reference") return json(200, { available: false, from: "JPY", to: call.url.searchParams.get("to"), rate: null, as_of: null, reason: "NO_RATE" });
     return null;
   });

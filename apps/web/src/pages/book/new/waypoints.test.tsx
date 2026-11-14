@@ -81,7 +81,7 @@ function open(charter: (call: ApiCall) => Response = () => json(200, plainResult
       return json(200, { available: true, items: name === undefined ? [] : [{ source: "platform", id: `spot-${name}`, name, address: "", location: SPOTS[name], kind: "station" }] });
     }
     if (path === "/site/v1/places/details") return placeDetails();
-    if (path === `/site/v1/cities/${CITY_ID}/charter-packages`) return json(200, { items: [{ hours: 8 }] });
+    if (path === "/site/v1/charter-packages") return json(200, { city: { id: CITY_ID, code: city.code, name: city.name, timezone: city.timezone }, items: [{ hours: 8 }] });
     if (path === "/site/v1/fx/reference") return json(200, { available: false, from: "JPY", to: call.url.searchParams.get("to"), rate: null, as_of: null, reason: "NO_RATE" });
     if (call.method === "POST" && path === "/site/v1/quotes") return charter(call);
     if (call.method === "POST" && path === "/site/v1/orders") return order?.() ?? null;
@@ -119,8 +119,8 @@ test("没有经停点：询价请求和以前完全一样（字段、顺序都�
   const calls = open();
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
   const body = quotes(calls).at(-1) as Record<string, unknown>;
-  assert.deepEqual(Object.keys(body), ["category", "city_id", "pickup", "dropoff", "package_hours", "service_local", "passengers", "luggage", "pickup_name", "dropoff_name"].filter((key) => key in body));
-  assert.deepEqual(body, { category: "charter", city_id: CITY_ID, pickup: { lat: 35.6905, lng: 139.6948 }, dropoff: { lat: 35.6896, lng: 139.7006 }, package_hours: 8, service_local: "2030-11-20T09:00", passengers: 2, luggage: 2, ...("pickup_name" in body ? { pickup_name: body["pickup_name"] } : {}), ...("dropoff_name" in body ? { dropoff_name: body["dropoff_name"] } : {}) });
+  assert.deepEqual(Object.keys(body), ["category", "pickup", "dropoff", "package_hours", "service_local", "passengers", "luggage", "pickup_name", "dropoff_name"].filter((key) => key in body));
+  assert.deepEqual(body, { category: "charter", pickup: { lat: 35.6905, lng: 139.6948 }, dropoff: { lat: 35.6896, lng: 139.7006 }, package_hours: 8, service_local: "2030-11-20T09:00", passengers: 2, luggage: 2, ...("pickup_name" in body ? { pickup_name: body["pickup_name"] } : {}), ...("dropoff_name" in body ? { dropoff_name: body["dropoff_name"] } : {}) });
   assert.equal("itinerary_pricing" in body, false);
   assert.equal("waypoints" in body, false);
   assertAbsent(screen.queryByLabelText("价格明细"));

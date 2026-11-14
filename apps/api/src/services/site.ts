@@ -24,8 +24,11 @@ import {
   type ServiceCategory,
   type TripEnd,
   type VehicleGrade,
+  type CharterCityChoice,
   cancellationRuleFor,
   channelScopeRefusal,
+  charterMatches,
+  chooseCharterCity,
   channelSellsTenant,
   cityBounds,
   classifyPointsTrip,
@@ -42,6 +45,7 @@ import {
   rateLimitKeyOf,
   regionBounds,
   pointToPointCityOf,
+  serviceCityOf,
   tenantBids,
   vehicleLevel,
   type FlightScope,
@@ -60,7 +64,7 @@ import { currentCancellationPolicy } from "../repos/cancellation-policies.ts";
 import { type Channel, findChannel } from "../repos/channels.ts";
 import { enqueueNotification } from "../repos/notifications.ts";
 import { listOrderEvents } from "../repos/orders.ts";
-import { findQuoteCity, findQuotePlace } from "../repos/quotes.ts";
+import { findQuoteCity, findQuotePlace, loadCharterCityCandidates } from "../repos/quotes.ts";
 import {
   type BookableRow,
   type OrderNames,
@@ -279,6 +283,19 @@ export async function siteCharterPackages(ctx: AppContext, cityId: string, audie
   );
 }
 
+/**
+ * 按上下车点列包车套餐时长（M9P-02，ADR 0093 第三节第 3 条）：先按点找城市（同询价，`charterCityFor`），
+ * 只列匹配到的那些商品的套餐（同 `siteCharterPackages` 的口径：启用、到城市当地今天还没过期的套餐价）。一个都没匹配到时城市为 null、列表为空。
+ */
+export async function siteCharterPackagesAt(ctx: AppContext, ends: { pickup: LatLng; dropoff: LatLng }, audience: SiteAudience = "public"): Promise<{ city: QuotedCity | null; hours: number[] }> {
+  const { channel } = await requireOpenSite(ctx);
+  const match = await charterCityFor(ctx, channel, audience, ends, null);
+  const city = match.cities.find((entry) => entry.id === match.chosen?.cityId);
+  if (city === undefined) return { city: null, hours: [] };
+  const rows = await withPlatformTx(ctx.pool, (db) => listBookableCharterPackages(db, city.id, instantToLocal(ctx.now(), city.timezone).date, listingOf(audience), match.productIds), { snapshot: true });
+  return { city: quotedCityOf(city), hours: [...new Set(rows.filter((row) => sells(channel, row, audience)).map((row) => row.hours))].sort((a, b) => a - b) };
+}
+
 export interface SitePlace {
   id: string;
   type: SitePlaceType;
@@ -489,7 +506,11 @@ export interface SiteWaypoint {
 }
 
 export interface SiteQuoteInput {
-  cityId: string;
+  /**
+   * 询价的城市。包车（M9P-02，ADR 0093 第三节）可以不给：服务器按上下车点匹配商品、自己找城市；给了也先按点找，只在匹配到几个城市时用它挑。
+   * 接送机、点对点必须给（`null` 时 400 `REQUIRED`）
+   */
+  cityId: string | null;
   trip: SiteTrip;
   /** 城市当地的用车时间 `YYYY-MM-DDTHH:mm` */
   serviceLocal: string;
@@ -501,6 +522,13 @@ export interface SiteQuoteInput {
   demand?: SiteDemand;
   /** 普通客人（默认）还是验收会话（M8-26，ADR 0078：只报 QA 测试供应商的验收可售商品，报价标成验收的） */
   audience?: SiteAudience;
+  /** 包车匹配到几个城市、只取了一个时写警告日志用（M9P-02）；不给就不写 */
+  log?: WarnLog;
+}
+
+/** 写警告日志（请求的日志） */
+export interface WarnLog {
+  warn(details: object, message: string): void;
 }
 
 /**
@@ -533,8 +561,18 @@ export interface SiteQuote extends SalesQuote {
   availableAddons: SiteAddonInfo[];
 }
 
+/** 按哪个城市报的价（包车由服务器按上下车点找，M9P-02） */
+export interface QuotedCity {
+  id: string;
+  code: string;
+  name: LocalizedText;
+  timezone: string;
+}
+
 export interface SiteQuoteResult {
   currency: string;
+  /** 包车：按哪个城市报的价（上下车点不在任何能订的包车商品的区域里时为 null）；别的品类不给 */
+  city?: QuotedCity | null;
   quotes: SiteQuote[];
   /** 包车按行程计价时服务器算的路线（逐段、合计）；别的询价没有 */
   itinerary?: SiteItinerary;
@@ -588,13 +626,10 @@ async function itineraryRoute(ctx: AppContext, trip: Extract<SiteTrip, { categor
  * 每个车型组取「能覆盖总时长的最小套餐」那一档的报价；所有套餐都覆盖不了（或覆盖的那几档这个车型组报不出）时取报得出的最大套餐（加超时费）。
  * 一个车型组只留一个报价；都报不出时原因用最先试的那一档的。
  */
-async function itineraryQuotes(ctx: AppContext, input: SiteQuoteInput, trip: Extract<SiteTrip, { category: "charter_itinerary" }>, logExtra: Record<string, unknown>): Promise<SiteQuoteResult> {
+async function itineraryQuotes(ctx: AppContext, input: CityQuoteInput, trip: Extract<SiteTrip, { category: "charter_itinerary" }>, logExtra: Record<string, unknown>): Promise<SiteQuoteResult> {
   // 先核城市、查套餐，再估路线（M9W-06）：城市不对和普通询价一样 400 `UNKNOWN_CITY`；没有能选的套餐直接 `NO_PRODUCT`，都不调谷歌
   const { channel } = await requireOpenSite(ctx);
-  await withPlatformTx(ctx.pool, async (db) => {
-    const found = await findQuoteCity(db, input.cityId);
-    if (found === null || !found.active) throw unknownQuoteCity();
-  }, { snapshot: true });
+  await requireQuoteCity(ctx, input.cityId);
   const packages = await siteCharterPackages(ctx, input.cityId, input.audience ?? "public");
   if (packages.length === 0) return { currency: channel.settleCurrency, quotes: [], unavailable: [{ vehicleGroupId: null, reasons: ["NO_PRODUCT"] }] };
   const itinerary = await itineraryRoute(ctx, trip);
@@ -607,7 +642,7 @@ async function itineraryQuotes(ctx: AppContext, input: SiteQuoteInput, trip: Ext
   // 「未覆盖需求」只在第一档报不出时记一次
   const { demand, ...rest } = input;
   for (const packageHours of order) {
-    const result = await siteQuotes(ctx, { ...rest, ...(first === null && demand !== undefined ? { demand } : {}), trip: { category: "charter", pickup: trip.pickup, dropoff: trip.dropoff, packageHours, waypoints: trip.waypoints, routeUsage } }, logExtra);
+    const result = await cityQuotes(ctx, { ...rest, ...(first === null && demand !== undefined ? { demand } : {}), trip: { category: "charter", pickup: trip.pickup, dropoff: trip.dropoff, packageHours, waypoints: trip.waypoints, routeUsage } }, logExtra);
     first ??= result;
     for (const quote of result.quotes) if (!chosen.has(quote.vehicleGroupId)) chosen.set(quote.vehicleGroupId, quote);
   }
@@ -618,7 +653,7 @@ async function itineraryQuotes(ctx: AppContext, input: SiteQuoteInput, trip: Ext
 }
 
 /** 询价请求里给渠道询价用的那几项（各品类的起终点、方向、套餐），和询价日志里记的原始请求。 */
-function salesTrip(input: SiteQuoteInput): { category: ServiceCategory; placeId: string | null; direction: "pickup" | "dropoff" | null; pickup: Point | null; dropoff: Point | null; packageHours: number | null; waypoints: SiteWaypoint[]; routeUsage: RouteUsage | null; request: Record<string, unknown> } {
+function salesTrip(input: CityQuoteInput): { category: ServiceCategory; placeId: string | null; direction: "pickup" | "dropoff" | null; pickup: Point | null; dropoff: Point | null; packageHours: number | null; waypoints: SiteWaypoint[]; routeUsage: RouteUsage | null; request: Record<string, unknown> } {
   const { trip } = input;
   if (trip.category === "charter_itinerary") throw new Error("按行程计价先选套餐再询价（itineraryQuotes）");
   const common = { source: "site", category: trip.category, city_id: input.cityId, service_local: input.serviceLocal, passengers: input.passengers, luggage: input.luggage, addons: input.addons.map((addon) => ({ addon_id: addon.addonId, quantity: addon.quantity })) };
@@ -650,11 +685,105 @@ function salesTrip(input: SiteQuoteInput): { category: ServiceCategory; placeId:
   }
 }
 
+/** 城市已经定了的询价 */
+type CityQuoteInput = SiteQuoteInput & { cityId: string };
+
+/** 包车按上下车点匹配的结果（M9P-02）：匹配到的商品所在的城市（去重、按编号排）、取了哪个、渠道能卖包车的启用城市 */
+interface CharterCityMatch {
+  matchedCityIds: string[];
+  chosen: { cityId: string; by: CharterCityChoice } | null;
+  /** 取的那个城市里匹配到的商品（列套餐用） */
+  productIds: string[];
+  cities: SiteCityInfo[];
+}
+
 /**
- * 官网询价：城市（接送机还有机场）核对过、当地时间换成时刻后，走渠道询价（同一个 `createSalesQuotes`），再补上车型组的名称、取消阶梯和包车的套餐公里。
- * `logExtra` 是询价日志的原始请求里多记的几项（按两个坐标报价记 `mode` 和识别结果，M8-02）；不影响报价。
+ * 包车按上下车点找询价城市（M9P-02，ADR 0093 第三节第 2 条；规格步骤 1）：渠道授权范围里、渠道卖的供应商上架的包车商品，
+ * 上车点、下车点都落在它的①基础价区域或③上下车加价区域里（`charterMatches`）的，取它们的城市。
+ * 匹配到几个城市时只取一个（`chooseCharterCity`：请求带的城市 → 上车点所在城市 → 编号最小），不逐城询价合并。
+ */
+async function charterCityFor(ctx: AppContext, channel: Channel, audience: SiteAudience, ends: { pickup: LatLng; dropoff: LatLng }, requestedCityId: string | null): Promise<CharterCityMatch> {
+  return withPlatformTx(
+    ctx.pool,
+    async (db) => {
+      const sold = (await loadCharterCityCandidates(db, { cityIds: channel.scope.cityIds, listing: listingOf(audience) })).filter((candidate) => channelScopeRefusal(channel.scope, candidate.cityId, "charter") === null && sells(channel, candidate, audience));
+      const matched = sold.filter((candidate) => charterMatches(candidate, ends.pickup, ends.dropoff));
+      const matchedCityIds = [...new Set(matched.map((candidate) => candidate.cityId))].sort();
+      const cities = (await listActiveCities(db, channel.scope.cityIds)).filter((city) => sold.some((candidate) => candidate.cityId === city.id));
+      const chosen = chooseCharterCity(matchedCityIds, { requestedCityId, pickupCityId: serviceCityOf(ends.pickup, cities)?.id ?? null });
+      return { matchedCityIds, chosen, productIds: matched.filter((candidate) => candidate.cityId === chosen?.cityId).map((candidate) => candidate.productId), cities };
+    },
+    { snapshot: true },
+  );
+}
+
+const quotedCityOf = (city: SiteCityInfo): QuotedCity => ({ id: city.id, code: city.code, name: city.name, timezone: city.timezone });
+
+/**
+ * 官网询价。包车（M9P-02，ADR 0093 第三节）先按上下车点找城市（`charterCityFor`），不再按「上车点所在城市」筛商品：
+ * - 匹配到一个城市：按这个城市询价（候选、比价、询价日志、快照和以前一样）；
+ * - 匹配到几个城市：只取一个询价，写一条警告日志；
+ * - 一个都没有：请求带了城市的照旧按那个城市询价（引擎给出各商品报不出的原因、记询价日志，兼容旧页面和嵌入组件）；
+ *   没带城市的不报（`OUT_OF_SERVICE_AREA`，转人工），记一条未覆盖需求（城市取上车点所在的能订包车的城市，没有为空）。
+ * 应答带上按哪个城市报的（`city`）。接送机、点对点和以前一模一样。
  */
 export async function siteQuotes(ctx: AppContext, input: SiteQuoteInput, logExtra: Record<string, unknown> = {}): Promise<SiteQuoteResult> {
+  const { trip } = input;
+  if (trip.category === "charter_itinerary" || (trip.category === "charter" && trip.dropoff !== null)) {
+    const { principal, channel } = await requireOpenSite(ctx);
+    if (input.cityId !== null) await requireQuoteCity(ctx, input.cityId);
+    const audience = input.audience ?? "public";
+    const ends = { pickup: trip.pickup, dropoff: trip.dropoff as Point };
+    const match = await charterCityFor(ctx, channel, audience, ends, input.cityId);
+    if (match.chosen !== null && match.chosen.by !== "only") input.log?.warn({ event: "site.charter_multi_city", matched_city_ids: match.matchedCityIds, chosen_city_id: match.chosen.cityId, by: match.chosen.by }, "包车匹配到几个城市的商品，只按其中一个城市询价");
+    const cityId = match.chosen?.cityId ?? input.cityId;
+    if (cityId === null) {
+      if (input.demand !== undefined && audience === "public") {
+        recordUncoveredDemandLater(ctx, demandSource(input.demand), {
+          channelId: principal.channelId,
+          category: "charter",
+          direction: null,
+          packageHours: trip.category === "charter" ? trip.packageHours : null,
+          cityId: serviceCityOf(ends.pickup, match.cities)?.id ?? null,
+          airportId: null,
+          pickup: ends.pickup,
+          dropoff: ends.dropoff,
+          serviceLocal: input.serviceLocal,
+          passengers: input.passengers,
+          luggage: input.luggage,
+          vehicleGroupId: null,
+          checked: ["pickup", "dropoff"],
+          suppliers: [],
+          candidateCount: 0,
+          refusals: [],
+        });
+      }
+      return { currency: channel.settleCurrency, city: null, quotes: [], unavailable: [{ vehicleGroupId: null, reasons: ["OUT_OF_SERVICE_AREA"] }] };
+    }
+    const scoped = { ...input, cityId };
+    // 询价日志记城市是怎么来的：`request` = 客人带的（一个都没匹配到时照旧按它询价）；其余是服务器按点选的（`only` 只匹配到一个，`requested` 匹配到几个、取了客人带的那个，`pickup_city`、`smallest_id` 见 `chooseCharterCity`）
+    const charterLog = { ...logExtra, city_by: match.chosen?.by ?? "request" };
+    const result = trip.category === "charter_itinerary" ? await itineraryQuotes(ctx, scoped, trip, charterLog) : await cityQuotes(ctx, scoped, charterLog);
+    const city = match.cities.find((entry) => entry.id === cityId);
+    return { ...result, city: city === undefined ? null : quotedCityOf(city) };
+  }
+  // 接送机、点对点的 city_id 必填由路由（`POST /site/v1/quotes`）先拦；按两个坐标报价总是给城市
+  return cityQuotes(ctx, { ...input, cityId: input.cityId as string }, logExtra);
+}
+
+/** 询价的城市要存在并启用（400 `UNKNOWN_CITY`） */
+async function requireQuoteCity(ctx: AppContext, cityId: string): Promise<void> {
+  await withPlatformTx(ctx.pool, async (db) => {
+    const found = await findQuoteCity(db, cityId);
+    if (found === null || !found.active) throw unknownQuoteCity();
+  }, { snapshot: true });
+}
+
+/**
+ * 按一个城市询价：城市（接送机还有机场）核对过、当地时间换成时刻后，走渠道询价（同一个 `createSalesQuotes`），再补上车型组的名称、取消阶梯和包车的套餐公里。
+ * `logExtra` 是询价日志的原始请求里多记的几项（按两个坐标报价记 `mode` 和识别结果，M8-02）；不影响报价。
+ */
+async function cityQuotes(ctx: AppContext, input: CityQuoteInput, logExtra: Record<string, unknown>): Promise<SiteQuoteResult> {
   if (input.trip.category === "charter_itinerary") return itineraryQuotes(ctx, input, input.trip, logExtra);
   const { principal, channel } = await requireOpenSite(ctx);
   const trip = input.trip;
