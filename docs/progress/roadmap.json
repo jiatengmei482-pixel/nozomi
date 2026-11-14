@@ -1334,7 +1334,8 @@
             "对照现有代码写清现状：草稿跳转与来源（含 M9E-12）、付款方式（主站已是 Payment Element）、CSP / X-Frame-Options、#nzo_ 订单令牌",
             "写清 /embed/book 的复用方式、路由构建、多语言；frame-ancestors 在哪一层生成、缓存、生效时间、无效 key；令牌与 CSRF；postMessage 协议；Stripe 对接、3DS、域名注册；来源 / 锁价 / 取消 / 邮件一致；回归清单；风险；分期估算；工厂接口说明附录",
             "外部事实（Stripe、浏览器、谷歌条款、PCI）注明官方出处",
-            "待定事项 Q1–Q11 给出推荐，业主 / 监工答复后状态改为已采纳"
+            "待定事项 Q1–Q15 给出推荐，业主 / 监工答复后状态改为已采纳",
+            "#236 独立审查 8 项必改已改：Caddy 片段放进 route、镜像固定 ≥ 2.11.4、跨站验收（Q12）、return_url 带 key 和 host、Caddy 层测试、嵌入页只挂 /embed/book* 路由、frame-check 是 ADR 0090 Origin 规则的例外、nozomi.embed-order 是 ADR 0046 的修订"
           ],
           "evidence": "",
           "updated": "2026-11-14"
@@ -1344,13 +1345,16 @@
           "title": "嵌在宿主页·第一期：init 加 bookingUrl（跳宿主页 ?nzdraft=）、mountBooking 骨架（iframe、超时后备、postMessage 核对、自动高度）、/embed/v1/frame-check + Caddy forward_auth 按嵌入码生成 frame-ancestors（ADR 0095 第三、五、六节）",
           "role": "frontend",
           "status": "blocked",
-          "blockedBy": "等 ADR 0095 采纳（业主 / 监工答复第十二节 Q1–Q11）；M9E-12 合并",
+          "blockedBy": "等 ADR 0095 采纳（业主 / 监工答复第十二节 Q1–Q15）；M9E-12、M9E-14（layout:auto，占迁移 0430）合并",
           "acceptance": [
             "不传 bookingUrl 时组件行为逐字不变（现有组件测试、site-embed-widget.spec.ts 原样通过）；传了合格的跳 bookingUrl?nzdraft=<草稿号>，不合格（不同 origin、非 https 等）按没传处理并在控制台报一句",
             "/embed/book 只能被白名单里、本次声明的那一个宿主嵌入：非白名单、伪造 host、停用嵌入码、嵌套两层都被拒；其余页面仍 frame-ancestors 'none' + X-Frame-Options: DENY（security.spec.ts、deploy-web-csp-paths.qa.test.ts 在真实 caddy:2 上核对；伪造 X-Nozomi-Frame-Ancestor 请求头无效）",
             "postMessage 双向核对 origin 和 source、从不用 \"*\"；消息键集合固定、不含个人信息；15 秒无 ready 显示后备链接",
             "测试环境先 curl -I 核实外层 nginx 有没有自己加 X-Frame-Options / CSP，结果写进 PR",
-            "迁移只加 delivery 列（booking_drafts、quote_embed_sources、order_embed_sources），不回填"
+            "Caddy 片段写在 route { } 里（删伪造头 → forward_auth → header → try_files → file_server）；apps/web/Dockerfile 和 deploy-web-csp-paths.qa.test.ts 的 Caddy 镜像固定到 ≥ 2.11.4 的具体版本或 digest（CVE-2026-30851、CVE-2026-52845）",
+            "Caddy 层测试（端到端走 vite preview 测不到）：真实 Caddy 容器断言 /embed/book 的 frame-ancestors 和 X-Frame-Options、伪造头（含 _ 写法）无效、其余页面仍 'none' + DENY；deploy-smoke 加无头浏览器嵌入检查；preview 插件同规则并有一致性测试",
+            "frame-check 不走 ADR 0090 的 Origin 规则（按 host 参数核对）、单独限速；嵌入码加「允许整页嵌入」开关（Q13，默认关）",
+            "迁移排在 0430 之后，只加 delivery 列（booking_drafts、quote_embed_sources、order_embed_sources）和嵌入码的「允许整页嵌入」开关，不回填"
           ],
           "evidence": "",
           "updated": "2026-11-14"
@@ -1360,12 +1364,13 @@
           "title": "嵌在宿主页·第二期：/embed/book 复用 /book/new 四步（BookingShell 上下文、EmbedLayout、无 Leaflet）、iframe 内订单页（不含付款）、step / completed / error 事件、刷新续接（ADR 0095 第四、八、九节）",
           "role": "frontend",
           "status": "blocked",
-          "blockedBy": "等 ADR 0095 采纳（业主 / 监工答复第十二节 Q1–Q11）",
+          "blockedBy": "等 ADR 0095 采纳（业主 / 监工答复第十二节 Q1–Q15）",
           "acceptance": [
             "主站 /book/new、订单页的组件测试和 site-booking*.spec.ts、site-payment*.spec.ts 一条不改、全部通过；新增主站模式询价 / 下单请求体与重构前逐字相同",
             "嵌入页询价带 draft_id，下单后平台订单详情来源为嵌入组件（宿主页内）",
             "嵌入页不加载 Leaflet（静态图失败只显示时长和公里数）、不提供地图选点；地点候选下方有「Google Maps」",
             "直接在地址栏打开 /embed/book 不显示预订流程，只给主站链接",
+            "嵌入页文档只挂 /embed/book* 路由树：navigate 到 /login、/platform 等只显示「请在新窗口打开」；每一步地址都保留 key、host；草稿上的嵌入码、宿主和本次 key、host 不一致时来源按主站记",
             "390 宽不横向滚动、axe 无严重问题、键盘能走完；iframe 有 title"
           ],
           "evidence": "",
@@ -1376,7 +1381,7 @@
           "title": "嵌在宿主页·嵌入页中 / 日 / 英三语（文案字典、付款出错说法、日期金额格式、Stripe locale；主站仍只中文）（ADR 0095 第四节第 3 小节，Q4 选三语才做）",
           "role": "frontend",
           "status": "blocked",
-          "blockedBy": "等 ADR 0095 采纳（业主 / 监工答复第十二节 Q1–Q11）（Q4）",
+          "blockedBy": "等 ADR 0095 采纳（业主 / 监工答复第十二节 Q1–Q15）（Q4）",
           "acceptance": [
             "mountBooking 的 lang 为 zh / ja / en 时嵌入页、订单页、付款区块全部按该语言显示，主站页面文案逐字不变",
             "译文由业主或运营过目"
@@ -1389,9 +1394,10 @@
           "title": "嵌在宿主页·第三期：付款进 iframe（PaymentPanel 复用、return_url 指向 /embed/book/order、3D 验证弹窗 modal / viewport、银行回跳取令牌、新窗口打开订单页退路）；后端付款不改（ADR 0095 第七节）",
           "role": "frontend",
           "status": "blocked",
-          "blockedBy": "等 ADR 0095 采纳（业主 / 监工答复第十二节 Q1–Q11）",
+          "blockedBy": "等 ADR 0095 采纳（业主 / 监工答复第十二节 Q1–Q15）",
           "acceptance": [
             "后端付款、Webhook、超时取消、退款无改动；假 Stripe 端到端在跨站宿主（localhost / 127.0.0.1）里付款成功、失败卡、3D 验证成功 / 失败各一遍",
+            "return_url 带 key、host：模拟银行整页回跳、订单页刷新后仍在 iframe 里正常显示",
             "3D 验证弹窗在 390 宽和桌面都出现在客人可视范围内",
             "Stripe 测试模式在跨站宿主上 Chrome、Safari（含 iOS）、Firefox 实测，结果写进 PR"
           ],
@@ -1403,12 +1409,12 @@
           "title": "嵌在宿主页·第四期：更新工厂接入说明（ADR 0095 附录 A 定稿）、演示站接入、测试站验收",
           "role": "acceptance",
           "status": "blocked",
-          "blockedBy": "等 ADR 0095 采纳（业主 / 监工答复第十二节 Q1–Q11）；M9E-19 合并、工厂上线 mountBooking",
+          "blockedBy": "等 ADR 0095 采纳（业主 / 监工答复第十二节 Q1–Q15）；M9E-19 合并、工厂上线 mountBooking",
           "acceptance": [
             "工厂接入后在 embed-demo.moveglobal.io 上，区间、包车各用 Stripe 测试卡全程不离开演示站下一单；运营后台来源为嵌入组件（宿主页内）",
             "不在白名单的域名用 iframe 嵌入 /embed/book 被拒",
             "手机 390 宽显示正常",
-            "另在一个非 moveglobal.io 的测试宿主上手工走一遍（演示站与测试站同站，测不出第三方 Cookie 问题，Q7）"
+            "跨站（非 moveglobal.io 宿主）只走到核对 / 付款页、不下单（测试环境的验收 Cookie 是 SameSite=Strict，跨站带不上，Q12）；跨站下单由本机端到端覆盖"
           ],
           "evidence": "",
           "updated": "2026-11-14"
@@ -2973,6 +2979,11 @@
       "date": "2026-11-14",
       "by": "product",
       "summary": "新增 ADR 0095 草案（M9E-15，待业主 / 监工定第十二节 Q1–Q11）：客人从合作网站预订不离开合作网站。要点：主站现在用的就是 Stripe Payment Element，不是托管 Checkout，付款后端一行不改，只是把付款区块放进嵌入页；嵌入页 /embed/book 只允许被该嵌入码白名单里的那一个网站嵌入，其余页面仍禁止被嵌；不依赖 Cookie（草稿号和订单令牌都不是 Cookie）；嵌入页不用 Leaflet 地图（谷歌条款）。实施拆成 M9E-16～M9E-20 四期，约 16 人日（做日英界面约 21 人日）。编号说明：M9E-12、M9E-13 已在还没合并的 M9E-12 分支里登记，另有分支 m9e-13-layout-from-key 也用了 M9E-13，所以 M9E-14 留空，避免撞号。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "ADR 0095 草案按 #236 独立审查修改（仍是草案，待定事项增至 Q1–Q15）：嵌入页的安全头配置改成按顺序执行的写法，原写法会让嵌入一律失败；Caddy 固定到修过两个伪造请求头漏洞的版本；测试环境的验收 Cookie 跨站带不上，跨站那一遍只走到付款页，真正下单在演示站做，跨站全流程由本机自动测试覆盖；银行回跳地址带上嵌入码和宿主；补 Caddy 层的测试；嵌入页里只能显示预订页面，后台页面不会出现在别人网站里；合作网站地址里的草稿号读出后去掉。新增要业主定的：每个嵌入码单独开「允许整页嵌入」（默认关）、嵌入页上写明卖方和特定商取引法表示、外观要不要跟随合作网站。工作量改为 18–21 人日（做日英界面 22–26 人日）。编号：layout:auto 那个任务由作者改号为 M9E-14，本篇仍是 M9E-15～M9E-20。"
     }
   ]
 }
