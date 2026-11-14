@@ -8,6 +8,7 @@
  * - 只调 `/embed/v1`（配置、地址提示、建草稿），一律 `credentials: "omit"`；不询价、不下单、不显示价格。
  * - 界面画在 Shadow DOM 里，和合作网站的样式互不影响；不加载任何第三方资源。
  * - 点「查看价格」先建预订草稿，成功后整页跳到主站 `/book/new?draft=<编号>`；失败在组件里提示、不跳转。
+ *   传了合格的 `bookingUrl`（M9E-16，ADR 0095）时改跳合作网站自己的预订页 `bookingUrl?nzdraft=<编号>`，建草稿时带 `delivery: "host_page"`。
  * - 取配置失败（未授权和连不上在浏览器里分不出）：只显示「暂时无法使用」和主站链接。
  */
 import {
@@ -38,6 +39,7 @@ import {
   tomorrow,
 } from "./widget-core.ts";
 import { icon } from "./widget-icons.ts";
+import { bookingUrlOf, withDraft } from "./booking-protocol.ts";
 import { tellDeveloper } from "./developer-notice.ts";
 import { WIDGET_CSS, themeCss } from "./widget-style.ts";
 import { GOOGLE_MAPS_ATTRIBUTION, GOOGLE_MAPS_ATTRIBUTION_ATTRIBUTES, hasGoogleSource } from "../lib/google-attribution.ts";
@@ -74,7 +76,7 @@ export function scriptOriginOf(candidate: unknown): string | null {
   }
 }
 
-const SCRIPT_ORIGIN = typeof document === "undefined" ? null : scriptOriginOf(document.currentScript);
+export const SCRIPT_ORIGIN = typeof document === "undefined" ? null : scriptOriginOf(document.currentScript);
 
 let uid = 0;
 const nextId = (prefix: string): string => `nzb-${prefix}-${++uid}`;
@@ -142,6 +144,8 @@ class Widget {
   /** 挂在组件外面的监听（document、window、ResizeObserver），destroy 时解除 */
   private readonly cleanups: (() => void)[] = [];
   private destroyed = false;
+  /** 草稿建好后跳去的合作网站预订页（M9E-16）；没传或不合格为 null（跳主站） */
+  private readonly bookingTarget: URL | null;
 
   constructor(host: Element, base: string, options: InitOptions, go: (url: string) => void = (url) => window.location.assign(url)) {
     this.go = go;
@@ -151,6 +155,8 @@ class Widget {
     this.form = { tab: "transfer", pickup: null, dropoff: null, waypoints: [], date: tomorrow(new Date()), time: "10:00", passengers: 2, luggage: 1 };
     this.theme = resolveTheme(options.theme);
     this.wanted = resolveLayout(options.layout);
+    this.bookingTarget = options.bookingUrl === undefined || typeof location === "undefined" ? null : bookingUrlOf(options.bookingUrl, location.origin);
+    if (options.bookingUrl !== undefined && this.bookingTarget === null) tellDeveloper("bookingUrl 不合格（要用 https、和当前页同一个域名和端口），已按没传处理：草稿建好后跳到主站。");
     this.applyStyles();
     this.watchSize(host);
     if (typeof document !== "undefined") {
@@ -644,16 +650,20 @@ class Widget {
         credentials: "omit",
         mode: "cors",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ draft: draftOf(this.form, this.lang), ...(typeof this.options.redirectUrl === "string" ? { return_url: this.options.redirectUrl } : {}) }),
+        body: JSON.stringify({
+          draft: draftOf(this.form, this.lang),
+          ...(typeof this.options.redirectUrl === "string" ? { return_url: this.options.redirectUrl } : {}),
+          ...(this.bookingTarget === null ? {} : { delivery: "host_page" }),
+        }),
       });
       status = res.status;
       body = await res.json().catch(() => null);
     } catch {
       status = null;
     }
-    // 跳到脚本所在的主站（不用应答里的 url：主站地址以加载脚本的那个为准）
+    // 跳到脚本所在的主站（不用应答里的 url：主站地址以加载脚本的那个为准）；传了合格的 bookingUrl 就跳合作网站自己的预订页
     if (status === 201 && typeof body?.id === "string") {
-      this.go(`${this.base}/book/new?draft=${encodeURIComponent(body.id)}`);
+      this.go(this.bookingTarget === null ? `${this.base}/book/new?draft=${encodeURIComponent(body.id)}` : withDraft(this.bookingTarget, body.id));
       return;
     }
     this.busy = false;
@@ -679,6 +689,11 @@ class Widget {
 
 /** 每个容器上现在的那个组件：同一个容器再 init 时先停掉旧的（M9E-10 审查） */
 const mounted = new WeakMap<Element, Widget>();
+/** 停掉某个容器上的组件（M9E-16：mountBooking 拆掉查价表单换成 iframe、重复调用时用） */
+export function unmountWidget(host: Element): void {
+  mounted.get(host)?.destroy();
+  mounted.delete(host);
+}
 function mount(host: Element, base: string, options: InitOptions, go?: (url: string) => void): Widget {
   mounted.get(host)?.destroy();
   const widget = new Widget(host, base, options, go);

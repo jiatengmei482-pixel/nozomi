@@ -139,6 +139,10 @@ const EXTERNAL_LINK_REGISTRY = "lib/external-links.ts";
 const EXTERNAL_LINK_COMPONENT = "components/ExternalLink.tsx";
 const AREA_DRAFT_STORE = "lib/area-draft.ts";
 const PAYMENT_RETURN_STORE = "lib/payment-return.ts";
+/** 宿主页里存草稿号（M9E-16，ADR 0095 第三节第 2 小节）：组件脚本在合作网站页面上运行，只有这一个键 */
+const HOST_DRAFT_STORE = "embed/host-draft-store.ts";
+/** 嵌入预订流程的 postMessage（M9E-16，ADR 0095 第六节）：宿主页一侧（组件脚本）和 iframe 里的嵌入页各一处，targetOrigin 都不是 "*" */
+const POST_MESSAGE_SENDERS: Readonly<Record<string, string>> = { "embed/widget-booking.ts": "this.origin", "pages/embed/EmbedBookPage.tsx": "host" };
 const EXTERNAL_SCRIPT_REGISTRY = "lib/external-scripts.ts";
 const EXTERNAL_SCRIPT_LOADER = "lib/stripe-js.ts";
 const NEW_TAB_LINK_COMPONENT = "components/NewTabLink.tsx";
@@ -150,8 +154,10 @@ test("令牌不进 localStorage、不进 Cookie、不进网址：只有主题用
     if (/\blocalStorage\b/.test(text)) assert.equal(name, "theme/theme.ts", `${name} 用了 localStorage`);
     // 例外两个：区域编辑页的草稿（lib/area-draft.ts，负责人批准的最小放行）；付款时被带去银行验证再回来要取回订单令牌（lib/payment-return.ts，ADR 0046）。
     // 下面各有一条核对它们只碰自己的键
-    if (/\bsessionStorage\b/.test(text)) assert.ok(name === "auth/session-store.ts" || name === AREA_DRAFT_STORE || name === PAYMENT_RETURN_STORE, `${name} 用了 sessionStorage`);
-    assert.doesNotMatch(text, /document\.cookie|indexedDB|BroadcastChannel|postMessage\(/, `${name} 用了别的存放或传递途径`);
+    if (/\bsessionStorage\b/.test(text)) assert.ok(name === "auth/session-store.ts" || name === AREA_DRAFT_STORE || name === PAYMENT_RETURN_STORE || name === HOST_DRAFT_STORE, `${name} 用了 sessionStorage`);
+    assert.doesNotMatch(text, /document\.cookie|indexedDB|BroadcastChannel/, `${name} 用了别的存放或传递途径`);
+    // postMessage 只在嵌入预订流程的两处（下面另有一条核对）
+    if (!(name in POST_MESSAGE_SENDERS)) assert.doesNotMatch(text, /postMessage\(/, `${name} 用了别的存放或传递途径`);
     assert.doesNotMatch(text, /[?&](token|access_token|password)=/, `${name} 把令牌或密码拼进了查询串`);
     assert.doesNotMatch(text, /window\.open\(/, `${name} 打开新窗口（会带出 opener / Referer）`);
     // 新标签页打开的链接只允许出现在专用的站外链接组件里
@@ -193,6 +199,29 @@ test("区域草稿只用自己的键前缀：不读写登录状态的键，草�
   assert.match(text, /removeItem\(key\)/);
   assert.match(text, /key\.startsWith\(DRAFT_PREFIX\)/);
   assert.match(text, /return `\$\{DRAFT_PREFIX\}\$\{owner\.tenantId\}\.\$\{owner\.userId\}\.\$\{area\}`;/);
+});
+
+test("宿主页的草稿号只用自己的一个键（M9E-16）：读、写、删各一次，都只针对这个键；不碰登录状态和令牌", () => {
+  const store = sources.find((source) => source.name === HOST_DRAFT_STORE);
+  assert.ok(store, `找不到 ${HOST_DRAFT_STORE}`);
+  const text = stripComments(store.text);
+  const keys = [...text.matchAll(/["'`](nozomi\.[^"'`$]*)/g)].map((match) => match[1]);
+  assert.deepEqual(keys, ["nozomi.host-draft"], "这个文件里只能有这一个键");
+  assert.equal((text.match(/sessionStorage\.(getItem|setItem|removeItem)\(HOST_DRAFT_KEY/g) ?? []).length, 3, "每次读、写、删都只针对这个键");
+  assert.equal((text.match(/sessionStorage\./g) ?? []).length, 3);
+  assert.doesNotMatch(text, /localStorage|session-store|token/i);
+});
+
+test("postMessage（M9E-16）：只有宿主页一侧和嵌入页各一处，targetOrigin 是核对过的 origin，从不用 \"*\"", () => {
+  for (const [name, origin] of Object.entries(POST_MESSAGE_SENDERS)) {
+    const source = sources.find((item) => item.name === name);
+    assert.ok(source, `找不到 ${name}`);
+    const text = stripComments(source.text);
+    const calls = [...text.matchAll(/postMessage\(([\s\S]*?)\);/g)].map((match) => match[1] ?? "");
+    assert.equal(calls.length, 1, `${name} 里只有一处 postMessage`);
+    assert.ok(calls[0]?.trimEnd().endsWith(`, ${origin}`), `${name} 的 targetOrigin 应是 ${origin}：${calls[0]}`);
+    assert.doesNotMatch(text, /["'`]\*["'`]/, `${name} 里不能出现 "*"`);
+  }
 });
 
 test("付款回跳只用自己的一个键：令牌只在确认付款前写入，取回时核对付款编号、过期时间，取一次就删", () => {

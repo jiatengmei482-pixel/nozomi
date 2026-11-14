@@ -1,0 +1,25 @@
+/* 嵌入预订页 /embed/book（M9E-16，ADR 0095 第四节）：在合作网站页面的 iframe 里，宽度跟 iframe，没有主站的顶栏和页脚 */
+.embed-book {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.embed-book__title {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+}
+
+.embed-book__facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-2) var(--space-4);
+}
+
+.embed-book__facts dt {
+  color: var(--color-text-secondary);
+}
