@@ -12,7 +12,8 @@ import { WIDGET_CSS } from "./widget-style.ts";
 
 const BASE = "https://nozomi.example";
 const KEY = `nze_${"A".repeat(32)}`;
-type Handler = (url: URL, init: RequestInit | undefined) => { status: number; body: unknown } | "network";
+type Reply = { status: number; body: unknown } | "network";
+type Handler = (url: URL, init: RequestInit | undefined) => Reply | Promise<Reply>;
 let calls: { url: URL; init: RequestInit | undefined }[] = [];
 let handler: Handler = () => "network";
 const originalFetch = globalThis.fetch;
@@ -23,7 +24,7 @@ beforeEach(() => {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
     calls.push({ url, init });
-    const result = handler(url, init);
+    const result = await handler(url, init);
     if (result === "network") throw new TypeError("Failed to fetch");
     return new Response(JSON.stringify(result.body), { status: result.status, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
@@ -247,4 +248,147 @@ test("谷歌署名的样式（M9E-06 审查）：和主站同一个灰色（toke
   assert.equal(value("flex"), "none", "不跟着候选滚动");
   assert.match(WIDGET_CSS, /\.nzb-panel \{[^}]*max-height: 260px; overflow: hidden;/, "面板高度不变");
   assert.match(WIDGET_CSS, /\.nzb-list \{[^}]*overflow-y: auto;/, "滚动的是候选列表，署名在列表下面");
+});
+
+/** M9E-08：慢的取坐标替身。谷歌候选按 q 给（東京駅 / 新宿駅），取坐标要等测试放行；放行时可以指定成功或失败 */
+function slowDetails(): { handler: Handler; release: (id: string, reply?: Reply) => void; drafts: unknown[] } {
+  const waiting = new Map<string, (reply: Reply) => void>();
+  const drafts: unknown[] = [];
+  const coords: Record<string, { lat: number; lng: number }> = { ChIJtokyo: { lat: 35.6812, lng: 139.7671 }, ChIJshinjuku: { lat: 35.6896, lng: 139.7006 } };
+  const handler: Handler = (url, init) => {
+    if (url.pathname === "/embed/v1/booking-drafts") {
+      drafts.push(JSON.parse(String(init?.body)));
+      return { status: 201, body: { id: "D".repeat(43), expires_at: "x", url: "x" } };
+    }
+    if (url.pathname === "/embed/v1/places/autocomplete" && (url.searchParams.get("q") ?? "").includes("新宿")) return { status: 200, body: { available: true, items: [{ source: "google", id: "ChIJshinjuku", name: "新宿駅", address: "東京都新宿区", location: null, kind: "other" }] } };
+    if (url.pathname === "/embed/v1/places/details") {
+      const id = url.searchParams.get("id") ?? "";
+      return new Promise<Reply>((resolve) => waiting.set(id, resolve));
+    }
+    return places(url, init);
+  };
+  const release = (id: string, reply?: Reply): void => {
+    const resolve = waiting.get(id);
+    assert.ok(resolve, `${id} 正在取坐标`);
+    waiting.delete(id);
+    resolve(reply ?? { status: 200, body: { available: true, place: { id, address: "x", location: coords[id], kind: "other" } } });
+  };
+  return { handler, release, drafts };
+}
+
+async function type(field: string, query: string): Promise<void> {
+  const input = $<HTMLInputElement>(`[data-field="${field}"] input`);
+  input.value = query;
+  input.dispatchEvent(new Event("input"));
+  await wait(400);
+}
+const clickOption = (field: string): void => ($(`[data-field="${field}"] [role="option"]`) as HTMLElement).click();
+const submitForm = (): void => void $<HTMLFormElement>("form").dispatchEvent(new Event("submit", { cancelable: true }));
+
+test("M9E-08 ①：点了谷歌候选马上点「查询价格」——按钮显示「正在取位置…」、重复点不重复提交，坐标回来后自动接着建草稿，不提示「请从候选里选」", async () => {
+  const slow = slowDetails();
+  handler = slow.handler;
+  const went: string[] = [];
+  await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh" }, (url) => went.push(url));
+  await pick("pickup", "成田", "成田国際空港");
+  await type("dropoff", "東京");
+  clickOption("dropoff");
+  assert.equal($('[data-field="dropoff"] [aria-live]').textContent, "正在取位置…");
+  submitForm();
+  await wait(20);
+  assert.equal($(".nzb-primary").textContent, "正在取位置…");
+  assert.equal($(".nzb-primary").getAttribute("aria-disabled"), "true");
+  assert.equal($('[data-role="message"]').textContent, "", "不提示「请从候选里选一个地点」");
+  submitForm();
+  await wait(20);
+  slow.release("ChIJtokyo");
+  await wait(30);
+  assert.equal(slow.drafts.length, 1, "只建一次草稿");
+  assert.deepEqual((slow.drafts[0] as { draft: Record<string, unknown> }).draft["dropoff"], { name: "東京駅", lat: 35.6812, lng: 139.7671 });
+  assert.deepEqual(went, [`${BASE}/book/new?draft=${"D".repeat(43)}`]);
+  assert.equal($('[data-field="dropoff"] [aria-live]').textContent, "");
+});
+
+test("M9E-08 ②：取坐标期间客人接着打字，旧坐标回来不写回；期间改选了别的候选，旧坐标晚回来也不覆盖", async () => {
+  const slow = slowDetails();
+  handler = slow.handler;
+  await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh" }, () => undefined);
+  await pick("pickup", "成田", "成田国際空港");
+  // 打字：框里是新字，草稿里不能是旧地点
+  await type("dropoff", "東京");
+  clickOption("dropoff");
+  $<HTMLInputElement>('[data-field="dropoff"] input').value = "東京タワ";
+  $<HTMLInputElement>('[data-field="dropoff"] input').dispatchEvent(new Event("input"));
+  slow.release("ChIJtokyo");
+  await wait(30);
+  submitForm();
+  await wait(30);
+  assert.equal($<HTMLInputElement>('[data-field="dropoff"] input').value, "東京タワ");
+  assert.equal($('[data-role="message"]').textContent, "请从候选里选一个地点", "框里是没选过的新字，按没选地点提示");
+  assert.equal(slow.drafts.length, 0, "旧坐标没有写回，不建草稿");
+  // 改选：先选東京駅（慢），再选新宿駅（先回来），東京駅后回来
+  await type("dropoff", "東京");
+  clickOption("dropoff");
+  await type("dropoff", "新宿");
+  clickOption("dropoff");
+  submitForm();
+  slow.release("ChIJshinjuku");
+  await wait(20);
+  slow.release("ChIJtokyo");
+  await wait(30);
+  assert.equal($<HTMLInputElement>('[data-field="dropoff"] input').value, "新宿駅");
+  assert.equal(slow.drafts.length, 1);
+  assert.deepEqual((slow.drafts[0] as { draft: Record<string, unknown> }).draft["dropoff"], { name: "新宿駅", lat: 35.6896, lng: 139.7006 });
+});
+
+test("M9E-08 ②：经停点取坐标期间删掉前面的经停点（整个表单重画），框里仍是选中的候选，坐标回来写进原来那一行", async () => {
+  const slow = slowDetails();
+  handler = slow.handler;
+  await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh", services: ["charter"] }, () => undefined);
+  await pick("pickup", "成田", "成田国際空港");
+  ($('[data-action="add-waypoint"]') as HTMLButtonElement).click();
+  await pick("waypoint-0", "成田", "成田国際空港");
+  ($('[data-action="add-waypoint"]') as HTMLButtonElement).click();
+  await type("waypoint-1", "新宿");
+  clickOption("waypoint-1");
+  ($('[aria-label="删除经停点 1"]') as HTMLButtonElement).click();
+  assert.equal($<HTMLInputElement>('[data-field="waypoint-0"] input').value, "新宿駅", "重画后框里仍是选中的候选");
+  assert.equal($('[data-field="waypoint-0"] [aria-live]').textContent, "正在取位置…");
+  slow.release("ChIJshinjuku");
+  await wait(20);
+  assert.equal($('[data-field="waypoint-0"] [aria-live]').textContent, "");
+  const stay = $<HTMLSelectElement>('[data-focus="stay-0"]');
+  stay.value = "60";
+  stay.dispatchEvent(new Event("change"));
+  await pick("dropoff", "成田", "成田国際空港");
+  submitForm();
+  await wait(30);
+  assert.deepEqual((slow.drafts[0] as { draft: Record<string, unknown> }).draft["waypoints"], [{ name: "新宿駅", lat: 35.6896, lng: 139.7006, stay_minutes: 60 }]);
+});
+
+test("M9E-08 ③：取坐标失败如实提示、不建草稿，客人重选后可以提交", async () => {
+  const slow = slowDetails();
+  handler = slow.handler;
+  await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh" }, () => undefined);
+  await pick("pickup", "成田", "成田国際空港");
+  await type("dropoff", "東京");
+  clickOption("dropoff");
+  submitForm();
+  await wait(20);
+  slow.release("ChIJtokyo", { status: 503, body: { error: { code: "PLACES_UNAVAILABLE" } } });
+  await wait(30);
+  assert.equal($('[data-field="dropoff"] [aria-live]').textContent, "取不到这个地点的位置，请重新选一个");
+  assert.equal($('[data-role="message"]').textContent, "取不到这个地点的位置，请重新选一个");
+  assert.equal(shadow().activeElement, $('[data-field="dropoff"] input'), "焦点移到要重选的地址框");
+  assert.equal($(".nzb-primary").textContent, "查询价格");
+  assert.equal($(".nzb-primary").getAttribute("aria-disabled"), null);
+  assert.equal(slow.drafts.length, 0);
+  await type("dropoff", "新宿");
+  assert.equal($('[data-field="dropoff"] [aria-live]').textContent, "", "重新打字后提示消失");
+  clickOption("dropoff");
+  slow.release("ChIJshinjuku");
+  await wait(20);
+  submitForm();
+  await wait(30);
+  assert.deepEqual((slow.drafts[0] as { draft: Record<string, unknown> }).draft["dropoff"], { name: "新宿駅", lat: 35.6896, lng: 139.7006 });
 });
