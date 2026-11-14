@@ -200,7 +200,7 @@ GJ 分支里的 `<div id="gojo-widget-container"></div>` 代表**你们模板里
 用了的话：站内点链接跳到首页或 `/booking/` 时，浏览器不会重新加载页面，`DOMContentLoaded` 不会再触发，3.2 那段 init 不会执行，组件不出现。两种处理办法，二选一：
 
 1. **推荐：这两页不走软跳转。** 指向首页和 `/booking/` 的站内链接加 `data-astro-reload`（或对 NOZOMI 模式的站点整体不启用 `<ClientRouter />`）。3.2 那段代码保持不变，快照也不变。
-2. **改初始化脚本**，同时处理首次加载和软跳转（`astro:page-load` 在首次加载和每次软跳转后都会触发）：
+2. **改初始化脚本**，同时处理首次加载和软跳转（`astro:page-load` 在首次加载和每次软跳转后都会触发）。软跳转时组件脚本可能还没加载完（`window.NozomiBooking` 还没定义），所以也在组件脚本的 `load` 事件里再试一次；`data-nozomi-init` 保证只初始化一次。下面是**输出结果**的样子（站点 73）：
 
    ```html
    <script>
@@ -212,14 +212,25 @@ GJ 分支里的 `<div id="gojo-widget-container"></div>` 代表**你们模板里
          NozomiBooking.init({ key: "nze_…", root: "#nozomi-booking", lang: "zh", services: ["transfer","charter"], redirectUrl: "https://embed-demo.moveglobal.io/" });
        }
        document.addEventListener("astro:page-load", start);
+       var widgetScript = document.querySelector('script[src="https://nozomi.moveglobal.io/embed/widget-v1.js"]');
+       if (widgetScript) widgetScript.addEventListener("load", start);
        if (document.readyState === "loading") window.addEventListener("DOMContentLoaded", start); else start();
      })();
    </script>
    ```
 
+   示例里的嵌入码 `"nze_…"` 和 `redirectUrl` 只是为了好读写成了字面值。实际生成时和 3.4 一样：在 frontmatter 里用 `scriptLiteral(nozomiEmbedKeyOf(site))`、`scriptLiteral(`https://${site.domain}/`)` 拼出整段代码，再用 `<script is:inline set:html={…}></script>` 输出，**不要把嵌入码直接写进模板**。
+
    软跳转时组件脚本是否按顺序加载、内联脚本是否重新执行，和你们的 Astro 版本及配置有关，请在站点上实测（从别的页面软跳转到首页、`/booking/`，再从首页软跳转到 `/booking/`，组件都要出现且只出现一份）。NOZOMI 模式的快照按改后的代码更新。
 
-**重复调用 init 是否安全**（按 NOZOMI 组件代码 `apps/web/src/embed/widget-ui.ts` 核过）：对同一个容器再调一次 `init`，组件复用容器上已有的 Shadow DOM，重新取一次配置，渲染前先清掉上一次的内容，最后只显示一份表单；组件不在 `window` / `document` 上挂监听、不开定时器，旧实例不会留下后台任务。代价是每调一次多一个取配置请求，客人已经填了一半的内容会被清掉。所以重复调用不会出错，但仍建议像上面那样用 `data-nozomi-init` 防重。
+**重复调用 init 是否安全**（按 NOZOMI 组件代码 `apps/web/src/embed/widget-ui.ts` 核过）：对同一个容器再调一次 `init`，组件复用容器上已有的 Shadow DOM，重新取一次配置，渲染前先清掉上一次的内容，最后只显示一份表单；组件不在 `window` / `document` 上挂监听。旧实例不会马上完全停下，但不会出错：
+
+- 组件有短定时器：地址提示停顿 300 毫秒后才查候选（防抖）；选中候选后取位置最多等 10 秒。旧实例里已经开始的定时器照常到点。
+- 旧实例已经发出的请求会照常跑完，结果写进已经被清掉的旧内容，不影响新表单。
+- 例外：如果客人在旧实例上已经点了「查询价格」、正在等结果，成功后照样会整页跳到 NOZOMI 主站（这正是客人要的）。
+- 不支持 `adoptedStyleSheets` 的老浏览器上，每调一次 `init` 容器里多一个 `<style>`，只是重复的样式。
+
+代价是每调一次多一个取配置请求，客人已经填了一半的内容会被清掉。所以仍建议像上面那样用 `data-nozomi-init` 防重。
 
 ## 4. `/booking/` 页
 
