@@ -151,6 +151,20 @@ test("没迁移过的商品整套用旧表：多了②规则、整商品套餐�
     assert.deepEqual(after, before, JSON.stringify(request.waypoints));
   }
   assert.equal(priced(trip("shinjuku", ["gogome"], "shinjuku"), product({ priceRules: MIGRATED_RULES })), 65_000, "套餐 55,000 + ③行里的途经加价 10,000");
+  // 新格式的行排在最前、而且是旧行没有的档（6h）：没迁移过的商品仍然不读——按 6h 报不出，自动选档也不把 6h 当候选
+  const wideFirst = [rule("w-6", null, pkgPricing(30_000), { packageHours: 6 }), rule("w-10", null, pkgPricing(1_000)), itinerary("i-fuji", "fuji", 1), ...LEGACY_RULES];
+  for (const request of cases) assert.deepEqual(quoteProduct(product({ priceRules: wideFirst }), request, moment), quoteProduct(product(), request, moment), JSON.stringify(request.waypoints));
+  assert.equal(priced(trip("shinjuku", [], "shinjuku", { packageHours: 6 }), product({ priceRules: wideFirst })), "NO_PRICE_RULE");
+  const auto = quoteProduct(product({ priceRules: wideFirst }), trip("shinjuku", [], "shinjuku", { packageHours: null, charterSelection: "auto", routeUsage: { meters: 50_000, minutes: 300 } }), moment);
+  assert.ok(auto.ok);
+  assert.deepEqual([auto.offers[0]?.packageHours, auto.offers[0]?.priceRuleId], [10, "p-tokyo"], "5 小时的行程：6h 的整商品套餐价不算候选，只有旧的 10h");
+  // 行程比所有旧档都长（T = 11h40m）：客人手动选 10h（旧行里最长的那档）照常报；12h 的整商品套餐价不算「最长那一档」，否则会报 PACKAGE_TOO_SHORT
+  const longer = [rule("w-12", null, pkgPricing(70_000), { packageHours: 12 }), ...wideFirst];
+  const manual = quoteProduct(product({ priceRules: longer }), trip("shinjuku", [], "shinjuku", { charterSelection: "manual", routeUsage: { meters: 50_000, minutes: 700 } }), moment);
+  assert.ok(manual.ok);
+  assert.deepEqual([manual.offers[0]?.packageHours, manual.offers[0]?.priceRuleId, manual.refused], [10, "p-tokyo", []]);
+  // 只有整商品套餐价、没迁移过：报不出（不会把它当成按区域的价）
+  assert.equal(priced(trip("shinjuku", [], "shinjuku"), product({ priceRules: [rule("w-10", null, pkgPricing(60_000))] })), "NO_PRICE_RULE");
 });
 
 test("迁移过的商品：套餐价只用整商品套餐价（按区域的旧行不读）；经停只从②取（③行里的途经加价不读）", () => {

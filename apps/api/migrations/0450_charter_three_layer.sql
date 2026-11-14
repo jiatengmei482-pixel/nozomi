@@ -9,7 +9,7 @@
 --    外键 (tenant_id, area_id) 在 area_id 为空时不检查（MATCH SIMPLE），不用改。
 -- 4. products.charter_layout：空 = 旧表（③行里的途经加价、按服务区域的套餐价）；'three_layer' = 新表（②行程加价、整商品套餐价）。
 --    只由迁移脚本（apps/api/src/db/charter-three-layer-cli.ts，经部署流水线的 migrate 容器、表的所有者执行）写；
---    租户角色、平台角色都不能改（触发器兜底，服务层的 PUT 本来就没有这个字段）。只有包车商品能设。
+--    除了表的所有者（迁移账号）谁都不能写（触发器按白名单兜底：以后新加能写 products 的角色也写不了；服务层的 PUT 本来就没有这个字段）。只有包车商品能设。
 
 alter table price_rules drop constraint price_rules_model_check;
 alter table price_rules add constraint price_rules_model_check check (pricing_model in ('fixed', 'mileage_time', 'charter_package', 'charter_area_surcharge', 'charter_itinerary_surcharge'));
@@ -30,12 +30,12 @@ alter table price_rules add constraint price_rules_area_required check (area_id 
 alter table products add column charter_layout text;
 alter table products add constraint products_charter_layout_check check (charter_layout is null or (charter_layout = 'three_layer' and category = 'charter'));
 
--- 数据库兜底：只有迁移脚本（表的所有者）能写这一列；租户角色、平台角色写入或改动都拒绝
+-- 数据库兜底：只有表的所有者（迁移账号，迁移脚本用它）能写这一列；别的角色新建时带上或修改它都拒绝
 create function products_charter_layout_owner_only() returns trigger
   language plpgsql
   as $$
 begin
-  if current_user in ('nozomi_app', 'nozomi_platform')
+  if current_user <> (select pg_get_userbyid(c.relowner) from pg_class c where c.oid = tg_relid)
      and (case when tg_op = 'INSERT' then new.charter_layout is not null else new.charter_layout is distinct from old.charter_layout end) then
     raise exception '商品的三层区域标志（charter_layout）只能由迁移脚本写' using errcode = 'insufficient_privilege';
   end if;
