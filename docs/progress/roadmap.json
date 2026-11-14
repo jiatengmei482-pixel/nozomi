@@ -1386,7 +1386,7 @@
             "嵌入页样式只引用组件的 --nzb-* 变量（命名和默认值同 widget-style.ts），传给 Stripe appearance 的取值也从 --nzb-* 读（Q15）",
             "路线图：首期和主站一样显示谷歌静态路线图，静态图失败时只显示时长和公里数，不加载 Leaflet（Q11；合规后备图随 M10-01）"
           ],
-          "evidence": "PR #244（https://github.com/jiatengmei482-pixel/nozomi/pull/244）：集成测试 17 条（新增 source_matches 1 条）；组件测试新增 embed-flow 7、booking-shell 2（主站请求体逐字不变）、embed-style 4、embed-order-store 3，改 embed-book 17；跨站端到端 site-embed-booking 新增 2 条（chromium + webkit）；ADR 第十节回归 e2e 47 条。付款进 iframe、completed 的跨站端到端在 M9E-19；四步三语在 M9E-18；特商法页待业主给内容（Q14）",
+          "evidence": "PR #244（https://github.com/jiatengmei482-pixel/nozomi/pull/244）：集成测试 17 条（新增 source_matches 1 条）；组件测试新增 embed-flow 7、booking-shell 2（主站请求体逐字不变）、embed-style 4、embed-order-store 3，改 embed-book 17；跨站端到端 site-embed-booking 新增 2 条（chromium + webkit）；ADR 第十节回归 e2e 47 条。付款进 iframe、completed 的跨站端到端在 M9E-19；四步三语在 M9E-18；特商法、取消政策、隐私政策三页和嵌入页上的链接待业主给内容，登记为 M9E-24（Q14）；Leaflet 不进嵌入页打包产物登记为 M9E-25",
           "updated": "2026-11-14"
         },
         {
@@ -1413,7 +1413,8 @@
             "后端付款、Webhook、超时取消、退款无改动；假 Stripe 端到端在跨站宿主（localhost / 127.0.0.1）里付款成功、失败卡、3D 验证成功 / 失败各一遍",
             "return_url 带 key、host：模拟银行整页回跳、订单页刷新后仍在 iframe 里正常显示",
             "3D 验证弹窗在 390 宽和桌面都出现在客人可视范围内",
-            "Stripe 测试模式在跨站宿主上 Chrome、Safari（含 iOS）、Firefox 实测，结果写进 PR"
+            "Stripe 测试模式在跨站宿主上 Chrome、Safari（含 iOS）、Firefox 实测，结果写进 PR",
+            "频道号 ch 现在只在文档第一次加载时从 #ch= 读、放在内存里（EmbedFrame.tsx）；进订单页后地址里没有 #ch=，银行整页回跳、iframe 刷新后 ch 为空，宿主按频道核对会丢掉这些消息：回跳后的 ready / step / completed 要仍带得上 ch（例如 ch 随站内地址的 # 一起带上，或存进 iframe 自己的 sessionStorage），端到端覆盖回跳后宿主照样收到 completed（M9E-17 审查建议）"
           ],
           "evidence": "",
           "updated": "2026-11-14"
@@ -1484,6 +1485,31 @@
             "组件测试覆盖 8 秒超时、网络错误、5xx、4xx 被拒、配置晚回来（正常 / 被拒）、提交被拒；做变异检查；ADR 0090、工厂接入说明同步"
           ],
           "evidence": "PR #241；组件测试 54 条（widget.test.tsx + widget-core.test.ts，新增 7 条）、集成测试 embed.itest.ts 13 条（新增 1 条）、端到端 site-embed-widget.spec.ts 5 条（新增 1 条）本机全过；变异检查组件 27 个、后端 5 个全部杀死",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9E-24",
+          "title": "嵌入页的特定商取引法表示、取消政策、隐私政策链接（ADR 0095 Q14；M9E-17 审查必改项）",
+          "role": "frontend",
+          "status": "blocked",
+          "blockedBy": "业主提供特定商取引法表示、取消政策、隐私政策的内容",
+          "acceptance": [
+            "业主提供内容后：新增特定商取引法表示、取消政策、隐私政策三个页面，嵌入页顶部和核对页都有这三个链接，新窗口打开",
+            "内容只来自业主提供的文字，不自行编写；三页也能从主站访问；组件测试核对嵌入页顶部和核对页的三个链接、target=_blank"
+          ],
+          "evidence": "",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9E-25",
+          "title": "嵌入页不打包 Leaflet：RouteMap.tsx、SiteMapPicker.tsx 改为按需加载，嵌入页的产物里没有 Leaflet 代码（M9E-17 审查建议）",
+          "role": "frontend",
+          "status": "todo",
+          "acceptance": [
+            "现在 Leaflet 在 RouteMap.tsx、SiteMapPicker.tsx 里是静态 import：嵌入页不渲染、不请求底图，但仍下载这段代码。改成只在主站真的要显示地图时才加载",
+            "主站地图选点、路线后备图行为不变（site-booking*.spec.ts、map-center / waypoints 组件测试原样通过）；嵌入页打开四步、订单页时不下载 Leaflet 的代码（端到端核对请求列表）；build-output.spec.ts 按 ADR 0095 的「一个 JS、一个 CSS」规则相应调整并写明理由"
+          ],
+          "evidence": "",
           "updated": "2026-11-14"
         }
       ]
