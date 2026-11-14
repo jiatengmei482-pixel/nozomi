@@ -12,7 +12,7 @@ import { type Locator, type Page, expect, test } from "@playwright/test";
 import { E2E_WEB_PLACES_PORT } from "../playwright.config.ts";
 import { createAirport, publishTransfer } from "./book-new-support.ts";
 import { createSupplier, createWorld, expectAccessible } from "./catalog.ts";
-import { OWN_SITE_SOURCE, platformAdminHeaders } from "./support.ts";
+import { embedHostAsProduction, OWN_SITE_SOURCE, platformAdminHeaders } from "./support.ts";
 
 test.use(OWN_SITE_SOURCE);
 
@@ -124,6 +124,7 @@ test("嵌入组件：10 个候选时署名固定在面板底部、始终看得�
     const created = await request.post("/platform/v1/embed-keys", { headers: await platformAdminHeaders(request), data: { name: "M9E-06 署名", allowed_origins: [origin], default_lang: "zh", default_services: ["transfer"] } });
     expect(created.status(), await created.text()).toBe(201);
     key = ((await created.json()) as { key: string }).key;
+    await embedHostAsProduction(page.context(), SITE);
     await page.setViewportSize({ width: 360, height: 740 });
     await tenSuggestions(page, "/embed/v1/places/autocomplete");
     await page.goto(origin);
