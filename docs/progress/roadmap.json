@@ -874,7 +874,9 @@
             "运营区域仍作为「这一端能不能接单」的上限；城市匹配 80 / 150 公里规则保留",
             "所有产品都不报价 → 现有人工报价流程（留资 + 未覆盖需求 + WhatsApp）",
             "现在能报出的价格一分不变（最近 30 天询价只读回放对比）；客人页标注「按里程计价 / 含里程费 / 含区域加价」",
-            "业主 2026-11-11 确认的最终优先级；写 ADR；M8-14 按新规则验收"
+            "业主 2026-11-11 确认的最终优先级；写 ADR；M8-14 按新规则验收",
+            "另一类偶发（未修，已登记后重跑）：e2e site-embed-booking.spec.ts:176「宿主页又被别的网站嵌了一层」chromium page.goto 报 Page crashed（2026-11-14 M9E-17 分支本机，和组件测试同时跑、机器负载高时一次）；同一代码单独 --repeat-each=3 共 3/3 通过、此前整文件也通过；疑为浏览器内存压力，待查",
+            "同类偶发（未修，已登记后重跑）：2026-11-14 M9E-17 分支本机回归 e2e（--workers=1，47 条）里 site-booking-charter.spec.ts:92 和 site-payment.spec.ts:340 在 axe 检查（catalog.ts:118 expectAccessible）时 chromium「page.evaluate: Target crashed」各一次，和 site-booking-waypoints:56 那次同类；两条单独重跑都通过；疑为浏览器内存压力，待查"
           ],
           "evidence": "分支 m8-30-quote-priority（未开 PR，按指示）；ADR 0080；domain 单元测试 quote-priority 15 条 + quote-compat 新增 1 条（golden 全部样例：今天报得出的价逐分不变）；集成测试 distance-prices.itest.ts 6 条（接口、三种情形、运营上限、路线取不到、订单、只读回放 0 处变化）、tenant-isolation 新增 3 条；本机相关集成测试 25 个文件 375 条、单元测试 2,532 条通过；全套交 CI；测试环境部分验收（PR #154 docs/acceptance/M8-30.md）：合并前后 17 条线路 101 个价逐分一致、报不出原因不变，③一口价+里程 ④计程价 ⑤包车加价 ⑦订单 / 邮件标注 要用 QA 账号或验收口令，待有权限的会话补测；2026-11-12 待补 ①–③ 已在测试环境补完（docs/acceptance/M8-14.md），只剩 ④ 30 天询价回放，等 M8-34；④ 30 天询价回放 2026-11-12 用 M8-34 的只读接口在测试环境跑：767 条询价，原来报得出的价变化 0 处（docs/acceptance/M8-30.md「补测 ④」）",
           "updated": "2026-11-12"
@@ -1373,8 +1375,7 @@
           "id": "M9E-17",
           "title": "嵌在宿主页·第二期：/embed/book 复用 /book/new 四步（BookingShell 上下文、EmbedLayout、无 Leaflet）、iframe 内订单页（不含付款）、step / completed / error 事件、刷新续接（ADR 0095 第四、八、九节）",
           "role": "frontend",
-          "status": "blocked",
-          "blockedBy": "M9E-16 合并",
+          "status": "review",
           "acceptance": [
             "主站 /book/new、订单页的组件测试和 site-booking*.spec.ts、site-payment*.spec.ts 一条不改、全部通过；新增主站模式询价 / 下单请求体与重构前逐字相同",
             "嵌入页询价带 draft_id，下单后平台订单详情来源为嵌入组件（宿主页内）",
@@ -1385,7 +1386,7 @@
             "嵌入页样式只引用组件的 --nzb-* 变量（命名和默认值同 widget-style.ts），传给 Stripe appearance 的取值也从 --nzb-* 读（Q15）",
             "路线图：首期和主站一样显示谷歌静态路线图，静态图失败时只显示时长和公里数，不加载 Leaflet（Q11；合规后备图随 M10-01）"
           ],
-          "evidence": "",
+          "evidence": "PR #244（https://github.com/jiatengmei482-pixel/nozomi/pull/244）：集成测试 17 条（新增 source_matches 1 条）；组件测试新增 embed-flow 7、booking-shell 2（主站请求体逐字不变）、embed-style 4、embed-order-store 3，改 embed-book 17；跨站端到端 site-embed-booking 新增 2 条（chromium + webkit）；ADR 第十节回归 e2e 47 条。付款进 iframe、completed 的跨站端到端在 M9E-19；四步三语在 M9E-18；特商法、取消政策、隐私政策三页和嵌入页上的链接待业主给内容，登记为 M9E-24（Q14）；Leaflet 不进嵌入页打包产物登记为 M9E-25",
           "updated": "2026-11-14"
         },
         {
@@ -1412,7 +1413,8 @@
             "后端付款、Webhook、超时取消、退款无改动；假 Stripe 端到端在跨站宿主（localhost / 127.0.0.1）里付款成功、失败卡、3D 验证成功 / 失败各一遍",
             "return_url 带 key、host：模拟银行整页回跳、订单页刷新后仍在 iframe 里正常显示",
             "3D 验证弹窗在 390 宽和桌面都出现在客人可视范围内",
-            "Stripe 测试模式在跨站宿主上 Chrome、Safari（含 iOS）、Firefox 实测，结果写进 PR"
+            "Stripe 测试模式在跨站宿主上 Chrome、Safari（含 iOS）、Firefox 实测，结果写进 PR",
+            "频道号 ch 现在只在文档第一次加载时从 #ch= 读、放在内存里（EmbedFrame.tsx）；进订单页后地址里没有 #ch=，银行整页回跳、iframe 刷新后 ch 为空，宿主按频道核对会丢掉这些消息：回跳后的 ready / step / completed 要仍带得上 ch（例如 ch 随站内地址的 # 一起带上，或存进 iframe 自己的 sessionStorage），端到端覆盖回跳后宿主照样收到 completed（M9E-17 审查建议）"
           ],
           "evidence": "",
           "updated": "2026-11-14"
@@ -1483,6 +1485,31 @@
             "组件测试覆盖 8 秒超时、网络错误、5xx、4xx 被拒、配置晚回来（正常 / 被拒）、提交被拒；做变异检查；ADR 0090、工厂接入说明同步"
           ],
           "evidence": "PR #241；组件测试 54 条（widget.test.tsx + widget-core.test.ts，新增 7 条）、集成测试 embed.itest.ts 13 条（新增 1 条）、端到端 site-embed-widget.spec.ts 5 条（新增 1 条）本机全过；变异检查组件 27 个、后端 5 个全部杀死",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9E-24",
+          "title": "嵌入页的特定商取引法表示、取消政策、隐私政策链接（ADR 0095 Q14；M9E-17 审查必改项）",
+          "role": "frontend",
+          "status": "blocked",
+          "blockedBy": "业主提供特定商取引法表示、取消政策、隐私政策的内容",
+          "acceptance": [
+            "业主提供内容后：新增特定商取引法表示、取消政策、隐私政策三个页面，嵌入页顶部和核对页都有这三个链接，新窗口打开",
+            "内容只来自业主提供的文字，不自行编写；三页也能从主站访问；组件测试核对嵌入页顶部和核对页的三个链接、target=_blank"
+          ],
+          "evidence": "",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9E-25",
+          "title": "嵌入页不打包 Leaflet：RouteMap.tsx、SiteMapPicker.tsx 改为按需加载，嵌入页的产物里没有 Leaflet 代码（M9E-17 审查建议）",
+          "role": "frontend",
+          "status": "todo",
+          "acceptance": [
+            "现在 Leaflet 在 RouteMap.tsx、SiteMapPicker.tsx 里是静态 import：嵌入页不渲染、不请求底图，但仍下载这段代码。改成只在主站真的要显示地图时才加载",
+            "主站地图选点、路线后备图行为不变（site-booking*.spec.ts、map-center / waypoints 组件测试原样通过）；嵌入页打开四步、订单页时不下载 Leaflet 的代码（端到端核对请求列表）；build-output.spec.ts 按 ADR 0095 的「一个 JS、一个 CSS」规则相应调整并写明理由"
+          ],
+          "evidence": "",
           "updated": "2026-11-14"
         }
       ]
@@ -3114,6 +3141,11 @@
       "date": "2026-11-14",
       "by": "frontend",
       "summary": "M9E-16 开发（PR #242，已合入 M9E-12、M9E-14）：合作网站的查价表单可以把客人带回合作网站自己的预订页，在那一页里用 iframe 显示主站的嵌入预订页（第一期是占位页：显示这次要订的内容，给「到主站继续预订」）；只有运营在后台打开「允许整页嵌入」、并且网站在白名单里才嵌得进去，其他网站、其他页面都嵌不进；嵌不进去时 15 秒后显示「到主站继续预订」；订单来源能区分「在合作网站页面里下单」。Caddy 固定到修过伪造请求头漏洞的 2.11.9；测试站外层 nginx 不另加安全头。本机跨站自动测试 chromium、webkit 各 6 条通过。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "frontend",
+      "summary": "M9E-17 开发中（PR #244，草稿）：合作网站页面里的预订框现在能走完主站的四步预订（和主站同一份页面，主站不变），下单后在框里显示订单；付款这一期先在新窗口打开主站订单页完成（付款放进框里是第三期 M9E-19），付完回到合作网站，框里自动显示付款已提交并通知合作网站；合作网站刷新页面能接着显示还没付的单；草稿和这次嵌入的网站对不上时来源按主站记。"
     },
     {
       "date": "2026-11-14",

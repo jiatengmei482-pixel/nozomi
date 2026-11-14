@@ -460,8 +460,12 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
   app.get("/site/v1/booking-drafts/:id", async (request) => {
     await takeSiteSlot(ctx, "site_booking_draft", { ip: request.ip });
     const { id } = request.params as { id: string };
-    const found = await readBookingDraftForSite(ctx, id);
-    return { draft: found.draft, expires_at: found.expiresAt.toISOString() };
+    // 嵌入页带 key、host（M9E-17）：多回一个 source_matches；两个都不带时应答和以前一样
+    const query = request.query as Record<string, unknown>;
+    const claimed = query["key"] !== undefined || query["host"] !== undefined;
+    const text = (value: unknown): string | null => (typeof value === "string" && value.length <= 300 ? value : null);
+    const found = await readBookingDraftForSite(ctx, id, claimed ? { key: text(query["key"]), host: text(query["host"]) } : null);
+    return { draft: found.draft, expires_at: found.expiresAt.toISOString(), ...(found.sourceMatches === undefined ? {} : { source_matches: found.sourceMatches }) };
   });
 
   app.get("/site/v1/config", async (request) => {
