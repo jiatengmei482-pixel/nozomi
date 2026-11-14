@@ -48,7 +48,7 @@ test("M9P-06 的 golden 变化：只有 big 商品里上 / 下车点落在①∩
     assert.equal(after.length, before.length, key);
     for (const [index, now] of after.entries()) {
       const old = before[index];
-      if (typeof now === "string" || typeof old === "string") {
+      if (old === undefined || typeof now === "string" || typeof old === "string") {
         assert.equal(now, old, `报不出的原因不变：${key}`);
         continue;
       }

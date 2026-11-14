@@ -105,6 +105,7 @@ import { lockMasterReferencesShared } from "../repos/master-data.ts";
 import { type StoredPriceRule, listAdjustRules, listHolidays, listPriceRules } from "../repos/prices.ts";
 import { findOwnTenant } from "../repos/tenants.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
+import { assertNoCharterLayerOverlap } from "./charter-layers.ts";
 import { type SystemTenantPrincipal, tenantWriteOrigin } from "./audit.ts";
 import { fieldLocked, masterDataNotReady, notFound, versionConflict } from "./errors.ts";
 import { runIdempotent } from "./idempotency.ts";
@@ -301,6 +302,24 @@ export interface ProductInput extends ProductRelations {
 }
 
 /**
+ * 包车改基础价区域（①服务区域，M9P-06，ADR 0093 第七节）：新加进来的区域不能和别的①重叠，也不能和这个商品的③上下车加价区域重叠；
+ * 不能就是某条上下车加价的区域（`AREA_IS_PRODUCT_AREA`，同一区域不能既是①又是③）。已有的不回头拦。新建商品时还没有价格，只查①①。
+ */
+async function assertCharterBaseAreas(db: Db, tenantId: string, productId: string | null, areaIds: readonly string[], already: ReadonlySet<string>): Promise<void> {
+  const added = areaIds.filter((id) => !already.has(id));
+  if (added.length === 0) return;
+  const rules = productId === null ? [] : await listPriceRules(db, tenantId, productId);
+  const areasOf = (model: string): string[] => [...new Set(rules.flatMap((rule) => (rule.pricing.model === model && rule.areaId !== null ? [rule.areaId] : [])))];
+  const updown = areasOf("charter_area_surcharge");
+  const clash = added.findIndex((id) => updown.includes(id));
+  if (clash >= 0) {
+    throw validationFailed("body", [{ path: `/areas/${areaIds.indexOf(added[clash] as string)}/area_id`, reason: "AREA_IS_PRODUCT_AREA", message: "这个区域已经设了上下车加价：同一个区域不能既是基础价区域（服务区域）又设上下车加价。请先删掉它的上下车加价" }]);
+  }
+  const names = await findAreasForProduct(db, tenantId, [...new Set([...areaIds, ...updown])]);
+  await assertNoCharterLayerOverlap(db, tenantId, { base: areaIds, itinerary: areasOf("charter_itinerary_surcharge"), updown }, { base: added }, (id) => names.get(id)?.name);
+}
+
+/**
  * 检查这次要保存的区域、车型组、调度人，有问题抛 400（每条带路径和原因代码）。
  * 已经选着的区域和车型组即使后来被停用也可以留着（上架校验会指出来）；新选的必须是启用中的。
  */
@@ -408,6 +427,7 @@ export async function createProduct(
       if (issues.length > 0) invalid(issues);
       if (notReady[0]) throw notReady[0];
       await assertRelations(db, tenantId, input, input, { areaIds: new Set(), vehicleGroupIds: new Set() });
+      if (input.category === "charter" && input.areaIds !== undefined) await assertCharterBaseAreas(db, tenantId, null, input.areaIds, new Set());
       const product = await insertProduct(
         db,
         tenantId,
@@ -483,6 +503,7 @@ export async function updateProduct(ctx: DbContext, writer: ProductWriter, id: s
       await lockMasterReferences(db, current, patch.vehicleGroups.map((choice) => choice.vehicleGroupId), current.serviceRules);
     }
     await assertRelations(db, tenantId, current, patch, already);
+    if (current.category === "charter" && patch.areaIds !== undefined) await assertCharterBaseAreas(db, tenantId, current.id, patch.areaIds, already.areaIds);
 
     const beforeAudit = relationsAudit(before);
     const afterAudit: AuditValues = {
