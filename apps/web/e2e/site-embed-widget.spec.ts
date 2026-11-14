@@ -83,7 +83,7 @@ test("嵌入组件：白名单网站上样式不受宿主页影响、320 px、ax
   await page.goto(otherHost.origin);
   await expect(page.getByText("预订组件暂时无法使用。请稍后刷新，或直接到主站预订。")).toBeVisible();
   await expect(page.getByRole("link", { name: "到主站预订" })).toHaveAttribute("href", `${SITE}/book/new`);
-  await expect(page.getByRole("button", { name: "查询价格" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "查看价格" })).toHaveCount(0);
 
   // ---- 白名单网站 ----
   await page.goto(allowedHost.origin);
@@ -118,7 +118,7 @@ test("嵌入组件：白名单网站上样式不受宿主页影响、320 px、ax
   const axe = await new AxeBuilder({ page }).include("#nozomi-booking").withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
   expect(axe.violations.map((violation) => `${violation.id}: ${violation.help}`)).toEqual([]);
 
-  // 键盘：出发地选平台的机场，目的地选谷歌候选，日期改成后天，Tab 到「查询价格」回车
+  // 键盘：出发地选平台的机场，目的地选谷歌候选，日期改成后天，Tab 到「查看价格」回车
   await fromBox.focus();
   // 打完整名称（带随机后缀）：只打前几个字时，并行用例建的「新预订机场XXXXX」也会排在候选里，方向键可能选到别人的（M8-29 同类）
   await page.keyboard.type(airport.name);
@@ -144,7 +144,7 @@ test("嵌入组件：白名单网站上样式不受宿主页影响、320 px、ax
   await page.getByLabel("日期").fill(dayAfterTomorrow());
 
   const draftResponse = page.waitForResponse((res) => res.url().includes("/embed/v1/booking-drafts") && res.request().method() === "POST");
-  const submit = page.getByRole("button", { name: "查询价格" });
+  const submit = page.getByRole("button", { name: "查看价格" });
   await submit.focus();
   const viaWidget = await quoteTotals(page, async () => {
     await page.keyboard.press("Enter");
@@ -193,7 +193,7 @@ test("嵌入组件建草稿失败：网络错误、429 两种、400 各显示一
   await expect(toBox).toHaveValue(/東京駅/);
   await page.getByLabel("日期").fill(dayAfterTomorrow());
   const message = page.locator('[data-role="message"]');
-  const submit = page.getByRole("button", { name: "查询价格" });
+  const submit = page.getByRole("button", { name: "查看价格" });
   const drafts: number[] = [];
   page.on("response", (res) => {
     if (res.url().includes("/embed/v1/booking-drafts") && res.request().method() === "POST") drafts.push(res.status());
@@ -211,7 +211,7 @@ test("嵌入组件建草稿失败：网络错误、429 两种、400 各显示一
   });
   await submit.click();
   await expect(message).toHaveText("暂时连不上，请稍后再试或直接到主站预订。");
-  await expect(submit).toHaveText("查询价格");
+  await expect(submit).toHaveText("查看价格");
 
   reply = { status: 429, code: "RATE_LIMITED" };
   await submit.click();
@@ -264,7 +264,7 @@ test("嵌入组件包车：选「包车」、不填经停点 → 跳 /book/new?d
   const date = dayAfterTomorrow();
   await page.getByLabel("日期").fill(date);
   const draftResponse = page.waitForResponse((res) => res.url().includes("/embed/v1/booking-drafts") && res.request().method() === "POST");
-  await page.getByRole("button", { name: "查询价格" }).click();
+  await page.getByRole("button", { name: "查看价格" }).click();
   expect((await draftResponse).status()).toBe(201);
   const sent = (await draftResponse).request().postDataJSON() as { draft: Record<string, unknown> };
   expect(sent.draft).toMatchObject({ tab: "charter", waypoints: [], package_hours: null });
