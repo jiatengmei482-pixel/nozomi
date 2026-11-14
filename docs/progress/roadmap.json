@@ -1433,7 +1433,7 @@
             "组件测试断言请求体里的 draft_id；端到端：组件建草稿 → 询价带 draft_id → 下单 → 假 Stripe 测试卡 4242 付款 → 平台订单详情 entry_source.kind 为 embed、带嵌入码名称 → 订单页「返回原网站」链到 return_url；去掉 draft_id 后新测试失败",
             "测试站：从演示站用组件下一单，测试卡 4242 付款，订单页有「返回原网站」，运营后台订单详情来源为「嵌入组件 · 演示站」"
           ],
-          "evidence": "",
+          "evidence": "PR https://github.com/jiatengmei482-pixel/nozomi/pull/239 ；根因：BookNewPage 的 requestOf() 包车、接送两个分支都没带 draft_id，后端收不到就按主站记；book-new.test.tsx 草稿相关 8 个（新增 3 个、改 4 个断言），全文件 72 个通过；embed.itest 来源用例补草稿过期 1 段，12 个通过；端到端 site-embed-widget 新增 1 条（组件建草稿 → 询价带 draft_id → 下单 → 4242 付款 → 平台订单来源 embed、订单页返回原网站）；变异：去掉 draft_id 5 条组件测试失败",
           "updated": "2026-11-14"
         },
         {
