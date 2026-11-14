@@ -164,17 +164,25 @@ export interface OrderItineraryMoneyView {
   overtime_fee: Money;
   over_km_per_km: Money;
   overtime_per_hour: Money;
+  /** 超时费下单时预收了没有（ADR 0091 第三节第 3 小节）：M9P-03 起的单 false；旧接口没有这一项，按 true（预收过） */
+  overtime_at_booking?: boolean;
+  /** 含经停点默认占用和整单缓冲的预计用时（分钟）：下单时这两项不为 0 才有 */
+  estimated_minutes?: number;
 }
 
 /**
  * 「超公里 / 超时」那一项的两行（结算价）：
  * 「超公里：全程 260 公里，套餐含 200 公里，超出 60 公里 × 每公里 JPY 300 = JPY 18,000」「超时：预计 9 小时（含停留），套餐 10 小时，超出 0 分钟 × 每小时 JPY 5,000 = JPY 0」；没有为 null。
+ * M9P-03 起的单下单时不收超时费（`overtime_at_booking: false`，ADR 0091 第三节第 3 小节）：不写单价和金额，写「预计超出 Z，未预收，服务后按实际提交」
+ * 或「未超出套餐时长」；有含缓冲的预计用时时在前面写「预计用时（含缓冲）X，」，让供应商和客人看到同一个预计用时。旧单照旧，一字不变。
  */
 export function itineraryOverageLines(audience: "platform" | "tenant", itinerary: OrderItineraryMoneyView | null | undefined): string[] | null {
   if (itinerary === null || itinerary === undefined) return null;
   const money = (value: Money): string => auditMoney(audience, value);
   return [
     `超公里：全程 ${kmText(itinerary.route_meters)}，套餐含 ${itinerary.package_km} 公里，超出 ${kmText(itinerary.over_meters)} × 每公里 ${money(itinerary.over_km_per_km)} = ${money(itinerary.over_km_fee)}`,
-    `超时：预计 ${durationText(itinerary.route_minutes)}（含停留），套餐 ${durationText(itinerary.package_minutes)}，超出 ${durationText(itinerary.overtime_minutes)} × 每小时 ${money(itinerary.overtime_per_hour)} = ${money(itinerary.overtime_fee)}`,
+    itinerary.overtime_at_booking === false
+      ? `超时：${itinerary.estimated_minutes === undefined ? "" : `预计用时（含缓冲）${durationText(itinerary.estimated_minutes)}，`}预计 ${durationText(itinerary.route_minutes)}（含停留），套餐 ${durationText(itinerary.package_minutes)}，${itinerary.overtime_minutes > 0 ? `预计超出 ${durationText(itinerary.overtime_minutes)}，未预收，服务后按实际提交` : "未超出套餐时长"}`
+      : `超时：预计 ${durationText(itinerary.route_minutes)}（含停留），套餐 ${durationText(itinerary.package_minutes)}，超出 ${durationText(itinerary.overtime_minutes)} × 每小时 ${money(itinerary.overtime_per_hour)} = ${money(itinerary.overtime_fee)}`,
   ];
 }

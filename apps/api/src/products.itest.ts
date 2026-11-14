@@ -290,6 +290,8 @@ test("服务规则：新商品是空的；整体保存、可以只填一部分�
     version: 1,
     currency: "JPY",
     free_wait_minimums: { pickup: 90, dropoff: 15, general: null },
+    // M9P-03：包车最低套餐比所有套餐都长时的提醒；别的品类为 null
+    min_package_above_all: null,
     rules: {
       booking: { sale_from: null, sale_to: null, service_time: null, lead_time_hours: null, note: null },
       urgent: { enabled: false, daily_quota: null, tiers: [] },

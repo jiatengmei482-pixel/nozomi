@@ -75,7 +75,7 @@ import { CHARTER_ITINERARY_OVERAGE_NOTE, CHARTER_OVERAGE_NOTE, UNAVAILABLE_REASO
 import { FIELD_HINTS, MESSAGING_NAMES, type OrderErrors, type OrderForm, type OrderTrip, orderFailureOf, orderRequestOf, validateOrderForm } from "../../../lib/site-order-form.ts";
 import { useDocumentTitle } from "../../../lib/use-document-title.ts";
 import { MANUAL_QUOTE_CHARTER_HOURS, type ManualQuoteTripDraft } from "../../../lib/manual-quote-form.ts";
-import { ITINERARY_NOTE, type WaypointDraft, breakdownLines, durationText, itineraryPackageHours, itineraryRouteFailureText, itineraryText, scheduleRows, waypointErrors, waypointUnavailableTexts, waypointsBody } from "../../../lib/charter-itinerary.ts";
+import { ITINERARY_NOTE, type WaypointDraft, autoPackageHoursOf, breakdownLines, upgradePackageHours, durationText, itineraryPackageHours, itineraryRouteFailureText, itineraryText, scheduleRows, waypointErrors, waypointUnavailableTexts, waypointsBody } from "../../../lib/charter-itinerary.ts";
 import { TripStops } from "../../../components/TripStops.tsx";
 import { ADDRESS_ONLY_HINT, DRAFT_EXPIRED_TEXT, DRAFT_FAILED_TEXT, draftReadyToQuote, draftTrip } from "../../../lib/booking-draft.ts";
 import { ManualQuoteBlock } from "../ManualQuote.tsx";
@@ -159,17 +159,17 @@ function nearbyCharterCity(point: TripPoint | null, cities: readonly SiteCity[])
 }
 
 /** 填齐了时的询价请求（和它的键）；没填齐为 null。包车要等上下车点匹配到城市（`charterCity`）才报价。 */
-function requestOf(draft: TripDraft, charterCity: SiteQuotedCity | null, addons: readonly SiteAddonRequest[] = []): { key: string; run(): Promise<Outcome> } | null {
+function requestOf(draft: TripDraft, charterCity: SiteQuotedCity | null, addons: readonly SiteAddonRequest[] = [], upgradeHours = ""): { key: string; run(): Promise<Outcome> } | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.date) || !/^\d{2}:\d{2}$/.test(draft.time) || draft.from === null) return null;
   const serviceLocal = `${draft.date}T${draft.time}`;
   if (draft.mode === "charter") {
-    // 经停点（M9W-02）：有没填好的不报价；至少一个时按行程计价（服务端选套餐，不给 package_hours）；一个都没有时请求和以前完全一样
+    // 经停点（M9W-02）：有没填好的不报价；至少一个时按行程计价（服务端按预计用时自动选套餐；客人手动升档时带 package_hours，M9P-03）；一个都没有时请求和以前完全一样
     const stops = waypointsBody(draft.waypoints);
     if (stops === null) return null;
     const itinerary = stops.length > 0;
     if (charterCity === null || (!itinerary && draft.packageHours === "") || draft.to === null) return null;
     // 不带城市（M9P-02）：服务器按上下车点匹配商品、自己找城市
-    const body: SiteQuoteRequest = { category: "charter", pickup: { lat: draft.from.lat, lng: draft.from.lng }, dropoff: { lat: draft.to.lat, lng: draft.to.lng }, ...(itinerary ? { itinerary_pricing: true, waypoints: stops } : { package_hours: Number(draft.packageHours) }), service_local: serviceLocal, passengers: draft.passengers, luggage: draft.luggage, ...(addons.length > 0 ? { addons: [...addons] } : {}), ...suggestionNames(draft.from, draft.to) };
+    const body: SiteQuoteRequest = { category: "charter", pickup: { lat: draft.from.lat, lng: draft.from.lng }, dropoff: { lat: draft.to.lat, lng: draft.to.lng }, ...(itinerary ? { itinerary_pricing: true, waypoints: stops, ...(upgradeHours === "" ? {} : { package_hours: Number(upgradeHours) }) } : { package_hours: Number(draft.packageHours) }), service_local: serviceLocal, passengers: draft.passengers, luggage: draft.luggage, ...(addons.length > 0 ? { addons: [...addons] } : {}), ...suggestionNames(draft.from, draft.to) };
     return {
       key: JSON.stringify(body),
       run: async () => {
@@ -271,6 +271,10 @@ export function BookNewPage() {
   const [charterMatch, setCharterMatch] = useState<{ key: string; load: Load<CharterMatch> } | null>(null);
   /** 包车套餐读失败后点「重试」：加一次重读 */
   const [charterRetry, setCharterRetry] = useState(0);
+  /** 有经停点时客人手动升到的套餐（M9P-03）：只对选的那一段行程（上下车点、经停点）有效，行程一改就回到自动 */
+  const [upgrade, setUpgrade] = useState<{ key: string; hours: string } | null>(null);
+  /** 这段行程最近一次报价里自动选的档：手动升档后的报价暂时报不出时，下拉照样从它起列 */
+  const [lastAuto, setLastAuto] = useState<{ key: string; hours: number } | null>(null);
   const [addonQuantities, setAddonQuantities] = useState<Record<string, number>>({});
   const [addonQuote, setAddonQuote] = useState<AddonQuoteState | null>(null);
   const [guestCurrency, setGuestCurrency] = useState<CurrencyCode>(() => guestCurrencyOf(navigator.languages?.length ? navigator.languages : [navigator.language]));
@@ -408,8 +412,13 @@ export function BookNewPage() {
   const charterCity: SiteQuotedCity | null | undefined = matchLoad?.kind === "ready" ? matchLoad.items.city : undefined;
   const packageLoad: Load<number[]> | null = matchLoad === null || charterCity === null ? null : matchLoad.kind === "ready" ? { kind: "ready", items: matchLoad.items.hours } : matchLoad;
 
+  // 有经停点时的手动升档（M9P-03）：按这段行程（上下车点、经停点和停留）记，行程变了就回到自动
+  const itineraryStops = draft.mode === "charter" ? waypointsBody(draft.waypoints) : null;
+  const itineraryKey = itineraryStops !== null && itineraryStops.length > 0 && draft.from !== null && draft.to !== null ? JSON.stringify([draft.from.lat, draft.from.lng, draft.to.lat, draft.to.lng, itineraryStops]) : null;
+  const upgradeHours = itineraryKey !== null && upgrade !== null && upgrade.key === itineraryKey ? upgrade.hours : "";
+
   // 填齐了就报价：停顿一下再查；改了任何一项旧结果立刻收起（键对不上的结果不显示）
-  const request = requestOf(draft, charterCity ?? null);
+  const request = requestOf(draft, charterCity ?? null, [], upgradeHours);
   const requestKey = request?.key ?? null;
   const latestRequest = useRef(request);
   latestRequest.current = request;
@@ -461,6 +470,13 @@ export function BookNewPage() {
   const stops = itinerary ? (waypointsBody(draft.waypoints) ?? []) : [];
   const charterResult = outcome?.mode === "charter" ? outcome.result : null;
   const itineraryPackage = itinerary && charterResult !== null ? itineraryPackageHours(selected ?? quotes[0] ?? null) : null;
+  // 自动选的档（从预计用时 T 起的那一档）：这次报价带的；这次没报出来时用这段行程上次的
+  const quotedAuto = itinerary && charterResult !== null ? autoPackageHoursOf(quotes) : null;
+  useEffect(() => {
+    if (quotedAuto !== null && itineraryKey !== null) setLastAuto({ key: itineraryKey, hours: quotedAuto });
+  }, [quotedAuto, itineraryKey]);
+  const autoHours = quotedAuto ?? (lastAuto !== null && lastAuto.key === itineraryKey ? lastAuto.hours : null);
+  const upgradeOptions = itinerary && packageLoad?.kind === "ready" ? upgradePackageHours(packageLoad.items, autoHours) : [];
   const itinerarySummary = itinerary && charterResult !== null ? itineraryText(charterResult.itinerary_route, itineraryPackage) : null;
   const schedule = itinerary && draft.from !== null ? scheduleRows(draft.from.name, draft.to?.name ?? null, stops, charterResult?.itinerary_route?.legs ?? null) : null;
 
@@ -473,7 +489,7 @@ export function BookNewPage() {
         .map(([addon_id, quantity]) => ({ addon_id, quantity })),
     [addonQuantities],
   );
-  const addonRequest = selected !== null && addonList.length > 0 ? requestOf(draft, charterCity ?? null, addonList) : null;
+  const addonRequest = selected !== null && addonList.length > 0 ? requestOf(draft, charterCity ?? null, addonList, upgradeHours) : null;
   const addonKey = addonRequest?.key ?? null;
   const latestAddonRequest = useRef(addonRequest);
   latestAddonRequest.current = addonRequest;
@@ -887,6 +903,17 @@ export function BookNewPage() {
             </p>
             <p className="site-muted">{itinerarySummary ?? "有经停点时，按各段行驶时间和停留时长算出总时长，自动选合适的套餐。"}</p>
           </div>
+        )}
+        {/* 有经停点时也能手动升到更长的套餐（M9P-03，规格步骤 3）：默认「自动（N 小时）」，只列比它长的档，不能选短于预计用时的；改了重新报价 */}
+        {charter && charterCity !== null && charterCity !== undefined && !charterNoOnline && itinerary && autoHours !== null && itineraryKey !== null && (upgradeOptions.length > 0 || upgradeHours !== "") && (
+          <SelectField
+            label="包车时长"
+            placeholder={`自动（${autoHours} 小时）`}
+            value={upgradeHours}
+            options={upgradeOptions.map((hours) => ({ value: String(hours), label: `${hours} 小时` }))}
+            hint="想多留些时间可以选更长的套餐；不能选比预计用时短的"
+            onChange={(hours) => setUpgrade({ key: itineraryKey, hours })}
+          />
         )}
         {charter && packageLoad?.kind === "failed" && <StateBlock headingLevel="h3" title="包车时长没有读出来" description={packageLoad.message} action={<Button size="lg" onClick={() => setCharterRetry((value) => value + 1)}>重试</Button>} />}
         {charter &&
