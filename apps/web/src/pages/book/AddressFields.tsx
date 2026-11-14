@@ -49,6 +49,12 @@ export interface AddressLookup {
 }
 
 /**
+ * 这个地址今天调谷歌的额度用完了（M8-45，应答带 `unavailable_reason: "IP_DAILY_LIMIT"`）：新预订页的输入即提示（含手机全屏选择页、经停点）和旧 /book 的地址搜索都用这一句开头。
+ * 和「输入太快了」（每分钟限流 429）、「暂时用不了」（谷歌出错、全站上限）分开说。
+ */
+export const PLACES_DAILY_LIMIT_TEXT = "今天的地址提示次数用完了";
+
+/**
  * 地址栏里写什么：名称，有地址时带上地址「名称（地址）」。
  * 不超过下单允许的地址长度（`ORDER_FIELD_LIMITS.addressMax`，按字符数，和后端同口径）：放不下时截短地址、末尾加「…」，名称总是留着。
  */
@@ -128,7 +134,7 @@ function AddressSearch({ word, lookup, onPick }: { word: string; lookup: Address
     try {
       const found = await searchSitePlaces(lookup.cityId, normalized);
       if (mine !== round.current) return;
-      if (!found.available) setState({ kind: "unavailable", text: `地址搜索暂时用不了。${FALLBACK}` });
+      if (!found.available) setState({ kind: "unavailable", text: found.unavailable_reason === "IP_DAILY_LIMIT" ? `${PLACES_DAILY_LIMIT_TEXT}。${FALLBACK}` : `地址搜索暂时用不了。${FALLBACK}` });
       else setState(found.items.length === 0 ? { kind: "empty" } : { kind: "results", items: found.items });
     } catch (err) {
       if (mine !== round.current) return;
