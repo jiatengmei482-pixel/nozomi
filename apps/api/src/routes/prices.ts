@@ -10,6 +10,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import {
   type AdjustRule,
+  type CharterPackageTerms,
   PRICE_DIRECTIONS,
   PRICE_RULE_STATUSES,
   PRICING_MODELS,
@@ -33,12 +34,14 @@ import {
   type AdjustSaveResult,
   type CalendarView,
   type PriceChanges,
+  type CharterMigrationDiffView,
   type PriceRulesView,
   type PriceSaveResult,
   createAdjustRule,
   deleteAdjustRule,
   getAdjustRules,
   getPriceCalendar,
+  getCharterMigrationDiff,
   getPriceCoverage,
   getPriceOverview,
   getPriceRules,
@@ -72,6 +75,8 @@ const MODEL_FIELDS = {
   charter_package: { package_km: "packageKm", package_price: "packagePriceMinor", overtime_per_hour: "overtimePerHourMinor", over_km_per_km: "overKmPerKmMinor" },
   // 包车区域加价（ADR 0073）：area_id 是加价区域；waypoint_surcharge 途经加价（ADR 0088）可以不填，不填 = 这个区域对经停点没有规则（不存这个键）
   charter_area_surcharge: { pickup_surcharge: "pickupSurchargeMinor", dropoff_surcharge: "dropoffSurchargeMinor", waypoint_surcharge: "waypointSurchargeMinor" },
+  // 包车②行程加价（M9P-05，ADR 0093 第一节）：只有迁移过三层区域的商品能用
+  charter_itinerary_surcharge: { itinerary_surcharge: "surchargeMinor" },
 } as const;
 const PRICE_FIELDS = [...new Set(Object.values(MODEL_FIELDS).flatMap((fields) => Object.keys(fields)))];
 /**
@@ -87,7 +92,8 @@ function omitsWaypointSurcharge(entry: unknown): boolean {
 
 // 这里只管类型；范围、整数、日期、品类和计价方式对不对由 domain 查，报出原因代码
 const priceRuleSchema = z.object({
-  area_id: id,
+  // 包车迁移过三层区域的商品：整商品套餐价的区域为 null（ADR 0093 第五节）；别的都必填（domain 报 REQUIRED）
+  area_id: id.nullable(),
   // 点对点线路价的下车区域（ADR 0073 第二部分）：不填 = 区域价
   to_area_id: id.nullable().default(null),
   vehicle_group_id: id,
@@ -109,6 +115,7 @@ const priceRuleSchema = z.object({
   pickup_surcharge: amount,
   dropoff_surcharge: amount,
   waypoint_surcharge: amount,
+  itinerary_surcharge: amount,
   valid_from: date,
   valid_to: date.nullable().default(null),
   status: z.enum(PRICE_RULE_STATUSES).default("enabled"),
@@ -193,6 +200,31 @@ function coverageJson(view: { coverage: PriceRulesView["coverage"]; items: Store
   };
 }
 
+/** 三层区域迁移的「套餐价不一致」逐条明细（M9P-05）：结算价，租户侧、平台侧同一个结构 */
+export function charterMigrationDiffJson(view: CharterMigrationDiffView): Json {
+  const terms = (entry: CharterPackageTerms): Json => ({
+    package_price: entry.packagePriceMinor,
+    package_km: entry.packageKm,
+    overtime_per_hour: entry.overtimePerHourMinor,
+    over_km_per_km: entry.overKmPerKmMinor,
+    valid_to: entry.validTo,
+    status: entry.status,
+  });
+  return {
+    charter_layout: view.charterLayout,
+    items: view.items.map((entry) => ({
+      old_price_rule_id: entry.oldRuleId,
+      area_id: entry.areaId,
+      vehicle_group_id: entry.vehicleGroupId,
+      package_hours: entry.packageHours,
+      valid_from: entry.validFrom,
+      old: terms(entry.old),
+      product_price_rule_id: entry.productRuleId,
+      product: entry.product === null ? null : terms(entry.product),
+    })),
+  };
+}
+
 export function priceRulesJson(view: PriceRulesView): Json {
   const { coverage } = view;
   return {
@@ -201,6 +233,7 @@ export function priceRulesJson(view: PriceRulesView): Json {
     rounding_unit: view.roundingUnit,
     available_models: view.availableModels,
     surcharge_models: view.surchargeModels,
+    charter_layout: view.charterLayout,
     today: view.today,
     items: view.items.map(priceRuleJson),
     coverage: { total: coverage.total, priced: coverage.priced, missing: coverage.total - coverage.priced },
@@ -455,6 +488,12 @@ export function registerPriceRoutes(app: FastifyInstance, ctx: AppContext): void
       respond: (saved) => ({ status: 200, body: { version: saved.view.version } }),
     });
     return result.body;
+  });
+
+  // 三层区域迁移的「套餐价不一致」（M9P-05，ADR 0093 第六节第 1 小节）：只读，只看自己的商品
+  app.get("/tenant/v1/products/:id/charter-migration-diff", async (request) => {
+    const principal = await authenticate(request, "product.read");
+    return charterMigrationDiffJson(await getCharterMigrationDiff(ctx, principal.tenantId, resourceId(request.params, "商品")));
   });
 
   app.get("/tenant/v1/products/:id/price-coverage", async (request) => {

@@ -280,16 +280,18 @@ export async function listProductPriceOverview(db: Db, tenantId: string, now: Da
  * 整个供应商每个商品算缺价概况要用的东西：选的区域、车型组（按商品里的先后）和全部价格规则。
  * 三条查询取回全部，不按商品一个一个查。
  */
-export async function listPriceCoverageInputs(db: Db, tenantId: string): Promise<Map<string, { areaIds: string[]; vehicleGroupIds: string[]; rules: StoredPriceRule[] }>> {
-  const shapes = new Map<string, { areaIds: string[]; vehicleGroupIds: string[]; rules: StoredPriceRule[] }>();
+export async function listPriceCoverageInputs(db: Db, tenantId: string): Promise<Map<string, { areaIds: string[]; vehicleGroupIds: string[]; rules: StoredPriceRule[]; productWide: boolean }>> {
+  const shapes = new Map<string, { areaIds: string[]; vehicleGroupIds: string[]; rules: StoredPriceRule[]; productWide: boolean }>();
   const shape = (productId: string) => {
-    const found = shapes.get(productId) ?? { areaIds: [], vehicleGroupIds: [], rules: [] };
+    const found = shapes.get(productId) ?? { areaIds: [], vehicleGroupIds: [], rules: [], productWide: false };
     shapes.set(productId, found);
     return found;
   };
   for (const row of (await db.query<Row>("select product_id, area_id from product_areas where tenant_id = $1 order by product_id, priority", [tenantId])).rows) shape(row["product_id"]).areaIds.push(row["area_id"]);
   for (const row of (await db.query<Row>("select product_id, vehicle_group_id from product_vehicle_groups where tenant_id = $1 order by product_id, position", [tenantId])).rows) shape(row["product_id"]).vehicleGroupIds.push(row["vehicle_group_id"]);
   for (const row of (await db.query<Row>(`select product_id, ${PRICE_COLUMNS} from price_rules where tenant_id = $1 order by created_at, id`, [tenantId])).rows) shape(row["product_id"]).rules.push(toPriceRule(row));
+  // 迁移过三层区域的包车按整商品套餐价统计（ADR 0093 第五节）
+  for (const row of (await db.query<Row>("select id from products where tenant_id = $1 and category = 'charter' and charter_layout = 'three_layer'", [tenantId])).rows) shape(row["id"]).productWide = true;
   return shapes;
 }
 

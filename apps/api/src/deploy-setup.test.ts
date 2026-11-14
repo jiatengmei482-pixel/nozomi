@@ -564,9 +564,11 @@ test("与同一台机器上别的 Compose 项目隔离：项目名明确且带�
   }
   assert.deepEqual(Object.keys(compose.networks ?? {}).sort(), ["backend", "edge"]);
   assert.deepEqual(Object.keys(compose.volumes ?? {}).sort(), ["caddy-config", "caddy-data", "db-data"]);
-  // 挂进容器的只有本项目自己的命名卷，和版本目录里的 Caddyfile
+  // 挂进容器的只有本项目自己的命名卷、版本目录里的 Caddyfile，和本环境部署目录下的报告目录（只挂给 migrate，M9P-05：包车三层区域迁移的报告）
   const mounts = Object.values(compose.services).flatMap((service) => service.volumes ?? []);
-  assert.deepEqual(mounts.sort(), ["./Caddyfile:/etc/caddy/Caddyfile:ro,z", "caddy-config:/config", "caddy-data:/data", "db-data:/var/lib/postgresql/data"]);
+  assert.deepEqual(mounts.sort(), ["${REPORTS_DIR:?缺少 REPORTS_DIR，请通过 bin/deploy.sh 部署}:/reports:z", "./Caddyfile:/etc/caddy/Caddyfile:ro,z", "caddy-config:/config", "caddy-data:/data", "db-data:/var/lib/postgresql/data"]);
+  assert.deepEqual(compose.services["migrate"]?.volumes, ["${REPORTS_DIR:?缺少 REPORTS_DIR，请通过 bin/deploy.sh 部署}:/reports:z"], "报告目录只挂给 migrate");
+  assert.match(await readText("deploy/bin/deploy.sh"), /^REPORTS_DIR=\$root_dir\/reports$/m, "报告目录在本环境的部署目录下，不在版本目录里（跨版本保留）");
   // 数据库不发布任何主机端口（两种模式都是）
   for (const file of [compose, behindProxyCompose]) {
     for (const [name, service] of Object.entries(file.services)) {

@@ -23,7 +23,7 @@ import {
 } from "../repos/products.ts";
 import { type TenantStatus, findTenantForPlatform } from "../repos/tenants.ts";
 import { notFound } from "./errors.ts";
-import { type AdjustRulesView, type PriceRulesView, adjustRulesView, loadPricingContext, priceRulesView } from "./prices.ts";
+import { type AdjustRulesView, type CharterMigrationDiffView, type PriceRulesView, adjustRulesView, charterMigrationDiffView, loadPricingContext, priceRulesView } from "./prices.ts";
 import { type ProductView, type PublishCheckView, type ServiceRulesView, detail, publishCheckOf, serviceRulesView } from "./products.ts";
 
 export interface ProductTenantRef {
@@ -93,6 +93,20 @@ export interface PlatformProductDetail {
 }
 
 /** 一个商品的只读详情。不存在的编号 404（不区分属于哪个供应商）。 */
+/** 运营看一个包车商品的三层区域迁移差异（M9P-05，ADR 0093 第六节第 1 小节）：平台只读事务，任何供应商的商品 */
+export function getPlatformCharterMigrationDiff(ctx: AppContext, id: string): Promise<CharterMigrationDiffView> {
+  const now = ctx.now();
+  return withPlatformTx(
+    ctx.pool,
+    async (db) => {
+      const found = await findProductAcrossTenants(db, id);
+      if (!found) throw notFound("商品");
+      return charterMigrationDiffView(await loadPricingContext(db, found.tenantId, found.product.id, now, { lock: false }));
+    },
+    { snapshot: true },
+  );
+}
+
 export function getPlatformProduct(ctx: AppContext, id: string): Promise<PlatformProductDetail> {
   const now = ctx.now();
   return withPlatformTx(

@@ -11,6 +11,9 @@ import { isDeepStrictEqual } from "node:util";
 import {
   type AdjustRule,
   type CalendarSegment,
+  type CharterLayout,
+  type CharterMigrationDiffEntry,
+  charterMigrationDiff,
   type CurrencyCode,
   type HolidayLookup,
   type LocalizedText,
@@ -179,8 +182,10 @@ export interface PriceRulesView {
   roundingUnit: number;
   /** 这个品类的基础定价可以用的计价方式 */
   availableModels: PricingModel[];
-  /** 这个品类可以用的加价类价格方式（包车：区域加价，ADR 0073）；别的品类是空的 */
+  /** 这个品类可以用的加价类价格方式（包车：上下车加价，ADR 0073；迁移过三层区域的另有行程加价，ADR 0093）；别的品类是空的 */
   surchargeModels: PricingModel[];
+  /** 包车用哪套价格表（M9P-05，ADR 0093 第一节）：null = 旧表；`three_layer` = 新表（价格页据此显示三张表） */
+  charterLayout: CharterLayout | null;
   today: string;
   items: StoredPriceRule[];
   coverage: PriceCoverage;
@@ -192,11 +197,30 @@ export function priceRulesView(context: PricingContext, product: Product, items:
     currency: context.currency,
     roundingUnit: context.roundingUnit,
     availableModels: pricingModelsFor(product.category),
-    surchargeModels: surchargeModelsFor(product.category),
+    surchargeModels: surchargeModelsFor(product.category, product.charterLayout),
+    charterLayout: product.charterLayout,
     today: context.today,
     items,
-    coverage: priceCoverage({ category: product.category, areaIds: context.areaIds, vehicleGroupIds: context.vehicleGroupIds, rules: items, today: context.today }),
+    // 迁移过三层区域的包车：「该有价格的组合」= 车型组 × 套餐（整商品套餐价），不再按服务区域（ADR 0093 第五节）
+    coverage: priceCoverage({ category: product.category, areaIds: context.areaIds, vehicleGroupIds: context.vehicleGroupIds, rules: items, today: context.today, productWide: layeredCharter(product) }),
   };
+}
+
+/** 三层区域迁移的「套餐价不一致」（M9P-05，ADR 0093 第六节第 1 小节）：没迁移过的商品是空的 */
+export interface CharterMigrationDiffView {
+  charterLayout: CharterLayout | null;
+  items: CharterMigrationDiffEntry[];
+}
+
+export function charterMigrationDiffView(context: PricingContext): CharterMigrationDiffView {
+  const layered = layeredCharter(context.product);
+  return { charterLayout: context.product.charterLayout, items: layered ? charterMigrationDiff(context.priceRules) : [] };
+}
+
+/** 供应商看自己商品的迁移差异（只有结算价，规则 4）；租户事务，别的租户的商品 404 */
+export function getCharterMigrationDiff(ctx: DbContext, tenantId: string, productId: string): Promise<CharterMigrationDiffView> {
+  const now = ctx.now();
+  return readTx(ctx, tenantId, async (db) => charterMigrationDiffView(await loadPricingContext(db, tenantId, productId, now, { lock: false })));
 }
 
 export function getPriceRules(ctx: DbContext, tenantId: string, productId: string): Promise<PriceRulesView> {
@@ -205,6 +229,33 @@ export function getPriceRules(ctx: DbContext, tenantId: string, productId: strin
     const context = await loadPricingContext(db, tenantId, productId, now, { lock: false });
     return priceRulesView(context, context.product, context.priceRules);
   });
+}
+
+/** 迁移过三层区域的包车商品（ADR 0093 第一节） */
+function layeredCharter(product: Pick<Product, "category" | "charterLayout">): boolean {
+  return product.category === "charter" && product.charterLayout === "three_layer";
+}
+
+/**
+ * 包车新旧表的写入限制（M9P-05，ADR 0093 第一节）：
+ * - 没迁移过的商品：不能新建或改成②行程加价、整商品套餐价（区域为空）、空套餐的加价 → `CHARTER_LAYOUT_NOT_MIGRATED`；
+ * - 迁移过的商品：按服务区域的套餐价、③行里的途经加价是只读的旧数据（报价不读）→ 不能新建，也不能改（`CHARTER_LEGACY_READ_ONLY`）；删除可以。
+ *   改③行时途经加价和原来一样（页面不带这个键时沿用原值）不算改。
+ */
+function charterLayoutIssue(product: Pick<Product, "category" | "charterLayout">, rule: PriceRule, before: StoredPriceRule | null): { reason: string; message: string; field: string } | null {
+  // 没改内容的（导出再导入原样带回来的旧行）不算写入
+  if (product.category !== "charter" || (before !== null && samePriceRule(rule, before))) return null;
+  if (!layeredCharter(product)) {
+    const newFormat = rule.pricing.model === "charter_itinerary_surcharge" || rule.areaId === null || (isSurchargeRule(rule) && rule.packageHours === null);
+    return newFormat ? { reason: "CHARTER_LAYOUT_NOT_MIGRATED", field: rule.pricing.model === "charter_itinerary_surcharge" ? "pricing_model" : rule.areaId === null ? "area_id" : "package_hours", message: "这个商品还没有迁移到三层区域：不能设行程加价、整商品套餐价或不分套餐的加价" } : null;
+  }
+  if (rule.pricing.model === "charter_package" && (rule.areaId !== null || (before !== null && before.areaId !== null))) {
+    return { reason: "CHARTER_LEGACY_READ_ONLY", field: "area_id", message: "按服务区域的套餐价是迁移前的旧数据（只读）：套餐价请按车型组 × 套餐填一次（不选区域）" };
+  }
+  const waypoint = rule.pricing.model === "charter_area_surcharge" ? rule.pricing.waypointSurchargeMinor : undefined;
+  const was = before !== null && before.pricing.model === "charter_area_surcharge" ? before.pricing.waypointSurchargeMinor : undefined;
+  if (waypoint !== undefined && waypoint !== was) return { reason: "CHARTER_LEGACY_READ_ONLY", field: "waypoint_surcharge", message: "上下车加价里的途经加价是迁移前的旧数据（只读）：经停加价请在「行程加价」里设" };
+  return null;
 }
 
 /** 一次保存里的改动：新增（可带页面自己起的 `ref`，冲突时用它指回去）、修改、删除。 */
@@ -287,9 +338,14 @@ export function checkPriceChanges(context: PricingContext, changes: PriceChanges
   const touched = new Set<string>();
   // 每条问题的 detail 里带上是哪一条：新增的给请求里的 ref，修改、删除的给 id（页面凭它把出错指回那一行，不用靠下标）
   const checkRule = (rule: PriceRule, at: string, before: StoredPriceRule | null, who: Record<string, string>): void => {
-    issues.push(...inputIssues(priceRuleIssues(rule, { category: product.category }), at).map((issue) => ({ ...issue, detail: { ...issue.detail, ...who } })));
+    const layout = charterLayoutIssue(product, rule, before);
+    if (layout !== null) {
+      issues.push({ path: `${at}/${layout.field}`, reason: layout.reason, message: layout.message, detail: who });
+      return;
+    }
+    issues.push(...inputIssues(priceRuleIssues(rule, { category: product.category, charterLayout: product.charterLayout }), at).map((issue) => ({ ...issue, detail: { ...issue.detail, ...who } })));
     if (isSurchargeRule(rule)) issues.push(...surchargeAreaIssues(context, rule, at, before, who));
-    else if (!areas.has(rule.areaId) && before?.areaId !== rule.areaId) issues.push({ path: `${at}/area_id`, reason: "AREA_NOT_IN_PRODUCT", message: "只能给这个商品选了的区域设价格", detail: who });
+    else if (rule.areaId !== null && !areas.has(rule.areaId) && before?.areaId !== rule.areaId) issues.push({ path: `${at}/area_id`, reason: "AREA_NOT_IN_PRODUCT", message: "只能给这个商品选了的区域设价格", detail: who });
     // 线路价的下车区域也要是这个商品选了的区域（ADR 0073 第二部分：两端都要在商品区域里）；修改时没换的不再查
     const toAreaId = rule.toAreaId ?? null;
     if (toAreaId !== null && !areas.has(toAreaId) && (before?.toAreaId ?? null) !== toAreaId) {
@@ -360,9 +416,10 @@ export function priceRuleConflict(conflicts: PriceConflict[]): AppError {
  */
 function surchargeAreaIssues(context: PricingContext, rule: PriceRule, at: string, before: StoredPriceRule | null, who: Record<string, string>): InputIssue[] {
   if (before?.areaId === rule.areaId) return [];
-  const area = context.tenantAreas.get(rule.areaId);
-  if (area === undefined) return [];
-  if (context.areaIds.includes(rule.areaId)) return [{ path: `${at}/area_id`, reason: "AREA_IS_PRODUCT_AREA", message: "这是商品本身的区域：上车、下车在这里都不加价。区域加价请选商品区域以外的区域", detail: who }];
+  const area = rule.areaId === null ? undefined : context.tenantAreas.get(rule.areaId);
+  if (rule.areaId === null || area === undefined) return [];
+  // ②行程加价的区域可以是商品本身的区域（①②可以重叠，ADR 0093 第七节第 3 条）；③不行
+  if (rule.pricing.model === "charter_area_surcharge" && context.areaIds.includes(rule.areaId)) return [{ path: `${at}/area_id`, reason: "AREA_IS_PRODUCT_AREA", message: "这是商品本身的区域：上车、下车在这里都不加价。区域加价请选商品区域以外的区域", detail: who }];
   if (!areaUsableByCategory(context.product.category, area.bizType)) return [{ path: `${at}/area_id`, reason: "AREA_NOT_USABLE", message: "只能选业务类型是包车或「通用」的区域", detail: who }];
   if (!areaRoleCanPrice(area.role)) return [{ path: `${at}/area_id`, reason: "AREA_ROLE_NOT_PRICING", message: AREA_ROLE_NOT_PRICING_MESSAGE, detail: who }];
   if (area.status !== "active") return [{ path: `${at}/area_id`, reason: "AREA_DISABLED", message: "这个区域已停用，不能新选", detail: who }];
@@ -376,7 +433,7 @@ function assertSurchargeAreasExist(context: PricingContext, changes: PriceChange
   // 点对点线路价的下车区域同样：不是本租户的区域按 404（别的品类填了下车区域是 400 NOT_APPLICABLE）
   if (context.product.category === "point_to_point" && rules.some((rule) => (rule.toAreaId ?? null) !== null && !context.tenantAreas.has(rule.toAreaId as string))) throw notFound("区域");
   if (surchargeModelsFor(context.product.category).length === 0) return;
-  if (rules.some((rule) => isSurchargeRule(rule) && !context.tenantAreas.has(rule.areaId))) throw notFound("区域");
+  if (rules.some((rule) => isSurchargeRule(rule) && rule.areaId !== null && !context.tenantAreas.has(rule.areaId))) throw notFound("区域");
 }
 
 /**
@@ -392,6 +449,9 @@ export async function applyPriceChanges(db: Db, writer: ProductWriter, context: 
   if (single && [...changes.update.map((entry) => entry.id), ...changes.remove].some((id) => !stored.has(id))) throw notFound("价格规则");
   assertSurchargeAreasExist(context, changes);
   const check = checkPriceChanges(context, changes, single);
+  // 新旧表的写入限制（ADR 0093 第一节）：单独的错误码，页面据此提示「商品还没迁移 / 旧数据只读」
+  const layout = check.issues.find((issue) => issue.reason === "CHARTER_LAYOUT_NOT_MIGRATED" || issue.reason === "CHARTER_LEGACY_READ_ONLY");
+  if (layout !== undefined) throw new AppError(400, layout.reason as string, layout.message, { issues: check.issues.filter((issue) => issue.reason === layout.reason) });
   if (check.issues.length > 0) invalid(check.issues);
   if (check.conflicts.length > 0) throw priceRuleConflict(check.conflicts);
 
@@ -460,7 +520,7 @@ export function getPriceCoverage(ctx: DbContext, tenantId: string, productId: st
   const now = ctx.now();
   return readTx(ctx, tenantId, async (db) => {
     const context = await loadPricingContext(db, tenantId, productId, now, { lock: false });
-    const coverage = priceCoverage({ category: context.product.category, areaIds: context.areaIds, vehicleGroupIds: context.vehicleGroupIds, rules: context.priceRules, today: context.today });
+    const coverage = priceCoverage({ category: context.product.category, areaIds: context.areaIds, vehicleGroupIds: context.vehicleGroupIds, rules: context.priceRules, today: context.today, productWide: layeredCharter(context.product) });
     return { today: context.today, coverage, rules: context.priceRules };
   });
 }
@@ -799,8 +859,8 @@ export function getPriceOverview(ctx: DbContext, tenantId: string, summaryOnly: 
     if (summaryOnly) return { ...totals, items: null };
     const shapes = await listPriceCoverageInputs(db, tenantId);
     const items = rows.map((row): PriceOverviewItem => {
-      const shape = shapes.get(row.productId) ?? { areaIds: [], vehicleGroupIds: [], rules: [] };
-      const coverage = priceCoverage({ category: row.category, areaIds: shape.areaIds, vehicleGroupIds: shape.vehicleGroupIds, rules: shape.rules, today: row.today });
+      const shape = shapes.get(row.productId) ?? { areaIds: [], vehicleGroupIds: [], rules: [], productWide: false };
+      const coverage = priceCoverage({ category: row.category, areaIds: shape.areaIds, vehicleGroupIds: shape.vehicleGroupIds, rules: shape.rules, today: row.today, productWide: shape.productWide });
       return { ...row, coverage: { total: coverage.total, missing: coverage.total - coverage.priced } };
     });
     return { ...totals, items };

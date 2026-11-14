@@ -162,6 +162,8 @@ export const AUDIT_ACTIONS = [
   "set",
   "replace",
   "clear",
+  // 包车三层区域的数据迁移脚本（M9P-05，ADR 0093 第六节）：新增行程加价、整商品套餐价，设商品的三层区域标志
+  "migrate",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
