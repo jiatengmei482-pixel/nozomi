@@ -1,16 +1,19 @@
+import type { ResolvedTheme } from "./widget-core.ts";
+
 /**
  * 嵌入组件的样式（M9E-03；M9E-10 重做外观：card 竖向卡片、bar 横向搜索条）：放进 Shadow DOM，合作网站的样式进不来、组件的也出不去。
  * `:host { all: initial }` 优先级低于宿主页写在容器上的规则（会继承的 font-weight、letter-spacing、text-transform、font-style 等加 !important 就能穿进来），
  * 所以最外层 `.nzb-shell`、`.nzb` 再 `all: initial` 一次、写回需要的值，里面的元素只从它们继承；合作网站页面上不加载我们的 tokens.css，所以这里的取值抄自 docs/design/tokens.css 的浅色主题
  * （文字 --color-text-primary / secondary / tertiary、边框 --color-border-default / strong、背景 --color-bg-page / subtle、悬停 --color-bg-selected、成功 / 危险、阴影）。
- * 主题只有 CSS 变量（组件按 init 的 theme 写在 .nzb-shell 上）：--nzb-primary、--nzb-on-primary、--nzb-ink、--nzb-accent、--nzb-on-accent、--nzb-radius、--nzb-radius-control、--nzb-font。
+ * 主题只有 CSS 变量，默认值写在 .nzb-shell 上（中性配色：主色 tokens.css --color-brand 深蓝、浅米色点缀、圆角 24 px、系统字体）；
+ * init 的 theme 由 themeCss 生成一条同选择器、排在后面的规则覆盖：--nzb-primary、--nzb-on-primary、--nzb-ink、--nzb-accent、--nzb-on-accent、--nzb-radius、--nzb-font。
  * 外观看 `.nzb-shell[data-layout]`（card / bar；bar 在容器窄于 768 px 时由组件换成 card）。容器 320 px 起不横向滚动；焦点环清楚可见；输入框字号 16px（iOS 小于 16px 聚焦时会放大页面）。
  */
 export const WIDGET_CSS = `
 :host { all: initial; display: block; }
-.nzb-shell { all: initial; display: block; box-sizing: border-box; font-family: var(--nzb-font); container-type: inline-size; --nzb-pad: 24px; }
-.nzb-shell[data-layout="card"] { max-width: 600px; margin: 0 auto; padding: 12px; background: rgb(236 238 242 / 0.72); border-radius: calc(var(--nzb-radius) + 12px); }
-.nzb { all: initial; direction: ltr; display: block; text-align: start; box-sizing: border-box; font-family: var(--nzb-font); font-size: 15px; line-height: 1.5; color: #1a1f29; background: #ffffff; border-radius: var(--nzb-radius); box-shadow: 0 1px 2px rgb(20 30 70 / 0.06), 0 8px 24px rgb(20 30 70 / 0.08); padding: var(--nzb-pad); max-width: 100%; overflow-wrap: anywhere; }
+.nzb-shell { all: initial; display: block; box-sizing: border-box; font-family: var(--nzb-font); container-type: inline-size; --nzb-pad: 24px; --nzb-light: #ffffff; --nzb-dark: #1a1f29; --nzb-primary: #1b2a5c; --nzb-on-primary: var(--nzb-light); --nzb-ink: var(--nzb-primary); --nzb-accent: #f3e9d8; --nzb-on-accent: var(--nzb-dark); --nzb-radius: 24px; --nzb-radius-control: calc(var(--nzb-radius) / 2); --nzb-font: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans", "Microsoft YaHei UI", "Noto Sans CJK SC", "Noto Sans SC", "Noto Sans JP", sans-serif; }
+.nzb-shell[data-layout="card"] { max-width: 600px; margin: 0 auto; padding: 12px; background: #eceef2b8; border-radius: calc(var(--nzb-radius) + 12px); }
+.nzb { all: initial; direction: ltr; display: block; text-align: start; box-sizing: border-box; font-family: var(--nzb-font); font-size: 15px; line-height: 1.5; color: #1a1f29; background: #ffffff; border-radius: var(--nzb-radius); box-shadow: 0 1px 2px #141e460f, 0 8px 24px #141e4614; padding: var(--nzb-pad); max-width: 100%; overflow-wrap: anywhere; }
 .nzb *, .nzb *::before, .nzb *::after { box-sizing: border-box; }
 :where(.nzb) :where(button, input, select) { font: inherit; letter-spacing: inherit; text-transform: none; color: inherit; margin: 0; }
 .nzb-icon { width: 20px; height: 20px; flex: none; color: var(--nzb-ink); }
@@ -44,10 +47,10 @@ export const WIDGET_CSS = `
 .nzb-chevron { width: 20px; height: 20px; flex: none; color: #4a5361; pointer-events: none; }
 .nzb-select { padding-right: 44px; cursor: pointer; }
 .nzb-control > .nzb-chevron { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); }
-.nzb-swap { display: inline-flex; align-items: center; justify-content: center; align-self: flex-end; position: relative; z-index: 1; width: 40px; height: 40px; margin: -32px 16px -32px 0; padding: 0; border: 1px solid #d6dae1; border-radius: 999px; background: #ffffff; color: var(--nzb-ink); cursor: pointer; box-shadow: 0 1px 2px rgb(20 30 70 / 0.08); }
+.nzb-swap { display: inline-flex; align-items: center; justify-content: center; align-self: flex-end; position: relative; z-index: 1; width: 40px; height: 40px; margin: -32px 16px -32px 0; padding: 0; border: 1px solid #d6dae1; border-radius: 999px; background: #ffffff; color: var(--nzb-ink); cursor: pointer; box-shadow: 0 1px 2px #141e4614; }
 .nzb-swap:hover { border-color: #7c8696; background: #f4f5f7; }
 .nzb-swap-icon { width: 20px; height: 20px; transform: rotate(90deg); }
-.nzb-pop { position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; width: min(320px, 100%); padding: 16px; background: #ffffff; border: 1px solid #d6dae1; border-radius: var(--nzb-radius-control); box-shadow: 0 16px 40px rgb(20 30 70 / 0.18); }
+.nzb-pop { position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; width: min(320px, 100%); padding: 16px; background: #ffffff; border: 1px solid #d6dae1; border-radius: var(--nzb-radius-control); box-shadow: 0 16px 40px #141e462e; }
 .nzb-pop[hidden] { display: none; }
 .nzb-step-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; }
 .nzb-step-label { font-weight: 600; }
@@ -75,7 +78,7 @@ export const WIDGET_CSS = `
 .nzb-note { font-size: 12px; }
 .nzb-error { margin: 0; color: #b42318; font-weight: 600; min-height: 0; }
 .nzb-error:empty { display: none; }
-.nzb-panel { position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; width: 100%; display: flex; flex-direction: column; margin: 0; border: 1px solid #d6dae1; border-radius: var(--nzb-radius-control); background: #ffffff; box-shadow: 0 16px 40px rgb(20 30 70 / 0.18); max-height: 260px; overflow: hidden; }
+.nzb-panel { position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; width: 100%; display: flex; flex-direction: column; margin: 0; border: 1px solid #d6dae1; border-radius: var(--nzb-radius-control); background: #ffffff; box-shadow: 0 16px 40px #141e462e; max-height: 260px; overflow: hidden; }
 .nzb-panel[hidden], .nzb-google[hidden] { display: none; }
 .nzb-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; list-style: none; margin: 0; padding: 4px 0; }
 .nzb-option { display: grid; padding: 10px 14px; cursor: pointer; }
@@ -99,7 +102,7 @@ export const WIDGET_CSS = `
 .nzb-shell[data-layout="bar"] .nzb-tab[aria-selected="true"] .nzb-tab-sub { color: inherit; }
 .nzb-shell[data-layout="bar"] .nzb-tab-title { font-size: 15px; }
 .nzb-shell[data-layout="bar"] .nzb-tab-sub { font-size: 12px; }
-.nzb-shell[data-layout="bar"] .nzb-form { display: grid; grid-template-columns: minmax(256px, 1.3fr) minmax(0, 1.5fr) 40px minmax(0, 1.5fr) minmax(132px, 0.8fr) 56px; gap: 10px 8px; align-items: center; padding: 10px; background: #ffffff; border-radius: 0 var(--nzb-radius) var(--nzb-radius) var(--nzb-radius); box-shadow: 0 2px 6px rgb(20 30 70 / 0.08), 0 14px 32px rgb(20 30 70 / 0.12); }
+.nzb-shell[data-layout="bar"] .nzb-form { display: grid; grid-template-columns: minmax(256px, 1.3fr) minmax(0, 1.5fr) 40px minmax(0, 1.5fr) minmax(132px, 0.8fr) 56px; gap: 10px 8px; align-items: center; padding: 10px; background: #ffffff; border-radius: 0 var(--nzb-radius) var(--nzb-radius) var(--nzb-radius); box-shadow: 0 2px 6px #141e4614, 0 14px 32px #141e461f; }
 .nzb-shell[data-layout="bar"] .nzb-form > .nzb-field { height: 64px; padding: 8px 14px; border-radius: var(--nzb-radius-control); background: #f4f5f7; }
 .nzb-shell[data-layout="bar"] .nzb-form > .nzb-field:focus-within { box-shadow: 0 0 0 2px var(--nzb-ink); }
 .nzb-shell[data-layout="bar"] .nzb-form > .nzb-field > .nzb-label { margin: 0 0 2px; font-size: 12px; line-height: 16px; }
@@ -128,3 +131,13 @@ export const WIDGET_CSS = `
 .nzb-shell[data-layout="bar"] .nzb-waypoint .nzb-place { grid-column: auto; }
 @container (max-width: 440px) { .nzb { --nzb-pad: 16px; } .nzb-tab { padding: 10px 14px; } }
 `;
+
+/** init 的 theme → 覆盖默认值的 CSS 变量（M9E-10）。值都经过 resolveTheme 校验（颜色是 #RRGGBB、圆角是整数、字体不含 ; { } < > \），没有给的项不写 */
+export function themeCss(theme: ResolvedTheme): string {
+  const vars: string[] = [];
+  if (theme.primary !== null) vars.push(`--nzb-primary: ${theme.primary.color}`, `--nzb-on-primary: var(--nzb-${theme.primary.text})`, `--nzb-ink: ${theme.primary.inkOnWhite ? "var(--nzb-primary)" : "var(--nzb-dark)"}`);
+  if (theme.accent !== null) vars.push(`--nzb-accent: ${theme.accent.color}`, `--nzb-on-accent: var(--nzb-${theme.accent.text})`);
+  if (theme.radius !== null) vars.push(`--nzb-radius: ${theme.radius}px`);
+  if (theme.fontFamily !== null) vars.push(`--nzb-font: ${theme.fontFamily}`);
+  return vars.length === 0 ? "" : `.nzb-shell { ${vars.join("; ")}; }\n`;
+}

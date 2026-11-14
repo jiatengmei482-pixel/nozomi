@@ -532,17 +532,16 @@ test("M9E-10 外观：默认 card；layout: \"bar\" 只在组件容器不窄于 
   });
 });
 
-test("M9E-10 主题：theme 变成 .nzb-shell 上的 CSS 变量；主色上的字按对比度挑；写错的项用默认值", async () => {
+test("M9E-10 主题：init 的 theme 变成 Shadow DOM 样式表里的 CSS 变量（不写内联样式）；写错的项不写、用默认值", async () => {
   handler = places;
   await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh", theme: { primary: "#ff6b35", accent: "nope", radius: 12, fontFamily: "Georgia, serif" } });
-  const style = $(".nzb-shell").style;
-  assert.equal(style.getPropertyValue("--nzb-primary"), "#FF6B35");
-  assert.equal(style.getPropertyValue("--nzb-on-primary"), "#1A1F29", "橙色上白字不够 4.5:1");
-  assert.equal(style.getPropertyValue("--nzb-ink"), "#1A1F29");
-  assert.equal(style.getPropertyValue("--nzb-accent"), "#F3E9D8", "写错的 accent 用默认");
-  assert.equal(style.getPropertyValue("--nzb-radius"), "12px");
-  assert.equal(style.getPropertyValue("--nzb-radius-control"), "6px");
-  assert.equal(style.getPropertyValue("--nzb-font"), "Georgia, serif");
+  const css = [...shadow().adoptedStyleSheets].flatMap((sheet) => [...sheet.cssRules].map((rule) => rule.cssText)).join("\n") + [...shadow().querySelectorAll("style")].map((node) => node.textContent).join("\n");
+  assert.match(css, /--nzb-primary: #FF6B35/);
+  assert.match(css, /--nzb-on-primary: var\(--nzb-dark\)/, "橙色上白字不够 4.5:1");
+  assert.match(css, /--nzb-radius: 12px/);
+  assert.match(css, /--nzb-font: Georgia, serif/);
+  assert.doesNotMatch(css, /nope/);
+  assert.equal($(".nzb-shell").getAttribute("style"), null);
   assert.match(WIDGET_CSS, /\.nzb-primary \{[^}]*background: var\(--nzb-primary\); color: var\(--nzb-on-primary\);/);
 });
 

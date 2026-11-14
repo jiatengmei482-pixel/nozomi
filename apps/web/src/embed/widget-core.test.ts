@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { bookingDraftIssues } from "@nozomi/domain";
-import { BAR_MIN_WIDTH, DEFAULT_THEME, GUEST_LIMITS, INK_DARK, STAY_OPTIONS, TEXTS, type WidgetForm, contrastRatio, guestsSummary, hexOf, layoutFor, resolveLayout, resolveTheme, draftFailureOf,draftOf, formProblems, problemOfIssuePath, resolveLang, resolveServices, tomorrow, trimName } from "./widget-core.ts";
+import { WIDGET_CSS, themeCss } from "./widget-style.ts";
+import { BAR_MIN_WIDTH, GUEST_LIMITS, STAY_OPTIONS, TEXTS, type WidgetForm, contrastWithWhite, guestsSummary, hexOf, luminance, layoutFor, resolveLayout, resolveTheme, draftFailureOf,draftOf, formProblems, problemOfIssuePath, resolveLang, resolveServices, tomorrow, trimName } from "./widget-core.ts";
 
 const form = (changes: Partial<WidgetForm> = {}): WidgetForm => ({
   tab: "transfer",
@@ -95,25 +97,39 @@ test("M9E-10 外观：layout 不认识用 card；bar 只在容器不窄于 768 p
   assert.equal(layoutFor("card", 1440), "card");
 });
 
-test("M9E-10 主题：写错的项用默认值；主色、点缀色上的字自动挑够 4.5:1 的；白底上主色不够 4.5:1 时文字改用深色", () => {
-  const plain = resolveTheme(undefined);
-  assert.deepEqual([plain.primary, plain.accent, plain.radius], [DEFAULT_THEME.primary, DEFAULT_THEME.accent, DEFAULT_THEME.radius]);
-  assert.equal(plain.onPrimary, "#FFFFFF");
-  assert.equal(plain.ink, DEFAULT_THEME.primary);
-  assert.ok(contrastRatio(plain.accent, plain.onAccent) >= 4.5);
-  const orange = resolveTheme({ primary: "#ff6b35", accent: "rgb(255, 181, 77)", radius: "14px", fontFamily: '"Noto Sans SC", sans-serif' });
-  assert.equal(orange.primary, "#FF6B35");
-  assert.equal(orange.onPrimary, INK_DARK, "橙色上白字不到 4.5:1，改用深色字");
-  assert.ok(contrastRatio(orange.primary, orange.onPrimary) >= 4.5);
-  assert.equal(orange.ink, INK_DARK, "橙色在白底上当文字不够 4.5:1");
-  assert.equal(orange.accent, "#FFB54D");
+test("M9E-10 主题：没给或写错的项为 null（用样式表的默认值）；主色、点缀色上的字自动挑够 4.5:1 的；白底上主色不够 4.5:1 时文字改用深色", () => {
+  assert.deepEqual(resolveTheme(undefined), { primary: null, accent: null, radius: null, fontFamily: null });
+  const navy = resolveTheme({ primary: "#1b2a5c" });
+  assert.deepEqual(navy.primary, { color: "#1B2A5C", text: "light", inkOnWhite: true });
+  const orange = resolveTheme({ primary: "#ff6b35", accent: "#ffb54d", radius: "14px", fontFamily: '"Noto Sans SC", sans-serif' });
+  assert.deepEqual(orange.primary, { color: "#FF6B35", text: "dark", inkOnWhite: false }, "橙色上白字不到 4.5:1 改深色字；橙色在白底上当文字也不够");
+  assert.ok(contrastWithWhite("#FF6B35") < 4.5);
+  assert.deepEqual(orange.accent, { color: "#FFB54D", text: "dark" });
   assert.equal(orange.radius, 14);
   assert.equal(orange.fontFamily, '"Noto Sans SC", sans-serif');
   const bad = resolveTheme({ primary: "red; background: url(x)", accent: "rgba(0, 0, 0, 0.5)", radius: 99, fontFamily: "x; } .evil {" });
-  assert.deepEqual([bad.primary, bad.accent, bad.radius, bad.fontFamily], [DEFAULT_THEME.primary, DEFAULT_THEME.accent, DEFAULT_THEME.radius, DEFAULT_THEME.fontFamily]);
+  assert.deepEqual(bad, { primary: null, accent: null, radius: null, fontFamily: null });
   assert.equal(hexOf("#abc"), "#AABBCC");
-  assert.equal(hexOf("rgb(0 128 255)"), "#0080FF");
-  assert.equal(hexOf("rgb(300, 0, 0)"), null);
+  assert.equal(hexOf(" #0080ff "), "#0080FF");
+  assert.equal(hexOf("red"), null, "颜色名、rgb() 等写法不认");
+  assert.equal(hexOf("#12345"), null);
+});
+
+test("M9E-10 主题变成 CSS 变量：themeCss 只写给了的项；默认值（样式表）的主色是 tokens.css 的 --color-brand，两组前景 / 背景都够 4.5:1", async () => {
+  assert.equal(themeCss(resolveTheme(undefined)), "");
+  assert.equal(
+    themeCss(resolveTheme({ primary: "#ff6b35", radius: 12, fontFamily: "Georgia, serif" })),
+    ".nzb-shell { --nzb-primary: #FF6B35; --nzb-on-primary: var(--nzb-dark); --nzb-ink: var(--nzb-dark); --nzb-radius: 12px; --nzb-font: Georgia, serif; }\n",
+  );
+  const defaults = /\.nzb-shell \{[^}]*\}/.exec(WIDGET_CSS)?.[0] ?? "";
+  const value = (name: string): string => new RegExp(`${name}: (#[0-9a-f]{6})`).exec(defaults)?.[1]?.toUpperCase() ?? "";
+  const tokens = await readFile(new URL("../../../../docs/design/tokens.css", import.meta.url), "utf8");
+  assert.equal(value("--nzb-primary"), /--color-brand:\s*(#[0-9A-Fa-f]{6})/.exec(tokens)?.[1]?.toUpperCase());
+  assert.equal(value("--nzb-dark"), /--color-text-primary:\s*(#[0-9A-Fa-f]{6})/.exec(tokens)?.[1]?.toUpperCase());
+  const ratio = (a: string, b: string): number => (Math.max(luminance(a), luminance(b)) + 0.05) / (Math.min(luminance(a), luminance(b)) + 0.05);
+  assert.ok(ratio(value("--nzb-primary"), value("--nzb-light")) >= 4.5, "默认主色上的白字");
+  assert.ok(ratio(value("--nzb-accent"), value("--nzb-dark")) >= 4.5, "默认点缀色上的深色字");
+  assert.match(defaults, /--nzb-on-primary: var\(--nzb-light\); --nzb-ink: var\(--nzb-primary\); --nzb-accent: #[0-9a-f]{6}; --nzb-on-accent: var\(--nzb-dark\); --nzb-radius: 24px;/);
 });
 
 test("M9E-10 人数行李的摘要（长、短两种，三种语言）和加减范围", () => {

@@ -192,80 +192,60 @@ export function layoutFor(wanted: WidgetLayout, width: number): WidgetLayout {
   return wanted === "bar" && width >= BAR_MIN_WIDTH ? "bar" : "card";
 }
 
-/** init 的 theme 参数（M9E-10）：先只留接口，做成 CSS 变量；颜色写 #rgb / #rrggbb / rgb()。跟随宿主网站的颜色以后再做 */
+/** init 的 theme 参数（M9E-10）：先只留接口，做成 CSS 变量；颜色写 #rgb / #rrggbb。跟随宿主网站的颜色以后再做 */
 export interface WidgetTheme {
   primary?: string;
   accent?: string;
   radius?: number | string;
   fontFamily?: string;
 }
-
-/** 默认配色（中性）：主色取 docs/design/tokens.css 亮色 --color-brand（深蓝），点缀色是浅米色（横条里选中的标签底色） */
-export const DEFAULT_THEME = {
-  primary: "#1B2A5C",
-  accent: "#F3E9D8",
-  radius: 24,
-  fontFamily: 'system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans", "Microsoft YaHei UI", "Noto Sans CJK SC", "Noto Sans SC", "Noto Sans JP", sans-serif',
-} as const;
-/** 深色文字：tokens.css --color-text-primary */
-export const INK_DARK = "#1A1F29";
 export const RADIUS_MAX = 32;
 
-/** #rgb / #rrggbb / rgb(r, g, b) / rgb(r g b) → #RRGGBB；别的写法（含半透明）为 null */
+/** 颜色只认 #rgb / #rrggbb（换成 #RRGGBB），别的写法为 null */
 export function hexOf(value: unknown): string | null {
   if (typeof value !== "string") return null;
-  const text = value.trim().toLowerCase();
-  const short = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/.exec(text);
-  if (short) return `#${short.slice(1).map((c) => c + c).join("")}`.toUpperCase();
-  if (/^#[0-9a-f]{6}$/.test(text)) return text.toUpperCase();
-  const rgb = /^rgb\(\s*(\d{1,3})[\s,]+(\d{1,3})[\s,]+(\d{1,3})\s*\)$/.exec(text);
-  if (!rgb) return null;
-  const channels = rgb.slice(1, 4).map(Number);
-  return channels.some((c) => c > 255) ? null : `#${channels.map((c) => c.toString(16).padStart(2, "0")).join("")}`.toUpperCase();
+  const text = value.trim().toUpperCase();
+  const short = /^#([0-9A-F])([0-9A-F])([0-9A-F])$/.exec(text);
+  if (short) return `#${short.slice(1).map((c) => c + c).join("")}`;
+  return /^#[0-9A-F]{6}$/.test(text) ? text : null;
 }
 
-/** WCAG 2.x 对比度（和 docs/design/contrast-check.mjs 同一算法），参数是 #RRGGBB */
-export function contrastRatio(a: string, b: string): number {
-  const lum = (hex: string): number => {
-    const [r, g, bl] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)) as [number, number, number];
-    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
-  };
-  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x) as [number, number];
-  return (hi + 0.05) / (lo + 0.05);
+/** WCAG 2.x 相对亮度（和 docs/design/contrast-check.mjs 同一算法），参数是 #RRGGBB */
+export function luminance(hex: string): number {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)) as [number, number, number];
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
+/** 和白色的对比度（白色相对亮度为 1） */
+export const contrastWithWhite = (hex: string): number => 1.05 / (luminance(hex) + 0.05);
 
+/** 主色、点缀色上的字用白色（light）还是深色（dark，tokens.css --color-text-primary） */
+export type TextTone = "light" | "dark";
+const toneOn = (hex: string): TextTone => (contrastWithWhite(hex) >= 4.5 ? "light" : "dark");
+
+/** 合作网站给了、而且写对了的项；没给或写错的为 null，用样式表里的默认值（深蓝主色、浅米色点缀、圆角 24 px、系统字体，见 widget-style.ts） */
 export interface ResolvedTheme {
-  primary: string;
-  /** 主色上的字：白字够 4.5:1 用白，否则深色 */
-  onPrimary: string;
-  /** 白底上的品牌色文字（选中的标签字、链接、焦点环）：主色和白底够 4.5:1 用主色，否则深色 */
-  ink: string;
-  accent: string;
-  onAccent: string;
-  radius: number;
-  fontFamily: string;
+  primary: { color: string; text: TextTone; inkOnWhite: boolean } | null;
+  accent: { color: string; text: TextTone } | null;
+  radius: number | null;
+  fontFamily: string | null;
 }
-
-const textOn = (background: string): string => (contrastRatio(background, "#FFFFFF") >= 4.5 ? "#FFFFFF" : INK_DARK);
 
 /**
- * theme 的取值（M9E-10）：每项写错就用默认值。对比度的兜底只做最简单的一层：主色、点缀色上的字在白和深色里挑够 4.5:1 的；
- * 白底上要用主色当文字时，主色不够 4.5:1 就改用深色。radius 是卡片圆角（px，0–32），输入框取一半；fontFamily 不能含 ; { } < > \。
+ * theme 的取值（M9E-10）。对比度兜底只做最简单的一层：主色、点缀色上的字，白字够 4.5:1 用白，否则用深色；
+ * 白底上要拿主色当文字（选中的标签、链接、焦点环）时，主色和白底不够 4.5:1 就改用深色（inkOnWhite 为 false）。
+ * radius 是卡片圆角（px，0–32），输入框取一半；fontFamily 不能含 ; { } < > \。
  */
 export function resolveTheme(given: unknown): ResolvedTheme {
   const theme = (typeof given === "object" && given !== null ? given : {}) as Record<string, unknown>;
-  const primary = hexOf(theme["primary"]) ?? DEFAULT_THEME.primary;
-  const accent = hexOf(theme["accent"]) ?? DEFAULT_THEME.accent;
+  const primary = hexOf(theme["primary"]);
+  const accent = hexOf(theme["accent"]);
   const rawRadius = theme["radius"];
-  const radiusNumber = typeof rawRadius === "number" ? rawRadius : typeof rawRadius === "string" && /^\d+(\.\d+)?(px)?$/.test(rawRadius.trim()) ? Number.parseFloat(rawRadius) : Number.NaN;
+  const radius = typeof rawRadius === "number" ? rawRadius : typeof rawRadius === "string" && /^\d+(\.\d+)?(px)?$/.test(rawRadius.trim()) ? Number.parseFloat(rawRadius) : Number.NaN;
   const font = theme["fontFamily"];
   return {
-    primary,
-    onPrimary: textOn(primary),
-    ink: contrastRatio(primary, "#FFFFFF") >= 4.5 ? primary : INK_DARK,
-    accent,
-    onAccent: textOn(accent),
-    radius: Number.isFinite(radiusNumber) && radiusNumber >= 0 && radiusNumber <= RADIUS_MAX ? Math.round(radiusNumber) : DEFAULT_THEME.radius,
-    fontFamily: typeof font === "string" && font.trim() !== "" && font.length <= 300 && !/[;{}<>\\]/.test(font) ? font.trim() : DEFAULT_THEME.fontFamily,
+    primary: primary === null ? null : { color: primary, text: toneOn(primary), inkOnWhite: contrastWithWhite(primary) >= 4.5 },
+    accent: accent === null ? null : { color: accent, text: toneOn(accent) },
+    radius: Number.isFinite(radius) && radius >= 0 && radius <= RADIUS_MAX ? Math.round(radius) : null,
+    fontFamily: typeof font === "string" && font.trim() !== "" && font.length <= 300 && !/[;{}<>\\]/.test(font) ? font.trim() : null,
   };
 }

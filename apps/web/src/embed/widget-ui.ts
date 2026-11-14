@@ -37,7 +37,7 @@ import {
 } from "./widget-core.ts";
 import { icon } from "./widget-icons.ts";
 import { tellDeveloper } from "./developer-notice.ts";
-import { WIDGET_CSS } from "./widget-style.ts";
+import { WIDGET_CSS, themeCss } from "./widget-style.ts";
 import { GOOGLE_MAPS_ATTRIBUTION, GOOGLE_MAPS_ATTRIBUTION_ATTRIBUTES, hasGoogleSource } from "../lib/google-attribution.ts";
 
 interface Suggestion {
@@ -165,18 +165,20 @@ class Widget {
     return url.href;
   }
 
+  /** 样式表 = 固定的 WIDGET_CSS + 按 init 的 theme 生成的那几个 CSS 变量（themeCss，M9E-10） */
   private applyStyles(): void {
+    const css = WIDGET_CSS + themeCss(this.theme);
     if ("adoptedStyleSheets" in this.shadow && typeof CSSStyleSheet !== "undefined" && "replaceSync" in CSSStyleSheet.prototype) {
       try {
         const sheet = new CSSStyleSheet();
-        sheet.replaceSync(WIDGET_CSS);
+        sheet.replaceSync(css);
         this.shadow.adoptedStyleSheets = [sheet];
         return;
       } catch {
         // 退回 <style>
       }
     }
-    this.shadow.append(el("style", {}, [WIDGET_CSS]));
+    this.shadow.append(el("style", {}, [css]));
   }
 
   private clear(): void {
@@ -203,25 +205,10 @@ class Widget {
     this.shadow.append(this.frame({ role: "status" }, [el("p", { class: "nzb-message" }, [this.t.unavailable]), link]));
   }
 
-  /**
-   * 最外层（M9E-10）：.nzb-shell（卡片外面那层半透明浅灰底）里放 .nzb；主题写成 CSS 变量，外观写在 data-layout 上。
-   * 主题只在这里变成样式：--nzb-primary / --nzb-on-primary / --nzb-ink / --nzb-accent / --nzb-on-accent / --nzb-radius / --nzb-radius-control / --nzb-font。
-   */
+  /** 最外层（M9E-10）：.nzb-shell（卡片外面那层半透明浅灰底）里放 .nzb；外观写在 data-layout 上（主题在样式表里，见 applyStyles） */
   private frame(attrs: Record<string, string>, children: Node[]): HTMLElement {
     const root = el("div", { class: "nzb", ...attrs }, children);
     const shell = el("div", { class: "nzb-shell", "data-layout": this.layout }, [root]);
-    const theme = this.theme;
-    const vars: [string, string][] = [
-      ["--nzb-primary", theme.primary],
-      ["--nzb-on-primary", theme.onPrimary],
-      ["--nzb-ink", theme.ink],
-      ["--nzb-accent", theme.accent],
-      ["--nzb-on-accent", theme.onAccent],
-      ["--nzb-radius", `${theme.radius}px`],
-      ["--nzb-radius-control", `${Math.round(theme.radius / 2)}px`],
-      ["--nzb-font", theme.fontFamily],
-    ];
-    for (const [name, value] of vars) shell.style.setProperty(name, value);
     this.root = shell;
     return shell;
   }
