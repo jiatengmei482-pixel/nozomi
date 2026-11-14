@@ -6,6 +6,9 @@
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { initFrom, initWithBase, scriptOriginOf } from "./widget-ui.ts";
+import { GOOGLE_MAPS_ATTRIBUTION, GOOGLE_MAPS_ATTRIBUTION_ATTRIBUTES } from "../lib/google-attribution.ts";
+import { readFile } from "node:fs/promises";
+import { WIDGET_CSS } from "./widget-style.ts";
 
 const BASE = "https://nozomi.example";
 const KEY = `nze_${"A".repeat(32)}`;
@@ -92,7 +95,20 @@ test("区间：地址提示经主站（带嵌入码和会话令牌、不带 Cook
   toInput.value = "東京";
   toInput.dispatchEvent(new Event("input"));
   await wait(400);
-  assert.equal($(".nzb-google").textContent, "Google Maps", "谷歌候选按谷歌地图平台的要求署名");
+  assert.equal($('[data-field="dropoff"] .nzb-google').textContent, "Google Maps", "谷歌候选按谷歌地图平台的要求署名");
+  // 和主站同一份写法（M9E-06，lib/google-attribution.ts）：文字、英文、不翻译；不是候选
+  assert.equal($('[data-field="dropoff"] .nzb-google').textContent, GOOGLE_MAPS_ATTRIBUTION);
+  for (const [name, value] of Object.entries(GOOGLE_MAPS_ATTRIBUTION_ATTRIBUTES)) assert.equal($('[data-field="dropoff"] .nzb-google').getAttribute(name), value);
+  assert.equal($<HTMLElement>('[data-field="dropoff"] .nzb-google').hidden, false);
+  // 署名在候选列表（listbox）外面、同一个弹出面板里（M9E-06 审查）：listbox 里只有候选，读屏能读到署名
+  const dropoffList = $('[data-field="dropoff"] [role="listbox"]');
+  assert.equal(dropoffList.querySelector(".nzb-google"), null, "署名不在 listbox 里");
+  assert.ok([...dropoffList.children].every((child) => child.getAttribute("role") === "option"), "listbox 里只有候选");
+  assert.equal($('[data-field="dropoff"] .nzb-google').parentElement, dropoffList.parentElement, "和候选列表在同一个面板里");
+  assert.ok(dropoffList.parentElement?.classList.contains("nzb-panel"));
+  assert.equal($('[data-field="dropoff"] .nzb-google').getAttribute("aria-hidden"), null);
+  assert.equal(shadow().querySelectorAll('[data-field="dropoff"] .nzb-google').length, 1, "整个列表只署一次");
+  assert.equal($<HTMLElement>('[data-field="pickup"] .nzb-google').hidden, true, "只有平台地点（出发地的成田机场）时不署名");
   ($('[data-field="dropoff"] [role="option"]') as HTMLElement).click();
   await wait(20);
   const auto = calls.find((call) => call.url.pathname === "/embed/v1/places/autocomplete");
@@ -215,3 +231,20 @@ test("建草稿 400：标出服务端说的那一项并把焦点移过去；删�
   assert.equal(shadow().activeElement, $('[data-action="add-waypoint"]'), "删除后焦点回到「添加经停点」");
 });
 
+
+test("谷歌署名的样式（M9E-06 审查）：和主站同一个灰色（tokens.css 亮色 --color-text-secondary），12px、字重 400、不折行、不改大小写；固定在面板底部（滚动的是候选列表）", async () => {
+  const tokens = await readFile(new URL("../../../../docs/design/tokens.css", import.meta.url), "utf8");
+  const secondary = /--color-text-secondary:\s*(#[0-9a-fA-F]{6})/.exec(tokens)?.[1];
+  assert.ok(secondary, "tokens.css 里有亮色的 --color-text-secondary（第一个就是亮色）");
+  const rule = /\.nzb-google \{([^}]*)\}/.exec(WIDGET_CSS)?.[1] ?? "";
+  const value = (name: string): string | undefined => new RegExp(`(?:^|;)\\s*${name}:\\s*([^;]+)`).exec(rule)?.[1]?.trim();
+  assert.equal(value("color")?.toLowerCase(), secondary.toLowerCase());
+  assert.equal(value("font-size"), "12px");
+  assert.equal(value("font-weight"), "400");
+  assert.equal(value("white-space"), "nowrap");
+  assert.equal(value("text-transform"), "none");
+  assert.equal(value("letter-spacing"), "normal");
+  assert.equal(value("flex"), "none", "不跟着候选滚动");
+  assert.match(WIDGET_CSS, /\.nzb-panel \{[^}]*max-height: 260px; overflow: hidden;/, "面板高度不变");
+  assert.match(WIDGET_CSS, /\.nzb-list \{[^}]*overflow-y: auto;/, "滚动的是候选列表，署名在列表下面");
+});
