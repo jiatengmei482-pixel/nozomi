@@ -1338,7 +1338,7 @@
             "ADR 0090、工厂接入说明改成 auto / 阈值 / 优先级；接入说明补「组件位置与尺寸建议」（首屏底部整宽、首屏右侧、首屏下方、只在预订页，各给 CSS），数值用 Playwright 在 1440 / 1280 / 1024 / 768 / 390 实测，截图标明各宽度的实际外观",
             "测试：组件测试（优先级、899 / 900、改窗口宽度、768 退卡片、已填内容不丢、不闪）、集成测试（/embed/v1/config 返回 layout、迁移 0430）、端到端扩一条；变异检查"
           ],
-          "evidence": "",
+          "evidence": "PR https://github.com/jiatengmei482-pixel/nozomi/pull/237 ；组件测试 widget.test.tsx 新增 4 个（优先级、899 / 900 和 autoBreakpoint、配置晚回来不闪、来回改宽度已填内容和焦点不丢）、widget-core 新增 2 个，嵌入组件 + 后台页面 + 契约共 57 个通过；domain embed 7 个；集成 embed.itest 外观用例改写（默认 auto、配置返回 layout、PATCH 后马上返回新值）、新增 embed-layout-migration.itest（0430：card→auto、bar 不变、其余不变），相关集成 35 个通过；端到端 site-embed-widget 新增 1 条；pnpm test 2,817 个通过；变异 16 个全部被抓到；测试站 embed-demo 外观只读实测为 bar；截图 docs/acceptance/M9E-14-shots（4 种位置 + 演示站现写法 × 1440 / 1280 / 1024 / 768 / 390，JPEG 约 2 MB）",
           "updated": "2026-11-14"
         }
       ]
