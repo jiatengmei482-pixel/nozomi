@@ -249,6 +249,8 @@ export function CopyRouteDialog(props: {
   context: PriceContext;
   areas: readonly RouteArea[];
   groupName(id: string): string;
+  /** 页面上车型组的顺序：「复制哪些车型组」按它排 */
+  groupOrder: readonly string[];
   areaName(id: string): string;
   pending: number;
   onSubmit(draft: CopyDraft): void;
@@ -265,7 +267,7 @@ export function CopyRouteDialog(props: {
       }
     : {};
   const plan = draft ? planCopy(props.rows, draft, context) : null;
-  const options = draft ? (draft.onlyRow !== null ? draft.groups : copyGroupOptions(props.rows, draft.source, context)) : [];
+  const options = draft ? (draft.onlyRow !== null ? draft.groups : copyGroupOptions(props.rows, draft.source, context, props.groupOrder)) : [];
   const overLimit = plan !== null && plan.added.length + plan.replaced.length + props.pending > PRICE_LIMITS.maxBatchChanges;
   const submit = (): void => {
     if (!draft) return;

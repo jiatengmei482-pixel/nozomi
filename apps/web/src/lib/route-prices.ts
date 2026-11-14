@@ -153,8 +153,8 @@ export interface CopyDraft {
   attempted: boolean;
 }
 
-export function copyDraftFor(rows: readonly PriceRow[], source: Route, context: PriceContext, onlyRow: string | null = null, target: Route = reverseOf(source)): CopyDraft {
-  const groups = onlyRow !== null ? [rows.find((row) => row.key === onlyRow)?.vehicleGroupId ?? ""].filter((id) => id !== "") : [...new Set(sourceRows(rows, source, context, null).map((row) => row.vehicleGroupId))];
+export function copyDraftFor(rows: readonly PriceRow[], source: Route, context: PriceContext, onlyRow: string | null = null, target: Route = reverseOf(source), groupOrder: readonly string[] = []): CopyDraft {
+  const groups = onlyRow !== null ? [rows.find((row) => row.key === onlyRow)?.vehicleGroupId ?? ""].filter((id) => id !== "") : copyGroupOptions(rows, source, context, groupOrder);
   return { source, target, groups, adjust: "none", by: "percent", amount: "", existing: "skip", onlyRow, attempted: false };
 }
 
@@ -165,9 +165,13 @@ function sourceRows(rows: readonly PriceRow[], source: Route, context: PriceCont
     .map((entry) => entry.row);
 }
 
-/** 复制线路的车型组选项：原线路里有价格的那些。 */
-export function copyGroupOptions(rows: readonly PriceRow[], source: Route, context: PriceContext): string[] {
-  return [...new Set(sourceRows(rows, source, context, null).map((row) => row.vehicleGroupId))];
+/**
+ * 复制线路的车型组选项：原线路里有价格的那些，按 `groupOrder`（页面上车型组的顺序）排，不随哪一行先改过而变（M8-12 验收观察 3）；
+ * 不在 `groupOrder` 里的（已经从商品去掉的车型组）排在最后，彼此按编号。
+ */
+export function copyGroupOptions(rows: readonly PriceRow[], source: Route, context: PriceContext, groupOrder: readonly string[] = []): string[] {
+  const rank = (id: string): number => (groupOrder.includes(id) ? groupOrder.indexOf(id) : groupOrder.length);
+  return [...new Set(sourceRows(rows, source, context, null).map((row) => row.vehicleGroupId))].sort((x, y) => rank(x) - rank(y) || x.localeCompare(y));
 }
 
 export function copyDraftIssues(draft: CopyDraft, currency: string): Partial<Record<"target" | "groups" | "amount", string>> {
