@@ -8,6 +8,7 @@
  * - 手机触屏（M8-37，业主 2026-11-12：移动设备优先保证操作流程）：页面上是一格「出发地 / 目的地」，点一下打开全屏选择页
  *   （`FullScreenSheet`，在页面最上层，手机键盘、吸顶条、地图都盖不住），里面是输入框、候选列表和「在地图上选点」；选中后回到页面，「取消」不改原来的值。
  *   电脑和鼠标操作的窄窗口照旧在页面上选（窄窗口候选紧贴输入框下面）。
+ * - 候选里有谷歌来源的一项时，列表末尾署名「Google Maps」（M9E-06，`components/GoogleMapsAttribution.tsx`，和嵌入组件同一份写法）。
  * 浏览器只连 `/site/v1`，不连谷歌（ADR 0044）。
  */
 import { type CityCandidate, normalizePlaceQuery, placeQueryIssue, serviceCityOf } from "@nozomi/domain";
@@ -16,6 +17,7 @@ import { ApiError } from "../../../api/client.ts";
 import type { MapTiles } from "../../../api/areas.ts";
 import { type SitePlaceSuggestion, autocompleteSitePlaces, getSitePlaceDetails, reverseSitePlace } from "../../../api/site.ts";
 import { Button } from "../../../components/Button.tsx";
+import { GoogleMapsAttribution } from "../../../components/GoogleMapsAttribution.tsx";
 import { Icon } from "../../../components/Icon.tsx";
 import { type TripPoint, pointName } from "../../../lib/book-new.ts";
 import { PLACES_DAILY_LIMIT_TEXT, addressText } from "../AddressFields.tsx";
@@ -322,16 +324,20 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
             setOpen(false);
           }}
         />
-        <ul id={listId} role="listbox" aria-label={`${label}的候选`} className={fullScreen ? "place-field__panel place-field__panel--sheet" : "combobox__panel place-field__panel"} hidden={items.length === 0 || (!open && !fullScreen)} onPointerDown={(event) => event.preventDefault()}>
-          {items.map((item, index) => (
-            <li key={`${item.source}-${item.id}`} role="presentation">
-              <div id={`${id}-option-${index}`} role="option" aria-selected={index === active} className={index === active ? "combobox__option combobox__option--active place-field__option" : "combobox__option place-field__option"} onPointerMove={() => setActive(index)} onClick={() => void choose(item)}>
-                <span className="combobox__option-label">{item.name}</span>
-                {suggestionDetail(item) !== "" && <span className="place-field__detail">{suggestionDetail(item)}</span>}
-              </div>
-            </li>
-          ))}
-        </ul>
+        {/* 弹出面板：候选列表 + 谷歌署名（M9E-06：署名在 listbox 外、固定在面板底部） */}
+        <div className={fullScreen ? "place-field__panel place-field__panel--sheet" : "combobox__panel place-field__panel"} hidden={items.length === 0 || (!open && !fullScreen)} onPointerDown={(event) => event.preventDefault()}>
+          <ul id={listId} role="listbox" aria-label={`${label}的候选`} className="place-field__list">
+            {items.map((item, index) => (
+              <li key={`${item.source}-${item.id}`} role="presentation">
+                <div id={`${id}-option-${index}`} role="option" aria-selected={index === active} className={index === active ? "combobox__option combobox__option--active place-field__option" : "combobox__option place-field__option"} onPointerMove={() => setActive(index)} onClick={() => void choose(item)}>
+                  <span className="combobox__option-label">{item.name}</span>
+                  {suggestionDetail(item) !== "" && <span className="place-field__detail">{suggestionDetail(item)}</span>}
+                </div>
+              </li>
+            ))}
+          </ul>
+          <GoogleMapsAttribution items={items} />
+        </div>
       </div>
       <p id={statusId} className={warning ? "site-address__status site-address__status--warning" : "site-address__status"} role="status">
         {warning && <Icon name="alert-triangle" />}
