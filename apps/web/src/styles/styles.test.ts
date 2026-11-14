@@ -65,8 +65,15 @@ test("字号、字重、行高、层级、圆角、阴影只引用令牌", () =>
  */
 const MEASURED_VARIABLES = new Set(["--driver-bar-height"]);
 
+/**
+ * 嵌入预订页的外观变量（M9E-17，ADR 0095 Q15）：和嵌入组件同名的 --nzb-*，只在 embed.css 的 :root[data-embed-book] 里定义、取值是主站令牌
+ * （embed-style.test.ts 另有核对）。只认那一块里以 --nzb- 开头的。
+ */
+const EMBED_THEME_VARIABLES = new Set([...(/:root\[data-embed-book\] \{([^}]*)\}/.exec(sheets.find((sheet) => sheet.name === "embed.css")?.css ?? "")?.[1] ?? "").matchAll(/(--nzb-[a-z-]+)\s*:/g)].map((match) => match[1] ?? ""));
+
 test("引用的每个令牌都在 docs/design/tokens.css 里定义过", () => {
-  const defined = new Set([...tokens.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((match) => match[1]).concat([...MEASURED_VARIABLES]));
+  assert.ok(EMBED_THEME_VARIABLES.has("--nzb-primary"));
+  const defined = new Set([...tokens.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((match) => match[1]).concat([...MEASURED_VARIABLES, ...EMBED_THEME_VARIABLES]));
   for (const { name, css } of sheets) {
     for (const match of css.matchAll(/var\((--[a-z0-9-]+)/g)) {
       assert.ok(defined.has(match[1]), `${name} 引用了不存在的令牌 ${match[1]}`);

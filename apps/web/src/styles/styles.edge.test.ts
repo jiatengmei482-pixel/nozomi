@@ -141,8 +141,10 @@ const AREA_DRAFT_STORE = "lib/area-draft.ts";
 const PAYMENT_RETURN_STORE = "lib/payment-return.ts";
 /** 宿主页里存草稿号（M9E-16，ADR 0095 第三节第 2 小节）：组件脚本在合作网站页面上运行，只有这一个键 */
 const HOST_DRAFT_STORE = "embed/host-draft-store.ts";
+/** 嵌入页里存订单令牌（M9E-17，ADR 0095 第八节第 2 小节，修订 ADR 0046）：iframe 里主站域名下的文档，只有这一个键，宿主拿不到 */
+const EMBED_ORDER_STORE = "embed/embed-order-store.ts";
 /** 嵌入预订流程的 postMessage（M9E-16，ADR 0095 第六节）：宿主页一侧（组件脚本）和 iframe 里的嵌入页各一处，targetOrigin 都不是 "*" */
-const POST_MESSAGE_SENDERS: Readonly<Record<string, string>> = { "embed/widget-booking.ts": "this.origin", "pages/embed/EmbedBookPage.tsx": "host" };
+const POST_MESSAGE_SENDERS: Readonly<Record<string, string>> = { "embed/widget-booking.ts": "this.origin", "pages/embed/EmbedFrame.tsx": "host" };
 const EXTERNAL_SCRIPT_REGISTRY = "lib/external-scripts.ts";
 const EXTERNAL_SCRIPT_LOADER = "lib/stripe-js.ts";
 const NEW_TAB_LINK_COMPONENT = "components/NewTabLink.tsx";
@@ -154,7 +156,7 @@ test("令牌不进 localStorage、不进 Cookie、不进网址：只有主题用
     if (/\blocalStorage\b/.test(text)) assert.equal(name, "theme/theme.ts", `${name} 用了 localStorage`);
     // 例外两个：区域编辑页的草稿（lib/area-draft.ts，负责人批准的最小放行）；付款时被带去银行验证再回来要取回订单令牌（lib/payment-return.ts，ADR 0046）。
     // 下面各有一条核对它们只碰自己的键
-    if (/\bsessionStorage\b/.test(text)) assert.ok(name === "auth/session-store.ts" || name === AREA_DRAFT_STORE || name === PAYMENT_RETURN_STORE || name === HOST_DRAFT_STORE, `${name} 用了 sessionStorage`);
+    if (/\bsessionStorage\b/.test(text)) assert.ok(name === "auth/session-store.ts" || name === AREA_DRAFT_STORE || name === PAYMENT_RETURN_STORE || name === HOST_DRAFT_STORE || name === EMBED_ORDER_STORE, `${name} 用了 sessionStorage`);
     assert.doesNotMatch(text, /document\.cookie|indexedDB|BroadcastChannel/, `${name} 用了别的存放或传递途径`);
     // postMessage 只在嵌入预订流程的两处（下面另有一条核对）
     if (!(name in POST_MESSAGE_SENDERS)) assert.doesNotMatch(text, /postMessage\(/, `${name} 用了别的存放或传递途径`);
@@ -210,6 +212,21 @@ test("宿主页的草稿号只用自己的一个键（M9E-16）：读、写、�
   assert.equal((text.match(/sessionStorage\.(getItem|setItem|removeItem)\(HOST_DRAFT_KEY/g) ?? []).length, 3, "每次读、写、删都只针对这个键");
   assert.equal((text.match(/sessionStorage\./g) ?? []).length, 3);
   assert.doesNotMatch(text, /localStorage|session-store|token/i);
+});
+
+test("嵌入页的订单只用自己的一个键（M9E-17）：读、写、删各一次，都只针对这个键；只有嵌入页的预订页、订单页用它", () => {
+  const store = sources.find((source) => source.name === EMBED_ORDER_STORE);
+  assert.ok(store, `找不到 ${EMBED_ORDER_STORE}`);
+  const text = stripComments(store.text);
+  const keys = [...text.matchAll(/["'`](nozomi\.[^"'`$]*)/g)].map((match) => match[1]);
+  assert.deepEqual(keys, ["nozomi.embed-order"], "这个文件里只能有这一个键");
+  assert.equal((text.match(/sessionStorage\.(getItem|setItem|removeItem)\(EMBED_ORDER_KEY/g) ?? []).length, 3, "每次读、写、删都只针对这个键");
+  assert.equal((text.match(/sessionStorage\./g) ?? []).length, 3);
+  assert.doesNotMatch(text, /localStorage|session-store|postMessage/);
+  for (const { name, text: code } of sources) {
+    const used = stripComments(code);
+    if (/\b(rememberEmbedOrder|embedOrderFor|forgetEmbedOrder)\(/.test(used) && name !== EMBED_ORDER_STORE) assert.ok(name === "pages/embed/EmbedBookPage.tsx" || name === "pages/embed/EmbedOrderPage.tsx", `${name} 用了嵌入页的订单令牌`);
+  }
 });
 
 test("postMessage（M9E-16）：只有宿主页一侧和嵌入页各一处，targetOrigin 是核对过的 origin，从不用 \"*\"", () => {
