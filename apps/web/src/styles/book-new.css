@@ -1123,6 +1123,11 @@ button.book-steps__link:hover .book-steps__name {
   margin: 0;
 }
 
+/* 套餐那一行下面的预计用时（M9P-04）：另起一行，字号、颜色同标签 */
+.price-breakdown__sub {
+  display: block;
+}
+
 .price-breakdown__amount {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;

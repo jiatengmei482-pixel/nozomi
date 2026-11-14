@@ -44,6 +44,10 @@ export interface CharterWorld {
   /** 哪个区域都不在 */
   nowhere: Point;
   groupName: string;
+  /** M9P-04：商品、供应商管理员（服务规则页的端到端用）、加价区域的名称 */
+  productId: string;
+  tenant: { adminEmail: string; password: string };
+  surchargeAreaName: string;
 }
 
 async function version(request: APIRequestContext, headers: Record<string, string>, id: string): Promise<number> {
@@ -55,8 +59,10 @@ async function version(request: APIRequestContext, headers: Record<string, strin
  * `extraPackageHours`：商品区域再多上架一档套餐（M9E-07 嵌入组件包车用）。城市只有 8 小时一档时 `/book/new` 会替客人选上，
  * 多一档才能看到「停在第 1 步等客人选时长」。这一档 40,000 日元、没有区域加价。
  * `packages`：商品区域再多上架的几档套餐（时长、套餐价、含公里；M9P-03 有经停点时手动升档用），没有区域加价。
+ * `waypointSurcharge`：加价区域的途经加价（M9P-04；没迁移过的商品，经停点和下车点行程加价都查这一列）——给了时 `packages` 的每一档也在加价区域配同样的上 / 下车、途经加价。
+ * `itinerary`：服务规则里的包车行程配置（`charter_itinerary`，M9P-04：经停点默认占用、整单缓冲等）。
  */
-export async function charterWorld(request: APIRequestContext, options: { extraPackageHours?: number; packages?: readonly { hours: number; price: number; km: number }[] } = {}): Promise<CharterWorld> {
+export async function charterWorld(request: APIRequestContext, options: { extraPackageHours?: number; packages?: readonly { hours: number; price: number; km: number }[]; waypointSurcharge?: number; itinerary?: Record<string, unknown> } = {}): Promise<CharterWorld> {
   const world = await createWorld(request);
   const admin = await platformAdminHeaders(request);
   const tag = randomLetters(5);
@@ -79,14 +85,14 @@ export async function charterWorld(request: APIRequestContext, options: { extraP
   const surchargeArea = await area(`加价区域 ${tag}`, surchargeCenter, 0.04);
   const supplier = { tenant, headers, brand, area: productArea };
   const product = await createProductByApi(request, supplier, { ...world, city: cityRef }, "charter");
-  const rules = await request.put(`/tenant/v1/products/${product.id}/service-rules`, { headers: { ...headers, "if-match": `"${product.version}"` }, data: RULES });
+  const rules = await request.put(`/tenant/v1/products/${product.id}/service-rules`, { headers: { ...headers, "if-match": `"${product.version}"` }, data: { ...RULES, ...(options.itinerary === undefined ? {} : { charter_itinerary: options.itinerary }) } });
   expect(rules.status(), await rules.text()).toBe(200);
   const content = await request.put(`/tenant/v1/products/${product.id}/content`, { headers: { ...headers, "if-match": `"${((await rules.json()) as { version: number }).version}"` }, data: { zh: { title: "区域加价包车" } } });
   expect(content.status(), await content.text()).toBe(200);
   const { today } = (await (await request.get(`/tenant/v1/products/${product.id}/price-rules`, { headers })).json()) as { today: string };
   const prices = [
     { ...EMPTY_PRICE, area_id: productArea.id, vehicle_group_id: world.group.id, package_hours: 8, pricing_model: "charter_package", package_km: 150, package_price: 70000, overtime_per_hour: 5000, over_km_per_km: 400, valid_from: today },
-    { area_id: surchargeArea.id, vehicle_group_id: world.group.id, package_hours: 8, pricing_model: "charter_area_surcharge", pickup_surcharge: 500, dropoff_surcharge: 1000, valid_from: today },
+    ...[8, ...(options.waypointSurcharge === undefined ? [] : (options.packages ?? []).map((entry) => entry.hours))].map((hours) => ({ area_id: surchargeArea.id, vehicle_group_id: world.group.id, package_hours: hours, pricing_model: "charter_area_surcharge", pickup_surcharge: 500, dropoff_surcharge: 1000, ...(options.waypointSurcharge === undefined ? {} : { waypoint_surcharge: options.waypointSurcharge }), valid_from: today })),
     ...(options.extraPackageHours === undefined ? [] : [{ ...EMPTY_PRICE, area_id: productArea.id, vehicle_group_id: world.group.id, package_hours: options.extraPackageHours, pricing_model: "charter_package", package_km: 80, package_price: 40000, overtime_per_hour: 5000, over_km_per_km: 400, valid_from: today }]),
     ...(options.packages ?? []).map((entry) => ({ ...EMPTY_PRICE, area_id: productArea.id, vehicle_group_id: world.group.id, package_hours: entry.hours, pricing_model: "charter_package", package_km: entry.km, package_price: entry.price, overtime_per_hour: 5000, over_km_per_km: 400, valid_from: today })),
   ];
@@ -96,5 +102,5 @@ export async function charterWorld(request: APIRequestContext, options: { extraP
   }
   const published = await request.post(`/tenant/v1/products/${product.id}/publish`, { headers });
   expect(published.status(), await published.text()).toBe(200);
-  return { cityId: city.id, center, pickup: center, nearby: offset(center, -0.02, 0.02), station, nowhere: offset(center, 0.4, 0.4), groupName: world.group.name };
+  return { cityId: city.id, center, pickup: center, nearby: offset(center, -0.02, 0.02), station, nowhere: offset(center, 0.4, 0.4), groupName: world.group.name, productId: product.id, tenant: { adminEmail: tenant.adminEmail, password: tenant.password }, surchargeAreaName: surchargeArea.name };
 }

@@ -117,7 +117,7 @@ async function addStop(actor: ReturnType<typeof user>, spot: string, stay: strin
 
 const stopNames = (): string[] => screen.getAllByRole("combobox", { name: /^经停点 \d+$/ }).map((box) => (box as HTMLInputElement).value);
 
-test("没有经停点：询价请求和以前完全一样（字段、顺序都相同，没有 itinerary_pricing、waypoints），包车时长照旧手选，车型卡不显示明细和行程提示", async () => {
+test("没有经停点：询价请求和以前完全一样（字段、顺序都相同，没有 itinerary_pricing、waypoints），包车时长照旧手选；车型卡照样逐项列明细（M9P-04），没有经停点的提示和行程时间表", async () => {
   wideScreen();
   const calls = open();
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
@@ -126,7 +126,8 @@ test("没有经停点：询价请求和以前完全一样（字段、顺序都�
   assert.deepEqual(body, { category: "charter", pickup: { lat: 35.6905, lng: 139.6948 }, dropoff: { lat: 35.6896, lng: 139.7006 }, package_hours: 8, service_local: "2030-11-20T09:00", passengers: 2, luggage: 2, ...("pickup_name" in body ? { pickup_name: body["pickup_name"] } : {}), ...("dropoff_name" in body ? { dropoff_name: body["dropoff_name"] } : {}) });
   assert.equal("itinerary_pricing" in body, false);
   assert.equal("waypoints" in body, false);
-  assertAbsent(screen.queryByLabelText("价格明细"));
+  // M9P-04（P0 验收后续 A）：不填经停点也逐项列明细；只是没有「按您填的经停点计算」的提示
+  assert.ok(screen.getAllByLabelText("价格明细").length > 0);
   assertAbsent(screen.queryByText(/价格按您填的经停点计算/));
   assertAbsent(screen.queryByText("行程时间表"));
   // M9W-05：不按行程计价的包车，「一口价包含」下面的说法照旧
@@ -220,7 +221,7 @@ test("按行程计价：车型卡、右侧栏、核对页显示明细（套餐�
   const rows = [...within(card).getByLabelText("价格明细").querySelectorAll(".price-breakdown__row")].map((row) => [row.querySelector("dt")?.textContent, row.querySelector("dd")?.textContent]);
   assert.deepEqual(rows, [
     ["包车套餐 10 小时", "60,500 JPY"],
-    ["经停加价（富士山地区，第 1、2、3 个经停点）", "11,000 JPY"],
+    ["行程加价（富士山地区，第 1、2、3 个经停点）", "11,000 JPY"],
   ]);
   const schedule = screen.getByRole("list", { name: "行程" });
   assert.deepEqual(
@@ -236,7 +237,7 @@ test("按行程计价：车型卡、右侧栏、核对页显示明细（套餐�
   await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
   const side = screen.getByRole("complementary", { name: "行程摘要" });
   const sideRows = [...within(side).getByLabelText("价格明细").querySelectorAll(".price-breakdown__row")].map((row) => row.textContent);
-  assert.deepEqual(sideRows, ["包车套餐 10 小时60,500 JPY", "经停加价（富士山地区，第 1、2、3 个经停点）11,000 JPY", "合计71,500 JPY"]);
+  assert.deepEqual(sideRows, ["包车套餐 10 小时60,500 JPY", "行程加价（富士山地区，第 1、2、3 个经停点）11,000 JPY", "合计71,500 JPY"]);
   const facts = [...side.querySelectorAll(".site-facts__item")].map((item) => item.querySelector("dt")?.textContent);
   assert.deepEqual(facts.slice(0, 6), ["用车类型", "上车地点", "经停点", "下车地点", "行程时长", "用车时间（当地时间）"]);
   assert.match(side.textContent ?? "", /包车 10 小时（按行程）/);
@@ -284,13 +285,13 @@ test("M8-43：明细里金额为 0 的超公里费 / 超时费不列，不是 0 
   await waitFor(() => assert.match(screen.getByRole("heading", { name: "车型1" }).closest("li")?.textContent ?? "", /74,500 JPY/), SLOW);
   const card = screen.getByRole("heading", { name: "车型1" }).closest("li") as HTMLElement;
   const rows = [...within(card).getByLabelText("价格明细").querySelectorAll(".price-breakdown__row")].map((row) => row.textContent);
-  assert.deepEqual(rows, ["包车套餐 10 小时60,500 JPY", "经停加价（富士山地区，第 1、2、3 个经停点）11,000 JPY", "超时费3,000 JPY"]);
+  assert.deepEqual(rows, ["包车套餐 10 小时60,500 JPY", "行程加价（富士山地区，第 1、2、3 个经停点）11,000 JPY", "超时费3,000 JPY"]);
   assertAbsent(within(card).queryByText("超公里费"));
 
   await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
   const side = screen.getByRole("complementary", { name: "行程摘要" });
   const sideRows = [...within(side).getByLabelText("价格明细").querySelectorAll(".price-breakdown__row")].map((row) => row.textContent);
-  assert.deepEqual(sideRows, ["包车套餐 10 小时60,500 JPY", "经停加价（富士山地区，第 1、2、3 个经停点）11,000 JPY", "超时费3,000 JPY", "合计74,500 JPY"]);
+  assert.deepEqual(sideRows, ["包车套餐 10 小时60,500 JPY", "行程加价（富士山地区，第 1、2、3 个经停点）11,000 JPY", "超时费3,000 JPY", "合计74,500 JPY"]);
 });
 
 test("经停点不在任何区域（WAYPOINT_NOT_PRICED）：指出第几个经停点和它的名字，转人工报价，不显示内部代码；人工报价带上经停点、不带之前选的时长（M9W-04）", async () => {
@@ -414,6 +415,54 @@ test("M9P-03：有经停点时也能手动升到更长的套餐——下拉默�
     await addStop(actor, "河口湖", "60");
     await waitFor(() => assert.equal("package_hours" in (quotes(calls).at(-1) as Record<string, unknown>), false), SLOW);
     assert.equal(((await screen.findByLabelText(/^包车时长/, {}, SLOW)) as HTMLSelectElement).value, "");
+  } finally {
+    packageHours = [8];
+  }
+});
+
+test("M9P-04：两个车型自动档不同（用例 10：车型1 5 小时、车型2 4 小时）——没选车型时写范围、只列比最长的长的；选了车型按它自己的档；车型卡套餐下面写预计用时（含缓冲）", async () => {
+  wideScreen();
+  packageHours = [4, 5, 6, 8];
+  const kamakura = (base: number) => [
+    { kind: "base" as const, amount: yen(base), area_name: null, stop_seqs: null },
+    { kind: "waypoint" as const, amount: yen(8_000), area_name: { zh: "镰仓" }, stop_seqs: [1] },
+  ];
+  const answer = (body: Record<string, unknown>): SiteQuoteResult => {
+    const hours = typeof body["package_hours"] === "number" ? body["package_hours"] : null;
+    return {
+      ...itineraryResult(),
+      quotes: [
+        { ...quoteOf(1, 41_000, kamakura(33_000)), package: { hours: hours ?? 5, km: 150 }, estimated_minutes: 252, includes_buffer: true, auto_package_hours: 5 },
+        { ...quoteOf(2, 44_000, kamakura(36_000)), package: { hours: hours ?? 4, km: 120 }, estimated_minutes: 240, includes_buffer: true, auto_package_hours: 4 },
+      ],
+    };
+  };
+  try {
+    const calls = open((call) => json(200, answer(call.body as Record<string, unknown>)));
+    const actor = user();
+    await screen.findByRole("button", { name: "添加经停点" }, SLOW);
+    await addStop(actor, "五合目", "30");
+    const options = async (): Promise<string[][]> => [...((await screen.findByLabelText(/^包车时长/, {}, SLOW)) as HTMLSelectElement).options].map((option) => [option.value, option.textContent ?? ""]);
+    await waitFor(async () => assert.deepEqual(await options(), [["", "自动（按车型 4–5 小时）"], ["6", "6 小时"], ["8", "8 小时"]]), SLOW);
+
+    await actor.click(screen.getByRole("button", { name: "下一步：选择车型" }));
+    const card = async (name: string): Promise<HTMLElement> => (await screen.findByRole("heading", { name }, SLOW)).closest("li") as HTMLElement;
+    // 车型卡：套餐那一行下面是这个车型自己的预计用时
+    assert.match((await card("车型1")).textContent ?? "", /包车套餐 5 小时预计用时 4 小时 12 分钟（含缓冲）33,000 JPY/);
+    assert.match((await card("车型1")).textContent ?? "", /行程加价（镰仓，第 1 个经停点）8,000 JPY/);
+    assert.match((await card("车型2")).textContent ?? "", /包车套餐 4 小时预计用时 4 小时（含缓冲）36,000 JPY/);
+
+    // 选车型1：下拉按它的 5 小时，不列 4、5 小时；只是显示变了，请求体不变（不带 package_hours）
+    await actor.click(within(await card("车型1")).getByRole("button", { pressed: false }));
+    await actor.click(screen.getByRole("button", { name: "上一步" }));
+    await waitFor(async () => assert.deepEqual(await options(), [["", "自动（5 小时）"], ["6", "6 小时"], ["8", "8 小时"]]), SLOW);
+    assert.equal("package_hours" in (quotes(calls).at(-1) as Record<string, unknown>), false);
+
+    // 换成车型2：按它的 4 小时，5 小时也能选
+    await actor.click(screen.getByRole("button", { name: "下一步：选择车型" }));
+    await actor.click(within(await card("车型2")).getByRole("button", { pressed: false }));
+    await actor.click(screen.getByRole("button", { name: "上一步" }));
+    await waitFor(async () => assert.deepEqual(await options(), [["", "自动（4 小时）"], ["5", "5 小时"], ["6", "6 小时"], ["8", "8 小时"]]), SLOW);
   } finally {
     packageHours = [8];
   }

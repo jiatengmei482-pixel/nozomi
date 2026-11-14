@@ -24,6 +24,11 @@ export interface DeductionBasis {
   ms_before_service?: number;
   original_minor?: number;
   rescue_in_original_minor?: number;
+  /** 救援差价的基准（M9P-01）：基准、订单上的加价合计、重算的加价合计、退回原结算价的原因；之前的救援没有 */
+  base_minor?: number | null;
+  surcharge_before?: number | null;
+  surcharge_after?: number | null;
+  base_fallback_reason?: string | null;
   raw_minor?: number;
   same_currency?: boolean;
   /** 赔付、报销（工单判定，M4-02）：哪张工单、哪种情形；赔付另有比例所得和车型降级的差价、赔付表版本 */
@@ -139,6 +144,17 @@ export interface PlatformRescueOffer {
   position: number | null;
 }
 
+/**
+ * 救援差价的基准（ADR 0093 第二节救援做法 B）：基准 = 原结算价 + max(0, 重算的加价合计 − 订单上的加价合计)，原结算币种。
+ * 重算失败时 `surcharge_after` 为 null、`fallback_reason` 是原因，基准退回原结算价。
+ */
+export interface RescueDeductionBase {
+  base: Money;
+  surcharge_before: Money | null;
+  surcharge_after: Money | null;
+  fallback_reason: string | null;
+}
+
 export interface PlatformRescue {
   id: string;
   order: { id: string; order_no: string; category: ServiceCategory; city_id: string; place_id: string | null; vehicle_group_id: string; service_time: string; service_local: string; timezone: string };
@@ -149,6 +165,8 @@ export interface PlatformRescue {
   from_status: OrderStatus;
   original_tenant: TenantRef;
   original_settlement: Money;
+  /** 救援差价的基准（M9P-01 触发时算好，M9P-04 起给运营看）：上线前触发的救援为 null（按原结算价） */
+  deduction_base: RescueDeductionBase | null;
   penalty_bp: number;
   penalty_tier: PenaltyTier;
   penalty: Money;
@@ -261,6 +279,6 @@ export const RESCUE_SCHEMA_FIELDS = {
   TenantRescueOffer: ["id", "status", "offered_at", "expires_at", "decided_at", "decline_reason", "trip", "product_id", "product_version", "vehicle_group_id", "settlement", "order_id"],
   PlatformDeduction: ["id", "tenant_id", "kind", "amount", "status", "basis", "waived_at", "waive_reason", "created_at"],
   PlatformRescueOffer: ["id", "tenant", "product_id", "product_version", "status", "offered_by_type", "offered_at", "expires_at", "decided_at", "decline_reason", "settlement", "sell", "markup_bp", "position"],
-  PlatformRescue: ["id", "order", "trigger", "triggered_by_type", "reason", "triggered_at", "from_status", "original_tenant", "original_settlement", "penalty_bp", "penalty_tier", "penalty", "status", "rescue_tenant", "rescue_settlement", "rescued_via", "rescued_at", "force_majeure", "closed_at", "offers", "deductions", "version"],
+  PlatformRescue: ["id", "order", "trigger", "triggered_by_type", "reason", "triggered_at", "from_status", "original_tenant", "original_settlement", "deduction_base", "penalty_bp", "penalty_tier", "penalty", "status", "rescue_tenant", "rescue_settlement", "rescued_via", "rescued_at", "force_majeure", "closed_at", "offers", "deductions", "version"],
   RescueCandidate: ["tenant", "product_id", "product_version", "settlement", "sell", "markup_bp", "position", "in_band", "difference", "urgent"],
 } as const;

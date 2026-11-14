@@ -727,7 +727,7 @@ test("订单页（M9W-04）：包车按行程计价的单，总价下面列下�
   const rows = [...within(total).getByLabelText("价格明细").querySelectorAll(".price-breakdown__row")].map((row) => [row.querySelector("dt")?.textContent, row.querySelector("dd")?.textContent]);
   assert.deepEqual(rows, [
     ["包车套餐 10 小时", "60,500 JPY"],
-    ["经停加价（富士山地区，第 1 个经停点）", "11,000 JPY"],
+    ["行程加价（富士山地区，第 1 个经停点）", "11,000 JPY"],
     ["超公里费", "19,800 JPY"],
   ]);
   // M8-43：超时费 0 不列（以前列「超时费 0 JPY」）；超公里费不是 0 照旧列
