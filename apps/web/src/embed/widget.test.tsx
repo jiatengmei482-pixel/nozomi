@@ -151,7 +151,8 @@ test("区间：地址提示经主站（带嵌入码和会话令牌、不带 Cook
 test("建草稿失败：400、429 两种、网络错误各显示一句，不跳转；没选地点先提示", async () => {
   const went: string[] = [];
   let reply: { status: number; body: unknown } | "network" = { status: 400, body: { error: { code: "VALIDATION_FAILED" } } };
-  handler = (url, init) => (url.pathname === "/embed/v1/booking-drafts" ? reply : places(url, init));
+  // 网络错误时整个主站都连不上：提交失败后探 GET 配置（no-cors，M9E-22）也失败
+  handler = (url, init) => (url.pathname === "/embed/v1/booking-drafts" || (reply === "network" && url.pathname === "/embed/v1/config") ? reply : places(url, init));
   await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh" }, (url) => went.push(url));
   const submit = async (): Promise<string> => {
     $<HTMLFormElement>("form").dispatchEvent(new Event("submit", { cancelable: true }));
@@ -1149,7 +1150,7 @@ test("M9E-22 表单已显示后配置才回来（正常）：init 没传 layout 
   });
 });
 
-test("M9E-22 表单已显示后配置才回来（被拒）：表单和已填的都保留，提示行说明并给主站链接，切标签重画后仍在；晚回来的 5xx 不管", async () => {
+test("M9E-22 表单已显示后配置才回来（被拒）：整个换成「暂时无法使用」和主站链接，不留能提交的表单；晚回来的 5xx 不管", async () => {
   await withConfigTimeout(50, async () => {
     const held = heldConfig("blocked");
     handler = held.handler;
@@ -1158,18 +1159,20 @@ test("M9E-22 表单已显示后配置才回来（被拒）：表单和已填的�
     const dropoff = $<HTMLInputElement>('[data-field="dropoff"] input');
     dropoff.value = "東京";
     assert.equal($('[data-role="message"]').textContent, "");
-    held.release();
-    await wait(20);
-    assert.ok(shadow().querySelector("form"), "表单还在");
-    assert.equal(shadow().querySelector('[role="status"]'), null, "不换成「暂时无法使用」");
-    assert.equal($<HTMLInputElement>('[data-field="pickup"] input').value, "成田国際空港");
-    assert.equal($<HTMLInputElement>('[data-field="dropoff"] input'), dropoff, "没有重画");
-    assert.equal(dropoff.value, "東京");
-    assert.equal($('[data-role="message"]').textContent, "这个网站暂时不能直接预订，请到主站预订。 到主站预订");
-    assert.equal($<HTMLAnchorElement>('[data-role="message"] a').getAttribute("href"), `${BASE}/book/new`);
-    $<HTMLButtonElement>('[data-tab="charter"]').click();
-    assert.equal($('[data-role="message"]').textContent, "这个网站暂时不能直接预订，请到主站预订。 到主站预订", "切标签重画后仍在");
-    assert.equal($<HTMLInputElement>('[data-field="pickup"] input').value, "成田国際空港");
+    const logged: unknown[][] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => void logged.push(args);
+    try {
+      held.release();
+      await wait(20);
+    } finally {
+      console.error = originalError;
+    }
+    assert.equal(shadow().querySelector("form"), null, "不留能填能提交的表单");
+    assert.match($('[role="status"]').textContent ?? "", /预订组件暂时无法使用/);
+    assert.equal($<HTMLAnchorElement>('[role="status"] a').getAttribute("href"), `${BASE}/book/new`);
+    assert.equal(shadow().querySelectorAll(".nzb-shell").length, 1, "只有一份");
+    assert.deepEqual(logged, [[`NozomiBooking：${REFUSED_NOTICE}`]]);
   });
   await withConfigTimeout(50, async () => {
     const held = heldConfig({ status: 503, body: null });
@@ -1192,14 +1195,16 @@ test("M9E-22 表单已显示后配置才回来（被拒）：表单和已填的�
     await initWithBase(BASE, { key: KEY, root: host, lang: "zh" });
     held.release();
     await wait(20);
-    assert.equal($('[data-role="message"]').textContent, "", "同一容器再 init 后，旧组件晚回来的被拒不写进新组件的提示行");
+    assert.ok(shadow().querySelector("form"), "同一容器再 init 后，旧组件晚回来的被拒不把新组件换成「暂时无法使用」");
+    assert.equal(shadow().querySelector('[role="status"]'), null);
   });
 });
 
-test("M9E-22 配置没回来先显示的表单，提交时被拒（401 / 403 / 404）：说明这个网站暂时不能直接预订并给主站链接，不跳转；读不出的失败也给链接", async () => {
+test("M9E-22 配置没回来先显示的表单，提交时被拒（读得到的 401 / 403 / 404，或读不出但主站对 GET 配置有应答）：说明这个网站暂时不能直接预订并给主站链接，不跳转；真连不上也给链接", async () => {
   const went: string[] = [];
   let reply: Reply = { status: 403, body: { error: { code: "EMBED_ORIGIN_NOT_ALLOWED" } } };
-  handler = (url, init) => (url.pathname === "/embed/v1/config" ? "network" : url.pathname === "/embed/v1/booking-drafts" ? reply : places(url, init));
+  let configReply: Reply = "network";
+  handler = (url, init) => (url.pathname === "/embed/v1/config" ? configReply : url.pathname === "/embed/v1/booking-drafts" ? reply : places(url, init));
   await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh" }, (url) => went.push(url));
   await pick("pickup", "成田", "成田国際空港");
   await pick("dropoff", "東京", "東京駅");
@@ -1215,8 +1220,17 @@ test("M9E-22 配置没回来先显示的表单，提交时被拒（401 / 403 / 4
     assert.equal($(".nzb-primary").textContent, "查看价格", "按钮恢复");
   }
   reply = "blocked";
-  assert.equal(await submit(), "暂时连不上，请稍后再试或直接到主站预订。 到主站预订", "浏览器里被拒读不出：按连不上说，也给链接");
+  assert.equal(await submit(), "暂时连不上，请稍后再试或直接到主站预订。 到主站预订", "读不出、探 GET 配置也连不上：按连不上说，也给链接");
   assert.equal($<HTMLAnchorElement>('[data-role="message"] a').getAttribute("href"), `${BASE}/book/new`);
-  assert.equal(calls.filter((call) => call.url.pathname === "/embed/v1/booking-drafts").length, 4, "每次都发给服务端核对");
+  configReply = "blocked";
+  calls = [];
+  assert.equal(await submit(), "这个网站暂时不能直接预订，请到主站预订。 到主站预订", "浏览器里被拒（读不出、主站对 GET 配置有应答）：按被拒说");
+  assert.equal($<HTMLAnchorElement>('[data-role="message"] a').getAttribute("href"), `${BASE}/book/new`);
+  assert.deepEqual(
+    calls.filter((call) => call.init?.mode === "no-cors").map((call) => [call.url.pathname, call.init?.method ?? "GET", call.init?.credentials]),
+    [["/embed/v1/config", "GET", "omit"]],
+    "只探 GET 配置，不对建草稿发 no-cors（会真的建出草稿）",
+  );
+  assert.equal(calls.filter((call) => call.url.pathname === "/embed/v1/booking-drafts").length, 1);
   assert.deepEqual(went, []);
 });

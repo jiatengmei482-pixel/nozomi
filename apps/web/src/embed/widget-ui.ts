@@ -128,18 +128,23 @@ type ConfigOutcome = { kind: "ok"; body: any } | { kind: "refused" } | { kind: "
  * 取配置的结论（M9E-22）：200 是 ok；读得到的 4xx 是被拒；读不出时（fetch 直接失败）再发一个 no-cors 的同地址请求——
  * 主站对不在白名单、嵌入码无效或停用的请求回 403 且不带 CORS 头，浏览器里和断网一样读不出，但 no-cors 请求只要主站应答了就成功
  * （内容读不到），所以它成功算被拒、也失败才算连不上。其余（5xx、应答读不出 JSON）算出错。
- * 代价：前面的代理在主站停机时回的 502 / 504 不带 CORS 头，也算被拒（那时提交也建不了草稿）。
+ * 代价：前面的代理在主站停机时回的 502 / 504 不带 CORS 头，也算被拒（那时提交也建不了草稿）；第一个请求偶然断网、探测时又通了，也算被拒。
  */
 async function configOutcome(url: string): Promise<ConfigOutcome> {
   const config = await getJson(url);
   if (config.status === 200 && typeof config.body === "object" && config.body !== null) return { kind: "ok", body: config.body };
   if (config.status !== null && config.status >= 400 && config.status < 500) return { kind: "refused" };
   if (config.status !== null) return { kind: "failed" };
+  return { kind: (await answered(url)) ? "refused" : "failed" };
+}
+
+/** 主站有没有应答（M9E-22）：no-cors 的 GET 只要有应答就成功（内容读不到）。只探 GET 配置，不探 POST 建草稿（通过校验会真的建出草稿） */
+async function answered(configUrl: string): Promise<boolean> {
   try {
-    await fetch(url, { credentials: "omit", mode: "no-cors" });
-    return { kind: "refused" };
+    await fetch(configUrl, { credentials: "omit", mode: "no-cors" });
+    return true;
   } catch {
-    return { kind: "failed" };
+    return false;
   }
 }
 
@@ -180,8 +185,6 @@ class Widget {
   /** 挂在组件外面的监听（document、window、ResizeObserver），destroy 时解除 */
   private readonly cleanups: (() => void)[] = [];
   private destroyed = false;
-  /** 表单已显示后配置才回来、而且是被拒（M9E-22）：重画（切标签等）后提示行仍显示那一句 */
-  private refusedLate = false;
 
   constructor(host: Element, base: string, options: InitOptions, go: (url: string) => void = (url) => window.location.assign(url)) {
     this.go = go;
@@ -261,7 +264,7 @@ class Widget {
     this.lang = resolveLang(this.options.lang, config === null ? "ja" : config.lang);
     this.services = resolveServices(this.options.services, config === null ? this.services : config.services);
     this.form.tab = this.services[0] ?? "transfer";
-    // 取到配置之前表单还没画（只有样式表），所以第一次画出来就是最终的外观，不会先卡片再变横条
+    // 取到配置（或超时 / 出错）之前表单还没画（只有样式表），所以取到配置时第一次画出来就是最终的外观；超时 / 出错时按 init 的，配置晚回来可能换一次外观（lateConfig）
     this.wanted = resolveLayout(this.options.layout, config?.layout);
     this.layout = layoutFor(this.wanted, this.width, this.autoBreakpoint);
     this.render();
@@ -279,9 +282,8 @@ class Widget {
       this.layout = layoutFor(this.wanted, this.width, this.autoBreakpoint);
       this.root?.setAttribute("data-layout", this.layout);
     } else if (late.kind === "refused") {
-      this.refusedLate = true;
-      const message = this.shadow.querySelector<HTMLElement>('[data-role="message"]');
-      if (message !== null) this.failWith(message, "refused");
+      // 和打开时被拒一样整个换成「暂时无法使用」，不留能填能提交的表单；客人已填的还在 this.form 里（不显示）
+      this.renderUnavailable();
       tellDeveloper(REFUSED_NOTICE);
     }
   }
@@ -424,7 +426,6 @@ class Widget {
     }
     const message = el("p", { class: "nzb-error", role: "alert", "data-role": "message" });
     formEl.append(message);
-    if (this.refusedLate) this.failWith(message, "refused");
     const submit = el("button", { type: "submit", class: "nzb-primary" }, [icon("search", "nzb-search-icon"), el("span", { class: "nzb-submit-text" }, [this.waiting ? t.locating : this.busy ? t.submitting : t.submit])]);
     if (this.busy) submit.setAttribute("aria-disabled", "true");
     formEl.append(submit);
@@ -739,12 +740,14 @@ class Widget {
       this.go(`${this.base}/book/new?draft=${encodeURIComponent(body.id)}`);
       return;
     }
+    // 浏览器里被拒的 403 不带 CORS 头、读不出：探一下 GET 配置，主站有应答就按被拒说（M9E-22）
+    const failure = status === null && (await answered(this.url("/embed/v1/config"))) ? "refused" : draftFailureOf(status, typeof body?.error?.code === "string" ? body.error.code : null);
     this.busy = false;
     if (submit !== null) {
       this.submitLabel(t.submit);
       submit.removeAttribute("aria-disabled");
     }
-    this.failWith(message, draftFailureOf(status, typeof body?.error?.code === "string" ? body.error.code : null));
+    this.failWith(message, failure);
     // 400：标出服务端说的那一项，焦点移过去（ADR 0090 第四节）
     if (status === 400) {
       const issues: { path?: unknown }[] = Array.isArray(body?.error?.details?.issues) ? body.error.details.issues : [];

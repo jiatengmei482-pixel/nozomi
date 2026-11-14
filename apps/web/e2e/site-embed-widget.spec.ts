@@ -21,12 +21,16 @@ import { E2E_WEB_PLACES_PORT } from "../playwright.config.ts";
 import { airportLink, createAirport, publishTransfer } from "./book-new-support.ts";
 import { createSupplier, createWorld } from "./catalog.ts";
 import { charterWorld } from "./charter-support.ts";
-import { OWN_SITE_SOURCE, platformAdminHeaders, randomLetters } from "./support.ts";
+import { OWN_SITE_SOURCE, embedHostAsProduction, platformAdminHeaders, randomLetters } from "./support.ts";
 
 test.use(OWN_SITE_SOURCE);
 
 /** 有假谷歌密钥的那一组（地址输入即提示要用） */
 const SITE = `http://127.0.0.1:${E2E_WEB_PLACES_PORT}`;
+// 每条用例的页面都像正式环境一样跨域请求主站（被拒的 403 读不出，组件走 no-cors 探测；M9E-22）
+test.beforeEach(async ({ context }) => {
+  await embedHostAsProduction(context, SITE);
+});
 
 /** 宿主页：所有 div、input、button 红底白字、30px、粗体、字距、大写、斜体（都加 !important），看组件会不会被染上（会继承的几项最容易穿进 Shadow DOM） */
 function hostPage(key: string, layout: string | null = null): string {
@@ -209,12 +213,15 @@ test("嵌入组件建草稿失败：网络错误、429 两种、400 各显示一
   let reply: "network" | { status: number; code: string } = "network";
   const isDraftUrl = (url: URL): boolean => url.pathname === "/embed/v1/booking-drafts";
   await page.route(isDraftUrl, async (route) => {
-    if (route.request().method() !== "POST") return route.continue();
+    if (route.request().method() !== "POST") return route.fallback();
     if (reply === "network") return route.abort("failed");
     // 429：真的发到主站（请求体换成空对象，主站不建草稿；会占这条用例自己的来源地址和嵌入码各一次限速额度，用例只发 3 次，不影响别的用例），把应答改写成 429；保留主站给的跨域响应头，浏览器才读得到
     const response = await route.fetch({ postData: "{}" });
     return route.fulfill({ response, status: reply.status, contentType: "application/json", body: JSON.stringify({ error: { code: reply.code, message: "e2e" } }) });
   });
+  // 网络错误时整个主站都连不上：建草稿读不出后组件探 GET 配置（no-cors，M9E-22），也让它失败
+  const isConfigUrl = (url: URL): boolean => url.pathname === "/embed/v1/config";
+  await page.route(isConfigUrl, (route) => (reply === "network" ? route.abort("failed") : route.fallback()));
   await submit.click();
   await expect(message).toHaveText("暂时连不上，请稍后再试或直接到主站预订。 到主站预订");
   await expect(message.getByRole("link", { name: "到主站预订" })).toHaveAttribute("href", `${SITE}/book/new`);
@@ -227,6 +234,7 @@ test("嵌入组件建草稿失败：网络错误、429 两种、400 各显示一
   await submit.click();
   await expect(message).toHaveText("暂时无法查询，请稍后再试或直接到主站预订。");
   await page.unroute(isDraftUrl);
+  await page.unroute(isConfigUrl);
   expect(drafts).toEqual([429, 429]);
 
   // 400：不支持日期选择器的浏览器里日期框就是文本框，客人填了不存在的日期（2 月 30 日）；组件只查写法，真实 API 拒绝
@@ -306,6 +314,7 @@ test("嵌入组件外观（M9E-14）：默认自动——窗口 1280 横条、89
   // 每次新开一个浏览器上下文：配置应答在浏览器里缓存 60 秒，同一上下文里刷新可能拿到旧的
   const open = async (width: number, query = ""): Promise<Page> => {
     const context = await browser.newContext({ viewport: { width, height: 900 } });
+    await embedHostAsProduction(context, SITE);
     const page = await context.newPage();
     await page.goto(`${allowedHost.origin}/${query}`);
     await expect(page.getByRole("combobox", { name: "出发地" })).toBeVisible();
@@ -342,12 +351,15 @@ test("嵌入组件外观（M9E-14）：默认自动——窗口 1280 横条、89
   await cardPage.context().close();
 });
 
-test("嵌入组件（M9E-22）：白名单网站 + 启用的嵌入码显示表单；嵌入码停用后显示「暂时无法使用」、没有表单，控制台写明要先查嵌入码是否停用", async ({ browser, request }) => {
-  test.setTimeout(90_000);
+test("嵌入组件（M9E-22）：白名单网站 + 启用的嵌入码显示表单；表单开着时嵌入码被停用，提交说明这个网站暂时不能直接预订并给主站链接；停用后新打开显示「暂时无法使用」、没有表单，控制台写明要先查嵌入码是否停用", async ({ browser, request }) => {
+  test.setTimeout(120_000);
+  const world = await createWorld(request);
+  const airport = await createAirport(request, world);
   await useNewEmbedKey(request);
   const open = async (): Promise<{ page: Page; errors: string[] }> => {
     // 新的浏览器上下文：配置应答在浏览器里缓存 60 秒
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    await embedHostAsProduction(context, SITE);
     const page = await context.newPage();
     const errors: string[] = [];
     page.on("console", (message) => {
@@ -363,15 +375,32 @@ test("嵌入组件（M9E-22）：白名单网站 + 启用的嵌入码显示表�
   await expect(active.page.getByRole("button", { name: "查看价格" })).toBeVisible();
   await expect(active.page.getByText("预订组件暂时无法使用", { exact: false })).toHaveCount(0);
   expect(active.errors.filter((text) => text.startsWith("NozomiBooking"))).toEqual([]);
-  await active.page.context().close();
+  await choosePlace(active.page, "出发地", airport.name);
+  await choosePlace(active.page, "目的地", airport.name);
+  await active.page.getByLabel("日期").fill(dayAfterTomorrow());
 
-  // (b) 运营后台停用这个嵌入码：被拒，显示「暂时无法使用」和主站链接、不显示表单；控制台写明原因要先查停用
+  // (b) 运营后台停用这个嵌入码
   const listed = (await (await request.get("/platform/v1/embed-keys", { headers: await platformAdminHeaders(request) })).json()) as { items: { id: string; key: string; version: number; name: string; allowed_origins: string[] }[] };
   const current = listed.items.find((item) => item.key === embedKey);
   expect(current).toBeDefined();
   const { id, version, name, allowed_origins } = current as NonNullable<typeof current>;
   const disabled = await request.patch(`/platform/v1/embed-keys/${id}`, { headers: { ...(await platformAdminHeaders(request)), "if-match": `"${version}"` }, data: { name, allowed_origins, default_lang: "zh", default_services: ["transfer", "charter"], note: null, status: "disabled" } });
   expect(disabled.status(), await disabled.text()).toBe(200);
+
+  // 表单开着时被停用：建草稿被拒（浏览器里读不出），组件探 GET 配置、主站有应答，按被拒说并给主站链接，不跳转
+  const draftStatuses: number[] = [];
+  active.page.on("requestfailed", (req) => {
+    if (new URL(req.url()).pathname === "/embed/v1/booking-drafts") draftStatuses.push(0);
+  });
+  await active.page.getByRole("button", { name: "查看价格" }).click();
+  const message = active.page.locator('[data-role="message"]');
+  await expect(message).toHaveText("这个网站暂时不能直接预订，请到主站预订。 到主站预订");
+  await expect(message.getByRole("link", { name: "到主站预订" })).toHaveAttribute("href", `${SITE}/book/new`);
+  expect(new URL(active.page.url()).origin, "不跳转").toBe(allowedHost.origin);
+  expect(draftStatuses, "建草稿请求在浏览器里失败（被拒的应答不带 CORS 头）").toEqual([0]);
+  await active.page.context().close();
+
+  // 新打开：被拒，显示「暂时无法使用」和主站链接、不显示表单；控制台写明原因要先查停用
   const refused = await open();
   await expect(refused.page.getByText("预订组件暂时无法使用。请稍后刷新，或直接到主站预订。")).toBeVisible();
   await expect(refused.page.getByRole("link", { name: "到主站预订" })).toHaveAttribute("href", `${SITE}/book/new`);
