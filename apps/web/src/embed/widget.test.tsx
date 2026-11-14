@@ -74,8 +74,8 @@ test("界面在 Shadow DOM 里，合作网站的样式进不来；两个标签�
   handler = places;
   await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "en", services: ["charter", "transfer", "bus"] });
   assert.equal(document.querySelector("#nozomi-booking")?.children.length, 0, "页面里没有组件的元素，全在 Shadow DOM 里");
-  const tabs = [...shadow().querySelectorAll('[role="tab"]')].map((tab) => [tab.textContent, tab.getAttribute("aria-selected")]);
-  assert.deepEqual(tabs, [["Charter", "true"], ["Transfer", "false"]]);
+  const tabs = [...shadow().querySelectorAll('[role="tab"]')].map((tab) => [tab.querySelector(".nzb-tab-title")?.textContent, tab.getAttribute("aria-selected")]);
+  assert.deepEqual(tabs, [["Hourly", "true"], ["Point to Point", "false"]]);
   assert.ok($(".nzb-primary").textContent === "See prices");
   assert.ok(shadow().textContent?.includes("Enter a place only"));
 });
@@ -383,7 +383,7 @@ test("M9E-08 ③：取坐标失败如实提示、不建草稿，客人重选后�
   assert.equal($('[data-field="dropoff"] [aria-live]').textContent, "取不到这个地点的位置，请重新选一个");
   assert.equal($('[data-role="message"]').textContent, "取不到这个地点的位置，请重新选一个");
   assert.equal(shadow().activeElement, $('[data-field="dropoff"] input'), "焦点移到要重选的地址框");
-  assert.equal($(".nzb-primary").textContent, "查询价格");
+  assert.equal($(".nzb-primary").textContent, "查看价格");
   assert.equal($(".nzb-primary").getAttribute("aria-disabled"), null);
   assert.equal(slow.drafts.length, 0);
   await type("dropoff", "新宿");
@@ -408,7 +408,7 @@ test("M9E-08 审查：取位置一直不回时，客人改选自带坐标的候�
   await wait(20);
   assert.equal($(".nzb-primary").textContent, "正在取位置…");
   await type("dropoff", "成田");
-  assert.equal($(".nzb-primary").textContent, "查询价格", "改字后不再等那次取位置");
+  assert.equal($(".nzb-primary").textContent, "查看价格", "改字后不再等那次取位置");
   assert.equal($(".nzb-primary").getAttribute("aria-disabled"), null);
   clickOption("dropoff");
   submitForm();
@@ -434,7 +434,7 @@ test("M9E-08 审查：取位置超时按「取不到这个地点的位置」提�
     await wait(150);
     assert.equal($('[data-field="dropoff"] [aria-live]').textContent, "取不到这个地点的位置，请重新选一个");
     assert.equal($('[data-role="message"]').textContent, "取不到这个地点的位置，请重新选一个");
-    assert.equal($(".nzb-primary").textContent, "查询价格");
+    assert.equal($(".nzb-primary").textContent, "查看价格");
     assert.equal($(".nzb-primary").getAttribute("aria-disabled"), null);
     assert.equal(slow.drafts.length, 0);
     await type("dropoff", "新宿");
@@ -488,4 +488,167 @@ test("M9E-08 复审：老浏览器（Safari 15 / iOS 15）没有 AbortSignal.tim
   } finally {
     if (original !== undefined) Object.defineProperty(AbortSignal, "timeout", original);
   }
+});
+
+/** M9E-10：替身 ResizeObserver，测试里手动给出容器宽度 */
+async function withResize(run: (resize: (width: number) => void) => Promise<void>): Promise<void> {
+  const original = globalThis.ResizeObserver;
+  let callback: ResizeObserverCallback | null = null;
+  globalThis.ResizeObserver = class {
+    constructor(cb: ResizeObserverCallback) {
+      callback = cb;
+    }
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  } as unknown as typeof ResizeObserver;
+  try {
+    await run((width) => callback?.([{ contentRect: { width } } as ResizeObserverEntry], {} as ResizeObserver));
+  } finally {
+    globalThis.ResizeObserver = original;
+  }
+}
+const layout = (): string | null => $(".nzb-shell").getAttribute("data-layout");
+
+test("M9E-10 外观：默认 card；layout: \"bar\" 只在组件容器不窄于 768 px 时用，容器变窄自动换成 card（按容器宽度，不按视口），不重画、已填的不丢", async () => {
+  handler = places;
+  await withResize(async (resize) => {
+    await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh", layout: "bar" });
+    assert.equal(layout(), "card", "量不到宽度时按 card");
+    resize(1200);
+    assert.equal(layout(), "bar");
+    await pick("pickup", "成田", "成田国際空港");
+    resize(767);
+    assert.equal(layout(), "card");
+    resize(768);
+    assert.equal(layout(), "bar");
+    assert.equal($<HTMLInputElement>('[data-field="pickup"] input').value, "成田国際空港", "换外观不重画");
+  });
+  await withResize(async (resize) => {
+    document.body.innerHTML = '<div id="nozomi-booking"></div>';
+    await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh", layout: "grid" });
+    resize(1440);
+    assert.equal(layout(), "card", "不认识的 layout 用 card");
+  });
+});
+
+test("M9E-10 主题：theme 变成 .nzb-shell 上的 CSS 变量；主色上的字按对比度挑；写错的项用默认值", async () => {
+  handler = places;
+  await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh", theme: { primary: "#ff6b35", accent: "nope", radius: 12, fontFamily: "Georgia, serif" } });
+  const style = $(".nzb-shell").style;
+  assert.equal(style.getPropertyValue("--nzb-primary"), "#FF6B35");
+  assert.equal(style.getPropertyValue("--nzb-on-primary"), "#1A1F29", "橙色上白字不够 4.5:1");
+  assert.equal(style.getPropertyValue("--nzb-ink"), "#1A1F29");
+  assert.equal(style.getPropertyValue("--nzb-accent"), "#F3E9D8", "写错的 accent 用默认");
+  assert.equal(style.getPropertyValue("--nzb-radius"), "12px");
+  assert.equal(style.getPropertyValue("--nzb-radius-control"), "6px");
+  assert.equal(style.getPropertyValue("--nzb-font"), "Georgia, serif");
+  assert.match(WIDGET_CSS, /\.nzb-primary \{[^}]*background: var\(--nzb-primary\); color: var\(--nzb-on-primary\);/);
+});
+
+test("M9E-10 隐私提示只在底部写一次，每个地址框（含经停点）用 aria-describedby 关联到它；占位提示三语", async () => {
+  handler = places;
+  await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh", services: ["charter"] });
+  ($('[data-action="add-waypoint"]') as HTMLButtonElement).click();
+  const boxes = [...shadow().querySelectorAll<HTMLInputElement>('[role="combobox"]')];
+  assert.equal(boxes.length, 3);
+  const notes = [...shadow().querySelectorAll("p")].filter((node) => node.textContent === "只填地点，不要填姓名、电话。");
+  assert.equal(notes.length, 1, "只写一次");
+  for (const box of boxes) {
+    const id = box.getAttribute("aria-describedby") ?? "";
+    assert.ok(id !== "");
+    assert.equal(shadow().getElementById(id), notes[0], "aria-describedby 指向底部那一行");
+    assert.equal(box.placeholder, "地址、机场、酒店等");
+  }
+  document.body.innerHTML = '<div id="nozomi-booking"></div>';
+  await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "ja" });
+  assert.equal($<HTMLInputElement>('[data-field="pickup"] input').placeholder, "住所・空港・ホテルなど");
+  assert.equal($(".nzb-primary").textContent, "料金を見る");
+});
+
+test("M9E-10 人数和行李的加减器：键盘能开关，到头的按钮 aria-disabled，摘要和读屏的数字跟着变，草稿里是选的数", async () => {
+  let drafted: { draft: Record<string, unknown> } | null = null;
+  handler = (url, init) => {
+    if (url.pathname === "/embed/v1/booking-drafts") {
+      drafted = JSON.parse(String(init?.body));
+      return { status: 201, body: { id: "D".repeat(43), expires_at: "x", url: "x" } };
+    }
+    return places(url, init);
+  };
+  await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh" }, () => undefined);
+  const trigger = $<HTMLButtonElement>('[data-action="guests"]');
+  const pop = shadow().getElementById(trigger.getAttribute("aria-controls") ?? "") as HTMLElement;
+  assert.equal(trigger.getAttribute("aria-expanded"), "false");
+  assert.equal(pop.hidden, true);
+  const name = (trigger.getAttribute("aria-labelledby") ?? "").split(" ").map((id) => shadow().getElementById(id)?.textContent).join(" ");
+  assert.equal(name, "人数和行李 2 位乘客 · 1 件行李", "按钮的名字是标签 + 摘要");
+  trigger.click();
+  assert.equal(trigger.getAttribute("aria-expanded"), "true");
+  assert.equal(pop.hidden, false);
+  assert.equal(shadow().activeElement, $('[aria-label="减少乘客"]'), "打开后焦点进弹层");
+  const step = (label: string, times = 1): void => {
+    for (let index = 0; index < times; index += 1) ($(`[aria-label="${label}"]`) as HTMLButtonElement).click();
+  };
+  step("增加乘客", 30);
+  assert.equal($('[data-value="passengers"]').textContent, "20");
+  assert.equal($('[aria-label="增加乘客"]').getAttribute("aria-disabled"), "true");
+  step("减少乘客", 30);
+  assert.equal($('[data-value="passengers"]').textContent, "1");
+  assert.equal($('[aria-label="减少乘客"]').getAttribute("aria-disabled"), "true");
+  assert.equal($('[aria-label="增加乘客"]').getAttribute("aria-disabled"), null);
+  step("增加乘客", 2);
+  step("增加行李", 2);
+  step("减少行李", 5);
+  assert.equal($('[data-value="luggage"]').textContent, "0");
+  assert.equal($('[data-value="passengers"]').getAttribute("aria-live"), "polite");
+  assert.equal(shadow().getElementById(`${trigger.id}-summary`)?.textContent, "3 位乘客 · 0 件行李");
+  pop.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  assert.equal(pop.hidden, true, "Esc 关上");
+  assert.equal(shadow().activeElement, trigger, "焦点回到按钮");
+  trigger.click();
+  ($(".nzb-done") as HTMLButtonElement).click();
+  assert.equal(pop.hidden, true, "「完成」关上");
+  await pick("pickup", "成田", "成田国際空港");
+  await pick("dropoff", "成田", "成田国際空港");
+  submitForm();
+  await wait(30);
+  const sent = drafted as { draft: Record<string, unknown> } | null;
+  assert.deepEqual([sent?.draft["passengers"], sent?.draft["luggage"]], [3, 0]);
+});
+
+test("M9E-10 交换起点和终点；横条的搜索按钮填好前 data-ready=false，填好后 true（按钮的读屏名字始终是「查看价格」）", async () => {
+  let drafted: { draft: Record<string, unknown> } | null = null;
+  handler = (url, init) => {
+    if (url.pathname === "/embed/v1/booking-drafts") {
+      drafted = JSON.parse(String(init?.body));
+      return { status: 201, body: { id: "D".repeat(43), expires_at: "x", url: "x" } };
+    }
+    return places(url, init);
+  };
+  await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh", layout: "bar" }, () => undefined);
+  assert.equal($(".nzb-primary").getAttribute("data-ready"), "false");
+  assert.equal($(".nzb-primary").textContent, "查看价格");
+  await pick("pickup", "成田", "成田国際空港");
+  assert.equal($(".nzb-primary").getAttribute("data-ready"), "false");
+  await pick("dropoff", "東京", "東京駅");
+  assert.equal($(".nzb-primary").getAttribute("data-ready"), "true");
+  ($('[data-action="swap"]') as HTMLButtonElement).click();
+  assert.equal($<HTMLInputElement>('[data-field="pickup"] input').value, "東京駅");
+  assert.equal($<HTMLInputElement>('[data-field="dropoff"] input').value, "成田国際空港");
+  assert.equal(shadow().activeElement, $('[data-action="swap"]'), "交换后焦点留在交换按钮");
+  assert.equal($('[data-action="swap"]').getAttribute("aria-label"), "交换起点和终点");
+  submitForm();
+  await wait(30);
+  const sent = drafted as { draft: Record<string, unknown> } | null;
+  assert.deepEqual([(sent?.draft["pickup"] as { name: string }).name, (sent?.draft["dropoff"] as { name: string }).name], ["東京駅", "成田国際空港"]);
+});
+
+test("M9E-10 日期、时间合成一个控件：两个原生输入框各有 label，控件有小标题", async () => {
+  handler = places;
+  await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "en" });
+  const box = $(".nzb-when-box");
+  const inputs = [...box.querySelectorAll<HTMLInputElement>("input")];
+  assert.deepEqual(inputs.map((input) => input.type), ["date", "time"]);
+  for (const [input, text] of [[inputs[0], "Date"], [inputs[1], "Time"]] as const) assert.equal(shadow().querySelector(`label[for="${input?.id}"]`)?.textContent, text);
+  assert.equal($(".nzb-when .nzb-label").textContent, "Pickup date & time");
 });

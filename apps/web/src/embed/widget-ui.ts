@@ -21,13 +21,21 @@ import {
   type WidgetLang,
   type WidgetPoint,
   type WidgetService,
+  type ResolvedTheme,
+  type WidgetLayout,
+  GUEST_LIMITS,
+  layoutFor,
+  resolveLayout,
   draftFailureOf,
   draftOf,
   formProblems,
+  guestsSummary,
   resolveLang,
   resolveServices,
+  resolveTheme,
   tomorrow,
 } from "./widget-core.ts";
+import { icon } from "./widget-icons.ts";
 import { tellDeveloper } from "./developer-notice.ts";
 import { WIDGET_CSS } from "./widget-style.ts";
 import { GOOGLE_MAPS_ATTRIBUTION, GOOGLE_MAPS_ATTRIBUTION_ATTRIBUTES, hasGoogleSource } from "../lib/google-attribution.ts";
@@ -120,6 +128,15 @@ class Widget {
   /** 提交在等取坐标时：正在取坐标的记录一有变化（取完、被换掉 / 删掉、切标签、删经停点）就叫醒它重新看 */
   private wake: (() => void) | null = null;
   private readonly go: (url: string) => void;
+  /** 外观（M9E-10）：wanted 是 init 要的，layout 是按容器宽度实际用的（见 watchSize）；主题在 init 时定 */
+  private readonly theme: ResolvedTheme;
+  private readonly wanted: WidgetLayout;
+  private layout: WidgetLayout = "card";
+  private root: HTMLElement | null = null;
+  /** 底部隐私提示的 id（地址框的 aria-describedby） */
+  private noteId = "";
+  /** 人数行李弹层开着时：点到组件外面就关上 */
+  private closeGuests: (() => void) | null = null;
 
   constructor(host: Element, base: string, options: InitOptions, go: (url: string) => void = (url) => window.location.assign(url)) {
     this.go = go;
@@ -127,7 +144,14 @@ class Widget {
     this.options = options;
     this.shadow = host.shadowRoot ?? host.attachShadow({ mode: "open" });
     this.form = { tab: "transfer", pickup: null, dropoff: null, waypoints: [], date: tomorrow(new Date()), time: "10:00", passengers: 2, luggage: 1 };
+    this.theme = resolveTheme(options.theme);
+    this.wanted = resolveLayout(options.layout);
     this.applyStyles();
+    this.watchSize(host);
+    if (typeof document !== "undefined")
+      document.addEventListener("pointerdown", (event) => {
+        if (this.closeGuests !== null && !event.composedPath().includes(host)) this.closeGuests();
+      });
   }
 
   private get t() {
@@ -176,7 +200,41 @@ class Widget {
   private renderUnavailable(): void {
     this.clear();
     const link = el("a", { href: `${this.base}/book/new`, class: "nzb-link", rel: "noopener" }, [this.t.goToSite]);
-    this.shadow.append(el("div", { class: "nzb", role: "status" }, [el("p", { class: "nzb-message" }, [this.t.unavailable]), link]));
+    this.shadow.append(this.frame({ role: "status" }, [el("p", { class: "nzb-message" }, [this.t.unavailable]), link]));
+  }
+
+  /**
+   * 最外层（M9E-10）：.nzb-shell（卡片外面那层半透明浅灰底）里放 .nzb；主题写成 CSS 变量，外观写在 data-layout 上。
+   * 主题只在这里变成样式：--nzb-primary / --nzb-on-primary / --nzb-ink / --nzb-accent / --nzb-on-accent / --nzb-radius / --nzb-radius-control / --nzb-font。
+   */
+  private frame(attrs: Record<string, string>, children: Node[]): HTMLElement {
+    const root = el("div", { class: "nzb", ...attrs }, children);
+    const shell = el("div", { class: "nzb-shell", "data-layout": this.layout }, [root]);
+    const theme = this.theme;
+    const vars: [string, string][] = [
+      ["--nzb-primary", theme.primary],
+      ["--nzb-on-primary", theme.onPrimary],
+      ["--nzb-ink", theme.ink],
+      ["--nzb-accent", theme.accent],
+      ["--nzb-on-accent", theme.onAccent],
+      ["--nzb-radius", `${theme.radius}px`],
+      ["--nzb-radius-control", `${Math.round(theme.radius / 2)}px`],
+      ["--nzb-font", theme.fontFamily],
+    ];
+    for (const [name, value] of vars) shell.style.setProperty(name, value);
+    this.root = shell;
+    return shell;
+  }
+
+  /** 按组件容器（宿主给的那个元素）的宽度定外观，不按视口（M9E-10）：要 bar 但容器窄于 768 px 时用 card；只改 data-layout、不重画 */
+  private watchSize(host: Element): void {
+    const apply = (width: number): void => {
+      this.layout = layoutFor(this.wanted, width);
+      this.root?.setAttribute("data-layout", this.layout);
+    };
+    apply(host.getBoundingClientRect().width);
+    if (typeof ResizeObserver === "function") new ResizeObserver((entries) => apply(entries[entries.length - 1]?.contentRect.width ?? 0)).observe(host);
+    else if (typeof window !== "undefined") window.addEventListener("resize", () => apply(host.getBoundingClientRect().width));
   }
 
   /** 改正在取坐标的记录（job 为 null 是删掉），并叫醒在等的提交；返回删之前有没有这一项 */
@@ -192,6 +250,19 @@ class Widget {
     const wake = this.wake;
     this.wake = null;
     wake?.();
+    this.markReady();
+  }
+
+  /** 填好了（能提交）时按钮带 data-ready：横条里的圆形搜索按钮未填好是灰色、填好变主色（M9E-10） */
+  private markReady(): void {
+    const ready = formProblems(this.form).length === 0 && this.blockingLocates() === 0;
+    this.shadow.querySelector(".nzb-primary")?.setAttribute("data-ready", String(ready));
+  }
+
+  /** 提交按钮上的字：按钮里固定有一个放字的 span（横条里只显示放大镜，字给读屏） */
+  private submitLabel(text: string): void {
+    const label = this.shadow.querySelector(".nzb-primary .nzb-submit-text");
+    if (label !== null) label.textContent = text;
   }
 
   /** 提交要等的取坐标：出发地、目的地，包车时再加现有的经停点（切到「区间」后不等经停点） */
@@ -199,15 +270,22 @@ class Widget {
     return [...this.locating.keys()].filter((slot) => typeof slot === "string" || (this.form.tab === "charter" && this.form.waypoints.includes(slot as WidgetForm["waypoints"][number]))).length;
   }
 
+  /**
+   * 两种外观共用一套 DOM（M9E-10），只是样式不同。DOM 顺序就是键盘顺序：日期时间、上车地、交换、下车地、人数行李、（包车）经停点、提交；
+   * 横条里提交按钮用网格放在第一行最右。隐私提示只在底部一行，地址框用 aria-describedby 关联。
+   */
   private render(focus?: string): void {
     this.changed();
     this.clear();
     const t = this.t;
-    const root = el("div", { class: "nzb", lang: this.lang === "zh" ? "zh-CN" : this.lang });
+    const head: Node[] = [];
     if (this.services.length > 1) {
       const tabs = el("div", { class: "nzb-tabs", role: "tablist", "aria-label": t.tabs });
       for (const service of this.services) {
-        const tab = el("button", { type: "button", role: "tab", class: "nzb-tab", "aria-selected": String(this.form.tab === service), "data-tab": service }, [t[service]]);
+        const tab = el("button", { type: "button", role: "tab", class: "nzb-tab", "aria-selected": String(this.form.tab === service), "data-tab": service }, [
+          el("span", { class: "nzb-tab-title" }, [t[service]]),
+          el("span", { class: "nzb-tab-sub" }, [t[service === "transfer" ? "transferSub" : "charterSub"]]),
+        ]);
         tab.addEventListener("click", () => {
           this.form.tab = service;
           this.render(`tab-${service}`);
@@ -221,59 +299,144 @@ class Widget {
         });
         tabs.append(tab);
       }
-      root.append(tabs);
+      head.push(tabs);
     }
-    const formEl = el("form", { class: "nzb-form", novalidate: "" });
+    this.noteId = nextId("note");
+    const formEl = el("form", { class: "nzb-form", novalidate: "", "data-tab": this.form.tab });
     const charter = this.form.tab === "charter";
+    formEl.append(this.when());
     formEl.append(this.placeField(charter ? t.pickup : t.from, "pickup", "pickup", this.form.pickup, (value) => (this.form.pickup = value)));
+    const swap = el("button", { type: "button", class: "nzb-swap", "aria-label": t.swap, "data-action": "swap", "data-focus": "swap" }, [icon("swap", "nzb-swap-icon")]);
+    swap.addEventListener("click", () => this.swap());
+    formEl.append(swap);
+    formEl.append(this.placeField(charter ? t.dropoff : t.to, "dropoff", "dropoff", this.form.dropoff, (value) => (this.form.dropoff = value)));
+    formEl.append(this.guests());
     if (charter) {
-      this.form.waypoints.forEach((stop, index) => formEl.append(this.waypointRow(index, stop)));
+      const extra = el("div", { class: "nzb-extra" });
+      this.form.waypoints.forEach((stop, index) => extra.append(this.waypointRow(index, stop)));
+      const line = el("div", { class: "nzb-extra-line" });
       if (this.form.waypoints.length < MAX_WAYPOINTS) {
-        const add = el("button", { type: "button", class: "nzb-secondary", "data-action": "add-waypoint", "data-focus": "add-waypoint" }, [t.addWaypoint]);
+        const add = el("button", { type: "button", class: "nzb-add", "data-action": "add-waypoint", "data-focus": "add-waypoint" }, [icon("plus", "nzb-add-icon"), t.addWaypoint]);
         add.addEventListener("click", () => {
           this.form.waypoints.push({ point: null, stay: null });
           this.render(`waypoint-${this.form.waypoints.length - 1}`);
         });
-        formEl.append(add);
+        line.append(add);
       }
-      if (this.form.waypoints.length === 0) formEl.append(el("p", { class: "nzb-hint" }, [t.packageNote]));
+      if (this.form.waypoints.length === 0) line.append(el("p", { class: "nzb-hint" }, [t.packageNote]));
+      extra.append(line);
+      formEl.append(extra);
     }
-    formEl.append(this.placeField(charter ? t.dropoff : t.to, "dropoff", "dropoff", this.form.dropoff, (value) => (this.form.dropoff = value)));
-    const row = el("div", { class: "nzb-row" });
-    row.append(this.input(t.date, "date", "date", this.form.date, (value) => (this.form.date = value)));
-    row.append(this.input(t.time, "time", "time", this.form.time, (value) => (this.form.time = value)));
-    formEl.append(row);
-    const counts = el("div", { class: "nzb-row" });
-    counts.append(this.count(t.passengers, "passengers", 1, 60, this.form.passengers, (value) => (this.form.passengers = value)));
-    counts.append(this.count(t.luggage, "luggage", 0, 60, this.form.luggage, (value) => (this.form.luggage = value)));
-    formEl.append(counts);
     const message = el("p", { class: "nzb-error", role: "alert", "data-role": "message" });
     formEl.append(message);
-    const submit = el("button", { type: "submit", class: "nzb-primary" }, [this.waiting ? t.locating : this.busy ? t.submitting : t.submit]);
+    const submit = el("button", { type: "submit", class: "nzb-primary" }, [icon("search", "nzb-search-icon"), el("span", { class: "nzb-submit-text" }, [this.waiting ? t.locating : this.busy ? t.submitting : t.submit])]);
     if (this.busy) submit.setAttribute("aria-disabled", "true");
     formEl.append(submit);
+    formEl.append(el("p", { id: this.noteId, class: "nzb-hint nzb-note" }, [t.placeOnly]));
     formEl.addEventListener("submit", (event) => {
       event.preventDefault();
       void this.submit(message);
     });
-    root.append(formEl);
-    this.shadow.append(root);
+    formEl.addEventListener("input", () => this.markReady());
+    formEl.addEventListener("change", () => this.markReady());
+    this.shadow.append(this.frame({ lang: this.lang === "zh" ? "zh-CN" : this.lang, "data-view": "form" }, [...head, formEl]));
+    this.markReady();
     if (focus !== undefined) (this.shadow.querySelector(`[data-focus="${focus}"]`) as HTMLElement | null ?? this.shadow.querySelector(`[data-tab="${focus.replace("tab-", "")}"]`) as HTMLElement | null)?.focus();
   }
 
-  private input(label: string, name: string, type: string, value: string, set: (value: string) => void): HTMLElement {
-    const id = nextId(name);
-    const input = el("input", { id, type, name, value, class: "nzb-input", "data-focus": name });
-    input.addEventListener("input", () => set(input.value));
-    return el("div", { class: "nzb-field" }, [el("label", { for: id, class: "nzb-label" }, [label]), input]);
+  /** 交换起点和终点（M9E-10）。有一边正在取坐标时不换（坐标回来会写回原来那一边），等取完再换 */
+  private swap(): void {
+    if (this.locating.has("pickup") || this.locating.has("dropoff")) return;
+    [this.form.pickup, this.form.dropoff] = [this.form.dropoff, this.form.pickup];
+    const lostPickup = this.lostPlaces.delete("pickup");
+    if (this.lostPlaces.delete("dropoff")) this.lostPlaces.add("pickup");
+    if (lostPickup) this.lostPlaces.add("dropoff");
+    this.render("swap");
   }
 
-  private count(label: string, name: string, min: number, max: number, value: number, set: (value: number) => void): HTMLElement {
-    const id = nextId(name);
-    const select = el("select", { id, name, class: "nzb-input", "data-focus": name });
-    for (let n = min; n <= Math.min(max, 20); n += 1) select.append(el("option", { value: String(n), ...(n === value ? { selected: "" } : {}) }, [String(n)]));
-    select.addEventListener("change", () => set(Number(select.value)));
-    return el("div", { class: "nzb-field" }, [el("label", { for: id, class: "nzb-label" }, [label]), select]);
+  /**
+   * 日期和时间合成一个控件（M9E-10）：外面一个框、一个小标题，里面是原生的日期、时间输入框（键盘、读屏、手机都按系统的来），
+   * 去掉系统默认的外观；两个输入框各有自己的 label（不显示）。
+   */
+  private when(): HTMLElement {
+    const t = this.t;
+    const part = (label: string, name: "date" | "time"): HTMLElement[] => {
+      const id = nextId(name);
+      const input = el("input", { id, type: name, name, value: this.form[name], class: `nzb-bare nzb-${name}`, "data-focus": name });
+      input.addEventListener("input", () => (this.form[name] = input.value));
+      return [el("label", { for: id, class: "nzb-visually-hidden" }, [label]), input];
+    };
+    return el("div", { class: "nzb-field nzb-when" }, [
+      el("span", { class: "nzb-label", "aria-hidden": "true" }, [t.when]),
+      el("div", { class: "nzb-box nzb-when-box" }, [icon("calendar"), ...part(t.date, "date"), el("span", { class: "nzb-sep", "aria-hidden": "true" }), ...part(t.time, "time")]),
+    ]);
+  }
+
+  /**
+   * 人数和行李（M9E-10）：主站选车那一步改不了人数行李（只在第一步），所以首屏保留，做成紧凑的加减器——
+   * 一个按钮显示摘要，点开是两个加减器。按钮带 aria-expanded / aria-controls；弹层里 Esc 或「完成」关上并回到按钮，焦点离开或点到外面也关上；数字变化由 aria-live 读出。
+   */
+  private guests(): HTMLElement {
+    const t = this.t;
+    const id = nextId("guests");
+    const labelId = `${id}-label`;
+    const summaryId = `${id}-summary`;
+    const summary = el("span", { id: summaryId, class: "nzb-trigger-text" }, [guestsSummary(this.lang, this.form.passengers, this.form.luggage)]);
+    // 横条里地方小，显示短的摘要（读屏仍读长的那句，见 aria-labelledby）
+    const short = el("span", { class: "nzb-trigger-short", "aria-hidden": "true" }, [guestsSummary(this.lang, this.form.passengers, this.form.luggage, true)]);
+    const trigger = el("button", { type: "button", id, class: "nzb-box nzb-trigger", "aria-expanded": "false", "aria-controls": `${id}-pop`, "aria-labelledby": `${labelId} ${summaryId}`, "data-focus": "passengers", "data-action": "guests" }, [icon("user"), summary, short, icon("chevron", "nzb-chevron")]);
+    const pop = el("div", { id: `${id}-pop`, class: "nzb-pop", role: "group", "aria-labelledby": labelId, hidden: "" });
+    const field = el("div", { class: "nzb-field nzb-guests" }, [el("span", { id: labelId, class: "nzb-label" }, [t.guests]), trigger, pop]);
+    const open = (show: boolean, refocus = false): void => {
+      pop.hidden = !show;
+      trigger.setAttribute("aria-expanded", String(show));
+      if (show) (pop.querySelector("[data-step]:not([aria-disabled])") as HTMLElement | null)?.focus();
+      if (refocus) trigger.focus();
+      this.closeGuests = show ? () => open(false) : null;
+    };
+    const stepper = (kind: "passengers" | "luggage", less: string, more: string): HTMLElement => {
+      const limits = GUEST_LIMITS[kind];
+      const rowLabel = el("span", { id: `${id}-${kind}`, class: "nzb-step-label" }, [t[kind]]);
+      const output = el("output", { class: "nzb-step-value", "aria-live": "polite", "data-value": kind }, [String(this.form[kind])]);
+      const button = (sign: -1 | 1, name: string): HTMLButtonElement => {
+        const node = el("button", { type: "button", class: "nzb-step", "aria-label": name, "data-step": `${kind}${sign > 0 ? "+" : "-"}` }, [icon(sign > 0 ? "plus" : "minus", "nzb-step-icon")]);
+        node.addEventListener("click", () => {
+          const next = this.form[kind] + sign;
+          if (next < limits.min || next > limits.max) return;
+          this.form[kind] = next;
+          sync();
+        });
+        return node;
+      };
+      const minus = button(-1, less);
+      const plus = button(1, more);
+      // 到头的按钮用 aria-disabled（不用 disabled：按钮变成不可用时焦点会丢）
+      const sync = (): void => {
+        output.textContent = String(this.form[kind]);
+        summary.textContent = guestsSummary(this.lang, this.form.passengers, this.form.luggage);
+        short.textContent = guestsSummary(this.lang, this.form.passengers, this.form.luggage, true);
+        const ends: [HTMLButtonElement, boolean][] = [[minus, this.form[kind] <= limits.min], [plus, this.form[kind] >= limits.max]];
+        for (const [node, off] of ends) {
+          if (off) node.setAttribute("aria-disabled", "true");
+          else node.removeAttribute("aria-disabled");
+        }
+      };
+      sync();
+      return el("div", { class: "nzb-step-row", role: "group", "aria-labelledby": rowLabel.id }, [rowLabel, el("div", { class: "nzb-stepper" }, [minus, output, plus])]);
+    };
+    const done = el("button", { type: "button", class: "nzb-done" }, [t.done]);
+    done.addEventListener("click", () => open(false, true));
+    pop.append(stepper("passengers", t.decPassengers, t.incPassengers), stepper("luggage", t.decLuggage, t.incLuggage), done);
+    trigger.addEventListener("click", () => open(trigger.getAttribute("aria-expanded") !== "true"));
+    pop.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      open(false, true);
+    });
+    field.addEventListener("focusout", (event) => {
+      if (!pop.hidden && !field.contains(event.relatedTarget as Node | null)) open(false);
+    });
+    return field;
   }
 
   private waypointRow(index: number, stop: WidgetForm["waypoints"][number]): HTMLElement {
@@ -281,12 +444,12 @@ class Widget {
     const wrap = el("fieldset", { class: "nzb-waypoint" }, [el("legend", { class: "nzb-label" }, [`${t.waypoint} ${index + 1}`])]);
     wrap.append(this.placeField(`${t.waypoint} ${index + 1}`, `waypoint-${index}`, stop, stop.point, (value) => (stop.point = value), true));
     const id = nextId("stay");
-    const select = el("select", { id, class: "nzb-input", "data-focus": `stay-${index}` });
+    const select = el("select", { id, class: "nzb-box nzb-select", "data-focus": `stay-${index}` });
     select.append(el("option", { value: "" }, [t.pickStay]));
     for (const minutes of STAY_OPTIONS) select.append(el("option", { value: String(minutes), ...(stop.stay === minutes ? { selected: "" } : {}) }, [`${minutes} ${t.minutes}`]));
     select.addEventListener("change", () => (stop.stay = select.value === "" ? null : Number(select.value)));
-    wrap.append(el("div", { class: "nzb-field" }, [el("label", { for: id, class: "nzb-label" }, [`${t.waypoint} ${index + 1} ${t.stay}`]), select]));
-    const remove = el("button", { type: "button", class: "nzb-secondary", "aria-label": `${t.removeWaypoint} ${index + 1}` }, [t.removeWaypoint]);
+    wrap.append(el("div", { class: "nzb-field nzb-stay" }, [el("label", { for: id, class: "nzb-visually-hidden" }, [`${t.waypoint} ${index + 1} ${t.stay}`]), el("div", { class: "nzb-control" }, [select, icon("chevron", "nzb-chevron")])]));
+    const remove = el("button", { type: "button", class: "nzb-remove", "aria-label": `${t.removeWaypoint} ${index + 1}` }, [icon("close", "nzb-remove-icon")]);
     remove.addEventListener("click", () => {
       this.lostPlaces.delete(stop);
       this.form.waypoints.splice(index, 1);
@@ -303,13 +466,13 @@ class Widget {
     const id = nextId(name);
     const pending = this.locating.get(slot);
     const listId = `${id}-list`;
-    const hintId = `${id}-hint`;
-    const input = el("input", { id, type: "text", class: "nzb-input", role: "combobox", "aria-autocomplete": "list", "aria-expanded": "false", "aria-controls": listId, "aria-describedby": hintId, autocomplete: "off", "data-focus": name, value: value?.name ?? pending?.name ?? "" });
+    // 隐私提示只在表单底部写一次（M9E-10），每个地址框用 aria-describedby 关联它
+    const input = el("input", { id, type: "text", class: "nzb-box nzb-place-input", role: "combobox", "aria-autocomplete": "list", "aria-expanded": "false", "aria-controls": listId, "aria-describedby": this.noteId, autocomplete: "off", placeholder: t.placeholder, "data-focus": name, value: value?.name ?? pending?.name ?? "" });
     const list = el("ul", { id: listId, role: "listbox", class: "nzb-list", "aria-label": `${label}${t.suggestions}` });
     // 谷歌署名（M9E-06）：在候选列表（listbox）外面、同一个弹出面板里，固定在面板底部（滚动的是候选列表），候选多了也不会被滚出可视区
     const attribution = el("p", { class: "nzb-google", ...GOOGLE_MAPS_ATTRIBUTION_ATTRIBUTES, hidden: "" }, [GOOGLE_MAPS_ATTRIBUTION]);
     const panel = el("div", { class: "nzb-panel", hidden: "" }, [list, attribution]);
-    const status = el("p", { class: "nzb-hint", "aria-live": "polite" });
+    const status = el("p", { class: "nzb-hint nzb-status", "aria-live": "polite" });
     if (pending !== undefined) {
       pending.view.status = status;
       status.textContent = t.locating;
@@ -401,11 +564,13 @@ class Widget {
     });
     const field = el("div", { class: "nzb-field nzb-place", "data-field": name }, [
       el("label", { for: id, class: hideLabel ? "nzb-label nzb-visually-hidden" : "nzb-label" }, [label]),
-      input,
-      el("p", { id: hintId, class: "nzb-hint" }, [t.placeOnly]),
-      panel,
+      el("div", { class: "nzb-control" }, [icon("dot", name === "dropoff" ? "nzb-dot nzb-dot-end" : "nzb-dot"), input, panel]),
       status,
     ]);
+    // 候选面板浮在下面的控件上（M9E-10），焦点离开这个地址框就收起
+    field.addEventListener("focusout", (event) => {
+      if (!field.contains(event.relatedTarget as Node | null)) close();
+    });
     return field;
   }
 
@@ -417,11 +582,11 @@ class Widget {
     if (this.blockingLocates() > 0) {
       this.busy = this.waiting = true;
       this.shadow.querySelector(".nzb-primary")?.setAttribute("aria-disabled", "true");
-      this.shadow.querySelector(".nzb-primary")?.replaceChildren(t.locating);
+      this.submitLabel(t.locating);
       while (this.blockingLocates() > 0) await new Promise<void>((resolve) => (this.wake = resolve));
       this.busy = this.waiting = false;
       this.shadow.querySelector(".nzb-primary")?.removeAttribute("aria-disabled");
-      this.shadow.querySelector(".nzb-primary")?.replaceChildren(t.submit);
+      this.submitLabel(t.submit);
       message = this.shadow.querySelector<HTMLElement>('[data-role="message"]') ?? message;
     }
     const problems = formProblems(this.form);
@@ -435,7 +600,7 @@ class Widget {
     message.textContent = "";
     const submit = this.shadow.querySelector(".nzb-primary");
     if (submit !== null) {
-      submit.textContent = t.submitting;
+      this.submitLabel(t.submitting);
       submit.setAttribute("aria-disabled", "true");
     }
     let status: number | null = null;
@@ -460,7 +625,7 @@ class Widget {
     }
     this.busy = false;
     if (submit !== null) {
-      submit.textContent = t.submit;
+      this.submitLabel(t.submit);
       submit.removeAttribute("aria-disabled");
     }
     message.textContent = t[FAILURE_TEXT_KEY[draftFailureOf(status, typeof body?.error?.code === "string" ? body.error.code : null)]];
@@ -468,7 +633,8 @@ class Widget {
     if (status === 400) {
       const issues: { path?: unknown }[] = Array.isArray(body?.error?.details?.issues) ? body.error.details.issues : [];
       const problem = issues.map((issue) => (typeof issue.path === "string" ? problemOfIssuePath(issue.path) : null)).find((found) => found !== null) ?? null;
-      const target = problem === null ? null : (this.shadow.querySelector(`[data-focus="${problem}"]`) as HTMLElement | null);
+      // 人数、行李在同一个按钮里（M9E-10）
+      const target = problem === null ? null : (this.shadow.querySelector(`[data-focus="${problem === "luggage" ? "passengers" : problem}"]`) as HTMLElement | null);
       if (target !== null) {
         target.setAttribute("aria-invalid", "true");
         target.focus();

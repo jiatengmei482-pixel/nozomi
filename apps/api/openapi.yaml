@@ -12721,7 +12721,7 @@ paths:
     patch:
       tags: [ 嵌入组件 ]
       operationId: updateEmbedKey
-      summary: 修改嵌入码（名称、白名单、默认值、启用 / 停用）
+      summary: 修改嵌入码（名称、白名单、默认值、外观、启用 / 停用）
       description: 需要 `embed.manage`，请求头 `If-Match` 带当前版本号。改白名单、停用在服务端立即生效（组件的配置应答浏览器缓存 60 秒）。写审计。
       security:
         - platformToken: []
@@ -29500,7 +29500,7 @@ components:
     EmbedKey:
       type: object
       additionalProperties: false
-      required: [ id, key, name, allowed_origins, default_lang, default_services, status, note, version, created_at, updated_at, snippet ]
+      required: [ id, key, name, allowed_origins, default_lang, default_services, layout, status, note, version, created_at, updated_at, snippet ]
       properties:
         id:
           type: string
@@ -29526,6 +29526,10 @@ components:
           items:
             type: string
             enum: [ transfer, charter ]
+        layout:
+          type: string
+          enum: [ card, bar ]
+          description: 组件的外观（M9E-10）：`card` 卡片、`bar` 横条。写进要放的代码（`layout`）；`/embed/v1/config` 不返回它
         status:
           type: string
           enum: [ active, disabled ]
@@ -29565,6 +29569,10 @@ components:
           items:
             type: string
             enum: [ transfer, charter ]
+        layout:
+          type: string
+          enum: [ card, bar ]
+          description: 选填。新建不填按 `card`；修改不填保持原值
         note:
           type: [ string, "null" ]
           maxLength: 500

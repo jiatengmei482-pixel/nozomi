@@ -79,7 +79,7 @@ test("嵌入组件：白名单网站上样式不受宿主页影响、320 px、ax
   await page.goto(otherHost.origin);
   await expect(page.getByText("预订组件暂时无法使用。请稍后刷新，或直接到主站预订。")).toBeVisible();
   await expect(page.getByRole("link", { name: "到主站预订" })).toHaveAttribute("href", `${SITE}/book/new`);
-  await expect(page.getByRole("button", { name: "查询价格" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "查看价格" })).toHaveCount(0);
 
   // ---- 白名单网站 ----
   await page.goto(allowedHost.origin);
@@ -114,7 +114,7 @@ test("嵌入组件：白名单网站上样式不受宿主页影响、320 px、ax
   const axe = await new AxeBuilder({ page }).include("#nozomi-booking").withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
   expect(axe.violations.map((violation) => `${violation.id}: ${violation.help}`)).toEqual([]);
 
-  // 键盘：出发地选平台的机场，目的地选谷歌候选，日期改成后天，Tab 到「查询价格」回车
+  // 键盘：出发地选平台的机场，目的地选谷歌候选，日期改成后天，Tab 到「查看价格」回车
   await fromBox.focus();
   // 打完整名称（带随机后缀）：只打前几个字时，并行用例建的「新预订机场XXXXX」也会排在候选里，方向键可能选到别人的（M8-29 同类）
   await page.keyboard.type(airport.name);
@@ -137,7 +137,7 @@ test("嵌入组件：白名单网站上样式不受宿主页影响、320 px、ax
   await page.getByLabel("日期").fill(dayAfterTomorrow());
 
   const draftResponse = page.waitForResponse((res) => res.url().includes("/embed/v1/booking-drafts") && res.request().method() === "POST");
-  const submit = page.getByRole("button", { name: "查询价格" });
+  const submit = page.getByRole("button", { name: "查看价格" });
   await submit.focus();
   const viaWidget = await quoteTotals(page, async () => {
     await page.keyboard.press("Enter");

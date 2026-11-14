@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { bookingDraftIssues } from "@nozomi/domain";
-import { STAY_OPTIONS, TEXTS, type WidgetForm, draftFailureOf, draftOf, formProblems, problemOfIssuePath, resolveLang, resolveServices, tomorrow, trimName } from "./widget-core.ts";
+import { BAR_MIN_WIDTH, DEFAULT_THEME, GUEST_LIMITS, INK_DARK, STAY_OPTIONS, TEXTS, type WidgetForm, contrastRatio, guestsSummary, hexOf, layoutFor, resolveLayout, resolveTheme, draftFailureOf,draftOf, formProblems, problemOfIssuePath, resolveLang, resolveServices, tomorrow, trimName } from "./widget-core.ts";
 
 const form = (changes: Partial<WidgetForm> = {}): WidgetForm => ({
   tab: "transfer",
@@ -82,5 +82,45 @@ test("服务端 400 的问题路径对到组件里的那一项", () => {
   assert.equal(problemOfIssuePath("/draft/passengers"), "passengers");
   assert.equal(problemOfIssuePath("/draft/waypoints"), null);
   assert.equal(problemOfIssuePath("/return_url"), null);
+});
+
+test("M9E-10 外观：layout 不认识用 card；bar 只在容器不窄于 768 px 时用（按容器宽度，不按视口），量不到宽度按 card", () => {
+  assert.equal(resolveLayout(undefined), "card");
+  assert.equal(resolveLayout("bar"), "bar");
+  assert.equal(resolveLayout("grid"), "card");
+  assert.equal(BAR_MIN_WIDTH, 768);
+  assert.equal(layoutFor("bar", 768), "bar");
+  assert.equal(layoutFor("bar", 767), "card");
+  assert.equal(layoutFor("bar", 0), "card");
+  assert.equal(layoutFor("card", 1440), "card");
+});
+
+test("M9E-10 主题：写错的项用默认值；主色、点缀色上的字自动挑够 4.5:1 的；白底上主色不够 4.5:1 时文字改用深色", () => {
+  const plain = resolveTheme(undefined);
+  assert.deepEqual([plain.primary, plain.accent, plain.radius], [DEFAULT_THEME.primary, DEFAULT_THEME.accent, DEFAULT_THEME.radius]);
+  assert.equal(plain.onPrimary, "#FFFFFF");
+  assert.equal(plain.ink, DEFAULT_THEME.primary);
+  assert.ok(contrastRatio(plain.accent, plain.onAccent) >= 4.5);
+  const orange = resolveTheme({ primary: "#ff6b35", accent: "rgb(255, 181, 77)", radius: "14px", fontFamily: '"Noto Sans SC", sans-serif' });
+  assert.equal(orange.primary, "#FF6B35");
+  assert.equal(orange.onPrimary, INK_DARK, "橙色上白字不到 4.5:1，改用深色字");
+  assert.ok(contrastRatio(orange.primary, orange.onPrimary) >= 4.5);
+  assert.equal(orange.ink, INK_DARK, "橙色在白底上当文字不够 4.5:1");
+  assert.equal(orange.accent, "#FFB54D");
+  assert.equal(orange.radius, 14);
+  assert.equal(orange.fontFamily, '"Noto Sans SC", sans-serif');
+  const bad = resolveTheme({ primary: "red; background: url(x)", accent: "rgba(0, 0, 0, 0.5)", radius: 99, fontFamily: "x; } .evil {" });
+  assert.deepEqual([bad.primary, bad.accent, bad.radius, bad.fontFamily], [DEFAULT_THEME.primary, DEFAULT_THEME.accent, DEFAULT_THEME.radius, DEFAULT_THEME.fontFamily]);
+  assert.equal(hexOf("#abc"), "#AABBCC");
+  assert.equal(hexOf("rgb(0 128 255)"), "#0080FF");
+  assert.equal(hexOf("rgb(300, 0, 0)"), null);
+});
+
+test("M9E-10 人数行李的摘要（长、短两种，三种语言）和加减范围", () => {
+  assert.equal(guestsSummary("zh", 2, 1), "2 位乘客 · 1 件行李");
+  assert.equal(guestsSummary("ja", 3, 0), "3名 · 荷物0個");
+  assert.equal(guestsSummary("en", 1, 1), "1 passenger · 1 bag");
+  assert.equal(guestsSummary("en", 2, 3, true), "2 pax · 3 bags");
+  assert.deepEqual(GUEST_LIMITS, { passengers: { min: 1, max: 20 }, luggage: { min: 0, max: 20 } });
 });
 

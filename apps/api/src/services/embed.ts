@@ -12,6 +12,7 @@ import {
   EMBED_RULES,
   type EmbedKeyStatus,
   type EmbedLang,
+  type EmbedLayout,
   type EmbedService,
   bookingDraftIssues,
   embedKeyIssues,
@@ -37,6 +38,7 @@ export interface EmbedKey {
   allowedOrigins: string[];
   defaultLang: EmbedLang;
   defaultServices: EmbedService[];
+  layout: EmbedLayout;
   status: EmbedKeyStatus;
   note: string | null;
   version: number;
@@ -51,6 +53,7 @@ interface EmbedKeyRow {
   allowed_origins: string[];
   default_lang: EmbedLang;
   default_services: EmbedService[];
+  layout: EmbedLayout;
   status: EmbedKeyStatus;
   note: string | null;
   version: number;
@@ -58,7 +61,7 @@ interface EmbedKeyRow {
   updated_at: Date;
 }
 
-const COLUMNS = "id, key, name, allowed_origins, default_lang, default_services, status, note, version, created_at, updated_at";
+const COLUMNS = "id, key, name, allowed_origins, default_lang, default_services, layout, status, note, version, created_at, updated_at";
 const fromRow = (row: EmbedKeyRow): EmbedKey => ({
   id: row.id,
   key: row.key,
@@ -66,6 +69,7 @@ const fromRow = (row: EmbedKeyRow): EmbedKey => ({
   allowedOrigins: row.allowed_origins,
   defaultLang: row.default_lang,
   defaultServices: row.default_services,
+  layout: row.layout,
   status: row.status,
   note: row.note,
   version: row.version,
@@ -97,14 +101,17 @@ export interface EmbedKeyWrite {
   allowedOrigins: readonly string[];
   defaultLang: string;
   defaultServices: readonly string[];
+  /** 外观；不填时新建按卡片、修改保持原值 */
+  layout?: string | undefined;
   note: string | null;
 }
 
-function checked(ctx: AppContext, input: EmbedKeyWrite): { name: string; origins: string[]; note: string | null } {
+function checked(ctx: AppContext, input: EmbedKeyWrite): { name: string; origins: string[]; layout: EmbedLayout | null; note: string | null } {
   const note = input.note === null || input.note.trim() === "" ? null : input.note.trim();
-  const { issues, origins } = embedKeyIssues({ name: input.name, allowed_origins: input.allowedOrigins, default_lang: input.defaultLang, default_services: input.defaultServices, note }, originOptions(ctx));
+  const { issues, origins } = embedKeyIssues({ name: input.name, allowed_origins: input.allowedOrigins, default_lang: input.defaultLang, default_services: input.defaultServices, layout: input.layout, note }, originOptions(ctx));
   if (issues.length > 0) throw validationFailed("body", issues.map((issue) => ({ path: issue.path, reason: issue.reason, message: ISSUE_TEXT[issue.reason] ?? "写得不对" })));
-  return { name: input.name.trim(), origins, note };
+  // 校验过了，这里只剩两种取值；null = 没填
+  return { name: input.name.trim(), origins, layout: (input.layout ?? null) as EmbedLayout | null, note };
 }
 
 const ISSUE_TEXT: Readonly<Record<string, string>> = {
@@ -114,17 +121,17 @@ const ISSUE_TEXT: Readonly<Record<string, string>> = {
   DUPLICATE: "重复了",
 };
 
-const auditJson = (key: EmbedKey) => ({ key: key.key, name: key.name, allowed_origins: key.allowedOrigins, default_lang: key.defaultLang, default_services: key.defaultServices, status: key.status, note: key.note });
+const auditJson = (key: EmbedKey) => ({ key: key.key, name: key.name, allowed_origins: key.allowedOrigins, default_lang: key.defaultLang, default_services: key.defaultServices, layout: key.layout, status: key.status, note: key.note });
 
 export async function createEmbedKey(ctx: AppContext, principal: PlatformPrincipal, ip: string, input: EmbedKeyWrite): Promise<EmbedKey> {
-  const { name, origins, note } = checked(ctx, input);
+  const { name, origins, layout, note } = checked(ctx, input);
   return withPlatformTx(ctx.pool, async (db) => {
     const now = ctx.now();
     const key = `nze_${randomBytes(24).toString("base64url")}`;
     const result = await db.query<EmbedKeyRow>(
-      `insert into embed_keys (key, name, allowed_origins, default_lang, default_services, note, created_at, updated_at, created_by, updated_by)
-       values ($1, $2, $3, $4, $5, $6, $7, $7, $8, $8) returning ${COLUMNS}`,
-      [key, name, origins, input.defaultLang, [...input.defaultServices], note, now, principal.user.id],
+      `insert into embed_keys (key, name, allowed_origins, default_lang, default_services, layout, note, created_at, updated_at, created_by, updated_by)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $9) returning ${COLUMNS}`,
+      [key, name, origins, input.defaultLang, [...input.defaultServices], layout ?? "card", note, now, principal.user.id],
     );
     const created = fromRow(result.rows[0] as EmbedKeyRow);
     await insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), { tenantId: null, resource: "embed_key", resourceId: created.id, action: "create", before: null, after: auditJson(created) });
@@ -133,7 +140,7 @@ export async function createEmbedKey(ctx: AppContext, principal: PlatformPrincip
 }
 
 export async function updateEmbedKey(ctx: AppContext, principal: PlatformPrincipal, ip: string, id: string, version: number, input: EmbedKeyWrite & { status: EmbedKeyStatus }): Promise<EmbedKey> {
-  const { name, origins, note } = checked(ctx, input);
+  const { name, origins, layout, note } = checked(ctx, input);
   return withPlatformTx(ctx.pool, async (db) => {
     const current = await db.query<EmbedKeyRow>(`select ${COLUMNS} from embed_keys where id = $1 for update`, [id]);
     const row = current.rows[0];
@@ -142,9 +149,10 @@ export async function updateEmbedKey(ctx: AppContext, principal: PlatformPrincip
     if (before.version !== version) throw versionConflict(before.version);
     const now = ctx.now();
     const result = await db.query<EmbedKeyRow>(
-      `update embed_keys set name = $2, allowed_origins = $3, default_lang = $4, default_services = $5, note = $6, status = $7, version = version + 1, updated_at = $8, updated_by = $9
+      `update embed_keys set name = $2, allowed_origins = $3, default_lang = $4, default_services = $5, layout = $6, note = $7, status = $8, version = version + 1, updated_at = $9, updated_by = $10
        where id = $1 returning ${COLUMNS}`,
-      [id, name, origins, input.defaultLang, [...input.defaultServices], note, input.status, now, principal.user.id],
+      // 没填外观就保持原值（只会改名称、白名单的旧客户端不会把横条改回卡片）
+      [id, name, origins, input.defaultLang, [...input.defaultServices], layout ?? before.layout, note, input.status, now, principal.user.id],
     );
     const after = fromRow(result.rows[0] as EmbedKeyRow);
     await insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), { tenantId: null, resource: "embed_key", resourceId: id, action: "update", before: auditJson(before), after: auditJson(after) });
