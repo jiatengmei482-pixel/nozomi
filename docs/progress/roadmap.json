@@ -1269,6 +1269,15 @@
           "updated": "2026-11-13"
         },
         {
+          "id": "M9E-07",
+          "title": "嵌入组件·#197 审查留下的后续：脚本字符编码、改正后去掉 aria-invalid、建草稿失败和包车的端到端",
+          "role": "frontend",
+          "status": "review",
+          "acceptance": ["字符编码：合作网站是 Shift_JIS 等非 UTF-8 页面时组件文字不乱码——构建产物 widget-v1.js 只含 ASCII（中日文转成 \\uXXXX，构建产物测试检查），Caddy 给 /embed/widget-v1.js 写死 Content-Type: text/javascript; charset=utf-8（deploy-web 测试），smoke 断言完整的 text/javascript; charset=utf-8；gzip 仍在 60 KB 预算内", "aria-invalid：400 标出错的那一项，客人改了（输入框打字、下拉改选）就去掉；再提交时只标服务端这次说的那一项（组件测试）", "端到端补齐 ADR 0090 第七节：建草稿网络错误、429（RATE_LIMITED / EMBED_DRAFT_LIMIT）各显示第四节的说法、不跳转（拦截改写应答）；400 用不合格的输入（不存在的日期）触发，标出日期并移焦点，改正后去掉标记；包车标签、无经停点 → 跳 /book/new?draft= 后停在第 1 步选时长、不询价 → 选 8 小时后报价", "独立审查、合并、部署后测试站看一眼脚本响应头"],
+          "evidence": "分支 m9e-07-widget-followups，PR https://github.com/jiatengmei482-pixel/nozomi/pull/213。字符编码：构建时 rolldown 压缩输出 asciiOnly，dist/embed/widget-v1.js 0 个非 ASCII 字节（约 21 KB，gzip 约 7.6 KB，预算 60 KB），build-output.spec.ts 新增 1 条（逐字节检查、文案以 \\u 转义保留）；Caddyfile 给脚本写死 Content-Type: text/javascript; charset=utf-8（本机 caddy:2 容器实测只有一个 Content-Type 头），deploy-web.test.ts 断言同步，smoke 断言改成完整的 text/javascript; charset=utf-8。aria-invalid：表单上 input / change 时去掉该项的标记，每次提交前清掉上一次的标记；widget.test.tsx 新增 1 条（下拉、地址框、改别的项不影响、再提交只标新的那项；去掉修复后这条会失败）。端到端 site-embed-widget.spec.ts 从 1 条到 3 条：建草稿网络错误 / 429 两种（page.route 拦截改写）/ 400（日期框按不支持日期选择器的浏览器当文本框填 2 月 30 日，真实 API 回 400 /draft/service_local）各一句、不跳转、400 标出日期并移焦点、改正后去掉标记；包车标签无经停点 → /book/new?draft= 停在第 1 步时长空着（城市 4 / 8 小时两档，charter-support 加可选的第二档）、不询价 → 选 8 小时按 8 小时询价、78,100 JPY。原有用例补「等谷歌候选取到坐标再提交」（本机重复跑时偶发）。本机：组件 / 单元 widget 8 + widget-core 7 + widget-size 1 + styles.edge 共 36 条，deploy-web 16 条，e2e site-embed-widget 3 条 × 3 遍 9 条、build-output 5 条全过；pnpm typecheck 通过",
+          "updated": "2026-11-13"
+        },
+        {
           "id": "M9E-08",
           "title": "嵌入组件：点了谷歌候选马上提交不再提示「请从候选里选」，取坐标期间改字 / 改选不被旧坐标覆盖（#213 独立审查）",
           "role": "frontend",
@@ -2739,6 +2748,11 @@
       "date": "2026-11-14",
       "by": "product",
       "summary": "把业务方 2026-11-14 已定的三条写进 ADR 0093（第六稿）：A 成田机场外围重叠处按机场收 14,000，将来切成田市、千叶超远的包车副本；B 规格金额表以外设了途经加价的区域（横滨等 3,000 至群马温泉 20,000）迁移时原样同时进行程加价和上下车加价；C 下车点行程加价按规格定稿伪代码（没有基础价区域以外的经停、下车点不在基础价区域而在行程区域时收一次，只看下车点，商品开关默认开），取代「没有经停时下车点当经停」；业主确认第 1、2 条和新增的第 10、11 条标为已定。M9P-01 / 03 / 04 / 05 / 11 同步：开关改名 dropoffItinerarySurcharge，验收用例按规格编号 1–19，原 15 个用例在 C 下预期不变，charter-golden、itinerary-golden 没有预期变化。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "frontend",
+      "summary": "M9E-07 开发完成，待验收：嵌入组件脚本改成纯英文字符写法（中日文转义），合作网站页面不是 UTF-8 时也不会乱码，服务器响应头也写明 UTF-8；客人改正被标红的那一项后标记会去掉；补齐端到端：建草稿网络错误、操作太频繁、填错日期各显示一句不跳转，包车不填经停点跳到预订页后再选 8 小时能报价。"
     },
     {
       "date": "2026-11-14",
