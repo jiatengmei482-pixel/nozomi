@@ -164,21 +164,31 @@ function surchargeTotal(settlement: Pick<SettlementBreakdown, "areaSurcharge">):
 async function deductionBaseOf(db: Db, order: Order, sale: OrderSale): Promise<{ baseMinor: number; base: DeductionBase }> {
   const before = surchargeTotal(order.settlement);
   const fallback = (reason: string): { baseMinor: number; base: DeductionBase } => ({ baseMinor: order.settlementMinor, base: { surchargeBefore: before, surchargeAfter: null, fallbackReason: reason } });
+  const unchanged = { baseMinor: order.settlementMinor, base: { surchargeBefore: before, surchargeAfter: before, fallbackReason: null } };
+  // 接送机、点对点没有区域加价，基准就是原结算价：不查快照、不重算
+  if (order.category !== "charter") return unchanged;
   const snapshot = (await db.query<{ snapshot: StoredQuoteSnapshot }>("select snapshot from quotes where id = $1", [sale.quoteId])).rows[0]?.snapshot;
   if (snapshot === undefined) return fallback("QUOTE_NOT_FOUND");
   const request = rescueRequest(snapshot, order);
-  if (order.category !== "charter" || request.dropoff === null) return { baseMinor: order.settlementMinor, base: { surchargeBefore: before, surchargeAfter: before, fallbackReason: null } };
+  // 没有下车点的旧包车单（M8-15 之前）不算区域加价
+  if (request.dropoff === null) return unchanged;
   const candidate = (await loadQuoteCandidates(db, { cityId: order.cityId, category: order.category, poiId: order.placeId, productId: order.productId, publishedOnly: false }))[0];
   if (candidate === undefined || candidate.product.tenantId !== order.tenantId) return fallback("PRODUCT_NOT_FOUND");
   const quotedAt = new Date(snapshot.createdAt);
   const facts = await loadQuoteFacts(db, [candidate], request, quotedAt);
-  const result = quoteProduct({ ...candidate.product, inventoryMode: "unlimited" }, request, { now: quotedAt, holidays: facts.holidays, route: order.settlement.usage, inventoryDay: null, urgentUsed: 0 }, { forOwner: true });
-  if (!result.ok) return fallback(result.reason);
-  const offer = result.offers.find((entry) => entry.vehicleGroupId === order.vehicleGroupId && entry.packageHours === order.packageHours);
-  if (offer === undefined) return fallback(result.refused.find((entry) => entry.vehicleGroupId === order.vehicleGroupId)?.reason ?? "NOT_AVAILABLE");
-  if (offer.settlement.currency !== order.settlementCurrency) return fallback("CURRENCY_CHANGED");
-  const after = surchargeTotal(offer.settlement);
-  return { baseMinor: order.settlementMinor + Math.max(0, after - before), base: { surchargeBefore: before, surchargeAfter: after, fallbackReason: null } };
+  // 纯计算这一段出了意外（如引擎抛 RangeError）也退回原结算价、记下原因，不能让救援本身失败；查库的错误照常抛出（事务回滚）
+  try {
+    const result = quoteProduct({ ...candidate.product, inventoryMode: "unlimited" }, request, { now: quotedAt, holidays: facts.holidays, route: order.settlement.usage, inventoryDay: null, urgentUsed: 0 }, { forOwner: true });
+    if (!result.ok) return fallback(result.reason);
+    const offer = result.offers.find((entry) => entry.vehicleGroupId === order.vehicleGroupId && entry.packageHours === order.packageHours);
+    if (offer === undefined) return fallback(result.refused.find((entry) => entry.vehicleGroupId === order.vehicleGroupId)?.reason ?? "NOT_AVAILABLE");
+    if (offer.settlement.currency !== order.settlementCurrency) return fallback("CURRENCY_CHANGED");
+    const after = surchargeTotal(offer.settlement);
+    // 只往上补：重算的加价比订单上的少（如 M9P-06 ①优先之后），基准仍是原结算价
+    return { baseMinor: order.settlementMinor + Math.max(0, after - before), base: { surchargeBefore: before, surchargeAfter: after, fallbackReason: null } };
+  } catch {
+    return fallback("ERROR");
+  }
 }
 
 /** 算救援差价用的原结算价一侧：触发时存下的基准；之前的救援没有，按原结算价 */

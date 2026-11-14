@@ -336,7 +336,8 @@ export function serviceRuleIssues(rules: ServiceRules, context: ServiceRuleConte
     seenLanguages.add(entry.language);
     amountIssue(`${at}/unit_price`, entry.unitPriceMinor, issues);
   }
-  // 包车行程计价的配置（M9P-01）只有包车能设；别的品类给了不当默认值吞掉，明说不适用
+  // 包车行程计价的配置（M9P-01）只有包车能设：别的品类给了这个键就报不适用。保存时先规整（normalizeServiceRules），
+  // 全是默认值的会先被去掉，所以经接口给默认值（true）不报错、也不存；只有给了非默认值才到这里报 400
   if (rules.charterItinerary !== undefined && context.category !== "charter") issues.push({ path: "/charter_itinerary", reason: "NOT_APPLICABLE" });
   return issues;
 }

@@ -288,6 +288,15 @@ test("救援 B：新算法下下的单基准就是原结算价；原供应商触
   assert.equal(back.status, 200, back.text);
 });
 
+test("救援 B：只往上补——重算的加价比订单上的少（如 M9P-06 ①优先之后），基准 = 原结算价，不会低于原结算价", async () => {
+  const { orderId } = await bOrder();
+  // 订单上的上车加价多记 5,000（模拟下单时规则收得比现在多）：订单加价合计 25,000，按现在的规则重算 20,000
+  const higher = `jsonb_set(jsonb_set(jsonb_set(settlement, '{areaSurcharge,pickup,amountMinor}', to_jsonb((settlement->'areaSurcharge'->'pickup'->>'amountMinor')::bigint + 5000)), '{totalMinor}', to_jsonb((settlement->>'totalMinor')::bigint + 5000)), '{baseMinor}', to_jsonb((settlement->>'baseMinor')::bigint + 5000))`;
+  await api.db.owner.query(`update orders set settlement = ${higher}, settlement_minor = settlement_minor + 5000 where id = $1`, [orderId]);
+  await trigger(orderId, "tenant_declared");
+  assert.deepEqual(await rescueRow(orderId), { base: 80_000, basis: { surchargeBefore: 25_000, surchargeAfter: 20_000, fallbackReason: null }, original: 80_000 });
+});
+
 test("救援 B：重算失败（原商品的加价规则都停了，报不出）→ 退回原结算价，记下原因", async () => {
   const { orderId } = await bOrder();
   await asPreDeployment(orderId);
