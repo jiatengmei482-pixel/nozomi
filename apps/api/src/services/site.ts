@@ -89,6 +89,7 @@ import {
   type SiteAddonInfo,
   findAddons,
 } from "../repos/site.ts";
+import type { PlaceLookup, PlaceLookupOptions } from "./place-search.ts";
 import type { RoutePreview } from "./route-estimates.ts";
 import type { RouteMapRequest, RouteMapResult } from "./static-maps.ts";
 import { validationFailed } from "../validation.ts";
@@ -334,9 +335,31 @@ export interface SitePlaceItem {
   kind: PlaceKind;
 }
 
+/** 谷歌这次没调的原因里客人要知道的（M8-45）：`IP_DAILY_LIMIT` 这个来源地址今天调谷歌的额度用完了；其余（没配置、全站上限、谷歌出错）为 null */
+export type SitePlaceUnavailableReason = "IP_DAILY_LIMIT" | null;
+
+const unavailableReasonOf = (found: PlaceLookup<unknown>): SitePlaceUnavailableReason => (!found.ok && found.code === "IP_DAILY_LIMIT" ? "IP_DAILY_LIMIT" : null);
+
+/**
+ * 每个来源地址每天调谷歌的额度（M8-45，`site_places_google_day`，IPv6 按 /64）：交给地址服务，**只在真要调谷歌时**扣一次；
+ * 命中缓存、只有平台地点的不扣。官网和嵌入组件的输入即提示、取坐标、搜索、反查共用。
+ */
+export function sitePlacesGoogleGuard(ctx: AppContext, ip: string): PlaceLookupOptions {
+  return {
+    beforeGoogle: async () => (await withPlatformTx(ctx.pool, (db) => takeRateSlot(db, bucketOf("ip", rateLimitKeyOf(ip)), "site_places_google_day", ctx.now()))).allowed,
+  };
+}
+
+/** 应答里的 `unavailable_reason`（M8-45）：只在有原因时出现，其余应答和原来一样 */
+export function placeUnavailableJson(reason: SitePlaceUnavailableReason): { unavailable_reason?: "IP_DAILY_LIMIT" } {
+  return reason === null ? {} : { unavailable_reason: reason };
+}
+
 export interface SitePlaceSearchResult {
-  /** false：谷歌这次用不了（没配置、到了每日上限、谷歌出错），`items` 只有平台的地点；页面退回常用地点、地图点选和手填 */
+  /** false：谷歌这次用不了（没配置、到了每日上限、谷歌出错、这个地址今天的额度用完），`items` 只有平台的地点；页面退回常用地点、地图点选和手填 */
   available: boolean;
+  /** `available` 为 false 时客人要知道的原因（M8-45），见 `SitePlaceUnavailableReason` */
+  unavailableReason: SitePlaceUnavailableReason;
   items: SitePlaceItem[];
 }
 
@@ -377,63 +400,65 @@ async function platformSuggestions(ctx: AppContext, cityIds: readonly string[], 
  * 按关键字搜地点（关键字已规范化、长短合格）：平台的机场、车站在前，谷歌的结果在后。谷歌出问题不报错，`available: false`、只有平台的地点。
  * 带城市：城市附近（ADR 0044）；不带城市（M8-02）：渠道授权的几个城市的范围里，授权的只有一个国家时按它做 `regionCode`。
  */
-export async function siteSearchPlaces(ctx: AppContext, cityId: string | null, query: string): Promise<SitePlaceSearchResult> {
+export async function siteSearchPlaces(ctx: AppContext, cityId: string | null, query: string, options: PlaceLookupOptions = {}): Promise<SitePlaceSearchResult> {
   const google = (found: { ok: true; value: { id: string; name: string; address: string; location: LatLng; kind: PlaceKind }[] } | { ok: false }): SitePlaceItem[] =>
     found.ok ? found.value.map((item) => ({ source: "google", id: item.id, name: item.name, address: item.address, location: item.location, kind: item.kind })) : [];
   if (cityId !== null) {
     const city = await sitePlaceCity(ctx, cityId);
     const platform = await platformSuggestions(ctx, [cityId], query);
-    const found = await ctx.places.search({ cityId, query, bounds: cityBounds(city.center), regionCode: city.countryCode });
-    return { available: found.ok, items: [...platform, ...google(found)] };
+    const found = await ctx.places.search({ cityId, query, bounds: cityBounds(city.center), regionCode: city.countryCode }, options);
+    return { available: found.ok, unavailableReason: unavailableReasonOf(found), items: [...platform, ...google(found)] };
   }
   const region = await siteRegion(ctx);
   const platform = await platformSuggestions(ctx, region.cities.map((city) => city.id), query);
   const centers = region.cities.map((city) => city.center);
   const bounds = regionBounds(centers);
-  if (bounds === null) return { available: ctx.places.enabled, items: platform };
-  const found = await ctx.places.search({ cityId: `region-${region.scope}`, query, bounds, regionCode: region.countries.length === 1 ? (region.countries[0] as string) : null, accept: (location) => inAnyCity(location, centers) });
-  return { available: found.ok, items: [...platform, ...google(found)] };
+  if (bounds === null) return { available: ctx.places.enabled, unavailableReason: null, items: platform };
+  const found = await ctx.places.search({ cityId: `region-${region.scope}`, query, bounds, regionCode: region.countries.length === 1 ? (region.countries[0] as string) : null, accept: (location) => inAnyCity(location, centers) }, options);
+  return { available: found.ok, unavailableReason: unavailableReasonOf(found), items: [...platform, ...google(found)] };
 }
 
 /**
  * 输入即提示（M8-02，ADR 0069 B1）：平台的机场、车站在前（带坐标），谷歌的候选在后（还没有坐标，选中后取）。
  * 谷歌只给渠道授权的国家、授权城市合起来的范围里的。谷歌出问题不报错，`available: false`、只有平台的地点。
  */
-export async function siteAutocomplete(ctx: AppContext, query: string, sessionToken: string): Promise<SitePlaceSearchResult> {
+export async function siteAutocomplete(ctx: AppContext, query: string, sessionToken: string, options: PlaceLookupOptions = {}): Promise<SitePlaceSearchResult> {
   const region = await siteRegion(ctx);
   const platform = await platformSuggestions(ctx, region.cities.map((city) => city.id), query);
   const bounds = regionBounds(region.cities.map((city) => city.center));
-  if (bounds === null) return { available: ctx.places.enabled, items: platform };
-  const found = await ctx.places.autocomplete({ scope: region.scope, query, sessionToken, regionCodes: region.countries, bounds });
+  if (bounds === null) return { available: ctx.places.enabled, unavailableReason: null, items: platform };
+  const found = await ctx.places.autocomplete({ scope: region.scope, query, sessionToken, regionCodes: region.countries, bounds }, options);
   const google: SitePlaceItem[] = found.ok ? found.value.map((item) => ({ source: "google", id: item.id, name: item.name, address: item.address, location: null, kind: item.kind })) : [];
-  return { available: found.ok, items: [...platform, ...google] };
+  return { available: found.ok, unavailableReason: unavailableReasonOf(found), items: [...platform, ...google] };
 }
 
 export interface SitePlaceDetailsResult {
   available: boolean;
+  unavailableReason: SitePlaceUnavailableReason;
   /** 选中的谷歌地点的坐标、地址、类型；谷歌用不了时为 null */
   place: { id: string; address: string; location: LatLng; kind: PlaceKind } | null;
 }
 
 /** 输入即提示选中的谷歌地点的坐标和类型（同一个会话令牌，谷歌按一次会话计费）。官网要开着；谷歌出问题不报错，`available: false`。 */
-export async function sitePlaceDetails(ctx: AppContext, placeId: string, sessionToken: string | null): Promise<SitePlaceDetailsResult> {
+export async function sitePlaceDetails(ctx: AppContext, placeId: string, sessionToken: string | null, options: PlaceLookupOptions = {}): Promise<SitePlaceDetailsResult> {
   await requireOpenSite(ctx);
-  const found = await ctx.places.details({ placeId, sessionToken });
-  return found.ok ? { available: true, place: found.value } : { available: false, place: null };
+  const found = await ctx.places.details({ placeId, sessionToken }, options);
+  return found.ok ? { available: true, unavailableReason: null, place: found.value } : { available: false, unavailableReason: unavailableReasonOf(found), place: null };
 }
 
 export interface SiteReverseResult {
   available: boolean;
+  unavailableReason: SitePlaceUnavailableReason;
   /** 这个位置的地址；查不到（海上、山里）为 null */
   address: string | null;
 }
 
 /** 查地图上一个位置的地址。坐标离城市太远 400 `OUT_OF_CITY`（这个代理只为在这个城市用车服务）。谷歌出问题不报错，`available: false`。 */
-export async function siteReversePlace(ctx: AppContext, cityId: string, point: LatLng): Promise<SiteReverseResult> {
+export async function siteReversePlace(ctx: AppContext, cityId: string, point: LatLng, options: PlaceLookupOptions = {}): Promise<SiteReverseResult> {
   const city = await sitePlaceCity(ctx, cityId);
   if (!inBounds(point, cityBounds(city.center))) throw validationFailed("querystring", [{ path: "/lat", reason: "OUT_OF_CITY", message: "这个位置离城市太远，请在城市附近选点" }]);
-  const found = await ctx.places.reverse({ point, regionCode: city.countryCode });
-  return found.ok ? { available: true, address: found.value } : { available: false, address: null };
+  const found = await ctx.places.reverse({ point, regionCode: city.countryCode }, options);
+  return found.ok ? { available: true, unavailableReason: null, address: found.value } : { available: false, unavailableReason: unavailableReasonOf(found), address: null };
 }
 
 type Point = { lng: number; lat: number };

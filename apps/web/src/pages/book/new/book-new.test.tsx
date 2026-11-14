@@ -251,6 +251,44 @@ test("地址框：谷歌用不了时只有平台的地点，状态行说明", as
   assert.equal(within(screen.getByRole("listbox", { name: "出发地的候选" })).getAllByRole("option").length, 1);
 });
 
+test("地址框（M8-45）：这个地址今天的额度用完了（unavailable_reason IP_DAILY_LIMIT）说「今天的地址提示次数用完了」，平台的地点照常；每分钟限流（429）仍说「输入太快了」；谷歌出错的说法不变", async () => {
+  wideScreen();
+  let reply = (): Response => json(200, { available: false, unavailable_reason: "IP_DAILY_LIMIT", items: [airportSuggestion] });
+  open({ config: configOf({ map_tiles: ROUTE_TILES }), autocomplete: () => reply() });
+  const actor = user();
+  const from = await screen.findByRole("combobox", { name: "出发地" });
+  await actor.type(from, "成田");
+  assert.ok(await screen.findByText("今天的地址提示次数用完了，下面只有平台的机场和车站；也可以在地图上选点。", {}, SLOW));
+  assert.equal(within(screen.getByRole("listbox", { name: "出发地的候选" })).getAllByRole("option").length, 1, "平台的机场照常可选");
+  assertAbsent(screen.queryByText(/输入太快了/));
+
+  reply = () => json(200, { available: false, unavailable_reason: "IP_DAILY_LIMIT", items: [] });
+  await actor.clear(from);
+  await actor.type(from, "京王广场");
+  assert.ok(await screen.findByText("今天的地址提示次数用完了。请在地图上选点，或输入机场、车站的名称。", {}, SLOW));
+
+  reply = () => apiError(429, "RATE_LIMITED", "太频繁", { retry_after_seconds: 30 }, { "retry-after": "30" });
+  await actor.clear(from);
+  await actor.type(from, "新宿");
+  assert.ok(await screen.findByText("输入太快了，请稍等几秒再输入。也可以在地图上选点。", {}, SLOW));
+  assertAbsent(screen.queryByText(/今天的地址提示次数用完了/));
+
+  reply = () => json(200, { available: false, items: [airportSuggestion] });
+  await actor.clear(from);
+  await actor.type(from, "成田机场");
+  assert.ok(await screen.findByText("地址提示暂时用不了，下面只有平台的机场和车站。也可以在地图上选点。", {}, SLOW), "谷歌出错、全站上限的说法不变");
+});
+
+test("手机全屏选择页（M8-45）：额度用完的说法和电脑上一样", async () => {
+  window.matchMedia = ((query: string) => ({ matches: query === FULL_SCREEN_PICKER_QUERY || query === "(pointer: coarse)", media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false })) as typeof window.matchMedia;
+  open({ config: configOf({ map_tiles: ROUTE_TILES }), autocomplete: () => json(200, { available: false, unavailable_reason: "IP_DAILY_LIMIT", items: [airportSuggestion] }) });
+  const actor = user();
+  await actor.click(await screen.findByRole("button", { name: /^出发地/ }));
+  const sheet = await screen.findByRole("dialog", { name: "出发地" });
+  await actor.type(within(sheet).getByRole("combobox", { name: "出发地" }), "成田");
+  assert.ok(await within(sheet).findByText("今天的地址提示次数用完了，下面只有平台的机场和车站；也可以在地图上选点。", {}, SLOW));
+});
+
 test("地址框（M8-37）：候选开着时 Tab 走到同一块里的「在地图上选点」，候选收起（不盖住获得焦点的按钮）；点页面别处也收起", async () => {
   wideScreen();
   open({ config: configOf({ map_tiles: ROUTE_TILES }) });
