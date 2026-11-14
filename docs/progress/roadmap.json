@@ -1239,6 +1239,139 @@
           "updated": "2026-11-14"
         }
       ]
+    },
+    {
+      "id": "M9P",
+      "name": "包车报价三层区域模型（业主开发版规格）",
+      "goal": "业主 2026-11-14《包车报价逻辑规格（开发版）》：基础价 / 行程 / 上下车加价三层区域，按上下车点匹配商品，各商品按「套餐价 + 超公里费」最低自选套餐后比价；只改包车，接送机、点对点报价完全不变（ADR 0093）",
+      "tasks": [
+        {
+          "id": "M9P-00",
+          "title": "ADR 0093：包车报价三层区域模型、商品匹配、各商品自选套餐比价、数据迁移",
+          "role": "product",
+          "status": "review",
+          "acceptance": ["ADR 0093 写清 10 项：三层区域、加价算法、商品匹配、选套餐与比价、套餐价车型组 × 套餐、数据迁移、后台校验、实施顺序和任务、验收、框架边界；每节写现状 → 新做法 → 对数据 / 报价的影响", "写明 ADR 0088 / 0089 / 0073 哪几条被取代并在原文加注；0091 沿用 / 作废什么；0092 不采纳、#219 改做法", "列出待业主确认的点（下车点当经停开关默认开等）", "按独立审查修订第二稿：golden 说法收窄并点名会变的样例；已下的单改期 / 救援的加价口径；过渡期下车点当经停查哪一层；和 0091 的分工；M9W → M9P 对照表；13 小时拦截挪进 M9P-03；新旧表按商品标志切换；业主确认第 5 条按规格字面重写、新增第 8、9 条（第三稿：改期 / 救援分开问，13 小时按规格直接做、改为告知，高速费停车费已由 ADR 0070 实现、删去）", "独立审查通过"],
+          "evidence": "PR #222（https://github.com/jiatengmei482-pixel/nozomi/pull/222）；只有文档和 roadmap，pnpm roadmap:check 通过",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9P-01",
+          "title": "P0 #1：经停区域与上 / 下车区域相同时照收行程加价；没有经停时下车点所在区域的行程加价计入（商品开关，默认开）（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
+          "role": "backend",
+          "status": "todo",
+          "acceptance": ["引擎去掉「上 / 下车已计价的区域经停不再加」；同一区域多个经停仍只收一次", "先从 M9W-11 分支带过来 service_rules.charterItinerary 的读写（默认值不存键、PUT 不带键保留原值、只有包车能设、租户隔离集成测试），本任务只加 dropoffCountsAsStop（默认开）；三项配置在 M9P-03 生效", "下车点当经停：没迁移过的商品查下车点所在上下车加价区域那一行的途经加价，没设就跳过、不拒单；迁移过的查行程区域，不在任何行程区域就跳过（ADR 0093 第二节第 4 小节）", "明细逐项：上车加价（区域名）、下车加价（区域名）、行程加价（区域名、第几个经停 / 下车点）", "规格第六节用例 2–7 的加价项做成测试；接送机、点对点 golden 一字不改；包车 golden 变化（itinerary-golden 的 tokyo→fuji→fuji 等）按 ADR 0093 第六节第 4 小节逐条列在 PR 里，旧 golden 文件不重新生成", "部署前格式的订单改期、救援：加价按新算法重算、超时费照旧（ADR 0093 第二节，业主确认第 8 条）", "救援差价基准（ADR 0093 第二节救援 B，待业主确认第 8 条）：order_rescues 加 deduction_base_minor（只加列）；触发救援时单独按订单的 productId 重算加价合计（areaSurcharge 的 pickup、dropoff、waypoints），调 quoteProduct 用 forOwner: true、moment.now 取下单时刻，只取加价三项；基准 = 原结算价 + max(0, 重算加价合计 − 快照加价合计)；rescueCandidates 列候选的差价和改派记的差价都用它（为空用原结算价）；扣款记录 basis 加 base_minor、surcharge_before、surcharge_after、base_fallback_reason；重算失败退回原结算价并记原因、写审计；不靠 charterSelection 区分新旧单；集成测试：P0 #1 旧单救援差价不含多出的行程加价、用车前 6 小时触发和供应商被暂停时触发都算出基准不退回、候选差价与改派差价一致、原供应商触发前调高套餐价差价不变、重算失败退回原结算价", "部署前后回放比对，差异行全部归到 ADR 0093 第六节第 5 小节第 1、2 类", "独立审查、合并、部署后测试站只核对用例 2–7 明细里的加价项（上 / 下车加价、行程加价）；套餐时长和总价取决于 M9P-02 / M9P-03，放到 M9P-11 一起验收"],
+          "evidence": "",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9P-02",
+          "title": "P0 #2：包车按上下车点匹配商品（都在基础价区域或上下车加价区域里），不再按上车城市筛（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
+          "role": "backend",
+          "status": "todo",
+          "acceptance": ["引擎：上 / 下车点只认基础价区域和有上下车加价规则的区域；经停不影响匹配、经停不在任何区域 → 不报（转人工）", "服务层：包车询价 city_id 可选，按点找出能匹配的商品所在城市（一个城市照旧流程；多个城市时只取一个——请求的 city_id、上车点的 serviceCityOf、编号最小的依次取——并打警告日志，不逐城询价合并；都没有 OUT_OF_SERVICE_AREA）；按点列套餐的接口", "前端：新预订页包车不再因上车点不在城市范围而不询价", "规格第六节用例 4、5、8、11、12 做成集成 / 端到端测试；/sales/v1 仍要 city_id", "接送机、点对点 0 变化（golden、回放）", "独立审查、合并、部署后测试站验收用例 4、5、8、11、12"],
+          "evidence": "",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9P-03",
+          "title": "需求二缓冲 T 和三项配置（ADR 0091 第四稿，M9W-11 并入）+ #6 含超公里取最低 + #5 各商品在引擎里自选套餐后比价；下单不收超时费；手动升套餐不短于 T；超过 13 小时不能在线下单（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
+          "role": "backend",
+          "status": "todo",
+          "acceptance": ["复用 origin/m9w-11-package-buffer 的 itinerary golden（选档、超时费逐字段不变；加价变化按 M9P-01 / M9P-06 列）、itineraryEstimate、service_rules.charterItinerary 三项配置（ADR 0091 第四稿第一、二节；ADR 0093 第十二节）", "QuoteRequest.charterSelection（auto / manual / locked）进快照和询价日志；不带时选档和超时费逐字不变（含旧单改期的超时费）；packageHours 为空时碰到的现有代码（请求校验、加价查找、调价时刻、套餐价查找、ComparisonGroup、回放摘要）逐处改为按候选档代入并在 PR 列出", "候选 = 时长 ≥ T（且 ≥ 最低套餐）并且这一档的套餐价和加价规则齐全、能报出的套餐，没有时只有最长档；取「套餐价 + 超公里费」最低；加价、调价不参与选档", "不收超时费，按 ADR 0091 第四稿第三节：price_breakdown 只在超时费大于 0 时写 overtime（旧单订单页不变）；结算价明细 overtimeAtBooking: false；订单详情给 overtime_at_booking；平台试算按新口径、不含超时费；OpenAPI 写 overtime「只在预收了超时费的旧单里出现」", "itineraryQuotes 改为一次询价；应答 estimated_minutes、includes_buffer、auto_package_hours；手动 package_hours 短于 T 或低于最低套餐（且不是最长档）→ 对外 PACKAGE_TOO_SHORT + min_package_hours（/site/v1、/sales/v1 同口径，不记未覆盖需求）", "T 超过商品的在线下单上限（service_rules.charterItinerary.maxOnlineMinutes，默认 13 小时）→ ITINERARY_TOO_LONG，转人工（ADR 0093 第四节第 10 条，从 M9P-10 挪来）", "包车比价的同价区间按业主确认第 5 条（推荐 0，严格取最低）；接送机、点对点不变", "改期、救援：新口径的单传 locked；部署前的单不传（选档、超时费照旧）", "规格第六节用例 1、7、8、9、10 做成测试；回放差异归到 ADR 0093 第六节第 5 小节第 4–7、11、12 类", "独立审查、合并、部署；回放比对通过后再请业主在东京包车填建议值（15 / 60），测试站验收"],
+          "evidence": "",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9P-04",
+          "title": "官网：预计用时（含缓冲）、套餐下拉只列 ≥ 自动档、明细逐项；供应商后台服务规则页三项配置和「下车点当经停」开关（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
+          "role": "frontend",
+          "status": "todo",
+          "acceptance": ["价格明细「预计用时 X 小时 Y 分钟（含缓冲）」；带经停时套餐下拉默认「自动（N 小时）」、只列 ≥ 自动档", "明细逐项列区域名和第几个经停 / 下车点", "供应商 / 运营订单详情的超时一行：新订单写「预计超出 X 分钟，未预收，服务后按实际提交」，旧单照旧「× 单价 = 金额」（ADR 0091 第四稿第三节第 3 小节）；官网 T 超过所选套餐时的提示文案按 0091 业主确认第 1 条；超过 13 小时提示联系客服", "服务规则页：经停点默认占用、整单缓冲、最低套餐（灰色写建议值，不预填）、下车点当经停开关", "组件测试 + 端到端（用例 1、10 的页面部分）", "独立审查、合并、部署后测试站验收"],
+          "evidence": "",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9P-05",
+          "title": "数据结构：行程加价（新价格方式）、上下车加价改名、套餐价改「车型组 × 套餐」整商品一次填、products.charter_layout 按商品切换新旧表；迁移脚本和迁移报告（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
+          "role": "backend",
+          "status": "todo",
+          "acceptance": ["迁移只做加法：price_rules 加价格方式 charter_itinerary_surcharge（套餐可空）；套餐价 area_id 可空；products 加 charter_layout（可空）；不改旧行", "引擎按商品标志切换：charter_layout = 'three_layer' 的商品经停只看行程加价、套餐价只用整商品套餐价；没迁移过的商品整套用旧表（即使有新格式的行也不读）；接口、导入导出同样按标志接受哪套表，没迁移过的商品不能新建新格式规则（CHARTER_LAYOUT_NOT_MIGRATED）", "迁移脚本 --dry-run / --apply，可按商品执行、可重复执行，一个事务，写审计（actor_type system、source cli）；只新增行程加价和整商品套餐价，不改不删运营数据；经部署流水线的 migrate 容器（迁移账号，同 db:migrate）执行，不新开写接口、不给平台账号加写权限", "变量逐跳传递：GitHub Environment 变量 CHARTER_THREE_LAYER_MIGRATION → deploy.yml 部署步骤 env → deploy/client/remote.sh cmd_deploy 的变量列表 → deploy/bin/deploy.sh → compose.sh run -e 给 migrate 容器；deploy.sh 每次打一行「三层迁移：未设 / dry-run / apply」，只认这三个值，其他值报错中止", "报告卷：deploy/compose.yml 给 migrate 服务加只挂部署目录下 reports/ 的卷（deploy.sh 建目录，权限 700）；完整报告只写这里，Actions 日志只打计数、不进产物", "失败行为：脚本在 migrate-cli.ts 之后、新版本启动之前运行；dry-run 或 apply 失败都中止这次部署（和数据库迁移失败同样处理），apply 事务整体回滚，旧版本照常运行", "staging 自动部署的风险：只在本任务代码已部署到 staging 之后才设变量；设 apply 后手动触发一次部署，跑完立即清掉变量（同一次操作里做完），避免之后每次合并 main 都在没看过 dry-run 的情况下迁掉新建的包车商品", "运维文档：docs/deploy.md 加「测试环境执行三层区域迁移」一节（先 dry-run、看计数、再 apply、立即清变量、报告在服务器哪里）；docs/secrets.md 的 Environment 变量清单加上这个变量（取值、用完要清）", "「套餐价不一致」逐条明细的入口：只读接口 GET /platform/v1/products/{id}/charter-migration-diff（运营）和 GET /tenant/v1/products/{id}/charter-migration-diff（供应商只看自己的、只有结算价、租户隔离集成测试），由保留的旧按区域套餐价现算，逐条给区域、车型组、套餐、旧值、整商品值", "charter_layout 只由迁移脚本写（同一个事务、商品版本加一、审计），供应商和运营接口不能改", "迁移报告七项（套餐价不一致、基础价区域上的上下车加价、同层 / 基础价与上下车加价重叠及面积、只有途经加价的行、空格、景点覆盖、各商品迁移前后的标志和版本）", "价格接口、导入导出、OpenAPI 同步；新价格方式的租户隔离集成测试", "独立审查、合并"],
+          "evidence": "",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9P-06",
+          "title": "引擎基础价区域优先；后台保存校验（同层不重叠、基础价与上下车加价区域不重叠、同一区域不能既是基础价又设上下车加价）；上架覆盖检查、空格提示（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
+          "role": "backend",
+          "status": "todo",
+          "acceptance": ["点在任一基础价区域 → 上下车、经停都不加价（P1 #3）", "保存时同商品同层重叠 → 400 AREA_LAYER_OVERLAP（两区域名 + 重叠面积）；基础价与上下车加价重叠 → AREA_BASE_SURCHARGE_OVERLAP；保留 AREA_IS_PRODUCT_AREA（新文案）", "places 加 charter_coverage 列（只加列、不预置数据）；包车上架检查 charter_coverage 列出不在任何区域的清单地标（提醒）；空格提醒", "包车 golden 变化（charter-golden 里 M8-38 的「大区盖小加价区」「重叠取最高」落在基础价区域里的样例、itinerary-golden 里 big 商品的样例）按 ADR 0093 第六节第 4 小节逐条列在 PR 里（旧值 → 新值），旧 golden 文件不重新生成；报不出的样例原因码不变", "规格第六节用例 9、14、15 做成集成测试；回放差异归到第六节第 5 小节第 9、10 类", "独立审查、合并、部署后测试站验收"],
+          "evidence": "",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9P-07",
+          "title": "价格页三张表（套餐价一次填、行程加价、上下车加价）、空格提示、保存前拦截（取代 #219 的放开做法）；运营后台地点勾「包车覆盖检查」（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
+          "role": "frontend",
+          "status": "todo",
+          "acceptance": ["价格页按商品的 charter_layout 显示：迁移过的套餐价按车型组 × 套餐一次填、旧的按区域套餐价折叠只读；没迁移过的照旧显示旧表（正式站不受影响）", "迁移过的商品价格页顶部显示「迁移差异 N 条」，点开看「套餐价不一致」逐条明细（M9P-05 的只读接口）", "行程加价、上下车加价两张表；空格「空 = 不报价」提示和汇总", "服务区域在上下车加价的区域下拉里灰掉；已有的基础价区域上的上下车加价行标红、可删除、不计入「未保存」，其余行照常保存", "取代 M9W-12 后半「服务区域又是加价区域时保存卡住」：批量保存不再整批卡住", "重叠被拦时显示区域名和面积；上架检查显示覆盖检查结果", "运营后台地点页勾选「包车覆盖检查」", "组件测试 + 端到端（用例 14、15）", "独立审查、合并、部署后测试站验收"],
+          "evidence": "",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9P-08",
+          "title": "测试站执行三层区域数据迁移：回放留底 → 迁移脚本 → 回放比对分类 → 迁移报告交运营（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
+          "role": "backend",
+          "status": "todo",
+          "acceptance": ["只在测试站执行，经部署流水线（不手工登录服务器、不新开接口）：M9P-05 已部署后，staging 先设 CHARTER_THREE_LAYER_MIGRATION=dry-run 部署、看日志里的计数，确认后改 apply 手动触发一次部署，跑完立即清掉变量（ADR 0093 第六节第 1 小节，按 docs/deploy.md 操作）", "迁移前后回放差异行逐行归类（ADR 0093 第六节第 5 小节），接送机、点对点 0 行变化", "完整迁移报告留在服务器本地磁盘，不进 Actions 产物；PR 和验收记录只写计数摘要；运营要处理的条目在价格页、区域页里看；不手改运营数据"],
+          "evidence": "",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9P-09",
+          "title": "需求一：机场开始 / 机场结束包车套餐，套在三层区域模型上（羽田在基础价区域）；先写 ADR（来源 docs/requirements/charter-airport-packages-2026-11-14.md 第一节，与规格冲突处以规格为准）",
+          "role": "product",
+          "status": "todo",
+          "acceptance": ["先写 ADR：套餐场景、绑定机场区域、继承或单独定价与上下车加价的关系、下单页快捷入口", "按 ADR 拆后端 / 前端任务", "旧需求文档第六节机场相关 P1 用例做成测试并在测试站验收"],
+          "evidence": "",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9P-10",
+          "title": "P2 #10 经停点不设业务上限（只受路径接口上限，M9W-14）、#11 超限提醒（12 小时 / 360 公里提醒、可继续下单，阈值商品级；13 小时拦截已在 M9P-03）（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
+          "role": "backend",
+          "status": "todo",
+          "acceptance": ["查清路径接口单次点数上限，超出提示联系客服定制", "超限提醒文案按旧需求文档第四节第 3 条（M9W-13 后半）；超过 13 小时不能在线下单已随 M9P-03 上线，本任务只核对提醒和拦截的文案一致", "规格第六节用例 13 做成测试", "前端随同（行程时间表下方提醒）", "独立审查、合并、部署后测试站验收"],
+          "evidence": "",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9P-11",
+          "title": "测试站逐条验收规格第六节 15 个用例（前台价 = 结算价 × 1.1）（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
+          "role": "acceptance",
+          "status": "todo",
+          "acceptance": ["15 个用例逐条记录询价应答和截图，写 docs/acceptance/M9P-11.md", "测试站金额与规格表不同时按测试站实际配置算期望值验证公式，另列金额差异表交运营，不改运营数据", "核对 docs/acceptance/M9W-owner-2026-11-14.md 第 3 项已加注「已被新规格取代」"],
+          "evidence": "",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9P-12",
+          "title": "清理：旧的按区域套餐价、上下车加价行里的途经加价、引擎旧路径（验证通过且业主同意后）（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
+          "role": "backend",
+          "status": "todo",
+          "acceptance": ["M9P-11 通过、业主同意后再做", "迁移删除旧数据前导出备份；回放比对 0 变化"],
+          "evidence": "",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9P-13",
+          "title": "区域编辑器：从本区域减去另一个区域、在地图上看全部（按商品和层筛选、标红重叠）、区域详情显示在哪些商品里当哪一层（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
+          "role": "frontend",
+          "status": "todo",
+          "acceptance": ["三项功能各有组件测试和端到端", "独立审查、合并、部署后测试站验收"],
+          "evidence": "",
+          "updated": "2026-11-14"
+        }
+      ]
     }
   ],
   "log": [
@@ -2486,6 +2619,31 @@
       "date": "2026-11-14",
       "by": "frontend",
       "summary": "M9E-08 按 #220 复审修改：取位置的超时改用老浏览器（Safari 15 / iOS 15）也支持的写法，避免这些浏览器上每次选谷歌候选都提示「取不到位置」；补 1 个组件测试。仍待验收。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "ADR 0093 草案：按业主《包车报价逻辑规格（开发版）》定三层区域（基础价 / 行程加价 / 上下车加价）、按上下车点匹配商品、各商品按「套餐价 + 超公里费」最低自选套餐后比价、下单不收超时费、套餐价改「车型组 × 套餐」一次填、只做加法的数据迁移和回放分类比对、后台重叠校验；新开里程碑 M9P（M9P-00～13），顺序 P0 #1 #2 → 需求二 + #6 + #5 → 区域模型与校验 → 机场套餐 → 经停不限与超限提醒。待业主确认 7 条（下车点当经停默认开等）。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "按 #222 独立审查修订 ADR 0093 第二稿：包车 golden 会随 M9P-01 / M9P-06 变化，点名会变的样例并要求实现 PR 逐条列出；已下的单改期、救援加价按当前规则重算（推荐，待业主确认）；迁移前「下车点当经停」查上下车加价区域那一行的途经加价，没设就跳过不拒单；需求二以 0093 第四节为准，0091 只管 T、三项配置、去超时费，M9W-11 并入 M9P-03，列出 M9W-07 / 11～14 → M9P 对照表；超过 13 小时不能在线下单挪进 M9P-03；新旧价格表按商品是否迁移过（products.charter_layout）切换，不逐格回退；多城市先只取一个城市；同价区间问题按规格「总价最低」重写，推荐包车设为 0；新增业主确认 4 条（改期加价、13 小时、选档只比套餐价 + 超公里、高速费停车费）和任务 M9P-14。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "按 #222 复审修订 ADR 0093 第三稿：itinerary-golden 实为 504 条，tokyo→fuji→fuji 在 small / operating / adjusted 多收 3,000（adjusted 按调价比例），big 商品归基础价区域优先、变便宜；经停在行程区域里但没有规则时沿用现有原因码，不改成 WAYPOINT_NOT_PRICED，报不出的 golden 样例不变；明细保留 waypoints 键、只加可选 fromDropoff；只为经停设的区域迁移后仍能匹配；迁移脚本改走部署流水线的 migrate 容器（迁移账号）、由 staging 变量控制，报告不进 Actions 产物；高速费、停车费已由 ADR 0070 实现，删去确认项和 M9P-14；改期、救援分开推荐，写清救援差价会把算法造成的加价记到原供应商头上；13 小时按规格直接做；平台试算现在不能按行程计价，以后由试算路由传 auto，PlatformQuoteInput 不设默认值；M9P-02 改为多城市只取一个，M9P-06 去掉「经停只看行程区域」、补 golden 列表要求；M9W-07 恢复成 main 的内容，避免和 #218（改为已验收）冲突。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "按 #222 第三轮审查修订 ADR 0093 第四稿：救援 B 的差价基准改为「原结算价 + max(0, 按订单商品重算的加价合计 − 快照里的加价合计)」，套餐价、加急、调价不进基准，对所有订单同一公式、不靠 charterSelection 区分，触发救援时算好存进 order_rescues 新加的一列，重算失败退回原结算价（放在 M9P-01）；业主确认第 8 条同步改问法；改期 / 救援的调用写对（救援经 previewPlatformQuote）；「套餐价不一致」逐条明细加只读接口和价格页入口；M9P-05 写清迁移变量四跳传递、报告卷、失败中止部署、staging 自动部署时用完即清、改 docs/deploy.md 和 docs/secrets.md；M9P-08 去掉不准确的「不用 SSH」。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "按 #222 复核补 ADR 0093 救援 B：重算加价时用 forOwner: true、moment.now 取下单时刻，绕开上架、供应商暂停、提前预订时长和加急的判断，只取加价三项；救援候选列表上的差价和改派记的差价用同一个基准；扣款记录 basis 加 base_minor、加价前后合计和退回原因；补「用车前 6 小时触发」「供应商被暂停时触发」两条集成测试。"
     }
   ]
 }
