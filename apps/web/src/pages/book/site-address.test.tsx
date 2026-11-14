@@ -135,6 +135,12 @@ test("降级：搜索用不了（available false）或太频繁（429）时说�
   await user().type(await screen.findByRole("searchbox", { name: "搜索上车地点（选填）" }), "东京站{Enter}");
   assert.ok(await screen.findByText(/搜索太频繁了，请 40 秒后再搜。现在也可以从常用地点选/));
 
+  // 这个地址今天的额度用完了（M8-45）：说法和新预订页的地址框同一句开头
+  resetBrowser();
+  open({ search: () => json(200, { available: false, unavailable_reason: "IP_DAILY_LIMIT", items: [] }) });
+  await user().type(await screen.findByRole("searchbox", { name: "搜索上车地点（选填）" }), "东京站{Enter}");
+  assert.ok(await screen.findByText("今天的地址提示次数用完了。可以从常用地点选，或在地图上点选、直接填写地址和坐标。"));
+
   resetBrowser();
   open({ search: () => apiError(500, "INTERNAL", "出错了") });
   await user().type(await screen.findByRole("searchbox", { name: "搜索上车地点（选填）" }), "东京站{Enter}");

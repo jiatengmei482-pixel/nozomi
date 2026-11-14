@@ -28,10 +28,13 @@ export const SALES_RATE_LIMITS = {
   site_link_email_day: VIEW_LINK_REQUEST_LIMITS.emailDay,
   /** 官网的地址搜索和反查（ADR 0044，每次可能花钱调谷歌）：每个地址每分钟 20 次 */
   site_places: { max: 20, windowMs: 60_000 },
-  /** 官网的输入即提示和选中后取坐标（M8-02，ADR 0069 B1）：每输入几个字就调一次，每个地址每分钟 60 次；每天的额度和搜索、反查共用 `site_places_day` */
+  /** 官网的输入即提示和选中后取坐标（M8-02，ADR 0069 B1）：每输入几个字就调一次，每个地址每分钟 60 次；每天的额度见 `site_places_google_day` */
   site_autocomplete: { max: 60, windowMs: 60_000 },
-  /** 同上，每个地址每天 300 次：一个人刷不光全站的每日上限 */
-  site_places_day: { max: 300, windowMs: 86_400_000 },
+  /**
+   * 官网和嵌入组件的输入即提示、取坐标、搜索、反查合计，每个地址每天 300 次：一个人刷不光全站的每日上限。
+   * M8-45 起只计**真要调谷歌**的（命中缓存、只有平台地点的不扣），在地址服务调谷歌前扣；用完了不 429，而是不调谷歌、`available: false` + `unavailable_reason: IP_DAILY_LIMIT`
+   */
+  site_places_google_day: { max: 300, windowMs: 86_400_000 },
   /** 官网路线小地图（M8-10，ADR 0072，可能花钱调谷歌静态地图）：每个地址每分钟 30 次（换主题、换尺寸各算一次） */
   site_route_map: { max: 30, windowMs: 60_000 },
   /** 同上，每个地址每天 200 次：一个人刷不光全站的每日上限 */
