@@ -59,6 +59,8 @@ export const SALES_RATE_LIMITS = {
   embed_draft_key: { max: 60, windowMs: 60_000 },
   /** 嵌入组件的地址提示：每个嵌入码每分钟 600 次（每个地址另按官网的输入即提示额度算） */
   embed_places_key: { max: 600, windowMs: 60_000 },
+  /** /embed/book 能不能被嵌入的核对（M9E-16，ADR 0095 第五节第 1 小节；Caddy 每打开一次嵌入页问一次）：每个地址每分钟 60 次，单独一档、不占 site_read */
+  embed_frame_check: { max: 60, windowMs: 60_000 },
   /** 官网的其余接口（配置、城市、机场、订单页）：每个地址每分钟 120 次 */
   site_read: { max: 120, windowMs: 60_000 },
   /** 运营重发订单链接（ADR 0061）：同一张单每小时 5 次 */

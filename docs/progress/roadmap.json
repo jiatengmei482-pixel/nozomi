@@ -1354,8 +1354,7 @@
           "id": "M9E-16",
           "title": "嵌在宿主页·第一期：init 加 bookingUrl（跳宿主页 ?nzdraft=）、mountBooking 骨架（iframe、超时后备、postMessage 核对、自动高度）、/embed/v1/frame-check + Caddy forward_auth 按嵌入码生成 frame-ancestors（ADR 0095 第三、五、六节）",
           "role": "frontend",
-          "status": "blocked",
-          "blockedBy": "M9E-12、M9E-14（layout:auto，占迁移 0430）合并",
+          "status": "doing",
           "acceptance": [
             "不传 bookingUrl 时组件行为逐字不变（现有组件测试、site-embed-widget.spec.ts 原样通过）；传了合格的跳 bookingUrl?nzdraft=<草稿号>，不合格（不同 origin、非 https 等）按没传处理并在控制台报一句",
             "/embed/book 只能被白名单里、本次声明的那一个宿主嵌入：非白名单、伪造 host、停用嵌入码、嵌套两层都被拒；其余页面仍 frame-ancestors 'none' + X-Frame-Options: DENY（security.spec.ts、deploy-web-csp-paths.qa.test.ts 在真实 caddy:2 上核对；伪造 X-Nozomi-Frame-Ancestor 请求头无效）",
@@ -1367,7 +1366,7 @@
             "宿主页 sessionStorage 的 nozomi.host-draft：收到 completed、草稿 404 时删除，并显示「重新查询」入口",
             "迁移排在 0430 之后，只加 delivery 列（booking_drafts、quote_embed_sources、order_embed_sources）和嵌入码的「允许整页嵌入」开关，不回填"
           ],
-          "evidence": "",
+          "evidence": "PR #242（草稿，等 M9E-12 合并后合入 main 再转正式）",
           "updated": "2026-11-14"
         },
         {
@@ -3028,6 +3027,11 @@
       "date": "2026-11-14",
       "by": "backend",
       "summary": "M9P-03 开 PR #240：需求二（预计用时 T = 行驶 + 停留 + 经停数 × 每站默认占用 + 整单缓冲，三项配置和在线下单上限放进商品服务规则 charter_itinerary，默认 0 / 0 / 不限 / 13 小时）、差异表第 6 条（含超公里取最低选档）、第 5 条（各商品在引擎里各自选档、各自算总价再比价）；QuoteRequest.charterSelection（auto / manual / locked）进快照和询价日志；下单不收超时费（明细只在超时费大于 0 时列 overtime，订单详情 overtime_at_booking）；T 超过 13 小时 ITINERARY_TOO_LONG；手动升档不短于 T（PACKAGE_TOO_SHORT + min_package_hours）；官网按行程计价一次询价；改期、救援新口径传 locked、部署前的单不传（超时费、档位照旧）；包车新口径同价区间 0。按监工追加：有经停点时新预订页也能手动升到更长的套餐（下拉只列比自动档长的）。golden 全部 0 条变化（不带 charterSelection 的旧口径逐字不变），新口径期望另写测试。没有数据库迁移。待独立审查、CI、合并、部署、回放比对和测试站验收。M9P-02 日志里留给本任务的「按行程计价时套餐只列匹配到的商品」：现在每个商品在引擎里自己选档，按城市查套餐只用来判断有没有可订的套餐，不影响报价，保持不变。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "frontend",
+      "summary": "M9E-16 开发（PR #242，草稿，等 M9E-12 先合并；已合入 M9E-14）：合作网站的查价表单可以把客人带回合作网站自己的预订页，在那一页里用 iframe 显示主站的嵌入预订页（第一期是占位页：显示这次要订的内容，给「到主站继续预订」）；只有运营在后台打开「允许整页嵌入」、并且网站在白名单里才嵌得进去，其他网站、其他页面都嵌不进；嵌不进去时 15 秒后显示「到主站继续预订」；订单来源能区分「在合作网站页面里下单」。Caddy 固定到修过伪造请求头漏洞的 2.11.9；测试站外层 nginx 不另加安全头。本机跨站自动测试 chromium、webkit 各 6 条通过。"
     }
   ]
 }

@@ -38,16 +38,18 @@ test("路径大小写和前端路由、Caddy 一致：/Book/order 前端照样�
   for (const path of ["/Book", "/BOOK/order", "/Book/order"]) assert.equal(isSitePagePath(path), true, path);
 });
 
-test("Caddy 片段：恰好两条策略；放行 Stripe 的那条只挂在官网匹配器上；两条都没有 unsafe-*、data:、blob:、裸通配符和 http 来源；Stripe 之外不多放一个站外来源", () => {
+test("Caddy 片段：恰好三条策略（M9E-16 加了嵌入预订页那条）；放行 Stripe 的只有官网和嵌入预订页；都没有 unsafe-*、data:、blob:、裸通配符和 http 来源；Stripe 之外不多放一个站外来源", () => {
   const html = '<!doctype html><html><head><script>1</script></head></html>';
   const lines = renderEdgeConfig(html).split("\n");
   const policies = lines.filter((line) => line.includes("Content-Security-Policy"));
-  assert.equal(policies.length, 2);
+  assert.equal(policies.length, 3);
   const site = policies.find((line) => line.startsWith("header @site_pages ")) ?? "";
   const other = policies.find((line) => line.startsWith("header @other_pages ")) ?? "";
+  const embed = policies.find((line) => line.startsWith("\t\theader Content-Security-Policy ")) ?? "";
   assert.match(site, /js\.stripe\.com/);
+  assert.match(embed, /js\.stripe\.com/);
   assert.doesNotMatch(other, /stripe/);
-  for (const policy of [site, other, contentSecurityPolicy([HASH], [], { payments: true }), contentSecurityPolicy([HASH])]) {
+  for (const policy of [site, other, embed, contentSecurityPolicy([HASH], [], { payments: true }), contentSecurityPolicy([HASH])]) {
     assert.doesNotMatch(policy, /unsafe-|data:|blob:|http:|\s\*(\s|;|")/, policy);
     const hosts = [...policy.matchAll(/https:\/\/([^\s;"]+)/g)].map((match) => match[1] ?? "");
     for (const host of hosts) assert.ok(host.endsWith("stripe.com"), host);
