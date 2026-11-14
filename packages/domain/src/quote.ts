@@ -471,7 +471,10 @@ export type ProductQuote =
   /** 报得出的车型组各一个价；报不出的车型组各有原因 */
   | { ok: true; productId: string; tenantId: string; serviceDate: string; urgent: boolean; offers: VehicleOffer[]; refused: VehicleRefusal[] };
 
-/** 一个车型组报不出的原因；`WAYPOINT_NOT_PRICED` 带上是第几个经停点（从 1 起，ADR 0088） */
+/**
+ * 一个车型组报不出的原因。`stopSeq`：是第几个经停点报不出（从 1 起，ADR 0088）——`WAYPOINT_NOT_PRICED`（经停点哪个区域都不在），
+ * 或上 / 下车都报得出、只有经停点所在的加价区域没有可用的途经规则（原因码沿用 `NO_PRICE_RULE` / `PRICE_RULE_DISABLED` / `PRICE_NOT_IN_EFFECT`，M9W-10）
+ */
 export interface VehicleRefusal {
   vehicleGroupId: string;
   reason: QuoteRefusal;
@@ -856,8 +859,11 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
       }
       const waypointCharges = ends.waypoints.map((stop) => endCharge(stop, "waypoint"));
       const failures = [pickupCharge, dropoffCharge, ...waypointCharges].filter((entry): entry is QuoteRefusal => typeof entry === "string");
+      // 只有经停点那一端报不出（上 / 下车都报得出）：原因码照旧，另带上第一个报不出的经停点（M9W-10，ADR 0088 补充），官网据此转人工报价并指出是哪个点；
+      // 上 / 下车有一端报不出时和以前完全一样（不带经停点：去掉经停点也报不出）
+      const failedStop = typeof pickupCharge === "string" || typeof dropoffCharge === "string" ? -1 : waypointCharges.findIndex((entry) => typeof entry === "string");
       if (typeof pickupCharge === "string" || typeof dropoffCharge === "string" || failures.length > 0) {
-        refused.push({ vehicleGroupId, reason: pickRefusal(failures) });
+        refused.push({ vehicleGroupId, reason: pickRefusal(failures), ...(failedStop >= 0 ? { stopSeq: failedStop + 1 } : {}) });
         continue;
       }
       surcharge = { pickup: pickupCharge, dropoff: dropoffCharge, ...(ends.waypoints.length === 0 ? {} : { waypoints: waypointSurcharges(waypointCharges as AreaSurchargeEnd[], [pickupCharge.areaId, dropoffCharge.areaId]) }) };
