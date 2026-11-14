@@ -13134,6 +13134,73 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "503":
           $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/charter-packages:
+    get:
+      tags: [ 官网 ]
+      operationId: listSiteCharterPackagesAt
+      summary: 按上下车点列包车套餐时长
+      description: |
+        M9P-02（ADR 0093 第三节第 3 条）：包车不再按「上车点所在城市」筛商品。上车点、下车点都落在某个包车商品的基础价区域（商品的服务区域）
+        或上下车加价区域（有启用的区域加价规则的区域）里，这个商品才算匹配；列出匹配到的商品的套餐时长（启用且到城市当地今天还没过期的套餐价，
+        从短到长、不重复）。经停点不影响匹配。`city` 是按哪个城市（匹配到几个城市时只取一个，同 `POST /site/v1/quotes`）；一个都没匹配到时
+        `city` 为 null、`items` 为空（页面说「这个地址暂时没有在线报价」）。按城市列的 `GET /site/v1/cities/{id}/charter-packages` 保留。
+        每个地址每分钟 120 次（和城市、机场列表共用）。
+      parameters:
+        - name: pickup
+          in: query
+          required: true
+          description: 上车点，`纬度,经度`（十进制度数），如 `35.5106,138.7637`
+          schema:
+            type: string
+        - name: dropoff
+          in: query
+          required: true
+          description: 下车点，`纬度,经度`
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 匹配到的城市和套餐时长
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ city, items ]
+                properties:
+                  city:
+                    oneOf:
+                      - type: "null"
+                      - type: object
+                        additionalProperties: false
+                        required: [ id, code, name, timezone ]
+                        properties:
+                          id:
+                            type: string
+                            format: uuid
+                          code:
+                            type: string
+                          name:
+                            $ref: "#/components/schemas/LocalizedText"
+                          timezone:
+                            type: string
+                    description: 按哪个城市；上下车点不在任何包车商品的区域里时为 null
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SiteCharterPackage"
+        "400":
+          description: "`VALIDATION_FAILED`：坐标没给或格式不对"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/QaSessionInvalid"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
   /site/v1/cities/{id}/places:
     get:
       tags: [ 官网 ]
@@ -13497,9 +13564,14 @@ paths:
         服务端以官网渠道的身份走正式询价（ADR 0035；和 `POST /sales/v1/quotes` 同一个流程：比价、加价、`quote_id` 30 分钟有效）。用车时间是城市当地时间；币种是渠道的结算币种。
         三种品类各填各的（`category` 不填是接送机）：接送机 `airport_id` + `direction` + `address`；点对点 `pickup` + `dropoff`；包车 `pickup` + `dropoff` + `package_hours`。
         该给的没给 400 `REQUIRED`，不该给的给了 400 `NOT_APPLICABLE`。包车的报价带 `package`（套餐时长和含的公里数）。
+        **城市**：接送机、点对点必填 `city_id`。包车可以不给（M9P-02，ADR 0093 第三节）：服务器按上下车点匹配商品——上车点、下车点都落在商品的基础价区域
+        或上下车加价区域里才参与，经停点不影响匹配——取匹配到的商品的城市询价；匹配到几个城市时只取一个（请求带的 `city_id` → 上车点所在城市 → 编号最小）；
+        一个都没有时不报（`unavailable` 是 `OUT_OF_SERVICE_AREA`）。带了 `city_id` 的包车请求同样先按点找；一个都没匹配到时按带的城市照旧询价。
+        包车的应答多一项 `city`（按哪个城市报的，没有为 null）。
         包车的下车地点（ADR 0073）**必填**（M8-15 暂为可选，M8-19 新预订页加了下车地点输入框后改回必填；`POST /sales/v1/quotes` 仍可选），不给 400 `REQUIRED`（`/dropoff`）。
         报价 = 基础定价 + 上车点所在加价区域的上车加价 + 下车点所在加价区域的下车加价（一口价，已含）；
         上车点或下车点不在商品本身的区域、也不在任何加价区域里的不报价（`unavailable` 是 `OUT_OF_SERVICE_AREA`，页面说「这个地址暂时没有在线报价，请联系客服」）。
+        包车不再按「上车点所在城市」筛商品：例如河口湖在东京包车的富士山加价区域里，就由东京包车报价、收富士山上车加价（M9P-02）。
         报价里含区域加价时 `includes_area_surcharge` 为 true（只说「含区域加价」，不单列金额）。包车下单时要填 `dropoff_address`（询价给了下车点的单都要填）。
         应答里每个车型组一个对外价，带车型组的名称、免费等待、按现在的平台取消政策下单后适用的阶梯。**没有中标供应商、结算价、加价比例。**
         每个地址每分钟 30 次。
@@ -13525,6 +13597,23 @@ paths:
                 additionalProperties: false
                 required: [ currency, quotes, unavailable ]
                 properties:
+                  city:
+                    oneOf:
+                      - type: "null"
+                      - type: object
+                        additionalProperties: false
+                        required: [ id, code, name, timezone ]
+                        properties:
+                          id:
+                            type: string
+                            format: uuid
+                          code:
+                            type: string
+                          name:
+                            $ref: "#/components/schemas/LocalizedText"
+                          timezone:
+                            type: string
+                    description: 只有包车给：按哪个城市报的价（M9P-02）；上下车点不在任何包车商品的区域里、没带 `city_id` 时为 null
                   currency:
                     type: string
                   itinerary_route:
@@ -29849,7 +29938,7 @@ components:
     SiteQuoteRequest:
       type: object
       additionalProperties: false
-      required: [ city_id, service_local, passengers ]
+      required: [ service_local, passengers ]
       description: 各品类要填的字段不同（见 `POST /site/v1/quotes`）；不属于这个品类的字段不要填
       properties:
         category:
@@ -29858,6 +29947,7 @@ components:
         city_id:
           type: string
           format: uuid
+          description: 接送机、点对点必填；包车可以不给，服务器按上下车点找城市（M9P-02）
         airport_id:
           type: string
           format: uuid

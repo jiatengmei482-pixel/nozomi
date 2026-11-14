@@ -46,6 +46,7 @@ import {
   type SitePlaceItem,
   type SiteQuote,
   type SiteQuoteInput,
+  type QuotedCity,
   type SiteQuoteResult,
   type SiteTrip,
   placeSiteOrder,
@@ -54,6 +55,7 @@ import {
   siteAirports,
   siteAutocomplete,
   siteCharterPackages,
+  siteCharterPackagesAt,
   siteCities,
   siteConfig,
   siteFxReference,
@@ -113,12 +115,13 @@ const waypointSchema = z.object({ name: z.string().trim().min(1).max(200), lat: 
  * 询价请求：`category` 不填是接送机（M3-05 的请求照旧能用）。各品类要的字段：
  * 接送机 `airport_id` + `direction` + `address`；点对点 `pickup` + `dropoff`；包车 `pickup` + `dropoff` + `package_hours`
  * （下车点 M8-15 暂为可选，M8-19 新预订页加了下车地点输入框后改回必填，ADR 0073；`/sales/v1` 仍可选）。
+ * `city_id`：接送机、点对点必填；包车可以不给（M9P-02，ADR 0093 第三节：服务器按上下车点匹配商品、自己找城市，应答的 `city` 是按哪个城市报的）。
  * 该给的没给是 `REQUIRED`，不该给的给了是 `NOT_APPLICABLE`（和 `/sales/v1` 同一种说法），见 `siteTripOf`。
  */
 const quoteSchema = z
   .object({
     category: z.enum(SERVICE_CATEGORIES).default("airport_transfer"),
-    city_id: uuidSchema,
+    city_id: uuidSchema.optional(),
     airport_id: uuidSchema.optional(),
     direction: z.enum(["pickup", "dropoff"]).optional(),
     address: pointSchema.optional(),
@@ -325,6 +328,23 @@ function quoteJson(quote: SiteQuote): Json {
   };
 }
 
+/** 按哪个城市报的价（包车，M9P-02） */
+function quotedCityJson(city: QuotedCity | null): Json | null {
+  return city === null ? null : { id: city.id, code: city.code, name: city.name, timezone: city.timezone };
+}
+
+/** 坐标参数 `lat,lng`（十进制度数） */
+const latLngParam = z
+  .string()
+  .max(64)
+  .regex(/^-?\d{1,3}(\.\d+)?(e-\d{1,3})?,-?\d{1,3}(\.\d+)?(e-\d{1,3})?$/i, "写成 纬度,经度，如 35.6812,139.7671")
+  .transform((value) => {
+    const [lat, lng] = value.split(",").map(Number) as [number, number];
+    return { lat, lng };
+  })
+  .refine((point) => point.lat >= -90 && point.lat <= 90 && point.lng >= -180 && point.lng <= 180, "纬度在 -90 到 90、经度在 -180 到 180 之间");
+const charterPackagesAtSchema = z.object({ pickup: latLngParam, dropoff: latLngParam }).strict();
+
 function quoteResultJson(result: SiteQuoteResult): Json {
   // `waypoint_stop_seqs`：原因里有 WAYPOINT_NOT_PRICED 时是哪几个经停点（从 1 起，ADR 0088）；没有时不给（只增字段）
   const itinerary = result.itinerary === undefined ? {} : { itinerary_route: { legs: result.itinerary.legs.map((leg) => ({ minutes: leg.minutes, meters: leg.meters })), drive_minutes: result.itinerary.driveMinutes, stay_minutes: result.itinerary.stayMinutes, total_minutes: result.itinerary.totalMinutes, total_meters: result.itinerary.totalMeters } };
@@ -473,6 +493,17 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
     return { items: hours.map((value) => ({ hours: value })) };
   });
 
+  /**
+   * 按上下车点列包车套餐时长（M9P-02，ADR 0093 第三节第 3 条）：`?pickup=lat,lng&dropoff=lat,lng`。上下车点都落在某个包车商品的
+   * 基础价区域或上下车加价区域里才有；`city` 是按哪个城市（一个都没匹配到为 null、`items` 为空）。按城市列的旧接口保留
+   */
+  app.get("/site/v1/charter-packages", async (request) => {
+    await takeSiteSlot(ctx, "site_read", { ip: request.ip });
+    const input = parseInput(charterPackagesAtSchema, request.query, "querystring");
+    const found = await siteCharterPackagesAt(ctx, { pickup: input.pickup, dropoff: input.dropoff }, await audience(request));
+    return { city: quotedCityJson(found.city), items: found.hours.map((value) => ({ hours: value })) };
+  });
+
   app.get("/site/v1/cities/:id/places", async (request) => {
     await takeSiteSlot(ctx, "site_read", { ip: request.ip });
     const places = await sitePlaces(ctx, resourceId(request.params, "城市"));
@@ -570,9 +601,11 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
   app.post("/site/v1/quotes", async (request) => {
     await takeSiteSlot(ctx, "site_quote", { ip: request.ip });
     const input = parseInput(quoteSchema, request.body, "body");
+    // 接送机、点对点仍要城市（和以前同一种说法）；包车可以不给（M9P-02）
+    if (input.city_id === undefined && input.category !== "charter") throw validationFailed("body", [{ path: "/city_id", message: "必填" }]);
     const seen = await audience(request);
     const quoteInput: SiteQuoteInput = {
-      cityId: input.city_id,
+      cityId: input.city_id ?? null,
       trip: siteTripOf(input),
       serviceLocal: input.service_local,
       passengers: input.passengers,
@@ -580,11 +613,13 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
       addons: addonsOf(input.addons),
       demand: { ip: request.ip, pickupName: input.pickup_name ?? null, dropoffName: input.dropoff_name ?? null, log: request.log },
       ...(seen === "acceptance" ? { audience: seen } : {}),
+      log: request.log,
     };
     const result = await siteQuotes(ctx, quoteInput);
     // 来源只做统计（ADR 0090）：记不下来只写日志，不影响报价
     await recordQuoteEmbedSources(ctx, input.draft_id, result.quotes.map((quote) => quote.quoteId)).catch((err: unknown) => request.log.warn({ event: "embed.quote_source_failed", code: (err as { code?: string }).code ?? null }, "报价来源没记下来"));
-    return quoteResultJson(result);
+    // 包车带上按哪个城市报的（M9P-02）；别的品类不给（只增字段）
+    return { ...(result.city === undefined ? {} : { city: quotedCityJson(result.city) }), ...quoteResultJson(result) };
   });
 
   app.post("/site/v1/quotes/by-points", async (request) => {

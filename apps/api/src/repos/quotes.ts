@@ -2,7 +2,7 @@
  * 报价引擎取数（M2-01，ADR 0020）：把一批商品报价要看的全部事实取出来，拼成 domain 的 QuoteProduct。
  * 每一类数据一条查询取回这一批商品的（不逐个商品查）。在租户事务里只看得到本租户的（行级安全），在平台事务里看得到全部供应商的。
  */
-import { type AddonChargeUnit, type AreaBizType, type CurrencyCode, type InventoryDay, type Position, type QuoteArea, type QuoteProduct, type ServiceCategory, type ServiceRules, type TenantStatus, areaUsableByCategory, tenantBids } from "@nozomi/domain";
+import { type AddonChargeUnit, type AreaBizType, type CurrencyCode, type InventoryDay, type Position, type PriceRule, type Pricing, type QuoteArea, type QuoteProduct, type ServiceCategory, type ServiceRules, type TenantStatus, areaUsableByCategory, tenantBids } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
 import { listDistancePricesOf } from "./distance-prices.ts";
 import { ADJUST_COLUMNS, PRICE_COLUMNS, toAdjustRule, toPriceRule } from "./prices.ts";
@@ -176,6 +176,72 @@ export async function loadQuoteCandidates(db: Db, filter: QuoteCandidateFilter):
         ...(category !== "charter" && distanceByProduct.has(row["id"]) ? { distancePrices: distanceByProduct.get(row["id"]) ?? [] } : {}),
         inventoryMode: row["inventory_mode"],
       },
+    };
+  });
+}
+
+/** 按上下车点匹配包车商品要的事实（M9P-02，ADR 0093 第三节）：商品的城市、供应商，①的图形，③的图形和区域加价规则 */
+export interface CharterCityCandidate {
+  productId: string;
+  tenantId: string;
+  tenantStatus: TenantStatus;
+  cityId: string;
+  areas: QuoteArea[];
+  surchargeAreas: QuoteArea[];
+  /** 只有区域加价规则（`charter_area_surcharge`） */
+  priceRules: Pick<PriceRule, "areaId" | "status" | "pricing">[];
+}
+
+/**
+ * 在卖的包车商品（启用的城市里；`cityIds` 为 null 表示不限城市），连同①（商品选的区域）和③（区域加价规则用到的区域）的图形、
+ * 区域加价规则的区域和状态。只用来按上下车点找该按哪个城市询价（`charterMatches`），报不报、加多少仍由报价引擎判断。
+ */
+export async function loadCharterCityCandidates(db: Db, filter: { cityIds: readonly string[] | null; listing: "published" | "qa_listed" }): Promise<CharterCityCandidate[]> {
+  const products = await db.query<Row>(
+    `select p.id, p.tenant_id, p.city_id, t.status as tenant_status
+       from products p
+       join tenants t on t.id = p.tenant_id
+       join cities c on c.id = p.city_id and c.status = 'active'
+      where p.category = 'charter' and p.status = $2 and ($2 = 'published' or t.is_test_tenant)
+        and ($1::uuid[] is null or p.city_id = any($1::uuid[]))
+      order by p.city_id, p.tenant_id, p.id`,
+    [filter.cityIds, filter.listing],
+  );
+  if (products.rows.length === 0) return [];
+  const ids = products.rows.map((row) => row["id"] as string);
+  const tenantIds = [...new Set(products.rows.map((row) => row["tenant_id"] as string))];
+  const own = await db.query<Row>(
+    `select pa.product_id, pa.area_id, a.status
+       from product_areas pa join areas a on a.tenant_id = pa.tenant_id and a.id = pa.area_id
+      where pa.tenant_id = any($2::uuid[]) and pa.product_id = any($1::uuid[])
+      order by pa.product_id, pa.priority, pa.area_id`,
+    [ids, tenantIds],
+  );
+  const surchargeRules = await db.query<Row>(
+    `select r.product_id, r.area_id, r.status, r.pricing_model, r.params, a.status as area_status
+       from price_rules r join areas a on a.tenant_id = r.tenant_id and a.id = r.area_id
+      where r.tenant_id = any($2::uuid[]) and r.product_id = any($1::uuid[]) and r.pricing_model = 'charter_area_surcharge'
+      order by r.product_id, r.created_at, r.id`,
+    [ids, tenantIds],
+  );
+  const areaIds = [...new Set([...own.rows, ...surchargeRules.rows].map((row) => row["area_id"] as string))];
+  const polygons = areaIds.length === 0 ? { rows: [] as Row[] } : await db.query<Row>("select id, area_id, kind, geometry from area_polygons where tenant_id = any($2::uuid[]) and area_id = any($1::uuid[]) order by area_id, position, id", [areaIds, tenantIds]);
+  const shapes = new Map<string, { id: string; kind: "operate" | "forbid"; ring: Position[] }[]>();
+  for (const row of polygons.rows) shapes.set(row["area_id"], [...(shapes.get(row["area_id"]) ?? []), { id: row["id"], kind: row["kind"], ring: (row["geometry"] as { coordinates: Position[][] }).coordinates[0] ?? [] }]);
+  const areaOf = (row: Row, statusColumn: string): QuoteArea => ({ areaId: row["area_id"], active: row[statusColumn] === "active", shapes: shapes.get(row["area_id"]) ?? [] });
+  return products.rows.map((row): CharterCityCandidate => {
+    const id = row["id"] as string;
+    const rules = surchargeRules.rows.filter((entry) => entry["product_id"] === id);
+    const surchargeAreas = new Map<string, QuoteArea>();
+    for (const entry of rules) if (!surchargeAreas.has(entry["area_id"])) surchargeAreas.set(entry["area_id"], areaOf(entry, "area_status"));
+    return {
+      productId: id,
+      tenantId: row["tenant_id"],
+      tenantStatus: row["tenant_status"],
+      cityId: row["city_id"],
+      areas: own.rows.filter((entry) => entry["product_id"] === id).map((entry) => areaOf(entry, "status")),
+      surchargeAreas: [...surchargeAreas.values()],
+      priceRules: rules.map((entry) => ({ areaId: entry["area_id"], status: entry["status"], pricing: { model: entry["pricing_model"], ...entry["params"] } as Pricing })),
     };
   });
 }

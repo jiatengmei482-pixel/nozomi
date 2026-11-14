@@ -340,7 +340,9 @@ test("M9W-06：按行程计价先核城市、查套餐再估路线——城市�
   assert.deepEqual([unknown.status, unknown.body.error.details.issues.map((issue: any) => [issue.path, issue.reason])], [400, [["/city_id", "UNKNOWN_CITY"]]]);
   assert.deepEqual([plain.status, plain.body.error.details.issues.map((issue: any) => [issue.path, issue.reason])], [400, [["/city_id", "UNKNOWN_CITY"]]]);
   api.clock.advance(1_000);
-  const empty = await site.call("POST", "/site/v1/quotes", { body: { ...body, city_id: m.ids.osaka }, ip: nextIp() });
+  // M9P-02：包车先按上下车点匹配商品，带的 city_id 只在匹配到几个城市时用来挑——这里换成大阪的点（哪个包车商品都匹配不到，按带的城市照旧询价）
+  const osakaPoint = { lat: 34.7, lng: 135.5 };
+  const empty = await site.call("POST", "/site/v1/quotes", { body: { ...body, pickup: osakaPoint, dropoff: osakaPoint, waypoints: [{ name: "大阪城", lat: 34.687, lng: 135.526, stay_minutes: 90 }], city_id: m.ids.osaka }, ip: nextIp() });
   assertMatchesOpenApi("POST", "/site/v1/quotes", empty);
   assert.equal(empty.status, 200, empty.text);
   assert.deepEqual([empty.body.quotes, empty.body.unavailable], [[], [{ vehicle_group_id: null, reasons: ["NO_PRODUCT"] }]]);
