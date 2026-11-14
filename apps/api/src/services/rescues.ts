@@ -41,6 +41,7 @@ import {
   tenantOutOfService,
   UNRESTRICTED_SCOPE,
   scopeIsRestricted,
+  withOrderEstimate,
 } from "@nozomi/domain";
 import { orderInScope } from "./order-queries.ts";
 import type { AppContext } from "../context.ts";
@@ -417,9 +418,14 @@ export interface RescueCandidates {
   excluded: { tenantId: string; tenantName: string; productId: string | null; reason: string }[];
 }
 
-/** 原报价条件：原来的请求，换成这一单现在的用车时间、人数行李，只比这一单的车型组。 */
+/**
+ * 原报价条件：原来的请求，换成这一单现在的用车时间、人数行李，只比这一单的车型组。
+ * 新口径下的包车单（快照带 charterSelection，ADR 0093 第四节第 11 条）按订单的档锁定（`locked` + 订单的 `packageHours`：新口径快照的
+ * `request.packageHours` 是自动选档时的 null）；部署前的单不带，档和超时费照旧（ADR 0091 第三节第 1 小节）。
+ */
 function rescueRequest(snapshot: StoredQuoteSnapshot, order: Order): QuoteRequest {
-  return { ...snapshot.request, serviceLocal: order.serviceLocal, passengers: order.passengers, luggage: order.luggage, vehicleGroupIds: [order.vehicleGroupId] };
+  const locked = snapshot.request.charterSelection === undefined ? {} : { charterSelection: "locked" as const, packageHours: order.packageHours };
+  return { ...snapshot.request, ...locked, serviceLocal: order.serviceLocal, passengers: order.passengers, luggage: order.luggage, vehicleGroupIds: [order.vehicleGroupId] };
 }
 
 /**
@@ -462,6 +468,8 @@ export async function rescueCandidates(ctx: AppContext, orderId: string, log?: Q
       // 包车的经停点（ADR 0088）：按原报价锁定的经停点重新比价，救援供应商同样按途经加价报
       ...(request.waypoints === undefined ? {} : { waypoints: request.waypoints }),
       ...(request.routeUsage === undefined ? {} : { routeUsage: request.routeUsage }),
+      // 不设默认值：快照带 charterSelection 的才传 locked，部署前的单不传（ADR 0091 第三节第 1 小节）
+      ...(request.charterSelection === undefined ? {} : { charterSelection: request.charterSelection }),
     },
     log === undefined ? {} : { log },
   );
@@ -472,7 +480,8 @@ export async function rescueCandidates(ctx: AppContext, orderId: string, log?: Q
   const tenantIds = [...new Set([...(group?.ranked ?? []).map(({ candidate }) => candidate.tenantId), ...preview.comparison.refused.map((entry) => entry.tenantId), ...preview.excluded.map((entry) => entry.product.tenantId)])];
   const names = await withPlatformTx(ctx.pool, async (db) => new Map((await db.query<{ id: string; name: string }>("select id, name from tenants where id = any($1::uuid[])", [tenantIds])).rows.map((row) => [row.id, row.name])));
   const candidates = ranked.map(({ candidate, inBand }, index): RescueCandidate => {
-    const settlement = candidate.offer.settlement;
+    // 预计用时四项从原订单原样抄（locked 不重算 T，ADR 0091 第三节第 2 小节）
+    const settlement = withOrderEstimate(candidate.offer.settlement, order.settlement);
     const diff = rescueDifference({
       originalMinor: deductionBaseMinor(rescue),
       originalCurrency: rescue.originalSettlementCurrency,

@@ -143,13 +143,14 @@ test("规格用例 2–6、16–18（前台价 = 结算价 × 1.1）：经停的
 
 test("服务规则：下车点行程加价默认开；关掉 → 规格用例 19（只收下车加价）；PUT 不带这个键保留原值；别的品类设不了；甲读不到、改不了乙的", async () => {
   const before = await serviceRules(m.b, charterB.id);
-  assert.deepEqual(before.rules.charter_itinerary, { dropoff_itinerary_surcharge: true });
+  // M9P-03 在同一个键里加了预计用时 T 的三项和在线下单上限（默认 0 / 0 / 不限 / 13 小时）
+  assert.deepEqual(before.rules.charter_itinerary, { ...ITINERARY_DEFAULTS, dropoff_itinerary_surcharge: true });
   const stored = await api.db.owner.query<{ rules: Record<string, unknown> }>("select service_rules as rules from products where id = $1", [charterB.id]);
   assert.equal("charterItinerary" in (stored.rows[0]?.rules ?? {}), false, "默认值不存键");
 
   const off = await putServiceRules(m.b, charterB.id, { charter_itinerary: { dropoff_itinerary_surcharge: false } });
   assert.equal(off.status, 200, off.text);
-  assert.deepEqual(off.body.rules.charter_itinerary, { dropoff_itinerary_surcharge: false });
+  assert.deepEqual(off.body.rules.charter_itinerary, { ...ITINERARY_DEFAULTS, dropoff_itinerary_surcharge: false });
   // 乙关了、甲没关：乙 71,500 中标
   const res19 = await quote("shinjuku", [], "kawaguchikoStation");
   assert.equal(total(res19), "71500");
@@ -161,13 +162,13 @@ test("服务规则：下车点行程加价默认开；关掉 → 规格用例 19
   // 旧页面保存服务规则（不带 charter_itinerary）：保留原值（关着）
   const kept = await putServiceRules(m.b, charterB.id, { booking: { ...before.rules.booking, note: "旧页面保存" } });
   assert.equal(kept.status, 200, kept.text);
-  assert.deepEqual(kept.body.rules.charter_itinerary, { dropoff_itinerary_surcharge: false });
+  assert.deepEqual(kept.body.rules.charter_itinerary, { ...ITINERARY_DEFAULTS, dropoff_itinerary_surcharge: false });
 
   // 规则 2：甲读不到、改不了乙的服务规则
   const v = await version(m.b, charterB.id);
   assert.equal((await tenantCall(m.a, "GET", `/products/${charterB.id}/service-rules`)).status, 404);
   assert.equal((await tenantCall(m.a, "PUT", `/products/${charterB.id}/service-rules`, { version: v, body: { charter_itinerary: { dropoff_itinerary_surcharge: true } } })).status, 404);
-  assert.deepEqual((await serviceRules(m.b, charterB.id)).rules.charter_itinerary, { dropoff_itinerary_surcharge: false });
+  assert.deepEqual((await serviceRules(m.b, charterB.id)).rules.charter_itinerary, { ...ITINERARY_DEFAULTS, dropoff_itinerary_surcharge: false });
 
   // 别的品类：设不了（400 NOT_APPLICABLE），读的时候也没有这个键
   const transfer = (await ok(tenantCall(m.b, "GET", "/products"))).items.find((item: any) => item.category !== "charter");
@@ -206,6 +207,23 @@ async function bOrder(extra: Record<string, unknown> = {}): Promise<{ orderId: s
   return placed;
 }
 
+/** 服务规则 `charter_itinerary` 里 M9P-03 加的几项的默认值 */
+const ITINERARY_DEFAULTS = { stop_occupancy_minutes: 0, buffer_minutes: 0, min_package_hours: null, max_online_minutes: 780 };
+
+/**
+ * 把一单改成 M9P-03 之前的「预收了超时费」的格式：快照的请求没有 charterSelection、套餐时长写在请求里，结算价明细里超时费 `overtimeMinor` 预收、没有 `overtimeAtBooking`，结算价多出超时费。
+ * 只模拟超时费预收这一点（客人付的钱、路线、套餐都不动）。
+ */
+async function asPrepaidOvertime(orderId: string, overtimeMinor: number): Promise<void> {
+  const old = `jsonb_set(jsonb_set(jsonb_set(settlement #- '{itinerary,overtimeAtBooking}', '{itinerary,overtimeMinor}', to_jsonb($2::bigint)), '{totalMinor}', to_jsonb((settlement->>'totalMinor')::bigint + $2)), '{baseMinor}', to_jsonb((settlement->>'baseMinor')::bigint + $2))`;
+  await api.db.owner.query(`update orders set settlement = ${old}, settlement_minor = settlement_minor + $2 where id = $1`, [orderId, overtimeMinor]);
+  await api.db.owner.query(
+    `update quotes set snapshot = jsonb_set(jsonb_set(snapshot #- '{request,charterSelection}', '{request,packageHours}', to_jsonb((select package_hours from orders where id = $1))), '{winner,offer,settlement}', (select settlement from orders where id = $1))
+     where id = (select quote_id from order_sales where order_id = $1)`,
+    [orderId],
+  );
+}
+
 /**
  * 把一单改成「部署前格式」：报价快照和订单的结算价明细按 M9P-01 之前的算法（经停富士山被富士山下车抵消，行程加价 0），结算价少 10,000。
  * 只模拟算法不同这一点（客人付的钱、请求、套餐都不动）。
@@ -226,7 +244,9 @@ test("部署前格式的订单改期：加价按新算法重算（行程加价�
   legMinutes = 120;
   const settled = await api.db.owner.query<{ s: any }>("select settlement as s from orders where id = $1", [orderId]);
   const itinerary = settled.rows[0]?.s.itinerary;
-  assert.deepEqual([itinerary.overtimeMinor, settled.rows[0]?.s.totalMinor], [9_000, 55_000 + 20_000 + 9_000]);
+  // M9P-03 起下单不收超时费（超出 90 分钟照记）；部署前的单下单时按 6,000 / 小时预收了 9,000——把这一单改成那个样子
+  assert.deepEqual([itinerary.overtimeMinutes, itinerary.overtimeMinor, itinerary.overtimeAtBooking, settled.rows[0]?.s.totalMinor], [90, 0, false, 55_000 + 20_000]);
+  await asPrepaidOvertime(orderId, 9_000);
   await asPreDeployment(orderId);
   const view = await site.call("GET", "/site/v1/order", { token, ip: nextIp() });
   const moved = await site.call("PATCH", "/site/v1/order", { token, ip: nextIp(), headers: { "if-match": `"${view.body.order.version}"` }, body: { service_time: "2026-10-21T10:00:00+09:00" } });

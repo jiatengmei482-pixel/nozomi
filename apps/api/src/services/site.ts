@@ -488,14 +488,15 @@ export type SiteTrip =
   | { category: "point_to_point"; pickup: Point; dropoff: Point }
   /**
    * 包车：上车点、下车点的坐标、套餐时长（小时）。下车点暂时可以不给（ADR 0073，M8-13 改为必填）：不给时只报没设区域加价的商品。
-   * `waypoints`：有序的经停点（ADR 0088，最多 10 个）；不给或空 = 没有
+   * `waypoints`：有序的经停点（ADR 0088，最多 10 个）；不给或空 = 没有。
+   * `charterSelection`（ADR 0093 第四节）：不给 = 客人自选时长（`manual`）；按行程计价时由 `itineraryQuotes` 给 `auto`（`packageHours` 为 null）或 `manual`
    */
-  | { category: "charter"; pickup: Point; dropoff: Point | null; packageHours: number; waypoints?: SiteWaypoint[]; routeUsage?: RouteUsage }
+  | { category: "charter"; pickup: Point; dropoff: Point | null; packageHours: number | null; waypoints?: SiteWaypoint[]; routeUsage?: RouteUsage; charterSelection?: "auto" | "manual" }
   /**
-   * 包车按行程计价（ADR 0088 补充「最终报价公式」）：不选套餐——服务器按上车点 → 经停点 → 下车点逐段估路线，
-   * 总时长 = 各段行驶 + 各点停留，按总时长选套餐（`siteQuotes` 里的 `itineraryQuotes`）
+   * 包车按行程计价（ADR 0088 补充「最终报价公式」）：服务器按上车点 → 经停点 → 下车点逐段估路线，各商品按自己的预计用时 T 选套餐（ADR 0093 第四节）。
+   * `packageHours`：客人手动升到的档（不给 = 自动选）
    */
-  | { category: "charter_itinerary"; pickup: Point; dropoff: Point; waypoints: SiteWaypoint[] };
+  | { category: "charter_itinerary"; pickup: Point; dropoff: Point; waypoints: SiteWaypoint[]; packageHours?: number };
 
 /** 包车的一个经停点（ADR 0088）：名称、坐标、停留分钟。原样进报价快照的 `snapshot.request.waypoints`，下单时抄进订单 */
 export interface SiteWaypoint {
@@ -622,9 +623,9 @@ async function itineraryRoute(ctx: AppContext, trip: Extract<SiteTrip, { categor
 }
 
 /**
- * 包车按行程计价（ADR 0088 补充）：先核城市、查这个城市能选的套餐（没有就 NO_PRODUCT，不估路线、应答里也没有 itinerary_route），再估路线，按套餐时长逐个询价（带上全程和总时长，超公里、超时由引擎算），
- * 每个车型组取「能覆盖总时长的最小套餐」那一档的报价；所有套餐都覆盖不了（或覆盖的那几档这个车型组报不出）时取报得出的最大套餐（加超时费）。
- * 一个车型组只留一个报价；都报不出时原因用最先试的那一档的。
+ * 包车按行程计价（ADR 0088 补充；M9P-03 起按 ADR 0093 第四节）：先核城市、查这个城市能选的套餐（没有就 NO_PRODUCT，不估路线、应答里也没有 itinerary_route），再估路线，
+ * 然后**只询一次价**：`charterSelection: "auto"`（客人没选档）或 `"manual"`（客人手动升档）——每个商品每个车型组在引擎里按自己的预计用时 T 选档、
+ * 含超公里取最低，再比价；不收超时费。一次询价一条询价日志，「未覆盖需求」照常只记一次。
  */
 async function itineraryQuotes(ctx: AppContext, input: CityQuoteInput, trip: Extract<SiteTrip, { category: "charter_itinerary" }>, logExtra: Record<string, unknown>): Promise<SiteQuoteResult> {
   // 先核城市、查套餐，再估路线（M9W-06）：城市不对和普通询价一样 400 `UNKNOWN_CITY`；没有能选的套餐直接 `NO_PRODUCT`，都不调谷歌
@@ -633,27 +634,14 @@ async function itineraryQuotes(ctx: AppContext, input: CityQuoteInput, trip: Ext
   const packages = await siteCharterPackages(ctx, input.cityId, input.audience ?? "public");
   if (packages.length === 0) return { currency: channel.settleCurrency, quotes: [], unavailable: [{ vehicleGroupId: null, reasons: ["NO_PRODUCT"] }] };
   const itinerary = await itineraryRoute(ctx, trip);
-  const covering = packages.filter((hours) => hours * 60 >= itinerary.totalMinutes);
-  const shorter = packages.filter((hours) => hours * 60 < itinerary.totalMinutes).reverse();
-  const order = [...covering, ...shorter];
   const routeUsage: RouteUsage = { meters: itinerary.totalMeters, minutes: itinerary.totalMinutes, legs: itinerary.legs, stayMinutes: itinerary.stayMinutes };
-  const chosen = new Map<string, SiteQuote>();
-  let first: SiteQuoteResult | null = null;
-  // 「未覆盖需求」只在第一档报不出时记一次
-  const { demand, ...rest } = input;
-  for (const packageHours of order) {
-    const result = await cityQuotes(ctx, { ...rest, ...(first === null && demand !== undefined ? { demand } : {}), trip: { category: "charter", pickup: trip.pickup, dropoff: trip.dropoff, packageHours, waypoints: trip.waypoints, routeUsage } }, logExtra);
-    first ??= result;
-    for (const quote of result.quotes) if (!chosen.has(quote.vehicleGroupId)) chosen.set(quote.vehicleGroupId, quote);
-  }
-  const quotes = [...chosen.values()].sort((a, b) => a.sellMinor - b.sellMinor || a.vehicleGroup.seats - b.vehicleGroup.seats);
-  const currency = first?.currency ?? channel.settleCurrency;
-  const unavailable: SiteQuoteResult["unavailable"] = quotes.length > 0 ? [] : (first?.unavailable ?? [{ vehicleGroupId: null, reasons: ["NO_PRODUCT"] }]);
-  return { currency, quotes, unavailable, itinerary };
+  const manual = trip.packageHours !== undefined;
+  const result = await cityQuotes(ctx, { ...input, trip: { category: "charter", pickup: trip.pickup, dropoff: trip.dropoff, packageHours: trip.packageHours ?? null, waypoints: trip.waypoints, routeUsage, charterSelection: manual ? "manual" : "auto" } }, logExtra);
+  return { ...result, itinerary };
 }
 
 /** 询价请求里给渠道询价用的那几项（各品类的起终点、方向、套餐），和询价日志里记的原始请求。 */
-function salesTrip(input: CityQuoteInput): { category: ServiceCategory; placeId: string | null; direction: "pickup" | "dropoff" | null; pickup: Point | null; dropoff: Point | null; packageHours: number | null; waypoints: SiteWaypoint[]; routeUsage: RouteUsage | null; request: Record<string, unknown> } {
+function salesTrip(input: CityQuoteInput): { category: ServiceCategory; placeId: string | null; direction: "pickup" | "dropoff" | null; pickup: Point | null; dropoff: Point | null; packageHours: number | null; waypoints: SiteWaypoint[]; routeUsage: RouteUsage | null; charterSelection?: "auto" | "manual"; request: Record<string, unknown> } {
   const { trip } = input;
   if (trip.category === "charter_itinerary") throw new Error("按行程计价先选套餐再询价（itineraryQuotes）");
   const common = { source: "site", category: trip.category, city_id: input.cityId, service_local: input.serviceLocal, passengers: input.passengers, luggage: input.luggage, addons: input.addons.map((addon) => ({ addon_id: addon.addonId, quantity: addon.quantity })) };
@@ -673,14 +661,27 @@ function salesTrip(input: CityQuoteInput): { category: ServiceCategory; placeId:
     case "point_to_point":
       return { category: trip.category, placeId: null, direction: null, pickup: trip.pickup, dropoff: trip.dropoff, packageHours: null, waypoints: [], routeUsage: null, request: { ...common, pickup: trip.pickup, dropoff: trip.dropoff } };
     case "charter": {
-      // 询价日志只记经停点的坐标（回放报价要用，ADR 0088），不记名称
+      // 询价日志只记经停点的坐标（回放报价要用，ADR 0088），不记名称；记怎么定的套餐（ADR 0093 第四节：回放据此重现选档），自动选档时没有 package_hours
       const waypoints = trip.waypoints ?? [];
       const routeUsage = trip.routeUsage ?? null;
+      const charterSelection = trip.charterSelection ?? "manual";
       const logged = {
         ...(waypoints.length === 0 ? {} : { waypoints: waypoints.map((stop) => ({ lat: stop.lat, lng: stop.lng })) }),
         ...(routeUsage === null ? {} : { route_usage: { meters: routeUsage.meters, minutes: routeUsage.minutes } }),
+        charter_selection: charterSelection,
       };
-      return { category: trip.category, placeId: null, direction: null, pickup: trip.pickup, dropoff: trip.dropoff, packageHours: trip.packageHours, waypoints, routeUsage, request: { ...common, pickup: trip.pickup, ...(trip.dropoff === null ? {} : { dropoff: trip.dropoff }), package_hours: trip.packageHours, ...logged } };
+      return {
+        category: trip.category,
+        placeId: null,
+        direction: null,
+        pickup: trip.pickup,
+        dropoff: trip.dropoff,
+        packageHours: trip.packageHours,
+        waypoints,
+        routeUsage,
+        charterSelection,
+        request: { ...common, pickup: trip.pickup, ...(trip.dropoff === null ? {} : { dropoff: trip.dropoff }), ...(trip.packageHours === null ? {} : { package_hours: trip.packageHours }), ...logged },
+      };
     }
   }
 }
@@ -820,6 +821,7 @@ async function cityQuotes(ctx: AppContext, input: CityQuoteInput, logExtra: Reco
       currency: channel.settleCurrency,
       ...(sales.waypoints.length === 0 ? {} : { waypoints: sales.waypoints }),
       ...(sales.routeUsage === null ? {} : { routeUsage: sales.routeUsage }),
+      ...(sales.charterSelection === undefined ? {} : { charterSelection: sales.charterSelection }),
     },
     { request: { ...sales.request, ...logExtra }, ...(input.demand === undefined ? {} : { demand: demandSource(input.demand) }), ...(input.audience === "acceptance" ? { audience: "acceptance" as const } : {}) },
   );

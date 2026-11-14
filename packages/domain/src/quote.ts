@@ -36,6 +36,7 @@ import {
   formatExact,
   hasIncludedKm,
   overKm,
+  priceRuleCoversDate,
   scaleExact,
   selectPriceRule,
   surchargeAreaIds,
@@ -115,7 +116,20 @@ export interface QuoteRequest {
    * 给了就按套餐的含公里、套餐时长收超公里、超时（和套餐价、区域加价一起过调价）；不给 = 和以前一样不预收（服务后按实际加收）。只有包车能给。
    */
   routeUsage?: RouteUsage;
+  /**
+   * 包车怎么定套餐（ADR 0093 第四节；进报价快照和询价日志，回放据此重现选档）：
+   * - `auto`：按行程自动选（`packageHours` 为 null、要给 `routeUsage`）——各商品各车型组在时长 ≥ 预计用时 T（且 ≥ 最低套餐）、能报出的档里
+   *   取「套餐价 + 超公里费」最低的；一档都没有时只有最长那一档；
+   * - `manual`：客人自选 `packageHours`（官网手动升档、不按行程计价的包车、`/sales/v1`）——低于最低套餐、或带了行程而比 T 短（又不是最长那一档）的不报；
+   * - `locked`：改期、救援按订单的档报，不判 T、最低套餐和在线下单上限。
+   * 带了它就不收超时费（规格第一节：超时由供应商服务后提交，ADR 0091 第三节），T 超过在线下单上限的不报（`auto` / `manual`）。
+   * **不带 = 部署前的口径**（旧单改期、救援、旧日志回放、golden）：选档和超时费和以前逐字一样。只有包车能给。
+   */
+  charterSelection?: CharterSelection;
 }
+
+export const CHARTER_SELECTIONS = ["auto", "manual", "locked"] as const;
+export type CharterSelection = (typeof CHARTER_SELECTIONS)[number];
 
 /** 包车按行程计价的全程（ADR 0088 补充）：`meters`、`minutes` 是引擎用的合计；`legs`（逐段行驶）、`stayMinutes`（停留合计）只随快照锁定，引擎不看 */
 export type RouteUsage = RouteEstimate & { readonly legs?: readonly RouteEstimate[]; readonly stayMinutes?: number };
@@ -133,7 +147,12 @@ export function quoteRequestIssues(request: QuoteRequest): QuoteRequestIssue[] {
   const issues: QuoteRequestIssue[] = [];
   const { category } = request;
   if ((category === "airport_transfer") !== (request.direction !== null)) issues.push({ path: "/direction", reason: category === "airport_transfer" ? "REQUIRED" : "NOT_APPLICABLE" });
-  if ((category === "charter") !== (request.packageHours !== null)) issues.push({ path: "/package_hours", reason: category === "charter" ? "REQUIRED" : "NOT_APPLICABLE" });
+  const selection = request.charterSelection;
+  if (selection !== undefined && (category !== "charter" || !(CHARTER_SELECTIONS as readonly string[]).includes(selection))) issues.push({ path: "/charter_selection", reason: category === "charter" ? "OUT_OF_RANGE" : "NOT_APPLICABLE" });
+  // 包车要给套餐时长，自动选套餐（ADR 0093 第四节）时不给
+  const needsHours = category === "charter" && selection !== "auto";
+  if (needsHours !== (request.packageHours !== null)) issues.push({ path: "/package_hours", reason: needsHours ? "REQUIRED" : "NOT_APPLICABLE" });
+  if (category === "charter" && selection === "auto" && request.routeUsage === undefined) issues.push({ path: "/route_usage", reason: "REQUIRED" });
   if (request.packageHours !== null && (!Number.isInteger(request.packageHours) || request.packageHours < 1 || request.packageHours > PRICE_LIMITS.maxPackageHours)) issues.push({ path: "/package_hours", reason: "OUT_OF_RANGE" });
   for (const point of quoteCheckPoints(request)) if (request[point] === null) issues.push({ path: `/${point}`, reason: "REQUIRED" });
   if (localDateTimeToInstant(request.serviceLocal, "UTC") === null) issues.push({ path: "/service_time", reason: "INVALID_SERVICE_TIME" });
@@ -311,6 +330,13 @@ export const QUOTE_REFUSALS = [
   "PRICE_NOT_POSITIVE",
   /** 结算价超过了上限 */
   "PRICE_OVER_LIMIT",
+  /** 包车：客人选的档比商品的最低套餐短（ADR 0091、0093 第四节第 7 条）。对外报 `PACKAGE_TOO_SHORT` */
+  "BELOW_MIN_PACKAGE",
+  /** 包车按行程计价：客人手动选的档比这个商品的预计用时 T 短，又不是最长那一档（ADR 0093 第四节第 7 条） */
+  "PACKAGE_TOO_SHORT",
+  // ---- 以下是商品层面的（M9P-03） ----
+  /** 包车：预计用时 T 超过商品的在线下单上限（默认 13 小时，规格步骤 5、ADR 0093 第四节第 10 条），转客服 */
+  "ITINERARY_TOO_LONG",
 ] as const;
 export type QuoteRefusal = (typeof QUOTE_REFUSALS)[number];
 
@@ -400,6 +426,48 @@ export interface ItineraryBreakdown {
   overtimePerHourMinor: number;
   overKmMinor: number;
   overtimeMinor: number;
+  /**
+   * 超时费是不是在下单时预收了（ADR 0091 第三节）：带 `charterSelection` 的报价（M9P-03 起）写 `false`，`overtimeMinor` 是 0，`overtimeMinutes` 照记（服务后参考）；
+   * 部署前的报价和订单没有这个键，读作 `true`（按下单时的规则预收过）。
+   */
+  overtimeAtBooking?: false;
+  /**
+   * 预计用时 T 的组成（ADR 0091 第一节）：经停点个数、经停点默认占用、整单缓冲（分钟）和 T（= `routeMinutes` + 个数 × 占用 + 缓冲）。
+   * 只在中标商品的占用或缓冲不为 0 时写，四项同时有或同时没有；改期、救援（`locked`）由服务层从原订单原样抄过来
+   */
+  stops?: number;
+  stopOccupancyMinutes?: number;
+  bufferMinutes?: number;
+  estimatedMinutes?: number;
+}
+
+/** 预计用时 T 写进明细的四项（ADR 0091） */
+export type ItineraryEstimate = Required<Pick<ItineraryBreakdown, "stops" | "stopOccupancyMinutes" | "bufferMinutes" | "estimatedMinutes">>;
+
+/** 结算价明细里的预计用时四项（没有为 null）：改期、救援从原订单抄到新明细用 */
+export function itineraryEstimateOf(itinerary: ItineraryBreakdown | null | undefined): ItineraryEstimate | null {
+  if (itinerary === undefined || itinerary === null || itinerary.estimatedMinutes === undefined) return null;
+  return { stops: itinerary.stops ?? 0, stopOccupancyMinutes: itinerary.stopOccupancyMinutes ?? 0, bufferMinutes: itinerary.bufferMinutes ?? 0, estimatedMinutes: itinerary.estimatedMinutes };
+}
+
+/**
+ * 改期、救援的新明细带上原订单的预计用时四项（ADR 0091 第三节第 2 小节：`locked` 不重算 T，引擎拿不到原值，由服务层原样抄，连续改期也不丢）。
+ * 原订单没有这四项（占用、缓冲为 0，或部署前的单）、或新明细没按行程计价时原样返回。
+ */
+export function withOrderEstimate(settlement: SettlementBreakdown, original: Pick<SettlementBreakdown, "itinerary">): SettlementBreakdown {
+  const estimate = itineraryEstimateOf(original.itinerary);
+  if (estimate === null || settlement.itinerary === undefined) return settlement;
+  return { ...settlement, itinerary: { ...settlement.itinerary, ...estimate } };
+}
+
+/**
+ * 预计用时 T（ADR 0091 第一节）= 行驶 + 停留（`routeUsage.minutes`）+ 经停点个数 × 经停点默认占用 + 整单缓冲，按商品的配置。
+ * `breakdown` 是要写进结算价明细的四项——只在占用或缓冲不为 0 时有（默认值下 T = 行驶 + 停留）。T 只用来选档、判断能不能选、显示，不用来算钱。
+ */
+export function itineraryEstimate(rules: Pick<ServiceRules, "charterItinerary">, routeUsage: Pick<RouteUsage, "minutes">, stops: number): { minutes: number; breakdown: ItineraryEstimate | null } {
+  const config = charterItineraryOf(rules);
+  const minutes = routeUsage.minutes + stops * config.stopOccupancyMinutes + config.bufferMinutes;
+  return { minutes, breakdown: config.stopOccupancyMinutes === 0 && config.bufferMinutes === 0 ? null : { stops, stopOccupancyMinutes: config.stopOccupancyMinutes, bufferMinutes: config.bufferMinutes, estimatedMinutes: minutes } };
 }
 
 /**
@@ -463,6 +531,8 @@ export interface AreaSurchargeWaypoint {
 export interface VehicleOffer {
   vehicleGroupId: string;
   packageHours: number | null;
+  /** 客人手动升档（`charterSelection: "manual"` 且按行程计价）时：这个商品这个车型组自动会选的档（官网据此只列不短于它的档，ADR 0093 第四节第 9 条）。别的报价没有 */
+  autoPackageHours?: number;
   /**
    * 用的是哪个区域、哪条价格规则（几个区域都能报时取最低的那个）。
    * 按计程价报的（M8-30，`settlement.pricingBasis` 是 `distance_only`）没有区域（null），`priceRuleId` 是那条计程价的编号
@@ -486,6 +556,8 @@ export interface VehicleRefusal {
   vehicleGroupId: string;
   reason: QuoteRefusal;
   stopSeq?: number;
+  /** `BELOW_MIN_PACKAGE`、`PACKAGE_TOO_SHORT`：这个商品这个车型组能接受的最短档（小时，ADR 0093 第四节第 7 条） */
+  minPackageHours?: number;
 }
 
 const ZERO: ExactAmount = { numerator: 0n, denominator: 1n };
@@ -675,9 +747,28 @@ function linePairs(product: QuoteProduct, usable: readonly string[], pickup: Lat
   return pickupIds.flatMap((areaId) => dropoffIds.filter((toAreaId) => toAreaId !== areaId).map((toAreaId): [string, string] => [areaId, toAreaId]));
 }
 
-/** 包车按行程计价的超公里、超时明细（结算价，ADR 0088 补充）：和 `basePrice` 同一个公式（`charterOverage`） */
-function itineraryOf(pricing: CharterPackagePricing, route: RouteEstimate, packageHours: number | null): ItineraryBreakdown {
+/**
+ * 包车按行程计价的超公里、超时明细（结算价，ADR 0088 补充）：和 `basePrice` 同一个公式（`charterOverage`）。
+ * `plan` 不为 null（带 `charterSelection`，ADR 0091 第三节）时超时费是 0、`overtimeAtBooking: false`，超出的分钟照记；有预计用时四项时一并写。
+ */
+function itineraryOf(pricing: CharterPackagePricing, route: RouteEstimate, packageHours: number | null, plan: SelectionPlan | null): ItineraryBreakdown {
   const overage = charterOverage(pricing, route, packageHours);
+  if (plan !== null) {
+    return {
+      routeMeters: route.meters,
+      routeMinutes: route.minutes,
+      packageKm: pricing.packageKm,
+      packageMinutes: (packageHours ?? 0) * 60,
+      overMeters: overage.overMeters,
+      overtimeMinutes: overage.overtimeMinutes,
+      overKmPerKmMinor: pricing.overKmPerKmMinor,
+      overtimePerHourMinor: pricing.overtimePerHourMinor,
+      overKmMinor: roundMinor(overage.overKm),
+      overtimeMinor: 0,
+      overtimeAtBooking: false,
+      ...(plan.estimate ?? {}),
+    };
+  }
   return {
     routeMeters: route.meters,
     routeMinutes: route.minutes,
@@ -762,13 +853,35 @@ function addonCharges(product: QuoteProduct, request: QuoteRequest, durationMinu
   return { charges, total };
 }
 
+/** 报价引擎的调用参数 */
+export interface QuoteOptions {
+  forOwner?: boolean;
+  audience?: SiteAudience;
+  legacyAreaRules?: boolean;
+}
+
+/** 带 `charterSelection` 的包车按一个档算价时的口径（ADR 0091 第三节）：不收超时费；`estimate` 是要写进明细的预计用时四项（没有为 null） */
+interface SelectionPlan {
+  estimate: ItineraryEstimate | null;
+}
+
 /**
  * 一个商品对一次用车请求报价（第 2–9 步里和这个商品有关的全部）。
  * `forOwner`：供应商自己试算——没上架的商品也算（需求文档 `quote-preview`：用未上架商品试算报价），也不看供应商是不是被暂停。
  * `audience`：`acceptance` 是测试环境的验收会话（M8-26，ADR 0078）——只认测试供应商的「验收可售」商品，不看入驻状态；不给是普通客人（只认已上架）。
+ * 包车带 `charterSelection`（ADR 0093 第四节）时各车型组在引擎里自己选档（`selectPackages`）、不收超时费；不带的和以前逐字一样。
  * 请求本身写得对不对由 `quoteRequestIssues` 查，这里假定是对的。
  */
-export function quoteProduct(product: QuoteProduct, request: QuoteRequest, moment: QuoteMoment, options: { forOwner?: boolean; audience?: SiteAudience; legacyAreaRules?: boolean } = {}): ProductQuote {
+export function quoteProduct(product: QuoteProduct, request: QuoteRequest, moment: QuoteMoment, options: QuoteOptions = {}): ProductQuote {
+  const selection = product.category === "charter" ? request.charterSelection : undefined;
+  if (selection === undefined) return quoteAtHours(product, request, moment, options, null);
+  // 改期、救援：按订单的档，不判 T、最低套餐和在线下单上限；预计用时四项由服务层从原订单抄
+  if (selection === "locked") return quoteAtHours(product, request, moment, options, { estimate: null });
+  return selectPackages(product, request, moment, options, selection);
+}
+
+/** 按请求里的档（`request.packageHours`）报价；`plan` 不为 null 时是带 `charterSelection` 的口径（不收超时费） */
+function quoteAtHours(product: QuoteProduct, request: QuoteRequest, moment: QuoteMoment, options: QuoteOptions, plan: SelectionPlan | null): ProductQuote {
   const refuse = (reason: QuoteRefusal): ProductQuote => ({ ok: false, productId: product.productId, tenantId: product.tenantId, reason });
   // 第 2 步：已上架、供应商和子品牌启用中（城市、品类、接送点由找商品的那一层筛）
   if (options.forOwner !== true) {
@@ -824,7 +937,17 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
   const freeWait: SettlementBreakdown["freeWait"] = { item, value: effectiveFreeWait(product.category, product.serviceRules.freeWait[item]), platformMinimumMinutes: minimumFreeWaitMinutes(product.category, item, product.pickupPlace) };
   // 包车报价时 H = 套餐时长、里程不超套餐（超时、超公里履约后按实际结算），不看路线预估；其他品类把预估交给计价公式
   // 包车按行程计价（ADR 0088 补充）时用服务器估的全程和总时长：超时、超公里由套餐公式算出，和套餐价一起过调价；不按行程计价的照旧不看用量
-  const usage: TripUsage = product.category === "charter" ? (request.routeUsage === undefined ? {} : { meters: request.routeUsage.meters, minutes: request.routeUsage.minutes }) : moment.route === null ? {} : { meters: moment.route.meters, minutes: moment.route.minutes };
+  // 带 charterSelection（ADR 0091 第三节）：报价不含超时费，时长不交给套餐公式（超时由供应商服务后提交）
+  const usage: TripUsage =
+    product.category === "charter"
+      ? request.routeUsage === undefined
+        ? {}
+        : plan === null
+          ? { meters: request.routeUsage.meters, minutes: request.routeUsage.minutes }
+          : { meters: request.routeUsage.meters }
+      : moment.route === null
+        ? {}
+        : { meters: moment.route.meters, minutes: moment.route.minutes };
 
   const offers: VehicleOffer[] = [];
   const refused: VehicleRefusal[] = [];
@@ -1051,13 +1174,134 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
         overLimit: priced.noPriceReason === "OVER_LIMIT",
         // 含公里数的一口价也记下用到的路线预估：改期重算时用同一段路线（距离报价时锁定）
         usage: pricing.model === "mileage_time" || withKm ? moment.route : null,
-        extra: withKm && moment.route !== null ? { distance: distanceOf(pricing, moment.route.meters) } : pricing.model === "charter_package" && request.routeUsage !== undefined ? { itinerary: itineraryOf(pricing, request.routeUsage, request.packageHours) } : {},
+        extra: withKm && moment.route !== null ? { distance: distanceOf(pricing, moment.route.meters) } : pricing.model === "charter_package" && request.routeUsage !== undefined ? { itinerary: itineraryOf(pricing, request.routeUsage, request.packageHours, plan) } : {},
       });
     }
     if (best !== null) offers.push(best);
     else refused.push({ vehicleGroupId, reason: pickRefusal(reasons) });
   }
   return { ok: true, productId: product.productId, tenantId: product.tenantId, serviceDate: local.date, urgent: window.urgentTier !== null, offers, refused };
+}
+
+/** 按车型组报不出、而和档无关的原因（自己选档时直接用按任一档试出来的结果） */
+const HOURS_INDEPENDENT: ReadonlySet<QuoteRefusal> = new Set(["VEHICLE_GROUP_NOT_OFFERED", "VEHICLE_GROUP_DISABLED", "CAPACITY_EXCEEDED", "WAYPOINT_NOT_PRICED"]);
+
+/**
+ * 这个商品这个车型组的套餐时长（从短到长）：基础价区域里的包车套餐价格规则；`usable` 时只算启用、用车日期在生效期内的（ADR 0093 第四节第 2 条）。
+ * 能不能报出（加价规则齐全等）由逐档报价判断。
+ */
+function packageHoursFor(product: QuoteProduct, vehicleGroupId: string, areaIds: readonly string[], date: string, usable: boolean): number[] {
+  const hours = product.priceRules.flatMap((rule) =>
+    rule.pricing.model === "charter_package" && rule.vehicleGroupId === vehicleGroupId && areaIds.includes(rule.areaId) && rule.packageHours !== null && (!usable || (rule.status === "enabled" && priceRuleCoversDate(rule, date))) ? [rule.packageHours] : [],
+  );
+  return [...new Set(hours)].sort((a, b) => a - b);
+}
+
+/** 选档比的钱（规格步骤 3）：套餐价 + max(0, D − 套餐含公里) × 超公里单价。加价、调价不参与（ADR 0093 第四节第 3 条） */
+function packageCost(product: QuoteProduct, offer: VehicleOffer, meters: number): ExactAmount | null {
+  const rule = product.priceRules.find((entry) => entry.id === offer.priceRuleId && entry.packageHours === offer.packageHours && entry.vehicleGroupId === offer.vehicleGroupId);
+  if (rule === undefined || rule.pricing.model !== "charter_package") return null;
+  return addExact(exactFromMinor(rule.pricing.packagePriceMinor), charterOverage(rule.pricing, { meters }, offer.packageHours).overKm);
+}
+
+/**
+ * 包车在引擎里自己选档（ADR 0093 第四节，规格步骤 2、3、5）：
+ * - 预计用时 T 按这个商品的配置算（`itineraryEstimate`）；T 超过在线下单上限 → 整个商品不报（`ITINERARY_TOO_LONG`，转客服）；
+ * - `auto`：每个车型组的候选 = 可用的档里时长 ≥ T（且 ≥ 最低套餐）、并且这一档能报出的；取「套餐价 + 超公里费」最低的，一样时取短的。
+ *   候选一个都没有时只有最长那一档（仍要 ≥ 最低套餐；不退到更短的档，也不收超时费）；
+ * - `manual`：客人选的档低于最低套餐 → `BELOW_MIN_PACKAGE`；带了行程而比 T 短、又不是最长那一档 → `PACKAGE_TOO_SHORT`（都带上能接受的最短档）；
+ *   否则按这一档报，另记自动会选的档（`autoPackageHours`）。
+ * 每一档都是同一个商品按 `packageHours = 档` 完整算一遍（加价、调价、夜间、附加服务都按这一档），不收超时费。
+ */
+function selectPackages(product: QuoteProduct, request: QuoteRequest, moment: QuoteMoment, options: QuoteOptions, selection: "auto" | "manual"): ProductQuote {
+  const config = charterItineraryOf(product.serviceRules);
+  const route = request.routeUsage;
+  const estimate = route === undefined ? null : itineraryEstimate(product.serviceRules, route, waypointsOf(request).length);
+  const plan: SelectionPlan = { estimate: estimate?.breakdown ?? null };
+  const cache = new Map<number, ProductQuote>();
+  const at = (hours: number): ProductQuote => {
+    let quote = cache.get(hours);
+    if (quote === undefined) {
+      quote = quoteAtHours(product, { ...request, packageHours: hours }, moment, options, plan);
+      cache.set(hours, quote);
+    }
+    return quote;
+  };
+  // 商品层面的判断（上架、服务时间、区域、附加服务、库存……）和档无关：按客人选的档（自动选档时按 1 小时）试一次
+  const probe = at(request.packageHours ?? 1);
+  if (!probe.ok) return probe;
+  if (estimate !== null && estimate.minutes > config.maxOnlineMinutes) return { ok: false, productId: product.productId, tenantId: product.tenantId, reason: "ITINERARY_TOO_LONG" };
+  const ends = charterEnds(product, request);
+  const areaIds = "reason" in ends ? [] : ends.areaIds;
+  const minHours = config.minPackageHours;
+  const T = estimate?.minutes ?? null;
+  const acceptable = (hours: number): boolean => (minHours === null || hours >= minHours) && (T === null || hours * 60 >= T);
+  const isOffer = (entry: VehicleOffer | VehicleRefusal): entry is VehicleOffer => "settlement" in entry;
+  const offerAt = (hours: number, vehicleGroupId: string): VehicleOffer | VehicleRefusal => {
+    const quote = at(hours);
+    if (!quote.ok) return { vehicleGroupId, reason: quote.reason };
+    return quote.offers.find((offer) => offer.vehicleGroupId === vehicleGroupId) ?? quote.refused.find((entry) => entry.vehicleGroupId === vehicleGroupId) ?? { vehicleGroupId, reason: "NO_PRICE_RULE" };
+  };
+  /** 自动选档（ADR 0093 第四节第 2、3 条） */
+  const autoChoice = (vehicleGroupId: string, pool: readonly number[]): VehicleOffer | VehicleRefusal => {
+    const longest = pool[pool.length - 1];
+    if (longest === undefined) {
+      // 一档可用的都没有：原因按这个车型组最长的那一档（停用、过期的也算）报；一条套餐都没有是没有价格规则
+      const any = packageHoursFor(product, vehicleGroupId, areaIds, probe.serviceDate, false);
+      const last = any[any.length - 1];
+      return last === undefined ? { vehicleGroupId, reason: "NO_PRICE_RULE" } : offerAt(last, vehicleGroupId);
+    }
+    let best: { offer: VehicleOffer; cost: ExactAmount } | null = null;
+    for (const hours of pool.filter(acceptable)) {
+      const entry = offerAt(hours, vehicleGroupId);
+      if (!isOffer(entry)) continue;
+      const cost = packageCost(product, entry, route?.meters ?? 0);
+      if (cost === null) continue;
+      // 从短到长，只有更便宜才换：一样时取短的
+      if (best === null || compareExact(cost, best.cost) < 0) best = { offer: entry, cost };
+    }
+    if (best !== null) return best.offer;
+    if (minHours !== null && longest < minHours) return { vehicleGroupId, reason: "BELOW_MIN_PACKAGE", minPackageHours: minHours };
+    return offerAt(longest, vehicleGroupId);
+  };
+  const offers: VehicleOffer[] = [];
+  const refused: VehicleRefusal[] = [];
+  const wanted = request.vehicleGroupIds.length === 0 ? product.vehicleGroups.map((group) => group.vehicleGroupId) : [...new Set(request.vehicleGroupIds)];
+  for (const vehicleGroupId of wanted) {
+    const early = probe.refused.find((entry) => entry.vehicleGroupId === vehicleGroupId && HOURS_INDEPENDENT.has(entry.reason));
+    if (early !== undefined) {
+      refused.push(early);
+      continue;
+    }
+    const pool = packageHoursFor(product, vehicleGroupId, areaIds, probe.serviceDate, true);
+    if (selection === "auto") {
+      const chosen = autoChoice(vehicleGroupId, pool);
+      if (isOffer(chosen)) offers.push(chosen);
+      else refused.push(chosen);
+      continue;
+    }
+    const hours = request.packageHours as number;
+    const longest = pool[pool.length - 1];
+    const shortest = pool.find(acceptable) ?? (longest !== undefined && (minHours === null || longest >= minHours) ? longest : (minHours ?? undefined));
+    const tooShort = (reason: "BELOW_MIN_PACKAGE" | "PACKAGE_TOO_SHORT"): VehicleRefusal => ({ vehicleGroupId, reason, ...(shortest === undefined ? {} : { minPackageHours: shortest }) });
+    if (minHours !== null && hours < minHours) {
+      refused.push(tooShort("BELOW_MIN_PACKAGE"));
+      continue;
+    }
+    // 不能短于 T（规格步骤 3）；T 超过所有档时最长那一档可以选
+    if (T !== null && longest !== undefined && hours * 60 < T && hours !== longest) {
+      refused.push(tooShort("PACKAGE_TOO_SHORT"));
+      continue;
+    }
+    const entry = offerAt(hours, vehicleGroupId);
+    if (!isOffer(entry)) {
+      refused.push(entry);
+      continue;
+    }
+    const auto = T === null ? null : autoChoice(vehicleGroupId, pool);
+    offers.push(auto !== null && isOffer(auto) && auto.packageHours !== null ? { ...entry, autoPackageHours: auto.packageHours } : entry);
+  }
+  return { ok: true, productId: product.productId, tenantId: product.tenantId, serviceDate: probe.serviceDate, urgent: probe.urgent, offers, refused };
 }
 
 /**
@@ -1250,7 +1494,8 @@ export function sellEquivalentMinor(amountMinor: number, settlementCurrency: Cur
 /** 对外价明细的一项（ADR 0088 第 4 节）：客人支付币种的最小单位 */
 export interface SellBreakdownItem {
   /**
-   * `base` 基础价（包车是套餐价）、`pickup` 上车加价、`waypoint` 一个区域的途经加价、`dropoff` 下车加价、`over_km` 超公里、`overtime` 超时（包车按行程计价才有）、
+   * `base` 基础价（包车是套餐价）、`pickup` 上车加价、`waypoint` 一个区域的途经加价、`dropoff` 下车加价、`over_km` 超公里（包车按行程计价才有）、
+   * `overtime` 超时（只在部署前预收了超时费的旧单里出现，ADR 0091 第三节）、
    * `adjust` 调价、`other` 加急 / 夜间 / 附加服务 / 司机语言
    */
   kind: "base" | "pickup" | "waypoint" | "dropoff" | "over_km" | "overtime" | "adjust" | "other";
@@ -1280,7 +1525,8 @@ export function sellBreakdown(settlement: SettlementBreakdown, sell: Pick<SellPr
   const itinerary = settlement.itinerary;
   if (itinerary !== undefined) {
     items.push({ kind: "over_km", areaId: null, amountMinor: convert(itinerary.overKmMinor) });
-    items.push({ kind: "overtime", areaId: null, amountMinor: convert(itinerary.overtimeMinor) });
+    // 超时费只在预收了的时候列（ADR 0091 第三节第 2 小节）：M9P-03 起的报价不收超时费，没有这一项；部署前预收了超时费的旧单照旧列，`base` 不会把它吞进去
+    if (itinerary.overtimeMinor > 0) items.push({ kind: "overtime", areaId: null, amountMinor: convert(itinerary.overtimeMinor) });
   }
   if (settlement.adjustMinor !== 0) items.push({ kind: "adjust", areaId: null, amountMinor: convert(settlement.adjustMinor) });
   const otherMinor = settlement.urgentMinor + settlement.nightMinor + settlement.addonsMinor + settlement.driverLanguageMinor;
@@ -1385,7 +1631,7 @@ export interface QuoteSnapshot {
    * 全部参与比价的租户和它们的排序依据（含中标的）。`fx`、`fxBufferBp` 是这个候选算对外价用的汇率（结算币种 → 客人支付币种，同币种为 null）和缓冲：
    * 生效前试算（M3-07，ADR 0033）按快照汇率重算每个候选的对外价要用。M3-07 之前的快照没有这两项。
    */
-  candidates: { tenantId: string; productId: string; productVersion: number; settlementMinor: number; settlementCurrency: CurrencyCode; sellMinor: number; markupBp: number; fx?: FxQuote | null; fxBufferBp?: number; observation: boolean; scoreCenti: number; completedOrders: number; rankPrice: string; inBand: boolean; position: number }[];
+  candidates: { tenantId: string; productId: string; productVersion: number; settlementMinor: number; settlementCurrency: CurrencyCode; sellMinor: number; markupBp: number; fx?: FxQuote | null; fxBufferBp?: number; observation: boolean; scoreCenti: number; completedOrders: number; rankPrice: string; inBand: boolean; position: number; packageHours?: number | null }[];
 }
 
 export function quoteExpiresAt(createdAt: Date): Date {
@@ -1432,6 +1678,7 @@ export interface ComparedOffer extends RankCandidate {
 
 export interface ComparisonGroup {
   vehicleGroupId: string;
+  /** 请求里的套餐时长：包车自动选档（`charterSelection: "auto"`）时为 null，各候选的档看 `offer.packageHours` */
   packageHours: number | null;
   /** 全部候选，按名次；第一个是中标的 */
   ranked: RankedCandidate<ComparedOffer>[];
@@ -1442,8 +1689,11 @@ export interface ComparisonGroup {
 export interface QuoteComparison {
   /** 每个车型组（包车再按套餐）一组，只有一个中标价；按车型组编号排 */
   groups: ComparisonGroup[];
-  /** 没能参加比价的：商品层面的（`vehicleGroupId` 为 null）和某个车型组的；`WAYPOINT_NOT_PRICED` 带上是第几个经停点（ADR 0088） */
-  refused: { tenantId: string; productId: string; vehicleGroupId: string | null; reason: ComparisonRefusal; stopSeq?: number }[];
+  /**
+   * 没能参加比价的：商品层面的（`vehicleGroupId` 为 null）和某个车型组的；`WAYPOINT_NOT_PRICED` 带上是第几个经停点（ADR 0088）；
+   * `BELOW_MIN_PACKAGE`、`PACKAGE_TOO_SHORT` 带上这个商品能接受的最短档（ADR 0093 第四节第 7 条）
+   */
+  refused: { tenantId: string; productId: string; vehicleGroupId: string | null; reason: ComparisonRefusal; stopSeq?: number; minPackageHours?: number }[];
 }
 
 /**
@@ -1463,7 +1713,7 @@ export function compareQuotes(input: { request: QuoteRequest; currency: Currency
       refused.push({ tenantId: quote.tenantId, productId: quote.productId, vehicleGroupId: null, reason: quote.reason });
       continue;
     }
-    for (const item of quote.refused) refused.push({ tenantId: quote.tenantId, productId: quote.productId, vehicleGroupId: item.vehicleGroupId, reason: item.reason, ...(item.stopSeq === undefined ? {} : { stopSeq: item.stopSeq }) });
+    for (const item of quote.refused) refused.push({ tenantId: quote.tenantId, productId: quote.productId, vehicleGroupId: item.vehicleGroupId, reason: item.reason, ...(item.stopSeq === undefined ? {} : { stopSeq: item.stopSeq }), ...(item.minPackageHours === undefined ? {} : { minPackageHours: item.minPackageHours }) });
     for (const offer of quote.offers) {
       const sell = sellPrice({
         settlementMinor: offer.settlement.totalMinor,
@@ -1536,6 +1786,8 @@ export function compareQuotes(input: { request: QuoteRequest; currency: Currency
             rankPrice,
             inBand,
             position,
+            // 包车各商品自己选档（ADR 0093 第四节）：每个候选记它自己的档，排序依据能复算；不带 charterSelection 的快照和以前一样没有这一项
+            ...(input.request.charterSelection === undefined ? {} : { packageHours: candidate.offer.packageHours }),
           })),
         },
       };

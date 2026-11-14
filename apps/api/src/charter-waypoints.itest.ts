@@ -363,7 +363,7 @@ test("13.9 用例 8（按取消重下）：下单后要去掉一个途经区域�
   assert.deepEqual(second.body.order.waypoints, [{ name: "景点 1", ...P.kawaguchiko, stay_minutes: 30 }]);
 });
 
-test("按行程计价：逐段估路线、按总时长选套餐（能覆盖的最小套餐）、超公里 / 超时；明细 6 项、之和等于总价；锁进快照和订单", async () => {
+test("按行程计价：逐段估路线、各商品按预计用时自己选套餐（含超公里取最低，M9P-03）、超公里，不收超时费；明细逐项、之和等于总价；锁进快照和订单", async () => {
   legMinutes = 225;
   // 两段各 130 公里、225 分钟，停留 90 → 总时长 540 分钟（9 小时）→ 10 小时套餐（含 200 公里）；超公里 60 × 300 = 18,000；途经富士山 10,000
   api.clock.advance(1_000);
@@ -374,23 +374,33 @@ test("按行程计价：逐段估路线、按总时长选套餐（能覆盖的�
   assert.deepEqual(res.body.itinerary_route, { legs: [{ minutes: 225, meters: 130_000 }, { minutes: 225, meters: 130_000 }], drive_minutes: 450, stay_minutes: 90, total_minutes: 540, total_meters: 260_000 });
   const offer = res.body.quotes[0];
   assert.deepEqual([offer.package.hours, offer.price.total.amount], [10, String(((55_000 + 10_000 + 18_000) * 11) / 10)]);
-  assert.deepEqual(offer.price_breakdown.map((item: any) => [item.kind, item.amount.amount]), [["base", "60500"], ["waypoint", "11000"], ["over_km", "19800"], ["overtime", "0"]]);
+  // M9P-03（ADR 0091 第三节）：报价不含超时费，明细没有 overtime 项（以前固定列一项 0）
+  assert.deepEqual(offer.price_breakdown.map((item: any) => [item.kind, item.amount.amount]), [["base", "60500"], ["waypoint", "11000"], ["over_km", "19800"]]);
   assert.equal(breakdownSum(offer), Number(offer.price.total.amount));
+  // 预计用时 = 行驶 + 停留（商品没设占用、缓冲）；自动选的档就是中标的档
+  assert.deepEqual([offer.estimated_minutes, offer.includes_buffer, offer.auto_package_hours], [540, false, 10]);
   const snapshot = (await api.db.owner.query<{ snapshot: any }>("select snapshot from quotes where id = $1", [offer.quote_id])).rows[0]?.snapshot;
-  assert.deepEqual([snapshot.request.routeUsage.meters, snapshot.request.routeUsage.minutes, snapshot.request.packageHours, snapshot.winner.offer.settlement.itinerary.overKmMinor], [260_000, 540, 10, 18_000]);
+  // 一次询价（M9P-03）：快照记 charterSelection: auto、请求里没有套餐时长，中标的档在 offer 上
+  assert.deepEqual([snapshot.request.routeUsage.meters, snapshot.request.routeUsage.minutes, snapshot.request.packageHours, snapshot.request.charterSelection, snapshot.winner.offer.packageHours, snapshot.winner.offer.settlement.itinerary.overKmMinor], [260_000, 540, null, "auto", 10, 18_000]);
 
-  // 停留更久：总时长 650 分钟超过最大套餐 → 10 小时套餐 + 超时 50 分钟（5,000 / 小时）
+  // 停留更久：总时长 650 分钟超过最大套餐 → 只有 10 小时套餐，不收超时费（M9P-03：以前 + 超时 50 分钟 × 5,000 / 小时）
   api.clock.advance(1_000);
   const longer = await site.call("POST", "/site/v1/quotes", { body: { ...body, waypoints: [{ name: "河口湖", ...P.kawaguchiko, stay_minutes: 200 }] }, ip: nextIp() });
   const longOffer = longer.body.quotes[0];
-  assert.equal(longOffer.package.hours, 10);
-  assert.ok(Number(longOffer.price_breakdown.find((item: any) => item.kind === "overtime").amount.amount) > 0);
+  assert.deepEqual([longOffer.package.hours, longOffer.price.total.amount, longOffer.estimated_minutes], [10, offer.price.total.amount, 650]);
+  assert.equal(longOffer.price_breakdown.some((item: any) => item.kind === "overtime"), false);
   assert.equal(breakdownSum(longOffer), Number(longOffer.price.total.amount));
-  // 短行程：总时长 4 小时 → 8 小时套餐（含 150 公里；全程 260 公里超 110 公里）
+  // 短行程：总时长 4 小时，8、10 小时都能覆盖——含超公里取最低（规格步骤 3，差异表第 6 条）：
+  // 8 小时含 150 公里，超 110 公里 → 50,000 + 33,000 = 83,000；10 小时含 200 公里，超 60 公里 → 55,000 + 18,000 = 73,000，选 10 小时（以前按「能覆盖的最小套餐」选 8 小时）
   legMinutes = 90;
   api.clock.advance(1_000);
   const short = await site.call("POST", "/site/v1/quotes", { body: { ...body, waypoints: [{ name: "河口湖", ...P.kawaguchiko, stay_minutes: 60 }] }, ip: nextIp() });
-  assert.deepEqual([short.body.quotes[0].package.hours, short.body.quotes[0].price.total.amount], [8, String(((50_000 + 10_000 + 110 * 300) * 11) / 10)]);
+  assert.deepEqual([short.body.quotes[0].package.hours, short.body.quotes[0].price.total.amount, short.body.quotes[0].auto_package_hours], [10, String(((55_000 + 10_000 + 60 * 300) * 11) / 10), 10]);
+  // 客人手动选 8 小时（不短于预计用时）：按 8 小时报，另给自动选的档
+  api.clock.advance(1_000);
+  const manual8 = await site.call("POST", "/site/v1/quotes", { body: { ...body, waypoints: [{ name: "河口湖", ...P.kawaguchiko, stay_minutes: 60 }], package_hours: 8 }, ip: nextIp() });
+  assertMatchesOpenApi("POST", "/site/v1/quotes", manual8);
+  assert.deepEqual([manual8.body.quotes[0].package.hours, manual8.body.quotes[0].price.total.amount, manual8.body.quotes[0].auto_package_hours], [8, String(((50_000 + 10_000 + 110 * 300) * 11) / 10), 10]);
   legMinutes = 225;
 
   // 下单：订单的套餐时长是选中的，行程锁定量随结算价明细；司机页能看到全程（没有金额）
@@ -412,6 +422,8 @@ test("按行程计价：逐段估路线、按总时长选套餐（能覆盖的�
   assertMatchesOperation("GET", "/platform/v1/orders/{id}", platformView.status, platformView.body);
   const lockedItinerary = platformView.body.order.settlement.itinerary;
   assert.deepEqual([lockedItinerary.over_meters, lockedItinerary.over_km_per_km.amount, lockedItinerary.over_km_fee.amount, lockedItinerary.overtime_minutes, lockedItinerary.overtime_per_hour.amount, lockedItinerary.overtime_fee.amount], [60_000, "300", "18000", 0, "5000", "0"]);
+  // M9P-03：新订单下单时没预收超时费
+  assert.equal(lockedItinerary.overtime_at_booking, false);
   // 人工救援改派（manualSettlement）会把订单结算明细整份换成只有总价的（没有 itinerary），客人付的钱、报价快照不变：明细照旧给（审查 #192）。
   // 这里直接把结算明细换成那个样子，只模拟这一个效果；救援流程本身见 rescues.itest.ts
   await api.db.owner.query("update orders set settlement = settlement - 'itinerary' where id = $1", [placed.orderId]);
@@ -425,10 +437,14 @@ test("按行程计价：逐段估路线、按总时长选套餐（能覆盖的�
   assert.equal(repriced.body.price_breakdown, null);
   await api.db.owner.query("update order_sales set sell_minor = sell_minor - 100 where order_id = $1", [placed.orderId]);
 
-  // 参数检查：按行程计价不填套餐时长；别的品类不能按行程计价；某一段路线取不到 422
+  // 参数检查：按行程计价可以带套餐时长手动升档（M9P-03，以前 400 NOT_APPLICABLE）；比预计用时短的不报（PACKAGE_TOO_SHORT + 能选的最短档）；别的品类不能按行程计价；某一段路线取不到 422
   api.clock.advance(1_000);
   const withHours = await site.call("POST", "/site/v1/quotes", { body: { ...body, package_hours: 10 }, ip: nextIp() });
-  assert.deepEqual([withHours.status, withHours.body.error.details.issues.map((issue: any) => [issue.path, issue.reason])], [400, [["/package_hours", "NOT_APPLICABLE"]]]);
+  assert.deepEqual([withHours.status, withHours.body.quotes[0].package.hours], [200, 10]);
+  api.clock.advance(1_000);
+  const tooShort = await site.call("POST", "/site/v1/quotes", { body: { ...body, package_hours: 8 }, ip: nextIp() });
+  assertMatchesOpenApi("POST", "/site/v1/quotes", tooShort);
+  assert.deepEqual([tooShort.status, tooShort.body.quotes, tooShort.body.unavailable], [200, [], [{ vehicle_group_id: null, reasons: ["PACKAGE_TOO_SHORT"], min_package_hours: 10 }]]);
   api.clock.advance(1_000);
   const noRoute = await site.call("POST", "/site/v1/quotes", { body: { ...body, waypoints: [{ name: "河口湖", ...P.kawaguchiko, stay_minutes: 30 }, { name: "海上", ...P.island, stay_minutes: 30 }] }, ip: nextIp() });
   assertMatchesOpenApi("POST", "/site/v1/quotes", noRoute);

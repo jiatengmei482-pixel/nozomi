@@ -10,7 +10,7 @@
  */
 import { randomInt } from "node:crypto";
 import { performance } from "node:perf_hooks";
-import { type AreaSurchargeBreakdown, type ComparisonRefusal, type PricingBasis, type QuoteWaypoint, type RouteUsage, type SellBreakdownItem, sellBreakdown, type SiteAudience, guestRouteReason, type CurrencyCode, type DistanceBreakdown, type FxQuote, type LatLng, type MarkupMatch, type QuoteSnapshot, type ServiceCategory, type TripDirection, formatMajor, instantToLocal, isPickupPlaceType, quoteCheckPoints, quoteSnapshotValid } from "@nozomi/domain";
+import { PRICE_LIMITS, type AreaSurchargeBreakdown, type CharterSelection, type ComparisonRefusal, type ItineraryBreakdown, type PricingBasis, type QuoteWaypoint, type RouteUsage, type SellBreakdownItem, sellBreakdown, type SiteAudience, guestRouteReason, type CurrencyCode, type DistanceBreakdown, type FxQuote, type LatLng, type MarkupMatch, type QuoteSnapshot, type ServiceCategory, type TripDirection, formatMajor, instantToLocal, isPickupPlaceType, quoteCheckPoints, quoteSnapshotValid } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
@@ -43,6 +43,8 @@ export interface SalesQuoteInput {
   waypoints?: readonly QuoteWaypoint[];
   /** 包车按行程计价（ADR 0088 补充）：只有官网给 */
   routeUsage?: RouteUsage;
+  /** 包车怎么定套餐（ADR 0093 第四节）：官网按行程计价 `auto` / `manual`，其余包车新询价 `manual`；进快照和询价日志 */
+  charterSelection?: Exclude<CharterSelection, "locked">;
 }
 
 /** 给渠道看的「为什么没有这个车型组的价」：只有面向客人的几种。 */
@@ -51,8 +53,10 @@ export interface SalesQuoteInput {
  * 里程 + 时长的价格取不到路线时（ADR 0042）：`NO_ROUTE`（两点之间没有可行驶的路线）或 `TEMPORARILY_UNAVAILABLE`（路线服务暂时不可用，稍后再试）。
  * 包车没给下车地点、而这个商品设了区域加价（M8-15，ADR 0073）：`DROPOFF_REQUIRED`（给了下车地点再询价就可能报得出；以后下车地点改为必填）。
  * 包车有经停点不在任何区域里（M9W-01，ADR 0088）：`WAYPOINT_NOT_PRICED`（转人工报价）；经停点只有官网能给，渠道接口不会出现。
+ * 包车选的时长比商品的最低套餐（或按行程算出的预计用时）短（M9P-03，ADR 0093 第四节第 7 条）：`PACKAGE_TOO_SHORT`，另给 `min_package_hours`（选不短于它的时长再询价就可能报得出）。
+ * 包车预计用时超过商品的在线下单上限（默认 13 小时，M9P-03，规格步骤 5）：`ITINERARY_TOO_LONG`（转客服定制）；只有官网按行程计价会出现。
  */
-export const SALES_UNAVAILABLE_REASONS = ["NO_PRODUCT", "OUT_OF_SERVICE_AREA", "DROPOFF_REQUIRED", "WAYPOINT_NOT_PRICED", "LEAD_TIME_TOO_SHORT", "SOLD_OUT", "OUTSIDE_SERVICE_TIME", "SERVICE_TIME_PASSED", "CAPACITY_EXCEEDED", "ADDON_NOT_OFFERED", "DRIVER_LANGUAGE_NOT_OFFERED", "NO_ROUTE", "TEMPORARILY_UNAVAILABLE", "NOT_AVAILABLE"] as const;
+export const SALES_UNAVAILABLE_REASONS = ["NO_PRODUCT", "OUT_OF_SERVICE_AREA", "DROPOFF_REQUIRED", "WAYPOINT_NOT_PRICED", "PACKAGE_TOO_SHORT", "ITINERARY_TOO_LONG", "LEAD_TIME_TOO_SHORT", "SOLD_OUT", "OUTSIDE_SERVICE_TIME", "SERVICE_TIME_PASSED", "CAPACITY_EXCEEDED", "ADDON_NOT_OFFERED", "DRIVER_LANGUAGE_NOT_OFFERED", "NO_ROUTE", "TEMPORARILY_UNAVAILABLE", "NOT_AVAILABLE"] as const;
 export type SalesUnavailableReason = (typeof SALES_UNAVAILABLE_REASONS)[number];
 
 function salesReason(reason: ComparisonRefusal, route: RouteOutcome): SalesUnavailableReason {
@@ -70,6 +74,13 @@ function salesReason(reason: ComparisonRefusal, route: RouteOutcome): SalesUnava
     // 包车有经停点不在任何区域里（ADR 0088）：官网转人工报价，并指出是第几个经停点
     case "WAYPOINT_NOT_PRICED":
       return "WAYPOINT_NOT_PRICED";
+    // 选的时长比最低套餐 / 预计用时短（ADR 0093 第四节第 7 条）：客人选长一点就能报，不能落到 NOT_AVAILABLE
+    case "BELOW_MIN_PACKAGE":
+    case "PACKAGE_TOO_SHORT":
+      return "PACKAGE_TOO_SHORT";
+    // 行程太长，不在线下单（规格步骤 5）：转客服
+    case "ITINERARY_TOO_LONG":
+      return "ITINERARY_TOO_LONG";
     case "LEAD_TIME_TOO_SHORT":
       return "LEAD_TIME_TOO_SHORT";
     case "SOLD_OUT":
@@ -124,6 +135,11 @@ export interface SalesQuote {
   /** 计价方式（M8-30，ADR 0080）：一口价 / 一口价 + 区域外里程费（客人页标「含里程费」）/ 按计程价（「按里程计价」）。只说方式，不给计程的单价和金额 */
   pricingBasis: PricingBasis;
   /**
+   * 包车按行程计价（ADR 0091 第一节、0093 第四节第 9 条）：中标商品的预计用时 T（分钟）、它含不含经停点默认占用或整单缓冲（页面写「含缓冲」）、
+   * 这个车型组自动选出的档（手动升档时也是自动会选的那一档）。没按行程计价、或部署前的报价没有这一项；只有官网的应答给
+   */
+  itinerary?: { estimatedMinutes: number; includesBuffer: boolean; autoPackageHours: number | null };
+  /**
    * 这个车型组还能加哪些附加服务（M8-02，ADR 0069 B15）：参加了这个车型组比价的候选商品里，有供应商提供（开着、目录里启用、适用这个品类）的附加服务编号，去重排序。
    * 只有编号，不带任何单价；只在刚询价时有（查报价 `getSalesQuote` 不给）
    */
@@ -132,9 +148,15 @@ export interface SalesQuote {
 
 export interface SalesQuoteResult {
   quotes: SalesQuote[];
-  /** `stopSeqs`：原因里有 `WAYPOINT_NOT_PRICED` 时，哪几个经停点报不出（不在任何区域里，或所在加价区域没有可用的途经规则；从 1 起，ADR 0088、M9W-10）；没有时不给 */
-  unavailable: { vehicleGroupId: string | null; reasons: SalesUnavailableReason[]; stopSeqs?: number[] }[];
+  /**
+   * `stopSeqs`：原因里有 `WAYPOINT_NOT_PRICED` 时，哪几个经停点报不出（不在任何区域里，或所在加价区域没有可用的途经规则；从 1 起，ADR 0088、M9W-10）；没有时不给。
+   * `minPackageHours`：原因里有 `PACKAGE_TOO_SHORT` 时，这个车型组里各商品能接受的最短档的最小值（小时，ADR 0093 第四节第 7 条）；没有时不给
+   */
+  unavailable: { vehicleGroupId: string | null; reasons: SalesUnavailableReason[]; stopSeqs?: number[]; minPackageHours?: number }[];
 }
+
+/** 选档判断的拒绝（ADR 0093 第四节第 7 条）：客人选短了，不是缺供应商——有这种拒绝的询价不记「未覆盖需求」 */
+const PACKAGE_REFUSALS: ReadonlySet<ComparisonRefusal> = new Set(["BELOW_MIN_PACKAGE", "PACKAGE_TOO_SHORT"]);
 
 const ID_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
@@ -177,7 +199,21 @@ function toSalesQuote(snapshot: StoredQuoteSnapshot): SalesQuote {
     sellBreakdown: sellBreakdown(winner.offer.settlement, winner.sell),
     distance: salesDistance(winner.offer.settlement.distance ?? null, winner.sell.overKmPerKmMinor),
     pricingBasis: winner.offer.settlement.pricingBasis ?? "one_price",
+    ...itineraryEstimateOf(snapshot),
   };
+}
+
+/**
+ * 按行程计价的预计用时（ADR 0091 第一节）：明细里有 `estimatedMinutes`（占用或缓冲不为 0）用它，否则就是「行驶 + 停留」；
+ * 自动选的档：`auto` 就是中标的档，`manual` 是引擎另记的自动会选的档。只有带 `charterSelection` 的按行程计价报价才有
+ */
+function itineraryEstimateOf(snapshot: StoredQuoteSnapshot): Pick<SalesQuote, "itinerary"> {
+  const offer = snapshot.winner.offer;
+  const itinerary: ItineraryBreakdown | undefined = offer.settlement.itinerary;
+  const selection = snapshot.request.charterSelection;
+  if (itinerary === undefined || selection === undefined) return {};
+  const autoPackageHours = selection === "auto" ? offer.packageHours : (offer.autoPackageHours ?? null);
+  return { itinerary: { estimatedMinutes: itinerary.estimatedMinutes ?? itinerary.routeMinutes, includesBuffer: (itinerary.stopOccupancyMinutes ?? 0) > 0 || (itinerary.bufferMinutes ?? 0) > 0, autoPackageHours } };
 }
 
 /** 起点 / 终点里的地点编号换成坐标；地点要存在、启用、在这个城市。 */
@@ -240,6 +276,7 @@ export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincip
       assumeRoute: null,
       ...(input.waypoints === undefined ? {} : { waypoints: input.waypoints }),
       ...(input.routeUsage === undefined ? {} : { routeUsage: input.routeUsage }),
+      ...(input.charterSelection === undefined ? {} : { charterSelection: input.charterSelection }),
     },
     { fresh: false, ...(options.log === undefined ? {} : { log: options.log }), ...(acceptance ? { audience: "acceptance" as const } : {}) },
   );
@@ -286,7 +323,10 @@ export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincip
       );
     }
   });
-  if (snapshots.length === 0 && options.demand !== undefined && !acceptance) recordUncoveredDemandLater(ctx, options.demand, demandFacts(principal, input, points, serviceLocal, preview));
+  // 只因选短了（最低套餐 / 预计用时）报不出的不记：选长一点就有供应商能接（ADR 0093 第四节第 7 条「只因这两个原因」）；
+  // 还有别的原因（例如另一个商品 ITINERARY_TOO_LONG、没有价格）时照记
+  const onlyTooShort = preview.comparison.refused.length > 0 && preview.comparison.refused.every((entry) => PACKAGE_REFUSALS.has(entry.reason));
+  if (snapshots.length === 0 && options.demand !== undefined && !acceptance && !onlyTooShort) recordUncoveredDemandLater(ctx, options.demand, demandFacts(principal, input, points, serviceLocal, preview));
   return result;
 }
 
@@ -298,7 +338,7 @@ function demandFacts(principal: SalesPrincipal, input: SalesQuoteInput, points: 
     channelId: principal.channelId,
     category: input.category,
     direction: input.direction,
-    packageHours: input.packageHours,
+    packageHours: input.packageHours ?? demandPackageHours(input.routeUsage),
     cityId: input.cityId,
     airportId: input.category === "airport_transfer" ? input.placeId : null,
     pickup: points.pickup,
@@ -312,6 +352,15 @@ function demandFacts(principal: SalesPrincipal, input: SalesQuoteInput, points: 
     candidateCount: preview.candidates.length,
     refusals: preview.comparison.refused.map((entry) => entry.reason),
   };
+}
+
+/**
+ * 自动选档（M9P-03，`charterSelection: "auto"`）的询价没有客人选的套餐时长：未覆盖需求按行程的「行驶 + 停留」向上取整到小时记（1–72），
+ * 运营看到的是「客人要多长的包车」（以前逐档询价时记的是最先试的那一档）。没有行程时为 null（不会发生：自动选档一定带行程）
+ */
+function demandPackageHours(routeUsage: RouteUsage | undefined): number | null {
+  if (routeUsage === undefined) return null;
+  return Math.min(PRICE_LIMITS.maxPackageHours, Math.max(1, Math.ceil(routeUsage.minutes / 60)));
 }
 
 /** 参加了这个车型组比价的候选商品提供的附加服务（开着、目录里启用、适用这个品类）。 */
@@ -370,9 +419,12 @@ function unavailable(preview: PlatformQuotePreview, requested: readonly string[]
     return distinct.length === 0 ? ["NOT_AVAILABLE"] : distinct;
   };
   // 经停点不在区域里的是第几个（几个商品各报各的，合在一起）；没有这种原因时不带这个键
+  // 选短了（ADR 0093 第四节第 7 条）：各商品能接受的最短档里最小的那个；没有这种原因时不带这个键
   const entry = (vehicleGroupId: string | null): SalesQuoteResult["unavailable"][number] => {
-    const stopSeqs = [...new Set(refusedFor(vehicleGroupId).flatMap((refusal) => (refusal.stopSeq === undefined ? [] : [refusal.stopSeq])))].sort((a, b) => a - b);
-    return { vehicleGroupId, reasons: reasonsFor(vehicleGroupId), ...(stopSeqs.length === 0 ? {} : { stopSeqs }) };
+    const refusals = refusedFor(vehicleGroupId);
+    const stopSeqs = [...new Set(refusals.flatMap((refusal) => (refusal.stopSeq === undefined ? [] : [refusal.stopSeq])))].sort((a, b) => a - b);
+    const shortest = refusals.flatMap((refusal) => (PACKAGE_REFUSALS.has(refusal.reason) && refusal.minPackageHours !== undefined ? [refusal.minPackageHours] : []));
+    return { vehicleGroupId, reasons: reasonsFor(vehicleGroupId), ...(stopSeqs.length === 0 ? {} : { stopSeqs }), ...(shortest.length === 0 ? {} : { minPackageHours: Math.min(...shortest) }) };
   };
   if (requested.length === 0) return quoted.size === 0 ? [entry(null)] : [];
   return [...new Set(requested)].filter((id) => !quoted.has(id)).map(entry);

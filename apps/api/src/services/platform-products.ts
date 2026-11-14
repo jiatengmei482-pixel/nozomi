@@ -107,7 +107,7 @@ export function getPlatformProduct(ctx: AppContext, id: string): Promise<Platfor
       return {
         tenant: { id: tenant.id, name: tenant.name, status: tenant.status },
         view: await detail(db, tenantId, product),
-        serviceRules: await serviceRulesView(db, tenantId, product),
+        serviceRules: await serviceRulesView(db, tenantId, product, now),
         prices: priceRulesView(pricing, product, pricing.priceRules),
         adjusts: adjustRulesView(pricing),
         inventory: {
