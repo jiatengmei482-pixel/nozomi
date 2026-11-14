@@ -24,6 +24,11 @@ export interface InitOptions {
   autoBreakpoint?: number;
   /** 主题（M9E-10）：都可选，见 resolveTheme */
   theme?: WidgetTheme;
+  /**
+   * 合作网站自己的预订页（M9E-16，ADR 0095 第三节第 1 小节）：草稿建好后整页跳到这里加 `?nzdraft=<草稿号>`，由那一页的 `mountBooking` 接着走。
+   * 必须和当前页同一个 origin（规则见 booking-protocol.ts 的 bookingUrlOf）；不合格按没传处理（跳主站），控制台报一句
+   */
+  bookingUrl?: string;
 }
 
 /** init 参数里合作网站给的 lang、services：不认识的忽略，忽略后为空用后台设的默认值 */

@@ -166,6 +166,18 @@ test("迁移 0450：charter_layout 只有迁移账号能写；租户角色、平
   await assert.rejects(api.db.owner.query("update products set charter_layout = 'two_layer' where id = $1", [charter.id]), /products_charter_layout_check/);
   // 别的价格方式不能没有区域（包车套餐以外）
   await assert.rejects(api.db.owner.query("update price_rules set area_id = null where product_id = $1 and pricing_model = 'charter_area_surcharge'", [charter.id]), /price_rules_area_required/);
+  // 新建时带上也不行（触发器只放行表的所有者，INSERT 同样拦）
+  const copy = (layout: string | null) =>
+    `insert into products (tenant_id, id, code, brand_id, city_id, category, poi_id, status, service_rules, content, version, created_at, updated_at, charter_layout)
+     select tenant_id, gen_random_uuid(), code || '9', brand_id, city_id, category, poi_id, 'draft', service_rules, content, 1, now(), now(), ${layout === null ? "null" : `'${layout}'`} from products where id = $1`;
+  await assert.rejects(
+    withTenantTx(api.db.pool, m.b.tenantId, (db) => db.query(copy("three_layer"), [charter.id])),
+    (err: { code?: string }) => err.code === "42501",
+  );
+  await withTenantTx(api.db.pool, m.b.tenantId, async (db) => {
+    await db.query(copy(null), [charter.id]);
+    await db.query("delete from products where code = (select code || '9' from products where id = $1)", [charter.id]);
+  });
   assert.deepEqual(await layoutOf(charter.id), { layout: null, version: await version(m.b, charter.id) });
 });
 
@@ -194,6 +206,7 @@ test("迁移脚本 dry-run：报告七项齐全，不写库（商品标志、版
   assert.ok(product !== undefined);
   assert.equal(product.outcome, "migrated");
   assert.equal(product.sourceArea, "东京市内", "来源区域按名字取东京市内，不是排第一的横滨");
+  assert.equal(product.sourceBy, "name");
   assert.deepEqual([product.createdPackages, product.createdItinerary], [2, 3]);
   assert.deepEqual(product.packageMismatches.map((entry) => [entry.area, entry.packageHours, entry.source?.packagePriceMinor ?? null, entry.other?.packagePriceMinor ?? null]).sort(), [["横滨", 10, 55_000, 58_000], ["横滨", 8, 50_000, null]]);
   assert.deepEqual(product.waypointOnlyRows.map((entry) => entry.area), ["秩父"]);
@@ -276,6 +289,25 @@ test("迁移后：套餐价只看整商品套餐价（改旧行无效、旧行�
   assert.equal(await settlements("shinjuku", ["chichibu"], "shinjuku"), "WAYPOINT_NOT_PRICED");
 });
 
+test("迁移后：旧数据只读——按服务区域的旧套餐价不能删；③行的途经加价不能清掉（传 null）；③整行可以删（ADR 0093「只读」，迁移可以回退）", async () => {
+  const view = await prices(m.b, charter.id);
+  const oldYokohama = view.items.find((item: any) => item.area_id === charter.yokohama && item.pricing_model === "charter_package");
+  const hachiojiUpdown = view.items.find((item: any) => item.pricing_model === "charter_area_surcharge" && item.area_id === charter.hachioji);
+  const before = await ruleCount(charter.id);
+  const removeOld = await batch(m.b, charter.id, { delete: [oldYokohama.id] });
+  assert.equal(removeOld.status, 400, removeOld.text);
+  assert.equal(removeOld.body.error.code, "CHARTER_LEGACY_READ_ONLY");
+  const single = await tenantCall(m.b, "DELETE", `/products/${charter.id}/price-rules/${oldYokohama.id}`, { version: await version(m.b, charter.id) });
+  assert.equal(single.body.error.code, "CHARTER_LEGACY_READ_ONLY", single.text);
+  const cleared = await batch(m.b, charter.id, { update: [{ id: hachiojiUpdown.id, ...updown(charter.hachioji, 10, 3_000, 3_000), waypoint_surcharge: null }] });
+  assert.equal(cleared.status, 400, cleared.text);
+  assert.equal(cleared.body.error.code, "CHARTER_LEGACY_READ_ONLY");
+  assert.equal(await ruleCount(charter.id), before, "都没写");
+  // ③整行删除可以（上下车加价是现行数据，途经加价随行一起走，迁移后的②不受影响）
+  assert.equal((await batch(m.b, charter.id, { delete: [hachiojiUpdown.id] })).status, 200);
+  assert.equal(await ruleCount(charter.id), before - 1);
+});
+
 test("迁移后：缺价统计按车型组 × 套餐（区域为 null）；上架检查要求每个车型组至少一档整商品套餐价", async () => {
   const coverage = await tenantCall(m.b, "GET", `/products/${charter.id}/price-coverage`);
   assertMatchesOpenApi("GET", "/tenant/v1/products/{id}/price-coverage", coverage);
@@ -329,6 +361,24 @@ test("「套餐价不一致」只读接口：供应商看自己的、甲看乙�
   assertMatchesOpenApi("GET", "/platform/v1/products/{id}/charter-migration-diff", platform);
   assert.equal(platform.status, 200, platform.text);
   assert.deepEqual(platform.body, mine.body);
+});
+
+test("迁移脚本 apply 中途出错：整个事务回滚——一条规则都没写、商品标志和版本号不变、没有审计", async () => {
+  const [rulesBefore, layoutBefore] = [await ruleCount(charterA.id), await layoutOf(charterA.id)];
+  const auditsBefore = Number((await api.db.owner.query("select count(*) from audit_logs where action = 'migrate' and tenant_id = $1", [m.a.tenantId])).rows[0].count);
+  // 写整商品套餐价成功之后、写行程加价时出错（测试 schema 里临时加一个触发器）
+  await api.db.owner.query(`create function fail_itinerary() returns trigger language plpgsql as $$ begin if new.pricing_model = 'charter_itinerary_surcharge' then raise exception 'boom' using errcode = 'P0001'; end if; return new; end $$`);
+  await api.db.owner.query("create trigger fail_itinerary before insert on price_rules for each row execute function fail_itinerary()");
+  try {
+    await assert.rejects(runCharterThreeLayerMigration(api.db.owner, { mode: "apply", productId: charterA.id, now: new Date(api.clock.now()) }), (err: { code?: string }) => err.code === "P0001");
+  } finally {
+    await api.db.owner.query("drop trigger fail_itinerary on price_rules");
+    await api.db.owner.query("drop function fail_itinerary()");
+  }
+  assert.equal(await ruleCount(charterA.id), rulesBefore);
+  assert.deepEqual(await layoutOf(charterA.id), layoutBefore);
+  assert.equal(Number((await api.db.owner.query("select count(*) from audit_logs where action = 'migrate' and tenant_id = $1", [m.a.tenantId])).rows[0].count), auditsBefore);
+  assert.equal(layoutBefore.layout, null);
 });
 
 test("迁移脚本：不带 --product 时迁全部还没迁过的包车商品（甲的也迁）；命令行参数和部署时的环境变量", async () => {

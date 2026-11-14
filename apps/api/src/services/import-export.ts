@@ -628,7 +628,7 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
       if (itinerary !== null) pricing = { model: "charter_itinerary_surcharge", surchargeMinor: itinerary };
     } else if (surchargeRow) {
       packageHours = read.integer(P.packageHours, !layered);
-      for (const column of PACKAGE_COLUMNS) if (read.text(column) !== null) read.problem(column, "NOT_APPLICABLE", `区域加价的行不填这一列，请留空（套餐价另起一行）`);
+      for (const column of PACKAGE_COLUMNS) if (read.text(column) !== null) read.problem(column, "NOT_APPLICABLE", `上下车加价的行不填这一列，请留空（套餐价另起一行）`);
       const [pickupSurcharge, dropoffSurcharge, waypointSurcharge] = [amount(P.pickupSurcharge), amount(P.dropoffSurcharge), amount(P.waypointSurcharge, true)];
       Object.assign(content, { packageHours, pricingModel: "charter_area_surcharge", surcharge: { pickupMinor: pickupSurcharge, dropoffMinor: dropoffSurcharge, waypointMinor: waypointSurcharge } });
       if (pickupSurcharge !== null && dropoffSurcharge !== null && !issues.some((issue) => issue.column === P.waypointSurcharge)) {

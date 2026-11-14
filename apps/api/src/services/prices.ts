@@ -240,7 +240,8 @@ function layeredCharter(product: Pick<Product, "category" | "charterLayout">): b
 /**
  * 包车新旧表的写入限制（M9P-05，ADR 0093 第一节）：
  * - 没迁移过的商品：不能新建或改成②行程加价、整商品套餐价（区域为空）、空套餐的加价 → `CHARTER_LAYOUT_NOT_MIGRATED`；
- * - 迁移过的商品：按服务区域的套餐价、③行里的途经加价是只读的旧数据（报价不读）→ 不能新建，也不能改（`CHARTER_LEGACY_READ_ONLY`）；删除可以。
+ * - 迁移过的商品：按服务区域的套餐价、③行里的途经加价是只读的旧数据（报价不读）→ 不能新建、不能改（`CHARTER_LEGACY_READ_ONLY`）；
+ *   按服务区域的套餐价也不能删（删除在 `checkPriceChanges` 里拦）；③行的途经加价不能清掉（传 null），③整行删除可以（上下车加价是现行数据）。
  *   改③行时途经加价和原来一样（页面不带这个键时沿用原值）不算改。
  */
 function charterLayoutIssue(product: Pick<Product, "category" | "charterLayout">, rule: PriceRule, before: StoredPriceRule | null): { reason: string; message: string; field: string } | null {
@@ -255,7 +256,7 @@ function charterLayoutIssue(product: Pick<Product, "category" | "charterLayout">
   }
   const waypoint = rule.pricing.model === "charter_area_surcharge" ? rule.pricing.waypointSurchargeMinor : undefined;
   const was = before !== null && before.pricing.model === "charter_area_surcharge" ? before.pricing.waypointSurchargeMinor : undefined;
-  if (waypoint !== undefined && waypoint !== was) return { reason: "CHARTER_LEGACY_READ_ONLY", field: "waypoint_surcharge", message: "上下车加价里的途经加价是迁移前的旧数据（只读）：经停加价请在「行程加价」里设" };
+  if ((waypoint !== undefined || was !== undefined) && waypoint !== was) return { reason: "CHARTER_LEGACY_READ_ONLY", field: "waypoint_surcharge", message: "上下车加价里的途经加价是迁移前的旧数据（只读）：经停加价请在「行程加价」里设" };
   return null;
 }
 
@@ -374,6 +375,10 @@ export function checkPriceChanges(context: PricingContext, changes: PriceChanges
     const at = prefix("delete", index) || "/id";
     if (!stored.has(id)) issues.push({ path: at, reason: "UNKNOWN_PRICE_RULE", message: "这条价格规则不存在，或者不是这个商品的", detail: { id } });
     else if (touched.has(id)) issues.push({ path: at, reason: "DUPLICATE", message: "同一条价格规则在这次保存里出现了两次", detail: { id } });
+    else if (layeredCharter(product) && (stored.get(id) as StoredPriceRule).pricing.model === "charter_package" && (stored.get(id) as StoredPriceRule).areaId !== null) {
+      // 迁移过的商品：按服务区域的旧套餐价只读，删也不行（ADR 0093 第五节「保留、只读」；删了就回不到迁移前，清理在 M9P-12）
+      issues.push({ path: at, reason: "CHARTER_LEGACY_READ_ONLY", message: "按服务区域的套餐价是迁移前的旧数据（只读），不能删除；清理旧数据另有任务（M9P-12）", detail: { id } });
+    }
     touched.add(id);
   }
   const remaining = context.priceRules.filter((rule) => !touched.has(rule.id));

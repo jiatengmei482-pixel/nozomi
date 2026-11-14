@@ -402,5 +402,7 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
 }
 
 function entrySourceJson(source: OrderEntrySource): Record<string, unknown> {
-  return source.kind === "embed" ? { kind: "embed", embed_key_id: source.embedKeyId, embed_key_name: source.embedKeyName, embed_origin: source.embedOrigin } : { kind: "book", embed_key_id: null, embed_key_name: null, embed_origin: null };
+  return source.kind === "embed"
+    ? { kind: "embed", embed_key_id: source.embedKeyId, embed_key_name: source.embedKeyName, embed_origin: source.embedOrigin, delivery: source.delivery }
+    : { kind: "book", embed_key_id: null, embed_key_name: null, embed_origin: null, delivery: null };
 }

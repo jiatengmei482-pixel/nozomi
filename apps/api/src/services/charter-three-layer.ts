@@ -2,8 +2,9 @@
  * 包车三层区域的数据迁移（M9P-05，ADR 0093 第六节）：只做加法，一个事务，可以重复执行。
  *
  * 对每个还没迁移过（`products.charter_layout` 为空）的包车商品：
- * - 「基础价来源区域」的套餐价（`charter_package`）原样复制成整商品套餐价（`area_id` 为空）。来源区域：商品服务区域里叫「东京市内」的
- *   （东京包车，ADR 0093 第十三节第 4 条），没有就取优先级排第一的；报告写明取的是哪个；
+ * - 「基础价来源区域」的套餐价（`charter_package`）原样复制成整商品套餐价（`area_id` 为空）。来源区域：**所有包车商品**都先找服务区域里
+ *   名字（中文名；没有中文名按日文、英文、韩文）正好是「东京市内」的（ADR 0093 第十三节第 4 条：东京包车取东京市内），没有就取优先级排第一的；
+ *   报告逐个商品写明取的是哪个区域、怎么取的（`sourceBy`），apply 之前在 dry-run 报告里核对；
  * - ③上下车加价行里设了途经加价（`waypointSurchargeMinor`）的，复制成②行程加价（同区域、车型组、套餐、日期、状态，金额不变）。
  *   规格表以外的区域同样照搬（业务方已定 B）；没设途经加价的行不搬（没设 = 不报，迁移后没有②同样不报）；
  * - 同一个事务里把商品的 `charter_layout` 设为 `three_layer`、版本号加一，写审计（操作人是系统、来源是命令行、操作 `migrate`）。
@@ -84,6 +85,11 @@ export interface ProductMigrationReport {
   tenantName: string;
   outcome: "migrated" | "already_migrated" | "no_package";
   sourceArea: string | null;
+  /**
+   * 来源区域是怎么取的：`name` = 商品服务区域里有名字（中文名，没有中文名按日文、英文、韩文）正好是「东京市内」的，对所有包车商品都先这样找；
+   * `first_priority` = 没有这样的区域，取优先级排第一的；没有服务区域为 null。apply 之前请在 dry-run 报告里逐个核对。
+   */
+  sourceBy: "name" | "first_priority" | null;
   layoutBefore: string | null;
   layoutAfter: string | null;
   versionBefore: number;
@@ -239,7 +245,9 @@ async function migrateProduct(db: PoolClient, product: Row, shapes: Awaited<Retu
   const withWaypoint = updown.filter((rule) => rule.pricing.waypointSurchargeMinor !== undefined);
   const layoutBefore = (product["charter_layout"] as string | null) ?? null;
   const versionBefore = product["version"] as number;
-  const sourceAreaId = own.find((id) => areaName.get(id) === PREFERRED_SOURCE_AREA_NAME) ?? own[0] ?? null;
+  const byName = own.find((id) => areaName.get(id) === PREFERRED_SOURCE_AREA_NAME);
+  const sourceAreaId = byName ?? own[0] ?? null;
+  const sourceBy = byName !== undefined ? ("name" as const) : sourceAreaId === null ? null : ("first_priority" as const);
   const packagesOf = (areaId: string): RuleRow[] => rules.filter((rule) => rule.pricing.model === "charter_package" && rule.areaId === areaId);
   const sourcePackages = sourceAreaId === null ? [] : packagesOf(sourceAreaId);
 
@@ -294,6 +302,7 @@ async function migrateProduct(db: PoolClient, product: Row, shapes: Awaited<Retu
     tenantName: product["tenant_name"],
     outcome: "migrated",
     sourceArea: sourceAreaId === null ? null : area(sourceAreaId),
+    sourceBy,
     layoutBefore,
     layoutAfter: layoutBefore,
     versionBefore,
@@ -309,7 +318,8 @@ async function migrateProduct(db: PoolClient, product: Row, shapes: Awaited<Retu
     emptyCells,
   };
   if (layoutBefore === "three_layer") return { ...base, outcome: "already_migrated" };
-  // 一条套餐价都没有的商品不迁：迁了也报不出价（整商品套餐价是空的），留给供应商先填
+  // 来源区域一条套餐价都没有的商品不迁（别的服务区域有也不迁）：迁了也报不出价（整商品套餐价是空的）。
+  // 部署日志只打「没有套餐价跳过 N」，具体是哪几个看报告里 outcome = no_package 的商品（M9P-08 执行时核对）
   if (sourcePackages.length === 0) return { ...base, outcome: "no_package" };
 
   // ---- 写入（dry-run 时由调用方回滚）----
