@@ -5515,6 +5515,8 @@ paths:
         需要操作 `product.manage`。必须带 `If-Match`（商品只有一个版本号：它下面任何一部分变了都加一）。
         `areas`、`vehicle_groups`、`dispatchers` 带了哪个就整体替换哪个，没带的不动；可以分步保存。
         - 区域：只能选本供应商自己的、商品所在城市的、业务类型和品类相同或「通用」的区域；顺序就是优先级；新选的必须是启用中的。
+          包车（M9P-06，ADR 0093 第七节）：新选的服务区域（基础价区域）不能和别的服务区域重叠（400 `AREA_LAYER_OVERLAP`），不能和这个商品上下车加价的区域重叠（400 `AREA_BASE_SURCHARGE_OVERLAP`），
+          不能就是某条上下车加价的区域（400 `VALIDATION_FAILED`，原因 `AREA_IS_PRODUCT_AREA`）；只有边界接触（小于 0.01 平方公里）不算，已经选着的不回头拦。
         - 车型组：平台主数据；每个选一个「人数 / 行李数」组合，必须是这个车型组的可选组合之一；新选的必须是启用中的。
         - 调度人：姓名 + 电话。
         - `brand_id`、`city_id`、`category`、`poi_id` 不能改：带了且和现有的不同返回 409 `FIELD_LOCKED`。
@@ -5898,6 +5900,8 @@ paths:
         包车三层区域（M9P-05，ADR 0093）：②行程加价 `charter_itinerary_surcharge` 填 `itinerary_surcharge`（区域可以是商品的服务区域）；整商品套餐价 `area_id` 为 null；②③的 `package_hours` 可为 null（= 所有套餐）。
         这三种只有迁移过三层区域的商品（价格规则应答的 `charter_layout = three_layer`）能用，否则 400 `CHARTER_LAYOUT_NOT_MIGRATED`；
         迁移过的商品不能新建、修改按服务区域的套餐价和上下车加价里的 `waypoint_surcharge`（迁移前的旧数据，只读；删除可以）：400 `CHARTER_LEGACY_READ_ONLY`。批量保存同样。
+        包车同层不重叠（M9P-06，ADR 0093 第七节）：这次新加进行程加价 / 上下车加价的区域，和同一层已有的区域重叠（≥ 0.01 平方公里）→ 400 `AREA_LAYER_OVERLAP`；
+        新加进上下车加价的区域和商品的服务区域重叠 → 400 `AREA_BASE_SURCHARGE_OVERLAP`。`details` 有 `areas`（两个区域名）、`area_ids`、`overlap_km2`、`layer`、`overlaps`（全部）。已有的重叠不拦。
         点对点（M8-11，ADR 0073 第二部分）：
         - `to_area_id`（下车区域）可填：不填 = 区域价（和以前一样）；填了 = **单向线路价**，只管上车点在 `area_id`、下车点在 `to_area_id` 的单。
           必须是这个商品选的区域（400 `AREA_NOT_IN_PRODUCT`，路径 `/to_area_id`），不能等于 `area_id`（400 `SAME_AREA`）；不存在或是别的租户的区域 404。
@@ -22500,7 +22504,7 @@ components:
     Place:
       type: object
       additionalProperties: false
-      required: [ id, type, code, country_code, city_id, parent_id, city, parent, name, location, category, flight_scope, address, status, version, created_at, updated_at, source ]
+      required: [ id, type, code, country_code, city_id, parent_id, city, parent, name, location, category, flight_scope, address, status, version, created_at, updated_at, source, charter_coverage ]
       properties:
         id:
           type: string
@@ -22548,6 +22552,9 @@ components:
         address:
           type: [ string, "null" ]
           description: 地标的地址；其他类型为 null
+        charter_coverage:
+          type: boolean
+          description: 在不在包车上架的覆盖检查清单里（M9P-06，ADR 0093 第七节第 4 条；只有地标能勾，运营在地点页维护）。只在平台侧的应答里有（租户侧的 `TenantPlace` 没有）
         source:
           type: [ object, "null" ]
           description: 从公开数据源导入的机场才有；手工录入的为 null
@@ -22635,6 +22642,9 @@ components:
         address:
           type: [ string, "null" ]
           maxLength: 300
+        charter_coverage:
+          type: boolean
+          description: 放进 / 拿出包车上架的覆盖检查清单（M9P-06）。只有地标能设为 true（否则 400 `VALIDATION_FAILED`，路径 `/charter_coverage`）
     VehicleGroup:
       type: object
       additionalProperties: false
@@ -24510,8 +24520,8 @@ components:
             properties:
               key:
                 type: string
-                enum: [ basic_info, service_rules, price_rules, content, adjust_rules, inventory, area_coverage, charter_min_package ]
-                description: "`area_coverage`（运营区域，M8-20）只在有提醒时出现、从不必须：勾选的报价区域有一部分不在任何运营区域里（原因 `PRICING_AREA_OUTSIDE_OPERATING`，`path` 是 `/areas/{区域编号}`，`detail.outside_m2` 是面积）。`charter_min_package`（最低套餐，M9P-03）同样只在有提醒时出现：包车的最低套餐比所有启用的套餐都长（原因 `MIN_PACKAGE_ABOVE_ALL`，`detail` 有 `min_package_hours`、`longest_package_hours`）"
+                enum: [ basic_info, service_rules, price_rules, content, adjust_rules, inventory, area_coverage, charter_min_package, charter_coverage, charter_empty_cells ]
+                description: "`area_coverage`（运营区域，M8-20）只在有提醒时出现、从不必须：勾选的报价区域有一部分不在任何运营区域里（原因 `PRICING_AREA_OUTSIDE_OPERATING`，`path` 是 `/areas/{区域编号}`，`detail.outside_m2` 是面积）。`charter_min_package`（最低套餐，M9P-03）同样只在有提醒时出现：包车的最低套餐比所有启用的套餐都长（原因 `MIN_PACKAGE_ABOVE_ALL`，`detail` 有 `min_package_hours`、`longest_package_hours`）。`charter_coverage`（M9P-06）只在有提醒时出现：商品所在城市「包车覆盖检查」清单里的地标不在商品任何区域里（原因 `CHARTER_POI_NOT_COVERED`，`path` 是 `/places/{地点编号}`）。`charter_empty_cells`（M9P-06）只在有提醒时出现：行程加价 / 上下车加价表里某区域某车型组没有启用的规则（原因 `CHARTER_EMPTY_CELL`，`path` 是 `/itinerary/{区域编号}/vehicle_groups/{下标}` 或 `/pickup_dropoff/…`）。迁移过三层区域的包车，`price_rules` 另要每个车型组至少一档整商品套餐价（原因 `CHARTER_GROUP_NO_PACKAGE`，`path` 是 `/vehicle_groups/{下标}`，M9P-05）"
               required:
                 type: boolean
                 description: 这一项不通过就不能上架

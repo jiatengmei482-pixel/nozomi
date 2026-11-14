@@ -593,6 +593,8 @@ const RULE_MESSAGES: Readonly<Record<PublishIssueReason, string>> = {
   PRICING_AREA_OUTSIDE_OPERATING: "这个报价区域有一部分不在任何运营区域里，那部分不会报价。需要的话请补画运营区域",
   MIN_PACKAGE_ABOVE_ALL: "最低套餐比这个商品所有启用的套餐都长，这个商品将报不出价",
   CHARTER_GROUP_NO_PACKAGE: "这个车型组还没有套餐价（按车型组 × 套餐填一次），报不出价",
+  CHARTER_POI_NOT_COVERED: "城市热门地标清单里的这个地标不在这个商品的任何区域里：客人在这里上下车或经停报不出价。需要的话把它画进基础价、行程或上下车加价区域",
+  CHARTER_EMPTY_CELL: "这个区域这个车型组没有填加价：空格 = 在这里不报价。不加钱请填 0",
   FEATURE_NOT_AVAILABLE: "这项功能还没有上线",
 };
 
@@ -860,10 +862,40 @@ async function runPublishCheck(db: Db, tenantId: string, product: Product, now: 
     ...(options.light === true ? {} : { pricingOutsideOperating: await pricingOutsideOperating(db, tenantId, product, view.areas ?? [], allPriceRules) }),
     // 包车的最低套餐比所有启用的套餐都长时提醒（ADR 0091，不拦上架）
     ...(product.category === "charter" ? { charterPackageHours: packageHoursOf(activePrices) } : {}),
+    // 包车覆盖检查、加价表空格（M9P-06，ADR 0093 第七节第 4、5 条）：提醒、不拦上架；列表概况、修改保护不算
+    ...(product.category === "charter" && options.light !== true ? await charterCoverageFacts(db, tenantId, product, view.areas ?? [], allPriceRules, selected.vehicleGroupIds) : {}),
     // 迁移过三层区域的包车：每个车型组至少一档整商品套餐价（规格 P1 #7「上架拦下」）
     ...(layered ? { charterGroupsWithoutPackage: selected.vehicleGroupIds.flatMap((groupId, index) => (activePrices.some((rule) => rule.vehicleGroupId === groupId) ? [] : [index])) } : {}),
   };
   return { items: publishCheck(facts), adjustRules: adjustRules.map((rule) => ({ id: rule.id, name: rule.name })), stacks };
+}
+
+/**
+ * 包车上架检查的两项提醒（M9P-06，ADR 0093 第七节第 4、5 条）：
+ * - 覆盖检查：商品所在城市启用中、勾了「包车覆盖检查」的地标，不在商品任何①基础价、②行程、③上下车加价区域（启用的规则）里的；
+ * - 加价表空格：②③表里每个区域（有启用规则的）× 商品选的车型组，一条启用的规则都没有的格（= 不报价）。
+ */
+async function charterCoverageFacts(db: Db, tenantId: string, product: Product, areas: readonly { areaId: string }[], rules: readonly StoredPriceRule[], vehicleGroupIds: readonly string[]): Promise<Pick<PublishFacts, "charterUncoveredPlaces" | "charterEmptyCells">> {
+  const enabledAreas = (model: string): string[] => [...new Set(rules.flatMap((rule) => (rule.pricing.model === model && rule.status === "enabled" && rule.areaId !== null ? [rule.areaId] : [])))];
+  const itinerary = enabledAreas("charter_itinerary_surcharge");
+  const updown = enabledAreas("charter_area_surcharge");
+  const emptyCells: { layer: "itinerary" | "pickup_dropoff"; areaId: string; vehicleGroupIndex: number }[] = [];
+  for (const [layer, model, ids] of [["itinerary", "charter_itinerary_surcharge", itinerary], ["pickup_dropoff", "charter_area_surcharge", updown]] as const) {
+    for (const areaId of ids) {
+      for (const [index, groupId] of vehicleGroupIds.entries()) {
+        if (!rules.some((rule) => rule.pricing.model === model && rule.areaId === areaId && rule.vehicleGroupId === groupId && rule.status === "enabled")) emptyCells.push({ layer, areaId, vehicleGroupIndex: index });
+      }
+    }
+  }
+  const places = await db.query<{ id: string; lng: string; lat: string }>("select id, lng, lat from places where city_id = $1 and type = 'poi' and status = 'active' and charter_coverage order by code", [product.cityId]);
+  let uncovered: string[] = [];
+  if (places.rows.length > 0) {
+    const ids = [...new Set([...areas.map((area) => area.areaId), ...itinerary, ...updown])];
+    const shapes = (await listTenantAreaShapes(db, tenantId)).filter((shape) => ids.includes(shape.id));
+    const quoteAreas = shapes.map((shape) => ({ areaId: shape.id, active: shape.status === "active", shapes: shape.polygons.map((polygon, index) => ({ id: `${shape.id}-${index}`, kind: polygon.kind, ring: [...polygon.ring, polygon.ring[0] as Position] })) }));
+    uncovered = places.rows.filter((place) => locateInAreas(quoteAreas, { lng: Number(place.lng), lat: Number(place.lat) }).operating.length === 0).map((place) => place.id);
+  }
+  return { ...(uncovered.length === 0 ? {} : { charterUncoveredPlaces: uncovered }), ...(emptyCells.length === 0 ? {} : { charterEmptyCells: emptyCells }) };
 }
 
 /** 商品勾选的报价区域（商品区域、启用的包车区域加价的区域）里，有多少不在本租户运营范围里（ADR 0075，按商品品类取运营区域）。 */
