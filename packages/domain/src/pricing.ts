@@ -9,7 +9,7 @@
  */
 import type { PlaceType, ServiceCategory } from "./master-data.ts";
 import { hasVisibleText, isCountryCode } from "./master-data.ts";
-import { type CurrencyCode, minorDigits, roundFractionHalfAwayFromZero, roundFractionToUnit } from "./money.ts";
+import { type CurrencyCode, assertMinor, minorDigits, roundFractionHalfAwayFromZero, roundFractionToUnit } from "./money.ts";
 import { type DailyWindow, MINUTES_PER_DAY, dailyWindowIssue, isLocalDate, parseTimeOfDay } from "./service-time.ts";
 
 // ---- 枚举和上限 ----
@@ -999,6 +999,22 @@ export function areaSurchargeFor<P extends PriceRule>(rules: readonly P[], query
   if (best !== null) return { rule: best.rule, areaId: best.areaId, amountMinor: best.amountMinor, noPriceReason: null };
   const reason = sameCombo.length === 0 ? "NO_RULE" : sameCombo.some((rule) => priceRuleCoversDate(rule, query.date)) ? "RULE_DISABLED" : "NOT_IN_EFFECT";
   return { rule: null, areaId: null, amountMinor: null, noPriceReason: reason };
+}
+
+/**
+ * 包车带区域加价的价（调价规则之前）：套餐价 + 上车加价 + 途经加价 + 下车加价，最小货币单位整数（ADR 0073 第三部分、ADR 0088）。
+ * 价格页「这一行的意思」的例子用它（tenant-prices.md 17.2.3、17.10 第 5 条），页面不自己写公式。
+ * 每一项都要是不小于 0 的安全整数；合计超出安全整数范围时抛 RangeError（不给出一个可能错的数）。
+ */
+export function charterPriceWithSurcharges(parts: { packageMinor: number; pickupMinor: number; dropoffMinor: number; waypointMinor?: number }): number {
+  const items = [parts.packageMinor, parts.pickupMinor, parts.dropoffMinor, parts.waypointMinor ?? 0];
+  for (const minor of items) {
+    assertMinor(minor);
+    if (minor < 0) throw new RangeError(`包车价的各项不能是负数：${minor}`);
+  }
+  const total = items.reduce((sum, minor) => sum + BigInt(minor), 0n);
+  if (total > BigInt(Number.MAX_SAFE_INTEGER)) throw new RangeError(`包车价超出了安全整数范围：${total}`);
+  return Number(total);
 }
 
 /** 价格日历里一天中的一段：从 `fromMinute`（含）到 `toMinute`（不含），这一段里结果相同。 */
