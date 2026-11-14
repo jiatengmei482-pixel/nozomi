@@ -7,7 +7,7 @@
  *   草稿里没有个人信息，也不是任何业务记录。
  */
 import { randomBytes } from "node:crypto";
-import { type BookingDraft, bookingDraftExpiresAt, isBookingDraftId, parseBookingDraft } from "@nozomi/domain";
+import { type BookingDraft, type EmbedDelivery, bookingDraftExpiresAt, isBookingDraftId, parseBookingDraft } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { type Db, withPlatformTx } from "../db/context.ts";
 import { driverErrorCode } from "../db/pool.ts";
@@ -17,6 +17,8 @@ export interface BookingDraftSource {
   embedKeyId: string;
   embedOrigin: string;
   returnUrl: string | null;
+  /** 草稿交给谁接着走（M9E-16，ADR 0095）；旧草稿为空，按 redirect 算 */
+  delivery: EmbedDelivery | null;
 }
 
 export interface StoredBookingDraft {
@@ -38,12 +40,13 @@ export function newBookingDraftId(): string {
 export async function insertBookingDraft(db: Db, draft: BookingDraft, source: BookingDraftSource | null, now: Date): Promise<StoredBookingDraft> {
   const id = newBookingDraftId();
   const expiresAt = bookingDraftExpiresAt(now);
-  await db.query("insert into booking_drafts (id, content, embed_key_id, embed_origin, return_url, created_at, expires_at) values ($1, $2, $3, $4, $5, $6, $7)", [
+  await db.query("insert into booking_drafts (id, content, embed_key_id, embed_origin, return_url, delivery, created_at, expires_at) values ($1, $2, $3, $4, $5, $6, $7, $8)", [
     id,
     JSON.stringify(draft),
     source?.embedKeyId ?? null,
     source?.embedOrigin ?? null,
     source?.returnUrl ?? null,
+    source?.delivery ?? null,
     now,
     expiresAt,
   ]);
@@ -56,6 +59,7 @@ interface DraftRow {
   embed_key_id: string | null;
   embed_origin: string | null;
   return_url: string | null;
+  delivery: EmbedDelivery | null;
   created_at: Date;
   expires_at: Date;
 }
@@ -63,12 +67,12 @@ interface DraftRow {
 /** 按编号读一份**还没过期**的草稿；过期、不存在、格式不对都是 null。库里的内容再校验一次，不合格按不存在。 */
 export async function findLiveBookingDraft(db: Db, id: string, now: Date): Promise<StoredBookingDraft | null> {
   if (!isBookingDraftId(id)) return null;
-  const result = await db.query<DraftRow>("select id, content, embed_key_id, embed_origin, return_url, created_at, expires_at from booking_drafts where id = $1 and expires_at > $2", [id, now]);
+  const result = await db.query<DraftRow>("select id, content, embed_key_id, embed_origin, return_url, delivery, created_at, expires_at from booking_drafts where id = $1 and expires_at > $2", [id, now]);
   const row = result.rows[0];
   if (row === undefined) return null;
   const draft = parseBookingDraft(row.content);
   if (draft === null) return null;
-  const source = row.embed_key_id !== null && row.embed_origin !== null ? { embedKeyId: row.embed_key_id, embedOrigin: row.embed_origin, returnUrl: row.return_url } : null;
+  const source = row.embed_key_id !== null && row.embed_origin !== null ? { embedKeyId: row.embed_key_id, embedOrigin: row.embed_origin, returnUrl: row.return_url, delivery: row.delivery } : null;
   return { id: row.id, draft, source, createdAt: row.created_at, expiresAt: row.expires_at };
 }
 

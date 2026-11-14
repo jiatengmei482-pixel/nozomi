@@ -70,6 +70,9 @@
 	#   @api   归 API 的路径前缀（/health、/platform/v1 等，前缀本身和它下面的全部路径）。和开发 / 端到端测试的
 	#          Vite 代理用的是同一张表（apps/web/src/lib/api-prefixes.ts），这里不再抄一遍
 	#   Content-Security-Policy 响应头：index.html 里那段内联的主题脚本按哈希放行，哈希是从构建产物现算的
+	#   嵌入预订页 /embed/book（M9E-16，ADR 0095）：handle @embed_book_pages，先用 forward_auth 问 API 能不能被这个宿主嵌入，
+	#          frame-ancestors 只放行 API 回的那一个宿主；排在下面的 handle 之前。X-Frame-Options 仍按上面的全局 DENY：
+	#          带强制 frame-ancestors 时浏览器忽略它（CSP3；Chromium、WebKit、Firefox 实测），老浏览器按 DENY 拒绝
 	import /etc/nozomi/web.caddy
 
 	handle @api {

@@ -48,7 +48,7 @@ test("读到草稿：只给预订条件和到期时刻，不给来源；有效�
     "insert into embed_keys (key, name, allowed_origins, default_lang, default_services, created_at, updated_at, created_by, updated_by) values ($1, '测试', array['https://partner.example'], 'ja', array['transfer'], now(), now(), $2, $2) returning id",
     [`nze_${"A".repeat(32)}`, adminId],
   );
-  const stored = await store(charter, { embedKeyId: key.rows[0]?.id as string, embedOrigin: "https://partner.example", returnUrl: "https://partner.example/thanks" });
+  const stored = await store(charter, { embedKeyId: key.rows[0]?.id as string, embedOrigin: "https://partner.example", returnUrl: "https://partner.example/thanks", delivery: null });
   assert.match(stored.id, /^[A-Za-z0-9_-]{43}$/);
   const first = await read(stored.id);
   assert.equal(first.status, 200, first.text);
