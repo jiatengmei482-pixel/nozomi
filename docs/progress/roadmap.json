@@ -1252,7 +1252,7 @@
             "两种布局在演示站风格宿主和纯白宿主各截 1440 / 1024 / 768 / 390，附改前对比；现有组件测试和端到端全部通过",
             "独立审查、合并、部署后在演示站看一眼两种布局"
           ],
-          "evidence": "组件两种外观 card / 横条 bar（按组件容器宽度，bar 窄于 768 px 自动换 card），日期时间合成一个控件，人数行李改成紧凑加减器（主站选车那一步改不了人数行李，所以首屏保留），交换起终点按钮，隐私提示只在底部一行并用 aria-describedby 关联；theme 只留 primary / accent / radius / fontFamily 接口，做成 CSS 变量；嵌入码后台加「外观：卡片 / 横条」（迁移 0410 只加列，默认 card；/embed/v1/config 不变）。组件测试 widget.test.tsx 22 个（新增 6 个：外观切换、主题变量、隐私提示 aria-describedby、加减器、交换和横条按钮状态、日期时间控件）、widget-core 10 个（新增 3 个）；嵌入码后台 domain 7 个、embed-keys 页面 + 契约 8 个、embed.itest 12 个（新增 1 个）；端到端 site-embed-widget、site-google-attribution 本机通过（chromium）；截图 docs/acceptance/M9E-10-shots（改前 before-*、改后 after-card-* / after-bar-*，演示站风格宿主和纯白宿主，1440 / 1024 / 768 / 390）；脚本 21.3 KB → 39.7 KB，gzip 8.3 KB → 13.5 KB（预算 60 KB）",
+          "evidence": "PR https://github.com/jiatengmei482-pixel/nozomi/pull/233 ；组件两种外观 card / 横条 bar（按组件容器宽度，bar 窄于 768 px 自动换 card），日期时间合成一个控件，人数行李改成紧凑加减器（主站选车那一步改不了人数行李，所以首屏保留），交换起终点按钮，隐私提示只在底部一行并用 aria-describedby 关联；theme 只留 primary / accent / radius / fontFamily 接口，做成 CSS 变量；嵌入码后台加「外观：卡片 / 横条」（迁移 0410 只加列，默认 card；/embed/v1/config 不变）。组件测试 widget.test.tsx 22 个（新增 6 个：外观切换、主题变量、隐私提示 aria-describedby、加减器、交换和横条按钮状态、日期时间控件）、widget-core 11 个（新增 4 个）；嵌入码后台 domain 7 个、embed-keys 页面 + 契约 8 个、embed.itest 12 个（新增 1 个）；端到端 site-embed-widget、site-google-attribution 本机通过（chromium）；截图 docs/acceptance/M9E-10-shots（改前 before-*、改后 after-card-* / after-bar-*，演示站风格宿主和纯白宿主，1440 / 1024 / 768 / 390）；脚本 21.3 KB → 39.7 KB，gzip 8.3 KB → 13.4 KB（预算 60 KB）",
           "updated": "2026-11-14"
         }
       ]
