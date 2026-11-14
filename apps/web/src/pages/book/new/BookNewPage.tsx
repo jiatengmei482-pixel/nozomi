@@ -13,6 +13,8 @@
  * 手机、平板（< 1024px）单栏，右侧栏变成顶部可展开的摘要条。
  * 链接参数 from / to / date / time / pax / bags / mode（parseBookingLink）：打开就预填并报价，齐了直接到第 2 步；不合法的只是不预填。
  * 四种状态：加载中（骨架）、官网没开 / 没有可订城市（空）、出错（说明 + 重试）、正常。页面上没有供应商、结算价、加价比例。
+ * 同一份组件也是嵌入预订页 `/embed/book` 的四步（M9E-17，ADR 0095）：两边不同的几处（外壳、单栏、不用 Leaflet、读草稿、下单后去哪、换步通知）
+ * 由 `BookingShell` 上下文给（booking-shell.tsx），默认值就是主站的行为。
  */
 import { type CityCandidate, type CurrencyCode, ORDER_FIELD_LIMITS, fixedPriceIncludes, fixedPriceIncludesTitle, fixedPriceLabel, isInternationalPhone, serviceCityOf } from "@nozomi/domain";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -34,7 +36,6 @@ import {
   getSiteFxReference,
   listSiteCharterPackagesAt,
   getSitePlaceByCode,
-  getSiteBookingDraft,
   listSiteCities,
 } from "../../../api/site.ts";
 import { AlertSlot, type Notice } from "../../../components/Alert.tsx";
@@ -71,7 +72,7 @@ import {
 } from "../../../lib/book-new.ts";
 import { formatInZone, moneyText } from "../../../lib/dispatch-display.ts";
 import { displayName } from "../../../lib/master-display.ts";
-import { CHARTER_ITINERARY_OVERAGE_NOTE, CHARTER_OVERAGE_NOTE, UNAVAILABLE_REASON_TEXT, addressEnds, defaultServiceDate, guestCancelPolicyText, guestLocalText, newIdempotencyKey, quotesByTotal, siteDistanceNote, siteOrderUrl, sitePriceBasisNote } from "../../../lib/site-display.ts";
+import { CHARTER_ITINERARY_OVERAGE_NOTE, CHARTER_OVERAGE_NOTE, UNAVAILABLE_REASON_TEXT, addressEnds, defaultServiceDate, guestCancelPolicyText, guestLocalText, newIdempotencyKey, quotesByTotal, siteDistanceNote, sitePriceBasisNote } from "../../../lib/site-display.ts";
 import { FIELD_HINTS, MESSAGING_NAMES, type OrderErrors, type OrderForm, type OrderTrip, orderFailureOf, orderRequestOf, validateOrderForm } from "../../../lib/site-order-form.ts";
 import { useDocumentTitle } from "../../../lib/use-document-title.ts";
 import { MANUAL_QUOTE_CHARTER_HOURS, type ManualQuoteTripDraft } from "../../../lib/manual-quote-form.ts";
@@ -79,12 +80,13 @@ import { ITINERARY_NOTE, type WaypointDraft, autoPackageHoursOf, breakdownLines,
 import { TripStops } from "../../../components/TripStops.tsx";
 import { ADDRESS_ONLY_HINT, DRAFT_EXPIRED_TEXT, DRAFT_FAILED_TEXT, draftReadyToQuote, draftTrip } from "../../../lib/booking-draft.ts";
 import { ManualQuoteBlock } from "../ManualQuote.tsx";
-import { SiteLayout, siteFailureText, useSiteConfig } from "../SiteLayout.tsx";
+import { siteFailureText, useSiteConfig } from "../SiteLayout.tsx";
 import { SitePrice } from "../SitePrice.tsx";
 import { AddonsBlock, CONTACT_FORM_ID, ConsentField, type ContactForm, ContactSection, PayBlock, PriceBlock, type PricedState, RouteBlock, emptyContact } from "./CheckoutParts.tsx";
 import { PlaceField } from "./PlaceField.tsx";
 import { PriceBreakdown } from "./PriceBreakdown.tsx";
 import { WaypointsField } from "./WaypointsField.tsx";
+import { useBookingShell } from "./booking-shell.tsx";
 import { PickerTextField } from "./full-screen.tsx";
 import { TravellersField } from "./TravellersField.tsx";
 import { VehicleList } from "./VehicleList.tsx";
@@ -253,10 +255,11 @@ function SupportPhone({ phone }: { phone: string | null }) {
 }
 
 export function BookNewPage() {
-  useDocumentTitle("预订用车 · NOZOMI 用车");
+  const shell = useBookingShell();
+  useDocumentTitle(shell.title);
   const location = useLocation();
   const link = useMemo(() => parseBookingLink(location.search), []);
-  const wide = useWideScreen();
+  const wide = useWideScreen() && !shell.narrow;
   const { state: config, reload: reloadConfig } = useSiteConfig();
   const [cities, setCities] = useState<Load<SiteCity[]>>({ kind: "loading" });
   const [round, setRound] = useState(0);
@@ -348,11 +351,13 @@ export function BookNewPage() {
     let alive = true;
     // 嵌入组件建的预订草稿（M9E-01，ADR 0090）：读到就整份预填；过期、不存在、读不出来时说一句，留空白表单
     if (link.draft !== null) {
-      getSiteBookingDraft(link.draft).then(
-        ({ draft: saved }) => {
+      const draftId = link.draft;
+      shell.readDraft(draftId).then(
+        ({ draft: saved, sourceMatches }) => {
           if (!alive) return;
           setLinkPending(false);
-          setDraftSource(link.draft);
+          // 嵌入页：草稿上记的嵌入码、宿主和这次的对不上时不带编号，来源按主站记（M9E-17）；主站总是对得上
+          setDraftSource(sourceMatches ? draftId : null);
           const trip = draftTrip(saved);
           if (trip.date !== "") dateChosen.current = true;
           setDraft((current) => ({ ...current, tab: trip.tab, mode: trip.tab, from: trip.from, to: trip.to, date: trip.date, time: trip.time, passengers: trip.passengers, luggage: trip.luggage, packageHours: trip.packageHours, waypoints: trip.waypoints }));
@@ -651,7 +656,7 @@ export function BookNewPage() {
     setBusy(true);
     try {
       const created = await createSiteOrder(orderRequestOf(priced.quote_id, orderForm(), orderTrip), orderKey.current);
-      navigate(siteOrderUrl(created.link.token), { state: { placed: true, payment: created.payment } });
+      shell.placed(created, navigate);
     } catch (err) {
       const failure = orderFailureOf(err);
       if (failure.kind === "expired") {
@@ -773,6 +778,9 @@ export function BookNewPage() {
     if (cities.kind === "ready" && !linkPending && !packagesPending && urlStep > reachable) goStep(reachable, true);
   }, [cities.kind, linkPending, urlStep, reachable, matchLoad?.kind]);
 
+  // 告诉外壳现在是第几步（嵌入页据此通知宿主；主站什么都不做），第一次显示也算
+  useEffect(() => shell.stepShown(step), [step]);
+
   // 换步：焦点移到那一步的标题（第一次打开不动）
   const shownStep = useRef(step);
   useEffect(() => {
@@ -795,7 +803,7 @@ export function BookNewPage() {
   } else if (cityList.length === 0) {
     body = <StateBlock tone="neutral" title="暂时没有可预订的城市" description="现在还没有可以在线预订用车的城市，请稍后再来。" />;
   } else {
-    const tiles = config.config.map_tiles;
+    const tiles = shell.tiles(config.config.map_tiles);
     const centers: CityCandidate[] = cityList.map((city) => ({ id: city.id, center: city.center }));
     // 地图从另一端打开；另一端还没选时从当前标签的默认城市打开（M8-43，规则见 defaultMapCity）
     const fallbackCenter = defaultMapCity(cityList, draft.tab)?.center ?? null;
@@ -1417,11 +1425,5 @@ export function BookNewPage() {
     );
   }
 
-  return (
-    <SiteLayout>
-      <h1 className="site__title">预订接送车</h1>
-      <p className="site-muted">输入出发地和目的地，马上看到所有车型的一口价</p>
-      {body}
-    </SiteLayout>
-  );
+  return shell.frame(body);
 }
