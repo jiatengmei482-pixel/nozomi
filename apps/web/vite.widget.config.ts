@@ -26,6 +26,8 @@ export default defineConfig({
     outDir,
     emptyOutDir: true,
     sourcemap: false,
+    // 产物只含 ASCII（M9E-07）：中日英文案转成 \uXXXX。合作网站是 Shift_JIS 等非 UTF-8 页面、响应头的 charset 又被弄丢时，文字也不会乱码。
+    rolldownOptions: { output: { minify: { compress: true, mangle: true, codegen: { asciiOnly: true } } } },
     lib: { entry: fileURLToPath(new URL("./src/embed/widget.ts", import.meta.url)), name: "NozomiBooking", formats: ["iife"], fileName: () => "widget-v1.js" },
   },
 });

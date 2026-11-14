@@ -38,6 +38,16 @@ test("产物只有 index.html 和带哈希的 JS / CSS，没有 source map", () 
   for (const { name, text } of textFiles) expect(text.includes("sourceMappingURL"), `${name} 指向了 source map`).toBe(false);
 });
 
+test("嵌入组件脚本只含 ASCII：中日英文案都转成 \\uXXXX，合作网站是 Shift_JIS 等非 UTF-8 页面时也不会乱码（M9E-07）", () => {
+  const bytes = readFileSync(join(DIST, "embed/widget-v1.js"));
+  const offending = bytes.findIndex((byte) => byte > 0x7f);
+  expect(offending, `第 ${offending} 个字节不是 ASCII`).toBe(-1);
+  const text = bytes.toString("latin1");
+  // 文案还在，只是换了写法：「预订组件暂时无法使用」的转义原样出现，运行时由 JS 还原成中文。
+  const escaped = [..."预订组件暂时无法使用"].map((char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`).join("");
+  expect(text.toLowerCase()).toContain(escaped);
+});
+
 test("产物里没有环境变量、密钥、数据库地址、本机路径、测试代码", () => {
   const secretValues = ["AUTH_JWT_SECRET", "DATABASE_URL", "E2E_ADMIN_PASSWORD", "E2E_ADMIN_EMAIL"].map((name) => process.env[name]).filter((value): value is string => typeof value === "string" && value.length >= 8);
   expect(process.env["E2E_ADMIN_PASSWORD"], "前提：global-setup 已经把管理员密码放进环境变量").toBeTruthy();
