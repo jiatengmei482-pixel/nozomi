@@ -119,32 +119,62 @@ function darkTheme(): boolean {
   return typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: dark)").matches;
 }
 
+/** Stripe appearance 的每一项取哪个 CSS 变量 */
+export interface AppearanceTokens {
+  variables: readonly (readonly [string, string])[];
+  rules: Readonly<Record<string, readonly (readonly [string, string])[]>>;
+}
+
+/** 主站：设计令牌（ADR 0046） */
+export const SITE_APPEARANCE_TOKENS: AppearanceTokens = {
+  variables: [
+    ["colorPrimary", "--color-primary"],
+    ["colorBackground", "--color-bg-surface"],
+    ["colorText", "--color-text-primary"],
+    ["colorTextSecondary", "--color-text-secondary"],
+    ["colorTextPlaceholder", "--color-text-tertiary"],
+    ["colorDanger", "--color-danger-text"],
+    ["fontFamily", "--font-family-sans"],
+    ["fontSizeBase", "--font-size-lg"],
+    ["borderRadius", "--radius-md"],
+  ],
+  rules: {
+    ".Input": [["borderColor", "--color-border-strong"]],
+    ".Input:focus": [["borderColor", "--color-border-focus"]],
+    ".Label": [["color", "--color-text-primary"]],
+  },
+};
+
 /**
- * Payment Element 的外观：Stripe 的表单在 iframe 里，读不到本站的 CSS 变量，所以挂表单时把设计令牌的当前值读出来交给它；
+ * 嵌入预订页（M9E-17，ADR 0095 第四节第 1 小节、Q15）：颜色、字体、圆角从嵌入组件的 --nzb-* 读（embed.css），和组件、嵌入页同一套变量。
+ * --nzb-* 没有的项（次要文字、出错颜色、字号）不传，用 Stripe 的默认值。付款表单进 iframe 是第三期 M9E-19，挂表单时传这一套。
+ */
+export const EMBED_APPEARANCE_TOKENS: AppearanceTokens = {
+  variables: [
+    ["colorPrimary", "--nzb-primary"],
+    ["colorBackground", "--nzb-light"],
+    ["colorText", "--nzb-dark"],
+    ["fontFamily", "--nzb-font"],
+    ["borderRadius", "--nzb-radius-control"],
+  ],
+  rules: {
+    ".Input:focus": [["borderColor", "--nzb-ink"]],
+    ".Label": [["color", "--nzb-dark"]],
+  },
+};
+
+/**
+ * Payment Element 的外观：Stripe 的表单在 iframe 里，读不到本站的 CSS 变量，所以挂表单时把变量的当前值读出来交给它；
  * 主题切换时重新读一遍（见 `watchTheme`）。读不到（值为空）的项不传，用 Stripe 的默认值。
  */
-export function stripeAppearance(): StripeAppearance {
+export function stripeAppearance(tokens: AppearanceTokens = SITE_APPEARANCE_TOKENS): StripeAppearance {
   const style = getComputedStyle(document.documentElement);
-  const pick = (entries: [string, string][]): Record<string, string> =>
+  const pick = (entries: readonly (readonly [string, string])[]): Record<string, string> =>
     Object.fromEntries(entries.map(([key, name]) => [key, style.getPropertyValue(name).trim()]).filter(([, value]) => value !== ""));
   return {
     theme: darkTheme() ? "night" : "stripe",
-    variables: pick([
-      ["colorPrimary", "--color-primary"],
-      ["colorBackground", "--color-bg-surface"],
-      ["colorText", "--color-text-primary"],
-      ["colorTextSecondary", "--color-text-secondary"],
-      ["colorTextPlaceholder", "--color-text-tertiary"],
-      ["colorDanger", "--color-danger-text"],
-      ["fontFamily", "--font-family-sans"],
-      ["fontSizeBase", "--font-size-lg"],
-      ["borderRadius", "--radius-md"],
-    ]),
-    rules: {
-      ".Input": pick([["borderColor", "--color-border-strong"]]),
-      ".Input:focus": pick([["borderColor", "--color-border-focus"]]),
-      ".Label": pick([["color", "--color-text-primary"]]),
-    },
+    variables: pick(tokens.variables),
+    rules: Object.fromEntries(Object.entries(tokens.rules).map(([selector, entries]) => [selector, pick(entries)])),
   };
 }
 
@@ -172,7 +202,7 @@ const connectionError = (): StripeJsResult => ({ error: { type: "api_connection_
  * Stripe Elements 的实现。`load` 只给测试换（Stripe.js 的假实现）；默认从 js.stripe.com 加载。
  * 挂表单前先查这笔付款的状态：已经付过、处理中的不再显示表单（刷新页面、从银行验证页回来时）。
  */
-export function createStripePaymentDriver(load: () => Promise<StripeJsFactory> = () => loadStripeJs()): PaymentDriver {
+export function createStripePaymentDriver(load: () => Promise<StripeJsFactory> = () => loadStripeJs(), tokens: AppearanceTokens = SITE_APPEARANCE_TOKENS): PaymentDriver {
   return {
     async mount(container, { publishableKey, clientSecret }) {
       // 最后一道防线（ADR 0046）：订单页会先把令牌移出地址；万一没移，宁可不加载，也不让 Stripe.js 读到令牌
@@ -192,7 +222,7 @@ export function createStripePaymentDriver(load: () => Promise<StripeJsFactory> =
       const lastError = lastFailure === null ? null : paymentFailureText(lastFailure);
       const awaitingPaymentMethod = retrieved.paymentIntent.status === "requires_payment_method";
 
-      const elements = stripe.elements({ clientSecret, appearance: stripeAppearance(), locale: STRIPE_LOCALE });
+      const elements = stripe.elements({ clientSecret, appearance: stripeAppearance(tokens), locale: STRIPE_LOCALE });
       const element = elements.create("payment", PAYMENT_ELEMENT_OPTIONS);
       const ready = new Promise<void>((resolve, reject) => {
         element.on("ready", () => resolve());
@@ -205,7 +235,7 @@ export function createStripePaymentDriver(load: () => Promise<StripeJsFactory> =
         element.destroy();
         throw err;
       }
-      const stopWatching = watchTheme(() => elements.update({ appearance: stripeAppearance() }));
+      const stopWatching = watchTheme(() => elements.update({ appearance: stripeAppearance(tokens) }));
 
       // 确认时出了不认识的错、或没连上（例如另一个标签页已经付过、确认请求发出去了但应答丢了）：再查一次这笔付款，已付过的按已付过算
       const recheck = async (fallback: ConfirmOutcome): Promise<ConfirmOutcome> => {
