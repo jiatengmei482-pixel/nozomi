@@ -125,7 +125,7 @@ export function tomorrow(now: Date): string {
 
 type Texts = Record<
   | "transfer" | "charter" | "from" | "to" | "pickup" | "dropoff" | "waypoint" | "stay" | "addWaypoint" | "removeWaypoint" | "date" | "time" | "passengers" | "luggage"
-  | "submit" | "submitting" | "placeOnly" | "pickPlace" | "pickStay" | "pickDate" | "pickTime" | "noMatch" | "searching" | "unavailable" | "goToSite"
+  | "submit" | "submitting" | "placeOnly" | "pickPlace" | "pickStay" | "pickDate" | "pickTime" | "noMatch" | "searching" | "locating" | "locateFailed" | "unavailable" | "goToSite"
   | "invalid" | "tooFast" | "busy" | "unreachable" | "packageNote" | "minutes" | "tabs" | "suggestions",
   string
 >;
@@ -134,7 +134,7 @@ export const TEXTS: Readonly<Record<WidgetLang, Texts>> = {
   zh: {
     transfer: "区间", charter: "包车", from: "出发地", to: "目的地", pickup: "上车地点", dropoff: "下车地点", waypoint: "经停点", stay: "停留时长", addWaypoint: "添加经停点", removeWaypoint: "删除经停点",
     date: "日期", time: "时间", passengers: "乘客", luggage: "行李", submit: "查询价格", submitting: "正在跳转…", placeOnly: "只填地点，不要填姓名、电话。",
-    pickPlace: "请从候选里选一个地点", pickStay: "请选择停留时长", pickDate: "请选择日期", pickTime: "请选择时间", noMatch: "没有找到，换个说法试试", searching: "正在查找…",
+    pickPlace: "请从候选里选一个地点", pickStay: "请选择停留时长", pickDate: "请选择日期", pickTime: "请选择时间", noMatch: "没有找到，换个说法试试", searching: "正在查找…", locating: "正在取位置…", locateFailed: "取不到这个地点的位置，请重新选一个",
     unavailable: "预订组件暂时无法使用。请稍后刷新，或直接到主站预订。", goToSite: "到主站预订",
     invalid: "有几项填得不对，请检查后再试。", tooFast: "操作太频繁，请稍等一分钟再试。", busy: "暂时无法查询，请稍后再试或直接到主站预订。", unreachable: "暂时连不上，请稍后再试或直接到主站预订。",
     packageNote: "不填经停点时，到预订页选包车时长。", minutes: "分钟", tabs: "用车类型", suggestions: "的候选",
@@ -142,7 +142,7 @@ export const TEXTS: Readonly<Record<WidgetLang, Texts>> = {
   ja: {
     transfer: "区間", charter: "貸切", from: "出発地", to: "目的地", pickup: "乗車地", dropoff: "降車地", waypoint: "経由地", stay: "滞在時間", addWaypoint: "経由地を追加", removeWaypoint: "経由地を削除",
     date: "日付", time: "時刻", passengers: "人数", luggage: "荷物", submit: "料金を調べる", submitting: "移動しています…", placeOnly: "場所のみ入力してください（氏名・電話番号は不要です）。",
-    pickPlace: "候補から場所を選んでください", pickStay: "滞在時間を選んでください", pickDate: "日付を選んでください", pickTime: "時刻を選んでください", noMatch: "見つかりませんでした。別の言葉でお試しください", searching: "検索しています…",
+    pickPlace: "候補から場所を選んでください", pickStay: "滞在時間を選んでください", pickDate: "日付を選んでください", pickTime: "時刻を選んでください", noMatch: "見つかりませんでした。別の言葉でお試しください", searching: "検索しています…", locating: "位置を確認しています…", locateFailed: "この場所の位置を取得できませんでした。もう一度選んでください",
     unavailable: "予約フォームは現在ご利用いただけません。しばらくしてから再読み込みするか、本サイトでご予約ください。", goToSite: "本サイトで予約",
     invalid: "入力内容に誤りがあります。ご確認ください。", tooFast: "操作が多すぎます。1 分ほどおいてからお試しください。", busy: "ただいま混み合っています。しばらくしてからお試しいただくか、本サイトでご予約ください。", unreachable: "接続できませんでした。しばらくしてからお試しいただくか、本サイトでご予約ください。",
     packageNote: "経由地がない場合、貸切時間は予約ページで選びます。", minutes: "分", tabs: "ご利用の種類", suggestions: "の候補",
@@ -150,7 +150,7 @@ export const TEXTS: Readonly<Record<WidgetLang, Texts>> = {
   en: {
     transfer: "Transfer", charter: "Charter", from: "From", to: "To", pickup: "Pick-up", dropoff: "Drop-off", waypoint: "Stop", stay: "Stay", addWaypoint: "Add a stop", removeWaypoint: "Remove stop",
     date: "Date", time: "Time", passengers: "Passengers", luggage: "Luggage", submit: "See prices", submitting: "Redirecting…", placeOnly: "Enter a place only — no names or phone numbers.",
-    pickPlace: "Choose a place from the list", pickStay: "Choose how long you stay", pickDate: "Choose a date", pickTime: "Choose a time", noMatch: "No matches. Try other words", searching: "Searching…",
+    pickPlace: "Choose a place from the list", pickStay: "Choose how long you stay", pickDate: "Choose a date", pickTime: "Choose a time", noMatch: "No matches. Try other words", searching: "Searching…", locating: "Finding the location…", locateFailed: "Couldn't get this place's location. Please choose again",
     unavailable: "The booking form is unavailable right now. Please refresh later or book on our site.", goToSite: "Book on our site",
     invalid: "Some fields are not right. Please check and try again.", tooFast: "Too many attempts. Please wait a minute and try again.", busy: "We can't search right now. Please try again later or book on our site.", unreachable: "Can't connect right now. Please try again later or book on our site.",
     packageNote: "Without stops, you choose the charter hours on the booking page.", minutes: "min", tabs: "Service", suggestions: " suggestions",

@@ -40,6 +40,12 @@ interface Suggestion {
   location: { lat: number; lng: number } | null;
 }
 
+/** 选了谷歌候选、正在取坐标的那个地址框（M9E-08）：name 是选中的候选（重画时框里照样显示）；重画后 view.status 换成新的提示行 */
+interface Locating {
+  name: string;
+  view: { status: HTMLElement };
+}
+
 /** 组件脚本固定的路径：只认从这个路径加载的 <script> */
 export const WIDGET_SCRIPT_PATH = "/embed/widget-v1.js";
 
@@ -71,9 +77,15 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string,
   return node;
 }
 
-async function getJson(url: string): Promise<{ status: number | null; body: any }> {
+/** 取位置最多等这么久（M9E-08 审查）：一直不回就按「取不到这个地点的位置」处理，不让「查询价格」一直停在「正在取位置…」；测试里调短 */
+export const LOCATE_TIMEOUT = { ms: 10_000 };
+
+/** 超时用 AbortController + setTimeout（和 api/client.ts 的 send 一样）：Safari 15 / iOS 15 等老浏览器没有 AbortSignal.timeout（#220 复审） */
+async function getJson(url: string, timeoutMs?: number): Promise<{ status: number | null; body: any }> {
+  const abort = typeof AbortController === "undefined" || timeoutMs === undefined ? null : new AbortController();
+  const timer = abort === null ? null : setTimeout(() => abort.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { credentials: "omit", mode: "cors" });
+    const res = await fetch(url, { credentials: "omit", mode: "cors", ...(abort === null ? {} : { signal: abort.signal }) });
     let body: unknown = null;
     try {
       body = await res.json();
@@ -83,6 +95,8 @@ async function getJson(url: string): Promise<{ status: number | null; body: any 
     return { status: res.status, body };
   } catch {
     return { status: null, body: null };
+  } finally {
+    if (timer !== null) clearTimeout(timer);
   }
 }
 
@@ -94,6 +108,17 @@ class Widget {
   private services: WidgetService[] = ["transfer", "charter"];
   private form: WidgetForm;
   private busy = false;
+  /**
+   * 正在取坐标的地址框（M9E-08），键是地址框：出发地 / 目的地用名字，经停点用那一行的对象（删掉别的行、重画都不会认错）。
+   * 客人在框里打字或选了别的候选就换掉 / 删掉这一项，旧的坐标回来时认出不是自己、不写回。
+   */
+  private readonly locating = new Map<unknown, Locating>();
+  /** 取坐标失败的地址框：提示「取不到这个地点的位置，请重新选一个」 */
+  private readonly lostPlaces = new Set<unknown>();
+  /** 点了「查询价格」、在等取坐标（按钮显示「正在取位置…」） */
+  private waiting = false;
+  /** 提交在等取坐标时：正在取坐标的记录一有变化（取完、被换掉 / 删掉、切标签、删经停点）就叫醒它重新看 */
+  private wake: (() => void) | null = null;
   private readonly go: (url: string) => void;
 
   constructor(host: Element, base: string, options: InitOptions, go: (url: string) => void = (url) => window.location.assign(url)) {
@@ -154,7 +179,28 @@ class Widget {
     this.shadow.append(el("div", { class: "nzb", role: "status" }, [el("p", { class: "nzb-message" }, [this.t.unavailable]), link]));
   }
 
+  /** 改正在取坐标的记录（job 为 null 是删掉），并叫醒在等的提交；返回删之前有没有这一项 */
+  private setLocating(slot: unknown, job: Locating | null): boolean {
+    const had = this.locating.has(slot);
+    if (job === null) this.locating.delete(slot);
+    else this.locating.set(slot, job);
+    this.changed();
+    return had;
+  }
+
+  private changed(): void {
+    const wake = this.wake;
+    this.wake = null;
+    wake?.();
+  }
+
+  /** 提交要等的取坐标：出发地、目的地，包车时再加现有的经停点（切到「区间」后不等经停点） */
+  private blockingLocates(): number {
+    return [...this.locating.keys()].filter((slot) => typeof slot === "string" || (this.form.tab === "charter" && this.form.waypoints.includes(slot as WidgetForm["waypoints"][number]))).length;
+  }
+
   private render(focus?: string): void {
+    this.changed();
     this.clear();
     const t = this.t;
     const root = el("div", { class: "nzb", lang: this.lang === "zh" ? "zh-CN" : this.lang });
@@ -179,7 +225,7 @@ class Widget {
     }
     const formEl = el("form", { class: "nzb-form", novalidate: "" });
     const charter = this.form.tab === "charter";
-    formEl.append(this.placeField(charter ? t.pickup : t.from, "pickup", this.form.pickup, (value) => (this.form.pickup = value)));
+    formEl.append(this.placeField(charter ? t.pickup : t.from, "pickup", "pickup", this.form.pickup, (value) => (this.form.pickup = value)));
     if (charter) {
       this.form.waypoints.forEach((stop, index) => formEl.append(this.waypointRow(index, stop)));
       if (this.form.waypoints.length < MAX_WAYPOINTS) {
@@ -192,7 +238,7 @@ class Widget {
       }
       if (this.form.waypoints.length === 0) formEl.append(el("p", { class: "nzb-hint" }, [t.packageNote]));
     }
-    formEl.append(this.placeField(charter ? t.dropoff : t.to, "dropoff", this.form.dropoff, (value) => (this.form.dropoff = value)));
+    formEl.append(this.placeField(charter ? t.dropoff : t.to, "dropoff", "dropoff", this.form.dropoff, (value) => (this.form.dropoff = value)));
     const row = el("div", { class: "nzb-row" });
     row.append(this.input(t.date, "date", "date", this.form.date, (value) => (this.form.date = value)));
     row.append(this.input(t.time, "time", "time", this.form.time, (value) => (this.form.time = value)));
@@ -203,7 +249,7 @@ class Widget {
     formEl.append(counts);
     const message = el("p", { class: "nzb-error", role: "alert", "data-role": "message" });
     formEl.append(message);
-    const submit = el("button", { type: "submit", class: "nzb-primary" }, [this.busy ? t.submitting : t.submit]);
+    const submit = el("button", { type: "submit", class: "nzb-primary" }, [this.waiting ? t.locating : this.busy ? t.submitting : t.submit]);
     if (this.busy) submit.setAttribute("aria-disabled", "true");
     formEl.append(submit);
     formEl.addEventListener("submit", (event) => {
@@ -233,7 +279,7 @@ class Widget {
   private waypointRow(index: number, stop: WidgetForm["waypoints"][number]): HTMLElement {
     const t = this.t;
     const wrap = el("fieldset", { class: "nzb-waypoint" }, [el("legend", { class: "nzb-label" }, [`${t.waypoint} ${index + 1}`])]);
-    wrap.append(this.placeField(`${t.waypoint} ${index + 1}`, `waypoint-${index}`, stop.point, (value) => (stop.point = value), true));
+    wrap.append(this.placeField(`${t.waypoint} ${index + 1}`, `waypoint-${index}`, stop, stop.point, (value) => (stop.point = value), true));
     const id = nextId("stay");
     const select = el("select", { id, class: "nzb-input", "data-focus": `stay-${index}` });
     select.append(el("option", { value: "" }, [t.pickStay]));
@@ -242,25 +288,32 @@ class Widget {
     wrap.append(el("div", { class: "nzb-field" }, [el("label", { for: id, class: "nzb-label" }, [`${t.waypoint} ${index + 1} ${t.stay}`]), select]));
     const remove = el("button", { type: "button", class: "nzb-secondary", "aria-label": `${t.removeWaypoint} ${index + 1}` }, [t.removeWaypoint]);
     remove.addEventListener("click", () => {
+      this.lostPlaces.delete(stop);
       this.form.waypoints.splice(index, 1);
+      this.setLocating(stop, null);
       this.render("add-waypoint");
     });
     wrap.append(remove);
     return wrap;
   }
 
-  /** 地址框：输入至少 2 个字、停顿 300 毫秒后经主站查候选；选中谷歌的候选后再取坐标 */
-  private placeField(label: string, name: string, value: WidgetPoint | null, set: (value: WidgetPoint | null) => void, hideLabel = false): HTMLElement {
+  /** 地址框：输入至少 2 个字、停顿 300 毫秒后经主站查候选；选中谷歌的候选后再取坐标（slot 见 locating） */
+  private placeField(label: string, name: string, slot: unknown, value: WidgetPoint | null, set: (value: WidgetPoint | null) => void, hideLabel = false): HTMLElement {
     const t = this.t;
     const id = nextId(name);
+    const pending = this.locating.get(slot);
     const listId = `${id}-list`;
     const hintId = `${id}-hint`;
-    const input = el("input", { id, type: "text", class: "nzb-input", role: "combobox", "aria-autocomplete": "list", "aria-expanded": "false", "aria-controls": listId, "aria-describedby": hintId, autocomplete: "off", "data-focus": name, value: value?.name ?? "" });
+    const input = el("input", { id, type: "text", class: "nzb-input", role: "combobox", "aria-autocomplete": "list", "aria-expanded": "false", "aria-controls": listId, "aria-describedby": hintId, autocomplete: "off", "data-focus": name, value: value?.name ?? pending?.name ?? "" });
     const list = el("ul", { id: listId, role: "listbox", class: "nzb-list", "aria-label": `${label}${t.suggestions}` });
     // 谷歌署名（M9E-06）：在候选列表（listbox）外面、同一个弹出面板里，固定在面板底部（滚动的是候选列表），候选多了也不会被滚出可视区
     const attribution = el("p", { class: "nzb-google", ...GOOGLE_MAPS_ATTRIBUTION_ATTRIBUTES, hidden: "" }, [GOOGLE_MAPS_ATTRIBUTION]);
     const panel = el("div", { class: "nzb-panel", hidden: "" }, [list, attribution]);
     const status = el("p", { class: "nzb-hint", "aria-live": "polite" });
+    if (pending !== undefined) {
+      pending.view.status = status;
+      status.textContent = t.locating;
+    } else if (this.lostPlaces.has(slot)) status.textContent = t.locateFailed;
     let session = sessionToken();
     let timer: ReturnType<typeof setTimeout> | null = null;
     let round = 0;
@@ -268,22 +321,35 @@ class Widget {
       panel.hidden = true;
       input.setAttribute("aria-expanded", "false");
     };
-    const choose = async (item: Suggestion): Promise<void> => {
+    // 谷歌候选没有坐标，选中后再取（M9E-08）：取的期间点「查询价格」会先等它；期间客人又打字或选了别的，旧的坐标回来不写回
+    const choose = (item: Suggestion): void => {
       close();
       input.value = item.name;
-      let location = item.location;
-      if (location === null) {
-        const details = await getJson(this.url("/embed/v1/places/details", { id: item.id, session }));
-        location = details.status === 200 ? (details.body?.place?.location ?? null) : null;
-      }
+      this.lostPlaces.delete(slot);
+      const used = session;
       session = sessionToken();
-      if (location === null) {
-        status.textContent = t.pickPlace;
-        set(null);
+      if (item.location !== null) {
+        status.textContent = "";
+        set({ name: item.name, lat: item.location.lat, lng: item.location.lng });
+        this.setLocating(slot, null);
         return;
       }
-      status.textContent = "";
-      set({ name: item.name, lat: location.lat, lng: location.lng });
+      set(null);
+      status.textContent = t.locating;
+      const job: Locating = { name: item.name, view: { status } };
+      void getJson(this.url("/embed/v1/places/details", { id: item.id, session: used }), LOCATE_TIMEOUT.ms).then((details) => {
+        if (this.locating.get(slot) !== job) return;
+        const location: { lat: number; lng: number } | null = details.status === 200 ? (details.body?.place?.location ?? null) : null;
+        if (location === null) {
+          this.lostPlaces.add(slot);
+          job.view.status.textContent = t.locateFailed;
+        } else {
+          job.view.status.textContent = "";
+          set({ name: item.name, lat: location.lat, lng: location.lng });
+        }
+        this.setLocating(slot, null);
+      });
+      this.setLocating(slot, job);
     };
     const search = async (query: string): Promise<void> => {
       const mine = ++round;
@@ -296,11 +362,11 @@ class Widget {
       items.forEach((item, index) => {
         const option = el("li", { role: "option", id: `${listId}-${index}`, class: "nzb-option", tabindex: "-1", "aria-selected": "false" }, [el("span", { class: "nzb-option-name" }, [item.name]), ...(item.address ? [el("span", { class: "nzb-option-address" }, [item.address])] : [])]);
         option.addEventListener("mousedown", (event) => event.preventDefault());
-        option.addEventListener("click", () => void choose(item));
+        option.addEventListener("click", () => choose(item));
         option.addEventListener("keydown", (event) => {
           if (event.key === "Enter") {
             event.preventDefault();
-            void choose(item);
+            choose(item);
           } else if (event.key === "ArrowDown") (option.nextElementSibling as HTMLElement | null)?.focus();
           else if (event.key === "ArrowUp") (option.previousElementSibling as HTMLElement | null ?? input).focus();
           else if (event.key === "Escape") {
@@ -317,6 +383,8 @@ class Widget {
     };
     input.addEventListener("input", () => {
       set(null);
+      if (this.setLocating(slot, null)) status.textContent = "";
+      if (this.lostPlaces.delete(slot)) status.textContent = "";
       if (timer !== null) clearTimeout(timer);
       const query = input.value.trim();
       if ([...query].length < 2) {
@@ -344,10 +412,22 @@ class Widget {
   private async submit(message: HTMLElement): Promise<void> {
     if (this.busy) return;
     const t = this.t;
+    // 还在取坐标（M9E-08）：按钮显示「正在取位置…」、不重复提交，等取完再接着查；记录一有变化就重新看，
+    // 被换掉 / 删掉的旧请求、切到「区间」后的经停点不再挡着（取位置本身有超时，见 LOCATE_TIMEOUT）
+    if (this.blockingLocates() > 0) {
+      this.busy = this.waiting = true;
+      this.shadow.querySelector(".nzb-primary")?.setAttribute("aria-disabled", "true");
+      this.shadow.querySelector(".nzb-primary")?.replaceChildren(t.locating);
+      while (this.blockingLocates() > 0) await new Promise<void>((resolve) => (this.wake = resolve));
+      this.busy = this.waiting = false;
+      this.shadow.querySelector(".nzb-primary")?.removeAttribute("aria-disabled");
+      this.shadow.querySelector(".nzb-primary")?.replaceChildren(t.submit);
+      message = this.shadow.querySelector<HTMLElement>('[data-role="message"]') ?? message;
+    }
     const problems = formProblems(this.form);
     if (problems.length > 0) {
       const first = problems[0] as string;
-      message.textContent = first.startsWith("stay") ? t.pickStay : first === "date" ? t.pickDate : first === "time" ? t.pickTime : t.pickPlace;
+      message.textContent = first.startsWith("stay") ? t.pickStay : first === "date" ? t.pickDate : first === "time" ? t.pickTime : this.lostPlaces.has(first.startsWith("waypoint-") ? this.form.waypoints[Number(first.slice(9))] : first) ? t.locateFailed : t.pickPlace;
       (this.shadow.querySelector(`[data-focus="${first}"]`) as HTMLElement | null)?.focus();
       return;
     }
