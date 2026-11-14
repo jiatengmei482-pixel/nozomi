@@ -12,6 +12,8 @@ export const EMBED_KEYS_PATH = `${PLATFORM_BASE}/embed-keys`;
 export type EmbedLang = "zh" | "ja" | "en";
 export type EmbedService = "transfer" | "charter";
 export type EmbedKeyStatus = "active" | "disabled";
+/** 组件的外观（M9E-10）：卡片、横条 */
+export type EmbedLayout = "card" | "bar";
 
 export interface EmbedKey {
   id: string;
@@ -20,6 +22,7 @@ export interface EmbedKey {
   allowed_origins: string[];
   default_lang: EmbedLang;
   default_services: EmbedService[];
+  layout: EmbedLayout;
   status: EmbedKeyStatus;
   note: string | null;
   version: number;
@@ -34,6 +37,8 @@ export interface EmbedKeyWrite {
   allowed_origins: string[];
   default_lang: EmbedLang;
   default_services: EmbedService[];
+  /** 服务端是选填（不填时新建按卡片、修改保持原值）；后台页面总是带上 */
+  layout: EmbedLayout;
   note: string | null;
 }
 
@@ -47,8 +52,8 @@ export interface OrderEntrySource {
 
 /** 与 openapi.yaml 对账的字段（embed.contract.test.ts）。 */
 export const EMBED_SCHEMA_FIELDS = {
-  EmbedKey: ["id", "key", "name", "allowed_origins", "default_lang", "default_services", "status", "note", "version", "created_at", "updated_at", "snippet"],
-  EmbedKeyWrite: ["name", "allowed_origins", "default_lang", "default_services", "note"],
+  EmbedKey: ["id", "key", "name", "allowed_origins", "default_lang", "default_services", "layout", "status", "note", "version", "created_at", "updated_at", "snippet"],
+  EmbedKeyWrite: ["name", "allowed_origins", "default_lang", "default_services", "layout", "note"],
   OrderEntrySource: ["kind", "embed_key_id", "embed_key_name", "embed_origin"],
 } as const satisfies Record<string, readonly string[]>;
 

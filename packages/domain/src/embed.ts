@@ -28,6 +28,9 @@ export const EMBED_SERVICES = ["transfer", "charter"] as const;
 export type EmbedService = (typeof EMBED_SERVICES)[number];
 export const EMBED_LANGS = ["zh", "ja", "en"] as const;
 export type EmbedLang = (typeof EMBED_LANGS)[number];
+/** 组件的外观（M9E-10）：card 卡片（默认）、bar 横条 */
+export const EMBED_LAYOUTS = ["card", "bar"] as const;
+export type EmbedLayout = (typeof EMBED_LAYOUTS)[number];
 export const EMBED_KEY_STATUSES = ["active", "disabled"] as const;
 export type EmbedKeyStatus = (typeof EMBED_KEY_STATUSES)[number];
 
@@ -84,6 +87,8 @@ export interface EmbedKeyInput {
   allowed_origins: readonly string[];
   default_lang: string;
   default_services: readonly string[];
+  /** 不填时不校验（新建按卡片、修改保持原值，由调用方处理） */
+  layout?: string | undefined;
   note: string | null;
 }
 
@@ -114,18 +119,19 @@ export function embedKeyIssues(input: EmbedKeyInput, options: EmbedOriginOptions
   if (services.length === 0) issues.push({ path: "/default_services", reason: "REQUIRED" });
   else if (services.some((service) => !EMBED_SERVICES.includes(service as EmbedService))) issues.push({ path: "/default_services", reason: "INVALID" });
   else if (new Set(services).size !== services.length) issues.push({ path: "/default_services", reason: "DUPLICATE" });
+  if (input.layout !== undefined && !EMBED_LAYOUTS.includes(input.layout as EmbedLayout)) issues.push({ path: "/layout", reason: "INVALID" });
   if (input.note !== null && [...input.note].length > EMBED_RULES.maxNoteLength) issues.push({ path: "/note", reason: "OUT_OF_RANGE" });
   return { issues, origins };
 }
 
 /** 合作网站要放的代码（ADR 0090 第六节）。`siteOrigin` 是主站的 origin */
-export function embedSnippet(siteOrigin: string, key: string, lang: EmbedLang, services: readonly EmbedService[]): string {
+export function embedSnippet(siteOrigin: string, key: string, lang: EmbedLang, services: readonly EmbedService[], layout: EmbedLayout): string {
   return [
     '<div id="nozomi-booking"></div>',
     `<script src="${siteOrigin}/embed/widget-v1.js" defer></script>`,
     "<script>",
     '  window.addEventListener("DOMContentLoaded", function () {',
-    `    NozomiBooking.init({ key: "${key}", root: "#nozomi-booking", lang: "${lang}", services: ${JSON.stringify(services)} });`,
+    `    NozomiBooking.init({ key: "${key}", root: "#nozomi-booking", lang: "${lang}", services: ${JSON.stringify(services)}, layout: "${layout}" });`,
     "  });",
     "</script>",
   ].join("\n");
