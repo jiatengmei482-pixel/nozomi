@@ -14,8 +14,8 @@ import type { AddressInfo } from "node:net";
 import { AxeBuilder } from "@axe-core/playwright";
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { E2E_WEB_PLACES_PORT } from "../playwright.config.ts";
-import { createAirport } from "./book-new-support.ts";
-import { createWorld } from "./catalog.ts";
+import { createAirport, publishTransfer } from "./book-new-support.ts";
+import { createSupplier, createWorld } from "./catalog.ts";
 import { OWN_SITE_SOURCE, platformAdminHeaders, randomLetters } from "./support.ts";
 
 test.use(OWN_SITE_SOURCE);
@@ -195,4 +195,122 @@ test("主站别的页面仍不能被任何网站嵌入：/book/new、/login 带 
   // goto 默认等到 load：子框架（被拦下的也算）都加载完了才返回
   await page.goto(`${host.origin}/main-site/`);
   for (const title of ["主站预订页", "主站登录页"]) await expect(page.frameLocator(`iframe[title="${title}"]`).locator("#root")).toHaveCount(0);
+});
+
+/** 宿主页收到的消息（录下来的原样） */
+async function hostMessages(page: Page): Promise<{ origin: string; data: Record<string, unknown> }[]> {
+  const raw = (await page.evaluate(() => (window as unknown as { __messages: { origin: string; data: string }[] }).__messages)) ?? [];
+  return raw.map((message) => ({ origin: message.origin, data: JSON.parse(message.data) as Record<string, unknown> }));
+}
+
+/** iframe 里嵌入页现在的地址 */
+function embedUrl(page: Page): URL {
+  const frame = page.frames().find((candidate) => new URL(candidate.url(), "http://x").pathname.startsWith("/embed/book"));
+  expect(frame, "找到嵌入页的框架").toBeDefined();
+  return new URL(frame?.url() ?? "about:blank");
+}
+
+function keepsFrameParams(page: Page): void {
+  const url = embedUrl(page);
+  for (const name of ["draft", "key", "host"]) expect(url.searchParams.get(name), `${url.pathname}${url.search} 带 ${name}`).not.toBeNull();
+}
+
+test("M9E-17 跨站整条流程：iframe 里走完四步（询价带 draft_id、单栏、没有地图选点）→ 下单 → iframe 里的订单页（令牌不进地址、不发给宿主）→ iframe 刷新、宿主页刷新都接着显示这张单；来源记「宿主页内」；390 宽、axe、键盘提交", async ({ page, request }) => {
+  test.setTimeout(240_000);
+  const world = await createWorld(request);
+  const airport = await createAirport(request, world);
+  const supplier = await createSupplier(request, world);
+  await publishTransfer(request, supplier, { ...world, airport });
+  const host = await newHost(request);
+  const quoted = page.waitForRequest((sent) => new URL(sent.url()).pathname === "/site/v1/quotes/by-points" && sent.method() === "POST");
+  await searchFromHostHome(page, host, airport.name);
+  await expect.poll(() => page.url()).toBe(`${host.origin}/booking/`);
+  const draftId = (JSON.parse((await page.evaluate((key) => sessionStorage.getItem(key), HOST_DRAFT_KEY)) ?? "{}") as { id: string }).id;
+  expect(((await quoted).postDataJSON() as { draft_id?: string }).draft_id, "iframe 里的询价带草稿编号").toBe(draftId);
+
+  const frame = frameOf(page);
+  // 第 2 步：单栏（没有右侧栏）、没有地图选点和 Leaflet
+  const card = frame.getByRole("listitem").filter({ has: frame.getByRole("heading", { name: world.group.name }) });
+  await card.getByRole("button", { name: `选择 ${world.group.name}` }).click();
+  await expect(frame.getByRole("complementary", { name: "行程摘要" })).toHaveCount(0);
+  await expect(frame.locator(".leaflet-container")).toHaveCount(0);
+  keepsFrameParams(page);
+  await frame.getByRole("button", { name: "下一步", exact: true }).click();
+  await expect(frame.getByRole("heading", { level: 2, name: "乘客信息" })).toBeFocused();
+  keepsFrameParams(page);
+  const email = `embed-host-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`;
+  await frame.getByLabel("航班号").fill("NH211");
+  await frame.getByLabel("乘车人姓名").fill("王小明");
+  await frame.getByLabel("邮箱").fill(email);
+  const phone = frame.getByLabel("手机号（含国家区号）");
+  await phone.fill("+81 90-1234-5678");
+  // 键盘：在输入框里按回车提交这一步
+  await phone.press("Enter");
+  await expect(frame.getByRole("heading", { name: "核对订单" })).toBeFocused();
+  keepsFrameParams(page);
+
+  // 390 宽不横向滚动；整页（含跨站 iframe）axe 无问题
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(() => frame.locator("html").evaluate((html) => html.scrollWidth - html.clientWidth)).toBeLessThanOrEqual(0);
+  const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+  expect(axe.violations.map((violation) => `${violation.id}: ${violation.help}`)).toEqual([]);
+
+  // 键盘：空格勾同意、回车点「去付款」
+  const consent = frame.getByRole("checkbox", { name: /同意保存这次付款用的银行卡/ });
+  await consent.focus();
+  await consent.press("Space");
+  await expect(consent).toBeChecked();
+  const placed = page.waitForResponse((res) => new URL(res.url()).pathname === "/site/v1/orders" && res.request().method() === "POST");
+  const pay = frame.getByRole("button", { name: "去付款 →" });
+  await pay.focus();
+  await pay.press("Enter");
+  const created = (await (await placed).json()) as { order: { id: string; order_no: string }; link: { token: string } };
+  await expect(frame.getByRole("heading", { name: `订单号 ${created.order.order_no}` })).toBeVisible();
+  expect(embedUrl(page).pathname).toBe("/embed/book/order");
+  keepsFrameParams(page);
+  expect(embedUrl(page).href, "令牌不进地址").not.toContain("nzo_");
+  const payLink = frame.getByRole("link", { name: /在新窗口打开订单页付款/ });
+  await expect(payLink).toHaveAttribute("href", `/book/order#${created.link.token}`);
+  await expect(payLink).toHaveAttribute("target", "_blank");
+
+  // 宿主收到的消息：只来自主站；步骤依次到付款；没有个人信息、令牌、地点
+  const received = await hostMessages(page);
+  expect(new Set(received.map((message) => message.origin))).toEqual(new Set([SITE]));
+  const steps = received.filter((message) => message.data["type"] === "step").map((message) => message.data["step"]);
+  expect(steps.slice(-4)).toEqual(["vehicle", "passenger", "review", "payment"]);
+  const raw = JSON.stringify(received);
+  for (const secret of ["王小明", email, "+81", "NH211", created.link.token, airport.name, draftId, host.key]) expect(raw, `消息里没有 ${secret}`).not.toContain(secret);
+  const events = (await page.evaluate(() => (window as unknown as { __events: { type: string }[] }).__events)) ?? [];
+  expect(events.map((event) => event.type).every((type) => type === "step"), "onEvent 只收到 step（付款进 iframe 在第三期）").toBe(true);
+
+  // 平台订单详情：来源是嵌入组件、宿主页内
+  const detail = await request.get(`/platform/v1/orders/${created.order.id}`, { headers: await platformAdminHeaders(request) });
+  expect(detail.status(), await detail.text()).toBe(200);
+  expect(((await detail.json()) as { entry_source: unknown }).entry_source).toMatchObject({ kind: "embed", embed_origin: host.origin, delivery: "host_page" });
+
+  // iframe 自己刷新（整页重新加载 /embed/book/order?…，要过 frame-check）：令牌在 history.state，照样显示这张单
+  const embedFrame = page.frames().find((candidate) => candidate.url().includes("/embed/book/order"));
+  await embedFrame?.evaluate(() => location.reload());
+  await expect(frameOf(page).getByRole("heading", { name: `订单号 ${created.order.order_no}` })).toBeVisible();
+
+  // 宿主页刷新：iframe 重新从 /embed/book?draft=… 开始，本标签页存着这张待付款的单，直接进订单页
+  await page.reload();
+  await expect(frameOf(page).getByRole("heading", { name: `订单号 ${created.order.order_no}` })).toBeVisible();
+  expect(page.url()).toBe(`${host.origin}/booking/`);
+});
+
+test("M9E-17 跨站：A 网站建的草稿在 B 网站打开——照常预填和报价，但 iframe 里的询价不带 draft_id（来源按主站记）", async ({ page, request }) => {
+  test.setTimeout(150_000);
+  const world = await createWorld(request);
+  const airport = await createAirport(request, world);
+  const hostA = await newHost(request);
+  const hostB = await newHost(request);
+  await searchFromHostHome(page, hostA, airport.name);
+  await expect.poll(() => page.url()).toBe(`${hostA.origin}/booking/`);
+  const draftId = (JSON.parse((await page.evaluate((key) => sessionStorage.getItem(key), HOST_DRAFT_KEY)) ?? "{}") as { id: string }).id;
+  const quoted = page.waitForRequest((sent) => new URL(sent.url()).pathname === "/site/v1/quotes/by-points" && sent.method() === "POST");
+  await page.goto(`${hostB.origin}/booking/?nzdraft=${draftId}`);
+  const body = (await quoted).postDataJSON() as Record<string, unknown>;
+  expect(body["pickup"]).toMatchObject({ name: airport.name });
+  expect("draft_id" in body, "草稿上记的是 A 网站，这次是 B 网站").toBe(false);
 });
