@@ -90,7 +90,7 @@ async function screenshots(page: Page, name: string): Promise<void> {
   await page.emulateMedia({ colorScheme: "light" });
 }
 
-test("新预订页包车：下车地点必填（旧链接只有上车地点时提示补选、不报价，手机标红并移焦点）→ 商品区域里 77,000 → 搜车站选加价区域的下车地点 78,100 含区域加价（不写金额）→ 不在任何区域转人工 → 下单，订单页有下车地点；窄屏、亮暗 axe", async ({ page, request }) => {
+test("新预订页包车：下车地点必填（旧链接只有上车地点时提示补选、不报价，手机标红并移焦点）→ 商品区域里 77,000 → 搜车站选加价区域的下车地点 78,100 含区域加价（M9P-04 起逐项列明细）→ 不在任何区域转人工 → 下单，订单页有下车地点；窄屏、亮暗 axe", async ({ page, request }) => {
   test.setTimeout(180_000);
   const trip = await charterWorld(request);
   const date = tomorrowInTokyo();

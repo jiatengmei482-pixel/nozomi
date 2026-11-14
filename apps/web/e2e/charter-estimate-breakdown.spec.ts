@@ -13,7 +13,7 @@
  *    供应商在服务规则页关掉「下车点行程加价」（同时核对三个输入框：建议值灰字、不预填）→ 再询价只剩套餐、下车加价。
  * 每一步亮暗两色 axe 0；手机 390 宽不横向滚动、截图。
  */
-import { type Page, expect, test } from "@playwright/test";
+import { type Locator, type Page, expect, test } from "@playwright/test";
 import { type LatLng, routeCacheKey } from "@nozomi/domain";
 import { withPlatformTx } from "../../api/src/db/context.ts";
 import { createPool } from "../../api/src/db/pool.ts";
@@ -21,7 +21,7 @@ import { E2E_WEB_STRIPE_PORT } from "../playwright.config.ts";
 import { tomorrowInTokyo } from "./book-new-support.ts";
 import { expectAccessible } from "./catalog.ts";
 import { type Point, charterWorld, linkPoint } from "./charter-support.ts";
-import { loginAs, platformAdminHeaders, randomLetters } from "./support.ts";
+import { loginAs, platformAdminHeaders, randomLetters, settleAnimations } from "./support.ts";
 
 const SITE = `http://127.0.0.1:${E2E_WEB_STRIPE_PORT}`;
 const PACKAGES = [
@@ -72,6 +72,20 @@ async function at390(page: Page, what: string): Promise<void> {
   for (const scheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: scheme });
     await page.screenshot({ path: test.info().outputPath(`m9p-04-${what}-390-${scheme}.png`), fullPage: true });
+  }
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.setViewportSize(viewport);
+}
+
+/** 手机 390 宽下某一块的截图（亮暗各一张），给 PR 和验收看 */
+async function blockAt390(page: Page, block: Locator, what: string): Promise<void> {
+  const viewport = page.viewportSize() ?? { width: 1280, height: 900 };
+  await page.setViewportSize({ width: 390, height: 844 });
+  await block.scrollIntoViewIfNeeded();
+  for (const scheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await settleAnimations(page);
+    await block.screenshot({ path: test.info().outputPath(`m9p-04-${what}-390-${scheme}-块.png`) });
   }
   await page.emulateMedia({ colorScheme: "light" });
   await page.setViewportSize(viewport);
@@ -135,12 +149,14 @@ test("规格用例 1、10 的页面部分：明细套餐下面写预计用时（
   await expect(aside.getByLabel("价格明细").locator(".price-breakdown__row")).toHaveText(["包车套餐 5 小时预计用时 3 小时 45 分钟（含缓冲）49,500 JPY", `行程加价（${trip.surchargeAreaName}，第 1 个经停点）8,800 JPY`, "合计58,300 JPY"]);
   await expectBothThemes(page, "第 2 步（用例 10，自动 5 小时）");
   await at390(page, "第 2 步（用例 10）");
+  await blockAt390(page, card, "车型卡（用例 10）");
 });
 
 test("不填经停点也逐项列明细（用例 16）；供应商在服务规则页关掉「下车点行程加价」后只收下车加价（用例 19）；服务规则页三个输入框建议值灰字、不预填", async ({ page, browser, request }) => {
   test.setTimeout(240_000);
   const trip = await charterWorld(request, { waypointSurcharge: 8_000 });
-  const site = await browser.newPage();
+  const siteContext = await browser.newContext();
+  const site = await siteContext.newPage();
   await site.setExtraHTTPHeaders({ "x-forwarded-for": `192.0.2.${1 + Math.floor(Math.random() * 250)}` });
   await site.setViewportSize({ width: 1280, height: 900 });
   const link = `${SITE}/book/new?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.station.location, trip.station.name)}&date=${tomorrowInTokyo()}&time=10:00`;
@@ -154,6 +170,7 @@ test("不填经停点也逐项列明细（用例 16）；供应商在服务规�
   await expect(site.getByText(/价格按您填的经停点计算/)).toHaveCount(0);
   await expectBothThemes(site, "不填经停点的明细（用例 16）");
   await at390(site, "不填经停点的明细（用例 16）");
+  await blockAt390(site, card, "车型卡（用例 16）");
 
   // 供应商：商品 → ② 服务规则
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -179,6 +196,7 @@ test("不填经停点也逐项列明细（用例 16）；供应商在服务规�
   await expect(section).toContainText("没有市外经停时，下车点所在行程区域收一次行程加价。默认开。");
   await expectBothThemes(page, "服务规则页（包车按行程计价）");
   await at390(page, "服务规则页（包车按行程计价）");
+  await blockAt390(page, section, "服务规则页（包车按行程计价）");
 
   // 键盘：Tab 到开关、空格关掉；再填建议值 15 / 60，保存
   await toggle.focus();
@@ -193,9 +211,11 @@ test("不填经停点也逐项列明细（用例 16）；供应商在服务规�
   expect((put.request().postDataJSON() as { charter_itinerary: unknown }).charter_itinerary).toEqual({ dropoff_itinerary_surcharge: false, stop_occupancy_minutes: 15, buffer_minutes: 60, min_package_hours: null });
   expect(((await put.json()) as { rules: { charter_itinerary: unknown } }).rules.charter_itinerary).toEqual({ dropoff_itinerary_surcharge: false, stop_occupancy_minutes: 15, buffer_minutes: 60, min_package_hours: null, max_online_minutes: 780 });
 
-  // 用例 19：关掉以后只收下车加价
-  await site.goto(link);
-  await expect(rows).toHaveText(["包车套餐 8 小时77,000 JPY", `下车加价（${trip.surchargeAreaName}）1,100 JPY`]);
+  // 用例 19：关掉以后只收下车加价。报价用的商品目录缓存 30 秒（ADR 0020「改规则后 1 分钟内生效」），所以重新打开链接直到按新规则报价
+  await expect(async () => {
+    await site.goto(link);
+    await expect(rows).toHaveText(["包车套餐 8 小时77,000 JPY", `下车加价（${trip.surchargeAreaName}）1,100 JPY`], { timeout: 5_000 });
+  }).toPass({ timeout: 70_000, intervals: [5_000] });
   await expect(card).toContainText("78,100 JPY");
-  await site.close();
+  await siteContext.close();
 });
