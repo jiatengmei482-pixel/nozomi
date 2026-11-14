@@ -58,6 +58,8 @@ import {
   publishCheckSummary,
   serviceRuleIssues,
   tenantCanPublish,
+  locateInAreas,
+  type Position as AreaPosition,
 } from "@nozomi/domain";
 import type { DbContext } from "../context.ts";
 import { type Db, isUniqueViolation, withTenantTx } from "../db/context.ts";
@@ -892,7 +894,7 @@ async function charterCoverageFacts(db: Db, tenantId: string, product: Product, 
   if (places.rows.length > 0) {
     const ids = [...new Set([...areas.map((area) => area.areaId), ...itinerary, ...updown])];
     const shapes = (await listTenantAreaShapes(db, tenantId)).filter((shape) => ids.includes(shape.id));
-    const quoteAreas = shapes.map((shape) => ({ areaId: shape.id, active: shape.status === "active", shapes: shape.polygons.map((polygon, index) => ({ id: `${shape.id}-${index}`, kind: polygon.kind, ring: [...polygon.ring, polygon.ring[0] as Position] })) }));
+    const quoteAreas = shapes.map((shape) => ({ areaId: shape.id, active: shape.status === "active", shapes: shape.polygons.map((polygon, index) => ({ id: `${shape.id}-${index}`, kind: polygon.kind, ring: [...polygon.ring, polygon.ring[0] as AreaPosition] })) }));
     uncovered = places.rows.filter((place) => locateInAreas(quoteAreas, { lng: Number(place.lng), lat: Number(place.lat) }).operating.length === 0).map((place) => place.id);
   }
   return { ...(uncovered.length === 0 ? {} : { charterUncoveredPlaces: uncovered }), ...(emptyCells.length === 0 ? {} : { charterEmptyCells: emptyCells }) };

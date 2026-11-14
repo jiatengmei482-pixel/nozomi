@@ -394,24 +394,38 @@ test("加价区域被已上架的包车商品用着：不能停用、不能删�
   assert.equal(disabled.status, 200, disabled.text);
 });
 
-test("回归 M8-38：一端落在几个加价区域时用设了加价的、都设了取最高（800 和 500 取 800）；商品本身的大区域（加价 0）不能把加价区盖成 0；从共享库引用来的加价区域一样算", async () => {
-  // 「千叶东」整个在千叶里面，加价 800；千叶是 500：千叶站那个点两个都在，取 800
+test("M9P-06（ADR 0093 第二、七节，取代 M8-38）：新加的加价区域和同层已有的重叠、和商品区域重叠都拦下；已有的重叠数据按基础价区域优先、加价区域之间过渡期取最高；从共享库引用来的加价区域一样算", async () => {
+  // 「千叶东」整个在千叶里面（③③重叠）、「东京西」和商品本身的区域（东京 23 区）重叠（①③重叠）：经接口都建不出来
   const chibaEast = await newArea(m.b, m.ids.tokyo, "千叶东", square(140.05, 35.6, 140.25, 35.8));
-  // 「东京西」和商品本身的区域（东京 23 区）重叠，加价 300：东京那个点两个都在，用 300（不再算 0）
   const tokyoWest = await newArea(m.b, m.ids.tokyo, "东京西", square(139.45, 35.55, 139.75, 35.85));
-  // 甲画的「东京南」在共享库里，乙引用一份当加价区域（上车 200、下车 600）
-  const source = await newArea(m.a, m.ids.tokyo, "东京南·共享", square(139.55, 35.52, 139.85, 35.65));
+  for (const [areaId, code] of [[chibaEast, "AREA_LAYER_OVERLAP"], [tokyoWest, "AREA_BASE_SURCHARGE_OVERLAP"]] as const) {
+    const res = await tenantCall(m.b, "POST", `/products/${charterB.id}/price-rules/batch`, { version: await version(m.b, charterB.id), body: { create: [surcharge(areaId, 800, 800)] } });
+    assert.equal(res.status, 400, res.text);
+    assert.equal(res.body.error.code, code);
+  }
+  // 甲画的「千叶北」在共享库里，乙引用一份当加价区域（上车 200、下车 600）：不和别的区域重叠，照常能设
+  const source = await newArea(m.a, m.ids.tokyo, "千叶北·共享", square(140.0, 35.9, 140.3, 36.1));
   const copy = (await ok(tenantCall(m.b, "POST", "/areas/from-shared", { body: { shared_area_id: source, biz_type: "general", role: "both" } }), 201)).id;
-  await ok(tenantCall(m.b, "POST", `/products/${charterB.id}/price-rules/batch`, { version: await version(m.b, charterB.id), body: { create: [surcharge(chibaEast, 800, 800), surcharge(tokyoWest, 300, 300), surcharge(copy, 200, 600)] } }));
-  const preview = async (pickup: keyof typeof P, dropoff: keyof typeof P): Promise<any> => {
-    const res = await tenantCall(m.b, "POST", `/products/${charterB.id}/quote-preview`, { body: { pickup: P[pickup], dropoff: P[dropoff], package_hours: 8, service_time: SERVICE_LOCAL, passengers: 2, luggage: 1, vehicle_group_ids: [m.ids.biz7] } });
+  await ok(tenantCall(m.b, "POST", `/products/${charterB.id}/price-rules/batch`, { version: await version(m.b, charterB.id), body: { create: [surcharge(copy, 200, 600)] } }));
+  // M9P-06 之前已经存在的重叠配置：直接写库模拟
+  for (const [areaId, amount] of [[chibaEast, 800], [tokyoWest, 300]] as const) {
+    await api.db.owner.query(
+      `insert into price_rules (tenant_id, product_id, area_id, vehicle_group_id, package_hours, pricing_model, params, valid_from, status, created_at, updated_at)
+       values ($1, $2, $3, $4, 8, 'charter_area_surcharge', $5::jsonb, '2026-01-01', 'enabled', now(), now())`,
+      [m.b.tenantId, charterB.id, areaId, m.ids.biz7, JSON.stringify({ pickupSurchargeMinor: amount, dropoffSurchargeMinor: amount })],
+    );
+  }
+  const preview = async (pickup: { lng: number; lat: number }, dropoff: { lng: number; lat: number }): Promise<any> => {
+    const res = await tenantCall(m.b, "POST", `/products/${charterB.id}/quote-preview`, { body: { pickup, dropoff, package_hours: 8, service_time: SERVICE_LOCAL, passengers: 2, luggage: 1, vehicle_group_ids: [m.ids.biz7] } });
     assertMatchesOpenApi("POST", "/tenant/v1/products/{id}/quote-preview", res);
     assert.equal(res.status, 200, res.text);
     assert.equal(res.body.offers.length, 1, res.text);
     return res.body.offers[0].settlement;
   };
   const ends = (s: any) => [s.area_surcharge.pickup.area_id, s.area_surcharge.pickup.amount, s.area_surcharge.dropoff.area_id, s.area_surcharge.dropoff.amount, s.total];
-  assert.deepEqual(ends(await preview("chiba", "tokyo")), [chibaEast, 800, tokyoWest, 300, 71_100], "70,000 + 上车 800（千叶东，不是千叶 500）+ 下车 300（东京西，不被商品区域盖成 0）");
-  assert.deepEqual(ends(await preview("tokyo", "chiba")), [tokyoWest, 300, chibaEast, 800, 71_100]);
-  assert.deepEqual(ends(await preview("tokyo2", "tokyo2")), [tokyoWest, 300, copy, 600, 70_900], "上车 东京西 300 > 引用区 200；下车 引用区 600 > 东京西 300");
+  // 千叶站：千叶（500）和千叶东（800）都在，加价区域之间过渡期取最高 800；东京：在商品区域里，东京西 300 不再收（基础价区域优先）
+  assert.deepEqual(ends(await preview(P.chiba, P.tokyo)), [chibaEast, 800, null, 0, 70_800], "M8-38 时是 71,100（下车再收东京西 300）");
+  assert.deepEqual(ends(await preview(P.tokyo, P.chiba)), [null, 0, chibaEast, 800, 70_800]);
+  // 共享库引用来的加价区域照常算
+  assert.deepEqual(ends(await preview(P.tokyo, { lng: 140.15, lat: 36.0 })), [null, 0, copy, 600, 70_600]);
 });
