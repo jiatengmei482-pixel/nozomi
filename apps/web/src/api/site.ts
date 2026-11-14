@@ -631,8 +631,13 @@ export function getSitePlaceByCode(code: string): Promise<SitePlace> {
 }
 
 /** 读嵌入组件建的预订草稿（M9E-01，ADR 0090）：过期、不存在都是 404 `BOOKING_DRAFT_NOT_FOUND`。 */
-export function getSiteBookingDraft(id: string): Promise<{ draft: BookingDraft; expires_at: string }> {
-  return apiRequest("GET", `${SITE_BASE}/booking-drafts/${encodeURIComponent(id)}`);
+/**
+ * 读预订草稿。`claim`：嵌入页（M9E-17，ADR 0095）带上 iframe 地址里的嵌入码和宿主，应答多一个 `source_matches`；
+ * 主站不带，请求和应答都和以前一样。
+ */
+export function getSiteBookingDraft(id: string, claim?: { key: string; host: string }): Promise<{ draft: BookingDraft; expires_at: string; source_matches?: boolean }> {
+  const query = claim === undefined ? "" : `?key=${encodeURIComponent(claim.key)}&host=${encodeURIComponent(claim.host)}`;
+  return apiRequest("GET", `${SITE_BASE}/booking-drafts/${encodeURIComponent(id)}${query}`);
 }
 
 /** 输入即提示：一次「输入 → 选中」用同一个 `session`（如 `crypto.randomUUID()`）。 */

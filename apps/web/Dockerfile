@@ -29,6 +29,9 @@ RUN pnpm --filter @nozomi/web build \
   && node apps/web/build/edge-config-cli.ts apps/web/dist/index.html >/out/web.caddy \
   && chmod -R u=rwX,go=rX apps/web/dist /out
 
-FROM caddy:2
+# Caddy 固定到具体版本和摘要（M9E-16，ADR 0095 第五节第 1 小节）：嵌入预订页靠 forward_auth 的 copy_headers，
+# 2.11.4 之前有伪造请求头的漏洞（CVE-2026-30851、CVE-2026-52845），不能用会变的 caddy:2。升级单独做；
+# apps/api/src/deploy-web-csp-paths.qa.test.ts 读这一行，在同一个镜像上核对。
+FROM caddy:2.11.9@sha256:4e2425f6009577e7c651010f16679c28f7d12df3e7b1914f941a7a3370746b3c
 COPY --from=build /app/apps/web/dist /srv/web
 COPY --from=build /out/web.caddy /etc/nozomi/web.caddy

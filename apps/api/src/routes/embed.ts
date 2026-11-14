@@ -13,12 +13,17 @@
  * 共同规则：`Origin` 规范化后完全等于这个嵌入码白名单的某一项才处理并回 `Access-Control-Allow-Origin`；
  * `null`、缺失、不在白名单、嵌入码不存在或停用一律 403 `EMBED_ORIGIN_NOT_ALLOWED`，不带 CORS 头。预检 `OPTIONS` 同样核对。
  * 不开 `Access-Control-Allow-Credentials`。其他前缀（`/site/v1` 等）永远不带 CORS 头。
+ *
+ * 例外（M9E-16，ADR 0095 第五节第 1 小节）：`GET /embed/v1/frame-check?key=&host=` 只给 Caddy 在打开 `/embed/book` 时调（`forward_auth`），
+ * 不走上面的 `Origin` 核对、不回任何 CORS 头，按查询参数 `host` 核对：能嵌 204 + `X-Nozomi-Frame-Ancestor: <host>`，
+ * 不能一律 403（一页极简 HTML，`frame-ancestors 'none'`）；按来源地址单独限速，超了 429（同样等于不能嵌）。都不缓存。
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { BOOKING_DRAFT_RULES, EMBED_KEY_STATUSES, EMBED_LANGS, EMBED_LAYOUTS, EMBED_RULES, EMBED_SERVICES, embedSnippet } from "@nozomi/domain";
+import { BOOKING_DRAFT_RULES, EMBED_DELIVERIES, EMBED_KEY_STATUSES, EMBED_LANGS, EMBED_LAYOUTS, EMBED_RULES, EMBED_SERVICES, embedSnippet } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
-import { type EmbedGate, type EmbedKey, createEmbedDraft, createEmbedKey, embedGate, getEmbedKey, listEmbedKeys, takeEmbedPlacesSlot, updateEmbedKey } from "../services/embed.ts";
+import { type EmbedGate, type EmbedKey, createEmbedDraft, createEmbedKey, embedGate, frameAncestorOf, getEmbedKey, listEmbedKeys, takeEmbedPlacesSlot, takeFrameCheckSlot, updateEmbedKey } from "../services/embed.ts";
+import { AppError } from "../errors.ts";
 import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import { placeUnavailableJson, siteAutocomplete, sitePlaceDetails, sitePlacesGoogleGuard, takeSiteSlot } from "../services/site.ts";
 import { versionRequired } from "../services/errors.ts";
@@ -35,11 +40,17 @@ const writeSchema = z
     default_services: z.array(z.enum(EMBED_SERVICES)).max(4),
     // 选填（M9E-10）：新建不填按卡片，修改不填保持原值，原有的调用方不用改
     layout: z.enum(EMBED_LAYOUTS).optional(),
+    // 选填（M9E-16，ADR 0095 Q13）：允许整页嵌入，新建不填按关，修改不填保持原值
+    allow_host_page: z.boolean().optional(),
     note: z.string().max(2_000).nullable().default(null),
   })
   .strict();
 const updateSchema = writeSchema.extend({ status: z.enum(EMBED_KEY_STATUSES) }).strict();
-const draftBodySchema = z.object({ draft: z.unknown(), return_url: z.unknown().optional() }).strict();
+// delivery（M9E-16）：组件传了 bookingUrl 时带 host_page；没带按跳主站算
+const draftBodySchema = z.object({ draft: z.unknown(), return_url: z.unknown().optional(), delivery: z.enum(EMBED_DELIVERIES).optional() }).strict();
+
+/** frame-check 不能嵌时的应答正文：直接在地址栏打开时看得到这一句；在 iframe 里浏览器按 frame-ancestors 'none' 拦掉 */
+const FRAME_REFUSED_HTML = '<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>NOZOMI</title></head><body><p>这个网站不能显示 NOZOMI 预订页。</p></body></html>';
 
 function embedKeyJson(ctx: AppContext, key: EmbedKey): Json {
   return {
@@ -50,6 +61,7 @@ function embedKeyJson(ctx: AppContext, key: EmbedKey): Json {
     default_lang: key.defaultLang,
     default_services: key.defaultServices,
     layout: key.layout,
+    allow_host_page: key.allowHostPage,
     status: key.status,
     note: key.note,
     version: key.version,
@@ -82,7 +94,7 @@ export function registerEmbedRoutes(app: FastifyInstance, ctx: AppContext): void
   app.post("/platform/v1/embed-keys", async (request, reply) => {
     const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "embed.manage" });
     const body = parseInput(writeSchema, request.body, "body");
-    const created = await createEmbedKey(ctx, principal, request.ip, { name: body.name, allowedOrigins: body.allowed_origins, defaultLang: body.default_lang, defaultServices: body.default_services, layout: body.layout, note: body.note });
+    const created = await createEmbedKey(ctx, principal, request.ip, { name: body.name, allowedOrigins: body.allowed_origins, defaultLang: body.default_lang, defaultServices: body.default_services, layout: body.layout, allowHostPage: body.allow_host_page, note: body.note });
     return reply.code(201).send(embedKeyJson(ctx, created));
   });
 
@@ -98,7 +110,7 @@ export function registerEmbedRoutes(app: FastifyInstance, ctx: AppContext): void
     if (header === undefined) throw versionRequired();
     const version = ifMatchVersion(header);
     const body = parseInput(updateSchema, request.body, "body");
-    const updated = await updateEmbedKey(ctx, principal, request.ip, id, version, { name: body.name, allowedOrigins: body.allowed_origins, defaultLang: body.default_lang, defaultServices: body.default_services, layout: body.layout, note: body.note, status: body.status });
+    const updated = await updateEmbedKey(ctx, principal, request.ip, id, version, { name: body.name, allowedOrigins: body.allowed_origins, defaultLang: body.default_lang, defaultServices: body.default_services, layout: body.layout, allowHostPage: body.allow_host_page, note: body.note, status: body.status });
     return embedKeyJson(ctx, updated);
   });
 
@@ -129,6 +141,25 @@ export function registerEmbedRoutes(app: FastifyInstance, ctx: AppContext): void
     reply.header("access-control-max-age", "600");
     return reply.code(204).send();
   };
+
+  // 不挂 gateHook：没有 Origin 也照常判断，不回 CORS 头（文件头的例外）
+  app.get("/embed/v1/frame-check", async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    const refuse = (status: 403 | 429) =>
+      reply.code(status).header("content-type", "text/html; charset=utf-8").header("content-security-policy", "default-src 'none'; frame-ancestors 'none'").header("x-frame-options", "DENY").send(FRAME_REFUSED_HTML);
+    try {
+      await takeFrameCheckSlot(ctx, request.ip);
+    } catch (err) {
+      if (!(err instanceof AppError) || err.statusCode !== 429) throw err;
+      const retryAfter = err.details["retry_after_seconds"];
+      if (typeof retryAfter === "number") reply.header("retry-after", retryAfter);
+      return refuse(429);
+    }
+    const { key, host } = (request.query ?? {}) as Record<string, unknown>;
+    const ancestor = await frameAncestorOf(ctx, key, host);
+    if (ancestor === null) return refuse(403);
+    return reply.code(204).header("x-nozomi-frame-ancestor", ancestor).send();
+  });
 
   app.options("/embed/v1/config", guarded, preflight("GET"));
   app.get("/embed/v1/config", guarded, async (request, reply) => {
@@ -164,7 +195,7 @@ export function registerEmbedRoutes(app: FastifyInstance, ctx: AppContext): void
   app.post("/embed/v1/booking-drafts", { ...guarded, bodyLimit: BOOKING_DRAFT_RULES.maxBytes }, async (request, reply) => {
     const { gate } = gateOf(request);
     const body = parseInput(draftBodySchema, request.body, "body");
-    const stored = await createEmbedDraft(ctx, gate, request.ip, { draft: body.draft, return_url: body.return_url }, request.log);
+    const stored = await createEmbedDraft(ctx, gate, request.ip, { draft: body.draft, return_url: body.return_url, delivery: body.delivery }, request.log);
     const url = new URL("/book/new", ctx.config.publicBaseUrl);
     url.searchParams.set("draft", stored.id);
     return reply.code(201).send({ id: stored.id, expires_at: stored.expiresAt.toISOString(), url: url.href });
