@@ -1511,6 +1511,22 @@
           ],
           "evidence": "",
           "updated": "2026-11-14"
+        },
+        {
+          "id": "M9E-26",
+          "title": "运营后台按「两段代码」交付嵌入组件：嵌入码加「预订页地址」，卡片拆成①入口小程序、②预订程序（对齐 Good Journey；优先于 M9E-24）",
+          "role": "backend",
+          "status": "doing",
+          "acceptance": [
+            "嵌入码加选填的「预订页地址」booking_url：https（测试类环境同白名单另收本机 http）、≤ 2,000 字符、不带用户名密码，origin 必须完全等于这个嵌入码「允许的网站」里的某一项（同源、带路径）；迁移只加列；平台接口、OpenAPI、审计、If-Match 同步；改白名单后旧值的处理口径写进 PR 和 ADR 0095 附录",
+            "嵌入码卡片「合作网站要放的代码」拆成两段，各带复制按钮和一句中文说明：①入口小程序（任何页面，init 自动带 bookingUrl）、②预订程序（只放预订页，NozomiBooking.mountBooking）；写法以 packages/domain/src/embed.ts 和 ADR 0095 附录为准",
+            "兜底：没填预订页地址或没开「允许整页嵌入」时只显示①、①不带 bookingUrl（客人照旧跳主站），旁边写明原因",
+            "不影响已部署的旧代码：不带 bookingUrl 的旧代码行为不变；/embed/v1/config 不减字段；已有嵌入码不需要任何迁移操作",
+            "后台中文、无障碍（label、键盘、复制按钮的读屏提示）、亮暗 axe 0；同步 ADR 0095 附录和 docs/integration/moveglobal-factory-nozomi-widget.md（演示站预订页 https://embed-demo.moveglobal.io/booking/）",
+            "测试：域层（代码生成、校验）、集成（booking_url 校验、白名单、改白名单后旧值、权限）、组件（表单、两段代码、兜底、复制按钮）、端到端（后台填写后看到两段代码）；至少 2 次变异检查"
+          ],
+          "evidence": "",
+          "updated": "2026-11-14"
         }
       ]
     },
