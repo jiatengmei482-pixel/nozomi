@@ -436,7 +436,7 @@ auto 下宽屏自动是横条、窄屏是卡片。
 
 - 容器：`max-width: 1280px`，左右内边距 32 px（窗口 < 1024 px 时 24 px，< 600 px 时 12 px）。窗口 1440 / 1280 时容器内容宽 1216 px，1024 时 960 px，都是横条；768 时 720 px 以下、390 时 366 px，是卡片。窗口宽度 ≥ 948 px（900 + 两边 24 px）才出现横条。
 - 上移：横条的标签和白色长条上半截压在首屏上，**上移 112 px**（标签 55 px + 长条一半 56 px）；首屏内容的下内边距至少 152 px（上移 112 + 和首屏文字留 40 px），首屏文字不被盖住。实测 1440 宽时首屏最后一行文字到标签上沿 137 px。
-- 变成卡片后（窗口 < 900 px）卡片有 570 px 高，只压 64 px（< 600 px 时 48 px），首屏下内边距 96 px；卡片最宽 640 px 居中。
+- 变成卡片后（窗口 < 948 px，即容器 < 900 px；页面有竖向滚动条时门槛还会再大十几 px）卡片有 570 px 高，只压 64 px（< 600 px 时 48 px），首屏下内边距 96 px；卡片最宽 640 px 居中。
 
 ```css
 /* 宿主写：<div class="nozomi-slot nozomi-slot--hero-bottom"><div id="nozomi-booking"></div></div>，放在首屏 section 后面 */
@@ -447,7 +447,7 @@ auto 下宽屏自动是横条、窄屏是卡片。
 }
 .hero .hero-content { padding-bottom: 152px; }  /* 首屏下内边距 ≥ 上移 + 40 */
 @media (max-width: 1023px) { .nozomi-slot--hero-bottom { padding: 0 24px; } }
-@media (max-width: 899px) {                     /* 容器 < 900，auto 变卡片 */
+@media (max-width: 947px) {                     /* 窗口 < 948 = 容器 < 900（900 + 两边 24），auto 变卡片 */
   .nozomi-slot--hero-bottom { margin-top: -64px; max-width: 640px; }
   .hero .hero-content { padding-bottom: 96px; }
 }
