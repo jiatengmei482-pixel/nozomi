@@ -69,6 +69,9 @@ const plainResult: SiteQuoteResult = { currency: "JPY", quotes: [quoteOf(1, 77_0
 const GOOGLE_SPOT = { source: "google", id: "ChIJgogome", name: "富士山五合目園地", address: "山梨県富士吉田市上吉田", location: null, kind: "other" } as const;
 let placeDetails: () => Response | Promise<Response> = () => json(200, { available: true, place: { id: GOOGLE_SPOT.id, address: GOOGLE_SPOT.address, location: { lat: 35.395, lng: 138.733 }, kind: "other" } });
 
+/** 这段行程能订的套餐（`GET /site/v1/charter-packages`） */
+let packageHours = [8];
+
 function open(charter: (call: ApiCall) => Response = () => json(200, plainResult), order?: () => Response): ApiCall[] {
   const calls = stubApiWith((call) => {
     const path = call.url.pathname;
@@ -81,7 +84,7 @@ function open(charter: (call: ApiCall) => Response = () => json(200, plainResult
       return json(200, { available: true, items: name === undefined ? [] : [{ source: "platform", id: `spot-${name}`, name, address: "", location: SPOTS[name], kind: "station" }] });
     }
     if (path === "/site/v1/places/details") return placeDetails();
-    if (path === "/site/v1/charter-packages") return json(200, { city: { id: CITY_ID, code: city.code, name: city.name, timezone: city.timezone }, items: [{ hours: 8 }] });
+    if (path === "/site/v1/charter-packages") return json(200, { city: { id: CITY_ID, code: city.code, name: city.name, timezone: city.timezone }, items: packageHours.map((hours) => ({ hours })) });
     if (path === "/site/v1/fx/reference") return json(200, { available: false, from: "JPY", to: call.url.searchParams.get("to"), rate: null, as_of: null, reason: "NO_RATE" });
     if (call.method === "POST" && path === "/site/v1/quotes") return charter(call);
     if (call.method === "POST" && path === "/site/v1/orders") return order?.() ?? null;
@@ -375,5 +378,43 @@ test("M9W-08：选了谷歌候选、坐标还没取回来时先选停留时长�
     assert.deepEqual((quotes(calls).at(-1) as Record<string, unknown>)["waypoints"], [{ name: `${GOOGLE_SPOT.name}（${GOOGLE_SPOT.address}）`, lat: 35.395, lng: 138.733, stay_minutes: 120 }]);
   } finally {
     placeDetails = fast;
+  }
+});
+
+test("M9P-03：有经停点时也能手动升到更长的套餐——下拉默认「自动（5 小时）」，只列比自动选的档长的（没有 4 小时）；选 10 小时重新报价，请求带 itinerary_pricing + package_hours；改经停点回到自动", async () => {
+  wideScreen();
+  packageHours = [4, 5, 8, 10];
+  // 自动选 5 小时（预计用时 4 小时 30 分）；手动选的档按那一档报价，报价里照样带自动选的档
+  const answer = (body: Record<string, unknown>): SiteQuoteResult => {
+    const hours = typeof body["package_hours"] === "number" ? body["package_hours"] : 5;
+    const total = hours === 10 ? 66_000 : 47_300;
+    return { ...itineraryResult([{ kind: "base", amount: yen(total), area_name: null, stop_seqs: null }], total), quotes: [{ ...quoteOf(1, total, [{ kind: "base", amount: yen(total), area_name: null, stop_seqs: null }]), package: { hours, km: 200 }, estimated_minutes: 270, includes_buffer: false, auto_package_hours: 5 }] };
+  };
+  try {
+    const calls = open((call) => json(200, answer(call.body as Record<string, unknown>)));
+    const actor = user();
+    await screen.findByRole("button", { name: "添加经停点" }, SLOW);
+    await addStop(actor, "五合目", "120");
+    const select = (await screen.findByLabelText(/^包车时长/, {}, SLOW)) as HTMLSelectElement;
+    assert.deepEqual([...select.options].map((option) => [option.value, option.textContent]), [["", "自动（5 小时）"], ["8", "8 小时"], ["10", "10 小时"]]);
+    assertAbsent(within(select).queryByRole("option", { name: "4 小时" }));
+    assert.equal(select.value, "");
+    assert.equal("package_hours" in (quotes(calls).at(-1) as Record<string, unknown>), false, "自动选档时不带 package_hours");
+
+    await actor.selectOptions(select, "10");
+    await waitFor(() => assert.equal((quotes(calls).at(-1) as Record<string, unknown>)["package_hours"], 10), SLOW);
+    const body = quotes(calls).at(-1) as Record<string, unknown>;
+    assert.deepEqual([body["itinerary_pricing"], Array.isArray(body["waypoints"])], [true, true]);
+    await actor.click(screen.getByRole("button", { name: "下一步：选择车型" }));
+    await waitFor(() => assert.match(screen.getByRole("heading", { name: "车型1" }).closest("li")?.textContent ?? "", /66,000 JPY/), SLOW);
+    assert.ok(screen.getAllByText(/套餐 10 小时/).length > 0);
+
+    // 改了经停点（行程变了）：回到自动选档
+    await actor.click(screen.getByRole("button", { name: "上一步" }));
+    await addStop(actor, "河口湖", "60");
+    await waitFor(() => assert.equal("package_hours" in (quotes(calls).at(-1) as Record<string, unknown>), false), SLOW);
+    assert.equal(((await screen.findByLabelText(/^包车时长/, {}, SLOW)) as HTMLSelectElement).value, "");
+  } finally {
+    packageHours = [8];
   }
 });

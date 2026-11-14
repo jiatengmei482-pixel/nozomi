@@ -97,7 +97,7 @@ export function readAmount(text: string, currency: string | null): AmountResult 
 // ───────────── 上架检查 ─────────────
 
 /** 前端有页面的步骤：上架检查里的项 → 步骤。价格规则、库存上线时在这里接上。 */
-export const CHECK_STEP: Readonly<Partial<Record<PublishCheckKey, ProductStepSlug>>> = { basic_info: "basic", service_rules: "service-rules", price_rules: "prices", adjust_rules: "prices", inventory: "inventory", content: "content", area_coverage: "basic" };
+export const CHECK_STEP: Readonly<Partial<Record<PublishCheckKey, ProductStepSlug>>> = { basic_info: "basic", service_rules: "service-rules", price_rules: "prices", adjust_rules: "prices", inventory: "inventory", content: "content", area_coverage: "basic", charter_min_package: "service-rules" };
 
 export function checkItemName(key: string): string {
   return (PUBLISH_CHECK_NAMES as Record<string, string>)[key] ?? "其他检查";

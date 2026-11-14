@@ -47,6 +47,7 @@ import {
   sellPrice,
   contactOnly,
   type PassengerContact,
+  withOrderEstimate,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { type Db, isUniqueViolation, passengerCryptoOf, withPlatformTx } from "../db/context.ts";
@@ -251,7 +252,10 @@ async function reprice(db: Db, order: Order, sale: OrderSale, next: PlannedChang
   const candidates = await loadQuoteCandidates(db, { cityId: order.cityId, category: order.category, poiId: order.placeId, productId: order.productId, publishedOnly: true });
   const candidate = candidates[0];
   if (candidate === undefined) throw notServiceable("PRODUCT_UNPUBLISHED");
-  const request: QuoteRequest = { ...quote.request, serviceLocal: next.serviceLocal, passengers: next.passengers, luggage: next.luggage, vehicleGroupIds: [order.vehicleGroupId] };
+  // 新口径下的包车单（快照带 charterSelection，ADR 0093 第四节第 11 条）：按订单的档锁定报价（不重新选档、不判 T、不收超时费）；
+  // 部署前的单不带，选档和超时费照旧（预收过超时费的照旧收，ADR 0091 第五节第 2 条）
+  const locked = quote.request.charterSelection === undefined ? {} : { charterSelection: "locked" as const, packageHours: order.packageHours };
+  const request: QuoteRequest = { ...quote.request, ...locked, serviceLocal: next.serviceLocal, passengers: next.passengers, luggage: next.luggage, vehicleGroupIds: [order.vehicleGroupId] };
   // 试运营的每日上限（M4-01）不看：改期不多接一单，下面的报价也不传 trialLimitReached
   const facts = await loadQuoteFacts(db, [candidate], request, now);
   // 同一天：这一单自己占着的库存、加急名额不算「别人用掉的」
@@ -277,7 +281,7 @@ async function reprice(db: Db, order: Order, sale: OrderSale, next: PlannedChang
     ...(channel === undefined ? {} : { channel: { roundingUnit: channel.roundingUnit, minMargin: channel.minMarginMinor > 0 ? { minor: channel.minMarginMinor, currency: sale.currency, fx: null } : null } }),
   });
   if ("failure" in sell) throw notServiceable(sell.failure);
-  return { settlement: offer.settlement, sellMinor: sell.sellMinor };
+  return { settlement: withOrderEstimate(offer.settlement, order.settlement), sellMinor: sell.sellMinor };
 }
 
 /** 这一单车型组的容量（商品里设的最多人数、行李）。 */

@@ -116,6 +116,9 @@ export const REFUSAL_MESSAGES: Readonly<Record<ComparisonRefusal, string>> = {
   ROUTE_UNAVAILABLE: "价格是「里程 + 时长」或设了含公里数的一口价，需要路线预估，而现在取不到（按计程价、区域外里程费报价时也一样）",
   PRICE_NOT_POSITIVE: "调价、取整之后价格不大于 0",
   PRICE_OVER_LIMIT: "价格超过了结算价的上限",
+  BELOW_MIN_PACKAGE: "选的套餐比这个商品设的最低套餐短",
+  PACKAGE_TOO_SHORT: "选的套餐比这个商品按行程算出的预计用时（含经停点默认占用和整单缓冲）短，又不是最长那一档",
+  ITINERARY_TOO_LONG: "预计用时超过了这个商品的在线下单上限（默认 13 小时），转客服",
   FX_RATE_UNAVAILABLE: "商品的结算币种和客人支付的币种不同，而现在没有可用的汇率（没有，或超过 48 小时没更新）",
   SELL_PRICE_OVER_LIMIT: "对外价超过了上限",
 };

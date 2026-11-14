@@ -30,7 +30,7 @@ const STATE_LOOK: Readonly<Record<CheckItemState, { icon: IconName; tone: string
   optional: { icon: "minus", tone: "muted" },
 };
 const UNAVAILABLE_NOTES: Readonly<Record<string, string>> = { price_rules: "不是出错：设价格的页面还在开发。开放后在那里设好至少 1 条启用的价格规则，这一项就会满足。" };
-const OPTIONAL_NOTES: Readonly<Record<string, string>> = { adjust_rules: "节假日、旺季想调价时才用。", inventory: "不设就是不限量；想限制每天接多少单时才用。", area_coverage: "只是提醒：勾选的报价区域超出运营区域的部分不会报价。" };
+const OPTIONAL_NOTES: Readonly<Record<string, string>> = { adjust_rules: "节假日、旺季想调价时才用。", inventory: "不设就是不限量；想限制每天接多少单时才用。", area_coverage: "只是提醒：勾选的报价区域超出运营区域的部分不会报价。", charter_min_package: "只是提醒：最低套餐比所有启用的套餐都长时，这个商品报不出价。" };
 
 export function PublishStep({ frame, product, onReload, checkStatus }: { frame: ProductFrame; product: Product; onReload(): void; checkStatus: string }) {
   const { readOnly, checkContext } = frame;

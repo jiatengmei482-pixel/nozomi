@@ -3,7 +3,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MAX_WAYPOINTS, STAY_OPTIONS, breakdownLines, durationText, itineraryRouteFailureText, itineraryText, orderItineraryText, moveWaypoint, scheduleRows, waypointErrors, waypointUnavailableTexts, waypointsBody } from "./charter-itinerary.ts";
+import { MAX_WAYPOINTS, STAY_OPTIONS, autoPackageHoursOf, breakdownLines, upgradePackageHours, durationText, itineraryRouteFailureText, itineraryText, orderItineraryText, moveWaypoint, scheduleRows, waypointErrors, waypointUnavailableTexts, waypointsBody } from "./charter-itinerary.ts";
 
 const point = (name: string) => ({ name, lat: 35.5, lng: 138.7, kind: null });
 const yen = (amount: number) => ({ amount: String(amount), currency: "JPY" });
@@ -113,4 +113,12 @@ test("M8-43 明细：金额为 0 的超公里费、超时费不列；不是 0 �
   assert.deepEqual(labels(quote(7_229, 605, -100)), [["包车套餐 10 小时", "60,500 JPY"], ["超公里费", "7,229 JPY"], ["超时费", "605 JPY"], ["调价", "-100 JPY"]]);
   // 去掉的 0 不影响核对：总价对不上照样不给明细
   assert.equal(breakdownLines({ ...quote(0, 0), price: { total: yen(60_501), fx: null } }, 10), null);
+});
+
+test("M9P-03 有经停点时手动升档：自动选的档取各车型报价里最短的；能升的只列比它长的档（去重、从短到长），不列短于它的；不知道自动选的档时一个都不列", () => {
+  assert.equal(autoPackageHoursOf([{ auto_package_hours: 8 }, { auto_package_hours: 5 }, { auto_package_hours: null }, {}]), 5);
+  assert.equal(autoPackageHoursOf([{}, { auto_package_hours: null }]), null);
+  assert.deepEqual(upgradePackageHours([10, 4, 8, 5, 10, 12], 5), [8, 10, 12]);
+  assert.deepEqual(upgradePackageHours([4, 5], 5), []);
+  assert.deepEqual(upgradePackageHours([4, 8, 10], null), []);
 });

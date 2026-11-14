@@ -85,6 +85,24 @@ export function itineraryPackageHours(quote: Pick<SiteQuote, "package"> | null):
   return quote?.package?.hours ?? null;
 }
 
+/**
+ * 按行程计价时自动选的套餐（M9P-03，ADR 0093 第四节第 9 条）：各车型报价的 `auto_package_hours` 里最短的（客人手动升档时报价照样带着自动会选的档）。
+ * 没有报价、或旧接口没有这一项时为 null。
+ */
+export function autoPackageHoursOf(quotes: readonly Pick<SiteQuote, "auto_package_hours">[]): number | null {
+  const hours = quotes.flatMap((quote) => (typeof quote.auto_package_hours === "number" ? [quote.auto_package_hours] : []));
+  return hours.length === 0 ? null : Math.min(...hours);
+}
+
+/**
+ * 有经停点时客人能手动升到的套餐（规格步骤 3「客人可以手动改成更长的套餐，不能改成短于 T 的」）：这段行程能订的套餐里比自动选的档长的，从短到长。
+ * 自动选的档（从 T 起的那一档）本身是下拉的默认项「自动（N 小时）」，比它短的一律不列。
+ */
+export function upgradePackageHours(available: readonly number[], autoHours: number | null): number[] {
+  if (autoHours === null) return [];
+  return [...new Set(available)].filter((hours) => hours > autoHours).sort((a, b) => a - b);
+}
+
 /** 米 → 「54.3 公里」（向上取整到 0.1 公里，整数不带 .0） */
 export function kmText(meters: number): string {
   const tenths = Math.ceil(meters / 100);

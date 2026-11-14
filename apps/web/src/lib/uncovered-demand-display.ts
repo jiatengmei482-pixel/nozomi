@@ -37,6 +37,7 @@ const REFUSAL_NAMES: Readonly<Record<string, string>> = {
   ROUTE_UNAVAILABLE: "取不到路线",
   DROPOFF_REQUIRED: "包车没给下车地点",
   WAYPOINT_NOT_PRICED: "经停点不在任何区域",
+  ITINERARY_TOO_LONG: "预计用时超过在线下单上限",
   ADDON_NOT_OFFERED: "附加服务不提供",
   FX_RATE_UNAVAILABLE: "没有可用的汇率",
   TRIAL_DAILY_LIMIT: "试运营每日上限",
