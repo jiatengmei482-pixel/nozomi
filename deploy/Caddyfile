@@ -91,8 +91,10 @@
 
 		# 嵌入组件脚本（ADR 0090）：合作网站跨站加载，所以放行跨源读取；短缓存（发新版 5 分钟内生效）。
 		# 不存在时 404，不回退到 index.html（合作网站拿到一份 HTML 当脚本执行会报错）。
+		# 类型写死并带 charset（M9E-07）：合作网站可能是 Shift_JIS 等非 UTF-8 页面，不依赖镜像里的扩展名表。产物本身也只含 ASCII，两道保险。
 		@widget path /embed/widget-v1.js
 		handle @widget {
+			header Content-Type "text/javascript; charset=utf-8"
 			header Cache-Control "public, max-age=300"
 			header Cross-Origin-Resource-Policy "cross-origin"
 			file_server
