@@ -15,7 +15,7 @@
 3. **不依赖任何 Cookie**：嵌入页调用的是同源的 `/site/v1`（iframe 的文档就在主站域名下），草稿用现有 43 位草稿号，订单用现有 `nzo_` 查看令牌（`Authorization` 请求头），都不是 Cookie，第三方 Cookie 被拦不影响。所以 CSRF 不适用；点击劫持靠 `frame-ancestors` 只放行一个网站。
 4. **postMessage 双向核对 origin**，消息里只有步骤名、高度、订单号、错误代码，不带姓名、电话、邮箱、价格、令牌。
 5. **谷歌地图条款**：嵌入页只用谷歌静态路线图（谷歌自己的地图），**不带 Leaflet 后备图和 Leaflet 地图选点**（ADR 0094 已认定把 Places / Routes 内容画在非谷歌地图上不合规，主站的同一问题由 M10-01 处理）。
-6. **分四期，约 18–21 人日（做日英界面约 22–26 人日）**（第十一节）：草稿跳宿主页 + `mountBooking` 骨架 + 动态 `frame-ancestors` → 嵌入预订页 → 付款进 iframe → 工厂接入和测试站验收。
+6. **分四期，约 18.5–21.5 人日（做日英界面约 22.5–26.5 人日）**（第十一节）：草稿跳宿主页 + `mountBooking` 骨架 + 动态 `frame-ancestors` → 嵌入预订页 → 付款进 iframe → 工厂接入和测试站验收。
 
 ## 一、现状（对照代码，2026-11-14 的 main）
 
@@ -86,7 +86,7 @@ iframe 里的文档在主站域名下，所以它调 `/site/v1` 是**同源请�
 - `onEvent(event)`：可选回调，收到 iframe 的 `step`、`completed`、`error` 时调用（字段见第六节），合作网站可以用来做自己的统计或跳转；也同时在 `root` 元素上派发 `CustomEvent("nozomi:booking", { detail })`，两种用法任选。
 - `title`：iframe 的无障碍标题，不传用按语言的默认值（「NOZOMI 用车预订」/「NOZOMI 配車予約」/「NOZOMI ride booking」）。
 - **地址带 `nzdraft`**（`URLSearchParams`，格式不是 43 位 base64url 的当作不带）：
-  0. 读出草稿号后，存进宿主页本标签页的 sessionStorage（键 `nozomi.host-draft`，只存草稿号和时间，2 小时），再用 `history.replaceState` 把 `nzdraft` 从宿主地址里去掉：草稿号不留在合作网站的统计脚本、访问日志之后的页面浏览记录、被分享的链接里。刷新时地址上没有 `nzdraft`，就从这个存储里取（存储不可用时退回显示查价表单）。
+  0. 读出草稿号后，存进宿主页本标签页的 sessionStorage（键 `nozomi.host-draft`，只存草稿号和时间，2 小时），再用 `history.replaceState` 把 `nzdraft` 从宿主地址里去掉：草稿号不留在合作网站的统计脚本、访问日志之后的页面浏览记录、被分享的链接里。刷新时地址上没有 `nzdraft`，就从这个存储里取（存储不可用时退回显示查价表单）。**这个键什么时候删**：宿主收到 `completed` 时立即删；嵌入页报 `error{code:"DRAFT_NOT_FOUND"}`（草稿过期或不存在，读草稿 404）时也删，并在 iframe 上方显示「重新查询」入口（点了拆掉 iframe、画查价表单）；超过 2 小时的记录读到即删。这样同一标签页里下一次打开 `/booking/` 不会拿到旧草稿。
   1. 在 `root` 里建 `<iframe>`：`src = <主站>/embed/book?draft=<号>&key=<嵌入码>&lang=<语言>&host=<encodeURIComponent(location.origin)>#ch=<16 字节随机数>`；`title` 如上；`allow="payment"`（只为以后的钱包，见第七节第 4 小节；现在只收银行卡，不靠它）；`referrerpolicy="no-referrer"`；**不加 `sandbox`**（sandbox 的限制会传给 iframe 里的子框架，包括 Stripe 的付款表单和 3D 验证框架；Stripe 文档也写明它的 3D 验证 iframe 不能加 sandbox——那句话说的是商户自己建的 3D 验证 iframe，道理相同）；`loading` 不设（首屏内容）；初始高度 720px、宽 100%、无边框。
   2. 15 秒内没收到 `ready`：拿掉 iframe，在 `root` 里显示「预订页暂时打不开。请刷新，或到主站继续预订。」和链接 `<主站>/book/new?draft=<号>`（整页、新标签页均可，按 Q3）。被 `frame-ancestors` 拒绝时浏览器不告诉父页面，所以只能靠超时判断；控制台另写一句开发者提示「请确认本网站已加入嵌入码白名单」。
   3. 主站地址取自加载脚本的 `<script>`（同 ADR 0090 第四节），不取宿主页地址。
@@ -144,7 +144,7 @@ handle @embed_book_pages {
   route {                                           # route 里按书写顺序执行（见下）
     request_header -X-Nozomi-Frame-Ancestor         # ① 先删掉客户端自己带的同名头，防伪造
     forward_auth api:8080 {                         # ② 问 API；非 2xx 时 API 的应答直接回给浏览器
-      uri /embed/v1/frame-check?{query}             #    key、host 两个查询参数
+      uri /embed/v1/frame-check?key={query.key}&host={query.host}   # 只转 key、host 两个参数
       copy_headers X-Nozomi-Frame-Ancestor
     }
     header Content-Security-Policy "<嵌入页策略>; frame-ancestors {http.request.header.X-Nozomi-Frame-Ancestor}"   # ③ 不加 defer
@@ -157,6 +157,8 @@ handle @embed_book_pages {
 ```
 
 （示意，实际片段由 `edge-config.ts` 生成。）
+
+- **只把 `key`、`host` 转给 API，不转整个查询串**：银行回跳时地址上带着 Stripe 加的 `payment_intent`、`payment_intent_client_secret`、`redirect_status`，用 `?{query}` 会把 `client_secret` 带进 API 的请求和日志。Caddy 层测试断言 frame-check 收到的查询串只有这两个参数。
 
 - **这一段必须包在 `route { }` 里**：Caddyfile 在同一个 `handle` 里不按书写顺序执行，而是按固定的指令顺序排（`header` 在 `try_files`、`forward_auth` 之前，`request_header` 在 `forward_auth` 之后，Caddy 文档「Directive order」）。不包 `route` 的后果：`header` 在 `forward_auth` 之前就取了占位符，得到空值，`frame-ancestors` 变成空列表（等于 `'none'`）；`request_header -…` 排在 `forward_auth` 之后，会把网关刚复制进来的正确值删掉，而客户端伪造的头在核对前也没删。`route` 里的指令按书写顺序执行（同一文档的「Sorting algorithm」一节）。`deploy-web-csp-paths.qa.test.ts` 在真实 Caddy 容器上断言：白名单宿主拿到 `frame-ancestors <宿主>`；带伪造请求头时拿不到放行；不在白名单的拿到 `'none'`。
 - **Caddy 镜像固定版本**：`forward_auth` 的 `copy_headers` 出过两个伪造请求头的漏洞——CVE-2026-30851（GHSA-7r4p-vjf4-gxv4，2.10.0 到 2.11.1 不删客户端自带的同名头，2.11.2 修复）和 CVE-2026-52845（GHSA-f59h-q822-g45g，2.11.4 之前客户端改用 `_` 代替 `-` 的同名头仍能绕过删除，2.11.4 修复）。现在 `apps/web/Dockerfile` 和 `deploy-web-csp-paths.qa.test.ts` 用的都是会变的 `caddy:2`。第一期把两处都固定到 **≥ 2.11.4 的具体版本（或 digest）**，升级单独做；同时保留上面第 ① 步自己删头，两道防线。
@@ -327,13 +329,13 @@ iframe → 宿主：
 
 | 期 | 任务 | 内容 | 估算 | 依赖 |
 | --- | --- | --- | --- | --- |
-| 1 | M9E-16 | `init` 的 `bookingUrl` 和 `delivery`；`mountBooking` 骨架（建 iframe、`nzdraft` 移出地址、超时后备、postMessage 收发和核对、高度、事件回调）；`/embed/book` 占位页（只显示草稿内容 + `ready`/`resize`）；`frame-check` 接口（单独限速、不走 Origin 规则）、Caddy `route` + `forward_auth` 片段、三个互斥的 CSP 匹配器、`X-Frame-Options` 实测（含全局 `defer` 的处理）；**Caddy 镜像固定到 ≥ 2.11.4**（`apps/web/Dockerfile`、`deploy-web-csp-paths.qa.test.ts`）；**Caddy 层测试**（真实容器的响应头断言 + deploy-smoke 无头浏览器嵌入检查）和 preview 插件同规则；迁移加 `delivery` 列（排在 M9E-14 的 0430 之后）；测试站外层 nginx 头核实 | 6–7 | 本篇采纳、M9E-12 合并、M9E-14 合并 |
+| 1 | M9E-16 | `init` 的 `bookingUrl` 和 `delivery`；`mountBooking` 骨架（建 iframe、`nzdraft` 移出地址、超时后备、postMessage 收发和核对、高度、事件回调）；`/embed/book` 占位页（只显示草稿内容 + `ready`/`resize`）；`frame-check` 接口（单独限速、不走 Origin 规则）、Caddy `route` + `forward_auth` 片段、三个互斥的 CSP 匹配器、`X-Frame-Options` 实测（含全局 `defer` 的处理）；**Caddy 镜像固定到 ≥ 2.11.4**（`apps/web/Dockerfile`、`deploy-web-csp-paths.qa.test.ts`）；**Caddy 层测试**（真实容器的响应头断言 + deploy-smoke 无头浏览器嵌入检查）和 preview 插件同规则；frame-check 只转 `key`、`host`；`nozomi.host-draft` 的清理和「重新查询」；迁移加 `delivery` 列和「允许整页嵌入」开关（排在 M9E-14 的 0430 之后）；**运营后台嵌入码详情加「允许整页嵌入」开关**（Q13，改动写审计，同嵌入码其他字段的 `If-Match`）；测试站外层 nginx 头核实 | 6.5–7.5 | 本篇采纳、M9E-12 合并、M9E-14 合并 |
 | 2 | M9E-17 | 抽 `BookingShell` 上下文；`EmbedLayout`；嵌入页只挂 `/embed/book*` 路由树；每一步地址保留 `key`、`host`；`/embed/book` 完整四步 + 订单页（不含付款，取消在新窗口）；草稿与 `key`/`host` 核对；无 Leaflet；`step`/`completed`/`error` 事件；`nozomi.embed-order` 只续接待付款的单；顶层打开的拦截；390 宽、无障碍；chromium + webkit 端到端 | 6–7 | M9E-16 |
 | 2b | M9E-18 | 嵌入页中 / 日 / 英（文案字典、付款出错说法、日期金额格式、Stripe `locale`），主站仍只用中文 | 4–5 | M9E-17；Q4 选「三语」才做 |
 | 3 | M9E-19 | 付款进 iframe：`return_url`（带 `key`、`host`）、3D 验证弹窗 `modal`/`viewport`、银行回跳取令牌、新窗口打开订单页退路；假 Stripe 端到端（含整页回跳）；Stripe 测试模式在跨站宿主上 Chrome、Safari（含 iOS）、Firefox 实测到付款页（Q12：测试环境跨站下不了验收单） | 4–5 | M9E-17 |
 | 4 | M9E-20 | 更新给工厂的接入说明（`docs/integration/moveglobal-factory-nozomi-widget.md`，附录 A 定稿）；演示站加白名单、工厂接入；测试站验收：区间、包车各用 Stripe 测试卡全程不离开演示站、非白名单域名嵌入被拒、390 宽；非 `moveglobal.io` 宿主只走到付款页（Q12） | 2（不含工厂开发的时间） | M9E-19、工厂上线 |
 
-合计：不做三语约 **18–21 人日**，做三语约 **22–26 人日**。比初稿多出的部分在第一期（Caddy 的 `route` 写法、固定镜像版本、Caddy 层的测试和 preview 同规则，约多 2 人日）和第三期（三种浏览器加 iOS 实测，约多 1 人日）。
+合计：不做三语约 **18.5–21.5 人日**，做三语约 **22.5–26.5 人日**。比初稿多出的部分在第一期（Caddy 的 `route` 写法、固定镜像版本、Caddy 层的测试和 preview 同规则，约多 2 人日；运营后台「允许整页嵌入」开关，约半天）和第三期（三种浏览器加 iOS 实测，约多 1 人日）。
 
 ## 十二、需要业主或监工定的事项（答复前不开工）
 
@@ -351,7 +353,7 @@ iframe → 宿主：
 | Q10 | 「一次性令牌」 | 不新增令牌：沿用草稿号（2 小时、可重复打开）和 `nzo_` 订单令牌（第八节第 2 小节） | 真一次性：刷新就要重填、付款轮询做不了，不推荐 |
 | Q11 | 嵌入页要不要地图选点 | 首期不要（只从谷歌候选选点），等 M10-01 把选点改成谷歌地图后再加 | 现在就加 Leaflet 选点：违反谷歌条款 14.2，不推荐 |
 | Q12 | 测试环境跨站下不了验收单（`nozomi_qa` 是 `SameSite=Strict`，跨站 iframe 里带不上），跨站验收怎么做 | (a) + (c)：跨站宿主上只走到核对 / 付款页、不下单；真正下单（区间、包车各一单，Stripe 测试卡）只在演示站做；跨站整条流程（含下单、付款、回跳、来源）由本机端到端（假 Stripe）覆盖（第八节第 1 小节） | (b) 给嵌入页另设不靠 Cookie 的验收凭据（解锁后的会话号放 iframe 的 sessionStorage、用请求头带），要修订 ADR 0078，约多 2 人日 |
-| Q13 | 是否每个嵌入码单独一个「允许整页嵌入」开关 | 要，**默认关**：只有运营在后台为某个合作方打开后，frame-check 才放行（`embed_keys` 加一列，同一个迁移）；没打开的嵌入码照旧只能用组件跳主站。这样新增白名单不会自动带来「可被嵌入」，按合作方逐个开 | 不设开关、在白名单里就能嵌：省约半天，但每个现有合作方都自动可嵌 |
+| Q13 | 是否每个嵌入码单独一个「允许整页嵌入」开关 | 要，**默认关**：只有运营在后台为某个合作方打开后，frame-check 才放行（`embed_keys` 加一列，同一个迁移）；没打开的嵌入码照旧只能用组件跳主站。后台开关做在 M9E-16 里（约半天，已计入）。这样新增白名单不会自动带来「可被嵌入」，按合作方逐个开 | 不设开关、在白名单里就能嵌：省约半天，但每个现有合作方都自动可嵌 |
 | Q14 | 嵌入页上卖方是谁、怎么标明 | 嵌入页顶部和核对页写明「本预订由 NOZOMI 提供并收款」，并链接主站的特定商取引法表示、取消政策、隐私政策（新窗口）；核对 Stripe 账单描述（客人信用卡账单上的商户名）和这里一致。请业主确认措辞和账单描述 | 不标明：客人以为在和合作网站交易，退款、投诉找错对象，也可能不符合特定商取引法的表示要求 |
 | Q15 | 嵌入页外观（主题色、标志）要不要跟随嵌入码或组件的 `theme` | 首期不跟随，用主站外观（Stripe 表单的外观也取自主站令牌，ADR 0046）；以后要跟随再另立任务 | 跟随 `theme`：嵌入页和 Stripe 表单都要接主题变量，并逐个检查对比度，约 1–2 人日 |
 
@@ -423,6 +425,7 @@ iframe → 宿主：
 
 - 地址带 `?nzdraft=…` 时显示预订流程（iframe，高度自动），脚本读出后会把 `nzdraft` 从地址栏去掉（刷新照样能接着用）；不带时显示查价表单，提交后回到本页带 `nzdraft`。
 - 这个嵌入码要由 NOZOMI 运营在后台打开「允许整页嵌入」（Q13），没打开时预订页嵌不进去，会显示「到主站继续预订」的链接。
+- 草稿过期时预订页上方会出现「重新查询」，点了回到查价表单。
 - 同一个元素上也会派发 `nozomi:booking` 事件（`event.detail` 同上）。
 - 不要给容器设固定高度或 `overflow: hidden`；不要再包一层 iframe（预订页只允许被白名单网站的顶层页面直接嵌入）。
 - 如果你们的站点有内容安全策略：`script-src`、`connect-src`、`frame-src` 都要放行 `https://<主站域名>`。

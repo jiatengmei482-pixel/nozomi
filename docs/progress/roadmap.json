@@ -1353,7 +1353,8 @@
             "测试环境先 curl -I 核实外层 nginx 有没有自己加 X-Frame-Options / CSP，结果写进 PR",
             "Caddy 片段写在 route { } 里（删伪造头 → forward_auth → header → try_files → file_server）；apps/web/Dockerfile 和 deploy-web-csp-paths.qa.test.ts 的 Caddy 镜像固定到 ≥ 2.11.4 的具体版本或 digest（CVE-2026-30851、CVE-2026-52845）",
             "Caddy 层测试（端到端走 vite preview 测不到）：真实 Caddy 容器断言 /embed/book 的 frame-ancestors 和 X-Frame-Options、伪造头（含 _ 写法）无效、其余页面仍 'none' + DENY；deploy-smoke 加无头浏览器嵌入检查；preview 插件同规则并有一致性测试",
-            "frame-check 不走 ADR 0090 的 Origin 规则（按 host 参数核对）、单独限速；嵌入码加「允许整页嵌入」开关（Q13，默认关）",
+            "frame-check 不走 ADR 0090 的 Origin 规则（按 host 参数核对）、单独限速；Caddy 只转 key、host 两个参数（不把 payment_intent_client_secret 带进 API 日志）；嵌入码加「允许整页嵌入」开关（Q13，默认关），运营后台嵌入码详情能开关、写审计",
+            "宿主页 sessionStorage 的 nozomi.host-draft：收到 completed、草稿 404 时删除，并显示「重新查询」入口",
             "迁移排在 0430 之后，只加 delivery 列（booking_drafts、quote_embed_sources、order_embed_sources）和嵌入码的「允许整页嵌入」开关，不回填"
           ],
           "evidence": "",
@@ -2984,6 +2985,11 @@
       "date": "2026-11-14",
       "by": "product",
       "summary": "ADR 0095 草案按 #236 独立审查修改（仍是草案，待定事项增至 Q1–Q15）：嵌入页的安全头配置改成按顺序执行的写法，原写法会让嵌入一律失败；Caddy 固定到修过两个伪造请求头漏洞的版本；测试环境的验收 Cookie 跨站带不上，跨站那一遍只走到付款页，真正下单在演示站做，跨站全流程由本机自动测试覆盖；银行回跳地址带上嵌入码和宿主；补 Caddy 层的测试；嵌入页里只能显示预订页面，后台页面不会出现在别人网站里；合作网站地址里的草稿号读出后去掉。新增要业主定的：每个嵌入码单独开「允许整页嵌入」（默认关）、嵌入页上写明卖方和特定商取引法表示、外观要不要跟随合作网站。工作量改为 18–21 人日（做日英界面 22–26 人日）。编号：layout:auto 那个任务由作者改号为 M9E-14，本篇仍是 M9E-15～M9E-20。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "ADR 0095 复审通过前补三处小改：合作网站页面上暂存的草稿号在下单完成或草稿过期时删掉，并给出「重新查询」；嵌入页的安全检查只把嵌入码和网站两个参数转给后端，银行回跳带回来的付款凭据不会进后端日志；运营后台加「允许整页嵌入」开关，放进第一期（M9E-16），工作量多半天，合计 18.5–21.5 人日（做日英界面 22.5–26.5 人日）。"
     }
   ]
 }
