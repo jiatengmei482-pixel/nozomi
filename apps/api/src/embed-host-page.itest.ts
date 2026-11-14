@@ -194,6 +194,18 @@ test("frame-check：没打开开关、停用、不存在、缺参数、不在白
   assert.equal((await frameCheck(q(on.key, OTHER))).status, 204, "前提：同一个嵌入码的白名单网站照常放行");
 });
 
+test("frame-check：白名单里即使存了 WHATWG URL 解析得出、但带 CSP 分隔符的主机名（如 https://a.example;sandbox），也不放行、不写进 frame-ancestors", async () => {
+  const odd = ["https://partner.example;sandbox", "https://partner.example,https", "https://partner.example'", "https://partner.example!x"];
+  const key = await newKey({ allow_host_page: true });
+  // 绕过后台的写法校验直接写进库：核对的是 frame-check 自己这一道
+  await api.db.owner.query("update embed_keys set allowed_origins = $2 where id = $1", [key.id, [PARTNER, ...odd]]);
+  for (const host of odd) {
+    assert.equal(new URL(host).origin, host, `前提：${host} 解析后原样不变，光靠规范化挡不住`);
+    assertRefused(await frameCheck(q(key.key, host)), host);
+  }
+  assert.equal((await frameCheck(q(key.key, PARTNER))).headers["x-nozomi-frame-ancestor"], PARTNER, "同一个嵌入码的正常网站照常放行");
+});
+
 test("frame-check：改白名单、停用、关开关后下一次就生效（每次查库）", async () => {
   let key = await newKey({ allowed_origins: [PARTNER, OTHER], allow_host_page: true });
   assert.equal((await frameCheck(q(key.key, OTHER))).status, 204);

@@ -21,13 +21,18 @@ import { type APIRequestContext, type Page, expect, test } from "@playwright/tes
 import { E2E_WEB_PLACES_PORT } from "../playwright.config.ts";
 import { createAirport, publishTransfer } from "./book-new-support.ts";
 import { createSupplier, createWorld } from "./catalog.ts";
-import { OWN_SITE_SOURCE, platformAdminHeaders, randomLetters } from "./support.ts";
+import { OWN_SITE_SOURCE, embedHostAsProduction, platformAdminHeaders, randomLetters } from "./support.ts";
 
+// 接口调用（request）按这条用例自己的来源地址限速
 test.use(OWN_SITE_SOURCE);
 
 /** 主站：127.0.0.1（有假谷歌密钥的那一组） */
 const SITE = `http://127.0.0.1:${E2E_WEB_PLACES_PORT}`;
 const HOST_DRAFT_KEY = "nozomi.host-draft";
+// 宿主页跨站请求主站（组件的 /embed/v1、iframe 里的嵌入页）和正式环境一样不带额外请求头，来源地址在路由里补（M9E-22 的 embedHostAsProduction）
+test.beforeEach(async ({ context }) => {
+  await embedHostAsProduction(context, SITE);
+});
 
 interface Host {
   server: Server;

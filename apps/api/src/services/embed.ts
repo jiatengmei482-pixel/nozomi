@@ -176,36 +176,54 @@ export interface EmbedGate {
   origin: string;
 }
 
-async function findActiveKey(db: Db, key: string): Promise<EmbedKey | null> {
-  const result = await db.query<EmbedKeyRow>(`select ${COLUMNS} from embed_keys where key = $1 and status = 'active'`, [key]);
+async function findKey(db: Db, key: string): Promise<EmbedKey | null> {
+  const result = await db.query<EmbedKeyRow>(`select ${COLUMNS} from embed_keys where key = $1`, [key]);
   const row = result.rows[0];
   return row === undefined ? null : fromRow(row);
 }
 
-/** 嵌入码存在、启用，请求的 Origin 完全等于白名单某项：否则一律 403（不区分原因） */
-export async function embedGate(ctx: AppContext, key: unknown, originHeader: string | undefined): Promise<EmbedGate> {
-  if (typeof key !== "string" || key.length > 64) throw embedOriginNotAllowed();
-  const embedKey = await withPlatformTx(ctx.pool, (db) => findActiveKey(db, key), { snapshot: true });
-  if (embedKey === null) throw embedOriginNotAllowed();
+/** 被拒的原因（M9E-22）：只写进主站日志（`embed.gate_refused`），应答不区分 */
+export type EmbedRefusal = "key_unknown" | "key_disabled" | "origin_not_allowed";
+
+/**
+ * 嵌入码存在、启用，请求的 Origin 完全等于白名单某项：否则一律 403 `EMBED_ORIGIN_NOT_ALLOWED`、不带 CORS 头（ADR 0090 第三节第 2 小节，应答不区分原因）。
+ * 原因写一行日志给 NOZOMI 运维排查（M9E-22）：嵌入码不存在 / 已停用 / 网站不在白名单；不记嵌入码原文（不存在的可能是乱填的），已有的记编号。
+ */
+export async function embedGate(ctx: AppContext, key: unknown, originHeader: string | undefined, log?: { info(obj: object, msg: string): void }): Promise<EmbedGate> {
+  const refuse = (reason: EmbedRefusal, embedKeyId: string | null): AppError => {
+    log?.info({ event: "embed.gate_refused", reason, embed_key_id: embedKeyId, origin: typeof originHeader === "string" ? originHeader.slice(0, 200) : null }, "嵌入组件的请求被拒");
+    return embedOriginNotAllowed();
+  };
+  if (typeof key !== "string" || key.length > 64) throw refuse("key_unknown", null);
+  const embedKey = await withPlatformTx(ctx.pool, (db) => findKey(db, key), { snapshot: true });
+  if (embedKey === null) throw refuse("key_unknown", null);
+  if (embedKey.status !== "active") throw refuse("key_disabled", embedKey.id);
   const origin = embedOriginAllowed(originHeader, embedKey.allowedOrigins, originOptions(ctx));
-  if (origin === null) throw embedOriginNotAllowed();
+  if (origin === null) throw refuse("origin_not_allowed", embedKey.id);
   return { embedKey, origin };
 }
 
 // ---- /embed/v1/frame-check（M9E-16，ADR 0095 第五节第 1 小节）----
 
 /**
- * `/embed/book` 能不能被 `host` 这个网站嵌入：嵌入码存在、启用、打开了「允许整页嵌入」，`host` 是规范的 origin 并且完全等于白名单某一项，
- * 才返回这个 origin（只有协议、主机名、端口，没有空格、分号、引号，可以原样写进 frame-ancestors）；其余一律 null，不区分原因。
+ * 能原样写进 frame-ancestors 的宿主：协议 + 主机名（字母、数字、点、连字符）+ 可选端口；本机 http 只有 localhost、127.0.0.1。
+ * 和 vite preview 的核对（apps/web/build/edge-config.ts 的 ANCESTOR_SOURCE）是同一条规则。WHATWG URL 允许主机名里有 `;` 等字符
+ * （`https://a.example;sandbox` 解析得出、规范化前后也一样），光靠规范化挡不住往 CSP 里插指令，所以另外按字符集再核一次
+ */
+const FRAME_ANCESTOR_SOURCE = /^(https:\/\/[A-Za-z0-9.-]+|http:\/\/(127\.0\.0\.1|localhost))(:[0-9]{1,5})?$/;
+
+/**
+ * `/embed/book` 能不能被 `host` 这个网站嵌入：嵌入码存在、启用、打开了「允许整页嵌入」，`host` 是规范的 origin、只含 FRAME_ANCESTOR_SOURCE 允许的字符，
+ * 并且完全等于白名单某一项，才返回这个 origin（可以原样写进 frame-ancestors）；其余一律 null，不区分原因。
  * 不看请求的 `Origin`（iframe 的页面导航不带它，而且调用方是 Caddy）：这是 ADR 0090「Origin 不在白名单一律 403」的例外。
  */
 export async function frameAncestorOf(ctx: AppContext, key: unknown, host: unknown): Promise<string | null> {
   if (typeof key !== "string" || key.length > 64 || typeof host !== "string" || host.length > 300) return null;
   // 规范化前后必须一样：带路径、结尾斜杠、大写的都不算（iframe 地址里的 host 由组件按 location.origin 填，本来就是规范的）
   const origin = normalizeEmbedOrigin(host, originOptions(ctx));
-  if (origin === null || origin !== host) return null;
-  const embedKey = await withPlatformTx(ctx.pool, (db) => findActiveKey(db, key), { snapshot: true });
-  if (embedKey === null || !embedKey.allowHostPage || !embedKey.allowedOrigins.includes(origin)) return null;
+  if (origin === null || origin !== host || !FRAME_ANCESTOR_SOURCE.test(origin)) return null;
+  const embedKey = await withPlatformTx(ctx.pool, (db) => findKey(db, key), { snapshot: true });
+  if (embedKey === null || embedKey.status !== "active" || !embedKey.allowHostPage || !embedKey.allowedOrigins.includes(origin)) return null;
   return origin;
 }
 
