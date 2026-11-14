@@ -181,8 +181,8 @@ export function AreaSurchargeBlock(props: {
   otherChanges: number;
   conflictKeys: ReadonlySet<string>;
   announce(text: string): void;
-  /** 「这一行的意思」例子里的套餐价：商品第一个服务区域、这个车型组和套餐今天生效的基础定价；没有为 null */
-  packagePrice(vehicleGroupId: string, packageHours: number): number | null;
+  /** 「这一行的意思」例子里的套餐价：例子里上车的服务区域（`areaId`，不给时第一个服务区域）、这个车型组和套餐今天生效的基础定价；没有为 null */
+  packagePrice(vehicleGroupId: string, packageHours: number, areaId?: string): number | null;
   focusRow(key: string): void;
 }) {
   const { state, product, groups, packages, currency, today, readOnly, busy, onPlatform, areas } = props;
@@ -418,12 +418,15 @@ export function AreaSurchargeBlock(props: {
     const name = nameOf(focusedRow.areaId);
     const label = `${name} · ${groupName(focusedRow.vehicleGroupId)} · ${focusedRow.packageHours} 小时`;
     const reading = readSurchargeRow(focusedRow, currency);
-    if (reading.blank) return `${label}——还没填区域加价。上车点或下车点只在${name}、坐${groupName(focusedRow.vehicleGroupId)}、订 ${focusedRow.packageHours} 小时的单不报价。`;
+    // 加价区域也是商品的服务区域（ADR 0092）：空着 = 这一端加 0、照样报价（引擎在服务区域里按 0 算），不是不报价
+    const serviceArea = productAreaIds.includes(focusedRow.areaId);
+    if (reading.blank) return serviceArea ? `${label}——还没填区域加价。${name}也是商品的服务区域：上车点、下车点或途经景点在${name}、坐${groupName(focusedRow.vehicleGroupId)}、订 ${focusedRow.packageHours} 小时的单，这一端不加钱，照样报价。` : `${label}——还没填区域加价。上车点或下车点只在${name}、坐${groupName(focusedRow.vehicleGroupId)}、订 ${focusedRow.packageHours} 小时的单不报价。`;
     if (!reading.rule || reading.rule.pricing.model !== "charter_area_surcharge") return `${label}——${reading.problems.map((problem) => problem.text).join("；")}。`;
-    const firstArea = product.areas[0];
+    // 例子的另一端：第一个不是本区域的服务区域（本区域也是服务区域时不能拿它当「不加价」的一端）；都没有时不写例子
+    const firstArea = product.areas.find((area) => area.area_id !== focusedRow.areaId);
     const way = reading.rule.pricing.waypointSurchargeMinor ?? null;
     // 例子代入这个车型组和套餐今天生效的套餐价，合计用 domain 的函数算（tenant-prices.md 17.2.3）；没有套餐价时不写例子
-    const packageMinor = firstArea ? props.packagePrice(focusedRow.vehicleGroupId, focusedRow.packageHours) : null;
+    const packageMinor = firstArea ? props.packagePrice(focusedRow.vehicleGroupId, focusedRow.packageHours, firstArea.area_id) : null;
     const dropoff = reading.rule.pricing.dropoffSurchargeMinor;
     const example =
       firstArea === undefined
@@ -433,7 +436,7 @@ export function AreaSurchargeBlock(props: {
           : `例：${displayName(firstArea.name).text}上车、${name}下车 = 套餐价 ${moneyText(packageMinor, currency)} + 0 + ${moneyText(dropoff, currency)} = ${moneyText(charterPriceWithSurcharges({ packageMinor, pickupMinor: 0, dropoffMinor: dropoff }), currency)}（调价规则前）。`;
     const wayExample =
       firstArea && way !== null && packageMinor !== null ? `${displayName(firstArea.name).text}出发、途经${name}再回来 = 套餐价 ${moneyText(packageMinor, currency)} + ${moneyText(way, currency)} = ${moneyText(charterPriceWithSurcharges({ packageMinor, pickupMinor: 0, dropoffMinor: 0, waypointMinor: way }), currency)}。` : "";
-    return `${label}——${surchargeSentence(name, reading.rule.pricing.pickupSurchargeMinor, dropoff, currency, way)}${example}${wayExample}${surchargeValidity(reading.rule)}调价规则（节假日、旺季等）会按合计再调。`;
+    return `${label}——${surchargeSentence(name, reading.rule.pricing.pickupSurchargeMinor, dropoff, currency, way, serviceArea)}${example}${wayExample}${surchargeValidity(reading.rule)}调价规则（节假日、旺季等）会按合计再调。`;
   };
 
   const productAreaNames = product.areas.map((area) => displayName(area.name).text);
@@ -600,7 +603,7 @@ export function AreaSurchargeBlock(props: {
       <p className="surcharge__lead">
         上车点、下车点或客人填的途经景点落在加价区域里时，按所在区域加钱：包车价 = 套餐价 + 上车加价 + 途经加价 + 下车加价。商品的服务区域也可以设加价（例如机场）；没设加价的服务区域不加钱。
         <br />
-        途经加价同一区域一单只加一次，上车或下车已经在这个区域的不再加；途经加价空着 = 途经景点落在这个区域时不报价（不加钱请填 0）。
+        途经加价同一区域一单只加一次，上车或下车已经在这个区域的不再加；途经加价空着 = 途经景点落在这个区域时不报价（不加钱请填 0）——这个区域也是商品的服务区域时，空着 = 不加钱。
         <br />
         {`上车点或下车点哪个区域都不在的单不报价，客人会看到「${NO_ONLINE_QUOTE}」。`}
       </p>
@@ -928,7 +931,7 @@ export function AreaSurchargeBlock(props: {
               </div>
               {issues.waypoint !== undefined && <p className="field__error">{issues.waypoint}</p>}
               <p className="field__hint" id="surcharge-dialog-waypoint-hint">
-                {draft.mode === "edit" ? `客人的途经景点在${draftName}时加多少（同一区域一单只加一次）。留空 = 已经填了的组合不改这一项、新填的组合不设` : `客人的途经景点在${draftName}时加多少（同一区域一单只加一次）。选填：留空 = 途经景点落在这里时不报价，不加钱填 0`}
+                {draft.mode === "edit" ? `客人的途经景点在${draftName}时加多少（同一区域一单只加一次）。留空 = 已经填了的组合不改这一项、新填的组合不设` : productAreaIds.includes(draft.areaId) ? `客人的途经景点在${draftName}时加多少（同一区域一单只加一次）。选填：${draftName}也是商品的服务区域，留空 = 途经景点落在这里时不加钱` : `客人的途经景点在${draftName}时加多少（同一区域一单只加一次）。选填：留空 = 途经景点落在这里时不报价，不加钱填 0`}
               </p>
             </div>
             <fieldset className="field surcharge-dialog__dates">

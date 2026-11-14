@@ -386,10 +386,13 @@ export function commonAmount(rows: readonly SurchargeRow[], areaId: string, fiel
   return amountShown([...values][0] as number, currency);
 }
 
-/** 「这一行的意思」里加价那一段（17.2.3）。填 0 写成人话；途经加价没设（null）说明经停点只落在这里时不报价。 */
-export function surchargeSentence(areaName: string, pickupMinor: number, dropoffMinor: number, currency: string, waypointMinor: number | null = null): string {
+/**
+ * 「这一行的意思」里加价那一段（17.2.3）。填 0 写成人话；途经加价没设（null）说明经停点只落在这里时不报价——
+ * 这个区域也是商品的服务区域时（`serviceArea`，ADR 0092）没设 = 这一端不加钱、照样报价（引擎在服务区域里按 0 算）。
+ */
+export function surchargeSentence(areaName: string, pickupMinor: number, dropoffMinor: number, currency: string, waypointMinor: number | null = null, serviceArea = false): string {
   const part = (end: "上车点" | "下车点" | "途经景点", minor: number): string => (minor === 0 ? `${end}在${areaName}时不加钱` : `${end}在${areaName}时加 ${moneyText(minor, currency)}`);
-  const way = waypointMinor === null ? `途经景点在${areaName}的单（没设途经加价）不报价` : `${part("途经景点", waypointMinor)}（几个景点都在这里只加一次；上车或下车已经在${areaName}的不再加）`;
+  const way = waypointMinor === null ? (serviceArea ? `途经景点在${areaName}时不加钱（没设途经加价；${areaName}也是商品的服务区域）` : `途经景点在${areaName}的单（没设途经加价）不报价`) : `${part("途经景点", waypointMinor)}（几个景点都在这里只加一次；上车或下车已经在${areaName}的不再加）`;
   return `${part("上车点", pickupMinor)}，${part("下车点", dropoffMinor)}，${way}。`;
 }
 

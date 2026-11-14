@@ -540,6 +540,9 @@ test("M8-46：服务区域千叶还没有区域加价 → 下拉里能选（标�
   await actor.selectOptions(select, CHIBA);
   await actor.click(within(section).getByRole("button", { name: "确认添加" }));
   const dialog = await screen.findByRole("dialog", { name: "给「千叶」设区域加价" });
+  // 服务区域的途经加价留空 = 不加钱（引擎在服务区域里按 0 算），不是不报价（M8-46 审查第 1 条）
+  assert.match(dialog.textContent ?? "", /选填：千叶也是商品的服务区域，留空 = 途经景点落在这里时不加钱/);
+  assert.doesNotMatch(dialog.textContent ?? "", /留空 = 途经景点落在这里时不报价/);
   await actor.type(within(dialog).getByLabelText(/^上车加价/), "14000");
   await actor.type(within(dialog).getByLabelText(/^下车加价/), "9000");
   await actor.click(within(dialog).getByRole("button", { name: "添加" }));
@@ -551,4 +554,49 @@ test("M8-46：服务区域千叶还没有区域加价 → 下拉里能选（标�
   assert.deepEqual(batch.create.map((entry) => [entry["area_id"], entry["pickup_surcharge"], entry["dropoff_surcharge"]]), Array.from({ length: 4 }, () => [CHIBA, 14000, 9000]));
   await waitFor(() => assert.equal(screen.queryByText(/条未保存的修改/), null));
   assert.equal([...select.options].find((option) => option.value === CHIBA)?.textContent, "千叶（已添加）");
+});
+
+test("M8-46 审查：加价区域也是服务区域时，「这一行的意思」和说明按服务区域写——空着 = 这一端不加钱、照样报价；例子的另一端取别的服务区域", async () => {
+  const actor = user();
+  // 服务区域〔千叶, 东京 23 区〕，千叶排第一个又设了加价：例子不能写成「千叶上车、千叶下车 = 套餐价 + 0 + 下车加价」
+  const chibaFirst = productOf({ areas: [{ area_id: CHIBA, priority: 0, name: { zh: "千叶" }, biz_type: "general", status: "active" }, { area_id: TOKYO, priority: 1, name: { zh: "东京 23 区" }, biz_type: "general", status: "active" }] } as unknown as Partial<Product>);
+  open("admin", pricesOf([...BASE_RULES, surcharge({ area_id: CHIBA, dropoff_surcharge: 800 })]), () => null, AREAS, chibaFirst);
+  const section = await block();
+  assert.match(section.querySelector(".surcharge__lead")?.textContent ?? "", /途经加价空着 = 途经景点落在这个区域时不报价（不加钱请填 0）——这个区域也是商品的服务区域时，空着 = 不加钱。/);
+  await actor.click(within(section).getByRole("button", { name: "展开「千叶」的各车型组和套餐" }));
+  screen.getByLabelText("区域加价 · 千叶 · 舒适五座 · 8 小时 的上车加价").focus();
+  await waitFor(() => assert.match(document.querySelector(".surcharge .price-meaning")?.textContent ?? "", /例：东京 23 区上车、千叶下车 = 套餐价 JPY 60,000 \+ 0 \+ JPY 800 = JPY 60,800（调价规则前）。/));
+  const meaning = (): string => document.querySelector(".surcharge .price-meaning")?.textContent ?? "";
+  assert.doesNotMatch(meaning(), /千叶上车/);
+  assert.match(meaning(), /途经景点在千叶时不加钱（没设途经加价；千叶也是商品的服务区域）/);
+  assert.doesNotMatch(meaning(), /不报价/);
+  // 空着的组合：这一端不加钱、照样报价
+  // 空着的格子要先敲过字（再删掉）才进页面的行，「这一行的意思」才讲它
+  const blankC = screen.getByLabelText("区域加价 · 千叶 · 商务七座 · 8 小时 的上车加价");
+  await actor.type(blankC, "1");
+  await actor.clear(blankC);
+  await waitFor(() => assert.match(meaning(), /千叶 · 商务七座 · 8 小时——还没填区域加价。千叶也是商品的服务区域：上车点、下车点或途经景点在千叶、坐商务七座、订 8 小时的单，这一端不加钱，照样报价。/));
+  assert.doesNotMatch(meaning(), /不报价/);
+});
+
+test("M8-46 审查：唯一的服务区域就是这个加价区域时不写例子；不是服务区域的加价区域照旧写「不报价」", async () => {
+  const actor = user();
+  const onlyChiba = productOf({ areas: [{ area_id: CHIBA, priority: 0, name: { zh: "千叶" }, biz_type: "general", status: "active" }] } as unknown as Partial<Product>);
+  // 千叶自己有套餐价：以前会拿千叶当另一端，写出「千叶上车、千叶下车 = 套餐价 + 0 + 下车加价」（少算上车加价）
+  open("admin", pricesOf([...BASE_RULES, { ...packagePrice("pc", COMFORT, 8), area_id: CHIBA }, surcharge({ area_id: CHIBA }), surcharge({ id: "s-fuji" })]), () => null, AREAS, onlyChiba);
+  const section = await block();
+  const meaning = (): string => document.querySelector(".surcharge .price-meaning")?.textContent ?? "";
+  await actor.click(within(section).getByRole("button", { name: "展开「千叶」的各车型组和套餐" }));
+  screen.getByLabelText("区域加价 · 千叶 · 舒适五座 · 8 小时 的上车加价").focus();
+  await waitFor(() => assert.match(meaning(), /千叶 · 舒适五座 · 8 小时——上车点在千叶时加 JPY 1,000/));
+  assert.doesNotMatch(meaning(), /例：/);
+  // 富士山不是服务区域：空着的组合照旧不报价，途经加价没设照旧不报价
+  await actor.click(within(section).getByRole("button", { name: "展开「富士山」的各车型组和套餐" }));
+  // 空着的格子要先敲过字（再删掉）才进页面的行，「这一行的意思」才讲它
+  const blankF = screen.getByLabelText("区域加价 · 富士山 · 商务七座 · 8 小时 的上车加价");
+  await actor.type(blankF, "1");
+  await actor.clear(blankF);
+  await waitFor(() => assert.match(meaning(), /富士山 · 商务七座 · 8 小时——还没填区域加价。上车点或下车点只在富士山、坐商务七座、订 8 小时的单不报价。/));
+  screen.getByLabelText("区域加价 · 富士山 · 舒适五座 · 8 小时 的上车加价").focus();
+  await waitFor(() => assert.match(meaning(), /途经景点在富士山的单（没设途经加价）不报价。/));
 });

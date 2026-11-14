@@ -183,10 +183,10 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   const overlaps = useMemo(() => rowOverlaps(rows, context), [rows, context]);
   const coverage = useMemo(() => tableCoverage(rows, context, areaIds, groupIds), [rows, context, areaIds, groupIds]);
   /**
-   * 「这一行的意思」例子里的套餐价（tenant-prices.md 17.2.3）：商品第一个服务区域、这个车型组和套餐、今天生效的基础定价（含没保存的修改）；没有为 null。
+   * 「这一行的意思」例子里的套餐价（tenant-prices.md 17.2.3）：例子里上车的那个服务区域（不给时商品第一个服务区域）、这个车型组和套餐、今天生效的基础定价（含没保存的修改）；没有为 null。
    */
-  const charterPackagePrice = (vehicleGroupId: string, packageHours: number): number | null => {
-    const firstArea = areaIds[0];
+  const charterPackagePrice = (vehicleGroupId: string, packageHours: number, areaId?: string): number | null => {
+    const firstArea = areaId ?? areaIds[0];
     if (firstArea === undefined) return null;
     const live = rows.flatMap((row) => {
       const rule = row.deleted ? null : (readings.get(row.key)?.rule ?? null);
