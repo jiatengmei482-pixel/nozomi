@@ -1346,7 +1346,7 @@
           "title": "嵌在宿主页·第一期：init 加 bookingUrl（跳宿主页 ?nzdraft=）、mountBooking 骨架（iframe、超时后备、postMessage 核对、自动高度）、/embed/v1/frame-check + Caddy forward_auth 按嵌入码生成 frame-ancestors（ADR 0095 第三、五、六节）",
           "role": "frontend",
           "status": "blocked",
-          "blockedBy": "等 ADR 0095 采纳（业主 / 监工答复第十二节 Q1–Q15）；M9E-12、M9E-14（layout:auto，占迁移 0430）合并",
+          "blockedBy": "M9E-12、M9E-14（layout:auto，占迁移 0430）合并",
           "acceptance": [
             "不传 bookingUrl 时组件行为逐字不变（现有组件测试、site-embed-widget.spec.ts 原样通过）；传了合格的跳 bookingUrl?nzdraft=<草稿号>，不合格（不同 origin、非 https 等）按没传处理并在控制台报一句",
             "/embed/book 只能被白名单里、本次声明的那一个宿主嵌入：非白名单、伪造 host、停用嵌入码、嵌套两层都被拒；其余页面仍 frame-ancestors 'none' + X-Frame-Options: DENY（security.spec.ts、deploy-web-csp-paths.qa.test.ts 在真实 caddy:2 上核对；伪造 X-Nozomi-Frame-Ancestor 请求头无效）",
@@ -1366,27 +1366,30 @@
           "title": "嵌在宿主页·第二期：/embed/book 复用 /book/new 四步（BookingShell 上下文、EmbedLayout、无 Leaflet）、iframe 内订单页（不含付款）、step / completed / error 事件、刷新续接（ADR 0095 第四、八、九节）",
           "role": "frontend",
           "status": "blocked",
-          "blockedBy": "等 ADR 0095 采纳（业主 / 监工答复第十二节 Q1–Q15）",
+          "blockedBy": "M9E-16 合并",
           "acceptance": [
             "主站 /book/new、订单页的组件测试和 site-booking*.spec.ts、site-payment*.spec.ts 一条不改、全部通过；新增主站模式询价 / 下单请求体与重构前逐字相同",
             "嵌入页询价带 draft_id，下单后平台订单详情来源为嵌入组件（宿主页内）",
             "嵌入页不加载 Leaflet（静态图失败只显示时长和公里数）、不提供地图选点；地点候选下方有「Google Maps」",
             "直接在地址栏打开 /embed/book 不显示预订流程，只给主站链接",
             "嵌入页文档只挂 /embed/book* 路由树：navigate 到 /login、/platform 等只显示「请在新窗口打开」；每一步地址都保留 key、host；草稿上的嵌入码、宿主和本次 key、host 不一致时来源按主站记",
-            "390 宽不横向滚动、axe 无严重问题、键盘能走完；iframe 有 title"
+            "390 宽不横向滚动、axe 无严重问题、键盘能走完；iframe 有 title",
+            "嵌入页样式只引用组件的 --nzb-* 变量（命名和默认值同 widget-style.ts），传给 Stripe appearance 的取值也从 --nzb-* 读（Q15）",
+            "路线图：首期和主站一样显示谷歌静态路线图，静态图失败时只显示时长和公里数，不加载 Leaflet（Q11；合规后备图随 M10-01）"
           ],
           "evidence": "",
           "updated": "2026-11-14"
         },
         {
           "id": "M9E-18",
-          "title": "嵌在宿主页·嵌入页中 / 日 / 英三语（文案字典、付款出错说法、日期金额格式、Stripe locale；主站仍只中文）（ADR 0095 第四节第 3 小节，Q4 选三语才做）",
+          "title": "嵌在宿主页·嵌入页中 / 日 / 英三语，必做（复用 widget-core.ts 的 TEXTS 和 BOOK_TAB_I18N 的写法、付款出错说法、日期金额格式、Stripe locale；主站仍只中文）（ADR 0095 第四节第 3 小节，Q4）",
           "role": "frontend",
           "status": "blocked",
-          "blockedBy": "等 ADR 0095 采纳（业主 / 监工答复第十二节 Q1–Q15）（Q4）",
+          "blockedBy": "M9E-17 合并",
           "acceptance": [
             "mountBooking 的 lang 为 zh / ja / en 时嵌入页、订单页、付款区块全部按该语言显示，主站页面文案逐字不变",
-            "译文由业主或运营过目"
+            "译文由业主或运营过目",
+            "加一种语言只需在各文案表加一列、语言类型加一项，不改页面代码；第二批韩文、繁体中文（ko、zh-Hant，组件和嵌入码 default_lang 一起加）在本任务合并时登记为后续任务"
           ],
           "evidence": "",
           "updated": "2026-11-14"
@@ -1396,7 +1399,7 @@
           "title": "嵌在宿主页·第三期：付款进 iframe（PaymentPanel 复用、return_url 指向 /embed/book/order、3D 验证弹窗 modal / viewport、银行回跳取令牌、新窗口打开订单页退路）；后端付款不改（ADR 0095 第七节）",
           "role": "frontend",
           "status": "blocked",
-          "blockedBy": "等 ADR 0095 采纳（业主 / 监工答复第十二节 Q1–Q15）",
+          "blockedBy": "M9E-17 合并",
           "acceptance": [
             "后端付款、Webhook、超时取消、退款无改动；假 Stripe 端到端在跨站宿主（localhost / 127.0.0.1）里付款成功、失败卡、3D 验证成功 / 失败各一遍",
             "return_url 带 key、host：模拟银行整页回跳、订单页刷新后仍在 iframe 里正常显示",
@@ -1411,7 +1414,7 @@
           "title": "嵌在宿主页·第四期：更新工厂接入说明（ADR 0095 附录 A 定稿）、演示站接入、测试站验收",
           "role": "acceptance",
           "status": "blocked",
-          "blockedBy": "等 ADR 0095 采纳（业主 / 监工答复第十二节 Q1–Q15）；M9E-19 合并、工厂上线 mountBooking",
+          "blockedBy": "M9E-19 合并、工厂上线 mountBooking",
           "acceptance": [
             "工厂接入后在 embed-demo.moveglobal.io 上，区间、包车各用 Stripe 测试卡全程不离开演示站下一单；运营后台来源为嵌入组件（宿主页内）",
             "不在白名单的域名用 iframe 嵌入 /embed/book 被拒",
@@ -1584,7 +1587,7 @@
           "title": "核实并整改：官网 Leaflet 路线后备图和地图选点与谷歌《服务专用条款》19.2 / 14.2 / 6.2（谷歌内容不得用于非谷歌地图）",
           "role": "frontend",
           "status": "todo",
-          "acceptance": ["盘点所有把谷歌 Routes 折线、Places 搜索结果、Geocoding 反查结果和 Leaflet 非谷歌底图一起显示的地方（至少 apps/web/src/pages/book/new/RouteMap.tsx 后备路线图、SiteMapPicker.tsx 地图选点）", "逐处给出整改：改用谷歌地图（静态图或 Maps JS），或不显示地图只显示文字；方案写进 ADR（修订 ADR 0017 / 0072）并经独立审查", "整改后端到端测试覆盖：静态地图未开通时不再在 Leaflet 上画谷歌路线"],
+          "acceptance": ["盘点所有把谷歌 Routes 折线、Places 搜索结果、Geocoding 反查结果和 Leaflet 非谷歌底图一起显示的地方（至少 apps/web/src/pages/book/new/RouteMap.tsx 后备路线图、SiteMapPicker.tsx 地图选点）", "逐处给出整改：改用谷歌地图（静态图或 Maps JS），或不显示地图只显示文字；方案写进 ADR（修订 ADR 0017 / 0072）并经独立审查", "整改后端到端测试覆盖：静态地图未开通时不再在 Leaflet 上画谷歌路线", "嵌入页 /embed/book（ADR 0095，Q11）同步改用同一套合规后备图：首期静态图失败时只显示时长和公里数，M10-01 之后显示和主站相同的路线摘要图；端到端覆盖嵌入页"],
           "evidence": "",
           "updated": "2026-11-14"
         }
