@@ -28,6 +28,7 @@ import {
   adjustRuleMatches,
   applyAdjustRules,
   areaSurchargeFor,
+  type CharterLayout,
   type CharterPackagePricing,
   charterOverage,
   compareExact,
@@ -35,6 +36,7 @@ import {
   exceedsSettlementLimit,
   formatExact,
   hasIncludedKm,
+  itineraryAreaIds,
   overKm,
   priceRuleCoversDate,
   scaleExact,
@@ -227,10 +229,15 @@ export interface QuoteProduct {
   /** 商品选的区域，按优先级；`shapes` 是它的营运 / 禁行图形 */
   areas: readonly QuoteArea[];
   /**
-   * 包车的加价区域（ADR 0073 第三部分）：区域加价规则用到的区域和它们的图形（不在商品的区域列表里）。
+   * 包车的加价区域（ADR 0073 第三部分）：③上下车加价、②行程加价规则用到的区域和它们的图形（不在商品的区域列表里）。
    * 不给 = 没有；只有包车用。
    */
   surchargeAreas?: readonly QuoteArea[];
+  /**
+   * 包车用哪套价格表（M9P-05，ADR 0093 第一节）：`three_layer` = 经停只从②行程加价取、套餐价只用整商品套餐价（区域为空的）；
+   * 不给 = 旧表（③行里的途经加价、按服务区域的套餐价），即使有新格式的规则也不读。
+   */
+  charterLayout?: CharterLayout;
   /**
    * 这个供应商的运营范围（ADR 0075 第二部分）：本租户启用中的、用途是「运营」或「运营 + 报价」、业务类型和商品品类相容的区域（不限城市）。
    * 给了就在第 4 步先做运营判断，再做报价判断（点在运营范围里、但不在商品勾选的报价区域里 → `NO_PRICING_AREA`）；
@@ -680,10 +687,19 @@ interface CharterWaypoint extends CharterEnd {
   unpriced: boolean;
 }
 
-/** 包车区域判断的结果：基础定价用哪些区域；给了下车点时两端（和经停点）各在哪 */
+/**
+ * 包车区域判断的结果：基础定价用哪些区域；给了下车点时两端（和经停点）各在哪。
+ * 经停点的 `surchargeAreaIds` 是它落在的、收经停加价的区域：旧表是③（看行里的途经加价），迁移过三层区域的商品是②（ADR 0093 第一节）。
+ * `dropoffItineraryAreaIds`：下车点落在的②行程区域（下车点行程加价用；旧表没有②，查下车点所在③行的途经加价，为 null）。
+ */
 interface CharterAreas {
   areaIds: string[];
-  ends: { pickup: CharterEnd; dropoff: CharterEnd; waypoints: CharterWaypoint[] } | null;
+  ends: { pickup: CharterEnd; dropoff: CharterEnd; waypoints: CharterWaypoint[]; dropoffItineraryAreaIds: string[] | null } | null;
+}
+
+/** 迁移过三层区域（ADR 0093 第一节）：经停加价、下车点行程加价从②取，套餐价只用整商品套餐价 */
+function threeLayer(product: Pick<QuoteProduct, "charterLayout">): boolean {
+  return product.charterLayout === "three_layer";
 }
 
 /**
@@ -704,13 +720,18 @@ function charterEnds(product: QuoteProduct, request: QuoteRequest): CharterAreas
   // 经停点和上 / 下车点一样过运营区域的禁行判断（ADR 0088 第 3 节第 1 条）
   if (inOperatingForbidden(product, [request.pickup, request.dropoff, ...waypoints])) return { reason: "IN_FORBIDDEN_AREA" };
   const surchargeAreas = (product.surchargeAreas ?? []).filter((area) => surchargeIds.includes(area.areaId));
-  const located = (point: LatLng): { own: string[]; end: CharterEnd; forbidden: boolean; inOwnForbidden: boolean } => {
+  // 迁移过三层区域的商品：经停点、下车点行程加价看②行程区域（ADR 0093 第一节）；旧表看③（行里的途经加价）
+  const itineraryIds = threeLayer(product) ? itineraryAreaIds(product.priceRules) : null;
+  const itineraryAreas = itineraryIds === null ? [] : (product.surchargeAreas ?? []).filter((area) => itineraryIds.includes(area.areaId));
+  const locatedIn = (point: LatLng, ids: readonly string[], layer: readonly QuoteArea[]): { own: string[]; end: CharterEnd; forbidden: boolean; inOwnForbidden: boolean } => {
     const own = locateInAreas(product.areas, point);
-    const extra = locateInAreas(surchargeAreas, point);
+    const extra = locateInAreas(layer, point);
     // 加价区域按商品挂的先后（规则出现的先后）排，一样小的加价取前面的
-    const surcharge = surchargeIds.filter((id) => extra.operating.includes(id));
+    const surcharge = ids.filter((id) => extra.operating.includes(id));
     return { own: own.operating, end: { inProductArea: own.operating.length > 0, surchargeAreaIds: surcharge }, forbidden: own.forbidden.length + extra.forbidden.length > 0, inOwnForbidden: own.forbidden.length > 0 };
   };
+  const located = (point: LatLng) => locatedIn(point, surchargeIds, surchargeAreas);
+  const locatedStop = (point: LatLng) => (itineraryIds === null ? located(point) : locatedIn(point, itineraryIds, itineraryAreas));
   const pickup = located(request.pickup);
   const dropoff = located(request.dropoff);
   for (const [end, position] of [[pickup, request.pickup], [dropoff, request.dropoff]] as const) {
@@ -720,7 +741,7 @@ function charterEnds(product: QuoteProduct, request: QuoteRequest): CharterAreas
   }
   // 经停点（ADR 0088 第 3 节）：运营判断不过、或哪个区域都不在 = 这个商品不报（各车型组报 `WAYPOINT_NOT_PRICED`，指出是第几个点）；
   // 只落在加价区域的禁行区里、哪里都不在 = 同上 / 下车那一端，`IN_FORBIDDEN_AREA`
-  const stops = waypoints.map((position) => ({ position, at: located(position) }));
+  const stops = waypoints.map((position) => ({ position, at: locatedStop(position) }));
   const placed: CharterWaypoint[] = [];
   for (const { position, at } of stops) {
     const outside = outsideOperating(product, position);
@@ -732,7 +753,8 @@ function charterEnds(product: QuoteProduct, request: QuoteRequest): CharterAreas
   // 上车点、下车点或经停点落在这个商品某个报价区域的禁行区里：整个商品不报（M8-36；加价区域的禁行区不算，它们不是报价区域）
   if (pickup.inOwnForbidden || dropoff.inOwnForbidden || stops.some((stop) => stop.at.inOwnForbidden)) return { reason: "IN_FORBIDDEN_AREA" };
   const baseAreas = pickup.own.length > 0 ? pickup.own : dropoff.own.length > 0 ? dropoff.own : product.areas.filter((area) => area.active).map((area) => area.areaId);
-  return { areaIds: baseAreas, ends: { pickup: pickup.end, dropoff: dropoff.end, waypoints: placed } };
+  const dropoffItineraryAreaIds = itineraryIds === null ? null : locatedStop(request.dropoff).end.surchargeAreaIds;
+  return { areaIds: baseAreas, ends: { pickup: pickup.end, dropoff: dropoff.end, waypoints: placed, dropoffItineraryAreaIds } };
 }
 
 /**
@@ -974,8 +996,10 @@ function quoteAtHours(product: QuoteProduct, request: QuoteRequest, moment: Quot
       // 一端落在加价区域里、而且这个车型组 / 套餐 / 日期有能用的区域加价：用它（几个都有时取最高），
       // 哪怕这一端同时也在商品本身的（大范围）区域里——大运营区不能把小加价区盖成 0（M8-38，业主确认）。
       // 加价区域都没有能用的加价时：在商品区域里算 0，否则报不出（和以前一样）。
+      // 迁移过三层区域的商品：经停点查②行程加价，加价认空套餐（ADR 0093 第一节）
+      const layered = threeLayer(product);
       const endCharge = (end: CharterEnd, which: SurchargeEnd): AreaSurchargeEnd | QuoteRefusal => {
-        const chosen = end.surchargeAreaIds.length === 0 ? null : areaSurchargeFor(product.priceRules, { areaIds: end.surchargeAreaIds, vehicleGroupId, packageHours: request.packageHours, date: local.date, end: which, prefer: "highest" });
+        const chosen = end.surchargeAreaIds.length === 0 ? null : areaSurchargeFor(product.priceRules, { areaIds: end.surchargeAreaIds, vehicleGroupId, packageHours: request.packageHours, date: local.date, end: which, prefer: "highest", threeLayer: layered });
         if (chosen !== null && chosen.rule !== null) return { areaId: chosen.areaId, priceRuleId: chosen.rule.id, amountMinor: chosen.amountMinor };
         if (end.inProductArea) return { areaId: null, priceRuleId: null, amountMinor: 0 };
         return chosen === null ? NO_PRICE_REFUSAL.NO_RULE : NO_PRICE_REFUSAL[chosen.noPriceReason];
@@ -1001,10 +1025,12 @@ function quoteAtHours(product: QuoteProduct, request: QuoteRequest, moment: Quot
       // 下车点行程加价（规格步骤 4 伪代码末段，ADR 0093 第二节第 4 小节，商品级开关默认开）：按伪代码字面只看「已收区域为空」
       // （①外的经停要么收了行程加价、要么前面已经报不出，所以这就等于没有①外经停），下车点不在商品区域里时，下车点所在的行程区域收一次；不看上车点。
       // 不另用 locateInAreas 判断经停在不在①：M9P-06（①优先）之前，①∩③里的经停照现行规则收途经加价、进已收区域，另判会让同一区域收两次。
-      // 没迁移三层区域之前（M9P-05）查下车点所在加价区域的途经加价（几个重叠时取最高）：没设、停用、不在生效期都跳过、不拒（它不是客人填的经停点）。
+      // 没迁移三层区域的商品查下车点所在加价区域的途经加价；迁移过的（M9P-05）查下车点所在的②行程区域（几个重叠时都取最高）：
+      // 没设、停用、不在生效期都跳过、不拒（它不是客人填的经停点）。
+      const dropoffAreas = ends.dropoffItineraryAreaIds ?? ends.dropoff.surchargeAreaIds;
       const fromDropoff =
-        charterItineraryOf(product.serviceRules).dropoffItinerarySurcharge && stopCharges.length === 0 && !ends.dropoff.inProductArea && ends.dropoff.surchargeAreaIds.length > 0
-          ? areaSurchargeFor(product.priceRules, { areaIds: ends.dropoff.surchargeAreaIds, vehicleGroupId, packageHours: request.packageHours, date: local.date, end: "waypoint", prefer: "highest" })
+        charterItineraryOf(product.serviceRules).dropoffItinerarySurcharge && stopCharges.length === 0 && !ends.dropoff.inProductArea && dropoffAreas.length > 0
+          ? areaSurchargeFor(product.priceRules, { areaIds: dropoffAreas, vehicleGroupId, packageHours: request.packageHours, date: local.date, end: "waypoint", prefer: "highest", threeLayer: layered })
           : null;
       if (fromDropoff !== null && fromDropoff.rule !== null) stopCharges.push({ areaId: fromDropoff.areaId, priceRuleId: fromDropoff.rule.id, amountMinor: fromDropoff.amountMinor, stopSeqs: [], fromDropoff: true });
       surcharge = { pickup: pickupCharge, dropoff: dropoffCharge, ...(ends.waypoints.length === 0 && stopCharges.length === 0 ? {} : { waypoints: stopCharges }) };
@@ -1141,13 +1167,15 @@ function quoteAtHours(product: QuoteProduct, request: QuoteRequest, moment: Quot
       continue;
     }
 
+    // 迁移过三层区域的包车：套餐价只用整商品套餐价（区域为空的规则，ADR 0093 第五节）；区域仍是基础价区域，调价规则按它匹配
+    const productWide = product.category === "charter" && threeLayer(product);
     const lineHits = routePairs.filter(([areaId, toAreaId]) => selectPriceRule(product.priceRules, { areaId, toAreaId, vehicleGroupId, direction: request.direction, packageHours: request.packageHours, date: local.date }) !== null);
     const tries: [string, string | null][] = lineHits.length > 0 ? lineHits : areas.areaIds.map((areaId) => [areaId, null]);
     for (const [areaId, toAreaId] of tries) {
       const priced = tripPrice({
         priceRules: product.priceRules,
         adjustRules: product.adjustRules,
-        query: { areaId, vehicleGroupId, direction: request.direction, packageHours: request.packageHours, date: local.date, ...(toAreaId === null ? {} : { toAreaId }) },
+        query: { areaId, vehicleGroupId, direction: request.direction, packageHours: request.packageHours, date: local.date, ...(toAreaId === null ? {} : { toAreaId }), ...(productWide ? { productWide } : {}) },
         minuteOfDay: local.minuteOfDay,
         usage,
         roundingUnit: product.roundingUnit,
@@ -1187,12 +1215,19 @@ function quoteAtHours(product: QuoteProduct, request: QuoteRequest, moment: Quot
 const HOURS_INDEPENDENT: ReadonlySet<QuoteRefusal> = new Set(["VEHICLE_GROUP_NOT_OFFERED", "VEHICLE_GROUP_DISABLED", "CAPACITY_EXCEEDED", "WAYPOINT_NOT_PRICED"]);
 
 /**
- * 这个商品这个车型组的套餐时长（从短到长）：基础价区域里的包车套餐价格规则；`usable` 时只算启用、用车日期在生效期内的（ADR 0093 第四节第 2 条）。
- * 能不能报出（加价规则齐全等）由逐档报价判断。
+ * 这个商品这个车型组的套餐时长（从短到长）：基础价区域里的包车套餐价格规则（迁移过三层区域的商品是整商品套餐价，ADR 0093 第五节）；
+ * `usable` 时只算启用、用车日期在生效期内的（ADR 0093 第四节第 2 条）。能不能报出（加价规则齐全等）由逐档报价判断。
  */
 function packageHoursFor(product: QuoteProduct, vehicleGroupId: string, areaIds: readonly string[], date: string, usable: boolean): number[] {
+  const wide = threeLayer(product);
   const hours = product.priceRules.flatMap((rule) =>
-    rule.pricing.model === "charter_package" && rule.vehicleGroupId === vehicleGroupId && areaIds.includes(rule.areaId) && rule.packageHours !== null && (!usable || (rule.status === "enabled" && priceRuleCoversDate(rule, date))) ? [rule.packageHours] : [],
+    rule.pricing.model === "charter_package" &&
+    rule.vehicleGroupId === vehicleGroupId &&
+    (wide ? rule.areaId === null : rule.areaId !== null && areaIds.includes(rule.areaId)) &&
+    rule.packageHours !== null &&
+    (!usable || (rule.status === "enabled" && priceRuleCoversDate(rule, date)))
+      ? [rule.packageHours]
+      : [],
   );
   return [...new Set(hours)].sort((a, b) => a - b);
 }

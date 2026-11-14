@@ -535,6 +535,8 @@ export type PublishIssueReason =
   | "PRICING_AREA_OUTSIDE_OPERATING"
   /** 包车的最低套餐比这个商品所有启用的套餐都长：这个商品将报不出价（ADR 0091，提醒、不拦上架） */
   | "MIN_PACKAGE_ABOVE_ALL"
+  /** 迁移过三层区域的包车（ADR 0093 第五节）：这个车型组一档整商品套餐价都没有（启用、未过期），报不出价 */
+  | "CHARTER_GROUP_NO_PACKAGE"
   /** 这项功能还没有上线，所以这一项现在一定不满足（或对可选项：没有东西可查） */
   | "FEATURE_NOT_AVAILABLE";
 
@@ -589,6 +591,11 @@ export interface PublishFacts {
   pricingOutsideOperating?: readonly { areaId: string; outsideM2: number }[];
   /** 包车：现在选着的区域 × 车型组里启用、未过期的套餐价格规则的时长（小时）。不给 = 不查最低套餐（ADR 0091） */
   charterPackageHours?: readonly number[];
+  /**
+   * 迁移过三层区域的包车（M9P-05，ADR 0093 第五节）：选着的车型组里，一档启用、未过期的整商品套餐价都没有的（`vehicleGroups` 里的下标）。
+   * 「价格规则」这一项按它拦上架（规格 P1 #7「上架拦下」）。不给 = 没迁移过，不查（按区域的缺价照旧不拦）。
+   */
+  charterGroupsWithoutPackage?: readonly number[];
 }
 
 /**
@@ -606,7 +613,7 @@ export function minPackageAboveAll(rules: Pick<ServiceRules, "charterItinerary">
  * 上架校验（需求文档第 7 节）：逐项给出通过 / 不通过和原因，界面照着显示清单。
  * 四项必须（基础信息、服务规则、价格规则、商品详情），两项可选（调价规则、库存：不通过也能上架）。
  * - 价格规则：现在选着的区域 × 车型组里，至少 1 条启用且未过期的价格（结束日期不早于城市当地的今天；以后才开始生效的也算）。
- *   个别组合缺价不拦；一个有价的组合都没有才拦。
+ *   个别组合缺价不拦；一个有价的组合都没有才拦。迁移过三层区域的包车另要每个车型组至少一档整商品套餐价（ADR 0093 第五节）。
  * - 调价规则：可以没有；有启用中的规则会把某条价格调到不大于 0 时指出来（不拦上架）。
  * - 库存：可以不设（默认不限量）。限量、而从今天起没有一天还有库存时指出来（不拦上架）。
  * - 运营区域（ADR 0075）：勾选的报价区域有一部分不在任何运营区域里时多一项提醒（不拦上架）；没有这种情况时没有这一项。
@@ -648,6 +655,7 @@ export function publishCheck(facts: PublishFacts): PublishCheckItem[] {
   const noPriceReason: PublishIssueReason =
     stats === undefined || stats.total === 0 ? ((stats?.outOfSelection ?? 0) > 0 ? "NO_PRICE_IN_SELECTION" : "NO_ACTIVE_PRICE_RULE") : stats.enabled === 0 ? "ALL_PRICE_RULES_DISABLED" : "ALL_PRICE_RULES_EXPIRED";
   const price: PublishIssue[] = facts.activePriceRuleCount === null ? [{ path: "/", reason: "FEATURE_NOT_AVAILABLE" }] : facts.activePriceRuleCount > 0 ? [] : [{ path: "/", reason: noPriceReason }];
+  if (price.length === 0) for (const index of facts.charterGroupsWithoutPackage ?? []) price.push({ path: `/vehicle_groups/${index}`, reason: "CHARTER_GROUP_NO_PACKAGE" });
   const inventory: PublishIssue[] = facts.inventory?.mode === "limited" && facts.inventory.sellableDaysAhead === 0 ? [{ path: "/", reason: "NO_INVENTORY_AHEAD" }] : [];
   const adjust: PublishIssue[] = [
     ...(facts.nonPositiveAdjustRules ?? []).map((index): PublishIssue => ({ path: `/${index}`, reason: "ADJUST_RESULT_NOT_POSITIVE" })),

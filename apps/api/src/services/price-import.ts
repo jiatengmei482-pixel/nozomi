@@ -289,7 +289,7 @@ export async function runPriceImport(
         outcome.planned.products.extend += 1;
       }
     }
-    const have = new Set(existing.rules.map((rule) => priceKey(rule.areaId, rule.vehicleGroupId, rule.direction ?? "", rule.validFrom)));
+    const have = new Set(existing.rules.map((rule) => priceKey(rule.areaId ?? "", rule.vehicleGroupId, rule.direction ?? "", rule.validFrom)));
     const creates = sellable
       .filter((cell) => cell.iata === product.iata)
       .map((cell): PriceRule => ({
@@ -302,7 +302,7 @@ export async function runPriceImport(
         validTo: null,
         status: "enabled",
       }))
-      .filter((rule) => !have.has(priceKey(rule.areaId, rule.vehicleGroupId, rule.direction ?? "", rule.validFrom)));
+      .filter((rule) => !have.has(priceKey(rule.areaId ?? "", rule.vehicleGroupId, rule.direction ?? "", rule.validFrom)));
     let version = existing.version;
     for (let start = 0; start < creates.length; start += PRICE_CHUNK) {
       const chunk = creates.slice(start, start + PRICE_CHUNK);

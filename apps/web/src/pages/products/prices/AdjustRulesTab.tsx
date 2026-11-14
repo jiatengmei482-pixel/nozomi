@@ -190,7 +190,7 @@ export function AdjustRulesTab({ shared, loadStatus }: { shared: PricesShared; l
         return setConfirm({
           kind: "unusual",
           rule,
-          label: [areaName(price.areaId), groupName(price.vehicleGroupId), variant].filter((part) => part !== null).join(" · "),
+          label: [price.areaId === null ? "整个商品" : areaName(price.areaId), groupName(price.vehicleGroupId), variant].filter((part) => part !== null).join(" · "),
           from: exactMoneyText(base, currency),
           to: exactMoneyText(after, currency),
           change: delta === null ? "" : `${compareExact(after, base) > 0 ? "上调" : "下调"}了约 ${moneyText(Math.abs(delta), currency)}`,

@@ -76,11 +76,32 @@ export async function findLiveBookingDraft(db: Db, id: string, now: Date): Promi
   return { id: row.id, draft, source, createdAt: row.created_at, expiresAt: row.expires_at };
 }
 
-/** 官网读草稿：只给预订条件和到期时刻，不给来源 */
-export async function readBookingDraftForSite(ctx: AppContext, id: string): Promise<{ draft: BookingDraft; expiresAt: Date }> {
-  const found = await withPlatformTx(ctx.pool, (db) => findLiveBookingDraft(db, id, ctx.now()), { snapshot: true });
-  if (found === null) throw bookingDraftNotFound();
-  return { draft: found.draft, expiresAt: found.expiresAt };
+/** 嵌入页读草稿时声明的这次嵌入（M9E-17，ADR 0095 第三节第 2 小节最后一条）：iframe 地址里的嵌入码和宿主 origin */
+export interface DraftEmbedClaim {
+  key: string | null;
+  host: string | null;
+}
+
+/**
+ * 官网读草稿：只给预订条件和到期时刻，不给来源。
+ * `claim`（嵌入页必传 key、host，主站不传）：再给一个布尔 `sourceMatches`——草稿上记的嵌入码、宿主 origin 和这次的完全一样才为 true。
+ * 不一致时嵌入页照常预填和报价，但询价不带 `draft_id`、来源按主站记（防止 A 网站建的草稿在 B 网站下单、来源记给 A）。
+ * 只回答「对不对得上」，嵌入码、来源本身仍然不返回（ADR 0090 第二节第 4 小节）。
+ */
+export async function readBookingDraftForSite(ctx: AppContext, id: string, claim: DraftEmbedClaim | null = null): Promise<{ draft: BookingDraft; expiresAt: Date; sourceMatches?: boolean }> {
+  const found = await withPlatformTx(
+    ctx.pool,
+    async (db) => {
+      const draft = await findLiveBookingDraft(db, id, ctx.now());
+      if (draft === null || claim === null) return { draft, sourceMatches: undefined };
+      if (draft.source === null || claim.key === null || claim.host === null || draft.source.embedOrigin !== claim.host) return { draft, sourceMatches: false };
+      const key = await db.query<{ key: string }>("select key from embed_keys where id = $1", [draft.source.embedKeyId]);
+      return { draft, sourceMatches: key.rows[0]?.key === claim.key };
+    },
+    { snapshot: true },
+  );
+  if (found.draft === null) throw bookingDraftNotFound();
+  return { draft: found.draft.draft, expiresAt: found.draft.expiresAt, ...(found.sourceMatches === undefined ? {} : { sourceMatches: found.sourceMatches }) };
 }
 
 // ---- 过期清理 ----

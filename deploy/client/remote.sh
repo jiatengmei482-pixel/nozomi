@@ -115,7 +115,7 @@ cmd_deploy() {
   require_ssh
   release_dir="$DEPLOY_BASE/$app_env/releases/$release"
   # 镜像仓库的令牌（如果有）不在这里出现：它在本脚本的标准输入里，由 ssh 原样接到服务器上 deploy.sh 的标准输入。
-  remote "APP_ENV=$(quoted "$app_env") API_IMAGE=$(quoted "$image") APP_DOMAIN=$(quoted "${APP_DOMAIN:-}") ACME_EMAIL=$(quoted "${ACME_EMAIL:-}") EDGE_MODE=$(quoted "${EDGE_MODE:-}") EDGE_LISTEN=$(quoted "${EDGE_LISTEN:-}") DEPLOY_SKIP_PULL=$(quoted "${DEPLOY_SKIP_PULL:-}") REGISTRY_HOST=$(quoted "${REGISTRY_HOST:-}") REGISTRY_USER=$(quoted "${REGISTRY_USER:-}") $(quoted "$release_dir/bin/deploy.sh") deploy"
+  remote "APP_ENV=$(quoted "$app_env") API_IMAGE=$(quoted "$image") APP_DOMAIN=$(quoted "${APP_DOMAIN:-}") ACME_EMAIL=$(quoted "${ACME_EMAIL:-}") EDGE_MODE=$(quoted "${EDGE_MODE:-}") EDGE_LISTEN=$(quoted "${EDGE_LISTEN:-}") DEPLOY_SKIP_PULL=$(quoted "${DEPLOY_SKIP_PULL:-}") REGISTRY_HOST=$(quoted "${REGISTRY_HOST:-}") REGISTRY_USER=$(quoted "${REGISTRY_USER:-}") CHARTER_THREE_LAYER_MIGRATION=$(quoted "${CHARTER_THREE_LAYER_MIGRATION:-}") $(quoted "$release_dir/bin/deploy.sh") deploy"
 }
 
 cmd_rollback() {
