@@ -1662,6 +1662,21 @@
           "acceptance": ["复现（监工 2026-11-14 M9P-03 验收时发现）：测试站，新宿 → 河口湖（停 2h）→ 新宿。自动询价（不带 package_hours）选 7h，官网下拉显示「自动（7 小时）」。官网下拉只列 8–12 小时，选不到 6h，所以「手动报 6h」是直接调接口发的：POST /site/v1/quotes，category: charter、itinerary_pricing: true、pickup / dropoff / waypoints 同上、package_hours: 6（服务层按 charterSelection: manual 处理）。应答里 auto_package_hours = 6，和自动询价的 7h 不同。验收时没有记下这个 6 出自哪个商品、哪个车型组：复现时先逐条记下应答里每个报价的中标商品（候选是东京包车、远郊包车两个已上架商品）、车型组（经济7座等）和各自的 auto_package_hours，再和自动询价的应答逐条对照", "查清原因：是不是手动询价时别的商品中标（auto_package_hours 取的是中标商品自己会选的档），还是选档逻辑在 manual 和 auto 下口径不一致；写进 PR", "按查清的原因定口径：auto_package_hours 应该是哪一个商品、哪一个车型的自动档，和官网下拉「自动（N 小时）」（M9P-04）一致；如需改代码，补单元 / 集成测试复现这一例", "/site/v1、/sales/v1 同口径；不改 golden（不带 charterSelection 的旧口径不受影响）"],
           "evidence": "",
           "updated": "2026-11-14"
+        },
+        {
+          "id": "M9P-16",
+          "title": "已下的包车单改期、救援按下单时锁定的加价，不按新规则重算（监工替业主确认 2026-11-14；ADR 0093 待确认第 8 条改口径）",
+          "role": "backend",
+          "status": "todo",
+          "acceptance": [
+            "现状（2026-11-14 查代码）：改期 apps/api/src/services/order-changes.ts 用快照的 request + 当前规则调 quoteProduct 整单重算（加价按当前引擎：M9P-01 经停不抵消、M9P-06 基础价区域优先都会作用到部署前的单）；救援 apps/api/src/services/rescues.ts 的 rescueCandidates 经 previewPlatformQuote 按当前规则重新比价，救援差价基准（M9P-01 救援 B）也按当前规则重算原订单的加价",
+            "改期、救援都用下单时锁定的加价（快照结算价明细 areaSurcharge 里的上车、下车、行程加价），不按新规则重算：M9P-01 / M9P-06 的改动不作用到已下的单；套餐价、加急、夜间等其余部分的口径另行说明并写进 ADR",
+            "ADR 0093 待业主确认第 8 条改为「监工替业主确认 2026-11-14：按下单时锁定」，第二节「已下的单改期、救援」同步改写（救援 B 基准是否还需要一并说明）",
+            "集成测试：部署前格式的订单在①∩③处上车、经停被上下车抵消的单，改期后加价不变；救援候选的差价按锁定的加价算",
+            "独立审查、合并、部署后测试站验收"
+          ],
+          "evidence": "",
+          "updated": "2026-11-14"
         }
       ]
     },
