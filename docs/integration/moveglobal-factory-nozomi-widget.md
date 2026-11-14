@@ -107,8 +107,8 @@ NOZOMI 模式完整示例（站点 73，站点语言 zh-CN；嵌入码为占位�
 | 项 | 写法 | 说明 |
 | --- | --- | --- |
 | 容器 | `<div id="nozomi-booking"></div>` | `root` 用选择器 `"#nozomi-booking"` 指向它；找不到容器时组件只在控制台报错、不渲染 |
-| 组件脚本 | `https://nozomi.moveglobal.io/embed/widget-v1.js`，带 `defer` | 必须从这个地址直接加载：组件从加载它的 `<script>` 认出主站地址，**不要下载转存、改名、合并打包**，否则组件拒绝渲染 |
-| 初始化时机 | `DOMContentLoaded` 里调 `NozomiBooking.init` | `defer` 脚本在 `DOMContentLoaded` 之前执行完，此时 `NozomiBooking` 一定已定义 |
+| 组件脚本 | `https://nozomi.moveglobal.io/embed/widget-v1.js`，带 `defer` | 必须从这个地址直接加载：组件只认路径为 `/embed/widget-v1.js` 的 `<script>` 元素，并把它的域名当作 NOZOMI 主站。**不要下载转存、改名、合并打包**。做错时有两种表现：① 改了文件名或合并进别的文件：组件不渲染，控制台报 `NozomiBooking：请直接从主站的 /embed/widget-v1.js 加载组件脚本（不要改名、转存或合并进别的文件）。`；② 转存到工厂站点自己的 `/embed/widget-v1.js`：组件把工厂站点当成主站，取配置失败，显示「暂时无法使用」，控制台报 `NozomiBooking：取不到组件配置。请确认本网站已加入嵌入码的白名单，嵌入码未停用。`（和白名单没加的表现一样，排查时先看脚本地址） |
+| 初始化时机 | `DOMContentLoaded` 里调 `NozomiBooking.init` | `defer` 脚本在 `DOMContentLoaded` 之前执行完，此时 `NozomiBooking` 一定已定义。站点如果用了 Astro 的站内软跳转（`<ClientRouter />`），见 3.5 |
 | `key` | 站点的 NOZOMI 嵌入码 | 必须转义后写入（见 3.3） |
 | `root` | `"#nozomi-booking"` | 固定 |
 | `lang` | 按站点语言映射：日语 → `"ja"`；中文简体或繁体（`zh`、`zh-CN`、`zh-TW`、`zh-HK`、`zh-Hans`、`zh-Hant` 等，即 `zh` 本身或以 `zh-`、`zh_` 开头；日语同理是 `ja`、`ja-JP` 等）→ `"zh"`；其他 → `"en"` | 组件只认 `zh` / `ja` / `en`；不认识的值会被忽略、改用 NOZOMI 后台给这个嵌入码设的默认语言，所以工厂一定要按表映射好再传 |
@@ -117,7 +117,7 @@ NOZOMI 模式完整示例（站点 73，站点语言 zh-CN；嵌入码为占位�
 
 `redirectUrl` 的规则（NOZOMI 服务端校验，`packages/domain/src/embed.ts` 的 `embedReturnUrl`）：
 
-- 只收 `https://`；不能带用户名密码；≤ 2,000 字符。
+- 只收 `https://`（NOZOMI 测试环境另外收 `http://localhost:<端口>`、`http://127.0.0.1:<端口>`，方便本机调试；正式环境不收。工厂站点都是 https 域名，不受影响）；不能带用户名密码；≤ 2,000 字符。
 - 它的 origin（协议 + 域名 + 端口）必须**完全等于**嵌入码白名单里的某一项，并且等于访客当时打开的页面的 origin。
 - 不合格时**不报错**，只是这张单的订单页不显示「返回原网站」。所以「站点域名」要用站点对外实际访问的那个域名（和白名单里登记的一致）；如果站点同时能用 `www.` 和不带 `www.` 访问，两个都要进白名单，否则从另一个域名进来的客人付款后没有返回链接。
 
@@ -132,12 +132,31 @@ function scriptLiteral(value: string): string {
     .replace(/</g, "\\u003c")
     .replace(/>/g, "\\u003e")
     .replace(/&/g, "\\u0026")
-    .replace(/ /g, "\\u2028")
-    .replace(/ /g, "\\u2029");
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
 }
 ```
 
 `redirectUrl` 由站点域名拼出来，也用同一个函数写入。`lang` 和 `services` 是固定值，直接写常量。
+
+**选了 NOZOMI 但嵌入码为空或格式不对时：让这个站点的构建直接失败**，报错写明站点和字段，不要静默按 GJ 输出、也不要输出一个坏掉的组件（`JSON.stringify(undefined)` 返回 `undefined`，接着 `.replace` 会抛一个看不出原因的 TypeError）。按嵌入码格式（第 2 节）在渲染前检查：
+
+```ts
+const NOZOMI_EMBED_KEY_FORMAT = /^nze_[A-Za-z0-9_-]{32}$/;
+
+function nozomiEmbedKeyOf(site: Site): string {
+  const key = typeof site.nozomiEmbedKey === "string" ? site.nozomiEmbedKey.trim() : "";
+  if (!NOZOMI_EMBED_KEY_FORMAT.test(key)) {
+    throw new Error(
+      `站点 ${site.id}（${site.domain}）：预订组件来源是 NOZOMI，但「NOZOMI 嵌入码」（nozomiEmbedKey）${key === "" ? "为空" : "格式不对"}。` +
+        "请在工厂后台「预订归属」填入 NOZOMI 运营后台「嵌入组件」详情页里的嵌入码，或把预订组件来源切回 Good Journey。",
+    );
+  }
+  return key;
+}
+```
+
+报错里不要带嵌入码的值本身（格式不对的值可能是误粘的别的东西）。如果你们是一次构建所有站点，最好让这个错误只让这一个站点发布失败、在后台发布结果里显示出来，不连累其他站点。
 
 ### 3.4 Astro 里的写法提示
 
@@ -151,7 +170,7 @@ const nozomiLang = /^ja(?:[-_]|$)/i.test(site.locale ?? "") ? "ja" : /^zh(?:[-_]
 const nozomiInit = provider === "nozomi"
   ? `
   window.addEventListener("DOMContentLoaded", function () {
-    NozomiBooking.init({ key: ${scriptLiteral(site.nozomiEmbedKey)}, root: "#nozomi-booking", lang: "${nozomiLang}", services: ["transfer","charter"], redirectUrl: ${scriptLiteral(`https://${site.domain}/`)} });
+    NozomiBooking.init({ key: ${scriptLiteral(nozomiEmbedKeyOf(site))}, root: "#nozomi-booking", lang: "${nozomiLang}", services: ["transfer","charter"], redirectUrl: ${scriptLiteral(`https://${site.domain}/`)} });
   });
 `
   : "";
@@ -163,14 +182,44 @@ const nozomiInit = provider === "nozomi"
     <script is:inline set:html={nozomiInit}></script>
   </>
 ) : (
-  <GjWidgetContainer />
+  <div id="gojo-widget-container"></div>
 )}
 ```
 
-`<GjWidgetContainer />` 只是示意：代表现在输出 `gojo-widget-container` 的那段代码，原样放进这个分支，一字不改。`<head>` 里 GJ 那两行同样包一层 `provider !== "nozomi"` 的条件，条件内部的代码一字不改。
+GJ 分支里的 `<div id="gojo-widget-container"></div>` 代表**你们模板里现在那段 GJ 容器的原文**：把原来的静态标记原封不动搬进这个分支，**保持静态写法**——不要改成字符串拼接、`set:html` 或别的生成方式，也不要顺手调整空白和属性。`<head>` 里 GJ 那两行同样只包一层 `provider !== "nozomi"` 的条件，条件内部一字不改。
+
+包进条件表达式后，Astro 输出的空白有可能和原来有细微差别，第 5 节的快照会抓到。若快照因此不一致：**优先保住 GJ 分支的原样静态写法**，只调整条件的包法（例如把条件写在原标记同一行，或把 NOZOMI 那段单独做成组件、条件只包住它），直到差异为零；**不要通过改 GJ 标记或更新快照来让测试通过**。
 
 - 映射正则让 `ja`、`ja-JP`、`ja_JP` 都算日语，`zh`、`zh-CN`、`zh-TW`、`zh-Hant`、`zh_CN` 都算中文，其余（含空值）算英语；按你们 `locale` 字段的实际取值核一遍，表驱动的单元测试见第 5 节。
 - 组件脚本地址 `https://nozomi.moveglobal.io` 建议做成工厂里的一个常量（不做成每站点设置）。它现在是 NOZOMI 的**测试环境**；以后接正式环境时由 NOZOMI 侧通知，换常量 + 各站点换正式环境的嵌入码。
+
+### 3.5 站内软跳转（`<ClientRouter />`，旧名 View Transitions）
+
+先在你们的代码里搜一下 `ClientRouter`、`ViewTransitions`。**没用的话这一节不用管。**
+
+用了的话：站内点链接跳到首页或 `/booking/` 时，浏览器不会重新加载页面，`DOMContentLoaded` 不会再触发，3.2 那段 init 不会执行，组件不出现。两种处理办法，二选一：
+
+1. **推荐：这两页不走软跳转。** 指向首页和 `/booking/` 的站内链接加 `data-astro-reload`（或对 NOZOMI 模式的站点整体不启用 `<ClientRouter />`）。3.2 那段代码保持不变，快照也不变。
+2. **改初始化脚本**，同时处理首次加载和软跳转（`astro:page-load` 在首次加载和每次软跳转后都会触发）：
+
+   ```html
+   <script>
+     (function () {
+       function start() {
+         var el = document.getElementById("nozomi-booking");
+         if (!el || !window.NozomiBooking || el.getAttribute("data-nozomi-init") === "1") return;
+         el.setAttribute("data-nozomi-init", "1");
+         NozomiBooking.init({ key: "nze_…", root: "#nozomi-booking", lang: "zh", services: ["transfer","charter"], redirectUrl: "https://embed-demo.moveglobal.io/" });
+       }
+       document.addEventListener("astro:page-load", start);
+       if (document.readyState === "loading") window.addEventListener("DOMContentLoaded", start); else start();
+     })();
+   </script>
+   ```
+
+   软跳转时组件脚本是否按顺序加载、内联脚本是否重新执行，和你们的 Astro 版本及配置有关，请在站点上实测（从别的页面软跳转到首页、`/booking/`，再从首页软跳转到 `/booking/`，组件都要出现且只出现一份）。NOZOMI 模式的快照按改后的代码更新。
+
+**重复调用 init 是否安全**（按 NOZOMI 组件代码 `apps/web/src/embed/widget-ui.ts` 核过）：对同一个容器再调一次 `init`，组件复用容器上已有的 Shadow DOM，重新取一次配置，渲染前先清掉上一次的内容，最后只显示一份表单；组件不在 `window` / `document` 上挂监听、不开定时器，旧实例不会留下后台任务。代价是每调一次多一个取配置请求，客人已经填了一半的内容会被清掉。所以重复调用不会出错，但仍建议像上面那样用 `data-nozomi-init` 防重。
 
 ## 4. `/booking/` 页
 
@@ -202,16 +251,18 @@ const nozomiInit = provider === "nozomi"
 2. **另加 NOZOMI 模式快照**：用一个测试用站点设置（`bookingWidgetProvider: "nozomi"`、嵌入码用格式合法的假值，例如 `nze_` 加 32 个 `A`，**不要用真实嵌入码**），断言：
    - 首页和 `/booking/` 都输出 3.2 那一整段，`redirectUrl` 都是首页；
    - 整个 HTML 里**没有** `initGJBookingForm`、`GJBookingWidget`、`widget.goodjourney.io`、`gojo-widget-container`；
-   - `nozomi-booking` 容器、`widget-v1.js`（带 `defer`）、`DOMContentLoaded` 各出现一次。
+   - `nozomi-booking` 容器、`widget-v1.js`（带 `defer`）各出现一次，`NozomiBooking.init` 出现一次；`DOMContentLoaded` 只在组件那段代码里数（站点主题等别处的脚本可能本来就有 `DOMContentLoaded`，按整页数会误报）。
 3. **小单元测试**（建议）：
    - 语言映射表：`ja`、`ja-JP` → `ja`；`zh`、`zh-CN`、`zh-TW`、`zh-Hant` → `zh`；`en`、`ko`、`th`、空值 → `en`；
    - `scriptLiteral`：输入含 `</script>`、`"`、`\`、U+2028 时，输出里没有 `<`、没有未转义的引号，`JSON.parse` 回来等于原值；
    - 后台校验：`nze_` + 32 位合法、31 / 33 位拒、前缀错拒、含 `+` `/` `=` 拒、首尾空格去掉后通过；
-   - `bookingWidgetProviderOf`：字段缺失、空串、未知值都返回 `goodjourney`。
+   - `bookingWidgetProviderOf`：字段缺失、空串、未知值都返回 `goodjourney`；
+   - 选了 NOZOMI 但嵌入码缺失、空串、只有空格、格式不对：构建（或渲染这个站点）失败，错误信息里有站点 ID / 域名和「NOZOMI 嵌入码」，不含嵌入码的值；同一批里的其他站点不受影响（如果按 3.3 做了按站点隔离）。
 
 ## 6. 前提（NOZOMI 侧先做，工厂侧上线前确认）
 
-1. **白名单**：站点域名必须先加进这个嵌入码在 NOZOMI 运营后台的域名白名单。只写**协议 + 域名**（如 `https://embed-demo.moveglobal.io`），**不带路径、查询**（结尾一个 `/` 可有可无，会被规范化掉）；只收 `https://`；不支持通配符，`www.` 和不带 `www.` 算两个不同的网站。站点 73 的嵌入码「MoveGlobal 演示站」白名单已是 `https://embed-demo.moveglobal.io`，默认语言 `ja`、默认标签区间 + 包车（工厂传了 `lang` 和 `services`，以工厂传的为准）。
+1. **白名单**：站点域名必须先加进这个嵌入码在 NOZOMI 运营后台的域名白名单。只写**协议 + 域名**（如 `https://embed-demo.moveglobal.io`），**不带路径、查询**（结尾一个 `/` 可有可无，会被规范化掉）；只收 `https://`（NOZOMI 测试环境另外收 `http://localhost:<端口>`、`http://127.0.0.1:<端口>`，用于本机调试，对工厂没有影响）；不支持通配符，`www.` 和不带 `www.` 算两个不同的网站。
+   站点 73：经 NOZOMI 侧确认，2026-11-14 已在 NOZOMI 测试环境运营后台建好嵌入码「MoveGlobal 演示站」，白名单 `https://embed-demo.moveglobal.io`，默认语言 `ja`，默认标签区间 + 包车。嵌入码的值由 NOZOMI 侧另行提供，不写在本文里。工厂传了 `lang` 和 `services` 时以工厂传的为准：站点 73 的语言是 zh-CN，按 3.2 的映射传 `lang: "zh"`，所以组件显示**中文**，不是后台默认的日文。
 2. **生效时间**：白名单改动、停用 / 启用嵌入码，NOZOMI 服务端立即生效；组件的配置应答在浏览器里缓存 60 秒，所以**最迟 60 秒**后所有访客都按新设置。
 3. **内容安全策略**：现在页面没有 CSP，不需要改。以后如果给站点加 CSP，`script-src` 和 `connect-src` 都要放行 `https://nozomi.moveglobal.io`（组件脚本从这里加载，组件也向这里请求配置、地址提示、建预订草稿）；初始化那段内联脚本也要被 `script-src` 允许（nonce 或 hash，按你们加 CSP 的方式）。组件的样式在 Shadow DOM 里，不加载任何第三方字体、图片。
 4. 组件不需要、也不会读写站点的 Cookie；请求一律不带凭据。
