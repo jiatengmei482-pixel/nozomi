@@ -128,7 +128,9 @@ test("嵌入组件：白名单网站上样式不受宿主页影响、320 px、ax
   await page.keyboard.type("東京駅");
   const toList = page.getByRole("listbox", { name: "目的地的候选" });
   await expect(toList.getByRole("option", { name: /東京駅/ }).first()).toBeVisible();
-  await expect(toList.getByText("Google Maps", { exact: true })).toBeVisible();
+  // 谷歌署名在候选列表外面、同一个弹出面板里（M9E-06）
+  await expect(toList.locator("xpath=..").getByText("Google Maps", { exact: true })).toBeVisible();
+  await expect(toList.getByText("Google Maps", { exact: true })).toHaveCount(0);
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Enter");
   await expect(toBox).toHaveValue(/東京駅/);
