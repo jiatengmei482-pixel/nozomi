@@ -53,11 +53,13 @@ test("查询前的检查：地点、经停点和停留、日期、时间", () =>
   assert.equal(STAY_OPTIONS.at(-1), 480);
 });
 
-test("建草稿失败的说法：400、429 两种、读不出的失败", () => {
+test("建草稿失败的说法：400、429 两种、被拒、读不出的失败", () => {
   assert.equal(draftFailureOf(400, "VALIDATION_FAILED"), "invalid");
   assert.equal(draftFailureOf(429, "RATE_LIMITED"), "too_fast");
   assert.equal(draftFailureOf(429, "EMBED_DRAFT_LIMIT"), "busy");
   assert.equal(draftFailureOf(413, "PAYLOAD_TOO_LARGE"), "unreachable");
+  for (const status of [401, 403, 404]) assert.equal(draftFailureOf(status, "EMBED_ORIGIN_NOT_ALLOWED"), "refused", `${status} 是被拒（M9E-22）`);
+  assert.equal(draftFailureOf(500, null), "unreachable");
   assert.equal(draftFailureOf(null, null), "unreachable", "网络错误、被拒的 403 读不出来");
 });
 
