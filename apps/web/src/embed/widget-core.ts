@@ -54,7 +54,7 @@ export interface WidgetForm {
 
 export type FormProblem = "pickup" | "dropoff" | "date" | "time" | `waypoint-${number}` | `stay-${number}`;
 
-/** 点「查询价格」前的检查（服务端会按同一套规则再查一次） */
+/** 点「查看价格」前的检查（服务端会按同一套规则再查一次） */
 export function formProblems(form: WidgetForm): FormProblem[] {
   const problems: FormProblem[] = [];
   const unnamed = (point: WidgetPoint | null): boolean => point === null || trimName(point.name) === "";
@@ -248,4 +248,24 @@ export function resolveTheme(given: unknown): ResolvedTheme {
     radius: Number.isFinite(radius) && radius >= 0 && radius <= RADIUS_MAX ? Math.round(radius) : null,
     fontFamily: typeof font === "string" && font.trim() !== "" && font.length <= 300 && !/[;{}<>\\]/.test(font) ? font.trim() : null,
   };
+}
+
+/**
+ * 日期、时间按组件自己的语言显示（M9E-10），不按访客浏览器的语言：zh 11月15日周日 / 09:05，ja 11月15日(日) / 09:05，en Sun, Nov 15 / 9:05 AM（不是今年的日期加年份）。
+ * 原生输入框只负责输入（键盘、读屏、手机的选择器都按系统的来）；写法不对（含 2 月 30 日这种不存在的日期）就原样显示。
+ */
+const LOCALES: Readonly<Record<WidgetLang, string>> = { zh: "zh-CN", ja: "ja-JP", en: "en-US" };
+export function formatDate(lang: WidgetLang, value: string, now: Date = new Date()): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return value;
+  const [year, month, day] = match.slice(1).map(Number) as [number, number, number];
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return value;
+  // 今年的日期不写年份（框里放得下星期）；跨年的写上年份
+  return new Intl.DateTimeFormat(LOCALES[lang], { ...(year === now.getFullYear() ? {} : { year: "numeric" }), month: "short", day: "numeric", weekday: "short" }).format(date);
+}
+export function formatTime(lang: WidgetLang, value: string): string {
+  const match = /^(\d{2}):(\d{2})$/.exec(value);
+  if (!match || Number(match[1]) > 23 || Number(match[2]) > 59) return value;
+  return new Intl.DateTimeFormat(LOCALES[lang], { hour: lang === "en" ? "numeric" : "2-digit", minute: "2-digit", hourCycle: lang === "en" ? "h12" : "h23" }).format(new Date(2000, 0, 1, Number(match[1]), Number(match[2])));
 }

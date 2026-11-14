@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { bookingDraftIssues } from "@nozomi/domain";
 import { WIDGET_CSS, themeCss } from "./widget-style.ts";
-import { BAR_MIN_WIDTH, GUEST_LIMITS, STAY_OPTIONS, TEXTS, type WidgetForm, contrastWithWhite, guestsSummary, hexOf, luminance, layoutFor, resolveLayout, resolveTheme, draftFailureOf,draftOf, formProblems, problemOfIssuePath, resolveLang, resolveServices, tomorrow, trimName } from "./widget-core.ts";
+import { BAR_MIN_WIDTH, GUEST_LIMITS, formatDate, formatTime, STAY_OPTIONS, TEXTS, type WidgetForm, contrastWithWhite, guestsSummary, hexOf, luminance, layoutFor, resolveLayout, resolveTheme, draftFailureOf,draftOf, formProblems, problemOfIssuePath, resolveLang, resolveServices, tomorrow, trimName } from "./widget-core.ts";
 
 const form = (changes: Partial<WidgetForm> = {}): WidgetForm => ({
   tab: "transfer",
@@ -130,6 +130,24 @@ test("M9E-10 主题变成 CSS 变量：themeCss 只写给了的项；默认值�
   assert.ok(ratio(value("--nzb-primary"), value("--nzb-light")) >= 4.5, "默认主色上的白字");
   assert.ok(ratio(value("--nzb-accent"), value("--nzb-dark")) >= 4.5, "默认点缀色上的深色字");
   assert.match(defaults, /--nzb-on-primary: var\(--nzb-light\); --nzb-ink: var\(--nzb-primary\); --nzb-accent: #[0-9a-f]{6}; --nzb-on-accent: var\(--nzb-dark\); --nzb-radius: 24px;/);
+});
+
+test("M9E-10 日期、时间按组件的语言格式化（不看访客浏览器）；写法不对或日期不存在就原样显示", () => {
+  const plain = (text: string): string => text.replace(/\s/g, " ");
+  const now = new Date(2026, 10, 14, 12, 0);
+  assert.equal(formatDate("zh", "2026-11-15", now), "11月15日周日", "今年的不写年份");
+  assert.equal(formatDate("ja", "2026-11-15", now), "11月15日(日)");
+  assert.equal(formatDate("en", "2026-11-15", now), "Sun, Nov 15");
+  assert.equal(formatDate("zh", "2027-01-02", now), "2027年1月2日周六", "跨年的写上年份");
+  assert.equal(formatDate("ja", "2027-01-02", now), "2027年1月2日(土)");
+  assert.equal(formatDate("en", "2027-01-02", now), "Sat, Jan 2, 2027");
+  assert.equal(formatTime("zh", "09:05"), "09:05");
+  assert.equal(formatTime("ja", "23:30"), "23:30");
+  assert.equal(plain(formatTime("en", "09:05")), "9:05 AM");
+  assert.equal(plain(formatTime("en", "23:30")), "11:30 PM");
+  assert.equal(formatDate("ja", "2027-02-30"), "2027-02-30");
+  assert.equal(formatDate("en", ""), "");
+  assert.equal(formatTime("zh", "25:00"), "25:00");
 });
 
 test("M9E-10 人数行李的摘要（长、短两种，三种语言）和加减范围", () => {

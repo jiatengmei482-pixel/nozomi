@@ -1,7 +1,7 @@
 /**
  * 嵌入组件（M9E-03，ADR 0090 第四节）在浏览器环境（happy-dom）里的行为：界面在 Shadow DOM 里；取配置失败只显示「暂时无法使用」；
  * 两个标签；地址提示经 `/embed/v1/places`、带嵌入码、不带 Cookie，谷歌候选有「Powered by Google」；
- * 点「查询价格」先建草稿再跳转；400 / 429 / 网络错误各一句、不跳转。接口用替身（不连主站）。
+ * 点「查看价格」先建草稿再跳转；400 / 429 / 网络错误各一句、不跳转。接口用替身（不连主站）。
  */
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
@@ -9,6 +9,7 @@ import { LOCATE_TIMEOUT, initFrom, initWithBase, scriptOriginOf } from "./widget
 import { GOOGLE_MAPS_ATTRIBUTION, GOOGLE_MAPS_ATTRIBUTION_ATTRIBUTES } from "../lib/google-attribution.ts";
 import { readFile } from "node:fs/promises";
 import { WIDGET_CSS } from "./widget-style.ts";
+import { luminance } from "./widget-core.ts";
 
 const BASE = "https://nozomi.example";
 const KEY = `nze_${"A".repeat(32)}`;
@@ -80,7 +81,7 @@ test("界面在 Shadow DOM 里，合作网站的样式进不来；两个标签�
   assert.ok(shadow().textContent?.includes("Enter a place only"));
 });
 
-test("区间：地址提示经主站（带嵌入码和会话令牌、不带 Cookie），谷歌候选有标识；查询价格先建草稿再跳转", async () => {
+test("区间：地址提示经主站（带嵌入码和会话令牌、不带 Cookie），谷歌候选有标识；查看价格先建草稿再跳转", async () => {
   let drafted: unknown = null;
   handler = (url, init) => {
     if (url.pathname === "/embed/v1/booking-drafts") {
@@ -232,6 +233,57 @@ test("建草稿 400：标出服务端说的那一项并把焦点移过去；删�
   assert.equal(shadow().activeElement, $('[data-action="add-waypoint"]'), "删除后焦点回到「添加经停点」");
 });
 
+test("建草稿 400 标出的那一项：客人改了就去掉 aria-invalid（输入框、下拉都算）；再提交时以服务端新的结论为准（M9E-07）", async () => {
+  let issue = "/draft/waypoints/0/stay_minutes";
+  handler = (url, init) => {
+    if (url.pathname === "/embed/v1/booking-drafts") return { status: 400, body: { error: { code: "VALIDATION_FAILED", details: { location: "body", issues: [{ path: issue, reason: "OUT_OF_RANGE" }] } } } };
+    return places(url, init);
+  };
+  await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh", services: ["charter"] }, () => undefined);
+  await pick("pickup", "成田", "成田国際空港");
+  ($('[data-action="add-waypoint"]') as HTMLButtonElement).click();
+  await pick("waypoint-0", "東京", "東京駅");
+  await pick("dropoff", "東京", "東京駅");
+  const stay = $<HTMLSelectElement>('[data-focus="stay-0"]');
+  stay.value = "60";
+  stay.dispatchEvent(new Event("change"));
+  const submit = async (): Promise<void> => {
+    $<HTMLFormElement>("form").dispatchEvent(new Event("submit", { cancelable: true }));
+    await wait(30);
+  };
+  await submit();
+  assert.equal(stay.getAttribute("aria-invalid"), "true");
+  assert.equal(shadow().activeElement, stay);
+  // 下拉：改了停留时长（浏览器里的 change 会冒泡）就去掉
+  stay.value = "90";
+  stay.dispatchEvent(new Event("change", { bubbles: true }));
+  assert.equal(stay.hasAttribute("aria-invalid"), false, "改了停留时长就不再标出错");
+  assert.equal(shadow().querySelectorAll("[aria-invalid]").length, 0);
+
+  // 地址框：重新打字就去掉；没动的项不受影响
+  issue = "/draft/dropoff/name";
+  await submit();
+  const dropoff = $<HTMLInputElement>('[data-field="dropoff"] input');
+  assert.equal(dropoff.getAttribute("aria-invalid"), "true");
+  const pickup = $<HTMLInputElement>('[data-field="pickup"] input');
+  pickup.dispatchEvent(new Event("input", { bubbles: true }));
+  assert.equal(dropoff.getAttribute("aria-invalid"), "true", "改的是别的项，出错的那一项照旧标着");
+  dropoff.value = "東京駅 ";
+  dropoff.dispatchEvent(new Event("input", { bubbles: true }));
+  assert.equal(dropoff.hasAttribute("aria-invalid"), false, "改了地址就不再标出错");
+
+  // 再提交：上一次标的那一项不留，只标这次服务端说的那一项
+  await pick("pickup", "成田", "成田国際空港");
+  await pick("dropoff", "東京", "東京駅");
+  await submit();
+  assert.equal(dropoff.getAttribute("aria-invalid"), "true");
+  issue = "/draft/pickup/name";
+  await submit();
+  assert.equal(dropoff.hasAttribute("aria-invalid"), false, "上一次标的那一项去掉了");
+  assert.equal(pickup.getAttribute("aria-invalid"), "true");
+  assert.deepEqual([...shadow().querySelectorAll("[aria-invalid]")], [pickup]);
+});
+
 
 test("谷歌署名的样式（M9E-06 审查）：和主站同一个灰色（tokens.css 亮色 --color-text-secondary），12px、字重 400、不折行、不改大小写；固定在面板底部（滚动的是候选列表）", async () => {
   const tokens = await readFile(new URL("../../../../docs/design/tokens.css", import.meta.url), "utf8");
@@ -288,7 +340,7 @@ async function type(field: string, query: string): Promise<void> {
 const clickOption = (field: string): void => ($(`[data-field="${field}"] [role="option"]`) as HTMLElement).click();
 const submitForm = (): void => void $<HTMLFormElement>("form").dispatchEvent(new Event("submit", { cancelable: true }));
 
-test("M9E-08 ①：点了谷歌候选马上点「查询价格」——按钮显示「正在取位置…」、重复点不重复提交，坐标回来后自动接着建草稿，不提示「请从候选里选」", async () => {
+test("M9E-08 ①：点了谷歌候选马上点「查看价格」——按钮显示「正在取位置…」、重复点不重复提交，坐标回来后自动接着建草稿，不提示「请从候选里选」", async () => {
   const slow = slowDetails();
   handler = slow.handler;
   const went: string[] = [];
@@ -650,4 +702,48 @@ test("M9E-10 日期、时间合成一个控件：两个原生输入框各有 lab
   assert.deepEqual(inputs.map((input) => input.type), ["date", "time"]);
   for (const [input, text] of [[inputs[0], "Date"], [inputs[1], "Time"]] as const) assert.equal(shadow().querySelector(`label[for="${input?.id}"]`)?.textContent, text);
   assert.equal($(".nzb-when .nzb-label").textContent, "Pickup date & time");
+});
+
+test("M9E-10 日期、时间按组件的语言显示（不按访客浏览器的语言）；改了跟着变，草稿里仍是 YYYY-MM-DD / HH:MM", async () => {
+  let drafted: { draft: Record<string, unknown> } | null = null;
+  handler = (url, init) => {
+    if (url.pathname === "/embed/v1/booking-drafts") {
+      drafted = JSON.parse(String(init?.body));
+      return { status: 201, body: { id: "D".repeat(43), expires_at: "x", url: "x" } };
+    }
+    return places(url, init);
+  };
+  await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "ja" }, () => undefined);
+  const shown = (): string[] => [...shadow().querySelectorAll(".nzb-shown")].map((node) => (node.textContent ?? "").replace(/\s/g, " "));
+  const date = $<HTMLInputElement>('[data-focus="date"]');
+  const time = $<HTMLInputElement>('[data-focus="time"]');
+  const year = new Date().getFullYear() + 1;
+  date.value = `${year}-12-24`;
+  date.dispatchEvent(new Event("input", { bubbles: true }));
+  time.value = "18:30";
+  time.dispatchEvent(new Event("input", { bubbles: true }));
+  const weekday = (lang: string): string => new Intl.DateTimeFormat(lang, { weekday: "short" }).format(new Date(year, 11, 24));
+  assert.deepEqual(shown(), [`${year}年12月24日(${weekday("ja-JP")})`, "18:30"]);
+  assert.ok(shadow().querySelectorAll(".nzb-shown[aria-hidden=\"true\"]").length === 2, "显示的文字不给读屏（读屏读输入框本身）");
+  await pick("pickup", "成田", "成田国際空港");
+  await pick("dropoff", "成田", "成田国際空港");
+  submitForm();
+  await wait(30);
+  assert.equal((drafted as { draft: Record<string, unknown> } | null)?.draft["service_local"], `${year}-12-24T18:30`);
+  document.body.innerHTML = '<div id="nozomi-booking"></div>';
+  await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "en" });
+  $<HTMLInputElement>('[data-focus="date"]').value = `${year}-12-24`;
+  $<HTMLInputElement>('[data-focus="date"]').dispatchEvent(new Event("input", { bubbles: true }));
+  assert.equal(shown()[0], `${weekday("en-US")}, Dec 24, ${year}`);
+});
+
+test("M9E-10 横条的格子：浅灰底加一条细边框，边框和白色长条、和格子底色都够 3:1（WCAG 1.4.11）", () => {
+  const rule = /\.nzb-shell\[data-layout="bar"\] \.nzb-form > \.nzb-field \{([^}]*)\}/.exec(WIDGET_CSS)?.[1] ?? "";
+  const border = /border: 1px solid (#[0-9a-f]{6})/.exec(rule)?.[1]?.toUpperCase() ?? "";
+  const fill = /background: (#[0-9a-f]{6})/.exec(rule)?.[1]?.toUpperCase() ?? "";
+  const strip = /\.nzb-shell\[data-layout="bar"\] \.nzb-form \{[^}]*background: (#[0-9a-f]{6})/.exec(WIDGET_CSS)?.[1]?.toUpperCase() ?? "";
+  assert.ok(border !== "" && fill !== "" && strip === "#FFFFFF", rule);
+  const ratio = (a: string, b: string): number => (Math.max(luminance(a), luminance(b)) + 0.05) / (Math.min(luminance(a), luminance(b)) + 0.05);
+  assert.ok(ratio(border, strip) >= 3, `边框 ${border} 对白色长条 ${ratio(border, strip).toFixed(2)}:1`);
+  assert.ok(ratio(border, fill) >= 3, `边框 ${border} 对格子底色 ${fill} ${ratio(border, fill).toFixed(2)}:1`);
 });

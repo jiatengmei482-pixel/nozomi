@@ -7,7 +7,7 @@
  *
  * - 只调 `/embed/v1`（配置、地址提示、建草稿），一律 `credentials: "omit"`；不询价、不下单、不显示价格。
  * - 界面画在 Shadow DOM 里，和合作网站的样式互不影响；不加载任何第三方资源。
- * - 点「查询价格」先建预订草稿，成功后整页跳到主站 `/book/new?draft=<编号>`；失败在组件里提示、不跳转。
+ * - 点「查看价格」先建预订草稿，成功后整页跳到主站 `/book/new?draft=<编号>`；失败在组件里提示、不跳转。
  * - 取配置失败（未授权和连不上在浏览器里分不出）：只显示「暂时无法使用」和主站链接。
  */
 import {
@@ -29,6 +29,8 @@ import {
   draftFailureOf,
   draftOf,
   formProblems,
+  formatDate,
+  formatTime,
   guestsSummary,
   resolveLang,
   resolveServices,
@@ -85,7 +87,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string,
   return node;
 }
 
-/** 取位置最多等这么久（M9E-08 审查）：一直不回就按「取不到这个地点的位置」处理，不让「查询价格」一直停在「正在取位置…」；测试里调短 */
+/** 取位置最多等这么久（M9E-08 审查）：一直不回就按「取不到这个地点的位置」处理，不让「查看价格」一直停在「正在取位置…」；测试里调短 */
 export const LOCATE_TIMEOUT = { ms: 10_000 };
 
 /** 超时用 AbortController + setTimeout（和 api/client.ts 的 send 一样）：Safari 15 / iOS 15 等老浏览器没有 AbortSignal.timeout（#220 复审） */
@@ -123,7 +125,7 @@ class Widget {
   private readonly locating = new Map<unknown, Locating>();
   /** 取坐标失败的地址框：提示「取不到这个地点的位置，请重新选一个」 */
   private readonly lostPlaces = new Set<unknown>();
-  /** 点了「查询价格」、在等取坐标（按钮显示「正在取位置…」） */
+  /** 点了「查看价格」、在等取坐标（按钮显示「正在取位置…」） */
   private waiting = false;
   /** 提交在等取坐标时：正在取坐标的记录一有变化（取完、被换掉 / 删掉、切标签、删经停点）就叫醒它重新看 */
   private wake: (() => void) | null = null;
@@ -324,8 +326,13 @@ class Widget {
       event.preventDefault();
       void this.submit(message);
     });
-    formEl.addEventListener("input", () => this.markReady());
-    formEl.addEventListener("change", () => this.markReady());
+    // 客人改了被标出错的那一项，就去掉标记（M9E-07）：读屏不再把改好的那项读成「无效」；同时更新横条按钮的「填好了」状态（M9E-10）
+    const clearInvalid = (event: Event): void => {
+      (event.target as Element).removeAttribute("aria-invalid");
+      this.markReady();
+    };
+    formEl.addEventListener("input", clearInvalid);
+    formEl.addEventListener("change", clearInvalid);
     this.shadow.append(this.frame({ lang: this.lang === "zh" ? "zh-CN" : this.lang, "data-view": "form" }, [...head, formEl]));
     this.markReady();
     if (focus !== undefined) (this.shadow.querySelector(`[data-focus="${focus}"]`) as HTMLElement | null ?? this.shadow.querySelector(`[data-tab="${focus.replace("tab-", "")}"]`) as HTMLElement | null)?.focus();
@@ -343,19 +350,25 @@ class Widget {
 
   /**
    * 日期和时间合成一个控件（M9E-10）：外面一个框、一个小标题，里面是原生的日期、时间输入框（键盘、读屏、手机都按系统的来），
-   * 去掉系统默认的外观；两个输入框各有自己的 label（不显示）。
+   * 显示的文字按组件的语言格式化（formatDate / formatTime），不按访客浏览器的语言；两个输入框各有自己的 label（不显示）。
    */
   private when(): HTMLElement {
     const t = this.t;
-    const part = (label: string, name: "date" | "time"): HTMLElement[] => {
+    // 原生输入框叠在显示的文字上、完全透明：点哪里都打开系统的选择器，键盘、读屏、手机照常；看到的是按组件语言格式化的文字
+    const part = (label: string, name: "date" | "time"): HTMLElement => {
       const id = nextId(name);
-      const input = el("input", { id, type: name, name, value: this.form[name], class: `nzb-bare nzb-${name}`, "data-focus": name });
-      input.addEventListener("input", () => (this.form[name] = input.value));
-      return [el("label", { for: id, class: "nzb-visually-hidden" }, [label]), input];
+      const format = (value: string): string => (name === "date" ? formatDate : formatTime)(this.lang, value);
+      const shown = el("span", { class: "nzb-shown", "aria-hidden": "true" }, [format(this.form[name])]);
+      const input = el("input", { id, type: name, name, value: this.form[name], class: "nzb-bare", "data-focus": name });
+      input.addEventListener("input", () => {
+        this.form[name] = input.value;
+        shown.textContent = format(input.value);
+      });
+      return el("span", { class: `nzb-part nzb-${name}` }, [el("label", { for: id, class: "nzb-visually-hidden" }, [label]), shown, input]);
     };
     return el("div", { class: "nzb-field nzb-when" }, [
       el("span", { class: "nzb-label", "aria-hidden": "true" }, [t.when]),
-      el("div", { class: "nzb-box nzb-when-box" }, [icon("calendar"), ...part(t.date, "date"), el("span", { class: "nzb-sep", "aria-hidden": "true" }), ...part(t.time, "time")]),
+      el("div", { class: "nzb-box nzb-when-box" }, [icon("calendar"), part(t.date, "date"), el("span", { class: "nzb-sep", "aria-hidden": "true" }), part(t.time, "time")]),
     ]);
   }
 
@@ -471,7 +484,7 @@ class Widget {
       panel.hidden = true;
       input.setAttribute("aria-expanded", "false");
     };
-    // 谷歌候选没有坐标，选中后再取（M9E-08）：取的期间点「查询价格」会先等它；期间客人又打字或选了别的，旧的坐标回来不写回
+    // 谷歌候选没有坐标，选中后再取（M9E-08）：取的期间点「查看价格」会先等它；期间客人又打字或选了别的，旧的坐标回来不写回
     const choose = (item: Suggestion): void => {
       close();
       input.value = item.name;
@@ -585,6 +598,8 @@ class Widget {
     }
     this.busy = true;
     message.textContent = "";
+    // 上一次 400 标的那一项：这次以服务端新的结论为准
+    for (const marked of this.shadow.querySelectorAll("[aria-invalid]")) marked.removeAttribute("aria-invalid");
     const submit = this.shadow.querySelector(".nzb-primary");
     if (submit !== null) {
       this.submitLabel(t.submitting);
