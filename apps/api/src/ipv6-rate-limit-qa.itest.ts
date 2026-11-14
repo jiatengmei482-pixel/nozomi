@@ -114,8 +114,11 @@ test("ADR「窗口最长 15 分钟」属实：按来源地址的额度窗口都�
   // 官网地址搜索每个地址每天的额度（M3-12，ADR 0044）窗口是 24 小时，但它和 /64 的限流键同时上线（合并在 M4-11 之后），
   // 从来没有按旧算法写过计数，ADR 0045 说的「上线时 IPv6 计数从零开始」对它不适用
   // 官网路线小地图每个地址每天的额度（M8-10，ADR 0072）同理：生来就按 /64 计；人工报价申请每个地址每天的额度（M8-21，ADR 0076）也是
-  const bornWithSlash64 = ["site_places_day", "site_route_map_day", "site_manual_quote_day"];
-  assert.equal(SALES_RATE_LIMITS.site_places_day.windowMs, 24 * 3_600_000);
+  // M8-45 把地址搜索的日额度换成只计真调谷歌的 `site_places_google_day`（新名字，生来就按 /64 计，旧的 `site_places_day` 已删）
+  const bornWithSlash64 = ["site_places_google_day", "site_route_map_day", "site_manual_quote_day"];
+  assert.equal(SALES_RATE_LIMITS.site_places_google_day.windowMs, 24 * 3_600_000);
+  assert.equal(SALES_RATE_LIMITS.site_places_google_day.max, 300);
+  assert.equal("site_places_day" in SALES_RATE_LIMITS, false, "旧的日额度名字已删：部署后计数从零开始");
   assert.equal(SALES_RATE_LIMITS.site_route_map_day.windowMs, 24 * 3_600_000);
   assert.equal(SALES_RATE_LIMITS.site_manual_quote_day.windowMs, 24 * 3_600_000);
   // 嵌入组件按嵌入码的两层（M9E-02，ADR 0090）不按地址；人工报价申请按联系方式、全站的两层（M8-21）不按地址；测试环境验收通道的全站一层（M8-26，ADR 0078）也不按地址；只读核对的回放（M8-34，ADR 0086）按员工计
