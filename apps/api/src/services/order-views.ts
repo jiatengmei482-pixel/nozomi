@@ -84,8 +84,22 @@ export function settlementJson(order: Order): Json {
     // 点对点（M8-11，ADR 0073 第二部分）：用的是线路价时的下车区域；含公里数的一口价在这一单上的情况（结算价）。没有的为 null
     to_area_id: s.toAreaId ?? null,
     distance: distanceMoneyJson(s, order.settlementCurrency),
-    // 包车按行程计价（M9W-01，ADR 0088 补充）：全程、套餐含量、超公里 / 超时的量和钱（结算价）；没按行程计价的单没有这一项
-    ...(s.itinerary === undefined ? {} : { itinerary: { ...itineraryAmountsJson(s.itinerary), over_km_fee: money(s.itinerary.overKmMinor), overtime_fee: money(s.itinerary.overtimeMinor), over_km_per_km: money(s.itinerary.overKmPerKmMinor), overtime_per_hour: money(s.itinerary.overtimePerHourMinor) } }),
+    // 包车按行程计价（M9W-01，ADR 0088 补充）：全程、套餐含量、超公里 / 超时的量和钱（结算价）；没按行程计价的单没有这一项。
+    // `overtime_at_booking`（ADR 0091 第三节第 3 小节）：超时费下单时预收了没有——M9P-03 起的单 false（超出的分钟只是预计，服务后按实际提交），之前的单 true；
+    // `estimated_minutes`：含经停点默认占用和整单缓冲的预计用时（只在下单时这两项不为 0 时有）。只在结算价这里给，司机、渠道看到的用量里没有
+    ...(s.itinerary === undefined
+      ? {}
+      : {
+          itinerary: {
+            ...itineraryAmountsJson(s.itinerary),
+            over_km_fee: money(s.itinerary.overKmMinor),
+            overtime_fee: money(s.itinerary.overtimeMinor),
+            over_km_per_km: money(s.itinerary.overKmPerKmMinor),
+            overtime_per_hour: money(s.itinerary.overtimePerHourMinor),
+            overtime_at_booking: s.itinerary.overtimeAtBooking !== false,
+            ...(s.itinerary.estimatedMinutes === undefined ? {} : { estimated_minutes: s.itinerary.estimatedMinutes }),
+          },
+        }),
   };
 }
 

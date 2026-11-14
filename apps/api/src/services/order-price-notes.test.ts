@@ -14,10 +14,17 @@ const sell: SellPrice = { currency: "JPY", sellMinor: 91_300, markupBp: 1_000, f
 const snapshotOf = (settlement: SettlementBreakdown, winnerSell: SellPrice = sell): Pick<QuoteSnapshot, "winner"> =>
   ({ winner: { tenantId: "t", productId: "p", productVersion: 1, offer: { settlement } as QuoteSnapshot["winner"]["offer"], sell: winnerSell } });
 
-test("包车按行程计价：按快照拆出套餐、经停加价、超公里、超时，各项之和等于订单对外价", () => {
+test("包车按行程计价：按快照拆出套餐、经停加价、超公里，各项之和等于订单对外价；超时费是 0 的不列（M9P-03，ADR 0091 第三节第 2 小节；官网订单页本来就不显示 0 的超时）", () => {
   const items = orderSellBreakdown(snapshotOf(settlementOf({})), { currency: "JPY", sellMinor: 91_300 });
-  assert.deepEqual(items?.map((item) => [item.kind, item.areaId, item.amountMinor]), [["base", null, 60_500], ["waypoint", "fuji", 11_000], ["over_km", null, 19_800], ["overtime", null, 0]]);
+  assert.deepEqual(items?.map((item) => [item.kind, item.areaId, item.amountMinor]), [["base", null, 60_500], ["waypoint", "fuji", 11_000], ["over_km", null, 19_800]]);
   assert.equal(items?.reduce((sum, item) => sum + item.amountMinor, 0), 91_300);
+});
+
+test("部署前预收了超时费的旧单：订单页明细照旧有超时费一行，base 不把它吞进去（M9P-03，ADR 0091 第三节第 2 小节）", () => {
+  const prepaid = settlementOf({ totalMinor: 90_500, baseMinor: 90_500, itinerary: { ...itinerary, routeMinutes: 690, overtimeMinutes: 90, overtimeMinor: 7_500 } });
+  const items = orderSellBreakdown(snapshotOf(prepaid, { ...sell, sellMinor: 99_550, exact: "99550" }), { currency: "JPY", sellMinor: 99_550 });
+  assert.deepEqual(items?.map((item) => [item.kind, item.areaId, item.amountMinor]), [["base", null, 60_500], ["waypoint", "fuji", 11_000], ["over_km", null, 19_800], ["overtime", null, 8_250]]);
+  assert.equal(items?.reduce((sum, item) => sum + item.amountMinor, 0), 99_550);
 });
 
 test("不给的情况：没有快照、没按行程计价（旧单）、订单对外价或币种和快照不一样（改期重算过）、倒算的套餐价是负数", () => {

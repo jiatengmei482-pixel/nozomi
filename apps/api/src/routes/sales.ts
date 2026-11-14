@@ -232,11 +232,15 @@ export function registerSalesRoutes(app: FastifyInstance, ctx: AppContext): void
         driverLanguage: input.driver_language,
         vehicleGroupIds: input.vehicle_group_ids,
         currency: input.currency,
+        // 包车：渠道选的时长就是客人选的档（ADR 0093 第四节）——低于商品的最低套餐不报（ADR 0091 待确认第 3 条推荐「拦」），不收超时费，比价严格取最低
+        ...(input.category === "charter" ? { charterSelection: "manual" as const } : {}),
       },
       // 一个价都报不出时另记「未覆盖需求」（ADR 0075）：限流按 API 客户端，渠道接口没有地点名称
-      { log: request.log, request: { ...input, service_time: input.service_time.toISOString() }, demand: { channelKind: "sales", sourceKey: principal.apiClientId, pickupName: null, dropoffName: null, log: request.log } },
+      // 询价日志记 charter_selection（回放据此重现选档，ADR 0093 第四节）
+      { log: request.log, request: { ...input, service_time: input.service_time.toISOString(), ...(input.category === "charter" ? { charter_selection: "manual" } : {}) }, demand: { channelKind: "sales", sourceKey: principal.apiClientId, pickupName: null, dropoffName: null, log: request.log } },
     );
-    return { quotes: result.quotes.map(quoteJson), unavailable: result.unavailable.map((entry) => ({ vehicle_group_id: entry.vehicleGroupId, reasons: entry.reasons })) };
+    // `min_package_hours`：原因里有 PACKAGE_TOO_SHORT 时才给（ADR 0093 第四节第 7 条）
+    return { quotes: result.quotes.map(quoteJson), unavailable: result.unavailable.map((entry) => ({ vehicle_group_id: entry.vehicleGroupId, reasons: entry.reasons, ...(entry.minPackageHours === undefined ? {} : { min_package_hours: entry.minPackageHours }) })) };
   });
 
   app.post("/sales/v1/orders", async (request, reply) => {

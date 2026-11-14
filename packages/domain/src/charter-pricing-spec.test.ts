@@ -199,7 +199,8 @@ test("对外价明细：下车点行程加价是一项 waypoint，带 fromDropof
 });
 
 test("服务规则：下车点行程加价默认开、不存键；关掉才存；只有包车能设", () => {
-  assert.deepEqual(DEFAULT_CHARTER_ITINERARY, { dropoffItinerarySurcharge: true });
+  // M9P-03 加了预计用时 T 的三项和在线下单上限（默认 0 / 0 / 不限 / 13 小时，见 charter-package-selection.test.ts）
+  assert.deepEqual(DEFAULT_CHARTER_ITINERARY, { dropoffItinerarySurcharge: true, stopOccupancyMinutes: 0, bufferMinutes: 0, minPackageHours: null, maxOnlineMinutes: 780 });
   assert.equal(charterItineraryOf(emptyServiceRules()).dropoffItinerarySurcharge, true);
   const allow = (): boolean => true;
   assert.equal("charterItinerary" in normalizeServiceRules({ ...emptyServiceRules(), charterItinerary: { dropoffItinerarySurcharge: true } }, allow), false, "默认值不存");

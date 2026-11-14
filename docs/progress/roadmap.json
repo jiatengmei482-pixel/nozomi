@@ -1355,7 +1355,7 @@
           "title": "嵌在宿主页·第一期：init 加 bookingUrl（跳宿主页 ?nzdraft=）、mountBooking 骨架（iframe、超时后备、postMessage 核对、自动高度）、/embed/v1/frame-check + Caddy forward_auth 按嵌入码生成 frame-ancestors（ADR 0095 第三、五、六节）",
           "role": "frontend",
           "status": "blocked",
-          "blockedBy": "等 ADR 0095 采纳（业主 / 监工答复第十二节 Q1–Q15）；M9E-12、M9E-14（layout:auto，占迁移 0430）合并",
+          "blockedBy": "M9E-12、M9E-14（layout:auto，占迁移 0430）合并",
           "acceptance": [
             "不传 bookingUrl 时组件行为逐字不变（现有组件测试、site-embed-widget.spec.ts 原样通过）；传了合格的跳 bookingUrl?nzdraft=<草稿号>，不合格（不同 origin、非 https 等）按没传处理并在控制台报一句",
             "/embed/book 只能被白名单里、本次声明的那一个宿主嵌入：非白名单、伪造 host、停用嵌入码、嵌套两层都被拒；其余页面仍 frame-ancestors 'none' + X-Frame-Options: DENY（security.spec.ts、deploy-web-csp-paths.qa.test.ts 在真实 caddy:2 上核对；伪造 X-Nozomi-Frame-Ancestor 请求头无效）",
@@ -1375,27 +1375,30 @@
           "title": "嵌在宿主页·第二期：/embed/book 复用 /book/new 四步（BookingShell 上下文、EmbedLayout、无 Leaflet）、iframe 内订单页（不含付款）、step / completed / error 事件、刷新续接（ADR 0095 第四、八、九节）",
           "role": "frontend",
           "status": "blocked",
-          "blockedBy": "等 ADR 0095 采纳（业主 / 监工答复第十二节 Q1–Q15）",
+          "blockedBy": "M9E-16 合并",
           "acceptance": [
             "主站 /book/new、订单页的组件测试和 site-booking*.spec.ts、site-payment*.spec.ts 一条不改、全部通过；新增主站模式询价 / 下单请求体与重构前逐字相同",
             "嵌入页询价带 draft_id，下单后平台订单详情来源为嵌入组件（宿主页内）",
             "嵌入页不加载 Leaflet（静态图失败只显示时长和公里数）、不提供地图选点；地点候选下方有「Google Maps」",
             "直接在地址栏打开 /embed/book 不显示预订流程，只给主站链接",
             "嵌入页文档只挂 /embed/book* 路由树：navigate 到 /login、/platform 等只显示「请在新窗口打开」；每一步地址都保留 key、host；草稿上的嵌入码、宿主和本次 key、host 不一致时来源按主站记",
-            "390 宽不横向滚动、axe 无严重问题、键盘能走完；iframe 有 title"
+            "390 宽不横向滚动、axe 无严重问题、键盘能走完；iframe 有 title",
+            "嵌入页样式只引用组件的 --nzb-* 变量（命名和默认值同 widget-style.ts），传给 Stripe appearance 的取值也从 --nzb-* 读（Q15）",
+            "路线图：首期和主站一样显示谷歌静态路线图，静态图失败时只显示时长和公里数，不加载 Leaflet（Q11；合规后备图随 M10-01）"
           ],
           "evidence": "",
           "updated": "2026-11-14"
         },
         {
           "id": "M9E-18",
-          "title": "嵌在宿主页·嵌入页中 / 日 / 英三语（文案字典、付款出错说法、日期金额格式、Stripe locale；主站仍只中文）（ADR 0095 第四节第 3 小节，Q4 选三语才做）",
+          "title": "嵌在宿主页·嵌入页中 / 日 / 英三语，必做（复用 widget-core.ts 的 TEXTS 和 BOOK_TAB_I18N 的写法、付款出错说法、日期金额格式、Stripe locale；主站仍只中文）（ADR 0095 第四节第 3 小节，Q4）",
           "role": "frontend",
           "status": "blocked",
-          "blockedBy": "等 ADR 0095 采纳（业主 / 监工答复第十二节 Q1–Q15）（Q4）",
+          "blockedBy": "M9E-17 合并",
           "acceptance": [
             "mountBooking 的 lang 为 zh / ja / en 时嵌入页、订单页、付款区块全部按该语言显示，主站页面文案逐字不变",
-            "译文由业主或运营过目"
+            "译文由业主或运营过目",
+            "加一种语言只需在各文案表加一列、语言类型加一项，不改页面代码；第二批韩文、繁体中文（ko、zh-Hant，组件和嵌入码 default_lang 一起加）在本任务合并时登记为后续任务"
           ],
           "evidence": "",
           "updated": "2026-11-14"
@@ -1405,7 +1408,7 @@
           "title": "嵌在宿主页·第三期：付款进 iframe（PaymentPanel 复用、return_url 指向 /embed/book/order、3D 验证弹窗 modal / viewport、银行回跳取令牌、新窗口打开订单页退路）；后端付款不改（ADR 0095 第七节）",
           "role": "frontend",
           "status": "blocked",
-          "blockedBy": "等 ADR 0095 采纳（业主 / 监工答复第十二节 Q1–Q15）",
+          "blockedBy": "M9E-17 合并",
           "acceptance": [
             "后端付款、Webhook、超时取消、退款无改动；假 Stripe 端到端在跨站宿主（localhost / 127.0.0.1）里付款成功、失败卡、3D 验证成功 / 失败各一遍",
             "return_url 带 key、host：模拟银行整页回跳、订单页刷新后仍在 iframe 里正常显示",
@@ -1420,7 +1423,7 @@
           "title": "嵌在宿主页·第四期：更新工厂接入说明（ADR 0095 附录 A 定稿）、演示站接入、测试站验收",
           "role": "acceptance",
           "status": "blocked",
-          "blockedBy": "等 ADR 0095 采纳（业主 / 监工答复第十二节 Q1–Q15）；M9E-19 合并、工厂上线 mountBooking",
+          "blockedBy": "M9E-19 合并、工厂上线 mountBooking",
           "acceptance": [
             "工厂接入后在 embed-demo.moveglobal.io 上，区间、包车各用 Stripe 测试卡全程不离开演示站下一单；运营后台来源为嵌入组件（宿主页内）",
             "不在白名单的域名用 iframe 嵌入 /embed/book 被拒",
@@ -1482,9 +1485,9 @@
           "id": "M9P-03",
           "title": "需求二缓冲 T 和三项配置（ADR 0091 第四稿，M9W-11 并入）+ #6 含超公里取最低 + #5 各商品在引擎里自选套餐后比价；下单不收超时费；手动升套餐不短于 T；超过 13 小时不能在线下单（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
           "role": "backend",
-          "status": "todo",
-          "acceptance": ["复用 origin/m9w-11-package-buffer 的 itinerary golden（选档、超时费逐字段不变；加价变化按 M9P-01 / M9P-06 列；M9P-01 的下车点行程加价对它没有预期变化，ADR 0093 第六节第 4 小节）、itineraryEstimate、service_rules.charterItinerary 三项配置（ADR 0091 第四稿第一、二节；ADR 0093 第十二节）", "QuoteRequest.charterSelection（auto / manual / locked）进快照和询价日志；不带时选档和超时费逐字不变（含旧单改期的超时费）；packageHours 为空时碰到的现有代码（请求校验、加价查找、调价时刻、套餐价查找、ComparisonGroup、回放摘要）逐处改为按候选档代入并在 PR 列出", "候选 = 时长 ≥ T（且 ≥ 最低套餐）并且这一档的套餐价和加价规则齐全、能报出的套餐，没有时只有最长档；取「套餐价 + 超公里费」最低；加价、调价不参与选档", "不收超时费，按 ADR 0091 第四稿第三节：price_breakdown 只在超时费大于 0 时写 overtime（旧单订单页不变）；结算价明细 overtimeAtBooking: false；订单详情给 overtime_at_booking；平台试算按新口径、不含超时费；OpenAPI 写 overtime「只在预收了超时费的旧单里出现」", "itineraryQuotes 改为一次询价；应答 estimated_minutes、includes_buffer、auto_package_hours；手动 package_hours 短于 T 或低于最低套餐（且不是最长档）→ 对外 PACKAGE_TOO_SHORT + min_package_hours（/site/v1、/sales/v1 同口径，不记未覆盖需求）", "T 超过商品的在线下单上限（service_rules.charterItinerary.maxOnlineMinutes，默认 13 小时）→ ITINERARY_TOO_LONG，转人工（ADR 0093 第四节第 10 条，从 M9P-10 挪来）", "包车比价的同价区间按业主确认第 5 条（推荐 0，严格取最低）；接送机、点对点不变", "改期、救援：新口径的单传 locked；部署前的单不传（选档、超时费照旧）", "规格第六节用例 1、7、8、9、10 做成测试，16–18 加做自动选档后的总价（10h 以外的档按同一公式）；回放差异归到 ADR 0093 第六节第 5 小节第 4–7、11、12 类", "独立审查、合并、部署；回放比对通过后再请业主在东京包车填建议值（15 / 60），测试站验收", "P0 验收后续 B（监工 2026-11-14）：单个经停的停留上限保持 8 小时；有经停时客人要能手动升到更长的套餐（规格步骤 3：可以改长，不能短于 T）", "部署前先用固定 until 跑一次回放留底（用 M9P-01 / M9P-02 验收时留的部署后基线：until=2026-11-14T09:13:00Z、30 天，1,322 条询价 / 2,451 行，resultDigest e36bac08…21ec9，stateDigest 024d1a09…17bc），部署后用同样参数再跑一次比对（P0 验收教训：M9P-01 / M9P-02 部署前没留快照，回放比对只能以代码论证替代）"],
-          "evidence": "",
+          "status": "review",
+          "acceptance": ["复用 origin/m9w-11-package-buffer 的 itinerary golden（选档、超时费逐字段不变；加价变化按 M9P-01 / M9P-06 列；M9P-01 的下车点行程加价对它没有预期变化，ADR 0093 第六节第 4 小节）、itineraryEstimate、service_rules.charterItinerary 三项配置（ADR 0091 第四稿第一、二节；ADR 0093 第十二节）", "QuoteRequest.charterSelection（auto / manual / locked）进快照和询价日志；不带时选档和超时费逐字不变（含旧单改期的超时费）；packageHours 为空时碰到的现有代码（请求校验、加价查找、调价时刻、套餐价查找、ComparisonGroup、回放摘要）逐处改为按候选档代入并在 PR 列出", "候选 = 时长 ≥ T（且 ≥ 最低套餐）并且这一档的套餐价和加价规则齐全、能报出的套餐，没有时只有最长档；取「套餐价 + 超公里费」最低；加价、调价不参与选档", "不收超时费，按 ADR 0091 第四稿第三节：price_breakdown 只在超时费大于 0 时写 overtime（旧单订单页不变）；结算价明细 overtimeAtBooking: false；订单详情给 overtime_at_booking；平台试算按新口径、不含超时费；OpenAPI 写 overtime「只在预收了超时费的旧单里出现」", "itineraryQuotes 改为一次询价；应答 estimated_minutes、includes_buffer、auto_package_hours；手动 package_hours 短于 T 或低于最低套餐（且不是最长档）→ 对外 PACKAGE_TOO_SHORT + min_package_hours（/site/v1、/sales/v1 同口径，不记未覆盖需求）", "T 超过商品的在线下单上限（service_rules.charterItinerary.maxOnlineMinutes，默认 13 小时）→ ITINERARY_TOO_LONG，转人工（ADR 0093 第四节第 10 条，从 M9P-10 挪来）", "包车比价的同价区间按业主确认第 5 条（推荐 0，严格取最低）；接送机、点对点不变", "改期、救援：新口径的单传 locked；部署前的单不传（选档、超时费照旧）", "规格第六节用例 1、7、8、9、10 做成测试，16–18 加做自动选档后的总价（10h 以外的档按同一公式）；回放差异归到 ADR 0093 第六节第 5 小节第 4–7、11、12 类", "独立审查、合并、部署；回放比对通过后再请业主在东京包车填建议值（15 / 60），测试站验收", "P0 验收后续 B（监工 2026-11-14）：单个经停的停留上限保持 8 小时；有经停时客人要能手动升到更长的套餐（规格步骤 3：可以改长，不能短于 T）", "部署前先用固定 until 跑一次回放留底（用 M9P-01 / M9P-02 验收时留的部署后基线：until=2026-11-14T09:13:00Z、30 天，1,322 条询价 / 2,451 行，resultDigest e36bac08…21ec9，stateDigest 024d1a09…17bc），部署后用同样参数再跑一次比对（P0 验收教训：M9P-01 / M9P-02 部署前没留快照，回放比对只能以代码论证替代）", "有经停点时官网新预订页也能手动升到更长的套餐（规格步骤 3；测试站验收发现：有经停点时页面没有套餐时长控件，单个经停最长停留 8 小时，客人实际选不到 10 小时套餐）：单个经停停留上限仍是 8 小时不改；「包车时长」下拉默认「自动（N 小时）」（N = 报价里的 auto_package_hours，从 T 的那一档起），只列比它长的档，短于 T 的不出现、不能选；手动改了重新报价，请求带 itinerary_pricing + package_hours（charterSelection: manual）；行程（上下车点、经停点、停留）一改回到自动。组件测试 + 端到端：有经停点从自动选的档升到 10 小时，短于 T 的选项不存在"],
+          "evidence": "PR #240（https://github.com/jiatengmei482-pixel/nozomi/pull/240）：本机 pnpm check 全套通过——类型检查；单元 2,839 条、组件 1,315 条全过；集成 2,855 条（通过 2,854、跳过 1、失败 0）。按 #240 独立审查修改并合并最新 main 后复跑：单元 2,842 条、相关集成 112 条（charter-*、sales、uncovered-demands、quotes、products 共 11 个文件）全过；三处修改各做了变异检查（同价区间不设 0、选短了用「有一条」而不是「全是」、总价一样不取短档），都被测试抓住。新增单元 22 条、集成 9 条、组件 3 条、端到端 1 条（site-booking-package-upgrade.spec.ts，本机通过）；golden 0 条变化。CI、合并、部署、回放比对、测试站验收都还没做",
           "updated": "2026-11-14"
         },
         {
@@ -1492,7 +1495,7 @@
           "title": "官网：预计用时（含缓冲）、套餐下拉只列 ≥ 自动档、明细逐项；供应商后台服务规则页三项配置和「下车点行程加价」开关（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
           "role": "frontend",
           "status": "todo",
-          "acceptance": ["价格明细「预计用时 X 小时 Y 分钟（含缓冲）」；带经停时套餐下拉默认「自动（N 小时）」、只列 ≥ 自动档", "明细逐项列区域名和第几个经停 / 下车点", "供应商 / 运营订单详情的超时一行：新订单写「预计超出 X 分钟，未预收，服务后按实际提交」，旧单照旧「× 单价 = 金额」（ADR 0091 第四稿第三节第 3 小节）；官网 T 超过所选套餐时的提示文案按 0091 业主确认第 1 条；超过 13 小时提示联系客服", "服务规则页：经停点默认占用、整单缓冲、最低套餐（灰色写建议值，不预填）、「下车点行程加价」开关（默认开，说明写「没有市外经停时，下车点所在行程区域收一次行程加价」）", "组件测试 + 端到端（用例 1、10 的页面部分）", "独立审查、合并、部署后测试站验收", "#229 审查建议（M9P-01 后续）：运营后台救援页展示救援差价的基准（order_rescues.deduction_base_minor，以及重算前后的加价合计、退回原因）——旧单救援时原结算价 65,000、候选 75,500、差价 500 这种情况，不显示基准运营看不懂；后端救援视图接口同步加 deduction_base（OpenAPI）", "P0 验收后续 A（监工 2026-11-14，排在 M9P-03 之后）：不填经停时也显示价格明细，逐行列出套餐、上车加价、下车加价、下车点行程加价，让客人看懂价格是怎么来的"],
+          "acceptance": ["价格明细「预计用时 X 小时 Y 分钟（含缓冲）」；带经停时套餐下拉默认「自动（N 小时）」、只列 ≥ 自动档", "明细逐项列区域名和第几个经停 / 下车点", "供应商 / 运营订单详情的超时一行：新订单写「预计超出 X 分钟，未预收，服务后按实际提交」，旧单照旧「× 单价 = 金额」（ADR 0091 第四稿第三节第 3 小节）；官网 T 超过所选套餐时的提示文案按 0091 业主确认第 1 条；超过 13 小时提示联系客服", "服务规则页：经停点默认占用、整单缓冲、最低套餐（灰色写建议值，不预填）、「下车点行程加价」开关（默认开，说明写「没有市外经停时，下车点所在行程区域收一次行程加价」）", "组件测试 + 端到端（用例 1、10 的页面部分）", "独立审查、合并、部署后测试站验收", "#229 审查建议（M9P-01 后续）：运营后台救援页展示救援差价的基准（order_rescues.deduction_base_minor，以及重算前后的加价合计、退回原因）——旧单救援时原结算价 65,000、候选 75,500、差价 500 这种情况，不显示基准运营看不懂；后端救援视图接口同步加 deduction_base（OpenAPI）", "P0 验收后续 A（监工 2026-11-14，排在 M9P-03 之后）：不填经停时也显示价格明细，逐行列出套餐、上车加价、下车加价、下车点行程加价，让客人看懂价格是怎么来的", "有经停点时的套餐下拉（默认「自动（N 小时）」、只列比自动档长的、改了重新报价）已在 M9P-03（PR #240）做了，本任务只做预计用时、明细逐项和服务规则页等其余部分"],
           "evidence": "",
           "updated": "2026-11-14"
         },
@@ -1607,7 +1610,7 @@
           "title": "核实并整改：官网 Leaflet 路线后备图和地图选点与谷歌《服务专用条款》19.2 / 14.2 / 6.2（谷歌内容不得用于非谷歌地图）",
           "role": "frontend",
           "status": "todo",
-          "acceptance": ["盘点所有把谷歌 Routes 折线、Places 搜索结果、Geocoding 反查结果和 Leaflet 非谷歌底图一起显示的地方（至少 apps/web/src/pages/book/new/RouteMap.tsx 后备路线图、SiteMapPicker.tsx 地图选点）", "逐处给出整改：改用谷歌地图（静态图或 Maps JS），或不显示地图只显示文字；方案写进 ADR（修订 ADR 0017 / 0072）并经独立审查", "整改后端到端测试覆盖：静态地图未开通时不再在 Leaflet 上画谷歌路线"],
+          "acceptance": ["盘点所有把谷歌 Routes 折线、Places 搜索结果、Geocoding 反查结果和 Leaflet 非谷歌底图一起显示的地方（至少 apps/web/src/pages/book/new/RouteMap.tsx 后备路线图、SiteMapPicker.tsx 地图选点）", "逐处给出整改：改用谷歌地图（静态图或 Maps JS），或不显示地图只显示文字；方案写进 ADR（修订 ADR 0017 / 0072）并经独立审查", "整改后端到端测试覆盖：静态地图未开通时不再在 Leaflet 上画谷歌路线", "嵌入页 /embed/book（ADR 0095，Q11）同步改用同一套合规后备图：首期静态图失败时只显示时长和公里数，M10-01 之后显示和主站相同的路线摘要图；端到端覆盖嵌入页"],
           "evidence": "",
           "updated": "2026-11-14"
         }
@@ -3029,6 +3032,16 @@
       "date": "2026-11-14",
       "by": "frontend",
       "summary": "新增并完成 M9E-14（业主：像 Good Journey 的组件一样不用选外观、按屏幕自动适配）：组件外观加 auto 并设为默认，容器 ≥ 900 px 横条、窄了卡片；init 没传 layout 时用嵌入码后台设的外观（/embed/v1/config 返回）；后台「外观」加「自动」；迁移 0430 把已有的 card 改成 auto、bar 不变；运营保存后客户页面最迟约 1 分钟生效。接入说明补组件位置与尺寸建议和截图。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "ADR 0095 改为已采纳：监工替业主确认 Q1–Q15（Q4 首期中日英、第二批加韩/繁中；Q11 路线摘要图并入 M10-01；Q13 默认关、演示站由监工开；Q15 首期不跟随但和组件共用 theme 变量）"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "backend",
+      "summary": "M9P-03 开 PR #240：需求二（预计用时 T = 行驶 + 停留 + 经停数 × 每站默认占用 + 整单缓冲，三项配置和在线下单上限放进商品服务规则 charter_itinerary，默认 0 / 0 / 不限 / 13 小时）、差异表第 6 条（含超公里取最低选档）、第 5 条（各商品在引擎里各自选档、各自算总价再比价）；QuoteRequest.charterSelection（auto / manual / locked）进快照和询价日志；下单不收超时费（明细只在超时费大于 0 时列 overtime，订单详情 overtime_at_booking）；T 超过 13 小时 ITINERARY_TOO_LONG；手动升档不短于 T（PACKAGE_TOO_SHORT + min_package_hours）；官网按行程计价一次询价；改期、救援新口径传 locked、部署前的单不传（超时费、档位照旧）；包车新口径同价区间 0。按监工追加：有经停点时新预订页也能手动升到更长的套餐（下拉只列比自动档长的）。golden 全部 0 条变化（不带 charterSelection 的旧口径逐字不变），新口径期望另写测试。没有数据库迁移。待独立审查、CI、合并、部署、回放比对和测试站验收。M9P-02 日志里留给本任务的「按行程计价时套餐只列匹配到的商品」：现在每个商品在引擎里自己选档，按城市查套餐只用来判断有没有可订的套餐，不影响报价，保持不变。"
     },
     {
       "date": "2026-11-14",

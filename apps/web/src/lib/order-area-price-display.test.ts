@@ -45,3 +45,14 @@ test("超公里 / 超时（M9W-04）：运营「18,000 JPY」、供应商「JPY 
   assert.equal(itineraryOverageLines("tenant", null), null);
   assert.equal(itineraryOverageLines("platform", undefined), null);
 });
+
+test("超时（M9P-03，ADR 0091 第三节第 3 小节）：新订单没预收超时费——不写单价和金额，写「预计超出…未预收，服务后按实际提交」或「未超出套餐时长」；有含缓冲的预计用时时一并写；旧单（true / 没有这一项）一字不变", () => {
+  const base = { route_meters: 254_300, route_minutes: 690, package_km: 200, package_minutes: 600, over_meters: 54_300, overtime_minutes: 90, over_km_fee: yen("16290"), overtime_fee: yen("0"), over_km_per_km: yen("300"), overtime_per_hour: yen("5000") };
+  assert.equal(itineraryOverageLines("tenant", { ...base, overtime_at_booking: false })?.[1], "超时：预计 11 小时 30 分（含停留），套餐 10 小时，预计超出 1 小时 30 分，未预收，服务后按实际提交");
+  assert.equal(itineraryOverageLines("platform", { ...base, overtime_at_booking: false, estimated_minutes: 765 })?.[1], "超时：预计用时（含缓冲）12 小时 45 分，预计 11 小时 30 分（含停留），套餐 10 小时，预计超出 1 小时 30 分，未预收，服务后按实际提交");
+  assert.equal(itineraryOverageLines("tenant", { ...base, route_minutes: 540, overtime_minutes: 0, overtime_at_booking: false, estimated_minutes: 600 })?.[1], "超时：预计用时（含缓冲）10 小时，预计 9 小时（含停留），套餐 10 小时，未超出套餐时长");
+  // 部署前预收过超时费的单：照旧「× 单价 = 金额」
+  const old = { ...base, overtime_fee: yen("7500") };
+  assert.equal(itineraryOverageLines("tenant", old)?.[1], "超时：预计 11 小时 30 分（含停留），套餐 10 小时，超出 1 小时 30 分 × 每小时 JPY 5,000 = JPY 7,500");
+  assert.deepEqual(itineraryOverageLines("tenant", { ...old, overtime_at_booking: true }), itineraryOverageLines("tenant", old));
+});
