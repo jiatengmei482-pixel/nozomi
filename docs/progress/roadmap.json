@@ -1224,7 +1224,7 @@
           "role": "product",
           "status": "review",
           "acceptance": ["ADR 0093 写清 10 项：三层区域、加价算法、商品匹配、选套餐与比价、套餐价车型组 × 套餐、数据迁移、后台校验、实施顺序和任务、验收、框架边界；每节写现状 → 新做法 → 对数据 / 报价的影响", "写明 ADR 0088 / 0089 / 0073 哪几条被取代并在原文加注；0091 沿用 / 作废什么；0092 不采纳、#219 改做法", "列出待业主确认的点（下车点当经停开关默认开等）", "独立审查通过"],
-          "evidence": "PR 待开",
+          "evidence": "PR #222（https://github.com/jiatengmei482-pixel/nozomi/pull/222）；只有文档和 roadmap，pnpm roadmap:check 通过",
           "updated": "2026-11-14"
         },
         {
