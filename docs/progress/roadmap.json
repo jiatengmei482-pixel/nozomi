@@ -1287,6 +1287,15 @@
           "updated": "2026-11-14"
         },
         {
+          "id": "M9E-09",
+          "title": "MoveGlobal 工厂接入 NOZOMI 嵌入组件的改动说明（给工厂开发：站点可选 Good Journey / NOZOMI，演示站站点 73 先切换）",
+          "role": "product",
+          "status": "review",
+          "acceptance": ["新文档 docs/integration/moveglobal-factory-nozomi-widget.md，中文，工厂开发照着能直接改；不含账号、邮箱、密钥，fleetToken、corporateId、嵌入码一律占位", "后台「预订归属」加「预订组件来源」（默认 Good Journey）和「NOZOMI 嵌入码」（选 NOZOMI 必填，格式按 EMBED_KEY_FORMAT：nze_ + 32 位 base64url，共 36 字符）；已有数据缺字段一律按 Good Journey，不回填", "渲染：GJ 输出逐字不变；NOZOMI 在原 gojo-widget-container 位置输出 nozomi-booking 容器、defer 加载 widget-v1.js、DOMContentLoaded 时 init（key 转义、root、lang 按站点语言 ja / zh / en、services、redirectUrl 为站点首页），不输出 GJ 脚本；两段完整示例", "/booking/ 页 NOZOMI 模式放同一个组件、付款后回首页的理由和改法；快照测试（已有站点逐字相同 + NOZOMI 模式一份）；前提（白名单只写协议 + 域名、60 秒生效、将来 CSP 放行 script-src / connect-src）；验收步骤（区间、包车各下一单回演示站首页，非白名单只显示「暂时无法使用」，已有站点不变）；回退和重新发布；分工", "内容与 ADR 0090、widget-core.ts、domain embed.ts、apps/api 的实现一致"],
+          "evidence": "PR https://github.com/jiatengmei482-pixel/nozomi/pull/226 ；只改文档和 roadmap；node scripts/check-roadmap.mjs 通过；按 #226 独立审查修改：scriptLiteral 的 U+2028 / U+2029 正则改成转义写法（node 实测能编译，</script>、U+2028、U+2029 都转义、JSON.parse 回来等于原值），选 NOZOMI 但嵌入码空 / 格式不对时该站点构建报错（node 实测）并补测试要求，DOMContentLoaded 只在组件片段里数，脚本转存 / 改名的两种表现，ClientRouter 软跳转的处理和重复 init 是否安全，GJ 分支保持原静态写法，站点 73 嵌入码经 NOZOMI 侧确认、组件按 zh 显示，测试环境另收 localhost；按 #226 复审补：重复 init 的说法按代码改正（300 毫秒防抖、取位置最多 10 秒、旧实例进行中的请求照常跑完、老浏览器多一个 style），软跳转时脚本没加载完在其 load 事件再初始化，方案 2 的嵌入码同样用 scriptLiteral + set:html 输出",
+          "updated": "2026-11-14"
+        },
+        {
           "id": "M9E-10",
           "title": "嵌入组件重做外观：竖向卡片 card / 横向搜索条 bar 两种布局，init 加 layout、theme（接口不变）",
           "role": "frontend",
@@ -2754,6 +2763,21 @@
       "date": "2026-11-14",
       "by": "frontend",
       "summary": "M9E-07 开发完成，待验收：嵌入组件脚本改成纯英文字符写法（中日文转义），合作网站页面不是 UTF-8 时也不会乱码，服务器响应头也写明 UTF-8；客人改正被标红的那一项后标记会去掉；补齐端到端：建草稿网络错误、操作太频繁、填错日期各显示一句不跳转，包车不填经停点跳到预订页后再选 8 小时能报价。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "M9E-09 写好给 MoveGlobal 工厂开发的接入说明（docs/integration/moveglobal-factory-nozomi-widget.md）：站点后台加「预订组件来源」和「NOZOMI 嵌入码」两项，默认仍是 Good Journey、老站点不用改数据；选 NOZOMI 的站点首页和 /booking/ 放我们的组件，付款后回站点首页；moveglobal、anshinride 等已有站点页面要求逐字不变并用快照测试保证；附验收步骤和回退办法。待工厂侧照做、演示站验收。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "M9E-09 按 #226 独立审查修改接入说明：修好转义函数示例里照抄会编译失败的两行；选了 NOZOMI 却没填嵌入码时让该站点发布直接报错并说明原因；补上站内软跳转时组件不出现的处理办法、脚本放错地方时的两种表现；站点 73 的嵌入码写明经 NOZOMI 侧确认、页面会按中文显示。仍待验收。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "M9E-09 按 #226 复审再补三处：重复初始化组件时会发生什么按代码写准；站内软跳转时组件脚本还没加载完的情况补了兜底；第二种初始化写法里的嵌入码也要转义后输出。仍待验收。"
     },
     {
       "date": "2026-11-14",
