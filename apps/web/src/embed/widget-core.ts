@@ -228,7 +228,7 @@ export const contrastWithWhite = (hex: string): number => 1.05 / (luminance(hex)
 export type TextTone = keyof typeof TONE_LUMINANCE;
 /**
  * 底色上的字：白和深色里取对比度高的；高的那个也不到 4.5:1 时，退到纯黑或纯白里高的那个
- * （任何底色和纯黑、纯白之中至少一个能到 4.58:1，例如 #777777：白 4.48、深色 3.67、纯黑 4.69）。
+ * （任何底色和纯黑、纯白之中至少一个能到 4.58:1，例如 #777777：白 4.48、深色 3.69、纯黑 4.69）。
  */
 export function toneOn(hex: string): TextTone {
   const background = luminance(hex);
