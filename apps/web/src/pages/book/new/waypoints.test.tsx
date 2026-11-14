@@ -268,6 +268,28 @@ test("明细加起来不等于总价：不显示明细，只显示总价（价�
   assertAbsent(screen.queryByText("60,500 JPY"));
 });
 
+test("M8-43：明细里金额为 0 的超公里费 / 超时费不列，不是 0 的照旧列（车型卡、右侧栏）；合计仍是总价", async () => {
+  wideScreen();
+  // 10 小时套餐 60,500 + 途经 11,000 + 超公里 0 + 超时 3,000 = 74,500
+  const breakdown: SiteQuote["price_breakdown"] = [...(FUJI_BREAKDOWN ?? []), { kind: "over_km", amount: yen(0), area_name: null, stop_seqs: null }, { kind: "overtime", amount: yen(3_000), area_name: null, stop_seqs: null }];
+  open((call) => json(200, (call.body as Record<string, unknown>)["itinerary_pricing"] === true ? itineraryResult(breakdown, 74_500) : plainResult));
+  const actor = user();
+  await screen.findByRole("heading", { name: "车型1" }, SLOW);
+  await actor.click(screen.getByRole("button", { name: "上一步" }));
+  await addStop(actor, "五合目", "60");
+  await actor.click(screen.getByRole("button", { name: "下一步：选择车型" }));
+  await waitFor(() => assert.match(screen.getByRole("heading", { name: "车型1" }).closest("li")?.textContent ?? "", /74,500 JPY/), SLOW);
+  const card = screen.getByRole("heading", { name: "车型1" }).closest("li") as HTMLElement;
+  const rows = [...within(card).getByLabelText("价格明细").querySelectorAll(".price-breakdown__row")].map((row) => row.textContent);
+  assert.deepEqual(rows, ["包车套餐 10 小时60,500 JPY", "经停加价（富士山地区，第 1、2、3 个经停点）11,000 JPY", "超时费3,000 JPY"]);
+  assertAbsent(within(card).queryByText("超公里费"));
+
+  await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
+  const side = screen.getByRole("complementary", { name: "行程摘要" });
+  const sideRows = [...within(side).getByLabelText("价格明细").querySelectorAll(".price-breakdown__row")].map((row) => row.textContent);
+  assert.deepEqual(sideRows, ["包车套餐 10 小时60,500 JPY", "经停加价（富士山地区，第 1、2、3 个经停点）11,000 JPY", "超时费3,000 JPY", "合计74,500 JPY"]);
+});
+
 test("经停点不在任何区域（WAYPOINT_NOT_PRICED）：指出第几个经停点和它的名字，转人工报价，不显示内部代码；人工报价带上经停点、不带之前选的时长（M9W-04）", async () => {
   wideScreen();
   const calls = open((call) =>

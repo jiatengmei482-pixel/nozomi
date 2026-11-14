@@ -172,3 +172,15 @@ test("首页入口卡片：标题链接自身的环去掉，同一条件下由�
   assert.match(ring?.body ?? "", /outline-offset: var\(--focus-ring-offset\);/);
   assert.ok(rules.some((rule) => rule.selector === "a.entry-card__title::after" && /position: absolute;/.test(rule.body) && /inset: 0;/.test(rule.body)), "::after 铺满整张卡片");
 });
+
+test("新预订页右侧栏「经停点」的列表不另缩进，和其他项的内容对齐；间距只用令牌（M8-43）", () => {
+  const css = sheets.find((sheet) => sheet.name === "book-new.css")?.css ?? "";
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((rule) => ({ selector: (rule[1] ?? "").trim().replace(/\s+/g, " "), body: (rule[2] ?? "").replace(/\s+/g, " ").trim() }));
+  const stops = rules.filter((rule) => rule.selector.split(",").some((part) => part.trim().startsWith(".book-summary__stops")));
+  assert.equal(stops.length, 1, "只有一条规则管经停点列表");
+  const body = stops[0]?.body ?? "";
+  assert.match(body, /(^|; )padding: 0;/);
+  assert.match(body, /(^|; )margin: 0;/);
+  assert.doesNotMatch(body, /padding-(left|inline-start)|margin-(left|inline-start)|text-indent/);
+  for (const value of declarations(body, /^(gap|padding|margin)$/)) assert.match(value, /^(0|var\(--space-[0-9-]+\))$/, `经停点列表的 ${value} 不是令牌`);
+});
