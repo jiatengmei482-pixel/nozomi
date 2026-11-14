@@ -19,7 +19,7 @@ export function readEmbedOrderRecord(raw: string | null, draft: string, now: num
   if (raw === null) return null;
   try {
     const parsed = JSON.parse(raw) as { draft?: unknown; token?: unknown; at?: unknown };
-    if (!isDraftId(parsed.draft) || typeof parsed.token !== "string" || siteTokenFromHash(parsed.token) === null || typeof parsed.at !== "number" || !Number.isFinite(parsed.at)) return "stale";
+    if (!isDraftId(parsed.draft) || typeof parsed.token !== "string" || siteTokenFromHash(parsed.token) !== parsed.token || typeof parsed.at !== "number" || !Number.isFinite(parsed.at)) return "stale";
     if (parsed.at > now + 60_000 || now - parsed.at >= EMBED_ORDER_TTL_MS) return "stale";
     return parsed.draft === draft ? parsed.token : null;
   } catch {

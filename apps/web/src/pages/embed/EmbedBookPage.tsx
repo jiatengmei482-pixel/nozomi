@@ -109,17 +109,20 @@ export function EmbedBookPage() {
   }, [inFrame, host, draft, key]);
 
   // 草稿有了结论就告诉宿主：先 ready（宿主据此取消 15 秒的后备；语言此时已跟着草稿定下来），读不出再发 error。各只发一次
+  // 四步等 ready 发出去以后再挂：它一挂上就发 step，宿主要先收到 ready
   const reported = useRef(false);
+  const [live, setLive] = useState(false);
   useEffect(() => {
     if (load.kind === "loading" || reported.current || !inFrame || host === null) return;
     reported.current = true;
     announce(load.kind === "ready" ? load.draft.lang : null);
     if (load.kind === "error") send({ type: "error", code: load.code });
+    else setLive(true);
   });
 
   const lastStep = useRef<BookingStep | null>(null);
   const shell = useMemo<BookingShell | null>(() => {
-    if (load.kind !== "ready" || draft === null) return null;
+    if (load.kind !== "ready" || !live || draft === null) return null;
     const { draft: saved, sourceMatches } = load;
     const step = (name: BookingStep): void => {
       if (lastStep.current === name) return;
@@ -134,13 +137,13 @@ export function EmbedBookPage() {
       // 草稿已经在上面读过了：直接交给四步，不再读第二次
       readDraft: () => Promise.resolve({ draft: saved, sourceMatches }),
       placed: (created, go) => {
+        // 到付款这一步的 step 由订单页读到「待付款」时发
         rememberEmbedOrder(draft, created.link.token);
-        step("payment");
         void go({ pathname: EMBED_BOOK_ORDER_PATH, search: embedSearch(window.location.search) }, { state: { orderToken: created.link.token, placed: true } });
       },
       stepShown: (number) => step(STEP_NAMES[number]),
     };
-  }, [load, draft, send, t.title]);
+  }, [load, live, draft, send, t.title]);
 
   if (!inFrame || host === null) return <EmbedRefusal />;
   const siteLink = `/book/new${draft === null ? "" : `?draft=${encodeURIComponent(draft)}`}`;

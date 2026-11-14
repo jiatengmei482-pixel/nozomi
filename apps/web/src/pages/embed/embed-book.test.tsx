@@ -1,7 +1,7 @@
 /**
  * 嵌入预订页 `/embed/book`（M9E-16，ADR 0095 第四、六节）的组件测试：只挂 /embed/book* 路由树（别的路径只显示「请在新窗口打开」）；
- * 被嵌着时读草稿、按宿主 origin 发 ready / resize / error（从不用 "*"，消息里没有草稿内容）；只认父窗口、宿主 origin、同频道的 viewport；
- * 顶层打开不显示预订内容。接口用替身。
+ * 被嵌着时读草稿、按宿主 origin 发 ready / error（从不用 "*"，消息里没有草稿内容）；只认父窗口、宿主 origin、同频道的 viewport；
+ * 顶层打开不显示预订内容。读到草稿以后的四步、订单页在 embed-flow.test.tsx（M9E-17）。接口用替身。
  */
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
@@ -13,7 +13,9 @@ import { EMBED_BOOK_PREFIX, isEmbedBookPagePath } from "../../../build/edge-conf
 import { EMBED_BOOK_ORDER_PATH, EMBED_BOOK_PATH } from "../../embed/booking-protocol.ts";
 import { isApiPath } from "../../lib/api-prefixes.ts";
 import { EmbedApp, isEmbedBookDocument } from "./EmbedApp.tsx";
-import { DRAFT_TIMEOUT, EMBED_FRAME, EMBED_TEXTS } from "./EmbedBookPage.tsx";
+import { DRAFT_TIMEOUT } from "./EmbedBookPage.tsx";
+import { EMBED_FRAME } from "./EmbedFrame.tsx";
+import { EMBED_TEXTS } from "./embed-texts.ts";
 
 const DRAFT = "D".repeat(43);
 const KEY = `nze_${"A".repeat(32)}`;
@@ -78,25 +80,19 @@ test("前端的两个嵌入页路径、Caddy 给 frame-ancestors 的匹配规则
   }
 });
 
-test("被嵌着：读草稿、显示这次要订的内容和「本预订由 NOZOMI 提供并收款」；按宿主 origin 发 ready（语言跟草稿），消息里没有草稿内容；主站链接在新标签页打开", async () => {
-  const calls = stubApiWith((call) => (call.url.pathname === `/site/v1/booking-drafts/${DRAFT}` ? json(200, { draft: DRAFT_BODY, expires_at: "2030-11-20T00:00:00Z" }) : null));
+test("被嵌着：带上 key、host 读草稿，按宿主 origin 发 ready（语言跟草稿），消息里没有草稿内容；顶部写明「本预订由 NOZOMI 提供并收款」", async () => {
+  const calls = stubApiWith((call) => (call.url.pathname === `/site/v1/booking-drafts/${DRAFT}` ? json(200, { draft: DRAFT_BODY, expires_at: "2030-11-20T00:00:00Z", source_matches: true }) : apiError(503, "SITE_NOT_OPEN", "x")));
   open(url());
-  await screen.findByText("成田国際空港");
-  assert.ok(screen.getByText("東京駅"));
-  assert.ok(screen.getByText(EMBED_TEXTS.ja.seller));
-  assert.equal(calls.length, 1, "只读草稿这一个接口");
+  await screen.findByText(EMBED_TEXTS.ja.seller);
   await waitFor(() => assert.ok(types().includes("ready")));
+  assert.equal(calls[0]?.path, `/site/v1/booking-drafts/${DRAFT}?key=${KEY}&host=${encodeURIComponent(HOST)}`, "读草稿带 key、host");
   assert.deepEqual(posted[0], [{ ns: "nozomi-booking", v: 1, ch: CH, type: "ready", lang: "ja" }, HOST]);
   assert.ok(posted.every(([, origin]) => origin === HOST), "targetOrigin 一律是宿主 origin，从不用 *");
   assert.doesNotMatch(JSON.stringify(posted), /成田|東京|35\.7|nze_|D{43}/, "消息里没有草稿内容、嵌入码、草稿号");
-  const link = screen.getByRole("link", { name: new RegExp(EMBED_TEXTS.ja.continue) });
-  assert.equal(link.getAttribute("href"), `/book/new?draft=${DRAFT}`);
-  assert.equal(link.getAttribute("target"), "_blank");
-  assert.equal(link.getAttribute("rel"), "noopener");
 });
 
 test("地址带 lang 时按它显示（不看草稿的语言）", async () => {
-  stubApiWith(() => json(200, { draft: DRAFT_BODY, expires_at: "2030-11-20T00:00:00Z" }));
+  stubApiWith((call) => (call.url.pathname.startsWith("/site/v1/booking-drafts/") ? json(200, { draft: DRAFT_BODY, expires_at: "2030-11-20T00:00:00Z" }) : apiError(503, "SITE_NOT_OPEN", "x")));
   open(url("&lang=en"));
   await screen.findByText(EMBED_TEXTS.en.seller);
   await waitFor(() => assert.deepEqual(posted[0]?.[0], { ns: "nozomi-booking", v: 1, ch: CH, type: "ready", lang: "en" }));
@@ -142,9 +138,9 @@ test("宿主 origin 写法不对（带路径、大写、不是 http(s)）：一�
 });
 
 test("viewport：只认父窗口、宿主 origin、同一个频道的；只记下高度，不改预订内容", async () => {
-  stubApiWith(() => json(200, { draft: DRAFT_BODY, expires_at: "2030-11-20T00:00:00Z" }));
+  stubApiWith((call) => (call.url.pathname.startsWith("/site/v1/booking-drafts/") ? json(200, { draft: DRAFT_BODY, expires_at: "2030-11-20T00:00:00Z" }) : apiError(503, "SITE_NOT_OPEN", "x")));
   open(url());
-  await screen.findByText("成田国際空港");
+  await screen.findByText(EMBED_TEXTS.ja.seller);
   const send = (data: unknown, origin: string, source: unknown) => act(() => void window.dispatchEvent(new MessageEvent("message", { data, origin, source: source as MessageEventSource })));
   const viewport = (height: number, ch = CH) => ({ ns: "nozomi-booking", v: 1, ch, type: "viewport", height });
   await send(viewport(500), "https://evil.example", parent);
@@ -155,7 +151,7 @@ test("viewport：只认父窗口、宿主 origin、同一个频道的；只记�
   assert.equal(main.hasAttribute("data-host-viewport"), false);
   await send(viewport(900), HOST, parent);
   assert.equal(main.getAttribute("data-host-viewport"), "900");
-  assert.ok(screen.getByText("成田国際空港"), "预订内容不变");
+  assert.ok(screen.getByText(EMBED_TEXTS.ja.seller), "页面内容不变");
 });
 
 test("顶层打开（没被嵌）：不读草稿、不显示预订内容、不发消息，只说请在合作网站上预订并给主站链接", async () => {
