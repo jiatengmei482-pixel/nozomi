@@ -1256,11 +1256,11 @@
         },
         {
           "id": "M9P-01",
-          "title": "P0 #1：经停区域与上 / 下车区域相同时照收行程加价；没有经停时下车点所在区域的行程加价计入（商品开关，默认开）（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
+          "title": "P0 #1：经停区域与上 / 下车区域相同时照收行程加价；没有①外经停时下车点所在区域的行程加价计入（商品开关，默认开）（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
           "role": "backend",
-          "status": "todo",
-          "acceptance": ["引擎去掉「上 / 下车已计价的区域经停不再加」；同一区域多个经停仍只收一次", "先从 M9W-11 分支带过来 service_rules.charterItinerary 的读写（默认值不存键、PUT 不带键保留原值、只有包车能设、租户隔离集成测试），本任务只加 dropoffCountsAsStop（默认开）；三项配置在 M9P-03 生效", "下车点当经停：没迁移过的商品查下车点所在上下车加价区域那一行的途经加价，没设就跳过、不拒单；迁移过的查行程区域，不在任何行程区域就跳过（ADR 0093 第二节第 4 小节）", "明细逐项：上车加价（区域名）、下车加价（区域名）、行程加价（区域名、第几个经停 / 下车点）", "规格第六节用例 2–7 的加价项做成测试；接送机、点对点 golden 一字不改；包车 golden 变化（itinerary-golden 的 tokyo→fuji→fuji 等）按 ADR 0093 第六节第 4 小节逐条列在 PR 里，旧 golden 文件不重新生成", "部署前格式的订单改期、救援：加价按新算法重算、超时费照旧（ADR 0093 第二节，业主确认第 8 条）", "救援差价基准（ADR 0093 第二节救援 B，待业主确认第 8 条）：order_rescues 加 deduction_base_minor（只加列）；触发救援时单独按订单的 productId 重算加价合计（areaSurcharge 的 pickup、dropoff、waypoints），调 quoteProduct 用 forOwner: true、moment.now 取下单时刻，只取加价三项；基准 = 原结算价 + max(0, 重算加价合计 − 快照加价合计)；rescueCandidates 列候选的差价和改派记的差价都用它（为空用原结算价）；扣款记录 basis 加 base_minor、surcharge_before、surcharge_after、base_fallback_reason；重算失败退回原结算价并记原因、写审计；不靠 charterSelection 区分新旧单；集成测试：P0 #1 旧单救援差价不含多出的行程加价、用车前 6 小时触发和供应商被暂停时触发都算出基准不退回、候选差价与改派差价一致、原供应商触发前调高套餐价差价不变、重算失败退回原结算价", "部署前后回放比对，差异行全部归到 ADR 0093 第六节第 5 小节第 1、2 类", "独立审查、合并、部署后测试站只核对用例 2–7 明细里的加价项（上 / 下车加价、行程加价）；套餐时长和总价取决于 M9P-02 / M9P-03，放到 M9P-11 一起验收"],
-          "evidence": "",
+          "status": "review",
+          "acceptance": ["引擎去掉「上 / 下车已计价的区域经停不再加」；同一区域多个经停仍只收一次", "先从 M9W-11 分支带过来 service_rules.charterItinerary 的读写（默认值不存键、PUT 不带键保留原值、只有包车能设、租户隔离集成测试），本任务只加 dropoffItinerarySurcharge（下车点行程加价，默认开；ADR 0093 第六稿改名）；三项配置在 M9P-03 生效", "下车点行程加价（业务方已定 C）：已收区域为空（没有①外经停）、下车点不在①时触发；没迁移过的商品查下车点所在上下车加价区域那一行的途经加价，没设就跳过、不拒单；迁移过的查行程区域，不在任何行程区域就跳过（ADR 0093 第二节第 4 小节）", "明细逐项：上车加价（区域名）、下车加价（区域名）、行程加价（区域名、第几个经停 / 下车点）", "规格第六节用例 2–7 的加价项做成测试；接送机、点对点 golden 一字不改；包车 golden 变化（itinerary-golden 的 tokyo→fuji→fuji 等）按 ADR 0093 第六节第 4 小节逐条列在 PR 里，旧 golden 文件不重新生成", "部署前格式的订单改期、救援：加价按新算法重算、超时费照旧（ADR 0093 第二节，业主确认第 8 条）", "救援差价基准（ADR 0093 第二节救援 B，待业主确认第 8 条）：order_rescues 加 deduction_base_minor（只加列）；触发救援时单独按订单的 productId 重算加价合计（areaSurcharge 的 pickup、dropoff、waypoints），调 quoteProduct 用 forOwner: true、moment.now 取下单时刻，只取加价三项；基准 = 原结算价 + max(0, 重算加价合计 − 快照加价合计)；rescueCandidates 列候选的差价和改派记的差价都用它（为空用原结算价）；扣款记录 basis 加 base_minor、surcharge_before、surcharge_after、base_fallback_reason；重算失败退回原结算价并记原因、写审计；不靠 charterSelection 区分新旧单；集成测试：P0 #1 旧单救援差价不含多出的行程加价、用车前 6 小时触发和供应商被暂停时触发都算出基准不退回、候选差价与改派差价一致、原供应商触发前调高套餐价差价不变、重算失败退回原结算价", "部署前后回放比对，差异行全部归到 ADR 0093 第六节第 5 小节第 1、2 类", "独立审查、合并、部署后测试站只核对用例 2–7 明细里的加价项（上 / 下车加价、行程加价）；套餐时长和总价取决于 M9P-02 / M9P-03，放到 M9P-11 一起验收"],
+          "evidence": "PR #229（https://github.com/jiatengmei482-pixel/nozomi/pull/229）：引擎去掉经停被上下车抵消、下车点行程加价（开关 dropoffItinerarySurcharge 默认开，按 #227 定稿 C）、服务规则读写、明细 fromDropoff、救援差价基准（迁移 0410 只加列）。本机：类型检查通过；单元测试 2,798 条中 2,797 条通过（xlsx 计时 1 条在并行负载下超时、单独重跑通过，已记 M8-29）；新增单元测试 21 条（规格用例 1–9、16–19 等）；新增集成测试 7 条 + 相关集成测试 329 条通过。golden：接送机 / 点对点 / charter-golden 0 条变化，itinerary-golden 72 条（tokyo→fuji→fuji，全部 +3,000 行程加价，调价商品按比例）逐条列在 PR。CI、合并、部署、回放比对、测试站验收都还没做",
           "updated": "2026-11-14"
         },
         {
@@ -2644,6 +2644,11 @@
       "date": "2026-11-14",
       "by": "product",
       "summary": "按 #222 复核补 ADR 0093 救援 B：重算加价时用 forOwner: true、moment.now 取下单时刻，绕开上架、供应商暂停、提前预订时长和加急的判断，只取加价三项；救援候选列表上的差价和改派记的差价用同一个基准；扣款记录 basis 加 base_minor、加价前后合计和退回原因；补「用车前 6 小时触发」「供应商被暂停时触发」两条集成测试。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "backend",
+      "summary": "M9P-01 开发完成、开 PR #229（未合并）：经停的行程加价不再被上 / 下车加价抵消；新增下车点行程加价（已收区域为空且下车点不在服务区域时收，商品开关默认开，按 ADR 0093 第六稿 #227 改名 dropoffItinerarySurcharge）；救援差价基准 B。golden 变化 72 条都在 PR 里列了旧值 → 新值。测试站验收步骤写在 PR 里，等合并部署后安排。"
     }
   ]
 }
