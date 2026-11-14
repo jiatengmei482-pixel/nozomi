@@ -452,10 +452,10 @@ export const OWN_SITE_SOURCE: Parameters<typeof test.use>[0] = {
  * 跨域时会让 GET 配置也先发预检，而主站的预检只放行 content-type，于是全被拒。这里把这个上下文的额外请求头清掉，改在路由里补到发往主站的请求上
  * （路由里改的头不影响浏览器的跨域判断），限速仍按这条用例自己的地址算。`vite preview` 关了自带的 CORS（vite.config.ts），被拒的 403 和正式环境一样读不出。
  */
-export async function embedHostAsProduction(context: BrowserContext, site: string): Promise<void> {
+export async function embedHostAsProduction(context: BrowserContext, ...sites: string[]): Promise<void> {
   const address = siteSourceAddress();
   await context.setExtraHTTPHeaders({});
-  await context.route((url) => url.origin === site, (route) => route.fallback({ headers: { ...route.request().headers(), "x-forwarded-for": address } }));
+  await context.route((url) => sites.includes(url.origin), (route) => route.fallback({ headers: { ...route.request().headers(), "x-forwarded-for": address } }));
 }
 
 /**

@@ -333,7 +333,7 @@ test("建草稿限速：同一地址 10 分钟第 31 次、同一嵌入码 1 分
   assert.equal((await embed("POST", "/embed/v1/booking-drafts", full.key, PARTNER, { draft: draft() })).status, 201, "旧草稿过期后又能建");
 });
 
-test("来源：草稿 → 询价 → 下单记「嵌入组件」和返回地址；下单前移出白名单记主站、不拒单；供应商看不到来源", async () => {
+test("来源：草稿 → 询价 → 下单记「嵌入组件」和返回地址；下单前移出白名单记主站、不拒单；供应商看不到来源；草稿过期后带 draft_id 询价照常、按主站算（M9E-12）", async () => {
   const key = await newKey([PARTNER, OTHER]);
   const quoteAndOrder = async (draftId: string | null): Promise<any> => {
     const quoted = await site.call("POST", "/site/v1/quotes", { ip: nextIp(), body: { category: "point_to_point", city_id: m.ids.tokyo, pickup: PICKUP, dropoff: DROPOFF, service_local: "2026-10-20T10:00", passengers: 2, luggage: 1, ...(draftId === null ? {} : { draft_id: draftId }) } });
@@ -386,6 +386,13 @@ test("来源：草稿 → 询价 → 下单记「嵌入组件」和返回地址�
   const pushed = receiver.received.filter((item) => item.body.includes(embedded.order.id));
   assert.ok(pushed.length > 0, "付款后有推给供应商的 order.confirmed");
   for (const item of pushed) assert.doesNotMatch(item.body, /partner\.example|entry_source|embed_|return_url/);
+
+  // M9E-12：客人在主站停留超过草稿有效期（2 小时）后再询价——前端照样带 draft_id，服务端忽略：照常报价、下单，按主站算
+  const lateDraft = (await ok(embed("POST", "/embed/v1/booking-drafts", key.key, OTHER, { draft: draft(), return_url: `${OTHER}/thanks` }), 201)).id;
+  api.clock.advance(121 * 60_000);
+  const late = await place(await quoteAndOrder(lateDraft));
+  assert.equal(late.return_url, null, "草稿过期：不记来源、不拒单");
+  assert.equal((await ok(api.call("GET", `/platform/v1/orders/${late.order.id}`, { token: m.root }))).entry_source.kind, "book");
 });
 
 test("/site/v1、/platform/v1、/tenant/v1 带白名单里的 Origin 也不带任何 CORS 头", async () => {
