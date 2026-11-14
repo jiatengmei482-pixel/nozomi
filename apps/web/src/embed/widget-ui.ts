@@ -80,9 +80,12 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string,
 /** 取位置最多等这么久（M9E-08 审查）：一直不回就按「取不到这个地点的位置」处理，不让「查询价格」一直停在「正在取位置…」；测试里调短 */
 export const LOCATE_TIMEOUT = { ms: 10_000 };
 
+/** 超时用 AbortController + setTimeout（和 api/client.ts 的 send 一样）：Safari 15 / iOS 15 等老浏览器没有 AbortSignal.timeout（#220 复审） */
 async function getJson(url: string, timeoutMs?: number): Promise<{ status: number | null; body: any }> {
+  const abort = typeof AbortController === "undefined" || timeoutMs === undefined ? null : new AbortController();
+  const timer = abort === null ? null : setTimeout(() => abort.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { credentials: "omit", mode: "cors", ...(timeoutMs === undefined ? {} : { signal: AbortSignal.timeout(timeoutMs) }) });
+    const res = await fetch(url, { credentials: "omit", mode: "cors", ...(abort === null ? {} : { signal: abort.signal }) });
     let body: unknown = null;
     try {
       body = await res.json();
@@ -92,6 +95,8 @@ async function getJson(url: string, timeoutMs?: number): Promise<{ status: numbe
     return { status: res.status, body };
   } catch {
     return { status: null, body: null };
+  } finally {
+    if (timer !== null) clearTimeout(timer);
   }
 }
 

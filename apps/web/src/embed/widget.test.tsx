@@ -466,3 +466,26 @@ test("M9E-08 审查：包车经停点在取位置时切到「区间」，提交�
   assert.equal(slow.drafts.length, 1, "切到区间后不再等经停点，接着建草稿");
   assert.equal((slow.drafts[0] as { draft: Record<string, unknown> }).draft["tab"], "transfer");
 });
+
+test("M9E-08 复审：老浏览器（Safari 15 / iOS 15）没有 AbortSignal.timeout 时，选谷歌候选仍能取到位置", async () => {
+  const original = Object.getOwnPropertyDescriptor(AbortSignal, "timeout");
+  Object.defineProperty(AbortSignal, "timeout", { value: undefined, configurable: true, writable: true });
+  try {
+    const slow = slowDetails();
+    handler = slow.handler;
+    await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh" }, () => undefined);
+    await pick("pickup", "成田", "成田国際空港");
+    await type("dropoff", "東京");
+    clickOption("dropoff");
+    const details = calls.find((call) => call.url.pathname === "/embed/v1/places/details");
+    assert.ok(details?.init?.signal instanceof AbortSignal, "取位置仍带超时用的取消信号");
+    slow.release("ChIJtokyo");
+    await wait(20);
+    assert.equal($('[data-field="dropoff"] [aria-live]').textContent, "", "不提示取不到位置");
+    submitForm();
+    await wait(30);
+    assert.deepEqual((slow.drafts[0] as { draft: Record<string, unknown> }).draft["dropoff"], { name: "東京駅", lat: 35.6812, lng: 139.7671 });
+  } finally {
+    if (original !== undefined) Object.defineProperty(AbortSignal, "timeout", original);
+  }
+});
