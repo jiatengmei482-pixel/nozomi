@@ -111,7 +111,8 @@ test("新预订页包车：下车地点必填（旧链接只有上车地点时�
   await expect(dropoff).toHaveValue("");
   await expect(page.getByText("请选择下车地点，包车现在按上车和下车地点报价。")).toBeVisible();
   await expect(page.getByText("包车结束时在哪里下车，价格按上车和下车地点算。")).toBeVisible();
-  await expect(page.getByLabel(/^包车时长/)).toHaveValue("8");
+  // M9P-02：套餐时长按上下车点匹配到的商品列，没选下车地点时还没有可选的时长
+  await expect(page.getByLabel(/^包车时长/)).toHaveValue("");
   await page.getByRole("button", { name: "下一步：选择车型" }).click();
   await expect(page.getByText("请选择下车地点", { exact: true })).toBeVisible();
   await expect(dropoff).toHaveAttribute("aria-invalid", "true");
@@ -125,6 +126,8 @@ test("新预订页包车：下车地点必填（旧链接只有上车地点时�
   await page.getByRole("listbox", { name: "下车地点的候选" }).getByRole("option", { name: new RegExp(trip.station.name) }).click();
   await expect(dropoff).toHaveValue(trip.station.name);
   await expect(page.getByText("请选择下车地点，包车现在按上车和下车地点报价。")).toHaveCount(0);
+  // 选齐两端后读到匹配商品的套餐，只有一种时替客人选上
+  await expect(page.getByLabel(/^包车时长/)).toHaveValue("8");
   await page.getByRole("button", { name: "下一步：选择车型" }).click();
   await expect(page.getByRole("heading", { name: "选择车型" })).toBeFocused();
   await expect(page.locator(".book-summary-bar__text")).toContainText(`包车 8 小时 · ${LONG_PICKUP} → ${trip.station.name}`);
