@@ -215,3 +215,54 @@ test("建草稿 400：标出服务端说的那一项并把焦点移过去；删�
   assert.equal(shadow().activeElement, $('[data-action="add-waypoint"]'), "删除后焦点回到「添加经停点」");
 });
 
+test("建草稿 400 标出的那一项：客人改了就去掉 aria-invalid（输入框、下拉都算）；再提交时以服务端新的结论为准（M9E-07）", async () => {
+  let issue = "/draft/waypoints/0/stay_minutes";
+  handler = (url, init) => {
+    if (url.pathname === "/embed/v1/booking-drafts") return { status: 400, body: { error: { code: "VALIDATION_FAILED", details: { location: "body", issues: [{ path: issue, reason: "OUT_OF_RANGE" }] } } } };
+    return places(url, init);
+  };
+  await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh", services: ["charter"] }, () => undefined);
+  await pick("pickup", "成田", "成田国際空港");
+  ($('[data-action="add-waypoint"]') as HTMLButtonElement).click();
+  await pick("waypoint-0", "東京", "東京駅");
+  await pick("dropoff", "東京", "東京駅");
+  const stay = $<HTMLSelectElement>('[data-focus="stay-0"]');
+  stay.value = "60";
+  stay.dispatchEvent(new Event("change"));
+  const submit = async (): Promise<void> => {
+    $<HTMLFormElement>("form").dispatchEvent(new Event("submit", { cancelable: true }));
+    await wait(30);
+  };
+  await submit();
+  assert.equal(stay.getAttribute("aria-invalid"), "true");
+  assert.equal(shadow().activeElement, stay);
+  // 下拉：改了停留时长（浏览器里的 change 会冒泡）就去掉
+  stay.value = "90";
+  stay.dispatchEvent(new Event("change", { bubbles: true }));
+  assert.equal(stay.hasAttribute("aria-invalid"), false, "改了停留时长就不再标出错");
+  assert.equal(shadow().querySelectorAll("[aria-invalid]").length, 0);
+
+  // 地址框：重新打字就去掉；没动的项不受影响
+  issue = "/draft/dropoff/name";
+  await submit();
+  const dropoff = $<HTMLInputElement>('[data-field="dropoff"] input');
+  assert.equal(dropoff.getAttribute("aria-invalid"), "true");
+  const pickup = $<HTMLInputElement>('[data-field="pickup"] input');
+  pickup.dispatchEvent(new Event("input", { bubbles: true }));
+  assert.equal(dropoff.getAttribute("aria-invalid"), "true", "改的是别的项，出错的那一项照旧标着");
+  dropoff.value = "東京駅 ";
+  dropoff.dispatchEvent(new Event("input", { bubbles: true }));
+  assert.equal(dropoff.hasAttribute("aria-invalid"), false, "改了地址就不再标出错");
+
+  // 再提交：上一次标的那一项不留，只标这次服务端说的那一项
+  await pick("pickup", "成田", "成田国際空港");
+  await pick("dropoff", "東京", "東京駅");
+  await submit();
+  assert.equal(dropoff.getAttribute("aria-invalid"), "true");
+  issue = "/draft/pickup/name";
+  await submit();
+  assert.equal(dropoff.hasAttribute("aria-invalid"), false, "上一次标的那一项去掉了");
+  assert.equal(pickup.getAttribute("aria-invalid"), "true");
+  assert.deepEqual([...shadow().querySelectorAll("[aria-invalid]")], [pickup]);
+});
+
