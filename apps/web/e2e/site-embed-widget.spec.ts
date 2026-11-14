@@ -427,6 +427,7 @@ test("嵌入组件来的单记来源（M9E-12）：建草稿 → 询价带 draft
   const detail = await request.get(`/platform/v1/orders/${orderId}`, { headers: await platformAdminHeaders(request) });
   expect(detail.status(), await detail.text()).toBe(200);
   expect(((await detail.json()) as { entry_source: unknown }).entry_source).toEqual({ kind: "embed", embed_key_id: key.id, embed_key_name: keyName, embed_origin: payingHost.origin });
+});
 
 test("嵌入组件（M9E-22）：白名单网站 + 启用的嵌入码显示表单；表单开着时嵌入码被停用，提交说明这个网站暂时不能直接预订并给主站链接；停用后新打开显示「暂时无法使用」、没有表单，控制台写明要先查嵌入码是否停用", async ({ browser, request }) => {
   test.setTimeout(120_000);
