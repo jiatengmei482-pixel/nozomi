@@ -8,7 +8,7 @@
  * - 只调 `/embed/v1`（配置、地址提示、建草稿），一律 `credentials: "omit"`；不询价、不下单、不显示价格。
  * - 界面画在 Shadow DOM 里，和合作网站的样式互不影响；不加载任何第三方资源。
  * - 点「查看价格」先建预订草稿，成功后整页跳到主站 `/book/new?draft=<编号>`；失败在组件里提示、不跳转。
- * - 取配置失败（未授权和连不上在浏览器里分不出）：只显示「暂时无法使用」和主站链接。
+ * - 取配置（M9E-22，见 configOutcome / start）：被拒只显示「暂时无法使用」和主站链接；8 秒没回、连不上、5xx 先按 init 的参数显示表单。
  */
 import {
   FAILURE_TEXT_KEY,
@@ -112,6 +112,42 @@ async function getJson(url: string, timeoutMs?: number): Promise<{ status: numbe
   }
 }
 
+/** 取配置最多等这么久（M9E-22）：过了就先按 init 的参数显示表单，请求不取消，晚回来的配置见 Widget.lateConfig；测试里调短 */
+export const CONFIG_TIMEOUT = { ms: 8_000 };
+
+/**
+ * 取配置被拒时控制台的那句（M9E-22）：被拒的 403 不带 CORS 头，浏览器读不到是哪种原因（主站也故意不区分，ADR 0090 第三节第 2 小节），
+ * 所以按最常见的顺序列出来；具体原因 NOZOMI 运维在主站日志 embed.gate_refused 里查
+ */
+export const REFUSED_NOTICE =
+  "主站拒绝了取配置的请求（浏览器读不到具体原因）。请依次检查：① 嵌入码是否已在 NOZOMI 运营后台停用；② 嵌入码是否填错；③ 本网站的域名是否在这个嵌入码的白名单里；④ 组件脚本是否直接从主站加载。NOZOMI 运维可在主站日志 embed.gate_refused 查到是哪一种。";
+
+type ConfigOutcome = { kind: "ok"; body: any } | { kind: "refused" } | { kind: "failed" };
+
+/**
+ * 取配置的结论（M9E-22）：200 是 ok；读得到的 4xx 是被拒；读不出时（fetch 直接失败）再发一个 no-cors 的同地址请求——
+ * 主站对不在白名单、嵌入码无效或停用的请求回 403 且不带 CORS 头，浏览器里和断网一样读不出，但 no-cors 请求只要主站应答了就成功
+ * （内容读不到），所以它成功算被拒、也失败才算连不上。其余（5xx、应答读不出 JSON）算出错。
+ * 代价：前面的代理在主站停机时回的 502 / 504 不带 CORS 头，也算被拒（那时提交也建不了草稿）；第一个请求偶然断网、探测时又通了，也算被拒。
+ */
+async function configOutcome(url: string): Promise<ConfigOutcome> {
+  const config = await getJson(url);
+  if (config.status === 200 && typeof config.body === "object" && config.body !== null) return { kind: "ok", body: config.body };
+  if (config.status !== null && config.status >= 400 && config.status < 500) return { kind: "refused" };
+  if (config.status !== null) return { kind: "failed" };
+  return { kind: (await answered(url)) ? "refused" : "failed" };
+}
+
+/** 主站有没有应答（M9E-22）：no-cors 的 GET 只要有应答就成功（内容读不到）。只探 GET 配置，不探 POST 建草稿（通过校验会真的建出草稿） */
+async function answered(configUrl: string): Promise<boolean> {
+  try {
+    await fetch(configUrl, { credentials: "omit", mode: "no-cors" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 class Widget {
   private readonly shadow: ShadowRoot;
   private readonly base: string;
@@ -207,22 +243,55 @@ class Widget {
     for (const node of [...this.shadow.childNodes]) if (!(node instanceof HTMLStyleElement)) node.remove();
   }
 
+  /**
+   * 先取配置（M9E-22）：被拒只显示「暂时无法使用」；正常按配置画表单；8 秒没回、连不上、5xx 按 init 的参数画表单
+   * （没传的用 auto、日文、两个标签都显示），客人提交时服务端照常核对嵌入码。8 秒没回时请求不取消，晚回来的见 lateConfig。
+   */
   async start(): Promise<void> {
-    const config = await getJson(this.url("/embed/v1/config"));
+    const pending = configOutcome(this.url("/embed/v1/config"));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const first = await Promise.race([pending, new Promise<"timeout">((resolve) => (timer = setTimeout(() => resolve("timeout"), CONFIG_TIMEOUT.ms)))]);
+    clearTimeout(timer);
     if (this.destroyed) return;
-    if (config.status !== 200 || config.body === null) {
+    if (first !== "timeout" && first.kind === "refused") {
       this.lang = resolveLang(this.options.lang, "ja");
       this.renderUnavailable();
-      tellDeveloper("取不到组件配置。请确认本网站已加入嵌入码的白名单，嵌入码未停用。");
+      tellDeveloper(REFUSED_NOTICE);
       return;
     }
-    this.lang = resolveLang(this.options.lang, config.body.lang);
-    this.services = resolveServices(this.options.services, config.body.services);
+    const config = first !== "timeout" && first.kind === "ok" ? first.body : null;
+    if (config === null) tellDeveloper("取组件配置超时或出错，先按 init 的参数显示表单。");
+    this.lang = resolveLang(this.options.lang, config === null ? "ja" : config.lang);
+    this.services = resolveServices(this.options.services, config === null ? this.services : config.services);
     this.form.tab = this.services[0] ?? "transfer";
-    // 取到配置之前表单还没画（只有样式表），所以第一次画出来就是最终的外观，不会先卡片再变横条
-    this.wanted = resolveLayout(this.options.layout, config.body.layout);
+    // 取到配置（或超时 / 出错）之前表单还没画（只有样式表），所以取到配置时第一次画出来就是最终的外观；超时 / 出错时按 init 的，配置晚回来可能换一次外观（lateConfig）
+    this.wanted = resolveLayout(this.options.layout, config?.layout);
     this.layout = layoutFor(this.wanted, this.width, this.autoBreakpoint);
     this.render();
+    if (first === "timeout") void pending.then((late) => this.lateConfig(late));
+  }
+
+  /**
+   * 表单已按 init 的参数显示后配置才回来（M9E-22），都不重画、已填的不丢：正常就只换外观（init 没传 layout 时用后台设的，
+   * 同 watchSize 只改 data-layout），语言和标签不变（换了要重画，打了一半的字会丢）；被拒就保留表单，在提示行说明并给主站链接；出错不管。
+   */
+  private lateConfig(late: ConfigOutcome): void {
+    if (this.destroyed) return;
+    if (late.kind === "ok") {
+      this.wanted = resolveLayout(this.options.layout, late.body.layout);
+      this.layout = layoutFor(this.wanted, this.width, this.autoBreakpoint);
+      this.root?.setAttribute("data-layout", this.layout);
+    } else if (late.kind === "refused") {
+      // 和打开时被拒一样整个换成「暂时无法使用」，不留能填能提交的表单；客人已填的还在 this.form 里（不显示）
+      this.renderUnavailable();
+      tellDeveloper(REFUSED_NOTICE);
+    }
+  }
+
+  /** 提示行写一句失败（M9E-22）：被拒、读不出的失败后面跟主站链接 */
+  private failWith(message: HTMLElement, failure: keyof typeof FAILURE_TEXT_KEY): void {
+    message.textContent = this.t[FAILURE_TEXT_KEY[failure]];
+    if (failure === "refused" || failure === "unreachable") message.append(" ", el("a", { href: `${this.base}/book/new`, class: "nzb-link", rel: "noopener" }, [this.t.goToSite]));
   }
 
   private renderUnavailable(): void {
@@ -671,12 +740,14 @@ class Widget {
       this.go(`${this.base}/book/new?draft=${encodeURIComponent(body.id)}`);
       return;
     }
+    // 浏览器里被拒的 403 不带 CORS 头、读不出：探一下 GET 配置，主站有应答就按被拒说（M9E-22）
+    const failure = status === null && (await answered(this.url("/embed/v1/config"))) ? "refused" : draftFailureOf(status, typeof body?.error?.code === "string" ? body.error.code : null);
     this.busy = false;
     if (submit !== null) {
       this.submitLabel(t.submit);
       submit.removeAttribute("aria-disabled");
     }
-    message.textContent = t[FAILURE_TEXT_KEY[draftFailureOf(status, typeof body?.error?.code === "string" ? body.error.code : null)]];
+    this.failWith(message, failure);
     // 400：标出服务端说的那一项，焦点移过去（ADR 0090 第四节）
     if (status === 400) {
       const issues: { path?: unknown }[] = Array.isArray(body?.error?.details?.issues) ? body.error.details.issues : [];

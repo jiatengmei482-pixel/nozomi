@@ -51,6 +51,8 @@ export default defineConfig({
     proxy,
     fs: { allow: [fileURLToPath(new URL("../..", import.meta.url))] },
   },
-  preview: { port: 4173, strictPort: true, proxy },
+  // 关掉 preview 自带的 CORS（默认放行 localhost / 127.0.0.1）：正式环境的 Caddy 不加 CORS 头，跨域头只由 API 按嵌入码白名单给，
+  // 端到端里嵌入组件被拒的 403 才和正式环境一样读不出（M9E-22）
+  preview: { port: 4173, strictPort: true, proxy, cors: false },
   build: { outDir: "dist", emptyOutDir: true, sourcemap: false },
 });
