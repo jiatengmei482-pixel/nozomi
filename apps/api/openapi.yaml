@@ -2619,6 +2619,28 @@ paths:
                 $ref: "#/components/schemas/PlatformProductDetail"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/products/{id}/charter-migration-diff:
+    get:
+      tags: [ 供应商商品（平台） ]
+      operationId: getPlatformCharterMigrationDiff
+      summary: 包车三层区域迁移的「套餐价不一致」逐条明细
+      description: |
+        需要操作 `product.read`（M9P-05，ADR 0093 第六节第 1 小节）。迁移过三层区域的包车商品：保留的旧按服务区域套餐价里，和整商品套餐价
+        （同车型组、套餐、生效开始日）不一样的那些（含整商品没有对应行的）。不存，随时由旧行现算。没迁移过的商品、别的品类：`items` 是空数组。
+        金额是供应商的结算价。只读、不写审计日志。不存在的编号 404。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 逐条明细
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CharterMigrationDiff"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
   /platform/v1/city-options:
     get:
       tags: [ 主数据 ]
@@ -6059,6 +6081,27 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "428":
           $ref: "#/components/responses/VersionRequired"
+  /tenant/v1/products/{id}/charter-migration-diff:
+    get:
+      tags: [ 价格 ]
+      operationId: getCharterMigrationDiff
+      summary: 包车三层区域迁移的「套餐价不一致」逐条明细
+      description: |
+        需要操作 `product.read`（M9P-05，ADR 0093 第六节第 1 小节）。同 `GET /platform/v1/products/{id}/charter-migration-diff`，只看得到自己的商品
+        （别的供应商的商品 404）；只有结算价，没有对外价和加价比例。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 逐条明细
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CharterMigrationDiff"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
   /tenant/v1/products/{id}/price-coverage:
     get:
       tags: [ 价格 ]
@@ -24987,6 +25030,66 @@ components:
           items:
             type: string
             format: uuid
+    CharterPackageTerms:
+      type: object
+      additionalProperties: false
+      required: [ package_price, package_km, overtime_per_hour, over_km_per_km, valid_to, status ]
+      properties:
+        package_price:
+          type: integer
+          description: 套餐价（结算价，子品牌币种的最小货币单位）
+        package_km:
+          type: integer
+        overtime_per_hour:
+          type: integer
+        over_km_per_km:
+          type: integer
+        valid_to:
+          type: [ string, "null" ]
+          format: date
+        status:
+          $ref: "#/components/schemas/RuleStatus"
+    CharterMigrationDiff:
+      type: object
+      additionalProperties: false
+      required: [ charter_layout, items ]
+      properties:
+        charter_layout:
+          type: [ string, "null" ]
+          enum: [ three_layer, null ]
+          description: null = 没迁移过（`items` 为空）
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ old_price_rule_id, area_id, vehicle_group_id, package_hours, valid_from, old, product_price_rule_id, product ]
+            properties:
+              old_price_rule_id:
+                type: string
+                format: uuid
+                description: 旧的按服务区域的套餐价（只读）
+              area_id:
+                type: string
+                format: uuid
+              vehicle_group_id:
+                type: string
+                format: uuid
+              package_hours:
+                type: [ integer, "null" ]
+              valid_from:
+                type: string
+                format: date
+              old:
+                $ref: "#/components/schemas/CharterPackageTerms"
+              product_price_rule_id:
+                type: [ string, "null" ]
+                format: uuid
+                description: 对应的整商品套餐价；没有为 null
+              product:
+                oneOf:
+                  - $ref: "#/components/schemas/CharterPackageTerms"
+                  - type: "null"
     PriceCoverage:
       type: object
       additionalProperties: false

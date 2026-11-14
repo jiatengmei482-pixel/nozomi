@@ -12,6 +12,8 @@ import {
   type AdjustRule,
   type CalendarSegment,
   type CharterLayout,
+  type CharterMigrationDiffEntry,
+  charterMigrationDiff,
   type CurrencyCode,
   type HolidayLookup,
   type LocalizedText,
@@ -202,6 +204,23 @@ export function priceRulesView(context: PricingContext, product: Product, items:
     // 迁移过三层区域的包车：「该有价格的组合」= 车型组 × 套餐（整商品套餐价），不再按服务区域（ADR 0093 第五节）
     coverage: priceCoverage({ category: product.category, areaIds: context.areaIds, vehicleGroupIds: context.vehicleGroupIds, rules: items, today: context.today, productWide: layeredCharter(product) }),
   };
+}
+
+/** 三层区域迁移的「套餐价不一致」（M9P-05，ADR 0093 第六节第 1 小节）：没迁移过的商品是空的 */
+export interface CharterMigrationDiffView {
+  charterLayout: CharterLayout | null;
+  items: CharterMigrationDiffEntry[];
+}
+
+export function charterMigrationDiffView(context: PricingContext): CharterMigrationDiffView {
+  const layered = layeredCharter(context.product);
+  return { charterLayout: context.product.charterLayout, items: layered ? charterMigrationDiff(context.priceRules) : [] };
+}
+
+/** 供应商看自己商品的迁移差异（只有结算价，规则 4）；租户事务，别的租户的商品 404 */
+export function getCharterMigrationDiff(ctx: DbContext, tenantId: string, productId: string): Promise<CharterMigrationDiffView> {
+  const now = ctx.now();
+  return readTx(ctx, tenantId, async (db) => charterMigrationDiffView(await loadPricingContext(db, tenantId, productId, now, { lock: false })));
 }
 
 export function getPriceRules(ctx: DbContext, tenantId: string, productId: string): Promise<PriceRulesView> {

@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import type { Position } from "./areas.ts";
 import type { LatLng } from "./geo.ts";
 import { charterMatches } from "./charter-match.ts";
-import { type PriceRule, findPriceRuleOverlaps, itineraryAreaIds, priceRuleIssues, sellablePriceRules, surchargeAreaIds, surchargeModelsFor } from "./pricing.ts";
+import { type PriceRule, charterMigrationDiff, findPriceRuleOverlaps, itineraryAreaIds, priceRuleIssues, sellablePriceRules, surchargeAreaIds, surchargeModelsFor } from "./pricing.ts";
 import { emptyServiceRules } from "./products.ts";
 import { type QuoteArea, type QuoteMoment, type QuoteProduct, type QuoteRequest, quoteProduct } from "./quote.ts";
 
@@ -206,4 +206,20 @@ test("迁移过的商品：没有整商品套餐价 → 报不出（不回退到
   const auto = quoteProduct(migrated({ priceRules: rules }), trip("shinjuku", [], "shinjuku", { packageHours: null, charterSelection: "auto", routeUsage: { meters: 50_000, minutes: 300 } }), moment);
   assert.ok(auto.ok, JSON.stringify(auto));
   assert.deepEqual([auto.offers[0]?.packageHours, auto.offers[0]?.priceRuleId, auto.offers[0]?.settlement.totalMinor], [8, "w-8", 45_000], "5 小时的行程：按区域的 6h 旧行不算候选，选整商品的 8h");
+});
+
+test("「套餐价不一致」逐条明细：旧的按区域套餐价和整商品套餐价（同车型组、套餐、生效开始日）比，不一样或整商品没有的列出来", () => {
+  const rules = [
+    rule("old-tokyo", "tokyo", pkgPricing(60_000)),
+    rule("old-yoko", "yokohama", pkgPricing(58_000)),
+    rule("old-yoko-8", "yokohama", pkgPricing(45_000), { packageHours: 8 }),
+    rule("wide", null, pkgPricing(60_000)),
+    updown("u", "fuji", 1, 1),
+  ];
+  const terms = (packagePriceMinor: number) => ({ packagePriceMinor, packageKm: 300, overtimePerHourMinor: 5_000, overKmPerKmMinor: 400, validTo: null, status: "enabled" as const });
+  assert.deepEqual(charterMigrationDiff(rules), [
+    { oldRuleId: "old-yoko", areaId: "yokohama", vehicleGroupId: "eco7", packageHours: 10, validFrom: "2026-01-01", old: terms(58_000), productRuleId: "wide", product: terms(60_000) },
+    { oldRuleId: "old-yoko-8", areaId: "yokohama", vehicleGroupId: "eco7", packageHours: 8, validFrom: "2026-01-01", old: terms(45_000), productRuleId: null, product: null },
+  ]);
+  assert.deepEqual(charterMigrationDiff([rule("old", "tokyo", pkgPricing(60_000)), rule("wide", null, pkgPricing(60_000), { status: "disabled" })]).map((entry) => entry.oldRuleId), ["old"], "状态不同也算不一致");
 });

@@ -1205,3 +1205,50 @@ export function priceCoverage(input: { category: ServiceCategory; areaIds: reado
   }
   return { total: combos.length, priced: combos.filter((combo) => combo.state !== "missing").length, packages, combos };
 }
+
+// ---- 三层区域迁移的「套餐价不一致」（M9P-05，ADR 0093 第六节第 1 小节）----
+
+/** 一条包车套餐价的条款（比较新旧套餐价用） */
+export interface CharterPackageTerms {
+  packagePriceMinor: number;
+  packageKm: number;
+  overtimePerHourMinor: number;
+  overKmPerKmMinor: number;
+  validTo: string | null;
+  status: PriceRuleStatus;
+}
+
+export interface CharterMigrationDiffEntry {
+  /** 旧的按服务区域的套餐价 */
+  oldRuleId: string;
+  areaId: string;
+  vehicleGroupId: string;
+  packageHours: number | null;
+  validFrom: string;
+  old: CharterPackageTerms;
+  /** 对应的整商品套餐价（同车型组、套餐、生效开始日）；没有为 null */
+  productRuleId: string | null;
+  product: CharterPackageTerms | null;
+}
+
+function packageTerms(rule: PriceRule): CharterPackageTerms | null {
+  const pricing = rule.pricing;
+  if (pricing.model !== "charter_package") return null;
+  return { packagePriceMinor: pricing.packagePriceMinor, packageKm: pricing.packageKm, overtimePerHourMinor: pricing.overtimePerHourMinor, overKmPerKmMinor: pricing.overKmPerKmMinor, validTo: rule.validTo, status: rule.status };
+}
+
+/**
+ * 迁移过三层区域的商品：保留的旧按服务区域套餐价里，和整商品套餐价（同车型组、套餐、生效开始日）不一样的那些（含整商品没有对应行的）。
+ * 不存，随时由保留的旧行现算（ADR 0093 第六节第 1 小节）。按规则的先后。
+ */
+export function charterMigrationDiff<P extends PriceRule & { id: string }>(rules: readonly P[]): CharterMigrationDiffEntry[] {
+  const wide = rules.filter((rule) => rule.pricing.model === "charter_package" && rule.areaId === null);
+  return rules.flatMap((rule): CharterMigrationDiffEntry[] => {
+    const old = packageTerms(rule);
+    if (old === null || rule.areaId === null) return [];
+    const match = wide.find((entry) => entry.vehicleGroupId === rule.vehicleGroupId && entry.packageHours === rule.packageHours && entry.validFrom === rule.validFrom);
+    const product = match === undefined ? null : packageTerms(match);
+    if (product !== null && JSON.stringify(product) === JSON.stringify(old)) return [];
+    return [{ oldRuleId: rule.id, areaId: rule.areaId, vehicleGroupId: rule.vehicleGroupId, packageHours: rule.packageHours, validFrom: rule.validFrom, old, productRuleId: match?.id ?? null, product }];
+  });
+}

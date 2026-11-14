@@ -10,6 +10,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import {
   type AdjustRule,
+  type CharterPackageTerms,
   PRICE_DIRECTIONS,
   PRICE_RULE_STATUSES,
   PRICING_MODELS,
@@ -33,12 +34,14 @@ import {
   type AdjustSaveResult,
   type CalendarView,
   type PriceChanges,
+  type CharterMigrationDiffView,
   type PriceRulesView,
   type PriceSaveResult,
   createAdjustRule,
   deleteAdjustRule,
   getAdjustRules,
   getPriceCalendar,
+  getCharterMigrationDiff,
   getPriceCoverage,
   getPriceOverview,
   getPriceRules,
@@ -193,6 +196,31 @@ function coverageJson(view: { coverage: PriceRulesView["coverage"]; items: Store
       price_rule_id: combo.ruleIndex === null ? null : (view.items[combo.ruleIndex]?.id ?? null),
       via_both: combo.viaBoth,
       from: combo.from,
+    })),
+  };
+}
+
+/** 三层区域迁移的「套餐价不一致」逐条明细（M9P-05）：结算价，租户侧、平台侧同一个结构 */
+export function charterMigrationDiffJson(view: CharterMigrationDiffView): Json {
+  const terms = (entry: CharterPackageTerms): Json => ({
+    package_price: entry.packagePriceMinor,
+    package_km: entry.packageKm,
+    overtime_per_hour: entry.overtimePerHourMinor,
+    over_km_per_km: entry.overKmPerKmMinor,
+    valid_to: entry.validTo,
+    status: entry.status,
+  });
+  return {
+    charter_layout: view.charterLayout,
+    items: view.items.map((entry) => ({
+      old_price_rule_id: entry.oldRuleId,
+      area_id: entry.areaId,
+      vehicle_group_id: entry.vehicleGroupId,
+      package_hours: entry.packageHours,
+      valid_from: entry.validFrom,
+      old: terms(entry.old),
+      product_price_rule_id: entry.productRuleId,
+      product: entry.product === null ? null : terms(entry.product),
     })),
   };
 }
@@ -460,6 +488,12 @@ export function registerPriceRoutes(app: FastifyInstance, ctx: AppContext): void
       respond: (saved) => ({ status: 200, body: { version: saved.view.version } }),
     });
     return result.body;
+  });
+
+  // 三层区域迁移的「套餐价不一致」（M9P-05，ADR 0093 第六节第 1 小节）：只读，只看自己的商品
+  app.get("/tenant/v1/products/:id/charter-migration-diff", async (request) => {
+    const principal = await authenticate(request, "product.read");
+    return charterMigrationDiffJson(await getCharterMigrationDiff(ctx, principal.tenantId, resourceId(request.params, "商品")));
   });
 
   app.get("/tenant/v1/products/:id/price-coverage", async (request) => {
