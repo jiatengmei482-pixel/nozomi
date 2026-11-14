@@ -158,10 +158,15 @@ function nearbyCharterCity(point: TripPoint | null, cities: readonly SiteCity[])
   return found === null ? null : (cities.find((city) => city.id === found.id) ?? null);
 }
 
-/** 填齐了时的询价请求（和它的键）；没填齐为 null。包车要等上下车点匹配到城市（`charterCity`）才报价。 */
-function requestOf(draft: TripDraft, charterCity: SiteQuotedCity | null, addons: readonly SiteAddonRequest[] = [], upgradeHours = ""): { key: string; run(): Promise<Outcome> } | null {
+/**
+ * 填齐了时的询价请求（和它的键）；没填齐为 null。包车要等上下车点匹配到城市（`charterCity`）才报价。
+ * `draftId`：从嵌入组件的预订草稿进来、草稿读到了时的草稿编号（M9E-12，ADR 0090 第三节第 3 小节）——包车、接送两种询价都带上，
+ * 服务端按它把草稿上的来源记到这次的报价、下单时再记到订单；草稿过期、无效时服务端只是忽略，不影响报价。
+ */
+function requestOf(draft: TripDraft, charterCity: SiteQuotedCity | null, draftId: string | null, addons: readonly SiteAddonRequest[] = [], upgradeHours = ""): { key: string; run(): Promise<Outcome> } | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.date) || !/^\d{2}:\d{2}$/.test(draft.time) || draft.from === null) return null;
   const serviceLocal = `${draft.date}T${draft.time}`;
+  const source = draftId === null ? {} : { draft_id: draftId };
   if (draft.mode === "charter") {
     // 经停点（M9W-02）：有没填好的不报价；至少一个时按行程计价（服务端按预计用时自动选套餐；客人手动升档时带 package_hours，M9P-03）；一个都没有时请求和以前完全一样
     const stops = waypointsBody(draft.waypoints);
@@ -169,7 +174,7 @@ function requestOf(draft: TripDraft, charterCity: SiteQuotedCity | null, addons:
     const itinerary = stops.length > 0;
     if (charterCity === null || (!itinerary && draft.packageHours === "") || draft.to === null) return null;
     // 不带城市（M9P-02）：服务器按上下车点匹配商品、自己找城市
-    const body: SiteQuoteRequest = { category: "charter", pickup: { lat: draft.from.lat, lng: draft.from.lng }, dropoff: { lat: draft.to.lat, lng: draft.to.lng }, ...(itinerary ? { itinerary_pricing: true, waypoints: stops, ...(upgradeHours === "" ? {} : { package_hours: Number(upgradeHours) }) } : { package_hours: Number(draft.packageHours) }), service_local: serviceLocal, passengers: draft.passengers, luggage: draft.luggage, ...(addons.length > 0 ? { addons: [...addons] } : {}), ...suggestionNames(draft.from, draft.to) };
+    const body: SiteQuoteRequest = { category: "charter", pickup: { lat: draft.from.lat, lng: draft.from.lng }, dropoff: { lat: draft.to.lat, lng: draft.to.lng }, ...(itinerary ? { itinerary_pricing: true, waypoints: stops, ...(upgradeHours === "" ? {} : { package_hours: Number(upgradeHours) }) } : { package_hours: Number(draft.packageHours) }), service_local: serviceLocal, passengers: draft.passengers, luggage: draft.luggage, ...(addons.length > 0 ? { addons: [...addons] } : {}), ...suggestionNames(draft.from, draft.to), ...source };
     return {
       key: JSON.stringify(body),
       run: async () => {
@@ -179,7 +184,7 @@ function requestOf(draft: TripDraft, charterCity: SiteQuotedCity | null, addons:
     };
   }
   if (draft.to === null) return null;
-  const body: SiteByPointsRequest = { pickup: end(draft.from), dropoff: end(draft.to), service_local: serviceLocal, passengers: draft.passengers, luggage: draft.luggage, ...(addons.length > 0 ? { addons: [...addons] } : {}), ...suggestionNames(draft.from, draft.to) };
+  const body: SiteByPointsRequest = { pickup: end(draft.from), dropoff: end(draft.to), service_local: serviceLocal, passengers: draft.passengers, luggage: draft.luggage, ...(addons.length > 0 ? { addons: [...addons] } : {}), ...suggestionNames(draft.from, draft.to), ...source };
   return { key: JSON.stringify(body), run: async () => ({ mode: "transfer", result: await createSiteQuotesByPoints(body) }) };
 }
 
@@ -256,6 +261,11 @@ export function BookNewPage() {
   const [cities, setCities] = useState<Load<SiteCity[]>>({ kind: "loading" });
   const [round, setRound] = useState(0);
   const [draft, setDraft] = useState<TripDraft>(() => initialDraft(link));
+  /**
+   * 读到了的预订草稿编号（M9E-12）：之后这一页的每次询价都带上，客人在主站改了行程也一样——来源记的是「客人从哪个网站来」（ADR 0090 第二节第 1 小节），
+   * 不是行程有没有改。草稿过期或不存在（404）时为 null、不带；读不出来（限速、网络）时照样带链接里的编号（`parseBookingLink` 已核过 43 位格式，服务端无效就忽略）。
+   */
+  const [draftSource, setDraftSource] = useState<string | null>(null);
   /** 日期是客人定的（链接、草稿带了，或自己改过）：之后换上车点、换标签都不再改成默认日期（M8-44） */
   const dateChosen = useRef(link.date !== null);
   const [errors, setErrors] = useState<Errors>({});
@@ -342,6 +352,7 @@ export function BookNewPage() {
         ({ draft: saved }) => {
           if (!alive) return;
           setLinkPending(false);
+          setDraftSource(link.draft);
           const trip = draftTrip(saved);
           if (trip.date !== "") dateChosen.current = true;
           setDraft((current) => ({ ...current, tab: trip.tab, mode: trip.tab, from: trip.from, to: trip.to, date: trip.date, time: trip.time, passengers: trip.passengers, luggage: trip.luggage, packageHours: trip.packageHours, waypoints: trip.waypoints }));
@@ -352,7 +363,10 @@ export function BookNewPage() {
         (err: unknown) => {
           if (!alive) return;
           setLinkPending(false);
-          setNotice({ kind: "warning", text: err instanceof ApiError && err.status === 404 ? DRAFT_EXPIRED_TEXT : DRAFT_FAILED_TEXT });
+          const gone = err instanceof ApiError && err.status === 404;
+          // 读不出来（429、网络）不代表草稿无效：编号照样带给询价，服务端核对，无效就忽略（M9E-12 审查）
+          if (!gone) setDraftSource(link.draft);
+          setNotice({ kind: "warning", text: gone ? DRAFT_EXPIRED_TEXT : DRAFT_FAILED_TEXT });
         },
       );
       return () => {
@@ -418,7 +432,7 @@ export function BookNewPage() {
   const upgradeHours = itineraryKey !== null && upgrade !== null && upgrade.key === itineraryKey ? upgrade.hours : "";
 
   // 填齐了就报价：停顿一下再查；改了任何一项旧结果立刻收起（键对不上的结果不显示）
-  const request = requestOf(draft, charterCity ?? null, [], upgradeHours);
+  const request = requestOf(draft, charterCity ?? null, draftSource, [], upgradeHours);
   const requestKey = request?.key ?? null;
   const latestRequest = useRef(request);
   latestRequest.current = request;
@@ -489,7 +503,7 @@ export function BookNewPage() {
         .map(([addon_id, quantity]) => ({ addon_id, quantity })),
     [addonQuantities],
   );
-  const addonRequest = selected !== null && addonList.length > 0 ? requestOf(draft, charterCity ?? null, addonList, upgradeHours) : null;
+  const addonRequest = selected !== null && addonList.length > 0 ? requestOf(draft, charterCity ?? null, draftSource, addonList, upgradeHours) : null;
   const addonKey = addonRequest?.key ?? null;
   const latestAddonRequest = useRef(addonRequest);
   latestAddonRequest.current = addonRequest;
