@@ -4,10 +4,10 @@
  * 运营后台（`embed.read` / `embed.manage`）：
  * - `GET /platform/v1/embed-keys`、`POST /platform/v1/embed-keys`：列表、新建（嵌入码由服务端生成）；
  * - `GET /platform/v1/embed-keys/{id}`、`PATCH /platform/v1/embed-keys/{id}`（`If-Match`）：详情（含合作网站要放的代码）、修改名称 / 白名单 / 默认值 / 外观 / 状态。
- *   外观 `layout`（M9E-10）只写进要放的代码，`/embed/v1/config` 不返回它。
+ *   外观 `layout`（M9E-10、M9E-14：auto / card / bar，默认 auto）由 `/embed/v1/config` 返回给组件，不写进要放的代码。
  *
  * 跨域只开在 `/embed/v1`（合作网站页面上的组件调用；查询串带 `key`）：
- * - `GET /embed/v1/config`：默认语言、默认标签、主站地址（浏览器缓存 60 秒）；
+ * - `GET /embed/v1/config`：默认语言、默认标签、外观、主站地址（浏览器缓存 60 秒）；
  * - `GET /embed/v1/places/autocomplete`、`/places/details`：同官网的输入即提示（同样的每地址额度），另加每个嵌入码每分钟 600 次；
  * - `POST /embed/v1/booking-drafts`：建预订草稿（≤ 16 KB），返回编号和要跳转的主站地址。
  * 共同规则：`Origin` 规范化后完全等于这个嵌入码白名单的某一项才处理并回 `Access-Control-Allow-Origin`；
@@ -55,7 +55,7 @@ function embedKeyJson(ctx: AppContext, key: EmbedKey): Json {
     version: key.version,
     created_at: key.createdAt.toISOString(),
     updated_at: key.updatedAt.toISOString(),
-    snippet: embedSnippet(new URL(ctx.config.publicBaseUrl).origin, key.key, key.defaultLang, key.defaultServices, key.layout),
+    snippet: embedSnippet(new URL(ctx.config.publicBaseUrl).origin, key.key, key.defaultLang, key.defaultServices),
   };
 }
 
@@ -134,7 +134,7 @@ export function registerEmbedRoutes(app: FastifyInstance, ctx: AppContext): void
   app.get("/embed/v1/config", guarded, async (request, reply) => {
     const { gate } = gateOf(request);
     reply.header("cache-control", `private, max-age=${EMBED_RULES.configMaxAgeSeconds}`);
-    return { lang: gate.embedKey.defaultLang, services: gate.embedKey.defaultServices, site_origin: new URL(ctx.config.publicBaseUrl).origin };
+    return { lang: gate.embedKey.defaultLang, services: gate.embedKey.defaultServices, layout: gate.embedKey.layout, site_origin: new URL(ctx.config.publicBaseUrl).origin };
   });
 
   app.options("/embed/v1/places/autocomplete", guarded, preflight("GET"));

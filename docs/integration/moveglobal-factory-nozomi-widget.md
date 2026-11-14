@@ -325,3 +325,120 @@ GJ 分支里的 `<div id="gojo-widget-container"></div>` 代表**你们模板里
 | 内容安全策略 | 告知需要放行的域名 | 将来加 CSP 时放行（第 6 节第 3 条） |
 
 组件显示异常、白名单、嵌入码的问题找 NOZOMI 侧；站点生成、发布、后台字段的问题由工厂侧处理。双方通过 NOZOMI 仓库的 issue 或既有沟通渠道联系，嵌入码不要贴在公开 issue 里（虽然它不是密钥，也没必要扩散）。
+
+## 10. 组件外观（自动）与位置、尺寸建议（M9E-14，2026-11-14）
+
+### 10.1 外观怎么定：自动、阈值、优先级
+
+业主的要求是「像 Good Journey 的组件一样，不用选外观，按屏幕自动适配」。组件现在这样定外观（以 NOZOMI 组件代码为准：`apps/web/src/embed/widget-core.ts` 的 `resolveLayout`、`layoutFor`，`widget-ui.ts` 的 `start`、`watchSize`）：
+
+| 顺序 | 来源 | 说明 |
+| --- | --- | --- |
+| 1 | 工厂页面 `NozomiBooking.init` 传的 `layout` | `"auto"` / `"card"` / `"bar"`。**传了就以它为准**；写错的值当没传 |
+| 2 | NOZOMI 运营后台这个嵌入码的「外观」 | 自动 / 卡片 / 横条，组件取配置（`/embed/v1/config`）时一起拿到；**默认「自动」** |
+| 3 | 两边都没有 | `auto` |
+
+- **`auto`（自动）**：按**组件容器**（`root` 指的那个元素，不是浏览器窗口）的宽度：容器 **≥ 900 px 显示横条，< 900 px 显示卡片**；窗口拉宽拉窄、手机横竖屏切换时随时换。需要别的门槛时在 init 里加 `autoBreakpoint`（768–4000 的数字，默认 900；写错或超出范围按 900）。
+- **`bar`**：容器 ≥ 768 px 横条，窄了自动变卡片。**`card`**：一直是卡片。
+- 换外观时已填的地点、日期、人数和光标位置都保留，不闪（组件拿到配置后才画表单，第一次画出来就是最终外观）。
+
+**对工厂的建议：`init` 里不写 `layout`**，外观交给组件自动选；某个站点确实要固定外观，再由 NOZOMI 运营在后台改这个嵌入码的「外观」——不用工厂重新发布。只有工厂想在自己后台控制外观时才在 `init` 里写 `layout`，写了就以工厂为准，NOZOMI 后台的设置对这个站点不起作用。
+
+**生效时间**：NOZOMI 运营在后台保存外观后，服务端立刻返回新值；组件的配置应答在访客浏览器里最多缓存 60 秒，所以**新打开或刷新的页面最迟约 1 分钟**就是新外观，已经开着的页面要刷新才变。工厂站点不用重新发布。（组件脚本本身缓存 5 分钟，只影响 NOZOMI 发布新版组件后多久到访客那里。）
+
+### 10.2 位置与尺寸建议
+
+以下数字是在演示站首页的离线副本上用 Playwright 量出来的（Chromium，窗口 1440 / 1280 / 1024 / 768 / 390，外观 auto，中文），截图见 NOZOMI 仓库 `docs/acceptance/M9E-14-shots/`（文件名是「位置-窗口宽度-实际外观」）。**这些只是建议，最终由工厂决定**；组件内部在 Shadow DOM 里，下面的 CSS 只管宿主的容器。
+
+组件本身的尺寸（实测）：
+
+| | 高度 | 宽度 |
+| --- | --- | --- |
+| 横条 | 167 px（上面的标签 55 px + 白色长条 112 px；包车加经停点时长条下面再展开） | 撑满容器。容器 900–1023 px 时中文、日文出发地 / 目的地的占位提示会被截掉一截（英文到 1200 px 才放得下），能输入、不影响使用（已登记 M9E-11）；想完全不截可以把 `autoBreakpoint` 设成 1024 |
+| 卡片 | 约 570–607 px（随语言和宽度略有变化） | 最宽 600 px（容器更宽时居中）；**建议 380–420 px**：380 px 起三种语言的高度一样（570 px）、没有截字；360 px 日文、英文的标签副标题会多一行（588 px）；320 px 英文占位提示被截 |
+
+#### 位置一：首屏底部整宽（横条压在首屏下沿）
+
+auto 下宽屏自动是横条、窄屏是卡片。
+
+- 容器：`max-width: 1280px`，左右内边距 32 px（窗口 < 1024 px 时 24 px，< 600 px 时 12 px）。窗口 1440 / 1280 时容器内容宽 1216 px，1024 时 960 px，都是横条；768 时 720 px 以下、390 时 366 px，是卡片。窗口宽度 ≥ 948 px（900 + 两边 24 px）才出现横条。
+- 上移：横条的标签和白色长条上半截压在首屏上，**上移 112 px**（标签 55 px + 长条一半 56 px）；首屏内容的下内边距至少 152 px（上移 112 + 和首屏文字留 40 px），首屏文字不被盖住。实测 1440 宽时首屏最后一行文字到标签上沿 137 px。
+- 变成卡片后（窗口 < 900 px）卡片有 570 px 高，只压 64 px（< 600 px 时 48 px），首屏下内边距 96 px；卡片最宽 640 px 居中。
+
+```css
+/* 宿主写：<div class="nozomi-slot nozomi-slot--hero-bottom"><div id="nozomi-booking"></div></div>，放在首屏 section 后面 */
+.nozomi-slot--hero-bottom {
+  position: relative; z-index: 3;          /* 盖在首屏上面 */
+  width: 100%; max-width: 1280px; box-sizing: border-box;
+  margin: -112px auto 0; padding: 0 32px;  /* 上移 112 px = 标签 55 + 长条一半 56 */
+}
+.hero .hero-content { padding-bottom: 152px; }  /* 首屏下内边距 ≥ 上移 + 40 */
+@media (max-width: 1023px) { .nozomi-slot--hero-bottom { padding: 0 24px; } }
+@media (max-width: 899px) {                     /* 容器 < 900，auto 变卡片 */
+  .nozomi-slot--hero-bottom { margin-top: -64px; max-width: 640px; }
+  .hero .hero-content { padding-bottom: 96px; }
+}
+@media (max-width: 599px) { .nozomi-slot--hero-bottom { margin-top: -48px; padding: 0 12px; } }
+
+/* 另一种写法：不改外边距，用 transform 上移（不影响首屏高度，但下面要补回同样的空白） */
+/* .nozomi-slot--hero-bottom { margin-top: 0; transform: translateY(-112px); margin-bottom: -112px; } */
+```
+
+截图：`bottom-1440-bar.jpg`、`bottom-1280-bar.jpg`、`bottom-1024-bar.jpg`、`bottom-768-card.jpg`、`bottom-390-card.jpg`。演示站现在的写法（`.quote-wrap` 上移 168 px、含一行引导语）在 auto 下的样子见 `demo-*.jpg`：1440 / 1280 / 1024 横条，768 / 390 卡片，也能用。
+
+#### 位置二：首屏右侧（卡片）
+
+容器窄（400 px），auto 下始终是卡片。
+
+- 宽度：**400 px**（窗口 900–1023 px 时 360 px）；首屏文字列和卡片之间 **48 px**（窄屏 32 px），卡片和首屏文字纵向居中。
+- 窗口 < 900 px 时改成一列：卡片放到首屏文字下面，最宽 600 px 居中，和文字间距 24 px（容器这时 600 px 以下，仍是卡片）。
+- 演示站现在首屏文字在右半边，放这个位置要把文字移到左列。
+
+```css
+/* 宿主写：首屏内容 .hero-content 里放两列：<div class="hero-text">…</div><div class="nozomi-slot--hero-right"><div id="nozomi-booking"></div></div> */
+.hero .hero-content.nozomi-hero-split {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 400px);
+  gap: 48px; align-items: center; padding-bottom: 64px;
+}
+.hero .hero-content.nozomi-hero-split > .hero-text { margin-left: 0; width: auto; }
+.nozomi-slot--hero-right { width: 100%; }
+@media (max-width: 1023px) { .hero .hero-content.nozomi-hero-split { grid-template-columns: minmax(0, 1fr) 360px; gap: 32px; } }
+@media (max-width: 899px) {
+  .hero .hero-content.nozomi-hero-split { grid-template-columns: 1fr; gap: 24px; }
+  .nozomi-slot--hero-right { max-width: 600px; margin: 0 auto; }
+}
+```
+
+截图：`right-1440-card.jpg`、`right-1280-card.jpg`、`right-1024-card.jpg`、`right-768-card.jpg`、`right-390-card.jpg`。
+
+#### 位置三：首屏下方（不压首屏）
+
+和位置一一样整宽，只是不上移：宽屏横条、窄屏卡片。
+
+- 容器同位置一（`max-width: 1280px`、内边距 32 / 24 / 12 px），和首屏下沿间距 **40 px**（< 600 px 时 24 px）；首屏下内边距恢复正常（演示站用 64 px）。
+
+```css
+.nozomi-slot--below-hero { width: 100%; max-width: 1280px; box-sizing: border-box; margin: 40px auto 0; padding: 0 32px; }
+@media (max-width: 1023px) { .nozomi-slot--below-hero { padding: 0 24px; } }
+@media (max-width: 599px) { .nozomi-slot--below-hero { margin-top: 24px; padding: 0 12px; } }
+```
+
+截图：`below-1440-bar.jpg`、`below-1280-bar.jpg`、`below-1024-bar.jpg`、`below-768-card.jpg`、`below-390-card.jpg`。
+
+#### 位置四：只在预订页
+
+首页不放组件，只在 `/booking/` 放。建议放在页面标题下面整宽：宽屏横条、窄屏卡片；和标题区间距 32 px（< 600 px 时 16 px），下面留 64 px。
+
+```css
+.nozomi-slot--booking { width: 100%; max-width: 1280px; box-sizing: border-box; margin: 32px auto 64px; padding: 0 32px; }
+@media (max-width: 1023px) { .nozomi-slot--booking { padding: 0 24px; } }
+@media (max-width: 599px) { .nozomi-slot--booking { margin-top: 16px; padding: 0 12px; } }
+```
+
+截图：`booking-1440-bar.jpg`、`booking-1280-bar.jpg`、`booking-1024-bar.jpg`、`booking-768-card.jpg`、`booking-390-card.jpg`（标题区是为截图临时画的，不代表 `/booking/` 的实际样子）。
+
+#### 共同注意
+
+- 容器要有确定的宽度（块级元素、或 grid / flex 里给了列宽）。如果容器是「按内容收缩」的（`display: inline-block`、`float`、没给宽度的 flex 子项），组件量到的宽度会跟着自己变，横条 / 卡片可能来回换。
+- 容器不要 `overflow: hidden`：人数行李的弹层、地址候选列表会往容器外面展开。
+- 以上四种实测都没有横向滚动条（窗口 390 起；组件本身 320 px 起不横向滚动）。
