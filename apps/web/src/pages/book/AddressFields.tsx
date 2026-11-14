@@ -14,6 +14,7 @@ import { type SitePlace, type SitePlaceCandidate, reverseSitePlace, searchSitePl
 import { Button } from "../../components/Button.tsx";
 import { Combobox, type ComboboxOption } from "../../components/Combobox.tsx";
 import { type CoordinateValue, CoordinateInput } from "../../components/FormFields.tsx";
+import { GoogleMapsAttribution } from "../../components/GoogleMapsAttribution.tsx";
 import { Icon } from "../../components/Icon.tsx";
 import { TextField } from "../../components/TextField.tsx";
 import { displayName } from "../../lib/master-display.ts";
@@ -113,7 +114,7 @@ type SearchState =
 
 const FALLBACK = "可以从常用地点选，或在地图上点选、直接填写地址和坐标。";
 
-/** 地址搜索：按「搜索」或回车才查（每次都可能花钱），结果是一列按钮。 */
+/** 地址搜索：按「搜索」或回车才查（每次都可能花钱），结果是一列按钮；有谷歌的候选时列表末尾署名「Google Maps」（M9E-06）。 */
 function AddressSearch({ word, lookup, onPick }: { word: string; lookup: AddressLookup; onPick(candidate: SitePlaceCandidate): void }) {
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -202,6 +203,7 @@ function AddressSearch({ word, lookup, onPick }: { word: string; lookup: Address
           ))}
         </ul>
       )}
+      {state.kind === "results" && <GoogleMapsAttribution items={state.items} />}
     </div>
   );
 }
