@@ -168,19 +168,30 @@ export interface EmbedGate {
   origin: string;
 }
 
-async function findActiveKey(db: Db, key: string): Promise<EmbedKey | null> {
-  const result = await db.query<EmbedKeyRow>(`select ${COLUMNS} from embed_keys where key = $1 and status = 'active'`, [key]);
+async function findKey(db: Db, key: string): Promise<EmbedKey | null> {
+  const result = await db.query<EmbedKeyRow>(`select ${COLUMNS} from embed_keys where key = $1`, [key]);
   const row = result.rows[0];
   return row === undefined ? null : fromRow(row);
 }
 
-/** 嵌入码存在、启用，请求的 Origin 完全等于白名单某项：否则一律 403（不区分原因） */
-export async function embedGate(ctx: AppContext, key: unknown, originHeader: string | undefined): Promise<EmbedGate> {
-  if (typeof key !== "string" || key.length > 64) throw embedOriginNotAllowed();
-  const embedKey = await withPlatformTx(ctx.pool, (db) => findActiveKey(db, key), { snapshot: true });
-  if (embedKey === null) throw embedOriginNotAllowed();
+/** 被拒的原因（M9E-22）：只写进主站日志（`embed.gate_refused`），应答不区分 */
+export type EmbedRefusal = "key_unknown" | "key_disabled" | "origin_not_allowed";
+
+/**
+ * 嵌入码存在、启用，请求的 Origin 完全等于白名单某项：否则一律 403 `EMBED_ORIGIN_NOT_ALLOWED`、不带 CORS 头（ADR 0090 第三节第 2 小节，应答不区分原因）。
+ * 原因写一行日志给 NOZOMI 运维排查（M9E-22）：嵌入码不存在 / 已停用 / 网站不在白名单；不记嵌入码原文（不存在的可能是乱填的），已有的记编号。
+ */
+export async function embedGate(ctx: AppContext, key: unknown, originHeader: string | undefined, log?: { info(obj: object, msg: string): void }): Promise<EmbedGate> {
+  const refuse = (reason: EmbedRefusal, embedKeyId: string | null): AppError => {
+    log?.info({ event: "embed.gate_refused", reason, embed_key_id: embedKeyId, origin: typeof originHeader === "string" ? originHeader.slice(0, 200) : null }, "嵌入组件的请求被拒");
+    return embedOriginNotAllowed();
+  };
+  if (typeof key !== "string" || key.length > 64) throw refuse("key_unknown", null);
+  const embedKey = await withPlatformTx(ctx.pool, (db) => findKey(db, key), { snapshot: true });
+  if (embedKey === null) throw refuse("key_unknown", null);
+  if (embedKey.status !== "active") throw refuse("key_disabled", embedKey.id);
   const origin = embedOriginAllowed(originHeader, embedKey.allowedOrigins, originOptions(ctx));
-  if (origin === null) throw embedOriginNotAllowed();
+  if (origin === null) throw refuse("origin_not_allowed", embedKey.id);
   return { embedKey, origin };
 }
 

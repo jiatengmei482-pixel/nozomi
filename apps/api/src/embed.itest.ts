@@ -243,6 +243,33 @@ test("停用嵌入码、把网站移出白名单后马上 403", async () => {
   assert.deepEqual(corsHeaders(disabled.headers), []);
 });
 
+test("M9E-22：嵌入码不存在、已停用、网站不在白名单，应答完全一样（403 EMBED_ORIGIN_NOT_ALLOWED、无 CORS 头）；原因只写主站日志 embed.gate_refused", async () => {
+  const key = await newKey([PARTNER]);
+  const disabledKey = await newKey([PARTNER]);
+  await ok(api.call("PATCH", `/platform/v1/embed-keys/${disabledKey.id}`, { token: m.root, headers: { "if-match": `"${disabledKey.version}"` }, body: { name: disabledKey.name, allowed_origins: [PARTNER], default_lang: "ja", default_services: ["transfer"], status: "disabled" } }));
+  const unknownKey = `nze_${randomUUID().replaceAll("-", "")}`;
+  const cases = [
+    { reason: "key_unknown", res: await embed("GET", "/embed/v1/config", unknownKey, PARTNER), id: null },
+    { reason: "key_disabled", res: await embed("GET", "/embed/v1/config", disabledKey.key, PARTNER), id: disabledKey.id },
+    { reason: "origin_not_allowed", res: await embed("GET", "/embed/v1/config", key.key, OTHER), id: key.id },
+  ];
+  for (const { reason, res } of cases) {
+    assert.equal(res.status, 403, reason);
+    assert.deepEqual(res.body, cases[0]?.res.body, `${reason}：应答体和嵌入码不存在时一样`);
+    assert.equal(res.body.error.code, "EMBED_ORIGIN_NOT_ALLOWED");
+    assert.deepEqual(corsHeaders(res.headers), [], reason);
+    assert.equal(Object.keys(res.headers).filter((name) => /refus|reason/i.test(name)).length, 0, `${reason}：没有透露原因的响应头`);
+  }
+  const lines = api.logs().split("\n").filter((line) => line.includes('"event":"embed.gate_refused"'));
+  for (const { reason, id } of cases) {
+    const line = lines.find((found) => found.includes(`"reason":"${reason}"`) && (id === null ? found.includes(`"embed_key_id":null`) && found.includes(`"origin":"${PARTNER}"`) : found.includes(`"embed_key_id":"${id}"`)));
+    assert.ok(line, `日志里有 ${reason}`);
+  }
+  assert.ok(!api.logs().includes(unknownKey), "不记不存在的嵌入码原文");
+  const disabledPreflight = await api.call("OPTIONS" as "GET", `/embed/v1/booking-drafts?key=${disabledKey.key}`, { ip: nextIp(), headers: { origin: PARTNER, "access-control-request-method": "POST" } });
+  assert.equal(disabledPreflight.status, 403, "停用的嵌入码预检也拒");
+});
+
 test("建草稿：201 + 主站地址，主站读得到；多余键 400、16 KB 413（都带 CORS 头的只有过了白名单的）；return_url 不合格被忽略", async () => {
   const key = await newKey([PARTNER, OTHER]);
   const created = await embed("POST", "/embed/v1/booking-drafts", key.key, PARTNER, { draft: draft(), return_url: `${PARTNER}/thanks` });

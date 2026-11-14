@@ -12,6 +12,7 @@
  * - `POST /embed/v1/booking-drafts`：建预订草稿（≤ 16 KB），返回编号和要跳转的主站地址。
  * 共同规则：`Origin` 规范化后完全等于这个嵌入码白名单的某一项才处理并回 `Access-Control-Allow-Origin`；
  * `null`、缺失、不在白名单、嵌入码不存在或停用一律 403 `EMBED_ORIGIN_NOT_ALLOWED`，不带 CORS 头。预检 `OPTIONS` 同样核对。
+ * 被拒的具体原因（嵌入码不存在 / 停用 / 网站不在白名单）只写主站日志 `embed.gate_refused`（M9E-22），应答不区分。
  * 不开 `Access-Control-Allow-Credentials`。其他前缀（`/site/v1` 等）永远不带 CORS 头。
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -111,7 +112,7 @@ export function registerEmbedRoutes(app: FastifyInstance, ctx: AppContext): void
     // 被拒的 403 也不让任何缓存保存
     reply.header("cache-control", "no-store");
     const { key } = splitKey(request.query);
-    const gate = await embedGate(ctx, key, request.headers.origin);
+    const gate = await embedGate(ctx, key, request.headers.origin, request.log);
     allowCors(reply, gate);
     reply.header("cache-control", "no-store");
     gates.set(request, gate);
