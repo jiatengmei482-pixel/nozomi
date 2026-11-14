@@ -482,7 +482,7 @@ export function registerChannelRoutes(app: FastifyInstance, ctx: AppContext): vo
       async (db) => {
         const exists = await db.query("select 1 from channels where id = $1", [channelId]);
         if ((exists.rowCount ?? 0) === 0) throw notFound("渠道");
-        const result = await db.query<{ id: string; created_at: Date; cursor_time: string; currency: string; city_id: string; category: string; candidate_count: number; quote_count: number; duration_ms: number; bids: { quote_id: string; vehicle_group_id: string; winner_tenant_id: string }[]; rejects: unknown[]; client_id: string; request: Json }>(
+        const result = await db.query<{ id: string; created_at: Date; cursor_time: string; currency: string; city_id: string; category: string; candidate_count: number; quote_count: number; duration_ms: number; bids: { quote_id: string; vehicle_group_id: string; winner_tenant_id: string }[]; rejects: { product_id?: string | null; vehicle_group_id?: string | null; reason?: string }[]; client_id: string; request: Json }>(
           `select l.id, l.created_at, l.created_at::text as cursor_time, l.currency, l.city_id, l.category, l.candidate_count, l.quote_count, l.duration_ms, l.bids, l.rejects, k.client_id, l.request
              from quote_logs l join channel_api_clients k on k.id = l.api_client_id
             where l.channel_id = $1 and ($2::timestamptz is null or (l.created_at, l.id) < ($2::timestamptz, $3::uuid))
@@ -504,6 +504,8 @@ export function registerChannelRoutes(app: FastifyInstance, ctx: AppContext): vo
         candidate_count: row.candidate_count,
         quote_count: row.quote_count,
         reject_count: row.rejects.length,
+        // 每条没报出价的原因（M9W-10）：平台内部的原始原因码和商品，只给平台端（规则 4 不涉及：没有价格；/tenant/v1 没有询价日志）
+        rejects: row.rejects.map((entry) => ({ product_id: entry.product_id ?? null, vehicle_group_id: entry.vehicle_group_id ?? null, reason: entry.reason ?? "UNKNOWN" })),
         duration_ms: row.duration_ms,
         request: row.request,
         quotes: row.bids.map((bid) => ({ quote_id: bid.quote_id, vehicle_group_id: bid.vehicle_group_id, winner_tenant_id: bid.winner_tenant_id })),

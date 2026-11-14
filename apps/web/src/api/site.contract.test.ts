@@ -109,8 +109,11 @@ test("报不出价的每个原因（含路线预估的 NO_ROUTE、TEMPORARILY_UN
 
 test("地址搜索、反查（M3-12）：应答只有 available 和候选 / 地址，没有任何像密钥、谷歌原文的字段；底图沿用区域页的定义", () => {
   const spec200 = (path: string): Schema | undefined => (spec.paths[path]?.["get"] as unknown as { responses: Record<string, { content: Record<string, { schema: Schema }> }> }).responses["200"]?.content["application/json"]?.schema;
-  assert.deepEqual(props(spec200(`${SITE_BASE}/places/search`)), ["available", "items"]);
-  assert.deepEqual(props(spec200(`${SITE_BASE}/places/reverse`)), ["address", "available"]);
+  // M8-45：多了只在「这个地址今天的额度用完了」时出现的 unavailable_reason（不是必有的字段）
+  assert.deepEqual(props(spec200(`${SITE_BASE}/places/search`)), ["available", "items", "unavailable_reason"]);
+  assert.deepEqual(props(spec200(`${SITE_BASE}/places/reverse`)), ["address", "available", "unavailable_reason"]);
+  assert.deepEqual(schemas["SitePlaceUnavailableReason"]?.enum, ["IP_DAILY_LIMIT"]);
+  for (const path of ["search", "reverse", "autocomplete", "details"]) assert.ok(!(spec200(`${SITE_BASE}/places/${path}`)?.required ?? []).includes("unavailable_reason"), path);
   assert.deepEqual(props(schemas["SitePlaceCandidate"]), ["address", "id", "kind", "location", "name", "source"]);
   for (const schema of [spec200(`${SITE_BASE}/places/search`), spec200(`${SITE_BASE}/places/reverse`), schemas["SitePlaceCandidate"], schemas["SiteConfig"]]) {
     assert.deepEqual(props(schema).filter((key) => /key|secret|token|google|raw/i.test(key)), []);
@@ -127,8 +130,8 @@ test("按两个坐标报价、输入即提示（M8-02）：请求和应答的字
   assert.deepEqual(props(result), sorted(SITE_BY_POINTS_RESULT_FIELDS));
   assert.deepEqual(sorted(result?.required ?? []), sorted(SITE_BY_POINTS_RESULT_FIELDS));
   assert.deepEqual(result?.properties?.["trip_type"]?.enum, ["pickup", "dropoff", "point_to_point"]);
-  assert.deepEqual(props(get200(`${SITE_BASE}/places/autocomplete`)), ["available", "items"]);
-  assert.deepEqual(props(get200(`${SITE_BASE}/places/details`)), ["available", "place"]);
+  assert.deepEqual(props(get200(`${SITE_BASE}/places/autocomplete`)), ["available", "items", "unavailable_reason"]);
+  assert.deepEqual(props(get200(`${SITE_BASE}/places/details`)), ["available", "place", "unavailable_reason"]);
   assert.deepEqual(schemas["SitePlaceKind"]?.enum, ["airport", "other"]);
   const keys = new Set<string>();
   const walk = (schema: Schema | undefined, seen: Set<string>): void => {

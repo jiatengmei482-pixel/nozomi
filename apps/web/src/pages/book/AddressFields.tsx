@@ -14,6 +14,7 @@ import { type SitePlace, type SitePlaceCandidate, reverseSitePlace, searchSitePl
 import { Button } from "../../components/Button.tsx";
 import { Combobox, type ComboboxOption } from "../../components/Combobox.tsx";
 import { type CoordinateValue, CoordinateInput } from "../../components/FormFields.tsx";
+import { GoogleMapsAttribution } from "../../components/GoogleMapsAttribution.tsx";
 import { Icon } from "../../components/Icon.tsx";
 import { TextField } from "../../components/TextField.tsx";
 import { displayName } from "../../lib/master-display.ts";
@@ -46,6 +47,12 @@ export interface AddressLookup {
   search: boolean;
   tiles: MapTiles | null;
 }
+
+/**
+ * 这个地址今天调谷歌的额度用完了（M8-45，应答带 `unavailable_reason: "IP_DAILY_LIMIT"`）：新预订页的输入即提示（含手机全屏选择页、经停点）和旧 /book 的地址搜索都用这一句开头。
+ * 和「输入太快了」（每分钟限流 429）、「暂时用不了」（谷歌出错、全站上限）分开说。
+ */
+export const PLACES_DAILY_LIMIT_TEXT = "今天的地址提示次数用完了";
 
 /**
  * 地址栏里写什么：名称，有地址时带上地址「名称（地址）」。
@@ -107,7 +114,7 @@ type SearchState =
 
 const FALLBACK = "可以从常用地点选，或在地图上点选、直接填写地址和坐标。";
 
-/** 地址搜索：按「搜索」或回车才查（每次都可能花钱），结果是一列按钮。 */
+/** 地址搜索：按「搜索」或回车才查（每次都可能花钱），结果是一列按钮；有谷歌的候选时列表末尾署名「Google Maps」（M9E-06）。 */
 function AddressSearch({ word, lookup, onPick }: { word: string; lookup: AddressLookup; onPick(candidate: SitePlaceCandidate): void }) {
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -127,7 +134,7 @@ function AddressSearch({ word, lookup, onPick }: { word: string; lookup: Address
     try {
       const found = await searchSitePlaces(lookup.cityId, normalized);
       if (mine !== round.current) return;
-      if (!found.available) setState({ kind: "unavailable", text: `地址搜索暂时用不了。${FALLBACK}` });
+      if (!found.available) setState({ kind: "unavailable", text: found.unavailable_reason === "IP_DAILY_LIMIT" ? `${PLACES_DAILY_LIMIT_TEXT}。${FALLBACK}` : `地址搜索暂时用不了。${FALLBACK}` });
       else setState(found.items.length === 0 ? { kind: "empty" } : { kind: "results", items: found.items });
     } catch (err) {
       if (mine !== round.current) return;
@@ -196,6 +203,7 @@ function AddressSearch({ word, lookup, onPick }: { word: string; lookup: Address
           ))}
         </ul>
       )}
+      {state.kind === "results" && <GoogleMapsAttribution items={state.items} />}
     </div>
   );
 }

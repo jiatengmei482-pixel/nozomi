@@ -243,7 +243,7 @@ test("没配置谷歌密钥：页面不显示搜索；接口照样 200 + availab
   await newAdminKey();
 });
 
-test("限速（按来源地址）：每分钟 20 次，第 21 次 429 + Retry-After；换个地址不受影响；每天 300 次", async () => {
+test("限速（按来源地址）：每分钟 20 次，第 21 次 429 + Retry-After；换个地址不受影响；每天的额度只计调谷歌的（M8-45），同一个词命中缓存问 320 次都不挡", async () => {
   reset();
   const ip = "203.0.113.77";
   const q = freshQuery();
@@ -255,14 +255,14 @@ test("限速（按来源地址）：每分钟 20 次，第 21 次 429 + Retry-Af
   assert.ok(Number(limited.headers["retry-after"]) > 0);
   assert.equal((await reverse(freshPoint(), site, ip)).status, 429, "反查和搜索共用额度");
   assert.equal((await search(q, site, "203.0.113.78")).status, 200);
-  // 每天：一分钟一分钟地用满 300 次（缓存命中，不花钱），第 301 次即使过了一分钟也挡
+  // 每天（M8-45）：只计真调谷歌的。一分钟一分钟地问同一个词 320 次（缓存命中，不花钱），超过 300 次也不挡、谷歌的候选照常；
+  // 用满 300 次调谷歌之后的行为（不 429，available false + unavailable_reason）见 site-places-google-day.itest.ts
   const daily = "203.0.113.79";
-  for (let used = 0; used < 300; used++) {
+  for (let used = 0; used < 320; used++) {
     if (used % 20 === 0) api.clock.advance(61_000);
-    assert.equal((await search(q, site, daily)).status, 200, `第 ${used + 1} 次`);
+    const res = await search(q, site, daily);
+    assert.deepEqual([res.status, res.body.available, res.body.unavailable_reason], [200, true, undefined], `第 ${used + 1} 次`);
   }
-  api.clock.advance(61_000);
-  assert.equal((await search(q, site, daily)).status, 429);
   assert.equal(places.requests.length, 1);
 });
 

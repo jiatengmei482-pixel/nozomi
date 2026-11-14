@@ -8,6 +8,7 @@
  * - 手机触屏（M8-37，业主 2026-11-12：移动设备优先保证操作流程）：页面上是一格「出发地 / 目的地」，点一下打开全屏选择页
  *   （`FullScreenSheet`，在页面最上层，手机键盘、吸顶条、地图都盖不住），里面是输入框、候选列表和「在地图上选点」；选中后回到页面，「取消」不改原来的值。
  *   电脑和鼠标操作的窄窗口照旧在页面上选（窄窗口候选紧贴输入框下面）。
+ * - 候选里有谷歌来源的一项时，列表末尾署名「Google Maps」（M9E-06，`components/GoogleMapsAttribution.tsx`，和嵌入组件同一份写法）。
  * 浏览器只连 `/site/v1`，不连谷歌（ADR 0044）。
  */
 import { type CityCandidate, normalizePlaceQuery, placeQueryIssue, serviceCityOf } from "@nozomi/domain";
@@ -16,9 +17,10 @@ import { ApiError } from "../../../api/client.ts";
 import type { MapTiles } from "../../../api/areas.ts";
 import { type SitePlaceSuggestion, autocompleteSitePlaces, getSitePlaceDetails, reverseSitePlace } from "../../../api/site.ts";
 import { Button } from "../../../components/Button.tsx";
+import { GoogleMapsAttribution } from "../../../components/GoogleMapsAttribution.tsx";
 import { Icon } from "../../../components/Icon.tsx";
 import { type TripPoint, pointName } from "../../../lib/book-new.ts";
-import { addressText } from "../AddressFields.tsx";
+import { PLACES_DAILY_LIMIT_TEXT, addressText } from "../AddressFields.tsx";
 import { type LatLngValue, SiteMapPicker } from "../SiteMapPicker.tsx";
 import { FullScreenSheet } from "../../../components/FullScreenSheet.tsx";
 import { PickerTrigger, useFullScreenPickers } from "./full-screen.tsx";
@@ -153,7 +155,15 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
           setItems(found.items);
           setActive(found.items.length > 0 ? 0 : -1);
           setOpen(found.items.length > 0);
-          if (!found.available) setStatus({ kind: "notice", warning: true, text: found.items.length > 0 ? `地址提示暂时用不了，下面只有平台的机场和车站。${tiles !== null ? FALLBACK_MAP : ""}` : `地址提示暂时用不了。${tiles !== null ? "请在地图上选点，或" : "请"}输入机场、车站的名称。` });
+          if (!found.available) {
+            // 这个地址今天调谷歌的额度用完了（M8-45）和谷歌暂时用不了分开说；平台的机场、车站照常列在下面
+            const daily = found.unavailable_reason === "IP_DAILY_LIMIT";
+            const head = daily ? PLACES_DAILY_LIMIT_TEXT : "地址提示暂时用不了";
+            const text = found.items.length > 0
+              ? `${head}，下面只有平台的机场和车站${tiles === null ? "。" : `${daily ? "；" : "。"}${FALLBACK_MAP}`}`
+              : `${head}。${tiles !== null ? "请在地图上选点，或" : "请"}输入机场、车站的名称。`;
+            setStatus({ kind: "notice", warning: true, text });
+          }
           else setStatus(found.items.length > 0 ? { kind: "results" } : { kind: "empty" });
         },
         (err: unknown) => {
@@ -188,7 +198,8 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
       if (mine !== round.current) return;
       session.current = newSessionToken();
       if (found.place === null) {
-        setStatus({ kind: "notice", warning: true, text: `没有取到这个地点的位置，请换一个候选。${tiles !== null ? FALLBACK_MAP : ""}` });
+        const head = found.unavailable_reason === "IP_DAILY_LIMIT" ? `${PLACES_DAILY_LIMIT_TEXT}，没有取到这个地点的位置，请选平台的机场、车站。` : "没有取到这个地点的位置，请换一个候选。";
+        setStatus({ kind: "notice", warning: true, text: `${head}${tiles !== null ? FALLBACK_MAP : ""}` });
         return;
       }
       setStatus({ kind: "idle" });
@@ -313,16 +324,20 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
             setOpen(false);
           }}
         />
-        <ul id={listId} role="listbox" aria-label={`${label}的候选`} className={fullScreen ? "place-field__panel place-field__panel--sheet" : "combobox__panel place-field__panel"} hidden={items.length === 0 || (!open && !fullScreen)} onPointerDown={(event) => event.preventDefault()}>
-          {items.map((item, index) => (
-            <li key={`${item.source}-${item.id}`} role="presentation">
-              <div id={`${id}-option-${index}`} role="option" aria-selected={index === active} className={index === active ? "combobox__option combobox__option--active place-field__option" : "combobox__option place-field__option"} onPointerMove={() => setActive(index)} onClick={() => void choose(item)}>
-                <span className="combobox__option-label">{item.name}</span>
-                {suggestionDetail(item) !== "" && <span className="place-field__detail">{suggestionDetail(item)}</span>}
-              </div>
-            </li>
-          ))}
-        </ul>
+        {/* 弹出面板：候选列表 + 谷歌署名（M9E-06：署名在 listbox 外、固定在面板底部） */}
+        <div className={fullScreen ? "place-field__panel place-field__panel--sheet" : "combobox__panel place-field__panel"} hidden={items.length === 0 || (!open && !fullScreen)} onPointerDown={(event) => event.preventDefault()}>
+          <ul id={listId} role="listbox" aria-label={`${label}的候选`} className="place-field__list">
+            {items.map((item, index) => (
+              <li key={`${item.source}-${item.id}`} role="presentation">
+                <div id={`${id}-option-${index}`} role="option" aria-selected={index === active} className={index === active ? "combobox__option combobox__option--active place-field__option" : "combobox__option place-field__option"} onPointerMove={() => setActive(index)} onClick={() => void choose(item)}>
+                  <span className="combobox__option-label">{item.name}</span>
+                  {suggestionDetail(item) !== "" && <span className="place-field__detail">{suggestionDetail(item)}</span>}
+                </div>
+              </li>
+            ))}
+          </ul>
+          <GoogleMapsAttribution items={items} />
+        </div>
       </div>
       <p id={statusId} className={warning ? "site-address__status site-address__status--warning" : "site-address__status"} role="status">
         {warning && <Icon name="alert-triangle" />}

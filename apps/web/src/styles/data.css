@@ -545,6 +545,56 @@
   font-size: var(--font-size-sm);
 }
 
+/* 地址候选末尾的谷歌署名（M9E-06，lib/google-attribution.ts）：按谷歌地图平台的要求原样、不折行、字号 12、字重 400、
+   灰色且对比 ≥ 4.5:1（亮色 text-secondary #4A5361 / 暗色 #B3BAC6），靠右，和候选之间留白分开。
+   放在候选列表（listbox）后面、同一个面板里；面板能滚动时固定在面板底部（谷歌要求署名始终可见），底色盖住滚过去的候选 */
+.google-attribution {
+  display: block;
+  margin: 0;
+  padding: var(--space-2) var(--space-3) var(--space-1);
+  color: var(--color-text-secondary);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-xs);
+  font-style: normal;
+  font-weight: var(--font-weight-regular);
+  letter-spacing: normal;
+  text-align: right;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.place-field__panel > .google-attribution {
+  border-top: var(--border-width) solid var(--color-border-default);
+  background: var(--color-bg-surface);
+}
+
+/* 页面上的下拉：面板高度不变，滚动的是候选列表（listbox），署名在列表下面不跟着滚 */
+.combobox__panel.place-field__panel {
+  display: flex;
+  flex-direction: column;
+  overflow-y: hidden;
+}
+
+.combobox__panel.place-field__panel[hidden] {
+  display: none;
+}
+
+.combobox__panel.place-field__panel > .place-field__list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.combobox__panel.place-field__panel > .google-attribution {
+  flex: none;
+}
+
+/* 手机全屏选择页：滚动的是选择页内容区，署名贴在可视区底部 */
+.place-field__panel--sheet > .google-attribution {
+  position: sticky;
+  bottom: 0;
+}
+
 /* 名称放不下时次要文字（编码等）换到下一行，名称不在单词中间折行；一个词比整行还长才折 */
 .combobox__option {
   display: flex;
