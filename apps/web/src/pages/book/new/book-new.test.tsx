@@ -698,7 +698,7 @@ const draftOf = (changes: Partial<BookingDraft> = {}): BookingDraft => ({
   ...changes,
 });
 
-test("预订草稿（M9E-01）：区间按草稿整份预填，直接到第 2 步按两个坐标报价；只读一次草稿，其余链接参数不看", async () => {
+test("预订草稿（M9E-01、M9E-12）：区间按草稿整份预填，直接到第 2 步按两个坐标报价、带上草稿编号；只读一次草稿，其余链接参数不看", async () => {
   wideScreen();
   const calls = open({ at: `/book/new?draft=${DRAFT_ID}&from=HND&pax=9`, draft: () => json(200, { draft: draftOf(), expires_at: "2030-11-19T02:00:00.000Z" }) });
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
@@ -710,6 +710,7 @@ test("预订草稿（M9E-01）：区间按草稿整份预填，直接到第 2 �
     service_local: "2030-11-20T14:30",
     passengers: 3,
     luggage: 1,
+    draft_id: DRAFT_ID,
   });
   assert.equal(search().includes("step=2"), true);
   assert.ok(within(aside()).getByText("成田国际机场"));
@@ -726,6 +727,7 @@ test("预订草稿（M9E-01）：包车带经停点按行程询价（带 itinera
   assert.deepEqual(body.waypoints, [{ name: "浅草寺", lat: 35.7148, lng: 139.7967, stay_minutes: 60 }]);
   assert.equal("package_hours" in body, false);
   assert.deepEqual([body.service_local, body.passengers, body.luggage], ["2030-11-20T14:30", 3, 1]);
+  assert.equal(body.draft_id, DRAFT_ID, "包车也带草稿编号（M9E-12）");
 });
 
 test("预订草稿（M9E-01）：包车按时长，时长在城市套餐里——预填后到第 2 步按这个时长询价", async () => {
@@ -734,7 +736,7 @@ test("预订草稿（M9E-01）：包车按时长，时长在城市套餐里—�
   const calls = open({ at: `/book/new?draft=${DRAFT_ID}`, packages: [4, 8], draft: () => json(200, { draft, expires_at: "2030-11-19T02:00:00.000Z" }) });
   await waitFor(() => assert.equal(posts(calls, "/site/v1/quotes").length > 0, true), SLOW);
   const body = posts(calls, "/site/v1/quotes")[0]?.body as Record<string, unknown>;
-  assert.deepEqual([body.category, body.package_hours, "itinerary_pricing" in body], ["charter", 8, false]);
+  assert.deepEqual([body.category, body.package_hours, "itinerary_pricing" in body, body.draft_id], ["charter", 8, false, DRAFT_ID]);
   await waitFor(() => assert.equal(search().includes("step=2"), true));
 });
 
@@ -761,9 +763,50 @@ test("预订草稿（M9E-03）：嵌入组件的包车、没填经停点（不�
   assert.equal(hours.value, "");
   assert.equal(posts(calls, "/site/v1/quotes").length, 0);
   assert.equal(search().includes("step=2"), false);
-  await user().selectOptions(hours, "8");
+  const actor = user();
+  await actor.selectOptions(hours, "8");
   await waitFor(() => assert.equal(posts(calls, "/site/v1/quotes").length > 0, true), SLOW);
   assert.equal((posts(calls, "/site/v1/quotes")[0]?.body as Record<string, unknown>).package_hours, 8);
+  assert.equal((posts(calls, "/site/v1/quotes")[0]?.body as Record<string, unknown>).draft_id, DRAFT_ID, "在主站选了时长后询价也带草稿编号（M9E-12）");
+
+  // M9E-12：客人在主站改了行程（换下车地点）还算从嵌入组件来——来源记的是客人从哪个网站来（ADR 0090），不看行程改没改
+  const before = posts(calls, "/site/v1/quotes").length;
+  await pickPlace(actor, "下车地点", "京王", /京王广场酒店/);
+  await waitFor(() => assert.equal(posts(calls, "/site/v1/quotes").length > before, true), SLOW);
+  const changed = posts(calls, "/site/v1/quotes").at(-1)?.body as Record<string, unknown>;
+  assert.deepEqual([changed.dropoff, changed.draft_id], [{ lat: 35.6905, lng: 139.6948 }, DRAFT_ID]);
+});
+
+test("预订草稿（M9E-12）：草稿过期、不存在或读不出来时，客人手填后的询价不带草稿编号，照常报价", async () => {
+  for (const reply of [undefined, () => apiError(429, "RATE_LIMITED", "太频繁", {}, { "retry-after": "30" })]) {
+    wideScreen();
+    const calls = open({ at: `/book/new?draft=${DRAFT_ID}`, ...(reply === undefined ? {} : { draft: reply }) });
+    const actor = user();
+    assert.ok(await screen.findByText(reply === undefined ? "链接已过期，请重新填写。" : "没能读取预订信息，请重新填写，或稍后刷新页面。", {}, SLOW));
+    await fillTrip(actor);
+    await waitFor(() => assert.equal(posts(calls).length > 0, true), SLOW);
+    for (const call of posts(calls)) assert.equal("draft_id" in (call.body as Record<string, unknown>), false);
+    await next(actor, NEXT_VEHICLES);
+    await screen.findByRole("heading", { name: "车型1" }, SLOW);
+    resetBrowser();
+  }
+});
+
+test("预订草稿（M9E-12）：加了附加服务重新报价（下单用这一次的报价）也带草稿编号", async () => {
+  const seat = { id: "a1a1a1a1-aaaa-4aaa-8aaa-aaaaaaaaaaa1", code: "ADD-SEAT", name: { zh: "儿童座椅" }, charge_unit: "per_item" } as const;
+  const { calls, actor } = await openSelected({
+    at: `/book/new?draft=${DRAFT_ID}`,
+    draft: () => json(200, { draft: draftOf(), expires_at: "2030-11-19T02:00:00.000Z" }),
+    quote: (call) =>
+      (call.body as { addons?: unknown }).addons === undefined
+        ? json(200, byPoints({ quotes: [quoteOf(1, { amount: 22000, addons: [seat] }), quoteOf(2)] }))
+        : json(200, byPoints({ quotes: [quoteOf(1, { amount: 23500, id: "QT20301120ADDONS0001", addons: [seat] })] })),
+  });
+  await actor.click(within(screen.getByRole("region", { name: "附加服务（选填）" })).getByRole("button", { name: "增加儿童座椅" }));
+  await waitFor(() => assert.ok(within(aside()).getByText("23,500")), SLOW);
+  const withAddons = posts(calls).filter((call) => (call.body as { addons?: unknown }).addons !== undefined);
+  assert.ok(withAddons.length > 0);
+  for (const call of posts(calls)) assert.equal((call.body as { draft_id?: unknown }).draft_id, DRAFT_ID);
 });
 
 test("预订草稿（M9E-01）：过期或不存在时说「链接已过期」并留空白表单；读不出来（限速、网络）另一种说法；都不报价", async () => {

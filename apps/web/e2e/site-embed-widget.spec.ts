@@ -8,39 +8,44 @@
  * - 建草稿失败（M9E-07，ADR 0090 第七节）：网络错误、429 两种（拦截改写应答）、400（客人填了不存在的日期，真实 API 拒绝）各显示第四节的那一句、不跳转；
  *   400 标出日期并把焦点移过去，改正后去掉标记。
  * - 包车（M9E-07）：选「包车」标签、不填经停点 → 跳 /book/new?draft= 后停在第 1 步等客人选时长、不询价 → 选 8 小时后报价。
+ * - 来源（M9E-12）：配了 Stripe 的那一组主站上，组件建草稿 → 询价带 `draft_id` → 下单 → 假 Stripe 测试卡 4242 付款 →
+ *   平台订单详情 `entry_source.kind` 是 `embed`、带嵌入码名称和网站 → 订单页「返回原网站」链到建草稿时的 return_url。
  */
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { AxeBuilder } from "@axe-core/playwright";
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
-import { E2E_WEB_PLACES_PORT } from "../playwright.config.ts";
-import { airportLink, createAirport, publishTransfer } from "./book-new-support.ts";
+import { E2E_WEB_PLACES_PORT, E2E_WEB_STRIPE_PORT } from "../playwright.config.ts";
+import { TOKYO_STATION, airportLink, createAirport, publishTransfer } from "./book-new-support.ts";
 import { createSupplier, createWorld } from "./catalog.ts";
 import { charterWorld } from "./charter-support.ts";
+import { TEST_CARDS, routeStripe } from "./fake-stripe.ts";
 import { OWN_SITE_SOURCE, platformAdminHeaders, randomLetters } from "./support.ts";
 
 test.use(OWN_SITE_SOURCE);
 
 /** 有假谷歌密钥的那一组（地址输入即提示要用） */
 const SITE = `http://127.0.0.1:${E2E_WEB_PLACES_PORT}`;
+/** 配了 Stripe 测试密钥（指向本机假 Stripe）的那一组：要付款才看得到「返回原网站」。没有谷歌密钥，地址只选平台的机场、车站 */
+const STRIPE_SITE = `http://127.0.0.1:${E2E_WEB_STRIPE_PORT}`;
 
 /** 宿主页：所有 div、input、button 红底白字、30px、粗体、字距、大写、斜体（都加 !important），看组件会不会被染上（会继承的几项最容易穿进 Shadow DOM） */
-function hostPage(key: string): string {
+function hostPage(key: string, site: string): string {
   return `<!doctype html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>合作网站</title>
 <style>div, input, button { background: rgb(255, 0, 0) !important; color: rgb(255, 255, 255) !important; font-size: 30px !important; font-weight: 700 !important; letter-spacing: 6px !important; text-transform: uppercase !important; font-style: italic !important; } body { margin: 0; }</style></head>
 <body><main><h1>合作网站</h1><div id="nozomi-booking"></div></main>
-<script src="${SITE}/embed/widget-v1.js"></script>
+<script src="${site}/embed/widget-v1.js"></script>
 <script>NozomiBooking.init({ key: ${JSON.stringify(key)}, root: "#nozomi-booking", lang: "zh", services: ["transfer", "charter"], redirectUrl: location.origin + "/thanks" });</script>
 </body></html>`;
 }
 
-async function startHost(key: () => string): Promise<{ server: Server; origin: string }> {
+async function startHost(key: () => string, site = SITE): Promise<{ server: Server; origin: string }> {
   const server = createServer((request, response) => {
     if (request.url !== "/" && request.url !== "/index.html") {
       response.writeHead(404).end();
       return;
     }
-    response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(hostPage(key()));
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(hostPage(key(), site));
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   return { server, origin: `http://127.0.0.1:${(server.address() as AddressInfo).port}` };
@@ -48,15 +53,19 @@ async function startHost(key: () => string): Promise<{ server: Server; origin: s
 
 let allowedHost: { server: Server; origin: string };
 let otherHost: { server: Server; origin: string };
+/** 组件从配了 Stripe 的主站加载的宿主网站（M9E-12） */
+let payingHost: { server: Server; origin: string };
 let embedKey = "";
 
 test.beforeAll(async () => {
   allowedHost = await startHost(() => embedKey);
   otherHost = await startHost(() => embedKey);
+  payingHost = await startHost(() => embedKey, STRIPE_SITE);
 });
 test.afterAll(async () => {
   await new Promise((resolve) => allowedHost.server.close(resolve));
   await new Promise((resolve) => otherHost.server.close(resolve));
+  await new Promise((resolve) => payingHost.server.close(resolve));
 });
 
 const dayAfterTomorrow = (): string => new Date(Date.now() + 2 * 86_400_000 + 9 * 3_600_000).toISOString().slice(0, 10);
@@ -288,4 +297,73 @@ test("嵌入组件包车：选「包车」、不填经停点 → 跳 /book/new?d
   const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: trip.groupName }) });
   await expect(card).toContainText("78,100 JPY");
   expect(charterQuotes.at(-1)).toMatchObject({ category: "charter", pickup: trip.pickup, dropoff: trip.station.location, package_hours: 8, service_local: `${date}T10:00` });
+});
+
+test("嵌入组件来的单记来源（M9E-12）：建草稿 → 询价带 draft_id → 下单 → 测试卡 4242 付款 → 平台订单详情来源是嵌入组件（带嵌入码名称）→ 订单页「返回原网站」链到 return_url", async ({ page, request }) => {
+  test.setTimeout(180_000);
+  const world = await createWorld(request);
+  const airport = await createAirport(request, world);
+  const supplier = await createSupplier(request, world);
+  await publishTransfer(request, supplier, { ...world, airport });
+  // 目的地：平台的车站（这一组主站没有谷歌密钥），放在东京站（供应商区域里）
+  const stationName = `嵌入来源车站${randomLetters(5)}`;
+  const placed = await request.post("/platform/v1/master/places", { headers: await platformAdminHeaders(request), data: { type: "station", code: `STN-JP-${randomLetters(6)}`, city_id: world.city.id, category: "rail", name: { zh: stationName }, location: TOKYO_STATION } });
+  expect(placed.status(), await placed.text()).toBe(201);
+  const keyName = `来源宿主 ${randomLetters(4)}`;
+  const created = await request.post("/platform/v1/embed-keys", { headers: await platformAdminHeaders(request), data: { name: keyName, allowed_origins: [payingHost.origin], default_lang: "zh", default_services: ["transfer", "charter"] } });
+  expect(created.status(), await created.text()).toBe(201);
+  const key = (await created.json()) as { id: string; key: string };
+  embedKey = key.key;
+  const fakeStripe = process.env["E2E_FAKE_STRIPE_URL"];
+  if (!fakeStripe) throw new Error("global-setup 没有启动假 Stripe");
+  await routeStripe(page, fakeStripe);
+  await page.setViewportSize({ width: 1280, height: 900 });
+
+  // 合作网站上的组件：选机场、车站、后天，查看价格 → 建草稿、跳主站
+  await page.goto(payingHost.origin);
+  await choosePlace(page, "出发地", airport.name);
+  await choosePlace(page, "目的地", stationName);
+  await page.getByLabel("日期").fill(dayAfterTomorrow());
+  const draftResponse = page.waitForResponse((res) => res.url().includes("/embed/v1/booking-drafts") && res.request().method() === "POST");
+  const quoteRequest = page.waitForRequest((sent) => new URL(sent.url()).pathname === "/site/v1/quotes/by-points" && sent.method() === "POST");
+  await page.getByRole("button", { name: "查看价格" }).click();
+  expect((await draftResponse).status()).toBe(201);
+  await page.waitForURL(new RegExp(`^${STRIPE_SITE.replace(/\./g, "\\.")}/book/new\\?draft=[A-Za-z0-9_-]{43}`));
+  const draftId = new URL(page.url()).searchParams.get("draft") as string;
+
+  // 主站的询价带上草稿编号：服务端凭它把来源记到报价上（这次漏带，单子都记成了主站）
+  expect(((await quoteRequest).postDataJSON() as { draft_id?: string }).draft_id).toBe(draftId);
+
+  // 选车 → 乘客信息 → 核对 → 下单
+  const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: world.group.name }) });
+  await card.getByRole("button", { name: `选择 ${world.group.name}` }).click();
+  await page.getByRole("button", { name: "下一步：填写乘客信息" }).click();
+  await expect(page.getByRole("heading", { level: 2, name: "乘客信息" })).toBeFocused();
+  await page.getByLabel("航班号").fill("NH211");
+  await page.getByLabel("乘车人姓名").fill("王小明");
+  await page.getByLabel("邮箱").fill(`embed-source-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`);
+  await page.getByLabel("手机号（含国家区号）").fill("+81 90-1234-5678");
+  await page.getByRole("button", { name: "下一步：核对订单" }).click();
+  await expect(page.getByRole("heading", { name: "核对订单" })).toBeFocused();
+  await page.getByRole("checkbox", { name: /同意保存这次付款用的银行卡/ }).check();
+  const orderResponse = page.waitForResponse((res) => new URL(res.url()).pathname === "/site/v1/orders" && res.request().method() === "POST");
+  await page.getByRole("button", { name: "去付款 →" }).click();
+  expect((await orderResponse).status()).toBe(201);
+  const orderId = ((await (await orderResponse).json()) as { order: { id: string } }).order.id;
+
+  // 订单页：待付款时不显示「返回原网站」；测试卡 4242 付款确认后显示，链到建草稿时的 return_url
+  await expect(page.getByRole("heading", { level: 1, name: /^订单 NZ/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: "返回原网站" })).toHaveCount(0);
+  await page.getByLabel("卡号（假 Stripe）").fill(TEST_CARDS.success);
+  await page.getByRole("button", { name: /^付款 / }).click();
+  await page.getByRole("button", { name: "确认支付" }).click();
+  await expect(page.getByText("付款成功，订单已确认。派车后这里会显示司机和车辆。")).toBeVisible({ timeout: 20_000 });
+  const back = page.getByRole("link", { name: "返回原网站" });
+  await expect(back).toHaveAttribute("href", `${payingHost.origin}/thanks`);
+  await expect(back).toHaveAttribute("rel", "noopener noreferrer");
+
+  // 平台订单详情：来源是嵌入组件，带嵌入码名称和网站
+  const detail = await request.get(`/platform/v1/orders/${orderId}`, { headers: await platformAdminHeaders(request) });
+  expect(detail.status(), await detail.text()).toBe(200);
+  expect(((await detail.json()) as { entry_source: unknown }).entry_source).toEqual({ kind: "embed", embed_key_id: key.id, embed_key_name: keyName, embed_origin: payingHost.origin });
 });
