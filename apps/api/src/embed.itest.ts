@@ -132,25 +132,37 @@ test("运营后台：运营、渠道经理能建能改，只读只能看，客�
   assert.equal((await api.call("GET", `/platform/v1/embed-keys/${randomUUID()}`, { token: m.root })).status, 404);
 });
 
-test("外观（M9E-10）：新建不填按卡片、可填横条；修改不填保持原值、填了才改；要放的代码带 layout；写进审计；取值不对 400；/embed/v1/config 不返回它", async () => {
+test("外观（M9E-10、M9E-14）：新建不填按自动、可填卡片 / 横条；修改不填保持原值、填了才改；要放的代码不写 layout；写进审计；取值不对 400；/embed/v1/config 返回它，改了马上返回新值", async () => {
   const plain = await newKey();
-  assert.equal(plain.layout, "card", "不填按卡片");
-  assert.match(plain.snippet, /services: \["transfer","charter"\], layout: "card" \}\);/);
+  assert.equal(plain.layout, "auto", "不填按自动");
+  assert.match(plain.snippet, /services: \["transfer","charter"\] \}\);/);
+  assert.doesNotMatch(plain.snippet, /layout/, "外观不写进代码，组件从配置里取");
+  const column = await api.db.owner.query<{ column_default: string }>("select column_default from information_schema.columns where table_schema = current_schema() and table_name = 'embed_keys' and column_name = 'layout'");
+  assert.match(column.rows[0]?.column_default ?? "", /^'auto'/, "库里的默认值也是 auto");
   const body = { name: "横条网站", allowed_origins: [PARTNER], default_lang: "zh", default_services: ["charter"] };
   const barRes = await api.call("POST", "/platform/v1/embed-keys", { token: m.staff.operations.token, body: { ...body, layout: "bar" } });
   assert.equal(barRes.status, 201, barRes.text);
   assertMatchesOpenApi("POST", "/platform/v1/embed-keys", barRes);
   const bar = barRes.body;
   assert.equal(bar.layout, "bar");
-  assert.match(bar.snippet, new RegExp(`NozomiBooking\\.init\\(\\{ key: "${bar.key}", root: "#nozomi-booking", lang: "zh", services: \\["charter"\\], layout: "bar" \\}\\);`));
+  assert.match(bar.snippet, new RegExp(`NozomiBooking\\.init\\(\\{ key: "${bar.key}", root: "#nozomi-booking", lang: "zh", services: \\["charter"\\] \\}\\);`));
   const stored = await api.db.owner.query<{ layout: string }>("select layout from embed_keys where id = $1", [bar.id]);
   assert.equal(stored.rows[0]?.layout, "bar");
 
-  for (const layout of ["banner", "", "CARD", null]) {
+  for (const layout of ["banner", "", "CARD", "AUTO", null]) {
     const res = await api.call("POST", "/platform/v1/embed-keys", { token: m.staff.operations.token, body: { ...body, layout } });
     assert.equal(res.status, 400, String(layout));
     assert.equal(res.body.error.code, "VALIDATION_FAILED");
   }
+
+  const config = async (): Promise<string> => {
+    const res = await embed("GET", "/embed/v1/config", bar.key, PARTNER);
+    assert.equal(res.status, 200, res.text);
+    assertMatchesOpenApi("GET", "/embed/v1/config", res);
+    assert.deepEqual(Object.keys(res.body).sort(), ["lang", "layout", "services", "site_origin"], "公开的配置接口只多 layout");
+    return res.body.layout;
+  };
+  assert.equal(await config(), "bar");
 
   const patch = (version: number, changes: Record<string, unknown>) =>
     api.call("PATCH", `/platform/v1/embed-keys/${bar.id}`, { token: m.staff.operations.token, headers: { "if-match": `"${version}"` }, body: { ...body, status: "active", ...changes } });
@@ -158,13 +170,16 @@ test("外观（M9E-10）：新建不填按卡片、可填横条；修改不填�
   assert.equal(kept.status, 200, kept.text);
   assertMatchesOpenApi("PATCH", "/platform/v1/embed-keys/{id}", kept);
   assert.equal(kept.body.layout, "bar", "不填保持原值");
-  assert.match(kept.body.snippet, /layout: "bar"/);
+  assert.equal(await config(), "bar");
   const changed = await patch(kept.body.version, { layout: "card" });
   assert.equal(changed.status, 200, changed.text);
   assert.equal(changed.body.layout, "card");
-  assert.match(changed.body.snippet, /layout: "card"/);
-  assert.equal((await patch(changed.body.version, { layout: "banner" })).status, 400);
-  assert.equal((await api.call("GET", `/platform/v1/embed-keys/${bar.id}`, { token: m.staff.readonly.token })).body.layout, "card");
+  assert.equal(await config(), "card", "服务端不缓存：保存后下一次取配置就是新值");
+  const auto = await patch(changed.body.version, { layout: "auto" });
+  assert.equal(auto.status, 200, auto.text);
+  assert.equal(await config(), "auto");
+  assert.equal((await patch(auto.body.version, { layout: "banner" })).status, 400);
+  assert.equal((await api.call("GET", `/platform/v1/embed-keys/${bar.id}`, { token: m.staff.readonly.token })).body.layout, "auto");
 
   const audits = await api.db.owner.query<{ action: string; before: { layout?: string } | null; after: { layout?: string } }>("select action, before, after from audit_logs where resource = 'embed_key' and resource_id = $1 order by id", [bar.id]);
   assert.deepEqual(
@@ -173,12 +188,9 @@ test("外观（M9E-10）：新建不填按卡片、可填横条；修改不填�
       ["create", null, "bar"],
       ["update", "bar", "bar"],
       ["update", "bar", "card"],
+      ["update", "card", "auto"],
     ],
   );
-
-  const config = await embed("GET", "/embed/v1/config", bar.key, PARTNER);
-  assert.equal(config.status, 200, config.text);
-  assert.deepEqual(Object.keys(config.body).sort(), ["lang", "services", "site_origin"], "公开的配置接口不变");
 });
 
 test("/embed/v1/config：Origin 完全等于白名单某项才 200 + CORS 头；null、缺失、只差一点、http、别的网站、嵌入码不存在都 403 且无 CORS 头", async () => {
@@ -186,7 +198,7 @@ test("/embed/v1/config：Origin 完全等于白名单某项才 200 + CORS 头；
   const okRes = await embed("GET", "/embed/v1/config", key.key, PARTNER);
   assert.equal(okRes.status, 200, okRes.text);
   assertMatchesOpenApi("GET", "/embed/v1/config", okRes);
-  assert.deepEqual({ ...okRes.body, site_origin: typeof okRes.body.site_origin }, { lang: "ja", services: ["transfer", "charter"], site_origin: "string" });
+  assert.deepEqual({ ...okRes.body, site_origin: typeof okRes.body.site_origin }, { lang: "ja", services: ["transfer", "charter"], layout: "auto", site_origin: "string" });
   assert.equal(new URL(okRes.body.site_origin).origin, okRes.body.site_origin);
   assert.equal(okRes.headers["access-control-allow-origin"], PARTNER);
   assert.match(String(okRes.headers["vary"]), /Origin/);

@@ -20,13 +20,13 @@ const keyOf = (changes: Partial<EmbedKey> = {}): EmbedKey => ({
   allowed_origins: ["https://embed-demo.moveglobal.io"],
   default_lang: "ja",
   default_services: ["transfer", "charter"],
-  layout: "card",
+  layout: "auto",
   status: "active",
   note: null,
   version: 1,
   created_at: "2030-11-20T01:00:00.000Z",
   updated_at: "2030-11-20T01:00:00.000Z",
-  snippet: `<div id="nozomi-booking"></div>\n<script src="https://nozomi.example/embed/widget-v1.js" defer></script>\n<script>NozomiBooking.init({ key: "${KEY}", root: "#nozomi-booking", lang: "ja", services: ["transfer","charter"], layout: "card" });</script>`,
+  snippet: `<div id="nozomi-booking"></div>\n<script src="https://nozomi.example/embed/widget-v1.js" defer></script>\n<script>NozomiBooking.init({ key: "${KEY}", root: "#nozomi-booking", lang: "ja", services: ["transfer","charter"] });</script>`,
   ...changes,
 });
 const OPS = ["embed.read", "embed.manage"];
@@ -37,7 +37,7 @@ test("列表：嵌入码、允许的网站、默认值和要放的代码；能�
   assert.ok(within(card).getByText(KEY));
   assert.ok(within(card).getByText("https://embed-demo.moveglobal.io"));
   assert.ok(within(card).getByText("区间、包车"));
-  assert.ok(within(card).getByText("卡片"), "外观");
+  assert.ok(within(card).getByText("自动"), "外观");
   assert.match(within(card).getByLabelText("MoveGlobal 演示站的嵌入代码").textContent ?? "", /widget-v1\.js/);
   assert.ok(within(card).getByRole("button", { name: "复制MoveGlobal 演示站的嵌入代码" }));
   assertAbsent(screen.queryByRole("button", { name: "新建嵌入码" }));
@@ -68,15 +68,15 @@ test("新建：一行一个网站，按区间、包车的顺序提交；服务�
   await actor.click(screen.getByRole("button", { name: "生成嵌入码" }));
   await screen.findByRole("region", { name: /MoveGlobal 演示站/ });
   const posted = calls.filter((call) => call.method === "POST").at(-1)?.body;
-  assert.deepEqual(posted, { name: "MoveGlobal 演示站", allowed_origins: ["https://embed-demo.moveglobal.io"], default_lang: "ja", default_services: ["transfer", "charter"], layout: "card", note: null });
+  assert.deepEqual(posted, { name: "MoveGlobal 演示站", allowed_origins: ["https://embed-demo.moveglobal.io"], default_lang: "ja", default_services: ["transfer", "charter"], layout: "auto", note: null });
 });
 
-test("外观：新建时默认卡片、可选横条并提交；详情显示外观，要放的代码里带 layout", async () => {
+test("外观：新建时默认自动、可选卡片 / 横条并提交；详情显示外观，要放的代码里不写 layout", async () => {
   let created: EmbedKey | null = null;
   const calls: ApiCall[] = openApp("/platform/embed-keys", "platform", "operations", (call) => {
     if (call.method === "GET" && call.url.pathname === "/platform/v1/embed-keys") return json(200, { items: created === null ? [] : [created] });
     if (call.method === "POST" && call.url.pathname === "/platform/v1/embed-keys") {
-      created = keyOf({ layout: "bar", snippet: `<script>NozomiBooking.init({ key: "${KEY}", root: "#nozomi-booking", lang: "ja", services: ["transfer","charter"], layout: "bar" });</script>` });
+      created = keyOf({ layout: "bar" });
       return json(201, created);
     }
     return null;
@@ -84,7 +84,8 @@ test("外观：新建时默认卡片、可选横条并提交；详情显示外�
   const actor = userEvent.setup();
   await actor.click(await screen.findByRole("button", { name: "新建嵌入码" }));
   const layout = screen.getByRole("group", { name: /^外观/ });
-  assert.equal((within(layout).getByRole("radio", { name: "卡片" }) as HTMLInputElement).checked, true, "默认卡片");
+  assert.deepEqual(within(layout).getAllByRole("radio").map((radio) => (radio as HTMLInputElement).value), ["auto", "card", "bar"]);
+  assert.equal((within(layout).getByRole("radio", { name: "自动" }) as HTMLInputElement).checked, true, "默认自动");
   await actor.click(within(layout).getByRole("radio", { name: "横条" }));
   await actor.type(screen.getByLabelText(/^名称/), "MoveGlobal 演示站");
   await actor.type(screen.getByLabelText(/^允许的网站/), "https://embed-demo.moveglobal.io");
@@ -92,7 +93,7 @@ test("外观：新建时默认卡片、可选横条并提交；详情显示外�
   const card = await screen.findByRole("region", { name: /MoveGlobal 演示站/ });
   assert.equal((calls.find((call) => call.method === "POST")?.body as { layout?: string }).layout, "bar");
   assert.ok(within(card).getByText("横条"));
-  assert.match(within(card).getByLabelText("MoveGlobal 演示站的嵌入代码").textContent ?? "", /layout: "bar"/);
+  assert.doesNotMatch(within(card).getByLabelText("MoveGlobal 演示站的嵌入代码").textContent ?? "", /layout/);
 });
 
 test("修改外观：表单带出现在的外观，改成横条后随其余字段一起提交", async () => {
@@ -109,7 +110,7 @@ test("修改外观：表单带出现在的外观，改成横条后随其余字�
   const card = await screen.findByRole("region", { name: /MoveGlobal 演示站/ });
   await actor.click(within(card).getByRole("button", { name: "修改" }));
   const layout = within(card).getByRole("group", { name: /^外观/ });
-  assert.equal((within(layout).getByRole("radio", { name: "卡片" }) as HTMLInputElement).checked, true);
+  assert.equal((within(layout).getByRole("radio", { name: "自动" }) as HTMLInputElement).checked, true);
   await actor.click(within(layout).getByRole("radio", { name: "横条" }));
   await actor.click(within(card).getByRole("button", { name: "保存" }));
   await waitFor(() => assertAbsent(screen.queryByRole("radio", { name: "横条" })));
@@ -136,7 +137,7 @@ test("停用：先确认；带版本号，状态改成停用，其余原样", as
   await waitFor(() => assert.ok(screen.getByText("已停用")));
   const patch = calls.find((call) => call.method === "PATCH");
   assert.equal(patch?.headers?.["if-match"], '"1"');
-  assert.deepEqual(patch?.body, { name: "MoveGlobal 演示站", allowed_origins: ["https://embed-demo.moveglobal.io"], default_lang: "ja", default_services: ["transfer", "charter"], layout: "card", note: null, status: "disabled" });
+  assert.deepEqual(patch?.body, { name: "MoveGlobal 演示站", allowed_origins: ["https://embed-demo.moveglobal.io"], default_lang: "ja", default_services: ["transfer", "charter"], layout: "auto", note: null, status: "disabled" });
 });
 
 test("没有 embed.read 的角色看到无权限说明，不请求列表", async () => {
