@@ -1309,7 +1309,20 @@
             "两种布局在演示站风格宿主和纯白宿主各截 1440 / 1024 / 768 / 390，附改前对比；现有组件测试和端到端全部通过",
             "独立审查、合并、部署后在演示站看一眼两种布局"
           ],
-          "evidence": "PR https://github.com/jiatengmei482-pixel/nozomi/pull/233 ；组件两种外观 card / 横条 bar（按组件容器宽度，bar 窄于 768 px 自动换 card），日期时间合成一个控件，人数行李改成紧凑加减器（主站选车那一步改不了人数行李，所以首屏保留），交换起终点按钮，隐私提示只在底部一行并用 aria-describedby 关联；theme 只留 primary / accent / radius / fontFamily 接口，做成 CSS 变量；嵌入码后台加「外观：卡片 / 横条」（迁移 0420 只加列（0410 由 M9P-01 使用），默认 card；/embed/v1/config 不变）。组件测试 widget.test.tsx 25 个（新增 8 个：外观切换、主题变量、隐私提示 aria-describedby、加减器、交换和横条按钮状态、日期时间控件、日期时间按组件语言显示、横条格子边框对比度）、widget-core 12 个（新增 5 个）；嵌入码后台 domain 7 个、embed-keys 页面 + 契约 8 个、embed.itest 12 个（新增 1 个）；端到端 site-embed-widget、site-google-attribution 本机通过（chromium）；截图 docs/acceptance/M9E-10-shots（JPEG，共约 1.8 MB；改前 before-*、改后 after-card-* / after-bar-*，演示站风格宿主和纯白宿主，1440 / 1024 / 768 / 390）；#233 审查前修改：横条格子加细边框（#7C8696，对白色长条 3.68:1、对格子底色 3.37:1）、日期时间按组件语言显示、合并 main（含 #213）；脚本 21.3 KB → 43.8 KB（含 #213 的纯 ASCII 转义），gzip 8.3 KB → 13.8 KB（预算 60 KB）",
+          "evidence": "PR https://github.com/jiatengmei482-pixel/nozomi/pull/233 ；组件两种外观 card / 横条 bar（按组件容器宽度，bar 窄于 768 px 自动换 card），日期时间合成一个控件，人数行李改成紧凑加减器（主站选车那一步改不了人数行李，所以首屏保留），交换起终点按钮，隐私提示只在底部一行并用 aria-describedby 关联；theme 只留 primary / accent / radius / fontFamily 接口，做成 CSS 变量；嵌入码后台加「外观：卡片 / 横条」（迁移 0420 只加列（0410 由 M9P-01 使用），默认 card；/embed/v1/config 不变）。组件测试 widget.test.tsx 25 个（新增 8 个：外观切换、主题变量、隐私提示 aria-describedby、加减器、交换和横条按钮状态、日期时间控件、日期时间按组件语言显示、横条格子边框对比度）、widget-core 12 个（新增 5 个）；嵌入码后台 domain 7 个、embed-keys 页面 + 契约 8 个、embed.itest 12 个（新增 1 个）；端到端 site-embed-widget、site-google-attribution 本机通过（chromium）；截图 docs/acceptance/M9E-10-shots（JPEG，共约 1.8 MB；改前 before-*、改后 after-card-* / after-bar-*，演示站风格宿主和纯白宿主，1440 / 1024 / 768 / 390）；#233 审查前修改：横条格子加细边框（#7C8696，对白色长条 3.68:1、对格子底色 3.37:1）、日期时间按组件语言显示、合并 main（含 #213）；脚本 21.3 KB → 43.8 KB（含 #213 的纯 ASCII 转义），gzip 8.3 KB → 13.8 KB（预算 60 KB）；#233 独立审查后修改：横条选中标签加 3px 主色顶条（对白、米色、灰底都 ≥ 3:1）、theme 字色在白 / 深色里取高的且不到 4.5:1 退纯黑 / 纯白（#777777 用纯黑 4.69:1）、浅主色（#FFCC00）的选中标记条改深色、日期时间键盘编辑时显示原生分段且清空时显示「请选择日期 / 时间」、小标题改 fieldset + legend、交换按钮取位置时标不可用、重复 init 解除旧监听、英文「1 bag」单数；widget.test.tsx 29 个、widget-core 13 个",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9E-11",
+          "title": "嵌入组件外观后续（#233 审查留下的不阻塞项）：横条 1024 宽时文字截断、手机卡片人数弹层可能被宿主裁掉",
+          "role": "frontend",
+          "status": "todo",
+          "acceptance": [
+            "横条在 768–1100 px 容器里：地址框占位文字（ja「住所・空港・ホテルなど」等）、停留时长下拉（en「Choose how long you stay」）不被截断，或改成更短的写法 / 换行；四个宽度、三种语言截图核对",
+            "卡片在 390 宽时，人数加减弹层不超出组件底边（宿主容器 overflow: hidden 时也不被裁掉）：改成在组件内展开或按可用空间向上弹出；端到端在 overflow: hidden 的宿主里验证",
+            "可选：styles.edge.test.ts 的 SVG 命名空间放行只限 embed/widget-icons.ts"
+          ],
+          "evidence": "",
           "updated": "2026-11-14"
         }
       ]
@@ -2783,6 +2796,11 @@
       "date": "2026-11-14",
       "by": "frontend",
       "summary": "M9E-10 开发完成，待验收：嵌入预订组件重做外观，按业主两张参考图做成两种可选布局——竖向卡片（默认）和横向搜索条（容器窄于 768 px 自动改卡片）；日期时间合成一个控件，人数行李改成紧凑的加减器，加交换起终点按钮，「只填地点」提示只在底部写一行；运营后台嵌入码可选「外观：卡片 / 横条」，生成的代码带上。主题参数先只留接口（主色、点缀色、圆角、字体），跟随宿主网站配色以后再做。接口、脚本地址不变，合作网站不用改代码。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "frontend",
+      "summary": "M9E-10 按 #233 独立审查修改：横条选中的标签加了一条主色顶条，不再只靠颜色区分；合作网站给的主色太亮或太灰时，按钮上的字自动换成够清楚的颜色；用键盘改日期时能看到正在改哪一段；交换按钮在取位置时显示不可用；同一页面重复初始化不再越积越多。横条 1024 宽时文字截断、手机卡片人数弹层可能被裁掉记为后续任务 M9E-11。仍待验收。"
     }
   ]
 }

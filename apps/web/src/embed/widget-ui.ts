@@ -139,6 +139,9 @@ class Widget {
   private noteId = "";
   /** 人数行李弹层开着时：点到组件外面就关上 */
   private closeGuests: (() => void) | null = null;
+  /** 挂在组件外面的监听（document、window、ResizeObserver），destroy 时解除 */
+  private readonly cleanups: (() => void)[] = [];
+  private destroyed = false;
 
   constructor(host: Element, base: string, options: InitOptions, go: (url: string) => void = (url) => window.location.assign(url)) {
     this.go = go;
@@ -150,10 +153,19 @@ class Widget {
     this.wanted = resolveLayout(options.layout);
     this.applyStyles();
     this.watchSize(host);
-    if (typeof document !== "undefined")
-      document.addEventListener("pointerdown", (event) => {
+    if (typeof document !== "undefined") {
+      const outside = (event: Event): void => {
         if (this.closeGuests !== null && !event.composedPath().includes(host)) this.closeGuests();
-      });
+      };
+      document.addEventListener("pointerdown", outside);
+      this.cleanups.push(() => document.removeEventListener("pointerdown", outside));
+    }
+  }
+
+  /** 同一个容器上再 init 一次时，旧的那个先停掉：解除页面上的监听和 ResizeObserver，取配置晚回来也不再画（M9E-10 审查） */
+  destroy(): void {
+    this.destroyed = true;
+    for (const cleanup of this.cleanups.splice(0)) cleanup();
   }
 
   private get t() {
@@ -189,6 +201,7 @@ class Widget {
 
   async start(): Promise<void> {
     const config = await getJson(this.url("/embed/v1/config"));
+    if (this.destroyed) return;
     if (config.status !== 200 || config.body === null) {
       this.lang = resolveLang(this.options.lang, "ja");
       this.renderUnavailable();
@@ -222,8 +235,15 @@ class Widget {
       this.root?.setAttribute("data-layout", this.layout);
     };
     apply(host.getBoundingClientRect().width);
-    if (typeof ResizeObserver === "function") new ResizeObserver((entries) => apply(entries[entries.length - 1]?.contentRect.width ?? 0)).observe(host);
-    else if (typeof window !== "undefined") window.addEventListener("resize", () => apply(host.getBoundingClientRect().width));
+    if (typeof ResizeObserver === "function") {
+      const observer = new ResizeObserver((entries) => apply(entries[entries.length - 1]?.contentRect.width ?? 0));
+      observer.observe(host);
+      this.cleanups.push(() => observer.disconnect());
+    } else if (typeof window !== "undefined") {
+      const resize = (): void => apply(host.getBoundingClientRect().width);
+      window.addEventListener("resize", resize);
+      this.cleanups.push(() => window.removeEventListener("resize", resize));
+    }
   }
 
   /** 改正在取坐标的记录（job 为 null 是删掉），并叫醒在等的提交；返回删之前有没有这一项 */
@@ -246,6 +266,10 @@ class Widget {
   private markReady(): void {
     const ready = formProblems(this.form).length === 0 && this.blockingLocates() === 0;
     this.shadow.querySelector(".nzb-primary")?.setAttribute("data-ready", String(ready));
+    // 出发地、目的地正在取位置时不能交换（坐标回来要写回原来那一边），按钮标成不可用（M9E-10 审查）
+    const swap = this.shadow.querySelector(".nzb-swap");
+    if (this.locating.has("pickup") || this.locating.has("dropoff")) swap?.setAttribute("aria-disabled", "true");
+    else swap?.removeAttribute("aria-disabled");
   }
 
   /** 提交按钮上的字：按钮里固定有一个放字的 span（横条里只显示放大镜，字给读屏） */
@@ -338,7 +362,7 @@ class Widget {
     if (focus !== undefined) (this.shadow.querySelector(`[data-focus="${focus}"]`) as HTMLElement | null ?? this.shadow.querySelector(`[data-tab="${focus.replace("tab-", "")}"]`) as HTMLElement | null)?.focus();
   }
 
-  /** 交换起点和终点（M9E-10）。有一边正在取坐标时不换（坐标回来会写回原来那一边），等取完再换 */
+  /** 交换起点和终点（M9E-10）。有一边正在取坐标时不换（坐标回来会写回原来那一边），按钮这时标成不可用（见 markReady） */
   private swap(): void {
     if (this.locating.has("pickup") || this.locating.has("dropoff")) return;
     [this.form.pickup, this.form.dropoff] = [this.form.dropoff, this.form.pickup];
@@ -351,23 +375,30 @@ class Widget {
   /**
    * 日期和时间合成一个控件（M9E-10）：外面一个框、一个小标题，里面是原生的日期、时间输入框（键盘、读屏、手机都按系统的来），
    * 显示的文字按组件的语言格式化（formatDate / formatTime），不按访客浏览器的语言；两个输入框各有自己的 label（不显示）。
+   * 用键盘编辑时（:focus-visible）原生输入框显示出来，看得到在改哪一段；失焦后回到格式化的文字。
    */
   private when(): HTMLElement {
     const t = this.t;
-    // 原生输入框叠在显示的文字上、完全透明：点哪里都打开系统的选择器，键盘、读屏、手机照常；看到的是按组件语言格式化的文字
+    // 原生输入框叠在显示的文字上、平时透明：点哪里都打开系统的选择器，键盘、读屏、手机照常；看到的是按组件语言格式化的文字
     const part = (label: string, name: "date" | "time"): HTMLElement => {
       const id = nextId(name);
-      const format = (value: string): string => (name === "date" ? formatDate : formatTime)(this.lang, value);
-      const shown = el("span", { class: "nzb-shown", "aria-hidden": "true" }, [format(this.form[name])]);
+      const shown = el("span", { class: "nzb-shown", "aria-hidden": "true" });
+      // 清空了某一段（值变成 ""）时显示「请选择日期 / 时间」，不留一块空白
+      const show = (value: string): void => {
+        shown.textContent = value === "" ? (name === "date" ? t.pickDate : t.pickTime) : (name === "date" ? formatDate : formatTime)(this.lang, value);
+        shown.toggleAttribute("data-empty", value === "");
+      };
+      show(this.form[name]);
       const input = el("input", { id, type: name, name, value: this.form[name], class: "nzb-bare", "data-focus": name });
       input.addEventListener("input", () => {
         this.form[name] = input.value;
-        shown.textContent = format(input.value);
+        show(input.value);
       });
       return el("span", { class: `nzb-part nzb-${name}` }, [el("label", { for: id, class: "nzb-visually-hidden" }, [label]), shown, input]);
     };
-    return el("div", { class: "nzb-field nzb-when" }, [
-      el("span", { class: "nzb-label", "aria-hidden": "true" }, [t.when]),
+    // fieldset + legend：读屏进到日期、时间时先读小标题（M9E-10 审查）
+    return el("fieldset", { class: "nzb-field nzb-when" }, [
+      el("legend", { class: "nzb-label" }, [t.when]),
       el("div", { class: "nzb-box nzb-when-box" }, [icon("calendar"), part(t.date, "date"), el("span", { class: "nzb-sep", "aria-hidden": "true" }), part(t.time, "time")]),
     ]);
   }
@@ -646,6 +677,15 @@ class Widget {
 
 }
 
+/** 每个容器上现在的那个组件：同一个容器再 init 时先停掉旧的（M9E-10 审查） */
+const mounted = new WeakMap<Element, Widget>();
+function mount(host: Element, base: string, options: InitOptions, go?: (url: string) => void): Widget {
+  mounted.get(host)?.destroy();
+  const widget = new Widget(host, base, options, go);
+  mounted.set(host, widget);
+  return widget;
+}
+
 export function init(options: InitOptions): void {
   initFrom(SCRIPT_ORIGIN, options);
 }
@@ -665,13 +705,13 @@ export function initFrom(base: string | null, options: InitOptions, go?: (url: s
     tellDeveloper("init 找不到 root 指定的容器。");
     return;
   }
-  void new Widget(host, base, options, go).start();
+  void mount(host, base, options, go).start();
 }
 
 /** 测试用：指定主站地址（正式环境取自脚本地址） */
 export function initWithBase(base: string, options: InitOptions, go?: (url: string) => void): Promise<void> {
   const host = typeof options.root === "string" ? document.querySelector(options.root) : options.root;
   if (!(host instanceof Element)) return Promise.resolve();
-  return new Widget(host, base, options, go).start();
+  return mount(host, base, options, go).start();
 }
 

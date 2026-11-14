@@ -11,7 +11,7 @@ import type { ResolvedTheme } from "./widget-core.ts";
  */
 export const WIDGET_CSS = `
 :host { all: initial; display: block; }
-.nzb-shell { all: initial; display: block; box-sizing: border-box; font-family: var(--nzb-font); container-type: inline-size; --nzb-pad: 24px; --nzb-light: #ffffff; --nzb-dark: #1a1f29; --nzb-primary: #1b2a5c; --nzb-on-primary: var(--nzb-light); --nzb-ink: var(--nzb-primary); --nzb-accent: #f3e9d8; --nzb-on-accent: var(--nzb-dark); --nzb-radius: 24px; --nzb-radius-control: calc(var(--nzb-radius) / 2); --nzb-font: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans", "Microsoft YaHei UI", "Noto Sans CJK SC", "Noto Sans SC", "Noto Sans JP", sans-serif; }
+.nzb-shell { all: initial; display: block; box-sizing: border-box; font-family: var(--nzb-font); container-type: inline-size; --nzb-pad: 24px; --nzb-light: #ffffff; --nzb-dark: #1a1f29; --nzb-black: #000000; --nzb-primary: #1b2a5c; --nzb-on-primary: var(--nzb-light); --nzb-ink: var(--nzb-primary); --nzb-mark: var(--nzb-primary); --nzb-accent: #f3e9d8; --nzb-on-accent: var(--nzb-dark); --nzb-radius: 24px; --nzb-radius-control: calc(var(--nzb-radius) / 2); --nzb-font: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans", "Microsoft YaHei UI", "Noto Sans CJK SC", "Noto Sans SC", "Noto Sans JP", sans-serif; }
 .nzb-shell[data-layout="card"] { max-width: 600px; margin: 0 auto; padding: 12px; background: #eceef2b8; border-radius: calc(var(--nzb-radius) + 12px); }
 .nzb { all: initial; direction: ltr; display: block; text-align: start; box-sizing: border-box; font-family: var(--nzb-font); font-size: 15px; line-height: 1.5; color: #1a1f29; background: #ffffff; border-radius: var(--nzb-radius); box-shadow: 0 1px 2px #141e460f, 0 8px 24px #141e4614; padding: var(--nzb-pad); max-width: 100%; overflow-wrap: anywhere; }
 .nzb *, .nzb *::before, .nzb *::after { box-sizing: border-box; }
@@ -20,7 +20,7 @@ export const WIDGET_CSS = `
 .nzb-tabs { display: flex; margin: calc(var(--nzb-pad) * -1) calc(var(--nzb-pad) * -1) 20px; border-radius: var(--nzb-radius) var(--nzb-radius) 0 0; overflow: hidden; }
 .nzb-tab { flex: 1 1 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 64px; padding: 12px 20px; border: 0; border-bottom: 3px solid #e3e6eb; background: #f4f5f7; color: #1a1f29; text-align: start; cursor: pointer; }
 .nzb-tab:hover { background: #eceef2; }
-.nzb-tab[aria-selected="true"] { background: #ffffff; color: var(--nzb-ink); border-bottom-color: var(--nzb-primary); }
+.nzb-tab[aria-selected="true"] { background: #ffffff; color: var(--nzb-ink); border-bottom-color: var(--nzb-mark); }
 .nzb-tab-title { font-size: 16px; font-weight: 700; line-height: 1.3; }
 .nzb-tab-sub { font-size: 13px; font-weight: 400; line-height: 1.3; color: #4a5361; }
 .nzb-form { display: flex; flex-direction: column; gap: 14px; margin: 0; }
@@ -38,6 +38,11 @@ export const WIDGET_CSS = `
 .nzb-part { position: relative; display: flex; align-items: center; min-width: 0; height: 100%; }
 .nzb-shown { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nzb-bare { position: absolute; inset: 0; width: 100%; height: 100%; min-width: 0; padding: 0; border: 0; background: #ffffff; color: inherit; font-size: 16px; opacity: 0; cursor: pointer; -webkit-appearance: none; appearance: none; }
+.nzb-bare:focus-visible { opacity: 1; }
+.nzb-shown[data-empty] { color: #5c6574; }
+.nzb-when { margin: 0; padding: 0; border: 0; min-width: 0; }
+.nzb-when > legend { float: left; width: 100%; }
+.nzb-when > .nzb-box { clear: both; }
 .nzb-date { flex: 1 1 auto; min-width: 0; }
 .nzb-part:focus-within { box-shadow: inset 0 -2px 0 var(--nzb-ink); }
 .nzb-part:has(.nzb-bare[aria-invalid="true"]) .nzb-shown { color: #b42318; text-decoration: underline wavy; }
@@ -53,6 +58,7 @@ export const WIDGET_CSS = `
 .nzb-control > .nzb-chevron { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); }
 .nzb-swap { display: inline-flex; align-items: center; justify-content: center; align-self: flex-end; position: relative; z-index: 1; width: 40px; height: 40px; margin: -32px 16px -32px 0; padding: 0; border: 1px solid #d6dae1; border-radius: 999px; background: #ffffff; color: var(--nzb-ink); cursor: pointer; box-shadow: 0 1px 2px #141e4614; }
 .nzb-swap:hover { border-color: #7c8696; background: #f4f5f7; }
+.nzb-swap[aria-disabled="true"] { color: #9aa3b1; cursor: not-allowed; background: #ffffff; }
 .nzb-swap-icon { width: 20px; height: 20px; transform: rotate(90deg); }
 .nzb-pop { position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; width: min(320px, 100%); padding: 16px; background: #ffffff; border: 1px solid #d6dae1; border-radius: var(--nzb-radius-control); box-shadow: 0 16px 40px #141e462e; }
 .nzb-pop[hidden] { display: none; }
@@ -102,7 +108,7 @@ export const WIDGET_CSS = `
 .nzb-shell[data-layout="bar"] .nzb[data-view="form"] { background: transparent; box-shadow: none; padding: 0; border-radius: 0; }
 .nzb-shell[data-layout="bar"] .nzb-tabs { display: inline-flex; gap: 4px; margin: 0; border-radius: 0; overflow: visible; vertical-align: bottom; }
 .nzb-shell[data-layout="bar"] .nzb-tab { flex: none; min-height: 0; padding: 10px 22px 8px; border: 0; border-radius: 14px 14px 0 0; background: #eceef2; }
-.nzb-shell[data-layout="bar"] .nzb-tab[aria-selected="true"] { background: var(--nzb-accent); color: var(--nzb-on-accent); }
+.nzb-shell[data-layout="bar"] .nzb-tab[aria-selected="true"] { background: var(--nzb-accent); color: var(--nzb-on-accent); box-shadow: inset 0 3px 0 var(--nzb-mark); }
 .nzb-shell[data-layout="bar"] .nzb-tab[aria-selected="true"] .nzb-tab-sub { color: inherit; }
 .nzb-shell[data-layout="bar"] .nzb-tab-title { font-size: 15px; }
 .nzb-shell[data-layout="bar"] .nzb-tab-sub { font-size: 12px; }
@@ -113,7 +119,7 @@ export const WIDGET_CSS = `
 .nzb-shell[data-layout="bar"] .nzb-form > .nzb-field .nzb-box { height: 28px; padding: 0; gap: 8px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .nzb-shell[data-layout="bar"] .nzb-form > .nzb-field .nzb-place-input { padding-left: 22px; }
 .nzb-shell[data-layout="bar"] .nzb-form > .nzb-field .nzb-dot { left: 2px; }
-.nzb-shell[data-layout="bar"] .nzb-form > .nzb-field .nzb-bare { background: transparent; }
+.nzb-shell[data-layout="bar"] .nzb-form > .nzb-field .nzb-bare { background: #f4f5f7; }
 .nzb-shell[data-layout="bar"] .nzb-date { color: #146c3a; font-weight: 600; }
 .nzb-shell[data-layout="bar"] .nzb-trigger .nzb-chevron { display: none; }
 .nzb-trigger-short, .nzb-shell[data-layout="bar"] .nzb-trigger-text { display: none; }
@@ -138,7 +144,7 @@ export const WIDGET_CSS = `
 /** init 的 theme → 覆盖默认值的 CSS 变量（M9E-10）。值都经过 resolveTheme 校验（颜色是 #RRGGBB、圆角是整数、字体不含 ; { } < > \），没有给的项不写 */
 export function themeCss(theme: ResolvedTheme): string {
   const vars: string[] = [];
-  if (theme.primary !== null) vars.push(`--nzb-primary: ${theme.primary.color}`, `--nzb-on-primary: var(--nzb-${theme.primary.text})`, `--nzb-ink: ${theme.primary.inkOnWhite ? "var(--nzb-primary)" : "var(--nzb-dark)"}`);
+  if (theme.primary !== null) vars.push(`--nzb-primary: ${theme.primary.color}`, `--nzb-on-primary: var(--nzb-${theme.primary.text})`, `--nzb-ink: ${theme.primary.inkOnWhite ? "var(--nzb-primary)" : "var(--nzb-dark)"}`, `--nzb-mark: ${theme.primary.markOnWhite ? "var(--nzb-primary)" : "var(--nzb-dark)"}`);
   if (theme.accent !== null) vars.push(`--nzb-accent: ${theme.accent.color}`, `--nzb-on-accent: var(--nzb-${theme.accent.text})`);
   if (theme.radius !== null) vars.push(`--nzb-radius: ${theme.radius}px`);
   if (theme.fontFamily !== null) vars.push(`--nzb-font: ${theme.fontFamily}`);

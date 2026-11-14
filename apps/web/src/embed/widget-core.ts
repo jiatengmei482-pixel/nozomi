@@ -172,7 +172,7 @@ export const GUEST_LIMITS = { passengers: { min: 1, max: 20 }, luggage: { min: 0
 
 /** 人数行李按钮上的摘要；short 是横条里用的短写法 */
 export function guestsSummary(lang: WidgetLang, passengers: number, luggage: number, short = false): string {
-  if (short) return lang === "en" ? `${passengers} pax · ${luggage} bags` : lang === "ja" ? `${passengers}名 · ${luggage}個` : `${passengers} 人 · ${luggage} 件`;
+  if (short) return lang === "en" ? `${passengers} pax · ${luggage} ${luggage === 1 ? "bag" : "bags"}` : lang === "ja" ? `${passengers}名 · ${luggage}個` : `${passengers} 人 · ${luggage} 件`;
   if (lang === "zh") return `${passengers} 位乘客 · ${luggage} 件行李`;
   if (lang === "ja") return `${passengers}名 · 荷物${luggage}個`;
   return `${passengers} ${passengers === 1 ? "passenger" : "passengers"} · ${luggage} ${luggage === 1 ? "bag" : "bags"}`;
@@ -212,27 +212,46 @@ export function hexOf(value: unknown): string | null {
 
 /** WCAG 2.x 相对亮度（和 docs/design/contrast-check.mjs 同一算法），参数是 #RRGGBB */
 export function luminance(hex: string): number {
-  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)) as [number, number, number];
+  return luminanceOf([1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)) as [number, number, number]);
+}
+function luminanceOf(channels: readonly [number, number, number]): number {
+  const [r, g, b] = channels.map((value) => value / 255).map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)) as [number, number, number];
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
+const ratio = (a: number, b: number): number => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+/** 三种字色的相对亮度：白、深色（tokens.css --color-text-primary，即 widget-style.ts 的 --nzb-dark）、纯黑 */
+const TONE_LUMINANCE = { light: 1, dark: luminanceOf([26, 31, 41]), black: 0 } as const;
 /** 和白色的对比度（白色相对亮度为 1） */
 export const contrastWithWhite = (hex: string): number => 1.05 / (luminance(hex) + 0.05);
 
 /** 主色、点缀色上的字用白色（light）还是深色（dark，tokens.css --color-text-primary） */
-export type TextTone = "light" | "dark";
-const toneOn = (hex: string): TextTone => (contrastWithWhite(hex) >= 4.5 ? "light" : "dark");
+export type TextTone = keyof typeof TONE_LUMINANCE;
+/**
+ * 底色上的字：白和深色里取对比度高的；高的那个也不到 4.5:1 时，退到纯黑或纯白里高的那个
+ * （任何底色和纯黑、纯白之中至少一个能到 4.58:1，例如 #777777：白 4.48、深色 3.67、纯黑 4.69）。
+ */
+export function toneOn(hex: string): TextTone {
+  const background = luminance(hex);
+  const best = (tones: TextTone[]): TextTone => tones.reduce((a, b) => (ratio(background, TONE_LUMINANCE[b]) > ratio(background, TONE_LUMINANCE[a]) ? b : a));
+  const pick = best(["light", "dark"]);
+  return ratio(background, TONE_LUMINANCE[pick]) >= 4.5 ? pick : best(["light", "black"]);
+}
+/** 某个底色上用 toneOn 挑出来的字的对比度（测试和说明用） */
+export const toneContrast = (hex: string): number => ratio(luminance(hex), TONE_LUMINANCE[toneOn(hex)]);
 
 /** 合作网站给了、而且写对了的项；没给或写错的为 null，用样式表里的默认值（深蓝主色、浅米色点缀、圆角 24 px、系统字体，见 widget-style.ts） */
 export interface ResolvedTheme {
-  primary: { color: string; text: TextTone; inkOnWhite: boolean } | null;
+  /** inkOnWhite：主色在白底上当文字够 4.5:1；markOnWhite：主色当白底上的标记条（选中标签的底条、顶条）够 3:1，不够时改用深色 */
+  primary: { color: string; text: TextTone; inkOnWhite: boolean; markOnWhite: boolean } | null;
   accent: { color: string; text: TextTone } | null;
   radius: number | null;
   fontFamily: string | null;
 }
 
 /**
- * theme 的取值（M9E-10）。对比度兜底只做最简单的一层：主色、点缀色上的字，白字够 4.5:1 用白，否则用深色；
- * 白底上要拿主色当文字（选中的标签、链接、焦点环）时，主色和白底不够 4.5:1 就改用深色（inkOnWhite 为 false）。
+ * theme 的取值（M9E-10）。对比度兜底：主色、点缀色上的字按 toneOn 挑（白、深色里取高的，都不到 4.5:1 退到纯黑 / 纯白）；
+ * 白底上要拿主色当文字（选中的标签字、链接、焦点环）时，主色和白底不够 4.5:1 就改用深色（inkOnWhite 为 false）；
+ * 主色当白底上的标记条（选中标签的条）不够 3:1 时也改用深色（markOnWhite 为 false）。
  * radius 是卡片圆角（px，0–32），输入框取一半；fontFamily 不能含 ; { } < > \。
  */
 export function resolveTheme(given: unknown): ResolvedTheme {
@@ -243,7 +262,7 @@ export function resolveTheme(given: unknown): ResolvedTheme {
   const radius = typeof rawRadius === "number" ? rawRadius : typeof rawRadius === "string" && /^\d+(\.\d+)?(px)?$/.test(rawRadius.trim()) ? Number.parseFloat(rawRadius) : Number.NaN;
   const font = theme["fontFamily"];
   return {
-    primary: primary === null ? null : { color: primary, text: toneOn(primary), inkOnWhite: contrastWithWhite(primary) >= 4.5 },
+    primary: primary === null ? null : { color: primary, text: toneOn(primary), inkOnWhite: contrastWithWhite(primary) >= 4.5, markOnWhite: contrastWithWhite(primary) >= 3 },
     accent: accent === null ? null : { color: accent, text: toneOn(accent) },
     radius: Number.isFinite(radius) && radius >= 0 && radius <= RADIUS_MAX ? Math.round(radius) : null,
     fontFamily: typeof font === "string" && font.trim() !== "" && font.length <= 300 && !/[;{}<>\\]/.test(font) ? font.trim() : null,
