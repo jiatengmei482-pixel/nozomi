@@ -336,3 +336,9 @@ test("上架检查：包车最低套餐比所有启用的套餐都长时多一�
   assert.deepEqual(item, { key: "charter_min_package", required: false, passed: false, issues: [{ path: "/charter_itinerary/min_package_hours", reason: "MIN_PACKAGE_ABOVE_ALL", detail: { min_package_hours: 12, longest_package_hours: 10 } }] });
   assert.equal(publishCheck({ ...facts, charterPackageHours: [4, 5, 12] }).some((entry) => entry.key === "charter_min_package"), false);
 });
+
+test("选档取最低时一样贵取短的（ADR 0093 第四节第 3 条）：4h 30,000 含 100 公里、5h 30,000 含 300 公里，全程 90 公里——两档「套餐价 + 超公里」都是 30,000，选 4h；4h 超 1 公里就选 5h", () => {
+  const tie = product(undefined, { priceRules: [packageRule(4, 30_000, 100), packageRule(5, 30_000, 300), packageRule(10, 55_000, 300)] });
+  assert.equal(only(quoteProduct(tie, trip("shinjuku", ["asakusa"], "shinjuku", usage(150, 90), "auto"), moment)).packageHours, 4);
+  assert.equal(only(quoteProduct(tie, trip("shinjuku", ["asakusa"], "shinjuku", usage(150, 101), "auto"), moment)).packageHours, 5);
+});

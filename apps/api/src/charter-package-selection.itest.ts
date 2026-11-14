@@ -241,18 +241,25 @@ test("T 超过最大套餐：乙只有最长的 10h（不收超时费）比甲�
   await setItinerary(m.b, charterB, RESET);
 });
 
-test("手动升档：带 package_hours 可以升到更长的档（另给自动选的档）；比 T 短的不报 PACKAGE_TOO_SHORT + min_package_hours（各商品能选的最短档里最小的），不记未覆盖需求", async () => {
+test("手动升档：带 package_hours 可以升到更长的档（另给自动选的档）；比 T 短的不报 PACKAGE_TOO_SHORT + min_package_hours（各商品能选的最短档里最小的）；只因选短了报不出时不记未覆盖需求，还有别的原因时照记", async () => {
   leg.minutes = 70;
   leg.meters = 30_000;
   await setItinerary(m.b, charterB, { buffer_minutes: 60 });
   const upgraded = await itinerary("asakusa", 60, { package_hours: 10 });
   assert.deepEqual([first(upgraded).package.hours, first(upgraded).price.total.amount, first(upgraded).auto_package_hours], [10, "60500", 5]);
   assert.equal((await snapshotOf(first(upgraded).quote_id)).request.charterSelection, "manual");
+  // 选 4 小时：乙比 T（4h20m）短；甲没有 4 小时的套餐（NO_PRICE_RULE，对外 NOT_AVAILABLE）——不只是选短了，照记未覆盖需求（ADR 0093 第四节第 7 条「只因」）
   const demands = await demandCount();
-  const short = await itinerary("asakusa", 60, { package_hours: 4, pickup_name: "新宿站" });
-  // 乙比 T 短（甲没有 4 小时的套餐，报 NOT_AVAILABLE）；能选的最短档是乙的 5h
-  assert.deepEqual([short.body.quotes, short.body.unavailable], [[], [{ vehicle_group_id: null, reasons: ["NOT_AVAILABLE", "PACKAGE_TOO_SHORT"], min_package_hours: 5 }]]);
-  assert.equal(await demandCount(), demands, "客人选短了，不是缺供应商：不记未覆盖需求");
+  const mixed = await itinerary("asakusa", 60, { package_hours: 4, pickup_name: "新宿站" });
+  assert.deepEqual([mixed.body.quotes, mixed.body.unavailable], [[], [{ vehicle_group_id: null, reasons: ["NOT_AVAILABLE", "PACKAGE_TOO_SHORT"], min_package_hours: 5 }]]);
+  assert.equal(await demandCount(), demands + 1, "还有别的原因：照记");
+  // 两家都设缓冲 4 小时（T = 7h20m）、选 5 小时：两家都只是选短了（乙能选的最短 10h、甲 8h）——不记
+  await setItinerary(m.b, charterB, { buffer_minutes: 240 });
+  await setItinerary(m.a, charterA, { buffer_minutes: 240 });
+  const short = await itinerary("asakusa", 60, { package_hours: 5, pickup_name: "新宿站" });
+  assert.deepEqual([short.body.quotes, short.body.unavailable], [[], [{ vehicle_group_id: null, reasons: ["PACKAGE_TOO_SHORT"], min_package_hours: 8 }]]);
+  assert.equal(await demandCount(), demands + 1, "只因选短了：不记");
+  await setItinerary(m.a, charterA, RESET);
   await setItinerary(m.b, charterB, RESET);
 });
 
@@ -347,4 +354,21 @@ test("部署前格式的旧单（预收了超时费、快照没有 charterSelect
   assert.ok(candidate !== undefined, listed.text);
   // 甲按订单的 10h（旧口径）报：56,000 + 超时 90 分钟 × 6,000 / 小时 = 65,000（不是自动选档的 12h、也不是不收超时费的 56,000）
   assert.equal(candidate.settlement.amount, "65000");
+});
+
+test("/sales/v1 包车同价区间 0（ADR 0093 第三节第 4 条）：甲比乙贵不到 3%、评分更高——以前在同价区间里评分高的甲中标，现在严格取最低，乙中标；快照记 bandBp 0", async () => {
+  // 甲 10h 56,000、乙 10h 55,000：价差 1.8%，在默认 3% 的同价区间里；甲评分 4.9（完成 30 单），乙默认 4.5
+  const saved = (await api.db.owner.query<{ score: number | null; done: number }>("select score_raw_centi as score, score_completed_orders as done from tenants where id = $1", [m.a.tenantId])).rows[0];
+  await api.db.owner.query("update tenants set score_raw_centi = 490, score_completed_orders = 30 where id = $1", [m.a.tenantId]);
+  try {
+    api.clock.advance(1_000);
+    const res = await api.call("POST", "/sales/v1/quotes", { token: salesToken, body: { city_id: m.ids.tokyo, category: "charter", pickup: P.shinjuku, dropoff: P.asakusa, package_hours: 10, service_time: "2026-10-20T10:00:00+09:00", passengers: 2, luggage: 1, currency: "JPY" } });
+    assertMatchesOperation("POST", "/sales/v1/quotes", res.status, res.body);
+    assert.equal(res.status, 200, res.text);
+    const snapshot = await snapshotOf(res.body.quotes[0].quote_id);
+    assert.deepEqual([snapshot.winner.productId, snapshot.bandBp, res.body.quotes[0].price.total.amount], [charterB, 0, "60500"]);
+    assert.deepEqual(snapshot.candidates.map((entry: any) => [entry.productId, entry.scoreCenti, entry.inBand, entry.position]), [[charterB, 450, true, 1], [charterA, 490, false, 2]]);
+  } finally {
+    await api.db.owner.query("update tenants set score_raw_centi = $2, score_completed_orders = $3 where id = $1", [m.a.tenantId, saved?.score ?? null, saved?.done ?? 0]);
+  }
 });

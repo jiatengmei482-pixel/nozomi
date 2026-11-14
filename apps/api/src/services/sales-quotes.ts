@@ -323,8 +323,10 @@ export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincip
       );
     }
   });
-  // 只因选短了（最低套餐 / 预计用时）报不出的不记：选长一点就有供应商能接（ADR 0093 第四节第 7 条）
-  if (snapshots.length === 0 && options.demand !== undefined && !acceptance && !preview.comparison.refused.some((entry) => PACKAGE_REFUSALS.has(entry.reason))) recordUncoveredDemandLater(ctx, options.demand, demandFacts(principal, input, points, serviceLocal, preview));
+  // 只因选短了（最低套餐 / 预计用时）报不出的不记：选长一点就有供应商能接（ADR 0093 第四节第 7 条「只因这两个原因」）；
+  // 还有别的原因（例如另一个商品 ITINERARY_TOO_LONG、没有价格）时照记
+  const onlyTooShort = preview.comparison.refused.length > 0 && preview.comparison.refused.every((entry) => PACKAGE_REFUSALS.has(entry.reason));
+  if (snapshots.length === 0 && options.demand !== undefined && !acceptance && !onlyTooShort) recordUncoveredDemandLater(ctx, options.demand, demandFacts(principal, input, points, serviceLocal, preview));
   return result;
 }
 
