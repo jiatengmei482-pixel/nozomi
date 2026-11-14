@@ -195,15 +195,22 @@ export async function embedGate(ctx: AppContext, key: unknown, originHeader: str
 // ---- /embed/v1/frame-check（M9E-16，ADR 0095 第五节第 1 小节）----
 
 /**
- * `/embed/book` 能不能被 `host` 这个网站嵌入：嵌入码存在、启用、打开了「允许整页嵌入」，`host` 是规范的 origin 并且完全等于白名单某一项，
- * 才返回这个 origin（只有协议、主机名、端口，没有空格、分号、引号，可以原样写进 frame-ancestors）；其余一律 null，不区分原因。
+ * 能原样写进 frame-ancestors 的宿主：协议 + 主机名（字母、数字、点、连字符）+ 可选端口；本机 http 只有 localhost、127.0.0.1。
+ * 和 vite preview 的核对（apps/web/build/edge-config.ts 的 ANCESTOR_SOURCE）是同一条规则。WHATWG URL 允许主机名里有 `;` 等字符
+ * （`https://a.example;sandbox` 解析得出、规范化前后也一样），光靠规范化挡不住往 CSP 里插指令，所以另外按字符集再核一次
+ */
+const FRAME_ANCESTOR_SOURCE = /^(https:\/\/[A-Za-z0-9.-]+|http:\/\/(127\.0\.0\.1|localhost))(:[0-9]{1,5})?$/;
+
+/**
+ * `/embed/book` 能不能被 `host` 这个网站嵌入：嵌入码存在、启用、打开了「允许整页嵌入」，`host` 是规范的 origin、只含 FRAME_ANCESTOR_SOURCE 允许的字符，
+ * 并且完全等于白名单某一项，才返回这个 origin（可以原样写进 frame-ancestors）；其余一律 null，不区分原因。
  * 不看请求的 `Origin`（iframe 的页面导航不带它，而且调用方是 Caddy）：这是 ADR 0090「Origin 不在白名单一律 403」的例外。
  */
 export async function frameAncestorOf(ctx: AppContext, key: unknown, host: unknown): Promise<string | null> {
   if (typeof key !== "string" || key.length > 64 || typeof host !== "string" || host.length > 300) return null;
   // 规范化前后必须一样：带路径、结尾斜杠、大写的都不算（iframe 地址里的 host 由组件按 location.origin 填，本来就是规范的）
   const origin = normalizeEmbedOrigin(host, originOptions(ctx));
-  if (origin === null || origin !== host) return null;
+  if (origin === null || origin !== host || !FRAME_ANCESTOR_SOURCE.test(origin)) return null;
   const embedKey = await withPlatformTx(ctx.pool, (db) => findActiveKey(db, key), { snapshot: true });
   if (embedKey === null || !embedKey.allowHostPage || !embedKey.allowedOrigins.includes(origin)) return null;
   return origin;
