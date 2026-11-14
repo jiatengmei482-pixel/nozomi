@@ -297,7 +297,7 @@ function linkJson(link: SiteLink): Json {
 
 /** 对外价明细的每一项（报价和订单同一个格式）：金额是客人支付币种；加价区域给现在的名称 */
 function priceBreakdownJson(items: readonly SellBreakdownItem[], currency: CurrencyCode, areaNames: ReadonlyMap<string, LocalizedText>): Json[] {
-  return items.map((item) => ({ kind: item.kind, amount: salesMoney(item.amountMinor, currency), area_name: item.areaId === null ? null : (areaNames.get(item.areaId) ?? null), stop_seqs: item.stopSeqs ?? null }));
+  return items.map((item) => ({ kind: item.kind, amount: salesMoney(item.amountMinor, currency), area_name: item.areaId === null ? null : (areaNames.get(item.areaId) ?? null), stop_seqs: item.stopSeqs ?? null, ...(item.fromDropoff === true ? { from_dropoff: true } : {}) }));
 }
 
 function quoteJson(quote: SiteQuote): Json {

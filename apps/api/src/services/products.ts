@@ -635,13 +635,16 @@ export async function getServiceRules(ctx: DbContext, tenantId: string, id: stri
  * 附加服务必须是平台目录里的；开着的必须是启用中、适用于这个品类的。
  * 存的是整理之后的一份（时段只留一种写法；「首个免费」只有按个计费的附加服务能设，别的计费方式下带了也当作没设，不拒绝）。
  */
-export async function putServiceRules(ctx: DbContext, writer: ProductWriter, id: string, expectedVersion: number, input: ServiceRules): Promise<ServiceRulesView> {
+export async function putServiceRules(ctx: DbContext, writer: ProductWriter, id: string, expectedVersion: number, given: ServiceRules): Promise<ServiceRulesView> {
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;
   return writeTx(ctx, tenantId, async (db) => {
     const current = await findProduct(db, tenantId, id, { lock: true });
     if (!current) throw notFound("商品");
     if (current.version !== expectedVersion) throw versionConflict(current.version);
+    // 包车行程计价的配置（M9P-01）：请求里没有这个键 = 保留原值（旧页面保存不会把它清掉）
+    const kept = current.serviceRules.charterItinerary;
+    const input: ServiceRules = given.charterItinerary === undefined && kept !== undefined ? { ...given, charterItinerary: kept } : given;
     // 已上架的商品开了新的附加服务：先和平台停用附加服务互斥，再查它们是不是启用的
     if (current.status === "published") await lockMasterReferences(db, current, [], input);
     const rules = await effectiveServiceRules(db, input);

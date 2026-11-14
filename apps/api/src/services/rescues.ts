@@ -28,6 +28,7 @@ import {
   RESCUE_TRIGGER_NAMES,
   type RescueTrigger,
   type SettlementBreakdown,
+  quoteProduct,
   rescueDifference,
   rescueOfferDeadline,
   rescueOfferExpired,
@@ -50,6 +51,7 @@ import { type AuditOrigin, insertAuditLog } from "../repos/audit-logs.ts";
 import { type Order, type OrderEventActor, type OrderSale, findOrderForPlatform, findOrdersOfTenants, findSale, insertOrderEvent, releaseSoldInventory, sellInventoryOnDay, updateOrderStatus } from "../repos/orders.ts";
 import {
   type Deduction,
+  type DeductionBase,
   type Rescue,
   type RescueActorType,
   type RescueOffer,
@@ -98,7 +100,8 @@ import { resolveOpenOrderTodos } from "../repos/order-todos.ts";
 import { processRefunds } from "./order-money.ts";
 import { type OrderLog, SILENT_ORDER_LOG } from "./orders.ts";
 import type { PlatformPrincipal } from "./platform-auth.ts";
-import { type QuoteLog, previewPlatformQuote } from "./quotes.ts";
+import { loadQuoteCandidates } from "../repos/quotes.ts";
+import { type QuoteLog, loadQuoteFacts, previewPlatformQuote } from "./quotes.ts";
 import type { StoredQuoteSnapshot } from "./sales-quotes.ts";
 import type { TenantPrincipal } from "./tenant-auth.ts";
 import { enqueueNotification } from "../repos/notifications.ts";
@@ -142,6 +145,47 @@ async function settlementFxOf(db: Db, order: Order, sale: OrderSale): Promise<Fx
   return sale.fx;
 }
 
+/** 结算价明细里的包车加价合计：上车 + 下车 + 行程（途经），没有区域加价为 0 */
+function surchargeTotal(settlement: Pick<SettlementBreakdown, "areaSurcharge">): number {
+  const surcharge = settlement.areaSurcharge ?? null;
+  if (surcharge === null) return 0;
+  return surcharge.pickup.amountMinor + surcharge.dropoff.amountMinor + (surcharge.waypoints ?? []).reduce((sum, entry) => sum + entry.amountMinor, 0);
+}
+
+/**
+ * 救援差价的基准（M9P-01，ADR 0093 第二节救援做法 B）：原结算价 + max(0, 原订单的商品按当前规则重算的加价合计 − 订单上的加价合计)。
+ * 只把加价项被算法改出来的差补上；套餐价、加急、调价不进基准（原供应商事先调高套餐价压不低扣款）。对所有订单同一个公式：
+ * 新算法下下的单两边一样，基准就是原结算价。接送机、点对点和没有下车点的旧包车单没有区域加价，基准就是原结算价，不重算。
+ *
+ * 重算只为取加价项，要绕开「能不能接单」：单独按订单的商品（不经比价——候选里原供应商被过滤掉了）、`forOwner`（不看上架、供应商状态，
+ * 「供应商被暂停」本身就是触发情形）、按下单时那次报价的时刻（不按现在：救援多在用车前 6 小时内，会报提前预订不足或多出加急）、不看库存。
+ * 请求同救援比价：快照里的请求，换成订单现在的用车时间、人数行李和车型组。重算失败（商品没了、报不出、币种变了）退回原结算价，记下原因。
+ */
+async function deductionBaseOf(db: Db, order: Order, sale: OrderSale): Promise<{ baseMinor: number; base: DeductionBase }> {
+  const before = surchargeTotal(order.settlement);
+  const fallback = (reason: string): { baseMinor: number; base: DeductionBase } => ({ baseMinor: order.settlementMinor, base: { surchargeBefore: before, surchargeAfter: null, fallbackReason: reason } });
+  const snapshot = (await db.query<{ snapshot: StoredQuoteSnapshot }>("select snapshot from quotes where id = $1", [sale.quoteId])).rows[0]?.snapshot;
+  if (snapshot === undefined) return fallback("QUOTE_NOT_FOUND");
+  const request = rescueRequest(snapshot, order);
+  if (order.category !== "charter" || request.dropoff === null) return { baseMinor: order.settlementMinor, base: { surchargeBefore: before, surchargeAfter: before, fallbackReason: null } };
+  const candidate = (await loadQuoteCandidates(db, { cityId: order.cityId, category: order.category, poiId: order.placeId, productId: order.productId, publishedOnly: false }))[0];
+  if (candidate === undefined || candidate.product.tenantId !== order.tenantId) return fallback("PRODUCT_NOT_FOUND");
+  const quotedAt = new Date(snapshot.createdAt);
+  const facts = await loadQuoteFacts(db, [candidate], request, quotedAt);
+  const result = quoteProduct({ ...candidate.product, inventoryMode: "unlimited" }, request, { now: quotedAt, holidays: facts.holidays, route: order.settlement.usage, inventoryDay: null, urgentUsed: 0 }, { forOwner: true });
+  if (!result.ok) return fallback(result.reason);
+  const offer = result.offers.find((entry) => entry.vehicleGroupId === order.vehicleGroupId && entry.packageHours === order.packageHours);
+  if (offer === undefined) return fallback(result.refused.find((entry) => entry.vehicleGroupId === order.vehicleGroupId)?.reason ?? "NOT_AVAILABLE");
+  if (offer.settlement.currency !== order.settlementCurrency) return fallback("CURRENCY_CHANGED");
+  const after = surchargeTotal(offer.settlement);
+  return { baseMinor: order.settlementMinor + Math.max(0, after - before), base: { surchargeBefore: before, surchargeAfter: after, fallbackReason: null } };
+}
+
+/** 算救援差价用的原结算价一侧：触发时存下的基准；之前的救援没有，按原结算价 */
+function deductionBaseMinor(rescue: Rescue): number {
+  return rescue.deductionBaseMinor ?? rescue.originalSettlementMinor;
+}
+
 export interface TriggerInput {
   trigger: RescueTrigger;
   reason: string | null;
@@ -183,6 +227,7 @@ export async function triggerRescueInTx(db: Db, order: Order, input: TriggerInpu
     throw new AppError(error.status, error.code, error.message, { reason: refusal, status: order.status, trigger: input.trigger });
   }
   const sale = (await findSale(db, order.id)) as OrderSale;
+  const deduction = await deductionBaseOf(db, order, sale);
   const penalty = rescuePenalty(input.trigger, order.serviceAt, now);
   const penaltyMinor = rescuePenaltyMinor(order.settlementMinor, penalty.bp);
   let rescue: Rescue;
@@ -200,6 +245,8 @@ export async function triggerRescueInTx(db: Db, order: Order, input: TriggerInpu
       originalSettlementMinor: order.settlementMinor,
       originalSettlementCurrency: order.settlementCurrency,
       originalFx: await settlementFxOf(db, order, sale),
+      deductionBaseMinor: deduction.baseMinor,
+      deductionBase: deduction.base,
       penaltyBp: penalty.bp,
       penaltyTier: penalty.tier,
     });
@@ -234,7 +281,21 @@ export async function triggerRescueInTx(db: Db, order: Order, input: TriggerInpu
     resourceId: rescue.id,
     action: "trigger",
     before: { order_id: order.id, status: order.status },
-    after: { order_id: order.id, order_no: order.orderNo, status: "rescue_pending", trigger: input.trigger, reason: input.reason, penalty_bp: penalty.bp, penalty_minor: penaltyMinor, currency: order.settlementCurrency },
+    after: {
+      order_id: order.id,
+      order_no: order.orderNo,
+      status: "rescue_pending",
+      trigger: input.trigger,
+      reason: input.reason,
+      penalty_bp: penalty.bp,
+      penalty_minor: penaltyMinor,
+      currency: order.settlementCurrency,
+      // 救援差价的基准（M9P-01）：重算失败退回原结算价时 base_fallback_reason 是原因
+      deduction_base_minor: deduction.baseMinor,
+      surcharge_before: deduction.base.surchargeBefore,
+      surcharge_after: deduction.base.surchargeAfter,
+      base_fallback_reason: deduction.base.fallbackReason,
+    },
   });
   log.warn(
     { event: "order.rescue_triggered", orderId: order.id, orderNo: order.orderNo, tenantId: order.tenantId, trigger: input.trigger, penaltyBp: penalty.bp, serviceAt: order.serviceAt.toISOString() },
@@ -403,7 +464,7 @@ export async function rescueCandidates(ctx: AppContext, orderId: string, log?: Q
   const candidates = ranked.map(({ candidate, inBand }, index): RescueCandidate => {
     const settlement = candidate.offer.settlement;
     const diff = rescueDifference({
-      originalMinor: rescue.originalSettlementMinor,
+      originalMinor: deductionBaseMinor(rescue),
       originalCurrency: rescue.originalSettlementCurrency,
       originalFx: rescue.originalFx,
       rescueMinor: settlement.totalMinor,
@@ -659,7 +720,7 @@ export async function completeRescueInTx(db: Db, order: Order, rescue: Rescue, a
   await moveSaleToTenant(db, order.id, assignment.tenantId);
   const sale = (await findSale(db, order.id)) as OrderSale;
   const diff = rescueDifference({
-    originalMinor: rescue.originalSettlementMinor,
+    originalMinor: deductionBaseMinor(rescue),
     originalCurrency: rescue.originalSettlementCurrency,
     originalFx: rescue.originalFx,
     rescueMinor: assignment.settlement.totalMinor,
@@ -681,7 +742,17 @@ export async function completeRescueInTx(db: Db, order: Order, rescue: Rescue, a
     kind: "rescue_difference",
     amountMinor: diff.minor,
     currency: rescue.originalSettlementCurrency,
-    basis: { original_minor: rescue.originalSettlementMinor, rescue_in_original_minor: diff.rescueInOriginalMinor, raw_minor: diff.rawMinor, same_currency: assignment.settlement.currency === rescue.originalSettlementCurrency },
+    basis: {
+      original_minor: rescue.originalSettlementMinor,
+      rescue_in_original_minor: diff.rescueInOriginalMinor,
+      raw_minor: diff.rawMinor,
+      same_currency: assignment.settlement.currency === rescue.originalSettlementCurrency,
+      // 救援差价的基准（M9P-01，ADR 0093 第二节救援 B）：raw_minor = 救援结算价 − base_minor；之前的救援没有基准，四项为 null
+      base_minor: rescue.deductionBaseMinor,
+      surcharge_before: rescue.deductionBase?.surchargeBefore ?? null,
+      surcharge_after: rescue.deductionBase?.surchargeAfter ?? null,
+      base_fallback_reason: rescue.deductionBase?.fallbackReason ?? null,
+    },
     waived: rescue.forceMajeureAt === null ? null : { at: now, reason: rescue.forceMajeureNote as string },
     now,
   });

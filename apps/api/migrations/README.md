@@ -99,4 +99,5 @@
 | `0340_shared_area_library.sql` | 区域共享库（M8-31，ADR 0083）：`areas` 加图形版本 `shape_version`（默认 1）、引用来源 `shared_source_area_id` / `shared_source_shape_version`（成对为空）和共享库查询用的部分索引。共享库就是各供应商启用中的原创区域（不含测试供应商），平台事务读；不含任何数据 |
 | `0350_shared_area_duplicates.sql` | 区域共享库去重（M8-31b，ADR 0083 补充）：平台表 `shared_area_duplicates`（被隐藏的区域、保留的区域、谁何时为什么标记、撤销记录；同一区域同时最多一条生效中的），只给平台角色读、增、改。不改 `areas` 的任何行，不含任何数据 |
 | `0360_manual_quote_acceptance.sql` | 验收留资（M8-39，ADR 0078 补充）：`manual_quote_requests` 加 `is_acceptance`（默认 false，只由服务端在验收会话里提交时设），触发器保证建好之后谁都不能改。只加结构，不回填已有的行，不含任何数据 |
+| `0410_rescue_deduction_base.sql` | 救援差价的基准（M9P-01，ADR 0093 第二节救援 B）：`order_rescues` 加 `deduction_base_minor`、`deduction_base`（成对为空 = 之前的救援，按原结算价；有值时基准不低于原结算价）。只加列，不回填，不含任何数据 |
 | `0380_manual_quote_waypoints.sql` | 人工报价带包车经停点（M9W-04，ADR 0088 / 0089）：放宽 `manual_quote_requests_package_check`——包车有经停点时按行程计价，可以没有 `package_hours`；别的品类仍不能有时长、时长仍在 1–72。经停点只在加密的 `contact_enc` 里，不加明文列。只改约束，不含任何数据 |

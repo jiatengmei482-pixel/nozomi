@@ -521,6 +521,8 @@ test("请求定义和实现一致：必填项、枚举、条数和长度上限�
     free_wait: { pickup: null, dropoff: null, general: { mode: "limited", minutes: 0 } },
     addons: [{ addon_id: ids["seat"], enabled: true, unit_price: 0, first_free: false }],
     driver_languages: [...DRIVER_LANGUAGES].map((language) => ({ language, unit_price: 0 })),
+    // 包车行程计价的配置（M9P-01）：只有包车有，读出来也带着
+    charter_itinerary: { dropoff_itinerary_surcharge: false },
   };
   assert.deepEqual(violations(schemas["ServiceRules"] as Schema, atLimit), [], "造的请求符合定义");
   const saved = await call("PUT", RULES, { id: product.id, headers: ifMatch(1), body: atLimit });
