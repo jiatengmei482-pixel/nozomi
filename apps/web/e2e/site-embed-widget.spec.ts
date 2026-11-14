@@ -414,5 +414,5 @@ test("嵌入组件来的单记来源（M9E-12）：建草稿 → 询价带 draft
   // 平台订单详情：来源是嵌入组件，带嵌入码名称和网站
   const detail = await request.get(`/platform/v1/orders/${orderId}`, { headers: await platformAdminHeaders(request) });
   expect(detail.status(), await detail.text()).toBe(200);
-  expect(((await detail.json()) as { entry_source: unknown }).entry_source).toEqual({ kind: "embed", embed_key_id: key.id, embed_key_name: keyName, embed_origin: payingHost.origin });
+  expect(((await detail.json()) as { entry_source: unknown }).entry_source).toEqual({ kind: "embed", embed_key_id: key.id, embed_key_name: keyName, embed_origin: payingHost.origin, delivery: "redirect" });
 });
