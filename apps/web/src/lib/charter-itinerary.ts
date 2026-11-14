@@ -132,6 +132,9 @@ const KIND_LABELS: Readonly<Record<string, string>> = {
   other: "其他费用（加急、夜间、附加服务等）",
 };
 
+/** 没超出（金额为 0）时不列的项目：超公里费、超时费（M8-43） */
+const HIDDEN_WHEN_ZERO: ReadonlySet<string> = new Set(["over_km", "overtime"]);
+
 function minorOf(money: SiteMoney): number | null {
   if (!isCurrencyCode(money.currency)) return null;
   try {
@@ -148,6 +151,8 @@ function seqText(seqs: readonly number[]): string {
 /**
  * 对外价明细的每一行（按接口给的顺序）。没有明细、币种和总价不一样、某一项读不出来、**各项之和不等于总价**时为 null——
  * 页面这时只显示总价（宁可少显示，不能显示一组加起来对不上的数）。
+ * 金额为 0 的超公里费、超时费不列（M8-43：没超出时客人不用看到「超公里费 0 JPY」）；先按全部项目核对总价再去掉，0 不影响各项之和。
+ * 其他项目（包括金额为 0 的）照旧列出。
  */
 export function breakdownLines(quote: Pick<SiteQuote, "price" | "price_breakdown">, packageHours: number | null): BreakdownLine[] | null {
   const items: readonly SitePriceBreakdownItem[] | undefined = quote.price_breakdown;
@@ -162,7 +167,9 @@ export function breakdownLines(quote: Pick<SiteQuote, "price" | "price_breakdown
     sum += minor;
   }
   if (sum !== total) return null;
-  return items.map((item, index) => {
+  const lines: BreakdownLine[] = [];
+  items.forEach((item, index) => {
+    if (HIDDEN_WHEN_ZERO.has(item.kind) && minorOf(item.amount) === 0) return;
     let label: string;
     if (item.kind === "base") label = packageHours === null ? "基础价" : `包车套餐 ${packageHours} 小时`;
     else {
@@ -170,8 +177,9 @@ export function breakdownLines(quote: Pick<SiteQuote, "price" | "price_breakdown
       const detail = [name, item.kind === "waypoint" && item.stop_seqs !== null && item.stop_seqs.length > 0 ? seqText(item.stop_seqs) : null].filter((part): part is string => part !== null);
       label = `${KIND_LABELS[item.kind] ?? "其他费用"}${detail.length > 0 ? `（${detail.join("，")}）` : ""}`;
     }
-    return { key: `${item.kind}-${index}`, label, amount: moneyText(item.amount) };
+    lines.push({ key: `${item.kind}-${index}`, label, amount: moneyText(item.amount) });
   });
+  return lines;
 }
 
 /** 行程时间表的一行：上车、经停、下车；`driveMinutes` 是从上一个点开过来的行驶分钟（第一行、没有路线时为 null） */

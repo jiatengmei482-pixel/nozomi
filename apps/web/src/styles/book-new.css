@@ -1140,8 +1140,11 @@ button.book-steps__link:hover .book-steps__name {
   font-size: var(--font-size-sm);
 }
 
+/* 右侧栏「经停点」：每个经停点一行，和其他项的内容左边对齐，不另缩进（M8-43） */
 .book-summary__stops {
+  display: grid;
+  gap: var(--space-0-5);
   margin: 0;
-  padding-left: var(--space-5);
+  padding: 0;
   overflow-wrap: anywhere;
 }
