@@ -5871,7 +5871,7 @@ paths:
         三种计价方式各填各的数（别的留空）：`fixed` 填 `base_price`；`mileage_time` 填 `start_price`、`start_meters`、`start_minutes`、`per_km`、`per_minute`，`min_price` 可不填；
         `charter_package` 填 `package_km`、`package_price`、`overtime_per_hour`、`over_km_per_km`（套餐时长是 `package_hours`）。
         包车区域加价 `charter_area_surcharge`（M8-15，ADR 0073）填 `pickup_surcharge`、`dropoff_surcharge` 和 `package_hours`，`waypoint_surcharge`（途经加价，M9W-01，ADR 0088）可不填（不填 = 对经停点没有规则）；它的 `area_id` 是加价区域：
-        本租户的报价区域就行（不必是商品选的；不能是商品本身的区域 400 `AREA_IS_PRODUCT_AREA`；业务类型要是包车或通用 400 `AREA_NOT_USABLE`；用途要是报价区域或运营 + 报价 400 `AREA_ROLE_NOT_PRICING`（M8-20）；新选的不能是停用的 400 `AREA_DISABLED`）；
+        本租户的报价区域就行（不必是商品选的；也可以是商品本身的区域，ADR 0092：那一端有可用的加价就收；业务类型要是包车或通用 400 `AREA_NOT_USABLE`；用途要是报价区域或运营 + 报价 400 `AREA_ROLE_NOT_PRICING`（M8-20）；新选的不能是停用的 400 `AREA_DISABLED`）；
         区域不存在或是别的租户的：404（不区分）。加价区域不加进商品的区域列表。
         点对点（M8-11，ADR 0073 第二部分）：
         - `to_area_id`（下车区域）可填：不填 = 区域价（和以前一样）；填了 = **单向线路价**，只管上车点在 `area_id`、下车点在 `to_area_id` 的单。
@@ -7001,7 +7001,7 @@ paths:
         带公式的单元格报 `FORMULA`（不取它的值）；日期可以写 `2026-10-01` / `2026/10/1`，也认 Excel 的日期格（1900 和 1904 两种纪元）。这里不能删除价格。什么都不写。
         每一行的 `content` 是它读到的内容（区域、车型组、方向 / 套餐、主价格、区域加价、生效日期），新增的行也有。文件里有叫「价格」的工作表就读它，没有就读第一张。
         包车（M8-15，ADR 0073）：「上车加价」「下车加价」两列可选——旧模版没有这两列照样导入；填了的行是区域加价（区域按本租户全部区域的名称认，不认识报 `UNKNOWN_AREA`；
-        套餐那几列要留空，填了报 `NOT_APPLICABLE`；商品本身的区域报 `AREA_IS_PRODUCT_AREA`）。
+        套餐那几列要留空，填了报 `NOT_APPLICABLE`；商品本身的区域也可以填，ADR 0092）。
         点对点（M8-11，ADR 0073 第二部分）：「下车区域」「含公里数」「超出每公里」三列可选——旧模版没有这三列照样导入（都按留空）；「下车区域」按商品选的区域的名称认
         （不认识报 `AREA_NOT_IN_PRODUCT`，和「区域」相同报 `SAME_AREA`）；含公里数的两列只有一口价能填，要么都填、要么都不填（只填一个报 `REQUIRED` 到空着的那一格）。
       security:
@@ -24395,7 +24395,7 @@ components:
       enum: [ fixed, mileage_time, charter_package, charter_area_surcharge ]
       description: |
         fixed：固定一口价；mileage_time：里程 + 时长；charter_package：包车套餐；
-        charter_area_surcharge：包车区域加价（M8-15，ADR 0073 第三部分）——`area_id` 是加价区域（本租户的报价区域，不必是商品选的，也不能是商品本身的区域），
+        charter_area_surcharge：包车区域加价（M8-15，ADR 0073 第三部分）——`area_id` 是加价区域（本租户的报价区域，不必是商品选的，也可以是商品本身的区域——ADR 0092），
         按车型组 × 套餐时长填 `pickup_surcharge`（上车点在这个区域时加）、`dropoff_surcharge`（下车点在这个区域时加），都可以是 0；
         `waypoint_surcharge`（途经加价，M9W-01，ADR 0088：经停点在这个区域时加，同一区域一单一次）可选，不填 = 这个区域对经停点没有规则。
         区域加价不是基础定价：不算进缺价统计和上架检查；冲突只和同一区域 × 车型组 × 套餐时长的区域加价比（和同一区域的套餐价不冲突）
@@ -25876,7 +25876,6 @@ components:
             - AMBIGUOUS
             - INVENTORY_BELOW_OCCUPIED
             - UNKNOWN_AREA
-            - AREA_IS_PRODUCT_AREA
             - AREA_NOT_USABLE
             - AREA_ROLE_NOT_PRICING
             - AREA_DISABLED
@@ -25889,7 +25888,7 @@ components:
             `NOT_APPLICABLE` 这种计价方式或品类不填这一列；`MODEL_NOT_ALLOWED` 这个品类不能用这种计价方式；
             `UNKNOWN_PRICE_RULE` 价格编号不是这个商品的；`AREA_NOT_IN_PRODUCT` / `VEHICLE_GROUP_NOT_IN_PRODUCT` 不是这个商品选的区域 / 车型组；
             `AMBIGUOUS` 有不止一个区域叫这个名字；`INVENTORY_BELOW_OCCUPIED` 这一天有订单占着，不能改成这个数。
-            包车区域加价的行（M8-15）：`UNKNOWN_AREA` 本租户没有叫这个名字的区域；`AREA_IS_PRODUCT_AREA` 是商品本身的区域；`AREA_NOT_USABLE` 业务类型不是包车或通用；`AREA_DISABLED` 区域已停用。
+            包车区域加价的行（M8-15）：`UNKNOWN_AREA` 本租户没有叫这个名字的区域；`AREA_NOT_USABLE` 业务类型不是包车或通用；`AREA_DISABLED` 区域已停用。
             `AREA_ROLE_NOT_PRICING`（M8-20，ADR 0075）：认出的是运营区域，运营区域不带价格。
             点对点线路价的行（M8-11）：`SAME_AREA`「下车区域」和「区域」相同。
         message:

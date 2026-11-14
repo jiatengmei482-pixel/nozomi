@@ -183,10 +183,10 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   const overlaps = useMemo(() => rowOverlaps(rows, context), [rows, context]);
   const coverage = useMemo(() => tableCoverage(rows, context, areaIds, groupIds), [rows, context, areaIds, groupIds]);
   /**
-   * 「这一行的意思」例子里的套餐价（tenant-prices.md 17.2.3）：商品第一个服务区域、这个车型组和套餐、今天生效的基础定价（含没保存的修改）；没有为 null。
+   * 「这一行的意思」例子里的套餐价（tenant-prices.md 17.2.3）：例子里上车的那个服务区域（不给时商品第一个服务区域）、这个车型组和套餐、今天生效的基础定价（含没保存的修改）；没有为 null。
    */
-  const charterPackagePrice = (vehicleGroupId: string, packageHours: number): number | null => {
-    const firstArea = areaIds[0];
+  const charterPackagePrice = (vehicleGroupId: string, packageHours: number, areaId?: string): number | null => {
+    const firstArea = areaId ?? areaIds[0];
     if (firstArea === undefined) return null;
     const live = rows.flatMap((row) => {
       const rule = row.deleted ? null : (readings.get(row.key)?.rule ?? null);
@@ -361,7 +361,6 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
     return surcharges.rows.find((row) => row.key === key || row.id === key);
   };
   const SURCHARGE_REASONS: Readonly<Record<string, (name: string) => string>> = {
-    AREA_IS_PRODUCT_AREA: (name) => `「${name}」是商品的服务区域，上车、下车在那里都不加价，不能再设区域加价。请换一个商品服务区域以外的区域。`,
     AREA_NOT_USABLE: (name) => `「${name}」的业务类型不是包车或通用，不能做包车的加价区域。请换一个区域，或到区域页面改它的业务类型。`,
     AREA_DISABLED: (name) => `「${name}」已经停用，不能新加区域加价。请先到区域页面启用它，或换一个区域。`,
     AREA_ROLE_NOT_PRICING: (name) => `「${name}」是运营区域，不能做加价区域：运营区域只决定能不能接单，不带价格。请换一个报价区域（或到区域页面把它改成「运营 + 报价」）。`,

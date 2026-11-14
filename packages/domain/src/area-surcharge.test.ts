@@ -211,6 +211,25 @@ test("回归 M8-38：大范围的商品区域（加价 0）盖住小加价区时
   assert.equal(total(fujiOff, trip("tokyo", "fuji")), 50_000);
 });
 
+test("同一区域既是服务区域又是加价区域（ADR 0092，M8-46）：基础定价用它自己的套餐价，再收它的加价；没设加价（或停用）时这一端加 0、照样报价", () => {
+  // 服务区域〔东京, 千叶〕，千叶自己的套餐价 33,000，又设了区域加价（上车 14,000、下车 9,000）
+  const both = charter({ areas: [TOKYO, CHIBA], surchargeAreas: [CHIBA], priceRules: [pkg("base-8"), pkg("chiba-8", { areaId: "chiba" }, 33_000), surcharge("s-chiba", "chiba", 14_000, 9_000)] });
+  const s = settlementOf(both, trip("chiba", "tokyo"));
+  assert.deepEqual(s.areaSurcharge, { packageMinor: 33_000, pickup: { areaId: "chiba", priceRuleId: "s-chiba", amountMinor: 14_000 }, dropoff: { areaId: null, priceRuleId: null, amountMinor: 0 } });
+  assert.equal(s.totalMinor, 47_000, "千叶上车 = 千叶的套餐价 33,000 + 千叶上车加价 14,000");
+  assert.equal(total(both, trip("tokyo", "chiba")), 59_000, "东京上车、千叶下车 = 东京的套餐价 50,000 + 千叶下车加价 9,000");
+  assert.equal(total(both, trip("chiba", "chiba")), 33_000 + 14_000 + 9_000, "两端都在千叶：两端都收");
+  assert.equal(total(both, trip("tokyo", "tokyo")), 50_000, "两端都不在千叶：只有套餐价");
+  // 千叶没设加价：和以前一样，千叶上车只收千叶的套餐价
+  const plain = charter({ areas: [TOKYO, CHIBA], surchargeAreas: [], priceRules: [pkg("base-8"), pkg("chiba-8", { areaId: "chiba" }, 33_000)] });
+  assert.equal(total(plain, trip("chiba", "tokyo")), 33_000);
+  // 这个车型组只有别的套餐的加价（这一档没设）/ 加价停用了：在服务区域里，这一端加 0，不是报不出
+  const otherHours = charter({ areas: [TOKYO, CHIBA], surchargeAreas: [CHIBA], priceRules: [pkg("base-8"), pkg("chiba-8", { areaId: "chiba" }, 33_000), surcharge("s-chiba-4", "chiba", 14_000, 9_000, { packageHours: 4 })] });
+  assert.equal(total(otherHours, trip("chiba", "tokyo")), 33_000);
+  const off = charter({ areas: [TOKYO, CHIBA], surchargeAreas: [CHIBA], priceRules: [pkg("base-8"), pkg("chiba-8", { areaId: "chiba" }, 33_000), surcharge("s-chiba", "chiba", 14_000, 9_000, { status: "disabled" })] });
+  assert.equal(total(off, trip("chiba", "tokyo")), 33_000);
+});
+
 test("哪里都不在 = 不报价、转人工（OUT_OF_SERVICE_AREA）；落在禁行区里而没有别的区域接 = IN_FORBIDDEN_AREA；停用的加价区域不算", () => {
   assert.equal(total(charter(), trip("tokyo", "nowhere")), "OUT_OF_SERVICE_AREA");
   assert.equal(total(charter(), trip("nowhere", "tokyo")), "OUT_OF_SERVICE_AREA");

@@ -72,7 +72,7 @@ const BASE_RULES = [packagePrice("p1", COMFORT, 8), packagePrice("p2", BUSINESS,
 const pricesOf = (items: PriceRuleBody[], version = 7): PriceRules => ({ version, currency: "JPY", rounding_unit: 1, available_models: ["charter_package"], surcharge_models: ["charter_area_surcharge"], today: TODAY, items, coverage: { total: 4, priced: 4, missing: 0 } });
 
 type Route = (call: ApiCall & { url: URL }) => Response | Promise<Response> | null;
-function open(role: string, prices: PriceRules, extra: Route = () => null, areas: AreaSummary[] = AREAS): ApiCall[] {
+function open(role: string, prices: PriceRules, extra: Route = () => null, areas: AreaSummary[] = AREAS, product: Product = productOf()): ApiCall[] {
   signIn("tenant", "tenant-token");
   const calls = stubApiWith((call) => {
     const custom = extra(call);
@@ -80,7 +80,7 @@ function open(role: string, prices: PriceRules, extra: Route = () => null, areas
     if (call.method !== "GET") return null;
     const at = call.url.pathname;
     if (at === "/tenant/v1/auth/me") return json(200, { user: { id: "u1", email: "user@supplier.example", name: "测试用户", role, status: "active", ...stamps }, tenant: { id: "t1", name: "测试用供应商", status: "active", ...stamps }, permissions: [], must_change_password: false });
-    if (at === BASE) return json(200, productOf());
+    if (at === BASE) return json(200, product);
     if (at === `${BASE}/publish-check`) return json(200, { can_publish: true, items: [] });
     if (at === `${BASE}/price-rules`) return json(200, prices);
     if (at === `${BASE}/adjust-rules`) return json(200, { version: 7, currency: "JPY", rounding_unit: 1, today: TODAY, items: [] });
@@ -129,11 +129,11 @@ test("包车价格页：基础定价下面多「区域加价」；价格表不�
   assert.match(fuji.textContent ?? "", /3 个组合没填/);
   assert.equal(fuji.querySelectorAll(".surcharge-sum__value")[0]?.textContent, "1,000");
   assert.match(within(section).getByRole("heading", { level: 3 }).textContent ?? "", /3 个组合没填/);
-  // 选择区域：商品的服务区域、已添加的列出但不能选；运营区域、停用的不列，另说一句被藏掉的运营区域
+  // 选择区域：已添加的列出但不能选；商品的服务区域标出来、可以选（ADR 0092，M8-46）；运营区域、停用的不列，另说一句被藏掉的运营区域
   const select = within(section).getByLabelText("选择要加价的区域") as HTMLSelectElement;
   await waitFor(() => assert.ok(select.options.length > 1));
   const options = [...select.options].map((option) => [option.textContent, option.disabled]);
-  assert.deepEqual(options, [["选择区域", false], ["东京 23 区（商品的服务区域，不加价）", true], ["千叶", false], ["富士山（已添加）", true]]);
+  assert.deepEqual(options, [["选择区域", false], ["东京 23 区（商品的服务区域）", false], ["千叶", false], ["富士山（已添加）", true]]);
   assert.equal(select.querySelectorAll("optgroup").length, 2, "按城市分组，商品所在城市排第一组");
   assert.equal(select.querySelector("optgroup")?.getAttribute("label"), "东京");
   assert.match(section.textContent ?? "", /另有 1 个运营区域没有列出/);
@@ -262,7 +262,8 @@ test("删除加价区域 = 停用：页面内确认（写明停用、可恢复�
 });
 
 test("还没有加价区域：信息提示条说清后果；没有可选的区域时下拉禁用并说先去画；还没有套餐时整块换成一句", async () => {
-  open("admin", pricesOf(BASE_RULES), () => null, [AREAS[0] as AreaSummary]);
+  // 只有停用的区域（M8-46 以前用的是只有商品自己的服务区域；ADR 0092 起服务区域也能选，换成真的没有能选的）
+  open("admin", pricesOf(BASE_RULES), () => null, [AREAS[4] as AreaSummary]);
   const section = await block();
   assert.match(section.textContent ?? "", /包车现在要看下车地点。.*东京 23 区.*这个商品还没有加价区域，所以下车地点在服务区域以外的包车单现在都不报价。/);
   const select = within(section).getByLabelText("选择要加价的区域") as HTMLSelectElement;
@@ -274,10 +275,9 @@ test("还没有加价区域：信息提示条说清后果；没有可选的区�
   assert.match(empty.textContent ?? "", /先在上面「基础定价」里加一个套餐，再设区域加价。/);
 });
 
-test("保存被拒：区域的四种 400 原因写成怎么办；别人的 / 已删除的区域 404；日期重叠 409 指回那一行（先展开区域）", async () => {
+test("保存被拒：区域的三种 400 原因写成怎么办（AREA_IS_PRODUCT_AREA 已由 ADR 0092 取消）；别人的 / 已删除的区域 404；日期重叠 409 指回那一行（先展开区域）", async () => {
   const actor = user();
   const reasons: [string, RegExp][] = [
-    ["AREA_IS_PRODUCT_AREA", /「千叶」是商品的服务区域，上车、下车在那里都不加价/],
     ["AREA_NOT_USABLE", /「千叶」的业务类型不是包车或通用，不能做包车的加价区域/],
     ["AREA_DISABLED", /「千叶」已经停用，不能新加区域加价。请先到区域页面启用它/],
     ["AREA_ROLE_NOT_PRICING", /「千叶」是运营区域，不能做加价区域：运营区域只决定能不能接单，不带价格。请换一个报价区域/],
@@ -309,7 +309,7 @@ test("保存被拒：区域的四种 400 原因写成怎么办；别人的 / 已
   const pointer = screen.getByRole("button", { name: /^区域加价 · 千叶 · .* 小时：2026-11-10 起一直有效 ↔ 2026-11-01 起一直有效（别人刚加的）$/ });
   await actor.click(pointer);
   assert.match(document.activeElement?.getAttribute("aria-label") ?? "", /^区域加价 · 千叶 · .* 的生效日期从$/);
-  assert.ok(writes(calls).length >= 6);
+  assert.ok(writes(calls).length >= 5, "三种 400 + 404 + 409 各保存一次");
 });
 
 test("页面上填错：负数、空着一个金额、日期写错，保存前拦下并指到那一格", async () => {
@@ -490,4 +490,113 @@ test("保存以后读屏状态区清掉上一句（「……将删除，点保�
   await save(actor);
   await waitFor(() => assert.equal(document.getElementById(`surcharge-area-${FUJI}`), null));
   assert.doesNotMatch(said(), /将删除，点保存后生效/);
+});
+
+/** 服务区域是东京 23 区和千叶的商品（M8-46：千叶同时设区域加价） */
+const TWO_AREAS = productOf({ areas: [{ area_id: TOKYO, priority: 0, name: { zh: "东京 23 区" }, biz_type: "general", status: "active" }, { area_id: CHIBA, priority: 1, name: { zh: "千叶" }, biz_type: "general", status: "active" }] } as unknown as Partial<Product>);
+/** 假后端：把这一批的新增、修改套进现有的价格里，返回保存后的样子（新增的给新编号） */
+const applyBatch = (items: PriceRuleBody[], body: Batch): PriceRuleBody[] => {
+  const updated = items.map((item) => {
+    const change = body.update.find((entry) => entry["id"] === item.id);
+    return change ? ({ ...item, ...change } as PriceRuleBody) : item;
+  });
+  const created = body.create.map((entry, index) => ({ ...EMPTY, ...entry, id: `99999999-9999-4999-8999-99999999999${index}`, base: "0" }) as unknown as PriceRuleBody);
+  return [...updated.filter((item) => !body.delete.includes(item.id)), ...created];
+};
+
+test("M8-46 复现：千叶既是服务区域又已有区域加价 → 编辑填空着的组合 → 保存成功、「未保存」消失；千叶只列一行（不再同时写「不加价」）", async () => {
+  const actor = user();
+  const start = [...BASE_RULES, surcharge({ area_id: CHIBA })];
+  const calls = open("admin", pricesOf(start), (call) => (call.method === "POST" && call.url.pathname === `${BASE}/price-rules/batch` ? json(200, { ...pricesOf(applyBatch(start, call.body as Batch), 8), created_ids: [] }) : null), AREAS, TWO_AREAS);
+  const section = await block();
+  const table = within(section).getByRole("table", { name: /区域加价/ });
+  assert.equal(within(table).getAllByRole("rowheader", { name: /千叶/ }).length, 1, "千叶只有加价那一行");
+  assert.doesNotMatch(within(table).getByRole("rowheader", { name: /千叶/ }).closest("tr")?.textContent ?? "", /不加价/);
+  assert.match(document.getElementById(`surcharge-area-${CHIBA}`)?.textContent ?? "", /也是商品的服务区域/);
+  assert.match(within(table).getByRole("rowheader", { name: "东京 23 区" }).closest("tr")?.textContent ?? "", /00商品的服务区域，不加价/, "没设加价的服务区域照旧写 0");
+  await actor.click(within(section).getByRole("button", { name: "编辑「千叶」的区域加价" }));
+  const dialog = await screen.findByRole("dialog", { name: "改「千叶」的区域加价" });
+  assert.match(dialog.textContent ?? "", /会填 3 个空着的组合，改 1 个已经填了的。/);
+  await actor.click(within(dialog).getByRole("button", { name: "填进去" }));
+  await waitFor(() => assert.equal(screen.queryByRole("dialog"), null));
+  assert.ok(screen.getByText("有 3 条未保存的修改"));
+  await save(actor);
+  await waitFor(() => assert.equal(writes(calls).length, 1));
+  const batch = batchOf(writes(calls)[0]);
+  assert.deepEqual([batch.create.map((entry) => [entry["area_id"], entry["pricing_model"], entry["pickup_surcharge"], entry["dropoff_surcharge"]]), batch.update, batch.delete], [Array.from({ length: 3 }, () => [CHIBA, "charter_area_surcharge", 1000, 1000]), [], []]);
+  await waitFor(() => assert.equal(screen.queryByText(/条未保存的修改/), null));
+  assert.doesNotMatch(document.getElementById(`surcharge-area-${CHIBA}`)?.textContent ?? "", /未保存/);
+  assert.equal(document.querySelector("[role=alert] .alert__title")?.textContent ?? null, null, "没有「没有保存」的提示");
+});
+
+test("M8-46：服务区域千叶还没有区域加价 → 下拉里能选（标「商品的服务区域」）→ 添加 4 个组合 → 和基础定价的修改一起保存成功", async () => {
+  const actor = user();
+  const calls = open("admin", pricesOf(BASE_RULES), (call) => (call.method === "POST" && call.url.pathname === `${BASE}/price-rules/batch` ? json(200, { ...pricesOf(applyBatch(BASE_RULES, call.body as Batch), 8), created_ids: [] }) : null), AREAS, TWO_AREAS);
+  const section = await block();
+  const select = within(section).getByLabelText("选择要加价的区域") as HTMLSelectElement;
+  await waitFor(() => assert.ok(select.options.length > 1));
+  const chiba = [...select.options].find((option) => option.value === CHIBA);
+  assert.deepEqual([chiba?.textContent, chiba?.disabled], ["千叶（商品的服务区域）", false]);
+  await actor.selectOptions(select, CHIBA);
+  await actor.click(within(section).getByRole("button", { name: "确认添加" }));
+  const dialog = await screen.findByRole("dialog", { name: "给「千叶」设区域加价" });
+  // 服务区域的途经加价留空 = 不加钱（引擎在服务区域里按 0 算），不是不报价（M8-46 审查第 1 条）
+  assert.match(dialog.textContent ?? "", /选填：千叶也是商品的服务区域，留空 = 途经景点落在这里时不加钱/);
+  assert.doesNotMatch(dialog.textContent ?? "", /留空 = 途经景点落在这里时不报价/);
+  await actor.type(within(dialog).getByLabelText(/^上车加价/), "14000");
+  await actor.type(within(dialog).getByLabelText(/^下车加价/), "9000");
+  await actor.click(within(dialog).getByRole("button", { name: "添加" }));
+  await waitFor(() => assert.equal(screen.queryByRole("dialog"), null));
+  assert.ok(screen.getByText("有 4 条未保存的修改"));
+  await save(actor);
+  await waitFor(() => assert.equal(writes(calls).length, 1));
+  const batch = batchOf(writes(calls)[0]);
+  assert.deepEqual(batch.create.map((entry) => [entry["area_id"], entry["pickup_surcharge"], entry["dropoff_surcharge"]]), Array.from({ length: 4 }, () => [CHIBA, 14000, 9000]));
+  await waitFor(() => assert.equal(screen.queryByText(/条未保存的修改/), null));
+  assert.equal([...select.options].find((option) => option.value === CHIBA)?.textContent, "千叶（已添加）");
+});
+
+test("M8-46 审查：加价区域也是服务区域时，「这一行的意思」和说明按服务区域写——空着 = 这一端不加钱、照样报价；例子的另一端取别的服务区域", async () => {
+  const actor = user();
+  // 服务区域〔千叶, 东京 23 区〕，千叶排第一个又设了加价：例子不能写成「千叶上车、千叶下车 = 套餐价 + 0 + 下车加价」
+  const chibaFirst = productOf({ areas: [{ area_id: CHIBA, priority: 0, name: { zh: "千叶" }, biz_type: "general", status: "active" }, { area_id: TOKYO, priority: 1, name: { zh: "东京 23 区" }, biz_type: "general", status: "active" }] } as unknown as Partial<Product>);
+  open("admin", pricesOf([...BASE_RULES, surcharge({ area_id: CHIBA, dropoff_surcharge: 800 })]), () => null, AREAS, chibaFirst);
+  const section = await block();
+  assert.match(section.querySelector(".surcharge__lead")?.textContent ?? "", /途经加价空着 = 途经景点落在这个区域时不报价（不加钱请填 0）——这个区域也是商品的服务区域时，空着 = 不加钱。/);
+  await actor.click(within(section).getByRole("button", { name: "展开「千叶」的各车型组和套餐" }));
+  screen.getByLabelText("区域加价 · 千叶 · 舒适五座 · 8 小时 的上车加价").focus();
+  await waitFor(() => assert.match(document.querySelector(".surcharge .price-meaning")?.textContent ?? "", /例：东京 23 区上车、千叶下车 = 套餐价 JPY 60,000 \+ 0 \+ JPY 800 = JPY 60,800（调价规则前）。/));
+  const meaning = (): string => document.querySelector(".surcharge .price-meaning")?.textContent ?? "";
+  assert.doesNotMatch(meaning(), /千叶上车/);
+  assert.match(meaning(), /途经景点在千叶时不加钱（没设途经加价；千叶也是商品的服务区域）/);
+  assert.doesNotMatch(meaning(), /不报价/);
+  // 空着的组合：这一端不加钱、照样报价
+  // 空着的格子要先敲过字（再删掉）才进页面的行，「这一行的意思」才讲它
+  const blankC = screen.getByLabelText("区域加价 · 千叶 · 商务七座 · 8 小时 的上车加价");
+  await actor.type(blankC, "1");
+  await actor.clear(blankC);
+  await waitFor(() => assert.match(meaning(), /千叶 · 商务七座 · 8 小时——还没填区域加价。千叶也是商品的服务区域：上车点、下车点或途经景点在千叶、坐商务七座、订 8 小时的单，这一端不加钱，照样报价。/));
+  assert.doesNotMatch(meaning(), /不报价/);
+});
+
+test("M8-46 审查：唯一的服务区域就是这个加价区域时不写例子；不是服务区域的加价区域照旧写「不报价」", async () => {
+  const actor = user();
+  const onlyChiba = productOf({ areas: [{ area_id: CHIBA, priority: 0, name: { zh: "千叶" }, biz_type: "general", status: "active" }] } as unknown as Partial<Product>);
+  // 千叶自己有套餐价：以前会拿千叶当另一端，写出「千叶上车、千叶下车 = 套餐价 + 0 + 下车加价」（少算上车加价）
+  open("admin", pricesOf([...BASE_RULES, { ...packagePrice("pc", COMFORT, 8), area_id: CHIBA }, surcharge({ area_id: CHIBA }), surcharge({ id: "s-fuji" })]), () => null, AREAS, onlyChiba);
+  const section = await block();
+  const meaning = (): string => document.querySelector(".surcharge .price-meaning")?.textContent ?? "";
+  await actor.click(within(section).getByRole("button", { name: "展开「千叶」的各车型组和套餐" }));
+  screen.getByLabelText("区域加价 · 千叶 · 舒适五座 · 8 小时 的上车加价").focus();
+  await waitFor(() => assert.match(meaning(), /千叶 · 舒适五座 · 8 小时——上车点在千叶时加 JPY 1,000/));
+  assert.doesNotMatch(meaning(), /例：/);
+  // 富士山不是服务区域：空着的组合照旧不报价，途经加价没设照旧不报价
+  await actor.click(within(section).getByRole("button", { name: "展开「富士山」的各车型组和套餐" }));
+  // 空着的格子要先敲过字（再删掉）才进页面的行，「这一行的意思」才讲它
+  const blankF = screen.getByLabelText("区域加价 · 富士山 · 商务七座 · 8 小时 的上车加价");
+  await actor.type(blankF, "1");
+  await actor.clear(blankF);
+  await waitFor(() => assert.match(meaning(), /富士山 · 商务七座 · 8 小时——还没填区域加价。上车点或下车点只在富士山、坐商务七座、订 8 小时的单不报价。/));
+  screen.getByLabelText("区域加价 · 富士山 · 舒适五座 · 8 小时 的上车加价").focus();
+  await waitFor(() => assert.match(meaning(), /途经景点在富士山的单（没设途经加价）不报价。/));
 });

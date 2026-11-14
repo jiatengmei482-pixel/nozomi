@@ -324,7 +324,7 @@ export function checkPriceChanges(context: PricingContext, changes: PriceChanges
     issues.push({ path: "/", reason: "TOO_MANY", message: `一个商品最多 ${PRICE_LIMITS.maxPriceRulesPerProduct} 条价格规则`, detail: { max: PRICE_LIMITS.maxPriceRulesPerProduct } });
   }
   // 单条保存、或整批的问题（条数太多）：直接报，不再查重叠。
-  // 批量时某几条有问题，其余没问题的照样查重叠（M8-25）：导入预览里一行出错（比如区域加价选了商品本身的区域），
+  // 批量时某几条有问题，其余没问题的照样查重叠（M8-25）：导入预览里一行出错（比如区域加价选了业务类型不对的区域），
   // 别的行和库里已有的价格日期重叠也要标成「冲突」，不能显示成「新增」。保存时有问题先报 400，这里多算的冲突用不上。
   if (issues.length > 0 && (single || issues.some((issue) => !/^\/(create|update|delete)\/\d+(\/|$)/.test(issue.path)))) return { issues, conflicts: [] };
   const flagged = new Set(issues.map((issue) => /^\/(create|update)\/(\d+)/.exec(issue.path)).flatMap((match) => (match ? [`${match[1]}/${match[2]}`] : [])));
@@ -354,7 +354,7 @@ export function priceRuleConflict(conflicts: PriceConflict[]): AppError {
 /**
  * 区域加价的区域（ADR 0073 第三部分）：本租户的报价区域就行，不必是商品选的（加价区域不加进商品的区域列表）。
  * - 业务类型要是包车或通用（和商品选区域同一条规则）；新选的不能是停用的；
- * - 不能是商品本身的区域（商品本身的区域里上车、下车都不加价，在那里设加价不会起作用）。
+ * - 可以同时是商品本身的区域（ADR 0092 放开：一端落在这里、这个组合有可用的加价就收，和 M8-38 同一口径）。
  * 修改时没换区域的不再查（区域后来停用了、或后来被加进了商品，加价还可以改、可以删）。
  * 区域不存在（或是别的租户的）不在这里：保存前按 404 处理（`assertSurchargeAreasExist`）。
  */
@@ -362,7 +362,6 @@ function surchargeAreaIssues(context: PricingContext, rule: PriceRule, at: strin
   if (before?.areaId === rule.areaId) return [];
   const area = context.tenantAreas.get(rule.areaId);
   if (area === undefined) return [];
-  if (context.areaIds.includes(rule.areaId)) return [{ path: `${at}/area_id`, reason: "AREA_IS_PRODUCT_AREA", message: "这是商品本身的区域：上车、下车在这里都不加价。区域加价请选商品区域以外的区域", detail: who }];
   if (!areaUsableByCategory(context.product.category, area.bizType)) return [{ path: `${at}/area_id`, reason: "AREA_NOT_USABLE", message: "只能选业务类型是包车或「通用」的区域", detail: who }];
   if (!areaRoleCanPrice(area.role)) return [{ path: `${at}/area_id`, reason: "AREA_ROLE_NOT_PRICING", message: AREA_ROLE_NOT_PRICING_MESSAGE, detail: who }];
   if (area.status !== "active") return [{ path: `${at}/area_id`, reason: "AREA_DISABLED", message: "这个区域已停用，不能新选", detail: who }];
