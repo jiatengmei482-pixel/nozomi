@@ -56,7 +56,7 @@ import { type ProductWriter, readTx, writeTx } from "./products.ts";
 
 export const IMPORT_LIMITS = { maxPriceRows: PRICE_LIMITS.maxBatchChanges, maxInventoryRows: INVENTORY_LIMITS.maxRangeDays } as const;
 
-export type ImportFileReason = "NOT_XLSX" | "CORRUPT" | "TOO_LARGE" | "UNSAFE" | "EMPTY" | "MISSING_COLUMNS" | "TOO_MANY_ROWS";
+export type ImportFileReason = "NOT_XLSX" | "CORRUPT" | "TOO_LARGE" | "UNSAFE" | "EMPTY" | "MISSING_COLUMNS" | "TOO_MANY_ROWS" | "LEGACY_TEMPLATE";
 
 /** 文件本身读不了（不是 xlsx、损坏、太大、缺列、行太多）：400 IMPORT_FILE_INVALID，`details.reason` 说明是哪一种。 */
 function fileInvalid(reason: ImportFileReason, message: string, extra: Record<string, unknown> = {}): AppError {
@@ -202,6 +202,8 @@ const P = {
   pickupSurcharge: "上车加价",
   dropoffSurcharge: "下车加价",
   waypointSurcharge: "途经加价",
+  // 包车②行程加价（M9P-05，ADR 0093 第一节）：只在迁移过三层区域的商品的模版里，填了这一列的行是一条行程加价，「区域」是行程区域
+  itinerarySurcharge: "行程加价",
   validFrom: "生效开始",
   validTo: "生效结束",
   status: "状态",
@@ -219,11 +221,16 @@ const PRICE_SHEET = "价格";
 
 const STATUS_NAMES: Readonly<Record<PriceRuleStatus, string>> = { enabled: "启用", disabled: "停用" };
 
-/** 这个品类的价格表有哪些列（顺序即模版里的顺序）。 */
-function priceColumns(category: ServiceCategory): string[] {
+/**
+ * 这个品类的价格表有哪些列（顺序即模版里的顺序）。
+ * 迁移过三层区域的包车（`layered`，ADR 0093 第五节）只认新格式：没有「途经加价」，多一列「行程加价」；套餐价的「区域」留空。
+ */
+function priceColumns(category: ServiceCategory, layered = false): string[] {
   const middle =
     category === "charter"
-      ? [P.packageHours, P.packageKm, P.packagePrice, P.overtime, P.overKm, P.pickupSurcharge, P.dropoffSurcharge, P.waypointSurcharge]
+      ? layered
+        ? [P.packageHours, P.packageKm, P.packagePrice, P.overtime, P.overKm, P.pickupSurcharge, P.dropoffSurcharge, P.itinerarySurcharge]
+        : [P.packageHours, P.packageKm, P.packagePrice, P.overtime, P.overKm, P.pickupSurcharge, P.dropoffSurcharge, P.waypointSurcharge]
       : category === "point_to_point"
         ? [P.model, P.basePrice, P.includedKm, P.overKmPerKm, P.startPrice, P.startKm, P.startMinutes, P.perKm, P.perMinute, P.minPrice]
         : [P.direction, P.model, P.basePrice, P.startPrice, P.startKm, P.startMinutes, P.perKm, P.perMinute, P.minPrice];
@@ -254,6 +261,7 @@ const FIELD_COLUMNS: Readonly<Record<string, string>> = {
   pickup_surcharge: P.pickupSurcharge,
   dropoff_surcharge: P.dropoffSurcharge,
   waypoint_surcharge: P.waypointSurcharge,
+  itinerary_surcharge: P.itinerarySurcharge,
   valid_from: P.validFrom,
   valid_to: P.validTo,
   status: P.status,
@@ -271,6 +279,8 @@ const SAVE_MESSAGES: Readonly<Record<string, string>> = {
   AREA_NOT_USABLE: "区域加价只能用业务类型是包车或「通用」的区域",
   AREA_DISABLED: "这个区域已停用，不能新设区域加价",
   SAME_AREA: "「下车区域」不能和「区域」相同；同一个区域里的单用区域价，「下车区域」留空",
+  CHARTER_LAYOUT_NOT_MIGRATED: "这个商品还没有迁移到三层区域：不能设行程加价、整商品套餐价或不分套餐的加价",
+  CHARTER_LEGACY_READ_ONLY: "这是迁移前的旧数据（只读）：套餐价按车型组 × 套餐填一次（「区域」留空），经停加价填在「行程加价」里",
 };
 
 /** 金额的上限写成这个币种的主单位（上限是 10 亿最小货币单位：日元 1,000,000,000，美元 10,000,000.00）。 */
@@ -302,7 +312,7 @@ interface PriceNames {
 }
 
 async function priceNames(db: Db, tenantId: string, context: PricingContext): Promise<PriceNames> {
-  const areaIds = [...new Set([...context.areaIds, ...context.priceRules.map((rule) => rule.areaId)])];
+  const areaIds = [...new Set([...context.areaIds, ...context.priceRules.flatMap((rule) => (rule.areaId === null ? [] : [rule.areaId]))])];
   const groupIds = [...new Set([...context.vehicleGroupIds, ...context.priceRules.map((rule) => rule.vehicleGroupId)])];
   const areas = await findAreasForProduct(db, tenantId, areaIds);
   return { areas: new Map([...[...areas].map(([id, area]): [string, LocalizedText] => [id, area.name]), ...[...context.tenantAreas].map(([id, area]): [string, LocalizedText] => [id, area.name])]), groups: await findVehicleGroupLabels(db, groupIds) };
@@ -316,7 +326,8 @@ function priceRow(rule: StoredPriceRule, names: PriceNames, currency: CurrencyCo
   const km = (meters: number): XlsxWriteCell => ({ number: meters % 1_000 === 0 ? String(meters / 1_000) : `${Math.floor(meters / 1_000)}.${String(meters % 1_000).padStart(3, "0").replace(/0+$/, "")}` });
   const values: Record<string, XlsxWriteCell> = {
     [P.id]: rule.id,
-    [P.area]: displayName(names.areas.get(rule.areaId) ?? {}),
+    // 整商品套餐价（ADR 0093 第五节）不挂区域：留空
+    [P.area]: rule.areaId === null ? null : displayName(names.areas.get(rule.areaId) ?? {}),
     [P.toArea]: rule.toAreaId === null || rule.toAreaId === undefined ? null : displayName(names.areas.get(rule.toAreaId) ?? {}),
     [P.group]: names.groups.get(rule.vehicleGroupId)?.code ?? "",
     [P.direction]: rule.direction === null ? null : PRICE_DIRECTION_NAMES[rule.direction],
@@ -339,6 +350,8 @@ function priceRow(rule: StoredPriceRule, names: PriceNames, currency: CurrencyCo
     });
   } else if (pricing.model === "charter_area_surcharge") {
     Object.assign(values, { [P.pickupSurcharge]: money(pricing.pickupSurchargeMinor, currency), [P.dropoffSurcharge]: money(pricing.dropoffSurchargeMinor, currency), [P.waypointSurcharge]: money(pricing.waypointSurchargeMinor ?? null, currency) });
+  } else if (pricing.model === "charter_itinerary_surcharge") {
+    Object.assign(values, { [P.itinerarySurcharge]: money(pricing.surchargeMinor, currency) });
   } else {
     Object.assign(values, { [P.packageKm]: whole(pricing.packageKm), [P.packagePrice]: money(pricing.packagePriceMinor, currency), [P.overtime]: money(pricing.overtimePerHourMinor, currency), [P.overKm]: money(pricing.overKmPerKmMinor, currency) });
   }
@@ -361,8 +374,11 @@ export function exportPriceRules(ctx: AppContext, tenantId: string, productId: s
     const names = await priceNames(db, tenantId, context);
     const { category, code } = context.product;
     const currency = context.currency ?? "JPY";
-    const columns = priceColumns(category);
-    const rows: XlsxWriteCell[][] = [columns, ...(withRows ? context.priceRules.map((rule) => priceRow(rule, names, currency, columns)) : [])];
+    const layered = category === "charter" && context.product.charterLayout === "three_layer";
+    const columns = priceColumns(category, layered);
+    // 迁移过三层区域的商品：按服务区域的旧套餐价只读、报价不读，不导出（ADR 0093 第五节）
+    const exported = layered ? context.priceRules.filter((rule) => rule.pricing.model !== "charter_package" || rule.areaId === null) : context.priceRules;
+    const rows: XlsxWriteCell[][] = [columns, ...(withRows ? exported.map((rule) => priceRow(rule, names, currency, columns)) : [])];
     const digits = minorDigits(currency);
     const help: XlsxWriteCell[][] = [
       ["填写说明"],
@@ -372,7 +388,15 @@ export function exportPriceRules(ctx: AppContext, tenantId: string, productId: s
       [`「${P.area}」填区域的名称，「${P.group}」填车型组的编码，只能用下面列出的。`],
       ["日期写成 2026-10-01；「生效结束」留空 = 一直有效。两头的日期都算在内，同一个组合的日期不能重叠。"],
       [`「${P.status}」填 启用 或 停用，留空 = 启用。`],
-      ...(category === "charter"
+      ...(layered
+        ? [
+            [`套餐价：「${P.area}」留空（整个商品统一一个价，按车型组 × 套餐填一次），填「${P.packageHours}」「${P.packageKm}」「${P.packagePrice}」「${P.overtime}」「${P.overKm}」。`],
+            [`上下车加价：「${P.area}」填上下车加价区域（下面列出的），填「${P.pickupSurcharge}」「${P.dropoffSurcharge}」（可以填 0），套餐价那几列留空。上车点、下车点在这个区域时分别加这么多。`],
+            [`行程加价：「${P.area}」填行程区域（可以是商品的服务区域），只填「${P.itinerarySurcharge}」（可以填 0）。客人的经停点落在这个区域时加一次，同一区域一单只加一次。`],
+            [`两种加价的「${P.packageHours}」可以留空 = 这个车型组的所有套餐；填了只管这一档（同一区域先用填了套餐的那条）。没设 = 不报价，不加钱请填 0。`],
+            [`这是迁移到三层区域之后的模版：迁移前的旧模版（有「${P.waypointSurcharge}」列）不能再导入，请重新下载。`],
+          ]
+        : category === "charter"
         ? [
             [`包车：每一行要填「${P.packageHours}」「${P.packageKm}」「${P.packagePrice}」「${P.overtime}」「${P.overKm}」。`],
             [`区域加价：「${P.area}」填加价区域（下面列出的），填「${P.packageHours}」「${P.pickupSurcharge}」「${P.dropoffSurcharge}」（可以填 0），「${P.packageKm}」「${P.packagePrice}」「${P.overtime}」「${P.overKm}」留空。上车点、下车点在这个区域时分别加这么多。`],
@@ -489,8 +513,11 @@ const STATUS_WORDS: Readonly<Record<string, PriceRuleStatus>> = { 启用: "enabl
 function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: PriceNames): { rows: PriceImportRow[]; changes: PriceChanges } {
   const { category } = context.product;
   const currency = context.currency ?? "JPY";
-  const columns = priceColumns(category);
+  const layered = category === "charter" && context.product.charterLayout === "three_layer";
+  const columns = priceColumns(category, layered);
   const sheet = new Sheet(sheetRows(bytes, PRICE_SHEET), columns.filter((column) => !OPTIONAL_HEADER_COLUMNS.includes(column)));
+  // 迁移过三层区域的商品只认新格式（ADR 0093 第五节）：旧模版带「途经加价」列，整份不收，请重新下载
+  if (layered && sheet.has(P.waypointSurcharge)) throw fileInvalid("LEGACY_TEMPLATE", `这个商品已经迁移到三层区域，这是迁移前的旧模版（有「${P.waypointSurcharge}」列）。请重新下载模版：经停加价填在「${P.itinerarySurcharge}」里，套餐价的「${P.area}」留空`);
   const dataRows = sheet.dataRows();
   if (dataRows.length > IMPORT_LIMITS.maxPriceRows) throw fileInvalid("TOO_MANY_ROWS", `一次最多导入 ${IMPORT_LIMITS.maxPriceRows} 行，这个文件有 ${dataRows.length} 行。请分几次导入`, { max: IMPORT_LIMITS.maxPriceRows, rows: dataRows.length });
 
@@ -511,8 +538,10 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
     const issues: CellIssue[] = [];
     const read = rowReader(sheet, index, issues);
     const content: PriceRowContent = { area: null, toArea: null, vehicleGroup: null, direction: null, packageHours: null, pricingModel: null, mainPriceMinor: null, surcharge: null, includedKm: null, overKmPerKmMinor: null, validFrom: null, validTo: null, status: "enabled" };
-    // 包车：填了「上车加价」或「下车加价」的行是区域加价（区域可以是本租户的任何区域）
-    const surchargeRow = category === "charter" && SURCHARGE_COLUMNS.some((column) => sheet.has(column) && read.text(column) !== null);
+    // 包车：填了「上车加价」或「下车加价」的行是区域加价（区域可以是本租户的任何区域）；迁移过三层区域的商品，填了「行程加价」的行是行程加价
+    const itineraryRow = layered && sheet.has(P.itinerarySurcharge) && read.text(P.itinerarySurcharge) !== null;
+    const surchargeRow = category === "charter" && !itineraryRow && SURCHARGE_COLUMNS.some((column) => sheet.has(column) && read.text(column) !== null);
+    const areaRow = surchargeRow || itineraryRow;
     const result: PriceImportRow = { row: index + 1, action: "error", priceRuleId: null, content, issues, conflictsWith: [] };
     rows.push(result);
 
@@ -526,16 +555,19 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
     }
 
     // 区域按名称认（任何一种语言的名称），车型组按编码认；修改的行可以沿用它原来的区域 / 车型组（即使商品已经去掉了）
-    const areaText = read.required(P.area);
+    // 迁移过三层区域的商品：套餐价不挂区域（「区域」留空，ADR 0093 第五节）
+    const productWide = layered && !areaRow;
+    const areaText = productWide ? read.text(P.area) : read.required(P.area);
+    if (productWide && areaText !== null) read.problem(P.area, "CHARTER_LEGACY_READ_ONLY", "迁移到三层区域之后，套餐价按车型组 × 套餐填一次：「区域」请留空");
     let areaId: string | null = null;
-    if (areaText !== null) {
-      const candidates = (areaByName.get(nameKey(areaText)) ?? []).filter((id) => (surchargeRow ? context.tenantAreas.has(id) : productAreas.has(id)) || id === before?.areaId);
+    if (areaText !== null && !productWide) {
+      const candidates = (areaByName.get(nameKey(areaText)) ?? []).filter((id) => (areaRow ? context.tenantAreas.has(id) : productAreas.has(id)) || id === before?.areaId);
       // 认出的是运营区域：它不带价格（ADR 0075）
       const role = candidates.length === 1 && candidates[0] !== before?.areaId ? context.tenantAreas.get(candidates[0] as string)?.role : undefined;
       if (role !== undefined && !areaRoleCanPrice(role)) read.problem(P.area, "AREA_ROLE_NOT_PRICING", "这是运营区域，不带价格：加价只能挂在报价区域（或「运营 + 报价」的区域）上");
       else if (candidates.length === 1) areaId = candidates[0] as string;
       else if (candidates.length > 1) read.problem(P.area, "AMBIGUOUS", "有不止一个区域叫这个名字，请先在区域页面把名字改得不一样");
-      else if (surchargeRow) read.problem(P.area, "UNKNOWN_AREA", "没有叫这个名字的区域（加价区域见「填写说明」里列出的）");
+      else if (areaRow) read.problem(P.area, "UNKNOWN_AREA", "没有叫这个名字的区域（加价区域见「填写说明」里列出的）");
       else read.problem(P.area, "AREA_NOT_IN_PRODUCT", "这个商品没有选叫这个名字的区域（见「填写说明」里列出的）");
     }
     // 点对点线路价的下车区域：同样按名称认，只能是商品选了的区域（修改的行可以沿用原来的）；留空 = 区域价
@@ -586,8 +618,15 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
     content.toArea = toAreaId === null ? toAreaText : displayName(names.areas.get(toAreaId) ?? {});
     content.vehicleGroup = groupId === null ? groupText : (names.groups.get(groupId)?.code ?? groupText);
     content.direction = direction;
-    if (surchargeRow) {
-      packageHours = read.integer(P.packageHours, true);
+    if (itineraryRow) {
+      // 行程加价：套餐可以留空 = 所有套餐；上下车加价、套餐价那几列留空
+      packageHours = read.integer(P.packageHours, false);
+      for (const column of [...PACKAGE_COLUMNS, P.pickupSurcharge, P.dropoffSurcharge]) if (read.text(column) !== null) read.problem(column, "NOT_APPLICABLE", "行程加价的行不填这一列，请留空（套餐价、上下车加价另起一行）");
+      const itinerary = amount(P.itinerarySurcharge);
+      Object.assign(content, { packageHours, pricingModel: "charter_itinerary_surcharge", mainPriceMinor: itinerary });
+      if (itinerary !== null) pricing = { model: "charter_itinerary_surcharge", surchargeMinor: itinerary };
+    } else if (surchargeRow) {
+      packageHours = read.integer(P.packageHours, !layered);
       for (const column of PACKAGE_COLUMNS) if (read.text(column) !== null) read.problem(column, "NOT_APPLICABLE", `区域加价的行不填这一列，请留空（套餐价另起一行）`);
       const [pickupSurcharge, dropoffSurcharge, waypointSurcharge] = [amount(P.pickupSurcharge), amount(P.dropoffSurcharge), amount(P.waypointSurcharge, true)];
       Object.assign(content, { packageHours, pricingModel: "charter_area_surcharge", surcharge: { pickupMinor: pickupSurcharge, dropoffMinor: dropoffSurcharge, waypointMinor: waypointSurcharge } });
@@ -641,7 +680,7 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
     const status = word(P.status, STATUS_WORDS, Object.values(STATUS_NAMES)) ?? "enabled";
     Object.assign(content, { validFrom, validTo, status });
 
-    if (issues.length > 0 || areaId === null || groupId === null || pricing === null || validFrom === null) continue;
+    if (issues.length > 0 || (areaId === null && !productWide) || groupId === null || pricing === null || validFrom === null) continue;
     if (toAreaText !== null && toAreaId === null) continue;
     const rule: PriceRule = { areaId, toAreaId, vehicleGroupId: groupId, direction, packageHours, pricing, validFrom, validTo, status };
     if (before !== null) {
@@ -685,7 +724,7 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
       const combo: PriceComboText = otherRow
         ? { area: otherRow.content.area, toArea: otherRow.content.toArea, vehicleGroup: otherRow.content.vehicleGroup, direction: otherRow.content.direction, packageHours: otherRow.content.packageHours }
         : {
-            area: existing ? displayName(names.areas.get(existing.areaId) ?? {}) : null,
+            area: existing && existing.areaId !== null ? displayName(names.areas.get(existing.areaId) ?? {}) : null,
             toArea: existing?.toAreaId === null || existing?.toAreaId === undefined ? null : displayName(names.areas.get(existing.toAreaId) ?? {}),
             vehicleGroup: existing ? (names.groups.get(existing.vehicleGroupId)?.code ?? null) : null, direction: existing?.direction ?? null, packageHours: existing?.packageHours ?? null };
       return { ...combo, row: otherRow?.row ?? null, id: otherRow ? null : (other.id ?? null), validFrom: other.valid_from, validTo: other.valid_to };

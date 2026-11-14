@@ -224,7 +224,8 @@ function layeredCharter(product: Pick<Product, "category" | "charterLayout">): b
  *   改③行时途经加价和原来一样（页面不带这个键时沿用原值）不算改。
  */
 function charterLayoutIssue(product: Pick<Product, "category" | "charterLayout">, rule: PriceRule, before: StoredPriceRule | null): { reason: string; message: string; field: string } | null {
-  if (product.category !== "charter") return null;
+  // 没改内容的（导出再导入原样带回来的旧行）不算写入
+  if (product.category !== "charter" || (before !== null && samePriceRule(rule, before))) return null;
   if (!layeredCharter(product)) {
     const newFormat = rule.pricing.model === "charter_itinerary_surcharge" || rule.areaId === null || (isSurchargeRule(rule) && rule.packageHours === null);
     return newFormat ? { reason: "CHARTER_LAYOUT_NOT_MIGRATED", field: rule.pricing.model === "charter_itinerary_surcharge" ? "pricing_model" : rule.areaId === null ? "area_id" : "package_hours", message: "这个商品还没有迁移到三层区域：不能设行程加价、整商品套餐价或不分套餐的加价" } : null;
@@ -431,7 +432,7 @@ export async function applyPriceChanges(db: Db, writer: ProductWriter, context: 
   const check = checkPriceChanges(context, changes, single);
   // 新旧表的写入限制（ADR 0093 第一节）：单独的错误码，页面据此提示「商品还没迁移 / 旧数据只读」
   const layout = check.issues.find((issue) => issue.reason === "CHARTER_LAYOUT_NOT_MIGRATED" || issue.reason === "CHARTER_LEGACY_READ_ONLY");
-  if (layout !== undefined) throw new AppError(400, layout.reason, layout.message, { issues: check.issues.filter((issue) => issue.reason === layout.reason) });
+  if (layout !== undefined) throw new AppError(400, layout.reason as string, layout.message, { issues: check.issues.filter((issue) => issue.reason === layout.reason) });
   if (check.issues.length > 0) invalid(check.issues);
   if (check.conflicts.length > 0) throw priceRuleConflict(check.conflicts);
 

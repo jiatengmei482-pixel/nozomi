@@ -5873,6 +5873,9 @@ paths:
         包车区域加价 `charter_area_surcharge`（M8-15，ADR 0073）填 `pickup_surcharge`、`dropoff_surcharge` 和 `package_hours`，`waypoint_surcharge`（途经加价，M9W-01，ADR 0088）可不填（不填 = 对经停点没有规则）；它的 `area_id` 是加价区域：
         本租户的报价区域就行（不必是商品选的；不能是商品本身的区域 400 `AREA_IS_PRODUCT_AREA`；业务类型要是包车或通用 400 `AREA_NOT_USABLE`；用途要是报价区域或运营 + 报价 400 `AREA_ROLE_NOT_PRICING`（M8-20）；新选的不能是停用的 400 `AREA_DISABLED`）；
         区域不存在或是别的租户的：404（不区分）。加价区域不加进商品的区域列表。
+        包车三层区域（M9P-05，ADR 0093）：②行程加价 `charter_itinerary_surcharge` 填 `itinerary_surcharge`（区域可以是商品的服务区域）；整商品套餐价 `area_id` 为 null；②③的 `package_hours` 可为 null（= 所有套餐）。
+        这三种只有迁移过三层区域的商品（价格规则应答的 `charter_layout = three_layer`）能用，否则 400 `CHARTER_LAYOUT_NOT_MIGRATED`；
+        迁移过的商品不能新建、修改按服务区域的套餐价和上下车加价里的 `waypoint_surcharge`（迁移前的旧数据，只读；删除可以）：400 `CHARTER_LEGACY_READ_ONLY`。批量保存同样。
         点对点（M8-11，ADR 0073 第二部分）：
         - `to_area_id`（下车区域）可填：不填 = 区域价（和以前一样）；填了 = **单向线路价**，只管上车点在 `area_id`、下车点在 `to_area_id` 的单。
           必须是这个商品选的区域（400 `AREA_NOT_IN_PRODUCT`，路径 `/to_area_id`），不能等于 `area_id`（400 `SAME_AREA`）；不存在或是别的租户的区域 404。
@@ -24566,13 +24569,17 @@ components:
           $ref: "#/components/schemas/PublishCheck"
     PricingModel:
       type: string
-      enum: [ fixed, mileage_time, charter_package, charter_area_surcharge ]
+      enum: [ fixed, mileage_time, charter_package, charter_area_surcharge, charter_itinerary_surcharge ]
       description: |
         fixed：固定一口价；mileage_time：里程 + 时长；charter_package：包车套餐；
+        charter_itinerary_surcharge：包车②行程加价（M9P-05，ADR 0093 第一节）——`area_id` 是行程区域（可以是商品的服务区域），填 `itinerary_surcharge`（经停点在这个区域时加，同一区域一单一次；可以是 0）；
+        只有迁移过三层区域的商品（`charter_layout = three_layer`）能用，否则 400 `CHARTER_LAYOUT_NOT_MIGRATED`；不参与上下车点匹配。
+        迁移过的商品：包车套餐的 `area_id` 为 null（整商品套餐价，按车型组 × 套餐填一次），按服务区域的旧套餐价和③行里的 `waypoint_surcharge` 只读（400 `CHARTER_LEGACY_READ_ONLY`，删除可以）；
+        ②③的 `package_hours` 可以为 null（= 这个车型组的所有套餐；同一区域先用套餐对得上的那条）。
         charter_area_surcharge：包车区域加价（M8-15，ADR 0073 第三部分）——`area_id` 是加价区域（本租户的报价区域，不必是商品选的，也不能是商品本身的区域），
         按车型组 × 套餐时长填 `pickup_surcharge`（上车点在这个区域时加）、`dropoff_surcharge`（下车点在这个区域时加），都可以是 0；
         `waypoint_surcharge`（途经加价，M9W-01，ADR 0088：经停点在这个区域时加，同一区域一单一次）可选，不填 = 这个区域对经停点没有规则。
-        区域加价不是基础定价：不算进缺价统计和上架检查；冲突只和同一区域 × 车型组 × 套餐时长的区域加价比（和同一区域的套餐价不冲突）
+        区域加价不是基础定价：不算进缺价统计和上架检查；冲突按三类（套餐价 / 上下车加价 / 行程加价）各算各的（和同一区域的别的类不冲突）
     PriceDirection:
       type: string
       enum: [ pickup, dropoff, both ]
@@ -24598,7 +24605,8 @@ components:
       description: 金额是子品牌币种的最小货币单位整数。这种计价方式不用的数留空（null 或不给）
       properties:
         area_id:
-          type: string
+          description: 区域。包车迁移过三层区域的商品（`charter_layout = three_layer`）的套餐价为 null（整商品套餐价，ADR 0093 第五节）；别的都必填
+          type: [ string, "null" ]
           format: uuid
         to_area_id:
           description: 点对点线路价的下车区域（M8-11，ADR 0073 第二部分）：填了 = 只管「上车点在 area_id、下车点在 to_area_id」的单（单向）；null = 区域价。只有点对点能填，必须是商品选的区域、不能等于 area_id
@@ -24616,7 +24624,7 @@ components:
           type: [ integer, "null" ]
           minimum: 1
           maximum: 72
-          description: 包车必填：套餐时长（小时）。其他品类为 null
+          description: 包车必填：套餐时长（小时）；迁移过三层区域的包车，②行程加价、③上下车加价可以为 null（= 所有套餐）。其他品类为 null
         pricing_model:
           $ref: "#/components/schemas/PricingModel"
         base_price:
@@ -24697,6 +24705,11 @@ components:
           type: [ integer, "null" ]
           minimum: 0
           maximum: 1000000000
+        itinerary_surcharge:
+          description: 包车②行程加价（M9P-05，ADR 0093）：经停点在这个区域时加多少，同一区域一单只加一次（可以是 0）。别的价格方式为 null
+          type: [ integer, "null" ]
+          minimum: 0
+          maximum: 1000000000
         valid_from:
           type: string
           format: date
@@ -24710,13 +24723,14 @@ components:
     PriceRule:
       type: object
       additionalProperties: false
-      required: [ id, area_id, to_area_id, vehicle_group_id, direction, package_hours, pricing_model, base_price, included_km, start_price, start_meters, start_minutes, per_km, per_minute, min_price, package_km, package_price, overtime_per_hour, over_km_per_km, pickup_surcharge, dropoff_surcharge, waypoint_surcharge, base, valid_from, valid_to, status, created_at, updated_at ]
+      required: [ id, area_id, to_area_id, vehicle_group_id, direction, package_hours, pricing_model, base_price, included_km, start_price, start_meters, start_minutes, per_km, per_minute, min_price, package_km, package_price, overtime_per_hour, over_km_per_km, pickup_surcharge, dropoff_surcharge, waypoint_surcharge, itinerary_surcharge, base, valid_from, valid_to, status, created_at, updated_at ]
       properties:
         id:
           type: string
           format: uuid
         area_id:
-          type: string
+          description: 区域；包车迁移过三层区域的整商品套餐价为 null（ADR 0093 第五节）
+          type: [ string, "null" ]
           format: uuid
         to_area_id:
           description: 点对点线路价的下车区域（M8-11，ADR 0073 第二部分）：填了 = 只管「上车点在 area_id、下车点在 to_area_id」的单（单向）；null = 区域价。只有点对点能填，必须是商品选的区域、不能等于 area_id
@@ -24815,6 +24829,11 @@ components:
           type: [ integer, "null" ]
           minimum: 0
           maximum: 1000000000
+        itinerary_surcharge:
+          description: 包车②行程加价（M9P-05，ADR 0093）：经停点在这个区域时加多少，同一区域一单只加一次（可以是 0）。别的价格方式为 null
+          type: [ integer, "null" ]
+          minimum: 0
+          maximum: 1000000000
         valid_from:
           type: string
           format: date
@@ -24850,7 +24869,7 @@ components:
     PriceRules:
       type: object
       additionalProperties: false
-      required: [ version, currency, rounding_unit, available_models, surcharge_models, today, items, coverage ]
+      required: [ version, currency, rounding_unit, available_models, surcharge_models, charter_layout, today, items, coverage ]
       properties:
         version:
           type: integer
@@ -24868,9 +24887,13 @@ components:
             $ref: "#/components/schemas/PricingModel"
         surcharge_models:
           type: array
-          description: 加价类的价格方式（包车：`charter_area_surcharge`；别的品类是空数组；M8-15）
+          description: 加价类的价格方式（包车：`charter_area_surcharge`；迁移过三层区域的包车另有 `charter_itinerary_surcharge`；别的品类是空数组；M8-15、M9P-05）
           items:
             $ref: "#/components/schemas/PricingModel"
+        charter_layout:
+          description: 包车用哪套价格表（M9P-05，ADR 0093 第一节）：null = 旧表（按服务区域的套餐价、上下车加价行里的途经加价）；`three_layer` = 新表（整商品套餐价、行程加价、上下车加价）。只由迁移脚本改
+          type: [ string, "null" ]
+          enum: [ three_layer, null ]
         today:
           type: string
           format: date
@@ -24885,7 +24908,7 @@ components:
       type: object
       additionalProperties: false
       description: 批量保存之后的全部价格规则（各字段同 `PriceRules`），外加这次新增的规则的编号
-      required: [ version, currency, rounding_unit, available_models, surcharge_models, today, items, coverage, created_ids ]
+      required: [ version, currency, rounding_unit, available_models, surcharge_models, charter_layout, today, items, coverage, created_ids ]
       properties:
         version:
           type: integer
@@ -24903,6 +24926,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/PricingModel"
+        charter_layout:
+          description: 包车用哪套价格表（M9P-05，ADR 0093 第一节）：null = 旧表（按服务区域的套餐价、上下车加价行里的途经加价）；`three_layer` = 新表（整商品套餐价、行程加价、上下车加价）。只由迁移脚本改
+          type: [ string, "null" ]
+          enum: [ three_layer, null ]
         today:
           type: string
           format: date
@@ -24986,7 +25013,8 @@ components:
             required: [ area_id, vehicle_group_id, direction, package_hours, state, price_rule_id, via_both, from ]
             properties:
               area_id:
-                type: string
+                description: 区域；迁移过三层区域的包车按整商品套餐价统计「车型组 × 套餐」，为 null（ADR 0093 第五节）
+                type: [ string, "null" ]
                 format: uuid
               vehicle_group_id:
                 type: string

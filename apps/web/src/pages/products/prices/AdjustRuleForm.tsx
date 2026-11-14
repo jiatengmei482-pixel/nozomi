@@ -214,7 +214,7 @@ export function AdjustRuleForm({ shared, ruleId }: { shared: PricesShared; ruleI
   const covered = active.filter((entry) => adjustRuleCoversPrice(scope, entry.rule));
   const priceLabel = (rule: PriceRule): string => {
     const extra = rule.direction !== null ? directionName(rule.direction, station) : rule.packageHours !== null ? `${rule.packageHours} 小时` : null;
-    return [shortName(areaName(rule.areaId)), shortName(groupName(rule.vehicleGroupId)), extra].filter((part) => part !== null).join(" · ");
+    return [shortName(rule.areaId === null ? "整个商品" : areaName(rule.areaId)), shortName(groupName(rule.vehicleGroupId)), extra].filter((part) => part !== null).join(" · ");
   };
   const trials: Trial[] = covered.slice(0, 20).map((entry) => ({ key: entry.body.id, label: priceLabel(entry.rule), base: basePrice(entry.rule.pricing, {}, entry.rule.packageHours) }));
   const chosen = trialKey === "custom" ? null : (trials.find((trial) => trial.key === trialKey) ?? trials[0] ?? null);

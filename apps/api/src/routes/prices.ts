@@ -205,6 +205,7 @@ export function priceRulesJson(view: PriceRulesView): Json {
     rounding_unit: view.roundingUnit,
     available_models: view.availableModels,
     surcharge_models: view.surchargeModels,
+    charter_layout: view.charterLayout,
     today: view.today,
     items: view.items.map(priceRuleJson),
     coverage: { total: coverage.total, priced: coverage.priced, missing: coverage.total - coverage.priced },
