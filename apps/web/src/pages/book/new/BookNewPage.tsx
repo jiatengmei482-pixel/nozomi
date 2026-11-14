@@ -55,6 +55,9 @@ import {
   VISIBLE_VEHICLES,
   arrivalFreeWaitMinutes,
   bookStepOf,
+  cityOffersTab,
+  defaultDateCity,
+  defaultMapCity,
   guestCurrencyOf,
   moneyDifference,
   notesWithExtras,
@@ -237,6 +240,8 @@ export function BookNewPage() {
   const [cities, setCities] = useState<Load<SiteCity[]>>({ kind: "loading" });
   const [round, setRound] = useState(0);
   const [draft, setDraft] = useState<TripDraft>(() => initialDraft(link));
+  /** 日期是客人定的（链接、草稿带了，或自己改过）：之后换上车点、换标签都不再改成默认日期（M8-44） */
+  const dateChosen = useRef(link.date !== null);
   const [errors, setErrors] = useState<Errors>({});
   /** 点过「下一步」而经停点没填完整：之后每一行的问题随改随显示 */
   const [waypointCheck, setWaypointCheck] = useState(false);
@@ -292,13 +297,14 @@ export function BookNewPage() {
   }, [open, round]);
 
   const cityList = useMemo(() => (cities.kind === "ready" ? cities.items : []), [cities]);
-  const firstCity = cityList[0] ?? null;
 
-  // 默认日期：第一个可订城市当地的明天
+  // 默认日期：上车点所在城市当地的明天；还没选上车点时按地图默认打开的城市（M8-44，规则见 defaultDateCity）
+  const dateCity = defaultDateCity(cityList, draft.tab, draft.from);
   useEffect(() => {
-    if (firstCity === null) return;
-    setDraft((current) => (current.date === "" ? { ...current, date: defaultServiceDate(firstCity.timezone, new Date()) } : current));
-  }, [firstCity]);
+    if (dateCity === null || dateChosen.current) return;
+    const date = defaultServiceDate(dateCity.timezone, new Date());
+    setDraft((current) => (current.date === date ? current : { ...current, date }));
+  }, [dateCity]);
 
   // 链接预填（只在打开时一次）：两端都有、日期时间也有时直接报价并到第 2 步（网址里已经写了第几步的不动）
   const linkDone = useRef(false);
@@ -315,6 +321,7 @@ export function BookNewPage() {
           if (!alive) return;
           setLinkPending(false);
           const trip = draftTrip(saved);
+          if (trip.date !== "") dateChosen.current = true;
           setDraft((current) => ({ ...current, tab: trip.tab, mode: trip.tab, from: trip.from, to: trip.to, date: trip.date, time: trip.time, passengers: trip.passengers, luggage: trip.luggage, packageHours: trip.packageHours, waypoints: trip.waypoints }));
           // 包车按时长：草稿里的时长要等城市的套餐读到、确认在里面才去报价（嵌入组件不知道城市有哪几档）
           if (trip.tab === "charter" && trip.waypoints.length === 0 && trip.packageHours !== "") draftHours.current = trip.packageHours;
@@ -425,7 +432,7 @@ export function BookNewPage() {
   const quotedForWait = selected ?? quotes[0] ?? null;
   const flightScope = outcome?.mode === "transfer" ? (outcome.result.airport?.flight_scope ?? null) : null;
   const freeWait = arrival ? arrivalFreeWaitMinutes(quotedForWait, flightScope) : (quotedForWait?.free_wait_minutes ?? null);
-  const timezone = outcome?.mode === "charter" ? outcome.city.timezone : (outcome?.result.city?.timezone ?? firstCity?.timezone ?? "Asia/Tokyo");
+  const timezone = outcome?.mode === "charter" ? outcome.city.timezone : (outcome?.result.city?.timezone ?? dateCity?.timezone ?? "Asia/Tokyo");
   const cityName = outcome?.mode === "charter" ? displayName(outcome.city.name).text : outcome?.result.city ? displayName(outcome.result.city.name).text : null;
   // 包车按行程计价（M9W-02）：有经停点时套餐由服务端按行程选，明细、时间表按这一次报价
   const itinerary = draft.mode === "charter" && draft.waypoints.length > 0;
@@ -639,6 +646,7 @@ export function BookNewPage() {
   };
 
   const update = useCallback((changes: Partial<TripDraft>): void => {
+    if ("date" in changes) dateChosen.current = true;
     setDraft((value) => ({ ...value, ...changes }));
     setNotice(null);
     orderKey.current = null;
@@ -737,9 +745,11 @@ export function BookNewPage() {
   } else {
     const tiles = config.config.map_tiles;
     const centers: CityCandidate[] = cityList.map((city) => ({ id: city.id, center: city.center }));
-    const centerOf = (other: TripPoint | null) => (other !== null ? { lat: other.lat, lng: other.lng } : (firstCity?.center ?? null));
+    // 地图从另一端打开；另一端还没选时从当前标签的默认城市打开（M8-43，规则见 defaultMapCity）
+    const fallbackCenter = defaultMapCity(cityList, draft.tab)?.center ?? null;
+    const centerOf = (other: TripPoint | null) => (other !== null ? { lat: other.lat, lng: other.lng } : fallbackCenter);
     // 区间：城市能订接送机或点对点就有；包车：能订包车
-    const tabs = BOOK_TABS.filter((tab) => cityList.some((city) => (tab === "charter" ? city.categories.includes("charter") : city.categories.includes("airport_transfer") || city.categories.includes("point_to_point"))));
+    const tabs = BOOK_TABS.filter((tab) => cityList.some((city) => cityOffersTab(city, tab)));
     const charter = draft.mode === "charter";
     const timeLabel = arrival ? "航班落地时间（当地）" : charter ? "上车时间（当地）" : "用车时间（当地）";
     const tripName = charter ? (itinerary ? (itineraryPackage !== null ? `包车 ${itineraryPackage} 小时（按行程）` : "包车（按行程）") : draft.packageHours !== "" ? `包车 ${draft.packageHours} 小时` : "包车") : tripType !== null ? TRIP_TYPE_NAMES[tripType] : BOOK_TAB_NAMES[draft.tab];

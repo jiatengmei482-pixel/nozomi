@@ -95,3 +95,22 @@ test("经停点报不出价：指出第几个、叫什么；没有编号时一�
   assert.deepEqual(waypointUnavailableTexts([{ vehicle_group_id: null, reasons: ["WAYPOINT_NOT_PRICED"] }], stops), ["有经停点暂时没有在线报价，请联系客服人工报价，或去掉这个经停点再试。"]);
   assert.deepEqual(waypointUnavailableTexts([{ vehicle_group_id: null, reasons: ["SOLD_OUT"] }], stops), []);
 });
+
+test("M8-43 明细：金额为 0 的超公里费、超时费不列；不是 0 的照旧列；别的项目是 0 也照旧列；先按全部项目核对总价", () => {
+  const quote = (overKm: number, overtime: number, adjust = 0) => ({
+    price: { total: yen(60_500 + overKm + overtime + adjust), fx: null },
+    price_breakdown: [
+      { kind: "base" as const, amount: yen(60_500), area_name: null, stop_seqs: null },
+      { kind: "over_km" as const, amount: yen(overKm), area_name: null, stop_seqs: null },
+      { kind: "overtime" as const, amount: yen(overtime), area_name: null, stop_seqs: null },
+      { kind: "adjust" as const, amount: yen(adjust), area_name: null, stop_seqs: null },
+    ],
+  });
+  const labels = (q: ReturnType<typeof quote>) => breakdownLines(q, 10)?.map((line) => [line.label, line.amount]);
+  assert.deepEqual(labels(quote(0, 0)), [["包车套餐 10 小时", "60,500 JPY"], ["调价", "0 JPY"]]);
+  assert.deepEqual(labels(quote(7_229, 0)), [["包车套餐 10 小时", "60,500 JPY"], ["超公里费", "7,229 JPY"], ["调价", "0 JPY"]]);
+  assert.deepEqual(labels(quote(0, 605)), [["包车套餐 10 小时", "60,500 JPY"], ["超时费", "605 JPY"], ["调价", "0 JPY"]]);
+  assert.deepEqual(labels(quote(7_229, 605, -100)), [["包车套餐 10 小时", "60,500 JPY"], ["超公里费", "7,229 JPY"], ["超时费", "605 JPY"], ["调价", "-100 JPY"]]);
+  // 去掉的 0 不影响核对：总价对不上照样不给明细
+  assert.equal(breakdownLines({ ...quote(0, 0), price: { total: yen(60_501), fx: null } }, 10), null);
+});

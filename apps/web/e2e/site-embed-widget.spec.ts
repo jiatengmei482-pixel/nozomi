@@ -132,7 +132,9 @@ test("嵌入组件：白名单网站上样式不受宿主页影响、320 px、ax
   await page.keyboard.type("東京駅");
   const toList = page.getByRole("listbox", { name: "目的地的候选" });
   await expect(toList.getByRole("option", { name: /東京駅/ }).first()).toBeVisible();
-  await expect(toList.getByText("Google Maps", { exact: true })).toBeVisible();
+  // 谷歌署名在候选列表外面、同一个弹出面板里（M9E-06）
+  await expect(toList.locator("xpath=..").getByText("Google Maps", { exact: true })).toBeVisible();
+  await expect(toList.getByText("Google Maps", { exact: true })).toHaveCount(0);
   await page.keyboard.press("ArrowDown");
   // 谷歌候选选中后组件再取坐标：等取到再提交，否则组件按「没选地点」先提示、不建草稿（M9E-07 本机重复跑时偶发）
   const details = page.waitForResponse((res) => new URL(res.url()).pathname === "/embed/v1/places/details");
@@ -203,7 +205,7 @@ test("嵌入组件建草稿失败：网络错误、429 两种、400 各显示一
   await page.route(isDraftUrl, async (route) => {
     if (route.request().method() !== "POST") return route.continue();
     if (reply === "network") return route.abort("failed");
-    // 429：真的发到主站（请求体换成空对象，主站不建草稿、不占限速），把应答改写成 429；保留主站给的跨域响应头，浏览器才读得到
+    // 429：真的发到主站（请求体换成空对象，主站不建草稿；会占这条用例自己的来源地址和嵌入码各一次限速额度，用例只发 3 次，不影响别的用例），把应答改写成 429；保留主站给的跨域响应头，浏览器才读得到
     const response = await route.fetch({ postData: "{}" });
     return route.fulfill({ response, status: reply.status, contentType: "application/json", body: JSON.stringify({ error: { code: reply.code, message: "e2e" } }) });
   });

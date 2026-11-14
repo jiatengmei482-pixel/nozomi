@@ -268,6 +268,28 @@ test("明细加起来不等于总价：不显示明细，只显示总价（价�
   assertAbsent(screen.queryByText("60,500 JPY"));
 });
 
+test("M8-43：明细里金额为 0 的超公里费 / 超时费不列，不是 0 的照旧列（车型卡、右侧栏）；合计仍是总价", async () => {
+  wideScreen();
+  // 10 小时套餐 60,500 + 途经 11,000 + 超公里 0 + 超时 3,000 = 74,500
+  const breakdown: SiteQuote["price_breakdown"] = [...(FUJI_BREAKDOWN ?? []), { kind: "over_km", amount: yen(0), area_name: null, stop_seqs: null }, { kind: "overtime", amount: yen(3_000), area_name: null, stop_seqs: null }];
+  open((call) => json(200, (call.body as Record<string, unknown>)["itinerary_pricing"] === true ? itineraryResult(breakdown, 74_500) : plainResult));
+  const actor = user();
+  await screen.findByRole("heading", { name: "车型1" }, SLOW);
+  await actor.click(screen.getByRole("button", { name: "上一步" }));
+  await addStop(actor, "五合目", "60");
+  await actor.click(screen.getByRole("button", { name: "下一步：选择车型" }));
+  await waitFor(() => assert.match(screen.getByRole("heading", { name: "车型1" }).closest("li")?.textContent ?? "", /74,500 JPY/), SLOW);
+  const card = screen.getByRole("heading", { name: "车型1" }).closest("li") as HTMLElement;
+  const rows = [...within(card).getByLabelText("价格明细").querySelectorAll(".price-breakdown__row")].map((row) => row.textContent);
+  assert.deepEqual(rows, ["包车套餐 10 小时60,500 JPY", "经停加价（富士山地区，第 1、2、3 个经停点）11,000 JPY", "超时费3,000 JPY"]);
+  assertAbsent(within(card).queryByText("超公里费"));
+
+  await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
+  const side = screen.getByRole("complementary", { name: "行程摘要" });
+  const sideRows = [...within(side).getByLabelText("价格明细").querySelectorAll(".price-breakdown__row")].map((row) => row.textContent);
+  assert.deepEqual(sideRows, ["包车套餐 10 小时60,500 JPY", "经停加价（富士山地区，第 1、2、3 个经停点）11,000 JPY", "超时费3,000 JPY", "合计74,500 JPY"]);
+});
+
 test("经停点不在任何区域（WAYPOINT_NOT_PRICED）：指出第几个经停点和它的名字，转人工报价，不显示内部代码；人工报价带上经停点、不带之前选的时长（M9W-04）", async () => {
   wideScreen();
   const calls = open((call) =>
@@ -291,6 +313,25 @@ test("经停点不在任何区域（WAYPOINT_NOT_PRICED）：指出第几个经�
   assert.deepEqual(sent.map((trip) => [trip["category"], trip["package_hours"], trip["waypoints"]]), [
     ["charter", null, [{ name: "五合目", ...SPOTS["五合目"], stay_minutes: 60 }, { name: "河口湖", ...SPOTS["河口湖"], stay_minutes: 60 }]],
   ]);
+});
+
+test("M9W-10：经停点所在加价区域没设途经加价（对外同样是 WAYPOINT_NOT_PRICED）、另有商品报 NOT_AVAILABLE：指出是哪个经停点，其余用新的通用说法，不叫客人换时间", async () => {
+  wideScreen();
+  open((call) =>
+    json(200, (call.body as Record<string, unknown>)["itinerary_pricing"] === true ? ({ currency: "JPY", quotes: [], unavailable: [{ vehicle_group_id: null, reasons: ["NOT_AVAILABLE", "WAYPOINT_NOT_PRICED"], waypoint_stop_seqs: [1] }] } satisfies SiteQuoteResult) : plainResult),
+  );
+  const actor = user();
+  await screen.findByRole("heading", { name: "车型1" }, SLOW);
+  await actor.click(screen.getByRole("button", { name: "上一步" }));
+  await addStop(actor, "五合目", "60");
+  await addStop(actor, "河口湖", "60");
+  await actor.click(screen.getByRole("button", { name: "下一步：选择车型" }));
+  assert.ok(await screen.findByText("第 1 个经停点「五合目」暂时没有在线报价，请联系客服人工报价，或去掉这个经停点再试。", {}, SLOW));
+  assert.ok(screen.getByText("这个行程暂时无法在线报价，请联系客服人工报价，或调整行程后再试。"));
+  assertAbsent(screen.queryByText(/河口湖」暂时没有在线报价/));
+  assert.equal(screen.getByRole("link", { name: "+81 3-1234-5678" }).getAttribute("href"), "tel:+81312345678");
+  assert.doesNotMatch(document.body.textContent ?? "", /换一个时间|WAYPOINT_NOT_PRICED|NOT_AVAILABLE/);
+  assert.ok(screen.getByRole("region", { name: "请客服人工报价" }));
 });
 
 test("按行程计价有一段路线算不出来（422 ITINERARY_ROUTE_UNAVAILABLE）：说清是哪两个点之间，转人工报价", async () => {

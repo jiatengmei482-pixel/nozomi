@@ -19,7 +19,7 @@ import { BOOKING_DRAFT_RULES, EMBED_KEY_STATUSES, EMBED_LANGS, EMBED_RULES, EMBE
 import type { AppContext } from "../context.ts";
 import { type EmbedGate, type EmbedKey, createEmbedDraft, createEmbedKey, embedGate, getEmbedKey, listEmbedKeys, takeEmbedPlacesSlot, updateEmbedKey } from "../services/embed.ts";
 import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
-import { siteAutocomplete, sitePlaceDetails, takeSiteSlot } from "../services/site.ts";
+import { placeUnavailableJson, siteAutocomplete, sitePlaceDetails, sitePlacesGoogleGuard, takeSiteSlot } from "../services/site.ts";
 import { versionRequired } from "../services/errors.ts";
 import { ifMatchVersion, parseInput, resourceId } from "../validation.ts";
 import { placeAutocompleteSchema, placeDetailsSchema, placeItemJson, placeQueryOf } from "./site.ts";
@@ -138,11 +138,11 @@ export function registerEmbedRoutes(app: FastifyInstance, ctx: AppContext): void
     const { gate, rest } = gateOf(request);
     // 先按地址、再按嵌入码（同建草稿）：被限的地址不再消耗这个嵌入码的额度，一个地址打不满别人的
     await takeSiteSlot(ctx, "site_autocomplete", { ip: request.ip });
-    await takeSiteSlot(ctx, "site_places_day", { ip: request.ip });
     await takeEmbedPlacesSlot(ctx, gate);
     const input = parseInput(placeAutocompleteSchema, rest, "querystring");
-    const found = await siteAutocomplete(ctx, placeQueryOf(input.q), input.session);
-    return { available: found.available, items: found.items.map(placeItemJson) };
+    // 每个地址每天的额度只在真调谷歌时扣，和官网同一份（M8-45）
+    const found = await siteAutocomplete(ctx, placeQueryOf(input.q), input.session, sitePlacesGoogleGuard(ctx, request.ip));
+    return { available: found.available, ...placeUnavailableJson(found.unavailableReason), items: found.items.map(placeItemJson) };
   });
 
   app.options("/embed/v1/places/details", guarded, preflight("GET"));
@@ -150,11 +150,10 @@ export function registerEmbedRoutes(app: FastifyInstance, ctx: AppContext): void
     const { gate, rest } = gateOf(request);
     // 先按地址、再按嵌入码（同建草稿）：被限的地址不再消耗这个嵌入码的额度，一个地址打不满别人的
     await takeSiteSlot(ctx, "site_autocomplete", { ip: request.ip });
-    await takeSiteSlot(ctx, "site_places_day", { ip: request.ip });
     await takeEmbedPlacesSlot(ctx, gate);
     const input = parseInput(placeDetailsSchema, rest, "querystring");
-    const found = await sitePlaceDetails(ctx, input.id, input.session ?? null);
-    return { available: found.available, place: found.place === null ? null : { id: found.place.id, address: found.place.address, location: { lat: found.place.location.lat, lng: found.place.location.lng }, kind: found.place.kind } };
+    const found = await sitePlaceDetails(ctx, input.id, input.session ?? null, sitePlacesGoogleGuard(ctx, request.ip));
+    return { available: found.available, ...placeUnavailableJson(found.unavailableReason), place: found.place === null ? null : { id: found.place.id, address: found.place.address, location: { lat: found.place.location.lat, lng: found.place.location.lng }, kind: found.place.kind } };
   });
 
   app.options("/embed/v1/booking-drafts", guarded, preflight("POST"));
