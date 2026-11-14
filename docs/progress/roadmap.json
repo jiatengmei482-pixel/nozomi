@@ -1489,9 +1489,9 @@
           "id": "M9P-05",
           "title": "数据结构：行程加价（新价格方式）、上下车加价改名、套餐价改「车型组 × 套餐」整商品一次填、products.charter_layout 按商品切换新旧表；迁移脚本和迁移报告（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
           "role": "backend",
-          "status": "todo",
+          "status": "review",
           "acceptance": ["迁移只做加法：price_rules 加价格方式 charter_itinerary_surcharge（套餐可空）；套餐价 area_id 可空；products 加 charter_layout（可空）；不改旧行", "引擎按商品标志切换：charter_layout = 'three_layer' 的商品经停只看行程加价、套餐价只用整商品套餐价；没迁移过的商品整套用旧表（即使有新格式的行也不读）；接口、导入导出同样按标志接受哪套表，没迁移过的商品不能新建新格式规则（CHARTER_LAYOUT_NOT_MIGRATED）", "规格金额表以外、设了途经加价的区域（横滨、千叶、埼玉、八王子 3,000；横须贺、木更津、神奈川西部、埼玉北部 6,000；秩父 9,000；成田市、成田北部、千叶超远 12,000；成田机场 14,000；静冈 15,000；群马温泉 20,000）原样同时进行程加价和上下车加价、金额不变（业务方 2026-11-14 已定 B）；成田机场外围与成田市、千叶超远的重叠维持按机场收 14,000，迁移报告标注「已定，待切割成田市、千叶超远的包车副本」（已定 A）；ADR 0093 第六节第 2 小节", "迁移脚本 --dry-run / --apply，可按商品执行、可重复执行，一个事务，写审计（actor_type system、source cli）；只新增行程加价和整商品套餐价，不改不删运营数据；经部署流水线的 migrate 容器（迁移账号，同 db:migrate）执行，不新开写接口、不给平台账号加写权限", "变量逐跳传递：GitHub Environment 变量 CHARTER_THREE_LAYER_MIGRATION → deploy.yml 部署步骤 env → deploy/client/remote.sh cmd_deploy 的变量列表 → deploy/bin/deploy.sh → compose.sh run -e 给 migrate 容器；deploy.sh 每次打一行「三层迁移：未设 / dry-run / apply」，只认这三个值，其他值报错中止", "报告卷：deploy/compose.yml 给 migrate 服务加只挂部署目录下 reports/ 的卷（deploy.sh 建目录，权限 700）；完整报告只写这里，Actions 日志只打计数、不进产物", "失败行为：脚本在 migrate-cli.ts 之后、新版本启动之前运行；dry-run 或 apply 失败都中止这次部署（和数据库迁移失败同样处理），apply 事务整体回滚，旧版本照常运行", "staging 自动部署的风险：只在本任务代码已部署到 staging 之后才设变量；设 apply 后手动触发一次部署，跑完立即清掉变量（同一次操作里做完），避免之后每次合并 main 都在没看过 dry-run 的情况下迁掉新建的包车商品", "运维文档：docs/deploy.md 加「测试环境执行三层区域迁移」一节（先 dry-run、看计数、再 apply、立即清变量、报告在服务器哪里）；docs/secrets.md 的 Environment 变量清单加上这个变量（取值、用完要清）", "「套餐价不一致」逐条明细的入口：只读接口 GET /platform/v1/products/{id}/charter-migration-diff（运营）和 GET /tenant/v1/products/{id}/charter-migration-diff（供应商只看自己的、只有结算价、租户隔离集成测试），由保留的旧按区域套餐价现算，逐条给区域、车型组、套餐、旧值、整商品值", "charter_layout 只由迁移脚本写（同一个事务、商品版本加一、审计），供应商和运营接口不能改", "迁移报告七项（套餐价不一致、基础价区域上的上下车加价、同层 / 基础价与上下车加价重叠及面积、只有途经加价的行、空格、景点覆盖、各商品迁移前后的标志和版本）", "价格接口、导入导出、OpenAPI 同步；新价格方式的租户隔离集成测试", "独立审查、合并"],
-          "evidence": "",
+          "evidence": "PR #245（https://github.com/jiatengmei482-pixel/nozomi/pull/245）：本机类型检查（含前端）通过；单元 2,283 条全过（新增 domain charter-three-layer.test.ts 9 条、deploy-script 3 条）；相关集成 342 条（charter-*、prices、price-import、import-export、platform-products、products-openapi、tenant-isolation、tenant-audit、audit、rls、schema-structure、distance-prices、p2p-route-prices、area-roles-migration、embed-layout-migration、quotes 共 25 个文件）全过，其中新增 charter-three-layer.itest.ts 9 条；包车、接送机、点对点 golden 0 条变化（只有迁移过的商品走新表）；部署前回放基线 until 2026-11-14T09:13:00Z、30 天：1,322 条询价、2,451 行，resultDigest e36bac08…、stateDigest 024d1a09…（和 M9P-03 部署后一致）。前端价格页（M9P-07）上线前不在测试站执行迁移",
           "updated": "2026-11-14"
         },
         {
@@ -3028,6 +3028,11 @@
       "date": "2026-11-14",
       "by": "backend",
       "summary": "M9P-03 开 PR #240：需求二（预计用时 T = 行驶 + 停留 + 经停数 × 每站默认占用 + 整单缓冲，三项配置和在线下单上限放进商品服务规则 charter_itinerary，默认 0 / 0 / 不限 / 13 小时）、差异表第 6 条（含超公里取最低选档）、第 5 条（各商品在引擎里各自选档、各自算总价再比价）；QuoteRequest.charterSelection（auto / manual / locked）进快照和询价日志；下单不收超时费（明细只在超时费大于 0 时列 overtime，订单详情 overtime_at_booking）；T 超过 13 小时 ITINERARY_TOO_LONG；手动升档不短于 T（PACKAGE_TOO_SHORT + min_package_hours）；官网按行程计价一次询价；改期、救援新口径传 locked、部署前的单不传（超时费、档位照旧）；包车新口径同价区间 0。按监工追加：有经停点时新预订页也能手动升到更长的套餐（下拉只列比自动档长的）。golden 全部 0 条变化（不带 charterSelection 的旧口径逐字不变），新口径期望另写测试。没有数据库迁移。待独立审查、CI、合并、部署、回放比对和测试站验收。M9P-02 日志里留给本任务的「按行程计价时套餐只列匹配到的商品」：现在每个商品在引擎里自己选档，按城市查套餐只用来判断有没有可订的套餐，不影响报价，保持不变。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "backend",
+      "summary": "M9P-05 开 PR #245：三层区域的数据结构（迁移 0450 只做加法：行程加价 charter_itinerary_surcharge、②③套餐可空、包车套餐 area_id 可空、products.charter_layout 只有迁移账号能写）；引擎按商品标志切换新旧表（迁移过的商品经停只看行程加价、套餐价只看整商品套餐价；没迁移过的逐字不变）；价格接口 CHARTER_LAYOUT_NOT_MIGRATED / CHARTER_LEGACY_READ_ONLY；上架检查每个车型组至少一档；导入导出只认新模版（LEGACY_TEMPLATE）；迁移脚本 dry-run / apply（一个事务、可重复、审计、报告七项，日志只打计数、完整报告在服务器 reports/）和部署流水线 CHARTER_THREE_LAYER_MIGRATION 四跳传递（production 设了直接中止）；「套餐价不一致」只读接口（平台 / 租户）。按 ADR 0093 的依赖，「减去」工具属 M9P-13，不在本任务。golden 0 条变化。前端价格页（M9P-07）上线前不在测试站执行迁移。待独立审查、CI、合并。"
     }
   ]
 }
