@@ -159,6 +159,11 @@ test("包车加 3 个经停点：增删排序、停留必填 → 按行程计价
   const aside = page.getByRole("complementary", { name: "行程摘要" });
   await expect(aside.getByLabel("价格明细").locator(".price-breakdown__row")).toHaveText(["包车套餐 8 小时66,000 JPY", "经停加价（富士山地区，第 3 个经停点）11,000 JPY", "合计77,000 JPY"]);
   await expect(aside).toContainText("包车 8 小时（按行程）");
+  // M8-43：「经停点」的内容和其他项（上车地点）的内容左边对齐，不多缩进一格
+  const leftOf = async (label: string, inner: string) => (await aside.locator(".site-facts__item").filter({ has: page.locator("dt", { hasText: new RegExp(`^${label}$`) }) }).locator(inner).first().boundingBox())?.x;
+  const pickupLeft = await leftOf("上车地点", "dd");
+  expect(pickupLeft).toBeDefined();
+  expect(await leftOf("经停点", "li")).toBe(pickupLeft);
   await expectBothThemes(page, "新预订页包车第 2 步（按行程计价的明细）");
   await expectNoOverflowAt390(page, "新预订页包车第 2 步（按行程计价的明细）");
   await screenshot(page, "第 2 步-1280");
