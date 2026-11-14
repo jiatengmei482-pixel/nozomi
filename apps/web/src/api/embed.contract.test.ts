@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
-import { EMBED_KEYS_PATH, EMBED_SCHEMA_FIELDS, type EmbedLayout } from "./embed.ts";
+import { EMBED_KEYS_PATH, EMBED_SCHEMA_FIELDS, type EmbedLayout, type OrderEntrySource } from "./embed.ts";
 
 interface Schema {
   enum?: (string | null)[];
@@ -31,4 +31,5 @@ test("类型的字段和枚举与 openapi.yaml 一致", () => {
   assert.deepEqual(spec.components.schemas["EmbedKeyWrite"]?.properties?.["layout"]?.enum, ["auto", "card", "bar"] satisfies EmbedLayout[]);
   assert.deepEqual(key["status"]?.enum, ["active", "disabled"] satisfies string[]);
   assert.deepEqual(spec.components.schemas["OrderEntrySource"]?.properties?.["kind"]?.enum, ["book", "embed"] satisfies string[]);
+  assert.deepEqual(spec.components.schemas["OrderEntrySource"]?.properties?.["delivery"]?.enum, ["redirect", "host_page", null] satisfies OrderEntrySource["delivery"][]);
 });

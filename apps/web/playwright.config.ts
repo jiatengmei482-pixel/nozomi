@@ -65,5 +65,7 @@ export default defineConfig({
      * 它自己按 360 / 390 宽开触屏的页面；别的用例只在 chromium 里跑。CI 多装一个 webkit（ci.yml）。
      */
     { name: "webkit-iphone", testMatch: /site-booking-mobile-address\.spec\.ts$/, grep: /M8-37b 手机/, use: { ...devices["iPhone 13"] } },
+    /** 嵌在宿主页（M9E-16，ADR 0095 第八节第 1 小节 Q7 / Q12）：跨站 iframe 在 Safari 内核里再跑一遍（存储分区、第三方 Cookie 规则和 Chrome 不同） */
+    { name: "webkit-embed", testMatch: /site-embed-booking\.spec\.ts$/, use: { ...devices["Desktop Safari"] } },
   ],
 });
