@@ -1,6 +1,6 @@
 {
   "project": "NOZOMI 用车平台",
-  "updated": "2026-11-13",
+  "updated": "2026-11-14",
   "statuses": {
     "todo": "未开始",
     "doing": "开发中",
@@ -1019,12 +1019,17 @@
           "title": "包车价格页：同一区域既是服务区域又设区域加价时保存卡在「有 N 条未保存」",
           "role": "frontend",
           "status": "review",
-          "acceptance": [
-            "来源：业主需求文档 docs/requirements/charter-airport-packages-2026-11-14.md 第一节第 3 条最后的 Bug、第六节 P1「服务区域含成田，成田同时设区域加价并保存 → 保存成功」",
-            "同一区域既是商品的服务区域、又是包车区域加价的加价区域时，价格页保存成功，「有 N 条未保存」消失",
-            "测试覆盖复现场景，不删不弱化已有断言"
-          ],
+          "acceptance": ["来源：业主需求文档 docs/requirements/charter-airport-packages-2026-11-14.md 第一节第 3 条最后的 Bug、第六节 P1「服务区域含成田，成田同时设区域加价并保存 → 保存成功」", "同一区域既是商品的服务区域、又是包车区域加价的加价区域时，价格页保存成功，「有 N 条未保存」消失", "测试覆盖复现场景，不删不弱化已有断言"],
           "evidence": "PR #219（https://github.com/jiatengmei482-pixel/nozomi/pull/219）。负责人选 A：新写 ADR 0092（修改 ADR 0073 落地细节第 3 条）；后端 surchargeAreaIssues 和价格导入去掉 AREA_IS_PRODUCT_AREA（OpenAPI 同步），报价引擎不改（M8-38 口径），现有报价不变；价格页下拉里服务区域可选、设了加价的服务区域只列加价那一行。新增集成测试 1 条（服务区域含成田、成田同时设加价 → 批量保存成功，成田上车 33,000 + 14,000 = 47,000；没设加价时报价不变），按新口径改 2 处集成断言（原来断言被拒的改成能存再删；M8-25 导入用例的出错行换成 AREA_NOT_USABLE）；新增组件测试 2 条（复现场景：编辑填空组合后保存成功、「未保存」消失；服务区域在下拉里可选）。本机：组件测试 60 条（area-surcharge、lib/area-surcharge、prices）、集成测试 57 条（charter-area-surcharge、prices、charter-waypoints、area-roles）、端到端 charter-surcharge.spec.ts 1 条通过，类型检查通过；未做测试环境验收",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M8-45",
+          "title": "官网地址提示：每个地址每天的额度只计真调谷歌的请求，用完不报「输入太快了」",
+          "role": "backend",
+          "status": "review",
+          "acceptance": ["每个地址每天的额度（新作用域 site_places_google_day，300 次，IPv6 按 /64）只在真要调谷歌时扣（和全站每日名额同一处）：命中缓存、只有平台地点的请求不扣；旧作用域 site_places_day 从代码删除，部署后计数从零开始", "额度用完不 429：不调谷歌，200 + available:false + unavailable_reason:\"IP_DAILY_LIMIT\"，平台的机场、车站照常；输入即提示、取坐标、搜索、反查共用，嵌入组件 /embed/v1/places/* 同一口径（每个嵌入码每分钟 600 次不变）；OpenAPI 同步", "每分钟限流不变：输入即提示、取坐标每分钟 60 次（site_autocomplete），搜索、反查每分钟 20 次，仍在入口扣、超了 429", "页面说法分开：429 仍说「输入太快了，请稍等几秒再输入」；IP_DAILY_LIMIT 说「今天的地址提示次数用完了，下面只有平台的机场和车站；也可以在地图上选点。」；其他 available:false 的说法不变；电脑地址框、手机全屏选择页、经停点、旧 /book 搜索同一说法", "ADR 0069 补一节说明口径变化", "测试：集成测试——同一地址同一个词命中缓存不扣；不同词调谷歌扣、扣满后 available:false + unavailable_reason、平台地点照常、不 429；每分钟限流仍 429；IPv6 /64；嵌入组件同一口径；组件测试——两种提示文字；ipv6-rate-limit-qa 的名单同步", "来源：业主测试站实测 2026-11-14（/book/new 包车上车地点输入「新宿」立刻提示「输入太快了」）"],
+          "evidence": "PR #216（https://github.com/jiatengmei482-pixel/nozomi/pull/216）。新作用域 site_places_google_day 在地址服务真调谷歌前扣，命中缓存不扣；用完 200 + available:false + unavailable_reason:IP_DAILY_LIMIT、平台地点照常、不 429；嵌入组件同一口径；页面分清「输入太快了」和「今天的地址提示次数用完了」。本机：类型检查通过；集成测试 site-places-google-day（新增 5 条）、site-places、site-places.qa（新增服务层 1 条）、site-by-points、embed、ipv6-rate-limit-qa、ipv6-rate-limit 共 92 条通过；组件 / 契约测试 book-new（新增 2 条）、site-address、site-address.qa、waypoints、site.contract、embed 共 105 条通过；已有测试按新口径改的 4 处在 PR 里逐条说明；未做测试环境验收",
           "updated": "2026-11-14"
         }
       ]
@@ -2400,6 +2405,11 @@
       "date": "2026-11-13",
       "by": "backend",
       "summary": "M9W-10 开发完成，待验收：经停点落在没设途经加价的加价区域里（不在商品区域）时，官网不再显示「请换一个时间再试」，改报「第 N 个经停点暂时没有在线报价」并转人工报价；内部日志仍记原始原因；通用原因文案改为请联系客服或调整行程；平台询价日志接口给出每条拒绝的商品和原因（可选项已做）。价格不变。PR #210。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "backend",
+      "summary": "M8-45（紧急）：业主在测试站输入「新宿」就提示「输入太快了」。原因是每个地址每天 300 次的地址提示额度连命中缓存、不花钱的请求也扣，打满后整整 24 小时都被拒，页面又把它说成「输入太快了」。改为只在真调谷歌时扣；用完了不再报错，而是只给平台的机场、车站，页面说「今天的地址提示次数用完了」，也可以在地图上选点；每分钟的防刷限制不变。嵌入组件同一口径。待验收。"
     },
     {
       "date": "2026-11-14",
