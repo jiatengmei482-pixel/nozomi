@@ -243,12 +243,16 @@ test("M9W-10：只有经停点那一端报不出（没设 / 停用 / 未生效�
   assert.deepEqual(comparison.refused, [{ tenantId: "tenant-a", productId: "charter-1", vehicleGroupId: "eco7", reason: "NO_PRICE_RULE", stopSeq: 1 }]);
 });
 
-test("规则：经停点同时在商品区域和有途经规则的加价区域里 → 按 M8-38 收加价区域的；加价区域没有可用途经规则 → 在商品区域里不加", () => {
+test("规则（M9P-06，ADR 0093 第二节，取代 M8-38）：经停点同时在商品区域（①）和有途经规则的加价区域里 → 算市内经停，不加；加价区域没有可用途经规则 → 同样不加", () => {
   const bigTokyo = area("tokyo", square(138.5, 35.1, 139.95, 35.85));
-  assert.deepEqual(prices(trip("shinjuku", ["gogome"], "shinjuku"), product({ areas: [bigTokyo] })), [65_000, 71_500]);
+  // M8-38 时是 [65,000, 71,500]（收富士山途经 10,000）
+  assert.deepEqual(prices(trip("shinjuku", ["gogome"], "shinjuku"), product({ areas: [bigTokyo] })), [55_000, 60_500]);
+  assert.deepEqual(settlement(trip("shinjuku", ["gogome"], "shinjuku"), product({ areas: [bigTokyo] })).areaSurcharge?.waypoints, []);
   const unset = product({ areas: [bigTokyo], priceRules: [pkg, surcharge("s-fuji", "fuji", 10_000, 10_000, undefined)] });
   assert.deepEqual(prices(trip("shinjuku", ["gogome"], "shinjuku"), unset), [55_000, 60_500]);
   assert.deepEqual(settlement(trip("shinjuku", ["gogome"], "shinjuku"), unset).areaSurcharge?.waypoints, []);
+  // ①外的经停照收：箱根不在 bigTokyo 里
+  assert.deepEqual(prices(trip("shinjuku", ["hakone"], "shinjuku"), product({ areas: [area("tokyo", square(139.2, 35.3, 139.95, 35.85))] })), [63_000, 69_300]);
 });
 
 test("规则（M9P-01 起）：没有「已计价」——上 / 下车在同一区域、下车加价是 0 也照收行程加价；下车点落在重叠处选中别的区域时同样照收", () => {

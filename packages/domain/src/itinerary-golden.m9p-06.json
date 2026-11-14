@@ -1,0 +1,242 @@
+{
+ "big|2026-10-20T10:00|8h|80000m/240min|tokyo→fuji→tokyo": {
+  "before": "biz7:53000(km+0,ot+0) eco4:33000(km+0,ot+0)",
+  "summary": "biz7:50000(km+0,ot+0) eco4:30000(km+0,ot+0)",
+  "sha256": "4aa1db2eb2a27e480ae38e01876dcf7a192b0fb5e3ab0c82465fa0ff5b29f33f"
+ },
+ "big|2026-10-20T10:00|8h|80000m/240min|tokyo→fuji+chiba→tokyo": {
+  "before": "biz7:54200(km+0,ot+0) eco4:34200(km+0,ot+0)",
+  "summary": "biz7:51200(km+0,ot+0) eco4:31200(km+0,ot+0)",
+  "sha256": "084fc260d61c1ba972a3c5da9152b0cf3f0b660c21155cf271776532542dc638"
+ },
+ "big|2026-10-20T10:00|8h|80000m/240min|tokyo→fuji→fuji": {
+  "before": "biz7:54000(km+0,ot+0) eco4:33700(km+0,ot+0)",
+  "summary": "biz7:50000(km+0,ot+0) eco4:30000(km+0,ot+0)",
+  "sha256": "ed8ed9d02a30d09f85582818777519bcbcffeaa42655b5b73e0e16c5d3a0141a"
+ },
+ "big|2026-10-20T10:00|8h|80000m/240min|hachioji→chiba+kamakura→tokyo": {
+  "before": "biz7:52000(km+0,ot+0) eco4:31200(km+0,ot+0)",
+  "summary": "biz7:51200(km+0,ot+0) eco4:31200(km+0,ot+0)",
+  "sha256": "cb9cc740f7e9f9041cd6b3df94cbb066ba0b0886718f7c2c9aed591df221ea5c"
+ },
+ "big|2026-10-20T10:00|8h|150000m/480min|tokyo→fuji→tokyo": {
+  "before": "biz7:53000(km+0,ot+0) eco4:33000(km+0,ot+0)",
+  "summary": "biz7:50000(km+0,ot+0) eco4:30000(km+0,ot+0)",
+  "sha256": "6b1f59051a0e67e149d2ec1115be40b1c69abcb2dcb6b8f60db6499988572cb0"
+ },
+ "big|2026-10-20T10:00|8h|150000m/480min|tokyo→fuji+chiba→tokyo": {
+  "before": "biz7:54200(km+0,ot+0) eco4:34200(km+0,ot+0)",
+  "summary": "biz7:51200(km+0,ot+0) eco4:31200(km+0,ot+0)",
+  "sha256": "4cc88385d5ec0b7988fe2b9da185d4acb013746c4c1e5538c1065c11b15bdc29"
+ },
+ "big|2026-10-20T10:00|8h|150000m/480min|tokyo→fuji→fuji": {
+  "before": "biz7:54000(km+0,ot+0) eco4:33700(km+0,ot+0)",
+  "summary": "biz7:50000(km+0,ot+0) eco4:30000(km+0,ot+0)",
+  "sha256": "d19d7478a39465a9d66975e4b957f39aa7e8da4d840d6a73dca44ff8f2e361d0"
+ },
+ "big|2026-10-20T10:00|8h|150000m/480min|hachioji→chiba+kamakura→tokyo": {
+  "before": "biz7:52000(km+0,ot+0) eco4:31200(km+0,ot+0)",
+  "summary": "biz7:51200(km+0,ot+0) eco4:31200(km+0,ot+0)",
+  "sha256": "ac5e77d2d9319aa4cd268e750a4dde7923e0a78d6090a24ebeb2d4f825f8be02"
+ },
+ "big|2026-10-20T10:00|8h|160400m/540min|tokyo→fuji→tokyo": {
+  "before": "biz7:62160(km+4160,ot+5000) eco4:42160(km+4160,ot+5000)",
+  "summary": "biz7:59160(km+4160,ot+5000) eco4:39160(km+4160,ot+5000)",
+  "sha256": "954a7d1fa5d8f3270c8eeb9bfc53bfb18e76a0aaf9ec1a3040811fcf7f55757c"
+ },
+ "big|2026-10-20T10:00|8h|160400m/540min|tokyo→fuji+chiba→tokyo": {
+  "before": "biz7:63360(km+4160,ot+5000) eco4:43360(km+4160,ot+5000)",
+  "summary": "biz7:60360(km+4160,ot+5000) eco4:40360(km+4160,ot+5000)",
+  "sha256": "235deccc8cfe8bcbe54b779e472209db5901ed2f8365ab7bda5c5fc28b8bd8f2"
+ },
+ "big|2026-10-20T10:00|8h|160400m/540min|tokyo→fuji→fuji": {
+  "before": "biz7:63160(km+4160,ot+5000) eco4:42860(km+4160,ot+5000)",
+  "summary": "biz7:59160(km+4160,ot+5000) eco4:39160(km+4160,ot+5000)",
+  "sha256": "01ab68366f9e696af683d00850e0f6a659ae410523c194c6a501bf3ae609e073"
+ },
+ "big|2026-10-20T10:00|8h|160400m/540min|hachioji→chiba+kamakura→tokyo": {
+  "before": "biz7:61160(km+4160,ot+5000) eco4:40360(km+4160,ot+5000)",
+  "summary": "biz7:60360(km+4160,ot+5000) eco4:40360(km+4160,ot+5000)",
+  "sha256": "6ca561653435fa03be30c1fd1a2c7b133487db00958f4636b4348734af2b07b4"
+ },
+ "big|2026-10-20T10:00|8h|260000m/600min|tokyo→fuji→tokyo": {
+  "before": "biz7:107000(km+44000,ot+10000) eco4:87000(km+44000,ot+10000)",
+  "summary": "biz7:104000(km+44000,ot+10000) eco4:84000(km+44000,ot+10000)",
+  "sha256": "57d4236fac486ec40668116be0ea4f418d0d15a31928ea42138ab21a25acd30f"
+ },
+ "big|2026-10-20T10:00|8h|260000m/600min|tokyo→fuji+chiba→tokyo": {
+  "before": "biz7:108200(km+44000,ot+10000) eco4:88200(km+44000,ot+10000)",
+  "summary": "biz7:105200(km+44000,ot+10000) eco4:85200(km+44000,ot+10000)",
+  "sha256": "928c54724e7ff8e60978972f5bead950e417e3d5f86f82728bf0aefc7de32ddf"
+ },
+ "big|2026-10-20T10:00|8h|260000m/600min|tokyo→fuji→fuji": {
+  "before": "biz7:108000(km+44000,ot+10000) eco4:87700(km+44000,ot+10000)",
+  "summary": "biz7:104000(km+44000,ot+10000) eco4:84000(km+44000,ot+10000)",
+  "sha256": "830d66940c2d7e71b560f4f8b8dba24c94e0a03579f4f54a17ac728931ca9391"
+ },
+ "big|2026-10-20T10:00|8h|260000m/600min|hachioji→chiba+kamakura→tokyo": {
+  "before": "biz7:106000(km+44000,ot+10000) eco4:85200(km+44000,ot+10000)",
+  "summary": "biz7:105200(km+44000,ot+10000) eco4:85200(km+44000,ot+10000)",
+  "sha256": "66aea4c63515d5347d6ccdeec6137804eb26a68b9e0bda74925c771bbdfbc2f7"
+ },
+ "big|2026-10-20T10:00|8h|260000m/650min|tokyo→fuji→tokyo": {
+  "before": "biz7:111167(km+44000,ot+14167) eco4:91167(km+44000,ot+14167)",
+  "summary": "biz7:108167(km+44000,ot+14167) eco4:88167(km+44000,ot+14167)",
+  "sha256": "b3bac309f0c00044178815afbd4ab01afe0d28e15f3a70e0a695231a75134233"
+ },
+ "big|2026-10-20T10:00|8h|260000m/650min|tokyo→fuji+chiba→tokyo": {
+  "before": "biz7:112367(km+44000,ot+14167) eco4:92367(km+44000,ot+14167)",
+  "summary": "biz7:109367(km+44000,ot+14167) eco4:89367(km+44000,ot+14167)",
+  "sha256": "35f8bd62b91476c94edee1c39be98de2adf5d3364b3adc714ec278152715c168"
+ },
+ "big|2026-10-20T10:00|8h|260000m/650min|tokyo→fuji→fuji": {
+  "before": "biz7:112167(km+44000,ot+14167) eco4:91867(km+44000,ot+14167)",
+  "summary": "biz7:108167(km+44000,ot+14167) eco4:88167(km+44000,ot+14167)",
+  "sha256": "ec23bd36433201e9a303f567faf36e11c4e2541ca535607602f6808e0bced3f9"
+ },
+ "big|2026-10-20T10:00|8h|260000m/650min|hachioji→chiba+kamakura→tokyo": {
+  "before": "biz7:110167(km+44000,ot+14167) eco4:89367(km+44000,ot+14167)",
+  "summary": "biz7:109367(km+44000,ot+14167) eco4:89367(km+44000,ot+14167)",
+  "sha256": "1fc16e338df79f9be4fa240d5a61f7a8ce5a4ea50808f7f21347288db87c9070"
+ },
+ "big|2026-10-20T10:00|8h|520500m/1333min|tokyo→fuji→tokyo": {
+  "before": "biz7:272283(km+148200,ot+71083) eco4:252283(km+148200,ot+71083)",
+  "summary": "biz7:269283(km+148200,ot+71083) eco4:249283(km+148200,ot+71083)",
+  "sha256": "015081ae5687c2219b5b4119b5461be2672be78c0de119ecba40fcee523dd810"
+ },
+ "big|2026-10-20T10:00|8h|520500m/1333min|tokyo→fuji+chiba→tokyo": {
+  "before": "biz7:273483(km+148200,ot+71083) eco4:253483(km+148200,ot+71083)",
+  "summary": "biz7:270483(km+148200,ot+71083) eco4:250483(km+148200,ot+71083)",
+  "sha256": "e55153d34e5361289d94b7c6e8aa7b80e0037cfef14160be73dd40973a91ef62"
+ },
+ "big|2026-10-20T10:00|8h|520500m/1333min|tokyo→fuji→fuji": {
+  "before": "biz7:273283(km+148200,ot+71083) eco4:252983(km+148200,ot+71083)",
+  "summary": "biz7:269283(km+148200,ot+71083) eco4:249283(km+148200,ot+71083)",
+  "sha256": "f52092164050fde286317f4e1dc5a917d9750badf19d7fc6861d8b233d738261"
+ },
+ "big|2026-10-20T10:00|8h|520500m/1333min|hachioji→chiba+kamakura→tokyo": {
+  "before": "biz7:271283(km+148200,ot+71083) eco4:250483(km+148200,ot+71083)",
+  "summary": "biz7:270483(km+148200,ot+71083) eco4:250483(km+148200,ot+71083)",
+  "sha256": "8f6ca903152457be5d6e671b6dfcfbbac97e5ea3393461aec42f3284d72331e3"
+ },
+ "big|2026-10-20T10:00|10h|80000m/240min|tokyo→fuji→tokyo": {
+  "before": "biz7:58000(km+0,ot+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(km+0,ot+0) eco4:NO_PRICE_RULE",
+  "sha256": "78d5bc5d3d423baca6ae714a64b26d61143044807e962a149298b21f2a3ae631"
+ },
+ "big|2026-10-20T10:00|10h|80000m/240min|tokyo→fuji+chiba→tokyo": {
+  "before": "biz7:59200(km+0,ot+0) eco4:NO_PRICE_RULE@2",
+  "summary": "biz7:56200(km+0,ot+0) eco4:NO_PRICE_RULE@2",
+  "sha256": "e5f906ae9c953cd1bcd42b179422c71a7d70426fce9b95fe00604ca8f2c6ae08"
+ },
+ "big|2026-10-20T10:00|10h|80000m/240min|tokyo→fuji→fuji": {
+  "before": "biz7:68000(km+0,ot+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(km+0,ot+0) eco4:NO_PRICE_RULE",
+  "sha256": "473d22989e450c59b6b703b5d0e2e3802faa079378cc3cac723833246fd43840"
+ },
+ "big|2026-10-20T10:00|10h|80000m/240min|hachioji→chiba+kamakura→tokyo": {
+  "before": "biz7:57000(km+0,ot+0) eco4:NO_PRICE_RULE@1",
+  "summary": "biz7:56200(km+0,ot+0) eco4:NO_PRICE_RULE@1",
+  "sha256": "a77ff2b60c9b4847ab65ddc10958427074b4afca6ec5e4ba22ca73bb83be90e0"
+ },
+ "big|2026-10-20T10:00|10h|150000m/480min|tokyo→fuji→tokyo": {
+  "before": "biz7:58000(km+0,ot+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(km+0,ot+0) eco4:NO_PRICE_RULE",
+  "sha256": "8a7288bd086467fc3fb2c9605bed70f26162c5346a8641e156a36fc984063b0d"
+ },
+ "big|2026-10-20T10:00|10h|150000m/480min|tokyo→fuji+chiba→tokyo": {
+  "before": "biz7:59200(km+0,ot+0) eco4:NO_PRICE_RULE@2",
+  "summary": "biz7:56200(km+0,ot+0) eco4:NO_PRICE_RULE@2",
+  "sha256": "4e016be077d59ae0a8394d34d4ba7d9ef0cada61b028f2d123d57fe25363f926"
+ },
+ "big|2026-10-20T10:00|10h|150000m/480min|tokyo→fuji→fuji": {
+  "before": "biz7:68000(km+0,ot+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(km+0,ot+0) eco4:NO_PRICE_RULE",
+  "sha256": "0a6f5b00eee6d4780dc1f825b91dd329a5e81a749c173e33d653caabd8feb668"
+ },
+ "big|2026-10-20T10:00|10h|150000m/480min|hachioji→chiba+kamakura→tokyo": {
+  "before": "biz7:57000(km+0,ot+0) eco4:NO_PRICE_RULE@1",
+  "summary": "biz7:56200(km+0,ot+0) eco4:NO_PRICE_RULE@1",
+  "sha256": "cd88a16e7b27c40415bcd1656b9f9f39b48c3e58715af3157019792beb9b0039"
+ },
+ "big|2026-10-20T10:00|10h|160400m/540min|tokyo→fuji→tokyo": {
+  "before": "biz7:62160(km+4160,ot+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:59160(km+4160,ot+0) eco4:NO_PRICE_RULE",
+  "sha256": "4a2204eec24fbee8545a1e28e30b245bc03af2f358814593badc9e7e67405e0c"
+ },
+ "big|2026-10-20T10:00|10h|160400m/540min|tokyo→fuji+chiba→tokyo": {
+  "before": "biz7:63360(km+4160,ot+0) eco4:NO_PRICE_RULE@2",
+  "summary": "biz7:60360(km+4160,ot+0) eco4:NO_PRICE_RULE@2",
+  "sha256": "05746ed0713b8be374e72d7187dc3b9af8b98e41a7c759ba58736c4bf9848d09"
+ },
+ "big|2026-10-20T10:00|10h|160400m/540min|tokyo→fuji→fuji": {
+  "before": "biz7:72160(km+4160,ot+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:59160(km+4160,ot+0) eco4:NO_PRICE_RULE",
+  "sha256": "42b4226937b3cc64d5cb2551d87145394ae37e93442072f1ea5213808a10be05"
+ },
+ "big|2026-10-20T10:00|10h|160400m/540min|hachioji→chiba+kamakura→tokyo": {
+  "before": "biz7:61160(km+4160,ot+0) eco4:NO_PRICE_RULE@1",
+  "summary": "biz7:60360(km+4160,ot+0) eco4:NO_PRICE_RULE@1",
+  "sha256": "5e4e054599747e320c93fe3cd97a4dc058bcce182cc11440775149effb3f41ad"
+ },
+ "big|2026-10-20T10:00|10h|260000m/600min|tokyo→fuji→tokyo": {
+  "before": "biz7:102000(km+44000,ot+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:99000(km+44000,ot+0) eco4:NO_PRICE_RULE",
+  "sha256": "fc73c54a1b3cda12df3b727662f0337bdf2b84aa2c4e4842679b036455456900"
+ },
+ "big|2026-10-20T10:00|10h|260000m/600min|tokyo→fuji+chiba→tokyo": {
+  "before": "biz7:103200(km+44000,ot+0) eco4:NO_PRICE_RULE@2",
+  "summary": "biz7:100200(km+44000,ot+0) eco4:NO_PRICE_RULE@2",
+  "sha256": "28e0ae3476606cb3d4f20dba916bcc8a353e8d2854becb109c6ecbf553e78df7"
+ },
+ "big|2026-10-20T10:00|10h|260000m/600min|tokyo→fuji→fuji": {
+  "before": "biz7:112000(km+44000,ot+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:99000(km+44000,ot+0) eco4:NO_PRICE_RULE",
+  "sha256": "d289b748fe89b3e07c0193635191015e178b538e397488fa67660fc433d010aa"
+ },
+ "big|2026-10-20T10:00|10h|260000m/600min|hachioji→chiba+kamakura→tokyo": {
+  "before": "biz7:101000(km+44000,ot+0) eco4:NO_PRICE_RULE@1",
+  "summary": "biz7:100200(km+44000,ot+0) eco4:NO_PRICE_RULE@1",
+  "sha256": "8a5bce0e981aad9f8cadec1aa595535ade2af050b81d58bb82e0949fb23a5253"
+ },
+ "big|2026-10-20T10:00|10h|260000m/650min|tokyo→fuji→tokyo": {
+  "before": "biz7:106167(km+44000,ot+4167) eco4:NO_PRICE_RULE",
+  "summary": "biz7:103167(km+44000,ot+4167) eco4:NO_PRICE_RULE",
+  "sha256": "409a973605822f8533480c05cc1f93ff08fc020ff18a26b6a3dc0aa9a3159401"
+ },
+ "big|2026-10-20T10:00|10h|260000m/650min|tokyo→fuji+chiba→tokyo": {
+  "before": "biz7:107367(km+44000,ot+4167) eco4:NO_PRICE_RULE@2",
+  "summary": "biz7:104367(km+44000,ot+4167) eco4:NO_PRICE_RULE@2",
+  "sha256": "245a9929147498a681db9a62d36983ceea20d1b8b6bf93d7d26696661f967a26"
+ },
+ "big|2026-10-20T10:00|10h|260000m/650min|tokyo→fuji→fuji": {
+  "before": "biz7:116167(km+44000,ot+4167) eco4:NO_PRICE_RULE",
+  "summary": "biz7:103167(km+44000,ot+4167) eco4:NO_PRICE_RULE",
+  "sha256": "058cf57e87cd4257bbd2efcd4e44e8d2c961516e63d26e76bf0f3a8b5a651279"
+ },
+ "big|2026-10-20T10:00|10h|260000m/650min|hachioji→chiba+kamakura→tokyo": {
+  "before": "biz7:105167(km+44000,ot+4167) eco4:NO_PRICE_RULE@1",
+  "summary": "biz7:104367(km+44000,ot+4167) eco4:NO_PRICE_RULE@1",
+  "sha256": "764f2d5ebc5b56e53ca8ae358800d70c1e2768978de9ce80413f63d44f9b2bb8"
+ },
+ "big|2026-10-20T10:00|10h|520500m/1333min|tokyo→fuji→tokyo": {
+  "before": "biz7:267283(km+148200,ot+61083) eco4:NO_PRICE_RULE",
+  "summary": "biz7:264283(km+148200,ot+61083) eco4:NO_PRICE_RULE",
+  "sha256": "9b029e600dbc298ebe914787950bf2669b7b6bda5410b0912d764fac19cb9884"
+ },
+ "big|2026-10-20T10:00|10h|520500m/1333min|tokyo→fuji+chiba→tokyo": {
+  "before": "biz7:268483(km+148200,ot+61083) eco4:NO_PRICE_RULE@2",
+  "summary": "biz7:265483(km+148200,ot+61083) eco4:NO_PRICE_RULE@2",
+  "sha256": "8b0f6bae63aa94ef4a59378a8005be2da0291a345fd46f9cd535d90951b8ab96"
+ },
+ "big|2026-10-20T10:00|10h|520500m/1333min|tokyo→fuji→fuji": {
+  "before": "biz7:277283(km+148200,ot+61083) eco4:NO_PRICE_RULE",
+  "summary": "biz7:264283(km+148200,ot+61083) eco4:NO_PRICE_RULE",
+  "sha256": "6d63c3db80a26197bcdd29cc50c46a512eeed5e57e54776f2b05f0857fe8e468"
+ },
+ "big|2026-10-20T10:00|10h|520500m/1333min|hachioji→chiba+kamakura→tokyo": {
+  "before": "biz7:266283(km+148200,ot+61083) eco4:NO_PRICE_RULE@1",
+  "summary": "biz7:265483(km+148200,ot+61083) eco4:NO_PRICE_RULE@1",
+  "sha256": "53c07d7da7f305221a0bfbbb260ff19c5c68edc9317bb09e01c4d5793c5d3f5c"
+ }
+}

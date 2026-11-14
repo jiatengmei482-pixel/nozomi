@@ -1,0 +1,577 @@
+{
+ "big|2026-10-20T10:00|8h|tokyo→hachioji": {
+  "before": "biz7:50800(-+0,hachioji+800) eco4:30000(-+0,-+0)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "4e4dcd38f7099d4c73d67af57d63b404ca68f4457c00880e38f04816a89c1d32"
+ },
+ "big|2026-10-20T10:00|8h|tokyo→fuji": {
+  "before": "biz7:51000(-+0,fuji+1000) eco4:30700(-+0,fuji+700)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "ab71421f422b776e7c2d4539fe92127acb1d0e0a229c6f61277f9b4b7d6136ad"
+ },
+ "big|2026-10-20T10:00|8h|tokyo→fujiOverlap": {
+  "before": "biz7:51000(-+0,fuji+1000) eco4:30700(-+0,fuji+700)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "eb69a632f264e52dee47779460d05e939279a38e93a50cd64d0fdce7c469f12c"
+ },
+ "big|2026-10-20T10:00|8h|tokyo→fujiNorth": {
+  "before": "biz7:50700(-+0,fuji-north+700) eco4:30000(-+0,-+0)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "4a6ef3abff39a8a34f95aebf8576e5cc00a5b67d3b68cc95a549b4055e835e6d"
+ },
+ "big|2026-10-20T10:00|8h|tokyoForbid→hachioji": {
+  "before": "biz7:50800(-+0,hachioji+800) eco4:30000(-+0,-+0)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "c4a00b91dd50d2f4e5e5a861afe3fa6138dfc6ef275dff8fd9d6bf8461d037a6"
+ },
+ "big|2026-10-20T10:00|8h|tokyoForbid→fuji": {
+  "before": "biz7:51000(-+0,fuji+1000) eco4:30700(-+0,fuji+700)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "432b6298154c1c366c591e849133acbcef853ce851aaab89f3fd204f7e4ec822"
+ },
+ "big|2026-10-20T10:00|8h|tokyoForbid→fujiOverlap": {
+  "before": "biz7:51000(-+0,fuji+1000) eco4:30700(-+0,fuji+700)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "ae54c7b42418cd870540e0ae5402573b1c265d07d3bd088019185cdd0bd17b71"
+ },
+ "big|2026-10-20T10:00|8h|tokyoForbid→fujiNorth": {
+  "before": "biz7:50700(-+0,fuji-north+700) eco4:30000(-+0,-+0)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "4a2a127e280d37ce466597971f5572ed775b898ad0fb9174930664c76eb2b131"
+ },
+ "big|2026-10-20T10:00|8h|hachioji→tokyo": {
+  "before": "biz7:50800(hachioji+800,-+0) eco4:30000(-+0,-+0)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "4711c46af3493689b1546281a29ee0e039b8af661b4220c2f04651cc8448f2f4"
+ },
+ "big|2026-10-20T10:00|8h|hachioji→tokyoForbid": {
+  "before": "biz7:50800(hachioji+800,-+0) eco4:30000(-+0,-+0)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "b50c93efb1c236342376b518ac63c34b4d589c333b27ffea8c2fcde7b8421b67"
+ },
+ "big|2026-10-20T10:00|8h|hachioji→hachioji": {
+  "before": "biz7:51600(hachioji+800,hachioji+800) eco4:30000(-+0,-+0)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "08f099cf989285a089ca1b441ce489b24dc9aa263a15ccd39feadfeedf3ca9a4"
+ },
+ "big|2026-10-20T10:00|8h|hachioji→fuji": {
+  "before": "biz7:51800(hachioji+800,fuji+1000) eco4:30700(-+0,fuji+700)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "5f8b00f2a3b608d8cab6ee97d65b9efd6e0af9299534dedf126af6735f88b426"
+ },
+ "big|2026-10-20T10:00|8h|hachioji→fujiOverlap": {
+  "before": "biz7:51800(hachioji+800,fuji+1000) eco4:30700(-+0,fuji+700)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "bc63e7e32f5496ee854aa808ef1ed4d9698855b1d033c84f6b02e1d70bcdedba"
+ },
+ "big|2026-10-20T10:00|8h|hachioji→fujiNorth": {
+  "before": "biz7:51500(hachioji+800,fuji-north+700) eco4:30000(-+0,-+0)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "8de929297c9f1baf161ded6beddfbe3508b50919576de0ac1d71167a153bf2aa"
+ },
+ "big|2026-10-20T10:00|8h|hachioji→chiba": {
+  "before": "biz7:51500(hachioji+800,wide-chiba+700) eco4:30300(-+0,chiba+300)",
+  "summary": "biz7:50700(-+0,wide-chiba+700) eco4:30300(-+0,chiba+300)",
+  "sha256": "b2e7b52ef2ef7ebfc14517c6ce81c10f0ae9fd3c8d647ceaeda5ac1537625579"
+ },
+ "big|2026-10-20T10:00|8h|hachioji→wideOnly": {
+  "before": "biz7:51500(hachioji+800,wide-chiba+700) eco4:NO_PRICE_RULE",
+  "summary": "biz7:50700(-+0,wide-chiba+700) eco4:NO_PRICE_RULE",
+  "sha256": "1e768dc8f680b12d298b7a6a51eb683331ca8c80fd9402ee3cf531dad1806bc0"
+ },
+ "big|2026-10-20T10:00|8h|hachioji→kamakura": {
+  "before": "biz7:50800(hachioji+800,-+0) eco4:30000(-+0,-+0)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "a908738abf6546ae74dc363af7f4db5b85cd1945b2b5ab9343bfce445459dd47"
+ },
+ "big|2026-10-20T10:00|8h|fuji→tokyo": {
+  "before": "biz7:51000(fuji+1000,-+0) eco4:30700(fuji+700,-+0)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "f8d32f34e12fd3654de3c31d7bb1ae8fc198be3a1bcce6bee4addfbc313b590f"
+ },
+ "big|2026-10-20T10:00|8h|fuji→tokyoForbid": {
+  "before": "biz7:51000(fuji+1000,-+0) eco4:30700(fuji+700,-+0)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "2e056c7bb27436a12fdc21a3fe36de892baaeaafa6d7e85cf75f6ffa199f9876"
+ },
+ "big|2026-10-20T10:00|8h|fuji→hachioji": {
+  "before": "biz7:51800(fuji+1000,hachioji+800) eco4:30700(fuji+700,-+0)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "5cb024a7edcb4f9d6f592a1d692ba31e2774ebffd2f321da4ac882c30c9e0c51"
+ },
+ "big|2026-10-20T10:00|8h|fuji→fuji": {
+  "before": "biz7:52000(fuji+1000,fuji+1000) eco4:31400(fuji+700,fuji+700)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "3a504dacc5c5adddcd9102eb9f75728511733c4d428f5bb3a0d4bd6172cb1aea"
+ },
+ "big|2026-10-20T10:00|8h|fuji→fujiOverlap": {
+  "before": "biz7:52000(fuji+1000,fuji+1000) eco4:31400(fuji+700,fuji+700)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "9caa57d58079917dec9c0f65e0fd16db495b6e90af9c3f93f63d2306fa62462a"
+ },
+ "big|2026-10-20T10:00|8h|fuji→fujiNorth": {
+  "before": "biz7:51700(fuji+1000,fuji-north+700) eco4:30700(fuji+700,-+0)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "b3cc3d733006987308e4ede6dc8b96726b1af07bab4bdf67ca00baabdd08060c"
+ },
+ "big|2026-10-20T10:00|8h|fuji→chiba": {
+  "before": "biz7:51700(fuji+1000,wide-chiba+700) eco4:31000(fuji+700,chiba+300)",
+  "summary": "biz7:50700(-+0,wide-chiba+700) eco4:30300(-+0,chiba+300)",
+  "sha256": "915f18e2e627c87e6b46088389610b80d2731f692a7853363422e93d7702ed1d"
+ },
+ "big|2026-10-20T10:00|8h|fuji→wideOnly": {
+  "before": "biz7:51700(fuji+1000,wide-chiba+700) eco4:NO_PRICE_RULE",
+  "summary": "biz7:50700(-+0,wide-chiba+700) eco4:NO_PRICE_RULE",
+  "sha256": "563d6a7cc69ba0802f31e57fba2fd26af5005955236b35b3af07eea0b4bccc5e"
+ },
+ "big|2026-10-20T10:00|8h|fuji→kamakura": {
+  "before": "biz7:51000(fuji+1000,-+0) eco4:30700(fuji+700,-+0)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "45179589610f08adb447036d91ced3241af18b94aaaec3394cfbb13fcb824595"
+ },
+ "big|2026-10-20T10:00|8h|fuji→saitama": {
+  "before": "eco4:31100(fuji+700,saitama+400) biz7:NO_PRICE_RULE",
+  "summary": "eco4:30400(-+0,saitama+400) biz7:NO_PRICE_RULE",
+  "sha256": "242184abc541364a818c1f8769e101171dac93c9ebbf01388e81561c448dd8b6"
+ },
+ "big|2026-10-20T10:00|8h|fujiOverlap→tokyo": {
+  "before": "biz7:51500(fuji-north+1500,-+0) eco4:30700(fuji+700,-+0)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "7b98f70bec12024366a184d72416eff5bb0d8e57c10c0b2c9e5461696731cca2"
+ },
+ "big|2026-10-20T10:00|8h|fujiOverlap→tokyoForbid": {
+  "before": "biz7:51500(fuji-north+1500,-+0) eco4:30700(fuji+700,-+0)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "9e3e100640b7e46907cf7818b2fe4d7e2ff37cc0f3b5561a687f66483662d12f"
+ },
+ "big|2026-10-20T10:00|8h|fujiOverlap→hachioji": {
+  "before": "biz7:52300(fuji-north+1500,hachioji+800) eco4:30700(fuji+700,-+0)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "a6682a638c70026d86cb0596eaa6360a794245559203f1332c4d0e194a7c871c"
+ },
+ "big|2026-10-20T10:00|8h|fujiOverlap→fuji": {
+  "before": "biz7:52500(fuji-north+1500,fuji+1000) eco4:31400(fuji+700,fuji+700)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "4f4f0eb50a5493a7fc476910e379990c4fafee015c952ec4008d8ba7483c62e2"
+ },
+ "big|2026-10-20T10:00|8h|fujiOverlap→fujiOverlap": {
+  "before": "biz7:52500(fuji-north+1500,fuji+1000) eco4:31400(fuji+700,fuji+700)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "09b2e7ad40f1b1fc3c9908add35fe3de2da272ddfe4890b849c4c03d58f7fc0a"
+ },
+ "big|2026-10-20T10:00|8h|fujiOverlap→fujiNorth": {
+  "before": "biz7:52200(fuji-north+1500,fuji-north+700) eco4:30700(fuji+700,-+0)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "2a1d284bf36efe8c677e5d916553da4991356c2c197f97b1b4bad868154f180f"
+ },
+ "big|2026-10-20T10:00|8h|fujiOverlap→chiba": {
+  "before": "biz7:52200(fuji-north+1500,wide-chiba+700) eco4:31000(fuji+700,chiba+300)",
+  "summary": "biz7:50700(-+0,wide-chiba+700) eco4:30300(-+0,chiba+300)",
+  "sha256": "3d8c3aeea74204801ec17c4e4258aba8c208df11bb2ce5396a2f05c666fbbc56"
+ },
+ "big|2026-10-20T10:00|8h|fujiOverlap→wideOnly": {
+  "before": "biz7:52200(fuji-north+1500,wide-chiba+700) eco4:NO_PRICE_RULE",
+  "summary": "biz7:50700(-+0,wide-chiba+700) eco4:NO_PRICE_RULE",
+  "sha256": "cb7b3273c9e3e7c1e38da168fc12e3de5d2f0aa7b684d5298fc32aaf56d3142b"
+ },
+ "big|2026-10-20T10:00|8h|fujiOverlap→kamakura": {
+  "before": "biz7:51500(fuji-north+1500,-+0) eco4:30700(fuji+700,-+0)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "0113e5ff7f9bd58d02d48a9701282ed332934512912a57069f7b828621f51379"
+ },
+ "big|2026-10-20T10:00|8h|fujiOverlap→saitama": {
+  "before": "eco4:31100(fuji+700,saitama+400) biz7:NO_PRICE_RULE",
+  "summary": "eco4:30400(-+0,saitama+400) biz7:NO_PRICE_RULE",
+  "sha256": "8224cd5fde2c3c658b0955c8fec2b4e96794d3496785a8a96adf526e9ce30ccf"
+ },
+ "big|2026-10-20T10:00|8h|fujiNorth→tokyo": {
+  "before": "biz7:51500(fuji-north+1500,-+0) eco4:30000(-+0,-+0)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "03dec4677f3a7bb9b51302cc600663c1dcc7f714d7210fd0feec313da9e638f2"
+ },
+ "big|2026-10-20T10:00|8h|fujiNorth→tokyoForbid": {
+  "before": "biz7:51500(fuji-north+1500,-+0) eco4:30000(-+0,-+0)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "e923bcc38bcdff2c612440af44c889d90bd4d6b650393736e5538d0378b7bdbe"
+ },
+ "big|2026-10-20T10:00|8h|fujiNorth→hachioji": {
+  "before": "biz7:52300(fuji-north+1500,hachioji+800) eco4:30000(-+0,-+0)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "e1271dee07615f731678ff8aca7dc55ab5948c8cb19f21e5a989cd17459b0302"
+ },
+ "big|2026-10-20T10:00|8h|fujiNorth→fuji": {
+  "before": "biz7:52500(fuji-north+1500,fuji+1000) eco4:30700(-+0,fuji+700)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "6342b7b4ac3bd6b214faeaa1bc2d6b32d65fdfb879e18b64cae875ca58183e0e"
+ },
+ "big|2026-10-20T10:00|8h|fujiNorth→fujiOverlap": {
+  "before": "biz7:52500(fuji-north+1500,fuji+1000) eco4:30700(-+0,fuji+700)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "4143f79c349e28267b097e08d7d0eee216f9f493c396f5f4bbf271dd15fcf0dd"
+ },
+ "big|2026-10-20T10:00|8h|fujiNorth→fujiNorth": {
+  "before": "biz7:52200(fuji-north+1500,fuji-north+700) eco4:30000(-+0,-+0)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "78517a7fed5dce9630e0eb09ac03bf8a7b9678c64c071c64ffecf734db4bf8df"
+ },
+ "big|2026-10-20T10:00|8h|fujiNorth→chiba": {
+  "before": "biz7:52200(fuji-north+1500,wide-chiba+700) eco4:30300(-+0,chiba+300)",
+  "summary": "biz7:50700(-+0,wide-chiba+700) eco4:30300(-+0,chiba+300)",
+  "sha256": "3ab8fb148352fcae8068ceccbb2227c4b3ef1ab3557875d0599fdfd8e1d0a431"
+ },
+ "big|2026-10-20T10:00|8h|fujiNorth→wideOnly": {
+  "before": "biz7:52200(fuji-north+1500,wide-chiba+700) eco4:NO_PRICE_RULE",
+  "summary": "biz7:50700(-+0,wide-chiba+700) eco4:NO_PRICE_RULE",
+  "sha256": "b2d0c40af5ce237162c30b53470cda5ce27dbf42b4b8b8f1c19a0290ed410d6f"
+ },
+ "big|2026-10-20T10:00|8h|fujiNorth→kamakura": {
+  "before": "biz7:51500(fuji-north+1500,-+0) eco4:30000(-+0,-+0)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "35ff1c0d6926dd0e202ec6b2a19de39cc306febb5a890d71b06823c2bab12b48"
+ },
+ "big|2026-10-20T10:00|8h|chiba→hachioji": {
+  "before": "biz7:51300(chiba+500,hachioji+800) eco4:30300(chiba+300,-+0)",
+  "summary": "biz7:50500(chiba+500,-+0) eco4:30300(chiba+300,-+0)",
+  "sha256": "801cbfd13551c6db3456e85f36805f9f9f40bb783a9a6214ba7513cae6eec02a"
+ },
+ "big|2026-10-20T10:00|8h|chiba→fuji": {
+  "before": "biz7:51500(chiba+500,fuji+1000) eco4:31000(chiba+300,fuji+700)",
+  "summary": "biz7:50500(chiba+500,-+0) eco4:30300(chiba+300,-+0)",
+  "sha256": "540a52683f99155d85fcac3acba517bd7cba879ce6ae4a82b8d0be921a7955ce"
+ },
+ "big|2026-10-20T10:00|8h|chiba→fujiOverlap": {
+  "before": "biz7:51500(chiba+500,fuji+1000) eco4:31000(chiba+300,fuji+700)",
+  "summary": "biz7:50500(chiba+500,-+0) eco4:30300(chiba+300,-+0)",
+  "sha256": "ed0bf867a70c39ad9f5ba00b5d299a1d21e8c640e5cca189c4b686ab2f0558e7"
+ },
+ "big|2026-10-20T10:00|8h|chiba→fujiNorth": {
+  "before": "biz7:51200(chiba+500,fuji-north+700) eco4:30300(chiba+300,-+0)",
+  "summary": "biz7:50500(chiba+500,-+0) eco4:30300(chiba+300,-+0)",
+  "sha256": "07387816ad1e4f0eca879777fa49547457af2a9c487bb999a7a91246cdb11195"
+ },
+ "big|2026-10-20T10:00|8h|wideOnly→hachioji": {
+  "before": "biz7:51100(wide-chiba+300,hachioji+800) eco4:NO_PRICE_RULE",
+  "summary": "biz7:50300(wide-chiba+300,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "f5d85e6f2c2585a69c266c99ebbc09ff9bfd27f8e9e72f3749a21f8e1774287b"
+ },
+ "big|2026-10-20T10:00|8h|wideOnly→fuji": {
+  "before": "biz7:51300(wide-chiba+300,fuji+1000) eco4:NO_PRICE_RULE",
+  "summary": "biz7:50300(wide-chiba+300,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "8b42d647173c7a13f756709cc75f8022e02ade33d90b9bdc35a50d61a7488f7d"
+ },
+ "big|2026-10-20T10:00|8h|wideOnly→fujiOverlap": {
+  "before": "biz7:51300(wide-chiba+300,fuji+1000) eco4:NO_PRICE_RULE",
+  "summary": "biz7:50300(wide-chiba+300,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "77912d5bb475dcf46c2b9bed386815f6818ca02fb8f568eb87c8376f621fac0b"
+ },
+ "big|2026-10-20T10:00|8h|wideOnly→fujiNorth": {
+  "before": "biz7:51000(wide-chiba+300,fuji-north+700) eco4:NO_PRICE_RULE",
+  "summary": "biz7:50300(wide-chiba+300,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "9f5bbcd645d4b575edf52a8db84d73e96dad2499ff18f72030b91d106398ac38"
+ },
+ "big|2026-10-20T10:00|8h|kamakura→hachioji": {
+  "before": "biz7:50800(-+0,hachioji+800) eco4:30000(-+0,-+0)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "707a327b41fec8c4a6960891f26fa5b63af2313ff83b62df2f782327096fe839"
+ },
+ "big|2026-10-20T10:00|8h|kamakura→fuji": {
+  "before": "biz7:51000(-+0,fuji+1000) eco4:30700(-+0,fuji+700)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "4203c14864f46bdda100022a18727cb926ebe2a8f985e7b2112d0cb14b5aa23a"
+ },
+ "big|2026-10-20T10:00|8h|kamakura→fujiOverlap": {
+  "before": "biz7:51000(-+0,fuji+1000) eco4:30700(-+0,fuji+700)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "258e05d42411f6668402947045e65a1ab23411adc605d16222550bd8d9d025d5"
+ },
+ "big|2026-10-20T10:00|8h|kamakura→fujiNorth": {
+  "before": "biz7:50700(-+0,fuji-north+700) eco4:30000(-+0,-+0)",
+  "summary": "biz7:50000(-+0,-+0) eco4:30000(-+0,-+0)",
+  "sha256": "6aad8483d3e81bb2bb2cd4623097d7f212097a4bed3562819d560fbb85e2c49e"
+ },
+ "big|2026-10-20T10:00|8h|saitama→fuji": {
+  "before": "eco4:31100(saitama+400,fuji+700) biz7:NO_PRICE_RULE",
+  "summary": "eco4:30400(saitama+400,-+0) biz7:NO_PRICE_RULE",
+  "sha256": "e4cfc014efaaf48682a034c95cfaa12a291e5c0e20b5c2ed603a5bd461741772"
+ },
+ "big|2026-10-20T10:00|8h|saitama→fujiOverlap": {
+  "before": "eco4:31100(saitama+400,fuji+700) biz7:NO_PRICE_RULE",
+  "summary": "eco4:30400(saitama+400,-+0) biz7:NO_PRICE_RULE",
+  "sha256": "d516bdd7ccc9a9998875272beab9d2b4e257ff7f7f5c0fa07919ccd2e076200d"
+ },
+ "big|2026-10-20T10:00|10h|tokyo→hachioji": {
+  "before": "biz7:55800(-+0,hachioji+800) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "334ebbacaf2a148749c0df6cd0824ab087b66fa0078f2093dba90949ab20ca46"
+ },
+ "big|2026-10-20T10:00|10h|tokyo→fuji": {
+  "before": "biz7:65000(-+0,fuji+10000) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "c491052eb9f7122d7ed8d9bb8a02bbbedc496047b5aa2a804938203fbd9d9124"
+ },
+ "big|2026-10-20T10:00|10h|tokyo→fujiOverlap": {
+  "before": "biz7:65000(-+0,fuji+10000) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "b6463b14ae990de7afd41b7370d5ae32c524e8303a656a5ea478b05b2ee3bf43"
+ },
+ "big|2026-10-20T10:00|10h|tokyo→fujiNorth": {
+  "before": "biz7:55000(-+0,fuji-north+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "6eecdc19a1bd837e6086d64e1080d0d3c54121cc9f802721c21b0a7e457b61eb"
+ },
+ "big|2026-10-20T10:00|10h|tokyo→kamakura": {
+  "before": "biz7:55600(-+0,kamakura+600) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "884882063c7be27a25882ca772a2e427b7ebeb78d2e3a1d11078a6847b82ccae"
+ },
+ "big|2026-10-20T10:00|10h|tokyoForbid→hachioji": {
+  "before": "biz7:55800(-+0,hachioji+800) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "aa3ac8cab94157279f6962b7b4599f994fcb0ffc90694cbef2b079040bf03605"
+ },
+ "big|2026-10-20T10:00|10h|tokyoForbid→fuji": {
+  "before": "biz7:65000(-+0,fuji+10000) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "e12bf8c2361e8502875ab2d7f5a8e74c17a19ab909731a9951baa4914c941d35"
+ },
+ "big|2026-10-20T10:00|10h|tokyoForbid→fujiOverlap": {
+  "before": "biz7:65000(-+0,fuji+10000) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "23d74184bb950dc61641efbe614fb6c81844e9fb8c308c85257fe90ddb7af6ed"
+ },
+ "big|2026-10-20T10:00|10h|tokyoForbid→fujiNorth": {
+  "before": "biz7:55000(-+0,fuji-north+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "2a2f809d7465e952d7d5827b060313761d7097dde458279779de620a074d7ff0"
+ },
+ "big|2026-10-20T10:00|10h|tokyoForbid→kamakura": {
+  "before": "biz7:55600(-+0,kamakura+600) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "f0fc650466dbfa0b6071c6ddf2952fe057438af19ee9db0c1a2740893dfdd440"
+ },
+ "big|2026-10-20T10:00|10h|hachioji→tokyo": {
+  "before": "biz7:55800(hachioji+800,-+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "1c12bd36f7571c0473fece9950b60610b38c61c0631a84b04aa03032f2877651"
+ },
+ "big|2026-10-20T10:00|10h|hachioji→tokyoForbid": {
+  "before": "biz7:55800(hachioji+800,-+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "b194b54620e8682319b348b49de128b1590948f3742012621c11d36eeb81d639"
+ },
+ "big|2026-10-20T10:00|10h|hachioji→hachioji": {
+  "before": "biz7:56600(hachioji+800,hachioji+800) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "7c9a75516844f8c043c935945f447774d0d5375211f4bf34cbf99c1501230be7"
+ },
+ "big|2026-10-20T10:00|10h|hachioji→fuji": {
+  "before": "biz7:65800(hachioji+800,fuji+10000) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "d2760885353b7a261a97ee11dc166f00b6d364d13984ad40a8eab216306e3fb0"
+ },
+ "big|2026-10-20T10:00|10h|hachioji→fujiOverlap": {
+  "before": "biz7:65800(hachioji+800,fuji+10000) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "f4003129d46066e655a87600d232d7857eaa12cb8fbfba79cf2f14fe7d42f9b7"
+ },
+ "big|2026-10-20T10:00|10h|hachioji→fujiNorth": {
+  "before": "biz7:55800(hachioji+800,fuji-north+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "57486bb6b4d4610ee389501731c7281c84a1428df8b05ab7ff07a4dd7c71055e"
+ },
+ "big|2026-10-20T10:00|10h|hachioji→chiba": {
+  "before": "biz7:55800(hachioji+800,chiba+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,chiba+0) eco4:NO_PRICE_RULE",
+  "sha256": "9988eb81431c363efcd60659e4a03d2385cf8033476135eeab0f7677c785defe"
+ },
+ "big|2026-10-20T10:00|10h|hachioji→kamakura": {
+  "before": "biz7:56400(hachioji+800,kamakura+600) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "5bf121c3537d04a0d95a8d5c2f5ae617ccdb6c4b6dcba75ce7e6a7d2a4474c18"
+ },
+ "big|2026-10-20T10:00|10h|fuji→tokyo": {
+  "before": "biz7:65000(fuji+10000,-+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "da552a0093c08fa7aeb8bb503599be4eb1b11ba39bbf57b12904c37c664c6dc5"
+ },
+ "big|2026-10-20T10:00|10h|fuji→tokyoForbid": {
+  "before": "biz7:65000(fuji+10000,-+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "f529fba6d4260a75ad6612384f8936c6192a6e05956433dcafdbf4169246eca1"
+ },
+ "big|2026-10-20T10:00|10h|fuji→hachioji": {
+  "before": "biz7:65800(fuji+10000,hachioji+800) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "5bdc15aff589204c2a4118058b4a869feffd95fcbf586d18ea8848d1f0eead5a"
+ },
+ "big|2026-10-20T10:00|10h|fuji→fuji": {
+  "before": "biz7:75000(fuji+10000,fuji+10000) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "e9bb46078eaae55dabe6b479af546521421dd1224872ee5b3a5457736250fc97"
+ },
+ "big|2026-10-20T10:00|10h|fuji→fujiOverlap": {
+  "before": "biz7:75000(fuji+10000,fuji+10000) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "fc6c681aea15cc84fc674ac0e6854f6eb1563e550d75e91dab1170a20d5cd183"
+ },
+ "big|2026-10-20T10:00|10h|fuji→fujiNorth": {
+  "before": "biz7:65000(fuji+10000,fuji-north+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "437c75a14d3b9e50ed7644e185564c3db41447a95d1dcae24189dfeb42e13cbc"
+ },
+ "big|2026-10-20T10:00|10h|fuji→chiba": {
+  "before": "biz7:65000(fuji+10000,chiba+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,chiba+0) eco4:NO_PRICE_RULE",
+  "sha256": "cfeca0c6c7cbb126d6af9240bb69e45327b73ede85c2b595cfcdd6b0ac3e9ae7"
+ },
+ "big|2026-10-20T10:00|10h|fuji→kamakura": {
+  "before": "biz7:65600(fuji+10000,kamakura+600) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "2002a455dc9d75fafa8eacc04a909edf0effcc42257482a6d587d9dcdbb6b3bb"
+ },
+ "big|2026-10-20T10:00|10h|fujiOverlap→tokyo": {
+  "before": "biz7:65000(fuji+10000,-+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "81f55a1d70af2cb5e4b5698bfd25941f9aa87500bad4b93e7efc127f6c31bdd4"
+ },
+ "big|2026-10-20T10:00|10h|fujiOverlap→tokyoForbid": {
+  "before": "biz7:65000(fuji+10000,-+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "99340419faac4e57fd807cd028f3d44495c6ca180b54d70e9e089dc24bb5bf15"
+ },
+ "big|2026-10-20T10:00|10h|fujiOverlap→hachioji": {
+  "before": "biz7:65800(fuji+10000,hachioji+800) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "08f3032bc9064a52762b132201b72945a1e6dd46684a06d1a021deadfd2f7ec9"
+ },
+ "big|2026-10-20T10:00|10h|fujiOverlap→fuji": {
+  "before": "biz7:75000(fuji+10000,fuji+10000) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "e79a40bb9127d54829330719ece41f0b0ff7b52cdf8e35ae6ffa2e3e6b758d29"
+ },
+ "big|2026-10-20T10:00|10h|fujiOverlap→fujiOverlap": {
+  "before": "biz7:75000(fuji+10000,fuji+10000) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "cd67bd4e4d87ea9391c5634a8ebaf0e5b4d8eb9905d1f6b761cb6470f8aaa48f"
+ },
+ "big|2026-10-20T10:00|10h|fujiOverlap→fujiNorth": {
+  "before": "biz7:65000(fuji+10000,fuji-north+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "8cd4710d6ef7af18950ea8597ddd7187ce694b37f5e140d08af46d06ab30c51d"
+ },
+ "big|2026-10-20T10:00|10h|fujiOverlap→chiba": {
+  "before": "biz7:65000(fuji+10000,chiba+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,chiba+0) eco4:NO_PRICE_RULE",
+  "sha256": "2588143ad3090609873273d9273229bdb051814a1e9c4a7e9e0949a2aa3f2d65"
+ },
+ "big|2026-10-20T10:00|10h|fujiOverlap→kamakura": {
+  "before": "biz7:65600(fuji+10000,kamakura+600) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "fdf6dc56424cf5e49f015e4674c4f915217ab9558056cb1444bf9c7df3568d65"
+ },
+ "big|2026-10-20T10:00|10h|fujiNorth→tokyo": {
+  "before": "biz7:57000(fuji-north+2000,-+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "09ab3b9a0644858c6f78adae62e20dec7121d12dfe14ab3bed189d060c3db63c"
+ },
+ "big|2026-10-20T10:00|10h|fujiNorth→tokyoForbid": {
+  "before": "biz7:57000(fuji-north+2000,-+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "bef31de2a723769245d9e86bd61f284fcd724965ab76b8e98ffc8d7017caaafd"
+ },
+ "big|2026-10-20T10:00|10h|fujiNorth→hachioji": {
+  "before": "biz7:57800(fuji-north+2000,hachioji+800) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "9cfb6c704e63fd0cfbf3f3ca03dd2f70dfc38351cdc354263738f883e5fb63c5"
+ },
+ "big|2026-10-20T10:00|10h|fujiNorth→fuji": {
+  "before": "biz7:67000(fuji-north+2000,fuji+10000) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "0d0631434a6a9b79cbbe89da914c2711666873cddd2835bc26a3441bbe5cb014"
+ },
+ "big|2026-10-20T10:00|10h|fujiNorth→fujiOverlap": {
+  "before": "biz7:67000(fuji-north+2000,fuji+10000) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "2c9556c0f4c270af9ff40952e0ddeb352bda803a644a37e9e371298de2c1f822"
+ },
+ "big|2026-10-20T10:00|10h|fujiNorth→fujiNorth": {
+  "before": "biz7:57000(fuji-north+2000,fuji-north+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "a04f1221c0a33cde40c82262ab21d94bb6a8547b2146ff1250792df2684638fc"
+ },
+ "big|2026-10-20T10:00|10h|fujiNorth→chiba": {
+  "before": "biz7:57000(fuji-north+2000,chiba+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,chiba+0) eco4:NO_PRICE_RULE",
+  "sha256": "819068be879def58c8e05a6baf03950d22285038b5bf479745da9fcc05175bf5"
+ },
+ "big|2026-10-20T10:00|10h|fujiNorth→kamakura": {
+  "before": "biz7:57600(fuji-north+2000,kamakura+600) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "7cc2f6553780b0bc59f2fc5a019493a40bb4e262b75ceb1429ea9995a0594410"
+ },
+ "big|2026-10-20T10:00|10h|chiba→hachioji": {
+  "before": "biz7:55800(chiba+0,hachioji+800) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(chiba+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "2495103d5fcb906e12dc5553943c967d2397cc79750c223060adaa1244622049"
+ },
+ "big|2026-10-20T10:00|10h|chiba→fuji": {
+  "before": "biz7:65000(chiba+0,fuji+10000) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(chiba+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "833161f438202ca1704278880906c51fd98b8abd483d8aed3e5a1bf9eb96884a"
+ },
+ "big|2026-10-20T10:00|10h|chiba→fujiOverlap": {
+  "before": "biz7:65000(chiba+0,fuji+10000) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(chiba+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "9a1084b1f3e6d55b2cc63595092ab9589d188242eb53145e89467cea601f84ae"
+ },
+ "big|2026-10-20T10:00|10h|chiba→fujiNorth": {
+  "before": "biz7:55000(chiba+0,fuji-north+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(chiba+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "efae878d5d523d84d83cc86aff8597aa98ae8c85598269f466755e4e35a01ed5"
+ },
+ "big|2026-10-20T10:00|10h|chiba→kamakura": {
+  "before": "biz7:55600(chiba+0,kamakura+600) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(chiba+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "f71baf970f71096faa7e10c5084967b6f307da1b286d2d1be8be6abbf4d328f8"
+ },
+ "big|2026-10-20T10:00|10h|kamakura→tokyo": {
+  "before": "biz7:55600(kamakura+600,-+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "f6f6253595a9841050360b88cab7d87d86b57995f8bde48de1f07727bd5d3420"
+ },
+ "big|2026-10-20T10:00|10h|kamakura→tokyoForbid": {
+  "before": "biz7:55600(kamakura+600,-+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "280ea094802648677c436a9fd730edf5a54d6edafc6758136d3113669a526c12"
+ },
+ "big|2026-10-20T10:00|10h|kamakura→hachioji": {
+  "before": "biz7:56400(kamakura+600,hachioji+800) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "a0b352d19083bf6e664ffc44e8c1f80202758a8fa389c64b3d163a735dfa38a0"
+ },
+ "big|2026-10-20T10:00|10h|kamakura→fuji": {
+  "before": "biz7:65600(kamakura+600,fuji+10000) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "00ed1653f98caa13d7da48db8d230f8bbd399cd60343db20feec56200f598f3c"
+ },
+ "big|2026-10-20T10:00|10h|kamakura→fujiOverlap": {
+  "before": "biz7:65600(kamakura+600,fuji+10000) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "7767ca30ad28d76abbac7177d725c7ad5d6aff8970cf30b4e387d5c09044229c"
+ },
+ "big|2026-10-20T10:00|10h|kamakura→fujiNorth": {
+  "before": "biz7:55600(kamakura+600,fuji-north+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "230df69fa03d8a86198ae306256db478648587cee42dddd9cbd0a9c6beed4a55"
+ },
+ "big|2026-10-20T10:00|10h|kamakura→chiba": {
+  "before": "biz7:55600(kamakura+600,chiba+0) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,chiba+0) eco4:NO_PRICE_RULE",
+  "sha256": "f0d7561b2f886437a69d5d911bab8310954310b7797b559fe79e2f472e01b298"
+ },
+ "big|2026-10-20T10:00|10h|kamakura→kamakura": {
+  "before": "biz7:56200(kamakura+600,kamakura+600) eco4:NO_PRICE_RULE",
+  "summary": "biz7:55000(-+0,-+0) eco4:NO_PRICE_RULE",
+  "sha256": "d6f4459ad9544e78d405c6690371a67a3e1f5cd64d6f7747495da530ed2f5e4c"
+ }
+}
