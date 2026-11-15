@@ -2,7 +2,7 @@
  * 报价引擎取数（M2-01，ADR 0020）：把一批商品报价要看的全部事实取出来，拼成 domain 的 QuoteProduct。
  * 每一类数据一条查询取回这一批商品的（不逐个商品查）。在租户事务里只看得到本租户的（行级安全），在平台事务里看得到全部供应商的。
  */
-import { type AddonChargeUnit, type AreaBizType, type CurrencyCode, type InventoryDay, type Position, type PriceRule, type Pricing, type QuoteArea, type QuoteProduct, type ServiceCategory, type ServiceRules, type TenantStatus, areaUsableByCategory, tenantBids } from "@nozomi/domain";
+import { type AddonChargeUnit, type AirportBinding, type AreaBizType, type CurrencyCode, type InventoryDay, type LocalizedText, type Position, type PriceRule, type Pricing, type QuoteArea, type QuoteProduct, type ServiceCategory, type ServiceRules, type TenantStatus, areaUsableByCategory, tenantBids } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
 import { listDistancePricesOf } from "./distance-prices.ts";
 import { ADJUST_COLUMNS, PRICE_COLUMNS, toAdjustRule, toPriceRule } from "./prices.ts";
@@ -99,10 +99,32 @@ export async function loadQuoteCandidates(db: Db, filter: QuoteCandidateFilter):
     `select tenant_id, id, biz_type, ${filter.everyAreaOperating === true ? "'both' as role" : "role"} from areas where tenant_id = any($1::uuid[]) and status = 'active' ${filter.everyAreaOperating === true ? "" : "and role in ('operating', 'both')"} order by tenant_id, created_at, id`,
     [tenantIds],
   );
-  const areaIds = [...new Set([...areas.rows, ...surchargeRows.rows].map((row) => row["area_id"] as string).concat(operatingRows.rows.map((row) => row["id"] as string)))];
+  // 包车机场绑定（M9P-21，ADR 0098）：机场区域的状态、机场的名称（中文简称优先）；机场停用的绑定不生效
+  const airportRows =
+    filter.category === "charter"
+      ? await db.query<Row>(
+          `select b.product_id, b.scenario, b.place_id, b.area_id, b.short_name_zh, a.status, pl.name as place_name, pl.code as place_code
+             from charter_airport_bindings b
+             join areas a on a.tenant_id = b.tenant_id and a.id = b.area_id
+             join places pl on pl.id = b.place_id and pl.status = 'active'
+            where b.tenant_id = any($2::uuid[]) and b.product_id = any($1::uuid[])
+            order by b.product_id, b.scenario, b.position`,
+          [ids, tenantIds],
+        )
+      : { rows: [] as Row[] };
+  const areaIds = [...new Set([...areas.rows, ...surchargeRows.rows, ...airportRows.rows].map((row) => row["area_id"] as string).concat(operatingRows.rows.map((row) => row["id"] as string)))];
   const polygons = areaIds.length === 0 ? { rows: [] as Row[] } : await db.query<Row>("select id, area_id, kind, geometry from area_polygons where tenant_id = any($2::uuid[]) and area_id = any($1::uuid[]) order by area_id, position, id", [areaIds, tenantIds]);
   const shapes = new Map<string, { id: string; kind: "operate" | "forbid"; ring: Position[] }[]>();
   for (const row of polygons.rows) shapes.set(row["area_id"], [...(shapes.get(row["area_id"]) ?? []), { id: row["id"], kind: row["kind"], ring: (row["geometry"] as { coordinates: Position[][] }).coordinates[0] ?? [] }]);
+  const airportsByProduct = group(airportRows.rows, (row): AirportBinding => {
+    const name = row["place_name"] as LocalizedText;
+    return {
+      scenario: row["scenario"],
+      placeId: row["place_id"],
+      area: { areaId: row["area_id"], active: row["status"] === "active", shapes: shapes.get(row["area_id"]) ?? [] },
+      name: (row["short_name_zh"] as string | null) ?? name.zh ?? name.ja ?? (row["place_code"] as string),
+    };
+  });
   const areasByProduct = group(areas.rows, (row) => ({ areaId: row["area_id"] as string, active: row["status"] === "active", shapes: shapes.get(row["area_id"]) ?? [] }));
   const surchargeAreasByProduct = group(surchargeRows.rows, (row) => ({ areaId: row["area_id"] as string, active: row["status"] === "active", shapes: shapes.get(row["area_id"]) ?? [] }));
   const operatingByTenant = new Map<string, (QuoteArea & { bizType: AreaBizType })[]>();
@@ -166,6 +188,8 @@ export async function loadQuoteCandidates(db: Db, filter: QuoteCandidateFilter):
         surchargeAreas: surchargeAreasByProduct.get(row["id"]) ?? [],
         // 包车迁移过三层区域（ADR 0093 第一节）：只在迁移过时带（没迁移过的商品的事实和以前逐字节相同）
         ...(row["charter_layout"] === "three_layer" ? { charterLayout: "three_layer" as const } : {}),
+        // 机场绑定（ADR 0098）：只在有绑定时带（没有的商品的事实和以前逐字节相同）
+        ...(airportsByProduct.has(row["id"]) ? { airportBindings: airportsByProduct.get(row["id"]) ?? [] } : {}),
         operatingAreas: operatingAreas(row["tenant_id"], category),
         vehicleGroups: groupsByProduct.get(row["id"]) ?? [],
         serviceRules,

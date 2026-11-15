@@ -2602,6 +2602,25 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/products/{id}/charter-airports:
+    get:
+      tags: [ 商品 ]
+      operationId: getPlatformProductCharterAirports
+      summary: 包车机场套餐的机场绑定（运营只读）
+      description: 需要操作 `product.read`。M9P-21（ADR 0098 第三节第 8 小节）：任何一家的包车商品的机场绑定，内容同 `GET /tenant/v1/products/{id}/charter-airports`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 机场绑定
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CharterAirports"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
   /platform/v1/products/{id}:
     get:
       tags: [ 供应商商品（平台） ]
@@ -5686,6 +5705,93 @@ paths:
           description: |
             - `VERSION_CONFLICT`：版本号不是最新的
             - `PUBLISH_CHECK_FAILED`：商品是已上架的，这样改完就不满足上架条件了
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+  /tenant/v1/products/{id}/charter-airports:
+    get:
+      tags: [ 商品 ]
+      operationId: getProductCharterAirports
+      summary: 包车机场套餐的机场绑定
+      description: |
+        需要操作 `product.read`。M9P-21（ADR 0098 第三节第 2 小节）：机场开始（`airport_start`）/ 机场结束（`airport_end`）各绑哪些机场、用哪块机场区域判断。
+        `effective` 为 false：机场区域或机场已停用，报价时这条不生效。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 机场绑定
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CharterAirports"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    put:
+      tags: [ 商品 ]
+      operationId: putProductCharterAirports
+      summary: 保存包车机场套餐的机场绑定（整组替换）
+      description: |
+        需要操作 `product.manage`。必须带 `If-Match`（商品的版本号）；保存后商品版本号加一。
+        - 只有迁移过三层区域的包车商品能设（400 `CHARTER_LAYOUT_NOT_MIGRATED`）。
+        - 机场区域只用来判断上 / 下车点在不在机场：本租户任何业务类型、任何用途的区域都行（别的租户的、不存在的按 404）；新选的不能是停用的（`AREA_DISABLED`）。
+        - 机场区域要被本商品的服务区域 ∪ 上下车加价区域完全覆盖（`AIRPORT_AREA_NOT_COVERED`，`detail.uncovered_m2`）。
+        - 机场（主数据，启用中的机场，否则 `UNKNOWN_AIRPORT`）和它所有启用的航站楼都要在机场区域里（`AIRPORT_NOT_IN_AREA`，`detail.places` 是不在的编码，逗号分隔）。
+        - 一个场景最多 10 个机场（`TOO_MANY`）；同一场景同一机场、同一机场区域只能出现一次（`DUPLICATE`）；中文简称 1–20 字。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ bindings ]
+              properties:
+                bindings:
+                  type: array
+                  maxItems: 100
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [ scenario, place_id, area_id ]
+                    properties:
+                      scenario:
+                        type: string
+                        enum: [ airport_start, airport_end ]
+                      place_id:
+                        type: string
+                        format: uuid
+                      area_id:
+                        type: string
+                        format: uuid
+                      short_name_zh:
+                        type: [ string, "null" ]
+                        description: 前台名称里的机场名（如「成田机场」）；不填用主数据的中文名
+      responses:
+        "200":
+          description: 保存后的机场绑定
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CharterAirports"
+        "400":
+          $ref: "#/components/responses/ProductInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `VERSION_CONFLICT`：版本号不是最新的
+            - `AIRPORT_PRICES_EXIST`：解绑的机场区域 × 场景还有机场套餐价，先删价格
           content:
             application/json:
               schema:
@@ -13302,6 +13408,83 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "503":
           $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/charter-airports:
+    get:
+      tags: [ 官网 ]
+      operationId: siteCharterAirports
+      summary: 包车快捷入口能选的机场和航站楼
+      description: |
+        M9P-21（ADR 0098 第三节第 7 小节）：「机场接机开始」（`airport_start`）/「机场送机结束」（`airport_end`）能选哪些机场：渠道授权范围里、渠道卖的、迁移过三层区域的包车商品在这个场景下绑定的机场。
+        只列坐标落在机场区域里的启用航站楼（机场没有启用的航站楼时是机场本身一项）；`name` 是前台名称里的机场名（中文简称，没填用主数据中文名）。
+      parameters:
+        - name: scenario
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [ airport_start, airport_end ]
+      responses:
+        "200":
+          description: 机场和航站楼
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [ id, code, name, city_id, terminals ]
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        code:
+                          type: string
+                        name:
+                          type: string
+                        city_id:
+                          type: string
+                          format: uuid
+                        terminals:
+                          type: array
+                          items:
+                            type: object
+                            additionalProperties: false
+                            required: [ id, code, name, location ]
+                            properties:
+                              id:
+                                type: string
+                                format: uuid
+                              code:
+                                type: string
+                              name:
+                                $ref: "#/components/schemas/LocalizedText"
+                              location:
+                                type: object
+                                additionalProperties: false
+                                required: [ lng, lat ]
+                                properties:
+                                  lng:
+                                    type: number
+                                  lat:
+                                    type: number
+        "400":
+          description: "`VALIDATION_FAILED`：`scenario` 没给或不对"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/QaSessionInvalid"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
   /site/v1/charter-packages:
     get:
       tags: [ 官网 ]
@@ -20525,6 +20708,23 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/QuoteAreaSurchargeWaypoint"
+        charter_scenario:
+          description: 包车机场开始 / 机场结束（M9P-21，ADR 0098）：匹配到的场景；`pricing` 是单独定价（`own`）还是继承（`inherit`）。没有场景时没有这一项
+          type: object
+          additionalProperties: false
+          required: [ kind, airport_id, airport_name, pricing ]
+          properties:
+            kind:
+              type: string
+              enum: [ airport_start, airport_end ]
+            airport_id:
+              type: string
+              format: uuid
+            airport_name:
+              type: string
+            pricing:
+              type: string
+              enum: [ own, inherit ]
     QuoteAreaSurchargeWaypoint:
       type: object
       additionalProperties: false
@@ -20548,6 +20748,10 @@ components:
           type: boolean
           enum: [ true ]
           description: 下车点行程加价（M9P-01，ADR 0093 第二节第 4 小节）：没有市外经停、下车点在这个区域里，算作一次经停收的；只有这一项带这个键，`stop_seqs` 为空
+        included_in_package:
+          type: boolean
+          enum: [ true ]
+          description: 机场套餐单独定价时含在套餐里、免掉的这一项（金额 0，M9P-21，ADR 0098）
     QuoteAreaSurchargeEnd:
       type: object
       additionalProperties: false
@@ -20563,6 +20767,10 @@ components:
         amount:
           type: integer
           minimum: 0
+        included_in_package:
+          type: boolean
+          enum: [ true ]
+          description: 机场套餐单独定价时含在套餐里、免掉的这一项（金额 0，M9P-21，ADR 0098）
     QuoteOffer:
       type: object
       additionalProperties: false
@@ -24918,11 +25126,52 @@ components:
               description: 从商品所在城市当地的今天起，还有剩余库存的日子有几天（限量时有意义；不限量时也照数，通常是 0）
         publish_check:
           $ref: "#/components/schemas/PublishCheck"
+    CharterAirports:
+      type: object
+      additionalProperties: false
+      required: [ version, bindings ]
+      properties:
+        version:
+          type: integer
+          description: 商品的版本号
+        bindings:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ scenario, place_id, place_code, place_name, area_id, area_name, short_name_zh, effective ]
+            properties:
+              scenario:
+                type: string
+                enum: [ airport_start, airport_end ]
+              place_id:
+                type: string
+                format: uuid
+              place_code:
+                type: string
+              place_name:
+                type: object
+                additionalProperties:
+                  type: string
+              area_id:
+                type: string
+                format: uuid
+              area_name:
+                type: object
+                additionalProperties:
+                  type: string
+              short_name_zh:
+                type: [ string, "null" ]
+              effective:
+                type: boolean
     PricingModel:
       type: string
-      enum: [ fixed, mileage_time, charter_package, charter_area_surcharge, charter_itinerary_surcharge ]
+      enum: [ fixed, mileage_time, charter_package, charter_area_surcharge, charter_itinerary_surcharge, charter_airport_package ]
       description: |
         fixed：固定一口价；mileage_time：里程 + 时长；charter_package：包车套餐；
+        charter_airport_package：包车机场套餐价（M9P-21，ADR 0098）——`area_id` 是机场绑定的机场区域（不在商品区域里，业务类型、用途都不限），`direction` 是场景（`pickup` 机场开始 / `dropoff` 机场结束），`package_hours` 必填；
+        填 `package_price`（必填），`package_km`、`over_km_per_km`、`overtime_per_hour` 可以不填（= 同一车型组同一时长的普通套餐价）。有这一格 = 单独定价（替换普通套餐价、免掉场景那一端的机场加价），没有 = 继承。
+        只有迁移过三层区域的商品能用（400 `CHARTER_LAYOUT_NOT_MIGRATED`）；这个区域 × 方向在商品上没有机场绑定 → 400 `AIRPORT_BINDING_REQUIRED`。
         charter_itinerary_surcharge：包车②行程加价（M9P-05，ADR 0093 第一节）——`area_id` 是行程区域（可以是商品的服务区域），填 `itinerary_surcharge`（经停点在这个区域时加，同一区域一单一次；可以是 0）；
         只有迁移过三层区域的商品（`charter_layout = three_layer`）能用，否则 400 `CHARTER_LAYOUT_NOT_MIGRATED`；不参与上下车点匹配。
         迁移过的商品：包车套餐的 `area_id` 为 null（整商品套餐价，按车型组 × 套餐填一次），按服务区域的旧套餐价和③行里的 `waypoint_surcharge` 只读（400 `CHARTER_LEGACY_READ_ONLY`，删除可以）；
@@ -26701,10 +26950,31 @@ components:
                         items:
                           type: integer
                           minimum: 1
+                      included_in_package:
+                        type: boolean
+                        enum: [ true ]
+                        description: 机场套餐单独定价时含在套餐里、免掉的这一项（金额 0，M9P-21，ADR 0098）
                       from_dropoff:
                         type: boolean
                         enum: [ true ]
                         description: 下车点行程加价（M9P-01，ADR 0093 第二节第 4 小节）：没有市外经停、下车点在这个区域里，算作一次经停收的；只有这一项带这个键，`stop_seqs` 为空
+                charter_scenario:
+                  description: 包车机场开始 / 机场结束（M9P-21，ADR 0098）：匹配到的场景；`pricing` 是单独定价（`own`）还是继承（`inherit`）。没有场景时没有这一项
+                  type: object
+                  additionalProperties: false
+                  required: [ kind, airport_id, airport_name, pricing ]
+                  properties:
+                    kind:
+                      type: string
+                      enum: [ airport_start, airport_end ]
+                    airport_id:
+                      type: string
+                      format: uuid
+                    airport_name:
+                      type: string
+                    pricing:
+                      type: string
+                      enum: [ own, inherit ]
             - type: "null"
         total:
           $ref: "#/components/schemas/SalesMoney"
@@ -26763,6 +27033,10 @@ components:
           format: uuid
         amount:
           $ref: "#/components/schemas/SalesMoney"
+        included_in_package:
+          type: boolean
+          enum: [ true ]
+          description: 机场套餐单独定价时含在套餐里、免掉的这一项（金额 0，M9P-21，ADR 0098）
     OrderAreaSurcharge:
       type: object
       additionalProperties: false
@@ -26782,6 +27056,23 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/OrderAreaSurchargeWaypoint"
+        charter_scenario:
+          description: 包车机场开始 / 机场结束（M9P-21，ADR 0098）：下单时匹配到的场景；`pricing` 是单独定价（`own`，含这一端的机场加价）还是继承（`inherit`）。没有场景的单没有这一项
+          type: object
+          additionalProperties: false
+          required: [ kind, airport_id, airport_name, pricing ]
+          properties:
+            kind:
+              type: string
+              enum: [ airport_start, airport_end ]
+            airport_id:
+              type: string
+              format: uuid
+            airport_name:
+              type: string
+            pricing:
+              type: string
+              enum: [ own, inherit ]
     OrderAreaSurchargeWaypoint:
       type: object
       additionalProperties: false
@@ -26805,6 +27096,10 @@ components:
           type: boolean
           enum: [ true ]
           description: 下车点行程加价（M9P-01，ADR 0093 第二节第 4 小节）：没有市外经停、下车点在这个区域里，算作一次经停收的；只有这一项带这个键，`stop_seqs` 为空
+        included_in_package:
+          type: boolean
+          enum: [ true ]
+          description: 机场套餐单独定价时含在套餐里、免掉的这一项（金额 0，M9P-21，ADR 0098）
     OrderAreaSurchargeEnd:
       type: object
       additionalProperties: false
@@ -26820,6 +27115,10 @@ components:
             - type: "null"
         settlement:
           $ref: "#/components/schemas/SalesMoney"
+        included_in_package:
+          type: boolean
+          enum: [ true ]
+          description: 机场套餐单独定价时含在套餐里、免掉的这一项（金额 0，M9P-21，ADR 0098）
     OrderDistance:
       type: object
       additionalProperties: false
@@ -26905,6 +27204,23 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/OrderAreaSurchargeWaypoint"
+        charter_scenario:
+          description: 包车机场开始 / 机场结束（M9P-21，ADR 0098）：下单时匹配到的场景；`pricing` 是单独定价（`own`，含这一端的机场加价）还是继承（`inherit`）。没有场景的单没有这一项
+          type: object
+          additionalProperties: false
+          required: [ kind, airport_id, airport_name, pricing ]
+          properties:
+            kind:
+              type: string
+              enum: [ airport_start, airport_end ]
+            airport_id:
+              type: string
+              format: uuid
+            airport_name:
+              type: string
+            pricing:
+              type: string
+              enum: [ own, inherit ]
     PlatformOrderAreaSurchargeEnd:
       type: object
       additionalProperties: false
@@ -26919,6 +27235,10 @@ components:
             - type: "null"
         settlement:
           $ref: "#/components/schemas/SalesMoney"
+        included_in_package:
+          type: boolean
+          enum: [ true ]
+          description: 机场套餐单独定价时含在套餐里、免掉的这一项（金额 0，M9P-21，ADR 0098）
         sell:
           oneOf:
             - $ref: "#/components/schemas/SalesMoney"
@@ -31253,6 +31573,23 @@ components:
             type: boolean
             enum: [ true ]
             description: 下车点行程加价（M9P-01，ADR 0093 第二节第 4 小节）：没有市外经停、下车点在这个区域里，算作一次经停收的；只有这一项带这个键，`stop_seqs` 为空
+          scenario:
+            description: |
+              包车机场开始 / 机场结束套餐（M9P-21，ADR 0098）：只在 `base`（套餐）那一项、匹配到机场场景时有。页面据此显示「成田机场接机 + 5 小时包车」「5 小时包车 + 羽田机场送机」。
+              单独定价时，含在套餐里的那一端上 / 下车加价、下车点行程加价不再单列。
+            type: object
+            additionalProperties: false
+            required: [ kind, airport_id, airport_name ]
+            properties:
+              kind:
+                type: string
+                enum: [ airport_start, airport_end ]
+              airport_id:
+                type: string
+                format: uuid
+              airport_name:
+                type: string
+                description: 前台名称里的机场名（商品绑定上填的中文简称，没填时是机场主数据的中文名）
     SiteOrderEnvelope:
       type: object
       additionalProperties: false

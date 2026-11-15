@@ -204,6 +204,8 @@ const P = {
   waypointSurcharge: "途经加价",
   // 包车②行程加价（M9P-05，ADR 0093 第一节）：只在迁移过三层区域的商品的模版里，填了这一列的行是一条行程加价，「区域」是行程区域
   itinerarySurcharge: "行程加价",
+  // 包车机场套餐价（M9P-21，ADR 0098 第三节第 3 小节）：只在迁移过三层区域的商品的模版里，填了这一列（机场开始 / 机场结束）的行是一条机场套餐价，「区域」是机场区域
+  airportScenario: "机场场景",
   validFrom: "生效开始",
   validTo: "生效结束",
   status: "状态",
@@ -215,7 +217,10 @@ const MODEL_COLUMNS: readonly string[] = [P.basePrice, P.includedKm, P.overKmPer
 const PACKAGE_COLUMNS: readonly string[] = [P.packageKm, P.packagePrice, P.overtime, P.overKm];
 const SURCHARGE_COLUMNS: readonly string[] = [P.pickupSurcharge, P.dropoffSurcharge, P.waypointSurcharge];
 /** 后来加的列：表头里没有也照样能导入（旧模版，ADR 0073 第五部分） */
-const OPTIONAL_HEADER_COLUMNS: readonly string[] = [P.id, P.validTo, P.status, P.minPrice, ...SURCHARGE_COLUMNS, P.toArea, P.includedKm, P.overKmPerKm];
+const OPTIONAL_HEADER_COLUMNS: readonly string[] = [P.id, P.validTo, P.status, P.minPrice, ...SURCHARGE_COLUMNS, P.toArea, P.includedKm, P.overKmPerKm, P.airportScenario];
+/** 机场场景这一列的写法（ADR 0098）：机场开始 = pickup，机场结束 = dropoff */
+const AIRPORT_SCENARIO_NAMES: Readonly<Record<"pickup" | "dropoff", string>> = { pickup: "机场开始", dropoff: "机场结束" };
+const AIRPORT_SCENARIO_WORDS: Readonly<Record<string, "pickup" | "dropoff">> = { 机场开始: "pickup", 机场接机开始: "pickup", airport_start: "pickup", 机场结束: "dropoff", 机场送机结束: "dropoff", airport_end: "dropoff" };
 
 const PRICE_SHEET = "价格";
 
@@ -229,7 +234,7 @@ function priceColumns(category: ServiceCategory, layered = false): string[] {
   const middle =
     category === "charter"
       ? layered
-        ? [P.packageHours, P.packageKm, P.packagePrice, P.overtime, P.overKm, P.pickupSurcharge, P.dropoffSurcharge, P.itinerarySurcharge]
+        ? [P.packageHours, P.packageKm, P.packagePrice, P.overtime, P.overKm, P.pickupSurcharge, P.dropoffSurcharge, P.itinerarySurcharge, P.airportScenario]
         : [P.packageHours, P.packageKm, P.packagePrice, P.overtime, P.overKm, P.pickupSurcharge, P.dropoffSurcharge, P.waypointSurcharge]
       : category === "point_to_point"
         ? [P.model, P.basePrice, P.includedKm, P.overKmPerKm, P.startPrice, P.startKm, P.startMinutes, P.perKm, P.perMinute, P.minPrice]
@@ -281,6 +286,7 @@ const SAVE_MESSAGES: Readonly<Record<string, string>> = {
   SAME_AREA: "「下车区域」不能和「区域」相同；同一个区域里的单用区域价，「下车区域」留空",
   CHARTER_LAYOUT_NOT_MIGRATED: "这个商品还没有迁移到三层区域：不能设行程加价、整商品套餐价或不分套餐的加价",
   CHARTER_LEGACY_READ_ONLY: "这是迁移前的旧数据（只读）：套餐价按车型组 × 套餐填一次（「区域」留空），经停加价填在「行程加价」里",
+  AIRPORT_BINDING_REQUIRED: "这个区域在商品的「机场套餐」里没有绑定这个机场场景：先在商品里绑定机场区域，再导入机场套餐价",
 };
 
 /** 金额的上限写成这个币种的主单位（上限是 10 亿最小货币单位：日元 1,000,000,000，美元 10,000,000.00）。 */
@@ -352,6 +358,10 @@ function priceRow(rule: StoredPriceRule, names: PriceNames, currency: CurrencyCo
     Object.assign(values, { [P.pickupSurcharge]: money(pricing.pickupSurchargeMinor, currency), [P.dropoffSurcharge]: money(pricing.dropoffSurchargeMinor, currency), [P.waypointSurcharge]: money(pricing.waypointSurchargeMinor ?? null, currency) });
   } else if (pricing.model === "charter_itinerary_surcharge") {
     Object.assign(values, { [P.itinerarySurcharge]: money(pricing.surchargeMinor, currency) });
+  } else if (pricing.model === "charter_airport_package") {
+    // 机场套餐价（ADR 0098）：没填的三项单价 = 同普通套餐，导出为空格；方向写在「机场场景」里
+    Object.assign(values, { [P.direction]: null, [P.airportScenario]: rule.direction === "pickup" || rule.direction === "dropoff" ? AIRPORT_SCENARIO_NAMES[rule.direction] : null });
+    Object.assign(values, { [P.packageKm]: whole(pricing.packageKm ?? null), [P.packagePrice]: money(pricing.packagePriceMinor, currency), [P.overtime]: money(pricing.overtimePerHourMinor ?? null, currency), [P.overKm]: money(pricing.overKmPerKmMinor ?? null, currency) });
   } else {
     Object.assign(values, { [P.packageKm]: whole(pricing.packageKm), [P.packagePrice]: money(pricing.packagePriceMinor, currency), [P.overtime]: money(pricing.overtimePerHourMinor, currency), [P.overKm]: money(pricing.overKmPerKmMinor, currency) });
   }
@@ -394,6 +404,7 @@ export function exportPriceRules(ctx: AppContext, tenantId: string, productId: s
             [`上下车加价：「${P.area}」填上下车加价区域（下面列出的），填「${P.pickupSurcharge}」「${P.dropoffSurcharge}」（可以填 0），套餐价那几列留空。上车点、下车点在这个区域时分别加这么多。`],
             [`行程加价：「${P.area}」填行程区域（可以是商品的服务区域），只填「${P.itinerarySurcharge}」（可以填 0）。客人的经停点落在这个区域时加一次，同一区域一单只加一次。`],
             [`两种加价的「${P.packageHours}」可以留空 = 这个车型组的所有套餐；填了只管这一档（同一区域先用填了套餐的那条）。没设 = 不报价，不加钱请填 0。`],
+            [`机场套餐价：「${P.airportScenario}」填 ${Object.values(AIRPORT_SCENARIO_NAMES).join(" 或 ")}，「${P.area}」填商品「机场套餐」里绑定的机场区域，填「${P.packageHours}」「${P.packagePrice}」；「${P.packageKm}」「${P.overtime}」「${P.overKm}」留空 = 同普通套餐。没有这一行 = 继承（普通套餐价 + 这一端的机场加价）。`],
             [`这是迁移到三层区域之后的模版：迁移前的旧模版（有「${P.waypointSurcharge}」列）不能再导入，请重新下载。`],
           ]
         : category === "charter"
@@ -548,9 +559,11 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
     const read = rowReader(sheet, index, issues);
     const content: PriceRowContent = { area: null, toArea: null, vehicleGroup: null, direction: null, packageHours: null, pricingModel: null, mainPriceMinor: null, surcharge: null, includedKm: null, overKmPerKmMinor: null, validFrom: null, validTo: null, status: "enabled" };
     // 包车：填了「上车加价」或「下车加价」的行是区域加价（区域可以是本租户的任何区域）；迁移过三层区域的商品，填了「行程加价」的行是行程加价
-    const itineraryRow = layered && sheet.has(P.itinerarySurcharge) && read.text(P.itinerarySurcharge) !== null;
-    const surchargeRow = category === "charter" && !itineraryRow && SURCHARGE_COLUMNS.some((column) => sheet.has(column) && read.text(column) !== null);
-    const areaRow = surchargeRow || itineraryRow;
+    // 机场套餐价（ADR 0098）：填了「机场场景」的行；区域是机场区域（本租户任何类型、任何用途的区域），是否绑定由保存时的检查报
+    const airportRow = layered && sheet.has(P.airportScenario) && read.text(P.airportScenario) !== null;
+    const itineraryRow = !airportRow && layered && sheet.has(P.itinerarySurcharge) && read.text(P.itinerarySurcharge) !== null;
+    const surchargeRow = category === "charter" && !airportRow && !itineraryRow && SURCHARGE_COLUMNS.some((column) => sheet.has(column) && read.text(column) !== null);
+    const areaRow = surchargeRow || itineraryRow || airportRow;
     const result: PriceImportRow = { row: index + 1, action: "error", priceRuleId: null, content, issues, conflictsWith: [] };
     rows.push(result);
 
@@ -572,7 +585,7 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
     if (areaText !== null && !productWide) {
       const candidates = (areaByName.get(nameKey(areaText)) ?? []).filter((id) => (areaRow ? context.tenantAreas.has(id) : productAreas.has(id)) || id === before?.areaId);
       // 认出的是运营区域：它不带价格（ADR 0075）
-      const role = candidates.length === 1 && candidates[0] !== before?.areaId ? context.tenantAreas.get(candidates[0] as string)?.role : undefined;
+      const role = !airportRow && candidates.length === 1 && candidates[0] !== before?.areaId ? context.tenantAreas.get(candidates[0] as string)?.role : undefined;
       if (role !== undefined && !areaRoleCanPrice(role)) read.problem(P.area, "AREA_ROLE_NOT_PRICING", "这是运营区域，不带价格：加价只能挂在报价区域（或「运营 + 报价」的区域）上");
       else if (candidates.length === 1) areaId = candidates[0] as string;
       else if (candidates.length > 1) read.problem(P.area, "AMBIGUOUS", "有不止一个区域叫这个名字，请先在区域页面把名字改得不一样");
@@ -618,7 +631,7 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
       }
     };
 
-    const direction = category === "airport_transfer" ? word(P.direction, DIRECTION_WORDS, Object.values(PRICE_DIRECTION_NAMES)) : null;
+    const direction = category === "airport_transfer" ? word(P.direction, DIRECTION_WORDS, Object.values(PRICE_DIRECTION_NAMES)) : airportRow ? word(P.airportScenario, AIRPORT_SCENARIO_WORDS, Object.values(AIRPORT_SCENARIO_NAMES)) : null;
     if (category === "airport_transfer" && direction === null && !issues.some((issue) => issue.column === P.direction)) read.problem(P.direction, "REQUIRED", "必填");
     let pricing: Pricing | null = null;
     let packageHours: number | null = null;
@@ -627,7 +640,17 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
     content.toArea = toAreaId === null ? toAreaText : displayName(names.areas.get(toAreaId) ?? {});
     content.vehicleGroup = groupId === null ? groupText : (names.groups.get(groupId)?.code ?? groupText);
     content.direction = direction;
-    if (itineraryRow) {
+    if (airportRow) {
+      // 机场套餐价：套餐时长、套餐价必填；含公里、超时、超公里可以留空 = 同普通套餐；加价那几列留空
+      packageHours = read.integer(P.packageHours, true);
+      for (const column of [P.pickupSurcharge, P.dropoffSurcharge, P.itinerarySurcharge]) if (read.text(column) !== null) read.problem(column, "NOT_APPLICABLE", "机场套餐价的行不填这一列，请留空（加价另起一行）");
+      const packageKm = read.integer(P.packageKm, false);
+      const [packagePrice, overtime, overKm] = [amount(P.packagePrice), amount(P.overtime, true), amount(P.overKm, true)];
+      Object.assign(content, { packageHours, pricingModel: "charter_airport_package", mainPriceMinor: packagePrice });
+      if (packagePrice !== null && direction !== null) {
+        pricing = { model: "charter_airport_package", packagePriceMinor: packagePrice, ...(packageKm === null ? {} : { packageKm }), ...(overtime === null ? {} : { overtimePerHourMinor: overtime }), ...(overKm === null ? {} : { overKmPerKmMinor: overKm }) };
+      }
+    } else if (itineraryRow) {
       // 行程加价：套餐可以留空 = 所有套餐；上下车加价、套餐价那几列留空
       packageHours = read.integer(P.packageHours, false);
       for (const column of [...PACKAGE_COLUMNS, P.pickupSurcharge, P.dropoffSurcharge]) if (read.text(column) !== null) read.problem(column, "NOT_APPLICABLE", "行程加价的行不填这一列，请留空（套餐价、上下车加价另起一行）");

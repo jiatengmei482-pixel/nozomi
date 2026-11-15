@@ -64,6 +64,7 @@ export * from "./place-search.ts";
 export * from "./place-match.ts";
 export * from "./points-trip.ts";
 export * from "./charter-match.ts";
+export * from "./charter-airport.ts";
 export * from "./bank-transfer.ts";
 export * from "./view-link.ts";
 export * from "./passenger-email-review.ts";

@@ -559,8 +559,8 @@ test("这份对账把子品牌和商品的每个接口都调到了", () => {
   assert.deepEqual(PRODUCT_OPERATIONS.filter((operation) => !exercised.has(operation)), []);
   const documented = Object.entries(doc.paths)
     // 价格规则、调价规则、取整单位是 M1-04 的接口，库存和导入导出是 M1-05 的，试算是 M2-01 的，各有自己的对账；
-    // 三层区域迁移的「套餐价不一致」（M9P-05）在 charter-three-layer.itest.ts 对照定义；这里只管子品牌和商品本身的
-    .filter(([path]) => (path.startsWith("/tenant/v1/brands") || path.startsWith("/tenant/v1/products")) && !/\/(price-rules|price-calendar|price-coverage|charter-migration-diff|adjust-rules|distance-prices|rounding-unit|inventory|quote-preview)(\/|$)/.test(path))
+    // 三层区域迁移的「套餐价不一致」（M9P-05）在 charter-three-layer.itest.ts 对照定义；机场绑定（M9P-21）在 charter-airports.itest.ts；这里只管子品牌和商品本身的
+    .filter(([path]) => (path.startsWith("/tenant/v1/brands") || path.startsWith("/tenant/v1/products")) && !/\/(price-rules|price-calendar|price-coverage|charter-migration-diff|charter-airports|adjust-rules|distance-prices|rounding-unit|inventory|quote-preview)(\/|$)/.test(path))
     .flatMap(([path, methods]) => Object.keys(methods).map((method) => `${method.toUpperCase()} ${path}`));
   assert.deepEqual(documented.sort(), [...PRODUCT_OPERATIONS].sort(), "定义里商品相关的接口就是这 15 个操作（9 个路径）");
 });
