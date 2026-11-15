@@ -13,7 +13,7 @@ import { randomUUID } from "node:crypto";
 import type { LatLng, RouteLookup } from "@nozomi/domain";
 import type { ApiResponse, HttpMethod, TenantFixture, TestApi } from "./testing/api.ts";
 import { createTestApi } from "./testing/api.ts";
-import { type Market, buildMarket, marketProduct, newChannel, ok, salesCredentials } from "./testing/market.ts";
+import { type Market, buildMarket, newChannel, ok, salesCredentials } from "./testing/market.ts";
 import { tenantLogin } from "./testing/money.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
 import { FakePaymentProvider } from "./testing/payments.ts";
@@ -69,7 +69,14 @@ before(async () => {
   await ok(tenantCall(m.b, "POST", `/products/${created.id}/publish`));
   charterId = created.id;
   // 甲另一个成田接送机商品：商务 7 座 18,000 比乙的 19,800 便宜，成为中标（市场里甲 20,000 / 经济 4 座 12,000，乙 19,800）
-  await marketProduct(api, m.a, { tokyo: m.ids.tokyo, narita: m.ids.narita, biz7: m.ids.biz7 }, [[m.ids.biz7, 18_000]]);
+  // （不复用 testing/market 的建商品助手：它按租户前缀起品牌名，同一租户第二次会撞名）
+  const naritaArea = await newArea(m.a, m.ids.tokyo, "东京全域二", square(139.0, 35.0, 140.0, 36.0), "general");
+  const naritaBrand = (await ok(tenantCall(m.a, "POST", "/brands", { body: { name: `接送机-${randomUUID().slice(0, 6)}`, currency: "JPY" } }), 201)).id;
+  const narita = await ok(tenantCall(m.a, "POST", "/products", { body: { brand_id: naritaBrand, city_id: m.ids.tokyo, category: "airport_transfer", poi_id: m.ids.narita, areas: [{ area_id: naritaArea }], vehicle_groups: [{ vehicle_group_id: m.ids.biz7, passengers: 6, luggage: 4 }], dispatchers: [{ name: "调度", phone: "0312345678" }] } }), 201);
+  const naritaRules = await ok(tenantCall(m.a, "PUT", `/products/${narita.id}/service-rules`, { version: 1, body: { booking: { service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 24 }, free_wait: { pickup: { mode: "limited", minutes: 90 }, dropoff: { mode: "limited", minutes: 15 } } } }));
+  const naritaContent = await ok(tenantCall(m.a, "PUT", `/products/${narita.id}/content`, { version: naritaRules.version, body: { zh: { title: "成田机场接送", pickup_guide: "到达大厅 3 号门" } } }));
+  await ok(tenantCall(m.a, "POST", `/products/${narita.id}/price-rules`, { version: naritaContent.version, body: { area_id: naritaArea, vehicle_group_id: m.ids.biz7, direction: "both", valid_from: "2026-01-01", pricing_model: "fixed", base_price: 18_000 } }), 201);
+  await ok(tenantCall(m.a, "POST", `/products/${narita.id}/publish`));
   // 羽田：没有供应商卖它的接送机；甲的点对点商品只盖羽田—银座一带（不碍新宿、浅草的包车用例）
   haneda = (await ok(api.call("POST", "/platform/v1/master/places", { token: m.root, body: { type: "airport", code: "HND", city_id: m.ids.tokyo, name: { zh: "羽田机场" }, location: P.haneda, flight_scope: "international" } }), 201)).id;
   const p2pArea = await newArea(m.a, m.ids.tokyo, "羽田—银座", square(139.74, 35.54, 139.8, 35.69), "general");
