@@ -32,6 +32,7 @@ export * from "./price-import.ts";
 export * from "./inventory.ts";
 export * from "./spreadsheet.ts";
 export * from "./quote.ts";
+export * from "./charter-itinerary-limits.ts";
 export * from "./channels.ts";
 export * from "./approvals.ts";
 export * from "./fx-lock.ts";

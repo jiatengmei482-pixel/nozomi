@@ -149,6 +149,13 @@ test("domain 通过的最坏草稿一定写得进库：12 个地点、每个名�
   const stored = await store(worst);
   const read = await api.db.owner.query<{ bytes: number }>("select octet_length(content::text) as bytes from booking_drafts where id = $1", [stored.id]);
   assert.ok((read.rows[0]?.bytes ?? 0) < 32_768, "库里的 jsonb 文本离上限还有余量");
+  // M9P-10：经停点放满 25 个、每个名称 200 个中文字（每字 3 字节，比 emoji 的 200 单元 = 400 字节更占地方），domain 通过，也写得进库
+  const cjk = (index: number) => ({ ...at(index), name: "あ".repeat(200) });
+  const fullStops: BookingDraft = { ...charter, pickup: cjk(0), dropoff: cjk(26), waypoints: Array.from({ length: 25 }, (_, index) => ({ ...cjk(index + 1), stay_minutes: 480 })) };
+  assert.deepEqual(bookingDraftIssues(fullStops), []);
+  const storedFull = await store(fullStops);
+  const readFull = await api.db.owner.query<{ bytes: number }>("select octet_length(content::text) as bytes from booking_drafts where id = $1", [storedFull.id]);
+  assert.ok((readFull.rows[0]?.bytes ?? 0) > 16_384 && (readFull.rows[0]?.bytes ?? 0) < 32_768, "超过旧的 16 KB，离库的上限还有余量");
   const tiny = { ...charter, waypoints: Array.from({ length: 10 }, (_, index) => ({ name, lat: 1e-300 * (index + 1), lng: 5e-324, stay_minutes: 60 })) };
   assert.notDeepEqual(bookingDraftIssues(tiny), [], "1e-300 这类坐标过不了 domain，不会走到写库");
 });
