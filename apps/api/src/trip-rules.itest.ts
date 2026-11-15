@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import type { ApiResponse, HttpMethod, TenantFixture, TestApi } from "./testing/api.ts";
 import { createTestApi } from "./testing/api.ts";
-import { withTenantTx } from "./db/context.ts";
+import { withPlatformTx, withTenantTx } from "./db/context.ts";
 import { type Market, buildMarket, newChannel, ok } from "./testing/market.ts";
 import { tenantLogin } from "./testing/money.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
@@ -88,6 +88,12 @@ test("没存配置：返回日元默认值（住宿 15,000、停驻 10,000、拘
 });
 
 test("保存：整体替换、商品版本号和配置版本号各加一、写审计；内容不变不加版本", async () => {
+  // 没存过时提交空配置：不写库、不改版本号，saved 仍为 null
+  const untouched = await version(m.a, charterA.id);
+  const empty = await putRules(m.a, charterA.id, { lodging: {} });
+  assert.equal(empty.status, 200, empty.text);
+  assert.equal(empty.body.version, untouched);
+  assert.equal(empty.body.saved, null);
   const before = await version(m.a, charterA.id);
   const config = { lodging: { byArea: [{ areaId: charterA.hakone, perNightMinor: 20_000 }] }, workHours: { maxBindMinutes: 720 }, secondDriver: { mode: "fixed", fixedMinor: 30_000 } };
   const saved = await putRules(m.a, charterA.id, config);
@@ -172,7 +178,10 @@ test("迁移 0600：编号格式、抵扣符号、一车到底的租户车型组
   await assert.rejects(insertTrip("short"), /trips_id_check/);
   await insertTrip(tripId);
   const plan = (await db.query<{ id: string }>("insert into trip_plans (trip_id, seq, kind, recommended, status, currency, quoted_at) values ($1, 0, 'daily_best', true, 'unquoted', 'JPY', now()) returning id", [tripId])).rows[0]?.id;
-  await assert.rejects(db.query("insert into trip_plans (trip_id, seq, kind, recommended, status, currency, quoted_at) values ($1, 1, 'one_car', false, 'unquoted', 'JPY', now())", [tripId]), /trip_plans_one_car_key/);
+  // 报出价的一车到底必须带租户和车型组；报不出、没有组合的可以都空，但不能只填一列
+  await assert.rejects(db.query("insert into trip_plans (trip_id, seq, kind, recommended, status, sell_minor, expires_at, currency, quoted_at) values ($1, 1, 'one_car', false, 'quoted', 100, now(), 'JPY', now())", [tripId]), /trip_plans_one_car_key/);
+  await assert.rejects(db.query("insert into trip_plans (trip_id, seq, kind, recommended, status, currency, quoted_at, vehicle_group_id) values ($1, 1, 'one_car', false, 'unquoted', 'JPY', now(), $2)", [tripId, randomUUID()]), /trip_plans_one_car_key/);
+  await db.query("insert into trip_plans (trip_id, seq, kind, recommended, status, currency, quoted_at) values ($1, 4, 'one_car', false, 'unquoted', 'JPY', now())", [tripId]);
   await assert.rejects(db.query("insert into trip_plans (trip_id, seq, kind, recommended, status, sell_minor, currency, quoted_at) values ($1, 2, 'daily_best', false, 'quoted', 100, 'JPY', now())", [tripId]), /trip_plans_quoted_amount/);
   const fee = (type: string, settlement: number, sell: number, seq: number) =>
     db.query("insert into trip_fees (trip_id, plan_id, seq, fee_type, rule_version, settlement_minor, settlement_currency, sell_minor, label, calc) values ($1, $2, $3, $4, 0, $5, 'JPY', $6, '{}', '{}')", [tripId, plan, seq, type, settlement, sell]);
@@ -181,6 +190,17 @@ test("迁移 0600：编号格式、抵扣符号、一车到底的租户车型组
   await assert.rejects(fee("lodging", -1, -1, 2), /trip_fees_sign/);
   await assert.rejects(fee("bundle_discount", 1, 1, 3), /trip_fees_offset_sign/);
   await assert.rejects(fee("tip", 1, 1, 4), /trip_fees_type_check/);
+  // 每天各自最优不能只填一列；费用行的方案必须挂在同一个行程单下；包车套餐到 72 小时
+  await assert.rejects(db.query("insert into trip_plans (trip_id, seq, kind, recommended, status, currency, quoted_at, supplier_tenant_id) values ($1, 3, 'daily_best', false, 'unquoted', 'JPY', now(), $2)", [tripId, randomUUID()]), /trip_plans_one_car_key/);
+  const otherTrip = "B".repeat(43);
+  await insertTrip(otherTrip);
+  await assert.rejects(db.query("insert into trip_fees (trip_id, plan_id, seq, fee_type, rule_version, settlement_minor, settlement_currency, sell_minor, label, calc) values ($1, $2, 9, 'idle', 0, 1, 'JPY', 1, '{}', '{}')", [otherTrip, plan]), /trip_fees_plan_fk/);
+  await assert.rejects(db.query("insert into trip_segments (plan_id, seq, day_index, service_date, segment_type, points, category, package_hours) values ($1, 5, 0, '2027-03-28', 'charter', '[]', 'charter', 73)", [plan]), /trip_segments_package_hours/);
+  await db.query("insert into trip_segments (plan_id, seq, day_index, service_date, segment_type, points, category, package_hours) values ($1, 5, 0, '2027-03-28', 'charter', '[]', 'charter', 72)", [plan]);
+  // 验收标记建好之后不能改（平台角色也不行）
+  await assert.rejects(db.query("update trips set is_acceptance = true where id = $1", [tripId]), /验收/);
+  await assert.rejects(withPlatformTx(api.db.pool, (platform) => platform.query("update trips set is_acceptance = true where id = $1", [tripId])), /验收/);
+  await db.query("delete from trips where id = $1", [otherTrip]);
   await assert.rejects(db.query("insert into trip_segments (plan_id, seq, day_index, service_date, segment_type, points, category) values ($1, 0, 0, '2027-03-28', 'idle_day', '[]', 'charter')", [plan]), /trip_segments_idle_shape/);
   await db.query("insert into trip_segments (plan_id, seq, day_index, service_date, segment_type, points) values ($1, 0, 1, '2027-03-29', 'idle_day', '[]')", [plan]);
   await db.query("delete from trips where id = $1", [tripId]);

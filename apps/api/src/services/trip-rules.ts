@@ -96,7 +96,8 @@ export async function putTripRules(ctx: DbContext, writer: ProductWriter, produc
     if (issues.length > 0) throw validationFailed("body", issues.map((issue) => ({ path: issue.path, reason: issue.reason, message: issueMessage(issue.reason) })));
     const config = normalized(input);
     const before = await findTripRules(db, tenantId, productId, { lock: true });
-    if (before !== null && isDeepStrictEqual(before.config, config)) return view(db, tenantId, productId, product.version, product.brandId);
+    // 内容不变不写：已存的一样，或者没存过（全部默认值）又提交了空配置
+    if ((before !== null && isDeepStrictEqual(before.config, config)) || (before === null && Object.keys(config).length === 0)) return view(db, tenantId, productId, product.version, product.brandId);
     if (before === null) {
       await db.query("insert into trip_rule_configs (tenant_id, product_id, version, config, created_at, updated_at) values ($1, $2, 1, $3, $4, $4)", [tenantId, productId, JSON.stringify(config), now]);
     } else {

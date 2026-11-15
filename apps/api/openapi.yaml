@@ -6151,9 +6151,10 @@ paths:
       operationId: putProductTripRules
       summary: 保存包车商品的跨段规则配置（整体替换）
       description: |
-        需要操作 `product.manage`。必须带 `If-Match`（商品的版本号）；保存后商品版本号加一、`rules_version` 加一、写审计。内容和已存的一样时不改版本号。
+        需要操作 `product.manage`。必须带 `If-Match`（商品的版本号）；保存后商品版本号加一、`rules_version` 加一、写审计。内容和已存的一样时、或没存过又提交空配置（`{}`、只有空分组）时不写、不改版本号。
         - 只有包车商品能设（400 `TRIP_RULES_NOT_APPLICABLE`）。
-        - 只认已知的键（`UNKNOWN_KEY`）；金额 0–10 亿、比例 0–10000 基点、分钟 0–2880、公里 0–5000（`OUT_OF_RANGE`）；
+        - 校验不过是 400 `VALIDATION_FAILED`，`details.issues[].reason` 为下列之一：
+        - 只认已知的键（`UNKNOWN_KEY`）；分组或字段类型不对（`INVALID`）；金额 0–10 亿、比例 0–10000 基点、分钟 0–2880、公里 0–5000（`OUT_OF_RANGE`）；
           `maxBindMinutes ≤ hardMaxBindMinutes`、`absoluteMinRestMinutes ≤ minRestMinutes`（合并默认值后比较，`ORDER`）。
         - `lodging.byArea` 只能选本商品的服务区域或上下车加价区域（`AREA_NOT_FOUND`），`returnTrip.fixedByCity` 只能选平台启用城市（`CITY_NOT_FOUND`），各最多 50 条、不重复（`DUPLICATE`）。
       security:

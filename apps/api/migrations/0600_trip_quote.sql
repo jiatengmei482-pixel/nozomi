@@ -31,6 +31,22 @@ create table trips (
 
 create index trips_readable_until_idx on trips (readable_until);
 
+-- 验收标记建好之后不能改（同 0360 manual_quote_requests、0310 orders）：验收行程单洗不成真实客人的单，反过来也不行
+create function trips_acceptance_immutable() returns trigger
+  language plpgsql
+  as $$
+begin
+  if new.is_acceptance is distinct from old.is_acceptance then
+    raise exception '行程单的「验收」标记建好之后不能改' using errcode = 'insufficient_privilege';
+  end if;
+  return new;
+end
+$$;
+
+create trigger trips_acceptance_immutable
+  before update of is_acceptance on trips
+  for each row execute function trips_acceptance_immutable();
+
 create table trip_plans (
   id uuid primary key default gen_random_uuid(),
   trip_id text not null references trips (id) on delete cascade,
@@ -52,16 +68,22 @@ create table trip_plans (
   -- 方案里最早到期的段报价；报不出的方案为空
   expires_at timestamptz,
   constraint trip_plans_seq_unique unique (trip_id, seq),
+  -- trip_fees 用 (trip_id, plan_id) 复合外键指过来：费用行的方案一定挂在同一个行程单下
+  constraint trip_plans_trip_id_unique unique (trip_id, id),
+  constraint trip_plans_seq_check check (seq >= 0),
   constraint trip_plans_kind_check check (kind is not null and kind in ('one_car', 'daily_best')),
   constraint trip_plans_status_check check (status is not null and status in ('quoted', 'unquoted')),
   constraint trip_plans_currency_check check (currency ~ '^[A-Z]{3}$'),
-  constraint trip_plans_one_car_key check ((kind = 'one_car') = (supplier_tenant_id is not null and vehicle_group_id is not null)),
+  -- 每天各自最优两列都空；一车到底两列同时有或同时空（不允许只填一列），报出价的一车到底必须两列都有
+  -- （报不出、且没有任何租户车型组能贯穿全部用车日时，一车到底方案没有组合，只记报不出的原因）
+  constraint trip_plans_one_car_key check (
+    (kind = 'daily_best' and supplier_tenant_id is null and vehicle_group_id is null)
+    or (kind = 'one_car' and (supplier_tenant_id is null) = (vehicle_group_id is null) and (status = 'unquoted' or supplier_tenant_id is not null))
+  ),
   constraint trip_plans_quoted_amount check ((status = 'quoted') = (sell_minor is not null and expires_at is not null)),
   constraint trip_plans_amounts check ((sell_minor is null or sell_minor >= 0) and (settlement_minor is null or settlement_minor >= 0)),
   constraint trip_plans_unquoted_array check (jsonb_typeof(unquoted) = 'array' and jsonb_typeof(warnings) = 'array')
 );
-
-create index trip_plans_trip_idx on trip_plans (trip_id);
 
 create table trip_segments (
   id uuid primary key default gen_random_uuid(),
@@ -90,6 +112,7 @@ create table trip_segments (
   -- 一车到底里这一天用了别的供应商（按段选车，D2）
   other_vehicle boolean not null default false,
   constraint trip_segments_seq_unique unique (plan_id, seq),
+  constraint trip_segments_seq_check check (seq >= 0),
   constraint trip_segments_day_check check (day_index between 0 and 13),
   constraint trip_segments_type_check check (segment_type is not null and segment_type in ('airport_pickup', 'airport_dropoff', 'p2p', 'charter', 'idle_day')),
   constraint trip_segments_category_check check (category is null or category in ('airport_transfer', 'point_to_point', 'charter')),
@@ -97,16 +120,15 @@ create table trip_segments (
   constraint trip_segments_currency_check check (settlement_currency is null or settlement_currency ~ '^[A-Z]{3}$'),
   constraint trip_segments_amounts check ((settlement_minor is null or settlement_minor >= 0) and (sell_minor is null or sell_minor >= 0)),
   constraint trip_segments_markup_check check (markup_bp is null or markup_bp between 0 and 100000),
-  constraint trip_segments_package_hours check (package_hours is null or package_hours between 1 and 24),
+  -- 包车套餐时长上限同价格规则（PRICE_LIMITS.maxPackageHours = 72）
+  constraint trip_segments_package_hours check (package_hours is null or package_hours between 1 and 72),
   constraint trip_segments_time_order check (start_local is null or end_local is null or end_local >= start_local)
 );
-
-create index trip_segments_plan_idx on trip_segments (plan_id);
 
 create table trip_fees (
   id uuid primary key default gen_random_uuid(),
   trip_id text not null references trips (id) on delete cascade,
-  plan_id uuid not null references trip_plans (id) on delete cascade,
+  plan_id uuid not null,
   seq integer not null,
   fee_type text not null,
   supplier_tenant_id uuid,
@@ -122,7 +144,9 @@ create table trip_fees (
   area_id uuid,
   label jsonb not null,
   calc jsonb not null,
+  constraint trip_fees_plan_fk foreign key (trip_id, plan_id) references trip_plans (trip_id, id) on delete cascade,
   constraint trip_fees_seq_unique unique (plan_id, seq),
+  constraint trip_fees_seq_check check (seq >= 0),
   constraint trip_fees_type_check check (fee_type is not null and fee_type in ('lodging', 'lodging_offset', 'idle', 'second_driver', 'bundle_discount', 'return')),
   constraint trip_fees_currency_check check (settlement_currency ~ '^[A-Z]{3}$'),
   constraint trip_fees_rule_version check (rule_version >= 0),
@@ -132,8 +156,8 @@ create table trip_fees (
   constraint trip_fees_index_range check ((night_index is null or night_index between 0 and 13) and (day_index is null or day_index between 0 and 13))
 );
 
-create index trip_fees_plan_idx on trip_fees (plan_id);
-create index trip_fees_trip_idx on trip_fees (trip_id);
+-- (trip_id, plan_id) 外键的反查（删方案时）由这个索引覆盖；(plan_id, seq) 唯一约束已覆盖按方案查
+create index trip_fees_trip_plan_idx on trip_fees (trip_id, plan_id);
 
 -- 平台表：编排接口在平台事务里写，一次报价删掉旧方案再写新方案；清理任务（M9T-05）删过期行程
 grant select, insert, update, delete on trips to nozomi_platform;
