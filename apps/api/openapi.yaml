@@ -2048,6 +2048,16 @@ paths:
           schema:
             type: string
             format: date-time
+        - name: rows
+          in: query
+          description: |
+            M9P-14：给 `true` 时 `replay` 多一项 `resultRows`（逐行明细：询价编号、商品编码、这一行的摘要、各车型组的档、结算价、超时费、加价拆项），
+            部署前后各取一次，用 `pnpm replay:classify 前.json 后.json [--allow 类别,…] [--expect-state-change]` 按 ADR 0093 第六节第 5 小节归类（类别、前后金额）。不给时应答和以前一字不差。
+            逐行明细有价格，只读核对工作流的公开产物不放。审计的改后值多记 `rows: true`。
+            **建议 `days` 不超过 7**：30 天的测试站约 2,500 行，应答有几 MB，回放还受 45 秒时限；要看更长的窗口就分几段 `until` 取
+          schema:
+            type: string
+            enum: [ "true" ]
       responses:
         "200":
           description: 清单
@@ -20720,6 +20730,57 @@ components:
                   logId: { type: string, description: 询价日志的编号 }
                   productCode: { type: string }
                   digest: { type: string, pattern: "^[0-9a-f]{64}$", description: 这一行的 SHA-256 }
+            resultRows:
+              type: array
+              description: 逐行明细（M9P-14），只在请求带 `rows=true` 时有；按询价编号、商品编码排序，和 `resultLineDigests` 一一对应（`digest` 相同）
+              items:
+                type: object
+                additionalProperties: false
+                required: [ logId, productCode, digest, legacy, manualPackage, refused, offers, refusedGroups ]
+                properties:
+                  logId: { type: string }
+                  productCode: { type: string }
+                  digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+                  legacy: { type: boolean, description: 包车的旧格式询价日志（没有 charter_selection，回放按旧口径选档、算超时费） }
+                  manualPackage: { type: boolean, description: 客人手动选的档（charter_selection 是 manual），档应该不变 }
+                  refused: { type: [ string, "null" ], description: 商品层面报不出的原因；报得出为 null }
+                  offers:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [ vehicleGroupId, packageHours, totalMinor, currency, pricingBasis, areaId, toAreaId, priceRuleId, baseMinor, adjustMinor, overtimeMinor, surcharge ]
+                      properties:
+                        vehicleGroupId: { type: string }
+                        packageHours: { type: [ integer, "null" ] }
+                        totalMinor: { type: integer, description: 结算价（最小货币单位） }
+                        currency: { type: string }
+                        pricingBasis: { type: string, description: 计价方式（摘要里也有） }
+                        areaId: { type: [ string, "null" ], description: 用的区域（摘要里也有） }
+                        toAreaId: { type: [ string, "null" ], description: 线路价的下车区域（摘要里也有） }
+                        priceRuleId: { type: [ string, "null" ], description: 价格规则编号（摘要里也有） }
+                        baseMinor: { type: integer, description: 调价前的基础价（含套餐、加价、超公里、超时费）；归类时金额在它上面拆账 }
+                        adjustMinor: { type: integer, description: 调价合计 }
+                        overtimeMinor: { type: [ integer, "null" ], description: 预收的超时费；不是按行程计价为 null }
+                        surcharge:
+                          type: [ object, "null" ]
+                          additionalProperties: false
+                          required: [ packageMinor, pickupMinor, dropoffMinor, itineraryMinor ]
+                          description: 包车区域加价拆项；不是包车为 null
+                          properties:
+                            packageMinor: { type: integer }
+                            pickupMinor: { type: integer }
+                            dropoffMinor: { type: integer }
+                            itineraryMinor: { type: integer, description: 行程加价各区域之和 }
+                  refusedGroups:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [ vehicleGroupId, reason ]
+                      properties:
+                        vehicleGroupId: { type: string }
+                        reason: { type: string }
             stateDigest:
               type: string
               pattern: "^[0-9a-f]{64}$"
