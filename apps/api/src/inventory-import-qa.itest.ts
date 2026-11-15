@@ -152,7 +152,9 @@ async function setup(target: TestApi, platformToken: string, token: string): Pro
   ids["usd"] = (await ok(call("POST", "/brands", { on, body: { name: "甲车队 USD", currency: "USD" } }), 201)).id;
   ids["a1"] = (await ok(call("POST", "/areas", { on, body: { city_id: ids["tokyo"], name: { zh: "东京市区", en: "Central Tokyo", ja: "東京都心" }, biz_type: "general", polygons: [POLYGON] } }), 201)).id;
   target.clock.advance(1_000);
-  ids["a2"] = (await ok(call("POST", "/areas", { on, body: { city_id: ids["tokyo"], name: { en: "Yokohama <b>Bay</b>" }, biz_type: "general", polygons: [POLYGON] } }), 201)).id;
+  // 和 a1 只碰边、不重叠：包车商品的服务区域不能重叠（M9P-06，ADR 0093 第七节）
+  const east = { kind: "operate", geometry: { type: "Polygon", coordinates: [[[139.8, 35.6], [140.0, 35.6], [140.0, 35.8], [139.8, 35.8], [139.8, 35.6]]] } };
+  ids["a2"] = (await ok(call("POST", "/areas", { on, body: { city_id: ids["tokyo"], name: { en: "Yokohama <b>Bay</b>" }, biz_type: "general", polygons: [east] } }), 201)).id;
 }
 
 before(async () => {

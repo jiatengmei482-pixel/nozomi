@@ -483,7 +483,7 @@ export function contentTitles(content: ProductContent): LocalizedText {
 
 // ---- 上架校验 ----
 
-export const PUBLISH_CHECK_KEYS = ["basic_info", "service_rules", "price_rules", "content", "adjust_rules", "inventory", "area_coverage", "charter_min_package"] as const;
+export const PUBLISH_CHECK_KEYS = ["basic_info", "service_rules", "price_rules", "content", "adjust_rules", "inventory", "area_coverage", "charter_min_package", "charter_coverage", "charter_empty_cells"] as const;
 export type PublishCheckKey = (typeof PUBLISH_CHECK_KEYS)[number];
 
 export const PUBLISH_CHECK_NAMES: Readonly<Record<PublishCheckKey, string>> = {
@@ -495,6 +495,8 @@ export const PUBLISH_CHECK_NAMES: Readonly<Record<PublishCheckKey, string>> = {
   inventory: "库存",
   area_coverage: "运营区域",
   charter_min_package: "最低套餐",
+  charter_coverage: "热门地标覆盖",
+  charter_empty_cells: "加价表空格",
 };
 
 export type PublishIssueReason =
@@ -537,6 +539,10 @@ export type PublishIssueReason =
   | "MIN_PACKAGE_ABOVE_ALL"
   /** 迁移过三层区域的包车（ADR 0093 第五节）：这个车型组一档整商品套餐价都没有（启用、未过期），报不出价 */
   | "CHARTER_GROUP_NO_PACKAGE"
+  /** 包车覆盖检查（M9P-06，ADR 0093 第七节第 4 条）：城市热门地标清单里的这个地标不在商品任何①②③区域里（提醒） */
+  | "CHARTER_POI_NOT_COVERED"
+  /** 加价表空格（M9P-06，ADR 0093 第七节第 5 条）：②行程加价 / ③上下车加价表里这个区域这个车型组没有启用的规则 = 不报价（提醒） */
+  | "CHARTER_EMPTY_CELL"
   /** 这项功能还没有上线，所以这一项现在一定不满足（或对可选项：没有东西可查） */
   | "FEATURE_NOT_AVAILABLE";
 
@@ -596,6 +602,10 @@ export interface PublishFacts {
    * 「价格规则」这一项按它拦上架（规格 P1 #7「上架拦下」）。不给 = 没迁移过，不查（按区域的缺价照旧不拦）。
    */
   charterGroupsWithoutPackage?: readonly number[];
+  /** 包车覆盖检查（M9P-06）：商品所在城市清单里不在任何①②③区域的地标编号。不给或空 = 没有这一项（清单为空时也不出现） */
+  charterUncoveredPlaces?: readonly string[];
+  /** 加价表空格（M9P-06）：`layer` 是 itinerary（②）或 pickup_dropoff（③），`areaId` 区域、`vehicleGroupIndex` 是 `vehicleGroups` 里的下标。不给或空 = 没有这一项 */
+  charterEmptyCells?: readonly { layer: "itinerary" | "pickup_dropoff"; areaId: string; vehicleGroupIndex: number }[];
 }
 
 /**
@@ -618,6 +628,7 @@ export function minPackageAboveAll(rules: Pick<ServiceRules, "charterItinerary">
  * - 库存：可以不设（默认不限量）。限量、而从今天起没有一天还有库存时指出来（不拦上架）。
  * - 运营区域（ADR 0075）：勾选的报价区域有一部分不在任何运营区域里时多一项提醒（不拦上架）；没有这种情况时没有这一项。
  * - 最低套餐（ADR 0091）：包车的最低套餐比所有启用的套餐都长时多一项提醒（不拦上架）；没有这种情况时没有这一项。
+ * - 包车覆盖检查、加价表空格（M9P-06，ADR 0093 第七节第 4、5 条）：有不在任何区域的清单地标、有没填的格时各多一项提醒（不拦上架）。
  */
 export function publishCheck(facts: PublishFacts): PublishCheckItem[] {
   const basic: PublishIssue[] = [];
@@ -677,6 +688,10 @@ export function publishCheck(facts: PublishFacts): PublishCheckItem[] {
     item("inventory", false, inventory),
     ...(coverage.length === 0 ? [] : [item("area_coverage", false, coverage)]),
     ...(minPackage.length === 0 ? [] : [item("charter_min_package", false, minPackage)]),
+    ...((facts.charterUncoveredPlaces ?? []).length === 0 ? [] : [item("charter_coverage", false, (facts.charterUncoveredPlaces ?? []).map((placeId): PublishIssue => ({ path: `/places/${placeId}`, reason: "CHARTER_POI_NOT_COVERED" })))]),
+    ...((facts.charterEmptyCells ?? []).length === 0
+      ? []
+      : [item("charter_empty_cells", false, (facts.charterEmptyCells ?? []).map((cell): PublishIssue => ({ path: `/${cell.layer}/${cell.areaId}/vehicle_groups/${cell.vehicleGroupIndex}`, reason: "CHARTER_EMPTY_CELL" })))]),
   ];
 }
 

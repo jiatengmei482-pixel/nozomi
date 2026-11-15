@@ -68,6 +68,8 @@ export interface Place extends Versioned {
   municipality: string | null;
   /** 每种语言的名称是哪次导入填的（机场的中文名、日文名从 GeoNames 导入，ADR 0024）；不出现在接口的应答里 */
   nameSources: NameSources;
+  /** 在不在包车上架的覆盖检查清单里（M9P-06，ADR 0093 第七节第 4 条）：只有地标能勾，运营后台维护 */
+  charterCoverage: boolean;
 }
 
 export interface VehicleGroup extends Versioned {
@@ -165,6 +167,7 @@ export const PLACES: MasterTable<Place> = {
     "source_overridden",
     "municipality",
     "name_sources",
+    "charter_coverage",
   ],
   jsonColumns: ["name", "name_sources"],
   codeConstraint: "places_code_key",
@@ -186,6 +189,7 @@ export const PLACES: MasterTable<Place> = {
     sourceOverridden: row["source_overridden"],
     municipality: row["municipality"],
     nameSources: row["name_sources"],
+    charterCoverage: row["charter_coverage"] === true,
   }),
 };
 

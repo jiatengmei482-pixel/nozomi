@@ -389,7 +389,7 @@ test("定义里的请求字段和实现一致：新增时每个必填项缺了�
   // 修改时每个字段的一个「和原值不同的合法值」
   const changes: Record<Path, Record<string, unknown>> = {
     cities: { name: { en: "Renamed" }, timezone: "Asia/Seoul", center: { lng: 1.5, lat: 2.5 }, boundary: null },
-    places: { city_id: otherCity.id, name: { en: "Renamed" }, location: { lng: 1.5, lat: 2.5 }, category: "mall", flight_scope: null, address: null },
+    places: { city_id: otherCity.id, name: { en: "Renamed" }, location: { lng: 1.5, lat: 2.5 }, category: "mall", flight_scope: null, address: null, charter_coverage: true },
     "vehicle-groups": { name: { en: "Renamed" }, sample_models: ["别的车型"], power: "fuel", combos: [{ passengers: 1, luggage: 0 }] },
     addons: { categories: ["point_to_point"], charge_unit: "per_order", name: { en: "Renamed" }, description: {} },
   };

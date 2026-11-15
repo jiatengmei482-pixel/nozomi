@@ -58,8 +58,10 @@ async function tenantHeaders(request: APIRequestContext, email: string, password
   return { authorization: `Bearer ${((await response.json()) as { access_token: string }).access_token}` };
 }
 
-async function createArea(request: APIRequestContext, headers: Record<string, string>, city: Ref, name: string, bizType = "general"): Promise<Ref> {
-  const ring = [[CENTER.lng - 0.1, CENTER.lat - 0.1], [CENTER.lng + 0.1, CENTER.lat - 0.1], [CENTER.lng + 0.1, CENTER.lat + 0.1], [CENTER.lng - 0.1, CENTER.lat + 0.1], [CENTER.lng - 0.1, CENTER.lat - 0.1]];
+/** `shiftLng`：往东挪多少度（0.2 = 正好挨着默认的那块、不重叠；包车商品的服务区域不能重叠，M9P-06） */
+async function createArea(request: APIRequestContext, headers: Record<string, string>, city: Ref, name: string, bizType = "general", shiftLng = 0): Promise<Ref> {
+  const lng = CENTER.lng + shiftLng;
+  const ring = [[lng - 0.1, CENTER.lat - 0.1], [lng + 0.1, CENTER.lat - 0.1], [lng + 0.1, CENTER.lat + 0.1], [lng - 0.1, CENTER.lat + 0.1], [lng - 0.1, CENTER.lat - 0.1]];
   const area = await post<{ id: string }>(request, { ...headers, "idempotency-key": crypto.randomUUID() }, "/tenant/v1/areas", { city_id: city.id, name: { zh: name }, biz_type: bizType, polygons: [{ kind: "operate", geometry: { type: "Polygon", coordinates: [ring] } }] }, "新建区域");
   return { id: area.id, code: "", name };
 }
@@ -221,8 +223,9 @@ test("服务区域的排序：上移 / 下移按钮和 Alt+方向键都能调，
   await page.setViewportSize({ width: 1280, height: 800 });
   const world = await createWorld(request);
   const supplier = await createSupplier(request, world, undefined, "甲区");
-  const second = await createArea(request, supplier.headers, world.city, "乙区", "charter");
-  const third = await createArea(request, supplier.headers, world.city, "丙区");
+  // 三个服务区域挨着、不重叠（包车商品的服务区域不能重叠，M9P-06）
+  const second = await createArea(request, supplier.headers, world.city, "乙区", "charter", 0.2);
+  const third = await createArea(request, supplier.headers, world.city, "丙区", "general", 0.4);
   const product = await createProduct(request, supplier, world, "charter", { areas: [{ area_id: supplier.area.id }, { area_id: second.id }, { area_id: third.id }] });
   await loginAs(page, "tenant", supplier.tenant.adminEmail, supplier.tenant.password);
   await page.goto(`/products/${product.id}/basic`);

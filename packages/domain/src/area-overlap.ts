@@ -367,3 +367,51 @@ export function productPricingOutsideOperating(areas: readonly OverlapAreaInput[
   const operating = areas.filter((area) => areaRoleCanOperate(area.role ?? "both") && areaUsableByCategory(category, area.bizType));
   return findPricingOutsideOperating(pricing, operating, () => true).byArea;
 }
+
+// ---- 包车三层区域的保存校验（M9P-06，ADR 0093 第七节第 1、2 条；规格第四节第 2 小节）----
+
+/** 只有边界接触不算重叠：小于 0.01 平方公里（ADR 0093 第七节第 1 条） */
+export const CHARTER_LAYER_OVERLAP_MIN_M2 = 10_000;
+
+export interface CharterLayerOverlap {
+  /** 同层重叠（①①、②②、③③）是 `AREA_LAYER_OVERLAP`；①和③重叠是 `AREA_BASE_SURCHARGE_OVERLAP` */
+  code: "AREA_LAYER_OVERLAP" | "AREA_BASE_SURCHARGE_OVERLAP";
+  layer: "base" | "itinerary" | "pickup_dropoff" | "base_pickup_dropoff";
+  a: string;
+  b: string;
+  areaM2: number;
+}
+
+/**
+ * 一个包车商品的三层区域里，这次新加的区域碰出来的重叠：同一层（①基础价、②行程、③上下车加价）两两不能重叠，①和③不能重叠；①②、②③可以。
+ * `layers` 是保存之后各层的区域编号；`added` 是这次新加进各层的（已有的重叠不回头拦，ADR 0093 第七节第 6 条：那些列进迁移报告，由运营处理）。
+ * 同一个区域既在①又在③由 `AREA_IS_PRODUCT_AREA` 管，这里不算。不看区域的用途和业务类型（同一个商品里的区域都会被同时用到）；停用的区域不算。
+ */
+export function charterLayerOverlaps(
+  shapes: readonly OverlapAreaInput[],
+  layers: { base: readonly string[]; itinerary: readonly string[]; updown: readonly string[] },
+  added: { base?: readonly string[]; itinerary?: readonly string[]; updown?: readonly string[] },
+): CharterLayerOverlap[] {
+  const inputs = (ids: readonly string[]): OverlapAreaInput[] => shapes.filter((shape) => ids.includes(shape.id)).map((shape) => ({ ...shape, role: "pricing" as const, bizType: "charter" as const }));
+  const pairsOf = (ids: readonly string[]) => (ids.length < 2 ? [] : findAreaOverlaps(inputs([...new Set(ids)])).pairs.filter((pair) => pair.areaM2 >= CHARTER_LAYER_OVERLAP_MIN_M2));
+  const result: CharterLayerOverlap[] = [];
+  const same = [
+    ["base", layers.base, added.base ?? []],
+    ["itinerary", layers.itinerary, added.itinerary ?? []],
+    ["pickup_dropoff", layers.updown, added.updown ?? []],
+  ] as const;
+  for (const [layer, ids, fresh] of same) {
+    if (fresh.length === 0) continue;
+    for (const pair of pairsOf(ids)) if (fresh.includes(pair.a) || fresh.includes(pair.b)) result.push({ code: "AREA_LAYER_OVERLAP", layer, a: pair.a, b: pair.b, areaM2: pair.areaM2 });
+  }
+  const freshBase = added.base ?? [];
+  const freshUpdown = added.updown ?? [];
+  if (freshBase.length + freshUpdown.length > 0) {
+    for (const pair of pairsOf([...layers.base, ...layers.updown])) {
+      const [base, updown] = layers.base.includes(pair.a) && layers.updown.includes(pair.b) && !layers.base.includes(pair.b) ? [pair.a, pair.b] : layers.base.includes(pair.b) && layers.updown.includes(pair.a) && !layers.base.includes(pair.a) ? [pair.b, pair.a] : [null, null];
+      if (base === null || updown === null) continue;
+      if (freshBase.includes(base) || freshUpdown.includes(updown)) result.push({ code: "AREA_BASE_SURCHARGE_OVERLAP", layer: "base_pickup_dropoff", a: base, b: updown, areaM2: pair.areaM2 });
+    }
+  }
+  return result;
+}
