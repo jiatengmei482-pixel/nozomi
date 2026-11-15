@@ -138,6 +138,19 @@ export interface ServiceRulesBody {
   free_wait: { pickup: FreeWaitBody | null; dropoff: FreeWaitBody | null; general: FreeWaitBody | null };
   addons: { addon_id: string; enabled: boolean; unit_price: number; first_free: boolean }[];
   driver_languages: { language: string; unit_price: number }[];
+  /**
+   * 包车行程计价的商品配置（M9P-01、M9P-03，ADR 0091、0093）：读回来时包车一定有（没设过的是默认值），别的品类没有。
+   * 提交时不带这个键、或不带其中某一项 = 那一项保留原值（`max_online_minutes` 页面不提交）；`min_package_hours: null` = 不限
+   */
+  charter_itinerary?: CharterItineraryBody;
+}
+
+export interface CharterItineraryBody {
+  dropoff_itinerary_surcharge?: boolean;
+  stop_occupancy_minutes?: number;
+  buffer_minutes?: number;
+  min_package_hours?: number | null;
+  max_online_minutes?: number;
 }
 
 export interface ProductServiceRules {
