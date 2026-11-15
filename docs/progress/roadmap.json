@@ -1741,13 +1741,13 @@
           "id": "M9T-00",
           "title": "ADR 0100：AI 行程报价 P1 后端实施篇（同城多日底层：行程单 / 方案 / 服务段 / 跨段费用 / 规则配置的数据模型，编排接口只收结构化输入，住宿 / 停驻 / 工时与第二司机 / 返程四类规则，一车到底 vs 每天各自最优两个方案）",
           "role": "product",
-          "status": "review",
+          "status": "done",
           "acceptance": [
             "写清范围（设计篇 ADR 0094 的 P1a + 返程函数 / 配置 / 单测，返程不接入编排；不做下单付款、新干线、跨城一车到底）、迁移 0600 的 5 张表、接口、分段判定与拆法、逐段经现有报价服务报价、四类规则的算法和配置键、方案与推荐、验收标准、固定测试集做法、待确认项（按原文第 8 节默认值）、工作量",
             "阻塞项 B2–B3、偏离 D1–D6、待确认 Q1–Q10 列清，等监工确认",
             "独立审查通过"
           ],
-          "evidence": "ADR docs/adr/0100-trip-quote-p1-backend.md；只有文档和 roadmap。PR #263：第一稿独立审查「需要修改后复核」（11 条必须修改），第二稿逐条处理；第二稿复核再提 M1–M3（未覆盖需求接法、机场按坐标与回落点对点、限频键一键一窗），第三稿处理（文末修改记录）",
+          "evidence": "ADR docs/adr/0100-trip-quote-p1-backend.md；只有文档和 roadmap。PR #263：第一稿独立审查「需要修改后复核」（11 条必须修改），第二稿逐条处理；第二稿复核再提 M1–M3（未覆盖需求接法、机场按坐标与回落点对点、限频键一键一窗），第三稿处理（文末修改记录）。监工 2026-11-15 书面确认：B2 放行（加 export + 官网行为不变测试）、B3 接受、D1–D6 同意（D4 口径写入 ADR）、Q1–Q10 按默认值",
           "updated": "2026-11-15"
         },
         {
@@ -1755,8 +1755,7 @@
           "title": "行程编排 domain（packages/domain/src/trip/）：标准行程单校验与上限、分段判定、同一天拆法枚举、住宿（含客人提供抵免、③抵扣）/ 停驻 / 工时与第二司机 / 附加项去重 / 返程函数、最短套餐价、方案组装与推荐、规则配置校验（ADR 0100 第三、四节）",
           "role": "backend",
           "status": "todo",
-          "blockedBy": "依赖 M9T-00 审查通过；住宿的①判断依赖 M9P-06（#247）合并",
-          "acceptance": [
+                    "acceptance": [
             "纯函数、不碰数据库和网络，不改 quote.ts、pricing.ts",
             "规则单元测试覆盖 ADR 0100 第七节第 5 条全部情形（13–15 小时只经出入库或多段触发）",
             "包车 golden、itinerary golden 0 条变化"
@@ -1769,7 +1768,6 @@
           "title": "迁移 0600（trips、trip_plans、trip_segments、trip_fees、trip_rule_configs）、规则配置接口 GET/PUT /tenant/v1/products/:id/trip-rules、GET /platform/v1/products/:id/trip-rules、OpenAPI（ADR 0100 第二、五节）",
           "role": "backend",
           "status": "todo",
-          "blockedBy": "依赖 M9T-00 审查通过",
           "acceptance": [
             "只新增表，不改已有表；行程表是平台表、规则配置是租户表（行级安全、授权登记）",
             "租户 A 读不到、改不了 B 的规则配置（集成测试）；返回只有结算价",
