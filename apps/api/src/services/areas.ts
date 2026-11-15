@@ -113,7 +113,7 @@ export interface AreaView {
   outsideOperatingM2?: number | null;
   /**
    * 改了图形之后（只在修改的应答里给，M9P-13 / #247 审查建议）：用到这个区域的包车商品里，它和同商品别的区域的三层重叠（同层、①∩③）。
-   * 只提醒、不拦保存；没有重叠时是空数组。图形没变时不给
+   * 只提醒、不拦保存。图形没变、或没有重叠时不给（应答和以前一样）
    */
   charterOverlaps?: AreaCharterOverlap[];
 }
@@ -465,8 +465,9 @@ export async function updateArea(
     if (sourceVersionChanged && current.sharedSource !== null) [before["shared_source_shape_version"], after["shared_source_shape_version"]] = [current.sharedSource.shapeVersion, sharedSourceVersion];
     await audit(db, ctx, writer, now, { areaId: id, action: "update", before, after });
     const view = await detail(db, tenantId, updated);
-    // 图形变了：用到它的包车商品里有没有三层重叠，提醒（不拦，#247 审查建议）
-    return polygonsChanged ? { ...view, charterOverlaps: await charterOverlapsOfArea(db, tenantId, id) } : view;
+    // 图形变了：用到它的包车商品里有三层重叠时提醒（不拦，#247 审查建议）；没有时应答和以前一样
+    const overlaps = polygonsChanged ? await charterOverlapsOfArea(db, tenantId, id) : [];
+    return overlaps.length > 0 ? { ...view, charterOverlaps: overlaps } : view;
   });
 }
 

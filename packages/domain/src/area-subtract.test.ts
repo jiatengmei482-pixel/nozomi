@@ -7,6 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { type OverlapAreaInput, type SubtractShape, charterLayerConflictPieces, subtractAreaRange } from "./area-overlap.ts";
 import { type Position, circleToRing, ringIssues } from "./areas.ts";
+import { emptyServiceRules, publishCheck } from "./products.ts";
 
 const rect = (west: number, south: number, east: number, north: number): Position[] => [[west, south], [east, south], [east, north], [west, north]];
 const operate = (ring: Position[]): SubtractShape => ({ kind: "operate", ring });
@@ -163,5 +164,37 @@ test("包车三层的重叠部分：同层、①∩③ 画出来，①②、②�
   assert.deepEqual(layered({ base: ["tokyo"], updown: ["chiba"] }), [], "只碰边");
   assert.deepEqual(layered({ base: ["tokyo"], updown: ["tokyo"] }), [], "同一个区域既是①又是③由 AREA_IS_PRODUCT_AREA 管");
   assert.deepEqual(layered({ itinerary: ["tokyo", "yokohama"] }).map((piece) => piece.layer), ["itinerary"], "②②");
+  assert.deepEqual([...new Set(layered({ base: ["tokyo", "yokohama"], updown: ["fuji"] }).map((piece) => piece.layer))], ["base"], "①① 不算成 ①∩③");
   assert.deepEqual(charterLayerConflictPieces(SHAPES.map((shape) => (shape.id === "yokohama" ? { ...shape, active: false } : shape)), { base: ["tokyo"], itinerary: [], updown: ["yokohama"] }), [], "停用的不算");
+});
+
+test("上架检查：包车三层区域有重叠时多一项提醒 charter_layer_overlap（不拦上架），没有时不出现", () => {
+  const facts = {
+    category: "charter" as const,
+    brandActive: true,
+    cityActive: true,
+    pickupPlace: null,
+    areas: [{ status: "active" as const, bizType: "charter" as const, cityActive: true }],
+    vehicleGroups: [{ active: true, comboOffered: true }],
+    dispatcherCount: 1,
+    serviceRules: emptyServiceRules(),
+    addons: [],
+    content: {},
+    activePriceRuleCount: 3,
+  };
+  const items = publishCheck({ ...facts, charterLayerOverlaps: [{ layer: "base_pickup_dropoff", a: "tokyo", b: "yokohama", areaM2: 123_456 }, { layer: "pickup_dropoff", a: "fuji", b: "fuji-north", areaM2: 50_000 }] });
+  assert.deepEqual(
+    items.find((entry) => entry.key === "charter_layer_overlap"),
+    {
+      key: "charter_layer_overlap",
+      required: false,
+      passed: false,
+      issues: [
+        { path: "/base_pickup_dropoff/tokyo/yokohama", reason: "CHARTER_LAYER_OVERLAP", detail: { overlap_m2: 123_456 } },
+        { path: "/pickup_dropoff/fuji/fuji-north", reason: "CHARTER_LAYER_OVERLAP", detail: { overlap_m2: 50_000 } },
+      ],
+    },
+  );
+  assert.equal(publishCheck({ ...facts, charterLayerOverlaps: [] }).some((entry) => entry.key === "charter_layer_overlap"), false);
+  assert.equal(publishCheck(facts).some((entry) => entry.key === "charter_layer_overlap"), false);
 });

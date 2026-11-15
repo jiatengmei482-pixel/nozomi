@@ -4830,7 +4830,7 @@ paths:
           改小运营区域、改业务类型、把运营 + 报价改成报价区域，让已上架商品的报价区域多出「不在运营区域里」的部分时 409 `PRICING_AREA_OUTSIDE_OPERATING`。
           报价区域超出运营区域只提醒（`outside_operating_m2`），不拦保存。
         - 包车三层区域（M9P-13，ADR 0093 第七节；#247 审查建议）：图形变了时，应答另带 `charter_layer_overlaps`——用到这个区域的包车商品（任何状态）里，
-          它和同一商品别的区域在同一层（①基础价、②行程、③上下车加价）或①和③之间的重叠（不到 0.01 平方公里的不算）。**只提醒、不拦保存**；没有重叠时是空数组，图形没变时不带这个字段。
+          它和同一商品别的区域在同一层（①基础价、②行程、③上下车加价）或①和③之间的重叠（不到 0.01 平方公里的不算）。**只提醒、不拦保存**；图形没变、或没有重叠时不带这个字段（应答和以前一样）。
           同样的重叠在商品的上架检查里列为 `charter_layer_overlap`（提醒）。
         有变化时 `version` 加一并写审计日志（`action` = `update`，前后值只含变了的那几项）。区域停用时、所属城市被平台停用后也可以改。
       security:
@@ -4846,7 +4846,7 @@ paths:
               $ref: "#/components/schemas/AreaUpdate"
       responses:
         "200":
-          description: 修改后的区域；改了图形时另带 `charter_layer_overlaps`
+          description: 修改后的区域；改了图形、有三层重叠时另带 `charter_layer_overlaps`
           content:
             application/json:
               schema:
@@ -23480,7 +23480,7 @@ components:
     AreaSaved:
       type: object
       additionalProperties: false
-      description: 修改（或切换到共享库新版本）之后的区域：和区域详情 `Area` 相同；图形变了时另带 `charter_layer_overlaps`（M9P-13，只提醒）
+      description: 修改（或切换到共享库新版本）之后的区域：和区域详情 `Area` 相同；图形变了、而且用到它的包车商品里有三层重叠时另带 `charter_layer_overlaps`（M9P-13，只提醒）
       required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, shape_version, shared_source, created_at, updated_at, polygons, outside_operating_m2 ]
       properties:
         id:
@@ -23519,7 +23519,7 @@ components:
           $ref: "#/components/schemas/Area/properties/outside_operating_m2"
         charter_layer_overlaps:
           type: array
-          description: 图形变了时才有：用到这个区域的包车商品里，它和同一商品别的区域的三层重叠（同层、①和③），按商品编码排。只提醒、不拦保存
+          description: 图形变了、而且有重叠时才有（至少一条）：用到这个区域的包车商品里，它和同一商品别的区域的三层重叠（同层、①和③），按商品编码排。只提醒、不拦保存
           items:
             $ref: "#/components/schemas/AreaCharterOverlap"
     AreaCharterOverlap:
