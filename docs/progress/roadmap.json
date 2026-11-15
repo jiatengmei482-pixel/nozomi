@@ -1731,6 +1731,79 @@
           "updated": "2026-11-14"
         }
       ]
+    },
+    {
+      "id": "M9T",
+      "name": "AI 行程报价 P1 后端",
+      "goal": "ADR 0094 设计篇的 P1a（同城多日底层）落地：行程单、服务段、跨段费用数据模型，只收结构化输入的编排接口（各段调用现有接送机、点对点、包车报价），住宿 / 停驻 / 工时 / 返程四类跨段规则，方案对比（ADR 0100）。只新增，不改现有报价接口和现有表",
+      "tasks": [
+        {
+          "id": "M9T-00",
+          "title": "ADR 0100：AI 行程报价 P1 后端实施篇（同城多日底层：行程单 / 方案 / 服务段 / 跨段费用 / 规则配置的数据模型，编排接口只收结构化输入，住宿 / 停驻 / 工时与第二司机 / 返程四类规则，一车到底 vs 每天各自最优两个方案）",
+          "role": "product",
+          "status": "review",
+          "acceptance": [
+            "写清范围（设计篇 ADR 0094 的 P1a + 返程纯函数；不做下单付款、新干线、跨城一车到底）、迁移 0600 的 5 张表、接口、分段判定与拆法、逐段经现有报价服务报价、四类规则的算法和配置键、方案与推荐、验收标准、固定测试集做法、待确认项（按原文第 8 节默认值）、工作量",
+            "独立审查通过"
+          ],
+          "evidence": "ADR docs/adr/0100-trip-quote-p1-backend.md；只有文档和 roadmap",
+          "updated": "2026-11-15"
+        },
+        {
+          "id": "M9T-01",
+          "title": "行程编排 domain（packages/domain/src/trip/）：标准行程单校验与上限、分段判定、同一天拆法枚举、住宿 / 停驻 / 工时与第二司机 / 返程规则、方案组装与推荐、规则配置校验（ADR 0100 第三、四节）",
+          "role": "backend",
+          "status": "todo",
+          "acceptance": [
+            "纯函数、不碰数据库和网络，不改 quote.ts、pricing.ts",
+            "规则单元测试覆盖 ADR 0100 第七节第 4 条全部情形",
+            "包车 golden、itinerary golden 0 条变化"
+          ],
+          "evidence": "",
+          "updated": "2026-11-15"
+        },
+        {
+          "id": "M9T-02",
+          "title": "迁移 0600（trips、trip_plans、trip_segments、trip_fees、trip_rule_configs）、规则配置接口 GET/PUT /tenant/v1/products/:id/trip-rules、GET /platform/v1/products/:id/trip-rules、OpenAPI（ADR 0100 第二、五节）",
+          "role": "backend",
+          "status": "todo",
+          "blockedBy": "依赖 M9T-00 审查通过",
+          "acceptance": [
+            "只新增表，不改已有表；行程表是平台表、规则配置是租户表（行级安全、授权登记）",
+            "租户 A 读不到、改不了 B 的规则配置（集成测试）；返回只有结算价",
+            "迁移测试；CI 全绿"
+          ],
+          "evidence": "",
+          "updated": "2026-11-15"
+        },
+        {
+          "id": "M9T-03",
+          "title": "编排接口：POST /site/v1/trips、GET /site/v1/trips/:id、POST /site/v1/trips/:id/quote；逐段经 previewPlatformQuote 按官网渠道报价，写方案 / 段 / 费用，限频（ADR 0100 第三节）",
+          "role": "backend",
+          "status": "todo",
+          "blockedBy": "依赖 M9T-01、M9T-02",
+          "acceptance": [
+            "每段对外价 = 同样条件下官网询价的中标价（集成测试，接送机、点对点、包车各至少一条）",
+            "对客应答没有结算价、加价比例、供应商编号",
+            "一次编排最多 60 次段报价，超出 422 TRIP_TOO_COMPLEX；CI 全绿"
+          ],
+          "evidence": "",
+          "updated": "2026-11-15"
+        },
+        {
+          "id": "M9T-04",
+          "title": "固定测试集 30 条（东京、大阪，测试代码内构造）逐条比对段型、拆法、跨段费用、方案、推荐、unquoted；测试站验收（ADR 0100 第八节）",
+          "role": "tester",
+          "status": "todo",
+          "blockedBy": "依赖 M9T-03",
+          "acceptance": [
+            "30 条期望全部写明并通过",
+            "测试站用 QA 测试供应商（ADR 0077）跑通建行程、报价、看方案"
+          ],
+          "evidence": "",
+          "updated": "2026-11-15"
+        }
+      ]
     }
   ],
   "log": [
@@ -3238,6 +3311,11 @@
       "date": "2026-11-14",
       "by": "frontend",
       "summary": "M9P-04 开发（PR #248）：官网预订页价格明细套餐下面写「预计用时 X 小时 Y 分钟（含缓冲）」，按套餐、上车加价、下车加价、行程加价（区域名、第几个经停点 / 下车点）逐项列，不填经停点也列；有经停点时套餐下拉的「自动（N 小时）」按客人选的车型；供应商后台服务规则页加经停点默认占用、整单缓冲、最低套餐（建议值灰字、不预填）和「下车点行程加价」开关；运营后台救援页写出救援差价基准。报价结果、主站请求体都没变。"
+      },
+      {
+      "date": "2026-11-15",
+      "by": "product",
+      "summary": "新开 M9T（AI 行程报价 P1 后端，监工 2026-11-15 指派第二开发）：ADR 0100 草案——设计篇 ADR 0094 的 P1a 加返程纯函数；迁移 0600 新增 trips / trip_plans / trip_segments / trip_fees（平台表）和 trip_rule_configs（租户表）；编排接口只收结构化输入，每段经 previewPlatformQuote 按官网渠道报价、不写 quotes；方案出一车到底（同一商品同一车型组）和每天各自最优；返程在 P1 不触发（跨城一车到底 unquoted，随 P1d）；待确认 Q1–Q9 按原文第 8 节默认值。拆 M9T-01～04。"
     }
   ]
 }
