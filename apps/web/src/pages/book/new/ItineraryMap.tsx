@@ -91,7 +91,7 @@ export function ItineraryMap({ points, alt }: Props) {
   }, [wanted, settled]);
 
   // 换了一组点（停下来以后）：上一组出不来不代表这一组也出不来，再试一次
-  const settledPoints = settled === null ? null : new URL(settled, "http://localhost").searchParams.getAll("p").join(";");
+  const settledPoints = settled === null ? null : new URLSearchParams(settled.slice(settled.indexOf("?") + 1)).getAll("p").join(";");
   useEffect(() => {
     setFailed(false);
     setRetry({ attempt: 0, waiting: false });
