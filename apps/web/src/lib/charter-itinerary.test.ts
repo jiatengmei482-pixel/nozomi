@@ -3,7 +3,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MAX_WAYPOINTS, STAY_OPTIONS, autoPackageHoursOf, breakdownLines, upgradePackageHours, durationText, itineraryMapAlt, itineraryRouteFailureText, itineraryText, orderItineraryText, moveWaypoint, scheduleRows, waypointErrors, waypointUnavailableTexts, waypointsBody } from "./charter-itinerary.ts";
+import { MAX_WAYPOINTS, STAY_OPTIONS, autoPackageHoursOf, breakdownLines, upgradePackageHours, durationText, itineraryMapAlt, itineraryMapPoints, itineraryRouteFailureText, itineraryText, orderItineraryText, moveWaypoint, scheduleRows, waypointErrors, waypointUnavailableTexts, waypointsBody } from "./charter-itinerary.ts";
 
 const point = (name: string) => ({ name, lat: 35.5, lng: 138.7, kind: null });
 const yen = (amount: number) => ({ amount: String(amount), currency: "JPY" });
@@ -140,4 +140,15 @@ test("M9P-03 有经停点时手动升档：自动选的档取各车型报价里�
   assert.deepEqual(upgradePackageHours([10, 4, 8, 5, 10, 12], 5), [8, 10, 12]);
   assert.deepEqual(upgradePackageHours([4, 5], 5), []);
   assert.deepEqual(upgradePackageHours([4, 8, 10], null), []);
+});
+
+test("经停超过 10 个（M9P-10 放开上限后）：列表编号照常到 27；地图最多 12 个点，超过不画图（只显示列表）", () => {
+  const many = Array.from({ length: 25 }, (_, i) => ({ name: `点${i + 1}`, stay_minutes: 30 }));
+  const rows = scheduleRows("新宿", "新宿", many);
+  assert.deepEqual(rows.map((row) => row.number), Array.from({ length: 27 }, (_, i) => i + 1));
+  assert.deepEqual([rows[25]?.label, rows[26]?.label], ["26 经停", "27 下车"]);
+  const at = (i: number) => ({ lat: 35 + i / 100, lng: 139 });
+  assert.equal(itineraryMapPoints(at(0), Array.from({ length: 10 }, (_, i) => at(i + 1)), at(11))?.length, 12);
+  assert.equal(itineraryMapPoints(at(0), Array.from({ length: 11 }, (_, i) => at(i + 1)), at(12)), null);
+  assert.deepEqual(itineraryMapPoints(at(0), [], at(1)), [at(0), at(1)]);
 });

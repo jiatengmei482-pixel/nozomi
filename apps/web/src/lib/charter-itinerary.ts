@@ -8,7 +8,7 @@
  * 编号（M9P-20，ADR 0096 第二节第 3 小节）：上车 = 1、经停依次、下车 = 最后，和行程地图的标记同一个函数（domain 的 `stopNumbers`）；
  * 接口里的经停序号（stopSeq，从 1 起）一律经 `displayStopNumber` 换成显示编号（= stopSeq + 1）。
  */
-import { displayStopNumber, isCurrencyCode, legStopNumbers, parseMajor, stopNumbers } from "@nozomi/domain";
+import { ITINERARY_MAP_RULES, displayStopNumber, isCurrencyCode, legStopNumbers, parseMajor, stopNumbers } from "@nozomi/domain";
 import type { SiteMoney, SiteOrder, SitePriceBreakdownItem, SiteQuote, SiteQuoteResult } from "../api/site.ts";
 import type { TripPoint } from "./book-new.ts";
 import { moneyText } from "./dispatch-display.ts";
@@ -245,6 +245,20 @@ export function scheduleRows(pickup: string, dropoff: string | null, stops: read
       driveMeters: typeof leg?.meters === "number" ? leg.meters : null,
     };
   });
+}
+
+/**
+ * 行程地图要画的点（上车、经停、下车，按顺序）：最多 `ITINERARY_MAP_RULES.maxPoints`（12）个——标记只有 1–12 号（ADR 0096）。
+ * 经停上限放开（M9P-10）以后超过 12 个点时为 null：不画图、只显示列表（列表编号不限个数），页面不报错。
+ */
+export function itineraryMapPoints(pickup: LatLngLike, stops: readonly LatLngLike[], dropoff: LatLngLike): LatLngLike[] | null {
+  const points = [pickup, ...stops, dropoff].map((point) => ({ lat: point.lat, lng: point.lng }));
+  return points.length <= ITINERARY_MAP_RULES.maxPoints ? points : null;
+}
+
+interface LatLngLike {
+  lat: number;
+  lng: number;
 }
 
 /** 行程地图的替代文字（ADR 0096 第二节第 3 小节）：「路线图：1 新宿 → 2 河口湖 → 3 新宿，约 6 小时 10 分 · 312 公里」；没有路线时只写各点。 */
