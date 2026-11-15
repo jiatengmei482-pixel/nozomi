@@ -1024,6 +1024,9 @@ test("价格、调价、日历、缺价的每个接口：别的供应商的商�
     ["GET", "/tenant/v1/products/:id/price-coverage", () => "/price-coverage"],
     // 三层区域迁移的「套餐价不一致」（M9P-05）
     ["GET", "/tenant/v1/products/:id/charter-migration-diff", () => "/charter-migration-diff"],
+    // 包车机场绑定（M9P-21，ADR 0098）
+    ["GET", "/tenant/v1/products/:id/charter-airports", () => "/charter-airports"],
+    ["PUT", "/tenant/v1/products/:id/charter-airports", () => "/charter-airports", { bindings: [] }],
     ["GET", "/tenant/v1/products/:id/price-calendar", () => `/price-calendar?${calendarQuery}`],
     ["GET", "/tenant/v1/products/:id/adjust-rules", () => "/adjust-rules"],
     ["POST", "/tenant/v1/products/:id/adjust-rules", () => "/adjust-rules", adjust],

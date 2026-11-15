@@ -149,13 +149,17 @@ export function settlementAreaSurchargeJson(order: Order): Json | null {
 }
 
 /** 同上，给任意一份结算价明细用（救援的候选报价和订单的 `settlement` 同一个格式）。 */
-export function areaSurchargeMoneyJson(settlement: Pick<Order["settlement"], "areaSurcharge">, currency: Order["settlementCurrency"]): Json | null {
+export function areaSurchargeMoneyJson(settlement: Pick<Order["settlement"], "areaSurcharge" | "charterScenario">, currency: Order["settlementCurrency"]): Json | null {
   const surcharge = settlement.areaSurcharge ?? null;
   if (surcharge === null) return null;
   const money = (minor: number): Json => salesMoney(minor, currency);
-  const end = (entry: typeof surcharge.pickup): Json => ({ area_id: entry.areaId, amount: money(entry.amountMinor) });
-  const waypoints = surcharge.waypoints === undefined ? {} : { waypoints: surcharge.waypoints.map((entry) => ({ area_id: entry.areaId, amount: money(entry.amountMinor), stop_seqs: entry.stopSeqs, ...(entry.fromDropoff === true ? { from_dropoff: true } : {}) })) };
-  return { package: money(surcharge.packageMinor), pickup: end(surcharge.pickup), dropoff: end(surcharge.dropoff), ...waypoints };
+  // 机场套餐（M9P-21，ADR 0098）：免掉的项带 `included_in_package: true`，另有 `charter_scenario`
+  const included = (entry: { includedInPackage?: true }): Json => (entry.includedInPackage === true ? { included_in_package: true } : {});
+  const end = (entry: typeof surcharge.pickup): Json => ({ area_id: entry.areaId, amount: money(entry.amountMinor), ...included(entry) });
+  const waypoints = surcharge.waypoints === undefined ? {} : { waypoints: surcharge.waypoints.map((entry) => ({ area_id: entry.areaId, amount: money(entry.amountMinor), stop_seqs: entry.stopSeqs, ...(entry.fromDropoff === true ? { from_dropoff: true } : {}), ...included(entry) })) };
+  const scenario = settlement.charterScenario;
+  const charterScenario = scenario === undefined ? {} : { charter_scenario: { kind: scenario.kind, airport_id: scenario.placeId, airport_name: scenario.name, pricing: scenario.pricing } };
+  return { package: money(surcharge.packageMinor), pickup: end(surcharge.pickup), dropoff: end(surcharge.dropoff), ...waypoints, ...charterScenario };
 }
 
 /**
@@ -165,10 +169,14 @@ export function areaSurchargeMoneyJson(settlement: Pick<Order["settlement"], "ar
 export function areaSurchargeDetailJson(order: Order, names: ReadonlyMap<string, LocalizedText>): Json | null {
   const surcharge = order.settlement.areaSurcharge ?? null;
   if (surcharge === null) return null;
-  const end = (entry: typeof surcharge.pickup): Json => ({ area_id: entry.areaId, area_name: entry.areaId === null ? null : (names.get(entry.areaId) ?? null), settlement: salesMoney(entry.amountMinor, order.settlementCurrency) });
+  // 机场套餐单独定价免掉的项（M9P-21，ADR 0098）：金额 0，带 `included_in_package: true`
+  const end = (entry: typeof surcharge.pickup): Json => ({ area_id: entry.areaId, area_name: entry.areaId === null ? null : (names.get(entry.areaId) ?? null), settlement: salesMoney(entry.amountMinor, order.settlementCurrency), ...(entry.includedInPackage === true ? { included_in_package: true } : {}) });
   // 行程加价（M9W-01，ADR 0088、0093）：每个收了行程加价的区域一项；下车点行程加价那一项带 `from_dropoff: true`（M9P-01）
-  const waypoints = surcharge.waypoints === undefined ? {} : { waypoints: surcharge.waypoints.map((entry) => ({ ...end({ areaId: entry.areaId, priceRuleId: entry.priceRuleId, amountMinor: entry.amountMinor }), stop_seqs: entry.stopSeqs, ...(entry.fromDropoff === true ? { from_dropoff: true } : {}) })) };
-  return { package_settlement: salesMoney(surcharge.packageMinor, order.settlementCurrency), pickup: end(surcharge.pickup), dropoff: end(surcharge.dropoff), ...waypoints };
+  const waypoints = surcharge.waypoints === undefined ? {} : { waypoints: surcharge.waypoints.map((entry) => ({ ...end({ areaId: entry.areaId, priceRuleId: entry.priceRuleId, amountMinor: entry.amountMinor, ...(entry.includedInPackage === true ? { includedInPackage: true as const } : {}) }), stop_seqs: entry.stopSeqs, ...(entry.fromDropoff === true ? { from_dropoff: true } : {}) })) };
+  // 机场开始 / 机场结束（M9P-21，ADR 0098）：场景、机场、单独定价还是继承；页面按它显示「成田机场接机 + 5 小时包车」
+  const scenario = order.settlement.charterScenario;
+  const charterScenario = scenario === undefined ? {} : { charter_scenario: { kind: scenario.kind, airport_id: scenario.placeId, airport_name: scenario.name, pricing: scenario.pricing } };
+  return { package_settlement: salesMoney(surcharge.packageMinor, order.settlementCurrency), pickup: end(surcharge.pickup), dropoff: end(surcharge.dropoff), ...waypoints, ...charterScenario };
 }
 
 /**

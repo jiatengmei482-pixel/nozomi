@@ -107,6 +107,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     adjust_rules: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     // 计程价（M8-30，ADR 0080）：同价格规则
     distance_prices: ["DELETE", "INSERT", "SELECT", "UPDATE"],
+    // 包车机场绑定（M9P-21，ADR 0098）：供应商自己的配置，整组替换（先删后建）
+    charter_airport_bindings: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     // 区域：供应商自己的业务数据，可以真的删除（ADR 0015）
     area_polygons: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     areas: ["DELETE", "INSERT", "SELECT", "UPDATE"],
@@ -203,6 +205,7 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     // 报价用到的租户表对平台只读：比价要把所有供应商的商品放在一起算（ADR 0020）
     adjust_rules: ["SELECT"],
     distance_prices: ["SELECT"],
+    charter_airport_bindings: ["SELECT"],
     // 双人复核（ADR 0023）：发起、写结论；不删
     approvals: ["INSERT", "SELECT", "UPDATE"],
     area_polygons: ["SELECT"],
@@ -392,7 +395,7 @@ const CROSS_TENANT_POLICIES: Readonly<Record<string, PolicyShape>> = {
   "product_vehicle_groups.product_vehicle_groups_platform_read": { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null },
   // 报价用到的租户表：平台只读（ADR 0020）
   // 调度人：运营后台只读查看商品（ADR 0021）
-  ...Object.fromEntries(["brands", "areas", "area_polygons", "product_areas", "price_rules", "adjust_rules", "distance_prices", "inventory_days", "product_dispatchers"].map((table) => [`${table}.${table}_platform_read`, { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null }])),
+  ...Object.fromEntries(["brands", "areas", "area_polygons", "product_areas", "price_rules", "adjust_rules", "distance_prices", "inventory_days", "product_dispatchers", "charter_airport_bindings"].map((table) => [`${table}.${table}_platform_read`, { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null }])),
   // 订单：销售端下单、支付回调、超时取消、运营后台查看（ADR 0026）
   "orders.orders_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
   "order_events.order_events_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },

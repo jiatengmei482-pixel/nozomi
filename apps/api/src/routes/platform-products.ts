@@ -12,8 +12,9 @@ import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { decodeTimeCursor } from "../pagination.ts";
 import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
-import { type PlatformProductListEntry, type ProductTenantRef, getPlatformCharterMigrationDiff, getPlatformProduct, listPlatformProducts } from "../services/platform-products.ts";
+import { type PlatformProductListEntry, type ProductTenantRef, getPlatformCharterAirports, getPlatformCharterMigrationDiff, getPlatformProduct, listPlatformProducts } from "../services/platform-products.ts";
 import { pageQuerySchema, parseInput, resourceId, uuidSchema } from "../validation.ts";
+import { charterAirportsJson } from "./charter-airports.ts";
 import { adjustRulesJson, charterMigrationDiffJson, priceRulesJson } from "./prices.ts";
 import { contentJson, productJson, publishCheckJson, serviceRulesJson } from "./products.ts";
 
@@ -67,6 +68,11 @@ export function registerPlatformProductRoutes(app: FastifyInstance, ctx: AppCont
   });
 
   // 三层区域迁移的「套餐价不一致」（M9P-05，ADR 0093 第六节第 1 小节）：只读，现有的商品查看权限
+  app.get("/platform/v1/products/:id/charter-airports", async (request) => {
+    await authenticatePlatform(ctx, platformCredentials(request), { action: "product.read" });
+    return charterAirportsJson(await getPlatformCharterAirports(ctx, resourceId(request.params, "商品")));
+  });
+
   app.get("/platform/v1/products/:id/charter-migration-diff", async (request) => {
     await authenticatePlatform(ctx, platformCredentials(request), { action: "product.read" });
     return charterMigrationDiffJson(await getPlatformCharterMigrationDiff(ctx, resourceId(request.params, "商品")));

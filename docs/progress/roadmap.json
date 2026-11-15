@@ -1667,9 +1667,9 @@
           "id": "M9P-21",
           "title": "机场套餐后端：迁移 0520（charter_airport_bindings、价格方式 charter_airport_package）、机场绑定接口与校验、引擎场景匹配与计价、明细 / 快照、改期 / 救援、站点机场接口、OpenAPI（ADR 0098）",
           "role": "backend",
-          "status": "todo",
+          "status": "doing",
           "acceptance": ["没配机场绑定的商品包车 golden、itinerary golden 0 条变化，回放 0 变化", "成田上车机场开始继承 = 33,000 + 14,000 = 47,000，套餐行「成田机场接机 + 5 小时包车」（绑定填中文简称）；单独填 45,000 → 45,000、没有上车加价", "新宿上车、羽田下车 → 机场结束（= 普通价）；上下车都不在机场 → 只有普通套餐", "机场 → 机场取结算价低的、一样取机场开始；成田外围重叠处单独定价整端免、不收千叶超远 12,000；单独定价免场景那一端③加价（机场结束另免下车点行程加价），另一端、经停照收；成田下车继承 = 61,000、单独 45,000", "自动选档比「场景套餐价 +（继承档才加）这一端机场加价 + 超公里费」取最低（5h 单独 45,000 vs 6h 继承 52,000 → 5h）；改期时单独定价的单仍按机场套餐价、找不到就报不出", "绑定校验：只限三层区域商品（CHARTER_LAYOUT_NOT_MIGRATED）、机场区域可为接送机 / 通用 / 包车类型、须被本商品①∪③完全覆盖（AIRPORT_AREA_NOT_COVERED）、机场和启用航站楼须在区域里（AIRPORT_NOT_IN_AREA）、绑定着的区域删不掉（409 AREA_IN_USE）；新价格方式须有绑定（AIRPORT_BINDING_REQUIRED）；租户隔离集成测试", "机场套餐价导入导出由后端解析、校验、冲突检查；迁移 0520 以实施时 main 最新列表重建约束，迁移测试覆盖每种价格方式；单元 + 集成（真实 PostgreSQL）；独立审查、合并、部署"],
-          "evidence": "",
+          "evidence": "PR #261（https://github.com/jiatengmei482-pixel/nozomi/pull/261）第一批：引擎、价格方式、迁移 0520、机场绑定接口（租户 / 运营只读）、官网快捷入口接口、改期锁定场景。本机：单元 charter-airport 12 条 + 相关 domain 23 个文件 368 条（golden 0 变化）；集成 charter-airports 7 条连同包车三层相关 3 个文件共 34 条全过；后端、前端类型检查通过。第二批：价格导入导出认「机场场景」列（机场套餐价），集成 charter-airports 8 条 + charter-three-layer 11 条全过；M9P-21 后端部分做完",
           "updated": "2026-11-15"
         },
         {
@@ -3406,6 +3406,11 @@
       "date": "2026-11-15",
       "by": "backend",
       "summary": "M9P-14 开 PR #266：只读回放可以带 rows=true 取逐行明细，部署前后各取一次后用 pnpm replay:classify 把差异按 ADR 0093 第六节第 5 小节归类（加价、超时费、选档、套餐价、超长不报、未归类），给出前后金额；不带参数时应答不变，公开核对产物不变。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "backend",
+      "summary": "M9P-21 开工（ADR 0098，#259 复核通过）：报价引擎机场场景（匹配、单独定价免场景那一端③和下车点行程加价、选档时继承档加机场加价再比、机场 → 机场取低）、价格方式 charter_airport_package（isAirportPackageModel 单独一支，只查绑定 AIRPORT_BINDING_REQUIRED）、迁移 0520（机场绑定表、约束）、机场绑定接口和校验（覆盖、航站楼、删区域 409）、报价读绑定、官网明细带 scenario。还没做：机场套餐价导入导出解析、/site/v1/charter-airports、平台只读接口、改期强制沿用快照场景。"
     },
     {
       "date": "2026-11-15",

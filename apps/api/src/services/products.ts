@@ -36,6 +36,7 @@ import {
   holidayLookup,
   sellablePriceRules,
   sellableRouteRules,
+  isNonBaseRule,
   isSurchargeRule,
   areaRoleCanPrice,
   productPricingOutsideOperating,
@@ -650,7 +651,7 @@ async function charterPackageHours(db: Db, tenantId: string, product: Product, n
   const view = await detail(db, tenantId, product);
   const today = instantToLocal(now, view.city?.timezone ?? "UTC").date;
   const selected = { areaIds: (view.areas ?? []).map((area) => area.areaId), vehicleGroupIds: (view.vehicleGroups ?? []).map((group) => group.vehicleGroupId) };
-  return packageHoursOf(sellablePriceRules((await listPriceRules(db, tenantId, product.id)).filter((rule) => !isSurchargeRule(rule)), selected, today));
+  return packageHoursOf(sellablePriceRules((await listPriceRules(db, tenantId, product.id)).filter((rule) => !isNonBaseRule(rule)), selected, today));
 }
 
 /** 价格规则里包车套餐的时长 */
@@ -844,7 +845,7 @@ async function runPublishCheck(db: Db, tenantId: string, product: Product, now: 
   const allPriceRules = await listPriceRules(db, tenantId, product.id);
   // 迁移过三层区域的包车（ADR 0093 第五节）：套餐价只用整商品套餐价，按服务区域的旧行只读、报价不读，不算
   const layered = product.category === "charter" && product.charterLayout === "three_layer";
-  const priceRules = allPriceRules.filter((rule) => !isSurchargeRule(rule) && (!layered || rule.areaId === null));
+  const priceRules = allPriceRules.filter((rule) => !isNonBaseRule(rule) && (!layered || rule.areaId === null));
   const adjustRules = await listAdjustRules(db, tenantId, product.id);
   // 「可以卖的价格」：启用、未过期，而且区域和车型组都是商品现在选着的（price-overview、修改保护用的是同一个判断）
   const selected = { areaIds: (view.areas ?? []).map((area) => area.areaId), vehicleGroupIds: (view.vehicleGroups ?? []).map((group) => group.vehicleGroupId) };

@@ -33,7 +33,7 @@
 ## 三、下单时锁定动到的字段
 
 - `orders.free_wait_minutes`（已有）：接机存第二节算出的**最终值**，不再直接抄商品的值。履约（`freeWaitWindow`）、no-show 证据、付费等待都读它，不用改。
-- 新增（迁移 **0480**，main 到 0460，#249 占了 0470）：
+- 新增（迁移 **0540**；原定 0480，合并时 main 已到 0520，按迁移顺序检查改成 0540）：
   - `orders.flight_kind`：客人选的 `international` / `domestic`；没选、不是接机为 null；
   - `orders.free_wait_basis`（jsonb）：锁定依据 `{ flight_kind, base, floor_minutes }`——按哪种航班取的下限（null = 未确认）、商品自己设的值（`base`，取下限前的底数）、取的下限。以前的单、不是接机的单为 null，不回填。
   - 两列加进 `orders_tenant_columns`（供应商不能改）。订单没有列出 `free_wait_minutes` 的视图，不用重建。
