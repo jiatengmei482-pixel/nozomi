@@ -32,6 +32,8 @@ export interface LanguageRow {
  */
 export interface ItineraryField {
   dropoffSurcharge: boolean;
+  /** 经停顺序建议（M9P-20 P2，ADR 0096 第六节）：默认开 */
+  suggestStopOrder: boolean;
   stopOccupancy: string;
   buffer: string;
   minPackage: string;
@@ -132,6 +134,7 @@ function itineraryField(body: CharterItineraryBody | undefined): ItineraryField 
   const minutes = (value: number | undefined): string => (value === undefined || value === 0 ? "" : String(value));
   return {
     dropoffSurcharge: body?.dropoff_itinerary_surcharge ?? true,
+    suggestStopOrder: body?.suggest_stop_order ?? true,
     stopOccupancy: minutes(body?.stop_occupancy_minutes),
     buffer: minutes(body?.buffer_minutes),
     minPackage: body?.min_package_hours === null || body?.min_package_hours === undefined ? "" : String(body.min_package_hours),
@@ -323,7 +326,7 @@ export function readRulesForm(form: RulesForm, context: RulesFormContext): Rules
       if (INTEGER.test(minText) && Number(minText) >= 1 && Number(minText) <= PRICE_LIMITS.maxPackageHours) minPackage = Number(minText);
       else problems.push({ text: `最低套餐：请填 1 到 ${PRICE_LIMITS.maxPackageHours} 之间的整数（小时），不限请留空`, target: "itinerary-min-package" });
     }
-    itinerary = { dropoff_itinerary_surcharge: form.itinerary.dropoffSurcharge, stop_occupancy_minutes: stopOccupancy, buffer_minutes: buffer, min_package_hours: minPackage };
+    itinerary = { dropoff_itinerary_surcharge: form.itinerary.dropoffSurcharge, stop_occupancy_minutes: stopOccupancy, buffer_minutes: buffer, min_package_hours: minPackage, suggest_stop_order: form.itinerary.suggestStopOrder };
   }
 
   const body: ServiceRulesBody = {
@@ -342,7 +345,7 @@ export function readRulesForm(form: RulesForm, context: RulesFormContext): Rules
     freeWait,
     addons: addons.map((addon) => ({ addonId: addon.addon_id, enabled: true, unitPriceMinor: addon.unit_price, firstFree: addon.first_free })),
     driverLanguages: languages.map((entry) => ({ language: entry.language, unitPriceMinor: entry.unit_price })),
-    ...(itinerary === null ? {} : { charterItinerary: { dropoffItinerarySurcharge: itinerary.dropoff_itinerary_surcharge, stopOccupancyMinutes: itinerary.stop_occupancy_minutes, bufferMinutes: itinerary.buffer_minutes, minPackageHours: itinerary.min_package_hours } }),
+    ...(itinerary === null ? {} : { charterItinerary: { dropoffItinerarySurcharge: itinerary.dropoff_itinerary_surcharge, stopOccupancyMinutes: itinerary.stop_occupancy_minutes, bufferMinutes: itinerary.buffer_minutes, minPackageHours: itinerary.min_package_hours, suggestStopOrder: itinerary.suggest_stop_order } }),
   };
   // 兜底：域里的规则还认为不对、而上面没有报过的（正常不会有）
   const reported = new Set(problems.map((problem) => problem.target));

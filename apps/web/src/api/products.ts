@@ -151,6 +151,8 @@ export interface CharterItineraryBody {
   buffer_minutes?: number;
   min_package_hours?: number | null;
   max_online_minutes?: number;
+  /** 经停顺序建议（M9P-20 P2，ADR 0096 第六节）：默认开 */
+  suggest_stop_order?: boolean;
 }
 
 export interface ProductServiceRules {

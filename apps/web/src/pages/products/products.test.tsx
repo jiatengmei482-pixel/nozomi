@@ -554,6 +554,11 @@ test("服务规则：包车按行程计价的三项配置和「下车点行程�
   assert.equal(dropoff.checked, true, "默认开");
   assert.ok(within(section).getByText("没有市外经停时，下车点所在行程区域收一次行程加价。默认开。"));
   assert.equal(dropoff.getAttribute("aria-describedby"), "itinerary-dropoff-hint");
+  // 经停顺序建议（M9P-20 P2，ADR 0096 第六节）：默认开，说明里写关了只是不显示建议价
+  const suggest = within(section).getByRole("checkbox", { name: "提示更省路程的经停顺序" }) as HTMLInputElement;
+  assert.equal(suggest.checked, true, "默认开");
+  assert.equal(suggest.getAttribute("aria-describedby"), "itinerary-suggest-hint");
+  assert.match(within(section).getByText(/客人填 2 个以上经停时/).textContent ?? "", /默认开/);
   // 填错了：指到输入框
   await actor.type(stop, "121");
   await actor.type(min, "0");
@@ -567,9 +572,10 @@ test("服务规则：包车按行程计价的三项配置和「下车点行程�
   await actor.clear(min);
   await actor.type(min, "13");
   await actor.click(dropoff);
+  await actor.click(suggest);
   await actor.click(screen.getByRole("button", { name: "保存草稿" }));
   await screen.findByText("已保存");
-  assert.deepEqual((writes(calls)[0]?.body as ServiceRulesBody).charter_itinerary, { dropoff_itinerary_surcharge: false, stop_occupancy_minutes: 15, buffer_minutes: 60, min_package_hours: 13 });
+  assert.deepEqual((writes(calls)[0]?.body as ServiceRulesBody).charter_itinerary, { dropoff_itinerary_surcharge: false, stop_occupancy_minutes: 15, buffer_minutes: 60, min_package_hours: 13, suggest_stop_order: false });
   await screen.findByText("最低套餐 13 小时比这个商品所有启用的套餐都长（最长 12 小时），这个商品将报不出价。");
 });
 

@@ -39,7 +39,10 @@ export type ItineraryTextKey =
   | "optimizeIntro"
   | "optimizeCalls"
   | "optimizeLimit"
-  | "optimizeRefused";
+  | "optimizeRefused"
+  | "rulesSuggestLegend"
+  | "rulesSuggestLabel"
+  | "rulesSuggestHint";
 
 const ZH: Readonly<Record<ItineraryTextKey, string>> = {
   pickup: "上车",
@@ -76,6 +79,9 @@ const ZH: Readonly<Record<ItineraryTextKey, string>> = {
   optimizeCalls: "今天的调用（{day}）",
   optimizeLimit: "{calls} / {limit} 次（含重试）",
   optimizeRefused: "今天被上限挡下",
+  rulesSuggestLegend: "经停顺序建议",
+  rulesSuggestLabel: "提示更省路程的经停顺序",
+  rulesSuggestHint: "客人填 2 个以上经停时，提示更省路程的顺序，并给出按建议顺序的价格。关了只是这个商品不显示建议价，客人自己排的任何顺序照常报价。默认开。",
 };
 
 export const ITINERARY_TEXTS: Readonly<Record<ItineraryLang, Partial<Record<ItineraryTextKey, string>>>> = { zh: ZH, ja: {}, en: {} };
