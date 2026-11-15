@@ -78,6 +78,7 @@ import { CHARTER_ITINERARY_OVERAGE_NOTE, CHARTER_OVERAGE_NOTE, UNAVAILABLE_REASO
 import { FIELD_HINTS, MESSAGING_NAMES, type OrderErrors, type OrderForm, type OrderTrip, orderFailureOf, orderRequestOf, validateOrderForm } from "../../../lib/site-order-form.ts";
 import { useDocumentTitle } from "../../../lib/use-document-title.ts";
 import { MANUAL_QUOTE_CHARTER_HOURS, type ManualQuoteTripDraft } from "../../../lib/manual-quote-form.ts";
+import { ItineraryWarnings } from "./ItineraryWarnings.tsx";
 import { ITINERARY_NOTE, type WaypointDraft, autoPackageChoice, autoPackageHoursByVehicle, breakdownLines, upgradePackageHours, durationText, itineraryMapAlt, itineraryMapPoints, itineraryPackageHours, itineraryRouteFailureText, itineraryText, minPackageHints, scheduleRows, waypointErrors, waypointUnavailableTexts, waypointsBody } from "../../../lib/charter-itinerary.ts";
 import { TripStops } from "../../../components/TripStops.tsx";
 import { itineraryCopy } from "../../../lib/itinerary-texts.ts";
@@ -1092,6 +1093,8 @@ export function BookNewPage() {
               {/* 超过 12 个点（ADR 0099）：不请求地图，只显示列表 */}
               {charterMapPoints === null && draft.from !== null && draft.to !== null && <p className="site-muted">{itineraryCopy("listOnly")}</p>}
               <TripStops rows={charterRows} />
+              {/* 超过 12 小时 / 360 公里的提醒（M9P-10，ADR 0099）：只在有经停点、按行程计价时 */}
+              {itinerary && <ItineraryWarnings quote={selected ?? quotes[0] ?? null} route={charterResult?.itinerary_route} points={[draft.from?.name ?? "", ...stops.map((stop) => stop.name), draft.to?.name ?? ""]} />}
               {itinerary && <p className="price-breakdown__note">{ITINERARY_NOTE}</p>}
             </section>
           )}

@@ -56,6 +56,7 @@ const quote: SiteQuote = {
   free_wait_minutes: 15,
   cancel_policy: { category: "point_to_point", level: "economy", tiers: [{ min_hours_before: 24, fee_bp: 0 }, { min_hours_before: 0, fee_bp: 10000 }] },
   available_addons: [],
+  itinerary_warnings: null,
 };
 const byPoints: SiteByPointsResult = { trip_type: "point_to_point", airport: null, fallback_category: null, city: { id: CITY_ID, code: city.code, name: city.name, timezone: city.timezone }, currency: "JPY", quotes: [quote], unavailable: [], expires_at: null, route: null };
 const ROUTE = { minutes: 25, meters: 14_200, polyline: null };

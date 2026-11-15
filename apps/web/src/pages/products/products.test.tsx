@@ -569,8 +569,34 @@ test("服务规则：包车按行程计价的三项配置和「下车点行程�
   await actor.click(dropoff);
   await actor.click(screen.getByRole("button", { name: "保存草稿" }));
   await screen.findByText("已保存");
-  assert.deepEqual((writes(calls)[0]?.body as ServiceRulesBody).charter_itinerary, { dropoff_itinerary_surcharge: false, stop_occupancy_minutes: 15, buffer_minutes: 60, min_package_hours: 13 });
+  assert.deepEqual((writes(calls)[0]?.body as ServiceRulesBody).charter_itinerary, { dropoff_itinerary_surcharge: false, stop_occupancy_minutes: 15, buffer_minutes: 60, min_package_hours: 13, warn_minutes: 720, warn_km: 360 });
   await screen.findByText("最低套餐 13 小时比这个商品所有启用的套餐都长（最长 12 小时），这个商品将报不出价。");
+});
+
+test("服务规则：超限提醒线（M9P-10）——显示保存过的值（没设过是默认 720 分钟 / 360 公里），说明写清只提醒、仍可下单；改了提交 warn_minutes / warn_km；范围之外指到输入框", async () => {
+  const actor = user();
+  const charter = productOf({ category: "charter", poi_id: null, poi: null });
+  const base = rulesOf({ booking: { sale_from: null, sale_to: null, service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 24, note: null }, free_wait: { pickup: null, dropoff: null, general: { mode: "limited", minutes: 0 } }, charter_itinerary: { dropoff_itinerary_surcharge: true, stop_occupancy_minutes: 0, buffer_minutes: 0, min_package_hours: null, max_online_minutes: 780, warn_minutes: 720, warn_km: 360 } });
+  const calls = open(`/products/${PRODUCT_ID}/service-rules`, "admin", productRoutes({ product: charter, rules: { ...base, free_wait_minimums: { pickup: null, dropoff: null, general: 0 } } }, (call) => (call.method === "PUT" ? json(200, { ...rulesOf(call.body as ServiceRulesBody, 8), free_wait_minimums: { pickup: null, dropoff: null, general: 0 }, min_package_above_all: null }) : null)));
+  const section = (await screen.findByRole("heading", { name: "包车按行程计价" })).closest("section") as HTMLElement;
+  const minutes = within(section).getByLabelText("超限提醒：预计用时（分钟）") as HTMLInputElement;
+  const km = within(section).getByLabelText("超限提醒：全程（公里）") as HTMLInputElement;
+  assert.deepEqual([minutes.value, km.value], ["720", "360"]);
+  assert.ok(within(section).getByText("预计用时超过它时，在客人的行程时间表下方提醒缩减行程，客人仍可下单。60 到 1440 分钟，默认 720（12 小时）。"));
+  assert.ok(within(section).getByText("全程超过它时提醒（会产生较多超公里费），客人仍可下单。1 到 5000 公里，默认 360。"));
+  await actor.clear(minutes);
+  await actor.type(minutes, "30");
+  await actor.click(screen.getByRole("button", { name: "保存草稿" }));
+  await waitFor(() => assert.ok(screen.getAllByText("请填 60 到 1440 之间的整数（分钟）").length > 0));
+  assert.equal(writes(calls).length, 0);
+  await actor.clear(minutes);
+  await actor.type(minutes, "600");
+  await actor.clear(km);
+  await actor.type(km, "300");
+  await actor.click(screen.getByRole("button", { name: "保存草稿" }));
+  await screen.findByText("已保存");
+  const sent = (writes(calls)[0]?.body as ServiceRulesBody).charter_itinerary;
+  assert.deepEqual([sent?.warn_minutes, sent?.warn_km], [600, 300]);
 });
 
 test("服务规则：接送机没有包车按行程计价那一块，也不提交 charter_itinerary", async () => {
