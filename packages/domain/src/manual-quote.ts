@@ -6,6 +6,7 @@
  * - 联系方式和两端地点按乘客信息的方案加密存（ADR 0057）；关闭（或转订单）180 天后、最晚提交 365 天后清除。
  * - 同一处的「通过 WhatsApp 联系我们」：号码在运营后台「官网设置」里填（`whatsappDigits`），消息只有行程要点，没有客人的个人信息。
  */
+import { CHARTER_ITINERARY_LIMITS } from "./charter-itinerary-limits.ts";
 import type { ServiceCategory } from "./master-data.ts";
 import { viewLinkLookupEmail } from "./view-link.ts";
 
@@ -38,8 +39,8 @@ export const MANUAL_QUOTE_RULES = {
   maxLuggage: 60,
   /** 包车套餐时长的上限（和价格规则的 `PRICE_LIMITS.maxPackageHours` 一样） */
   maxPackageHours: 72,
-  /** 包车经停点最多几个（M9W-04；和官网包车询价的经停点一样） */
-  maxWaypoints: 10,
+  /** 包车经停点最多几个（M9W-04；和官网包车询价的经停点一样，M9P-10 起是 `CHARTER_ITINERARY_LIMITS`） */
+  maxWaypoints: CHARTER_ITINERARY_LIMITS.maxWaypoints,
   /** 一个经停点最长停留多少分钟（和官网包车询价的经停点一样，ADR 0088） */
   maxStayMinutes: 1_440,
 } as const;
