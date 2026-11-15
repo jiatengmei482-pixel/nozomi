@@ -3,11 +3,14 @@
  * 不依赖 DOM，单元测试直接测；widget.ts 只负责画界面和调接口。组件不询价、不下单、不显示价格。
  */
 
+import { CHARTER_ITINERARY_LIMITS } from "@nozomi/domain/charter-itinerary-limits";
+
 export type WidgetLang = "zh" | "ja" | "en";
 export type WidgetService = "transfer" | "charter";
 export const WIDGET_LANGS: readonly WidgetLang[] = ["zh", "ja", "en"];
 export const WIDGET_SERVICES: readonly WidgetService[] = ["transfer", "charter"];
-export const MAX_WAYPOINTS = 10;
+/** 经停点最多几个：和报价接口同一个常量（M9P-10，只受路径接口上限）；单独引这个没有依赖的文件，不把整个 domain 打进组件脚本 */
+export const MAX_WAYPOINTS = CHARTER_ITINERARY_LIMITS.maxWaypoints;
 export const STAY_OPTIONS: readonly number[] = Array.from({ length: 16 }, (_, index) => (index + 1) * 30);
 /** 脚本 gzip 后的大小预算（字节） */
 export const WIDGET_GZIP_BUDGET = 60 * 1024;
@@ -145,6 +148,18 @@ type Texts = Record<
   | "invalid" | "tooFast" | "busy" | "refused" | "unreachable" | "packageNote" | "minutes" | "tabs" | "suggestions",
   string
 >;
+
+/**
+ * M9P-10 起新加的文案键：目前只有中文（业主 2026-11-15：翻译放到最后阶段 M11），日文、英文界面先显示中文；
+ * 补翻译时在这里加 `ja`、`en`，不改 `TEXTS` 里已有的三语。
+ */
+type PendingKey = "waypointLimit";
+const PENDING_TEXTS: Readonly<{ zh: Readonly<Record<PendingKey, string>> } & Partial<Record<WidgetLang, Readonly<Record<PendingKey, string>>>>> = {
+  zh: { waypointLimit: `最多 ${MAX_WAYPOINTS} 个经停点，更多请联系客服定制。` },
+};
+export function pendingText(lang: WidgetLang, key: PendingKey): string {
+  return (PENDING_TEXTS[lang] ?? PENDING_TEXTS.zh)[key];
+}
 
 export const TEXTS: Readonly<Record<WidgetLang, Texts>> = {
   zh: {

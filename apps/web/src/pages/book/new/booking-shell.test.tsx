@@ -32,6 +32,7 @@ const quote: SiteQuote = {
   free_wait_minutes: 15,
   cancel_policy: { category: "point_to_point", level: "economy", tiers: [{ min_hours_before: 24, fee_bp: 0 }] },
   available_addons: [],
+  itinerary_warnings: null,
 };
 const byPoints: SiteByPointsResult = { trip_type: "point_to_point", airport: null, fallback_category: null, city: { id: CITY_ID, code: city.code, name: city.name, timezone: city.timezone }, currency: "JPY", quotes: [quote], unavailable: [], expires_at: null, route: null };
 const draft = { v: 1, tab: "transfer", service_local: "2030-11-20T10:00", pickup: { name: "京王广场酒店", lat: 35.6905, lng: 139.6948 }, dropoff: { name: "东京站", lat: 35.6812, lng: 139.7671 }, waypoints: [], package_hours: null, passengers: 2, luggage: 1, lang: "ja" };

@@ -12990,7 +12990,7 @@ paths:
       operationId: createEmbedBookingDraft
       summary: 建预订草稿（跨域），返回要跳转的主站地址
       description: |
-        请求体超过 16 KB 在解析前 413。`draft` 按预订条件 v1 逐项严格校验（多一个键就 400）；`return_url` 不合格时忽略（不报错、不存）。
+        请求体超过 24 KB 在解析前 413。`draft` 按预订条件 v1 逐项严格校验（多一个键就 400）；`return_url` 不合格时忽略（不报错、不存）。
         限速：每个来源地址 10 分钟 30 次、每个嵌入码每分钟 60 次（429 `RATE_LIMITED`）；每个嵌入码同时有效的草稿最多 5,000 个（429 `EMBED_DRAFT_LIMIT`）。
         草稿 2 小时有效；来源（嵌入码、网站、返回地址）由服务端记下，只做统计。
       security: []
@@ -13045,7 +13045,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "413":
-          description: "`PAYLOAD_TOO_LARGE`：请求体超过 16 KB"
+          description: "`PAYLOAD_TOO_LARGE`：请求体超过 24 KB"
           content:
             application/json:
               schema:
@@ -13714,7 +13714,7 @@ paths:
         **每个商品按自己的预计用时 T** = 行驶 + 停留 + 经停点个数 × 经停点默认占用 + 整单缓冲（商品服务规则 `charter_itinerary`，默认 0 / 0）选套餐：
         候选是时长 ≥ T（且 ≥ 最低套餐）、这一档能报出的套餐，取「套餐价 + max(0, D − 套餐含公里) × 超公里单价」最低的（一样取短的）；一档都没有时只有最长那一档。
         各商品各自选档、各自算总价后再比价（包车严格取最低：同价区间为 0）。最终价 = 套餐价 + 上车加价 + 行程加价 + 下车加价 + 超公里费，再过调价和平台加价；
-        **不含超时费**（超时由供应商服务后按实际提交），`price_breakdown` 没有 `overtime` 项。每个报价多给 `estimated_minutes`（中标商品的 T）、`includes_buffer`、`auto_package_hours`（自动选的档）。
+        **不含超时费**（超时由供应商服务后按实际提交），`price_breakdown` 没有 `overtime` 项。每个报价多给 `estimated_minutes`（中标商品的 T）、`includes_buffer`、`auto_package_hours`（自动选的档）、`itinerary_warnings`（超限提醒，M9P-10）。
         手动升档：`package_hours` 低于商品的最低套餐、或比 T 短又不是最长那一档的商品不报，`unavailable` 是 `PACKAGE_TOO_SHORT`，另给 `min_package_hours`（能选的最短档）。
         T 超过商品的在线下单上限（默认 13 小时）的商品不报，`unavailable` 是 `ITINERARY_TOO_LONG`（页面提示联系客服定制）。
         应答多一项 `itinerary_route`（不叫 `route`：按两个坐标报价的应答里 `route` 已是路线预览）。全程和时长只由服务器算。
@@ -24368,6 +24368,16 @@ components:
               minimum: 60
               maximum: 1440
               description: 在线下单上限（分钟）：按行程计价的预计用时 T 超过它的不在线报价（`ITINERARY_TOO_LONG`，转客服）。默认 780（13 小时，规格步骤 5）
+            warn_minutes:
+              type: integer
+              minimum: 60
+              maximum: 1440
+              description: 超限提醒（分钟，M9P-10）：按行程计价的预计用时 T 大于它时，官网报价带 `itinerary_warnings` 含 `LONG_DURATION`，页面提醒客人缩减行程，仍可下单。默认 720（12 小时，规格步骤 5）
+            warn_km:
+              type: integer
+              minimum: 1
+              maximum: 5000
+              description: 超限提醒（公里，M9P-10）：全程大于它时，官网报价带 `itinerary_warnings` 含 `LONG_DISTANCE`，仍可下单。默认 360
             dropoff_itinerary_surcharge:
               type: boolean
               default: true
@@ -24515,7 +24525,7 @@ components:
             charter_itinerary:
               type: object
               additionalProperties: false
-              required: [ dropoff_itinerary_surcharge, stop_occupancy_minutes, buffer_minutes, min_package_hours, max_online_minutes ]
+              required: [ dropoff_itinerary_surcharge, stop_occupancy_minutes, buffer_minutes, min_package_hours, max_online_minutes, warn_minutes, warn_km ]
               description: 只有包车商品有这一项（M9P-01、M9P-03）；没设过的给默认值，见 `ServiceRules.charter_itinerary`
               properties:
                 dropoff_itinerary_surcharge:
@@ -24528,6 +24538,10 @@ components:
                 min_package_hours:
                   type: [ integer, "null" ]
                 max_online_minutes:
+                  type: integer
+                warn_minutes:
+                  type: integer
+                warn_km:
                   type: integer
     ProductContentText:
       type: object
@@ -29906,7 +29920,7 @@ components:
           $ref: "#/components/schemas/BookingDraftPoint"
         waypoints:
           type: array
-          maxItems: 10
+          maxItems: 25
           description: 只有包车能有；有经停点时按行程计价（ADR 0089）
           items:
             type: object
@@ -30383,9 +30397,9 @@ components:
           description: 包车按行程计价（M9W-01，ADR 0088 补充；M9P-03 起按 ADR 0093 第四节）：true 时服务器估路线、各商品按预计用时自己选套餐、收超公里（不收超时）；`package_hours` 可不填（自动选）或填更长的档（手动升档），见接口说明；别的品类填 true 400 `NOT_APPLICABLE`
         waypoints:
           type: array
-          maxItems: 10
+          maxItems: 25
           description: |
-            包车的经停点（途经景点，M9W-01，ADR 0088），按顺序，最多 10 个；选填，空数组和不填一样。别的品类填了 400 `NOT_APPLICABLE`（`/waypoints`）。
+            包车的经停点（途经景点，M9W-01，ADR 0088），按顺序，最多 25 个（M9P-10：只受路径接口一次 25 个中间点的上限，超出请联系客服定制）；选填，空数组和不填一样。别的品类填了 400 `NOT_APPLICABLE`（`/waypoints`）。
             经停点落在供应商的加价区域里时按那个区域的途经加价收（同一区域一单只收一次；上 / 下车已经在这个区域的不再收；只在商品服务区域里的不加）；
             有经停点哪个区域都不在，或落在加价区域里、但那些区域对这个车型组和套餐没有可用的途经加价（且不在商品服务区域里）时报不出
             （`unavailable` 的原因 `WAYPOINT_NOT_PRICED`，`waypoint_stop_seqs` 指出是第几个，M9W-10），转人工报价。
@@ -30484,7 +30498,7 @@ components:
     SiteQuote:
       type: object
       additionalProperties: false
-      required: [ quote_id, expires_at, service_date, urgent, vehicle_group, package, includes_area_surcharge, distance, pricing_basis, price, price_breakdown, free_wait_minutes, cancel_policy, available_addons, estimated_minutes, includes_buffer, auto_package_hours ]
+      required: [ quote_id, expires_at, service_date, urgent, vehicle_group, package, includes_area_surcharge, distance, pricing_basis, price, price_breakdown, free_wait_minutes, cancel_policy, available_addons, estimated_minutes, includes_buffer, auto_package_hours, itinerary_warnings ]
       properties:
         price_breakdown:
           $ref: "#/components/schemas/SitePriceBreakdown"
@@ -30609,6 +30623,15 @@ components:
         auto_package_hours:
           type: [ integer, "null" ]
           description: 包车按行程计价：这个车型自动选的套餐（小时）；手动升档时是自动会选的那一档（页面套餐下拉只列不短于它的）。别的报价为 null
+        itinerary_warnings:
+          type: [ array, "null" ]
+          items:
+            type: string
+            enum: [ LONG_DURATION, LONG_DISTANCE ]
+          description: |
+            包车按行程计价的超限提醒（M9P-10，规格步骤 5）：按中标商品的提醒线（服务规则 `charter_itinerary.warn_minutes`、`warn_km`，默认 12 小时 / 360 公里）——
+            `LONG_DURATION`：`estimated_minutes` 大于提醒线；`LONG_DISTANCE`：全程（`itinerary_route.total_meters`）大于提醒公里数。先用时、后距离；都没超为空数组。
+            只是提醒，仍可下单（超过在线下单上限的不报价，原因 `ITINERARY_TOO_LONG`）。没按行程计价的报价为 null
     SiteItineraryRoute:
       type: object
       additionalProperties: false
@@ -33460,7 +33483,7 @@ components:
           maximum: 72
         waypoints:
           type: array
-          maxItems: 10
+          maxItems: 25
           default: []
           description: 包车的经停点（M9W-04），按顺序；有经停点时可以不带 `package_hours`（按行程计价，由客服定套餐）。别的类型不能带
           items:
