@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { DISTANCE_ONLY_FEE_NOTES } from "./distance-price.ts";
-import { CHARTER_SUPPLIER_PRICE_NOTE, FIXED_PRICE_INCLUDES_TEXTS, FIXED_PRICE_RULES, fixedPriceFeeNote, fixedPriceIncludes, fixedPriceIncludesTitle, fixedPriceLabel } from "./fixed-price-includes.ts";
+import { CHARTER_OVERAGE_TEXTS, CHARTER_SUPPLIER_PRICE_NOTE, FIXED_PRICE_INCLUDES_TEXTS, FIXED_PRICE_RULES, fixedPriceFeeNote, fixedPriceIncludes, fixedPriceIncludesTitle, fixedPriceLabel } from "./fixed-price-includes.ts";
 
 const texts = (items: { text: string }[]): string[] => items.map((item) => item.text);
 
@@ -35,14 +35,16 @@ test("费用说明：接送机只写含所有费用；包车再接「超出套�
   assert.match(CHARTER_SUPPLIER_PRICE_NOTE, /包车报价须包含高速费、停车费/);
 });
 
-test("费用说明（M9W-05）：按行程计价的包车写超公里、超时已算进价格、只有当天超出预计的另收；不按行程计价和接送机完全不变", () => {
-  assert.equal(fixedPriceFeeNote("charter", "zh", { itinerary: true }), "一口价已含所有费用（高速费、停车费等），无需另付；超公里、超时已按预计行程算进价格，只有当天超出预计的部分服务后按实际收取");
-  assert.match(fixedPriceFeeNote("charter", "en", { itinerary: true }), /; Extra distance and time for the planned itinerary are already included; only usage beyond the plan/);
-  assert.match(fixedPriceFeeNote("charter", "ja", { itinerary: true }), /予定の行程で料金に含まれています/);
+test("费用说明（M9W-05，M9P-04 改）：按行程计价的包车写超公里已算进价格、用时超出套餐或当天超出预计的另收（报价不再含超时费）；不按行程计价和接送机完全不变", () => {
+  assert.equal(fixedPriceFeeNote("charter", "zh", { itinerary: true }), "一口价已含所有费用（高速费、停车费等），无需另付；超公里已按预计行程算进价格；用时超出套餐、或当天超出预计的部分，服务后按实际收取");
+  assert.match(fixedPriceFeeNote("charter", "en", { itinerary: true }), /; Extra distance for the planned itinerary is already included; time beyond the package and usage beyond the plan/);
+  assert.match(fixedPriceFeeNote("charter", "ja", { itinerary: true }), /距離の超過分は予定の行程で料金に含まれています。パッケージ時間を超えた分/);
   for (const language of ["zh", "ja", "en"] as const) {
     assert.equal(fixedPriceFeeNote("charter", language, { itinerary: false }), fixedPriceFeeNote("charter", language));
     assert.equal(fixedPriceFeeNote("transfer", language, { itinerary: true }), fixedPriceFeeNote("transfer", language));
-    assert.doesNotMatch(fixedPriceFeeNote("charter", language, { itinerary: true }), /超出套餐|beyond the package|パッケージを超えた/);
+    // 按行程计价的说法和不按行程计价的不是同一句（M9P-04 起两句都提到超出套餐，所以按整句比，不再按「超出套餐」几个字比）
+    assert.ok(!fixedPriceFeeNote("charter", language, { itinerary: true }).includes(CHARTER_OVERAGE_TEXTS[language]));
+    assert.ok(fixedPriceFeeNote("charter", language).includes(CHARTER_OVERAGE_TEXTS[language]));
   }
 });
 

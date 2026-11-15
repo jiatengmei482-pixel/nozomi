@@ -190,6 +190,19 @@
   color: var(--color-text-primary);
 }
 
+/* 所选时长低于最低套餐（M9P-04）：一句话 + 「改选 X 小时」，窄屏时按钮换到下一行 */
+.book-new__min-package {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.book-new__min-package p {
+  margin: 0;
+}
+
 .book-new__notice .link,
 .book-new__rejected .link {
   color: var(--color-text-primary);
@@ -1121,6 +1134,11 @@ button.book-steps__link:hover .book-steps__name {
 
 .price-breakdown__row dd {
   margin: 0;
+}
+
+/* 套餐那一行下面的预计用时（M9P-04）：另起一行，字号、颜色同标签 */
+.price-breakdown__sub {
+  display: block;
 }
 
 .price-breakdown__amount {

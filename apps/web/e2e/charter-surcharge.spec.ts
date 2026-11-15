@@ -6,7 +6,7 @@
  * 供应商经接口建一个运营区域（盖住整片）、商品区域和两个报价区域（东边「东区」、西边「西区」），上架包车商品（8 小时套餐 70,000 日元）。然后在页面上：
  * - 从菜单「商品配置 → 价格规则」进到这个商品的价格页，「区域加价」块里选区域、确认添加、在对话框里填上车加价和下车加价，两个区域都加上，保存（一次批量保存）；
  * - 运营后台「报价试算」：甲上车、乙下车 = 套餐价 70,000 + 上车加价 500 + 下车加价 1,000 = 结算价 71,500；
- * - 官网新预订页同一条路线：只有一个价，写「含区域加价」，不写加价金额；
+ * - 官网新预订页同一条路线：只有一个价，写「含区域加价」；M9P-04 起车型卡另有逐项明细（套餐、上车加价、下车加价，对外价），取代原来的「不写加价金额」；
  * - 删除「东区」（页面内确认）→ 保存：那几条区域加价停用（记录还在），出现在「已删除的加价区域」里。
  * 亮暗两色 axe、320 / 390 宽不横向滚动（手机上区域是卡片）；截图存到 E2E_SCREENSHOT_DIR（没设时存到测试输出目录）。
  */
@@ -224,12 +224,13 @@ test("供应商在价格页设包车区域加价（两个区域）→ 运营报�
   await shot(ops, "platform-quote-preview");
   await platformContext.close();
 
-  // ── 官网新预订页：同一条路线只有一个价，写「含区域加价」，不写加价金额 ──
+  // ── 官网新预订页：同一条路线只有一个价，写「含区域加价」；M9P-04 起逐项列明细（对外价：上车 500 → 550，下车 1,000 → 1,100） ──
   const site = await browser.newPage({ locale: "zh-CN", viewport: { width: 1280, height: 900 } });
   const link = `${SITE}/book/new?mode=charter&from=${trip.pickup.lat},${trip.pickup.lng}&from_name=${encodeURIComponent("甲上车点")}&to=${trip.dropoff.lat},${trip.dropoff.lng}&to_name=${encodeURIComponent("乙下车点")}&date=${tomorrowInTokyo()}&time=10:00`;
   await site.goto(link);
   const card = site.getByRole("listitem").filter({ has: site.getByRole("heading", { name: trip.groupName }) });
   await expect(card).toContainText("含区域加价，已算在这个价格里");
+  await expect(card.getByLabel("价格明细").locator(".price-breakdown__row")).toHaveText(["包车套餐 8 小时77,000 JPY", `上车加价（${trip.east.name}）550 JPY`, `下车加价（${trip.west.name}）1,100 JPY`]);
   await expect(site.locator("main")).not.toContainText(/500 JPY|1,000 JPY|1,500 JPY/);
   await site.close();
 
