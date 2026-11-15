@@ -10,7 +10,7 @@ import type { LatLng } from "./geo.ts";
 import { type AirportBinding, airportPackagePricing, airportScenarios, charterScenarioLabel } from "./charter-airport.ts";
 import { type PriceRule, findPriceRuleOverlaps, isAirportPackageModel, isNonBaseRule, isSurchargeRule, priceRuleIssues } from "./pricing.ts";
 import { emptyServiceRules } from "./products.ts";
-import { type QuoteArea, type QuoteMoment, type QuoteProduct, type QuoteRequest, quoteProduct } from "./quote.ts";
+import { type QuoteArea, type QuoteMoment, type QuoteProduct, type QuoteRequest, lockableAreaSurcharge, quoteProduct } from "./quote.ts";
 
 const square = (west: number, south: number, east: number, north: number): Position[] => [[west, south], [east, south], [east, north], [west, north], [west, south]];
 const area = (areaId: string, ring: Position[]): QuoteArea => ({ areaId, active: true, shapes: [{ id: `${areaId}-op`, kind: "operate", ring }] });
@@ -213,19 +213,49 @@ test("机场套餐价的价格规则：方向必填（pickup / dropoff）、套�
   assert.deepEqual(findPriceRuleOverlaps([sample, airportPrice("d", "pickup", 5, 46_000, { validFrom: "2026-06-01" })]), [[0, 1]]);
 });
 
-test("改期锁定下单时的场景：单独定价的单找不到机场套餐价就报不出；继承的单不改用后来设的机场套餐价", () => {
-  const ownScenario = offer(trip("naritaT1", "shinjuku"), withRules(airportPrice("a5", "pickup", 5, 45_000))).settlement.charterScenario;
-  assert.ok(ownScenario !== undefined);
-  const repriced = quoteProduct(withRules(airportPrice("a5", "pickup", 5, 46_000)), trip("naritaT1", "shinjuku"), moment, { lockedCharterScenario: ownScenario });
-  assert.ok(repriced.ok);
-  assert.equal(repriced.offers[0]?.settlement.totalMinor, 46_000, "机场套餐价现算");
-  const gone = quoteProduct(product(), trip("naritaT1", "shinjuku"), moment, { lockedCharterScenario: ownScenario });
-  assert.ok(gone.ok);
-  assert.deepEqual(gone.refused, [{ vehicleGroupId: "eco7", reason: "NO_PRICE_RULE" }], "删了机场套餐价：不退回普通价");
-  const inheritScenario = offer(trip("naritaT1", "shinjuku"), product()).settlement.charterScenario;
-  assert.ok(inheritScenario !== undefined);
-  const later = quoteProduct(withRules(airportPrice("a5", "pickup", 5, 45_000)), trip("naritaT1", "shinjuku"), moment, { lockedCharterScenario: inheritScenario });
-  assert.ok(later.ok);
-  assert.equal(later.offers[0]?.settlement.totalMinor, 47_000);
-  assert.equal(later.offers[0]?.settlement.charterScenario?.pricing, "inherit");
+/** 改期时服务层（order-changes）的真实调用：锁下单时的加价（`lockableAreaSurcharge`），同时锁场景（没有场景锁成 null） */
+function reschedule(booked: QuoteProduct, now: QuoteProduct, request: QuoteRequest) {
+  const settlement = offer(request, booked).settlement;
+  const lockedAreaSurcharge = lockableAreaSurcharge({ request, packageHours: request.packageHours, areaSurcharge: settlement.areaSurcharge }, request, request.packageHours);
+  assert.ok(lockedAreaSurcharge !== undefined);
+  return quoteProduct(now, request, moment, { lockedAreaSurcharge, lockedCharterScenario: settlement.charterScenario ?? null });
+}
+const totalOf = (quote: ReturnType<typeof quoteProduct>): number | string => (quote.ok ? (quote.offers[0]?.settlement.totalMinor ?? quote.refused[0]?.reason ?? "NONE") : quote.reason);
+
+test("改期锁定下单时的场景（带真实的 lockedAreaSurcharge）：单独定价的单找不到机场套餐价就报不出；继承的单不改用后来设的机场套餐价", () => {
+  const request = trip("naritaT1", "shinjuku");
+  const own = withRules(airportPrice("a5", "pickup", 5, 45_000));
+  assert.equal(totalOf(reschedule(own, withRules(airportPrice("a5", "pickup", 5, 46_000)), request)), 46_000, "机场套餐价现算，上车加价锁定为 0");
+  assert.equal(totalOf(reschedule(own, product(), request)), "NO_PRICE_RULE", "删了机场套餐价：不退回普通价");
+  const later = reschedule(product(), withRules(airportPrice("a5", "pickup", 5, 45_000)), request);
+  assert.equal(totalOf(later), 47_000);
+  assert.ok(later.ok && later.offers[0]?.settlement.charterScenario?.pricing === "inherit");
+});
+
+test("#261 必改 1：下单时没有场景的单（后来才绑定机场、设单独价 45,000）改期仍是 47,000，不是 45,000 + 锁定的 14,000 = 59,000", () => {
+  const request = trip("naritaT1", "shinjuku");
+  const booked = product({ airportBindings: [] });
+  assert.equal(offer(request, booked).settlement.charterScenario, undefined);
+  const result = reschedule(booked, withRules(airportPrice("a5", "pickup", 5, 45_000)), request);
+  assert.equal(totalOf(result), 47_000);
+  assert.ok(result.ok && result.offers[0]?.settlement.charterScenario === undefined, "锁成没有场景");
+  // 对照：不锁场景（旧写法）会多收
+  const settlement = offer(request, booked).settlement;
+  const lockedAreaSurcharge = lockableAreaSurcharge({ request, packageHours: 5, areaSurcharge: settlement.areaSurcharge }, request, 5);
+  assert.ok(lockedAreaSurcharge !== undefined);
+  assert.equal(totalOf(quoteProduct(withRules(airportPrice("a5", "pickup", 5, 45_000)), request, moment, { lockedAreaSurcharge })), 59_000);
+});
+
+test("规则 A：机场区域画进成田外围、和千叶超远③重叠（重叠处按机场 14,000）：继承收 14,000；单独定价整端免，不退回收 12,000", () => {
+  const CHIBA_FAR = area("chiba-far", square(140.38, 35.7, 140.6, 35.78));
+  const point = { lng: 140.39, lat: 35.76 };
+  const rules: Rule[] = [...BASE_RULES, rule("u-chiba", "chiba-far", { model: "charter_area_surcharge", pickupSurchargeMinor: 12_000, dropoffSurchargeMinor: 12_000 }, { packageHours: null })];
+  const item = (extra: Rule[]): QuoteProduct => product({ surchargeAreas: [NARITA, CHIBA_FAR], priceRules: [...rules, ...extra] });
+  const request = { ...trip("naritaT1", "shinjuku"), pickup: point };
+  const inherit = offer(request, item([]));
+  assert.equal(inherit.settlement.totalMinor, 47_000);
+  assert.deepEqual([inherit.settlement.areaSurcharge?.pickup.areaId, inherit.settlement.areaSurcharge?.pickup.amountMinor], ["narita", 14_000]);
+  const own = offer(request, item([airportPrice("a5", "pickup", 5, 45_000)]));
+  assert.equal(own.settlement.totalMinor, 45_000);
+  assert.deepEqual(own.settlement.areaSurcharge?.pickup, { areaId: "narita-airport", priceRuleId: null, amountMinor: 0, includedInPackage: true });
 });

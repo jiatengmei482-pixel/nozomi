@@ -4,7 +4,7 @@
 -- 1. 价格方式加 charter_airport_package（机场套餐价）：area_id 是机场区域、direction 是场景（pickup 机场开始 / dropoff 机场结束）、package_hours 必填。
 --    params = { packagePriceMinor, packageKm?, overKmPerKmMinor?, overtimePerHourMinor? }，没填的三项 = 同普通套餐（结构见 @nozomi/domain 的 Pricing）。
 --    两个约束是整列表 drop 再 add：以本迁移写成时 main 上最新的列表（0450）为基础；合并前若别的迁移又加了价格方式，要在这里一并带上
---    （迁移测试 charter-airport-migration.integration.test.ts 逐种价格方式插一行，漏了会红）。
+--    （迁移测试 apps/api/src/charter-airports.itest.ts 逐种价格方式插一行，漏了会红）。
 -- 2. charter_airport_bindings：商品级机场绑定（场景 × 机场 × 机场区域 × 可选中文简称）。
 --    机场区域只用来判断上 / 下车点在不在机场，可以是本租户任何业务类型、任何用途的区域，不进 product_areas。
 --    绑定着的区域不能删（on delete restrict，应用翻成 409 AREA_IN_USE）；停用不拦，报价时停用的区域不生效。删商品时跟着删。

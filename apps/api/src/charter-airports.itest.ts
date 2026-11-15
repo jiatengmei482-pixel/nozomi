@@ -19,7 +19,7 @@ import { createTestApi } from "./testing/api.ts";
 import { type Market, buildMarket, newChannel, ok, salesCredentials } from "./testing/market.ts";
 import { tenantLogin } from "./testing/money.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
-import { FakePaymentProvider } from "./testing/payments.ts";
+import { FakePaymentProvider, deliverWebhook } from "./testing/payments.ts";
 import { type SiteApi, siteApi } from "./testing/site.ts";
 
 let api: TestApi;
@@ -37,6 +37,7 @@ const P = {
 type Place = keyof typeof P;
 let ipSeq = 0;
 const nextIp = (): string => `10.98.${(ipSeq += 1)}.9`;
+const PASSENGER = { name: "林小明", phone: "+81 90-3333-4444", email: "airport.guest@example.com" };
 const routeLookup = async (): Promise<RouteLookup> => ({ ok: true, route: { meters: 70_000, minutes: 90 }, source: "google" });
 
 async function tenantCall(who: TenantFixture, method: HttpMethod, path: string, options: { body?: unknown; version?: number } = {}): Promise<ApiResponse> {
@@ -132,9 +133,44 @@ test("迁移 0520：价格方式的检查约束包含全部价格方式；机场
        values ($1, $2, $3, $4, $5, $6, 'charter_airport_package', '{"packagePriceMinor": 45000}', '2026-01-01', 'enabled', now(), now())`,
       [m.b.tenantId, charter.id, charter.airport, m.ids.biz7, direction, hours],
     );
+  // 每种价格方式按各自的形状插一行都能进（两个约束都按最新列表重建了），插完删掉
+  const shapes: Record<(typeof PRICING_MODELS)[number], [string | null, string | null, number | null, Record<string, number>]> = {
+    fixed: [charter.tokyo, null, null, { basePriceMinor: 1 }],
+    mileage_time: [charter.tokyo, null, null, { startPriceMinor: 1, startMeters: 0, startMinutes: 0, perKmMinor: 0, perMinuteMinor: 0 }],
+    charter_package: [null, null, 9, { packageKm: 1, packagePriceMinor: 1, overtimePerHourMinor: 0, overKmPerKmMinor: 0 }],
+    charter_area_surcharge: [charter.narita, null, null, { pickupSurchargeMinor: 0, dropoffSurchargeMinor: 0 }],
+    charter_itinerary_surcharge: [charter.narita, null, null, { surchargeMinor: 0 }],
+    charter_airport_package: [charter.airport, "dropoff", 9, { packagePriceMinor: 1 }],
+  };
+  for (const model of PRICING_MODELS) {
+    const [areaId, direction, hours, params] = shapes[model];
+    const inserted = await api.db.owner.query<{ id: string }>(
+      `insert into price_rules (tenant_id, product_id, area_id, vehicle_group_id, direction, package_hours, pricing_model, params, valid_from, status, created_at, updated_at)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, '2030-01-01', 'disabled', now(), now()) returning id`,
+      [m.b.tenantId, charter.id, areaId, m.ids.biz7, direction, hours, model, JSON.stringify(params)],
+    );
+    await api.db.owner.query("delete from price_rules where id = $1", [inserted.rows[0]?.id]);
+  }
   await assert.rejects(insert(null, 5), /price_rules_airport_package_shape/);
   await assert.rejects(insert("both", 5), /price_rules_airport_package_shape/);
   await assert.rejects(insert("pickup", null), /price_rules_package_matches_model/);
+});
+
+let bookedOrder: { orderId: string; token: string };
+test("下单时还没有机场绑定：成田航站楼 → 新宿，普通套餐 + 成田上车加价 = 47,000（后面改期用）", async () => {
+  const res = await quote("naritaT1", "shinjuku");
+  assert.equal(res.price.total.amount, "51700", "47,000 × 1.1");
+  const created = await site.call("POST", "/site/v1/orders", { headers: { "idempotency-key": randomUUID() }, body: { quote_id: res.quote_id, passenger: PASSENGER, save_payment_method: true, pickup_address: "成田机场 第 1 航站楼", dropoff_address: "新宿站" }, ip: nextIp() });
+  assert.equal(created.status, 201, created.text);
+  const orderId = created.body.order.id as string;
+  const intent = pay.intentOf(orderId);
+  assert.ok(intent);
+  pay.pay(intent.id);
+  const raw = pay.event("payment_intent.succeeded", pay.intentObject(intent.id), { created: api.clock.now() });
+  assert.equal((await deliverWebhook(api.app, raw, pay.sign(raw, api.clock.now()))).status, 200);
+  const settlement = (await api.db.owner.query<{ s: any }>("select settlement as s from orders where id = $1", [orderId])).rows[0]?.s;
+  assert.deepEqual([settlement.totalMinor, settlement.charterScenario], [47_000, undefined]);
+  bookedOrder = { orderId, token: created.body.link.token as string };
 });
 
 test("机场绑定：没迁移三层区域的商品不能设；机场不在区域里、区域没被①∪③盖住都拦；别的租户的区域按 404；租户 A 读不到 B 的商品", async () => {
@@ -215,7 +251,7 @@ test("官网询价：成田航站楼上车 → 机场开始；继承照收上车
   const own = await quote("naritaT1", "shinjuku");
   assert.equal(own.price_breakdown[0].scenario.kind, "airport_start");
   assert.ok(!kinds(own).includes("pickup"), JSON.stringify(own.price_breakdown));
-  assert.ok(own.price.total.amount < inherit.price.total.amount, `单独 45,000 < 继承 47,000：${own.price.total.amount} / ${inherit.price.total.amount}`);
+  assert.deepEqual([own.price.total.amount, inherit.price.total.amount], ["49500", "51700"], "单独 45,000 × 1.1；继承 47,000 × 1.1");
 });
 
 test("价格导入导出：机场套餐价写在「机场场景」列；原样导回不变；改价是修改；没绑定的区域报 AIRPORT_BINDING_REQUIRED", async () => {
@@ -243,6 +279,16 @@ test("价格导入导出：机场套餐价写在「机场场景」列；原样�
   const row = (result.rows as any[])[0];
   assert.equal(row.action, "error", JSON.stringify(result));
   assert.ok(JSON.stringify(row.issues).includes("AIRPORT_BINDING_REQUIRED"), JSON.stringify(row));
+});
+
+test("#261 必改 1：下单时没有场景的单，供应商后来绑定机场、设单独价 45,000 之后改期，仍是 47,000（不是 45,000 + 锁定的 14,000 = 59,000）", async () => {
+  api.clock.advance(31_000);
+  const view = await site.call("GET", "/site/v1/order", { token: bookedOrder.token, ip: nextIp() });
+  const moved = await site.call("PATCH", "/site/v1/order", { token: bookedOrder.token, ip: nextIp(), headers: { "if-match": `"${view.body.order.version}"` }, body: { service_time: "2026-10-21T10:00:00+09:00" } });
+  assert.equal(moved.status, 200, moved.text);
+  const after = (await api.db.owner.query<{ s: any }>("select settlement_after as s from order_changes where order_id = $1", [bookedOrder.orderId])).rows[0]?.s;
+  assert.equal(after.totalMinor, 47_000);
+  assert.equal(after.charterScenario, undefined, "锁成下单时的「没有场景」");
 });
 
 test("解绑前要先删机场套餐价（409 AIRPORT_PRICES_EXIST）；绑定着的机场区域删不掉（409 AREA_IN_USE）", async () => {

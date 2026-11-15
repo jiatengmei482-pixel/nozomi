@@ -26774,6 +26774,23 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/OrderAreaSurchargeWaypoint"
+        charter_scenario:
+          description: 包车机场开始 / 机场结束（M9P-21，ADR 0098）：下单时匹配到的场景；`pricing` 是单独定价（`own`，含这一端的机场加价）还是继承（`inherit`）。没有场景的单没有这一项
+          type: object
+          additionalProperties: false
+          required: [ kind, airport_id, airport_name, pricing ]
+          properties:
+            kind:
+              type: string
+              enum: [ airport_start, airport_end ]
+            airport_id:
+              type: string
+              format: uuid
+            airport_name:
+              type: string
+            pricing:
+              type: string
+              enum: [ own, inherit ]
     OrderAreaSurchargeWaypoint:
       type: object
       additionalProperties: false
@@ -26797,6 +26814,10 @@ components:
           type: boolean
           enum: [ true ]
           description: 下车点行程加价（M9P-01，ADR 0093 第二节第 4 小节）：没有市外经停、下车点在这个区域里，算作一次经停收的；只有这一项带这个键，`stop_seqs` 为空
+        included_in_package:
+          type: boolean
+          enum: [ true ]
+          description: 机场套餐单独定价时含在套餐里、免掉的这一项（金额 0，M9P-21，ADR 0098）
     OrderAreaSurchargeEnd:
       type: object
       additionalProperties: false
@@ -26812,6 +26833,10 @@ components:
             - type: "null"
         settlement:
           $ref: "#/components/schemas/SalesMoney"
+        included_in_package:
+          type: boolean
+          enum: [ true ]
+          description: 机场套餐单独定价时含在套餐里、免掉的这一项（金额 0，M9P-21，ADR 0098）
     OrderDistance:
       type: object
       additionalProperties: false
@@ -26897,6 +26922,23 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/OrderAreaSurchargeWaypoint"
+        charter_scenario:
+          description: 包车机场开始 / 机场结束（M9P-21，ADR 0098）：下单时匹配到的场景；`pricing` 是单独定价（`own`，含这一端的机场加价）还是继承（`inherit`）。没有场景的单没有这一项
+          type: object
+          additionalProperties: false
+          required: [ kind, airport_id, airport_name, pricing ]
+          properties:
+            kind:
+              type: string
+              enum: [ airport_start, airport_end ]
+            airport_id:
+              type: string
+              format: uuid
+            airport_name:
+              type: string
+            pricing:
+              type: string
+              enum: [ own, inherit ]
     PlatformOrderAreaSurchargeEnd:
       type: object
       additionalProperties: false
@@ -26911,6 +26953,10 @@ components:
             - type: "null"
         settlement:
           $ref: "#/components/schemas/SalesMoney"
+        included_in_package:
+          type: boolean
+          enum: [ true ]
+          description: 机场套餐单独定价时含在套餐里、免掉的这一项（金额 0，M9P-21，ADR 0098）
         sell:
           oneOf:
             - $ref: "#/components/schemas/SalesMoney"

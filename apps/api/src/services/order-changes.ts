@@ -271,7 +271,8 @@ async function reprice(db: Db, order: Order, sale: OrderSale, next: PlannedChang
   // 行程（上车、下车、经停点）或套餐时长和下单时不一样就不锁、现算（lockableAreaSurcharge；现在的改期改不了这些，防以后放开）
   const lockedAreaSurcharge = lockableAreaSurcharge({ request: quote.request, packageHours: order.packageHours, areaSurcharge: order.settlement.areaSurcharge }, request, request.packageHours);
   // 机场开始 / 机场结束（M9P-21，ADR 0098）：和加价一起锁下单时的场景（单独定价的单不退回普通价、继承的单不改用后来设的机场套餐价）
-  const lockedCharterScenario = lockedAreaSurcharge === undefined ? undefined : order.settlement.charterScenario;
+  // 下单时没有场景的单锁成「没有场景」（null），不按上 / 下车点重新匹配（#261 审查必改 1：否则供应商后来设的机场单独价 + 锁定的上车加价会收两次）
+  const lockedCharterScenario = lockedAreaSurcharge === undefined ? undefined : (order.settlement.charterScenario ?? null);
   const result = quoteProduct(
     product,
     request,

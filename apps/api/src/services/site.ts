@@ -12,6 +12,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
   type AirportMatch,
+  type TenantStatus,
   type AirportScenarioKind,
   type Position,
   locatePoint,
@@ -61,7 +62,7 @@ import {
 import type { AppContext } from "../context.ts";
 import { pendingHeldFetches } from "../repos/fx.ts";
 import { type PassengerCrypto, isPassengerDecryptFailure } from "../integrations/passenger-crypto.ts";
-import { passengerCryptoOfPool, withPlatformTx } from "../db/context.ts";
+import { type Db, passengerCryptoOfPool, withPlatformTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
 import { currentCancellationPolicy } from "../repos/cancellation-policies.ts";
 import { type Channel, findChannel } from "../repos/channels.ts";
@@ -85,6 +86,7 @@ import {
   findVehicleGroups,
   insertSiteOrderLink,
   listBookableAirports,
+  type BookableCharterPackage,
   listBookableCharterPackages,
   listBookableCities,
   listCityPlaces,
@@ -296,8 +298,37 @@ export async function siteCharterPackagesAt(ctx: AppContext, ends: { pickup: Lat
   const match = await charterCityFor(ctx, channel, audience, ends, null);
   const city = match.cities.find((entry) => entry.id === match.chosen?.cityId);
   if (city === undefined) return { city: null, hours: [] };
-  const rows = await withPlatformTx(ctx.pool, (db) => listBookableCharterPackages(db, city.id, instantToLocal(ctx.now(), city.timezone).date, listingOf(audience), match.productIds), { snapshot: true });
+  const today = instantToLocal(ctx.now(), city.timezone).date;
+  const rows = await withPlatformTx(
+    ctx.pool,
+    async (db) => [...(await listBookableCharterPackages(db, city.id, today, listingOf(audience), match.productIds)), ...(await airportPackageHoursAt(db, match.productIds, today, ends))],
+    { snapshot: true },
+  );
   return { city: quotedCityOf(city), hours: [...new Set(rows.filter((row) => sells(channel, row, audience)).map((row) => row.hours))].sort((a, b) => a - b) };
+}
+
+/**
+ * 只填了机场套餐价的档（M9P-21，ADR 0098 第三节第 4 小节第 3 步，#261 审查建议 6）：上车点在「机场开始」绑定的机场区域里、
+ * 或下车点在「机场结束」绑定的机场区域里时，这些商品在这个机场区域 × 方向上的机场套餐价时长也能选（普通套餐价没有这一档也算）。
+ */
+async function airportPackageHoursAt(db: Db, productIds: readonly string[], today: string, ends: { pickup: LatLng; dropoff: LatLng }): Promise<BookableCharterPackage[]> {
+  if (productIds.length === 0) return [];
+  const rows = await db.query<{ hours: number; tenant_id: string; tenant_status: TenantStatus; scenario: AirportScenarioKind; area_id: string }>(
+    `select distinct r.package_hours as hours, p.tenant_id, t.status as tenant_status, b.scenario, b.area_id
+       from charter_airport_bindings b
+       join products p on p.tenant_id = b.tenant_id and p.id = b.product_id and p.charter_layout = 'three_layer'
+       join tenants t on t.id = p.tenant_id
+       join areas a on a.tenant_id = b.tenant_id and a.id = b.area_id and a.status = 'active'
+       join price_rules r on r.tenant_id = b.tenant_id and r.product_id = b.product_id and r.area_id = b.area_id and r.pricing_model = 'charter_airport_package'
+                         and r.direction = case b.scenario when 'airport_start' then 'pickup' else 'dropoff' end
+      where b.product_id = any($1::uuid[]) and r.status = 'enabled' and (r.valid_to is null or r.valid_to >= $2::date)`,
+    [productIds, today],
+  );
+  if (rows.rows.length === 0) return [];
+  const polygons = await db.query<{ area_id: string; id: string; kind: "operate" | "forbid"; geometry: { coordinates: Position[][] } }>("select area_id, id, kind, geometry from area_polygons where area_id = any($1::uuid[])", [[...new Set(rows.rows.map((row) => row.area_id))]]);
+  const inside = (areaId: string, point: LatLng): boolean =>
+    locatePoint(polygons.rows.filter((polygon) => polygon.area_id === areaId).map((polygon) => ({ id: polygon.id, kind: polygon.kind, ring: polygon.geometry.coordinates[0] ?? [] })), point).result === "operate";
+  return rows.rows.filter((row) => inside(row.area_id, row.scenario === "airport_start" ? ends.pickup : ends.dropoff)).map((row) => ({ hours: row.hours, tenantId: row.tenant_id, tenantStatus: row.tenant_status }));
 }
 
 /** 能报机场套餐的一个机场（M9P-21，ADR 0098 第三节第 7 小节）：快捷入口按它列航站楼 */

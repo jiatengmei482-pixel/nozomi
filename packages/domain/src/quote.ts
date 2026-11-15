@@ -913,9 +913,10 @@ export interface QuoteOptions {
   /**
    * 包车已下的单改期时下单时的机场场景（M9P-21，ADR 0098 第三节第 4 小节「改期」）：不重新匹配场景，按订单的场景报；
    * 单独定价（`own`）时一定用同一机场区域 × 方向 × 车型组 × 档的机场套餐价，没有了就报不出（转人工），不退回普通价；继承（`inherit`）时照普通套餐价。
-   * 不给 = 按上 / 下车点现匹配（新询价，和下单时没有场景的单）。
+   * `null` = 下单时没有场景：锁成普通套餐，不按上 / 下车点重新匹配（供应商后来才绑定机场、设单独价，也不改用机场价——加价已经锁住，换成机场价会把机场那部分收两次）。
+   * 不给 = 按上 / 下车点现匹配（新询价）。服务层只要锁了加价就一起锁场景（#261 审查必改 1）。
    */
-  lockedCharterScenario?: CharterScenarioBreakdown;
+  lockedCharterScenario?: CharterScenarioBreakdown | null;
 }
 
 /** 带 `charterSelection` 的包车按一个档算价时的口径（ADR 0091 第三节）：不收超时费；`estimate` 是要写进明细的预计用时四项（没有为 null） */
@@ -949,7 +950,7 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
   // 机场开始 / 机场结束（ADR 0098）：匹配到场景时按场景报（替换普通套餐）；机场 → 机场两个场景各报一遍，每个车型组取结算价低的
   const bindings = product.category === "charter" && threeLayer(product) ? (product.airportBindings ?? []) : [];
   const locked = product.category === "charter" ? options.lockedCharterScenario : undefined;
-  const scenarios = locked !== undefined ? [{ kind: locked.kind, placeId: locked.placeId, areaId: locked.areaId, name: locked.name }] : bindings.length === 0 ? [] : airportScenarios(bindings, request.pickup, request.dropoff);
+  const scenarios = locked === null ? [] : locked !== undefined ? [{ kind: locked.kind, placeId: locked.placeId, areaId: locked.areaId, name: locked.name }] : bindings.length === 0 ? [] : airportScenarios(bindings, request.pickup, request.dropoff);
   if (scenarios.length === 0) return quoteForScenario(product, request, moment, options, null);
   return cheaperPerGroup(scenarios.map((scenario) => quoteForScenario(product, request, moment, options, scenario)));
 }
