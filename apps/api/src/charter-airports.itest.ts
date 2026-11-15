@@ -281,6 +281,19 @@ test("价格导入导出：机场套餐价写在「机场场景」列；原样�
   assert.ok(JSON.stringify(row.issues).includes("AIRPORT_BINDING_REQUIRED"), JSON.stringify(row));
 });
 
+test("只填了机场套餐价的档（8h，普通套餐价没有）：上车点在机场区域里时进官网时长下拉，机场区域外不进", async () => {
+  await ok(batch(m.b, charter.id, { create: [{ ...airportPrice(charter.airport, "pickup", 8, 70_000), package_km: 400, overtime_per_hour: 6_000, over_km_per_km: 500 }] }));
+  api.clock.advance(31_000);
+  const hours = async (pickup: Place): Promise<number[]> => {
+    const res = await site.call("GET", `/site/v1/charter-packages?pickup=${P[pickup].lat},${P[pickup].lng}&dropoff=${P.shinjuku.lat},${P.shinjuku.lng}`, { ip: nextIp() });
+    assertMatchesOpenApi("GET", "/site/v1/charter-packages", res);
+    assert.equal(res.status, 200, res.text);
+    return res.body.items.map((item: any) => item.hours);
+  };
+  assert.deepEqual(await hours("naritaT1"), [5, 8]);
+  assert.deepEqual(await hours("naritaHotel"), [5]);
+});
+
 test("#261 必改 1：下单时没有场景的单，供应商后来绑定机场、设单独价 45,000 之后改期，仍是 47,000（不是 45,000 + 锁定的 14,000 = 59,000）", async () => {
   api.clock.advance(31_000);
   const view = await site.call("GET", "/site/v1/order", { token: bookedOrder.token, ip: nextIp() });
