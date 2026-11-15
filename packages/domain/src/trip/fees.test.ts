@@ -45,6 +45,8 @@ test("住宿：客人提供 → 记 0（仍抵掉③空驶）", () => {
 test("住宿：非日元商品没填金额 → 不收、标 missingPrice", () => {
   const usd = effectiveTripRules(null, "USD");
   assert.deepEqual(lodgingFee(night(), usd.lodging), { choice: "none", fees: [], missingPrice: true });
+  // 过夜点在③、有空驶加价可抵：车回基地可行，不算缺价（D4）
+  assert.deepEqual(lodgingFee(night({ surchargeOffsetMinor: 3_000 }), usd.lodging), { choice: "return_to_base", fees: [], missingPrice: false });
 });
 
 const pkg = (id: string, areaId: string | null, hours: number, minor: number, extra: Partial<PriceRule> = {}): PriceRule & { id: string } => ({

@@ -104,7 +104,8 @@ export function tripRuleIssues(config: unknown, context: { productAreaIds: Reado
   if (!isPlainObject(config)) return [{ path: "", reason: "INVALID" }];
   const issues: TripRuleIssue[] = [];
   for (const [key, value] of Object.entries(config)) {
-    const known = KNOWN[key as keyof TripRuleConfig];
+    // 只认自己的键：`toString`、`constructor`、`__proto__` 这类原型链上的名字也是未知键（不能当成已知、更不能抛错）
+    const known = Object.hasOwn(KNOWN, key) ? KNOWN[key as keyof TripRuleConfig] : undefined;
     if (known === undefined) {
       issues.push({ path: `/${key}`, reason: "UNKNOWN_KEY" });
       continue;

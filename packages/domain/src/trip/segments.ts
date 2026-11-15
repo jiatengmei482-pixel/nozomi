@@ -75,7 +75,8 @@ export function naturalBreakpoints(points: readonly SegmentPoint[]): number[] {
 
 /**
  * 一天的候选拆法（每天最多 4 种，含「不拆」）：不拆 → 每个断点各拆一刀 → 所有断点都拆。
- * 超过 4 种时按这个先后留：不拆、机场旁的那一刀（接机 + 包车 / 包车 + 送机）、第一个酒店、其余按先后。
+ * 超过 4 种时按这个先后留满 4 种：不拆、机场旁的那一刀（接机 + 包车 / 包车 + 送机）、第一个酒店、其余按先后。
+ * ADR 0100 第三节第 4 小节字面是「超出只留不拆和第一个酒店」；这里多留到 4 种（每天仍不超过 8 段、预算不变），在 PR 里列为偏离。
  * 两个点的一天只有「不拆」。拆出来的段至少两个点（拆点不会是首末）。
  */
 export function daySplitOptions(points: readonly SegmentPoint[]): SplitOption[] {

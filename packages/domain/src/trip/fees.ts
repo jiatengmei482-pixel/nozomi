@@ -80,7 +80,8 @@ export interface LodgingResult {
  * 住宿（3.1、D4 口径，监工 2026-11-15 确认）：第 N 天结束点和第 N+1 天开始点**都不在**①里、次日还是同一辆车 → 一晚住宿；
  * 过夜点落在 `byArea` 的区域取区域金额，否则 `perNightMinor`；客人提供 → 0。
  * `offsetSurcharges` 开且有③加价时：收住宿就记一笔 `lodging_offset`（负数）抵掉两笔③空驶加价，再与「车回基地」（不收住宿、保留③加价）比，
- * 取总价低者（一样时取车回基地，少两行费用）。
+ * 取总价低者（一样时取车回基地，少两行费用）。按结算价比较：两种做法用同一段的加价比例和汇率换成对外价，换算是单调的，
+ * 所以结算价低的那种对客价也低（ADR 写「取对客总价低的那种」，结论一致）。
  */
 export function lodgingFee(input: LodgingInput, rules: EffectiveTripRules["lodging"]): LodgingResult {
   const none: LodgingResult = { choice: "none", fees: [], missingPrice: false };
@@ -88,7 +89,8 @@ export function lodgingFee(input: LodgingInput, rules: EffectiveTripRules["lodgi
   const byArea = rules.byArea.find((entry) => input.overnightAreaIds.includes(entry.areaId));
   const source = input.providedByGuest ? "provided_by_guest" : byArea !== undefined ? "byArea" : "perNight";
   const amount = input.providedByGuest ? 0 : (byArea?.perNightMinor ?? rules.perNightMinor);
-  if (amount === null) return { choice: "none", fees: [], missingPrice: true };
+  // 没有住宿金额（非日元商品没填）：过夜点在③、有③空驶加价时「车回基地」本来就可行（D4），不算缺价
+  if (amount === null) return rules.offsetSurcharges && input.surchargeOffsetMinor !== null && input.surchargeOffsetMinor > 0 ? { choice: "return_to_base", fees: [], missingPrice: false } : { choice: "none", fees: [], missingPrice: true };
   const lodging: TripFeeDraft = { type: "lodging", settlementMinor: amount, nightIndex: input.nightIndex, dayIndex: null, areaId: byArea?.areaId ?? null, calc: { rule: "lodging", night: input.nightIndex, source, perNightMinor: amount } };
   const offset = rules.offsetSurcharges ? input.surchargeOffsetMinor : null;
   if (offset === null || offset <= 0) return { choice: "lodging", fees: [lodging], missingPrice: false };
@@ -106,7 +108,7 @@ export function lodgingFee(input: LodgingInput, rules: EffectiveTripRules["lodgi
 
 export interface IdleDayInput {
   dayIndex: number;
-  /** 车回基地再来可不可行（过夜点在①里，或在③里、空驶已由前后两天的③加价覆盖） */
+  /** 车回基地再来可不可行（过夜点在①里，或在③里、空驶已由前后两天的③加价覆盖）；由调用方判断 */
   returnToBaseAvailable: boolean;
   shortestPackage: ShortestPackage | null;
   /** 车留在当地时当晚的住宿（第 1 条算好的，可为空） */
@@ -154,7 +156,7 @@ export interface SegmentAddonLine {
   amountMinor: number;
 }
 
-/** 按次附加项去重（设计篇第四节第 9 条）：同一辆车里儿童座椅等「按次」项从第二次起每段记一笔等额负数抵掉；按件 / 按人 / 按时长照收 */
+/** 调用方只能传**同一辆车**的段（一车到底、且不是按段选车的那几天）。按次附加项去重（设计篇第四节第 9 条）：同一辆车里儿童座椅等「按次」项从第二次起每段记一笔等额负数抵掉；按件 / 按人 / 按时长照收 */
 export function bundleAddonDiscounts(lines: readonly SegmentAddonLine[], rules: EffectiveTripRules["bundleAddons"]): TripFeeDraft[] {
   if (!rules.enabled) return [];
   const seen = new Set<string>();

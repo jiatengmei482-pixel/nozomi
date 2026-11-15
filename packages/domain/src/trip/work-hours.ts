@@ -17,7 +17,10 @@ export interface DayWorkInput {
   meters: number;
   startInBase: boolean;
   endInBase: boolean;
-  /** 和前一个用车日是同一辆车（一车到底且没有换车）；false 时不算两天之间的休息 */
+  /**
+   * 和前一个用车日是同一辆车（一车到底且没有换车）；false 时不算两天之间的休息。
+   * 按段选车（别的供应商）那一天和它的次日都要传 false：这里不管同不同车都把这一天记作「前一天」
+   */
   sameVehicleAsPrevious: boolean;
 }
 

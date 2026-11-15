@@ -50,6 +50,13 @@ test("校验：合法配置没有问题", () => {
   );
 });
 
+test("校验：原型链上的名字也是未知键，不抛错", () => {
+  assert.deepEqual(reasons({ toString: {} }), ["/toString:UNKNOWN_KEY"]);
+  assert.deepEqual(reasons({ constructor: { a: 1 } }), ["/constructor:UNKNOWN_KEY"]);
+  assert.deepEqual(reasons(JSON.parse('{"__proto__":{"x":1}}')), ["/__proto__:UNKNOWN_KEY"]);
+  assert.deepEqual(reasons({ lodging: { toString: 1 } }), ["/lodging/toString:UNKNOWN_KEY"]);
+});
+
 test("校验：未知键、类型、范围", () => {
   assert.deepEqual(reasons(null), [":INVALID"]);
   assert.deepEqual(reasons({ foo: {}, lodging: { enabled: "yes", perNightMinor: -1, extra: 1 } }), ["/foo:UNKNOWN_KEY", "/lodging/extra:UNKNOWN_KEY", "/lodging/enabled:INVALID", "/lodging/perNightMinor:OUT_OF_RANGE"]);
