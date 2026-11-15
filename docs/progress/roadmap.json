@@ -1769,28 +1769,28 @@
           "id": "M11-01",
           "title": "开发期规则：新功能先只做中文，所有新文案走 i18n key（主站已有的日英文案保持不动、不删）",
           "role": "frontend",
-          "status": "doing",
+          "status": "review",
           "acceptance": [
             "新页面、新提示、新邮件 / 通知模板的固定文案一律用 i18n key，不在组件里写死中文",
             "主站已有的日文、英文文案原样保留，不删、不改",
             "审查时检查新代码有没有写死的中文文案",
             "业主 2026-11-15 决定"
           ],
-          "evidence": "",
+          "evidence": "PR #268：apps/web/src/i18n（defineMessages 按模块的中文文案本 + t(\"模块.key\", 参数)，缺语言退回中文，不引第三方库），FREE_WAIT_TEXTS 搬为第一本（messages/free-wait.ts）；用法 docs/dev/i18n.md，CLAUDE.md 第 8 条；已有日英文案（BOOK_TAB_I18N、嵌入组件 TEXTS、LocalizedText）不动。单元 i18n.test.ts 3 条",
           "updated": "2026-11-15"
         },
         {
           "id": "M11-02",
           "title": "固定文案清单可从代码自动导出（中文，按页面分组，带位置说明：页面 / 组件 / 文件）",
           "role": "frontend",
-          "status": "todo",
+          "status": "review",
           "acceptance": [
             "一条命令导出全部固定文案：页面标题、按钮、提示、说明、错误提示、邮件 / 通知模板等",
             "按页面分组，每条带 key、中文、出现位置（页面和文件）",
             "能发现写死、没走 i18n key 的文案并列出来",
             "输出给业主看的表格（如 CSV / Markdown）"
           ],
-          "evidence": "",
+          "evidence": "PR #268：pnpm copy:export 写出 keys.md / keys.csv（key、中文、用在哪些页面、文件:行，按页面分组，附邮件 / 通知模板）和 hardcoded.csv（写死的中文，只报告；现存约 8,700 行、226 个文件）；copy-export.test.ts 1 条真跑命令核对",
           "updated": "2026-11-15"
         },
         {
@@ -3367,6 +3367,11 @@
       "date": "2026-11-15",
       "by": "backend",
       "summary": "M9E-28 按 #255 独立审查改完：供应商 order.changed 邮件写「免费等待 60 → 90 分钟」（必须改 1）；8 条建议按推荐做（以同意时为准并在审批页提示、旧单派单前改航班按新规则、点对点清掉航班号回到商品值、点对点接机在订单页能改航班、改单提示按商品值、派单后订单页写按派单时锁定、商品没设、渠道说明强调点对点带航班号就是机场接机），写进 ADR 0097 五之二；新加的页面文字按 M11-01 只做中文、集中成键。状态改为待验收。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "frontend",
+      "summary": "M11-01 / M11-02 开 PR #268：前端文案 i18n key 机制（t() + 按模块的中文文案本，缺语言退回中文），M9E-28 的 FREE_WAIT_TEXTS 搬为第一本；pnpm copy:export 导出文案清单（页面、key、中文、位置，附邮件模板）和写死中文的报告；用法写进 docs/dev/i18n.md 和 CLAUDE.md。按推荐定：不引第三方库、文案用 {参数} 模板、邮件模板不搬、扫描只报告、已有三语表不并。基于 #255。"
     }
   ]
 }
