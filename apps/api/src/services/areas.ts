@@ -72,6 +72,7 @@ import { type AuditValue, type AuditValues, insertAuditLog } from "../repos/audi
 import { findTenantForPlatform } from "../repos/tenants.ts";
 import { type AreaUsage, areaUsage, compactAreaPriorities, productIdsUsingArea } from "../repos/products.ts";
 import { removePricingOfArea } from "./prices.ts";
+import { type AreaCharterOverlap, charterOverlapsOfArea } from "./area-layers.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
 import { type SystemTenantPrincipal, tenantWriteOrigin } from "./audit.ts";
 import { areaNameTaken, fieldLocked, masterDataNotReady, notFound, versionConflict } from "./errors.ts";
@@ -110,6 +111,11 @@ export interface AreaView {
    * 不小于 100 平方米时给面积，否则 0；详情和区域地图里算，列表不算（不给）。运营区域、停用的区域为 null
    */
   outsideOperatingM2?: number | null;
+  /**
+   * 改了图形之后（只在修改的应答里给，M9P-13 / #247 审查建议）：用到这个区域的包车商品里，它和同商品别的区域的三层重叠（同层、①∩③）。
+   * 只提醒、不拦保存；没有重叠时是空数组。图形没变时不给
+   */
+  charterOverlaps?: AreaCharterOverlap[];
 }
 
 const UNUSED: AreaUsage = { productCount: 0, publishedProductCount: 0 };
@@ -458,7 +464,9 @@ export async function updateArea(
     if (polygonsChanged) [before["polygons"], after["polygons"]] = [stored.map(polygonAudit), drafts.map(polygonAudit)];
     if (sourceVersionChanged && current.sharedSource !== null) [before["shared_source_shape_version"], after["shared_source_shape_version"]] = [current.sharedSource.shapeVersion, sharedSourceVersion];
     await audit(db, ctx, writer, now, { areaId: id, action: "update", before, after });
-    return detail(db, tenantId, updated);
+    const view = await detail(db, tenantId, updated);
+    // 图形变了：用到它的包车商品里有没有三层重叠，提醒（不拦，#247 审查建议）
+    return polygonsChanged ? { ...view, charterOverlaps: await charterOverlapsOfArea(db, tenantId, id) } : view;
   });
 }
 
