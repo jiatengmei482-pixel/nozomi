@@ -40,7 +40,7 @@ export const EMBED_LAYOUT_NAMES: Readonly<Record<EmbedLayout, string>> = { auto:
 const LAYOUT_OPTIONS = (["auto", "card", "bar"] as const).map((value) => ({ value, label: EMBED_LAYOUT_NAMES[value] }));
 export const HOST_PAGE_NAMES: Readonly<Record<"off" | "on", string>> = { off: "不允许（客人跳到主站预订）", on: "允许（预订流程嵌在合作网站页面里）" };
 const HOST_PAGE_OPTIONS = (["off", "on"] as const).map((value) => ({ value, label: HOST_PAGE_NAMES[value] }));
-const HOST_PAGE_HINT = "打开后，白名单里的网站可以用 NozomiBooking.mountBooking 把整个预订流程嵌在自己的页面里（ADR 0095）；关掉后下一次打开就嵌不进去。";
+const HOST_PAGE_HINT = "打开后，白名单里的网站可以用 NozomiBooking.mountBooking 把整个预订流程嵌在自己的页面里（ADR 0095）；关掉后下一次打开就嵌不进去。关掉时请合作网站同时换回旧代码（不带 bookingUrl 的①、预订页去掉②），否则客人会跳到嵌不进去的预订页。";
 const LANG_OPTIONS = (["ja", "zh", "en"] as const).map((value) => ({ value, label: EMBED_LANG_NAMES[value] }));
 const SERVICE_OPTIONS = (["transfer", "charter"] as const).map((value) => ({ value, label: EMBED_SERVICE_NAMES[value] }));
 const ORIGINS_HINT = "一行一个合作网站的地址，以 https 开头、只写到域名（可带端口），不带路径；不支持 *。最多 20 个。";
@@ -50,6 +50,8 @@ const BOOKING_URL_HINT = "合作网站自己的预订页完整地址（如合作
 /** 两段代码的说明（M9E-26）：各一句，写给合作网站的人看 */
 export const ENTRY_NOTE = "放在任何页面（首页、文章页等），客人填好行程后会跳到你的预订页。";
 export const ENTRY_NOTE_REDIRECT = "放在任何页面（首页、文章页等），客人填好行程后跳到 NOZOMI 主站完成预订。";
+/** 有②时①下面多一句（M9E-26 审查建议）：预订页只放②，②在没有行程时自己会显示查价表单 */
+export const ENTRY_NOT_ON_BOOKING_PAGE = "预订页不要再放①（那一页只放②，②没收到行程时会自己显示查价表单）。";
 export const BOOKING_NOTE = "只放在预订页，接收入口传来的行程，显示报价和下单流程。";
 /** 只有①时旁边写的原因（M9E-26）：按嵌入码现在缺什么说 */
 export function fallbackNote(fallback: EmbedSnippetFallback, allowHostPage: boolean): string {
@@ -298,11 +300,17 @@ function Snippets({ embedKey }: { embedKey: EmbedKey }) {
   const two = embedKey.booking_snippet !== null;
   const bookingOrigin = two && embedKey.booking_url !== null ? new URL(embedKey.booking_url).origin : null;
   // 白名单不止一个网站时提醒：组件只认和预订页同一个网站的 bookingUrl，放在别的网站上会照旧跳主站
-  const sameSite = bookingOrigin !== null && embedKey.allowed_origins.length > 1 ? <p className="snippet-part__note">要放在和预订页同一个网站（{bookingOrigin}）的页面上；放在别的网站上时，客人会跳到 NOZOMI 主站。</p> : undefined;
+  const sameSite = bookingOrigin !== null && embedKey.allowed_origins.length > 1 ? <p className="snippet-part__note">要放在和预订页同一个网站（{bookingOrigin}）的页面上；放在别的网站上时，客人会跳到 NOZOMI 主站。</p> : null;
+  const entryExtra = two ? (
+    <>
+      <p className="snippet-part__note">{ENTRY_NOT_ON_BOOKING_PAGE}</p>
+      {sameSite}
+    </>
+  ) : undefined;
   return (
     <>
       <h3 className="card__subtitle">合作网站要放的代码</h3>
-      <SnippetPart id={`${base}-entry`} title="① 入口小程序" note={two ? ENTRY_NOTE : ENTRY_NOTE_REDIRECT} code={embedKey.snippet} owner={embedKey.name} extra={sameSite} />
+      <SnippetPart id={`${base}-entry`} title="① 入口小程序" note={two ? ENTRY_NOTE : ENTRY_NOTE_REDIRECT} code={embedKey.snippet} owner={embedKey.name} extra={entryExtra} />
       {embedKey.booking_snippet !== null ? (
         <SnippetPart id={`${base}-booking`} title="② 预订程序" note={BOOKING_NOTE} code={embedKey.booking_snippet} owner={embedKey.name} />
       ) : (

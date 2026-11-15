@@ -122,6 +122,20 @@ test("预订页地址（M9E-26）：https、同源带路径，规范化（主机
   assert.deepEqual(check(base + "a".repeat(2_000 - base.length)), { url: base + "a".repeat(2_000 - base.length) }, "正好 2,000 字符");
   assert.deepEqual(check(base + "a".repeat(2_001 - base.length)), { reason: "OUT_OF_RANGE" }, "2,001 字符");
   assert.equal(normalizeEmbedBookingUrl("", PROD), null);
+  // 原文不到 2,000，百分号编码后超了：算太长（OUT_OF_RANGE），不算写法不对
+  const encoded = `${base}${"あ".repeat(400)}`;
+  assert.ok(encoded.length <= 2_000 && new URL(encoded).href.length > 2_000);
+  assert.deepEqual(check(encoded), { reason: "OUT_OF_RANGE" });
+  assert.equal(normalizeEmbedBookingUrl(encoded, PROD), null);
+});
+
+test("预订页地址和白名单的国际化域名（M9E-26）：两边写中文 / 日文域名或 punycode 都按 punycode 比，对得上", () => {
+  const unicodeList = embedKeyIssues({ name: "x", allowed_origins: ["https://例え.jp"], default_lang: "ja", default_services: ["transfer"], booking_url: "https://xn--r8jz45g.jp/booking/", note: null }, PROD);
+  assert.deepEqual(unicodeList, { issues: [], origins: ["https://xn--r8jz45g.jp"], bookingUrl: "https://xn--r8jz45g.jp/booking/" }, "白名单写中文域名、预订页写 punycode");
+  const punyList = embedKeyIssues({ name: "x", allowed_origins: ["https://xn--r8jz45g.jp"], default_lang: "ja", default_services: ["transfer"], booking_url: "https://例え.jp/booking/", note: null }, PROD);
+  assert.deepEqual(punyList, { issues: [], origins: ["https://xn--r8jz45g.jp"], bookingUrl: "https://xn--r8jz45g.jp/booking/" }, "白名单写 punycode、预订页写中文域名");
+  assert.deepEqual(embedBookingUrlCheck("https://例え.jp/booking/", ["https://xn--r8jz45g.jp"], PROD), { url: "https://xn--r8jz45g.jp/booking/" });
+  assert.deepEqual(embedBookingUrlCheck("https://例え.com/booking/", ["https://xn--r8jz45g.jp"], PROD), { reason: "NOT_ALLOWED_ORIGIN" }, "顶级域不同");
 });
 
 test("嵌入码校验带预订页地址（M9E-26）：按这次提交的白名单核对；白名单本身不对时只报白名单", () => {

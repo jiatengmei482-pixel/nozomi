@@ -128,10 +128,13 @@ export function normalizeEmbedBookingUrl(value: string, options: EmbedOriginOpti
  * 网站（origin）不完全等于白名单某一项 NOT_ALLOWED_ORIGIN；合格返回规范化后的地址
  */
 export function embedBookingUrlCheck(value: string, allowed: readonly string[], options: EmbedOriginOptions): { reason: EmbedKeyIssueReason } | { url: string } {
-  if (value.trim().length > EMBED_RULES.maxBookingUrlLength) return { reason: "OUT_OF_RANGE" };
-  const url = normalizeEmbedBookingUrl(value, options);
-  if (url === null) return { reason: "INVALID" };
-  return allowed.includes(new URL(url).origin) ? { url } : { reason: "NOT_ALLOWED_ORIGIN" };
+  const trimmed = value.trim();
+  if (trimmed.length > EMBED_RULES.maxBookingUrlLength) return { reason: "OUT_OF_RANGE" };
+  const parsed = trimmed === "" ? null : parseHttpUrl(trimmed, options);
+  if (parsed === null) return { reason: "INVALID" };
+  // 原文没超、规范化（百分号编码、punycode）后超了，也算太长，不算写法不对
+  if (parsed.href.length > EMBED_RULES.maxBookingUrlLength) return { reason: "OUT_OF_RANGE" };
+  return allowed.includes(parsed.origin) ? { url: parsed.href } : { reason: "NOT_ALLOWED_ORIGIN" };
 }
 
 /**
@@ -171,7 +174,7 @@ export function embedKeyIssues(input: EmbedKeyInput, options: EmbedOriginOptions
   return { issues, origins, bookingUrl };
 }
 
-/** 写进 <script> 里的字符串：JSON 转义，另把 `<` 写成 <，地址里怎么写都不会提前结束 <script> */
+/** 写进 <script> 里的字符串：JSON 转义，另把 `<` 写成 `\u003c`，地址里怎么写都不会提前结束 <script> */
 const scriptString = (value: string): string => JSON.stringify(value).replace(/</g, "\\u003c");
 
 /**

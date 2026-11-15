@@ -199,6 +199,7 @@ test("两段代码（M9E-26）：填了预订页地址并允许整页嵌入时�
   const entry = within(card).getByRole("region", { name: "① 入口小程序" });
   const booking = within(card).getByRole("region", { name: "② 预订程序" });
   assert.ok(within(entry).getByText("放在任何页面（首页、文章页等），客人填好行程后会跳到你的预订页。"));
+  assert.ok(within(entry).getByText("预订页不要再放①（那一页只放②，②没收到行程时会自己显示查价表单）。"));
   assert.ok(within(booking).getByText("只放在预订页，接收入口传来的行程，显示报价和下单流程。"));
   const entryCode = within(entry).getByLabelText("MoveGlobal 演示站的① 入口小程序代码").textContent ?? "";
   const bookingCode = within(booking).getByLabelText("MoveGlobal 演示站的② 预订程序代码").textContent ?? "";
@@ -248,6 +249,7 @@ test("兜底（M9E-26）：没填预订页地址、没开整页嵌入时只有�
     assertAbsent(within(card).queryByText(/mountBooking/));
     const entry = within(card).getByRole("region", { name: "① 入口小程序" });
     assert.ok(within(entry).getByText("放在任何页面（首页、文章页等），客人填好行程后跳到 NOZOMI 主站完成预订。"), label);
+    assertAbsent(within(entry).queryByText(/预订页不要再放①/));
     assert.doesNotMatch(within(entry).getByLabelText("MoveGlobal 演示站的① 入口小程序代码").textContent ?? "", /bookingUrl/, label);
     assert.ok(within(entry).getByRole("button", { name: "复制MoveGlobal 演示站的① 入口小程序代码" }));
     assert.ok(within(card).getByText(changes.booking_url ?? "未填写"), label);
@@ -280,6 +282,7 @@ test("表单的预订页地址（M9E-26）：有标签和说明；新建时填�
   assert.match(field.getAttribute("aria-describedby") === null ? "" : (document.getElementById(field.getAttribute("aria-describedby") ?? "")?.textContent ?? ""), /以 https 开头.*「允许的网站」/, "说明里写清规则");
   await actor.type(screen.getByLabelText(/^名称/), "MoveGlobal 演示站");
   await actor.type(screen.getByLabelText(/^允许的网站/), DEMO);
+  assert.match(screen.getByRole("group", { name: /^整页嵌入/ }).textContent ?? "", /关掉时请合作网站同时换回旧代码/, "整页嵌入的说明提醒关掉时要换回旧代码");
   await actor.click(screen.getByRole("radio", { name: "允许（预订流程嵌在合作网站页面里）" }));
   await actor.type(field, "https://other.example/booking/");
   await actor.click(screen.getByRole("button", { name: "生成嵌入码" }));

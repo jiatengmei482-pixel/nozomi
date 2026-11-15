@@ -1514,7 +1514,7 @@
         },
         {
           "id": "M9E-26",
-          "title": "运营后台按「两段代码」交付嵌入组件：嵌入码加「预订页地址」，卡片拆成①入口小程序、②预订程序（对齐 Good Journey；优先于 M9E-24）",
+          "title": "运营后台按「两段代码」交付嵌入组件：嵌入码加「预订页地址」，卡片拆成①入口小程序、②预订程序（对齐 Good Journey；优先于 M9E-24；后端 + 前端，role 字段只能填一个，记为 backend）",
           "role": "backend",
           "status": "review",
           "acceptance": [
