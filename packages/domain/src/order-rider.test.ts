@@ -10,6 +10,7 @@ const trip: OrderTripShape = { category: "airport_transfer", direction: "pickup"
 const base: OrderDetailsInput = {
   passenger: { name: "王小明", phone: "+86 138 0000 0000", email: "booker@example.com" },
   flightNo: "NH211",
+  flightKind: null,
   pickupAddress: null,
   dropoffAddress: "京王广场酒店",
   messaging: null,

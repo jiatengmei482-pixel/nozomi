@@ -26,6 +26,7 @@
 5. **密钥**。只通过 `packages/config` 读取，代码、测试、日志、提交记录里不能出现密钥原文。
 6. **每个改动都有测试**。纯逻辑写单元测试；接口写集成测试（连真实 PostgreSQL）；关键用户流程写端到端测试。CI 不绿不能合并。
 7. **不写一次性代码**。不留注释掉的代码、调试输出、TODO 不跟任务编号的代码。临时方案必须在 roadmap 里有对应任务。
+8. **前端新文案走 i18n key**（M11-01，业主 2026-11-15）。新功能只做中文，固定文案写进 `apps/web/src/i18n/messages/` 的文案本、组件里用 `t("模块.key")`，不写死；已有的日文、英文文案不动。用法见 `docs/dev/i18n.md`。
 
 ## 技术栈（见 ADR 0001）
 
@@ -59,6 +60,7 @@ pnpm test:integration  # 只跑集成测试（连真实 PostgreSQL）
 pnpm test:e2e          # 端到端测试（Playwright）；第一次先运行 pnpm --filter @nozomi/web exec playwright install --with-deps chromium
 pnpm config:check      # 看当前环境哪些账号已配置
 pnpm progress:build    # 本地生成进度页到 site/index.html
+pnpm copy:export       # 导出固定文案清单（key、中文、页面、位置）和写死的中文，写到 copy-export/（M11-02）
 ```
 
 ## 一个任务的完整流程

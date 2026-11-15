@@ -41,7 +41,7 @@ import { OrderAreaPriceItems } from "../../components/OrderAreaPriceItems.tsx";
 import { OrderStopsItem } from "../../components/TripStops.tsx";
 import { OrderVehicleDetails } from "../../components/VehicleLabelFacts.tsx";
 import { listTenantAddons } from "../../api/products.ts";
-import { ORDER_LIST_PATH, directionName, driverLinkEmailNotice, driverLinkUrl, orderCategoryText, formatInZone, landingSourceName, moneyText, orderPath, routeText, serviceLocalText } from "../../lib/dispatch-display.ts";
+import { ORDER_LIST_PATH, directionName, driverLinkEmailNotice, driverLinkUrl, orderCategoryText, formatInZone, landingSourceName, moneyText, orderFreeWaitDetail, orderPath, routeText, serviceLocalText } from "../../lib/dispatch-display.ts";
 import { failureText } from "../../lib/failure.ts";
 import { formatLocalDateTime } from "../../lib/master-display.ts";
 import { TENANT_TICKETS_PAGE, newTenantTicketPath } from "../../lib/order-center-display.ts";
@@ -450,7 +450,7 @@ export function OrderDetailPage() {
           {order.rider?.sign_name != null && <Detail label="举牌姓名">{order.rider.sign_name}</Detail>}
           {order.messaging && <Detail label="即时通讯">{`${order.messaging.app}：${order.messaging.handle}`}</Detail>}
           {order.notes && <Detail label="备注">{order.notes}</Detail>}
-          <Detail label="免费等待">{order.free_wait_minutes === null ? "不限" : `${order.free_wait_minutes} 分钟`}</Detail>
+          <Detail label="免费等待">{orderFreeWaitDetail(order.free_wait_minutes, order.free_wait_basis)}</Detail>
           <Detail label="结算价"><span className="price price--sm"><span className="price__amount">{moneyText(order.settlement.total)}</span></span></Detail>
         </dl>
         {canDispatch && DECLARABLE.includes(order.status) && (

@@ -14,3 +14,6 @@ test-results/
 
 # 部署公钥的临时副本，方便复制到 VPS 控制台，不提交
 deploy_key.pub.txt
+
+# 固定文案清单（pnpm copy:export，M11-02）：每次现生成，不提交
+copy-export/

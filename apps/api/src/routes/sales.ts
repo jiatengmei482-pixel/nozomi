@@ -11,7 +11,7 @@
  */
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { MESSAGING_APPS, PRICE_LIMITS, QUOTE_RULES, SERVICE_CATEGORIES, TRIP_DIRECTIONS } from "@nozomi/domain";
+import { FLIGHT_KINDS, MESSAGING_APPS, PRICE_LIMITS, QUOTE_RULES, SERVICE_CATEGORIES, TRIP_DIRECTIONS } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { AppError } from "../errors.ts";
@@ -61,6 +61,7 @@ const orderSchema = z
     quote_id: z.string().regex(quoteIdSchema, "不是 quote_id 的格式（QT + 日期 + 10 位）"),
     passenger: passengerInput(),
     flight_no: text(20),
+    flight_kind: z.enum(FLIGHT_KINDS).nullable().default(null),
     pickup_address: singleLine(1_000).nullable().default(null),
     dropoff_address: singleLine(1_000).nullable().default(null),
     messaging: z.object({ app: z.enum(MESSAGING_APPS), handle: z.string().max(200) }).strict().nullable().default(null),
@@ -256,6 +257,7 @@ export function registerSalesRoutes(app: FastifyInstance, ctx: AppContext): void
         details: {
           passenger: input.passenger,
           flightNo: input.flight_no,
+          flightKind: input.flight_kind,
           pickupAddress: input.pickup_address,
           dropoffAddress: input.dropoff_address,
           messaging: input.messaging,

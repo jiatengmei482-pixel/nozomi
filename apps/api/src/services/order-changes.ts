@@ -16,6 +16,7 @@
  * 改期生效时：库存从旧的一天挪到新的一天（新的一天订满就不能改，申请留着）、派车截止时间按新时间重算、司机链接有效期跟着改、原来派的司机或车辆在新时段有别的单就标出来提示改派。
  */
 import {
+  type FlightKind,
   type OrderChangeField,
   type OrderChangeRefusal,
   type OrderDetailsIssueReason,
@@ -32,8 +33,10 @@ import {
   earliestServiceAt,
   inFreeCancellationWindow,
   instantToLocal,
+  isFlightArrival,
   isFlightNo,
   isInternationalPhone,
+  lockArrivalFreeWait,
   localDateTimeToInstant,
   normalizeFlightNo,
   normalizePhone,
@@ -44,6 +47,7 @@ import {
   priceDifference,
   lockableAreaSurcharge,
   quoteProduct,
+  relockAllowed,
   isSurchargeRule,
   sellPrice,
   contactOnly,
@@ -65,6 +69,7 @@ import {
   findOrderForPlatform,
   findOrderPayment,
   findSale,
+  freeWaitBasisJson,
   insertOffSessionPayment,
   insertOrderEvent,
   listOrderPayments,
@@ -96,6 +101,8 @@ import { enqueueTenantEvent } from "./tenant-webhooks.ts";
 export interface OrderChangeInput {
   passenger?: { name?: string | undefined; phone?: string | undefined; email?: string | undefined };
   flightNo?: string | null;
+  /** 国际 / 国内航班（M9E-28）；null = 清掉（按「航班类型未确认」） */
+  flightKind?: FlightKind | null;
   messaging?: { app: "whatsapp" | "line" | "wechat" | "kakaotalk"; handle: string } | null;
   notes?: string | null;
   pickupAddress?: string;
@@ -127,7 +134,7 @@ interface PlannedChange {
   before: Record<string, unknown>;
   after: Record<string, unknown>;
   /** 改后的订单内容（还没写库） */
-  next: Pick<Order, "passenger" | "flightNo" | "messaging" | "notes" | "pickup" | "dropoff" | "passengers" | "luggage" | "serviceAt" | "serviceLocal" | "serviceDate">;
+  next: Pick<Order, "passenger" | "flightNo" | "flightKind" | "messaging" | "notes" | "pickup" | "dropoff" | "passengers" | "luggage" | "serviceAt" | "serviceLocal" | "serviceDate">;
 }
 
 const CONTACT_NOTICE_WINDOW_MS = 10 * 60_000;
@@ -152,7 +159,7 @@ const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 function planChange(order: Order, input: OrderChangeInput, placeType: string | null, held: HeldEmail | null = null, keepEmail = false): PlannedChange {
   const issues: InputIssue[] = [];
   const issue = (path: string, reason: OrderDetailsIssueReason): void => void issues.push({ path, reason, message: DETAIL_MESSAGES[reason] ?? reason });
-  const next: PlannedChange["next"] = { passenger: order.passenger, flightNo: order.flightNo, messaging: order.messaging, notes: order.notes, pickup: order.pickup, dropoff: order.dropoff, passengers: order.passengers, luggage: order.luggage, serviceAt: order.serviceAt, serviceLocal: order.serviceLocal, serviceDate: order.serviceDate };
+  const next: PlannedChange["next"] = { passenger: order.passenger, flightNo: order.flightNo, flightKind: order.flightKind, messaging: order.messaging, notes: order.notes, pickup: order.pickup, dropoff: order.dropoff, passengers: order.passengers, luggage: order.luggage, serviceAt: order.serviceAt, serviceLocal: order.serviceLocal, serviceDate: order.serviceDate };
   const fields: OrderChangeField[] = [];
   const before: Record<string, unknown> = {};
   const after: Record<string, unknown> = {};
@@ -177,13 +184,22 @@ function planChange(order: Order, input: OrderChangeInput, placeType: string | n
   }
   if (input.flightNo !== undefined) {
     const atAirport = order.category === "airport_transfer" && placeType === "airport";
+    // 点对点单也能带航班号：认出机场、改用点对点商品报价的接机（M8-33、ADR 0097 Q5）
+    const takesFlight = atAirport || order.category === "point_to_point";
     const flight = blank(input.flightNo) ? null : normalizeFlightNo(input.flightNo as string);
-    if (!atAirport && flight !== null) issue("/flight_no", "NOT_APPLICABLE");
+    if (!takesFlight && flight !== null) issue("/flight_no", "NOT_APPLICABLE");
     else if (atAirport && flight === null && order.direction === "pickup") issue("/flight_no", "REQUIRED");
     else if (flight !== null && !isFlightNo(flight)) issue("/flight_no", "INVALID_FLIGHT_NO");
     next.flightNo = flight;
     record("flight_no", order.flightNo, flight);
   }
+  // 航班类型（M9E-28）：只有按航班定免费等待的接机能给；改得不再是接机（点对点清掉了航班号）时一起清掉
+  const arrivalAfter = isFlightArrival({ category: order.category, direction: order.direction, placeType, flightNo: next.flightNo });
+  if (input.flightKind !== undefined) {
+    if (input.flightKind !== null && !arrivalAfter) issue("/flight_kind", "NOT_APPLICABLE");
+    next.flightKind = input.flightKind;
+  } else if (!arrivalAfter) next.flightKind = null;
+  record("flight_kind", order.flightKind, next.flightKind);
   if (input.messaging !== undefined) {
     const messaging = input.messaging === null ? null : { app: input.messaging.app, handle: input.messaging.handle.trim() };
     if (messaging !== null && blank(messaging.handle)) issue("/messaging/handle", "REQUIRED");
@@ -295,6 +311,27 @@ async function capacityOf(db: Db, order: Order): Promise<{ passengers: number; l
   return row ?? { passengers: order.passengers, luggage: order.luggage };
 }
 
+/**
+ * 改航班号 / 航班类型生效时的免费等待（M9E-28，ADR 0097 Q3）：按航班定的接机、派单前（以供应商同意、改单生效的这一刻为准，
+ * 已确认、还没派司机）按新的航班类型重新锁定；以前下的单（没有依据）这时也按新规则锁定——改航班是新发生的事，不算回头改旧单。
+ * 点对点接机清掉了航班号：回到商品自己设的值、去掉依据。派单后、没改这两项、不是按航班定的单都保持不变。
+ * 商品设的值取下单时锁定的依据（以前的单没有依据时取报价快照里的）。
+ */
+async function relockFreeWait(db: Db, order: Order, change: OrderChange, flightNo: string | null, flightKind: FlightKind | null): Promise<{ minutes: number | null; basis: Order["freeWaitBasis"]; relocked: boolean }> {
+  const kept = { minutes: order.freeWaitMinutes, basis: order.freeWaitBasis, relocked: false };
+  if (!Object.hasOwn(change.after, "flight_no") && !Object.hasOwn(change.after, "flight_kind")) return kept;
+  if (!relockAllowed({ status: order.status, driverId: order.dispatch.driverId })) return kept;
+  const placeType = order.placeId === null ? null : ((await db.query<{ type: string }>("select type from places where id = $1", [order.placeId])).rows[0]?.type ?? null);
+  const product = order.freeWaitBasis?.base ?? order.settlement.freeWait.value;
+  if (!isFlightArrival({ category: order.category, direction: order.direction, placeType, flightNo })) {
+    // 点对点接机清掉了航班号（2026-11-15 按推荐，审查建议 3）：不再按航班定，回到商品自己设的值，和清空的航班类型对得上
+    if (order.freeWaitBasis === null) return kept;
+    return { minutes: product !== null && product.mode === "limited" ? product.minutes : null, basis: null, relocked: true };
+  }
+  const locked = lockArrivalFreeWait(product, flightKind);
+  return { minutes: locked.minutes, basis: locked.basis, relocked: true };
+}
+
 export interface ChangeActor {
   requestedBy: "channel" | "platform_user";
   requestedById: string | null;
@@ -323,9 +360,10 @@ async function applyChange(db: Db, order: Order, change: OrderChange, sale: Orde
   // 改单只改联系人三项；这一单的乘车人和举牌姓名（M8-32）原样带上，不随改单丢失
   const passengerAfter: PassengerContact = { ...pick<PassengerContact>("passenger", order.passenger), ...(order.passenger.rider === undefined ? {} : { rider: order.passenger.rider }) };
   const sealed = "passenger" in change.after ? passengerCryptoOf(db).sealOrderPassenger(order.tenantId, order.id, passengerAfter) : null;
+  const freeWait = await relockFreeWait(db, order, change, pick("flight_no", order.flightNo), pick("flight_kind", order.flightKind));
   await db.query(
     `update orders set passenger = coalesce($3::jsonb, passenger), passenger_enc = case when $19::boolean then $20 else passenger_enc end, passenger_email_bidx = case when $19::boolean then $21 else passenger_email_bidx end,
-            passenger_phone_bidx = case when $19::boolean then $22 else passenger_phone_bidx end, passenger_name_bidx = case when $19::boolean then $23 else passenger_name_bidx end, flight_no = $4, messaging = $5::jsonb, notes = $6, pickup = $7::jsonb, dropoff = $8::jsonb, passengers = $9, luggage = $10,
+            passenger_phone_bidx = case when $19::boolean then $22 else passenger_phone_bidx end, passenger_name_bidx = case when $19::boolean then $23 else passenger_name_bidx end, flight_no = $4, flight_kind = $24, free_wait_minutes = $25, free_wait_basis = $26::jsonb, messaging = $5::jsonb, notes = $6, pickup = $7::jsonb, dropoff = $8::jsonb, passengers = $9, luggage = $10,
             service_at = $11, service_local = $12, service_date = $13, settlement_minor = $14, settlement = $15::jsonb, dispatch_due_at = $16,
             dispatch_overdue_at = case when $17::boolean then null else dispatch_overdue_at end, departure_overdue_at = case when $17::boolean then null else departure_overdue_at end,
             version = version + 1, updated_at = $18
@@ -335,6 +373,7 @@ async function applyChange(db: Db, order: Order, change: OrderChange, sale: Orde
       pickup === null ? null : JSON.stringify(pickup), dropoff === null ? null : JSON.stringify(dropoff), pick("passengers", order.passengers), pick("luggage", order.luggage),
       serviceAt, serviceLocal, serviceDate, change.settlementAfterMinor, JSON.stringify(settlement), dueAt, change.reschedule, now,
       sealed !== null, sealed?.enc ?? null, sealed?.emailBidx ?? null, sealed?.phoneBidx ?? null, sealed?.nameBidx ?? null,
+      pick("flight_kind", order.flightKind), freeWait.minutes, freeWaitBasisJson(freeWait.basis),
     ],
   );
   let refunds: OrderRefund[] = [];
@@ -352,8 +391,10 @@ async function applyChange(db: Db, order: Order, change: OrderChange, sale: Orde
   await updateOrderChange(db, change, { status: "applied", decidedAt: now, dispatchConflict: conflict });
   const actor = origin?.actor.type === "tenant_user" ? "tenant_user" : origin?.actor.type === "platform_user" ? "platform_user" : change.requestedBy === "channel" ? "channel" : "platform_user";
   await insertOrderEvent(db, order, { fromStatus: order.status, toStatus: order.status, actor, reason: "CHANGED", occurredAt: now, detail: { change_id: change.id, fields, dispatch_conflict: conflict } });
-  await enqueueTenantEvent(db, { tenantId: order.tenantId, type: "order.changed", orderId: order.id, data: { change_id: change.id, status: "applied", fields, before: change.before, after: change.after, dispatch_conflict: conflict } }, now);
-  await enqueueNotification(db, { event: "order.changed", tenantId: order.tenantId, orderId: order.id, dedupeKey: `order.changed:${change.id}`, data: { change_id: change.id, fields } }, now);
+  // 派单前改航班重新锁定了免费等待（M9E-28，ADR 0097 Q3）：推送和通知里带上改前改后，供应商知道要多等还是少等
+  const freeWaitChange = freeWait.relocked && freeWait.minutes !== order.freeWaitMinutes ? { free_wait_minutes: { before: order.freeWaitMinutes, after: freeWait.minutes } } : {};
+  await enqueueTenantEvent(db, { tenantId: order.tenantId, type: "order.changed", orderId: order.id, data: { change_id: change.id, status: "applied", fields, before: change.before, after: change.after, dispatch_conflict: conflict, ...freeWaitChange } }, now);
+  await enqueueNotification(db, { event: "order.changed", tenantId: order.tenantId, orderId: order.id, dedupeKey: `order.changed:${change.id}`, data: { change_id: change.id, fields, ...freeWaitChange } }, now);
   const contactOnly = !changeFieldsNeedConfirmation(fields);
   // 联系信息频繁改时，同一位司机 10 分钟内只发一封（链接打开看到的永远是最新的；不然改一次发一封、多一条有效链接，ADR 0060）
   await enqueueDriverNotice(db, order, "order.driver_changed", { key: contactOnly ? `contact:${Math.floor(now.getTime() / CONTACT_NOTICE_WINDOW_MS)}` : change.id, changeId: change.id, fields }, now);
