@@ -10,6 +10,7 @@ export type ItineraryTextKey =
   | "stop"
   | "dropoff"
   | "routeTitle"
+  | "listOnly"
   | "updating"
   | "mapAlt"
   | "mapAltTotal"
@@ -45,6 +46,7 @@ const ZH: Readonly<Record<ItineraryTextKey, string>> = {
   stop: "经停",
   dropoff: "下车",
   routeTitle: "行程路线",
+  listOnly: "经停较多，仅显示列表",
   updating: "路线更新中",
   mapAlt: "路线图：{chain}",
   mapAltTotal: "路线图：{chain}，约 {duration} · {km}",

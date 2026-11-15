@@ -4,6 +4,9 @@
  * 上车点就放在城市中心：新预订页包车按上车地点选「中心最近」的包车城市（`serviceCityOf`），并行的几个用例各建一个城市、中心都在同一片随机，
  * 上车点若离中心 1.4 公里，别的用例的城市中心偶尔更近、页面就按它报价（M8-29，CI run 43486735721：另一个城市中心离上车点 385 米）；
  * 放在中心时距离是 0，只有中心坐标（6 位小数随机）完全相同的城市才会抢走它。
+ * 上车点在加价区域的车站时（site-booking-charter.spec.ts:165，离自己的中心约 0.165 度）不受上面这条保护：别的用例的商品区域 + 加价区域
+ * 同时盖住这个车站和下车点、中心又比自己的近时，页面就按别的城市报价，车型卡找不到（PR #248 CI run 43661459614，M9P-04 多了两个包车用例后撞上）。
+ * 所以城市中心改在 3 × 2.5 度里随机（原来 0.6 × 0.5 度）：按 6 个包车用例同时跑模拟 20 万次，撞上的概率从约 4.4% 降到约 0.18%。
  * 供应商经接口建两个区域：商品区域（城市中心一带）和一个加价区域（东边约 15 公里），上架包车商品：
  * 8 小时套餐 70,000 日元（对外 77,000），加价区域上车加 500、下车加 1,000；平台在加价区域里建一个车站。
  */
@@ -44,6 +47,10 @@ export interface CharterWorld {
   /** 哪个区域都不在 */
   nowhere: Point;
   groupName: string;
+  /** M9P-04：商品、供应商管理员（服务规则页的端到端用）、加价区域的名称 */
+  productId: string;
+  tenant: { adminEmail: string; password: string };
+  surchargeAreaName: string;
 }
 
 async function version(request: APIRequestContext, headers: Record<string, string>, id: string): Promise<number> {
@@ -55,12 +62,15 @@ async function version(request: APIRequestContext, headers: Record<string, strin
  * `extraPackageHours`：商品区域再多上架一档套餐（M9E-07 嵌入组件包车用）。城市只有 8 小时一档时 `/book/new` 会替客人选上，
  * 多一档才能看到「停在第 1 步等客人选时长」。这一档 40,000 日元、没有区域加价。
  * `packages`：商品区域再多上架的几档套餐（时长、套餐价、含公里；M9P-03 有经停点时手动升档用），没有区域加价。
+ * `waypointSurcharge`：加价区域的途经加价（M9P-04；没迁移过的商品，经停点和下车点行程加价都查这一列）——给了时 `packages` 的每一档也在加价区域配同样的上 / 下车、途经加价。
+ * `itinerary`：服务规则里的包车行程配置（`charter_itinerary`，M9P-04：经停点默认占用、整单缓冲等）。
  */
-export async function charterWorld(request: APIRequestContext, options: { extraPackageHours?: number; packages?: readonly { hours: number; price: number; km: number }[] } = {}): Promise<CharterWorld> {
+export async function charterWorld(request: APIRequestContext, options: { extraPackageHours?: number; packages?: readonly { hours: number; price: number; km: number }[]; waypointSurcharge?: number; itinerary?: Record<string, unknown> } = {}): Promise<CharterWorld> {
   const world = await createWorld(request);
   const admin = await platformAdminHeaders(request);
   const tag = randomLetters(5);
-  const center = { lat: Number((33.2 + Math.random() * 0.6).toFixed(6)), lng: Number((130.3 + Math.random() * 0.5).toFixed(6)) };
+  // 中心在 3 × 2.5 度里随机（M8-29：原来 0.6 × 0.5 度，并行的几个用例的城市挨得太近，见文件开头）
+  const center = { lat: Number((31.0 + Math.random() * 3.0).toFixed(6)), lng: Number((129.5 + Math.random() * 2.5).toFixed(6)) };
   const city = await post<{ id: string }>(request, admin, "/platform/v1/master/cities", { code: `CTY-JP-${tag}`, country_code: "JP", name: { zh: `包车城市${tag}` }, timezone: "Asia/Tokyo", center }, "新建城市");
   const cityRef: Ref = { id: city.id, code: `CTY-JP-${tag}`, name: `包车城市${tag}` };
   const surchargeCenter = offset(center, 0, 0.16);
@@ -79,14 +89,14 @@ export async function charterWorld(request: APIRequestContext, options: { extraP
   const surchargeArea = await area(`加价区域 ${tag}`, surchargeCenter, 0.04);
   const supplier = { tenant, headers, brand, area: productArea };
   const product = await createProductByApi(request, supplier, { ...world, city: cityRef }, "charter");
-  const rules = await request.put(`/tenant/v1/products/${product.id}/service-rules`, { headers: { ...headers, "if-match": `"${product.version}"` }, data: RULES });
+  const rules = await request.put(`/tenant/v1/products/${product.id}/service-rules`, { headers: { ...headers, "if-match": `"${product.version}"` }, data: { ...RULES, ...(options.itinerary === undefined ? {} : { charter_itinerary: options.itinerary }) } });
   expect(rules.status(), await rules.text()).toBe(200);
   const content = await request.put(`/tenant/v1/products/${product.id}/content`, { headers: { ...headers, "if-match": `"${((await rules.json()) as { version: number }).version}"` }, data: { zh: { title: "区域加价包车" } } });
   expect(content.status(), await content.text()).toBe(200);
   const { today } = (await (await request.get(`/tenant/v1/products/${product.id}/price-rules`, { headers })).json()) as { today: string };
   const prices = [
     { ...EMPTY_PRICE, area_id: productArea.id, vehicle_group_id: world.group.id, package_hours: 8, pricing_model: "charter_package", package_km: 150, package_price: 70000, overtime_per_hour: 5000, over_km_per_km: 400, valid_from: today },
-    { area_id: surchargeArea.id, vehicle_group_id: world.group.id, package_hours: 8, pricing_model: "charter_area_surcharge", pickup_surcharge: 500, dropoff_surcharge: 1000, valid_from: today },
+    ...[8, ...(options.waypointSurcharge === undefined ? [] : (options.packages ?? []).map((entry) => entry.hours))].map((hours) => ({ area_id: surchargeArea.id, vehicle_group_id: world.group.id, package_hours: hours, pricing_model: "charter_area_surcharge", pickup_surcharge: 500, dropoff_surcharge: 1000, ...(options.waypointSurcharge === undefined ? {} : { waypoint_surcharge: options.waypointSurcharge }), valid_from: today })),
     ...(options.extraPackageHours === undefined ? [] : [{ ...EMPTY_PRICE, area_id: productArea.id, vehicle_group_id: world.group.id, package_hours: options.extraPackageHours, pricing_model: "charter_package", package_km: 80, package_price: 40000, overtime_per_hour: 5000, over_km_per_km: 400, valid_from: today }]),
     ...(options.packages ?? []).map((entry) => ({ ...EMPTY_PRICE, area_id: productArea.id, vehicle_group_id: world.group.id, package_hours: entry.hours, pricing_model: "charter_package", package_km: entry.km, package_price: entry.price, overtime_per_hour: 5000, over_km_per_km: 400, valid_from: today })),
   ];
@@ -96,5 +106,5 @@ export async function charterWorld(request: APIRequestContext, options: { extraP
   }
   const published = await request.post(`/tenant/v1/products/${product.id}/publish`, { headers });
   expect(published.status(), await published.text()).toBe(200);
-  return { cityId: city.id, center, pickup: center, nearby: offset(center, -0.02, 0.02), station, nowhere: offset(center, 0.4, 0.4), groupName: world.group.name };
+  return { cityId: city.id, center, pickup: center, nearby: offset(center, -0.02, 0.02), station, nowhere: offset(center, 0.4, 0.4), groupName: world.group.name, productId: product.id, tenant: { adminEmail: tenant.adminEmail, password: tenant.password }, surchargeAreaName: surchargeArea.name };
 }

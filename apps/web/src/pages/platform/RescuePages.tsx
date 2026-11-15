@@ -37,7 +37,7 @@ import { formatInZone, moneyText } from "../../lib/dispatch-display.ts";
 import { failureText } from "../../lib/failure.ts";
 import { formatLocalDateTime } from "../../lib/master-display.ts";
 import { amountToMinor, platformOrderPath } from "../../lib/order-money-display.ts";
-import { DEDUCTION_STATUS_BADGES, OFFER_STATUS_BADGES, PLATFORM_TRIGGER_HINTS, RESCUE_STATUS_BADGES, deductionBasisText, deductionKindName, penaltyText, triggerName } from "../../lib/rescue-display.ts";
+import { DEDUCTION_STATUS_BADGES, OFFER_STATUS_BADGES, PLATFORM_TRIGGER_HINTS, RESCUE_STATUS_BADGES, deductionBaseText, deductionBasisText, deductionKindName, penaltyText, triggerName } from "../../lib/rescue-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan, usePlatformScopeDenies } from "../../lib/use-master-access.ts";
@@ -269,7 +269,7 @@ function TriggerDialog({ order, onClose, onDone }: { order: PlatformOrder; onClo
   );
 }
 
-function CandidatesDialog({ order, onClose, onDone }: { order: PlatformOrder; onClose(): void; onDone(text: string): void }) {
+function CandidatesDialog({ order, rescue, onClose, onDone }: { order: PlatformOrder; rescue: PlatformRescue | null; onClose(): void; onDone(text: string): void }) {
   const { token, handleAuthFailure } = usePortalSession();
   const { state } = useLoad<RescueCandidates>(`rescue-candidates|${order.id}`, (t) => getRescueCandidates(t, order.id));
   const [busy, setBusy] = useState<string | null>(null);
@@ -290,6 +290,7 @@ function CandidatesDialog({ order, onClose, onDone }: { order: PlatformOrder; on
   return (
     <Dialog open title="救援候选" size="form" busy={busy !== null} onClose={onClose} footer={<Button variant="text" onClick={onClose}>关闭</Button>}>
       <p className="field__hint">按原报价条件（同一个渠道、这一单的车型组、现在的用车时间）重新比价，排除以前接过这一单的和已经发过的，按中标排序。差价是改派给它时原供应商要承担的（为负记 0）。</p>
+      {rescue !== null && <p className="field__hint">{`差价 = 结算价 − 救援差价基准：${deductionBaseText(rescue.deduction_base, rescue.original_settlement)}`}</p>}
       {state.status === "error" && <Alert kind="danger">候选没取到，请稍后再试。</Alert>}
       {found !== undefined && found !== null && (
         <>
@@ -451,6 +452,7 @@ export function RescueSection({ order, rescues, onChanged }: { order: PlatformOr
             <Detail label="情形">{`${triggerName(rescue.trigger)}（${BY_NAMES[rescue.triggered_by_type]}，${formatLocalDateTime(rescue.triggered_at)}）`}</Detail>
             {rescue.reason && <Detail label="原因 / 说明">{rescue.reason}</Detail>}
             <Detail label="原供应商">{`${rescue.original_tenant.name} · 原结算价 ${moneyText(rescue.original_settlement)}`}</Detail>
+            <Detail label="救援差价基准">{deductionBaseText(rescue.deduction_base, rescue.original_settlement)}</Detail>
             <Detail label="违约金">{`${penaltyText(rescue.penalty_tier)} = ${moneyText(rescue.penalty)}`}</Detail>
             <Detail label="状态">
               <StatusBadge {...RESCUE_STATUS_BADGES[rescue.status]} />
@@ -508,7 +510,7 @@ export function RescueSection({ order, rescues, onChanged }: { order: PlatformOr
         </div>
       )}
       {dialog === "trigger" && <TriggerDialog order={order} onClose={() => setDialog(null)} onDone={done} />}
-      {dialog === "candidates" && <CandidatesDialog order={order} onClose={() => setDialog(null)} onDone={done} />}
+      {dialog === "candidates" && <CandidatesDialog order={order} rescue={open} onClose={() => setDialog(null)} onDone={done} />}
       {dialog === "manual" && <ManualDialog order={order} onClose={() => setDialog(null)} onDone={done} />}
       {dialog === "force" && <ForceMajeureDialog order={order} onClose={() => setDialog(null)} onDone={done} />}
     </section>

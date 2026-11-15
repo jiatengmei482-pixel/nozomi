@@ -415,3 +415,26 @@ test("包车行程地图（M9P-20）：嵌入页和主站同一个组件——�
   assert.equal(document.querySelector(".leaflet-container"), null, "不用 Leaflet 后备图");
   assert.equal(calls.filter((call) => call.path.startsWith("/site/v1/route-map")).length, 0);
 });
+
+test("经停超过 10 个（13 个点以上，ADR 0099）：不请求行程地图，只显示列表和「经停较多，仅显示列表」；列表编号照常", async () => {
+  const stops = Array.from({ length: 11 }, (_, i) => ({ name: `点${i + 1}`, lat: 35.4 + i / 100, lng: 138.8, stay_minutes: 30 }));
+  const charterDraft = { ...DRAFT_BODY, tab: "charter", waypoints: stops };
+  const charterQuote: SiteQuote = { ...quote, package: { hours: 12, km: 300 }, cancel_policy: { ...quote.cancel_policy, category: "charter" } };
+  const calls = stubApiWith((call) => {
+    const path = call.url.pathname;
+    if (path === `/site/v1/booking-drafts/${DRAFT}`) return json(200, { draft: charterDraft, expires_at: "2030-11-20T00:00:00Z", source_matches: true });
+    if (path === "/site/v1/config") return json(200, config);
+    if (path === "/site/v1/cities") return json(200, { items: [city] });
+    if (path === "/site/v1/charter-packages") return json(200, { city: { id: CITY_ID, code: city.code, name: city.name, timezone: city.timezone }, items: [{ hours: 12 }] });
+    if (path === "/site/v1/fx/reference") return json(200, { available: false, from: "JPY", to: "USD", rate: null, as_of: null, reason: "NO_RATE" });
+    if (call.method === "POST" && path === "/site/v1/quotes") return json(200, { currency: "JPY", quotes: [charterQuote], unavailable: [] });
+    return null;
+  });
+  open(bookUrl);
+  await screen.findByRole("heading", { name: "车型1" }, SLOW);
+  const items = [...screen.getByRole("list", { name: "行程" }).querySelectorAll(".trip-stops__number")].map((node) => node.textContent);
+  assert.deepEqual(items, Array.from({ length: 13 }, (_, i) => String(i + 1)));
+  assert.ok(screen.getByText("经停较多，仅显示列表"));
+  assert.equal(document.querySelector(".itinerary-map"), null);
+  assert.equal(calls.filter((call) => call.path.startsWith("/site/v1/itinerary-map")).length, 0, "不请求地图");
+});

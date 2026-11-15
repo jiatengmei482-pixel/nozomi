@@ -46,6 +46,7 @@ import { Icon } from "../../../components/Icon.tsx";
 import { Skeleton, StateBlock } from "../../../components/States.tsx";
 import { TextField } from "../../../components/TextField.tsx";
 import {
+  type AirportFlightScope,
   BOOK_STEPS,
   BOOK_TABS,
   BOOK_TAB_NAMES,
@@ -77,7 +78,7 @@ import { CHARTER_ITINERARY_OVERAGE_NOTE, CHARTER_OVERAGE_NOTE, UNAVAILABLE_REASO
 import { FIELD_HINTS, MESSAGING_NAMES, type OrderErrors, type OrderForm, type OrderTrip, orderFailureOf, orderRequestOf, validateOrderForm } from "../../../lib/site-order-form.ts";
 import { useDocumentTitle } from "../../../lib/use-document-title.ts";
 import { MANUAL_QUOTE_CHARTER_HOURS, type ManualQuoteTripDraft } from "../../../lib/manual-quote-form.ts";
-import { ITINERARY_NOTE, type WaypointDraft, autoPackageHoursOf, breakdownLines, upgradePackageHours, durationText, itineraryMapAlt, itineraryMapPoints, itineraryPackageHours, itineraryRouteFailureText, itineraryText, scheduleRows, waypointErrors, waypointUnavailableTexts, waypointsBody } from "../../../lib/charter-itinerary.ts";
+import { ITINERARY_NOTE, type WaypointDraft, autoPackageChoice, autoPackageHoursByVehicle, breakdownLines, upgradePackageHours, durationText, itineraryMapAlt, itineraryMapPoints, itineraryPackageHours, itineraryRouteFailureText, itineraryText, minPackageHints, scheduleRows, waypointErrors, waypointUnavailableTexts, waypointsBody } from "../../../lib/charter-itinerary.ts";
 import { TripStops } from "../../../components/TripStops.tsx";
 import { itineraryCopy } from "../../../lib/itinerary-texts.ts";
 import { type LiveSuggestion, liveSuggestion, orderChain, stopSetKey, suggestionQuoteExpired } from "../../../lib/order-suggestion.ts";
@@ -286,14 +287,14 @@ export function BookNewPage() {
   const [quote, setQuote] = useState<QuoteState>({ kind: "idle" });
   const [quoteRound, setQuoteRound] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [recognized, setRecognized] = useState<{ ends: string; tripType: SiteByPointsResult["trip_type"] } | null>(null);
+  const [recognized, setRecognized] = useState<{ ends: string; tripType: SiteByPointsResult["trip_type"]; flightScope: AirportFlightScope | null } | null>(null);
   const [charterMatch, setCharterMatch] = useState<{ key: string; load: Load<CharterMatch> } | null>(null);
   /** 包车套餐读失败后点「重试」：加一次重读 */
   const [charterRetry, setCharterRetry] = useState(0);
   /** 有经停点时客人手动升到的套餐（M9P-03）：只对选的那一段行程（上下车点、经停点）有效，行程一改就回到自动 */
   const [upgrade, setUpgrade] = useState<{ key: string; hours: string } | null>(null);
   /** 这段行程最近一次报价里自动选的档：手动升档后的报价暂时报不出时，下拉照样从它起列 */
-  const [lastAuto, setLastAuto] = useState<{ key: string; hours: number } | null>(null);
+  const [lastAuto, setLastAuto] = useState<{ key: string; byVehicle: Record<string, number> } | null>(null);
   /** 没有经停的包车每段的时长和里程（M9P-20，ADR 0096）：和行程地图共用一次谷歌调用，只作展示；key 是这组点 */
   const [plainLegs, setPlainLegs] = useState<{ key: string; legs: { minutes: number; meters: number }[] } | null>(null);
   const [addonQuantities, setAddonQuantities] = useState<Record<string, number>>({});
@@ -470,7 +471,7 @@ export function BookNewPage() {
         (outcome) => {
           if (!alive) return;
           setQuote({ kind: "ready", key: current.key, outcome });
-          if (outcome.mode === "transfer") setRecognized({ ends: sameEnds(draft.from, draft.to), tripType: outcome.result.trip_type });
+          if (outcome.mode === "transfer") setRecognized({ ends: sameEnds(draft.from, draft.to), tripType: outcome.result.trip_type, flightScope: outcome.result.airport?.flight_scope ?? null });
         },
         (err: unknown) => {
           if (!alive) return;
@@ -508,11 +509,13 @@ export function BookNewPage() {
     focusItinerary.current = false;
     itineraryHeading.current.focus();
   });
-  const tripType: SiteByPointsResult["trip_type"] | null = draft.mode === "charter" ? null : recognized !== null && recognized.ends === sameEnds(draft.from, draft.to) ? recognized.tripType : draft.from?.kind === "airport" ? "pickup" : null;
+  const known = draft.mode !== "charter" && recognized !== null && recognized.ends === sameEnds(draft.from, draft.to) ? recognized : null;
+  const tripType: SiteByPointsResult["trip_type"] | null = draft.mode === "charter" ? null : known !== null ? known.tripType : draft.from?.kind === "airport" ? "pickup" : null;
   const arrival = tripType === "pickup";
-  // 免费等待（M8-33）：有报价按所选商品自己设的；接机还没有报价时按机场国际 90 / 国内 60 分钟
+  // 免费等待（M8-33、M9E-27）：有报价按所选商品自己设的；接机还没有报价时按这两端上次认出的机场：国际线 90、国内线 60，
+  // 没认出过（客人还没填齐、还没报过价）或机场国际国内都有、没标明的不写分钟数——不拿 60 去猜
   const quotedForWait = selected ?? quotes[0] ?? null;
-  const flightScope = outcome?.mode === "transfer" ? (outcome.result.airport?.flight_scope ?? null) : null;
+  const flightScope = outcome?.mode === "transfer" ? (outcome.result.airport?.flight_scope ?? null) : (known?.flightScope ?? null);
   const freeWait = arrival ? arrivalFreeWaitMinutes(quotedForWait, flightScope) : (quotedForWait?.free_wait_minutes ?? null);
   const timezone = outcome?.mode === "charter" ? outcome.city.timezone : (outcome?.result.city?.timezone ?? dateCity?.timezone ?? "Asia/Tokyo");
   const cityName = outcome?.mode === "charter" ? displayName(outcome.city.name).text : outcome?.result.city ? displayName(outcome.result.city.name).text : null;
@@ -521,13 +524,18 @@ export function BookNewPage() {
   const stops = itinerary ? (waypointsBody(draft.waypoints) ?? []) : [];
   const charterResult = outcome?.mode === "charter" ? outcome.result : null;
   const itineraryPackage = itinerary && charterResult !== null ? itineraryPackageHours(selected ?? quotes[0] ?? null) : null;
-  // 自动选的档（从预计用时 T 起的那一档）：这次报价带的；这次没报出来时用这段行程上次的
-  const quotedAuto = itinerary && charterResult !== null ? autoPackageHoursOf(quotes) : null;
+  // 各车型自动选的档（从预计用时 T 起选的那一档，M9P-04 按车型）：这次报价带的，补上这段行程以前报出过的（手动升档后有的车型报不出时还记得它的档）
+  const quotedAuto = useMemo(() => (itinerary && charterResult !== null ? autoPackageHoursByVehicle(quotes) : {}), [itinerary, charterResult, quotes]);
+  const quotedAutoKey = JSON.stringify(quotedAuto);
   useEffect(() => {
-    if (quotedAuto !== null && itineraryKey !== null) setLastAuto({ key: itineraryKey, hours: quotedAuto });
-  }, [quotedAuto, itineraryKey]);
-  const autoHours = quotedAuto ?? (lastAuto !== null && lastAuto.key === itineraryKey ? lastAuto.hours : null);
-  const upgradeOptions = itinerary && packageLoad?.kind === "ready" ? upgradePackageHours(packageLoad.items, autoHours) : [];
+    if (itineraryKey === null || Object.keys(quotedAuto).length === 0) return;
+    setLastAuto((last) => ({ key: itineraryKey, byVehicle: { ...(last !== null && last.key === itineraryKey ? last.byVehicle : {}), ...quotedAuto } }));
+  }, [quotedAutoKey, itineraryKey]);
+  const autoByVehicle = { ...(lastAuto !== null && lastAuto.key === itineraryKey ? lastAuto.byVehicle : {}), ...quotedAuto };
+  // 下拉的默认项「自动（N 小时）」按客人选的车型（还没选时按列出的车型），只列比它长的档
+  const autoChoice = itinerary ? autoPackageChoice(autoByVehicle, selectedId, quotes.map((entry) => entry.vehicle_group.id)) : null;
+  // 已经升到的档在换了车型以后可能不再比自动档长：照样列着（下拉不能显示一个不在选项里的值），客人可以选回「自动」
+  const upgradeOptions = itinerary && packageLoad?.kind === "ready" && autoChoice !== null ? [...new Set([...upgradePackageHours(packageLoad.items, autoChoice.floor), ...(upgradeHours === "" ? [] : [Number(upgradeHours)])])].sort((a, b) => a - b) : [];
   const itinerarySummary = itinerary && charterResult !== null ? itineraryText(charterResult.itinerary_route, itineraryPackage) : null;
   const schedule = itinerary && draft.from !== null ? scheduleRows(draft.from.name, draft.to?.name ?? null, stops, charterResult?.itinerary_route?.legs ?? null) : null;
   // 包车行程地图和列表（M9P-20，ADR 0096）：编号 1 = 上车、经停依次、最后 = 下车；没有经停时只有上车、下车两行
@@ -1041,10 +1049,10 @@ export function BookNewPage() {
           </div>
         )}
         {/* 有经停点时也能手动升到更长的套餐（M9P-03，规格步骤 3）：默认「自动（N 小时）」，只列比它长的档，不能选短于预计用时的；改了重新报价 */}
-        {charter && charterCity !== null && charterCity !== undefined && !charterNoOnline && itinerary && autoHours !== null && itineraryKey !== null && (upgradeOptions.length > 0 || upgradeHours !== "") && (
+        {charter && charterCity !== null && charterCity !== undefined && !charterNoOnline && itinerary && autoChoice !== null && itineraryKey !== null && (upgradeOptions.length > 0 || upgradeHours !== "") && (
           <SelectField
             label="包车时长"
-            placeholder={`自动（${autoHours} 小时）`}
+            placeholder={autoChoice.label}
             value={upgradeHours}
             options={upgradeOptions.map((hours) => ({ value: String(hours), label: `${hours} 小时` }))}
             hint="想多留些时间可以选更长的套餐；不能选比预计用时短的"
@@ -1092,6 +1100,23 @@ export function BookNewPage() {
       </section>
     );
 
+    // 不填经停点、选的时长比某些车型的最低套餐短（M9P-04，ADR 0093 第四节第 7 条）：写那些车型最短几小时，给「改选 X 小时」（只给这段行程能订的档）
+    const minHints = charter && !itinerary && draft.packageHours !== "" ? minPackageHints(outcome?.result.unavailable ?? [], Number(draft.packageHours)) : [];
+    const minHintBlock = minHints.length > 0 && (
+      <div className="book-new__notice" role="status">
+        {minHints.map((hint) => (
+          <div key={hint.hours} className="book-new__min-package">
+            <p>{hint.text}</p>
+            {packageLoad?.kind === "ready" && packageLoad.items.includes(hint.hours) && (
+              <Button size="sm" onClick={() => update({ packageHours: String(hint.hours) })}>
+                {`改选 ${hint.hours} 小时`}
+              </Button>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+
     let vehicles;
     if (current === null) {
       vehicles = <p className="site-muted">{charter ? "选好上车地点、下车地点、包车时长、日期和时间后，这里会列出能坐下的车型和价格。" : "填好出发地、目的地、日期和时间后，这里会列出能坐下的车型和一口价。"}</p>;
@@ -1133,6 +1158,7 @@ export function BookNewPage() {
             </ul>
             {support && <SupportPhone phone={supportPhone} />}
           </div>
+          {minHintBlock}
           <ManualQuoteBlock key={manualKey} trip={manualTrip} supportWhatsapp={supportWhatsapp} />
         </>
       );
@@ -1146,6 +1172,7 @@ export function BookNewPage() {
           <p className="site-muted">
             按价格从低到高 · 坐不下的已隐藏。报价 30 分钟内有效（到当地时间 {formatInZone(expires, timezone).slice(11)}），过了请重新查询。
           </p>
+          {minHintBlock}
           {charter && charterRows !== null && (
             <section aria-labelledby="book-itinerary-title" className="book-itinerary">
               <h3 id="book-itinerary-title" ref={itineraryHeading} tabIndex={-1} className="book-new__subtitle">
@@ -1154,12 +1181,14 @@ export function BookNewPage() {
               {itinerarySummary !== null && <p>{itinerarySummary}</p>}
               {itinerary && suggestionExtras}
               {charterMapPoints !== null && <ItineraryMap points={charterMapPoints} alt={itineraryMapAlt(charterRows, charterResult?.itinerary_route)} />}
+              {/* 超过 12 个点（ADR 0099）：不请求地图，只显示列表 */}
+              {charterMapPoints === null && draft.from !== null && draft.to !== null && <p className="site-muted">{itineraryCopy("listOnly")}</p>}
               <TripStops rows={charterRows} />
               {itinerary && <p className="price-breakdown__note">{ITINERARY_NOTE}</p>}
             </section>
           )}
           <VehicleList
-            {...(itinerary ? { breakdownOf: (entry: SiteQuote) => breakdownLines(entry, itineraryPackageHours(entry)) } : {})}
+            {...(charter ? { breakdownOf: (entry: SiteQuote) => breakdownLines(entry, itineraryPackageHours(entry)) } : {})}
             key={current.key}
             quotes={quotes}
             limit={wide ? VISIBLE_VEHICLES.wide : VISIBLE_VEHICLES.narrow}
@@ -1182,7 +1211,7 @@ export function BookNewPage() {
                 </li>
               ))}
             </ul>
-            {/* 按行程计价（报价带 itinerary_route，M9W-05）：超公里、超时已算进价格；不按行程计价的包车照旧 */}
+            {/* 按行程计价（报价带 itinerary_route，M9W-05）：超公里已算进价格，用时超出套餐另收（M9P-04 改）；不按行程计价的包车照旧 */}
             {charter && <p className="site-muted">{charterResult?.itinerary_route != null ? CHARTER_ITINERARY_OVERAGE_NOTE : CHARTER_OVERAGE_NOTE}</p>}
           </section>
         </>
@@ -1353,9 +1382,10 @@ export function BookNewPage() {
       </dl>
     );
 
-    /** 包车按行程计价（M9W-02）：下单用的那一次报价的对外价明细 + 提示；明细对不上总价时只有提示 */
+    /** 包车（M9W-02；M9P-04 起不填经停点也给）：下单用的那一次报价的对外价明细；按行程计价时另有提示，明细对不上总价时只有提示 */
     const pricedForBreakdown = priced ?? (addonList.length === 0 ? selected : null);
-    const itineraryPrice = itinerary && pricedForBreakdown !== null && <PriceBreakdown lines={breakdownLines(pricedForBreakdown, itineraryPackageHours(pricedForBreakdown))} total={moneyText(pricedForBreakdown.price.total)} />;
+    const priceLines = charter && pricedForBreakdown !== null ? breakdownLines(pricedForBreakdown, itineraryPackageHours(pricedForBreakdown)) : null;
+    const itineraryPrice = charter && pricedForBreakdown !== null && (itinerary || priceLines !== null) && <PriceBreakdown lines={priceLines} total={moneyText(pricedForBreakdown.price.total)} note={itinerary} />;
 
     /** 侧栏里的车型和一个价格（第 2 步选了车型就出现）：合计（加了附加服务是带附加服务的那一次），下面含公里数、计价说明（含区域加价 / 含里程费 / 按里程计价） */
     const sidePrice = selected !== null && vehicleName !== null && (

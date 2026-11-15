@@ -88,3 +88,22 @@ test("取消勾选加急、夜间：里面填过的内容不提交", () => {
   assert.deepEqual(body.urgent, { enabled: false, daily_quota: null, tiers: [] });
   assert.deepEqual(body.night, { enabled: false, window: null, amount: null, charge_unit: null });
 });
+
+test("包车按行程计价（M9P-04）：0 和不限读成空着（不预填建议值）；空着提交 0 / 不限；范围之外指到输入框；读回再读结果不变；别的品类不带这一项", () => {
+  const charter: RulesFormContext = { ...airport, category: "charter", pickupPlace: null, minimums: { pickup: null, dropoff: null, general: 0 } };
+  const form = formFromRules({ ...EMPTY, charter_itinerary: { dropoff_itinerary_surcharge: true, stop_occupancy_minutes: 0, buffer_minutes: 0, min_package_hours: null, max_online_minutes: 780 } }, charter);
+  assert.deepEqual(form.itinerary, { dropoffSurcharge: true, stopOccupancy: "", buffer: "", minPackage: "" });
+  assert.deepEqual(readRulesForm(form, charter).body.charter_itinerary, { dropoff_itinerary_surcharge: true, stop_occupancy_minutes: 0, buffer_minutes: 0, min_package_hours: null });
+  // 旧接口没有这一项：按默认值
+  assert.deepEqual(formFromRules(EMPTY, charter).itinerary, { dropoffSurcharge: true, stopOccupancy: "", buffer: "", minPackage: "" });
+  const filled = readRulesForm({ ...form, itinerary: { dropoffSurcharge: false, stopOccupancy: "１５", buffer: " 60 ", minPackage: "5" } }, charter);
+  assert.deepEqual(filled.problems, []);
+  assert.deepEqual(filled.body.charter_itinerary, { dropoff_itinerary_surcharge: false, stop_occupancy_minutes: 15, buffer_minutes: 60, min_package_hours: 5 });
+  assert.deepEqual(filled.rules.charterItinerary, { dropoffItinerarySurcharge: false, stopOccupancyMinutes: 15, bufferMinutes: 60, minPackageHours: 5 });
+  assert.deepEqual(readRulesForm(formFromRules(filled.body, charter), charter).body, filled.body);
+  const wrong = readRulesForm({ ...form, itinerary: { dropoffSurcharge: true, stopOccupancy: "121", buffer: "241", minPackage: "73" } }, charter);
+  assert.deepEqual(wrong.problems.map((problem) => problem.target), ["itinerary-stop-occupancy", "itinerary-buffer", "itinerary-min-package"]);
+  assert.deepEqual(readRulesForm({ ...form, itinerary: { dropoffSurcharge: true, stopOccupancy: "1.5", buffer: "-1", minPackage: "0" } }, charter).problems.length, 3);
+  assert.equal(fresh().itinerary, null);
+  assert.equal("charter_itinerary" in readRulesForm(fresh(), airport).body, false);
+});
