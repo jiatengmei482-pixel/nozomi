@@ -1,13 +1,13 @@
 # ADR 0100：AI 行程报价 P1 后端——行程单、服务段、跨段费用、编排接口、四类跨段规则、方案对比（实施篇）
 
-- 状态：**草案第二稿（2026-11-15）**。第一稿经独立审查（PR #263 评论）「需要修改后复核」，11 条必须修改逐条处理，见文末「第二稿修改记录」。设计依据是 ADR 0094（M10-00，草案第四稿，在审）；本篇是它 P1 的**后端实施 ADR**，只写本车道要落地的部分和实施时才看得清的细节。
+- 状态：**草案第三稿（2026-11-15）**。第一稿经独立审查（PR #263 评论）「需要修改后复核」，11 条必须修改逐条处理；第二稿复核又提 3 条（M1–M3），第三稿处理，见文末「修改记录」。设计依据是 ADR 0094（M10-00，草案第四稿，在审）；本篇是它 P1 的**后端实施 ADR**，只写本车道要落地的部分和实施时才看得清的细节。
 - 工作项：**M9T-00**（本篇）；实施 **M9T-01**（domain 编排与规则）、**M9T-02**（迁移 0600、规则配置接口）、**M9T-03**（编排接口）、**M9T-04**（固定测试集与验收）、**M9T-05**（行程单清理任务）。
 - 依据（冲突时按这个顺序）：
   1. 业主《NOZOMI AI 行程报价 · 设计方案（草案 v1）》`docs/requirements/ai-trip-quote-design-2026-11-14.md`（下称「原文」）；
   2. ADR 0094（下称「设计篇」）：数据模型、编排接口、规则配置键、分段判定、方案对比、第十一节默认值；
   3. ADR 0093（三层区域、按上下车点找商品、各商品自选套餐、13 小时拦截）、ADR 0091（预计用时 T）。
 - 编号：main 上最大是 0096；0097（#255）、0098（#259 / #261）、0099（#260）已被未合并的 PR 占用，这里用 **0100**。数据库迁移按监工要求从 **0600** 起。
-- **硬约束（原文第 0 节、监工 2026-11-15）**：只新增表、新增接口、新增模块；**不改现有报价接口、不改现有表**（不改 `quoteProduct`、`siteQuotes`、`previewPlatformQuote` 的入参与结果，不给现有表加列）。不碰包车（M9P）车道的文件。本篇需要越过这条线的地方只有两处，都列为**阻塞项**等监工书面确认（第九节 B1、B2），没确认前按「不越线」的备选做。
+- **硬约束（原文第 0 节、监工 2026-11-15）**：只新增表、新增接口、新增模块；**不改现有报价接口、不改现有表**（不改 `quoteProduct`、`siteQuotes`、`previewPlatformQuote` 的入参与结果，不给现有表加列）。不碰包车（M9P）车道的文件。本篇需要越过这条线的地方列为**阻塞项**等监工书面确认（第九节 B2、B3），没确认前按「不越线」的备选做。
 
 ---
 
@@ -17,10 +17,10 @@
 2. **数据**：迁移 0600 新增 5 张表——平台表 `trips`、`trip_plans`、`trip_segments`、`trip_fees`，租户表 `trip_rule_configs`。P1 只收结构化输入，不收自由文字。
 3. **接口**：`POST /site/v1/trips`、`GET /site/v1/trips/:id`、`POST /site/v1/trips/:id/quote`（官网渠道）；`GET/PUT /tenant/v1/products/:id/trip-rules`、`GET /platform/v1/products/:id/trip-rules`。
 4. **每一段都经现有报价服务报价**：编排器调 `previewPlatformQuote`（`apps/api/src/services/quotes.ts:301`），入参和官网询价**逐项一致**（币种 = 官网渠道结算币种、司机语言 null、车型组空，第三节第 5 小节），所以 `daily_best` 的段价 = 客人单独查这一段的中标价。编排器不算任何一段的价。
-5. **「一车到底」的粒度是「同一供应商 × 同一车型组」**，不是「同一商品」：现有比价每个车型组每个租户只留一个报价（`rankCandidates`，`packages/domain/src/quote.ts:1647-1654`），要按商品取全就得改入参（阻塞项 B1，备选按租户做）。
+5. **「一车到底」的粒度是「同一供应商 × 同一车型组」**，不是「同一商品」：现有比价每个车型组每个租户只留一个报价（`rankCandidates`，`packages/domain/src/quote.ts:1647-1654`），要按商品取全就得改入参（偏离 D1，P1 按租户做）。
 6. **四类跨段规则**（新模块 `packages/domain/src/trip/`，纯函数）：住宿（含客人提供住宿抵免、和③空驶加价不重复收）、多日停驻、工时与第二司机、长途返程（函数）。另加设计篇第四节第 9 条的「按次附加项去重」。
 7. **方案对比**：多日行程出 `one_car` 和 `daily_best`；推荐门槛按设计篇用 **10%**。
-8. **调用量**：段报价、路线调用分别设预算，超出降级为「只报不拆」，不直接 422；新加限频档 `site_trip_quote`。
+8. **调用量**：段报价、路线调用分别设预算，超出降级为「只报不拆」，不直接 422；新加三个限频键 `site_trip`、`site_trip_quote`、`site_trip_quote_day`。
 
 ---
 
@@ -103,7 +103,7 @@
 | --- | --- |
 | `POST /site/v1/trips` | 校验标准行程单，存为 `draft`，返回 `trip_id`。限频新加档 `site_trip`（同 IP 每分钟 10 次） |
 | `GET /site/v1/trips/:id` | 行程单和最近一次报价的方案（到期的标 `expired`）。凭编号访问，同 `booking_drafts` |
-| `POST /site/v1/trips/:id/quote` | 编排 + 分段报价 + 跨段费用 + 方案对比，写方案、段、费用。限频新加档 **`site_trip_quote`（同 IP 每分钟 5 次、每天 50 次）**，不和 `site_quote` 共用 |
+| `POST /site/v1/trips/:id/quote` | 编排 + 分段报价 + 跨段费用 + 方案对比，写方案、段、费用。限频：一个限频键只有一个时间窗（`apps/api/src/services/rate-limit.ts:75-76`），所以加两个键 **`site_trip_quote`（同 IP 每分钟 5 次）** 和 **`site_trip_quote_day`（同 IP 每天 50 次）**，两个都放行才报价；不和 `site_quote` 共用 |
 | `GET / PUT /tenant/v1/products/:id/trip-rules` | 供应商读、改这个商品的跨段规则，乐观锁、写审计；只有结算价 |
 | `GET /platform/v1/products/:id/trip-rules` | 运营只读 |
 
@@ -141,6 +141,8 @@
 
 1. `n = 1`、`P0` 是机场 → **接机**；
 2. `n = 1`、`Pn` 是机场 → **送机**；
+   - 「是机场」和官网按点询价同一判断：`placeId` 是机场，**或坐标落在平台机场里**（官网按坐标识别机场，`apps/api/src/services/site.ts` 的按点询价）。
+   - **回落**（同官网 M8-33 / M8-35，`site.ts:982-995`）：接送机一个报价都没有时，再按出发地（不在时按目的地）所在、官网能订点对点的城市（`pointToPointCityOf`）用点对点报；回落的那次不再记未覆盖需求。段的 `segment_type` 仍是接机 / 送机，`category` 记 `point_to_point`。
 3. `n = 1`、两端都不是机场、不停留 → **点对点**；
 4. 有经停或停留 → **包车**（按行程计价，`charterSelection: "auto"`）；`P0` 或 `Pn` 是机场时另试「接机 + 包车」「包车 + 送机」拆法；
 5. `items` 为空 → **空闲日**。
@@ -155,18 +157,21 @@
 
 ### 5. 每一段怎么报价
 
-- **调用**：`previewPlatformQuote(ctx, input, { fresh: false, audience })`。入参和官网询价逐项一致（`apps/api/src/services/site.ts:812-825`）：`channelId` = 官网渠道、**`currency` = 渠道结算币种**、`driverLanguage: null`、`vehicleGroupIds: []`，人数、行李、附加项、时间、经停照客人填的。结果里每个车型组有比价后的报价列表（每个租户一个，见第 6 小节）。
+- **调用**：`previewPlatformQuote(ctx, input, { fresh: false, audience })`。入参和官网询价逐项一致（官网组装入参 `apps/api/src/services/site.ts:812-825`，进 `createSalesQuotes` 后的点位解析与 `assumeRoute: null` 见 `apps/api/src/services/sales-quotes.ts:258-282`）：`channelId` = 官网渠道、**`currency` = 渠道结算币种**、`driverLanguage: null`、`vehicleGroupIds: []`，人数、行李、附加项、时间、经停照客人填的。结果里每个车型组有比价后的报价列表 `group.ranked[]`（每个租户一个，`offer` / `sell`，`packages/domain/src/quote.ts:1745`），一车到底的非中标价从这里取；候选商品（含价格规则）在 `preview.candidates`（`apps/api/src/services/quotes.ts:279`）。
 - **城市与路线**：官网的 `charterCityFor`（`site.ts:706`）在 `loadCharterCityCandidates` + `charterMatches` 之外还按渠道范围、`sells`、验收会话 listing 过滤；`itineraryRoute`（`site.ts:606`）逐段估路线。两者都**没有导出**。做法见阻塞项 **B2**：请监工允许在 `site.ts` 给这两个函数加 `export`（不改函数体、不改行为）；没确认前，M9T-03 在 `apps/api/src/services/trip-route.ts` 按同样逻辑另写一份，并加集成测试逐项比对「行程编排找到的城市、路线」和「官网询价」一致，B2 确认后删掉副本。
 - **路线分钟**：包车行程的全程分钟、行驶分钟由编排器自己估（逐段路线，有缓存和每日上限）——一口价商品的 `preview.route` 是 null（`quotes.ts:198-204`），不能从结果里取。取不到 → 这一段 `ROUTE_UNAVAILABLE`。
 - **不写 `quotes`**：P1 段报价只是展示（试算）；P1b 下单前对选中方案逐段走正式询价落报价。
-- **预算与降级**（审查第 8 条）：一次编排**段报价最多 120 次、路线调用最多 200 次**（14 天 × 8 段 = 112；路线每天最多 11 段 + 拆点衔接）。同一对点同一时间只报一次（内存缓存）。按日期顺序编排，预算剩余不够下一天全部拆法时，余下各天**只报「不拆」**，应答 `degraded: true`；连「不拆」都报不完才 422 `TRIP_TOO_COMPLEX`。路线调用还受全站每日上限；行程报价单独的日上限（设计篇 715 行）随 `site_trip_quote` 的每日 50 次控制。
-- **未覆盖需求**（审查第 10 条，采纳设计篇第九节）：每一段本身就是三种单品之一，引擎报不出的段（`OUTSIDE_OPERATING` / `NO_PRICING_AREA` 等）用现有 `recordUncoveredDemandLater`（`apps/api/src/services/uncovered-demands.ts:159`）按段照官网逻辑记，指纹去重照旧；行程特有原因（工时、跨城一车到底）记 `OTHER`。只在 `daily_best` 的段上记（一车到底的报不出不代表没人能接），每次编排同一段只记一次。
+- **预算与降级**（审查第 8 条）：一次编排**段报价最多 120 次、路线调用最多 200 次**（14 天 × 8 段 = 112；路线每天最多 11 段 + 拆点衔接）。路线预算只算编排器自己估的包车行程路线，引擎内部为接送机、点对点算钱调的路线不在其内（走同一缓存和全站每日上限）。放大倍数：每 IP 每分钟最多 5 × 120 = 600 次段报价，约为 `site_quote`（30 次）的 20 倍——一次行程报价本来就等于十几次单段询价，靠每天 50 次和全站路线日上限兜底，上线后按日志调。同一对点同一时间只报一次（内存缓存）。按日期顺序编排，预算剩余不够下一天全部拆法时，余下各天**只报「不拆」**，应答 `degraded: true`；连「不拆」都报不完才 422 `TRIP_TOO_COMPLEX`。路线调用还受全站每日上限；行程报价单独的日上限（设计篇 715 行）随 `site_trip_quote` 的每日 50 次控制。
+- **未覆盖需求**（采纳设计篇第九节的「按段照官网记」，第三稿按复核 M1 改）：
+  - 编排器直接调 `previewPlatformQuote`，不会像官网那样在 `createSalesQuotes` 里自动记（`sales-quotes.ts:328-329`），所以编排器自己调 `recordUncoveredDemandLater`（`uncovered-demands.ts:159`）。要的事实由官网的私有函数 `demandFacts`（`sales-quotes.ts:334`）拼——请监工把它的 `export` 并进阻塞项 B2；没确认前 M9T-03 另写同样逻辑，集成测试比对两边写出的行一致。
+  - 条件照官网：只在 **`daily_best`** 的段、这一段一个报价都没有时记；**验收会话不记**；**只因选短了（最低套餐 / 预计用时）报不出的不记**（`onlyTooShort`，`sales-quotes.ts:327-328`）；接送机回落点对点的那次不记。每次编排同一段只记一次，指纹去重照旧。
+  - 主原因由 `uncoveredDemandReason`（`packages/domain/src/uncovered-demand.ts:83`）按候选数和拒报原因自己推，调用方**不能指定 `OTHER`**。所以行程特有原因（工时、跨城一车到底——后者只出现在 `one_car`）**P1 不记进 `uncovered_demands`**，只在方案 `unquoted` 和编排日志里；设计篇的 `trip_handoffs.reason` 和运营后台「行程原因」筛选随 P3，列为偏离 D6。
 
 ### 6. 方案（设计篇第三节第 5 小节，P1 子集）
 
 | 方案 | 何时出 | 组成 |
 | --- | --- | --- |
-| `one_car` 一车到底 | 有 2 天以上用车时尝试；单日行程只出它 | **同一租户、同一车型组**贯穿全部用车日（阻塞项 B1 确认后可细到同一商品）。对每个「能报出全部用车日」的租户 × 车型组，按天取它自己的最低拆法，加上跨段费用，取总价最低的。段价是这个租户在同一次比价里**自己的对外价**，不一定是中标价 |
+| `one_car` 一车到底 | 有 2 天以上用车时尝试；单日行程只出它 | **同一租户、同一车型组**贯穿全部用车日（细到同一商品要改入参，见偏离 D1）。对每个「能报出全部用车日」的租户 × 车型组，按天取它自己的最低拆法，加上跨段费用，取总价最低的。段价是这个租户在同一次比价里**自己的对外价**，不一定是中标价 |
 | `daily_best` 每天各自最优 | 2 天以上用车时 | 每天独立取最便宜的拆法和中标报价；不加住宿、停驻、附加项去重（每天不是同一辆车）；工时只按单日检查 |
 
 - **机场日、点对点日怎么进一车到底**（审查第 3 条、原文 3.3「按段选车」）：接机、送机、点对点段由别的品类商品报价，不可能和包车同一商品。规则：
@@ -194,9 +199,9 @@
 
 规则用**第 N+1 天那段所用商品**的配置（同一租户不同商品时以次日为准，`calc.productId` 记下）。
 
-0. **最短套餐价**（审查第 5 条）：报价结果只带选中的那一档（`VehicleOffer`，`quote.ts:538-550`），引擎不给套餐列表。做法：编排器在同一个平台事务里**只读**这一商品的价格规则（候选目录已加载的 `candidate.product.priceRules`），取过夜点所在①区域、这一车型组、按小时套餐里时长最短那档的结算价；过夜点不在任何①时取这个商品所有①里最低的。取不到 → 停驻只用 `perDayMinor`，第二司机按 `fixed`（没配 → 这一天 `unquoted` `SECOND_DRIVER_PRICE_UNAVAILABLE`）。`calc` 记 `areaId`、`priceRuleId`、`packageHours`。不另发报价请求。
+0. **最短套餐价**（审查第 5 条）：报价结果只带选中的那一档（`VehicleOffer`，`quote.ts:538-550`），引擎不给套餐列表。做法：直接从这次试算返回的 `preview.candidates[].product.priceRules`（`quotes.ts:279`）取，取过夜点所在①区域、这一车型组、按小时套餐里时长最短那档的结算价；过夜点不在任何①时取这个商品所有①里最低的。取不到 → 停驻只用 `perDayMinor`，第二司机按 `fixed`（没配 → 这一天 `unquoted` `SECOND_DRIVER_PRICE_UNAVAILABLE`）。`calc` 记 `areaId`、`priceRuleId`、`packageHours`。不另发报价请求。
 1. **住宿（3.1）**：一车到底方案里，第 N 晚——第 N 天结束点和第 N+1 天开始点**都不在**这个商品任一①基础价区域里，且第 N+1 天还是同一辆车 → 一笔住宿费；过夜点落在 `byArea` 的区域（**只认本商品的区域**）取区域金额，否则 `perNightMinor`。客人提供住宿（`driverLodgingProvided`）→ 记 0。中间夹空闲日时，空闲日那晚照样算。①判断依赖 M9P-06（基础价区域优先，#247 在审）合并后的区域层级，roadmap 里 M9T-01 已标 `blockedBy: M9P-06`。
-   - **和③空驶加价不重复收**（审查第 9 条）：过夜点在③时，引擎已在第 N 天收了③下车加价、第 N+1 天收了③上车加价（车往返基地的空驶）。`offsetSurcharges` 开（默认开）时，收住宿就记一笔 `lodging_offset`（负数）= 这两笔③加价的结算价之和（从两段的引擎明细里按加价项取），然后和「不收住宿、保留两笔③加价」（车回基地）比较，**取对客总价低的那种**。`calc` 记两种做法的金额。是否这样抵扣列为待确认 Q4（请业主确认口径）。
+   - **和③空驶加价不重复收**（审查第 9 条）：过夜点在③时，引擎已在第 N 天收了③下车加价、第 N+1 天收了③上车加价（车往返基地的空驶）。`offsetSurcharges` 开（默认开）时，收住宿就记一笔 `lodging_offset`（负数）= 这两笔③加价的结算价之和（取两段结算明细的 `settlement.areaSurcharge`，`quote.ts:403`；只有带下车点的包车报价才有这一项，且是调价前的金额，抵扣也按调价前金额，`calc` 注明），然后和「不收住宿、保留两笔③加价」（车回基地）比较，**取对客总价低的那种**。`calc` 记两种做法的金额。是否这样抵扣列为待确认 Q4（请业主确认口径）。
 2. **多日停驻（3.3）**：一车到底方案里，两个用车日之间的空闲日，每天比两种做法取低：
    - a. 车留在当地：停驻费 `min(perDayMinor, 最短套餐价)`（`orShortestPackage` 开时）+ 当晚住宿（第 1 条）；
    - b. 车回基地再来：过夜点在①里 → 不收停驻、不收住宿；过夜点在③ → 回基地的空驶已经由前后两天的③加价覆盖，不另收；过夜点在①③以外 → b 要两段返程，返程不接入编排（第 4 条），只用 a。
@@ -208,7 +213,7 @@
    - 超 `hardMaxBindMinutes`（15 h）或休息少于 `absoluteMinRestMinutes`（9 h）→ 第二司机也不行，`unquoted`（`WORK_HOURS_HARD_LIMIT`），告警里提示「可拆成两天或改坐新干线」（自动生成在 P1c 起）。
    - 引擎在单段 T 超 780 分钟时已经拒报（`ITINERARY_TOO_LONG`），编排器翻成同一原因。所以「13–15 小时加第二司机」**只在加上出入库、或一天多段时出现**；固定测试集至少各一条（T = 720 + 出入库 120；接机 + 包车两段合计超 13 h）。
    - `daily_best` 只按单日检查。
-4. **长途返程（3.2）**：纯函数 `returnFee({ returnKm, overKmPerKmMinor, ratioBp, fixedByCityMinor, maxOneWayKm })` = `min(返程公里 × 超公里单价 × ratioBp / 10000, 城市固定表)`（只取有配置的项，`D/money.ts` 统一取整），超 `maxOneWayKm` → 转人工。**P1 编排不调用**：返程只在一车到底最后停在这个商品①③以外时成立（`charterMatches` 要求上下车点都在①③里，`packages/domain/src/charter-match.ts:19-23`），那一天引擎报不出价，方案已进 `unquoted`（`CROSS_CITY_ONE_CAR_NOT_AVAILABLE`）。**不在 P1a 另造触发条件**。监工若要求 P1 就能出返程，唯一可行的是把 P1d 的「末日代理请求 + returnFee」切片前移（要带上代表点定义，约多 5 人日，且依赖 B1）——见阻塞项 B3。
+4. **长途返程（3.2）**：纯函数 `returnFee({ returnKm, overKmPerKmMinor, ratioBp, fixedByCityMinor, maxOneWayKm })` = `min(返程公里 × 超公里单价 × ratioBp / 10000, 城市固定表)`（只取有配置的项，`D/money.ts` 统一取整），超 `maxOneWayKm` → 转人工。**P1 编排不调用**：返程只在一车到底最后停在这个商品①③以外时成立（`charterMatches` 要求上下车点都在①③里，`packages/domain/src/charter-match.ts:19-23`），那一天引擎报不出价，方案已进 `unquoted`（`CROSS_CITY_ONE_CAR_NOT_AVAILABLE`）。**不在 P1a 另造触发条件**。监工若要求 P1 就能出返程，唯一可行的是把 P1d 的「末日代理请求 + returnFee」切片前移（要带上代表点定义，约多 5 人日，且要先给 `previewPlatformQuote` 加 `productIds` 过滤，见 D1）——见阻塞项 B3。
 5. **附加项去重**（设计篇第四节第 9 条）：`bundleAddons.enabled`（默认开）时，一车到底方案里儿童座椅等「按次」附加项从第二个同车段起，每段记一笔等额 `bundle_discount`（负数）抵掉；金额从该段引擎明细的附加项行取。按件 / 按人 / 按时长的照收。
 6. **对客价**（审查第 6 条重写）：每笔跨段费用按**它所属那一天、那个商品、那个车型组的包车段**（没有包车段时用当天这辆车的任一段）的 `markup_bp` 和 `fx` 换成对外价：用 `D/money.ts` 的同一取整，**不套渠道最低毛利、不按渠道取整单位取整**（这两项是按「一单」设计的，已在段价里收过）。负数费用同样换算。整个行程只有一个币种（渠道结算币种）。
 7. 所有费用带算式快照 `calc`（例：`{ rule: "lodging", night: 1, areaId, perNightMinor, source: "byArea", productId }`）。
@@ -224,11 +229,11 @@
 
 | 现有 | 用法 | 改不改 |
 | --- | --- | --- |
-| `previewPlatformQuote`（`services/quotes.ts:301`） | 每段报价 | 不改（B1 是可选的入参扩展，监工不放行就不做） |
-| `charterCityFor`、`itineraryRoute`（`services/site.ts:706,606`） | 包车段找城市、估路线 | B2：只加 `export`；不放行就另写副本 + 一致性测试 |
+| `previewPlatformQuote`（`services/quotes.ts:301`） | 每段报价 | 不改 |
+| `charterCityFor`、`itineraryRoute`（`services/site.ts:706,606`）、`demandFacts`（`services/sales-quotes.ts:334`）、`pointToPointCityOf` | 包车段找城市、估路线、未覆盖需求事实、接送机回落点对点 | B2：只加 `export`；不放行就另写副本 + 一致性测试 |
 | 候选目录（`candidate.product.priceRules`） | 最短套餐价 | 只读 |
-| `recordUncoveredDemandLater` | 报不出的段记未覆盖需求 | 不改 |
-| `requireOpenSite`、`takeSiteSlot`、`SALES_RATE_LIMITS` | 渠道、限频 | 加两档 `site_trip`、`site_trip_quote`（新增键，不改已有键） |
+| `recordUncoveredDemandLater` | 报不出的段记未覆盖需求（条件照官网） | 不改 |
+| `requireOpenSite`、`takeSiteSlot`、`SALES_RATE_LIMITS` | 渠道、限频 | 加三个键 `site_trip`、`site_trip_quote`、`site_trip_quote_day`（新增键，不改已有键） |
 | `locateInAreas`、`D/money.ts` | ①判断、取整 | 不改 |
 | 迁移、表 | 0600 新增 5 张表 | 不改已有表 |
 
@@ -236,7 +241,7 @@
 
 1. 迁移 0600：5 张表、约束、行级安全、授权登记；租户隔离集成测试（规则配置）；迁移测试。
 2. **`daily_best`** 的每一段对外价 = 同样条件调官网询价的中标价（集成测试逐段比对，接送机、点对点、包车各至少一条）。**`one_car`** 的每一段 = 同一次比价里该租户该车型组自己的对外价（集成测试断言取自同一结果）。
-3. 编排找到的城市、路线和官网询价一致（B2 未放行时尤其要测）。
+3. 编排找到的城市、路线、写出的未覆盖需求和官网询价一致（B2 未放行时尤其要测）；机场按坐标识别、接送机报不出回落点对点各至少一条。
 4. 固定测试集（第八节）逐条比对：段型、拆法、每笔跨段费用（类型、晚次、金额，含负数抵扣）、方案数、推荐、`unquoted` 原因、`degraded`。
 5. 规则单元测试：住宿（①内不收、①外收、`byArea`、空闲日那晚、客人提供、③抵扣取低）、停驻（取低、最短套餐取不到、③过夜）、工时（13 / 15 h 只经出入库或多段触发、11 / 9 h 休息记在次日、9 h 驾驶、600 km、加第二司机后不限公里、开 / 关）、附加项去重、返程函数（取低、超范围）。
 6. 预算：构造 14 天 × 每天 4 种拆法，断言不 422；构造超预算，断言 `degraded: true`。
@@ -257,21 +262,23 @@
 
 ### 阻塞项（等监工书面确认；没确认前按「备选」做）
 
+（第二稿的 B1「给 `previewPlatformQuote` 加 `productIds` 过滤」自己的推荐就是「暂不需要」，不算阻塞，第三稿并进偏离 D1；P1d 代理请求时再提。）
+
 | # | 问题 | 推荐 | 备选（未确认时实际做法） |
 | --- | --- | --- | --- |
-| B1 | 给 `previewPlatformQuote` 入参加可选 `productIds` 过滤（设计篇第五节第 5 小节第 4 条列为唯一允许的改动），让一车到底能按商品取全 | 暂不需要；P1 按租户 × 车型组已够用，P1d 代理请求时再加 | 一车到底粒度 = 租户 × 车型组（第三节第 6 小节） |
-| B2 | `site.ts` 的 `charterCityFor`、`itineraryRoute` 加 `export`（不改函数体） | 放行，避免两份逻辑 | M9T-03 另写副本 + 一致性集成测试 |
-| B3 | 返程 P1 只做函数 + 配置 + 单测、不接入编排 | 接受 | 若不接受：前移 P1d 末日代理请求切片（约 +5 人日，依赖 B1） |
+| B2 | `site.ts` 的 `charterCityFor`、`itineraryRoute`，`sales-quotes.ts` 的 `demandFacts` 加 `export`（不改函数体） | 放行，避免两份逻辑 | M9T-03 另写副本 + 一致性集成测试 |
+| B3 | 返程 P1 只做函数 + 配置 + 单测、不接入编排 | 接受 | 若不接受：前移 P1d 末日代理请求切片（约 +5 人日，且要 D1 的 `productIds` 过滤） |
 
 ### 和设计篇 / 原文的偏离（请监工确认）
 
 | # | 设计篇 / 原文 | 本篇 | 原因 |
 | --- | --- | --- | --- |
-| D1 | 一车到底 = 同一商品 | 同一租户 × 车型组 | B1 |
+| D1 | 一车到底 = 同一商品 | 同一租户 × 车型组 | 现有比价每车型组每租户只留一个；要按商品取全得给 `previewPlatformQuote` 加 `productIds` 过滤（设计篇第五节第 5 小节第 4 条），P1 不做，P1d 再提 |
 | D2 | 原文 3.3 按段选车 | 机场日 / 点对点日的处理按第三节第 6 小节三级规则 | 段品类不同，不可能同一商品 |
 | D3 | 设计篇 P1a 含「拆成两天」备选 | 只给提示，不自动生成 | 要替客人选中途过夜地，P1 没有地图 / AI |
 | D4 | 住宿与③加价 | 收住宿时负数抵掉③空驶加价，再与「车回基地」取低 | 不重复收（审查第 9 条），口径请业主确认（Q4） |
 | D5 | 设计篇 `trips.expires_at` | 拆成 `trips.readable_until` 和 `trip_plans.expires_at` | 一列两用会挡住重报价 |
+| D6 | 设计篇第九节：行程特有原因记 `OTHER`，细分原因记 `trip_handoffs.reason`，运营后台加「行程原因」筛选 | P1 只按段照官网记（主原因由引擎推）；行程特有原因不记，`trip_handoffs` 和筛选随 P3 | `recordUncoveredDemandLater` 不能指定原因；改它要改现有函数入参 |
 
 （第一稿的「推荐门槛 3%」「不记未覆盖需求」「漏客人提供住宿」「漏附加项去重」已改回与设计篇一致，不再是偏离。）
 
@@ -285,7 +292,7 @@
 | Q4 | 住宿与③加价抵扣 | 默认开（第四节第 1 条）；业主可要求关（只收住宿、不抵扣） |
 | Q5 | 段报价落不落 `quotes` | P1 不落（试算），P1b 下单前再走正式询价 |
 | Q6 | 推荐门槛 | 设计篇 10%（平台常量） |
-| Q7 | 限频与预算 | `site_trip` 每分钟 10 次；`site_trip_quote` 每分钟 5 次、每天 50 次；段报价 120 次、路线 200 次 / 编排 |
+| Q7 | 限频与预算 | 三个键：`site_trip` 每分钟 10 次；`site_trip_quote` 每分钟 5 次；`site_trip_quote_day` 每天 50 次。段报价 120 次、路线 200 次 / 编排 |
 | Q8 | 航班号、司机语言 | P1 都不收；航班号随 P3 按 ADR 0097，司机语言 P3 再议 |
 | Q9 | 设计篇（ADR 0094）还在审 | 本篇只用 P1a 部分；设计篇有改动时本篇跟着改 |
 | Q10 | P1b / P3 给本篇新建的表加列、改 `status` 约束 | 不算「改现有表」（新表是本车道建的），请监工确认 |
@@ -313,7 +320,18 @@
 
 ---
 
-## 第二稿修改记录（对应 PR #263 独立审查）
+## 修改记录
+
+### 第三稿（对应第二稿复核）
+
+| 复核 | 处理 |
+| --- | --- |
+| M1 未覆盖需求 | 编排器自己调 `recordUncoveredDemandLater`，事实由 `demandFacts` 拼（并进 B2）；排除验收会话、`onlyTooShort`、回落那次；只记 `daily_best` 段；不能指定 `OTHER`，行程特有原因 P1 不记（D6），删去与跨城矛盾的表述 |
+| M2 官网等价 | 机场按 `placeId` 或坐标识别；接送机报不出回落点对点（同 `site.ts:982-995`）；验收第 3 条加两条测试 |
+| M3 限频 | 一个键一个时间窗，改为三个键（`site_trip_quote_day` 管每天 50 次）；第六节、Q7 同步 |
+| 建议 | 引 `sales-quotes.ts:258-282`；路线预算口径与放大倍数理由；B1 并进 D1；D6 列入偏离；非中标价来源 `quote.ts:1745`；套餐价直接取 `preview.candidates`；③抵扣取 `settlement.areaSurcharge`（调价前） |
+
+### 第二稿（对应 PR #263 第一次独立审查）
 
 | 审查 | 处理 |
 | --- | --- |
