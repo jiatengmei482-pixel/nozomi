@@ -1510,15 +1510,51 @@ test("旧链接 mode=airport / mode=p2p / mode=transfer 都落到「区间」；
   }
 });
 
-test("接机还没有报价时，免费等待按机场默认：国际线 90 分钟、国内线 60 分钟；有报价按所选商品自己设的（M8-33）", async () => {
-  for (const [scope, minutes] of [["international", 90], ["domestic", 60], [null, 60]] as const) {
+test("接机还没有报价时，免费等待按机场默认：国际线 90 分钟、国内线 60 分钟；都有、没标明的不写分钟数；有报价按所选商品自己设的（M8-33、M9E-27）", async () => {
+  for (const [scope, minutes] of [["international", 90], ["domestic", 60], ["mixed", null], [null, null]] as const) {
     cleanup();
     resetBrowser();
     wideScreen();
     open({ quote: () => json(200, byPoints({ airport: { id: AIRPORT_ID, code: "NRT", name: { zh: "成田国际机场" }, matched_by: "kind", distance_meters: 0, flight_scope: scope }, quotes: [], unavailable: [{ vehicle_group_id: null, reasons: ["NO_PRODUCT"] }] })) });
     await fillTrip(user());
-    assert.ok(await screen.findByText(`已识别为接机：司机按航班落地时间等候，落地后免费等待 ${minutes} 分钟`, {}, SLOW), `flight_scope=${scope}`);
+    await screen.findByLabelText("航班落地时间（当地）", {}, SLOW);
+    if (minutes === null) {
+      await waitFor(() => assert.ok(screen.getByText("已识别为接机：司机按航班落地时间等候")), SLOW);
+      assertAbsent(screen.queryByText(/落地后免费等待/));
+    } else assert.ok(await screen.findByText(`已识别为接机：司机按航班落地时间等候，落地后免费等待 ${minutes} 分钟`, {}, SLOW), `flight_scope=${scope}`);
   }
+});
+
+test("接机还没报价（只选了机场，没填目的地、时间）时提示里不写分钟数，不拿 60 去猜；报出价后按报价；改时间重新报价的空档里仍按刚才认出的国际线机场 90（M9E-27）", async () => {
+  wideScreen();
+  let release: (() => void) | null = null;
+  let hold = false;
+  open({
+    quote: () => {
+      const answer = json(200, byPoints({ quotes: [quoteOf(1, { freeWait: 90 })] }));
+      if (!hold) return answer;
+      return new Promise<Response>((resolve) => (release = () => resolve(answer)));
+    },
+  });
+  const actor = user();
+  await screen.findByRole("heading", { name: "你的行程" });
+  await pickPlace(actor, "出发地", "成田", /成田国际机场/);
+  assert.ok(await screen.findByText("已识别为接机：司机按航班落地时间等候", {}, SLOW), "只选了机场：认出接机");
+  assertAbsent(screen.queryByText(/免费等待/));
+  await pickPlace(actor, "目的地", "京王", /京王广场酒店/);
+  const date = screen.getByLabelText("日期（当地）") as HTMLInputElement;
+  await actor.clear(date);
+  await actor.type(date, "2030-11-20");
+  const time = screen.getByLabelText(/时间（当地）/);
+  await actor.type(time, "14:30");
+  assert.ok(await screen.findByText("已识别为接机：司机按航班落地时间等候，落地后免费等待 90 分钟", {}, SLOW));
+  hold = true;
+  await actor.clear(time);
+  await actor.type(time, "16:00");
+  await waitFor(() => assert.notEqual(release, null), SLOW);
+  assert.ok(screen.getByText("已识别为接机：司机按航班落地时间等候，落地后免费等待 90 分钟"), "重新报价时不变成 60");
+  assertAbsent(screen.queryByText(/免费等待 60 分钟/));
+  (release as (() => void) | null)?.();
 });
 
 test("右侧栏四步一直在：第 1 步只有路线图和一句说明；之后逐步追加 行程 → 车型和一个价格 → 乘客信息；网址 ?step=N，浏览器后退前进换步，内容不丢；没走到的步骤从网址打开停在能到的那一步", async () => {

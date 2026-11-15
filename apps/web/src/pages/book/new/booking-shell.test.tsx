@@ -41,8 +41,7 @@ function Where() {
   return <div data-testid="where" data-path={`${location.pathname}${location.hash}`} />;
 }
 
-test("默认外壳就是主站：两栏、地图底图原样、换步不做别的", () => {
-  assert.equal(MAIN_BOOKING_SHELL.narrow, false);
+test("默认外壳就是主站：地图底图原样、换步不做别的", () => {
   const tiles = { url: "x" } as never;
   assert.equal(MAIN_BOOKING_SHELL.tiles(tiles), tiles);
   assert.equal(MAIN_BOOKING_SHELL.title, "预订用车 · NOZOMI 用车");

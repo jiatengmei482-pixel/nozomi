@@ -1,5 +1,5 @@
 /*
- * 嵌入预订页 /embed/book（M9E-16、M9E-17，ADR 0095 第四节；Q15）：在合作网站页面的 iframe 里，宽度跟 iframe，没有主站的顶栏和页脚。
+ * 嵌入预订页 /embed/book（M9E-16、M9E-17、M9E-27，ADR 0095 第四节；Q15）：在合作网站页面的 iframe 里，宽度跟 iframe，没有主站的顶栏和页脚。
  *
  * 外观（颜色、字体、圆角）以嵌入组件的 --nzb-* 变量为准，命名同 embed/widget-style.ts 的 .nzb-shell，默认值取自主站令牌
  * （颜色和组件写死的默认值一样，embed-style.test.ts 核对）：
@@ -58,10 +58,10 @@
   gap: var(--space-3);
 }
 
-/* 嵌入页一直单栏：主站 ≥ 1024px 的两栏网格在 iframe 里不用（右侧栏换成顶部摘要条） */
-.embed-book .book-new {
-  grid-template-columns: minmax(0, 1fr);
-}
+/*
+ * 分栏和主站 /book/new 一样（M9E-27，ADR 0095 第十二节末第二轮决策）：book-new.css 的 ≥ 1024px 两栏、右侧栏原样用，
+ * 媒体查询在 iframe 的文档里按 iframe 自己的宽度算，不看宿主窗口；这里不另写分栏。
+ */
 
 /*
  * iframe 的高度跟着内容（宿主按 resize 调），iframe 自己的视口就是整页内容：吸底的条落在内容最末尾，客人在宿主页上不一定看得到。
