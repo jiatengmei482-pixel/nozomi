@@ -2641,6 +2641,25 @@ paths:
                 $ref: "#/components/schemas/CharterMigrationDiff"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/products/{id}/trip-rules:
+    get:
+      tags: [ 供应商商品（平台） ]
+      operationId: getPlatformProductTripRules
+      summary: 包车商品的跨段规则配置（运营只读）
+      description: 需要操作 `product.read`。M9T-02（ADR 0100 第五节）：任何一家的包车商品的跨段规则，内容同 `GET /tenant/v1/products/{id}/trip-rules`。只读、不写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 跨段规则
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TripRules"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
   /platform/v1/city-options:
     get:
       tags: [ 主数据 ]
@@ -6106,6 +6125,67 @@ paths:
                 $ref: "#/components/schemas/CharterMigrationDiff"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/products/{id}/trip-rules:
+    get:
+      tags: [ 商品 ]
+      operationId: getProductTripRules
+      summary: 包车商品的跨段规则配置（住宿、停驻、工时与第二司机、附加项去重、返程）
+      description: |
+        需要操作 `product.read`。M9T-02（ADR 0100 第四、五节）：`saved` 是保存的配置（没存过为 null），`effective` 是合并默认值后的生效值。
+        金额是商品结算币种（`settlement_currency`）的最小单位、只有结算价；比例是基点；时长是分钟。结算币种不是日元时，默认的住宿 / 停驻金额不生效（为 null）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 跨段规则
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TripRules"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    put:
+      tags: [ 商品 ]
+      operationId: putProductTripRules
+      summary: 保存包车商品的跨段规则配置（整体替换）
+      description: |
+        需要操作 `product.manage`。必须带 `If-Match`（商品的版本号）；保存后商品版本号加一、`rules_version` 加一、写审计。内容和已存的一样时不改版本号。
+        - 只有包车商品能设（400 `TRIP_RULES_NOT_APPLICABLE`）。
+        - 只认已知的键（`UNKNOWN_KEY`）；金额 0–10 亿、比例 0–10000 基点、分钟 0–2880、公里 0–5000（`OUT_OF_RANGE`）；
+          `maxBindMinutes ≤ hardMaxBindMinutes`、`absoluteMinRestMinutes ≤ minRestMinutes`（合并默认值后比较，`ORDER`）。
+        - `lodging.byArea` 只能选本商品的服务区域或上下车加价区域（`AREA_NOT_FOUND`），`returnTrip.fixedByCity` 只能选平台启用城市（`CITY_NOT_FOUND`），各最多 50 条、不重复（`DUPLICATE`）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TripRuleConfig"
+      responses:
+        "200":
+          description: 保存后的跨段规则
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TripRules"
+        "400":
+          $ref: "#/components/responses/ProductInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`VERSION_CONFLICT`：版本号不是最新的"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
   /tenant/v1/products/{id}/price-coverage:
     get:
       tags: [ 价格 ]
@@ -25127,6 +25207,101 @@ components:
           format: date
         status:
           $ref: "#/components/schemas/RuleStatus"
+    TripRuleConfig:
+      type: object
+      additionalProperties: false
+      description: 跨段规则配置（ADR 0100 第四节表）。不填的键 = 默认值。金额是结算价最小单位，比例是基点，时长是分钟
+      properties:
+        lodging:
+          type: object
+          additionalProperties: false
+          properties:
+            enabled: { type: boolean }
+            perNightMinor: { type: integer, minimum: 0, maximum: 1000000000 }
+            byArea:
+              type: array
+              maxItems: 50
+              items:
+                type: object
+                additionalProperties: false
+                required: [ areaId, perNightMinor ]
+                properties:
+                  areaId: { type: string, format: uuid }
+                  perNightMinor: { type: integer, minimum: 0, maximum: 1000000000 }
+            offsetSurcharges: { type: boolean, description: 收住宿时抵掉前后两天的上下车空驶加价，再与「车回基地」取低（D4） }
+        idleDay:
+          type: object
+          additionalProperties: false
+          properties:
+            enabled: { type: boolean }
+            perDayMinor: { type: integer, minimum: 0, maximum: 1000000000 }
+            orShortestPackage: { type: boolean }
+        workHours:
+          type: object
+          additionalProperties: false
+          properties:
+            maxBindMinutes: { type: integer, minimum: 0, maximum: 2880 }
+            hardMaxBindMinutes: { type: integer, minimum: 0, maximum: 2880 }
+            minRestMinutes: { type: integer, minimum: 0, maximum: 2880 }
+            absoluteMinRestMinutes: { type: integer, minimum: 0, maximum: 2880 }
+            maxDriveMinutes: { type: integer, minimum: 0, maximum: 2880 }
+            maxDailyKm: { type: integer, minimum: 0, maximum: 5000 }
+            garageMinutes: { type: integer, minimum: 0, maximum: 2880 }
+            awayGarageMinutes: { type: integer, minimum: 0, maximum: 2880 }
+        secondDriver:
+          type: object
+          additionalProperties: false
+          properties:
+            enabled: { type: boolean }
+            mode: { type: string, enum: [ shortest_package, fixed ] }
+            fixedMinor: { type: integer, minimum: 0, maximum: 1000000000 }
+        bundleAddons:
+          type: object
+          additionalProperties: false
+          properties:
+            enabled: { type: boolean }
+        returnTrip:
+          type: object
+          additionalProperties: false
+          description: 返程费 P1 只做配置和计算函数，P1d 才接入报价（B3）
+          properties:
+            enabled: { type: boolean }
+            ratioBp: { type: integer, minimum: 0, maximum: 10000 }
+            fixedByCity:
+              type: array
+              maxItems: 50
+              items:
+                type: object
+                additionalProperties: false
+                required: [ cityId, minor ]
+                properties:
+                  cityId: { type: string, format: uuid }
+                  minor: { type: integer, minimum: 0, maximum: 1000000000 }
+            maxOneWayKm: { type: integer, minimum: 0, maximum: 5000 }
+    TripRules:
+      type: object
+      additionalProperties: false
+      required: [ product_id, version, rules_version, settlement_currency, saved, effective ]
+      properties:
+        product_id: { type: string, format: uuid }
+        version: { type: integer, description: 商品版本号（If-Match 用） }
+        rules_version: { type: integer, description: 配置自己的版本号；没存过为 0 }
+        settlement_currency: { type: string }
+        saved:
+          oneOf:
+            - $ref: "#/components/schemas/TripRuleConfig"
+            - type: "null"
+        effective:
+          type: object
+          description: 合并默认值后的生效值，每个键都有值；金额为 null = 没有可用金额（这一项不收）
+          required: [ lodging, idleDay, workHours, secondDriver, bundleAddons, returnTrip ]
+          properties:
+            lodging: { type: object }
+            idleDay: { type: object }
+            workHours: { type: object }
+            secondDriver: { type: object }
+            bundleAddons: { type: object }
+            returnTrip: { type: object }
     CharterMigrationDiff:
       type: object
       additionalProperties: false

@@ -245,6 +245,7 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   { method: "POST", url: `/platform/v1/shared-areas/${MISSING}/unmark-duplicate`, action: "master_data.manage", body: {} },
   { method: "GET", url: `/platform/v1/products/${MISSING}`, action: "product.read" },
   { method: "GET", url: `/platform/v1/products/${MISSING}/charter-migration-diff`, action: "product.read" },
+  { method: "GET", url: `/platform/v1/products/${MISSING}/trip-rules`, action: "product.read" },
   ...MASTER_PATHS.flatMap((path) => [
     { method: "GET", url: `/platform/v1/master/${path}`, action: "master_data.read" } as const,
     { method: "GET", url: `/platform/v1/master/${path}/${MISSING}`, action: "master_data.read" } as const,

@@ -25,6 +25,7 @@ import { registerFxRoutes } from "./routes/fx.ts";
 import { registerInventoryRoutes } from "./routes/inventory.ts";
 import { registerPriceRoutes } from "./routes/prices.ts";
 import { registerProductRoutes } from "./routes/products.ts";
+import { registerTripRuleRoutes } from "./routes/trip-rules.ts";
 import { registerPlatformRoutes } from "./routes/platform.ts";
 import { registerPlatformProductRoutes } from "./routes/platform-products.ts";
 import { registerTenantRoutes } from "./routes/tenant.ts";
@@ -392,6 +393,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerAreaRoutes(app, context);
   registerPlatformSharedAreaRoutes(app, context);
   registerProductRoutes(app, context);
+  registerTripRuleRoutes(app, context);
   registerPriceRoutes(app, context);
   registerInventoryRoutes(app, context);
   registerImportExportRoutes(app, context);
