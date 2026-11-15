@@ -253,6 +253,40 @@ test("优化的每日上限 0：不调谷歌、UNAVAILABLE；和路线的每日�
   assert.equal(optimizeCalls().length, calls);
 });
 
+test("当前顺序超长报不出：询价应答带 inquiry_ref，用它申请——不看阈值，建议顺序能报出价就给（current_too_long）；inquiry_ref 不能用来下单", async () => {
+  const stops = badOrder(30);
+  const normal = await suggest(stops, { quote_id: (await quote(stops)).body.quotes[0].quote_id });
+  const bad = normal.body.suggestion.current_itinerary_route.total_minutes as number;
+  const good = normal.body.suggestion.itinerary_route.total_minutes as number;
+  assert.ok(bad > good + 2, `${bad} > ${good}`);
+  // 在线下单上限卡在两者之间：当前顺序超长、建议顺序不超长
+  await api.db.owner.query(`update products set service_rules = jsonb_set(service_rules, '{charterItinerary}', coalesce(service_rules->'charterItinerary', '{}'::jsonb) || jsonb_build_object('maxOnlineMinutes', $2::int)) where id = $1`, [productId, good + 1]);
+  api.clock.advance(31_000);
+  try {
+    const current = await quote(stops);
+    assert.deepEqual(current.body.quotes, []);
+    assert.ok(current.body.unavailable.some((entry: { reasons: string[] }) => entry.reasons.includes("ITINERARY_TOO_LONG")));
+    assert.match(current.body.inquiry_ref, /^[0-9a-f-]{36}$/);
+    const res = await suggest(stops, { inquiry_ref: current.body.inquiry_ref });
+    assert.equal(res.status, 200, res.text);
+    assert.equal(res.body.suggestion?.current_too_long, true, res.text);
+    assert.ok(res.body.suggestion.quote_result.quotes.length > 0, "建议顺序能在线下单");
+    // 点集合对不上：400
+    const other = badOrder(30);
+    const mismatch = await suggest(other, { inquiry_ref: current.body.inquiry_ref });
+    assert.deepEqual([mismatch.status, mismatch.body.error.code], [400, "SUGGESTION_NEEDS_QUOTE"]);
+    // 能报出价的询价不带 inquiry_ref
+    assert.equal("inquiry_ref" in normal.body.suggestion.quote_result, false);
+    // 30 分钟后不能再用
+    api.clock.advance(31 * 60_000);
+    const late = await suggest(stops, { inquiry_ref: current.body.inquiry_ref });
+    assert.deepEqual([late.status, late.body.error.code], [400, "SUGGESTION_NEEDS_QUOTE"]);
+  } finally {
+    await api.db.owner.query("update products set service_rules = service_rules #- '{charterItinerary,maxOnlineMinutes}' where id = $1", [productId]);
+    api.clock.advance(31_000);
+  }
+});
+
 test("商品开关：匹配到的商品全关了不调谷歌（DISABLED），报价照常", async () => {
   // 改服务规则会让商品回到待审核：这里直接改上架版本的开关（模拟审核通过后的状态），只核对询价路径
   await api.db.owner.query(`update products set service_rules = jsonb_set(service_rules, '{charterItinerary}', coalesce(service_rules->'charterItinerary', '{}'::jsonb) || '{"suggestStopOrder": false}'::jsonb) where id = $1`, [productId]);
