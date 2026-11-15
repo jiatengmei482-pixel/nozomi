@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { suggestionRequestKey } from "@nozomi/domain";
 import type { SiteOrderSuggestion, SiteQuote, SiteQuoteRequest, SiteQuoteResult } from "../api/site.ts";
-import { draftRequestKey, liveSuggestion, orderChain, stopSetKey, suggestionTitle } from "./order-suggestion.ts";
+import { draftRequestKey, liveSuggestion, orderChain, stopSetKey, suggestionQuoteExpired, suggestionTitle } from "./order-suggestion.ts";
 
 const P = { lat: 35.69, lng: 139.7 };
 const A = { name: "河口湖", lat: 35.5, lng: 138.77, stay_minutes: 60 };
@@ -65,4 +65,12 @@ test("当前顺序超长：照常显示，不看阈值、不写钱；文案说�
   assert.deepEqual(live, { visible: true, pending: false, savedMeters: 60_000, savedMinutes: 60, yen: { kind: "none" }, tooLong: true });
   assert.equal(suggestionTitle(live as never, s), "当前顺序超过在线下单时长，按建议顺序约 7 小时，可以在线下单");
   assert.equal(orderChain(["新宿", "横滨", "箱根", "新宿"]), "1 新宿 → 2 横滨 → 3 箱根 → 4 新宿");
+});
+
+test("建议报价过期：按最早那张卡片；没有卡片当作过期", () => {
+  const at = (iso: string) => ({ expires_at: iso }) as unknown as SiteQuote;
+  const now = new Date("2030-11-20T08:00:00Z");
+  assert.equal(suggestionQuoteExpired(result([at("2030-11-20T08:10:00Z"), at("2030-11-20T08:20:00Z")]), now), false);
+  assert.equal(suggestionQuoteExpired(result([at("2030-11-20T07:59:00Z"), at("2030-11-20T08:20:00Z")]), now), true);
+  assert.equal(suggestionQuoteExpired(result([]), now), true);
 });

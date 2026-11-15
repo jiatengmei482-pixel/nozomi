@@ -118,3 +118,9 @@ export function suggestionTitle(live: Extract<LiveSuggestion, { visible: true }>
 export function orderChain(names: readonly string[]): string {
   return names.map((name, index) => `${index + 1} ${name}`).join(" → ");
 }
+
+/** 建议报价过期了没有（按最早的那张卡片的 `expires_at`）：过期的不直接采用，按新顺序正常重新询价。 */
+export function suggestionQuoteExpired(result: SiteQuoteResult, now: Date = new Date()): boolean {
+  const first = result.quotes.map((quote) => Date.parse(quote.expires_at)).sort((a, b) => a - b)[0];
+  return first === undefined || !(first > now.getTime());
+}
