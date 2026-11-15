@@ -509,7 +509,6 @@ const DIRECTION_WORDS: Readonly<Record<string, PriceDirection>> = { 接机: "pic
 const MODEL_WORDS: Readonly<Record<string, PricingModel>> = { 固定一口价: "fixed", 一口价: "fixed", fixed: "fixed", "里程+时长": "mileage_time", "里程 + 时长": "mileage_time", mileage_time: "mileage_time", 包车套餐: "charter_package", charter_package: "charter_package" };
 const STATUS_WORDS: Readonly<Record<string, PriceRuleStatus>> = { 启用: "enabled", enabled: "enabled", 停用: "disabled", disabled: "disabled" };
 
-/** 读价格表：每一行换成一条价格，再用和保存相同的检查过一遍。只读不写。 */
 /** 读价格表的结果：`origin` 是 changes 里每一条来自哪一行；`mark` 把一行标成出错、问题记在这一行的某一列上（只有读表时才知道单元格位置） */
 interface PriceSheetRead {
   rows: PriceImportRow[];
@@ -518,6 +517,7 @@ interface PriceSheetRead {
   mark: (row: PriceImportRow, field: string, reason: string, message: string) => void;
 }
 
+/** 读价格表：每一行换成一条价格，再用和保存相同的检查过一遍。只读不写。 */
 function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: PriceNames): PriceSheetRead {
   const { category } = context.product;
   const currency = context.currency ?? "JPY";
@@ -751,6 +751,7 @@ const LAYER_OVERLAP_CODES = new Set(["AREA_LAYER_OVERLAP", "AREA_BASE_SURCHARGE_
 const SURCHARGE_LAYER_MODELS = ["charter_itinerary_surcharge", "charter_area_surcharge"] as const;
 interface LayerOverlapDetail {
   code: string;
+  layer: "base" | "itinerary" | "pickup_dropoff" | "base_pickup_dropoff";
   areas: [string, string];
   area_ids: [string, string];
   overlap_km2: number;
@@ -774,7 +775,12 @@ async function markLayerOverlaps(db: Db, tenantId: string, context: PricingConte
     for (const { rule, row } of entries) {
       const model = rule.pricing.model;
       if (row === undefined || rule.areaId === null || (model !== "charter_itinerary_surcharge" && model !== "charter_area_surcharge") || before.get(model)?.has(rule.areaId)) continue;
-      const hit = overlaps.find((entry) => entry.area_ids.includes(rule.areaId as string));
+      // 按层匹配：②行程加价的行只认②层的重叠；③上下车加价的行认③层的重叠，以及①③重叠里自己是③那一边（area_ids[1]）。
+      // 不按层的话，一个区域同时在别的层里（如原来就在③、这次加进②），会被别的层的重叠连带标错
+      const areaId = rule.areaId;
+      const hit = overlaps.find((entry) =>
+        model === "charter_itinerary_surcharge" ? entry.layer === "itinerary" && entry.area_ids.includes(areaId) : (entry.layer === "pickup_dropoff" && entry.area_ids.includes(areaId)) || (entry.layer === "base_pickup_dropoff" && entry.area_ids[1] === areaId),
+      );
       if (hit === undefined) continue;
       const [a, b] = hit.areas;
       const message =
