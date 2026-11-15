@@ -140,6 +140,55 @@ export function narrowScreen(top = 2000): string[] {
   return scrolled;
 }
 
+/**
+ * 假装视口有 `width` 像素宽：`matchMedia` 按这个宽度回答 `(min-width: Npx)`、`(max-width: Npx)`（不问宽度的媒体查询都不满足）；`resize` 换宽度并通知监听者（同浏览器的 change 事件）。
+ * resetBrowser 或 `restore` 时还原。
+ */
+export function viewportWidth(width: number): { resize(next: number): void; restore(): void } {
+  const original = window.matchMedia;
+  let current = width;
+  const lists: { query: string; matches: boolean; listeners: Set<() => void> }[] = [];
+  const answer = (query: string): boolean => {
+    const min = /min-width:\s*(\d+)px/.exec(query)?.[1];
+    const max = /max-width:\s*(\d+)px/.exec(query)?.[1];
+    // 不问宽度的（暗色、减少动画等）一律不满足，同没有这些偏好的浏览器
+    if (min === undefined && max === undefined) return false;
+    return (min === undefined || current >= Number(min)) && (max === undefined || current <= Number(max));
+  };
+  window.matchMedia = ((query: string) => {
+    const entry = { query, matches: answer(query), listeners: new Set<() => void>() };
+    lists.push(entry);
+    return {
+      get matches() {
+        return entry.matches;
+      },
+      media: query,
+      onchange: null,
+      addEventListener: (_: string, listener: () => void) => entry.listeners.add(listener),
+      removeEventListener: (_: string, listener: () => void) => entry.listeners.delete(listener),
+      addListener: (listener: () => void) => entry.listeners.add(listener),
+      removeListener: (listener: () => void) => entry.listeners.delete(listener),
+      dispatchEvent: () => false,
+    };
+  }) as unknown as typeof window.matchMedia;
+  const restore = (): void => {
+    window.matchMedia = original;
+  };
+  restorers.push(restore);
+  return {
+    resize(next) {
+      current = next;
+      for (const entry of lists) {
+        const matches = answer(entry.query);
+        if (matches === entry.matches) continue;
+        entry.matches = matches;
+        for (const listener of [...entry.listeners]) listener();
+      }
+    },
+    restore,
+  };
+}
+
 /** 每个测试结束后调用：卸载组件，还原 fetch，还原 narrowScreen 换掉的东西，清空登录状态、主题和本地存储。 */
 export function resetBrowser(): void {
   cleanup();

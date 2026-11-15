@@ -9,10 +9,13 @@
  * - 嵌不进去（不在白名单、嵌入码没开「允许整页嵌入」、宿主页再被别的网站嵌一层）：15 秒后显示后备一句话和「到主站继续预订」。
  * - 主站别的页面仍不能被嵌（frame-ancestors 'none' + X-Frame-Options: DENY）。
  * 第二期（M9E-17，ADR 0095 第四、八、九节）：
- * - iframe 里走完 /book/new 的四步（询价带 draft_id、单栏、没有 Leaflet），键盘提交，下单后进 iframe 里的订单页（令牌不进地址、不发给宿主）；
+ * - iframe 里走完 /book/new 的四步（询价带 draft_id、没有 Leaflet），键盘提交，下单后进 iframe 里的订单页（令牌不进地址、不发给宿主）；
  *   iframe 自己刷新、宿主页刷新都接着显示这张待付款的单；平台订单详情来源是「宿主页内」；390 宽、axe；
  * - A 网站建的草稿在 B 网站打开：询价不带 draft_id（来源按主站记）。
  * 付款放进 iframe、completed 事件的跨站端到端是第三期 M9E-19（这一期 completed 由组件测试 embed-flow.test.tsx 覆盖）。
+ * M9E-27（ADR 0095 第十二节末第二轮决策）：分栏按 iframe 自己的宽度——iframe 1440、1024 宽两栏，右边是主站同一个「行程摘要」右侧栏
+ * （谷歌静态路线图经同源 /site/v1/route-map 出图、时长公里数、车型、出发地、目的地、航班落地时间、乘客 / 行李），1023、375 宽单栏、顶部摘要条；
+ * 宿主窗口宽而预订区窄时照样单栏；宽窄切换后 resize 报的高度等于内容高度、不多发 step；亮暗两色 axe；截图存到 E2E_SCREENSHOT_DIR（m9e27-*.png）。
  */
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -22,7 +25,7 @@ import { E2E_WEB_PLACES_PORT } from "../playwright.config.ts";
 import { createAirport, publishTransfer, tomorrowInTokyo } from "./book-new-support.ts";
 import { charterWorld } from "./charter-support.ts";
 import { createSupplier, createWorld } from "./catalog.ts";
-import { OWN_SITE_SOURCE, embedHostAsProduction, platformAdminHeaders, randomLetters } from "./support.ts";
+import { OWN_SITE_SOURCE, embedHostAsProduction, platformAdminHeaders, randomLetters, snapshot } from "./support.ts";
 
 // 接口调用（request）按这条用例自己的来源地址限速
 test.use(OWN_SITE_SOURCE);
@@ -230,7 +233,7 @@ function keepsFrameParams(page: Page): void {
   for (const name of ["draft", "key", "host"]) expect(url.searchParams.get(name), `${url.pathname}${url.search} 带 ${name}`).not.toBeNull();
 }
 
-test("M9E-17 跨站整条流程：iframe 里走完四步（询价带 draft_id、单栏、没有地图选点）→ 下单 → iframe 里的订单页（令牌不进地址、不发给宿主）→ iframe 刷新、宿主页刷新都接着显示这张单；来源记「宿主页内」；390 宽、axe、键盘提交", async ({ page, request }) => {
+test("M9E-17 跨站整条流程：iframe 里走完四步（询价带 draft_id、宽时两栏、没有地图选点）→ 下单 → iframe 里的订单页（令牌不进地址、不发给宿主）→ iframe 刷新、宿主页刷新都接着显示这张单；来源记「宿主页内」；390 宽、axe、键盘提交", async ({ page, request }) => {
   test.setTimeout(240_000);
   const world = await createWorld(request);
   const airport = await createAirport(request, world);
@@ -244,13 +247,13 @@ test("M9E-17 跨站整条流程：iframe 里走完四步（询价带 draft_id、
   expect(((await quoted).postDataJSON() as { draft_id?: string }).draft_id, "iframe 里的询价带草稿编号").toBe(draftId);
 
   const frame = frameOf(page);
-  // 第 2 步：单栏（没有右侧栏）、没有地图选点和 Leaflet
+  // 第 2 步：iframe 比 1024 宽（宿主窗口 1280，M9E-27）——两栏、带右侧栏；没有地图选点和 Leaflet
   const card = frame.getByRole("listitem").filter({ has: frame.getByRole("heading", { name: world.group.name }) });
   await card.getByRole("button", { name: `选择 ${world.group.name}` }).click();
-  await expect(frame.getByRole("complementary", { name: "行程摘要" })).toHaveCount(0);
+  await expect(frame.getByRole("complementary", { name: "行程摘要" })).toBeVisible();
   await expect(frame.locator(".leaflet-container")).toHaveCount(0);
   keepsFrameParams(page);
-  await frame.getByRole("button", { name: "下一步", exact: true }).click();
+  await frame.getByRole("button", { name: "下一步：填写乘客信息" }).click();
   await expect(frame.getByRole("heading", { level: 2, name: "乘客信息" })).toBeFocused();
   keepsFrameParams(page);
   const email = `embed-host-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`;
@@ -264,8 +267,9 @@ test("M9E-17 跨站整条流程：iframe 里走完四步（询价带 draft_id、
   await expect(frame.getByRole("heading", { name: "核对订单" })).toBeFocused();
   keepsFrameParams(page);
 
-  // 390 宽不横向滚动；整页（含跨站 iframe）axe 无问题
+  // 390 宽单栏、不横向滚动；整页（含跨站 iframe）axe 无问题
   await page.setViewportSize({ width: 390, height: 844 });
+  await expect(frame.getByRole("complementary", { name: "行程摘要" })).toHaveCount(0);
   await expect.poll(() => frame.locator("html").evaluate((html) => html.scrollWidth - html.clientWidth)).toBeLessThanOrEqual(0);
   const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
   expect(axe.violations.map((violation) => `${violation.id}: ${violation.help}`)).toEqual([]);
@@ -369,4 +373,86 @@ test("M9P-20 跨站：iframe 里的包车第 2 步有行程地图（本站 /site
   await expect(frame.locator(".leaflet-container")).toHaveCount(0);
   const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
   expect(axe.violations.map((violation) => `${violation.id}: ${violation.help}`)).toEqual([]);
+
+/** 把宿主页上放预订区的容器设成 `width` 宽（iframe 宽度跟容器），等 iframe 自己的视口变成这个宽度 */
+async function frameWidth(page: Page, width: number): Promise<void> {
+  await page.evaluate((value) => {
+    const main = document.querySelector("main");
+    if (main !== null) main.style.padding = "0";
+    const flow = document.getElementById("flow");
+    if (flow !== null) flow.style.width = `${value}px`;
+  }, width);
+  await expect.poll(() => frameOf(page).locator("html").evaluate(() => window.innerWidth), { message: `iframe 自己的视口 ${width} 宽` }).toBe(width);
+}
+
+/** 宿主页上 iframe 的高度（resize 设的）等于 iframe 里内容的实际高度 */
+async function expectHeightFollowsContent(page: Page, what: string): Promise<void> {
+  const iframe = page.locator('iframe[title="NOZOMI 用车预订"]');
+  const content = () => frameOf(page).locator("main.embed-book").evaluate((main) => Math.ceil(main.getBoundingClientRect().bottom + window.scrollY));
+  await expect.poll(async () => Number(await iframe.getAttribute("height")) - (await content()), { message: `${what}：iframe 高度等于内容高度` }).toBe(0);
+}
+
+test("M9E-27 跨站：分栏按 iframe 自己的宽度——1440、1024 两栏带主站同一个「行程摘要」右侧栏（静态路线图出图），1023、375 单栏；宽窄切换后高度照报、不多发 step；没有主站顶栏页脚；亮暗 axe；截图", async ({ page, request }) => {
+  test.setTimeout(240_000);
+  const world = await createWorld(request);
+  const airport = await createAirport(request, world);
+  await publishTransfer(request, await createSupplier(request, world), { ...world, airport });
+  const host = await newHost(request);
+  await page.setViewportSize({ width: 1500, height: 900 });
+  await searchFromHostHome(page, host, airport.name);
+  await expect.poll(() => page.url()).toBe(`${host.origin}/booking/`);
+  const frame = frameOf(page);
+  const aside = frame.getByRole("complementary", { name: "行程摘要" });
+  const bar = frame.locator(".book-summary-bar");
+
+  // 1440：选车型、进第 3 步，右侧栏里有路线图、时长公里数、车型、行程要点
+  await frameWidth(page, 1440);
+  const card = frame.getByRole("listitem").filter({ has: frame.getByRole("heading", { name: world.group.name }) });
+  await card.getByRole("button", { name: `选择 ${world.group.name}` }).click();
+  await frame.getByRole("button", { name: "下一步：填写乘客信息" }).click();
+  await expect(frame.getByRole("heading", { level: 2, name: "乘客信息" })).toBeFocused();
+  await expect(aside).toBeVisible();
+  await expect(bar).toHaveCount(0);
+  const image = aside.getByRole("img", { name: /^路线图：.+ → .*東京駅.*，约 \d+ 分钟 · [\d.]+ 公里$/ });
+  await expect(image, "静态路线图在 iframe 里出图（嵌入页 CSP 的 img-src 放行同源的 /site/v1/route-map）").toBeVisible();
+  await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.complete && element.naturalWidth > 0)).toBe(true);
+  expect(new URL((await image.getAttribute("src")) ?? "", SITE).pathname).toBe("/site/v1/route-map");
+  await expect(aside.locator(".book-summary__route")).toHaveText(/约 \d+ 分钟 · [\d.]+ 公里/);
+  await expect(aside.getByText(world.group.name)).toBeVisible();
+  for (const [term, value] of [["出发地", airport.name], ["目的地", /東京駅/], ["航班落地（当地时间）", /\d/], ["乘客 / 行李", /人/]] as const) {
+    await expect(aside.locator(".site-facts__item").filter({ has: frame.getByText(term, { exact: true }) }).locator("dd")).toHaveText(value);
+  }
+  await expect(frame.locator(".site, .site__header, .site__nav, .site__footer, nav, footer"), "没有主站顶栏、导航、页脚").toHaveCount(0);
+  await expect(frame.locator(".leaflet-container")).toHaveCount(0);
+  const stepCount = async (): Promise<number> => (await hostMessages(page)).filter((message) => message.data["type"] === "step").length;
+  const steps = await stepCount();
+
+  for (const [width, viewport, wide] of [
+    [1440, 1500, true],
+    [1024, 1280, true],
+    [1023, 1280, false],
+    [375, 375, false],
+  ] as const) {
+    const what = `iframe ${width} 宽`;
+    await page.setViewportSize({ width: viewport, height: 900 });
+    await frameWidth(page, width);
+    if (wide) {
+      await expect(aside, `${what}：两栏`).toBeVisible();
+      await expect(bar).toHaveCount(0);
+    } else {
+      await expect(aside, `${what}：单栏（宿主窗口 ${viewport} 宽也一样）`).toHaveCount(0);
+      await expect(bar.getByRole("button", { name: /行程摘要/ })).toBeVisible();
+    }
+    await expect(frame.getByRole("heading", { level: 2, name: "乘客信息" }), `${what}：还在第 3 步`).toBeVisible();
+    await expect.poll(() => frame.locator("html").evaluate((html) => html.scrollWidth - html.clientWidth), `${what}：不横向滚动`).toBeLessThanOrEqual(0);
+    await expectHeightFollowsContent(page, what);
+    for (const scheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme: scheme });
+      const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+      expect(axe.violations.map((violation) => `${violation.id}: ${violation.help}`), `${what}（${scheme}）`).toEqual([]);
+    }
+    await page.emulateMedia({ colorScheme: "light" });
+    if (width !== 1023) await snapshot(page, `m9e27-embed-${width}`);
+  }
+  expect(await stepCount(), "宽窄切换不算换步，不多发 step").toBe(steps);
 });

@@ -1,6 +1,7 @@
 /**
  * 嵌入预订页的四步和 iframe 里的订单页（M9E-17，ADR 0095 第四、六、八、九节）的组件测试：
- * - 复用 /book/new 四步：读草稿带 key、host；对得上时询价带 draft_id，对不上时不带；一直单栏、不提供地图选点（不用 Leaflet）；
+ * - 复用 /book/new 四步：读草稿带 key、host；对得上时询价带 draft_id，对不上时不带；不提供地图选点（不用 Leaflet）；
+ * - 分栏和主站一样按 iframe 自己的视口（M9E-27）：< 1024px 单栏、顶部摘要条；≥ 1024px 两栏、主站同一个「行程摘要」右侧栏；宽窄切换不重发 step；
  *   每一步的地址都保留 draft、key、lang、host；换步发 step；下单后进 iframe 里的订单页，令牌放 history.state 和 nozomi.embed-order，不进地址、不发给宿主；
  * - 订单页（不在 iframe 里付款，M9E-19 再做）：待付款时给新窗口的主站订单页链接、隔几秒读一次；看到付款完成发 step paid + completed{orderNo, status: submitted} 一次，删掉记录；
  * - 宿主页刷新后续接：存储里有这个草稿的待付款单就进订单页；已付款、读不到的删掉照常预订；
@@ -13,7 +14,7 @@ import { userEvent } from "@testing-library/user-event";
 import { BrowserRouter } from "react-router";
 import type { SiteByPointsResult, SiteCity, SiteConfig, SiteOrder, SiteOrderEnvelope, SiteQuote } from "../../api/site.ts";
 import { EMBED_ORDER_KEY } from "../../embed/embed-order-store.ts";
-import { type ApiCall, apiError, json, stubApiWith } from "../../testing/harness.tsx";
+import { type ApiCall, apiError, json, stubApiWith, viewportWidth } from "../../testing/harness.tsx";
 import { EmbedApp } from "./EmbedApp.tsx";
 import { EMBED_FRAME } from "./EmbedFrame.tsx";
 import { ORDER_POLL } from "./EmbedOrderPage.tsx";
@@ -57,6 +58,8 @@ const quote: SiteQuote = {
   available_addons: [],
 };
 const byPoints: SiteByPointsResult = { trip_type: "point_to_point", airport: null, fallback_category: null, city: { id: CITY_ID, code: city.code, name: city.name, timezone: city.timezone }, currency: "JPY", quotes: [quote], unavailable: [], expires_at: null, route: null };
+const ROUTE = { minutes: 25, meters: 14_200, polyline: null };
+const ROUTE_TEXT = "约 25 分钟 · 14.2 公里";
 
 const orderOf = (status: SiteOrder["status"]): SiteOrder =>
   ({
@@ -112,6 +115,7 @@ const envelopeOf = (status: SiteOrder["status"]): SiteOrderEnvelope => ({
 });
 
 let posted: [unknown, string][] = [];
+let screenWidth: ReturnType<typeof viewportWidth> | null = null;
 const parent = { postMessage: (message: unknown, targetOrigin: string) => posted.push([message, targetOrigin]) } as unknown as Window;
 const originalParent = EMBED_FRAME.parent;
 const messages = () => posted.map(([message]) => message as Record<string, unknown>);
@@ -124,6 +128,8 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  screenWidth?.restore();
+  screenWidth = null;
   EMBED_FRAME.parent = originalParent;
   ORDER_POLL.ms = 5_000;
   sessionStorage.clear();
@@ -132,6 +138,8 @@ afterEach(() => {
 
 interface Options {
   sourceMatches?: boolean;
+  /** 报价应答里的路线（默认没有） */
+  route?: SiteByPointsResult["route"];
   /** 订单接口按调用次数给状态 */
   orderStatus?: (call: number) => SiteOrder["status"] | "gone";
 }
@@ -143,7 +151,7 @@ function stub(options: Options = {}): ApiCall[] {
     if (path === `/site/v1/booking-drafts/${DRAFT}`) return json(200, { draft: DRAFT_BODY, expires_at: "2030-11-20T00:00:00Z", source_matches: options.sourceMatches ?? true });
     if (path === "/site/v1/config") return json(200, config);
     if (path === "/site/v1/cities") return json(200, { items: [city] });
-    if (call.method === "POST" && path === "/site/v1/quotes/by-points") return json(200, byPoints);
+    if (call.method === "POST" && path === "/site/v1/quotes/by-points") return json(200, { ...byPoints, route: options.route ?? null });
     if (path === "/site/v1/fx/reference") return json(200, { available: false, from: "JPY", to: "USD", rate: null, as_of: null, reason: "NO_RATE" });
     if (call.method === "POST" && path === "/site/v1/orders") return json(201, { ...envelopeOf("pending_payment"), payment: null, link: { token: TOKEN, expires_at: "2030-12-01T00:00:00.000Z" } });
     if (call.method === "GET" && path === "/site/v1/order") {
@@ -186,13 +194,15 @@ async function toReview(actor: ReturnType<typeof userEvent.setup>): Promise<void
   keepsFrameParams();
 }
 
-test("四步：读草稿带 key、host，对得上时询价带 draft_id；一直单栏、没有地图选点；每一步地址都保留 draft / key / lang / host；换步发 step；下单后进 iframe 里的订单页", async () => {
+test("四步（iframe 1023 宽）：读草稿带 key、host，对得上时询价带 draft_id；单栏、没有地图选点；每一步地址都保留 draft / key / lang / host；换步发 step；下单后进 iframe 里的订单页", async () => {
+  screenWidth = viewportWidth(1023);
   const calls = stub();
   const actor = userEvent.setup();
   open(bookUrl);
   await toReview(actor);
   assert.equal(posts(calls, "/site/v1/quotes/by-points")[0]?.body && (posts(calls, "/site/v1/quotes/by-points")[0]?.body as Record<string, unknown>)["draft_id"], DRAFT, "询价带草稿编号");
   assert.equal(screen.queryByRole("complementary", { name: "行程摘要" }), null, "没有右侧栏（单栏）");
+  assert.ok(screen.getByRole("button", { name: /行程摘要/ }), "顶部摘要条");
   assert.equal(screen.queryByRole("button", { name: /地图上选/ }), null, "没有地图选点");
   assert.equal(document.querySelector(".leaflet-container"), null, "没有 Leaflet 地图");
   assert.ok(screen.getByText(EMBED_TEXTS.ja.seller), "卖方说明一直在");
@@ -217,6 +227,46 @@ test("四步：读草稿带 key、host，对得上时询价带 draft_id；一直
   assert.equal(messages().filter((message) => message["type"] === "ready").length, 1, "ready 只发一次");
   assert.ok(posted.every(([, origin]) => origin === HOST));
   assert.doesNotMatch(JSON.stringify(posted), /王小明|guest@example|\+81|nzo_|京王|东京站|18000|D{43}|nze_/, "消息里没有个人信息、地点、价格、令牌、草稿号、嵌入码");
+});
+
+test("iframe ≥ 1024 宽（M9E-27）：和主站一样两栏，右边是同一个「行程摘要」右侧栏（路线时长公里数、车型、出发地、目的地、时间、乘客 / 行李）；没有主站顶栏页脚；宽窄切换随时换栏、不重发 step", async () => {
+  screenWidth = viewportWidth(1024);
+  stub({ route: ROUTE });
+  const actor = userEvent.setup();
+  open(bookUrl);
+  await screen.findByRole("heading", { name: "车型1" }, SLOW);
+  const aside = screen.getByRole("complementary", { name: "行程摘要" });
+  assert.equal(screen.queryAllByRole("button", { name: /行程摘要/ }).length, 0, "两栏时没有顶部摘要条");
+  assert.ok(within(aside).getByText(ROUTE_TEXT), "右侧栏最上面是路线：约 X 分钟 · Y 公里");
+  assert.ok(document.querySelector(".book-new > .book-new__aside") === aside, "右侧栏是主站 /book/new 的那一栏");
+  assert.equal(document.querySelectorAll(".leaflet-container").length, 0, "没有 Leaflet 地图");
+  // 主站外壳 SiteLayout 的顶栏、导航、页脚（.site__*）一样都不在；页面上的 <nav>、<footer> 也没有
+  assert.deepEqual([...document.querySelectorAll(".site, .site__header, .site__nav, .site__footer, nav, footer")].map((node) => node.className), [], "没有主站顶栏、导航、页脚");
+  assert.equal(screen.queryAllByRole("heading", { name: "预订接送车", level: 1 }).length, 0, "没有主站的页面标题");
+  assert.ok(screen.getByText(EMBED_TEXTS.ja.seller), "卖方说明照旧在");
+
+  await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
+  await actor.click(screen.getByRole("button", { name: "下一步：填写乘客信息" }));
+  await screen.findByRole("heading", { name: "乘客信息", level: 2 });
+  const facts = within(screen.getByRole("complementary", { name: "行程摘要" }));
+  for (const [term, value] of [["出发地", "京王广场酒店"], ["目的地", "东京站"], ["乘客 / 行李", "2 人 · 1 件"]] as const) {
+    assert.equal(facts.getByText(term).nextElementSibling?.textContent, value, term);
+  }
+  assert.ok(facts.getByText("用车时间（当地时间）"));
+  assert.ok(facts.getByText("车型1"), "选好的车型");
+  assert.ok(facts.getByText(ROUTE_TEXT));
+
+  // iframe 变窄（宿主把预订区缩到 1024 以下）：当场换成单栏和顶部摘要条，再变宽换回来；换栏不算换步
+  const stepsBefore = steps();
+  screenWidth.resize(1023);
+  // 只比个数：断言失败时 node:assert 要展开 DOM 节点，在 happy-dom 里会卡住
+  await waitFor(() => assert.equal(screen.queryAllByRole("complementary", { name: "行程摘要" }).length, 0));
+  assert.ok(screen.getByRole("button", { name: /行程摘要/ }));
+  screenWidth.resize(1440);
+  await waitFor(() => assert.ok(screen.getByRole("complementary", { name: "行程摘要" })));
+  assert.equal(screen.getByRole("heading", { name: "乘客信息", level: 2 }).tagName, "H2", "还在第 3 步");
+  assert.deepEqual(steps(), stepsBefore, "换栏不发 step");
+  assert.deepEqual(stepsBefore, ["trip", "vehicle", "passenger"]);
 });
 
 test("草稿上记的嵌入码、宿主和这次对不上（source_matches=false）：照常预填和报价，但询价不带 draft_id（来源按主站记）", async () => {

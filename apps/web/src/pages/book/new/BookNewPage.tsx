@@ -99,7 +99,7 @@ export const QUOTE_DEBOUNCE_MS = 400;
 
 const WIDE_QUERY = "(min-width: 1024px)";
 
-/** 电脑（≥ 1024px）两栏、右侧栏；手机和平板单栏、顶部摘要条。 */
+/** 电脑（≥ 1024px）两栏、右侧栏；手机和平板单栏、顶部摘要条。嵌入预订页里量的是 iframe 自己的视口，不是宿主窗口（M9E-27）。 */
 function useWideScreen(): boolean {
   const query = typeof window.matchMedia === "function" ? window.matchMedia(WIDE_QUERY) : null;
   const [wide, setWide] = useState(query?.matches ?? true);
@@ -262,7 +262,7 @@ export function BookNewPage() {
   useDocumentTitle(shell.title);
   const location = useLocation();
   const link = useMemo(() => parseBookingLink(location.search), []);
-  const wide = useWideScreen() && !shell.narrow;
+  const wide = useWideScreen();
   const { state: config, reload: reloadConfig } = useSiteConfig();
   const [cities, setCities] = useState<Load<SiteCity[]>>({ kind: "loading" });
   const [round, setRound] = useState(0);
