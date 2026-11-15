@@ -1,6 +1,6 @@
 /**
  * 新预订页包车的经停点和按行程计价（M9W-02，ADR 0088；需求 charter-waypoint-surcharge.md 13.5）的组件测试：
- * 没有经停点时询价请求和以前完全一样；经停点增删、上下移动（焦点跟着走、播报）、最多 10 个；停留时长必填；
+ * 没有经停点时询价请求和以前完全一样；经停点增删、上下移动（焦点跟着走、播报）、最多 25 个（M9P-10）；停留时长必填；
  * 有经停点时请求带 itinerary_pricing 和 waypoints、不带 package_hours，包车时长下拉换成「按行程自动选套餐」；
  * 车型卡、右侧栏、核对页的对外价明细（各项之和 = 总价；对不上时不显示明细）、行程时间表和提示；经停点报不出价时指出是哪一个。
  * 接口用测试替身（浏览器只连 /site/v1）；真实后端由 e2e/site-booking-waypoints.spec.ts 覆盖。
@@ -135,7 +135,7 @@ test("没有经停点：询价请求和以前完全一样（字段、顺序都�
   assert.doesNotMatch(includes.textContent ?? "", /按预计行程/);
 });
 
-test("经停点：添加、上下移动（焦点跟着这一行、播报新位置）、删除（焦点到下一行的删除）；第一行上移、最后一行下移禁用；最多 10 个", async () => {
+test("经停点：添加、上下移动（焦点跟着这一行、播报新位置）、删除（焦点到下一行的删除）；第一行上移、最后一行下移禁用；最多 25 个（M9P-10，路径接口上限），加满后提示联系客服定制", async () => {
   wideScreen();
   open();
   const actor = user();
@@ -165,10 +165,14 @@ test("经停点：添加、上下移动（焦点跟着这一行、播报新位�
   assert.deepEqual(stopNames(), ["五合目", "忠灵塔"]);
   await waitFor(() => assertFocused(screen.getByRole("button", { name: "删除 忠灵塔" })));
 
-  for (let index = 0; index < 8; index += 1) await actor.click(screen.getByRole("button", { name: "添加经停点" }));
-  assert.equal(screen.getAllByRole("combobox", { name: /^经停点 \d+$/ }).length, 10);
+  for (let index = 0; index < 22; index += 1) await actor.click(screen.getByRole("button", { name: "添加经停点" }));
+  assert.equal(screen.getAllByRole("combobox", { name: /^经停点 \d+$/ }).length, 24);
+  assert.equal((screen.getByRole("button", { name: "添加经停点" }) as HTMLButtonElement).disabled, false, "24 个还能加");
+  assert.equal(screen.queryByText(/更多经停请联系客服定制/), null);
+  await actor.click(screen.getByRole("button", { name: "添加经停点" }));
+  assert.equal(screen.getAllByRole("combobox", { name: /^经停点 \d+$/ }).length, 25);
   assert.equal((screen.getByRole("button", { name: "添加经停点" }) as HTMLButtonElement).disabled, true);
-  assert.ok(screen.getByText("最多 10 个"));
+  assert.ok(screen.getByText("最多 25 个经停点（地图路径接口的上限）；更多经停请联系客服定制。"));
 });
 
 test("停留时长必填：选了地点没选停留时不报价，点「下一步」标红「请选择停留时长」；选好后请求带 itinerary_pricing 和按顺序的 waypoints，不带 package_hours；包车时长下拉换成「按行程自动选套餐」", async () => {

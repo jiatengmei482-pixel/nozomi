@@ -14,8 +14,11 @@ import { localDateTimeToInstant } from "./service-time.ts";
 export const BOOKING_DRAFT_RULES = {
   /** 有效期（分钟）：够比价、填信息、付款（报价、待支付各 30 分钟）并允许刷新 */
   ttlMinutes: 120,
-  /** 序列化后的上限（字节），库里有同样的 check 约束 */
-  maxBytes: 16_384,
+  /**
+   * 序列化后的上限（字节）：M9P-10 经停点放到 25 个后，27 个地点 × 200 字的中文名称（每字 3 字节）约 18 KB，从 16 KB 放到 24 KB；
+   * 库里的 check 约束是 32 KB（jsonb 文本多出的空格也容得下），不用改库
+   */
+  maxBytes: 24_576,
   /** 地点名称的长度：UTF-16 单元数，和 `/site/v1/quotes` 的名称校验（zod `.max(200)`）同一种算法 */
   maxNameLength: 200,
   /** 坐标最多几位小数（7 位约 1 厘米，谷歌给的坐标也是这个精度）：挡住 1e-300 这类写法——库里的 jsonb 会把它展开成几百位 */

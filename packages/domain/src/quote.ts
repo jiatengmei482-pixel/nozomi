@@ -8,6 +8,7 @@
  *
  * 钱：结算价是商品所属子品牌币种的最小货币单位整数；中间结果用精确分数，只在最后取整一次（pricing.ts / money.ts）。
  */
+import { CHARTER_ITINERARY_LIMITS } from "./charter-itinerary-limits.ts";
 import { type AreaPolygonShape, type AreaRole, locatePoint } from "./areas.ts";
 import { type DistancePrice, type PricingBasis, selectDistancePrice } from "./distance-price.ts";
 import type { LatLng } from "./geo.ts";
@@ -79,8 +80,8 @@ export const QUOTE_RULES = {
   maxLuggage: 60,
   maxAddonKinds: 20,
   maxAddonQuantity: 20,
-  /** 包车一单最多几个经停点（ADR 0088） */
-  maxWaypoints: 10,
+  /** 包车一单最多几个经停点（M9P-10：只受路径接口上限，见 `CHARTER_ITINERARY_LIMITS`） */
+  maxWaypoints: CHARTER_ITINERARY_LIMITS.maxWaypoints,
   /** 包车按行程计价的全程上限：5000 公里、7 天（同试算的假定路线） */
   maxRouteMeters: 5_000_000,
   maxRouteMinutes: 10_080,

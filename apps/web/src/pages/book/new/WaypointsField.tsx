@@ -13,6 +13,7 @@ import { Button, IconButton } from "../../../components/Button.tsx";
 import { SelectField } from "../../../components/FormFields.tsx";
 import { Icon } from "../../../components/Icon.tsx";
 import { MAX_WAYPOINTS, STAY_OPTIONS, type WaypointDraft, type WaypointErrors, durationText, moveWaypoint, newWaypoint } from "../../../lib/charter-itinerary.ts";
+import { waypointLimitText } from "../../../lib/itinerary-warnings.ts";
 import type { LatLngValue } from "../SiteMapPicker.tsx";
 import { PlaceField } from "./PlaceField.tsx";
 
@@ -131,7 +132,7 @@ export function WaypointsField({ value, onChange, errors, tiles, mapCenter, citi
           <Icon name="plus" />
           添加经停点
         </Button>
-        {full && <span className="field__hint">最多 {MAX_WAYPOINTS} 个</span>}
+        {full && <span className="field__hint">{waypointLimitText()}</span>}
       </div>
       <p className="visually-hidden" role="status">
         {announce}

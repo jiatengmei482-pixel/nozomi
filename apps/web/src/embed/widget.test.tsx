@@ -10,7 +10,7 @@ import { CONFIG_TIMEOUT, LOCATE_TIMEOUT, REFUSED_NOTICE, initFrom, initWithBase,
 import { GOOGLE_MAPS_ATTRIBUTION, GOOGLE_MAPS_ATTRIBUTION_ATTRIBUTES } from "../lib/google-attribution.ts";
 import { readFile } from "node:fs/promises";
 import { WIDGET_CSS } from "./widget-style.ts";
-import { luminance } from "./widget-core.ts";
+import { TEXTS, luminance } from "./widget-core.ts";
 
 const BASE = "https://nozomi.example";
 const KEY = `nze_${"A".repeat(32)}`;
@@ -254,6 +254,23 @@ test("建草稿 400：标出服务端说的那一项并把焦点移过去；删�
   ($('[data-action="add-waypoint"]') as HTMLButtonElement).click();
   ($('[aria-label="删除经停点 1"]') as HTMLButtonElement).click();
   assert.equal(shadow().activeElement, $('[data-action="add-waypoint"]'), "删除后焦点回到「添加经停点」");
+});
+
+test("经停点最多 25 个（M9P-10，和报价接口同一个常量）：加满后「添加经停点」不再出现，改为提示联系客服定制；日文界面先显示中文（翻译在 M11）；删掉一个又能加", async () => {
+  handler = places;
+  for (const lang of ["zh", "ja"] as const) {
+    document.body.innerHTML = '<div id="nozomi-booking"></div>';
+    await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang, services: ["charter"] }, () => undefined);
+    for (let index = 0; index < 24; index += 1) ($('[data-action="add-waypoint"]') as HTMLButtonElement).click();
+    assert.equal($('[data-role="waypoint-limit"]'), null, "24 个还能加");
+    ($('[data-action="add-waypoint"]') as HTMLButtonElement).click();
+    assert.equal(shadow().querySelectorAll('[data-focus^="stay-"]').length, 25);
+    assert.equal($('[data-action="add-waypoint"]'), null);
+    assert.equal($('[data-role="waypoint-limit"]')?.textContent, "最多 25 个经停点；更多经停请联系客服定制。", lang);
+    ($(`[aria-label="${TEXTS[lang].removeWaypoint} 25"]`) as HTMLButtonElement).click();
+    assert.ok($('[data-action="add-waypoint"]'), "删掉一个又能加");
+    assert.equal($('[data-role="waypoint-limit"]'), null);
+  }
 });
 
 test("建草稿 400 标出的那一项：客人改了就去掉 aria-invalid（输入框、下拉都算）；再提交时以服务端新的结论为准（M9E-07）", async () => {

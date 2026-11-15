@@ -6,7 +6,7 @@
  * - 行程时间表（上车 → 经停 1…N → 下车，各段行驶分钟、各点停留）；
  * - 经停点报不出价（`WAYPOINT_NOT_PRICED`）时指出是哪个经停点。
  */
-import { isCurrencyCode, parseMajor } from "@nozomi/domain";
+import { CHARTER_ITINERARY_LIMITS, isCurrencyCode, parseMajor } from "@nozomi/domain";
 import type { SiteMoney, SiteOrder, SitePriceBreakdownItem, SiteQuote, SiteQuoteResult } from "../api/site.ts";
 import type { TripPoint } from "./book-new.ts";
 import { moneyText } from "./dispatch-display.ts";
@@ -19,8 +19,8 @@ export type OrderItinerary = NonNullable<SiteOrder["itinerary"]>;
 /** 包车按行程计价时服务器算的路线（M9W-01）：逐段行驶、行驶 / 停留合计、总时长、全程 */
 export type SiteItineraryRoute = NonNullable<SiteQuoteResult["itinerary_route"]>;
 
-/** 最多几个经停点（和后端 `maxItems` 一致） */
-export const MAX_WAYPOINTS = 10;
+/** 最多几个经停点：和后端同一个常量（M9P-10，只受路径接口上限，`CHARTER_ITINERARY_LIMITS`） */
+export const MAX_WAYPOINTS = CHARTER_ITINERARY_LIMITS.maxWaypoints;
 /** 停留时长一档 30 分钟，最长 8 小时 */
 export const STAY_STEP_MINUTES = 30;
 export const STAY_MAX_MINUTES = 480;

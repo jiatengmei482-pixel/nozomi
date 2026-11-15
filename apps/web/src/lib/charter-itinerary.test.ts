@@ -8,8 +8,8 @@ import { MAX_WAYPOINTS, STAY_OPTIONS, autoPackageHoursOf, breakdownLines, upgrad
 const point = (name: string) => ({ name, lat: 35.5, lng: 138.7, kind: null });
 const yen = (amount: number) => ({ amount: String(amount), currency: "JPY" });
 
-test("停留时长 30 分钟一档到 8 小时；最多 10 个经停点", () => {
-  assert.equal(MAX_WAYPOINTS, 10);
+test("停留时长 30 分钟一档到 8 小时；最多 25 个经停点（M9P-10，和后端同一个常量）", () => {
+  assert.equal(MAX_WAYPOINTS, 25);
   assert.deepEqual([STAY_OPTIONS[0], STAY_OPTIONS[1], STAY_OPTIONS.at(-1), STAY_OPTIONS.length], [30, 60, 480, 16]);
   assert.deepEqual([durationText(30), durationText(60), durationText(90), durationText(450)], ["30 分钟", "1 小时", "1 小时 30 分", "7 小时 30 分"]);
 });

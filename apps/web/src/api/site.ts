@@ -167,7 +167,12 @@ export interface SiteQuote {
   estimated_minutes?: number | null;
   includes_buffer?: boolean | null;
   auto_package_hours?: number | null;
+  /** 超限提醒（M9P-10）：按中标商品的提醒线，T 超过为 `LONG_DURATION`、全程超过为 `LONG_DISTANCE`；都没超为空数组，仍可下单。没按行程计价为 null */
+  itinerary_warnings?: SiteItineraryWarning[] | null;
 }
+
+/** 包车行程超限提醒的种类（M9P-10） */
+export type SiteItineraryWarning = "LONG_DURATION" | "LONG_DISTANCE";
 
 /** 对外价明细的一项（M9W-01）：基础价 / 套餐、上 / 下车加价、一个区域的途经加价、调价、其他费用 */
 export interface SitePriceBreakdownItem {
@@ -478,7 +483,7 @@ export const SITE_SCHEMA_FIELDS = {
   SiteAirport: ["id", "code", "name", "location"],
   SiteCharterPackage: ["hours"],
   SitePlace: ["id", "type", "code", "name", "address", "location"],
-  SiteQuote: ["quote_id", "expires_at", "service_date", "urgent", "vehicle_group", "package", "includes_area_surcharge", "distance", "pricing_basis", "price", "price_breakdown", "free_wait_minutes", "cancel_policy", "available_addons", "estimated_minutes", "includes_buffer", "auto_package_hours"],
+  SiteQuote: ["quote_id", "expires_at", "service_date", "urgent", "vehicle_group", "package", "includes_area_surcharge", "distance", "pricing_basis", "price", "price_breakdown", "free_wait_minutes", "cancel_policy", "available_addons", "estimated_minutes", "includes_buffer", "auto_package_hours", "itinerary_warnings"],
   SiteAddonOption: ["id", "code", "name", "charge_unit"],
   SiteOrderLink: ["token", "expires_at"],
   SiteOrderEnvelope: ["return_url", "order", "timeline", "names", "price_breakdown"],

@@ -10,7 +10,7 @@
  */
 import { randomInt } from "node:crypto";
 import { performance } from "node:perf_hooks";
-import { PRICE_LIMITS, type AreaSurchargeBreakdown, type CharterSelection, type ComparisonRefusal, type ItineraryBreakdown, type PricingBasis, type QuoteWaypoint, type RouteUsage, type SellBreakdownItem, sellBreakdown, type SiteAudience, guestRouteReason, type CurrencyCode, type DistanceBreakdown, type FxQuote, type LatLng, type MarkupMatch, type QuoteSnapshot, type ServiceCategory, type TripDirection, formatMajor, instantToLocal, isPickupPlaceType, quoteCheckPoints, quoteSnapshotValid } from "@nozomi/domain";
+import { PRICE_LIMITS, type AreaSurchargeBreakdown, type ItineraryWarning, charterItineraryOf, itineraryWarnings, type CharterSelection, type ComparisonRefusal, type ItineraryBreakdown, type PricingBasis, type QuoteWaypoint, type RouteUsage, type SellBreakdownItem, sellBreakdown, type SiteAudience, guestRouteReason, type CurrencyCode, type DistanceBreakdown, type FxQuote, type LatLng, type MarkupMatch, type QuoteSnapshot, type ServiceCategory, type TripDirection, formatMajor, instantToLocal, isPickupPlaceType, quoteCheckPoints, quoteSnapshotValid } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
@@ -139,6 +139,11 @@ export interface SalesQuote {
    * 这个车型组自动选出的档（手动升档时也是自动会选的那一档）。没按行程计价、或部署前的报价没有这一项；只有官网的应答给
    */
   itinerary?: { estimatedMinutes: number; includesBuffer: boolean; autoPackageHours: number | null };
+  /**
+   * 包车按行程计价的超限提醒（M9P-10，规格步骤 5）：中标商品的 T 超过它的提醒线（`LONG_DURATION`）、全程超过它的提醒公里数（`LONG_DISTANCE`），
+   * 都没超为空数组；仍可下单。只在刚询价时有（要用中标商品当时的配置），查报价 `getSalesQuote` 不给；没按行程计价的没有这一项
+   */
+  itineraryWarnings?: ItineraryWarning[];
   /**
    * 这个车型组还能加哪些附加服务（M8-02，ADR 0069 B15）：参加了这个车型组比价的候选商品里，有供应商提供（开着、目录里启用、适用这个品类）的附加服务编号，去重排序。
    * 只有编号，不带任何单价；只在刚询价时有（查报价 `getSalesQuote` 不给）
@@ -282,7 +287,7 @@ export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincip
   );
   const now = ctx.now();
   const snapshots = storedSnapshots(preview, now);
-  const result: SalesQuoteResult = { quotes: snapshots.map((snapshot) => ({ ...toSalesQuote(snapshot), offeredAddonIds: offeredAddonIds(preview, snapshot) })), unavailable: unavailable(preview, input.vehicleGroupIds) };
+  const result: SalesQuoteResult = { quotes: snapshots.map((snapshot) => ({ ...toSalesQuote(snapshot), offeredAddonIds: offeredAddonIds(preview, snapshot), ...itineraryWarningsOf(preview, snapshot) })), unavailable: unavailable(preview, input.vehicleGroupIds) };
   const durationMs = Math.round(performance.now() - started);
   await withPlatformTx(ctx.pool, async (db) => {
     const log = await db.query<{ id: string }>(
@@ -374,6 +379,15 @@ function offeredAddonIds(preview: PlatformQuotePreview, snapshot: StoredQuoteSna
     }
   }
   return [...ids].sort();
+}
+
+/** 超限提醒（M9P-10）：按中标商品自己的两条提醒线比它的 T 和全程；只有带 `charterSelection` 的按行程计价报价才有 */
+function itineraryWarningsOf(preview: PlatformQuotePreview, snapshot: StoredQuoteSnapshot): Pick<SalesQuote, "itineraryWarnings"> {
+  const itinerary: ItineraryBreakdown | undefined = snapshot.winner.offer.settlement.itinerary;
+  if (itinerary === undefined || snapshot.request.charterSelection === undefined) return {};
+  const product = preview.candidates.find((candidate) => candidate.product.productId === snapshot.winner.productId)?.product;
+  if (product === undefined) return {};
+  return { itineraryWarnings: itineraryWarnings(charterItineraryOf(product.serviceRules), { estimatedMinutes: itinerary.estimatedMinutes ?? itinerary.routeMinutes, routeMeters: itinerary.routeMeters }) };
 }
 
 /** 询价日志里的路线（ADR 0042）：用没用到、来源和里程时长，或取不到的原因代码（降级原因）。 */
