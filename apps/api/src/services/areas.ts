@@ -42,6 +42,7 @@ import type { DbContext } from "../context.ts";
 import { type Db, withPlatformTx, withTenantTx } from "../db/context.ts";
 import { type AreaLastEditor, type AreaMapFilter, type AreaMapRow, lastAreaEditors, listAreaMapRows, listPolygonsOfAreas } from "../repos/area-map.ts";
 import { AppError, isRetryableDbError } from "../errors.ts";
+import { productsBindingArea } from "../repos/charter-airports.ts";
 import type { TimeCursor } from "../pagination.ts";
 import {
   type Area,
@@ -505,6 +506,9 @@ export async function deleteArea(ctx: DbContext, writer: AreaWriter, id: string)
     if (!current) throw notFound("区域");
     const usage = (await areaUsage(db, tenantId, [id])).get(id) ?? UNUSED;
     if (usage.publishedProductCount > 0) throw areaInUse("删除", usage);
+    // 包车机场套餐的机场区域（M9P-21，ADR 0098 第三节第 2 小节）：绑定着的不能删，先在商品里解绑（数据库外键 restrict 兜底）
+    const airportProducts = await productsBindingArea(db, tenantId, id);
+    if (airportProducts.length > 0) throw new AppError(409, "AREA_IN_USE", "这个区域是包车机场套餐的机场区域，先在商品的「机场套餐」里解绑再删", { charter_airport_product_ids: airportProducts });
     if (areaRoleCanOperate(current.role) && current.status === "active") await assertOperatingKept(db, tenantId, { areaId: id, after: null });
     const stored = await listAreaPolygons(db, tenantId, id);
     const usedBy = await productIdsUsingArea(db, tenantId, id);

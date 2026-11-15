@@ -1655,6 +1655,8 @@ export interface SellBreakdownItem {
   stopSeqs?: number[];
   /** 下车点行程加价（M9P-01）：只有那一项带这个键 */
   fromDropoff?: true;
+  /** 包车机场套餐（M9P-21，ADR 0098）：基础价（套餐）那一项带上场景和机场名，页面按它显示「成田机场接机 + 5 小时包车」 */
+  scenario?: { kind: AirportScenarioKind; placeId: string; name: string };
   amountMinor: number;
 }
 
@@ -1668,9 +1670,10 @@ export function sellBreakdown(settlement: SettlementBreakdown, sell: Pick<SellPr
   const items: SellBreakdownItem[] = [];
   const surcharge = settlement.areaSurcharge;
   if (surcharge !== undefined && surcharge !== null) {
-    if (surcharge.pickup.areaId !== null) items.push({ kind: "pickup", areaId: surcharge.pickup.areaId, amountMinor: convert(surcharge.pickup.amountMinor) });
-    for (const entry of surcharge.waypoints ?? []) items.push({ kind: "waypoint", areaId: entry.areaId, stopSeqs: [...entry.stopSeqs], ...(entry.fromDropoff === true ? { fromDropoff: true as const } : {}), amountMinor: convert(entry.amountMinor) });
-    if (surcharge.dropoff.areaId !== null) items.push({ kind: "dropoff", areaId: surcharge.dropoff.areaId, amountMinor: convert(surcharge.dropoff.amountMinor) });
+    // 机场套餐单独定价免掉的项（金额 0、含在套餐里，ADR 0098）不列
+    if (surcharge.pickup.areaId !== null && surcharge.pickup.includedInPackage !== true) items.push({ kind: "pickup", areaId: surcharge.pickup.areaId, amountMinor: convert(surcharge.pickup.amountMinor) });
+    for (const entry of (surcharge.waypoints ?? []).filter((item) => item.includedInPackage !== true)) items.push({ kind: "waypoint", areaId: entry.areaId, stopSeqs: [...entry.stopSeqs], ...(entry.fromDropoff === true ? { fromDropoff: true as const } : {}), amountMinor: convert(entry.amountMinor) });
+    if (surcharge.dropoff.areaId !== null && surcharge.dropoff.includedInPackage !== true) items.push({ kind: "dropoff", areaId: surcharge.dropoff.areaId, amountMinor: convert(surcharge.dropoff.amountMinor) });
   }
   const itinerary = settlement.itinerary;
   if (itinerary !== undefined) {
@@ -1682,7 +1685,8 @@ export function sellBreakdown(settlement: SettlementBreakdown, sell: Pick<SellPr
   const otherMinor = settlement.urgentMinor + settlement.nightMinor + settlement.addonsMinor + settlement.driverLanguageMinor;
   if (otherMinor !== 0) items.push({ kind: "other", areaId: null, amountMinor: convert(otherMinor) });
   const rest = items.reduce((sum, item) => sum + item.amountMinor, 0);
-  return [{ kind: "base", areaId: null, amountMinor: sell.sellMinor - rest }, ...items];
+  const scenario = settlement.charterScenario;
+  return [{ kind: "base", areaId: null, ...(scenario === undefined ? {} : { scenario: { kind: scenario.kind, placeId: scenario.placeId, name: scenario.name } }), amountMinor: sell.sellMinor - rest }, ...items];
 }
 
 /** 最低毛利金额换到客人支付的币种（精确值，不加缓冲）。要换却没有对得上的汇率返回 `FX_RATE_UNAVAILABLE`。 */
