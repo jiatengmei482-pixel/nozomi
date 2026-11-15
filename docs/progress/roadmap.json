@@ -1356,7 +1356,7 @@
           "id": "M9E-16",
           "title": "嵌在宿主页·第一期：init 加 bookingUrl（跳宿主页 ?nzdraft=）、mountBooking 骨架（iframe、超时后备、postMessage 核对、自动高度）、/embed/v1/frame-check + Caddy forward_auth 按嵌入码生成 frame-ancestors（ADR 0095 第三、五、六节）",
           "role": "frontend",
-          "status": "doing",
+          "status": "done",
           "acceptance": [
             "不传 bookingUrl 时组件行为逐字不变（现有组件测试、site-embed-widget.spec.ts 原样通过）；传了合格的跳 bookingUrl?nzdraft=<草稿号>，不合格（不同 origin、非 https 等）按没传处理并在控制台报一句",
             "/embed/book 只能被白名单里、本次声明的那一个宿主嵌入：非白名单、伪造 host、停用嵌入码、嵌套两层都被拒；其余页面仍 frame-ancestors 'none' + X-Frame-Options: DENY（security.spec.ts、deploy-web-csp-paths.qa.test.ts 在真实 caddy:2 上核对；伪造 X-Nozomi-Frame-Ancestor 请求头无效）",
@@ -1368,14 +1368,14 @@
             "宿主页 sessionStorage 的 nozomi.host-draft：收到 completed、草稿 404 时删除，并显示「重新查询」入口",
             "迁移排在 0430 之后，只加 delivery 列（booking_drafts、quote_embed_sources、order_embed_sources）和嵌入码的「允许整页嵌入」开关，不回填"
           ],
-          "evidence": "PR #242",
-          "updated": "2026-11-14"
+          "evidence": "PR #242；业主验收通过（2026-11-15，监工转达业主原话「嵌入程序可以了」）",
+          "updated": "2026-11-15"
         },
         {
           "id": "M9E-17",
           "title": "嵌在宿主页·第二期：/embed/book 复用 /book/new 四步（BookingShell 上下文、EmbedLayout、无 Leaflet）、iframe 内订单页（不含付款）、step / completed / error 事件、刷新续接（ADR 0095 第四、八、九节）",
           "role": "frontend",
-          "status": "review",
+          "status": "done",
           "acceptance": [
             "主站 /book/new、订单页的组件测试和 site-booking*.spec.ts、site-payment*.spec.ts 一条不改、全部通过；新增主站模式询价 / 下单请求体与重构前逐字相同",
             "嵌入页询价带 draft_id，下单后平台订单详情来源为嵌入组件（宿主页内）",
@@ -1386,8 +1386,8 @@
             "嵌入页样式只引用组件的 --nzb-* 变量（命名和默认值同 widget-style.ts），传给 Stripe appearance 的取值也从 --nzb-* 读（Q15）",
             "路线图：首期和主站一样显示谷歌静态路线图，静态图失败时只显示时长和公里数，不加载 Leaflet（Q11；合规后备图随 M10-01）"
           ],
-          "evidence": "PR #244（https://github.com/jiatengmei482-pixel/nozomi/pull/244）：集成测试 17 条（新增 source_matches 1 条）；组件测试新增 embed-flow 7、booking-shell 2（主站请求体逐字不变）、embed-style 4、embed-order-store 3，改 embed-book 17；跨站端到端 site-embed-booking 新增 2 条（chromium + webkit）；ADR 第十节回归 e2e 47 条。付款进 iframe、completed 的跨站端到端在 M9E-19；四步三语在 M9E-18；特商法、取消政策、隐私政策三页和嵌入页上的链接待业主给内容，登记为 M9E-24（Q14）；Leaflet 不进嵌入页打包产物登记为 M9E-25",
-          "updated": "2026-11-14"
+          "evidence": "PR #244（https://github.com/jiatengmei482-pixel/nozomi/pull/244）：集成测试 17 条（新增 source_matches 1 条）；组件测试新增 embed-flow 7、booking-shell 2（主站请求体逐字不变）、embed-style 4、embed-order-store 3，改 embed-book 17；跨站端到端 site-embed-booking 新增 2 条（chromium + webkit）；ADR 第十节回归 e2e 47 条。付款进 iframe、completed 的跨站端到端在 M9E-19；四步三语在 M9E-18；特商法、取消政策、隐私政策三页和嵌入页上的链接待业主给内容，登记为 M9E-24（Q14）；Leaflet 不进嵌入页打包产物登记为 M9E-25；业主验收通过（2026-11-15，监工转达业主原话「嵌入程序可以了」）",
+          "updated": "2026-11-15"
         },
         {
           "id": "M9E-18",
@@ -1516,9 +1516,9 @@
           "id": "M9E-27",
           "title": "业主反馈（优先于 M9P-20）：①嵌入预订页电脑宽度两栏，和主站 /book/new 一样带「行程摘要」右侧栏（ADR 0095 第二轮决策）；②接机免费等待分钟数（另一个开发角色负责）",
           "role": "frontend",
-          "status": "review",
+          "status": "done",
           "acceptance": ["①iframe 自己的视口 ≥ 1024px：嵌入页两栏，左边四步，右边是主站同一个「行程摘要」右侧栏（谷歌静态路线图、约 X 分钟 · Y 公里、车型和价格、出发地、目的地、航班落地时间、乘客 / 行李）；< 1024px 照旧单栏、顶部摘要条。宽度按 iframe 自己的视口算，不看宿主窗口", "①复用 BookNewPage 的两栏和右侧栏，不另写；主站 /book/new 行为不变（book-new、booking-shell 组件测试原样通过）；嵌入页里没有主站顶栏、页脚、导航", "①postMessage v1 不变：换步照发 step；分栏切换（宽 ↔ 窄）后 resize 报的高度和内容实际高度一致；路线图是同源 /site/v1/route-map，嵌入页 CSP 放行、在 iframe 里显示出来", "①组件测试覆盖 1024 断点（1023 单栏、1024 两栏、宽窄切换）；端到端在嵌入页 1440 / 1024 / 375 宽核对分栏、右侧栏内容、路线图、resize 高度，亮暗两色 axe；做变异检查", "①本机 1440 / 1024 / 375 宽截图放 docs/acceptance/M9E-27-shots/；部署后在演示站 https://embed-demo.moveglobal.io/booking/ 再截 1440 / 1024 / 375 三张（验收角色）", "②接机免费等待分钟数：由另一个开发角色在本任务下单独实现和验收，见其 PR；本 PR 不涉及"],
-          "evidence": "①PR #254；组件测试 478 条本机全过（embed-flow 新增 1 条宽屏 / 宽窄切换、改 1 条为 1023 宽；embed-style、booking-shell 相应改）；变异检查 3 个全部杀死；端到端 site-embed-booking.spec.ts 9 条 chromium + webkit-embed 本机全过（新增 M9E-27 一条：1440 / 1024 / 1023 / 375）；截图 docs/acceptance/M9E-27-shots/；演示站截图待部署后由验收角色补",
+          "evidence": "①PR #254；组件测试 478 条本机全过（embed-flow 新增 1 条宽屏 / 宽窄切换、改 1 条为 1023 宽；embed-style、booking-shell 相应改）；变异检查 3 个全部杀死；端到端 site-embed-booking.spec.ts 9 条 chromium + webkit-embed 本机全过（新增 M9E-27 一条：1440 / 1024 / 1023 / 375）；截图 docs/acceptance/M9E-27-shots/；演示站截图待部署后由验收角色补；业主验收通过（2026-11-15，监工转达业主原话「嵌入程序可以了」）",
           "updated": "2026-11-15"
         }
       ]
@@ -3233,6 +3233,11 @@
       "date": "2026-11-15",
       "by": "product",
       "summary": "ADR 0096 采纳（#252 复核二通过；监工 2026-11-15 代业主确认第十节 10 条，全部按推荐，确认值逐条写进第十节）。按复核二建议定稿：每个地址每天 25 次只数要调谷歌的请求（低于全站 150），宽松兜底照留；经停标识 ref 只在请求、应答之间往返，不进 request_key、快照、订单、司机视图；超长时申请建议的条件改为「没有任何一家报出价、且至少一家因超长报不出」；拖成超长时照算公里、分钟、不显示日元，路线取不到时收起建议块。M9P-20 改为只受阻于 M9P-04（#248），验收第 1 条和第九节 P2 一行改成新的限频说法。PR 待 #248 部署后由监工合并。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "dev",
+      "summary": "业主验收嵌入预订（「嵌入程序可以了」）：M9E-16、M9E-17、M9E-27 标为已验收。之后嵌入方向只做收尾（M9E-28 接机等待按航班定、M9E-18 三语），主力转回包车：M9P-20 → 机场开始/结束套餐 → 不限经停。"
     }
   ]
 }
