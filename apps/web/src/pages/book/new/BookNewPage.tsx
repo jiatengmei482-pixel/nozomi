@@ -504,7 +504,7 @@ export function BookNewPage() {
   const suggestBasis: SuggestionBasis | null = charterOutcome === null ? null : charterOutcome.quotes[0] !== undefined ? { quote_id: (selected ?? quotesByTotal(charterOutcome.quotes)[0] ?? charterOutcome.quotes[0]).quote_id } : charterOutcome.inquiry_ref !== undefined ? { inquiry_ref: charterOutcome.inquiry_ref } : null;
   const waypointRefs = draft.waypoints.map((entry) => entry.key);
   const orderSuggestion = useOrderSuggestion(suggestBody, waypointRefs, suggestBasis, draftSource);
-  const [adoptedFrom, setAdoptedFrom] = useState<{ order: string[]; stopKey: string } | null>(null);
+  const [adoptedFrom, setAdoptedFrom] = useState<{ order: string[]; stopKey: string; upgradeHours: string } | null>(null);
   const [suggestionNotice, setSuggestionNotice] = useState("");
   const itineraryHeading = useRef<HTMLHeadingElement>(null);
   /** 采用 / 恢复以后焦点移到行程标题：重排会换一份报价、整块重画，等新的报价画出来再移 */
@@ -560,7 +560,8 @@ export function BookNewPage() {
     const nextDraft = { ...draft, waypoints: reordered.map(({ ref: _ref, ...entry }) => entry) };
     const next = requestOf(nextDraft, charterCity ?? null, draftSource, [], upgradeHours);
     if (next !== null && !suggestionQuoteExpired(suggestionData.quote_result)) preloaded.current.set(next.key, { mode: "charter", result: suggestionData.quote_result, city: suggestionData.quote_result.city ?? (charterCity as SiteQuotedCity) });
-    setAdoptedFrom({ order: waypointRefs, stopKey: stopSetKey(suggestBody) });
+    // 记下采用时的升档：恢复原来的顺序时用它（对原顺序一定有效），不用之后改过的升档
+    setAdoptedFrom({ order: waypointRefs, stopKey: stopSetKey(suggestBody), upgradeHours });
     // 升档跟着走（ADR 0096 第三节第 5 小节）：建议价是按这个升档算的，换了顺序也照用，询价键才和预存的建议报价对得上、不再多询一次
     const movedKey = itineraryKeyOf(nextDraft);
     if (upgradeHours !== "" && movedKey !== null) setUpgrade({ key: movedKey, hours: upgradeHours });
@@ -577,10 +578,11 @@ export function BookNewPage() {
     if (restored === null) return;
     const restoredDraft = { ...draft, waypoints: restored.map(({ ref: _ref, ...entry }) => entry) };
     const restoredKey = itineraryKeyOf(restoredDraft);
-    if (upgradeHours !== "" && restoredKey !== null) setUpgrade({ key: restoredKey, hours: upgradeHours });
+    if (adoptedFrom.upgradeHours !== "" && restoredKey !== null) setUpgrade({ key: restoredKey, hours: adoptedFrom.upgradeHours });
     setDraft(restoredDraft);
-    orderNotice.current = itineraryCopy("suggestRestored");
-    setSuggestionNotice(orderNotice.current);
+    // 恢复要重新询价：这一句先播，价格出来后只播「价格已更新」，不把这一句再读一遍
+    orderNotice.current = null;
+    setSuggestionNotice(itineraryCopy("suggestRestored"));
     focusItinerary.current = true;
   };
   // 建议块出现时播报一次（同一组点只播一次，ADR 0096 第三节第 7 小节）
@@ -633,10 +635,12 @@ export function BookNewPage() {
     if (settledPrice === null || announcedQuote === null) return;
     const before = pricedOrder.current;
     pricedOrder.current = settledPrice;
+    const pendingNotice = orderNotice.current;
+    // 价格稳定下来就清掉，不管这次播不播（同价时不播，留着会接到以后拖动后的播报上）
+    orderNotice.current = null;
     if (before === null || before.stopKey !== settledPrice.stopKey || before.groupId !== settledPrice.groupId || before.order === settledPrice.order || before.amount === settledPrice.amount) return;
     const priceText = itineraryCopy("suggestPriceUpdated", { vehicle: displayName(announcedQuote.vehicle_group.name).text, price: moneyText(announcedQuote.price.total) });
-    setSuggestionNotice(orderNotice.current === null ? priceText : `${orderNotice.current} ${priceText}`);
-    orderNotice.current = null;
+    setSuggestionNotice(pendingNotice === null ? priceText : `${pendingNotice} ${priceText}`);
   }, [settledPrice?.stopKey, settledPrice?.order, settledPrice?.groupId, settledPrice?.amount]);
   // 没有经停、按自选时长报价时报价不估路线：每段的时长和公里取地图折线那次调用的量（ADR 0096 第二节第 3 小节）；取不到就不写这一行
   useEffect(() => {

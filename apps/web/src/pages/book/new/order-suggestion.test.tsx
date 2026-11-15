@@ -178,7 +178,7 @@ test("采用：按标识重排、直接用建议报价（不再多询一次价�
   assert.deepEqual(stopNames(), ["河口湖", "横滨", "箱根"]);
 });
 
-test("手动升到 12 小时后采用：建议按 12 小时算，采用后直接用建议报价不再询价、升档没丢；恢复原来的顺序也保留升档；价格变了只播报选中车型的一条", async () => {
+test("手动升到 12 小时后采用：建议按 12 小时算，采用后直接用建议报价不再询价；之后把升档改回自动再恢复原来的顺序，恢复的是采用时的 12 小时；价格变了只播报一条", async () => {
   const { actor, calls, suggestions } = await toSuggestion({ packages: [8, 10, 12] });
   // 升档下拉在第 1 步（行程）里
   await actor.click(screen.getByRole("button", { name: "上一步" }));
@@ -191,15 +191,22 @@ test("手动升到 12 小时后采用：建议按 12 小时算，采用后直接
   await actor.click(within(block).getByRole("button", { name: "采用建议顺序" }));
   await waitFor(() => assert.match(screen.getByRole("heading", { name: "车型1" }).closest("li")?.textContent ?? "", /80,000 JPY/), SLOW);
   assert.equal(quoteCalls(calls).length, quotesBefore, "升档跟着走，询价键和预存的建议报价对得上，没有多询价");
+  // 在建议顺序上把升档改回自动（10 小时）
+  await actor.click(screen.getByRole("button", { name: "上一步" }));
+  assert.equal((screen.getByLabelText(/^包车时长/) as HTMLSelectElement).value, "12", "采用后升档没有丢");
+  await actor.selectOptions(screen.getByLabelText(/^包车时长/), "");
+  await actor.click(screen.getByRole("button", { name: "下一步：选择车型" }));
+  await waitFor(() => assert.match(screen.getByRole("heading", { name: "车型1" }).closest("li")?.textContent ?? "", /70,000 JPY/), SLOW);
+  // 恢复原来的顺序：用采用时的 12 小时（对原顺序一定有效），不用现在的自动
   await actor.click(screen.getByRole("button", { name: "恢复原来的顺序" }));
   await waitFor(() => assert.match(screen.getByRole("heading", { name: "车型1" }).closest("li")?.textContent ?? "", /85,000 JPY/), SLOW);
-  assert.equal((quoteCalls(calls).at(-1)?.body as { package_hours?: number } | undefined)?.package_hours, 12, "恢复后仍按 12 小时询价");
-  // 播报区常驻在车型区外层（重新询价的骨架屏不会把它卸掉），最后一条是价格更新
+  assert.equal((quoteCalls(calls).at(-1)?.body as { package_hours?: number } | undefined)?.package_hours, 12, "恢复后按采用时的 12 小时询价");
+  // 播报区常驻在车型区外层（重新询价的骨架屏不会把它卸掉）；恢复那句先播过了，价格出来只播「价格已更新」
   const live = document.querySelector(".book-new__vehicles > p.visually-hidden[role=status]");
   assert.ok(live !== null);
-  await waitFor(() => assert.equal(live.textContent, "已恢复原来的顺序 价格已更新：车型1 85,000 JPY"));
+  await waitFor(() => assert.equal(live.textContent, "价格已更新：车型1 85,000 JPY"));
   await actor.click(screen.getByRole("button", { name: "上一步" }));
-  assert.equal((screen.getByLabelText(/^包车时长/) as HTMLSelectElement).value, "12", "升档没有丢");
+  assert.equal((screen.getByLabelText(/^包车时长/) as HTMLSelectElement).value, "12");
 });
 
 test("保持我的顺序：建议块收起，同一组点不再申请", async () => {
