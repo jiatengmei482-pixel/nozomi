@@ -279,7 +279,7 @@ export async function buildRolePreview(db: Db, options: { days: number; now: Dat
       comparePriority(replay.priority, log["id"], candidate.code, legacyQuote, current);
       const line = replayDigestLine(log["id"], candidate.code, current);
       digestLines.push(line);
-      if (options.rows === true) rows.push(replayRow(line, current));
+      if (options.rows === true) rows.push(replayRow(line, current, { legacy: parsed.request.category === "charter" && parsed.request.charterSelection === undefined }));
       if (before.external !== after.external) {
         replay.externalDiffCount += 1;
         if (replay.externalDiffs.length < MAX_LISTED_DIFFS) replay.externalDiffs.push({ logId: log["id"], productCode: candidate.code, before: before.external, after: after.external });

@@ -63,6 +63,14 @@ export interface ReplayRowOffer {
   packageHours: number | null;
   totalMinor: number;
   currency: string;
+  /** 摘要里也有的几项（审查 #266 必改 1）：计价方式、区域、线路价的下车区域、价格规则编号——金额不变、只有它们变了也能认出来 */
+  pricingBasis: string;
+  areaId: string | null;
+  toAreaId: string | null;
+  priceRuleId: string | null;
+  /** 调价前的基础价（含套餐、加价、超公里、超时费）和调价合计（审查 #266 必改 3：调价按比例跟着基础价变，金额拆账在基础价上做） */
+  baseMinor: number;
+  adjustMinor: number;
   /** 包车按行程计价的超时费（预收的；M9P-03 起是 0）；不是按行程计价为 null */
   overtimeMinor: number | null;
   /** 包车区域加价：套餐价、上车、下车、行程加价合计（各区域之和）；不是包车为 null */
@@ -73,6 +81,8 @@ export interface ReplayRow {
   logId: string;
   productCode: string;
   digest: string;
+  /** 包车的旧格式询价日志（没有 charter_selection，回放按旧口径选档、算超时费，这两项应该逐字不变） */
+  legacy: boolean;
   /** 商品层面报不出时的原因；报得出时为 null */
   refused: string | null;
   offers: ReplayRowOffer[];
@@ -80,8 +90,8 @@ export interface ReplayRow {
   refusedGroups: { vehicleGroupId: string; reason: string }[];
 }
 
-export function replayRow(line: DigestLine, quote: ProductQuote): ReplayRow {
-  const base = { logId: line.logId, productCode: line.productCode, digest: sha256(line.line) };
+export function replayRow(line: DigestLine, quote: ProductQuote, options: { legacy?: boolean } = {}): ReplayRow {
+  const base = { logId: line.logId, productCode: line.productCode, digest: sha256(line.line), legacy: options.legacy === true };
   if (!quote.ok) return { ...base, refused: quote.reason, offers: [], refusedGroups: [] };
   const offers = quote.offers
     .map((offer): ReplayRowOffer => {
@@ -92,6 +102,12 @@ export function replayRow(line: DigestLine, quote: ProductQuote): ReplayRow {
         packageHours: offer.packageHours,
         totalMinor: settlement.totalMinor,
         currency: settlement.currency,
+        pricingBasis: settlement.pricingBasis ?? "one_price",
+        areaId: offer.areaId,
+        toAreaId: settlement.toAreaId ?? null,
+        priceRuleId: offer.priceRuleId,
+        baseMinor: settlement.baseMinor,
+        adjustMinor: settlement.adjustMinor,
         overtimeMinor: settlement.itinerary?.overtimeMinor ?? null,
         surcharge: surcharge === null ? null : { packageMinor: surcharge.packageMinor, pickupMinor: surcharge.pickup.amountMinor, dropoffMinor: surcharge.dropoff.amountMinor, itineraryMinor: (surcharge.waypoints ?? []).reduce((sum, entry) => sum + entry.amountMinor, 0) },
       };
