@@ -62,6 +62,9 @@ test("全程 400 公里（超过 360）：行程时间表下方提醒、写出�
 
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(`${SITE}/book/new?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.nearby, "市内下车点")}&date=${tomorrowInTokyo()}&time=10:00`);
+  // 只有一档套餐、条件齐全：页面直接询价到第 2 步，先回第 1 步加经停点
+  await expect(page.getByRole("heading", { name: "选择车型" })).toBeVisible();
+  await page.getByRole("button", { name: "上一步" }).click();
   await page.getByRole("button", { name: "添加经停点" }).click();
   const box = page.getByRole("combobox", { name: "经停点 1", exact: true });
   await box.fill(stopName);
