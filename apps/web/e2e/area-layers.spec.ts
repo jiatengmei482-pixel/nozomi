@@ -61,7 +61,7 @@ test("区域编辑器：区域详情显示在商品里当哪一层；改图形�
   const usage = page.locator("section").filter({ has: page.getByRole("heading", { name: "在哪些商品里用" }) });
   const row = usage.getByRole("listitem").filter({ hasText: label });
   await expect(row).toContainText("③上下车加价");
-  await expect(row.getByRole("link", { name: label })).toHaveAttribute("href", `/products/${product.id}`);
+  await expect(row.getByRole("link", { name: label, exact: true })).toHaveAttribute("href", `/products/${product.id}`);
   await expect(page.locator(".area-map__overlay")).toBeVisible();
   await bothSchemes(page, "区域详情（在哪些商品里用）", "m9p13-usage");
 
@@ -88,8 +88,8 @@ test("区域编辑器：区域详情显示在商品里当哪一层；改图形�
   await expect(page).toHaveURL(new RegExp(`/areas/map\\?product=${product.id}$`));
   await expect(page.getByRole("combobox", { name: "商品" })).toHaveValue(product.id);
   const list = page.getByRole("list", { name: "区域列表" });
-  await expect(list.getByRole("listitem").filter({ hasText: suburb.name })).toContainText("③上下车加价");
-  await expect(list.getByRole("listitem").filter({ hasText: base.name })).toContainText("①基础价");
+  await expect(list.locator(`li[data-area-id="${suburb.id}"]`)).toContainText("③上下车加价");
+  await expect(list.locator(`li[data-area-id="${base.id}"]`)).toContainText("①基础价");
   await expect(list.locator(`[data-conflict-note="${suburb.id}"]`)).toContainText(`和「${base.name}」① 基础价区域和 ③ 上下车加价区域，重叠约`);
   await expect(page.locator('.area-overview-map path[data-conflict="all"]')).toHaveCount(1);
   await expect(page.locator(".area-overview-map path[data-overlap]")).toHaveCount(0);
@@ -97,7 +97,7 @@ test("区域编辑器：区域详情显示在商品里当哪一层；改图形�
   expect(await page.locator('.area-overview-map path[data-conflict="all"]').evaluate((node) => getComputedStyle(node).fill)).not.toBe("none");
   await bothSchemes(page, "区域地图（按商品和层）", "m9p13-map-conflict");
   await page.getByRole("checkbox", { name: "③ 上下车加价区域" }).uncheck();
-  await expect(list.getByRole("listitem").filter({ hasText: suburb.name })).toHaveCount(0);
+  await expect(list.locator(`li[data-area-id="${suburb.id}"]`)).toHaveCount(0);
   await expect(page.locator(".area-overview-map path[data-conflict]")).toHaveCount(0);
   await page.getByRole("checkbox", { name: "③ 上下车加价区域" }).check();
 
