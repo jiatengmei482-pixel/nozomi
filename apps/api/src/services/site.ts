@@ -140,12 +140,18 @@ function orderLinkEmailUnavailable(): AppError {
 
 const hashToken = (token: string): string => createHash("sha256").update(token, "utf8").digest("hex");
 /** 来源地址、订单号、邮箱不进限流表原文（和登录限速一样只存哈希）。 */
-const bucketOf = (kind: "ip" | "order" | "email", value: string): string => createHash("sha256").update(`site-${kind}:${value}`, "utf8").digest("hex");
+const bucketOf = (kind: "ip" | "order" | "email" | "session", value: string): string => createHash("sha256").update(`site-${kind}:${value}`, "utf8").digest("hex");
 
 /** 占用一次官网的限流额度；超限 429。计数单独一个事务先提交，后面出错回滚时这一次照样算数。 */
 export async function takeSiteSlot(ctx: AppContext, scope: Extract<SalesRateScope, `site_${string}`>, key: { ip: string }): Promise<void> {
   // 来源地址按限流键计（IPv6 按 /64，ADR 0045）
   const decision = await withPlatformTx(ctx.pool, (db) => takeRateSlot(db, bucketOf("ip", rateLimitKeyOf(key.ip)), scope, ctx.now()));
+  if (!decision.allowed) throw rateLimited(decision.retryAfterSeconds);
+}
+
+/** 按预订会话占一次额度（M9P-20 P2 经停顺序建议：会话 = 预订草稿编号或页面生成的标识，只存哈希）；不放行时 429。 */
+export async function takeSiteSessionSlot(ctx: AppContext, scope: Extract<SalesRateScope, `site_${string}`>, session: string): Promise<void> {
+  const decision = await withPlatformTx(ctx.pool, (db) => takeRateSlot(db, bucketOf("session", session), scope, ctx.now()));
   if (!decision.allowed) throw rateLimited(decision.retryAfterSeconds);
 }
 
@@ -685,6 +691,11 @@ export interface SiteQuoteResult {
   /** 包车按行程计价时服务器算的路线（逐段、合计）；别的询价没有 */
   itinerary?: SiteItinerary;
   unavailable: SalesQuoteResult["unavailable"];
+  /**
+   * 询价日志编号（M9P-20 P2，ADR 0096 第三节第 1 小节）：包车按行程计价、一家都没报出、至少一家因超长（`ITINERARY_TOO_LONG`）报不出时才有。
+   * 只用来申请经停顺序建议，不能下单
+   */
+  inquiryRef?: string;
 }
 
 /** 包车按行程计价的路线（ADR 0088 补充）：逐段行驶（上车点 → 经停点 → 下车点）、行驶合计、停留合计、总时长、全程米数 */
@@ -710,7 +721,7 @@ export function itineraryRouteUnavailable(leg: number, reason: string): AppError
  * 逐段估路线（ADR 0042 的路线估算：同一对坐标有缓存、受每日上限）：全程米数 = 各段之和，总时长 = 各段行驶分钟 + 各经停点停留分钟。
  * 某一段取不到（没有路线、服务不可用、超时）→ 422 `ITINERARY_ROUTE_UNAVAILABLE`。全程、时长只由服务器算，不接受客户端的数字。
  */
-async function itineraryRoute(ctx: AppContext, trip: Extract<SiteTrip, { category: "charter_itinerary" }>): Promise<SiteItinerary> {
+export async function itineraryRoute(ctx: AppContext, trip: Extract<SiteTrip, { category: "charter_itinerary" }>): Promise<SiteItinerary> {
   const points: LatLng[] = [trip.pickup, ...trip.waypoints.map((stop) => ({ lat: stop.lat, lng: stop.lng })), trip.dropoff];
   const legs = await Promise.all(
     points.slice(1).map(async (to, index): Promise<RouteEstimate> => {
@@ -810,7 +821,7 @@ interface CharterCityMatch {
  * 上车点、下车点都落在它的①基础价区域或③上下车加价区域里（`charterMatches`）的，取它们的城市。
  * 匹配到几个城市时只取一个（`chooseCharterCity`：请求带的城市 → 上车点所在城市 → 编号最小），不逐城询价合并。
  */
-async function charterCityFor(ctx: AppContext, channel: Channel, audience: SiteAudience, ends: { pickup: LatLng; dropoff: LatLng }, requestedCityId: string | null): Promise<CharterCityMatch> {
+export async function charterCityFor(ctx: AppContext, channel: Channel, audience: SiteAudience, ends: { pickup: LatLng; dropoff: LatLng }, requestedCityId: string | null): Promise<CharterCityMatch> {
   return withPlatformTx(
     ctx.pool,
     async (db) => {
@@ -953,7 +964,8 @@ async function cityQuotes(ctx: AppContext, input: CityQuoteInput, logExtra: Reco
   });
   // 价低的在前：客人先看到最便宜的
   quotes.sort((a, b) => a.sellMinor - b.sellMinor || a.vehicleGroup.seats - b.vehicleGroup.seats);
-  return { currency: channel.settleCurrency, quotes, unavailable: result.unavailable };
+  const tooLong = trip.category === "charter" && (trip.waypoints?.length ?? 0) > 0 && quotes.length === 0 && result.unavailable.some((entry) => entry.reasons.includes("ITINERARY_TOO_LONG"));
+  return { currency: channel.settleCurrency, quotes, unavailable: result.unavailable, ...(tooLong && result.logId !== undefined ? { inquiryRef: result.logId } : {}) };
 }
 
 /** 按两个坐标报价的一端（M8-02，ADR 0069 A1）：坐标和地址搜索给的类型（手填、地图选点的为 null）。名称只用来校验，不进日志。 */

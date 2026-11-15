@@ -3,6 +3,7 @@
  * 附加服务和司机语言、服务后加收的费用（只读）。时间都按城市当地时间；金额是结算价，子品牌的币种。
  * 表单怎么读、哪里写错了在 lib/service-rules-form.ts；范围和缺项问 @nozomi/domain。
  */
+import { itineraryCopy } from "../../lib/itinerary-texts.ts";
 import { PlatformPolicyLines } from "./PlatformPolicyLines.tsx";
 import { CHARTER_SUPPLIER_PRICE_NOTE, DEFAULT_CHARTER_ITINERARY, type FreeWaitItem, type NightChargeUnit, PRODUCT_CATEGORY_NAMES, PRODUCT_LIMITS, SUGGESTED_CHARTER_ITINERARY, addonAllowsFirstFree, fixedFreeWaitMinutes, freeWaitItems, serviceRuleMissing } from "@nozomi/domain";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
@@ -145,6 +146,16 @@ function ItineraryCard({
           </label>
           <p className="field__hint" id="itinerary-dropoff-hint">
             没有市外经停时，下车点所在行程区域收一次行程加价。默认开。
+          </p>
+        </fieldset>
+        <fieldset className="field fieldset" id="itinerary-suggest">
+          <legend className="field__label">{itineraryCopy("rulesSuggestLegend")}</legend>
+          <label className="choice">
+            <input type="checkbox" id="itinerary-suggest-toggle" checked={field.suggestStopOrder} disabled={locked} aria-describedby="itinerary-suggest-hint" onChange={(event) => onChange({ suggestStopOrder: event.target.checked })} />
+            <span className="choice__text">{itineraryCopy("rulesSuggestLabel")}</span>
+          </label>
+          <p className="field__hint" id="itinerary-suggest-hint">
+            {itineraryCopy("rulesSuggestHint")}
           </p>
         </fieldset>
       </div>

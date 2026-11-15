@@ -1143,6 +1143,109 @@ button.book-steps__link:hover .book-steps__name {
   white-space: nowrap;
 }
 
+/*
+ * 经停顺序建议（M9P-20 P2，ADR 0096 第四节）：行程列表上方的一块提示（不弹窗）；「当前顺序」「建议顺序」两栏，
+ * 窄屏（JS 判断）改成切换、只显示一栏；按钮一行，放不下时换行。
+ */
+.order-suggestion {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-info-border);
+  border-radius: var(--radius-md);
+  background: var(--color-info-bg);
+  color: var(--color-text-primary);
+}
+
+.order-suggestion__title {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+}
+
+.order-suggestion__columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-3);
+}
+
+.order-suggestion__column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.order-suggestion__label {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.order-suggestion__chain {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.order-suggestion__switch {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.order-suggestion__tab {
+  flex: 1;
+  min-height: 44px;
+  padding: var(--space-1) var(--space-2);
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.order-suggestion__tab[aria-pressed="true"] {
+  border-color: var(--color-primary);
+  background: var(--color-primary-subtle);
+  font-weight: var(--font-weight-medium);
+}
+
+.order-suggestion__tab:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-border-focus);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.order-suggestion__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* 经停点拖动排序（M9P-20 P2）：把手按住拖（触屏长按）；目标位置画一条主色插入线；拖着的那一行变淡。不做位移动画 */
+.book-waypoints .picked__handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--space-12);
+  min-height: var(--space-12);
+  color: var(--color-text-secondary);
+  cursor: grab;
+  touch-action: none;
+}
+
+.book-waypoints .picked__row--dragging {
+  opacity: 0.5;
+}
+
+.book-waypoints .picked__row--drop-before {
+  border-top: var(--focus-ring-width) solid var(--color-primary);
+}
+
+.book-waypoints .picked__row--drop-after {
+  border-bottom: var(--focus-ring-width) solid var(--color-primary);
+}
+
 /* 对外价明细（M9W-02）：一行一项，金额靠右；各项之和 = 合计 */
 .price-breakdown {
   display: flex;

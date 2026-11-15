@@ -32,6 +32,8 @@ export interface LanguageRow {
  */
 export interface ItineraryField {
   dropoffSurcharge: boolean;
+  /** 经停顺序建议（M9P-20 P2，ADR 0096 第六节）：默认开 */
+  suggestStopOrder: boolean;
   stopOccupancy: string;
   buffer: string;
   minPackage: string;
@@ -134,6 +136,7 @@ function itineraryField(body: CharterItineraryBody | undefined): ItineraryField 
   const minutes = (value: number | undefined): string => (value === undefined || value === 0 ? "" : String(value));
   return {
     dropoffSurcharge: body?.dropoff_itinerary_surcharge ?? true,
+    suggestStopOrder: body?.suggest_stop_order ?? true,
     stopOccupancy: minutes(body?.stop_occupancy_minutes),
     buffer: minutes(body?.buffer_minutes),
     minPackage: body?.min_package_hours === null || body?.min_package_hours === undefined ? "" : String(body.min_package_hours),
@@ -339,7 +342,7 @@ export function readRulesForm(form: RulesForm, context: RulesFormContext): Rules
     };
     const warnMinutes = ranged(form.itinerary.warnMinutes, DEFAULT_CHARTER_ITINERARY.warnMinutes, PRODUCT_LIMITS.minWarnMinutes, PRODUCT_LIMITS.maxWarnMinutes, "itinerary-warn-minutes", "预计用时提醒线", "分钟");
     const warnKm = ranged(form.itinerary.warnKm, DEFAULT_CHARTER_ITINERARY.warnKm, PRODUCT_LIMITS.minWarnKm, PRODUCT_LIMITS.maxWarnKm, "itinerary-warn-km", "全程提醒线", "公里");
-    itinerary = { dropoff_itinerary_surcharge: form.itinerary.dropoffSurcharge, stop_occupancy_minutes: stopOccupancy, buffer_minutes: buffer, min_package_hours: minPackage, warn_minutes: warnMinutes, warn_km: warnKm };
+    itinerary = { dropoff_itinerary_surcharge: form.itinerary.dropoffSurcharge, stop_occupancy_minutes: stopOccupancy, buffer_minutes: buffer, min_package_hours: minPackage, warn_minutes: warnMinutes, warn_km: warnKm, suggest_stop_order: form.itinerary.suggestStopOrder };
   }
 
   const body: ServiceRulesBody = {
@@ -358,7 +361,7 @@ export function readRulesForm(form: RulesForm, context: RulesFormContext): Rules
     freeWait,
     addons: addons.map((addon) => ({ addonId: addon.addon_id, enabled: true, unitPriceMinor: addon.unit_price, firstFree: addon.first_free })),
     driverLanguages: languages.map((entry) => ({ language: entry.language, unitPriceMinor: entry.unit_price })),
-    ...(itinerary === null ? {} : { charterItinerary: { dropoffItinerarySurcharge: itinerary.dropoff_itinerary_surcharge, stopOccupancyMinutes: itinerary.stop_occupancy_minutes, bufferMinutes: itinerary.buffer_minutes, minPackageHours: itinerary.min_package_hours, warnMinutes: itinerary.warn_minutes, warnKm: itinerary.warn_km } }),
+    ...(itinerary === null ? {} : { charterItinerary: { dropoffItinerarySurcharge: itinerary.dropoff_itinerary_surcharge, stopOccupancyMinutes: itinerary.stop_occupancy_minutes, bufferMinutes: itinerary.buffer_minutes, minPackageHours: itinerary.min_package_hours, warnMinutes: itinerary.warn_minutes, warnKm: itinerary.warn_km, suggestStopOrder: itinerary.suggest_stop_order } }),
   };
   // 兜底：域里的规则还认为不对、而上面没有报过的（正常不会有）
   const reported = new Set(problems.map((problem) => problem.target));

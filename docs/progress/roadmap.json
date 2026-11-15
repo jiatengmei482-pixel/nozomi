@@ -1658,7 +1658,6 @@
           "title": "包车行程地图（上车 = 1、经停依次、下车 = 最后，列表同编号、每段时长和公里）+ 经停顺序优化（≥ 2 个经停时按 Routes optimizeWaypointOrder 给建议顺序，两条路线两个报价，一键采用或拖动，指定到达时间的经停不重排）；设计见 ADR 0096",
           "role": "backend",
           "status": "doing",
-          "blockedBy": "P2 依赖 M9P-04（#248）：服务规则页的「经停顺序建议」勾选框要放在 M9P-04 做的那一块里（ADR 0096 已于 2026-11-15 采纳）；P1 不依赖",
           "acceptance": [
             "按 ADR 0096 分三期：P1 地图和编号（主站、嵌入页都用谷歌静态地图，不加 Leaflet 后备）；P2 顺序优化（只在经停点集合变化时调用、只缓存顺序且与顺序无关、单独每日上限按调用次数计、按预订会话限频只数要调谷歌的请求、每个地址每天 25 次要调谷歌的请求加宽松兜底、必须带有效报价或超长时的询价日志编号、达到阈值才多算一次报价；经停标识 ref 不进 request_key、快照、订单和司机视图）；P3 指定到达时间（arrive_by，可跨午夜）",
             "建议报价和请求绑定：停留、日期时间、人数、行李、到达时间、附加项、升档变了，服务器用缓存的顺序重算建议报价，不再调谷歌优化；「一键采用」核对 request_key，不一致不采用；建议顺序按经停标识 ref 回传、按 ref 重排；客人拖动后页面按新的当前报价重算可省的公里、分钟、日元，低于阈值或已排成建议顺序时收起建议块（端到端「先拖动、再采用」）；两份报价各按各的 expires_at 提示过期；当前顺序没有任何一家报出价、且至少一家因超长报不出时用询价日志编号申请建议；拖成超长时照算公里、分钟、不显示日元，路线取不到时收起；按预订会话限频、只数要调谷歌的请求",
@@ -1668,7 +1667,7 @@
             "单元、集成（本机假谷歌）、端到端（主站 + 嵌入页，chromium + webkit，含键盘上移下移和 360px）；独立审查、合并、部署后按 ADR 0096 第七节第 4 小节在测试站验收",
             "P1 遗留（#256 审查记下，P1 合并后另做）：订单页、司机页、供应商 / 运营订单详情每段写时长和公里（订单接口带 itinerary.legs，ADR 0096 第九节 P1 一行）；行程地图出图单设每日上限（现在和两点路线小地图共用 GOOGLE_STATIC_MAPS_DAILY_LIMIT）；部署冒烟核对 /map-markers/10.png 公网可取、是 PNG"
           ],
-          "evidence": "P1（地图和编号）：PR #256——新接口 GET /site/v1/itinerary-map（迁移 0490）；单元 domain itinerary-map 9 条 + google-itinerary-routes 3 条 + web charter-itinerary 11 条、map-markers 1 条；集成 site-itinerary-map.itest.ts 9 条（含 /site/v1/itinerary-legs）；组件 itinerary-map.test.tsx 8 条 + embed-flow 1 条；端到端 site-booking-itinerary-map.spec.ts 2 条（亮暗 axe、360 宽、10 个经停）+ site-embed-booking.spec.ts 1 条（chromium + webkit-embed）；截图 docs/acceptance/M9P-20-shots/。P2、P3 未开始",
+          "evidence": "P1（地图和编号）：PR #256——新接口 GET /site/v1/itinerary-map（迁移 0490）；单元 domain itinerary-map 9 条 + google-itinerary-routes 3 条 + web charter-itinerary 11 条、map-markers 1 条；集成 site-itinerary-map.itest.ts 9 条（含 /site/v1/itinerary-legs）；组件 itinerary-map.test.tsx 8 条 + embed-flow 1 条；端到端 site-booking-itinerary-map.spec.ts 2 条（亮暗 axe、360 宽、10 个经停）+ site-embed-booking.spec.ts 1 条（chromium + webkit-embed）；截图 docs/acceptance/M9P-20-shots/。P2（顺序建议）：PR #267（基于 #256）——POST /site/v1/charter/order-suggestion、迁移 0530；单元 domain 7 条 + web 4 条、集成 site-order-suggestion.itest.ts 8 条、组件 order-suggestion.test.tsx 5 条、端到端 site-booking-order-suggestion.spec.ts 1 条。P3 未开始",
           "updated": "2026-11-15"
         },
         {
@@ -3458,6 +3457,11 @@
       "date": "2026-11-15",
       "by": "backend",
       "summary": "M9P-20 P1 按 #256 独立审查修改：组件脚本构建不再复制 public/（build-output 白名单加三个标记图标）；重拍截图（图片请求照常经真实 API，给浏览器的换成示意图）；列表编号和地图标记同用 --color-text-link（上下车实心、经停空心 / 中号），暗色不再反；右侧栏「经停点」按新编号；地图请求按 40 像素分档、换主题和尺寸同样 800 毫秒防抖，429 时按 retry_after 最多再试 2 次；没有经停、按自选时长报价的包车按 ADR 用地图折线那次调用的逐段量（新接口 GET /site/v1/itinerary-legs，和地图共用一次谷歌调用和 7 天缓存，只作展示）；加 webkit-embed 嵌入页、10 个经停两条端到端。P1 遗留三项记进 M9P-20 验收：订单 / 司机页每段时长公里、地图单设每日上限、部署冒烟核对 /map-markers/10.png。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "backend",
+      "summary": "M9P-20 P2 开 PR #267（基于 #256，第十节 10 条按推荐）：POST /site/v1/charter/order-suggestion——核对当前报价（或超长时的 inquiry_ref）、商品开关、按固定点切段、每段一次 optimizeWaypointOrder（Pro，单设每日上限 150，一次占齐）、顺序无关缓存 24 小时（迁移 0530）、按报价同一口径算省多少（5 公里或 10 分钟、另一项容差 1 公里 / 3 分钟）、成立才多询一次价；refs 只往返不进快照；会话和地址只数要调谷歌的请求。页面建议块（两栏 / 手机切换、采用直接用建议报价、恢复、保持、重算中、拖动后本地重算）、经停点指针拖动、服务规则页勾选框、系统状态卡片。价格变化播报未单独做；P3 未开始。"
     }
   ]
 }

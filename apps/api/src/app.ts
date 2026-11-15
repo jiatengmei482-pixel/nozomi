@@ -48,6 +48,8 @@ import { fetchStaticMap } from "./integrations/google-static-maps.ts";
 import { computeItineraryPolyline } from "./integrations/google-itinerary-routes.ts";
 import { GoogleStaticMapService } from "./services/static-maps.ts";
 import { GoogleItineraryPolylines } from "./services/itinerary-polylines.ts";
+import { computeOptimizedOrder } from "./integrations/google-route-optimize.ts";
+import { GoogleOrderOptimizer } from "./services/order-optimizer.ts";
 import { autocompletePlaces, placeDetails, reverseGeocode, searchPlaces } from "./integrations/google-places.ts";
 import { GooglePlaceSearch } from "./services/place-search.ts";
 import { type IntegrationChecks, IntegrationSecretCache } from "./services/integration-secrets.ts";
@@ -348,6 +350,15 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     places,
     routePreview: routes,
     routeMap,
+    // 包车经停顺序建议（M9P-20 P2）：同一把谷歌密钥，优化调用单设每日上限
+    orderOptimizer: new GoogleOrderOptimizer({
+      pool,
+      now,
+      apiKey: () => secretCache.effective.googleMaps.apiKey,
+      dailyLimit: config.orderSuggestion.dailyLimit,
+      compute: (apiKey, from, to, movable, beforeAttempt) => computeOptimizedOrder(apiKey, from, to, movable, { url: config.integrationEndpoints.googleMapsRoutesUrl, beforeAttempt }),
+      log: app.log,
+    }),
   };
   const orderJobs = new OrderJobs(context, app.log);
   app.decorate("orderJobs", orderJobs);

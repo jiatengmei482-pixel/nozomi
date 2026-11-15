@@ -363,6 +363,16 @@ test("路线预估的每日调用上限（ADR 0042）：默认 1000，空值按�
   for (const bad of ["-1", "1.5", "1000001", "many"]) assert.ok(issuesOf({ ...base, GOOGLE_ROUTES_DAILY_LIMIT: bad }).some((issue) => issue.startsWith("GOOGLE_ROUTES_DAILY_LIMIT")), bad);
 });
 
+test("包车经停顺序建议（M9P-20 P2）：优化调用上限默认 150、阈值默认 5000 米 / 10 分钟；空值按默认；超出范围报错；和路线的上限互不影响", () => {
+  assert.deepEqual(loadConfig(base).orderSuggestion, { dailyLimit: 150, minSavedMeters: 5_000, minSavedMinutes: 10 });
+  assert.deepEqual(loadConfig({ ...base, GOOGLE_ROUTES_OPTIMIZE_DAILY_LIMIT: "", CHARTER_ORDER_SUGGEST_MIN_METERS: "", CHARTER_ORDER_SUGGEST_MIN_MINUTES: "" }).orderSuggestion, { dailyLimit: 150, minSavedMeters: 5_000, minSavedMinutes: 10 });
+  const set = loadConfig({ ...base, APP_ENV: "staging", GOOGLE_ROUTES_OPTIMIZE_DAILY_LIMIT: "0", CHARTER_ORDER_SUGGEST_MIN_METERS: "3000", CHARTER_ORDER_SUGGEST_MIN_MINUTES: "5" });
+  assert.deepEqual([set.orderSuggestion, set.routes.dailyLimit], [{ dailyLimit: 0, minSavedMeters: 3_000, minSavedMinutes: 5 }, 1_000]);
+  for (const [name, bad] of [["GOOGLE_ROUTES_OPTIMIZE_DAILY_LIMIT", "-1"], ["CHARTER_ORDER_SUGGEST_MIN_METERS", "100001"], ["CHARTER_ORDER_SUGGEST_MIN_MINUTES", "601"], ["CHARTER_ORDER_SUGGEST_MIN_MINUTES", "1.5"]] as const) {
+    assert.ok(issuesOf({ ...base, [name]: bad }).some((issue) => issue.startsWith(name)), `${name}=${bad}`);
+  }
+});
+
 test("官网地址搜索和反查的每日调用上限（ADR 0044）：默认 500，空值按默认，0 = 不调用；负数、小数、超过 100 万报错；和路线的上限互不影响", () => {
   assert.equal(loadConfig(base).places.dailyLimit, 500);
   assert.equal(loadConfig({ ...base, GOOGLE_PLACES_DAILY_LIMIT: "" }).places.dailyLimit, 500);

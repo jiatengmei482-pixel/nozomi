@@ -20,7 +20,30 @@ export type ItineraryTextKey =
   | "unavailableStop"
   | "legFailure"
   | "areaStops"
-  | "navigateTo";
+  | "navigateTo"
+  | "suggestTitle"
+  | "suggestTitleSame"
+  | "suggestTooLong"
+  | "suggestPending"
+  | "suggestCurrent"
+  | "suggestSuggested"
+  | "suggestAdopt"
+  | "suggestKeep"
+  | "suggestRecomputing"
+  | "suggestRestore"
+  | "suggestAdopted"
+  | "suggestRestored"
+  | "suggestPriceUpdated"
+  | "suggestPrice"
+  | "suggestRegion"
+  | "optimizeTitle"
+  | "optimizeIntro"
+  | "optimizeCalls"
+  | "optimizeLimit"
+  | "optimizeRefused"
+  | "rulesSuggestLegend"
+  | "rulesSuggestLabel"
+  | "rulesSuggestHint";
 
 const ZH: Readonly<Record<ItineraryTextKey, string>> = {
   pickup: "上车",
@@ -38,6 +61,29 @@ const ZH: Readonly<Record<ItineraryTextKey, string>> = {
   legFailure: "第 {leg} 段（{from}「{fromName}」→ {to}「{toName}」）",
   areaStops: "经停（{numbers} 号点）",
   navigateTo: "导航到 {number} 号点",
+  suggestTitle: "建议顺序，可省 {saved}",
+  suggestTitleSame: "建议顺序，可省 {saved}，价格不变",
+  suggestTooLong: "当前顺序超过在线下单时长，按建议顺序约 {duration}，可以在线下单",
+  suggestPending: "建议顺序：计算中…",
+  suggestCurrent: "当前顺序",
+  suggestSuggested: "建议顺序",
+  suggestAdopt: "采用建议顺序",
+  suggestKeep: "保持我的顺序",
+  suggestRecomputing: "正在按最新行程重算建议…",
+  suggestRestore: "恢复原来的顺序",
+  suggestAdopted: "已按建议顺序排列：{chain}",
+  suggestRestored: "已恢复原来的顺序",
+  suggestPriceUpdated: "价格已更新：{vehicle} {price}",
+  suggestPrice: "{vehicle} {price}",
+  suggestRegion: "经停顺序建议",
+  optimizeTitle: "经停顺序建议（谷歌地图）",
+  optimizeIntro: "包车客人填 2 个以上经停时，用谷歌地图算更省路程的顺序（按调用次数计费，比路线预估贵一倍）。同一组经停 24 小时内不再调用；次数按东京时间每天 0 点重新计。",
+  optimizeCalls: "今天的调用（{day}）",
+  optimizeLimit: "{calls} / {limit} 次（含重试）",
+  optimizeRefused: "今天被上限挡下",
+  rulesSuggestLegend: "经停顺序建议",
+  rulesSuggestLabel: "提示更省路程的经停顺序",
+  rulesSuggestHint: "客人填 2 个以上经停时，提示更省路程的顺序，并给出按建议顺序的价格。关了只是这个商品不显示建议价，客人自己排的任何顺序照常报价。默认开。",
 };
 
 export const ITINERARY_TEXTS: Readonly<Record<ItineraryLang, Partial<Record<ItineraryTextKey, string>>>> = { zh: ZH, ja: {}, en: {} };

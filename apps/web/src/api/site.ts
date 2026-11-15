@@ -221,6 +221,8 @@ export interface SiteQuoteResult {
   /** `waypoint_stop_seqs`：原因里有 WAYPOINT_NOT_PRICED 时是哪几个经停点（从 1 起，M9W-01） */
   /** `min_package_hours`：原因里有 PACKAGE_TOO_SHORT 时，这个车型最短能选几小时（M9P-03） */
   unavailable: { vehicle_group_id: string | null; reasons: SiteUnavailableReason[]; waypoint_stop_seqs?: number[]; min_package_hours?: number }[];
+  /** 包车按行程计价、一家都没报出、至少一家因超长报不出时的询价日志编号：只用来申请经停顺序建议（M9P-20 P2） */
+  inquiry_ref?: string;
 }
 
 /** 按两个坐标报价的一端（M8-02，ADR 0069 A1）：地址文字（只校验）、坐标、地址搜索给的类型（手填、地图选点的不给）。 */
@@ -670,6 +672,38 @@ export function reverseSitePlace(cityId: string, point: { lat: number; lng: numb
 
 export function createSiteQuotes(body: SiteQuoteRequest): Promise<SiteQuoteResult> {
   return apiRequest("POST", `${SITE_BASE}/quotes`, { body });
+}
+
+/** 包车经停顺序建议的请求（M9P-20 P2，ADR 0096 第三节）：当前顺序的询价、每个经停的标识、当前报价编号或超长时的询价日志编号、预订会话。 */
+export interface SiteOrderSuggestionRequest {
+  quote: SiteQuoteRequest;
+  refs: string[];
+  quote_id?: string;
+  inquiry_ref?: string;
+  session: string;
+}
+
+export type SiteItineraryRouteJson = NonNullable<SiteQuoteResult["itinerary_route"]>;
+
+export interface SiteOrderSuggestion {
+  /** 按建议顺序排的经停标识 */
+  order: string[];
+  saved_meters: number;
+  saved_minutes: number;
+  current_itinerary_route: SiteItineraryRouteJson;
+  itinerary_route: SiteItineraryRouteJson;
+  /** 除经停顺序外全部询价字段的摘要（domain 的 suggestionRequestKey）：「一键采用」前核对 */
+  request_key: string;
+  thresholds: { min_saved_meters: number; min_saved_minutes: number };
+  /** 当前顺序因超长报不出（用询价日志申请的）：不看阈值、不写省多少钱 */
+  current_too_long: boolean;
+  quote_result: SiteQuoteResult;
+}
+
+export type SiteOrderSuggestionReason = "NOT_APPLICABLE" | "DISABLED" | "UNAVAILABLE" | "RATE_LIMITED" | "NO_ROUTE" | "SAME_ORDER" | "BELOW_THRESHOLD" | "NO_QUOTE";
+
+export function createSiteOrderSuggestion(body: SiteOrderSuggestionRequest): Promise<{ suggestion: SiteOrderSuggestion | null; reason: SiteOrderSuggestionReason | null }> {
+  return apiRequest("POST", `${SITE_BASE}/charter/order-suggestion`, { body });
 }
 
 /** 参考汇率（M8-02）：订单币种 → 客人币种，只用于显示「≈ 金额」，实际按订单币种收款。 */

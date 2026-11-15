@@ -103,6 +103,15 @@ export function moveWaypoint<T>(list: readonly T[], index: number, delta: -1 | 1
   return next;
 }
 
+/** 把第 `from` 个经停点拖到第 `to` 个的位置（拖动排序，M9P-20 P2）；越界或没动时原样返回 */
+export function moveWaypointTo<T>(list: readonly T[], from: number, to: number): T[] {
+  if (from === to || from < 0 || to < 0 || from >= list.length || to >= list.length) return [...list];
+  const next = [...list];
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved as T);
+  return next;
+}
+
 /** 服务器按行程选的套餐时长：每个报价的 `package.hours`（每个车型组各自选） */
 export function itineraryPackageHours(quote: Pick<SiteQuote, "package"> | null): number | null {
   return quote?.package?.hours ?? null;

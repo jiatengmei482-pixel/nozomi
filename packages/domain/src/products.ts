@@ -154,10 +154,15 @@ export interface CharterItineraryRules {
   warnMinutes: number;
   /** 超限提醒（公里，规格步骤 5，M9P-10）：全程超过它时提醒，仍可下单。默认 360 */
   warnKm: number;
+  /**
+   * 经停顺序建议（M9P-20 P2，ADR 0096 第六节）：客人填 2 个以上经停时，提示更省路程的顺序。默认开。
+   * 关 = 这个商品的报价卡片不显示建议价；匹配到的商品全关时不调谷歌优化。关了不影响按客人排的任何顺序报价。
+   */
+  suggestStopOrder: boolean;
 }
 
 /** 默认值：下车点行程加价开；T 的三项是 0 / 0 / 不限（行为不变，ADR 0091：不取业主建议值）；在线下单上限 13 小时；超限提醒 12 小时 / 360 公里（只提醒，不影响价格） */
-export const DEFAULT_CHARTER_ITINERARY: Readonly<CharterItineraryRules> = { dropoffItinerarySurcharge: true, stopOccupancyMinutes: 0, bufferMinutes: 0, minPackageHours: null, maxOnlineMinutes: 780, warnMinutes: 720, warnKm: 360 };
+export const DEFAULT_CHARTER_ITINERARY: Readonly<CharterItineraryRules> = { dropoffItinerarySurcharge: true, stopOccupancyMinutes: 0, bufferMinutes: 0, minPackageHours: null, maxOnlineMinutes: 780, warnMinutes: 720, warnKm: 360, suggestStopOrder: true };
 
 /** 业主建议值（ADR 0091 第二节第 1 小节）：只在页面上作灰色提示，不预填、不当默认值 */
 export const SUGGESTED_CHARTER_ITINERARY = { stopOccupancyMinutes: 15, bufferMinutes: 60, minPackageHours: 5 } as const;
