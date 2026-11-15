@@ -13,7 +13,7 @@ import { randomUUID } from "node:crypto";
 import type { LatLng, RouteLookup } from "@nozomi/domain";
 import type { ApiResponse, HttpMethod, TenantFixture, TestApi } from "./testing/api.ts";
 import { createTestApi } from "./testing/api.ts";
-import { type Market, buildMarket, newChannel, ok, salesCredentials } from "./testing/market.ts";
+import { type Market, buildMarket, marketProduct, newChannel, ok, salesCredentials } from "./testing/market.ts";
 import { tenantLogin } from "./testing/money.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
 import { FakePaymentProvider } from "./testing/payments.ts";
@@ -23,6 +23,7 @@ let api: TestApi;
 let m: Market;
 let site: SiteApi;
 let charterId: string;
+let haneda: string;
 
 const square = (west: number, south: number, east: number, north: number) => ({ type: "Polygon", coordinates: [[[west, south], [east, south], [east, north], [west, north], [west, south]]] });
 const P = {
@@ -32,6 +33,9 @@ const P = {
   ashinoko: { lat: 35.2, lng: 139.0 },
   kofu: { lat: 35.6622, lng: 138.5683 },
   nirasaki: { lat: 35.7086, lng: 138.4467 },
+  /** 成田机场旁 100 米（不给 placeId，按坐标认机场） */
+  nearNarita: { lat: 35.769, lng: 140.388 },
+  haneda: { lat: 35.5494, lng: 139.7798 },
 } satisfies Record<string, LatLng>;
 const routeLookup = async (): Promise<RouteLookup> => ({ ok: true, route: { meters: 50_000, minutes: 60 }, source: "google" });
 let ipSeq = 0;
@@ -46,8 +50,8 @@ async function tenantCall(who: TenantFixture, method: HttpMethod, path: string, 
     headers: { ...(options.version === undefined ? {} : { "if-match": `"${options.version}"` }), ...(method === "POST" && /^\/(products|brands|areas)$|\/price-rules(\/batch)?$/.test(path) ? { "idempotency-key": randomUUID() } : {}) },
   });
 }
-async function newArea(who: TenantFixture, cityId: string, name: string, polygon: ReturnType<typeof square>): Promise<string> {
-  return (await ok(tenantCall(who, "POST", "/areas", { body: { city_id: cityId, name: { zh: name }, biz_type: "charter", polygons: [{ kind: "operate", geometry: polygon }] } }), 201)).id;
+async function newArea(who: TenantFixture, cityId: string, name: string, polygon: ReturnType<typeof square>, bizType = "charter"): Promise<string> {
+  return (await ok(tenantCall(who, "POST", "/areas", { body: { city_id: cityId, name: { zh: name }, biz_type: bizType, polygons: [{ kind: "operate", geometry: polygon }] } }), 201)).id;
 }
 
 before(async () => {
@@ -64,6 +68,17 @@ before(async () => {
   await ok(tenantCall(m.b, "POST", `/products/${created.id}/price-rules/batch`, { version: content.version, body: { create: [pkg(5, 33_000), pkg(10, 55_000), surcharge(5), surcharge(10)] } }));
   await ok(tenantCall(m.b, "POST", `/products/${created.id}/publish`));
   charterId = created.id;
+  // 甲另一个成田接送机商品：商务 7 座 18,000 比乙的 19,800 便宜，成为中标（市场里甲 20,000 / 经济 4 座 12,000，乙 19,800）
+  await marketProduct(api, m.a, { tokyo: m.ids.tokyo, narita: m.ids.narita, biz7: m.ids.biz7 }, [[m.ids.biz7, 18_000]]);
+  // 羽田：没有供应商卖它的接送机；甲的点对点商品只盖羽田—银座一带（不碍新宿、浅草的包车用例）
+  haneda = (await ok(api.call("POST", "/platform/v1/master/places", { token: m.root, body: { type: "airport", code: "HND", city_id: m.ids.tokyo, name: { zh: "羽田机场" }, location: P.haneda, flight_scope: "international" } }), 201)).id;
+  const p2pArea = await newArea(m.a, m.ids.tokyo, "羽田—银座", square(139.74, 35.54, 139.8, 35.69), "general");
+  const p2pBrand = (await ok(tenantCall(m.a, "POST", "/brands", { body: { name: `点对点-${randomUUID().slice(0, 6)}`, currency: "JPY" } }), 201)).id;
+  const p2p = await ok(tenantCall(m.a, "POST", "/products", { body: { brand_id: p2pBrand, city_id: m.ids.tokyo, category: "point_to_point", areas: [{ area_id: p2pArea }], vehicle_groups: [{ vehicle_group_id: m.ids.biz7, passengers: 6, luggage: 4 }], dispatchers: [{ name: "调度", phone: "0312345678" }] } }), 201);
+  const p2pRules = await ok(tenantCall(m.a, "PUT", `/products/${p2p.id}/service-rules`, { version: 1, body: { booking: { service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 24 }, free_wait: { general: { mode: "limited", minutes: 30 } } } }));
+  const p2pContent = await ok(tenantCall(m.a, "PUT", `/products/${p2p.id}/content`, { version: p2pRules.version, body: { zh: { title: "羽田—银座用车" } } }));
+  await ok(tenantCall(m.a, "POST", `/products/${p2p.id}/price-rules`, { version: p2pContent.version, body: { area_id: p2pArea, vehicle_group_id: m.ids.biz7, valid_from: "2026-01-01", pricing_model: "fixed", base_price: 15_000 } }), 201);
+  await ok(tenantCall(m.a, "POST", `/products/${p2p.id}/publish`));
   const channel = await newChannel(api, m.staff.cm1.token, { name: "NOZOMI 官网" });
   site = await siteApi(api, (await salesCredentials(api, m, channel.id)).clientId, new FakePaymentProvider(), {}, { quote: { routes: { estimate: routeLookup } } });
 });
@@ -221,6 +236,71 @@ test("报不出：一天的上下车点不在任何商品区域里 → 两个方
   assert.equal(demands.rows.length, before + 1);
   // 自动选档没有客人选的时长：按行驶 120 + 停留 60 分钟向上取整记 3 小时（同官网）
   assert.deepEqual(demands.rows[demands.rows.length - 1], { category: "charter", city_id: null, package_hours: 3, lat: 35.6622 });
+});
+
+/** 同样条件的官网接送机 / 点对点询价 */
+async function official(body: Record<string, unknown>): Promise<ApiResponse> {
+  api.clock.advance(1_000);
+  const res = await site.call("POST", "/site/v1/quotes", { body: { passengers: 2, luggage: 1, ...body }, ip: nextIp() });
+  assertMatchesOpenApi("POST", "/site/v1/quotes", res);
+  assert.equal(res.status, 200, res.text);
+  return res;
+}
+
+test("接机按坐标认机场；每天各自最优取当天中标（经济 4 座），一车到底取乙自己的商务 7 座价（不是这个车型组的中标价）；逐段价 = 官网接送机询价", async () => {
+  const created = await createTrip(trip([
+    { date: "2027-03-08", items: [{ kind: "arrive_flight", place: at("nearNarita"), time: "10:00" }, end("ginza")] },
+    { date: "2027-03-09", items: [start("ginza"), stop("asakusa"), end("shinjuku")] },
+  ]));
+  const res = await quoteTrip(created.body.trip_id);
+  assert.equal(res.status, 200, res.text);
+  const oneCar = res.body.plans.find((plan: any) => plan.kind === "one_car");
+  const daily = res.body.plans.find((plan: any) => plan.kind === "daily_best");
+  const transfer = await official({ category: "airport_transfer", city_id: m.ids.tokyo, airport_id: m.ids.narita, direction: "pickup", address: at("ginza"), service_local: "2027-03-08T10:00" });
+  const priceOf = (vg: string): string => transfer.body.quotes.find((quote: any) => quote.vehicle_group.id === vg).price.total.amount;
+  // 当天两段都是接机（按坐标认出成田）
+  assert.equal(daily.days[0].segments[0].type, "airport_pickup");
+  assert.equal(daily.days[0].segments[0].vehicle_group.id, m.ids.eco4);
+  assert.equal(daily.days[0].segments[0].amount.amount, priceOf(m.ids.eco4));
+  assert.deepEqual(daily.days[0].segments[0].price_breakdown, transfer.body.quotes.find((quote: any) => quote.vehicle_group.id === m.ids.eco4).price_breakdown);
+  // 一车到底：乙（唯一有包车的）× 商务 7 座；当天商务 7 座的中标是甲 18,000，乙自己是 19,800，段价取乙自己的
+  assert.equal(oneCar.vehicle_group.id, m.ids.biz7);
+  assert.equal(oneCar.days[0].segments[0].type, "airport_pickup");
+  assert.equal(oneCar.days[0].segments[0].other_vehicle, false);
+  assert.ok(Number(oneCar.days[0].segments[0].amount.amount) > Number(priceOf(m.ids.biz7)), "乙的商务 7 座不是中标价，比官网中标价贵");
+  const rows = await api.db.owner.query<any>("select s.supplier_tenant_id, s.settlement_minor::int as settlement, s.category from trip_segments s join trip_plans p on p.id = s.plan_id where p.trip_id = $1 and p.kind = 'one_car' and s.day_index = 0", [created.body.trip_id]);
+  assert.deepEqual(rows.rows, [{ supplier_tenant_id: m.b.tenantId, settlement: 19_800, category: "airport_transfer" }]);
+  // 推荐按 10% 门槛
+  const expectDaily = Number(daily.total.amount) * 10 <= Number(oneCar.total.amount) * 9;
+  assert.equal(daily.recommended, expectDaily);
+  assert.equal(oneCar.recommended, !expectDaily);
+});
+
+test("接机报不出（羽田没有接送机商品）→ 照官网回落点对点：段型仍是接机、价 = 官网点对点询价；报出了就不记未覆盖需求", async () => {
+  const created = await createTrip(trip([{ date: "2027-03-10", items: [{ kind: "arrive_flight", place: { placeId: haneda }, time: "10:00" }, end("ginza")] }]));
+  const res = await quoteTrip(created.body.trip_id);
+  assert.equal(res.status, 200, res.text);
+  assert.deepEqual(res.body.plans.map((plan: any) => plan.kind), ["one_car"]);
+  const segment = res.body.plans[0].days[0].segments[0];
+  assert.equal(segment.type, "airport_pickup");
+  const direct = await official({ category: "point_to_point", city_id: m.ids.tokyo, pickup: P.haneda, dropoff: at("ginza"), service_local: "2027-03-10T10:00" });
+  assert.equal(segment.amount.amount, direct.body.quotes[0].price.total.amount);
+  assert.deepEqual(segment.price_breakdown, direct.body.quotes[0].price_breakdown);
+  const category = await api.db.owner.query<any>("select s.category from trip_segments s join trip_plans p on p.id = s.plan_id where p.trip_id = $1", [created.body.trip_id]);
+  assert.deepEqual(category.rows, [{ category: "point_to_point" }]);
+  await site.app.backgroundIdle();
+  const demands = await api.db.owner.query<{ n: string }>("select count(*) as n from uncovered_demands where service_local = '2027-03-10T10:00'");
+  assert.equal(Number(demands.rows[0]?.n), 0);
+});
+
+test("验收行程单只有验收会话看得到：普通客人读、报都 404（和不存在一样）", async () => {
+  const id = "Q".repeat(43);
+  const channel = (await api.db.owner.query<{ channel_id: string }>("select channel_id from trips limit 1")).rows[0]?.channel_id;
+  await api.db.owner.query("insert into trips (id, channel_id, source, status, itinerary, currency, is_acceptance, created_at, updated_at, readable_until) values ($1, $2, 'form', 'draft', $3::jsonb, 'JPY', true, now(), now(), now() + interval '30 days')", [id, channel, JSON.stringify(trip([{ date: "2027-03-11", items: [start("shinjuku"), end("ginza")] }]))]);
+  const read = await site.call("GET", `/site/v1/trips/${id}`, { ip: nextIp() });
+  assert.equal(read.status, 404);
+  assert.equal(read.body.error.code, "TRIP_NOT_FOUND");
+  assert.equal((await quoteTrip(id)).status, 404);
 });
 
 test("限频：建单每分钟 10 次、报价每分钟 5 次（同一地址），互不占用", async () => {

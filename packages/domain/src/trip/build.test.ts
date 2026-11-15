@@ -178,3 +178,15 @@ test("按次附加项：同一辆车第二段起记等额负数抵掉；按件�
   assert.deepEqual(oneCar?.fees.map((fee) => [fee.type, fee.dayIndex, fee.settlementMinor, fee.sellMinor]), [["bundle_discount", 1, -2_000, -2_400]]);
   assert.equal(oneCar?.sellMinor, 100_000 - 2_400);
 });
+
+test("每天各自最优的工时只算包车那家自己的段：别家的接机段不算进拘束", () => {
+  // 接机 X（08:00–10:00），下午包车 Y 10:30 起 600 分钟：合在一起超 13 h，但 Y 自己只有 10 h + 出入库
+  const days = [
+    day(0, [segment("airport_pickup", [win(offer("X", "V2", 12_000, 10_000, { durationMinutes: 120 }))], 480, 120, HANEDA, SHINJUKU), segment("charter", [win(offer("Y", "V", 60_000, 48_000, { durationMinutes: 600 }))], 630, 600, SHINJUKU, GINZA)]),
+    day(1, [segment("charter", [win(offer("Y", "V", 50_000, 40_000))], 1_440 + 540, 300, GINZA, SHINJUKU)]),
+  ];
+  const daily = buildTripPlans({ currency: "JPY", days, product: products({ secondDriver: { mode: "fixed", fixedMinor: 30_000 } }) }).plans.find((plan) => plan.kind === "daily_best");
+  assert.deepEqual(daily?.warnings, []);
+  assert.deepEqual(daily?.fees, []);
+  assert.equal(daily?.sellMinor, 12_000 + 60_000 + 50_000);
+});

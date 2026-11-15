@@ -123,6 +123,8 @@ interface DayContext {
   chosen: ChosenDay<TripOffer>;
   day: BuildDay;
   segments: { chosen: ChosenSegment<TripOffer>; built: BuildSegment }[];
+  /** 这辆车自己的段（每天各自最优里同一天可能有别家供应商的接送机段，工时只算这辆车的） */
+  mine: { chosen: ChosenSegment<TripOffer>; built: BuildSegment }[];
   /** 这辆车这一天的主段（包车优先）：算跨段费用、换算对外价都看它 */
   main: { chosen: ChosenSegment<TripOffer>; built: BuildSegment } | null;
   productId: string | null;
@@ -147,20 +149,23 @@ function contextOf(input: TripBuildInput, byIndex: ReadonlyMap<number, BuildDay>
   const mine = segments.filter((s) => own(s.chosen.offer));
   const main = mine.find((s) => s.chosen.draft.type === "charter") ?? mine[0] ?? null;
   const productId = main?.chosen.offer.productId ?? null;
-  return { chosen, day, segments, main, productId, product: productId === null ? null : input.product(productId) };
+  return { chosen, day, segments, mine, main, productId, product: productId === null ? null : input.product(productId) };
 }
 
+/** 工时输入：只算这辆车自己的段（首段开始 → 末段结束；起终点按它自己的首末段） */
 function workInput(ctx: DayContext, sameVehicleAsPrevious: boolean): DayWorkInput {
   const product = ctx.product as BuildProduct;
-  const first = ctx.segments[0] as DayContext["segments"][number];
+  const own = ctx.mine.length > 0 ? ctx.mine : ctx.segments;
+  const first = own[0] as DayContext["segments"][number];
+  const last = own[own.length - 1] as DayContext["segments"][number];
   return {
     dayIndex: ctx.chosen.dayIndex,
     startMinute: first.built.route.startMinute,
-    endMinute: Math.max(...ctx.segments.map(segmentEnd)),
-    driveMinutes: ctx.segments.reduce((sum, s) => sum + s.built.route.driveMinutes, 0),
-    meters: ctx.segments.reduce((sum, s) => sum + s.built.route.meters, 0),
-    startInBase: inAreas(product, ctx.day.startPoint).length > 0,
-    endInBase: inAreas(product, ctx.day.endPoint).length > 0,
+    endMinute: Math.max(...own.map(segmentEnd)),
+    driveMinutes: own.reduce((sum, s) => sum + s.built.route.driveMinutes, 0),
+    meters: own.reduce((sum, s) => sum + s.built.route.meters, 0),
+    startInBase: inAreas(product, first.built.startPoint).length > 0,
+    endInBase: inAreas(product, last.built.endPoint).length > 0,
     sameVehicleAsPrevious,
   };
 }

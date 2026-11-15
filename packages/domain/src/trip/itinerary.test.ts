@@ -25,6 +25,17 @@ test("日期必须升序且不重复；首日、末日不能是空闲日", () =>
   assert.deepEqual(reasons(trip([day("2027-03-28"), day("2027-03-28")])), ["/days/1/date:NOT_ASCENDING"]);
   assert.deepEqual(reasons(trip([{ date: "2027-03-28", items: [] }])), ["/days/0/items:FIRST_DAY_IDLE", "/days/0/items:LAST_DAY_IDLE"]);
   assert.deepEqual(reasons(trip([day("2027-02-30")])), ["/days/0/date:INVALID"]);
+  // 日期要连续：不用车的那天写成空闲日（否则住宿、停驻少收，也绕得过 14 天上限）
+  assert.deepEqual(reasons(trip([day("2027-03-28"), day("2027-03-30")])), ["/days/1/date:NOT_CONSECUTIVE"]);
+  assert.deepEqual(reasons(trip([day("2027-12-31"), day("2028-01-01")])), []);
+});
+
+test("没写终点时过夜点也算进每天 12 个点：1 个起点 + 11 个经停 + 过夜点不行，1 + 10 + 过夜点可以", () => {
+  const stops = (n: number) => Array.from({ length: n }, (_, i) => ({ kind: "stop" as const, place: { lat: 35.6 + i * 0.01, lng: 139.7 }, stayMinutes: 30 }));
+  const withNight = (n: number): TripDay => ({ date: "2027-03-28", items: [{ kind: "start", place: hotel, time: "09:00" }, ...stops(n)], nightAt: { lat: 35.5, lng: 139.6 } });
+  assert.deepEqual(reasons(trip([withNight(11)])), ["/days/0/items:OUT_OF_RANGE"]);
+  assert.deepEqual(reasons(trip([withNight(10)])), []);
+  assert.equal(dayPoints(withNight(10)).length, 12);
 });
 
 test("天数 1–14", () => {

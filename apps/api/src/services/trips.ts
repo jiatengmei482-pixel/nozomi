@@ -178,6 +178,7 @@ interface Env {
   p2pCities: Promise<SiteCity[]> | null;
   segmentQuotes: number;
   routeCalls: number;
+  log: TripLog;
 }
 
 const passengersOf = (itinerary: TripItinerary): number => itinerary.party.adults + itinerary.party.children;
@@ -227,15 +228,12 @@ function emptyQuote(reason: string): SegmentQuote {
   return { offers: [], reasons: [reason], category: null, cityId: null, details: new Map(), candidates: [], demand: null };
 }
 
-/** 这一段用时（分钟）：包车 = 引擎的预计用时 T；接机 = 免费等待 + 行驶；其余 = 行驶 */
+/** 这一段用时（分钟）：包车 = 引擎的预计用时 T；接送机、点对点 = 免费等待 + 行驶（ADR 0100 第四节第 3 条；等待按引擎为这个方向选的那一项） */
 function durationOf(type: BuildSegment["draft"]["type"], settlement: PlatformQuotePreview["comparison"]["groups"][number]["ranked"][number]["candidate"]["offer"]["settlement"], driveMinutes: number): number | null {
   if (type === "charter") return settlement.itinerary?.estimatedMinutes ?? settlement.itinerary?.routeMinutes ?? null;
-  if (type === "airport_pickup") {
-    const wait = settlement.freeWait.value;
-    const minutes = wait === null ? settlement.freeWait.platformMinimumMinutes : wait.mode === "limited" ? wait.minutes : settlement.freeWait.platformMinimumMinutes;
-    return minutes + driveMinutes;
-  }
-  return driveMinutes;
+  const wait = settlement.freeWait.value;
+  const minutes = wait === null || wait.mode !== "limited" ? settlement.freeWait.platformMinimumMinutes : wait.minutes;
+  return minutes + driveMinutes;
 }
 
 /** 比价结果 → 各租户各车型组的报价（`group.ranked[]`，名次 1 是中标）；客人选了车型组时只留那几个 */
@@ -289,12 +287,19 @@ async function quoteSegment(env: Env, type: BuildSegment["draft"]["type"], point
     assumeRoute: null,
   };
   const run = async (input: PlatformQuoteInput): Promise<PlatformQuotePreview | string> => {
+    // 引擎调用的硬上限：段数已按预算裁过（最多 120 段），接送机报不出回落点对点时一段最多调两次，所以上限是 2 倍
+    if (env.segmentQuotes >= 2 * TRIP_BUDGET.maxSegmentQuotes) {
+      env.log.warn({ event: "trip.engine_call_cap", segment_quotes: env.segmentQuotes, category: input.category }, "行程报价的引擎调用到了上限，这一段按报不出处理");
+      return "NOT_AVAILABLE";
+    }
     env.segmentQuotes += 1;
     try {
       return await previewPlatformQuote(ctx, input, { fresh: false, ...(audience === "acceptance" ? { audience: "acceptance" as const } : {}) });
     } catch (err) {
-      if (err instanceof AppError) return err.code === "CHANNEL_SCOPE_DENIED" ? "OUT_OF_SERVICE_AREA" : "NOT_AVAILABLE";
-      throw err;
+      if (!(err instanceof AppError)) throw err;
+      // 一段报不出不让整个行程失败，但要留痕：入参写错（400）等问题否则在日志里看不出来
+      env.log.warn({ event: "trip.segment_quote_rejected", code: err.code, status: err.statusCode, segment_type: type, category: input.category }, "行程的一段询价被拒，按报不出处理");
+      return err.code === "CHANNEL_SCOPE_DENIED" ? "OUT_OF_SERVICE_AREA" : "NOT_AVAILABLE";
     }
   };
   const settle = (preview: PlatformQuotePreview | string, category: ServiceCategory, cityId: string, demandInput: SalesQuoteInput | null): SegmentQuote => {
@@ -442,7 +447,7 @@ export async function quoteTrip(ctx: AppContext, id: string, options: { audience
   if (trip === null || trip.isAcceptance !== (options.audience === "acceptance")) throw tripNotFound();
   const itinerary = trip.itinerary;
   const firstDate = (itinerary.days[0] as TripItinerary["days"][number]).date;
-  const env: Env = { ctx, channel, principal, audience: options.audience, itinerary, firstDate, cache: new Map(), p2pCities: null, segmentQuotes: 0, routeCalls: 0 };
+  const env: Env = { ctx, channel, principal, audience: options.audience, itinerary, firstDate, cache: new Map(), p2pCities: null, segmentQuotes: 0, routeCalls: 0, log: options.log };
   const resolved = await resolvePoints(ctx, env);
 
   // 1. 逐天估路线、推算各点时间、列拆法
@@ -603,11 +608,13 @@ function planInsert(plan: BuiltPlan, seq: number, ctx: { buildDays: readonly Bui
       const quote = ctx.segmentQuotes.get(built) as SegmentQuote;
       const detail = quote.details.get(segment.offer);
       const end = built.route.startMinute + (segment.offer.durationMinutes ?? built.route.routeMinutes);
+      const startLocal = localAt(ctx.firstDate, built.route.startMinute);
       segments.push({
         dayIndex: day.dayIndex,
-        serviceDate: day.date,
+        // 用车日期按这一段的开始时刻（前一段跨过零点时是次日）
+        serviceDate: startLocal.slice(0, 10),
         segmentType: segment.draft.type,
-        startLocal: localAt(ctx.firstDate, built.route.startMinute),
+        startLocal,
         endLocal: localAt(ctx.firstDate, end),
         points: [built.startPoint, built.endPoint],
         category: quote.category,
@@ -667,6 +674,8 @@ function issueMessage(reason: string): string {
       return "超出范围";
     case "NOT_ASCENDING":
       return "日期要按先后排、不能重复";
+    case "NOT_CONSECUTIVE":
+      return "日期要连续，不用车的那天写成空闲日（items 为空）";
     case "FIRST_DAY_IDLE":
     case "LAST_DAY_IDLE":
       return "第一天和最后一天要用车";
