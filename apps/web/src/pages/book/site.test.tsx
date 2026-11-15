@@ -682,7 +682,7 @@ test("订单页（M9W-03）：包车有经停点时「经停点」按顺序写�
   );
   const trip = (await screen.findByRole("heading", { name: "行程" })).closest("section") as HTMLElement;
   const list = within(factValue(trip, "经停点") as HTMLElement).getByRole("list", { name: "包车行程" });
-  assert.deepEqual([...list.querySelectorAll("li")].map((item) => item.textContent), ["上车京王广场酒店", "经停 1五合目停留 1 小时", "经停 2河口湖停留 30 分钟", "下车新宿站"]);
+  assert.deepEqual([...list.querySelectorAll("li")].map((item) => item.textContent), ["1 上车京王广场酒店", "2 经停五合目停留 1 小时", "3 经停河口湖停留 30 分钟", "4 下车新宿站"]);
   assert.ok(within(trip).getByText("全程约 254 公里，预计 7 小时 30 分（含停留）"));
   // 官网订单应答没有对外价明细（只有报价时有）：总价下面只写可能加收的提示，只有一个价格
   assert.equal(factValue(trip, "总价")?.querySelector(".price-breakdown__row"), null);
@@ -727,7 +727,7 @@ test("订单页（M9W-04）：包车按行程计价的单，总价下面列下�
   const rows = [...within(total).getByLabelText("价格明细").querySelectorAll(".price-breakdown__row")].map((row) => [row.querySelector("dt")?.textContent, row.querySelector("dd")?.textContent]);
   assert.deepEqual(rows, [
     ["包车套餐 10 小时", "60,500 JPY"],
-    ["经停加价（富士山地区，第 1 个经停点）", "11,000 JPY"],
+    ["经停加价（富士山地区，2 · 经停）", "11,000 JPY"],
     ["超公里费", "19,800 JPY"],
   ]);
   // M8-43：超时费 0 不列（以前列「超时费 0 JPY」）；超公里费不是 0 照旧列

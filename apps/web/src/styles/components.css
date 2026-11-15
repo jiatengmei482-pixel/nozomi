@@ -812,6 +812,28 @@ input[type="datetime-local"]:focus-within {
   white-space: nowrap;
 }
 
+/* 编号（M9P-20）：和行程地图的标记一致——上车、下车品牌色实心，经停浅底加主色描边（除了颜色还有填充的区别，旁边有文字） */
+.trip-stops__number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5em;
+  height: 1.5em;
+  padding: 0 var(--space-0-5);
+  border: var(--border-width) solid var(--color-brand);
+  border-radius: var(--radius-full);
+  background: var(--color-brand);
+  color: var(--color-on-brand);
+  font-weight: var(--font-weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.trip-stops__item--stop .trip-stops__number {
+  border-color: var(--color-primary);
+  background: var(--color-primary-subtle);
+  color: var(--color-text-primary);
+}
+
 .trip-stops__name {
   min-width: 0;
   font-weight: var(--font-weight-medium);

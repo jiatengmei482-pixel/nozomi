@@ -76,13 +76,14 @@ import { CHARTER_ITINERARY_OVERAGE_NOTE, CHARTER_OVERAGE_NOTE, UNAVAILABLE_REASO
 import { FIELD_HINTS, MESSAGING_NAMES, type OrderErrors, type OrderForm, type OrderTrip, orderFailureOf, orderRequestOf, validateOrderForm } from "../../../lib/site-order-form.ts";
 import { useDocumentTitle } from "../../../lib/use-document-title.ts";
 import { MANUAL_QUOTE_CHARTER_HOURS, type ManualQuoteTripDraft } from "../../../lib/manual-quote-form.ts";
-import { ITINERARY_NOTE, type WaypointDraft, autoPackageHoursOf, breakdownLines, upgradePackageHours, durationText, itineraryPackageHours, itineraryRouteFailureText, itineraryText, scheduleRows, waypointErrors, waypointUnavailableTexts, waypointsBody } from "../../../lib/charter-itinerary.ts";
+import { ITINERARY_NOTE, type WaypointDraft, autoPackageHoursOf, breakdownLines, upgradePackageHours, durationText, itineraryMapAlt, itineraryPackageHours, itineraryRouteFailureText, itineraryText, scheduleRows, waypointErrors, waypointUnavailableTexts, waypointsBody } from "../../../lib/charter-itinerary.ts";
 import { TripStops } from "../../../components/TripStops.tsx";
 import { ADDRESS_ONLY_HINT, DRAFT_EXPIRED_TEXT, DRAFT_FAILED_TEXT, draftReadyToQuote, draftTrip } from "../../../lib/booking-draft.ts";
 import { ManualQuoteBlock } from "../ManualQuote.tsx";
 import { siteFailureText, useSiteConfig } from "../SiteLayout.tsx";
 import { SitePrice } from "../SitePrice.tsx";
 import { AddonsBlock, CONTACT_FORM_ID, ConsentField, type ContactForm, ContactSection, PayBlock, PriceBlock, type PricedState, RouteBlock, emptyContact } from "./CheckoutParts.tsx";
+import { ItineraryMap } from "./ItineraryMap.tsx";
 import { PlaceField } from "./PlaceField.tsx";
 import { PriceBreakdown } from "./PriceBreakdown.tsx";
 import { WaypointsField } from "./WaypointsField.tsx";
@@ -498,6 +499,9 @@ export function BookNewPage() {
   const upgradeOptions = itinerary && packageLoad?.kind === "ready" ? upgradePackageHours(packageLoad.items, autoHours) : [];
   const itinerarySummary = itinerary && charterResult !== null ? itineraryText(charterResult.itinerary_route, itineraryPackage) : null;
   const schedule = itinerary && draft.from !== null ? scheduleRows(draft.from.name, draft.to?.name ?? null, stops, charterResult?.itinerary_route?.legs ?? null) : null;
+  // 包车行程地图和列表（M9P-20，ADR 0096）：编号 1 = 上车、经停依次、最后 = 下车；没有经停时只有上车、下车两行
+  const charterRows = schedule ?? (draft.mode === "charter" && draft.from !== null && draft.to !== null ? scheduleRows(draft.from.name, draft.to.name, []) : null);
+  const charterMapPoints = charterRows !== null && draft.from !== null && draft.to !== null ? [draft.from, ...stops, draft.to].map((point) => ({ lat: point.lat, lng: point.lng })) : null;
 
   // 附加服务：所选车型带上客人选的数量再报一次价，合计用这一次的；车型列表仍是不带附加服务的那一次（带了以后不提供的车型会被筛掉）
   const addonList = useMemo<SiteAddonRequest[]>(
@@ -1031,14 +1035,15 @@ export function BookNewPage() {
           <p className="site-muted">
             按价格从低到高 · 坐不下的已隐藏。报价 30 分钟内有效（到当地时间 {formatInZone(expires, timezone).slice(11)}），过了请重新查询。
           </p>
-          {itinerary && schedule !== null && (
+          {charter && charterRows !== null && (
             <section aria-labelledby="book-itinerary-title" className="book-itinerary">
               <h3 id="book-itinerary-title" className="book-new__subtitle">
-                行程时间表
+                {itinerary ? "行程时间表" : "行程路线"}
               </h3>
               {itinerarySummary !== null && <p>{itinerarySummary}</p>}
-              <TripStops rows={schedule} />
-              <p className="price-breakdown__note">{ITINERARY_NOTE}</p>
+              {charterMapPoints !== null && <ItineraryMap points={charterMapPoints} alt={itineraryMapAlt(charterRows, charterResult?.itinerary_route)} />}
+              <TripStops rows={charterRows} />
+              {itinerary && <p className="price-breakdown__note">{ITINERARY_NOTE}</p>}
             </section>
           )}
           <VehicleList

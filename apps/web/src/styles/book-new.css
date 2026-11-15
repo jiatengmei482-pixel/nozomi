@@ -1089,6 +1089,47 @@ button.book-steps__link:hover .book-steps__name {
   background: var(--color-bg-subtle);
 }
 
+/*
+ * 包车行程地图（M9P-20，ADR 0096）：在行程列表上面，宽度占满；手机上高度不超过 40vh。图的规则同路线小地图（不裁、不盖谷歌标志），
+ * 换顺序等新图时旧图上盖一层半透明的「路线更新中」；新图先在框里看不见的地方加载。
+ */
+.itinerary-map__canvas {
+  position: relative;
+  height: 240px;
+  max-height: 40vh;
+  min-height: 150px;
+  overflow: hidden;
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-page);
+}
+
+.itinerary-map__loader {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.itinerary-map__canvas--updating .route-map__image {
+  opacity: 0.35;
+}
+
+.itinerary-map__updating {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: var(--space-1) var(--space-3);
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-full);
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
 /* 对外价明细（M9W-02）：一行一项，金额靠右；各项之和 = 合计 */
 .price-breakdown {
   display: flex;

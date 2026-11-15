@@ -59,6 +59,7 @@ export * from "./billing.ts";
 export * from "./audit.ts";
 export * from "./route-estimate.ts";
 export * from "./static-map.ts";
+export * from "./itinerary-map.ts";
 export * from "./place-search.ts";
 export * from "./place-match.ts";
 export * from "./points-trip.ts";

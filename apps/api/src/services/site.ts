@@ -95,7 +95,7 @@ import {
 } from "../repos/site.ts";
 import type { PlaceLookup, PlaceLookupOptions } from "./place-search.ts";
 import type { RoutePreview } from "./route-estimates.ts";
-import type { RouteMapRequest, RouteMapResult } from "./static-maps.ts";
+import type { ItineraryMapRequest, RouteMapRequest, RouteMapResult } from "./static-maps.ts";
 import { validationFailed } from "../validation.ts";
 import { notFound } from "./errors.ts";
 import { type SalesOrderInput, type SalesOrderPayment, type SalesOrderView, type OrderLog, SILENT_ORDER_LOG, createSiteOrder } from "./orders.ts";
@@ -183,6 +183,13 @@ export async function siteRouteMap(ctx: AppContext, request: RouteMapRequest): P
   const site = await loadSiteChannel(ctx);
   if (site === null || !site.open) return { ok: false, reason: "UNAVAILABLE", failure: { stage: "map", code: "SITE_NOT_OPEN" } };
   return ctx.routeMap.render(request);
+}
+
+/** 包车行程地图（M9P-20 P1，ADR 0096）：官网没开时不出图（和两点路线图一样，页面只显示行程列表）。 */
+export async function siteItineraryMap(ctx: AppContext, request: ItineraryMapRequest): Promise<RouteMapResult> {
+  const site = await loadSiteChannel(ctx);
+  if (site === null || !site.open) return { ok: false, reason: "UNAVAILABLE", failure: { stage: "map", code: "SITE_NOT_OPEN" } };
+  return ctx.routeMap.renderItinerary(request);
 }
 
 /** 订单相关的接口只要求配置了官网的客户端：停止接单不能让客人连自己的订单都看不到。 */

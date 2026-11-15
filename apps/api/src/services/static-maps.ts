@@ -10,6 +10,10 @@
  *
  * 永远不抛异常：结果是图，或取不到的原因（给页面的只有两类，见 domain 的 `routeMapReason`）。日志只记原因代码，不记密钥、请求网址和谷歌返回的原文。
  * 只出图，不改报价、不改路线预估的结果（路线照旧由 `RoutePreviewer` 决定）。
+ *
+ * 包车行程地图（`renderItinerary`，M9P-20 P1，ADR 0096 第二节第 2 小节）走同一条路：有序 2–12 个点取整成 `i1:…` 键（domain 的 `itineraryPointsKey`），
+ * 图的缓存键、库里 1 天、并发只调一次、冷却、静态地图的每日上限都和两点路线图共用；折线换成一次带中间点的 computeRoutes（`ItineraryPolylineSource`，库里 7 天、计入路线的每日上限），
+ * 标记按编号（1–9 内置 label，10–12 是官网 `/map-markers/` 下的自定义图标）。
  */
 import { createHash } from "node:crypto";
 import {
@@ -19,6 +23,8 @@ import {
   STATIC_MAP_RULES,
   type StaticMapFailureCode,
   type StaticMapSize,
+  itineraryMapQuery,
+  itineraryPointsKey,
   routeCacheKey,
   routeCallAllowed,
   routeMapReason,
@@ -31,6 +37,7 @@ import { withPlatformTx } from "../db/context.ts";
 import type { Pool } from "../db/pool.ts";
 import type { StaticMapFetchResult, StaticMapImageType } from "../integrations/google-static-maps.ts";
 import { findStaticMap, recordStaticMapOutcome, recordStaticMapRefused, reserveStaticMapCall, saveStaticMap } from "../repos/static-maps.ts";
+import type { ItineraryPolylineSource } from "./itinerary-polylines.ts";
 import type { RoutePreviewer } from "./route-estimates.ts";
 
 /** 读写缓存和计数的每条查询最多等多久（毫秒） */
@@ -45,12 +52,18 @@ export interface RouteMapRequest extends StaticMapSize {
   to: LatLng;
 }
 
+/** 包车行程地图：按行程顺序的 2–12 个点（上车、经停、下车）。 */
+export interface ItineraryMapRequest extends StaticMapSize {
+  points: LatLng[];
+}
+
 export type RouteMapResult =
   | { ok: true; contentType: StaticMapImageType; image: Buffer; source: "cache" | "google" }
   | { ok: false; reason: RouteMapReason; failure: RouteMapFailure };
 
 export interface RouteMapRenderer {
   render(request: RouteMapRequest): Promise<RouteMapResult>;
+  renderItinerary(request: ItineraryMapRequest): Promise<RouteMapResult>;
 }
 
 export interface GoogleStaticMapServiceDeps {
@@ -62,6 +75,10 @@ export interface GoogleStaticMapServiceDeps {
   dailyLimit: number;
   /** 路线折线从哪里来：和按两个坐标报价同一个（同一个进程内缓存、同一个冷却、同一个 Routes 每日上限） */
   routes: RoutePreviewer;
+  /** 包车行程地图的折线（一次带中间点的 computeRoutes）；不给时行程地图一律「取不到路线」 */
+  itineraryRoutes?: ItineraryPolylineSource;
+  /** 官网的对外地址（`PUBLIC_BASE_URL`）：10–12 号标记的自定义图标在它下面的 `/map-markers/`，谷歌的服务器去取 */
+  siteBaseUrl?: string;
   /** 调一次谷歌静态地图（`integrations/google-static-maps.ts` 的 `fetchStaticMap`）；`beforeAttempt` 每次发请求前调用 */
   fetch: (apiKey: string, query: string, beforeAttempt: () => Promise<boolean>) => Promise<StaticMapFetchResult>;
   log: StaticMapLog;
@@ -70,7 +87,13 @@ export interface GoogleStaticMapServiceDeps {
 const failed = (failure: RouteMapFailure): RouteMapResult => ({ ok: false, reason: routeMapReason(failure), failure });
 
 /** 不接谷歌时：一律「没有配置」（只给不经 buildApp 的测试上下文用）。 */
-export const NO_ROUTE_MAP: RouteMapRenderer = { render: async () => failed({ stage: "static_map", code: "NOT_CONFIGURED" }) };
+export const NO_ROUTE_MAP: RouteMapRenderer = {
+  render: async () => failed({ stage: "static_map", code: "NOT_CONFIGURED" }),
+  renderItinerary: async () => failed({ stage: "static_map", code: "NOT_CONFIGURED" }),
+};
+
+/** 出图前要准备的参数：谷歌静态地图的查询参数（不含密钥），或画不了的原因。 */
+type QuerySource = () => Promise<string | RouteMapFailure>;
 
 /** 密钥的指纹（只在本进程的内存里，用来按密钥记冷却）：换了密钥，冷却不跟过去。 */
 function fingerprint(apiKey: string): string {
@@ -92,15 +115,39 @@ export class GoogleStaticMapService implements RouteMapRenderer {
     const route = routeCacheKey(request.from, request.to);
     if (route.samePoint) return Promise.resolve(failed({ stage: "map", code: "SAME_POINT" }));
     const size: StaticMapSize = { theme: request.theme, width: request.width, height: request.height, scale: request.scale };
-    const key = staticMapCacheKey(route.key, size);
+    return this.#once(staticMapCacheKey(route.key, size), async () => {
+      // 路线折线：和按两个坐标报价同一个来源（不改路线预估的结果，只拿来画）
+      const preview = await this.#deps.routes.preview({ from: route.from, to: route.to }).catch((): null => null);
+      if (preview === null) return { stage: "route", code: "UNEXPECTED" };
+      if (!preview.ok) return { stage: "route", code: preview.code };
+      return (preview.route.polyline === null ? null : staticMapQuery(preview.route.polyline, size)) ?? { stage: "map", code: "NO_POLYLINE" };
+    });
+  }
+
+  /** 包车行程地图（ADR 0096）：编号标记 + 一次带中间点的折线。点数、坐标由接口层先校验过。 */
+  renderItinerary(request: ItineraryMapRequest): Promise<RouteMapResult> {
+    const route = itineraryPointsKey(request.points);
+    if (route.samePoint) return Promise.resolve(failed({ stage: "map", code: "SAME_POINT" }));
+    const size: StaticMapSize = { theme: request.theme, width: request.width, height: request.height, scale: request.scale };
+    return this.#once(staticMapCacheKey(route.key, size), async () => {
+      const source = this.#deps.itineraryRoutes;
+      if (source === undefined) return { stage: "route", code: "NOT_CONFIGURED" };
+      const found = await source.polylines(route.key, route.points).catch((): null => null);
+      if (found === null) return { stage: "route", code: "UNEXPECTED" };
+      if (!found.ok) return { stage: "route", code: found.code };
+      return itineraryMapQuery(found.polylines, route.points, size, this.#deps.siteBaseUrl ?? "") ?? { stage: "map", code: "NO_POLYLINE" };
+    });
+  }
+
+  #once(key: string, query: QuerySource): Promise<RouteMapResult> {
     const running = this.#inflight.get(key);
     if (running !== undefined) return running;
-    const lookup = this.#render(key, route.from, route.to, size).finally(() => this.#inflight.delete(key));
+    const lookup = this.#render(key, query).finally(() => this.#inflight.delete(key));
     this.#inflight.set(key, lookup);
     return lookup;
   }
 
-  async #render(key: string, from: LatLng, to: LatLng, size: StaticMapSize): Promise<RouteMapResult> {
+  async #render(key: string, prepare: QuerySource): Promise<RouteMapResult> {
     const { pool, log } = this.#deps;
     try {
       const cached = await withPlatformTx(pool, (db) => findStaticMap(db, key, this.#deps.now()), { queryTimeoutMs: STATIC_MAP_DB_TIMEOUT_MS });
@@ -120,12 +167,8 @@ export class GoogleStaticMapService implements RouteMapRenderer {
       return failed({ stage: "static_map", code: cooling.code });
     }
 
-    // 路线折线：和按两个坐标报价同一个来源（不改路线预估的结果，只拿来画）
-    const route = await this.#deps.routes.preview({ from, to }).catch((): null => null);
-    if (route === null) return failed({ stage: "route", code: "UNEXPECTED" });
-    if (!route.ok) return failed({ stage: "route", code: route.code });
-    const query = route.route.polyline === null ? null : staticMapQuery(route.route.polyline, size);
-    if (query === null) return failed({ stage: "map", code: "NO_POLYLINE" });
+    const query = await prepare();
+    if (typeof query !== "string") return failed(query);
 
     let reserveFailed = false;
     const beforeAttempt = async (): Promise<boolean> => {

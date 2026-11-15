@@ -783,6 +783,29 @@ export function siteRouteMapUrl(request: SiteRouteMapRequest): string {
   return `${SITE_BASE}/route-map?${query.toString()}`;
 }
 
+export interface SiteItineraryMapRequest {
+  /** 按行程顺序：上车、经停、下车（2–12 个） */
+  points: readonly SitePoint[];
+  theme: "light" | "dark";
+  width: number;
+  height: number;
+  scale: 1 | 2;
+}
+
+/**
+ * 包车行程地图的地址（M9P-20，ADR 0096）：`GET /site/v1/itinerary-map?p=纬度,经度&p=…`，成功是一张 PNG（编号 1 = 上车、经停依次、最后 = 下车），
+ * 直接给 `<img>` 用（同源，嵌入页也是 img-src 'self'）。
+ */
+export function siteItineraryMapUrl(request: SiteItineraryMapRequest): string {
+  const query = new URLSearchParams();
+  for (const point of request.points) query.append("p", `${point.lat.toFixed(6)},${point.lng.toFixed(6)}`);
+  query.append("theme", request.theme);
+  query.append("width", String(request.width));
+  query.append("height", String(request.height));
+  query.append("scale", String(request.scale));
+  return `${SITE_BASE}/itinerary-map?${query.toString()}`;
+}
+
 /**
  * 应答是不是「平台还没开通谷歌静态地图」：503 + 全站统一错误格式 `{ error: { code: "ROUTE_MAP_UNAVAILABLE", details: { reason: "NOT_ENABLED" } } }`（ADR 0072）。
  * 其他一切（reason 为 UNAVAILABLE、429 太频繁、400、500、不是 JSON）都不算。

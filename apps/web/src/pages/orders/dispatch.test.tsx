@@ -730,8 +730,8 @@ test("包车经停点（M9W-03）：供应商订单详情「经停点」一项�
   open(`/orders/${ORDER_ID}`, "dispatch", (call) => (call.method === "GET" && call.url.pathname === `/tenant/v1/orders/${ORDER_ID}` ? json(200, { ...detailOf(charter), pricing_route: null, area_surcharge: surcharge }) : null));
   await screen.findByRole("heading", { name: "行程" });
   const stops = within(tripItem("经停点") as HTMLElement).getByRole("list", { name: "包车行程" });
-  assert.deepEqual([...stops.querySelectorAll("li")].map((item) => item.textContent), ["上车京王广场酒店", "经停 1五合目停留 1 小时", "经停 2河口湖停留 1 小时 30 分", "下车新宿站"]);
-  assert.deepEqual([...(tripItem("区域加价")?.querySelectorAll(".details__lines > span") ?? [])].map((line) => line.textContent), ["上车：在服务区域里，不加价", "下车：在服务区域里，不加价", "经停（第 1、2 个经停点）：富士山地区 · 加 JPY 10,000"]);
+  assert.deepEqual([...stops.querySelectorAll("li")].map((item) => item.textContent), ["1 上车京王广场酒店", "2 经停五合目停留 1 小时", "3 经停河口湖停留 1 小时 30 分", "4 下车新宿站"]);
+  assert.deepEqual([...(tripItem("区域加价")?.querySelectorAll(".details__lines > span") ?? [])].map((line) => line.textContent), ["上车：在服务区域里，不加价", "下车：在服务区域里，不加价", "经停（2、3 号点）：富士山地区 · 加 JPY 10,000"]);
   assert.doesNotMatch(document.body.textContent ?? "", /对外/);
 
   resetBrowser();
@@ -758,7 +758,7 @@ test("包车按行程计价（M9W-04）：供应商订单详情「超公里 / �
   assert.equal(tripItem("超公里 / 超时"), null);
 });
 
-test("司机页面（M9W-03）：包车经停点按顺序写名称、停留和「导航到经停 N」，在上车和下车之间；没有任何价格", async () => {
+test("司机页面（M9W-03）：包车经停点按顺序写名称、停留和「导航到 N 号点」，在上车和下车之间，编号 1 = 上车（M9P-20）；没有任何价格", async () => {
   denyGeolocation();
   const trip = tripOf({ order: { ...tripOf().order, category: "charter", direction: null, flight_no: null, package_hours: 10, place: null, pickup: { lng: 139.7, lat: 35.69, address: "京王广场酒店" }, dropoff: { lng: 139.7, lat: 35.69, address: "新宿站" }, waypoints: STOPS, pickup_point: { lng: 139.7, lat: 35.69 } } });
   stubApiWith((call) => (call.url.pathname === "/driver/v1/trip" && call.method === "GET" ? json(200, trip) : null));
@@ -768,9 +768,13 @@ test("司机页面（M9W-03）：包车经停点按顺序写名称、停留和�
     </MemoryRouter>,
   );
   const list = await screen.findByRole("list", { name: "经停点" });
-  assert.deepEqual([...list.querySelectorAll("li")].map((item) => item.textContent), ["经停 1五合目停留 1 小时导航到经停 1", "经停 2河口湖停留 1 小时 30 分导航到经停 2"]);
-  assert.equal(screen.getByRole("link", { name: "导航到经停 2" }).getAttribute("href"), "geo:35.498,138.769?q=35.498,138.769");
+  assert.deepEqual([...list.querySelectorAll("li")].map((item) => item.textContent), ["2 经停五合目停留 1 小时导航到 2 号点", "3 经停河口湖停留 1 小时 30 分导航到 3 号点"]);
+  assert.equal(screen.getByRole("link", { name: "导航到 3 号点" }).getAttribute("href"), "geo:35.498,138.769?q=35.498,138.769");
   const order = [...document.querySelectorAll(".driver-key, [aria-label='经停点']")].map((node) => node.textContent ?? "");
-  assert.ok(order.findIndex((text) => text.startsWith("上车：")) < order.findIndex((text) => text.startsWith("经停 1")) && order.findIndex((text) => text.startsWith("经停 1")) < order.findIndex((text) => text.startsWith("下车：")));
+  // 编号同官网行程列表（M9P-20）：1 上车、2–3 经停、4 下车
+  const pickupAt = order.indexOf("1 上车：京王广场酒店");
+  const stopsAt = order.findIndex((text) => text.startsWith("2 经停"));
+  const dropoffAt = order.indexOf("4 下车：新宿站");
+  assert.ok(pickupAt >= 0 && pickupAt < stopsAt && stopsAt < dropoffAt, JSON.stringify(order));
   assert.doesNotMatch(document.body.textContent ?? "", /JPY|价格|结算|对外价|加价|区域|公里数/);
 });

@@ -18,6 +18,7 @@
  * - `POST /site/v1/quotes/by-points`：按两个坐标报价——认出机场和接机 / 送机 / 点对点后走同一个询价，顺带给路线的时间、距离（和询价共用每分钟 30 次，M8-02，ADR 0069 A1）；
  * - `GET /site/v1/route-map`：行程摘要的路线小地图（谷歌静态地图，后端代调、密钥不进浏览器；灰色调底图、品牌色路线；每个地址每分钟 30 次、每天 200 次；
  *   出不了图 503 `ROUTE_MAP_UNAVAILABLE`，`details.reason` 只有 `NOT_ENABLED`（页面用原来的地图）和 `UNAVAILABLE`（只显示时间和距离），M8-10，ADR 0072）；
+ * - `GET /site/v1/itinerary-map`：包车行程地图（M9P-20 P1，ADR 0096）：`p=纬度,经度` 按行程顺序重复 2–12 次，编号标记（1 = 上车，最后 = 下车）；额度和失败同路线小地图；
  * - `POST /site/v1/orders`：下单（`Idempotency-Key`，每个地址 10 分钟 10 次），应答里有查看链接的令牌（只这一次）。
  * 测试环境的验收通道（M8-26，ADR 0078）：`POST / GET / DELETE /site/v1/qa-acceptance/session`；带有效验收会话 Cookie 时，城市、机场、包车套餐、
  * 询价（含按两个坐标）只看 QA 测试供应商的「验收可售」商品，下的是验收单。没带 Cookie 的请求和以前完全一样。
@@ -32,7 +33,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { CurrencyCode, LocalizedText, SellBreakdownItem } from "@nozomi/domain";
 import { z } from "zod";
-import { FX_CURRENCIES, MESSAGING_APPS, ORDER_FIELD_LIMITS, PLACE_KINDS, PRICE_LIMITS, QUOTE_RULES, SERVICE_CATEGORIES, STATIC_MAP_RULES, STATIC_MAP_THEMES, type RouteMapReason, isGooglePlaceId, isPlaceSessionToken, normalizePlaceQuery, placeQueryIssue, viewLinkLookupEmail } from "@nozomi/domain";
+import { FX_CURRENCIES, MESSAGING_APPS, ORDER_FIELD_LIMITS, PLACE_KINDS, PRICE_LIMITS, QUOTE_RULES, SERVICE_CATEGORIES, ITINERARY_MAP_RULES, STATIC_MAP_RULES, STATIC_MAP_THEMES, type RouteMapReason, isGooglePlaceId, isPlaceSessionToken, normalizePlaceQuery, placeQueryIssue, viewLinkLookupEmail } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { AppError } from "../errors.ts";
@@ -66,6 +67,7 @@ import {
   siteQuotes,
   siteQuotesByPoints,
   siteReversePlace,
+  siteItineraryMap,
   siteRouteMap,
   siteSearchPlaces,
   sitePlacesGoogleGuard,
@@ -229,6 +231,31 @@ const routeMapSchema = z
   })
   .strict();
 const ROUTE_MAP_REQUIRED = ["from_lat", "from_lng", "to_lat", "to_lng", "width", "height"] as const;
+
+/** 包车行程地图的一个点：`lat,lng`（十进制度数） */
+const itineraryPointSchema = z
+  .string()
+  .regex(/^-?\d{1,3}(?:\.\d{1,9})?,-?\d{1,3}(?:\.\d{1,9})?$/, "每个点写成「纬度,经度」")
+  .transform((value) => {
+    const [lat, lng] = value.split(",").map(Number) as [number, number];
+    return { lat, lng };
+  })
+  .refine((point) => Math.abs(point.lat) <= 90 && Math.abs(point.lng) <= 180, "坐标超出范围");
+
+/** 包车行程地图（ADR 0096）：`p` 按行程顺序重复 2–12 次（上车、经停、下车），主题、尺寸、倍率同路线小地图。 */
+const itineraryMapSchema = z
+  .object({
+    p: z
+      .union([z.string(), z.array(z.string())])
+      .transform((value) => (Array.isArray(value) ? value : [value]))
+      .pipe(z.array(itineraryPointSchema).min(ITINERARY_MAP_RULES.minPoints).max(ITINERARY_MAP_RULES.maxPoints)),
+    theme: z.enum(STATIC_MAP_THEMES).default("light"),
+    width: z.coerce.number().int().min(STATIC_MAP_RULES.minWidth).max(STATIC_MAP_RULES.maxWidth),
+    height: z.coerce.number().int().min(STATIC_MAP_RULES.minHeight).max(STATIC_MAP_RULES.maxHeight),
+    scale: z.enum(["1", "2"]).default("1"),
+  })
+  .strict();
+const ITINERARY_MAP_REQUIRED = ["p", "width", "height"] as const;
 
 const ROUTE_MAP_MESSAGES: Readonly<Record<RouteMapReason, string>> = {
   NOT_ENABLED: "路线图服务没有开通，请用页面上的地图",
@@ -602,6 +629,26 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
       height: input.height,
       scale: input.scale === "2" ? 2 : 1,
     });
+    if (!result.ok) throw routeMapUnavailable(result.reason);
+    return reply
+      .header("content-type", result.contentType)
+      .header("cache-control", `private, max-age=${STATIC_MAP_RULES.browserMaxAgeSeconds}`)
+      .header("x-content-type-options", "nosniff")
+      .send(result.image);
+  });
+
+  /**
+   * 包车行程地图（M9P-20 P1，ADR 0096）：多点静态路线图，编号 1 = 上车、经停依次、最后 = 下车。和路线小地图同一份每个地址的额度、
+   * 同一个静态地图每日上限；折线计入路线的每日上限。出不了图同样 503 `ROUTE_MAP_UNAVAILABLE`（包车页面一律只显示行程列表，不用后备底图）。
+   */
+  app.get("/site/v1/itinerary-map", async (request, reply) => {
+    await takeSiteSlot(ctx, "site_route_map", { ip: request.ip });
+    await takeSiteSlot(ctx, "site_route_map_day", { ip: request.ip });
+    const query = (request.query ?? {}) as Record<string, unknown>;
+    const missing = ITINERARY_MAP_REQUIRED.filter((name) => query[name] === undefined || (typeof query[name] === "string" && (query[name] as string).trim() === ""));
+    if (missing.length > 0) throw validationFailed("querystring", missing.map((name) => ({ path: `/${name}`, reason: "REQUIRED", message: `请给出 ${name}` })));
+    const input = parseInput(itineraryMapSchema, request.query, "querystring");
+    const result = await siteItineraryMap(ctx, { points: input.p, theme: input.theme, width: input.width, height: input.height, scale: input.scale === "2" ? 2 : 1 });
     if (!result.ok) throw routeMapUnavailable(result.reason);
     return reply
       .header("content-type", result.contentType)

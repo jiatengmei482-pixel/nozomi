@@ -8,7 +8,7 @@
  */
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { BrowserRouter } from "react-router";
 import type { SiteByPointsResult, SiteCity, SiteConfig, SiteOrder, SiteOrderEnvelope, SiteQuote } from "../../api/site.ts";
@@ -331,4 +331,37 @@ test("订单页顶层打开（没被嵌）：不读订单、不显示订单内�
   await screen.findByText(EMBED_TEXTS.ja.topLevel);
   assert.equal(calls.length, 0);
   assert.equal(within(document.body).queryByText(ORDER_NO, { exact: false }), null);
+});
+
+test("包车行程地图（M9P-20）：嵌入页和主站同一个组件——地图请求本站 /site/v1/itinerary-map（上车、经停、下车按顺序），列表编号 1–3；图出不来只留列表，不用 Leaflet", async () => {
+  const charterDraft = { ...DRAFT_BODY, tab: "charter", waypoints: [{ name: "河口湖", lat: 35.498, lng: 138.769, stay_minutes: 60 }] };
+  const charterQuote: SiteQuote = { ...quote, package: { hours: 8, km: 200 }, cancel_policy: { ...quote.cancel_policy, category: "charter" } };
+  const legs = [
+    { minutes: 100, meters: 98_000 },
+    { minutes: 110, meters: 101_000 },
+  ];
+  const calls = stubApiWith((call) => {
+    const path = call.url.pathname;
+    if (path === `/site/v1/booking-drafts/${DRAFT}`) return json(200, { draft: charterDraft, expires_at: "2030-11-20T00:00:00Z", source_matches: true });
+    if (path === "/site/v1/config") return json(200, config);
+    if (path === "/site/v1/cities") return json(200, { items: [city] });
+    if (path === "/site/v1/charter-packages") return json(200, { city: { id: CITY_ID, code: city.code, name: city.name, timezone: city.timezone }, items: [{ hours: 8 }] });
+    if (path === "/site/v1/fx/reference") return json(200, { available: false, from: "JPY", to: "USD", rate: null, as_of: null, reason: "NO_RATE" });
+    if (call.method === "POST" && path === "/site/v1/quotes") return json(200, { currency: "JPY", quotes: [charterQuote], unavailable: [], itinerary_route: { legs, drive_minutes: 210, stay_minutes: 60, total_minutes: 270, total_meters: 199_000 } });
+    return null;
+  });
+  open(bookUrl);
+  await screen.findByRole("heading", { name: "车型1" }, SLOW);
+  const list = screen.getByRole("list", { name: "行程" });
+  assert.deepEqual([...list.querySelectorAll("li")].map((item) => item.textContent), ["1 上车京王广场酒店", "行驶约 1 小时 40 分 · 98 公里2 经停河口湖停留 1 小时", "行驶约 1 小时 50 分 · 101 公里3 下车东京站"]);
+  const loader = await waitFor(() => document.querySelector<HTMLImageElement>(".itinerary-map__loader") ?? assert.fail("没有要行程地图"), SLOW);
+  const url = new URL(loader.src, window.location.origin);
+  assert.equal(url.origin, window.location.origin, "图片地址是本站");
+  assert.equal(url.pathname, "/site/v1/itinerary-map");
+  assert.deepEqual(url.searchParams.getAll("p"), ["35.690500,139.694800", "35.498000,138.769000", "35.681200,139.767100"]);
+  fireEvent.error(loader);
+  await waitFor(() => assert.equal(document.querySelector(".itinerary-map"), null));
+  assert.ok(screen.getByRole("list", { name: "行程" }), "图出不来列表还在");
+  assert.equal(document.querySelector(".leaflet-container"), null, "不用 Leaflet 后备图");
+  assert.equal(calls.filter((call) => call.path.startsWith("/site/v1/route-map")).length, 0);
 });

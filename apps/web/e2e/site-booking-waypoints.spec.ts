@@ -144,20 +144,20 @@ test("包车加 3 个经停点：增删排序、停留必填 → 按行程计价
   });
   expect(Object.keys(itineraryBodies.at(-1) ?? {})).not.toContain("package_hours");
   const rows = card.getByLabel("价格明细").locator(".price-breakdown__row");
-  await expect(rows).toHaveText(["包车套餐 8 小时66,000 JPY", "经停加价（富士山地区，第 3 个经停点）11,000 JPY"]);
+  await expect(rows).toHaveText(["包车套餐 8 小时66,000 JPY", "经停加价（富士山地区，4 · 经停）11,000 JPY"]);
   // 行程时间表：行驶 25 + 30 + 20 + 35 = 110 分钟，停留 90 + 60 + 30 = 180 分钟，共 4 小时 50 分
   await expect(page.getByText("按行程预计 4 小时 50 分（行驶 1 小时 50 分 + 停留 3 小时），全程约 54 公里，套餐 8 小时").first()).toBeVisible();
   await expect(page.getByRole("list", { name: "行程" }).getByRole("listitem")).toHaveText([
-    "上车上车酒店",
-    `行驶约 25 分钟经停 1${first.name}停留 1 小时 30 分`,
-    `行驶约 30 分钟经停 2${second.name}停留 1 小时`,
-    `行驶约 20 分钟经停 3${trip.station.name}停留 30 分钟`,
-    "行驶约 35 分钟下车市内下车点",
+    "1 上车上车酒店",
+    `行驶约 25 分钟 · 12 公里2 经停${first.name}停留 1 小时 30 分`,
+    `行驶约 30 分钟 · 15 公里3 经停${second.name}停留 1 小时`,
+    `行驶约 20 分钟 · 9 公里4 经停${trip.station.name}停留 30 分钟`,
+    "行驶约 35 分钟 · 18 公里5 下车市内下车点",
   ]);
   await expect(page.getByText("价格按您填的经停点计算；当天临时去其他区域或超出预计可能会加收。").first()).toBeVisible();
   await card.getByRole("button", { name: `选择 ${trip.groupName}` }).click();
   const aside = page.getByRole("complementary", { name: "行程摘要" });
-  await expect(aside.getByLabel("价格明细").locator(".price-breakdown__row")).toHaveText(["包车套餐 8 小时66,000 JPY", "经停加价（富士山地区，第 3 个经停点）11,000 JPY", "合计77,000 JPY"]);
+  await expect(aside.getByLabel("价格明细").locator(".price-breakdown__row")).toHaveText(["包车套餐 8 小时66,000 JPY", "经停加价（富士山地区，4 · 经停）11,000 JPY", "合计77,000 JPY"]);
   await expect(aside).toContainText("包车 8 小时（按行程）");
   // M8-43：「经停点」的内容和其他项（上车地点）的内容左边对齐，不多缩进一格
   const leftOf = async (label: string, inner: string) => (await aside.locator(".site-facts__item").filter({ has: page.locator("dt", { hasText: new RegExp(`^${label}$`) }) }).locator(inner).first().boundingBox())?.x;
@@ -185,11 +185,11 @@ test("包车加 3 个经停点：增删排序、停留必填 → 按行程计价
   await expect(page.getByRole("heading", { level: 1, name: /^订单 NZ/ })).toBeVisible();
   const tripSection = page.getByRole("region", { name: "行程" });
   await expect(tripSection.getByRole("list", { name: "包车行程" }).getByRole("listitem")).toHaveText([
-    "上车上车酒店",
-    `经停 1${first.name}停留 1 小时 30 分`,
-    `经停 2${second.name}停留 1 小时`,
-    `经停 3${trip.station.name}停留 30 分钟`,
-    "下车市内下车点",
+    "1 上车上车酒店",
+    `2 经停${first.name}停留 1 小时 30 分`,
+    `3 经停${second.name}停留 1 小时`,
+    `4 经停${trip.station.name}停留 30 分钟`,
+    "5 下车市内下车点",
   ]);
   await expect(tripSection.getByText("全程约 54 公里，预计 4 小时 50 分（含停留）")).toBeVisible();
   await expect(page.getByText("77,000 JPY").first()).toBeVisible();
