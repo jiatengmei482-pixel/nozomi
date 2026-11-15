@@ -36,6 +36,8 @@ interface PlaceValues {
   flightScope: FlightScope | "none";
   location: CoordinateValue;
   address: string;
+  /** 只有地标：放进包车上架的覆盖检查清单（M9P-06 / M9P-07，ADR 0093 第七节第 4 条）。只能在编辑时勾，新增接口不收这一项 */
+  charterCoverage: boolean;
 }
 
 interface PlaceExtra {
@@ -283,11 +285,11 @@ export const placeFormModel: FormModel<"places", PlaceValues, PlaceExtra> = {
     const mismatch = extra.parent !== null && extra.parent.type !== requiredParentType(extra.type);
     return extra.parentState === "not-found" || mismatch ? `找不到所属的${parentName(extra.type)}` : null;
   },
-  empty: (search) => ({ cityId: null, code: codePrefix(typeOf(search, null), null, null), name: {}, category: null, flightScope: "none", location: { lat: "", lng: "" }, address: "" }),
-  fromRecord: (place) => ({ cityId: place.city_id, code: place.code, name: place.name, category: place.category, flightScope: place.flight_scope ?? "none", location: toCoordinateValue(place.location), address: place.address ?? "" }),
+  empty: (search) => ({ cityId: null, code: codePrefix(typeOf(search, null), null, null), name: {}, category: null, flightScope: "none", location: { lat: "", lng: "" }, address: "", charterCoverage: false }),
+  fromRecord: (place) => ({ cityId: place.city_id, code: place.code, name: place.name, category: place.category, flightScope: place.flight_scope ?? "none", location: toCoordinateValue(place.location), address: place.address ?? "", charterCoverage: place.charter_coverage }),
   validate: (values, context) => validatePlace(values, context.mode, context.extra, context.record),
-  labels: { cityId: "所属城市", code: "编码", name: "名称", category: "类型", flightScope: "国际 / 国内", location: "坐标", address: "地址" },
-  fieldOfPath: pathMapper([...COMMON_PATHS, [/^\/city_id$/, "cityId"], [/^\/category$/, "category"], [/^\/flight_scope$/, "flightScope"], [/^\/address$/, "address"], [/^\/location\/lat$/, "location.lat"], [/^\/location\/lng$/, "location.lng"], [/^\/location$/, "location.lat"]]),
+  labels: { cityId: "所属城市", code: "编码", name: "名称", category: "类型", flightScope: "国际 / 国内", location: "坐标", address: "地址", charterCoverage: "包车覆盖检查" },
+  fieldOfPath: pathMapper([...COMMON_PATHS, [/^\/city_id$/, "cityId"], [/^\/category$/, "category"], [/^\/flight_scope$/, "flightScope"], [/^\/address$/, "address"], [/^\/charter_coverage$/, "charterCoverage"], [/^\/location\/lat$/, "location.lat"], [/^\/location\/lng$/, "location.lng"], [/^\/location$/, "location.lat"]]),
   toCreate: (values, { extra }) => {
     const { type } = extra;
     return {
@@ -309,12 +311,13 @@ export const placeFormModel: FormModel<"places", PlaceValues, PlaceExtra> = {
     if ((place.type === "station" || place.type === "poi") && values.category !== null && values.category !== place.category) patch.category = values.category;
     if ((place.type === "airport" || place.type === "terminal") && scopeValue(values.flightScope) !== place.flight_scope) patch.flight_scope = scopeValue(values.flightScope);
     if (place.type === "poi" && values.address.trim() !== (place.address ?? "")) patch.address = values.address.trim() === "" ? null : values.address.trim();
+    if (place.type === "poi" && values.charterCoverage !== place.charter_coverage) patch.charter_coverage = values.charterCoverage;
     return patch;
   },
   continueWith: (values, search, extra) => {
     const type = typeOf(search, null);
     const country = extra.cities?.find((city) => city.id === values.cityId)?.country_code ?? null;
-    return { cityId: values.cityId, code: codePrefix(type, country, extra.parent?.code ?? null), name: {}, category: values.category, flightScope: "none", location: { lat: "", lng: "" }, address: "" };
+    return { cityId: values.cityId, code: codePrefix(type, country, extra.parent?.code ?? null), name: {}, category: values.category, flightScope: "none", location: { lat: "", lng: "" }, address: "", charterCoverage: false };
   },
   footnotes: ({ record }) => (record?.source ? ["ourairports", "geonames"] : ["geonames"]),
   returnAnchor: ({ extra }) => (isChild(extra.type) ? "children" : null),
@@ -503,6 +506,26 @@ export const placeFormModel: FormModel<"places", PlaceValues, PlaceExtra> = {
             </FieldSlot>
           )}
         </FormGroup>
+        {type === "poi" && mode === "edit" && (
+          <FormGroup title="包车">
+            <FieldSlot name="charterCoverage" wide>
+              <fieldset className="field fieldset" id="place-charter-coverage">
+                <legend className="field__label">包车覆盖检查</legend>
+                {readOnly ? (
+                  <p>{values.charterCoverage ? "已放进检查清单" : "不在检查清单里"}</p>
+                ) : (
+                  <label className="choice">
+                    <input type="checkbox" checked={values.charterCoverage} disabled={busy} aria-describedby="place-charter-coverage-hint" onChange={(event) => form.set({ charterCoverage: event.target.checked })} />
+                    <span className="choice__text">放进包车覆盖检查</span>
+                  </label>
+                )}
+                <p className="field__hint" id="place-charter-coverage-hint">
+                  勾了以后，同一城市的包车商品上架时会检查这个地标在不在它的基础价、行程或上下车加价区域里；不在就提醒供应商（不拦上架）。
+                </p>
+              </fieldset>
+            </FieldSlot>
+          </FormGroup>
+        )}
       </>
     );
   },
