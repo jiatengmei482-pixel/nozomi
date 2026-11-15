@@ -56,7 +56,8 @@ import {
   visibleTimeline,
 } from "../../lib/site-display.ts";
 import { FlightKindField } from "./FlightKindField.tsx";
-import { FREE_WAIT_TEXTS, productFreeWait } from "../../lib/free-wait-display.ts";
+import { productFreeWait } from "../../lib/free-wait-display.ts";
+import { t } from "../../i18n/index.ts";
 import { siteFailureText } from "./SiteLayout.tsx";
 import { SitePrice } from "./SitePrice.tsx";
 import { PriceBreakdown } from "./new/PriceBreakdown.tsx";
@@ -930,7 +931,7 @@ export function ChangeSection({ token, order, onChanged }: { token: string; orde
             <TextField label="乘车人姓名" size="lg" required autoComplete="name" maxLength={ORDER_FIELD_LIMITS.nameMax} value={form.name} errors={fieldErrors("name")} onChange={(event) => set({ name: event.target.value })} />
             <TextField label="手机号（带国家码）" size="lg" required type="tel" inputMode="tel" autoComplete="tel" hint="以 + 和国家码开头，如 +81 90-1234-5678" value={form.phone} errors={fieldErrors("phone")} onChange={(event) => set({ phone: event.target.value })} />
             <TextField label="邮箱" size="lg" required type="email" inputMode="email" autoCapitalize="none" spellCheck={false} autoComplete="email" value={form.email} errors={fieldErrors("email")} onChange={(event) => set({ email: event.target.value })} />
-            {takesFlight(order) && <TextField label={arrival ? "航班号" : "航班号（选填）"} size="lg" required={arrival} autoCapitalize="characters" hint={p2pArrival(order) ? FREE_WAIT_TEXTS.p2pFlightHint : "如 NH211"} value={form.flightNo} errors={fieldErrors("flightNo")} onChange={(event) => set({ flightNo: event.target.value })} />}
+            {takesFlight(order) && <TextField label={arrival ? "航班号" : "航班号（选填）"} size="lg" required={arrival} autoCapitalize="characters" hint={p2pArrival(order) ? t("freeWait.p2pFlightHint") : "如 NH211"} value={form.flightNo} errors={fieldErrors("flightNo")} onChange={(event) => set({ flightNo: event.target.value })} />}
             {flightArrival(order) && form.flightNo.trim() !== "" && (
               <FlightKindField
                 name="change-flight-kind"
@@ -938,7 +939,7 @@ export function ChangeSection({ token, order, onChanged }: { token: string; orde
                 quoted={quotedOf(order)}
                 errors={fieldErrors("flightKind")}
                 onChange={(flightKind) => set({ flightKind })}
-                {...(dispatched(order) ? { hint: FREE_WAIT_TEXTS.flightKindDispatched } : {})}
+                {...(dispatched(order) ? { hint: t("freeWait.flightKindDispatched") } : {})}
               />
             )}
             {orderAddressEnds(order).map((end) => {

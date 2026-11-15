@@ -4,28 +4,12 @@
  */
 import { type FlightKind, type FreeWait, isFlightArrival, lockArrivalFreeWait, relockAllowed } from "@nozomi/domain";
 import type { FreeWaitBasis } from "../api/dispatch.ts";
+import { t } from "../i18n/index.ts";
 
-/**
- * 这一块新加的页面文字，按键集中在这里（业主 2026-11-15，M11-01：新功能先只做中文，文字走键、不写死在组件里）。
- * 等 M11-01 的多语言框架上线后整张表搬过去；日文、英文以后再补。
- */
-export const FREE_WAIT_TEXTS = {
-  minutes: (minutes: number | null): string => (minutes === null ? "不限时" : `${minutes} 分钟`),
-  previewDispatched: (current: string): string => `已派车：同意后免费等待不变（${current}）`,
-  previewUnchanged: (current: string): string => `同意后免费等待不变（${current}）`,
-  previewChange: (from: string, to: string): string => `同意后免费等待 ${from} → ${to}`,
-  dispatchedNote: (kind: string, minutes: number): string => `按派单时${kind}锁定 ${minutes} 分钟`,
-  dispatchedKind: { international: "的国际航班", domestic: "的国内航班", unconfirmed: "航班类型未确认（按国内线）" },
-  basisKind: { international: "国际航班", domestic: "国内航班", unconfirmed: "航班类型未确认，按国内线" },
-  basisRaised: (base: string, minutes: number): string => `；${base}，按平台规定补到 ${minutes} 分钟`,
-  baseNotSet: "商品没设",
-  baseSet: (minutes: number): string => `商品设 ${minutes} 分钟`,
-  flightKindLegend: "航班类型",
-  flightKindHint: "按航班定免费等待：国际航班等得更久",
-  flightKindDispatched: "已派车，免费等待不再变化",
-  flightKindOption: (minutes: number): string => `落地后免费等待 ${minutes} 分钟`,
-  p2pFlightHint: "如 NH211。清空表示不是从机场接人，免费等待回到商品的设置",
-} as const;
+/** 依据里的航班类型：国际航班 / 国内航班 / 航班类型未确认，按国内线（文案见 i18n/messages/free-wait.ts） */
+export function basisKindText(kind: FlightKind | null): string {
+  return t(kind === "international" ? "freeWait.basisKindInternational" : kind === "domestic" ? "freeWait.basisKindDomestic" : "freeWait.basisKindUnconfirmed");
+}
 
 interface ArrivalOrderShape {
   status: string;
@@ -49,7 +33,7 @@ function arrivalOf(order: ArrivalOrderShape, flightNo: string | null): boolean {
   return isFlightArrival({ category: order.category, direction: order.direction, placeType: null, flightNo });
 }
 
-const minutesText = FREE_WAIT_TEXTS.minutes;
+const minutesText = (minutes: number | null): string => (minutes === null ? t("freeWait.unlimited") : t("freeWait.minutes", { minutes }));
 
 /**
  * 供应商审批一条改单时的提示（ADR 0097 Q3：以供应商同意、改单生效的这一刻为准）：改了航班号 / 航班类型的接机，
@@ -62,12 +46,12 @@ export function changeFreeWaitPreview(order: ArrivalOrderShape & { dispatch: { d
   const arrivalNow = arrivalOf(order, order.flight_no);
   const arrivalAfter = arrivalOf(order, flightNo);
   if (!arrivalNow && !arrivalAfter) return null;
-  if (!relockAllowed({ status: order.status, driverId: order.dispatch.driver === null ? null : "assigned" })) return FREE_WAIT_TEXTS.previewDispatched(minutesText(order.free_wait_minutes));
+  if (!relockAllowed({ status: order.status, driverId: order.dispatch.driver === null ? null : "assigned" })) return t("freeWait.previewDispatched", { current: minutesText(order.free_wait_minutes) });
   const product = productFreeWait(order);
   const kind = Object.hasOwn(after, "flight_kind") ? ((after["flight_kind"] as FlightKind | null) ?? null) : (order.flight_kind ?? null);
   const next = arrivalAfter ? lockArrivalFreeWait(product, kind).minutes : product !== null && product.mode === "limited" ? product.minutes : null;
-  if (next === order.free_wait_minutes) return FREE_WAIT_TEXTS.previewUnchanged(minutesText(next));
-  return typeof next === "number" && typeof order.free_wait_minutes === "number" ? FREE_WAIT_TEXTS.previewChange(String(order.free_wait_minutes), minutesText(next)) : FREE_WAIT_TEXTS.previewChange(minutesText(order.free_wait_minutes), minutesText(next));
+  if (next === order.free_wait_minutes) return t("freeWait.previewUnchanged", { current: minutesText(next) });
+  return typeof next === "number" && typeof order.free_wait_minutes === "number" ? t("freeWait.previewChange", { from: order.free_wait_minutes, to: minutesText(next) }) : t("freeWait.previewChange", { from: minutesText(order.free_wait_minutes), to: minutesText(next) });
 }
 
 /**
@@ -77,5 +61,6 @@ export function changeFreeWaitPreview(order: ArrivalOrderShape & { dispatch: { d
 export function dispatchedFreeWaitNote(order: Pick<ArrivalOrderShape, "free_wait_minutes" | "free_wait_basis"> & { dispatched: boolean }): string | null {
   const basis = order.free_wait_basis ?? null;
   if (!order.dispatched || basis === null || order.free_wait_minutes === null) return null;
-  return FREE_WAIT_TEXTS.dispatchedNote(FREE_WAIT_TEXTS.dispatchedKind[basis.flight_kind ?? "unconfirmed"], order.free_wait_minutes);
+  const kind = t(basis.flight_kind === "international" ? "freeWait.dispatchedKindInternational" : basis.flight_kind === "domestic" ? "freeWait.dispatchedKindDomestic" : "freeWait.dispatchedKindUnconfirmed");
+  return t("freeWait.dispatchedNote", { kind, minutes: order.free_wait_minutes });
 }

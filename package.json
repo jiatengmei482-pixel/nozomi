@@ -33,7 +33,8 @@
     "check": "pnpm typecheck && pnpm test && pnpm test:integration && pnpm roadmap:check",
     "config:check": "node packages/config/src/cli.ts",
     "roadmap:check": "node scripts/check-roadmap.mjs",
-    "progress:build": "node scripts/build-progress.mjs"
+    "progress:build": "node scripts/build-progress.mjs",
+    "copy:export": "node scripts/copy-export.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

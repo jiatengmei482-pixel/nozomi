@@ -3,7 +3,7 @@
  * 订单页地址里的令牌、城市当地的日期时间。文案用客人的说法（「付款」「用车时间」），不出现「供应商」「结算价」。
  */
 import type { FreeWaitBasis } from "../api/dispatch.ts";
-import { FREE_WAIT_TEXTS, dispatchedFreeWaitNote } from "./free-wait-display.ts";
+import { basisKindText, dispatchedFreeWaitNote } from "./free-wait-display.ts";
 import { AREA_SURCHARGE_NOTE as DOMAIN_AREA_SURCHARGE_NOTE, CHARTER_ITINERARY_OVERAGE_TEXTS, CHARTER_OVERAGE_TEXTS, type ExtraChargeStatus, FIXED_PRICE_INCLUDES_TEXTS, LANDING_RULES, type OrderChangeStatus, type OrderStatus, type PricingBasis, addDays, arrivalFreeWaitRange, charterAllInclusiveFor, fixedPriceFeeNote, includedKmNote, isCurrencyCode, parseMajor, pricingBasisFeeNote, pricingBasisNote } from "@nozomi/domain";
 import type { CancelTier } from "../api/order-money.ts";
 import type { SiteCategory, SiteDirection, SiteOrder, SitePlace, SiteQuote, SiteUnavailableReason } from "../api/site.ts";
@@ -124,7 +124,7 @@ export function quoteFreeWaitText(minutes: number | null, category: SiteCategory
  */
 export function orderFreeWaitNote(basis: { flight_kind: "international" | "domestic" | null } | null | undefined): string | null {
   if (basis === null || basis === undefined) return null;
-  return FREE_WAIT_TEXTS.basisKind[basis.flight_kind ?? "unconfirmed"];
+  return basisKindText(basis.flight_kind);
 }
 
 /**

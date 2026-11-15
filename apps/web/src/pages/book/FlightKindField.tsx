@@ -5,18 +5,18 @@
 import type { FlightKind } from "@nozomi/domain";
 import { RadioGroup } from "../../components/FormFields.tsx";
 import { type ArrivalFreeWait, FLIGHT_KIND_NAMES, arrivalFreeWait } from "../../lib/book-new.ts";
-import { FREE_WAIT_TEXTS } from "../../lib/free-wait-display.ts";
+import { t } from "../../i18n/index.ts";
 
 /** 每个选项后面的小字：这种航班免费等多久（不限时的不写）。 */
 function optionHint(quoted: { free_wait_minutes: number | null } | null, kind: FlightKind): string | undefined {
   const wait: ArrivalFreeWait = arrivalFreeWait(quoted, kind);
-  return wait.kind === "minutes" ? FREE_WAIT_TEXTS.flightKindOption(wait.minutes) : undefined;
+  return wait.kind === "minutes" ? t("freeWait.flightKindOption", { minutes: wait.minutes }) : undefined;
 }
 
-export function FlightKindField({ value, onChange, errors, quoted, name = "flight-kind", hint = FREE_WAIT_TEXTS.flightKindHint }: { value: FlightKind | ""; onChange(value: FlightKind): void; errors: readonly string[]; quoted: { free_wait_minutes: number | null } | null; name?: string; hint?: string }) {
+export function FlightKindField({ value, onChange, errors, quoted, name = "flight-kind", hint = t("freeWait.flightKindHint") }: { value: FlightKind | ""; onChange(value: FlightKind): void; errors: readonly string[]; quoted: { free_wait_minutes: number | null } | null; name?: string; hint?: string }) {
   return (
     <RadioGroup<FlightKind>
-      legend={FREE_WAIT_TEXTS.flightKindLegend}
+      legend={t("freeWait.flightKindLegend")}
       name={name}
       required
       value={value === "" ? null : value}
