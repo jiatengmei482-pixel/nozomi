@@ -560,6 +560,22 @@ export function listSiteCharterPackagesAt(pickup: { lat: number; lng: number }, 
   return apiRequest("GET", `${SITE_BASE}/charter-packages?${query.toString()}`);
 }
 
+/** 包车快捷入口能选的一个机场（M9P-21 / M9P-22，ADR 0098）：只列机场区域里的航站楼；`name` 是前台名称里的机场名 */
+export interface SiteCharterAirport {
+  id: string;
+  code: string;
+  name: string;
+  city_id: string;
+  terminals: { id: string; code: string; name: LocalizedText; location: { lng: number; lat: number } }[];
+}
+
+export type SiteAirportScenario = "airport_start" | "airport_end";
+
+/** 「机场接机开始」「机场送机结束」能选的机场和航站楼 */
+export function listSiteCharterAirports(scenario: SiteAirportScenario): Promise<{ items: SiteCharterAirport[] }> {
+  return apiRequest("GET", `${SITE_BASE}/charter-airports?scenario=${encodeURIComponent(scenario)}`);
+}
+
 export function listSitePlaces(cityId: string): Promise<{ items: SitePlace[] }> {
   return apiRequest("GET", `${SITE_BASE}/cities/${encodeURIComponent(cityId)}/places`);
 }

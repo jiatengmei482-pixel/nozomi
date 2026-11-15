@@ -17,6 +17,7 @@
  * 由 `BookingShell` 上下文给（booking-shell.tsx），默认值就是主站的行为。
  */
 import { charterAirportText, quoteScenario } from "../../../lib/charter-airport-copy.ts";
+import { type AirportQuickMode, AirportQuickButtons, TerminalSelect } from "./AirportQuickEntry.tsx";
 import { type CityCandidate, type CurrencyCode, ORDER_FIELD_LIMITS, fixedPriceIncludes, fixedPriceIncludesTitle, fixedPriceLabel, isInternationalPhone, serviceCityOf } from "@nozomi/domain";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
@@ -800,6 +801,9 @@ export function BookNewPage() {
     target?.scrollIntoView?.({ block: "start" });
   }, [step]);
 
+  // 包车快捷入口（M9P-22，ADR 0098）：「机场接机开始」时上车点按航站楼选，「机场送机结束」时下车点按航站楼选
+  const [airportMode, setAirportMode] = useState<AirportQuickMode>(null);
+
   let body;
   if (config.kind === "loading" || (open && cities.kind === "loading")) {
     body = <Skeleton lines={["long", "control", "control", "control", "control"]} label="正在打开预订页" />;
@@ -872,7 +876,21 @@ export function BookNewPage() {
             ))}
           </fieldset>
         )}
-        <PlaceField
+        {charter && (
+          <AirportQuickButtons
+            mode={airportMode}
+            onMode={(mode) => {
+              setAirportMode(mode);
+              // 打开快捷入口：那一端改成按航站楼选，先清掉原来填的
+              if (mode === "airport_start") update({ from: null });
+              if (mode === "airport_end") update({ to: null });
+            }}
+          />
+        )}
+        {charter && airportMode === "airport_start" ? (
+          <TerminalSelect scenario="airport_start" label="上车地点" value={draft.from} onChange={(from) => update({ from })} onExit={() => setAirportMode(null)} />
+        ) : (
+          <PlaceField
           key={`from-${draft.mode}`}
           label={charter ? "上车地点" : "出发地"}
           value={draft.from}
@@ -883,6 +901,7 @@ export function BookNewPage() {
           mapCenter={centerOf(draft.to)}
           cities={centers}
         />
+        )}
         {charter && (
           <WaypointsField
             value={draft.waypoints}
@@ -893,6 +912,9 @@ export function BookNewPage() {
             cities={centers}
           />
         )}
+        {charter && airportMode === "airport_end" ? (
+          <TerminalSelect scenario="airport_end" label="下车地点" value={draft.to} onChange={(to) => update({ to })} onExit={() => setAirportMode(null)} />
+        ) : (
         <PlaceField
           key={`to-${draft.mode}`}
           label={charter ? "下车地点" : "目的地"}
@@ -905,6 +927,7 @@ export function BookNewPage() {
           mapCenter={centerOf(draft.from)}
           cities={centers}
         />
+        )}
         {charter && charterCity === null && (
           <div className="book-new__notice" role="status">
             <p>这个地址暂时没有在线报价，请联系客服</p>
