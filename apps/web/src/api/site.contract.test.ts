@@ -41,6 +41,9 @@ test("前端用到的官网接口都在 openapi.yaml 里；订单页的接口要
     ["get", `${SITE_BASE}/fx/reference`],
     ["get", `${SITE_BASE}/booking-drafts/{id}`],
     ["get", `${SITE_BASE}/route-map`],
+    ["get", `${SITE_BASE}/itinerary-map`],
+    ["get", `${SITE_BASE}/itinerary-legs`],
+    ["post", `${SITE_BASE}/charter/order-suggestion`],
     ["post", `${SITE_BASE}/orders`],
     ["post", `${SITE_BASE}/orders/lookup`],
     ["post", SITE_MANUAL_QUOTE_PATH],
@@ -193,4 +196,10 @@ test("人工报价申请（M8-21）：请求体和行程的字段与 openapi.yam
   assert.deepEqual(props(body).filter((key) => /name|phone|note/i.test(key)), [], "不收姓名、电话、备注");
   assert.ok(operation.responses["202"]);
   assert.equal(operation.responses["200"], undefined);
+});
+
+test("包车行程逐段的时长和里程（M9P-20）：应答字段和 openapi.yaml 一致", () => {
+  const schema = (spec.paths[`${SITE_BASE}/itinerary-legs`]?.["get"] as unknown as { responses: Record<string, { content: Record<string, { schema: Schema }> }> }).responses["200"]?.content["application/json"]?.schema;
+  assert.deepEqual(props(schema), ["available", "legs"]);
+  assert.deepEqual(props(schema?.properties?.["legs"]?.items), ["meters", "minutes"]);
 });

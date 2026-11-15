@@ -154,6 +154,8 @@ export interface CharterItineraryBody {
   /** 超限提醒线（M9P-10）：预计用时（分钟）、全程（公里） */
   warn_minutes?: number;
   warn_km?: number;
+  /** 经停顺序建议（M9P-20 P2，ADR 0096 第六节）：默认开 */
+  suggest_stop_order?: boolean;
 }
 
 export interface ProductServiceRules {

@@ -22,7 +22,8 @@ import type { AddressInfo } from "node:net";
 import { AxeBuilder } from "@axe-core/playwright";
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { E2E_WEB_PLACES_PORT } from "../playwright.config.ts";
-import { createAirport, publishTransfer } from "./book-new-support.ts";
+import { createAirport, publishTransfer, tomorrowInTokyo } from "./book-new-support.ts";
+import { charterWorld } from "./charter-support.ts";
 import { createSupplier, createWorld } from "./catalog.ts";
 import { OWN_SITE_SOURCE, embedHostAsProduction, platformAdminHeaders, randomLetters, snapshot } from "./support.ts";
 
@@ -78,13 +79,13 @@ test.afterAll(async () => {
   await Promise.all(hosts.splice(0).map((host) => new Promise((resolve) => host.server.close(resolve))));
 });
 
-async function newHost(request: APIRequestContext, options: { allowHostPage?: boolean; whitelisted?: boolean } = {}, nestedSrc?: () => string): Promise<Host> {
+async function newHost(request: APIRequestContext, options: { allowHostPage?: boolean; whitelisted?: boolean; services?: ("transfer" | "charter")[] } = {}, nestedSrc?: () => string): Promise<Host> {
   const host = await startHost(nestedSrc);
   hosts.push(host);
   const allowed = options.whitelisted === false ? ["http://localhost:1"] : [host.origin];
   const created = await request.post("/platform/v1/embed-keys", {
     headers: await platformAdminHeaders(request),
-    data: { name: `宿主页内 ${randomLetters(4)}`, allowed_origins: allowed, default_lang: "zh", default_services: ["transfer"], allow_host_page: options.allowHostPage ?? true },
+    data: { name: `宿主页内 ${randomLetters(4)}`, allowed_origins: allowed, default_lang: "zh", default_services: options.services ?? ["transfer"], allow_host_page: options.allowHostPage ?? true },
   });
   expect(created.status(), await created.text()).toBe(201);
   host.key = ((await created.json()) as { key: string }).key;
@@ -257,6 +258,7 @@ test("M9E-17 跨站整条流程：iframe 里走完四步（询价带 draft_id、
   keepsFrameParams(page);
   const email = `embed-host-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`;
   await frame.getByLabel("航班号").fill("NH211");
+  await frame.getByRole("radio", { name: /^国际航班/ }).check();
   await frame.getByLabel("乘车人姓名").fill("王小明");
   await frame.getByLabel("邮箱").fill(email);
   const phone = frame.getByLabel("手机号（含国家区号）");
@@ -331,6 +333,47 @@ test("M9E-17 跨站：A 网站建的草稿在 B 网站打开——照常预填�
   const body = (await quoted).postDataJSON() as Record<string, unknown>;
   expect(body["pickup"]).toMatchObject({ name: airport.name });
   expect("draft_id" in body, "草稿上记的是 A 网站，这次是 B 网站").toBe(false);
+});
+
+test("M9P-20 跨站：iframe 里的包车第 2 步有行程地图（本站 /site/v1/itinerary-map，上车、经停、下车按顺序）和同编号列表，没有 Leaflet；整页 axe", async ({ page, request }) => {
+  test.setTimeout(150_000);
+  const trip = await charterWorld(request);
+  const stop = { lat: Number((trip.center.lat + 0.02).toFixed(6)), lng: Number((trip.center.lng - 0.01).toFixed(6)) };
+  const made = await request.post("/platform/v1/master/places", { headers: await platformAdminHeaders(request), data: { type: "station", code: `STN-JP-${randomLetters(6)}`, city_id: trip.cityId, category: "rail", name: { zh: `嵌入经停${randomLetters(4)}` }, location: stop } });
+  expect(made.status(), await made.text()).toBe(201);
+  const host = await newHost(request, { services: ["transfer", "charter"] });
+  const draft = {
+    v: 1,
+    tab: "charter",
+    service_local: `${tomorrowInTokyo()}T10:00`,
+    pickup: { name: "上车酒店", ...trip.pickup },
+    dropoff: { name: "市内下车点", ...trip.nearby },
+    waypoints: [{ name: "经停车站", ...stop, stay_minutes: 60 }],
+    package_hours: null,
+    passengers: 2,
+    luggage: 2,
+    lang: "zh",
+  };
+  const created = await request.post(`/embed/v1/booking-drafts?key=${encodeURIComponent(host.key)}`, { headers: { origin: host.origin }, data: { draft, delivery: "host_page" } });
+  expect(created.status(), await created.text()).toBe(201);
+  const draftId = ((await created.json()) as { id: string }).id;
+  const map = page.waitForResponse((res) => new URL(res.url()).pathname === "/site/v1/itinerary-map");
+  await page.goto(`${host.origin}/booking/?nzdraft=${draftId}`);
+  const frame = frameOf(page);
+  const schedule = frame.getByRole("region", { name: "行程时间表" });
+  await expect(schedule.getByRole("list", { name: "行程" }).getByRole("listitem")).toHaveCount(3);
+  await expect(schedule.getByRole("list", { name: "行程" }).getByRole("listitem").first()).toHaveText("1 上车上车酒店");
+  await expect(schedule.getByRole("list", { name: "行程" }).getByRole("listitem").nth(1)).toContainText("2 经停经停车站");
+  await expect(schedule.getByRole("list", { name: "行程" }).getByRole("listitem").nth(2)).toContainText(/行驶约 .+ · .+ 公里3 下车市内下车点/);
+  const response = await map;
+  expect(new URL(response.url()).origin, "图片地址是主站本站").toBe(SITE);
+  expect(response.status()).toBe(200);
+  const fix = (point: { lat: number; lng: number }): string => `${point.lat.toFixed(6)},${point.lng.toFixed(6)}`;
+  expect(new URL(response.url()).searchParams.getAll("p")).toEqual([fix(trip.pickup), fix(stop), fix(trip.nearby)]);
+  await expect(schedule.getByRole("img", { name: /^路线图：1 上车酒店 → 2 经停车站 → 3 市内下车点，约 .+ 公里$/ })).toBeVisible();
+  await expect(frame.locator(".leaflet-container")).toHaveCount(0);
+  const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+  expect(axe.violations.map((violation) => `${violation.id}: ${violation.help}`)).toEqual([]);
 });
 
 /** 把宿主页上放预订区的容器设成 `width` 宽（iframe 宽度跟容器），等 iframe 自己的视口变成这个宽度 */

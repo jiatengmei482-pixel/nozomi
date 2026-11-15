@@ -173,7 +173,7 @@ test("询价：唯一的城市和机场自动选好；没填的标红；请求�
   const card = (await screen.findByRole("heading", { name: "商务 7 座" })).closest("li") as HTMLElement;
   assert.deepEqual(calls.find((call) => call.method === "POST")?.body, { category: "airport_transfer", city_id: CITY_ID, service_local: "2030-11-20T10:00", passengers: 2, luggage: 1, airport_id: AIRPORT_ID, direction: "pickup", address: { lat: 35.6812, lng: 139.7671 } });
   assert.equal(card.querySelector(".site-quote__price")?.textContent, "21,780 JPY", "价格数字和币种分两段套样式（M6-05），文字不变");
-  assert.ok(within(card).getByText("90 分钟（从航班落地起算）"));
+  assert.ok(within(card).getByText("国际线最长 90 分钟、国内线最长 90 分钟（从航班落地起算）"), "接机按航班写两种（M9E-28）：商品设 90，国际、国内都是 max(90, 下限) = 90");
   assert.ok(within(card).getByText("用车前 48 小时以上取消免费；24–48 小时内取消收 50%；24 小时内取消收全额"));
   assert.doesNotMatch(document.body.textContent ?? "", /结算|加价|供应商/);
   await actor.click(within(card).getByRole("button", { name: "预订商务 7 座" }));
@@ -209,9 +209,10 @@ async function fillCheckout(actor: ReturnType<typeof user>): Promise<void> {
   await actor.type(screen.getByLabelText("手机号（带国家码）"), "+81 90-1234-5678");
   await actor.type(screen.getByLabelText("邮箱"), "guest@example.com");
   await actor.type(screen.getByLabelText("航班号"), "nh 211");
+  await actor.click(screen.getByRole("radio", { name: /^国际航班/ }));
 }
 
-test("下单：接机必填航班号、手机号要带国家码、要同意保存支付方式；请求体只有该有的；网络失败再点用同一个幂等键；成功后到订单页，付款暂未开放", async () => {
+test("下单：接机必填航班号和航班类型（M9E-28）、手机号要带国家码、要同意保存支付方式；请求体只有该有的；网络失败再点用同一个幂等键；成功后到订单页，付款暂未开放", async () => {
   let attempts = 0;
   const calls = open(checkoutEntry(), (call) => {
     if (call.method === "POST" && call.url.pathname === "/site/v1/orders") {
@@ -230,6 +231,8 @@ test("下单：接机必填航班号、手机号要带国家码、要同意保�
   assert.ok(await screen.findByText("请填写乘车人姓名"));
   assert.ok(screen.getByText(/请填写带国家码的手机号/));
   assert.ok(screen.getByText("接机要填航班号，司机按航班落地时间等候"));
+  assert.ok(screen.getByText("请选择国际航班还是国内航班：国际航班免费等待更久"));
+  assert.ok(screen.getByRole("radio", { name: /^国际航班\s*落地后免费等待 90 分钟$/ }), "选项后写这种航班免费等多久");
   assert.ok(screen.getByText("需要同意保存支付方式才能下单"));
   await actor.clear(screen.getByLabelText("手机号（带国家码）"));
   await fillCheckout(actor);
@@ -241,7 +244,7 @@ test("下单：接机必填航班号、手机号要带国家码、要同意保�
   const posts = calls.filter((call) => call.method === "POST");
   assert.equal(posts.length, 2);
   assert.equal(posts[0]?.headers["idempotency-key"], posts[1]?.headers["idempotency-key"], "重试用同一个幂等键");
-  assert.deepEqual(posts[1]?.body, { quote_id: quote.quote_id, passenger: { name: "王小明", phone: "+81 90-1234-5678", email: "guest@example.com" }, flight_no: "nh 211", pickup_address: null, dropoff_address: "东京站八重洲口", messaging: null, notes: null, save_payment_method: true, sign_name: null, passenger_name: null, passenger_phone: null });
+  assert.deepEqual(posts[1]?.body, { quote_id: quote.quote_id, passenger: { name: "王小明", phone: "+81 90-1234-5678", email: "guest@example.com" }, flight_no: "nh 211", flight_kind: "international", pickup_address: null, dropoff_address: "东京站八重洲口", messaging: null, notes: null, save_payment_method: true, sign_name: null, passenger_name: null, passenger_phone: null });
   assert.ok(screen.getByText(/订单已提交/));
   assert.ok(screen.getByText(/付款暂未开放/));
   assert.equal(calls.find((call) => urlOf(call).pathname === "/site/v1/order")?.headers["authorization"], `Bearer ${TOKEN}`);
@@ -352,9 +355,32 @@ test("客人取消了还没付款的单：原因写「您取消了订单」，�
   assert.doesNotMatch(document.body.textContent ?? "", /按取消政策退款/);
 });
 
+test("免费等待按航班（M9E-28，2026-11-15 按推荐）：点对点接机在订单页也能改航班号、航班类型（建议 4）；派单后订单页写「按派单时的 X 航班锁定 N 分钟」（建议 6）", async () => {
+  const basis = { flight_kind: "international" as const, base: { mode: "limited" as const, minutes: 30 }, floor_minutes: 90 };
+  const p2p = orderOf({ category: "point_to_point", direction: null, flight_no: "JL5", flight_kind: "international", free_wait_minutes: 90, free_wait_basis: basis, pickup: { lng: 140.39, lat: 35.77, address: "成田机场" }, dropoff: { lng: 139.76, lat: 35.68, address: "东京站八重洲口" } });
+  const form = { name: "王小明", phone: "+819012345678", email: "guest@example.com", flightNo: "JL5", flightKind: "international" as const, pickupAddress: "成田机场", dropoffAddress: "东京站八重洲口", notes: "", passengers: "2", luggage: "1", date: "2026-11-20", time: "10:00" };
+  assert.deepEqual(changeRequestOf(p2p, form), {}, "没改");
+  assert.deepEqual(changeRequestOf(p2p, { ...form, flightKind: "domestic" }), { flight_kind: "domestic" });
+  assert.deepEqual(changeRequestOf(p2p, { ...form, flightNo: "" }), { flight_no: null }, "清空航班号：不再按航班定（建议 3）");
+  assert.deepEqual(changeRequestOf({ ...p2p, flight_no: null, flight_kind: null, free_wait_basis: null }, { ...form, flightNo: "JL5", flightKind: "" }), {}, "没带航班号的点对点照旧不提交航班号");
+
+  open({ pathname: "/book/order", hash: `#${TOKEN}` }, (call) => {
+    if (call.url.pathname === "/site/v1/config") return json(200, openConfig);
+    if (call.url.pathname === "/site/v1/order" && call.method === "GET") return json(200, envelopeOf(orderOf({ status: "assigned", flight_kind: "domestic", free_wait_minutes: 90, free_wait_basis: { ...basis, base: { mode: "limited", minutes: 75 } }, driver: { name: "佐藤一郎", languages: ["ja"], phone: null } })));
+    return null;
+  });
+  assert.ok(await screen.findByText("90 分钟（从航班落地起算） · 按派单时的国际航班锁定 90 分钟"), "客人派单后改成了国内航班：写明按派单时的国际航班锁定");
+  // 改单表单（建议 5）：选项提示按商品设的 75 算 max；已派车注明免费等待不再变化
+  await user().click(screen.getByRole("button", { name: "修改订单" }));
+  assert.ok(screen.getByRole("radio", { name: /^国际航班\s*落地后免费等待 90 分钟$/ }));
+  assert.ok(screen.getByRole("radio", { name: /^国内航班\s*落地后免费等待 75 分钟$/ }));
+  assert.ok(screen.getByText("已派车，免费等待不再变化"));
+});
+
 test("改单：只给改了的字段、带 If-Match；没改就说没有改动；改时间换成带时区的时刻", async () => {
-  assert.deepEqual(changeRequestOf(orderOf(), { name: "王小明", phone: "+819012345678", email: "guest@example.com", flightNo: "NH211", pickupAddress: "", dropoffAddress: "东京站八重洲口", notes: "", passengers: "2", luggage: "1", date: "2026-11-20", time: "10:00" }), {});
-  assert.deepEqual(changeRequestOf(orderOf(), { name: "王小明", phone: "+819012345678", email: "guest@example.com", flightNo: "NH211", pickupAddress: "", dropoffAddress: "东京站八重洲口", notes: "", passengers: "3", luggage: "1", date: "2026-11-20", time: "11:30" }), { passengers: 3, service_time: "2026-11-20T02:30:00.000Z" });
+  assert.deepEqual(changeRequestOf(orderOf(), { name: "王小明", phone: "+819012345678", email: "guest@example.com", flightNo: "NH211", flightKind: "", pickupAddress: "", dropoffAddress: "东京站八重洲口", notes: "", passengers: "2", luggage: "1", date: "2026-11-20", time: "10:00" }), {});
+  assert.deepEqual(changeRequestOf(orderOf(), { name: "王小明", phone: "+819012345678", email: "guest@example.com", flightNo: "NH211", flightKind: "international", pickupAddress: "", dropoffAddress: "东京站八重洲口", notes: "", passengers: "2", luggage: "1", date: "2026-11-20", time: "10:00" }), { flight_kind: "international" }, "接机改航班类型（M9E-28）");
+  assert.deepEqual(changeRequestOf(orderOf(), { name: "王小明", phone: "+819012345678", email: "guest@example.com", flightNo: "NH211", flightKind: "", pickupAddress: "", dropoffAddress: "东京站八重洲口", notes: "", passengers: "3", luggage: "1", date: "2026-11-20", time: "11:30" }), { passengers: 3, service_time: "2026-11-20T02:30:00.000Z" });
   const calls = open({ pathname: "/book/order", hash: `#${TOKEN}` }, (call) => {
     if (call.url.pathname === "/site/v1/config") return json(200, openConfig);
     if (call.url.pathname === "/site/v1/order" && call.method === "GET") return json(200, envelopeOf());
@@ -683,7 +709,7 @@ test("订单页（M9W-03）：包车有经停点时「经停点」按顺序写�
   );
   const trip = (await screen.findByRole("heading", { name: "行程" })).closest("section") as HTMLElement;
   const list = within(factValue(trip, "经停点") as HTMLElement).getByRole("list", { name: "包车行程" });
-  assert.deepEqual([...list.querySelectorAll("li")].map((item) => item.textContent), ["上车京王广场酒店", "经停 1五合目停留 1 小时", "经停 2河口湖停留 30 分钟", "下车新宿站"]);
+  assert.deepEqual([...list.querySelectorAll("li")].map((item) => item.textContent), ["1 上车京王广场酒店", "2 经停五合目停留 1 小时", "3 经停河口湖停留 30 分钟", "4 下车新宿站"]);
   assert.ok(within(trip).getByText("全程约 254 公里，预计 7 小时 30 分（含停留）"));
   // 官网订单应答没有对外价明细（只有报价时有）：总价下面只写可能加收的提示，只有一个价格
   assert.equal(factValue(trip, "总价")?.querySelector(".price-breakdown__row"), null);
@@ -728,7 +754,7 @@ test("订单页（M9W-04）：包车按行程计价的单，总价下面列下�
   const rows = [...within(total).getByLabelText("价格明细").querySelectorAll(".price-breakdown__row")].map((row) => [row.querySelector("dt")?.textContent, row.querySelector("dd")?.textContent]);
   assert.deepEqual(rows, [
     ["包车套餐 10 小时", "60,500 JPY"],
-    ["行程加价（富士山地区，第 1 个经停点）", "11,000 JPY"],
+    ["行程加价（富士山地区，2 · 经停）", "11,000 JPY"],
     ["超公里费", "19,800 JPY"],
   ]);
   // M8-43：超时费 0 不列（以前列「超时费 0 JPY」）；超公里费不是 0 照旧列

@@ -154,10 +154,15 @@ export interface CharterItineraryRules {
   warnMinutes: number;
   /** 超限提醒（公里，规格步骤 5，M9P-10）：全程超过它时提醒，仍可下单。默认 360 */
   warnKm: number;
+  /**
+   * 经停顺序建议（M9P-20 P2，ADR 0096 第六节）：客人填 2 个以上经停时，提示更省路程的顺序。默认开。
+   * 关 = 这个商品的报价卡片不显示建议价；匹配到的商品全关时不调谷歌优化。关了不影响按客人排的任何顺序报价。
+   */
+  suggestStopOrder: boolean;
 }
 
 /** 默认值：下车点行程加价开；T 的三项是 0 / 0 / 不限（行为不变，ADR 0091：不取业主建议值）；在线下单上限 13 小时；超限提醒 12 小时 / 360 公里（只提醒，不影响价格） */
-export const DEFAULT_CHARTER_ITINERARY: Readonly<CharterItineraryRules> = { dropoffItinerarySurcharge: true, stopOccupancyMinutes: 0, bufferMinutes: 0, minPackageHours: null, maxOnlineMinutes: 780, warnMinutes: 720, warnKm: 360 };
+export const DEFAULT_CHARTER_ITINERARY: Readonly<CharterItineraryRules> = { dropoffItinerarySurcharge: true, stopOccupancyMinutes: 0, bufferMinutes: 0, minPackageHours: null, maxOnlineMinutes: 780, warnMinutes: 720, warnKm: 360, suggestStopOrder: true };
 
 /** 业主建议值（ADR 0091 第二节第 1 小节）：只在页面上作灰色提示，不预填、不当默认值 */
 export const SUGGESTED_CHARTER_ITINERARY = { stopOccupancyMinutes: 15, bufferMinutes: 60, minPackageHours: 5 } as const;
@@ -206,10 +211,11 @@ export function freeWaitItems(category: ServiceCategory): FreeWaitItem[] {
 }
 
 /**
- * 平台统一的免等默认值（分钟），供应商只能设得更长：国际线 90、国内线 60、接站 30、其他 15、包车 0。
- * 这里给出某一项**最少**要设多少：
- * - 接机：机场只走国内线的是 60，只走国际线的是 90；两种都有或还没标明的按 60（报价时再按实际航班取 90 和供应商设的值里较大的）；
+ * 供应商保存服务规则时，免等每一项**最少**要设多少（分钟），按商品所在的接送点：
+ * - 接机：机场只走国际线的 90，其他（只走国内线、两种都有、没标明）60；
  * - 接站 30；送机 / 送站、点对点 15；包车 0。
+ * 这只是保存时的下限。接机客人实际得到的分钟数在下单时按航班定：国际航班 max(商品设的, 90)、国内航班 max(商品设的, 60)、
+ * 航班类型未确认按 max(商品设的, 60)（`lockArrivalFreeWait`，ADR 0097、M9E-28）。
  */
 export function minimumFreeWaitMinutes(category: ServiceCategory, item: FreeWaitItem, pickupPlace: { type: PlaceType; flightScope: FlightScope | null } | null): number {
   if (category === "charter") return 0;

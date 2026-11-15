@@ -32,7 +32,9 @@ import {
   areaSurchargeFor,
   areaRoleCanPrice,
   areaUsableByCategory,
+  isAirportPackageModel,
   isSurchargeRule,
+  scenarioEnd,
   adjustRuleNonPositivePrices,
   adjustRuleOverLimitPrices,
   applyAdjustRules,
@@ -59,6 +61,7 @@ import { type Db, withPlatformTx, withTenantTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
 import { assertNoCharterLayerOverlap } from "./charter-layers.ts";
 import { type AuditAction, type AuditValue, type AuditValues, insertAuditLog } from "../repos/audit-logs.ts";
+import { listCharterAirportBindings } from "../repos/charter-airports.ts";
 import {
   type Holiday,
   type ProductPriceOverview,
@@ -150,6 +153,8 @@ export interface PricingContext {
    * 接送机是空的。只在租户事务里取，看不到别的租户的区域。
    */
   tenantAreas: Map<string, { name: LocalizedText; bizType: AreaBizType; role: AreaRole; status: AreaStatus }>;
+  /** 包车机场绑定的机场区域 × 方向（M9P-21，ADR 0098）：机场套餐价只能挂在这些组合上；别的品类是空的 */
+  airportBindings: { areaId: string; direction: "pickup" | "dropoff" }[];
 }
 
 /** 选了运营区域时的说明（ADR 0075：运营区域只决定能不能接单、不带价格） */
@@ -172,6 +177,7 @@ export async function loadPricingContext(db: Db, tenantId: string, productId: st
     priceRules: await listPriceRules(db, tenantId, productId),
     adjustRules: await listAdjustRules(db, tenantId, productId),
     tenantAreas: surchargeModelsFor(product.category).length > 0 || product.category === "point_to_point" ? await listTenantAreaFacts(db, tenantId) : new Map(),
+    airportBindings: product.category === "charter" ? (await listCharterAirportBindings(db, tenantId, productId)).map((row) => ({ areaId: row.areaId, direction: scenarioEnd(row.scenario) })) : [],
   };
 }
 
@@ -248,8 +254,8 @@ function charterLayoutIssue(product: Pick<Product, "category" | "charterLayout">
   // 没改内容的（导出再导入原样带回来的旧行）不算写入
   if (product.category !== "charter" || (before !== null && samePriceRule(rule, before))) return null;
   if (!layeredCharter(product)) {
-    const newFormat = rule.pricing.model === "charter_itinerary_surcharge" || rule.areaId === null || (isSurchargeRule(rule) && rule.packageHours === null);
-    return newFormat ? { reason: "CHARTER_LAYOUT_NOT_MIGRATED", field: rule.pricing.model === "charter_itinerary_surcharge" ? "pricing_model" : rule.areaId === null ? "area_id" : "package_hours", message: "这个商品还没有迁移到三层区域：不能设行程加价、整商品套餐价或不分套餐的加价" } : null;
+    const newFormat = rule.pricing.model === "charter_itinerary_surcharge" || isAirportPackageModel(rule.pricing.model) || rule.areaId === null || (isSurchargeRule(rule) && rule.packageHours === null);
+    return newFormat ? { reason: "CHARTER_LAYOUT_NOT_MIGRATED", field: rule.pricing.model === "charter_itinerary_surcharge" || isAirportPackageModel(rule.pricing.model) ? "pricing_model" : rule.areaId === null ? "area_id" : "package_hours", message: "这个商品还没有迁移到三层区域：不能设行程加价、整商品套餐价或不分套餐的加价" } : null;
   }
   if (rule.pricing.model === "charter_package" && (rule.areaId !== null || (before !== null && before.areaId !== null))) {
     return { reason: "CHARTER_LEGACY_READ_ONLY", field: "area_id", message: "按服务区域的套餐价是迁移前的旧数据（只读）：套餐价请按车型组 × 套餐填一次（不选区域）" };
@@ -346,7 +352,14 @@ export function checkPriceChanges(context: PricingContext, changes: PriceChanges
       return;
     }
     issues.push(...inputIssues(priceRuleIssues(rule, { category: product.category, charterLayout: product.charterLayout }), at).map((issue) => ({ ...issue, detail: { ...issue.detail, ...who } })));
-    if (isSurchargeRule(rule)) issues.push(...surchargeAreaIssues(context, rule, at, before, who));
+    // 机场套餐价（ADR 0098 第三节第 3 小节）：区域是机场区域，不在商品区域里、业务类型和用途都不限，单独一支——只查本商品有没有这个区域 × 方向的机场绑定
+    const airport = isAirportPackageModel(rule.pricing.model);
+    if (airport) {
+      const unchanged = before !== null && before.areaId === rule.areaId && before.direction === rule.direction;
+      if (!unchanged && !context.airportBindings.some((binding) => binding.areaId === rule.areaId && binding.direction === rule.direction)) {
+        issues.push({ path: `${at}/area_id`, reason: "AIRPORT_BINDING_REQUIRED", message: "先在商品的「机场套餐」里绑定这个机场区域和场景，再设机场套餐价", detail: who });
+      }
+    } else if (isSurchargeRule(rule)) issues.push(...surchargeAreaIssues(context, rule, at, before, who));
     else if (rule.areaId !== null && !areas.has(rule.areaId) && before?.areaId !== rule.areaId) issues.push({ path: `${at}/area_id`, reason: "AREA_NOT_IN_PRODUCT", message: "只能给这个商品选了的区域设价格", detail: who });
     // 线路价的下车区域也要是这个商品选了的区域（ADR 0073 第二部分：两端都要在商品区域里）；修改时没换的不再查
     const toAreaId = rule.toAreaId ?? null;
@@ -354,7 +367,7 @@ export function checkPriceChanges(context: PricingContext, changes: PriceChanges
       issues.push({ path: `${at}/to_area_id`, reason: "AREA_NOT_IN_PRODUCT", message: "下车区域只能选这个商品选了的区域", detail: who });
     }
     // 价格只能挂在报价区域上（ADR 0075）：商品区域本来就不会是运营区域（改用途时拦了），这里按区域现在的用途再核对一遍
-    for (const [field, areaId, was] of [["area_id", isSurchargeRule(rule) ? null : rule.areaId, before?.areaId], ["to_area_id", toAreaId, before?.toAreaId ?? null]] as const) {
+    for (const [field, areaId, was] of [["area_id", isSurchargeRule(rule) || airport ? null : rule.areaId, before?.areaId], ["to_area_id", toAreaId, before?.toAreaId ?? null]] as const) {
       const role = areaId === null || areaId === was ? undefined : context.tenantAreas.get(areaId)?.role;
       if (role !== undefined && !areaRoleCanPrice(role)) issues.push({ path: `${at}/${field}`, reason: "AREA_ROLE_NOT_PRICING", message: AREA_ROLE_NOT_PRICING_MESSAGE, detail: who });
     }
@@ -454,7 +467,7 @@ function assertSurchargeAreasExist(context: PricingContext, changes: PriceChange
   // 点对点线路价的下车区域同样：不是本租户的区域按 404（别的品类填了下车区域是 400 NOT_APPLICABLE）
   if (context.product.category === "point_to_point" && rules.some((rule) => (rule.toAreaId ?? null) !== null && !context.tenantAreas.has(rule.toAreaId as string))) throw notFound("区域");
   if (surchargeModelsFor(context.product.category).length === 0) return;
-  if (rules.some((rule) => isSurchargeRule(rule) && rule.areaId !== null && !context.tenantAreas.has(rule.areaId))) throw notFound("区域");
+  if (rules.some((rule) => (isSurchargeRule(rule) || isAirportPackageModel(rule.pricing.model)) && rule.areaId !== null && !context.tenantAreas.has(rule.areaId))) throw notFound("区域");
 }
 
 /**

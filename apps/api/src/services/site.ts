@@ -12,6 +12,10 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
   type AirportMatch,
+  type TenantStatus,
+  type AirportScenarioKind,
+  type Position,
+  locatePoint,
   type SiteAudience,
   type LatLng,
   type RouteEstimate,
@@ -58,13 +62,14 @@ import {
 import type { AppContext } from "../context.ts";
 import { pendingHeldFetches } from "../repos/fx.ts";
 import { type PassengerCrypto, isPassengerDecryptFailure } from "../integrations/passenger-crypto.ts";
-import { passengerCryptoOfPool, withPlatformTx } from "../db/context.ts";
+import { type Db, passengerCryptoOfPool, withPlatformTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
 import { currentCancellationPolicy } from "../repos/cancellation-policies.ts";
 import { type Channel, findChannel } from "../repos/channels.ts";
 import { enqueueNotification } from "../repos/notifications.ts";
 import { listOrderEvents } from "../repos/orders.ts";
 import { findQuoteCity, findQuotePlace, loadCharterCityCandidates } from "../repos/quotes.ts";
+import { listPlacesWithTerminals } from "../repos/charter-airports.ts";
 import {
   type BookableRow,
   type OrderNames,
@@ -81,6 +86,7 @@ import {
   findVehicleGroups,
   insertSiteOrderLink,
   listBookableAirports,
+  type BookableCharterPackage,
   listBookableCharterPackages,
   listBookableCities,
   listCityPlaces,
@@ -95,7 +101,7 @@ import {
 } from "../repos/site.ts";
 import type { PlaceLookup, PlaceLookupOptions } from "./place-search.ts";
 import type { RoutePreview } from "./route-estimates.ts";
-import type { RouteMapRequest, RouteMapResult } from "./static-maps.ts";
+import type { ItineraryMapRequest, RouteMapRequest, RouteMapResult } from "./static-maps.ts";
 import { validationFailed } from "../validation.ts";
 import { notFound } from "./errors.ts";
 import { type SalesOrderInput, type SalesOrderPayment, type SalesOrderView, type OrderLog, SILENT_ORDER_LOG, createSiteOrder } from "./orders.ts";
@@ -134,12 +140,18 @@ function orderLinkEmailUnavailable(): AppError {
 
 const hashToken = (token: string): string => createHash("sha256").update(token, "utf8").digest("hex");
 /** 来源地址、订单号、邮箱不进限流表原文（和登录限速一样只存哈希）。 */
-const bucketOf = (kind: "ip" | "order" | "email", value: string): string => createHash("sha256").update(`site-${kind}:${value}`, "utf8").digest("hex");
+const bucketOf = (kind: "ip" | "order" | "email" | "session", value: string): string => createHash("sha256").update(`site-${kind}:${value}`, "utf8").digest("hex");
 
 /** 占用一次官网的限流额度；超限 429。计数单独一个事务先提交，后面出错回滚时这一次照样算数。 */
 export async function takeSiteSlot(ctx: AppContext, scope: Extract<SalesRateScope, `site_${string}`>, key: { ip: string }): Promise<void> {
   // 来源地址按限流键计（IPv6 按 /64，ADR 0045）
   const decision = await withPlatformTx(ctx.pool, (db) => takeRateSlot(db, bucketOf("ip", rateLimitKeyOf(key.ip)), scope, ctx.now()));
+  if (!decision.allowed) throw rateLimited(decision.retryAfterSeconds);
+}
+
+/** 按预订会话占一次额度（M9P-20 P2 经停顺序建议：会话 = 预订草稿编号或页面生成的标识，只存哈希）；不放行时 429。 */
+export async function takeSiteSessionSlot(ctx: AppContext, scope: Extract<SalesRateScope, `site_${string}`>, session: string): Promise<void> {
+  const decision = await withPlatformTx(ctx.pool, (db) => takeRateSlot(db, bucketOf("session", session), scope, ctx.now()));
   if (!decision.allowed) throw rateLimited(decision.retryAfterSeconds);
 }
 
@@ -183,6 +195,20 @@ export async function siteRouteMap(ctx: AppContext, request: RouteMapRequest): P
   const site = await loadSiteChannel(ctx);
   if (site === null || !site.open) return { ok: false, reason: "UNAVAILABLE", failure: { stage: "map", code: "SITE_NOT_OPEN" } };
   return ctx.routeMap.render(request);
+}
+
+/** 包车行程地图（M9P-20 P1，ADR 0096）：官网没开时不出图（和两点路线图一样，页面只显示行程列表）。 */
+export async function siteItineraryMap(ctx: AppContext, request: ItineraryMapRequest): Promise<RouteMapResult> {
+  const site = await loadSiteChannel(ctx);
+  if (site === null || !site.open) return { ok: false, reason: "UNAVAILABLE", failure: { stage: "map", code: "SITE_NOT_OPEN" } };
+  return ctx.routeMap.renderItinerary(request);
+}
+
+/** 包车行程逐段的约多少分钟、多少米（ADR 0096 第二节第 3 小节，只作展示）：官网没开、取不到为 null。 */
+export async function siteItineraryLegs(ctx: AppContext, points: LatLng[]): Promise<{ minutes: number; meters: number }[] | null> {
+  const site = await loadSiteChannel(ctx);
+  if (site === null || !site.open) return null;
+  return ctx.routeMap.itineraryLegs(points);
 }
 
 /** 订单相关的接口只要求配置了官网的客户端：停止接单不能让客人连自己的订单都看不到。 */
@@ -292,8 +318,95 @@ export async function siteCharterPackagesAt(ctx: AppContext, ends: { pickup: Lat
   const match = await charterCityFor(ctx, channel, audience, ends, null);
   const city = match.cities.find((entry) => entry.id === match.chosen?.cityId);
   if (city === undefined) return { city: null, hours: [] };
-  const rows = await withPlatformTx(ctx.pool, (db) => listBookableCharterPackages(db, city.id, instantToLocal(ctx.now(), city.timezone).date, listingOf(audience), match.productIds), { snapshot: true });
+  const today = instantToLocal(ctx.now(), city.timezone).date;
+  const rows = await withPlatformTx(
+    ctx.pool,
+    async (db) => [...(await listBookableCharterPackages(db, city.id, today, listingOf(audience), match.productIds)), ...(await airportPackageHoursAt(db, match.productIds, today, ends))],
+    { snapshot: true },
+  );
   return { city: quotedCityOf(city), hours: [...new Set(rows.filter((row) => sells(channel, row, audience)).map((row) => row.hours))].sort((a, b) => a - b) };
+}
+
+/**
+ * 只填了机场套餐价的档（M9P-21，ADR 0098 第三节第 4 小节第 3 步，#261 审查建议 6）：上车点在「机场开始」绑定的机场区域里、
+ * 或下车点在「机场结束」绑定的机场区域里时，这些商品在这个机场区域 × 方向上的机场套餐价时长也能选（普通套餐价没有这一档也算）。
+ */
+async function airportPackageHoursAt(db: Db, productIds: readonly string[], today: string, ends: { pickup: LatLng; dropoff: LatLng }): Promise<BookableCharterPackage[]> {
+  if (productIds.length === 0) return [];
+  const rows = await db.query<{ hours: number; tenant_id: string; tenant_status: TenantStatus; scenario: AirportScenarioKind; area_id: string }>(
+    `select distinct r.package_hours as hours, p.tenant_id, t.status as tenant_status, b.scenario, b.area_id
+       from charter_airport_bindings b
+       join products p on p.tenant_id = b.tenant_id and p.id = b.product_id and p.charter_layout = 'three_layer'
+       join tenants t on t.id = p.tenant_id
+       join areas a on a.tenant_id = b.tenant_id and a.id = b.area_id and a.status = 'active'
+       join places pl on pl.id = b.place_id and pl.status = 'active'
+       join price_rules r on r.tenant_id = b.tenant_id and r.product_id = b.product_id and r.area_id = b.area_id and r.pricing_model = 'charter_airport_package'
+                         and r.direction = case b.scenario when 'airport_start' then 'pickup' else 'dropoff' end
+      where b.product_id = any($1::uuid[]) and r.status = 'enabled' and (r.valid_to is null or r.valid_to >= $2::date)
+        -- 三项单价补得齐才列（自己填齐了，或同一车型组同一时长有普通套餐价可补；#261 审查建议 3）
+        and ((r.params ? 'packageKm' and r.params ? 'overKmPerKmMinor' and r.params ? 'overtimePerHourMinor')
+             or exists (select 1 from price_rules n
+                         where n.tenant_id = r.tenant_id and n.product_id = r.product_id and n.pricing_model = 'charter_package' and n.area_id is null
+                           and n.vehicle_group_id = r.vehicle_group_id and n.package_hours = r.package_hours and n.status = 'enabled'
+                           and (n.valid_to is null or n.valid_to >= $2::date)))`,
+    [productIds, today],
+  );
+  if (rows.rows.length === 0) return [];
+  const polygons = await db.query<{ area_id: string; id: string; kind: "operate" | "forbid"; geometry: { coordinates: Position[][] } }>("select area_id, id, kind, geometry from area_polygons where area_id = any($1::uuid[])", [[...new Set(rows.rows.map((row) => row.area_id))]]);
+  const inside = (areaId: string, point: LatLng): boolean =>
+    locatePoint(polygons.rows.filter((polygon) => polygon.area_id === areaId).map((polygon) => ({ id: polygon.id, kind: polygon.kind, ring: polygon.geometry.coordinates[0] ?? [] })), point).result === "operate";
+  return rows.rows.filter((row) => inside(row.area_id, row.scenario === "airport_start" ? ends.pickup : ends.dropoff)).map((row) => ({ hours: row.hours, tenantId: row.tenant_id, tenantStatus: row.tenant_status }));
+}
+
+/** 能报机场套餐的一个机场（M9P-21，ADR 0098 第三节第 7 小节）：快捷入口按它列航站楼 */
+export interface SiteCharterAirport {
+  id: string;
+  code: string;
+  name: string;
+  cityId: string;
+  /** 坐标落在机场区域里的启用航站楼；机场没有启用的航站楼时是机场本身一项 */
+  terminals: { id: string; code: string; name: LocalizedText; lng: number; lat: number }[];
+}
+
+/**
+ * 包车快捷入口「机场接机开始 / 机场送机结束」能选的机场（ADR 0098 第三节第 7 小节）：渠道授权范围里、渠道卖的、迁移过三层区域的包车商品
+ * 在这个场景下绑定的机场；只列坐标落在机场区域里的航站楼（区域停用、机场停用的不列）。几个商品绑了同一个机场时合并，名称取第一个。
+ */
+export async function siteCharterAirports(ctx: AppContext, scenario: AirportScenarioKind, audience: SiteAudience = "public"): Promise<SiteCharterAirport[]> {
+  const { channel } = await requireOpenSite(ctx);
+  return withPlatformTx(
+    ctx.pool,
+    async (db) => {
+      const sold = (await loadCharterCityCandidates(db, { cityIds: channel.scope.cityIds, listing: listingOf(audience) })).filter((candidate) => channelScopeRefusal(channel.scope, candidate.cityId, "charter") === null && sells(channel, candidate, audience));
+      if (sold.length === 0) return [];
+      const rows = await db.query<{ product_id: string; place_id: string; area_id: string; short_name_zh: string | null; city_id: string }>(
+        `select b.product_id, b.place_id, b.area_id, b.short_name_zh, p.city_id
+           from charter_airport_bindings b
+           join products p on p.tenant_id = b.tenant_id and p.id = b.product_id and p.charter_layout = 'three_layer'
+           join areas a on a.tenant_id = b.tenant_id and a.id = b.area_id and a.status = 'active'
+          where b.tenant_id = any($2::uuid[]) and b.product_id = any($1::uuid[]) and b.scenario = $3
+          order by p.city_id, b.product_id, b.position`,
+        [sold.map((candidate) => candidate.productId), [...new Set(sold.map((candidate) => candidate.tenantId))], scenario],
+      );
+      if (rows.rows.length === 0) return [];
+      const places = await listPlacesWithTerminals(db, rows.rows.map((row) => row.place_id));
+      const polygons = await db.query<{ area_id: string; id: string; kind: "operate" | "forbid"; geometry: { coordinates: Position[][] } }>("select area_id, id, kind, geometry from area_polygons where area_id = any($1::uuid[])", [[...new Set(rows.rows.map((row) => row.area_id))]]);
+      const found = new Map<string, SiteCharterAirport>();
+      for (const row of rows.rows) {
+        const place = places.get(row.place_id);
+        if (place === undefined || place.status !== "active") continue;
+        const shapes = polygons.rows.filter((polygon) => polygon.area_id === row.area_id).map((polygon) => ({ id: polygon.id, kind: polygon.kind, ring: polygon.geometry.coordinates[0] ?? [] }));
+        const inside = (point: { lng: number; lat: number }): boolean => locatePoint(shapes, point).result === "operate";
+        const active = place.terminals.filter((terminal) => terminal.status === "active");
+        const terminals = (active.length === 0 ? [place] : active).filter(inside).map((point) => ({ id: point.id, code: point.code, name: point.name, lng: point.lng, lat: point.lat }));
+        const known = found.get(place.id);
+        if (known === undefined) found.set(place.id, { id: place.id, code: place.code, name: row.short_name_zh ?? place.name.zh ?? place.name.ja ?? place.code, cityId: row.city_id, terminals });
+        else for (const terminal of terminals) if (!known.terminals.some((entry) => entry.id === terminal.id)) known.terminals.push(terminal);
+      }
+      return [...found.values()].filter((airport) => airport.terminals.length > 0);
+    },
+    { snapshot: true },
+  );
 }
 
 export interface SitePlace {
@@ -578,6 +691,11 @@ export interface SiteQuoteResult {
   /** 包车按行程计价时服务器算的路线（逐段、合计）；别的询价没有 */
   itinerary?: SiteItinerary;
   unavailable: SalesQuoteResult["unavailable"];
+  /**
+   * 询价日志编号（M9P-20 P2，ADR 0096 第三节第 1 小节）：包车按行程计价、一家都没报出、至少一家因超长（`ITINERARY_TOO_LONG`）报不出时才有。
+   * 只用来申请经停顺序建议，不能下单
+   */
+  inquiryRef?: string;
 }
 
 /** 包车按行程计价的路线（ADR 0088 补充）：逐段行驶（上车点 → 经停点 → 下车点）、行驶合计、停留合计、总时长、全程米数 */
@@ -603,7 +721,7 @@ export function itineraryRouteUnavailable(leg: number, reason: string): AppError
  * 逐段估路线（ADR 0042 的路线估算：同一对坐标有缓存、受每日上限）：全程米数 = 各段之和，总时长 = 各段行驶分钟 + 各经停点停留分钟。
  * 某一段取不到（没有路线、服务不可用、超时）→ 422 `ITINERARY_ROUTE_UNAVAILABLE`。全程、时长只由服务器算，不接受客户端的数字。
  */
-async function itineraryRoute(ctx: AppContext, trip: Extract<SiteTrip, { category: "charter_itinerary" }>): Promise<SiteItinerary> {
+export async function itineraryRoute(ctx: AppContext, trip: Extract<SiteTrip, { category: "charter_itinerary" }>): Promise<SiteItinerary> {
   const points: LatLng[] = [trip.pickup, ...trip.waypoints.map((stop) => ({ lat: stop.lat, lng: stop.lng })), trip.dropoff];
   const legs = await Promise.all(
     points.slice(1).map(async (to, index): Promise<RouteEstimate> => {
@@ -703,7 +821,7 @@ interface CharterCityMatch {
  * 上车点、下车点都落在它的①基础价区域或③上下车加价区域里（`charterMatches`）的，取它们的城市。
  * 匹配到几个城市时只取一个（`chooseCharterCity`：请求带的城市 → 上车点所在城市 → 编号最小），不逐城询价合并。
  */
-async function charterCityFor(ctx: AppContext, channel: Channel, audience: SiteAudience, ends: { pickup: LatLng; dropoff: LatLng }, requestedCityId: string | null): Promise<CharterCityMatch> {
+export async function charterCityFor(ctx: AppContext, channel: Channel, audience: SiteAudience, ends: { pickup: LatLng; dropoff: LatLng }, requestedCityId: string | null): Promise<CharterCityMatch> {
   return withPlatformTx(
     ctx.pool,
     async (db) => {
@@ -846,7 +964,8 @@ async function cityQuotes(ctx: AppContext, input: CityQuoteInput, logExtra: Reco
   });
   // 价低的在前：客人先看到最便宜的
   quotes.sort((a, b) => a.sellMinor - b.sellMinor || a.vehicleGroup.seats - b.vehicleGroup.seats);
-  return { currency: channel.settleCurrency, quotes, unavailable: result.unavailable };
+  const tooLong = trip.category === "charter" && (trip.waypoints?.length ?? 0) > 0 && quotes.length === 0 && result.unavailable.some((entry) => entry.reasons.includes("ITINERARY_TOO_LONG"));
+  return { currency: channel.settleCurrency, quotes, unavailable: result.unavailable, ...(tooLong && result.logId !== undefined ? { inquiryRef: result.logId } : {}) };
 }
 
 /** 按两个坐标报价的一端（M8-02，ADR 0069 A1）：坐标和地址搜索给的类型（手填、地图选点的为 null）。名称只用来校验，不进日志。 */

@@ -46,6 +46,7 @@ const PLATFORM_TABLES = [
   "fx_rates",
   "holidays",
   "integration_secrets",
+  "itinerary_route_polylines",
   "login_throttles",
   "manual_quote_request_events",
   "manual_quote_requests",
@@ -76,6 +77,8 @@ const PLATFORM_TABLES = [
   "quotes",
   "route_api_usage",
   "route_estimates",
+  "route_optimize_api_usage",
+  "route_order_suggestions",
   "sales_rate_limits",
   "schema_migrations",
   "site_lookup_failures",
@@ -107,6 +110,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     adjust_rules: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     // 计程价（M8-30，ADR 0080）：同价格规则
     distance_prices: ["DELETE", "INSERT", "SELECT", "UPDATE"],
+    // 包车机场绑定（M9P-21，ADR 0098）：供应商自己的配置，整组替换（先删后建）
+    charter_airport_bindings: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     // 区域：供应商自己的业务数据，可以真的删除（ADR 0015）
     area_polygons: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     areas: ["DELETE", "INSERT", "SELECT", "UPDATE"],
@@ -203,6 +208,7 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     // 报价用到的租户表对平台只读：比价要把所有供应商的商品放在一起算（ADR 0020）
     adjust_rules: ["SELECT"],
     distance_prices: ["SELECT"],
+    charter_airport_bindings: ["SELECT"],
     // 双人复核（ADR 0023）：发起、写结论；不删
     approvals: ["INSERT", "SELECT", "UPDATE"],
     area_polygons: ["SELECT"],
@@ -308,6 +314,11 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     // 官网路线小地图（ADR 0072）：图片缓存覆盖写、写入时顺手删过期的；每日调用计数只增改
     static_map_images: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     static_map_api_usage: ["INSERT", "SELECT", "UPDATE"],
+    // 包车行程地图（M9P-20，ADR 0096）：一次带中间点的折线缓存，覆盖写、写入时顺手删过期的
+    itinerary_route_polylines: ["DELETE", "INSERT", "SELECT", "UPDATE"],
+    // 包车经停顺序建议（M9P-20 P2，ADR 0096 第三节）：建议顺序缓存覆盖写、写入时顺手删过期的；优化调用的每日计数只增改
+    route_order_suggestions: ["DELETE", "INSERT", "SELECT", "UPDATE"],
+    route_optimize_api_usage: ["INSERT", "SELECT", "UPDATE"],
     // /sales/v1 的限流计数
     sales_rate_limits: ["INSERT", "SELECT", "UPDATE"],
     // 未覆盖需求（ADR 0075）：记录时新增、累加次数；保留期清理删 365 天以前的；限流窗口、「被限掉」计数同样增改、清理
@@ -392,7 +403,7 @@ const CROSS_TENANT_POLICIES: Readonly<Record<string, PolicyShape>> = {
   "product_vehicle_groups.product_vehicle_groups_platform_read": { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null },
   // 报价用到的租户表：平台只读（ADR 0020）
   // 调度人：运营后台只读查看商品（ADR 0021）
-  ...Object.fromEntries(["brands", "areas", "area_polygons", "product_areas", "price_rules", "adjust_rules", "distance_prices", "inventory_days", "product_dispatchers"].map((table) => [`${table}.${table}_platform_read`, { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null }])),
+  ...Object.fromEntries(["brands", "areas", "area_polygons", "product_areas", "price_rules", "adjust_rules", "distance_prices", "inventory_days", "product_dispatchers", "charter_airport_bindings"].map((table) => [`${table}.${table}_platform_read`, { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null }])),
   // 订单：销售端下单、支付回调、超时取消、运营后台查看（ADR 0026）
   "orders.orders_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
   "order_events.order_events_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },

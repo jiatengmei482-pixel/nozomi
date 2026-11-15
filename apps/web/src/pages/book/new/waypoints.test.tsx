@@ -7,7 +7,7 @@
  */
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { App } from "../../../App.tsx";
@@ -226,13 +226,18 @@ test("按行程计价：车型卡、右侧栏、核对页显示明细（套餐�
   const rows = [...within(card).getByLabelText("价格明细").querySelectorAll(".price-breakdown__row")].map((row) => [row.querySelector("dt")?.textContent, row.querySelector("dd")?.textContent]);
   assert.deepEqual(rows, [
     ["包车套餐 10 小时", "60,500 JPY"],
-    ["行程加价（富士山地区，第 1、2、3 个经停点）", "11,000 JPY"],
+    ["行程加价（富士山地区，2、3、4 · 经停）", "11,000 JPY"],
   ]);
   const schedule = screen.getByRole("list", { name: "行程" });
   assert.deepEqual(
     [...schedule.querySelectorAll("li")].map((item) => item.textContent),
-    ["上车京王广场酒店", "行驶约 2 小时经停 1五合目停留 1 小时", "行驶约 30 分钟经停 2河口湖停留 1 小时 30 分", "行驶约 10 分钟经停 3忠灵塔停留 30 分钟", "行驶约 1 小时 50 分下车新宿站"],
+    ["1 上车京王广场酒店", "行驶约 2 小时 · 120 公里2 经停五合目停留 1 小时", "行驶约 30 分钟 · 20 公里3 经停河口湖停留 1 小时 30 分", "行驶约 10 分钟 · 4 公里4 经停忠灵塔停留 30 分钟", "行驶约 1 小时 50 分 · 110 公里5 下车新宿站"],
   );
+  // 行程地图（M9P-20）：5 个点按顺序，编号和列表一致；alt 写全程
+  const mapLoader = document.querySelector<HTMLImageElement>(".itinerary-map__loader") as HTMLImageElement;
+  assert.deepEqual(new URL(mapLoader.src, "http://localhost").searchParams.getAll("p"), ["35.690500,139.694800", "35.395000,138.733000", "35.498000,138.769000", "35.501000,138.801000", "35.689600,139.700600"]);
+  fireEvent.load(mapLoader);
+  await waitFor(() => assert.equal(document.querySelector(".itinerary-map .route-map__image")?.getAttribute("alt"), "路线图：1 京王广场酒店 → 2 五合目 → 3 河口湖 → 4 忠灵塔 → 5 新宿站，约 7 小时 30 分 · 254 公里"));
   assert.ok(screen.getByText("价格按您填的经停点计算；当天临时去其他区域或超出预计可能会加收。"));
   // M9W-05：按行程计价时超公里已算进价格、用时超出套餐另收（M9P-04 改），「一口价包含」下面用按行程计价的那一句，不用不按行程计价的「超出套餐的时长和公里服务后按实际收取」
   const includes = screen.getByRole("heading", { name: "一口价包含" }).closest("section") as HTMLElement;
@@ -242,11 +247,11 @@ test("按行程计价：车型卡、右侧栏、核对页显示明细（套餐�
   await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
   const side = screen.getByRole("complementary", { name: "行程摘要" });
   const sideRows = [...within(side).getByLabelText("价格明细").querySelectorAll(".price-breakdown__row")].map((row) => row.textContent);
-  assert.deepEqual(sideRows, ["包车套餐 10 小时60,500 JPY", "行程加价（富士山地区，第 1、2、3 个经停点）11,000 JPY", "合计71,500 JPY"]);
+  assert.deepEqual(sideRows, ["包车套餐 10 小时60,500 JPY", "行程加价（富士山地区，2、3、4 · 经停）11,000 JPY", "合计71,500 JPY"]);
   const facts = [...side.querySelectorAll(".site-facts__item")].map((item) => item.querySelector("dt")?.textContent);
   assert.deepEqual(facts.slice(0, 6), ["用车类型", "上车地点", "经停点", "下车地点", "行程时长", "用车时间（当地时间）"]);
   assert.match(side.textContent ?? "", /包车 10 小时（按行程）/);
-  assert.match(side.textContent ?? "", /五合目（停留 1 小时）/);
+  assert.match(side.textContent ?? "", /2 五合目（停留 1 小时）/);
 
   await actor.click(screen.getByRole("button", { name: "下一步：填写乘客信息" }));
   await screen.findByRole("heading", { name: "乘客信息", level: 2 });
@@ -290,13 +295,13 @@ test("M8-43：明细里金额为 0 的超公里费 / 超时费不列，不是 0 
   await waitFor(() => assert.match(screen.getByRole("heading", { name: "车型1" }).closest("li")?.textContent ?? "", /74,500 JPY/), SLOW);
   const card = screen.getByRole("heading", { name: "车型1" }).closest("li") as HTMLElement;
   const rows = [...within(card).getByLabelText("价格明细").querySelectorAll(".price-breakdown__row")].map((row) => row.textContent);
-  assert.deepEqual(rows, ["包车套餐 10 小时60,500 JPY", "行程加价（富士山地区，第 1、2、3 个经停点）11,000 JPY", "超时费3,000 JPY"]);
+  assert.deepEqual(rows, ["包车套餐 10 小时60,500 JPY", "行程加价（富士山地区，2、3、4 · 经停）11,000 JPY", "超时费3,000 JPY"]);
   assertAbsent(within(card).queryByText("超公里费"));
 
   await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
   const side = screen.getByRole("complementary", { name: "行程摘要" });
   const sideRows = [...within(side).getByLabelText("价格明细").querySelectorAll(".price-breakdown__row")].map((row) => row.textContent);
-  assert.deepEqual(sideRows, ["包车套餐 10 小时60,500 JPY", "行程加价（富士山地区，第 1、2、3 个经停点）11,000 JPY", "超时费3,000 JPY", "合计74,500 JPY"]);
+  assert.deepEqual(sideRows, ["包车套餐 10 小时60,500 JPY", "行程加价（富士山地区，2、3、4 · 经停）11,000 JPY", "超时费3,000 JPY", "合计74,500 JPY"]);
 });
 
 test("经停点不在任何区域（WAYPOINT_NOT_PRICED）：指出第几个经停点和它的名字，转人工报价，不显示内部代码；人工报价带上经停点、不带之前选的时长（M9W-04）", async () => {
@@ -310,7 +315,7 @@ test("经停点不在任何区域（WAYPOINT_NOT_PRICED）：指出第几个经�
   await addStop(actor, "五合目", "60");
   await addStop(actor, "河口湖", "60");
   await actor.click(screen.getByRole("button", { name: "下一步：选择车型" }));
-  assert.ok(await screen.findByText("第 2 个经停点「河口湖」暂时没有在线报价，请联系客服人工报价，或去掉这个经停点再试。", {}, SLOW));
+  assert.ok(await screen.findByText("3 号点「河口湖」暂时没有在线报价，请联系客服人工报价，或去掉这个经停点再试。", {}, SLOW));
   assert.ok(screen.getByRole("heading", { name: "没有可预订的车" }));
   assert.equal(screen.getByRole("link", { name: "+81 3-1234-5678" }).getAttribute("href"), "tel:+81312345678");
   assert.doesNotMatch(document.body.textContent ?? "", /WAYPOINT_NOT_PRICED/);
@@ -335,7 +340,7 @@ test("M9W-10：经停点所在加价区域没设途经加价（对外同样是 W
   await addStop(actor, "五合目", "60");
   await addStop(actor, "河口湖", "60");
   await actor.click(screen.getByRole("button", { name: "下一步：选择车型" }));
-  assert.ok(await screen.findByText("第 1 个经停点「五合目」暂时没有在线报价，请联系客服人工报价，或去掉这个经停点再试。", {}, SLOW));
+  assert.ok(await screen.findByText("2 号点「五合目」暂时没有在线报价，请联系客服人工报价，或去掉这个经停点再试。", {}, SLOW));
   assert.ok(screen.getByText("这个行程暂时无法在线报价，请联系客服人工报价，或调整行程后再试。"));
   assertAbsent(screen.queryByText(/河口湖」暂时没有在线报价/));
   assert.equal(screen.getByRole("link", { name: "+81 3-1234-5678" }).getAttribute("href"), "tel:+81312345678");
@@ -351,7 +356,7 @@ test("按行程计价有一段路线算不出来（422 ITINERARY_ROUTE_UNAVAILAB
   await actor.click(screen.getByRole("button", { name: "上一步" }));
   await addStop(actor, "五合目", "60");
   await actor.click(screen.getByRole("button", { name: "下一步：选择车型" }));
-  assert.ok(await screen.findByText("「五合目」到「新宿站」这一段路线暂时算不出来，没有在线报价。请联系客服人工报价，或调整经停点再试。", {}, SLOW));
+  assert.ok(await screen.findByText("第 2 段（2「五合目」→ 3「新宿站」）路线暂时算不出来，没有在线报价。请联系客服人工报价，或调整经停点再试。", {}, SLOW));
   assert.ok(screen.getByRole("heading", { name: "没有在线报价" }));
   assertAbsent(screen.queryByRole("button", { name: "重试" }));
 });
@@ -454,7 +459,7 @@ test("M9P-04：两个车型自动档不同（用例 10：车型1 5 小时、车�
     const card = async (name: string): Promise<HTMLElement> => (await screen.findByRole("heading", { name }, SLOW)).closest("li") as HTMLElement;
     // 车型卡：套餐那一行下面是这个车型自己的预计用时
     assert.match((await card("车型1")).textContent ?? "", /包车套餐 5 小时预计用时 4 小时 12 分钟（含缓冲）33,000 JPY/);
-    assert.match((await card("车型1")).textContent ?? "", /行程加价（镰仓，第 1 个经停点）8,000 JPY/);
+    assert.match((await card("车型1")).textContent ?? "", /行程加价（镰仓，2 · 经停）8,000 JPY/);
     assert.match((await card("车型2")).textContent ?? "", /包车套餐 4 小时预计用时 4 小时（含缓冲）36,000 JPY/);
 
     // 选车型1：下拉按它的 5 小时，不列 4、5 小时；只是显示变了，请求体不变（不带 package_hours）

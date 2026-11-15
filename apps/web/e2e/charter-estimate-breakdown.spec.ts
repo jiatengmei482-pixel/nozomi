@@ -8,7 +8,7 @@
  *    - 经停点在基础价区域（用例 1 那样）：各段 6.8 公里、18 分钟，停留 30 分钟 → 预计用时 36 + 30 + 15 + 60 = 2 小时 21 分钟（含缓冲），自动 4 小时；
  *      明细只有套餐一行，下面写预计用时；下拉「自动（4 小时）」、能升 5 / 8 小时；
  *    - 经停点换成加价区域里的车站（用例 10 那样）：各段 50 公里、60 分钟 → 预计用时 120 + 30 + 75 = 3 小时 45 分钟，4 小时够时长但只含 80 公里
- *      （40,000 + 20 公里 × 400 = 48,000），5 小时 45,000 更便宜 → 自动 5 小时；明细「行程加价（加价区域，第 1 个经停点）」；下拉没有 4、5 小时。
+ *      （40,000 + 20 公里 × 400 = 48,000），5 小时 45,000 更便宜 → 自动 5 小时；明细「行程加价（加价区域，2 · 经停）」；下拉没有 4、5 小时。
  * 2. 不填经停点也逐项列明细（P0 验收后续 A）+ 规格用例 16 / 19 的页面部分：下车点在加价区域 → 套餐、下车加价、行程加价（下车点）；
  *    供应商在服务规则页关掉「下车点行程加价」（同时核对三个输入框：建议值灰字、不预填）→ 再询价只剩套餐、下车加价。
  * 每一步亮暗两色 axe 0；手机 390 宽不横向滚动、截图。
@@ -143,10 +143,10 @@ test("规格用例 1、10 的页面部分：明细套餐下面写预计用时（
   await expect(hours.locator("option")).toHaveText(["自动（5 小时）", "8 小时"]);
   await expect(hours.locator("option", { hasText: /^4 小时$/ })).toHaveCount(0);
   await page.getByRole("button", { name: "下一步：选择车型" }).click();
-  await expect(rows).toHaveText(["包车套餐 5 小时预计用时 3 小时 45 分钟（含缓冲）49,500 JPY", `行程加价（${trip.surchargeAreaName}，第 1 个经停点）8,800 JPY`]);
+  await expect(rows).toHaveText(["包车套餐 5 小时预计用时 3 小时 45 分钟（含缓冲）49,500 JPY", `行程加价（${trip.surchargeAreaName}，2 · 经停）8,800 JPY`]);
   await card.getByRole("button", { name: `选择 ${trip.groupName}` }).click();
   const aside = page.getByRole("complementary", { name: "行程摘要" });
-  await expect(aside.getByLabel("价格明细").locator(".price-breakdown__row")).toHaveText(["包车套餐 5 小时预计用时 3 小时 45 分钟（含缓冲）49,500 JPY", `行程加价（${trip.surchargeAreaName}，第 1 个经停点）8,800 JPY`, "合计58,300 JPY"]);
+  await expect(aside.getByLabel("价格明细").locator(".price-breakdown__row")).toHaveText(["包车套餐 5 小时预计用时 3 小时 45 分钟（含缓冲）49,500 JPY", `行程加价（${trip.surchargeAreaName}，2 · 经停）8,800 JPY`, "合计58,300 JPY"]);
   // 规则 4：没有结算价（套餐 45,000、行程加价 8,000、合计 53,000）
   await expect(page.locator("main")).not.toContainText(/45,000|53,000|(?<![\d,])8,000 JPY/);
   await expectBothThemes(page, "第 2 步（用例 10，自动 5 小时）");
@@ -212,8 +212,8 @@ test("不填经停点也逐项列明细（用例 16）；供应商在服务规�
   await page.getByRole("button", { name: "保存", exact: true }).click();
   const put = await saved;
   expect(put.status(), await put.text()).toBe(200);
-  expect((put.request().postDataJSON() as { charter_itinerary: unknown }).charter_itinerary).toEqual({ dropoff_itinerary_surcharge: false, stop_occupancy_minutes: 15, buffer_minutes: 60, min_package_hours: null, warn_minutes: 720, warn_km: 360 });
-  expect(((await put.json()) as { rules: { charter_itinerary: unknown } }).rules.charter_itinerary).toEqual({ dropoff_itinerary_surcharge: false, stop_occupancy_minutes: 15, buffer_minutes: 60, min_package_hours: null, max_online_minutes: 780, warn_minutes: 720, warn_km: 360 });
+  expect((put.request().postDataJSON() as { charter_itinerary: unknown }).charter_itinerary).toEqual({ dropoff_itinerary_surcharge: false, stop_occupancy_minutes: 15, buffer_minutes: 60, min_package_hours: null, warn_minutes: 720, warn_km: 360, suggest_stop_order: true });
+  expect(((await put.json()) as { rules: { charter_itinerary: unknown } }).rules.charter_itinerary).toEqual({ dropoff_itinerary_surcharge: false, stop_occupancy_minutes: 15, buffer_minutes: 60, min_package_hours: null, max_online_minutes: 780, warn_minutes: 720, warn_km: 360, suggest_stop_order: true });
 
   // 用例 19：关掉以后只收下车加价。报价用的商品目录缓存 30 秒（ADR 0020「改规则后 1 分钟内生效」），所以重新打开链接直到按新规则报价
   await expect(async () => {

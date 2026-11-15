@@ -724,8 +724,8 @@ test("包车经停点（M9W-03）：运营订单详情「经停点」按顺序�
   await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
   const list = (tripValue("经停点") as HTMLElement).querySelector("ol") as HTMLElement;
   assert.equal(list.getAttribute("aria-label"), "包车行程");
-  assert.deepEqual([...list.querySelectorAll("li")].map((item) => item.textContent), ["上车京王广场酒店", "经停 1五合目停留 1 小时", "下车新宿站"]);
-  assert.deepEqual([...(tripValue("区域加价")?.querySelectorAll(".details__lines > span") ?? [])].map((line) => line.textContent), ["上车：在服务区域里，不加价", "下车：在服务区域里，不加价", "经停（第 1 个经停点）：富士山地区 · 对外 11,000 JPY / 结算 10,000 JPY"]);
+  assert.deepEqual([...list.querySelectorAll("li")].map((item) => item.textContent), ["1 上车京王广场酒店", "2 经停五合目停留 1 小时", "3 下车新宿站"]);
+  assert.deepEqual([...(tripValue("区域加价")?.querySelectorAll(".details__lines > span") ?? [])].map((line) => line.textContent), ["上车：在服务区域里，不加价", "下车：在服务区域里，不加价", "经停（2 号点）：富士山地区 · 对外 11,000 JPY / 结算 10,000 JPY"]);
 });
 
 test("包车按行程计价（M9W-04）：运营订单详情「超公里 / 超时」写全程、套餐含量、超出量 × 结算单价 = 结算金额；没按行程计价的单不出这一项", async () => {
