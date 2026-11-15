@@ -33,7 +33,12 @@ export type ItineraryTextKey =
   | "suggestAdopted"
   | "suggestRestored"
   | "suggestPrice"
-  | "suggestRegion";
+  | "suggestRegion"
+  | "optimizeTitle"
+  | "optimizeIntro"
+  | "optimizeCalls"
+  | "optimizeLimit"
+  | "optimizeRefused";
 
 const ZH: Readonly<Record<ItineraryTextKey, string>> = {
   pickup: "上车",
@@ -64,6 +69,11 @@ const ZH: Readonly<Record<ItineraryTextKey, string>> = {
   suggestRestored: "已恢复原来的顺序",
   suggestPrice: "{vehicle} {price}",
   suggestRegion: "经停顺序建议",
+  optimizeTitle: "经停顺序建议（谷歌地图）",
+  optimizeIntro: "包车客人填 2 个以上经停时，用谷歌地图算更省路程的顺序（按调用次数计费，比路线预估贵一倍）。同一组经停 24 小时内不再调用；次数按东京时间每天 0 点重新计。",
+  optimizeCalls: "今天的调用（{day}）",
+  optimizeLimit: "{calls} / {limit} 次（含重试）",
+  optimizeRefused: "今天被上限挡下",
 };
 
 export const ITINERARY_TEXTS: Readonly<Record<ItineraryLang, Partial<Record<ItineraryTextKey, string>>>> = { zh: ZH, ja: {}, en: {} };

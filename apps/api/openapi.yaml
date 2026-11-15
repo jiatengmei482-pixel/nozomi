@@ -1678,7 +1678,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ items, fx_center, routes, static_maps ]
+                required: [ items, fx_center, routes, static_maps, routes_optimize ]
                 properties:
                   items:
                     type: array
@@ -1746,6 +1746,42 @@ paths:
                     description: |
                       官网路线小地图（谷歌 Maps Static API，ADR 0072）的运行状态，口径同 `routes`、单独计数：今天的调用次数、每日上限（`GOOGLE_STATIC_MAPS_DAILY_LIMIT`）、是否已到上限、
                       失败和被上限挡下的次数，最近一次成功、最近一次失败（原因代码同 domain 的 `STATIC_MAP_FAILURE_CODES`，如 `API_NOT_ENABLED` 表示谷歌云项目没开通 Maps Static API）。不含密钥和谷歌返回的原文。
+                    additionalProperties: false
+                    required: [ day, calls, daily_limit, daily_limit_reached, failures, refused, last_success_at, last_failure ]
+                    properties:
+                      day:
+                        type: string
+                        format: date
+                      calls:
+                        type: integer
+                      daily_limit:
+                        type: integer
+                      daily_limit_reached:
+                        type: boolean
+                      failures:
+                        type: integer
+                      refused:
+                        type: integer
+                      last_success_at:
+                        type: [ string, "null" ]
+                        format: date-time
+                      last_failure:
+                        type: [ object, "null" ]
+                        additionalProperties: false
+                        required: [ code, message, at ]
+                        properties:
+                          code:
+                            type: string
+                          message:
+                            type: [ string, "null" ]
+                          at:
+                            type: string
+                            format: date-time
+                  routes_optimize:
+                    type: object
+                    description: |
+                      包车经停顺序建议的优化调用（谷歌 Routes `optimizeWaypointOrder`，Compute Routes Pro，M9P-20 P2，ADR 0096 第三节第 2 小节）的运行状态，口径同 `routes`、单独计数：
+                      今天的调用次数（每段一次、重试各算一次）、每日上限（`GOOGLE_ROUTES_OPTIMIZE_DAILY_LIMIT`，默认 150）、是否已到上限、失败和被上限挡下的次数，最近一次成功、最近一次失败。
                     additionalProperties: false
                     required: [ day, calls, daily_limit, daily_limit_reached, failures, refused, last_success_at, last_failure ]
                     properties:
