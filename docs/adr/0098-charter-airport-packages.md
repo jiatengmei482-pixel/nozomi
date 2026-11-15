@@ -142,7 +142,7 @@
 
 - 结算价明细加可选键 `charterScenario: { kind: "airport_start" | "airport_end", placeId, areaId, pricing: "own" | "inherit", priceRuleId: string | null, shortName: string | null }`（`own` 时 `priceRuleId` 是机场套餐价那一行；`inherit` 时为 null，套餐价规则照旧记在明细的 `priceRuleId`）。没有场景时**不出现这个键**（golden 不变）。
 - `areaSurcharge.pickup / dropoff` 和 `waypoints` 里 `fromDropoff` 那一项加可选键 `includedInPackage: true`（单独定价免掉的，金额 0）。不改已有键名（同 ADR 0093「明细逐项」的理由）。
-- 对外 `price_breakdown` 的套餐项加可选 `scenario`（kind、`airport_id`）和中文 `label`（第 5 小节）；OpenAPI 同步。渠道 `/sales/v1` 同口径。
+- 对外 `price_breakdown` 的套餐项加可选 `scenario`（`kind`、`airport_id`、`airport_name`），**不带拼好的中文 `label`**：场景名「成田机场接机 + 5 小时包车」由前端用 i18n key（第 5 小节）拼（M9P-21 实现定稿，#261 审查建议 4）；OpenAPI 同步。渠道 `/sales/v1` 同口径。供应商 / 运营订单详情的包车区域加价另带 `charter_scenario`（`kind`、`airport_id`、`airport_name`、`pricing`）和免掉那一项的 `included_in_package: true`。
 - 快照（含 `charterScenario`）就是订单记录场景的地方，**订单表不加列**。供应商、运营订单详情、司机行程页、客人订单页的套餐行按快照显示场景名。
 - **改期**（M9P-16 锁加价）：加价照锁定（单独定价免掉的项锁的是 0）；套餐价按快照里的场景现算——快照有 `charterScenario.pricing = "own"` 时强制找同一机场区域 × 方向 × 车型组 × H 的机场套餐价，找不到（供应商删了）就报不出、按现有改期报不出流程转人工；不重新匹配场景、不退回普通价（否则锁定的 0 加价 + 普通价会少收）。`inherit` 照普通套餐价现算。
 - **救援**：照 M9P-16——客人价锁定，候选按现行规则报价（候选商品有自己的机场套餐就用，没有就普通 + 加价），原供应商扣款基准不变。
@@ -152,7 +152,7 @@
 
 - 前台名称**自动生成**：机场开始「{机场名}接机 + {H} 小时包车」；机场结束「{H} 小时包车 + {机场名}送机」。
 - {机场名}：绑定上填了中文简称 `short_name_zh` 就用它（如「成田机场」——业主验收用例「成田机场接机 + 5 小时包车」按原文显示，审查必改第 5 条）；没填用主数据机场的中文名（`places.name.zh`，如「成田国际机场」），主数据没有中文名时用日文名（Q7）。简称只有中文，日文 / 英文在 M11 用主数据的对应语言名。
-- i18n key（新文案只做中文，M11-01）：`charter.scenario.airportStart`（`{airport}接机 + {hours} 小时包车`）、`charter.scenario.airportEnd`（`{hours} 小时包车 + {airport}送机`）、`book.charter.quickAirportStart`（「机场接机开始」）、`book.charter.quickAirportEnd`（「机场送机结束」）、`book.charter.pickTerminal`（「选择航站楼」）、`book.charter.quickExit`（「改填其他地点」）、`book.notes.flightHint`（「如需司机知道航班号，请填在这里」）、`book.charter.airportTimingHint`（「包车从预约的上车时间开始计时，没有免费等待；航班可能延误时请预留时间，或下单前联系客服」）、`tenant.charterAirport.*`（后台的表头、空格灰字、标黄提示、校验提示）。M11-01 的 i18n 模块在 #258 合并前还没有：实现时先用它；若 M9P-22 开工时仍未合并，在 `apps/web/src/lib` 放一个只含中文的同名 key 表，M11 时并入。后端 `label` 只出中文（对外接口现有文案都是中文），M11 时按语言出。
+- i18n key（新文案只做中文，M11-01）：`charter.scenario.airportStart`（`{airport}接机 + {hours} 小时包车`）、`charter.scenario.airportEnd`（`{hours} 小时包车 + {airport}送机`）、`book.charter.quickAirportStart`（「机场接机开始」）、`book.charter.quickAirportEnd`（「机场送机结束」）、`book.charter.pickTerminal`（「选择航站楼」）、`book.charter.quickExit`（「改填其他地点」）、`book.notes.flightHint`（「如需司机知道航班号，请填在这里」）、`book.charter.airportTimingHint`（「包车从预约的上车时间开始计时，没有免费等待；航班可能延误时请预留时间，或下单前联系客服」）、`tenant.charterAirport.*`（后台的表头、空格灰字、标黄提示、校验提示）。M11-01 的 i18n 模块在 #258 合并前还没有：实现时先用它；若 M9P-22 开工时仍未合并，在 `apps/web/src/lib` 放一个只含中文的同名 key 表，M11 时并入。后端只给结构化的 `airport_name`（中文简称或主数据中文名），不出拼好的文案；文案只在前端的 i18n key 里，M11 时按语言出。
 
 ### 6. 航班号、免费等待、航班延误
 
@@ -166,7 +166,7 @@
 
 - **快捷入口**：包车模式在上车点上方两个按钮「机场接机开始」「机场送机结束」。点了以后上车点（或下车点）变成「选择航站楼」下拉：按机场分组、列出航站楼（`places` 里机场的子节点 `terminal`；机场没有航站楼的列机场本身）；只列**能报机场套餐的机场**，并且**只列坐标落在机场区域里的航站楼**（新接口 `GET /site/v1/charter-airports?scenario=airport_start|airport_end`：渠道范围里已上架、迁移过三层区域的包车商品的绑定机场，按城市分组，坐标取航站楼 / 机场的主数据坐标，审查必改第 4 条）。旁边「改填其他地点」退出快捷入口，回到普通地址输入。
 - **不走快捷入口**直接输入机场或航站楼地址：引擎按几何自动匹配，页面不需要额外判断（需求文档「也要自动匹配」）。
-- 价格明细套餐行显示场景名（`price_breakdown` 套餐项的 `label`）；单独定价时不出现免掉的那几行，继承时照常显示「上车加价（成田机场）」。
+- 价格明细套餐行显示场景名（前端按 `price_breakdown` 套餐项的 `scenario` 和套餐时长，用 `charter.scenario.*` 拼）；单独定价时不出现免掉的那几行，继承时照常显示「上车加价（成田机场）」。
 - 套餐时长下拉、自动选档、经停、地图（M9P-20）全部不变；快捷入口选的航站楼在地图上照起点 / 终点显示。
 - **嵌入页**：预订页（ADR 0095，`booking-shell`）和主站共用组件，快捷入口、提示、明细一起生效；入口小程序（widget）这次不加快捷入口（Q9）。
 
@@ -228,7 +228,7 @@ create table charter_airport_bindings (
   4. `packageHoursFor`：可选时长加上机场套餐价的时长。
 - **和 M9P-10（D，超限提醒）**：总价提醒的基准「12 小时套餐价 × 1.5」用**普通套餐价**，提醒函数不用知道场景；T 和距离不受场景影响。
 - **和 M9P-20（A，地图 / 经停顺序）**：没有冲突，场景只看上 / 下车点。
-- API：`GET/PUT /tenant/v1/products/{id}/charter-airports`、`GET /platform/v1/products/{id}/charter-airports`、`GET /site/v1/charter-airports`；价格规则接口接受新价格方式（`direction` 必填、`package_price` 必填、其余三项可空）；`price_breakdown` 套餐项可选 `scenario`、`label`；OpenAPI 同步。
+- API：`GET/PUT /tenant/v1/products/{id}/charter-airports`、`GET /platform/v1/products/{id}/charter-airports`、`GET /site/v1/charter-airports`；价格规则接口接受新价格方式（`direction` 必填、`package_price` 必填、其余三项可空）；`price_breakdown` 套餐项可选 `scenario`（结构化，不带 `label`）；OpenAPI 同步。
 
 ## 六、验收标准
 
