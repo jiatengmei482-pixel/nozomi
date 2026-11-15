@@ -74,7 +74,7 @@ export interface PriceContext {
 
 export const FIELD_NAMES: Readonly<Record<PriceField, string>> = { base: "基础价", startKm: "起步里程", startMin: "起步时长", perKm: "超出每公里", perMin: "超出每分钟", min: "最低消费", pkgKm: "套餐公里", pkgPrice: "套餐价", overHour: "超时每小时", overKm: "超公里每公里", inclKm: "含公里数", kmPrice: "超出每公里" };
 /** 每种计价方式用到哪几格（按表格里从左到右）。 */
-export const MODEL_FIELDS: Readonly<Record<PricingModel, readonly PriceField[]>> = { fixed: ["base"], mileage_time: ["base", "startKm", "startMin", "perKm", "perMin", "min"], charter_package: ["pkgKm", "pkgPrice", "overHour", "overKm"], charter_area_surcharge: [], charter_itinerary_surcharge: [] };
+export const MODEL_FIELDS: Readonly<Record<PricingModel, readonly PriceField[]>> = { fixed: ["base"], mileage_time: ["base", "startKm", "startMin", "perKm", "perMin", "min"], charter_package: ["pkgKm", "pkgPrice", "overHour", "overKm"], charter_area_surcharge: [], charter_itinerary_surcharge: [], charter_airport_package: [] };
 const MONEY_FIELDS: readonly PriceField[] = ["base", "perKm", "perMin", "min", "pkgPrice", "overHour", "overKm"];
 /**
  * 点对点一口价可选的「含公里数」两格（ADR 0073 第二部分第 4 节）：要么都填、要么都不填，不在 MODEL_FIELDS 里（不是必填）。
@@ -501,6 +501,8 @@ export function pricingSentence(pricing: Pricing, packageHours: number | null, c
     return `${within}；超出的部分${over.join("、")}${pricing.minPriceMinor !== null ? `；最少收 ${money(pricing.minPriceMinor)}` : ""}。按预估的里程和时长报价，不按实际跑的结算。例：预估 ${kmText(pricing.startMeters + 10_000)} 公里、${pricing.startMinutes + 20} 分钟 = ${exactMoney(example, currency)}。`;
   }
   if (pricing.model === "charter_itinerary_surcharge") return `经停点在这个区域加 ${money(pricing.surchargeMinor)}，同一区域一单只加一次（报价时加进一口价）。`;
+  // 机场套餐价（M9P-21，ADR 0098）：价格页第四张表在 M9P-22 做；这里先给一句说明
+  if (pricing.model === "charter_airport_package") return `${packageHours ?? ""} 小时机场套餐 ${money(pricing.packagePriceMinor)}（已含这一端的机场加价；含公里、超时、超公里没填的同普通套餐）。`;
   if (pricing.model === "charter_area_surcharge") return `上车点在这个区域加 ${money(pricing.pickupSurchargeMinor)}，下车点在这个区域加 ${money(pricing.dropoffSurchargeMinor)}（报价时加进一口价）。`;
   const over = [pricing.overtimePerHourMinor === 0 ? "超时不另收" : `超时每小时 ${money(pricing.overtimePerHourMinor)}`, pricing.overKmPerKmMinor === 0 ? "超公里不另收" : `超公里每公里 ${money(pricing.overKmPerKmMinor)}`];
   return `${packageHours ?? ""} 小时、${pricing.packageKm} 公里以内 ${money(pricing.packagePriceMinor)}；${over.join("，")}（超出的部分服务结束后按实际结算，不足 1 小时、1 公里的按比例算）。`;

@@ -123,12 +123,12 @@ async function quote(pickup: Place, dropoff: Place): Promise<any> {
 const kinds = (entry: any): string[] => entry.price_breakdown.map((item: any) => item.kind);
 
 test("迁移 0520：价格方式的检查约束包含全部价格方式；机场套餐价要有区域和接机 / 送机方向、要有套餐时长", async () => {
-  const def = (await api.db.owner.query("select pg_get_constraintdef(oid) as def from pg_constraint where conname = 'price_rules_model_check'")).rows[0].def as string;
+  const def = (await api.db.owner.query("select pg_get_constraintdef(oid) as def from pg_constraint where conname = 'price_rules_model_check' and conrelid = 'price_rules'::regclass")).rows[0].def as string;
   for (const model of PRICING_MODELS) assert.ok(def.includes(`'${model}'`), `${model} 不在 price_rules_model_check 里：${def}`);
   const insert = (direction: string | null, hours: number | null) =>
     api.db.owner.query(
-      `insert into price_rules (tenant_id, product_id, area_id, vehicle_group_id, direction, package_hours, pricing_model, params, valid_from, status, version, created_at, updated_at)
-       values ($1, $2, $3, $4, $5, $6, 'charter_airport_package', '{"packagePriceMinor": 45000}', '2026-01-01', 'enabled', 1, now(), now())`,
+      `insert into price_rules (tenant_id, product_id, area_id, vehicle_group_id, direction, package_hours, pricing_model, params, valid_from, status, created_at, updated_at)
+       values ($1, $2, $3, $4, $5, $6, 'charter_airport_package', '{"packagePriceMinor": 45000}', '2026-01-01', 'enabled', now(), now())`,
       [m.b.tenantId, charter.id, charter.airport, m.ids.biz7, direction, hours],
     );
   await assert.rejects(insert(null, 5), /price_rules_airport_package_shape/);
@@ -174,8 +174,11 @@ test("机场绑定保存成功（机场区域是接送机类型）：商品版�
   const read = await tenantCall(m.b, "GET", `/products/${charter.id}/charter-airports`);
   assertMatchesOpenApi("GET", "/tenant/v1/products/{id}/charter-airports", read);
   assert.equal(read.body.bindings.length, 2);
+  const platform = await api.call("GET", `/platform/v1/products/${charter.id}/charter-airports`, { token: m.root });
+  assertMatchesOpenApi("GET", "/platform/v1/products/{id}/charter-airports", platform);
+  assert.deepEqual(platform.body, read.body, "运营只读看到同一份");
   const seenByA = await withTenantTx(api.db.pool, m.a.tenantId, (db) => db.query("select count(*)::int as n from charter_airport_bindings"));
-  assert.equal(seenByA.rows[0].n, 0, "租户 A 的事务看不到 B 的绑定");
+  assert.equal(seenByA.rows[0]?.n, 0, "租户 A 的事务看不到 B 的绑定");
 });
 
 test("机场套餐价：没绑定的区域 × 方向不能建（AIRPORT_BINDING_REQUIRED）；绑定了就能建（区域不在商品区域里）", async () => {

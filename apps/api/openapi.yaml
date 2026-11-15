@@ -2592,6 +2592,25 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/products/{id}/charter-airports:
+    get:
+      tags: [ 商品 ]
+      operationId: getPlatformProductCharterAirports
+      summary: 包车机场套餐的机场绑定（运营只读）
+      description: 需要操作 `product.read`。M9P-21（ADR 0098 第三节第 8 小节）：任何一家的包车商品的机场绑定，内容同 `GET /tenant/v1/products/{id}/charter-airports`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 机场绑定
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CharterAirports"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
   /platform/v1/products/{id}:
     get:
       tags: [ 供应商商品（平台） ]

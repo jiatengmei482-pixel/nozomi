@@ -28,7 +28,7 @@ const bindingsSchema = z
   })
   .strict();
 
-function charterAirportsJson(view: CharterAirportsView) {
+export function charterAirportsJson(view: CharterAirportsView) {
   return {
     version: view.version,
     bindings: view.bindings.map((binding) => ({

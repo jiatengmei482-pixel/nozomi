@@ -25,7 +25,7 @@ alter table price_rules add constraint price_rules_package_matches_model check (
 );
 
 alter table price_rules add constraint price_rules_airport_package_shape check (
-  pricing_model <> 'charter_airport_package' or (area_id is not null and direction in ('pickup', 'dropoff'))
+  pricing_model <> 'charter_airport_package' or (area_id is not null and direction is not null and direction in ('pickup', 'dropoff'))
 );
 
 create table charter_airport_bindings (
