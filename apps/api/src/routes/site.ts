@@ -34,7 +34,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { CurrencyCode, LocalizedText, SellBreakdownItem } from "@nozomi/domain";
 import { z } from "zod";
-import { FX_CURRENCIES, MESSAGING_APPS, ORDER_FIELD_LIMITS, PLACE_KINDS, PRICE_LIMITS, QUOTE_RULES, SERVICE_CATEGORIES, ITINERARY_MAP_RULES, STATIC_MAP_RULES, STATIC_MAP_THEMES, type RouteMapReason, isGooglePlaceId, isPlaceSessionToken, normalizePlaceQuery, placeQueryIssue, viewLinkLookupEmail } from "@nozomi/domain";
+import { AIRPORT_SCENARIO_KINDS, FLIGHT_KINDS, FX_CURRENCIES, MESSAGING_APPS, ORDER_FIELD_LIMITS, PLACE_KINDS, PRICE_LIMITS, QUOTE_RULES, SERVICE_CATEGORIES, STATIC_MAP_RULES, STATIC_MAP_THEMES, type RouteMapReason, isGooglePlaceId, isPlaceSessionToken, normalizePlaceQuery, placeQueryIssue, viewLinkLookupEmail, ITINERARY_MAP_RULES } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { AppError } from "../errors.ts";
@@ -57,6 +57,7 @@ import {
   siteAirports,
   siteAutocomplete,
   siteCharterPackages,
+  siteCharterAirports,
   siteCharterPackagesAt,
   siteCities,
   siteConfig,
@@ -302,6 +303,7 @@ const orderSchema = z
     quote_id: z.string().regex(/^QT\d{8}[0-9A-Z]{10}$/, "不是报价编号的格式"),
     passenger: passengerInput(),
     flight_no: text(20),
+    flight_kind: z.enum(FLIGHT_KINDS).nullable().default(null),
     pickup_address: singleLineText(1_000),
     dropoff_address: singleLineText(1_000),
     messaging: z.object({ app: z.enum(MESSAGING_APPS), handle: z.string().max(200) }).strict().nullable().default(null),
@@ -336,7 +338,7 @@ function linkJson(link: SiteLink): Json {
 
 /** 对外价明细的每一项（报价和订单同一个格式）：金额是客人支付币种；加价区域给现在的名称 */
 function priceBreakdownJson(items: readonly SellBreakdownItem[], currency: CurrencyCode, areaNames: ReadonlyMap<string, LocalizedText>): Json[] {
-  return items.map((item) => ({ kind: item.kind, amount: salesMoney(item.amountMinor, currency), area_name: item.areaId === null ? null : (areaNames.get(item.areaId) ?? null), stop_seqs: item.stopSeqs ?? null, ...(item.fromDropoff === true ? { from_dropoff: true } : {}) }));
+  return items.map((item) => ({ kind: item.kind, amount: salesMoney(item.amountMinor, currency), area_name: item.areaId === null ? null : (areaNames.get(item.areaId) ?? null), stop_seqs: item.stopSeqs ?? null, ...(item.fromDropoff === true ? { from_dropoff: true } : {}), ...(item.scenario === undefined ? {} : { scenario: { kind: item.scenario.kind, airport_id: item.scenario.placeId, airport_name: item.scenario.name } }) }));
 }
 
 function quoteJson(quote: SiteQuote): Json {
@@ -550,6 +552,22 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
     return { city: quotedCityJson(found.city), items: found.hours.map((value) => ({ hours: value })) };
   });
 
+  /** 包车快捷入口能选的机场和航站楼（M9P-21，ADR 0098 第三节第 7 小节）：`?scenario=airport_start|airport_end` */
+  app.get("/site/v1/charter-airports", async (request) => {
+    await takeSiteSlot(ctx, "site_read", { ip: request.ip });
+    const input = parseInput(z.object({ scenario: z.enum(AIRPORT_SCENARIO_KINDS) }).strict(), request.query, "querystring");
+    const airports = await siteCharterAirports(ctx, input.scenario, await audience(request));
+    return {
+      items: airports.map((airport) => ({
+        id: airport.id,
+        code: airport.code,
+        name: airport.name,
+        city_id: airport.cityId,
+        terminals: airport.terminals.map((terminal) => ({ id: terminal.id, code: terminal.code, name: terminal.name, location: { lng: terminal.lng, lat: terminal.lat } })),
+      })),
+    };
+  });
+
   app.get("/site/v1/cities/:id/places", async (request) => {
     await takeSiteSlot(ctx, "site_read", { ip: request.ip });
     const places = await sitePlaces(ctx, resourceId(request.params, "城市"));
@@ -744,6 +762,7 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
         details: {
           passenger: input.passenger,
           flightNo: input.flight_no,
+          flightKind: input.flight_kind,
           pickupAddress: input.pickup_address,
           dropoffAddress: input.dropoff_address,
           messaging: input.messaging,

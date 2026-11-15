@@ -184,6 +184,7 @@ export function PlaceListPage() {
             { key: "category", header: "地标类型", cell: (row) => placeCategoryName(row.category) },
             { key: "city", header: "所属城市", cell: (row) => <CityCell place={row} cities={cities.state.data} /> },
             { key: "address", header: "地址", wrap: true, cell: (row) => row.address ?? "—" },
+            { key: "charterCoverage", header: "包车覆盖检查", cell: (row) => (row.charter_coverage ? <span className="tag">已放进</span> : "—") },
           ];
 
   const definition: ListDefinition<"places"> = {

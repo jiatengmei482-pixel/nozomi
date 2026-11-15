@@ -181,7 +181,10 @@ async function toReview(actor: ReturnType<typeof user>, flight: string | null = 
   await actor.type(screen.getByLabelText("乘车人姓名"), "王小明");
   await actor.type(screen.getByLabelText("邮箱"), "guest@example.com");
   await actor.type(screen.getByLabelText("手机号（含国家区号）"), "+86 138 0000 0000");
-  if (flight !== null) await actor.type(screen.getByLabelText("航班号"), flight);
+  if (flight !== null) {
+    await actor.type(screen.getByLabelText("航班号"), flight);
+    await actor.click(screen.getByRole("radio", { name: /^国际航班/ }));
+  }
   await next(actor, NEXT_REVIEW);
   await screen.findByRole("heading", { name: "核对订单" });
 }
@@ -541,24 +544,29 @@ test("手机触屏（M8-37 审查）：选择页开着时转屏换成页面输�
   assert.ok(await screen.findByRole("dialog", { name: "出发地" }), "还能再打开");
 });
 
-test("认出接机：时间标签变「航班落地时间（当地）」，提示「已识别为接机…落地后免费等待 N 分钟」N 取报价；第 3 步接机才有航班号（必填、查格式）和举牌姓名；送机没有", async () => {
+test("认出接机：时间标签变「航班落地时间（当地）」，提示免费等待按航班——没选航班类型时「国际线最长 max(N, 90) 分钟、国内线最长 max(N, 60) 分钟」（N 取报价，M9E-28）；第 3 步接机才有航班号（必填、查格式）、航班类型（必选）和举牌姓名；送机没有", async () => {
   wideScreen();
   let tripType: SiteByPointsResult["trip_type"] = "pickup";
   open({ quote: () => json(200, byPoints({ trip_type: tripType, quotes: [quoteOf(1, { freeWait: 75 })] })) });
   const actor = user();
   await fillTrip(actor);
-  assert.ok(await screen.findByText("已识别为接机：司机按航班落地时间等候，落地后免费等待 75 分钟", {}, SLOW));
+  assert.ok(await screen.findByText("已识别为接机：司机按航班落地时间等候，落地后免费等待：国际线最长 90 分钟、国内线最长 75 分钟", {}, SLOW));
   assert.ok(screen.getByLabelText("航班落地时间（当地）"));
   assert.ok(screen.getByText("东京的当地时间"));
   assertAbsent(screen.queryByLabelText("航班号"));
   await next(actor, NEXT_VEHICLES);
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
-  assert.ok(screen.getByText("航班落地后免费等待 75 分钟"));
+  assert.ok(screen.getByText("航班落地后免费等待：国际线最长 90 分钟、国内线最长 75 分钟"));
   await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
   await next(actor, NEXT_CONTACT);
   const flight = screen.getByLabelText("航班号");
+  // 航班类型两个选项各写这种航班免费等多久
+  assert.ok(screen.getByRole("radio", { name: /^国际航班\s*落地后免费等待 90 分钟$/ }));
+  assert.ok(screen.getByRole("radio", { name: /^国内航班\s*落地后免费等待 75 分钟$/ }));
   await next(actor, NEXT_REVIEW);
   assert.ok(screen.getByText("接机要填航班号，司机按航班落地时间等候"));
+  assert.ok(screen.getByText("请选择国际航班还是国内航班：国际航班免费等待更久"), "航班类型必选");
+  await actor.click(screen.getByRole("radio", { name: /^国内航班/ }));
   await actor.type(flight, "NH");
   await next(actor, NEXT_REVIEW);
   assert.ok(screen.getByText("航班号的格式不对，如 NH211、MU523"));
@@ -570,6 +578,9 @@ test("认出接机：时间标签变「航班落地时间（当地）」，提�
   await next(actor, NEXT_REVIEW);
   await screen.findByRole("heading", { name: "核对订单" });
   assert.ok(within(aside()).getByText("NH211"), "航班号进了右侧栏的乘客信息");
+  const review = screen.getByRole("region", { name: "核对订单" });
+  assert.ok(within(review).getByText("国内航班"), "核对写航班类型");
+  assert.ok(within(review).getByText("航班落地后 75 分钟"), "核对写选定航班类型的分钟数 max(75, 60)");
   assert.ok(within(aside()).getByText("ZHANG SAN"));
 
   // 回第 1 步换成送机（目的地是机场）：没有接机提示；第 3 步没有航班号、举牌姓名
@@ -874,7 +885,7 @@ test("一口价包含：接送写「含所有费用」、专车、免费等待�
   const calls = open({ at: "/book/new?from=35.772,140.3929&to=35.6905,139.6948&date=2030-11-20&time=14:30" });
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
   const includes = screen.getByRole("region", { name: "一口价包含" });
-  assert.deepEqual(within(includes).getAllByRole("listitem").map((item) => item.textContent), ["一口价已含所有费用（高速费、停车费等），无需另付", "专车专用，不拼车", "航班落地后免费等待 60 分钟"]);
+  assert.deepEqual(within(includes).getAllByRole("listitem").map((item) => item.textContent), ["一口价已含所有费用（高速费、停车费等），无需另付", "专车专用，不拼车", "航班落地后免费等待：国际线最长 90 分钟、国内线最长 60 分钟"]);
   assert.doesNotMatch(document.body.textContent ?? "", /跟踪航班|举牌/);
   void calls;
 
@@ -954,7 +965,7 @@ async function openSelected(options: Options = {}): Promise<{ calls: ApiCall[]; 
   return { calls, actor };
 }
 
-test("乘客信息和付款：第 3 步没填好时标红（姓名、手机、邮箱、即时通讯账号、接机的航班号）不往下走；第 4 步核对、修改回到对应步骤；没勾同意保存银行卡不下单；按现有下单接口下单（同一个幂等键、地址取行程里的名称、举牌姓名单独提交），然后进订单页", async () => {
+test("乘客信息和付款：第 3 步没填好时标红（姓名、手机、邮箱、即时通讯账号、接机的航班号和航班类型）不往下走；第 4 步核对、修改回到对应步骤；没勾同意保存银行卡不下单；按现有下单接口下单（同一个幂等键、地址取行程里的名称、举牌姓名单独提交），然后进订单页", async () => {
   let posted = 0;
   const { calls, actor } = await openSelected({
     order: () => {
@@ -966,7 +977,7 @@ test("乘客信息和付款：第 3 步没填好时标红（姓名、手机、�
   await actor.selectOptions(screen.getByLabelText("微信 / LINE / WhatsApp（选填）"), "line");
   await next(actor, NEXT_REVIEW);
   assert.ok(screen.getByText("有几项没有填好，请看标红的地方。"));
-  for (const text of ["请填写乘车人姓名", "请填写带国家码的手机号，如 +81 90-1234-5678、+86 138 0000 0000", "请填写正确的邮箱，订单确认和查看链接会发到这里", "选了即时通讯就要填账号", "接机要填航班号，司机按航班落地时间等候"]) assert.ok(screen.getByText(text), text);
+  for (const text of ["请填写乘车人姓名", "请填写带国家码的手机号，如 +81 90-1234-5678、+86 138 0000 0000", "请填写正确的邮箱，订单确认和查看链接会发到这里", "选了即时通讯就要填账号", "接机要填航班号，司机按航班落地时间等候", "请选择国际航班还是国内航班：国际航班免费等待更久"]) assert.ok(screen.getByText(text), text);
   assertAbsent(screen.queryByText("需要同意保存支付方式才能下单"));
   assert.equal(screen.getByLabelText("航班号").getAttribute("aria-invalid"), "true");
   assertAbsent(screen.queryByRole("heading", { name: "核对订单" }));
@@ -977,6 +988,7 @@ test("乘客信息和付款：第 3 步没填好时标红（姓名、手机、�
   await actor.type(screen.getByLabelText("即时通讯账号"), "wangxm");
   await actor.type(screen.getByLabelText("给司机的备注（选填）"), "两个大箱子");
   await actor.type(screen.getByLabelText("航班号"), "nh 211");
+  await actor.click(screen.getByRole("radio", { name: /^国际航班/ }));
   assert.equal((screen.getByLabelText("举牌姓名（选填）") as HTMLInputElement).value, "王小明", "为自己预订：举牌姓名默认是乘车人的名字");
   await actor.clear(screen.getByLabelText("举牌姓名（选填）"));
   await actor.type(screen.getByLabelText("举牌姓名（选填）"), "WANG XIAOMING");
@@ -1008,6 +1020,7 @@ test("乘客信息和付款：第 3 步没填好时标红（姓名、手机、�
     quote_id: "QT203011200000000001",
     passenger: { name: "王小明", phone: "+86 138 0000 0000", email: "guest@example.com" },
     flight_no: "nh 211",
+    flight_kind: "international",
     pickup_address: null,
     dropoff_address: "京王广场酒店",
     messaging: { app: "line", handle: "wangxm" },
@@ -1511,28 +1524,26 @@ test("旧链接 mode=airport / mode=p2p / mode=transfer 都落到「区间」；
   }
 });
 
-test("接机还没有报价时，免费等待按机场默认：国际线 90 分钟、国内线 60 分钟；都有、没标明的不写分钟数；有报价按所选商品自己设的（M8-33、M9E-27）", async () => {
-  for (const [scope, minutes] of [["international", 90], ["domestic", 60], ["mixed", null], [null, null]] as const) {
+test("接机还没选航班类型（没报价、判断不出，M9E-28 Q2）：不管机场标的是什么，都写「国际线最长 90 分钟、国内线最长 60 分钟」，不拿机场去猜", async () => {
+  for (const scope of ["international", "domestic", "mixed", null] as const) {
     cleanup();
     resetBrowser();
     wideScreen();
     open({ quote: () => json(200, byPoints({ airport: { id: AIRPORT_ID, code: "NRT", name: { zh: "成田国际机场" }, matched_by: "kind", distance_meters: 0, flight_scope: scope }, quotes: [], unavailable: [{ vehicle_group_id: null, reasons: ["NO_PRODUCT"] }] })) });
     await fillTrip(user());
     await screen.findByLabelText("航班落地时间（当地）", {}, SLOW);
-    if (minutes === null) {
-      await waitFor(() => assert.ok(screen.getByText("已识别为接机：司机按航班落地时间等候")), SLOW);
-      assertAbsent(screen.queryByText(/落地后免费等待/));
-    } else assert.ok(await screen.findByText(`已识别为接机：司机按航班落地时间等候，落地后免费等待 ${minutes} 分钟`, {}, SLOW), `flight_scope=${scope}`);
+    assert.ok(await screen.findByText("已识别为接机：司机按航班落地时间等候，落地后免费等待：国际线最长 90 分钟、国内线最长 60 分钟", {}, SLOW), `flight_scope=${scope}`);
+    assertAbsent(screen.queryByText(/落地后免费等待 \d+ 分钟/));
   }
 });
 
-test("接机还没报价（只选了机场，没填目的地、时间）时提示里不写分钟数，不拿 60 去猜；报出价后按报价；改时间重新报价的空档里仍按刚才认出的国际线机场 90（M9E-27）", async () => {
+test("接机免费等待按航班定（M9E-28）：只选了机场、还没报价写平台下限 90 / 60；报价后按 max(商品, 下限)；第 3 步选了航班类型后第 1、2 步都按那一种的分钟数；改选国内航班跟着变；改时间重新报价的空档里不变成别的数", async () => {
   wideScreen();
   let release: (() => void) | null = null;
   let hold = false;
   open({
     quote: () => {
-      const answer = json(200, byPoints({ quotes: [quoteOf(1, { freeWait: 90 })] }));
+      const answer = json(200, byPoints({ quotes: [quoteOf(1, { freeWait: 75 })] }));
       if (!hold) return answer;
       return new Promise<Response>((resolve) => (release = () => resolve(answer)));
     },
@@ -1540,21 +1551,28 @@ test("接机还没报价（只选了机场，没填目的地、时间）时提�
   const actor = user();
   await screen.findByRole("heading", { name: "你的行程" });
   await pickPlace(actor, "出发地", "成田", /成田国际机场/);
-  assert.ok(await screen.findByText("已识别为接机：司机按航班落地时间等候", {}, SLOW), "只选了机场：认出接机");
-  assertAbsent(screen.queryByText(/免费等待/));
+  assert.ok(await screen.findByText("已识别为接机：司机按航班落地时间等候，落地后免费等待：国际线最长 90 分钟、国内线最长 60 分钟", {}, SLOW), "只选了机场：平台下限");
   await pickPlace(actor, "目的地", "京王", /京王广场酒店/);
   const date = screen.getByLabelText("日期（当地）") as HTMLInputElement;
   await actor.clear(date);
   await actor.type(date, "2030-11-20");
-  const time = screen.getByLabelText(/时间（当地）/);
-  await actor.type(time, "14:30");
-  assert.ok(await screen.findByText("已识别为接机：司机按航班落地时间等候，落地后免费等待 90 分钟", {}, SLOW));
+  await actor.type(screen.getByLabelText(/时间（当地）/), "14:30");
+  assert.ok(await screen.findByText("已识别为接机：司机按航班落地时间等候，落地后免费等待：国际线最长 90 分钟、国内线最长 75 分钟", {}, SLOW), "报价后：商品 75，国际 max(75, 90)、国内 max(75, 60)");
+  await next(actor, NEXT_VEHICLES);
+  await screen.findByRole("heading", { name: "车型1" }, SLOW);
+  await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
+  await next(actor, NEXT_CONTACT);
+  await actor.click(screen.getByRole("radio", { name: /^国际航班/ }));
+  await actor.click(screen.getByRole("button", { name: "上一步" }));
+  assert.ok(screen.getByText("航班落地后免费等待 90 分钟"), "第 2 步「一口价包含」按国际航班");
+  await actor.click(screen.getByRole("button", { name: "上一步" }));
+  assert.ok(await screen.findByText("已识别为接机：司机按航班落地时间等候，落地后免费等待 90 分钟"));
   hold = true;
+  const time = screen.getByLabelText(/时间（当地）/);
   await actor.clear(time);
   await actor.type(time, "16:00");
   await waitFor(() => assert.notEqual(release, null), SLOW);
-  assert.ok(screen.getByText("已识别为接机：司机按航班落地时间等候，落地后免费等待 90 分钟"), "重新报价时不变成 60");
-  assertAbsent(screen.queryByText(/免费等待 60 分钟/));
+  assert.ok(screen.getByText("已识别为接机：司机按航班落地时间等候，落地后免费等待 90 分钟"), "重新报价的空档里仍按已选的国际航班");
   (release as (() => void) | null)?.();
 });
 
@@ -1590,7 +1608,7 @@ test("右侧栏四步一直在：第 1 步只有路线图和一句说明；之�
   assert.ok(await screen.findByRole("heading", { name: "核对订单" }));
 });
 
-test("接机改用点对点商品报的价（M8-33，fallback_category point_to_point）：页面照样要航班号、显示接机；下单按点对点——两端地址都提交，航班号写进备注最前面、不单独提交 flight_no", async () => {
+test("接机改用点对点商品报的价（M8-33，fallback_category point_to_point）：页面照样要航班号和航班类型、显示接机；下单按点对点——两端地址都提交，航班号、航班类型作为正式字段提交（按航班定免费等待，M9E-28 Q5），不再写进备注", async () => {
   const { calls, actor } = await openSelected({
     quote: () => json(200, byPoints({ fallback_category: "point_to_point" })),
     order: () => json(201, { order: {}, timeline: [], names: {}, payment: null, link: { token: `nzo_${"d".repeat(43)}`, expires_at: "2030-12-01T00:00:00.000Z" } }),
@@ -1601,14 +1619,16 @@ test("接机改用点对点商品报的价（M8-33，fallback_category point_to_
   await actor.type(screen.getByLabelText("手机号（含国家区号）"), "+86 138 0000 0000");
   await next(actor, NEXT_REVIEW);
   assert.ok(screen.getByText("接机要填航班号，司机按航班落地时间等候"), "仍按接机要航班号");
+  assert.ok(screen.getByText("请选择国际航班还是国内航班：国际航班免费等待更久"), "也要航班类型");
   await actor.type(screen.getByLabelText("航班号"), "NH211");
+  await actor.click(screen.getByRole("radio", { name: /^国内航班/ }));
   await next(actor, NEXT_REVIEW);
   await actor.click(screen.getByRole("checkbox", { name: /同意保存这次付款用的银行卡/ }));
   await actor.click(screen.getByRole("button", { name: "去付款 →" }));
   await waitFor(() => assert.equal(posts(calls, "/site/v1/orders").length, 1));
-  const body = posts(calls, "/site/v1/orders")[0]?.body as { flight_no: unknown; pickup_address: unknown; dropoff_address: unknown; notes: string; sign_name: unknown };
-  assert.deepEqual([body.flight_no, body.pickup_address, body.dropoff_address, body.sign_name], [null, "成田国际机场", "京王广场酒店", "王小明"]);
-  assert.equal(body.notes, "航班号：NH211", "航班号写进备注；举牌姓名是正式字段（M8-32）");
+  const body = posts(calls, "/site/v1/orders")[0]?.body as { flight_no: unknown; flight_kind: unknown; pickup_address: unknown; dropoff_address: unknown; notes: unknown; sign_name: unknown };
+  assert.deepEqual([body.flight_no, body.flight_kind, body.pickup_address, body.dropoff_address, body.sign_name], ["NH211", "domestic", "成田国际机场", "京王广场酒店", "王小明"]);
+  assert.equal(body.notes, null, "航班号不再写进备注；举牌姓名是正式字段（M8-32）");
 });
 
 test("页面宽度（M8-28）：/site/v1/config 的 page_width 写到官网外壳的 data-width 上；没有这一项时按标准", async () => {
@@ -1631,6 +1651,7 @@ test("为他人预订：多出乘车人姓名和电话 / WhatsApp（必填），
   await actor.type(screen.getByLabelText("邮箱"), "booker@example.com");
   await actor.type(screen.getByLabelText("手机号（含国家区号）"), "+86 138 0000 0000");
   await actor.type(screen.getByLabelText("航班号"), "NH211");
+  await actor.click(screen.getByRole("radio", { name: /^国际航班/ }));
   await next(actor, NEXT_REVIEW);
   assert.ok(screen.getByText("请填写乘车人姓名"));
   assert.ok(screen.getByText(/请填写乘车人的电话或 WhatsApp 号码/));
