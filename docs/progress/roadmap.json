@@ -1767,13 +1767,13 @@
           "id": "M9T-02",
           "title": "迁移 0600（trips、trip_plans、trip_segments、trip_fees、trip_rule_configs）、规则配置接口 GET/PUT /tenant/v1/products/:id/trip-rules、GET /platform/v1/products/:id/trip-rules、OpenAPI（ADR 0100 第二、五节）",
           "role": "backend",
-          "status": "todo",
+          "status": "review",
           "acceptance": [
             "只新增表，不改已有表；行程表是平台表、规则配置是租户表（行级安全、授权登记）",
             "租户 A 读不到、改不了 B 的规则配置（集成测试）；返回只有结算价",
             "迁移测试；CI 全绿"
           ],
-          "evidence": "",
+          "evidence": "迁移 0600（4 张平台表 + 租户表 trip_rule_configs，供应商快照列 supplier_tenant_id）、GET/PUT /tenant/v1/products/:id/trip-rules、GET /platform/v1/products/:id/trip-rules、OpenAPI；trip-rules.itest 7 条（含迁移约束、租户隔离、行级安全）；schema-structure / rls / tenant-isolation / password-change-bypass / platform-admin / products-openapi 登记并通过",
           "updated": "2026-11-15"
         },
         {
