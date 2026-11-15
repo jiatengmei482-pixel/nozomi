@@ -125,6 +125,7 @@ export const PLACE: MasterResource<Place> = {
     source: place.source,
     source_ref: place.sourceRef,
     source_overridden: place.sourceOverridden,
+    charter_coverage: place.charterCoverage,
   }),
 };
 
@@ -470,6 +471,8 @@ export interface PlacePatch {
   category?: PlaceCategory | null | undefined;
   flightScope?: FlightScope | null | undefined;
   address?: string | null | undefined;
+  /** 包车上架的覆盖检查清单（M9P-06）：只有地标能勾 */
+  charterCoverage?: boolean | undefined;
 }
 
 function placeFieldIssues(type: PlaceType, place: Pick<PlaceInput, "lng" | "lat" | "category" | "flightScope" | "address">): InputIssue[] {
@@ -562,6 +565,7 @@ export function updatePlace(ctx: AppContext, writer: MasterWriter, id: string, v
       address: patch.address === undefined ? current.address : patch.address,
     };
     const issues = placeFieldIssues(current.type, merged);
+    if (patch.charterCoverage === true && current.type !== "poi") issues.push({ path: "/charter_coverage", message: "只有地标能放进包车覆盖检查的清单" });
     if (issues.length > 0) invalid(issues);
 
     const lng = patch.lng === undefined ? undefined : roundCoordinate(patch.lng);
@@ -579,6 +583,7 @@ export function updatePlace(ctx: AppContext, writer: MasterWriter, id: string, v
         category: patch.category,
         flight_scope: patch.flightScope,
         address: patch.address,
+        charter_coverage: patch.charterCoverage,
         source_overridden: current.source !== null && sourceFieldChanged ? true : undefined,
       }),
       afterWrite: async (tx, updated, now) => {

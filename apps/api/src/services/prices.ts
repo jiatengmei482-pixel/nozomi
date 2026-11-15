@@ -57,6 +57,7 @@ import {
 import type { DbContext } from "../context.ts";
 import { type Db, withPlatformTx, withTenantTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
+import { assertNoCharterLayerOverlap } from "./charter-layers.ts";
 import { type AuditAction, type AuditValue, type AuditValues, insertAuditLog } from "../repos/audit-logs.ts";
 import {
   type Holiday,
@@ -424,11 +425,26 @@ function surchargeAreaIssues(context: PricingContext, rule: PriceRule, at: strin
   const area = rule.areaId === null ? undefined : context.tenantAreas.get(rule.areaId);
   if (rule.areaId === null || area === undefined) return [];
   // ②行程加价的区域可以是商品本身的区域（①②可以重叠，ADR 0093 第七节第 3 条）；③不行
-  if (rule.pricing.model === "charter_area_surcharge" && context.areaIds.includes(rule.areaId)) return [{ path: `${at}/area_id`, reason: "AREA_IS_PRODUCT_AREA", message: "这是商品本身的区域：上车、下车在这里都不加价。区域加价请选商品区域以外的区域", detail: who }];
+  if (rule.pricing.model === "charter_area_surcharge" && context.areaIds.includes(rule.areaId)) return [{ path: `${at}/area_id`, reason: "AREA_IS_PRODUCT_AREA", message: "这个区域是商品的基础价区域（服务区域），在这里上下车不加价，不能再设上下车加价。", detail: who }];
   if (!areaUsableByCategory(context.product.category, area.bizType)) return [{ path: `${at}/area_id`, reason: "AREA_NOT_USABLE", message: "只能选业务类型是包车或「通用」的区域", detail: who }];
   if (!areaRoleCanPrice(area.role)) return [{ path: `${at}/area_id`, reason: "AREA_ROLE_NOT_PRICING", message: AREA_ROLE_NOT_PRICING_MESSAGE, detail: who }];
   if (area.status !== "active") return [{ path: `${at}/area_id`, reason: "AREA_DISABLED", message: "这个区域已停用，不能新选", detail: who }];
   return [];
+}
+
+/**
+ * 包车三层区域的保存校验（M9P-06，ADR 0093 第七节第 1、2 条）：这次新加进②行程加价、③上下车加价的区域，不能和同一层已有的区域重叠，
+ * 新加进③的不能和商品的①基础价区域重叠（①②、②③可以）。已有的重叠不回头拦（第七节第 6 条）。有重叠抛 400，带两个区域名和重叠面积。
+ */
+async function assertCharterLayers(db: Db, tenantId: string, context: PricingContext, changes: PriceChanges): Promise<void> {
+  if (context.product.category !== "charter") return;
+  const touched = new Set([...changes.update.map((entry) => entry.id), ...changes.remove]);
+  const after = [...context.priceRules.filter((rule) => !touched.has(rule.id)), ...changes.update.map((entry) => entry.rule), ...changes.create.map((entry) => entry.rule)];
+  const areasOf = (rules: readonly PriceRule[], model: PricingModel): string[] => [...new Set(rules.flatMap((rule) => (rule.pricing.model === model && rule.areaId !== null ? [rule.areaId] : [])))];
+  const [itineraryBefore, updownBefore] = [areasOf(context.priceRules, "charter_itinerary_surcharge"), areasOf(context.priceRules, "charter_area_surcharge")];
+  const [itinerary, updown] = [areasOf(after, "charter_itinerary_surcharge"), areasOf(after, "charter_area_surcharge")];
+  const added = { itinerary: itinerary.filter((id) => !itineraryBefore.includes(id)), updown: updown.filter((id) => !updownBefore.includes(id)) };
+  await assertNoCharterLayerOverlap(db, tenantId, { base: context.areaIds, itinerary, updown }, added, (id) => context.tenantAreas.get(id)?.name);
 }
 
 /** 区域加价用的区域、线路价的下车区域必须是本租户的：不存在、或是别的租户的，按 404 处理（ADR 0073 第一部分），不说是哪种。 */
@@ -459,6 +475,7 @@ export async function applyPriceChanges(db: Db, writer: ProductWriter, context: 
   if (layout !== undefined) throw new AppError(400, layout.reason as string, layout.message, { issues: check.issues.filter((issue) => issue.reason === layout.reason) });
   if (check.issues.length > 0) invalid(check.issues);
   if (check.conflicts.length > 0) throw priceRuleConflict(check.conflicts);
+  await assertCharterLayers(db, tenantId, context, changes);
 
   const noChange = changes.create.length === 0 && changes.remove.length === 0 && changes.update.every((entry) => samePriceRule(entry.rule, stored.get(entry.id) as StoredPriceRule));
   if (noChange) return { view: priceRulesView(context, product, context.priceRules), created: [] };

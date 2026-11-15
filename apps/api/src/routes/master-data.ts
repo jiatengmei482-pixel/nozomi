@@ -139,6 +139,8 @@ const placePatchSchema = z.object({
   category: z.enum(PLACE_CATEGORIES).nullable().optional(),
   flight_scope: z.enum(FLIGHT_SCOPES).nullable().optional(),
   address: addressSchema.nullable().optional(),
+  // 包车上架的覆盖检查清单（M9P-06，ADR 0093 第七节第 4 条）：只有地标能勾
+  charter_coverage: z.boolean().optional(),
 });
 
 const comboSchema = z.object({ passengers: z.number().int().min(1).max(MAX_VEHICLE_SEATS), luggage: z.number().int().min(0).max(1000) });
@@ -271,6 +273,8 @@ export function tenantPlaceJson(place: Place, refs?: PlaceRefs): Json {
 export function placeJson(place: Place, refs?: PlaceRefs): Json {
   return {
     ...tenantPlaceJson(place, refs),
+    // 包车覆盖检查清单（M9P-06）：只在平台侧的应答里
+    charter_coverage: place.charterCoverage,
     source: sourceJson(place),
   };
 }
@@ -505,6 +509,7 @@ export function registerMasterDataRoutes(app: FastifyInstance, ctx: AppContext):
         category: patch.category,
         flightScope: patch.flight_scope,
         address: patch.address,
+        charterCoverage: patch.charter_coverage,
       }),
     setStatus: (writer, id, status, cityId) => setPlaceStatus(ctx, writer, id, status, cityId),
   });
