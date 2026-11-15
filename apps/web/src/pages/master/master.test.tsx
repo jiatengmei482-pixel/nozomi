@@ -23,6 +23,7 @@ const osaka: City = { ...tokyo, id: OSAKA_ID, code: "CTY-JP-OSA", name: { zh: "å
 const airport = (id: string, code: string, name: string): Place => ({
   id,
   type: "airport",
+  charter_coverage: false,
   code,
   country_code: "JP",
   city_id: null,

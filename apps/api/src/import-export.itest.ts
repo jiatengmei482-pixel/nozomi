@@ -109,7 +109,9 @@ before(async () => {
   const polygon = { kind: "operate", geometry: { type: "Polygon", coordinates: [[[139.6, 35.6], [139.8, 35.6], [139.8, 35.8], [139.6, 35.8], [139.6, 35.6]]] } };
   ids["a1"] = (await ok(call("POST", "/areas", { body: { city_id: ids["tokyo"], name: { zh: "东京市区", en: "Central Tokyo" }, biz_type: "general", polygons: [polygon] } }), 201)).id;
   api.clock.advance(1_000);
-  ids["a2"] = (await ok(call("POST", "/areas", { body: { city_id: ids["tokyo"], name: { zh: "=横滨+川崎" }, biz_type: "general", polygons: [polygon] } }), 201)).id;
+  // 和 a1 只碰边、不重叠：包车商品的服务区域不能重叠（M9P-06，ADR 0093 第七节）
+  const east = { kind: "operate", geometry: { type: "Polygon", coordinates: [[[139.8, 35.6], [140.0, 35.6], [140.0, 35.8], [139.8, 35.8], [139.8, 35.6]]] } };
+  ids["a2"] = (await ok(call("POST", "/areas", { body: { city_id: ids["tokyo"], name: { zh: "=横滨+川崎" }, biz_type: "general", polygons: [east] } }), 201)).id;
 });
 after(() => api.close());
 

@@ -23,6 +23,7 @@ const uuid = (n: number): string => `aaaaaaaa-aaaa-4aaa-8aaa-${String(n).padStar
 const airport = (n: number): Place => ({
   id: uuid(n),
   type: "airport",
+  charter_coverage: false,
   code: `A${String.fromCharCode(65 + Math.floor(n / 26))}${String.fromCharCode(65 + (n % 26))}`,
   country_code: "JP",
   city_id: null,
