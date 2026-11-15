@@ -8,6 +8,7 @@
  *
  * 钱：结算价是商品所属子品牌币种的最小货币单位整数；中间结果用精确分数，只在最后取整一次（pricing.ts / money.ts）。
  */
+import { CHARTER_ITINERARY_LIMITS } from "./charter-itinerary-limits.ts";
 import { type AreaPolygonShape, type AreaRole, locatePoint } from "./areas.ts";
 import { type AirportBinding, type AirportScenario, type AirportScenarioKind, airportPackagePricing, airportPackageRule, airportScenarios, scenarioEnd } from "./charter-airport.ts";
 import { type DistancePrice, type PricingBasis, selectDistancePrice } from "./distance-price.ts";
@@ -80,8 +81,8 @@ export const QUOTE_RULES = {
   maxLuggage: 60,
   maxAddonKinds: 20,
   maxAddonQuantity: 20,
-  /** 包车一单最多几个经停点（ADR 0088） */
-  maxWaypoints: 10,
+  /** 包车一单最多几个经停点（M9P-10：只受路径接口上限，见 `CHARTER_ITINERARY_LIMITS`） */
+  maxWaypoints: CHARTER_ITINERARY_LIMITS.maxWaypoints,
   /** 包车按行程计价的全程上限：5000 公里、7 天（同试算的假定路线） */
   maxRouteMeters: 5_000_000,
   maxRouteMinutes: 10_080,
@@ -110,7 +111,7 @@ export interface QuoteRequest {
   /** 只看这些车型组；空 = 商品选的全部 */
   vehicleGroupIds: readonly string[];
   /**
-   * 包车的经停点（ADR 0088），按顺序，最多 10 个；引擎只用坐标（名称、停留分钟只存在报价快照里）。
+   * 包车的经停点（ADR 0088），按顺序，最多 `QUOTE_RULES.maxWaypoints` 个；引擎只用坐标（名称、停留分钟只存在报价快照里）。
    * 不给或空 = 没有经停点，报价和 M9W-01 之前逐分一致。只有包车能给，给了就要有下车点。
    */
   waypoints?: readonly QuoteWaypoint[];
