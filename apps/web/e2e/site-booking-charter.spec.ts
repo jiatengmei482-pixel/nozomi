@@ -5,7 +5,8 @@
  * 包车的城市、区域、商品见 charter-support.ts（8 小时套餐对外 77,000，加价区域上车加 500、下车加 1,000，加价区域里有一个车站，下车地点框里能搜到）。客人：
  * - 旧链接只有上车地点：下车地点空着、框下面提示补选，不报价（没有包车询价请求）；手机上点「下一步：选择车型」下车地点标红、焦点移过去；
  * - 下车地点在商品区域：77,000，不写「含区域加价」；
- * - 下车地点在框里搜车站（加价区域）：78,100（71,000 × 1.1）——只有这一个价，车型卡和车费下面写「含区域加价，已算在这个价格里」，不写加价金额；
+ * - 下车地点在框里搜车站（加价区域）：78,100（71,000 × 1.1）——只有这一个价，车型卡和车费下面写「含区域加价，已算在这个价格里」；
+ *   M9P-04 起车型卡、摘要里另有逐项明细（套餐 77,000、下车加价 1,100），取代 M8-19「不写加价金额」；
  * - 上车地点在加价区域（车站）、下车地点在商品区域：由这个包车商品报价，77,550（70,500 × 1.1，M9P-02：按上下车点匹配商品，不按上车点所在城市）；
  * - 下车地点不在任何区域：第 1 步就说「这个地址暂时没有在线报价，请联系客服」+ 客服电话（M9P-02：按上下车点没匹配到商品，不询价）；
  * - 下单：订单带下车地址，订单页「行程」有下车地点。
@@ -89,7 +90,7 @@ async function screenshots(page: Page, name: string): Promise<void> {
   await page.emulateMedia({ colorScheme: "light" });
 }
 
-test("新预订页包车：下车地点必填（旧链接只有上车地点时提示补选、不报价，手机标红并移焦点）→ 商品区域里 77,000 → 搜车站选加价区域的下车地点 78,100 含区域加价（不写金额）→ 不在任何区域转人工 → 下单，订单页有下车地点；窄屏、亮暗 axe", async ({ page, request }) => {
+test("新预订页包车：下车地点必填（旧链接只有上车地点时提示补选、不报价，手机标红并移焦点）→ 商品区域里 77,000 → 搜车站选加价区域的下车地点 78,100 含区域加价（M9P-04 起逐项列明细）→ 不在任何区域转人工 → 下单，订单页有下车地点；窄屏、亮暗 axe", async ({ page, request }) => {
   test.setTimeout(180_000);
   const trip = await charterWorld(request);
   const date = tomorrowInTokyo();
@@ -146,7 +147,10 @@ test("新预订页包车：下车地点必填（旧链接只有上车地点时�
   const summary = page.locator("#book-summary-panel");
   await expect(summary).toContainText(NOTE);
   await expect(summary).toContainText(`下车地点${trip.station.name}`);
-  await expect(page.locator("main")).not.toContainText(/1,000 JPY|1,100 JPY|500 JPY|550 JPY|71,000|77,000/);
+  // M9P-04（P0 验收后续 A，取代 M8-19「不写加价金额」）：不填经停点也逐项列明细——套餐、下车加价（区域名），合计就是这个价
+  await expect(summary.getByLabel("价格明细").locator(".price-breakdown__row")).toHaveText([/^包车套餐 8 小时77,000 JPY$/, /^下车加价（加价区域 [A-Za-z]+）1,100 JPY$/, "合计78,100 JPY"]);
+  // 规则 4：页面上只有对外价（77,000 / 1,100 / 78,100），没有结算价（套餐 70,000、合计 71,000、下车加价 1,000、上车加价 500）
+  await expect(page.locator("main")).not.toContainText(/70,000|71,000|(?<![\d,])1,000 JPY|(?<![\d,])500 JPY/);
   await expectNarrowAndAccessible(page, "新预订页包车第 3 步（摘要条：含区域加价）");
 
   // 电脑 1280：下车地点在商品区域里 → 77,000，不写含区域加价

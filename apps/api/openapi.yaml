@@ -29683,7 +29683,7 @@ components:
       type: object
       additionalProperties: false
       description: 一次救援（运营后台）：触发、违约金、救援单、改派结果、应扣款项、不可抗力
-      required: [ id, order, trigger, triggered_by_type, reason, triggered_at, from_status, original_tenant, original_settlement, penalty_bp, penalty_tier, penalty, status, rescue_tenant, rescue_settlement, rescued_via, rescued_at, force_majeure, closed_at, offers, deductions, version ]
+      required: [ id, order, trigger, triggered_by_type, reason, triggered_at, from_status, original_tenant, original_settlement, deduction_base, penalty_bp, penalty_tier, penalty, status, rescue_tenant, rescue_settlement, rescued_via, rescued_at, force_majeure, closed_at, offers, deductions, version ]
       properties:
         id:
           type: string
@@ -29732,6 +29732,29 @@ components:
           $ref: "#/components/schemas/RescueTenantRef"
         original_settlement:
           $ref: "#/components/schemas/SalesMoney"
+        deduction_base:
+          description: |
+            救援差价的基准（M9P-01 触发时算好、M9P-04 起给运营看，ADR 0093 第二节救援做法 B）：基准 = 原结算价 + max(0, 重算的加价合计 − 订单上的加价合计)，都是原结算币种。
+            候选列表上的差价和改派时记的救援差价都按 `base` 算。`surcharge_before` 是订单上的加价合计（上车 + 下车 + 行程加价），`surcharge_after` 是原订单的商品按当前规则重算的加价合计；
+            重算失败（商品没了、报不出、币种变了）时 `surcharge_after` 为 null、`fallback_reason` 是原因，基准退回原结算价。这一项上线前触发的救援为 null（按原结算价）
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required: [ base, surcharge_before, surcharge_after, fallback_reason ]
+              properties:
+                base:
+                  $ref: "#/components/schemas/SalesMoney"
+                surcharge_before:
+                  oneOf:
+                    - $ref: "#/components/schemas/SalesMoney"
+                    - type: "null"
+                surcharge_after:
+                  oneOf:
+                    - $ref: "#/components/schemas/SalesMoney"
+                    - type: "null"
+                fallback_reason:
+                  type: [ string, "null" ]
         penalty_bp:
           type: integer
         penalty_tier:

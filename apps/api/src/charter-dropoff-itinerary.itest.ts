@@ -343,8 +343,10 @@ async function rescueRow(orderId: string): Promise<{ base: number | null; basis:
 test("救援 B：部署前格式的旧单救援——基准 = 原结算价 + 新算法多出的加价；候选差价和改派后记的一致（500，不含多出的 10,000）；basis 四项齐全", async () => {
   const { orderId } = await bOrder();
   await asPreDeployment(orderId);
-  await trigger(orderId, "tenant_declared");
+  const triggered = await trigger(orderId, "tenant_declared");
   assert.deepEqual(await rescueRow(orderId), { base: 75_000, basis: { surchargeBefore: 10_000, surchargeAfter: 20_000, fallbackReason: null }, original: 65_000 });
+  // M9P-04：运营后台的救援视图带上基准（原结算币种），运营能看出差价 500 是按 75,000 算的
+  assert.deepEqual([triggered.body.rescue.original_settlement, triggered.body.rescue.deduction_base], [{ amount: "65000", currency: "JPY" }, { base: { amount: "75000", currency: "JPY" }, surcharge_before: { amount: "10000", currency: "JPY" }, surcharge_after: { amount: "20000", currency: "JPY" }, fallback_reason: null }]);
   const listed = await api.call("GET", `/platform/v1/orders/${orderId}/rescue/candidates`, { token: await ops() });
   assertMatchesOpenApi("GET", "/platform/v1/orders/{id}/rescue/candidates", listed);
   const candidate = listed.body.candidates.find((entry: any) => entry.tenant.id === m.a.tenantId);
@@ -388,13 +390,16 @@ test("救援 B：重算失败（原商品的加价规则都停了，报不出）
   const { orderId } = await bOrder();
   await asPreDeployment(orderId);
   await api.db.owner.query("update price_rules set status = 'disabled' where product_id = $1 and pricing_model = 'charter_area_surcharge'", [charterB.id]);
+  let triggered: ApiResponse;
   try {
-    await trigger(orderId, "tenant_declared");
+    triggered = await trigger(orderId, "tenant_declared");
   } finally {
     await api.db.owner.query("update price_rules set status = 'enabled' where product_id = $1 and pricing_model = 'charter_area_surcharge'", [charterB.id]);
   }
   const row = await rescueRow(orderId);
   assert.deepEqual([row.base, row.original, row.basis.surchargeBefore, row.basis.surchargeAfter], [65_000, 65_000, 10_000, null]);
+  // M9P-04：视图里重算的加价合计为空、写出退回原因
+  assert.deepEqual([triggered.body.rescue.deduction_base.base, triggered.body.rescue.deduction_base.surcharge_after, typeof triggered.body.rescue.deduction_base.fallback_reason], [{ amount: "65000", currency: "JPY" }, null, "string"]);
   assert.match(row.basis.fallbackReason, /^[A-Z_]+$/);
 });
 

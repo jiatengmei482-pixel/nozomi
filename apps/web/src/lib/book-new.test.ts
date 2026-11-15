@@ -45,11 +45,12 @@ test("链接里的 mode（M8-33）：区间 transfer 和 M8-27 的旧值 airport
   assert.deepEqual(["?type=airport", "?type=p2p", "?type=charter", "?mode=charter&type=airport"].map((search) => parseBookingLink(search).mode), ["transfer", "transfer", "charter", "charter"], "参数名 type 也认，mode 优先");
 });
 
-test("接机提示的免费等待（M8-33）：有报价按所选商品自己设的（无限为 null）；没有报价时国际线 90、国内线 / 都有 / 没标明 60", () => {
+test("接机提示的免费等待（M8-33、M9E-27）：有报价按所选商品自己设的（无限为 null）；没有报价时国际线 90、国内线 60，都有 / 没标明 / 还不知道是哪个机场不写分钟数", () => {
   assert.equal(arrivalFreeWaitMinutes({ free_wait_minutes: 120 }, "international"), 120);
   assert.equal(arrivalFreeWaitMinutes({ free_wait_minutes: 45 }, "domestic"), 45);
   assert.equal(arrivalFreeWaitMinutes({ free_wait_minutes: null }, "international"), null);
-  assert.deepEqual((["international", "domestic", "mixed", null] as const).map((scope) => arrivalFreeWaitMinutes(null, scope)), [90, 60, 60, 60]);
+  assert.equal(arrivalFreeWaitMinutes({ free_wait_minutes: 60 }, null), 60, "有报价时不看机场");
+  assert.deepEqual((["international", "domestic", "mixed", null] as const).map((scope) => arrivalFreeWaitMinutes(null, scope)), [90, 60, null, null]);
 });
 
 test("乘客 / 行李栏的写法", () => {
