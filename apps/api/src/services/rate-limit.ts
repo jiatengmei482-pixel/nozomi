@@ -53,6 +53,12 @@ export const SALES_RATE_LIMITS = {
   site_qa_unlock_all: QA_ACCEPTANCE_RULES.unlockGlobal,
   /** 官网读预订草稿（M9E-01，ADR 0090）：每个地址每分钟 60 次，编号不可猜之外再挡一层枚举 */
   site_booking_draft: { max: 60, windowMs: 60_000 },
+  /** 官网建行程单（M9T-03，ADR 0100 第三节第 1 小节）：每个地址每分钟 10 次 */
+  site_trip: { max: 10, windowMs: 60_000 },
+  /** 行程报价（一次 = 编排 + 最多 120 次段报价）：每个地址每分钟 5 次；不和 site_quote 共用 */
+  site_trip_quote: { max: 5, windowMs: 60_000 },
+  /** 同上，每个地址每天 50 次（一个键只有一个时间窗，所以另起一个键） */
+  site_trip_quote_day: { max: 50, windowMs: 86_400_000 },
   /** 嵌入组件建预订草稿（M9E-02，ADR 0090）：每个地址 10 分钟 30 次（IPv6 按 /64） */
   embed_draft_ip: { max: 30, windowMs: 600_000 },
   /** 同上，每个嵌入码每分钟 60 次 */

@@ -603,7 +603,7 @@ export function itineraryRouteUnavailable(leg: number, reason: string): AppError
  * 逐段估路线（ADR 0042 的路线估算：同一对坐标有缓存、受每日上限）：全程米数 = 各段之和，总时长 = 各段行驶分钟 + 各经停点停留分钟。
  * 某一段取不到（没有路线、服务不可用、超时）→ 422 `ITINERARY_ROUTE_UNAVAILABLE`。全程、时长只由服务器算，不接受客户端的数字。
  */
-async function itineraryRoute(ctx: AppContext, trip: Extract<SiteTrip, { category: "charter_itinerary" }>): Promise<SiteItinerary> {
+export async function itineraryRoute(ctx: AppContext, trip: Extract<SiteTrip, { category: "charter_itinerary" }>): Promise<SiteItinerary> {
   const points: LatLng[] = [trip.pickup, ...trip.waypoints.map((stop) => ({ lat: stop.lat, lng: stop.lng })), trip.dropoff];
   const legs = await Promise.all(
     points.slice(1).map(async (to, index): Promise<RouteEstimate> => {
@@ -690,7 +690,7 @@ function salesTrip(input: CityQuoteInput): { category: ServiceCategory; placeId:
 type CityQuoteInput = SiteQuoteInput & { cityId: string };
 
 /** 包车按上下车点匹配的结果（M9P-02）：匹配到的商品所在的城市（去重、按编号排）、取了哪个、渠道能卖包车的启用城市 */
-interface CharterCityMatch {
+export interface CharterCityMatch {
   matchedCityIds: string[];
   chosen: { cityId: string; by: CharterCityChoice } | null;
   /** 取的那个城市里匹配到的商品（列套餐用） */
@@ -703,7 +703,7 @@ interface CharterCityMatch {
  * 上车点、下车点都落在它的①基础价区域或③上下车加价区域里（`charterMatches`）的，取它们的城市。
  * 匹配到几个城市时只取一个（`chooseCharterCity`：请求带的城市 → 上车点所在城市 → 编号最小），不逐城询价合并。
  */
-async function charterCityFor(ctx: AppContext, channel: Channel, audience: SiteAudience, ends: { pickup: LatLng; dropoff: LatLng }, requestedCityId: string | null): Promise<CharterCityMatch> {
+export async function charterCityFor(ctx: AppContext, channel: Channel, audience: SiteAudience, ends: { pickup: LatLng; dropoff: LatLng }, requestedCityId: string | null): Promise<CharterCityMatch> {
   return withPlatformTx(
     ctx.pool,
     async (db) => {

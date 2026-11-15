@@ -70,6 +70,7 @@ import { registerNotificationRoutes } from "./routes/notifications.ts";
 import { registerTenantWebhookRoutes } from "./routes/tenant-webhooks.ts";
 import { registerViewLinkRoutes } from "./routes/view-link.ts";
 import { registerSiteRoutes } from "./routes/site.ts";
+import { registerSiteTripRoutes } from "./routes/site-trips.ts";
 import { registerUncoveredDemandRoutes } from "./routes/uncovered-demands.ts";
 import { registerPlatformSecurityRoutes } from "./routes/platform-security.ts";
 import { registerManualQuoteRoutes } from "./routes/manual-quotes.ts";
@@ -419,6 +420,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerTenantOnboardingRoutes(app, context);
   registerTenantProfileRoutes(app, context);
   registerSiteRoutes(app, context);
+  registerSiteTripRoutes(app, context);
   registerEmbedRoutes(app, context);
   registerViewLinkRoutes(app, context);
   registerManualQuoteRoutes(app, context);

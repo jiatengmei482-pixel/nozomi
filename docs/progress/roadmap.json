@@ -1780,7 +1780,7 @@
           "id": "M9T-03",
           "title": "编排接口：POST /site/v1/trips、GET /site/v1/trips/:id、POST /site/v1/trips/:id/quote；逐段经 previewPlatformQuote 按官网渠道报价，写方案 / 段 / 费用，限频（ADR 0100 第三节）",
           "role": "backend",
-          "status": "todo",
+          "status": "review",
           "blockedBy": "依赖 M9T-01、M9T-02",
           "acceptance": [
             "daily_best 每段对外价 = 同样条件下官网询价的中标价；one_car 每段 = 同一次比价里该租户该车型组自己的对外价（集成测试，接送机、点对点、包车各至少一条）",
@@ -1790,7 +1790,7 @@
             "对客应答没有结算价、加价比例、供应商编号",
             "段报价 120 次 / 路线 200 次预算，超出降级为只报不拆（degraded: true），连不拆都报不完才 422；限频新键 site_trip_quote / site_trip_quote_day；CI 全绿"
           ],
-          "evidence": "",
+          "evidence": "POST /site/v1/trips、GET /site/v1/trips/:id、POST /site/v1/trips/:id/quote（services/trips.ts、repos/trips.ts、routes/site-trips.ts）；domain trip/build.ts 方案组装与跨段费用（63 条单测）；B2 只加 export（charterCityFor、itineraryRoute、demandFacts）；限频键 site_trip / site_trip_quote / site_trip_quote_day；trips.itest（官网询价逐段一致、D4 住宿抵扣、报不出与未覆盖需求、限频）；OpenAPI",
           "updated": "2026-11-15"
         },
         {

@@ -21,44 +21,44 @@ export interface SegmentOffer {
   winner: boolean;
 }
 
-export interface QuotedSegment {
+export interface QuotedSegment<O extends SegmentOffer = SegmentOffer> {
   draft: SegmentDraft;
   /** 同一次比价里每个租户每个车型组一个报价（`group.ranked[]`）；报不出为空 */
-  offers: readonly SegmentOffer[];
+  offers: readonly O[];
 }
 
-export interface QuotedOption {
-  segments: readonly QuotedSegment[];
+export interface QuotedOption<O extends SegmentOffer = SegmentOffer> {
+  segments: readonly QuotedSegment<O>[];
 }
 
-export interface QuotedDay {
+export interface QuotedDay<O extends SegmentOffer = SegmentOffer> {
   dayIndex: number;
   /** 空闲日为空数组 */
-  options: readonly QuotedOption[];
+  options: readonly QuotedOption<O>[];
 }
 
-export interface ChosenSegment {
+export interface ChosenSegment<O extends SegmentOffer = SegmentOffer> {
   draft: SegmentDraft;
-  offer: SegmentOffer;
+  offer: O;
 }
 
-export interface ChosenDay {
+export interface ChosenDay<O extends SegmentOffer = SegmentOffer> {
   dayIndex: number;
   optionIndex: number;
-  segments: ChosenSegment[];
+  segments: ChosenSegment<O>[];
   /** 一车到底里这一天用了别的供应商（按段选车），住宿 / 停驻 / 工时从这天断开 */
   otherVehicle: boolean;
 }
 
 export type DayUnquoted = { dayIndex: number; reason: "NO_OFFER" };
 
-const sum = (segments: readonly ChosenSegment[]): number => segments.reduce((total, s) => total + s.offer.sellMinor, 0);
+const sum = (segments: readonly ChosenSegment<SegmentOffer>[]): number => segments.reduce((total, s) => total + s.offer.sellMinor, 0);
 
 /** 同一天的几种拆法里取总价最低的（一样时段少的，再一样时下标小的）；没有能报全的拆法为 null */
-function cheapest(day: QuotedDay, pickOffer: (segment: QuotedSegment) => SegmentOffer | undefined): { optionIndex: number; segments: ChosenSegment[] } | null {
-  let best: { optionIndex: number; segments: ChosenSegment[]; total: number } | null = null;
+function cheapest<O extends SegmentOffer>(day: QuotedDay<O>, pickOffer: (segment: QuotedSegment<O>) => O | undefined): { optionIndex: number; segments: ChosenSegment<O>[] } | null {
+  let best: { optionIndex: number; segments: ChosenSegment<O>[]; total: number } | null = null;
   for (const [optionIndex, option] of day.options.entries()) {
-    const segments: ChosenSegment[] = [];
+    const segments: ChosenSegment<O>[] = [];
     let complete = option.segments.length > 0;
     for (const segment of option.segments) {
       const offer = pickOffer(segment);
@@ -75,13 +75,13 @@ function cheapest(day: QuotedDay, pickOffer: (segment: QuotedSegment) => Segment
   return best === null ? null : { optionIndex: best.optionIndex, segments: best.segments };
 }
 
-const winnerOf = (segment: QuotedSegment): SegmentOffer | undefined => {
+const winnerOf = <O extends SegmentOffer>(segment: QuotedSegment<O>): O | undefined => {
   const winners = segment.offers.filter((offer) => offer.winner);
-  return winners.reduce<SegmentOffer | undefined>((min, o) => (min === undefined || o.sellMinor < min.sellMinor ? o : min), undefined);
+  return winners.reduce<O | undefined>((min, o) => (min === undefined || o.sellMinor < min.sellMinor ? o : min), undefined);
 };
 
-export function assembleDailyBest(days: readonly QuotedDay[]): { days: ChosenDay[]; unquoted: DayUnquoted[] } {
-  const chosen: ChosenDay[] = [];
+export function assembleDailyBest<O extends SegmentOffer>(days: readonly QuotedDay<O>[]): { days: ChosenDay<O>[]; unquoted: DayUnquoted[] } {
+  const chosen: ChosenDay<O>[] = [];
   const unquoted: DayUnquoted[] = [];
   for (const day of days) {
     if (day.options.length === 0) continue;
@@ -100,7 +100,7 @@ export interface CarKey {
 const keyOf = (k: CarKey): string => `${k.tenantId}\u0000${k.vehicleGroupId}`;
 
 /** 一车到底的候选：所有报价里出现过的租户 × 车型组（按出现顺序去重） */
-export function oneCarCandidates(days: readonly QuotedDay[]): CarKey[] {
+export function oneCarCandidates(days: readonly QuotedDay<SegmentOffer>[]): CarKey[] {
   const seen = new Map<string, CarKey>();
   for (const day of days) for (const option of day.options) for (const segment of option.segments) for (const offer of segment.offers) {
     const key = keyOf(offer);
@@ -113,9 +113,9 @@ export function oneCarCandidates(days: readonly QuotedDay[]): CarKey[] {
  * 某个租户 × 车型组的一车到底各天组成（三级规则见文件头）。有包车段的一天报不出 → null（这个组合不能一车到底）；
  * 机场 / 点对点日报不出且当天也没有中标报价 → null。全部用车日都「不是同一辆车」也算不成一车到底 → null。
  */
-export function oneCarDays(days: readonly QuotedDay[], key: CarKey): ChosenDay[] | null {
-  const own = (segment: QuotedSegment): SegmentOffer | undefined => segment.offers.find((offer) => offer.tenantId === key.tenantId && offer.vehicleGroupId === key.vehicleGroupId);
-  const chosen: ChosenDay[] = [];
+export function oneCarDays<O extends SegmentOffer>(days: readonly QuotedDay<O>[], key: CarKey): ChosenDay<O>[] | null {
+  const own = (segment: QuotedSegment<O>): O | undefined => segment.offers.find((offer) => offer.tenantId === key.tenantId && offer.vehicleGroupId === key.vehicleGroupId);
+  const chosen: ChosenDay<O>[] = [];
   for (const day of days) {
     if (day.options.length === 0) continue;
     const mine = cheapest(day, own);
@@ -126,7 +126,7 @@ export function oneCarDays(days: readonly QuotedDay[], key: CarKey): ChosenDay[]
     const transferOnly = day.options.filter((option) => option.segments.every((segment) => segment.draft.type !== "charter"));
     const fallback = transferOnly.length === 0 ? null : cheapest({ dayIndex: day.dayIndex, options: transferOnly }, winnerOf);
     if (fallback === null) return null;
-    const optionIndex = day.options.indexOf(transferOnly[fallback.optionIndex] as QuotedOption);
+    const optionIndex = day.options.indexOf(transferOnly[fallback.optionIndex] as QuotedOption<O>);
     chosen.push({ dayIndex: day.dayIndex, optionIndex, segments: fallback.segments, otherVehicle: true });
   }
   if (chosen.length === 0 || chosen.every((day) => day.otherVehicle)) return null;
