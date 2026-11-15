@@ -178,6 +178,22 @@ export function platformRescueJson(view: PlatformRescueView): Json {
   return maskOrderValues(rescueViewJson(view), view.order.passenger.name);
 }
 
+/**
+ * 救援差价的基准（M9P-01 存、M9P-04 给运营后台看，ADR 0093 第二节救援做法 B）：基准 = 原结算价 + max(0, 重算的加价合计 − 订单上的加价合计)，
+ * 都是原结算币种；重算失败时 `surcharge_after` 为 null、`fallback_reason` 是原因（基准退回原结算价）。这一列之前的救援没有，为 null（按原结算价）
+ */
+function deductionBaseJson(rescue: PlatformRescueView["rescue"]): Json | null {
+  if (rescue.deductionBaseMinor === null) return null;
+  const currency = rescue.originalSettlementCurrency;
+  const base = rescue.deductionBase;
+  return {
+    base: salesMoney(rescue.deductionBaseMinor, currency),
+    surcharge_before: base === null ? null : salesMoney(base.surchargeBefore, currency),
+    surcharge_after: base === null || base.surchargeAfter === null ? null : salesMoney(base.surchargeAfter, currency),
+    fallback_reason: base?.fallbackReason ?? null,
+  };
+}
+
 function rescueViewJson(view: PlatformRescueView): Json {
   const { rescue, order } = view;
   return {
@@ -190,6 +206,7 @@ function rescueViewJson(view: PlatformRescueView): Json {
     from_status: rescue.fromStatus,
     original_tenant: { id: rescue.originalTenantId, name: view.originalTenantName },
     original_settlement: salesMoney(rescue.originalSettlementMinor, rescue.originalSettlementCurrency),
+    deduction_base: deductionBaseJson(rescue),
     penalty_bp: rescue.penaltyBp,
     penalty_tier: rescue.penaltyTier,
     penalty: salesMoney(view.deductions.find((entry) => entry.kind === "penalty")?.amountMinor ?? 0, rescue.originalSettlementCurrency),

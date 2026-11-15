@@ -42,6 +42,26 @@ export function newWaypoint(): WaypointDraft {
   return { key: `wp-${nextKey}`, point: null, stay: "" };
 }
 
+/** 「4 小时 12 分钟」「5 小时」「45 分钟」：价格明细里的预计用时（ADR 0091 第一节，不四舍五入到小时） */
+export function hoursMinutesText(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours === 0) return `${rest} 分钟`;
+  return rest === 0 ? `${hours} 小时` : `${hours} 小时 ${rest} 分钟`;
+}
+
+/**
+ * 套餐那一行下面的预计用时（ADR 0091 第一节、M9P-04）：「预计用时 4 小时 12 分钟（含缓冲）」；没含经停点占用或缓冲时不写「（含缓冲）」。
+ * 预计用时比套餐长（只有最长一档可选）时接着说超出部分服务后收（ADR 0091 业主确认第 1 条；接口没有对外的超时单价，先不写单价）。
+ * 不是按行程计价的报价（没有 `estimated_minutes`）为 null。
+ */
+export function estimatedTimeText(quote: Pick<SiteQuote, "estimated_minutes" | "includes_buffer">, packageHours: number | null): string | null {
+  const minutes = quote.estimated_minutes;
+  if (typeof minutes !== "number") return null;
+  const text = `预计用时 ${hoursMinutesText(minutes)}${quote.includes_buffer === true ? "（含缓冲）" : ""}`;
+  return packageHours !== null && minutes > packageHours * 60 ? `${text}，超过套餐时长，超出部分服务后按实际收取` : text;
+}
+
 /** 「30 分钟」「1 小时」「1 小时 30 分」 */
 export function durationText(minutes: number): string {
   const hours = Math.floor(minutes / 60);
@@ -85,13 +105,31 @@ export function itineraryPackageHours(quote: Pick<SiteQuote, "package"> | null):
   return quote?.package?.hours ?? null;
 }
 
+/** 各车型自动选的套餐（车型组编号 → 小时）：报价里的 `auto_package_hours`（客人手动升档时报价照样带着自动会选的档）；旧接口没有这一项的不在里面 */
+export function autoPackageHoursByVehicle(quotes: readonly Pick<SiteQuote, "vehicle_group" | "auto_package_hours">[]): Record<string, number> {
+  return Object.fromEntries(quotes.flatMap((quote) => (typeof quote.auto_package_hours === "number" ? [[quote.vehicle_group.id, quote.auto_package_hours] as const] : [])));
+}
+
+/** 套餐下拉的默认项：`label` 是「自动（N 小时）」，`floor` 是能升到的档要比它长的那一档 */
+export interface AutoPackageChoice {
+  label: string;
+  floor: number;
+}
+
 /**
- * 按行程计价时自动选的套餐（M9P-03，ADR 0093 第四节第 9 条）：各车型报价的 `auto_package_hours` 里最短的（客人手动升档时报价照样带着自动会选的档）。
- * 没有报价、或旧接口没有这一项时为 null。
+ * 有经停点时套餐下拉的默认项（M9P-04，M9P-03 验收后续）：各车型自动选的档可能不同（同一段行程，经济 7 座 5 小时、别的车型 4 小时），
+ * 所以按客人选的车型写它自己的档，只列比它长的；还没选车型时，各车型一样就写这一档，不一样就写「自动（按车型 4–5 小时）」，
+ * 只列比最长的那一档还长的（选了哪个都不会短于任何车型的预计用时）。`autoByVehicle` 是这段行程各车型的自动档；一个都不知道时为 null。
  */
-export function autoPackageHoursOf(quotes: readonly Pick<SiteQuote, "auto_package_hours">[]): number | null {
-  const hours = quotes.flatMap((quote) => (typeof quote.auto_package_hours === "number" ? [quote.auto_package_hours] : []));
-  return hours.length === 0 ? null : Math.min(...hours);
+export function autoPackageChoice(autoByVehicle: Readonly<Record<string, number>>, selectedId: string | null, shownIds: readonly string[]): AutoPackageChoice | null {
+  const own = selectedId === null ? undefined : autoByVehicle[selectedId];
+  if (own !== undefined) return { label: `自动（${own} 小时）`, floor: own };
+  const known = shownIds.flatMap((id) => (autoByVehicle[id] === undefined ? [] : [autoByVehicle[id] as number]));
+  const hours = known.length > 0 ? known : Object.values(autoByVehicle);
+  if (hours.length === 0) return null;
+  const low = Math.min(...hours);
+  const high = Math.max(...hours);
+  return { label: low === high ? `自动（${low} 小时）` : `自动（按车型 ${low}–${high} 小时）`, floor: high };
 }
 
 /**
@@ -138,12 +176,14 @@ export interface BreakdownLine {
   key: string;
   label: string;
   amount: string;
+  /** 写在这一行下面的小字（套餐那一行的预计用时） */
+  note?: string;
 }
 
 const KIND_LABELS: Readonly<Record<string, string>> = {
   pickup: "上车加价",
   dropoff: "下车加价",
-  waypoint: "经停加价",
+  waypoint: "行程加价",
   over_km: "超公里费",
   overtime: "超时费",
   adjust: "调价",
@@ -166,13 +206,22 @@ function seqText(seqs: readonly number[]): string {
   return `第 ${seqs.join("、")} 个经停点`;
 }
 
+/** 明细的先后（ADR 0093 第二节「明细逐项」）：套餐、上车加价、下车加价、行程加价（按第几个经停，下车点那一条最后）、超公里费、超时费、调价、其他 */
+const KIND_ORDER: readonly string[] = ["base", "pickup", "dropoff", "waypoint", "over_km", "overtime", "adjust", "other"];
+
+function displayOrder(items: readonly SitePriceBreakdownItem[]): { item: SitePriceBreakdownItem; index: number }[] {
+  const rank = (item: SitePriceBreakdownItem): number => (KIND_ORDER.includes(item.kind) ? KIND_ORDER.indexOf(item.kind) : KIND_ORDER.length);
+  const firstStop = (item: SitePriceBreakdownItem): number => (item.from_dropoff === true ? Number.MAX_SAFE_INTEGER : Math.min(...(item.stop_seqs ?? []), Number.MAX_SAFE_INTEGER - 1));
+  return items.map((item, index) => ({ item, index })).sort((a, b) => rank(a.item) - rank(b.item) || (a.item.kind === "waypoint" && b.item.kind === "waypoint" ? firstStop(a.item) - firstStop(b.item) : 0) || a.index - b.index);
+}
+
 /**
- * 对外价明细的每一行（按接口给的顺序）。没有明细、币种和总价不一样、某一项读不出来、**各项之和不等于总价**时为 null——
+ * 对外价明细的每一行（按 `KIND_ORDER` 排：套餐、上车、下车、行程加价……）。没有明细、币种和总价不一样、某一项读不出来、**各项之和不等于总价**时为 null——
  * 页面这时只显示总价（宁可少显示，不能显示一组加起来对不上的数）。
  * 金额为 0 的超公里费、超时费不列（M8-43：没超出时客人不用看到「超公里费 0 JPY」）；先按全部项目核对总价再去掉，0 不影响各项之和。
  * 其他项目（包括金额为 0 的）照旧列出。
  */
-export function breakdownLines(quote: Pick<SiteQuote, "price" | "price_breakdown">, packageHours: number | null): BreakdownLine[] | null {
+export function breakdownLines(quote: Pick<SiteQuote, "price" | "price_breakdown"> & Partial<Pick<SiteQuote, "estimated_minutes" | "includes_buffer">>, packageHours: number | null): BreakdownLine[] | null {
   const items: readonly SitePriceBreakdownItem[] | undefined = quote.price_breakdown;
   if (items === undefined || items.length === 0) return null;
   const total = minorOf(quote.price.total);
@@ -185,18 +234,20 @@ export function breakdownLines(quote: Pick<SiteQuote, "price" | "price_breakdown
     sum += minor;
   }
   if (sum !== total) return null;
+  const estimate = estimatedTimeText({ estimated_minutes: quote.estimated_minutes ?? null, includes_buffer: quote.includes_buffer ?? null }, packageHours);
   const lines: BreakdownLine[] = [];
-  items.forEach((item, index) => {
-    if (HIDDEN_WHEN_ZERO.has(item.kind) && minorOf(item.amount) === 0) return;
+  for (const { item, index } of displayOrder(items)) {
+    if (HIDDEN_WHEN_ZERO.has(item.kind) && minorOf(item.amount) === 0) continue;
     let label: string;
     if (item.kind === "base") label = packageHours === null ? "基础价" : `包车套餐 ${packageHours} 小时`;
     else {
       const name = item.area_name === null ? null : displayName(item.area_name).text;
-      const detail = [name, item.kind === "waypoint" && item.stop_seqs !== null && item.stop_seqs.length > 0 ? seqText(item.stop_seqs) : null].filter((part): part is string => part !== null);
+      const where = item.kind !== "waypoint" ? null : item.from_dropoff === true ? "下车点" : item.stop_seqs !== null && item.stop_seqs.length > 0 ? seqText(item.stop_seqs) : null;
+      const detail = [name, where].filter((part): part is string => part !== null);
       label = `${KIND_LABELS[item.kind] ?? "其他费用"}${detail.length > 0 ? `（${detail.join("，")}）` : ""}`;
     }
-    lines.push({ key: `${item.kind}-${index}`, label, amount: moneyText(item.amount) });
-  });
+    lines.push({ key: `${item.kind}-${index}`, label, amount: moneyText(item.amount), ...(item.kind === "base" && estimate !== null ? { note: estimate } : {}) });
+  }
   return lines;
 }
 
@@ -225,4 +276,25 @@ export function waypointUnavailableTexts(unavailable: SiteQuoteResult["unavailab
   const named = seqs.filter((seq) => stops[seq - 1] !== undefined).map((seq) => `第 ${seq} 个经停点「${(stops[seq - 1] as { name: string }).name}」`);
   if (named.length === 0) return unavailable.some((entry) => entry.reasons.includes("WAYPOINT_NOT_PRICED")) ? ["有经停点暂时没有在线报价，请联系客服人工报价，或去掉这个经停点再试。"] : [];
   return [`${named.join("、")}暂时没有在线报价，请联系客服人工报价，或去掉这个经停点再试。`];
+}
+
+/** 所选时长低于某些车型的最低套餐（M9P-04，ADR 0093 第四节第 7 条）：那些车型最短几小时、几个车型 */
+export interface MinPackageHint {
+  hours: number;
+  count: number;
+  text: string;
+}
+
+/**
+ * 不填经停点、客人自选的时长比商品的最低套餐短：报不出的车型原因是 `PACKAGE_TOO_SHORT`，带着 `min_package_hours`。
+ * 按最短时长分组，「有一个车型最短 5 小时」/「有 2 个车型最短 5 小时」（ADR 0093 写的「这个车型最短 X 小时」；报不出的车型应答里没有名称，所以写个数），页面配「改选 5 小时」按钮；只列比所选时长长的。没有这种情况时空数组
+ */
+export function minPackageHints(unavailable: SiteQuoteResult["unavailable"], chosenHours: number | null): MinPackageHint[] {
+  const counts = new Map<number, number>();
+  for (const entry of unavailable) {
+    const hours = entry.min_package_hours;
+    if (!entry.reasons.includes("PACKAGE_TOO_SHORT") || typeof hours !== "number" || (chosenHours !== null && hours <= chosenHours)) continue;
+    counts.set(hours, (counts.get(hours) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort(([a], [b]) => a - b).map(([hours, count]) => ({ hours, count, text: `${count === 1 ? "有一个车型" : `有 ${count} 个车型`}最短 ${hours} 小时${chosenHours === null ? "" : `，选 ${chosenHours} 小时订不了`}。` }));
 }

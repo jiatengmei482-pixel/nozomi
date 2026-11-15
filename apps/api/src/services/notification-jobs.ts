@@ -199,7 +199,7 @@ async function tripVariables(db: Db, order: Order): Promise<{ service_time: stri
  */
 function guestFeeNote(order: Order): string {
   if (order.category !== "charter") return pricingBasisFeeNote(orderPricingBasis(order)) ?? fixedPriceFeeNote("transfer");
-  // 包车按行程计价（M9W-05，ADR 0089）：超公里、超时已算进价格，只有当天超出预计的部分另收
+  // 包车按行程计价（M9W-05，ADR 0089）：超公里已算进价格，用时超出套餐或当天超出预计的部分另收（M9P-04 改）
   return charterAllInclusiveFor(order.createdAt) ? fixedPriceFeeNote("charter", "zh", { itinerary: order.settlement.itinerary !== undefined }) : "";
 }
 
