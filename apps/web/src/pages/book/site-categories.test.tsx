@@ -257,7 +257,7 @@ test("订单页：包车写套餐时长和上车地点、没有「我已落地�
   await waitFor(() => assert.ok(calls.some((call) => call.method === "PATCH")));
   assert.deepEqual(calls.find((call) => call.method === "PATCH")?.body, { pickup_address: "东京站丸之内口" });
 
-  const form = { name: "陈小红", phone: "+819022223333", email: "guest@example.com", flightNo: "", pickupAddress: "东京站", dropoffAddress: "新宿站", notes: "", passengers: "2", luggage: "1", date: "2030-11-20", time: "10:00" };
+  const form = { name: "陈小红", phone: "+819022223333", email: "guest@example.com", flightNo: "", flightKind: "" as const, pickupAddress: "东京站", dropoffAddress: "新宿站", notes: "", passengers: "2", luggage: "1", date: "2030-11-20", time: "10:00" };
   const p2p = charterOrder({ category: "point_to_point", package_hours: null, pickup: { lng: 139.7, lat: 35.6, address: "东京站" }, dropoff: { lng: 139.75, lat: 35.68, address: "新宿站" }, passengers: 2, luggage: 1 });
   assert.deepEqual(changeRequestOf(p2p, form), {});
   assert.deepEqual(changeRequestOf(p2p, { ...form, pickupAddress: "东京站八重洲口", dropoffAddress: " 涩谷站 " }), { pickup_address: "东京站八重洲口", dropoff_address: "涩谷站" });

@@ -257,6 +257,7 @@ test("M9E-17 跨站整条流程：iframe 里走完四步（询价带 draft_id、
   keepsFrameParams(page);
   const email = `embed-host-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`;
   await frame.getByLabel("航班号").fill("NH211");
+  await frame.getByRole("radio", { name: /^国际航班/ }).check();
   await frame.getByLabel("乘车人姓名").fill("王小明");
   await frame.getByLabel("邮箱").fill(email);
   const phone = frame.getByLabel("手机号（含国家区号）");

@@ -189,6 +189,7 @@ const formOf = (order: SiteOrder, changes: Partial<Form> = {}): Form => ({
   phone: order.passenger.phone,
   email: order.passenger.email,
   flightNo: order.flight_no ?? "",
+  flightKind: order.flight_kind ?? "",
   pickupAddress: order.pickup?.address ?? "",
   dropoffAddress: order.dropoff?.address ?? "",
   notes: order.notes ?? "",

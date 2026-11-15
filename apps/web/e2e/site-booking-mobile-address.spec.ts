@@ -173,7 +173,10 @@ async function walk(page: Page, tab: Tab, size: { width: number; height: number 
   await expect(page.getByRole("heading", { level: 2, name: "乘客信息" })).toBeVisible();
   await expectSummaryRows(page, width, `${tab.name}第 3 步`);
   const flight = page.getByLabel("航班号");
-  if ((await flight.count()) > 0) await flight.fill("NH211");
+  if ((await flight.count()) > 0) {
+    await flight.fill("NH211");
+    await page.getByRole("radio", { name: /^国际航班/ }).check();
+  }
   await page.getByLabel("乘车人姓名").fill("王小明");
   await page.getByLabel("邮箱").fill(`m837b-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`);
   await page.getByLabel("手机号（含国家区号）").fill("+81 90-1234-5678");
