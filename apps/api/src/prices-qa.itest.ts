@@ -147,7 +147,8 @@ before(async () => {
   ids["lux4"] = (await ok(platform("POST", "/master/vehicle-groups", { grade: "luxury", seats: 4, power: "fuel", combos: [{ passengers: 3, luggage: 2 }], code: "VG-LUX-4", name: { zh: "豪华 4 座" } }), 201)).id;
   ids["brand"] = (await ok(call("POST", "/brands", { body: { name: "验收 JPY", currency: "JPY" } }), 201)).id;
   ids["a1"] = await area();
-  ids["a2"] = await area();
+  // 和 a1 只碰边、不重叠：包车商品的服务区域不能重叠（M9P-06，ADR 0093 第七节）
+  ids["a2"] = await area({ at: [139.8, 35.6] });
   ids["a3"] = await area();
   // 乙车队：自己的子品牌、区域、商品、价格、调价
   ids["b-brand"] = (await ok(call("POST", "/brands", { token: other.adminToken, body: { name: "乙 JPY", currency: "JPY" } }), 201)).id;

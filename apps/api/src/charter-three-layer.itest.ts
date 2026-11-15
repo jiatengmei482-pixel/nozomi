@@ -88,11 +88,12 @@ const itinerary = (areaId: string, hours: number | null, amount: number) => ({ a
  */
 async function newCharter(who: TenantFixture): Promise<Charter> {
   const area = async (name: string, polygon: ReturnType<typeof square>): Promise<string> => (await ok(tenantCall(who, "POST", "/areas", { body: { city_id: m.ids.tokyo, name: { zh: name }, biz_type: "charter", polygons: [{ kind: "operate", geometry: polygon }] } }), 201)).id;
-  // 横滨北边和东京市内重叠一条（①①）；八王子东边伸进东京市内（①③），西边和富士山重叠（③③ / 迁移后②②）
-  const yokohama = await area("横滨", square(139.5, 35.3, 139.7, 35.55));
+  // 横滨北边和东京市内重叠一条（①①）；八王子东边伸进东京市内（①③），西边和富士山重叠（③③ / 迁移后②②）——
+  // 这些是 M9P-06 之前的旧配置，现在经接口建不出来：先按不重叠的图形建好，最后用迁移账号把图形改成重叠的（区域图形的修改不查商品的三层重叠）
+  const yokohama = await area("横滨", square(139.5, 35.3, 139.7, 35.5));
   const tokyo = await area("东京市内", square(139.55, 35.52, 139.95, 35.85));
   const fuji = await area("富士山", square(138.6, 35.4, 138.95, 35.6));
-  const hachioji = await area("八王子", square(138.9, 35.55, 139.6, 35.75));
+  const hachioji = await area("八王子", square(138.95, 35.6, 139.55, 35.75));
   const chichibu = await area("秩父", square(138.95, 35.9, 139.2, 36.1));
   const brand = (await ok(tenantCall(who, "POST", "/brands", { body: { name: `包车-${randomUUID().slice(0, 6)}`, currency: "JPY" } }), 201)).id;
   // 横滨排在前面：来源区域按名字取「东京市内」，不是排第一的
@@ -106,6 +107,9 @@ async function newCharter(who: TenantFixture): Promise<Charter> {
     }),
   );
   await ok(tenantCall(who, "POST", `/products/${created.id}/publish`));
+  for (const [areaId, polygon] of [[yokohama, square(139.5, 35.3, 139.7, 35.55)], [hachioji, square(138.9, 35.55, 139.6, 35.75)]] as const) {
+    await api.db.owner.query("update area_polygons set geometry = $2::jsonb where area_id = $1", [areaId, JSON.stringify(polygon)]);
+  }
   return { id: created.id, tokyo, yokohama, fuji, hachioji, chichibu };
 }
 
@@ -279,10 +283,11 @@ test("迁移后：套餐价只看整商品套餐价（改旧行无效、旧行�
   assert.equal(await settlements("shinjuku", ["kawaguchiko"], "shinjuku"), String(Math.round((60_000 + 15_000) * 1.1)));
   assert.equal(await settlements("shinjuku", [], "kawaguchikoStation"), String(Math.round((60_000 + 15_000 + 12_000) * 1.1)), "下车点行程加价查②；下车加价是改过的 12,000");
 
-  // ②建在服务区域（横滨）上、不分套餐（= 所有套餐）：横滨经停收它
+  // ②可以建在服务区域（横滨）上、不分套餐（= 所有套餐）（①②可以重叠，ADR 0093 第七节）；
+  // M9P-06 起基础价区域优先：经停在①里算市内经停，不收它（M9P-05 时收 2,000）
   const created = await batch(m.b, charter.id, { create: [itinerary(charter.yokohama, null, 2_000)] });
   assert.equal(created.status, 200, created.text);
-  assert.equal(await settlements("shinjuku", ["yokohama"], "shinjuku"), String(Math.round((60_000 + 2_000) * 1.1)));
+  assert.equal(await settlements("shinjuku", ["yokohama"], "shinjuku"), String(Math.round(60_000 * 1.1)));
   // 经停只在③（没有②的区域）里：秩父有②（迁过来的），删掉②后经停在秩父报不出
   const chichibuItinerary = (await prices(m.b, charter.id)).items.find((item: any) => item.pricing_model === "charter_itinerary_surcharge" && item.area_id === charter.chichibu);
   assert.equal((await batch(m.b, charter.id, { delete: [chichibuItinerary.id] })).status, 200);
