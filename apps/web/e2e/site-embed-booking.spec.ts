@@ -373,6 +373,7 @@ test("M9P-20 跨站：iframe 里的包车第 2 步有行程地图（本站 /site
   await expect(frame.locator(".leaflet-container")).toHaveCount(0);
   const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
   expect(axe.violations.map((violation) => `${violation.id}: ${violation.help}`)).toEqual([]);
+});
 
 /** 把宿主页上放预订区的容器设成 `width` 宽（iframe 宽度跟容器），等 iframe 自己的视口变成这个宽度 */
 async function frameWidth(page: Page, width: number): Promise<void> {
