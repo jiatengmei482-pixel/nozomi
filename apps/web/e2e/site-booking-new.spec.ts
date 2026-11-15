@@ -65,6 +65,9 @@ test("新预订页四步：输入即提示选机场和酒店 → 自动报价、
   await expectNarrowAndAccessible(page, "新预订页（候选展开）");
   await from.press("Enter");
   await expect(from).toHaveValue(airport.name);
+  // 只选了机场、还没报价：认出接机，但还不知道是国际线还是国内线，提示里不写分钟数（M9E-27：以前这里写死 60，和嵌入页报价后的 90 对不上）
+  await expect(page.getByText("已识别为接机：司机按航班落地时间等候", { exact: true })).toBeVisible();
+  await expect(page.getByText(/落地后免费等待/)).toHaveCount(0);
 
   // 目的地：谷歌候选，键盘选中（选中后后端取坐标）
   const to = page.getByRole("combobox", { name: "目的地" });

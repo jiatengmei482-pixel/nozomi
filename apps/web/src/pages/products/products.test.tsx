@@ -537,6 +537,52 @@ test("服务规则：包车的免费等待由平台固定为 0——没有输入
   assert.ok(screen.getByText(/包车的超时费、超公里费在「价格规则」里设置。包车报价须包含高速费、停车费：对客人是一口价全含，服务后不能再另收高速费、停车费/), "M8-09：写清包车报价须含高速、停车");
 });
 
+test("服务规则：包车按行程计价的三项配置和「下车点行程加价」开关（M9P-04）——建议值只用灰字写，不预填；改了提交 charter_itinerary，不提交在线下单上限；最低套餐比所有套餐都长时提醒", async () => {
+  const actor = user();
+  const charter = productOf({ category: "charter", poi_id: null, poi: null });
+  const base = rulesOf({ booking: { sale_from: null, sale_to: null, service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 24, note: null }, free_wait: { pickup: null, dropoff: null, general: { mode: "limited", minutes: 0 } }, charter_itinerary: { dropoff_itinerary_surcharge: true, stop_occupancy_minutes: 0, buffer_minutes: 0, min_package_hours: null, max_online_minutes: 780 } });
+  const calls = open(`/products/${PRODUCT_ID}/service-rules`, "admin", productRoutes({ product: charter, rules: { ...base, free_wait_minimums: { pickup: null, dropoff: null, general: 0 } } }, (call) => (call.method === "PUT" ? json(200, { ...rulesOf(call.body as ServiceRulesBody, 8), free_wait_minimums: { pickup: null, dropoff: null, general: 0 }, min_package_above_all: { min_package_hours: 13, longest_package_hours: 12 } }) : null)));
+  const section = (await screen.findByRole("heading", { name: "包车按行程计价" })).closest("section") as HTMLElement;
+  const stop = within(section).getByLabelText("经停点默认占用（分钟）") as HTMLInputElement;
+  const buffer = within(section).getByLabelText("整单缓冲（分钟）") as HTMLInputElement;
+  const min = within(section).getByLabelText("最低套餐（小时）") as HTMLInputElement;
+  const dropoff = within(section).getByRole("checkbox", { name: "收下车点行程加价" }) as HTMLInputElement;
+  // 不预填：没设过（0 / 0 / 不限）时都空着，建议值是灰色占位和说明
+  assert.deepEqual([stop.value, buffer.value, min.value], ["", "", ""]);
+  assert.deepEqual([stop.placeholder, buffer.placeholder, min.placeholder], ["建议 15", "建议 60", "不限"]);
+  assert.ok(within(section).getByText("建议 15 分钟") && within(section).getByText("建议 60 分钟，填 0 关闭") && within(section).getByText("可设为 5 小时"));
+  assert.equal(dropoff.checked, true, "默认开");
+  assert.ok(within(section).getByText("没有市外经停时，下车点所在行程区域收一次行程加价。默认开。"));
+  assert.equal(dropoff.getAttribute("aria-describedby"), "itinerary-dropoff-hint");
+  // 填错了：指到输入框
+  await actor.type(stop, "121");
+  await actor.type(min, "0");
+  await actor.click(screen.getByRole("button", { name: "保存草稿" }));
+  await waitFor(() => assert.ok(screen.getAllByText("请填 0 到 120 之间的整数（分钟）").length > 0));
+  assert.ok(screen.getAllByText(`请填 1 到 72 之间的整数（小时），不限请留空`).length > 0);
+  assert.equal(writes(calls).length, 0);
+  await actor.clear(stop);
+  await actor.type(stop, "15");
+  await actor.type(buffer, "60");
+  await actor.clear(min);
+  await actor.type(min, "13");
+  await actor.click(dropoff);
+  await actor.click(screen.getByRole("button", { name: "保存草稿" }));
+  await screen.findByText("已保存");
+  assert.deepEqual((writes(calls)[0]?.body as ServiceRulesBody).charter_itinerary, { dropoff_itinerary_surcharge: false, stop_occupancy_minutes: 15, buffer_minutes: 60, min_package_hours: 13 });
+  await screen.findByText("最低套餐 13 小时比这个商品所有启用的套餐都长（最长 12 小时），这个商品将报不出价。");
+});
+
+test("服务规则：接送机没有包车按行程计价那一块，也不提交 charter_itinerary", async () => {
+  const actor = user();
+  const calls = open(`/products/${PRODUCT_ID}/service-rules`, "admin", productRoutes({}, (call) => (call.method === "PUT" ? json(200, rulesOf(call.body as ServiceRulesBody, 8)) : null)));
+  await screen.findByRole("heading", { name: "免费等待" });
+  assert.equal(screen.queryByRole("heading", { name: "包车按行程计价" }), null);
+  await actor.click(screen.getByRole("button", { name: "保存草稿" }));
+  await screen.findByText("已保存");
+  assert.equal("charter_itinerary" in (writes(calls)[0]?.body as ServiceRulesBody), false);
+});
+
 test("服务规则：后端指出的问题落在对应的输入框上；平台停用的附加服务有提醒；只读角色不能改也没有保存", async () => {
   const actor = user();
   const rules = rulesOf({ booking: { sale_from: null, sale_to: null, service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 0, note: null }, free_wait: { pickup: { mode: "limited", minutes: 60 }, dropoff: { mode: "unlimited" }, general: null }, addons: [{ addon_id: ADDON_ID, enabled: true, unit_price: 1000, first_free: true }] });

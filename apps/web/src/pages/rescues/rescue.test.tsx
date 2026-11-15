@@ -14,6 +14,7 @@ import type { PlatformOrder, PlatformOrderDetail } from "../../api/order-money.t
 import type { PlatformRescue, RescueQueue, TenantDeduction, TenantRescueOffer } from "../../api/rescues.ts";
 import { type ApiCall, apiError, json, resetBrowser, signIn, stubApiWith } from "../../testing/harness.tsx";
 import { NOT_DISPATCHED, NO_RECORDS } from "../../testing/order-center-fixtures.tsx";
+import { deductionBaseText, deductionBasisText } from "../../lib/rescue-display.ts";
 
 afterEach(resetBrowser);
 
@@ -62,6 +63,7 @@ const rescueOf = (changes: Partial<PlatformRescue> = {}): PlatformRescue => ({
   from_status: "confirmed",
   original_tenant: { id: TENANT_B, name: "乙车队" },
   original_settlement: money("19800"),
+  deduction_base: null,
   penalty_bp: 3000,
   penalty_tier: "partial",
   penalty: money("5940"),
@@ -222,6 +224,33 @@ test("订单详情（运营后台）：救援记录写出违约金和应扣款�
   await user().click(within(force).getByRole("button", { name: "认定" }));
   await waitFor(() => assert.deepEqual(forced, { note: "大雪封路" }));
   assert.ok(await screen.findByText("已认定不可抗力，免除了 1 条应扣款项"));
+});
+
+test("订单详情（运营后台，M9P-04）：救援记录和候选写出救援差价基准——加价重算多出来时写原结算价 + 多出的、重算前后的加价合计；重算失败写原因；以前的救援写按原结算价；差价的算式按基准写", async () => {
+  const yen = (amount: string) => ({ amount, currency: "JPY" });
+  const raised = rescueOf({ original_settlement: yen("65000"), deduction_base: { base: yen("75000"), surcharge_before: yen("10000"), surcharge_after: yen("20000"), fallback_reason: null } });
+  open(`/platform/orders/${ORDER_ID}`, "operations", (call) => {
+    if (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}`) return json(200, platformDetail(platformOrder(), [raised]));
+    if (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}/rescue/candidates`) return json(200, { rescue_id: RESCUE_ID, candidates: [{ tenant: { id: TENANT_A, name: "甲车队" }, product_id: "pa", product_version: 1, settlement: yen("75500"), sell: yen("83050"), markup_bp: 1000, position: 1, in_band: true, difference: yen("500"), urgent: false }], excluded: [] });
+    return null;
+  }, "platform");
+  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
+  const section = screen.getByRole("heading", { name: "救援改派" }).closest("section") as HTMLElement;
+  assert.match(section.textContent ?? "", /救援差价基准75,000 JPY = 原结算价 65,000 JPY \+ 加价重算多出的 10,000 JPY（订单上的加价合计 10,000 JPY，按现在的规则重算 20,000 JPY）/);
+  await user().click(within(section).getByRole("button", { name: "看候选并发救援单" }));
+  const dialog = await screen.findByRole("dialog", { name: "救援候选" });
+  await within(dialog).findByRole("table", { name: "候选" });
+  assert.match(dialog.textContent ?? "", /差价 = 结算价 − 救援差价基准：75,000 JPY = 原结算价 65,000 JPY/);
+});
+
+test("救援差价基准的说法：没多出、重算失败、以前的救援；应扣款项的算式按基准写", async () => {
+  const yen = (amount: string) => ({ amount, currency: "JPY" });
+  assert.equal(deductionBaseText({ base: yen("75000"), surcharge_before: yen("20000"), surcharge_after: yen("20000"), fallback_reason: null }, yen("75000")), "75,000 JPY，就是原结算价（订单上的加价合计 20,000 JPY，按现在的规则重算 20,000 JPY）");
+  assert.equal(deductionBaseText({ base: yen("65000"), surcharge_before: yen("10000"), surcharge_after: null, fallback_reason: "PRODUCT_NOT_FOUND" }, yen("65000")), "65,000 JPY，就是原结算价（加价重算失败：原订单的商品已经不在了）");
+  assert.equal(deductionBaseText({ base: yen("65000"), surcharge_before: yen("10000"), surcharge_after: null, fallback_reason: "NO_PRICE_RULE" }, yen("65000")), "65,000 JPY，就是原结算价（加价重算失败：原商品按现在的规则报不出（NO_PRICE_RULE））");
+  assert.equal(deductionBaseText(null, yen("19800")), "按原结算价 19,800 JPY");
+  assert.equal(deductionBasisText("rescue_difference", { original_minor: 65_000, rescue_in_original_minor: 75_500, raw_minor: 500, same_currency: true, base_minor: 75_000, surcharge_before: 10_000, surcharge_after: 20_000, base_fallback_reason: null }, "JPY"), "救援结算价 75,500 JPY − 救援差价基准 75,000 JPY（原结算价 65,000 JPY + 加价重算多出的 10,000 JPY）");
+  assert.equal(deductionBasisText("rescue_difference", { original_minor: 65_000, rescue_in_original_minor: 64_000, raw_minor: -1_000, same_currency: true, base_minor: 65_000, surcharge_before: 10_000, surcharge_after: 10_000, base_fallback_reason: null }, "JPY"), "救援结算价 64,000 JPY − 原结算价 65,000 JPY，为负记 0");
 });
 
 test("订单详情（运营后台）：没有救援的已派车单，运营能按情形发起（说明必填）；客服也能；只读看不到这一块", async () => {

@@ -172,13 +172,19 @@ export function searchWithStep(search: string, step: BookStep): string {
   return text === "" ? "" : `?${text}`;
 }
 
+/** 机场走国际线、国内线还是都有（报价应答里的 `airport.flight_scope`）；null 是没标明 */
+export type AirportFlightScope = "international" | "domestic" | "mixed";
+
 /**
- * 接机提示里的免费等待分钟数（M8-33）：有报价时按所选商品自己设的（报价里的 `free_wait_minutes`，无限等待为 null）；
- * 还没有报价时按平台默认：国际线机场 90 分钟，国内线、都有或没标明 60 分钟（和供应商后台的最少值同一规则）。
+ * 接机提示里的免费等待分钟数（M8-33、M9E-27）：有报价时按所选商品自己设的（报价里的 `free_wait_minutes`，无限等待为 null）；
+ * 还没有报价时按平台规则（业主 2026-11-15：所有机场一样，国际航班 90、国内航班 60）：只走国际线的机场 90，只走国内线的 60；
+ * 两种都有、没标明、还不知道是哪个机场（还没报过价）的看不出是哪种航班，返回 null——提示里不写分钟数，不拿 60 去猜。
  */
-export function arrivalFreeWaitMinutes(quoted: { free_wait_minutes: number | null } | null, flightScope: "international" | "domestic" | "mixed" | null): number | null {
+export function arrivalFreeWaitMinutes(quoted: { free_wait_minutes: number | null } | null, flightScope: AirportFlightScope | null): number | null {
   if (quoted !== null) return quoted.free_wait_minutes;
-  return flightScope === "international" ? 90 : 60;
+  if (flightScope === "international") return 90;
+  if (flightScope === "domestic") return 60;
+  return null;
 }
 
 /** 举牌姓名、乘车人姓名和电话的长度上限（M8-27 定，M8-32 起作为订单的正式字段单独提交，ADR 0082）。 */
