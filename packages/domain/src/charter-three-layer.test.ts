@@ -237,3 +237,24 @@ test("「套餐价不一致」逐条明细：旧的按区域套餐价和整商�
   ]);
   assert.deepEqual(charterMigrationDiff([rule("old", "tokyo", pkgPricing(60_000)), rule("wide", null, pkgPricing(60_000), { status: "disabled" })]).map((entry) => entry.oldRuleId), ["old"], "状态不同也算不一致");
 });
+
+test("M9P-16：已下的单改期时传 lockedAreaSurcharge——加价用锁定的金额、不查现在的加价规则；套餐价、调价照常现算；没传的和以前一样", () => {
+  const locked = { pickup: { areaId: null, priceRuleId: null, amountMinor: 0 }, dropoff: { areaId: "fuji", priceRuleId: "s-fuji", amountMinor: 10_000 }, waypoints: [] };
+  const request = trip("shinjuku", ["gogome"], "gogome");
+  assert.equal(priced(request, product()), 55_000 + 10_000 + 10_000, "现算：富士山行程 + 富士山下车");
+  const quote = quoteProduct(product(), request, moment, { lockedAreaSurcharge: locked });
+  assert.ok(quote.ok);
+  const s = quote.offers[0]?.settlement;
+  assert.deepEqual([s?.totalMinor, s?.areaSurcharge], [55_000 + 10_000, { packageMinor: 55_000, ...locked }], "锁定的是行程加价被下车抵消时的那份（0）");
+  // 套餐价现算：改了套餐价，锁定的加价不变
+  const cheaper = product({ priceRules: [rule("p-tokyo", "tokyo", pkgPricing(50_000)), ...LEGACY_RULES.slice(1)] });
+  const again = quoteProduct(cheaper, request, moment, { lockedAreaSurcharge: locked });
+  assert.ok(again.ok);
+  assert.equal(again.offers[0]?.settlement.totalMinor, 50_000 + 10_000);
+  // 加价规则都删了也照样按锁定的报（区域判断照常：富士山的③行还在，所以点还能匹配）
+  const noWaypointRule = product({ priceRules: [rule("p-tokyo", "tokyo", pkgPricing(55_000)), updown("s-fuji", "fuji", 99_000, 99_000)] });
+  const kept = quoteProduct(noWaypointRule, request, moment, { lockedAreaSurcharge: locked });
+  assert.ok(kept.ok);
+  assert.equal(kept.offers[0]?.settlement.totalMinor, 65_000);
+});
+

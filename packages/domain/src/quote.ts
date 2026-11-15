@@ -880,6 +880,12 @@ export interface QuoteOptions {
   forOwner?: boolean;
   audience?: SiteAudience;
   legacyAreaRules?: boolean;
+  /**
+   * 包车已下的单改期时（M9P-16，监工替业主确认 2026-11-14「按下单时锁定」）：上车、下车、行程加价用下单时锁定的这几项（订单结算价明细 `areaSurcharge` 去掉套餐价），
+   * 不按现在的规则和算法重算——M9P-01（经停不被上下车抵消、下车点行程加价）、M9P-06（基础价区域优先）以及之后改了的加价规则都不作用到已下的单。
+   * 区域判断（点还在不在商品的区域里）照常做；套餐价、超公里、调价、加急、夜间、附加服务仍按改期后的时间现算（和以前一样）。不给 = 现算（新询价）。
+   */
+  lockedAreaSurcharge?: Omit<AreaSurchargeBreakdown, "packageMinor">;
 }
 
 /** 带 `charterSelection` 的包车按一个档算价时的口径（ADR 0091 第三节）：不收超时费；`estimate` 是要写进明细的预计用时四项（没有为 null） */
@@ -992,7 +998,11 @@ function quoteAtHours(product: QuoteProduct, request: QuoteRequest, moment: Quot
     }
     // 包车的区域加价：上车、下车两端各取这一端最小的加价（在商品本身的区域里是 0）；有一端没有能用的加价，这个车型组不报
     let surcharge: Omit<AreaSurchargeBreakdown, "packageMinor"> | null = null;
-    if (ends !== null) {
+    const locked = product.category === "charter" && ends !== null ? options.lockedAreaSurcharge : undefined;
+    if (locked !== undefined) {
+      // 已下的单改期（M9P-16）：加价按下单时锁定的，不查现在的加价规则
+      surcharge = { pickup: { ...locked.pickup }, dropoff: { ...locked.dropoff }, ...(locked.waypoints === undefined ? {} : { waypoints: locked.waypoints.map((entry) => ({ ...entry, stopSeqs: [...entry.stopSeqs] })) }) };
+    } else if (ends !== null) {
       // 一端落在加价区域里、而且这个车型组 / 套餐 / 日期有能用的区域加价：用它（几个都有时取最高），
       // 哪怕这一端同时也在商品本身的（大范围）区域里——大运营区不能把小加价区盖成 0（M8-38，业主确认）。
       // 加价区域都没有能用的加价时：在商品区域里算 0，否则报不出（和以前一样）。

@@ -265,7 +265,11 @@ async function reprice(db: Db, order: Order, sale: OrderSale, next: PlannedChang
   const urgentUsed = Math.max(0, (facts.urgentUsed.get(order.productId) ?? 0) - (sameDay && order.urgent ? 1 : 0));
   // M8-15 之前下的包车单没有下车点（ADR 0073「已下的订单不改」）：改期照以前的算法，只看上车点、不算区域加价——商品后来设了区域加价也一样
   const product = request.category === "charter" && request.dropoff === null ? { ...candidate.product, priceRules: candidate.product.priceRules.filter((rule) => !isSurchargeRule(rule)) } : candidate.product;
-  const result = quoteProduct(product, request, { now, holidays: facts.holidays, route: order.settlement.usage, inventoryDay: ownDay, urgentUsed });
+  // 包车加价按下单时锁定（M9P-16，监工替业主确认 2026-11-14）：上车、下车、行程加价取订单结算价明细里的，不按现在的规则重算；
+  // 套餐价、超公里、调价、加急、夜间、附加服务仍按改期后的时间现算（和以前一样）。M8-15 之前的单没有这一项，照旧
+  const surchargeAtBooking = request.category === "charter" ? order.settlement.areaSurcharge : null;
+  const lockedAreaSurcharge = surchargeAtBooking === undefined || surchargeAtBooking === null ? undefined : (({ packageMinor: _package, ...rest }) => rest)(surchargeAtBooking);
+  const result = quoteProduct(product, request, { now, holidays: facts.holidays, route: order.settlement.usage, inventoryDay: ownDay, urgentUsed }, lockedAreaSurcharge === undefined ? {} : { lockedAreaSurcharge });
   if (!result.ok) throw notServiceable(result.reason);
   const offer = result.offers.find((entry) => entry.vehicleGroupId === order.vehicleGroupId && entry.packageHours === order.packageHours);
   if (offer === undefined) throw notServiceable(result.refused.find((entry) => entry.vehicleGroupId === order.vehicleGroupId)?.reason ?? "NOT_AVAILABLE");
