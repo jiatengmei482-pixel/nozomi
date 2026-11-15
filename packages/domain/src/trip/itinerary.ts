@@ -143,8 +143,10 @@ export function tripItineraryIssues(itinerary: TripItinerary): TripIssue[] {
   let previousDate: string | null = null;
   for (const [d, day] of days.entries()) {
     const base = `/days/${d}`;
-    if (typeof day.date !== "string" || !isLocalDate(day.date)) issues.push({ path: `${base}/date`, reason: "INVALID" });
-    else {
+    if (typeof day.date !== "string" || !isLocalDate(day.date)) {
+      issues.push({ path: `${base}/date`, reason: "INVALID" });
+      previousDate = null; // 无效日期之后不和它比，免得多报一条「不连续」
+    } else {
       // 日期要连续（不用车的那天写成空闲日）：跨段费用按「相邻两天」算住宿、停驻，跳过的日子会少收，也绕得过 14 天上限
       if (previousDate !== null && day.date <= previousDate) issues.push({ path: `${base}/date`, reason: "NOT_ASCENDING" });
       else if (previousDate !== null && day.date !== addDays(previousDate, 1)) issues.push({ path: `${base}/date`, reason: "NOT_CONSECUTIVE" });

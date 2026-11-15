@@ -265,7 +265,7 @@ test("接机按坐标认机场；每天各自最优取当天中标（经济 4 �
   const daily = res.body.plans.find((plan: any) => plan.kind === "daily_best");
   const transfer = await official({ category: "airport_transfer", city_id: m.ids.tokyo, airport_id: m.ids.narita, direction: "pickup", address: at("ginza"), service_local: "2027-03-08T10:00" });
   const priceOf = (vg: string): string => transfer.body.quotes.find((quote: any) => quote.vehicle_group.id === vg).price.total.amount;
-  // 当天两段都是接机（按坐标认出成田）
+  // 当天一段接机（按坐标认出成田）
   assert.equal(daily.days[0].segments[0].type, "airport_pickup");
   assert.equal(daily.days[0].segments[0].vehicle_group.id, m.ids.eco4);
   assert.equal(daily.days[0].segments[0].amount.amount, priceOf(m.ids.eco4));
