@@ -12,12 +12,12 @@ import { createHash } from "node:crypto";
 import { ITINERARY_MAP_RULES, type LatLng, type RouteFailureCode, routeCallAllowed, routeFailureCooldownMs, routeUsageDay } from "@nozomi/domain";
 import { withPlatformTx } from "../db/context.ts";
 import type { Pool } from "../db/pool.ts";
-import type { ComputedItineraryPolyline } from "../integrations/google-itinerary-routes.ts";
+import type { ComputedItineraryPolyline, ItineraryLegMeasure } from "../integrations/google-itinerary-routes.ts";
 import { findItineraryPolylines, saveItineraryPolylines } from "../repos/itinerary-polylines.ts";
 import { recordRouteOutcome, recordRouteRefused, reserveRouteCall } from "../repos/route-estimates.ts";
 import { ROUTE_DB_TIMEOUT_MS } from "./route-estimates.ts";
 
-export type ItineraryPolylineLookup = { ok: true; polylines: string[]; source: "cache" | "google" } | { ok: false; code: RouteFailureCode };
+export type ItineraryPolylineLookup = { ok: true; polylines: string[]; legs: ItineraryLegMeasure[] | null; source: "cache" | "google" } | { ok: false; code: RouteFailureCode };
 
 /** 取一组有序点（已经取整）的折线。实现应当自己处理超时和错误，永远不抛异常。 */
 export interface ItineraryPolylineSource {
@@ -70,7 +70,7 @@ export class GoogleItineraryPolylines implements ItineraryPolylineSource {
     const db = { queryTimeoutMs: this.#deps.dbTimeoutMs ?? ROUTE_DB_TIMEOUT_MS };
     try {
       const cached = await withPlatformTx(pool, (tx) => findItineraryPolylines(tx, key, this.#deps.now()), db);
-      if (cached !== null) return { ok: true, polylines: cached, source: "cache" };
+      if (cached !== null) return { ok: true, polylines: cached.polylines, legs: cached.legs, source: "cache" };
     } catch (err) {
       log.warn({ err }, "读行程折线的缓存失败，直接问谷歌");
     }
@@ -108,13 +108,13 @@ export class GoogleItineraryPolylines implements ItineraryPolylineSource {
         pool,
         async (tx) => {
           if (result.ok || result.code !== "DAILY_LIMIT_REACHED") await recordRouteOutcome(tx, day, result.ok ? { ok: true } : { ok: false, code: result.code }, at);
-          if (result.ok && result.polylines.length > 0) await saveItineraryPolylines(tx, key, result.polylines, at, new Date(at.getTime() + ITINERARY_MAP_RULES.polylineCacheTtlMs));
+          if (result.ok && result.polylines.length > 0) await saveItineraryPolylines(tx, key, { polylines: result.polylines, legs: result.legs }, at, new Date(at.getTime() + ITINERARY_MAP_RULES.polylineCacheTtlMs));
         },
         db,
       );
     } catch (err) {
       log.warn({ err }, "写行程折线的缓存或调用计数失败（这次的结果照常使用）");
     }
-    return result.ok ? { ok: true, polylines: result.polylines, source: "google" } : result;
+    return result.ok ? { ok: true, polylines: result.polylines, legs: result.legs, source: "google" } : result;
   }
 }

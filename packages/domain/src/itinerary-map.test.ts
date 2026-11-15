@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { LatLng } from "./geo.ts";
-import { ITINERARY_MAP_RULES, ITINERARY_STOP_COLORS, displayStopNumber, isItineraryPointList, itineraryMapQuery, itineraryMarkers, itineraryPointsKey, legStopNumbers, markerIconUrl, stopNumbers } from "./itinerary-map.ts";
+import { ITINERARY_MAP_RULES, ITINERARY_MARKER_COLORS, displayStopNumber, isItineraryPointList, itineraryMapQuery, itineraryMarkers, itineraryPointsKey, legStopNumbers, markerIconUrl, stopNumbers } from "./itinerary-map.ts";
 import { STATIC_MAP_PALETTES, STATIC_MAP_RULES, type StaticMapSize, decodePolyline, encodePolyline } from "./static-map.ts";
 
 const SIZE: StaticMapSize = { theme: "light", width: 320, height: 200, scale: 2 };
@@ -80,15 +80,16 @@ test("缓存键：每个点按 routeCacheKey 的规则取整到 3 位小数、�
   assert.equal(isItineraryPointList(line(13)), false);
 });
 
-test("标记：1–9 用谷歌内置的单字符 label，上车、下车品牌色默认大小，经停中号浅一档", () => {
+test("标记：1–9 用谷歌内置的单字符 label，颜色同 --color-text-link；上车、下车默认大小，经停中号", () => {
   const markers = itineraryMarkers(line(5), "light", SITE);
   assert.equal(markers.length, 5);
-  assert.equal(markers[0], `color:0x${STATIC_MAP_PALETTES.light.route}|label:1|35.68960,139.70060`);
-  assert.equal(markers[1], `size:mid|color:0x${ITINERARY_STOP_COLORS.light}|label:2|35.67960,139.68060`);
-  assert.equal(markers[4], `color:0x${STATIC_MAP_PALETTES.light.route}|label:5|35.64960,139.62060`);
+  assert.equal(markers[0], `color:0x${ITINERARY_MARKER_COLORS.light}|label:1|35.68960,139.70060`);
+  assert.equal(markers[1], `size:mid|color:0x${ITINERARY_MARKER_COLORS.light}|label:2|35.67960,139.68060`);
+  assert.equal(markers[4], `color:0x${ITINERARY_MARKER_COLORS.light}|label:5|35.64960,139.62060`);
+  assert.deepEqual(ITINERARY_MARKER_COLORS, { light: "2A45B0", dark: "A9BBFF" }, "和 --color-text-link 的亮暗值一致");
   const dark = itineraryMarkers(line(3), "dark", SITE);
-  assert.match(dark[0] as string, new RegExp(`^color:0x${STATIC_MAP_PALETTES.dark.route}\\|label:1\\|`));
-  assert.match(dark[1] as string, new RegExp(`^size:mid\\|color:0x${ITINERARY_STOP_COLORS.dark}\\|label:2\\|`));
+  assert.match(dark[0] as string, new RegExp(`^color:0x${ITINERARY_MARKER_COLORS.dark}\\|label:1\\|`));
+  assert.match(dark[1] as string, new RegExp(`^size:mid\\|color:0x${ITINERARY_MARKER_COLORS.dark}\\|label:2\\|`));
 });
 
 test("标记：10–12 用本站公开路径上的自定义图标，最多 3 种（谷歌限 5 种）；1–9 都不用图标", () => {

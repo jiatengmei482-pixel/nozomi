@@ -28,6 +28,7 @@ import {
   routeCacheKey,
   routeCallAllowed,
   routeMapReason,
+  routeMinutesFromSeconds,
   routeUsageDay,
   staticMapCacheKey,
   staticMapFailureCooldownMs,
@@ -64,6 +65,8 @@ export type RouteMapResult =
 export interface RouteMapRenderer {
   render(request: RouteMapRequest): Promise<RouteMapResult>;
   renderItinerary(request: ItineraryMapRequest): Promise<RouteMapResult>;
+  /** 同一组点逐段的约多少分钟、多少米（和地图共用一次带中间点的 computeRoutes 和它的缓存）；取不到为 null */
+  itineraryLegs(points: LatLng[]): Promise<{ minutes: number; meters: number }[] | null>;
 }
 
 export interface GoogleStaticMapServiceDeps {
@@ -90,6 +93,7 @@ const failed = (failure: RouteMapFailure): RouteMapResult => ({ ok: false, reaso
 export const NO_ROUTE_MAP: RouteMapRenderer = {
   render: async () => failed({ stage: "static_map", code: "NOT_CONFIGURED" }),
   renderItinerary: async () => failed({ stage: "static_map", code: "NOT_CONFIGURED" }),
+  itineraryLegs: async () => null,
 };
 
 /** 出图前要准备的参数：谷歌静态地图的查询参数（不含密钥），或画不了的原因。 */
@@ -137,6 +141,16 @@ export class GoogleStaticMapService implements RouteMapRenderer {
       if (!found.ok) return { stage: "route", code: found.code };
       return itineraryMapQuery(found.polylines, route.points, size, this.#deps.siteBaseUrl ?? "") ?? { stage: "map", code: "NO_POLYLINE" };
     });
+  }
+
+  /** 没有经停、按自选时长报价的包车（ADR 0096 第二节第 3 小节）：列表每段的时长和公里只作展示，取地图折线那次调用的逐段量。 */
+  async itineraryLegs(points: LatLng[]): Promise<{ minutes: number; meters: number }[] | null> {
+    const route = itineraryPointsKey(points);
+    const source = this.#deps.itineraryRoutes;
+    if (route.samePoint || source === undefined) return null;
+    const found = await source.polylines(route.key, route.points).catch((): null => null);
+    if (found === null || !found.ok || found.legs === null) return null;
+    return found.legs.map((leg) => ({ minutes: routeMinutesFromSeconds(leg.seconds), meters: leg.meters }));
   }
 
   #once(key: string, query: QuerySource): Promise<RouteMapResult> {

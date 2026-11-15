@@ -55,7 +55,7 @@ const run = (reply: Reply | (() => Reply), options: { beforeAttempt?: () => Prom
 
 test("请求：起点、终点、中间点按顺序作 intermediates（via: false），驾车、不考虑路况、不要备选；字段掩码只要折线；密钥只在请求头", async () => {
   const legs = [LEG, LEG, LEG].map((encodedPolyline) => ({ polyline: { encodedPolyline } }));
-  assert.deepEqual(await run({ status: 200, body: { routes: [{ polyline: { encodedPolyline: LEG }, legs }] } }), { ok: true, polylines: [LEG, LEG, LEG] });
+  assert.deepEqual(await run({ status: 200, body: { routes: [{ polyline: { encodedPolyline: LEG }, legs }] } }), { ok: true, polylines: [LEG, LEG, LEG], legs: null });
   assert.equal(seen.length, 1);
   const sent = JSON.parse(seen[0]?.body ?? "{}");
   assert.deepEqual(sent, {
@@ -70,17 +70,24 @@ test("请求：起点、终点、中间点按顺序作 intermediates（via: fals
     computeAlternativeRoutes: false,
   });
   assert.equal(seen[0]?.headers["x-goog-fieldmask"], ITINERARY_POLYLINE_FIELD_MASK);
-  assert.equal(ITINERARY_POLYLINE_FIELD_MASK, "routes.polyline.encodedPolyline,routes.legs.polyline.encodedPolyline");
+  assert.equal(ITINERARY_POLYLINE_FIELD_MASK, "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline,routes.legs.distanceMeters,routes.legs.duration,routes.legs.polyline.encodedPolyline");
   assert.equal(seen[0]?.headers["x-goog-api-key"], KEY);
   assert.ok(!(seen[0]?.body ?? "").includes(KEY));
 });
 
 test("应答：逐段齐了用逐段；段数不对或某段看不懂时用整条；都没有为空数组；没有 routes 是 NO_ROUTE；看不懂是 UNEXPECTED", () => {
   const legs = (n: number, bad = -1) => Array.from({ length: n }, (_, i) => ({ polyline: { encodedPolyline: i === bad ? "has space" : LEG } }));
-  assert.deepEqual(parseItineraryPolyline(JSON.stringify({ routes: [{ polyline: { encodedPolyline: "whole" }, legs: legs(3) }] }), 3), { ok: true, polylines: [LEG, LEG, LEG] });
-  assert.deepEqual(parseItineraryPolyline(JSON.stringify({ routes: [{ polyline: { encodedPolyline: "whole" }, legs: legs(2) }] }), 3), { ok: true, polylines: ["whole"] });
-  assert.deepEqual(parseItineraryPolyline(JSON.stringify({ routes: [{ polyline: { encodedPolyline: "whole" }, legs: legs(3, 1) }] }), 3), { ok: true, polylines: ["whole"] });
-  assert.deepEqual(parseItineraryPolyline(JSON.stringify({ routes: [{ legs: [null, 1, "x"] }] }), 3), { ok: true, polylines: [] });
+  assert.deepEqual(parseItineraryPolyline(JSON.stringify({ routes: [{ polyline: { encodedPolyline: "whole" }, legs: legs(3) }] }), 3), { ok: true, polylines: [LEG, LEG, LEG], legs: null });
+  assert.deepEqual(parseItineraryPolyline(JSON.stringify({ routes: [{ polyline: { encodedPolyline: "whole" }, legs: legs(2) }] }), 3), { ok: true, polylines: ["whole"], legs: null });
+  assert.deepEqual(parseItineraryPolyline(JSON.stringify({ routes: [{ polyline: { encodedPolyline: "whole" }, legs: legs(3, 1) }] }), 3), { ok: true, polylines: ["whole"], legs: null });
+  assert.deepEqual(parseItineraryPolyline(JSON.stringify({ routes: [{ legs: [null, 1, "x"] }] }), 3), { ok: true, polylines: [], legs: null });
+  // 逐段的里程、时长：段数对得上、每段都看得懂才给；谷歌省略 0 米；只有一段而没有逐段时认整条路线的
+  const measured = [{ distanceMeters: 1200, duration: "300s" }, { duration: "60.5s" }, { distanceMeters: 5, duration: "0s" }];
+  assert.deepEqual(parseItineraryPolyline(JSON.stringify({ routes: [{ legs: measured }] }), 3), { ok: true, polylines: [], legs: [{ meters: 1200, seconds: 300 }, { meters: 0, seconds: 60 }, { meters: 5, seconds: 0 }] });
+  assert.equal((parseItineraryPolyline(JSON.stringify({ routes: [{ legs: [measured[0], { distanceMeters: 1 }, measured[2]] }] }), 3) as { legs: unknown }).legs, null, "一段没有时长");
+  assert.equal((parseItineraryPolyline(JSON.stringify({ routes: [{ legs: [measured[0], { distanceMeters: -1, duration: "1s" }, measured[2]] }] }), 3) as { legs: unknown }).legs, null, "负数");
+  assert.deepEqual((parseItineraryPolyline(JSON.stringify({ routes: [{ distanceMeters: 6800, duration: "1080s" }] }), 1) as { legs: unknown }).legs, [{ meters: 6800, seconds: 1080 }]);
+  assert.equal((parseItineraryPolyline(JSON.stringify({ routes: [{ distanceMeters: 6800, duration: "1080s" }] }), 2) as { legs: unknown }).legs, null, "两段时不拿整条的当一段");
   assert.deepEqual(parseItineraryPolyline("{}", 3), { ok: false, code: "NO_ROUTE" });
   assert.deepEqual(parseItineraryPolyline(JSON.stringify({ routes: [] }), 3), { ok: false, code: "NO_ROUTE" });
   assert.deepEqual(parseItineraryPolyline("not json", 3), { ok: false, code: "UNEXPECTED" });

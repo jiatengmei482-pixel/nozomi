@@ -9,19 +9,31 @@
  *
  * 单元测试和集成测试都用本机的假服务器（`GOOGLE_MAPS_ROUTES_URL`），不联网。
  */
-import { type LatLng, type RouteFailureCode, isEncodedPolyline } from "@nozomi/domain";
+import { type LatLng, type RouteFailureCode, isEncodedPolyline, routeValuesUsable } from "@nozomi/domain";
 import { type ComputeRouteOptions, GOOGLE_MAPS_ATTEMPTS, ROUTE_MIN_RETRY_MS, isTimeout, readCapped, routeFailure } from "./google-maps.ts";
 
-/** 字段掩码：整条路线的折线（逐段的取不到时用它画）和逐段的折线 */
-export const ITINERARY_POLYLINE_FIELD_MASK = "routes.polyline.encodedPolyline,routes.legs.polyline.encodedPolyline";
+/**
+ * 字段掩码：整条和逐段的折线（画图），整条和逐段的里程、时长（没有经停、按自选时长报价的包车，页面列表每段写时长和公里只作展示，ADR 0096 第二节第 3 小节）。
+ * 都是 Essentials 一档的字段（不要路况、不要备选）。
+ */
+export const ITINERARY_POLYLINE_FIELD_MASK = "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline,routes.legs.distanceMeters,routes.legs.duration,routes.legs.polyline.encodedPolyline";
 /** 整次最多花多久（毫秒）：页面在等这张图，但不在询价的路上，可以比路线预估宽一些 */
 export const ITINERARY_POLYLINE_BUDGET_MS = 3_000;
 export const ITINERARY_POLYLINE_ATTEMPT_TIMEOUT_MS = 2_000;
 /** 应答最多读多少字节：11 段的折线加一条整条的，比路线预估的应答大得多 */
 export const ITINERARY_POLYLINE_MAX_BYTES = 512 * 1024;
 
-/** 行程的折线：逐段的（段数 = 点数 − 1 且每段都看得懂时）；否则整条路线的一条；都没有时为空数组（画不了线）。 */
-export type ComputedItineraryPolyline = { ok: true; polylines: string[] } | { ok: false; code: RouteFailureCode };
+/** 一段的里程（米）和时长（秒）。 */
+export interface ItineraryLegMeasure {
+  meters: number;
+  seconds: number;
+}
+
+/**
+ * 行程的折线：逐段的（段数 = 点数 − 1 且每段都看得懂时）；否则整条路线的一条；都没有时为空数组（画不了线）。
+ * `legs`：逐段的里程和时长（段数对得上、每段都看得懂时；只有一段时也认整条路线的），否则为 null。
+ */
+export type ComputedItineraryPolyline = { ok: true; polylines: string[]; legs: ItineraryLegMeasure[] | null } | { ok: false; code: RouteFailureCode };
 
 /** computeRoutes 的请求体。`points` 按行程顺序，至少 2 个。 */
 export function itineraryPolylineRequestBody(points: readonly LatLng[]): string {
@@ -36,6 +48,22 @@ export function itineraryPolylineRequestBody(points: readonly LatLng[]): string 
   });
 }
 
+interface LegLike {
+  distanceMeters?: unknown;
+  duration?: unknown;
+  polyline?: { encodedPolyline?: unknown } | null;
+}
+
+/** 一段（或整条）的里程和时长：谷歌省略 0 米；时长是「123s」；看不懂或超出合理范围为 null。 */
+function measureOf(leg: LegLike | null): ItineraryLegMeasure | null {
+  if (leg === null) return null;
+  const meters = leg.distanceMeters === undefined ? 0 : leg.distanceMeters;
+  const duration = typeof leg.duration === "string" ? /^(\d{1,9})(?:\.\d{1,9})?s$/.exec(leg.duration) : null;
+  if (typeof meters !== "number" || duration === null) return null;
+  const seconds = Number(duration[1]);
+  return routeValuesUsable(meters, seconds) ? { meters, seconds } : null;
+}
+
 /** 读成功的应答：`{ routes: [{ polyline: { encodedPolyline }, legs: [{ polyline: { encodedPolyline } }…] }] }`；没有 `routes` 是没有路线。 */
 export function parseItineraryPolyline(text: string, legCount: number): ComputedItineraryPolyline {
   let body: unknown;
@@ -48,12 +76,17 @@ export function parseItineraryPolyline(text: string, legCount: number): Computed
   const routes = (body as { routes?: unknown }).routes;
   if (routes === undefined || (Array.isArray(routes) && routes.length === 0)) return { ok: false, code: "NO_ROUTE" };
   if (!Array.isArray(routes)) return { ok: false, code: "UNEXPECTED" };
-  const first = routes[0] as { polyline?: { encodedPolyline?: unknown } | null; legs?: unknown } | null;
+  const first = routes[0] as (LegLike & { legs?: unknown }) | null;
   if (typeof first !== "object" || first === null) return { ok: false, code: "UNEXPECTED" };
-  const legs: unknown[] = Array.isArray(first.legs) ? first.legs.map((leg: unknown) => (typeof leg === "object" && leg !== null ? (leg as { polyline?: { encodedPolyline?: unknown } | null }).polyline?.encodedPolyline : undefined)) : [];
-  if (legs.length === legCount && legs.every(isEncodedPolyline)) return { ok: true, polylines: legs };
+  const rawLegs: (LegLike | null)[] = Array.isArray(first.legs) ? first.legs.map((leg: unknown) => (typeof leg === "object" && leg !== null ? (leg as LegLike) : null)) : [];
+  const legPolylines = rawLegs.map((leg) => leg?.polyline?.encodedPolyline);
   const whole = first.polyline?.encodedPolyline;
-  return { ok: true, polylines: isEncodedPolyline(whole) ? [whole] : [] };
+  const polylines = legPolylines.length === legCount && legPolylines.every(isEncodedPolyline) ? legPolylines : isEncodedPolyline(whole) ? [whole] : [];
+  const measured = rawLegs.map(measureOf);
+  // 只有一段（没有经停）而谷歌没给逐段的：整条路线就是这一段
+  const single = legCount === 1 && rawLegs.length === 0 ? measureOf(first) : null;
+  const legs = measured.length === legCount && measured.every((leg) => leg !== null) ? (measured as ItineraryLegMeasure[]) : single === null ? null : [single];
+  return { ok: true, polylines, legs };
 }
 
 /** 按顺序经过全部点的一条驾车路线的折线（一次调用）。永远不抛异常：结果就是折线，或取不到的原因。 */

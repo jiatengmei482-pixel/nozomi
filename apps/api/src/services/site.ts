@@ -192,6 +192,13 @@ export async function siteItineraryMap(ctx: AppContext, request: ItineraryMapReq
   return ctx.routeMap.renderItinerary(request);
 }
 
+/** 包车行程逐段的约多少分钟、多少米（ADR 0096 第二节第 3 小节，只作展示）：官网没开、取不到为 null。 */
+export async function siteItineraryLegs(ctx: AppContext, points: LatLng[]): Promise<{ minutes: number; meters: number }[] | null> {
+  const site = await loadSiteChannel(ctx);
+  if (site === null || !site.open) return null;
+  return ctx.routeMap.itineraryLegs(points);
+}
+
 /** 订单相关的接口只要求配置了官网的客户端：停止接单不能让客人连自己的订单都看不到。 */
 async function requireSiteChannelId(ctx: AppContext): Promise<string> {
   const site = await loadSiteChannel(ctx);

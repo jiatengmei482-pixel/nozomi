@@ -10,16 +10,20 @@ alter table static_map_images add constraint static_map_images_key_format check 
 );
 
 -- 一次带中间点的折线（谷歌 Routes computeRoutes，经停作 intermediates）：一个有序点列一行，键同上的 `i1:…`。
--- 只存折线（经纬度，谷歌 encoded polyline；逐段的，取不到逐段时是整条的一条），保留 7 天（和路线缓存一样）；
+-- 存折线（经纬度，谷歌 encoded polyline；逐段的，取不到逐段时是整条的一条）和逐段的里程、时长（没有经停的包车列表上只作展示，谷歌没给时为空），
+-- 保留 7 天（和路线缓存一样）；
 -- 缓存条款（《服务专用条款》19.3 经纬度可缓存不超过 30 天）连同现有的里程时长、静态图、本表一并由 M10-01 核实（ADR 0096 第八节第 3 条）。
 -- 过期的行查的时候当作没有，再次调用后覆盖，写入时顺手删掉过期的。不存密钥、不存请求原文。
 create table itinerary_route_polylines (
   cache_key text primary key,
   polylines text[] not null,
+  leg_meters integer[],
+  leg_seconds integer[],
   fetched_at timestamptz not null,
   expires_at timestamptz not null,
   constraint itinerary_route_polylines_key_format check (cache_key ~ '^i1:-?[0-9]{1,3}\.[0-9]{3},-?[0-9]{1,3}\.[0-9]{3}(>-?[0-9]{1,3}\.[0-9]{3},-?[0-9]{1,3}\.[0-9]{3}){1,11}$'),
   constraint itinerary_route_polylines_count check (cardinality(polylines) between 1 and 11),
+  constraint itinerary_route_polylines_legs check ((leg_meters is null) = (leg_seconds is null) and (leg_meters is null or (cardinality(leg_meters) = cardinality(leg_seconds) and cardinality(leg_meters) between 1 and 11))),
   constraint itinerary_route_polylines_expiry check (expires_at > fetched_at)
 );
 

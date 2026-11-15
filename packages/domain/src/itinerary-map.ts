@@ -89,10 +89,11 @@ export function itineraryPointsKey(points: readonly LatLng[]): ItineraryPointsKe
 }
 
 /**
- * 经停标记的颜色（不带 #）：上车、下车用品牌色的大标记（谷歌默认尺寸），经停用中号、浅一档的颜色——除了颜色还有大小区别。
- * 亮色 #4A5FA8 在灰底 #F4F5F7 上、暗色 #7C8FD6 在 #1E232C 上都清楚；标记里的数字由谷歌画。
+ * 编号标记的颜色（不带 #）：和页面行程列表的编号同一个令牌 `--color-text-link`（亮色 #2A45B0、暗色 #A9BBFF），两边亮暗都对得上
+ * （M9P-20 审查：暗色时列表和标记深浅不能反过来）。上车、下车是谷歌默认大小的标记（列表里是实心圆），经停是中号标记（列表里是空心圆）：
+ * 除了颜色还有大小 / 填充的区别，旁边列表有文字。亮色 #2A45B0 在灰底 #F4F5F7 上、暗色 #A9BBFF 在 #1E232C 上都清楚；标记里的数字由谷歌画。
  */
-export const ITINERARY_STOP_COLORS: Readonly<Record<StaticMapTheme, string>> = { light: "4A5FA8", dark: "7C8FD6" };
+export const ITINERARY_MARKER_COLORS: Readonly<Record<StaticMapTheme, string>> = { light: "2A45B0", dark: "A9BBFF" };
 
 /** 第 `number` 号点的自定义图标网址（10–12）：`<官网地址>/map-markers/10.png`。 */
 export function markerIconUrl(siteBaseUrl: string, number: number): string {
@@ -103,10 +104,10 @@ const coordinate = (point: LatLng): string => `${point.lat.toFixed(5)},${point.l
 
 /** 每个点的 `markers` 参数（编号来自 `stopNumbers`）：1–9 用 `label`，10 起用自定义图标（居中对齐）。 */
 export function itineraryMarkers(points: readonly LatLng[], theme: StaticMapTheme, siteBaseUrl: string): string[] {
-  const palette = STATIC_MAP_PALETTES[theme];
+  const color = ITINERARY_MARKER_COLORS[theme];
   return stopNumbers(points).map(({ number, kind, point }) => {
     if (number >= ITINERARY_MAP_RULES.firstIconNumber) return `anchor:center|icon:${markerIconUrl(siteBaseUrl, number)}|${coordinate(point)}`;
-    const style = kind === "stop" ? `size:mid|color:0x${ITINERARY_STOP_COLORS[theme]}` : `color:0x${palette.route}`;
+    const style = kind === "stop" ? `size:mid|color:0x${color}` : `color:0x${color}`;
     return `${style}|label:${number}|${coordinate(point)}`;
   });
 }

@@ -29,12 +29,13 @@ const WHATSAPP_CHAT_URL = /^https:\/\/wa\.me\/\$\{[A-Za-z_$][\w$]*\}\?text=\$\{e
 /** 库自带的网址：XML 命名空间、React 的报错说明页、react-router 的说明页、解析相对路径用的占位站点、地图库 Leaflet 的官网（它的署名控件用，我们没用那个控件，ADR 0017）。都不会被请求。 */
 const KNOWN_URLS = [/^http:\/\/www\.w3\.org\//, /^https:\/\/react\.dev\/errors\//, /^https:\/\/reactrouter\.com\//, /^https:\/\/github\.com\/ungap\/url-search-params\.$/, /^http:\/\/localhost$/, /^https:\/\/www\.geonames\.org\/$/, /^https:\/\/creativecommons\.org\/licenses\/by\/4\.0\/$/, /^https:\/\/ourairports\.com\/data\/$/, /^https:\/\/leafletjs\.com$/, /^https:\/\/js\.stripe\.com\/v3\/$/, WHATSAPP_CHAT_URL];
 
-test("产物只有 index.html 和带哈希的 JS / CSS，没有 source map", () => {
+test("产物只有 index.html、带哈希的 JS / CSS、组件脚本和三个标记图标，没有 source map", () => {
   const names = files.map(relative).sort();
   expect(names.filter((name) => name.endsWith(".map"))).toEqual([]);
   expect(names).toContain("index.html");
-  // 嵌入组件脚本（M9E-03，ADR 0090）：固定文件名，合作网站页面直接引用
-  for (const name of names) expect(name, "出现了预期之外的产物").toMatch(/^(index\.html|assets\/index-[\w-]{8,}\.(js|css)|embed\/widget-v1\.js)$/);
+  // 嵌入组件脚本（M9E-03，ADR 0090）：固定文件名，合作网站页面直接引用；包车行程地图 10–12 号标记的图标（M9P-20，ADR 0096）：谷歌出图时来取
+  for (const name of names) expect(name, "出现了预期之外的产物").toMatch(/^(index\.html|assets\/index-[\w-]{8,}\.(js|css)|embed\/widget-v1\.js|map-markers\/1[0-2]\.png)$/);
+  expect(names.filter((name) => name.startsWith("map-markers/"))).toEqual(["map-markers/10.png", "map-markers/11.png", "map-markers/12.png"]);
   for (const { name, text } of textFiles) expect(text.includes("sourceMappingURL"), `${name} 指向了 source map`).toBe(false);
 });
 

@@ -12,15 +12,22 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { MemoryRouter } from "react-router";
 import { App } from "../../../App.tsx";
 import type { SiteCity, SiteConfig, SiteQuote, SiteQuoteResult } from "../../../api/site.ts";
-import { assertAbsent, json, resetBrowser, stubApiWith } from "../../../testing/harness.tsx";
-import { ITINERARY_MAP_SETTLE, ItineraryMap } from "./ItineraryMap.tsx";
+import { type ApiCall, apiError, assertAbsent, json, resetBrowser, stubApiWith } from "../../../testing/harness.tsx";
+import { ITINERARY_MAP_RETRY, ITINERARY_MAP_SETTLE, ItineraryMap, itineraryMapSize } from "./ItineraryMap.tsx";
 
 const settle = ITINERARY_MAP_SETTLE.ms;
+const retryScale = ITINERARY_MAP_RETRY.scale;
 afterEach(() => {
   cleanup();
   resetBrowser();
   ITINERARY_MAP_SETTLE.ms = settle;
+  ITINERARY_MAP_RETRY.scale = retryScale;
 });
+
+/** 图没出来以后组件会再问一次原因：按给定的状态回 */
+function mapStatus(status: number, details: Record<string, unknown> = {}): ApiCall[] {
+  return stubApiWith((call) => (call.url.pathname === "/site/v1/itinerary-map" ? apiError(status, status === 429 ? "RATE_LIMITED" : "ROUTE_MAP_UNAVAILABLE", "x", details) : null));
+}
 
 const SLOW = { timeout: 3000 };
 const A = { lat: 35.6905, lng: 139.6948 };
@@ -78,6 +85,7 @@ test("换顺序：顺序停下来之后才要新图，等新图时旧图上盖�
 
 test("出不来：整张图收起，只留页面上的列表；不加载 Leaflet；换下一组点时再试一次", async () => {
   ITINERARY_MAP_SETTLE.ms = 20;
+  mapStatus(503, { reason: "NOT_ENABLED" });
   const view = render(<ItineraryMap points={[A, B, D]} alt="路线图" />);
   fireEvent.error(loader() as HTMLImageElement);
   await waitFor(() => assertAbsent(document.querySelector(".itinerary-map")));
@@ -89,6 +97,7 @@ test("出不来：整张图收起，只留页面上的列表；不加载 Leaflet
 
 test("显示中的图出不来（换顺序后新图失败）：整张图收起，不留旧编号的图", async () => {
   ITINERARY_MAP_SETTLE.ms = 20;
+  mapStatus(503, { reason: "UNAVAILABLE" });
   const view = render(<ItineraryMap points={[A, B, C, D]} alt="旧" />);
   fireEvent.load(loader() as HTMLImageElement);
   await waitFor(() => assert.ok(shown() !== null));
@@ -96,6 +105,42 @@ test("显示中的图出不来（换顺序后新图失败）：整张图收起�
   await waitFor(() => assert.ok(loader() !== null), SLOW);
   fireEvent.error(loader() as HTMLImageElement);
   await waitFor(() => assertAbsent(document.querySelector(".itinerary-map")));
+});
+
+test("太频繁（429）：按应答给的秒数等一会儿再要同一张图，最多再试 2 次；再试出来了照常显示", async () => {
+  ITINERARY_MAP_RETRY.scale = 10;
+  const calls = mapStatus(429, { retry_after_seconds: 3 });
+  render(<ItineraryMap points={[A, B, D]} alt="路线图" />);
+  const first = loader() as HTMLImageElement;
+  const src = first.src;
+  fireEvent.error(first);
+  await waitFor(() => assert.equal(calls.filter((call) => call.path.startsWith("/site/v1/itinerary-map")).length, 1), SLOW);
+  assertAbsent(loader());
+  await waitFor(() => assert.ok(loader() !== null && loader() !== first), SLOW);
+  assert.equal(loader()?.src, src, "再要同一张图");
+  fireEvent.error(loader() as HTMLImageElement);
+  await waitFor(() => assert.ok(loader() !== null && calls.length === 2), SLOW);
+  fireEvent.load(loader() as HTMLImageElement);
+  await waitFor(() => assert.equal(shown()?.getAttribute("alt"), "路线图"));
+});
+
+test("太频繁再试 2 次都不行：整张图收起", async () => {
+  ITINERARY_MAP_RETRY.scale = 1;
+  mapStatus(429, { retry_after_seconds: 1 });
+  render(<ItineraryMap points={[A, B, D]} alt="路线图" />);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await waitFor(() => assert.ok(loader() !== null), SLOW);
+    fireEvent.error(loader() as HTMLImageElement);
+    if (attempt < 2) await waitFor(() => assertAbsent(loader()), SLOW);
+  }
+  await waitFor(() => assertAbsent(document.querySelector(".itinerary-map")), SLOW);
+});
+
+test("尺寸分档：宽高按 40 像素向下取整、收进接口范围；框宽差几个像素用同一张图", () => {
+  assert.deepEqual(itineraryMapSize(637, 240, 1), { width: 600, height: 240, scale: 1 });
+  assert.deepEqual(itineraryMapSize(601, 259, 2), { width: 600, height: 240, scale: 2 });
+  assert.deepEqual(itineraryMapSize(120, 100, 1), { width: 200, height: 150, scale: 1 });
+  assert.deepEqual(itineraryMapSize(1200, 900, 1), { width: 640, height: 640, scale: 1 });
 });
 
 // ---- 页面：新预订页的包车 ----
@@ -118,8 +163,9 @@ const quote: SiteQuote = {
   available_addons: [],
 };
 
-test("页面：没有经停的包车也显示行程地图（2 个点）和「1 上车」「2 下车」两行；不请求两点路线小地图", async () => {
+test("页面：没有经停的包车也显示行程地图（2 个点）和「1 上车」「2 下车」两行，这一段的时长和公里取地图折线那次调用的量（只作展示）；不请求两点路线小地图", async () => {
   const result: SiteQuoteResult = { currency: "JPY", quotes: [quote], unavailable: [] };
+  const legsAsked: string[][] = [];
   const calls = stubApiWith((call) => {
     const path = call.url.pathname;
     if (path === "/site/v1/config") return json(200, config);
@@ -127,6 +173,10 @@ test("页面：没有经停的包车也显示行程地图（2 个点）和「1 �
     if (path === "/site/v1/charter-packages") return json(200, { city: { id: CITY_ID, code: city.code, name: city.name, timezone: city.timezone }, items: [{ hours: 8 }] });
     if (path === "/site/v1/fx/reference") return json(200, { available: false, from: "JPY", to: call.url.searchParams.get("to"), rate: null, as_of: null, reason: "NO_RATE" });
     if (call.method === "POST" && path === "/site/v1/quotes") return json(200, result);
+    if (path === "/site/v1/itinerary-legs") {
+      legsAsked.push(call.url.searchParams.getAll("p"));
+      return json(200, { available: true, legs: [{ minutes: 18, meters: 6_800 }] });
+    }
     return null;
   });
   render(
@@ -137,7 +187,8 @@ test("页面：没有经停的包车也显示行程地图（2 个点）和「1 �
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
   assert.ok(screen.getByRole("heading", { name: "行程路线" }));
   const list = screen.getByRole("list", { name: "行程" });
-  assert.deepEqual([...list.querySelectorAll("li")].map((item) => item.textContent), ["1 上车京王广场酒店", "2 下车新宿站"]);
+  await waitFor(() => assert.deepEqual([...list.querySelectorAll("li")].map((item) => item.textContent), ["1 上车京王广场酒店", "行驶约 18 分钟 · 6.8 公里2 下车新宿站"]), SLOW);
+  assert.deepEqual(legsAsked, [["35.690500,139.694800", "35.689600,139.700600"]], "这组点只问一次");
   await waitFor(() => assert.ok(loader() !== null), SLOW);
   assert.deepEqual(pointsOf(loader()?.src ?? ""), ["35.690500,139.694800", "35.689600,139.700600"]);
   fireEvent.load(loader() as HTMLImageElement);

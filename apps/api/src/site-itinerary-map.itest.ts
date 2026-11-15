@@ -75,7 +75,7 @@ function legsReply(): void {
     const last = routes.requests[routes.requests.length - 1];
     const body = JSON.parse(last?.body ?? "{}") as { origin: { location: { latLng: { latitude: number; longitude: number } } }; destination: typeof body.origin; intermediates?: (typeof body.origin)[] };
     const pts = [body.origin, ...(body.intermediates ?? []), body.destination].map((p) => ({ lat: p.location.latLng.latitude, lng: p.location.latLng.longitude }));
-    return { body: { routes: [{ polyline: { encodedPolyline: encode(pts) }, legs: pts.slice(1).map((to, i) => ({ polyline: { encodedPolyline: encode([pts[i] as LatLng, to]) } })) }] } };
+    return { body: { routes: [{ distanceMeters: 9_999, duration: "999s", polyline: { encodedPolyline: encode(pts) }, legs: pts.slice(1).map((to, i) => ({ distanceMeters: 1_000 * (i + 1), duration: `${600 * (i + 1) + 29}s`, polyline: { encodedPolyline: encode([pts[i] as LatLng, to]) } })) }] } };
   });
 }
 
@@ -171,11 +171,11 @@ test("出图：一次 computeRoutes 带中间点取折线，再调静态地图�
   assert.equal(params.get("path"), `color:0x1B2A5Cff|weight:5|enc:${encode(rounded)}`);
   const fmt = (p: LatLng): string => `${p.lat.toFixed(5)},${p.lng.toFixed(5)}`;
   assert.deepEqual(params.getAll("markers"), [
-    `color:0x1B2A5C|label:1|${fmt(rounded[0] as LatLng)}`,
-    `size:mid|color:0x4A5FA8|label:2|${fmt(rounded[1] as LatLng)}`,
-    `size:mid|color:0x4A5FA8|label:3|${fmt(rounded[2] as LatLng)}`,
-    `size:mid|color:0x4A5FA8|label:4|${fmt(rounded[3] as LatLng)}`,
-    `color:0x1B2A5C|label:5|${fmt(rounded[4] as LatLng)}`,
+    `color:0x2A45B0|label:1|${fmt(rounded[0] as LatLng)}`,
+    `size:mid|color:0x2A45B0|label:2|${fmt(rounded[1] as LatLng)}`,
+    `size:mid|color:0x2A45B0|label:3|${fmt(rounded[2] as LatLng)}`,
+    `size:mid|color:0x2A45B0|label:4|${fmt(rounded[3] as LatLng)}`,
+    `color:0x2A45B0|label:5|${fmt(rounded[4] as LatLng)}`,
   ]);
   assert.equal(params.get("key"), KEY, "密钥只在发给谷歌的网址里");
   assert.equal(await usage("static_map_api_usage"), staticBefore + 1, "计入静态地图的每日上限");
@@ -191,7 +191,7 @@ test("10 个经停（12 个点）：1–9 用 label，10–12 用官网 /map-mar
   assert.equal(markers.length, 12);
   for (let n = 1; n <= 9; n++) assert.match(markers[n - 1] as string, new RegExp(`\\|label:${n}\\|`));
   assert.match(markers[0] as string, /^color:0xA9BBFF\|label:1\|/);
-  assert.match(markers[1] as string, /^size:mid\|color:0x7C8FD6\|label:2\|/);
+  assert.match(markers[1] as string, /^size:mid\|color:0xA9BBFF\|label:2\|/);
   for (const n of [10, 11, 12]) assert.match(markers[n - 1] as string, new RegExp(`^anchor:center\\|icon:${SITE_URL}/map-markers/${n}\\.png\\|`));
   assert.equal(new Set(markers.flatMap((marker) => /icon:([^|]+)/.exec(marker)?.[1] ?? [])).size, 3);
 });
@@ -318,4 +318,43 @@ test("密钥不外泄：应答、日志、缓存表里都没有密钥原文（�
   assert.ok(!logs.includes(KEY), "日志里有密钥");
   const tables = await api.db.owner.query("select (select coalesce(string_agg(t::text, ''), '') from itinerary_route_polylines t) || (select coalesce(string_agg(cache_key, ''), '') from static_map_images) as dump");
   assert.ok(!String(tables.rows[0].dump).includes(KEY), "库里有密钥");
+});
+
+async function itineraryLegs(q: readonly LatLng[] | string, app: SiteApi = site, ip = nextIp()) {
+  const query = typeof q === "string" ? q : q.map((p) => `p=${p.lat},${p.lng}`).join("&");
+  const res = await app.app.inject({ method: "GET", url: `/site/v1/itinerary-legs?${query}`, remoteAddress: ip });
+  return { status: res.statusCode, headers: res.headers as never, text: res.body, body: res.json() as any };
+}
+
+test("逐段时长和里程（没有经停的包车只作展示）：和行程地图共用一次谷歌调用和库里的缓存；分钟按秒四舍五入；只有一段时认整条路线的；取不到 available false", async () => {
+  reset();
+  const points = nextTrip(3);
+  assert.equal((await itineraryMap(points)).status, 200);
+  const shared = await itineraryLegs(points);
+  assert.equal(shared.status, 200, shared.text);
+  assertMatchesOpenApi("GET", "/site/v1/itinerary-legs", shared);
+  assert.deepEqual(shared.body, { available: true, legs: [{ minutes: 10, meters: 1_000 }, { minutes: 20, meters: 2_000 }] });
+  assert.equal(routeCalls().length, 1, "先出了图，取逐段量不再调谷歌");
+  assert.equal(String(routeCalls()[0]?.headers["x-goog-fieldmask"]), "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline,routes.legs.distanceMeters,routes.legs.duration,routes.legs.polyline.encodedPolyline");
+
+  reset();
+  const two = nextTrip(2);
+  routes.respond({ body: { routes: [{ distanceMeters: 6_800, duration: "1080s", polyline: { encodedPolyline: encode(two) } }] } });
+  const single = await itineraryLegs(two);
+  assert.deepEqual(single.body, { available: true, legs: [{ minutes: 18, meters: 6_800 }] }, "只有一段：用整条路线的里程和时长");
+  assert.equal((await itineraryMap(two)).status, 200);
+  assert.equal(routeCalls().length, 1, "反过来先取逐段量、再出图，也只调一次");
+
+  reset();
+  routes.respond({ body: {} });
+  const none = await itineraryLegs(nextTrip(3));
+  assert.deepEqual([none.status, none.body], [200, { available: false, legs: null }]);
+  assertMatchesOpenApi("GET", "/site/v1/itinerary-legs", none);
+  const closed = await itineraryLegs(nextTrip(2), await openSite({}, null));
+  assert.deepEqual(closed.body, { available: false, legs: null }, "官网没开");
+  for (const bad of ["p=35.1,139.1", "", "p=35.1,139.1&p=35.2,139.2&width=320"]) {
+    const res = await itineraryLegs(bad);
+    assert.equal(res.status, 400, bad);
+    assertMatchesOpenApi("GET", "/site/v1/itinerary-legs", res);
+  }
 });

@@ -14101,6 +14101,63 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RouteMapUnavailable"
+  /site/v1/itinerary-legs:
+    get:
+      tags: [ 官网 ]
+      operationId: getSiteItineraryLegs
+      summary: 包车行程逐段的约多少分钟、多少米（只作展示）
+      description: |
+        M9P-20 P1，ADR 0096 第二节第 3 小节。没有经停、按自选时长报价的包车不估路线，页面列表每段的时长和公里取这里的量，**只作展示，不进报价**
+        （有经停、按行程计价时一律用报价应答的 `itinerary_route.legs`）。和 `GET /site/v1/itinerary-map` 共用一次 Routes computeRoutes 和它 7 天的缓存：
+        同一组点先出了图就不再调谷歌。点的写法、个数同行程地图。分钟按秒四舍五入。取不到（没配密钥、每日上限、谷歌出错、官网没开……）时 200 `{ available: false, legs: null }`。
+        和路线小地图共用每个地址每分钟 30 次、每天 200 次的额度。
+      parameters:
+        - name: p
+          in: query
+          required: true
+          description: 行程的点，按顺序重复 2–12 次，每个写成「纬度,经度」
+          style: form
+          explode: true
+          schema:
+            type: array
+            minItems: 2
+            maxItems: 12
+            items:
+              type: string
+              pattern: "^-?\\d{1,3}(\\.\\d{1,9})?,-?\\d{1,3}(\\.\\d{1,9})?$"
+      responses:
+        "200":
+          description: 逐段的时长和里程；取不到时 available 为 false
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ available, legs ]
+                properties:
+                  available:
+                    type: boolean
+                  legs:
+                    type: [ array, "null" ]
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [ minutes, meters ]
+                      properties:
+                        minutes:
+                          type: integer
+                          minimum: 0
+                        meters:
+                          type: integer
+                          minimum: 0
+        "400":
+          description: "`VALIDATION_FAILED`：点少于 2 个或多于 12 个、格式或坐标不合法、多余的参数"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
   /site/v1/orders:
     post:
       tags: [ 官网 ]

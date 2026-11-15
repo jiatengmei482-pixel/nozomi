@@ -245,7 +245,7 @@ test("按行程计价：车型卡、右侧栏、核对页显示明细（套餐�
   const facts = [...side.querySelectorAll(".site-facts__item")].map((item) => item.querySelector("dt")?.textContent);
   assert.deepEqual(facts.slice(0, 6), ["用车类型", "上车地点", "经停点", "下车地点", "行程时长", "用车时间（当地时间）"]);
   assert.match(side.textContent ?? "", /包车 10 小时（按行程）/);
-  assert.match(side.textContent ?? "", /五合目（停留 1 小时）/);
+  assert.match(side.textContent ?? "", /2 五合目（停留 1 小时）/);
 
   await actor.click(screen.getByRole("button", { name: "下一步：填写乘客信息" }));
   await screen.findByRole("heading", { name: "乘客信息", level: 2 });

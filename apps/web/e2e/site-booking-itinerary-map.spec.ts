@@ -5,7 +5,8 @@
  * 流程（电脑 1280）：带上下车地点的包车链接 → 第 2 步「行程路线」：地图请求带 2 个点、列表「1 上车」「2 下车」→ 回第 1 步加 3 个经停点 →
  * 第 2 步「行程时间表」：列表编号 1–5、每段时长和公里（报价应答的 itinerary_route.legs），地图请求按顺序带 5 个点，图经真实 API 出来，alt 写全程；
  * 亮暗两色 axe 0；360 宽不横向滚动 → 图出不来（503）：只留列表，不加载 Leaflet、不请求两点路线小地图。
- * 截图（亮、暗、手机）：只有截图那一步把图换成浏览器现画的示意图（灰底、品牌色路线、编号圆点），好看清版式；图本身由集成测试核对。
+ * 截图（亮、暗、手机）：图片请求照常经真实 API（核对状态和类型），给浏览器的换成现画的示意图（灰底、品牌色路线、编号圆点），
+ * 因为本机假谷歌只回 1 × 1 的图、看不清版式；图本身的参数由集成测试核对。
  */
 import { type Page, type Request, expect, test } from "@playwright/test";
 import { E2E_WEB_PLACES_PORT } from "../playwright.config.ts";
@@ -30,7 +31,7 @@ async function expectBothThemes(page: Page, what: string): Promise<void> {
   await page.emulateMedia({ colorScheme: "light" });
 }
 
-/** 截图用的示意图：按请求的宽高、倍率、主题现画（灰底、品牌色折线、编号圆点），只在截图那一步替换真实 API 给的图 */
+/** 截图用的示意图：按请求的宽高、倍率、主题现画（灰底、品牌色折线、编号圆点），在另一个空白页里画 */
 async function paintedMap(page: Page, url: URL): Promise<Buffer> {
   const width = Number(url.searchParams.get("width"));
   const height = Number(url.searchParams.get("height"));
@@ -60,11 +61,11 @@ async function paintedMap(page: Page, url: URL): Promise<Buffer> {
       g.stroke();
       for (let i = 0; i < count; i++) {
         const end = i === 0 || i === count - 1;
-        g.fillStyle = end ? (dark ? "#A9BBFF" : "#1B2A5C") : dark ? "#7C8FD6" : "#4A5FA8";
+        g.fillStyle = dark ? "#A9BBFF" : "#2A45B0";
         g.beginPath();
-        g.arc(at(i).x, at(i).y, end ? 12 : 10, 0, Math.PI * 2);
+        g.arc(at(i).x, at(i).y, end ? 12 : 9, 0, Math.PI * 2);
         g.fill();
-        g.fillStyle = dark && end ? "#141C3D" : "#FFFFFF";
+        g.fillStyle = dark ? "#141C3D" : "#FFFFFF";
         g.font = "bold 12px sans-serif";
         g.textAlign = "center";
         g.textBaseline = "middle";
@@ -104,6 +105,16 @@ test("包车行程地图：编号 1 = 上车、经停依次、最后 = 下车，
   });
   const date = tomorrowInTokyo();
   await page.setViewportSize({ width: 1280, height: 900 });
+  // 图片请求经真实 API（记下状态、类型、点），给浏览器的换成示意图
+  const painter = await page.context().newPage();
+  const realMaps: { status: number; type: string | undefined; points: string[] }[] = [];
+  await page.route(MAP, async (route) => {
+    const real = await route.fetch();
+    const url = new URL(route.request().url());
+    realMaps.push({ status: real.status(), type: real.headers()["content-type"], points: url.searchParams.getAll("p") });
+    if (real.status() !== 200) return route.fulfill({ response: real });
+    return route.fulfill({ status: 200, contentType: "image/png", headers: { "cache-control": "no-store" }, body: await paintedMap(painter, url) });
+  });
 
   // 没有经停：2 个点，「1 上车」「2 下车」
   const twoPoints = page.waitForResponse((response) => response.url().startsWith(`${SITE}/site/v1/itinerary-map?`));
@@ -111,11 +122,11 @@ test("包车行程地图：编号 1 = 上车、经停依次、最后 = 下车，
   const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: trip.groupName }) });
   await expect(card).toContainText("77,000 JPY");
   const plain = await twoPoints;
-  expect(plain.status(), "真实 API 经本机假谷歌出图").toBe(200);
-  expect(plain.headers()["content-type"]).toBe("image/png");
-  expect(pointsOf(plain.request())).toEqual([text(trip.pickup), text(trip.nearby)]);
+  expect(plain.status()).toBe(200);
+  expect(realMaps[0], "真实 API 经本机假谷歌出图").toEqual({ status: 200, type: "image/png", points: [text(trip.pickup), text(trip.nearby)] });
   const section = page.getByRole("region", { name: "行程路线" });
-  await expect(section.getByRole("list", { name: "行程" }).getByRole("listitem")).toHaveText(["1 上车上车酒店", "2 下车市内下车点"]);
+  // 没有经停、按自选时长报价：这一段的时长和公里取地图折线那次调用的量（本机假谷歌：6.8 公里、18 分钟），只作展示
+  await expect(section.getByRole("list", { name: "行程" }).getByRole("listitem")).toHaveText(["1 上车上车酒店", "行驶约 18 分钟 · 6.8 公里2 下车市内下车点"]);
   await expect(section.getByRole("img", { name: "路线图：1 上车酒店 → 2 市内下车点" })).toBeVisible();
 
   // 加 3 个经停点
@@ -177,9 +188,8 @@ test("包车行程地图：编号 1 = 上车、经停依次、最后 = 下车，
   expect((mapBox?.height ?? 999) <= 780 * 0.4 + 1, "地图不超过 40vh").toBe(true);
   await page.setViewportSize({ width: 1280, height: 900 });
 
-  // 截图：只这一步把图换成示意图（版式），截完恢复。浏览器缓存了真实 API 给的那几张，宽度换成 1240 / 390 才会重新请求
-  await page.route(MAP, async (route) => route.fulfill({ status: 200, contentType: "image/png", body: await paintedMap(page, new URL(route.request().url())) }));
-  for (const [name, scheme, width] of [["1240-light", "light", 1240], ["1240-dark", "dark", 1240], ["390-light", "light", 390]] as const) {
+  // 截图（亮、暗、手机）
+  for (const [name, scheme, width] of [["1280-light", "light", 1280], ["1280-dark", "dark", 1280], ["390-light", "light", 390]] as const) {
     await page.emulateMedia({ colorScheme: scheme });
     await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
     await expect(schedule.locator(".itinerary-map .route-map__image")).toBeVisible();
@@ -189,6 +199,7 @@ test("包车行程地图：编号 1 = 上车、经停依次、最后 = 下车，
   }
   await page.emulateMedia({ colorScheme: "light" });
   await page.setViewportSize({ width: 1280, height: 900 });
+  expect(realMaps.every((map) => map.status === 200 && map.type === "image/png"), JSON.stringify(realMaps)).toBe(true);
   await page.unroute(MAP);
 
   // 图出不来（503）：只留列表，不加载 Leaflet、不请求两点路线小地图（从这里起记）
@@ -204,4 +215,43 @@ test("包车行程地图：编号 1 = 上车、经停依次、最后 = 下车，
   await expect(page.locator(".leaflet-container")).toHaveCount(0);
   expect(leaflet, "包车不用 Leaflet、不请求两点路线小地图").toEqual([]);
   await expectBothThemes(page, "新预订页包车第 2 步（地图出不来，只有列表）");
+});
+
+test("10 个经停：列表编号 1–12，地图请求按顺序带 12 个点、经真实 API 出图（10–12 号的自定义图标由集成测试核对）", async ({ page, request }) => {
+  test.setTimeout(240_000);
+  const trip = await charterWorld(request, { packages: [{ hours: 12, price: 120_000, km: 300 }] });
+  const admin = await platformAdminHeaders(request);
+  const tag = randomLetters(4);
+  const stops: { name: string; location: Point }[] = [];
+  for (let i = 0; i < 10; i++) {
+    const name = `十站${tag}${String.fromCharCode(65 + i)}`;
+    const location = { lat: Number((trip.center.lat + 0.004 * (i + 1)).toFixed(6)), lng: Number((trip.center.lng + (i % 2 === 0 ? 0.01 : -0.01)).toFixed(6)) };
+    const made = await request.post("/platform/v1/master/places", { headers: admin, data: { type: "station", code: `STN-JP-${randomLetters(6)}`, city_id: trip.cityId, category: "rail", name: { zh: name }, location } });
+    expect(made.status(), await made.text()).toBe(201);
+    stops.push({ name, location });
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(`${SITE}/book/new?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.nearby, "市内下车点")}&date=${tomorrowInTokyo()}&time=08:00`);
+  // 有 8、12 小时两档：停在第 1 步等客人选时长；加了经停点就按行程自动选
+  await expect(page.getByRole("button", { name: "添加经停点" })).toBeVisible();
+  for (const [index, stop] of stops.entries()) {
+    await page.getByRole("button", { name: "添加经停点" }).click();
+    const box = page.getByRole("combobox", { name: `经停点 ${index + 1}`, exact: true });
+    await box.fill(stop.name);
+    await page.getByRole("listbox", { name: `经停点 ${index + 1}的候选` }).getByRole("option", { name: new RegExp(stop.name) }).click();
+    await expect(box).toHaveValue(stop.name);
+    await page.getByLabel(`经停点 ${index + 1} 停留时长`).selectOption("30");
+  }
+  const twelve = page.waitForResponse((response) => response.url().startsWith(`${SITE}/site/v1/itinerary-map?`) && new URL(response.url()).searchParams.getAll("p").length === 12);
+  await page.getByRole("button", { name: "下一步：选择车型" }).click();
+  const mapped = await twelve;
+  expect(mapped.status()).toBe(200);
+  expect(pointsOf(mapped.request())).toEqual([trip.pickup, ...stops.map((stop) => stop.location), trip.nearby].map(text));
+  const schedule = page.getByRole("region", { name: "行程时间表" });
+  const items = schedule.getByRole("list", { name: "行程" }).getByRole("listitem");
+  await expect(items).toHaveCount(12);
+  await expect(items.locator(".trip-stops__number")).toHaveText(Array.from({ length: 12 }, (_, i) => String(i + 1)));
+  await expect(items.nth(10)).toContainText(`11 经停${stops[9]?.name}`);
+  await expect(items.nth(11)).toContainText("12 下车市内下车点");
+  await expect(schedule.getByRole("img", { name: /^路线图：1 上车酒店 → 2 .+ → 12 市内下车点，约 .+ 公里$/ })).toBeVisible();
 });

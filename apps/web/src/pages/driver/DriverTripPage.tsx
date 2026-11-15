@@ -41,6 +41,7 @@ import { TextField } from "../../components/TextField.tsx";
 import { directionName, formatInZone, landingSourceName } from "../../lib/dispatch-display.ts";
 import { displayName } from "../../lib/master-display.ts";
 import { durationText, orderItineraryText } from "../../lib/charter-itinerary.ts";
+import { itineraryCopy } from "../../lib/itinerary-texts.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 
 const PING_INTERVAL_MS = 60_000;
@@ -332,13 +333,13 @@ export function DriverTripPage() {
               <li key={`${index}-${stop.name}`} className="trip-stops__item trip-stops__item--stop">
                 <span className="trip-stops__line">
                   <span className="trip-stops__label">
-                    <span className="trip-stops__number">{displayStopNumber(index + 1)}</span> 经停
+                    <span className="trip-stops__number">{displayStopNumber(index + 1)}</span> {itineraryCopy("stop")}
                   </span>
                   <span className="trip-stops__name driver-key">{stop.name}</span>
                 </span>
                 <span className="trip-stops__stay">{`停留 ${durationText(stop.stay_minutes)}`}</span>
                 <a className="link driver-nav" href={mapLink(stop)}>
-                  {`导航到 ${displayStopNumber(index + 1)} 号点`}
+                  {itineraryCopy("navigateTo", { number: displayStopNumber(index + 1) })}
                 </a>
               </li>
             ))}

@@ -7,6 +7,7 @@
  */
 import { type LocalizedText, type PricingBasis, consoleMoneyText, displayStopNumber, includedKmSummary, isCurrencyCode, parseMajor, routeMetersText, tenantIncludedKmSummary } from "@nozomi/domain";
 import { durationText, kmText } from "./charter-itinerary.ts";
+import { itineraryCopy } from "./itinerary-texts.ts";
 import { moneyText } from "./dispatch-display.ts";
 import { displayName } from "./master-display.ts";
 import { pricingBasisLines } from "./pricing-basis-display.ts";
@@ -97,7 +98,7 @@ const IN_SERVICE_AREA = "在服务区域里，不加价";
 /** 途经加价那几行的开头：「经停（2、4 号点）」——编号同行程列表（上车 = 1，M9P-20），= stopSeq + 1 */
 const waypointLabel = (seqs: readonly number[]): string => {
   const numbers = seqs.filter((seq) => Number.isInteger(seq) && seq >= 1).map(displayStopNumber);
-  return numbers.length === 0 ? "经停" : `经停（${numbers.join("、")} 号点）`;
+  return numbers.length === 0 ? "经停" : itineraryCopy("areaStops", { numbers: numbers.join("、") });
 };
 
 /** 运营后台「区域加价」：「上车：富士山 · 对外 1,100 JPY / 结算 1,000 JPY」「下车：在服务区域里，不加价」。 */

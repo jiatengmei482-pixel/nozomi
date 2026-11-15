@@ -4,11 +4,13 @@
  * 官网下单页（带各段行驶分钟）、官网订单页、运营 / 供应商订单详情、司机页共用；这里**不含任何价格**。
  * 没有经停点的订单不用它（页面照旧只写上车、下车地点）。
  */
+import { itineraryCopy } from "../lib/itinerary-texts.ts";
 import { type OrderItinerary, type ScheduleRow, durationText, kmText, orderItineraryText, scheduleRows } from "../lib/charter-itinerary.ts";
 
 /** 「行驶约 35 分钟 · 28.4 公里」；没有米数时只写时长 */
 function driveText(row: ScheduleRow): string {
-  return `行驶约 ${durationText(row.driveMinutes ?? 0)}${row.driveMeters === null ? "" : ` · ${kmText(row.driveMeters)}`}`;
+  const duration = durationText(row.driveMinutes ?? 0);
+  return row.driveMeters === null ? itineraryCopy("drive", { duration }) : itineraryCopy("driveKm", { duration, km: kmText(row.driveMeters) });
 }
 
 export function TripStops({ rows, label = "行程" }: { rows: readonly ScheduleRow[]; label?: string }) {
