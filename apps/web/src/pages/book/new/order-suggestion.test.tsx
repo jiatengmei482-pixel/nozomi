@@ -38,7 +38,7 @@ const LINK = "/book/new?mode=charter&from=35.6905,139.6948&from_name=%E4%BA%AC%E
 const SPOTS: Record<string, { lat: number; lng: number }> = { 河口湖: { lat: 35.498, lng: 138.769 }, 横滨: { lat: 35.45, lng: 139.63 }, 箱根: { lat: 35.23, lng: 139.1 } };
 
 let quoteSeq = 0;
-function quoteOf(amount: number): SiteQuote {
+function quoteOf(amount: number, hours = 10): SiteQuote {
   quoteSeq += 1;
   return {
     quote_id: `QT2030112000000000${String(quoteSeq).padStart(4, "0")}`,
@@ -47,7 +47,9 @@ function quoteOf(amount: number): SiteQuote {
     urgent: false,
     includes_area_surcharge: false,
     vehicle_group: { id: "33333333-3333-4333-8333-333333333301", code: "VG-T1", name: { zh: "车型1" }, grade: "economy", seats: 7, sample_models: [], combos: [{ passengers: 6, luggage: 4 }] },
-    package: { hours: 10, km: 200 },
+    package: { hours, km: 200 },
+    // 有经停点时报价自动选的档（升档下拉只列比它长的）
+    auto_package_hours: 10,
     price: { total: { amount: String(amount), currency: "JPY" }, fx: null },
     free_wait_minutes: 0,
     cancel_policy: { category: "charter", level: "economy", tiers: [{ min_hours_before: 24, fee_bp: 0 }, { min_hours_before: 0, fee_bp: 10000 }] },
@@ -56,12 +58,14 @@ function quoteOf(amount: number): SiteQuote {
 }
 const route = (meters: number, drive: number) => ({ legs: [{ minutes: drive / 4, meters: meters / 4 }, { minutes: drive / 4, meters: meters / 4 }, { minutes: drive / 4, meters: meters / 4 }, { minutes: drive / 4, meters: meters / 4 }], drive_minutes: drive, stay_minutes: 180, total_minutes: drive + 180, total_meters: meters });
 /** 当前顺序：绕路（320 公里、320 分钟）；排成建议顺序（横滨、箱根、河口湖）：240 公里、240 分钟 */
-const resultFor = (names: string[]): SiteQuoteResult => {
+const resultFor = (names: string[], hours?: number): SiteQuoteResult => {
   const best = names.join() === "横滨,箱根,河口湖";
-  return { currency: "JPY", quotes: [quoteOf(best ? 70_000 : 75_000)], unavailable: [], itinerary_route: best ? route(240_000, 240) : route(320_000, 320) };
+  // 升到 12 小时（M9P-03 手动升档）多 10,000
+  const extra = hours === 12 ? 10_000 : 0;
+  return { currency: "JPY", quotes: [quoteOf((best ? 70_000 : 75_000) + extra, hours ?? 10)], unavailable: [], itinerary_route: best ? route(240_000, 240) : route(320_000, 320) };
 };
 
-function open(): { calls: ApiCall[]; suggestions: Record<string, any>[] } {
+function open(options: { packages?: number[] } = {}): { calls: ApiCall[]; suggestions: Record<string, any>[] } {
   const suggestions: Record<string, any>[] = [];
   const calls = stubApiWith((call) => {
     const path = call.url.pathname;
@@ -72,11 +76,11 @@ function open(): { calls: ApiCall[]; suggestions: Record<string, any>[] } {
       const name = Object.keys(SPOTS).find((spot) => q.includes(spot));
       return json(200, { available: true, items: name === undefined ? [] : [{ source: "platform", id: `spot-${name}`, name, address: "", location: SPOTS[name], kind: "station" }] });
     }
-    if (path === "/site/v1/charter-packages") return json(200, { city: { id: CITY_ID, code: city.code, name: city.name, timezone: city.timezone }, items: [{ hours: 8 }, { hours: 10 }] });
+    if (path === "/site/v1/charter-packages") return json(200, { city: { id: CITY_ID, code: city.code, name: city.name, timezone: city.timezone }, items: (options.packages ?? [8, 10]).map((hours) => ({ hours })) });
     if (path === "/site/v1/fx/reference") return json(200, { available: false, from: "JPY", to: call.url.searchParams.get("to"), rate: null, as_of: null, reason: "NO_RATE" });
     if (call.method === "POST" && path === "/site/v1/quotes") {
-      const body = call.body as { waypoints?: { name: string }[] };
-      return json(200, resultFor((body.waypoints ?? []).map((stop) => stop.name)));
+      const body = call.body as { waypoints?: { name: string }[]; package_hours?: number };
+      return json(200, resultFor((body.waypoints ?? []).map((stop) => stop.name), body.package_hours));
     }
     if (call.method === "POST" && path === "/site/v1/charter/order-suggestion") {
       const body = call.body as Record<string, any>;
@@ -93,7 +97,7 @@ function open(): { calls: ApiCall[]; suggestions: Record<string, any>[] } {
         request_key: draftRequestKey(body.quote),
         thresholds: { min_saved_meters: 5_000, min_saved_minutes: 10 },
         current_too_long: false,
-        quote_result: resultFor(["横滨", "箱根", "河口湖"]),
+        quote_result: resultFor(["横滨", "箱根", "河口湖"], body.quote.package_hours ?? undefined),
       };
       return json(200, { suggestion, reason: null });
     }
@@ -119,10 +123,10 @@ async function addStop(actor: ReturnType<typeof user>, spot: string): Promise<vo
 const stopNames = (): string[] => screen.getAllByRole("combobox", { name: /^经停点 \d+$/ }).map((box) => (box as HTMLInputElement).value);
 const quoteCalls = (calls: ApiCall[]) => calls.filter((call) => call.method === "POST" && call.path === "/site/v1/quotes");
 
-async function toSuggestion() {
+async function toSuggestion(options: { packages?: number[] } = {}) {
   ORDER_SUGGESTION_SETTLE.ms = 10;
   wideScreen();
-  const opened = open();
+  const opened = open(options);
   const actor = user();
   await screen.findByRole("button", { name: "添加经停点" }, SLOW);
   await addStop(actor, "河口湖");
@@ -157,7 +161,8 @@ test("采用：按标识重排、直接用建议报价（不再多询一次价�
   const quotesBefore = quoteCalls(calls).length;
   await actor.click(within(block).getByRole("button", { name: "采用建议顺序" }));
   await waitFor(() => assertFocused(screen.getByRole("heading", { name: "行程时间表" })));
-  assert.ok(screen.getByText("已按建议顺序排列：1 京王广场酒店 → 2 横滨 → 3 箱根 → 4 河口湖 → 5 新宿站"));
+  // 采用的那句和「价格已更新」接在一起播，不互相覆盖
+  await waitFor(() => assert.ok(screen.getByText("已按建议顺序排列：1 京王广场酒店 → 2 横滨 → 3 箱根 → 4 河口湖 → 5 新宿站 价格已更新：车型1 70,000 JPY")));
   await waitFor(() => assert.match(screen.getByRole("heading", { name: "车型1" }).closest("li")?.textContent ?? "", /70,000 JPY/), SLOW);
   assert.equal(quoteCalls(calls).length, quotesBefore, "用的就是建议报价，没有多询价");
   assert.equal(screen.queryByRole("region", { name: /^建议顺序，可省/ }), null, "已经是建议顺序，建议块收起");
@@ -167,10 +172,34 @@ test("采用：按标识重排、直接用建议报价（不再多询一次价�
   // 恢复原来的顺序（第 1 步的经停点也跟着）
   await actor.click(screen.getByRole("button", { name: "恢复原来的顺序" }));
   await waitFor(() => assertFocused(screen.getByRole("heading", { name: "行程时间表" })));
-  assert.ok(screen.getByText("已恢复原来的顺序"));
+  assert.ok(screen.getByText(/^已恢复原来的顺序/));
   await waitFor(() => assert.match(screen.getByRole("heading", { name: "车型1" }).closest("li")?.textContent ?? "", /75,000 JPY/), SLOW);
   await actor.click(screen.getByRole("button", { name: "上一步" }));
   assert.deepEqual(stopNames(), ["河口湖", "横滨", "箱根"]);
+});
+
+test("手动升到 12 小时后采用：建议按 12 小时算，采用后直接用建议报价不再询价、升档没丢；恢复原来的顺序也保留升档；价格变了只播报选中车型的一条", async () => {
+  const { actor, calls, suggestions } = await toSuggestion({ packages: [8, 10, 12] });
+  // 升档下拉在第 1 步（行程）里
+  await actor.click(screen.getByRole("button", { name: "上一步" }));
+  await actor.selectOptions(await screen.findByLabelText(/^包车时长/, {}, SLOW), "12");
+  await actor.click(screen.getByRole("button", { name: "下一步：选择车型" }));
+  await waitFor(() => assert.match(screen.getByRole("heading", { name: "车型1" }).closest("li")?.textContent ?? "", /85,000 JPY/), SLOW);
+  await waitFor(() => assert.equal(suggestions.at(-1)?.quote.package_hours, 12, "建议按升档后的时长申请"), SLOW);
+  const block = await screen.findByRole("region", { name: /^建议顺序，可省/ }, SLOW);
+  const quotesBefore = quoteCalls(calls).length;
+  await actor.click(within(block).getByRole("button", { name: "采用建议顺序" }));
+  await waitFor(() => assert.match(screen.getByRole("heading", { name: "车型1" }).closest("li")?.textContent ?? "", /80,000 JPY/), SLOW);
+  assert.equal(quoteCalls(calls).length, quotesBefore, "升档跟着走，询价键和预存的建议报价对得上，没有多询价");
+  await actor.click(screen.getByRole("button", { name: "恢复原来的顺序" }));
+  await waitFor(() => assert.match(screen.getByRole("heading", { name: "车型1" }).closest("li")?.textContent ?? "", /85,000 JPY/), SLOW);
+  assert.equal((quoteCalls(calls).at(-1)?.body as { package_hours?: number } | undefined)?.package_hours, 12, "恢复后仍按 12 小时询价");
+  // 播报区常驻在车型区外层（重新询价的骨架屏不会把它卸掉），最后一条是价格更新
+  const live = document.querySelector(".book-new__vehicles > p.visually-hidden[role=status]");
+  assert.ok(live !== null);
+  await waitFor(() => assert.equal(live.textContent, "已恢复原来的顺序 价格已更新：车型1 85,000 JPY"));
+  await actor.click(screen.getByRole("button", { name: "上一步" }));
+  assert.equal((screen.getByLabelText(/^包车时长/) as HTMLSelectElement).value, "12", "升档没有丢");
 });
 
 test("保持我的顺序：建议块收起，同一组点不再申请", async () => {

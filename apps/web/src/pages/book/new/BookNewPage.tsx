@@ -171,6 +171,12 @@ function nearbyCharterCity(point: TripPoint | null, cities: readonly SiteCity[])
  * `draftId`：从嵌入组件的预订草稿进来、草稿读到了时的草稿编号（M9E-12，ADR 0090 第三节第 3 小节）——包车、接送两种询价都带上，
  * 服务端按它把草稿上的来源记到这次的报价、下单时再记到订单；草稿过期、无效时服务端只是忽略，不影响报价。
  */
+/** 有经停点时手动升档记在哪段行程上（M9P-03）：上下车点、经停点和停留按顺序；没有经停点时为 null */
+function itineraryKeyOf(draft: TripDraft): string | null {
+  const stops = draft.mode === "charter" ? waypointsBody(draft.waypoints) : null;
+  return stops !== null && stops.length > 0 && draft.from !== null && draft.to !== null ? JSON.stringify([draft.from.lat, draft.from.lng, draft.to.lat, draft.to.lng, stops]) : null;
+}
+
 function requestOf(draft: TripDraft, charterCity: SiteQuotedCity | null, draftId: string | null, addons: readonly SiteAddonRequest[] = [], upgradeHours = ""): { key: string; run(): Promise<Outcome>; body?: SiteQuoteRequest } | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.date) || !/^\d{2}:\d{2}$/.test(draft.time) || draft.from === null) return null;
   const serviceLocal = `${draft.date}T${draft.time}`;
@@ -441,8 +447,7 @@ export function BookNewPage() {
   const packageLoad: Load<number[]> | null = matchLoad === null || charterCity === null ? null : matchLoad.kind === "ready" ? { kind: "ready", items: matchLoad.items.hours } : matchLoad;
 
   // 有经停点时的手动升档（M9P-03）：按这段行程（上下车点、经停点和停留）记，行程变了就回到自动
-  const itineraryStops = draft.mode === "charter" ? waypointsBody(draft.waypoints) : null;
-  const itineraryKey = itineraryStops !== null && itineraryStops.length > 0 && draft.from !== null && draft.to !== null ? JSON.stringify([draft.from.lat, draft.from.lng, draft.to.lat, draft.to.lng, itineraryStops]) : null;
+  const itineraryKey = itineraryKeyOf(draft);
   const upgradeHours = itineraryKey !== null && upgrade !== null && upgrade.key === itineraryKey ? upgrade.hours : "";
 
   // 填齐了就报价：停顿一下再查；改了任何一项旧结果立刻收起（键对不上的结果不显示）
@@ -546,6 +551,8 @@ export function BookNewPage() {
   // 经停顺序建议块（M9P-20 P2，ADR 0096 第三节第 5 小节、第四节）：拖动后按新的当前报价重算，不调接口
   const suggestionData = orderSuggestion.suggestion;
   const live: LiveSuggestion = suggestionData === null || draft.from === null || draft.to === null ? { visible: false } : liveSuggestion({ suggestion: suggestionData, currentRefs: waypointRefs, current: charterOutcome, currentLoading: current?.kind === "loading" || current === null, selectedGroupId: selected?.vehicle_group.id ?? null });
+  /** 采用 / 恢复时播报的那句：价格出来后接在它后面播「价格已更新」，不互相覆盖 */
+  const orderNotice = useRef<string | null>(null);
   const adoptSuggestion = (): void => {
     if (suggestionData === null || suggestBody === null || orderSuggestion.requestKey !== suggestionData.request_key) return;
     const reordered = reorderByRefs(draft.waypoints.map((entry) => ({ ...entry, ref: entry.key })), suggestionData.order);
@@ -554,9 +561,13 @@ export function BookNewPage() {
     const next = requestOf(nextDraft, charterCity ?? null, draftSource, [], upgradeHours);
     if (next !== null && !suggestionQuoteExpired(suggestionData.quote_result)) preloaded.current.set(next.key, { mode: "charter", result: suggestionData.quote_result, city: suggestionData.quote_result.city ?? (charterCity as SiteQuotedCity) });
     setAdoptedFrom({ order: waypointRefs, stopKey: stopSetKey(suggestBody) });
+    // 升档跟着走（ADR 0096 第三节第 5 小节）：建议价是按这个升档算的，换了顺序也照用，询价键才和预存的建议报价对得上、不再多询一次
+    const movedKey = itineraryKeyOf(nextDraft);
+    if (upgradeHours !== "" && movedKey !== null) setUpgrade({ key: movedKey, hours: upgradeHours });
     setDraft(nextDraft);
     const names = [draft.from?.name ?? "", ...reordered.map((entry) => entry.point?.name ?? ""), draft.to?.name ?? ""];
-    setSuggestionNotice(itineraryCopy("suggestAdopted", { chain: orderChain(names) }));
+    orderNotice.current = itineraryCopy("suggestAdopted", { chain: orderChain(names) });
+    setSuggestionNotice(orderNotice.current);
     focusItinerary.current = true;
   };
   const restoreOrder = (): void => {
@@ -564,8 +575,12 @@ export function BookNewPage() {
     const restored = reorderByRefs(draft.waypoints.map((entry) => ({ ...entry, ref: entry.key })), adoptedFrom.order);
     setAdoptedFrom(null);
     if (restored === null) return;
-    setDraft((value) => ({ ...value, waypoints: restored.map(({ ref: _ref, ...entry }) => entry) }));
-    setSuggestionNotice(itineraryCopy("suggestRestored"));
+    const restoredDraft = { ...draft, waypoints: restored.map(({ ref: _ref, ...entry }) => entry) };
+    const restoredKey = itineraryKeyOf(restoredDraft);
+    if (upgradeHours !== "" && restoredKey !== null) setUpgrade({ key: restoredKey, hours: upgradeHours });
+    setDraft(restoredDraft);
+    orderNotice.current = itineraryCopy("suggestRestored");
+    setSuggestionNotice(orderNotice.current);
     focusItinerary.current = true;
   };
   // 建议块出现时播报一次（同一组点只播一次，ADR 0096 第三节第 7 小节）
@@ -608,11 +623,21 @@ export function BookNewPage() {
           {itineraryCopy("suggestRestore")}
         </Button>
       )}
-      <p className="visually-hidden" role="status">
-        {suggestionNotice}
-      </p>
     </>
   );
+  // 换顺序、采用、恢复后价格变了：只播一条——选中的车型，还没选时是建议块比价用的第一个车型；等最终价格出来（不在加载中）再播（ADR 0096 第三节第 7 小节）
+  const pricedOrder = useRef<{ stopKey: string; order: string; groupId: string; amount: string } | null>(null);
+  const announcedQuote = selected ?? quotes[0] ?? null;
+  const settledPrice = itinerary && suggestBody !== null && current !== null && current.kind !== "loading" && announcedQuote !== null ? { stopKey: stopSetKey(suggestBody), order: waypointRefs.join(","), groupId: announcedQuote.vehicle_group.id, amount: announcedQuote.price.total.amount } : null;
+  useEffect(() => {
+    if (settledPrice === null || announcedQuote === null) return;
+    const before = pricedOrder.current;
+    pricedOrder.current = settledPrice;
+    if (before === null || before.stopKey !== settledPrice.stopKey || before.groupId !== settledPrice.groupId || before.order === settledPrice.order || before.amount === settledPrice.amount) return;
+    const priceText = itineraryCopy("suggestPriceUpdated", { vehicle: displayName(announcedQuote.vehicle_group.name).text, price: moneyText(announcedQuote.price.total) });
+    setSuggestionNotice(orderNotice.current === null ? priceText : `${orderNotice.current} ${priceText}`);
+    orderNotice.current = null;
+  }, [settledPrice?.stopKey, settledPrice?.order, settledPrice?.groupId, settledPrice?.amount]);
   // 没有经停、按自选时长报价时报价不估路线：每段的时长和公里取地图折线那次调用的量（ADR 0096 第二节第 3 小节）；取不到就不写这一行
   useEffect(() => {
     if (plainLegsKey === null || draft.from === null || draft.to === null) return;
@@ -1231,6 +1256,10 @@ export function BookNewPage() {
         <h2 id="book-vehicles-title" ref={vehiclesHeading} tabIndex={-1} className="site-section__title">
           选择车型
         </h2>
+        {/* 播报区常驻（不随车型区的骨架屏卸掉），否则重新询价后读屏读不到「已恢复原来的顺序」「价格已更新」 */}
+        <p className="visually-hidden" role="status" aria-live="polite">
+          {suggestionNotice}
+        </p>
         {vehicles}
         <div className="book-new__actions">
           <Button size="lg" onClick={() => goStep(1)}>

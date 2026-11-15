@@ -142,8 +142,8 @@ async function quote(stops: readonly Stop[], app: SiteApi = site): Promise<ApiRe
   assert.equal(res.status, 200, res.text);
   return res;
 }
-async function suggest(stops: readonly Stop[], basis: { quote_id?: string; inquiry_ref?: string }, options: { app?: SiteApi; session?: string } = {}): Promise<ApiResponse> {
-  const res = await (options.app ?? site).call("POST", "/site/v1/charter/order-suggestion", { body: { quote: quoteBody(stops), refs: stops.map((stop) => stop.ref), ...basis, session: options.session ?? `sess-${randomUUID()}` }, ip: nextIp() });
+async function suggest(stops: readonly Stop[], basis: { quote_id?: string; inquiry_ref?: string }, options: { app?: SiteApi; session?: string; ip?: string } = {}): Promise<ApiResponse> {
+  const res = await (options.app ?? site).call("POST", "/site/v1/charter/order-suggestion", { body: { quote: quoteBody(stops), refs: stops.map((stop) => stop.ref), ...basis, session: options.session ?? `sess-${randomUUID()}` }, ip: options.ip ?? nextIp() });
   assertMatchesOpenApi("POST", "/site/v1/charter/order-suggestion", res);
   return res;
 }
@@ -241,6 +241,38 @@ test("按会话限频只数要调谷歌的请求：同一会话每分钟 5 次�
   assert.deepEqual(res.body, { suggestion: null, reason: "RATE_LIMITED" });
   const other = await suggest(sixth, { quote_id: (await quote(sixth)).body.quotes[0].quote_id });
   assert.ok(other.body.suggestion !== null, "换个会话照常");
+});
+
+test("按地址兜底：同一个地址每天最多 25 次要调谷歌的请求（换会话也算），第 26 组新点 RATE_LIMITED、不调谷歌；换个地址照常", async () => {
+  const ip = `10.95.${Math.floor(Math.random() * 200)}.${1 + Math.floor(Math.random() * 200)}`;
+  for (let i = 0; i < 25; i++) {
+    const stops = badOrder();
+    const res = await suggest(stops, { quote_id: (await quote(stops)).body.quotes[0].quote_id }, { ip });
+    assert.ok(res.body.suggestion !== null, `第 ${i + 1} 次：${res.text}`);
+  }
+  const extra = badOrder();
+  const calls = optimizeCalls().length;
+  const limited = await suggest(extra, { quote_id: (await quote(extra)).body.quotes[0].quote_id }, { ip });
+  assert.deepEqual(limited.body, { suggestion: null, reason: "RATE_LIMITED" });
+  assert.equal(optimizeCalls().length, calls, "被地址兜底挡下，不调谷歌");
+  const other = await suggest(extra, { quote_id: (await quote(extra)).body.quotes[0].quote_id });
+  assert.ok(other.body.suggestion !== null, "换个地址照常");
+});
+
+test("省得不够（BELOW_THRESHOLD）：问了一次谷歌，但不提示、不算建议报价", async () => {
+  tag += 1;
+  const d = tag * 0.0001;
+  // 新宿附近三个点，绕一下只多几百米：省的不到 5 公里、不到 10 分钟
+  const stops: Stop[] = [
+    { ref: "p1", name: "点一", lat: 35.692 + d, lng: 139.702, stay_minutes: 30 },
+    { ref: "p3", name: "点三", lat: 35.698 + d, lng: 139.702, stay_minutes: 30 },
+    { ref: "p2", name: "点二", lat: 35.695 + d, lng: 139.702, stay_minutes: 30 },
+  ];
+  const calls = optimizeCalls().length;
+  const res = await suggest(stops, { quote_id: (await quote(stops)).body.quotes[0].quote_id });
+  assert.equal(res.status, 200, res.text);
+  assert.deepEqual(res.body, { suggestion: null, reason: "BELOW_THRESHOLD" });
+  assert.equal(optimizeCalls().length, calls + 1);
 });
 
 test("优化的每日上限 0：不调谷歌、UNAVAILABLE；和路线的每日上限分开", async () => {

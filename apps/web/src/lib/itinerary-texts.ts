@@ -33,6 +33,7 @@ export type ItineraryTextKey =
   | "suggestRestore"
   | "suggestAdopted"
   | "suggestRestored"
+  | "suggestPriceUpdated"
   | "suggestPrice"
   | "suggestRegion"
   | "optimizeTitle"
@@ -72,6 +73,7 @@ const ZH: Readonly<Record<ItineraryTextKey, string>> = {
   suggestRestore: "恢复原来的顺序",
   suggestAdopted: "已按建议顺序排列：{chain}",
   suggestRestored: "已恢复原来的顺序",
+  suggestPriceUpdated: "价格已更新：{vehicle} {price}",
   suggestPrice: "{vehicle} {price}",
   suggestRegion: "经停顺序建议",
   optimizeTitle: "经停顺序建议（谷歌地图）",
