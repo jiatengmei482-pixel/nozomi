@@ -4,7 +4,7 @@
  * 表单怎么读、哪里写错了在 lib/service-rules-form.ts；范围和缺项问 @nozomi/domain。
  */
 import { PlatformPolicyLines } from "./PlatformPolicyLines.tsx";
-import { CHARTER_SUPPLIER_PRICE_NOTE, type FreeWaitItem, type NightChargeUnit, PRODUCT_CATEGORY_NAMES, PRODUCT_LIMITS, addonAllowsFirstFree, fixedFreeWaitMinutes, freeWaitItems, serviceRuleMissing } from "@nozomi/domain";
+import { CHARTER_SUPPLIER_PRICE_NOTE, type FreeWaitItem, type NightChargeUnit, PRODUCT_CATEGORY_NAMES, PRODUCT_LIMITS, SUGGESTED_CHARTER_ITINERARY, addonAllowsFirstFree, fixedFreeWaitMinutes, freeWaitItems, serviceRuleMissing } from "@nozomi/domain";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { AddonOption } from "../../api/master-options.ts";
 import { type Product, type ProductServiceRules, putServiceRules } from "../../api/products.ts";
@@ -18,7 +18,7 @@ import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { CHARGE_UNIT_NAMES, displayName, timeZoneLabel } from "../../lib/master-display.ts";
 import { checkReasons, moneyText, readAmount, tidyAmountDisplay } from "../../lib/product-display.ts";
 import type { ServerIssue } from "../../lib/product-failure.ts";
-import { DRIVER_LANGUAGE_OPTIONS, type RulesForm, type RulesFormContext, defaultNightUnit, formFromRules, readRulesForm, rulePathTarget, tidyNumber } from "../../lib/service-rules-form.ts";
+import { DRIVER_LANGUAGE_OPTIONS, type ItineraryField, type RulesForm, type RulesFormContext, defaultNightUnit, formFromRules, readRulesForm, rulePathTarget, tidyNumber } from "../../lib/service-rules-form.ts";
 import { crossesMidnight, dateRangeReadback, leadTimeReadback, localToday, tidyDate, tidyTime, urgentSegments, windowReadback } from "../../lib/time-input.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { type StepController, StepShell } from "./StepShell.tsx";
@@ -44,6 +44,91 @@ const Star = () => (
     {" *"}
   </span>
 );
+
+/**
+ * 包车按行程计价（M9P-04，ADR 0091 第二节、0093 第二节第 4 小节；配置说明 docs/ops/charter-itinerary-buffer-2026-11-14.md 第二节）：
+ * 经停点默认占用、整单缓冲、最低套餐三个输入框和「下车点行程加价」开关。建议值只用灰字写在说明里，不预填；在线下单上限这里不改。
+ */
+function ItineraryCard({
+  field,
+  onChange,
+  input,
+  errors,
+  locked,
+  onPlatform,
+  aboveAll,
+  stored,
+}: {
+  field: ItineraryField;
+  onChange: (changes: Partial<ItineraryField>) => void;
+  input: (id: string, value: string, onChange: (value: string) => void, label: string, placeholder: string) => ReactNode;
+  errors: (...targets: string[]) => string[];
+  locked: boolean;
+  onPlatform: boolean;
+  aboveAll: { min_package_hours: number; longest_package_hours: number } | null;
+  stored: number | null;
+}) {
+  const suggested = SUGGESTED_CHARTER_ITINERARY;
+  // 提醒按保存过的值：输入框改了还没保存时不提（保存应答会重新给）
+  const showAbove = aboveAll !== null && stored === aboveAll.min_package_hours;
+  return (
+    <section className="card" id="itinerary" aria-labelledby="rules-itinerary-title">
+      <h3 className="card__title" id="rules-itinerary-title">
+        包车按行程计价
+      </h3>
+      <div className="form">
+        <p className="field__hint">客人填了经停点时，平台按「行驶时间 + 各经停停留 + 经停数 × 每站默认占用 + 整单缓冲」算预计用时，自动选够用的套餐。预计用时只用来选套餐，不直接算钱。</p>
+        <div className="field">
+          <label className="field__label" htmlFor="itinerary-stop-occupancy">
+            经停点默认占用
+          </label>
+          <span className="affix affix--short">
+            {input("itinerary-stop-occupancy", field.stopOccupancy, (stopOccupancy) => onChange({ stopOccupancy }), "经停点默认占用（分钟）", `建议 ${suggested.stopOccupancyMinutes}`)}
+            <span className="affix__text">分钟</span>
+          </span>
+          <FieldErrors id="itinerary-stop-occupancy-error" errors={errors("itinerary-stop-occupancy")} />
+          <p className="field__hint">{`每个经停点额外算的时间（停车、步行、上下车），和客人填的停留分开算。0 到 ${PRODUCT_LIMITS.maxStopOccupancyMinutes} 分钟，空着 = 0（不加）。`}</p>
+          <p className="field__hint">{`建议 ${suggested.stopOccupancyMinutes} 分钟`}</p>
+        </div>
+        <div className="field">
+          <label className="field__label" htmlFor="itinerary-buffer">
+            整单缓冲
+          </label>
+          <span className="affix affix--short">
+            {input("itinerary-buffer", field.buffer, (buffer) => onChange({ buffer }), "整单缓冲（分钟）", `建议 ${suggested.bufferMinutes}`)}
+            <span className="affix__text">分钟</span>
+          </span>
+          <FieldErrors id="itinerary-buffer-error" errors={errors("itinerary-buffer")} />
+          <p className="field__hint">{`整单额外加的时间，给路上耽搁留余量。0 到 ${PRODUCT_LIMITS.maxBufferMinutes} 分钟，填 0 = 关闭。`}</p>
+          <p className="field__hint">{`建议 ${suggested.bufferMinutes} 分钟，填 0 关闭`}</p>
+        </div>
+        <div className="field">
+          <label className="field__label" htmlFor="itinerary-min-package">
+            最低套餐（选填）
+          </label>
+          <span className="affix affix--short">
+            {input("itinerary-min-package", field.minPackage, (minPackage) => onChange({ minPackage }), "最低套餐（小时）", "不限")}
+            <span className="affix__text">小时</span>
+          </span>
+          <FieldErrors id="itinerary-min-package-error" errors={errors("itinerary-min-package")} />
+          <p className="field__hint">{onPlatform ? "这个商品最短卖几小时，空着 = 不限。设了以后比它短的套餐不再报价，客人自选时长也选不到。" : "这个商品最短卖几小时，留空 = 不限。设了以后比它短的套餐不再报价，客人自选时长也选不到。"}</p>
+          <p className="field__hint">{`可设为 ${suggested.minPackageHours} 小时`}</p>
+          {showAbove && <Warning>{`最低套餐 ${aboveAll.min_package_hours} 小时比这个商品所有启用的套餐都长（最长 ${aboveAll.longest_package_hours} 小时），这个商品将报不出价。`}</Warning>}
+        </div>
+        <fieldset className="field fieldset" id="itinerary-dropoff">
+          <legend className="field__label">下车点行程加价</legend>
+          <label className="choice">
+            <input type="checkbox" id="itinerary-dropoff-toggle" checked={field.dropoffSurcharge} disabled={locked} aria-describedby="itinerary-dropoff-hint" onChange={(event) => onChange({ dropoffSurcharge: event.target.checked })} />
+            <span className="choice__text">收下车点行程加价</span>
+          </label>
+          <p className="field__hint" id="itinerary-dropoff-hint">
+            没有市外经停时，下车点所在行程区域收一次行程加价。默认开。
+          </p>
+        </fieldset>
+      </div>
+    </section>
+  );
+}
 
 export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; product: Product }) {
   const { readOnly } = frame;
@@ -524,6 +609,19 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
                 {missingHint("free-wait")}
               </div>
             </section>
+
+            {form.itinerary !== null && (
+              <ItineraryCard
+                field={form.itinerary}
+                onChange={(changes) => set({ itinerary: { ...(form.itinerary as ItineraryField), ...changes } })}
+                input={(id, value, onChange, label, placeholder) => text(id, value, onChange, { label, placeholder })}
+                errors={errors}
+                locked={locked}
+                onPlatform={onPlatform}
+                aboveAll={data.min_package_above_all ?? null}
+                stored={data.rules.charter_itinerary?.min_package_hours ?? null}
+              />
+            )}
 
             <section className="card" aria-labelledby="rules-cancel-title">
               <div className="card__title-row">
