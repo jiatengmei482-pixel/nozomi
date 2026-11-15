@@ -2,7 +2,7 @@
  * 官网订单页的各个区块（M3-05，ADR 0032）。每个会改订单的操作都在页面内确认，结果写在区块里；出错时说明怎么办。
  * 危险或提交后不能改的操作（付款、取消、「我已落地」）先显示要发生什么，再点「确认」才提交。
  */
-import { CANCELLABLE_STATUSES, type ExtraChargeType, EXTRA_CHARGE_RULES, ORDER_FIELD_LIMITS, isFlightNo, isInternationalPhone, localDateTimeToInstant, normalizeFlightNo, normalizePhone } from "@nozomi/domain";
+import { CANCELLABLE_STATUSES, type ExtraChargeType, type FlightKind, EXTRA_CHARGE_RULES, ORDER_FIELD_LIMITS, isFlightNo, isInternationalPhone, localDateTimeToInstant, normalizeFlightNo, normalizePhone } from "@nozomi/domain";
 import { type FormEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ApiError } from "../../api/client.ts";
 import {
@@ -41,7 +41,7 @@ import {
   GUEST_EXTRA_STATUS_BADGES,
   SITE_ORDER_PATH,
   TIMELINE_NAMES,
-  freeWaitText,
+  orderFreeWaitText,
   guestCancelPolicyText,
   guestInstantText,
   guestLocalText,
@@ -55,6 +55,7 @@ import {
   sitePriceBasisNote,
   visibleTimeline,
 } from "../../lib/site-display.ts";
+import { FlightKindField } from "./FlightKindField.tsx";
 import { siteFailureText } from "./SiteLayout.tsx";
 import { SitePrice } from "./SitePrice.tsx";
 import { PriceBreakdown } from "./new/PriceBreakdown.tsx";
@@ -396,7 +397,7 @@ export function TripSection({ order, names, breakdown = null }: { order: SiteOrd
         </Fact>
         {kmNote !== null && <Fact label="公里数">{kmNote}</Fact>}
         {orderFeeNote(order) !== null && <Fact label="费用说明">{orderFeeNote(order)}</Fact>}
-        <Fact label="免费等待">{freeWaitText(order.free_wait_minutes, order.category, order.direction)}</Fact>
+        <Fact label="免费等待">{orderFreeWaitText(order)}</Fact>
         {order.winning_tenant !== null && <Fact label="服务方">{order.winning_tenant.name}</Fact>}
       </dl>
     </Section>
@@ -616,6 +617,8 @@ interface ChangeForm {
   phone: string;
   email: string;
   flightNo: string;
+  /** 国际 / 国内航班（M9E-28）：接机才有；以前的单、没选过为 "" */
+  flightKind: FlightKind | "";
   pickupAddress: string;
   dropoffAddress: string;
   notes: string;
@@ -631,6 +634,7 @@ function formOf(order: SiteOrder): ChangeForm {
     phone: order.passenger.phone,
     email: order.passenger.email,
     flightNo: order.flight_no ?? "",
+    flightKind: order.flight_kind ?? "",
     pickupAddress: order.pickup?.address ?? "",
     dropoffAddress: order.dropoff?.address ?? "",
     notes: order.notes ?? "",
@@ -651,6 +655,8 @@ export function changeRequestOf(order: SiteOrder, form: ChangeForm): SiteChangeR
   const body: SiteChangeRequest = {};
   if (passengerKey(form) !== passengerKey(before)) body.passenger = { name: form.name.trim(), phone: form.phone.trim(), email: form.email.trim() };
   if (order.category === "airport_transfer" && flightKey(form.flightNo) !== flightKey(before.flightNo)) body.flight_no = form.flightNo.trim() === "" ? null : form.flightNo.trim();
+  // 航班类型（M9E-28）：接机才能改；供应商同意时还没派司机的，按新的航班类型重新定免费等待
+  if (order.category === "airport_transfer" && order.direction === "pickup" && form.flightKind !== "" && form.flightKind !== before.flightKind) body.flight_kind = form.flightKind;
   const ends = orderAddressEnds(order);
   if (ends.includes("pickup") && form.pickupAddress.trim() !== before.pickupAddress) {
     if (form.pickupAddress.trim() === "") return { error: "上车地址不能为空" };
@@ -677,7 +683,7 @@ export function changeRequestOf(order: SiteOrder, form: ChangeForm): SiteChangeR
   return body;
 }
 
-type ChangeField = "name" | "phone" | "email" | "flightNo" | "pickupAddress" | "dropoffAddress" | "date" | "time" | "passengers" | "luggage" | "notes";
+type ChangeField = "name" | "phone" | "email" | "flightNo" | "flightKind" | "pickupAddress" | "dropoffAddress" | "date" | "time" | "passengers" | "luggage" | "notes";
 
 /** 上车 / 下车两端的地址各对应表单里的哪一项。 */
 const ADDRESS_FIELDS = { pickup: "pickupAddress", dropoff: "dropoffAddress" } as const;
@@ -723,6 +729,7 @@ const CHANGE_SERVER_PATHS: Readonly<Record<string, ChangeField>> = {
   "/passenger/phone": "phone",
   "/passenger/email": "email",
   "/flight_no": "flightNo",
+  "/flight_kind": "flightKind",
   "/pickup_address": "pickupAddress",
   "/dropoff_address": "dropoffAddress",
   "/service_time": "time",
@@ -758,7 +765,7 @@ export function guestChangeIssueText(field: ChangeField, issue: { reason?: strin
   return `${CHANGE_FIELD_LABELS[field]}没有通过检查，请检查后再提交`;
 }
 
-const CHANGE_FIELD_LABELS: Readonly<Record<ChangeField, string>> = { name: "姓名", phone: "手机号", email: "邮箱", flightNo: "航班号", pickupAddress: "上车地址", dropoffAddress: "下车地址", date: "日期", time: "时间", passengers: "人数", luggage: "行李", notes: "备注" };
+const CHANGE_FIELD_LABELS: Readonly<Record<ChangeField, string>> = { name: "姓名", phone: "手机号", email: "邮箱", flightNo: "航班号", flightKind: "航班类型", pickupAddress: "上车地址", dropoffAddress: "下车地址", date: "日期", time: "时间", passengers: "人数", luggage: "行李", notes: "备注" };
 
 /** 客人改了表单里的哪些项，各自对应哪个字段的后端错误要清掉（改日期也清掉标在时间下的用车时间错误）。 */
 const CLEARS: Readonly<Record<keyof ChangeForm, readonly ChangeField[]>> = {
@@ -766,6 +773,7 @@ const CLEARS: Readonly<Record<keyof ChangeForm, readonly ChangeField[]>> = {
   phone: ["phone"],
   email: ["email"],
   flightNo: ["flightNo"],
+  flightKind: ["flightKind"],
   pickupAddress: ["pickupAddress"],
   dropoffAddress: ["dropoffAddress"],
   notes: ["notes"],
@@ -907,6 +915,7 @@ export function ChangeSection({ token, order, onChanged }: { token: string; orde
             <TextField label="手机号（带国家码）" size="lg" required type="tel" inputMode="tel" autoComplete="tel" hint="以 + 和国家码开头，如 +81 90-1234-5678" value={form.phone} errors={fieldErrors("phone")} onChange={(event) => set({ phone: event.target.value })} />
             <TextField label="邮箱" size="lg" required type="email" inputMode="email" autoCapitalize="none" spellCheck={false} autoComplete="email" value={form.email} errors={fieldErrors("email")} onChange={(event) => set({ email: event.target.value })} />
             {transfer && <TextField label={arrival ? "航班号" : "航班号（选填）"} size="lg" required={arrival} autoCapitalize="characters" hint="如 NH211" value={form.flightNo} errors={fieldErrors("flightNo")} onChange={(event) => set({ flightNo: event.target.value })} />}
+            {arrival && <FlightKindField name="change-flight-kind" value={form.flightKind} quoted={null} errors={fieldErrors("flightKind")} onChange={(flightKind) => set({ flightKind })} />}
             {orderAddressEnds(order).map((end) => {
               const field = ADDRESS_FIELDS[end];
               return (

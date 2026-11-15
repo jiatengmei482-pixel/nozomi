@@ -38,7 +38,7 @@ import { AuthLayout } from "../../components/AuthLayout.tsx";
 import { Button } from "../../components/Button.tsx";
 import { ORDER_STATUS_BADGES, StatusBadge } from "../../components/StatusBadge.tsx";
 import { TextField } from "../../components/TextField.tsx";
-import { directionName, formatInZone, landingSourceName } from "../../lib/dispatch-display.ts";
+import { directionName, formatInZone, landingSourceName, orderFreeWaitDetail } from "../../lib/dispatch-display.ts";
 import { displayName } from "../../lib/master-display.ts";
 import { durationText, orderItineraryText } from "../../lib/charter-itinerary.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
@@ -358,7 +358,7 @@ export function DriverTripPage() {
             <p className="field__hint">{`下车点坐标：${order.dropoff.lat.toFixed(6)}, ${order.dropoff.lng.toFixed(6)}`}</p>
           </>
         )}
-        <p>{`免费等待：${order.free_wait_minutes === null ? "不限" : `${order.free_wait_minutes} 分钟`}，从 ${formatInZone(trip.free_wait.start, zone)} 起${trip.free_wait.end ? `，到 ${formatInZone(trip.free_wait.end, zone)}` : ""}`}</p>
+        <p>{`免费等待：${orderFreeWaitDetail(order.free_wait_minutes, order.free_wait_basis)}，从 ${formatInZone(trip.free_wait.start, zone)} 起${trip.free_wait.end ? `，到 ${formatInZone(trip.free_wait.end, zone)}` : ""}`}</p>
         {trip.vehicle && <p>{`车辆：${trip.vehicle.plate} · ${trip.vehicle.model}`}</p>}
         {trip.dispatchers.map((dispatcher) => (
           <p key={dispatcher.phone}>

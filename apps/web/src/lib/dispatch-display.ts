@@ -2,7 +2,7 @@
  * 派车、司机 H5、Webhook 页面上的显示（M3-02）：用车时间按服务城市的时区（docs/design/04-data-display.md 第 4 节）、枚举的中文、错误码的说明。
  */
 import { LANDING_SOURCE_NAMES, NO_SHOW_ITEM_NAMES, type NoShowItem, TENANT_WEBHOOK_EVENT_NAMES, type TenantWebhookEvent } from "@nozomi/domain";
-import type { DriverLinkEmail, LandingSource, TenantOrder } from "../api/dispatch.ts";
+import type { DriverLinkEmail, FreeWaitBasis, LandingSource, TenantOrder } from "../api/dispatch.ts";
 
 export const ORDER_LIST_PATH = "/orders";
 export const DRIVER_LIST_PATH = "/fleet/drivers";
@@ -154,4 +154,17 @@ export function retryResultText(response: { delivery: { status: string }; result
   if (response.result === "in_flight") return "这条推送正在发送，稍后刷新查看结果";
   if (response.result === "not_configured") return "供应商的 Webhook 设置已删除或暂停，没有发送";
   return response.delivery.status === "succeeded" ? "已重推成功" : "重推了，对方还是没收到";
+}
+
+/**
+ * 供应商订单详情、司机页的免费等待（M9E-28，ADR 0097）：最终分钟数；按航班锁定的接机注明按哪种航班，
+ * 平台按航班把商品设的值补高了的，写出商品设的值（供应商知道为什么比自己设的长）。
+ */
+export function orderFreeWaitDetail(minutes: number | null, basis: FreeWaitBasis | null | undefined): string {
+  const main = minutes === null ? "不限" : `${minutes} 分钟`;
+  if (basis === null || basis === undefined) return main;
+  const kind = basis.flight_kind === "international" ? "国际航班" : basis.flight_kind === "domestic" ? "国内航班" : "航班类型未确认，按国内线";
+  const base = basis.base;
+  const raised = minutes !== null && (base === null || (base.mode === "limited" && base.minutes < minutes)) ? `；商品设 ${base === null ? 0 : base.minutes} 分钟，按平台规定补到 ${minutes} 分钟` : "";
+  return `${main}（${kind}${raised}）`;
 }

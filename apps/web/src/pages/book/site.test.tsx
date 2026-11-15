@@ -172,7 +172,7 @@ test("询价：唯一的城市和机场自动选好；没填的标红；请求�
   const card = (await screen.findByRole("heading", { name: "商务 7 座" })).closest("li") as HTMLElement;
   assert.deepEqual(calls.find((call) => call.method === "POST")?.body, { category: "airport_transfer", city_id: CITY_ID, service_local: "2030-11-20T10:00", passengers: 2, luggage: 1, airport_id: AIRPORT_ID, direction: "pickup", address: { lat: 35.6812, lng: 139.7671 } });
   assert.equal(card.querySelector(".site-quote__price")?.textContent, "21,780 JPY", "价格数字和币种分两段套样式（M6-05），文字不变");
-  assert.ok(within(card).getByText("90 分钟（从航班落地起算）"));
+  assert.ok(within(card).getByText("国际线最长 90 分钟、国内线最长 90 分钟（从航班落地起算）"), "接机按航班写两种（M9E-28）：商品设 90，国际、国内都是 max(90, 下限) = 90");
   assert.ok(within(card).getByText("用车前 48 小时以上取消免费；24–48 小时内取消收 50%；24 小时内取消收全额"));
   assert.doesNotMatch(document.body.textContent ?? "", /结算|加价|供应商/);
   await actor.click(within(card).getByRole("button", { name: "预订商务 7 座" }));
@@ -208,9 +208,10 @@ async function fillCheckout(actor: ReturnType<typeof user>): Promise<void> {
   await actor.type(screen.getByLabelText("手机号（带国家码）"), "+81 90-1234-5678");
   await actor.type(screen.getByLabelText("邮箱"), "guest@example.com");
   await actor.type(screen.getByLabelText("航班号"), "nh 211");
+  await actor.click(screen.getByRole("radio", { name: /^国际航班/ }));
 }
 
-test("下单：接机必填航班号、手机号要带国家码、要同意保存支付方式；请求体只有该有的；网络失败再点用同一个幂等键；成功后到订单页，付款暂未开放", async () => {
+test("下单：接机必填航班号和航班类型（M9E-28）、手机号要带国家码、要同意保存支付方式；请求体只有该有的；网络失败再点用同一个幂等键；成功后到订单页，付款暂未开放", async () => {
   let attempts = 0;
   const calls = open(checkoutEntry(), (call) => {
     if (call.method === "POST" && call.url.pathname === "/site/v1/orders") {
@@ -229,6 +230,8 @@ test("下单：接机必填航班号、手机号要带国家码、要同意保�
   assert.ok(await screen.findByText("请填写乘车人姓名"));
   assert.ok(screen.getByText(/请填写带国家码的手机号/));
   assert.ok(screen.getByText("接机要填航班号，司机按航班落地时间等候"));
+  assert.ok(screen.getByText("请选择国际航班还是国内航班：国际航班免费等待更久"));
+  assert.ok(screen.getByRole("radio", { name: /^国际航班\s*落地后免费等待 90 分钟$/ }), "选项后写这种航班免费等多久");
   assert.ok(screen.getByText("需要同意保存支付方式才能下单"));
   await actor.clear(screen.getByLabelText("手机号（带国家码）"));
   await fillCheckout(actor);
@@ -240,7 +243,7 @@ test("下单：接机必填航班号、手机号要带国家码、要同意保�
   const posts = calls.filter((call) => call.method === "POST");
   assert.equal(posts.length, 2);
   assert.equal(posts[0]?.headers["idempotency-key"], posts[1]?.headers["idempotency-key"], "重试用同一个幂等键");
-  assert.deepEqual(posts[1]?.body, { quote_id: quote.quote_id, passenger: { name: "王小明", phone: "+81 90-1234-5678", email: "guest@example.com" }, flight_no: "nh 211", pickup_address: null, dropoff_address: "东京站八重洲口", messaging: null, notes: null, save_payment_method: true, sign_name: null, passenger_name: null, passenger_phone: null });
+  assert.deepEqual(posts[1]?.body, { quote_id: quote.quote_id, passenger: { name: "王小明", phone: "+81 90-1234-5678", email: "guest@example.com" }, flight_no: "nh 211", flight_kind: "international", pickup_address: null, dropoff_address: "东京站八重洲口", messaging: null, notes: null, save_payment_method: true, sign_name: null, passenger_name: null, passenger_phone: null });
   assert.ok(screen.getByText(/订单已提交/));
   assert.ok(screen.getByText(/付款暂未开放/));
   assert.equal(calls.find((call) => urlOf(call).pathname === "/site/v1/order")?.headers["authorization"], `Bearer ${TOKEN}`);
@@ -352,8 +355,9 @@ test("客人取消了还没付款的单：原因写「您取消了订单」，�
 });
 
 test("改单：只给改了的字段、带 If-Match；没改就说没有改动；改时间换成带时区的时刻", async () => {
-  assert.deepEqual(changeRequestOf(orderOf(), { name: "王小明", phone: "+819012345678", email: "guest@example.com", flightNo: "NH211", pickupAddress: "", dropoffAddress: "东京站八重洲口", notes: "", passengers: "2", luggage: "1", date: "2026-11-20", time: "10:00" }), {});
-  assert.deepEqual(changeRequestOf(orderOf(), { name: "王小明", phone: "+819012345678", email: "guest@example.com", flightNo: "NH211", pickupAddress: "", dropoffAddress: "东京站八重洲口", notes: "", passengers: "3", luggage: "1", date: "2026-11-20", time: "11:30" }), { passengers: 3, service_time: "2026-11-20T02:30:00.000Z" });
+  assert.deepEqual(changeRequestOf(orderOf(), { name: "王小明", phone: "+819012345678", email: "guest@example.com", flightNo: "NH211", flightKind: "", pickupAddress: "", dropoffAddress: "东京站八重洲口", notes: "", passengers: "2", luggage: "1", date: "2026-11-20", time: "10:00" }), {});
+  assert.deepEqual(changeRequestOf(orderOf(), { name: "王小明", phone: "+819012345678", email: "guest@example.com", flightNo: "NH211", flightKind: "international", pickupAddress: "", dropoffAddress: "东京站八重洲口", notes: "", passengers: "2", luggage: "1", date: "2026-11-20", time: "10:00" }), { flight_kind: "international" }, "接机改航班类型（M9E-28）");
+  assert.deepEqual(changeRequestOf(orderOf(), { name: "王小明", phone: "+819012345678", email: "guest@example.com", flightNo: "NH211", flightKind: "", pickupAddress: "", dropoffAddress: "东京站八重洲口", notes: "", passengers: "3", luggage: "1", date: "2026-11-20", time: "11:30" }), { passengers: 3, service_time: "2026-11-20T02:30:00.000Z" });
   const calls = open({ pathname: "/book/order", hash: `#${TOKEN}` }, (call) => {
     if (call.url.pathname === "/site/v1/config") return json(200, openConfig);
     if (call.url.pathname === "/site/v1/order" && call.method === "GET") return json(200, envelopeOf());

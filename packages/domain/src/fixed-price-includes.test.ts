@@ -13,6 +13,15 @@ test("接机：含所有费用、专车、航班落地后免费等待 N 分钟�
   ]);
 });
 
+test("接机还不知道航班类型（M9E-28，ADR 0097）：写国际线、国内线各最长多久，三种语言；不是接机不按这条", () => {
+  const range = { international: 90, domestic: 60 };
+  assert.deepEqual(texts(fixedPriceIncludes({ service: "transfer", arrival: true, freeWaitMinutes: 60, freeWaitRange: range, meetAndGreet: false })).at(-1), "航班落地后免费等待：国际线最长 90 分钟、国内线最长 60 分钟");
+  assert.equal(texts(fixedPriceIncludes({ service: "transfer", arrival: true, freeWaitMinutes: 60, freeWaitRange: range, meetAndGreet: false }, "ja")).at(-1), "着陸後の無料待機：国際線は最大 90 分、国内線は最大 60 分");
+  assert.equal(texts(fixedPriceIncludes({ service: "transfer", arrival: true, freeWaitMinutes: 60, freeWaitRange: range, meetAndGreet: false }, "en")).at(-1), "Free waiting after landing: up to 90 minutes for international flights, up to 60 minutes for domestic flights");
+  assert.equal(texts(fixedPriceIncludes({ service: "transfer", arrival: true, freeWaitMinutes: 90, freeWaitRange: null, meetAndGreet: false })).at(-1), "航班落地后免费等待 90 分钟", "知道了航班类型按分钟数");
+  assert.equal(texts(fixedPriceIncludes({ service: "transfer", arrival: false, freeWaitMinutes: 15, freeWaitRange: range, meetAndGreet: false })).at(-1), "免费等待 15 分钟", "送机不按航班");
+});
+
 test("送机、点对点：免费等待不说航班落地；中标商品包含举牌时写举牌", () => {
   assert.deepEqual(texts(fixedPriceIncludes({ service: "transfer", arrival: false, freeWaitMinutes: 15, meetAndGreet: true })), [
     "一口价已含所有费用（高速费、停车费等），无需另付",

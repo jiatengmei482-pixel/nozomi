@@ -5,7 +5,7 @@
  */
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { DRIVER_ACTION_LABELS } from "@nozomi/domain";
@@ -447,6 +447,31 @@ test("司机页面：令牌从 # 后面取、放在请求头里；有客人、�
   await user().click(screen.getByRole("button", { name: "我出发了" }));
   await screen.findByRole("button", { name: "已到达上车点" });
   assert.deepEqual(calls.find((call) => call.method === "POST")?.body, { type: "departed", location: null });
+});
+
+test("供应商订单详情、司机页的免费等待按航班（M9E-28，ADR 0097）：写最终分钟数和航班类型；平台补高了的写出商品设的值；航班类型未确认注明按国内线；以前的单照旧", async () => {
+  const cases = [
+    [{ free_wait_minutes: 90, flight_kind: "international", free_wait_basis: { flight_kind: "international", base: { mode: "limited", minutes: 60 }, floor_minutes: 90 } }, "90 分钟（国际航班；商品设 60 分钟，按平台规定补到 90 分钟）"],
+    [{ free_wait_minutes: 75, flight_kind: "domestic", free_wait_basis: { flight_kind: "domestic", base: { mode: "limited", minutes: 75 }, floor_minutes: 60 } }, "75 分钟（国内航班）"],
+    [{ free_wait_minutes: 60, flight_kind: null, free_wait_basis: { flight_kind: null, base: { mode: "limited", minutes: 45 }, floor_minutes: 60 } }, "60 分钟（航班类型未确认，按国内线；商品设 45 分钟，按平台规定补到 60 分钟）"],
+    [{ free_wait_minutes: null, flight_kind: "international", free_wait_basis: { flight_kind: "international", base: { mode: "unlimited" }, floor_minutes: 90 } }, "不限（国际航班）"],
+    [{ free_wait_minutes: 90, flight_kind: null, free_wait_basis: null }, "90 分钟"],
+  ] as const;
+  for (const [changes, text] of cases) {
+    cleanup();
+    open(`/orders/${ORDER_ID}`, "readonly", (call) => (call.method === "GET" && call.url.pathname === `/tenant/v1/orders/${ORDER_ID}` ? json(200, detailOf(orderOf(changes as Partial<TenantOrder>))) : null));
+    await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
+    assert.ok(screen.getByText(text), text);
+  }
+
+  cleanup();
+  stubApiWith((call) => (call.url.pathname === "/driver/v1/trip" && call.method === "GET" ? json(200, tripOf({ order: { ...tripOf().order, ...cases[0][0] } as DriverTrip["order"] })) : null));
+  render(
+    <MemoryRouter initialEntries={[{ pathname: "/driver", hash: `#${LINK_TOKEN}` }]}>
+      <App />
+    </MemoryRouter>,
+  );
+  assert.ok(await screen.findByText(/^免费等待：90 分钟（国际航班；商品设 60 分钟，按平台规定补到 90 分钟），从 /));
 });
 
 test("司机页面：还没到时间时按钮下面写明最早几点；太早点了显示服务器的说明，状态不变（ADR 0064）", async () => {

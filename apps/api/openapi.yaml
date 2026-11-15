@@ -8348,7 +8348,8 @@ paths:
       description: |
         客人改单（ADR 0029、0060）。`If-Match` 带订单的 `version`。只给要改的字段：
         - 乘客信息、即时通讯、备注：**直接生效**，通知供应商和已派的司机；
-        - `service_time`、`pickup_address`、`dropoff_address`、`flight_no`、`passengers`、`luggage`：**返回 200 但订单内容不变**，生成修改申请（`change.status` = `pending_confirmation`），供应商同意才生效，确认前原预约有效。一次提交里两类都有就拆成两次改单，`change` 返回申请那一次；
+        - `service_time`、`pickup_address`、`dropoff_address`、`flight_no`、`flight_kind`、`passengers`、`luggage`：**返回 200 但订单内容不变**，生成修改申请（`change.status` = `pending_confirmation`），供应商同意才生效，确认前原预约有效。一次提交里两类都有就拆成两次改单，`change` 返回申请那一次；
+        - 接机改 `flight_no` / `flight_kind`（M9E-28，ADR 0097）：同意生效时还没派司机的，按新的航班类型重新锁定免费等待（`free_wait_minutes`、`free_wait_basis`），`order.changed` 推送里带 `free_wait_minutes: { before, after }`；已派司机的免费等待不变；
         - `service_time` 同一家供应商按新时间重新报价（不重新比价），对外价按原加价比例和汇率快照；贵了先用保存的支付方式补差价（扣不到 402 `CHANGE_PAYMENT_DECLINED`，这时联系信息已生效、其余没改），便宜了同意时退差价；报不出价 409 `CHANGE_NOT_SERVICEABLE`；
         - 进入最早用车时间前 24 小时后 30 分钟内没结论的申请失效（`expired`）。拒绝或失效：差价退回，只有用车前 24 小时内提出的改期，客人才能按 `CHANGE_NOT_CONFIRMED` 免费取消（`free_cancel_available`），其他按取消政策；
         - 出了免费取消期只能改航班号和乘客信息（409 `CHANGE_NOT_ALLOWED`）；超出车型容量 422 `CHANGE_REQUIRES_REBOOK`；车型、品类、城市、坐标接口里没有（400），按取消重下。
@@ -26696,7 +26697,7 @@ components:
       additionalProperties: false
       description: |
         渠道看到的订单：行程、乘客、客人支付的金额、付款状态。**没有结算价、加价比例**；中标租户只在付款成功后、渠道设置了「付款后展示」时出现。
-      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, waypoints, itinerary, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
+      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, waypoints, itinerary, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, flight_kind, free_wait_basis, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
       properties:
         pricing_basis:
           $ref: "#/components/schemas/PricingBasis"
@@ -26808,6 +26809,35 @@ components:
         free_wait_minutes:
           type: [ integer, "null" ]
           description: 免费等待分钟数；不限为 null
+        flight_kind:
+          type: [ string, "null" ]
+          enum: [ international, domestic, null ]
+          description: 客人填航班号时选的国际 / 国内航班（M9E-28，ADR 0097）；没选、渠道没给、不是接机为 null
+        free_wait_basis:
+          description: 接机按航班锁定免费等待的依据（M9E-28，ADR 0097）：`flight_kind` 按哪种航班锁的（null = 航班类型未确认，按国内线的下限）、`base` 商品自己设的免费等待（取下限前的底数）、`floor_minutes` 平台下限（国际 90、国内 / 未确认 60）。最终分钟数是 `free_wait_minutes` = max(商品, 下限)，商品不限时为 null。以前的单、不是接机的单为 null
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required: [ flight_kind, base, floor_minutes ]
+              properties:
+                flight_kind:
+                  type: [ string, "null" ]
+                  enum: [ international, domestic, null ]
+                base:
+                  oneOf:
+                    - type: "null"
+                    - type: object
+                      additionalProperties: false
+                      required: [ mode ]
+                      properties:
+                        mode:
+                          type: string
+                          enum: [ limited, unlimited ]
+                        minutes:
+                          type: integer
+                floor_minutes:
+                  type: integer
         created_at:
           type: string
           format: date-time
@@ -26922,7 +26952,7 @@ components:
       additionalProperties: false
       description: |
         供应商看到的订单：行程、乘客、结算价和明细。**没有渠道、对外价、加价比例、汇率**（规则 4）。只有付过款的单。
-      required: [ pending_change, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, waypoints, itinerary, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, product_id, product_version, settlement, dispatch, fulfilment, landing, cancel_policy, cancellation, version ]
+      required: [ pending_change, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, waypoints, itinerary, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, flight_kind, free_wait_basis, created_at, confirmed_at, cancelled_at, cancel_reason, product_id, product_version, settlement, dispatch, fulfilment, landing, cancel_policy, cancellation, version ]
       properties:
         pending_change:
           type: boolean
@@ -27025,6 +27055,35 @@ components:
         free_wait_minutes:
           type: [ integer, "null" ]
           description: 免费等待分钟数；不限为 null
+        flight_kind:
+          type: [ string, "null" ]
+          enum: [ international, domestic, null ]
+          description: 客人填航班号时选的国际 / 国内航班（M9E-28，ADR 0097）；没选、渠道没给、不是接机为 null
+        free_wait_basis:
+          description: 接机按航班锁定免费等待的依据（M9E-28，ADR 0097）：`flight_kind` 按哪种航班锁的（null = 航班类型未确认，按国内线的下限）、`base` 商品自己设的免费等待（取下限前的底数）、`floor_minutes` 平台下限（国际 90、国内 / 未确认 60）。最终分钟数是 `free_wait_minutes` = max(商品, 下限)，商品不限时为 null。以前的单、不是接机的单为 null
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required: [ flight_kind, base, floor_minutes ]
+              properties:
+                flight_kind:
+                  type: [ string, "null" ]
+                  enum: [ international, domestic, null ]
+                base:
+                  oneOf:
+                    - type: "null"
+                    - type: object
+                      additionalProperties: false
+                      required: [ mode ]
+                      properties:
+                        mode:
+                          type: string
+                          enum: [ limited, unlimited ]
+                        minutes:
+                          type: integer
+                floor_minutes:
+                  type: integer
         created_at:
           type: string
           format: date-time
@@ -27064,7 +27123,7 @@ components:
       additionalProperties: false
       description: |
         运营后台看到的订单：行程、乘客、中标租户、渠道、对外价、结算价、加价比例、汇率快照、付款状态。
-      required: [ notes_masked, passenger_anonymized_at, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, waypoints, itinerary, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, dispatch, fulfilment, landing, tenant, channel, quote_id, channel_order_no, product_id, product_version, sell, settlement, markup_bp, fx, fx_buffer_bp, payment_due_at, payment, cancel_policy, cancellation, is_acceptance, version ]
+      required: [ notes_masked, passenger_anonymized_at, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, waypoints, itinerary, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, flight_kind, free_wait_basis, created_at, confirmed_at, cancelled_at, cancel_reason, dispatch, fulfilment, landing, tenant, channel, quote_id, channel_order_no, product_id, product_version, sell, settlement, markup_bp, fx, fx_buffer_bp, payment_due_at, payment, cancel_policy, cancellation, is_acceptance, version ]
       properties:
         notes_masked:
           type: boolean
@@ -27171,6 +27230,35 @@ components:
         free_wait_minutes:
           type: [ integer, "null" ]
           description: 免费等待分钟数；不限为 null
+        flight_kind:
+          type: [ string, "null" ]
+          enum: [ international, domestic, null ]
+          description: 客人填航班号时选的国际 / 国内航班（M9E-28，ADR 0097）；没选、渠道没给、不是接机为 null
+        free_wait_basis:
+          description: 接机按航班锁定免费等待的依据（M9E-28，ADR 0097）：`flight_kind` 按哪种航班锁的（null = 航班类型未确认，按国内线的下限）、`base` 商品自己设的免费等待（取下限前的底数）、`floor_minutes` 平台下限（国际 90、国内 / 未确认 60）。最终分钟数是 `free_wait_minutes` = max(商品, 下限)，商品不限时为 null。以前的单、不是接机的单为 null
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required: [ flight_kind, base, floor_minutes ]
+              properties:
+                flight_kind:
+                  type: [ string, "null" ]
+                  enum: [ international, domestic, null ]
+                base:
+                  oneOf:
+                    - type: "null"
+                    - type: object
+                      additionalProperties: false
+                      required: [ mode ]
+                      properties:
+                        mode:
+                          type: string
+                          enum: [ limited, unlimited ]
+                        minutes:
+                          type: integer
+                floor_minutes:
+                  type: integer
         created_at:
           type: string
           format: date-time
@@ -27963,6 +28051,10 @@ components:
               maxLength: 500
         flight_no:
           type: [ string, "null" ]
+        flight_kind:
+          type: [ string, "null" ]
+          enum: [ international, domestic, null ]
+          description: 国际 / 国内航班（M9E-28，ADR 0097），跟着航班号给，只用于机场接机和带航班号的点对点单（改用点对点商品报价的接机）。下单时按它锁定免费等待：国际 max(商品设的, 90)、国内 max(商品设的, 60)；不给按「航班类型未确认」max(商品设的, 60)。送机、接送站、包车给了 400
         messaging:
           oneOf:
             - $ref: "#/components/schemas/OrderMessaging"
@@ -28049,6 +28141,10 @@ components:
               type: string
         flight_no:
           type: [ string, "null" ]
+        flight_kind:
+          type: [ string, "null" ]
+          enum: [ international, domestic, null ]
+          description: 国际 / 国内航班（M9E-28，ADR 0097），跟着航班号给，只用于机场接机和带航班号的点对点单（改用点对点商品报价的接机）。下单时按它锁定免费等待：国际 max(商品设的, 90)、国内 max(商品设的, 60)；不给按「航班类型未确认」max(商品设的, 60)。送机、接送站、包车给了 400
         messaging:
           oneOf:
             - $ref: "#/components/schemas/OrderMessaging"
@@ -28092,7 +28188,11 @@ components:
               description: 确认邮件和订单页链接发到这里
         flight_no:
           type: [ string, "null" ]
-          description: 航班号，如 `NH211`。接机（机场）必填；送机选填；接送站、点对点、包车不填
+          description: 航班号，如 `NH211`。接机（机场）必填；送机选填；点对点选填（填了表示从机场接人，按航班定免费等待，M9E-28）；接送站、包车不填
+        flight_kind:
+          type: [ string, "null" ]
+          enum: [ international, domestic, null ]
+          description: 国际 / 国内航班（M9E-28，ADR 0097），跟着航班号给，只用于机场接机和带航班号的点对点单（改用点对点商品报价的接机）。下单时按它锁定免费等待：国际 max(商品设的, 90)、国内 max(商品设的, 60)；不给按「航班类型未确认」max(商品设的, 60)。送机、接送站、包车给了 400
         pickup_address:
           type: [ string, "null" ]
           maxLength: 300
@@ -28736,7 +28836,7 @@ components:
         order:
           type: object
           additionalProperties: false
-          required: [ order_no, status, status_name, category, direction, service_time, service_local, timezone, package_hours, passengers, luggage, flight_no, passenger, rider, messaging, notes, place, pickup, dropoff, waypoints, itinerary, pickup_point, addons, driver_language, free_wait_minutes ]
+          required: [ order_no, status, status_name, category, direction, service_time, service_local, timezone, package_hours, passengers, luggage, flight_no, passenger, rider, messaging, notes, place, pickup, dropoff, waypoints, itinerary, pickup_point, addons, driver_language, free_wait_minutes, flight_kind, free_wait_basis ]
           properties:
             order_no:
               type: string
@@ -28853,6 +28953,35 @@ components:
               type: [ string, "null" ]
             free_wait_minutes:
               type: [ integer, "null" ]
+            flight_kind:
+              type: [ string, "null" ]
+              enum: [ international, domestic, null ]
+              description: 客人填航班号时选的国际 / 国内航班（M9E-28，ADR 0097）；没选、渠道没给、不是接机为 null
+            free_wait_basis:
+              description: 接机按航班锁定免费等待的依据（M9E-28，ADR 0097）：`flight_kind` 按哪种航班锁的（null = 航班类型未确认，按国内线的下限）、`base` 商品自己设的免费等待（取下限前的底数）、`floor_minutes` 平台下限（国际 90、国内 / 未确认 60）。最终分钟数是 `free_wait_minutes` = max(商品, 下限)，商品不限时为 null。以前的单、不是接机的单为 null
+              oneOf:
+                - type: "null"
+                - type: object
+                  additionalProperties: false
+                  required: [ flight_kind, base, floor_minutes ]
+                  properties:
+                    flight_kind:
+                      type: [ string, "null" ]
+                      enum: [ international, domestic, null ]
+                    base:
+                      oneOf:
+                        - type: "null"
+                        - type: object
+                          additionalProperties: false
+                          required: [ mode ]
+                          properties:
+                            mode:
+                              type: string
+                              enum: [ limited, unlimited ]
+                            minutes:
+                              type: integer
+                    floor_minutes:
+                      type: integer
         driver:
           oneOf:
             - type: object
@@ -30586,7 +30715,11 @@ components:
         flight_no:
           type: [ string, "null" ]
           maxLength: 20
-          description: 航班号：机场接机必填，送机可填
+          description: 航班号：机场接机必填，送机可填；点对点可填（改用点对点商品报价的接机，按航班定免费等待，M9E-28）
+        flight_kind:
+          type: [ string, "null" ]
+          enum: [ international, domestic, null ]
+          description: 国际 / 国内航班（M9E-28，ADR 0097），跟着航班号给，只用于机场接机和带航班号的点对点单（改用点对点商品报价的接机）。下单时按它锁定免费等待：国际 max(商品设的, 90)、国内 max(商品设的, 60)；不给按「航班类型未确认」max(商品设的, 60)。送机、接送站、包车给了 400
         pickup_address:
           type: [ string, "null" ]
           maxLength: 1000
@@ -30708,7 +30841,7 @@ components:
       additionalProperties: false
       description: |
         客人在官网订单页看到的订单：和渠道看到的 `SalesOrder` 字段一样，只是落地信息里没有司机到达屏照片的文件编号（客人用不上，ADR 0032）。
-      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, waypoints, itinerary, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
+      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, waypoints, itinerary, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, flight_kind, free_wait_basis, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
       properties:
         pricing_basis:
           $ref: "#/components/schemas/PricingBasis"
@@ -30820,6 +30953,35 @@ components:
         free_wait_minutes:
           type: [ integer, "null" ]
           description: 免费等待分钟数；不限为 null
+        flight_kind:
+          type: [ string, "null" ]
+          enum: [ international, domestic, null ]
+          description: 客人填航班号时选的国际 / 国内航班（M9E-28，ADR 0097）；没选、渠道没给、不是接机为 null
+        free_wait_basis:
+          description: 接机按航班锁定免费等待的依据（M9E-28，ADR 0097）：`flight_kind` 按哪种航班锁的（null = 航班类型未确认，按国内线的下限）、`base` 商品自己设的免费等待（取下限前的底数）、`floor_minutes` 平台下限（国际 90、国内 / 未确认 60）。最终分钟数是 `free_wait_minutes` = max(商品, 下限)，商品不限时为 null。以前的单、不是接机的单为 null
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required: [ flight_kind, base, floor_minutes ]
+              properties:
+                flight_kind:
+                  type: [ string, "null" ]
+                  enum: [ international, domestic, null ]
+                base:
+                  oneOf:
+                    - type: "null"
+                    - type: object
+                      additionalProperties: false
+                      required: [ mode ]
+                      properties:
+                        mode:
+                          type: string
+                          enum: [ limited, unlimited ]
+                        minutes:
+                          type: integer
+                floor_minutes:
+                  type: integer
         created_at:
           type: string
           format: date-time

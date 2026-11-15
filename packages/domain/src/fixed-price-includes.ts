@@ -3,7 +3,7 @@
  * - 含所有费用：全部写（M8-09 起包车也是一口价全含，`FIXED_PRICE_RULES.charterAllInclusive`；ADR 0070）；
  * - 专车不拼车：全部写；
  * - 举牌接机：只有中标商品的「包含」清单里有才写（调用方传进来）；
- * - 免费等待 N 分钟：N 取报价里的值，0 或不限时不写；接机写「航班落地后」。
+ * - 免费等待 N 分钟：N 取报价里的值，0 或不限时不写；接机写「航班落地后」；接机还不知道航班类型时写国际线、国内线各最长多久（M9E-28）。
  * 平台没有自动跟踪航班（B14 决定不做），这里没有、也不能加「跟踪航班」。
  */
 
@@ -57,6 +57,8 @@ export interface FixedPriceIncludesTexts {
   privateCar: string;
   meetAndGreet: string;
   freeWaitAfterLanding: (minutes: number) => string;
+  /** 接机还不知道是国际还是国内航班时（M9E-28，ADR 0097）：两种各等多久 */
+  freeWaitAfterLandingRange: (range: { international: number; domestic: number }) => string;
   freeWait: (minutes: number) => string;
 }
 
@@ -66,6 +68,7 @@ export const FIXED_PRICE_INCLUDES_TEXTS: Readonly<Record<FixedPriceLanguage, Fix
     privateCar: "专车专用，不拼车",
     meetAndGreet: "举牌接机",
     freeWaitAfterLanding: (minutes) => `航班落地后免费等待 ${minutes} 分钟`,
+    freeWaitAfterLandingRange: (range) => `航班落地后免费等待：国际线最长 ${range.international} 分钟、国内线最长 ${range.domestic} 分钟`,
     freeWait: (minutes) => `免费等待 ${minutes} 分钟`,
   },
   ja: {
@@ -73,6 +76,7 @@ export const FIXED_PRICE_INCLUDES_TEXTS: Readonly<Record<FixedPriceLanguage, Fix
     privateCar: "専用車（相乗りなし）",
     meetAndGreet: "ネームボードでお出迎え",
     freeWaitAfterLanding: (minutes) => `着陸後 ${minutes} 分間の無料待機`,
+    freeWaitAfterLandingRange: (range) => `着陸後の無料待機：国際線は最大 ${range.international} 分、国内線は最大 ${range.domestic} 分`,
     freeWait: (minutes) => `${minutes} 分間の無料待機`,
   },
   en: {
@@ -80,6 +84,7 @@ export const FIXED_PRICE_INCLUDES_TEXTS: Readonly<Record<FixedPriceLanguage, Fix
     privateCar: "Private car, no sharing",
     meetAndGreet: "Meet & greet with a name sign",
     freeWaitAfterLanding: (minutes) => `${minutes} minutes of free waiting after landing`,
+    freeWaitAfterLandingRange: (range) => `Free waiting after landing: up to ${range.international} minutes for international flights, up to ${range.domestic} minutes for domestic flights`,
     freeWait: (minutes) => `${minutes} minutes of free waiting`,
   },
 };
@@ -91,6 +96,11 @@ export interface FixedPriceIncludesInput {
   arrival: boolean;
   /** 报价里的免费等待分钟数；null 是不限时 */
   freeWaitMinutes: number | null;
+  /**
+   * 接机还不知道航班类型时（M9E-28，ADR 0097）：国际线、国内线各等多久（`arrivalFreeWaitRange`），写成「国际线最长 X 分钟、国内线最长 Y 分钟」，
+   * 优先于 `freeWaitMinutes`；知道了航班类型、不是接机、不限时的不给
+   */
+  freeWaitRange?: { international: number; domestic: number } | null;
   /** 中标商品的「包含」清单里有举牌接机 */
   meetAndGreet: boolean;
   /** 默认取 `FIXED_PRICE_RULES.charterAllInclusive` */
@@ -135,7 +145,8 @@ export function fixedPriceIncludes(input: FixedPriceIncludesInput, language: Fix
   items.push({ key: "private_car", text: texts.privateCar });
   if (input.meetAndGreet) items.push({ key: "meet_and_greet", text: texts.meetAndGreet });
   const minutes = input.freeWaitMinutes;
-  if (minutes !== null && minutes > 0) items.push({ key: "free_wait", text: input.arrival ? texts.freeWaitAfterLanding(minutes) : texts.freeWait(minutes) });
+  if (input.arrival && input.freeWaitRange) items.push({ key: "free_wait", text: texts.freeWaitAfterLandingRange(input.freeWaitRange) });
+  else if (minutes !== null && minutes > 0) items.push({ key: "free_wait", text: input.arrival ? texts.freeWaitAfterLanding(minutes) : texts.freeWait(minutes) });
   return items;
 }
 

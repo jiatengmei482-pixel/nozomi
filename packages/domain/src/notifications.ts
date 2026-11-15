@@ -420,6 +420,7 @@ export function notificationUrgent(serviceDate: string | null, now: Date, timeZo
 export const ORDER_CHANGE_FIELD_NAMES: Readonly<Record<string, string>> = {
   passenger: "乘客信息",
   flight_no: "航班号",
+  flight_kind: "航班类型",
   messaging: "即时通讯",
   notes: "备注",
   pickup_address: "上车地址",

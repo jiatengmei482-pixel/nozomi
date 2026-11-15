@@ -139,7 +139,7 @@ test("官网：询价 → 选车 → 下单（付款暂未开放，订单待支�
   await expect(results).toBeInViewport();
   const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: world.group.name }) });
   await expect(card).toContainText("22,000 JPY");
-  await expect(card).toContainText("60 分钟（从航班落地起算）");
+  await expect(card).toContainText("国际线最长 90 分钟、国内线最长 60 分钟（从航班落地起算）");
   await expect(card).toContainText("24 小时内取消收全额");
   await expect(card).not.toContainText(/≥|扣 100%/);
   // 车型标识 4 项（M7-03，ADR 0068），座位一项仍写全部组合
@@ -163,6 +163,7 @@ test("官网：询价 → 选车 → 下单（付款暂未开放，订单待支�
   await page.getByLabel("手机号（带国家码）").fill("+81 90-1234-5678");
   await page.getByLabel("邮箱").fill(email);
   await page.getByLabel("航班号").fill("NH 211");
+  await page.getByRole("radio", { name: /^国际航班/ }).check();
   await page.getByRole("checkbox", { name: /同意保存/ }).check();
   await expectNoOverflow(page, "下单页");
   await expectAccessibleBothThemes(page, "下单页");
