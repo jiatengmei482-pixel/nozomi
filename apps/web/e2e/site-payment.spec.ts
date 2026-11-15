@@ -174,6 +174,7 @@ test("官网下单后用 Stripe 付款（测试卡 4242）：付款成功等待�
   await page.getByLabel("手机号（带国家码）").fill("+81 90-1234-5678");
   await page.getByLabel("邮箱").fill(`pay-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`);
   await page.getByLabel("航班号").fill("NH 211");
+  await page.getByRole("radio", { name: /^国际航班/ }).check();
   await page.getByRole("checkbox", { name: /同意保存/ }).check();
   await page.getByRole("button", { name: /提交订单/ }).click();
 

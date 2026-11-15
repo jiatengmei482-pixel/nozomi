@@ -206,10 +206,11 @@ export function freeWaitItems(category: ServiceCategory): FreeWaitItem[] {
 }
 
 /**
- * 平台统一的免等默认值（分钟），供应商只能设得更长：国际线 90、国内线 60、接站 30、其他 15、包车 0。
- * 这里给出某一项**最少**要设多少：
- * - 接机：机场只走国内线的是 60，只走国际线的是 90；两种都有或还没标明的按 60（报价时再按实际航班取 90 和供应商设的值里较大的）；
+ * 供应商保存服务规则时，免等每一项**最少**要设多少（分钟），按商品所在的接送点：
+ * - 接机：机场只走国际线的 90，其他（只走国内线、两种都有、没标明）60；
  * - 接站 30；送机 / 送站、点对点 15；包车 0。
+ * 这只是保存时的下限。接机客人实际得到的分钟数在下单时按航班定：国际航班 max(商品设的, 90)、国内航班 max(商品设的, 60)、
+ * 航班类型未确认按 max(商品设的, 60)（`lockArrivalFreeWait`，ADR 0097、M9E-28）。
  */
 export function minimumFreeWaitMinutes(category: ServiceCategory, item: FreeWaitItem, pickupPlace: { type: PlaceType; flightScope: FlightScope | null } | null): number {
   if (category === "charter") return 0;

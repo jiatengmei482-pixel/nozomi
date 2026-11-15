@@ -212,6 +212,28 @@ test("一口价说明（M8-09，ADR 0070）：接送机客人写「一口价已�
   assert.doesNotMatch(planned.guest, /超出套餐的时长和公里/);
 });
 
+test("订单改了（M9E-28，ADR 0097 Q3）：派单前改航班重新锁定了免费等待，供应商邮件在改动内容后面写「免费等待 60 → 90 分钟」；没有重新锁定的照旧", async () => {
+  const order = await placeOrder();
+  await payFor(order.orderId);
+  await site.app.notificationJobs.tick();
+  const tenantId = (await api.db.owner.query("select tenant_id from orders where id = $1", [order.orderId])).rows[0].tenant_id as string;
+  const tenantMail = async (data: Record<string, unknown>): Promise<string> => {
+    smtp.reset();
+    await withTenantTx(api.db.pool, tenantId, (db) => enqueueNotification(db, { event: "order.changed", tenantId, orderId: order.orderId, dedupeKey: `order.changed:${randomUUID()}`, data }, api.clock.now()));
+    await site.app.notificationJobs.tick();
+    const tenant = smtp.messages.find((message) => bodyOf(message).includes(order.orderNo) && (message.to.includes(m.a.adminEmail) || message.to.includes(m.b.adminEmail)));
+    assert.ok(tenant, "供应商那封要有");
+    return bodyOf(tenant);
+  };
+  const relocked = await tenantMail({ change_id: randomUUID(), fields: ["flight_kind"], free_wait_minutes: { before: 60, after: 90 } });
+  assert.ok(relocked.includes("改动的内容：航班类型。免费等待 60 → 90 分钟（按客人的航班重新锁定，请按新的时长安排司机等候）。\n"), relocked);
+  const unlimited = await tenantMail({ change_id: randomUUID(), fields: ["flight_no"], free_wait_minutes: { before: 60, after: null } });
+  assert.ok(unlimited.includes("免费等待 60 分钟 → 不限时"), unlimited);
+  const plain = await tenantMail({ change_id: randomUUID(), fields: ["flight_no"] });
+  assert.ok(plain.includes("改动的内容：航班号。\n"), plain);
+  assert.doesNotMatch(plain, /免费等待/);
+});
+
 test("含公里数、含区域加价（M8-13，ADR 0073 第四部分）：客人确认邮件多「公里数」一行（每公里用对外价，订单上锁定的数）、已付金额后面「（含区域加价）」；供应商那封都没有；没有这些数的单照旧", async () => {
   const mails = async (settlementPatch: Record<string, unknown> | null): Promise<{ guest: string; tenant: string; orderId: string }> => {
     smtp.reset();

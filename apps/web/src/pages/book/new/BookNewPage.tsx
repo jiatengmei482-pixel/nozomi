@@ -16,7 +16,7 @@
  * 同一份组件也是嵌入预订页 `/embed/book` 的四步（M9E-17，ADR 0095）：两边不同的几处（外壳、单栏、不用 Leaflet、读草稿、下单后去哪、换步通知）
  * 由 `BookingShell` 上下文给（booking-shell.tsx），默认值就是主站的行为。
  */
-import { type CityCandidate, type CurrencyCode, ORDER_FIELD_LIMITS, fixedPriceIncludes, fixedPriceIncludesTitle, fixedPriceLabel, isInternationalPhone, serviceCityOf } from "@nozomi/domain";
+import { type CityCandidate, type CurrencyCode, type FlightKind, ORDER_FIELD_LIMITS, fixedPriceIncludes, fixedPriceIncludesTitle, fixedPriceLabel, isInternationalPhone, serviceCityOf } from "@nozomi/domain";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { ApiError } from "../../../api/client.ts";
@@ -45,7 +45,6 @@ import { Icon } from "../../../components/Icon.tsx";
 import { Skeleton, StateBlock } from "../../../components/States.tsx";
 import { TextField } from "../../../components/TextField.tsx";
 import {
-  type AirportFlightScope,
   BOOK_STEPS,
   BOOK_TABS,
   BOOK_TAB_NAMES,
@@ -56,7 +55,9 @@ import {
   SIGN_NAME_MAX,
   type TripPoint,
   VISIBLE_VEHICLES,
-  arrivalFreeWaitMinutes,
+  FLIGHT_KIND_NAMES,
+  arrivalFreeWait,
+  arrivalHintText,
   bookStepOf,
   cityOffersTab,
   defaultDateCity,
@@ -89,6 +90,7 @@ import { PlaceField } from "./PlaceField.tsx";
 import { PriceBreakdown } from "./PriceBreakdown.tsx";
 import { WaypointsField } from "./WaypointsField.tsx";
 import { useBookingShell } from "./booking-shell.tsx";
+import { FlightKindField } from "../FlightKindField.tsx";
 import { PickerTextField } from "./full-screen.tsx";
 import { TravellersField } from "./TravellersField.tsx";
 import { VehicleList } from "./VehicleList.tsx";
@@ -133,6 +135,8 @@ export interface TripDraft {
   waypoints: WaypointDraft[];
   /** 接机：航班号（第 3 步填；下单时接机必填，和旧下单页同一条规则） */
   flightNo: string;
+  /** 接机：国际 / 国内航班（M9E-28，第 3 步和航班号一起选；按它定免费等待）；没选为 "" */
+  flightKind: FlightKind | "";
 }
 
 type Outcome = { mode: "transfer"; result: SiteByPointsResult } | { mode: "charter"; result: SiteQuoteResult; city: SiteQuotedCity };
@@ -225,7 +229,7 @@ function linkNotice(ends: LinkResolution[], mode: BookMode): string | null {
 
 function initialDraft(link: BookingLink): TripDraft {
   const tab = link.mode ?? "transfer";
-  return { tab, mode: tab === "charter" ? "charter" : "transfer", from: null, to: null, date: link.date ?? "", time: link.time ?? "", passengers: link.passengers ?? 2, luggage: link.luggage ?? link.passengers ?? 2, packageHours: "", waypoints: [], flightNo: "" };
+  return { tab, mode: tab === "charter" ? "charter" : "transfer", from: null, to: null, date: link.date ?? "", time: link.time ?? "", passengers: link.passengers ?? 2, luggage: link.luggage ?? link.passengers ?? 2, packageHours: "", waypoints: [], flightNo: "", flightKind: "" };
 }
 
 /**
@@ -282,7 +286,7 @@ export function BookNewPage() {
   const [quote, setQuote] = useState<QuoteState>({ kind: "idle" });
   const [quoteRound, setQuoteRound] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [recognized, setRecognized] = useState<{ ends: string; tripType: SiteByPointsResult["trip_type"]; flightScope: AirportFlightScope | null } | null>(null);
+  const [recognized, setRecognized] = useState<{ ends: string; tripType: SiteByPointsResult["trip_type"] } | null>(null);
   const [charterMatch, setCharterMatch] = useState<{ key: string; load: Load<CharterMatch> } | null>(null);
   /** 包车套餐读失败后点「重试」：加一次重读 */
   const [charterRetry, setCharterRetry] = useState(0);
@@ -456,7 +460,7 @@ export function BookNewPage() {
         (outcome) => {
           if (!alive) return;
           setQuote({ kind: "ready", key: current.key, outcome });
-          if (outcome.mode === "transfer") setRecognized({ ends: sameEnds(draft.from, draft.to), tripType: outcome.result.trip_type, flightScope: outcome.result.airport?.flight_scope ?? null });
+          if (outcome.mode === "transfer") setRecognized({ ends: sameEnds(draft.from, draft.to), tripType: outcome.result.trip_type });
         },
         (err: unknown) => {
           if (!alive) return;
@@ -478,14 +482,14 @@ export function BookNewPage() {
   const outcome = current?.kind === "ready" ? current.outcome : null;
   const quotes = useMemo(() => (outcome === null ? [] : quotesByTotal(outcome.result.quotes)), [outcome]);
   const selected = quotes.find((entry) => entry.vehicle_group.id === selectedId) ?? null;
-  const known = draft.mode !== "charter" && recognized !== null && recognized.ends === sameEnds(draft.from, draft.to) ? recognized : null;
-  const tripType: SiteByPointsResult["trip_type"] | null = draft.mode === "charter" ? null : known !== null ? known.tripType : draft.from?.kind === "airport" ? "pickup" : null;
+  const tripType: SiteByPointsResult["trip_type"] | null = draft.mode === "charter" ? null : recognized !== null && recognized.ends === sameEnds(draft.from, draft.to) ? recognized.tripType : draft.from?.kind === "airport" ? "pickup" : null;
   const arrival = tripType === "pickup";
-  // 免费等待（M8-33、M9E-27）：有报价按所选商品自己设的；接机还没有报价时按这两端上次认出的机场：国际线 90、国内线 60，
-  // 没认出过（客人还没填齐、还没报过价）或机场国际国内都有、没标明的不写分钟数——不拿 60 去猜
+  // 免费等待：接机按航班定（M9E-28，ADR 0097）——选了国际 / 国内航班给那一种的分钟数，没选写「国际线最长 X 分钟、国内线最长 Y 分钟」
+  // （还没报价时按平台下限 90 / 60）；其他按所选商品自己设的
   const quotedForWait = selected ?? quotes[0] ?? null;
-  const flightScope = outcome?.mode === "transfer" ? (outcome.result.airport?.flight_scope ?? null) : (known?.flightScope ?? null);
-  const freeWait = arrival ? arrivalFreeWaitMinutes(quotedForWait, flightScope) : (quotedForWait?.free_wait_minutes ?? null);
+  const arrivalWait = arrival ? arrivalFreeWait(quotedForWait, draft.flightKind === "" ? null : draft.flightKind) : null;
+  const freeWait = arrivalWait === null ? (quotedForWait?.free_wait_minutes ?? null) : arrivalWait.kind === "minutes" ? arrivalWait.minutes : null;
+  const freeWaitRange = arrivalWait?.kind === "range" ? { international: arrivalWait.international, domestic: arrivalWait.domestic } : null;
   const timezone = outcome?.mode === "charter" ? outcome.city.timezone : (outcome?.result.city?.timezone ?? dateCity?.timezone ?? "Asia/Tokyo");
   const cityName = outcome?.mode === "charter" ? displayName(outcome.city.name).text : outcome?.result.city ? displayName(outcome.result.city.name).text : null;
   // 包车按行程计价（M9W-02）：有经停点时套餐由服务端按行程选，明细、时间表按这一次报价
@@ -577,10 +581,10 @@ export function BookNewPage() {
   const tripCategory = draft.mode === "charter" ? "charter" : tripType === "point_to_point" ? "point_to_point" : "airport_transfer";
   const tripDirection = tripCategory === "airport_transfer" && (tripType === "pickup" || tripType === "dropoff") ? tripType : null;
   // 认出机场但用点对点商品报的价（M8-33，ADR 0081）：页面照样按接送机（航班号、免费等待、举牌），
-  // 下单按点对点：两端地址都要，航班号写进备注（点对点订单不收 flight_no）
+  // 下单按点对点：两端地址都要；接机的航班号、航班类型照常提交（按航班定免费等待，ADR 0097 Q5），送机的航班号写进备注
   const p2pFallback = tripCategory === "airport_transfer" && outcome?.mode === "transfer" && outcome.result.fallback_category === "point_to_point";
   const orderTrip: OrderTrip = p2pFallback
-    ? { transfer: true, arrival, ends: addressEnds("point_to_point", null), flightInNotes: true }
+    ? { transfer: true, arrival, ends: addressEnds("point_to_point", null), flightInNotes: !arrival }
     : { transfer: tripCategory === "airport_transfer", arrival, ends: addressEnds(tripCategory, tripDirection) };
 
   /** 举牌姓名：客人没改过时跟着乘车人（为自己是预订人，为他人是乘车人）的名字 */
@@ -589,8 +593,9 @@ export function BookNewPage() {
   const orderForm = (): OrderForm => ({
     ...contact,
     rider: { signName: arrival ? signName : "", name: contact.forOther ? contact.riderName : "", phone: contact.forOther ? contact.riderPhone : "" },
-    notes: notesWithExtras(p2pFallback ? { flightNo: draft.flightNo } : {}, contact.notes),
+    notes: notesWithExtras(p2pFallback && !arrival ? { flightNo: draft.flightNo } : {}, contact.notes),
     flightNo: draft.flightNo,
+    flightKind: arrival ? draft.flightKind : "",
     pickupAddress: draft.from?.name ?? "",
     dropoffAddress: draft.to?.name ?? "",
   });
@@ -599,7 +604,7 @@ export function BookNewPage() {
   const contactIssues = (): OrderErrors => {
     const found = validateOrderForm(orderForm(), orderTrip);
     delete found.consent;
-    if (found.notes === undefined && orderForm().notes.length > ORDER_FIELD_LIMITS.notesMax) found.notes = `${p2pFallback ? "航班号和备注加起来" : "备注"}最多 ${ORDER_FIELD_LIMITS.notesMax} 个字，请删短一些。`;
+    if (found.notes === undefined && orderForm().notes.length > ORDER_FIELD_LIMITS.notesMax) found.notes = `${p2pFallback && !arrival ? "航班号和备注加起来" : "备注"}最多 ${ORDER_FIELD_LIMITS.notesMax} 个字，请删短一些。`;
     return found;
   };
 
@@ -972,7 +977,7 @@ export function BookNewPage() {
         {arrival && (
           <p className="book-new__arrival" role="status">
             <Icon name="info" />
-            <span>{freeWait !== null && freeWait > 0 ? `已识别为接机：司机按航班落地时间等候，落地后免费等待 ${freeWait} 分钟` : "已识别为接机：司机按航班落地时间等候"}</span>
+            <span>{arrivalHintText(arrivalWait ?? { kind: "unlimited" })}</span>
           </p>
         )}
         <TravellersField passengers={draft.passengers} luggage={draft.luggage} onChange={(value) => update(value)} />
@@ -1052,7 +1057,7 @@ export function BookNewPage() {
       const expires = quotes.map((entry) => entry.expires_at).sort()[0] ?? null;
       // M8-40：按里程计价的不是一口价——选中的车是按里程计价的，或还没选、列表里有按里程计价的，就换说法（这句对一口价也成立）
       const basis = (selected === null ? quotes.some((entry) => entry.pricing_basis === "distance_only") : selected.pricing_basis === "distance_only") ? "distance_only" : null;
-      const includes = fixedPriceIncludes({ service: charter ? "charter" : "transfer", arrival, freeWaitMinutes: freeWait, meetAndGreet: false, pricingBasis: basis });
+      const includes = fixedPriceIncludes({ service: charter ? "charter" : "transfer", arrival, freeWaitMinutes: freeWait, freeWaitRange, meetAndGreet: false, pricingBasis: basis });
       vehicles = (
         <>
           <p className="site-muted">
@@ -1139,6 +1144,18 @@ export function BookNewPage() {
         <TextField label="举牌姓名（选填）" size="lg" maxLength={SIGN_NAME_MAX} value={signName} hint="司机在到达口举的牌子上写的名字，如 ZHANG SAN" onChange={(event) => updateContact({ signName: event.target.value, signEdited: true })} />
       </div>
     );
+    const flightKindField = arrival && (
+      <FlightKindField
+        value={draft.flightKind}
+        quoted={quotedForWait}
+        errors={contactErrors.flightKind ? [contactErrors.flightKind] : []}
+        onChange={(flightKind) => {
+          setDraft((value) => ({ ...value, flightKind }));
+          orderKey.current = null;
+          setContactErrors(({ flightKind: _, ...rest }) => rest);
+        }}
+      />
+    );
 
     const contactSection = (
       <ContactSection
@@ -1152,7 +1169,14 @@ export function BookNewPage() {
         onSubmit={confirmContact}
         headingRef={contactHeading}
         riderErrors={riderErrors}
-        {...(flightFields ? { extra: flightFields } : {})}
+        {...(flightFields ? {
+          extra: (
+            <>
+              {flightFields}
+              {flightKindField}
+            </>
+          ),
+        } : {})}
         actions={
           <div className="book-new__actions">
             <Button size="lg" onClick={() => goStep(2)}>
@@ -1226,10 +1250,20 @@ export function BookNewPage() {
           <dd>{contact.phone.trim()}</dd>
         </div>
         {arrival && (
-          <div className="site-facts__item">
-            <dt>航班号</dt>
-            <dd>{draft.flightNo.trim().toUpperCase()}</dd>
-          </div>
+          <>
+            <div className="site-facts__item">
+              <dt>航班号</dt>
+              <dd>{draft.flightNo.trim().toUpperCase()}</dd>
+            </div>
+            <div className="site-facts__item">
+              <dt>航班类型</dt>
+              <dd>{draft.flightKind === "" ? "—" : FLIGHT_KIND_NAMES[draft.flightKind]}</dd>
+            </div>
+            <div className="site-facts__item">
+              <dt>免费等待</dt>
+              <dd>{freeWait === null ? "不限时" : `航班落地后 ${freeWait} 分钟`}</dd>
+            </div>
+          </>
         )}
         {contact.forOther && (
           <>

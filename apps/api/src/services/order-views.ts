@@ -28,6 +28,15 @@ export function vehicleMailVariables(group: OrderVehicleGroupRef | null): Return
 }
 
 /** 行程和乘客：租户、平台、渠道都能看的部分（没有任何金额）。 */
+/**
+ * 免费等待的锁定依据（M9E-28，ADR 0097）：`flight_kind` 按哪种航班锁的（null = 航班类型未确认，按国内线的下限）、
+ * `base` 商品自己设的（取下限前的底数）、`floor_minutes` 平台下限。没按航班锁的单为 null。
+ */
+export function freeWaitBasisView(order: Pick<Order, "freeWaitBasis">): Json | null {
+  const basis = order.freeWaitBasis;
+  return basis === null ? null : { flight_kind: basis.flightKind, base: basis.base, floor_minutes: basis.floorMinutes };
+}
+
 export function orderTripJson(order: Order): Json {
   return {
     id: order.id,
@@ -61,6 +70,9 @@ export function orderTripJson(order: Order): Json {
     messaging: order.messaging,
     notes: order.notes,
     free_wait_minutes: order.freeWaitMinutes,
+    // 接机按航班定免费等待（M9E-28，ADR 0097）：客人选的航班类型、锁定依据；以前的单、不是接机的单为 null
+    flight_kind: order.flightKind,
+    free_wait_basis: freeWaitBasisView(order),
     created_at: order.createdAt.toISOString(),
     confirmed_at: iso(order.confirmedAt),
     cancelled_at: iso(order.cancelledAt),

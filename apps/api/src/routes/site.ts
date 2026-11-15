@@ -32,7 +32,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { CurrencyCode, LocalizedText, SellBreakdownItem } from "@nozomi/domain";
 import { z } from "zod";
-import { AIRPORT_SCENARIO_KINDS, FX_CURRENCIES, MESSAGING_APPS, ORDER_FIELD_LIMITS, PLACE_KINDS, PRICE_LIMITS, QUOTE_RULES, SERVICE_CATEGORIES, STATIC_MAP_RULES, STATIC_MAP_THEMES, type RouteMapReason, isGooglePlaceId, isPlaceSessionToken, normalizePlaceQuery, placeQueryIssue, viewLinkLookupEmail } from "@nozomi/domain";
+import { AIRPORT_SCENARIO_KINDS, FLIGHT_KINDS, FX_CURRENCIES, MESSAGING_APPS, ORDER_FIELD_LIMITS, PLACE_KINDS, PRICE_LIMITS, QUOTE_RULES, SERVICE_CATEGORIES, STATIC_MAP_RULES, STATIC_MAP_THEMES, type RouteMapReason, isGooglePlaceId, isPlaceSessionToken, normalizePlaceQuery, placeQueryIssue, viewLinkLookupEmail } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { AppError } from "../errors.ts";
@@ -271,6 +271,7 @@ const orderSchema = z
     quote_id: z.string().regex(/^QT\d{8}[0-9A-Z]{10}$/, "不是报价编号的格式"),
     passenger: passengerInput(),
     flight_no: text(20),
+    flight_kind: z.enum(FLIGHT_KINDS).nullable().default(null),
     pickup_address: singleLineText(1_000),
     dropoff_address: singleLineText(1_000),
     messaging: z.object({ app: z.enum(MESSAGING_APPS), handle: z.string().max(200) }).strict().nullable().default(null),
@@ -695,6 +696,7 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
         details: {
           passenger: input.passenger,
           flightNo: input.flight_no,
+          flightKind: input.flight_kind,
           pickupAddress: input.pickup_address,
           dropoffAddress: input.dropoff_address,
           messaging: input.messaging,

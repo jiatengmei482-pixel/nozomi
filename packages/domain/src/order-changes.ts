@@ -15,11 +15,11 @@ import { CANCELLABLE_STATUSES } from "./cancellation.ts";
 import type { OrderStatus } from "./orders.ts";
 
 /** 渠道（和运营代客人）能改的字段。坐标、车型、品类、城市不能改：要重新比价，按「取消重下」。 */
-export const ORDER_CHANGE_FIELDS = ["passenger", "flight_no", "messaging", "notes", "pickup_address", "dropoff_address", "service_time", "passengers", "luggage"] as const;
+export const ORDER_CHANGE_FIELDS = ["passenger", "flight_no", "flight_kind", "messaging", "notes", "pickup_address", "dropoff_address", "service_time", "passengers", "luggage"] as const;
 export type OrderChangeField = (typeof ORDER_CHANGE_FIELDS)[number];
 
-/** 「乘客信息」：出了免费取消期也能改（需求「只能改航班号和乘客信息」）。即时通讯是联系客人的方式，算乘客信息。 */
-export const PASSENGER_INFO_FIELDS: readonly OrderChangeField[] = ["passenger", "flight_no", "messaging"];
+/** 「乘客信息」：出了免费取消期也能改（需求「只能改航班号和乘客信息」）。即时通讯是联系客人的方式，算乘客信息；航班类型跟着航班号（M9E-28）。 */
+export const PASSENGER_INFO_FIELDS: readonly OrderChangeField[] = ["passenger", "flight_no", "flight_kind", "messaging"];
 
 /** 要重新算价的字段：日期或时间。 */
 export const RESCHEDULE_FIELDS: readonly OrderChangeField[] = ["service_time"];

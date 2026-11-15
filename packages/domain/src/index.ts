@@ -37,6 +37,7 @@ export * from "./channels.ts";
 export * from "./approvals.ts";
 export * from "./fx-lock.ts";
 export * from "./orders.ts";
+export * from "./arrival-free-wait.ts";
 export * from "./totp.ts";
 export * from "./ip-allowlist.ts";
 export * from "./rate-limit-key.ts";

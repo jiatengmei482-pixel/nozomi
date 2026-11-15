@@ -111,3 +111,4 @@
 | `0460_places_charter_coverage.sql` | 包车上架的覆盖检查清单（M9P-06，ADR 0093 第七节第 4 条）：`places` 加 `charter_coverage`（默认 false，检查约束只有地标能勾）。运营在地点页勾选，包车上架检查列出清单里不在商品任何区域的地标（提醒、不拦）。只加列，不含任何数据（0450 由 M9P-05 使用） |
 | `0510_order_waypoints_limit.sql` | 订单经停点个数上限 10 → 25（M9P-10，ADR 0099）：放宽 `orders_waypoints_shape` 检查约束（25 = 路径接口一次最多 25 个中间点，和 domain `CHARTER_ITINERARY_LIMITS.maxWaypoints` 一致）。只改约束，不改已有的行，不含任何数据（0470–0490 已占用，0500 起留给 B 线） |
 | `0520_charter_airport_packages.sql` | 包车机场开始 / 机场结束套餐（M9P-21，ADR 0098）：价格方式加 `charter_airport_package`（机场套餐价：`area_id` 是机场区域、`direction` 是场景、套餐必填，带检查约束）；租户表 `charter_airport_bindings`（商品 × 场景 × 机场 × 机场区域 × 可选中文简称；删商品跟着删，绑定着的区域删不掉），行级安全只放行当前租户，平台角色只读。只做加法，不含任何数据（0470～0510 由开着的 PR 和并行车道占用） |
+| `0540_order_free_wait_by_flight.sql` | 接机免费等待按航班定（M9E-28，ADR 0097）：`orders` 加 `flight_kind`（international / domestic / 空）和 `free_wait_basis`（锁定依据：航班类型、商品设的值、平台下限），供应商不能改（重建 `orders_tenant_columns`）。只加列，以前的单不回填（0470 由 M9E-26 使用） |
