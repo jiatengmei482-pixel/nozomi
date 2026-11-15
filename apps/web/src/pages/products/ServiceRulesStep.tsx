@@ -5,7 +5,7 @@
  */
 import { itineraryCopy } from "../../lib/itinerary-texts.ts";
 import { PlatformPolicyLines } from "./PlatformPolicyLines.tsx";
-import { CHARTER_SUPPLIER_PRICE_NOTE, type FreeWaitItem, type NightChargeUnit, PRODUCT_CATEGORY_NAMES, PRODUCT_LIMITS, SUGGESTED_CHARTER_ITINERARY, addonAllowsFirstFree, fixedFreeWaitMinutes, freeWaitItems, serviceRuleMissing } from "@nozomi/domain";
+import { CHARTER_SUPPLIER_PRICE_NOTE, DEFAULT_CHARTER_ITINERARY, type FreeWaitItem, type NightChargeUnit, PRODUCT_CATEGORY_NAMES, PRODUCT_LIMITS, SUGGESTED_CHARTER_ITINERARY, addonAllowsFirstFree, fixedFreeWaitMinutes, freeWaitItems, serviceRuleMissing } from "@nozomi/domain";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { AddonOption } from "../../api/master-options.ts";
 import { type Product, type ProductServiceRules, putServiceRules } from "../../api/products.ts";
@@ -115,6 +115,28 @@ function ItineraryCard({
           <p className="field__hint">{onPlatform ? "这个商品最短卖几小时，空着 = 不限。设了以后比它短的套餐不再报价，客人自选时长也选不到。" : "这个商品最短卖几小时，留空 = 不限。设了以后比它短的套餐不再报价，客人自选时长也选不到。"}</p>
           <p className="field__hint">{`可设为 ${suggested.minPackageHours} 小时`}</p>
           {showAbove && <Warning>{`最低套餐 ${aboveAll.min_package_hours} 小时比这个商品所有启用的套餐都长（最长 ${aboveAll.longest_package_hours} 小时），这个商品将报不出价。`}</Warning>}
+        </div>
+        <div className="field">
+          <label className="field__label" htmlFor="itinerary-warn-minutes">
+            超限提醒：预计用时
+          </label>
+          <span className="affix affix--short">
+            {input("itinerary-warn-minutes", field.warnMinutes, (warnMinutes) => onChange({ warnMinutes }), "超限提醒：预计用时（分钟）", String(DEFAULT_CHARTER_ITINERARY.warnMinutes))}
+            <span className="affix__text">分钟</span>
+          </span>
+          <FieldErrors id="itinerary-warn-minutes-error" errors={errors("itinerary-warn-minutes")} />
+          <p className="field__hint">{`预计用时超过它时，在客人的行程时间表下方提醒缩减行程，客人仍可下单。${PRODUCT_LIMITS.minWarnMinutes} 到 ${PRODUCT_LIMITS.maxWarnMinutes} 分钟，默认 ${DEFAULT_CHARTER_ITINERARY.warnMinutes}（12 小时）。`}</p>
+        </div>
+        <div className="field">
+          <label className="field__label" htmlFor="itinerary-warn-km">
+            超限提醒：全程
+          </label>
+          <span className="affix affix--short">
+            {input("itinerary-warn-km", field.warnKm, (warnKm) => onChange({ warnKm }), "超限提醒：全程（公里）", String(DEFAULT_CHARTER_ITINERARY.warnKm))}
+            <span className="affix__text">公里</span>
+          </span>
+          <FieldErrors id="itinerary-warn-km-error" errors={errors("itinerary-warn-km")} />
+          <p className="field__hint">{`全程超过它时提醒（会产生较多超公里费），客人仍可下单。${PRODUCT_LIMITS.minWarnKm} 到 ${PRODUCT_LIMITS.maxWarnKm} 公里，默认 ${DEFAULT_CHARTER_ITINERARY.warnKm}。`}</p>
         </div>
         <fieldset className="field fieldset" id="itinerary-dropoff">
           <legend className="field__label">下车点行程加价</legend>

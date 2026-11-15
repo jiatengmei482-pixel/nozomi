@@ -92,19 +92,35 @@ test("取消勾选加急、夜间：里面填过的内容不提交", () => {
 test("包车按行程计价（M9P-04）：0 和不限读成空着（不预填建议值）；空着提交 0 / 不限；范围之外指到输入框；读回再读结果不变；别的品类不带这一项", () => {
   const charter: RulesFormContext = { ...airport, category: "charter", pickupPlace: null, minimums: { pickup: null, dropoff: null, general: 0 } };
   const form = formFromRules({ ...EMPTY, charter_itinerary: { dropoff_itinerary_surcharge: true, stop_occupancy_minutes: 0, buffer_minutes: 0, min_package_hours: null, max_online_minutes: 780 } }, charter);
-  assert.deepEqual(form.itinerary, { dropoffSurcharge: true, suggestStopOrder: true, stopOccupancy: "", buffer: "", minPackage: "" });
-  assert.deepEqual(readRulesForm(form, charter).body.charter_itinerary, { dropoff_itinerary_surcharge: true, stop_occupancy_minutes: 0, buffer_minutes: 0, min_package_hours: null, suggest_stop_order: true });
+  assert.deepEqual(form.itinerary, { dropoffSurcharge: true, suggestStopOrder: true, stopOccupancy: "", buffer: "", minPackage: "", warnMinutes: "720", warnKm: "360" });
+  assert.deepEqual(readRulesForm(form, charter).body.charter_itinerary, { dropoff_itinerary_surcharge: true, stop_occupancy_minutes: 0, buffer_minutes: 0, min_package_hours: null, warn_minutes: 720, warn_km: 360, suggest_stop_order: true });
   // 旧接口没有这一项：按默认值
-  assert.deepEqual(formFromRules(EMPTY, charter).itinerary, { dropoffSurcharge: true, suggestStopOrder: true, stopOccupancy: "", buffer: "", minPackage: "" });
-  const filled = readRulesForm({ ...form, itinerary: { dropoffSurcharge: false, suggestStopOrder: false, stopOccupancy: "１５", buffer: " 60 ", minPackage: "5" } }, charter);
+  assert.deepEqual(formFromRules(EMPTY, charter).itinerary, { dropoffSurcharge: true, suggestStopOrder: true, stopOccupancy: "", buffer: "", minPackage: "", warnMinutes: "720", warnKm: "360" });
+  const filled = readRulesForm({ ...form, itinerary: { dropoffSurcharge: false, suggestStopOrder: false, stopOccupancy: "１５", buffer: " 60 ", minPackage: "5", warnMinutes: "720", warnKm: "360" } }, charter);
   assert.deepEqual(filled.problems, []);
   // 经停顺序建议（M9P-20 P2）：勾掉的提交 false
-  assert.deepEqual(filled.body.charter_itinerary, { dropoff_itinerary_surcharge: false, stop_occupancy_minutes: 15, buffer_minutes: 60, min_package_hours: 5, suggest_stop_order: false });
-  assert.deepEqual(filled.rules.charterItinerary, { dropoffItinerarySurcharge: false, stopOccupancyMinutes: 15, bufferMinutes: 60, minPackageHours: 5, suggestStopOrder: false });
+  assert.deepEqual(filled.body.charter_itinerary, { dropoff_itinerary_surcharge: false, stop_occupancy_minutes: 15, buffer_minutes: 60, min_package_hours: 5, warn_minutes: 720, warn_km: 360, suggest_stop_order: false });
+  assert.deepEqual(filled.rules.charterItinerary, { dropoffItinerarySurcharge: false, stopOccupancyMinutes: 15, bufferMinutes: 60, minPackageHours: 5, warnMinutes: 720, warnKm: 360, suggestStopOrder: false });
   assert.deepEqual(readRulesForm(formFromRules(filled.body, charter), charter).body, filled.body);
-  const wrong = readRulesForm({ ...form, itinerary: { dropoffSurcharge: true, suggestStopOrder: true, stopOccupancy: "121", buffer: "241", minPackage: "73" } }, charter);
+  const wrong = readRulesForm({ ...form, itinerary: { dropoffSurcharge: true, suggestStopOrder: true, stopOccupancy: "121", buffer: "241", minPackage: "73", warnMinutes: "720", warnKm: "360" } }, charter);
   assert.deepEqual(wrong.problems.map((problem) => problem.target), ["itinerary-stop-occupancy", "itinerary-buffer", "itinerary-min-package"]);
-  assert.deepEqual(readRulesForm({ ...form, itinerary: { dropoffSurcharge: true, suggestStopOrder: true, stopOccupancy: "1.5", buffer: "-1", minPackage: "0" } }, charter).problems.length, 3);
+  assert.deepEqual(readRulesForm({ ...form, itinerary: { dropoffSurcharge: true, suggestStopOrder: true, stopOccupancy: "1.5", buffer: "-1", minPackage: "0", warnMinutes: "720", warnKm: "360" } }, charter).problems.length, 3);
   assert.equal(fresh().itinerary, null);
   assert.equal("charter_itinerary" in readRulesForm(fresh(), airport).body, false);
+});
+
+test("超限提醒线（M9P-10）：读回来的值原样显示，旧接口没有时显示默认 720 分钟 / 360 公里；空着提交默认值；范围之外指到输入框", () => {
+  const charter: RulesFormContext = { ...airport, category: "charter", pickupPlace: null, minimums: { pickup: null, dropoff: null, general: 0 } };
+  const form = formFromRules({ ...EMPTY, charter_itinerary: { dropoff_itinerary_surcharge: true, stop_occupancy_minutes: 0, buffer_minutes: 0, min_package_hours: null, max_online_minutes: 780, warn_minutes: 600, warn_km: 200 } }, charter);
+  assert.deepEqual([form.itinerary?.warnMinutes, form.itinerary?.warnKm], ["600", "200"]);
+  const item = form.itinerary as NonNullable<typeof form.itinerary>;
+  const set = readRulesForm({ ...form, itinerary: { ...item, warnMinutes: "６６０", warnKm: " 400 " } }, charter);
+  assert.deepEqual(set.problems, []);
+  assert.deepEqual([set.body.charter_itinerary?.warn_minutes, set.body.charter_itinerary?.warn_km], [660, 400]);
+  const blank = readRulesForm({ ...form, itinerary: { ...item, warnMinutes: "", warnKm: "" } }, charter);
+  assert.deepEqual([blank.body.charter_itinerary?.warn_minutes, blank.body.charter_itinerary?.warn_km], [720, 360]);
+  const wrong = readRulesForm({ ...form, itinerary: { ...item, warnMinutes: "59", warnKm: "5001" } }, charter);
+  assert.deepEqual(wrong.problems.map((problem) => problem.target), ["itinerary-warn-minutes", "itinerary-warn-km"]);
+  assert.match(wrong.problems[0]?.text ?? "", /60 到 1440 之间的整数（分钟）/);
+  assert.equal(readRulesForm({ ...form, itinerary: { ...item, warnMinutes: "1441", warnKm: "0.5" } }, charter).problems.length, 2);
 });

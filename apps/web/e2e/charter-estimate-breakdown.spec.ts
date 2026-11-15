@@ -212,8 +212,8 @@ test("不填经停点也逐项列明细（用例 16）；供应商在服务规�
   await page.getByRole("button", { name: "保存", exact: true }).click();
   const put = await saved;
   expect(put.status(), await put.text()).toBe(200);
-  expect((put.request().postDataJSON() as { charter_itinerary: unknown }).charter_itinerary).toEqual({ dropoff_itinerary_surcharge: false, stop_occupancy_minutes: 15, buffer_minutes: 60, min_package_hours: null, suggest_stop_order: true });
-  expect(((await put.json()) as { rules: { charter_itinerary: unknown } }).rules.charter_itinerary).toEqual({ dropoff_itinerary_surcharge: false, stop_occupancy_minutes: 15, buffer_minutes: 60, min_package_hours: null, max_online_minutes: 780, suggest_stop_order: true });
+  expect((put.request().postDataJSON() as { charter_itinerary: unknown }).charter_itinerary).toEqual({ dropoff_itinerary_surcharge: false, stop_occupancy_minutes: 15, buffer_minutes: 60, min_package_hours: null, warn_minutes: 720, warn_km: 360, suggest_stop_order: true });
+  expect(((await put.json()) as { rules: { charter_itinerary: unknown } }).rules.charter_itinerary).toEqual({ dropoff_itinerary_surcharge: false, stop_occupancy_minutes: 15, buffer_minutes: 60, min_package_hours: null, max_online_minutes: 780, warn_minutes: 720, warn_km: 360, suggest_stop_order: true });
 
   // 用例 19：关掉以后只收下车加价。报价用的商品目录缓存 30 秒（ADR 0020「改规则后 1 分钟内生效」），所以重新打开链接直到按新规则报价
   await expect(async () => {

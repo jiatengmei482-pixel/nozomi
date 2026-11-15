@@ -6,7 +6,7 @@
  * - `order_sales`、`order_payments`、`payment_events` 是平台表，只在平台事务里用；租户角色对它们没有任何权限。
  * - 租户侧的查询只取租户可以看的列（`TENANT_COLUMNS`），而且只取付过款的单。
  */
-import type { CancellationTier, CurrencyCode, FxQuote, LandingSource, MessagingApp, OrderCancelReason, OrderStatus, PaymentStatus, QuoteWaypoint, ServiceCategory, SettlementBreakdown, TripDirection, VehicleLevel } from "@nozomi/domain";
+import type { ArrivalFreeWaitBasis, FlightKind, CancellationTier, CurrencyCode, FxQuote, LandingSource, MessagingApp, OrderCancelReason, OrderStatus, PaymentStatus, QuoteWaypoint, ServiceCategory, SettlementBreakdown, TripDirection, VehicleLevel } from "@nozomi/domain";
 import { type ContactIndexKind, type PassengerContact, UNREADABLE_PASSENGER, normalizeEmailForIndex, normalizeNameForIndex, normalizePhoneForIndex } from "@nozomi/domain";
 import { type Db, passengerCryptoOf } from "../db/context.ts";
 import { isPassengerDecryptFailure } from "../integrations/passenger-crypto.ts";
@@ -105,6 +105,8 @@ export interface Order {
   addons: { addonId: string; quantity: number }[];
   driverLanguage: string | null;
   flightNo: string | null;
+  /** 客人选的国际 / 国内航班（M9E-28）；没选、不是接机为 null */
+  flightKind: FlightKind | null;
   passenger: PassengerContact;
   /** 什么时候脱敏的（ADR 0055）；没有脱敏为空 */
   passengerAnonymizedAt: Date | null;
@@ -114,6 +116,8 @@ export interface Order {
   settlementCurrency: CurrencyCode;
   settlement: SettlementBreakdown;
   freeWaitMinutes: number | null;
+  /** 按航班锁定免费等待的依据（M9E-28，ADR 0097）；以前的单、不是接机的单为 null */
+  freeWaitBasis: ArrivalFreeWaitBasis | null;
   inventoryHeld: boolean;
   paymentDueAt: Date;
   confirmedAt: Date | null;
@@ -137,7 +141,7 @@ export interface Order {
 
 const ORDER_COLUMNS = `o.tenant_id, o.id, o.order_no, o.status, o.category, o.city_id, o.place_id, o.direction, o.product_id, o.product_version, o.vehicle_group_id, o.package_hours,
   o.service_at, o.service_local, o.timezone, o.service_date::text as service_date, o.urgent, o.passengers, o.luggage, o.pickup, o.dropoff, o.addons, o.driver_language, o.flight_no,
-  o.passenger, o.passenger_enc, o.passenger_anonymized_at, o.messaging, o.notes, o.settlement_minor, o.settlement_currency, o.settlement, o.free_wait_minutes, o.inventory_held, o.payment_due_at, o.confirmed_at, o.cancelled_at,
+  o.passenger, o.passenger_enc, o.passenger_anonymized_at, o.messaging, o.notes, o.settlement_minor, o.settlement_currency, o.settlement, o.free_wait_minutes, o.free_wait_basis, o.flight_kind, o.inventory_held, o.payment_due_at, o.confirmed_at, o.cancelled_at,
   o.cancel_reason, o.version, o.created_at, o.updated_at, o.dispatch_due_at, o.dispatch_overdue_at, o.departure_overdue_at, o.driver_id, o.vehicle_id, o.assigned_at,
   o.departed_at, o.arrived_at, o.arrival_distance_m, o.picked_up_at, o.completed_at, o.completed_recorded_at, o.actual_minutes, o.actual_km, o.leave_requested_at, o.guest_landed_at, o.driver_landed_at,
   o.driver_landed_file_id, o.landed_at, o.landed_source, o.cancel_policy, o.cancel_fee_bp, o.cancel_tenant_share_minor, o.cancel_note, o.rescued_at, o.arrival_overdue_at,
@@ -180,6 +184,7 @@ function toOrder(db: Db, row: Row, tolerant = false): Order {
     addons: row["addons"],
     driverLanguage: row["driver_language"],
     flightNo: row["flight_no"],
+    flightKind: row["flight_kind"] ?? null,
     passenger: readPassenger(db, row, tolerant),
     passengerAnonymizedAt: row["passenger_anonymized_at"],
     messaging: row["messaging"],
@@ -188,6 +193,7 @@ function toOrder(db: Db, row: Row, tolerant = false): Order {
     settlementCurrency: row["settlement_currency"],
     settlement: row["settlement"],
     freeWaitMinutes: row["free_wait_minutes"],
+    freeWaitBasis: freeWaitBasisOf(row["free_wait_basis"]),
     inventoryHeld: row["inventory_held"],
     paymentDueAt: row["payment_due_at"],
     confirmedAt: row["confirmed_at"],
@@ -229,6 +235,17 @@ function toOrder(db: Db, row: Row, tolerant = false): Order {
   };
 }
 
+/** 免费等待的锁定依据：库里是 snake_case 的 jsonb（M9E-28） */
+export function freeWaitBasisJson(basis: ArrivalFreeWaitBasis | null): string | null {
+  return basis === null ? null : JSON.stringify({ flight_kind: basis.flightKind, base: basis.base, floor_minutes: basis.floorMinutes });
+}
+
+function freeWaitBasisOf(value: unknown): ArrivalFreeWaitBasis | null {
+  if (value === null || value === undefined) return null;
+  const raw = value as { flight_kind: FlightKind | null; base: ArrivalFreeWaitBasis["base"]; floor_minutes: number };
+  return { flightKind: raw.flight_kind, base: raw.base, floorMinutes: raw.floor_minutes };
+}
+
 export type NewOrder = Omit<Order, "passengerAnonymizedAt" | "status" | "confirmedAt" | "cancelledAt" | "cancelReason" | "cancelFeeBp" | "cancelTenantShareMinor" | "cancelNote" | "rescuedAt" | "version" | "updatedAt" | "dispatch">;
 
 export async function insertOrder(db: Db, order: NewOrder): Promise<void> {
@@ -237,15 +254,15 @@ export async function insertOrder(db: Db, order: NewOrder): Promise<void> {
     `insert into orders (tenant_id, id, order_no, status, category, city_id, place_id, direction, product_id, product_version, vehicle_group_id, package_hours,
                          service_at, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no,
                          passenger, messaging, notes, settlement_minor, settlement_currency, settlement, free_wait_minutes, inventory_held, payment_due_at, created_at, updated_at, cancel_policy,
-                         passenger_enc, passenger_email_bidx, passenger_phone_bidx, passenger_name_bidx, is_acceptance, waypoints)
+                         passenger_enc, passenger_email_bidx, passenger_phone_bidx, passenger_name_bidx, is_acceptance, waypoints, flight_kind, free_wait_basis)
      values ($1, $2, $3, 'pending_payment', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb, $20::jsonb, $21::jsonb, $22, $23,
-             $24::jsonb, $25::jsonb, $26, $27, $28, $29::jsonb, $30, $31, $32, $33, $33, $34::jsonb, $35, $36, $37, $38, $39, $40::jsonb)`,
+             $24::jsonb, $25::jsonb, $26, $27, $28, $29::jsonb, $30, $31, $32, $33, $33, $34::jsonb, $35, $36, $37, $38, $39, $40::jsonb, $41, $42::jsonb)`,
     [
       order.tenantId, order.id, order.orderNo, order.category, order.cityId, order.placeId, order.direction, order.productId, order.productVersion, order.vehicleGroupId, order.packageHours,
       order.serviceAt, order.serviceLocal, order.timezone, order.serviceDate, order.urgent, order.passengers, order.luggage, json(order.pickup), json(order.dropoff), JSON.stringify(order.addons),
       order.driverLanguage, order.flightNo, JSON.stringify(sealed.plain), json(order.messaging), order.notes, order.settlementMinor, order.settlementCurrency, JSON.stringify(order.settlement),
       order.freeWaitMinutes, order.inventoryHeld, order.paymentDueAt, order.createdAt, json(order.cancelPolicy),
-      sealed.enc, sealed.emailBidx, sealed.phoneBidx, sealed.nameBidx, order.isAcceptance, json(order.waypoints),
+      sealed.enc, sealed.emailBidx, sealed.phoneBidx, sealed.nameBidx, order.isAcceptance, json(order.waypoints), order.flightKind, freeWaitBasisJson(order.freeWaitBasis),
     ],
   );
 }

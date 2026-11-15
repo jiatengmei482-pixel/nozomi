@@ -127,6 +127,7 @@ const airportPickup: OrderTripShape = { category: "airport_transfer", direction:
 const good: OrderDetailsInput = {
   passenger: { name: "王小明", phone: "+81 90-1234-5678", email: "guest@example.com" },
   flightNo: "NH211",
+  flightKind: null,
   pickupAddress: null,
   dropoffAddress: "东京站八重洲口",
   messaging: { app: "line", handle: "xiaoming" },
@@ -145,7 +146,7 @@ test("下单信息：接机要航班号、市区一端要地址；机场那一�
   assert.deepEqual(paths({ ...good, dropoffAddress: "地".repeat(301) }), ["/dropoff_address:TOO_LONG"]);
 });
 
-test("下单信息：送机的航班号可填可不填；接站、点对点、包车不填航班号", () => {
+test("下单信息：送机的航班号可填可不填；接站、包车不填航班号；点对点可以不填", () => {
   const airportDropoff: OrderTripShape = { ...airportPickup, direction: "dropoff", hasPickupPoint: true, hasDropoffPoint: false };
   assert.deepEqual(paths({ ...good, flightNo: null, pickupAddress: "酒店", dropoffAddress: null }, airportDropoff), []);
   assert.deepEqual(paths({ ...good, pickupAddress: "酒店", dropoffAddress: null }, airportDropoff), []);
@@ -157,6 +158,23 @@ test("下单信息：送机的航班号可填可不填；接站、点对点、�
   assert.deepEqual(paths({ ...good, flightNo: null, pickupAddress: null }, p2p), ["/pickup_address:REQUIRED"]);
   const charter: OrderTripShape = { category: "charter", direction: null, placeType: null, hasPickupPoint: true, hasDropoffPoint: false };
   assert.deepEqual(paths({ ...good, flightNo: null, pickupAddress: "酒店", dropoffAddress: null }, charter), []);
+});
+
+test("下单信息（M9E-28）：点对点可以带航班号（认出机场、改用点对点报价的接机）、格式照查；航班类型只跟着按航班定免费等待的接机给", () => {
+  const p2p: OrderTripShape = { category: "point_to_point", direction: null, placeType: null, hasPickupPoint: true, hasDropoffPoint: true };
+  assert.deepEqual(paths({ ...good, pickupAddress: "成田机场" }, p2p), [], "点对点带航班号");
+  assert.deepEqual(paths({ ...good, flightNo: "NH-211", pickupAddress: "成田机场" }, p2p), ["/flight_no:INVALID_FLIGHT_NO"]);
+  assert.deepEqual(paths({ ...good, flightKind: "international", pickupAddress: "成田机场" }, p2p), []);
+  assert.deepEqual(paths({ ...good, flightNo: null, flightKind: "domestic", pickupAddress: "酒店" }, p2p), ["/flight_kind:NOT_APPLICABLE"], "点对点没有航班号不能给航班类型");
+  assert.deepEqual(paths({ ...good, flightKind: "international" }), [], "接机");
+  assert.deepEqual(paths({ ...good, flightKind: "domestic" }), []);
+  assert.deepEqual(paths({ ...good, flightKind: "charter" as never }), ["/flight_kind:INVALID_FORMAT"]);
+  const airportDropoff: OrderTripShape = { ...airportPickup, direction: "dropoff", hasPickupPoint: true, hasDropoffPoint: false };
+  assert.deepEqual(paths({ ...good, flightKind: "international", pickupAddress: "酒店", dropoffAddress: null }, airportDropoff), ["/flight_kind:NOT_APPLICABLE"], "送机不按航班定");
+  const station: OrderTripShape = { ...airportPickup, placeType: "station" };
+  assert.deepEqual(paths({ ...good, flightNo: null, flightKind: "domestic" }, station), ["/flight_kind:NOT_APPLICABLE"]);
+  const charter: OrderTripShape = { category: "charter", direction: null, placeType: null, hasPickupPoint: true, hasDropoffPoint: false };
+  assert.deepEqual(paths({ ...good, pickupAddress: "酒店", dropoffAddress: null }, charter), ["/flight_no:NOT_APPLICABLE"], "包车仍不填航班号");
 });
 
 test("下单信息：乘客姓名、国际格式的电话、邮箱必填；必须同意保存支付方式；其余选填但有长度和格式", () => {

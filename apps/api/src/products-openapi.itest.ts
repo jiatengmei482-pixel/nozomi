@@ -521,8 +521,8 @@ test("请求定义和实现一致：必填项、枚举、条数和长度上限�
     free_wait: { pickup: null, dropoff: null, general: { mode: "limited", minutes: 0 } },
     addons: [{ addon_id: ids["seat"], enabled: true, unit_price: 0, first_free: false }],
     driver_languages: [...DRIVER_LANGUAGES].map((language) => ({ language, unit_price: 0 })),
-    // 包车行程计价的配置（M9P-01；M9P-03 加预计用时 T 的三项和在线下单上限，取上限值）：只有包车有，读出来也带着
-    charter_itinerary: { dropoff_itinerary_surcharge: false, stop_occupancy_minutes: 120, buffer_minutes: 240, min_package_hours: 72, max_online_minutes: 1_440 },
+    // 包车行程计价的配置（M9P-01；M9P-03 加预计用时 T 的三项和在线下单上限；M9P-10 加超限提醒线，取上限值）：只有包车有，读出来也带着
+    charter_itinerary: { dropoff_itinerary_surcharge: false, stop_occupancy_minutes: 120, buffer_minutes: 240, min_package_hours: 72, max_online_minutes: 1_440, warn_minutes: 1_440, warn_km: 5_000 },
   };
   assert.deepEqual(violations(schemas["ServiceRules"] as Schema, atLimit), [], "造的请求符合定义");
   const saved = await call("PUT", RULES, { id: product.id, headers: ifMatch(1), body: atLimit });
@@ -559,8 +559,8 @@ test("这份对账把子品牌和商品的每个接口都调到了", () => {
   assert.deepEqual(PRODUCT_OPERATIONS.filter((operation) => !exercised.has(operation)), []);
   const documented = Object.entries(doc.paths)
     // 价格规则、调价规则、取整单位是 M1-04 的接口，库存和导入导出是 M1-05 的，试算是 M2-01 的，各有自己的对账；
-    // 三层区域迁移的「套餐价不一致」（M9P-05）在 charter-three-layer.itest.ts 对照定义；这里只管子品牌和商品本身的
-    .filter(([path]) => (path.startsWith("/tenant/v1/brands") || path.startsWith("/tenant/v1/products")) && !/\/(price-rules|price-calendar|price-coverage|charter-migration-diff|adjust-rules|distance-prices|rounding-unit|inventory|quote-preview)(\/|$)/.test(path))
+    // 三层区域迁移的「套餐价不一致」（M9P-05）在 charter-three-layer.itest.ts 对照定义；机场绑定（M9P-21）在 charter-airports.itest.ts；这里只管子品牌和商品本身的
+    .filter(([path]) => (path.startsWith("/tenant/v1/brands") || path.startsWith("/tenant/v1/products")) && !/\/(price-rules|price-calendar|price-coverage|charter-migration-diff|charter-airports|adjust-rules|distance-prices|rounding-unit|inventory|quote-preview)(\/|$)/.test(path))
     .flatMap(([path, methods]) => Object.keys(methods).map((method) => `${method.toUpperCase()} ${path}`));
   assert.deepEqual(documented.sort(), [...PRODUCT_OPERATIONS].sort(), "定义里商品相关的接口就是这 15 个操作（9 个路径）");
 });

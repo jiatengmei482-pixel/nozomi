@@ -3,7 +3,7 @@
  * 这里把一份表单读成「接口的请求体 + @nozomi/domain 的规则对象 + 写错了的地方」。
  * 范围、上限、缺什么都问 @nozomi/domain（serviceRuleIssues / serviceRuleMissing）；这里只多管「字敲得不成样子」和「填了一半」。
  */
-import { DRIVER_LANGUAGES, type FreeWaitItem, type NightChargeUnit, PRICE_LIMITS, PRODUCT_LIMITS, type RuleIssue, type ServiceCategory, type ServiceRuleContext, type ServiceRules, fixedFreeWaitIssues, fixedFreeWaitMinutes, freeWaitItems, normalizeDailyWindow, serviceRuleIssues } from "@nozomi/domain";
+import { DEFAULT_CHARTER_ITINERARY, DRIVER_LANGUAGES, type FreeWaitItem, type NightChargeUnit, PRICE_LIMITS, PRODUCT_LIMITS, type RuleIssue, type ServiceCategory, type ServiceRuleContext, type ServiceRules, fixedFreeWaitIssues, fixedFreeWaitMinutes, freeWaitItems, normalizeDailyWindow, serviceRuleIssues } from "@nozomi/domain";
 import type { CharterItineraryBody, DailyWindowBody, FreeWaitBody, ServiceRulesBody } from "../api/products.ts";
 import { LANGUAGE_NAMES, amountText, readAmount } from "./product-display.ts";
 import { tidyDate, tidyTime } from "./time-input.ts";
@@ -28,7 +28,7 @@ export interface LanguageRow {
 
 /**
  * 包车按行程计价的配置（M9P-04，ADR 0091 第二节、0093 第二节第 4 小节）：经停点默认占用、整单缓冲（分钟，空着 = 0）、
- * 最低套餐（小时，空着 = 不限）、下车点行程加价开关。在线下单上限页面上不改（不提交，保留原值）。
+ * 最低套餐（小时，空着 = 不限）、下车点行程加价开关；超限提醒线（M9P-10：预计用时分钟、全程公里，空着 = 默认 720 / 360）。在线下单上限页面上不改（不提交，保留原值）。
  */
 export interface ItineraryField {
   dropoffSurcharge: boolean;
@@ -37,6 +37,8 @@ export interface ItineraryField {
   stopOccupancy: string;
   buffer: string;
   minPackage: string;
+  warnMinutes: string;
+  warnKm: string;
 }
 
 export interface RulesForm {
@@ -138,6 +140,8 @@ function itineraryField(body: CharterItineraryBody | undefined): ItineraryField 
     stopOccupancy: minutes(body?.stop_occupancy_minutes),
     buffer: minutes(body?.buffer_minutes),
     minPackage: body?.min_package_hours === null || body?.min_package_hours === undefined ? "" : String(body.min_package_hours),
+    warnMinutes: String(body?.warn_minutes ?? DEFAULT_CHARTER_ITINERARY.warnMinutes),
+    warnKm: String(body?.warn_km ?? DEFAULT_CHARTER_ITINERARY.warnKm),
   };
 }
 
@@ -184,6 +188,8 @@ export function rulePathTarget(path: string): string {
   if (path.startsWith("/charter_itinerary/stop_occupancy_minutes")) return "itinerary-stop-occupancy";
   if (path.startsWith("/charter_itinerary/buffer_minutes")) return "itinerary-buffer";
   if (path.startsWith("/charter_itinerary/min_package_hours")) return "itinerary-min-package";
+  if (path.startsWith("/charter_itinerary/warn_minutes")) return "itinerary-warn-minutes";
+  if (path.startsWith("/charter_itinerary/warn_km")) return "itinerary-warn-km";
   if (path.startsWith("/charter_itinerary")) return "itinerary-dropoff";
   return "service-time-start";
 }
@@ -326,7 +332,17 @@ export function readRulesForm(form: RulesForm, context: RulesFormContext): Rules
       if (INTEGER.test(minText) && Number(minText) >= 1 && Number(minText) <= PRICE_LIMITS.maxPackageHours) minPackage = Number(minText);
       else problems.push({ text: `最低套餐：请填 1 到 ${PRICE_LIMITS.maxPackageHours} 之间的整数（小时），不限请留空`, target: "itinerary-min-package" });
     }
-    itinerary = { dropoff_itinerary_surcharge: form.itinerary.dropoffSurcharge, stop_occupancy_minutes: stopOccupancy, buffer_minutes: buffer, min_package_hours: minPackage, suggest_stop_order: form.itinerary.suggestStopOrder };
+    // 超限提醒线（M9P-10）：空着 = 默认值；范围同服务端
+    const ranged = (text: string, fallback: number, min: number, max: number, target: string, label: string, unit: string): number => {
+      const tidy = tidyNumber(text);
+      if (tidy === "") return fallback;
+      if (INTEGER.test(tidy) && Number(tidy) >= min && Number(tidy) <= max) return Number(tidy);
+      problems.push({ text: `${label}：请填 ${min} 到 ${max} 之间的整数（${unit}）`, target });
+      return fallback;
+    };
+    const warnMinutes = ranged(form.itinerary.warnMinutes, DEFAULT_CHARTER_ITINERARY.warnMinutes, PRODUCT_LIMITS.minWarnMinutes, PRODUCT_LIMITS.maxWarnMinutes, "itinerary-warn-minutes", "预计用时提醒线", "分钟");
+    const warnKm = ranged(form.itinerary.warnKm, DEFAULT_CHARTER_ITINERARY.warnKm, PRODUCT_LIMITS.minWarnKm, PRODUCT_LIMITS.maxWarnKm, "itinerary-warn-km", "全程提醒线", "公里");
+    itinerary = { dropoff_itinerary_surcharge: form.itinerary.dropoffSurcharge, stop_occupancy_minutes: stopOccupancy, buffer_minutes: buffer, min_package_hours: minPackage, warn_minutes: warnMinutes, warn_km: warnKm, suggest_stop_order: form.itinerary.suggestStopOrder };
   }
 
   const body: ServiceRulesBody = {
@@ -345,7 +361,7 @@ export function readRulesForm(form: RulesForm, context: RulesFormContext): Rules
     freeWait,
     addons: addons.map((addon) => ({ addonId: addon.addon_id, enabled: true, unitPriceMinor: addon.unit_price, firstFree: addon.first_free })),
     driverLanguages: languages.map((entry) => ({ language: entry.language, unitPriceMinor: entry.unit_price })),
-    ...(itinerary === null ? {} : { charterItinerary: { dropoffItinerarySurcharge: itinerary.dropoff_itinerary_surcharge, stopOccupancyMinutes: itinerary.stop_occupancy_minutes, bufferMinutes: itinerary.buffer_minutes, minPackageHours: itinerary.min_package_hours, suggestStopOrder: itinerary.suggest_stop_order } }),
+    ...(itinerary === null ? {} : { charterItinerary: { dropoffItinerarySurcharge: itinerary.dropoff_itinerary_surcharge, stopOccupancyMinutes: itinerary.stop_occupancy_minutes, bufferMinutes: itinerary.buffer_minutes, minPackageHours: itinerary.min_package_hours, warnMinutes: itinerary.warn_minutes, warnKm: itinerary.warn_km, suggestStopOrder: itinerary.suggest_stop_order } }),
   };
   // 兜底：域里的规则还认为不对、而上面没有报过的（正常不会有）
   const reported = new Set(problems.map((problem) => problem.target));

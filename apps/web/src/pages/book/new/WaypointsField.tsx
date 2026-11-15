@@ -3,7 +3,7 @@
  * - 每一行：序号、地址框（和上车、下车地点同一个 PlaceField：输入即提示、地图选点、手机全屏选择页）、停留时长（30 分钟一档，必填）；
  *   行尾「上移」「下移」「删除」（只有图标的文字按钮，`aria-label` 带经停点名）；焦点在行里的按钮上时 Alt + ↑ / ↓ 也能移动；
  * - 移动后焦点跟着这一行走，`role="status"` 播报「{名称} 现在排第 i，共 N 个」；删除后焦点移到下一行的「删除」，没有了回到「添加经停点」；
- * - 最多 10 个：满了「添加经停点」禁用，旁边写「最多 10 个」。
+ * - 最多 25 个（M9P-10，`CHARTER_ITINERARY_LIMITS`）：满了「添加经停点」禁用，旁边写「最多 25 个经停点，更多请联系客服定制」。
  * - 指针拖动（M9P-20 P2，ADR 0096 第三节第 7 小节）：每行一个拖动把手（`aria-hidden`，不进 Tab 顺序，键盘用户用上移下移）；鼠标按下就拖，
  *   触屏长按 `DRAG_HOLD_MS` 才开始（不和页面滚动抢）；拖动中目标位置画插入线；松手后和上移下移一样播报新位置。不做位移动画。
  */
@@ -15,6 +15,7 @@ import { Button, IconButton } from "../../../components/Button.tsx";
 import { SelectField } from "../../../components/FormFields.tsx";
 import { Icon } from "../../../components/Icon.tsx";
 import { MAX_WAYPOINTS, STAY_OPTIONS, type WaypointDraft, type WaypointErrors, durationText, moveWaypoint, moveWaypointTo, newWaypoint } from "../../../lib/charter-itinerary.ts";
+import { waypointLimitText } from "../../../lib/itinerary-warnings.ts";
 import type { LatLngValue } from "../SiteMapPicker.tsx";
 import { PlaceField } from "./PlaceField.tsx";
 
@@ -175,7 +176,7 @@ export function WaypointsField({ value, onChange, errors, tiles, mapCenter, citi
           <Icon name="plus" />
           添加经停点
         </Button>
-        {full && <span className="field__hint">最多 {MAX_WAYPOINTS} 个</span>}
+        {full && <span className="field__hint">{waypointLimitText()}</span>}
       </div>
       <p className="visually-hidden" role="status">
         {announce}

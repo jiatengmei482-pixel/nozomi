@@ -161,6 +161,7 @@ const quote: SiteQuote = {
   free_wait_minutes: 0,
   cancel_policy: { category: "charter", level: "economy", tiers: [{ min_hours_before: 24, fee_bp: 0 }, { min_hours_before: 0, fee_bp: 10000 }] },
   available_addons: [],
+  itinerary_warnings: null,
 };
 
 test("页面：没有经停的包车也显示行程地图（2 个点）和「1 上车」「2 下车」两行，这一段的时长和公里取地图折线那次调用的量（只作展示）；不请求两点路线小地图", async () => {

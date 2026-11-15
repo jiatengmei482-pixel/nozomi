@@ -56,18 +56,19 @@ export async function withDeadline(db: Db, deadline: number, clock: () => number
   return { query } as Db;
 }
 
-export async function runRolePreviewReport(ctx: AppContext, principal: PlatformPrincipal, window: { days: number; until: Date; now: Date }, ip: string, budgetMs: number = ROLE_PREVIEW_REPORT_BUDGET_MS): Promise<RolePreview> {
+export async function runRolePreviewReport(ctx: AppContext, principal: PlatformPrincipal, window: { days: number; until: Date; now: Date; rows?: boolean }, ip: string, budgetMs: number = ROLE_PREVIEW_REPORT_BUDGET_MS): Promise<RolePreview> {
   const { days, until, now } = window;
+  const rows = window.rows === true;
   await withPlatformTx(ctx.pool, async (db) => {
     const slot = await takeRateSlot(db, principal.user.id, "staff_role_preview", now);
     if (!slot.allowed) throw rateLimited(slot.retryAfterSeconds);
-    await insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), { tenantId: null, resource: "area", resourceId: null, action: "view", before: null, after: { report: "area_role_preview", days, until: until.toISOString() } });
+    await insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), { tenantId: null, resource: "area", resourceId: null, action: "view", before: null, after: { report: "area_role_preview", days, until: until.toISOString(), ...(rows ? { rows: true } : {}) } });
   });
   const deadline = performance.now() + budgetMs;
   try {
     return await withPlatformTx(
       ctx.pool,
-      async (db) => buildRolePreview(await withDeadline(db, deadline), { days, now, until, expired: () => performance.now() > deadline }),
+      async (db) => buildRolePreview(await withDeadline(db, deadline), { days, now, until, expired: () => performance.now() > deadline, ...(rows ? { rows: true } : {}) }),
       { snapshot: true },
     );
   } catch (err) {
