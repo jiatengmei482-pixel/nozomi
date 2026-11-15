@@ -557,10 +557,11 @@
           "id": "M7-07",
           "title": "车型名、代表车型多语言（中 / 日 / 英 / 韩）",
           "role": "backend",
-          "status": "todo",
-          "acceptance": ["代表车型列表按 ADR 0068 改为多语言（不加新字段，走主站 LocalizedText 做法），按客人语言取名称", "页面上代表车型的 lang 属性按取到的语言标", "和 M8 方案 B3（多语言界面）一起排期", "业主决定（2026-11-13）：等 M8-08 的 B3（多语言界面）定了再排期"],
+          "status": "blocked",
+          "blockedBy": "已移至 M11-05（业主 2026-11-15：系统完成后再做）",
+          "acceptance": ["代表车型列表按 ADR 0068 改为多语言（不加新字段，走主站 LocalizedText 做法），按客人语言取名称", "页面上代表车型的 lang 属性按取到的语言标", "和 M8 方案 B3（多语言界面）一起排期", "业主决定（2026-11-13）：等 M8-08 的 B3（多语言界面）定了再排期", "业主 2026-11-15：系统完成后再做：移到最后阶段 M11，由 M11-05 承接，本条不再单独做"],
           "evidence": "",
-          "updated": "2026-11-13"
+          "updated": "2026-11-15"
         }
       ]
     },
@@ -1356,7 +1357,7 @@
           "id": "M9E-16",
           "title": "嵌在宿主页·第一期：init 加 bookingUrl（跳宿主页 ?nzdraft=）、mountBooking 骨架（iframe、超时后备、postMessage 核对、自动高度）、/embed/v1/frame-check + Caddy forward_auth 按嵌入码生成 frame-ancestors（ADR 0095 第三、五、六节）",
           "role": "frontend",
-          "status": "doing",
+          "status": "done",
           "acceptance": [
             "不传 bookingUrl 时组件行为逐字不变（现有组件测试、site-embed-widget.spec.ts 原样通过）；传了合格的跳 bookingUrl?nzdraft=<草稿号>，不合格（不同 origin、非 https 等）按没传处理并在控制台报一句",
             "/embed/book 只能被白名单里、本次声明的那一个宿主嵌入：非白名单、伪造 host、停用嵌入码、嵌套两层都被拒；其余页面仍 frame-ancestors 'none' + X-Frame-Options: DENY（security.spec.ts、deploy-web-csp-paths.qa.test.ts 在真实 caddy:2 上核对；伪造 X-Nozomi-Frame-Ancestor 请求头无效）",
@@ -1368,14 +1369,14 @@
             "宿主页 sessionStorage 的 nozomi.host-draft：收到 completed、草稿 404 时删除，并显示「重新查询」入口",
             "迁移排在 0430 之后，只加 delivery 列（booking_drafts、quote_embed_sources、order_embed_sources）和嵌入码的「允许整页嵌入」开关，不回填"
           ],
-          "evidence": "PR #242",
-          "updated": "2026-11-14"
+          "evidence": "PR #242；业主验收通过（2026-11-15，监工转达业主原话「嵌入程序可以了」）",
+          "updated": "2026-11-15"
         },
         {
           "id": "M9E-17",
           "title": "嵌在宿主页·第二期：/embed/book 复用 /book/new 四步（BookingShell 上下文、EmbedLayout、无 Leaflet）、iframe 内订单页（不含付款）、step / completed / error 事件、刷新续接（ADR 0095 第四、八、九节）",
           "role": "frontend",
-          "status": "review",
+          "status": "done",
           "acceptance": [
             "主站 /book/new、订单页的组件测试和 site-booking*.spec.ts、site-payment*.spec.ts 一条不改、全部通过；新增主站模式询价 / 下单请求体与重构前逐字相同",
             "嵌入页询价带 draft_id，下单后平台订单详情来源为嵌入组件（宿主页内）",
@@ -1386,22 +1387,18 @@
             "嵌入页样式只引用组件的 --nzb-* 变量（命名和默认值同 widget-style.ts），传给 Stripe appearance 的取值也从 --nzb-* 读（Q15）",
             "路线图：首期和主站一样显示谷歌静态路线图，静态图失败时只显示时长和公里数，不加载 Leaflet（Q11；合规后备图随 M10-01）"
           ],
-          "evidence": "PR #244（https://github.com/jiatengmei482-pixel/nozomi/pull/244）：集成测试 17 条（新增 source_matches 1 条）；组件测试新增 embed-flow 7、booking-shell 2（主站请求体逐字不变）、embed-style 4、embed-order-store 3，改 embed-book 17；跨站端到端 site-embed-booking 新增 2 条（chromium + webkit）；ADR 第十节回归 e2e 47 条。付款进 iframe、completed 的跨站端到端在 M9E-19；四步三语在 M9E-18；特商法、取消政策、隐私政策三页和嵌入页上的链接待业主给内容，登记为 M9E-24（Q14）；Leaflet 不进嵌入页打包产物登记为 M9E-25",
-          "updated": "2026-11-14"
+          "evidence": "PR #244（https://github.com/jiatengmei482-pixel/nozomi/pull/244）：集成测试 17 条（新增 source_matches 1 条）；组件测试新增 embed-flow 7、booking-shell 2（主站请求体逐字不变）、embed-style 4、embed-order-store 3，改 embed-book 17；跨站端到端 site-embed-booking 新增 2 条（chromium + webkit）；ADR 第十节回归 e2e 47 条。付款进 iframe、completed 的跨站端到端在 M9E-19；四步三语在 M11-04（原 M9E-18）；特商法、取消政策、隐私政策三页和嵌入页上的链接待业主给内容，登记为 M9E-24（Q14）；Leaflet 不进嵌入页打包产物登记为 M9E-25；业主验收通过（2026-11-15，监工转达业主原话「嵌入程序可以了」）",
+          "updated": "2026-11-15"
         },
         {
           "id": "M9E-18",
           "title": "嵌在宿主页·嵌入页中 / 日 / 英三语，必做（复用 widget-core.ts 的 TEXTS 和 BOOK_TAB_I18N 的写法、付款出错说法、日期金额格式、Stripe locale；主站仍只中文）（ADR 0095 第四节第 3 小节，Q4）",
           "role": "frontend",
           "status": "blocked",
-          "blockedBy": "M9E-17 合并",
-          "acceptance": [
-            "mountBooking 的 lang 为 zh / ja / en 时嵌入页、订单页、付款区块全部按该语言显示，主站页面文案逐字不变",
-            "译文由业主或运营过目",
-            "加一种语言只需在各文案表加一列、语言类型加一项，不改页面代码；第二批韩文、繁体中文（ko、zh-Hant，组件和嵌入码 default_lang 一起加）在本任务合并时登记为后续任务"
-          ],
+          "blockedBy": "已移至 M11-04（业主 2026-11-15：系统完成后再做）",
+          "acceptance": ["mountBooking 的 lang 为 zh / ja / en 时嵌入页、订单页、付款区块全部按该语言显示，主站页面文案逐字不变", "译文由业主或运营过目", "加一种语言只需在各文案表加一列、语言类型加一项，不改页面代码；第二批韩文、繁体中文（ko、zh-Hant，组件和嵌入码 default_lang 一起加）在本任务合并时登记为后续任务", "业主 2026-11-15：系统完成后再做：移到最后阶段 M11，由 M11-04 承接，本条不再单独做"],
           "evidence": "",
-          "updated": "2026-11-14"
+          "updated": "2026-11-15"
         },
         {
           "id": "M9E-19",
@@ -1516,9 +1513,9 @@
           "id": "M9E-27",
           "title": "业主反馈（优先于 M9P-20）：①嵌入预订页电脑宽度两栏，和主站 /book/new 一样带「行程摘要」右侧栏（ADR 0095 第二轮决策）；②接机免费等待分钟数（另一个开发角色负责）",
           "role": "frontend",
-          "status": "review",
+          "status": "done",
           "acceptance": ["①iframe 自己的视口 ≥ 1024px：嵌入页两栏，左边四步，右边是主站同一个「行程摘要」右侧栏（谷歌静态路线图、约 X 分钟 · Y 公里、车型和价格、出发地、目的地、航班落地时间、乘客 / 行李）；< 1024px 照旧单栏、顶部摘要条。宽度按 iframe 自己的视口算，不看宿主窗口", "①复用 BookNewPage 的两栏和右侧栏，不另写；主站 /book/new 行为不变（book-new、booking-shell 组件测试原样通过）；嵌入页里没有主站顶栏、页脚、导航", "①postMessage v1 不变：换步照发 step；分栏切换（宽 ↔ 窄）后 resize 报的高度和内容实际高度一致；路线图是同源 /site/v1/route-map，嵌入页 CSP 放行、在 iframe 里显示出来", "①组件测试覆盖 1024 断点（1023 单栏、1024 两栏、宽窄切换）；端到端在嵌入页 1440 / 1024 / 375 宽核对分栏、右侧栏内容、路线图、resize 高度，亮暗两色 axe；做变异检查", "①本机 1440 / 1024 / 375 宽截图放 docs/acceptance/M9E-27-shots/；部署后在演示站 https://embed-demo.moveglobal.io/booking/ 再截 1440 / 1024 / 375 三张（验收角色）", "②接机免费等待分钟数：由另一个开发角色在本任务下单独实现和验收，见其 PR；本 PR 不涉及"],
-          "evidence": "①PR #254；组件测试 478 条本机全过（embed-flow 新增 1 条宽屏 / 宽窄切换、改 1 条为 1023 宽；embed-style、booking-shell 相应改）；变异检查 3 个全部杀死；端到端 site-embed-booking.spec.ts 9 条 chromium + webkit-embed 本机全过（新增 M9E-27 一条：1440 / 1024 / 1023 / 375）；截图 docs/acceptance/M9E-27-shots/；演示站截图待部署后由验收角色补",
+          "evidence": "①PR #254；组件测试 478 条本机全过（embed-flow 新增 1 条宽屏 / 宽窄切换、改 1 条为 1023 宽；embed-style、booking-shell 相应改）；变异检查 3 个全部杀死；端到端 site-embed-booking.spec.ts 9 条 chromium + webkit-embed 本机全过（新增 M9E-27 一条：1440 / 1024 / 1023 / 375）；截图 docs/acceptance/M9E-27-shots/；演示站截图待部署后由验收角色补；业主验收通过（2026-11-15，监工转达业主原话「嵌入程序可以了」）；业主验收的是①嵌入两栏（演示站截图见 PR #257）；②接机免费等待提示 PR #253，按航班定的后续在 M9E-28（PR #255）",
           "updated": "2026-11-15"
         },
         {
@@ -1745,6 +1742,82 @@
           "acceptance": ["盘点所有把谷歌 Routes 折线、Places 搜索结果、Geocoding 反查结果和 Leaflet 非谷歌底图一起显示的地方（至少 apps/web/src/pages/book/new/RouteMap.tsx 后备路线图、SiteMapPicker.tsx 地图选点）", "逐处给出整改：改用谷歌地图（静态图或 Maps JS），或不显示地图只显示文字；方案写进 ADR（修订 ADR 0017 / 0072）并经独立审查", "整改后端到端测试覆盖：静态地图未开通时不再在 Leaflet 上画谷歌路线", "嵌入页 /embed/book（ADR 0095，Q11）同步改用同一套合规后备图：首期静态图失败时只显示时长和公里数，M10-01 之后显示和主站相同的路线摘要图；端到端覆盖嵌入页"],
           "evidence": "",
           "updated": "2026-11-14"
+        }
+      ]
+    },
+    {
+      "id": "M11",
+      "name": "多语言（系统完成后再做）",
+      "goal": "业主 2026-11-15：多语言不着急，等系统功能全部完成后再统一做。前置条件（业主 2026-11-15）：①系统功能全部完成 ②生成全部固定文案清单（中文，按页面分组、带位置说明）交业主定稿 ③定稿后冻结，再开翻译。开发期间新文案都走 i18n key，文案清单能从代码自动导出",
+      "tasks": [
+        {
+          "id": "M11-01",
+          "title": "开发期规则：新功能先只做中文，所有新文案走 i18n key（主站已有的日英文案保持不动、不删）",
+          "role": "frontend",
+          "status": "doing",
+          "acceptance": [
+            "新页面、新提示、新邮件 / 通知模板的固定文案一律用 i18n key，不在组件里写死中文",
+            "主站已有的日文、英文文案原样保留，不删、不改",
+            "审查时检查新代码有没有写死的中文文案",
+            "业主 2026-11-15 决定"
+          ],
+          "evidence": "",
+          "updated": "2026-11-15"
+        },
+        {
+          "id": "M11-02",
+          "title": "固定文案清单可从代码自动导出（中文，按页面分组，带位置说明：页面 / 组件 / 文件）",
+          "role": "frontend",
+          "status": "todo",
+          "acceptance": [
+            "一条命令导出全部固定文案：页面标题、按钮、提示、说明、错误提示、邮件 / 通知模板等",
+            "按页面分组，每条带 key、中文、出现位置（页面和文件）",
+            "能发现写死、没走 i18n key 的文案并列出来",
+            "输出给业主看的表格（如 CSV / Markdown）"
+          ],
+          "evidence": "",
+          "updated": "2026-11-15"
+        },
+        {
+          "id": "M11-03",
+          "title": "全部固定文案交业主定稿，定稿后冻结",
+          "role": "owner",
+          "status": "blocked",
+          "blockedBy": "系统功能全部完成，且 M11-02 清单已生成",
+          "acceptance": [
+            "用 M11-02 导出的清单交业主逐条定稿",
+            "定稿版本存进仓库，之后改中文文案要业主同意",
+            "冻结后才开始 M11-04、M11-05 的翻译"
+          ],
+          "evidence": "",
+          "updated": "2026-11-15"
+        },
+        {
+          "id": "M11-04",
+          "title": "多语言界面：主站、嵌入页、订单页、付款、邮件 / 通知按定稿文案出日文、英文（承接 M9E-18；韩文、繁体中文为第二批）",
+          "role": "frontend",
+          "status": "blocked",
+          "blockedBy": "M11-03 定稿冻结",
+          "acceptance": [
+            "承接原 M9E-18 的全部验收标准（嵌入页 zh / ja / en，日期金额格式、Stripe locale 等）",
+            "只翻译 M11-03 冻结的定稿文案",
+            "译文由业主或运营过目",
+            "加一种语言只加文案表一列，不改页面代码"
+          ],
+          "evidence": "",
+          "updated": "2026-11-15"
+        },
+        {
+          "id": "M11-05",
+          "title": "车型名、代表车型多语言（承接 M7-07）",
+          "role": "backend",
+          "status": "blocked",
+          "blockedBy": "M11-03 定稿冻结",
+          "acceptance": [
+            "承接原 M7-07 的验收标准（ADR 0068，按客人语言取名称）"
+          ],
+          "evidence": "",
+          "updated": "2026-11-15"
         }
       ]
     }
@@ -3254,6 +3327,16 @@
       "date": "2026-11-14",
       "by": "frontend",
       "summary": "M9P-04 开发（PR #248）：官网预订页价格明细套餐下面写「预计用时 X 小时 Y 分钟（含缓冲）」，按套餐、上车加价、下车加价、行程加价（区域名、第几个经停点 / 下车点）逐项列，不填经停点也列；有经停点时套餐下拉的「自动（N 小时）」按客人选的车型；供应商后台服务规则页加经停点默认占用、整单缓冲、最低套餐（建议值灰字、不预填）和「下车点行程加价」开关；运营后台救援页写出救援差价基准。报价结果、主站请求体都没变。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "dev",
+      "summary": "业主验收嵌入预订（「嵌入程序可以了」）：M9E-16、M9E-17、M9E-27 标为已验收。之后嵌入方向只做收尾（M9E-28 接机等待按航班定、M9E-18 三语），主力转回包车：M9P-20 → 机场开始/结束套餐 → 不限经停。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "dev",
+      "summary": "业主决定多语言放到最后：新增里程碑 M11「多语言（系统完成后再做）」，前置条件为系统功能完成、固定文案清单（可从代码自动导出）交业主定稿并冻结；M9E-18 → M11-04，M7-07 → M11-05。开发期新功能只做中文、新文案走 i18n key，主站已有日英文案不动。M8-08 是待确认项合集，不整体移动。"
     },
     {
       "date": "2026-11-15",
