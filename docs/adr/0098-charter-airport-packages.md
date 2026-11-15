@@ -100,7 +100,7 @@
 - 它不是「基础定价」：上架检查、缺价统计、调价检查都不把它当普通套餐价。**区分它用单独的判断 `isAirportPackageModel`，不用 `isSurchargeModel`**（它不是加价，不能走加价那一支的区域检查）。
 - **区域校验单独一支（#259 复核）**：这种价格规则的 `area_id` 是机场区域——不在本商品的 `product_areas` 里，业务类型可能是接送机。所以它**不走**商品区域（`services/prices.ts:350` `AREA_NOT_IN_PRODUCT`）、业务类型（`surchargeAreaIssues`，`prices.ts:429` `AREA_NOT_USABLE`）、区域用途（`areaRoleCanPrice`）这三项检查，**只查「这个区域 × 方向在本商品有机场绑定」**，没有 → 400 `AIRPORT_BINDING_REQUIRED`（区域不是本租户的仍按 404）。机场区域的用途（ADR 0075 的运营 / 报价 / 两者）都可以用，它只用来判断场景。
 - 只读商品区域的两处**按绑定把它带上**：取整单位改动的影响预览（`apps/api/src/repos/prices.ts` `listBrandSellablePrices`，要求区域在 `product_areas` 里）和导入导出的区域判断（`apps/api/src/services/import-export.ts:440`）——机场套餐价行的区域只要在本商品的机场绑定里就算本商品的。
-- **导入导出**（审查建议，统一归属）：多一个工作表「机场套餐价」；**后端（M9P-21）**负责解析、校验、冲突检查和导出，**前端（M9P-22）**只负责价格页上的展示和上传入口。
+- **导入导出**（审查建议，统一归属）：价格表多一列「机场场景」（填「机场开始 / 机场结束」的行就是机场套餐价，同一张表，M9P-21 实现定稿）；**后端（M9P-21）**负责解析、校验、冲突检查和导出，**前端（M9P-22）**只负责价格页上的展示和上传入口。
 
 ### 4. 报价匹配和计价（引擎）
 
@@ -140,7 +140,7 @@
 
 #### 结算价明细、快照、订单
 
-- 结算价明细加可选键 `charterScenario: { kind: "airport_start" | "airport_end", placeId, areaId, pricing: "own" | "inherit", priceRuleId: string | null, shortName: string | null }`（`own` 时 `priceRuleId` 是机场套餐价那一行；`inherit` 时为 null，套餐价规则照旧记在明细的 `priceRuleId`）。没有场景时**不出现这个键**（golden 不变）。
+- 结算价明细加可选键 `charterScenario: { kind: "airport_start" | "airport_end", placeId, areaId, pricing: "own" | "inherit", priceRuleId: string | null, name: string }`（`name` 是前台名称里的机场名：中文简称，没填用主数据中文名）（`own` 时 `priceRuleId` 是机场套餐价那一行；`inherit` 时为 null，套餐价规则照旧记在明细的 `priceRuleId`）。没有场景时**不出现这个键**（golden 不变）。
 - `areaSurcharge.pickup / dropoff` 和 `waypoints` 里 `fromDropoff` 那一项加可选键 `includedInPackage: true`（单独定价免掉的，金额 0）。不改已有键名（同 ADR 0093「明细逐项」的理由）。
 - 对外 `price_breakdown` 的套餐项加可选 `scenario`（`kind`、`airport_id`、`airport_name`），**不带拼好的中文 `label`**：场景名「成田机场接机 + 5 小时包车」由前端用 i18n key（第 5 小节）拼（M9P-21 实现定稿，#261 审查建议 4）；OpenAPI 同步。渠道 `/sales/v1` 同口径。供应商 / 运营订单详情的包车区域加价另带 `charter_scenario`（`kind`、`airport_id`、`airport_name`、`pricing`）和免掉那一项的 `included_in_package: true`。
 - 快照（含 `charterScenario`）就是订单记录场景的地方，**订单表不加列**。供应商、运营订单详情、司机行程页、客人订单页的套餐行按快照显示场景名。
