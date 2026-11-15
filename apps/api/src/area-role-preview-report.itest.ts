@@ -95,8 +95,9 @@ test("结果和命令行的 buildRolePreview 完全一样；没有坐标、没�
   assert.equal(res.body.replay.logs, 2);
   assert.equal(res.body.replay.externalDiffCount, 0);
   assert.equal(res.body.replay.priority.changedCount, 0);
-  // 摘要值是 64 位十六进制哈希（M9W-00），随机含「145」这类片段、不可能带出坐标：扫坐标时跳过它们，其余值照常检查
-  const values = [...allValues(res.body)].filter((value) => !/^[0-9a-f]{64}$/.test(String(value))).join("\n");
+  // 摘要值是 64 位十六进制哈希（M9W-00），询价编号是 UUID，时间是 ISO 时间串：都会随机含「145」这类片段、不可能带出坐标，扫坐标时跳过它们，其余值照常检查
+  const IDENTIFIER = /^(?:[0-9a-f]{64}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)$/;
+  const values = [...allValues(res.body)].filter((value) => !IDENTIFIER.test(String(value))).join("\n");
   for (const coordinate of ["139.7", "35.6", "145", "35.5"]) assert.ok(!values.includes(coordinate), `应答里不能有坐标 ${coordinate}`);
   const after = await snapshot();
   const changed = Object.keys(after).filter((table) => after[table] !== before[table]).sort();
@@ -215,4 +216,27 @@ test("statement_timeout 跟着时限收：事务开头是「默认 10 秒」和�
   assert.ok(performance.now() - started < 2_000, "慢查询在时限附近就被取消");
   // 时限已经过了：不再发查询，直接超时
   await assert.rejects(withPlatformTx(api.db.pool, async (db) => (await withDeadline(db, performance.now() - 1)).query("select 1"), { snapshot: true }), RolePreviewTimeout);
+});
+
+test("逐行明细（M9P-14）：rows=true 时多一项 resultRows，其余和不带时一字不差；每行的 digest 和 resultLineDigests 一一对应；审计记 rows；别的写法 400", async () => {
+  api.clock.advance(11 * 60_000);
+  const until = new Date(api.clock.now().getTime() - 1_000).toISOString();
+  const plain = await get(reader, `?days=7&until=${encodeURIComponent(until)}`);
+  assert.equal(plain.status, 200, plain.text);
+  assert.equal("resultRows" in plain.body.replay, false, "不带参数时没有这一项");
+  const detailed = await get(reader, `?days=7&until=${encodeURIComponent(until)}&rows=true`);
+  assert.equal(detailed.status, 200, detailed.text);
+  assertMatchesOpenApi("GET", TEMPLATE, detailed);
+  const { resultRows, ...rest } = detailed.body.replay;
+  assert.deepEqual({ ...detailed.body, replay: rest }, plain.body, "去掉逐行明细后和不带参数的应答一样");
+  assert.equal(resultRows.length, detailed.body.replay.resultLines);
+  assert.deepEqual(resultRows.map((row: any) => ({ logId: row.logId, productCode: row.productCode, digest: row.digest })), detailed.body.replay.resultLineDigests);
+  assert.ok(resultRows.some((row: any) => row.offers.length > 0 && Number.isInteger(row.offers[0].totalMinor)), "报得出的行有结算价");
+  const audit = await api.db.owner.query("select after from audit_logs where resource = 'area' and action = 'view' order by occurred_at desc, id desc limit 1");
+  assert.deepEqual(audit.rows[0]?.after, { report: "area_role_preview", days: 7, until, rows: true });
+  api.clock.advance(11 * 60_000);
+  for (const bad of ["1", "false", "TRUE"]) {
+    const res = await get(reader, `?rows=${bad}`);
+    assert.equal(res.status, 400, `${bad}: ${res.text}`);
+  }
 });

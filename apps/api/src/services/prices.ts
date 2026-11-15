@@ -449,7 +449,7 @@ function surchargeAreaIssues(context: PricingContext, rule: PriceRule, at: strin
  * 包车三层区域的保存校验（M9P-06，ADR 0093 第七节第 1、2 条）：这次新加进②行程加价、③上下车加价的区域，不能和同一层已有的区域重叠，
  * 新加进③的不能和商品的①基础价区域重叠（①②、②③可以）。已有的重叠不回头拦（第七节第 6 条）。有重叠抛 400，带两个区域名和重叠面积。
  */
-async function assertCharterLayers(db: Db, tenantId: string, context: PricingContext, changes: PriceChanges): Promise<void> {
+export async function assertCharterLayers(db: Db, tenantId: string, context: PricingContext, changes: PriceChanges): Promise<void> {
   if (context.product.category !== "charter") return;
   const touched = new Set([...changes.update.map((entry) => entry.id), ...changes.remove]);
   const after = [...context.priceRules.filter((rule) => !touched.has(rule.id)), ...changes.update.map((entry) => entry.rule), ...changes.create.map((entry) => entry.rule)];

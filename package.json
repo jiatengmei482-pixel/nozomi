@@ -23,6 +23,7 @@
     "masterdata:import-airport-names": "node --env-file-if-exists=.env apps/api/src/cli/masterdata-import-airport-names.ts",
     "areas:role-preview": "node --env-file-if-exists=.env apps/api/src/cli/areas-role-preview.ts",
     "price-sheet:report": "node apps/api/src/cli/price-sheet-report.ts",
+    "replay:classify": "node apps/api/src/cli/replay-classify.ts",
     "price-sheet:import": "node --env-file-if-exists=.env apps/api/src/cli/price-sheet-import.ts",
     "web:dev": "pnpm --filter @nozomi/web dev",
     "web:build": "pnpm --filter @nozomi/web build",
