@@ -1,6 +1,7 @@
 # ADR 0095：预订流程整体嵌在合作网站页面里——`bookingUrl`、`mountBooking`、`/embed/book`、按嵌入码生成 `frame-ancestors`
 
 - 状态：**已采纳**（2026-11-14 监工替业主确认第十二节 Q1–Q15，见第十二节末「确认结果」）。实施任务 M9E-16 起按确认结果开工。
+- 补充（2026-11-15，M9E-26）：运营后台按「两段代码」交付——嵌入码加「预订页地址」，卡片分①入口小程序、②预订程序；规则和「改白名单后旧值」的口径见附录 A 第 0 条。
 - 依据：业主 2026-11-14 新需求（监工转达）：客人从合作网站预订时不离开合作网站，像 Good Journey（下称 GJ）那样，把整个预订流程嵌在合作网站的 `/booking/` 页里。参数名先按工厂整站开发提的写（`bookingUrl`、`mountBooking`）。
 - **补充 ADR 0090**（嵌入组件）：组件多一个「草稿建好后跳到合作网站自己的预订页」的去处，多一个在合作网站页面里挂整个预订流程的方法。0090 的草稿、嵌入码、白名单、`/embed/v1`、来源统计都不改；不传新参数时组件行为逐字不变。
 - **局部修订 ADR 0090 第五节第 3 小节「为什么不用 iframe」和 ADR 0046「`X-Frame-Options: DENY` 不变」**：只有新路由 `/embed/book` 可以被嵌，并且只允许被那一个嵌入码白名单里、本次声明的那一个网站嵌入；其余所有页面仍然 `frame-ancestors 'none'` + `X-Frame-Options: DENY`。
@@ -400,11 +401,19 @@ iframe → 宿主：
 | Caddy `forward_auth` 漏洞 | 旧版本 `copy_headers` 不删客户端伪造的同名头 | 镜像固定到 ≥ 2.11.4；自己先删头；Caddy 层测试带伪造头 |
 | 以后主站地图改成 Google Maps JS（M10-01） | 嵌入页 CSP 要跟着放行谷歌的脚本、图片、接口域名 | M10-01 时一并改嵌入页那条策略和 Caddy 层测试 |
 
-## 附录 A：给工厂整站开发的接口说明（草稿，采纳后并入 `docs/integration/moveglobal-factory-nozomi-widget.md`）
+## 附录 A：给工厂整站开发的接口说明（已并入 `docs/integration/moveglobal-factory-nozomi-widget.md` 第 11 节）
 
 > 以下嵌入码、域名都是占位。
 
-**1. 任意页面放查价表单，提交后跳到本站 `/booking/`**
+**0. 两段代码由运营后台交付（M9E-26，2026-11-15，对齐 Good Journey 的「两段代码」）**
+
+- 嵌入码多一个选填的「预订页地址」`booking_url`（迁移 0470，只加列，已有的嵌入码为空、不用做任何操作）：合作网站自己的预订页完整地址。规则（`packages/domain/src/embed.ts` 的 `embedKeyIssues` / `embedBookingUrlCheck`）：`https:`（测试类环境另收 `http://localhost`、`http://127.0.0.1`，同白名单和组件里 `bookingUrl` 的规则）；不带用户名密码；≤ 2,000 字符；**origin 必须完全等于这个嵌入码白名单的某一项**（同源、带路径；查询和 `#` 保留）；存规范化后的地址（主机名小写、去默认端口）。不合格 400 `VALIDATION_FAILED`，`/booking_url` 的原因是 `INVALID` / `OUT_OF_RANGE` / `NOT_ALLOWED_ORIGIN`。空白或 null = 清空。
+- **改白名单后旧值的口径：不自动清空、不悄悄保留，拦下让运营决定。** 每次保存都按**这次提交的**白名单核对预订页地址；改白名单拿掉了预订页所在的网站、又没同时改或清空预订页地址，就 400 `NOT_ALLOWED_ORIGIN`，什么都不改（后台在「预订页地址」一栏写明「请一起改这里或清空」）。修改时不带 `booking_url` 的旧客户端等于「保持原值」，原值同样按这次的白名单核对。理由：自动清空会让已经贴在合作网站上的①（带 `bookingUrl`）和后台显示的代码对不上而没人发觉；悄悄保留则后台给出的代码指向白名单外的网站（组件那边按同源规则会退回跳主站）。读的时候再兜一次：库里的值不在白名单（绕过接口写进去的）时只给①、不带 `bookingUrl`（`snippet_fallback: booking_url_not_allowed`）。
+- 平台接口 `GET/POST/PATCH /platform/v1/embed-keys`：多 `booking_url`（读写）、`booking_snippet`、`snippet_fallback`（只读）；`snippet` 仍是①。写审计（前后值都有 `booking_url`），修改照旧要 `If-Match`。公开的 `/embed/v1/config` 不返回预订页地址（字段不变）。
+- 两段代码（`embedSnippets`）：填了预订页地址、「允许整页嵌入」打开、预订页地址的网站在白名单里，才给②并在①的 `init` 里带 `bookingUrl`（JSON 转义，`<` 写成 `\u003c`）；否则只给①，①**和 M9E-26 之前逐字一样**（客人照旧跳主站），`snippet_fallback` 写原因：`no_booking_url` / `host_page_off` / `booking_url_not_allowed`。后台卡片上两段各有一句说明和复制按钮；只有①时旁边写明「填写预订页地址并开启『允许整页嵌入』后，这里会出现第二段代码」（按缺哪一项说）。
+- 后台生成的两段都不写 `redirectUrl`（选填，意思同 ADR 0090：付款后「返回原网站」）、不写 `onEvent`；①的 `services` 取嵌入码的默认标签。
+
+**1. 任意页面放查价表单，提交后跳到本站 `/booking/`（= 后台的「① 入口小程序」）**
 
 ```html
 <div id="nozomi-booking"></div>
@@ -421,7 +430,7 @@ iframe → 宿主：
 </script>
 ```
 
-**2. `/booking/` 页放整个预订流程**
+**2. `/booking/` 页放整个预订流程（= 后台的「② 预订程序」；后台生成的写法是 `NozomiBooking.mountBooking({ key, root: "#nozomi-booking-flow", lang })`，下面多写的 `redirectUrl`、`onEvent` 都是选填）**
 
 ```html
 <div id="nozomi-booking-flow"></div>
