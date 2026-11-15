@@ -24,7 +24,7 @@ export const SITE_CATEGORY_HINTS: Readonly<Record<SiteCategory, string>> = {
 /** 包车超出套餐的部分怎么收（M8-09：包车一口价全含之后，只有超出套餐的时长和公里另收）。 */
 export const CHARTER_OVERAGE_NOTE = `${CHARTER_OVERAGE_TEXTS.zh}：先通知您，48 小时内可以在订单页提异议。`;
 
-/** 包车按行程计价（M9W-05，ADR 0089）：超公里、超时已按预计行程算进价格，只有当天超出预计的部分另收。不按行程计价的包车照旧用 `CHARTER_OVERAGE_NOTE` */
+/** 包车按行程计价（M9W-05，ADR 0089；M9P-04 改）：超公里已按预计行程算进价格，用时超出套餐或当天超出预计的部分另收。不按行程计价的包车照旧用 `CHARTER_OVERAGE_NOTE` */
 export const CHARTER_ITINERARY_OVERAGE_NOTE = `${CHARTER_ITINERARY_OVERAGE_TEXTS.zh}：先通知您，48 小时内可以在订单页提异议。`;
 
 /**

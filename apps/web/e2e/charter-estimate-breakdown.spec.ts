@@ -147,6 +147,8 @@ test("规格用例 1、10 的页面部分：明细套餐下面写预计用时（
   await card.getByRole("button", { name: `选择 ${trip.groupName}` }).click();
   const aside = page.getByRole("complementary", { name: "行程摘要" });
   await expect(aside.getByLabel("价格明细").locator(".price-breakdown__row")).toHaveText(["包车套餐 5 小时预计用时 3 小时 45 分钟（含缓冲）49,500 JPY", `行程加价（${trip.surchargeAreaName}，第 1 个经停点）8,800 JPY`, "合计58,300 JPY"]);
+  // 规则 4：没有结算价（套餐 45,000、行程加价 8,000、合计 53,000）
+  await expect(page.locator("main")).not.toContainText(/45,000|53,000|(?<![\d,])8,000 JPY/);
   await expectBothThemes(page, "第 2 步（用例 10，自动 5 小时）");
   await at390(page, "第 2 步（用例 10）");
   await blockAt390(page, card, "车型卡（用例 10）");
@@ -167,6 +169,8 @@ test("不填经停点也逐项列明细（用例 16）；供应商在服务规�
   await site.goto(link);
   await expect(rows).toHaveText(["包车套餐 8 小时77,000 JPY", `下车加价（${trip.surchargeAreaName}）1,100 JPY`, `行程加价（${trip.surchargeAreaName}，下车点）8,800 JPY`]);
   await expect(card).toContainText("86,900 JPY");
+  // 规则 4：明细是对外价，页面上没有结算价（套餐 70,000、下车加价 1,000、行程加价 8,000、合计 79,000）
+  await expect(site.locator("main")).not.toContainText(/70,000|79,000|(?<![\d,])1,000 JPY|(?<![\d,])8,000 JPY/);
   await expect(site.getByText(/价格按您填的经停点计算/)).toHaveCount(0);
   await expectBothThemes(site, "不填经停点的明细（用例 16）");
   await at390(site, "不填经停点的明细（用例 16）");

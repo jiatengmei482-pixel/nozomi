@@ -76,7 +76,7 @@ import { CHARTER_ITINERARY_OVERAGE_NOTE, CHARTER_OVERAGE_NOTE, UNAVAILABLE_REASO
 import { FIELD_HINTS, MESSAGING_NAMES, type OrderErrors, type OrderForm, type OrderTrip, orderFailureOf, orderRequestOf, validateOrderForm } from "../../../lib/site-order-form.ts";
 import { useDocumentTitle } from "../../../lib/use-document-title.ts";
 import { MANUAL_QUOTE_CHARTER_HOURS, type ManualQuoteTripDraft } from "../../../lib/manual-quote-form.ts";
-import { ITINERARY_NOTE, type WaypointDraft, autoPackageChoice, autoPackageHoursByVehicle, breakdownLines, upgradePackageHours, durationText, itineraryPackageHours, itineraryRouteFailureText, itineraryText, scheduleRows, waypointErrors, waypointUnavailableTexts, waypointsBody } from "../../../lib/charter-itinerary.ts";
+import { ITINERARY_NOTE, type WaypointDraft, autoPackageChoice, autoPackageHoursByVehicle, breakdownLines, upgradePackageHours, durationText, itineraryPackageHours, itineraryRouteFailureText, itineraryText, minPackageHints, scheduleRows, waypointErrors, waypointUnavailableTexts, waypointsBody } from "../../../lib/charter-itinerary.ts";
 import { TripStops } from "../../../components/TripStops.tsx";
 import { ADDRESS_ONLY_HINT, DRAFT_EXPIRED_TEXT, DRAFT_FAILED_TEXT, draftReadyToQuote, draftTrip } from "../../../lib/booking-draft.ts";
 import { ManualQuoteBlock } from "../ManualQuote.tsx";
@@ -983,6 +983,23 @@ export function BookNewPage() {
       </section>
     );
 
+    // 不填经停点、选的时长比某些车型的最低套餐短（M9P-04，ADR 0093 第四节第 7 条）：写那些车型最短几小时，给「改选 X 小时」（只给这段行程能订的档）
+    const minHints = charter && !itinerary && draft.packageHours !== "" ? minPackageHints(outcome?.result.unavailable ?? [], Number(draft.packageHours)) : [];
+    const minHintBlock = minHints.length > 0 && (
+      <div className="book-new__notice" role="status">
+        {minHints.map((hint) => (
+          <div key={hint.hours} className="book-new__min-package">
+            <p>{hint.text}</p>
+            {packageLoad?.kind === "ready" && packageLoad.items.includes(hint.hours) && (
+              <Button size="sm" onClick={() => update({ packageHours: String(hint.hours) })}>
+                {`改选 ${hint.hours} 小时`}
+              </Button>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+
     let vehicles;
     if (current === null) {
       vehicles = <p className="site-muted">{charter ? "选好上车地点、下车地点、包车时长、日期和时间后，这里会列出能坐下的车型和价格。" : "填好出发地、目的地、日期和时间后，这里会列出能坐下的车型和一口价。"}</p>;
@@ -1023,6 +1040,7 @@ export function BookNewPage() {
             </ul>
             {support && <SupportPhone phone={supportPhone} />}
           </div>
+          {minHintBlock}
           <ManualQuoteBlock key={manualKey} trip={manualTrip} supportWhatsapp={supportWhatsapp} />
         </>
       );
@@ -1036,6 +1054,7 @@ export function BookNewPage() {
           <p className="site-muted">
             按价格从低到高 · 坐不下的已隐藏。报价 30 分钟内有效（到当地时间 {formatInZone(expires, timezone).slice(11)}），过了请重新查询。
           </p>
+          {minHintBlock}
           {itinerary && schedule !== null && (
             <section aria-labelledby="book-itinerary-title" className="book-itinerary">
               <h3 id="book-itinerary-title" className="book-new__subtitle">
@@ -1070,7 +1089,7 @@ export function BookNewPage() {
                 </li>
               ))}
             </ul>
-            {/* 按行程计价（报价带 itinerary_route，M9W-05）：超公里、超时已算进价格；不按行程计价的包车照旧 */}
+            {/* 按行程计价（报价带 itinerary_route，M9W-05）：超公里已算进价格，用时超出套餐另收（M9P-04 改）；不按行程计价的包车照旧 */}
             {charter && <p className="site-muted">{charterResult?.itinerary_route != null ? CHARTER_ITINERARY_OVERAGE_NOTE : CHARTER_OVERAGE_NOTE}</p>}
           </section>
         </>

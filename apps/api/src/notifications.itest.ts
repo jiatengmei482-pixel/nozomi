@@ -208,7 +208,7 @@ test("一口价说明（M8-09，ADR 0070）：接送机客人写「一口价已�
     await charterAt(orderId, "2026-11-12T00:00:00+09:00");
     await api.db.owner.query("update orders set settlement = settlement || $2::jsonb where id = $1", [orderId, JSON.stringify({ itinerary })]);
   });
-  assert.match(planned.guest, /费用说明：一口价已含所有费用（高速费、停车费等），无需另付；超公里、超时已按预计行程算进价格，只有当天超出预计的部分服务后按实际收取\n/);
+  assert.match(planned.guest, /费用说明：一口价已含所有费用（高速费、停车费等），无需另付；超公里已按预计行程算进价格；用时超出套餐、或当天超出预计的部分，服务后按实际收取\n/);
   assert.doesNotMatch(planned.guest, /超出套餐的时长和公里/);
 });
 

@@ -277,3 +277,24 @@ export function waypointUnavailableTexts(unavailable: SiteQuoteResult["unavailab
   if (named.length === 0) return unavailable.some((entry) => entry.reasons.includes("WAYPOINT_NOT_PRICED")) ? ["有经停点暂时没有在线报价，请联系客服人工报价，或去掉这个经停点再试。"] : [];
   return [`${named.join("、")}暂时没有在线报价，请联系客服人工报价，或去掉这个经停点再试。`];
 }
+
+/** 所选时长低于某些车型的最低套餐（M9P-04，ADR 0093 第四节第 7 条）：那些车型最短几小时、几个车型 */
+export interface MinPackageHint {
+  hours: number;
+  count: number;
+  text: string;
+}
+
+/**
+ * 不填经停点、客人自选的时长比商品的最低套餐短：报不出的车型原因是 `PACKAGE_TOO_SHORT`，带着 `min_package_hours`。
+ * 按最短时长分组，「有一个车型最短 5 小时」/「有 2 个车型最短 5 小时」（ADR 0093 写的「这个车型最短 X 小时」；报不出的车型应答里没有名称，所以写个数），页面配「改选 5 小时」按钮；只列比所选时长长的。没有这种情况时空数组
+ */
+export function minPackageHints(unavailable: SiteQuoteResult["unavailable"], chosenHours: number | null): MinPackageHint[] {
+  const counts = new Map<number, number>();
+  for (const entry of unavailable) {
+    const hours = entry.min_package_hours;
+    if (!entry.reasons.includes("PACKAGE_TOO_SHORT") || typeof hours !== "number" || (chosenHours !== null && hours <= chosenHours)) continue;
+    counts.set(hours, (counts.get(hours) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort(([a], [b]) => a - b).map(([hours, count]) => ({ hours, count, text: `${count === 1 ? "有一个车型" : `有 ${count} 个车型`}最短 ${hours} 小时${chosenHours === null ? "" : `，选 ${chosenHours} 小时订不了`}。` }));
+}

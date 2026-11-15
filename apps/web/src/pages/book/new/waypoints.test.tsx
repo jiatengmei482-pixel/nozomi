@@ -231,7 +231,7 @@ test("按行程计价：车型卡、右侧栏、核对页显示明细（套餐�
   assert.ok(screen.getByText("价格按您填的经停点计算；当天临时去其他区域或超出预计可能会加收。"));
   // M9W-05：按行程计价时超公里、超时已算进价格，「一口价包含」下面不再说「超出套餐服务后按实际收取」
   const includes = screen.getByRole("heading", { name: "一口价包含" }).closest("section") as HTMLElement;
-  assert.ok(within(includes).getByText("超公里、超时已按预计行程算进价格，只有当天超出预计的部分服务后按实际收取：先通知您，48 小时内可以在订单页提异议。"));
+  assert.ok(within(includes).getByText("超公里已按预计行程算进价格；用时超出套餐、或当天超出预计的部分，服务后按实际收取：先通知您，48 小时内可以在订单页提异议。"));
   assert.doesNotMatch(includes.textContent ?? "", /超出套餐的时长和公里/);
 
   await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
@@ -463,6 +463,34 @@ test("M9P-04：两个车型自动档不同（用例 10：车型1 5 小时、车�
     await actor.click(within(await card("车型2")).getByRole("button", { pressed: false }));
     await actor.click(screen.getByRole("button", { name: "上一步" }));
     await waitFor(async () => assert.deepEqual(await options(), [["", "自动（4 小时）"], ["5", "5 小时"], ["6", "6 小时"], ["8", "8 小时"]]), SLOW);
+  } finally {
+    packageHours = [8];
+  }
+});
+
+test("M9P-04：不填经停点、选的时长低于另一车型的最低套餐——写「有一个车型最短 10 小时」并给「改选 10 小时」，点了按 10 小时重新询价", async () => {
+  wideScreen();
+  packageHours = [8, 10];
+  const answer = (body: Record<string, unknown>): SiteQuoteResult =>
+    body["package_hours"] === 10
+      ? { currency: "JPY", quotes: [quoteOf(1, 99_000, [{ kind: "base", amount: yen(99_000), area_name: null, stop_seqs: null }]), quoteOf(2, 110_000, [{ kind: "base", amount: yen(110_000), area_name: null, stop_seqs: null }])], unavailable: [] }
+      : { ...plainResult, unavailable: [{ vehicle_group_id: "33333333-3333-4333-8333-333333333302", reasons: ["PACKAGE_TOO_SHORT"], min_package_hours: 10 }] };
+  try {
+    const calls = open((call) => json(200, answer(call.body as Record<string, unknown>)));
+    const actor = user();
+    await waitFor(() => assert.ok([...(screen.getByLabelText(/^包车时长/) as HTMLSelectElement).options].some((option) => option.value === "8")), SLOW);
+    await waitFor(async () => {
+      await actor.selectOptions(screen.getByLabelText(/^包车时长/), "8");
+      assert.equal((quotes(calls).at(-1) as Record<string, unknown> | undefined)?.["package_hours"], 8);
+    }, SLOW);
+    const next = screen.queryByRole("button", { name: "下一步：选择车型" });
+    if (next !== null) await actor.click(next);
+    await waitFor(() => assert.match(document.querySelector("main")?.textContent ?? "", /有一个车型最短 10 小时，选 8 小时订不了。/), SLOW);
+    assert.equal((quotes(calls).at(-1) as Record<string, unknown>)["package_hours"], 8);
+    await actor.click(screen.getByRole("button", { name: "改选 10 小时" }));
+    await waitFor(() => assert.equal((quotes(calls).at(-1) as Record<string, unknown>)["package_hours"], 10), SLOW);
+    await waitFor(() => assert.match(document.querySelector("main")?.textContent ?? "", /110,000 JPY/), SLOW);
+    assertAbsent(screen.queryByText(/最短 10 小时/));
   } finally {
     packageHours = [8];
   }

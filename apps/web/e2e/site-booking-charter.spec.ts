@@ -149,6 +149,8 @@ test("新预订页包车：下车地点必填（旧链接只有上车地点时�
   await expect(summary).toContainText(`下车地点${trip.station.name}`);
   // M9P-04（P0 验收后续 A，取代 M8-19「不写加价金额」）：不填经停点也逐项列明细——套餐、下车加价（区域名），合计就是这个价
   await expect(summary.getByLabel("价格明细").locator(".price-breakdown__row")).toHaveText([/^包车套餐 8 小时77,000 JPY$/, /^下车加价（加价区域 [A-Za-z]+）1,100 JPY$/, "合计78,100 JPY"]);
+  // 规则 4：页面上只有对外价（77,000 / 1,100 / 78,100），没有结算价（套餐 70,000、合计 71,000、下车加价 1,000、上车加价 500）
+  await expect(page.locator("main")).not.toContainText(/70,000|71,000|(?<![\d,])1,000 JPY|(?<![\d,])500 JPY/);
   await expectNarrowAndAccessible(page, "新预订页包车第 3 步（摘要条：含区域加价）");
 
   // 电脑 1280：下车地点在商品区域里 → 77,000，不写含区域加价
