@@ -148,6 +148,8 @@ test("当前顺序报出价后申请一次建议：带当前报价编号、每�
   assert.ok(within(block).getByText("1 京王广场酒店 → 2 河口湖 → 3 横滨 → 4 箱根 → 5 新宿站"));
   assert.ok(within(block).getByText("1 京王广场酒店 → 2 横滨 → 3 箱根 → 4 河口湖 → 5 新宿站"));
   assert.ok(within(block).getByRole("button", { name: "采用建议顺序" }));
+  // 读屏播报一次（同一组点只播一次）
+  await waitFor(() => assert.ok([...document.querySelectorAll("p.visually-hidden[role=status]")].some((node) => node.textContent === "建议顺序，可省 80 公里、1 小时 20 分、5,000 JPY")));
 });
 
 test("采用：按标识重排、直接用建议报价（不再多询一次价）；焦点到行程标题、播报新顺序；之后能恢复原来的顺序；排成建议顺序后建议块收起", async () => {

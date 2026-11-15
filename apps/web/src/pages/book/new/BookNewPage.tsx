@@ -81,7 +81,7 @@ import { MANUAL_QUOTE_CHARTER_HOURS, type ManualQuoteTripDraft } from "../../../
 import { ITINERARY_NOTE, type WaypointDraft, autoPackageChoice, autoPackageHoursByVehicle, breakdownLines, upgradePackageHours, durationText, itineraryMapAlt, itineraryMapPoints, itineraryPackageHours, itineraryRouteFailureText, itineraryText, minPackageHints, scheduleRows, waypointErrors, waypointUnavailableTexts, waypointsBody } from "../../../lib/charter-itinerary.ts";
 import { TripStops } from "../../../components/TripStops.tsx";
 import { itineraryCopy } from "../../../lib/itinerary-texts.ts";
-import { type LiveSuggestion, liveSuggestion, orderChain, stopSetKey, suggestionQuoteExpired } from "../../../lib/order-suggestion.ts";
+import { type LiveSuggestion, liveSuggestion, orderChain, stopSetKey, suggestionQuoteExpired, suggestionTitle } from "../../../lib/order-suggestion.ts";
 import { ADDRESS_ONLY_HINT, DRAFT_EXPIRED_TEXT, DRAFT_FAILED_TEXT, draftReadyToQuote, draftTrip } from "../../../lib/booking-draft.ts";
 import { ManualQuoteBlock } from "../ManualQuote.tsx";
 import { siteFailureText, useSiteConfig } from "../SiteLayout.tsx";
@@ -568,6 +568,14 @@ export function BookNewPage() {
     setSuggestionNotice(itineraryCopy("suggestRestored"));
     focusItinerary.current = true;
   };
+  // 建议块出现时播报一次（同一组点只播一次，ADR 0096 第三节第 7 小节）
+  const announcedFor = useRef<string | null>(null);
+  const announceKey = live.visible && !live.pending && suggestBody !== null ? stopSetKey(suggestBody) : null;
+  useEffect(() => {
+    if (announceKey === null || announcedFor.current === announceKey || suggestionData === null || !live.visible) return;
+    announcedFor.current = announceKey;
+    setSuggestionNotice(suggestionTitle(live, suggestionData));
+  });
   const restoreShown = adoptedFrom !== null && suggestBody !== null && adoptedFrom.stopKey === stopSetKey(suggestBody);
   const suggestionBlock =
     suggestionData !== null && live.visible && draft.from !== null && draft.to !== null ? (
