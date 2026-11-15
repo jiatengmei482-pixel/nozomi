@@ -488,7 +488,7 @@ export type SiteTrip =
   | { category: "point_to_point"; pickup: Point; dropoff: Point }
   /**
    * 包车：上车点、下车点的坐标、套餐时长（小时）。下车点暂时可以不给（ADR 0073，M8-13 改为必填）：不给时只报没设区域加价的商品。
-   * `waypoints`：有序的经停点（ADR 0088，最多 10 个）；不给或空 = 没有。
+   * `waypoints`：有序的经停点（ADR 0088，最多 `QUOTE_RULES.maxWaypoints` 个）；不给或空 = 没有。
    * `charterSelection`（ADR 0093 第四节）：不给 = 客人自选时长（`manual`）；按行程计价时由 `itineraryQuotes` 给 `auto`（`packageHours` 为 null）或 `manual`
    */
   | { category: "charter"; pickup: Point; dropoff: Point | null; packageHours: number | null; waypoints?: SiteWaypoint[]; routeUsage?: RouteUsage; charterSelection?: "auto" | "manual" }

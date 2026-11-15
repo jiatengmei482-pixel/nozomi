@@ -151,6 +151,9 @@ export interface CharterItineraryBody {
   buffer_minutes?: number;
   min_package_hours?: number | null;
   max_online_minutes?: number;
+  /** 超限提醒线（M9P-10）：预计用时（分钟）、全程（公里） */
+  warn_minutes?: number;
+  warn_km?: number;
 }
 
 export interface ProductServiceRules {
