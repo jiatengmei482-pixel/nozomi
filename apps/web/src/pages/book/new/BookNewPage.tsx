@@ -16,6 +16,7 @@
  * 同一份组件也是嵌入预订页 `/embed/book` 的四步（M9E-17，ADR 0095）：两边不同的几处（外壳、单栏、不用 Leaflet、读草稿、下单后去哪、换步通知）
  * 由 `BookingShell` 上下文给（booking-shell.tsx），默认值就是主站的行为。
  */
+import { charterAirportText, quoteScenario } from "../../../lib/charter-airport-copy.ts";
 import { type CityCandidate, type CurrencyCode, ORDER_FIELD_LIMITS, fixedPriceIncludes, fixedPriceIncludesTitle, fixedPriceLabel, isInternationalPhone, serviceCityOf } from "@nozomi/domain";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
@@ -1151,6 +1152,7 @@ export function BookNewPage() {
         headingRef={contactHeading}
         riderErrors={riderErrors}
         {...(flightFields ? { extra: flightFields } : {})}
+        {...(charter && priced !== null && quoteScenario(priced) !== null ? { notesHint: charterAirportText("book.notes.flightHint") } : {})}
         actions={
           <div className="book-new__actions">
             <Button size="lg" onClick={() => goStep(2)}>

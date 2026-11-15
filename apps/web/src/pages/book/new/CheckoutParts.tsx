@@ -184,6 +184,7 @@ export function ContactSection({
   actions,
   headingRef,
   riderErrors = {},
+  notesHint,
 }: {
   form: ContactForm;
   errors: OrderErrors;
@@ -197,6 +198,8 @@ export function ContactSection({
   headingRef?: Ref<HTMLHeadingElement>;
   /** 为他人预订时乘车人两栏的校验结果 */
   riderErrors?: Partial<Record<"riderName" | "riderPhone", string>>;
+  /** 备注框下面的提示（包车机场场景：「如需司机知道航班号，请填在这里」，ADR 0098 第三节第 6 小节） */
+  notesHint?: string;
 }) {
   return (
     <section aria-labelledby="book-contact-title" className="site-section book-new__contact">
@@ -238,7 +241,12 @@ export function ContactSection({
           <label className="field__label" htmlFor="book-notes">
             给司机的备注（选填）
           </label>
-          <textarea id="book-notes" className="input textarea" rows={3} maxLength={ORDER_FIELD_LIMITS.notesMax} value={form.notes} aria-invalid={errors.notes ? true : undefined} aria-describedby={errors.notes ? "book-notes-error" : undefined} onChange={(event) => onChange({ notes: event.target.value })} />
+          <textarea id="book-notes" className="input textarea" rows={3} maxLength={ORDER_FIELD_LIMITS.notesMax} value={form.notes} aria-invalid={errors.notes ? true : undefined} aria-describedby={[errors.notes ? "book-notes-error" : null, notesHint !== undefined ? "book-notes-hint" : null].filter((id) => id !== null).join(" ") || undefined} onChange={(event) => onChange({ notes: event.target.value })} />
+          {notesHint !== undefined && (
+            <p className="field__hint" id="book-notes-hint">
+              {notesHint}
+            </p>
+          )}
           {errors.notes && (
             <p className="field__error" id="book-notes-error">
               <Icon name="alert-triangle" className="field__error-icon" />
