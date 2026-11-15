@@ -101,7 +101,7 @@ async function setItinerary(who: TenantFixture, productId: string, itinerary: Re
   api.clock.advance(31_000);
   return res;
 }
-const DEFAULTS = { dropoff_itinerary_surcharge: true, stop_occupancy_minutes: 0, buffer_minutes: 0, min_package_hours: null, max_online_minutes: 780, warn_minutes: 720, warn_km: 360 };
+const DEFAULTS = { dropoff_itinerary_surcharge: true, stop_occupancy_minutes: 0, buffer_minutes: 0, min_package_hours: null, max_online_minutes: 780, warn_minutes: 720, warn_km: 360, suggest_stop_order: true };
 const RESET = { stop_occupancy_minutes: 0, buffer_minutes: 0, warn_minutes: 720, warn_km: 360 };
 
 /** 官网按行程计价：新宿 → 经停（各停 `stay` 分钟）→ 新宿 */
