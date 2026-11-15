@@ -30547,7 +30547,7 @@ components:
           description: 包车按行程计价：T 含不含经停点默认占用或整单缓冲（true 时页面写「（含缓冲）」）。别的报价为 null
         auto_package_hours:
           type: [ integer, "null" ]
-          description: 包车按行程计价：这个车型自动选的套餐（小时）；手动升档时是自动会选的那一档（页面套餐下拉只列不短于它的）。别的报价为 null
+          description: 包车按行程计价：这个车型自动选的套餐（小时）；手动升档时是同一行程不带 `package_hours` 自动询价时这个车型中标的档（按比价口径，M9P-15；页面套餐下拉只列不短于它的），自动询价报不出时为 null。别的报价为 null
     SiteItineraryRoute:
       type: object
       additionalProperties: false
