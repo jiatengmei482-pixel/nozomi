@@ -28,7 +28,8 @@ export function draftRequestKey(body: SiteQuoteRequest): string {
     service_local: body.service_local,
     passengers: body.passengers,
     luggage: body.luggage,
-    addons: body.addons ?? [],
+    // 和服务器一样：没写数量按 1（site.ts 的 addons 校验 default(1)），请求键才对得上
+    addons: (body.addons ?? []).map((addon) => ({ addon_id: addon.addon_id, quantity: addon.quantity ?? 1 })),
     package_hours: body.package_hours ?? null,
   });
 }
