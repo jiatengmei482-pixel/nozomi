@@ -66,6 +66,8 @@ function tripJson(view: TripView): Record<string, unknown> {
       addons: order.addons.map((addon) => ({ addon_id: addon.addonId, quantity: addon.quantity, name: view.addonNames.get(addon.addonId) ?? null })),
       driver_language: order.driverLanguage,
       free_wait_minutes: order.freeWaitMinutes,
+      // 包车机场开始 / 机场结束（M9P-22，ADR 0098）：场景和机场名，不含任何价格；没有场景为 null
+      charter_scenario: order.settlement.charterScenario === undefined ? null : { kind: order.settlement.charterScenario.kind, airport_name: order.settlement.charterScenario.name },
     },
     next_event: nextEventJson(order),
     pending_change: view.pendingChangeFields === null ? null : { fields: view.pendingChangeFields },

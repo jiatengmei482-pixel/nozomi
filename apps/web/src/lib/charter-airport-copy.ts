@@ -32,8 +32,8 @@ export function charterAirportText(key: CharterAirportCopyKey, vars: Readonly<Re
 
 type Scenario = NonNullable<SitePriceBreakdownItem["scenario"]>;
 
-/** 套餐行的场景名：「成田机场接机 + 5 小时包车」「5 小时包车 + 羽田机场送机」 */
-export function scenarioPackageLabel(scenario: Scenario, hours: number): string {
+/** 套餐行的场景名：「成田机场接机 + 5 小时包车」「5 小时包车 + 羽田机场送机」（官网明细、司机页共用） */
+export function scenarioPackageLabel(scenario: Pick<Scenario, "kind" | "airport_name">, hours: number): string {
   return charterAirportText(scenario.kind === "airport_start" ? "charter.scenario.airportStart" : "charter.scenario.airportEnd", { airport: scenario.airport_name, hours });
 }
 

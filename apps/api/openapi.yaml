@@ -29123,6 +29123,19 @@ components:
               type: [ string, "null" ]
             free_wait_minutes:
               type: [ integer, "null" ]
+            charter_scenario:
+              description: 包车机场开始 / 机场结束（M9P-22，ADR 0098）：场景和机场名，没有价格；没有场景为 null
+              oneOf:
+                - type: "null"
+                - type: object
+                  additionalProperties: false
+                  required: [ kind, airport_name ]
+                  properties:
+                    kind:
+                      type: string
+                      enum: [ airport_start, airport_end ]
+                    airport_name:
+                      type: string
         driver:
           oneOf:
             - type: object
