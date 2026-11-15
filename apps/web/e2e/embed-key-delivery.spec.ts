@@ -7,7 +7,7 @@
  */
 import { type Locator, type Page, expect, test } from "@playwright/test";
 import { expectAccessible } from "./catalog.ts";
-import { adminCredentials, expectNoHorizontalOverflow, loginAs, randomLetters, snapshot } from "./support.ts";
+import { adminCredentials, expectNoHorizontalOverflow, loginAs, randomLetters, settleAnimations, snapshot } from "./support.ts";
 
 /** 两种宽度不横向滚动，亮暗两色 axe 都是 0，留图 */
 async function checkCard(page: Page, card: Locator, what: string, shot: string): Promise<void> {
@@ -19,9 +19,16 @@ async function checkCard(page: Page, card: Locator, what: string, shot: string):
       await page.emulateMedia({ colorScheme: scheme });
       await expectAccessible(page, `${what}（${width}px，${scheme === "light" ? "亮色" : "暗色"}）`);
       if (width === 1280) await snapshot(page, `${shot}-${scheme}`);
-      // 整张卡片一张图（页面图只截到一屏）
-      const dir = process.env["E2E_SCREENSHOT_DIR"];
-      if (dir && width === 1280) await card.screenshot({ path: `${dir}/${shot}-${scheme}-card.png` });
+    }
+  }
+  // 整张卡片一张图（页面图只截到一屏）：窗口拉高到放得下整张卡片，顶栏不压在卡片上
+  const dir = process.env["E2E_SCREENSHOT_DIR"];
+  if (dir) {
+    await page.setViewportSize({ width: 1280, height: 2000 });
+    for (const scheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme: scheme });
+      await settleAnimations(page);
+      await card.screenshot({ path: `${dir}/${shot}-${scheme}-card.png` });
     }
   }
   await page.emulateMedia({ colorScheme: "light" });

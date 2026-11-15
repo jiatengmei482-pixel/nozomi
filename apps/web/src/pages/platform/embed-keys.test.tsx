@@ -277,7 +277,7 @@ test("表单的预订页地址（M9E-26）：有标签和说明；新建时填�
   await actor.click(await screen.findByRole("button", { name: "新建嵌入码" }));
   const field = screen.getByLabelText("预订页地址（选填）") as HTMLInputElement;
   assert.equal(field.type, "url");
-  assert.match(field.getAttribute("aria-describedby") === null ? "" : (document.getElementById(field.getAttribute("aria-describedby") ?? "")?.textContent ?? ""), /https:\/\/embed-demo\.moveglobal\.io\/booking\//, "说明里有示例地址");
+  assert.match(field.getAttribute("aria-describedby") === null ? "" : (document.getElementById(field.getAttribute("aria-describedby") ?? "")?.textContent ?? ""), /以 https 开头.*「允许的网站」/, "说明里写清规则");
   await actor.type(screen.getByLabelText(/^名称/), "MoveGlobal 演示站");
   await actor.type(screen.getByLabelText(/^允许的网站/), DEMO);
   await actor.click(screen.getByRole("radio", { name: "允许（预订流程嵌在合作网站页面里）" }));

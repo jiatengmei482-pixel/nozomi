@@ -46,7 +46,7 @@ const SERVICE_OPTIONS = (["transfer", "charter"] as const).map((value) => ({ val
 const ORIGINS_HINT = "一行一个合作网站的地址，以 https 开头、只写到域名（可带端口），不带路径；不支持 *。最多 20 个。";
 const CSP_NOTE = "合作网站如果设了内容安全策略（CSP），要在 script-src 和 connect-src 里放行主站域名，否则组件加载不出来。";
 const CSP_NOTE_TWO = "合作网站如果设了内容安全策略（CSP），要在 script-src、connect-src 和 frame-src 里放行主站域名，否则组件和预订程序加载不出来。";
-const BOOKING_URL_HINT = "合作网站自己的预订页完整地址，如 https://embed-demo.moveglobal.io/booking/。要以 https 开头，并且是上面「允许的网站」里某个网站下的页面。填了并选「允许」整页嵌入后，会生成两段代码。";
+const BOOKING_URL_HINT = "合作网站自己的预订页完整地址（如合作网站的 /booking/ 页）：要以 https 开头，并且是上面「允许的网站」里某个网站下的页面。填了并选「允许」整页嵌入后，会生成两段代码。";
 /** 两段代码的说明（M9E-26）：各一句，写给合作网站的人看 */
 export const ENTRY_NOTE = "放在任何页面（首页、文章页等），客人填好行程后会跳到你的预订页。";
 export const ENTRY_NOTE_REDIRECT = "放在任何页面（首页、文章页等），客人填好行程后跳到 NOZOMI 主站完成预订。";
@@ -90,7 +90,7 @@ type FieldErrors = Partial<Record<"name" | "origins" | "services" | "bookingUrl"
 
 const BOOKING_URL_ERRORS: Readonly<Record<string, string>> = {
   OUT_OF_RANGE: "预订页地址最多 2,000 个字符",
-  INVALID: "写法不对：要写完整的 https 地址，如 https://example.com/booking/",
+  INVALID: "写法不对：要写以 https 开头的完整地址（域名加路径，如 /booking/）",
   NOT_ALLOWED_ORIGIN: "这个地址的网站不在「允许的网站」里：协议、域名、端口要和其中一项完全一样。改了允许的网站时，请一起改这里或清空",
 };
 
@@ -158,7 +158,6 @@ function KeyForm({ initial, submitLabel, onSubmit, onCancel }: { initial: EmbedK
         spellCheck={false}
         maxLength={2_000}
         value={draft.bookingUrl}
-        placeholder="https://"
         errors={errors.bookingUrl === undefined ? [] : [errors.bookingUrl]}
         hint={BOOKING_URL_HINT}
         onChange={(event) => setDraft({ ...draft, bookingUrl: event.target.value })}
