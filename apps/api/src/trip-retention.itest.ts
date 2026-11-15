@@ -49,7 +49,11 @@ test("清理任务只删 readable_until 已过的行程单，方案、段、费�
   const expired = await insertTrip(-60_000, true);
   const atEdge = await insertTrip(0);
   const fresh = await insertTrip(3_600_000, true);
+  // 一条已过期的预订草稿：行程单清理不能碰它（它归预订草稿自己的清理任务管）
+  const now = api.clock.now();
+  await api.db.owner.query("insert into booking_drafts (id, content, created_at, expires_at) values ($1, '{}'::jsonb, $2, $3)", ["D".repeat(43), new Date(now.getTime() - 3 * 3_600_000), new Date(now.getTime() - 3_600_000)]);
   const draftsBefore = await count("select count(*) as n from booking_drafts");
+  assert.equal(draftsBefore >= 1, true);
   const first = await api.app.tripRetention.tick();
   // readable_until 正好是现在的也删（GET 用 readable_until > now，到点就读不到了）
   assert.deepEqual(first, { deleted: 2, batches: 1, busy: false });
@@ -57,9 +61,13 @@ test("清理任务只删 readable_until 已过的行程单，方案、段、费�
   assert.deepEqual(left.rows.map((row) => row.id), [fresh]);
   assert.equal(await count("select count(*) as n from trip_plans where trip_id = any($1)", [[expired, atEdge]]), 0);
   assert.equal(await count("select count(*) as n from trip_fees where trip_id = any($1)", [[expired, atEdge]]), 0);
+  assert.equal(await count("select count(*) as n from trip_segments s where not exists (select 1 from trip_plans p where p.id = s.plan_id)"), 0);
+  assert.equal(await count("select count(*) as n from trip_segments s join trip_plans p on p.id = s.plan_id where p.trip_id = $1", [expired]), 0);
   assert.equal(await count("select count(*) as n from trip_segments s join trip_plans p on p.id = s.plan_id where p.trip_id = $1", [fresh]), 1);
   assert.equal(await count("select count(*) as n from trip_fees where trip_id = $1", [fresh]), 1);
   assert.equal(await count("select count(*) as n from booking_drafts"), draftsBefore);
+  // 被行程单外键引用的渠道照留
+  assert.equal(await count("select count(*) as n from channels where id = $1", [channelId]), 1);
   assert.deepEqual(await api.app.tripRetention.tick(), { deleted: 0, batches: 1, busy: false });
   // 过了一小时，原来没到期的也到期了
   api.clock.advance(3_600_001);
