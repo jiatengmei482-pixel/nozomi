@@ -13,6 +13,14 @@ export const CHARTER_AIRPORT_COPY = {
   "book.charter.quickExit": "改填其他地点",
   "book.notes.flightHint": "如需司机知道航班号，请填在这里",
   "book.charter.airportTimingHint": "包车从预约的上车时间开始计时，没有免费等待；航班可能延误时请预留时间，或下单前联系客服",
+  "order.charterScenario.airportStart": "{airport}接机",
+  "order.charterScenario.airportEnd": "{airport}送机",
+  "order.charterScenario.own": "单独定价，已含{end}加价",
+  "order.charterScenario.inherit": "继承普通套餐价",
+  "order.charterScenario.line": "机场套餐：{what}（{how}）",
+  "order.charterScenario.endPickup": "上车",
+  "order.charterScenario.endDropoff": "下车",
+  "order.charterScenario.included": "含在机场套餐里，不另加",
 } as const;
 
 export type CharterAirportCopyKey = keyof typeof CHARTER_AIRPORT_COPY;
