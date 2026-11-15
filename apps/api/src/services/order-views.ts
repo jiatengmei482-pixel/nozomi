@@ -137,13 +137,17 @@ export function settlementAreaSurchargeJson(order: Order): Json | null {
 }
 
 /** 同上，给任意一份结算价明细用（救援的候选报价和订单的 `settlement` 同一个格式）。 */
-export function areaSurchargeMoneyJson(settlement: Pick<Order["settlement"], "areaSurcharge">, currency: Order["settlementCurrency"]): Json | null {
+export function areaSurchargeMoneyJson(settlement: Pick<Order["settlement"], "areaSurcharge" | "charterScenario">, currency: Order["settlementCurrency"]): Json | null {
   const surcharge = settlement.areaSurcharge ?? null;
   if (surcharge === null) return null;
   const money = (minor: number): Json => salesMoney(minor, currency);
-  const end = (entry: typeof surcharge.pickup): Json => ({ area_id: entry.areaId, amount: money(entry.amountMinor) });
-  const waypoints = surcharge.waypoints === undefined ? {} : { waypoints: surcharge.waypoints.map((entry) => ({ area_id: entry.areaId, amount: money(entry.amountMinor), stop_seqs: entry.stopSeqs, ...(entry.fromDropoff === true ? { from_dropoff: true } : {}) })) };
-  return { package: money(surcharge.packageMinor), pickup: end(surcharge.pickup), dropoff: end(surcharge.dropoff), ...waypoints };
+  // 机场套餐（M9P-21，ADR 0098）：免掉的项带 `included_in_package: true`，另有 `charter_scenario`
+  const included = (entry: { includedInPackage?: true }): Json => (entry.includedInPackage === true ? { included_in_package: true } : {});
+  const end = (entry: typeof surcharge.pickup): Json => ({ area_id: entry.areaId, amount: money(entry.amountMinor), ...included(entry) });
+  const waypoints = surcharge.waypoints === undefined ? {} : { waypoints: surcharge.waypoints.map((entry) => ({ area_id: entry.areaId, amount: money(entry.amountMinor), stop_seqs: entry.stopSeqs, ...(entry.fromDropoff === true ? { from_dropoff: true } : {}), ...included(entry) })) };
+  const scenario = settlement.charterScenario;
+  const charterScenario = scenario === undefined ? {} : { charter_scenario: { kind: scenario.kind, airport_id: scenario.placeId, airport_name: scenario.name, pricing: scenario.pricing } };
+  return { package: money(surcharge.packageMinor), pickup: end(surcharge.pickup), dropoff: end(surcharge.dropoff), ...waypoints, ...charterScenario };
 }
 
 /**

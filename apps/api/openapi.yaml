@@ -20662,6 +20662,23 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/QuoteAreaSurchargeWaypoint"
+        charter_scenario:
+          description: 包车机场开始 / 机场结束（M9P-21，ADR 0098）：匹配到的场景；`pricing` 是单独定价（`own`）还是继承（`inherit`）。没有场景时没有这一项
+          type: object
+          additionalProperties: false
+          required: [ kind, airport_id, airport_name, pricing ]
+          properties:
+            kind:
+              type: string
+              enum: [ airport_start, airport_end ]
+            airport_id:
+              type: string
+              format: uuid
+            airport_name:
+              type: string
+            pricing:
+              type: string
+              enum: [ own, inherit ]
     QuoteAreaSurchargeWaypoint:
       type: object
       additionalProperties: false
@@ -20685,6 +20702,10 @@ components:
           type: boolean
           enum: [ true ]
           description: 下车点行程加价（M9P-01，ADR 0093 第二节第 4 小节）：没有市外经停、下车点在这个区域里，算作一次经停收的；只有这一项带这个键，`stop_seqs` 为空
+        included_in_package:
+          type: boolean
+          enum: [ true ]
+          description: 机场套餐单独定价时含在套餐里、免掉的这一项（金额 0，M9P-21，ADR 0098）
     QuoteAreaSurchargeEnd:
       type: object
       additionalProperties: false
@@ -20700,6 +20721,10 @@ components:
         amount:
           type: integer
           minimum: 0
+        included_in_package:
+          type: boolean
+          enum: [ true ]
+          description: 机场套餐单独定价时含在套餐里、免掉的这一项（金额 0，M9P-21，ADR 0098）
     QuoteOffer:
       type: object
       additionalProperties: false
@@ -26693,10 +26718,31 @@ components:
                         items:
                           type: integer
                           minimum: 1
+                      included_in_package:
+                        type: boolean
+                        enum: [ true ]
+                        description: 机场套餐单独定价时含在套餐里、免掉的这一项（金额 0，M9P-21，ADR 0098）
                       from_dropoff:
                         type: boolean
                         enum: [ true ]
                         description: 下车点行程加价（M9P-01，ADR 0093 第二节第 4 小节）：没有市外经停、下车点在这个区域里，算作一次经停收的；只有这一项带这个键，`stop_seqs` 为空
+                charter_scenario:
+                  description: 包车机场开始 / 机场结束（M9P-21，ADR 0098）：匹配到的场景；`pricing` 是单独定价（`own`）还是继承（`inherit`）。没有场景时没有这一项
+                  type: object
+                  additionalProperties: false
+                  required: [ kind, airport_id, airport_name, pricing ]
+                  properties:
+                    kind:
+                      type: string
+                      enum: [ airport_start, airport_end ]
+                    airport_id:
+                      type: string
+                      format: uuid
+                    airport_name:
+                      type: string
+                    pricing:
+                      type: string
+                      enum: [ own, inherit ]
             - type: "null"
         total:
           $ref: "#/components/schemas/SalesMoney"
@@ -26755,6 +26801,10 @@ components:
           format: uuid
         amount:
           $ref: "#/components/schemas/SalesMoney"
+        included_in_package:
+          type: boolean
+          enum: [ true ]
+          description: 机场套餐单独定价时含在套餐里、免掉的这一项（金额 0，M9P-21，ADR 0098）
     OrderAreaSurcharge:
       type: object
       additionalProperties: false

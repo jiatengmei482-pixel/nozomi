@@ -162,7 +162,9 @@ export async function putCharterAirports(ctx: DbContext, writer: ProductWriter, 
     const rows: CharterAirportBindingRow[] = AIRPORT_SCENARIO_KINDS.flatMap((scenario) =>
       inputs.filter((input) => input.scenario === scenario).map((input, position) => ({ scenario, placeId: input.placeId, areaId: input.areaId, shortNameZh: input.shortNameZh, position })),
     );
-    if (isDeepStrictEqual(rows, before)) return view(db, tenantId, productId, product.version);
+    // 比较前统一按场景、先后排（读出来的按 scenario 字母序，新的一组按机场开始在前；#261 审查建议 1）
+    const ordered = (list: readonly CharterAirportBindingRow[]): CharterAirportBindingRow[] => [...list].sort((a, b) => a.scenario.localeCompare(b.scenario) || a.position - b.position);
+    if (isDeepStrictEqual(ordered(rows), ordered(before))) return view(db, tenantId, productId, product.version);
     await replaceCharterAirportBindings(db, tenantId, productId, rows, now);
     const updated = await updateProductRow(db, tenantId, productId, {}, now);
     const auditRows = (list: readonly CharterAirportBindingRow[]): AuditValue => list.map((row) => ({ scenario: row.scenario, place_id: row.placeId, area_id: row.areaId, short_name_zh: row.shortNameZh }));
