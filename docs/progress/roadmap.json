@@ -1677,7 +1677,7 @@
           "role": "backend",
           "status": "review",
           "acceptance": ["GET /platform/v1/reports/area-role-preview 加可选参数，打开时逐行返回（询价编号、商品编码、差异类别、前后金额），不打开时应答和现在一字不差","差异类别按 ADR 0093 第六节第 5 小节的分类给出，前后金额来自两次回放的同一行","逐行明细只在平台运营接口返回；Actions 只读核对的公开计数摘要仍只带计数和摘要值，不带逐行明细和价格（仓库公开）","单元和集成测试：打开 / 不打开两种应答、类别判定、与 resultDigest 逐行摘要对得上","独立审查、合并、部署后测试站跑一次"],
-          "evidence": "PR（见日志）：GET /platform/v1/reports/area-role-preview 加可选 rows=true，replay 多一项 resultRows（询价编号、商品编码、和 resultLineDigests 同一个 digest、各车型组的档 / 结算价 / 超时费 / 加价拆项），不带时应答一字不差；pnpm replay:classify 前.json 后.json 按 ADR 0093 第六节第 5 小节归类（加价 1/2/9/10、超时费 4、选档 5/7、套餐价 8、13 小时 12、未归类），输出前后金额，有未归类退出码 1。只读核对工作流不带 rows，公开产物不变。新增单元 4 条、集成 1 条；相关集成 14 条全过。",
+          "evidence": "PR #266（https://github.com/jiatengmei482-pixel/nozomi/pull/266）：GET /platform/v1/reports/area-role-preview 加可选 rows=true，replay 多一项 resultRows（询价编号、商品编码、和 resultLineDigests 同一个 digest、各车型组的档 / 结算价 / 超时费 / 加价拆项），不带时应答一字不差；pnpm replay:classify 前.json 后.json 按 ADR 0093 第六节第 5 小节归类（加价 1/2/9/10、超时费 4、选档 5/7、套餐价 8、13 小时 12、未归类），输出前后金额，有未归类退出码 1。只读核对工作流不带 rows，公开产物不变。新增单元 4 条、集成 1 条；相关集成 14 条全过。",
           "updated": "2026-11-15"
         },
         {
@@ -3238,6 +3238,11 @@
       "date": "2026-11-14",
       "by": "frontend",
       "summary": "M9P-04 开发（PR #248）：官网预订页价格明细套餐下面写「预计用时 X 小时 Y 分钟（含缓冲）」，按套餐、上车加价、下车加价、行程加价（区域名、第几个经停点 / 下车点）逐项列，不填经停点也列；有经停点时套餐下拉的「自动（N 小时）」按客人选的车型；供应商后台服务规则页加经停点默认占用、整单缓冲、最低套餐（建议值灰字、不预填）和「下车点行程加价」开关；运营后台救援页写出救援差价基准。报价结果、主站请求体都没变。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "backend",
+      "summary": "M9P-14 开 PR #266：只读回放可以带 rows=true 取逐行明细，部署前后各取一次后用 pnpm replay:classify 把差异按 ADR 0093 第六节第 5 小节归类（加价、超时费、选档、套餐价、超长不报、未归类），给出前后金额；不带参数时应答不变，公开核对产物不变。"
     }
   ]
 }
