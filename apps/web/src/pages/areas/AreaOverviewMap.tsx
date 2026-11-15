@@ -43,6 +43,8 @@ export interface AreaOverviewMapProps {
   marker: OverviewMarker | null;
   /** 报价区域超出运营区域的部分（M8-20）：警告色斜线；没有时不画、图例里不列 */
   outside?: readonly AreaOverlapPiece[];
+  /** 包车三层区域里不允许的重叠（M9P-13，按商品和层筛选时）：标红；不给 = 不画、图例里不列 */
+  conflicts?: readonly AreaOverlapPiece[] | null;
   /** 运营后台「未覆盖需求」图层（M8-20）：给了就画、图例里列出；`null` / 不给 = 图层关着 */
   demands?: readonly DemandMapPoint[] | null;
   /** 地图的名字（读屏） */
@@ -101,7 +103,7 @@ export function demandAt(points: readonly DemandMapPoint[], at: Pixel, project: 
 
 const isOperating = (area: OverviewArea): boolean => area.role === "operating";
 
-export function AreaOverviewMap({ tiles, areas, selected, onSelect, overlaps, showOverlaps, focusSignal, marker, outside, demands = null, label = "区域地图", surfaceFactory = createLeafletSurface }: AreaOverviewMapProps) {
+export function AreaOverviewMap({ tiles, areas, selected, onSelect, overlaps, showOverlaps, focusSignal, marker, outside, conflicts = null, demands = null, label = "区域地图", surfaceFactory = createLeafletSurface }: AreaOverviewMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const clipPrefix = `overview-clip-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
   const surfaceRef = useRef<MapSurface | null>(null);
@@ -187,6 +189,8 @@ export function AreaOverviewMap({ tiles, areas, selected, onSelect, overlaps, sh
   const overlapPath = showOverlaps ? overlaps.map((piece) => path(piece.ring)).join("") : "";
   const selectedOverlapPath = showOverlaps && selected !== null ? overlaps.filter((piece) => piece.areaIds.includes(selected)).map((piece) => path(piece.ring)).join("") : "";
   const outsidePath = (outside ?? []).map((piece) => path(piece.ring)).join("");
+  const conflictPath = (conflicts ?? []).map((piece) => path(piece.ring)).join("");
+  const selectedConflictPath = selected !== null ? (conflicts ?? []).filter((piece) => piece.areaIds.includes(selected)).map((piece) => path(piece.ring)).join("") : "";
   // 图例只列画面上有的：没有运营区域时和改版前一样只有「区域」一行；没有超出的部分时不列「超出运营区域」（图例小一点，少挡地图）
   const hasOperating = areas.some(isOperating);
   const selectedOutsidePath = selected !== null ? (outside ?? []).filter((piece) => piece.areaIds.includes(selected)).map((piece) => path(piece.ring)).join("") : "";
@@ -242,6 +246,8 @@ export function AreaOverviewMap({ tiles, areas, selected, onSelect, overlaps, sh
           )}
           {selectedOutsidePath !== "" && <path className="area-outside area-outside--selected" d={selectedOutsidePath} data-outside="selected" />}
           {selectedOverlapPath !== "" && <path className="area-overlap area-overlap--selected" d={selectedOverlapPath} data-overlap="selected" />}
+          {conflictPath !== "" && <path className="area-conflict" d={conflictPath} data-conflict="all" />}
+          {selectedConflictPath !== "" && <path className="area-conflict area-conflict--selected" d={selectedConflictPath} data-conflict="selected" />}
           {ordered.map((area) => (
             <g key={`s-${area.id}`} className={`area-color--${area.slot}${area.active ? "" : " area-overview--disabled"}${isOperating(area) ? " area-overview--operating" : ""}`} data-area={area.id} data-role={area.role ?? "both"}>
               {area.polygons.map((polygon) => (
@@ -371,6 +377,16 @@ export function AreaOverviewMap({ tiles, areas, selected, onSelect, overlaps, sh
               </svg>
               <span>
                 <strong>重叠的地方</strong> 报价区域之间，取最低价
+              </span>
+            </li>
+          )}
+          {conflicts !== null && (
+            <li>
+              <svg className="legend-swatch" viewBox="0 0 24 14" aria-hidden="true">
+                <path className="area-conflict" d="M2,2H22V12H2Z" />
+              </svg>
+              <span>
+                <strong>三层区域重叠</strong> 同一个包车商品里同一层、或基础价和上下车加价区域重叠，不允许
               </span>
             </li>
           )}

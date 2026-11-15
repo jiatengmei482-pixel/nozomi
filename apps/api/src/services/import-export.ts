@@ -51,7 +51,7 @@ import { validationFailed } from "../validation.ts";
 import { versionConflict } from "./errors.ts";
 import { runIdempotent } from "./idempotency.ts";
 import { INVENTORY_ISSUE_MESSAGES, type InventoryChange, type InventoryContext, applyInventoryChanges, loadInventoryContext } from "./inventory.ts";
-import { type PriceChanges, type PriceRulesView, type PricingContext, applyPriceChanges, checkPriceChanges, loadPricingContext, samePriceRule } from "./prices.ts";
+import { type PriceChanges, type PriceRulesView, type PricingContext, applyPriceChanges, assertCharterLayers, checkPriceChanges, loadPricingContext, samePriceRule } from "./prices.ts";
 import { type ProductWriter, readTx, writeTx } from "./products.ts";
 
 export const IMPORT_LIMITS = { maxPriceRows: PRICE_LIMITS.maxBatchChanges, maxInventoryRows: INVENTORY_LIMITS.maxRangeDays } as const;
@@ -509,8 +509,16 @@ const DIRECTION_WORDS: Readonly<Record<string, PriceDirection>> = { 接机: "pic
 const MODEL_WORDS: Readonly<Record<string, PricingModel>> = { 固定一口价: "fixed", 一口价: "fixed", fixed: "fixed", "里程+时长": "mileage_time", "里程 + 时长": "mileage_time", mileage_time: "mileage_time", 包车套餐: "charter_package", charter_package: "charter_package" };
 const STATUS_WORDS: Readonly<Record<string, PriceRuleStatus>> = { 启用: "enabled", enabled: "enabled", 停用: "disabled", disabled: "disabled" };
 
+/** 读价格表的结果：`origin` 是 changes 里每一条来自哪一行；`mark` 把一行标成出错、问题记在这一行的某一列上（只有读表时才知道单元格位置） */
+interface PriceSheetRead {
+  rows: PriceImportRow[];
+  changes: PriceChanges;
+  origin: { create: PriceImportRow[]; update: PriceImportRow[] };
+  mark: (row: PriceImportRow, field: string, reason: string, message: string) => void;
+}
+
 /** 读价格表：每一行换成一条价格，再用和保存相同的检查过一遍。只读不写。 */
-function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: PriceNames): { rows: PriceImportRow[]; changes: PriceChanges } {
+function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: PriceNames): PriceSheetRead {
   const { category } = context.product;
   const currency = context.currency ?? "JPY";
   const layered = category === "charter" && context.product.charterLayout === "three_layer";
@@ -731,11 +739,66 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
       return { ...combo, row: otherRow?.row ?? null, id: otherRow ? null : (other.id ?? null), validFrom: other.valid_from, validTo: other.valid_to };
     });
   }
-  return { rows, changes };
+  const mark = (row: PriceImportRow, field: string, reason: string, message: string): void => {
+    const column = FIELD_COLUMNS[field] ?? P.id;
+    row.action = "error";
+    row.issues.push({ cell: sheet.cell(row.row - 1, column).at, column, reason, message });
+  };
+  return { rows, changes, origin, mark };
 }
 
-function pricePreview(bytes: Uint8Array, context: PricingContext, names: PriceNames): { preview: PriceImportPreview; changes: PriceChanges } {
-  const { rows, changes } = readPriceSheet(bytes, context, names);
+const LAYER_OVERLAP_CODES = new Set(["AREA_LAYER_OVERLAP", "AREA_BASE_SURCHARGE_OVERLAP"]);
+const SURCHARGE_LAYER_MODELS = ["charter_itinerary_surcharge", "charter_area_surcharge"] as const;
+interface LayerOverlapDetail {
+  code: string;
+  layer: "base" | "itinerary" | "pickup_dropoff" | "base_pickup_dropoff";
+  areas: [string, string];
+  area_ids: [string, string];
+  overlap_km2: number;
+}
+
+/**
+ * 包车三层区域的重叠（M9P-07，#247 审查建议）：预览就查，和保存同一套检查（`assertCharterLayers`）——以前只在确认导入时拦，预览说能导入、确认时报 400。
+ * 只在其余各行都没问题时查（有错的行反正导入不了）；有重叠就把「这次新加进行程加价 / 上下车加价那一层」、用到重叠区域的行标成出错，问题记在「区域」那一格。
+ */
+async function markLayerOverlaps(db: Db, tenantId: string, context: PricingContext, read: PriceSheetRead): Promise<void> {
+  if (context.product.category !== "charter" || read.rows.some((row) => row.action === "error" || row.action === "conflict")) return;
+  try {
+    await assertCharterLayers(db, tenantId, context, read.changes);
+    return;
+  } catch (err) {
+    if (!(err instanceof AppError) || !LAYER_OVERLAP_CODES.has(err.code)) throw err;
+    const overlaps = ((err.details as { overlaps?: LayerOverlapDetail[] } | undefined)?.overlaps ?? []).filter((entry) => LAYER_OVERLAP_CODES.has(entry.code));
+    const before = new Map(SURCHARGE_LAYER_MODELS.map((model) => [model, new Set(context.priceRules.flatMap((rule) => (rule.pricing.model === model && rule.areaId !== null ? [rule.areaId] : [])))]));
+    const entries = [...read.changes.create.map((entry, index) => ({ rule: entry.rule, row: read.origin.create[index] })), ...read.changes.update.map((entry, index) => ({ rule: entry.rule, row: read.origin.update[index] }))];
+    let marked = 0;
+    for (const { rule, row } of entries) {
+      const model = rule.pricing.model;
+      if (row === undefined || rule.areaId === null || (model !== "charter_itinerary_surcharge" && model !== "charter_area_surcharge") || before.get(model)?.has(rule.areaId)) continue;
+      // 按层匹配：②行程加价的行只认②层的重叠；③上下车加价的行认③层的重叠，以及①③重叠里自己是③那一边（area_ids[1]）。
+      // 不按层的话，一个区域同时在别的层里（如原来就在③、这次加进②），会被别的层的重叠连带标错
+      const areaId = rule.areaId;
+      const hit = overlaps.find((entry) =>
+        model === "charter_itinerary_surcharge" ? entry.layer === "itinerary" && entry.area_ids.includes(areaId) : (entry.layer === "pickup_dropoff" && entry.area_ids.includes(areaId)) || (entry.layer === "base_pickup_dropoff" && entry.area_ids[1] === areaId),
+      );
+      if (hit === undefined) continue;
+      const [a, b] = hit.areas;
+      const message =
+        hit.code === "AREA_LAYER_OVERLAP"
+          ? `「${a}」和「${b}」重叠约 ${hit.overlap_km2} 平方公里：同一个商品同一层的区域不能重叠。请先在区域页面切掉重叠的部分，再导入`
+          : `基础价区域「${a}」和上下车加价的区域「${b}」重叠约 ${hit.overlap_km2} 平方公里：在基础价区域里上下车不加价，两者不能重叠。请先在区域页面切掉重叠的部分，再导入`;
+      read.mark(row, "area_id", hit.code, message);
+      marked += 1;
+    }
+    // 找不到对应的行（不该发生）：不让预览说「能导入」，原样报错
+    if (marked === 0) throw err;
+  }
+}
+
+async function pricePreview(db: Db, tenantId: string, bytes: Uint8Array, context: PricingContext, names: PriceNames): Promise<{ preview: PriceImportPreview; changes: PriceChanges }> {
+  const read = readPriceSheet(bytes, context, names);
+  await markLayerOverlaps(db, tenantId, context, read);
+  const { rows, changes } = read;
   const summary = summarize(rows);
   return { preview: { version: context.product.version, fileSha256: fileFingerprint(bytes), currency: context.currency, summary, canImport: summary.error === 0 && summary.conflict === 0 && summary.create + summary.update > 0, rows }, changes };
 }
@@ -745,7 +808,7 @@ export function previewPriceImport(ctx: AppContext, tenantId: string, productId:
   const now = ctx.now();
   return readTx(ctx, tenantId, async (db) => {
     const context = await loadPricingContext(db, tenantId, productId, now, { lock: false });
-    return pricePreview(bytes, context, await priceNames(db, tenantId, context)).preview;
+    return (await pricePreview(db, tenantId, bytes, context, await priceNames(db, tenantId, context))).preview;
   });
 }
 
@@ -781,7 +844,7 @@ export function importPriceRules(
     const result = await runIdempotent(db, { tenantId, scope: idempotency.scope, key: idempotency.key, request: { productId, expectedVersion, fileSha256 }, now }, async () => {
       const context = await loadPricingContext(db, tenantId, productId, now, { lock: true });
       if (context.product.version !== expectedVersion) throw versionConflict(context.product.version);
-      const { preview, changes } = pricePreview(bytes, context, await priceNames(db, tenantId, context));
+      const { preview, changes } = await pricePreview(db, tenantId, bytes, context, await priceNames(db, tenantId, context));
       if (!preview.canImport) throw notClean(preview.summary, previewJson(preview));
       const saved = await applyPriceChanges(db, writer, context, changes, false, now);
       return { status: 200, body: respond({ view: saved.view, summary: preview.summary }) };

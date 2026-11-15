@@ -4839,6 +4839,9 @@ paths:
         - 用途 `role`（M8-20，ADR 0075）不给 = 不改。改成运营区域时，有商品（任何状态）把它当报价区域用着（商品区域、区域加价、线路价）就不能改（409 `AREA_IN_USE`）。
           改小运营区域、改业务类型、把运营 + 报价改成报价区域，让已上架商品的报价区域多出「不在运营区域里」的部分时 409 `PRICING_AREA_OUTSIDE_OPERATING`。
           报价区域超出运营区域只提醒（`outside_operating_m2`），不拦保存。
+        - 包车三层区域（M9P-13，ADR 0093 第七节；#247 审查建议）：图形变了时，应答另带 `charter_layer_overlaps`——用到这个区域的包车商品（任何状态）里，
+          它和同一商品别的区域在同一层（①基础价、②行程、③上下车加价）或①和③之间的重叠（不到 0.01 平方公里的不算）。**只提醒、不拦保存**；图形没变、或没有重叠时不带这个字段（应答和以前一样）。
+          同样的重叠在商品的上架检查里列为 `charter_layer_overlap`（提醒）。
         有变化时 `version` 加一并写审计日志（`action` = `update`，前后值只含变了的那几项）。区域停用时、所属城市被平台停用后也可以改。
       security:
         - tenantToken: []
@@ -4853,11 +4856,11 @@ paths:
               $ref: "#/components/schemas/AreaUpdate"
       responses:
         "200":
-          description: 修改后的区域
+          description: 修改后的区域；改了图形、有三层重叠时另带 `charter_layer_overlaps`
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Area"
+                $ref: "#/components/schemas/AreaSaved"
         "400":
           $ref: "#/components/responses/AreaInvalid"
         "404":
@@ -5079,7 +5082,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Area"
+                $ref: "#/components/schemas/AreaSaved"
         "400":
           $ref: "#/components/responses/AreaInvalid"
         "404":
@@ -5209,6 +5212,39 @@ paths:
                 $ref: "#/components/schemas/SharedAreaDetail"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/area-layers:
+    get:
+      tags: [ 区域 ]
+      operationId: getTenantAreaLayers
+      summary: 区域在哪些商品里当哪一层
+      description: |
+        M9P-13（ADR 0093 第一节、第七节「后续」）。需要操作 `area.read`。本供应商的每个商品（任何状态）用到的区域，按三层分：
+        `base` ①基础价区域（商品的服务区域，按优先级）、`itinerary` ②行程区域（行程加价规则的区域）、`pickup_dropoff` ③上下车加价区域（上下车加价规则的区域）。
+        规则不分启用停用都算（和保存时的三层重叠校验同一个口径）。接送机、点对点商品只有 `base`。一个区域都没有的商品不列。按商品编码排。
+        区域详情用它写「在哪些商品里当什么用」，区域地图用它按商品和层筛选、标红重叠（重叠由页面用 `@nozomi/domain` 的 `charterLayerConflictPieces` 在浏览器里算）。只读。
+        不接受任何查询参数（`tenant_id` 只来自令牌）。
+      security:
+        - tenantToken: []
+      responses:
+        "200":
+          description: 商品和它们的三层区域
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ProductAreaLayers"
+        "400":
+          description: "`VALIDATION_FAILED`：带了查询参数（这个接口不接受任何查询参数）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /tenant/v1/area-map:
     get:
       tags: [ 区域 ]
@@ -23502,6 +23538,124 @@ components:
             报价区域（`pricing` / `both`）真正的范围（营运区减去自己的禁行区）有多少平方米不在本租户任何启用中、业务类型相容的运营区域里（ADR 0075 第一部分第 2 节）。
             不到 100 平方米算 0；大于 0 时页面提示「这个报价区域有一部分不在任何运营区域里，那部分不会报价」。只是提醒，不拦保存。
             运营区域、停用的区域为 null。超出部分的形状由页面用 `@nozomi/domain` 的 `findPricingOutsideOperating` 在区域地图上画
+    AreaSaved:
+      type: object
+      additionalProperties: false
+      description: 修改（或切换到共享库新版本）之后的区域：和区域详情 `Area` 相同；图形变了、而且用到它的包车商品里有三层重叠时另带 `charter_layer_overlaps`（M9P-13，只提醒）
+      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, shape_version, shared_source, created_at, updated_at, polygons, outside_operating_m2 ]
+      properties:
+        id:
+          $ref: "#/components/schemas/Area/properties/id"
+        name:
+          $ref: "#/components/schemas/Area/properties/name"
+        city_id:
+          $ref: "#/components/schemas/Area/properties/city_id"
+        city:
+          $ref: "#/components/schemas/Area/properties/city"
+        biz_type:
+          $ref: "#/components/schemas/Area/properties/biz_type"
+        role:
+          $ref: "#/components/schemas/Area/properties/role"
+        status:
+          $ref: "#/components/schemas/Area/properties/status"
+        operate_polygon_count:
+          $ref: "#/components/schemas/Area/properties/operate_polygon_count"
+        forbid_polygon_count:
+          $ref: "#/components/schemas/Area/properties/forbid_polygon_count"
+        usage:
+          $ref: "#/components/schemas/Area/properties/usage"
+        version:
+          $ref: "#/components/schemas/Area/properties/version"
+        shape_version:
+          $ref: "#/components/schemas/Area/properties/shape_version"
+        shared_source:
+          $ref: "#/components/schemas/Area/properties/shared_source"
+        created_at:
+          $ref: "#/components/schemas/Area/properties/created_at"
+        updated_at:
+          $ref: "#/components/schemas/Area/properties/updated_at"
+        polygons:
+          $ref: "#/components/schemas/Area/properties/polygons"
+        outside_operating_m2:
+          $ref: "#/components/schemas/Area/properties/outside_operating_m2"
+        charter_layer_overlaps:
+          type: array
+          description: 图形变了、而且有重叠时才有（至少一条）：用到这个区域的包车商品里，它和同一商品别的区域的三层重叠（同层、①和③），按商品编码排。只提醒、不拦保存
+          items:
+            $ref: "#/components/schemas/AreaCharterOverlap"
+    AreaCharterOverlap:
+      type: object
+      additionalProperties: false
+      required: [ product_id, product_code, product_title, code, layer, other_area_id, other_area_name, overlap_km2 ]
+      properties:
+        product_id:
+          type: string
+          format: uuid
+        product_code:
+          type: string
+        product_title:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedText"
+          description: 商品详情里各语言的标题（没填的语言不在里面，可能是空对象）
+        code:
+          type: string
+          enum: [ AREA_LAYER_OVERLAP, AREA_BASE_SURCHARGE_OVERLAP ]
+          description: 同层重叠 `AREA_LAYER_OVERLAP`；基础价区域和上下车加价区域重叠 `AREA_BASE_SURCHARGE_OVERLAP`（和保存价格时的错误码相同）
+        layer:
+          type: string
+          enum: [ base, itinerary, pickup_dropoff, base_pickup_dropoff ]
+        other_area_id:
+          type: string
+          format: uuid
+        other_area_name:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedText"
+        overlap_km2:
+          type: number
+          minimum: 0
+          description: 重叠面积，平方公里，两位小数
+    ProductAreaLayers:
+      type: object
+      additionalProperties: false
+      required: [ product_id, code, title, category, status, charter_layout, base, itinerary, pickup_dropoff ]
+      properties:
+        product_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        title:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedText"
+          description: 商品详情里各语言的标题（没填的语言不在里面，可能是空对象）
+        category:
+          type: string
+          enum: [ airport_transfer, point_to_point, charter ]
+        status:
+          type: string
+          enum: [ draft, published, unpublished, qa_listed ]
+        charter_layout:
+          type: [ string, "null" ]
+          enum: [ three_layer, null ]
+          description: 包车商品迁移过三层区域时是 `three_layer`（ADR 0093 第一节）；没迁移过、不是包车为 null
+        base:
+          type: array
+          description: ①基础价区域（服务区域）的编号，按优先级
+          items:
+            type: string
+            format: uuid
+        itinerary:
+          type: array
+          description: ②行程区域（行程加价规则的区域）的编号
+          items:
+            type: string
+            format: uuid
+        pickup_dropoff:
+          type: array
+          description: ③上下车加价区域（上下车加价规则的区域）的编号
+          items:
+            type: string
+            format: uuid
     AreaMapItem:
       type: object
       additionalProperties: false
@@ -24614,8 +24768,8 @@ components:
             properties:
               key:
                 type: string
-                enum: [ basic_info, service_rules, price_rules, content, adjust_rules, inventory, area_coverage, charter_min_package, charter_coverage, charter_empty_cells ]
-                description: "`area_coverage`（运营区域，M8-20）只在有提醒时出现、从不必须：勾选的报价区域有一部分不在任何运营区域里（原因 `PRICING_AREA_OUTSIDE_OPERATING`，`path` 是 `/areas/{区域编号}`，`detail.outside_m2` 是面积）。`charter_min_package`（最低套餐，M9P-03）同样只在有提醒时出现：包车的最低套餐比所有启用的套餐都长（原因 `MIN_PACKAGE_ABOVE_ALL`，`detail` 有 `min_package_hours`、`longest_package_hours`）。`charter_coverage`（M9P-06）只在有提醒时出现：商品所在城市「包车覆盖检查」清单里的地标不在商品任何区域里（原因 `CHARTER_POI_NOT_COVERED`，`path` 是 `/places/{地点编号}`）。`charter_empty_cells`（M9P-06）只在有提醒时出现：行程加价 / 上下车加价表里某区域某车型组没有启用的规则（原因 `CHARTER_EMPTY_CELL`，`path` 是 `/itinerary/{区域编号}/vehicle_groups/{下标}` 或 `/pickup_dropoff/…`）。迁移过三层区域的包车，`price_rules` 另要每个车型组至少一档整商品套餐价（原因 `CHARTER_GROUP_NO_PACKAGE`，`path` 是 `/vehicle_groups/{下标}`，M9P-05）"
+                enum: [ basic_info, service_rules, price_rules, content, adjust_rules, inventory, area_coverage, charter_min_package, charter_coverage, charter_empty_cells, charter_layer_overlap ]
+                description: "`area_coverage`（运营区域，M8-20）只在有提醒时出现、从不必须：勾选的报价区域有一部分不在任何运营区域里（原因 `PRICING_AREA_OUTSIDE_OPERATING`，`path` 是 `/areas/{区域编号}`，`detail.outside_m2` 是面积）。`charter_min_package`（最低套餐，M9P-03）同样只在有提醒时出现：包车的最低套餐比所有启用的套餐都长（原因 `MIN_PACKAGE_ABOVE_ALL`，`detail` 有 `min_package_hours`、`longest_package_hours`）。`charter_coverage`（M9P-06）只在有提醒时出现：商品所在城市「包车覆盖检查」清单里的地标不在商品任何区域里（原因 `CHARTER_POI_NOT_COVERED`，`path` 是 `/places/{地点编号}`）。`charter_empty_cells`（M9P-06）只在有提醒时出现：行程加价 / 上下车加价表里某区域某车型组没有启用的规则（原因 `CHARTER_EMPTY_CELL`，`path` 是 `/itinerary/{区域编号}/vehicle_groups/{下标}` 或 `/pickup_dropoff/…`）。`charter_layer_overlap`（M9P-13）只在有提醒时出现：包车三层区域有同层或基础价区域和上下车加价区域的重叠（区域页改图形不经过保存校验，已有的重叠也列出；原因 `CHARTER_LAYER_OVERLAP`，`path` 是 `/{layer}/{区域 a}/{区域 b}`，`layer` 同 `AreaCharterOverlap.layer`，①和③时区域 a 是基础价区域；`detail` 有 `overlap_m2`、`area_a`、`area_b`）。迁移过三层区域的包车，`price_rules` 另要每个车型组至少一档整商品套餐价（原因 `CHARTER_GROUP_NO_PACKAGE`，`path` 是 `/vehicle_groups/{下标}`，M9P-05）"
               required:
                 type: boolean
                 description: 这一项不通过就不能上架
@@ -26340,6 +26494,8 @@ components:
             - AREA_ROLE_NOT_PRICING
             - AREA_DISABLED
             - SAME_AREA
+            - AREA_LAYER_OVERLAP
+            - AREA_BASE_SURCHARGE_OVERLAP
           description: |
             `REQUIRED` 必填的格空着；`FORMULA` 这一格是公式；`NOT_A_NUMBER` / `NOT_INTEGER` 不是数字 / 不是整数；
             `PRECISION` 小数位超过了币种的精度（或起步里程超过 1 位小数）；`OUT_OF_RANGE` 超出范围；
@@ -26347,7 +26503,8 @@ components:
             `DUPLICATE` 同一个价格编号 / 同一天出现了两次；`UNKNOWN_VALUE` 方向、计价方式、状态填了不认识的词；
             `NOT_APPLICABLE` 这种计价方式或品类不填这一列；`MODEL_NOT_ALLOWED` 这个品类不能用这种计价方式；
             `UNKNOWN_PRICE_RULE` 价格编号不是这个商品的；`AREA_NOT_IN_PRODUCT` / `VEHICLE_GROUP_NOT_IN_PRODUCT` 不是这个商品选的区域 / 车型组；
-            `AMBIGUOUS` 有不止一个区域叫这个名字；`INVENTORY_BELOW_OCCUPIED` 这一天有订单占着，不能改成这个数。
+            `AMBIGUOUS` 有不止一个区域叫这个名字；`INVENTORY_BELOW_OCCUPIED` 这一天有订单占着，不能改成这个数；
+            `AREA_LAYER_OVERLAP` / `AREA_BASE_SURCHARGE_OVERLAP` 包车三层区域：这一行新加进行程加价 / 上下车加价的区域和同一层已有的区域、或和基础价区域重叠（M9P-07，和保存同一套检查，预览就报，不等确认导入）。
             包车区域加价的行（M8-15）：`UNKNOWN_AREA` 本租户没有叫这个名字的区域；`AREA_IS_PRODUCT_AREA` 是商品本身的区域；`AREA_NOT_USABLE` 业务类型不是包车或通用；`AREA_DISABLED` 区域已停用。
             `AREA_ROLE_NOT_PRICING`（M8-20，ADR 0075）：认出的是运营区域，运营区域不带价格。
             点对点线路价的行（M8-11）：`SAME_AREA`「下车区域」和「区域」相同。

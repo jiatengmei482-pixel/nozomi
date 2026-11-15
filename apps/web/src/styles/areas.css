@@ -58,9 +58,15 @@
   }
 
   .area-editor__basic,
+  .area-editor__usage,
   .area-editor__shapes,
   .area-editor__probe {
     grid-column: 1;
+  }
+
+  /* 编辑时多一张「在哪些商品里用」（M9P-13）：右栏的地图跨四行 */
+  .area-editor__layout--usage .area-editor__map {
+    grid-row: 1 / span 4;
   }
 
   /* 右栏吸在视口里（滚动的是 <main>，所以只留 space-4） */
@@ -74,6 +80,45 @@
   .area-editor__bar {
     grid-column: 1 / -1;
   }
+}
+
+/* ---------- 在哪些商品里用、三层重叠（M9P-13） ---------- */
+
+.area-overview__layers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.area-usage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  list-style: none;
+}
+
+.area-usage__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  overflow-wrap: anywhere;
+}
+
+.area-usage__layers {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.area-editor__overlap-list {
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-4);
 }
 
 /* ---------- 绘制工具条 ---------- */
@@ -808,6 +853,18 @@
 
 .area-overlap--selected {
   fill-opacity: 0.8;
+}
+
+/* 包车三层区域里不允许的重叠（M9P-13，按商品和层筛选时）：危险色，压在最上面 */
+.area-conflict {
+  fill: var(--color-danger-solid);
+  fill-opacity: 0.55;
+  stroke: var(--color-danger-solid);
+  stroke-width: 1.5;
+}
+
+.area-conflict--selected {
+  fill-opacity: 0.85;
 }
 
 /* 运营区域（M8-20，ADR 0075 第五部分）：虚线边框、很淡的填充，不挡住里面的报价区域 */
