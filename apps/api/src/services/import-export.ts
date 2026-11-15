@@ -352,6 +352,9 @@ function priceRow(rule: StoredPriceRule, names: PriceNames, currency: CurrencyCo
     Object.assign(values, { [P.pickupSurcharge]: money(pricing.pickupSurchargeMinor, currency), [P.dropoffSurcharge]: money(pricing.dropoffSurchargeMinor, currency), [P.waypointSurcharge]: money(pricing.waypointSurchargeMinor ?? null, currency) });
   } else if (pricing.model === "charter_itinerary_surcharge") {
     Object.assign(values, { [P.itinerarySurcharge]: money(pricing.surchargeMinor, currency) });
+  } else if (pricing.model === "charter_airport_package") {
+    // 机场套餐价（ADR 0098）：没填的三项单价 = 同普通套餐，导出为空格
+    Object.assign(values, { [P.packageKm]: whole(pricing.packageKm ?? null), [P.packagePrice]: money(pricing.packagePriceMinor, currency), [P.overtime]: money(pricing.overtimePerHourMinor ?? null, currency), [P.overKm]: money(pricing.overKmPerKmMinor ?? null, currency) });
   } else {
     Object.assign(values, { [P.packageKm]: whole(pricing.packageKm), [P.packagePrice]: money(pricing.packagePriceMinor, currency), [P.overtime]: money(pricing.overtimePerHourMinor, currency), [P.overKm]: money(pricing.overKmPerKmMinor, currency) });
   }
