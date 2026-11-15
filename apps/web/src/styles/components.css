@@ -812,6 +812,30 @@ input[type="datetime-local"]:focus-within {
   white-space: nowrap;
 }
 
+/*
+ * 编号（M9P-20）：和行程地图的标记同一个颜色令牌 --color-text-link（亮暗都对得上）——上车、下车实心圆（地图上是大标记），
+ * 经停空心圆（地图上是中号标记）；除了颜色还有填充的区别，旁边有文字
+ */
+.trip-stops__number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5em;
+  height: 1.5em;
+  padding: 0 var(--space-0-5);
+  border: var(--border-width) solid var(--color-text-link);
+  border-radius: var(--radius-full);
+  background: var(--color-text-link);
+  color: var(--color-bg-surface);
+  font-weight: var(--font-weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.trip-stops__item--stop .trip-stops__number {
+  background: var(--color-bg-surface);
+  color: var(--color-text-link);
+}
+
 .trip-stops__name {
   min-width: 0;
   font-weight: var(--font-weight-medium);

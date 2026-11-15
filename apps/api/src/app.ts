@@ -45,7 +45,9 @@ import { StripePaymentProvider, checkStripeKey } from "./integrations/stripe.ts"
 import { checkGoogleMapsKey, computeRoute } from "./integrations/google-maps.ts";
 import { GoogleRouteEstimator } from "./services/route-estimates.ts";
 import { fetchStaticMap } from "./integrations/google-static-maps.ts";
+import { computeItineraryPolyline } from "./integrations/google-itinerary-routes.ts";
 import { GoogleStaticMapService } from "./services/static-maps.ts";
+import { GoogleItineraryPolylines } from "./services/itinerary-polylines.ts";
 import { autocompletePlaces, placeDetails, reverseGeocode, searchPlaces } from "./integrations/google-places.ts";
 import { GooglePlaceSearch } from "./services/place-search.ts";
 import { type IntegrationChecks, IntegrationSecretCache } from "./services/integration-secrets.ts";
@@ -238,10 +240,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     return reply.code(response.statusCode).send(response.body);
   });
 
-  // 带令牌或账号数据的响应不允许被任何缓存保存。唯一的例外是官网路线小地图的图片（不含任何个人或账号数据，ADR 0072）：成功时由接口自己给 `private, max-age=86400`
+  // 带令牌或账号数据的响应不允许被任何缓存保存。唯一的例外是官网路线小地图和包车行程地图的图片（不含任何个人或账号数据，ADR 0072、0096）：成功时由接口自己给 `private, max-age=86400`
   app.addHook("onSend", async (request, reply) => {
     const path = pathOnly(request.url);
-    if (reply.statusCode === 200 && request.routeOptions.url === "/site/v1/route-map") return;
+    if (reply.statusCode === 200 && (request.routeOptions.url === "/site/v1/route-map" || request.routeOptions.url === "/site/v1/itinerary-map")) return;
     if (path.startsWith("/platform/") || path.startsWith("/tenant/") || path.startsWith("/sales/") || path.startsWith("/driver/") || path.startsWith("/site/")) reply.header("cache-control", "no-store");
   });
 
@@ -303,6 +305,16 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     apiKey: () => secretCache.effective.googleMaps.apiKey,
     dailyLimit: config.staticMaps.dailyLimit,
     routes,
+    // 包车行程地图（M9P-20，ADR 0096）：一次带中间点的折线，计入路线的每日上限；10–12 号标记的图标在官网的公开路径下
+    itineraryRoutes: new GoogleItineraryPolylines({
+      pool,
+      now,
+      apiKey: () => secretCache.effective.googleMaps.apiKey,
+      dailyLimit: config.routes.dailyLimit,
+      compute: (apiKey, points, beforeAttempt) => computeItineraryPolyline(apiKey, points, { url: config.integrationEndpoints.googleMapsRoutesUrl, beforeAttempt }),
+      log: app.log,
+    }),
+    siteBaseUrl: config.publicBaseUrl,
     fetch: (apiKey, query, beforeAttempt) => fetchStaticMap(apiKey, query, { url: config.integrationEndpoints.googleStaticMapsUrl, beforeAttempt }),
     log: app.log,
   });

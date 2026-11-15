@@ -46,6 +46,7 @@ const PLATFORM_TABLES = [
   "fx_rates",
   "holidays",
   "integration_secrets",
+  "itinerary_route_polylines",
   "login_throttles",
   "manual_quote_request_events",
   "manual_quote_requests",
@@ -311,6 +312,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     // 官网路线小地图（ADR 0072）：图片缓存覆盖写、写入时顺手删过期的；每日调用计数只增改
     static_map_images: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     static_map_api_usage: ["INSERT", "SELECT", "UPDATE"],
+    // 包车行程地图（M9P-20，ADR 0096）：一次带中间点的折线缓存，覆盖写、写入时顺手删过期的
+    itinerary_route_polylines: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     // /sales/v1 的限流计数
     sales_rate_limits: ["INSERT", "SELECT", "UPDATE"],
     // 未覆盖需求（ADR 0075）：记录时新增、累加次数；保留期清理删 365 天以前的；限流窗口、「被限掉」计数同样增改、清理

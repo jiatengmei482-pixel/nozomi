@@ -797,6 +797,57 @@ export function siteRouteMapUrl(request: SiteRouteMapRequest): string {
   return `${SITE_BASE}/route-map?${query.toString()}`;
 }
 
+export interface SiteItineraryMapRequest {
+  /** 按行程顺序：上车、经停、下车（2–12 个） */
+  points: readonly SitePoint[];
+  theme: "light" | "dark";
+  width: number;
+  height: number;
+  scale: 1 | 2;
+}
+
+/**
+ * 包车行程地图的地址（M9P-20，ADR 0096）：`GET /site/v1/itinerary-map?p=纬度,经度&p=…`，成功是一张 PNG（编号 1 = 上车、经停依次、最后 = 下车），
+ * 直接给 `<img>` 用（同源，嵌入页也是 img-src 'self'）。
+ */
+export function siteItineraryMapUrl(request: SiteItineraryMapRequest): string {
+  const query = new URLSearchParams();
+  for (const point of request.points) query.append("p", `${point.lat.toFixed(6)},${point.lng.toFixed(6)}`);
+  query.append("theme", request.theme);
+  query.append("width", String(request.width));
+  query.append("height", String(request.height));
+  query.append("scale", String(request.scale));
+  return `${SITE_BASE}/itinerary-map?${query.toString()}`;
+}
+
+/** 包车行程逐段的约多少分钟、多少米（M9P-20，ADR 0096）：没有经停、按自选时长报价的包车列表每段只作展示；取不到时 `available` 为 false。 */
+export interface SiteItineraryLegs {
+  available: boolean;
+  legs: { minutes: number; meters: number }[] | null;
+}
+
+export function getSiteItineraryLegs(points: readonly SitePoint[]): Promise<SiteItineraryLegs> {
+  const query = new URLSearchParams();
+  for (const point of points) query.append("p", `${point.lat.toFixed(6)},${point.lng.toFixed(6)}`);
+  return apiRequest("GET", `${SITE_BASE}/itinerary-legs?${query.toString()}`);
+}
+
+/**
+ * 行程地图没出来以后再问一次原因（M9P-20）：是「太频繁」（429）就给出过多少秒可以再试（应答里的 `retry_after_seconds`，没有时 30 秒）；
+ * 其他任何情况（出不来、网络、不是 429）为 null——页面只留列表、不再试。
+ */
+export async function siteMapRetryAfterSeconds(url: string): Promise<number | null> {
+  try {
+    const { status, body } = await apiStatus(url);
+    if (status !== 429) return null;
+    const details = (body as { error?: { details?: { retry_after_seconds?: unknown } } } | null)?.error?.details;
+    const seconds = details?.retry_after_seconds;
+    return typeof seconds === "number" && Number.isFinite(seconds) && seconds > 0 ? seconds : 30;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * 应答是不是「平台还没开通谷歌静态地图」：503 + 全站统一错误格式 `{ error: { code: "ROUTE_MAP_UNAVAILABLE", details: { reason: "NOT_ENABLED" } } }`（ADR 0072）。
  * 其他一切（reason 为 UNAVAILABLE、429 太频繁、400、500、不是 JSON）都不算。

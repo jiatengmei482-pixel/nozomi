@@ -1,18 +1,28 @@
 /**
- * 包车行程（M9W-02 / M9W-03，ADR 0088）：上车 → 经停 1…N（停留）→ 下车，按顺序的列表。
+ * 包车行程（M9W-02 / M9W-03，ADR 0088）：上车 → 经停（停留）→ 下车，按顺序的列表。
+ * 编号（M9P-20，ADR 0096）：上车 = 1、经停依次、下车 = 最后，和行程地图的标记一致；两行之间写这一段的行驶时长和公里（有路线时）。
  * 官网下单页（带各段行驶分钟）、官网订单页、运营 / 供应商订单详情、司机页共用；这里**不含任何价格**。
  * 没有经停点的订单不用它（页面照旧只写上车、下车地点）。
  */
-import { type OrderItinerary, type ScheduleRow, durationText, orderItineraryText, scheduleRows } from "../lib/charter-itinerary.ts";
+import { itineraryCopy } from "../lib/itinerary-texts.ts";
+import { type OrderItinerary, type ScheduleRow, durationText, kmText, orderItineraryText, scheduleRows } from "../lib/charter-itinerary.ts";
+
+/** 「行驶约 35 分钟 · 28.4 公里」；没有米数时只写时长 */
+function driveText(row: ScheduleRow): string {
+  const duration = durationText(row.driveMinutes ?? 0);
+  return row.driveMeters === null ? itineraryCopy("drive", { duration }) : itineraryCopy("driveKm", { duration, km: kmText(row.driveMeters) });
+}
 
 export function TripStops({ rows, label = "行程" }: { rows: readonly ScheduleRow[]; label?: string }) {
   return (
     <ol className="trip-stops" aria-label={label}>
       {rows.map((row) => (
         <li key={row.key} className={`trip-stops__item trip-stops__item--${row.kind}`}>
-          {row.driveMinutes !== null && <span className="trip-stops__drive">行驶约 {durationText(row.driveMinutes)}</span>}
+          {row.driveMinutes !== null && <span className="trip-stops__drive">{driveText(row)}</span>}
           <span className="trip-stops__line">
-            <span className="trip-stops__label">{row.label}</span>
+            <span className="trip-stops__label">
+              <span className="trip-stops__number">{row.number}</span> {row.kindName}
+            </span>
             <span className="trip-stops__name">{row.name}</span>
           </span>
           {row.stayMinutes !== null && <span className="trip-stops__stay">停留 {durationText(row.stayMinutes)}</span>}
