@@ -26265,6 +26265,8 @@ components:
             - AREA_ROLE_NOT_PRICING
             - AREA_DISABLED
             - SAME_AREA
+            - AREA_LAYER_OVERLAP
+            - AREA_BASE_SURCHARGE_OVERLAP
           description: |
             `REQUIRED` 必填的格空着；`FORMULA` 这一格是公式；`NOT_A_NUMBER` / `NOT_INTEGER` 不是数字 / 不是整数；
             `PRECISION` 小数位超过了币种的精度（或起步里程超过 1 位小数）；`OUT_OF_RANGE` 超出范围；
@@ -26272,7 +26274,8 @@ components:
             `DUPLICATE` 同一个价格编号 / 同一天出现了两次；`UNKNOWN_VALUE` 方向、计价方式、状态填了不认识的词；
             `NOT_APPLICABLE` 这种计价方式或品类不填这一列；`MODEL_NOT_ALLOWED` 这个品类不能用这种计价方式；
             `UNKNOWN_PRICE_RULE` 价格编号不是这个商品的；`AREA_NOT_IN_PRODUCT` / `VEHICLE_GROUP_NOT_IN_PRODUCT` 不是这个商品选的区域 / 车型组；
-            `AMBIGUOUS` 有不止一个区域叫这个名字；`INVENTORY_BELOW_OCCUPIED` 这一天有订单占着，不能改成这个数。
+            `AMBIGUOUS` 有不止一个区域叫这个名字；`INVENTORY_BELOW_OCCUPIED` 这一天有订单占着，不能改成这个数；
+            `AREA_LAYER_OVERLAP` / `AREA_BASE_SURCHARGE_OVERLAP` 包车三层区域：这一行新加进行程加价 / 上下车加价的区域和同一层已有的区域、或和基础价区域重叠（M9P-07，和保存同一套检查，预览就报，不等确认导入）。
             包车区域加价的行（M8-15）：`UNKNOWN_AREA` 本租户没有叫这个名字的区域；`AREA_IS_PRODUCT_AREA` 是商品本身的区域；`AREA_NOT_USABLE` 业务类型不是包车或通用；`AREA_DISABLED` 区域已停用。
             `AREA_ROLE_NOT_PRICING`（M8-20，ADR 0075）：认出的是运营区域，运营区域不带价格。
             点对点线路价的行（M8-11）：`SAME_AREA`「下车区域」和「区域」相同。
