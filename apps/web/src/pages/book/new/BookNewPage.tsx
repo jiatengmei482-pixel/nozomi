@@ -1062,6 +1062,8 @@ export function BookNewPage() {
               </h3>
               {itinerarySummary !== null && <p>{itinerarySummary}</p>}
               {charterMapPoints !== null && <ItineraryMap points={charterMapPoints} alt={itineraryMapAlt(charterRows, charterResult?.itinerary_route)} />}
+              {/* 超过 12 个点（ADR 0099）：不请求地图，只显示列表 */}
+              {charterMapPoints === null && draft.from !== null && draft.to !== null && <p className="site-muted">{itineraryCopy("listOnly")}</p>}
               <TripStops rows={charterRows} />
               {itinerary && <p className="price-breakdown__note">{ITINERARY_NOTE}</p>}
             </section>
