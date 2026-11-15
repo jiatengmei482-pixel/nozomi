@@ -12767,7 +12767,7 @@ paths:
     patch:
       tags: [ 嵌入组件 ]
       operationId: updateEmbedKey
-      summary: 修改嵌入码（名称、白名单、默认值、外观、启用 / 停用）
+      summary: 修改嵌入码（名称、白名单、默认值、外观、整页嵌入、预订页地址、启用 / 停用）
       description: 需要 `embed.manage`，请求头 `If-Match` 带当前版本号。改白名单、停用在服务端立即生效（组件的配置应答浏览器缓存 60 秒）。写审计。
       security:
         - platformToken: []
@@ -29894,7 +29894,7 @@ components:
     EmbedKey:
       type: object
       additionalProperties: false
-      required: [ id, key, name, allowed_origins, default_lang, default_services, layout, allow_host_page, status, note, version, created_at, updated_at, snippet ]
+      required: [ id, key, name, allowed_origins, default_lang, default_services, layout, allow_host_page, booking_url, status, note, version, created_at, updated_at, snippet, booking_snippet, snippet_fallback ]
       properties:
         id:
           type: string
@@ -29927,6 +29927,10 @@ components:
         allow_host_page:
           type: boolean
           description: 允许整页嵌入（M9E-16，ADR 0095 Q13，默认关）：打开了 `/embed/book` 才能被这个嵌入码白名单里的网站嵌入（`/embed/v1/frame-check`）
+        booking_url:
+          type: [ string, "null" ]
+          maxLength: 2000
+          description: 预订页地址（M9E-26，ADR 0095 附录 A）：合作网站自己的预订页，规范化后的完整地址；它的网站一定在 `allowed_origins` 里。没填为 null（已有的嵌入码都是 null）
         status:
           type: string
           enum: [ active, disabled ]
@@ -29942,7 +29946,14 @@ components:
           format: date-time
         snippet:
           type: string
-          description: 合作网站要放的代码
+          description: 合作网站要放的代码 = ①入口小程序（`NozomiBooking.init`），可以放在任何页面。`booking_snippet` 不为 null 时 init 带 `bookingUrl`（= `booking_url`，客人填好行程后跳到合作网站的预订页）；为 null 时不带，和 M9E-26 之前逐字一样（客人跳主站）
+        booking_snippet:
+          type: [ string, "null" ]
+          description: ②预订程序（M9E-26，`NozomiBooking.mountBooking`），只放在 `booking_url` 那一页。填了 `booking_url`、`allow_host_page` 为 true、`booking_url` 的网站在白名单里才有，否则为 null
+        snippet_fallback:
+          type: [ string, "null" ]
+          enum: [ no_booking_url, host_page_off, booking_url_not_allowed, null ]
+          description: 为什么只有①（M9E-26）：`no_booking_url` 没填预订页地址、`host_page_off` 没开「允许整页嵌入」、`booking_url_not_allowed` 预订页地址的网站不在白名单（保存时会拦下，正常不出现）；两段都有时为 null
     EmbedKeyWrite:
       type: object
       additionalProperties: false
@@ -29973,6 +29984,11 @@ components:
         allow_host_page:
           type: boolean
           description: 选填（M9E-16）。允许整页嵌入；新建不填按关，修改不填保持原值
+        booking_url:
+          type: [ string, "null" ]
+          description: >-
+            选填（M9E-26）。预订页地址：https（测试环境另收本机 http）、≤ 2,000 字符、不带用户名密码，网站（协议 + 域名 + 端口）必须完全等于这次提交的 `allowed_origins` 的某一项，否则 400 `VALIDATION_FAILED`（`/booking_url`，`INVALID` / `OUT_OF_RANGE` / `NOT_ALLOWED_ORIGIN`）。
+            null 或空白 = 清空。新建不填按没有；修改不填保持原值，但原值同样要落在这次的白名单里——改白名单拿掉了预订页的网站，要同时改或清空预订页地址，否则 400 `NOT_ALLOWED_ORIGIN`
         note:
           type: [ string, "null" ]
           maxLength: 500

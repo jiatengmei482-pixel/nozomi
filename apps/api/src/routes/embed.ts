@@ -5,6 +5,9 @@
  * - `GET /platform/v1/embed-keys`、`POST /platform/v1/embed-keys`：列表、新建（嵌入码由服务端生成）；
  * - `GET /platform/v1/embed-keys/{id}`、`PATCH /platform/v1/embed-keys/{id}`（`If-Match`）：详情（含合作网站要放的代码）、修改名称 / 白名单 / 默认值 / 外观 / 状态。
  *   外观 `layout`（M9E-10、M9E-14：auto / card / bar，默认 auto）由 `/embed/v1/config` 返回给组件，不写进要放的代码。
+ *   预订页地址 `booking_url`（M9E-26，选填，必须落在这个嵌入码白名单的某个网站下）：填了并开了「允许整页嵌入」时，
+ *   `snippet` 是①入口小程序（init 带 bookingUrl）、`booking_snippet` 是②预订程序（mountBooking）；否则只有①（不带 bookingUrl，和以前一样），
+ *   `booking_snippet` 为 null，`snippet_fallback` 写原因。预订页地址只在后台和要放的代码里，`/embed/v1/config` 不返回它。
  *
  * 跨域只开在 `/embed/v1`（合作网站页面上的组件调用；查询串带 `key`）：
  * - `GET /embed/v1/config`：默认语言、默认标签、外观、主站地址（浏览器缓存 60 秒）；
@@ -21,7 +24,7 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { BOOKING_DRAFT_RULES, EMBED_DELIVERIES, EMBED_KEY_STATUSES, EMBED_LANGS, EMBED_LAYOUTS, EMBED_RULES, EMBED_SERVICES, embedSnippet } from "@nozomi/domain";
+import { BOOKING_DRAFT_RULES, EMBED_DELIVERIES, EMBED_KEY_STATUSES, EMBED_LANGS, EMBED_LAYOUTS, EMBED_RULES, EMBED_SERVICES, embedSnippets } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { type EmbedGate, type EmbedKey, createEmbedDraft, createEmbedKey, embedGate, frameAncestorOf, getEmbedKey, listEmbedKeys, takeEmbedPlacesSlot, takeFrameCheckSlot, updateEmbedKey } from "../services/embed.ts";
 import { AppError } from "../errors.ts";
@@ -43,6 +46,8 @@ const writeSchema = z
     layout: z.enum(EMBED_LAYOUTS).optional(),
     // 选填（M9E-16，ADR 0095 Q13）：允许整页嵌入，新建不填按关，修改不填保持原值
     allow_host_page: z.boolean().optional(),
+    // 选填（M9E-26）：预订页地址，null 或空白 = 清空；新建不填按没有，修改不填保持原值。写法和白名单由 embedKeyIssues 核对，这里只挡特别长的
+    booking_url: z.string().max(4_000).nullable().optional(),
     note: z.string().max(2_000).nullable().default(null),
   })
   .strict();
@@ -54,6 +59,14 @@ const draftBodySchema = z.object({ draft: z.unknown(), return_url: z.unknown().o
 const FRAME_REFUSED_HTML = '<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>NOZOMI</title></head><body><p>这个网站不能显示 NOZOMI 预订页。</p></body></html>';
 
 function embedKeyJson(ctx: AppContext, key: EmbedKey): Json {
+  const snippets = embedSnippets(new URL(ctx.config.publicBaseUrl).origin, {
+    key: key.key,
+    lang: key.defaultLang,
+    services: key.defaultServices,
+    allowedOrigins: key.allowedOrigins,
+    allowHostPage: key.allowHostPage,
+    bookingUrl: key.bookingUrl,
+  });
   return {
     id: key.id,
     key: key.key,
@@ -63,12 +76,15 @@ function embedKeyJson(ctx: AppContext, key: EmbedKey): Json {
     default_services: key.defaultServices,
     layout: key.layout,
     allow_host_page: key.allowHostPage,
+    booking_url: key.bookingUrl,
     status: key.status,
     note: key.note,
     version: key.version,
     created_at: key.createdAt.toISOString(),
     updated_at: key.updatedAt.toISOString(),
-    snippet: embedSnippet(new URL(ctx.config.publicBaseUrl).origin, key.key, key.defaultLang, key.defaultServices),
+    snippet: snippets.entry,
+    booking_snippet: snippets.booking,
+    snippet_fallback: snippets.fallback,
   };
 }
 
@@ -95,7 +111,7 @@ export function registerEmbedRoutes(app: FastifyInstance, ctx: AppContext): void
   app.post("/platform/v1/embed-keys", async (request, reply) => {
     const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "embed.manage" });
     const body = parseInput(writeSchema, request.body, "body");
-    const created = await createEmbedKey(ctx, principal, request.ip, { name: body.name, allowedOrigins: body.allowed_origins, defaultLang: body.default_lang, defaultServices: body.default_services, layout: body.layout, allowHostPage: body.allow_host_page, note: body.note });
+    const created = await createEmbedKey(ctx, principal, request.ip, { name: body.name, allowedOrigins: body.allowed_origins, defaultLang: body.default_lang, defaultServices: body.default_services, layout: body.layout, allowHostPage: body.allow_host_page, bookingUrl: body.booking_url, note: body.note });
     return reply.code(201).send(embedKeyJson(ctx, created));
   });
 
@@ -111,7 +127,7 @@ export function registerEmbedRoutes(app: FastifyInstance, ctx: AppContext): void
     if (header === undefined) throw versionRequired();
     const version = ifMatchVersion(header);
     const body = parseInput(updateSchema, request.body, "body");
-    const updated = await updateEmbedKey(ctx, principal, request.ip, id, version, { name: body.name, allowedOrigins: body.allowed_origins, defaultLang: body.default_lang, defaultServices: body.default_services, layout: body.layout, allowHostPage: body.allow_host_page, note: body.note, status: body.status });
+    const updated = await updateEmbedKey(ctx, principal, request.ip, id, version, { name: body.name, allowedOrigins: body.allowed_origins, defaultLang: body.default_lang, defaultServices: body.default_services, layout: body.layout, allowHostPage: body.allow_host_page, bookingUrl: body.booking_url, note: body.note, status: body.status });
     return embedKeyJson(ctx, updated);
   });
 

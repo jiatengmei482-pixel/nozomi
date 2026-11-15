@@ -7,10 +7,14 @@
  * - 合作网站如果设了内容安全策略，要在 `script-src`、`connect-src` 放行主站域名（代码下面写明）。
  * - 允许整页嵌入（M9E-16，ADR 0095 Q13）：默认关；打开后合作网站可以把整个预订流程（/embed/book）嵌在自己的页面里，只限白名单里的网站。
  *   和其他字段一起保存（同一个 If-Match 版本号、同一条审计）。
+ * - 两段代码（M9E-26，ADR 0095 附录 A，对齐 Good Journey）：选填「预订页地址」（https，必须落在「允许的网站」的某个网站下）。
+ *   填了并开了「允许整页嵌入」时，「合作网站要放的代码」分两段，各带复制按钮和一句说明：①入口小程序（任何页面，init 带 bookingUrl）、
+ *   ②预订程序（只放预订页，mountBooking）；否则只显示①（不带 bookingUrl，客人照旧跳主站），旁边写明为什么没有第二段。
+ *   代码由服务端按 packages/domain/src/embed.ts 生成，页面只显示。
  */
 import { type FormEvent, type ReactNode, useState } from "react";
 import { ApiError } from "../../api/client.ts";
-import { type EmbedKey, type EmbedKeyWrite, type EmbedLang, type EmbedLayout, type EmbedService, createEmbedKey, listEmbedKeys, updateEmbedKey } from "../../api/embed.ts";
+import { type EmbedKey, type EmbedKeyWrite, type EmbedLang, type EmbedLayout, type EmbedService, type EmbedSnippetFallback, createEmbedKey, listEmbedKeys, updateEmbedKey } from "../../api/embed.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
@@ -41,6 +45,18 @@ const LANG_OPTIONS = (["ja", "zh", "en"] as const).map((value) => ({ value, labe
 const SERVICE_OPTIONS = (["transfer", "charter"] as const).map((value) => ({ value, label: EMBED_SERVICE_NAMES[value] }));
 const ORIGINS_HINT = "一行一个合作网站的地址，以 https 开头、只写到域名（可带端口），不带路径；不支持 *。最多 20 个。";
 const CSP_NOTE = "合作网站如果设了内容安全策略（CSP），要在 script-src 和 connect-src 里放行主站域名，否则组件加载不出来。";
+const CSP_NOTE_TWO = "合作网站如果设了内容安全策略（CSP），要在 script-src、connect-src 和 frame-src 里放行主站域名，否则组件和预订程序加载不出来。";
+const BOOKING_URL_HINT = "合作网站自己的预订页完整地址，如 https://embed-demo.moveglobal.io/booking/。要以 https 开头，并且是上面「允许的网站」里某个网站下的页面。填了并选「允许」整页嵌入后，会生成两段代码。";
+/** 两段代码的说明（M9E-26）：各一句，写给合作网站的人看 */
+export const ENTRY_NOTE = "放在任何页面（首页、文章页等），客人填好行程后会跳到你的预订页。";
+export const ENTRY_NOTE_REDIRECT = "放在任何页面（首页、文章页等），客人填好行程后跳到 NOZOMI 主站完成预订。";
+export const BOOKING_NOTE = "只放在预订页，接收入口传来的行程，显示报价和下单流程。";
+/** 只有①时旁边写的原因（M9E-26）：按嵌入码现在缺什么说 */
+export function fallbackNote(fallback: EmbedSnippetFallback, allowHostPage: boolean): string {
+  if (fallback === "no_booking_url") return allowHostPage ? "填写预订页地址后，这里会出现第二段代码（预订程序）。" : "填写预订页地址并开启「允许整页嵌入」后，这里会出现第二段代码（预订程序）。";
+  if (fallback === "host_page_off") return "开启「允许整页嵌入」后，这里会出现第二段代码（预订程序）。";
+  return "预订页地址的网站不在「允许的网站」里，改好预订页地址后，这里会出现第二段代码（预订程序）。";
+}
 
 interface Draft {
   name: string;
@@ -49,13 +65,14 @@ interface Draft {
   services: EmbedService[];
   layout: EmbedLayout;
   allowHostPage: boolean;
+  bookingUrl: string;
   note: string;
 }
 
 const draftOf = (key: EmbedKey | null): Draft =>
   key === null
-    ? { name: "", origins: "", lang: "ja", services: ["transfer", "charter"], layout: "auto", allowHostPage: false, note: "" }
-    : { name: key.name, origins: key.allowed_origins.join("\n"), lang: key.default_lang, services: [...key.default_services], layout: key.layout, allowHostPage: key.allow_host_page, note: key.note ?? "" };
+    ? { name: "", origins: "", lang: "ja", services: ["transfer", "charter"], layout: "auto", allowHostPage: false, bookingUrl: "", note: "" }
+    : { name: key.name, origins: key.allowed_origins.join("\n"), lang: key.default_lang, services: [...key.default_services], layout: key.layout, allowHostPage: key.allow_host_page, bookingUrl: key.booking_url ?? "", note: key.note ?? "" };
 
 const bodyOf = (draft: Draft): EmbedKeyWrite => ({
   name: draft.name.trim(),
@@ -65,10 +82,17 @@ const bodyOf = (draft: Draft): EmbedKeyWrite => ({
   default_services: SERVICE_OPTIONS.map((option) => option.value).filter((value) => draft.services.includes(value)),
   layout: draft.layout,
   allow_host_page: draft.allowHostPage,
+  booking_url: draft.bookingUrl.trim() === "" ? null : draft.bookingUrl.trim(),
   note: draft.note.trim() === "" ? null : draft.note.trim(),
 });
 
-type FieldErrors = Partial<Record<"name" | "origins" | "services" | "note", string>>;
+type FieldErrors = Partial<Record<"name" | "origins" | "services" | "bookingUrl" | "note", string>>;
+
+const BOOKING_URL_ERRORS: Readonly<Record<string, string>> = {
+  OUT_OF_RANGE: "预订页地址最多 2,000 个字符",
+  INVALID: "写法不对：要写完整的 https 地址，如 https://example.com/booking/",
+  NOT_ALLOWED_ORIGIN: "这个地址的网站不在「允许的网站」里：协议、域名、端口要和其中一项完全一样。改了允许的网站时，请一起改这里或清空",
+};
 
 /** 服务端的校验问题 → 各栏的说法 */
 function errorsOf(err: unknown): FieldErrors | null {
@@ -81,6 +105,7 @@ function errorsOf(err: unknown): FieldErrors | null {
       const index = Number(issue.path.split("/")[2]);
       found.origins = Number.isInteger(index) ? `第 ${index + 1} 行${issue.reason === "DUPLICATE" ? "和前面的重复了" : "写法不对：要以 https 开头、只写到域名，可带端口，不带路径"}` : "请填 1–20 个网站地址";
     } else if (issue.path === "/default_services") found.services = "至少选一个";
+    else if (issue.path === "/booking_url") found.bookingUrl = BOOKING_URL_ERRORS[issue.reason ?? ""] ?? "写法不对：要写完整的 https 地址";
     else if (issue.path === "/note") found.note = "备注最多 500 个字";
   }
   return found;
@@ -125,6 +150,19 @@ function KeyForm({ initial, submitLabel, onSubmit, onCancel }: { initial: EmbedK
       <CheckboxGroup legend="默认标签" name={`embed-services-${initial?.id ?? "new"}`} options={SERVICE_OPTIONS} value={draft.services} errors={errors.services === undefined ? [] : [errors.services]} hint="合作网站放代码时可以另外指定" onChange={(services) => setDraft({ ...draft, services })} />
       <RadioGroup legend="外观" name={`embed-layout-${initial?.id ?? "new"}`} options={LAYOUT_OPTIONS} value={draft.layout} hint="自动：组件所在区域宽 900 px 以上显示横条，窄了（侧栏、手机）显示卡片。保存后合作网站的页面最迟约 1 分钟生效；合作网站代码里写了 layout 的以代码为准" onChange={(layout) => setDraft({ ...draft, layout })} />
       <RadioGroup legend="整页嵌入" name={`embed-host-page-${initial?.id ?? "new"}`} options={HOST_PAGE_OPTIONS} value={draft.allowHostPage ? "on" : "off"} hint={HOST_PAGE_HINT} onChange={(value) => setDraft({ ...draft, allowHostPage: value === "on" })} />
+      <TextField
+        label="预订页地址（选填）"
+        type="url"
+        inputMode="url"
+        autoComplete="off"
+        spellCheck={false}
+        maxLength={2_000}
+        value={draft.bookingUrl}
+        placeholder="https://"
+        errors={errors.bookingUrl === undefined ? [] : [errors.bookingUrl]}
+        hint={BOOKING_URL_HINT}
+        onChange={(event) => setDraft({ ...draft, bookingUrl: event.target.value })}
+      />
       <TextAreaField label="备注（选填）" rows={2} maxLength={500} value={draft.note} errors={errors.note === undefined ? [] : [errors.note]} onChange={(event) => setDraft({ ...draft, note: event.target.value })} />
       <div className="form__actions">
         <Button type="submit" variant="primary" loading={busy} loadingText="保存中…">
@@ -151,8 +189,8 @@ function KeyCard({ embedKey, canManage, onChanged }: { embedKey: EmbedKey; canMa
     setBusy(true);
     setProblem(null);
     try {
-      const { snippet: _snippet, ...rest } = embedKey;
-      await updateEmbedKey(token, embedKey.id, embedKey.version, { name: rest.name, allowed_origins: rest.allowed_origins, default_lang: rest.default_lang, default_services: rest.default_services, layout: rest.layout, allow_host_page: rest.allow_host_page, note: rest.note, status: active ? "disabled" : "active" });
+      const { snippet: _snippet, booking_snippet: _booking, snippet_fallback: _fallback, ...rest } = embedKey;
+      await updateEmbedKey(token, embedKey.id, embedKey.version, { name: rest.name, allowed_origins: rest.allowed_origins, default_lang: rest.default_lang, default_services: rest.default_services, layout: rest.layout, allow_host_page: rest.allow_host_page, booking_url: rest.booking_url, note: rest.note, status: active ? "disabled" : "active" });
       setConfirming(false);
       toast(active ? `已停用「${embedKey.name}」，合作网站上的组件最迟 60 秒后显示「暂时无法使用」` : `已启用「${embedKey.name}」`);
       onChanged();
@@ -213,18 +251,13 @@ function KeyCard({ embedKey, canManage, onChanged }: { embedKey: EmbedKey; canMa
             <Detail label="默认标签">{embedKey.default_services.map((service) => EMBED_SERVICE_NAMES[service]).join("、")}</Detail>
             <Detail label="外观">{EMBED_LAYOUT_NAMES[embedKey.layout]}</Detail>
             <Detail label="整页嵌入">{HOST_PAGE_NAMES[embedKey.allow_host_page ? "on" : "off"]}</Detail>
+            <Detail label="预订页地址">{embedKey.booking_url ?? "未填写"}</Detail>
             {embedKey.note !== null && <Detail label="备注">{embedKey.note}</Detail>}
             <Detail label="最后修改">
               <LocalTime iso={embedKey.updated_at} />
             </Detail>
           </dl>
-          <h3 className="card__subtitle">合作网站要放的代码</h3>
-          <pre className="code-block" aria-label={`${embedKey.name}的嵌入代码`}>
-            {embedKey.snippet}
-          </pre>
-          <p className="table__muted">
-            <CopyButton text={embedKey.snippet} label={`复制${embedKey.name}的嵌入代码`} /> 复制后交给合作网站。{CSP_NOTE}
-          </p>
+          <Snippets embedKey={embedKey} />
           {canManage && (
             <div className="form__actions">
               <Button variant="secondary" onClick={() => setEditing(true)}>
@@ -238,6 +271,46 @@ function KeyCard({ embedKey, canManage, onChanged }: { embedKey: EmbedKey; canMa
         </>
       )}
     </section>
+  );
+}
+
+/** 一段要放的代码：标题、一句说明、代码、复制按钮（读屏念「复制<名称>的<哪一段>代码」，复制后有「已复制」提示） */
+function SnippetPart({ id, title, note, code, owner, extra }: { id: string; title: string; note: string; code: string; owner: string; extra?: ReactNode }) {
+  return (
+    <section className="snippet-part" aria-labelledby={id}>
+      <div className="snippet-part__head">
+        <h4 className="snippet-part__title" id={id}>
+          {title}
+        </h4>
+        <CopyButton text={code} label={`复制${owner}的${title}代码`} />
+      </div>
+      <p className="snippet-part__note">{note}</p>
+      {extra}
+      <pre className="code-block" aria-label={`${owner}的${title}代码`}>
+        {code}
+      </pre>
+    </section>
+  );
+}
+
+/** 合作网站要放的代码（M9E-26）：能交付预订页时两段，否则只有①并写明原因 */
+function Snippets({ embedKey }: { embedKey: EmbedKey }) {
+  const base = `embed-snippet-${embedKey.id}`;
+  const two = embedKey.booking_snippet !== null;
+  const bookingOrigin = two && embedKey.booking_url !== null ? new URL(embedKey.booking_url).origin : null;
+  // 白名单不止一个网站时提醒：组件只认和预订页同一个网站的 bookingUrl，放在别的网站上会照旧跳主站
+  const sameSite = bookingOrigin !== null && embedKey.allowed_origins.length > 1 ? <p className="snippet-part__note">要放在和预订页同一个网站（{bookingOrigin}）的页面上；放在别的网站上时，客人会跳到 NOZOMI 主站。</p> : undefined;
+  return (
+    <>
+      <h3 className="card__subtitle">合作网站要放的代码</h3>
+      <SnippetPart id={`${base}-entry`} title="① 入口小程序" note={two ? ENTRY_NOTE : ENTRY_NOTE_REDIRECT} code={embedKey.snippet} owner={embedKey.name} extra={sameSite} />
+      {embedKey.booking_snippet !== null ? (
+        <SnippetPart id={`${base}-booking`} title="② 预订程序" note={BOOKING_NOTE} code={embedKey.booking_snippet} owner={embedKey.name} />
+      ) : (
+        embedKey.snippet_fallback !== null && <p className="snippet-part__fallback">{fallbackNote(embedKey.snippet_fallback, embedKey.allow_host_page)}</p>
+      )}
+      <p className="table__muted">复制后交给合作网站。{two ? CSP_NOTE_TWO : CSP_NOTE}</p>
+    </>
   );
 }
 
@@ -263,7 +336,7 @@ export function EmbedKeysPage() {
   }
   return shell(
     <>
-      <p className="page__lead">合作网站放一段代码，就能在他们的页面上显示「区间 / 包车」预订表单；客人点「查询价格」后跳到主站完成预订和付款。只有下面「允许的网站」里的网站能用。</p>
+      <p className="page__lead">合作网站放一段代码，就能在他们的页面上显示「区间 / 包车」预订表单；客人点「查询价格」后跳到主站完成预订和付款。填了预订页地址并允许整页嵌入的，再给第二段代码，客人在合作网站自己的预订页里完成预订。只有下面「允许的网站」里的网站能用。</p>
       {creating && (
         <section className="card" aria-labelledby="embed-key-new">
           <h2 className="card__title" id="embed-key-new">
