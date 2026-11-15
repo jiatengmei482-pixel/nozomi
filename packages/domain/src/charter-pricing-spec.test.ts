@@ -155,17 +155,17 @@ test("下车点行程加价的边界：有市外经停就不再按下车点收�
   assert.deepEqual(quoted(trip("shinjuku", ["oshino"], "kawaguchikoStation", 10)).surcharges, ["下车 fuji 10000", "行程 fuji 10000 @1"]);
   // 下车在羽田（基础价区域）：不收
   assert.deepEqual(quoted(trip("kawaguchiko", [], "hanedaT3", 10)).surcharges, ["上车 fuji 10000"]);
-  // 镰仓同时是①（ADR 0093 第二节第 4 小节：同时在①和②里算①内）：
-  // - 下车点在①里不触发——M9P-06 之前下车加价照 M8-38 收镰仓的，但不再加行程加价；
-  // - 经停在①∩镰仓里：M9P-06 之前照现行规则收镰仓途经加价、进已收区域，下车点（富士山）不再触发，不会多收
+  // 镰仓同时是①（ADR 0093 第二节第 4 小节：同时在①和②里算①内；M9P-06 起基础价区域优先）：
+  // - 下车点在①里：下车加价、下车点行程加价都不收（M9P-06 之前下车加价照 M8-38 收镰仓 8,000）；
+  // - 经停在①∩镰仓里：跳过（市内经停不加价），已收区域为空，下车点富士山（①外）收一次富士山行程（M9P-06 之前收镰仓途经加价 8,000、富士山不触发）
   const kamakuraBase = product();
   kamakuraBase.areas = [TOKYO, area("kamakura-base", square(139.5, 35.28, 139.6, 35.35))];
-  assert.deepEqual(quoted(trip("shinjuku", [], "kamakuraStation", 5), kamakuraBase).surcharges, ["下车 kamakura 8000"]);
-  assert.deepEqual(quoted(trip("shinjuku", ["tsurugaoka"], "kawaguchikoStation", 10), kamakuraBase).surcharges, ["下车 fuji 10000", "行程 kamakura 8000 @1"]);
-  // ①∩③里的经停 + 同一个③里下车（如羽田∩横滨经停、横滨下车）：M9P-06 之前经停照收途经加价、进已收区域，下车点不再触发——这个区域只收一次行程加价
+  assert.deepEqual(quoted(trip("shinjuku", [], "kamakuraStation", 5), kamakuraBase).surcharges, []);
+  assert.deepEqual(quoted(trip("shinjuku", ["tsurugaoka"], "kawaguchikoStation", 10), kamakuraBase).surcharges, ["下车 fuji 10000", "行程 fuji 10000（下车点）"]);
+  // ①∩③里的经停 + 同一个③里①外下车（如羽田∩横滨经停、横滨下车）：经停跳过，下车点收这个区域一次行程加价——仍只收一次（M9P-06 之前是经停收、下车点不触发）
   const partBase = product();
   partBase.areas = [TOKYO, area("kamakura-north", square(139.55, 35.32, 139.6, 35.35))];
-  assert.deepEqual(quoted(trip("shinjuku", ["tsurugaoka"], "hasedera", 5), partBase).surcharges, ["下车 kamakura 8000", "行程 kamakura 8000 @1"]);
+  assert.deepEqual(quoted(trip("shinjuku", ["tsurugaoka"], "hasedera", 5), partBase).surcharges, ["下车 kamakura 8000", "行程 kamakura 8000（下车点）"]);
   // 下车点落在两个设了途经加价的加价区域的重叠处（过渡期）：取最高
   const overlapped = product();
   overlapped.surchargeAreas = [FUJI, HAKONE, KAMAKURA, area("fuji-lake", square(138.7, 35.45, 138.8, 35.55))];

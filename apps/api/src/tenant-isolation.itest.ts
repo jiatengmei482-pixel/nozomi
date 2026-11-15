@@ -384,7 +384,8 @@ async function seedMasterData(): Promise<void> {
 
 /** 平台看到的记录去掉平台内部字段，就是租户应该看到的样子。 */
 function asTenantSees(item: any): any {
-  const { source: _source, ...rest } = item;
+  // 导入来源、包车覆盖检查清单（M9P-06）是平台内部的字段，租户看不到
+  const { source: _source, charter_coverage: _coverage, ...rest } = item;
   return rest;
 }
 
@@ -405,7 +406,7 @@ test("GET /tenant/v1/master/*：主数据全平台共用——两个租户看到
     assert.deepEqual(disabled.body.items, [asTenantSees(master[path]!.disabled)], "调度角色也能看");
   }
   const places = await api.call("GET", "/tenant/v1/master/places?status=all", { token: a.adminToken });
-  assert.ok(!places.text.includes("source"), "租户看不到导入来源这些平台内部字段");
+  assert.ok(!places.text.includes("source") && !places.text.includes("charter_coverage"), "租户看不到导入来源、包车覆盖检查清单这些平台内部字段");
 });
 
 test("GET /tenant/v1/master/*/{id}：按编号查看，已停用的也查得到；不存在的 404", async () => {

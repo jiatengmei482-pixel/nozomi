@@ -47,7 +47,10 @@ let serial = 0;
 
 async function area(): Promise<string> {
   api.clock.advance(1_000);
-  return (await ok(call("POST", "/areas", { body: { city_id: ids["tokyo"], name: { zh: `区域 ${(serial += 1)}` }, biz_type: "general", polygons: [{ kind: "operate", geometry: SQUARE }] } }), 201)).id;
+  // 每个区域往东错开一格（只碰边、不重叠）：包车商品的服务区域不能重叠（M9P-06，ADR 0093 第七节）
+  const shift = serial * 0.2;
+  const geometry = { type: "Polygon", coordinates: SQUARE.coordinates.map((ring) => ring.map(([lng, lat]) => [(lng as number) + shift, lat])) };
+  return (await ok(call("POST", "/areas", { body: { city_id: ids["tokyo"], name: { zh: `区域 ${(serial += 1)}` }, biz_type: "general", polygons: [{ kind: "operate", geometry }] } }), 201)).id;
 }
 
 /** 一个选了两个区域、两个车型组的商品（默认接送机）。 */
