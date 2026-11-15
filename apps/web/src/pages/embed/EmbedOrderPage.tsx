@@ -161,10 +161,16 @@ export function EmbedOrderPage() {
           {!pending && order.status !== "cancelled" && <Alert kind="success">{t.paid}</Alert>}
         </div>
         <p className="embed-book__actions">
-          <NewTabLink to={orderLink} className={pending ? "button button--primary button--lg" : "link"}>
+          <NewTabLink to={orderLink} className={pending ? "button button--primary button--lg" : "link"} aria-describedby={pending ? "embed-pay-hint" : undefined}>
             {pending ? t.payInNewWindow : t.openOrder}
           </NewTabLink>
         </p>
+        {/* 付款进 iframe（M9E-19）上线前的临时做法（业主验收意见 2026-11-16）：按钮旁写清点一次就在新窗口打开付款页；浏览器会拦自动弹出的窗口，所以不自动打开 */}
+        {pending && (
+          <p id="embed-pay-hint" className="embed-book__pay-hint">
+            {t.payHint}
+          </p>
+        )}
         <p className="embed-book__note">{t.manageNote}</p>
       </section>
       <div lang="zh-CN">

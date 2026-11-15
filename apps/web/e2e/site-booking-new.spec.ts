@@ -126,8 +126,15 @@ test("新预订页四步：输入即提示选机场和酒店 → 自动报价、
   await expect(review).toContainText("国际航班");
   await expect(review).toContainText("航班落地后 90 分钟");
   await expect(review).toContainText("22,000");
-  await expect(review).toContainText("取消规则");
+  await expect(review).toContainText("取消政策和注意事项");
   await expect(page.getByRole("button", { name: "去付款 →" })).toBeVisible();
+  // 业主验收意见（2026-11-16）：手机上「去付款」在核对页最下面，取消政策在它上面，按钮下面没有别的按钮
+  const payBox = await page.getByRole("button", { name: "去付款 →" }).boundingBox();
+  const termsBox = await review.getByRole("heading", { name: "取消政策和注意事项" }).boundingBox();
+  const backBox = await review.getByRole("button", { name: "上一步" }).boundingBox();
+  expect(payBox !== null && termsBox !== null && backBox !== null).toBe(true);
+  expect((payBox?.y ?? 0) > (termsBox?.y ?? 0)).toBe(true);
+  expect((payBox?.y ?? 0) > (backBox?.y ?? 0)).toBe(true);
   await page.getByRole("button", { name: /^行程摘要/ }).click();
   const panel = page.locator("#book-summary-panel");
   await expect(panel).toContainText("3 人 · 2 件");

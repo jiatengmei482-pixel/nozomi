@@ -88,6 +88,7 @@ import { ADDRESS_ONLY_HINT, DRAFT_EXPIRED_TEXT, DRAFT_FAILED_TEXT, draftReadyToQ
 import { ManualQuoteBlock } from "../ManualQuote.tsx";
 import { siteFailureText, useSiteConfig } from "../SiteLayout.tsx";
 import { SitePrice } from "../SitePrice.tsx";
+import { checkoutCopy } from "../../../lib/checkout-texts.ts";
 import { AddonsBlock, CONTACT_FORM_ID, ConsentField, type ContactForm, ContactSection, PayBlock, PriceBlock, type PricedState, RouteBlock, emptyContact } from "./CheckoutParts.tsx";
 import { ItineraryMap } from "./ItineraryMap.tsx";
 import { OrderSuggestionBlock, type SuggestionBasis, useOrderSuggestion } from "./OrderSuggestion.tsx";
@@ -1490,7 +1491,7 @@ export function BookNewPage() {
     /** 右侧栏 / 摘要条的内容：路线图在最上面，下面按步骤追加已经确认的内容 */
     const summaryContent = (
       <>
-        {routeBlock}
+        {(wide || step !== 4) && routeBlock}
         {step === 1 && <p className="site-muted">每确认一步，这里会加上那一步的内容。</p>}
         {step > 1 && (
           <div className="book-summary__block">
@@ -1514,66 +1515,77 @@ export function BookNewPage() {
       </Button>
     );
 
+    // 第 4 步的顺序（业主验收意见 2026-11-16）：① 完整行程（地图、上下车、经停、时间、车型、乘客行李，乘客信息）→ ② 价格明细和总价 →
+    // ③ 取消政策和注意事项 → ④ 最下面是同意保存银行卡和「去付款」（手机上也一样），按钮下面不再放需要客人往下看的内容（「上一步」放在核对页标题旁）。
+    // 地图：包车的行程图放在这里（右侧栏没有）；接送的路线图在电脑宽时已在右侧栏（和核对内容并排），手机上固定放这里（第 4 步摘要条里不再放这张图）
+    const reviewMap =
+      charter && charterRows !== null && charterMapPoints !== null ? <ItineraryMap points={charterMapPoints} alt={itineraryMapAlt(charterRows, charterResult?.itinerary_route)} /> : !charter && !wide ? routeBlock : null;
     const reviewSection = (
       <section aria-labelledby="book-review-title" className="site-section book-new__review">
-        <h2 id="book-review-title" ref={reviewHeading} tabIndex={-1} className="site-section__title">
-          核对订单
-        </h2>
+        <div className="book-review__top">
+          <h2 id="book-review-title" ref={reviewHeading} tabIndex={-1} className="site-section__title">
+            核对订单
+          </h2>
+          <Button variant="text" className="book-review__back" onClick={() => goStep(3)}>
+            {checkoutCopy("back")}
+          </Button>
+        </div>
         <section className="book-review__block" aria-labelledby="book-review-trip">
           <div className="book-review__head">
             <h3 id="book-review-trip" className="book-new__subtitle">
-              行程
+              {checkoutCopy("tripTitle")}
             </h3>
             {editLink(1, "行程")}
           </div>
+          {reviewMap}
           {tripFacts}
-        </section>
-        <section className="book-review__block" aria-labelledby="book-review-vehicle">
           <div className="book-review__head">
-            <h3 id="book-review-vehicle" className="book-new__subtitle">
-              车型和价格
-            </h3>
+            <p className="book-review__vehicle">
+              <span className="book-review__label">{checkoutCopy("vehicle")}：</span>
+              {selected === null || vehicleName === null ? "—" : <span lang={vehicleName.lang}>{vehicleName.text}</span>}
+            </p>
             {editLink(2, "车型和价格")}
           </div>
-          {selected === null || vehicleName === null ? (
-            <p>{current?.kind === "loading" ? "正在重新查询价格…" : "选的车型现在报不出价了，请点「修改」重新选择车型。"}</p>
-          ) : (
-            <>
-              <p className="book-review__vehicle" lang={vehicleName.lang}>
-                {vehicleName.text}
-              </p>
-              <PriceBlock fare={selected.price.total} basisNote={sitePriceBasisNote(selected)} kmNote={kmNote} priced={pricedState} currency={guestCurrency} onCurrency={(code) => setGuestCurrency(code as CurrencyCode)} reference={reference !== null && reference.to === guestCurrency ? reference : null} />
-              {itineraryPrice}
-            </>
-          )}
         </section>
         <section className="book-review__block" aria-labelledby="book-review-passenger">
           <div className="book-review__head">
             <h3 id="book-review-passenger" className="book-new__subtitle">
-              乘客信息
+              {checkoutCopy("passengerTitle")}
             </h3>
             {editLink(3, "乘客信息")}
           </div>
           {passengerFacts}
         </section>
-        {selected !== null && (
-          <section className="book-review__block" aria-labelledby="book-review-cancel">
-            <h3 id="book-review-cancel" className="book-new__subtitle">
-              取消规则
+        <section className="book-review__block" aria-labelledby="book-review-price">
+          <div className="book-review__head">
+            <h3 id="book-review-price" className="book-new__subtitle">
+              {checkoutCopy("priceTitle")}
             </h3>
-            <p>{guestCancelPolicyText((priced ?? selected).cancel_policy.tiers)}</p>
-          </section>
-        )}
+          </div>
+          {selected === null || vehicleName === null ? (
+            <p>{current?.kind === "loading" ? "正在重新查询价格…" : "选的车型现在报不出价了，请点「修改」重新选择车型。"}</p>
+          ) : (
+            <>
+              <PriceBlock fare={selected.price.total} basisNote={sitePriceBasisNote(selected)} kmNote={kmNote} priced={pricedState} currency={guestCurrency} onCurrency={(code) => setGuestCurrency(code as CurrencyCode)} reference={reference !== null && reference.to === guestCurrency ? reference : null} />
+              {itineraryPrice}
+            </>
+          )}
+        </section>
+        <section className="book-review__block" aria-labelledby="book-review-cancel">
+          <h3 id="book-review-cancel" className="book-new__subtitle">
+            {checkoutCopy("termsTitle")}
+          </h3>
+          {selected !== null && <p>{guestCancelPolicyText((priced ?? selected).cancel_policy.tiers)}</p>}
+          <ul className="book-review__notes">
+            <li>{checkoutCopy("payDueNote")}</li>
+            <li>{checkoutCopy("cardNote")}</li>
+          </ul>
+        </section>
         <form id={CONTACT_FORM_ID} className="site-form book-review__pay" noValidate onSubmit={(event) => void submitOrder(event)}>
           <AlertSlot notice={contactNotice} />
           <ConsentField checked={contact.consent} error={contactErrors.consent} onChange={(consent) => updateContact({ consent })} />
           <PayBlock busy={busy} expired={expired} onRequote={requote} />
         </form>
-        <div className="book-new__actions">
-          <Button size="lg" onClick={() => goStep(3)}>
-            上一步
-          </Button>
-        </div>
       </section>
     );
 

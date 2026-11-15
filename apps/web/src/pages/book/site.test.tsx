@@ -247,6 +247,10 @@ test("下单：接机必填航班号和航班类型（M9E-28）、手机号要�
   assert.deepEqual(posts[1]?.body, { quote_id: quote.quote_id, passenger: { name: "王小明", phone: "+81 90-1234-5678", email: "guest@example.com" }, flight_no: "nh 211", flight_kind: "international", pickup_address: null, dropoff_address: "东京站八重洲口", messaging: null, notes: null, save_payment_method: true, sign_name: null, passenger_name: null, passenger_phone: null });
   assert.ok(screen.getByText(/订单已提交/));
   assert.ok(screen.getByText(/付款暂未开放/));
+  // 刚下单直接进付款（业主验收意见 2026-11-16）：付款区块紧跟订单号，「订单已提交」和保存链接的提示在付款下面
+  const payHeading = screen.getByRole("heading", { level: 2, name: "付款" });
+  assert.ok(payHeading.compareDocumentPosition(screen.getByText(/订单已提交/)) & Node.DOCUMENT_POSITION_FOLLOWING, "付款在「订单已提交」前面");
+  assert.equal(document.querySelectorAll("h2#site-payment-title").length, 1, "付款区块只出一次");
   assert.equal(calls.find((call) => urlOf(call).pathname === "/site/v1/order")?.headers["authorization"], `Bearer ${TOKEN}`);
   assert.equal(localStorage.length + sessionStorage.length, 0, "令牌不进任何存储");
 });
