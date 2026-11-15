@@ -32,7 +32,7 @@ import {
 } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
 import { type QuoteCandidate, findQuoteCity, findQuotePlace, loadQuoteCandidates } from "../repos/quotes.ts";
-import { type DigestLine, type LineDigest, replayDigest, replayDigestLine, stateDigest } from "./replay-digest.ts";
+import { type DigestLine, type LineDigest, type ReplayRow, replayDigest, replayDigestLine, replayRow, stateDigest } from "./replay-digest.ts";
 
 type Row = Record<string, any>;
 
@@ -102,6 +102,11 @@ export interface RolePreview {
     resultLineDigests: LineDigest[];
     /** 回放用到的供应商数据（商品、价格规则、调价规则、计程价、商品的报价区域、区域）当前状态的摘要 */
     stateDigest: string;
+    /**
+     * 逐行明细（M9P-14）：只在要了的时候有（接口 `rows=true`），按询价编号、商品编码排好，和 `resultLineDigests` 一一对应。
+     * 部署前后各取一次，用 `pnpm replay:classify` 按 ADR 0093 第六节第 5 小节归类。有价格，不进公开的产物
+     */
+    resultRows?: ReplayRow[];
   };
 }
 
@@ -213,7 +218,7 @@ export class RolePreviewTimeout extends Error {
  * 生成清单（调用方给只读事务）。`expired`（可选）在回放每一条询价之前问一次，返回 true 就停下、抛 `RolePreviewTimeout`；
  * 命令行不给（不限时），只读接口给一个墙钟时限（M8-34，ADR 0086）。`until`（可选，默认 `now`）是回放的截止时间，见 `replayWindow`。
  */
-export async function buildRolePreview(db: Db, options: { days: number; now: Date; until?: Date; expired?: () => boolean }): Promise<RolePreview> {
+export async function buildRolePreview(db: Db, options: { days: number; now: Date; until?: Date; expired?: () => boolean; rows?: boolean }): Promise<RolePreview> {
   const migrated = await areaRolesMigrated(db);
   const areas = await db.query<Row>(`select a.tenant_id, t.name as tenant_name, a.id, a.name, a.biz_type, a.status, ${migrated ? "a.role" : "'both'::text as role"} from areas a join tenants t on t.id = a.tenant_id order by t.name, a.tenant_id, a.created_at, a.id`);
   const suppliers = new Map<string, SupplierAreas>();
@@ -245,6 +250,7 @@ export async function buildRolePreview(db: Db, options: { days: number; now: Dat
   const logs = await db.query<Row>("select id, created_at, city_id, category, request, route from quote_logs where created_at >= $1 and created_at < $2 order by created_at, id", [since, until]);
   const replay: RolePreview["replay"] = { days: options.days, since: since.toISOString(), until: until.toISOString(), logs: logs.rows.length, replayed: 0, skipped: 0, evaluations: 0, externalDiffCount: 0, externalDiffs: [], refinements: {}, priority: { changedCount: 0, changed: [], keptOffers: 0, newOffers: {} }, ...replayDigest([]), stateDigest: "" };
   const digestLines: DigestLine[] = [];
+  const rows: ReplayRow[] = [];
   const usedPlaces = new Set<string>();
   const cities = new Map<string, { timezone: string } | null>();
   const catalogs = new Map<string, QuoteCandidate[]>();
@@ -271,7 +277,9 @@ export async function buildRolePreview(db: Db, options: { days: number; now: Dat
       const after = previewOutcome(legacyQuote);
       const current = quoteProduct(candidate.product, parsed.request, moment);
       comparePriority(replay.priority, log["id"], candidate.code, legacyQuote, current);
-      digestLines.push(replayDigestLine(log["id"], candidate.code, current));
+      const line = replayDigestLine(log["id"], candidate.code, current);
+      digestLines.push(line);
+      if (options.rows === true) rows.push(replayRow(line, current));
       if (before.external !== after.external) {
         replay.externalDiffCount += 1;
         if (replay.externalDiffs.length < MAX_LISTED_DIFFS) replay.externalDiffs.push({ logId: log["id"], productCode: candidate.code, before: before.external, after: after.external });
@@ -281,6 +289,7 @@ export async function buildRolePreview(db: Db, options: { days: number; now: Dat
     }
   }
   Object.assign(replay, replayDigest(digestLines), { stateDigest: await replayStateDigest(db, [...catalogs.values()].flat(), [...usedPlaces], migrated) });
+  if (options.rows === true) replay.resultRows = rows.sort((a, b) => (a.logId < b.logId ? -1 : a.logId > b.logId ? 1 : 0) || (a.productCode < b.productCode ? -1 : a.productCode > b.productCode ? 1 : 0) || (a.digest < b.digest ? -1 : a.digest > b.digest ? 1 : 0));
   return { migrated, suppliers: [...suppliers.values()], totalAreas: areas.rows.length, published, replay };
 }
 

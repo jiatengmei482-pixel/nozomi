@@ -1675,10 +1675,10 @@
           "id": "M9P-14",
           "title": "只读回放（area-role-preview）可选返回逐行明细（差异类别、前后金额），用来给回放差异归类（P0 验收后续）",
           "role": "backend",
-          "status": "todo",
+          "status": "review",
           "acceptance": ["GET /platform/v1/reports/area-role-preview 加可选参数，打开时逐行返回（询价编号、商品编码、差异类别、前后金额），不打开时应答和现在一字不差","差异类别按 ADR 0093 第六节第 5 小节的分类给出，前后金额来自两次回放的同一行","逐行明细只在平台运营接口返回；Actions 只读核对的公开计数摘要仍只带计数和摘要值，不带逐行明细和价格（仓库公开）","单元和集成测试：打开 / 不打开两种应答、类别判定、与 resultDigest 逐行摘要对得上","独立审查、合并、部署后测试站跑一次"],
-          "evidence": "",
-          "updated": "2026-11-14"
+          "evidence": "PR（见日志）：GET /platform/v1/reports/area-role-preview 加可选 rows=true，replay 多一项 resultRows（询价编号、商品编码、和 resultLineDigests 同一个 digest、各车型组的档 / 结算价 / 超时费 / 加价拆项），不带时应答一字不差；pnpm replay:classify 前.json 后.json 按 ADR 0093 第六节第 5 小节归类（加价 1/2/9/10、超时费 4、选档 5/7、套餐价 8、13 小时 12、未归类），输出前后金额，有未归类退出码 1。只读核对工作流不带 rows，公开产物不变。新增单元 4 条、集成 1 条；相关集成 14 条全过。",
+          "updated": "2026-11-15"
         },
         {
           "id": "M9P-15",

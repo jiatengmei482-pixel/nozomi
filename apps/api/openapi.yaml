@@ -2048,6 +2048,15 @@ paths:
           schema:
             type: string
             format: date-time
+        - name: rows
+          in: query
+          description: |
+            M9P-14：给 `true` 时 `replay` 多一项 `resultRows`（逐行明细：询价编号、商品编码、这一行的摘要、各车型组的档、结算价、超时费、加价拆项），
+            部署前后各取一次，用 `pnpm replay:classify 前.json 后.json` 按 ADR 0093 第六节第 5 小节归类（类别、前后金额）。不给时应答和以前一字不差。
+            逐行明细有价格，只读核对工作流的公开产物不放。审计的改后值多记 `rows: true`
+          schema:
+            type: string
+            enum: [ "true" ]
       responses:
         "200":
           description: 清单
@@ -20684,6 +20693,49 @@ components:
                   logId: { type: string, description: 询价日志的编号 }
                   productCode: { type: string }
                   digest: { type: string, pattern: "^[0-9a-f]{64}$", description: 这一行的 SHA-256 }
+            resultRows:
+              type: array
+              description: 逐行明细（M9P-14），只在请求带 `rows=true` 时有；按询价编号、商品编码排序，和 `resultLineDigests` 一一对应（`digest` 相同）
+              items:
+                type: object
+                additionalProperties: false
+                required: [ logId, productCode, digest, refused, offers, refusedGroups ]
+                properties:
+                  logId: { type: string }
+                  productCode: { type: string }
+                  digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+                  refused: { type: [ string, "null" ], description: 商品层面报不出的原因；报得出为 null }
+                  offers:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [ vehicleGroupId, packageHours, totalMinor, currency, overtimeMinor, surcharge ]
+                      properties:
+                        vehicleGroupId: { type: string }
+                        packageHours: { type: [ integer, "null" ] }
+                        totalMinor: { type: integer, description: 结算价（最小货币单位） }
+                        currency: { type: string }
+                        overtimeMinor: { type: [ integer, "null" ], description: 预收的超时费；不是按行程计价为 null }
+                        surcharge:
+                          type: [ object, "null" ]
+                          additionalProperties: false
+                          required: [ packageMinor, pickupMinor, dropoffMinor, itineraryMinor ]
+                          description: 包车区域加价拆项；不是包车为 null
+                          properties:
+                            packageMinor: { type: integer }
+                            pickupMinor: { type: integer }
+                            dropoffMinor: { type: integer }
+                            itineraryMinor: { type: integer, description: 行程加价各区域之和 }
+                  refusedGroups:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [ vehicleGroupId, reason ]
+                      properties:
+                        vehicleGroupId: { type: string }
+                        reason: { type: string }
             stateDigest:
               type: string
               pattern: "^[0-9a-f]{64}$"
