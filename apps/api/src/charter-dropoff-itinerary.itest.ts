@@ -237,7 +237,7 @@ async function asPreDeployment(orderId: string): Promise<void> {
   );
 }
 
-test("部署前格式的订单改期：加价按新算法重算（行程加价不再被下车抵消），按行程计价的超时费照旧", async () => {
+test("部署前格式的订单改期（M9P-16，监工替业主确认 2026-11-14：按下单时锁定）：加价用下单时的（行程加价仍是被下车抵消后的 0，不按新算法补收），按行程计价的超时费照旧", async () => {
   // 按行程计价：两段各 100 公里、330 分钟，停留 30 → 690 分钟，10 小时套餐超时 90 分钟（6,000 / 小时 → 9,000）
   legMinutes = 330;
   const { orderId, token } = await bOrder({ itinerary_pricing: true, package_hours: undefined });
@@ -252,10 +252,77 @@ test("部署前格式的订单改期：加价按新算法重算（行程加价�
   const moved = await site.call("PATCH", "/site/v1/order", { token, ip: nextIp(), headers: { "if-match": `"${view.body.order.version}"` }, body: { service_time: "2026-10-21T10:00:00+09:00" } });
   assert.equal(moved.status, 200, moved.text);
   const change = await api.db.owner.query<{ before: string; after: string; s: any }>("select settlement_before_minor::text as before, settlement_after_minor::text as after, settlement_after as s from order_changes where order_id = $1", [orderId]);
-  assert.deepEqual(change.rows.map((entry) => [entry.before, entry.after]), [["74000", "84000"]]);
+  // M9P-16 之前是 74,000 → 84,000（按新算法补收富士山行程 10,000）
+  assert.deepEqual(change.rows.map((entry) => [entry.before, entry.after]), [["74000", "74000"]]);
   const after = change.rows[0]?.s;
   assert.equal(after.itinerary.overtimeMinor, 9_000, "超时费照旧（旧口径的单照旧收）");
-  assert.deepEqual(after.areaSurcharge.waypoints.map((entry: any) => [entry.amountMinor, entry.stopSeqs]), [[10_000, [1]]]);
+  assert.deepEqual(after.areaSurcharge.waypoints, [], "行程加价锁定为下单时的（被下车抵消，没有这一项）");
+  assert.deepEqual([after.areaSurcharge.dropoff.amountMinor, after.areaSurcharge.pickup.amountMinor], [10_000, 0]);
+});
+
+test("M9P-16：已下的单改期时加价按下单时锁定——供应商后来改了加价不影响；套餐价仍按改期后现算（只锁加价这一项）", async () => {
+  const { orderId, token } = await bOrder();
+  const placed = (await api.db.owner.query<{ s: any }>("select settlement as s from orders where id = $1", [orderId])).rows[0]?.s;
+  assert.deepEqual([placed.totalMinor, placed.areaSurcharge.waypoints[0].amountMinor, placed.areaSurcharge.dropoff.amountMinor], [75_000, 10_000, 10_000]);
+  // 下单之后乙把富士山的加价改成 30,000、10 小时套餐改成 60,000
+  const rules = (await ok(tenantCall(m.b, "GET", `/products/${charterB.id}/price-rules`))).items;
+  const fuji10 = rules.find((item: any) => item.area_id === charterB.fuji && item.package_hours === 10);
+  const pkg10 = rules.find((item: any) => item.pricing_model === "charter_package" && item.package_hours === 10);
+  const { id: fujiId, base: _b1, created_at: _c1, updated_at: _u1, ...fujiBody } = fuji10;
+  const { id: pkgId, base: _b2, created_at: _c2, updated_at: _u2, ...pkgBody } = pkg10;
+  const saved = await tenantCall(m.b, "POST", `/products/${charterB.id}/price-rules/batch`, {
+    version: await version(m.b, charterB.id),
+    body: { update: [{ id: fujiId, ...fujiBody, pickup_surcharge: 30_000, dropoff_surcharge: 30_000, waypoint_surcharge: 30_000 }, { id: pkgId, ...pkgBody, package_price: 60_000 }] },
+  });
+  assert.equal(saved.status, 200, saved.text);
+  try {
+    api.clock.advance(31_000);
+    const view = await site.call("GET", "/site/v1/order", { token, ip: nextIp() });
+    const moved = await site.call("PATCH", "/site/v1/order", { token, ip: nextIp(), headers: { "if-match": `"${view.body.order.version}"` }, body: { service_time: "2026-10-21T10:00:00+09:00" } });
+    assert.equal(moved.status, 200, moved.text);
+    const after = (await api.db.owner.query<{ s: any }>("select settlement_after as s from order_changes where order_id = $1", [orderId])).rows[0]?.s;
+    // 套餐 60,000（现算）+ 行程 10,000 + 下车 10,000（锁定，不是 30,000）
+    assert.equal(after.totalMinor, 80_000);
+    assert.deepEqual([after.areaSurcharge.packageMinor, after.areaSurcharge.waypoints[0].amountMinor, after.areaSurcharge.dropoff.amountMinor], [60_000, 10_000, 10_000]);
+  } finally {
+    await ok(tenantCall(m.b, "POST", `/products/${charterB.id}/price-rules/batch`, { version: await version(m.b, charterB.id), body: { update: [{ id: fujiId, ...fujiBody }, { id: pkgId, ...pkgBody }] } }));
+    api.clock.advance(31_000);
+  }
+});
+
+test("M9P-16：改两次期——每次都是下单时锁定的加价（供应商中间把富士山加价改成 30,000 也不变），价格不变就不用补差价", async () => {
+  const { orderId, token } = await bOrder();
+  const rules = (await ok(tenantCall(m.b, "GET", `/products/${charterB.id}/price-rules`))).items;
+  const fuji10 = rules.find((item: any) => item.area_id === charterB.fuji && item.package_hours === 10);
+  const { id: fujiId, base: _b, created_at: _c, updated_at: _u, ...fujiBody } = fuji10;
+  const raise = async (amount: number): Promise<void> => {
+    await ok(tenantCall(m.b, "POST", `/products/${charterB.id}/price-rules/batch`, { version: await version(m.b, charterB.id), body: { update: [{ id: fujiId, ...fujiBody, pickup_surcharge: amount, dropoff_surcharge: amount, waypoint_surcharge: amount }] } }));
+    api.clock.advance(31_000);
+  };
+  const move = async (serviceTime: string): Promise<void> => {
+    const view = await site.call("GET", "/site/v1/order", { token, ip: nextIp() });
+    const moved = await site.call("PATCH", "/site/v1/order", { token, ip: nextIp(), headers: { "if-match": `"${view.body.order.version}"` }, body: { service_time: serviceTime } });
+    assert.equal(moved.status, 200, moved.text);
+    // 改时间要供应商确认（ADR 0060）：乙确认，这次改期生效，才能再改
+    const pending = (await api.db.owner.query<{ id: string; status: string }>("select id, status from order_changes where order_id = $1 order by requested_at desc, id limit 1", [orderId])).rows[0];
+    if (pending !== undefined && pending.status !== "applied") assert.equal((await tenantCall(m.b, "POST", `/orders/${orderId}/changes/${pending.id}/confirm`, { body: {} })).status, 200);
+    api.clock.advance(31_000);
+  };
+  try {
+    await raise(30_000);
+    await move("2026-10-21T10:00:00+09:00");
+    await raise(40_000);
+    await move("2026-10-22T10:00:00+09:00");
+    const changes = (await api.db.owner.query<{ before: string; after: string; s: any; status: string }>("select settlement_before_minor::text as before, settlement_after_minor::text as after, settlement_after as s, status from order_changes where order_id = $1 order by requested_at, id", [orderId])).rows;
+    assert.deepEqual(changes.map((entry) => [entry.before, entry.after, entry.status]), [["75000", "75000", "applied"], ["75000", "75000", "applied"]], "两次改期都已生效");
+    for (const entry of changes) assert.deepEqual([entry.s.areaSurcharge.waypoints[0].amountMinor, entry.s.areaSurcharge.dropoff.amountMinor], [10_000, 10_000]);
+    const now = (await api.db.owner.query<{ s: any; at: string }>("select settlement as s, service_local::text as at from orders where id = $1", [orderId])).rows[0];
+    assert.deepEqual([now?.s.totalMinor, now?.s.areaSurcharge.dropoff.amountMinor], [75_000, 10_000]);
+    assert.match(now?.at ?? "", /^2026-10-22T10:00/, "用车时间已经改到 10-22");
+  } finally {
+    await ok(tenantCall(m.b, "POST", `/products/${charterB.id}/price-rules/batch`, { version: await version(m.b, charterB.id), body: { update: [{ id: fujiId, ...fujiBody }] } }));
+    api.clock.advance(31_000);
+  }
 });
 
 async function ops(): Promise<string> {
