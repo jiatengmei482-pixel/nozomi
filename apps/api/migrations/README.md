@@ -110,3 +110,4 @@
 | `0450_charter_three_layer.sql` | 包车三层区域的数据结构（M9P-05，ADR 0093）：价格方式加 `charter_itinerary_surcharge`（②行程加价）；②③的 `package_hours` 可空（= 所有套餐）；`price_rules.area_id` 对包车套餐可空（= 整商品套餐价，其他价格方式仍必填）；`products.charter_layout`（空 = 旧表，`three_layer` = 新表，只有包车能设），触发器保证只有迁移账号能写它。只做加法，不改已有的行，不含任何数据（0440 由 M9E-16 占用） |
 | `0460_places_charter_coverage.sql` | 包车上架的覆盖检查清单（M9P-06，ADR 0093 第七节第 4 条）：`places` 加 `charter_coverage`（默认 false，检查约束只有地标能勾）。运营在地点页勾选，包车上架检查列出清单里不在商品任何区域的地标（提醒、不拦）。只加列，不含任何数据（0450 由 M9P-05 使用） |
 | `0490_itinerary_map.sql` | 包车行程地图（M9P-20 P1，ADR 0096）：静态地图图片缓存 `static_map_images` 的键多认一种有序多点键（`…\|i1:点>点>…`，2–12 个点）；新表 `itinerary_route_polylines`（一次带中间点的折线，7 天，平台表）。不含任何数据 |
+| `0530_route_order_suggestions.sql` | 包车经停顺序建议（M9P-20 P2，ADR 0096 第三节）：建议顺序缓存 `route_order_suggestions`（段内可动经停排序后的键，24 小时；没有路线 1 天）、优化调用每日计数 `route_optimize_api_usage`。都是平台表，不含任何数据 |

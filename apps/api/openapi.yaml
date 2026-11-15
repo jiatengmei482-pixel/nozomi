@@ -24459,6 +24459,10 @@ components:
               minimum: 60
               maximum: 1440
               description: 在线下单上限（分钟）：按行程计价的预计用时 T 超过它的不在线报价（`ITINERARY_TOO_LONG`，转客服）。默认 780（13 小时，规格步骤 5）
+            suggest_stop_order:
+              type: boolean
+              default: true
+              description: 经停顺序建议（M9P-20 P2，ADR 0096 第六节）：客人填 2 个以上经停时，提示更省路程的顺序。默认开；关了只是这个商品的卡片不显示建议价
             dropoff_itinerary_surcharge:
               type: boolean
               default: true
@@ -24606,7 +24610,7 @@ components:
             charter_itinerary:
               type: object
               additionalProperties: false
-              required: [ dropoff_itinerary_surcharge, stop_occupancy_minutes, buffer_minutes, min_package_hours, max_online_minutes ]
+              required: [ dropoff_itinerary_surcharge, stop_occupancy_minutes, buffer_minutes, min_package_hours, max_online_minutes, suggest_stop_order ]
               description: 只有包车商品有这一项（M9P-01、M9P-03）；没设过的给默认值，见 `ServiceRules.charter_itinerary`
               properties:
                 dropoff_itinerary_surcharge:
@@ -24620,6 +24624,9 @@ components:
                   type: [ integer, "null" ]
                 max_online_minutes:
                   type: integer
+                suggest_stop_order:
+                  type: boolean
+                  description: 经停顺序建议（默认开，M9P-20 P2）
     ProductContentText:
       type: object
       additionalProperties: false
