@@ -208,7 +208,7 @@ async function bOrder(extra: Record<string, unknown> = {}): Promise<{ orderId: s
 }
 
 /** 服务规则 `charter_itinerary` 里 M9P-03、M9P-10 加的几项的默认值 */
-const ITINERARY_DEFAULTS = { stop_occupancy_minutes: 0, buffer_minutes: 0, min_package_hours: null, max_online_minutes: 780, warn_minutes: 720, warn_km: 360 };
+const ITINERARY_DEFAULTS = { stop_occupancy_minutes: 0, buffer_minutes: 0, min_package_hours: null, max_online_minutes: 780, warn_minutes: 720, warn_km: 360, suggest_stop_order: true };
 
 /**
  * 把一单改成 M9P-03 之前的「预收了超时费」的格式：快照的请求没有 charterSelection、套餐时长写在请求里，结算价明细里超时费 `overtimeMinor` 预收、没有 `overtimeAtBooking`，结算价多出超时费。
