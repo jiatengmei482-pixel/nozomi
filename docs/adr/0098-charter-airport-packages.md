@@ -97,7 +97,9 @@
 - **有这一格 = 单独定价**；**没有这一格 = 继承**（普通套餐价 + 这一端的机场加价，第 4 小节）。价格页这张表的空格显示灰字「继承：普通 33,000 + 上车加价 14,000」，不是「空 = 不报价」（和②③不同）。**继承的格不能单独覆盖含公里、超公里、超时单价**——要覆盖就填单独价（Q3，有意的取舍：一格只有一种来源，明细和回放说得清）。
 - 单独价高于同一格继承价时，价格页把这一格标黄提醒（Q4）。
 - 只有迁移过三层区域、且这个区域 × 方向有绑定的商品能建这种行（400 `AIRPORT_BINDING_REQUIRED`）。冲突键：区域 × 方向 × 车型组 × 套餐 × 生效日期。
-- 它不是「基础定价」：上架检查、缺价统计、调价检查都不把它当普通套餐价（`isSurchargeModel` 把它一并排除）。
+- 它不是「基础定价」：上架检查、缺价统计、调价检查都不把它当普通套餐价。**区分它用单独的判断 `isAirportPackageModel`，不用 `isSurchargeModel`**（它不是加价，不能走加价那一支的区域检查）。
+- **区域校验单独一支（#259 复核）**：这种价格规则的 `area_id` 是机场区域——不在本商品的 `product_areas` 里，业务类型可能是接送机。所以它**不走**商品区域（`services/prices.ts:350` `AREA_NOT_IN_PRODUCT`）、业务类型（`surchargeAreaIssues`，`prices.ts:429` `AREA_NOT_USABLE`）、区域用途（`areaRoleCanPrice`）这三项检查，**只查「这个区域 × 方向在本商品有机场绑定」**，没有 → 400 `AIRPORT_BINDING_REQUIRED`（区域不是本租户的仍按 404）。机场区域的用途（ADR 0075 的运营 / 报价 / 两者）都可以用，它只用来判断场景。
+- 只读商品区域的两处**按绑定把它带上**：取整单位改动的影响预览（`apps/api/src/repos/prices.ts` `listBrandSellablePrices`，要求区域在 `product_areas` 里）和导入导出的区域判断（`apps/api/src/services/import-export.ts:440`）——机场套餐价行的区域只要在本商品的机场绑定里就算本商品的。
 - **导入导出**（审查建议，统一归属）：多一个工作表「机场套餐价」；**后端（M9P-21）**负责解析、校验、冲突检查和导出，**前端（M9P-22）**只负责价格页上的展示和上传入口。
 
 ### 4. 报价匹配和计价（引擎）
@@ -216,7 +218,7 @@ create table charter_airport_bindings (
 
 - domain：
   - `QuoteProduct.airportBindings?: readonly { scenario: "airport_start" | "airport_end"; placeId: string; area: QuoteArea; name: string }[]`（`name` = 简称或主数据中文名）；
-  - `Pricing` 联合类型加 `CharterAirportPackagePricing`；`AIRPORT_PACKAGE_MODEL`；`isSurchargeModel` 把它排除在基础定价外；
+  - `Pricing` 联合类型加 `CharterAirportPackagePricing`；`AIRPORT_PACKAGE_MODEL` 和单独的判断 `isAirportPackageModel`（不并进 `isSurchargeModel`，第三节第 3 小节）；
   - `SettlementBreakdown.charterScenario?`；`AreaSurchargeEnd.includedInPackage?`、`AreaSurchargeWaypoint.includedInPackage?`；
   - 新文件 `packages/domain/src/charter-airport.ts`：`airportScenarios(product, pickup, dropoff)`（找 S / E）、`airportPackagePricing(rules, query)`（找机场套餐价并补齐默认单价）、`charterScenarioLabel(kind, name, hours)`。
 - `quote.ts` 改动点（集中、不碰并行车道的函数）：
