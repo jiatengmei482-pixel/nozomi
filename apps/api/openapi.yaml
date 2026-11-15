@@ -2052,7 +2052,7 @@ paths:
           in: query
           description: |
             M9P-14：给 `true` 时 `replay` 多一项 `resultRows`（逐行明细：询价编号、商品编码、这一行的摘要、各车型组的档、结算价、超时费、加价拆项），
-            部署前后各取一次，用 `pnpm replay:classify 前.json 后.json [--allow 类别,…]` 按 ADR 0093 第六节第 5 小节归类（类别、前后金额）。不给时应答和以前一字不差。
+            部署前后各取一次，用 `pnpm replay:classify 前.json 后.json [--allow 类别,…] [--expect-state-change]` 按 ADR 0093 第六节第 5 小节归类（类别、前后金额）。不给时应答和以前一字不差。
             逐行明细有价格，只读核对工作流的公开产物不放。审计的改后值多记 `rows: true`。
             **建议 `days` 不超过 7**：30 天的测试站约 2,500 行，应答有几 MB，回放还受 45 秒时限；要看更长的窗口就分几段 `until` 取
           schema:
@@ -20700,12 +20700,13 @@ components:
               items:
                 type: object
                 additionalProperties: false
-                required: [ logId, productCode, digest, legacy, refused, offers, refusedGroups ]
+                required: [ logId, productCode, digest, legacy, manualPackage, refused, offers, refusedGroups ]
                 properties:
                   logId: { type: string }
                   productCode: { type: string }
                   digest: { type: string, pattern: "^[0-9a-f]{64}$" }
                   legacy: { type: boolean, description: 包车的旧格式询价日志（没有 charter_selection，回放按旧口径选档、算超时费） }
+                  manualPackage: { type: boolean, description: 客人手动选的档（charter_selection 是 manual），档应该不变 }
                   refused: { type: [ string, "null" ], description: 商品层面报不出的原因；报得出为 null }
                   offers:
                     type: array

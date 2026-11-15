@@ -83,6 +83,8 @@ export interface ReplayRow {
   digest: string;
   /** 包车的旧格式询价日志（没有 charter_selection，回放按旧口径选档、算超时费，这两项应该逐字不变） */
   legacy: boolean;
+  /** 客人手动选的档（charter_selection: manual）：档应该不变 */
+  manualPackage: boolean;
   /** 商品层面报不出时的原因；报得出时为 null */
   refused: string | null;
   offers: ReplayRowOffer[];
@@ -90,8 +92,8 @@ export interface ReplayRow {
   refusedGroups: { vehicleGroupId: string; reason: string }[];
 }
 
-export function replayRow(line: DigestLine, quote: ProductQuote, options: { legacy?: boolean } = {}): ReplayRow {
-  const base = { logId: line.logId, productCode: line.productCode, digest: sha256(line.line), legacy: options.legacy === true };
+export function replayRow(line: DigestLine, quote: ProductQuote, options: { legacy?: boolean; manualPackage?: boolean } = {}): ReplayRow {
+  const base = { logId: line.logId, productCode: line.productCode, digest: sha256(line.line), legacy: options.legacy === true, manualPackage: options.manualPackage === true };
   if (!quote.ok) return { ...base, refused: quote.reason, offers: [], refusedGroups: [] };
   const offers = quote.offers
     .map((offer): ReplayRowOffer => {

@@ -16,7 +16,7 @@ type Surcharge = NonNullable<ReplayRowOffer["surcharge"]>;
 const SURCHARGE: Surcharge = { packageMinor: 55_000, pickupMinor: 0, dropoffMinor: 0, itineraryMinor: 10_000 };
 /** 10h 套餐 55,000 + 行程加价 10,000 = 基础价 65,000，没有调价 */
 const offer = (changes: Partial<ReplayRowOffer> = {}): ReplayRowOffer => ({ vehicleGroupId: "eco7", packageHours: 10, totalMinor: 65_000, currency: "JPY", pricingBasis: "one_price", areaId: "tokyo", toAreaId: null, priceRuleId: "r-10", baseMinor: 65_000, adjustMinor: 0, overtimeMinor: 0, surcharge: SURCHARGE, ...changes });
-const row = (offers: ReplayRowOffer[], changes: Partial<ReplayRow> = {}): ReplayRow => ({ logId: "log-1", productCode: "P-1", digest: `d${JSON.stringify(offers)}${changes.refused ?? ""}${JSON.stringify(changes.refusedGroups ?? [])}`, legacy: false, refused: null, offers, refusedGroups: [], ...changes });
+const row = (offers: ReplayRowOffer[], changes: Partial<ReplayRow> = {}): ReplayRow => ({ logId: "log-1", productCode: "P-1", digest: `d${JSON.stringify(offers)}${changes.refused ?? ""}${JSON.stringify(changes.refusedGroups ?? [])}`, legacy: false, manualPackage: false, refused: null, offers, refusedGroups: [], ...changes });
 
 test("逐行明细和摘要行是同一行：digest 等于 resultLineDigests 里的那一项；带上摘要里的区域、规则、计价方式和基础价、调价、加价拆项", () => {
   const quote = {
@@ -37,9 +37,9 @@ test("逐行明细和摘要行是同一行：digest 等于 resultLineDigests 里
     refused: [{ vehicleGroupId: "lux4", reason: "NO_PRICE_RULE" }],
   } as unknown as ProductQuote;
   const line = replayDigestLine("log-1", "P-1", quote);
-  const detail = replayRow(line, quote, { legacy: true });
+  const detail = replayRow(line, quote, { legacy: true, manualPackage: true });
   assert.equal(detail.digest, replayDigest([line]).resultLineDigests[0]?.digest);
-  assert.equal(detail.legacy, true);
+  assert.deepEqual([detail.legacy, detail.manualPackage], [true, true]);
   assert.deepEqual(detail.offers, [{ vehicleGroupId: "eco7", packageHours: 10, totalMinor: 82_500, currency: "JPY", pricingBasis: "one_price", areaId: "tokyo", toAreaId: null, priceRuleId: "r", baseMinor: 75_000, adjustMinor: 7_500, overtimeMinor: 0, surcharge: { packageMinor: 55_000, pickupMinor: 0, dropoffMinor: 10_000, itineraryMinor: 10_000 } }]);
   assert.deepEqual(detail.refusedGroups, [{ vehicleGroupId: "lux4", reason: "NO_PRICE_RULE" }]);
   const refused = { ok: false, productId: "p", tenantId: "t", reason: "OUT_OF_SERVICE_AREA" } as unknown as ProductQuote;
@@ -67,14 +67,28 @@ test("归类：加价、超时费、选档、套餐价、13 小时拦截各自�
 test("归类：只有区域 / 规则 / 计价方式变了单列；旧格式日志的选档、超时费单列；别的都是未归类", () => {
   for (const changes of [{ priceRuleId: "r-other" }, { areaId: "tokyo-2" }, { toAreaId: "x" }, { pricingBasis: "distance_only" }]) assert.deepEqual(classifyRow(row([offer()]), row([offer(changes)])), ["ids_only"], JSON.stringify(changes));
   const legacy = { legacy: true };
-  assert.deepEqual(classifyRow(row([offer({ packageHours: 4, baseMinor: 34_000, totalMinor: 34_000 })], legacy), row([offer({ packageHours: 5, baseMinor: 33_000, totalMinor: 33_000 })], legacy)), ["package_legacy"]);
-  assert.deepEqual(classifyRow(row([offer({ baseMinor: 71_000, totalMinor: 71_000, overtimeMinor: 6_000 })], legacy), row([offer()], legacy)), ["overtime_legacy"]);
-  assert.deepEqual(classifyRow(row([offer()]), row([offer({ baseMinor: 71_000, totalMinor: 71_000, overtimeMinor: 6_000 })])), ["overtime_legacy"], "新口径多收超时费也不是有意的");
+  assert.deepEqual(classifyRow(row([offer({ packageHours: 4, baseMinor: 34_000, totalMinor: 34_000 })], legacy), row([offer({ packageHours: 5, baseMinor: 33_000, totalMinor: 33_000 })], legacy)), ["package_fixed"]);
+  assert.deepEqual(classifyRow(row([offer({ baseMinor: 71_000, totalMinor: 71_000, overtimeMinor: 6_000 })], legacy), row([offer()], legacy)), ["overtime_unexpected"]);
+  assert.deepEqual(classifyRow(row([offer()]), row([offer({ baseMinor: 71_000, totalMinor: 71_000, overtimeMinor: 6_000 })])), ["overtime_unexpected"], "新口径多收超时费也不是有意的");
+  // 客人手动选的档（charter_selection: manual）：档变了不是有意的
+  assert.deepEqual(classifyRow(row([offer({ packageHours: 8, baseMinor: 60_000, totalMinor: 60_000 })], { manualPackage: true }), row([offer({ packageHours: 10 })], { manualPackage: true })), ["package_fixed"]);
   assert.deepEqual(classifyRow(row([offer()]), row([], { refused: "NO_PRODUCT" })), ["unclassified"]);
   assert.deepEqual(classifyRow(row([offer()]), row([], { refusedGroups: [{ vehicleGroupId: "eco7", reason: "NO_PRICE_RULE" }] })), ["unclassified"]);
   assert.deepEqual(classifyRow(row([offer()]), row([offer({ baseMinor: 65_001, totalMinor: 65_001 })])), ["unclassified"]);
   assert.deepEqual(classifyRow(row([], { refusedGroups: [{ vehicleGroupId: "eco7", reason: "NO_PRICE_RULE" }] }), row([], { refusedGroups: [{ vehicleGroupId: "eco7", reason: "PRICE_RULE_DISABLED" }] })), ["unclassified"]);
   assert.deepEqual(classifyRow(row([], { refused: "OUT_OF_SERVICE_AREA" }), row([offer()])), ["unclassified"]);
+});
+
+test("#266 复核必改：已有有意类别时，基础价以外的变化（夜间等）、调价从无到有照样补未归类；基础价不变时调价变了也是未归类", () => {
+  const surcharged = { ...SURCHARGE, dropoffMinor: 10_000 };
+  // 复核例 1：加价 +10,000，同时总价里基础价、调价以外的部分多了 3,000（例如夜间费）
+  assert.deepEqual(classifyRow(row([offer()]), row([offer({ baseMinor: 75_000, totalMinor: 78_000, surcharge: surcharged })])), ["surcharge", "unclassified"]);
+  // 复核例 2：加价 +10,000，同时调价从 0 跳到 50,000
+  assert.deepEqual(classifyRow(row([offer()]), row([offer({ baseMinor: 75_000, adjustMinor: 50_000, totalMinor: 125_000, surcharge: surcharged })])), ["surcharge", "unclassified"]);
+  // 基础价没变、调价变了（总价跟着变）
+  assert.deepEqual(classifyRow(row([offer({ adjustMinor: 6_500, totalMinor: 71_500 })]), row([offer({ adjustMinor: 7_000, totalMinor: 72_000 })])), ["unclassified"]);
+  // 选档变了时夜间费可以跟着时长变（按小时收），不要求基础价以外的部分不变
+  assert.deepEqual(classifyRow(row([offer({ packageHours: 4, baseMinor: 34_000, totalMinor: 36_000 })]), row([offer({ packageHours: 5, baseMinor: 33_000, totalMinor: 35_500 })])), ["package"]);
 });
 
 test("对齐和判定：摘要一样的算没变；只有一边有的行判失败；声明以外的类别判失败；不声明时 ids_only 和旧格式两类也失败；输出带报不出的原因", () => {
@@ -119,6 +133,12 @@ test("命令行：读两份应答（整份或只有 replay）；退出码——�
     const state = await classifyFiles(before, moved);
     assert.equal(state.exitCode, EXIT.stateChanged);
     assert.match((state.output as any).warning, /stateDigest 不一样/);
+    assert.deepEqual([(state.output as any).passed, (state.output as any).classificationPassed], [false, true], "归类本身是通过的");
+    // 迁移这类有意改数据的比对：--expect-state-change 按归类本身判
+    const migration = await classifyFiles(before, moved, null, { expectStateChange: true });
+    assert.deepEqual([migration.exitCode, (migration.output as any).passed, "warning" in (migration.output as any)], [EXIT.passed, true, false]);
+    const brokenMigration = await write("broken.json", replay([row([offer({ baseMinor: 1, totalMinor: 1 })])], "s2"));
+    assert.equal((await classifyFiles(before, brokenMigration, null, { expectStateChange: true })).exitCode, EXIT.failed);
     const window = await write("window.json", { ...replay([row([offer()])]), days: 7 });
     assert.equal((await classifyFiles(before, window)).exitCode, EXIT.failed, "天数不同不能比");
     const missing = await write("missing.json", { replay: { until: "x" } });
