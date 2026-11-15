@@ -45,6 +45,7 @@ import { Icon } from "../../../components/Icon.tsx";
 import { Skeleton, StateBlock } from "../../../components/States.tsx";
 import { TextField } from "../../../components/TextField.tsx";
 import {
+  type AirportFlightScope,
   BOOK_STEPS,
   BOOK_TABS,
   BOOK_TAB_NAMES,
@@ -280,7 +281,7 @@ export function BookNewPage() {
   const [quote, setQuote] = useState<QuoteState>({ kind: "idle" });
   const [quoteRound, setQuoteRound] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [recognized, setRecognized] = useState<{ ends: string; tripType: SiteByPointsResult["trip_type"] } | null>(null);
+  const [recognized, setRecognized] = useState<{ ends: string; tripType: SiteByPointsResult["trip_type"]; flightScope: AirportFlightScope | null } | null>(null);
   const [charterMatch, setCharterMatch] = useState<{ key: string; load: Load<CharterMatch> } | null>(null);
   /** 包车套餐读失败后点「重试」：加一次重读 */
   const [charterRetry, setCharterRetry] = useState(0);
@@ -454,7 +455,7 @@ export function BookNewPage() {
         (outcome) => {
           if (!alive) return;
           setQuote({ kind: "ready", key: current.key, outcome });
-          if (outcome.mode === "transfer") setRecognized({ ends: sameEnds(draft.from, draft.to), tripType: outcome.result.trip_type });
+          if (outcome.mode === "transfer") setRecognized({ ends: sameEnds(draft.from, draft.to), tripType: outcome.result.trip_type, flightScope: outcome.result.airport?.flight_scope ?? null });
         },
         (err: unknown) => {
           if (!alive) return;
@@ -476,11 +477,13 @@ export function BookNewPage() {
   const outcome = current?.kind === "ready" ? current.outcome : null;
   const quotes = useMemo(() => (outcome === null ? [] : quotesByTotal(outcome.result.quotes)), [outcome]);
   const selected = quotes.find((entry) => entry.vehicle_group.id === selectedId) ?? null;
-  const tripType: SiteByPointsResult["trip_type"] | null = draft.mode === "charter" ? null : recognized !== null && recognized.ends === sameEnds(draft.from, draft.to) ? recognized.tripType : draft.from?.kind === "airport" ? "pickup" : null;
+  const known = draft.mode !== "charter" && recognized !== null && recognized.ends === sameEnds(draft.from, draft.to) ? recognized : null;
+  const tripType: SiteByPointsResult["trip_type"] | null = draft.mode === "charter" ? null : known !== null ? known.tripType : draft.from?.kind === "airport" ? "pickup" : null;
   const arrival = tripType === "pickup";
-  // 免费等待（M8-33）：有报价按所选商品自己设的；接机还没有报价时按机场国际 90 / 国内 60 分钟
+  // 免费等待（M8-33、M9E-27）：有报价按所选商品自己设的；接机还没有报价时按这两端上次认出的机场：国际线 90、国内线 60，
+  // 没认出过（客人还没填齐、还没报过价）或机场国际国内都有、没标明的不写分钟数——不拿 60 去猜
   const quotedForWait = selected ?? quotes[0] ?? null;
-  const flightScope = outcome?.mode === "transfer" ? (outcome.result.airport?.flight_scope ?? null) : null;
+  const flightScope = outcome?.mode === "transfer" ? (outcome.result.airport?.flight_scope ?? null) : (known?.flightScope ?? null);
   const freeWait = arrival ? arrivalFreeWaitMinutes(quotedForWait, flightScope) : (quotedForWait?.free_wait_minutes ?? null);
   const timezone = outcome?.mode === "charter" ? outcome.city.timezone : (outcome?.result.city?.timezone ?? dateCity?.timezone ?? "Asia/Tokyo");
   const cityName = outcome?.mode === "charter" ? displayName(outcome.city.name).text : outcome?.result.city ? displayName(outcome.result.city.name).text : null;
