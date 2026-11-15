@@ -202,7 +202,7 @@ test("一口价说明（M8-09，ADR 0070）：接送机客人写「一口价已�
   assert.doesNotMatch(legacy.guest, /费用说明|含所有费用/);
   assert.match(legacy.guest, /已付金额：/);
   assert.doesNotMatch(legacy.tenant, /包车报价/);
-  // M9W-05：按行程计价的包车（结算价明细里有锁定的 itinerary）：超公里、超时已算进价格，只有当天超出预计的另收
+  // M9W-05：按行程计价的包车（结算价明细里有锁定的 itinerary）：超公里已算进价格，用时超出套餐或当天超出预计的部分另收（M9P-04 改）
   const itinerary = { routeMeters: 260_000, routeMinutes: 540, packageKm: 200, packageMinutes: 600, overMeters: 60_000, overtimeMinutes: 0, overKmPerKmMinor: 300, overtimePerHourMinor: 5_000, overKmMinor: 18_000, overtimeMinor: 0 };
   const planned = await mails(async (orderId) => {
     await charterAt(orderId, "2026-11-12T00:00:00+09:00");

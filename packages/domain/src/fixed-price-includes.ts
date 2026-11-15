@@ -147,7 +147,7 @@ export function fixedPriceIncludes(input: FixedPriceIncludesInput, language: Fix
 export function fixedPriceFeeNote(service: "transfer" | "charter", language: FixedPriceLanguage = "zh", options: { itinerary?: boolean } = {}): string {
   const texts = FIXED_PRICE_INCLUDES_TEXTS[language];
   if (service === "transfer") return texts.allInclusive;
-  // 按行程计价的包车（M9W-05）：超公里、超时已算进价格
+  // 按行程计价的包车（M9W-05）：超公里已算进价格，用时超出套餐或当天超出预计的部分另收（M9P-04 改）
   const overage = options.itinerary === true ? CHARTER_ITINERARY_OVERAGE_TEXTS[language] : CHARTER_OVERAGE_TEXTS[language];
   return `${texts.allInclusive}${language === "en" ? "; " : "；"}${overage}`;
 }

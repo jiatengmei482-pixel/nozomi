@@ -38,11 +38,11 @@ export function priceNote(category: SiteCategory): string {
 /**
  * 订单页的「费用说明」（ADR 0070）：接送机、点对点写含所有费用；按里程计价（`pricing_basis = distance_only`）的不是一口价，
  * 换成 domain `pricingBasisFeeNote` 的说法（M6-08）；包车按下单时间——分界后下的写含所有费用、超出套餐另收，
- * 分界前下的是按「高速、停车另收」报的价，不写（返回 null）。按行程计价的包车写超公里、超时已算进价格（M9W-05）。
+ * 分界前下的是按「高速、停车另收」报的价，不写（返回 null）。按行程计价的包车写超公里已算进价格、用时超出套餐或当天超出预计的部分另收（M9W-05，M9P-04 改）。
  */
 export function orderFeeNote(order: Pick<SiteOrder, "category" | "created_at"> & { pricing_basis?: PricingBasis | undefined; itinerary?: SiteOrder["itinerary"] | undefined }): string | null {
   if (order.category !== "charter") return pricingBasisFeeNote(order.pricing_basis) ?? fixedPriceFeeNote("transfer");
-  // 按行程计价的包车（订单上有锁定的 itinerary，M9W-05）：超公里、超时已算进价格
+  // 按行程计价的包车（订单上有锁定的 itinerary，M9W-05）：超公里已算进价格，用时超出套餐或当天超出预计的部分另收（M9P-04 改）
   return charterAllInclusiveFor(new Date(order.created_at)) ? fixedPriceFeeNote("charter", "zh", { itinerary: order.itinerary != null }) : null;
 }
 
