@@ -14,9 +14,9 @@ import { type DailyWindow, MINUTES_PER_DAY, dailyWindowIssue, isLocalDate, parse
 
 // ---- 枚举和上限 ----
 
-export const PRICING_MODELS = ["fixed", "mileage_time", "charter_package", "charter_area_surcharge", "charter_itinerary_surcharge"] as const;
+export const PRICING_MODELS = ["fixed", "mileage_time", "charter_package", "charter_area_surcharge", "charter_itinerary_surcharge", "charter_airport_package"] as const;
 export type PricingModel = (typeof PRICING_MODELS)[number];
-export const PRICING_MODEL_NAMES: Readonly<Record<PricingModel, string>> = { fixed: "固定一口价", mileage_time: "里程 + 时长", charter_package: "包车套餐", charter_area_surcharge: "上下车加价", charter_itinerary_surcharge: "行程加价" };
+export const PRICING_MODEL_NAMES: Readonly<Record<PricingModel, string>> = { fixed: "固定一口价", mileage_time: "里程 + 时长", charter_package: "包车套餐", charter_area_surcharge: "上下车加价", charter_itinerary_surcharge: "行程加价", charter_airport_package: "机场套餐价" };
 
 /**
  * 加价类的价格方式（M8-15，ADR 0073 第三部分）：不是一条「基础定价」，而是加在基础定价上的一笔钱。
@@ -27,9 +27,16 @@ export const PRICING_MODEL_NAMES: Readonly<Record<PricingModel, string>> = { fix
 export const SURCHARGE_PRICING_MODELS = ["charter_area_surcharge", "charter_itinerary_surcharge"] as const satisfies readonly PricingModel[];
 export type SurchargePricingModel = (typeof SURCHARGE_PRICING_MODELS)[number];
 
-/** 这种价格方式是不是加价类的（不是基础定价）。 */
-export function isSurchargeModel(model: PricingModel): model is SurchargePricingModel {
-  return (SURCHARGE_PRICING_MODELS as readonly PricingModel[]).includes(model);
+/**
+ * 包车机场套餐价（M9P-21，ADR 0098 第三节第 3 小节）：`area_id` 是机场绑定的区域、`direction` 是场景（`pickup` 机场开始 / `dropoff` 机场结束）、套餐时长必填。
+ * 有这一格 = 单独定价（替换普通套餐价、免掉场景那一端的③加价）；没有 = 继承。它不是「基础定价」：报价、上架检查、缺价统计都不把它当普通套餐价。
+ * 只有迁移过三层区域、并且这个区域 × 场景有机场绑定的包车商品能用。
+ */
+export const AIRPORT_PACKAGE_MODEL = "charter_airport_package" as const;
+
+/** 这种价格方式是不是加价类的（不是基础定价）。机场套餐价也不算基础定价（ADR 0098），一并在这里排除。 */
+export function isSurchargeModel(model: PricingModel): model is SurchargePricingModel | typeof AIRPORT_PACKAGE_MODEL {
+  return (SURCHARGE_PRICING_MODELS as readonly PricingModel[]).includes(model) || model === AIRPORT_PACKAGE_MODEL;
 }
 
 /** 这条价格规则是不是加价类的（包车区域加价）：报价、上架检查、缺价统计、调价检查里的「基础定价」都不算它。 */
@@ -284,7 +291,18 @@ export interface CharterItinerarySurchargePricing {
   surchargeMinor: number;
 }
 
-export type Pricing = FixedPricing | MileageTimePricing | CharterPackagePricing | CharterAreaSurchargePricing | CharterItinerarySurchargePricing;
+/**
+ * 包车机场套餐价（M9P-21，ADR 0098）：套餐价必填；含公里、超公里单价、超时单价不填 = 用同一车型组同一时长的普通套餐价那一行的值。
+ */
+export interface CharterAirportPackagePricing {
+  model: "charter_airport_package";
+  packagePriceMinor: number;
+  packageKm?: number;
+  overKmPerKmMinor?: number;
+  overtimePerHourMinor?: number;
+}
+
+export type Pricing = FixedPricing | MileageTimePricing | CharterPackagePricing | CharterAreaSurchargePricing | CharterItinerarySurchargePricing | CharterAirportPackagePricing;
 
 /**
  * 一条价格规则 = 区域 × 车型组 ×（接送机：方向；包车：套餐时长）× 生效日期（用车日期，两端都含）的一条报价，带启停状态。
@@ -358,13 +376,18 @@ export function priceRuleIssues(rule: PriceRule, context: { category: ServiceCat
   const layered = context.category === "charter" && context.charterLayout === "three_layer";
   const issues: PriceIssue[] = [];
   const max = PRICE_LIMITS.maxAmountMinor;
+  const airportPackage = rule.pricing.model === AIRPORT_PACKAGE_MODEL;
   if (context.category === "airport_transfer") {
     if (rule.direction === null) issues.push({ path: "/direction", reason: "REQUIRED" });
+  } else if (airportPackage && context.category === "charter") {
+    // 机场套餐价的方向是场景：pickup = 机场开始，dropoff = 机场结束（ADR 0098）
+    if (rule.direction === null) issues.push({ path: "/direction", reason: "REQUIRED" });
+    else if (rule.direction === "both") issues.push({ path: "/direction", reason: "OUT_OF_RANGE" });
   } else if (rule.direction !== null) issues.push({ path: "/direction", reason: "NOT_APPLICABLE" });
   if (context.category === "charter") {
-    // 加价（②③）的套餐可以为空 = 这个车型组的所有套餐（ADR 0093 第一节）；套餐价必填
+    // 加价（②③）的套餐可以为空 = 这个车型组的所有套餐（ADR 0093 第一节）；套餐价、机场套餐价必填
     if (rule.packageHours === null) {
-      if (!layered || !isSurchargeModel(rule.pricing.model)) issues.push({ path: "/package_hours", reason: "REQUIRED" });
+      if (!layered || !isSurchargeModel(rule.pricing.model) || airportPackage) issues.push({ path: "/package_hours", reason: "REQUIRED" });
     } else integerIssue(issues, "/package_hours", rule.packageHours, 1, PRICE_LIMITS.maxPackageHours);
   } else if (rule.packageHours !== null) issues.push({ path: "/package_hours", reason: "NOT_APPLICABLE" });
   // 区域只有迁移过三层区域的包车套餐可以不填（整商品套餐价，ADR 0093 第五节）
@@ -377,7 +400,8 @@ export function priceRuleIssues(rule: PriceRule, context: { category: ServiceCat
   }
 
   const pricing = rule.pricing;
-  if (![...pricingModelsFor(context.category), ...surchargeModelsFor(context.category, layered ? "three_layer" : null)].includes(pricing.model)) issues.push({ path: "/pricing_model", reason: "MODEL_NOT_ALLOWED" });
+  const allowed: PricingModel[] = [...pricingModelsFor(context.category), ...surchargeModelsFor(context.category, layered ? "three_layer" : null), ...(layered ? [AIRPORT_PACKAGE_MODEL] : [])];
+  if (!allowed.includes(pricing.model)) issues.push({ path: "/pricing_model", reason: "MODEL_NOT_ALLOWED" });
   if (pricing.model === "fixed") {
     integerIssue(issues, "/base_price", pricing.basePriceMinor, 1, max);
     // 含公里数（ADR 0073 第二部分第 4 节）：只有点对点；要么都填、要么都不填
@@ -410,6 +434,11 @@ export function priceRuleIssues(rule: PriceRule, context: { category: ServiceCat
     if (pricing.waypointSurchargeMinor !== undefined) integerIssue(issues, "/waypoint_surcharge", pricing.waypointSurchargeMinor, 0, max);
   } else if (pricing.model === "charter_itinerary_surcharge") {
     integerIssue(issues, "/itinerary_surcharge", pricing.surchargeMinor, 0, max);
+  } else if (pricing.model === "charter_airport_package") {
+    integerIssue(issues, "/package_price", pricing.packagePriceMinor, 1, max);
+    if (pricing.packageKm !== undefined) integerIssue(issues, "/package_km", pricing.packageKm, 1, PRICE_LIMITS.maxPackageKm);
+    if (pricing.overtimePerHourMinor !== undefined) integerIssue(issues, "/overtime_per_hour", pricing.overtimePerHourMinor, 0, max);
+    if (pricing.overKmPerKmMinor !== undefined) integerIssue(issues, "/over_km_per_km", pricing.overKmPerKmMinor, 0, max);
   } else {
     integerIssue(issues, "/package_km", pricing.packageKm, 1, PRICE_LIMITS.maxPackageKm);
     integerIssue(issues, "/package_price", pricing.packagePriceMinor, 1, max);
@@ -550,7 +579,7 @@ export function basePrice(pricing: Pricing, usage: TripUsage = {}, packageHours:
     if (!hasIncludedKm(pricing) || usage.meters === undefined) return exactFromMinor(pricing.basePriceMinor);
     return plus(exactFromMinor(pricing.basePriceMinor), times(exactFromMinor(pricing.overKmPerKmMinor), BigInt(overKm(usage.meters, pricing.includedKm))));
   }
-  if (pricing.model === "charter_area_surcharge" || pricing.model === "charter_itinerary_surcharge") return exactFromMinor(0);
+  if (pricing.model === "charter_area_surcharge" || pricing.model === "charter_itinerary_surcharge" || pricing.model === "charter_airport_package") return exactFromMinor(0);
   if (pricing.model === "mileage_time") {
     const byDistance = times(exactFromMinor(pricing.perKmMinor), over(meters, BigInt(pricing.startMeters)), 1_000n);
     const byTime = times(exactFromMinor(pricing.perMinuteMinor), over(minutes, BigInt(pricing.startMinutes)));
