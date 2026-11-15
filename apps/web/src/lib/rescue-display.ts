@@ -21,7 +21,7 @@ import {
   rescuePenaltyMinor,
 } from "@nozomi/domain";
 import type { Money } from "../api/dispatch.ts";
-import type { DeductionBasis } from "../api/rescues.ts";
+import type { DeductionBasis, RescueDeductionBase } from "../api/rescues.ts";
 import type { BadgeSpec } from "../components/StatusBadge.tsx";
 import { basisPointsText } from "./adjust-form.ts";
 import { moneyText } from "./dispatch-display.ts";
@@ -79,7 +79,39 @@ export function deductionBasisText(kind: DeductionKind, basis: DeductionBasis, c
   }
   if (kind === "reimbursement") return `${[ticket, scenario].filter(Boolean).join(" · ")}：客人凭票报销的替代交通，全部由供应商承担${basis.same_currency === false ? "（按订单报价时的汇率换成结算币种）" : ""}`;
   const raw = basis.raw_minor ?? 0;
-  return `救援结算价${basis.same_currency === false ? "（按两边报价时的汇率换算）" : ""} ${money(basis.rescue_in_original_minor)} − 原结算价 ${money(basis.original_minor)}${raw < 0 ? "，为负记 0" : ""}`;
+  // M9P-01 起差价按救援差价基准算（base_minor）：基准比原结算价高时（加价重算多出来）写出基准和怎么来的，免得对不上
+  const base = typeof basis.base_minor === "number" ? basis.base_minor : undefined;
+  const subtrahend = base !== undefined && basis.original_minor !== undefined && base > basis.original_minor ? `救援差价基准 ${money(base)}（原结算价 ${money(basis.original_minor)} + 加价重算多出的 ${money(base - basis.original_minor)}）` : `原结算价 ${money(basis.original_minor)}`;
+  return `救援结算价${basis.same_currency === false ? "（按两边报价时的汇率换算）" : ""} ${money(basis.rescue_in_original_minor)} − ${subtrahend}${raw < 0 ? "，为负记 0" : ""}`;
+}
+
+/** 重算加价失败、基准退回原结算价的原因（`order_rescues.deduction_base.fallbackReason`）；不认识的写原因码 */
+const BASE_FALLBACK_TEXT: Readonly<Record<string, string>> = {
+  QUOTE_NOT_FOUND: "找不到下单时的报价",
+  PRODUCT_NOT_FOUND: "原订单的商品已经不在了",
+  CURRENCY_CHANGED: "原商品的结算币种变了",
+  NOT_AVAILABLE: "原商品按现在的规则报不出这个车型",
+  ERROR: "重算时出错",
+};
+
+export function baseFallbackText(reason: string): string {
+  return BASE_FALLBACK_TEXT[reason] ?? `原商品按现在的规则报不出（${reason}）`;
+}
+
+/**
+ * 救援差价的基准（M9P-04，#229 审查建议）：候选列表上的差价和改派时记的救援差价都是「救援结算价 − 基准」。
+ * - 加价重算多出来：「75,000 JPY = 原结算价 65,000 JPY + 加价重算多出的 10,000 JPY（订单上的加价合计 10,000 JPY，按现在的规则重算 20,000 JPY）」
+ * - 没多出：「65,000 JPY，就是原结算价（订单上的加价合计 …，按现在的规则重算 …）」
+ * - 重算失败：「65,000 JPY，就是原结算价（加价重算失败：原因）」
+ * 这一项上线前触发的救援（null）：「按原结算价」。
+ */
+export function deductionBaseText(base: RescueDeductionBase | null, original: Money): string {
+  if (base === null) return `按原结算价 ${moneyText(original)}`;
+  const totals = base.surcharge_before !== null && base.surcharge_after !== null ? `订单上的加价合计 ${moneyText(base.surcharge_before)}，按现在的规则重算 ${moneyText(base.surcharge_after)}` : null;
+  if (base.fallback_reason !== null || totals === null) return `${moneyText(base.base)}，就是原结算价（加价重算失败：${baseFallbackText(base.fallback_reason ?? "ERROR")}）`;
+  const extra = isCurrencyCode(base.base.currency) ? parseMajor(base.base.amount, base.base.currency) - parseMajor(original.amount, base.base.currency) : 0;
+  if (extra <= 0 || !isCurrencyCode(base.base.currency)) return `${moneyText(base.base)}，就是原结算价（${totals}）`;
+  return `${moneyText(base.base)} = 原结算价 ${moneyText(original)} + 加价重算多出的 ${moneyText({ amount: formatMajor(extra, base.base.currency), currency: base.base.currency })}（${totals}）`;
 }
 
 export interface PenaltyPreview {
