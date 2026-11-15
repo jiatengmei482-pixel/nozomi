@@ -15,10 +15,15 @@ import { type CachedOrder, findCachedOrder, recordOptimizeOutcome, recordOptimiz
 import { ROUTE_DB_TIMEOUT_MS } from "./route-estimates.ts";
 
 /** 每段的建议顺序（取整后的坐标，按建议顺序）；`source` 只要有一段问了谷歌就是 google。 */
-export type OptimizeOutcome = { ok: true; orders: LatLng[][]; source: "cache" | "google" } | { ok: false; reason: "NO_ROUTE" | "UNAVAILABLE"; code: RouteFailureCode };
+export type OptimizeOutcome = { ok: true; orders: LatLng[][]; source: "cache" | "google" } | { ok: false; reason: "NO_ROUTE" | "UNAVAILABLE" | "RATE_LIMITED"; code: RouteFailureCode | "RATE_LIMITED" };
+
+export interface OptimizeOptions {
+  /** 真要调谷歌之前问一次（按会话、按地址只数要调谷歌的请求的限频）：false 就不调，结果 `RATE_LIMITED`；缓存全命中时不问 */
+  beforeGoogle?: () => Promise<boolean>;
+}
 
 export interface OrderOptimizer {
-  optimize(segments: readonly SuggestionSegment[]): Promise<OptimizeOutcome>;
+  optimize(segments: readonly SuggestionSegment[], options?: OptimizeOptions): Promise<OptimizeOutcome>;
 }
 
 export const NO_ORDER_OPTIMIZER: OrderOptimizer = { optimize: async () => ({ ok: false, reason: "UNAVAILABLE", code: "NOT_CONFIGURED" }) };
@@ -50,16 +55,16 @@ export class GoogleOrderOptimizer implements OrderOptimizer {
     this.#deps = deps;
   }
 
-  optimize(segments: readonly SuggestionSegment[]): Promise<OptimizeOutcome> {
+  optimize(segments: readonly SuggestionSegment[], options: OptimizeOptions = {}): Promise<OptimizeOutcome> {
     const key = segments.map(orderSuggestionCacheKey).join("&");
     const running = this.#inflight.get(key);
     if (running !== undefined) return running;
-    const lookup = this.#optimize(segments).finally(() => this.#inflight.delete(key));
+    const lookup = this.#optimize(segments, options).finally(() => this.#inflight.delete(key));
     this.#inflight.set(key, lookup);
     return lookup;
   }
 
-  async #optimize(segments: readonly SuggestionSegment[]): Promise<OptimizeOutcome> {
+  async #optimize(segments: readonly SuggestionSegment[], options: OptimizeOptions): Promise<OptimizeOutcome> {
     const { pool, log } = this.#deps;
     const db = { queryTimeoutMs: this.#deps.dbTimeoutMs ?? ROUTE_DB_TIMEOUT_MS };
     const keys = segments.map(orderSuggestionCacheKey);
@@ -82,6 +87,7 @@ export class GoogleOrderOptimizer implements OrderOptimizer {
       if (cooling.code === "DAILY_LIMIT_REACHED") await withPlatformTx(pool, (tx) => recordOptimizeRefused(tx, day), db).catch(() => undefined);
       return { ok: false, reason: "UNAVAILABLE", code: cooling.code };
     }
+    if (options.beforeGoogle !== undefined && !(await options.beforeGoogle().catch(() => false))) return { ok: false, reason: "RATE_LIMITED", code: "RATE_LIMITED" };
     // 一次占齐：几段要问谷歌就占几个名额，不够整次不调
     let reserved: boolean;
     try {

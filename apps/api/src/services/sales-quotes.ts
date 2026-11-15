@@ -153,6 +153,8 @@ export interface SalesQuoteResult {
    * `minPackageHours`：原因里有 `PACKAGE_TOO_SHORT` 时，这个车型组里各商品能接受的最短档的最小值（小时，ADR 0093 第四节第 7 条）；没有时不给
    */
   unavailable: { vehicleGroupId: string | null; reasons: SalesUnavailableReason[]; stopSeqs?: number[]; minPackageHours?: number }[];
+  /** 这次询价的询价日志编号（官网用它在超长报不出时申请经停顺序建议，M9P-20 P2）；不对渠道公开 */
+  logId?: string;
 }
 
 /** 选档判断的拒绝（ADR 0093 第四节第 7 条）：客人选短了，不是缺供应商——有这种拒绝的询价不记「未覆盖需求」 */
@@ -284,7 +286,7 @@ export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincip
   const snapshots = storedSnapshots(preview, now);
   const result: SalesQuoteResult = { quotes: snapshots.map((snapshot) => ({ ...toSalesQuote(snapshot), offeredAddonIds: offeredAddonIds(preview, snapshot) })), unavailable: unavailable(preview, input.vehicleGroupIds) };
   const durationMs = Math.round(performance.now() - started);
-  await withPlatformTx(ctx.pool, async (db) => {
+  result.logId = await withPlatformTx(ctx.pool, async (db) => {
     const log = await db.query<{ id: string }>(
       `insert into quote_logs (channel_id, api_client_id, created_at, request, currency, city_id, category, candidate_count, quote_count, bids, rejects, duration_ms, route, is_acceptance)
        values ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12, $13::jsonb, $14) returning id`,
@@ -322,6 +324,7 @@ export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincip
         ],
       );
     }
+    return logId;
   });
   // 只因选短了（最低套餐 / 预计用时）报不出的不记：选长一点就有供应商能接（ADR 0093 第四节第 7 条「只因这两个原因」）；
   // 还有别的原因（例如另一个商品 ITINERARY_TOO_LONG、没有价格）时照记

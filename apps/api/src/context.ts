@@ -13,6 +13,7 @@ import type { QuoteDeps } from "./services/quote-deps.ts";
 import type { IntegrationChecks, IntegrationSecretCache } from "./services/integration-secrets.ts";
 import type { GooglePlaceSearch } from "./services/place-search.ts";
 import type { RoutePreviewer } from "./services/route-estimates.ts";
+import type { OrderOptimizer } from "./services/order-optimizer.ts";
 import type { RouteMapRenderer } from "./services/static-maps.ts";
 
 /** 只读写数据库的服务函数要的那一部分：命令行（价格表导入）不用起整个应用也能调用它们。 */
@@ -47,4 +48,6 @@ export interface AppContext {
   routePreview: RoutePreviewer;
   /** 官网路线小地图（谷歌静态地图，后端代调；图片缓存、独立的每日上限、冷却，路线折线来自 `routePreview`，ADR 0072） */
   routeMap: RouteMapRenderer;
+  /** 包车经停顺序建议的谷歌优化调用（M9P-20 P2，ADR 0096 第三节）：顺序无关的缓存、单独的每日上限、冷却 */
+  orderOptimizer: OrderOptimizer;
 }

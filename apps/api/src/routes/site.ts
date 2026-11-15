@@ -69,6 +69,8 @@ import {
   siteQuotesByPoints,
   siteReversePlace,
   siteItineraryLegs,
+  takeSiteSessionSlot,
+  type SiteItinerary,
   siteItineraryMap,
   siteRouteMap,
   siteSearchPlaces,
@@ -77,6 +79,7 @@ import {
   takeSiteSlot,
 } from "../services/site.ts";
 import { salesMoney } from "../services/sales-quotes.ts";
+import { siteOrderSuggestion } from "../services/order-suggestion.ts";
 import { type InputIssue, idempotencyKey, ifMatchVersion, parseInput, passengerInput, resourceId, singleLine, uuidSchema, validationFailed } from "../validation.ts";
 import { changeSchema, disputeSchema, feeJson, salesCancelSchema, salesFeeQuerySchema, toChangeInput } from "./order-actions.ts";
 import { distanceJson, paymentJson, salesOrderJson } from "./sales.ts";
@@ -272,6 +275,20 @@ function routeMapUnavailable(reason: RouteMapReason): AppError {
   return new AppError(503, "ROUTE_MAP_UNAVAILABLE", ROUTE_MAP_MESSAGES[reason], { reason });
 }
 
+/**
+ * 经停顺序建议（M9P-20 P2，ADR 0096 第三节）：`quote` 是和 `POST /site/v1/quotes` 同样的按行程计价询价，`refs` 和经停点一一对应（页面的不透明标识）；
+ * 必须带当前顺序的 `quote_id` 或超长时的 `inquiry_ref`；`session` 是预订会话（预订草稿编号或页面生成的标识，只用来限频）。
+ */
+const orderSuggestionSchema = z
+  .object({
+    quote: quoteSchema,
+    refs: z.array(z.string().regex(/^[A-Za-z0-9_-]{1,40}$/, "经停标识只能是 1–40 个字母、数字、- 或 _")).min(2).max(25),
+    quote_id: z.string().regex(/^QT[0-9A-Z]{10,40}$/, "报价编号格式不对").optional(),
+    inquiry_ref: uuidSchema.optional(),
+    session: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/, "会话标识是 8–64 个字母、数字、- 或 _"),
+  })
+  .strict();
+
 /** 参考汇率：客人币种（汇率中心支持的币种，大写三位）。 */
 const fxReferenceSchema = z.object({ to: z.enum(FX_CURRENCIES as [string, ...string[]]) }).strict();
 
@@ -388,7 +405,7 @@ const charterPackagesAtSchema = z.object({ pickup: latLngParam, dropoff: latLngP
 function quoteResultJson(result: SiteQuoteResult): Json {
   // `waypoint_stop_seqs`：原因里有 WAYPOINT_NOT_PRICED 时是哪几个经停点（从 1 起，ADR 0088）；没有时不给（只增字段）
   const itinerary = result.itinerary === undefined ? {} : { itinerary_route: { legs: result.itinerary.legs.map((leg) => ({ minutes: leg.minutes, meters: leg.meters })), drive_minutes: result.itinerary.driveMinutes, stay_minutes: result.itinerary.stayMinutes, total_minutes: result.itinerary.totalMinutes, total_meters: result.itinerary.totalMeters } };
-  return { currency: result.currency, ...itinerary, quotes: result.quotes.map(quoteJson), unavailable: result.unavailable.map((entry) => ({ vehicle_group_id: entry.vehicleGroupId, reasons: entry.reasons, ...(entry.stopSeqs === undefined ? {} : { waypoint_stop_seqs: entry.stopSeqs }), ...(entry.minPackageHours === undefined ? {} : { min_package_hours: entry.minPackageHours }) })) };
+  return { currency: result.currency, ...itinerary, ...(result.inquiryRef === undefined ? {} : { inquiry_ref: result.inquiryRef }), quotes: result.quotes.map(quoteJson), unavailable: result.unavailable.map((entry) => ({ vehicle_group_id: entry.vehicleGroupId, reasons: entry.reasons, ...(entry.stopSeqs === undefined ? {} : { waypoint_stop_seqs: entry.stopSeqs }), ...(entry.minPackageHours === undefined ? {} : { min_package_hours: entry.minPackageHours }) })) };
 }
 
 /** 渠道看到的那一份订单，落地信息去掉司机到达屏照片的文件编号（照片只给平台和供应商核对）。 */
@@ -674,6 +691,58 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
     const input = parseInput(itineraryLegsSchema, request.query, "querystring");
     const legs = await siteItineraryLegs(ctx, input.p);
     return { available: legs !== null, legs };
+  });
+
+  /**
+   * 包车经停顺序建议（M9P-20 P2，ADR 0096 第三节）：只在经停点集合变了、或其他询价字段变了时由页面调用。
+   * 宽松兜底按地址全部计数；按会话、按地址只数真要调谷歌优化的请求（缓存命中、只重算报价的不计）。超限只是不给建议（`RATE_LIMITED`），报价照常。
+   */
+  app.post("/site/v1/charter/order-suggestion", async (request) => {
+    await takeSiteSlot(ctx, "site_order_suggestion_ip", { ip: request.ip });
+    await takeSiteSlot(ctx, "site_order_suggestion_ip_day", { ip: request.ip });
+    await takeSiteSlot(ctx, "site_quote", { ip: request.ip });
+    const input = parseInput(orderSuggestionSchema, request.body, "body");
+    if (input.quote_id === undefined && input.inquiry_ref === undefined) throw new AppError(400, "SUGGESTION_NEEDS_QUOTE", "请先询价，再申请建议顺序");
+    const body = input.quote;
+    if (body.category !== "charter" || body.itinerary_pricing !== true || (body.waypoints?.length ?? 0) !== input.refs.length) {
+      throw validationFailed("body", [{ path: "/quote", reason: "NOT_APPLICABLE", message: "只有按行程计价、带经停点的包车询价能申请建议顺序，refs 个数要和经停点一样" }]);
+    }
+    const trip = siteTripOf(body);
+    if (trip.category !== "charter_itinerary") throw validationFailed("body", [{ path: "/quote", reason: "NOT_APPLICABLE", message: "只有按行程计价的包车能申请建议顺序" }]);
+    const seen = await audience(request);
+    const result = await siteOrderSuggestion(ctx, {
+      quote: { cityId: body.city_id ?? null, trip, serviceLocal: body.service_local, passengers: body.passengers, luggage: body.luggage, addons: addonsOf(body.addons), ...(seen === "acceptance" ? { audience: seen } : {}), log: request.log },
+      refs: input.refs,
+      quoteId: input.quote_id ?? null,
+      inquiryRef: input.inquiry_ref ?? null,
+      beforeGoogle: async () => {
+        try {
+          await takeSiteSessionSlot(ctx, "site_order_suggestion_session", input.session);
+          await takeSiteSessionSlot(ctx, "site_order_suggestion_session_day", input.session);
+          await takeSiteSlot(ctx, "site_order_suggestion_ip_google", { ip: request.ip });
+          return true;
+        } catch {
+          return false;
+        }
+      },
+    });
+    if (result.suggestion === null) return { suggestion: null, reason: result.reason };
+    const s = result.suggestion;
+    const route = (itinerary: SiteItinerary) => ({ legs: itinerary.legs.map((leg) => ({ minutes: leg.minutes, meters: leg.meters })), drive_minutes: itinerary.driveMinutes, stay_minutes: itinerary.stayMinutes, total_minutes: itinerary.totalMinutes, total_meters: itinerary.totalMeters });
+    return {
+      suggestion: {
+        order: s.order,
+        saved_meters: s.savedMeters,
+        saved_minutes: s.savedMinutes,
+        current_itinerary_route: route(s.currentItinerary),
+        itinerary_route: route(s.itinerary),
+        request_key: s.requestKey,
+        thresholds: { min_saved_meters: s.thresholds.minSavedMeters, min_saved_minutes: s.thresholds.minSavedMinutes },
+        current_too_long: s.currentTooLong,
+        quote_result: { ...(s.quoteResult.city === undefined ? {} : { city: quotedCityJson(s.quoteResult.city) }), ...quoteResultJson(s.quoteResult) },
+      },
+      reason: null,
+    };
   });
 
   app.post("/site/v1/quotes", async (request) => {
