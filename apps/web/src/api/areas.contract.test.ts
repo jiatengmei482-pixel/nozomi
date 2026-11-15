@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 import { AREA_BIZ_TYPES, AREA_POLYGON_KINDS, AREA_POLYGON_SOURCES } from "@nozomi/domain";
-import { AREAS_PATH, AREA_ERROR_CODES, AREA_LIST_QUERY_KEYS, AREA_SCHEMA_FIELDS, AREA_WRITE_FIELDS, MAP_TILE_FIELDS, TENANT_BASE } from "./areas.ts";
+import { AREAS_PATH, AREA_ERROR_CODES, AREA_LAYERS_PATH, AREA_LIST_QUERY_KEYS, AREA_SCHEMA_FIELDS, AREA_WRITE_FIELDS, MAP_TILE_FIELDS, TENANT_BASE } from "./areas.ts";
 
 interface Schema {
   $ref?: string;
@@ -56,7 +56,11 @@ test("区域的八个接口：路径、方法、请求体和应答的 schema", (
   assert.equal(ref(response(op("get", `${AREAS_PATH}/{id}`), "200")), "Area");
   const update = op("put", `${AREAS_PATH}/{id}`);
   assert.equal(ref(update.requestBody?.content?.["application/json"]?.schema), "AreaUpdate");
-  assert.equal(ref(response(update, "200")), "Area");
+  assert.equal(ref(response(update, "200")), "AreaSaved");
+  // 修改之后的区域 = 区域详情 + 改了图形时的三层重叠提醒（M9P-13）
+  assert.deepEqual([...(schemas["AreaSaved"]?.required ?? [])].sort(), [...AREA_SCHEMA_FIELDS.Area].sort());
+  assert.deepEqual(Object.keys(schemas["AreaSaved"]?.properties ?? {}).sort(), [...AREA_SCHEMA_FIELDS.Area, "charter_layer_overlaps"].sort());
+  assert.equal(ref(schemas["AreaSaved"]?.properties?.["charter_layer_overlaps"]?.items), "AreaCharterOverlap");
   assert.ok(params(update).includes("header:If-Match"), "修改要带 If-Match");
   assert.ok(op("delete", `${AREAS_PATH}/{id}`).responses["204"]);
   assert.equal(ref(response(op("post", `${AREAS_PATH}/{id}/disable`), "200")), "Area");
@@ -64,6 +68,12 @@ test("区域的八个接口：路径、方法、请求体和应答的 schema", (
   const check = op("post", `${AREAS_PATH}/{id}/check-point`);
   assert.deepEqual(check.requestBody?.content?.["application/json"]?.schema?.required, ["lat", "lng"]);
   assert.equal(ref(response(check, "200")), "AreaPointCheck");
+});
+
+test("区域在哪些商品里当哪一层（M9P-13）：路径和应答", () => {
+  const layers = response(op("get", AREA_LAYERS_PATH), "200");
+  assert.deepEqual(layers?.required, ["items"]);
+  assert.equal(ref(layers?.properties?.["items"]?.items), "ProductAreaLayers");
 });
 
 test("列表的查询参数名接口都认；选城市和参考点用的主数据接口在", () => {
