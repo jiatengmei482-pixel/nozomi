@@ -43,6 +43,7 @@ test("前端用到的官网接口都在 openapi.yaml 里；订单页的接口要
     ["get", `${SITE_BASE}/route-map`],
     ["get", `${SITE_BASE}/itinerary-map`],
     ["get", `${SITE_BASE}/itinerary-legs`],
+    ["post", `${SITE_BASE}/charter/order-suggestion`],
     ["post", `${SITE_BASE}/orders`],
     ["post", `${SITE_BASE}/orders/lookup`],
     ["post", SITE_MANUAL_QUOTE_PATH],

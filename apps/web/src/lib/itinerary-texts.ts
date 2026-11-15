@@ -19,7 +19,21 @@ export type ItineraryTextKey =
   | "unavailableStop"
   | "legFailure"
   | "areaStops"
-  | "navigateTo";
+  | "navigateTo"
+  | "suggestTitle"
+  | "suggestTitleSame"
+  | "suggestTooLong"
+  | "suggestPending"
+  | "suggestCurrent"
+  | "suggestSuggested"
+  | "suggestAdopt"
+  | "suggestKeep"
+  | "suggestRecomputing"
+  | "suggestRestore"
+  | "suggestAdopted"
+  | "suggestRestored"
+  | "suggestPrice"
+  | "suggestRegion";
 
 const ZH: Readonly<Record<ItineraryTextKey, string>> = {
   pickup: "上车",
@@ -36,6 +50,20 @@ const ZH: Readonly<Record<ItineraryTextKey, string>> = {
   legFailure: "第 {leg} 段（{from}「{fromName}」→ {to}「{toName}」）",
   areaStops: "经停（{numbers} 号点）",
   navigateTo: "导航到 {number} 号点",
+  suggestTitle: "建议顺序，可省 {saved}",
+  suggestTitleSame: "建议顺序，可省 {saved}，价格不变",
+  suggestTooLong: "当前顺序超过在线下单时长，按建议顺序约 {duration}，可以在线下单",
+  suggestPending: "建议顺序：计算中…",
+  suggestCurrent: "当前顺序",
+  suggestSuggested: "建议顺序",
+  suggestAdopt: "采用建议顺序",
+  suggestKeep: "保持我的顺序",
+  suggestRecomputing: "正在按最新行程重算建议…",
+  suggestRestore: "恢复原来的顺序",
+  suggestAdopted: "已按建议顺序排列：{chain}",
+  suggestRestored: "已恢复原来的顺序",
+  suggestPrice: "{vehicle} {price}",
+  suggestRegion: "经停顺序建议",
 };
 
 export const ITINERARY_TEXTS: Readonly<Record<ItineraryLang, Partial<Record<ItineraryTextKey, string>>>> = { zh: ZH, ja: {}, en: {} };
