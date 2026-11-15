@@ -2,6 +2,8 @@
  * 官网（M3-05，ADR 0032）页面上的说法和小规则：客人看到的订单状态、报不出价的原因、「我已落地」什么时候能点、
  * 订单页地址里的令牌、城市当地的日期时间。文案用客人的说法（「付款」「用车时间」），不出现「供应商」「结算价」。
  */
+import type { FreeWaitBasis } from "../api/dispatch.ts";
+import { FREE_WAIT_TEXTS, dispatchedFreeWaitNote } from "./free-wait-display.ts";
 import { AREA_SURCHARGE_NOTE as DOMAIN_AREA_SURCHARGE_NOTE, CHARTER_ITINERARY_OVERAGE_TEXTS, CHARTER_OVERAGE_TEXTS, type ExtraChargeStatus, FIXED_PRICE_INCLUDES_TEXTS, LANDING_RULES, type OrderChangeStatus, type OrderStatus, type PricingBasis, addDays, arrivalFreeWaitRange, charterAllInclusiveFor, fixedPriceFeeNote, includedKmNote, isCurrencyCode, parseMajor, pricingBasisFeeNote, pricingBasisNote } from "@nozomi/domain";
 import type { CancelTier } from "../api/order-money.ts";
 import type { SiteCategory, SiteDirection, SiteOrder, SitePlace, SiteQuote, SiteUnavailableReason } from "../api/site.ts";
@@ -122,13 +124,17 @@ export function quoteFreeWaitText(minutes: number | null, category: SiteCategory
  */
 export function orderFreeWaitNote(basis: { flight_kind: "international" | "domestic" | null } | null | undefined): string | null {
   if (basis === null || basis === undefined) return null;
-  return basis.flight_kind === "international" ? "国际航班" : basis.flight_kind === "domestic" ? "国内航班" : "航班类型未确认，按国内线";
+  return FREE_WAIT_TEXTS.basisKind[basis.flight_kind ?? "unconfirmed"];
 }
 
-/** 订单页的免费等待一项：分钟数和起算点，按航班锁定的接机再注明航班类型（M9E-28）。 */
-export function orderFreeWaitText(order: { free_wait_minutes: number | null; category: SiteCategory; direction: SiteDirection | null; free_wait_basis?: { flight_kind: "international" | "domestic" | null } | null }): string {
+/**
+ * 订单页的免费等待一项：分钟数和起算点，按航班锁定的接机再注明航班类型（M9E-28）；派了司机以后写「按派单时的 X 航班锁定 N 分钟」
+ * （2026-11-15 按推荐，审查建议 6：派单后客人改了航班类型，免费等待不变，不能让客人以为按新选的算）。
+ */
+export function orderFreeWaitText(order: { status: string; free_wait_minutes: number | null; category: SiteCategory; direction: SiteDirection | null; driver?: unknown; free_wait_basis?: FreeWaitBasis | null }): string {
   const text = freeWaitText(order.free_wait_minutes, order.category, order.direction);
-  const note = orderFreeWaitNote(order.free_wait_basis);
+  const dispatched = !(order.status === "pending_payment" || order.status === "confirmed") || (order.driver ?? null) !== null;
+  const note = dispatchedFreeWaitNote({ ...order, dispatched }) ?? orderFreeWaitNote(order.free_wait_basis);
   return note === null ? text : `${text} · ${note}`;
 }
 

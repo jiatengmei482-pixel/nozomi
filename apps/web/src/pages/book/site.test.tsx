@@ -354,6 +354,28 @@ test("客人取消了还没付款的单：原因写「您取消了订单」，�
   assert.doesNotMatch(document.body.textContent ?? "", /按取消政策退款/);
 });
 
+test("免费等待按航班（M9E-28，2026-11-15 按推荐）：点对点接机在订单页也能改航班号、航班类型（建议 4）；派单后订单页写「按派单时的 X 航班锁定 N 分钟」（建议 6）", async () => {
+  const basis = { flight_kind: "international" as const, base: { mode: "limited" as const, minutes: 30 }, floor_minutes: 90 };
+  const p2p = orderOf({ category: "point_to_point", direction: null, flight_no: "JL5", flight_kind: "international", free_wait_minutes: 90, free_wait_basis: basis, pickup: { lng: 140.39, lat: 35.77, address: "成田机场" }, dropoff: { lng: 139.76, lat: 35.68, address: "东京站八重洲口" } });
+  const form = { name: "王小明", phone: "+819012345678", email: "guest@example.com", flightNo: "JL5", flightKind: "international" as const, pickupAddress: "成田机场", dropoffAddress: "东京站八重洲口", notes: "", passengers: "2", luggage: "1", date: "2026-11-20", time: "10:00" };
+  assert.deepEqual(changeRequestOf(p2p, form), {}, "没改");
+  assert.deepEqual(changeRequestOf(p2p, { ...form, flightKind: "domestic" }), { flight_kind: "domestic" });
+  assert.deepEqual(changeRequestOf(p2p, { ...form, flightNo: "" }), { flight_no: null }, "清空航班号：不再按航班定（建议 3）");
+  assert.deepEqual(changeRequestOf({ ...p2p, flight_no: null, flight_kind: null, free_wait_basis: null }, { ...form, flightNo: "JL5", flightKind: "" }), {}, "没带航班号的点对点照旧不提交航班号");
+
+  open({ pathname: "/book/order", hash: `#${TOKEN}` }, (call) => {
+    if (call.url.pathname === "/site/v1/config") return json(200, openConfig);
+    if (call.url.pathname === "/site/v1/order" && call.method === "GET") return json(200, envelopeOf(orderOf({ status: "assigned", flight_kind: "domestic", free_wait_minutes: 90, free_wait_basis: { ...basis, base: { mode: "limited", minutes: 75 } }, driver: { name: "佐藤一郎", languages: ["ja"], phone: null } })));
+    return null;
+  });
+  assert.ok(await screen.findByText("90 分钟（从航班落地起算） · 按派单时的国际航班锁定 90 分钟"), "客人派单后改成了国内航班：写明按派单时的国际航班锁定");
+  // 改单表单（建议 5）：选项提示按商品设的 75 算 max；已派车注明免费等待不再变化
+  await user().click(screen.getByRole("button", { name: "修改订单" }));
+  assert.ok(screen.getByRole("radio", { name: /^国际航班\s*落地后免费等待 90 分钟$/ }));
+  assert.ok(screen.getByRole("radio", { name: /^国内航班\s*落地后免费等待 75 分钟$/ }));
+  assert.ok(screen.getByText("已派车，免费等待不再变化"));
+});
+
 test("改单：只给改了的字段、带 If-Match；没改就说没有改动；改时间换成带时区的时刻", async () => {
   assert.deepEqual(changeRequestOf(orderOf(), { name: "王小明", phone: "+819012345678", email: "guest@example.com", flightNo: "NH211", flightKind: "", pickupAddress: "", dropoffAddress: "东京站八重洲口", notes: "", passengers: "2", luggage: "1", date: "2026-11-20", time: "10:00" }), {});
   assert.deepEqual(changeRequestOf(orderOf(), { name: "王小明", phone: "+819012345678", email: "guest@example.com", flightNo: "NH211", flightKind: "international", pickupAddress: "", dropoffAddress: "东京站八重洲口", notes: "", passengers: "2", luggage: "1", date: "2026-11-20", time: "10:00" }), { flight_kind: "international" }, "接机改航班类型（M9E-28）");

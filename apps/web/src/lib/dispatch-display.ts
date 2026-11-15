@@ -1,6 +1,7 @@
 /**
  * 派车、司机 H5、Webhook 页面上的显示（M3-02）：用车时间按服务城市的时区（docs/design/04-data-display.md 第 4 节）、枚举的中文、错误码的说明。
  */
+import { FREE_WAIT_TEXTS } from "./free-wait-display.ts";
 import { LANDING_SOURCE_NAMES, NO_SHOW_ITEM_NAMES, type NoShowItem, TENANT_WEBHOOK_EVENT_NAMES, type TenantWebhookEvent } from "@nozomi/domain";
 import type { DriverLinkEmail, FreeWaitBasis, LandingSource, TenantOrder } from "../api/dispatch.ts";
 
@@ -163,8 +164,9 @@ export function retryResultText(response: { delivery: { status: string }; result
 export function orderFreeWaitDetail(minutes: number | null, basis: FreeWaitBasis | null | undefined): string {
   const main = minutes === null ? "不限" : `${minutes} 分钟`;
   if (basis === null || basis === undefined) return main;
-  const kind = basis.flight_kind === "international" ? "国际航班" : basis.flight_kind === "domestic" ? "国内航班" : "航班类型未确认，按国内线";
+  const kind = FREE_WAIT_TEXTS.basisKind[basis.flight_kind ?? "unconfirmed"];
   const base = basis.base;
-  const raised = minutes !== null && (base === null || (base.mode === "limited" && base.minutes < minutes)) ? `；商品设 ${base === null ? 0 : base.minutes} 分钟，按平台规定补到 ${minutes} 分钟` : "";
+  // 商品没设免费等待（2026-11-15 按推荐，审查建议 7）写「商品没设」，不写「商品设 0 分钟」
+  const raised = minutes !== null && (base === null || (base.mode === "limited" && base.minutes < minutes)) ? FREE_WAIT_TEXTS.basisRaised(base === null ? FREE_WAIT_TEXTS.baseNotSet : FREE_WAIT_TEXTS.baseSet(base.minutes), minutes) : "";
   return `${main}（${kind}${raised}）`;
 }

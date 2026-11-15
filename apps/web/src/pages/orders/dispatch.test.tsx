@@ -454,6 +454,7 @@ test("供应商订单详情、司机页的免费等待按航班（M9E-28，ADR 0
     [{ free_wait_minutes: 90, flight_kind: "international", free_wait_basis: { flight_kind: "international", base: { mode: "limited", minutes: 60 }, floor_minutes: 90 } }, "90 分钟（国际航班；商品设 60 分钟，按平台规定补到 90 分钟）"],
     [{ free_wait_minutes: 75, flight_kind: "domestic", free_wait_basis: { flight_kind: "domestic", base: { mode: "limited", minutes: 75 }, floor_minutes: 60 } }, "75 分钟（国内航班）"],
     [{ free_wait_minutes: 60, flight_kind: null, free_wait_basis: { flight_kind: null, base: { mode: "limited", minutes: 45 }, floor_minutes: 60 } }, "60 分钟（航班类型未确认，按国内线；商品设 45 分钟，按平台规定补到 60 分钟）"],
+    [{ free_wait_minutes: 90, flight_kind: "international", free_wait_basis: { flight_kind: "international", base: null, floor_minutes: 90 } }, "90 分钟（国际航班；商品没设，按平台规定补到 90 分钟）"],
     [{ free_wait_minutes: null, flight_kind: "international", free_wait_basis: { flight_kind: "international", base: { mode: "unlimited" }, floor_minutes: 90 } }, "不限（国际航班）"],
     [{ free_wait_minutes: 90, flight_kind: null, free_wait_basis: null }, "90 分钟"],
   ] as const;
@@ -472,6 +473,17 @@ test("供应商订单详情、司机页的免费等待按航班（M9E-28，ADR 0
     </MemoryRouter>,
   );
   assert.ok(await screen.findByText(/^免费等待：90 分钟（国际航班；商品设 60 分钟，按平台规定补到 90 分钟），从 /));
+});
+
+test("供应商审批改航班类型（2026-11-15 按推荐，审查建议 1）：以同意时为准——还没派司机写「同意后免费等待 60 → 90 分钟」，已派司机写不变", async () => {
+  const change = { id: "c1", status: "pending_confirmation" as const, reschedule: false, before: { flight_kind: null }, after: { flight_kind: "international" }, settlement_before: { amount: "19800", currency: "JPY" }, settlement_after: { amount: "19800", currency: "JPY" }, confirm_due_at: "2026-10-19T01:00:00.000Z", requested_by: "channel" as const, requested_at: stamps.created_at, decided_at: null, decision_note: null, dispatch_conflict: false, adjusting_at: null, decided_by_platform: false };
+  const locked = { free_wait_minutes: 60, flight_kind: null, free_wait_basis: { flight_kind: null, base: { mode: "limited" as const, minutes: 60 }, floor_minutes: 60 } };
+  open(`/orders/${ORDER_ID}`, "admin", (call) => (call.method === "GET" && call.url.pathname === `/tenant/v1/orders/${ORDER_ID}` ? json(200, { ...detailOf(orderOf(locked)), changes: [change] }) : null));
+  assert.ok(await screen.findByText("同意后免费等待 60 → 90 分钟"));
+  cleanup();
+  const assigned = orderOf({ ...locked, status: "assigned", dispatch: { ...orderOf().dispatch, driver: { id: DRIVER_ID, name: "佐藤一郎", phone: "+819011112222" }, assigned_at: stamps.updated_at } as TenantOrder["dispatch"] });
+  open(`/orders/${ORDER_ID}`, "admin", (call) => (call.method === "GET" && call.url.pathname === `/tenant/v1/orders/${ORDER_ID}` ? json(200, { ...detailOf(assigned), changes: [change] }) : null));
+  assert.ok(await screen.findByText("已派车：同意后免费等待不变（60 分钟）"));
 });
 
 test("司机页面：还没到时间时按钮下面写明最早几点；太早点了显示服务器的说明，状态不变（ADR 0064）", async () => {

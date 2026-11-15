@@ -214,6 +214,19 @@ function guestPriceNotes(order: Order, sale: OrderSale): { area_surcharge_note: 
   return { area_surcharge_note: orderIncludesAreaSurcharge(order) ? AREA_SURCHARGE_MAIL_NOTE : "", distance_note: distance === null ? "" : includedKmNote(distance), pricing_basis_note: basis === null ? "" : `（${basis}）` };
 }
 
+/**
+ * 派单前改航班重新锁定了免费等待（M9E-28，ADR 0097 Q3）：供应商邮件在改动内容后面写「免费等待 60 → 90 分钟」；
+ * 没有重新锁定、或分钟数没变的为空。不限时写「不限时」。
+ */
+function freeWaitChangeText(value: unknown): string {
+  if (value === null || typeof value !== "object") return "";
+  const { before, after } = value as { before?: unknown; after?: unknown };
+  const valid = (minutes: unknown): minutes is number | null => minutes === null || typeof minutes === "number";
+  if (!valid(before) || !valid(after) || before === after) return "";
+  const change = typeof before === "number" && typeof after === "number" ? `${before} → ${after} 分钟` : `${before === null ? "不限时" : `${before} 分钟`} → ${after === null ? "不限时" : `${after} 分钟`}`;
+  return `免费等待 ${change}（按客人的航班重新锁定，请按新的时长安排司机等候）。`;
+}
+
 const changedFieldsText = (fields: unknown): string => (Array.isArray(fields) && fields.length > 0 ? fields.map((field) => ORDER_CHANGE_FIELD_NAMES[String(field)] ?? String(field)).join("、") : "订单信息");
 
 /** 客人邮件的变量。这里可以读对外价（客人自己付的钱）。 */
@@ -249,6 +262,7 @@ async function tenantVariables(ctx: AppContext, db: Db, event: StoredNotificatio
       passengers: String(order.passengers),
       order_url: `${ctx.config.publicBaseUrl}/orders/${order.id}`,
       changed_fields: changedFieldsText(data["fields"]),
+      free_wait_change: freeWaitChangeText(data["free_wait_minutes"]),
       charter_price_note: order.category === "charter" && charterAllInclusiveFor(order.createdAt) ? CHARTER_SUPPLIER_PRICE_NOTE : "",
       ...(order.dispatch.dueAt === null ? {} : { dispatch_due_at: tokyoText(order.dispatch.dueAt) }),
     });

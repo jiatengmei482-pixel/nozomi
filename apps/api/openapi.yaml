@@ -8226,6 +8226,9 @@ paths:
         应答里的 `payment.client_secret` 交给客人的浏览器，用 Stripe.js 确认付款（会保存支付方式，用于服务后加收）；付款成功后平台收到 Stripe 的通知，订单自动确认（租户不能拒单）。
         Stripe 没配置 503 `PAYMENT_NOT_CONFIGURED`。收款服务出错 502 / 504（`PAYMENT_PROVIDER_*`，`details` 里有订单号），用同一个 `Idempotency-Key` 重试即可，不会重复下单。
         每个渠道每秒最多 10 次。
+
+        **接机的免费等待按航班定（M9E-28，ADR 0097）**：机场接机带上 `flight_kind`（`international` / `domestic`），下单时锁定国际 max(商品设的, 90)、国内 max(商品设的, 60) 分钟；不给按「航班类型未确认」锁 max(商品设的, 60)。报价里的 `free_wait_minutes` 是商品自己设的值，最终分钟数看订单的 `free_wait_minutes` 和 `free_wait_basis`。
+        **注意：点对点单填了 `flight_no` 就表示「从机场接人」**（认出机场、改用点对点商品报价的接机），会按上面的规则把免费等待补到 60 / 90 分钟。送机、市内点对点**不要**填 `flight_no`；送机的航班号请写在 `notes` 里。
       security:
         - salesToken: []
       parameters:

@@ -197,6 +197,25 @@ test("下单后改航班类型（Q3）：派单前，供应商同意后按新的
   assert.deepEqual([kept.order.flight_kind, kept.order.free_wait_minutes, kept.order.free_wait_basis.flight_kind], ["domestic", 90, "international"]);
 });
 
+test("点对点接机派单前清掉航班号（2026-11-15 按推荐，审查建议 3）：供应商同意后不再按航班定，回到商品的 30 分钟、依据清空，和清空的航班类型对得上", async () => {
+  const quoted = await site.call("POST", "/site/v1/quotes", { ip: nextIp(), body: { category: "point_to_point", city_id: m.ids.tokyo, pickup: P2P_PICKUP, dropoff: P2P_DROPOFF, service_local: "2026-10-20T10:00", passengers: 2, luggage: 1 } });
+  api.clock.advance(1_000);
+  const placed = await site.call("POST", "/site/v1/orders", { headers: { "idempotency-key": randomUUID() }, ip: nextIp(), body: { quote_id: quoted.body.quotes[0].quote_id, passenger: { name: "陈小红", phone: "+81 90-2222-3333", email: "p2p-clear@example.com" }, save_payment_method: true, pickup_address: "成田机场 1 号航站楼", dropoff_address: "下车酒店", flight_no: "JL5", flight_kind: "international" } });
+  assert.equal(placed.status, 201, placed.text);
+  const orderId = placed.body.order.id as string;
+  const token = placed.body.link.token as string;
+  await payOrder(orderId);
+  const current = await site.call("GET", "/site/v1/order", { token, ip: nextIp() });
+  assert.equal(current.body.order.free_wait_minutes, 90);
+  const patched = await site.call("PATCH", "/site/v1/order", { token, ip: nextIp(), headers: { "if-match": `"${current.body.order.version}"` }, body: { flight_no: null } });
+  assert.equal(patched.status, 200, patched.text);
+  const pending = patched.body.change;
+  assert.deepEqual(pending.after, { flight_no: null, flight_kind: null }, "清掉航班号连带清掉航班类型");
+  await ok(api.call("POST", `/tenant/v1/orders/${orderId}/changes/${pending.id}/confirm`, { token: await tenantLogin(api, m.a.adminEmail), body: {} }));
+  const saved = (await api.db.owner.query("select flight_no, flight_kind, free_wait_minutes, free_wait_basis from orders where id = $1", [orderId])).rows[0];
+  assert.deepEqual([saved.flight_no, saved.flight_kind, saved.free_wait_minutes, saved.free_wait_basis], [null, null, 30, null]);
+});
+
 test("供应商不能直接改航班类型和锁定依据（数据库触发器）", async () => {
   const created = await salesOrder({ flight_no: "NH211", flight_kind: "domestic" });
   const orderId = created.body.order.id;

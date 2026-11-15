@@ -312,16 +312,23 @@ async function capacityOf(db: Db, order: Order): Promise<{ passengers: number; l
 }
 
 /**
- * 改航班号 / 航班类型生效时的免费等待（M9E-28，ADR 0097 Q3）：按航班定的接机、派单前（已确认、还没派司机）按新的航班类型重新锁定；
- * 派单后、没改这两项、不是按航班定的单都保持不变。商品设的值取下单时锁定的依据（以前的单没有依据时取报价快照里的）。
+ * 改航班号 / 航班类型生效时的免费等待（M9E-28，ADR 0097 Q3）：按航班定的接机、派单前（以供应商同意、改单生效的这一刻为准，
+ * 已确认、还没派司机）按新的航班类型重新锁定；以前下的单（没有依据）这时也按新规则锁定——改航班是新发生的事，不算回头改旧单。
+ * 点对点接机清掉了航班号：回到商品自己设的值、去掉依据。派单后、没改这两项、不是按航班定的单都保持不变。
+ * 商品设的值取下单时锁定的依据（以前的单没有依据时取报价快照里的）。
  */
 async function relockFreeWait(db: Db, order: Order, change: OrderChange, flightNo: string | null, flightKind: FlightKind | null): Promise<{ minutes: number | null; basis: Order["freeWaitBasis"]; relocked: boolean }> {
   const kept = { minutes: order.freeWaitMinutes, basis: order.freeWaitBasis, relocked: false };
   if (!Object.hasOwn(change.after, "flight_no") && !Object.hasOwn(change.after, "flight_kind")) return kept;
   if (!relockAllowed({ status: order.status, driverId: order.dispatch.driverId })) return kept;
   const placeType = order.placeId === null ? null : ((await db.query<{ type: string }>("select type from places where id = $1", [order.placeId])).rows[0]?.type ?? null);
-  if (!isFlightArrival({ category: order.category, direction: order.direction, placeType, flightNo })) return kept;
-  const locked = lockArrivalFreeWait(order.freeWaitBasis?.base ?? order.settlement.freeWait.value, flightKind);
+  const product = order.freeWaitBasis?.base ?? order.settlement.freeWait.value;
+  if (!isFlightArrival({ category: order.category, direction: order.direction, placeType, flightNo })) {
+    // 点对点接机清掉了航班号（2026-11-15 按推荐，审查建议 3）：不再按航班定，回到商品自己设的值，和清空的航班类型对得上
+    if (order.freeWaitBasis === null) return kept;
+    return { minutes: product !== null && product.mode === "limited" ? product.minutes : null, basis: null, relocked: true };
+  }
+  const locked = lockArrivalFreeWait(product, flightKind);
   return { minutes: locked.minutes, basis: locked.basis, relocked: true };
 }
 
