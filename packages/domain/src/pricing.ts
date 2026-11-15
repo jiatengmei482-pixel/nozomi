@@ -34,14 +34,26 @@ export type SurchargePricingModel = (typeof SURCHARGE_PRICING_MODELS)[number];
  */
 export const AIRPORT_PACKAGE_MODEL = "charter_airport_package" as const;
 
-/** 这种价格方式是不是加价类的（不是基础定价）。机场套餐价也不算基础定价（ADR 0098），一并在这里排除。 */
-export function isSurchargeModel(model: PricingModel): model is SurchargePricingModel | typeof AIRPORT_PACKAGE_MODEL {
-  return (SURCHARGE_PRICING_MODELS as readonly PricingModel[]).includes(model) || model === AIRPORT_PACKAGE_MODEL;
+/** 这种价格方式是不是加价类的（②③）。机场套餐价不是加价，用 `isAirportPackageModel` 区分（ADR 0098 第三节第 3 小节）。 */
+export function isSurchargeModel(model: PricingModel): model is SurchargePricingModel {
+  return (SURCHARGE_PRICING_MODELS as readonly PricingModel[]).includes(model);
 }
 
-/** 这条价格规则是不是加价类的（包车区域加价）：报价、上架检查、缺价统计、调价检查里的「基础定价」都不算它。 */
+/** 这条价格规则是不是加价类的（包车②③）：区域按加价区域查（业务类型、区域用途）。 */
 export function isSurchargeRule(rule: { pricing?: { model: PricingModel } }): boolean {
   return rule.pricing !== undefined && isSurchargeModel(rule.pricing.model);
+}
+
+/** 这种价格方式是不是包车机场套餐价（ADR 0098）：区域是机场区域，只查本商品有没有这个区域 × 方向的机场绑定 */
+export function isAirportPackageModel(model: PricingModel): model is typeof AIRPORT_PACKAGE_MODEL {
+  return model === AIRPORT_PACKAGE_MODEL;
+}
+
+/**
+ * 这条价格规则是不是「基础定价」以外的（②③加价、机场套餐价）：报价选基础价、上架检查、缺价统计、调价检查、可选套餐时长都不算它。
+ */
+export function isNonBaseRule(rule: { pricing?: { model: PricingModel } }): boolean {
+  return rule.pricing !== undefined && (isSurchargeModel(rule.pricing.model) || isAirportPackageModel(rule.pricing.model));
 }
 
 /** 接送机价格的方向：接机（接站）、送机（送站），或两个方向用同一个价。 */
@@ -387,7 +399,7 @@ export function priceRuleIssues(rule: PriceRule, context: { category: ServiceCat
   if (context.category === "charter") {
     // 加价（②③）的套餐可以为空 = 这个车型组的所有套餐（ADR 0093 第一节）；套餐价、机场套餐价必填
     if (rule.packageHours === null) {
-      if (!layered || !isSurchargeModel(rule.pricing.model) || airportPackage) issues.push({ path: "/package_hours", reason: "REQUIRED" });
+      if (!layered || !isSurchargeModel(rule.pricing.model)) issues.push({ path: "/package_hours", reason: "REQUIRED" });
     } else integerIssue(issues, "/package_hours", rule.packageHours, 1, PRICE_LIMITS.maxPackageHours);
   } else if (rule.packageHours !== null) issues.push({ path: "/package_hours", reason: "NOT_APPLICABLE" });
   // 区域只有迁移过三层区域的包车套餐可以不填（整商品套餐价，ADR 0093 第五节）
@@ -456,7 +468,7 @@ export function priceRuleIssues(rule: PriceRule, context: { category: ServiceCat
  * 点对点的线路价（有下车区域）按「上车区域 → 下车区域」各算各的，和区域价互不冲突。
  */
 export function priceRuleComboKey(rule: Pick<PriceRule, "areaId" | "toAreaId" | "vehicleGroupId" | "direction" | "packageHours"> & { pricing?: { model: PricingModel } }): string {
-  return `${rule.areaId ?? ""}|${rule.toAreaId ?? ""}|${rule.vehicleGroupId}|${rule.direction ?? ""}|${rule.packageHours ?? ""}|${isSurchargeRule(rule) ? (rule.pricing?.model ?? "surcharge") : "base"}`;
+  return `${rule.areaId ?? ""}|${rule.toAreaId ?? ""}|${rule.vehicleGroupId}|${rule.direction ?? ""}|${rule.packageHours ?? ""}|${isNonBaseRule(rule) ? (rule.pricing?.model ?? "surcharge") : "base"}`;
 }
 
 /** 这条是不是点对点的线路价（有下车区域，ADR 0073 第二部分）：不是「该有的价格」，缺价统计、上架检查不算它。 */
@@ -510,7 +522,7 @@ export function priceRuleIsActive(rule: Pick<PriceRule, "status" | "validTo">, t
 export function sellablePriceRules<T extends Pick<PriceRule, "areaId" | "toAreaId" | "vehicleGroupId" | "status" | "validTo" | "pricing">>(rules: readonly T[], selected: { areaIds: readonly string[]; vehicleGroupIds: readonly string[] }, today: string): T[] {
   // 区域加价、线路价是可选的补充：有没有它们都不影响「能不能上架」（ADR 0073 第五部分：上架检查按商品区域，不变）
   // 整商品套餐价（区域为空，ADR 0093 第五节）不挂区域：只看车型组
-  return rules.filter((rule) => !isSurchargeRule(rule) && !isRouteRule(rule) && priceRuleIsActive(rule, today) && (rule.areaId === null || selected.areaIds.includes(rule.areaId)) && selected.vehicleGroupIds.includes(rule.vehicleGroupId));
+  return rules.filter((rule) => !isNonBaseRule(rule) && !isRouteRule(rule) && priceRuleIsActive(rule, today) && (rule.areaId === null || selected.areaIds.includes(rule.areaId)) && selected.vehicleGroupIds.includes(rule.vehicleGroupId));
 }
 
 /**
@@ -518,7 +530,7 @@ export function sellablePriceRules<T extends Pick<PriceRule, "areaId" | "toAreaI
  * 不算上架条件（见 `sellablePriceRules`），但调价规则的检查（调完不大于 0、超上限、叠加）要连它们一起看——它们同样会被报出去。
  */
 export function sellableRouteRules<T extends Pick<PriceRule, "areaId" | "toAreaId" | "vehicleGroupId" | "status" | "validTo" | "pricing">>(rules: readonly T[], selected: { areaIds: readonly string[]; vehicleGroupIds: readonly string[] }, today: string): T[] {
-  return rules.filter((rule) => isRouteRule(rule) && !isSurchargeRule(rule) && priceRuleIsActive(rule, today) && rule.areaId !== null && selected.areaIds.includes(rule.areaId) && selected.areaIds.includes(rule.toAreaId as string) && selected.vehicleGroupIds.includes(rule.vehicleGroupId));
+  return rules.filter((rule) => isRouteRule(rule) && !isNonBaseRule(rule) && priceRuleIsActive(rule, today) && rule.areaId !== null && selected.areaIds.includes(rule.areaId) && selected.areaIds.includes(rule.toAreaId as string) && selected.vehicleGroupIds.includes(rule.vehicleGroupId));
 }
 
 /** 一次询价要找的组合。 */
@@ -551,7 +563,7 @@ function ruleAreaMatches(rule: Pick<PriceRule, "areaId">, query: Pick<PriceQuery
  */
 export function selectPriceRule<T extends PriceRule>(rules: readonly T[], query: PriceQuery): T | null {
   const candidates = rules.filter(
-    (rule) => !isSurchargeRule(rule) && rule.status === "enabled" && ruleAreaMatches(rule, query) && (rule.toAreaId ?? null) === (query.toAreaId ?? null) && rule.vehicleGroupId === query.vehicleGroupId && rule.packageHours === query.packageHours && priceRuleCoversDate(rule, query.date),
+    (rule) => !isNonBaseRule(rule) && rule.status === "enabled" && ruleAreaMatches(rule, query) && (rule.toAreaId ?? null) === (query.toAreaId ?? null) && rule.vehicleGroupId === query.vehicleGroupId && rule.packageHours === query.packageHours && priceRuleCoversDate(rule, query.date),
   );
   if (query.direction === null) return candidates.find((rule) => rule.direction === null) ?? null;
   return candidates.find((rule) => rule.direction === query.direction) ?? candidates.find((rule) => rule.direction === "both") ?? null;
@@ -1014,7 +1026,7 @@ export function tripPrice<P extends PriceRule, A extends AdjustRule>(input: {
   if (rule === null) {
     const sameCombo = input.priceRules.filter(
       (candidate) =>
-        !isSurchargeRule(candidate) &&
+        !isNonBaseRule(candidate) &&
         ruleAreaMatches(candidate, query) &&
         (candidate.toAreaId ?? null) === (query.toAreaId ?? null) &&
         candidate.vehicleGroupId === query.vehicleGroupId &&
@@ -1201,7 +1213,7 @@ export function priceCoverage(input: { category: ServiceCategory; areaIds: reado
   const { category, today } = input;
   const wide = input.productWide === true;
   // 区域加价、线路价不是「该有的价格」：缺价统计只看区域的基础定价（ADR 0073 第五部分）；整商品统计时只看区域为空的
-  const rules = input.rules.map((rule) => (isSurchargeRule(rule) || isRouteRule(rule) || wide !== (rule.areaId === null) ? null : rule));
+  const rules = input.rules.map((rule) => (isNonBaseRule(rule) || isRouteRule(rule) || wide !== (rule.areaId === null) ? null : rule));
   const baseRules = rules.filter((rule): rule is PriceRule => rule !== null);
   const packages = category === "charter" ? [...new Set(baseRules.flatMap((rule) => (rule.packageHours === null ? [] : [rule.packageHours])))].sort((x, y) => x - y) : [];
   const variants: { direction: TripDirection | null; packageHours: number | null }[] =

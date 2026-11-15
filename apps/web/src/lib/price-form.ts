@@ -21,6 +21,7 @@ import {
   hasIncludedKm,
   overKm,
   isCurrencyCode,
+  isAirportPackageModel,
   isSurchargeModel,
   priceCoverage,
   type PlaceType,
@@ -477,7 +478,7 @@ function tidyAmountDisplayText(value: string, currency: string): string {
 
 /** 价格表（基础定价）的行：区域加价另在「区域加价」块里（M8-12a），不当普通行显示。 */
 export function basePriceItems(items: readonly PriceRuleBody[]): PriceRuleBody[] {
-  return items.filter((item) => !isSurchargeModel(item.pricing_model));
+  return items.filter((item) => !isSurchargeModel(item.pricing_model) && !isAirportPackageModel(item.pricing_model));
 }
 
 /** 精确值（最小货币单位的十进制字符串）四舍五入成带币种的金额：只用来写「例」。 */
@@ -532,7 +533,7 @@ export function lowestText(pricing: Pricing, currency: string, withCurrency = fa
 /** 接口里的全部价格 → 启用且没过期的那些（域里的写法）：调价规则的试算、「调完不大于 0」「碰不碰得到」都只看这些。 */
 export function activePriceRules(items: readonly PriceRuleBody[], context: PriceContext): { body: PriceRuleBody; rule: PriceRule }[] {
   // 区域加价（M8-15）不是基础定价，不在价格表里，这里也不算
-  return items.filter((body) => !isSurchargeModel(body.pricing_model)).flatMap((body) => {
+  return items.filter((body) => !isSurchargeModel(body.pricing_model) && !isAirportPackageModel(body.pricing_model)).flatMap((body) => {
     const rule = readRow(rowFromRule(body, context.currency), context).rule;
     return rule && priceRuleIsActive(rule, context.today) ? [{ body, rule }] : [];
   });
