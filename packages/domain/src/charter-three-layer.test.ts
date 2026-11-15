@@ -12,7 +12,7 @@ import type { LatLng } from "./geo.ts";
 import { charterMatches } from "./charter-match.ts";
 import { type PriceRule, charterMigrationDiff, findPriceRuleOverlaps, itineraryAreaIds, priceRuleIssues, sellablePriceRules, surchargeAreaIds, surchargeModelsFor } from "./pricing.ts";
 import { emptyServiceRules } from "./products.ts";
-import { type QuoteArea, type QuoteMoment, type QuoteProduct, type QuoteRequest, quoteProduct } from "./quote.ts";
+import { type QuoteArea, type QuoteMoment, type QuoteProduct, type QuoteRequest, lockableAreaSurcharge, quoteProduct } from "./quote.ts";
 
 const square = (west: number, south: number, east: number, north: number): Position[] => [[west, south], [east, south], [east, north], [west, north], [west, south]];
 const area = (areaId: string, ring: Position[]): QuoteArea => ({ areaId, active: true, shapes: [{ id: `${areaId}-op`, kind: "operate", ring }] });
@@ -256,5 +256,30 @@ test("M9P-16：已下的单改期时传 lockedAreaSurcharge——加价用锁定
   const kept = quoteProduct(noWaypointRule, request, moment, { lockedAreaSurcharge: locked });
   assert.ok(kept.ok);
   assert.equal(kept.offers[0]?.settlement.totalMinor, 65_000);
+});
+
+test("M9P-16：加价锁定的改期照常做区域判断——经停所在的区域后来被删了（不在任何区域里）→ 报不出（WAYPOINT_NOT_PRICED），不按锁定的金额报", () => {
+  const locked = { pickup: { areaId: null, priceRuleId: null, amountMinor: 0 }, dropoff: { areaId: null, priceRuleId: null, amountMinor: 0 }, waypoints: [{ areaId: "fuji", priceRuleId: "s-fuji", amountMinor: 10_000, stopSeqs: [1] }] };
+  const request = trip("shinjuku", ["gogome"], "shinjuku");
+  assert.equal(quoteProduct(product(), request, moment, { lockedAreaSurcharge: locked }).ok, true);
+  const fujiGone = product({ surchargeAreas: [KAMAKURA, LAKE], priceRules: LEGACY_RULES.filter((entry) => entry.areaId !== "fuji") });
+  assert.equal(priced(request, fujiGone), "WAYPOINT_NOT_PRICED@1", "现算：报不出");
+  const quote = quoteProduct(fujiGone, request, moment, { lockedAreaSurcharge: locked });
+  assert.ok(quote.ok);
+  assert.deepEqual(quote.refused, [{ vehicleGroupId: "eco7", reason: "WAYPOINT_NOT_PRICED", stopSeq: 1 }], "锁定的改期同样报不出");
+});
+
+test("M9P-16：lockableAreaSurcharge——行程（上车、下车、经停点的坐标和顺序）和套餐时长都和下单时一样才锁；有一样变了、不是包车、没有加价明细都不锁（现算）", () => {
+  const breakdown = { packageMinor: 55_000, pickup: { areaId: null, priceRuleId: null, amountMinor: 0 }, dropoff: { areaId: "fuji", priceRuleId: "s-fuji", amountMinor: 10_000 }, waypoints: [] };
+  const booked = { request: trip("shinjuku", ["gogome"], "gogome"), packageHours: 10, areaSurcharge: breakdown };
+  const { packageMinor: _package, ...surcharge } = breakdown;
+  assert.deepEqual(lockableAreaSurcharge(booked, trip("shinjuku", ["gogome"], "gogome"), 10), surcharge);
+  assert.equal(lockableAreaSurcharge(booked, trip("lake", ["gogome"], "gogome"), 10), undefined, "上车点变了");
+  assert.equal(lockableAreaSurcharge(booked, trip("shinjuku", ["gogome"], "lake"), 10), undefined, "下车点变了");
+  assert.equal(lockableAreaSurcharge(booked, trip("shinjuku", ["gogome", "tsurugaoka"], "gogome"), 10), undefined, "经停点变了");
+  assert.equal(lockableAreaSurcharge(booked, trip("shinjuku", ["tsurugaoka"], "gogome"), 10), undefined, "经停点换了");
+  assert.equal(lockableAreaSurcharge(booked, trip("shinjuku", ["gogome"], "gogome"), 8), undefined, "套餐时长变了");
+  assert.equal(lockableAreaSurcharge({ ...booked, areaSurcharge: undefined }, trip("shinjuku", ["gogome"], "gogome"), 10), undefined, "M8-15 之前的单没有加价明细");
+  assert.equal(lockableAreaSurcharge(booked, { ...trip("shinjuku", ["gogome"], "gogome"), category: "point_to_point" }, 10), undefined, "不是包车");
 });
 

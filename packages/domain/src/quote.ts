@@ -900,6 +900,21 @@ interface SelectionPlan {
  * 包车带 `charterSelection`（ADR 0093 第四节）时各车型组在引擎里自己选档（`selectPackages`）、不收超时费；不带的和以前逐字一样。
  * 请求本身写得对不对由 `quoteRequestIssues` 查，这里假定是对的。
  */
+/**
+ * 已下的包车单改期时锁哪份加价（M9P-16，ADR 0093 第二节）：下单时结算价明细里的上车、下车、行程加价（去掉套餐价）。
+ * 只在「行程没变」时锁——上车点、下车点、经停点（坐标和顺序）都和下单时的请求一样，套餐时长也没变；有一样变了（现在的改期接口改不了这些，防以后放开）
+ * 就不锁、按现在的规则现算（加价和新行程对不上）。不是包车、或下单时的结算价没有加价明细（M8-15 之前的单）也不锁。
+ */
+export function lockableAreaSurcharge(booked: { request: Pick<QuoteRequest, "category" | "pickup" | "dropoff" | "waypoints">; packageHours: number | null; areaSurcharge: AreaSurchargeBreakdown | null | undefined }, request: Pick<QuoteRequest, "category" | "pickup" | "dropoff" | "waypoints">, packageHours: number | null): Omit<AreaSurchargeBreakdown, "packageMinor"> | undefined {
+  if (request.category !== "charter" || booked.areaSurcharge === null || booked.areaSurcharge === undefined) return undefined;
+  const samePoint = (a: LatLng | null, b: LatLng | null): boolean => (a === null || b === null ? a === b : a.lat === b.lat && a.lng === b.lng);
+  const [before, after] = [waypointsOf(booked.request), waypointsOf(request)];
+  const sameTrip = samePoint(booked.request.pickup, request.pickup) && samePoint(booked.request.dropoff, request.dropoff) && before.length === after.length && before.every((stop, index) => samePoint(stop, after[index] as LatLng));
+  if (!sameTrip || booked.packageHours !== packageHours) return undefined;
+  const { packageMinor: _package, ...surcharge } = booked.areaSurcharge;
+  return surcharge;
+}
+
 export function quoteProduct(product: QuoteProduct, request: QuoteRequest, moment: QuoteMoment, options: QuoteOptions = {}): ProductQuote {
   const selection = product.category === "charter" ? request.charterSelection : undefined;
   if (selection === undefined) return quoteAtHours(product, request, moment, options, null);
@@ -998,6 +1013,13 @@ function quoteAtHours(product: QuoteProduct, request: QuoteRequest, moment: Quot
     }
     // 包车的区域加价：上车、下车两端各取这一端最小的加价（在商品本身的区域里是 0）；有一端没有能用的加价，这个车型组不报
     let surcharge: Omit<AreaSurchargeBreakdown, "packageMinor"> | null = null;
+    // 经停点哪个区域都不在：这个车型组不报，指出第一个这样的经停点（ADR 0088 第 3 节第 4 条）。
+    // 加价锁定的改期（M9P-16）同样要查：锁的是金额，区域判断照常（运营后来删了经停所在的区域，照旧报不出）
+    const unpriced = ends === null ? -1 : ends.waypoints.findIndex((stop) => stop.unpriced);
+    if (unpriced >= 0) {
+      refused.push({ vehicleGroupId, reason: "WAYPOINT_NOT_PRICED", stopSeq: unpriced + 1 });
+      continue;
+    }
     const locked = product.category === "charter" && ends !== null ? options.lockedAreaSurcharge : undefined;
     if (locked !== undefined) {
       // 已下的单改期（M9P-16）：加价按下单时锁定的，不查现在的加价规则
@@ -1015,12 +1037,6 @@ function quoteAtHours(product: QuoteProduct, request: QuoteRequest, moment: Quot
         return chosen === null ? NO_PRICE_REFUSAL.NO_RULE : NO_PRICE_REFUSAL[chosen.noPriceReason];
       };
       const [pickupCharge, dropoffCharge] = [endCharge(ends.pickup, "pickup"), endCharge(ends.dropoff, "dropoff")];
-      // 经停点哪个区域都不在：这个车型组不报，指出第一个这样的经停点（ADR 0088 第 3 节第 4 条）
-      const unpriced = ends.waypoints.findIndex((stop) => stop.unpriced);
-      if (unpriced >= 0) {
-        refused.push({ vehicleGroupId, reason: "WAYPOINT_NOT_PRICED", stopSeq: unpriced + 1 });
-        continue;
-      }
       const waypointCharges = ends.waypoints.map((stop) => endCharge(stop, "waypoint"));
       const failures = [pickupCharge, dropoffCharge, ...waypointCharges].filter((entry): entry is QuoteRefusal => typeof entry === "string");
       // 只有经停点那一端报不出（上 / 下车都报得出）：原因码照旧，另带上第一个报不出的经停点（M9W-10，ADR 0088 补充），官网据此转人工报价并指出是哪个点；

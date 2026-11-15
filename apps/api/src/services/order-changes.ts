@@ -42,6 +42,7 @@ import {
   orderChangeStillApplicable,
   passengerEmailNeedsReview,
   priceDifference,
+  lockableAreaSurcharge,
   quoteProduct,
   isSurchargeRule,
   sellPrice,
@@ -267,8 +268,8 @@ async function reprice(db: Db, order: Order, sale: OrderSale, next: PlannedChang
   const product = request.category === "charter" && request.dropoff === null ? { ...candidate.product, priceRules: candidate.product.priceRules.filter((rule) => !isSurchargeRule(rule)) } : candidate.product;
   // 包车加价按下单时锁定（M9P-16，监工替业主确认 2026-11-14）：上车、下车、行程加价取订单结算价明细里的，不按现在的规则重算；
   // 套餐价、超公里、调价、加急、夜间、附加服务仍按改期后的时间现算（和以前一样）。M8-15 之前的单没有这一项，照旧
-  const surchargeAtBooking = request.category === "charter" ? order.settlement.areaSurcharge : null;
-  const lockedAreaSurcharge = surchargeAtBooking === undefined || surchargeAtBooking === null ? undefined : (({ packageMinor: _package, ...rest }) => rest)(surchargeAtBooking);
+  // 行程（上车、下车、经停点）或套餐时长和下单时不一样就不锁、现算（lockableAreaSurcharge；现在的改期改不了这些，防以后放开）
+  const lockedAreaSurcharge = lockableAreaSurcharge({ request: quote.request, packageHours: order.packageHours, areaSurcharge: order.settlement.areaSurcharge }, request, request.packageHours);
   const result = quoteProduct(product, request, { now, holidays: facts.holidays, route: order.settlement.usage, inventoryDay: ownDay, urgentUsed }, lockedAreaSurcharge === undefined ? {} : { lockedAreaSurcharge });
   if (!result.ok) throw notServiceable(result.reason);
   const offer = result.offers.find((entry) => entry.vehicleGroupId === order.vehicleGroupId && entry.packageHours === order.packageHours);
