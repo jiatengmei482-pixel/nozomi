@@ -201,10 +201,10 @@ test("手动升到 12 小时后采用：建议按 12 小时算，采用后直接
   await actor.click(screen.getByRole("button", { name: "恢复原来的顺序" }));
   await waitFor(() => assert.match(screen.getByRole("heading", { name: "车型1" }).closest("li")?.textContent ?? "", /85,000 JPY/), SLOW);
   assert.equal((quoteCalls(calls).at(-1)?.body as { package_hours?: number } | undefined)?.package_hours, 12, "恢复后按采用时的 12 小时询价");
-  // 播报区常驻在车型区外层（重新询价的骨架屏不会把它卸掉）；恢复那句先播过了，价格出来只播「价格已更新」
+  // 播报区常驻在车型区外层（重新询价的骨架屏不会把它卸掉）；恢复那句和「价格已更新」接在一起播
   const live = document.querySelector(".book-new__vehicles > p.visually-hidden[role=status]");
   assert.ok(live !== null);
-  await waitFor(() => assert.equal(live.textContent, "价格已更新：车型1 85,000 JPY"));
+  await waitFor(() => assert.equal(live.textContent, "已恢复原来的顺序 价格已更新：车型1 85,000 JPY"));
   await actor.click(screen.getByRole("button", { name: "上一步" }));
   assert.equal((screen.getByLabelText(/^包车时长/) as HTMLSelectElement).value, "12");
 });

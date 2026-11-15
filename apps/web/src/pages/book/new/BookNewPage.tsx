@@ -580,9 +580,9 @@ export function BookNewPage() {
     const restoredKey = itineraryKeyOf(restoredDraft);
     if (adoptedFrom.upgradeHours !== "" && restoredKey !== null) setUpgrade({ key: restoredKey, hours: adoptedFrom.upgradeHours });
     setDraft(restoredDraft);
-    // 恢复要重新询价：这一句先播，价格出来后只播「价格已更新」，不把这一句再读一遍
-    orderNotice.current = null;
-    setSuggestionNotice(itineraryCopy("suggestRestored"));
+    // 和采用一样：价格出来后接在这一句后面播（原顺序的报价常常已在缓存里、立刻就出来，分开播的话这一句来不及读就被换掉）
+    orderNotice.current = itineraryCopy("suggestRestored");
+    setSuggestionNotice(orderNotice.current);
     focusItinerary.current = true;
   };
   // 建议块出现时播报一次（同一组点只播一次，ADR 0096 第三节第 7 小节）
