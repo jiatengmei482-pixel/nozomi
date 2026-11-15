@@ -319,9 +319,16 @@ async function airportPackageHoursAt(db: Db, productIds: readonly string[], toda
        join products p on p.tenant_id = b.tenant_id and p.id = b.product_id and p.charter_layout = 'three_layer'
        join tenants t on t.id = p.tenant_id
        join areas a on a.tenant_id = b.tenant_id and a.id = b.area_id and a.status = 'active'
+       join places pl on pl.id = b.place_id and pl.status = 'active'
        join price_rules r on r.tenant_id = b.tenant_id and r.product_id = b.product_id and r.area_id = b.area_id and r.pricing_model = 'charter_airport_package'
                          and r.direction = case b.scenario when 'airport_start' then 'pickup' else 'dropoff' end
-      where b.product_id = any($1::uuid[]) and r.status = 'enabled' and (r.valid_to is null or r.valid_to >= $2::date)`,
+      where b.product_id = any($1::uuid[]) and r.status = 'enabled' and (r.valid_to is null or r.valid_to >= $2::date)
+        -- 三项单价补得齐才列（自己填齐了，或同一车型组同一时长有普通套餐价可补；#261 审查建议 3）
+        and ((r.params ? 'packageKm' and r.params ? 'overKmPerKmMinor' and r.params ? 'overtimePerHourMinor')
+             or exists (select 1 from price_rules n
+                         where n.tenant_id = r.tenant_id and n.product_id = r.product_id and n.pricing_model = 'charter_package' and n.area_id is null
+                           and n.vehicle_group_id = r.vehicle_group_id and n.package_hours = r.package_hours and n.status = 'enabled'
+                           and (n.valid_to is null or n.valid_to >= $2::date)))`,
     [productIds, today],
   );
   if (rows.rows.length === 0) return [];

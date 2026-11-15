@@ -66,6 +66,7 @@ interface Charter {
   airport: string;
   /** 伸出成田③的机场区域（覆盖不全） */
   wideAirport: string;
+  brand: string;
 }
 let charter: Charter;
 let charterA: Charter;
@@ -92,7 +93,7 @@ async function newCharter(who: TenantFixture, migrate: boolean): Promise<Charter
     await api.db.owner.query("update products set charter_layout = 'three_layer', version = version + 1 where id = $1", [created.id]);
     await ok(batch(who, created.id, { create: [pkg(null, 5, 33_000)] }));
   }
-  return { id: created.id, tokyo, narita, airport, wideAirport };
+  return { id: created.id, tokyo, narita, airport, wideAirport, brand };
 }
 
 before(async () => {
@@ -292,6 +293,20 @@ test("只填了机场套餐价的档（8h，普通套餐价没有）：上车点
   };
   assert.deepEqual(await hours("naritaT1"), [5, 8]);
   assert.deepEqual(await hours("naritaHotel"), [5]);
+});
+
+test("取整单位：会把机场套餐价取整成 0 的改动被拦下（409 ROUNDING_UNIT_ZEROES_PRICES，#261 第二开发审查必改）", async () => {
+  const created = await ok(batch(m.b, charter.id, { create: [{ ...airportPrice(charter.airport, "pickup", 9, 400), package_km: 400, overtime_per_hour: 6_000, over_km_per_km: 500 }] }));
+  const ruleId = (created.items as any[]).find((item) => item.pricing_model === "charter_airport_package" && item.package_hours === 9)?.id;
+  assert.ok(ruleId, JSON.stringify(created).slice(0, 300));
+  const listed = (await ok(tenantCall(m.b, "GET", `/products/${charter.id}/price-rules`))).items as any[];
+  assert.equal(listed.find((item) => item.id === ruleId)?.base, "400", "机场套餐价的 base 是它的套餐价");
+  const brands = (await ok(tenantCall(m.b, "GET", "/brands"))).items as any[];
+  const brand = brands.find((item) => item.id === charter.brand);
+  const refused = await tenantCall(m.b, "PUT", `/brands/${charter.brand}/rounding-unit`, { version: brand.version, body: { rounding_unit: 1_000 } });
+  assert.deepEqual([refused.status, refused.body.error.code], [409, "ROUNDING_UNIT_ZEROES_PRICES"], refused.text);
+  assert.ok(JSON.stringify(refused.body.error.details).includes(charter.id), refused.text);
+  await ok(batch(m.b, charter.id, { delete: [ruleId] }));
 });
 
 test("#261 必改 1：下单时没有场景的单，供应商后来绑定机场、设单独价 45,000 之后改期，仍是 47,000（不是 45,000 + 锁定的 14,000 = 59,000）", async () => {

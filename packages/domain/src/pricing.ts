@@ -591,7 +591,9 @@ export function basePrice(pricing: Pricing, usage: TripUsage = {}, packageHours:
     if (!hasIncludedKm(pricing) || usage.meters === undefined) return exactFromMinor(pricing.basePriceMinor);
     return plus(exactFromMinor(pricing.basePriceMinor), times(exactFromMinor(pricing.overKmPerKmMinor), BigInt(overKm(usage.meters, pricing.includedKm))));
   }
-  if (pricing.model === "charter_area_surcharge" || pricing.model === "charter_itinerary_surcharge" || pricing.model === "charter_airport_package") return exactFromMinor(0);
+  if (pricing.model === "charter_area_surcharge" || pricing.model === "charter_itinerary_surcharge") return exactFromMinor(0);
+  // 机场套餐价（ADR 0098）：不超出时就是它的套餐价（超出部分的单价可能要从普通套餐补，报价时由引擎补齐；这里只用于展示和取整单位检查，#261 审查）
+  if (pricing.model === "charter_airport_package") return exactFromMinor(pricing.packagePriceMinor);
   if (pricing.model === "mileage_time") {
     const byDistance = times(exactFromMinor(pricing.perKmMinor), over(meters, BigInt(pricing.startMeters)), 1_000n);
     const byTime = times(exactFromMinor(pricing.perMinuteMinor), over(minutes, BigInt(pricing.startMinutes)));
