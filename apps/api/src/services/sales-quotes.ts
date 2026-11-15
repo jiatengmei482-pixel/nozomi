@@ -221,15 +221,22 @@ function itineraryEstimateOf(snapshot: StoredQuoteSnapshot): Pick<SalesQuote, "i
  * 每个车型组取这次比价中标的档——和官网下拉「自动（N 小时）」用的那次自动询价同一个结果。
  * 以前取的是手动询价中标商品**自己**会选的档：手动报的档换了一个商品中标时（例如 A 自动选 7 小时最便宜，手动报 6 小时时 B 中标、B 自己会选 6 小时），
  * 就和自动询价对不上。不是按行程计价的手动询价（没有路线用量）返回 null，不多比这一次。
+ * 路线用量是服务器已经估好的，这一次不调谷歌。这一次出错时返回空表（应答里的自动档为 null），不让手动报价失败。
  */
-async function comparisonAutoHours(ctx: AppContext, input: SalesQuoteInput, previewInput: Parameters<typeof previewPlatformQuote>[1], audience: { audience?: "acceptance" }): Promise<ReadonlyMap<string, number | null> | null> {
+export async function comparisonAutoHours(ctx: AppContext, input: Pick<SalesQuoteInput, "charterSelection" | "routeUsage">, previewInput: Parameters<typeof previewPlatformQuote>[1], audience: { audience?: "acceptance" }, preview: typeof previewPlatformQuote = previewPlatformQuote): Promise<ReadonlyMap<string, number | null> | null> {
   if (input.charterSelection !== "manual" || input.routeUsage === undefined) return null;
-  const auto = await previewPlatformQuote(ctx, { ...previewInput, packageHours: null, charterSelection: "auto" }, { fresh: false, ...audience });
+  let auto: Awaited<ReturnType<typeof previewPlatformQuote>>;
+  try {
+    auto = await preview(ctx, { ...previewInput, packageHours: null, charterSelection: "auto" }, { fresh: false, ...audience });
+  } catch {
+    // 空表：这一单各车型的自动档都写 null（不退回中标商品自己的档，那个口径不对）
+    return new Map();
+  }
   return new Map(auto.comparison.groups.map((group) => [group.snapshot.winner.offer.vehicleGroupId, group.snapshot.winner.offer.packageHours]));
 }
 
 /** 手动选档的报价换上比价口径的自动档；这个车型组自动询价报不出时为 null */
-function withComparisonAuto(quote: SalesQuote, autoHours: ReadonlyMap<string, number | null> | null): SalesQuote {
+export function withComparisonAuto(quote: SalesQuote, autoHours: ReadonlyMap<string, number | null> | null): SalesQuote {
   if (autoHours === null || quote.itinerary === undefined) return quote;
   return { ...quote, itinerary: { ...quote.itinerary, autoPackageHours: autoHours.get(quote.vehicleGroupId) ?? null } };
 }
@@ -295,10 +302,10 @@ export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincip
       ...(input.charterSelection === undefined ? {} : { charterSelection: input.charterSelection }),
   };
   const audience = acceptance ? { audience: "acceptance" as const } : {};
-  const preview = await previewPlatformQuote(ctx, previewInput, { fresh: false, ...(options.log === undefined ? {} : { log: options.log }), ...audience });
+  // 两次比价同时算（M9P-15 的比价口径自动档只在手动按行程计价时才有第二次）
+  const [preview, autoHours] = await Promise.all([previewPlatformQuote(ctx, previewInput, { fresh: false, ...(options.log === undefined ? {} : { log: options.log }), ...audience }), comparisonAutoHours(ctx, input, previewInput, audience)]);
   const now = ctx.now();
   const snapshots = storedSnapshots(preview, now);
-  const autoHours = await comparisonAutoHours(ctx, input, previewInput, audience);
   const result: SalesQuoteResult = { quotes: snapshots.map((snapshot) => withComparisonAuto({ ...toSalesQuote(snapshot), offeredAddonIds: offeredAddonIds(preview, snapshot) }, autoHours)), unavailable: unavailable(preview, input.vehicleGroupIds) };
   const durationMs = Math.round(performance.now() - started);
   await withPlatformTx(ctx.pool, async (db) => {

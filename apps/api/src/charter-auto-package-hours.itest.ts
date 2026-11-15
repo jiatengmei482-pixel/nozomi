@@ -18,6 +18,9 @@ import { tenantLogin } from "./testing/money.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
 import { FakePaymentProvider } from "./testing/payments.ts";
 import { type SiteApi, siteApi } from "./testing/site.ts";
+import type { AppContext } from "./context.ts";
+import type { previewPlatformQuote } from "./services/quotes.ts";
+import { type SalesQuote, comparisonAutoHours, withComparisonAuto } from "./services/sales-quotes.ts";
 
 let api: TestApi;
 let m: Market;
@@ -31,7 +34,11 @@ const SERVICE_LOCAL = "2026-10-20T10:00";
 let ipSeq = 0;
 const nextIp = (): string => `10.96.${(ipSeq += 1)}.9`;
 /** 两段各 150 分钟、100 公里，停 60 分钟 → T = 6 小时、全程 200 公里 */
-const routeLookup = async (): Promise<RouteLookup> => ({ ok: true, route: { meters: 100_000, minutes: 150 }, source: "google" });
+let routeCalls = 0;
+const routeLookup = async (): Promise<RouteLookup> => {
+  routeCalls += 1;
+  return { ok: true, route: { meters: 100_000, minutes: 150 }, source: "google" };
+};
 
 async function tenantCall(who: TenantFixture, method: HttpMethod, path: string, options: { body?: unknown; version?: number } = {}): Promise<ApiResponse> {
   const token = await tenantLogin(api, who.adminEmail);
@@ -85,7 +92,9 @@ test("手动报 6h 时另一个商品中标：auto_package_hours 仍是自动询
 
   const logs = async (): Promise<number> => Number((await api.db.owner.query<{ count: string }>("select count(*) from quote_logs where category = 'charter'")).rows[0]?.count);
   const before = await logs();
+  routeCalls = 0;
   const manual6 = await quote({ package_hours: 6 });
+  assert.equal(routeCalls, 2, "两段路线各估一次：多比的那一次用已经估好的路线用量，不多调谷歌");
   assert.deepEqual([manual6.quotes[0].package.hours, await winnerOf(manual6.quotes[0].quote_id)], [6, charterB], "手动 6h：乙中标");
   assert.equal(manual6.quotes[0].auto_package_hours, 7, "和自动询价同一个档（官网下拉「自动（7 小时）」）");
   assert.equal(await logs(), before + 1, "多比的那一次只在内存里，不记询价日志");
@@ -100,4 +109,23 @@ test("手动报 6h 时另一个商品中标：auto_package_hours 仍是自动询
   const plain = await site.call("POST", "/site/v1/quotes", { body: { category: "charter", city_id: m.ids.tokyo, pickup: P.shinjuku, dropoff: P.shinjuku, package_hours: 6, service_local: SERVICE_LOCAL, passengers: 2, luggage: 1 }, ip: nextIp() });
   assert.equal(plain.status, 200, plain.text);
   assert.equal(plain.body.quotes[0].auto_package_hours, null);
+});
+
+test("多比的那一次出错：返回空表，手动报价照常报出、自动档为 null（不退回中标商品自己的档）；不是手动按行程计价时不多比", async () => {
+  const failing = (async () => {
+    throw new Error("模拟比价失败");
+  }) as unknown as typeof previewPlatformQuote;
+  const usage = { meters: 200_000, minutes: 360, legs: [], stayMinutes: 60 };
+  const hours = await comparisonAutoHours({} as AppContext, { charterSelection: "manual", routeUsage: usage }, {} as Parameters<typeof previewPlatformQuote>[1], {}, failing);
+  assert.deepEqual(hours, new Map());
+  const quoteLike = { vehicleGroupId: "g", itinerary: { estimatedMinutes: 360, includesBuffer: false, autoPackageHours: 6 } } as unknown as SalesQuote;
+  assert.equal(withComparisonAuto(quoteLike, hours ?? null).itinerary?.autoPackageHours, null);
+  let called = false;
+  const spy = (async () => {
+    called = true;
+    throw new Error("不该调");
+  }) as unknown as typeof previewPlatformQuote;
+  assert.equal(await comparisonAutoHours({} as AppContext, { charterSelection: "auto", routeUsage: usage }, {} as Parameters<typeof previewPlatformQuote>[1], {}, spy), null);
+  assert.equal(await comparisonAutoHours({} as AppContext, { charterSelection: "manual" }, {} as Parameters<typeof previewPlatformQuote>[1], {}, spy), null);
+  assert.equal(called, false);
 });
