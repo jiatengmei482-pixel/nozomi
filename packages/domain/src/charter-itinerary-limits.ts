@@ -1,5 +1,5 @@
 /**
- * 包车行程的经停点数量上限和超限提醒（M9P-10，规格 charter-pricing-spec-2026-11-14.md 步骤 2、步骤 5；ADR 0098）。
+ * 包车行程的经停点数量上限和超限提醒（M9P-10，规格 charter-pricing-spec-2026-11-14.md 步骤 2、步骤 5；ADR 0099）。
  * - 经停点数量不设业务上限，只受路径接口的技术上限：Routes API `computeRoutes` 一次最多 25 个中间点（`intermediates`），
  *   行程地图的折线（ADR 0096）、顺序建议（`optimizeWaypointOrder`）都是一次带全部经停，所以统一取 25。
  *   报价、草稿、人工报价、页面「添加经停点」都只读这里的常量，不各写各的。

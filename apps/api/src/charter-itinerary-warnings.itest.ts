@@ -1,5 +1,5 @@
 /**
- * M9P-10（规格 docs/requirements/charter-pricing-spec-2026-11-14.md 步骤 2、步骤 5，差异表第 10、11 条；ADR 0098），经真实接口、真实 PostgreSQL：
+ * M9P-10（规格 docs/requirements/charter-pricing-spec-2026-11-14.md 步骤 2、步骤 5，差异表第 10、11 条；ADR 0099），经真实接口、真实 PostgreSQL：
  * - 服务规则 `charter_itinerary.warn_minutes` / `warn_km`（超限提醒线，默认 12 小时 / 360 公里）：读写、只存和默认不同的项、范围、只有包车能设、甲读不到改不了乙的；
  * - 官网按行程计价的报价带 `itinerary_warnings`：T（含缓冲）大于提醒线 → LONG_DURATION，全程大于提醒公里数 → LONG_DISTANCE，正好等于不提醒，
  *   阈值按商品；超了仍报价、可以下单（用例「新宿 → 镰仓 → 日光 → 新宿 454 公里」）；没按行程计价的为 null；
