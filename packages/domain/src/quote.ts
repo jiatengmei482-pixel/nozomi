@@ -894,13 +894,6 @@ interface SelectionPlan {
 }
 
 /**
- * 一个商品对一次用车请求报价（第 2–9 步里和这个商品有关的全部）。
- * `forOwner`：供应商自己试算——没上架的商品也算（需求文档 `quote-preview`：用未上架商品试算报价），也不看供应商是不是被暂停。
- * `audience`：`acceptance` 是测试环境的验收会话（M8-26，ADR 0078）——只认测试供应商的「验收可售」商品，不看入驻状态；不给是普通客人（只认已上架）。
- * 包车带 `charterSelection`（ADR 0093 第四节）时各车型组在引擎里自己选档（`selectPackages`）、不收超时费；不带的和以前逐字一样。
- * 请求本身写得对不对由 `quoteRequestIssues` 查，这里假定是对的。
- */
-/**
  * 已下的包车单改期时锁哪份加价（M9P-16，ADR 0093 第二节）：下单时结算价明细里的上车、下车、行程加价（去掉套餐价）。
  * 只在「行程没变」时锁——上车点、下车点、经停点（坐标和顺序）都和下单时的请求一样，套餐时长也没变；有一样变了（现在的改期接口改不了这些，防以后放开）
  * 就不锁、按现在的规则现算（加价和新行程对不上）。不是包车、或下单时的结算价没有加价明细（M8-15 之前的单）也不锁。
@@ -915,6 +908,13 @@ export function lockableAreaSurcharge(booked: { request: Pick<QuoteRequest, "cat
   return surcharge;
 }
 
+/**
+ * 一个商品对一次用车请求报价（第 2–9 步里和这个商品有关的全部）。
+ * `forOwner`：供应商自己试算——没上架的商品也算（需求文档 `quote-preview`：用未上架商品试算报价），也不看供应商是不是被暂停。
+ * `audience`：`acceptance` 是测试环境的验收会话（M8-26，ADR 0078）——只认测试供应商的「验收可售」商品，不看入驻状态；不给是普通客人（只认已上架）。
+ * 包车带 `charterSelection`（ADR 0093 第四节）时各车型组在引擎里自己选档（`selectPackages`）、不收超时费；不带的和以前逐字一样。
+ * 请求本身写得对不对由 `quoteRequestIssues` 查，这里假定是对的。
+ */
 export function quoteProduct(product: QuoteProduct, request: QuoteRequest, moment: QuoteMoment, options: QuoteOptions = {}): ProductQuote {
   const selection = product.category === "charter" ? request.charterSelection : undefined;
   if (selection === undefined) return quoteAtHours(product, request, moment, options, null);

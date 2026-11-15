@@ -313,11 +313,12 @@ test("M9P-16：改两次期——每次都是下单时锁定的加价（供应�
     await move("2026-10-21T10:00:00+09:00");
     await raise(40_000);
     await move("2026-10-22T10:00:00+09:00");
-    const changes = (await api.db.owner.query<{ before: string; after: string; s: any }>("select settlement_before_minor::text as before, settlement_after_minor::text as after, settlement_after as s from order_changes where order_id = $1 order by requested_at, id", [orderId])).rows;
-    assert.deepEqual(changes.map((entry) => [entry.before, entry.after]), [["75000", "75000"], ["75000", "75000"]]);
+    const changes = (await api.db.owner.query<{ before: string; after: string; s: any; status: string }>("select settlement_before_minor::text as before, settlement_after_minor::text as after, settlement_after as s, status from order_changes where order_id = $1 order by requested_at, id", [orderId])).rows;
+    assert.deepEqual(changes.map((entry) => [entry.before, entry.after, entry.status]), [["75000", "75000", "applied"], ["75000", "75000", "applied"]], "两次改期都已生效");
     for (const entry of changes) assert.deepEqual([entry.s.areaSurcharge.waypoints[0].amountMinor, entry.s.areaSurcharge.dropoff.amountMinor], [10_000, 10_000]);
     const now = (await api.db.owner.query<{ s: any; at: string }>("select settlement as s, service_local::text as at from orders where id = $1", [orderId])).rows[0];
     assert.deepEqual([now?.s.totalMinor, now?.s.areaSurcharge.dropoff.amountMinor], [75_000, 10_000]);
+    assert.match(now?.at ?? "", /^2026-10-22T10:00/, "用车时间已经改到 10-22");
   } finally {
     await ok(tenantCall(m.b, "POST", `/products/${charterB.id}/price-rules/batch`, { version: await version(m.b, charterB.id), body: { update: [{ id: fujiId, ...fujiBody }] } }));
     api.clock.advance(31_000);
