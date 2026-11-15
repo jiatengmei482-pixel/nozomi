@@ -910,6 +910,12 @@ export interface QuoteOptions {
    * 区域判断（点还在不在商品的区域里）照常做；套餐价、超公里、调价、加急、夜间、附加服务仍按改期后的时间现算（和以前一样）。不给 = 现算（新询价）。
    */
   lockedAreaSurcharge?: Omit<AreaSurchargeBreakdown, "packageMinor">;
+  /**
+   * 包车已下的单改期时下单时的机场场景（M9P-21，ADR 0098 第三节第 4 小节「改期」）：不重新匹配场景，按订单的场景报；
+   * 单独定价（`own`）时一定用同一机场区域 × 方向 × 车型组 × 档的机场套餐价，没有了就报不出（转人工），不退回普通价；继承（`inherit`）时照普通套餐价。
+   * 不给 = 按上 / 下车点现匹配（新询价，和下单时没有场景的单）。
+   */
+  lockedCharterScenario?: CharterScenarioBreakdown;
 }
 
 /** 带 `charterSelection` 的包车按一个档算价时的口径（ADR 0091 第三节）：不收超时费；`estimate` 是要写进明细的预计用时四项（没有为 null） */
@@ -942,7 +948,8 @@ export function lockableAreaSurcharge(booked: { request: Pick<QuoteRequest, "cat
 export function quoteProduct(product: QuoteProduct, request: QuoteRequest, moment: QuoteMoment, options: QuoteOptions = {}): ProductQuote {
   // 机场开始 / 机场结束（ADR 0098）：匹配到场景时按场景报（替换普通套餐）；机场 → 机场两个场景各报一遍，每个车型组取结算价低的
   const bindings = product.category === "charter" && threeLayer(product) ? (product.airportBindings ?? []) : [];
-  const scenarios = bindings.length === 0 ? [] : airportScenarios(bindings, request.pickup, request.dropoff);
+  const locked = product.category === "charter" ? options.lockedCharterScenario : undefined;
+  const scenarios = locked !== undefined ? [{ kind: locked.kind, placeId: locked.placeId, areaId: locked.areaId, name: locked.name }] : bindings.length === 0 ? [] : airportScenarios(bindings, request.pickup, request.dropoff);
   if (scenarios.length === 0) return quoteForScenario(product, request, moment, options, null);
   return cheaperPerGroup(scenarios.map((scenario) => quoteForScenario(product, request, moment, options, scenario)));
 }
@@ -1076,9 +1083,11 @@ function quoteAtHours(product: QuoteProduct, request: QuoteRequest, moment: Quot
       continue;
     }
     // 机场套餐（ADR 0098）：这个机场区域 × 场景 × 车型组 × 档有机场套餐价 = 单独定价（替换套餐价、免掉场景那一端的机场加价），没有 = 继承
-    const ownRule = scenario === null ? null : airportPackageRule(product.priceRules, { scenario, vehicleGroupId, packageHours: request.packageHours, date: local.date });
+    // 改期锁定了场景（ADR 0098）：继承的单不改用后来设的机场套餐价；单独定价的单找不到机场套餐价就报不出
+    const lockedPricing = options.lockedCharterScenario?.pricing;
+    const ownRule = scenario === null || lockedPricing === "inherit" ? null : airportPackageRule(product.priceRules, { scenario, vehicleGroupId, packageHours: request.packageHours, date: local.date });
     const ownPricing = ownRule === null ? null : airportPackagePricing(product.priceRules, ownRule, local.date);
-    if (ownRule !== null && ownPricing === null) {
+    if ((ownRule !== null && ownPricing === null) || (lockedPricing === "own" && ownRule === null)) {
       refused.push({ vehicleGroupId, reason: "NO_PRICE_RULE" });
       continue;
     }

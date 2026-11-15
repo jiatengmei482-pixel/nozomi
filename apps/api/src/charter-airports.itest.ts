@@ -100,7 +100,7 @@ before(async () => {
   charter = await newCharter(m.b, true);
   charterA = await newCharter(m.a, false);
   await ok(tenantCall(m.a, "POST", `/products/${charterA.id}/unpublish`));
-  const root = await api.superAdminToken();
+  const root = m.root;
   // 成田的航站楼（主数据）：T1 在机场区域里
   await ok(api.call("POST", "/platform/v1/master/places", { token: root, body: { type: "terminal", code: "NRT-T1", parent_id: m.ids.narita, name: { zh: "第 1 航站楼" }, location: P.naritaT1 } }), 201);
   const channel = await newChannel(api, m.staff.cm1.token, { name: "NOZOMI 官网" });
@@ -185,6 +185,18 @@ test("机场套餐价：没绑定的区域 × 方向不能建（AIRPORT_BINDING_
   const legacy = await batch(m.a, charterA.id, { create: [airportPrice(charterA.airport, "pickup", 5, 45_000)] });
   assert.equal(legacy.status, 400, legacy.text);
   assert.equal(legacy.body.error.details.issues[0].reason, "CHARTER_LAYOUT_NOT_MIGRATED", legacy.text);
+});
+
+test("官网快捷入口：只列能报机场套餐的机场和机场区域里的航站楼", async () => {
+  const res = await site.call("GET", "/site/v1/charter-airports?scenario=airport_start", { ip: nextIp() });
+  assertMatchesOpenApi("GET", "/site/v1/charter-airports", res);
+  assert.equal(res.status, 200, res.text);
+  assert.deepEqual(
+    res.body.items.map((airport: any) => [airport.code, airport.name, airport.terminals.map((terminal: any) => terminal.code)]),
+    [["NRT", "成田机场", ["NRT-T1"]]],
+  );
+  const bad = await site.call("GET", "/site/v1/charter-airports?scenario=nearby", { ip: nextIp() });
+  assert.equal(bad.status, 400, bad.text);
 });
 
 test("官网询价：成田航站楼上车 → 机场开始；继承照收上车加价，单独 45,000 不再列上车加价；机场区域外的酒店不是机场", async () => {

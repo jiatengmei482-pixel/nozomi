@@ -13343,6 +13343,83 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "503":
           $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/charter-airports:
+    get:
+      tags: [ 官网 ]
+      operationId: siteCharterAirports
+      summary: 包车快捷入口能选的机场和航站楼
+      description: |
+        M9P-21（ADR 0098 第三节第 7 小节）：「机场接机开始」（`airport_start`）/「机场送机结束」（`airport_end`）能选哪些机场：渠道授权范围里、渠道卖的、迁移过三层区域的包车商品在这个场景下绑定的机场。
+        只列坐标落在机场区域里的启用航站楼（机场没有启用的航站楼时是机场本身一项）；`name` 是前台名称里的机场名（中文简称，没填用主数据中文名）。
+      parameters:
+        - name: scenario
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [ airport_start, airport_end ]
+      responses:
+        "200":
+          description: 机场和航站楼
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [ id, code, name, city_id, terminals ]
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        code:
+                          type: string
+                        name:
+                          type: string
+                        city_id:
+                          type: string
+                          format: uuid
+                        terminals:
+                          type: array
+                          items:
+                            type: object
+                            additionalProperties: false
+                            required: [ id, code, name, location ]
+                            properties:
+                              id:
+                                type: string
+                                format: uuid
+                              code:
+                                type: string
+                              name:
+                                $ref: "#/components/schemas/LocalizedText"
+                              location:
+                                type: object
+                                additionalProperties: false
+                                required: [ lng, lat ]
+                                properties:
+                                  lng:
+                                    type: number
+                                  lat:
+                                    type: number
+        "400":
+          description: "`VALIDATION_FAILED`：`scenario` 没给或不对"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/QaSessionInvalid"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
   /site/v1/charter-packages:
     get:
       tags: [ 官网 ]

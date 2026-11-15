@@ -112,9 +112,11 @@ test("没有机场绑定的商品、没迁移三层区域的商品：报价和�
   const plain = offer(trip("naritaT1", "shinjuku"), product({ airportBindings: [] }));
   assert.equal(plain.settlement.totalMinor, 47_000);
   assert.equal(plain.settlement.charterScenario, undefined);
-  assert.deepEqual(offer(trip("naritaT1", "shinjuku"), product({ airportBindings: undefined })), plain);
+  const { airportBindings: _bindings, ...noBindings } = product();
+  assert.deepEqual(offer(trip("naritaT1", "shinjuku"), noBindings), plain);
   // 没迁移三层区域的商品（旧表：按服务区域的套餐价）：绑定不生效
-  const legacy = offer(trip("naritaT1", "shinjuku"), product({ charterLayout: undefined, priceRules: [rule("p5-tokyo", "tokyo", { model: "charter_package", packageKm: 300, packagePriceMinor: 33_000, overtimePerHourMinor: 5_000, overKmPerKmMinor: 500 }), { ...(BASE_RULES[2] as Rule), packageHours: 5 }] }));
+  const { charterLayout: _layout, ...legacyProduct } = product();
+  const legacy = offer(trip("naritaT1", "shinjuku"), { ...legacyProduct, priceRules: [rule("p5-tokyo", "tokyo", { model: "charter_package", packageKm: 300, packagePriceMinor: 33_000, overtimePerHourMinor: 5_000, overKmPerKmMinor: 500 }), { ...(BASE_RULES[2] as Rule), packageHours: 5 }] });
   assert.equal(legacy.settlement.totalMinor, 47_000);
   assert.equal(legacy.settlement.charterScenario, undefined);
   // 机场套餐价那一行在没有场景时不被当成套餐价
@@ -209,4 +211,21 @@ test("机场套餐价的价格规则：方向必填（pickup / dropoff）、套�
   assert.equal(isNonBaseRule(sample), true);
   assert.deepEqual(findPriceRuleOverlaps([sample, airportPrice("b", "dropoff", 5, 45_000), airportPrice("c", "pickup", 6, 50_000)]), [], "方向、套餐不同不冲突");
   assert.deepEqual(findPriceRuleOverlaps([sample, airportPrice("d", "pickup", 5, 46_000, { validFrom: "2026-06-01" })]), [[0, 1]]);
+});
+
+test("改期锁定下单时的场景：单独定价的单找不到机场套餐价就报不出；继承的单不改用后来设的机场套餐价", () => {
+  const ownScenario = offer(trip("naritaT1", "shinjuku"), withRules(airportPrice("a5", "pickup", 5, 45_000))).settlement.charterScenario;
+  assert.ok(ownScenario !== undefined);
+  const repriced = quoteProduct(withRules(airportPrice("a5", "pickup", 5, 46_000)), trip("naritaT1", "shinjuku"), moment, { lockedCharterScenario: ownScenario });
+  assert.ok(repriced.ok);
+  assert.equal(repriced.offers[0]?.settlement.totalMinor, 46_000, "机场套餐价现算");
+  const gone = quoteProduct(product(), trip("naritaT1", "shinjuku"), moment, { lockedCharterScenario: ownScenario });
+  assert.ok(gone.ok);
+  assert.deepEqual(gone.refused, [{ vehicleGroupId: "eco7", reason: "NO_PRICE_RULE" }], "删了机场套餐价：不退回普通价");
+  const inheritScenario = offer(trip("naritaT1", "shinjuku"), product()).settlement.charterScenario;
+  assert.ok(inheritScenario !== undefined);
+  const later = quoteProduct(withRules(airportPrice("a5", "pickup", 5, 45_000)), trip("naritaT1", "shinjuku"), moment, { lockedCharterScenario: inheritScenario });
+  assert.ok(later.ok);
+  assert.equal(later.offers[0]?.settlement.totalMinor, 47_000);
+  assert.equal(later.offers[0]?.settlement.charterScenario?.pricing, "inherit");
 });

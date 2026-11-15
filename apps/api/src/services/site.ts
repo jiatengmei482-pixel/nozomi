@@ -12,6 +12,9 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
   type AirportMatch,
+  type AirportScenarioKind,
+  type Position,
+  locatePoint,
   type SiteAudience,
   type LatLng,
   type RouteEstimate,
@@ -65,6 +68,7 @@ import { type Channel, findChannel } from "../repos/channels.ts";
 import { enqueueNotification } from "../repos/notifications.ts";
 import { listOrderEvents } from "../repos/orders.ts";
 import { findQuoteCity, findQuotePlace, loadCharterCityCandidates } from "../repos/quotes.ts";
+import { listPlacesWithTerminals } from "../repos/charter-airports.ts";
 import {
   type BookableRow,
   type OrderNames,
@@ -294,6 +298,57 @@ export async function siteCharterPackagesAt(ctx: AppContext, ends: { pickup: Lat
   if (city === undefined) return { city: null, hours: [] };
   const rows = await withPlatformTx(ctx.pool, (db) => listBookableCharterPackages(db, city.id, instantToLocal(ctx.now(), city.timezone).date, listingOf(audience), match.productIds), { snapshot: true });
   return { city: quotedCityOf(city), hours: [...new Set(rows.filter((row) => sells(channel, row, audience)).map((row) => row.hours))].sort((a, b) => a - b) };
+}
+
+/** 能报机场套餐的一个机场（M9P-21，ADR 0098 第三节第 7 小节）：快捷入口按它列航站楼 */
+export interface SiteCharterAirport {
+  id: string;
+  code: string;
+  name: string;
+  cityId: string;
+  /** 坐标落在机场区域里的启用航站楼；机场没有启用的航站楼时是机场本身一项 */
+  terminals: { id: string; code: string; name: LocalizedText; lng: number; lat: number }[];
+}
+
+/**
+ * 包车快捷入口「机场接机开始 / 机场送机结束」能选的机场（ADR 0098 第三节第 7 小节）：渠道授权范围里、渠道卖的、迁移过三层区域的包车商品
+ * 在这个场景下绑定的机场；只列坐标落在机场区域里的航站楼（区域停用、机场停用的不列）。几个商品绑了同一个机场时合并，名称取第一个。
+ */
+export async function siteCharterAirports(ctx: AppContext, scenario: AirportScenarioKind, audience: SiteAudience = "public"): Promise<SiteCharterAirport[]> {
+  const { channel } = await requireOpenSite(ctx);
+  return withPlatformTx(
+    ctx.pool,
+    async (db) => {
+      const sold = (await loadCharterCityCandidates(db, { cityIds: channel.scope.cityIds, listing: listingOf(audience) })).filter((candidate) => channelScopeRefusal(channel.scope, candidate.cityId, "charter") === null && sells(channel, candidate, audience));
+      if (sold.length === 0) return [];
+      const rows = await db.query<{ product_id: string; place_id: string; area_id: string; short_name_zh: string | null; city_id: string }>(
+        `select b.product_id, b.place_id, b.area_id, b.short_name_zh, p.city_id
+           from charter_airport_bindings b
+           join products p on p.tenant_id = b.tenant_id and p.id = b.product_id and p.charter_layout = 'three_layer'
+           join areas a on a.tenant_id = b.tenant_id and a.id = b.area_id and a.status = 'active'
+          where b.tenant_id = any($2::uuid[]) and b.product_id = any($1::uuid[]) and b.scenario = $3
+          order by p.city_id, b.product_id, b.position`,
+        [sold.map((candidate) => candidate.productId), [...new Set(sold.map((candidate) => candidate.tenantId))], scenario],
+      );
+      if (rows.rows.length === 0) return [];
+      const places = await listPlacesWithTerminals(db, rows.rows.map((row) => row.place_id));
+      const polygons = await db.query<{ area_id: string; id: string; kind: "operate" | "forbid"; geometry: { coordinates: Position[][] } }>("select area_id, id, kind, geometry from area_polygons where area_id = any($1::uuid[])", [[...new Set(rows.rows.map((row) => row.area_id))]]);
+      const found = new Map<string, SiteCharterAirport>();
+      for (const row of rows.rows) {
+        const place = places.get(row.place_id);
+        if (place === undefined || place.status !== "active") continue;
+        const shapes = polygons.rows.filter((polygon) => polygon.area_id === row.area_id).map((polygon) => ({ id: polygon.id, kind: polygon.kind, ring: polygon.geometry.coordinates[0] ?? [] }));
+        const inside = (point: { lng: number; lat: number }): boolean => locatePoint(shapes, point).result === "operate";
+        const active = place.terminals.filter((terminal) => terminal.status === "active");
+        const terminals = (active.length === 0 ? [place] : active).filter(inside).map((point) => ({ id: point.id, code: point.code, name: point.name, lng: point.lng, lat: point.lat }));
+        const known = found.get(place.id);
+        if (known === undefined) found.set(place.id, { id: place.id, code: place.code, name: row.short_name_zh ?? place.name.zh ?? place.name.ja ?? place.code, cityId: row.city_id, terminals });
+        else for (const terminal of terminals) if (!known.terminals.some((entry) => entry.id === terminal.id)) known.terminals.push(terminal);
+      }
+      return [...found.values()].filter((airport) => airport.terminals.length > 0);
+    },
+    { snapshot: true },
+  );
 }
 
 export interface SitePlace {

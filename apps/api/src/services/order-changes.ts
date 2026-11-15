@@ -270,7 +270,14 @@ async function reprice(db: Db, order: Order, sale: OrderSale, next: PlannedChang
   // 套餐价、超公里、调价、加急、夜间、附加服务仍按改期后的时间现算（和以前一样）。M8-15 之前的单没有这一项，照旧
   // 行程（上车、下车、经停点）或套餐时长和下单时不一样就不锁、现算（lockableAreaSurcharge；现在的改期改不了这些，防以后放开）
   const lockedAreaSurcharge = lockableAreaSurcharge({ request: quote.request, packageHours: order.packageHours, areaSurcharge: order.settlement.areaSurcharge }, request, request.packageHours);
-  const result = quoteProduct(product, request, { now, holidays: facts.holidays, route: order.settlement.usage, inventoryDay: ownDay, urgentUsed }, lockedAreaSurcharge === undefined ? {} : { lockedAreaSurcharge });
+  // 机场开始 / 机场结束（M9P-21，ADR 0098）：和加价一起锁下单时的场景（单独定价的单不退回普通价、继承的单不改用后来设的机场套餐价）
+  const lockedCharterScenario = lockedAreaSurcharge === undefined ? undefined : order.settlement.charterScenario;
+  const result = quoteProduct(
+    product,
+    request,
+    { now, holidays: facts.holidays, route: order.settlement.usage, inventoryDay: ownDay, urgentUsed },
+    { ...(lockedAreaSurcharge === undefined ? {} : { lockedAreaSurcharge }), ...(lockedCharterScenario === undefined ? {} : { lockedCharterScenario }) },
+  );
   if (!result.ok) throw notServiceable(result.reason);
   const offer = result.offers.find((entry) => entry.vehicleGroupId === order.vehicleGroupId && entry.packageHours === order.packageHours);
   if (offer === undefined) throw notServiceable(result.refused.find((entry) => entry.vehicleGroupId === order.vehicleGroupId)?.reason ?? "NOT_AVAILABLE");
