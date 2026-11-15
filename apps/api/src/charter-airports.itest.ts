@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { PRICING_MODELS, type LatLng, type RouteLookup } from "@nozomi/domain";
 import { withTenantTx } from "./db/context.ts";
+import { XLSX_CONTENT_TYPE, readXlsx, writeXlsx } from "./integrations/xlsx.ts";
 import type { ApiResponse, HttpMethod, TenantFixture, TestApi } from "./testing/api.ts";
 import { createTestApi } from "./testing/api.ts";
 import { type Market, buildMarket, newChannel, ok, salesCredentials } from "./testing/market.ts";
@@ -215,6 +216,33 @@ test("官网询价：成田航站楼上车 → 机场开始；继承照收上车
   assert.equal(own.price_breakdown[0].scenario.kind, "airport_start");
   assert.ok(!kinds(own).includes("pickup"), JSON.stringify(own.price_breakdown));
   assert.ok(own.price.total.amount < inherit.price.total.amount, `单独 45,000 < 继承 47,000：${own.price.total.amount} / ${inherit.price.total.amount}`);
+});
+
+test("价格导入导出：机场套餐价写在「机场场景」列；原样导回不变；改价是修改；没绑定的区域报 AIRPORT_BINDING_REQUIRED", async () => {
+  const token = await tenantLogin(api, m.b.adminEmail);
+  const exported = await api.app.inject({ method: "GET", url: `/tenant/v1/products/${charter.id}/price-rules/export?rows=all`, headers: { authorization: `Bearer ${token}` } });
+  assert.equal(exported.statusCode, 200);
+  const rows = readXlsx(exported.rawPayload).map((cells) => cells.map((cell) => (cell.type === "text" || cell.type === "number" ? cell.text : null)));
+  const header = rows[0] as (string | null)[];
+  const col = (name: string): number => header.indexOf(name);
+  assert.ok(col("机场场景") >= 0, header.join(","));
+  const airportRows = rows.slice(1).filter((row) => row[col("机场场景")] !== null);
+  assert.deepEqual(airportRows.map((row) => [row[col("机场场景")], row[col("区域")], row[col("套餐时长(小时)")], row[col("套餐价")], row[col("套餐公里")]]), [["机场开始", "成田机场（航站楼）", "5", "45000", null]]);
+  const preview = async (payload: Buffer): Promise<any> => {
+    const res = await api.app.inject({ method: "POST", url: `/tenant/v1/products/${charter.id}/price-rules/import/preview`, payload, headers: { "content-type": XLSX_CONTENT_TYPE, authorization: `Bearer ${token}` } });
+    assert.equal(res.statusCode, 200, res.body);
+    return JSON.parse(res.body);
+  };
+  assert.ok(((await preview(exported.rawPayload)).rows as any[]).every((row) => row.action === "unchanged"), "原样导回一条都不改");
+  const edited = rows.map((row, index) => (index > 0 && row[col("机场场景")] !== null ? row.map((cell, at) => (at === col("套餐价") ? "44000" : cell)) : row));
+  const changed = (await preview(writeXlsx([{ name: "价格", rows: edited }]))).rows.find((row: any) => row.content.pricing_model === "charter_airport_package" || row.content.pricingModel === "charter_airport_package");
+  assert.equal(changed?.action, "update", JSON.stringify(changed));
+  const blankRow = header.map(() => null as string | null);
+  const unbound = blankRow.map((_, at) => ({ [col("区域")]: "成田", [col("车型组")]: "VG-BIZ-7", [col("套餐时长(小时)")]: "6", [col("套餐价")]: "50000", [col("机场场景")]: "机场结束", [col("生效开始")]: "2026-01-01" })[at] ?? null);
+  const result = await preview(writeXlsx([{ name: "价格", rows: [header, unbound] }]));
+  const row = (result.rows as any[])[0];
+  assert.equal(row.action, "error", JSON.stringify(result));
+  assert.ok(JSON.stringify(row.issues).includes("AIRPORT_BINDING_REQUIRED"), JSON.stringify(row));
 });
 
 test("解绑前要先删机场套餐价（409 AIRPORT_PRICES_EXIST）；绑定着的机场区域删不掉（409 AREA_IN_USE）", async () => {
