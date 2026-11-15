@@ -1209,6 +1209,30 @@ button.book-steps__link:hover .book-steps__name {
   gap: var(--space-2);
 }
 
+/* 经停点拖动排序（M9P-20 P2）：把手按住拖（触屏长按）；目标位置画一条主色插入线；拖着的那一行变淡。不做位移动画 */
+.book-waypoints .picked__handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--space-12);
+  min-height: var(--space-12);
+  color: var(--color-text-secondary);
+  cursor: grab;
+  touch-action: none;
+}
+
+.book-waypoints .picked__row--dragging {
+  opacity: 0.5;
+}
+
+.book-waypoints .picked__row--drop-before {
+  border-top: var(--focus-ring-width) solid var(--color-primary);
+}
+
+.book-waypoints .picked__row--drop-after {
+  border-bottom: var(--focus-ring-width) solid var(--color-primary);
+}
+
 /* 对外价明细（M9W-02）：一行一项，金额靠右；各项之和 = 合计 */
 .price-breakdown {
   display: flex;

@@ -8,7 +8,7 @@
  */
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { App } from "../../../App.tsx";
@@ -188,4 +188,28 @@ test("改了停留：先「正在按最新行程重算建议…」不能采用�
   assert.equal((suggestions[1] as Record<string, any>).quote.waypoints[0].stay_minutes, 90);
   const block = await screen.findByRole("region", { name: /^建议顺序，可省/ }, SLOW);
   await waitFor(() => assert.equal((within(block).getByRole("button", { name: "采用建议顺序" }) as HTMLButtonElement).disabled, false), SLOW);
+});
+
+test("指针拖动（ADR 0096 第三节第 7 小节）：按住把手拖到第 3 行下面 → 顺序变了、播报新位置；把手不进 Tab 顺序", async () => {
+  ORDER_SUGGESTION_SETTLE.ms = 10;
+  wideScreen();
+  open();
+  const actor = user();
+  await screen.findByRole("button", { name: "添加经停点" }, SLOW);
+  await addStop(actor, "河口湖");
+  await addStop(actor, "横滨");
+  await addStop(actor, "箱根");
+  const rows = [...document.querySelectorAll<HTMLElement>("[data-waypoint]")];
+  rows.forEach((row, index) => {
+    row.getBoundingClientRect = () => ({ top: index * 100, height: 100, bottom: index * 100 + 100, left: 0, right: 300, width: 300, x: 0, y: index * 100, toJSON: () => ({}) }) as DOMRect;
+  });
+  const handle = rows[0]?.querySelector<HTMLElement>("[data-drag-handle]") as HTMLElement;
+  assert.equal(handle.getAttribute("aria-hidden"), "true");
+  assert.equal(handle.hasAttribute("tabindex"), false, "把手不进 Tab 顺序");
+  fireEvent.pointerDown(handle, { pointerId: 1, pointerType: "mouse", clientY: 50 });
+  fireEvent.pointerMove(handle, { pointerId: 1, pointerType: "mouse", clientY: 280 });
+  await waitFor(() => assert.ok(document.querySelectorAll<HTMLElement>("[data-waypoint]")[2]?.classList.contains("picked__row--drop-after"), "目标位置画插入线"));
+  fireEvent.pointerUp(handle, { pointerId: 1, pointerType: "mouse", clientY: 280 });
+  await waitFor(() => assert.deepEqual(stopNames(), ["横滨", "箱根", "河口湖"]));
+  assert.ok(screen.getByText("河口湖 现在排第 3，共 3 个"));
 });
