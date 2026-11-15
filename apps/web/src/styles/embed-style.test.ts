@@ -40,10 +40,10 @@ test("复用的主站组件在嵌入页里取 --nzb-*：主色、主色上的文
   assert.equal(root.get("--radius-md"), "var(--nzb-radius-control)");
 });
 
-test("embed.css 的规则不直接写颜色、字体、圆角（从改过的令牌继承）；一直单栏", () => {
+test("embed.css 的规则不直接写颜色、字体、圆角（从改过的令牌继承）；不另写分栏，用主站 ≥ 1024px 两栏那一套（M9E-27）", () => {
   const rules = css.replace(/:root\[data-embed-book\] \{[^}]*\}/, "");
   assert.doesNotMatch(rules, /(^|[;{\s])(color|background(-color)?|border-color|font-family|border-radius)\s*:/);
-  assert.match(rules, /\.embed-book \.book-new \{\s*grid-template-columns: minmax\(0, 1fr\);\s*\}/);
+  assert.doesNotMatch(rules, /grid-template-columns|book-new__aside/, "嵌入页不改主站的分栏和右侧栏");
 });
 
 test("Stripe appearance：嵌入页只读 --nzb-*，而且读的都在嵌入页定义了；主站仍读设计令牌（ADR 0046，逐项不变）", () => {
