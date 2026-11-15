@@ -127,7 +127,7 @@ const quoteSchema = z
     address: pointSchema.optional(),
     pickup: pointSchema.optional(),
     dropoff: pointSchema.optional(),
-    waypoints: z.array(waypointSchema).max(QUOTE_RULES.maxWaypoints, `经停点最多 ${QUOTE_RULES.maxWaypoints} 个（地图路径接口的上限），更多经停请联系客服定制`).optional(),
+    waypoints: z.array(waypointSchema).max(QUOTE_RULES.maxWaypoints, `最多 ${QUOTE_RULES.maxWaypoints} 个经停点，更多请联系客服定制`).optional(),
     // 包车按行程计价（ADR 0088 补充、ADR 0093 第四节）：服务器按路线、停留和商品的配置算预计用时、自动选套餐、收超公里（不收超时）；
     // 可以带 package_hours 手动升到更长的套餐（不短于预计用时才报，对外 PACKAGE_TOO_SHORT + min_package_hours）
     itinerary_pricing: z.boolean().optional(),

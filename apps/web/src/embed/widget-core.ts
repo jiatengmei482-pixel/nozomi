@@ -155,7 +155,7 @@ type Texts = Record<
  */
 type PendingKey = "waypointLimit";
 const PENDING_TEXTS: Readonly<{ zh: Readonly<Record<PendingKey, string>> } & Partial<Record<WidgetLang, Readonly<Record<PendingKey, string>>>>> = {
-  zh: { waypointLimit: `最多 ${MAX_WAYPOINTS} 个经停点；更多经停请联系客服定制。` },
+  zh: { waypointLimit: `最多 ${MAX_WAYPOINTS} 个经停点，更多请联系客服定制。` },
 };
 export function pendingText(lang: WidgetLang, key: PendingKey): string {
   return (PENDING_TEXTS[lang] ?? PENDING_TEXTS.zh)[key];

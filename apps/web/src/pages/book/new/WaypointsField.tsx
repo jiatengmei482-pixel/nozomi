@@ -3,7 +3,7 @@
  * - 每一行：序号、地址框（和上车、下车地点同一个 PlaceField：输入即提示、地图选点、手机全屏选择页）、停留时长（30 分钟一档，必填）；
  *   行尾「上移」「下移」「删除」（只有图标的文字按钮，`aria-label` 带经停点名）；焦点在行里的按钮上时 Alt + ↑ / ↓ 也能移动；
  * - 移动后焦点跟着这一行走，`role="status"` 播报「{名称} 现在排第 i，共 N 个」；删除后焦点移到下一行的「删除」，没有了回到「添加经停点」；
- * - 最多 10 个：满了「添加经停点」禁用，旁边写「最多 10 个」。
+ * - 最多 25 个（M9P-10，`CHARTER_ITINERARY_LIMITS`）：满了「添加经停点」禁用，旁边写「最多 25 个经停点，更多请联系客服定制」。
  */
 import type { CityCandidate } from "@nozomi/domain";
 import { ADDRESS_ONLY_HINT } from "../../../lib/booking-draft.ts";

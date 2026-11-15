@@ -205,6 +205,6 @@ test("经停点上限 25 个（路径接口一次 25 个中间点）：25 个逐
   assert.equal(over.status, 400, over.text);
   assertMatchesOpenApi("POST", "/site/v1/quotes", over);
   const issue = over.body.error.details.issues.find((entry: any) => entry.path === "/waypoints");
-  assert.match(issue?.message ?? "", /最多 25 个.*联系客服定制/);
+  assert.match(issue?.message ?? "", /^最多 25 个经停点，更多请联系客服定制$/);
   assert.equal(routeCalls, 0, "超出上限不调路线");
 });

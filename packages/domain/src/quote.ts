@@ -110,7 +110,7 @@ export interface QuoteRequest {
   /** 只看这些车型组；空 = 商品选的全部 */
   vehicleGroupIds: readonly string[];
   /**
-   * 包车的经停点（ADR 0088），按顺序，最多 10 个；引擎只用坐标（名称、停留分钟只存在报价快照里）。
+   * 包车的经停点（ADR 0088），按顺序，最多 `QUOTE_RULES.maxWaypoints` 个；引擎只用坐标（名称、停留分钟只存在报价快照里）。
    * 不给或空 = 没有经停点，报价和 M9W-01 之前逐分一致。只有包车能给，给了就要有下车点。
    */
   waypoints?: readonly QuoteWaypoint[];

@@ -9,7 +9,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { App } from "../../../App.tsx";
-import type { SiteCity, SiteConfig, SiteQuote, SiteQuoteResult } from "../../../api/site.ts";
+import type { SiteCity, SiteConfig, SiteItineraryWarning, SiteQuote, SiteQuoteResult } from "../../../api/site.ts";
 import { assertFocused, json, resetBrowser, stubApiWith } from "../../../testing/harness.tsx";
 
 afterEach(() => {
@@ -24,7 +24,7 @@ const config: SiteConfig = { open: true, currency: "JPY", payments: null, suppor
 const LINK = "/book/new?mode=charter&from=35.6905,139.6948&from_name=%E6%96%B0%E5%AE%BF&to=35.6896,139.7006&to_name=%E6%96%B0%E5%AE%BF%E7%AB%99&date=2030-11-20&time=09:00";
 const SPOTS: Record<string, { lat: number; lng: number }> = { 镰仓: { lat: 35.3192, lng: 139.5467 }, 日光: { lat: 36.7199, lng: 139.6982 } };
 
-function quoteOf(index: number, amount: number, warnings: SiteQuote["itinerary_warnings"], estimated: number): SiteQuote {
+function quoteOf(index: number, amount: number, warnings: SiteItineraryWarning[] | null, estimated: number): SiteQuote {
   return {
     quote_id: `QT20301120000000000${index}`,
     expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),

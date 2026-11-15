@@ -97,7 +97,7 @@ export interface SiteQuoteRequest {
   pickup?: SitePoint;
   /** 点对点：下车点 */
   dropoff?: SitePoint;
-  /** 包车：经停点（途经景点，M9W-01，ADR 0088），按顺序，最多 10 个；不填 = 没有。页面编辑在 M9W-02 */
+  /** 包车：经停点（途经景点，M9W-01，ADR 0088），按顺序，最多 25 个（M9P-10，`CHARTER_ITINERARY_LIMITS`）；不填 = 没有。页面编辑在 M9W-02 */
   waypoints?: { name: string; lat: number; lng: number; stay_minutes: number }[];
   /** 包车按行程计价（M9W-01）：true 时不给 package_hours，服务器估路线、选套餐、收超公里 / 超时 */
   itinerary_pricing?: boolean;
@@ -168,7 +168,7 @@ export interface SiteQuote {
   includes_buffer?: boolean | null;
   auto_package_hours?: number | null;
   /** 超限提醒（M9P-10）：按中标商品的提醒线，T 超过为 `LONG_DURATION`、全程超过为 `LONG_DISTANCE`；都没超为空数组，仍可下单。没按行程计价为 null */
-  itinerary_warnings?: SiteItineraryWarning[] | null;
+  itinerary_warnings: SiteItineraryWarning[] | null;
 }
 
 /** 包车行程超限提醒的种类（M9P-10） */

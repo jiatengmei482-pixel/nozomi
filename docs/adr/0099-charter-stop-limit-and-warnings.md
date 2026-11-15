@@ -5,7 +5,7 @@
   - 业主《包车报价逻辑规格（开发版）》2026-11-14（`docs/requirements/charter-pricing-spec-2026-11-14.md`）步骤 2「经停数量不设业务上限，只受路径接口技术上限约束」、步骤 5「T > 12 小时或 D > 360 公里：在行程时间表下提醒客人缩减行程、减少经停，仍可下单……两个阈值做成商品级配置」，差异表第 10、11 条。
   - 旧需求 `docs/requirements/charter-airport-packages-2026-11-14.md` 第三节「超出时提示请联系客服定制」「待开发确认：路径接口单次计算的点数上限」，第四节第 2、3 条（基准线、提醒文案）。
   - ADR 0093 第四节第 10 条（13 小时拦截已随 M9P-03 上线）、第九节（M9W-14 → M9P-10）。
-- **修改**：ADR 0088「最多 10 个经停点」、ADR 0090 第二节「`waypoints` 0–10 个、草稿 ≤ 16 KB」、ADR 0096 第一节第 2 小节「`MAX_WAYPOINTS = 10`」改为本篇的上限。其余不变。
+- **修改**：ADR 0088「最多 10 个经停点」、ADR 0090 第二节「`waypoints` 0–10 个、草稿 ≤ 16 KB」改为本篇的上限；**ADR 0096**：第一节第 2 小节「`MAX_WAYPOINTS = 10`」改为 25，第二节第 2 小节末尾「M9P-10 放开经停上限后折线进入 Pro 计费档、13 起不标数字，到时在 M9P-10 里处理」由本篇第二节第 1 条取代（地图最多 12 个点，超出不请求地图，不加 Pro 计费档）。其余不变。
 
 ## 一、路径接口的点数上限（M9W-14 的调查结论）
 
@@ -15,12 +15,13 @@
 | 行程地图的折线（ADR 0096 第二节第 2 小节） | 一次 `computeRoutes`，经停作 `intermediates` | **最多 25 个中间点**（10 个以内 Essentials，11–25 个 Pro 计费） |
 | 顺序建议（ADR 0096，`optimizeWaypointOrder`） | 一次带全部经停 | **最多 25 个中间点** |
 
-结论：技术上限取 **25 个经停点**——报价本身不受限制，但同一张单的地图折线、顺序建议都要一次带全部经停，超过 25 个这两项做不了。放到 25 以上只会让「地图 / 顺序建议出不来但能报价」，没有业务需要（规格用例最多 12 个）。
+结论：技术上限取 **25 个经停点**——报价本身不受限制，顺序建议（`optimizeWaypointOrder`）一次最多 25 个中间点，超过 25 个就做不了。放到 25 以上没有业务需要（规格用例最多 12 个）。地图折线虽然也能带 25 个中间点，但 11 个以上进入 Pro 计费档、编号标记超过 12 号要更多自定义图标，所以地图另设更小的上限（第二节第 1 条）。
 
 ## 二、决定
 
-1. **一个常量**：`packages/domain/src/charter-itinerary-limits.ts` 的 `CHARTER_ITINERARY_LIMITS.maxWaypoints = 25`（无依赖的文件，`@nozomi/domain/charter-itinerary-limits` 单独导出给嵌入组件，不把整个 domain 打进组件脚本）。`QUOTE_RULES.maxWaypoints`、`MANUAL_QUOTE_RULES.maxWaypoints`、草稿校验、`/book/new` 和嵌入组件的 `MAX_WAYPOINTS` 都引用它。M9P-20（行程地图）的点数上限另由 `ITINERARY_MAP_RULES` 管，超出时不出图、只显示列表（ADR 0096 第二节第 3 小节的约定）。
-2. **超出时**：`/site/v1/quotes` 400 `VALIDATION_FAILED`，`/waypoints` 的说明「经停点最多 25 个（地图路径接口的上限），更多经停请联系客服定制」；页面加满 25 个后「添加经停点」按钮消失，提示同一句。人工报价表单同一上限（客人超过上限只能走客服）。
+1. **一个常量**：`packages/domain/src/charter-itinerary-limits.ts` 的 `CHARTER_ITINERARY_LIMITS.maxWaypoints = 25`（无依赖的文件，`@nozomi/domain/charter-itinerary-limits` 单独导出给嵌入组件，不把整个 domain 打进组件脚本）。`QUOTE_RULES.maxWaypoints`、`MANUAL_QUOTE_RULES.maxWaypoints`、草稿校验、`/book/new` 和嵌入组件的 `MAX_WAYPOINTS` 都引用它。
+   **行程地图（#260 审查，监工 2026-11-15 按推荐定方案 A）**：地图最多画 12 个点（上车 + 10 个经停 + 下车，`ITINERARY_MAP_RULES.maxPoints = 12` 不变）。经停超过 10 个时**前端根本不请求地图**（不调 `/site/v1/itinerary-map`、不调谷歌），只显示同编号的行程列表；不增加 Pro 计费档，13 号以上不需要自定义图标。#256（M9P-20）和本篇哪个后合并，由后合并的那个核对「超过 12 个点前端不请求地图」并补测试（roadmap M9P-10 的后续条目）。
+2. **超出时**：`/site/v1/quotes` 400 `VALIDATION_FAILED`，`/waypoints` 的说明「最多 25 个经停点，更多请联系客服定制」；页面加满 25 个后「添加经停点」按钮消失，提示同一句。人工报价表单同一上限（客人超过上限只能走客服）。
 3. **订单**：`orders.waypoints` 的检查约束 1–10 → 1–25（迁移 0510）。
 4. **预订草稿**：25 个经停点 × 200 字中文名称约 18 KB，超过原来的 16 KB；`BOOKING_DRAFT_RULES.maxBytes` 16 KB → **24 KB**（请求体上限同步）。库里的约束本来就是 32 KB，不改库。
 5. **超限提醒**（规格步骤 5）：

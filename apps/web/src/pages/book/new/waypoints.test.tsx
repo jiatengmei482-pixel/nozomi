@@ -48,6 +48,7 @@ function quoteOf(index: number, amount: number, breakdown?: SiteQuote["price_bre
     free_wait_minutes: 0,
     cancel_policy: { category: "charter", level: "economy", tiers: [{ min_hours_before: 24, fee_bp: 0 }, { min_hours_before: 0, fee_bp: 10000 }] },
     available_addons: [],
+    itinerary_warnings: null,
   };
 }
 
@@ -168,11 +169,11 @@ test("经停点：添加、上下移动（焦点跟着这一行、播报新位�
   for (let index = 0; index < 22; index += 1) await actor.click(screen.getByRole("button", { name: "添加经停点" }));
   assert.equal(screen.getAllByRole("combobox", { name: /^经停点 \d+$/ }).length, 24);
   assert.equal((screen.getByRole("button", { name: "添加经停点" }) as HTMLButtonElement).disabled, false, "24 个还能加");
-  assert.equal(screen.queryByText(/更多经停请联系客服定制/), null);
+  assert.equal(screen.queryByText(/更多请联系客服定制/), null);
   await actor.click(screen.getByRole("button", { name: "添加经停点" }));
   assert.equal(screen.getAllByRole("combobox", { name: /^经停点 \d+$/ }).length, 25);
   assert.equal((screen.getByRole("button", { name: "添加经停点" }) as HTMLButtonElement).disabled, true);
-  assert.ok(screen.getByText("最多 25 个经停点（地图路径接口的上限）；更多经停请联系客服定制。"));
+  assert.ok(screen.getByText("最多 25 个经停点，更多请联系客服定制。"));
 });
 
 test("停留时长必填：选了地点没选停留时不报价，点「下一步」标红「请选择停留时长」；选好后请求带 itinerary_pricing 和按顺序的 waypoints，不带 package_hours；包车时长下拉换成「按行程自动选套餐」", async () => {

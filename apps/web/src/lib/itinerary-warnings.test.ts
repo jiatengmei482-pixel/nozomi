@@ -41,6 +41,6 @@ test("没有提醒（null、空数组、没有报价）不显示；没有逐段�
 });
 
 test("经停点放满、超过在线下单上限的说法（和提醒同一套文案，旧需求第四节第 3 条）", () => {
-  assert.equal(waypointLimitText(), "最多 25 个经停点（地图路径接口的上限）；更多经停请联系客服定制。");
+  assert.equal(waypointLimitText(), "最多 25 个经停点，更多请联系客服定制。");
   assert.equal(UNAVAILABLE_REASON_TEXT.ITINERARY_TOO_LONG, "该行程超出司机单日法定工作时长，无法在线预订。请缩减行程，或联系客服安排分两天用车。");
 });

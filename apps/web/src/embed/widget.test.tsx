@@ -266,7 +266,7 @@ test("经停点最多 25 个（M9P-10，和报价接口同一个常量）：加�
     ($('[data-action="add-waypoint"]') as HTMLButtonElement).click();
     assert.equal(shadow().querySelectorAll('[data-focus^="stay-"]').length, 25);
     assert.equal($('[data-action="add-waypoint"]'), null);
-    assert.equal($('[data-role="waypoint-limit"]')?.textContent, "最多 25 个经停点；更多经停请联系客服定制。", lang);
+    assert.equal($('[data-role="waypoint-limit"]')?.textContent, "最多 25 个经停点，更多请联系客服定制。", lang);
     ($(`[aria-label="${TEXTS[lang].removeWaypoint} 25"]`) as HTMLButtonElement).click();
     assert.ok($('[data-action="add-waypoint"]'), "删掉一个又能加");
     assert.equal($('[data-role="waypoint-limit"]'), null);

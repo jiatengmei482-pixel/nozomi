@@ -386,7 +386,7 @@ function itineraryWarningsOf(preview: PlatformQuotePreview, snapshot: StoredQuot
   const itinerary: ItineraryBreakdown | undefined = snapshot.winner.offer.settlement.itinerary;
   if (itinerary === undefined || snapshot.request.charterSelection === undefined) return {};
   const product = preview.candidates.find((candidate) => candidate.product.productId === snapshot.winner.productId)?.product;
-  if (product === undefined) return {};
+  if (product === undefined) return { itineraryWarnings: [] };
   return { itineraryWarnings: itineraryWarnings(charterItineraryOf(product.serviceRules), { estimatedMinutes: itinerary.estimatedMinutes ?? itinerary.routeMinutes, routeMeters: itinerary.routeMeters }) };
 }
 

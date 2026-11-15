@@ -12,7 +12,7 @@ export const ITINERARY_TEXTS = {
     longDistance: "您的行程全程约 {km} 公里，超出单日包车的建议距离，将产生较多超公里费。建议适当缩减行程或减少经停点，让旅途更轻松舒适。",
     longestByTime: "耗时最长的一段：{from} → {to}，行驶约 {duration}。",
     longestByDistance: "距离最长的一段：{from} → {to}，约 {km} 公里。",
-    waypointLimit: "最多 {max} 个经停点（地图路径接口的上限）；更多经停请联系客服定制。",
+    waypointLimit: "最多 {max} 个经停点，更多请联系客服定制。",
   },
 } as const;
 
