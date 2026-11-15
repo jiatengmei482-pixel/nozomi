@@ -557,7 +557,8 @@
           "id": "M7-07",
           "title": "车型名、代表车型多语言（中 / 日 / 英 / 韩）",
           "role": "backend",
-          "status": "todo",
+          "status": "blocked",
+          "blockedBy": "已移至 M11-05（业主 2026-11-15：系统完成后再做）",
           "acceptance": ["代表车型列表按 ADR 0068 改为多语言（不加新字段，走主站 LocalizedText 做法），按客人语言取名称", "页面上代表车型的 lang 属性按取到的语言标", "和 M8 方案 B3（多语言界面）一起排期", "业主决定（2026-11-13）：等 M8-08 的 B3（多语言界面）定了再排期", "业主 2026-11-15：系统完成后再做：移到最后阶段 M11，由 M11-05 承接，本条不再单独做"],
           "evidence": "",
           "updated": "2026-11-15"
@@ -1386,7 +1387,7 @@
             "嵌入页样式只引用组件的 --nzb-* 变量（命名和默认值同 widget-style.ts），传给 Stripe appearance 的取值也从 --nzb-* 读（Q15）",
             "路线图：首期和主站一样显示谷歌静态路线图，静态图失败时只显示时长和公里数，不加载 Leaflet（Q11；合规后备图随 M10-01）"
           ],
-          "evidence": "PR #244（https://github.com/jiatengmei482-pixel/nozomi/pull/244）：集成测试 17 条（新增 source_matches 1 条）；组件测试新增 embed-flow 7、booking-shell 2（主站请求体逐字不变）、embed-style 4、embed-order-store 3，改 embed-book 17；跨站端到端 site-embed-booking 新增 2 条（chromium + webkit）；ADR 第十节回归 e2e 47 条。付款进 iframe、completed 的跨站端到端在 M9E-19；四步三语在 M9E-18；特商法、取消政策、隐私政策三页和嵌入页上的链接待业主给内容，登记为 M9E-24（Q14）；Leaflet 不进嵌入页打包产物登记为 M9E-25；业主验收通过（2026-11-15，监工转达业主原话「嵌入程序可以了」）",
+          "evidence": "PR #244（https://github.com/jiatengmei482-pixel/nozomi/pull/244）：集成测试 17 条（新增 source_matches 1 条）；组件测试新增 embed-flow 7、booking-shell 2（主站请求体逐字不变）、embed-style 4、embed-order-store 3，改 embed-book 17；跨站端到端 site-embed-booking 新增 2 条（chromium + webkit）；ADR 第十节回归 e2e 47 条。付款进 iframe、completed 的跨站端到端在 M9E-19；四步三语在 M11-04（原 M9E-18）；特商法、取消政策、隐私政策三页和嵌入页上的链接待业主给内容，登记为 M9E-24（Q14）；Leaflet 不进嵌入页打包产物登记为 M9E-25；业主验收通过（2026-11-15，监工转达业主原话「嵌入程序可以了」）",
           "updated": "2026-11-15"
         },
         {
@@ -1514,7 +1515,7 @@
           "role": "frontend",
           "status": "done",
           "acceptance": ["①iframe 自己的视口 ≥ 1024px：嵌入页两栏，左边四步，右边是主站同一个「行程摘要」右侧栏（谷歌静态路线图、约 X 分钟 · Y 公里、车型和价格、出发地、目的地、航班落地时间、乘客 / 行李）；< 1024px 照旧单栏、顶部摘要条。宽度按 iframe 自己的视口算，不看宿主窗口", "①复用 BookNewPage 的两栏和右侧栏，不另写；主站 /book/new 行为不变（book-new、booking-shell 组件测试原样通过）；嵌入页里没有主站顶栏、页脚、导航", "①postMessage v1 不变：换步照发 step；分栏切换（宽 ↔ 窄）后 resize 报的高度和内容实际高度一致；路线图是同源 /site/v1/route-map，嵌入页 CSP 放行、在 iframe 里显示出来", "①组件测试覆盖 1024 断点（1023 单栏、1024 两栏、宽窄切换）；端到端在嵌入页 1440 / 1024 / 375 宽核对分栏、右侧栏内容、路线图、resize 高度，亮暗两色 axe；做变异检查", "①本机 1440 / 1024 / 375 宽截图放 docs/acceptance/M9E-27-shots/；部署后在演示站 https://embed-demo.moveglobal.io/booking/ 再截 1440 / 1024 / 375 三张（验收角色）", "②接机免费等待分钟数：由另一个开发角色在本任务下单独实现和验收，见其 PR；本 PR 不涉及"],
-          "evidence": "①PR #254；组件测试 478 条本机全过（embed-flow 新增 1 条宽屏 / 宽窄切换、改 1 条为 1023 宽；embed-style、booking-shell 相应改）；变异检查 3 个全部杀死；端到端 site-embed-booking.spec.ts 9 条 chromium + webkit-embed 本机全过（新增 M9E-27 一条：1440 / 1024 / 1023 / 375）；截图 docs/acceptance/M9E-27-shots/；演示站截图待部署后由验收角色补；业主验收通过（2026-11-15，监工转达业主原话「嵌入程序可以了」）",
+          "evidence": "①PR #254；组件测试 478 条本机全过（embed-flow 新增 1 条宽屏 / 宽窄切换、改 1 条为 1023 宽；embed-style、booking-shell 相应改）；变异检查 3 个全部杀死；端到端 site-embed-booking.spec.ts 9 条 chromium + webkit-embed 本机全过（新增 M9E-27 一条：1440 / 1024 / 1023 / 375）；截图 docs/acceptance/M9E-27-shots/；演示站截图待部署后由验收角色补；业主验收通过（2026-11-15，监工转达业主原话「嵌入程序可以了」）；业主验收的是①嵌入两栏（演示站截图见 PR #257）；②接机免费等待提示 PR #253，按航班定的后续在 M9E-28（PR #255）",
           "updated": "2026-11-15"
         }
       ]
