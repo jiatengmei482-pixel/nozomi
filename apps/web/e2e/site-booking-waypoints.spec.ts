@@ -100,7 +100,9 @@ test("包车加 3 个经停点：增删排序、停留必填 → 按行程计价
   expect(plainBodies.at(-1), "没有经停点：请求和以前一样").toMatchObject({ category: "charter", package_hours: 8 });
   expect(Object.keys(plainBodies.at(-1) ?? {})).not.toContain("itinerary_pricing");
   expect(Object.keys(plainBodies.at(-1) ?? {})).not.toContain("waypoints");
-  await expect(page.getByLabel("价格明细")).toHaveCount(0);
+  // M9P-04：不填经停点也逐项列明细（这里上下车都在商品区域，只有套餐一行），没有「按您填的经停点计算」的提示
+  await expect(card.getByLabel("价格明细").locator(".price-breakdown__row")).toHaveText(["包车套餐 8 小时77,000 JPY"]);
+  await expect(page.getByText(/价格按您填的经停点计算/)).toHaveCount(0);
 
   // 回到第 1 步加经停点：先加两个（乙、甲），再加加价区域里的车站；甲上移到第 1
   await page.getByRole("button", { name: "上一步" }).click();
@@ -144,7 +146,7 @@ test("包车加 3 个经停点：增删排序、停留必填 → 按行程计价
   });
   expect(Object.keys(itineraryBodies.at(-1) ?? {})).not.toContain("package_hours");
   const rows = card.getByLabel("价格明细").locator(".price-breakdown__row");
-  await expect(rows).toHaveText(["包车套餐 8 小时66,000 JPY", "经停加价（富士山地区，第 3 个经停点）11,000 JPY"]);
+  await expect(rows).toHaveText(["包车套餐 8 小时66,000 JPY", "行程加价（富士山地区，第 3 个经停点）11,000 JPY"]);
   // 行程时间表：行驶 25 + 30 + 20 + 35 = 110 分钟，停留 90 + 60 + 30 = 180 分钟，共 4 小时 50 分
   await expect(page.getByText("按行程预计 4 小时 50 分（行驶 1 小时 50 分 + 停留 3 小时），全程约 54 公里，套餐 8 小时").first()).toBeVisible();
   await expect(page.getByRole("list", { name: "行程" }).getByRole("listitem")).toHaveText([
@@ -157,7 +159,7 @@ test("包车加 3 个经停点：增删排序、停留必填 → 按行程计价
   await expect(page.getByText("价格按您填的经停点计算；当天临时去其他区域或超出预计可能会加收。").first()).toBeVisible();
   await card.getByRole("button", { name: `选择 ${trip.groupName}` }).click();
   const aside = page.getByRole("complementary", { name: "行程摘要" });
-  await expect(aside.getByLabel("价格明细").locator(".price-breakdown__row")).toHaveText(["包车套餐 8 小时66,000 JPY", "经停加价（富士山地区，第 3 个经停点）11,000 JPY", "合计77,000 JPY"]);
+  await expect(aside.getByLabel("价格明细").locator(".price-breakdown__row")).toHaveText(["包车套餐 8 小时66,000 JPY", "行程加价（富士山地区，第 3 个经停点）11,000 JPY", "合计77,000 JPY"]);
   await expect(aside).toContainText("包车 8 小时（按行程）");
   // M8-43：「经停点」的内容和其他项（上车地点）的内容左边对齐，不多缩进一格
   const leftOf = async (label: string, inner: string) => (await aside.locator(".site-facts__item").filter({ has: page.locator("dt", { hasText: new RegExp(`^${label}$`) }) }).locator(inner).first().boundingBox())?.x;

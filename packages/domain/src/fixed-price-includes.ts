@@ -38,13 +38,14 @@ export const CHARTER_OVERAGE_TEXTS: Readonly<Record<FixedPriceLanguage, string>>
 };
 
 /**
- * 包车按行程计价（ADR 0089，M9W-05）时超出部分的说法：超公里、超时已按预计行程算进价格，只有当天超出预计的部分服务后加收。
+ * 包车按行程计价（ADR 0089，M9W-05）时超出部分的说法：超公里已按预计行程算进价格；用时超出套餐、或当天超出预计的部分服务后加收。
+ * M9P-04 改：M9P-03（ADR 0091 第三节）起报价不再含超时费，原来「超时已算进价格」的说法不对了。
  * 只用在按行程计价的报价和订单上；不按行程计价的包车照旧用 `CHARTER_OVERAGE_TEXTS`。
  */
 export const CHARTER_ITINERARY_OVERAGE_TEXTS: Readonly<Record<FixedPriceLanguage, string>> = {
-  zh: "超公里、超时已按预计行程算进价格，只有当天超出预计的部分服务后按实际收取",
-  ja: "距離・時間の超過分は予定の行程で料金に含まれています。当日予定を超えた分のみサービス後に実費でご請求します",
-  en: "Extra distance and time for the planned itinerary are already included; only usage beyond the plan on the day is charged after the service",
+  zh: "超公里已按预计行程算进价格；用时超出套餐、或当天超出预计的部分，服务后按实际收取",
+  ja: "距離の超過分は予定の行程で料金に含まれています。パッケージ時間を超えた分と、当日予定を超えた分はサービス後に実費でご請求します",
+  en: "Extra distance for the planned itinerary is already included; time beyond the package and usage beyond the plan on the day are charged after the service",
 };
 
 /** 供应商侧：包车报价须包含高速费、停车费（供应商后台价格规则、服务规则说明，接单邮件）。 */
@@ -146,7 +147,7 @@ export function fixedPriceIncludes(input: FixedPriceIncludesInput, language: Fix
 export function fixedPriceFeeNote(service: "transfer" | "charter", language: FixedPriceLanguage = "zh", options: { itinerary?: boolean } = {}): string {
   const texts = FIXED_PRICE_INCLUDES_TEXTS[language];
   if (service === "transfer") return texts.allInclusive;
-  // 按行程计价的包车（M9W-05）：超公里、超时已算进价格
+  // 按行程计价的包车（M9W-05）：超公里已算进价格，用时超出套餐或当天超出预计的部分另收（M9P-04 改）
   const overage = options.itinerary === true ? CHARTER_ITINERARY_OVERAGE_TEXTS[language] : CHARTER_OVERAGE_TEXTS[language];
   return `${texts.allInclusive}${language === "en" ? "; " : "；"}${overage}`;
 }
