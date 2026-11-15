@@ -1747,10 +1747,10 @@
           "id": "M9P-15",
           "title": "查清手动报档时 auto_package_hours 和自动询价选的档不一致（M9P-03 验收后续）",
           "role": "backend",
-          "status": "todo",
+          "status": "review",
           "acceptance": ["复现（监工 2026-11-14 M9P-03 验收时发现）：测试站，新宿 → 河口湖（停 2h）→ 新宿。自动询价（不带 package_hours）选 7h，官网下拉显示「自动（7 小时）」。官网下拉只列 8–12 小时，选不到 6h，所以「手动报 6h」是直接调接口发的：POST /site/v1/quotes，category: charter、itinerary_pricing: true、pickup / dropoff / waypoints 同上、package_hours: 6（服务层按 charterSelection: manual 处理）。应答里 auto_package_hours = 6，和自动询价的 7h 不同。验收时没有记下这个 6 出自哪个商品、哪个车型组：复现时先逐条记下应答里每个报价的中标商品（候选是东京包车、远郊包车两个已上架商品）、车型组（经济7座等）和各自的 auto_package_hours，再和自动询价的应答逐条对照", "查清原因：是不是手动询价时别的商品中标（auto_package_hours 取的是中标商品自己会选的档），还是选档逻辑在 manual 和 auto 下口径不一致；写进 PR", "按查清的原因定口径：auto_package_hours 应该是哪一个商品、哪一个车型的自动档，和官网下拉「自动（N 小时）」（M9P-04）一致；如需改代码，补单元 / 集成测试复现这一例", "/site/v1、/sales/v1 同口径；不改 golden（不带 charterSelection 的旧口径不受影响）"],
-          "evidence": "",
-          "updated": "2026-11-14"
+          "evidence": "PR #264（https://github.com/jiatengmei482-pixel/nozomi/pull/264）。原因：手动报档时 auto_package_hours 取的是手动询价中标商品自己会选的档，手动报的档换了商品中标就和自动询价对不上（测试站：自动甲 7h 中标；手动 6h 乙中标、乙自己会选 6h）；选档逻辑 manual / auto 同一个函数。改为同一行程不带 package_hours 自动询价时这个车型中标的档（服务层内存里多比一次，不记日志、不存报价；quote.ts、golden 不改）。新增集成 1 条复现这一例，去掉修正就失败（6 ≠ 7）；相关集成 29 条全过。",
+          "updated": "2026-11-15"
         },
         {
           "id": "M9P-16",
@@ -3462,6 +3462,11 @@
       "date": "2026-11-15",
       "by": "backend",
       "summary": "M9P-20 P2 开 PR #267（基于 #256，第十节 10 条按推荐）：POST /site/v1/charter/order-suggestion——核对当前报价（或超长时的 inquiry_ref）、商品开关、按固定点切段、每段一次 optimizeWaypointOrder（Pro，单设每日上限 150，一次占齐）、顺序无关缓存 24 小时（迁移 0530）、按报价同一口径算省多少（5 公里或 10 分钟、另一项容差 1 公里 / 3 分钟）、成立才多询一次价；refs 只往返不进快照；会话和地址只数要调谷歌的请求。页面建议块（两栏 / 手机切换、采用直接用建议报价、恢复、保持、重算中、拖动后本地重算）、经停点指针拖动、服务规则页勾选框、系统状态卡片。价格变化播报未单独做；P3 未开始。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "backend",
+      "summary": "M9P-15 开 PR #264：手动报档时「自动档」改为同一行程自动询价中标的档（以前是手动询价中标商品自己会选的档，换了商品中标就对不上），和官网下拉「自动（N 小时）」一致。"
     }
   ]
 }

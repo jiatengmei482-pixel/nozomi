@@ -136,7 +136,7 @@ export interface SalesQuote {
   pricingBasis: PricingBasis;
   /**
    * 包车按行程计价（ADR 0091 第一节、0093 第四节第 9 条）：中标商品的预计用时 T（分钟）、它含不含经停点默认占用或整单缓冲（页面写「含缓冲」）、
-   * 这个车型组自动选出的档（手动升档时也是自动会选的那一档）。没按行程计价、或部署前的报价没有这一项；只有官网的应答给
+   * 这个车型组自动选出的档（手动升档时是同一行程自动询价时这个车型组中标的档，按比价口径，M9P-15；查报价时取中标商品自己会选的档）。没按行程计价、或部署前的报价没有这一项；只有官网的应答给
    */
   itinerary?: { estimatedMinutes: number; includesBuffer: boolean; autoPackageHours: number | null };
   /**
@@ -223,6 +223,31 @@ function itineraryEstimateOf(snapshot: StoredQuoteSnapshot): Pick<SalesQuote, "i
   return { itinerary: { estimatedMinutes: itinerary.estimatedMinutes ?? itinerary.routeMinutes, includesBuffer: (itinerary.stopOccupancyMinutes ?? 0) > 0 || (itinerary.bufferMinutes ?? 0) > 0, autoPackageHours } };
 }
 
+/**
+ * 手动选档时「自动会选的档」按比价口径（M9P-15）：同样的行程不带套餐时长、按 `auto` 再比一次价（只在内存里，不记询价日志、不存报价），
+ * 每个车型组取这次比价中标的档——和官网下拉「自动（N 小时）」用的那次自动询价同一个结果。
+ * 以前取的是手动询价中标商品**自己**会选的档：手动报的档换了一个商品中标时（例如 A 自动选 7 小时最便宜，手动报 6 小时时 B 中标、B 自己会选 6 小时），
+ * 就和自动询价对不上。不是按行程计价的手动询价（没有路线用量）返回 null，不多比这一次。
+ * 路线用量是服务器已经估好的，这一次不调谷歌。这一次出错时返回空表（应答里的自动档为 null），不让手动报价失败。
+ */
+export async function comparisonAutoHours(ctx: AppContext, input: Pick<SalesQuoteInput, "charterSelection" | "routeUsage">, previewInput: Parameters<typeof previewPlatformQuote>[1], audience: { audience?: "acceptance" }, preview: typeof previewPlatformQuote = previewPlatformQuote): Promise<ReadonlyMap<string, number | null> | null> {
+  if (input.charterSelection !== "manual" || input.routeUsage === undefined) return null;
+  let auto: Awaited<ReturnType<typeof previewPlatformQuote>>;
+  try {
+    auto = await preview(ctx, { ...previewInput, packageHours: null, charterSelection: "auto" }, { fresh: false, ...audience });
+  } catch {
+    // 空表：这一单各车型的自动档都写 null（不退回中标商品自己的档，那个口径不对）
+    return new Map();
+  }
+  return new Map(auto.comparison.groups.map((group) => [group.snapshot.winner.offer.vehicleGroupId, group.snapshot.winner.offer.packageHours]));
+}
+
+/** 手动选档的报价换上比价口径的自动档；这个车型组自动询价报不出时为 null */
+export function withComparisonAuto(quote: SalesQuote, autoHours: ReadonlyMap<string, number | null> | null): SalesQuote {
+  if (autoHours === null || quote.itinerary === undefined) return quote;
+  return { ...quote, itinerary: { ...quote.itinerary, autoPackageHours: autoHours.get(quote.vehicleGroupId) ?? null } };
+}
+
 /** 起点 / 终点里的地点编号换成坐标；地点要存在、启用、在这个城市。 */
 async function resolvePoints(ctx: AppContext, input: SalesQuoteInput): Promise<{ timezone: string; pickup: LatLng | null; dropoff: LatLng | null }> {
   return withPlatformTx(
@@ -262,9 +287,7 @@ export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincip
   const acceptance = options.audience === "acceptance";
   const points = await resolvePoints(ctx, input);
   const serviceLocal = instantToLocal(input.serviceTime, points.timezone).dateTime;
-  const preview = await previewPlatformQuote(
-    ctx,
-    {
+  const previewInput: Parameters<typeof previewPlatformQuote>[1] = {
       cityId: input.cityId,
       category: input.category,
       placeId: input.placeId,
@@ -284,12 +307,13 @@ export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincip
       ...(input.waypoints === undefined ? {} : { waypoints: input.waypoints }),
       ...(input.routeUsage === undefined ? {} : { routeUsage: input.routeUsage }),
       ...(input.charterSelection === undefined ? {} : { charterSelection: input.charterSelection }),
-    },
-    { fresh: false, ...(options.log === undefined ? {} : { log: options.log }), ...(acceptance ? { audience: "acceptance" as const } : {}) },
-  );
+  };
+  const audience = acceptance ? { audience: "acceptance" as const } : {};
+  // 两次比价同时算（M9P-15 的比价口径自动档只在手动按行程计价时才有第二次）
+  const [preview, autoHours] = await Promise.all([previewPlatformQuote(ctx, previewInput, { fresh: false, ...(options.log === undefined ? {} : { log: options.log }), ...audience }), comparisonAutoHours(ctx, input, previewInput, audience)]);
   const now = ctx.now();
   const snapshots = storedSnapshots(preview, now);
-  const result: SalesQuoteResult = { quotes: snapshots.map((snapshot) => ({ ...toSalesQuote(snapshot), offeredAddonIds: offeredAddonIds(preview, snapshot), ...itineraryWarningsOf(preview, snapshot) })), unavailable: unavailable(preview, input.vehicleGroupIds) };
+  const result: SalesQuoteResult = { quotes: snapshots.map((snapshot) => withComparisonAuto({ ...toSalesQuote(snapshot), offeredAddonIds: offeredAddonIds(preview, snapshot), ...itineraryWarningsOf(preview, snapshot) }, autoHours)), unavailable: unavailable(preview, input.vehicleGroupIds) };
   const durationMs = Math.round(performance.now() - started);
   result.logId = await withPlatformTx(ctx.pool, async (db) => {
     const log = await db.query<{ id: string }>(
