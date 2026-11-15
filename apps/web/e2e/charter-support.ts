@@ -4,6 +4,9 @@
  * 上车点就放在城市中心：新预订页包车按上车地点选「中心最近」的包车城市（`serviceCityOf`），并行的几个用例各建一个城市、中心都在同一片随机，
  * 上车点若离中心 1.4 公里，别的用例的城市中心偶尔更近、页面就按它报价（M8-29，CI run 43486735721：另一个城市中心离上车点 385 米）；
  * 放在中心时距离是 0，只有中心坐标（6 位小数随机）完全相同的城市才会抢走它。
+ * 上车点在加价区域的车站时（site-booking-charter.spec.ts:165，离自己的中心约 0.165 度）不受上面这条保护：别的用例的商品区域 + 加价区域
+ * 同时盖住这个车站和下车点、中心又比自己的近时，页面就按别的城市报价，车型卡找不到（PR #248 CI run 43661459614，M9P-04 多了两个包车用例后撞上）。
+ * 所以城市中心改在 3 × 2.5 度里随机（原来 0.6 × 0.5 度）：按 6 个包车用例同时跑模拟 20 万次，撞上的概率从约 4.4% 降到约 0.18%。
  * 供应商经接口建两个区域：商品区域（城市中心一带）和一个加价区域（东边约 15 公里），上架包车商品：
  * 8 小时套餐 70,000 日元（对外 77,000），加价区域上车加 500、下车加 1,000；平台在加价区域里建一个车站。
  */
@@ -66,7 +69,8 @@ export async function charterWorld(request: APIRequestContext, options: { extraP
   const world = await createWorld(request);
   const admin = await platformAdminHeaders(request);
   const tag = randomLetters(5);
-  const center = { lat: Number((33.2 + Math.random() * 0.6).toFixed(6)), lng: Number((130.3 + Math.random() * 0.5).toFixed(6)) };
+  // 中心在 3 × 2.5 度里随机（M8-29：原来 0.6 × 0.5 度，并行的几个用例的城市挨得太近，见文件开头）
+  const center = { lat: Number((31.0 + Math.random() * 3.0).toFixed(6)), lng: Number((129.5 + Math.random() * 2.5).toFixed(6)) };
   const city = await post<{ id: string }>(request, admin, "/platform/v1/master/cities", { code: `CTY-JP-${tag}`, country_code: "JP", name: { zh: `包车城市${tag}` }, timezone: "Asia/Tokyo", center }, "新建城市");
   const cityRef: Ref = { id: city.id, code: `CTY-JP-${tag}`, name: `包车城市${tag}` };
   const surchargeCenter = offset(center, 0, 0.16);
