@@ -54,6 +54,7 @@ function quoteOf(amount: number, hours = 10): SiteQuote {
     free_wait_minutes: 0,
     cancel_policy: { category: "charter", level: "economy", tiers: [{ min_hours_before: 24, fee_bp: 0 }, { min_hours_before: 0, fee_bp: 10000 }] },
     available_addons: [],
+    itinerary_warnings: null,
   };
 }
 const route = (meters: number, drive: number) => ({ legs: [{ minutes: drive / 4, meters: meters / 4 }, { minutes: drive / 4, meters: meters / 4 }, { minutes: drive / 4, meters: meters / 4 }, { minutes: drive / 4, meters: meters / 4 }], drive_minutes: drive, stay_minutes: 180, total_minutes: drive + 180, total_meters: meters });
