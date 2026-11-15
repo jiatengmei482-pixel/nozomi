@@ -9,7 +9,7 @@
  * 跨域只开在 `/embed/v1`（合作网站页面上的组件调用；查询串带 `key`）：
  * - `GET /embed/v1/config`：默认语言、默认标签、外观、主站地址（浏览器缓存 60 秒）；
  * - `GET /embed/v1/places/autocomplete`、`/places/details`：同官网的输入即提示（同样的每地址额度），另加每个嵌入码每分钟 600 次；
- * - `POST /embed/v1/booking-drafts`：建预订草稿（≤ 16 KB），返回编号和要跳转的主站地址。
+ * - `POST /embed/v1/booking-drafts`：建预订草稿（≤ 24 KB，`BOOKING_DRAFT_RULES.maxBytes`），返回编号和要跳转的主站地址。
  * 共同规则：`Origin` 规范化后完全等于这个嵌入码白名单的某一项才处理并回 `Access-Control-Allow-Origin`；
  * `null`、缺失、不在白名单、嵌入码不存在或停用一律 403 `EMBED_ORIGIN_NOT_ALLOWED`，不带 CORS 头。预检 `OPTIONS` 同样核对。
  * 被拒的具体原因（嵌入码不存在 / 停用 / 网站不在白名单）只写主站日志 `embed.gate_refused`（M9E-22），应答不区分。

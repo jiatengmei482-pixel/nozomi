@@ -66,6 +66,11 @@ export const PRODUCT_LIMITS = {
   /** 包车在线下单的预计用时上限（ADR 0093 第四节第 10 条）：可设 1–24 小时（分钟） */
   minOnlineMinutes: 60,
   maxOnlineMinutes: 1_440,
+  /** 包车超限提醒线（M9P-10，规格步骤 5）：预计用时可设 1–24 小时（分钟），全程可设 1–5000 公里（同按行程计价的全程上限） */
+  minWarnMinutes: 60,
+  maxWarnMinutes: 1_440,
+  minWarnKm: 1,
+  maxWarnKm: 5_000,
 } as const;
 
 /** 这个区域能不能给这个品类的商品用：业务类型和品类相同，或者是「通用」。 */
@@ -145,10 +150,14 @@ export interface CharterItineraryRules {
   minPackageHours: number | null;
   /** 在线下单上限（分钟，规格步骤 5、ADR 0093 第四节第 10 条）：预计用时 T 超过它的不在线报价（`ITINERARY_TOO_LONG`，转客服）。默认 780 = 13 小时 */
   maxOnlineMinutes: number;
+  /** 超限提醒（分钟，规格步骤 5，M9P-10）：预计用时 T 超过它时提醒客人缩减行程，仍可下单。默认 720 = 12 小时 */
+  warnMinutes: number;
+  /** 超限提醒（公里，规格步骤 5，M9P-10）：全程超过它时提醒，仍可下单。默认 360 */
+  warnKm: number;
 }
 
-/** 默认值：下车点行程加价开；T 的三项是 0 / 0 / 不限（行为不变，ADR 0091：不取业主建议值）；在线下单上限 13 小时 */
-export const DEFAULT_CHARTER_ITINERARY: Readonly<CharterItineraryRules> = { dropoffItinerarySurcharge: true, stopOccupancyMinutes: 0, bufferMinutes: 0, minPackageHours: null, maxOnlineMinutes: 780 };
+/** 默认值：下车点行程加价开；T 的三项是 0 / 0 / 不限（行为不变，ADR 0091：不取业主建议值）；在线下单上限 13 小时；超限提醒 12 小时 / 360 公里（只提醒，不影响价格） */
+export const DEFAULT_CHARTER_ITINERARY: Readonly<CharterItineraryRules> = { dropoffItinerarySurcharge: true, stopOccupancyMinutes: 0, bufferMinutes: 0, minPackageHours: null, maxOnlineMinutes: 780, warnMinutes: 720, warnKm: 360 };
 
 /** 业主建议值（ADR 0091 第二节第 1 小节）：只在页面上作灰色提示，不预填、不当默认值 */
 export const SUGGESTED_CHARTER_ITINERARY = { stopOccupancyMinutes: 15, bufferMinutes: 60, minPackageHours: 5 } as const;
@@ -372,6 +381,8 @@ export function serviceRuleIssues(rules: ServiceRules, context: ServiceRuleConte
       if (itinerary.bufferMinutes !== undefined) integerIssue("/charter_itinerary/buffer_minutes", itinerary.bufferMinutes, 0, PRODUCT_LIMITS.maxBufferMinutes, issues);
       if (itinerary.minPackageHours !== undefined && itinerary.minPackageHours !== null) integerIssue("/charter_itinerary/min_package_hours", itinerary.minPackageHours, 1, PRICE_LIMITS.maxPackageHours, issues);
       if (itinerary.maxOnlineMinutes !== undefined) integerIssue("/charter_itinerary/max_online_minutes", itinerary.maxOnlineMinutes, PRODUCT_LIMITS.minOnlineMinutes, PRODUCT_LIMITS.maxOnlineMinutes, issues);
+      if (itinerary.warnMinutes !== undefined) integerIssue("/charter_itinerary/warn_minutes", itinerary.warnMinutes, PRODUCT_LIMITS.minWarnMinutes, PRODUCT_LIMITS.maxWarnMinutes, issues);
+      if (itinerary.warnKm !== undefined) integerIssue("/charter_itinerary/warn_km", itinerary.warnKm, PRODUCT_LIMITS.minWarnKm, PRODUCT_LIMITS.maxWarnKm, issues);
     }
   }
   return issues;

@@ -162,8 +162,11 @@ test("包车带经停点（M9W-04）：可以不带时长（按行程计价）�
   assert.deepEqual([bad.status, bad.body.error.details.issues.map((issue: { path: string; reason: string }) => [issue.path, issue.reason])], [400, [["/trip/waypoints", "NOT_APPLICABLE"]]]);
   const noHours = await submit({ email: nextEmail(), trip: trip({ category: "charter", dropoff: null }) });
   assert.deepEqual([noHours.status, noHours.body.error.details.issues.map((issue: { path: string; reason: string }) => [issue.path, issue.reason])], [400, [["/trip/package_hours", "REQUIRED"]]]);
-  const tooMany = await submit({ email: nextEmail(), trip: trip({ category: "charter", waypoints: Array.from({ length: 11 }, () => stops[0]) }) });
-  assert.equal(tooMany.status, 400);
+  // 经停点上限和官网询价一样（M9P-10：25 个，只受路径接口上限）
+  const tooMany = await submit({ email: nextEmail(), trip: trip({ category: "charter", waypoints: Array.from({ length: 26 }, () => stops[0]) }) });
+  assert.deepEqual([tooMany.status, tooMany.body.error.details.issues.map((issue: { path: string; reason: string }) => issue.path)], [400, ["/trip/waypoints"]]);
+  const full = await submit({ email: nextEmail(), trip: trip({ category: "charter", waypoints: Array.from({ length: 25 }, () => stops[0]) }) });
+  assert.equal(full.status, 202, full.text);
   await assert.rejects(api.db.owner.query("update manual_quote_requests set package_hours = 4 where category <> 'charter'"), /manual_quote_requests_package_check/);
 });
 

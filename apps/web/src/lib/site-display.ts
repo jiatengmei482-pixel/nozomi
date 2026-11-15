@@ -220,7 +220,8 @@ export const UNAVAILABLE_REASON_TEXT: Readonly<Record<SiteUnavailableReason, str
   DROPOFF_REQUIRED: "包车请填写下车地点。",
   WAYPOINT_NOT_PRICED: "有途经景点暂时没有在线报价，请联系客服人工报价，或去掉这个景点再试。",
   PACKAGE_TOO_SHORT: "所选的套餐时长太短，请选更长的套餐。",
-  ITINERARY_TOO_LONG: "行程较长，请联系客服定制。",
+  // 和超限提醒同一套文案（M9P-10，需求 charter-airport-packages-2026-11-14.md 第四节第 3 条）
+  ITINERARY_TOO_LONG: "该行程超出司机单日法定工作时长，无法在线预订。请缩减行程，或联系客服安排分两天用车。",
   LEAD_TIME_TOO_SHORT: "离用车时间太近了，请选晚一些的时间。",
   SOLD_OUT: "这一天已经订满了，请换一天。",
   OUTSIDE_SERVICE_TIME: "这个时间不在服务时间内，请换一个时间。",

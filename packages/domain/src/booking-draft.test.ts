@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { BOOKING_DRAFT_RULES, type BookingDraft, bookingDraftBytes, bookingDraftExpiresAt, bookingDraftIssues, isBookingDraftId, parseBookingDraft } from "./booking-draft.ts";
+import { QUOTE_RULES } from "./quote.ts";
 
 const transfer = (): BookingDraft => ({
   v: 1,
@@ -70,11 +71,11 @@ test("地点：名称 1–200 字、不带首尾空格，坐标范围", () => {
   assert.deepEqual(reasons({ ...transfer(), dropoff: "東京駅" }), ["/dropoff:INVALID"]);
 });
 
-test("经停点：只有包车能有、最多 10 个、停留 30 分钟一档 30–480", () => {
+test("经停点：只有包车能有、最多 25 个（M9P-10）、停留 30 分钟一档 30–480", () => {
   assert.deepEqual(reasons({ ...transfer(), waypoints: charter().waypoints }), ["/waypoints:NOT_APPLICABLE"]);
   const stop = charter().waypoints[0] as BookingDraft["waypoints"][number];
-  assert.deepEqual(reasons({ ...charter(), waypoints: Array.from({ length: 10 }, () => stop) }), []);
-  assert.deepEqual(reasons({ ...charter(), waypoints: Array.from({ length: 11 }, () => stop) }), ["/waypoints:OUT_OF_RANGE"]);
+  assert.deepEqual(reasons({ ...charter(), waypoints: Array.from({ length: 25 }, () => stop) }), []);
+  assert.deepEqual(reasons({ ...charter(), waypoints: Array.from({ length: 26 }, () => stop) }), ["/waypoints:OUT_OF_RANGE"]);
   for (const stay of [30, 480]) assert.deepEqual(reasons({ ...charter(), waypoints: [{ ...stop, stay_minutes: stay }] }), [], String(stay));
   for (const stay of [0, 45, 510, 60.5]) assert.deepEqual(reasons({ ...charter(), waypoints: [{ ...stop, stay_minutes: stay }] }), ["/waypoints/0/stay_minutes:OUT_OF_RANGE"], String(stay));
   const { stay_minutes: _stay, ...noStay } = stop;
@@ -95,11 +96,14 @@ test("人数、行李", () => {
   assert.deepEqual(reasons({ ...transfer(), passengers: "2" }), ["/passengers:OUT_OF_RANGE"]);
 });
 
-test("10 个经停点、每个名称 200 字远小于 16 KB；超过 16 KB 整份拒", () => {
-  const long = (index: number) => ({ name: `経由地${index}`.padEnd(BOOKING_DRAFT_RULES.maxNameLength, "あ"), lat: 35.123456, lng: 139.123456, stay_minutes: 480 });
-  const full = { ...charter(), pickup: { ...charter().pickup, name: "あ".repeat(200) }, dropoff: { ...charter().dropoff, name: "あ".repeat(200) }, waypoints: Array.from({ length: 10 }, (_, index) => long(index)) };
+test("经停点放满（M9P-10：25 个）、每个名称 200 字（每字 3 字节）也小于上限；多一个经停点 OUT_OF_RANGE；超过上限整份拒", () => {
+  assert.equal(QUOTE_RULES.maxWaypoints, 25);
+  const long = (index: number) => ({ name: `経由地${index}`.padEnd(BOOKING_DRAFT_RULES.maxNameLength, "あ"), lat: -35.1234567, lng: -139.1234567, stay_minutes: 480 });
+  const full = { ...charter(), pickup: { ...charter().pickup, name: "あ".repeat(200) }, dropoff: { ...charter().dropoff, name: "あ".repeat(200) }, waypoints: Array.from({ length: QUOTE_RULES.maxWaypoints }, (_, index) => long(index)) };
   assert.deepEqual(bookingDraftIssues(full), []);
+  assert.ok(bookingDraftBytes(full) > 16_384, "旧的 16 KB 放不下，所以上限放到了 24 KB");
   assert.ok(bookingDraftBytes(full) < BOOKING_DRAFT_RULES.maxBytes);
+  assert.deepEqual(reasons({ ...full, waypoints: [...full.waypoints, long(99)] }), ["/waypoints:OUT_OF_RANGE"]);
   const huge = { ...transfer(), padding: "x".repeat(BOOKING_DRAFT_RULES.maxBytes) };
   assert.deepEqual(reasons(huge), [":TOO_LARGE"]);
 });

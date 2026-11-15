@@ -106,7 +106,7 @@ const addonsOf = (addons: z.output<typeof addonsSchema>): { addonId: string; qua
 const demandNameSchema = z.string().max(200).nullable().optional();
 
 /**
- * 包车的经停点（ADR 0088）：名称、坐标、停留分钟，按顺序，最多 10 个（`QUOTE_RULES.maxWaypoints`）。
+ * 包车的经停点（ADR 0088）：名称、坐标、停留分钟，按顺序，最多 25 个（`QUOTE_RULES.maxWaypoints`，M9P-10 起只受路径接口上限）。
  * 只有包车能给（别的品类 400 `NOT_APPLICABLE`）；空数组和不给一样。
  */
 const waypointSchema = z.object({ name: z.string().trim().min(1).max(200), lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180), stay_minutes: z.number().int().min(0).max(1_440) }).strict();
@@ -127,7 +127,7 @@ const quoteSchema = z
     address: pointSchema.optional(),
     pickup: pointSchema.optional(),
     dropoff: pointSchema.optional(),
-    waypoints: z.array(waypointSchema).max(QUOTE_RULES.maxWaypoints).optional(),
+    waypoints: z.array(waypointSchema).max(QUOTE_RULES.maxWaypoints, `最多 ${QUOTE_RULES.maxWaypoints} 个经停点，更多请联系客服定制`).optional(),
     // 包车按行程计价（ADR 0088 补充、ADR 0093 第四节）：服务器按路线、停留和商品的配置算预计用时、自动选套餐、收超公里（不收超时）；
     // 可以带 package_hours 手动升到更长的套餐（不短于预计用时才报，对外 PACKAGE_TOO_SHORT + min_package_hours）
     itinerary_pricing: z.boolean().optional(),
@@ -334,6 +334,8 @@ function quoteJson(quote: SiteQuote): Json {
     estimated_minutes: quote.itinerary?.estimatedMinutes ?? null,
     includes_buffer: quote.itinerary?.includesBuffer ?? null,
     auto_package_hours: quote.itinerary?.autoPackageHours ?? null,
+    // 超限提醒（M9P-10，规格步骤 5）：按中标商品的提醒线，`LONG_DURATION`（T 超过）、`LONG_DISTANCE`（全程超过），没超为空数组，仍可下单；没按行程计价为 null
+    itinerary_warnings: quote.itineraryWarnings ?? null,
   };
 }
 
