@@ -69,3 +69,12 @@ test("保存被拒的区域重叠：两个区域名和面积（平方公里）�
   assert.deepEqual(layerOverlapDetails(pair).map((entry) => entry.areas), [["千叶", "富士山"]]);
   assert.deepEqual(layerOverlapDetails({}), []);
 });
+
+test("新行的记号当 ref 提交：两个编号都是 36 位也不超过后端的 100 个字符；②③同一区域同一车型组的记号不同", () => {
+  const area = "74a7093d-5a54-45cc-9e27-f196e4e33809";
+  const group = "0f1e2d3c-4b5a-4968-8776-655443322110";
+  const updown = blankLayerRow("charter_area_surcharge", area, group, "2026-11-16").key;
+  const itinerary = blankLayerRow("charter_itinerary_surcharge", area, group, "2026-11-16").key;
+  assert.ok(updown.length <= 100 && itinerary.length <= 100, `${updown.length} / ${itinerary.length}`);
+  assert.notEqual(updown, itinerary);
+});

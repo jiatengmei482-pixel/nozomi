@@ -120,8 +120,9 @@ export function layerRowsOf(data: Pick<PriceRules, "items" | "currency">, model:
 }
 
 /** 一格（区域 × 车型组）的空行：同一格总是同一个记号，一敲字就变成一条真的行。 */
+/** 新行的记号（提交时当 ref 用）：后端 ref 最多 100 个字符，两个编号各 36 个字符，前缀要短（不能把模型名整个写进去） */
 export function blankLayerKey(model: LayerModel, areaId: string, vehicleGroupId: string): string {
-  return `layer-blank|${model}|${areaId}|${vehicleGroupId}`;
+  return `nl-${model === "charter_itinerary_surcharge" ? "i" : "u"}-${areaId}-${vehicleGroupId}`;
 }
 
 export function blankLayerRow(model: LayerModel, areaId: string, vehicleGroupId: string, today: string): LayerRow {
