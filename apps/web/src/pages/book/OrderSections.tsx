@@ -676,7 +676,7 @@ const p2pArrival = (order: SiteOrder): boolean => order.category === "point_to_p
 const takesFlight = (order: SiteOrder): boolean => order.category === "airport_transfer" || p2pArrival(order);
 /** 按航班定免费等待的单：接机、点对点接机 */
 const flightArrival = (order: SiteOrder): boolean => (order.category === "airport_transfer" && order.direction === "pickup") || p2pArrival(order);
-/** 改单表单里航班类型选项的提示按商品自己设的值算 max（2026-11-15 按推荐，审查建议 5）；商品没设按平台下限 */
+/** 改单表单里航班类型选项的提示（2026-11-15 审查建议 5）：M9E-31 起平台统一国际 90、国内 60，不看商品设的值 */
 function quotedOf(order: SiteOrder): { free_wait_minutes: number | null } | null {
   const product = productFreeWait(order);
   if (order.free_wait_basis !== null && order.free_wait_basis !== undefined && order.free_wait_basis.base === null) return null;

@@ -113,7 +113,7 @@ async function tenantDetail(orderId: string): Promise<any> {
   return res.body;
 }
 
-test("下单时按航班类型锁定：国际 max(60, 90) = 90、国内 60、没选 60 且标「航班类型未确认」；报价不变；渠道、供应商都看得到最终分钟数和依据", async () => {
+test("下单时按航班类型锁定：国际 90、国内 60、没选 60 且标「航班类型未确认」（M9E-31 平台统一；商品设 60）；报价不变；渠道、供应商都看得到最终分钟数和依据", async () => {
   const cases = [
     ["international", 90, { flight_kind: "international", base: { mode: "limited", minutes: 60 }, floor_minutes: 90 }],
     ["domestic", 60, { flight_kind: "domestic", base: { mode: "limited", minutes: 60 }, floor_minutes: 60 }],
@@ -132,6 +132,20 @@ test("下单时按航班类型锁定：国际 max(60, 90) = 90、国内 60、没
   }
 });
 
+test("M9E-31 回归（业主验收 #278）：商品设 90 或「不限时」，国内航班仍 60、国际 90、没选 60；依据里记下商品设的值", async () => {
+  for (const setting of [{ mode: "limited", minutes: 90 }, { mode: "limited", minutes: 120 }, { mode: "unlimited" }] as const) {
+    await api.db.owner.query(`update products set service_rules = jsonb_set(service_rules, '{freeWait,pickup}', $2::jsonb) where id = any($1::uuid[])`, [[m.ids.pa, m.ids.pb], JSON.stringify(setting)]);
+    api.clock.advance(QUOTE_CATALOG_TTL_MS + 1_000);
+    for (const [kind, minutes] of [["domestic", 60], ["international", 90], [null, 60]] as const) {
+      const created = await salesOrder({ flight_no: "NH 211", ...(kind === null ? {} : { flight_kind: kind }) });
+      assert.equal(created.status, 201, created.text);
+      assert.deepEqual([created.body.order.free_wait_minutes, created.body.order.free_wait_basis], [minutes, { flight_kind: kind, base: setting, floor_minutes: minutes }], `${JSON.stringify(setting)} ${String(kind)}`);
+    }
+  }
+  await api.db.owner.query(`update products set service_rules = jsonb_set(service_rules, '{freeWait,pickup}', '{"mode":"limited","minutes":60}'::jsonb) where id = any($1::uuid[])`, [[m.ids.pa, m.ids.pb]]);
+  api.clock.advance(QUOTE_CATALOG_TTL_MS + 1_000);
+});
+
 test("送机不按航班定：带航班类型 400（/flight_kind），不带照商品设的 15", async () => {
   const bad = await salesOrder({ flight_kind: "international" }, "dropoff");
   assert.equal(bad.status, 400);
@@ -141,7 +155,7 @@ test("送机不按航班定：带航班类型 400（/flight_kind），不带照�
   assert.deepEqual([created.body.order.free_wait_minutes, created.body.order.flight_kind, created.body.order.free_wait_basis], [15, null, null]);
 });
 
-test("改用点对点商品报价的接机（Q5）：点对点单带航班号按航班定（国际 max(30, 90) = 90），不带航班号照商品的 30", async () => {
+test("改用点对点商品报价的接机（Q5）：点对点单带航班号按航班定（国际 90），不带航班号照商品的 30", async () => {
   const place = async (extra: Record<string, unknown>): Promise<any> => {
     const quoted = await site.call("POST", "/site/v1/quotes", { ip: nextIp(), body: { category: "point_to_point", city_id: m.ids.tokyo, pickup: P2P_PICKUP, dropoff: P2P_DROPOFF, service_local: "2026-10-20T10:00", passengers: 2, luggage: 1 } });
     assert.equal(quoted.status, 200, quoted.text);
@@ -154,7 +168,7 @@ test("改用点对点商品报价的接机（Q5）：点对点单带航班号按
   assert.equal(arrival.status, 201, arrival.text);
   assert.deepEqual([arrival.body.order.flight_no, arrival.body.order.free_wait_minutes, arrival.body.order.flight_kind, arrival.body.order.free_wait_basis], ["JL5", 90, "international", { flight_kind: "international", base: { mode: "limited", minutes: 30 }, floor_minutes: 90 }]);
   const unconfirmed = await place({ flight_no: "JL5" });
-  assert.deepEqual([unconfirmed.body.order.free_wait_minutes, unconfirmed.body.order.free_wait_basis?.flight_kind], [60, null], "没选航班类型：max(30, 60)");
+  assert.deepEqual([unconfirmed.body.order.free_wait_minutes, unconfirmed.body.order.free_wait_basis?.flight_kind], [60, null], "没选航班类型：按国内线 60");
   const plain = await place({});
   assert.deepEqual([plain.body.order.free_wait_minutes, plain.body.order.flight_kind, plain.body.order.free_wait_basis], [30, null, null], "没有航班号的点对点照商品");
   const kindOnly = await place({ flight_kind: "domestic" });

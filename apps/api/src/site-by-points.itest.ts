@@ -252,7 +252,7 @@ test("接送机报不出改用点对点商品（M8-33，ADR 0081）：羽田没�
   assert.deepEqual([withFlight.status, withFlight.body.error?.details?.issues?.map((issue: any) => [issue.path, issue.reason])], [400, [["/flight_no", "INVALID_FLIGHT_NO"]]], "航班号格式照查");
   const created = await order({ flight_no: "NH211", flight_kind: "international" });
   assert.equal(created.status, 201, created.text);
-  assert.deepEqual([created.body.order.category, created.body.order.flight_no, created.body.order.free_wait_minutes], ["point_to_point", "NH211", 90], "点对点接机按国际航班 max(30, 90)");
+  assert.deepEqual([created.body.order.category, created.body.order.flight_no, created.body.order.free_wait_minutes], ["point_to_point", "NH211", 90], "点对点接机按国际航班 90（M9E-31 平台统一）");
 });
 
 test("下单带举牌姓名、乘车人姓名和电话（M8-32，ADR 0082）：正式字段、和联系人一起加密；运营后台默认打码、查看后是原文；姓名和电话要么都给要么都不给", async () => {
