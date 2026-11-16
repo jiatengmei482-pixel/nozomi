@@ -88,6 +88,8 @@ test("价格规则和调价规则的接口：路径、方法、请求体、应�
   assert.equal(ref(response(calendar, "200")), "PriceCalendar");
   for (const key of CALENDAR_QUERY_KEYS) assert.ok(params(calendar).includes(`query:${key}`), `价格日历没有查询参数 ${key}`);
   assert.ok(op("get", `${one}/price-coverage`));
+  assert.equal(ref(response(op("get", `${one}/charter-migration-diff`), "200")), "CharterMigrationDiff");
+  assert.equal(ref(response(op("get", "/platform/v1/products/{id}/charter-migration-diff"), "200")), "CharterMigrationDiff");
   assert.equal(ref(response(op("get", `${TENANT_BASE}/price-overview`), "200")), "PriceOverview");
   const rounding = op("put", `${BRANDS_PATH}/{id}/rounding-unit`);
   assert.ok(params(rounding).includes("header:If-Match"));

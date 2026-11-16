@@ -9,8 +9,8 @@ import { fetchPlatformAreaMap } from "../../api/area-map.ts";
 import type { AreaSummary } from "../../api/areas.ts";
 import type { VehicleGroup } from "../../api/master.ts";
 import { type AddonOption, listAddonOptions } from "../../api/master-options.ts";
-import { getPlatformHolidays } from "../../api/platform-products.ts";
-import { type AdjustRules, type Holidays, type PriceRules, getAdjustRules, getHolidays, getPriceRules } from "../../api/prices.ts";
+import { getPlatformCharterMigrationDiff, getPlatformHolidays } from "../../api/platform-products.ts";
+import { type AdjustRules, type CharterMigrationDiff, type Holidays, type PriceRules, getAdjustRules, getCharterMigrationDiff, getHolidays, getPriceRules } from "../../api/prices.ts";
 import { type ProductContentResponse, type ProductServiceRules, getProductContent, getServiceRules, listAllAreas, listTenantAddons, listTenantVehicleGroups } from "../../api/products.ts";
 import { PRODUCT_LIST_PATH, type PriceTab, type ProductPaths, productPathsUnder } from "../../lib/product-paths.ts";
 
@@ -26,6 +26,8 @@ export interface ProductSource {
   content(token: string, id: string): Promise<ProductContentResponse>;
   priceRules(token: string, id: string): Promise<PriceRules>;
   adjustRules(token: string, id: string): Promise<AdjustRules>;
+  /** 包车三层区域迁移的「套餐价不一致」明细（M9P-07：迁移过的商品价格页顶部「迁移差异 N 条」）：供应商后台走 `/tenant/v1`，运营后台走 `/platform/v1` */
+  charterMigrationDiff(token: string, id: string): Promise<CharterMigrationDiff>;
   /** 平台的车型组（连已停用的）；不需要时为 null（只读查看时商品里已经带着所选车型组的全部信息） */
   vehicleGroups: ((token: string) => Promise<VehicleGroup[]>) | null;
   /** 平台的附加服务目录（连已停用的）：供应商后台走租户的主数据，运营后台走附加服务选项接口（ADR 0047） */
@@ -50,6 +52,7 @@ export const TENANT_PRODUCT_SOURCE: ProductSource = {
   content: getProductContent,
   priceRules: getPriceRules,
   adjustRules: getAdjustRules,
+  charterMigrationDiff: getCharterMigrationDiff,
   vehicleGroups: listTenantVehicleGroups,
   addons: listTenantAddons,
   holidays: getHolidays,
@@ -78,6 +81,7 @@ export function platformProductSource(base: string, parts: PlatformProductParts)
     content: () => Promise.resolve(parts.content),
     priceRules: () => Promise.resolve(parts.priceRules),
     adjustRules: () => Promise.resolve(parts.adjustRules),
+    charterMigrationDiff: getPlatformCharterMigrationDiff,
     vehicleGroups: null,
     addons: listAddonOptions,
     holidays: getPlatformHolidays,
