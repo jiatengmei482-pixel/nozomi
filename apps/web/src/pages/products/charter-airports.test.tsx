@@ -87,7 +87,12 @@ function open(options: { role?: string; layout?: "three_layer" | null; bindings?
 }
 
 const user = () => userEvent.setup();
-const card = async (): Promise<HTMLElement> => (await screen.findByRole("heading", { level: 2, name: "机场套餐" }, { timeout: 3000 })).closest("section") as HTMLElement;
+const card = async (): Promise<HTMLElement> => {
+  const section = (await screen.findByRole("heading", { level: 2, name: "机场套餐" }, { timeout: 3000 })).closest("section") as HTMLElement;
+  // 标题先出来，绑定还在加载时只有「…」；等加载完再找里面的组
+  await waitFor(() => assert.equal([...section.querySelectorAll("p.field__hint")].some((hint) => hint.textContent === "…"), false), { timeout: 3000 });
+  return section;
+};
 const group = (section: HTMLElement, name: RegExp): HTMLElement => within(section).getByRole("group", { name }) as HTMLElement;
 
 test("迁移过的包车：两组机场绑定；加一行选机场、机场区域、简称，保存整组替换（机场开始在前），带 If-Match，成功后提示", async () => {

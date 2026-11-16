@@ -116,7 +116,12 @@ function open(items: PriceRuleBody[], bindings: CharterAirportBinding[] = [bindi
 
 const user = () => userEvent.setup();
 const SLOW = { timeout: 3000 };
-const airportTable = async (): Promise<HTMLElement> => (await screen.findByRole("heading", { level: 3, name: "机场套餐价" }, SLOW)).closest("section") as HTMLElement;
+const airportTable = async (): Promise<HTMLElement> => {
+  const section = (await screen.findByRole("heading", { level: 3, name: "机场套餐价" }, SLOW)).closest("section") as HTMLElement;
+  // 标题先出来，机场和区域还在加载时只有「…」；等加载完再看表
+  await waitFor(() => assert.equal([...section.querySelectorAll("p.field__hint")].some((hint) => hint.textContent === "…"), false), SLOW);
+  return section;
+};
 const cell = (section: HTMLElement, scenario: "机场开始" | "机场结束", hours: number): HTMLInputElement => within(section).getByLabelText(`${scenario} · 成田机场 · 经济七座 · ${hours} 小时 的单独价`) as HTMLInputElement;
 const td = (input: HTMLElement): HTMLElement => input.closest("td") as HTMLElement;
 type Batch = { create: Record<string, unknown>[]; update: Record<string, unknown>[]; delete: string[] };
