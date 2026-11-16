@@ -20,6 +20,7 @@
  * 宿主窗口宽而预订区窄时照样单栏；宽窄切换后 resize 报的高度等于内容高度、不多发 step；亮暗两色 axe；截图存到 E2E_SCREENSHOT_DIR（m9e27-*.png）。
  * M9E-32（ADR 0100）：390 宽时 iframe 被撑到全高，每一步的主按钮和「上一步」在底部按钮条里，宿主页滚到顶部、中间时按宿主发的 viewport{top}
  * 停在宿主屏幕下沿看得见，滚到底回到原位置；截图 m9e32-embed-*.png。
+ * M9P-22（ADR 0098 第三节第 7 小节）：iframe 里包车快捷入口「机场送机结束」按航站楼选，询价匹配到机场、明细写场景名，第 3 步备注提示航班号。
  */
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -27,6 +28,7 @@ import { AxeBuilder } from "@axe-core/playwright";
 import { type APIRequestContext, type Locator, type Page, expect, test } from "@playwright/test";
 import { E2E_WEB_PLACES_PORT, E2E_WEB_STRIPE_PORT } from "../playwright.config.ts";
 import { TOKYO_STATION, createAirport, publishTransfer, tomorrowInTokyo } from "./book-new-support.ts";
+import { charterAirportWorld } from "./charter-airport-support.ts";
 import { charterWorld } from "./charter-support.ts";
 import { createSupplier, createWorld } from "./catalog.ts";
 import { TEST_CARDS, routeStripe } from "./fake-stripe.ts";
@@ -381,6 +383,52 @@ test("M9P-20 跨站：iframe 里的包车第 2 步有行程地图（本站 /site
   expect(new URL(response.url()).searchParams.getAll("p")).toEqual([fix(trip.pickup), fix(stop), fix(trip.nearby)]);
   await expect(schedule.getByRole("img", { name: /^路线图：1 上车酒店 → 2 经停车站 → 3 市内下车点，约 .+ 公里$/ })).toBeVisible();
   await expect(frame.locator(".leaflet-container")).toHaveCount(0);
+  const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+  expect(axe.violations.map((violation) => `${violation.id}: ${violation.help}`)).toEqual([]);
+});
+
+test("M9P-22 跨站：iframe 里包车快捷入口「机场送机结束」按航站楼选下车点（列出绑定的机场、区域里的航站楼），询价匹配到机场结束、明细写「8 小时包车 + 简称送机」；第 3 步备注提示航班号；axe", async ({ page, request }) => {
+  test.setTimeout(180_000);
+  const trip = await charterAirportWorld(request);
+  const host = await newHost(request, { services: ["transfer", "charter"] });
+  const draft = {
+    v: 1,
+    tab: "charter",
+    service_local: `${tomorrowInTokyo()}T10:00`,
+    pickup: { name: "上车酒店", ...trip.pickup },
+    dropoff: { name: "市内下车点", ...trip.nearby },
+    waypoints: [],
+    package_hours: null,
+    passengers: 2,
+    luggage: 2,
+    lang: "zh",
+  };
+  const created = await request.post(`/embed/v1/booking-drafts?key=${encodeURIComponent(host.key)}`, { headers: { origin: host.origin }, data: { draft, delivery: "host_page" } });
+  expect(created.status(), await created.text()).toBe(201);
+  const draftId = ((await created.json()) as { id: string }).id;
+  await page.goto(`${host.origin}/booking/?nzdraft=${draftId}`);
+  const frame = frameOf(page);
+  // 草稿带齐了直接到第 2 步：回第 1 步用快捷入口
+  await expect(frame.getByRole("heading", { name: trip.groupName }).first()).toBeVisible();
+  await frame.getByRole("button", { name: "上一步" }).click();
+  await frame.getByRole("button", { name: "机场送机结束" }).click();
+  await expect(frame.getByRole("button", { name: "机场送机结束" })).toHaveAttribute("aria-pressed", "true");
+  const terminal = frame.getByLabel("下车地点（选择航站楼）");
+  await expect(terminal.locator("option", { hasText: trip.terminalLabel })).toHaveCount(1);
+  await terminal.selectOption({ label: trip.terminalLabel });
+  const quoted = page.waitForResponse((res) => new URL(res.url()).pathname === "/site/v1/quotes" && res.request().method() === "POST");
+  await frame.getByRole("button", { name: "下一步：选择车型" }).click();
+  const response = await quoted;
+  expect(response.status()).toBe(200);
+  expect((JSON.parse(response.request().postData() ?? "{}") as { dropoff: { lat: number; lng: number } }).dropoff).toEqual(trip.terminal);
+  await expect(frame.getByText(`8 小时包车 + ${trip.shortName}送机`).first()).toBeVisible();
+  await expect(frame.locator(".leaflet-container")).toHaveCount(0);
+
+  await frame.getByRole("button", { name: `选择 ${trip.groupName}` }).click();
+  await frame.getByRole("button", { name: "下一步：填写乘客信息" }).click();
+  await expect(frame.getByRole("heading", { name: "乘客信息", level: 2 })).toBeVisible();
+  await expect(frame.locator("#book-notes-hint")).toHaveText("如需司机知道航班号，请填在这里");
+  await expect(frame.getByLabel(/航班号/)).toHaveCount(0);
   const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
   expect(axe.violations.map((violation) => `${violation.id}: ${violation.help}`)).toEqual([]);
 });

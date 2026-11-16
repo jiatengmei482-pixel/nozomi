@@ -5,9 +5,10 @@
  * 运营后台里只读查看某个供应商的商品（数据来自 `GET /platform/v1/products/{id}` 一次取回的详情，ADR 0021）。
  * 步骤组件不直接调接口、不直接拼地址，都经由这里。
  */
-import { fetchPlatformAreaMap } from "../../api/area-map.ts";
-import type { AreaSummary } from "../../api/areas.ts";
-import type { VehicleGroup } from "../../api/master.ts";
+import { fetchPlatformAreaMap, fetchTenantAreaMap } from "../../api/area-map.ts";
+import type { Area, AreaSummary } from "../../api/areas.ts";
+import { type CharterAirports, getAirportPlace, getCharterAirports, getPlatformCharterAirports } from "../../api/charter-airports.ts";
+import type { Place, VehicleGroup } from "../../api/master.ts";
 import { type AddonOption, listAddonOptions } from "../../api/master-options.ts";
 import { getPlatformCharterMigrationDiff, getPlatformHolidays } from "../../api/platform-products.ts";
 import { type AdjustRules, type CharterMigrationDiff, type Holidays, type PriceRules, getAdjustRules, getCharterMigrationDiff, getHolidays, getPriceRules } from "../../api/prices.ts";
@@ -40,6 +41,12 @@ export interface ProductSource {
   areas(token: string): Promise<AreaSummary[]>;
   /** 运营后台查看时商品属于哪个供应商（区域地图按它取）；供应商后台是 null */
   tenantId: string | null;
+  /** 包车机场套餐的机场绑定（M9P-22，ADR 0098）：供应商后台走 `/tenant/v1`（可以改），运营后台走 `/platform/v1`（只读） */
+  charterAirports(token: string, id: string): Promise<CharterAirports>;
+  /** 供应商的区域连同图形（价格页「机场套餐价」算继承价时判断机场落在哪个区域）：两边都走区域地图接口 */
+  areaShapes(token: string): Promise<Area[]>;
+  /** 一个机场的主数据（要它的坐标） */
+  airportPlace(token: string, id: string): Promise<Place>;
 }
 
 /** 供应商后台：每一步各自取自己的内容。 */
@@ -58,6 +65,9 @@ export const TENANT_PRODUCT_SOURCE: ProductSource = {
   holidays: getHolidays,
   areas: (token) => listAllAreas(token),
   tenantId: null,
+  charterAirports: getCharterAirports,
+  areaShapes: async (token) => (await fetchTenantAreaMap(token, { status: "all" })).items,
+  airportPlace: (token, id) => getAirportPlace("tenant", token, id),
 };
 
 /** 运营后台只读查看的详情：各部分已经一次取回，步骤组件拿到的就是这一份。 */
@@ -87,5 +97,8 @@ export function platformProductSource(base: string, parts: PlatformProductParts)
     holidays: getPlatformHolidays,
     areas: async (token) => (await fetchPlatformAreaMap(token, { tenant_id: parts.tenantId, status: "all" })).items,
     tenantId: parts.tenantId,
+    charterAirports: getPlatformCharterAirports,
+    areaShapes: async (token) => (await fetchPlatformAreaMap(token, { tenant_id: parts.tenantId, status: "all" })).items,
+    airportPlace: (token, id) => getAirportPlace("platform", token, id),
   };
 }
