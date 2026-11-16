@@ -13,6 +13,7 @@ import { type AreaPolygonShape, type AreaRole, locatePoint } from "./areas.ts";
 import { type AirportBinding, type AirportScenario, type AirportScenarioKind, airportPackagePricing, airportPackageRule, airportScenarios, scenarioEnd } from "./charter-airport.ts";
 import { type DistancePrice, type PricingBasis, selectDistancePrice } from "./distance-price.ts";
 import type { LatLng } from "./geo.ts";
+import type { ArriveBy } from "./arrive-by.ts";
 import { type InventoryDay, type InventoryMode, hasInventory } from "./inventory.ts";
 import type { AddonChargeUnit, FlightScope, PlaceType, ServiceCategory } from "./master-data.ts";
 import { type CurrencyCode, ceilFractionToUnit, minorDigits, roundFractionToUnit } from "./money.ts";
@@ -138,8 +139,11 @@ export type CharterSelection = (typeof CHARTER_SELECTIONS)[number];
 /** 包车按行程计价的全程（ADR 0088 补充）：`meters`、`minutes` 是引擎用的合计；`legs`（逐段行驶）、`stayMinutes`（停留合计）只随快照锁定，引擎不看 */
 export type RouteUsage = RouteEstimate & { readonly legs?: readonly RouteEstimate[]; readonly stayMinutes?: number };
 
-/** 一个经停点：引擎只看坐标；官网带来的名称、停留分钟（`snapshot.request.waypoints` 的写法 `{ name, lat, lng, stay_minutes }`）原样留在快照里，下单时抄进订单 */
-export type QuoteWaypoint = LatLng & { readonly name?: string; readonly stay_minutes?: number };
+/**
+ * 一个经停点：引擎只看坐标；官网带来的名称、停留分钟（`snapshot.request.waypoints` 的写法 `{ name, lat, lng, stay_minutes }`）原样留在快照里，下单时抄进订单。
+ * `arrive_by`（M9P-20 P3）：指定到达时间，同样原样留在快照里、抄进订单，报价不看它
+ */
+export type QuoteWaypoint = LatLng & { readonly name?: string; readonly stay_minutes?: number; readonly arrive_by?: ArriveBy };
 
 /** 请求里的经停点（不给按没有） */
 const waypointsOf = (request: Pick<QuoteRequest, "waypoints">): readonly QuoteWaypoint[] => request.waypoints ?? [];
