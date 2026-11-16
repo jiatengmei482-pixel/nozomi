@@ -3,8 +3,9 @@
  * 客人自己的订单凭查看令牌（`nzo_…`，在订单页地址的 `#` 后面），放进 `Authorization` 请求头。要挂 Stripe 表单时令牌从地址移到这条历史记录的 state 里（ADR 0046），不进其他存储。
  * 类型与 `apps/api/openapi.yaml` 对账（site.contract.test.ts）。
  */
-import type { ExtraChargeStatus, ExtraChargeType, LocalizedText, MessagingApp, OrderChangeStatus, OrderStatus, PricingBasis } from "@nozomi/domain";
+import type { ExtraChargeStatus, ExtraChargeType, FlightKind, LocalizedText, MessagingApp, OrderChangeStatus, OrderStatus, PricingBasis } from "@nozomi/domain";
 import { apiRequest, apiStatus } from "./client.ts";
+import type { FreeWaitBasis } from "./dispatch.ts";
 import type { MapTiles } from "./areas.ts";
 import type { CancelTier, OrderCancelPolicy } from "./order-money.ts";
 
@@ -97,7 +98,7 @@ export interface SiteQuoteRequest {
   pickup?: SitePoint;
   /** 点对点：下车点 */
   dropoff?: SitePoint;
-  /** 包车：经停点（途经景点，M9W-01，ADR 0088），按顺序，最多 10 个；不填 = 没有。页面编辑在 M9W-02 */
+  /** 包车：经停点（途经景点，M9W-01，ADR 0088），按顺序，最多 25 个（M9P-10，`CHARTER_ITINERARY_LIMITS`）；不填 = 没有。页面编辑在 M9W-02 */
   waypoints?: { name: string; lat: number; lng: number; stay_minutes: number }[];
   /** 包车按行程计价（M9W-01）：true 时不给 package_hours，服务器估路线、选套餐、收超公里 / 超时 */
   itinerary_pricing?: boolean;
@@ -167,7 +168,12 @@ export interface SiteQuote {
   estimated_minutes?: number | null;
   includes_buffer?: boolean | null;
   auto_package_hours?: number | null;
+  /** 超限提醒（M9P-10）：按中标商品的提醒线，T 超过为 `LONG_DURATION`、全程超过为 `LONG_DISTANCE`；都没超为空数组，仍可下单。没按行程计价为 null */
+  itinerary_warnings: SiteItineraryWarning[] | null;
 }
+
+/** 包车行程超限提醒的种类（M9P-10） */
+export type SiteItineraryWarning = "LONG_DURATION" | "LONG_DISTANCE";
 
 /** 对外价明细的一项（M9W-01）：基础价 / 套餐、上 / 下车加价、一个区域的途经加价、调价、其他费用 */
 export interface SitePriceBreakdownItem {
@@ -217,6 +223,8 @@ export interface SiteQuoteResult {
   /** `waypoint_stop_seqs`：原因里有 WAYPOINT_NOT_PRICED 时是哪几个经停点（从 1 起，M9W-01） */
   /** `min_package_hours`：原因里有 PACKAGE_TOO_SHORT 时，这个车型最短能选几小时（M9P-03） */
   unavailable: { vehicle_group_id: string | null; reasons: SiteUnavailableReason[]; waypoint_stop_seqs?: number[]; min_package_hours?: number }[];
+  /** 包车按行程计价、一家都没报出、至少一家因超长报不出时的询价日志编号：只用来申请经停顺序建议（M9P-20 P2） */
+  inquiry_ref?: string;
 }
 
 /** 按两个坐标报价的一端（M8-02，ADR 0069 A1）：地址文字（只校验）、坐标、地址搜索给的类型（手填、地图选点的不给）。 */
@@ -269,6 +277,8 @@ export interface SiteOrderRequest {
   quote_id: string;
   passenger: { name: string; phone: string; email: string };
   flight_no: string | null;
+  /** 国际 / 国内航班（M9E-28，ADR 0097）：接机（含改用点对点商品报价的接机）跟着航班号给；下单时按它锁定免费等待 */
+  flight_kind?: FlightKind | null;
   pickup_address: string | null;
   dropoff_address: string | null;
   messaging: { app: MessagingApp; handle: string } | null;
@@ -355,6 +365,10 @@ export interface SiteOrder {
   messaging: { app: MessagingApp; handle: string } | null;
   notes: string | null;
   free_wait_minutes: number | null;
+  /** 客人选的国际 / 国内航班（M9E-28，ADR 0097）；没选、不是接机为 null */
+  flight_kind?: FlightKind | null;
+  /** 接机按航班锁定免费等待的依据（M9E-28）；以前的单、不是接机为 null */
+  free_wait_basis?: FreeWaitBasis | null;
   created_at: string;
   confirmed_at: string | null;
   cancelled_at: string | null;
@@ -437,6 +451,8 @@ export type SiteCancelReason = "GUEST_REQUEST" | "CHANGE_NOT_CONFIRMED";
 export interface SiteChangeRequest {
   passenger?: { name: string; phone: string; email: string };
   flight_no?: string | null;
+  /** 国际 / 国内航班（M9E-28）：接机才能改 */
+  flight_kind?: FlightKind | null;
   notes?: string | null;
   pickup_address?: string;
   dropoff_address?: string;
@@ -480,7 +496,7 @@ export const SITE_SCHEMA_FIELDS = {
   SiteAirport: ["id", "code", "name", "location"],
   SiteCharterPackage: ["hours"],
   SitePlace: ["id", "type", "code", "name", "address", "location"],
-  SiteQuote: ["quote_id", "expires_at", "service_date", "urgent", "vehicle_group", "package", "includes_area_surcharge", "distance", "pricing_basis", "price", "price_breakdown", "free_wait_minutes", "cancel_policy", "available_addons", "estimated_minutes", "includes_buffer", "auto_package_hours"],
+  SiteQuote: ["quote_id", "expires_at", "service_date", "urgent", "vehicle_group", "package", "includes_area_surcharge", "distance", "pricing_basis", "price", "price_breakdown", "free_wait_minutes", "cancel_policy", "available_addons", "estimated_minutes", "includes_buffer", "auto_package_hours", "itinerary_warnings"],
   SiteAddonOption: ["id", "code", "name", "charge_unit"],
   SiteOrderLink: ["token", "expires_at"],
   SiteOrderEnvelope: ["return_url", "order", "timeline", "names", "price_breakdown"],
@@ -492,7 +508,7 @@ export const SITE_ORDER_VEHICLE_GROUP_FIELDS: readonly (keyof NonNullable<SiteOr
 
 export const SITE_ORDER_FIELDS: readonly (keyof SiteOrder)[] = [
   "id", "order_no", "status", "category", "city_id", "place_id", "direction", "vehicle_group_id", "package_hours", "service_time", "service_local", "timezone", "service_date", "urgent",
-  "passengers", "luggage", "pickup", "dropoff", "waypoints", "itinerary", "addons", "driver_language", "flight_no", "passenger", "rider", "messaging", "notes", "free_wait_minutes", "created_at", "confirmed_at", "cancelled_at",
+  "passengers", "luggage", "pickup", "dropoff", "waypoints", "itinerary", "addons", "driver_language", "flight_no", "passenger", "rider", "messaging", "notes", "free_wait_minutes", "flight_kind", "free_wait_basis", "created_at", "confirmed_at", "cancelled_at",
   "cancel_reason", "quote_id", "channel_order_no", "price", "includes_area_surcharge", "distance", "pricing_basis", "payment_status", "payment_due_at", "winning_tenant", "driver", "vehicle", "landing", "cancel_policy", "cancellation",
   "free_cancel_available", "changes", "extra_charges", "version",
 ];
@@ -502,7 +518,7 @@ export const SITE_TRIP_END_FIELDS: readonly (keyof SiteTripEnd)[] = ["name", "la
 export const SITE_BY_POINTS_RESULT_FIELDS: readonly (keyof SiteByPointsResult)[] = ["trip_type", "airport", "fallback_category", "city", "currency", "quotes", "unavailable", "expires_at", "route"];
 export const SITE_QUOTE_REQUEST_FIELDS: readonly (keyof SiteQuoteRequest)[] = ["category", "city_id", "airport_id", "direction", "address", "pickup", "dropoff", "waypoints", "itinerary_pricing", "package_hours", "service_local", "passengers", "luggage", "addons", "pickup_name", "dropoff_name", "draft_id"];
 export const SITE_FX_REFERENCE_FIELDS: readonly (keyof SiteFxReference)[] = ["available", "from", "to", "rate", "as_of", "reason"];
-export const SITE_ORDER_REQUEST_FIELDS: readonly (keyof SiteOrderRequest)[] = ["quote_id", "passenger", "flight_no", "pickup_address", "dropoff_address", "messaging", "notes", "save_payment_method", "sign_name", "passenger_name", "passenger_phone"];
+export const SITE_ORDER_REQUEST_FIELDS: readonly (keyof SiteOrderRequest)[] = ["quote_id", "passenger", "flight_no", "flight_kind", "pickup_address", "dropoff_address", "messaging", "notes", "save_payment_method", "sign_name", "passenger_name", "passenger_phone"];
 
 const guest = (token: string) => ({ token });
 
@@ -676,6 +692,38 @@ export function createSiteQuotes(body: SiteQuoteRequest): Promise<SiteQuoteResul
   return apiRequest("POST", `${SITE_BASE}/quotes`, { body });
 }
 
+/** 包车经停顺序建议的请求（M9P-20 P2，ADR 0096 第三节）：当前顺序的询价、每个经停的标识、当前报价编号或超长时的询价日志编号、预订会话。 */
+export interface SiteOrderSuggestionRequest {
+  quote: SiteQuoteRequest;
+  refs: string[];
+  quote_id?: string;
+  inquiry_ref?: string;
+  session: string;
+}
+
+export type SiteItineraryRouteJson = NonNullable<SiteQuoteResult["itinerary_route"]>;
+
+export interface SiteOrderSuggestion {
+  /** 按建议顺序排的经停标识 */
+  order: string[];
+  saved_meters: number;
+  saved_minutes: number;
+  current_itinerary_route: SiteItineraryRouteJson;
+  itinerary_route: SiteItineraryRouteJson;
+  /** 除经停顺序外全部询价字段的摘要（domain 的 suggestionRequestKey）：「一键采用」前核对 */
+  request_key: string;
+  thresholds: { min_saved_meters: number; min_saved_minutes: number };
+  /** 当前顺序因超长报不出（用询价日志申请的）：不看阈值、不写省多少钱 */
+  current_too_long: boolean;
+  quote_result: SiteQuoteResult;
+}
+
+export type SiteOrderSuggestionReason = "NOT_APPLICABLE" | "DISABLED" | "UNAVAILABLE" | "RATE_LIMITED" | "NO_ROUTE" | "SAME_ORDER" | "BELOW_THRESHOLD" | "NO_QUOTE";
+
+export function createSiteOrderSuggestion(body: SiteOrderSuggestionRequest): Promise<{ suggestion: SiteOrderSuggestion | null; reason: SiteOrderSuggestionReason | null }> {
+  return apiRequest("POST", `${SITE_BASE}/charter/order-suggestion`, { body });
+}
+
 /** 参考汇率（M8-02）：订单币种 → 客人币种，只用于显示「≈ 金额」，实际按订单币种收款。 */
 export interface SiteFxReference {
   available: boolean;
@@ -799,6 +847,57 @@ export function siteRouteMapUrl(request: SiteRouteMapRequest): string {
     scale: String(request.scale),
   });
   return `${SITE_BASE}/route-map?${query.toString()}`;
+}
+
+export interface SiteItineraryMapRequest {
+  /** 按行程顺序：上车、经停、下车（2–12 个） */
+  points: readonly SitePoint[];
+  theme: "light" | "dark";
+  width: number;
+  height: number;
+  scale: 1 | 2;
+}
+
+/**
+ * 包车行程地图的地址（M9P-20，ADR 0096）：`GET /site/v1/itinerary-map?p=纬度,经度&p=…`，成功是一张 PNG（编号 1 = 上车、经停依次、最后 = 下车），
+ * 直接给 `<img>` 用（同源，嵌入页也是 img-src 'self'）。
+ */
+export function siteItineraryMapUrl(request: SiteItineraryMapRequest): string {
+  const query = new URLSearchParams();
+  for (const point of request.points) query.append("p", `${point.lat.toFixed(6)},${point.lng.toFixed(6)}`);
+  query.append("theme", request.theme);
+  query.append("width", String(request.width));
+  query.append("height", String(request.height));
+  query.append("scale", String(request.scale));
+  return `${SITE_BASE}/itinerary-map?${query.toString()}`;
+}
+
+/** 包车行程逐段的约多少分钟、多少米（M9P-20，ADR 0096）：没有经停、按自选时长报价的包车列表每段只作展示；取不到时 `available` 为 false。 */
+export interface SiteItineraryLegs {
+  available: boolean;
+  legs: { minutes: number; meters: number }[] | null;
+}
+
+export function getSiteItineraryLegs(points: readonly SitePoint[]): Promise<SiteItineraryLegs> {
+  const query = new URLSearchParams();
+  for (const point of points) query.append("p", `${point.lat.toFixed(6)},${point.lng.toFixed(6)}`);
+  return apiRequest("GET", `${SITE_BASE}/itinerary-legs?${query.toString()}`);
+}
+
+/**
+ * 行程地图没出来以后再问一次原因（M9P-20）：是「太频繁」（429）就给出过多少秒可以再试（应答里的 `retry_after_seconds`，没有时 30 秒）；
+ * 其他任何情况（出不来、网络、不是 429）为 null——页面只留列表、不再试。
+ */
+export async function siteMapRetryAfterSeconds(url: string): Promise<number | null> {
+  try {
+    const { status, body } = await apiStatus(url);
+    if (status !== 429) return null;
+    const details = (body as { error?: { details?: { retry_after_seconds?: unknown } } } | null)?.error?.details;
+    const seconds = details?.retry_after_seconds;
+    return typeof seconds === "number" && Number.isFinite(seconds) && seconds > 0 ? seconds : 30;
+  } catch {
+    return null;
+  }
 }
 
 /**

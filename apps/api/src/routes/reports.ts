@@ -22,6 +22,8 @@ const previewQuerySchema = z
       .pipe(z.number().int().min(1).max(ROLE_PREVIEW_MAX_DAYS))
       .default(String(ROLE_PREVIEW_DEFAULT_DAYS)),
     until: dateTimeSchema.optional(),
+    // 逐行明细（M9P-14）：只认 true；不给时应答和以前一字不差
+    rows: z.enum(["true"]).optional(),
   })
   .strict();
 
@@ -32,6 +34,6 @@ export function registerReportRoutes(app: FastifyInstance, ctx: AppContext, budg
     const query = parseInput(previewQuerySchema, request.query, "querystring");
     const now = ctx.now();
     if (query.until !== undefined && query.until.getTime() > now.getTime()) throw validationFailed("querystring", [{ path: "/until", message: "不能晚于现在" }]);
-    return runRolePreviewReport(ctx, principal, { days: query.days, until: query.until ?? now, now }, request.ip, budgetMs);
+    return runRolePreviewReport(ctx, principal, { days: query.days, until: query.until ?? now, now, ...(query.rows === "true" ? { rows: true } : {}) }, request.ip, budgetMs);
   });
 }

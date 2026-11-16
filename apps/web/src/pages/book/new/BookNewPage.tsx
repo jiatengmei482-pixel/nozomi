@@ -18,7 +18,7 @@
  */
 import { charterAirportText, quoteScenario } from "../../../lib/charter-airport-copy.ts";
 import { type AirportQuickMode, AirportQuickButtons, TerminalSelect } from "./AirportQuickEntry.tsx";
-import { type CityCandidate, type CurrencyCode, ORDER_FIELD_LIMITS, fixedPriceIncludes, fixedPriceIncludesTitle, fixedPriceLabel, isInternationalPhone, serviceCityOf } from "@nozomi/domain";
+import { type CityCandidate, type CurrencyCode, type FlightKind, ORDER_FIELD_LIMITS, fixedPriceIncludes, fixedPriceIncludesTitle, fixedPriceLabel, isInternationalPhone, serviceCityOf, displayStopNumber, reorderByRefs } from "@nozomi/domain";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { ApiError } from "../../../api/client.ts";
@@ -36,6 +36,7 @@ import {
   createSiteQuotes,
   createSiteQuotesByPoints,
   getSiteFxReference,
+  getSiteItineraryLegs,
   listSiteCharterPackagesAt,
   getSitePlaceByCode,
   listSiteCities,
@@ -47,7 +48,6 @@ import { Icon } from "../../../components/Icon.tsx";
 import { Skeleton, StateBlock } from "../../../components/States.tsx";
 import { TextField } from "../../../components/TextField.tsx";
 import {
-  type AirportFlightScope,
   BOOK_STEPS,
   BOOK_TABS,
   BOOK_TAB_NAMES,
@@ -58,7 +58,9 @@ import {
   SIGN_NAME_MAX,
   type TripPoint,
   VISIBLE_VEHICLES,
-  arrivalFreeWaitMinutes,
+  FLIGHT_KIND_NAMES,
+  arrivalFreeWait,
+  arrivalHintText,
   bookStepOf,
   cityOffersTab,
   defaultDateCity,
@@ -79,20 +81,29 @@ import { CHARTER_ITINERARY_OVERAGE_NOTE, CHARTER_OVERAGE_NOTE, UNAVAILABLE_REASO
 import { FIELD_HINTS, MESSAGING_NAMES, type OrderErrors, type OrderForm, type OrderTrip, orderFailureOf, orderRequestOf, validateOrderForm } from "../../../lib/site-order-form.ts";
 import { useDocumentTitle } from "../../../lib/use-document-title.ts";
 import { MANUAL_QUOTE_CHARTER_HOURS, type ManualQuoteTripDraft } from "../../../lib/manual-quote-form.ts";
-import { ITINERARY_NOTE, type WaypointDraft, autoPackageChoice, autoPackageHoursByVehicle, breakdownLines, upgradePackageHours, durationText, itineraryPackageHours, itineraryRouteFailureText, itineraryText, minPackageHints, scheduleRows, waypointErrors, waypointUnavailableTexts, waypointsBody } from "../../../lib/charter-itinerary.ts";
+import { ItineraryWarnings } from "./ItineraryWarnings.tsx";
+import { ITINERARY_NOTE, type WaypointDraft, autoPackageChoice, autoPackageHoursByVehicle, breakdownLines, upgradePackageHours, durationText, itineraryMapAlt, itineraryMapPoints, itineraryPackageHours, itineraryRouteFailureText, itineraryText, minPackageHints, scheduleRows, waypointErrors, waypointUnavailableTexts, waypointsBody } from "../../../lib/charter-itinerary.ts";
 import { TripStops } from "../../../components/TripStops.tsx";
+import { itineraryCopy } from "../../../lib/itinerary-texts.ts";
+import { type LiveSuggestion, liveSuggestion, orderChain, stopSetKey, suggestionQuoteExpired, suggestionTitle } from "../../../lib/order-suggestion.ts";
 import { ADDRESS_ONLY_HINT, DRAFT_EXPIRED_TEXT, DRAFT_FAILED_TEXT, draftReadyToQuote, draftTrip } from "../../../lib/booking-draft.ts";
 import { ManualQuoteBlock } from "../ManualQuote.tsx";
 import { siteFailureText, useSiteConfig } from "../SiteLayout.tsx";
 import { SitePrice } from "../SitePrice.tsx";
-import { AddonsBlock, CONTACT_FORM_ID, ConsentField, type ContactForm, ContactSection, PayBlock, PriceBlock, type PricedState, RouteBlock, emptyContact } from "./CheckoutParts.tsx";
+import { checkoutCopy } from "../../../lib/checkout-texts.ts";
+import { AddonsBlock, CONTACT_FORM_ID, ConsentField, type ContactForm, ContactSection, PayBlock, PayButton, PriceBlock, type PricedState, RouteBlock, emptyContact } from "./CheckoutParts.tsx";
+import { ItineraryMap } from "./ItineraryMap.tsx";
+import { OrderSuggestionBlock, type SuggestionBasis, useOrderSuggestion } from "./OrderSuggestion.tsx";
 import { PlaceField } from "./PlaceField.tsx";
 import { PriceBreakdown } from "./PriceBreakdown.tsx";
 import { WaypointsField } from "./WaypointsField.tsx";
 import { useBookingShell } from "./booking-shell.tsx";
+import { FlightKindField } from "../FlightKindField.tsx";
 import { PickerTextField } from "./full-screen.tsx";
 import { TravellersField } from "./TravellersField.tsx";
 import { VehicleList } from "./VehicleList.tsx";
+import { STEP_BAR_REASON_ID, StepActionBar, useCompactScreen, useViewportFitCover } from "./StepActionBar.tsx";
+import { stepBarCopy, vehicleStepReason } from "../../../lib/step-bar-texts.ts";
 
 /** 填齐后停顿多久再报价（毫秒）：连点 − + 时只报最后一次。 */
 export const QUOTE_DEBOUNCE_MS = 400;
@@ -134,6 +145,8 @@ export interface TripDraft {
   waypoints: WaypointDraft[];
   /** 接机：航班号（第 3 步填；下单时接机必填，和旧下单页同一条规则） */
   flightNo: string;
+  /** 接机：国际 / 国内航班（M9E-28，第 3 步和航班号一起选；按它定免费等待）；没选为 "" */
+  flightKind: FlightKind | "";
 }
 
 type Outcome = { mode: "transfer"; result: SiteByPointsResult } | { mode: "charter"; result: SiteQuoteResult; city: SiteQuotedCity };
@@ -168,7 +181,13 @@ function nearbyCharterCity(point: TripPoint | null, cities: readonly SiteCity[])
  * `draftId`：从嵌入组件的预订草稿进来、草稿读到了时的草稿编号（M9E-12，ADR 0090 第三节第 3 小节）——包车、接送两种询价都带上，
  * 服务端按它把草稿上的来源记到这次的报价、下单时再记到订单；草稿过期、无效时服务端只是忽略，不影响报价。
  */
-function requestOf(draft: TripDraft, charterCity: SiteQuotedCity | null, draftId: string | null, addons: readonly SiteAddonRequest[] = [], upgradeHours = ""): { key: string; run(): Promise<Outcome> } | null {
+/** 有经停点时手动升档记在哪段行程上（M9P-03）：上下车点、经停点和停留按顺序；没有经停点时为 null */
+function itineraryKeyOf(draft: TripDraft): string | null {
+  const stops = draft.mode === "charter" ? waypointsBody(draft.waypoints) : null;
+  return stops !== null && stops.length > 0 && draft.from !== null && draft.to !== null ? JSON.stringify([draft.from.lat, draft.from.lng, draft.to.lat, draft.to.lng, stops]) : null;
+}
+
+function requestOf(draft: TripDraft, charterCity: SiteQuotedCity | null, draftId: string | null, addons: readonly SiteAddonRequest[] = [], upgradeHours = ""): { key: string; run(): Promise<Outcome>; body?: SiteQuoteRequest } | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.date) || !/^\d{2}:\d{2}$/.test(draft.time) || draft.from === null) return null;
   const serviceLocal = `${draft.date}T${draft.time}`;
   const source = draftId === null ? {} : { draft_id: draftId };
@@ -182,6 +201,7 @@ function requestOf(draft: TripDraft, charterCity: SiteQuotedCity | null, draftId
     const body: SiteQuoteRequest = { category: "charter", pickup: { lat: draft.from.lat, lng: draft.from.lng }, dropoff: { lat: draft.to.lat, lng: draft.to.lng }, ...(itinerary ? { itinerary_pricing: true, waypoints: stops, ...(upgradeHours === "" ? {} : { package_hours: Number(upgradeHours) }) } : { package_hours: Number(draft.packageHours) }), service_local: serviceLocal, passengers: draft.passengers, luggage: draft.luggage, ...(addons.length > 0 ? { addons: [...addons] } : {}), ...suggestionNames(draft.from, draft.to), ...source };
     return {
       key: JSON.stringify(body),
+      body,
       run: async () => {
         const result = await createSiteQuotes(body);
         return { mode: "charter", result, city: result.city ?? charterCity };
@@ -226,7 +246,7 @@ function linkNotice(ends: LinkResolution[], mode: BookMode): string | null {
 
 function initialDraft(link: BookingLink): TripDraft {
   const tab = link.mode ?? "transfer";
-  return { tab, mode: tab === "charter" ? "charter" : "transfer", from: null, to: null, date: link.date ?? "", time: link.time ?? "", passengers: link.passengers ?? 2, luggage: link.luggage ?? link.passengers ?? 2, packageHours: "", waypoints: [], flightNo: "" };
+  return { tab, mode: tab === "charter" ? "charter" : "transfer", from: null, to: null, date: link.date ?? "", time: link.time ?? "", passengers: link.passengers ?? 2, luggage: link.luggage ?? link.passengers ?? 2, packageHours: "", waypoints: [], flightNo: "", flightKind: "" };
 }
 
 /**
@@ -263,6 +283,9 @@ export function BookNewPage() {
   const location = useLocation();
   const link = useMemo(() => parseBookingLink(location.search), []);
   const wide = useWideScreen();
+  // 手机（≤ 768px）：每一步的按钮在底部按钮条里（M9E-32，ADR 0100）；主站这时给 viewport 加 viewport-fit=cover（安全区）
+  const compact = useCompactScreen() && !wide;
+  useViewportFitCover(compact && shell.hostViewport === undefined);
   const { state: config, reload: reloadConfig } = useSiteConfig();
   const [cities, setCities] = useState<Load<SiteCity[]>>({ kind: "loading" });
   const [round, setRound] = useState(0);
@@ -283,7 +306,7 @@ export function BookNewPage() {
   const [quote, setQuote] = useState<QuoteState>({ kind: "idle" });
   const [quoteRound, setQuoteRound] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [recognized, setRecognized] = useState<{ ends: string; tripType: SiteByPointsResult["trip_type"]; flightScope: AirportFlightScope | null } | null>(null);
+  const [recognized, setRecognized] = useState<{ ends: string; tripType: SiteByPointsResult["trip_type"] } | null>(null);
   const [charterMatch, setCharterMatch] = useState<{ key: string; load: Load<CharterMatch> } | null>(null);
   /** 包车套餐读失败后点「重试」：加一次重读 */
   const [charterRetry, setCharterRetry] = useState(0);
@@ -291,6 +314,8 @@ export function BookNewPage() {
   const [upgrade, setUpgrade] = useState<{ key: string; hours: string } | null>(null);
   /** 这段行程最近一次报价里自动选的档：手动升档后的报价暂时报不出时，下拉照样从它起列 */
   const [lastAuto, setLastAuto] = useState<{ key: string; byVehicle: Record<string, number> } | null>(null);
+  /** 没有经停的包车每段的时长和里程（M9P-20，ADR 0096）：和行程地图共用一次谷歌调用，只作展示；key 是这组点 */
+  const [plainLegs, setPlainLegs] = useState<{ key: string; legs: { minutes: number; meters: number }[] } | null>(null);
   const [addonQuantities, setAddonQuantities] = useState<Record<string, number>>({});
   const [addonQuote, setAddonQuote] = useState<AddonQuoteState | null>(null);
   const [guestCurrency, setGuestCurrency] = useState<CurrencyCode>(() => guestCurrencyOf(navigator.languages?.length ? navigator.languages : [navigator.language]));
@@ -435,8 +460,7 @@ export function BookNewPage() {
   const packageLoad: Load<number[]> | null = matchLoad === null || charterCity === null ? null : matchLoad.kind === "ready" ? { kind: "ready", items: matchLoad.items.hours } : matchLoad;
 
   // 有经停点时的手动升档（M9P-03）：按这段行程（上下车点、经停点和停留）记，行程变了就回到自动
-  const itineraryStops = draft.mode === "charter" ? waypointsBody(draft.waypoints) : null;
-  const itineraryKey = itineraryStops !== null && itineraryStops.length > 0 && draft.from !== null && draft.to !== null ? JSON.stringify([draft.from.lat, draft.from.lng, draft.to.lat, draft.to.lng, itineraryStops]) : null;
+  const itineraryKey = itineraryKeyOf(draft);
   const upgradeHours = itineraryKey !== null && upgrade !== null && upgrade.key === itineraryKey ? upgrade.hours : "";
 
   // 填齐了就报价：停顿一下再查；改了任何一项旧结果立刻收起（键对不上的结果不显示）
@@ -444,10 +468,18 @@ export function BookNewPage() {
   const requestKey = request?.key ?? null;
   const latestRequest = useRef(request);
   latestRequest.current = request;
+  /** 采用经停顺序建议时直接用建议报价（M9P-20 P2，ADR 0096 第三节第 5 小节）：按新顺序的请求键放在这里，重排后不再询价一次 */
+  const preloaded = useRef(new Map<string, Outcome>());
   useEffect(() => {
     const current = latestRequest.current;
     if (current === null) {
       setQuote({ kind: "idle" });
+      return;
+    }
+    const ready = preloaded.current.get(current.key);
+    if (ready !== undefined) {
+      preloaded.current.delete(current.key);
+      setQuote({ kind: "ready", key: current.key, outcome: ready });
       return;
     }
     let alive = true;
@@ -457,7 +489,7 @@ export function BookNewPage() {
         (outcome) => {
           if (!alive) return;
           setQuote({ kind: "ready", key: current.key, outcome });
-          if (outcome.mode === "transfer") setRecognized({ ends: sameEnds(draft.from, draft.to), tripType: outcome.result.trip_type, flightScope: outcome.result.airport?.flight_scope ?? null });
+          if (outcome.mode === "transfer") setRecognized({ ends: sameEnds(draft.from, draft.to), tripType: outcome.result.trip_type });
         },
         (err: unknown) => {
           if (!alive) return;
@@ -479,14 +511,31 @@ export function BookNewPage() {
   const outcome = current?.kind === "ready" ? current.outcome : null;
   const quotes = useMemo(() => (outcome === null ? [] : quotesByTotal(outcome.result.quotes)), [outcome]);
   const selected = quotes.find((entry) => entry.vehicle_group.id === selectedId) ?? null;
+  // 经停顺序建议（M9P-20 P2）：≥ 2 个经停、当前顺序有了报价（或超长时的询价日志编号）才申请
+  const suggestBody = request?.body !== undefined && (request.body.waypoints?.length ?? 0) >= 2 ? request.body : null;
+  const charterOutcome = outcome?.mode === "charter" ? outcome.result : null;
+  const suggestBasis: SuggestionBasis | null = charterOutcome === null ? null : charterOutcome.quotes[0] !== undefined ? { quote_id: (selected ?? quotesByTotal(charterOutcome.quotes)[0] ?? charterOutcome.quotes[0]).quote_id } : charterOutcome.inquiry_ref !== undefined ? { inquiry_ref: charterOutcome.inquiry_ref } : null;
+  const waypointRefs = draft.waypoints.map((entry) => entry.key);
+  const orderSuggestion = useOrderSuggestion(suggestBody, waypointRefs, suggestBasis, draftSource);
+  const [adoptedFrom, setAdoptedFrom] = useState<{ order: string[]; stopKey: string; upgradeHours: string } | null>(null);
+  const [suggestionNotice, setSuggestionNotice] = useState("");
+  const itineraryHeading = useRef<HTMLHeadingElement>(null);
+  /** 采用 / 恢复以后焦点移到行程标题：重排会换一份报价、整块重画，等新的报价画出来再移 */
+  const focusItinerary = useRef(false);
+  useEffect(() => {
+    if (!focusItinerary.current || outcome === null || itineraryHeading.current === null) return;
+    focusItinerary.current = false;
+    itineraryHeading.current.focus();
+  });
   const known = draft.mode !== "charter" && recognized !== null && recognized.ends === sameEnds(draft.from, draft.to) ? recognized : null;
   const tripType: SiteByPointsResult["trip_type"] | null = draft.mode === "charter" ? null : known !== null ? known.tripType : draft.from?.kind === "airport" ? "pickup" : null;
   const arrival = tripType === "pickup";
-  // 免费等待（M8-33、M9E-27）：有报价按所选商品自己设的；接机还没有报价时按这两端上次认出的机场：国际线 90、国内线 60，
-  // 没认出过（客人还没填齐、还没报过价）或机场国际国内都有、没标明的不写分钟数——不拿 60 去猜
+  // 免费等待：接机按航班定（M9E-28，ADR 0097；M9E-31 起平台统一 90 / 60）——选了国际 / 国内航班给那一种的分钟数，没选写「国际线最长 90 分钟、国内线最长 60 分钟」；
+  // 其他按所选商品自己设的
   const quotedForWait = selected ?? quotes[0] ?? null;
-  const flightScope = outcome?.mode === "transfer" ? (outcome.result.airport?.flight_scope ?? null) : (known?.flightScope ?? null);
-  const freeWait = arrival ? arrivalFreeWaitMinutes(quotedForWait, flightScope) : (quotedForWait?.free_wait_minutes ?? null);
+  const arrivalWait = arrival ? arrivalFreeWait(quotedForWait, draft.flightKind === "" ? null : draft.flightKind) : null;
+  const freeWait = arrivalWait === null ? (quotedForWait?.free_wait_minutes ?? null) : arrivalWait.kind === "minutes" ? arrivalWait.minutes : null;
+  const freeWaitRange = arrivalWait?.kind === "range" ? { international: arrivalWait.international, domestic: arrivalWait.domestic } : null;
   const timezone = outcome?.mode === "charter" ? outcome.city.timezone : (outcome?.result.city?.timezone ?? dateCity?.timezone ?? "Asia/Tokyo");
   const cityName = outcome?.mode === "charter" ? displayName(outcome.city.name).text : outcome?.result.city ? displayName(outcome.result.city.name).text : null;
   // 包车按行程计价（M9W-02）：有经停点时套餐由服务端按行程选，明细、时间表按这一次报价
@@ -508,6 +557,120 @@ export function BookNewPage() {
   const upgradeOptions = itinerary && packageLoad?.kind === "ready" && autoChoice !== null ? [...new Set([...upgradePackageHours(packageLoad.items, autoChoice.floor), ...(upgradeHours === "" ? [] : [Number(upgradeHours)])])].sort((a, b) => a - b) : [];
   const itinerarySummary = itinerary && charterResult !== null ? itineraryText(charterResult.itinerary_route, itineraryPackage) : null;
   const schedule = itinerary && draft.from !== null ? scheduleRows(draft.from.name, draft.to?.name ?? null, stops, charterResult?.itinerary_route?.legs ?? null) : null;
+  // 包车行程地图和列表（M9P-20，ADR 0096）：编号 1 = 上车、经停依次、最后 = 下车；没有经停时只有上车、下车两行
+  const plainLegsKey = draft.mode === "charter" && !itinerary && draft.from !== null && draft.to !== null && charterResult !== null ? `${draft.from.lat},${draft.from.lng};${draft.to.lat},${draft.to.lng}` : null;
+  const charterRows = schedule ?? (draft.mode === "charter" && draft.from !== null && draft.to !== null ? scheduleRows(draft.from.name, draft.to.name, [], plainLegs !== null && plainLegs.key === plainLegsKey ? plainLegs.legs : null) : null);
+  const charterMapPoints = charterRows !== null && draft.from !== null && draft.to !== null ? itineraryMapPoints(draft.from, stops, draft.to) : null;
+
+  // 经停顺序建议块（M9P-20 P2，ADR 0096 第三节第 5 小节、第四节）：拖动后按新的当前报价重算，不调接口
+  const suggestionData = orderSuggestion.suggestion;
+  const live: LiveSuggestion = suggestionData === null || draft.from === null || draft.to === null ? { visible: false } : liveSuggestion({ suggestion: suggestionData, currentRefs: waypointRefs, current: charterOutcome, currentLoading: current?.kind === "loading" || current === null, selectedGroupId: selected?.vehicle_group.id ?? null });
+  /** 采用 / 恢复时播报的那句：价格出来后接在它后面播「价格已更新」，不互相覆盖 */
+  const orderNotice = useRef<string | null>(null);
+  const adoptSuggestion = (): void => {
+    if (suggestionData === null || suggestBody === null || orderSuggestion.requestKey !== suggestionData.request_key) return;
+    const reordered = reorderByRefs(draft.waypoints.map((entry) => ({ ...entry, ref: entry.key })), suggestionData.order);
+    if (reordered === null) return;
+    const nextDraft = { ...draft, waypoints: reordered.map(({ ref: _ref, ...entry }) => entry) };
+    const next = requestOf(nextDraft, charterCity ?? null, draftSource, [], upgradeHours);
+    if (next !== null && !suggestionQuoteExpired(suggestionData.quote_result)) preloaded.current.set(next.key, { mode: "charter", result: suggestionData.quote_result, city: suggestionData.quote_result.city ?? (charterCity as SiteQuotedCity) });
+    // 记下采用时的升档：恢复原来的顺序时用它（对原顺序一定有效），不用之后改过的升档
+    setAdoptedFrom({ order: waypointRefs, stopKey: stopSetKey(suggestBody), upgradeHours });
+    // 升档跟着走（ADR 0096 第三节第 5 小节）：建议价是按这个升档算的，换了顺序也照用，询价键才和预存的建议报价对得上、不再多询一次
+    const movedKey = itineraryKeyOf(nextDraft);
+    if (upgradeHours !== "" && movedKey !== null) setUpgrade({ key: movedKey, hours: upgradeHours });
+    setDraft(nextDraft);
+    const names = [draft.from?.name ?? "", ...reordered.map((entry) => entry.point?.name ?? ""), draft.to?.name ?? ""];
+    orderNotice.current = itineraryCopy("suggestAdopted", { chain: orderChain(names) });
+    setSuggestionNotice(orderNotice.current);
+    focusItinerary.current = true;
+  };
+  const restoreOrder = (): void => {
+    if (adoptedFrom === null) return;
+    const restored = reorderByRefs(draft.waypoints.map((entry) => ({ ...entry, ref: entry.key })), adoptedFrom.order);
+    setAdoptedFrom(null);
+    if (restored === null) return;
+    const restoredDraft = { ...draft, waypoints: restored.map(({ ref: _ref, ...entry }) => entry) };
+    const restoredKey = itineraryKeyOf(restoredDraft);
+    if (adoptedFrom.upgradeHours !== "" && restoredKey !== null) setUpgrade({ key: restoredKey, hours: adoptedFrom.upgradeHours });
+    setDraft(restoredDraft);
+    // 和采用一样：价格出来后接在这一句后面播（原顺序的报价常常已在缓存里、立刻就出来，分开播的话这一句来不及读就被换掉）
+    orderNotice.current = itineraryCopy("suggestRestored");
+    setSuggestionNotice(orderNotice.current);
+    focusItinerary.current = true;
+  };
+  // 建议块出现时播报一次（同一组点只播一次，ADR 0096 第三节第 7 小节）
+  const announcedFor = useRef<string | null>(null);
+  const announceKey = live.visible && !live.pending && suggestBody !== null ? stopSetKey(suggestBody) : null;
+  useEffect(() => {
+    if (announceKey === null || announcedFor.current === announceKey || suggestionData === null || !live.visible) return;
+    announcedFor.current = announceKey;
+    setSuggestionNotice(suggestionTitle(live, suggestionData));
+  });
+  const restoreShown = adoptedFrom !== null && suggestBody !== null && adoptedFrom.stopKey === stopSetKey(suggestBody);
+  const suggestionBlock =
+    suggestionData !== null && live.visible && draft.from !== null && draft.to !== null ? (
+      <OrderSuggestionBlock
+        suggestion={suggestionData}
+        live={live}
+        recomputing={orderSuggestion.recomputing}
+        currentPoints={[draft.from, ...stops, draft.to].map((point) => ({ lat: point.lat, lng: point.lng }))}
+        suggestedPoints={(() => {
+          const byRef = new Map(draft.waypoints.map((entry, index) => [entry.key, stops[index]]));
+          return [draft.from, ...suggestionData.order.flatMap((ref) => byRef.get(ref) ?? []), draft.to].map((point) => ({ lat: point.lat, lng: point.lng }));
+        })()}
+        currentNames={[draft.from.name, ...stops.map((stop) => stop.name), draft.to.name]}
+        suggestedNames={(() => {
+          const byRef = new Map(draft.waypoints.map((entry, index) => [entry.key, stops[index]?.name ?? ""]));
+          return [draft.from.name, ...suggestionData.order.map((ref) => byRef.get(ref) ?? ""), draft.to.name];
+        })()}
+        currentPrice={selected?.price.total ?? quotes[0]?.price.total ?? null}
+        suggestedPrice={suggestionData.quote_result.quotes.find((entry) => entry.vehicle_group.id === (selected?.vehicle_group.id ?? quotes[0]?.vehicle_group.id))?.price.total ?? null}
+        compact={!wide}
+        onAdopt={adoptSuggestion}
+        onKeep={orderSuggestion.keep}
+      />
+    ) : null;
+  const suggestionExtras = (
+    <>
+      {suggestionBlock}
+      {restoreShown && (
+        <Button variant="text" onClick={restoreOrder}>
+          {itineraryCopy("suggestRestore")}
+        </Button>
+      )}
+    </>
+  );
+  // 换顺序、采用、恢复后价格变了：只播一条——选中的车型，还没选时是建议块比价用的第一个车型；等最终价格出来（不在加载中）再播（ADR 0096 第三节第 7 小节）
+  const pricedOrder = useRef<{ stopKey: string; order: string; groupId: string; amount: string } | null>(null);
+  const announcedQuote = selected ?? quotes[0] ?? null;
+  const settledPrice = itinerary && suggestBody !== null && current !== null && current.kind !== "loading" && announcedQuote !== null ? { stopKey: stopSetKey(suggestBody), order: waypointRefs.join(","), groupId: announcedQuote.vehicle_group.id, amount: announcedQuote.price.total.amount } : null;
+  useEffect(() => {
+    if (settledPrice === null || announcedQuote === null) return;
+    const before = pricedOrder.current;
+    pricedOrder.current = settledPrice;
+    const pendingNotice = orderNotice.current;
+    // 价格稳定下来就清掉，不管这次播不播（同价时不播，留着会接到以后拖动后的播报上）
+    orderNotice.current = null;
+    if (before === null || before.stopKey !== settledPrice.stopKey || before.groupId !== settledPrice.groupId || before.order === settledPrice.order || before.amount === settledPrice.amount) return;
+    const priceText = itineraryCopy("suggestPriceUpdated", { vehicle: displayName(announcedQuote.vehicle_group.name).text, price: moneyText(announcedQuote.price.total) });
+    setSuggestionNotice(pendingNotice === null ? priceText : `${pendingNotice} ${priceText}`);
+  }, [settledPrice?.stopKey, settledPrice?.order, settledPrice?.groupId, settledPrice?.amount]);
+  // 没有经停、按自选时长报价时报价不估路线：每段的时长和公里取地图折线那次调用的量（ADR 0096 第二节第 3 小节）；取不到就不写这一行
+  useEffect(() => {
+    if (plainLegsKey === null || draft.from === null || draft.to === null) return;
+    let alive = true;
+    const points = [draft.from, draft.to].map((point) => ({ lat: point.lat, lng: point.lng }));
+    getSiteItineraryLegs(points).then(
+      (found) => {
+        if (alive && found.available && found.legs !== null) setPlainLegs({ key: plainLegsKey, legs: found.legs });
+      },
+      () => undefined,
+    );
+    return () => {
+      alive = false;
+    };
+  }, [plainLegsKey]);
 
   // 附加服务：所选车型带上客人选的数量再报一次价，合计用这一次的；车型列表仍是不带附加服务的那一次（带了以后不提供的车型会被筛掉）
   const addonList = useMemo<SiteAddonRequest[]>(
@@ -578,10 +741,10 @@ export function BookNewPage() {
   const tripCategory = draft.mode === "charter" ? "charter" : tripType === "point_to_point" ? "point_to_point" : "airport_transfer";
   const tripDirection = tripCategory === "airport_transfer" && (tripType === "pickup" || tripType === "dropoff") ? tripType : null;
   // 认出机场但用点对点商品报的价（M8-33，ADR 0081）：页面照样按接送机（航班号、免费等待、举牌），
-  // 下单按点对点：两端地址都要，航班号写进备注（点对点订单不收 flight_no）
+  // 下单按点对点：两端地址都要；接机的航班号、航班类型照常提交（按航班定免费等待，ADR 0097 Q5），送机的航班号写进备注
   const p2pFallback = tripCategory === "airport_transfer" && outcome?.mode === "transfer" && outcome.result.fallback_category === "point_to_point";
   const orderTrip: OrderTrip = p2pFallback
-    ? { transfer: true, arrival, ends: addressEnds("point_to_point", null), flightInNotes: true }
+    ? { transfer: true, arrival, ends: addressEnds("point_to_point", null), flightInNotes: !arrival }
     : { transfer: tripCategory === "airport_transfer", arrival, ends: addressEnds(tripCategory, tripDirection) };
 
   /** 举牌姓名：客人没改过时跟着乘车人（为自己是预订人，为他人是乘车人）的名字 */
@@ -590,8 +753,9 @@ export function BookNewPage() {
   const orderForm = (): OrderForm => ({
     ...contact,
     rider: { signName: arrival ? signName : "", name: contact.forOther ? contact.riderName : "", phone: contact.forOther ? contact.riderPhone : "" },
-    notes: notesWithExtras(p2pFallback ? { flightNo: draft.flightNo } : {}, contact.notes),
+    notes: notesWithExtras(p2pFallback && !arrival ? { flightNo: draft.flightNo } : {}, contact.notes),
     flightNo: draft.flightNo,
+    flightKind: arrival ? draft.flightKind : "",
     pickupAddress: draft.from?.name ?? "",
     dropoffAddress: draft.to?.name ?? "",
   });
@@ -600,7 +764,7 @@ export function BookNewPage() {
   const contactIssues = (): OrderErrors => {
     const found = validateOrderForm(orderForm(), orderTrip);
     delete found.consent;
-    if (found.notes === undefined && orderForm().notes.length > ORDER_FIELD_LIMITS.notesMax) found.notes = `${p2pFallback ? "航班号和备注加起来" : "备注"}最多 ${ORDER_FIELD_LIMITS.notesMax} 个字，请删短一些。`;
+    if (found.notes === undefined && orderForm().notes.length > ORDER_FIELD_LIMITS.notesMax) found.notes = `${p2pFallback && !arrival ? "航班号和备注加起来" : "备注"}最多 ${ORDER_FIELD_LIMITS.notesMax} 个字，请删短一些。`;
     return found;
   };
 
@@ -995,17 +1159,21 @@ export function BookNewPage() {
         {arrival && (
           <p className="book-new__arrival" role="status">
             <Icon name="info" />
-            <span>{freeWait !== null && freeWait > 0 ? `已识别为接机：司机按航班落地时间等候，落地后免费等待 ${freeWait} 分钟` : "已识别为接机：司机按航班落地时间等候"}</span>
+            <span>{arrivalHintText(arrivalWait ?? { kind: "unlimited" })}</span>
           </p>
         )}
         <TravellersField passengers={draft.passengers} luggage={draft.luggage} onChange={(value) => update(value)} />
         {charterNoOnline && <ManualQuoteBlock key={manualKey} trip={manualTrip} supportWhatsapp={supportWhatsapp} />}
         {!charterNoOnline && (
-          <div className="book-new__actions">
-            <Button variant="primary" size="lg" block={!wide} onClick={showVehicles}>
-              下一步：选择车型
-            </Button>
-          </div>
+          <StepActionBar
+            compact={compact}
+            frame={shell.hostViewport}
+            primary={
+              <Button variant="primary" size="lg" block={!wide} onClick={showVehicles}>
+                下一步：选择车型
+              </Button>
+            }
+          />
         )}
       </section>
     );
@@ -1058,6 +1226,7 @@ export function BookNewPage() {
       const support = rejected.support || stopTexts.length > 0;
       vehicles = (
         <>
+          {itinerary && suggestionExtras}
           <div className="book-new__rejected" role="status">
             <h3 className="book-new__subtitle">没有可预订的车</h3>
             <ul className="site-reasons">
@@ -1075,21 +1244,27 @@ export function BookNewPage() {
       const expires = quotes.map((entry) => entry.expires_at).sort()[0] ?? null;
       // M8-40：按里程计价的不是一口价——选中的车是按里程计价的，或还没选、列表里有按里程计价的，就换说法（这句对一口价也成立）
       const basis = (selected === null ? quotes.some((entry) => entry.pricing_basis === "distance_only") : selected.pricing_basis === "distance_only") ? "distance_only" : null;
-      const includes = fixedPriceIncludes({ service: charter ? "charter" : "transfer", arrival, freeWaitMinutes: freeWait, meetAndGreet: false, pricingBasis: basis });
+      const includes = fixedPriceIncludes({ service: charter ? "charter" : "transfer", arrival, freeWaitMinutes: freeWait, freeWaitRange, meetAndGreet: false, pricingBasis: basis });
       vehicles = (
         <>
           <p className="site-muted">
             按价格从低到高 · 坐不下的已隐藏。报价 30 分钟内有效（到当地时间 {formatInZone(expires, timezone).slice(11)}），过了请重新查询。
           </p>
           {minHintBlock}
-          {itinerary && schedule !== null && (
+          {charter && charterRows !== null && (
             <section aria-labelledby="book-itinerary-title" className="book-itinerary">
-              <h3 id="book-itinerary-title" className="book-new__subtitle">
-                行程时间表
+              <h3 id="book-itinerary-title" ref={itineraryHeading} tabIndex={-1} className="book-new__subtitle">
+                {itinerary ? "行程时间表" : itineraryCopy("routeTitle")}
               </h3>
               {itinerarySummary !== null && <p>{itinerarySummary}</p>}
-              <TripStops rows={schedule} />
-              <p className="price-breakdown__note">{ITINERARY_NOTE}</p>
+              {itinerary && suggestionExtras}
+              {charterMapPoints !== null && <ItineraryMap points={charterMapPoints} alt={itineraryMapAlt(charterRows, charterResult?.itinerary_route)} />}
+              {/* 超过 12 个点（ADR 0099）：不请求地图，只显示列表 */}
+              {charterMapPoints === null && draft.from !== null && draft.to !== null && <p className="site-muted">{itineraryCopy("listOnly")}</p>}
+              <TripStops rows={charterRows} />
+              {/* 超过 12 小时 / 360 公里的提醒（M9P-10，ADR 0099）：只在有经停点、按行程计价时 */}
+              {itinerary && <ItineraryWarnings quote={selected ?? quotes[0] ?? null} route={charterResult?.itinerary_route} points={[draft.from?.name ?? "", ...stops.map((stop) => stop.name), draft.to?.name ?? ""]} />}
+              {itinerary && <p className="price-breakdown__note">{ITINERARY_NOTE}</p>}
             </section>
           )}
           <VehicleList
@@ -1123,22 +1298,45 @@ export function BookNewPage() {
       );
     }
 
+    // 第 2 步「下一步」点不了时的原因（M9E-32）：灰着、写出原因，不隐藏
+    const vehicleReasonKey = vehicleStepReason({ selected: selected !== null, manualOnly, quote: current === null ? "none" : current.kind });
+    const vehicleReason = vehicleReasonKey === null ? null : stepBarCopy(vehicleReasonKey);
     const vehicleSection = (
       <section aria-labelledby="book-vehicles-title" className="site-section book-new__vehicles">
         <h2 id="book-vehicles-title" ref={vehiclesHeading} tabIndex={-1} className="site-section__title">
           选择车型
         </h2>
+        {/* 播报区常驻（不随车型区的骨架屏卸掉），否则重新询价后读屏读不到「已恢复原来的顺序」「价格已更新」 */}
+        <p className="visually-hidden" role="status" aria-live="polite">
+          {suggestionNotice}
+        </p>
         {vehicles}
-        <div className="book-new__actions">
-          <Button size="lg" onClick={() => goStep(1)}>
-            上一步
-          </Button>
-          {wide && !manualOnly && (
-            <Button variant="primary" size="lg" disabled={selected === null} onClick={() => goStep(3)}>
-              下一步：填写乘客信息
+        <StepActionBar
+          compact={compact}
+          frame={shell.hostViewport}
+          reason={vehicleReason}
+          {...(selected !== null && vehicleName !== null
+            ? {
+                summary: (
+                  <>
+                    <span lang={vehicleName.lang}>{vehicleName.text}</span> · {fixedPriceLabel(selected.pricing_basis)} <SitePrice text={moneyText(selected.price.total)} size="sm" />
+                  </>
+                ),
+              }
+            : {})}
+          back={
+            <Button size="lg" onClick={() => goStep(1)}>
+              上一步
             </Button>
-          )}
-        </div>
+          }
+          primary={
+            !manualOnly && (
+              <Button variant="primary" size="lg" disabled={selected === null} aria-describedby={vehicleReason !== null ? STEP_BAR_REASON_ID : undefined} onClick={() => goStep(3)}>
+                下一步：填写乘客信息
+              </Button>
+            )
+          }
+        />
       </section>
     );
 
@@ -1161,6 +1359,18 @@ export function BookNewPage() {
         <TextField label="举牌姓名（选填）" size="lg" maxLength={SIGN_NAME_MAX} value={signName} hint="司机在到达口举的牌子上写的名字，如 ZHANG SAN" onChange={(event) => updateContact({ signName: event.target.value, signEdited: true })} />
       </div>
     );
+    const flightKindField = arrival && (
+      <FlightKindField
+        value={draft.flightKind}
+        quoted={quotedForWait}
+        errors={contactErrors.flightKind ? [contactErrors.flightKind] : []}
+        onChange={(flightKind) => {
+          setDraft((value) => ({ ...value, flightKind }));
+          orderKey.current = null;
+          setContactErrors(({ flightKind: _, ...rest }) => rest);
+        }}
+      />
+    );
 
     const contactSection = (
       <ContactSection
@@ -1174,17 +1384,30 @@ export function BookNewPage() {
         onSubmit={confirmContact}
         headingRef={contactHeading}
         riderErrors={riderErrors}
-        {...(flightFields ? { extra: flightFields } : {})}
+        {...(flightFields ? {
+          extra: (
+            <>
+              {flightFields}
+              {flightKindField}
+            </>
+          ),
+        } : {})}
         {...(charter && priced !== null && quoteScenario(priced) !== null ? { notesHint: charterAirportText("book.notes.flightHint") } : {})}
         actions={
-          <div className="book-new__actions">
-            <Button size="lg" onClick={() => goStep(2)}>
-              上一步
-            </Button>
-            <Button type="submit" variant="primary" size="lg">
-              下一步：核对订单
-            </Button>
-          </div>
+          <StepActionBar
+            compact={compact}
+            frame={shell.hostViewport}
+            back={
+              <Button size="lg" onClick={() => goStep(2)}>
+                上一步
+              </Button>
+            }
+            primary={
+              <Button type="submit" variant="primary" size="lg">
+                下一步：核对订单
+              </Button>
+            }
+          />
         }
       />
     );
@@ -1206,7 +1429,8 @@ export function BookNewPage() {
               <ol className="book-summary__stops">
                 {stops.map((stop, index) => (
                   <li key={`${index}-${stop.name}`}>
-                    {stop.name}（停留 {durationText(stop.stay_minutes)}）
+                    {/* 编号同行程列表和地图（M9P-20）：上车 = 1，经停从 2 起 */}
+                    {displayStopNumber(index + 1)} {stop.name}（停留 {durationText(stop.stay_minutes)}）
                   </li>
                 ))}
               </ol>
@@ -1249,10 +1473,20 @@ export function BookNewPage() {
           <dd>{contact.phone.trim()}</dd>
         </div>
         {arrival && (
-          <div className="site-facts__item">
-            <dt>航班号</dt>
-            <dd>{draft.flightNo.trim().toUpperCase()}</dd>
-          </div>
+          <>
+            <div className="site-facts__item">
+              <dt>航班号</dt>
+              <dd>{draft.flightNo.trim().toUpperCase()}</dd>
+            </div>
+            <div className="site-facts__item">
+              <dt>航班类型</dt>
+              <dd>{draft.flightKind === "" ? "—" : FLIGHT_KIND_NAMES[draft.flightKind]}</dd>
+            </div>
+            <div className="site-facts__item">
+              <dt>免费等待</dt>
+              <dd>{freeWait === null ? "不限时" : `航班落地后 ${freeWait} 分钟`}</dd>
+            </div>
+          </>
         )}
         {contact.forOther && (
           <>
@@ -1316,7 +1550,7 @@ export function BookNewPage() {
     /** 右侧栏 / 摘要条的内容：路线图在最上面，下面按步骤追加已经确认的内容 */
     const summaryContent = (
       <>
-        {routeBlock}
+        {(wide || step !== 4) && routeBlock}
         {step === 1 && <p className="site-muted">每确认一步，这里会加上那一步的内容。</p>}
         {step > 1 && (
           <div className="book-summary__block">
@@ -1340,78 +1574,94 @@ export function BookNewPage() {
       </Button>
     );
 
+    // 第 4 步的顺序（业主验收意见 2026-11-16）：① 完整行程（地图、上下车、经停、时间、车型、乘客行李，乘客信息）→ ② 价格明细和总价 →
+    // ③ 取消政策和注意事项 → ④ 最下面是同意保存银行卡和「去付款」（手机上也一样），按钮下面不再放需要客人往下看的内容（「上一步」放在核对页标题旁）。
+    // 地图：包车的行程图放在这里（右侧栏没有）；接送的路线图在电脑宽时已在右侧栏（和核对内容并排），手机上固定放这里（第 4 步摘要条里不再放这张图）
+    const reviewMap =
+      charter && charterRows !== null && charterMapPoints !== null ? <ItineraryMap points={charterMapPoints} alt={itineraryMapAlt(charterRows, charterResult?.itinerary_route)} /> : !charter && !wide ? routeBlock : null;
     const reviewSection = (
       <section aria-labelledby="book-review-title" className="site-section book-new__review">
-        <h2 id="book-review-title" ref={reviewHeading} tabIndex={-1} className="site-section__title">
-          核对订单
-        </h2>
+        <div className="book-review__top">
+          <h2 id="book-review-title" ref={reviewHeading} tabIndex={-1} className="site-section__title">
+            核对订单
+          </h2>
+          {/* 手机上「上一步」在底部按钮条左边（M9E-32），标题旁不再放一个 */}
+          {!compact && (
+            <Button variant="text" className="book-review__back" onClick={() => goStep(3)}>
+              {checkoutCopy("back")}
+            </Button>
+          )}
+        </div>
         <section className="book-review__block" aria-labelledby="book-review-trip">
           <div className="book-review__head">
             <h3 id="book-review-trip" className="book-new__subtitle">
-              行程
+              {checkoutCopy("tripTitle")}
             </h3>
             {editLink(1, "行程")}
           </div>
+          {reviewMap}
           {tripFacts}
-        </section>
-        <section className="book-review__block" aria-labelledby="book-review-vehicle">
           <div className="book-review__head">
-            <h3 id="book-review-vehicle" className="book-new__subtitle">
-              车型和价格
-            </h3>
+            <p className="book-review__vehicle">
+              <span className="book-review__label">{checkoutCopy("vehicle")}：</span>
+              {selected === null || vehicleName === null ? "—" : <span lang={vehicleName.lang}>{vehicleName.text}</span>}
+            </p>
             {editLink(2, "车型和价格")}
           </div>
-          {selected === null || vehicleName === null ? (
-            <p>{current?.kind === "loading" ? "正在重新查询价格…" : "选的车型现在报不出价了，请点「修改」重新选择车型。"}</p>
-          ) : (
-            <>
-              <p className="book-review__vehicle" lang={vehicleName.lang}>
-                {vehicleName.text}
-              </p>
-              <PriceBlock fare={selected.price.total} basisNote={sitePriceBasisNote(selected)} kmNote={kmNote} priced={pricedState} currency={guestCurrency} onCurrency={(code) => setGuestCurrency(code as CurrencyCode)} reference={reference !== null && reference.to === guestCurrency ? reference : null} />
-              {itineraryPrice}
-            </>
-          )}
         </section>
         <section className="book-review__block" aria-labelledby="book-review-passenger">
           <div className="book-review__head">
             <h3 id="book-review-passenger" className="book-new__subtitle">
-              乘客信息
+              {checkoutCopy("passengerTitle")}
             </h3>
             {editLink(3, "乘客信息")}
           </div>
           {passengerFacts}
         </section>
-        {selected !== null && (
-          <section className="book-review__block" aria-labelledby="book-review-cancel">
-            <h3 id="book-review-cancel" className="book-new__subtitle">
-              取消规则
+        <section className="book-review__block" aria-labelledby="book-review-price">
+          <div className="book-review__head">
+            <h3 id="book-review-price" className="book-new__subtitle">
+              {checkoutCopy("priceTitle")}
             </h3>
-            <p>{guestCancelPolicyText((priced ?? selected).cancel_policy.tiers)}</p>
-          </section>
-        )}
+          </div>
+          {selected === null || vehicleName === null ? (
+            <p>{current?.kind === "loading" ? "正在重新查询价格…" : "选的车型现在报不出价了，请点「修改」重新选择车型。"}</p>
+          ) : (
+            <>
+              <PriceBlock fare={selected.price.total} basisNote={sitePriceBasisNote(selected)} kmNote={kmNote} priced={pricedState} currency={guestCurrency} onCurrency={(code) => setGuestCurrency(code as CurrencyCode)} reference={reference !== null && reference.to === guestCurrency ? reference : null} />
+              {itineraryPrice}
+            </>
+          )}
+        </section>
+        <section className="book-review__block" aria-labelledby="book-review-cancel">
+          <h3 id="book-review-cancel" className="book-new__subtitle">
+            {checkoutCopy("termsTitle")}
+          </h3>
+          {selected !== null && <p>{guestCancelPolicyText((priced ?? selected).cancel_policy.tiers)}</p>}
+          <ul className="book-review__notes">
+            <li>{checkoutCopy("payDueNote")}</li>
+            <li>{checkoutCopy("cardNote")}</li>
+          </ul>
+        </section>
         <form id={CONTACT_FORM_ID} className="site-form book-review__pay" noValidate onSubmit={(event) => void submitOrder(event)}>
           <AlertSlot notice={contactNotice} />
           <ConsentField checked={contact.consent} error={contactErrors.consent} onChange={(consent) => updateContact({ consent })} />
-          <PayBlock busy={busy} expired={expired} onRequote={requote} />
+          {/* 手机上「去付款」在底部按钮条里（用 form 属性提交这张表单），同意保存银行卡仍在页面最下面（条的上方） */}
+          <PayBlock busy={busy} expired={expired} onRequote={requote} button={!compact} />
         </form>
-        <div className="book-new__actions">
-          <Button size="lg" onClick={() => goStep(3)}>
-            上一步
-          </Button>
-        </div>
+        {compact && (
+          <StepActionBar
+            compact
+            frame={shell.hostViewport}
+            back={
+              <Button size="lg" onClick={() => goStep(3)}>
+                {checkoutCopy("back")}
+              </Button>
+            }
+            primary={<PayButton busy={busy} expired={expired} onRequote={requote} />}
+          />
+        )}
       </section>
-    );
-
-    const bar = !wide && step === 2 && selected !== null && vehicleName !== null && (
-      <div className="book-bar">
-        <p className="book-bar__text">
-          <span lang={vehicleName.lang}>{vehicleName.text}</span> · {fixedPriceLabel(selected.pricing_basis)} <SitePrice text={moneyText(selected.price.total)} size="sm" />
-        </p>
-        <Button variant="primary" size="lg" onClick={() => goStep(3)}>
-          下一步
-        </Button>
-      </div>
     );
 
     /** 手机、平板：右侧栏变成顶部可展开的摘要条，收起时写行程和价格（手机上两端各占一行） */
@@ -1454,7 +1704,7 @@ export function BookNewPage() {
     );
 
     body = (
-      <div className={bar ? "book-new book-new--with-bar" : "book-new"}>
+      <div className="book-new">
         <div className="book-new__main">
           {stepper}
           {summaryBar}
@@ -1473,7 +1723,6 @@ export function BookNewPage() {
             </section>
           </aside>
         )}
-        {bar}
       </div>
     );
   }

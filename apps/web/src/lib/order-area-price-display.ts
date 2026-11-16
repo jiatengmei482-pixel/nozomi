@@ -5,9 +5,10 @@
  * - 供应商后台：只有结算价（规则 4），金额币种在前（「JPY 250」，04 第 1 节）；接口里本来就没有对外价。
  * 一口价仍然只有一个总价：这些是说明，不写成算式。没有这些数的订单返回 null（那一项不出现，页面其余照常）。
  */
-import { type LocalizedText, type PricingBasis, consoleMoneyText, includedKmSummary, isCurrencyCode, parseMajor, routeMetersText, tenantIncludedKmSummary } from "@nozomi/domain";
+import { type LocalizedText, type PricingBasis, consoleMoneyText, displayStopNumber, includedKmSummary, isCurrencyCode, parseMajor, routeMetersText, tenantIncludedKmSummary } from "@nozomi/domain";
 import { charterAirportText } from "./charter-airport-copy.ts";
 import { durationText, kmText } from "./charter-itinerary.ts";
+import { itineraryCopy } from "./itinerary-texts.ts";
 import { moneyText } from "./dispatch-display.ts";
 import { displayName } from "./master-display.ts";
 import { pricingBasisLines } from "./pricing-basis-display.ts";
@@ -117,8 +118,11 @@ export function hasAreaSurcharge(surcharge: OrderAreaSurchargeView | null | unde
 const END_LABELS = { pickup: "上车", dropoff: "下车" } as const;
 const IN_SERVICE_AREA = "在服务区域里，不加价";
 
-/** 途经加价那几行的开头：「经停（第 1、3 个经停点）」 */
-const waypointLabel = (seqs: readonly number[]): string => (seqs.length === 0 ? "经停" : `经停（第 ${seqs.join("、")} 个经停点）`);
+/** 途经加价那几行的开头：「经停（2、4 号点）」——编号同行程列表（上车 = 1，M9P-20），= stopSeq + 1 */
+const waypointLabel = (seqs: readonly number[]): string => {
+  const numbers = seqs.filter((seq) => Number.isInteger(seq) && seq >= 1).map(displayStopNumber);
+  return numbers.length === 0 ? "经停" : itineraryCopy("areaStops", { numbers: numbers.join("、") });
+};
 
 /** 运营后台「区域加价」：「上车：富士山 · 对外 1,100 JPY / 结算 1,000 JPY」「下车：在服务区域里，不加价」。 */
 export function platformSurchargeLines(surcharge: OrderAreaSurchargeView | null | undefined): string[] | null {

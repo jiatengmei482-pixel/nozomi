@@ -101,12 +101,20 @@ test("简写属性里的边框宽度、阴影、时长也只用令牌", () => {
 });
 
 test("组件代码里没有内联样式、没有写死的颜色，SVG 图标的颜色跟随文字（currentColor）", () => {
-  // 唯一的例外：司机页把吸底按钮条量出来的高度写进 <html> 的 --driver-bar-height（只是长度，不是颜色、字号；driver.md 3b，M6-08）。
-  // 只放行这一个文件里、写这一个变量的 setProperty / removeProperty。
+  // 例外只有两处，都只是长度，不是颜色、字号；只放行这两个文件里、写这几个变量的 setProperty / removeProperty：
+  // - 司机页把吸底按钮条量出来的高度写进 <html> 的 --driver-bar-height（driver.md 3b，M6-08）；
+  // - 新预订页手机底部按钮条量出来的高度写进 <html> 的 --book-actionbar-h，嵌入页里这条往上挪的距离写在条自己的 --book-actionbar-shift（ADR 0100，M9E-32）。
   const driverPage = sources.find((source) => source.name === "pages/driver/DriverTripPage.tsx");
   assert.match(driverPage?.text ?? "", /export const BAR_HEIGHT_VARIABLE = "--driver-bar-height";/);
+  const stepBar = sources.find((source) => source.name === "pages/book/new/StepActionBar.tsx");
+  assert.match(stepBar?.text ?? "", /export const STEP_BAR_HEIGHT_VARIABLE = "--book-actionbar-h";/);
+  assert.match(stepBar?.text ?? "", /export const STEP_BAR_SHIFT_VARIABLE = "--book-actionbar-shift";/);
+  const allowed: Record<string, string[]> = {
+    "pages/driver/DriverTripPage.tsx": [".style.setProperty(BAR_HEIGHT_VARIABLE,"],
+    "pages/book/new/StepActionBar.tsx": [".style.setProperty(STEP_BAR_HEIGHT_VARIABLE,", ".style.setProperty(STEP_BAR_SHIFT_VARIABLE,"],
+  };
   for (const { name, text: raw } of sources) {
-    const text = name === "pages/driver/DriverTripPage.tsx" ? raw.replaceAll(".style.setProperty(BAR_HEIGHT_VARIABLE,", "") : raw;
+    const text = (allowed[name] ?? []).reduce((rest, call) => rest.replaceAll(call, ""), raw);
     assert.doesNotMatch(text, /\bstyle=\{/, `${name} 用了内联样式`);
     assert.doesNotMatch(text, /\.style\.[a-zA-Z]+\s*=|\.style\.setProperty\(|cssText/, `${name} 用脚本改样式`);
     assert.doesNotMatch(text, /["'`]#[0-9a-fA-F]{3,8}["'`]/, `${name} 里有十六进制颜色`);
@@ -251,11 +259,11 @@ test("付款回跳只用自己的一个键：令牌只在确认付款前写入�
   assert.doesNotMatch(text, /sessionStorage\.(clear|key)\(|localStorage|session-store/);
   // 读出来以后先删再判断：对不上、过期的也不会留下
   assert.match(text, /raw = sessionStorage\.getItem\(RETURN_KEY\);[\s\S]*?forgetPaymentReturn\(\);\s*if \(raw === null\) return null;/);
-  // 唯一写入它的是订单页付款区块确认付款之前；唯一取出它的是订单页
+  // 唯一写入它的是订单页付款区块确认付款之前；取出它的只有主站订单页和嵌入订单页（付款进 iframe 后银行整页回跳到这里，M9E-19，ADR 0095 第七节第 3 小节）
   for (const { name, text: code } of sources) {
     const used = stripComments(code);
     if (/\brememberPaymentReturn\(/.test(used) && name !== PAYMENT_RETURN_STORE) assert.equal(name, "pages/book/OrderSections.tsx");
-    if (/\btakePaymentReturn\(/.test(used) && name !== PAYMENT_RETURN_STORE) assert.equal(name, "pages/book/OrderPage.tsx");
+    if (/\btakePaymentReturn\(/.test(used) && name !== PAYMENT_RETURN_STORE) assert.ok(name === "pages/book/OrderPage.tsx" || name === "pages/embed/EmbedOrderPage.tsx", `${name} 取了付款回跳的令牌`);
   }
 });
 

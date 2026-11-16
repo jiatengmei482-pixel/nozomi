@@ -5,12 +5,15 @@
  * - 对外价明细（`price_breakdown`）的每一行；各项之和对不上总价时不显示明细（只显示总价，价格不能显示错）；
  * - 行程时间表（上车 → 经停 1…N → 下车，各段行驶分钟、各点停留）；
  * - 经停点报不出价（`WAYPOINT_NOT_PRICED`）时指出是哪个经停点。
+ * 编号（M9P-20，ADR 0096 第二节第 3 小节）：上车 = 1、经停依次、下车 = 最后，和行程地图的标记同一个函数（domain 的 `stopNumbers`）；
+ * 接口里的经停序号（stopSeq，从 1 起）一律经 `displayStopNumber` 换成显示编号（= stopSeq + 1）。
  */
 import { scenarioPackageLabel } from "./charter-airport-copy.ts";
-import { isCurrencyCode, parseMajor } from "@nozomi/domain";
+import { CHARTER_ITINERARY_LIMITS, ITINERARY_MAP_RULES, displayStopNumber, isCurrencyCode, legStopNumbers, parseMajor, stopNumbers } from "@nozomi/domain";
 import type { SiteMoney, SiteOrder, SitePriceBreakdownItem, SiteQuote, SiteQuoteResult } from "../api/site.ts";
 import type { TripPoint } from "./book-new.ts";
 import { moneyText } from "./dispatch-display.ts";
+import { itineraryCopy } from "./itinerary-texts.ts";
 import { displayName } from "./master-display.ts";
 
 /** 订单上的一个经停点（M9W-01）：名称、坐标、停留分钟 */
@@ -20,8 +23,8 @@ export type OrderItinerary = NonNullable<SiteOrder["itinerary"]>;
 /** 包车按行程计价时服务器算的路线（M9W-01）：逐段行驶、行驶 / 停留合计、总时长、全程 */
 export type SiteItineraryRoute = NonNullable<SiteQuoteResult["itinerary_route"]>;
 
-/** 最多几个经停点（和后端 `maxItems` 一致） */
-export const MAX_WAYPOINTS = 10;
+/** 最多几个经停点：和后端同一个常量（M9P-10，只受路径接口上限，`CHARTER_ITINERARY_LIMITS`） */
+export const MAX_WAYPOINTS = CHARTER_ITINERARY_LIMITS.maxWaypoints;
 /** 停留时长一档 30 分钟，最长 8 小时 */
 export const STAY_STEP_MINUTES = 30;
 export const STAY_MAX_MINUTES = 480;
@@ -101,6 +104,15 @@ export function moveWaypoint<T>(list: readonly T[], index: number, delta: -1 | 1
   return next;
 }
 
+/** 把第 `from` 个经停点拖到第 `to` 个的位置（拖动排序，M9P-20 P2）；越界或没动时原样返回 */
+export function moveWaypointTo<T>(list: readonly T[], from: number, to: number): T[] {
+  if (from === to || from < 0 || to < 0 || from >= list.length || to >= list.length) return [...list];
+  const next = [...list];
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved as T);
+  return next;
+}
+
 /** 服务器按行程选的套餐时长：每个报价的 `package.hours`（每个车型组各自选） */
 export function itineraryPackageHours(quote: Pick<SiteQuote, "package"> | null): number | null {
   return quote?.package?.hours ?? null;
@@ -166,10 +178,11 @@ export function orderItineraryText(itinerary: OrderItinerary | null | undefined)
  * `points` 是上车、经停 1…N、下车的名称。
  */
 export function itineraryRouteFailureText(leg: unknown, points: readonly string[]): string {
-  const index = typeof leg === "number" && Number.isInteger(leg) ? leg : null;
+  const index = typeof leg === "number" && Number.isInteger(leg) && leg >= 1 ? leg : null;
   const from = index === null ? undefined : points[index - 1];
   const to = index === null ? undefined : points[index];
-  const where = from !== undefined && to !== undefined ? `「${from}」到「${to}」这一段` : "有一段";
+  const numbers = index === null ? null : legStopNumbers(index);
+  const where = from !== undefined && to !== undefined && numbers !== null ? itineraryCopy("legFailure", { leg: index as number, from: numbers[0], fromName: from, to: numbers[1], toName: to }) : "有一段";
   return `${where}路线暂时算不出来，没有在线报价。请联系客服人工报价，或调整经停点再试。`;
 }
 
@@ -203,8 +216,9 @@ function minorOf(money: SiteMoney): number | null {
   }
 }
 
+/** 明细里的经停（M9P-20）：「3 · 经停」「2、3 · 经停」，编号 = stopSeq + 1，和行程列表、地图一致 */
 function seqText(seqs: readonly number[]): string {
-  return `第 ${seqs.join("、")} 个经停点`;
+  return itineraryCopy("breakdownStops", { numbers: seqs.filter((seq) => Number.isInteger(seq) && seq >= 1).map(displayStopNumber).join("、") });
 }
 
 /** 明细的先后（ADR 0093 第二节「明细逐项」）：套餐、上车加价、下车加价、行程加价（按第几个经停，下车点那一条最后）、超公里费、超时费、调价、其他 */
@@ -253,29 +267,72 @@ export function breakdownLines(quote: Pick<SiteQuote, "price" | "price_breakdown
   return lines;
 }
 
-/** 行程时间表的一行：上车、经停、下车；`driveMinutes` 是从上一个点开过来的行驶分钟（第一行、没有路线时为 null） */
+/**
+ * 行程时间表的一行：上车、经停、下车。`number` 是编号（上车 = 1，和地图标记一致），`label` 是「1 上车」「2 经停」「5 下车」；
+ * `driveMinutes`、`driveMeters` 是从上一个点开过来的行驶分钟和米数（第一行、没有路线时为 null）。
+ */
 export interface ScheduleRow {
   key: string;
   kind: "pickup" | "stop" | "dropoff";
+  number: number;
   label: string;
+  /** 「上车」「经停」「下车」（`label` 去掉编号） */
+  kindName: string;
   name: string;
   stayMinutes: number | null;
   driveMinutes: number | null;
+  driveMeters: number | null;
 }
 
-/** 上车 → 经停 1…N → 下车。`legs` 按顺序是每一段的行驶分钟（有路线时才有；段数对不上时不写行驶分钟）。 */
-export function scheduleRows(pickup: string, dropoff: string | null, stops: readonly { name: string; stay_minutes: number }[], legs: readonly { minutes: number }[] | null = null): ScheduleRow[] {
+const KIND_NAMES: Readonly<Record<ScheduleRow["kind"], string>> = { pickup: itineraryCopy("pickup"), stop: itineraryCopy("stop"), dropoff: itineraryCopy("dropoff") };
+
+/**
+ * 上车 → 经停 → 下车，编号来自 domain 的 `stopNumbers`（地图标记同一个函数）。
+ * `legs` 按顺序是每一段的行驶分钟和米数（报价应答的 `itinerary_route.legs`，有路线时才有；段数对不上时不写）。
+ */
+export function scheduleRows(pickup: string, dropoff: string | null, stops: readonly { name: string; stay_minutes: number }[], legs: readonly { minutes: number; meters?: number }[] | null = null): ScheduleRow[] {
   const usable = legs !== null && legs.length === stops.length + (dropoff === null ? 0 : 1) ? legs : null;
-  const rows: ScheduleRow[] = [{ key: "pickup", kind: "pickup", label: "上车", name: pickup, stayMinutes: null, driveMinutes: null }];
-  stops.forEach((stop, index) => rows.push({ key: `stop-${index}`, kind: "stop", label: `经停 ${index + 1}`, name: stop.name, stayMinutes: stop.stay_minutes, driveMinutes: usable?.[index]?.minutes ?? null }));
-  if (dropoff !== null) rows.push({ key: "dropoff", kind: "dropoff", label: "下车", name: dropoff, stayMinutes: null, driveMinutes: usable?.[stops.length]?.minutes ?? null });
-  return rows;
+  const points: { name: string; stay: number | null }[] = [{ name: pickup, stay: null }, ...stops.map((stop) => ({ name: stop.name, stay: stop.stay_minutes })), ...(dropoff === null ? [] : [{ name: dropoff, stay: null }])];
+  return stopNumbers(points, { hasDropoff: dropoff !== null }).map(({ number, kind, stopSeq, point }) => {
+    const leg = number === 1 ? undefined : usable?.[number - 2];
+    return {
+      key: kind === "stop" ? `stop-${(stopSeq as number) - 1}` : kind,
+      kind,
+      number,
+      label: `${number} ${KIND_NAMES[kind]}`,
+      kindName: KIND_NAMES[kind],
+      name: point.name,
+      stayMinutes: point.stay,
+      driveMinutes: leg?.minutes ?? null,
+      driveMeters: typeof leg?.meters === "number" ? leg.meters : null,
+    };
+  });
+}
+
+/**
+ * 行程地图要画的点（上车、经停、下车，按顺序）：最多 `ITINERARY_MAP_RULES.maxPoints`（12）个——标记只有 1–12 号（ADR 0096）。
+ * 经停上限放开（M9P-10）以后超过 12 个点时为 null：不画图、只显示列表（列表编号不限个数），页面不报错。
+ */
+export function itineraryMapPoints(pickup: LatLngLike, stops: readonly LatLngLike[], dropoff: LatLngLike): LatLngLike[] | null {
+  const points = [pickup, ...stops, dropoff].map((point) => ({ lat: point.lat, lng: point.lng }));
+  return points.length <= ITINERARY_MAP_RULES.maxPoints ? points : null;
+}
+
+interface LatLngLike {
+  lat: number;
+  lng: number;
+}
+
+/** 行程地图的替代文字（ADR 0096 第二节第 3 小节）：「路线图：1 新宿 → 2 河口湖 → 3 新宿，约 6 小时 10 分 · 312 公里」；没有路线时只写各点。 */
+export function itineraryMapAlt(rows: readonly ScheduleRow[], route: Pick<SiteItineraryRoute, "total_minutes" | "total_meters"> | null | undefined): string {
+  const chain = rows.map((row) => `${row.number} ${row.name}`).join(" → ");
+  return route === null || route === undefined ? itineraryCopy("mapAlt", { chain }) : itineraryCopy("mapAltTotal", { chain, duration: durationText(route.total_minutes), km: kmText(route.total_meters) });
 }
 
 /** 经停点报不出价（`WAYPOINT_NOT_PRICED`）：「第 2 个经停点「河口湖」暂时没有在线报价……」；没有这个原因时空数组 */
 export function waypointUnavailableTexts(unavailable: SiteQuoteResult["unavailable"], stops: readonly { name: string }[]): string[] {
   const seqs = [...new Set(unavailable.filter((entry) => entry.reasons.includes("WAYPOINT_NOT_PRICED")).flatMap((entry) => entry.waypoint_stop_seqs ?? []))].sort((a, b) => a - b);
-  const named = seqs.filter((seq) => stops[seq - 1] !== undefined).map((seq) => `第 ${seq} 个经停点「${(stops[seq - 1] as { name: string }).name}」`);
+  const named = seqs.filter((seq) => stops[seq - 1] !== undefined).map((seq) => itineraryCopy("unavailableStop", { number: displayStopNumber(seq), name: (stops[seq - 1] as { name: string }).name }));
   if (named.length === 0) return unavailable.some((entry) => entry.reasons.includes("WAYPOINT_NOT_PRICED")) ? ["有经停点暂时没有在线报价，请联系客服人工报价，或去掉这个经停点再试。"] : [];
   return [`${named.join("、")}暂时没有在线报价，请联系客服人工报价，或去掉这个经停点再试。`];
 }

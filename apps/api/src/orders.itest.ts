@@ -142,8 +142,8 @@ test("下单全流程：quote_id → 待支付（金额以快照为准、建付�
   assert.match(order.order_no, /^NZ20261007[0-9A-HJ-NP-Z]{8}$/);
   assert.deepEqual(
     [order.status, order.price.total, order.payment_status, order.winning_tenant, order.quote_id, order.flight_no, order.passenger.phone, order.dropoff.address, order.pickup, order.service_local, order.timezone, order.free_wait_minutes],
-    ["pending_payment", { amount: "21780", currency: "JPY" }, "requires_payment", null, quote.quote_id, "NH211", "+819012345678", "东京站八重洲口", null, "2026-10-20T10:00", "Asia/Tokyo", 90],
-  );
+    ["pending_payment", { amount: "21780", currency: "JPY" }, "requires_payment", null, quote.quote_id, "NH211", "+819012345678", "东京站八重洲口", null, "2026-10-20T10:00", "Asia/Tokyo", 60],
+  ); // 接机没选航班类型：按国内线 60 锁（M9E-31 起平台统一，不看商品设的 90）
   assert.equal(new Date(order.payment_due_at).getTime() - new Date(order.created_at).getTime(), 30 * 60_000, "30 分钟内付款");
   // 付款：替身里建了一笔 PaymentIntent（客人支付的币种和金额，最小单位整数），client_secret 交给前端
   const intent = pay.intentOf(order.id);

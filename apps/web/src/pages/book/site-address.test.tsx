@@ -27,6 +27,7 @@ const candidate = { id: "ChIJhotel", name: "东京站大饭店", address: "东�
 const quote: SiteQuote = {
   quote_id: "QT20261026ABCDEFGHIJ",
   available_addons: [],
+  itinerary_warnings: null,
   expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
   service_date: "2030-11-20",
   urgent: false,

@@ -22,6 +22,8 @@ function sizeBudget(): Plugin {
 export default defineConfig({
   root: fileURLToPath(new URL(".", import.meta.url)),
   plugins: [sizeBudget()],
+  // 主前端的 public/（包车行程地图的标记图标 /map-markers/，M9P-20）由主构建复制到 dist/，组件脚本的产物目录里不要再复制一份
+  publicDir: false,
   build: {
     outDir,
     emptyOutDir: true,

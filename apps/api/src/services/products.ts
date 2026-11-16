@@ -61,6 +61,8 @@ import {
   tenantCanPublish,
   locateInAreas,
   type Position as AreaPosition,
+  type LocalizedText,
+  charterLayerOverlaps,
 } from "@nozomi/domain";
 import type { DbContext } from "../context.ts";
 import { type Db, isUniqueViolation, withTenantTx } from "../db/context.ts";
@@ -598,6 +600,7 @@ const RULE_MESSAGES: Readonly<Record<PublishIssueReason, string>> = {
   CHARTER_GROUP_NO_PACKAGE: "这个车型组还没有套餐价（按车型组 × 套餐填一次），报不出价",
   CHARTER_POI_NOT_COVERED: "城市热门地标清单里的这个地标不在这个商品的任何区域里：客人在这里上下车或经停报不出价。需要的话把它画进基础价、行程或上下车加价区域",
   CHARTER_EMPTY_CELL: "这个区域这个车型组没有填加价：空格 = 在这里不报价。不加钱请填 0",
+  CHARTER_LAYER_OVERLAP: "这个商品有两个区域重叠：同一层的区域、基础价区域和上下车加价的区域都不能重叠。请到区域页面切掉重叠的部分",
   FEATURE_NOT_AVAILABLE: "这项功能还没有上线",
 };
 
@@ -764,6 +767,8 @@ interface PublishChecked {
   items: PublishCheckItem[];
   adjustRules: { id: string; name: string }[];
   stacks: AdjustStackProblem[];
+  /** 「三层区域重叠」一项里的区域名（M9P-13）：写进提醒的句子 */
+  areaNames?: ReadonlyMap<string, string>;
 }
 
 const pad2 = (value: number): string => String(value).padStart(2, "0");
@@ -794,11 +799,31 @@ function publishCheckView(checked: PublishChecked): PublishCheckView {
         // 「调价规则」一项的每条原因带上是哪一条规则（页面凭它写出名字、链到那一条）；叠加出的问题带上是哪几条、什么时候
         const stack = item.key === "adjust_rules" && issue.path.startsWith("/stacks/") ? checked.stacks[Number(issue.path.slice("/stacks/".length))] : undefined;
         if (stack !== undefined) return stackIssue(issue, stack, checked.adjustRules);
+        if (item.key === "charter_layer_overlap") return charterOverlapIssue(issue, checked.areaNames ?? new Map());
         const rule = item.key === "adjust_rules" ? checked.adjustRules[Number(issue.path.slice(1))] : undefined;
         return rule === undefined ? issue : { ...issue, detail: { ...issue.detail, rule_id: rule.id, name: rule.name } };
       }),
     })),
   };
+}
+
+const CHARTER_LAYER_PHRASES: Readonly<Record<string, string>> = {
+  base: "基础价区域（服务区域）之间",
+  itinerary: "行程加价的区域之间",
+  pickup_dropoff: "上下车加价的区域之间",
+  base_pickup_dropoff: "基础价区域和上下车加价的区域",
+};
+
+/** 「三层区域重叠」的一条（M9P-13）：写出两个区域名、哪一层、面积（平方公里，两位小数），`detail` 带两个区域的编号 */
+function charterOverlapIssue(issue: InputIssue, names: ReadonlyMap<string, string>): InputIssue {
+  const [, layer = "", a = "", b = ""] = issue.path.split("/");
+  const km2 = Math.round(Number(issue.detail?.["overlap_m2"] ?? 0) / 10_000) / 100;
+  const pair = `「${names.get(a) ?? a}」和「${names.get(b) ?? b}」`;
+  const message =
+    layer === "base_pickup_dropoff"
+      ? `基础价区域${pair.replace("和", "和上下车加价的区域")}重叠约 ${km2} 平方公里：在基础价区域里上下车不加价，两者不能重叠。请到区域页面用「从本区域减去另一个区域」切掉重叠的部分`
+      : `${CHARTER_LAYER_PHRASES[layer] ?? ""}${pair}重叠约 ${km2} 平方公里：同一层的区域不能重叠（一个点只能有一个答案）。请到区域页面用「从本区域减去另一个区域」切掉重叠的部分`;
+  return { ...issue, message, detail: { ...issue.detail, area_a: a, area_b: b } };
 }
 
 function publishCheckFailed(checked: PublishChecked, message: string): AppError {
@@ -839,6 +864,7 @@ async function runPublishCheck(db: Db, tenantId: string, product: Product, now: 
   const areaCities = await findAreaCities(db, [...new Set((view.areas ?? []).map((area) => area.cityId))]);
   const addons = await findAddonsForProduct(db, product.serviceRules.addons.map((addon) => addon.addonId));
   const serviceRules = await effectiveServiceRules(db, product.serviceRules);
+  const overlaps = product.category === "charter" && options.light !== true ? await charterLayerOverlapFacts(db, tenantId, (view.areas ?? []).map((area) => area.areaId), allPriceRules) : [];
   const facts: PublishFacts = {
     category: product.category,
     brandActive: view.brand?.status === "active",
@@ -867,10 +893,25 @@ async function runPublishCheck(db: Db, tenantId: string, product: Product, now: 
     ...(product.category === "charter" ? { charterPackageHours: packageHoursOf(activePrices) } : {}),
     // 包车覆盖检查、加价表空格（M9P-06，ADR 0093 第七节第 4、5 条）：提醒、不拦上架；列表概况、修改保护不算
     ...(product.category === "charter" && options.light !== true ? await charterCoverageFacts(db, tenantId, product, view.areas ?? [], allPriceRules, selected.vehicleGroupIds) : {}),
+    // 包车三层区域重叠（M9P-13，#247 审查建议）：区域页改图形不经过保存校验，这里提醒、不拦上架
+    ...(product.category === "charter" && options.light !== true ? { charterLayerOverlaps: overlaps } : {}),
     // 迁移过三层区域的包车：每个车型组至少一档整商品套餐价（规格 P1 #7「上架拦下」）
     ...(layered ? { charterGroupsWithoutPackage: selected.vehicleGroupIds.flatMap((groupId, index) => (activePrices.some((rule) => rule.vehicleGroupId === groupId) ? [] : [index])) } : {}),
   };
-  return { items: publishCheck(facts), adjustRules: adjustRules.map((rule) => ({ id: rule.id, name: rule.name })), stacks };
+  const areaNames = new Map<string, string>();
+  if (overlaps.length > 0) for (const [id, area] of await findAreasForProduct(db, tenantId, [...new Set(overlaps.flatMap((entry) => [entry.a, entry.b]))])) areaNames.set(id, displayText(area.name));
+  return { items: publishCheck(facts), adjustRules: adjustRules.map((rule) => ({ id: rule.id, name: rule.name })), stacks, areaNames };
+}
+
+const displayText = (name: LocalizedText): string => name.zh ?? name.ja ?? name.en ?? name.ko ?? "";
+
+/** 包车三层区域里全部的同层、①∩③ 重叠（M9P-13）：口径和保存校验一样（规则不分启停），只是已有的也列出来 */
+async function charterLayerOverlapFacts(db: Db, tenantId: string, baseIds: readonly string[], rules: readonly StoredPriceRule[]): Promise<NonNullable<PublishFacts["charterLayerOverlaps"]>> {
+  const areasOf = (model: string): string[] => [...new Set(rules.flatMap((rule) => (rule.pricing.model === model && rule.areaId !== null ? [rule.areaId] : [])))];
+  const layers = { base: [...baseIds], itinerary: areasOf("charter_itinerary_surcharge"), updown: areasOf("charter_area_surcharge") };
+  if (layers.base.length + layers.itinerary.length + layers.updown.length < 2) return [];
+  const shapes = (await listTenantAreaShapes(db, tenantId)).map(areaShapeInput);
+  return charterLayerOverlaps(shapes, layers, layers).map((entry) => ({ layer: entry.layer, a: entry.a, b: entry.b, areaM2: entry.areaM2 }));
 }
 
 /**

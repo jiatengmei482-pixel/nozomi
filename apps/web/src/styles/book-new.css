@@ -18,11 +18,6 @@
   min-width: 0;
 }
 
-/* 手机第 2 步底部固定的「车型 · 一口价 [下一步]」不能挡住最后一张车型卡 */
-.book-new--with-bar {
-  padding-bottom: calc(var(--space-16) * 2 + env(safe-area-inset-bottom));
-}
-
 .book-new__subtitle {
   font-size: var(--font-size-lg);
   font-weight: var(--font-weight-bold);
@@ -525,31 +520,96 @@
   font-size: var(--font-size-md);
 }
 
-/* ---------- 手机第 2 步底部固定条 ---------- */
+/*
+ * ---------- 每一步的按钮条（M9E-32，ADR 0100） ----------
+ * 手机（≤ 768px，由脚本判断后才渲染 .step-bar，CSS 不另写断点）：「上一步」+ 主按钮放在一条底部按钮条里。
+ * - 主站（.step-bar-slot--fixed）：固定在屏幕底部，留 iPhone 安全区；<html data-book-actionbar> 时 body 底部留出条的实际高度
+ *   （--book-actionbar-h，StepActionBar 量出来写的），不挡表单最后一项和页脚；scroll-padding 同样留出，聚焦的输入框不被盖住。
+ * - 嵌入页（.step-bar-slot--frame）：iframe 被撑到内容全高，fixed 没用——条留在文档流里，默认 sticky 贴底（直接打开时有效）；
+ *   收到宿主带 top 的 viewport 后（data-tracked）按宿主屏幕的下沿往上挪（--book-actionbar-shift，≤ 0）。
+ * 电脑、平板照旧是正文末尾的 .book-new__actions。
+ */
 
-.book-bar {
-  position: fixed;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  z-index: var(--z-sticky);
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-2) var(--space-3);
+.step-bar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
   padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom));
   border-top: var(--border-width) solid var(--color-border-default);
   background: var(--color-bg-surface);
   box-shadow: var(--shadow-md);
 }
 
-.book-bar__text {
+.step-bar-slot--fixed > .step-bar {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: var(--z-sticky);
+  padding-right: calc(var(--space-4) + env(safe-area-inset-right));
+  padding-left: calc(var(--space-4) + env(safe-area-inset-left));
+}
+
+:root[data-book-actionbar] {
+  scroll-padding-bottom: var(--book-actionbar-h, calc(var(--control-height-lg) + var(--space-3) * 2 + env(safe-area-inset-bottom)));
+}
+
+:root[data-book-actionbar] body {
+  padding-bottom: var(--book-actionbar-h, calc(var(--control-height-lg) + var(--space-3) * 2 + env(safe-area-inset-bottom)));
+}
+
+/* viewport-fit=cover 只在新预订页的手机宽度下加（StepActionBar 的 useViewportFitCover）：横屏时正文不进刘海 */
+:root[data-viewport-fit="cover"] body {
+  padding-right: env(safe-area-inset-right);
+  padding-left: env(safe-area-inset-left);
+}
+
+.step-bar-slot--frame {
+  position: sticky;
+  bottom: 0;
+  z-index: var(--z-sticky);
+}
+
+.step-bar-slot--frame[data-tracked] {
+  position: relative;
+}
+
+.step-bar-slot--frame[data-tracked] > .step-bar {
+  transform: translateY(var(--book-actionbar-shift, 0px));
+}
+
+.step-bar__summary {
   min-width: 0;
   margin: 0;
   font-size: var(--font-size-md);
   overflow-wrap: anywhere;
 }
 
+.step-bar__reason {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.step-bar__buttons {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.step-bar__buttons > .button {
+  flex: none;
+}
+
+.step-bar__buttons > .button--primary {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 电脑、平板：原因写在正文末尾的按钮下面，靠右和主按钮对齐 */
+.book-new__actions + .step-bar__reason {
+  margin-top: calc(var(--space-2) * -1);
+  text-align: right;
+}
 
 /* ---------- 右侧栏（M8-04）：路线、附加服务、车费合计、参考价、取消规则、去付款 ---------- */
 
@@ -911,6 +971,38 @@ button.book-steps__link:hover .book-steps__name {
   border-top: var(--border-width) solid var(--color-border-default);
 }
 
+/* 第 4 步（业主验收意见 2026-11-16）：「上一步」在标题旁，最下面只有同意勾选、支付方式和「去付款」 */
+.book-review__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.book-review__back {
+  min-height: var(--control-height-lg);
+}
+
+/* 核对页里的路线图：不要摘要栏那条上边框，「行程 / 修改」下面不多一条线 */
+.book-review__block > .book-summary__block {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.book-review__label {
+  font-weight: var(--font-weight-regular);
+  color: var(--color-text-secondary);
+}
+
+.book-review__notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding-left: var(--space-5);
+  color: var(--color-text-secondary);
+}
+
 .book-summary__price {
   margin: 0;
 }
@@ -1100,6 +1192,150 @@ button.book-steps__link:hover .book-steps__name {
   border: var(--border-width) solid var(--color-border-default);
   border-radius: var(--radius-md);
   background: var(--color-bg-subtle);
+}
+
+/*
+ * 包车行程地图（M9P-20，ADR 0096）：在行程列表上面，宽度占满；手机上高度不超过 40vh。图的规则同路线小地图（不裁、不盖谷歌标志），
+ * 换顺序等新图时旧图上盖一层半透明的「路线更新中」；新图先在框里看不见的地方加载。
+ */
+.itinerary-map__canvas {
+  position: relative;
+  height: 240px;
+  max-height: 40vh;
+  min-height: 150px;
+  overflow: hidden;
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-page);
+}
+
+.itinerary-map__loader {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.itinerary-map__canvas--updating .route-map__image {
+  opacity: 0.35;
+}
+
+.itinerary-map__updating {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: var(--space-1) var(--space-3);
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-full);
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
+/*
+ * 经停顺序建议（M9P-20 P2，ADR 0096 第四节）：行程列表上方的一块提示（不弹窗）；「当前顺序」「建议顺序」两栏，
+ * 窄屏（JS 判断）改成切换、只显示一栏；按钮一行，放不下时换行。
+ */
+.order-suggestion {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-info-border);
+  border-radius: var(--radius-md);
+  background: var(--color-info-bg);
+  color: var(--color-text-primary);
+}
+
+.order-suggestion__title {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+}
+
+.order-suggestion__columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-3);
+}
+
+.order-suggestion__column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.order-suggestion__label {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.order-suggestion__chain {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.order-suggestion__switch {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.order-suggestion__tab {
+  flex: 1;
+  min-height: 44px;
+  padding: var(--space-1) var(--space-2);
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.order-suggestion__tab[aria-pressed="true"] {
+  border-color: var(--color-primary);
+  background: var(--color-primary-subtle);
+  font-weight: var(--font-weight-medium);
+}
+
+.order-suggestion__tab:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-border-focus);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.order-suggestion__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* 经停点拖动排序（M9P-20 P2）：把手按住拖（触屏长按）；目标位置画一条主色插入线；拖着的那一行变淡。不做位移动画 */
+.book-waypoints .picked__handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--space-12);
+  min-height: var(--space-12);
+  color: var(--color-text-secondary);
+  cursor: grab;
+  touch-action: none;
+}
+
+.book-waypoints .picked__row--dragging {
+  opacity: 0.5;
+}
+
+.book-waypoints .picked__row--drop-before {
+  border-top: var(--focus-ring-width) solid var(--color-primary);
+}
+
+.book-waypoints .picked__row--drop-after {
+  border-bottom: var(--focus-ring-width) solid var(--color-primary);
 }
 
 /* 对外价明细（M9W-02）：一行一项，金额靠右；各项之和 = 合计 */

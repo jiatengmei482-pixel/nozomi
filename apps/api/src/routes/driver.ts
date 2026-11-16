@@ -12,7 +12,7 @@ import { bearerToken } from "../auth/token.ts";
 import { tenantIdOfDriverToken } from "../auth/driver-token.ts";
 import type { AppContext } from "../context.ts";
 import { type TripView, addDriverContact, driverLinkInvalid, getTrip, readDriverFile, reportDriverEvent, reportDriverLanding, reportDriverLocation, requestLeave, submitNoShow, uploadDriverFile } from "../services/driver-trip.ts";
-import { itineraryAmountsJson, landingJson } from "../services/order-views.ts";
+import { freeWaitBasisView, itineraryAmountsJson, landingJson } from "../services/order-views.ts";
 import { dateTimeSchema, parseInput, resourceId, uuidSchema } from "../validation.ts";
 import { fileJson, sendFile } from "./orders.ts";
 import { fulfilmentSchema, locationSchema, toLocation } from "./dispatch.ts";
@@ -66,6 +66,8 @@ function tripJson(view: TripView): Record<string, unknown> {
       addons: order.addons.map((addon) => ({ addon_id: addon.addonId, quantity: addon.quantity, name: view.addonNames.get(addon.addonId) ?? null })),
       driver_language: order.driverLanguage,
       free_wait_minutes: order.freeWaitMinutes,
+      flight_kind: order.flightKind,
+      free_wait_basis: freeWaitBasisView(order),
       // 包车机场开始 / 机场结束（M9P-22，ADR 0098）：场景和机场名，不含任何价格；没有场景为 null
       charter_scenario: order.settlement.charterScenario === undefined ? null : { kind: order.settlement.charterScenario.kind, airport_name: order.settlement.charterScenario.name },
     },

@@ -391,6 +391,7 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
     ["GET", "/tenant/v1/holidays"],
     ["GET", "/tenant/v1/map/config"],
     ["GET", "/tenant/v1/area-map"],
+    ["GET", "/tenant/v1/area-layers"],
     ["GET", "/tenant/v1/dashboard/summary"],
     ["GET", "/tenant/v1/fx-rates"],
     ["GET", "/tenant/v1/orders"],
