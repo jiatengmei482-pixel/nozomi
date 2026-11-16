@@ -546,8 +546,9 @@ test("M9E-32 跨站：手机 390 宽，iframe 被撑到全高，每一步的主�
   const bar = frame.locator(".step-bar");
   const card = frame.getByRole("listitem").filter({ has: frame.getByRole("heading", { name: world.group.name }) });
   await expect(card).toBeVisible();
-  const iframeHeight = Number(await page.locator('iframe[title="NOZOMI 用车预订"]').getAttribute("height"));
-  expect(iframeHeight, "第 2 步 iframe 比宿主屏幕高（按钮条原位置在屏幕外）").toBeGreaterThan(664);
+  // iframe 高度由页面发消息来改，卡片出来时可能还没到（WebKit 偶发）：轮询等它撑高
+  const iframeHeight = async (): Promise<number> => Number(await page.locator('iframe[title="NOZOMI 用车预订"]').getAttribute("height"));
+  await expect.poll(iframeHeight, { message: "第 2 步 iframe 比宿主屏幕高（按钮条原位置在屏幕外）" }).toBeGreaterThan(664);
 
   // 第 2 步：没选车时「下一步」灰着、写原因
   const next = bar.getByRole("button", { name: "下一步：填写乘客信息" });
