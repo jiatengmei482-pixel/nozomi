@@ -14018,7 +14018,7 @@ paths:
         ADR 0096 第三节。页面只在经停点集合变了、或其他询价字段（停留、日期时间、人数、行李、附加项、升档）变了时调用；拖动、上移下移只重新询价、不调这个接口。
         - 必须带一份可核对的当前顺序询价：有效的 `quote_id`，或当前顺序一家都没报出、至少一家因超长报不出时询价应答里的 `inquiry_ref`（30 分钟内）；
           上下车点、经停点集合（坐标按 3 位小数）要和它一致，否则 400 `SUGGESTION_NEEDS_QUOTE`，不调谷歌。
-        - 按固定点切段，每段 ≥ 2 个可动经停时调一次谷歌 Routes `optimizeWaypointOrder`（Compute Routes Pro），名额计入 `GOOGLE_ROUTES_OPTIMIZE_DAILY_LIMIT`（默认 150）；
+        - 按固定点（上下车点、带 `arrive_by` 的经停，M9P-20 P3）切段，固定点不参与重排，每段 ≥ 2 个可动经停时调一次谷歌 Routes `optimizeWaypointOrder`（Compute Routes Pro），名额计入 `GOOGLE_ROUTES_OPTIMIZE_DAILY_LIMIT`（默认 150）；
           段内顺序按「经停点集合」缓存 24 小时，同一组点换顺序、改停留都不再调谷歌。
         - 用和报价同一口径的逐段路线算两种顺序的行驶米数、分钟：省 ≥ 5,000 米或 ≥ 10 分钟（平台配置）、另一项变差不超过 1 公里 / 3 分钟才成立；
           成立才按建议顺序多询一次价（写询价日志、各有报价编号和 30 分钟有效期）。用 `inquiry_ref` 申请的不看阈值。
@@ -27300,6 +27300,41 @@ components:
         stay_minutes:
           type: integer
           minimum: 0
+    OrderWaypointWithArrival:
+      type: object
+      additionalProperties: false
+      required: [ name, lat, lng, stay_minutes ]
+      description: |
+        包车订单的一个经停点（M9W-01，ADR 0088），带客人指定的到达时间（M9P-20 P3，ADR 0096 第三节第 6 小节）：官网订单页、供应商、运营、司机看的这一份。
+        `arrive_by` 只在客人指定了时有（下单时从报价快照抄过来，之后不能改）；渠道接口（`/sales/v1`）的 `OrderWaypoint` 本期没有这一项（ADR 0096 第十节第 7 条）
+      properties:
+        name:
+          type: string
+        lat:
+          type: number
+        lng:
+          type: number
+        stay_minutes:
+          type: integer
+          minimum: 0
+        arrive_by:
+          $ref: "#/components/schemas/WaypointArriveBy"
+    WaypointArriveBy:
+      type: object
+      additionalProperties: false
+      required: [ day_offset, time ]
+      description: |
+        经停的指定到达时间（M9P-20 P3，ADR 0096 第三节第 6 小节；按「最晚到达」理解，业主确认第十节第 3 条）：用车当地时间，`day_offset` 相对用车日期（0 当天、1 次日），能跨午夜。
+        询价时必须晚于用车开始、不晚于用车开始后 24 小时，否则 400 `VALIDATION_FAILED`（`/waypoints/{i}/arrive_by`，原因 `NOT_AFTER_START` / `TOO_LATE` / `FORMAT`）。
+        只固定这个经停在行程里的位置、给司机看：不影响价格和选档，首期按当前顺序预计晚到时只提示、不拦截
+      properties:
+        day_offset:
+          type: integer
+          enum: [ 0, 1 ]
+        time:
+          type: string
+          pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+          description: HH:MM（00:00–23:59）
     OrderSettlementSurchargeEnd:
       type: object
       additionalProperties: false
@@ -27858,7 +27893,7 @@ components:
           description: 包车的经停点（M9W-01，ADR 0088），按顺序：名称、坐标、停留分钟；下单后不能改。没有经停点的单、以前的单为 null（新增字段）
           type: [ array, "null" ]
           items:
-            $ref: "#/components/schemas/OrderWaypoint"
+            $ref: "#/components/schemas/OrderWaypointWithArrival"
         itinerary:
           description: 包车按行程计价（M9W-01，ADR 0088 补充）锁定的全程、总时长、套餐含量和超出量（没有金额）；没按行程计价的单为 null（新增字段）
           oneOf:
@@ -28033,7 +28068,7 @@ components:
           description: 包车的经停点（M9W-01，ADR 0088），按顺序：名称、坐标、停留分钟；下单后不能改。没有经停点的单、以前的单为 null（新增字段）
           type: [ array, "null" ]
           items:
-            $ref: "#/components/schemas/OrderWaypoint"
+            $ref: "#/components/schemas/OrderWaypointWithArrival"
         itinerary:
           description: 包车按行程计价（M9W-01，ADR 0088 补充）锁定的全程、总时长、套餐含量和超出量（没有金额）；没按行程计价的单为 null（新增字段）
           oneOf:
@@ -29743,7 +29778,7 @@ components:
               description: 包车的经停点（M9W-01，ADR 0088），按顺序：名称、坐标、停留分钟（行程显示在 M9W-03）；没有为 null。不含任何价格
               type: [ array, "null" ]
               items:
-                $ref: "#/components/schemas/OrderWaypoint"
+                $ref: "#/components/schemas/OrderWaypointWithArrival"
             itinerary:
               description: 包车按行程计价锁定的全程、总时长（M9W-01；没有金额）；没按行程计价为 null
               oneOf:
@@ -31301,7 +31336,8 @@ components:
             经停点落在供应商的加价区域里时按那个区域的途经加价收（同一区域一单只收一次；上 / 下车已经在这个区域的不再收；只在商品服务区域里的不加）；
             有经停点哪个区域都不在，或落在加价区域里、但那些区域对这个车型组和套餐没有可用的途经加价（且不在商品服务区域里）时报不出
             （`unavailable` 的原因 `WAYPOINT_NOT_PRICED`，`waypoint_stop_seqs` 指出是第几个，M9W-10），转人工报价。
-            名称、停留分钟随报价锁定，下单时抄进订单（不影响价格）
+            名称、停留分钟随报价锁定，下单时抄进订单（不影响价格）。
+            `arrive_by`（M9P-20 P3）：可选的指定到达时间，见 `WaypointArriveBy`；不影响价格、选档，带了的经停在顺序建议里是固定点、不参与重排
           items:
             type: object
             additionalProperties: false
@@ -31323,6 +31359,8 @@ components:
                 type: integer
                 minimum: 0
                 maximum: 1440
+              arrive_by:
+                $ref: "#/components/schemas/WaypointArriveBy"
         package_hours:
           type: integer
           minimum: 1
@@ -31396,7 +31434,7 @@ components:
     SiteQuote:
       type: object
       additionalProperties: false
-      required: [ quote_id, expires_at, service_date, urgent, vehicle_group, package, includes_area_surcharge, distance, pricing_basis, price, price_breakdown, free_wait_minutes, cancel_policy, available_addons, estimated_minutes, includes_buffer, auto_package_hours, itinerary_warnings ]
+      required: [ quote_id, expires_at, service_date, urgent, vehicle_group, package, includes_area_surcharge, distance, pricing_basis, price, price_breakdown, free_wait_minutes, cancel_policy, available_addons, estimated_minutes, includes_buffer, auto_package_hours, itinerary_warnings, stop_occupancy_minutes ]
       properties:
         price_breakdown:
           $ref: "#/components/schemas/SitePriceBreakdown"
@@ -31530,6 +31568,10 @@ components:
             包车按行程计价的超限提醒（M9P-10，规格步骤 5）：按中标商品的提醒线（服务规则 `charter_itinerary.warn_minutes`、`warn_km`，默认 12 小时 / 360 公里）——
             `LONG_DURATION`：`estimated_minutes` 大于提醒线；`LONG_DISTANCE`：全程（`itinerary_route.total_meters`）大于提醒公里数。先用时、后距离；都没超为空数组。
             只是提醒，仍可下单（超过在线下单上限的不报价，原因 `ITINERARY_TOO_LONG`）。没按行程计价的报价为 null
+        stop_occupancy_minutes:
+          type: [ integer, "null" ]
+          minimum: 0
+          description: 包车按行程计价：中标商品每个经停点的默认占用（分钟，服务规则 `charter_itinerary.stop_occupancy_minutes`，没设为 0）。页面按「用车时间 + 逐段行驶 + 停留 + 每站占用」算带指定到达时间的经停预计几点到，晚于指定时间只提示（M9P-20 P3，ADR 0096 第三节第 6 小节）。别的报价为 null
     SiteQuoteResponse:
       type: object
       additionalProperties: false
@@ -31842,7 +31884,7 @@ components:
           description: 包车的经停点（M9W-01，ADR 0088），按顺序：名称、坐标、停留分钟；下单后不能改。没有经停点的单、以前的单为 null（新增字段）
           type: [ array, "null" ]
           items:
-            $ref: "#/components/schemas/OrderWaypoint"
+            $ref: "#/components/schemas/OrderWaypointWithArrival"
         itinerary:
           description: 包车按行程计价（M9W-01，ADR 0088 补充）锁定的全程、总时长、套餐含量和超出量（没有金额）；没按行程计价的单为 null（新增字段）
           oneOf:
@@ -34478,7 +34520,7 @@ components:
       type: object
       additionalProperties: false
       required: [ name, lat, lng, stay_minutes ]
-      description: 包车的一个经停点（M9W-04）：地点和停留分钟
+      description: 包车的一个经停点（M9W-04）：地点和停留分钟；`arrive_by` 是客人指定的到达时间（M9P-20 P3，和官网询价同一个写法和校验），只在指定了时有
       properties:
         name:
           type: string
@@ -34496,6 +34538,8 @@ components:
           type: integer
           minimum: 0
           maximum: 1440
+        arrive_by:
+          $ref: "#/components/schemas/WaypointArriveBy"
     ManualQuotePerson:
       type: object
       additionalProperties: false

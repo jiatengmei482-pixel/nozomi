@@ -17,6 +17,7 @@ import {
   type Position,
   locatePoint,
   type SiteAudience,
+  type ArriveBy,
   type LatLng,
   type RouteEstimate,
   type RouteUsage,
@@ -611,12 +612,16 @@ export type SiteTrip =
    */
   | { category: "charter_itinerary"; pickup: Point; dropoff: Point; waypoints: SiteWaypoint[]; packageHours?: number };
 
-/** 包车的一个经停点（ADR 0088）：名称、坐标、停留分钟。原样进报价快照的 `snapshot.request.waypoints`，下单时抄进订单 */
+/**
+ * 包车的一个经停点（ADR 0088）：名称、坐标、停留分钟。原样进报价快照的 `snapshot.request.waypoints`，下单时抄进订单。
+ * `arrive_by`（M9P-20 P3，ADR 0096 第三节第 6 小节）：可选的指定到达时间（最晚到达），只固定位置、给司机看，报价不用它；没给时没有这个键
+ */
 export interface SiteWaypoint {
   name: string;
   lat: number;
   lng: number;
   stay_minutes: number;
+  arrive_by?: ArriveBy;
 }
 
 export interface SiteQuoteInput {

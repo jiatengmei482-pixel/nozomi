@@ -17,7 +17,7 @@
  */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { MANUAL_QUOTE_RULES, MANUAL_QUOTE_STATUSES, SERVICE_CATEGORIES, manualQuoteEmail, manualQuoteTripIssues, whatsappDigits } from "@nozomi/domain";
+import { MANUAL_QUOTE_RULES, MANUAL_QUOTE_STATUSES, SERVICE_CATEGORIES, arriveByIssue, manualQuoteEmail, manualQuoteTripIssues, whatsappDigits } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { decodeTimeCursor } from "../pagination.ts";
 import type { ManualQuoteRow, SiteSettingsRow } from "../repos/manual-quotes.ts";
@@ -36,6 +36,7 @@ import {
 import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import { siteAudienceOf } from "../services/qa-acceptance.ts";
 import { takeSiteSlot } from "../services/site.ts";
+import { ARRIVE_BY_MESSAGES, arriveBySchema } from "./site.ts";
 import { type InputIssue, ifMatchVersion, pageQuerySchema, parseInput, resourceId, singleLine, uuidSchema, validationFailed, visibleText } from "../validation.ts";
 
 type Json = Record<string, unknown>;
@@ -59,7 +60,18 @@ const tripSchema = z
     luggage: z.number().int().min(0).max(MANUAL_QUOTE_RULES.maxLuggage).default(0),
     package_hours: z.number().int().min(1).max(MANUAL_QUOTE_RULES.maxPackageHours).nullable().default(null),
     // 包车的经停点（M9W-04）：页面上客人填好的经停点按顺序带上；没有可以不给
-    waypoints: z.array(placeSchema.extend({ stay_minutes: z.number().int().min(0).max(MANUAL_QUOTE_RULES.maxStayMinutes) }).strict()).max(MANUAL_QUOTE_RULES.maxWaypoints).default([]),
+    // 指定到达时间（M9P-20 P3）：和官网询价同一个写法和校验，只记下来给客服看
+    waypoints: z
+      .array(
+        placeSchema
+          .extend({
+            stay_minutes: z.number().int().min(0).max(MANUAL_QUOTE_RULES.maxStayMinutes),
+            arrive_by: arriveBySchema.optional(),
+          })
+          .strict(),
+      )
+      .max(MANUAL_QUOTE_RULES.maxWaypoints)
+      .default([]),
   })
   .strict();
 
@@ -99,8 +111,12 @@ function submissionOf(body: z.output<typeof submitSchema>) {
     passengers: body.trip.passengers,
     luggage: body.trip.luggage,
     packageHours: body.trip.package_hours,
-    waypoints: body.trip.waypoints.map((stop) => ({ name: stop.name, lat: stop.lat, lng: stop.lng, stayMinutes: stop.stay_minutes })),
+    waypoints: body.trip.waypoints.map((stop) => ({ name: stop.name, lat: stop.lat, lng: stop.lng, stayMinutes: stop.stay_minutes, ...(stop.arrive_by === undefined ? {} : { arriveBy: { day_offset: stop.arrive_by.day_offset, time: stop.arrive_by.time } }) })),
   };
+  body.trip.waypoints.forEach((stop, index) => {
+    const issue = stop.arrive_by === undefined ? null : arriveByIssue(body.trip.service_local, stop.arrive_by);
+    if (issue !== null) issues.push({ path: `/trip/waypoints/${index}/arrive_by`, reason: issue, message: ARRIVE_BY_MESSAGES[issue] });
+  });
   for (const issue of manualQuoteTripIssues(trip)) {
     issues.push({ path: `/trip/${issue.field}`, reason: issue.reason, message: (TRIP_ISSUE_MESSAGES[issue.field] as Record<string, string>)[issue.reason] ?? "行程信息不对" });
   }
@@ -181,7 +197,7 @@ function detailJson(detail: ManualQuoteDetail): Json {
     pickup: contact === null ? null : contact.pickup,
     dropoff: contact === null ? null : contact.dropoff,
     // 包车的经停点（M9W-04），按顺序；没有经停点、清除后为 null
-    waypoints: contact === null || contact.waypoints === undefined || contact.waypoints.length === 0 ? null : contact.waypoints.map((stop) => ({ name: stop.name, lat: stop.lat, lng: stop.lng, stay_minutes: stop.stayMinutes })),
+    waypoints: contact === null || contact.waypoints === undefined || contact.waypoints.length === 0 ? null : contact.waypoints.map((stop) => ({ name: stop.name, lat: stop.lat, lng: stop.lng, stay_minutes: stop.stayMinutes, ...(stop.arriveBy === undefined ? {} : { arrive_by: stop.arriveBy }) })),
     events: detail.events.map(eventJson),
   };
 }

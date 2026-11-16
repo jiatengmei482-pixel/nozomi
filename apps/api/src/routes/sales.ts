@@ -165,10 +165,19 @@ function orderDistanceJson(view: Pick<SalesOrderView, "order" | "sale">): Record
   return distance === null ? null : { included_km: distance.includedKm, route_meters: distance.routeMeters, over_km: distance.overKm, over_km_per_km: salesMoney(distance.overKmPerKmMinor, distance.currency) };
 }
 
+/**
+ * 渠道看到的经停点：不带指定到达时间（`arrive_by`，M9P-20 P3 只在官网开放，ADR 0096 第十节第 7 条：`/sales/v1` 本期不开放）。
+ * 渠道自己下的单本来就没有；官网渠道用渠道凭证读官网的单时也去掉，接口说明不变。
+ */
+function salesWaypointsJson(waypoints: SalesOrderView["order"]["waypoints"]): Record<string, unknown>[] | null {
+  return waypoints === null ? null : waypoints.map(({ arrive_by: _arriveBy, ...stop }) => stop);
+}
+
 export function salesOrderJson(view: SalesOrderView, now: Date): Record<string, unknown> {
   const { order, sale, payment } = view;
   return {
     ...orderTripJson(order),
+    waypoints: salesWaypointsJson(order.waypoints),
     quote_id: sale.quoteId,
     channel_order_no: sale.channelOrderNo,
     price: { total: salesMoney(sale.sellMinor, sale.currency), fx: sale.fx === null ? null : { rate: sale.fx.rate, as_of: sale.fx.asOf } },

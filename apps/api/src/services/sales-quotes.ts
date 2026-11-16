@@ -136,9 +136,10 @@ export interface SalesQuote {
   pricingBasis: PricingBasis;
   /**
    * 包车按行程计价（ADR 0091 第一节、0093 第四节第 9 条）：中标商品的预计用时 T（分钟）、它含不含经停点默认占用或整单缓冲（页面写「含缓冲」）、
-   * 这个车型组自动选出的档（手动升档时是同一行程自动询价时这个车型组中标的档，按比价口径，M9P-15；查报价时取中标商品自己会选的档）。没按行程计价、或部署前的报价没有这一项；只有官网的应答给
+   * 这个车型组自动选出的档（手动升档时是同一行程自动询价时这个车型组中标的档，按比价口径，M9P-15；查报价时取中标商品自己会选的档）。没按行程计价、或部署前的报价没有这一项；只有官网的应答给。
+   * `stopOccupancyMinutes`：中标商品每个经停点的默认占用（分钟，没设为 0；M9P-20 P3 页面算预计到达指定时间的经停用）
    */
-  itinerary?: { estimatedMinutes: number; includesBuffer: boolean; autoPackageHours: number | null };
+  itinerary?: { estimatedMinutes: number; includesBuffer: boolean; autoPackageHours: number | null; stopOccupancyMinutes: number };
   /**
    * 包车按行程计价的超限提醒（M9P-10，规格步骤 5）：中标商品的 T 超过它的提醒线（`LONG_DURATION`）、全程超过它的提醒公里数（`LONG_DISTANCE`），
    * 都没超为空数组；仍可下单。只在刚询价时有（要用中标商品当时的配置），查报价 `getSalesQuote` 不给；没按行程计价的没有这一项
@@ -220,7 +221,7 @@ function itineraryEstimateOf(snapshot: StoredQuoteSnapshot): Pick<SalesQuote, "i
   const selection = snapshot.request.charterSelection;
   if (itinerary === undefined || selection === undefined) return {};
   const autoPackageHours = selection === "auto" ? offer.packageHours : (offer.autoPackageHours ?? null);
-  return { itinerary: { estimatedMinutes: itinerary.estimatedMinutes ?? itinerary.routeMinutes, includesBuffer: (itinerary.stopOccupancyMinutes ?? 0) > 0 || (itinerary.bufferMinutes ?? 0) > 0, autoPackageHours } };
+  return { itinerary: { estimatedMinutes: itinerary.estimatedMinutes ?? itinerary.routeMinutes, includesBuffer: (itinerary.stopOccupancyMinutes ?? 0) > 0 || (itinerary.bufferMinutes ?? 0) > 0, autoPackageHours, stopOccupancyMinutes: itinerary.stopOccupancyMinutes ?? 0 } };
 }
 
 /**

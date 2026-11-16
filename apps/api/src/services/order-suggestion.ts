@@ -4,7 +4,7 @@
  * 1. 请求必须带一份可核对的当前顺序询价：有效的报价编号（`quote_id`），或当前顺序一家都没报出、至少一家因超长报不出时的询价日志编号（`inquiry_ref`）；
  *    经停点集合、上下车点要和它一致，否则 400 `SUGGESTION_NEEDS_QUOTE`，不调谷歌。
  * 2. 这次上下车点匹配到的商品全关了「经停顺序建议」→ 不调谷歌（`DISABLED`）。
- * 3. 按固定点切段；每段 ≥ 2 个可动经停才问谷歌（`NOT_APPLICABLE`）；顺序无关的缓存命中就不调谷歌（`OrderOptimizer`）。
+ * 3. 按固定点（上下车点、带指定到达时间 `arrive_by` 的经停，P3）切段；每段 ≥ 2 个可动经停才问谷歌（`NOT_APPLICABLE`）；顺序无关的缓存命中就不调谷歌（`OrderOptimizer`）。
  * 4. 用现有逐段估算（报价同一口径）算两种顺序的行驶米数、分钟，按阈值判断（超长申请的不看阈值）。
  * 5. 成立才多算一次报价（和普通询价同一套，写询价日志）；关了开关的商品的卡片不带建议价。
  * 只存顺序，不存报价：其他字段变了页面重调，服务器按缓存的顺序重算，不再调谷歌优化。
@@ -22,6 +22,7 @@ import {
   suggestedOrder,
   suggestionRequestKey,
   suggestionSegments,
+  suggestionStopsOf,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
@@ -134,7 +135,8 @@ export async function siteOrderSuggestion(ctx: AppContext, input: OrderSuggestio
   const match = await charterCityFor(ctx, channel, audience, { pickup: trip.pickup, dropoff: trip.dropoff }, input.quote.cityId);
   if (match.productIds.length > 0 && (await enabledProducts(ctx, match.productIds)).size === 0) return { suggestion: null, reason: "DISABLED" };
 
-  const stops: (SuggestionStop & { index: number })[] = trip.waypoints.map((stop, index) => ({ ref: input.refs[index] as string, lat: stop.lat, lng: stop.lng, index }));
+  // 带指定到达时间（arrive_by，P3）的经停是固定点：不参与重排，把行程切成几段，每段的可动经停只在段内重排
+  const stops: (SuggestionStop & { index: number })[] = suggestionStopsOf(trip.waypoints, input.refs);
   const segments = suggestionSegments(trip.pickup, stops, trip.dropoff);
   const toOptimize = segmentsToOptimize(segments);
   if (toOptimize.length === 0) return { suggestion: null, reason: "NOT_APPLICABLE" };

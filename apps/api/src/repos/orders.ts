@@ -6,7 +6,7 @@
  * - `order_sales`、`order_payments`、`payment_events` 是平台表，只在平台事务里用；租户角色对它们没有任何权限。
  * - 租户侧的查询只取租户可以看的列（`TENANT_COLUMNS`），而且只取付过款的单。
  */
-import type { ArrivalFreeWaitBasis, FlightKind, CancellationTier, CurrencyCode, FxQuote, LandingSource, MessagingApp, OrderCancelReason, OrderStatus, PaymentStatus, QuoteWaypoint, ServiceCategory, SettlementBreakdown, TripDirection, VehicleLevel } from "@nozomi/domain";
+import { type ArriveBy, type ArrivalFreeWaitBasis, type FlightKind, type CancellationTier, type CurrencyCode, type FxQuote, type LandingSource, type MessagingApp, type OrderCancelReason, type OrderStatus, type PaymentStatus, type QuoteWaypoint, type ServiceCategory, type SettlementBreakdown, type TripDirection, type VehicleLevel, arriveByOf } from "@nozomi/domain";
 import { type ContactIndexKind, type PassengerContact, UNREADABLE_PASSENGER, normalizeEmailForIndex, normalizeNameForIndex, normalizePhoneForIndex } from "@nozomi/domain";
 import { type Db, passengerCryptoOf } from "../db/context.ts";
 import { isPassengerDecryptFailure } from "../integrations/passenger-crypto.ts";
@@ -69,12 +69,17 @@ export interface OrderWaypoint {
   lat: number;
   lng: number;
   stay_minutes: number;
+  /** 指定到达时间（M9P-20 P3，ADR 0096 第三节第 6 小节，最晚到达）：只给司机、供应商、运营看；没指定的经停没有这个键 */
+  arrive_by?: ArriveBy;
 }
 
-/** 报价快照里的经停点 → 订单的 `waypoints` 列（没有经停点为 null）。 */
+/** 报价快照里的经停点 → 订单的 `waypoints` 列（没有经停点为 null）。没指定到达时间的经停和以前逐字一样。 */
 export function orderWaypoints(waypoints: readonly QuoteWaypoint[] | undefined): OrderWaypoint[] | null {
   if (waypoints === undefined || waypoints.length === 0) return null;
-  return waypoints.map((stop) => ({ name: stop.name ?? "", lat: stop.lat, lng: stop.lng, stay_minutes: stop.stay_minutes ?? 0 }));
+  return waypoints.map((stop) => {
+    const arriveBy = arriveByOf(stop.arrive_by);
+    return { name: stop.name ?? "", lat: stop.lat, lng: stop.lng, stay_minutes: stop.stay_minutes ?? 0, ...(arriveBy === null ? {} : { arrive_by: arriveBy }) };
+  });
 }
 
 /** 订单本身（租户也能看的部分）。 */
