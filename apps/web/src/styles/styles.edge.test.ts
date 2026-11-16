@@ -251,11 +251,11 @@ test("付款回跳只用自己的一个键：令牌只在确认付款前写入�
   assert.doesNotMatch(text, /sessionStorage\.(clear|key)\(|localStorage|session-store/);
   // 读出来以后先删再判断：对不上、过期的也不会留下
   assert.match(text, /raw = sessionStorage\.getItem\(RETURN_KEY\);[\s\S]*?forgetPaymentReturn\(\);\s*if \(raw === null\) return null;/);
-  // 唯一写入它的是订单页付款区块确认付款之前；唯一取出它的是订单页
+  // 唯一写入它的是订单页付款区块确认付款之前；取出它的只有主站订单页和嵌入订单页（付款进 iframe 后银行整页回跳到这里，M9E-19，ADR 0095 第七节第 3 小节）
   for (const { name, text: code } of sources) {
     const used = stripComments(code);
     if (/\brememberPaymentReturn\(/.test(used) && name !== PAYMENT_RETURN_STORE) assert.equal(name, "pages/book/OrderSections.tsx");
-    if (/\btakePaymentReturn\(/.test(used) && name !== PAYMENT_RETURN_STORE) assert.equal(name, "pages/book/OrderPage.tsx");
+    if (/\btakePaymentReturn\(/.test(used) && name !== PAYMENT_RETURN_STORE) assert.ok(name === "pages/book/OrderPage.tsx" || name === "pages/embed/EmbedOrderPage.tsx", `${name} 取了付款回跳的令牌`);
   }
 });
 
