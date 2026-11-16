@@ -127,8 +127,21 @@ export function PriceBlock({
   );
 }
 
-/** 去付款（提交「怎么联系你」）和支付方式；报价过期时换成「重新查询价格」。 */
-export function PayBlock({ busy, expired, onRequote }: { busy: boolean; expired: boolean; onRequote(): void }) {
+/** 「去付款 →」（用 form 属性提交第 4 步的表单）；报价过期时换成「重新查询价格」。电脑在页面最下面，手机在底部按钮条里（M9E-32） */
+export function PayButton({ busy, expired, onRequote, block = false }: { busy: boolean; expired: boolean; onRequote(): void; block?: boolean }) {
+  return expired ? (
+    <Button variant="primary" size="lg" block={block} onClick={onRequote}>
+      重新查询价格
+    </Button>
+  ) : (
+    <Button type="submit" form={CONTACT_FORM_ID} variant="primary" size="lg" block={block} loading={busy} loadingText="正在提交">
+      去付款 →
+    </Button>
+  );
+}
+
+/** 支付方式和去付款；`button` 为 false（手机，按钮在底部按钮条里）时只写支付方式。 */
+export function PayBlock({ busy, expired, onRequote, button = true }: { busy: boolean; expired: boolean; onRequote(): void; button?: boolean }) {
   // 按钮放在最后（业主验收意见 2026-11-16）：支付方式写在按钮上面，按钮下面不再有内容
   return (
     <div className="book-summary__block book-pay">
@@ -139,15 +152,7 @@ export function PayBlock({ busy, expired, onRequote }: { busy: boolean; expired:
           银行卡
         </span>
       </p>
-      {expired ? (
-        <Button variant="primary" size="lg" block onClick={onRequote}>
-          重新查询价格
-        </Button>
-      ) : (
-        <Button type="submit" form={CONTACT_FORM_ID} variant="primary" size="lg" block loading={busy} loadingText="正在提交">
-          去付款 →
-        </Button>
-      )}
+      {button && <PayButton busy={busy} expired={expired} onRequote={onRequote} block />}
     </div>
   );
 }

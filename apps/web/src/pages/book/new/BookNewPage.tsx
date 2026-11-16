@@ -89,7 +89,7 @@ import { ManualQuoteBlock } from "../ManualQuote.tsx";
 import { siteFailureText, useSiteConfig } from "../SiteLayout.tsx";
 import { SitePrice } from "../SitePrice.tsx";
 import { checkoutCopy } from "../../../lib/checkout-texts.ts";
-import { AddonsBlock, CONTACT_FORM_ID, ConsentField, type ContactForm, ContactSection, PayBlock, PriceBlock, type PricedState, RouteBlock, emptyContact } from "./CheckoutParts.tsx";
+import { AddonsBlock, CONTACT_FORM_ID, ConsentField, type ContactForm, ContactSection, PayBlock, PayButton, PriceBlock, type PricedState, RouteBlock, emptyContact } from "./CheckoutParts.tsx";
 import { ItineraryMap } from "./ItineraryMap.tsx";
 import { OrderSuggestionBlock, type SuggestionBasis, useOrderSuggestion } from "./OrderSuggestion.tsx";
 import { PlaceField } from "./PlaceField.tsx";
@@ -100,6 +100,8 @@ import { FlightKindField } from "../FlightKindField.tsx";
 import { PickerTextField } from "./full-screen.tsx";
 import { TravellersField } from "./TravellersField.tsx";
 import { VehicleList } from "./VehicleList.tsx";
+import { STEP_BAR_REASON_ID, StepActionBar, useCompactScreen, useViewportFitCover } from "./StepActionBar.tsx";
+import { stepBarCopy, vehicleStepReason } from "../../../lib/step-bar-texts.ts";
 
 /** 填齐后停顿多久再报价（毫秒）：连点 − + 时只报最后一次。 */
 export const QUOTE_DEBOUNCE_MS = 400;
@@ -279,6 +281,9 @@ export function BookNewPage() {
   const location = useLocation();
   const link = useMemo(() => parseBookingLink(location.search), []);
   const wide = useWideScreen();
+  // 手机（≤ 768px）：每一步的按钮在底部按钮条里（M9E-32，ADR 0100）；主站这时给 viewport 加 viewport-fit=cover（安全区）
+  const compact = useCompactScreen() && !wide;
+  useViewportFitCover(compact && shell.hostViewport === undefined);
   const { state: config, reload: reloadConfig } = useSiteConfig();
   const [cities, setCities] = useState<Load<SiteCity[]>>({ kind: "loading" });
   const [round, setRound] = useState(0);
@@ -1136,11 +1141,15 @@ export function BookNewPage() {
         <TravellersField passengers={draft.passengers} luggage={draft.luggage} onChange={(value) => update(value)} />
         {charterNoOnline && <ManualQuoteBlock key={manualKey} trip={manualTrip} supportWhatsapp={supportWhatsapp} />}
         {!charterNoOnline && (
-          <div className="book-new__actions">
-            <Button variant="primary" size="lg" block={!wide} onClick={showVehicles}>
-              下一步：选择车型
-            </Button>
-          </div>
+          <StepActionBar
+            compact={compact}
+            frame={shell.hostViewport}
+            primary={
+              <Button variant="primary" size="lg" block={!wide} onClick={showVehicles}>
+                下一步：选择车型
+              </Button>
+            }
+          />
         )}
       </section>
     );
@@ -1265,6 +1274,9 @@ export function BookNewPage() {
       );
     }
 
+    // 第 2 步「下一步」点不了时的原因（M9E-32）：灰着、写出原因，不隐藏
+    const vehicleReasonKey = vehicleStepReason({ selected: selected !== null, manualOnly, quote: current === null ? "none" : current.kind });
+    const vehicleReason = vehicleReasonKey === null ? null : stepBarCopy(vehicleReasonKey);
     const vehicleSection = (
       <section aria-labelledby="book-vehicles-title" className="site-section book-new__vehicles">
         <h2 id="book-vehicles-title" ref={vehiclesHeading} tabIndex={-1} className="site-section__title">
@@ -1275,16 +1287,32 @@ export function BookNewPage() {
           {suggestionNotice}
         </p>
         {vehicles}
-        <div className="book-new__actions">
-          <Button size="lg" onClick={() => goStep(1)}>
-            上一步
-          </Button>
-          {wide && !manualOnly && (
-            <Button variant="primary" size="lg" disabled={selected === null} onClick={() => goStep(3)}>
-              下一步：填写乘客信息
+        <StepActionBar
+          compact={compact}
+          frame={shell.hostViewport}
+          reason={vehicleReason}
+          {...(selected !== null && vehicleName !== null
+            ? {
+                summary: (
+                  <>
+                    <span lang={vehicleName.lang}>{vehicleName.text}</span> · {fixedPriceLabel(selected.pricing_basis)} <SitePrice text={moneyText(selected.price.total)} size="sm" />
+                  </>
+                ),
+              }
+            : {})}
+          back={
+            <Button size="lg" onClick={() => goStep(1)}>
+              上一步
             </Button>
-          )}
-        </div>
+          }
+          primary={
+            !manualOnly && (
+              <Button variant="primary" size="lg" disabled={selected === null} aria-describedby={vehicleReason !== null ? STEP_BAR_REASON_ID : undefined} onClick={() => goStep(3)}>
+                下一步：填写乘客信息
+              </Button>
+            )
+          }
+        />
       </section>
     );
 
@@ -1341,14 +1369,20 @@ export function BookNewPage() {
           ),
         } : {})}
         actions={
-          <div className="book-new__actions">
-            <Button size="lg" onClick={() => goStep(2)}>
-              上一步
-            </Button>
-            <Button type="submit" variant="primary" size="lg">
-              下一步：核对订单
-            </Button>
-          </div>
+          <StepActionBar
+            compact={compact}
+            frame={shell.hostViewport}
+            back={
+              <Button size="lg" onClick={() => goStep(2)}>
+                上一步
+              </Button>
+            }
+            primary={
+              <Button type="submit" variant="primary" size="lg">
+                下一步：核对订单
+              </Button>
+            }
+          />
         }
       />
     );
@@ -1526,9 +1560,12 @@ export function BookNewPage() {
           <h2 id="book-review-title" ref={reviewHeading} tabIndex={-1} className="site-section__title">
             核对订单
           </h2>
-          <Button variant="text" className="book-review__back" onClick={() => goStep(3)}>
-            {checkoutCopy("back")}
-          </Button>
+          {/* 手机上「上一步」在底部按钮条左边（M9E-32），标题旁不再放一个 */}
+          {!compact && (
+            <Button variant="text" className="book-review__back" onClick={() => goStep(3)}>
+              {checkoutCopy("back")}
+            </Button>
+          )}
         </div>
         <section className="book-review__block" aria-labelledby="book-review-trip">
           <div className="book-review__head">
@@ -1584,20 +1621,22 @@ export function BookNewPage() {
         <form id={CONTACT_FORM_ID} className="site-form book-review__pay" noValidate onSubmit={(event) => void submitOrder(event)}>
           <AlertSlot notice={contactNotice} />
           <ConsentField checked={contact.consent} error={contactErrors.consent} onChange={(consent) => updateContact({ consent })} />
-          <PayBlock busy={busy} expired={expired} onRequote={requote} />
+          {/* 手机上「去付款」在底部按钮条里（用 form 属性提交这张表单），同意保存银行卡仍在页面最下面（条的上方） */}
+          <PayBlock busy={busy} expired={expired} onRequote={requote} button={!compact} />
         </form>
+        {compact && (
+          <StepActionBar
+            compact
+            frame={shell.hostViewport}
+            back={
+              <Button size="lg" onClick={() => goStep(3)}>
+                {checkoutCopy("back")}
+              </Button>
+            }
+            primary={<PayButton busy={busy} expired={expired} onRequote={requote} />}
+          />
+        )}
       </section>
-    );
-
-    const bar = !wide && step === 2 && selected !== null && vehicleName !== null && (
-      <div className="book-bar">
-        <p className="book-bar__text">
-          <span lang={vehicleName.lang}>{vehicleName.text}</span> · {fixedPriceLabel(selected.pricing_basis)} <SitePrice text={moneyText(selected.price.total)} size="sm" />
-        </p>
-        <Button variant="primary" size="lg" onClick={() => goStep(3)}>
-          下一步
-        </Button>
-      </div>
     );
 
     /** 手机、平板：右侧栏变成顶部可展开的摘要条，收起时写行程和价格（手机上两端各占一行） */
@@ -1640,7 +1679,7 @@ export function BookNewPage() {
     );
 
     body = (
-      <div className={bar ? "book-new book-new--with-bar" : "book-new"}>
+      <div className="book-new">
         <div className="book-new__main">
           {stepper}
           {summaryBar}
@@ -1659,7 +1698,6 @@ export function BookNewPage() {
             </section>
           </aside>
         )}
-        {bar}
       </div>
     );
   }

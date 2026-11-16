@@ -18,11 +18,6 @@
   min-width: 0;
 }
 
-/* 手机第 2 步底部固定的「车型 · 一口价 [下一步]」不能挡住最后一张车型卡 */
-.book-new--with-bar {
-  padding-bottom: calc(var(--space-16) * 2 + env(safe-area-inset-bottom));
-}
-
 .book-new__subtitle {
   font-size: var(--font-size-lg);
   font-weight: var(--font-weight-bold);
@@ -525,31 +520,96 @@
   font-size: var(--font-size-md);
 }
 
-/* ---------- 手机第 2 步底部固定条 ---------- */
+/*
+ * ---------- 每一步的按钮条（M9E-32，ADR 0100） ----------
+ * 手机（≤ 768px，由脚本判断后才渲染 .step-bar，CSS 不另写断点）：「上一步」+ 主按钮放在一条底部按钮条里。
+ * - 主站（.step-bar-slot--fixed）：固定在屏幕底部，留 iPhone 安全区；<html data-book-actionbar> 时 body 底部留出条的实际高度
+ *   （--book-actionbar-h，StepActionBar 量出来写的），不挡表单最后一项和页脚；scroll-padding 同样留出，聚焦的输入框不被盖住。
+ * - 嵌入页（.step-bar-slot--frame）：iframe 被撑到内容全高，fixed 没用——条留在文档流里，默认 sticky 贴底（直接打开时有效）；
+ *   收到宿主带 top 的 viewport 后（data-tracked）按宿主屏幕的下沿往上挪（--book-actionbar-shift，≤ 0）。
+ * 电脑、平板照旧是正文末尾的 .book-new__actions。
+ */
 
-.book-bar {
-  position: fixed;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  z-index: var(--z-sticky);
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-2) var(--space-3);
+.step-bar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
   padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom));
   border-top: var(--border-width) solid var(--color-border-default);
   background: var(--color-bg-surface);
   box-shadow: var(--shadow-md);
 }
 
-.book-bar__text {
+.step-bar-slot--fixed > .step-bar {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: var(--z-sticky);
+  padding-right: calc(var(--space-4) + env(safe-area-inset-right));
+  padding-left: calc(var(--space-4) + env(safe-area-inset-left));
+}
+
+:root[data-book-actionbar] {
+  scroll-padding-bottom: var(--book-actionbar-h, calc(var(--control-height-lg) + var(--space-3) * 2 + env(safe-area-inset-bottom)));
+}
+
+:root[data-book-actionbar] body {
+  padding-bottom: var(--book-actionbar-h, calc(var(--control-height-lg) + var(--space-3) * 2 + env(safe-area-inset-bottom)));
+}
+
+/* viewport-fit=cover 只在新预订页的手机宽度下加（StepActionBar 的 useViewportFitCover）：横屏时正文不进刘海 */
+:root[data-viewport-fit="cover"] body {
+  padding-right: env(safe-area-inset-right);
+  padding-left: env(safe-area-inset-left);
+}
+
+.step-bar-slot--frame {
+  position: sticky;
+  bottom: 0;
+  z-index: var(--z-sticky);
+}
+
+.step-bar-slot--frame[data-tracked] {
+  position: relative;
+}
+
+.step-bar-slot--frame[data-tracked] > .step-bar {
+  transform: translateY(var(--book-actionbar-shift, 0px));
+}
+
+.step-bar__summary {
   min-width: 0;
   margin: 0;
   font-size: var(--font-size-md);
   overflow-wrap: anywhere;
 }
 
+.step-bar__reason {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.step-bar__buttons {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.step-bar__buttons > .button {
+  flex: none;
+}
+
+.step-bar__buttons > .button--primary {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 电脑、平板：原因写在正文末尾的按钮下面，靠右和主按钮对齐 */
+.book-new__actions + .step-bar__reason {
+  margin-top: calc(var(--space-2) * -1);
+  text-align: right;
+}
 
 /* ---------- 右侧栏（M8-04）：路线、附加服务、车费合计、参考价、取消规则、去付款 ---------- */
 

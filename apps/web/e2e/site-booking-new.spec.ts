@@ -102,10 +102,10 @@ test("新预订页四步：输入即提示选机场和酒店 → 自动报价、
   const includes = page.getByRole("region", { name: "一口价包含" });
   await expect(includes.getByRole("listitem")).toHaveText(["一口价已含所有费用（高速费、停车费等），无需另付", "专车专用，不拼车", "航班落地后免费等待：国际线最长 90 分钟、国内线最长 60 分钟"]);
   await expect(page.locator("main")).not.toContainText("跟踪航班");
-  const bar = page.locator(".book-bar");
-  await expect(bar).toContainText(`${world.group.name} · 一口价 22,000 JPY`);
+  const bar = page.locator(".step-bar");
+  await expect(bar.locator(".step-bar__summary")).toContainText(`${world.group.name} · 一口价 22,000 JPY`);
   await expectNarrowAndAccessible(page, "新预订页第 2 步（座位示意图展开、底部固定条）");
-  await bar.getByRole("button", { name: "下一步" }).click();
+  await bar.getByRole("button", { name: "下一步：填写乘客信息" }).click();
 
   // 第 3 步：乘客信息（接机的航班号、航班类型必填，举牌姓名选填）
   await expect(page.getByRole("heading", { level: 2, name: "乘客信息" })).toBeFocused();
@@ -128,13 +128,17 @@ test("新预订页四步：输入即提示选机场和酒店 → 自动报价、
   await expect(review).toContainText("22,000");
   await expect(review).toContainText("取消政策和注意事项");
   await expect(page.getByRole("button", { name: "去付款 →" })).toBeVisible();
-  // 业主验收意见（2026-11-16）：手机上「去付款」在核对页最下面，取消政策在它上面，按钮下面没有别的按钮
-  const payBox = await page.getByRole("button", { name: "去付款 →" }).boundingBox();
-  const termsBox = await review.getByRole("heading", { name: "取消政策和注意事项" }).boundingBox();
-  const backBox = await review.getByRole("button", { name: "上一步" }).boundingBox();
-  expect(payBox !== null && termsBox !== null && backBox !== null).toBe(true);
-  expect((payBox?.y ?? 0) > (termsBox?.y ?? 0)).toBe(true);
-  expect((payBox?.y ?? 0) > (backBox?.y ?? 0)).toBe(true);
+  // 手机（M9E-32，业主验收意见 2026-11-16）：「上一步」「去付款」在固定在屏幕底部的按钮条里（滚到顶也看得见）；
+  // 滚到最底下时同意保存银行卡在条上方、没被挡住（页面底部留出了条的高度）
+  const stepBar = page.locator(".step-bar");
+  await expect(stepBar.getByRole("button", { name: "上一步" })).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const payBox = await stepBar.getByRole("button", { name: "去付款 →" }).boundingBox();
+  expect(payBox !== null && payBox.y >= 0 && payBox.y + payBox.height <= 800, `滚到顶时「去付款」在屏幕里：${JSON.stringify(payBox)}`).toBe(true);
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  const consentBox = await page.getByRole("checkbox", { name: /同意保存这次付款用的银行卡/ }).boundingBox();
+  const barBox = await stepBar.boundingBox();
+  expect(consentBox !== null && barBox !== null && consentBox.y + consentBox.height <= barBox.y, "滚到底：同意保存银行卡在条上方").toBe(true);
   await page.getByRole("button", { name: /^行程摘要/ }).click();
   const panel = page.locator("#book-summary-panel");
   await expect(panel).toContainText("3 人 · 2 件");
@@ -142,7 +146,8 @@ test("新预订页四步：输入即提示选机场和酒店 → 自动报价、
   await expect(panel).toContainText("NH211");
   await expectNarrowAndAccessible(page, "新预订页第 4 步（核对、摘要条展开）");
 
-  // 电脑宽：两栏，右侧栏最上面是路线图，下面是三步确认过的内容
+  // 电脑宽：两栏，右侧栏最上面是路线图，下面是三步确认过的内容（上面为了看底部条滚到了最底下，先滚回顶部，路线图才在视口里）
+  await page.evaluate(() => window.scrollTo(0, 0));
   await page.setViewportSize({ width: 1280, height: 900 });
   const aside = page.getByRole("complementary", { name: "行程摘要" });
   await expect(aside).toBeVisible();

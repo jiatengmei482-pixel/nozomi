@@ -142,8 +142,10 @@ export function EmbedBookPage() {
         void go({ pathname: EMBED_BOOK_ORDER_PATH, search: embedSearch(window.location.search), hash: embedHash(params.ch) }, { state: { orderToken: created.link.token, placed: true, payment: created.payment } });
       },
       stepShown: (number) => step(STEP_NAMES[number]),
+      // 手机底部按钮条按宿主屏幕摆放（M9E-32，ADR 0100）
+      hostViewport: frame.viewport,
     };
-  }, [load, live, draft, send, t.title, params.ch]);
+  }, [load, live, draft, send, t.title, params.ch, frame.viewport]);
 
   if (!inFrame || host === null) return <EmbedRefusal />;
   const siteLink = `/book/new${draft === null ? "" : `?draft=${encodeURIComponent(draft)}`}`;

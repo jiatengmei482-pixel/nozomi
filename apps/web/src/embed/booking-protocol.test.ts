@@ -7,6 +7,7 @@ import {
   HOST_DRAFT_TTL_MS,
   bookingUrlOf,
   clampHeight,
+  clampOffset,
   embedFrameUrl,
   envelope,
   frameParamsOf,
@@ -71,6 +72,22 @@ test("高度截到 1–20000 的整数；宿主 → iframe 只认 viewport", () 
   assert.equal(parseHostMessage(msg({ type: "step", step: "trip" }), CH), null, "宿主不能冒充 iframe 的消息");
   assert.equal(parseHostMessage({ ...msg({ type: "viewport", height: 900 }), ch: "x" }, CH), null);
   assert.deepEqual(envelope(CH, { type: "viewport", height: 900 }), { ns: "nozomi-booking", v: 1, ch: CH, type: "viewport", height: 900 });
+});
+
+test("viewport 的 top（M9E-32，ADR 0100）：可选；有就取整、截到 ±20000；不是有限数时只是不带，height 照旧；旧消息（无 top）照旧能解析", () => {
+  assert.deepEqual(parseHostMessage(msg({ type: "viewport", height: 800 }), CH), { type: "viewport", height: 800 }, "旧版组件脚本的消息");
+  assert.deepEqual(parseHostMessage(msg({ type: "viewport", height: 800, top: 120 }), CH), { type: "viewport", height: 800, top: 120 });
+  assert.deepEqual(parseHostMessage(msg({ type: "viewport", height: 800, top: -1234.6 }), CH), { type: "viewport", height: 800, top: -1235 }, "可为负数，取整");
+  assert.deepEqual(parseHostMessage(msg({ type: "viewport", height: 800, top: 0 }), CH), { type: "viewport", height: 800, top: 0 });
+  assert.deepEqual(parseHostMessage(msg({ type: "viewport", height: 800, top: 99_999 }), CH), { type: "viewport", height: 800, top: 20_000 }, "越界截到 20000");
+  assert.deepEqual(parseHostMessage(msg({ type: "viewport", height: 800, top: -99_999 }), CH), { type: "viewport", height: 800, top: -20_000 }, "越界截到 -20000");
+  for (const top of ["120", null, true, Number.NaN, Infinity, -Infinity, { y: 1 }, [1]]) {
+    assert.deepEqual(parseHostMessage(msg({ type: "viewport", height: 800, top }), CH), { type: "viewport", height: 800 }, `top = ${String(top)}`);
+  }
+  assert.equal(parseHostMessage(msg({ type: "viewport", height: "800", top: 10 }), CH), null, "height 不对整条丢掉，top 救不回来");
+  assert.equal(clampOffset(-0.4), 0);
+  assert.equal(clampOffset("1"), null);
+  assert.deepEqual(envelope(CH, { type: "viewport", height: 900, top: -50 }), { ns: "nozomi-booking", v: 1, ch: CH, type: "viewport", height: 900, top: -50 });
 });
 
 test("交给合作网站的事件只有 step、completed、error", () => {
