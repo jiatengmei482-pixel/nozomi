@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { LatLng } from "./geo.ts";
-import { ITINERARY_MAP_RULES, ITINERARY_MARKER_COLORS, displayStopNumber, isItineraryPointList, itineraryMapQuery, itineraryMarkers, itineraryPointsKey, legStopNumbers, markerIconUrl, stopNumbers } from "./itinerary-map.ts";
+import { ITINERARY_MAP_RULES, ITINERARY_MARKER_COLORS, displayStopNumber, isItineraryPointList, itineraryMapQuery, itineraryMarkers, itineraryPointsKey, legStopNumbers, markerIconUrl, mergedMarkerIconUrl, pickupIsDropoff, stopNumbers } from "./itinerary-map.ts";
 import { STATIC_MAP_PALETTES, STATIC_MAP_RULES, type StaticMapSize, decodePolyline, encodePolyline } from "./static-map.ts";
 
 const SIZE: StaticMapSize = { theme: "light", width: 320, height: 200, scale: 2 };
@@ -107,6 +107,26 @@ test("标记：10–12 用本站公开路径上的自定义图标，最多 3 种
   assert.ok(icons.size <= 5);
   assert.equal(markerIconUrl("https://a.test", 10), "https://a.test/map-markers/10.png");
   assert.equal(ITINERARY_MAP_RULES.firstIconNumber, 10);
+});
+
+test("标记：上车和下车是同一个地点（取整后同一点）时合并成一个「1·N」图标，经停照常；不同地点、只有两个点时不合并", () => {
+  const loop = [...line(4), { lat: 35.68962, lng: 139.70058 }];
+  assert.equal(pickupIsDropoff(loop), true);
+  const markers = itineraryMarkers(loop, "light", SITE);
+  assert.deepEqual(markers, [
+    "anchor:center|icon:https://book.example.test/map-markers/1-5.png|35.68960,139.70060",
+    `size:mid|color:0x${ITINERARY_MARKER_COLORS.light}|label:2|35.67960,139.68060`,
+    `size:mid|color:0x${ITINERARY_MARKER_COLORS.light}|label:3|35.66960,139.66060`,
+    `size:mid|color:0x${ITINERARY_MARKER_COLORS.light}|label:4|35.65960,139.64060`,
+  ]);
+  assert.equal(pickupIsDropoff(line(5)), false);
+  assert.equal(itineraryMarkers(line(5), "light", SITE).length, 5);
+  assert.equal(pickupIsDropoff([line(1)[0] as LatLng, line(1)[0] as LatLng]), false, "只有上车、下车两个点画不了路线，不在这里处理");
+  // 12 个点的环线：10、11 号图标加合并的「1·12」，共 3 种
+  const big = [...line(11), line(1)[0] as LatLng];
+  const icons = new Set(itineraryMarkers(big, "light", SITE).flatMap((m) => /icon:([^|]+)/.exec(m)?.[1] ?? []));
+  assert.deepEqual([...icons].sort(), ["https://book.example.test/map-markers/1-12.png", "https://book.example.test/map-markers/10.png", "https://book.example.test/map-markers/11.png"]);
+  assert.equal(mergedMarkerIconUrl("https://a.test/", 7), "https://a.test/map-markers/1-7.png");
 });
 
 test("查询参数：逐段折线拼成一条品牌色路线，标记按编号，不含密钥", () => {

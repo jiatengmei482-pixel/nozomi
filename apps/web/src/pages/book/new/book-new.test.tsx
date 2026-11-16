@@ -1006,6 +1006,16 @@ test("乘客信息和付款：第 3 步没填好时标红（姓名、手机、�
 
   const pay = screen.getByRole("button", { name: "去付款 →" });
   assert.equal(pay.getAttribute("form"), "book-contact-form");
+  // 第 4 步的顺序（业主验收意见 2026-11-16）：行程 → 乘客信息 → 价格和总价 → 取消政策和注意事项 → 最下面是「去付款」，按钮后面没有别的按钮、链接；「上一步」在标题旁
+  const reviewAgain = screen.getByRole("region", { name: "核对订单" });
+  const order = ["行程", "乘客信息", "价格和总价", "取消政策和注意事项"].map((name) => within(reviewAgain).getByRole("heading", { level: 3, name }));
+  for (let i = 1; i < order.length; i++) assert.ok((order[i - 1] as HTMLElement).compareDocumentPosition(order[i] as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING, `${order[i - 1]?.textContent} 在 ${order[i]?.textContent} 前面`);
+  assert.ok((order.at(-1) as HTMLElement).compareDocumentPosition(pay) & Node.DOCUMENT_POSITION_FOLLOWING, "「去付款」在取消政策下面");
+  const after = [...reviewAgain.querySelectorAll("button, a[href], input, select, textarea")].filter((el) => pay.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
+  assert.deepEqual(after, [], "「去付款」后面没有别的控件");
+  assert.ok(within(reviewAgain).getByRole("button", { name: "上一步" }).compareDocumentPosition(order[0] as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING, "「上一步」在最上面");
+  assert.equal(within(reviewAgain).queryAllByLabelText("价格明细").length <= 1, true, "「价格明细」只标一处（包车明细表）");
+  assert.ok(within(reviewAgain).getByText("点「去付款」后订单即提交，请在 30 分钟内完成付款，超时订单会自动取消。"));
   await actor.click(pay);
   assert.ok(screen.getByText("需要同意保存支付方式才能下单"));
   assert.equal(posts(calls, "/site/v1/orders").length, 0);

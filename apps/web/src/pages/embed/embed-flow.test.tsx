@@ -221,6 +221,10 @@ test("四步（iframe 1023 宽）：读草稿带 key、host，对得上时询价
   const pay = screen.getByRole("link", { name: new RegExp(EMBED_TEXTS.ja.payInNewWindow) });
   assert.equal(pay.getAttribute("href"), `/book/order#${TOKEN}`);
   assert.equal(pay.getAttribute("target"), "_blank");
+  // 付款进 iframe 之前的临时做法（业主验收意见 2026-11-16）：按钮旁写清点一次就在新窗口打开付款页，读屏读按钮时一起读
+  const hint = document.getElementById(pay.getAttribute("aria-describedby") ?? "");
+  assert.equal(hint?.textContent, EMBED_TEXTS.ja.payHint);
+  assert.ok(pay.compareDocumentPosition(hint as Node) & Node.DOCUMENT_POSITION_FOLLOWING, "说明紧跟在按钮后面");
 
   // 草稿齐了先挂第 1 步、报价后到第 2 步（同主站）
   assert.deepEqual(steps(), ["trip", "vehicle", "passenger", "review", "payment"]);

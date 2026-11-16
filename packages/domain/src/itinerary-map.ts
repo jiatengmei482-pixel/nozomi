@@ -25,6 +25,8 @@ export const ITINERARY_MAP_RULES = {
   polylineCacheTtlMs: 7 * DAY_MS,
   /** 自定义标记图标在官网静态目录里的路径（`/map-markers/10.png`）：谷歌的服务器去取，必须公网可直接访问 */
   markerIconPath: "/map-markers",
+  /** 上车、下车是同一个地点（取整后同一个点，`routeCoordinateText`）时合并成一个「1·N」标记（#267 验收意见 2026-11-16）：至少几个点才可能合并（上车 + 经停 + 下车） */
+  firstMergedPoints: 3,
 } as const;
 
 /** 行程里一个点的类型：上车、经停、下车。 */
@@ -102,14 +104,33 @@ export function markerIconUrl(siteBaseUrl: string, number: number): string {
 
 const coordinate = (point: LatLng): string => `${point.lat.toFixed(5)},${point.lng.toFixed(5)}`;
 
-/** 每个点的 `markers` 参数（编号来自 `stopNumbers`）：1–9 用 `label`，10 起用自定义图标（居中对齐）。 */
+/** 上车、下车合并标记的图标网址：`<官网地址>/map-markers/1-N.png`（N 是下车的编号）。 */
+export function mergedMarkerIconUrl(siteBaseUrl: string, last: number): string {
+  return `${siteBaseUrl.replace(/\/+$/, "")}${ITINERARY_MAP_RULES.markerIconPath}/1-${last}.png`;
+}
+
+/** 上车和下车取整后是不是同一个地点（有经停的环线）：是的话地图上合并成一个「1·N」标记，免得「1」把终点编号整个盖住。 */
+export function pickupIsDropoff(points: readonly LatLng[]): boolean {
+  if (points.length < ITINERARY_MAP_RULES.firstMergedPoints) return false;
+  const first = points[0] as LatLng;
+  const last = points[points.length - 1] as LatLng;
+  return routeCoordinateText(first.lat) === routeCoordinateText(last.lat) && routeCoordinateText(first.lng) === routeCoordinateText(last.lng);
+}
+
+/**
+ * 每个点的 `markers` 参数（编号来自 `stopNumbers`）：1–9 用 `label`，10 起用自定义图标（居中对齐）。
+ * 上车和下车是同一个地点时（`pickupIsDropoff`）这两个点只出一个合并标记「1·N」（自定义图标，放在上车点）；自定义图标最多 10、11、12 加一个合并的，不超过谷歌的 5 种。
+ */
 export function itineraryMarkers(points: readonly LatLng[], theme: StaticMapTheme, siteBaseUrl: string): string[] {
   const color = ITINERARY_MARKER_COLORS[theme];
-  return stopNumbers(points).map(({ number, kind, point }) => {
+  const merged = pickupIsDropoff(points);
+  const numbered = stopNumbers(points);
+  const markers = numbered.filter(({ kind }) => !merged || kind === "stop").map(({ number, kind, point }) => {
     if (number >= ITINERARY_MAP_RULES.firstIconNumber) return `anchor:center|icon:${markerIconUrl(siteBaseUrl, number)}|${coordinate(point)}`;
     const style = kind === "stop" ? `size:mid|color:0x${color}` : `color:0x${color}`;
     return `${style}|label:${number}|${coordinate(point)}`;
   });
+  return merged ? [`anchor:center|icon:${mergedMarkerIconUrl(siteBaseUrl, points.length)}|${coordinate(points[0] as LatLng)}`, ...markers] : markers;
 }
 
 /** 每隔 `stride` 个点留一个，第一个和最后一个一定留下。 */

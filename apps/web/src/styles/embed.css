@@ -58,6 +58,12 @@
   gap: var(--space-3);
 }
 
+/* 付款按钮旁的说明（业主验收意见 2026-11-16）：紧贴按钮，正文字号，不用灰色小字 */
+.embed-book__pay-hint {
+  margin: 0;
+  font-size: var(--font-size-md);
+}
+
 /*
  * 分栏和主站 /book/new 一样（M9E-27，ADR 0095 第十二节末第二轮决策）：book-new.css 的 ≥ 1024px 两栏、右侧栏原样用，
  * 媒体查询在 iframe 的文档里按 iframe 自己的宽度算，不看宿主窗口；这里不另写分栏。

@@ -129,8 +129,16 @@ export function PriceBlock({
 
 /** 去付款（提交「怎么联系你」）和支付方式；报价过期时换成「重新查询价格」。 */
 export function PayBlock({ busy, expired, onRequote }: { busy: boolean; expired: boolean; onRequote(): void }) {
+  // 按钮放在最后（业主验收意见 2026-11-16）：支付方式写在按钮上面，按钮下面不再有内容
   return (
     <div className="book-summary__block book-pay">
+      <p className="book-pay__methods">
+        <span>支付方式：</span>
+        <span className="book-pay__method">
+          <Icon name="credit-card" />
+          银行卡
+        </span>
+      </p>
       {expired ? (
         <Button variant="primary" size="lg" block onClick={onRequote}>
           重新查询价格
@@ -140,13 +148,6 @@ export function PayBlock({ busy, expired, onRequote }: { busy: boolean; expired:
           去付款 →
         </Button>
       )}
-      <p className="book-pay__methods">
-        <span>支付方式：</span>
-        <span className="book-pay__method">
-          <Icon name="credit-card" />
-          银行卡
-        </span>
-      </p>
     </div>
   );
 }
