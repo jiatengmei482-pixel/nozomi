@@ -146,7 +146,8 @@ test("新预订页四步：输入即提示选机场和酒店 → 自动报价、
   await expect(panel).toContainText("NH211");
   await expectNarrowAndAccessible(page, "新预订页第 4 步（核对、摘要条展开）");
 
-  // 电脑宽：两栏，右侧栏最上面是路线图，下面是三步确认过的内容
+  // 电脑宽：两栏，右侧栏最上面是路线图，下面是三步确认过的内容（上面为了看底部条滚到了最底下，先滚回顶部，路线图才在视口里）
+  await page.evaluate(() => window.scrollTo(0, 0));
   await page.setViewportSize({ width: 1280, height: 900 });
   const aside = page.getByRole("complementary", { name: "行程摘要" });
   await expect(aside).toBeVisible();
