@@ -36,6 +36,14 @@ export interface SuggestionStop {
   fixed?: boolean;
 }
 
+/**
+ * 询价里的经停 → 切段用的经停（P3，ADR 0096 第三节第 1、6 小节）：带指定到达时间（`arrive_by`）的是固定点，不参与重排；`refs` 和经停一一对应。
+ * 额外的字段（比如下标）原样带着。
+ */
+export function suggestionStopsOf<T extends { lat: number; lng: number; arrive_by?: unknown }>(waypoints: readonly T[], refs: readonly string[]): (SuggestionStop & { index: number })[] {
+  return waypoints.map((stop, index) => ({ ref: refs[index] as string, lat: stop.lat, lng: stop.lng, index, ...(stop.arrive_by === undefined || stop.arrive_by === null ? {} : { fixed: true }) }));
+}
+
 /** 一段：两端（上车、固定经停、下车）和段内可动经停（按现在的顺序）。 */
 export interface SuggestionSegment<T extends SuggestionStop = SuggestionStop> {
   from: LatLng;

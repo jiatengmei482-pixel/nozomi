@@ -848,6 +848,20 @@ input[type="datetime-local"]:focus-within {
   font-size: var(--font-size-sm);
 }
 
+/* 指定到达时间（M9P-20 P3）：「须在 14:00 前到达」比停留醒目一点；预计晚到用警示色，除了颜色还有图标和文字 */
+.trip-stops__deadline {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.trip-stops__late {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-warning-text);
+  font-size: var(--font-size-sm);
+}
+
 .trip-stops__summary {
   display: block;
   margin: var(--space-2) 0 0;

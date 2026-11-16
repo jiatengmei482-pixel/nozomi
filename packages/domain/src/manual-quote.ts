@@ -6,6 +6,7 @@
  * - 联系方式和两端地点按乘客信息的方案加密存（ADR 0057）；关闭（或转订单）180 天后、最晚提交 365 天后清除。
  * - 同一处的「通过 WhatsApp 联系我们」：号码在运营后台「官网设置」里填（`whatsappDigits`），消息只有行程要点，没有客人的个人信息。
  */
+import type { ArriveBy } from "./arrive-by.ts";
 import { CHARTER_ITINERARY_LIMITS } from "./charter-itinerary-limits.ts";
 import type { ServiceCategory } from "./master-data.ts";
 import { viewLinkLookupEmail } from "./view-link.ts";
@@ -84,9 +85,10 @@ export interface ManualQuotePlace {
   lng: number;
 }
 
-/** 包车的一个经停点（M9W-04）：名称、坐标、停留分钟 */
+/** 包车的一个经停点（M9W-04）：名称、坐标、停留分钟；`arriveBy` 是客人指定的到达时间（M9P-20 P3，最晚到达），没指定的没有这一项 */
 export interface ManualQuoteWaypoint extends ManualQuotePlace {
   stayMinutes: number;
+  arriveBy?: ArriveBy;
 }
 
 /** 页面自动带上的行程（客人不用再填）。 */

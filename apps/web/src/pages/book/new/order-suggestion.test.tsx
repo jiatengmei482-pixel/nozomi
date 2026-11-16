@@ -3,7 +3,8 @@
  * - 当前顺序报出价以后申请一次建议（带当前报价编号、每行的标识、会话），只换顺序不再申请；
  * - 建议块：标题（可省公里、分钟、钱）、两栏的编号顺序和价；「采用」按标识重排、直接用建议报价（不再多询一次价），焦点到行程标题、读屏播报；
  *   之后有「恢复原来的顺序」；「保持我的顺序」收起、同一组点不再申请；
- * - 改了停留：先显示「正在按最新行程重算建议…」、不能采用，新建议回来后才能采用。
+ * - 改了停留：先显示「正在按最新行程重算建议…」、不能采用，新建议回来后才能采用；
+ * - 指定到达时间（M9P-20 P3）：加上到达时间重新申请，建议顺序预计晚到时在「建议顺序」一栏提示。
  * 接口用测试替身；真实后端由 apps/api/src/site-order-suggestion.itest.ts 覆盖。
  */
 import { afterEach, test } from "node:test";
@@ -227,6 +228,21 @@ test("改了停留：先「正在按最新行程重算建议…」不能采用�
   assert.equal((suggestions[1] as Record<string, any>).quote.waypoints[0].stay_minutes, 90);
   const block = await screen.findByRole("region", { name: /^建议顺序，可省/ }, SLOW);
   await waitFor(() => assert.equal((within(block).getByRole("button", { name: "采用建议顺序" }) as HTMLButtonElement).disabled, false), SLOW);
+});
+
+test("指定到达时间（M9P-20 P3）：给经停加上到达时间是固定点变了，重新申请建议（请求里带 arrive_by）；建议顺序预计晚到时在「建议顺序」一栏提示，当前顺序晚到在那一行提示", async () => {
+  const { actor, suggestions } = await toSuggestion();
+  await actor.click(screen.getByRole("button", { name: "上一步" }));
+  // 08:00 出发。当前顺序（每段 80 分钟、停 60）箱根第 3 个：预计 14:00 到；建议顺序（每段 60 分钟）箱根第 2 个：预计 11:00 到
+  fireEvent.change(screen.getByLabelText("经停点 3 指定到达时间（选填）"), { target: { value: "10:30" } });
+  const row = screen.getByRole("button", { name: "把 箱根 上移" }).closest("li") as HTMLElement;
+  await waitFor(() => assert.ok(within(row).getByText("预计 14:00 到，晚于指定的 10:30")), SLOW);
+  await actor.click(screen.getByRole("button", { name: "下一步：选择车型" }));
+  await waitFor(() => assert.equal(suggestions.length, 2), SLOW);
+  const sent = suggestions[1] as Record<string, any>;
+  assert.deepEqual(sent.quote.waypoints.map((stop: { arrive_by?: unknown }) => stop.arrive_by ?? null), [null, null, { day_offset: 0, time: "10:30" }]);
+  const block = await screen.findByRole("region", { name: /^建议顺序，可省/ }, SLOW);
+  await waitFor(() => assert.ok(within(block).getByText("箱根：预计 11:00 到，晚于指定的 10:30")), SLOW);
 });
 
 test("指针拖动（ADR 0096 第三节第 7 小节）：按住把手拖到第 3 行下面 → 顺序变了、播报新位置；把手不进 Tab 顺序", async () => {

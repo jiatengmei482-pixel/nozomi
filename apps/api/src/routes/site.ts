@@ -34,7 +34,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { CurrencyCode, LocalizedText, SellBreakdownItem } from "@nozomi/domain";
 import { z } from "zod";
-import { AIRPORT_SCENARIO_KINDS, FLIGHT_KINDS, FX_CURRENCIES, MESSAGING_APPS, ORDER_FIELD_LIMITS, PLACE_KINDS, PRICE_LIMITS, QUOTE_RULES, SERVICE_CATEGORIES, STATIC_MAP_RULES, STATIC_MAP_THEMES, type RouteMapReason, isGooglePlaceId, isPlaceSessionToken, normalizePlaceQuery, placeQueryIssue, viewLinkLookupEmail, ITINERARY_MAP_RULES } from "@nozomi/domain";
+import { AIRPORT_SCENARIO_KINDS, FLIGHT_KINDS, FX_CURRENCIES, MESSAGING_APPS, ORDER_FIELD_LIMITS, PLACE_KINDS, PRICE_LIMITS, QUOTE_RULES, SERVICE_CATEGORIES, STATIC_MAP_RULES, STATIC_MAP_THEMES, type RouteMapReason, isGooglePlaceId, isPlaceSessionToken, normalizePlaceQuery, placeQueryIssue, viewLinkLookupEmail, ITINERARY_MAP_RULES, arriveByIssue } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { AppError } from "../errors.ts";
@@ -51,6 +51,7 @@ import {
   type QuotedCity,
   type SiteQuoteResult,
   type SiteTrip,
+  type SiteWaypoint,
   placeSiteOrder,
   requestSiteOrderLink,
   resolveSiteLink,
@@ -114,10 +115,45 @@ const addonsOf = (addons: z.output<typeof addonsSchema>): { addonId: string; qua
 const demandNameSchema = z.string().max(200).nullable().optional();
 
 /**
+ * 经停的指定到达时间（M9P-20 P3，ADR 0096 第三节第 6 小节）：可选，「当天 / 次日 + HH:MM」（用车当地时间），按「最晚到达」理解；
+ * 必须晚于用车开始、不晚于开始 + 24 小时（在 `siteTripOf` 里按 `service_local` 核对）。只固定这个经停的位置、给司机看，不影响价格。
+ */
+export const arriveBySchema = z
+  .object({
+    day_offset: z.union([z.literal(0), z.literal(1)]),
+    time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "写成 HH:MM（00:00–23:59）"),
+  })
+  .strict();
+
+export const ARRIVE_BY_MESSAGES: Readonly<Record<"FORMAT" | "NOT_AFTER_START" | "TOO_LATE", string>> = {
+  FORMAT: "指定到达时间写成当天或次日（day_offset 0 / 1）加 HH:MM",
+  NOT_AFTER_START: "指定到达时间要晚于用车开始时间",
+  TOO_LATE: "指定到达时间不能晚于用车开始后 24 小时",
+};
+
+/** 包车经停去掉没给的 `arrive_by`（不给时请求、快照里不带这个键，和以前逐字一样），并按用车时间核对给了的。 */
+function waypointsOf(body: { waypoints?: z.output<typeof waypointSchema>[] | undefined; service_local: string }, issues: InputIssue[]): SiteWaypoint[] {
+  return (body.waypoints ?? []).map(({ arrive_by: arriveBy, ...stop }, index) => {
+    if (arriveBy === undefined) return stop;
+    const issue = arriveByIssue(body.service_local, arriveBy);
+    if (issue !== null) issues.push({ path: `/waypoints/${index}/arrive_by`, reason: issue, message: ARRIVE_BY_MESSAGES[issue] });
+    return { ...stop, arrive_by: { day_offset: arriveBy.day_offset, time: arriveBy.time } };
+  });
+}
+
+/**
  * 包车的经停点（ADR 0088）：名称、坐标、停留分钟，按顺序，最多 25 个（`QUOTE_RULES.maxWaypoints`，M9P-10 起只受路径接口上限）。
  * 只有包车能给（别的品类 400 `NOT_APPLICABLE`）；空数组和不给一样。
  */
-const waypointSchema = z.object({ name: z.string().trim().min(1).max(200), lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180), stay_minutes: z.number().int().min(0).max(1_440) }).strict();
+const waypointSchema = z
+  .object({
+    name: z.string().trim().min(1).max(200),
+    lat: z.number().min(-90).max(90),
+    lng: z.number().min(-180).max(180),
+    stay_minutes: z.number().int().min(0).max(1_440),
+    arrive_by: arriveBySchema.optional(),
+  })
+  .strict();
 
 /**
  * 询价请求：`category` 不填是接送机（M3-05 的请求照旧能用）。各品类要的字段：
@@ -176,7 +212,7 @@ export function siteTripOf(body: QuoteBody): SiteTrip {
     if (needed.includes(field) && !given) issues.push({ path: `/${field}`, reason: "REQUIRED", message: `${CATEGORY_NAMES[body.category]}要填${TRIP_FIELD_NAMES[field]}` });
     if (!needed.includes(field) && given) issues.push({ path: `/${field}`, reason: "NOT_APPLICABLE", message: `${CATEGORY_NAMES[body.category]}不用填${TRIP_FIELD_NAMES[field]}（请删掉）` });
   }
-  const waypoints = body.waypoints ?? [];
+  const waypoints = waypointsOf(body, issues);
   if (waypoints.length > 0 && body.category !== "charter") issues.push({ path: "/waypoints", reason: "NOT_APPLICABLE", message: `${CATEGORY_NAMES[body.category]}不用填经停点（只有包车可以填，请删掉）` });
   if (issues.length > 0) throw validationFailed("body", issues);
   const { airport_id: airportId, direction, address, pickup, dropoff, package_hours: packageHours } = body;
@@ -384,6 +420,8 @@ function quoteJson(quote: SiteQuote): Json {
     estimated_minutes: quote.itinerary?.estimatedMinutes ?? null,
     includes_buffer: quote.itinerary?.includesBuffer ?? null,
     auto_package_hours: quote.itinerary?.autoPackageHours ?? null,
+    // 中标商品每个经停点的默认占用（分钟，M9P-20 P3）：页面按「用车时间 + 逐段行驶 + 停留 + 每站占用」算预计到达指定时间的经停，晚了只提示；没按行程计价为 null
+    stop_occupancy_minutes: quote.itinerary?.stopOccupancyMinutes ?? null,
     // 超限提醒（M9P-10，规格步骤 5）：按中标商品的提醒线，`LONG_DURATION`（T 超过）、`LONG_DISTANCE`（全程超过），没超为空数组，仍可下单；没按行程计价为 null
     itinerary_warnings: quote.itineraryWarnings ?? null,
   };
@@ -414,7 +452,8 @@ function quoteResultJson(result: SiteQuoteResult): Json {
 
 /** 渠道看到的那一份订单，落地信息去掉司机到达屏照片的文件编号（照片只给平台和供应商核对）。 */
 function guestOrderJson(view: SalesOrderView, now: Date): Json {
-  const order = salesOrderJson(view, now);
+  // 官网订单页的经停点带指定到达时间（M9P-20 P3；渠道那一份去掉了，见 salesOrderJson）
+  const order: Json = { ...salesOrderJson(view, now), waypoints: view.order.waypoints };
   const landing = order["landing"] as Json | null;
   if (landing === null) return order;
   const { driver_photo_file_id: _photo, ...guestLanding } = landing;

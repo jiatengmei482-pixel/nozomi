@@ -24,6 +24,7 @@ import { useToast } from "../../components/Toast.tsx";
 import { WhatsappLink } from "../../components/WhatsappLink.tsx";
 import { localOffsetLabel } from "../../lib/audit-display.ts";
 import { failureText } from "../../lib/failure.ts";
+import { arriveByDeadlineText } from "../../lib/arrive-by-display.ts";
 import { durationText } from "../../lib/charter-itinerary.ts";
 import { ACCEPTANCE_BADGE, MANUAL_QUOTES_PAGE, MANUAL_QUOTE_STATUS_BADGES, PURGED_BADGE, contactKindsText, contactQueryValid, guestWhatsappDigits, guestWhatsappGreeting, manualQuoteEventText, manualQuotePath, manualQuoteStatusOf, manualQuoteTripText } from "../../lib/manual-quote-display.ts";
 import { auditLogPath } from "../../lib/platform-paths.ts";
@@ -241,7 +242,7 @@ function ContactSection({ detail }: { detail: ManualQuoteDetail }) {
             <ol className="details__lines" aria-label="经停点">
               {detail.waypoints.map((stop, index) => (
                 <li key={`${index}-${stop.lat}-${stop.lng}`}>
-                  <span>{`经停 ${index + 1} · 停留 ${durationText(stop.stay_minutes)}`}</span>
+                  <span>{[`经停 ${index + 1} · 停留 ${durationText(stop.stay_minutes)}`, arriveByDeadlineText(stop.arrive_by)].filter((part) => part !== null).join(" · ")}</span>
                   <PlaceText place={stop} />
                 </li>
               ))}

@@ -99,7 +99,7 @@ export interface SiteQuoteRequest {
   /** 点对点：下车点 */
   dropoff?: SitePoint;
   /** 包车：经停点（途经景点，M9W-01，ADR 0088），按顺序，最多 25 个（M9P-10，`CHARTER_ITINERARY_LIMITS`）；不填 = 没有。页面编辑在 M9W-02 */
-  waypoints?: { name: string; lat: number; lng: number; stay_minutes: number }[];
+  waypoints?: SiteWaypointInput[];
   /** 包车按行程计价（M9W-01）：true 时不给 package_hours，服务器估路线、选套餐、收超公里 / 超时 */
   itinerary_pricing?: boolean;
   /** 包车：套餐时长（小时） */
@@ -170,6 +170,23 @@ export interface SiteQuote {
   auto_package_hours?: number | null;
   /** 超限提醒（M9P-10）：按中标商品的提醒线，T 超过为 `LONG_DURATION`、全程超过为 `LONG_DISTANCE`；都没超为空数组，仍可下单。没按行程计价为 null */
   itinerary_warnings: SiteItineraryWarning[] | null;
+  /** 中标商品每个经停点的默认占用（分钟，M9P-20 P3）：算带指定到达时间的经停预计几点到；没按行程计价为 null，旧接口没有这一项 */
+  stop_occupancy_minutes?: number | null;
+}
+
+/** 经停的指定到达时间（M9P-20 P3，ADR 0096 第三节第 6 小节，最晚到达）：用车当地时间，`day_offset` 0 当天、1 次日 */
+export interface SiteArriveBy {
+  day_offset: 0 | 1;
+  time: string;
+}
+
+/** 询价请求里的一个经停点：名称、坐标、停留分钟、可选的指定到达时间 */
+export interface SiteWaypointInput {
+  name: string;
+  lat: number;
+  lng: number;
+  stay_minutes: number;
+  arrive_by?: SiteArriveBy;
 }
 
 /** 包车行程超限提醒的种类（M9P-10） */
@@ -352,8 +369,8 @@ export interface SiteOrder {
   luggage: number;
   pickup: SiteOrderPoint | null;
   dropoff: SiteOrderPoint | null;
-  /** 包车的经停点（M9W-01）：名称、坐标、停留分钟；没有为 null。订单页显示在 M9W-03 */
-  waypoints?: { name: string; lat: number; lng: number; stay_minutes: number }[] | null;
+  /** 包车的经停点（M9W-01）：名称、坐标、停留分钟；没有为 null。订单页显示在 M9W-03。`arrive_by` 是客人指定的到达时间（M9P-20 P3），只在指定了时有 */
+  waypoints?: SiteWaypointInput[] | null;
   /** 包车按行程计价锁定的全程、总时长、超出量（M9W-01，没有金额）；没按行程计价为 null */
   itinerary?: { route_meters: number; route_minutes: number; package_km: number; package_minutes: number; over_meters: number; overtime_minutes: number } | null;
   addons: { addon_id: string; quantity: number }[];
@@ -496,7 +513,7 @@ export const SITE_SCHEMA_FIELDS = {
   SiteAirport: ["id", "code", "name", "location"],
   SiteCharterPackage: ["hours"],
   SitePlace: ["id", "type", "code", "name", "address", "location"],
-  SiteQuote: ["quote_id", "expires_at", "service_date", "urgent", "vehicle_group", "package", "includes_area_surcharge", "distance", "pricing_basis", "price", "price_breakdown", "free_wait_minutes", "cancel_policy", "available_addons", "estimated_minutes", "includes_buffer", "auto_package_hours", "itinerary_warnings"],
+  SiteQuote: ["quote_id", "expires_at", "service_date", "urgent", "vehicle_group", "package", "includes_area_surcharge", "distance", "pricing_basis", "price", "price_breakdown", "free_wait_minutes", "cancel_policy", "available_addons", "estimated_minutes", "includes_buffer", "auto_package_hours", "itinerary_warnings", "stop_occupancy_minutes"],
   SiteAddonOption: ["id", "code", "name", "charge_unit"],
   SiteOrderLink: ["token", "expires_at"],
   SiteOrderEnvelope: ["return_url", "order", "timeline", "names", "price_breakdown"],
@@ -536,8 +553,8 @@ export interface SiteManualQuoteTrip {
   passengers: number;
   luggage: number;
   package_hours: number | null;
-  /** 包车的经停点（M9W-04），按顺序；没有经停点时不给 */
-  waypoints?: { name: string; lat: number; lng: number; stay_minutes: number }[];
+  /** 包车的经停点（M9W-04），按顺序；没有经停点时不给。`arrive_by`（M9P-20 P3）只在指定了时给 */
+  waypoints?: SiteWaypointInput[];
 }
 
 export interface SiteManualQuoteRequest {

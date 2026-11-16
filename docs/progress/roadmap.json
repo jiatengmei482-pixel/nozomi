@@ -1724,8 +1724,8 @@
             "单元、集成（本机假谷歌）、端到端（主站 + 嵌入页，chromium + webkit，含键盘上移下移和 360px）；独立审查、合并、部署后按 ADR 0096 第七节第 4 小节在测试站验收",
             "P1 遗留（#256 审查记下，P1 合并后另做）：订单页、司机页、供应商 / 运营订单详情每段写时长和公里（订单接口带 itinerary.legs，ADR 0096 第九节 P1 一行）；行程地图出图单设每日上限（现在和两点路线小地图共用 GOOGLE_STATIC_MAPS_DAILY_LIMIT）；部署冒烟核对 /map-markers/10.png 公网可取、是 PNG"
           ],
-          "evidence": "P1（地图和编号）：PR #256——新接口 GET /site/v1/itinerary-map（迁移 0490）；单元 domain itinerary-map 9 条 + google-itinerary-routes 3 条 + web charter-itinerary 11 条、map-markers 1 条；集成 site-itinerary-map.itest.ts 9 条（含 /site/v1/itinerary-legs）；组件 itinerary-map.test.tsx 8 条 + embed-flow 1 条；端到端 site-booking-itinerary-map.spec.ts 2 条（亮暗 axe、360 宽、10 个经停）+ site-embed-booking.spec.ts 1 条（chromium + webkit-embed）；截图 docs/acceptance/M9P-20-shots/。P2（顺序建议）：PR #267（基于 #256）——POST /site/v1/charter/order-suggestion、迁移 0530；单元 domain 7 条 + web 4 条、集成 site-order-suggestion.itest.ts 8 条、组件 order-suggestion.test.tsx 5 条、端到端 site-booking-order-suggestion.spec.ts 1 条。P3 未开始",
-          "updated": "2026-11-15"
+          "evidence": "P1（地图和编号）：PR #256——新接口 GET /site/v1/itinerary-map（迁移 0490）；单元 domain itinerary-map 9 条 + google-itinerary-routes 3 条 + web charter-itinerary 11 条、map-markers 1 条；集成 site-itinerary-map.itest.ts 9 条（含 /site/v1/itinerary-legs）；组件 itinerary-map.test.tsx 8 条 + embed-flow 1 条；端到端 site-booking-itinerary-map.spec.ts 2 条（亮暗 axe、360 宽、10 个经停）+ site-embed-booking.spec.ts 1 条（chromium + webkit-embed）；截图 docs/acceptance/M9P-20-shots/。P2（顺序建议）：PR #267（基于 #256）——POST /site/v1/charter/order-suggestion、迁移 0530；单元 domain 7 条 + web 4 条、集成 site-order-suggestion.itest.ts 8 条、组件 order-suggestion.test.tsx 5 条、端到端 site-booking-order-suggestion.spec.ts 1 条。P3（指定到达时间 arrive_by）：单元 domain arrive-by.test.ts 8 条 + web arrive-by-display.test.ts 4 条、order-suggestion.test.ts 1 条；集成 site-arrive-by.itest.ts 5 条 + manual-quotes.itest.ts 1 条；组件 waypoints.test.tsx 1 条、order-suggestion.test.tsx 1 条；端到端 site-booking-arrive-by.spec.ts 1 条（chromium）；无迁移",
+          "updated": "2026-11-16"
         },
         {
           "id": "M9P-09",
@@ -3551,6 +3551,11 @@
       "date": "2026-11-16",
       "by": "frontend",
       "summary": "M9P-22 合并 main（M9P-07 三层表、M9E-31、M9E-32 底部按钮条、M9P-20 行程地图等）后补齐：商品页第 ① 步「机场套餐」绑定、价格页第四张表「机场套餐价」（继承价 = 普通套餐 + 那一端③加价，机场结束另加下车点行程加价；单独价高于继承价标黄）、快捷入口放进 M9E-32 的新结构；单元、组件、端到端已写，状态改为待验收（待 CI）。M9E-32 业主 2026-11-16 晚 iPhone 真机验收通过，改为已验收。"
+    },
+    {
+      "date": "2026-11-16",
+      "by": "backend",
+      "summary": "M9P-20 P3 开发（分支 m9p-20-p3-arrive-by，按 ADR 0096 第三节第 6、7 小节，最晚到达）：官网询价、顺序建议、人工报价的经停可带 arrive_by（当天 / 次日 + HH:MM，必须晚于用车开始、不晚于开始 + 24 小时，否则 400）；不带时请求、快照逐字不变，不影响价格；快照 → 订单 jsonb 多一个可选键（不改约束、无迁移），官网订单页、供应商、运营、司机页显示「须在 14:00 前到达」，/sales/v1 去掉、接口说明不变；带 arrive_by 的经停是顺序建议的固定点，只在段内重排，请求键含到达时间。页面（主站、嵌入页同一组件）：经停行「指定到达时间（选填）」，早于出发时刻按次日并写「次日 01:00」；填了的行锁定（锁形图标、不能拖、说明「已锁定，只能用上移 / 下移调整」）；按当前顺序和建议顺序预计晚到时只提示（报价新增 stop_occupancy_minutes 供算每站占用）。遗留：供应商 / 运营订单详情的「预计晚到」标记要订单接口带逐段时长（itinerary.legs，P1 遗留），本期只显示到达时间；嵌入组件第 1 步（宿主页上的小表单）和预订草稿不带到达时间。待 CI、独立审查。"
     }
   ]
 }
