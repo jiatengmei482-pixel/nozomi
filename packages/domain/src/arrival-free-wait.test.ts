@@ -4,39 +4,31 @@ import { ARRIVAL_FREE_WAIT_FLOOR, arrivalFreeWaitRange, isFlightArrival, lockArr
 
 const limited = (minutes: number) => ({ mode: "limited" as const, minutes });
 
-test("按航班锁定接机免费等待（M9E-28，ADR 0097）：国际 max(商品, 90)、国内 max(商品, 60)", () => {
+test("按航班锁定接机免费等待（M9E-31，业主 2026-11-16）：国际一律 90、国内一律 60，不看商品设的分钟数", () => {
   assert.deepEqual(ARRIVAL_FREE_WAIT_FLOOR, { international: 90, domestic: 60 });
-  assert.equal(lockArrivalFreeWait(limited(60), "international").minutes, 90, "商品 60、国际航班补到 90");
-  assert.equal(lockArrivalFreeWait(limited(60), "domestic").minutes, 60);
-  assert.equal(lockArrivalFreeWait(limited(120), "international").minutes, 120, "商品设得更长按商品");
-  assert.equal(lockArrivalFreeWait(limited(75), "domestic").minutes, 75);
-  assert.equal(lockArrivalFreeWait(limited(90), "international").minutes, 90, "正好等于下限");
-  assert.equal(lockArrivalFreeWait(null, "international").minutes, 90, "商品没设按下限");
-  assert.equal(lockArrivalFreeWait(null, "domestic").minutes, 60);
+  for (const product of [limited(60), limited(75), limited(90), limited(120), null]) {
+    assert.equal(lockArrivalFreeWait(product, "international").minutes, 90, `商品 ${JSON.stringify(product)}：国际 90`);
+    assert.equal(lockArrivalFreeWait(product, "domestic").minutes, 60, `商品 ${JSON.stringify(product)}：国内 60`);
+  }
 });
 
-test("航班类型未确认（Q2）：按 max(商品, 60) 锁，依据里 flightKind 为 null、下限 60", () => {
-  const locked = lockArrivalFreeWait(limited(45), null);
+test("航班类型未确认（Q2）：按国内线 60 锁，依据里 flightKind 为 null；商品设的只记进 base", () => {
+  const locked = lockArrivalFreeWait(limited(100), null);
   assert.equal(locked.minutes, 60);
-  assert.deepEqual(locked.basis, { flightKind: null, base: limited(45), floorMinutes: 60 });
-  assert.equal(lockArrivalFreeWait(limited(100), null).minutes, 100);
+  assert.deepEqual(locked.basis, { flightKind: null, base: limited(100), floorMinutes: 60 });
 });
 
-test("商品不限时：不管什么航班都不限时（不压低）；依据照记", () => {
-  for (const kind of ["international", "domestic", null] as const) {
+test("商品不限时也按 90 / 60（M9E-31）；依据照记商品的「不限时」", () => {
+  for (const [kind, minutes] of [["international", 90], ["domestic", 60], [null, 60]] as const) {
     const locked = lockArrivalFreeWait({ mode: "unlimited" }, kind);
-    assert.equal(locked.minutes, null, String(kind));
+    assert.equal(locked.minutes, minutes, String(kind));
     assert.deepEqual(locked.basis.base, { mode: "unlimited" });
   }
-  assert.deepEqual(lockArrivalFreeWait(limited(60), "international").basis, { flightKind: "international", base: limited(60), floorMinutes: 90 });
+  assert.deepEqual(lockArrivalFreeWait(limited(120), "international").basis, { flightKind: "international", base: limited(120), floorMinutes: 90 });
 });
 
-test("还不知道航班类型时给客人看的两个数（「国际线最长 X 分钟、国内线最长 Y 分钟」）", () => {
-  assert.deepEqual(arrivalFreeWaitRange(limited(60)), { international: 90, domestic: 60 });
-  assert.deepEqual(arrivalFreeWaitRange(limited(75)), { international: 90, domestic: 75 });
-  assert.deepEqual(arrivalFreeWaitRange(limited(120)), { international: 120, domestic: 120 });
-  assert.deepEqual(arrivalFreeWaitRange(null), { international: 90, domestic: 60 });
-  assert.equal(arrivalFreeWaitRange({ mode: "unlimited" }), null);
+test("还不知道航班类型时给客人看的两个数：固定「国际线最长 90 分钟、国内线最长 60 分钟」", () => {
+  assert.deepEqual(arrivalFreeWaitRange(), { international: 90, domestic: 60 });
 });
 
 test("哪些单按航班定：机场接机；带航班号的点对点（Q5）；接站、送机、包车、没航班号的点对点不算", () => {

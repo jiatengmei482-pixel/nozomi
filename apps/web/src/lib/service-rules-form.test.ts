@@ -124,3 +124,10 @@ test("超限提醒线（M9P-10）：读回来的值原样显示，旧接口没�
   assert.match(wrong.problems[0]?.text ?? "", /60 到 1440 之间的整数（分钟）/);
   assert.equal(readRulesForm({ ...form, itinerary: { ...item, warnMinutes: "1441", warnKm: "0.5" } }, charter).problems.length, 2);
 });
+
+test("机场接机只读（M9E-31）：以前存的不到平台最少值的，表单里补到最少值；接站、送机照存的", () => {
+  const stale = { ...EMPTY, free_wait: { pickup: { mode: "limited" as const, minutes: 45 }, dropoff: { mode: "limited" as const, minutes: 10 }, general: null } };
+  assert.deepEqual(formFromRules(stale, airport).wait.pickup, { mode: "limited", minutes: "60" });
+  assert.deepEqual(formFromRules(stale, airport).wait.dropoff, { mode: "limited", minutes: "10" }, "送机照存的，由页面校验提示");
+  assert.deepEqual(formFromRules(stale, { ...airport, pickupPlace: { type: "station", flightScope: null } }).wait.pickup, { mode: "limited", minutes: "45" }, "接站照存的");
+});

@@ -1,6 +1,6 @@
 /**
  * 「航班类型」单选（M9E-28，ADR 0097 Q1 方案 B）：客人填航班号时选国际 / 国内航班，下单时按它锁定免费等待
- * （国际 max(商品设的, 90)、国内 max(商品设的, 60)）。新预订页第 3 步、旧下单页、订单页改单共用。
+ * （M9E-31 起平台统一：国际 90、国内 60，不看商品设的）。新预订页第 3 步、旧下单页、订单页改单共用。
  */
 import type { FlightKind } from "@nozomi/domain";
 import { RadioGroup } from "../../components/FormFields.tsx";

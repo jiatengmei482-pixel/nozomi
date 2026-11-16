@@ -18,12 +18,16 @@ export const FREE_WAIT_TEXTS = {
   dispatchedKind: { international: "的国际航班", domestic: "的国内航班", unconfirmed: "航班类型未确认（按国内线）" },
   basisKind: { international: "国际航班", domestic: "国内航班", unconfirmed: "航班类型未确认，按国内线" },
   basisRaised: (base: string, minutes: number): string => `；${base}，按平台规定补到 ${minutes} 分钟`,
+  basisFixed: (base: string): string => `；机场接机按平台统一标准，${base}不适用`,
   baseNotSet: "商品没设",
   baseSet: (minutes: number): string => `商品设 ${minutes} 分钟`,
   flightKindLegend: "航班类型",
   flightKindHint: "按航班定免费等待：国际航班等得更久",
   flightKindDispatched: "已派车，免费等待不再变化",
   flightKindOption: (minutes: number): string => `落地后免费等待 ${minutes} 分钟`,
+  airportFixedValue: "国际航班 90 分钟、国内航班 60 分钟",
+  airportFixedTag: "平台统一 · 不能修改",
+  airportFixedHint: (onPlatform: boolean): string => `机场接机的免费等待按客人的航班由平台统一定（所有机场、所有供应商相同），从航班落地起算${onPlatform ? "；供应商以前在这里设的分钟数不再用于机场接机。" : "，这里不用设置；以前设的分钟数不再用于机场接机。"}`,
   p2pFlightHint: "如 NH211。清空表示不是从机场接人，免费等待回到商品的设置",
 } as const;
 

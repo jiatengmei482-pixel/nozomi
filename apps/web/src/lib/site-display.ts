@@ -109,12 +109,12 @@ export function serviceTimeLabels(category: SiteCategory, direction: SiteDirecti
 }
 
 /**
- * 报价里的免费等待（旧下单页的车型列表）：接机还不知道航班类型，按航班写国际线、国内线各最长多久（M9E-28，ADR 0097：
- * 国际 max(商品, 90)、国内 max(商品, 60)）；其他同 `freeWaitText`。`minutes` 是报价里商品自己设的值。
+ * 报价里的免费等待（旧下单页的车型列表）：接机还不知道航班类型，按航班写国际线、国内线各最长多久（M9E-28，ADR 0097；
+ * 2026-11-16 起平台统一国际 90、国内 60，不看商品设的，商品「不限时」也一样，M9E-31）；其他同 `freeWaitText`。`minutes` 是报价里商品自己设的值。
  */
 export function quoteFreeWaitText(minutes: number | null, category: SiteCategory, direction: SiteDirection | null): string {
-  if (minutes === null || category !== "airport_transfer" || direction !== "pickup") return freeWaitText(minutes, category, direction);
-  const range = arrivalFreeWaitRange({ mode: "limited", minutes }) as { international: number; domestic: number };
+  if (category !== "airport_transfer" || direction !== "pickup") return freeWaitText(minutes, category, direction);
+  const range = arrivalFreeWaitRange();
   return `国际线最长 ${range.international} 分钟、国内线最长 ${range.domestic} 分钟（从航班落地起算）`;
 }
 

@@ -544,25 +544,25 @@ test("手机触屏（M8-37 审查）：选择页开着时转屏换成页面输�
   assert.ok(await screen.findByRole("dialog", { name: "出发地" }), "还能再打开");
 });
 
-test("认出接机：时间标签变「航班落地时间（当地）」，提示免费等待按航班——没选航班类型时「国际线最长 max(N, 90) 分钟、国内线最长 max(N, 60) 分钟」（N 取报价，M9E-28）；第 3 步接机才有航班号（必填、查格式）、航班类型（必选）和举牌姓名；送机没有", async () => {
+test("认出接机：时间标签变「航班落地时间（当地）」，提示免费等待按航班——没选航班类型时「国际线最长 90 分钟、国内线最长 60 分钟」（M9E-31 起不看报价里商品设的 N）；第 3 步接机才有航班号（必填、查格式）、航班类型（必选）和举牌姓名；送机没有", async () => {
   wideScreen();
   let tripType: SiteByPointsResult["trip_type"] = "pickup";
   open({ quote: () => json(200, byPoints({ trip_type: tripType, quotes: [quoteOf(1, { freeWait: 75 })] })) });
   const actor = user();
   await fillTrip(actor);
-  assert.ok(await screen.findByText("已识别为接机：司机按航班落地时间等候，落地后免费等待：国际线最长 90 分钟、国内线最长 75 分钟", {}, SLOW));
+  assert.ok(await screen.findByText("已识别为接机：司机按航班落地时间等候，落地后免费等待：国际线最长 90 分钟、国内线最长 60 分钟", {}, SLOW));
   assert.ok(screen.getByLabelText("航班落地时间（当地）"));
-  assert.ok(screen.getByText("东京的当地时间"));
+  assert.ok(await screen.findByText("东京的当地时间", {}, SLOW), "报价回来前后提示都是 90 / 60，这里等报价回来");
   assertAbsent(screen.queryByLabelText("航班号"));
   await next(actor, NEXT_VEHICLES);
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
-  assert.ok(screen.getByText("航班落地后免费等待：国际线最长 90 分钟、国内线最长 75 分钟"));
+  assert.ok(screen.getByText("航班落地后免费等待：国际线最长 90 分钟、国内线最长 60 分钟"));
   await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
   await next(actor, NEXT_CONTACT);
   const flight = screen.getByLabelText("航班号");
   // 航班类型两个选项各写这种航班免费等多久
   assert.ok(screen.getByRole("radio", { name: /^国际航班\s*落地后免费等待 90 分钟$/ }));
-  assert.ok(screen.getByRole("radio", { name: /^国内航班\s*落地后免费等待 75 分钟$/ }));
+  assert.ok(screen.getByRole("radio", { name: /^国内航班\s*落地后免费等待 60 分钟$/ }), "商品设 75，国内仍 60（M9E-31）");
   await next(actor, NEXT_REVIEW);
   assert.ok(screen.getByText("接机要填航班号，司机按航班落地时间等候"));
   assert.ok(screen.getByText("请选择国际航班还是国内航班：国际航班免费等待更久"), "航班类型必选");
@@ -580,7 +580,7 @@ test("认出接机：时间标签变「航班落地时间（当地）」，提�
   assert.ok(within(aside()).getByText("NH211"), "航班号进了右侧栏的乘客信息");
   const review = screen.getByRole("region", { name: "核对订单" });
   assert.ok(within(review).getByText("国内航班"), "核对写航班类型");
-  assert.ok(within(review).getByText("航班落地后 75 分钟"), "核对写选定航班类型的分钟数 max(75, 60)");
+  assert.ok(within(review).getByText("航班落地后 60 分钟"), "核对写选定航班类型的分钟数：国内 60（M9E-31）");
   assert.ok(within(aside()).getByText("ZHANG SAN"));
 
   // 回第 1 步换成送机（目的地是机场）：没有接机提示；第 3 步没有航班号、举牌姓名
@@ -1547,7 +1547,7 @@ test("接机还没选航班类型（没报价、判断不出，M9E-28 Q2）：�
   }
 });
 
-test("接机免费等待按航班定（M9E-28）：只选了机场、还没报价写平台下限 90 / 60；报价后按 max(商品, 下限)；第 3 步选了航班类型后第 1、2 步都按那一种的分钟数；改选国内航班跟着变；改时间重新报价的空档里不变成别的数", async () => {
+test("接机免费等待按航班定（M9E-28）：只选了机场、还没报价写 90 / 60；报价后仍是 90 / 60（M9E-31：不看商品设的）；第 3 步选了航班类型后第 1、2 步都按那一种的分钟数；改选国内航班跟着变；改时间重新报价的空档里不变成别的数", async () => {
   wideScreen();
   let release: (() => void) | null = null;
   let hold = false;
@@ -1567,7 +1567,7 @@ test("接机免费等待按航班定（M9E-28）：只选了机场、还没报�
   await actor.clear(date);
   await actor.type(date, "2030-11-20");
   await actor.type(screen.getByLabelText(/时间（当地）/), "14:30");
-  assert.ok(await screen.findByText("已识别为接机：司机按航班落地时间等候，落地后免费等待：国际线最长 90 分钟、国内线最长 75 分钟", {}, SLOW), "报价后：商品 75，国际 max(75, 90)、国内 max(75, 60)");
+  assert.ok(await screen.findByText("已识别为接机：司机按航班落地时间等候，落地后免费等待：国际线最长 90 分钟、国内线最长 60 分钟", {}, SLOW), "报价后：商品设 75，仍是国际 90、国内 60");
   await next(actor, NEXT_VEHICLES);
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
   await actor.click(screen.getByRole("button", { name: "选择 车型1" }));

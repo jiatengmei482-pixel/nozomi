@@ -159,7 +159,8 @@ export function retryResultText(response: { delivery: { status: string }; result
 
 /**
  * 供应商订单详情、司机页的免费等待（M9E-28，ADR 0097）：最终分钟数；按航班锁定的接机注明按哪种航班，
- * 平台按航班把商品设的值补高了的，写出商品设的值（供应商知道为什么比自己设的长）。
+ * 平台按航班把商品设的值补高了的，写出商品设的值（供应商知道为什么比自己设的长）；M9E-31 起机场接机统一 90 / 60，
+ * 商品设得更长或不限时的，写「机场接机按平台统一标准，商品设的不适用」（供应商知道为什么比自己设的短）。
  */
 export function orderFreeWaitDetail(minutes: number | null, basis: FreeWaitBasis | null | undefined): string {
   const main = minutes === null ? "不限" : `${minutes} 分钟`;
@@ -168,5 +169,6 @@ export function orderFreeWaitDetail(minutes: number | null, basis: FreeWaitBasis
   const base = basis.base;
   // 商品没设免费等待（2026-11-15 按推荐，审查建议 7）写「商品没设」，不写「商品设 0 分钟」
   const raised = minutes !== null && (base === null || (base.mode === "limited" && base.minutes < minutes)) ? FREE_WAIT_TEXTS.basisRaised(base === null ? FREE_WAIT_TEXTS.baseNotSet : FREE_WAIT_TEXTS.baseSet(base.minutes), minutes) : "";
-  return `${main}（${kind}${raised}）`;
+  const lowered = minutes !== null && base !== null && (base.mode === "unlimited" || base.minutes > minutes) ? FREE_WAIT_TEXTS.basisFixed(base.mode === "unlimited" ? "商品设的「不限时」" : FREE_WAIT_TEXTS.baseSet(base.minutes)) : "";
+  return `${main}（${kind}${raised}${lowered}）`;
 }
