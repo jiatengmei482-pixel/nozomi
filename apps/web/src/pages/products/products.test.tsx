@@ -958,6 +958,25 @@ test("M8-20 上架检查「运营区域」：报价区域超出运营区域只�
   assert.ok(screen.getByRole("button", { name: "上架" }));
 });
 
+test("M9P-07 上架检查「热门地标覆盖」：列出不在任何区域里的地标（写出名字，取不到名字的写个数），只提醒、不拦上架", async () => {
+  const LANDMARK = "77777777-7777-4777-8777-777777777777";
+  const UNKNOWN = "78787878-7878-4878-8878-787878787878";
+  const check = checkOf({ price_rules: [] });
+  check.items.push({ key: "charter_coverage", required: false, passed: false, issues: [LANDMARK, UNKNOWN].map((id) => ({ path: `/places/${id}`, reason: "CHARTER_POI_NOT_COVERED", message: "说明" })) });
+  const landmark = { ...haneda, id: LANDMARK, type: "poi", code: "POI-KWG", name: { zh: "河口湖" } } as unknown as Place;
+  const calls = open(`/products/${PRODUCT_ID}/publish`, "admin", productRoutes({ check }, (call) => (call.method === "GET" && call.url.pathname === "/tenant/v1/master/places" && call.url.searchParams.get("type") === "poi" ? page([landmark]) : null)));
+  await screen.findByText("可以上架了");
+  const row = (): string => document.querySelector('[data-check="charter_coverage"]')?.textContent ?? "";
+  await waitFor(() => assert.match(row(), /热门地标「河口湖」不在这个商品的任何区域里（基础价、行程加价、上下车加价区域都没有盖住），客人在这里上下车或经停报不出价/));
+  assert.match(row(), /热门地标覆盖/);
+  assert.match(row(), /有 2 处要留意/);
+  assert.match(row(), /有 1 个热门地标不在这个商品的任何区域里/, "取不到名字的写个数");
+  assert.match(row(), /需要的话到区域页面把它画进基础价、行程加价或上下车加价区域/);
+  assert.doesNotMatch(row(), /功能还在开发|不是必须/);
+  assert.ok(calls.some((call) => call.path.startsWith("/tenant/v1/master/places") && call.path.includes(`city_id=${CITY_ID}`)));
+  assert.ok(screen.getByRole("button", { name: "上架" }), "只是提醒，不拦上架");
+});
+
 // ───────────── M6-10 换步后标题的聚焦框 ─────────────
 
 /** 浏览器的「后退」：测试里用路由的 navigate(-1)（POP），不经过页面里的链接和按钮 */

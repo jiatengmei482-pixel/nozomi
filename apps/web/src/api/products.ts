@@ -297,6 +297,11 @@ export function listPickupPlaces(token: string, cityId: string): Promise<Place[]
   return listAll(`${TENANT_BASE}/master/places`, token, { city_id: cityId, type: "airport,station", sort: "code" });
 }
 
+/** 一个城市下平台启用中的地标：上架检查「热门地标覆盖」按编号写出地标的名字（M9P-07）。 */
+export function listCityLandmarks(token: string, cityId: string): Promise<Place[]> {
+  return listAll(`${TENANT_BASE}/master/places`, token, { city_id: cityId, type: "poi", sort: "code" });
+}
+
 /** 平台的车型组；`all` 连已停用的一起（已选的车型组后来被停用时要对得上）。 */
 export function listTenantVehicleGroups(token: string): Promise<VehicleGroup[]> {
   return listAll(`${TENANT_BASE}/master/vehicle-groups`, token, { status: "all", sort: "code" });
