@@ -5,11 +5,13 @@
  *   「保持我的顺序」以后同一组点这次不再提示；
  * - `OrderSuggestionBlock`：行程列表上方的一块提示（不弹窗）：标题（可省多少）、「当前顺序」「建议顺序」两栏（各一张行程地图、一行编号顺序、该车型的价），
  *   「采用建议顺序」「保持我的顺序」；手机上两栏改成切换，切到「建议顺序」才要那张图。
+ *   建议顺序也按指定到达时间检查（M9P-20 P3）：预计晚到的经停在「建议顺序」一栏列出（只提示）。
  * 新文案走键（`itineraryCopy`，M11-01）。
  */
 import { useEffect, useRef, useState } from "react";
 import { type SiteMoney, type SiteOrderSuggestion, type SitePoint, type SiteQuoteRequest, createSiteOrderSuggestion } from "../../../api/site.ts";
 import { Button } from "../../../components/Button.tsx";
+import { Icon } from "../../../components/Icon.tsx";
 import { moneyText } from "../../../lib/dispatch-display.ts";
 import { itineraryCopy } from "../../../lib/itinerary-texts.ts";
 import { type LiveSuggestion, draftRequestKey, orderChain, stopSetKey, suggestionTitle } from "../../../lib/order-suggestion.ts";
@@ -96,6 +98,8 @@ interface BlockProps {
   /** 标题行那个车型的两个价（没有时不写） */
   currentPrice: SiteMoney | null;
   suggestedPrice: SiteMoney | null;
+  /** 按建议顺序预计晚于指定到达时间的经停（M9P-20 P3）：「横滨：预计 11:20 到，晚于指定的 11:00」，没有为空 */
+  suggestedLate?: readonly string[];
   /** 手机：两栏改成切换 */
   compact: boolean;
   onAdopt: () => void;
@@ -115,6 +119,15 @@ export function OrderSuggestionBlock(props: BlockProps) {
         <h4 className="order-suggestion__label">{itineraryCopy(current ? "suggestCurrent" : "suggestSuggested")}</h4>
         <ItineraryMap points={current ? props.currentPoints : props.suggestedPoints} alt={itineraryCopy("mapAlt", { chain: orderChain(names) })} />
         <p className="order-suggestion__chain">{orderChain(names)}</p>
+        {!current && (props.suggestedLate ?? []).length > 0 && (
+          <ul className="order-suggestion__late">
+            {(props.suggestedLate ?? []).map((text) => (
+              <li key={text}>
+                <Icon name="alert-triangle" /> {text}
+              </li>
+            ))}
+          </ul>
+        )}
         {price !== null && !live.pending && <SitePrice text={moneyText(price)} size="sm" />}
       </div>
     );

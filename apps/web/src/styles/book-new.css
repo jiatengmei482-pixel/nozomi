@@ -1280,6 +1280,18 @@ button.book-steps__link:hover .book-steps__name {
   overflow-wrap: anywhere;
 }
 
+/* 建议顺序预计晚于指定到达时间（M9P-20 P3）：警示色 + 图标 + 文字，只提示 */
+.order-suggestion__late {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-warning-text);
+  font-size: var(--font-size-sm);
+}
+
 .order-suggestion__switch {
   display: flex;
   gap: var(--space-1);
@@ -1324,6 +1336,26 @@ button.book-steps__link:hover .book-steps__name {
   color: var(--color-text-secondary);
   cursor: grab;
   touch-action: none;
+}
+
+/* 指定了到达时间的行（M9P-20 P3）：把手换成锁，占同样的位置，不能拖 */
+.book-waypoints .picked__lock {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--space-12);
+  min-height: var(--space-12);
+  color: var(--color-text-secondary);
+}
+
+/* 预计晚到的提示：警示色 + 图标 + 文字（不只靠颜色），只提示、不拦截 */
+.book-waypoint__late {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  color: var(--color-warning-text);
+  font-size: var(--font-size-sm);
 }
 
 .book-waypoints .picked__row--dragging {

@@ -13,10 +13,16 @@ import { itineraryCopy } from "./itinerary-texts.ts";
 
 const pointText = (point: { lat: number; lng: number }): string => `${routeCoordinateText(point.lat)},${routeCoordinateText(point.lng)}`;
 
-/** 经停点集合的键（上下车点 + 经停点坐标排序后）：变了才可能要问谷歌；只换顺序不变。 */
+/**
+ * 经停点集合的键（上下车点 + 经停点坐标排序后）：变了才可能要问谷歌；只换可动经停的顺序不变。
+ * 有指定到达时间的经停（固定点，M9P-20 P3）时再加上固定点在第几个：固定点换了位置会重新切段（ADR 0096 第三节第 1、6 小节），要重新申请；
+ * 没有固定点时和以前一样。
+ */
 export function stopSetKey(body: SiteQuoteRequest): string {
-  const stops = (body.waypoints ?? []).map(pointText).sort();
-  return [pointText(body.pickup ?? { lat: 0, lng: 0 }), pointText(body.dropoff ?? { lat: 0, lng: 0 }), stops.join(";")].join("|");
+  const waypoints = body.waypoints ?? [];
+  const stops = waypoints.map(pointText).sort();
+  const fixed = waypoints.flatMap((stop, index) => (stop.arrive_by === undefined ? [] : [`${index}@${pointText(stop)}`]));
+  return [pointText(body.pickup ?? { lat: 0, lng: 0 }), pointText(body.dropoff ?? { lat: 0, lng: 0 }), stops.join(";"), ...(fixed.length === 0 ? [] : [fixed.join(";")])].join("|");
 }
 
 /** 当前草稿的请求键（和服务器 `request_key` 同一个函数）：除经停顺序外全部询价字段。 */

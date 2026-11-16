@@ -8,8 +8,9 @@
  * 编号（M9P-20，ADR 0096 第二节第 3 小节）：上车 = 1、经停依次、下车 = 最后，和行程地图的标记同一个函数（domain 的 `stopNumbers`）；
  * 接口里的经停序号（stopSeq，从 1 起）一律经 `displayStopNumber` 换成显示编号（= stopSeq + 1）。
  */
-import { CHARTER_ITINERARY_LIMITS, ITINERARY_MAP_RULES, displayStopNumber, isCurrencyCode, legStopNumbers, parseMajor, stopNumbers } from "@nozomi/domain";
+import { CHARTER_ITINERARY_LIMITS, ITINERARY_MAP_RULES, displayStopNumber, isArriveByTime, isCurrencyCode, legStopNumbers, parseMajor, stopNumbers } from "@nozomi/domain";
 import type { SiteMoney, SiteOrder, SitePriceBreakdownItem, SiteQuote, SiteQuoteResult } from "../api/site.ts";
+import { arriveByDeadlineText, draftArriveBy } from "./arrive-by-display.ts";
 import type { TripPoint } from "./book-new.ts";
 import { moneyText } from "./dispatch-display.ts";
 import { itineraryCopy } from "./itinerary-texts.ts";
@@ -32,17 +33,26 @@ export const STAY_OPTIONS: readonly number[] = Array.from({ length: STAY_MAX_MIN
 /** 按行程计价时给客人的提示（车型卡、右侧栏、核对页） */
 export const ITINERARY_NOTE = "价格按您填的经停点计算；当天临时去其他区域或超出预计可能会加收。";
 
-/** 页面上的一个经停点：`key` 只在页面里用（排序时跟着走）；`stay` 是下拉的值（分钟数的字符串，没选为空） */
+/**
+ * 页面上的一个经停点：`key` 只在页面里用（排序时跟着走）；`stay` 是下拉的值（分钟数的字符串，没选为空）；
+ * `arriveBy` 是「指定到达时间（选填）」的时刻 HH:MM（M9P-20 P3，没填为空或没有），当天还是次日按出发时刻推断
+ */
 export interface WaypointDraft {
   key: string;
   point: TripPoint | null;
   stay: string;
+  arriveBy?: string;
 }
 
 let nextKey = 0;
 export function newWaypoint(): WaypointDraft {
   nextKey += 1;
-  return { key: `wp-${nextKey}`, point: null, stay: "" };
+  return { key: `wp-${nextKey}`, point: null, stay: "", arriveBy: "" };
+}
+
+/** 这一行指定了到达时间（填了合格的时刻）：锁定，不能拖、不参与建议顺序 */
+export function waypointLocked(entry: Pick<WaypointDraft, "arriveBy">): boolean {
+  return entry.arriveBy !== undefined && isArriveByTime(entry.arriveBy);
 }
 
 /** 「4 小时 12 分钟」「5 小时」「45 分钟」：价格明细里的预计用时（ADR 0091 第一节，不四舍五入到小时） */
@@ -73,24 +83,32 @@ export function durationText(minutes: number): string {
   return rest === 0 ? `${hours} 小时` : `${hours} 小时 ${rest} 分`;
 }
 
-export type WaypointErrors = Record<string, { point?: string; stay?: string }>;
+export type WaypointErrors = Record<string, { point?: string; stay?: string; arriveBy?: string }>;
 
-/** 每个经停点：地点要从候选里选，停留时长要选（30 分钟一档）。没有问题时是空对象。 */
+/** 每个经停点：地点要从候选里选，停留时长要选（30 分钟一档）；指定到达时间选填，填了要是 HH:MM。没有问题时是空对象。 */
 export function waypointErrors(list: readonly WaypointDraft[]): WaypointErrors {
   const errors: WaypointErrors = {};
   list.forEach((entry, index) => {
-    const found: { point?: string; stay?: string } = {};
+    const found: { point?: string; stay?: string; arriveBy?: string } = {};
     if (entry.point === null) found.point = `请选择第 ${index + 1} 个经停点，或删除这一行`;
     if (!STAY_OPTIONS.includes(Number(entry.stay)) || entry.stay === "") found.stay = "请选择停留时长";
-    if (found.point !== undefined || found.stay !== undefined) errors[entry.key] = found;
+    if (entry.arriveBy !== undefined && entry.arriveBy !== "" && !isArriveByTime(entry.arriveBy)) found.arriveBy = itineraryCopy("arriveByFormat");
+    if (found.point !== undefined || found.stay !== undefined || found.arriveBy !== undefined) errors[entry.key] = found;
   });
   return errors;
 }
 
-/** 询价请求里的 `waypoints`：都填好了才有；有没填好的为 null（不报价）；一个都没有为空数组 */
-export function waypointsBody(list: readonly WaypointDraft[]): OrderWaypoint[] | null {
+/**
+ * 询价请求里的 `waypoints`：都填好了才有；有没填好的为 null（不报价）；一个都没有为空数组。
+ * 填了指定到达时间的带 `arrive_by`（不晚于出发时刻 `startTime` 的按次日，M9P-20 P3）；没填的不带这个键，请求和以前一样
+ */
+export function waypointsBody(list: readonly WaypointDraft[], startTime = ""): OrderWaypoint[] | null {
   if (Object.keys(waypointErrors(list)).length > 0) return null;
-  return list.map((entry) => ({ name: (entry.point as TripPoint).name, lat: (entry.point as TripPoint).lat, lng: (entry.point as TripPoint).lng, stay_minutes: Number(entry.stay) }));
+  return list.map((entry) => {
+    const point = entry.point as TripPoint;
+    const arriveBy = draftArriveBy(entry.arriveBy, startTime);
+    return { name: point.name, lat: point.lat, lng: point.lng, stay_minutes: Number(entry.stay), ...(arriveBy === null ? {} : { arrive_by: arriveBy }) };
+  });
 }
 
 /** 把第 `index` 个经停点移动 `delta` 位；到头了原样返回 */
@@ -280,6 +298,8 @@ export interface ScheduleRow {
   stayMinutes: number | null;
   driveMinutes: number | null;
   driveMeters: number | null;
+  /** 经停的指定到达时间（M9P-20 P3）：「须在 14:00 前到达」；没指定、上车下车为 null */
+  deadline: string | null;
 }
 
 const KIND_NAMES: Readonly<Record<ScheduleRow["kind"], string>> = { pickup: itineraryCopy("pickup"), stop: itineraryCopy("stop"), dropoff: itineraryCopy("dropoff") };
@@ -288,9 +308,13 @@ const KIND_NAMES: Readonly<Record<ScheduleRow["kind"], string>> = { pickup: itin
  * 上车 → 经停 → 下车，编号来自 domain 的 `stopNumbers`（地图标记同一个函数）。
  * `legs` 按顺序是每一段的行驶分钟和米数（报价应答的 `itinerary_route.legs`，有路线时才有；段数对不上时不写）。
  */
-export function scheduleRows(pickup: string, dropoff: string | null, stops: readonly { name: string; stay_minutes: number }[], legs: readonly { minutes: number; meters?: number }[] | null = null): ScheduleRow[] {
+export function scheduleRows(pickup: string, dropoff: string | null, stops: readonly { name: string; stay_minutes: number; arrive_by?: unknown }[], legs: readonly { minutes: number; meters?: number }[] | null = null): ScheduleRow[] {
   const usable = legs !== null && legs.length === stops.length + (dropoff === null ? 0 : 1) ? legs : null;
-  const points: { name: string; stay: number | null }[] = [{ name: pickup, stay: null }, ...stops.map((stop) => ({ name: stop.name, stay: stop.stay_minutes })), ...(dropoff === null ? [] : [{ name: dropoff, stay: null }])];
+  const points: { name: string; stay: number | null; deadline: string | null }[] = [
+    { name: pickup, stay: null, deadline: null },
+    ...stops.map((stop) => ({ name: stop.name, stay: stop.stay_minutes, deadline: arriveByDeadlineText(stop.arrive_by) })),
+    ...(dropoff === null ? [] : [{ name: dropoff, stay: null, deadline: null }]),
+  ];
   return stopNumbers(points, { hasDropoff: dropoff !== null }).map(({ number, kind, stopSeq, point }) => {
     const leg = number === 1 ? undefined : usable?.[number - 2];
     return {
@@ -303,6 +327,7 @@ export function scheduleRows(pickup: string, dropoff: string | null, stops: read
       stayMinutes: point.stay,
       driveMinutes: leg?.minutes ?? null,
       driveMeters: typeof leg?.meters === "number" ? leg.meters : null,
+      deadline: point.deadline,
     };
   });
 }

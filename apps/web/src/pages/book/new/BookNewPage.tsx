@@ -84,6 +84,7 @@ import { ITINERARY_NOTE, type WaypointDraft, autoPackageChoice, autoPackageHours
 import { TripStops } from "../../../components/TripStops.tsx";
 import { itineraryCopy } from "../../../lib/itinerary-texts.ts";
 import { type LiveSuggestion, liveSuggestion, orderChain, stopSetKey, suggestionQuoteExpired, suggestionTitle } from "../../../lib/order-suggestion.ts";
+import { arrivalLateTexts, arriveByDeadlineText, suggestedLateTexts } from "../../../lib/arrive-by-display.ts";
 import { ADDRESS_ONLY_HINT, DRAFT_EXPIRED_TEXT, DRAFT_FAILED_TEXT, draftReadyToQuote, draftTrip } from "../../../lib/booking-draft.ts";
 import { ManualQuoteBlock } from "../ManualQuote.tsx";
 import { siteFailureText, useSiteConfig } from "../SiteLayout.tsx";
@@ -181,8 +182,9 @@ function nearbyCharterCity(point: TripPoint | null, cities: readonly SiteCity[])
  */
 /** 有经停点时手动升档记在哪段行程上（M9P-03）：上下车点、经停点和停留按顺序；没有经停点时为 null */
 function itineraryKeyOf(draft: TripDraft): string | null {
-  const stops = draft.mode === "charter" ? waypointsBody(draft.waypoints) : null;
-  return stops !== null && stops.length > 0 && draft.from !== null && draft.to !== null ? JSON.stringify([draft.from.lat, draft.from.lng, draft.to.lat, draft.to.lng, stops]) : null;
+  // 指定到达时间（M9P-20 P3）不影响路线和选档：不算进来，改到达时间不清掉手动升的档
+  const stops = draft.mode === "charter" ? waypointsBody(draft.waypoints)?.map(({ arrive_by: _arriveBy, ...stop }) => stop) : null;
+  return stops != null && stops.length > 0 && draft.from !== null && draft.to !== null ? JSON.stringify([draft.from.lat, draft.from.lng, draft.to.lat, draft.to.lng, stops]) : null;
 }
 
 function requestOf(draft: TripDraft, charterCity: SiteQuotedCity | null, draftId: string | null, addons: readonly SiteAddonRequest[] = [], upgradeHours = ""): { key: string; run(): Promise<Outcome>; body?: SiteQuoteRequest } | null {
@@ -191,7 +193,8 @@ function requestOf(draft: TripDraft, charterCity: SiteQuotedCity | null, draftId
   const source = draftId === null ? {} : { draft_id: draftId };
   if (draft.mode === "charter") {
     // 经停点（M9W-02）：有没填好的不报价；至少一个时按行程计价（服务端按预计用时自动选套餐；客人手动升档时带 package_hours，M9P-03）；一个都没有时请求和以前完全一样
-    const stops = waypointsBody(draft.waypoints);
+    // 指定到达时间按出发时刻推断当天 / 次日（M9P-20 P3）
+    const stops = waypointsBody(draft.waypoints, draft.time);
     if (stops === null) return null;
     const itinerary = stops.length > 0;
     if (charterCity === null || (!itinerary && draft.packageHours === "") || draft.to === null) return null;
@@ -538,7 +541,7 @@ export function BookNewPage() {
   const cityName = outcome?.mode === "charter" ? displayName(outcome.city.name).text : outcome?.result.city ? displayName(outcome.result.city.name).text : null;
   // 包车按行程计价（M9W-02）：有经停点时套餐由服务端按行程选，明细、时间表按这一次报价
   const itinerary = draft.mode === "charter" && draft.waypoints.length > 0;
-  const stops = itinerary ? (waypointsBody(draft.waypoints) ?? []) : [];
+  const stops = itinerary ? (waypointsBody(draft.waypoints, draft.time) ?? []) : [];
   const charterResult = outcome?.mode === "charter" ? outcome.result : null;
   const itineraryPackage = itinerary && charterResult !== null ? itineraryPackageHours(selected ?? quotes[0] ?? null) : null;
   // 各车型自动选的档（从预计用时 T 起选的那一档，M9P-04 按车型）：这次报价带的，补上这段行程以前报出过的（手动升档后有的车型报不出时还记得它的档）
@@ -559,6 +562,17 @@ export function BookNewPage() {
   const plainLegsKey = draft.mode === "charter" && !itinerary && draft.from !== null && draft.to !== null && charterResult !== null ? `${draft.from.lat},${draft.from.lng};${draft.to.lat},${draft.to.lng}` : null;
   const charterRows = schedule ?? (draft.mode === "charter" && draft.from !== null && draft.to !== null ? scheduleRows(draft.from.name, draft.to.name, [], plainLegs !== null && plainLegs.key === plainLegsKey ? plainLegs.legs : null) : null);
   const charterMapPoints = charterRows !== null && draft.from !== null && draft.to !== null ? itineraryMapPoints(draft.from, stops, draft.to) : null;
+  // 指定到达时间（M9P-20 P3）：按当前顺序的报价路线算预计几点到，晚于指定时间时在那一行提示（只提示、不拦截）；每站占用按选中（或最便宜）的那张卡片
+  const serviceLocal = /^\d{4}-\d{2}-\d{2}$/.test(draft.date) && /^\d{2}:\d{2}$/.test(draft.time) ? `${draft.date}T${draft.time}` : null;
+  const occupancy = (selected ?? quotes[0] ?? null)?.stop_occupancy_minutes ?? 0;
+  const lateTexts = itinerary && serviceLocal !== null && stops.length === draft.waypoints.length ? arrivalLateTexts({ serviceLocal, stops, legs: charterResult?.itinerary_route?.legs ?? null, stopOccupancyMinutes: occupancy }) : [];
+  const lateByWaypoint: Record<string, string> = Object.fromEntries(
+    draft.waypoints.flatMap((entry, index) => {
+      const text = lateTexts[index];
+      return typeof text === "string" ? [[entry.key, text] as const] : [];
+    }),
+  );
+  const lateByRow: Record<string, string> = Object.fromEntries(lateTexts.flatMap((text, index) => (text === null ? [] : [[`stop-${index}`, text] as const])));
 
   // 经停顺序建议块（M9P-20 P2，ADR 0096 第三节第 5 小节、第四节）：拖动后按新的当前报价重算，不调接口
   const suggestionData = orderSuggestion.suggestion;
@@ -624,6 +638,15 @@ export function BookNewPage() {
         })()}
         currentPrice={selected?.price.total ?? quotes[0]?.price.total ?? null}
         suggestedPrice={suggestionData.quote_result.quotes.find((entry) => entry.vehicle_group.id === (selected?.vehicle_group.id ?? quotes[0]?.vehicle_group.id))?.price.total ?? null}
+        suggestedLate={(() => {
+          // 建议顺序也按同样规则检查预计到达（ADR 0096 第三节第 6 小节）：按建议顺序的路线、建议报价同一车型的每站占用
+          if (serviceLocal === null) return [];
+          const byRef = new Map(draft.waypoints.map((entry, index) => [entry.key, stops[index]]));
+          const ordered = suggestionData.order.flatMap((ref) => byRef.get(ref) ?? []);
+          const groupId = selected?.vehicle_group.id ?? quotes[0]?.vehicle_group.id;
+          const suggestedOccupancy = suggestionData.quote_result.quotes.find((entry) => entry.vehicle_group.id === groupId)?.stop_occupancy_minutes ?? occupancy;
+          return ordered.length === stops.length ? suggestedLateTexts({ serviceLocal, stops: ordered, legs: suggestionData.itinerary_route.legs, stopOccupancyMinutes: suggestedOccupancy }) : [];
+        })()}
         compact={!wide}
         onAdopt={adoptSuggestion}
         onKeep={orderSuggestion.keep}
@@ -917,7 +940,7 @@ export function BookNewPage() {
   const supportWhatsapp = config.kind === "ready" ? config.config.support_whatsapp : null;
   // 报不出价时「请客服人工报价」带上的行程（M8-21）：用车类型按识别结果，认不出时看两端有没有机场
   // 包车的经停点（M9W-04）：都填好了才带上（有没填完的一个都不带，和询价一样），按页面上的顺序
-  const manualStops = draft.mode === "charter" ? (waypointsBody(draft.waypoints) ?? []).map((stop) => ({ name: stop.name, lat: stop.lat, lng: stop.lng, stayMinutes: stop.stay_minutes })) : [];
+  const manualStops = draft.mode === "charter" ? (waypointsBody(draft.waypoints, draft.time) ?? []).map((stop) => ({ name: stop.name, lat: stop.lat, lng: stop.lng, stayMinutes: stop.stay_minutes, ...(stop.arrive_by === undefined ? {} : { arriveBy: stop.arrive_by }) })) : [];
   const manualTrip: ManualQuoteTripDraft = {
     category: draft.mode === "charter" ? "charter" : tripType === "point_to_point" ? "point_to_point" : tripType !== null || draft.from?.kind === "airport" || draft.to?.kind === "airport" ? "airport_transfer" : "point_to_point",
     cityId: draft.mode === "charter" ? (charterCity?.id ?? nearbyCharterCity(draft.from, cityList)?.id ?? null) : outcome?.mode === "transfer" ? (outcome.result.city?.id ?? null) : null,
@@ -1054,6 +1077,8 @@ export function BookNewPage() {
             tiles={tiles}
             mapCenter={centerOf(draft.from)}
             cities={centers}
+            startTime={draft.time}
+            late={lateByWaypoint}
           />
         )}
         <PlaceField
@@ -1237,7 +1262,7 @@ export function BookNewPage() {
               {charterMapPoints !== null && <ItineraryMap points={charterMapPoints} alt={itineraryMapAlt(charterRows, charterResult?.itinerary_route)} />}
               {/* 超过 12 个点（ADR 0099）：不请求地图，只显示列表 */}
               {charterMapPoints === null && draft.from !== null && draft.to !== null && <p className="site-muted">{itineraryCopy("listOnly")}</p>}
-              <TripStops rows={charterRows} />
+              <TripStops rows={charterRows} late={lateByRow} />
               {/* 超过 12 小时 / 360 公里的提醒（M9P-10，ADR 0099）：只在有经停点、按行程计价时 */}
               {itinerary && <ItineraryWarnings quote={selected ?? quotes[0] ?? null} route={charterResult?.itinerary_route} points={[draft.from?.name ?? "", ...stops.map((stop) => stop.name), draft.to?.name ?? ""]} />}
               {itinerary && <p className="price-breakdown__note">{ITINERARY_NOTE}</p>}
@@ -1405,7 +1430,8 @@ export function BookNewPage() {
                 {stops.map((stop, index) => (
                   <li key={`${index}-${stop.name}`}>
                     {/* 编号同行程列表和地图（M9P-20）：上车 = 1，经停从 2 起 */}
-                    {displayStopNumber(index + 1)} {stop.name}（停留 {durationText(stop.stay_minutes)}）
+                    {displayStopNumber(index + 1)} {stop.name}（停留 {durationText(stop.stay_minutes)}
+                    {arriveByDeadlineText(stop.arrive_by) === null ? "" : `，${arriveByDeadlineText(stop.arrive_by)}`}）
                   </li>
                 ))}
               </ol>

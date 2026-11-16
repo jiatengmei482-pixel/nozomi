@@ -3,8 +3,10 @@
  * 编号（M9P-20，ADR 0096）：上车 = 1、经停依次、下车 = 最后，和行程地图的标记一致；两行之间写这一段的行驶时长和公里（有路线时）。
  * 官网下单页（带各段行驶分钟）、官网订单页、运营 / 供应商订单详情、司机页共用；这里**不含任何价格**。
  * 没有经停点的订单不用它（页面照旧只写上车、下车地点）。
+ * 指定到达时间（M9P-20 P3）：经停行写「须在 14:00 前到达」；运营 / 供应商订单详情没有逐段时长（订单接口还没有 itinerary.legs，ADR 0096 P1 遗留），不标预计晚到。
  */
 import { itineraryCopy } from "../lib/itinerary-texts.ts";
+import { Icon } from "./Icon.tsx";
 import { type OrderItinerary, type ScheduleRow, durationText, kmText, orderItineraryText, scheduleRows } from "../lib/charter-itinerary.ts";
 
 /** 「行驶约 35 分钟 · 28.4 公里」；没有米数时只写时长 */
@@ -13,7 +15,11 @@ function driveText(row: ScheduleRow): string {
   return row.driveMeters === null ? itineraryCopy("drive", { duration }) : itineraryCopy("driveKm", { duration, km: kmText(row.driveMeters) });
 }
 
-export function TripStops({ rows, label = "行程" }: { rows: readonly ScheduleRow[]; label?: string }) {
+/**
+ * `late`：按行的 `key` 给的晚到提示（M9P-20 P3，官网下单页按当前顺序算；订单详情没有逐段时长，不给）。
+ * 指定了到达时间的经停写「须在 14:00 前到达」（`row.deadline`）。
+ */
+export function TripStops({ rows, label = "行程", late = {} }: { rows: readonly ScheduleRow[]; label?: string; late?: Readonly<Record<string, string>> }) {
   return (
     <ol className="trip-stops" aria-label={label}>
       {rows.map((row) => (
@@ -26,6 +32,12 @@ export function TripStops({ rows, label = "行程" }: { rows: readonly ScheduleR
             <span className="trip-stops__name">{row.name}</span>
           </span>
           {row.stayMinutes !== null && <span className="trip-stops__stay">停留 {durationText(row.stayMinutes)}</span>}
+          {row.deadline !== null && <span className="trip-stops__deadline">{row.deadline}</span>}
+          {late[row.key] !== undefined && (
+            <span className="trip-stops__late">
+              <Icon name="alert-triangle" /> {late[row.key]}
+            </span>
+          )}
         </li>
       ))}
     </ol>
@@ -33,7 +45,7 @@ export function TripStops({ rows, label = "行程" }: { rows: readonly ScheduleR
 }
 
 /** 订单上的经停点 → 行程的各行（上车、经停、下车的名称用订单上的地址） */
-export function orderStopRows(order: { pickup: { address: string } | null; dropoff: { address: string } | null; waypoints?: readonly { name: string; stay_minutes: number }[] | null | undefined }): ScheduleRow[] | null {
+export function orderStopRows(order: { pickup: { address: string } | null; dropoff: { address: string } | null; waypoints?: readonly { name: string; stay_minutes: number; arrive_by?: unknown }[] | null | undefined }): ScheduleRow[] | null {
   if (order.waypoints === null || order.waypoints === undefined || order.waypoints.length === 0) return null;
   return scheduleRows(order.pickup?.address ?? "—", order.dropoff === null ? null : order.dropoff.address, order.waypoints);
 }

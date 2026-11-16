@@ -40,6 +40,7 @@ import { ORDER_STATUS_BADGES, StatusBadge } from "../../components/StatusBadge.t
 import { TextField } from "../../components/TextField.tsx";
 import { directionName, formatInZone, landingSourceName, orderFreeWaitDetail } from "../../lib/dispatch-display.ts";
 import { displayName } from "../../lib/master-display.ts";
+import { arriveByDeadlineText } from "../../lib/arrive-by-display.ts";
 import { durationText, orderItineraryText } from "../../lib/charter-itinerary.ts";
 import { itineraryCopy } from "../../lib/itinerary-texts.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
@@ -338,6 +339,8 @@ export function DriverTripPage() {
                   <span className="trip-stops__name driver-key">{stop.name}</span>
                 </span>
                 <span className="trip-stops__stay">{`停留 ${durationText(stop.stay_minutes)}`}</span>
+                {/* 客人指定的到达时间（M9P-20 P3，最晚到达）：「须在 14:00 前到达」，跨午夜写「次日」 */}
+                {arriveByDeadlineText(stop.arrive_by) !== null && <span className="trip-stops__deadline driver-key">{arriveByDeadlineText(stop.arrive_by)}</span>}
                 <a className="link driver-nav" href={mapLink(stop)}>
                   {itineraryCopy("navigateTo", { number: displayStopNumber(index + 1) })}
                 </a>

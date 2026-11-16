@@ -2,7 +2,8 @@
  * 新预订页包车的经停点和按行程计价（M9W-02，ADR 0088；需求 charter-waypoint-surcharge.md 13.5）的组件测试：
  * 没有经停点时询价请求和以前完全一样；经停点增删、上下移动（焦点跟着走、播报）、最多 25 个（M9P-10）；停留时长必填；
  * 有经停点时请求带 itinerary_pricing 和 waypoints、不带 package_hours，包车时长下拉换成「按行程自动选套餐」；
- * 车型卡、右侧栏、核对页的对外价明细（各项之和 = 总价；对不上时不显示明细）、行程时间表和提示；经停点报不出价时指出是哪一个。
+ * 车型卡、右侧栏、核对页的对外价明细（各项之和 = 总价；对不上时不显示明细）、行程时间表和提示；经停点报不出价时指出是哪一个；
+ * 指定到达时间（M9P-20 P3）：锁定、次日推断、预计晚到提示。
  * 接口用测试替身（浏览器只连 /site/v1）；真实后端由 e2e/site-booking-waypoints.spec.ts 覆盖。
  */
 import { afterEach, test } from "node:test";
@@ -267,6 +268,57 @@ test("按行程计价：车型卡、右侧栏、核对页显示明细（套餐�
   await waitFor(() => assert.equal(calls.filter((call) => call.path === "/site/v1/orders").length, 1));
   const order = calls.find((call) => call.path === "/site/v1/orders")?.body as Record<string, unknown>;
   assert.equal(order["quote_id"], "QT203011200000000001");
+});
+
+test("指定到达时间（M9P-20 P3）：填了的行锁定（没有拖动把手、有锁，按钮说明「已锁定，只能用上移 / 下移调整」，上移照常可用）；早于出发时刻的按次日并写「次日 08:00」；预计晚到时这一行提示；请求带 arrive_by", async () => {
+  wideScreen();
+  const calls = open((call) => json(200, (call.body as Record<string, unknown>)["itinerary_pricing"] === true ? itineraryResult() : plainResult));
+  const actor = user();
+  await screen.findByRole("heading", { name: "车型1" }, SLOW);
+  await actor.click(screen.getByRole("button", { name: "上一步" }));
+  await addStop(actor, "五合目", "60");
+  await addStop(actor, "河口湖", "90");
+  await addStop(actor, "忠灵塔", "30");
+  const rowOf = (name: string): HTMLElement => screen.getByRole("button", { name: `把 ${name} 上移` }).closest("li") as HTMLElement;
+  assert.ok(rowOf("河口湖").querySelector("[data-drag-handle]"), "没填到达时间：照常有拖动把手");
+
+  // 09:00 出发；河口湖 10:00 前到——按当前顺序预计 09:00 + 120 + 停 60 + 30 = 12:30 到
+  fireEvent.change(screen.getByLabelText("经停点 2 指定到达时间（选填）"), { target: { value: "10:00" } });
+  const row = rowOf("河口湖");
+  assertAbsent(row.querySelector("[data-drag-handle]"));
+  assert.ok(row.querySelector("[data-locked]"), "换成锁形图标");
+  const up = within(row).getByRole("button", { name: "把 河口湖 上移" }) as HTMLButtonElement;
+  assert.equal(up.disabled, false, "上移照常可用");
+  assert.equal(document.getElementById(up.getAttribute("aria-describedby") ?? "")?.textContent, "河口湖，须在 10:00 前到达，已锁定，不参与建议顺序，只能用上移 / 下移调整");
+  assert.equal(up.getAttribute("aria-describedby"), within(row).getByRole("button", { name: "把 河口湖 下移" }).getAttribute("aria-describedby"));
+  await waitFor(() => assert.ok(within(rowOf("河口湖")).getByText("预计 12:30 到，晚于指定的 10:00")), SLOW);
+  await waitFor(() => assert.deepEqual((quotes(calls).at(-1)?.["waypoints"] as Record<string, unknown>[])[1]?.["arrive_by"], { day_offset: 0, time: "10:00" }), SLOW);
+  const body = quotes(calls).at(-1) as Record<string, unknown>;
+  assert.equal("arrive_by" in ((body["waypoints"] as Record<string, unknown>[])[0] as object), false, "没填的经停不带这个键");
+
+  // 早于出发时刻：按次日，行内写「次日 08:00」；预计 12:30 + 停 90 + 10 = 14:10 到，不晚
+  fireEvent.change(screen.getByLabelText("经停点 3 指定到达时间（选填）"), { target: { value: "08:00" } });
+  assert.ok(within(rowOf("忠灵塔")).getByText("次日 08:00"));
+  await waitFor(() => assert.deepEqual((quotes(calls).at(-1)?.["waypoints"] as Record<string, unknown>[])[2]?.["arrive_by"], { day_offset: 1, time: "08:00" }), SLOW);
+  await waitFor(() => assert.ok(within(rowOf("河口湖")).getByText("预计 12:30 到，晚于指定的 10:00")), SLOW);
+  assert.equal(within(rowOf("忠灵塔")).queryByText(/晚于指定的/), null);
+
+  // 选车型这一步的行程列表：写「须在 10:00 前到达」「须在次日 08:00 前到达」，也标出晚到
+  await actor.click(screen.getByRole("button", { name: "下一步：选择车型" }));
+  const schedule = await screen.findByRole("list", { name: "行程" }, SLOW);
+  await waitFor(() => assert.match(schedule.textContent ?? "", /预计 12:30 到，晚于指定的 10:00/), SLOW);
+  assert.match(schedule.textContent ?? "", /须在 10:00 前到达/);
+  assert.match(schedule.textContent ?? "", /须在次日 08:00 前到达/);
+  await actor.click(screen.getByRole("button", { name: "上一步" }));
+
+  // 锁定的行用上移调整：顺序变了、到达时间跟着这一行走
+  await actor.click(within(rowOf("河口湖")).getByRole("button", { name: "把 河口湖 上移" }));
+  assert.deepEqual(stopNames(), ["河口湖", "五合目", "忠灵塔"]);
+  assert.equal((screen.getByLabelText("经停点 1 指定到达时间（选填）") as HTMLInputElement).value, "10:00");
+  // 清空到达时间：解锁，拖动把手回来
+  fireEvent.change(screen.getByLabelText("经停点 1 指定到达时间（选填）"), { target: { value: "" } });
+  assert.ok(rowOf("河口湖").querySelector("[data-drag-handle]"));
+  assertAbsent(rowOf("河口湖").querySelector("[data-locked]"));
 });
 
 test("明细加起来不等于总价：不显示明细，只显示总价（价格不能显示错）", async () => {

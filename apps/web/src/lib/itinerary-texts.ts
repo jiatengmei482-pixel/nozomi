@@ -43,7 +43,16 @@ export type ItineraryTextKey =
   | "optimizeRefused"
   | "rulesSuggestLegend"
   | "rulesSuggestLabel"
-  | "rulesSuggestHint";
+  | "rulesSuggestHint"
+  | "arriveByLabel"
+  | "arriveByNextDay"
+  | "arriveByLaterDay"
+  | "arriveByFormat"
+  | "arriveByDeadline"
+  | "arriveByLocked"
+  | "arriveByLockedIcon"
+  | "arriveByLate"
+  | "arriveByLateStop";
 
 const ZH: Readonly<Record<ItineraryTextKey, string>> = {
   pickup: "上车",
@@ -84,6 +93,15 @@ const ZH: Readonly<Record<ItineraryTextKey, string>> = {
   rulesSuggestLegend: "经停顺序建议",
   rulesSuggestLabel: "提示更省路程的经停顺序",
   rulesSuggestHint: "客人填 2 个以上经停时，提示更省路程的顺序，并给出按建议顺序的价格。关了只是这个商品不显示建议价，客人自己排的任何顺序照常报价。默认开。",
+  arriveByLabel: "经停点 {number} 指定到达时间（选填）",
+  arriveByNextDay: "次日 {time}",
+  arriveByLaterDay: "第 {day} 天 {time}",
+  arriveByFormat: "请按 HH:MM 填写到达时间，或清空",
+  arriveByDeadline: "须在 {time} 前到达",
+  arriveByLocked: "{name}，须在 {time} 前到达，已锁定，不参与建议顺序，只能用上移 / 下移调整",
+  arriveByLockedIcon: "已锁定",
+  arriveByLate: "预计 {eta} 到，晚于指定的 {time}",
+  arriveByLateStop: "{name}：预计 {eta} 到，晚于指定的 {time}",
 };
 
 export const ITINERARY_TEXTS: Readonly<Record<ItineraryLang, Partial<Record<ItineraryTextKey, string>>>> = { zh: ZH, ja: {}, en: {} };

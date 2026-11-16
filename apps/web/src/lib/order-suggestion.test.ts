@@ -33,6 +33,19 @@ test("什么时候调接口：经停点集合的键不看顺序；请求键和�
   assert.equal(draftRequestKey(body()), suggestionRequestKey({ pickup: P, dropoff: P, waypoints: [A, B, C], service_local: "2030-11-20T08:00", passengers: 2, luggage: 1, addons: [], package_hours: null }));
 });
 
+test("固定点（指定到达时间，M9P-20 P3）：可动经停换顺序键不变；固定点换了位置、加上或去掉到达时间键变；改到达时刻只变请求键", () => {
+  const fixed = { ...B, arrive_by: { day_offset: 0 as const, time: "11:00" } };
+  const D = { name: "镰仓", lat: 35.32, lng: 139.55, stay_minutes: 60 };
+  assert.equal(stopSetKey(body([A, C, fixed, D])), stopSetKey(body([C, A, fixed, D])), "固定点前面两个互换：同一段，不重新申请");
+  assert.notEqual(stopSetKey(body([A, fixed, C, D])), stopSetKey(body([A, C, fixed, D])), "固定点换了位置：重新切段");
+  assert.notEqual(stopSetKey(body([A, B, C])), stopSetKey(body([A, fixed, C])), "加上到达时间：变成固定点");
+  assert.equal(stopSetKey(body([A, B, C])), stopSetKey(body([C, B, A])), "没有固定点时和以前一样");
+  const later = { ...fixed, arrive_by: { day_offset: 0 as const, time: "12:00" } };
+  assert.equal(stopSetKey(body([A, fixed, C])), stopSetKey(body([A, later, C])), "改到达时刻不算点集合变了");
+  assert.notEqual(draftRequestKey(body([A, fixed, C])), draftRequestKey(body([A, later, C])), "但请求键变了：服务器按缓存的顺序重算建议报价");
+  assert.notEqual(draftRequestKey(body([A, B, C])), draftRequestKey(body([A, fixed, C])));
+});
+
 test("拖动后建议块：按新的当前路线重算省多少、按车型对应比价；排成建议顺序、省得不够、更贵、报不出都收起；还在询价时「计算中」", () => {
   const s = suggestion();
   const current = result([quote("g1", 75_000), quote("g2", 90_000)]);
