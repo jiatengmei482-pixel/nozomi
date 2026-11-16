@@ -39,6 +39,7 @@ test("固定点（指定到达时间，M9P-20 P3）：可动经停换顺序键�
   assert.equal(stopSetKey(body([A, C, fixed, D])), stopSetKey(body([C, A, fixed, D])), "固定点前面两个互换：同一段，不重新申请");
   assert.notEqual(stopSetKey(body([A, fixed, C, D])), stopSetKey(body([A, C, fixed, D])), "固定点换了位置：重新切段");
   assert.notEqual(stopSetKey(body([A, B, C])), stopSetKey(body([A, fixed, C])), "加上到达时间：变成固定点");
+  assert.notEqual(stopSetKey(body([A, C, fixed, D])), stopSetKey(body([D, C, fixed, A])), "固定点位置不变、可动经停换了段：重新申请（旧建议会让经停跨过固定点）");
   assert.equal(stopSetKey(body([A, B, C])), stopSetKey(body([C, B, A])), "没有固定点时和以前一样");
   const later = { ...fixed, arrive_by: { day_offset: 0 as const, time: "12:00" } };
   assert.equal(stopSetKey(body([A, fixed, C])), stopSetKey(body([A, later, C])), "改到达时刻不算点集合变了");

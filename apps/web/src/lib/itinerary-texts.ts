@@ -52,7 +52,8 @@ export type ItineraryTextKey =
   | "arriveByLocked"
   | "arriveByLockedIcon"
   | "arriveByLate"
-  | "arriveByLateStop";
+  | "arriveByLateStop"
+  | "arriveByFieldHint";
 
 const ZH: Readonly<Record<ItineraryTextKey, string>> = {
   pickup: "上车",
@@ -102,6 +103,7 @@ const ZH: Readonly<Record<ItineraryTextKey, string>> = {
   arriveByLockedIcon: "已锁定",
   arriveByLate: "预计 {eta} 到，晚于指定的 {time}",
   arriveByLateStop: "{name}：预计 {eta} 到，晚于指定的 {time}",
+  arriveByFieldHint: "填了指定到达时间的经停会锁定位置，不参与建议顺序。",
 };
 
 export const ITINERARY_TEXTS: Readonly<Record<ItineraryLang, Partial<Record<ItineraryTextKey, string>>>> = { zh: ZH, ja: {}, en: {} };

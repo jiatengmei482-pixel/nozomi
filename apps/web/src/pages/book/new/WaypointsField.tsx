@@ -126,7 +126,7 @@ export function WaypointsField({ value, onChange, errors, tiles, mapCenter, citi
   return (
     <fieldset className="field fieldset picked book-waypoints">
       <legend className="field__label">经停点（选填）</legend>
-      <p className="field__hint">按顺序填想去的景点和每处大概停留多久，最多 {MAX_WAYPOINTS} 个；价格按经停点所在区域和行程总时长计算。填了指定到达时间的经停会锁定位置，不参与建议顺序。</p>
+      <p className="field__hint">按顺序填想去的景点和每处大概停留多久，最多 {MAX_WAYPOINTS} 个；价格按经停点所在区域和行程总时长计算。{itineraryCopy("arriveByFieldHint")}</p>
       {value.length > 0 && (
         <ol className="picked__list" ref={listRef}>
           {value.map((entry, index) => {
