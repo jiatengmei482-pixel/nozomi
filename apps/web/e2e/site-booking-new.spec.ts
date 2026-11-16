@@ -102,10 +102,10 @@ test("新预订页四步：输入即提示选机场和酒店 → 自动报价、
   const includes = page.getByRole("region", { name: "一口价包含" });
   await expect(includes.getByRole("listitem")).toHaveText(["一口价已含所有费用（高速费、停车费等），无需另付", "专车专用，不拼车", "航班落地后免费等待：国际线最长 90 分钟、国内线最长 60 分钟"]);
   await expect(page.locator("main")).not.toContainText("跟踪航班");
-  const bar = page.locator(".book-bar");
-  await expect(bar).toContainText(`${world.group.name} · 一口价 22,000 JPY`);
+  const bar = page.locator(".step-bar");
+  await expect(bar.locator(".step-bar__summary")).toContainText(`${world.group.name} · 一口价 22,000 JPY`);
   await expectNarrowAndAccessible(page, "新预订页第 2 步（座位示意图展开、底部固定条）");
-  await bar.getByRole("button", { name: "下一步" }).click();
+  await bar.getByRole("button", { name: "下一步：填写乘客信息" }).click();
 
   // 第 3 步：乘客信息（接机的航班号、航班类型必填，举牌姓名选填）
   await expect(page.getByRole("heading", { level: 2, name: "乘客信息" })).toBeFocused();

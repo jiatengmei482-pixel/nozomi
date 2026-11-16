@@ -240,7 +240,7 @@ test.describe("手机 390（2 倍屏）", () => {
     const seen = await serveImages(page, browser);
     await page.goto(trip.link);
     await selectVehicle(page, trip.groupName);
-    await page.locator(".book-bar").getByRole("button", { name: "下一步" }).click();
+    await page.locator(".step-bar").getByRole("button", { name: "下一步：填写乘客信息" }).click();
     // 手机第 3 步：右侧栏是顶部的摘要条，展开后路线图在最上面（M8-27）
     await expect(page.getByRole("heading", { level: 2, name: "乘客信息" })).toBeFocused();
     await page.getByRole("button", { name: /^行程摘要/ }).click();
@@ -261,7 +261,7 @@ test.describe("手机 390（2 倍屏）", () => {
     await serveFailure(page, unavailable("UNAVAILABLE"));
     await page.goto(trip.link);
     await selectVehicle(page, trip.groupName);
-    await page.locator(".book-bar").getByRole("button", { name: "下一步" }).click();
+    await page.locator(".step-bar").getByRole("button", { name: "下一步：填写乘客信息" }).click();
     await page.getByRole("button", { name: /^行程摘要/ }).click();
     await expectTextOnly(page, "手机：503 UNAVAILABLE");
   });
