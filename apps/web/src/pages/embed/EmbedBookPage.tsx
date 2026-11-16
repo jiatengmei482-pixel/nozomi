@@ -23,7 +23,7 @@ import type { BookStep } from "../../lib/book-new.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { BookNewPage } from "../book/new/BookNewPage.tsx";
 import { type BookingShell, BookingShellContext } from "../book/new/booking-shell.tsx";
-import { embedSearch, useEmbedFrame } from "./EmbedFrame.tsx";
+import { embedHash, embedSearch, useEmbedFrame } from "./EmbedFrame.tsx";
 
 /** 读草稿（含先看有没有待续接的单）最多等这么久：再不回就当读不出（发 error LOAD_FAILED），宿主不至于一直等 ready；测试里调短 */
 export const DRAFT_TIMEOUT = { ms: 10_000 };
@@ -89,7 +89,7 @@ export function EmbedBookPage() {
         );
         if (!alive) return;
         if (pending) {
-          void navigate({ pathname: EMBED_BOOK_ORDER_PATH, search: embedSearch(window.location.search) }, { replace: true, state: { orderToken: held } });
+          void navigate({ pathname: EMBED_BOOK_ORDER_PATH, search: embedSearch(window.location.search), hash: embedHash(params.ch) }, { replace: true, state: { orderToken: held } });
           return;
         }
         // 已付款、已取消或读不到：立即删掉，照常预订（共用电脑上下一个人不会看到上一张单）
@@ -137,13 +137,13 @@ export function EmbedBookPage() {
       // 草稿已经在上面读过了：直接交给四步，不再读第二次
       readDraft: () => Promise.resolve({ draft: saved, sourceMatches }),
       placed: (created, go) => {
-        // 到付款这一步的 step 由订单页读到「待付款」时发
+        // 到付款这一步的 step 由订单页读到「待付款」时发；下单应答里的 client_secret 一起带过去，订单页直接挂付款表单（M9E-19）
         rememberEmbedOrder(draft, created.link.token);
-        void go({ pathname: EMBED_BOOK_ORDER_PATH, search: embedSearch(window.location.search) }, { state: { orderToken: created.link.token, placed: true } });
+        void go({ pathname: EMBED_BOOK_ORDER_PATH, search: embedSearch(window.location.search), hash: embedHash(params.ch) }, { state: { orderToken: created.link.token, placed: true, payment: created.payment } });
       },
       stepShown: (number) => step(STEP_NAMES[number]),
     };
-  }, [load, live, draft, send, t.title]);
+  }, [load, live, draft, send, t.title, params.ch]);
 
   if (!inFrame || host === null) return <EmbedRefusal />;
   const siteLink = `/book/new${draft === null ? "" : `?draft=${encodeURIComponent(draft)}`}`;

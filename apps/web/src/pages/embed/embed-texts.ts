@@ -17,6 +17,7 @@ type Keys =
   | "orderPending"
   | "payInNewWindow"
   | "payHint"
+  | "payLoadFailed"
   | "openOrder"
   | "manageNote"
   | "paid"
@@ -40,9 +41,10 @@ export const EMBED_TEXTS: Readonly<Record<EmbedLang, EmbedTexts>> = {
     goToSite: "到 NOZOMI 主站预订",
     badAddress: "预订页的地址不完整，请回到合作网站重新打开。",
     orderPlaced: "订单已提交，还没有付款。",
-    orderPending: "请在新窗口打开订单页完成付款，付完回到这里，这一页会自动更新。30 分钟内没有付款，订单会自动取消。",
+    orderPending: "请在下面填写银行卡完成付款。30 分钟内没有付款，订单会自动取消。",
     payInNewWindow: "在新窗口打开订单页付款",
-    payHint: "点一次上面的按钮，付款页会在新窗口打开，直接填写银行卡付款。付完回到这里，这一页会自动更新。",
+    payHint: "付款表单打不开时，可以",
+    payLoadFailed: "付款组件没有加载出来，请检查网络后重试。",
     openOrder: "在新窗口打开订单页",
     manageNote: "取消、修改订单请在新窗口打开订单页操作。订单链接也会发到您的邮箱。",
     paid: "付款已提交。订单确认后会发邮件通知您，派车后可以在订单页看到司机和车辆。",
@@ -63,9 +65,10 @@ export const EMBED_TEXTS: Readonly<Record<EmbedLang, EmbedTexts>> = {
     goToSite: "NOZOMI 本サイトで予約",
     badAddress: "予約ページのアドレスが不完全です。提携サイトからもう一度開いてください。",
     orderPlaced: "ご注文を受け付けました。お支払いはまだです。",
-    orderPending: "新しいウィンドウで注文ページを開いてお支払いください。お支払い後にこの画面へ戻ると自動で更新されます。30 分以内にお支払いがない場合、ご注文は自動でキャンセルされます。",
+    orderPending: "下のフォームにカード情報を入力してお支払いください。30 分以内にお支払いがない場合、ご注文は自動でキャンセルされます。",
     payInNewWindow: "新しいウィンドウで注文ページを開いて支払う",
-    payHint: "上のボタンを一度押すと、お支払いページが新しいウィンドウで開きます。そのままカード情報を入力してお支払いください。お支払い後にこの画面へ戻ると自動で更新されます。",
+    payHint: "お支払いフォームが表示されない場合は：",
+    payLoadFailed: "お支払いフォームを読み込めませんでした。通信状況をご確認のうえ、もう一度お試しください。",
     openOrder: "新しいウィンドウで注文ページを開く",
     manageNote: "キャンセル・変更は新しいウィンドウで注文ページを開いて行ってください。注文ページのリンクはメールでもお送りします。",
     paid: "お支払いを受け付けました。ご注文が確定するとメールでお知らせします。配車後は注文ページでドライバーと車両をご確認いただけます。",
@@ -86,9 +89,10 @@ export const EMBED_TEXTS: Readonly<Record<EmbedLang, EmbedTexts>> = {
     goToSite: "Book on the NOZOMI site",
     badAddress: "This booking page address is incomplete. Please open it again from our partner's site.",
     orderPlaced: "Your order has been placed but not paid yet.",
-    orderPending: "Please open the order page in a new window to pay, then come back here — this page updates by itself. Unpaid orders are cancelled after 30 minutes.",
+    orderPending: "Please pay by card in the form below. Unpaid orders are cancelled after 30 minutes.",
     payInNewWindow: "Open the order page in a new window to pay",
-    payHint: "One tap on the button above opens the payment page in a new window, where you can pay by card right away. Come back here afterwards — this page updates by itself.",
+    payHint: "If the payment form does not load:",
+    payLoadFailed: "The payment form could not be loaded. Please check your connection and try again.",
     openOrder: "Open the order page in a new window",
     manageNote: "To cancel or change the order, open the order page in a new window. We also email you the link.",
     paid: "Your payment has been submitted. We'll email you once the order is confirmed; driver and vehicle details appear on the order page after dispatch.",

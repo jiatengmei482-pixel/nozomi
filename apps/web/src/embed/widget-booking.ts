@@ -198,6 +198,11 @@ class BookingMount {
         case "ready":
           ready = true;
           clearTimeout(timer);
+          // 新文档（银行整页回跳、iframe 刷新）：上一个文档开过的 modal 没机会关，这里一并恢复按内容高度（M9E-19）
+          if (modal) {
+            modal = false;
+            iframe.setAttribute("height", String(height));
+          }
           post();
           return;
         case "resize":

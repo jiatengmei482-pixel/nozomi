@@ -120,7 +120,19 @@ function submittedText(outcome: "succeeded" | "processing", slow: boolean): stri
   return slow ? `${head}确认比平时慢：您可以先关掉页面，稍后再打开这个链接查看；有疑问请联系客服。` : head;
 }
 
-function PaymentPanel({ token, order, initial, returnFailed, onRefresh, polling }: { token: string; order: SiteOrder; initial: SitePayment | null; returnFailed: boolean; onRefresh(): void; polling: PaymentPolling }) {
+/**
+ * 付款进 iframe（M9E-19，ADR 0095 第七节）时嵌入订单页和主站不同的几处；主站不传，行为不变。
+ * - `returnUrl`：少数整页跳去银行验证时回到哪儿（主站是 `/book/order`；嵌入页是 `/embed/book/order?…`，要带 key、host 才过得了 frame-check）；
+ * - `locale`：Stripe 表单的语言（主站中文；嵌入页按嵌入页语言）；
+ * - `onModal`：确认付款（可能弹出银行的 3D 验证窗口）前后通知——嵌入页据此告诉宿主把 iframe 摆进可视范围（`modal{open}`）。
+ */
+export interface PaymentEmbedding {
+  returnUrl: string;
+  locale: string;
+  onModal(open: boolean): void;
+}
+
+function PaymentPanel({ token, order, initial, returnFailed, onRefresh, polling, embedding }: { token: string; order: SiteOrder; initial: SitePayment | null; returnFailed: boolean; onRefresh(): void; polling: PaymentPolling; embedding: PaymentEmbedding | null }) {
   const driver = usePaymentDriver();
   const container = useRef<HTMLDivElement>(null);
   const mounted = useRef<PaymentMount | null>(null);
@@ -182,7 +194,7 @@ function PaymentPanel({ token, order, initial, returnFailed, onRefresh, polling 
       }
       if (container.current === null) return;
       intentId.current = intentIdOf(payment.client_secret);
-      const mount = await driver.mount(container.current, { publishableKey: payment.publishable_key, clientSecret: payment.client_secret });
+      const mount = await driver.mount(container.current, { publishableKey: payment.publishable_key, clientSecret: payment.client_secret, ...(embedding === null ? {} : { locale: embedding.locale }) });
       if (!alive) {
         mount.destroy();
         return;
@@ -249,8 +261,10 @@ function PaymentPanel({ token, order, initial, returnFailed, onRefresh, polling 
     setNotice(null);
     // 少数情况 Stripe 会整页跳去银行验证：令牌不进 return_url，先放进本标签页的 sessionStorage，回来时按付款编号取回（payment-return.ts）
     if (intentId.current !== null) rememberPaymentReturn(intentId.current, token);
+    embedding?.onModal(true);
     try {
-      const outcome = await mounted.current.confirm(`${window.location.origin}${SITE_ORDER_PATH}`);
+      const outcome = await mounted.current.confirm(embedding?.returnUrl ?? `${window.location.origin}${SITE_ORDER_PATH}`);
+      embedding?.onModal(false);
       forgetPaymentReturn();
       if (outcome.kind === "succeeded" || outcome.kind === "processing") {
         settle(outcome.kind);
@@ -263,6 +277,9 @@ function PaymentPanel({ token, order, initial, returnFailed, onRefresh, polling 
       }
       setConfirming(false);
       showFailure(outcome.kind === "declined" ? `付款没有成功：${outcome.message}` : outcome.kind === "network" ? NETWORK_TEXT : "付款没有完成。请稍后再试；一直不行请联系客服。");
+    } catch (err) {
+      embedding?.onModal(false);
+      throw err;
     } finally {
       setBusy(false);
     }
@@ -313,6 +330,7 @@ export function PaymentSection({
   returnFailed = false,
   onRefresh,
   polling = PAYMENT_POLLING,
+  embedding = null,
 }: {
   token: string;
   order: SiteOrder;
@@ -322,6 +340,8 @@ export function PaymentSection({
   returnFailed?: boolean;
   onRefresh(): void;
   polling?: PaymentPolling;
+  /** 嵌入订单页（M9E-19）才传；主站不传 */
+  embedding?: PaymentEmbedding | null;
 }) {
   const due = local(order, order.payment_due_at);
   return (
@@ -333,7 +353,7 @@ export function PaymentSection({
           付款暂未开放：订单已为您保留到当地时间 {due}，到时没有付款会自动取消。付款开放后可以回到这个页面付款。
         </Alert>
       ) : (
-        <PaymentPanel token={token} order={order} initial={initial} returnFailed={returnFailed} onRefresh={onRefresh} polling={polling} />
+        <PaymentPanel token={token} order={order} initial={initial} returnFailed={returnFailed} onRefresh={onRefresh} polling={polling} embedding={embedding} />
       )}
     </Section>
   );

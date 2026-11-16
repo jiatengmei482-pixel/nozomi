@@ -118,10 +118,18 @@ export function EmbedFrame({ children }: { children: ReactNode }) {
   );
 }
 
-/** 嵌入页里站内地址的查询串：保留 draft、key、lang、host（Caddy 靠 key、host 做 frame-check，丢了整页重新加载就嵌不进去），去掉步骤号 */
+/**
+ * 嵌入页里站内地址的查询串：保留 draft、key、lang、host（Caddy 靠 key、host 做 frame-check，丢了整页重新加载就嵌不进去），去掉步骤号；
+ * 银行回跳带回来的频道号 `ch` 和 Stripe 加的 `payment_intent*`、`redirect_status`（里面有 client_secret）也去掉（M9E-19）。
+ */
 export function embedSearch(search: string): string {
   const query = new URLSearchParams(search);
-  query.delete("step");
+  for (const name of ["step", "ch", "payment_intent", "payment_intent_client_secret", "redirect_status"]) query.delete(name);
   const text = query.toString();
   return text === "" ? "" : `?${text}`;
+}
+
+/** 嵌入订单页地址的 # 部分：频道号放这里（不发给服务器、不进 Referer），iframe 刷新后 `frameParamsOf` 照样读得到（M9E-19） */
+export function embedHash(ch: string | null): string {
+  return ch === null ? "" : `#ch=${encodeURIComponent(ch)}`;
 }

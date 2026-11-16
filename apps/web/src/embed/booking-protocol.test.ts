@@ -129,6 +129,10 @@ test("iframe 地址：draft、key、lang、host 在查询串，频道号在 # �
   assert.deepEqual(frameParamsOf(url.search, url.hash), { draft: DRAFT, key: KEY, host: "https://partner.example", lang: "ja", ch: CH });
   assert.equal(new URL(embedFrameUrl("https://nozomi.example", { draft: DRAFT, key: KEY, host: "https://partner.example", lang: null, ch: CH })).searchParams.has("lang"), false, "没传语言不带，嵌入页按草稿的语言");
   assert.deepEqual(frameParamsOf("?draft=x&key=y&host=https%3A%2F%2Fpartner.example%2F&lang=fr", "#ch=a%3Cb"), { draft: null, key: null, host: null, lang: null, ch: null });
+  // 银行整页回跳（M9E-19）：return_url 没有 #，频道号在查询串里；# 后面有的时候以 # 后面的为准
+  assert.equal(frameParamsOf(`${url.search}&ch=${CH}&payment_intent=pi_1`, "").ch, CH);
+  assert.equal(frameParamsOf(`${url.search}&ch=${"f".repeat(32)}`, `#ch=${CH}`).ch, CH);
+  assert.equal(frameParamsOf(`${url.search}&ch=a%3Cb`, "").ch, null);
   for (const host of ["https://partner.example/", "https://Partner.example", "http://partner.example", "https://partner.example:443", "null", "", "javascript:alert(1)"]) assert.equal(hostOriginOf(host), null, host);
   assert.equal(hostOriginOf("http://localhost:4174"), "http://localhost:4174");
 });
