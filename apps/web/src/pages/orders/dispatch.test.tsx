@@ -656,6 +656,19 @@ test("司机页面（M8-13，driver.md 3a）：包车写下车地址，下面「
   assert.ok(screen.getByRole("link", { name: "导航到上车点" }));
 });
 
+test("司机页面（M9P-22，ADR 0098）：包车机场开始的单在「行程」开头写「成田机场接机 + 5 小时包车」，没有价格", async () => {
+  denyGeolocation();
+  const trip = tripOf({ order: { ...tripOf().order, category: "charter", direction: null, flight_no: null, package_hours: 5, place: null, pickup: { lng: 140.385, lat: 35.77, address: "成田机场 第 1 航站楼" }, dropoff: { lng: 139.7, lat: 35.69, address: "新宿站" }, pickup_point: { lng: 140.385, lat: 35.77 }, charter_scenario: { kind: "airport_start", airport_name: "成田机场" } } });
+  stubApiWith((call) => (call.url.pathname === "/driver/v1/trip" && call.method === "GET" ? json(200, trip) : null));
+  render(
+    <MemoryRouter initialEntries={[{ pathname: "/driver", hash: `#${LINK_TOKEN}` }]}>
+      <App />
+    </MemoryRouter>,
+  );
+  await screen.findByText("成田机场接机 + 5 小时包车");
+  assert.doesNotMatch(document.body.textContent ?? "", /JPY|价格|结算|对外价|加价/);
+});
+
 test("司机页面（M8-13）：接机、点对点照旧——没有「导航到下车点」，下车写地址或机场", async () => {
   denyGeolocation();
   stubApiWith((call) => (call.url.pathname === "/driver/v1/trip" && call.method === "GET" ? json(200, tripOf()) : null));

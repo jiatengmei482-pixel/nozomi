@@ -40,6 +40,7 @@ import { ORDER_STATUS_BADGES, StatusBadge } from "../../components/StatusBadge.t
 import { TextField } from "../../components/TextField.tsx";
 import { directionName, formatInZone, landingSourceName, orderFreeWaitDetail } from "../../lib/dispatch-display.ts";
 import { displayName } from "../../lib/master-display.ts";
+import { scenarioPackageLabel } from "../../lib/charter-airport-copy.ts";
 import { durationText, orderItineraryText } from "../../lib/charter-itinerary.ts";
 import { itineraryCopy } from "../../lib/itinerary-texts.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
@@ -325,6 +326,8 @@ export function DriverTripPage() {
       </Section>
 
       <Section title="行程">
+        {/* 包车机场开始 / 机场结束（M9P-22，ADR 0098）：司机一眼看到是机场接机还是送机 */}
+        {order.charter_scenario != null && order.package_hours !== null && <p className="driver-key">{scenarioPackageLabel(order.charter_scenario, order.package_hours)}</p>}
         <p className="driver-key">{`${stopsNumbered ? "1 " : ""}上车：${order.pickup?.address ?? placeName ?? "—"}`}</p>
         {/* 包车经停点（M9W-03）：按顺序，名称、停留和导航；没有价格。编号同官网行程列表（M9P-20）：上车 = 1、经停依次、下车 = 最后 */}
         {order.waypoints != null && order.waypoints.length > 0 && (
