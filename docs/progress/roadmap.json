@@ -1412,8 +1412,8 @@
             "Stripe 测试模式在跨站宿主上 Chrome、Safari（含 iOS）、Firefox 实测，结果写进 PR",
             "频道号 ch 现在只在文档第一次加载时从 #ch= 读、放在内存里（EmbedFrame.tsx）；进订单页后地址里没有 #ch=，银行整页回跳、iframe 刷新后 ch 为空，宿主按频道核对会丢掉这些消息：回跳后的 ready / step / completed 要仍带得上 ch（例如 ch 随站内地址的 # 一起带上，或存进 iframe 自己的 sessionStorage），端到端覆盖回跳后宿主照样收到 completed（M9E-17 审查建议）"
           ],
-          "evidence": "",
-          "updated": "2026-11-14"
+          "evidence": "PR #279（main 4a025518，测试站 Deploy 43792336820 于 2026-11-16 02:29Z 成功）；演示站 chromium 区间 NZ20261116LC5WBDR3、包车 NZ202611160XYV6VCU 在 iframe 里用 4242 付款成功，宿主收到 modal open/close、paid、completed（docs/acceptance/M9E-30.md）；Safari（含 iOS）、Firefox 真机和 3D 验证卡未测，状态保持 doing",
+          "updated": "2026-11-16"
         },
         {
           "id": "M9E-20",
@@ -1568,7 +1568,7 @@
           "id": "M9E-30",
           "title": "业主验收意见（2026-11-16）：第 4 步「核对并付款」按 行程 → 价格明细 → 取消政策和注意事项 → 最下面付款按钮 排（主站和嵌入页同一份）；主站下单后付款区块紧跟订单号；嵌入页在付款进 iframe（M9E-19）上线前，付款按钮旁写清点一次在新窗口打开付款页",
           "role": "frontend",
-          "status": "doing",
+          "status": "done",
           "acceptance": [
             "第 4 步：完整行程（含地图、车型、乘客行李、乘客信息）→ 价格明细和总价 → 取消政策和注意事项 → 同意保存银行卡和「去付款」在最后，手机上也一样；按钮后面没有别的控件",
             "主站下单后订单页第一块就是付款（Payment Element），保存链接的提示在付款下面",
@@ -1576,7 +1576,7 @@
             "新文案中文、走键（checkout-texts.ts、EMBED_TEXTS）",
             "主站和演示站各走一遍区间、包车（测试卡 4242），截图写进 docs/acceptance/"
           ],
-          "evidence": "",
+          "evidence": "PR #278（main c6f0f3ff，测试站 Deploy 43787203992 于 2026-11-16 01:37Z 成功）；测试站验收 docs/acceptance/M9E-30.md：主站区间 NZ20261116Z1BRWXL4、包车 NZ20261116QL0X29EA，演示站区间 NZ20261116LC5WBDR3、包车 NZ202611160XYV6VCU，均用 4242 付款成功后取消全额退款；第 4 步顺序和手机 390 宽截图见 docs/acceptance/M9E-30-shots/",
           "updated": "2026-11-16"
         }
       ]
@@ -1716,13 +1716,13 @@
           "id": "M9P-23",
           "title": "包车行程地图：上车和下车是同一个地点（取整后同一点）时合并成一个「1·N」标记，免得「1」盖住终点编号（#267 验收意见 2026-11-16）",
           "role": "frontend",
-          "status": "doing",
+          "status": "done",
           "acceptance": [
             "环线（上车 = 下车）地图上只有一个「1·N」标记在上车点，经停照常；不同地点不合并",
             "合并图标 /map-markers/1-N.png（N = 3…12）在官网静态目录，方形不超过 64 × 64；自定义图标种类不超过谷歌的 5 种",
             "测试站：环线包车的地图能看到「1·N」"
           ],
-          "evidence": "",
+          "evidence": "PR #278（main c6f0f3ff）；测试站环线包车 新宿駅 → 浅草寺 → 新宿駅 地图只有一个「1·3」标记（docs/acceptance/M9E-30-shots/main-charter-1-vehicles-loop-map.png、main-charter-2b-review-390.png）",
           "updated": "2026-11-16"
         },
         {
