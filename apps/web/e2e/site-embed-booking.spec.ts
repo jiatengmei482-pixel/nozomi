@@ -398,7 +398,8 @@ test("M9P-22 跨站：iframe 里包车快捷入口「机场送机结束」按航
     pickup: { name: "上车酒店", ...trip.pickup },
     dropoff: { name: "市内下车点", ...trip.nearby },
     waypoints: [],
-    package_hours: null,
+    // 没有经停点时草稿要带包车时长才直接到第 2 步（draftReadyToQuote）
+    package_hours: 8,
     passengers: 2,
     luggage: 2,
     lang: "zh",
@@ -415,8 +416,9 @@ test("M9P-22 跨站：iframe 里包车快捷入口「机场送机结束」按航
   await expect(frame.getByRole("button", { name: "机场送机结束" })).toHaveAttribute("aria-pressed", "true");
   const terminal = frame.getByLabel("下车地点（选择航站楼）");
   await expect(terminal.locator("option", { hasText: trip.terminalLabel })).toHaveCount(1);
-  await terminal.selectOption({ label: trip.terminalLabel });
+  // 选好航站楼、行程填齐后页面自己就去询价（停顿一下），所以在选之前就开始等这次询价
   const quoted = page.waitForResponse((res) => new URL(res.url()).pathname === "/site/v1/quotes" && res.request().method() === "POST");
+  await terminal.selectOption({ label: trip.terminalLabel });
   await frame.getByRole("button", { name: "下一步：选择车型" }).click();
   const response = await quoted;
   expect(response.status()).toBe(200);

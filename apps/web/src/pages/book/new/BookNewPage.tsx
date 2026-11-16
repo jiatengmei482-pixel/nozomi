@@ -967,6 +967,24 @@ export function BookNewPage() {
 
   // 包车快捷入口（M9P-22，ADR 0098）：「机场接机开始」时上车点按航站楼选，「机场送机结束」时下车点按航站楼选
   const [airportMode, setAirportMode] = useState<AirportQuickMode>(null);
+  // 打开快捷入口前那一端填的地点：「改填其他地点」或换成另一个快捷入口时放回去，客人不用重填
+  const airportSaved = useRef<{ from: TripPoint | null; to: TripPoint | null }>({ from: null, to: null });
+  const switchAirportMode = (mode: AirportQuickMode): void => {
+    const changes: Partial<TripDraft> = {};
+    if (airportMode === "airport_start" && mode !== "airport_start") changes.from = airportSaved.current.from;
+    if (airportMode === "airport_end" && mode !== "airport_end") changes.to = airportSaved.current.to;
+    // 打开快捷入口：那一端改成按航站楼选，先记下再清掉原来填的
+    if (mode === "airport_start" && airportMode !== "airport_start") {
+      airportSaved.current.from = draft.from;
+      changes.from = null;
+    }
+    if (mode === "airport_end" && airportMode !== "airport_end") {
+      airportSaved.current.to = draft.to;
+      changes.to = null;
+    }
+    setAirportMode(mode);
+    if (Object.keys(changes).length > 0) update(changes);
+  };
 
   let body;
   if (config.kind === "loading" || (open && cities.kind === "loading")) {
@@ -1043,16 +1061,11 @@ export function BookNewPage() {
         {charter && (
           <AirportQuickButtons
             mode={airportMode}
-            onMode={(mode) => {
-              setAirportMode(mode);
-              // 打开快捷入口：那一端改成按航站楼选，先清掉原来填的
-              if (mode === "airport_start") update({ from: null });
-              if (mode === "airport_end") update({ to: null });
-            }}
+            onMode={switchAirportMode}
           />
         )}
         {charter && airportMode === "airport_start" ? (
-          <TerminalSelect scenario="airport_start" label="上车地点" value={draft.from} onChange={(from) => update({ from })} onExit={() => setAirportMode(null)} />
+          <TerminalSelect scenario="airport_start" label="上车地点" value={draft.from} onChange={(from) => update({ from })} onExit={() => switchAirportMode(null)} />
         ) : (
           <PlaceField
           key={`from-${draft.mode}`}
@@ -1077,7 +1090,7 @@ export function BookNewPage() {
           />
         )}
         {charter && airportMode === "airport_end" ? (
-          <TerminalSelect scenario="airport_end" label="下车地点" value={draft.to} onChange={(to) => update({ to })} onExit={() => setAirportMode(null)} />
+          <TerminalSelect scenario="airport_end" label="下车地点" value={draft.to} onChange={(to) => update({ to })} onExit={() => switchAirportMode(null)} />
         ) : (
         <PlaceField
           key={`to-${draft.mode}`}

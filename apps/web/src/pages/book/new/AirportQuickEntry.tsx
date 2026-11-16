@@ -23,7 +23,7 @@ export function AirportQuickButtons({ mode, onMode }: { mode: AirportQuickMode; 
   return (
     <div className="book-new__airport-quick" role="group" aria-label={`${charterAirportText("book.charter.quickAirportStart")} / ${charterAirportText("book.charter.quickAirportEnd")}`}>
       {(["airport_start", "airport_end"] as const).map((scenario) => (
-        <Button key={scenario} size="sm" variant={mode === scenario ? "primary" : "secondary"} aria-pressed={mode === scenario} onClick={() => onMode(mode === scenario ? null : scenario)}>
+        <Button key={scenario} size="sm" variant="secondary" aria-pressed={mode === scenario} onClick={() => onMode(mode === scenario ? null : scenario)}>
           {charterAirportText(scenario === "airport_start" ? "book.charter.quickAirportStart" : "book.charter.quickAirportEnd")}
         </Button>
       ))}

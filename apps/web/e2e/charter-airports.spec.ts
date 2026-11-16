@@ -30,11 +30,12 @@ test("M9P-22 供应商后台：第 ① 步「机场套餐」改简称保存；�
   await card.getByRole("button", { name: "保存机场套餐" }).click();
   await expect(card.getByText("机场套餐已保存")).toBeVisible();
   const saved = (await (await request.get(`/tenant/v1/products/${trip.productId}/charter-airports`, { headers })).json()) as { bindings: { scenario: string; short_name_zh: string | null; area_id: string }[] };
+  // 接口按场景排序（airport_end 在 airport_start 前）
   expect(saved.bindings.map((binding) => [binding.scenario, binding.short_name_zh])).toEqual([
-    ["airport_start", renamed],
     ["airport_end", trip.shortName],
+    ["airport_start", renamed],
   ]);
-  const airportArea = saved.bindings[0]?.area_id ?? "";
+  const airportArea = saved.bindings.find((binding) => binding.scenario === "airport_start")?.area_id ?? "";
 
   // 价格页第四张表
   await page.goto(`/products/${trip.productId}/prices`);

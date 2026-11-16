@@ -32,6 +32,8 @@ test("M9P-22 主站手机 390：「机场接机开始」按航站楼选，底部
   await expect(page.getByRole("button", { name: "机场接机开始" })).toHaveAttribute("aria-pressed", "true");
   const terminal = page.getByLabel("上车地点（选择航站楼）");
   await expect(terminal.locator("option", { hasText: trip.terminalLabel })).toHaveCount(1);
+  // 选好航站楼、行程填齐后页面自己就去询价（停顿一下），所以在选之前就开始等这次询价
+  const quoted = page.waitForResponse((res) => new URL(res.url()).pathname === "/site/v1/quotes" && res.request().method() === "POST");
   await terminal.selectOption({ label: trip.terminalLabel });
   await expect(page.getByText("包车从预约的上车时间开始计时，没有免费等待；航班可能延误时请预留时间，或下单前联系客服")).toBeVisible();
   await expect(page.getByLabel(/^包车时长/)).toHaveValue("8");
@@ -41,7 +43,6 @@ test("M9P-22 主站手机 390：「机场接机开始」按航站楼选，底部
   await expect(page.locator(".book-actions, .book-bar")).toHaveCount(0);
   await expect(bar.getByRole("button", { name: "机场接机开始" })).toHaveCount(0);
   await expectAccessible(page, "包车快捷入口（手机）");
-  const quoted = page.waitForResponse((res) => new URL(res.url()).pathname === "/site/v1/quotes" && res.request().method() === "POST");
   await bar.getByRole("button", { name: "下一步：选择车型" }).click();
   const response = await quoted;
   expect(response.status()).toBe(200);
@@ -77,10 +78,11 @@ test("M9P-22 主站电脑 1280：「改填其他地点」退回普通地址输�
   await page.getByRole("button", { name: "机场送机结束" }).click();
   const terminal = page.getByLabel("下车地点（选择航站楼）");
   await expect(terminal.locator("option", { hasText: trip.terminalLabel })).toHaveCount(1);
+  // 选好航站楼、行程填齐后页面自己就去询价（停顿一下），所以在选之前就开始等这次询价
+  const quoted = page.waitForResponse((res) => new URL(res.url()).pathname === "/site/v1/quotes" && res.request().method() === "POST");
   await terminal.selectOption({ label: trip.terminalLabel });
   // 机场送机结束不出「从预约时间开始计时」的提示
   await expect(page.getByText(/包车从预约的上车时间开始计时/)).toHaveCount(0);
-  const quoted = page.waitForResponse((res) => new URL(res.url()).pathname === "/site/v1/quotes" && res.request().method() === "POST");
   await page.getByRole("button", { name: "下一步：选择车型" }).click();
   const body = JSON.parse((await quoted).request().postData() ?? "{}") as { dropoff: { lat: number; lng: number } };
   expect(body.dropoff).toEqual(trip.terminal);
