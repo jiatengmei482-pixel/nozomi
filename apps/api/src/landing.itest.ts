@@ -97,7 +97,7 @@ test("规则 3：只有客人确认 → 取客人的时间（系统收到的时�
   assert.deepEqual([again.status, again.body.error.code], [409, "LANDING_ALREADY_REPORTED"]);
   const trip = await ok(api.call("GET", "/driver/v1/trip", { token: driverToken }));
   assert.equal(trip.free_wait.start, res.body.order.landing.landed_at);
-  assert.equal(trip.free_wait.end, new Date(new Date(res.body.order.landing.landed_at).getTime() + 90 * MINUTE).toISOString(), "国际线免等 90 分钟");
+  assert.equal(trip.free_wait.end, new Date(new Date(res.body.order.landing.landed_at).getTime() + 60 * MINUTE).toISOString(), "下单没带航班类型：按「航班类型未确认」免等 60 分钟（M9E-31 起平台统一，不看商品设的 90）");
 });
 
 test("规则 1 + 2：客人和司机都有、不一致时取较晚者（司机晚就取司机的；客人晚就取客人的）；司机提交后不能改", async () => {

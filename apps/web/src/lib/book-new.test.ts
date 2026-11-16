@@ -45,14 +45,15 @@ test("链接里的 mode（M8-33）：区间 transfer 和 M8-27 的旧值 airport
   assert.deepEqual(["?type=airport", "?type=p2p", "?type=charter", "?mode=charter&type=airport"].map((search) => parseBookingLink(search).mode), ["transfer", "transfer", "charter", "charter"], "参数名 type 也认，mode 优先");
 });
 
-test("接机的免费等待按航班定（M9E-28，ADR 0097）：选了国际 / 国内航班给 max(商品, 90) / max(商品, 60)；没选写两种各最长多久；商品不限时不限时", () => {
+test("接机的免费等待按航班定（M9E-31，业主 2026-11-16）：国际一律 90、国内一律 60，不看商品设的；没选写两种各最长多久", () => {
   assert.deepEqual(arrivalFreeWait({ free_wait_minutes: 60 }, "international"), { kind: "minutes", minutes: 90 });
-  assert.deepEqual(arrivalFreeWait({ free_wait_minutes: 60 }, "domestic"), { kind: "minutes", minutes: 60 });
-  assert.deepEqual(arrivalFreeWait({ free_wait_minutes: 120 }, "international"), { kind: "minutes", minutes: 120 }, "商品设得更长按商品");
-  assert.deepEqual(arrivalFreeWait({ free_wait_minutes: 75 }, null), { kind: "range", international: 90, domestic: 75 });
+  assert.deepEqual(arrivalFreeWait({ free_wait_minutes: 90 }, "domestic"), { kind: "minutes", minutes: 60 }, "商品设 90，国内仍 60（业主验收 #278 的问题）");
+  assert.deepEqual(arrivalFreeWait({ free_wait_minutes: 120 }, "international"), { kind: "minutes", minutes: 90 }, "商品设得更长也按 90");
+  assert.deepEqual(arrivalFreeWait({ free_wait_minutes: 75 }, null), { kind: "range", international: 90, domestic: 60 });
   assert.deepEqual(arrivalFreeWait(null, null), { kind: "range", international: 90, domestic: 60 }, "还没报价：平台下限");
   assert.deepEqual(arrivalFreeWait(null, "international"), { kind: "minutes", minutes: 90 });
-  assert.deepEqual(arrivalFreeWait({ free_wait_minutes: null }, "international"), { kind: "unlimited" });
+  assert.deepEqual(arrivalFreeWait({ free_wait_minutes: null }, "international"), { kind: "minutes", minutes: 90 }, "商品不限时也按 90 / 60");
+  assert.deepEqual(arrivalFreeWait({ free_wait_minutes: null }, null), { kind: "range", international: 90, domestic: 60 });
   assert.equal(arrivalHintText({ kind: "range", international: 90, domestic: 60 }), "已识别为接机：司机按航班落地时间等候，落地后免费等待：国际线最长 90 分钟、国内线最长 60 分钟");
   assert.equal(arrivalHintText({ kind: "minutes", minutes: 90 }), "已识别为接机：司机按航班落地时间等候，落地后免费等待 90 分钟");
   assert.equal(arrivalHintText({ kind: "unlimited" }), "已识别为接机：司机按航班落地时间等候，不限时免费等待");

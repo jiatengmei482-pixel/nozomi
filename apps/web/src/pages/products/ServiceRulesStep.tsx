@@ -19,6 +19,7 @@ import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { CHARGE_UNIT_NAMES, displayName, timeZoneLabel } from "../../lib/master-display.ts";
 import { checkReasons, moneyText, readAmount, tidyAmountDisplay } from "../../lib/product-display.ts";
 import type { ServerIssue } from "../../lib/product-failure.ts";
+import { FREE_WAIT_TEXTS } from "../../lib/free-wait-display.ts";
 import { DRIVER_LANGUAGE_OPTIONS, type ItineraryField, type RulesForm, type RulesFormContext, defaultNightUnit, formFromRules, readRulesForm, rulePathTarget, tidyNumber } from "../../lib/service-rules-form.ts";
 import { crossesMidnight, dateRangeReadback, leadTimeReadback, localToday, tidyDate, tidyTime, urgentSegments, windowReadback } from "../../lib/time-input.ts";
 import { useLoad } from "../../lib/use-load.ts";
@@ -605,7 +606,19 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
                 {items.map((item) => {
                   const field = form.wait[item];
                   const change = (changes: Partial<RulesForm["wait"][FreeWaitItem]>): void => set({ wait: { ...form.wait, [item]: { ...field, ...changes } } });
-                  const minimum = context.minimums[item];
+                  // 机场接机的免费等待由平台按航班统一定（国际 90、国内 60，M9E-31）：只读显示，表单里的值照旧随保存提交（满足「保存过」的要求），报价和下单不用它
+                  if (item === "pickup" && category === "airport_transfer" && !station) {
+                    return (
+                      <div key={item} className="field">
+                        <p className="field__label">{waitNames[item]}</p>
+                        <p>
+                          <strong>{FREE_WAIT_TEXTS.airportFixedValue}</strong>
+                          <span className="tag">{FREE_WAIT_TEXTS.airportFixedTag}</span>
+                        </p>
+                        <p className="field__hint">{FREE_WAIT_TEXTS.airportFixedHint(onPlatform)}</p>
+                      </div>
+                    );
+                  }
                   return (
                     <fieldset key={item} className="field fieldset">
                       <legend className="field__label">
@@ -632,7 +645,6 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
                       <FieldErrors id={`wait-${item}-error`} errors={errors(`wait-${item}-minutes`)} />
                       <p className="field__hint">
                         {waitHelp(item)}
-                        {item === "pickup" && !station && category === "airport_transfer" && minimum !== null && minimum < 90 && <strong>{onPlatform ? "国际航班平台规定最少 90 分钟：这里不到 90 时，国际航班按 90 分钟算。" : "国际航班平台规定最少 90 分钟：你设的不到 90 时，国际航班按 90 分钟算。"}</strong>}
                       </p>
                     </fieldset>
                   );

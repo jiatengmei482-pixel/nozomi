@@ -297,7 +297,7 @@ async function placeOrder(ctx: AppContext, principal: SalesPrincipal, input: Sal
     const level = vehicleLevel(group.grade, group.seats);
     const cancelPolicy = { version: policy.version, category: request.category, level, tiers: cancellationRuleFor(policy.rules, request.category, level).tiers };
     const flightNo = details.flightNo === null || details.flightNo.trim() === "" ? null : normalizeFlightNo(details.flightNo);
-    // 接机按航班锁定免费等待（M9E-28，ADR 0097）：国际 max(商品, 90)、国内 / 未确认 max(商品, 60)；其他照商品设的
+    // 接机按航班锁定免费等待（M9E-28，ADR 0097；M9E-31 起平台统一）：国际 90、国内 / 未确认 60，不看商品设的；其他照商品设的
     const productWait = winner.offer.settlement.freeWait.value;
     const arrival = isFlightArrival({ category: request.category, direction: request.direction, placeType: product.place_type, flightNo });
     const locked = arrival ? lockArrivalFreeWait(productWait, details.flightKind) : null;

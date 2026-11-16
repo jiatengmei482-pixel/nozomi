@@ -173,20 +173,17 @@ export function searchWithStep(search: string, step: BookStep): string {
 }
 
 /**
- * 接机的免费等待怎么给客人看（M9E-28，ADR 0097；监工替业主 2026-11-15 确认）：按航班定，国际 max(商品, 90)、国内 max(商品, 60)。
+ * 接机的免费等待怎么给客人看（M9E-28，ADR 0097；2026-11-16 业主改为平台统一，M9E-31）：国际航班一律 90、国内航班一律 60，不看商品设的。
  * - 客人选了国际 / 国内航班：那一种的分钟数；
- * - 还没选（还没填到航班号那一步、或判断不出）：国际线、国内线各最长多久，写「国际线最长 X 分钟、国内线最长 Y 分钟」；还没报价时按平台下限 90 / 60；
- * - 所选商品不限时：不限时。
- * `quoted` 是所选（没选时最便宜的）报价，报价里的 `free_wait_minutes` 是商品自己设的值（null = 不限时）。
+ * - 还没选（还没填到航班号那一步、或判断不出）：写「国际线最长 90 分钟、国内线最长 60 分钟」。
+ * `quoted`（报价里商品自己设的 `free_wait_minutes`）只留作记录，不影响结果；类型里的 `unlimited` 已不会出现，留给调用方的兜底。
  */
 export type ArrivalFreeWait = { kind: "minutes"; minutes: number } | { kind: "range"; international: number; domestic: number } | { kind: "unlimited" };
 
 export function arrivalFreeWait(quoted: { free_wait_minutes: number | null } | null, flightKind: FlightKind | null): ArrivalFreeWait {
   const product: FreeWait | null = quoted === null ? null : quoted.free_wait_minutes === null ? { mode: "unlimited" } : { mode: "limited", minutes: quoted.free_wait_minutes };
-  if (product?.mode === "unlimited") return { kind: "unlimited" };
   if (flightKind !== null) return { kind: "minutes", minutes: lockArrivalFreeWait(product, flightKind).minutes as number };
-  const range = arrivalFreeWaitRange(product) as { international: number; domestic: number };
-  return { kind: "range", ...range };
+  return { kind: "range", ...arrivalFreeWaitRange() };
 }
 
 /** 接机提示（第 1 步）那一句。 */

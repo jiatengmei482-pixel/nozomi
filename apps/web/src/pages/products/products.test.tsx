@@ -462,9 +462,9 @@ test("服务规则：时区和币种的说明；免费等待预先填好、没�
   }));
   await screen.findByText(/Asia\/Tokyo（UTC\+9）/);
   assert.match(document.querySelector(".step .alert--info")?.textContent ?? "", /东京当地时间.*币种 JPY/);
-  assert.equal((screen.getByLabelText("接机免费等待的分钟数") as HTMLInputElement).value, "60");
+  assertAbsent(screen.queryByLabelText("接机免费等待的分钟数")); // 机场接机由平台按航班统一定（M9E-31）：没有输入框
+  assert.ok(screen.getByText("国际航班 90 分钟、国内航班 60 分钟"));
   assert.equal((screen.getByLabelText("送机免费等待的分钟数") as HTMLInputElement).value, "15");
-  assert.match(document.body.textContent ?? "", /国际航班平台规定最少 90 分钟/);
   assert.doesNotMatch(document.querySelector(".step__summary")?.textContent ?? "", /有未保存的修改/);
   assert.match(document.querySelector(".step__summary")?.textContent ?? "", /这一步还差 3 项/, "和步骤导航说的一样：免费等待是页面替你填好的建议值，还没存过，也算一项");
   assert.match(stepText("服务规则"), /还差 3 项/);
@@ -620,7 +620,7 @@ test("服务规则：后端指出的问题落在对应的输入框上；平台�
   const rules = rulesOf({ booking: { sale_from: null, sale_to: null, service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 0, note: null }, free_wait: { pickup: { mode: "limited", minutes: 60 }, dropoff: { mode: "unlimited" }, general: null }, addons: [{ addon_id: ADDON_ID, enabled: true, unit_price: 1000, first_free: true }] });
   const routes = productRoutes({ rules }, (call) => {
     if (call.method === "GET" && call.url.pathname === "/tenant/v1/master/addons") return page([{ ...seat, status: "disabled" }]);
-    if (call.method === "PUT") return apiError(400, "VALIDATION_FAILED", "bad", { issues: [{ path: "/free_wait/pickup/minutes", reason: "BELOW_PLATFORM_MINIMUM", message: "太短", detail: { min: 90 } }] });
+    if (call.method === "PUT") return apiError(400, "VALIDATION_FAILED", "bad", { issues: [{ path: "/free_wait/dropoff/minutes", reason: "BELOW_PLATFORM_MINIMUM", message: "太短", detail: { min: 30 } }] });
     return null;
   });
   open(`/products/${PRODUCT_ID}/service-rules`, "admin", routes);
@@ -630,16 +630,17 @@ test("服务规则：后端指出的问题落在对应的输入框上；平台�
   assert.equal((screen.getByLabelText("服务时间到") as HTMLInputElement).value, "24:00");
   await screen.findByText("提前预订时长是 0，客人随时可以订，用不到加急预订。");
   assert.deepEqual([...document.querySelectorAll<HTMLInputElement>('input[name="wait-dropoff"]')].map((radio) => radio.checked), [false, true], "送机存的是「不限时」");
-  await actor.clear(screen.getByLabelText("接机免费等待的分钟数"));
-  await actor.type(screen.getByLabelText("接机免费等待的分钟数"), "70");
+  // 机场接机只读（M9E-31），服务端按项退回的错误换在送机上测
+  await actor.clear(screen.getByLabelText("送机免费等待的分钟数"));
+  await actor.type(screen.getByLabelText("送机免费等待的分钟数"), "20");
   await actor.click(screen.getByRole("button", { name: "保存草稿" }));
-  await waitFor(() => assert.ok(screen.getAllByText("不能少于平台规定的 90 分钟").length > 0));
-  assertFocused(screen.getByLabelText("接机免费等待的分钟数"));
+  await waitFor(() => assert.ok(screen.getAllByText("不能少于平台规定的 30 分钟").length > 0));
+  assertFocused(screen.getByLabelText("送机免费等待的分钟数"));
 
   resetBrowser();
   open(`/products/${PRODUCT_ID}/service-rules`, "readonly", productRoutes({ rules }));
   await screen.findByText("你可以查看商品，但不能修改。需要修改的话，请联系你们的管理员开通。");
-  await waitFor(() => assert.equal((screen.getByLabelText("接机免费等待的分钟数") as HTMLInputElement).readOnly, true));
+  await waitFor(() => assert.equal((screen.getByLabelText("送机免费等待的分钟数") as HTMLInputElement).readOnly, true));
   assertAbsent(screen.queryByRole("button", { name: /保存/ }));
   assert.ok(screen.getByRole("link", { name: "回到列表" }));
 });

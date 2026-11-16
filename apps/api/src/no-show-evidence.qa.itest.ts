@@ -418,10 +418,10 @@ test("免费等待不受评分改动影响：仍从落地时间起算，到达�
   assert.equal((await reportLanding(driverToken, at(0))).status, 200);
   await ok(driver(driverToken, "/events", { type: "departed" }));
   await ok(driver(driverToken, "/events", { type: "arrived", location: NARITA_NEARBY }));
-  const freeWait = 90;
+  const freeWait = 60; // 下单没带航班类型：按「航班类型未确认」60（M9E-31 起平台统一，不看商品设的 90）
   api.clock.advance((freeWait - 1) * MINUTE);
   const early = await driver(driverToken, "/request-leave", { location: NARITA_NEARBY });
-  assert.deepEqual([early.status, early.body.error.code], [409, "FREE_WAIT_NOT_ENDED"], "落地后 89 分钟还在免费等待里");
+  assert.deepEqual([early.status, early.body.error.code], [409, "FREE_WAIT_NOT_ENDED"], "落地后 59 分钟还在免费等待里");
   api.clock.advance(2 * MINUTE);
   assert.equal((await driver(driverToken, "/request-leave", { location: NARITA_NEARBY })).status, 200);
 });

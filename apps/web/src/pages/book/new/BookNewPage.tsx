@@ -523,8 +523,8 @@ export function BookNewPage() {
   const known = draft.mode !== "charter" && recognized !== null && recognized.ends === sameEnds(draft.from, draft.to) ? recognized : null;
   const tripType: SiteByPointsResult["trip_type"] | null = draft.mode === "charter" ? null : known !== null ? known.tripType : draft.from?.kind === "airport" ? "pickup" : null;
   const arrival = tripType === "pickup";
-  // 免费等待：接机按航班定（M9E-28，ADR 0097）——选了国际 / 国内航班给那一种的分钟数，没选写「国际线最长 X 分钟、国内线最长 Y 分钟」
-  // （还没报价时按平台下限 90 / 60）；其他按所选商品自己设的
+  // 免费等待：接机按航班定（M9E-28，ADR 0097；M9E-31 起平台统一 90 / 60）——选了国际 / 国内航班给那一种的分钟数，没选写「国际线最长 90 分钟、国内线最长 60 分钟」；
+  // 其他按所选商品自己设的
   const quotedForWait = selected ?? quotes[0] ?? null;
   const arrivalWait = arrival ? arrivalFreeWait(quotedForWait, draft.flightKind === "" ? null : draft.flightKind) : null;
   const freeWait = arrivalWait === null ? (quotedForWait?.free_wait_minutes ?? null) : arrivalWait.kind === "minutes" ? arrivalWait.minutes : null;

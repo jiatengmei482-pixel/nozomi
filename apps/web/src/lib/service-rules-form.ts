@@ -93,7 +93,7 @@ export function defaultNightUnit(category: ServiceCategory): NightChargeUnit {
 }
 
 /** 接口读到的规则 → 表单。从没保存过的免费等待预先填成「等 平台规定的最少分钟数」（保存这一步时才真的存下来）。 */
-export function formFromRules(body: ServiceRulesBody, context: Pick<RulesFormContext, "currency" | "category" | "minimums" | "firstFreeAllowed">): RulesForm {
+export function formFromRules(body: ServiceRulesBody, context: Pick<RulesFormContext, "currency" | "category" | "minimums" | "firstFreeAllowed"> & { pickupPlace?: RulesFormContext["pickupPlace"] | undefined }): RulesForm {
   const { booking, urgent, night } = body;
   const allDay = booking.service_time?.start === "00:00" && booking.service_time.end === "24:00";
   const fixed = fixedFreeWaitMinutes(context.category);
@@ -101,6 +101,10 @@ export function formFromRules(body: ServiceRulesBody, context: Pick<RulesFormCon
     // 平台固定的（包车 0）：不管以前存的是什么，表单里都是固定值，保存时就改成它
     if (fixed !== null) return { mode: "limited", minutes: String(fixed) };
     const saved = body.free_wait[item];
+    // 机场接机由平台按航班统一定（M9E-31）、页面只读：以前存的不到平台最少值的，表单里补到最少值，免得保存被一个看不到的输入框挡住
+    const minimum = context.minimums[item];
+    const airportPickup = item === "pickup" && context.category === "airport_transfer" && context.pickupPlace?.type !== "station";
+    if (airportPickup && saved !== null && saved.mode === "limited" && minimum !== null && saved.minutes < minimum) return { mode: "limited", minutes: String(minimum) };
     if (saved === null) return { mode: "limited", minutes: context.minimums[item] === null ? "" : String(context.minimums[item]) };
     return saved.mode === "unlimited" ? { mode: "unlimited", minutes: context.minimums[item] === null ? "" : String(context.minimums[item]) } : { mode: "limited", minutes: String(saved.minutes) };
   };

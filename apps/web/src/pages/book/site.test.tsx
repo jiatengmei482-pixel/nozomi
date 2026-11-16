@@ -173,7 +173,7 @@ test("询价：唯一的城市和机场自动选好；没填的标红；请求�
   const card = (await screen.findByRole("heading", { name: "商务 7 座" })).closest("li") as HTMLElement;
   assert.deepEqual(calls.find((call) => call.method === "POST")?.body, { category: "airport_transfer", city_id: CITY_ID, service_local: "2030-11-20T10:00", passengers: 2, luggage: 1, airport_id: AIRPORT_ID, direction: "pickup", address: { lat: 35.6812, lng: 139.7671 } });
   assert.equal(card.querySelector(".site-quote__price")?.textContent, "21,780 JPY", "价格数字和币种分两段套样式（M6-05），文字不变");
-  assert.ok(within(card).getByText("国际线最长 90 分钟、国内线最长 90 分钟（从航班落地起算）"), "接机按航班写两种（M9E-28）：商品设 90，国际、国内都是 max(90, 下限) = 90");
+  assert.ok(within(card).getByText("国际线最长 90 分钟、国内线最长 60 分钟（从航班落地起算）"), "接机按航班写两种（M9E-31）：商品设 90，国内仍 60");
   assert.ok(within(card).getByText("用车前 48 小时以上取消免费；24–48 小时内取消收 50%；24 小时内取消收全额"));
   assert.doesNotMatch(document.body.textContent ?? "", /结算|加价|供应商/);
   await actor.click(within(card).getByRole("button", { name: "预订商务 7 座" }));
@@ -374,10 +374,10 @@ test("免费等待按航班（M9E-28，2026-11-15 按推荐）：点对点接机
     return null;
   });
   assert.ok(await screen.findByText("90 分钟（从航班落地起算） · 按派单时的国际航班锁定 90 分钟"), "客人派单后改成了国内航班：写明按派单时的国际航班锁定");
-  // 改单表单（建议 5）：选项提示按商品设的 75 算 max；已派车注明免费等待不再变化
+  // 改单表单（建议 5）：选项提示按平台统一的 90 / 60（M9E-31，不看商品设的 75）；已派车注明免费等待不再变化
   await user().click(screen.getByRole("button", { name: "修改订单" }));
   assert.ok(screen.getByRole("radio", { name: /^国际航班\s*落地后免费等待 90 分钟$/ }));
-  assert.ok(screen.getByRole("radio", { name: /^国内航班\s*落地后免费等待 75 分钟$/ }));
+  assert.ok(screen.getByRole("radio", { name: /^国内航班\s*落地后免费等待 60 分钟$/ }));
   assert.ok(screen.getByText("已派车，免费等待不再变化"));
 });
 

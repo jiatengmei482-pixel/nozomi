@@ -1,6 +1,6 @@
 /**
  * M9E-28：接机免费等待按航班定（ADR 0097，监工替业主 2026-11-15 确认），经真实接口、真实 PostgreSQL；收款服务用替身。
- * - 下单时按客人选的航班类型锁定：国际 max(商品, 90)、国内 max(商品, 60)、没选（航班类型未确认）max(商品, 60)；订单记下最终分钟数和依据，
+ * - 下单时按客人选的航班类型锁定：国际 90、国内 60、没选（航班类型未确认）60（M9E-31 起不看商品设的；这里商品设 60 / 30，结果和 M9E-28 的 max 规则相同）；订单记下最终分钟数和依据，
  *   供应商订单详情、渠道订单、司机端看得到；
  * - 送机不能带航班类型；
  * - 改用点对点商品报价的接机（带航班号的点对点单，Q5）也按 90 / 60；
@@ -88,12 +88,12 @@ async function sales(method: "GET" | "POST" | "PATCH", url: string, template: st
   return res;
 }
 
-/** 渠道询价（成田、商务 7 座）再下单；`extra` 是下单时多给的字段。 */
-async function salesOrder(extra: Record<string, unknown>, direction: "pickup" | "dropoff" = "pickup"): Promise<any> {
+/** 渠道询价（成田、商务 7 座）再下单；`extra` 是下单时多给的字段；`quoteWait` 是报价里应有的商品设的分钟数（不限时为 null）。 */
+async function salesOrder(extra: Record<string, unknown>, direction: "pickup" | "dropoff" = "pickup", quoteWait: number | null = direction === "pickup" ? 60 : 15): Promise<any> {
   const quoted = await sales("POST", "/sales/v1/quotes", "/sales/v1/quotes", { city_id: m.ids.tokyo, category: "airport_transfer", place_id: m.ids.narita, direction, ...(direction === "pickup" ? { dropoff: DROPOFF } : { pickup: DROPOFF }), service_time: SERVICE_TIME, passengers: 2, luggage: 1, currency: "JPY", vehicle_group_ids: [m.ids.biz7] });
   assert.equal(quoted.status, 200, quoted.text);
   const quote = quoted.body.quotes[0];
-  assert.equal(quote.free_wait_minutes, direction === "pickup" ? 60 : 15, "报价里是商品自己设的值，不按航班改");
+  assert.equal(quote.free_wait_minutes, quoteWait, "报价里是商品自己设的值，不按航班改");
   const address = direction === "pickup" ? { dropoff_address: "东京站八重洲口" } : { pickup_address: "东京站八重洲口" };
   return sales("POST", "/sales/v1/orders", "/sales/v1/orders", { quote_id: quote.quote_id, passenger: { name: "王小明", phone: "+81 90-1234-5678", email: "guest@example.com" }, save_payment_method: true, ...address, ...extra }, { "idempotency-key": randomUUID() });
 }
@@ -113,7 +113,7 @@ async function tenantDetail(orderId: string): Promise<any> {
   return res.body;
 }
 
-test("下单时按航班类型锁定：国际 max(60, 90) = 90、国内 60、没选 60 且标「航班类型未确认」；报价不变；渠道、供应商都看得到最终分钟数和依据", async () => {
+test("下单时按航班类型锁定：国际 90、国内 60、没选 60 且标「航班类型未确认」（M9E-31 平台统一；商品设 60）；报价不变；渠道、供应商都看得到最终分钟数和依据", async () => {
   const cases = [
     ["international", 90, { flight_kind: "international", base: { mode: "limited", minutes: 60 }, floor_minutes: 90 }],
     ["domestic", 60, { flight_kind: "domestic", base: { mode: "limited", minutes: 60 }, floor_minutes: 60 }],
@@ -132,6 +132,24 @@ test("下单时按航班类型锁定：国际 max(60, 90) = 90、国内 60、没
   }
 });
 
+test("M9E-31 回归（业主验收 #278）：商品设 90 或「不限时」，国内航班仍 60、国际 90、没选 60；依据里记下商品设的值", async () => {
+  try {
+    for (const setting of [{ mode: "limited", minutes: 90 }, { mode: "limited", minutes: 120 }, { mode: "unlimited" }] as const) {
+      await api.db.owner.query(`update products set service_rules = jsonb_set(service_rules, '{freeWait,pickup}', $2::jsonb) where id = any($1::uuid[])`, [[m.ids.pa, m.ids.pb], JSON.stringify(setting)]);
+      api.clock.advance(QUOTE_CATALOG_TTL_MS + 1_000);
+      for (const [kind, minutes] of [["domestic", 60], ["international", 90], [null, 60]] as const) {
+        const created = await salesOrder({ flight_no: "NH 211", ...(kind === null ? {} : { flight_kind: kind }) }, "pickup", setting.mode === "limited" ? setting.minutes : null);
+        assert.equal(created.status, 201, created.text);
+        assert.deepEqual([created.body.order.free_wait_minutes, created.body.order.free_wait_basis], [minutes, { flight_kind: kind, base: setting, floor_minutes: minutes }], `${JSON.stringify(setting)} ${String(kind)}`);
+      }
+    }
+  } finally {
+    // 不管成败都恢复商品设的 60，免得影响后面的用例
+    await api.db.owner.query(`update products set service_rules = jsonb_set(service_rules, '{freeWait,pickup}', '{"mode":"limited","minutes":60}'::jsonb) where id = any($1::uuid[])`, [[m.ids.pa, m.ids.pb]]);
+    api.clock.advance(QUOTE_CATALOG_TTL_MS + 1_000);
+  }
+});
+
 test("送机不按航班定：带航班类型 400（/flight_kind），不带照商品设的 15", async () => {
   const bad = await salesOrder({ flight_kind: "international" }, "dropoff");
   assert.equal(bad.status, 400);
@@ -141,7 +159,7 @@ test("送机不按航班定：带航班类型 400（/flight_kind），不带照�
   assert.deepEqual([created.body.order.free_wait_minutes, created.body.order.flight_kind, created.body.order.free_wait_basis], [15, null, null]);
 });
 
-test("改用点对点商品报价的接机（Q5）：点对点单带航班号按航班定（国际 max(30, 90) = 90），不带航班号照商品的 30", async () => {
+test("改用点对点商品报价的接机（Q5）：点对点单带航班号按航班定（国际 90），不带航班号照商品的 30", async () => {
   const place = async (extra: Record<string, unknown>): Promise<any> => {
     const quoted = await site.call("POST", "/site/v1/quotes", { ip: nextIp(), body: { category: "point_to_point", city_id: m.ids.tokyo, pickup: P2P_PICKUP, dropoff: P2P_DROPOFF, service_local: "2026-10-20T10:00", passengers: 2, luggage: 1 } });
     assert.equal(quoted.status, 200, quoted.text);
@@ -154,7 +172,7 @@ test("改用点对点商品报价的接机（Q5）：点对点单带航班号按
   assert.equal(arrival.status, 201, arrival.text);
   assert.deepEqual([arrival.body.order.flight_no, arrival.body.order.free_wait_minutes, arrival.body.order.flight_kind, arrival.body.order.free_wait_basis], ["JL5", 90, "international", { flight_kind: "international", base: { mode: "limited", minutes: 30 }, floor_minutes: 90 }]);
   const unconfirmed = await place({ flight_no: "JL5" });
-  assert.deepEqual([unconfirmed.body.order.free_wait_minutes, unconfirmed.body.order.free_wait_basis?.flight_kind], [60, null], "没选航班类型：max(30, 60)");
+  assert.deepEqual([unconfirmed.body.order.free_wait_minutes, unconfirmed.body.order.free_wait_basis?.flight_kind], [60, null], "没选航班类型：按国内线 60");
   const plain = await place({});
   assert.deepEqual([plain.body.order.free_wait_minutes, plain.body.order.flight_kind, plain.body.order.free_wait_basis], [30, null, null], "没有航班号的点对点照商品");
   const kindOnly = await place({ flight_kind: "domestic" });
