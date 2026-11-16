@@ -9,7 +9,7 @@ const NARITA = { kind: "airport_start" as const, airport_id: "nrt", airport_name
 test("机场套餐文案（ADR 0098 第三节第 5 小节）：key 表只有中文，变量替换", () => {
   assert.equal(charterAirportText("book.notes.flightHint"), "如需司机知道航班号，请填在这里");
   assert.equal(scenarioPackageLabel(NARITA, 5), "成田机场接机 + 5 小时包车");
-  assert.equal(scenarioPackageLabel({ kind: "airport_end", airport_id: "hnd", airport_name: "羽田机场" }, 5), "5 小时包车 + 羽田机场送机");
+  assert.equal(scenarioPackageLabel({ kind: "airport_end", airport_name: "羽田机场" }, 5), "5 小时包车 + 羽田机场送机");
   for (const text of Object.values(CHARTER_AIRPORT_COPY)) assert.match(text, /[一-鿿]/);
 });
 
