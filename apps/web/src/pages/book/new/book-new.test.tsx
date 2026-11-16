@@ -18,7 +18,7 @@ import { App } from "../../../App.tsx";
 import { FULL_SCREEN_PICKER_QUERY } from "./full-screen.tsx";
 import type { MapTiles } from "../../../api/areas.ts";
 import type { BookingDraft, SiteByPointsResult, SiteCity, SiteConfig, SiteQuote, SiteQuoteResult } from "../../../api/site.ts";
-import { type ApiCall, apiError, assertAbsent, assertFocused, currentLocation, deferred, json, narrowScreen, resetBrowser, stubApiWith } from "../../../testing/harness.tsx";
+import { type ApiCall, apiError, assertAbsent, assertFocused, currentLocation, deferred, json, narrowScreen, resetBrowser, stubApiWith, viewportWidth } from "../../../testing/harness.tsx";
 
 const originalMatchMedia = window.matchMedia;
 afterEach(() => {
@@ -173,6 +173,8 @@ const NEXT_CONTACT = "下一步：填写乘客信息";
 const NEXT_REVIEW = "下一步：核对订单";
 const next = async (actor: ReturnType<typeof user>, name: string): Promise<void> => actor.click(screen.getByRole("button", { name }));
 const aside = (): HTMLElement => screen.getByRole("complementary", { name: "行程摘要" });
+/** 手机底部按钮条（M9E-32） */
+const stepBar = (): HTMLElement => screen.getByRole("group", { name: "本步操作" });
 
 /** 第 3 步填好乘客信息（接机时带航班号）后到第 4 步。 */
 async function toReview(actor: ReturnType<typeof user>, flight: string | null = "NH211"): Promise<void> {
@@ -906,7 +908,7 @@ test("一口价包含：接送写「含所有费用」、专车、免费等待�
   assert.ok(screen.getByText("8 小时，含 150 公里"));
 });
 
-test("手机分步：每步一屏、步骤条；第 1 步没填好时标红；第 2 步底部固定「车型 · 一口价 [下一步]」；右侧栏变成顶部可展开的摘要条，按步骤累积；「上一步」回去焦点到标题", async () => {
+test("手机分步：每步一屏、步骤条；第 1 步没填好时标红；第 2 步底部按钮条「车型 · 一口价」+「上一步」「下一步」（没选车时灰着、写原因，M9E-32）；右侧栏变成顶部可展开的摘要条，按步骤累积；「上一步」回去焦点到标题", async () => {
   narrowScreen();
   open();
   const actor = user();
@@ -931,14 +933,21 @@ test("手机分步：每步一屏、步骤条；第 1 步没填好时标红；�
   assertAbsent(screen.queryByRole("heading", { name: "你的行程" }));
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
   assert.match(document.querySelector(".book-summary-bar__text")?.textContent ?? "", /^接机 · 成田国际机场 → 京王广场酒店/);
-  assertAbsent(screen.queryByRole("button", { name: "下一步" }));
+  const nextContact = within(stepBar()).getByRole("button", { name: NEXT_CONTACT }) as HTMLButtonElement;
+  assert.equal(nextContact.disabled, true, "没选车：「下一步」灰着，不隐藏");
+  assert.equal(nextContact.getAttribute("aria-describedby"), "book-step-reason");
+  assert.equal(within(stepBar()).getByText("请先选择车型").id, "book-step-reason");
   await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
-  assert.ok(screen.getByText(/车型1/, { selector: ".book-bar__text span" }));
-  await actor.click(screen.getByRole("button", { name: "下一步" }));
+  assert.ok(screen.getByText(/车型1/, { selector: ".step-bar__summary span" }));
+  assert.equal(nextContact.disabled, false);
+  assert.equal(nextContact.hasAttribute("aria-describedby"), false);
+  assertAbsent(screen.queryByText("请先选择车型"));
+  assert.equal(document.querySelectorAll(".step-bar").length, 1, "只有一条底部条（原来第 2 步的「车型 · 一口价」条并进来了）");
+  await actor.click(nextContact);
   assertFocused(screen.getByRole("heading", { name: "乘客信息", level: 2 }));
   assert.equal(search(), "?step=3");
   assert.ok(screen.getByLabelText("航班号"), "接机的航班号在第 3 步");
-  assertAbsent(screen.queryByRole("button", { name: "下一步" }));
+  assert.ok(within(stepBar()).getByRole("button", { name: NEXT_REVIEW }).closest("form"), "第 3 步的「下一步：核对订单」在底部条里，仍是表单的提交按钮");
 
   // 摘要条展开：路线以外是第 1、2 步确认过的内容
   await actor.click(screen.getByRole("button", { name: /^行程摘要/ }));
@@ -953,6 +962,87 @@ test("手机分步：每步一屏、步骤条；第 1 步没填好时标红；�
   await actor.click(screen.getByRole("button", { name: "第 1 步：行程（已完成，回到这一步）" }));
   assertFocused(screen.getByRole("heading", { name: "你的行程" }));
   assert.equal((screen.getByRole("combobox", { name: "出发地" }) as HTMLInputElement).value, "成田国际机场", "回到第 1 步内容还在");
+});
+
+const LINK_AT = "/book/new?from=35.772,140.3929&from_name=%E6%88%90%E7%94%B0%E5%9B%BD%E9%99%85%E6%9C%BA%E5%9C%BA&to=35.6905,139.6948&to_name=%E4%BA%AC%E7%8E%8B%E5%B9%BF%E5%9C%BA%E9%85%92%E5%BA%97&date=2030-11-20&time=14:30";
+
+test("手机底部按钮条（M9E-32，ADR 0100）：每一步的「上一步」+ 主按钮在一条固定条里，量出的高度写到 <html> 给页面底部留空；viewport 加 viewport-fit=cover、离开还原；第 4 步「去付款」在条里、同意保存银行卡在条上方，没勾照旧提示", async () => {
+  const meta = document.createElement("meta");
+  meta.name = "viewport";
+  meta.content = "width=device-width, initial-scale=1";
+  document.head.append(meta);
+  try {
+    narrowScreen();
+    open();
+    const actor = user();
+    await screen.findByRole("heading", { name: "你的行程" });
+    const root = document.documentElement;
+    assert.ok(within(stepBar()).getByRole("button", { name: NEXT_VEHICLES }), "第 1 步：只有主按钮");
+    assert.equal(within(stepBar()).getAllByRole("button").length, 1);
+    assert.equal(document.querySelector(".book-new__actions"), null, "手机上正文末尾不再放按钮");
+    assert.ok(stepBar().closest(".step-bar-slot--fixed"), "主站：固定在屏幕底部");
+    assert.equal(root.hasAttribute("data-book-actionbar"), true, "页面底部留出条的高度");
+    assert.equal(root.style.getPropertyValue("--book-actionbar-h"), "40px", "量出来的高度");
+    assert.equal(meta.content, "width=device-width, initial-scale=1, viewport-fit=cover");
+    assert.equal(root.getAttribute("data-viewport-fit"), "cover");
+
+    resetBrowser();
+    assert.equal(meta.content, "width=device-width, initial-scale=1", "离开页面还原 viewport");
+    assert.equal(root.hasAttribute("data-viewport-fit"), false);
+    assert.equal(root.hasAttribute("data-book-actionbar"), false);
+    assert.equal(root.style.getPropertyValue("--book-actionbar-h"), "");
+
+    narrowScreen();
+    open({ at: LINK_AT });
+    await screen.findByRole("heading", { name: "车型1" }, SLOW);
+    await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
+    await actor.click(within(stepBar()).getByRole("button", { name: NEXT_CONTACT }));
+    await screen.findByRole("heading", { name: "乘客信息", level: 2 });
+    await actor.type(screen.getByLabelText("乘车人姓名"), "王小明");
+    await actor.type(screen.getByLabelText("邮箱"), "guest@example.com");
+    await actor.type(screen.getByLabelText("手机号（含国家区号）"), "+86 138 0000 0000");
+    await actor.type(screen.getByLabelText("航班号"), "NH211");
+    await actor.click(screen.getByRole("radio", { name: /^国际航班/ }));
+    await actor.click(within(stepBar()).getByRole("button", { name: NEXT_REVIEW }));
+    await screen.findByRole("heading", { name: "核对订单" });
+
+    const review = screen.getByRole("region", { name: "核对订单" });
+    assert.deepEqual(within(stepBar()).getAllByRole("button").map((button) => button.textContent), ["上一步", "去付款 →"], "左边「上一步」、右边「去付款」");
+    assert.equal(screen.getAllByRole("button", { name: "上一步" }).length, 1, "手机上标题旁不再放「上一步」");
+    const pay = within(stepBar()).getByRole("button", { name: "去付款 →" });
+    assert.equal(pay.getAttribute("form"), "book-contact-form", "条在表单外面，用 form 属性提交");
+    assert.equal(within(review).getAllByRole("button", { name: "去付款 →" }).length, 1, "页面上只有一个「去付款」");
+    const consent = screen.getByRole("checkbox", { name: /同意保存这次付款用的银行卡/ });
+    assert.ok(consent.compareDocumentPosition(stepBar()) & Node.DOCUMENT_POSITION_FOLLOWING, "同意保存银行卡在条上方（页面最下面）");
+    assert.ok(within(review).getByText("银行卡"), "支付方式照旧写在页面最下面");
+    await actor.click(pay);
+    assert.ok(screen.getByText("需要同意保存支付方式才能下单"), "没勾时照旧提示，按钮不灰");
+    await actor.click(within(stepBar()).getByRole("button", { name: "上一步" }));
+    assertFocused(screen.getByRole("heading", { name: "乘客信息", level: 2 }));
+  } finally {
+    meta.remove();
+  }
+});
+
+test("电脑、平板没有底部按钮条（M9E-32）：按钮照旧在正文末尾；第 2 步没选车时「下一步」灰着、下面写原因（aria-describedby）", async () => {
+  for (const width of [1280, 900]) {
+    resetBrowser();
+    viewportWidth(width);
+    open({ at: LINK_AT });
+    const actor = user();
+    await screen.findByRole("heading", { name: "车型1" }, SLOW);
+    assert.equal(document.querySelector(".step-bar"), null, `${width}：没有底部条`);
+    assert.equal(document.documentElement.hasAttribute("data-book-actionbar"), false, `${width}：页面底部不留空`);
+    const actions = document.querySelector(".book-new__vehicles .book-new__actions") as HTMLElement;
+    const nextContact = within(actions).getByRole("button", { name: NEXT_CONTACT }) as HTMLButtonElement;
+    assert.ok(within(actions).getByRole("button", { name: "上一步" }));
+    assert.equal(nextContact.disabled, true, `${width}：没选车时灰着`);
+    const reason = document.getElementById(nextContact.getAttribute("aria-describedby") ?? "");
+    assert.equal(reason?.textContent, "请先选择车型", `${width}：原因`);
+    await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
+    assert.equal(nextContact.disabled, false);
+    assertAbsent(screen.queryByText("请先选择车型"));
+  }
 });
 
 /** 电脑宽：链接打开就报价、直接到第 2 步，选第一个车型。 */
@@ -1389,7 +1479,7 @@ test("列表里一口价和按里程计价都有：没选车时用按里程计�
   narrowScreen();
   open({ at: "/book/new?from=35.6905,139.6948&to=35.6581,139.7017&date=2030-11-20&time=14:30", quote: () => json(200, byPoints({ trip_type: "point_to_point", airport: null, quotes: [quoteOf(1), { ...quoteOf(2), pricing_basis: "distance_only" }] })) });
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
-  const bar = (): string => document.querySelector(".book-bar__text")?.textContent ?? "";
+  const bar = (): string => document.querySelector(".step-bar__summary")?.textContent ?? "";
   await actor.click(screen.getByRole("button", { name: "选择 车型2" }));
   assert.match(bar(), /^车型2 · 车费 /);
   assert.doesNotMatch(bar(), /一口价/);

@@ -9,11 +9,12 @@
  */
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { BrowserRouter } from "react-router";
 import type { SiteByPointsResult, SiteCity, SiteConfig, SiteOrder, SiteOrderEnvelope, SiteQuote } from "../../api/site.ts";
 import { EMBED_ORDER_KEY } from "../../embed/embed-order-store.ts";
+import { frameBarShift } from "../../embed/frame-bar.ts";
 import { type PaymentDriver, PaymentDriverContext } from "../../lib/payment-driver.ts";
 import { type ApiCall, apiError, json, stubApiWith, viewportWidth } from "../../testing/harness.tsx";
 import { EmbedApp } from "./EmbedApp.tsx";
@@ -223,7 +224,7 @@ async function toReview(actor: ReturnType<typeof userEvent.setup>): Promise<void
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
   keepsFrameParams();
   await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
-  await actor.click(screen.getByRole("button", { name: "下一步" }));
+  await actor.click(screen.getByRole("button", { name: "下一步：填写乘客信息" }));
   await screen.findByRole("heading", { name: "乘客信息", level: 2 });
   keepsFrameParams();
   await actor.type(screen.getByLabelText("乘车人姓名"), "王小明");
@@ -480,6 +481,51 @@ test("经停超过 10 个（13 个点以上，ADR 0099）：不请求行程地�
   assert.ok(screen.getByText("经停较多，仅显示列表"));
   assert.equal(document.querySelector(".itinerary-map"), null);
   assert.equal(calls.filter((call) => call.path.startsWith("/site/v1/itinerary-map")).length, 0, "不请求地图");
+});
+
+test("iframe 390 宽（M9E-32，ADR 0100）：每一步的按钮在底部按钮条里、条留在文档流里；没收到带 top 的 viewport 时 sticky 贴底，收到后按宿主屏幕的下沿往上挪、不低于原位置；旧版组件脚本只发 height 时退回 sticky；换步后新条马上按最近的位置摆；不给 <html> 加底部空白", async () => {
+  screenWidth = viewportWidth(390);
+  stub();
+  const actor = userEvent.setup();
+  open(bookUrl);
+  await screen.findByRole("heading", { name: "车型1" }, SLOW);
+  const bar = (): HTMLElement => screen.getByRole("group", { name: "本步操作" });
+  const slot = (): HTMLElement => bar().parentElement as HTMLElement;
+  const shift = (): string => bar().style.getPropertyValue("--book-actionbar-shift");
+  const viewport = (fields: Record<string, unknown>) =>
+    act(() => void window.dispatchEvent(new MessageEvent("message", { data: { ns: "nozomi-booking", v: 1, ch: CH, type: "viewport", ...fields }, origin: HOST, source: parent as unknown as MessageEventSource })));
+  const rect = (top: number, height: number) => () => ({ top, bottom: top + height, left: 0, right: 390, width: 390, height, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
+
+  assert.ok(slot().classList.contains("step-bar-slot--frame"), "嵌入页：不用 fixed");
+  assert.equal(slot().hasAttribute("data-tracked"), false, "还没收到 viewport：sticky 贴底");
+  assert.equal(document.documentElement.hasAttribute("data-book-actionbar"), false, "不给宿主看不到的 <html> 留底部空白");
+  assert.equal(document.documentElement.hasAttribute("data-viewport-fit"), false, "iframe 里不改 viewport");
+  const next = within(bar()).getByRole("button", { name: "下一步：填写乘客信息" }) as HTMLButtonElement;
+  assert.equal(next.disabled, true);
+  assert.equal(document.getElementById(next.getAttribute("aria-describedby") ?? "")?.textContent, "请先选择车型");
+
+  slot().getBoundingClientRect = rect(2900, 80);
+  bar().getBoundingClientRect = rect(2900, 80);
+  await viewport({ height: 800, top: 300 });
+  assert.equal(slot().hasAttribute("data-tracked"), true);
+  const expected = frameBarShift({ frameTop: 300, hostHeight: 800, frameHeight: window.innerHeight, slotTop: 2900, barHeight: 80 });
+  assert.ok(expected < 0);
+  assert.equal(shift(), `${expected}px`, "条的下沿对齐 iframe 露在宿主屏幕上的那一截的底边");
+  slot().getBoundingClientRect = rect(100, 80);
+  await viewport({ height: 800, top: -2000 });
+  assert.equal(shift(), "0px", "原位置已经在屏幕里：不往下挪");
+  await viewport({ height: 800 });
+  assert.equal(slot().hasAttribute("data-tracked"), false, "旧版组件脚本（不带 top）：退回 sticky");
+  assert.equal(shift(), "");
+  assert.equal(document.querySelector("main")?.getAttribute("data-host-viewport"), "800");
+
+  await viewport({ height: 700, top: 50 });
+  await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
+  await actor.click(within(bar()).getByRole("button", { name: "下一步：填写乘客信息" }));
+  await screen.findByRole("heading", { name: "乘客信息", level: 2 });
+  assert.ok(within(bar()).getByRole("button", { name: "下一步：核对订单" }).closest("form"), "第 3 步的条在表单里");
+  assert.equal(slot().hasAttribute("data-tracked"), true, "换步后新条马上按最近收到的位置摆");
+  assert.match(shift(), /^-?\d+px$/);
 });
 
 test("付款进 iframe（M9E-19）：下单后同一页直接挂付款表单（不再点按钮、不开新窗口），Stripe 表单用嵌入页语言；确认前发 modal{open:true}、确认后 modal{open:false}；return_url 回到嵌入订单页、带 key / host / 频道号、不带令牌；付完发 completed", async () => {

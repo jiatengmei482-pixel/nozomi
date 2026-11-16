@@ -6,6 +6,7 @@
 import { type ReactNode, createContext, useContext } from "react";
 import type { NavigateFunction } from "react-router";
 import type { MapTiles } from "../../../api/areas.ts";
+import type { HostViewportSource } from "../../../embed/frame-bar.ts";
 import { type BookingDraft, type SiteLink, type SiteOrderEnvelope, type SitePayment, getSiteBookingDraft } from "../../../api/site.ts";
 import type { BookStep } from "../../../lib/book-new.ts";
 import { siteOrderUrl } from "../../../lib/site-display.ts";
@@ -30,6 +31,11 @@ export interface BookingShell {
   placed(created: PlacedOrder, navigate: NavigateFunction): void;
   /** 换到了第几步（第一次显示也算） */
   stepShown(step: BookStep): void;
+  /**
+   * 手机底部按钮条怎么摆（M9E-32，ADR 0100）：主站不给——条 position: fixed 贴屏幕底部；嵌入页给宿主发来的可视区——
+   * iframe 被撑到内容全高，条按宿主屏幕的下沿往上挪（没收到带 top 的 viewport 时退回 sticky）。
+   */
+  hostViewport?: HostViewportSource;
 }
 
 export const MAIN_BOOKING_SHELL: BookingShell = {

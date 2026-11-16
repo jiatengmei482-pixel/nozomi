@@ -140,7 +140,7 @@ test("新预订页包车：下车地点必填（旧链接只有上车地点时�
   await expectSummaryBarOneLine(page, LONG_PICKUP);
   await expectNarrowAndAccessible(page, "新预订页包车第 2 步（含区域加价）");
   await screenshots(page, "mobile-step2");
-  await page.locator(".book-bar").getByRole("button", { name: "下一步" }).click();
+  await page.locator(".step-bar").getByRole("button", { name: "下一步：填写乘客信息" }).click();
   // 第 3 步：顶部摘要条展开，车型和价格下面含区域加价
   await expect(page.getByRole("heading", { level: 2, name: "乘客信息" })).toBeFocused();
   await page.getByRole("button", { name: /^行程摘要/ }).click();

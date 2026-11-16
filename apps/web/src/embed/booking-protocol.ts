@@ -31,8 +31,11 @@ export type FrameMessage =
   | { type: "completed"; orderNo: string; status: "submitted" | "confirmed" }
   | { type: "error"; code: BookingErrorCode };
 
-/** 宿主 → iframe */
-export type HostMessage = { type: "viewport"; height: number };
+/**
+ * 宿主 → iframe：宿主窗口的可视高度；`top`（M9E-32，ADR 0100）是 iframe 的上沿相对宿主可视区上沿的位置（getBoundingClientRect().top，
+ * 整数 px，可为负数，截到 ±20000）。旧版组件脚本只发 height，不带 top。
+ */
+export type HostMessage = { type: "viewport"; height: number; top?: number };
 
 type Envelope = { ns: typeof PROTOCOL_NS; v: typeof PROTOCOL_VERSION; ch: string };
 
@@ -47,6 +50,13 @@ export const CHANNEL_FORMAT = /^[A-Za-z0-9_-]{1,64}$/;
 export function clampHeight(value: unknown): number | null {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
   return Math.min(MAX_FRAME_HEIGHT, Math.max(1, Math.round(value)));
+}
+
+/** iframe 上沿相对宿主可视区的位置：整数 px，截到 ±20000；不是有限数为 null */
+export function clampOffset(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const offset = Math.min(MAX_FRAME_HEIGHT, Math.max(-MAX_FRAME_HEIGHT, Math.round(value)));
+  return offset === 0 ? 0 : offset;
 }
 
 function envelopeOk(data: unknown, ch: string): data is Record<string, unknown> {
@@ -78,11 +88,16 @@ export function parseFrameMessage(data: unknown, ch: string): FrameMessage | nul
   }
 }
 
-/** iframe 收到宿主的消息：只认 viewport；宿主发来的只能影响显示位置，不能改预订内容 */
+/**
+ * iframe 收到宿主的消息：只认 viewport；宿主发来的只能影响显示位置（弹窗、手机底部按钮条），不能改预订内容。
+ * `top` 可选（M9E-32）：没有或不是有限数时照旧只取 height（旧版组件脚本的消息照样能解析）。
+ */
 export function parseHostMessage(data: unknown, ch: string): HostMessage | null {
   if (!envelopeOk(data, ch) || data["type"] !== "viewport") return null;
   const height = clampHeight(data["height"]);
-  return height === null ? null : { type: "viewport", height };
+  if (height === null) return null;
+  const top = clampOffset(data["top"]);
+  return top === null ? { type: "viewport", height } : { type: "viewport", height, top };
 }
 
 /** 交给合作网站的事件（onEvent、`nozomi:booking`）：只转 step、completed、error */

@@ -18,11 +18,13 @@
  * M9E-27（ADR 0095 第十二节末第二轮决策）：分栏按 iframe 自己的宽度——iframe 1440、1024 宽两栏，右边是主站同一个「行程摘要」右侧栏
  * （谷歌静态路线图经同源 /site/v1/route-map 出图、时长公里数、车型、出发地、目的地、航班落地时间、乘客 / 行李），1023、375 宽单栏、顶部摘要条；
  * 宿主窗口宽而预订区窄时照样单栏；宽窄切换后 resize 报的高度等于内容高度、不多发 step；亮暗两色 axe；截图存到 E2E_SCREENSHOT_DIR（m9e27-*.png）。
+ * M9E-32（ADR 0100）：390 宽时 iframe 被撑到全高，每一步的主按钮和「上一步」在底部按钮条里，宿主页滚到顶部、中间时按宿主发的 viewport{top}
+ * 停在宿主屏幕下沿看得见，滚到底回到原位置；截图 m9e32-embed-*.png。
  */
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { AxeBuilder } from "@axe-core/playwright";
-import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
+import { type APIRequestContext, type Locator, type Page, expect, test } from "@playwright/test";
 import { E2E_WEB_PLACES_PORT, E2E_WEB_STRIPE_PORT } from "../playwright.config.ts";
 import { TOKYO_STATION, createAirport, publishTransfer, tomorrowInTokyo } from "./book-new-support.ts";
 import { charterWorld } from "./charter-support.ts";
@@ -464,6 +466,88 @@ test("M9E-27 跨站：分栏按 iframe 自己的宽度——1440、1024 两栏�
     if (width !== 1023) await snapshot(page, `m9e27-embed-${width}`);
   }
   expect(await stepCount(), "宽窄切换不算换步，不多发 step").toBe(steps);
+});
+
+/** 宿主页滚到 scrollY：iframe 里这个按钮在宿主屏幕里（宿主发的 viewport 是异步的，轮询） */
+async function expectFrameButtonOnScreen(page: Page, button: Locator, scrollY: number | "bottom", what: string): Promise<void> {
+  await page.evaluate((y) => window.scrollTo(0, y === "bottom" ? document.documentElement.scrollHeight : y), scrollY);
+  const height = page.viewportSize()?.height ?? 0;
+  await expect
+    .poll(
+      async () => {
+        const box = await button.boundingBox();
+        return box !== null && box.y >= 0 && box.y + box.height <= height;
+      },
+      { message: `${what}：宿主滚到 ${scrollY} 时在屏幕里` },
+    )
+    .toBe(true);
+}
+
+test("M9E-32 跨站：手机 390 宽，iframe 被撑到全高，每一步的主按钮和「上一步」在底部按钮条里——宿主页滚到顶部、中间时都停在宿主屏幕下沿看得见，滚到底回到原位置；第 2 步没选车时灰着写原因；宿主发的 viewport 带 top；axe；截图", async ({ page, request }) => {
+  test.setTimeout(240_000);
+  const world = await createWorld(request);
+  const airport = await createAirport(request, world);
+  await publishTransfer(request, await createSupplier(request, world), { ...world, airport });
+  const host = await newHost(request);
+  await page.setViewportSize({ width: 390, height: 664 });
+  await searchFromHostHome(page, host, airport.name);
+  await expect.poll(() => page.url()).toBe(`${host.origin}/booking/`);
+  const frame = frameOf(page);
+  const bar = frame.locator(".step-bar");
+  const card = frame.getByRole("listitem").filter({ has: frame.getByRole("heading", { name: world.group.name }) });
+  await expect(card).toBeVisible();
+  const iframeHeight = Number(await page.locator('iframe[title="NOZOMI 用车预订"]').getAttribute("height"));
+  expect(iframeHeight, "第 2 步 iframe 比宿主屏幕高（按钮条原位置在屏幕外）").toBeGreaterThan(664);
+
+  // 第 2 步：没选车时「下一步」灰着、写原因
+  const next = bar.getByRole("button", { name: "下一步：填写乘客信息" });
+  await expect(next).toBeDisabled();
+  await expect(bar.locator("#book-step-reason")).toHaveText("请先选择车型");
+  await expectFrameButtonOnScreen(page, next, 0, "第 2 步「下一步」");
+  await expect(frame.locator(".step-bar-slot--frame[data-tracked]"), "收到带 top 的 viewport，按宿主屏幕摆放").toHaveCount(1);
+  await card.getByRole("button", { name: `选择 ${world.group.name}` }).click();
+  await expect(next).toBeEnabled();
+  await expectFrameButtonOnScreen(page, next, 0, "第 2 步「下一步」（选了车）");
+  await expectFrameButtonOnScreen(page, next, 300, "第 2 步「下一步」（宿主滚到中间）");
+  await expectFrameButtonOnScreen(page, next, "bottom", "第 2 步「下一步」（宿主滚到底）");
+  await next.click();
+
+  // 第 3 步
+  await expect(frame.getByRole("heading", { level: 2, name: "乘客信息" })).toBeVisible();
+  await frame.getByLabel("航班号").fill("NH211");
+  await frame.getByRole("radio", { name: /^国际航班/ }).check();
+  await frame.getByLabel("乘车人姓名").fill("王小明");
+  await frame.getByLabel("邮箱").fill(`m9e32-embed-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`);
+  await frame.getByLabel("手机号（含国家区号）").fill("+81 90-1234-5678");
+  await expectFrameButtonOnScreen(page, bar.getByRole("button", { name: "下一步：核对订单" }), 0, "第 3 步「下一步：核对订单」");
+  await expectFrameButtonOnScreen(page, bar.getByRole("button", { name: "上一步" }), 0, "第 3 步「上一步」");
+  await snapshot(page, "m9e32-embed-step3");
+  await bar.getByRole("button", { name: "下一步：核对订单" }).click();
+
+  // 第 4 步：「去付款」在条里，同意保存银行卡在条上方
+  await expect(frame.getByRole("heading", { name: "核对订单" })).toBeVisible();
+  await expectFrameButtonOnScreen(page, bar.getByRole("button", { name: "去付款 →" }), 0, "第 4 步「去付款」");
+  await expectFrameButtonOnScreen(page, bar.getByRole("button", { name: "上一步" }), 0, "第 4 步「上一步」");
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await expect
+    .poll(async () => {
+      const consent = await frame.getByRole("checkbox", { name: /同意保存这次付款用的银行卡/ }).boundingBox();
+      const strip = await bar.boundingBox();
+      return consent !== null && strip !== null && consent.y + consent.height <= strip.y + 0.5;
+    }, { message: "滚到底：同意保存银行卡在条上方" })
+    .toBe(true);
+  const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+  expect(axe.violations.map((violation) => `${violation.id}: ${violation.help}`)).toEqual([]);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await snapshot(page, "m9e32-embed-step4");
+
+  // 回到第 1 步
+  await bar.getByRole("button", { name: "上一步" }).click();
+  await bar.getByRole("button", { name: "上一步" }).click();
+  await bar.getByRole("button", { name: "上一步" }).click();
+  await expect(frame.getByRole("heading", { name: "你的行程" })).toBeVisible();
+  await expectFrameButtonOnScreen(page, bar.getByRole("button", { name: "下一步：选择车型" }), 0, "第 1 步「下一步：选择车型」");
+  await snapshot(page, "m9e32-embed-step1");
 });
 
 function fakeStripeUrl(): string {
