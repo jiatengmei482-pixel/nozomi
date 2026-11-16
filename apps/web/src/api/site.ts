@@ -200,6 +200,8 @@ export interface SitePriceBreakdownItem {
   stop_seqs: number[] | null;
   /** 下车点行程加价（M9P-01）：只有那一项带，`stop_seqs` 为空数组；页面上的「下车点」字样在 M9P-04 */
   from_dropoff?: true;
+  /** 包车机场开始 / 机场结束（M9P-21，ADR 0098）：只在套餐（`base`）那一项、匹配到机场场景时有；场景名由页面按 i18n key 拼 */
+  scenario?: { kind: "airport_start" | "airport_end"; airport_id: string; airport_name: string };
 }
 
 export type SiteUnavailableReason =
@@ -589,6 +591,22 @@ export function listSiteCharterPackages(cityId: string): Promise<{ items: SiteCh
 export function listSiteCharterPackagesAt(pickup: { lat: number; lng: number }, dropoff: { lat: number; lng: number }): Promise<{ city: SiteQuotedCity | null; items: SiteCharterPackage[] }> {
   const query = new URLSearchParams({ pickup: `${pickup.lat},${pickup.lng}`, dropoff: `${dropoff.lat},${dropoff.lng}` });
   return apiRequest("GET", `${SITE_BASE}/charter-packages?${query.toString()}`);
+}
+
+/** 包车快捷入口能选的一个机场（M9P-21 / M9P-22，ADR 0098）：只列机场区域里的航站楼；`name` 是前台名称里的机场名 */
+export interface SiteCharterAirport {
+  id: string;
+  code: string;
+  name: string;
+  city_id: string;
+  terminals: { id: string; code: string; name: LocalizedText; location: { lng: number; lat: number } }[];
+}
+
+export type SiteAirportScenario = "airport_start" | "airport_end";
+
+/** 「机场接机开始」「机场送机结束」能选的机场和航站楼 */
+export function listSiteCharterAirports(scenario: SiteAirportScenario): Promise<{ items: SiteCharterAirport[] }> {
+  return apiRequest("GET", `${SITE_BASE}/charter-airports?scenario=${encodeURIComponent(scenario)}`);
 }
 
 export function listSitePlaces(cityId: string): Promise<{ items: SitePlace[] }> {

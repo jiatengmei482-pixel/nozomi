@@ -69,7 +69,13 @@ import { readSurchargeRow, surchargeOverlaps } from "../../../lib/area-surcharge
 import { basePriceItems } from "../../../lib/price-form.ts";
 import { useLoad } from "../../../lib/use-load.ts";
 import { useTenantCan } from "../../../lib/use-master-access.ts";
-import type { AreaSummary as TenantArea } from "../../../api/areas.ts";
+import type { Area, AreaSummary as TenantArea } from "../../../api/areas.ts";
+import type { CharterAirports } from "../../../api/charter-airports.ts";
+import type { Place } from "../../../api/master.ts";
+import type { ProductServiceRules } from "../../../api/products.ts";
+import { AIRPORT_TABLE_ID, AirportPricesTable, airportCellId, airportCellLabel, useAirportCells } from "./AirportPricesTable.tsx";
+import { type AirportEndLocation, type AirportField, airportEndLocation, airportOverlaps, areaShapesOf, readAirportCell } from "../../../lib/charter-airport-prices.ts";
+import { charterAirportText } from "../../../lib/charter-airport-copy.ts";
 
 const STATE_LOOK: Readonly<Record<RowState, { icon: IconName; tone: string }>> = {
   error: { icon: "alert-circle", tone: "danger" },
@@ -131,6 +137,8 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   const itinerary = useLayerRows(prices, "charter_itinerary_surcharge", []);
   const updown = useLayerRows(prices, "charter_area_surcharge", productAreaIds);
   const layerRows = (): LayerRow[] => [...itinerary.rows, ...updown.rows];
+  // 第四张表「机场套餐价」（M9P-22，ADR 0098）：和价格表、两张加价表共用一个保存
+  const airport = useAirportCells(prices);
   const charter = category === "charter";
   const p2p = category === "point_to_point";
   const canReadAreas = useTenantCan("area.read");
@@ -138,6 +146,13 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   const tenantAreas = useLoad<TenantArea[]>(`surcharge-areas:${frame.source.portal}:${product.id}`, (charter || p2p) && (onPlatform || canReadAreas) ? frame.source.areas : null);
   // 「迁移差异 N 条」（ADR 0093 第六节第 1 小节）：按当前后台取（供应商后台 /tenant/v1，运营后台 /platform/v1）
   const migrationDiff = useLoad<CharterMigrationDiff>(`charter-migration-diff:${frame.source.portal}:${product.id}:${prices.version}`, layered ? (token) => frame.source.charterMigrationDiff(token, product.id) : null);
+  // 机场套餐价要用的：商品的机场绑定、区域图形（判断机场落在①/②/③哪里）、机场坐标、「下车点行程加价」开关
+  const airportBindings = useLoad<CharterAirports>(`charter-airports:${frame.source.portal}:${product.id}`, layered ? (token) => frame.source.charterAirports(token, product.id) : null);
+  const boundAirports = airportBindings.state.data?.bindings ?? [];
+  const airportPlaceIds = [...new Set(boundAirports.map((binding) => binding.place_id))].sort();
+  const areaShapes = useLoad<Area[]>(`area-shapes:${frame.source.portal}:${product.id}`, layered && boundAirports.length > 0 ? frame.source.areaShapes : null);
+  const airportPlaces = useLoad<Place[]>(`airport-places:${frame.source.portal}:${airportPlaceIds.join(",")}`, layered && airportPlaceIds.length > 0 ? (token) => Promise.all(airportPlaceIds.map((id) => frame.source.airportPlace(token, id))) : null);
+  const serviceRules = useLoad<ProductServiceRules>(`airport-service-rules:${frame.source.portal}:${product.id}`, layered && boundAirports.some((binding) => binding.scenario === "airport_end") ? (token) => frame.source.serviceRules(token, product.id) : null);
   const [rows, setRows] = useState<PriceRow[]>(() => fresh(prices));
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
@@ -169,6 +184,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
     surcharges.adopt(prices, true);
     itinerary.adopt(prices, true);
     updown.adopt(prices, true);
+    airport.adopt(prices, true);
     setRejection(null);
     setLayerOverlap(null);
     setConflictKeys(new Set());
@@ -214,7 +230,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
     return rule !== null && rule.pricing.model === "charter_package" ? rule.pricing.packagePriceMinor : null;
   };
   const changes = rows.filter((row) => !["none", "blank"].includes(rowChange(row, readings.get(row.key) ?? readRow(row, context))));
-  const changeTotal = changes.length + (layered ? itinerary.changeCount + updown.changeCount : surcharges.changeCount);
+  const changeTotal = changes.length + (layered ? itinerary.changeCount + updown.changeCount + airport.changeCount : surcharges.changeCount);
   const hasMileage = rows.some((row) => row.model === "mileage_time" && !row.deleted);
   // 点对点的一口价多「含公里数」「超出每公里」两列（17.4）；接送机、包车没有
   const valueFields: readonly PriceField[] = category === "charter" ? MODEL_FIELDS.charter_package : [...(hasMileage ? MODEL_FIELDS.mileage_time : MODEL_FIELDS.fixed), ...(p2p && models.includes("fixed") ? KM_FIELDS : [])];
@@ -350,8 +366,21 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   };
   const extraBatch = (): PriceRuleBatch => {
     if (!layered) return surcharges.batch();
-    const [a, b] = [itinerary.batch(), updown.batch()];
-    return { create: [...a.create, ...b.create], update: [...a.update, ...b.update], delete: [...a.delete, ...b.delete] };
+    const [a, b, c] = [itinerary.batch(), updown.batch(), airport.batch()];
+    return { create: [...a.create, ...b.create, ...c.create], update: [...a.update, ...b.update, ...c.update], delete: [...a.delete, ...b.delete, ...c.delete] };
+  };
+  const airportLabel = (cell: Parameters<typeof airportCellLabel>[0]): string => airportCellLabel(cell, boundAirports, groupName);
+  /** 机场套餐价表里写错了的、和同一格别的日期段重叠的 */
+  const airportProblems = (): StepProblem[] => {
+    const found: StepProblem[] = [];
+    for (const cell of airport.cells) {
+      for (const problem of readAirportCell(cell, context.currency).problems) found.push({ text: `${airportLabel(cell)}：${problem.text}`, target: airportCellId(cell.key, problem.field) });
+    }
+    for (const key of airportOverlaps(airport.cells, prices.items, context.currency)) {
+      const cell = airport.cells.find((entry) => entry.key === key);
+      if (cell) found.push({ text: `${airportLabel(cell)}：${charterAirportText("tenant.charterAirport.prices.overlap")}`, target: airportCellId(cell.key, "price") });
+    }
+    return found;
   };
   const validate = (): StepProblem[] => {
     const found: StepProblem[] = [];
@@ -360,7 +389,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
       for (const problem of readings.get(row.key)?.problems ?? []) found.push({ text: `${rowLabel(row)}：${problem.text}`, target: cellId(row.key, problem.field) });
     }
     for (const group of overlapGroups()) found.push({ text: `生效日期重叠——${group.text}`, target: group.target });
-    found.push(...(layered ? layerProblems() : surchargeProblems()));
+    found.push(...(layered ? [...layerProblems(), ...airportProblems()] : surchargeProblems()));
     if (found.length === 0 && changeTotal > PRICE_LIMITS.maxBatchChanges) found.push({ text: `一次最多保存 ${PRICE_LIMITS.maxBatchChanges} 条。请先取消一部分修改，或分两次保存。`, target: "price-table" });
     if (found.length === 0 && product.status === "published" && changes.length > 0 && coverage.priced === 0 && !rows.some((row) => !row.deleted && !isRouteRow(row) && readings.get(row.key)?.rule?.status === "enabled" && (readings.get(row.key)?.rule?.validTo ?? "9999") >= context.today)) {
       found.push({ text: "这个商品已上架，至少要留 1 条启用、没过期的价格。要把价格全部停掉，请先下架。", target: "price-table" });
@@ -383,6 +412,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
     surcharges.adopt(saved, false);
     itinerary.adopt(saved, false);
     updown.adopt(saved, false);
+    airport.adopt(saved, false);
     // 读屏状态区里上一句（如「……将删除，点保存后生效」）保存以后已经不对了，清掉（M8-12a 验收缺陷 7）
     setAnnounce("");
     setReview(new Set());
@@ -423,6 +453,17 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
     const key = kind === "create" ? batch.create[index]?.ref : kind === "update" ? batch.update[index]?.id : batch.delete[index];
     return all.find((row) => row.key === key || row.id === key);
   };
+  /** 被拒的是不是机场套餐价表里的一格：按 ref / id 找，找不到再按提交时的顺序对回去 */
+  const batchAirport = (kind: string, index: number, detail: Record<string, unknown> = {}) => {
+    if (!layered) return undefined;
+    const named = typeof detail["ref"] === "string" ? detail["ref"] : typeof detail["id"] === "string" ? detail["id"] : null;
+    const direct = named === null ? undefined : airport.cells.find((cell) => cell.key === named || cell.id === named);
+    if (direct) return direct;
+    const batch = sent.current?.batch;
+    if (!batch) return undefined;
+    const key = kind === "create" ? batch.create[index]?.ref : kind === "update" ? batch.update[index]?.id : batch.delete[index];
+    return airport.cells.find((cell) => cell.key === key || cell.id === key);
+  };
   const SURCHARGE_REASONS: Readonly<Record<string, (name: string) => string>> = {
     AREA_IS_PRODUCT_AREA: (name) => `「${name}」是商品的服务区域，上车、下车在那里都不加价，不能再设区域加价。请换一个商品服务区域以外的区域。`,
     AREA_NOT_USABLE: (name) => `「${name}」的业务类型不是包车或通用，不能做包车的加价区域。请换一个区域，或到区域页面改它的业务类型。`,
@@ -439,6 +480,12 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
     const FIELD_BY_PATH: Readonly<Record<string, RowField>> = { base_price: "base", start_price: "base", start_meters: "startKm", start_minutes: "startMin", per_km: "perKm", per_minute: "perMin", min_price: "min", package_km: "pkgKm", package_price: "pkgPrice", overtime_per_hour: "overHour", over_km_per_km: "overKm", valid_from: "from", valid_to: "to" };
     return issues.flatMap((issue) => {
       const match = /^\/(create|update|delete)\/(\d+)(?:\/([a-z_]+))?/.exec(issue.path);
+      const airportCell = match ? batchAirport(match[1] ?? "", Number(match[2]), issue.detail) : undefined;
+      if (airportCell) {
+        const path = match?.[3] ?? "";
+        const field: AirportField = path === "package_km" ? "km" : path === "over_km_per_km" ? "overKm" : path === "overtime_per_hour" ? "overtime" : "price";
+        return [{ text: `${airportLabel(airportCell)}：${issue.message}`, target: airportCellId(airportCell.key, field) }];
+      }
       const layerRow = match ? batchLayer(match[1] ?? "", Number(match[2]), issue.detail) : undefined;
       if (layerRow) {
         const name = layerAreaName(layerRow.areaId);
@@ -509,6 +556,8 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
       if (base) return { key: base.key, label: rowLabel(base), target: cellId(base.key, "from") };
       const layerRow = layered ? layerRows().find((row) => (entry.id !== undefined && row.id === entry.id) || (entry.ref !== undefined && row.key === entry.ref)) : undefined;
       if (layerRow) return { key: layerRow.key, label: layerLabel(layerRow), target: layerCellId(layerRow.key, "from") };
+      const airportCell = layered ? airport.cells.find((cell) => (entry.id !== undefined && cell.id === entry.id) || (entry.ref !== undefined && cell.key === entry.ref)) : undefined;
+      if (airportCell) return { key: airportCell.key, label: airportLabel(airportCell), target: airportCellId(airportCell.key, "price") };
       const surcharge = findSurcharge(entry);
       return surcharge ? { key: surcharge.key, label: surchargeLabel(surcharge), target: surchargeCellId(surcharge.key, "from"), areaId: surcharge.areaId } : undefined;
     };
@@ -741,6 +790,24 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   const layerGroups = groups.map((group) => ({ id: group.vehicle_group_id, name: displayName(group.name).text, passengers: group.passengers, luggage: group.luggage }));
   const overlapFor = (layer: "itinerary" | "updown"): LayerOverlapDetail[] => (layerOverlap ?? []).filter((entry) => (entry.layer === "itinerary") === (layer === "itinerary"));
   const layerAreaCount = (state: { rows: LayerRow[]; added: string[] }): number => new Set([...state.rows.filter((row) => !row.deleted).map((row) => row.areaId), ...state.added]).size;
+  /** 继承价（ADR 0098 第三节第 4 小节）：普通套餐价和两张加价表都用页面上现在的内容（含没保存的修改）；机场那一端落在哪按区域图形算 */
+  const airportInherit = () => {
+    const shapes = areaShapes.state.data ?? [];
+    const live = (table: { rows: LayerRow[] }) => table.rows.flatMap((row) => (row.deleted ? [] : [readLayerRow(row, context.currency).rule].filter((rule): rule is PriceRule => rule !== null)));
+    const surchargeRules = [...live(itinerary), ...live(updown)];
+    const shapesFor = (ids: ReadonlySet<string>) => shapes.filter((area) => ids.has(area.id)).map(areaShapesOf);
+    const product1 = shapesFor(new Set(productAreaIds));
+    const updownShapes = shapesFor(new Set(updown.rows.filter((row) => !row.deleted).map((row) => row.areaId)));
+    const itineraryShapes = shapesFor(new Set(itinerary.rows.filter((row) => !row.deleted).map((row) => row.areaId)));
+    const locations = new Map<string, AirportEndLocation>();
+    if (areaShapes.state.data !== null) {
+      for (const binding of boundAirports) {
+        const place = airportPlaces.state.data?.find((entry) => entry.id === binding.place_id);
+        if (place) locations.set(binding.area_id, airportEndLocation(place.location, { product: product1, updown: updownShapes, itinerary: itineraryShapes }));
+      }
+    }
+    return { normalPrice: charterPackagePrice, surchargeRules, locations, dropoffItinerary: serviceRules.state.data?.rules.charter_itinerary?.dropoff_itinerary_surcharge ?? true };
+  };
   const CoverageHeading = charter ? "h4" : "h3";
   const surchargeAreaCount = new Set(surcharges.rows.filter((row) => !surcharges.removing.has(row.areaId) && (row.origin === null ? !row.deleted : row.enabled || surcharges.restoring.has(row.areaId))).map((row) => row.areaId)).size;
   const header = (field: PriceField): string => {
@@ -1076,6 +1143,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                     ["base-pricing-title", LAYER_TEXT.packageTitle],
                     ["itinerary-title", `${LAYER_TEXT.itineraryTitle}（${layerAreaCount(itinerary)} 个区域）`],
                     ["updown-title", `${LAYER_TEXT.updownTitle}（${layerAreaCount(updown)} 个区域）`],
+                    [AIRPORT_TABLE_ID, charterAirportText("tenant.charterAirport.prices.title")],
                   ] as const
                 ).map(([anchor, text], index) => (
                   <Fragment key={anchor}>
@@ -1529,6 +1597,22 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                   overlapNotes={overlapFor("updown").map(layerOverlapSentence)}
                   overlapAreaIds={new Set(overlapFor("updown").flatMap((entry) => entry.areaIds))}
                   announce={setAnnounce}
+                />
+                <AirportPricesTable
+                  state={airport}
+                  bindings={airportBindings.state.data?.bindings ?? null}
+                  bindingsFailed={airportBindings.state.status !== "loading" && airportBindings.state.data === null}
+                  reloadBindings={airportBindings.reload}
+                  items={prices.items}
+                  extraHours={coverage.packages}
+                  groups={layerGroups}
+                  currency={context.currency}
+                  today={context.today}
+                  readOnly={readOnly}
+                  busy={busy}
+                  onPlatform={onPlatform}
+                  inherit={airportInherit()}
+                  conflictKeys={conflictKeys}
                 />
               </>
             )}

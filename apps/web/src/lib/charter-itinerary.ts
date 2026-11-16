@@ -8,6 +8,7 @@
  * 编号（M9P-20，ADR 0096 第二节第 3 小节）：上车 = 1、经停依次、下车 = 最后，和行程地图的标记同一个函数（domain 的 `stopNumbers`）；
  * 接口里的经停序号（stopSeq，从 1 起）一律经 `displayStopNumber` 换成显示编号（= stopSeq + 1）。
  */
+import { scenarioPackageLabel } from "./charter-airport-copy.ts";
 import { CHARTER_ITINERARY_LIMITS, ITINERARY_MAP_RULES, displayStopNumber, isArriveByTime, isCurrencyCode, legStopNumbers, parseMajor, stopNumbers } from "@nozomi/domain";
 import type { SiteMoney, SiteOrder, SitePriceBreakdownItem, SiteQuote, SiteQuoteResult } from "../api/site.ts";
 import { arriveByDeadlineText, draftArriveBy } from "./arrive-by-display.ts";
@@ -271,7 +272,8 @@ export function breakdownLines(quote: Pick<SiteQuote, "price" | "price_breakdown
   for (const { item, index } of displayOrder(items)) {
     if (HIDDEN_WHEN_ZERO.has(item.kind) && minorOf(item.amount) === 0) continue;
     let label: string;
-    if (item.kind === "base") label = packageHours === null ? "基础价" : `包车套餐 ${packageHours} 小时`;
+    // 机场开始 / 机场结束（ADR 0098）：套餐行显示场景名，如「成田机场接机 + 5 小时包车」
+    if (item.kind === "base") label = packageHours === null ? "基础价" : item.scenario !== undefined ? scenarioPackageLabel(item.scenario, packageHours) : `包车套餐 ${packageHours} 小时`;
     else {
       const name = item.area_name === null ? null : displayName(item.area_name).text;
       const where = item.kind !== "waypoint" ? null : item.from_dropoff === true ? "下车点" : item.stop_seqs !== null && item.stop_seqs.length > 0 ? seqText(item.stop_seqs) : null;

@@ -557,6 +557,8 @@ export interface DriverTrip {
     status_name: string;
     category: "airport_transfer" | "point_to_point" | "charter";
     direction: "pickup" | "dropoff" | null;
+    /** 包车机场开始 / 机场结束（M9P-22，ADR 0098）：没有场景、旧接口为 null 或没有 */
+    charter_scenario?: { kind: "airport_start" | "airport_end"; airport_name: string } | null;
     service_time: string;
     service_local: string;
     timezone: string;

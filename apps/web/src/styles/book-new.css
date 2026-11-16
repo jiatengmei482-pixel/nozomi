@@ -1434,3 +1434,10 @@ button.book-steps__link:hover .book-steps__name {
   padding: 0;
   overflow-wrap: anywhere;
 }
+
+/* 包车快捷入口「机场接机开始」「机场送机结束」（M9P-22，ADR 0098 第三节第 7 小节） */
+.book-new__airport-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}

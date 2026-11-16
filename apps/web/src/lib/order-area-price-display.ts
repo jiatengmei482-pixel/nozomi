@@ -6,6 +6,7 @@
  * 一口价仍然只有一个总价：这些是说明，不写成算式。没有这些数的订单返回 null（那一项不出现，页面其余照常）。
  */
 import { type LocalizedText, type PricingBasis, consoleMoneyText, displayStopNumber, includedKmSummary, isCurrencyCode, parseMajor, routeMetersText, tenantIncludedKmSummary } from "@nozomi/domain";
+import { charterAirportText } from "./charter-airport-copy.ts";
 import { durationText, kmText } from "./charter-itinerary.ts";
 import { itineraryCopy } from "./itinerary-texts.ts";
 import { moneyText } from "./dispatch-display.ts";
@@ -36,6 +37,16 @@ export interface OrderAreaSurchargeEndView {
   area_name: LocalizedText | null;
   settlement: Money;
   sell?: Money | null;
+  /** 机场套餐单独定价免掉的这一端（金额 0，M9P-21，ADR 0098） */
+  included_in_package?: true;
+}
+
+/** 包车机场开始 / 机场结束（M9P-21，ADR 0098）：下单时匹配到的场景 */
+export interface OrderCharterScenarioView {
+  kind: "airport_start" | "airport_end";
+  airport_id: string;
+  airport_name: string;
+  pricing: "own" | "inherit";
 }
 
 export interface OrderAreaSurchargeView {
@@ -44,7 +55,19 @@ export interface OrderAreaSurchargeView {
   dropoff: OrderAreaSurchargeEndView;
   /** 途经加价（M9W-01，和后端约定）：每个收了途经加价的区域一项，`stop_seqs` 是第几个经停点（从 1 起）；没有经停点、旧接口没有这一项 */
   waypoints?: (OrderAreaSurchargeEndView & { stop_seqs: number[] })[];
+  charter_scenario?: OrderCharterScenarioView;
 }
+
+/** 「机场套餐：成田机场接机（单独定价，已含上车加价）」「机场套餐：羽田机场送机（继承普通套餐价）」 */
+export function charterScenarioLine(scenario: OrderCharterScenarioView | undefined): string | null {
+  if (scenario === undefined) return null;
+  const start = scenario.kind === "airport_start";
+  const what = charterAirportText(start ? "order.charterScenario.airportStart" : "order.charterScenario.airportEnd", { airport: scenario.airport_name });
+  const how = scenario.pricing === "own" ? charterAirportText("order.charterScenario.own", { end: charterAirportText(start ? "order.charterScenario.endPickup" : "order.charterScenario.endDropoff") }) : charterAirportText("order.charterScenario.inherit");
+  return charterAirportText("order.charterScenario.line", { what, how });
+}
+
+const INCLUDED_IN_PACKAGE = charterAirportText("order.charterScenario.included");
 
 export const DELETED_AREA = "（已删除的区域）";
 
@@ -89,7 +112,7 @@ export function tenantDistanceLines(distance: OrderDistanceView | null | undefin
 
 /** 至少一端在加价区域里才写「区域加价」这一项（两端都在服务区域里 = 没有加价，不出现）。 */
 export function hasAreaSurcharge(surcharge: OrderAreaSurchargeView | null | undefined): surcharge is OrderAreaSurchargeView {
-  return surcharge !== null && surcharge !== undefined && (surcharge.pickup.area_id !== null || surcharge.dropoff.area_id !== null || (surcharge.waypoints?.length ?? 0) > 0);
+  return surcharge !== null && surcharge !== undefined && (surcharge.pickup.area_id !== null || surcharge.dropoff.area_id !== null || (surcharge.waypoints?.length ?? 0) > 0 || surcharge.charter_scenario !== undefined);
 }
 
 const END_LABELS = { pickup: "上车", dropoff: "下车" } as const;
@@ -107,9 +130,10 @@ export function platformSurchargeLines(surcharge: OrderAreaSurchargeView | null 
   return (["pickup", "dropoff"] as const).map((end) => {
     const entry = surcharge[end];
     if (entry.area_id === null) return `${END_LABELS[end]}：${IN_SERVICE_AREA}`;
+    if (entry.included_in_package === true) return `${END_LABELS[end]}：${INCLUDED_IN_PACKAGE}`;
     const sell = entry.sell ?? null;
     return `${END_LABELS[end]}：${areaName({ name: entry.area_name })} · 对外 ${sell === null ? "—" : moneyText(sell)} / 结算 ${moneyText(entry.settlement)}`;
-  }).concat((surcharge.waypoints ?? []).map((entry) => `${waypointLabel(entry.stop_seqs)}：${areaName({ name: entry.area_name })} · 对外 ${entry.sell == null ? "—" : moneyText(entry.sell)} / 结算 ${moneyText(entry.settlement)}`));
+  }).concat((surcharge.waypoints ?? []).map((entry) => (entry.included_in_package === true ? `${waypointLabel(entry.stop_seqs)}：${INCLUDED_IN_PACKAGE}` : `${waypointLabel(entry.stop_seqs)}：${areaName({ name: entry.area_name })} · 对外 ${entry.sell == null ? "—" : moneyText(entry.sell)} / 结算 ${moneyText(entry.settlement)}`)), scenarioLines(surcharge));
 }
 
 /** 供应商后台「区域加价」：「上车：富士山 · 加 JPY 1,000」「下车：在服务区域里，不加价」。只有结算价。 */
@@ -118,8 +142,15 @@ export function tenantSurchargeLines(surcharge: OrderAreaSurchargeView | null | 
   return (["pickup", "dropoff"] as const).map((end) => {
     const entry = surcharge[end];
     if (entry.area_id === null) return `${END_LABELS[end]}：${IN_SERVICE_AREA}`;
+    if (entry.included_in_package === true) return `${END_LABELS[end]}：${INCLUDED_IN_PACKAGE}`;
     return `${END_LABELS[end]}：${areaName({ name: entry.area_name })} · 加 ${settlementText(entry.settlement)}`;
-  }).concat((surcharge.waypoints ?? []).map((entry) => `${waypointLabel(entry.stop_seqs)}：${areaName({ name: entry.area_name })} · 加 ${settlementText(entry.settlement)}`));
+  }).concat((surcharge.waypoints ?? []).map((entry) => (entry.included_in_package === true ? `${waypointLabel(entry.stop_seqs)}：${INCLUDED_IN_PACKAGE}` : `${waypointLabel(entry.stop_seqs)}：${areaName({ name: entry.area_name })} · 加 ${settlementText(entry.settlement)}`)), scenarioLines(surcharge));
+}
+
+/** 机场套餐那一行放在最后（没有场景时没有） */
+function scenarioLines(surcharge: OrderAreaSurchargeView): string[] {
+  const line = charterScenarioLine(surcharge.charter_scenario);
+  return line === null ? [] : [line];
 }
 
 function settlementText(money: Money): string {

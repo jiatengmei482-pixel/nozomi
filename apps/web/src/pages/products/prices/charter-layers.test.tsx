@@ -97,6 +97,8 @@ function open(prices: PriceRules, extra: Route = () => null, diff: CharterMigrat
     if (at === `${BASE}/price-rules`) return json(200, prices);
     if (at === `${BASE}/adjust-rules`) return json(200, { version: 7, currency: "JPY", rounding_unit: 1, today: TODAY, items: [] });
     if (at === `${BASE}/charter-migration-diff`) return json(200, diff);
+    // 第四张表「机场套餐价」（M9P-22）：这些用例里没有绑定机场
+    if (at === `${BASE}/charter-airports`) return json(200, { version: 7, bindings: [] });
     if (at === "/tenant/v1/areas") return json(200, { items: AREAS, next_cursor: null, total: AREAS.length });
     if (at === "/tenant/v1/brands") return json(200, { items: [{ id: "b1", name: "NOZOMI", currency: "JPY", status: "active", version: 4, ...stamps }] });
     if (at === "/tenant/v1/dashboard/summary") return json(200, { areas: { active: 3, disabled: 0 }, products: { draft: 1, published: 0, unpublished: 0 } });
