@@ -261,6 +261,7 @@ iframe → 宿主：
 ### 3. 银行整页回跳
 
 - 只收银行卡、`redirect: "if_required"`：绝大多数 3D 验证在弹窗里完成。少数要整页跳转时，跳的是 **iframe 本身**（Stripe.js 在 iframe 里改 `location`），银行页面如果禁止被嵌入就会失败。回到的 `return_url` 带着 `key`、`host`，Caddy 照常放行（第五节第 3 小节）；端到端用假 Stripe 模拟一次整页回跳，断言回跳后的页面在 iframe 里正常显示。失败的结果按 ADR 0046 处理（回到订单页后以 Stripe 查到的状态为准，可以重新付）；订单页另给「在新窗口打开订单页付款」（主站 `/book/order#<令牌>`，新标签页）作为最后退路。
+- 回跳后的频道号（M9E-19 实现）：`return_url` 是 `/embed/book/order?draft&key&lang&host&ch`——频道号放进查询串（不放 `#`：Stripe 加参数时 `#` 后面不一定保留；不另加存储键），回来后嵌入页先读出放内存，再把 `ch` 和 Stripe 加的 `payment_intent*`、`redirect_status` 一起从地址里去掉，之后发给宿主的消息照样带频道号。频道号不是个人信息，进 Stripe 记的 return_url 无妨。Stripe 表单按嵌入页语言（`locale`）；`appearance` 暂用主站同一套取值，`--nzb-*` 跟随留到以后。
 - 回跳后取令牌：照 ADR 0046 用本标签页 sessionStorage。iframe 里的 sessionStorage 按顶层网站分区（Firefox 的 State Partitioning 文档：localStorage、sessionStorage 等按顶层网站静态分区），同一个宿主页、同一标签页里写和读是同一个分区，能取回。新增一个键 `nozomi.embed-order`（见第八节第 2 小节；这是对 ADR 0046「只有一个键」的修订，见文首），`styles.edge.test.ts` 的「只碰这几个键」名单同步加。
 
 ### 4. Stripe 账号设置

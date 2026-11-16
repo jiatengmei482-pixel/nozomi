@@ -168,6 +168,19 @@ test("3D 验证弹窗：modal open 时 iframe 滚到顶、高度设成可视高�
   assert.equal(frame.getAttribute("height"), "1900");
 });
 
+test("银行整页回跳（M9E-19）：modal 开着时 iframe 里换了新文档（发来新的 ready），宿主恢复按内容高度、之后的 resize 照常生效", () => {
+  mountWithDraft();
+  const frame = iframe();
+  frame.scrollIntoView = () => undefined;
+  fromFrame({ type: "ready", lang: "ja" });
+  fromFrame({ type: "resize", height: 1800 });
+  fromFrame({ type: "modal", open: true });
+  fromFrame({ type: "ready", lang: "ja" });
+  assert.equal(frame.getAttribute("height"), "1800");
+  fromFrame({ type: "resize", height: 1500 });
+  assert.equal(frame.getAttribute("height"), "1500");
+});
+
 test("事件：step、completed、error 交给 onEvent 并在容器上派发 nozomi:booking；ready、resize、modal 不转；字段只有白名单里的", () => {
   const { events, domEvents } = mountWithDraft();
   fromFrame({ type: "ready", lang: "ja" });

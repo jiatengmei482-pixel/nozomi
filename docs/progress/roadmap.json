@@ -1404,8 +1404,7 @@
           "id": "M9E-19",
           "title": "嵌在宿主页·第三期：付款进 iframe（PaymentPanel 复用、return_url 指向 /embed/book/order、3D 验证弹窗 modal / viewport、银行回跳取令牌、新窗口打开订单页退路）；后端付款不改（ADR 0095 第七节）",
           "role": "frontend",
-          "status": "blocked",
-          "blockedBy": "M9E-17 合并",
+          "status": "doing",
           "acceptance": [
             "后端付款、Webhook、超时取消、退款无改动；假 Stripe 端到端在跨站宿主（localhost / 127.0.0.1）里付款成功、失败卡、3D 验证成功 / 失败各一遍",
             "return_url 带 key、host：模拟银行整页回跳、订单页刷新后仍在 iframe 里正常显示",

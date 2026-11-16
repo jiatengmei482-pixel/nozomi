@@ -14,6 +14,7 @@ import { userEvent } from "@testing-library/user-event";
 import { BrowserRouter } from "react-router";
 import type { SiteByPointsResult, SiteCity, SiteConfig, SiteOrder, SiteOrderEnvelope, SiteQuote } from "../../api/site.ts";
 import { EMBED_ORDER_KEY } from "../../embed/embed-order-store.ts";
+import { type PaymentDriver, PaymentDriverContext } from "../../lib/payment-driver.ts";
 import { type ApiCall, apiError, json, stubApiWith, viewportWidth } from "../../testing/harness.tsx";
 import { EmbedApp } from "./EmbedApp.tsx";
 import { EMBED_FRAME } from "./EmbedFrame.tsx";
@@ -143,6 +144,42 @@ interface Options {
   route?: SiteByPointsResult["route"];
   /** 订单接口按调用次数给状态 */
   orderStatus?: (call: number) => SiteOrder["status"] | "gone";
+  /** 配了 Stripe（付款进 iframe，M9E-19）：下单应答带 client_secret */
+  payments?: boolean;
+}
+
+const PK = "pk_test_embed";
+const SECRET = "pi_3Embed_secret_abc";
+const sitePayment = { provider: "stripe" as const, status: "requires_payment_method", client_secret: SECRET, publishable_key: PK };
+
+interface DriverLog {
+  mounts: { publishableKey: string; clientSecret: string; locale?: string }[];
+  /** 挂付款表单那一刻的地址（回跳参数必须在这之前去掉） */
+  searchAtMount: string[];
+  confirms: string[];
+  /** 确认付款那一刻宿主已经收到的消息条数（看 modal{open:true} 是不是在确认之前发的） */
+  postedAtConfirm: number[];
+}
+/** 假的付款组件（Stripe 的 Payment Element 由组件测试 site-payment.test.tsx 覆盖）：记下挂载参数和确认时的 return_url */
+function fakeDriver(log: DriverLog, options: { awaiting?: boolean } = {}): PaymentDriver {
+  return {
+    async mount(_container, mountOptions) {
+      log.mounts.push(mountOptions);
+      log.searchAtMount.push(window.location.search);
+      return {
+        state: "open",
+        lastError: null,
+        awaitingPaymentMethod: options.awaiting ?? false,
+        validate: async () => ({ ok: true }),
+        confirm: async (returnUrl) => {
+          log.confirms.push(returnUrl);
+          log.postedAtConfirm.push(posted.length);
+          return { kind: "succeeded" };
+        },
+        destroy: () => undefined,
+      };
+    },
+  };
 }
 
 function stub(options: Options = {}): ApiCall[] {
@@ -150,11 +187,12 @@ function stub(options: Options = {}): ApiCall[] {
   return stubApiWith((call) => {
     const path = call.url.pathname;
     if (path === `/site/v1/booking-drafts/${DRAFT}`) return json(200, { draft: DRAFT_BODY, expires_at: "2030-11-20T00:00:00Z", source_matches: options.sourceMatches ?? true });
-    if (path === "/site/v1/config") return json(200, config);
+    if (path === "/site/v1/config") return json(200, options.payments === true ? { ...config, payments: { provider: "stripe", publishable_key: PK } } : config);
     if (path === "/site/v1/cities") return json(200, { items: [city] });
     if (call.method === "POST" && path === "/site/v1/quotes/by-points") return json(200, { ...byPoints, route: options.route ?? null });
     if (path === "/site/v1/fx/reference") return json(200, { available: false, from: "JPY", to: "USD", rate: null, as_of: null, reason: "NO_RATE" });
-    if (call.method === "POST" && path === "/site/v1/orders") return json(201, { ...envelopeOf("pending_payment"), payment: null, link: { token: TOKEN, expires_at: "2030-12-01T00:00:00.000Z" } });
+    if (call.method === "POST" && path === "/site/v1/orders") return json(201, { ...envelopeOf("pending_payment"), payment: options.payments === true ? sitePayment : null, link: { token: TOKEN, expires_at: "2030-12-01T00:00:00.000Z" } });
+    if (call.method === "GET" && path === "/site/v1/order/payment") return json(200, { payment: sitePayment });
     if (call.method === "GET" && path === "/site/v1/order") {
       orderReads += 1;
       const status = options.orderStatus?.(orderReads) ?? "pending_payment";
@@ -164,13 +202,14 @@ function stub(options: Options = {}): ApiCall[] {
   });
 }
 
-function open(path: string): void {
+function open(path: string, driver?: PaymentDriver): void {
   history.replaceState(null, "", path);
-  render(
+  const app = (
     <BrowserRouter>
       <EmbedApp />
-    </BrowserRouter>,
+    </BrowserRouter>
   );
+  render(driver === undefined ? app : <PaymentDriverContext.Provider value={driver}>{app}</PaymentDriverContext.Provider>);
 }
 const query = `?draft=${DRAFT}&key=${KEY}&lang=ja&host=${encodeURIComponent(HOST)}`;
 const bookUrl = `/embed/book${query}#ch=${CH}`;
@@ -221,10 +260,9 @@ test("四步（iframe 1023 宽）：读草稿带 key、host，对得上时询价
   const pay = screen.getByRole("link", { name: new RegExp(EMBED_TEXTS.ja.payInNewWindow) });
   assert.equal(pay.getAttribute("href"), `/book/order#${TOKEN}`);
   assert.equal(pay.getAttribute("target"), "_blank");
-  // 付款进 iframe 之前的临时做法（业主验收意见 2026-11-16）：按钮旁写清点一次就在新窗口打开付款页，读屏读按钮时一起读
-  const hint = document.getElementById(pay.getAttribute("aria-describedby") ?? "");
-  assert.equal(hint?.textContent, EMBED_TEXTS.ja.payHint);
-  assert.ok(pay.compareDocumentPosition(hint as Node) & Node.DOCUMENT_POSITION_FOLLOWING, "说明紧跟在按钮后面");
+  // 付款在 iframe 里（M9E-19）：新窗口的主站订单页只是退路，写在付款区块下面的一句话里
+  assert.ok(pay.closest(".embed-book__pay-hint")?.textContent?.startsWith(EMBED_TEXTS.ja.payHint));
+  assert.ok(screen.getByRole("heading", { name: "付款" }), "付款区块就在这一页（这里没配 Stripe：付款暂未开放）");
 
   // 草稿齐了先挂第 1 步、报价后到第 2 步（同主站）
   assert.deepEqual(steps(), ["trip", "vehicle", "passenger", "review", "payment"]);
@@ -442,4 +480,66 @@ test("经停超过 10 个（13 个点以上，ADR 0099）：不请求行程地�
   assert.ok(screen.getByText("经停较多，仅显示列表"));
   assert.equal(document.querySelector(".itinerary-map"), null);
   assert.equal(calls.filter((call) => call.path.startsWith("/site/v1/itinerary-map")).length, 0, "不请求地图");
+});
+
+test("付款进 iframe（M9E-19）：下单后同一页直接挂付款表单（不再点按钮、不开新窗口），Stripe 表单用嵌入页语言；确认前发 modal{open:true}、确认后 modal{open:false}；return_url 回到嵌入订单页、带 key / host / 频道号、不带令牌；付完发 completed", async () => {
+  screenWidth = viewportWidth(1023);
+  let paid = false;
+  const calls = stub({ payments: true, orderStatus: () => (paid ? "confirmed" : "pending_payment") });
+  ORDER_POLL.ms = 50;
+  const log: DriverLog = { mounts: [], confirms: [], postedAtConfirm: [], searchAtMount: [] };
+  const actor = userEvent.setup();
+  open(bookUrl, fakeDriver(log));
+  await toReview(actor);
+  await actor.click(screen.getByRole("checkbox", { name: /同意保存这次付款用的银行卡/ }));
+  await actor.click(screen.getByRole("button", { name: "去付款 →" }));
+  await screen.findByRole("heading", { name: `${EMBED_TEXTS.ja.orderNo} ${ORDER_NO}` }, SLOW);
+  const payButton = await screen.findByRole("button", { name: "付款 18,000 JPY" }, SLOW);
+  assert.equal(window.location.hash, `#ch=${CH}`, "订单页地址带频道号（# 后，不发给服务器），iframe 刷新后照样带得上");
+  assert.deepEqual(log.mounts, [{ publishableKey: PK, clientSecret: SECRET, locale: "ja" }], "用下单应答里的 client_secret 直接挂（不再读一次），语言跟嵌入页");
+  assert.equal(calls.filter((call) => call.path === "/site/v1/order/payment").length, 0);
+  assert.ok(screen.getByRole("link", { name: new RegExp(`^${EMBED_TEXTS.ja.payInNewWindow}`) }).closest(".embed-book__pay-hint"), "新窗口只是退路");
+
+  await actor.click(payButton);
+  await actor.click(await screen.findByRole("button", { name: "确认支付" }));
+  await waitFor(() => assert.equal(log.confirms.length, 1));
+  const back = new URL(log.confirms[0] as string);
+  assert.equal(back.origin + back.pathname, `${window.location.origin}/embed/book/order`);
+  assert.deepEqual(Object.fromEntries(back.searchParams), { draft: DRAFT, key: KEY, lang: "ja", host: HOST, ch: CH });
+  assert.doesNotMatch(log.confirms[0] as string, /nzo_/, "令牌不进 return_url");
+  const modal = messages().filter((message) => message["type"] === "modal").map((message) => message["open"]);
+  assert.deepEqual(modal, [true, false]);
+  const openIndex = messages().findIndex((message) => message["type"] === "modal" && message["open"] === true);
+  assert.ok(openIndex < (log.postedAtConfirm[0] ?? 0), "modal{open:true} 在确认付款之前发");
+  assert.ok(await screen.findByText(/付款成功，等待确认/));
+
+  paid = true;
+  await waitFor(() => assert.equal(messages().filter((message) => message["type"] === "completed").length, 1), SLOW);
+  assert.deepEqual(messages().find((message) => message["type"] === "completed"), { ns: "nozomi-booking", v: 1, ch: CH, type: "completed", orderNo: ORDER_NO, status: "submitted" });
+  assert.equal(screen.queryByRole("heading", { name: "付款" }), null, "付完付款区块收起");
+  assert.equal(sessionStorage.getItem(EMBED_ORDER_KEY), null);
+  assert.doesNotMatch(JSON.stringify(posted), /nzo_|pi_3Embed|secret/, "消息里没有令牌、付款编号");
+});
+
+test("银行整页回跳回到嵌入订单页（M9E-19）：令牌从 nozomi.payment-return 按付款编号取回，地址里的 payment_intent / client_secret / 频道号马上去掉；回跳后发给宿主的消息仍带频道号；Stripe 说还在等付款时提示重新付", async () => {
+  screenWidth = viewportWidth(390);
+  let paid = false;
+  stub({ payments: true, orderStatus: () => (paid ? "confirmed" : "pending_payment") });
+  ORDER_POLL.ms = 50;
+  sessionStorage.setItem("nozomi.payment-return", JSON.stringify({ intentId: "pi_3Embed", token: TOKEN, at: Date.now() }));
+  const log: DriverLog = { mounts: [], confirms: [], postedAtConfirm: [], searchAtMount: [] };
+  open(`/embed/book/order${query}&ch=${CH}&payment_intent=pi_3Embed&payment_intent_client_secret=${SECRET}&redirect_status=failed`, fakeDriver(log, { awaiting: true }));
+  await screen.findByRole("heading", { name: `${EMBED_TEXTS.ja.orderNo} ${ORDER_NO}` }, SLOW);
+  keepsFrameParams();
+  for (const name of ["payment_intent", "payment_intent_client_secret", "redirect_status", "ch"]) assert.equal(new URLSearchParams(window.location.search).has(name), false, `地址里还有 ${name}`);
+  assert.equal(sessionStorage.getItem("nozomi.payment-return"), null, "取回后立刻删掉");
+  assert.ok(await screen.findByText("上次付款没有完成，请重新付款。", {}, SLOW));
+  assert.deepEqual(log.mounts.map((mount) => mount.clientSecret), [SECRET]);
+  assert.doesNotMatch(log.searchAtMount[0] ?? "", /payment_intent|redirect_status|ch=/, "挂 Stripe 之前地址里的回跳参数已经去掉");
+  assert.equal(window.location.hash, `#ch=${CH}`, "频道号移到 # 后（iframe 再刷新也带得上）");
+  assert.deepEqual(messages()[0], { ns: "nozomi-booking", v: 1, ch: CH, type: "modal", open: false }, "回跳回来先告诉宿主验证窗口已关（整页跳走时没发出去）");
+  assert.ok(messages().length > 0);
+  assert.ok(messages().every((message) => message["ch"] === CH), "回跳后的 ready / step 带得上频道号");
+  paid = true;
+  await waitFor(() => assert.equal(messages().filter((message) => message["type"] === "completed").length, 1), SLOW);
 });

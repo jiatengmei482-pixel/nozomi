@@ -173,7 +173,8 @@ export function frameParamsOf(search: string, hash: string): FrameParams {
   const draft = query.get("draft");
   const key = query.get("key");
   const lang = query.get("lang");
-  const ch = fragment.get("ch");
+  // 频道号平时在 # 后面；银行整页回跳回来的地址（M9E-19 的 return_url）没有 #，频道号放在查询串里带回来
+  const ch = fragment.get("ch") ?? query.get("ch");
   return {
     draft: isDraftId(draft) ? draft : null,
     key: key !== null && /^nze_[A-Za-z0-9_-]{32}$/.test(key) ? key : null,
