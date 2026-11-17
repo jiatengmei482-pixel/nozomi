@@ -703,6 +703,28 @@ opt:v1:<上车键>|<下车键>|<段1：固定端键 + 段内可动经停键排�
 
 ---
 
+## 十二、补记：P3 验收（2026-11-17，监工验收 PR #286 时提出的两处修改）
+
+### 1. 地点候选排序
+
+问题：搜「浅草寺」时「浅草寺病院」排在「浅草寺」前面。景点、车站、机场应排在医院、公司前面。
+
+- **在服务器排**（`apps/api/src/integrations/google-places.ts` 解析谷歌应答时，规则在 `packages/domain/src/place-search.ts` 的 `rankPlaceResults`）：主站、嵌入页和以后的客户端都一样，应答的形状不变（不多出类型字段），页面不用改。平台的机场、航站楼、车站照旧排在谷歌的候选前面。
+- 排序键依次是：① 名称和关键字完全一样（规范化、去空白、不分大小写）的最前；② 谷歌类型的权重：景点（`tourist_attraction`、`place_of_worship`、寺社、博物馆、公园……）、交通（`airport`、`train_station`、`transit_station`、`subway_station`……）、住宿（`lodging`、`hotel`……，包车客人常用的上下车点）为 1，医疗（`hospital`、`doctor`、`health`……）、公司和办事机构（`corporate_office`、`finance`……）、只有泛泛的 `establishment` / `point_of_interest` 的为 -1，其余（餐厅、地址、没有类型）为 0；主类型 `primaryType` 先看，不在两张表里再看 `types`；③ 一样的保持谷歌给的顺序。结果确定、稳定。
+- 字段和费用：Text Search 的字段掩码加 `places.types`（原来只有 `primaryType`）。`types` 和已经在用的 `displayName`、`formattedAddress`、`location`、`primaryType` 同属 **Text Search Pro** 一档，不换 SKU、不加钱（Places (New) SKU 明细，2026-11-17 查阅）。`pageSize` 由 5 改为 10：Text Search 按请求计费，条数不影响费用；多要几条再排序，取前 5 条给客人（10 条的应答远小于 64 KB 上限）。输入即提示本来就要 `types`，字段掩码不变（谷歌最多给 5 条）。机场的认定（`kind`）照旧只看 Text Search 的 `primaryType`，不受这次影响。
+- 测试：domain 单元（权重、完全一样、排序稳定）；集成层单元（假应答里浅草寺病院、公司、诊所、咖啡店、车站、机场、浅草寺，排序后浅草寺最前、公司和诊所排到 5 条以外；输入即提示同样）；集成测试 `site-places.itest.ts`（经真实接口，应答形状不变）。假谷歌的 `googlePlace` 可以带类型。
+
+### 2. 行程时间表的预计时刻
+
+- 官网下单页（主站和嵌入页同一个 `BookNewPage`）第 2 步的行程时间表，每一行写预计时刻：上车「09:00 出发」，经停「09:31 到达浅草寺」「10:31 出发」，下车「13:20 到达新宿」。算法同第三节第 6 小节：用车时间 + 逐段行驶（报价的 `itinerary_route.legs`）+ 前面各经停的停留 + 每站占用；离开 = 到达 + 停留 + 每站占用（和下一站的预计到达同一套）。跨午夜写「次日 01:00」「第 3 天 01:00」。没有路线、段数对不上时不写时刻（不拿对不上的数说话）。表下注明「到达、出发时间按路线和停留预计，实际以路况为准」。
+- 指定了到达时间又预计晚到的那一站：到达时刻**标红**（错误色令牌 `--color-danger-text`，原来是警示色）并加图标，下面写「预计 14:20 到，晚于指定的 14:00，请把上车时间提前至少 20 分钟」（提前的分钟数 = 预计到达 − 指定时间；上车提前多少，后面每一站就早到多少）。不只靠颜色：有图标和文字。经停输入行的晚到提示同一句、同样标红。仍然只提示、不拦截。
+- 右侧摘要的「经停点」每一站加一句「预计 09:31 到，10:31 出发」；晚到的那一站换成上面的提示，标红加图标。
+- 订单详情、司机页没有逐段时长（第三节第 6 小节、P1 遗留），照旧只写「须在 14:00 前到达」，不写预计时刻。
+- 文案全部走键（`apps/web/src/lib/itinerary-texts.ts`：`etaDepart`、`etaArrive`、`etaSummary`、`etaNote`，`arriveByLate` 加了提前上车的半句）。
+- 测试：web lib 单元（每行时刻、晚到标记、跨午夜、算不出来时不写）；组件测试（`waypoints.test.tsx` 时间表每行时刻、标红和图标、右侧摘要；`embed-flow.test.tsx` 嵌入页同一组件）；端到端 `site-booking-arrive-by.spec.ts`（假谷歌每段 18 分钟：10:18 到、11:18 出发……横滨 12:54 到，晚于 11:00，标红、提示提前至少 114 分钟）。
+
+---
+
 ## 参考
 
 - Routes API 计费档（Essentials ≤ 10 个中间点；用优化参数的请求按更高档计；每请求最多 25 个中间点）：https://developers.google.com/maps/documentation/routes/usage-and-billing
@@ -712,3 +734,4 @@ opt:v1:<上车键>|<下车键>|<段1：固定端键 + 段内可动经停键排�
 - 谷歌地图平台《服务专用条款》19.1–19.3（Routes：可以不配地图使用；不得与非谷歌地图一起使用；经纬度可缓存最长 30 天；页面标注 2026-10-28 修订）：https://cloud.google.com/maps-platform/terms/maps-service-terms
 - 谷歌地图平台《服务条款》3.2.3(b) No Caching（2026-08-26 修订）：https://cloud.google.com/maps-platform/terms
 - Maps Static API 标记（`label` 只支持单个字符 A–Z / 0–9；每个请求最多 5 种自定义图标）：https://developers.google.com/maps/documentation/maps-static/start#Markers
+- Places (New) SKU 明细（Text Search Pro 的字段含 `places.types`、`places.primaryType`、`places.displayName`、`places.formattedAddress`、`places.location`；2026-11-17 查阅）：https://developers.google.com/maps/billing-and-pricing/sku-details/places
