@@ -229,7 +229,7 @@ test("各品类该填的没填是 REQUIRED、不该填的填了是 NOT_APPLICABL
   }
 });
 
-test("点对点：询价（甲 15,000 中标，对外 16,500）→ 下单（两端地址必填、不填航班号）→ 凭链接看订单；没有供应商、结算价、加价比例", async () => {
+test("点对点：询价（甲 15,000 中标，对外 16,500）→ 下单（两端地址必填；航班号可填、照查格式——改用点对点报价的接机，M9E-28）→ 凭链接看订单；没有供应商、结算价、加价比例", async () => {
   const quoted = await quote(p2pBody());
   assert.deepEqual(quoted.quotes.map((entry: any) => [entry.vehicle_group.code, entry.price.total.amount, entry.package, entry.cancel_policy.category]), [["VG-BIZ-7", "16500", null, "point_to_point"]]);
   assert.equal(quoted.quotes[0].free_wait_minutes, 30);
@@ -240,8 +240,11 @@ test("点对点：询价（甲 15,000 中标，对外 16,500）→ 下单（两�
   const base = { quote_id: quoted.quotes[0].quote_id, passenger: PASSENGER, save_payment_method: true };
   const missing = await order({ ...base, pickup_address: "东京站八重洲口" });
   assert.deepEqual([missing.status, missing.body.error.details.issues.map((issue: any) => issue.path)], [400, ["/dropoff_address"]]);
-  const flight = await order({ ...base, pickup_address: "东京站八重洲口", dropoff_address: "新宿站南口", flight_no: "NH211" });
-  assert.deepEqual([flight.status, flight.body.error.details.issues.map((issue: any) => [issue.path, issue.reason])], [400, [["/flight_no", "NOT_APPLICABLE"]]]);
+  // 点对点单从 M9E-28 起可以带航班号（认出机场、改用点对点商品报价的接机，按航班定免费等待，ADR 0097 Q5；成单见 free-wait-by-flight.itest.ts），格式照查
+  const flight = await order({ ...base, pickup_address: "东京站八重洲口", dropoff_address: "新宿站南口", flight_no: "NH-211" });
+  assert.deepEqual([flight.status, flight.body.error.details.issues.map((issue: any) => [issue.path, issue.reason])], [400, [["/flight_no", "INVALID_FLIGHT_NO"]]]);
+  const kindOnly = await order({ ...base, pickup_address: "东京站八重洲口", dropoff_address: "新宿站南口", flight_kind: "international" });
+  assert.deepEqual([kindOnly.status, kindOnly.body.error.details.issues.map((issue: any) => [issue.path, issue.reason])], [400, [["/flight_kind", "NOT_APPLICABLE"]]], "没有航班号不能给航班类型");
 
   const created = await order({ ...base, pickup_address: "东京站八重洲口", dropoff_address: "新宿站南口" });
   assert.equal(created.status, 201, created.text);

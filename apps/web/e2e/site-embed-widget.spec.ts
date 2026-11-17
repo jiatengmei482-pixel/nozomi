@@ -401,6 +401,7 @@ test("嵌入组件来的单记来源（M9E-12）：建草稿 → 询价带 draft
   await page.getByRole("button", { name: "下一步：填写乘客信息" }).click();
   await expect(page.getByRole("heading", { level: 2, name: "乘客信息" })).toBeFocused();
   await page.getByLabel("航班号").fill("NH211");
+  await page.getByRole("radio", { name: /^国际航班/ }).check();
   await page.getByLabel("乘车人姓名").fill("王小明");
   await page.getByLabel("邮箱").fill(`embed-source-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`);
   await page.getByLabel("手机号（含国家区号）").fill("+81 90-1234-5678");

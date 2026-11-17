@@ -316,6 +316,7 @@ function OrderView({ token, hashToken, heldToken, arrival }: { token: string; ha
     feedback: <FeedbackSection token={token} order={order} />,
     help: <HelpSection order={order} phone={supportPhone} />,
   };
+  const placedPending = arrival?.placed === true && order.status === "pending_payment";
   return (
     <SiteLayout>
       <div className="site-order__head">
@@ -323,6 +324,8 @@ function OrderView({ token, hashToken, heldToken, arrival }: { token: string; ha
         <StatusBadge {...GUEST_STATUS_BADGES[order.status]} />
       </div>
       <div role="status">{justPaid && <Alert kind="success">付款成功，订单已确认。派车后这里会显示司机和车辆。</Alert>}</div>
+      {/* 刚下单（业主验收意见 2026-11-16）：直接进付款，付款区块紧跟在订单号下面，保存链接的提示放到付款下面 */}
+      {placedPending && <Fragment key={`${order.id}-payment-first`}>{sections.payment}</Fragment>}
       {arrival?.placed === true && (
         <Alert kind="success">
           <p>{hashToken === null ? "订单已提交。请复制下面的链接保存，之后凭这个链接查看订单；链接丢了，可以在「查订单」填订单号和邮箱，我们会把链接发到您的邮箱。" : "订单已提交。请收藏这个页面，之后凭这个链接查看订单；链接丢了，可以在「查订单」填订单号和邮箱，我们会把链接发到您的邮箱。"}</p>
@@ -339,9 +342,11 @@ function OrderView({ token, hashToken, heldToken, arrival }: { token: string; ha
         </p>
       )}
       {/* 区块按订单编号区分：同一个标签页换成另一张单的链接时，展开的表单、确认框都重新开始，不带上一张单的内容 */}
-      {orderSectionSequence(primary).map((key) => (
-        <Fragment key={`${order.id}-${key}`}>{sections[key]}</Fragment>
-      ))}
+      {orderSectionSequence(primary)
+        .filter((key) => !(placedPending && key === "payment"))
+        .map((key) => (
+          <Fragment key={`${order.id}-${key}`}>{sections[key]}</Fragment>
+        ))}
     </SiteLayout>
   );
 }

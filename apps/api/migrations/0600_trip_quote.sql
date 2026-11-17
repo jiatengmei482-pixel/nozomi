@@ -1,4 +1,4 @@
--- AI 行程报价 P1（M9T-02，ADR 0100 第二节）。只建结构，不含任何数据。编号按监工要求从 0600 起。
+-- AI 行程报价 P1（M9T-02，ADR 0101 第二节）。只建结构，不含任何数据。编号按监工要求从 0600 起。
 --
 -- 行程单跨供应商，是平台表（不带 tenant_id，供应商读不到，同 quotes）：trips → trip_plans → trip_segments / trip_fees。
 -- 规则配置属于供应商的商品，是租户表（带 tenant_id、行级安全）：trip_rule_configs。
@@ -12,7 +12,7 @@ create table trips (
   source text not null,
   status text not null,
   itinerary jsonb not null,
-  -- 渠道结算币种（建单时定，ADR 0100 第三节第 5 小节：入参和官网询价一致）
+  -- 渠道结算币种（建单时定，ADR 0101 第三节第 5 小节：入参和官网询价一致）
   currency text not null,
   -- 只由服务端在带有效验收会话时设为 true（同 orders / manual_quote_requests 的 is_acceptance）
   is_acceptance boolean not null default false,
@@ -165,7 +165,7 @@ grant select, insert, delete on trip_plans to nozomi_platform;
 grant select, insert, delete on trip_segments to nozomi_platform;
 grant select, insert, delete on trip_fees to nozomi_platform;
 
--- 跨段规则配置（租户表，ADR 0100 第四、五节）：没有这一行 = 全部用默认值；version 每次保存加一
+-- 跨段规则配置（租户表，ADR 0101 第四、五节）：没有这一行 = 全部用默认值；version 每次保存加一
 create table trip_rule_configs (
   tenant_id uuid not null,
   product_id uuid not null,

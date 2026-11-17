@@ -301,7 +301,7 @@ test("请求校验：auto 不给套餐时长、要给行程；只有包车能带
 });
 
 test("服务规则三项 + 在线下单上限：默认 0 / 0 / 不限 / 13 小时，只存和默认不同的项；范围；只有包车能设；最低套餐比所有套餐都长时上架检查给提醒", () => {
-  assert.deepEqual(DEFAULT_CHARTER_ITINERARY, { dropoffItinerarySurcharge: true, stopOccupancyMinutes: 0, bufferMinutes: 0, minPackageHours: null, maxOnlineMinutes: 780 });
+  assert.deepEqual(DEFAULT_CHARTER_ITINERARY, { dropoffItinerarySurcharge: true, stopOccupancyMinutes: 0, bufferMinutes: 0, minPackageHours: null, maxOnlineMinutes: 780, warnMinutes: 720, warnKm: 360, suggestStopOrder: true });
   assert.deepEqual(charterItineraryOf({ charterItinerary: { bufferMinutes: 60 } }), { ...DEFAULT_CHARTER_ITINERARY, bufferMinutes: 60 });
   const allow = (): boolean => true;
   assert.equal("charterItinerary" in normalizeServiceRules({ ...emptyServiceRules(), charterItinerary: { ...DEFAULT_CHARTER_ITINERARY } }, allow), false, "全是默认值不存");

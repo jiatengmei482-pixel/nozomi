@@ -1,5 +1,5 @@
 /**
- * 跨段规则配置（M9T-02，ADR 0100 第五节）：
+ * 跨段规则配置（M9T-02，ADR 0101 第五节）：
  * - `GET /tenant/v1/products/{id}/trip-rules`（`product.read`）、`PUT`（`product.manage`，带 `If-Match` 商品版本号，整体替换）；
  * - `GET /platform/v1/products/{id}/trip-rules`（`product.read`）：运营只读。
  * 金额只有结算价（规则 4）；字段名沿用配置本身的写法（camelCase），因为它整份存进 `trip_rule_configs.config`。

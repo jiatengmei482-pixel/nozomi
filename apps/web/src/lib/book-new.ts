@@ -3,7 +3,7 @@
  * 链接参数、报不出价的说法、车型列表默认显示几个、乘客 / 行李栏的写法、车内俯视示意图的排布。
  * 价格、报价、下单逻辑都不在这里：报价走 `POST /site/v1/quotes/by-points`（包车走 `POST /site/v1/quotes`），只负责显示。
  */
-import { type CityCandidate, type CurrencyCode, type LatLng, formatMajor, isCurrencyCode, minorDigits, parseMajor, rateToFraction, roundFractionHalfAwayFromZero, routeKmText, serviceCityOf } from "@nozomi/domain";
+import { type CityCandidate, type CurrencyCode, type FlightKind, type FreeWait, type LatLng, arrivalFreeWaitRange, formatMajor, lockArrivalFreeWait, isCurrencyCode, minorDigits, parseMajor, rateToFraction, roundFractionHalfAwayFromZero, routeKmText, serviceCityOf } from "@nozomi/domain";
 import { SITE_ROUTE_MAP_LIMITS, type SiteCity, type SitePlaceKind, type SiteUnavailableReason } from "../api/site.ts";
 import { UNAVAILABLE_REASON_TEXT } from "./site-display.ts";
 
@@ -172,20 +172,28 @@ export function searchWithStep(search: string, step: BookStep): string {
   return text === "" ? "" : `?${text}`;
 }
 
-/** 机场走国际线、国内线还是都有（报价应答里的 `airport.flight_scope`）；null 是没标明 */
-export type AirportFlightScope = "international" | "domestic" | "mixed";
-
 /**
- * 接机提示里的免费等待分钟数（M8-33、M9E-27）：有报价时按所选商品自己设的（报价里的 `free_wait_minutes`，无限等待为 null）；
- * 还没有报价时按平台规则（业主 2026-11-15：所有机场一样，国际航班 90、国内航班 60）：只走国际线的机场 90，只走国内线的 60；
- * 两种都有、没标明、还不知道是哪个机场（还没报过价）的看不出是哪种航班，返回 null——提示里不写分钟数，不拿 60 去猜。
+ * 接机的免费等待怎么给客人看（M9E-28，ADR 0097；2026-11-16 业主改为平台统一，M9E-31）：国际航班一律 90、国内航班一律 60，不看商品设的。
+ * - 客人选了国际 / 国内航班：那一种的分钟数；
+ * - 还没选（还没填到航班号那一步、或判断不出）：写「国际线最长 90 分钟、国内线最长 60 分钟」。
+ * `quoted`（报价里商品自己设的 `free_wait_minutes`）只留作记录，不影响结果；类型里的 `unlimited` 已不会出现，留给调用方的兜底。
  */
-export function arrivalFreeWaitMinutes(quoted: { free_wait_minutes: number | null } | null, flightScope: AirportFlightScope | null): number | null {
-  if (quoted !== null) return quoted.free_wait_minutes;
-  if (flightScope === "international") return 90;
-  if (flightScope === "domestic") return 60;
-  return null;
+export type ArrivalFreeWait = { kind: "minutes"; minutes: number } | { kind: "range"; international: number; domestic: number } | { kind: "unlimited" };
+
+export function arrivalFreeWait(quoted: { free_wait_minutes: number | null } | null, flightKind: FlightKind | null): ArrivalFreeWait {
+  const product: FreeWait | null = quoted === null ? null : quoted.free_wait_minutes === null ? { mode: "unlimited" } : { mode: "limited", minutes: quoted.free_wait_minutes };
+  if (flightKind !== null) return { kind: "minutes", minutes: lockArrivalFreeWait(product, flightKind).minutes as number };
+  return { kind: "range", ...arrivalFreeWaitRange() };
 }
+
+/** 接机提示（第 1 步）那一句。 */
+export function arrivalHintText(wait: ArrivalFreeWait): string {
+  if (wait.kind === "minutes") return `已识别为接机：司机按航班落地时间等候，落地后免费等待 ${wait.minutes} 分钟`;
+  if (wait.kind === "range") return `已识别为接机：司机按航班落地时间等候，落地后免费等待：国际线最长 ${wait.international} 分钟、国内线最长 ${wait.domestic} 分钟`;
+  return "已识别为接机：司机按航班落地时间等候，不限时免费等待";
+}
+
+export const FLIGHT_KIND_NAMES: Readonly<Record<FlightKind, string>> = { international: "国际航班", domestic: "国内航班" };
 
 /** 举牌姓名、乘车人姓名和电话的长度上限（M8-27 定，M8-32 起作为订单的正式字段单独提交，ADR 0082）。 */
 export const SIGN_NAME_MAX = 60;
@@ -194,7 +202,7 @@ export const RIDER_PHONE_MAX = 40;
 
 /**
  * 给司机的备注（M8-33、M8-32）：举牌姓名、乘车人已经是订单的正式字段，不再写进备注；
- * 只有改用点对点商品报价的接机 / 送机（点对点订单没有航班号栏）把航班号写在备注最前面。
+ * 只有改用点对点商品报价的送机把航班号写在备注最前面；改用点对点商品报价的接机，航班号和航班类型从 M9E-28 起作为正式字段提交（按航班定免费等待，ADR 0097 Q5）。
  */
 export function notesWithExtras(extras: { flightNo?: string }, notes: string): string {
   const flight = (extras.flightNo ?? "").trim().toUpperCase();

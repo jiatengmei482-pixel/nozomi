@@ -40,7 +40,7 @@ import {
   SITE_CHECKOUT_PATH,
   UNAVAILABLE_REASON_TEXT,
   defaultServiceDate,
-  freeWaitText,
+  quoteFreeWaitText,
   guestCancelPolicyText,
   localDateTimeIn,
   packageText,
@@ -194,7 +194,7 @@ function QuoteCard({ quote, draft, onChoose }: { quote: SiteQuote; draft: Bookin
         </div>
         <div className="site-facts__item">
           <dt>免费等待</dt>
-          <dd>{freeWaitText(quote.free_wait_minutes, draft.category, draft.direction)}</dd>
+          <dd>{quoteFreeWaitText(quote.free_wait_minutes, draft.category, draft.direction)}</dd>
         </div>
         <div className="site-facts__item">
           <dt>取消政策</dt>

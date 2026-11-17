@@ -1,5 +1,5 @@
 /**
- * 跨段费用（ADR 0100 第四节第 0–2、4–6 条）：住宿、停驻、第二司机、按次附加项去重、长途返程（只做函数，P1 不接入编排），
+ * 跨段费用（ADR 0101 第四节第 0–2、4–6 条）：住宿、停驻、第二司机、按次附加项去重、长途返程（只做函数，P1 不接入编排），
  * 以及跨段费用的对外价换算。金额都是商品结算币种的最小单位整数；`calc` 是算式快照，写进 `trip_fees.calc`。
  */
 import { type CurrencyCode, roundFractionHalfAwayFromZero } from "../money.ts";
@@ -175,7 +175,7 @@ export function bundleAddonDiscounts(lines: readonly SegmentAddonLine[], rules: 
 
 /**
  * 长途返程（3.2）：`min(返程公里 × 超公里单价 × ratioBp / 10000, 城市固定金额)`，只取有配置的项；超 `maxOneWayKm` → 转人工。
- * **P1 编排不调用**（ADR 0100 第四节第 4 条，监工确认 B3），P1d 接入。
+ * **P1 编排不调用**（ADR 0101 第四节第 4 条，监工确认 B3），P1d 接入。
  */
 export function returnFee(input: { returnKm: number; overKmPerKmMinor: number | null; fixedByCityMinor: number | null }, rules: EffectiveTripRules["returnTrip"]): { minor: number; source: "ratio" | "fixed" } | { handoff: "RETURN_TOO_FAR" | "RETURN_PRICE_UNAVAILABLE" } | null {
   if (!rules.enabled) return null;

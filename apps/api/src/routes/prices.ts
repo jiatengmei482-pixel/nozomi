@@ -77,13 +77,15 @@ const MODEL_FIELDS = {
   charter_area_surcharge: { pickup_surcharge: "pickupSurchargeMinor", dropoff_surcharge: "dropoffSurchargeMinor", waypoint_surcharge: "waypointSurchargeMinor" },
   // 包车②行程加价（M9P-05，ADR 0093 第一节）：只有迁移过三层区域的商品能用
   charter_itinerary_surcharge: { itinerary_surcharge: "surchargeMinor" },
+  // 包车机场套餐价（M9P-21，ADR 0098 第三节第 3 小节）：direction 是场景（pickup 机场开始 / dropoff 机场结束）；只有套餐价必填，其余三项不填 = 同普通套餐
+  charter_airport_package: { package_price: "packagePriceMinor", package_km: "packageKm", over_km_per_km: "overKmPerKmMinor", overtime_per_hour: "overtimePerHourMinor" },
 } as const;
 const PRICE_FIELDS = [...new Set(Object.values(MODEL_FIELDS).flatMap((fields) => Object.keys(fields)))];
 /**
  * 可以不填（null）的数：里程 + 时长的最低消费（存成 null）；一口价的含公里数、超出每公里（不填就不存这两个键，和 M8-11 之前的一口价一模一样；
  * 只填了一个由 domain 报 REQUIRED）；包车区域加价的途经加价（不填就不存这个键，和 M9W-01 之前的规则一模一样）。
  */
-const OPTIONAL_FIELDS: Readonly<Partial<Record<keyof typeof MODEL_FIELDS, readonly string[]>>> = { mileage_time: ["min_price"], fixed: ["included_km", "over_km_per_km"], charter_area_surcharge: ["waypoint_surcharge"] };
+const OPTIONAL_FIELDS: Readonly<Partial<Record<keyof typeof MODEL_FIELDS, readonly string[]>>> = { mileage_time: ["min_price"], fixed: ["included_km", "over_km_per_km"], charter_area_surcharge: ["waypoint_surcharge"], charter_airport_package: ["package_km", "over_km_per_km", "overtime_per_hour"] };
 
 /** 修改的那条请求里压根没有 `waypoint_surcharge` 这个键（不是传了 null）：保留原来的途经加价（M9W-06，旧页面、旧对接方改上 / 下车加价时不清掉它） */
 function omitsWaypointSurcharge(entry: unknown): boolean {

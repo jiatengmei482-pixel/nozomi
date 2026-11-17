@@ -181,6 +181,7 @@ export function receiptTypesOffered(types: readonly ExtraChargeType[]): boolean 
 export const CHANGE_FIELD_NAMES: Readonly<Record<string, string>> = {
   passenger: "乘客",
   flight_no: "航班号",
+  flight_kind: "航班类型",
   messaging: "即时通讯",
   notes: "备注",
   pickup_address: "上车点地址",
@@ -198,6 +199,7 @@ export function changeValueText(field: string, value: unknown, timeZone: string)
     const passenger = value as { name?: string; phone?: string; email?: string };
     return [passenger.name, passenger.phone, passenger.email].filter(Boolean).join(" · ");
   }
+  if (field === "flight_kind" && typeof value === "string") return value === "international" ? "国际航班" : value === "domestic" ? "国内航班" : value;
   if (field === "messaging" && typeof value === "object") {
     const messaging = value as { app?: string; handle?: string };
     return `${messaging.app ?? ""}：${messaging.handle ?? ""}`;

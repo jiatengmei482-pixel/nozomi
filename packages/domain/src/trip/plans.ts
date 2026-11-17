@@ -1,5 +1,5 @@
 /**
- * 方案组装与推荐（ADR 0100 第三节第 6 小节；偏离 D1、D2 监工 2026-11-15 同意）。
+ * 方案组装与推荐（ADR 0101 第三节第 6 小节；偏离 D1、D2 监工 2026-11-15 同意）。
  * - `daily_best`：每天独立取总价最低的拆法和中标报价（可不同供应商、车型组）；不加住宿、停驻、附加项去重。
  * - `one_car`：同一租户 × 同一车型组贯穿全部用车日；每天取它自己的最低拆法。机场 / 点对点日按三级规则：
  *   1. 同租户同车型组能报（包车段或接送机 / 点对点段都行）→ 算同一辆车；
@@ -150,7 +150,7 @@ export function recommendPlan(plans: readonly PlanTotal[], gapBp: number = TRIP_
   return BigInt(daily.sellMinor) * 10_000n <= BigInt(one.sellMinor) * BigInt(10_000 - gapBp) ? "daily_best" : "one_car";
 }
 
-/** 段报价预算（ADR 0100 第三节第 5 小节）：按日期顺序，剩余不够下一天全部拆法时，余下各天只报「不拆」 */
+/** 段报价预算（ADR 0101 第三节第 5 小节）：按日期顺序，剩余不够下一天全部拆法时，余下各天只报「不拆」 */
 export const TRIP_BUDGET = { maxSegmentQuotes: 120, maxRouteCalls: 200 } as const;
 
 /**

@@ -10,10 +10,10 @@ export function isInternalPath(to: string): boolean {
   return /^\/(?![/\\])[^\\\u0000-\u001f]*$/.test(to);
 }
 
-export function NewTabLink({ to, className = "link", children }: { to: string; className?: string; children: ReactNode }) {
+export function NewTabLink({ to, className = "link", children, "aria-describedby": describedBy }: { to: string; className?: string; children: ReactNode; "aria-describedby"?: string | undefined }) {
   if (!isInternalPath(to)) return <span>{children}</span>;
   return (
-    <a className={className} href={to} target="_blank" rel="noopener">
+    <a className={className} href={to} target="_blank" rel="noopener" aria-describedby={describedBy}>
       {children}
       <Icon name="external" />
       <span className="visually-hidden">（在新标签页打开）</span>

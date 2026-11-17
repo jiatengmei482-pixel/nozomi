@@ -5,7 +5,8 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { ApiError } from "../../api/client.ts";
-import { type Product, type ProductServiceRules, type PublishCheckItemBody, type PublishCheckResult, setProductPublished } from "../../api/products.ts";
+import type { Place } from "../../api/master.ts";
+import { type Product, type ProductServiceRules, type PublishCheckItemBody, type PublishCheckResult, listCityLandmarks, setProductPublished } from "../../api/products.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { Button, LinkButton } from "../../components/Button.tsx";
@@ -14,7 +15,7 @@ import { Icon, type IconName } from "../../components/Icon.tsx";
 import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { useToast } from "../../components/Toast.tsx";
 import { areaEditPath } from "../../lib/area-paths.ts";
-import { shortName } from "../../lib/master-display.ts";
+import { displayName, shortName } from "../../lib/master-display.ts";
 import { CHECK_STEP, type CheckItemState, checkItemName, checkItemState, checkOverview, checkReasons, noteForPortal, productName, quoteNames } from "../../lib/product-display.ts";
 import { PRODUCT_FORBIDDEN_TEXT, saveFailureText } from "../../lib/product-failure.ts";
 import { localToday } from "../../lib/time-input.ts";
@@ -30,7 +31,9 @@ const STATE_LOOK: Readonly<Record<CheckItemState, { icon: IconName; tone: string
   optional: { icon: "minus", tone: "muted" },
 };
 const UNAVAILABLE_NOTES: Readonly<Record<string, string>> = { price_rules: "不是出错：设价格的页面还在开发。开放后在那里设好至少 1 条启用的价格规则，这一项就会满足。" };
-const OPTIONAL_NOTES: Readonly<Record<string, string>> = { adjust_rules: "节假日、旺季想调价时才用。", inventory: "不设就是不限量；想限制每天接多少单时才用。", area_coverage: "只是提醒：勾选的报价区域超出运营区域的部分不会报价。", charter_min_package: "只是提醒：最低套餐比所有启用的套餐都长时，这个商品报不出价。" };
+const OPTIONAL_NOTES: Readonly<Record<string, string>> = { adjust_rules: "节假日、旺季想调价时才用。", inventory: "不设就是不限量；想限制每天接多少单时才用。", area_coverage: "只是提醒：勾选的报价区域超出运营区域的部分不会报价。", charter_min_package: "只是提醒：最低套餐比所有启用的套餐都长时，这个商品报不出价。", charter_coverage: "只是提醒：城市热门地标清单里不在这个商品任何区域里的地标，客人在那里报不出价。" };
+/** 不拦上架、但有内容时要留意的几项（库存、报价区域超出运营区域、包车三层区域的几项提醒） */
+const HEEDFUL_KEYS: readonly string[] = ["inventory", "area_coverage", "charter_coverage", "charter_empty_cells", "charter_layer_overlap"];
 
 export function PublishStep({ frame, product, onReload, checkStatus }: { frame: ProductFrame; product: Product; onReload(): void; checkStatus: string }) {
   const { readOnly, checkContext } = frame;
@@ -68,6 +71,10 @@ export function PublishStep({ frame, product, onReload, checkStatus }: { frame: 
   }, [rejected]);
 
   const check = rejected ?? frame.check;
+  // 「热门地标覆盖」（M9P-07）：接口只给地标编号，供应商后台取这个城市的地标写出名字；取不到时只写个数
+  const uncovered = check?.items.some((item) => item.key === "charter_coverage" && item.issues.length > 0) === true;
+  const landmarks = useLoad<Place[]>(`publish-landmarks:${product.city_id}`, uncovered && !onPlatform ? (session) => listCityLandmarks(session, product.city_id) : null);
+  const placeNames = landmarks.state.data === null ? null : new Map(landmarks.state.data.map((place) => [place.id, displayName(place.name).text]));
   const recheck = (): void => {
     setRejected(null);
     onReload();
@@ -163,10 +170,10 @@ export function PublishStep({ frame, product, onReload, checkStatus }: { frame: 
     const itemName = checkItemName(item.key);
     const step = CHECK_STEP[item.key as keyof typeof CHECK_STEP];
     // 不是必须的项也可能有要提醒的（调价规则会把价格调到不大于 0）
-    const reasons = state === "missing" || (state === "optional" && !item.passed) ? checkReasons(item, checkContext) : [];
+    const reasons = state === "missing" || (state === "optional" && !item.passed) ? checkReasons(item, placeNames === null ? checkContext : { ...checkContext, placeNames }) : [];
     const stepPath = item.key === "adjust_rules" ? pricePath(product.id, "adjust") : step ? productPath(product.id, step) : null;
     // 库存从今天起没有、报价区域超出运营区域（M8-20）：不拦上架，但要留意
-    const heedful = (item.key === "inventory" || item.key === "area_coverage") && reasons.length > 0;
+    const heedful = HEEDFUL_KEYS.includes(item.key) && reasons.length > 0;
     const stateText = state === "passed" ? "已满足" : state === "missing" ? `还差 ${Math.max(1, reasons.length)} 项` : state === "unavailable" ? "功能即将开放" : heedful ? `有 ${reasons.length} 处要留意` : "不是必须";
     const optionalNote = item.key === "inventory" ? (frame.inventoryMode === "unlimited" ? "现在是不限量，每天接多少单都可以。想限制每天接多少单时才用设。" : frame.inventoryMode === "limited" ? "现在是限量，按每天设的库存接单。" : (OPTIONAL_NOTES[item.key] ?? "")) : (OPTIONAL_NOTES[item.key] ?? "");
     return (

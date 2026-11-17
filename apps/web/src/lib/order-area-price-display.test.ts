@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { hasAreaSurcharge, itineraryOverageLines, platformDistanceLines, pricingRouteText, tenantDistanceLines, tenantSurchargeLines } from "./order-area-price-display.ts";
+import { charterScenarioLine, hasAreaSurcharge, itineraryOverageLines, platformDistanceLines, platformSurchargeLines, pricingRouteText, tenantDistanceLines, tenantSurchargeLines } from "./order-area-price-display.ts";
 import { siteDistanceNote } from "./site-display.ts";
 
 const yen = (amount: string) => ({ amount, currency: "JPY" });
@@ -28,6 +28,16 @@ test("区域加价：两端都在服务区域里不算有加价；供应商写�
   const end = (area_id: string | null, amount: string) => ({ area_id, area_name: area_id === null ? null : { zh: "富士山" }, settlement: yen(amount) });
   assert.equal(hasAreaSurcharge({ package_settlement: yen("70000"), pickup: end(null, "0"), dropoff: end(null, "0") }), false);
   assert.deepEqual(tenantSurchargeLines({ package_settlement: yen("70000"), pickup: end(null, "0"), dropoff: end("a", "1000") }), ["上车：在服务区域里，不加价", "下车：富士山 · 加 JPY 1,000"]);
+});
+
+test("机场套餐（M9P-21 / M9P-22，ADR 0098）：免掉的那一端写「含在机场套餐里」，最后一行是场景；继承的照常列加价", () => {
+  const scenario = { kind: "airport_start" as const, airport_id: "nrt", airport_name: "成田机场", pricing: "own" as const };
+  const own = { package_settlement: yen("45000"), pickup: { area_id: "airport", area_name: { zh: "成田机场（航站楼）" }, settlement: yen("0"), included_in_package: true as const }, dropoff: { area_id: null, area_name: null, settlement: yen("0") }, charter_scenario: scenario };
+  assert.deepEqual(tenantSurchargeLines(own), ["上车：含在机场套餐里，不另加", "下车：在服务区域里，不加价", "机场套餐：成田机场接机（单独定价，已含上车加价）"]);
+  assert.deepEqual(platformSurchargeLines(own), ["上车：含在机场套餐里，不另加", "下车：在服务区域里，不加价", "机场套餐：成田机场接机（单独定价，已含上车加价）"]);
+  const inherit = { package_settlement: yen("33000"), pickup: { area_id: null, area_name: null, settlement: yen("0") }, dropoff: { area_id: null, area_name: null, settlement: yen("0") }, charter_scenario: { ...scenario, kind: "airport_end" as const, airport_name: "羽田机场", pricing: "inherit" as const } };
+  assert.equal(hasAreaSurcharge(inherit), true, "羽田在服务区域里也要写出场景");
+  assert.deepEqual(charterScenarioLine(inherit.charter_scenario), "机场套餐：羽田机场送机（继承普通套餐价）");
 });
 
 test("官网含公里数那一句：对外价的十进制写法换成最小单位交给 domain；币种不认识、写法不对、没有这一项时不写", () => {
