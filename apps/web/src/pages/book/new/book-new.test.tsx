@@ -1024,8 +1024,8 @@ test("手机底部按钮条（M9E-32，ADR 0100）：每一步的「上一步」
   }
 });
 
-test("电脑、平板没有底部按钮条（M9E-32）：按钮照旧在正文末尾；第 2 步没选车时「下一步」灰着、下面写原因（aria-describedby）", async () => {
-  for (const width of [1280, 900]) {
+test("电脑没有底部按钮条（M9E-32）：按钮照旧在正文末尾；第 2 步没选车时「下一步」灰着、下面写原因（aria-describedby）", async () => {
+  for (const width of [1280, 1024]) {
     resetBrowser();
     viewportWidth(width);
     open({ at: LINK_AT });
@@ -1042,6 +1042,24 @@ test("电脑、平板没有底部按钮条（M9E-32）：按钮照旧在正文�
     await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
     assert.equal(nextContact.disabled, false);
     assertAbsent(screen.queryByText("请先选择车型"));
+  }
+});
+
+test("平板 769–1023 也用底部按钮条（同手机，业主 2026-11-17，ADR 0100 第八节）：正文末尾没有按钮，第 2 步没选车时条里的「下一步」灰着写原因", async () => {
+  for (const width of [1023, 900, 769]) {
+    resetBrowser();
+    viewportWidth(width);
+    open({ at: LINK_AT });
+    const actor = user();
+    await screen.findByRole("heading", { name: "车型1" }, SLOW);
+    assert.ok(document.querySelector(".step-bar"), `${width}：有底部条`);
+    assert.equal(document.querySelector(".book-new__vehicles .book-new__actions"), null, `${width}：正文末尾不再放按钮`);
+    const nextContact = within(stepBar()).getByRole("button", { name: NEXT_CONTACT }) as HTMLButtonElement;
+    assert.ok(within(stepBar()).getByRole("button", { name: "上一步" }));
+    assert.equal(nextContact.disabled, true, `${width}：没选车时灰着`);
+    assert.equal(document.getElementById(nextContact.getAttribute("aria-describedby") ?? "")?.textContent, "请先选择车型", `${width}：原因`);
+    await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
+    assert.equal(nextContact.disabled, false);
   }
 });
 

@@ -1,8 +1,8 @@
 /**
  * 新预订页每一步的按钮（「上一步」+ 这一步的主按钮）放在哪里（M9E-32，业主验收意见 2026-11-16，ADR 0100）：
  *
- * - 电脑、平板（> 768px）：照旧在这一步的正文末尾（`book-new__actions`），布局不变。
- * - 手机（≤ 768px，`useCompactScreen`）：一条底部按钮条，左边次要按钮「上一步」、右边主按钮；第 2 步上面多一行「车型 · 一口价 价格」。
+ * - 电脑（≥ 1024px，两栏）：照旧在这一步的正文末尾（`book-new__actions`），布局不变。
+ * - 手机和平板（≤ 1023px，`useCompactScreen`；平板 769–1023 业主 2026-11-17 定为同手机）：一条底部按钮条，左边次要按钮「上一步」、右边主按钮；第 2 步上面多一行「车型 · 一口价 价格」。
  *   - 主站：`position: fixed` 贴屏幕底部，留 `env(safe-area-inset-*)`；条的实际高度量出来写到 <html> 的 `--book-actionbar-h`，
  *     页面（body）底部留出同样高度、`scroll-padding-bottom` 也用它，所以不挡表单最后一项和页脚。
  *   - 嵌入页（`frame` 给了宿主可视区）：iframe 被撑到内容全高，fixed / sticky 只会贴在内容最末尾。条留在文档流里自己的位置，
@@ -16,8 +16,8 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { type HostViewportSource, frameBarShift } from "../../../embed/frame-bar.ts";
 import { stepBarCopy } from "../../../lib/step-bar-texts.ts";
 
-/** 手机宽度：≤ 768px（业主验收意见）。电脑两栏仍是 ≥ 1024px，769–1023 的平板单栏、按钮照旧在正文末尾 */
-export const COMPACT_QUERY = "(max-width: 768px)";
+/** 单栏宽度：≤ 1023px（手机 + 平板，业主 2026-11-17：平板也用底部按钮条）。电脑两栏仍是 ≥ 1024px */
+export const COMPACT_QUERY = "(max-width: 1023px)";
 /** 主按钮点不了的原因（同一时间页面上只有一条按钮条） */
 export const STEP_BAR_REASON_ID = "book-step-reason";
 /** 主站手机底部条的实际高度（<html> 上；页面底部留出同样高度） */
@@ -65,7 +65,7 @@ export function useViewportFitCover(active: boolean): void {
 }
 
 export interface StepActionBarProps {
-  /** 手机宽度（`useCompactScreen`） */
+  /** 单栏宽度（手机、平板，`useCompactScreen`） */
   compact: boolean;
   /** 嵌入页：宿主可视区（`BookingShell.hostViewport`）；主站不给 */
   frame?: HostViewportSource | undefined;

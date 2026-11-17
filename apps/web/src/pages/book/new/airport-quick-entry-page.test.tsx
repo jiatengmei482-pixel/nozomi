@@ -22,7 +22,7 @@ afterEach(() => {
 });
 
 function screenWidth(kind: "compact" | "wide"): void {
-  window.matchMedia = ((query: string) => ({ matches: kind === "compact" ? query.includes("max-width: 768px") : query.includes("min-width: 1024px"), media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false })) as typeof window.matchMedia;
+  window.matchMedia = ((query: string) => ({ matches: kind === "compact" ? query.includes("max-width: 1023px") : query.includes("min-width: 1024px"), media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false })) as typeof window.matchMedia;
 }
 
 const SLOW = { timeout: 3000 };
