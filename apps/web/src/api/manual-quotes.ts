@@ -68,9 +68,10 @@ export interface ManualQuoteDetail {
   events: ManualQuoteEvent[];
 }
 
-/** 包车的一个经停点（M9W-04）：地点和停留分钟 */
+/** 包车的一个经停点（M9W-04）：地点和停留分钟；`arrive_by` 是客人指定的到达时间（M9P-20 P3），只在指定了时有 */
 export interface ManualQuoteWaypoint extends ManualQuotePlace {
   stay_minutes: number;
+  arrive_by?: { day_offset: 0 | 1; time: string };
 }
 
 export type ManualQuoteCounts = Record<ManualQuoteStatus, number>;
@@ -113,10 +114,12 @@ export const MANUAL_QUOTE_SCHEMA_FIELDS = {
   ManualQuoteRequestSummary: ["id", "request_no", "status", "category", "city", "service_local", "passengers", "luggage", "package_hours", "has_email", "has_whatsapp", "is_acceptance", "assignee", "version", "created_at", "updated_at", "finished_at", "purged_at"],
   ManualQuoteEvent: ["id", "kind", "from_status", "to_status", "assignee", "note", "actor", "created_at"],
   ManualQuotePlace: ["name", "lat", "lng"],
-  ManualQuoteWaypoint: ["name", "lat", "lng", "stay_minutes"],
+  ManualQuoteWaypoint: ["name", "lat", "lng", "stay_minutes", "arrive_by"],
   ManualQuotePerson: ["id", "name"],
   SiteSettings: ["support_whatsapp", "page_width", "version", "updated_at", "updated_by"],
 } as const satisfies Record<string, readonly string[]>;
+/** 只在有内容时才给的字段（不在 `required` 里）：经停点的指定到达时间（M9P-20 P3） */
+export const MANUAL_QUOTE_OPTIONAL_FIELDS: Readonly<Partial<Record<keyof typeof MANUAL_QUOTE_SCHEMA_FIELDS, readonly string[]>>> = { ManualQuoteWaypoint: ["arrive_by"] };
 export const MANUAL_QUOTE_DETAIL_FIELDS: readonly (keyof ManualQuoteDetail)[] = ["request", "contact", "pickup", "dropoff", "waypoints", "events"];
 export const MANUAL_QUOTE_QUERY_KEYS = ["limit", "cursor", "status", "assignee", "contact", "acceptance"] as const satisfies readonly (keyof ManualQuoteQuery)[];
 

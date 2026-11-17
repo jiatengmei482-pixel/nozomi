@@ -3,13 +3,13 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MAX_WAYPOINTS, STAY_OPTIONS, autoPackageChoice, autoPackageHoursByVehicle, breakdownLines, estimatedTimeText, hoursMinutesText, minPackageHints, upgradePackageHours, durationText, itineraryRouteFailureText, itineraryText, orderItineraryText, moveWaypoint, scheduleRows, waypointErrors, waypointUnavailableTexts, waypointsBody } from "./charter-itinerary.ts";
+import { MAX_WAYPOINTS, STAY_OPTIONS, autoPackageChoice, autoPackageHoursByVehicle, breakdownLines, estimatedTimeText, hoursMinutesText, minPackageHints, upgradePackageHours, durationText, itineraryMapAlt, itineraryMapPoints, itineraryRouteFailureText, itineraryText, orderItineraryText, moveWaypoint, scheduleRows, waypointErrors, waypointUnavailableTexts, waypointsBody } from "./charter-itinerary.ts";
 
 const point = (name: string) => ({ name, lat: 35.5, lng: 138.7, kind: null });
 const yen = (amount: number) => ({ amount: String(amount), currency: "JPY" });
 
-test("停留时长 30 分钟一档到 8 小时；最多 10 个经停点", () => {
-  assert.equal(MAX_WAYPOINTS, 10);
+test("停留时长 30 分钟一档到 8 小时；最多 25 个经停点（M9P-10，和后端同一个常量）", () => {
+  assert.equal(MAX_WAYPOINTS, 25);
   assert.deepEqual([STAY_OPTIONS[0], STAY_OPTIONS[1], STAY_OPTIONS.at(-1), STAY_OPTIONS.length], [30, 60, 480, 16]);
   assert.deepEqual([durationText(30), durationText(60), durationText(90), durationText(450)], ["30 分钟", "1 小时", "1 小时 30 分", "7 小时 30 分"]);
 });
@@ -42,9 +42,11 @@ test("按行程预计：只用服务器算的总时长、行驶、停留和全�
   assert.equal(orderItineraryText(null), null);
 });
 
-test("按行程计价有一段路线算不出来：说清是哪两个点之间；段号不对时笼统地说", () => {
+test("按行程计价有一段路线算不出来：说清第几段、是哪两个点之间（编号上车 = 1，M9P-20）；段号不对时笼统地说", () => {
   const points = ["新宿", "五合目", "河口湖", "新宿站"];
-  assert.equal(itineraryRouteFailureText(2, points), "「五合目」到「河口湖」这一段路线暂时算不出来，没有在线报价。请联系客服人工报价，或调整经停点再试。");
+  assert.equal(itineraryRouteFailureText(2, points), "第 2 段（2「五合目」→ 3「河口湖」）路线暂时算不出来，没有在线报价。请联系客服人工报价，或调整经停点再试。");
+  assert.equal(itineraryRouteFailureText(1, points), "第 1 段（1「新宿」→ 2「五合目」）路线暂时算不出来，没有在线报价。请联系客服人工报价，或调整经停点再试。");
+  assert.equal(itineraryRouteFailureText(0, points), "有一段路线暂时算不出来，没有在线报价。请联系客服人工报价，或调整经停点再试。");
   assert.equal(itineraryRouteFailureText(9, points), "有一段路线暂时算不出来，没有在线报价。请联系客服人工报价，或调整经停点再试。");
   assert.equal(itineraryRouteFailureText("x", points), "有一段路线暂时算不出来，没有在线报价。请联系客服人工报价，或调整经停点再试。");
 });
@@ -63,7 +65,7 @@ test("明细：各项之和等于总价才给；对不上、币种不同、读�
     [
       ["包车套餐 10 小时", "60,500 JPY"],
       ["上车加价（东区）", "550 JPY"],
-      ["行程加价（富士山地区，第 1、3 个经停点）", "11,000 JPY"],
+      ["行程加价（富士山地区，2、4 · 经停）", "11,000 JPY"],
       ["调价", "-550 JPY"],
       ["其他费用（加急、夜间、附加服务等）", "1,000 JPY"],
     ],
@@ -75,23 +77,40 @@ test("明细：各项之和等于总价才给；对不上、币种不同、读�
   assert.equal(breakdownLines({ price: { total: yen(100), fx: null }, price_breakdown: [{ kind: "base", amount: yen(100), area_name: null, stop_seqs: null }] }, null)?.[0]?.label, "基础价");
 });
 
-test("行程时间表：上车 → 经停 → 下车；段数对得上才写行驶分钟", () => {
+test("行程时间表：上车 = 1、经停依次、下车 = 最后（M9P-20）；段数对得上才写每段的行驶分钟和米数", () => {
   const stops = [{ name: "五合目", stay_minutes: 60 }];
   assert.deepEqual(
-    scheduleRows("新宿", "河口湖", stops, [{ minutes: 120 }, { minutes: 30 }]).map((row) => [row.label, row.name, row.driveMinutes, row.stayMinutes]),
+    scheduleRows("新宿", "河口湖", stops, [
+      { minutes: 120, meters: 98_400 },
+      { minutes: 30, meters: 21_050 },
+    ]).map((row) => [row.number, row.label, row.name, row.driveMinutes, row.driveMeters, row.stayMinutes]),
     [
-      ["上车", "新宿", null, null],
-      ["经停 1", "五合目", 120, 60],
-      ["下车", "河口湖", 30, null],
+      [1, "1 上车", "新宿", null, null, null],
+      [2, "2 经停", "五合目", 120, 98_400, 60],
+      [3, "3 下车", "河口湖", 30, 21_050, null],
     ],
   );
   assert.deepEqual(scheduleRows("新宿", "河口湖", stops, [{ minutes: 120 }]).map((row) => row.driveMinutes), [null, null, null]);
-  assert.deepEqual(scheduleRows("新宿", null, stops).map((row) => row.label), ["上车", "经停 1"]);
+  assert.deepEqual(scheduleRows("新宿", "河口湖", stops, [{ minutes: 120 }, { minutes: 30 }]).map((row) => row.driveMeters), [null, null, null], "没有米数时不写公里");
+  assert.deepEqual(scheduleRows("新宿", null, stops).map((row) => row.label), ["1 上车", "2 经停"], "没有下车点的旧订单：最后一个仍是经停");
+  assert.deepEqual(scheduleRows("新宿", "河口湖", []).map((row) => row.label), ["1 上车", "2 下车"]);
+  const ten = scheduleRows("新宿", "新宿", Array.from({ length: 10 }, (_, i) => ({ name: `点${i + 1}`, stay_minutes: 30 })));
+  assert.deepEqual(ten.map((row) => row.number), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+  assert.deepEqual([ten[10]?.label, ten[11]?.label], ["11 经停", "12 下车"]);
+});
+
+test("行程地图的替代文字：全程各点带编号，有路线时加总时长和公里", () => {
+  const rows = scheduleRows("新宿", "新宿", [
+    { name: "河口湖", stay_minutes: 60 },
+    { name: "箱根", stay_minutes: 60 },
+  ]);
+  assert.equal(itineraryMapAlt(rows, { total_minutes: 370, total_meters: 311_950 }), "路线图：1 新宿 → 2 河口湖 → 3 箱根 → 4 新宿，约 6 小时 10 分 · 312 公里");
+  assert.equal(itineraryMapAlt(rows, null), "路线图：1 新宿 → 2 河口湖 → 3 箱根 → 4 新宿");
 });
 
 test("经停点报不出价：指出第几个、叫什么；没有编号时一句笼统的；没有这个原因时空", () => {
   const stops = [{ name: "五合目" }, { name: "河口湖" }, { name: "忠灵塔" }];
-  assert.deepEqual(waypointUnavailableTexts([{ vehicle_group_id: null, reasons: ["WAYPOINT_NOT_PRICED"], waypoint_stop_seqs: [3, 1] }], stops), ["第 1 个经停点「五合目」、第 3 个经停点「忠灵塔」暂时没有在线报价，请联系客服人工报价，或去掉这个经停点再试。"]);
+  assert.deepEqual(waypointUnavailableTexts([{ vehicle_group_id: null, reasons: ["WAYPOINT_NOT_PRICED"], waypoint_stop_seqs: [3, 1] }], stops), ["2 号点「五合目」、4 号点「忠灵塔」暂时没有在线报价，请联系客服人工报价，或去掉这个经停点再试。"]);
   assert.deepEqual(waypointUnavailableTexts([{ vehicle_group_id: null, reasons: ["WAYPOINT_NOT_PRICED"] }], stops), ["有经停点暂时没有在线报价，请联系客服人工报价，或去掉这个经停点再试。"]);
   assert.deepEqual(waypointUnavailableTexts([{ vehicle_group_id: null, reasons: ["SOLD_OUT"] }], stops), []);
 });
@@ -133,6 +152,17 @@ test("M9P-04 有经停点时的套餐下拉按车型：选了车型写它自己�
   assert.deepEqual(upgradePackageHours([4, 8, 10], null), []);
 });
 
+test("经停超过 10 个（M9P-10 放开上限后）：列表编号照常到 27；地图最多 12 个点，超过不画图（只显示列表）", () => {
+  const many = Array.from({ length: 25 }, (_, i) => ({ name: `点${i + 1}`, stay_minutes: 30 }));
+  const rows = scheduleRows("新宿", "新宿", many);
+  assert.deepEqual(rows.map((row) => row.number), Array.from({ length: 27 }, (_, i) => i + 1));
+  assert.deepEqual([rows[25]?.label, rows[26]?.label], ["26 经停", "27 下车"]);
+  const at = (i: number) => ({ lat: 35 + i / 100, lng: 139 });
+  assert.equal(itineraryMapPoints(at(0), Array.from({ length: 10 }, (_, i) => at(i + 1)), at(11))?.length, 12);
+  assert.equal(itineraryMapPoints(at(0), Array.from({ length: 11 }, (_, i) => at(i + 1)), at(12)), null);
+  assert.deepEqual(itineraryMapPoints(at(0), [], at(1)), [at(0), at(1)]);
+});
+
 test("M9P-04 预计用时：「X 小时 Y 分钟（含缓冲）」写在套餐那一行下面；没含缓冲不写「含缓冲」；超过套餐时说超出部分服务后收；不按行程计价没有", () => {
   assert.equal(hoursMinutesText(252), "4 小时 12 分钟");
   assert.equal(hoursMinutesText(300), "5 小时");
@@ -148,7 +178,7 @@ test("M9P-04 预计用时：「X 小时 Y 分钟（含缓冲）」写在套餐�
   const quote = { price: { total: yen(41_000), fx: null }, estimated_minutes: 252, includes_buffer: true, price_breakdown: [{ kind: "base" as const, amount: yen(33_000), area_name: null, stop_seqs: null }, { kind: "waypoint" as const, amount: yen(8_000), area_name: { zh: "镰仓" }, stop_seqs: [1] }] };
   assert.deepEqual(breakdownLines(quote, 5)?.map((line) => [line.label, line.amount, line.note ?? null]), [
     ["包车套餐 5 小时", "33,000 JPY", "预计用时 4 小时 12 分钟（含缓冲）"],
-    ["行程加价（镰仓，第 1 个经停点）", "8,000 JPY", null],
+    ["行程加价（镰仓，2 · 经停）", "8,000 JPY", null],
   ]);
 });
 
@@ -161,7 +191,7 @@ test("M9P-04 明细逐项：套餐、上车加价、下车加价、行程加价�
     { kind: "dropoff" as const, amount: yen(10_000), area_name: { zh: "富士山" }, stop_seqs: null },
     { kind: "over_km" as const, amount: yen(1_000), area_name: null, stop_seqs: null },
   ];
-  assert.deepEqual(breakdownLines({ price: { total: yen(94_000), fx: null }, price_breakdown: items }, 10)?.map((line) => line.label), ["包车套餐 10 小时", "上车加价（富士山）", "下车加价（富士山）", "行程加价（镰仓，第 1 个经停点）", "行程加价（箱根，第 2 个经停点）", "超公里费"]);
+  assert.deepEqual(breakdownLines({ price: { total: yen(94_000), fx: null }, price_breakdown: items }, 10)?.map((line) => line.label), ["包车套餐 10 小时", "上车加价（富士山）", "下车加价（富士山）", "行程加价（镰仓，2 · 经停）", "行程加价（箱根，3 · 经停）", "超公里费"]);
   // 规格用例 16：新宿 → 河口湖站下车，不填经停点：套餐 + 下车加价 + 下车点行程加价
   const noStops = [
     { kind: "base" as const, amount: yen(60_500), area_name: null, stop_seqs: null },

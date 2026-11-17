@@ -2,7 +2,7 @@
  * M9E-02：嵌入组件的嵌入码与白名单、`/embed/v1` 的跨域规则、建草稿、来源统计（ADR 0090），经真实接口、真实 PostgreSQL。
  *
  * 覆盖：运营后台的权限矩阵、校验、`If-Match`、审计、外观（M9E-10，选填、修改不填保持原值、写进要放的代码）；`/embed/v1` 白名单（完全相等；null、缺失、只差一点、http、停用都 403 且无 CORS 头）、预检；
- * 建草稿（201 + 主站地址、多余键 400、16 KB 413、return_url 不合格被忽略、每地址 / 每嵌入码限速、5,000 个有效草稿上限、过期后恢复）；
+ * 建草稿（201 + 主站地址、多余键 400、24 KB 413、return_url 不合格被忽略、每地址 / 每嵌入码限速、5,000 个有效草稿上限、过期后恢复）；
  * 来源：草稿 → 询价 → 下单记「嵌入组件」和返回地址，下单前移出白名单记主站、不拒单；`/tenant/v1` 订单详情没有来源；
  * `/site/v1`、`/platform/v1`、`/tenant/v1` 带白名单 Origin 也不带 CORS 头。测试数据全在本文件里建出来，随测试 schema 一起删除。
  */
@@ -270,7 +270,7 @@ test("M9E-22：嵌入码不存在、已停用、网站不在白名单，应答�
   assert.equal(disabledPreflight.status, 403, "停用的嵌入码预检也拒");
 });
 
-test("建草稿：201 + 主站地址，主站读得到；多余键 400、16 KB 413（都带 CORS 头的只有过了白名单的）；return_url 不合格被忽略", async () => {
+test("建草稿：201 + 主站地址，主站读得到；多余键 400、24 KB 413（都带 CORS 头的只有过了白名单的）；return_url 不合格被忽略", async () => {
   const key = await newKey([PARTNER, OTHER]);
   const created = await embed("POST", "/embed/v1/booking-drafts", key.key, PARTNER, { draft: draft(), return_url: `${PARTNER}/thanks` });
   assert.equal(created.status, 201, created.text);
@@ -290,11 +290,11 @@ test("建草稿：201 + 主站地址，主站读得到；多余键 400、16 KB 4
   assert.equal(extra.headers["access-control-allow-origin"], PARTNER, "过了白名单之后的错误也带 CORS 头，组件才读得到原因");
   const stay = await embed("POST", "/embed/v1/booking-drafts", key.key, PARTNER, { draft: draft({ tab: "charter", waypoints: [{ name: "x", lat: 35.6, lng: 139.7, stay_minutes: 45 }] }) });
   assert.equal(stay.status, 400);
-  const huge = await embed("POST", "/embed/v1/booking-drafts", key.key, PARTNER, { draft: draft(), return_url: "x".repeat(16_400) });
+  const huge = await embed("POST", "/embed/v1/booking-drafts", key.key, PARTNER, { draft: draft(), return_url: "x".repeat(24_600) });
   assert.equal(huge.status, 413);
   assert.equal(huge.headers["access-control-allow-origin"], PARTNER, "核对来源在解析请求体之前：413 也带 CORS 头");
   assert.match(String(huge.headers["vary"]), /Origin/);
-  const hugeDenied = await embed("POST", "/embed/v1/booking-drafts", key.key, "https://evil.example", { draft: draft(), return_url: "x".repeat(16_400) });
+  const hugeDenied = await embed("POST", "/embed/v1/booking-drafts", key.key, "https://evil.example", { draft: draft(), return_url: "x".repeat(24_600) });
   assert.equal(hugeDenied.status, 403, "来源不对时先 403，不解析请求体");
   assert.deepEqual(corsHeaders(hugeDenied.headers), []);
 

@@ -30,9 +30,10 @@ export interface ManualQuoteTripDraft {
   waypoints?: readonly ManualQuoteWaypointDraft[];
 }
 
-/** 包车的一个经停点（M9W-04）：地点和停留分钟 */
+/** 包车的一个经停点（M9W-04）：地点和停留分钟；客人指定了到达时间的带上（M9P-20 P3，写法同询价） */
 export interface ManualQuoteWaypointDraft extends ManualQuotePlaceDraft {
   stayMinutes: number;
+  arriveBy?: { day_offset: 0 | 1; time: string };
 }
 
 export interface ManualQuoteContact {
@@ -102,7 +103,7 @@ export function manualQuoteRequestOf(contact: ManualQuoteContact, trip: ManualQu
       luggage: trip.luggage,
       package_hours: trip.category === "charter" ? trip.packageHours : null,
       // 包车的经停点（M9W-04）：有才给，没有时请求和以前一样
-      ...(charterStops(trip).length === 0 ? {} : { waypoints: charterStops(trip).map((stop) => ({ ...place(stop), stay_minutes: stop.stayMinutes })) }),
+      ...(charterStops(trip).length === 0 ? {} : { waypoints: charterStops(trip).map((stop) => ({ ...place(stop), stay_minutes: stop.stayMinutes, ...(stop.arriveBy === undefined ? {} : { arrive_by: stop.arriveBy }) })) }),
     },
     website: contact.website,
   };

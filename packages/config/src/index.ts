@@ -192,6 +192,10 @@ const rawSchema = z.object({
   GOOGLE_MAPS_API_KEY: optionalString,
   // 路线预估每天（东京时间）最多调用谷歌 Routes API 几次（ADR 0042，费用控制；不是密钥）。默认 1000，0 = 不调用（里程 + 时长的商品暂时无法报价）
   GOOGLE_ROUTES_DAILY_LIMIT: z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), z.coerce.number().int().min(0).max(1_000_000).default(1_000)),
+  // 包车经停顺序建议（M9P-20 P2，ADR 0096 第三节）：优化调用（Compute Routes Pro）单设每日上限，按发给谷歌的调用次数计；成立阈值（省的米数、行驶分钟）
+  GOOGLE_ROUTES_OPTIMIZE_DAILY_LIMIT: z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), z.coerce.number().int().min(0).max(1_000_000).default(150)),
+  CHARTER_ORDER_SUGGEST_MIN_METERS: z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), z.coerce.number().int().min(0).max(100_000).default(5_000)),
+  CHARTER_ORDER_SUGGEST_MIN_MINUTES: z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), z.coerce.number().int().min(0).max(600).default(10)),
   // 官网的地址搜索和坐标反查每天（东京时间）最多调用谷歌几次（两者合计，ADR 0044，费用控制；不是密钥）。默认 500，0 = 不调用（官网只能从常用地点选、在地图上点选或手填）
   GOOGLE_PLACES_DAILY_LIMIT: z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), z.coerce.number().int().min(0).max(1_000_000).default(500)),
   // 官网路线小地图每天（东京时间）最多调用谷歌 Maps Static API 几次（ADR 0072，费用控制；不是密钥）。默认 300，0 = 不调用（页面只显示时间和距离）
@@ -316,6 +320,8 @@ export interface AppConfig {
   smtp: SmtpSettings | null;
   /** 路线预估（ADR 0042）：每天（东京时间）最多调用谷歌 Routes API 几次；0 = 不调用 */
   routes: { dailyLimit: number };
+  /** 包车经停顺序建议（M9P-20 P2）：优化调用的每日上限、成立阈值 */
+  orderSuggestion: { dailyLimit: number; minSavedMeters: number; minSavedMinutes: number };
   /** 官网的地址搜索和反查（ADR 0044）：每天（东京时间）最多调用谷歌几次（两者合计）；0 = 不调用 */
   places: { dailyLimit: number };
   /** 官网路线小地图（ADR 0072）：每天（东京时间）最多调用谷歌 Maps Static API 几次；0 = 不调用 */
@@ -551,6 +557,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     googleMapsApiKey,
     smtp,
     routes: { dailyLimit: env.GOOGLE_ROUTES_DAILY_LIMIT },
+    orderSuggestion: { dailyLimit: env.GOOGLE_ROUTES_OPTIMIZE_DAILY_LIMIT, minSavedMeters: env.CHARTER_ORDER_SUGGEST_MIN_METERS, minSavedMinutes: env.CHARTER_ORDER_SUGGEST_MIN_MINUTES },
     places: { dailyLimit: env.GOOGLE_PLACES_DAILY_LIMIT },
     staticMaps: { dailyLimit: env.GOOGLE_STATIC_MAPS_DAILY_LIMIT },
     mapTiles,

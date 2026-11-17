@@ -7,6 +7,7 @@
  *   只是租户编号来自「这个商品属于谁」，而不是登录令牌——这是平台员工的跨租户操作（ADR 0003）。
  * - 平台可以看结算价（规则 4 只限制 `/tenant/v1`）；这里不算对外价、不取加价比例。
  */
+import { type CharterAirportsView, getCharterAirportsForPlatform } from "./charter-airports.ts";
 import type { InventoryMode } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
@@ -102,6 +103,19 @@ export function getPlatformCharterMigrationDiff(ctx: AppContext, id: string): Pr
       const found = await findProductAcrossTenants(db, id);
       if (!found) throw notFound("商品");
       return charterMigrationDiffView(await loadPricingContext(db, found.tenantId, found.product.id, now, { lock: false }));
+    },
+    { snapshot: true },
+  );
+}
+
+/** 运营后台只读查看一个包车商品的机场绑定（M9P-21，ADR 0098 第三节第 8 小节），任何一家的商品 */
+export function getPlatformCharterAirports(ctx: AppContext, id: string): Promise<CharterAirportsView> {
+  return withPlatformTx(
+    ctx.pool,
+    async (db) => {
+      const found = await findProductAcrossTenants(db, id);
+      if (!found) throw notFound("商品");
+      return getCharterAirportsForPlatform(db, found.tenantId, found.product.id, found.product.version);
     },
     { snapshot: true },
   );

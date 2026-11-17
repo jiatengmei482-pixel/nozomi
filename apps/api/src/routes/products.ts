@@ -135,6 +135,9 @@ const serviceRulesSchema = z.object({
       buffer_minutes: z.number().finite().optional(),
       min_package_hours: z.number().finite().nullable().optional(),
       max_online_minutes: z.number().finite().optional(),
+      warn_minutes: z.number().finite().optional(),
+      warn_km: z.number().finite().optional(),
+      suggest_stop_order: z.boolean().optional(),
     })
     .strict()
     .optional(),
@@ -166,6 +169,9 @@ function charterItineraryInput(input: NonNullable<z.output<typeof serviceRulesSc
     ...(input.buffer_minutes === undefined ? {} : { bufferMinutes: input.buffer_minutes }),
     ...(input.min_package_hours === undefined ? {} : { minPackageHours: input.min_package_hours }),
     ...(input.max_online_minutes === undefined ? {} : { maxOnlineMinutes: input.max_online_minutes }),
+    ...(input.warn_minutes === undefined ? {} : { warnMinutes: input.warn_minutes }),
+    ...(input.warn_km === undefined ? {} : { warnKm: input.warn_km }),
+    ...(input.suggest_stop_order === undefined ? {} : { suggestStopOrder: input.suggest_stop_order }),
   };
 }
 
@@ -201,6 +207,9 @@ export function serviceRulesJson(view: ServiceRulesView): Json {
               buffer_minutes: itinerary.bufferMinutes,
               min_package_hours: itinerary.minPackageHours,
               max_online_minutes: itinerary.maxOnlineMinutes,
+              warn_minutes: itinerary.warnMinutes,
+              warn_km: itinerary.warnKm,
+              suggest_stop_order: itinerary.suggestStopOrder,
             },
           }
         : {}),

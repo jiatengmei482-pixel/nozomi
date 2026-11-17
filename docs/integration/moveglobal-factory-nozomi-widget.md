@@ -5,6 +5,7 @@
 - NOZOMI 侧依据：ADR 0090（`docs/adr/0090-embed-widget-booking-drafts.md`）、`apps/web/src/embed/widget-core.ts`、`apps/web/src/embed/widget-ui.ts`、`packages/domain/src/embed.ts`、`apps/api/src/routes/embed.ts`。
 - 2026-11-14 更新：NOZOMI 组件新增 `layout`（卡片 / 横条）和 `theme` 两个可选的 init 参数（M9E-10，PR #233），本文补了第 2 节的「NOZOMI 组件外观」字段、3.2–3.5 的示例代码、3.6 两个参数的说明、第 5 节和第 7 节的对应检查；按钮文字现在是「查看价格」。
 - 2026-11-14 再更新（M9E-14，PR #237）：外观规则改了——`layout` 新增 `"auto"`（按组件容器宽度自动选：≥ 900 px 横条、窄了卡片）；**`init` 传了 `layout` 以传的为准；没传就用 NOZOMI 运营后台这个嵌入码的「外观」（默认「自动」）；两边都没有用 `auto`**。所以工厂**建议不写 `layout`**。第 2、3.2、3.4、3.5、3.6、5、7、9 节已按新规则改；组件位置与尺寸建议见第 10 节。
+- 2026-11-15 再更新（M9E-26，PR #249）：和 GJ 的「两段代码」对齐——客人在首页等页面填好行程后，跳到**本站自己的 `/booking/`**，整个报价、下单、付款流程嵌在这一页里，不再离开本站。NOZOMI 运营后台按嵌入码给出两段代码：①入口小程序（任何页面）、②预订程序（只放 `/booking/`）。**第 11 节**写清两段各放在哪里、怎么写、什么前提下才切换；切换前第 3、4 节的写法照旧有效，已经放好的代码行为不变。
 - 本文不含任何账号、邮箱、密钥。`fleetToken`、`corporateId`、嵌入码一律写成占位。
 
 ## 1. 背景和目标
@@ -304,6 +305,8 @@ NOZOMI 运营后台的嵌入码有「外观：自动 / 卡片 / 横条」选项�
 
 ## 4. `/booking/` 页
 
+> M9E-26 起有「两段代码」的做法（第 11 节）：`/booking/` 改放②预订程序，客人在本站完成整个预订。NOZOMI 运营后台给这个嵌入码填好预订页地址、打开「允许整页嵌入」之前，按本节的写法（客人跳 NOZOMI 主站）。
+
 **现状**：GJ 模式下，组件的 `redirectUrl` 是 `https://<站点域名>/booking/`，客人在首页填完后跳到 `/booking/`，由 GJ 在那一页继续预订流程。
 
 **NOZOMI 模式下的建议**：
@@ -526,3 +529,76 @@ auto 下宽屏自动是横条、窄屏是卡片。
 - 容器要有确定的宽度（块级元素、或 grid / flex 里给了列宽）。如果容器是「按内容收缩」的（`display: inline-block`、`float`、没给宽度的 flex 子项），组件量到的宽度会跟着自己变，横条 / 卡片可能来回换。
 - 容器不要 `overflow: hidden`：人数行李的弹层、地址候选列表会往容器外面展开。
 - 以上四种实测都没有横向滚动条（窗口 390 起；组件本身 320 px 起不横向滚动）。
+
+## 11. 两段代码：入口小程序 + 预订程序（M9E-26，2026-11-15）
+
+和 GJ 一样分两段：首页等页面放一个「入口」，客人填好行程后跳到本站的 `/booking/`；`/booking/` 放「预订程序」，报价、填乘客信息、付款都在这一页里完成，客人不离开本站。NOZOMI 运营后台「嵌入组件」的嵌入码卡片上会直接给出这两段代码（各带复制按钮），工厂按下面的写法从站点设置生成即可。接口细节见 ADR 0095 附录 A。
+
+### 11.1 两段各放在哪里
+
+| | ① 入口小程序 | ② 预订程序 |
+| --- | --- | --- |
+| 放在哪里 | **任何页面**：首页、文章页、落地页等，原来放 GJ 组件的位置（第 3.2 节、第 10 节的位置一到三） | **只放预订页** `/booking/`（站点 73 是 `https://embed-demo.moveglobal.io/booking/`），这一页**不要再放①** |
+| 做什么 | 显示区间 / 包车查价表单；客人点「查看价格」后整页跳到 `bookingUrl`（地址后面多一个 `?nzdraft=…`） | 接收入口传来的行程（读出 `nzdraft` 后马上从地址栏去掉），在本页里用 iframe 显示报价和下单流程，高度自动；直接打开 `/booking/`（没有 `nzdraft`）时先显示查价表单 |
+| 调用 | `NozomiBooking.init({ …, bookingUrl })` | `NozomiBooking.mountBooking({ key, root, lang?, redirectUrl? })` |
+| 容器 | `<div id="nozomi-booking"></div>` | `<div id="nozomi-booking-flow"></div>` |
+
+站点 73 的写法（站点语言 zh-CN → `lang: "zh"`，嵌入码为占位，必须按 3.3 转义后写入）：
+
+① 首页等页面（第 3.2 节那一段，`init` 里**多一个 `bookingUrl`**，其余不变）：
+
+```html
+<div id="nozomi-booking"></div>
+<script src="https://nozomi.moveglobal.io/embed/widget-v1.js" defer></script>
+<script>
+  window.addEventListener("DOMContentLoaded", function () {
+    NozomiBooking.init({ key: "nze_…", root: "#nozomi-booking", lang: "zh", services: ["transfer","charter"], redirectUrl: "https://embed-demo.moveglobal.io/", bookingUrl: "https://embed-demo.moveglobal.io/booking/" });
+  });
+</script>
+```
+
+② `/booking/` 页（原来放 GJ 组件或第 4 节那段代码的位置，换成下面这段）：
+
+```html
+<div id="nozomi-booking-flow"></div>
+<script src="https://nozomi.moveglobal.io/embed/widget-v1.js" defer></script>
+<script>
+  window.addEventListener("DOMContentLoaded", function () {
+    NozomiBooking.mountBooking({ key: "nze_…", root: "#nozomi-booking-flow", lang: "zh", redirectUrl: "https://embed-demo.moveglobal.io/" });
+  });
+</script>
+```
+
+要点：
+
+- `bookingUrl` 和②所在的页面是同一个地址，取 NOZOMI 后台这个嵌入码的「预订页地址」（建议工厂站点设置里存一份，或固定为 `https://<站点域名>/booking/`，两边要一致）。
+- `bookingUrl` 必须和放①的页面**同一个网站**（协议 + 域名 + 端口完全一样）；不一样时组件当作没传，客人照旧跳 NOZOMI 主站，控制台报一句。站点同时能用 `www.` 和不带 `www.` 访问时，两个域名各自用自己的 `/booking/`。
+- `redirectUrl` 在两段里都是选填，意思不变（付款完成后订单页「返回原网站」的链接，见 3.2）；后台生成的代码里不带，工厂沿用首页即可。注意：GJ 的 `redirectUrl` 是预订页地址，对应的是我们的 `bookingUrl`，不要填反。
+- `lang` 按 3.2 的映射；`services`、`layout`、`theme` 只在①里有意义，规则同第 3 节。
+- `mountBooking` 也可以加 `onEvent: function (e) { … }` 收 `step` / `completed` / `error` 事件做统计（ADR 0095 附录 A），不加不影响下单。
+- 容器不要设固定高度或 `overflow: hidden`，不要再包一层 iframe；②只允许被白名单网站的顶层页面直接嵌入。
+- 站内软跳转（3.5）同样适用：指向 `/booking/` 的链接加 `data-astro-reload`，或在 `astro:page-load` 里调 `mountBooking`。
+- 站点有内容安全策略时，`script-src`、`connect-src` 之外再在 **`frame-src`** 放行 `https://nozomi.moveglobal.io`。
+
+### 11.2 什么时候切换：NOZOMI 后台先打开，工厂再发布
+
+工厂发布带 `bookingUrl` 的①之前，NOZOMI 运营后台这个嵌入码要满足三项（演示站由 NOZOMI 监工在 M9E-26 上线后填写，届时另行通知，本文不写嵌入码的值）：
+
+1. 「允许的网站」里有 `https://embed-demo.moveglobal.io`（已有）；
+2. 「整页嵌入」选「允许」；
+3. 「预订页地址」填 `https://embed-demo.moveglobal.io/booking/`。必须是 https，并且落在「允许的网站」的某个网站下，否则后台不让保存。
+
+三项都满足时，后台的嵌入码卡片上才会出现②，①里才带 `bookingUrl`；否则卡片上只有①（不带 `bookingUrl`）并写明缺哪一项。工厂可以拿后台卡片上的两段代码和自己生成的逐项对照（`key`、`root`、`lang`、`bookingUrl`）。
+
+如果先发布了①、后台还没打开「允许整页嵌入」：客人会跳到 `/booking/`，但预订页嵌不进去，约 15 秒后显示「预订页暂时打不开。请刷新，或到主站继续预订。」和到主站继续的链接——能下单，但体验差，所以请按上面的顺序。
+
+### 11.3 已经放好的代码不受影响
+
+- 不带 `bookingUrl` 的旧代码（第 3.2 节、第 4 节）行为不变：客人照旧跳 NOZOMI 主站下单。
+- 脚本地址、`/embed/v1/config` 等接口都没变（配置接口只会加字段、不会减）。NOZOMI 后台已有的嵌入码不需要任何迁移操作，预订页地址默认是空的。
+- 回退：把①里的 `bookingUrl` 去掉、`/booking/` 换回第 4 节的写法，重新发布即可；或者由 NOZOMI 运营在后台把「整页嵌入」改回「不允许」（下一次打开 `/booking/` 就嵌不进去，客人看到到主站继续的链接）。
+
+### 11.4 快照和验收补充
+
+- NOZOMI 模式快照（第 5 节第 2 条）补一份「两段代码」的测试站点：首页有①且 `init` 里有 `bookingUrl`、没有 `mountBooking`；`/booking/` 有②（`nozomi-booking-flow` 容器、`NozomiBooking.mountBooking` 各一次）、没有 `NozomiBooking.init`；两页都没有任何 GJ 的脚本和容器。没开这个选项的站点，输出和以前逐字一样。
+- 验收（NOZOMI 测试环境，Stripe 测试卡）：在 `https://embed-demo.moveglobal.io/` 填区间行程 → 点「查看价格」→ 地址变成 `https://embed-demo.moveglobal.io/booking/`（`nzdraft` 一闪就从地址栏去掉）→ 本页里出现报价，选车、填乘客信息、用 `4242 4242 4242 4242` 付款，全程不离开演示站；包车同样走一遍。直接打开 `/booking/` 显示查价表单，提交后回到本页继续。

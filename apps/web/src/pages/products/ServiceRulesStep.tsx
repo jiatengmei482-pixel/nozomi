@@ -3,8 +3,9 @@
  * 附加服务和司机语言、服务后加收的费用（只读）。时间都按城市当地时间；金额是结算价，子品牌的币种。
  * 表单怎么读、哪里写错了在 lib/service-rules-form.ts；范围和缺项问 @nozomi/domain。
  */
+import { itineraryCopy } from "../../lib/itinerary-texts.ts";
 import { PlatformPolicyLines } from "./PlatformPolicyLines.tsx";
-import { CHARTER_SUPPLIER_PRICE_NOTE, type FreeWaitItem, type NightChargeUnit, PRODUCT_CATEGORY_NAMES, PRODUCT_LIMITS, SUGGESTED_CHARTER_ITINERARY, addonAllowsFirstFree, fixedFreeWaitMinutes, freeWaitItems, serviceRuleMissing } from "@nozomi/domain";
+import { CHARTER_SUPPLIER_PRICE_NOTE, DEFAULT_CHARTER_ITINERARY, type FreeWaitItem, type NightChargeUnit, PRODUCT_CATEGORY_NAMES, PRODUCT_LIMITS, SUGGESTED_CHARTER_ITINERARY, addonAllowsFirstFree, fixedFreeWaitMinutes, freeWaitItems, serviceRuleMissing } from "@nozomi/domain";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { AddonOption } from "../../api/master-options.ts";
 import { type Product, type ProductServiceRules, putServiceRules } from "../../api/products.ts";
@@ -18,6 +19,7 @@ import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { CHARGE_UNIT_NAMES, displayName, timeZoneLabel } from "../../lib/master-display.ts";
 import { checkReasons, moneyText, readAmount, tidyAmountDisplay } from "../../lib/product-display.ts";
 import type { ServerIssue } from "../../lib/product-failure.ts";
+import { FREE_WAIT_TEXTS } from "../../lib/free-wait-display.ts";
 import { DRIVER_LANGUAGE_OPTIONS, type ItineraryField, type RulesForm, type RulesFormContext, defaultNightUnit, formFromRules, readRulesForm, rulePathTarget, tidyNumber } from "../../lib/service-rules-form.ts";
 import { crossesMidnight, dateRangeReadback, leadTimeReadback, localToday, tidyDate, tidyTime, urgentSegments, windowReadback } from "../../lib/time-input.ts";
 import { useLoad } from "../../lib/use-load.ts";
@@ -115,6 +117,28 @@ function ItineraryCard({
           <p className="field__hint">{`可设为 ${suggested.minPackageHours} 小时`}</p>
           {showAbove && <Warning>{`最低套餐 ${aboveAll.min_package_hours} 小时比这个商品所有启用的套餐都长（最长 ${aboveAll.longest_package_hours} 小时），这个商品将报不出价。`}</Warning>}
         </div>
+        <div className="field">
+          <label className="field__label" htmlFor="itinerary-warn-minutes">
+            超限提醒：预计用时
+          </label>
+          <span className="affix affix--short">
+            {input("itinerary-warn-minutes", field.warnMinutes, (warnMinutes) => onChange({ warnMinutes }), "超限提醒：预计用时（分钟）", String(DEFAULT_CHARTER_ITINERARY.warnMinutes))}
+            <span className="affix__text">分钟</span>
+          </span>
+          <FieldErrors id="itinerary-warn-minutes-error" errors={errors("itinerary-warn-minutes")} />
+          <p className="field__hint">{`预计用时超过它时，在客人的行程时间表下方提醒缩减行程，客人仍可下单。${PRODUCT_LIMITS.minWarnMinutes} 到 ${PRODUCT_LIMITS.maxWarnMinutes} 分钟，默认 ${DEFAULT_CHARTER_ITINERARY.warnMinutes}（12 小时）。`}</p>
+        </div>
+        <div className="field">
+          <label className="field__label" htmlFor="itinerary-warn-km">
+            超限提醒：全程
+          </label>
+          <span className="affix affix--short">
+            {input("itinerary-warn-km", field.warnKm, (warnKm) => onChange({ warnKm }), "超限提醒：全程（公里）", String(DEFAULT_CHARTER_ITINERARY.warnKm))}
+            <span className="affix__text">公里</span>
+          </span>
+          <FieldErrors id="itinerary-warn-km-error" errors={errors("itinerary-warn-km")} />
+          <p className="field__hint">{`全程超过它时提醒（会产生较多超公里费），客人仍可下单。${PRODUCT_LIMITS.minWarnKm} 到 ${PRODUCT_LIMITS.maxWarnKm} 公里，默认 ${DEFAULT_CHARTER_ITINERARY.warnKm}。`}</p>
+        </div>
         <fieldset className="field fieldset" id="itinerary-dropoff">
           <legend className="field__label">下车点行程加价</legend>
           <label className="choice">
@@ -123,6 +147,16 @@ function ItineraryCard({
           </label>
           <p className="field__hint" id="itinerary-dropoff-hint">
             没有市外经停时，下车点所在行程区域收一次行程加价。默认开。
+          </p>
+        </fieldset>
+        <fieldset className="field fieldset" id="itinerary-suggest">
+          <legend className="field__label">{itineraryCopy("rulesSuggestLegend")}</legend>
+          <label className="choice">
+            <input type="checkbox" id="itinerary-suggest-toggle" checked={field.suggestStopOrder} disabled={locked} aria-describedby="itinerary-suggest-hint" onChange={(event) => onChange({ suggestStopOrder: event.target.checked })} />
+            <span className="choice__text">{itineraryCopy("rulesSuggestLabel")}</span>
+          </label>
+          <p className="field__hint" id="itinerary-suggest-hint">
+            {itineraryCopy("rulesSuggestHint")}
           </p>
         </fieldset>
       </div>
@@ -572,7 +606,19 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
                 {items.map((item) => {
                   const field = form.wait[item];
                   const change = (changes: Partial<RulesForm["wait"][FreeWaitItem]>): void => set({ wait: { ...form.wait, [item]: { ...field, ...changes } } });
-                  const minimum = context.minimums[item];
+                  // 机场接机的免费等待由平台按航班统一定（国际 90、国内 60，M9E-31）：只读显示，表单里的值照旧随保存提交（满足「保存过」的要求），报价和下单不用它
+                  if (item === "pickup" && category === "airport_transfer" && !station) {
+                    return (
+                      <div key={item} className="field">
+                        <p className="field__label">{waitNames[item]}</p>
+                        <p>
+                          <strong>{FREE_WAIT_TEXTS.airportFixedValue}</strong>
+                          <span className="tag">{FREE_WAIT_TEXTS.airportFixedTag}</span>
+                        </p>
+                        <p className="field__hint">{FREE_WAIT_TEXTS.airportFixedHint(onPlatform)}</p>
+                      </div>
+                    );
+                  }
                   return (
                     <fieldset key={item} className="field fieldset">
                       <legend className="field__label">
@@ -599,7 +645,6 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
                       <FieldErrors id={`wait-${item}-error`} errors={errors(`wait-${item}-minutes`)} />
                       <p className="field__hint">
                         {waitHelp(item)}
-                        {item === "pickup" && !station && category === "airport_transfer" && minimum !== null && minimum < 90 && <strong>{onPlatform ? "国际航班平台规定最少 90 分钟：这里不到 90 时，国际航班按 90 分钟算。" : "国际航班平台规定最少 90 分钟：你设的不到 90 时，国际航班按 90 分钟算。"}</strong>}
                       </p>
                     </fieldset>
                   );
