@@ -53,6 +53,10 @@ export type ItineraryTextKey =
   | "arriveByLockedIcon"
   | "arriveByLate"
   | "arriveByLateStop"
+  | "arriveByLateAdjust"
+  | "timeDepart"
+  | "timeArrive"
+  | "timeArriveDepart"
   | "arriveByFieldHint";
 
 const ZH: Readonly<Record<ItineraryTextKey, string>> = {
@@ -103,6 +107,10 @@ const ZH: Readonly<Record<ItineraryTextKey, string>> = {
   arriveByLockedIcon: "已锁定",
   arriveByLate: "预计 {eta} 到，晚于指定的 {time}",
   arriveByLateStop: "{name}：预计 {eta} 到，晚于指定的 {time}",
+  arriveByLateAdjust: "预计 {eta} 到，晚于指定的 {time}，来不及。请把上车时间提前到 {start} 或更早，或减少前面的经停、缩短停留",
+  timeDepart: "{time} 出发",
+  timeArrive: "预计 {time} 到",
+  timeArriveDepart: "预计 {arrive} 到 · {depart} 出发",
   arriveByFieldHint: "填了指定到达时间的经停会锁定位置，不参与建议顺序。",
 };
 

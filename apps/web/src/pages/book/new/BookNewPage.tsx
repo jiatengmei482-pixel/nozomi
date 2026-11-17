@@ -86,7 +86,7 @@ import { ITINERARY_NOTE, type WaypointDraft, autoPackageChoice, autoPackageHours
 import { TripStops } from "../../../components/TripStops.tsx";
 import { itineraryCopy } from "../../../lib/itinerary-texts.ts";
 import { type LiveSuggestion, liveSuggestion, orderChain, stopSetKey, suggestionQuoteExpired, suggestionTitle } from "../../../lib/order-suggestion.ts";
-import { arrivalLateTexts, arriveByDeadlineText, suggestedLateTexts } from "../../../lib/arrive-by-display.ts";
+import { arrivalLateTexts, arriveByDeadlineText, stopTimeTexts, suggestedLateTexts } from "../../../lib/arrive-by-display.ts";
 import { ADDRESS_ONLY_HINT, DRAFT_EXPIRED_TEXT, DRAFT_FAILED_TEXT, draftReadyToQuote, draftTrip } from "../../../lib/booking-draft.ts";
 import { ManualQuoteBlock } from "../ManualQuote.tsx";
 import { siteFailureText, useSiteConfig } from "../SiteLayout.tsx";
@@ -575,6 +575,9 @@ export function BookNewPage() {
     }),
   );
   const lateByRow: Record<string, string> = Object.fromEntries(lateTexts.flatMap((text, index) => (text === null ? [] : [[`stop-${index}`, text] as const])));
+  // 时间表每站的预计时刻（业主 2026-11-17）：和上面同一套算法、同一份路线
+  const timeLegs = itinerary ? (charterResult?.itinerary_route?.legs ?? null) : plainLegs !== null && plainLegs.key === plainLegsKey ? plainLegs.legs : null;
+  const timesByRow = serviceLocal !== null && charterRows !== null && stops.length === (itinerary ? draft.waypoints.length : 0) ? stopTimeTexts({ serviceLocal, stops, legs: timeLegs, stopOccupancyMinutes: occupancy }) : {};
 
   // 经停顺序建议块（M9P-20 P2，ADR 0096 第三节第 5 小节、第四节）：拖动后按新的当前报价重算，不调接口
   const suggestionData = orderSuggestion.suggestion;
@@ -1299,7 +1302,7 @@ export function BookNewPage() {
               {charterMapPoints !== null && <ItineraryMap points={charterMapPoints} alt={itineraryMapAlt(charterRows, charterResult?.itinerary_route)} />}
               {/* 超过 12 个点（ADR 0099）：不请求地图，只显示列表 */}
               {charterMapPoints === null && draft.from !== null && draft.to !== null && <p className="site-muted">{itineraryCopy("listOnly")}</p>}
-              <TripStops rows={charterRows} late={lateByRow} />
+              <TripStops rows={charterRows} late={lateByRow} times={timesByRow} />
               {/* 超过 12 小时 / 360 公里的提醒（M9P-10，ADR 0099）：只在有经停点、按行程计价时 */}
               {itinerary && <ItineraryWarnings quote={selected ?? quotes[0] ?? null} route={charterResult?.itinerary_route} points={[draft.from?.name ?? "", ...stops.map((stop) => stop.name), draft.to?.name ?? ""]} />}
               {itinerary && <p className="price-breakdown__note">{ITINERARY_NOTE}</p>}

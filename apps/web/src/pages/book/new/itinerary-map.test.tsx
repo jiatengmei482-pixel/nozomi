@@ -188,7 +188,7 @@ test("页面：没有经停的包车也显示行程地图（2 个点）和「1 �
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
   assert.ok(screen.getByRole("heading", { name: "行程路线" }));
   const list = screen.getByRole("list", { name: "行程" });
-  await waitFor(() => assert.deepEqual([...list.querySelectorAll("li")].map((item) => item.textContent), ["1 上车京王广场酒店", "行驶约 18 分钟 · 6.8 公里2 下车新宿站"]), SLOW);
+  await waitFor(() => assert.deepEqual([...list.querySelectorAll("li")].map((item) => item.textContent), ["1 上车京王广场酒店09:00 出发", "行驶约 18 分钟 · 6.8 公里2 下车新宿站预计 09:18 到"]), SLOW);
   assert.deepEqual(legsAsked, [["35.690500,139.694800", "35.689600,139.700600"]], "这组点只问一次");
   await waitFor(() => assert.ok(loader() !== null), SLOW);
   assert.deepEqual(pointsOf(loader()?.src ?? ""), ["35.690500,139.694800", "35.689600,139.700600"]);

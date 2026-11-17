@@ -6,7 +6,7 @@
  * - 司机页、订单详情：「须在 14:00 前到达」「须在次日 01:00 前到达」。
  * 文案走键（`itineraryCopy`，M11-01）。
  */
-import { arrivesLate, arriveByOf, clockAfterStart, inferArriveByDayOffset, isArriveByTime, stopArrivalOffsets } from "@nozomi/domain";
+import { arriveByMinutesAfterStart, arrivesLate, arriveByOf, clockAfterStart, inferArriveByDayOffset, isArriveByTime, stopArrivalOffsets } from "@nozomi/domain";
 import type { SiteArriveBy } from "../api/site.ts";
 import { itineraryCopy } from "./itinerary-texts.ts";
 
@@ -75,9 +75,61 @@ function lateClocks(input: ArrivalInput): ({ eta: string; time: string } | null)
   });
 }
 
-/** 每个经停的晚到提示（和 `stops` 一一对应）：指定了到达时间、预计晚于它时为「预计 14:20 到，晚于指定的 14:00」，其余为 null */
+/**
+ * 每个经停的晚到提示（和 `stops` 一一对应）：指定了到达时间、预计晚于它时为
+ * 「预计 14:20 到，晚于指定的 14:00，来不及。请把上车时间提前到 08:40 或更早，……」（业主 2026-11-17：标红并提示调整上车时间）；
+ * 提前后的上车时间算到前一天时只写前半句。其余为 null。
+ */
 export function arrivalLateTexts(input: ArrivalInput): (string | null)[] {
-  return lateClocks(input).map((late) => (late === null ? null : tidy(itineraryCopy("arriveByLate", late))));
+  const startTime = input.serviceLocal.slice(11, 16);
+  const offsets = arrivalOffsets(input);
+  return lateClocks(input).map((late, index) => {
+    if (late === null) return null;
+    const arriveBy = arriveByOf(input.stops[index]?.arrive_by);
+    const eta = offsets[index] ?? null;
+    const deadline = arriveBy === null ? null : arriveByMinutesAfterStart(input.serviceLocal, arriveBy);
+    const start = eta === null || deadline === null ? null : clockAfterStart(startTime, deadline - eta);
+    return start === null || start.dayOffset !== 0 ? tidy(itineraryCopy("arriveByLate", late)) : tidy(itineraryCopy("arriveByLateAdjust", { ...late, start: start.time }));
+  });
+}
+
+/** 每个经停开始后第几分钟到（段数对不上时全是 null） */
+function arrivalOffsets(input: ArrivalInput): (number | null)[] {
+  const { stops, legs } = input;
+  if (legs === null || legs === undefined || legs.length !== stops.length + 1) return stops.map(() => null);
+  return stopArrivalOffsets(legs.map((leg) => leg.minutes), stops.map((stop) => stop.stay_minutes), input.stopOccupancyMinutes ?? 0);
+}
+
+/**
+ * 行程时间表每一行的时刻（业主 2026-11-17）：按行的 key（`pickup`、`stop-N`、`dropoff`）——
+ * 上车「09:00 出发」；经停「预计 10:15 到 · 11:15 出发」（出发 = 到 + 停留 + 每站占用）；下车「预计 18:00 到」。
+ * 次日写「次日 01:00」。没有路线、段数对不上时只写上车那一行。
+ */
+export function stopTimeTexts(input: ArrivalInput): Record<string, string> {
+  const startTime = input.serviceLocal.slice(11, 16);
+  if (!isArriveByTime(startTime)) return {};
+  const clock = (minutes: number): string | null => {
+    const at = clockAfterStart(startTime, minutes);
+    return at === null ? null : clockText(at.dayOffset, at.time);
+  };
+  const texts: Record<string, string> = { pickup: itineraryCopy("timeDepart", { time: startTime }) };
+  const offsets = arrivalOffsets(input);
+  const occupancy = input.stopOccupancyMinutes ?? 0;
+  input.stops.forEach((stop, index) => {
+    const eta = offsets[index] ?? null;
+    if (eta === null) return;
+    const arrive = clock(eta);
+    const depart = clock(eta + stop.stay_minutes + occupancy);
+    if (arrive !== null && depart !== null) texts[`stop-${index}`] = tidy(itineraryCopy("timeArriveDepart", { arrive, depart }));
+  });
+  const lastLeg = input.legs?.[input.stops.length];
+  const lastOffset = input.stops.length === 0 ? 0 : offsets[input.stops.length - 1];
+  const lastStop = input.stops[input.stops.length - 1];
+  if (lastLeg !== undefined && lastOffset !== null && lastOffset !== undefined && input.legs?.length === input.stops.length + 1) {
+    const end = clock(lastOffset + (lastStop === undefined ? 0 : lastStop.stay_minutes + occupancy) + lastLeg.minutes);
+    if (end !== null) texts["dropoff"] = tidy(itineraryCopy("timeArrive", { time: end }));
+  }
+  return texts;
 }
 
 /** 建议顺序那一栏的晚到提示：「横滨：预计 11:20 到，晚于指定的 11:00」；没有晚到的为空数组 */

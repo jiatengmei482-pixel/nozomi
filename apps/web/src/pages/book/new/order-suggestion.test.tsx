@@ -236,7 +236,7 @@ test("指定到达时间（M9P-20 P3）：给经停加上到达时间是固定�
   // 08:00 出发。当前顺序（每段 80 分钟、停 60）箱根第 3 个：预计 14:00 到；建议顺序（每段 60 分钟）箱根第 2 个：预计 11:00 到
   fireEvent.change(screen.getByLabelText("经停点 3 指定到达时间（选填）"), { target: { value: "10:30" } });
   const row = screen.getByRole("button", { name: "把 箱根 上移" }).closest("li") as HTMLElement;
-  await waitFor(() => assert.ok(within(row).getByText("预计 14:00 到，晚于指定的 10:30")), SLOW);
+  await waitFor(() => assert.ok(within(row).getByText(/^预计 14:00 到，晚于指定的 10:30，来不及。请把上车时间提前到 \d\d:\d\d 或更早/)), SLOW);
   await actor.click(screen.getByRole("button", { name: "下一步：选择车型" }));
   await waitFor(() => assert.equal(suggestions.length, 2), SLOW);
   const sent = suggestions[1] as Record<string, any>;
