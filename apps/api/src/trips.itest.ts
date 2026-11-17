@@ -144,11 +144,13 @@ test("建单：跨字段校验（出发点要时间、日期升序）、平台�
   assert.deepEqual([read.body.status, read.body.plans, read.body.unquoted, read.body.expires_at], ["draft", [], [], null]);
   assert.equal((await site.call("GET", "/site/v1/trips/short", { ip: nextIp() })).status, 404);
   assert.equal((await site.call("GET", `/site/v1/trips/${"x".repeat(43)}`, { ip: nextIp() })).body.error.code, "TRIP_NOT_FOUND");
-  // 报价接口同样：编号格式不对（SQL 片段、超长）一律 404 TRIP_NOT_FOUND（input-hardening.itest.ts 的通用 UUID 用例排除了行程接口）
-  for (const bad of ["1' or '1'='1", "x".repeat(300)]) {
+  // 报价接口同样：编号格式不对（SQL 片段、带花括号）一律 404 TRIP_NOT_FOUND；超长的先被全站的路径长度限制拦成 414（同其他接口）
+  // （input-hardening.itest.ts 的通用 UUID 用例排除了行程接口）
+  for (const bad of ["1' or '1'='1", "{id}"]) {
     const res = await site.call("POST", `/site/v1/trips/${encodeURIComponent(bad)}/quote`, { ip: nextIp() });
     assert.deepEqual([res.status, res.body.error.code], [404, "TRIP_NOT_FOUND"]);
   }
+  assert.equal((await site.call("POST", `/site/v1/trips/${"x".repeat(300)}/quote`, { ip: nextIp() })).status, 414);
   assert.equal((await quoteTrip("x".repeat(43))).status, 404);
 });
 
