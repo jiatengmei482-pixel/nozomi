@@ -31581,8 +31581,7 @@ components:
             $ref: "#/components/schemas/SiteAddonRequest"
         draft_id:
           type: string
-          maxLength: 64
-          description: 可选（M9E-02，ADR 0090）：从嵌入组件的预订草稿来时带上草稿编号。只用于记来源（统计），不影响报价；过期、不存在的照常报价、不记
+          description: 可选（M9E-02，ADR 0090）：从嵌入组件的预订草稿来时带上草稿编号（43 位）。只用于记来源（统计），不影响报价；过期、不存在、超过 64 字的照常报价、不记
         pickup_name:
           type: [ string, "null" ]
           maxLength: 200
@@ -31703,8 +31702,7 @@ components:
             $ref: "#/components/schemas/SiteAddonRequest"
         draft_id:
           type: string
-          maxLength: 64
-          description: 可选（M9E-02，ADR 0090）：从嵌入组件的预订草稿来时带上草稿编号。只用于记来源（统计），不影响报价；过期、不存在的照常报价、不记
+          description: 可选（M9E-02，ADR 0090）：从嵌入组件的预订草稿来时带上草稿编号（43 位）。只用于记来源（统计），不影响报价；过期、不存在、超过 64 字的照常报价、不记
         pickup_name:
           type: [ string, "null" ]
           maxLength: 200
