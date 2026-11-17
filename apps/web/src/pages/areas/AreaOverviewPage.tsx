@@ -8,12 +8,14 @@
  * - 重叠只是提醒，不拦保存（同一个位置落在几个区域里时报价取最低）。怎么算见 @nozomi/domain 的 `findAreaOverlaps`、ADR 0074。
  * - M8-20（ADR 0075 第五部分）：运营区域虚线、很淡；报价区域实线。按用途筛；重叠只在报价区域之间算；报价区域超出运营区域的部分画警告色斜线。
  *   运营后台另有「未覆盖需求」图层（`demand.read`，默认关）：`?demands=1&lat=&lng=` 打开时图层开着、在那个位置放标记（从未覆盖需求列表过来）。
+ * - M9P-13（规格第四节第 3 小节「在地图上看全部」）：供应商后台按商品（`?product=` 带进来）和层（① 基础价、② 行程、③ 上下车加价）筛选；
+ *   这时只画选中商品选中层的区域，同一个包车商品里同层、①∩③ 的重叠标红（`charterLayerConflictPieces`，和保存校验同一口径），不再画一般的重叠。
  */
 import { AREA_BIZ_TYPE_NAMES } from "@nozomi/domain";
 import { type ChangeEvent, type DragEvent, type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { type AreaMapItem, type AreaMapResponse, type PlatformAreaMapItem, fetchPlatformAreaMap, fetchPlatformMapConfig, fetchTenantAreaMap } from "../../api/area-map.ts";
-import { type MapConfig, TENANT_BASE, fetchMapConfig, listAll } from "../../api/areas.ts";
+import { type MapConfig, type ProductAreaLayers, TENANT_BASE, fetchAreaLayers, fetchMapConfig, listAll } from "../../api/areas.ts";
 import { type FilterableCity, listFilterCityOptions } from "../../api/city-options.ts";
 import type { Place } from "../../api/master.ts";
 import { listAllTenants } from "../../api/platform.ts";
@@ -43,6 +45,7 @@ import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan, useTenantCan } from "../../lib/use-master-access.ts";
 import { AreaOverviewMap, type OverviewArea, type OverviewMarker } from "./AreaOverviewMap.tsx";
 import { AreaMoreItems, useAreaActions } from "./useAreaActions.tsx";
+import { ALL_LAYERS, AREA_LAYERS, AREA_LAYER_NAMES, AREA_LAYER_SHORT, type LayerSelection, type ProductFilter, layerConflicts, layerMembership, overlapLine, productLabel } from "../../lib/area-layers.ts";
 
 type Item = AreaMapItem & Partial<Pick<PlatformAreaMapItem, "tenant" | "tenant_id">>;
 
@@ -86,6 +89,10 @@ export function AreaOverviewPage() {
   const [q, setQ] = useState("");
   const [overlapOnly, setOverlapOnly] = useState(false);
   const [roleFilter, setRoleFilter] = useState<OverviewRoleFilter>("all");
+  // 按商品和层（M9P-13，只在供应商后台）
+  const layerLoad = useLoad<{ items: ProductAreaLayers[] }>("area-layers", !platform && canTenantRead ? fetchAreaLayers : null);
+  const [productFilter, setProductFilter] = useState<ProductFilter>(() => (!platform && params.get("product") !== null ? (params.get("product") as string) : "all"));
+  const [layerSelection, setLayerSelection] = useState<LayerSelection>(ALL_LAYERS);
   const [selected, setSelected] = useState<string | null>(null);
   const [focusSignal, setFocusSignal] = useState(0);
   // 从未覆盖需求列表的「在区域地图上查看」过来：图层开着，在那一点放标记
@@ -109,7 +116,26 @@ export function AreaOverviewPage() {
   const items = loaded.state.data?.items ?? null;
   const overlaps = useMemo(() => computeOverlaps(items ?? [], (item) => item.tenant_id ?? ""), [items]);
   const outside = useMemo(() => computeOutside((items ?? []).map((item) => ({ id: item.id, tenant: item.tenant_id ?? "", bizType: item.biz_type, role: roleOf(item), active: item.status === "active", polygons: item.polygons.map((polygon) => ({ kind: polygon.kind, ring: areaRing(polygon.geometry) })) })), (area) => area.tenant), [items]);
-  const shown = useMemo(() => filterAreas(items ?? [], { q, overlapOnly, role: roleFilter }, overlaps), [items, q, overlapOnly, roleFilter, overlaps]);
+  const layerProducts = layerLoad.state.data?.items ?? null;
+  const membership = useMemo(() => (layerProducts === null ? null : layerMembership(layerProducts, productFilter, layerSelection)), [layerProducts, productFilter, layerSelection]);
+  const conflicts = useMemo(
+    () =>
+      layerProducts === null || productFilter === "all"
+        ? null
+        : layerConflicts(
+            layerProducts,
+            productFilter,
+            layerSelection,
+            (items ?? []).map((item) => ({ id: item.id, bizType: item.biz_type, role: roleOf(item), active: item.status === "active", polygons: item.polygons.map((polygon) => ({ kind: polygon.kind, ring: areaRing(polygon.geometry) })) })),
+          ),
+    [layerProducts, productFilter, layerSelection, items],
+  );
+  const conflictIds = useMemo(() => new Set((conflicts?.pairs ?? []).flatMap((pair) => [pair.a, pair.b])), [conflicts]);
+  const shown = useMemo(() => {
+    if (membership === null) return filterAreas(items ?? [], { q, overlapOnly, role: roleFilter }, overlaps);
+    return filterAreas(items ?? [], { q, overlapOnly: false, role: roleFilter }, overlaps).filter((item) => membership.has(item.id) && (!overlapOnly || conflictIds.has(item.id)));
+  }, [items, q, overlapOnly, roleFilter, overlaps, membership, conflictIds]);
+  const productById = useMemo(() => new Map((layerProducts ?? []).map((product) => [product.product_id, product])), [layerProducts]);
   const slots = useMemo(() => new Map((items ?? []).map((item, index) => [item.id, colorSlot(index)])), [items]);
   const names = useMemo(() => new Map((items ?? []).map((item) => [item.id, nameOf(item)])), [items]);
   const mapAreas = useMemo<OverviewArea[]>(
@@ -119,6 +145,7 @@ export function AreaOverviewPage() {
   const shownIds = new Set(shown.map((item) => item.id));
   const shownPieces = useMemo(() => overlaps.pieces.filter((piece) => piece.areaIds.every((id) => shownIds.has(id))), [overlaps, shown]);
   const shownOutside = useMemo(() => outside.pieces.filter((piece) => piece.areaIds.some((id) => shownIds.has(id))), [outside, shown]);
+  const shownConflicts = useMemo(() => (conflicts === null ? null : conflicts.pieces.filter((piece) => piece.areaIds.some((id) => shownIds.has(id)))), [conflicts, shown]);
   /** 超出运营区域的面积：接口算的（和这个供应商全部的运营区域比）优先，没有时用这一页算的 */
   const outsideOf = (item: Item): number => (item.outside_operating_m2 ?? outside.byArea.get(item.id) ?? 0);
 
@@ -270,11 +297,37 @@ export function AreaOverviewPage() {
                 ]}
                 onChange={setRoleFilter}
               />
+              {!platform && (
+                <SelectField<string>
+                  inline
+                  label="商品"
+                  value={productFilter}
+                  options={[
+                    { value: "all", label: "全部区域（不按商品）" },
+                    { value: "charter", label: "全部包车商品" },
+                    ...(layerProducts ?? []).map((product) => ({ value: product.product_id, label: productLabel(product) })),
+                    ...(layerProducts === null && productFilter !== "all" && productFilter !== "charter" ? [{ value: productFilter, label: "（加载中）" }] : []),
+                  ]}
+                  onChange={setProductFilter}
+                />
+              )}
+              {membership !== null && (
+                <fieldset className="area-overview__layers">
+                  <legend className="visually-hidden">按层筛选</legend>
+                  {AREA_LAYERS.map((layer) => (
+                    <label key={layer} className="choice">
+                      <input type="checkbox" checked={layerSelection[layer]} onChange={(event) => setLayerSelection((current) => ({ ...current, [layer]: event.target.checked }))} />
+                      <span className="choice__text">{AREA_LAYER_NAMES[layer]}</span>
+                    </label>
+                  ))}
+                </fieldset>
+              )}
               <label className="choice">
                 <input type="checkbox" checked={overlapOnly} onChange={(event) => setOverlapOnly(event.target.checked)} />
-                <span className="choice__text">{`只看有重叠的${items === null ? "" : `（${overlaps.byArea.size}）`}`}</span>
+                <span className="choice__text">{membership !== null ? `只看有三层重叠的（${conflictIds.size}）` : `只看有重叠的${items === null ? "" : `（${overlaps.byArea.size}）`}`}</span>
               </label>
             </div>
+            {!platform && layerLoad.state.data === null && layerLoad.state.status === "error" && productFilter !== "all" && <p className="field__error">商品没有加载出来，请刷新页面重试。</p>}
             {loading ? (
               <Skeleton lines={["medium", "long", "medium", "long"]} label="区域加载中" />
             ) : total === 0 ? (
@@ -293,7 +346,7 @@ export function AreaOverviewPage() {
                   : {})}
               />
             ) : shown.length === 0 ? (
-              <StateBlock tone="neutral" title="没有符合条件的区域" description={overlapOnly && q.trim() === "" && roleFilter === "all" ? "没有和别的区域重叠的区域。" : roleFilter !== "all" && q.trim() === "" && !overlapOnly ? `还没有${roleFilter === "operating" ? "运营区域" : "报价区域"}。` : "换个名称试试，或清空搜索。"} />
+              <StateBlock tone="neutral" title="没有符合条件的区域" description={membership !== null && q.trim() === "" && !overlapOnly ? "选中的商品在选中的层里没有区域。" : membership !== null && overlapOnly ? "选中的商品在选中的层里没有三层重叠。" : overlapOnly && q.trim() === "" && roleFilter === "all" ? "没有和别的区域重叠的区域。" : roleFilter !== "all" && q.trim() === "" && !overlapOnly ? `还没有${roleFilter === "operating" ? "运营区域" : "报价区域"}。` : "换个名称试试，或清空搜索。"} />
             ) : (
               <ul className="area-overview__items" aria-label="区域列表" ref={listRef}>
                 {shown.map((item) => {
@@ -314,7 +367,28 @@ export function AreaOverviewPage() {
                         <span>{`${item.city ? displayName(item.city.name).text : "—"} · ${AREA_BIZ_TYPE_NAMES[item.biz_type]}`}</span>
                         {item.tenant !== undefined && <span>{item.tenant?.name ?? "（供应商已不存在）"}</span>}
                       </p>
-                      {others.length > 0 && (
+                      {membership !== null && (
+                        <p className="area-overview__meta" data-layers={item.id}>
+                          {[...(membership.get(item.id) ?? [])].map((layer) => (
+                            <span key={layer} className="tag" data-layer={layer}>
+                              {AREA_LAYER_SHORT[layer]}
+                            </span>
+                          ))}
+                        </p>
+                      )}
+                      {(conflicts?.pairs ?? [])
+                        .filter((pair) => pair.a === item.id || pair.b === item.id)
+                        .map((pair) => {
+                          const otherId = pair.a === item.id ? pair.b : pair.a;
+                          const product = productById.get(pair.productId);
+                          return (
+                            <p key={`${pair.productId}:${pair.a}:${pair.b}:${pair.layer}`} className="area-overview__overlap area-overview__conflict" data-conflict-note={item.id}>
+                              <Icon name="alert-triangle" />
+                              <span>{overlapLine({ productLabel: product ? productLabel(product) : "", otherName: names.get(otherId) ?? "", layer: pair.layer, areaM2: pair.areaM2 })}</span>
+                            </p>
+                          );
+                        })}
+                      {membership === null && others.length > 0 && (
                         <p className="area-overview__overlap">
                           <Icon name="alert-triangle" />
                           <span>
@@ -367,7 +441,7 @@ export function AreaOverviewPage() {
             ) : tiles === null ? (
               <p className="area-map-placeholder">{mapConfig.state.status === "ready" ? "这个环境没有配置地图底图。" : "地图没有加载出来。"}区域的名称、形状和重叠照常列在左边。</p>
             ) : (
-              <AreaOverviewMap tiles={tiles} areas={mapAreas} selected={selected} onSelect={pickFromMap} overlaps={shownPieces} showOverlaps focusSignal={focusSignal} marker={marker} outside={shownOutside} demands={demandPoints} />
+              <AreaOverviewMap tiles={tiles} areas={mapAreas} selected={selected} onSelect={pickFromMap} overlaps={shownPieces} showOverlaps={membership === null} focusSignal={focusSignal} marker={marker} outside={shownOutside} conflicts={shownConflicts} demands={demandPoints} />
             )}
           </div>
         </div>

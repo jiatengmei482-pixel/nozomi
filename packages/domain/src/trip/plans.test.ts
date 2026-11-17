@@ -1,4 +1,4 @@
-/** 方案组装、推荐、预算降级（ADR 0100 第三节第 5、6 小节；D1、D2）。 */
+/** 方案组装、推荐、预算降级（ADR 0101 第三节第 5、6 小节；D1、D2）。 */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type QuotedDay, type QuotedSegment, type SegmentOffer, assembleDailyBest, budgetSplitOptions, oneCarCandidates, oneCarDays, recommendPlan } from "./plans.ts";

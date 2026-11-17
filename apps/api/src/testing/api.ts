@@ -2,6 +2,7 @@
  * 接口集成测试的公共搭建：独立 schema 的真实数据库 + 仓库里的真实迁移 + 可拨动的时钟 + 常用的请求辅助。
  * 测试数据只在这里和各测试里构造，`close()` 时连同 schema 一起删除（规则 1）。
  */
+import { NO_ORDER_OPTIMIZER } from "../services/order-optimizer.ts";
 import assert from "node:assert/strict";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../app.ts";
@@ -297,6 +298,7 @@ export function testContext(config: AppConfig, pool: Pool, now: () => Date, quot
     }),
     routePreview: NO_ROUTE_PREVIEW,
     routeMap: NO_ROUTE_MAP,
+    orderOptimizer: NO_ORDER_OPTIMIZER,
   };
 }
 

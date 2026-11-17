@@ -9,6 +9,7 @@
  */
 import type { ServiceCategory } from "./master-data.ts";
 import type { TripDirection } from "./pricing.ts";
+import { FLIGHT_KINDS, type FlightKind } from "./arrival-free-wait.ts";
 
 // ---- 订单状态 ----
 
@@ -192,6 +193,8 @@ export const ORDER_FIELD_LIMITS = {
 export interface OrderDetailsInput {
   passenger: { name: string; phone: string; email: string };
   flightNo: string | null;
+  /** 客人填航班号时选的国际 / 国内航班（M9E-28，ADR 0097 Q1 方案 B）；没选、渠道没给为 null（按「航班类型未确认」锁免费等待） */
+  flightKind: FlightKind | null;
   pickupAddress: string | null;
   dropoffAddress: string | null;
   messaging: { app: MessagingApp; handle: string } | null;
@@ -249,7 +252,8 @@ const tooLong = (value: string, max: number): boolean => [...value.trim()].lengt
 /**
  * 下单时客人填的信息写得对不对（空数组 = 没问题）。规则：
  * - 乘客姓名、电话（国际格式）、邮箱必填（确认邮件和订单页链接发到邮箱；需求「客人通知」不接短信）；
- * - 接机（机场）要航班号；送机可以填（司机参考）；接送站、点对点、包车不填航班号；
+ * - 接机（机场）要航班号；送机可以填（司机参考）；点对点可以填（填了就是从机场接人：认出机场、改用点对点商品报价的接机，M8-33、ADR 0097 Q5）；接送站、包车不填航班号；
+ * - 航班类型（国际 / 国内）只跟着航班号给，只用于接机和带航班号的点对点（ADR 0097）；不给可以（按未确认锁）；
  * - 有坐标的那一端（不是机场 / 车站的那一端）要填地址或酒店名，司机靠它找人；没有坐标的那一端不填；
  * - 即时通讯（WhatsApp / LINE / 微信 / KakaoTalk）选填；备注、渠道订单号选填；
  * - 必须同意保存支付方式（第五轮决策 ⑤：事后加收扣保存的支付方式，下单页要明确告知并勾选同意）。
@@ -266,12 +270,19 @@ export function orderDetailsIssues(input: OrderDetailsInput, trip: OrderTripShap
   else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(passenger.email.trim())) issues.push({ path: "/passenger/email", reason: "INVALID_FORMAT" });
 
   const atAirport = trip.category === "airport_transfer" && trip.placeType === "airport";
-  if (!atAirport) {
+  const takesFlight = atAirport || trip.category === "point_to_point";
+  if (!takesFlight) {
     if (!blank(input.flightNo)) issues.push({ path: "/flight_no", reason: "NOT_APPLICABLE" });
   } else if (blank(input.flightNo)) {
-    if (trip.direction === "pickup") issues.push({ path: "/flight_no", reason: "REQUIRED" });
+    if (atAirport && trip.direction === "pickup") issues.push({ path: "/flight_no", reason: "REQUIRED" });
   } else if (!isFlightNo(input.flightNo as string)) {
     issues.push({ path: "/flight_no", reason: "INVALID_FLIGHT_NO" });
+  }
+  // 航班类型：只有按航班定免费等待的单（机场接机、带航班号的点对点）能给
+  if (input.flightKind !== null) {
+    const arrival = (atAirport && trip.direction === "pickup") || (trip.category === "point_to_point" && !blank(input.flightNo));
+    if (!arrival) issues.push({ path: "/flight_kind", reason: "NOT_APPLICABLE" });
+    else if (!(FLIGHT_KINDS as readonly string[]).includes(input.flightKind)) issues.push({ path: "/flight_kind", reason: "INVALID_FORMAT" });
   }
 
   const address = (value: string | null, hasPoint: boolean, path: string): void => {

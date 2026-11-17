@@ -1,4 +1,4 @@
-/** 工时与第二司机（ADR 0100 第四节第 3 条；第七节第 5 条的工时情形）。 */
+/** 工时与第二司机（ADR 0101 第四节第 3 条；第七节第 5 条的工时情形）。 */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { TRIP_RULE_DEFAULTS } from "./rules.ts";

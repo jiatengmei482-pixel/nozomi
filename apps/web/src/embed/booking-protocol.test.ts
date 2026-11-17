@@ -7,6 +7,7 @@ import {
   HOST_DRAFT_TTL_MS,
   bookingUrlOf,
   clampHeight,
+  clampOffset,
   embedFrameUrl,
   envelope,
   frameParamsOf,
@@ -73,6 +74,22 @@ test("高度截到 1–20000 的整数；宿主 → iframe 只认 viewport", () 
   assert.deepEqual(envelope(CH, { type: "viewport", height: 900 }), { ns: "nozomi-booking", v: 1, ch: CH, type: "viewport", height: 900 });
 });
 
+test("viewport 的 top（M9E-32，ADR 0100）：可选；有就取整、截到 ±20000；不是有限数时只是不带，height 照旧；旧消息（无 top）照旧能解析", () => {
+  assert.deepEqual(parseHostMessage(msg({ type: "viewport", height: 800 }), CH), { type: "viewport", height: 800 }, "旧版组件脚本的消息");
+  assert.deepEqual(parseHostMessage(msg({ type: "viewport", height: 800, top: 120 }), CH), { type: "viewport", height: 800, top: 120 });
+  assert.deepEqual(parseHostMessage(msg({ type: "viewport", height: 800, top: -1234.6 }), CH), { type: "viewport", height: 800, top: -1235 }, "可为负数，取整");
+  assert.deepEqual(parseHostMessage(msg({ type: "viewport", height: 800, top: 0 }), CH), { type: "viewport", height: 800, top: 0 });
+  assert.deepEqual(parseHostMessage(msg({ type: "viewport", height: 800, top: 99_999 }), CH), { type: "viewport", height: 800, top: 20_000 }, "越界截到 20000");
+  assert.deepEqual(parseHostMessage(msg({ type: "viewport", height: 800, top: -99_999 }), CH), { type: "viewport", height: 800, top: -20_000 }, "越界截到 -20000");
+  for (const top of ["120", null, true, Number.NaN, Infinity, -Infinity, { y: 1 }, [1]]) {
+    assert.deepEqual(parseHostMessage(msg({ type: "viewport", height: 800, top }), CH), { type: "viewport", height: 800 }, `top = ${String(top)}`);
+  }
+  assert.equal(parseHostMessage(msg({ type: "viewport", height: "800", top: 10 }), CH), null, "height 不对整条丢掉，top 救不回来");
+  assert.equal(clampOffset(-0.4), 0);
+  assert.equal(clampOffset("1"), null);
+  assert.deepEqual(envelope(CH, { type: "viewport", height: 900, top: -50 }), { ns: "nozomi-booking", v: 1, ch: CH, type: "viewport", height: 900, top: -50 });
+});
+
 test("交给合作网站的事件只有 step、completed、error", () => {
   assert.equal(hostEventOf({ type: "ready", lang: "ja" }), null);
   assert.equal(hostEventOf({ type: "resize", height: 10 }), null);
@@ -129,6 +146,10 @@ test("iframe 地址：draft、key、lang、host 在查询串，频道号在 # �
   assert.deepEqual(frameParamsOf(url.search, url.hash), { draft: DRAFT, key: KEY, host: "https://partner.example", lang: "ja", ch: CH });
   assert.equal(new URL(embedFrameUrl("https://nozomi.example", { draft: DRAFT, key: KEY, host: "https://partner.example", lang: null, ch: CH })).searchParams.has("lang"), false, "没传语言不带，嵌入页按草稿的语言");
   assert.deepEqual(frameParamsOf("?draft=x&key=y&host=https%3A%2F%2Fpartner.example%2F&lang=fr", "#ch=a%3Cb"), { draft: null, key: null, host: null, lang: null, ch: null });
+  // 银行整页回跳（M9E-19）：return_url 没有 #，频道号在查询串里；# 后面有的时候以 # 后面的为准
+  assert.equal(frameParamsOf(`${url.search}&ch=${CH}&payment_intent=pi_1`, "").ch, CH);
+  assert.equal(frameParamsOf(`${url.search}&ch=${"f".repeat(32)}`, `#ch=${CH}`).ch, CH);
+  assert.equal(frameParamsOf(`${url.search}&ch=a%3Cb`, "").ch, null);
   for (const host of ["https://partner.example/", "https://Partner.example", "http://partner.example", "https://partner.example:443", "null", "", "javascript:alert(1)"]) assert.equal(hostOriginOf(host), null, host);
   assert.equal(hostOriginOf("http://localhost:4174"), "http://localhost:4174");
 });

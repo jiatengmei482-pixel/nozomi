@@ -15,6 +15,7 @@ import { displayName } from "../../../lib/master-display.ts";
 import { tableCoverage, isStationPlace } from "../../../lib/price-form.ts";
 import { basePriceItems, rowFromRule } from "../../../lib/price-form.ts";
 import { CURRENCY_NAMES, moneyText } from "../../../lib/product-display.ts";
+import { WHOLE_PRODUCT_AREA, isLayeredCharter, wholePackageItems } from "../../../lib/charter-layers.ts";
 import type { PriceTab } from "../../../lib/product-paths.ts";
 import { useLoad } from "../../../lib/use-load.ts";
 import { useTenantCan } from "../../../lib/use-master-access.ts";
@@ -62,7 +63,11 @@ export function PricesStep({ frame, product, rest }: { frame: ProductFrame; prod
   const currency = data?.currency ?? product.brand?.currency ?? "";
   const digits = isCurrencyCode(currency) ? CURRENCIES[currency].minorDigits : 0;
   const station = isStationPlace(product.poi?.type);
-  const missing = data ? tableCoverage(basePriceItems(data.items).map((item) => rowFromRule(item, currency)), { category: product.category, currency, today: data.today, station }, product.areas.map((area) => area.area_id), product.vehicle_groups.map((group) => group.vehicle_group_id)).missing : 0;
+  // 迁移过三层区域的包车（M9P-07）：套餐价按车型组 × 套餐填一次，缺价按「整个商品」算
+  const layered = data !== null && isLayeredCharter(product.category, data);
+  const missing = data
+    ? tableCoverage((layered ? wholePackageItems(data.items) : basePriceItems(data.items)).map((item) => rowFromRule(item, currency)), { category: product.category, currency, today: data.today, station }, layered ? [WHOLE_PRODUCT_AREA] : product.areas.map((area) => area.area_id), product.vehicle_groups.map((group) => group.vehicle_group_id)).missing
+    : 0;
   const enabledAdjusts = (adjusts.state.data?.items ?? []).filter((rule) => rule.status === "enabled" && !rule.ended).length;
 
   const allTabs: { key: PriceTab; name: string; extra?: ReactNode }[] = [

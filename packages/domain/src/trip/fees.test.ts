@@ -1,4 +1,4 @@
-/** 跨段费用（ADR 0100 第四节第 0–2、4–6 条；D4 口径监工 2026-11-15 确认）。 */
+/** 跨段费用（ADR 0101 第四节第 0–2、4–6 条；D4 口径监工 2026-11-15 确认）。 */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { PriceRule } from "../pricing.ts";

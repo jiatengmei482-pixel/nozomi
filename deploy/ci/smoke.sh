@@ -442,12 +442,46 @@ addEventListener("message", function (event) {
 HTML
 }
 
-# 用无头 Chrome 打开宿主页，开 20 秒后关掉（嵌入页加载、发 ready、宿主发回执都在这段时间里）
+# 用无头 Chrome 打开宿主页，开 20 秒后关掉（嵌入页加载、发 ready、宿主发回执都在这段时间里）。
+# 用于「不应收到回执」的检查：要等满整段时间才能说没收到。Chrome 自己的输出记在 $work_dir/chrome.log，失败时打印。
 open_host_page() {
   local profile
   profile="$(mktemp -d "$work_dir/chrome-XXXXXX")"
+  printf '\n--- %s %s ---\n' "$(date -u +%H:%M:%S)" "$1" >>"$work_dir/chrome.log"
   timeout --kill-after=5 20 "$chrome" --headless=new --no-sandbox --disable-gpu --ignore-certificate-errors --no-first-run \
-    --user-data-dir="$profile" "$1" >/dev/null 2>&1 || true
+    --user-data-dir="$profile" "$1" >>"$work_dir/chrome.log" 2>&1 || true
+}
+
+# 「应收到回执」的检查（M8-29）：打开宿主页后一直等到访问日志里出现回执，最多 $3 秒；收到就关掉 Chrome。
+# 以前固定开 20 秒：CI 机器忙的时候，第一次启动 Chrome（新的用户目录、首次运行的初始化）加上嵌入页加载就可能超过 20 秒，回执没来得及发，
+# 同一个提交重跑又能过（#253、#259 的 deploy-smoke 都挂在这里）。断言不变：仍然必须真的收到 ready 回执，只是不再把机器忙当成失败。
+# 用法：open_host_page_until <网址> <访问日志> <回执路径> <最多等几秒>
+open_host_page_until() {
+  local profile chrome_pid waited=0
+  profile="$(mktemp -d "$work_dir/chrome-XXXXXX")"
+  printf '\n--- %s %s（等 %s）---\n' "$(date -u +%H:%M:%S)" "$1" "$3" >>"$work_dir/chrome.log"
+  timeout --kill-after=5 "$4" "$chrome" --headless=new --no-sandbox --disable-gpu --ignore-certificate-errors --no-first-run \
+    --user-data-dir="$profile" "$1" >>"$work_dir/chrome.log" 2>&1 &
+  chrome_pid=$!
+  while ! grep -q "GET $3" "$2"; do
+    if ! kill -0 "$chrome_pid" 2>/dev/null || [[ $waited -ge $4 ]]; then break; fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  kill "$chrome_pid" 2>/dev/null || true
+  wait "$chrome_pid" 2>/dev/null || true
+  printf '等了 %s 秒\n' "$waited" >>"$work_dir/chrome.log"
+  grep -q "GET $3" "$2"
+}
+
+# 第 10 步失败时把宿主静态服务的访问日志和 Chrome 的输出打出来，分得清是「宿主页没打开」「嵌入页没加载」还是「没发 ready」
+embed_diagnostics() {
+  printf '\n--- 宿主 %s 的访问日志 ---\n' "$host_origin" >&2
+  cat "$work_dir/host.log" >&2 2>/dev/null || true
+  printf '\n--- 宿主 %s 的访问日志 ---\n' "$other_origin" >&2
+  cat "$work_dir/other.log" >&2 2>/dev/null || true
+  printf '\n--- 无头 Chrome 的输出（最后 80 行）---\n' >&2
+  tail -n 80 "$work_dir/chrome.log" >&2 2>/dev/null || true
 }
 
 health_status() {
@@ -702,8 +736,7 @@ for attempt in $(seq 1 30); do
   [[ $attempt -lt 30 ]] || fail "宿主页的静态服务没有起来"
   sleep 1
 done
-open_host_page "$host_origin/on.html"
-grep -q 'GET /beacon/on-ready' "$work_dir/host.log" || fail "白名单里的宿主 $host_origin 应能嵌入 /embed/book（收到嵌入页的 ready）"
+open_host_page_until "$host_origin/on.html" "$work_dir/host.log" /beacon/on-ready 60 || { embed_diagnostics; fail "白名单里的宿主 $host_origin 应能嵌入 /embed/book（60 秒内收到嵌入页的 ready）"; }
 open_host_page "$other_origin/other.html"
 if grep -q 'GET /beacon/other-ready' "$work_dir/other.log"; then fail "不在白名单的宿主 $other_origin 不应能嵌入 /embed/book"; fi
 open_host_page "$host_origin/off.html"

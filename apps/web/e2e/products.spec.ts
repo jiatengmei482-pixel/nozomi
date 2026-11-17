@@ -91,7 +91,8 @@ test("没有子品牌时的引导 → 建子品牌 → 新建接送机商品 →
   await expect(page).toHaveURL(/\/service-rules$/);
   await expect(page.getByRole("heading", { level: 2, name: "② 服务规则" })).toBeFocused();
   await expect(page.getByText(/Asia\/Tokyo（UTC\+9）/)).toBeVisible();
-  await expect(page.getByLabel("接机免费等待的分钟数")).toHaveValue("60");
+  await expect(page.getByLabel("接机免费等待的分钟数")).toHaveCount(0);
+  await expect(page.getByText("国际航班 90 分钟、国内航班 60 分钟")).toBeVisible();
   await page.getByLabel("服务时间从").fill("6");
   await page.getByLabel("服务时间到").fill("0100");
   await page.getByLabel("服务时间到").blur();

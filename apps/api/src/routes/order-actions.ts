@@ -22,7 +22,7 @@ import { orderPassengerNames } from "../services/passenger-privacy.ts";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { PlatformAction } from "@nozomi/domain";
-import { maskOrderValues, VIEW_LINK_VERIFICATIONS, EVIDENCE_FILE_RULES, EXTRA_CHARGE_RULES, EXTRA_CHARGE_TYPES, FULFILMENT_EVENTS, MESSAGING_APPS, ORDER_CANCEL_REASONS, PROXY_FULFILMENT_RULES, SERVICE_CATEGORIES, VEHICLE_LEVELS } from "@nozomi/domain";
+import { FLIGHT_KINDS, maskOrderValues, VIEW_LINK_VERIFICATIONS, EVIDENCE_FILE_RULES, EXTRA_CHARGE_RULES, EXTRA_CHARGE_TYPES, FULFILMENT_EVENTS, MESSAGING_APPS, ORDER_CANCEL_REASONS, PROXY_FULFILMENT_RULES, SERVICE_CATEGORIES, VEHICLE_LEVELS } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { AppError } from "../errors.ts";
@@ -82,6 +82,7 @@ export const changeSchema = z
   .object({
     passenger: passengerInput().optional(),
     flight_no: z.string().max(20).nullable().optional(),
+    flight_kind: z.enum(FLIGHT_KINDS).nullable().optional(),
     messaging: z.object({ app: z.enum(MESSAGING_APPS), handle: z.string().max(200) }).strict().nullable().optional(),
     notes: z.string().max(2_000).nullable().optional(),
     pickup_address: singleLine(1_000).optional(),
@@ -123,6 +124,7 @@ export function toChangeInput(body: Omit<z.output<typeof changeSchema>, "passeng
   const input: OrderChangeInput = {};
   if (body.passenger !== undefined) input.passenger = body.passenger;
   if (body.flight_no !== undefined) input.flightNo = body.flight_no;
+  if (body.flight_kind !== undefined) input.flightKind = body.flight_kind;
   if (body.messaging !== undefined) input.messaging = body.messaging;
   if (body.notes !== undefined) input.notes = body.notes;
   if (body.pickup_address !== undefined) input.pickupAddress = body.pickup_address;

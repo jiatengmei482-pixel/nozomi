@@ -19,6 +19,7 @@ import { TextField } from "../../components/TextField.tsx";
 import { useToast } from "../../components/Toast.tsx";
 import { formatInZone, moneyText } from "../../lib/dispatch-display.ts";
 import { failureText } from "../../lib/failure.ts";
+import { changeFreeWaitPreview } from "../../lib/free-wait-display.ts";
 import { CHANGE_FIELD_NAMES, CHANGE_STATUS_BADGES, EXTRA_STATUS_BADGES, REVIEW_REASON_NAMES, amountToMinor, cancelReasonName, changeValueText, extraTypeName, extraTypesFor, levelName, receiptTypesOffered, tiersText } from "../../lib/order-money-display.ts";
 import { type ExtraChargeType, extraChargeNeedsReceipt } from "@nozomi/domain";
 
@@ -131,6 +132,7 @@ export function ChangesSection({ order, changes, canDecide, driverEmailState, on
               {change.decided_by_platform && "（平台代为处理）"}
               {change.dispatch_conflict && <Alert kind="warning">原来派的司机或车辆在新的时段有别的单，请改派。</Alert>}
               {open && hasDriver && <Alert kind="warning">{`需调整司机：${driverWarning}`}</Alert>}
+              {open && changeFreeWaitPreview(order, change.after) !== null && <p className="field__hint">{changeFreeWaitPreview(order, change.after)}</p>}
               {open && (
                 <div className="form__actions">
                   <span className="field__hint">{`请在 ${formatInZone(change.confirm_due_at, order.timezone)} 之前处理。确认前原预约仍然有效；超时按没确认处理，客人可能免费取消。`}</span>

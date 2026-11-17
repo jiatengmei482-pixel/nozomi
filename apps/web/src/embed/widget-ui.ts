@@ -16,6 +16,7 @@ import {
   problemOfIssuePath,
   type InitOptions,
   MAX_WAYPOINTS,
+  pendingText,
   STAY_OPTIONS,
   TEXTS,
   type WidgetForm,
@@ -425,7 +426,7 @@ class Widget {
           this.render(`waypoint-${this.form.waypoints.length - 1}`);
         });
         line.append(add);
-      }
+      } else line.append(el("p", { class: "nzb-hint", "data-role": "waypoint-limit" }, [pendingText(this.lang, "waypointLimit")]));
       if (this.form.waypoints.length === 0) line.append(el("p", { class: "nzb-hint" }, [t.packageNote]));
       extra.append(line);
       formEl.append(extra);

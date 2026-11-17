@@ -53,11 +53,12 @@ test("新的用车时间不能是现在或过去", () => {
   assert.equal(orderChangeRefusal(check({ fields: ["service_time"], newServiceAt: new Date(now.getTime() + 1) })), null);
 });
 
-test("字段分类：姓名电话邮箱、即时通讯、备注是联系信息；时间、地址、航班、人数、行李要确认", () => {
+test("字段分类：姓名电话邮箱、即时通讯、备注是联系信息；时间、地址、航班号和航班类型（M9E-28）、人数、行李要确认", () => {
   assert.deepEqual([...CONTACT_FIELDS].sort(), ["messaging", "notes", "passenger"]);
-  assert.deepEqual([...CONFIRM_FIELDS].sort(), ["dropoff_address", "flight_no", "luggage", "passengers", "pickup_address", "service_time"]);
+  assert.deepEqual([...CONFIRM_FIELDS].sort(), ["dropoff_address", "flight_kind", "flight_no", "luggage", "passengers", "pickup_address", "service_time"]);
   assert.equal(changeFieldsNeedConfirmation(["passenger", "notes"]), false);
   assert.equal(changeFieldsNeedConfirmation(["notes", "flight_no"]), true);
+  assert.equal(changeFieldsNeedConfirmation(["flight_kind"]), true, "改航班类型会改免费等待，要供应商确认");
 });
 
 test("最早用车时间：原来的和新的里早的那个；没改时间就是原来的", () => {

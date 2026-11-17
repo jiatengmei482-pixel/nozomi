@@ -1,5 +1,5 @@
 /**
- * AI 行程报价 P1 的编排接口（M9T-03，ADR 0100 第三节）：建行程单、读行程单和最近一次的方案、报价（编排 + 逐段报价 + 跨段费用 + 方案对比）。
+ * AI 行程报价 P1 的编排接口（M9T-03，ADR 0101 第三节）：建行程单、读行程单和最近一次的方案、报价（编排 + 逐段报价 + 跨段费用 + 方案对比）。
  *
  * - 渠道是官网（`requireOpenSite`）：授权城市、品类、供应商名单、验收会话和官网询价完全一样；验收会话建的行程单只报 QA 测试供应商、只有验收会话看得到。
  * - 每一段直接调 `previewPlatformQuote`（试算，不写 `quotes`，P1b 下单前再逐段正式询价）；入参和官网询价逐项一致（渠道结算币种、`driverLanguage: null`、`vehicleGroupIds: []`）。
@@ -65,7 +65,7 @@ import { type SiteCity, type SiteWaypoint, charterCityFor, itineraryRoute, requi
 import { type DemandFacts, recordUncoveredDemandLater } from "./uncovered-demands.ts";
 
 export const TRIP_RULES_API = {
-  /** 行程单可读、可再报价多久（ADR 0100 第二节：建单 + 30 天；之后由 M9T-05 清理） */
+  /** 行程单可读、可再报价多久（ADR 0101 第二节：建单 + 30 天；之后由 M9T-05 清理） */
   readableMs: 30 * 24 * 3_600_000,
 } as const;
 
@@ -228,7 +228,7 @@ function emptyQuote(reason: string): SegmentQuote {
   return { offers: [], reasons: [reason], category: null, cityId: null, details: new Map(), candidates: [], demand: null };
 }
 
-/** 这一段用时（分钟）：包车 = 引擎的预计用时 T；接送机、点对点 = 免费等待 + 行驶（ADR 0100 第四节第 3 条；等待按引擎为这个方向选的那一项） */
+/** 这一段用时（分钟）：包车 = 引擎的预计用时 T；接送机、点对点 = 免费等待 + 行驶（ADR 0101 第四节第 3 条；等待按引擎为这个方向选的那一项） */
 function durationOf(type: BuildSegment["draft"]["type"], settlement: PlatformQuotePreview["comparison"]["groups"][number]["ranked"][number]["candidate"]["offer"]["settlement"], driveMinutes: number): number | null {
   if (type === "charter") return settlement.itinerary?.estimatedMinutes ?? settlement.itinerary?.routeMinutes ?? null;
   const wait = settlement.freeWait.value;
@@ -258,7 +258,7 @@ function offersOf(preview: PlatformQuotePreview, type: BuildSegment["draft"]["ty
         fxBufferBp: c.sell.fxBufferBp,
         fx: c.sell.fx,
         durationMinutes: durationOf(type, settlement, driveMinutes),
-        // 只取③上 / 下车加价（车往返基地的空驶，ADR 0100 第四节第 1 条）；「下车点行程加价」（M9P-01，waypoints 里 fromDropoff）是去那里的行程费，不是空驶，不抵
+        // 只取③上 / 下车加价（车往返基地的空驶，ADR 0101 第四节第 1 条）；「下车点行程加价」（M9P-01，waypoints 里 fromDropoff）是去那里的行程费，不是空驶，不抵
         surcharge: surcharge === undefined || surcharge === null ? null : { pickupMinor: surcharge.pickup.amountMinor, dropoffMinor: surcharge.dropoff.amountMinor },
         addons: settlement.addons.map((addon) => ({ addonId: addon.addonId, chargeUnit: addon.chargeUnit, amountMinor: addon.amountMinor })),
       };

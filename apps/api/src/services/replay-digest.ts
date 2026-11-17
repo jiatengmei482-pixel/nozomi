@@ -54,6 +54,71 @@ export function replayDigestLine(logId: string, productCode: string, quote: Prod
   return { logId, productCode, line: JSON.stringify([logId, productCode, "ok", offers, refused]) };
 }
 
+/**
+ * 逐行明细（M9P-14）：和摘要行同一条「询价 × 候选商品」、同一份报价结果，拆成能比金额的字段；`digest` 就是这一行在 `resultLineDigests` 里的摘要。
+ * 只在有权限的人要逐行明细时给（接口参数 `rows=true`），不参与摘要，所以这里加字段不影响部署前后的摘要口径。
+ */
+export interface ReplayRowOffer {
+  vehicleGroupId: string;
+  packageHours: number | null;
+  totalMinor: number;
+  currency: string;
+  /** 摘要里也有的几项（审查 #266 必改 1）：计价方式、区域、线路价的下车区域、价格规则编号——金额不变、只有它们变了也能认出来 */
+  pricingBasis: string;
+  areaId: string | null;
+  toAreaId: string | null;
+  priceRuleId: string | null;
+  /** 调价前的基础价（含套餐、加价、超公里、超时费）和调价合计（审查 #266 必改 3：调价按比例跟着基础价变，金额拆账在基础价上做） */
+  baseMinor: number;
+  adjustMinor: number;
+  /** 包车按行程计价的超时费（预收的；M9P-03 起是 0）；不是按行程计价为 null */
+  overtimeMinor: number | null;
+  /** 包车区域加价：套餐价、上车、下车、行程加价合计（各区域之和）；不是包车为 null */
+  surcharge: { packageMinor: number; pickupMinor: number; dropoffMinor: number; itineraryMinor: number } | null;
+}
+
+export interface ReplayRow {
+  logId: string;
+  productCode: string;
+  digest: string;
+  /** 包车的旧格式询价日志（没有 charter_selection，回放按旧口径选档、算超时费，这两项应该逐字不变） */
+  legacy: boolean;
+  /** 客人手动选的档（charter_selection: manual）：档应该不变 */
+  manualPackage: boolean;
+  /** 商品层面报不出时的原因；报得出时为 null */
+  refused: string | null;
+  offers: ReplayRowOffer[];
+  /** 报不出的车型组和原因 */
+  refusedGroups: { vehicleGroupId: string; reason: string }[];
+}
+
+export function replayRow(line: DigestLine, quote: ProductQuote, options: { legacy?: boolean; manualPackage?: boolean } = {}): ReplayRow {
+  const base = { logId: line.logId, productCode: line.productCode, digest: sha256(line.line), legacy: options.legacy === true, manualPackage: options.manualPackage === true };
+  if (!quote.ok) return { ...base, refused: quote.reason, offers: [], refusedGroups: [] };
+  const offers = quote.offers
+    .map((offer): ReplayRowOffer => {
+      const { settlement } = offer;
+      const surcharge = settlement.areaSurcharge ?? null;
+      return {
+        vehicleGroupId: offer.vehicleGroupId,
+        packageHours: offer.packageHours,
+        totalMinor: settlement.totalMinor,
+        currency: settlement.currency,
+        pricingBasis: settlement.pricingBasis ?? "one_price",
+        areaId: offer.areaId,
+        toAreaId: settlement.toAreaId ?? null,
+        priceRuleId: offer.priceRuleId,
+        baseMinor: settlement.baseMinor,
+        adjustMinor: settlement.adjustMinor,
+        overtimeMinor: settlement.itinerary?.overtimeMinor ?? null,
+        surcharge: surcharge === null ? null : { packageMinor: surcharge.packageMinor, pickupMinor: surcharge.pickup.amountMinor, dropoffMinor: surcharge.dropoff.amountMinor, itineraryMinor: (surcharge.waypoints ?? []).reduce((sum, entry) => sum + entry.amountMinor, 0) },
+      };
+    })
+    .sort((a, b) => compare(a.vehicleGroupId, b.vehicleGroupId) || (a.packageHours ?? 0) - (b.packageHours ?? 0));
+  const refusedGroups = quote.refused.map((entry) => ({ vehicleGroupId: entry.vehicleGroupId, reason: entry.reason })).sort((a, b) => compare(a.vehicleGroupId, b.vehicleGroupId) || compare(a.reason, b.reason));
+  return { ...base, refused: null, offers, refusedGroups };
+}
+
 /** 所有行排序后取 SHA-256（十六进制）；`resultLines` 是参与摘要的行数；`resultLineDigests` 按询价编号、商品编码排好 */
 export function replayDigest(lines: readonly DigestLine[]): { resultDigest: string; resultLines: number; resultLineDigests: LineDigest[] } {
   const sorted = lines.map((entry) => entry.line).sort(compare);

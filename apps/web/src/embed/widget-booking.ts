@@ -13,12 +13,15 @@
  * - postMessage：只认 `event.source === iframe.contentWindow && event.origin === 主站 origin`、频道号对得上的；发出时 targetOrigin 写主站 origin，从不用 "*"。
  *   收到的字段按白名单取值（booking-protocol.ts），step、completed、error 交给 onEvent，并在容器上派发 `nozomi:booking` 事件。
  * - iframe 不加 sandbox（会传给 Stripe 的付款表单和 3D 验证框架）；allow="payment"；referrerpolicy="no-referrer"；初始高度 720px，按 resize 调整。
+ * - 收到 ready 后、宿主窗口大小变了、宿主页滚动时（同一帧一次）发 viewport{ height, top }：top 是 iframe 上沿相对可视区的位置，
+ *   iframe 里的手机底部按钮条据此停在宿主屏幕下沿（M9E-32，ADR 0100）。
  */
 import { tellDeveloper } from "./developer-notice.ts";
 import { forgetHostDraft, readHostDraft, writeHostDraft } from "./host-draft-store.ts";
 import {
   type BookingEvent,
   type FrameMessage,
+  clampOffset,
   embedFrameUrl,
   envelope,
   hostDraftRecord,
@@ -185,7 +188,13 @@ class BookingMount {
     let ready = false;
     let height = INITIAL_HEIGHT;
     let modal = false;
-    const post = (): void => iframe.contentWindow?.postMessage(envelope(ch, { type: "viewport", height: Math.max(1, Math.round(window.innerHeight)) }), this.origin);
+    // 可视高度和 iframe 上沿的位置（top，M9E-32，ADR 0100）：iframe 里的手机底部按钮条据此停在宿主屏幕的下沿
+    let sentTop: number | null = null;
+    const post = (): void => {
+      const top = clampOffset(iframe.getBoundingClientRect().top) ?? 0;
+      sentTop = top;
+      iframe.contentWindow?.postMessage(envelope(ch, { type: "viewport", height: Math.max(1, Math.round(window.innerHeight)), top }), this.origin);
+    };
     const timer = setTimeout(() => {
       if (ready) return;
       this.renderFailed(draft);
@@ -198,6 +207,11 @@ class BookingMount {
         case "ready":
           ready = true;
           clearTimeout(timer);
+          // 新文档（银行整页回跳、iframe 刷新）：上一个文档开过的 modal 没机会关，这里一并恢复按内容高度（M9E-19）
+          if (modal) {
+            modal = false;
+            iframe.setAttribute("height", String(height));
+          }
           post();
           return;
         case "resize":
@@ -235,9 +249,27 @@ class BookingMount {
     const onResize = (): void => {
       if (ready) post();
     };
+    // 宿主页滚动（含页面里可滚动的容器，所以在捕获阶段听）：同一帧只发一次，iframe 位置没变不发
+    let scrollFrame = 0;
+    const onScroll = (): void => {
+      if (!ready || scrollFrame !== 0) return;
+      scrollFrame = requestAnimationFrame(() => {
+        scrollFrame = 0;
+        if (clampOffset(iframe.getBoundingClientRect().top) !== sentTop) post();
+      });
+    };
+    const scrollOptions = { passive: true, capture: true } as const;
     window.addEventListener("message", onMessage);
     window.addEventListener("resize", onResize);
-    this.cleanups.push(() => window.removeEventListener("message", onMessage), () => window.removeEventListener("resize", onResize));
+    window.addEventListener("scroll", onScroll, scrollOptions);
+    this.cleanups.push(
+      () => window.removeEventListener("message", onMessage),
+      () => window.removeEventListener("resize", onResize),
+      () => window.removeEventListener("scroll", onScroll, scrollOptions),
+      () => {
+        if (scrollFrame !== 0) cancelAnimationFrame(scrollFrame);
+      },
+    );
   }
 
   /** 草稿过期：iframe 上方「这次查询已过期。重新查询」，点了换回查价表单 */

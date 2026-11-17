@@ -18,6 +18,8 @@
  * - `POST /site/v1/quotes/by-points`：按两个坐标报价——认出机场和接机 / 送机 / 点对点后走同一个询价，顺带给路线的时间、距离（和询价共用每分钟 30 次，M8-02，ADR 0069 A1）；
  * - `GET /site/v1/route-map`：行程摘要的路线小地图（谷歌静态地图，后端代调、密钥不进浏览器；灰色调底图、品牌色路线；每个地址每分钟 30 次、每天 200 次；
  *   出不了图 503 `ROUTE_MAP_UNAVAILABLE`，`details.reason` 只有 `NOT_ENABLED`（页面用原来的地图）和 `UNAVAILABLE`（只显示时间和距离），M8-10，ADR 0072）；
+ * - `GET /site/v1/itinerary-map`：包车行程地图（M9P-20 P1，ADR 0096）：`p=纬度,经度` 按行程顺序重复 2–12 次，编号标记（1 = 上车，最后 = 下车）；额度和失败同路线小地图；
+ * - `GET /site/v1/itinerary-legs`：同一组点逐段的约多少分钟、多少米（没有经停的包车列表只作展示，和行程地图共用一次谷歌调用和缓存）；
  * - `POST /site/v1/orders`：下单（`Idempotency-Key`，每个地址 10 分钟 10 次），应答里有查看链接的令牌（只这一次）。
  * 测试环境的验收通道（M8-26，ADR 0078）：`POST / GET / DELETE /site/v1/qa-acceptance/session`；带有效验收会话 Cookie 时，城市、机场、包车套餐、
  * 询价（含按两个坐标）只看 QA 测试供应商的「验收可售」商品，下的是验收单。没带 Cookie 的请求和以前完全一样。
@@ -32,7 +34,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { CurrencyCode, LocalizedText, SellBreakdownItem } from "@nozomi/domain";
 import { z } from "zod";
-import { FX_CURRENCIES, MESSAGING_APPS, ORDER_FIELD_LIMITS, PLACE_KINDS, PRICE_LIMITS, QUOTE_RULES, SERVICE_CATEGORIES, STATIC_MAP_RULES, STATIC_MAP_THEMES, type RouteMapReason, isGooglePlaceId, isPlaceSessionToken, normalizePlaceQuery, placeQueryIssue, viewLinkLookupEmail } from "@nozomi/domain";
+import { AIRPORT_SCENARIO_KINDS, FLIGHT_KINDS, FX_CURRENCIES, MESSAGING_APPS, ORDER_FIELD_LIMITS, PLACE_KINDS, PRICE_LIMITS, QUOTE_RULES, SERVICE_CATEGORIES, STATIC_MAP_RULES, STATIC_MAP_THEMES, type RouteMapReason, isGooglePlaceId, isPlaceSessionToken, normalizePlaceQuery, placeQueryIssue, viewLinkLookupEmail, ITINERARY_MAP_RULES, arriveByIssue } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { AppError } from "../errors.ts";
@@ -49,12 +51,14 @@ import {
   type QuotedCity,
   type SiteQuoteResult,
   type SiteTrip,
+  type SiteWaypoint,
   placeSiteOrder,
   requestSiteOrderLink,
   resolveSiteLink,
   siteAirports,
   siteAutocomplete,
   siteCharterPackages,
+  siteCharterAirports,
   siteCharterPackagesAt,
   siteCities,
   siteConfig,
@@ -66,6 +70,10 @@ import {
   siteQuotes,
   siteQuotesByPoints,
   siteReversePlace,
+  siteItineraryLegs,
+  takeSiteSessionSlot,
+  type SiteItinerary,
+  siteItineraryMap,
   siteRouteMap,
   siteSearchPlaces,
   sitePlacesGoogleGuard,
@@ -73,6 +81,7 @@ import {
   takeSiteSlot,
 } from "../services/site.ts";
 import { salesMoney } from "../services/sales-quotes.ts";
+import { siteOrderSuggestion } from "../services/order-suggestion.ts";
 import { type InputIssue, idempotencyKey, ifMatchVersion, parseInput, passengerInput, resourceId, singleLine, uuidSchema, validationFailed } from "../validation.ts";
 import { changeSchema, disputeSchema, feeJson, salesCancelSchema, salesFeeQuerySchema, toChangeInput } from "./order-actions.ts";
 import { distanceJson, paymentJson, salesOrderJson } from "./sales.ts";
@@ -106,10 +115,45 @@ const addonsOf = (addons: z.output<typeof addonsSchema>): { addonId: string; qua
 const demandNameSchema = z.string().max(200).nullable().optional();
 
 /**
- * 包车的经停点（ADR 0088）：名称、坐标、停留分钟，按顺序，最多 10 个（`QUOTE_RULES.maxWaypoints`）。
+ * 经停的指定到达时间（M9P-20 P3，ADR 0096 第三节第 6 小节）：可选，「当天 / 次日 + HH:MM」（用车当地时间），按「最晚到达」理解；
+ * 必须晚于用车开始、不晚于开始 + 24 小时（在 `siteTripOf` 里按 `service_local` 核对）。只固定这个经停的位置、给司机看，不影响价格。
+ */
+export const arriveBySchema = z
+  .object({
+    day_offset: z.union([z.literal(0), z.literal(1)]),
+    time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "写成 HH:MM（00:00–23:59）"),
+  })
+  .strict();
+
+export const ARRIVE_BY_MESSAGES: Readonly<Record<"FORMAT" | "NOT_AFTER_START" | "TOO_LATE", string>> = {
+  FORMAT: "指定到达时间写成当天或次日（day_offset 0 / 1）加 HH:MM",
+  NOT_AFTER_START: "指定到达时间要晚于用车开始时间",
+  TOO_LATE: "指定到达时间不能晚于用车开始后 24 小时",
+};
+
+/** 包车经停去掉没给的 `arrive_by`（不给时请求、快照里不带这个键，和以前逐字一样），并按用车时间核对给了的。 */
+function waypointsOf(body: { waypoints?: z.output<typeof waypointSchema>[] | undefined; service_local: string }, issues: InputIssue[]): SiteWaypoint[] {
+  return (body.waypoints ?? []).map(({ arrive_by: arriveBy, ...stop }, index) => {
+    if (arriveBy === undefined) return stop;
+    const issue = arriveByIssue(body.service_local, arriveBy);
+    if (issue !== null) issues.push({ path: `/waypoints/${index}/arrive_by`, reason: issue, message: ARRIVE_BY_MESSAGES[issue] });
+    return { ...stop, arrive_by: { day_offset: arriveBy.day_offset, time: arriveBy.time } };
+  });
+}
+
+/**
+ * 包车的经停点（ADR 0088）：名称、坐标、停留分钟，按顺序，最多 25 个（`QUOTE_RULES.maxWaypoints`，M9P-10 起只受路径接口上限）。
  * 只有包车能给（别的品类 400 `NOT_APPLICABLE`）；空数组和不给一样。
  */
-const waypointSchema = z.object({ name: z.string().trim().min(1).max(200), lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180), stay_minutes: z.number().int().min(0).max(1_440) }).strict();
+const waypointSchema = z
+  .object({
+    name: z.string().trim().min(1).max(200),
+    lat: z.number().min(-90).max(90),
+    lng: z.number().min(-180).max(180),
+    stay_minutes: z.number().int().min(0).max(1_440),
+    arrive_by: arriveBySchema.optional(),
+  })
+  .strict();
 
 /**
  * 询价请求：`category` 不填是接送机（M3-05 的请求照旧能用）。各品类要的字段：
@@ -127,7 +171,7 @@ const quoteSchema = z
     address: pointSchema.optional(),
     pickup: pointSchema.optional(),
     dropoff: pointSchema.optional(),
-    waypoints: z.array(waypointSchema).max(QUOTE_RULES.maxWaypoints).optional(),
+    waypoints: z.array(waypointSchema).max(QUOTE_RULES.maxWaypoints, `最多 ${QUOTE_RULES.maxWaypoints} 个经停点，更多请联系客服定制`).optional(),
     // 包车按行程计价（ADR 0088 补充、ADR 0093 第四节）：服务器按路线、停留和商品的配置算预计用时、自动选套餐、收超公里（不收超时）；
     // 可以带 package_hours 手动升到更长的套餐（不短于预计用时才报，对外 PACKAGE_TOO_SHORT + min_package_hours）
     itinerary_pricing: z.boolean().optional(),
@@ -168,7 +212,7 @@ export function siteTripOf(body: QuoteBody): SiteTrip {
     if (needed.includes(field) && !given) issues.push({ path: `/${field}`, reason: "REQUIRED", message: `${CATEGORY_NAMES[body.category]}要填${TRIP_FIELD_NAMES[field]}` });
     if (!needed.includes(field) && given) issues.push({ path: `/${field}`, reason: "NOT_APPLICABLE", message: `${CATEGORY_NAMES[body.category]}不用填${TRIP_FIELD_NAMES[field]}（请删掉）` });
   }
-  const waypoints = body.waypoints ?? [];
+  const waypoints = waypointsOf(body, issues);
   if (waypoints.length > 0 && body.category !== "charter") issues.push({ path: "/waypoints", reason: "NOT_APPLICABLE", message: `${CATEGORY_NAMES[body.category]}不用填经停点（只有包车可以填，请删掉）` });
   if (issues.length > 0) throw validationFailed("body", issues);
   const { airport_id: airportId, direction, address, pickup, dropoff, package_hours: packageHours } = body;
@@ -230,6 +274,34 @@ const routeMapSchema = z
   .strict();
 const ROUTE_MAP_REQUIRED = ["from_lat", "from_lng", "to_lat", "to_lng", "width", "height"] as const;
 
+/** 包车行程地图的一个点：`lat,lng`（十进制度数） */
+const itineraryPointSchema = z
+  .string()
+  .regex(/^-?\d{1,3}(?:\.\d{1,9})?,-?\d{1,3}(?:\.\d{1,9})?$/, "每个点写成「纬度,经度」")
+  .transform((value) => {
+    const [lat, lng] = value.split(",").map(Number) as [number, number];
+    return { lat, lng };
+  })
+  .refine((point) => Math.abs(point.lat) <= 90 && Math.abs(point.lng) <= 180, "坐标超出范围");
+
+/** 包车行程地图（ADR 0096）：`p` 按行程顺序重复 2–12 次（上车、经停、下车），主题、尺寸、倍率同路线小地图。 */
+const itineraryMapSchema = z
+  .object({
+    p: z
+      .union([z.string(), z.array(z.string())])
+      .transform((value) => (Array.isArray(value) ? value : [value]))
+      .pipe(z.array(itineraryPointSchema).min(ITINERARY_MAP_RULES.minPoints).max(ITINERARY_MAP_RULES.maxPoints)),
+    theme: z.enum(STATIC_MAP_THEMES).default("light"),
+    width: z.coerce.number().int().min(STATIC_MAP_RULES.minWidth).max(STATIC_MAP_RULES.maxWidth),
+    height: z.coerce.number().int().min(STATIC_MAP_RULES.minHeight).max(STATIC_MAP_RULES.maxHeight),
+    scale: z.enum(["1", "2"]).default("1"),
+  })
+  .strict();
+const ITINERARY_MAP_REQUIRED = ["p", "width", "height"] as const;
+
+/** 包车行程逐段的时长和里程（ADR 0096 第二节第 3 小节）：只有 `p`，规则同行程地图。 */
+const itineraryLegsSchema = z.object({ p: itineraryMapSchema.shape.p }).strict();
+
 const ROUTE_MAP_MESSAGES: Readonly<Record<RouteMapReason, string>> = {
   NOT_ENABLED: "路线图服务没有开通，请用页面上的地图",
   UNAVAILABLE: "路线图暂时出不了，请稍后再试",
@@ -239,6 +311,20 @@ const ROUTE_MAP_MESSAGES: Readonly<Record<RouteMapReason, string>> = {
 function routeMapUnavailable(reason: RouteMapReason): AppError {
   return new AppError(503, "ROUTE_MAP_UNAVAILABLE", ROUTE_MAP_MESSAGES[reason], { reason });
 }
+
+/**
+ * 经停顺序建议（M9P-20 P2，ADR 0096 第三节）：`quote` 是和 `POST /site/v1/quotes` 同样的按行程计价询价，`refs` 和经停点一一对应（页面的不透明标识）；
+ * 必须带当前顺序的 `quote_id` 或超长时的 `inquiry_ref`；`session` 是预订会话（预订草稿编号或页面生成的标识，只用来限频）。
+ */
+const orderSuggestionSchema = z
+  .object({
+    quote: quoteSchema,
+    refs: z.array(z.string().regex(/^[A-Za-z0-9_-]{1,40}$/, "经停标识只能是 1–40 个字母、数字、- 或 _")).min(2).max(25),
+    quote_id: z.string().regex(/^QT[0-9A-Z]{10,40}$/, "报价编号格式不对").optional(),
+    inquiry_ref: uuidSchema.optional(),
+    session: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/, "会话标识是 8–64 个字母、数字、- 或 _"),
+  })
+  .strict();
 
 /** 参考汇率：客人币种（汇率中心支持的币种，大写三位）。 */
 const fxReferenceSchema = z.object({ to: z.enum(FX_CURRENCIES as [string, ...string[]]) }).strict();
@@ -270,6 +356,7 @@ const orderSchema = z
     quote_id: z.string().regex(/^QT\d{8}[0-9A-Z]{10}$/, "不是报价编号的格式"),
     passenger: passengerInput(),
     flight_no: text(20),
+    flight_kind: z.enum(FLIGHT_KINDS).nullable().default(null),
     pickup_address: singleLineText(1_000),
     dropoff_address: singleLineText(1_000),
     messaging: z.object({ app: z.enum(MESSAGING_APPS), handle: z.string().max(200) }).strict().nullable().default(null),
@@ -304,7 +391,7 @@ function linkJson(link: SiteLink): Json {
 
 /** 对外价明细的每一项（报价和订单同一个格式）：金额是客人支付币种；加价区域给现在的名称 */
 function priceBreakdownJson(items: readonly SellBreakdownItem[], currency: CurrencyCode, areaNames: ReadonlyMap<string, LocalizedText>): Json[] {
-  return items.map((item) => ({ kind: item.kind, amount: salesMoney(item.amountMinor, currency), area_name: item.areaId === null ? null : (areaNames.get(item.areaId) ?? null), stop_seqs: item.stopSeqs ?? null, ...(item.fromDropoff === true ? { from_dropoff: true } : {}) }));
+  return items.map((item) => ({ kind: item.kind, amount: salesMoney(item.amountMinor, currency), area_name: item.areaId === null ? null : (areaNames.get(item.areaId) ?? null), stop_seqs: item.stopSeqs ?? null, ...(item.fromDropoff === true ? { from_dropoff: true } : {}), ...(item.scenario === undefined ? {} : { scenario: { kind: item.scenario.kind, airport_id: item.scenario.placeId, airport_name: item.scenario.name } }) }));
 }
 
 function quoteJson(quote: SiteQuote): Json {
@@ -333,6 +420,10 @@ function quoteJson(quote: SiteQuote): Json {
     estimated_minutes: quote.itinerary?.estimatedMinutes ?? null,
     includes_buffer: quote.itinerary?.includesBuffer ?? null,
     auto_package_hours: quote.itinerary?.autoPackageHours ?? null,
+    // 中标商品每个经停点的默认占用（分钟，M9P-20 P3）：页面按「用车时间 + 逐段行驶 + 停留 + 每站占用」算预计到达指定时间的经停，晚了只提示；没按行程计价为 null
+    stop_occupancy_minutes: quote.itinerary?.stopOccupancyMinutes ?? null,
+    // 超限提醒（M9P-10，规格步骤 5）：按中标商品的提醒线，`LONG_DURATION`（T 超过）、`LONG_DISTANCE`（全程超过），没超为空数组，仍可下单；没按行程计价为 null
+    itinerary_warnings: quote.itineraryWarnings ?? null,
   };
 }
 
@@ -356,12 +447,13 @@ const charterPackagesAtSchema = z.object({ pickup: latLngParam, dropoff: latLngP
 function quoteResultJson(result: SiteQuoteResult): Json {
   // `waypoint_stop_seqs`：原因里有 WAYPOINT_NOT_PRICED 时是哪几个经停点（从 1 起，ADR 0088）；没有时不给（只增字段）
   const itinerary = result.itinerary === undefined ? {} : { itinerary_route: { legs: result.itinerary.legs.map((leg) => ({ minutes: leg.minutes, meters: leg.meters })), drive_minutes: result.itinerary.driveMinutes, stay_minutes: result.itinerary.stayMinutes, total_minutes: result.itinerary.totalMinutes, total_meters: result.itinerary.totalMeters } };
-  return { currency: result.currency, ...itinerary, quotes: result.quotes.map(quoteJson), unavailable: result.unavailable.map((entry) => ({ vehicle_group_id: entry.vehicleGroupId, reasons: entry.reasons, ...(entry.stopSeqs === undefined ? {} : { waypoint_stop_seqs: entry.stopSeqs }), ...(entry.minPackageHours === undefined ? {} : { min_package_hours: entry.minPackageHours }) })) };
+  return { currency: result.currency, ...itinerary, ...(result.inquiryRef === undefined ? {} : { inquiry_ref: result.inquiryRef }), quotes: result.quotes.map(quoteJson), unavailable: result.unavailable.map((entry) => ({ vehicle_group_id: entry.vehicleGroupId, reasons: entry.reasons, ...(entry.stopSeqs === undefined ? {} : { waypoint_stop_seqs: entry.stopSeqs }), ...(entry.minPackageHours === undefined ? {} : { min_package_hours: entry.minPackageHours }) })) };
 }
 
 /** 渠道看到的那一份订单，落地信息去掉司机到达屏照片的文件编号（照片只给平台和供应商核对）。 */
 function guestOrderJson(view: SalesOrderView, now: Date): Json {
-  const order = salesOrderJson(view, now);
+  // 官网订单页的经停点带指定到达时间（M9P-20 P3；渠道那一份去掉了，见 salesOrderJson）
+  const order: Json = { ...salesOrderJson(view, now), waypoints: view.order.waypoints };
   const landing = order["landing"] as Json | null;
   if (landing === null) return order;
   const { driver_photo_file_id: _photo, ...guestLanding } = landing;
@@ -516,6 +608,22 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
     return { city: quotedCityJson(found.city), items: found.hours.map((value) => ({ hours: value })) };
   });
 
+  /** 包车快捷入口能选的机场和航站楼（M9P-21，ADR 0098 第三节第 7 小节）：`?scenario=airport_start|airport_end` */
+  app.get("/site/v1/charter-airports", async (request) => {
+    await takeSiteSlot(ctx, "site_read", { ip: request.ip });
+    const input = parseInput(z.object({ scenario: z.enum(AIRPORT_SCENARIO_KINDS) }).strict(), request.query, "querystring");
+    const airports = await siteCharterAirports(ctx, input.scenario, await audience(request));
+    return {
+      items: airports.map((airport) => ({
+        id: airport.id,
+        code: airport.code,
+        name: airport.name,
+        city_id: airport.cityId,
+        terminals: airport.terminals.map((terminal) => ({ id: terminal.id, code: terminal.code, name: terminal.name, location: { lng: terminal.lng, lat: terminal.lat } })),
+      })),
+    };
+  });
+
   app.get("/site/v1/cities/:id/places", async (request) => {
     await takeSiteSlot(ctx, "site_read", { ip: request.ip });
     const places = await sitePlaces(ctx, resourceId(request.params, "城市"));
@@ -610,6 +718,92 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
       .send(result.image);
   });
 
+  /**
+   * 包车行程地图（M9P-20 P1，ADR 0096）：多点静态路线图，编号 1 = 上车、经停依次、最后 = 下车。和路线小地图同一份每个地址的额度、
+   * 同一个静态地图每日上限；折线计入路线的每日上限。出不了图同样 503 `ROUTE_MAP_UNAVAILABLE`（包车页面一律只显示行程列表，不用后备底图）。
+   */
+  app.get("/site/v1/itinerary-map", async (request, reply) => {
+    await takeSiteSlot(ctx, "site_route_map", { ip: request.ip });
+    await takeSiteSlot(ctx, "site_route_map_day", { ip: request.ip });
+    const query = (request.query ?? {}) as Record<string, unknown>;
+    const missing = ITINERARY_MAP_REQUIRED.filter((name) => query[name] === undefined || (typeof query[name] === "string" && (query[name] as string).trim() === ""));
+    if (missing.length > 0) throw validationFailed("querystring", missing.map((name) => ({ path: `/${name}`, reason: "REQUIRED", message: `请给出 ${name}` })));
+    const input = parseInput(itineraryMapSchema, request.query, "querystring");
+    const result = await siteItineraryMap(ctx, { points: input.p, theme: input.theme, width: input.width, height: input.height, scale: input.scale === "2" ? 2 : 1 });
+    if (!result.ok) throw routeMapUnavailable(result.reason);
+    return reply
+      .header("content-type", result.contentType)
+      .header("cache-control", `private, max-age=${STATIC_MAP_RULES.browserMaxAgeSeconds}`)
+      .header("x-content-type-options", "nosniff")
+      .send(result.image);
+  });
+
+  /**
+   * 包车行程逐段的约多少分钟、多少米（M9P-20，ADR 0096 第二节第 3 小节）：没有经停、按自选时长报价的包车不估路线，页面列表每段的时长和公里取地图折线那次调用的量，只作展示。
+   * 和行程地图共用一次 computeRoutes 和它的缓存（同一组点先出了图就不再调谷歌），和路线小地图同一份每个地址的额度。取不到时 200 `{ available: false, legs: null }`。
+   */
+  app.get("/site/v1/itinerary-legs", async (request) => {
+    await takeSiteSlot(ctx, "site_route_map", { ip: request.ip });
+    await takeSiteSlot(ctx, "site_route_map_day", { ip: request.ip });
+    const query = (request.query ?? {}) as Record<string, unknown>;
+    if (query["p"] === undefined) throw validationFailed("querystring", [{ path: "/p", reason: "REQUIRED", message: "请给出 p" }]);
+    const input = parseInput(itineraryLegsSchema, request.query, "querystring");
+    const legs = await siteItineraryLegs(ctx, input.p);
+    return { available: legs !== null, legs };
+  });
+
+  /**
+   * 包车经停顺序建议（M9P-20 P2，ADR 0096 第三节）：只在经停点集合变了、或其他询价字段变了时由页面调用。
+   * 宽松兜底按地址全部计数；按会话、按地址只数真要调谷歌优化的请求（缓存命中、只重算报价的不计）。超限只是不给建议（`RATE_LIMITED`），报价照常。
+   */
+  app.post("/site/v1/charter/order-suggestion", async (request) => {
+    await takeSiteSlot(ctx, "site_order_suggestion_ip", { ip: request.ip });
+    await takeSiteSlot(ctx, "site_order_suggestion_ip_day", { ip: request.ip });
+    await takeSiteSlot(ctx, "site_quote", { ip: request.ip });
+    const input = parseInput(orderSuggestionSchema, request.body, "body");
+    if (input.quote_id === undefined && input.inquiry_ref === undefined) throw new AppError(400, "SUGGESTION_NEEDS_QUOTE", "请先询价，再申请建议顺序");
+    const body = input.quote;
+    if (body.category !== "charter" || body.itinerary_pricing !== true || (body.waypoints?.length ?? 0) !== input.refs.length) {
+      throw validationFailed("body", [{ path: "/quote", reason: "NOT_APPLICABLE", message: "只有按行程计价、带经停点的包车询价能申请建议顺序，refs 个数要和经停点一样" }]);
+    }
+    const trip = siteTripOf(body);
+    if (trip.category !== "charter_itinerary") throw validationFailed("body", [{ path: "/quote", reason: "NOT_APPLICABLE", message: "只有按行程计价的包车能申请建议顺序" }]);
+    const seen = await audience(request);
+    const result = await siteOrderSuggestion(ctx, {
+      quote: { cityId: body.city_id ?? null, trip, serviceLocal: body.service_local, passengers: body.passengers, luggage: body.luggage, addons: addonsOf(body.addons), ...(seen === "acceptance" ? { audience: seen } : {}), log: request.log },
+      refs: input.refs,
+      quoteId: input.quote_id ?? null,
+      inquiryRef: input.inquiry_ref ?? null,
+      beforeGoogle: async () => {
+        try {
+          await takeSiteSessionSlot(ctx, "site_order_suggestion_session", input.session);
+          await takeSiteSessionSlot(ctx, "site_order_suggestion_session_day", input.session);
+          await takeSiteSlot(ctx, "site_order_suggestion_ip_google", { ip: request.ip });
+          return true;
+        } catch {
+          return false;
+        }
+      },
+    });
+    if (result.suggestion === null) return { suggestion: null, reason: result.reason };
+    const s = result.suggestion;
+    const route = (itinerary: SiteItinerary) => ({ legs: itinerary.legs.map((leg) => ({ minutes: leg.minutes, meters: leg.meters })), drive_minutes: itinerary.driveMinutes, stay_minutes: itinerary.stayMinutes, total_minutes: itinerary.totalMinutes, total_meters: itinerary.totalMeters });
+    return {
+      suggestion: {
+        order: s.order,
+        saved_meters: s.savedMeters,
+        saved_minutes: s.savedMinutes,
+        current_itinerary_route: route(s.currentItinerary),
+        itinerary_route: route(s.itinerary),
+        request_key: s.requestKey,
+        thresholds: { min_saved_meters: s.thresholds.minSavedMeters, min_saved_minutes: s.thresholds.minSavedMinutes },
+        current_too_long: s.currentTooLong,
+        quote_result: { ...(s.quoteResult.city === undefined ? {} : { city: quotedCityJson(s.quoteResult.city) }), ...quoteResultJson(s.quoteResult) },
+      },
+      reason: null,
+    };
+  });
+
   app.post("/site/v1/quotes", async (request) => {
     await takeSiteSlot(ctx, "site_quote", { ip: request.ip });
     const input = parseInput(quoteSchema, request.body, "body");
@@ -676,6 +870,7 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
         details: {
           passenger: input.passenger,
           flightNo: input.flight_no,
+          flightKind: input.flight_kind,
           pickupAddress: input.pickup_address,
           dropoffAddress: input.dropoff_address,
           messaging: input.messaging,

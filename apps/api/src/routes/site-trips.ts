@@ -1,9 +1,9 @@
 /**
- * 官网的行程报价接口（M9T-03，ADR 0100 第三节）：
+ * 官网的行程报价接口（M9T-03，ADR 0101 第三节）：
  * - `POST /site/v1/trips`：校验标准行程单、存为 draft，返回编号（每个地址每分钟 10 次，`site_trip`）；
  * - `GET /site/v1/trips/{id}`：行程单和最近一次报价的方案（过期的方案标 `expired`）；凭编号访问，过期、不存在、格式不对同一个 404（占 `site_read`）；
  * - `POST /site/v1/trips/{id}/quote`：编排 + 分段报价 + 跨段费用 + 方案对比（每个地址每分钟 5 次、每天 50 次，两个都放行才报；不和 `site_quote` 共用）。
- * 请求体用 ADR 0100 第二节的标准行程单（camelCase）；应答字段是 snake_case，金额同官网询价（`{ amount, currency }`，主单位十进制字符串）。
+ * 请求体用 ADR 0101 第二节的标准行程单（camelCase）；应答字段是 snake_case，金额同官网询价（`{ amount, currency }`，主单位十进制字符串）。
  * 对客应答没有结算价、加价比例、供应商编号。
  */
 import type { FastifyInstance, FastifyRequest } from "fastify";

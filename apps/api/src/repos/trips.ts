@@ -1,5 +1,5 @@
 /**
- * 行程单、方案、段、跨段费用的读写（M9T-03，ADR 0100 第二节）。全部是平台表，在平台事务里调用。
+ * 行程单、方案、段、跨段费用的读写（M9T-03，ADR 0101 第二节）。全部是平台表，在平台事务里调用。
  * 一次报价在同一个事务里删掉这一行程的旧方案（段、费用级联），写新方案，把行程单改成 `quoted`。
  */
 import type { LocalizedText, TripItinerary, TripRuleConfig } from "@nozomi/domain";

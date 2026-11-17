@@ -2,7 +2,7 @@
  * 官网下单表单的规则（M3-05 起在 `pages/book/CheckoutPage.tsx`；M8-04 抽出来，新预订页「怎么联系你」同一套）：
  * 字段、前端校验、后端校验结果对回字段、拼 `POST /site/v1/orders` 的请求体、下单失败的说法。规则本身没有改。
  */
-import { type MessagingApp, isFlightNo, isInternationalPhone } from "@nozomi/domain";
+import { type FlightKind, type MessagingApp, isFlightNo, isInternationalPhone } from "@nozomi/domain";
 import { ApiError } from "../api/client.ts";
 import type { SiteOrderRequest } from "../api/site.ts";
 
@@ -13,6 +13,8 @@ export interface OrderForm {
   phone: string;
   email: string;
   flightNo: string;
+  /** 国际 / 国内航班（M9E-28，ADR 0097）：接机必选，下单时按它锁定免费等待；没到这一项为 "" */
+  flightKind: FlightKind | "";
   pickupAddress: string;
   dropoffAddress: string;
   messagingApp: MessagingApp | "";
@@ -23,7 +25,7 @@ export interface OrderForm {
   rider?: { signName: string; name: string; phone: string };
 }
 
-export type OrderField = "name" | "phone" | "email" | "flightNo" | "pickupAddress" | "dropoffAddress" | "messagingHandle" | "notes" | "consent";
+export type OrderField = "name" | "phone" | "email" | "flightNo" | "flightKind" | "pickupAddress" | "dropoffAddress" | "messagingHandle" | "notes" | "consent";
 export type OrderErrors = Partial<Record<OrderField, string>>;
 
 /** 这一单的行程形状：是不是接送机、是不是接机、哪几端要写地址。 */
@@ -32,8 +34,8 @@ export interface OrderTrip {
   arrival: boolean;
   ends: ("pickup" | "dropoff")[];
   /**
-   * 认出机场、但报价用的是点对点商品时（M8-33，ADR 0081）：订单是点对点品类，后端不收 `flight_no`，
-   * 航班号由调用方写进给司机的备注（`notesWithExtras`），这里不再单独提交
+   * 认出机场、但报价用的是点对点商品的送机（M8-33，ADR 0081）：航班号由调用方写进给司机的备注（`notesWithExtras`），这里不单独提交——
+   * 点对点单带了 `flight_no` 就按接机定免费等待（ADR 0097 Q5）。改用点对点商品报价的接机不设这一项，航班号、航班类型照常提交
    */
   flightInNotes?: boolean;
 }
@@ -43,6 +45,7 @@ export const SERVER_PATHS: Readonly<Record<string, OrderField>> = {
   "/passenger/phone": "phone",
   "/passenger/email": "email",
   "/flight_no": "flightNo",
+  "/flight_kind": "flightKind",
   "/pickup_address": "pickupAddress",
   "/dropoff_address": "dropoffAddress",
   "/messaging/handle": "messagingHandle",
@@ -76,6 +79,7 @@ export function validateOrderForm(form: OrderForm, trip: OrderTrip): OrderErrors
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) errors.email = "请填写正确的邮箱，订单确认和查看链接会发到这里";
   if (trip.arrival && form.flightNo.trim() === "") errors.flightNo = "接机要填航班号，司机按航班落地时间等候";
   if (trip.transfer && form.flightNo.trim() !== "" && !isFlightNo(form.flightNo)) errors.flightNo = "航班号的格式不对，如 NH211、MU523";
+  if (trip.arrival && form.flightKind === "") errors.flightKind = "请选择国际航班还是国内航班：国际航班免费等待更久";
   for (const end of trip.ends) if (form[ADDRESS_FIELDS[end]].trim() === "") errors[ADDRESS_FIELDS[end]] = end === "pickup" ? "请填写上车的地址或酒店名" : "请填写下车的地址或酒店名";
   if (form.messagingApp !== "" && form.messagingHandle.trim() === "") errors.messagingHandle = "选了即时通讯就要填账号";
   if (!form.consent) errors.consent = "需要同意保存支付方式才能下单";
@@ -87,6 +91,8 @@ export function orderRequestOf(quoteId: string, form: OrderForm, trip: OrderTrip
     quote_id: quoteId,
     passenger: { name: form.name.trim(), phone: form.phone.trim(), email: form.email.trim() },
     flight_no: !trip.transfer || trip.flightInNotes === true || form.flightNo.trim() === "" ? null : form.flightNo.trim(),
+    // 航班类型（M9E-28）只在接机、选了时带上：其他单的请求体和以前一样
+    ...(trip.arrival && form.flightKind !== "" ? { flight_kind: form.flightKind } : {}),
     pickup_address: trip.ends.includes("pickup") ? form.pickupAddress.trim() : null,
     dropoff_address: trip.ends.includes("dropoff") ? form.dropoffAddress.trim() : null,
     messaging: form.messagingApp === "" ? null : { app: form.messagingApp, handle: form.messagingHandle.trim() },

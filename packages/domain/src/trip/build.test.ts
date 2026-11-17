@@ -1,4 +1,4 @@
-/** 方案组装（ADR 0100 第三节第 6 小节、第四节）的单元测试：两个方案、跨段费用、工时、按段选车、报不出、推荐。 */
+/** 方案组装（ADR 0101 第三节第 6 小节、第四节）的单元测试：两个方案、跨段费用、工时、按段选车、报不出、推荐。 */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Position } from "../areas.ts";

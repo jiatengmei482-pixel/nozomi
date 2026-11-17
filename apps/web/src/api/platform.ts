@@ -209,6 +209,8 @@ export interface IntegrationsOverview {
   routes: RouteUsageStatus;
   /** 官网路线小地图（谷歌静态地图，M8-10，ADR 0072）的用量，字段和路线预估一样 */
   static_maps: RouteUsageStatus;
+  /** 包车经停顺序建议的优化调用（谷歌 Routes optimizeWaypointOrder，M9P-20 P2，ADR 0096）的用量，字段和路线预估一样；旧接口没有 */
+  routes_optimize?: RouteUsageStatus;
 }
 
 export function listIntegrations(token: string): Promise<IntegrationsOverview> {

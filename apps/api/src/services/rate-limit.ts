@@ -53,7 +53,7 @@ export const SALES_RATE_LIMITS = {
   site_qa_unlock_all: QA_ACCEPTANCE_RULES.unlockGlobal,
   /** 官网读预订草稿（M9E-01，ADR 0090）：每个地址每分钟 60 次，编号不可猜之外再挡一层枚举 */
   site_booking_draft: { max: 60, windowMs: 60_000 },
-  /** 官网建行程单（M9T-03，ADR 0100 第三节第 1 小节）：每个地址每分钟 10 次 */
+  /** 官网建行程单（M9T-03，ADR 0101 第三节第 1 小节）：每个地址每分钟 10 次 */
   site_trip: { max: 10, windowMs: 60_000 },
   /** 行程报价（一次 = 编排 + 最多 120 次段报价）：每个地址每分钟 5 次；不和 site_quote 共用 */
   site_trip_quote: { max: 5, windowMs: 60_000 },
@@ -67,6 +67,15 @@ export const SALES_RATE_LIMITS = {
   embed_places_key: { max: 600, windowMs: 60_000 },
   /** /embed/book 能不能被嵌入的核对（M9E-16，ADR 0095 第五节第 1 小节；Caddy 每打开一次嵌入页问一次）：每个地址每分钟 60 次，单独一档、不占 site_read */
   embed_frame_check: { max: 60, windowMs: 60_000 },
+  /**
+   * 包车经停顺序建议（M9P-20 P2，ADR 0096 第三节第 1 小节）：按预订会话、只数要调谷歌优化的请求，每分钟 5 次、每天 30 次；
+   * 每个地址每天 25 次要调谷歌的请求；另有宽松兜底（全部请求都计）每分钟 60 次、每天 600 次。缓存命中、只重算报价的请求只受兜底和询价限频约束
+   */
+  site_order_suggestion_session: { max: 5, windowMs: 60_000 },
+  site_order_suggestion_session_day: { max: 30, windowMs: 86_400_000 },
+  site_order_suggestion_ip_google: { max: 25, windowMs: 86_400_000 },
+  site_order_suggestion_ip: { max: 60, windowMs: 60_000 },
+  site_order_suggestion_ip_day: { max: 600, windowMs: 86_400_000 },
   /** 官网的其余接口（配置、城市、机场、订单页）：每个地址每分钟 120 次 */
   site_read: { max: 120, windowMs: 60_000 },
   /** 运营重发订单链接（ADR 0061）：同一张单每小时 5 次 */

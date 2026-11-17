@@ -1,4 +1,4 @@
-/** 跨段规则配置：默认值、合并、校验（ADR 0100 第四节表、第五节、第九节 Q2 / Q3）。 */
+/** 跨段规则配置：默认值、合并、校验（ADR 0101 第四节表、第五节、第九节 Q2 / Q3）。 */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { TRIP_RULE_DEFAULTS, effectiveTripRules, tripRuleIssues } from "./rules.ts";

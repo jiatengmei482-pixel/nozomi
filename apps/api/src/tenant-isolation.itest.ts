@@ -606,6 +606,19 @@ test("GET /tenant/v1/area-map：只有自己的区域和图形、自己的修改
   assert.ok(!smuggled.text.includes(areas.b.id));
 });
 
+test("GET /tenant/v1/area-layers：只有自己的商品和区域（M9P-13）；查询串里的 tenant_id 直接 400", async () => {
+  cover("GET /tenant/v1/area-layers");
+  const areas = await seedAreas();
+  const res = await api.call("GET", "/tenant/v1/area-layers", { token: a.adminToken });
+  assert.equal(res.status, 200, res.text);
+  assert.ok(!res.text.includes(areas.b.id) && !res.text.includes(b.tenantId), "没有乙的区域、供应商编号");
+  const own = await api.db.owner.query("select id from products where tenant_id = $1", [a.tenantId]);
+  assert.ok(res.body.items.every((item: any) => own.rows.some((row) => row.id === item.product_id)), "只有甲的商品");
+  const smuggled = await api.call("GET", `/tenant/v1/area-layers?tenant_id=${b.tenantId}`, { token: a.adminToken });
+  assert.equal(smuggled.status, 400);
+  assert.ok(!smuggled.text.includes(areas.b.id));
+});
+
 test("PUT /tenant/v1/areas/{id}：改不了别的供应商的区域（404，对方的数据原样不动）；也不能把别人的图形编号塞进自己的区域", async () => {
   cover("PUT /tenant/v1/areas/:id");
   const areas = await seedAreas();
@@ -1011,7 +1024,10 @@ test("价格、调价、日历、缺价的每个接口：别的供应商的商�
     ["GET", "/tenant/v1/products/:id/price-coverage", () => "/price-coverage"],
     // 三层区域迁移的「套餐价不一致」（M9P-05）
     ["GET", "/tenant/v1/products/:id/charter-migration-diff", () => "/charter-migration-diff"],
-    // 跨段规则配置（M9T-02，ADR 0100）
+    // 包车机场绑定（M9P-21，ADR 0098）
+    ["GET", "/tenant/v1/products/:id/charter-airports", () => "/charter-airports"],
+    ["PUT", "/tenant/v1/products/:id/charter-airports", () => "/charter-airports", { bindings: [] }],
+    // 跨段规则配置（M9T-02，ADR 0101）
     ["GET", "/tenant/v1/products/:id/trip-rules", () => "/trip-rules"],
     ["PUT", "/tenant/v1/products/:id/trip-rules", () => "/trip-rules", {}],
     ["GET", "/tenant/v1/products/:id/price-calendar", () => `/price-calendar?${calendarQuery}`],

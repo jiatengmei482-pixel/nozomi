@@ -185,7 +185,10 @@ export async function listBrandSellablePrices(db: Db, tenantId: string, brandId:
        join cities c on c.id = p.city_id
       where r.tenant_id = $1 and p.brand_id = $2 and r.status = 'enabled' and r.pricing_model <> 'charter_area_surcharge'
         and (r.valid_to is null or r.valid_to >= ($3::timestamptz at time zone c.timezone)::date)
-        and exists (select 1 from product_areas pa where pa.tenant_id = p.tenant_id and pa.product_id = p.id and pa.area_id = r.area_id)
+        and (exists (select 1 from product_areas pa where pa.tenant_id = p.tenant_id and pa.product_id = p.id and pa.area_id = r.area_id)
+             -- 机场套餐价按机场绑定带上（区域是机场区域，不在商品区域里，ADR 0098）
+             or (r.pricing_model = 'charter_airport_package'
+                 and exists (select 1 from charter_airport_bindings b where b.tenant_id = p.tenant_id and b.product_id = p.id and b.area_id = r.area_id)))
         and exists (select 1 from product_vehicle_groups pv where pv.tenant_id = p.tenant_id and pv.product_id = p.id and pv.vehicle_group_id = r.vehicle_group_id)
       order by p.code, r.created_at, r.id`,
     [tenantId, brandId, now],
@@ -235,7 +238,7 @@ export interface ProductPriceOverview {
  */
 export function activePriceRuleCountSql(now: string): string {
   return `(select count(*)::int from price_rules r
-              where r.tenant_id = p.tenant_id and r.product_id = p.id and r.status = 'enabled' and r.pricing_model <> 'charter_area_surcharge' and r.to_area_id is null
+              where r.tenant_id = p.tenant_id and r.product_id = p.id and r.status = 'enabled' and r.pricing_model not in ('charter_area_surcharge', 'charter_airport_package') and r.to_area_id is null
                 and (r.valid_to is null or r.valid_to >= (${now}::timestamptz at time zone c.timezone)::date)
                 and exists (select 1 from product_areas pa where pa.tenant_id = p.tenant_id and pa.product_id = p.id and pa.area_id = r.area_id)
                 and exists (select 1 from product_vehicle_groups pv where pv.tenant_id = p.tenant_id and pv.product_id = p.id and pv.vehicle_group_id = r.vehicle_group_id))`;
