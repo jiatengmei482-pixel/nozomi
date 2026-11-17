@@ -1857,9 +1857,9 @@
           "id": "M9T-01",
           "title": "行程编排 domain（packages/domain/src/trip/）：标准行程单校验与上限、分段判定、同一天拆法枚举、住宿（含客人提供抵免、③抵扣）/ 停驻 / 工时与第二司机 / 附加项去重 / 返程函数、最短套餐价、方案组装与推荐、规则配置校验（ADR 0101 第三、四节）",
           "role": "backend",
-          "status": "todo",
+          "status": "review",
           "acceptance": ["纯函数、不碰数据库和网络，不改 quote.ts、pricing.ts", "规则单元测试覆盖 ADR 0101 第七节第 5 条全部情形（13–15 小时只经出入库或多段触发）", "包车 golden、itinerary golden 0 条变化"],
-          "evidence": "",
+          "evidence": "packages/domain/src/trip/（itinerary / segments / rules / work-hours / fees / plans）+ 6 个测试文件 53 条；domain 全部 1644 条通过；不改 quote.ts / pricing.ts，golden 0 变化",
           "updated": "2026-11-15"
         },
         {
