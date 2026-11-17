@@ -286,7 +286,7 @@ export function BookNewPage() {
   const location = useLocation();
   const link = useMemo(() => parseBookingLink(location.search), []);
   const wide = useWideScreen();
-  // 手机（≤ 768px）：每一步的按钮在底部按钮条里（M9E-32，ADR 0100）；主站这时给 viewport 加 viewport-fit=cover（安全区）
+  // 手机和平板（≤ 1023px，单栏）：每一步的按钮在底部按钮条里（M9E-32，ADR 0100；平板业主 2026-11-17 决定）；主站这时给 viewport 加 viewport-fit=cover（安全区）
   const compact = useCompactScreen() && !wide;
   useViewportFitCover(compact && shell.hostViewport === undefined);
   const { state: config, reload: reloadConfig } = useSiteConfig();
