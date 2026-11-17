@@ -1888,7 +1888,7 @@
           "status": "doing",
           "blockedBy": "依赖 M9T-03",
           "acceptance": ["30 条期望全部写明并通过", "测试站用 QA 测试供应商（ADR 0077）跑通建行程、报价、看方案"],
-          "evidence": "第一部分：apps/api/src/trip-fixed-set.itest.ts 东京 16 条（含 4b），每条期望逐条按 ADR 0101 第四节核对后写死，本机全过；第二部分（大阪、14 天降级、跨城一车到底）和测试站验收待做",
+          "evidence": "固定测试集 31 条：apps/api/src/trip-fixed-set.itest.ts 东京 16 条（#297）+ trip-fixed-set-2.itest.ts 大阪、跨城、14 天、规则开关、建单校验 15 条；每条期望按 ADR 0101 第四节手算核对后写死。第二部分顺带修了两处：住宿按区域（byArea）只和①比对、永远匹配不到③；跨城市一车到底（P1d）没有拦下。测试站验收待做",
           "updated": "2026-11-15"
         },
         {

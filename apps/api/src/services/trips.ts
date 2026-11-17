@@ -410,6 +410,7 @@ async function resolvePoints(ctx: AppContext, env: Env): Promise<{ days: (Resolv
 /** 跨段规则要的商品信息：报价结果里的候选商品 + 保存的规则配置（`byArea` 再按本商品现有的区域过滤一次） */
 async function productsOf(ctx: AppContext, quotes: readonly SegmentQuote[]): Promise<(productId: string) => BuildProduct | null> {
   const candidates = new Map(quotes.flatMap((quote) => quote.candidates.map((candidate) => [candidate.product.productId, candidate] as const)));
+  const cityOf = new Map(quotes.flatMap((quote) => quote.candidates.map((candidate) => [candidate.product.productId, quote.cityId] as const)));
   const configs = await withPlatformTx(ctx.pool, (db) => listTripRuleConfigs(db, [...candidates.keys()]), { snapshot: true });
   const cache = new Map<string, BuildProduct>();
   return (productId) => {
@@ -421,7 +422,7 @@ async function productsOf(ctx: AppContext, quotes: readonly SegmentQuote[]): Pro
     const saved = configs.get(productId);
     const rules = effectiveTripRules(saved?.config ?? null, product.currency);
     const areaIds = new Set([...product.areas.map((area) => area.areaId), ...surchargeAreaIds(product.priceRules)]);
-    const built: BuildProduct = { areas: product.areas, rules: { ...rules, lodging: { ...rules.lodging, byArea: rules.lodging.byArea.filter((entry) => areaIds.has(entry.areaId)) } }, ruleVersion: saved?.version ?? 0, priceRules: product.priceRules };
+    const built: BuildProduct = { areas: product.areas, surchargeAreas: product.surchargeAreas ?? [], cityId: cityOf.get(productId) ?? null, rules: { ...rules, lodging: { ...rules.lodging, byArea: rules.lodging.byArea.filter((entry) => areaIds.has(entry.areaId)) } }, ruleVersion: saved?.version ?? 0, priceRules: product.priceRules };
     cache.set(productId, built);
     return built;
   };
