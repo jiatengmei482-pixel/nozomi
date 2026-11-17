@@ -1027,6 +1027,9 @@ test("价格、调价、日历、缺价的每个接口：别的供应商的商�
     // 包车机场绑定（M9P-21，ADR 0098）
     ["GET", "/tenant/v1/products/:id/charter-airports", () => "/charter-airports"],
     ["PUT", "/tenant/v1/products/:id/charter-airports", () => "/charter-airports", { bindings: [] }],
+    // 跨段规则配置（M9T-02，ADR 0101）
+    ["GET", "/tenant/v1/products/:id/trip-rules", () => "/trip-rules"],
+    ["PUT", "/tenant/v1/products/:id/trip-rules", () => "/trip-rules", {}],
     ["GET", "/tenant/v1/products/:id/price-calendar", () => `/price-calendar?${calendarQuery}`],
     ["GET", "/tenant/v1/products/:id/adjust-rules", () => "/adjust-rules"],
     ["POST", "/tenant/v1/products/:id/adjust-rules", () => "/adjust-rules", adjust],

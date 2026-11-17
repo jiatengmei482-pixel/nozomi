@@ -116,3 +116,4 @@
 | `0550_embed_booking_url.sql` | 嵌入码的「预订页地址」（M9E-26，ADR 0095 附录 A）：`embed_keys` 加可空的 `booking_url`（只兜长度 1–2,000；写法、必须落在这个嵌入码白名单的某个网站下由应用校验）。填了并开了「允许整页嵌入」时运营后台生成两段代码（①入口 `init` 带 `bookingUrl`、②预订程序 `mountBooking`）。只加列，已有的嵌入码为空，不用做任何操作，不含任何数据（0460 由 M9P-06 使用） |
 | `0560_itinerary_map.sql` | 包车行程地图（M9P-20 P1，ADR 0096）：静态地图图片缓存 `static_map_images` 的键多认一种有序多点键（`…\|i1:点>点>…`，2–12 个点）；新表 `itinerary_route_polylines`（一次带中间点的折线，7 天，平台表）。不含任何数据 |
 | `0570_route_order_suggestions.sql` | 包车经停顺序建议（M9P-20 P2，ADR 0096 第三节）：建议顺序缓存 `route_order_suggestions`（段内可动经停排序后的键，24 小时；没有路线 1 天）、优化调用每日计数 `route_optimize_api_usage`。都是平台表，不含任何数据 |
+| `0600_trip_quote.sql` | AI 行程报价 P1（M9T-02，ADR 0101 第二节）：平台表 `trips`、`trip_plans`、`trip_segments`、`trip_fees`（行程单、方案、服务段、跨段费用，只授权平台角色）和租户表 `trip_rule_configs`（跨段规则配置，行级安全，平台只读）。只建结构，不含任何数据；编号按监工要求从 0600 起 |

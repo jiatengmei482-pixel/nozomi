@@ -89,6 +89,11 @@ const PLATFORM_TABLES = [
   "static_map_images",
   "tenant_roles",
   "ticket_compensations",
+  // 行程报价（M9T-02，ADR 0101）：跨供应商的行程单、方案、服务段、跨段费用
+  "trip_fees",
+  "trip_plans",
+  "trip_segments",
+  "trips",
   "uncovered_demand_drops",
   "uncovered_demand_limits",
   "uncovered_demands",
@@ -112,6 +117,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     distance_prices: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     // 包车机场绑定（M9P-21，ADR 0098）：供应商自己的配置，整组替换（先删后建）
     charter_airport_bindings: ["DELETE", "INSERT", "SELECT", "UPDATE"],
+    // 跨段规则配置（M9T-02，ADR 0101）：供应商整体替换，不删（商品删了级联）
+    trip_rule_configs: ["INSERT", "SELECT", "UPDATE"],
     // 区域：供应商自己的业务数据，可以真的删除（ADR 0015）
     area_polygons: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     areas: ["DELETE", "INSERT", "SELECT", "UPDATE"],
@@ -209,6 +216,12 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     adjust_rules: ["SELECT"],
     distance_prices: ["SELECT"],
     charter_airport_bindings: ["SELECT"],
+    trip_rule_configs: ["SELECT"],
+    // 行程报价（M9T-02，ADR 0101）：编排接口重写方案（先删后插）、清理任务删过期行程
+    trips: ["DELETE", "INSERT", "SELECT", "UPDATE"],
+    trip_plans: ["DELETE", "INSERT", "SELECT"],
+    trip_segments: ["DELETE", "INSERT", "SELECT"],
+    trip_fees: ["DELETE", "INSERT", "SELECT"],
     // 双人复核（ADR 0023）：发起、写结论；不删
     approvals: ["INSERT", "SELECT", "UPDATE"],
     area_polygons: ["SELECT"],
@@ -403,7 +416,7 @@ const CROSS_TENANT_POLICIES: Readonly<Record<string, PolicyShape>> = {
   "product_vehicle_groups.product_vehicle_groups_platform_read": { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null },
   // 报价用到的租户表：平台只读（ADR 0020）
   // 调度人：运营后台只读查看商品（ADR 0021）
-  ...Object.fromEntries(["brands", "areas", "area_polygons", "product_areas", "price_rules", "adjust_rules", "distance_prices", "inventory_days", "product_dispatchers", "charter_airport_bindings"].map((table) => [`${table}.${table}_platform_read`, { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null }])),
+  ...Object.fromEntries(["brands", "areas", "area_polygons", "product_areas", "price_rules", "adjust_rules", "distance_prices", "inventory_days", "product_dispatchers", "charter_airport_bindings", "trip_rule_configs"].map((table) => [`${table}.${table}_platform_read`, { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null }])),
   // 订单：销售端下单、支付回调、超时取消、运营后台查看（ADR 0026）
   "orders.orders_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
   "order_events.order_events_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
