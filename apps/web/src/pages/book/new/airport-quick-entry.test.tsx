@@ -63,7 +63,7 @@ test("机场接机开始：按航站楼选，交出航站楼坐标；有计时�
   await waitFor(() => assert.equal(select.disabled, false));
   assert.equal(calls[0]?.path.includes("scenario=airport_start"), true);
   assert.deepEqual([...select.options].map((option) => option.textContent), ["选择航站楼", "成田机场 第 1 航站楼", "成田机场 第 2 航站楼"]);
-  assert.ok(screen.getByText(/包车从预约的上车时间开始计时，没有免费等待/));
+  assert.ok(screen.getByText(/包车从预约的上车时间开始计时，没有免费等待。建议把上车时间定在航班落地后 60–90 分钟/));
   await user.selectOptions(select, "33333333-3333-4333-8333-333333333331");
   assert.deepEqual(picked, [{ name: "成田机场 第 1 航站楼", lat: 35.77, lng: 140.385, kind: "airport" }]);
   await user.click(screen.getByRole("button", { name: "改填其他地点" }));
