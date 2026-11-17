@@ -23,7 +23,7 @@ export const PLACE_ATTEMPT_TIMEOUT_MS = 2_000;
 /** 剩下的时间不到这么多就不再重试 */
 const PLACE_MIN_RETRY_MS = 500;
 /** 搜索要的字段（Text Search 的 Pro 一档；不多取电话、评分、营业时间等更贵的字段） */
-export const PLACE_SEARCH_FIELD_MASK = "places.id,places.displayName,places.formattedAddress,places.location,places.primaryType";
+export const PLACE_SEARCH_FIELD_MASK = "places.id,places.displayName,places.formattedAddress,places.location,places.primaryType,places.types";
 /** 输入即提示要的字段：地点预测的 ID、名称和地址两段、类型（不要查询预测） */
 export const PLACE_AUTOCOMPLETE_FIELD_MASK = "suggestions.placePrediction.placeId,suggestions.placePrediction.structuredFormat,suggestions.placePrediction.text,suggestions.placePrediction.types";
 /** 取坐标和类型要的字段：Place Details 的 Essentials 一档（名称用输入即提示给的，不多取更贵的 `displayName`） */
@@ -109,7 +109,7 @@ export function placeSearchBody(request: PlaceSearchRequest): string {
     textQuery: request.query,
     languageCode: PLACE_LANGUAGE,
     ...(request.regionCode === null ? {} : { regionCode: request.regionCode }),
-    pageSize: PLACE_SEARCH_RULES.maxResults,
+    pageSize: PLACE_SEARCH_RULES.fetchResults,
     locationRestriction: {
       rectangle: {
         low: { latitude: request.bounds.low.lat, longitude: request.bounds.low.lng },
@@ -130,7 +130,7 @@ export function parsePlaceSearch(body: unknown, bounds: LatLngBounds, accept: (l
   const found: { candidate: PlaceCandidate; types: string[] }[] = [];
   for (const entry of places as unknown[]) {
     if (typeof entry !== "object" || entry === null) continue;
-    const place = entry as { id?: unknown; displayName?: { text?: unknown } | null; formattedAddress?: unknown; location?: { latitude?: unknown; longitude?: unknown } | null; primaryType?: unknown };
+    const place = entry as { id?: unknown; displayName?: { text?: unknown } | null; formattedAddress?: unknown; location?: { latitude?: unknown; longitude?: unknown } | null; primaryType?: unknown; types?: unknown };
     const id = isGooglePlaceId(place.id) ? place.id : null;
     const name = cleanPlaceText(place.displayName?.text, PLACE_SEARCH_RULES.nameMaxLength);
     const address = cleanPlaceText(place.formattedAddress, PLACE_SEARCH_RULES.addressMaxLength) ?? "";
@@ -140,7 +140,7 @@ export function parsePlaceSearch(body: unknown, bounds: LatLngBounds, accept: (l
     const location = { lat, lng };
     if (!isValidLatLng(location) || !inBounds(location, bounds) || !accept(location)) continue;
     if (found.some((other) => other.candidate.id === id)) continue;
-    found.push({ candidate: { id, name, address, location, kind: placeKindOfGoogleTypes(place.primaryType) }, types: typeof place.primaryType === "string" ? [place.primaryType] : [] });
+    found.push({ candidate: { id, name, address, location, kind: placeKindOfGoogleTypes(place.primaryType) }, types: [...(typeof place.primaryType === "string" ? [place.primaryType] : []), ...(Array.isArray(place.types) ? place.types.filter((type): type is string => typeof type === "string") : [])] });
   }
   // 先排序再取前几条（业主 2026-11-17：名称完全一样的、景点车站机场排在医院公司前面）
   return { ok: true, value: rankPlaces(query, found, (entry) => entry.candidate.name, (entry) => entry.types).slice(0, PLACE_SEARCH_RULES.maxResults).map((entry) => entry.candidate) };

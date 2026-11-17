@@ -99,13 +99,13 @@ test("搜索成功：POST Text Search，字段掩码只要 ID、名称、地址�
   assert.equal(request.path, "/v1/places:searchText");
   assert.equal(request.headers["x-goog-api-key"], KEY);
   assert.equal(request.headers["x-goog-fieldmask"], PLACE_SEARCH_FIELD_MASK);
-  assert.equal(PLACE_SEARCH_FIELD_MASK, "places.id,places.displayName,places.formattedAddress,places.location,places.primaryType");
+  assert.equal(PLACE_SEARCH_FIELD_MASK, "places.id,places.displayName,places.formattedAddress,places.location,places.primaryType,places.types");
   assert.ok(!request.path.includes(KEY) && !request.body.includes(KEY));
   assert.deepEqual(JSON.parse(request.body), {
     textQuery: "东京站 酒店",
     languageCode: "zh-CN",
     regionCode: "JP",
-    pageSize: 5,
+    pageSize: 10,
     locationRestriction: { rectangle: { low: { latitude: BOUNDS.low.lat, longitude: BOUNDS.low.lng }, high: { latitude: BOUNDS.high.lat, longitude: BOUNDS.high.lng } } },
   });
 });
@@ -352,4 +352,13 @@ test("文字搜索同样排序：主类型是医院的排在车站后面", () =>
   const ranked = parsePlaceSearch({ places: [place("h", "浅草寺病院", "hospital"), place("t", "浅草寺", "buddhist_temple")] }, BOUNDS, () => true, "浅草寺");
   assert.ok(ranked.ok);
   assert.deepEqual(ranked.value.map((entry) => entry.id), ["t", "h"]);
+});
+
+test("文字搜索向谷歌要 10 条、带 types，排序后取前 5 条：排在第 8 的「浅草寺」（types 里有景点）也能排到第一", () => {
+  const place = (id: string, name: string, primaryType: string, types: string[] = []) => ({ id, displayName: { text: name }, formattedAddress: "东京", location: { latitude: 35.7, longitude: 139.79 }, primaryType, types });
+  const others = Array.from({ length: 7 }, (_, i) => place(`c${i}`, `浅草寺前诊所${i}`, "medical_clinic", ["health"]));
+  const ranked = parsePlaceSearch({ places: [...others, place("t", "浅草寺", "place_of_worship_x", ["buddhist_temple", "tourist_attraction"])] }, BOUNDS, () => true, "浅草寺");
+  assert.ok(ranked.ok);
+  assert.equal(ranked.value.length, 5);
+  assert.equal(ranked.value[0]?.id, "t");
 });

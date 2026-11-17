@@ -100,7 +100,7 @@ test("官网配置多了「有没有地址搜索」和底图；城市带中心�
   assert.deepEqual(cities.body.items.find((city: any) => city.id === m.ids.tokyo).center, { lat: TOKYO_CENTER.lat, lng: TOKYO_CENTER.lng });
 });
 
-test("搜索成功：后端调一次谷歌（密钥只在请求头、只要五个字段、只要城市附近、关键字规范化），给候选的来源、名称、地址、坐标、类型", async () => {
+test("搜索成功：后端调一次谷歌（密钥只在请求头、只要六个字段、只要城市附近、关键字规范化），给候选的来源、名称、地址、坐标、类型", async () => {
   reset();
   places.respond({ body: googlePlacesBody([googlePlace("ChIJa", "東京駅", 35.6812, 139.7671, "日本東京都千代田区丸の内1丁目"), googlePlace("ChIJosaka", "大阪", 34.69, 135.5, "大阪")]) });
   const res = await search("  東京駅　ホテル ");
@@ -109,14 +109,14 @@ test("搜索成功：后端调一次谷歌（密钥只在请求头、只要五�
   assert.equal(places.requests.length, 1);
   const [request] = places.requests as [FakeService["requests"][number]];
   assert.equal(request.headers["x-goog-api-key"], FAKE_SECRETS.googleMapsApiKey);
-  assert.equal(request.headers["x-goog-fieldmask"], "places.id,places.displayName,places.formattedAddress,places.location,places.primaryType");
+  assert.equal(request.headers["x-goog-fieldmask"], "places.id,places.displayName,places.formattedAddress,places.location,places.primaryType,places.types");
   assert.ok(!request.path.includes("AIza") && !request.body.includes("AIza"));
   const bounds = cityBounds(TOKYO_CENTER);
   assert.deepEqual(JSON.parse(request.body), {
     textQuery: "東京駅 ホテル",
     languageCode: "zh-CN",
     regionCode: "JP",
-    pageSize: 5,
+    pageSize: 10,
     locationRestriction: { rectangle: { low: { latitude: bounds.low.lat, longitude: bounds.low.lng }, high: { latitude: bounds.high.lat, longitude: bounds.high.lng } } },
   });
   assert.ok(!allValues(res.body).has(FAKE_SECRETS.googleMapsApiKey));

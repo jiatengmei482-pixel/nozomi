@@ -17,6 +17,8 @@ export const PLACE_SEARCH_RULES = {
   queryMaxLength: 100,
   /** 一次最多给几个候选：手机一屏放得下，谷歌按条计费的档次和条数无关 */
   maxResults: 5,
+  /** 文字搜索向谷歌要几条（排序后取前 `maxResults` 条给客人；Text Search 按请求计费，条数不影响费用） */
+  fetchResults: 10,
   /** 搜索只在城市中心周围这么远（公里，正方形的半边长）以内：成田机场离东京站约 60 公里 */
   cityReachKm: 80,
   /** 反查前坐标取整到小数点后几位：4 位 ≈ 11 米，同一栋楼的几次点选共用一次查询 */
