@@ -427,7 +427,7 @@ test("订单页顶层打开（没被嵌）：不读订单、不显示订单内�
   assert.equal(within(document.body).queryByText(ORDER_NO, { exact: false }), null);
 });
 
-test("包车行程地图（M9P-20）：嵌入页和主站同一个组件——地图请求本站 /site/v1/itinerary-map（上车、经停、下车按顺序），列表编号 1–3；图出不来只留列表，不用 Leaflet", async () => {
+test("包车行程地图（M9P-20）：嵌入页和主站同一个组件——地图请求本站 /site/v1/itinerary-map（上车、经停、下车按顺序），列表编号 1–3、带预计时刻（M9P-20 验收）；图出不来只留列表，不用 Leaflet", async () => {
   const charterDraft = { ...DRAFT_BODY, tab: "charter", waypoints: [{ name: "河口湖", lat: 35.498, lng: 138.769, stay_minutes: 60 }] };
   const charterQuote: SiteQuote = { ...quote, package: { hours: 8, km: 200 }, cancel_policy: { ...quote.cancel_policy, category: "charter" } };
   const legs = [
@@ -447,7 +447,7 @@ test("包车行程地图（M9P-20）：嵌入页和主站同一个组件——�
   open(bookUrl);
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
   const list = screen.getByRole("list", { name: "行程" });
-  assert.deepEqual([...list.querySelectorAll("li")].map((item) => item.textContent), ["1 上车京王广场酒店", "行驶约 1 小时 40 分 · 98 公里2 经停河口湖停留 1 小时", "行驶约 1 小时 50 分 · 101 公里3 下车东京站"]);
+  assert.deepEqual([...list.querySelectorAll("li")].map((item) => item.textContent), ["1 上车京王广场酒店10:00 出发", "行驶约 1 小时 40 分 · 98 公里2 经停河口湖11:40 到达河口湖停留 1 小时12:40 出发", "行驶约 1 小时 50 分 · 101 公里3 下车东京站14:30 到达东京站"]);
   const loader = await waitFor(() => document.querySelector<HTMLImageElement>(".itinerary-map__loader") ?? assert.fail("没有要行程地图"), SLOW);
   const url = new URL(loader.src, window.location.origin);
   assert.equal(url.origin, window.location.origin, "图片地址是本站");

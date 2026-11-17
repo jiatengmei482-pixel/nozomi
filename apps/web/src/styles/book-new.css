@@ -1348,13 +1348,13 @@ button.book-steps__link:hover .book-steps__name {
   color: var(--color-text-secondary);
 }
 
-/* 预计晚到的提示：警示色 + 图标 + 文字（不只靠颜色），只提示、不拦截 */
+/* 预计晚到的提示：错误色（M9P-20 验收：标红） + 图标 + 文字（不只靠颜色），只提示、不拦截 */
 .book-waypoint__late {
   display: flex;
   align-items: center;
   gap: var(--space-1);
   margin: 0;
-  color: var(--color-warning-text);
+  color: var(--color-danger-text);
   font-size: var(--font-size-sm);
 }
 
@@ -1433,6 +1433,20 @@ button.book-steps__link:hover .book-steps__name {
   margin: 0;
   padding: 0;
   overflow-wrap: anywhere;
+}
+
+/* 右侧栏经停的预计时刻（M9P-20 验收）：「预计 09:31 到，10:31 出发」另起一行；晚到的标红，除了颜色还有图标和文字 */
+.book-summary__eta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.book-summary__eta--late {
+  color: var(--color-danger-text);
 }
 
 /* 包车快捷入口「机场接机开始」「机场送机结束」（M9P-22，ADR 0098 第三节第 7 小节） */

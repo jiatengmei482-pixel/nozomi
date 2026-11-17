@@ -848,7 +848,10 @@ input[type="datetime-local"]:focus-within {
   font-size: var(--font-size-sm);
 }
 
-/* 指定到达时间（M9P-20 P3）：「须在 14:00 前到达」比停留醒目一点；预计晚到用警示色，除了颜色还有图标和文字 */
+/*
+ * 指定到达时间（M9P-20 P3）：「须在 14:00 前到达」比停留醒目一点；预计晚到用错误色（M9P-20 验收：标红），
+ * 除了颜色还有图标和文字（「预计 14:20 到，晚于指定的 14:00，请把上车时间提前……」）
+ */
 .trip-stops__deadline {
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
@@ -858,8 +861,22 @@ input[type="datetime-local"]:focus-within {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  color: var(--color-warning-text);
+  color: var(--color-danger-text);
   font-size: var(--font-size-sm);
+}
+
+/* 预计时刻（M9P-20 验收）：「09:31 到达浅草寺」「10:31 出发」，数字等宽；晚到的那一站的到达时刻标红、加图标 */
+.trip-stops__eta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.trip-stops__eta--late {
+  color: var(--color-danger-text);
+  font-weight: var(--font-weight-medium);
 }
 
 .trip-stops__summary {

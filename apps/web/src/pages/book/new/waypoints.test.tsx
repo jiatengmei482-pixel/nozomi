@@ -232,7 +232,14 @@ test("按行程计价：车型卡、右侧栏、核对页显示明细（套餐�
   const schedule = screen.getByRole("list", { name: "行程" });
   assert.deepEqual(
     [...schedule.querySelectorAll("li")].map((item) => item.textContent),
-    ["1 上车京王广场酒店", "行驶约 2 小时 · 120 公里2 经停五合目停留 1 小时", "行驶约 30 分钟 · 20 公里3 经停河口湖停留 1 小时 30 分", "行驶约 10 分钟 · 4 公里4 经停忠灵塔停留 30 分钟", "行驶约 1 小时 50 分 · 110 公里5 下车新宿站"],
+    [
+      "1 上车京王广场酒店09:00 出发",
+      "行驶约 2 小时 · 120 公里2 经停五合目11:00 到达五合目停留 1 小时12:00 出发",
+      "行驶约 30 分钟 · 20 公里3 经停河口湖12:30 到达河口湖停留 1 小时 30 分14:00 出发",
+      "行驶约 10 分钟 · 4 公里4 经停忠灵塔14:10 到达忠灵塔停留 30 分钟14:40 出发",
+      "行驶约 1 小时 50 分 · 110 公里5 下车新宿站16:30 到达新宿站",
+    ],
+    "每一行有预计时刻（M9P-20 验收）：09:00 出发，逐段行驶 + 停留",
   );
   // 行程地图（M9P-20）：5 个点按顺序，编号和列表一致；alt 写全程
   const mapLoader = document.querySelector<HTMLImageElement>(".itinerary-map__loader") as HTMLImageElement;
@@ -291,7 +298,7 @@ test("指定到达时间（M9P-20 P3）：填了的行锁定（没有拖动把�
   assert.equal(up.disabled, false, "上移照常可用");
   assert.equal(document.getElementById(up.getAttribute("aria-describedby") ?? "")?.textContent, "河口湖，须在 10:00 前到达，已锁定，不参与建议顺序，只能用上移 / 下移调整");
   assert.equal(up.getAttribute("aria-describedby"), within(row).getByRole("button", { name: "把 河口湖 下移" }).getAttribute("aria-describedby"));
-  await waitFor(() => assert.ok(within(rowOf("河口湖")).getByText("预计 12:30 到，晚于指定的 10:00")), SLOW);
+  await waitFor(() => assert.ok(within(rowOf("河口湖")).getByText("预计 12:30 到，晚于指定的 10:00，请把上车时间提前至少 150 分钟")), SLOW);
   await waitFor(() => assert.deepEqual((quotes(calls).at(-1)?.["waypoints"] as Record<string, unknown>[])[1]?.["arrive_by"], { day_offset: 0, time: "10:00" }), SLOW);
   const body = quotes(calls).at(-1) as Record<string, unknown>;
   assert.equal("arrive_by" in ((body["waypoints"] as Record<string, unknown>[])[0] as object), false, "没填的经停不带这个键");
@@ -300,15 +307,33 @@ test("指定到达时间（M9P-20 P3）：填了的行锁定（没有拖动把�
   fireEvent.change(screen.getByLabelText("经停点 3 指定到达时间（选填）"), { target: { value: "08:00" } });
   assert.ok(within(rowOf("忠灵塔")).getByText("次日 08:00"));
   await waitFor(() => assert.deepEqual((quotes(calls).at(-1)?.["waypoints"] as Record<string, unknown>[])[2]?.["arrive_by"], { day_offset: 1, time: "08:00" }), SLOW);
-  await waitFor(() => assert.ok(within(rowOf("河口湖")).getByText("预计 12:30 到，晚于指定的 10:00")), SLOW);
+  await waitFor(() => assert.ok(within(rowOf("河口湖")).getByText("预计 12:30 到，晚于指定的 10:00，请把上车时间提前至少 150 分钟")), SLOW);
   assert.equal(within(rowOf("忠灵塔")).queryByText(/晚于指定的/), null);
 
   // 选车型这一步的行程列表：写「须在 10:00 前到达」「须在次日 08:00 前到达」，也标出晚到
   await actor.click(screen.getByRole("button", { name: "下一步：选择车型" }));
   const schedule = await screen.findByRole("list", { name: "行程" }, SLOW);
-  await waitFor(() => assert.match(schedule.textContent ?? "", /预计 12:30 到，晚于指定的 10:00/), SLOW);
+  await waitFor(() => assert.match(schedule.textContent ?? "", /预计 12:30 到，晚于指定的 10:00，请把上车时间提前至少 150 分钟/), SLOW);
   assert.match(schedule.textContent ?? "", /须在 10:00 前到达/);
   assert.match(schedule.textContent ?? "", /须在次日 08:00 前到达/);
+  // 每一行的预计时刻（M9P-20 验收）：09:00 出发 →(120) 五合目 11:00 到、停 60 → 12:00 出发 →(30) 河口湖 12:30 到（晚于 10:00，标红）……
+  const scheduleRow = (name: string): HTMLElement => within(schedule).getByText(name, { selector: ".trip-stops__name" }).closest("li") as HTMLElement;
+  assert.equal(scheduleRow("五合目").querySelector('[data-eta="arrive"]')?.textContent, "11:00 到达五合目");
+  assert.equal(scheduleRow("五合目").querySelector('[data-eta="depart"]')?.textContent, "12:00 出发");
+  assertAbsent(scheduleRow("五合目").querySelector("[data-late]"));
+  const lateArrive = scheduleRow("河口湖").querySelector('[data-eta="arrive"]') as HTMLElement;
+  assert.equal(lateArrive.textContent, "12:30 到达河口湖");
+  assert.ok(lateArrive.hasAttribute("data-late") && lateArrive.classList.contains("trip-stops__eta--late"), "晚到的那一站标红");
+  assert.ok(lateArrive.querySelector("svg"), "除了颜色还有图标");
+  assert.equal(scheduleRow("河口湖").querySelector('[data-eta="depart"]')?.textContent, "14:00 出发");
+  // 忠灵塔 14:10 到（次日 08:00 前，不晚）
+  assert.equal(scheduleRow("忠灵塔").querySelector('[data-eta="arrive"]')?.textContent, "14:10 到达忠灵塔");
+  assertAbsent(scheduleRow("忠灵塔").querySelector("[data-late]"));
+  assert.ok(screen.getByText("到达、出发时间按路线和停留预计，实际以路况为准。"));
+  // 右侧摘要：经停的预计时刻，晚到的那一站写提示
+  const side = screen.getByRole("complementary", { name: "行程摘要" });
+  assert.match(side.textContent ?? "", /预计 11:00 到，12:00 出发/);
+  assert.match(side.textContent ?? "", /预计 12:30 到，晚于指定的 10:00，请把上车时间提前至少 150 分钟/);
   await actor.click(screen.getByRole("button", { name: "上一步" }));
 
   // 锁定的行用上移调整：顺序变了、到达时间跟着这一行走

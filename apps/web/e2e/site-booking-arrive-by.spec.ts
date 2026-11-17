@@ -7,7 +7,8 @@
  * 建议报价是用例按这个顺序向**真实 API** 询的价。后端的切段、缓存、请求键由集成测试 site-arrive-by.itest.ts 覆盖。
  *
  * 流程（电脑 1280，10:00 出发）：加 4 个经停 → 给第 3 个（横滨）填「11:00」→ 这一行锁定（没有拖动把手、有锁、按钮说明「已锁定」），
- * 按当前顺序预计 12:54 到、行内提示晚到 → 第 2 步建议块：横滨留在原位、前面两个倒过来，「建议顺序」一栏同样提示晚到 → 采用 →
+ * 按当前顺序预计 12:54 到、行内提示晚到并请客人把上车时间提前 → 第 2 步：行程时间表每一行有预计时刻（「10:18 到达…」「11:18 出发」，M9P-20 验收），
+ * 横滨那一行的到达时刻标红（错误色 + 图标）、右侧摘要同样提示；建议块：横滨留在原位、前面两个倒过来，「建议顺序」一栏同样提示晚到 → 采用 →
  * 下单：订单页的经停写「须在 11:00 前到达」。
  */
 import { type Route, expect, test } from "@playwright/test";
@@ -88,8 +89,9 @@ test("指定到达时间：横滨 11:00 前到——这一行锁定、预计晚�
   const up = row.getByRole("button", { name: `把 ${names[2]} 上移` });
   await expect(up).toBeEnabled();
   await expect(up).toHaveAccessibleDescription(`${names[2]}，须在 11:00 前到达，已锁定，不参与建议顺序，只能用上移 / 下移调整`);
-  // 每段 18 分钟、各停 60 分钟：10:00 + 18 + 60 + 18 + 60 + 18 = 12:54
-  await expect(row.getByText("预计 12:54 到，晚于指定的 11:00")).toBeVisible();
+  // 每段 18 分钟、各停 60 分钟：10:00 + 18 + 60 + 18 + 60 + 18 = 12:54，晚 114 分钟
+  const lateHint = "预计 12:54 到，晚于指定的 11:00，请把上车时间提前至少 114 分钟";
+  await expect(row.getByText(lateHint)).toBeVisible();
 
   await page.getByRole("button", { name: "下一步：选择车型" }).click();
   const block = page.getByRole("region", { name: /^建议顺序，可省/ });
@@ -102,7 +104,38 @@ test("指定到达时间：横滨 11:00 前到——这一行锁定、预计晚�
   await expect(block.getByText(`${names[2]}：预计 12:54 到，晚于指定的 11:00`)).toBeVisible();
   const schedule = page.getByRole("list", { name: "行程" });
   await expect(schedule).toContainText("须在 11:00 前到达");
-  await expect(schedule).toContainText("预计 12:54 到，晚于指定的 11:00");
+  await expect(schedule).toContainText(lateHint);
+  // 每一行的预计时刻（M9P-20 验收）：10:00 出发 →(18) 甲 10:18 到、停 60 → 11:18 出发 →(18) 乙 11:36 / 12:36 →(18) 横滨 12:54 / 13:54 →(18) 丙 14:12 / 15:12 →(18) 下车 15:30
+  const scheduleRow = (name: string) => schedule.getByRole("listitem").filter({ has: page.locator(".trip-stops__name", { hasText: name }) });
+  await expect(scheduleRow("上车酒店").locator('[data-eta="depart"]')).toHaveText("10:00 出发");
+  await expect(scheduleRow(names[0] as string).locator('[data-eta="arrive"]')).toHaveText(`10:18 到达${names[0]}`);
+  await expect(scheduleRow(names[0] as string).locator('[data-eta="depart"]')).toHaveText("11:18 出发");
+  await expect(scheduleRow(names[0] as string).locator("[data-late]")).toHaveCount(0);
+  await expect(scheduleRow(names[1] as string).locator('[data-eta="arrive"]')).toHaveText(`11:36 到达${names[1]}`);
+  await expect(scheduleRow(names[3] as string).locator('[data-eta="arrive"]')).toHaveText(`14:12 到达${names[3]}`);
+  await expect(scheduleRow("市内下车点").locator('[data-eta="arrive"]')).toHaveText("15:30 到达市内下车点");
+  // 横滨那一行：到达时刻标红（错误色），除了颜色还有图标，下面是请客人提前上车的文字
+  const lateArrive = scheduleRow(names[2] as string).locator('[data-eta="arrive"]');
+  await expect(lateArrive).toHaveText(`12:54 到达${names[2]}`);
+  await expect(lateArrive).toHaveAttribute("data-late", "");
+  await expect(lateArrive.locator("svg")).toHaveCount(1);
+  expect(
+    await lateArrive.evaluate((element) => {
+      const probe = document.createElement("span");
+      probe.style.color = "var(--color-danger-text)";
+      element.append(probe);
+      const danger = getComputedStyle(probe).color;
+      probe.remove();
+      return getComputedStyle(element).color === danger && danger !== getComputedStyle(document.body).color;
+    }),
+    "到达时刻用错误色",
+  ).toBe(true);
+  await expect(scheduleRow(names[2] as string).locator('[data-eta="depart"]')).toHaveText("13:54 出发");
+  await expect(scheduleRow(names[2] as string)).toContainText(lateHint);
+  // 右侧摘要：经停的预计时刻，晚到的那一站写同样的提示
+  const aside = page.getByRole("complementary", { name: "行程摘要" });
+  await expect(aside).toContainText("预计 10:18 到，11:18 出发");
+  await expect(aside).toContainText(lateHint);
 
   await block.getByRole("button", { name: "采用建议顺序" }).click();
   await expect(schedule.locator(".trip-stops__name")).toHaveText(["上车酒店", names[1] as string, names[0] as string, names[2] as string, names[3] as string, "市内下车点"]);

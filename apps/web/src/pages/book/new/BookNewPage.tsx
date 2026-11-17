@@ -86,7 +86,7 @@ import { ITINERARY_NOTE, type WaypointDraft, autoPackageChoice, autoPackageHours
 import { TripStops } from "../../../components/TripStops.tsx";
 import { itineraryCopy } from "../../../lib/itinerary-texts.ts";
 import { type LiveSuggestion, liveSuggestion, orderChain, stopSetKey, suggestionQuoteExpired, suggestionTitle } from "../../../lib/order-suggestion.ts";
-import { arrivalLateTexts, arriveByDeadlineText, suggestedLateTexts } from "../../../lib/arrive-by-display.ts";
+import { arrivalLateTexts, arriveByDeadlineText, scheduleTimes, stopSummaryTimes, suggestedLateTexts } from "../../../lib/arrive-by-display.ts";
 import { ADDRESS_ONLY_HINT, DRAFT_EXPIRED_TEXT, DRAFT_FAILED_TEXT, draftReadyToQuote, draftTrip } from "../../../lib/booking-draft.ts";
 import { ManualQuoteBlock } from "../ManualQuote.tsx";
 import { siteFailureText, useSiteConfig } from "../SiteLayout.tsx";
@@ -575,6 +575,10 @@ export function BookNewPage() {
     }),
   );
   const lateByRow: Record<string, string> = Object.fromEntries(lateTexts.flatMap((text, index) => (text === null ? [] : [[`stop-${index}`, text] as const])));
+  // 行程时间表的预计时刻（M9P-20 验收，ADR 0096 补记 2026-11-17）：同一条路线、同一个每站占用；晚到的那一站标红
+  const arrivalInput = itinerary && serviceLocal !== null && stops.length === draft.waypoints.length ? { serviceLocal, stops, legs: charterResult?.itinerary_route?.legs ?? null, stopOccupancyMinutes: occupancy } : null;
+  const rowTimes = arrivalInput !== null && draft.to !== null ? scheduleTimes({ ...arrivalInput, dropoffName: draft.to.name }) : {};
+  const summaryTimes = arrivalInput !== null ? stopSummaryTimes(arrivalInput) : [];
 
   // 经停顺序建议块（M9P-20 P2，ADR 0096 第三节第 5 小节、第四节）：拖动后按新的当前报价重算，不调接口
   const suggestionData = orderSuggestion.suggestion;
@@ -1299,7 +1303,8 @@ export function BookNewPage() {
               {charterMapPoints !== null && <ItineraryMap points={charterMapPoints} alt={itineraryMapAlt(charterRows, charterResult?.itinerary_route)} />}
               {/* 超过 12 个点（ADR 0099）：不请求地图，只显示列表 */}
               {charterMapPoints === null && draft.from !== null && draft.to !== null && <p className="site-muted">{itineraryCopy("listOnly")}</p>}
-              <TripStops rows={charterRows} late={lateByRow} />
+              <TripStops rows={charterRows} late={lateByRow} times={rowTimes} />
+              {Object.keys(rowTimes).length > 0 && <p className="site-muted">{itineraryCopy("etaNote")}</p>}
               {/* 超过 12 小时 / 360 公里的提醒（M9P-10，ADR 0099）：只在有经停点、按行程计价时 */}
               {itinerary && <ItineraryWarnings quote={selected ?? quotes[0] ?? null} route={charterResult?.itinerary_route} points={[draft.from?.name ?? "", ...stops.map((stop) => stop.name), draft.to?.name ?? ""]} />}
               {itinerary && <p className="price-breakdown__note">{ITINERARY_NOTE}</p>}
@@ -1470,6 +1475,13 @@ export function BookNewPage() {
                     {/* 编号同行程列表和地图（M9P-20）：上车 = 1，经停从 2 起 */}
                     {displayStopNumber(index + 1)} {stop.name}（停留 {durationText(stop.stay_minutes)}
                     {arriveByDeadlineText(stop.arrive_by) === null ? "" : `，${arriveByDeadlineText(stop.arrive_by)}`}）
+                    {/* 预计时刻（M9P-20 验收）：晚到的标红，除了颜色还有图标和文字 */}
+                    {typeof summaryTimes[index] === "string" && (
+                      <span className={typeof lateTexts[index] === "string" ? "book-summary__eta book-summary__eta--late" : "book-summary__eta"}>
+                        {typeof lateTexts[index] === "string" && <Icon name="alert-triangle" />}
+                        {typeof lateTexts[index] === "string" ? lateTexts[index] : summaryTimes[index]}
+                      </span>
+                    )}
                   </li>
                 ))}
               </ol>

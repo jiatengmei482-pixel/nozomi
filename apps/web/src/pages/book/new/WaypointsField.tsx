@@ -39,7 +39,7 @@ export interface WaypointsFieldProps {
   cities: readonly CityCandidate[];
   /** 出发时刻 HH:MM（推断指定到达时间是当天还是次日）；没填为空 */
   startTime?: string;
-  /** 按行的 `key` 给的晚到提示（「预计 14:20 到，晚于指定的 14:00」） */
+  /** 按行的 `key` 给的晚到提示（「预计 14:20 到，晚于指定的 14:00，请把上车时间提前至少 20 分钟」） */
   late?: Readonly<Record<string, string>>;
 }
 
