@@ -81,7 +81,6 @@ export const CHARTER_AIRPORT_COPY = {
   "tenant.charterAirport.prices.part.normal": "普通 {amount}",
   "tenant.charterAirport.prices.part.pickup": "上车加价 {amount}",
   "tenant.charterAirport.prices.part.dropoff": "下车加价 {amount}",
-  "tenant.charterAirport.prices.part.itinerary": "下车点行程加价 {amount}",
   "tenant.charterAirport.prices.inheritUnknown": "继承：{reason}",
   "tenant.charterAirport.prices.reason.noNormal": "这个时长没有普通套餐价，空着报不出",
   "tenant.charterAirport.prices.reason.noLocation": "机场位置或区域图形没有取到，算不出继承价",

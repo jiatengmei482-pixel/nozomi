@@ -72,7 +72,6 @@ import { useTenantCan } from "../../../lib/use-master-access.ts";
 import type { Area, AreaSummary as TenantArea } from "../../../api/areas.ts";
 import type { CharterAirports } from "../../../api/charter-airports.ts";
 import type { Place } from "../../../api/master.ts";
-import type { ProductServiceRules } from "../../../api/products.ts";
 import { AIRPORT_TABLE_ID, AirportPricesTable, airportCellId, airportCellLabel, useAirportCells } from "./AirportPricesTable.tsx";
 import { type AirportEndLocation, type AirportField, airportEndLocation, airportOverlaps, areaShapesOf, readAirportCell } from "../../../lib/charter-airport-prices.ts";
 import { charterAirportText } from "../../../lib/charter-airport-copy.ts";
@@ -146,13 +145,12 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   const tenantAreas = useLoad<TenantArea[]>(`surcharge-areas:${frame.source.portal}:${product.id}`, (charter || p2p) && (onPlatform || canReadAreas) ? frame.source.areas : null);
   // 「迁移差异 N 条」（ADR 0093 第六节第 1 小节）：按当前后台取（供应商后台 /tenant/v1，运营后台 /platform/v1）
   const migrationDiff = useLoad<CharterMigrationDiff>(`charter-migration-diff:${frame.source.portal}:${product.id}:${prices.version}`, layered ? (token) => frame.source.charterMigrationDiff(token, product.id) : null);
-  // 机场套餐价要用的：商品的机场绑定、区域图形（判断机场落在①/②/③哪里）、机场坐标、「下车点行程加价」开关
+  // 机场套餐价要用的：商品的机场绑定、区域图形（判断机场落在①/②/③哪里）、机场坐标
   const airportBindings = useLoad<CharterAirports>(`charter-airports:${frame.source.portal}:${product.id}`, layered ? (token) => frame.source.charterAirports(token, product.id) : null);
   const boundAirports = airportBindings.state.data?.bindings ?? [];
   const airportPlaceIds = [...new Set(boundAirports.map((binding) => binding.place_id))].sort();
   const areaShapes = useLoad<Area[]>(`area-shapes:${frame.source.portal}:${product.id}`, layered && boundAirports.length > 0 ? frame.source.areaShapes : null);
   const airportPlaces = useLoad<Place[]>(`airport-places:${frame.source.portal}:${airportPlaceIds.join(",")}`, layered && airportPlaceIds.length > 0 ? (token) => Promise.all(airportPlaceIds.map((id) => frame.source.airportPlace(token, id))) : null);
-  const serviceRules = useLoad<ProductServiceRules>(`airport-service-rules:${frame.source.portal}:${product.id}`, layered && boundAirports.some((binding) => binding.scenario === "airport_end") ? (token) => frame.source.serviceRules(token, product.id) : null);
   const [rows, setRows] = useState<PriceRow[]>(() => fresh(prices));
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
@@ -806,7 +804,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
         if (place) locations.set(binding.area_id, airportEndLocation(place.location, { product: product1, updown: updownShapes, itinerary: itineraryShapes }));
       }
     }
-    return { normalPrice: charterPackagePrice, surchargeRules, locations, dropoffItinerary: serviceRules.state.data?.rules.charter_itinerary?.dropoff_itinerary_surcharge ?? true };
+    return { normalPrice: charterPackagePrice, surchargeRules, locations };
   };
   const CoverageHeading = charter ? "h4" : "h3";
   const surchargeAreaCount = new Set(surcharges.rows.filter((row) => !surcharges.removing.has(row.areaId) && (row.origin === null ? !row.deleted : row.enabled || surcharges.restoring.has(row.areaId))).map((row) => row.areaId)).size;

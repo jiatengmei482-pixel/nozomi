@@ -1,6 +1,6 @@
 /**
  * 价格页第四张表「机场套餐价」（M9P-22，ADR 0098 第三节第 3、8 小节）的组件测试：
- * 迁移过三层区域的包车，行 = 场景 × 机场 × 车型组、列 = 套餐时长；填了的格是单独价，空格灰字显示继承价（普通套餐 + 那一端③加价，机场结束另加下车点行程加价）；
+ * 迁移过三层区域的包车，行 = 场景 × 机场 × 车型组、列 = 套餐时长；填了的格是单独价，空格灰字显示继承价（普通套餐 + 那一端③加价；机场结束不加下车点行程加价，业主 2026-11-17）；
  * 单独价高于继承价的格标黄；格子展开填单价；和价格表一起批量保存（价格方式 charter_airport_package、新行 ref 不超过 100 个字符、清空已保存的 = 删除）；
  * 还没绑定机场时提示先去商品页绑定。接口用测试替身；真实后端由 e2e/charter-airports.spec.ts 覆盖。
  */
@@ -77,7 +77,7 @@ const wholePackage = (id: string, hours: number, price: number): PriceRuleBody =
 const updown: PriceRuleBody = { ...EMPTY, id: "u1", area_id: NRT_UPDOWN, vehicle_group_id: VAN, package_hours: null, pricing_model: "charter_area_surcharge", pickup_surcharge: 14000, dropoff_surcharge: 14000, valid_from: "2026-11-01", base: "0" };
 const itinerary: PriceRuleBody = { ...EMPTY, id: "i1", area_id: NRT_ITINERARY, vehicle_group_id: VAN, package_hours: null, pricing_model: "charter_itinerary_surcharge", itinerary_surcharge: 14000, valid_from: "2026-11-01", base: "0" };
 const airportRule = (id: string, direction: "pickup" | "dropoff", hours: number, price: number): PriceRuleBody => ({ ...EMPTY, id, area_id: NRT_AREA, vehicle_group_id: VAN, direction, package_hours: hours, pricing_model: "charter_airport_package", package_price: price, valid_from: "2026-11-01", base: String(price) });
-/** ADR 0098 第六节的数：5 小时普通 33,000、10 小时 55,000；成田③上 / 下车 14,000、成田② 14,000。机场开始 5 小时单独 45,000，机场结束 5 小时单独 70,000（高于继承 61,000） */
+/** ADR 0098 第六节的数：5 小时普通 33,000、10 小时 55,000；成田③上 / 下车 14,000、成田② 14,000。机场开始 5 小时单独 45,000，机场结束 5 小时单独 70,000（高于继承 47,000） */
 const RULES = [wholePackage("w5", 5, 33000), wholePackage("w10", 10, 55000), updown, itinerary, airportRule(START_5H, "pickup", 5, 45000), airportRule(END_5H, "dropoff", 5, 70000)];
 const pricesOf = (items: PriceRuleBody[], version = 7): PriceRules => ({ version, currency: "JPY", rounding_unit: 1, available_models: ["charter_package"], surcharge_models: ["charter_area_surcharge", "charter_itinerary_surcharge"], charter_layout: "three_layer", today: TODAY, items, coverage: { total: 2, priced: 2, missing: 0 } });
 const binding = (scenario: "airport_start" | "airport_end"): CharterAirportBinding => ({ scenario, place_id: NRT, place_code: "NRT", place_name: { zh: "成田国际机场" }, area_id: NRT_AREA, area_name: { zh: "成田航站楼周边" }, short_name_zh: "成田机场", effective: true });
@@ -126,7 +126,7 @@ const cell = (section: HTMLElement, scenario: "机场开始" | "机场结束", h
 const td = (input: HTMLElement): HTMLElement => input.closest("td") as HTMLElement;
 type Batch = { create: Record<string, unknown>[]; update: Record<string, unknown>[]; delete: string[] };
 
-test("第四张表：行 = 场景 × 机场 × 车型组、列 = 套餐时长；空格灰字显示继承价（机场结束另加下车点行程加价），单独价高于继承价的格标黄；放在三张表之后", async () => {
+test("第四张表：行 = 场景 × 机场 × 车型组、列 = 套餐时长；空格灰字显示继承价（机场结束不加下车点行程加价），单独价高于继承价的格标黄；放在三张表之后", async () => {
   open(RULES);
   const section = await airportTable();
   // 放在「上下车加价」之后；分块导航多一项
@@ -136,16 +136,16 @@ test("第四张表：行 = 场景 × 机场 × 车型组、列 = 套餐时长；
   assert.deepEqual([...section.querySelectorAll("thead th")].map((th) => th.textContent), ["车型组", "5 小时（JPY）", "10 小时（JPY）"]);
   assert.deepEqual([...section.querySelectorAll(".price-table__group")].map((row) => row.textContent?.trim()), ["机场开始 · 成田机场（机场区域：成田航站楼周边）", "机场结束 · 成田机场（机场区域：成田航站楼周边）"]);
 
-  // 单独价：机场开始 5 小时 45,000 不高于继承 47,000，不标黄；机场结束 5 小时 70,000 高于继承 61,000，标黄
+  // 单独价：机场开始 5 小时 45,000 不高于继承 47,000，不标黄；机场结束 5 小时 70,000 高于继承 47,000，标黄
   assert.equal(cell(section, "机场开始", 5).value, "45,000");
   assert.equal(td(cell(section, "机场开始", 5)).dataset["warn"], undefined);
   await waitFor(() => assert.equal(td(cell(section, "机场结束", 5)).dataset["warn"], "true"), SLOW);
-  assert.match(td(cell(section, "机场结束", 5)).textContent ?? "", /高于继承价 61,000/);
+  assert.match(td(cell(section, "机场结束", 5)).textContent ?? "", /高于继承价 47,000/);
   // 空格：灰字写继承价的组成，输入框里的灰字是继承后的价
   assert.equal(cell(section, "机场开始", 10).placeholder, "继承 69,000");
   assert.match(td(cell(section, "机场开始", 10)).textContent ?? "", /继承：普通 55,000 \+ 上车加价 14,000/);
-  assert.equal(cell(section, "机场结束", 10).placeholder, "继承 83,000");
-  assert.match(td(cell(section, "机场结束", 10)).textContent ?? "", /继承：普通 55,000 \+ 下车加价 14,000 \+ 下车点行程加价 14,000/);
+  assert.equal(cell(section, "机场结束", 10).placeholder, "继承 69,000");
+  assert.match(td(cell(section, "机场结束", 10)).textContent ?? "", /继承：普通 55,000 \+ 下车加价 14,000单价/);
   // 金额都是结算价：没有对外价、加价比例
   assert.doesNotMatch(section.textContent ?? "", /对外价|加价比例/);
 });

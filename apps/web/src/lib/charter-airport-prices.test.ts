@@ -37,22 +37,19 @@ const itinerary: PriceRule = { areaId: NARITA_ITINERARY, vehicleGroupId: VAN, di
 const AT_NARITA = { inProductArea: false, updownAreaIds: [NARITA_UPDOWN], itineraryAreaIds: [NARITA_ITINERARY] };
 const query = { normalMinor: 33000, rules: [updown(), itinerary], vehicleGroupId: VAN, packageHours: 5, date: TODAY };
 
-test("继承价：成田上车 = 普通 33,000 + 上车加价 14,000 = 47,000；成田下车另加下车点行程加价 = 61,000（ADR 0098 第六节第 2、3 条）", () => {
+test("继承价：成田上车 = 普通 33,000 + 上车加价 14,000 = 47,000；成田下车 = 普通 + 下车加价 = 47,000，不加下车点行程加价（业主 2026-11-17，ADR 0098 第十四节）", () => {
   const start = inheritedAirportPrice({ ...query, scenario: "airport_start", location: AT_NARITA });
-  assert.deepEqual(start, { ok: true, totalMinor: 47000, normalMinor: 33000, end: "pickup", endMinor: 14000, itineraryMinor: 0 });
+  assert.deepEqual(start, { ok: true, totalMinor: 47000, normalMinor: 33000, end: "pickup", endMinor: 14000 });
   assert.equal(inheritText(start, "JPY"), "继承：普通 33,000 + 上车加价 14,000");
   assert.equal(inheritPlaceholder(start, "JPY"), "继承 47,000");
   const end = inheritedAirportPrice({ ...query, scenario: "airport_end", location: AT_NARITA });
-  assert.equal(end.ok && end.totalMinor, 61000);
-  assert.equal(inheritText(end, "JPY"), "继承：普通 33,000 + 下车加价 14,000 + 下车点行程加价 14,000");
-  // 商品关了「下车点行程加价」：只加下车加价
-  const off = inheritedAirportPrice({ ...query, scenario: "airport_end", location: AT_NARITA, dropoffItinerary: false });
-  assert.equal(off.ok && off.totalMinor, 47000);
+  assert.equal(end.ok && end.totalMinor, 47000);
+  assert.equal(inheritText(end, "JPY"), "继承：普通 33,000 + 下车加价 14,000");
 });
 
 test("继承价：机场在①基础价区域里（羽田）= 普通价，没有加价；③按套餐的那条优先于「所有套餐」那条；几个③重叠取最高", () => {
   const haneda = inheritedAirportPrice({ ...query, scenario: "airport_end", location: { inProductArea: true, updownAreaIds: [NARITA_UPDOWN], itineraryAreaIds: [NARITA_ITINERARY] } });
-  assert.deepEqual(haneda, { ok: true, totalMinor: 33000, normalMinor: 33000, end: "dropoff", endMinor: 0, itineraryMinor: 0 });
+  assert.deepEqual(haneda, { ok: true, totalMinor: 33000, normalMinor: 33000, end: "dropoff", endMinor: 0 });
   assert.equal(inheritText(haneda, "JPY"), "继承：普通 33,000");
   const perPackage = updown({ packageHours: 5, pricing: { model: "charter_area_surcharge", pickupSurchargeMinor: 9000, dropoffSurchargeMinor: 9000 } });
   const picked = inheritedAirportPrice({ ...query, rules: [updown(), perPackage], scenario: "airport_start", location: AT_NARITA });
