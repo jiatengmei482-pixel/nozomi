@@ -13422,6 +13422,132 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "429":
           $ref: "#/components/responses/RateLimited"
+  /site/v1/trips:
+    post:
+      tags: [ 官网 ]
+      operationId: createSiteTrip
+      summary: 建行程单（AI 行程报价 P1）
+      description: |
+        M9T-03，ADR 0101 第二、三节：校验标准行程单（只收结构化输入：平台地点或坐标、出发时间、停留分钟、人数行李、附加项、偏好的车型组；
+        不收自由文字、航班号、备注、司机语言），存为 `draft`，返回编号（43 个 base64url 字符，凭它访问）。行程单 30 天内可读、可反复报价。
+        平台地点只能是启用的机场 / 车站（400 `UNKNOWN_PLACE`）。官网没开 503 `SITE_NOT_OPEN`。每个地址每分钟 10 次。
+        带有效验收会话时建的是验收行程单（只报 QA 测试供应商，只有验收会话看得到）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TripItinerary"
+      responses:
+        "201":
+          description: 建好的行程单
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ trip_id, status, currency, readable_until ]
+                properties:
+                  trip_id:
+                    type: string
+                    pattern: "^[A-Za-z0-9_-]{43}$"
+                  status:
+                    type: string
+                    enum: [ draft ]
+                  currency:
+                    type: string
+                    description: 官网渠道的结算币种：方案金额都是这个币种
+                  readable_until:
+                    type: string
+                    format: date-time
+        "400":
+          description: "`VALIDATION_FAILED`：`details.issues[].reason` 有 `REQUIRED`、`OUT_OF_RANGE`、`INVALID`、`NOT_ASCENDING`、`NOT_CONSECUTIVE`（日期要连续，不用车的那天写成空闲日）、`FIRST_DAY_IDLE`、`LAST_DAY_IDLE`、`MUST_START_WITH_START`、`TIME_REQUIRED`、`TIME_NOT_ALLOWED`、`END_NOT_LAST`、`STAY_NOT_ALLOWED`、`TOO_FEW_POINTS`、`DUPLICATE`、`UNKNOWN_PLACE`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/trips/{id}:
+    get:
+      tags: [ 官网 ]
+      operationId: getSiteTrip
+      summary: 读行程单和最近一次报价的方案
+      description: |
+        M9T-03，ADR 0101 第三节：行程单原样、最近一次报价报出的方案（过了 30 分钟有效期的标 `expired: true`，要重新报价）、报不出的原因。
+        过期、不存在、编号格式不对、验收会话和普通客人互相看不到，一律 404 `TRIP_NOT_FOUND`。每个地址每分钟 120 次（和官网读接口共用）。
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 43 个 base64url 字符
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 行程单和方案
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteTrip"
+        "404":
+          description: "`TRIP_NOT_FOUND`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/trips/{id}/quote:
+    post:
+      tags: [ 官网 ]
+      operationId: quoteSiteTrip
+      summary: 行程报价（编排 + 分段报价 + 跨段费用 + 方案对比）
+      description: |
+        M9T-03，ADR 0101 第三、四节：按天分段（接机 / 送机 / 点对点 / 包车 / 空闲日），在自然断点试几种拆法，每一段按官网询价同样的规则试算
+        （不生成报价编号；下单前另行逐段正式询价，P1b），再出两个方案：`one_car` 一车到底（同一供应商同一车型组，含司机住宿、停驻、第二司机、
+        附加项去重等跨段费用）和 `daily_best` 每天各自最优（2 天以上用车时）。`daily_best` 便宜 10% 以上推荐它，否则推荐 `one_car`。
+        每次报价重写这一行程的全部方案。行程太长时后面几天只报「不拆」（`degraded: true`），连这样都报不完 422 `TRIP_TOO_COMPLEX`。
+        应答没有结算价、加价比例、供应商编号。每个地址每分钟 5 次、每天 50 次。
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 报价后的行程单和方案（同 `GET /site/v1/trips/{id}`）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteTrip"
+        "400":
+          description: "`VALIDATION_FAILED`：行程里的机场 / 车站已停用（`UNKNOWN_PLACE`）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: "`TRIP_NOT_FOUND`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: "`TRIP_TOO_COMPLEX`：行程太复杂，转人工报价"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
   /site/v1/config:
     get:
       tags: [ 官网 ]
@@ -32265,6 +32391,239 @@ components:
             within_delay_allowance:
               type: boolean
         - type: "null"
+    TripItinerary:
+      description: 标准行程单（ADR 0101 第二节，P1 子集；字段名 camelCase）。上限：14 天、每天 12 个点（没写终点时过夜点也算一个）、全程 60 个不同地点、附加项 10 个、人数 1–60、行李 0–60、停留 0–720 分钟
+      type: object
+      additionalProperties: false
+      required: [ schemaVersion, party, days ]
+      properties:
+        schemaVersion:
+          type: integer
+          enum: [ 1 ]
+        party:
+          type: object
+          additionalProperties: false
+          required: [ adults ]
+          properties:
+            adults: { type: integer, minimum: 0, maximum: 60 }
+            children: { type: integer, minimum: 0, maximum: 60 }
+            luggage: { type: integer, minimum: 0, maximum: 60 }
+        preferences:
+          type: object
+          additionalProperties: false
+          properties:
+            vehicleGroupIds:
+              description: 只在结果上过滤，不传给报价引擎
+              type: array
+              maxItems: 20
+              items: { type: string, format: uuid }
+            addons:
+              type: array
+              maxItems: 10
+              items:
+                type: object
+                additionalProperties: false
+                required: [ addonId ]
+                properties:
+                  addonId: { type: string, format: uuid }
+                  quantity: { type: integer, minimum: 1 }
+        days:
+          type: array
+          minItems: 1
+          maxItems: 14
+          items:
+            type: object
+            additionalProperties: false
+            required: [ date, items ]
+            properties:
+              date:
+                type: string
+                description: 当地日期 YYYY-MM-DD，逐日连续（不用车的那天写成空闲日）；第一天和最后一天要用车
+              items:
+                description: 空数组 = 空闲日。第一个点是 `start` / `arrive_flight`（带 `time`），之后是 `stop`（可带 `stayMinutes`），最后可选 `end` / `depart_flight`；后续各点的时间由服务器按路线推算
+                type: array
+                maxItems: 12
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [ kind, place ]
+                  properties:
+                    kind:
+                      type: string
+                      enum: [ arrive_flight, start, stop, end, depart_flight ]
+                    place:
+                      oneOf:
+                        - type: object
+                          additionalProperties: false
+                          required: [ placeId ]
+                          properties:
+                            placeId: { type: string, format: uuid, description: 平台的机场 / 车站 }
+                        - type: object
+                          additionalProperties: false
+                          required: [ lat, lng ]
+                          properties:
+                            lat: { type: number, minimum: -90, maximum: 90 }
+                            lng: { type: number, minimum: -180, maximum: 180 }
+                            kind: { type: string, enum: [ hotel, poi, address ] }
+                    time: { type: string, pattern: "^\\d{2}:\\d{2}$" }
+                    stayMinutes: { type: integer, minimum: 0, maximum: 720 }
+              nightAt:
+                description: 当晚过夜点；没写终点时当天终点就是它
+                type: [ object, "null" ]
+                additionalProperties: false
+                required: [ lat, lng ]
+                properties:
+                  lat: { type: number }
+                  lng: { type: number }
+              driverLodgingProvided:
+                type: boolean
+                description: 客人当晚给司机提供住宿（这一晚住宿费记 0）
+    SiteTrip:
+      description: 行程单和最近一次报价的方案（M9T-03，ADR 0101 第三节第 2 小节）。金额是渠道结算币种
+      type: object
+      additionalProperties: false
+      required: [ trip_id, status, currency, readable_until, itinerary, quoted_at, expires_at, plans, unquoted, degraded ]
+      properties:
+        trip_id: { type: string }
+        status: { type: string, enum: [ draft, quoted ] }
+        currency: { type: string }
+        readable_until: { type: string, format: date-time }
+        itinerary:
+          $ref: "#/components/schemas/TripItinerary"
+        quoted_at: { type: [ string, "null" ], format: date-time }
+        expires_at:
+          description: 报出的方案里最早到期的时刻；没有报出的方案为 null
+          type: [ string, "null" ]
+          format: date-time
+        plans:
+          description: 报出价的方案（都报不出时为空数组）
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ plan_id, kind, recommended, status, expired, total, vehicle_group, days, fees, warnings ]
+            properties:
+              plan_id: { type: string, format: uuid }
+              kind: { type: string, enum: [ one_car, daily_best ] }
+              recommended: { type: boolean }
+              status: { type: string, enum: [ quoted ] }
+              expired: { type: boolean }
+              total:
+                $ref: "#/components/schemas/SalesMoney"
+              vehicle_group:
+                description: 一车到底的车型组；每天各自最优为 null
+                oneOf:
+                  - type: object
+                    additionalProperties: false
+                    required: [ id, code, name, seats ]
+                    properties:
+                      id: { type: string, format: uuid }
+                      code: { type: string }
+                      name: { $ref: "#/components/schemas/LocalizedText" }
+                      seats: { type: integer }
+                  - type: "null"
+              days:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [ day_index, date, segments, fees ]
+                  properties:
+                    day_index: { type: integer, minimum: 0 }
+                    date: { type: string }
+                    segments:
+                      type: array
+                      items:
+                        type: object
+                        additionalProperties: false
+                        required: [ segment_id, type, start_local, end_local, amount, package_hours, other_vehicle, vehicle_group, price_breakdown, route ]
+                        properties:
+                          segment_id: { type: string, format: uuid }
+                          type: { type: string, enum: [ airport_pickup, airport_dropoff, p2p, charter, idle_day ] }
+                          start_local: { type: [ string, "null" ] }
+                          end_local: { type: [ string, "null" ] }
+                          amount:
+                            oneOf:
+                              - $ref: "#/components/schemas/SalesMoney"
+                              - type: "null"
+                          package_hours: { type: [ integer, "null" ] }
+                          other_vehicle:
+                            type: boolean
+                            description: 一车到底里这一天用了别的供应商（按段选车）
+                          vehicle_group:
+                            oneOf:
+                              - type: object
+                                additionalProperties: false
+                                required: [ id, name ]
+                                properties:
+                                  id: { type: string, format: uuid }
+                                  name:
+                                    oneOf:
+                                      - $ref: "#/components/schemas/LocalizedText"
+                                      - type: "null"
+                              - type: "null"
+                          price_breakdown:
+                            $ref: "#/components/schemas/SitePriceBreakdown"
+                          route:
+                            oneOf:
+                              - type: object
+                                additionalProperties: false
+                                required: [ meters, minutes ]
+                                properties:
+                                  meters: { type: integer }
+                                  minutes: { type: integer }
+                              - type: "null"
+                    fees:
+                      description: 挂在这一天的跨段费用（停驻、第二司机、附加项去重）
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/SiteTripFee"
+              fees:
+                description: 按晚算的跨段费用（司机住宿、住宿抵扣空驶费；抵扣为负数）
+                type: array
+                items:
+                  allOf:
+                    - $ref: "#/components/schemas/SiteTripFee"
+                  type: object
+                  properties:
+                    night_index: { type: [ integer, "null" ] }
+              warnings:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [ code, day_index ]
+                  properties:
+                    code: { type: string, enum: [ SECOND_DRIVER, SEGMENT_OTHER_VEHICLE, WORK_HOURS_HARD_LIMIT ] }
+                    day_index: { type: [ integer, "null" ] }
+        unquoted:
+          description: 报不出的原因（方案、哪一天、原因码，如 `NO_PRODUCT`、`OUT_OF_SERVICE_AREA`、`ROUTE_UNAVAILABLE`、`WORK_HOURS_HARD_LIMIT`、`WORK_HOURS_EXCEEDED`、`SECOND_DRIVER_PRICE_UNAVAILABLE`、`ONE_CAR_NOT_AVAILABLE`）
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ plan_kind, day_index, reason ]
+            properties:
+              plan_kind: { type: string, enum: [ one_car, daily_best ] }
+              day_index: { type: [ integer, "null" ] }
+              reason: { type: string }
+        degraded:
+          type: boolean
+          description: 行程太长、段报价超了预算，后面几天只报了「不拆」
+    SiteTripFee:
+      type: object
+      required: [ type, label, amount ]
+      properties:
+        type: { type: string, enum: [ lodging, lodging_offset, idle, second_driver, bundle_discount, return ] }
+        label: { $ref: "#/components/schemas/LocalizedText" }
+        amount:
+          description: 同 SalesMoney，但抵扣类（`lodging_offset`、`bundle_discount`）为负数
+          type: object
+          additionalProperties: false
+          required: [ amount, currency ]
+          properties:
+            amount: { type: string, pattern: "^-?\\d+(\\.\\d+)?$" }
+            currency: { type: string }
     SitePriceBreakdown:
       description: |
         对外价的简单明细（M9W-01，ADR 0088 第 4 节和补充；客人支付币种），按顺序：`base` 基础价（包车是套餐价）、`pickup` 上车加价、`waypoint` 一个区域的途经加价（逐区域）、

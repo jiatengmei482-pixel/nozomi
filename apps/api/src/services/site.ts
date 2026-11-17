@@ -813,7 +813,7 @@ function salesTrip(input: CityQuoteInput): { category: ServiceCategory; placeId:
 type CityQuoteInput = SiteQuoteInput & { cityId: string };
 
 /** 包车按上下车点匹配的结果（M9P-02）：匹配到的商品所在的城市（去重、按编号排）、取了哪个、渠道能卖包车的启用城市 */
-interface CharterCityMatch {
+export interface CharterCityMatch {
   matchedCityIds: string[];
   chosen: { cityId: string; by: CharterCityChoice } | null;
   /** 取的那个城市里匹配到的商品（列套餐用） */

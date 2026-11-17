@@ -1,9 +1,10 @@
 /**
  * 标准行程单（P1 子集，ADR 0101 第二节；设计篇 ADR 0094 第二节第 3 小节）：只收结构化输入，不收自由文字。
- * 服务端 zod 和这里共用一组上限（`TRIP_LIMITS`）；这里做跨字段的校验（日期升序、点的先后、全程不同地点数）。
+ * 服务端 zod 和这里共用一组上限（`TRIP_LIMITS`）；这里做跨字段的校验（日期升序且连续、点的先后、每天点数含过夜点、全程不同地点数）。
  */
 import { isValidLatLng, type LatLng } from "../geo.ts";
 import { QUOTE_RULES } from "../quote.ts";
+import { addDays } from "../pricing.ts";
 import { isLocalDate } from "../service-time.ts";
 
 export const TRIP_LIMITS = {
@@ -61,6 +62,7 @@ export type TripIssueReason =
   | "INVALID"
   | "DUPLICATE"
   | "NOT_ASCENDING"
+  | "NOT_CONSECUTIVE"
   | "MUST_START_WITH_START"
   | "TIME_REQUIRED"
   | "TIME_NOT_ALLOWED"
@@ -141,9 +143,13 @@ export function tripItineraryIssues(itinerary: TripItinerary): TripIssue[] {
   let previousDate: string | null = null;
   for (const [d, day] of days.entries()) {
     const base = `/days/${d}`;
-    if (typeof day.date !== "string" || !isLocalDate(day.date)) issues.push({ path: `${base}/date`, reason: "INVALID" });
-    else {
+    if (typeof day.date !== "string" || !isLocalDate(day.date)) {
+      issues.push({ path: `${base}/date`, reason: "INVALID" });
+      previousDate = null; // 无效日期之后不和它比，免得多报一条「不连续」
+    } else {
+      // 日期要连续（不用车的那天写成空闲日）：跨段费用按「相邻两天」算住宿、停驻，跳过的日子会少收，也绕得过 14 天上限
       if (previousDate !== null && day.date <= previousDate) issues.push({ path: `${base}/date`, reason: "NOT_ASCENDING" });
+      else if (previousDate !== null && day.date !== addDays(previousDate, 1)) issues.push({ path: `${base}/date`, reason: "NOT_CONSECUTIVE" });
       previousDate = day.date;
     }
     if (day.nightAt !== undefined && day.nightAt !== null) {
@@ -156,7 +162,10 @@ export function tripItineraryIssues(itinerary: TripItinerary): TripIssue[] {
       if (d === days.length - 1) issues.push({ path: `${base}/items`, reason: "LAST_DAY_IDLE" });
       continue;
     }
-    if (items.length > TRIP_LIMITS.maxItemsPerDay) issues.push({ path: `${base}/items`, reason: "OUT_OF_RANGE" });
+    // 没写终点时当晚过夜点补成最后一个点，也算进每天 12 个点（否则 1 个起点 + 11 个经停 + 过夜点 = 11 个经停，超过引擎的经停上限）
+    const lastKind = items[items.length - 1]?.kind;
+    const appendsNight = !(items.length > 1 && (lastKind === "end" || lastKind === "depart_flight")) && day.nightAt !== undefined && day.nightAt !== null;
+    if (items.length + (appendsNight ? 1 : 0) > TRIP_LIMITS.maxItemsPerDay) issues.push({ path: `${base}/items`, reason: "OUT_OF_RANGE" });
     for (const [i, item] of items.entries()) {
       const path = `${base}/items/${i}`;
       issues.push(...placeIssues(item.place, `${path}/place`));

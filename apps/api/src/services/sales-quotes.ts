@@ -364,7 +364,7 @@ export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincip
 }
 
 /** 报不出价的这次询价整理成「未覆盖需求」要的事实（不含任何客人个人信息）。 */
-function demandFacts(principal: SalesPrincipal, input: SalesQuoteInput, points: { pickup: LatLng | null; dropoff: LatLng | null }, serviceLocal: string, preview: PlatformQuotePreview): DemandFacts {
+export function demandFacts(principal: SalesPrincipal, input: SalesQuoteInput, points: { pickup: LatLng | null; dropoff: LatLng | null }, serviceLocal: string, preview: PlatformQuotePreview): DemandFacts {
   const requested = [...new Set(input.vehicleGroupIds)];
   const checked: ("pickup" | "dropoff")[] = input.category === "charter" ? (points.dropoff === null ? ["pickup"] : ["pickup", "dropoff"]) : quoteCheckPoints({ category: input.category, direction: input.direction });
   return {
