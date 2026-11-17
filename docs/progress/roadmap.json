@@ -1895,10 +1895,10 @@
           "id": "M9T-05",
           "title": "行程单清理任务：readable_until（建单 + 30 天）后删除行程与下属方案、段、费用（ADR 0101 第二节，设计篇第八节第 6 小节；CLAUDE.md 第 7 条）",
           "role": "backend",
-          "status": "todo",
+          "status": "review",
           "blockedBy": "依赖 M9T-02",
           "acceptance": ["只删 trips 及其级联行，不碰其他表；集成测试覆盖到期删、未到期留", "规则配置页（前端）不在本里程碑，随前端车道另开任务"],
-          "evidence": "",
+          "evidence": "services/trip-retention.ts（TripRetentionJobs：每小时一轮，readable_until 已过的 trips 分批删除，方案、段、费用级联；advisory 锁防多实例）；app.ts 登记（jobs 时启动）；trip-retention.itest 2 条（到期删、未到期留、级联、不碰别的表、分批与拿不到锁跳过）",
           "updated": "2026-11-15"
         }
       ]

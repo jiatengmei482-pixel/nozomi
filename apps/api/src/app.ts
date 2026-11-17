@@ -81,6 +81,7 @@ import { registerManualQuoteRoutes } from "./routes/manual-quotes.ts";
 import { registerReportRoutes } from "./routes/reports.ts";
 import { ManualQuoteRetentionJobs } from "./services/manual-quotes.ts";
 import { BookingDraftRetentionJobs } from "./services/booking-drafts.ts";
+import { TripRetentionJobs } from "./services/trip-retention.ts";
 import { registerEmbedRoutes } from "./routes/embed.ts";
 
 export interface AppDeps {
@@ -146,6 +147,7 @@ declare module "fastify" {
     /** 人工报价申请的到期清除（M8-21，ADR 0076；服务进程用 `jobs` 启动它；测试直接调 `tick`） */
     manualQuoteRetention: ManualQuoteRetentionJobs;
     bookingDraftRetention: BookingDraftRetentionJobs;
+    tripRetention: TripRetentionJobs;
     /** 推送给供应商的 Webhook 的投递任务（服务进程用 `jobs` 启动它；测试直接调 `tick`） */
     webhookJobs: WebhookJobs;
     /** 供应商账单：每月出上个月的账、确认期满视为确认（服务进程用 `jobs` 启动它；测试直接调 `tick`） */
@@ -377,6 +379,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   app.decorate("manualQuoteRetention", manualQuoteRetention);
   const bookingDraftRetention = new BookingDraftRetentionJobs(context, app.log);
   app.decorate("bookingDraftRetention", bookingDraftRetention);
+  const tripRetention = new TripRetentionJobs(context, app.log);
+  app.decorate("tripRetention", tripRetention);
   const billingJobs = new BillingJobs(context, app.log);
   app.decorate("billingJobs", billingJobs);
   // 发验证码在应答之后的后台做（ADR 0050）：关闭前等它们结束，别在连接池关掉之后还去写库
@@ -396,6 +400,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     uncoveredDemandJobs.start();
     manualQuoteRetention.start();
     bookingDraftRetention.start();
+    tripRetention.start();
     app.addHook("onClose", () => fx.stop());
     app.addHook("onClose", () => orderJobs.stop());
     app.addHook("onClose", () => webhookJobs.stop());
@@ -407,6 +412,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     app.addHook("onClose", () => uncoveredDemandJobs.stop());
     app.addHook("onClose", () => manualQuoteRetention.stop());
     app.addHook("onClose", () => bookingDraftRetention.stop());
+    app.addHook("onClose", () => tripRetention.stop());
   }
   registerPlatformRoutes(app, context);
   registerPlatformSecurityRoutes(app, context);
