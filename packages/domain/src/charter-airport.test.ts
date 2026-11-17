@@ -150,8 +150,10 @@ test("P1 新宿上车、羽田下车 → 机场结束（羽田在①里，继承
   assert.equal(plain.settlement.charterScenario, undefined);
 });
 
-test("成田下车（机场结束）：继承 = 33,000 + 下车加价 14,000 + 下车点行程加价 14,000 = 61,000（Q13）；单独 45,000 两项都免", () => {
-  assert.equal(offer(trip("shinjuku", "naritaT1"), product()).settlement.totalMinor, 61_000);
+test("成田下车（机场结束）：继承 = 33,000 + 下车加价 14,000 = 47,000，下车点行程加价不收（Q13，业主 2026-11-17：套餐价已含去机场的路程）；单独 45,000 两项都免", () => {
+  const inherit = offer(trip("shinjuku", "naritaT1"), product());
+  assert.equal(inherit.settlement.totalMinor, 47_000);
+  assert.deepEqual(inherit.settlement.areaSurcharge?.waypoints, [{ areaId: "narita", priceRuleId: "i-narita", amountMinor: 0, stopSeqs: [], fromDropoff: true, includedInPackage: true }]);
   const own = offer(trip("shinjuku", "naritaT1"), withRules(airportPrice("e5", "dropoff", 5, 45_000)));
   assert.equal(own.settlement.totalMinor, 45_000);
   assert.deepEqual(own.settlement.areaSurcharge?.dropoff, { areaId: "narita-airport", priceRuleId: null, amountMinor: 0, includedInPackage: true });
@@ -159,9 +161,9 @@ test("成田下车（机场结束）：继承 = 33,000 + 下车加价 14,000 + �
 });
 
 test("机场开始单独定价只免上车那一端：成田上车 → 成田下车，下车加价和下车点行程加价照收", () => {
-  // 机场 → 机场（同一个机场）：机场开始单独 45,000 + 下车 14,000 + 行程 14,000 = 73,000；机场结束继承 = 33,000 + 14,000×3 = 75,000 → 取 73,000
-  const result = offer(trip("naritaT1", "naritaT1"), withRules(airportPrice("a5", "pickup", 5, 45_000)));
-  assert.equal(result.settlement.totalMinor, 73_000);
+  // 机场 → 机场（同一个机场）：机场开始单独 30,000 + 下车 14,000 + 下车点行程 14,000 = 58,000；机场结束继承 = 33,000 + 上车 14,000 + 下车 14,000（行程不收）= 61,000 → 取 58,000
+  const result = offer(trip("naritaT1", "naritaT1"), withRules(airportPrice("a5", "pickup", 5, 30_000)));
+  assert.equal(result.settlement.totalMinor, 58_000);
   assert.equal(result.settlement.charterScenario?.kind, "airport_start");
 });
 

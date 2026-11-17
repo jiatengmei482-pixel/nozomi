@@ -1137,10 +1137,10 @@ function quoteAtHours(product: QuoteProduct, request: QuoteRequest, moment: Quot
         charterItineraryOf(product.serviceRules).dropoffItinerarySurcharge && stopCharges.length === 0 && !ends.dropoff.inProductArea && dropoffAreas.length > 0
           ? areaSurchargeFor(product.priceRules, { areaIds: dropoffAreas, vehicleGroupId, packageHours: request.packageHours, date: local.date, end: "waypoint", prefer: "highest", threeLayer: layered })
           : null;
-      // 机场结束单独定价：下车点行程加价也含在机场套餐价里（ADR 0098 第三节第 4 小节第 2 步），记 0
+      // 机场结束（单独定价和继承都一样，业主 2026-11-17，ADR 0098 第十四节）：套餐价已含去机场的路程，下车点行程加价记 0、不收
       if (fromDropoff !== null && fromDropoff.rule !== null) {
         stopCharges.push(
-          waivedEnd === "dropoff"
+          waivedEnd === "dropoff" || scenario?.kind === "airport_end"
             ? { areaId: fromDropoff.areaId, priceRuleId: fromDropoff.rule.id, amountMinor: 0, stopSeqs: [], fromDropoff: true, includedInPackage: true }
             : { areaId: fromDropoff.areaId, priceRuleId: fromDropoff.rule.id, amountMinor: fromDropoff.amountMinor, stopSeqs: [], fromDropoff: true },
         );
