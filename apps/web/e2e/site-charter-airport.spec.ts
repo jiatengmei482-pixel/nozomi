@@ -35,7 +35,7 @@ test("M9P-22 主站手机 390：「机场接机开始」按航站楼选，底部
   // 选好航站楼、行程填齐后页面自己就去询价（停顿一下），所以在选之前就开始等这次询价
   const quoted = page.waitForResponse((res) => new URL(res.url()).pathname === "/site/v1/quotes" && res.request().method() === "POST");
   await terminal.selectOption({ label: trip.terminalLabel });
-  await expect(page.getByText("包车从预约的上车时间开始计时，没有免费等待；航班可能延误时请预留时间，或下单前联系客服")).toBeVisible();
+  await expect(page.getByText("包车从预约的上车时间开始计时，没有免费等待。建议把上车时间定在航班落地后 60–90 分钟（国内航班约 60 分钟，国际航班约 90 分钟，留出入境和取行李的时间）；航班可能延误时请再多留一些，或下单前联系客服")).toBeVisible();
   await expect(page.getByLabel(/^包车时长/)).toHaveValue("8");
 
   // M9E-32：第 1 步的主按钮在底部按钮条里；旧的按钮区不在了；快捷入口在行程区、不在条里
