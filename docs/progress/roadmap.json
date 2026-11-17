@@ -1461,13 +1461,13 @@
           "id": "M9E-23",
           "title": "询价接口的 draft_id 超过 64 字时 400：按 ADR 0090「格式不对一律忽略」应只忽略、照常报价（M9E-12 审查登记）",
           "role": "backend",
-          "status": "todo",
+          "status": "review",
           "acceptance": [
             "POST /site/v1/quotes、/quotes/by-points 的 draft_id 超过 64 字时不报 400，按「格式不对」忽略，照常报价、不记来源；OpenAPI 同步",
             "集成测试：65 字、1,000 字的 draft_id 照常报价；主站前端只发 43 位编号，不受影响"
           ],
-          "evidence": "",
-          "updated": "2026-11-14"
+          "evidence": "询价的 draft_id 超过 64 字当没带、照常报价、按主站算（zod transform，OpenAPI 去掉 maxLength）；embed.itest 补用例",
+          "updated": "2026-11-17"
         },
         {
           "id": "M9E-22",

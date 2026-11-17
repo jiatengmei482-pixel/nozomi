@@ -112,6 +112,11 @@ const addonsOf = (addons: z.output<typeof addonsSchema>): { addonId: string; qua
  * 地址联想里选中的那一项的名称（M8-20，ADR 0075 第四部分）：可选，只在一个价都报不出时记进「未覆盖需求」；不影响报价。
  * 页面只在客人从联想列表里选了地址时才带（手打的文字不带）。
  */
+/** 询价里的草稿编号：不是字符串的照旧 400；超过 64 字的当没带（ADR 0090「格式不对一律忽略」，M9E-23） */
+const draftIdSchema = z
+  .string()
+  .optional()
+  .transform((value) => (value === undefined || value.length > 64 ? undefined : value));
 const demandNameSchema = z.string().max(200).nullable().optional();
 
 /**
@@ -182,8 +187,8 @@ const quoteSchema = z
     addons: addonsSchema,
     pickup_name: demandNameSchema,
     dropoff_name: demandNameSchema,
-    // 从嵌入组件的预订草稿来（M9E-02，ADR 0090）：只用于记来源，不影响报价；过期、不存在的照常报价、不记
-    draft_id: z.string().max(64).optional(),
+    // 从嵌入组件的预订草稿来（M9E-02，ADR 0090）：只用于记来源，不影响报价；过期、不存在、格式不对（超过 64 字，M9E-23）的照常报价、不记
+    draft_id: draftIdSchema,
   })
   .strict();
 
@@ -254,8 +259,8 @@ const byPointsSchema = z
     addons: addonsSchema,
     pickup_name: demandNameSchema,
     dropoff_name: demandNameSchema,
-    // 从嵌入组件的预订草稿来（M9E-02，ADR 0090）：只用于记来源，不影响报价；过期、不存在的照常报价、不记
-    draft_id: z.string().max(64).optional(),
+    // 从嵌入组件的预订草稿来（M9E-02，ADR 0090）：只用于记来源，不影响报价；过期、不存在、格式不对（超过 64 字，M9E-23）的照常报价、不记
+    draft_id: draftIdSchema,
   })
   .strict();
 
