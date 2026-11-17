@@ -373,7 +373,7 @@ test("M9P-20 跨站：iframe 里的包车第 2 步有行程地图（本站 /site
   const frame = frameOf(page);
   const schedule = frame.getByRole("region", { name: "行程时间表" });
   await expect(schedule.getByRole("list", { name: "行程" }).getByRole("listitem")).toHaveCount(3);
-  await expect(schedule.getByRole("list", { name: "行程" }).getByRole("listitem").first()).toHaveText("1 上车上车酒店");
+  await expect(schedule.getByRole("list", { name: "行程" }).getByRole("listitem").first()).toHaveText(/^1 上车上车酒店\d\d:\d\d 出发$/);
   await expect(schedule.getByRole("list", { name: "行程" }).getByRole("listitem").nth(1)).toContainText("2 经停经停车站");
   await expect(schedule.getByRole("list", { name: "行程" }).getByRole("listitem").nth(2)).toContainText(/行驶约 .+ · .+ 公里3 下车市内下车点/);
   const response = await map;

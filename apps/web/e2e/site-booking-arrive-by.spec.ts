@@ -89,7 +89,7 @@ test("指定到达时间：横滨 11:00 前到——这一行锁定、预计晚�
   await expect(up).toBeEnabled();
   await expect(up).toHaveAccessibleDescription(`${names[2]}，须在 11:00 前到达，已锁定，不参与建议顺序，只能用上移 / 下移调整`);
   // 每段 18 分钟、各停 60 分钟：10:00 + 18 + 60 + 18 + 60 + 18 = 12:54
-  await expect(row.getByText(/^预计 12:54 到，晚于指定的 11:00，来不及。请把上车时间提前到 \d\d:\d\d 或更早/)).toBeVisible();
+  await expect(row.getByText(/预计 12:54 到，晚于指定的 11:00，来不及。请把上车时间提前到 \d\d:\d\d 或更早/)).toBeVisible();
 
   await page.getByRole("button", { name: "下一步：选择车型" }).click();
   const block = page.getByRole("region", { name: /^建议顺序，可省/ });

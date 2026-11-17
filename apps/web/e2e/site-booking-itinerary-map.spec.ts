@@ -85,6 +85,13 @@ async function paintedMap(page: Page, url: URL): Promise<Buffer> {
   return Buffer.from(base64, "base64");
 }
 
+/** 行程时间表一行（业主 2026-11-17 起每行带预计时刻）：名称之后、停留之前是时刻 */
+const timedRow = (head: string, time: "depart" | "stop" | "arrive", tail = ""): RegExp => {
+  const esc = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const clock = time === "depart" ? "\\d\\d:\\d\\d 出发" : time === "stop" ? "预计 \\d\\d:\\d\\d 到 · \\d\\d:\\d\\d 出发" : "预计 \\d\\d:\\d\\d 到";
+  return new RegExp(`^${esc(head)}${clock}${esc(tail)}$`);
+};
+
 test("包车行程地图：编号 1 = 上车、经停依次、最后 = 下车，列表同编号、每段时长和公里；图经真实 API 出来；出不来只留列表、不用 Leaflet；亮暗 axe、360 宽", async ({ page, request }) => {
   test.setTimeout(180_000);
   const trip = await charterWorld(request);
@@ -167,11 +174,11 @@ test("包车行程地图：编号 1 = 上车、经停依次、最后 = 下车，
   };
   const schedule = page.getByRole("region", { name: "行程时间表" });
   await expect(schedule.getByRole("list", { name: "行程" }).getByRole("listitem")).toHaveText([
-    "1 上车上车酒店",
-    `${drive(0)}2 经停${first.name}停留 1 小时`,
-    `${drive(1)}3 经停${second.name}停留 1 小时 30 分`,
-    `${drive(2)}4 经停${third.name}停留 30 分钟`,
-    `${drive(3)}5 下车市内下车点`,
+    timedRow("1 上车上车酒店", "depart"),
+    timedRow(`${drive(0)}2 经停${first.name}`, "stop", "停留 1 小时"),
+    timedRow(`${drive(1)}3 经停${second.name}`, "stop", "停留 1 小时 30 分"),
+    timedRow(`${drive(2)}4 经停${third.name}`, "stop", "停留 30 分钟"),
+    timedRow(`${drive(3)}5 下车市内下车点`, "arrive"),
   ]);
   const image = schedule.getByRole("img", { name: new RegExp(`^路线图：1 上车酒店 → 2 ${first.name} → 3 ${second.name} → 4 ${third.name} → 5 市内下车点，约 .+ · .+ 公里$`) });
   await expect(image).toBeVisible();
