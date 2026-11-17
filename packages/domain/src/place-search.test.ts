@@ -14,6 +14,9 @@ import {
   placeAutocompleteCacheKey,
   placeDetailsCacheKey,
   placeKindOfGoogleTypes,
+  googlePlaceTypeWeight,
+  placeNameMatchesQuery,
+  rankPlaceResults,
   isGooglePlaceId,
   isPlaceSessionToken,
   regionBounds,
@@ -127,4 +130,61 @@ test("M8-02：几个城市合起来的范围、点在不在某个城市的范围
   assert.ok(inAnyCity({ lat: 35.68, lng: 139.76 }, [tokyo, osaka]));
   assert.ok(inBounds({ lat: 35.2, lng: 137.5 }, both), "名古屋在外接矩形里");
   assert.ok(!inAnyCity({ lat: 35.18, lng: 136.9 }, [tokyo, osaka]), "但不在任何一个城市的范围里");
+});
+
+test("M9P-20 验收：谷歌的类型 → 排序权重（景点、车站、机场、酒店往前；医院、公司、只有泛泛类型的往后；其余居中）", () => {
+  assert.equal(googlePlaceTypeWeight("buddhist_temple"), 1);
+  assert.equal(googlePlaceTypeWeight("train_station"), 1);
+  assert.equal(googlePlaceTypeWeight("international_airport"), 1);
+  assert.equal(googlePlaceTypeWeight("lodging"), 1);
+  assert.equal(googlePlaceTypeWeight("hospital"), -1);
+  assert.equal(googlePlaceTypeWeight("corporate_office"), -1);
+  assert.equal(googlePlaceTypeWeight("restaurant"), 0);
+  // 主类型先看：医院即使类型里带着景点也往后
+  assert.equal(googlePlaceTypeWeight("hospital", ["tourist_attraction"]), -1);
+  // 主类型不在两张表里（或没有）再看类型列表
+  assert.equal(googlePlaceTypeWeight("restaurant", ["tourist_attraction", "point_of_interest"]), 1);
+  assert.equal(googlePlaceTypeWeight(undefined, ["place_of_worship", "point_of_interest", "establishment"]), 1);
+  assert.equal(googlePlaceTypeWeight(undefined, ["hospital", "health", "point_of_interest", "establishment"]), -1);
+  assert.equal(googlePlaceTypeWeight(undefined, ["point_of_interest", "establishment"]), -1, "只有泛泛的类型（多半是公司）");
+  assert.equal(googlePlaceTypeWeight("restaurant", ["point_of_interest", "establishment"]), 0, "有具体的主类型就不算只有泛泛的类型");
+  assert.equal(googlePlaceTypeWeight(undefined, ["restaurant", "establishment"]), 0);
+  assert.equal(googlePlaceTypeWeight(undefined, []), 0);
+  assert.equal(googlePlaceTypeWeight(undefined, undefined), 0);
+  assert.equal(googlePlaceTypeWeight(42, "airport"), 0, "看不懂的居中");
+  assert.equal(googlePlaceTypeWeight(undefined, [42, "train_station"]), 1);
+});
+
+test("M9P-20 验收：名称和关键字完全一样（不管全角半角、空白、大小写）", () => {
+  assert.ok(placeNameMatchesQuery("浅草寺", "浅草寺"));
+  assert.ok(!placeNameMatchesQuery("浅草寺病院", "浅草寺"));
+  assert.ok(placeNameMatchesQuery("Ｈｉｌｔｏｎ　Tokyo", "hilton tokyo"));
+  assert.ok(placeNameMatchesQuery("東京 タワー", "東京タワー"));
+  assert.ok(!placeNameMatchesQuery("浅草寺", "  "), "空关键字不算");
+});
+
+test("M9P-20 验收：候选排序——名称完全一样的最前，其次景点、车站、机场在医院、公司之前；一样的保持谷歌的顺序，不改候选本身", () => {
+  const google = [
+    { id: "hospital", name: "浅草寺病院", primaryType: "hospital", types: ["hospital", "health", "point_of_interest", "establishment"] },
+    { id: "company", name: "浅草寺商事株式会社", types: ["point_of_interest", "establishment"] },
+    { id: "station", name: "浅草駅", primaryType: "train_station" },
+    { id: "temple", name: "浅草寺", primaryType: "buddhist_temple", types: ["buddhist_temple", "place_of_worship", "tourist_attraction"] },
+    { id: "cafe", name: "浅草寺前カフェ", primaryType: "cafe" },
+    { id: "airport", name: "羽田空港", primaryType: "international_airport" },
+  ];
+  const ranked = rankPlaceResults(google, "浅草寺", (item) => item);
+  assert.deepEqual(
+    ranked.map((item) => item.id),
+    ["temple", "station", "airport", "cafe", "hospital", "company"],
+  );
+  assert.equal(ranked[0], google[3], "同一个对象，没有复制或改动");
+  assert.deepEqual(google.map((item) => item.id), ["hospital", "company", "station", "temple", "cafe", "airport"], "原数组不变");
+  // 不完全一样时只按类型；景点不是最前也会排在医院前面
+  assert.deepEqual(rankPlaceResults(google, "浅草", (item) => item).map((item) => item.id), ["station", "temple", "airport", "cafe", "hospital", "company"]);
+  // 关键字就是医院的全名：客人要找的就是它
+  assert.equal(rankPlaceResults(google, "浅草寺病院", (item) => item)[0]?.id, "hospital");
+  // 没有类型、名称也不一样：完全保持谷歌的顺序（结果稳定）
+  const plain = Array.from({ length: 8 }, (_, index) => ({ name: `第${index}个` }));
+  assert.deepEqual(rankPlaceResults(plain, "东京", (item) => item), plain);
+  assert.deepEqual(rankPlaceResults([], "东京", (item: { name: string }) => item), []);
 });

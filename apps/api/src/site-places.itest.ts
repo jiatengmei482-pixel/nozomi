@@ -100,7 +100,7 @@ test("官网配置多了「有没有地址搜索」和底图；城市带中心�
   assert.deepEqual(cities.body.items.find((city: any) => city.id === m.ids.tokyo).center, { lat: TOKYO_CENTER.lat, lng: TOKYO_CENTER.lng });
 });
 
-test("搜索成功：后端调一次谷歌（密钥只在请求头、只要五个字段、只要城市附近、关键字规范化），给候选的来源、名称、地址、坐标、类型", async () => {
+test("搜索成功：后端调一次谷歌（密钥只在请求头、只要六个字段、只要城市附近、关键字规范化），给候选的来源、名称、地址、坐标、类型", async () => {
   reset();
   places.respond({ body: googlePlacesBody([googlePlace("ChIJa", "東京駅", 35.6812, 139.7671, "日本東京都千代田区丸の内1丁目"), googlePlace("ChIJosaka", "大阪", 34.69, 135.5, "大阪")]) });
   const res = await search("  東京駅　ホテル ");
@@ -109,17 +109,37 @@ test("搜索成功：后端调一次谷歌（密钥只在请求头、只要五�
   assert.equal(places.requests.length, 1);
   const [request] = places.requests as [FakeService["requests"][number]];
   assert.equal(request.headers["x-goog-api-key"], FAKE_SECRETS.googleMapsApiKey);
-  assert.equal(request.headers["x-goog-fieldmask"], "places.id,places.displayName,places.formattedAddress,places.location,places.primaryType");
+  assert.equal(request.headers["x-goog-fieldmask"], "places.id,places.displayName,places.formattedAddress,places.location,places.primaryType,places.types");
   assert.ok(!request.path.includes("AIza") && !request.body.includes("AIza"));
   const bounds = cityBounds(TOKYO_CENTER);
   assert.deepEqual(JSON.parse(request.body), {
     textQuery: "東京駅 ホテル",
     languageCode: "zh-CN",
     regionCode: "JP",
-    pageSize: 5,
+    pageSize: 10,
     locationRestriction: { rectangle: { low: { latitude: bounds.low.lat, longitude: bounds.low.lng }, high: { latitude: bounds.high.lat, longitude: bounds.high.lng } } },
   });
   assert.ok(!allValues(res.body).has(FAKE_SECRETS.googleMapsApiKey));
+});
+
+test("M9P-20 验收：搜索的候选排序——搜「浅草寺」时浅草寺最前，车站、机场在医院、公司之前；应答的形状不变（不多出类型字段）", async () => {
+  reset();
+  const near = (id: string, name: string, types: string[]): unknown => googlePlace(id, name, 35.7148, 139.7967, "日本、東京都台東区浅草", types);
+  places.respond({
+    body: googlePlacesBody([
+      near("ChIJhospital", "浅草寺病院", ["hospital", "health", "point_of_interest", "establishment"]),
+      { ...(googlePlace("ChIJcompany", "浅草寺観光株式会社", 35.7148, 139.7967, "日本、東京都台東区浅草") as object), types: ["point_of_interest", "establishment"] },
+      near("ChIJstation", "浅草駅", ["train_station", "transit_station"]),
+      near("ChIJtemple", "浅草寺", ["buddhist_temple", "place_of_worship", "tourist_attraction"]),
+      near("ChIJairport", "羽田空港", ["international_airport", "airport"]),
+    ]),
+  });
+  const res = await search(`浅草寺`);
+  assertMatchesOpenApi("GET", "/site/v1/places/search", res);
+  assert.equal(res.status, 200, res.text);
+  const google = res.body.items.filter((item: any) => item.source === "google");
+  assert.deepEqual(google.map((item: any) => item.id), ["ChIJtemple", "ChIJstation", "ChIJairport", "ChIJhospital", "ChIJcompany"]);
+  assert.deepEqual(Object.keys(google[0]).sort(), ["address", "id", "kind", "location", "name", "source"]);
 });
 
 test("反查成功：坐标取整到 4 位再问谷歌，给地址文字；这里没有地址时 address 为 null", async () => {

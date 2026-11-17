@@ -83,8 +83,8 @@ const reverse = (reply: Reply | (() => Reply), options: Partial<Parameters<typeo
   return reverseGeocode(KEY, { lat: 35.6812, lng: 139.7671 }, "JP", { url: `${origin}/v4beta/geocode/location`, ...options });
 };
 
-test("搜索成功：POST Text Search，字段掩码只要 ID、名称、地址、坐标、主类型；结果限制在城市范围里、最多 5 条、中文；密钥只在请求头；主类型是机场的 kind 为 airport", async () => {
-  const result = await search({ status: 200, body: { places: [place("ChIJa", "東京駅", 35.6812, 139.7671), { ...(place("ChIJb", "羽田空港", 35.55, 139.78, "日本東京都大田区") as object), primaryType: "international_airport" }] } });
+test("搜索成功：POST Text Search，字段掩码只要 ID、名称、地址、坐标、主类型、类型；结果限制在城市范围里、向谷歌要 10 条、中文；密钥只在请求头；主类型是机场的 kind 为 airport", async () => {
+  const result = await search({ status: 200, body: { places: [{ ...(place("ChIJa", "東京駅", 35.6812, 139.7671) as object), primaryType: "train_station" }, { ...(place("ChIJb", "羽田空港", 35.55, 139.78, "日本東京都大田区") as object), primaryType: "international_airport" }] } });
   assert.deepEqual(result, {
     ok: true,
     value: [
@@ -98,13 +98,13 @@ test("搜索成功：POST Text Search，字段掩码只要 ID、名称、地址�
   assert.equal(request.path, "/v1/places:searchText");
   assert.equal(request.headers["x-goog-api-key"], KEY);
   assert.equal(request.headers["x-goog-fieldmask"], PLACE_SEARCH_FIELD_MASK);
-  assert.equal(PLACE_SEARCH_FIELD_MASK, "places.id,places.displayName,places.formattedAddress,places.location,places.primaryType");
+  assert.equal(PLACE_SEARCH_FIELD_MASK, "places.id,places.displayName,places.formattedAddress,places.location,places.primaryType,places.types");
   assert.ok(!request.path.includes(KEY) && !request.body.includes(KEY));
   assert.deepEqual(JSON.parse(request.body), {
     textQuery: "东京站 酒店",
     languageCode: "zh-CN",
     regionCode: "JP",
-    pageSize: 5,
+    pageSize: 10,
     locationRestriction: { rectangle: { low: { latitude: BOUNDS.low.lat, longitude: BOUNDS.low.lng }, high: { latitude: BOUNDS.high.lat, longitude: BOUNDS.high.lng } } },
   });
 });
@@ -278,7 +278,7 @@ test("输入即提示的应答：没有 suggestions 是没有候选；查询预�
       { placePrediction: { placeId: "ChIJ1", structuredFormat: { secondaryText: { text: "没有名称" } } } },
       { placePrediction: { placeId: "ChIJ2", text: { text: "只有整段 文字" } } },
       prediction("ChIJ2", "重复", "x"),
-      ...Array.from({ length: 8 }, (_, index) => prediction(`ChIJx${index}`, `第${index}个`, "东京")),
+      ...Array.from({ length: 8 }, (_, index) => prediction(`ChIJx${index}`, `第${index}个`, "东京", ["restaurant"])),
     ],
   });
   assert.ok(messy.ok);
@@ -286,6 +286,66 @@ test("输入即提示的应答：没有 suggestions 是没有候选；查询预�
     messy.value.map((entry) => [entry.id, entry.name, entry.address, entry.kind]),
     [["ChIJ2", "只有整段 文字", "", "other"], ["ChIJx0", "第0个", "东京", "other"], ["ChIJx1", "第1个", "东京", "other"], ["ChIJx2", "第2个", "东京", "other"], ["ChIJx3", "第3个", "东京", "other"]],
   );
+});
+
+test("M9P-20 验收：搜索的候选排序——名称和关键字完全一样的最前，景点、车站、机场在医院、公司之前，一样的保持谷歌的顺序；先排序再取前 5 条", async () => {
+  const typed = (id: string, name: string, primaryType: string | undefined, types: string[]): unknown => ({ ...(place(id, name, 35.71, 139.79, "日本、東京都台東区") as object), ...(primaryType === undefined ? {} : { primaryType }), types });
+  const result = await searchPlaces(
+    KEY,
+    { query: "浅草寺", bounds: BOUNDS, regionCode: "JP" },
+    {
+      url: `${origin}/v1/places:searchText`,
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            places: [
+              typed("ChIJhospital", "浅草寺病院", "hospital", ["hospital", "health", "point_of_interest", "establishment"]),
+              typed("ChIJcompany", "浅草寺観光株式会社", undefined, ["point_of_interest", "establishment"]),
+              typed("ChIJclinic", "浅草クリニック", "doctor", ["doctor", "health"]),
+              typed("ChIJcafe", "浅草寺前カフェ", "cafe", ["cafe", "food"]),
+              typed("ChIJstation", "浅草駅", "train_station", ["train_station", "transit_station"]),
+              typed("ChIJairport", "羽田空港", "international_airport", ["international_airport", "airport"]),
+              typed("ChIJtemple", "浅草寺", "buddhist_temple", ["buddhist_temple", "place_of_worship", "tourist_attraction"]),
+            ],
+          }),
+          { status: 200 },
+        ),
+    },
+  );
+  assert.ok(result.ok);
+  assert.deepEqual(
+    result.value.map((item) => [item.id, item.kind]),
+    [["ChIJtemple", "other"], ["ChIJstation", "other"], ["ChIJairport", "airport"], ["ChIJcafe", "other"], ["ChIJhospital", "other"]],
+    "谷歌第 7 条的「浅草寺」排到最前；公司、诊所排到 5 条以外",
+  );
+  // 只看解析：不给关键字也按类型排；没有类型的保持原来的顺序
+  const parsed = parsePlaceSearch({ places: [typed("ChIJh", "某病院", "hospital", []), place("ChIJn", "没有类型", 35.6, 139.7), typed("ChIJs", "某駅", "subway_station", [])] }, BOUNDS);
+  assert.deepEqual(parsed.ok && parsed.value.map((item) => item.id), ["ChIJs", "ChIJn", "ChIJh"]);
+});
+
+test("M9P-20 验收：输入即提示的候选排序——只有类型列表；浅草寺在浅草寺病院前，车站、机场在公司前", async () => {
+  const result = await autocompletePlaces(
+    KEY,
+    { query: "浅草寺", sessionToken: "3f2c1e9a-5b7d-4c1e-9a2b-1234567890ab", regionCodes: ["JP"], bounds: BOUNDS },
+    {
+      url: `${origin}/v1/places:autocomplete`,
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            suggestions: [
+              prediction("ChIJhospital", "浅草寺病院", "日本、東京都台東区", ["hospital", "health", "point_of_interest", "establishment"]),
+              prediction("ChIJcompany", "浅草寺観光株式会社", "日本、東京都台東区", ["point_of_interest", "establishment"]),
+              prediction("ChIJstation", "浅草駅", "日本、東京都台東区", ["train_station", "transit_station"]),
+              prediction("ChIJtemple", "浅草寺", "日本、東京都台東区", ["buddhist_temple", "place_of_worship", "tourist_attraction", "point_of_interest"]),
+              prediction("ChIJairport", "羽田空港", "日本、東京都大田区", ["international_airport", "airport"]),
+            ],
+          }),
+          { status: 200 },
+        ),
+    },
+  );
+  assert.ok(result.ok);
+  assert.deepEqual(result.value.map((item) => item.id), ["ChIJtemple", "ChIJstation", "ChIJairport", "ChIJhospital", "ChIJcompany"]);
 });
 
 test("取坐标（M8-02）：GET Place Details，地点 ID 在路径里、同一个会话令牌、中文；字段掩码是 Essentials 一档；类型是机场的 kind 为 airport", async () => {

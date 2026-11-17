@@ -17,6 +17,11 @@ export const PLACE_SEARCH_RULES = {
   queryMaxLength: 100,
   /** 一次最多给几个候选：手机一屏放得下，谷歌按条计费的档次和条数无关 */
   maxResults: 5,
+  /**
+   * 搜索（Text Search）向谷歌要几条再排序（M9P-20 验收，ADR 0096 补记 2026-11-17）：多要几条再按名称和类型排，取前 `maxResults` 条给客人。
+   * Text Search 按请求计费、和 `pageSize` 无关（同一档 Pro），只是应答大一点（10 条远小于 64 KB 的上限）。输入即提示谷歌最多给 5 条，不受这个影响
+   */
+  googleFetchResults: 10,
   /** 搜索只在城市中心周围这么远（公里，正方形的半边长）以内：成田机场离东京站约 60 公里 */
   cityReachKm: 80,
   /** 反查前坐标取整到小数点后几位：4 位 ≈ 11 米，同一栋楼的几次点选共用一次查询 */
@@ -71,6 +76,79 @@ export function placeKindOfGoogleTypes(primaryType: unknown, types: unknown = un
   if (typeof primaryType === "string" && GOOGLE_AIRPORT_TYPES.includes(primaryType)) return "airport";
   if (Array.isArray(types) && types.some((type) => typeof type === "string" && GOOGLE_AIRPORT_TYPES.includes(type))) return "airport";
   return "other";
+}
+
+/**
+ * 候选排序（M9P-20 验收，ADR 0096 补记 2026-11-17）：搜「浅草寺」时「浅草寺病院」不该排在「浅草寺」前面。
+ * 景点、车站、机场、酒店（包车客人常去的上下车地点）往前；医院、诊所、公司、只有泛泛的「机构」类型的往后；其余（餐厅、地址、没有类型的）居中。
+ * 谷歌的类型见 Places API (New) 的 Table A（`primaryType` / `types`）。
+ */
+export const GOOGLE_PRIORITY_TYPES: readonly string[] = [
+  // 景点
+  "tourist_attraction", "place_of_worship", "buddhist_temple", "shinto_shrine", "church", "hindu_temple", "mosque", "synagogue",
+  "museum", "art_gallery", "historical_landmark", "historical_place", "cultural_landmark", "monument", "observation_deck",
+  "amusement_park", "aquarium", "zoo", "park", "national_park", "botanical_garden", "garden", "beach", "ski_resort", "visitor_center",
+  "stadium", "convention_center", "event_venue", "shopping_mall", "department_store",
+  // 交通
+  "airport", "international_airport", "train_station", "transit_station", "subway_station", "light_rail_station", "bus_station", "ferry_terminal",
+  // 住宿
+  "lodging", "hotel", "resort_hotel", "japanese_inn", "budget_japanese_inn", "hostel", "motel", "inn", "guest_house", "bed_and_breakfast", "extended_stay_hotel",
+];
+/** 往后排的类型：医疗、公司和办事机构（客人很少去那里坐包车，却常常名字里带着景点、车站的名字）。 */
+export const GOOGLE_LOW_TYPES: readonly string[] = [
+  "hospital", "doctor", "health", "medical_lab", "medical_clinic", "dental_clinic", "dentist", "physiotherapist", "chiropractor", "pharmacy", "drugstore", "veterinary_care",
+  "corporate_office", "insurance_agency", "accounting", "lawyer", "real_estate_agency", "finance", "bank", "atm", "consultant",
+  "general_contractor", "electrician", "plumber", "roofing_contractor", "locksmith", "moving_company", "storage", "courier_service", "telecommunications_service_provider",
+];
+/** 泛泛的类型：只有这些（没有更具体的类型）的多半是公司、事务所，往后排。 */
+export const GOOGLE_GENERIC_TYPES: readonly string[] = ["establishment", "point_of_interest"];
+
+/**
+ * 谷歌的类型 → 排序权重：1 往前、0 居中、-1 往后。主类型（`primaryType`）最具体，先看它；它不在两张表里再看类型列表（`types`）：
+ * 有往前的类型就往前，否则有往后的就往后，否则只有泛泛的类型也往后。看不懂、没有类型的居中。
+ */
+export function googlePlaceTypeWeight(primaryType: unknown, types: unknown = undefined): -1 | 0 | 1 {
+  if (typeof primaryType === "string") {
+    if (GOOGLE_PRIORITY_TYPES.includes(primaryType)) return 1;
+    if (GOOGLE_LOW_TYPES.includes(primaryType)) return -1;
+  }
+  const list = Array.isArray(types) ? types.filter((type): type is string => typeof type === "string") : [];
+  if (list.some((type) => GOOGLE_PRIORITY_TYPES.includes(type))) return 1;
+  if (list.some((type) => GOOGLE_LOW_TYPES.includes(type))) return -1;
+  if (typeof primaryType !== "string" && list.length > 0 && list.every((type) => GOOGLE_GENERIC_TYPES.includes(type))) return -1;
+  return 0;
+}
+
+/** 名称和关键字比较用的形式：规范化（全角半角统一）、去掉所有空白、不分大小写。 */
+function placeNameKey(text: string): string {
+  return normalizePlaceQuery(text).replace(/\s+/gu, "").toLowerCase();
+}
+
+/** 名称和关键字完全一样（不管全角半角、空白、大小写）：「浅草寺」对「浅草寺」是，对「浅草寺病院」不是。 */
+export function placeNameMatchesQuery(name: string, query: string): boolean {
+  const key = placeNameKey(query);
+  return key !== "" && placeNameKey(name) === key;
+}
+
+/** 排序要看的：名称、谷歌的主类型和类型列表。 */
+export interface PlaceRankView {
+  name: string;
+  primaryType?: unknown;
+  types?: unknown;
+}
+
+/**
+ * 给谷歌的候选排序（不改候选本身）：名称和关键字完全一样的最前，其次按类型的权重（`googlePlaceTypeWeight`），
+ * 一样的保持谷歌给的顺序（谷歌自己的相关度）——结果是确定的、稳定的。
+ */
+export function rankPlaceResults<T>(items: readonly T[], query: string, view: (item: T) => PlaceRankView): T[] {
+  return items
+    .map((item, index) => {
+      const seen = view(item);
+      return { item, index, exact: placeNameMatchesQuery(seen.name, query) ? 1 : 0, weight: googlePlaceTypeWeight(seen.primaryType, seen.types) };
+    })
+    .sort((a, b) => b.exact - a.exact || b.weight - a.weight || a.index - b.index)
+    .map((entry) => entry.item);
 }
 
 /** 一个候选地点：名称、地址、坐标、类型。`id` 是谷歌的地点 ID（只用来区分候选，输入即提示选中后拿它取坐标）。 */

@@ -106,9 +106,9 @@ export function startFakeStripe(port = 0): Promise<FakeService> {
   return startFake("", { body: stripeBalanceBody() }, port);
 }
 
-/** 谷歌 Places Text Search 的一个地点。 */
-export function googlePlace(id: string, name: string, lat: number, lng: number, address: string): unknown {
-  return { id, displayName: { text: name, languageCode: "ja" }, formattedAddress: address, location: { latitude: lat, longitude: lng } };
+/** 谷歌 Places Text Search 的一个地点；`types` 给了就带上主类型（第一个）和类型列表（M9P-20 验收的排序看它们）。 */
+export function googlePlace(id: string, name: string, lat: number, lng: number, address: string, types: readonly string[] = []): unknown {
+  return { id, displayName: { text: name, languageCode: "ja" }, formattedAddress: address, location: { latitude: lat, longitude: lng }, ...(types.length === 0 ? {} : { primaryType: types[0], types: [...types] }) };
 }
 
 /** 谷歌 Places Text Search 的成功应答；没有地点时谷歌回空对象。 */
@@ -122,7 +122,7 @@ export function googleGeocodeBody(address: string | null): unknown {
 }
 
 export function startFakeGooglePlaces(port = 0): Promise<FakeService> {
-  return startFake("/v1/places:searchText", { body: googlePlacesBody([googlePlace("ChIJfakeTokyoStation", "東京駅", 35.6812, 139.7671, "日本、〒100-0005 東京都千代田区丸の内１丁目")]) }, port);
+  return startFake("/v1/places:searchText", { body: googlePlacesBody([googlePlace("ChIJfakeTokyoStation", "東京駅", 35.6812, 139.7671, "日本、〒100-0005 東京都千代田区丸の内１丁目", ["train_station", "transit_station"])]) }, port);
 }
 
 /** 谷歌 Places Autocomplete 的一个地点预测。 */
