@@ -276,13 +276,13 @@ export function airportEndLocation(point: { lat: number; lng: number }, areas: {
 }
 
 export type InheritedPrice =
-  | { ok: true; totalMinor: number; normalMinor: number; end: "pickup" | "dropoff"; endMinor: number; itineraryMinor: number }
+  | { ok: true; totalMinor: number; normalMinor: number; end: "pickup" | "dropoff"; endMinor: number }
   | { ok: false; reason: "noNormal" | "noLocation" | "noSurcharge" };
 
 /**
  * 一格的继承价（ADR 0098 第三节第 3、4 小节；和报价引擎 `quoteProduct` 里继承那一支同一个算法，不填经停点时）：
  * 普通套餐价 + 场景那一端的③加价（那一端在①里 = 0；几个③重叠取最高，同一区域先用套餐对得上的那条、没有用「所有套餐」那条）
- * + 机场结束时下车点所在②行程区域的行程加价（在①里不收；没设不收；商品关了「下车点行程加价」也不收）。
+ * 机场结束不加下车点行程加价（业主 2026-11-17：套餐价已含去机场的路程，ADR 0098 第十四节）。
  * `rules` 是两张加价表现在的内容（含没保存的修改）。普通套餐价没有 → 继承时报不出；那一端不在①里又没有能用的③加价 → 也报不出。
  */
 export function inheritedAirportPrice(query: {
@@ -293,21 +293,16 @@ export function inheritedAirportPrice(query: {
   vehicleGroupId: string;
   packageHours: number;
   date: string;
-  dropoffItinerary?: boolean;
 }): InheritedPrice {
   if (query.normalMinor === null) return { ok: false, reason: "noNormal" };
   if (query.location === null) return { ok: false, reason: "noLocation" };
   const end = scenarioEnd(query.scenario);
   const { location } = query;
-  if (location.inProductArea) return { ok: true, totalMinor: query.normalMinor, normalMinor: query.normalMinor, end, endMinor: 0, itineraryMinor: 0 };
+  if (location.inProductArea) return { ok: true, totalMinor: query.normalMinor, normalMinor: query.normalMinor, end, endMinor: 0 };
   const base = { vehicleGroupId: query.vehicleGroupId, packageHours: query.packageHours, date: query.date, prefer: "highest" as const, threeLayer: true };
   const chosen = location.updownAreaIds.length === 0 ? null : areaSurchargeFor(query.rules, { ...base, areaIds: location.updownAreaIds, end });
   if (chosen === null || chosen.amountMinor === null) return { ok: false, reason: "noSurcharge" };
-  let itineraryMinor = 0;
-  if (end === "dropoff" && query.dropoffItinerary !== false && location.itineraryAreaIds.length > 0) {
-    itineraryMinor = areaSurchargeFor(query.rules, { ...base, areaIds: location.itineraryAreaIds, end: "waypoint" }).amountMinor ?? 0;
-  }
-  return { ok: true, totalMinor: query.normalMinor + chosen.amountMinor + itineraryMinor, normalMinor: query.normalMinor, end, endMinor: chosen.amountMinor, itineraryMinor };
+  return { ok: true, totalMinor: query.normalMinor + chosen.amountMinor, normalMinor: query.normalMinor, end, endMinor: chosen.amountMinor };
 }
 
 /** 单独价高于继承价 → 标黄（Q4）。继承价算不出时不标。 */
@@ -321,7 +316,6 @@ export function inheritText(inherited: InheritedPrice, currency: string): string
   const amount = (minor: number): string => shown(minor, currency);
   const parts = [charterAirportText("tenant.charterAirport.prices.part.normal", { amount: amount(inherited.normalMinor) })];
   if (inherited.endMinor > 0) parts.push(charterAirportText(inherited.end === "pickup" ? "tenant.charterAirport.prices.part.pickup" : "tenant.charterAirport.prices.part.dropoff", { amount: amount(inherited.endMinor) }));
-  if (inherited.itineraryMinor > 0) parts.push(charterAirportText("tenant.charterAirport.prices.part.itinerary", { amount: amount(inherited.itineraryMinor) }));
   return charterAirportText("tenant.charterAirport.prices.inherit", { parts: parts.join(" + ") });
 }
 

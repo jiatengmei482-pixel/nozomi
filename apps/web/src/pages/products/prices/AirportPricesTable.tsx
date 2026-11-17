@@ -89,7 +89,6 @@ export interface AirportInheritInputs {
   surchargeRules: readonly PriceRule[];
   /** 机场区域编号 → 机场那一端落在哪；没取到（机场坐标、区域图形）为 undefined */
   locations: ReadonlyMap<string, AirportEndLocation>;
-  dropoffItinerary: boolean;
 }
 
 /** 表里一行的名字（报错、读屏用）：「机场套餐价 · 机场开始 · 成田机场 · 舒适五座 · 5 小时」 */
@@ -196,7 +195,6 @@ export function AirportPricesTable(props: {
         vehicleGroupId: cell.vehicleGroupId,
         packageHours: cell.packageHours,
         date: today,
-        dropoffItinerary: inherit.dropoffItinerary,
       });
       const warn = airportCellWarn(reading.priceMinor, inherited);
       const overlapping = overlaps.has(cell.key) || props.conflictKeys.has(cell.key);
