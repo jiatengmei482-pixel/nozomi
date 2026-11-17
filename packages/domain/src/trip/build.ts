@@ -65,9 +65,13 @@ export interface BuildDay {
   reason: string | null;
 }
 
-/** 跨段规则要的商品信息：①区域、生效规则、规则版本、价格规则（最短套餐价） */
+/** 跨段规则要的商品信息：①区域、③②加价区域、生效规则、规则版本、价格规则（最短套餐价） */
 export interface BuildProduct {
   areas: readonly QuoteArea[];
+  /** 加价区域（③上下车、②行程；报价候选的 `surchargeAreas`）：住宿按区域定价（`byArea`）要认过夜点落在哪个③。不给 = 没有 */
+  surchargeAreas?: readonly QuoteArea[];
+  /** 商品所在城市（报价时匹配到的城市）：一车到底跨城市是 P1d，P1 报不出（ADR 0101 第一节）。不给 = 不判断 */
+  cityId?: string | null;
   rules: EffectiveTripRules;
   ruleVersion: number;
   priceRules: readonly (PriceRule & { id?: string })[];
@@ -132,6 +136,11 @@ interface DayContext {
 }
 
 const inAreas = (product: BuildProduct, point: LatLng | null): string[] => (point === null ? [] : locateInAreas(product.areas, point).operating);
+/**
+ * 过夜点落在本商品哪些区域里（住宿 `byArea` 用）：①和③②都算。只看①会让 `byArea` 永远对不上——
+ * 收住宿的前提就是过夜点不在①里（M9T-04 固定测试集第 19 条发现）。
+ */
+const overnightAreas = (product: BuildProduct, point: LatLng | null): string[] => (point === null ? [] : locateInAreas([...product.areas, ...(product.surchargeAreas ?? [])], point).operating);
 const nightPoint = (day: BuildDay): LatLng | null => day.nightAt ?? day.endPoint;
 const segmentEnd = (s: { chosen: ChosenSegment<TripOffer>; built: BuildSegment }): number => s.built.route.startMinute + (s.chosen.offer.durationMinutes ?? s.built.route.routeMinutes);
 
@@ -233,6 +242,9 @@ function oneCarPlan(input: TripBuildInput, byIndex: ReadonlyMap<number, BuildDay
   if (chosen === null) return null;
   const own = (offer: TripOffer): boolean => offer.tenantId === key.tenantId && offer.vehicleGroupId === key.vehicleGroupId;
   const contexts = chosen.map((day) => contextOf(input, byIndex, day, own));
+  // 跨城市一车到底（P1d，ADR 0101 第一节）：这一组合用到的商品在两个以上城市 → 报不出（M9T-04 固定测试集第 22 条）
+  const cities = new Set(contexts.flatMap((ctx) => (ctx.product?.cityId === undefined || ctx.product.cityId === null ? [] : [ctx.product.cityId])));
+  if (cities.size > 1) return { kind: "one_car", tenantId: key.tenantId, vehicleGroupId: key.vehicleGroupId, days: [], fees: [], warnings: [], unquoted: [{ dayIndex: null, reason: "CROSS_CITY_ONE_CAR" }], sellMinor: null, settlementMinor: null, recommended: false };
   const plan = new PlanBuilder(input.currency);
 
   // 工时：每天用当天商品的规则，看 [前一个同车用车日, 当天]（休息不足记在当天，即次日）
@@ -269,20 +281,20 @@ function oneCarPlan(input: TripBuildInput, byIndex: ReadonlyMap<number, BuildDay
       if (idle !== undefined) idleDays.push(idle);
     }
     if (idleDays.length === 0) {
-      const lodging = lodgingFee({ nightIndex: a.chosen.dayIndex, endInBase: inBase(a.day.endPoint), nextStartInBase: inBase(b.day.startPoint), sameVehicleNext: true, overnightAreaIds: inAreas(product, night), providedByGuest: a.day.lodgingProvided, surchargeOffsetMinor: offset }, rules.lodging);
+      const lodging = lodgingFee({ nightIndex: a.chosen.dayIndex, endInBase: inBase(a.day.endPoint), nextStartInBase: inBase(b.day.startPoint), sameVehicleNext: true, overnightAreaIds: overnightAreas(product, night), providedByGuest: a.day.lodgingProvided, surchargeOffsetMinor: offset }, rules.lodging);
       if (lodging.missingPrice) plan.unquoted.push({ dayIndex: b.chosen.dayIndex, reason: "LODGING_PRICE_UNAVAILABLE" });
       for (const fee of lodging.fees) plan.fee(fee, b, key.tenantId);
       continue;
     }
     // 夹了空闲日：车回基地（过夜点在①，或在③、空驶已由前后两天的③加价覆盖）成本 0，一定取它；否则车留在当地，每晚住宿 + 每个空闲日停驻
     if (inBase(night) || offset !== null) continue;
-    const first = lodgingFee({ nightIndex: a.chosen.dayIndex, endInBase: false, nextStartInBase: false, sameVehicleNext: true, overnightAreaIds: inAreas(product, night), providedByGuest: a.day.lodgingProvided, surchargeOffsetMinor: null }, rules.lodging);
+    const first = lodgingFee({ nightIndex: a.chosen.dayIndex, endInBase: false, nextStartInBase: false, sameVehicleNext: true, overnightAreaIds: overnightAreas(product, night), providedByGuest: a.day.lodgingProvided, surchargeOffsetMinor: null }, rules.lodging);
     if (first.missingPrice) plan.unquoted.push({ dayIndex: b.chosen.dayIndex, reason: "LODGING_PRICE_UNAVAILABLE" });
     for (const fee of first.fees) plan.fee(fee, b, key.tenantId);
     let point = night;
     for (const idle of idleDays) {
       point = idle.nightAt ?? point;
-      const lodging = lodgingFee({ nightIndex: idle.dayIndex, endInBase: false, nextStartInBase: false, sameVehicleNext: true, overnightAreaIds: inAreas(product, point), providedByGuest: idle.lodgingProvided, surchargeOffsetMinor: null }, rules.lodging);
+      const lodging = lodgingFee({ nightIndex: idle.dayIndex, endInBase: false, nextStartInBase: false, sameVehicleNext: true, overnightAreaIds: overnightAreas(product, point), providedByGuest: idle.lodgingProvided, surchargeOffsetMinor: null }, rules.lodging);
       if (lodging.missingPrice) plan.unquoted.push({ dayIndex: idle.dayIndex, reason: "LODGING_PRICE_UNAVAILABLE" });
       const stay = idleDayFee({ dayIndex: idle.dayIndex, returnToBaseAvailable: false, shortestPackage: shortestFor(b, key.vehicleGroupId, point, idle.date), lodging: lodging.fees }, rules.idleDay);
       if ("unquoted" in stay) plan.unquoted.push({ dayIndex: idle.dayIndex, reason: stay.unquoted });
