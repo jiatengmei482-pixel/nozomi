@@ -1885,10 +1885,10 @@
           "id": "M9T-04",
           "title": "固定测试集 30 条（东京、大阪，测试代码内构造）逐条比对段型、拆法、跨段费用、方案、推荐、unquoted；测试站验收（ADR 0101 第八节）",
           "role": "tester",
-          "status": "todo",
+          "status": "doing",
           "blockedBy": "依赖 M9T-03",
           "acceptance": ["30 条期望全部写明并通过", "测试站用 QA 测试供应商（ADR 0077）跑通建行程、报价、看方案"],
-          "evidence": "",
+          "evidence": "第一部分：apps/api/src/trip-fixed-set.itest.ts 东京 16 条（含 4b），每条期望逐条按 ADR 0101 第四节核对后写死，本机全过；第二部分（大阪、14 天降级、跨城一车到底）和测试站验收待做",
           "updated": "2026-11-15"
         },
         {
