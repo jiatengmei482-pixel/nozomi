@@ -126,7 +126,7 @@ test("包车行程地图：编号 1 = 上车、经停依次、最后 = 下车，
   expect(realMaps[0], "真实 API 经本机假谷歌出图").toEqual({ status: 200, type: "image/png", points: [text(trip.pickup), text(trip.nearby)] });
   const section = page.getByRole("region", { name: "行程路线" });
   // 没有经停、按自选时长报价：这一段的时长和公里取地图折线那次调用的量（本机假谷歌：6.8 公里、18 分钟），只作展示
-  await expect(section.getByRole("list", { name: "行程" }).getByRole("listitem")).toHaveText(["1 上车上车酒店", "行驶约 18 分钟 · 6.8 公里2 下车市内下车点"]);
+  await expect(section.getByRole("list", { name: "行程" }).getByRole("listitem")).toHaveText([/^1 上车上车酒店\d\d:\d\d 出发$/, /^行驶约 18 分钟 · 6.8 公里2 下车市内下车点预计 \d\d:\d\d 到$/]);
   await expect(section.getByRole("img", { name: "路线图：1 上车酒店 → 2 市内下车点" })).toBeVisible();
 
   // 加 3 个经停点

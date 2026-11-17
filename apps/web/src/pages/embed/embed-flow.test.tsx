@@ -447,7 +447,7 @@ test("包车行程地图（M9P-20）：嵌入页和主站同一个组件——�
   open(bookUrl);
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
   const list = screen.getByRole("list", { name: "行程" });
-  assert.deepEqual([...list.querySelectorAll("li")].map((item) => item.textContent), ["1 上车京王广场酒店", "行驶约 1 小时 40 分 · 98 公里2 经停河口湖停留 1 小时", "行驶约 1 小时 50 分 · 101 公里3 下车东京站"]);
+  assert.deepEqual([...list.querySelectorAll("li")].map((item) => item.textContent), ["1 上车京王广场酒店10:00 出发", "行驶约 1 小时 40 分 · 98 公里2 经停河口湖预计 11:40 到 · 12:40 出发停留 1 小时", "行驶约 1 小时 50 分 · 101 公里3 下车东京站预计 14:30 到"]);
   const loader = await waitFor(() => document.querySelector<HTMLImageElement>(".itinerary-map__loader") ?? assert.fail("没有要行程地图"), SLOW);
   const url = new URL(loader.src, window.location.origin);
   assert.equal(url.origin, window.location.origin, "图片地址是本站");

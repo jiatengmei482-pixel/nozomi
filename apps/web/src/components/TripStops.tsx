@@ -18,12 +18,14 @@ function driveText(row: ScheduleRow): string {
 /**
  * `late`：按行的 `key` 给的晚到提示（M9P-20 P3，官网下单页按当前顺序算；订单详情没有逐段时长，不给）。
  * 指定了到达时间的经停写「须在 14:00 前到达」（`row.deadline`）。
+ * `times`：按行的 `key` 给的预计时刻（「09:00 出发」「预计 10:15 到 · 11:15 出发」「预计 18:00 到」，业主 2026-11-17；官网下单页按当前报价算）。
+ * 晚到的那一行整行标红（`trip-stops__item--late`）。
  */
-export function TripStops({ rows, label = "行程", late = {} }: { rows: readonly ScheduleRow[]; label?: string; late?: Readonly<Record<string, string>> }) {
+export function TripStops({ rows, label = "行程", late = {}, times = {} }: { rows: readonly ScheduleRow[]; label?: string; late?: Readonly<Record<string, string>>; times?: Readonly<Record<string, string>> }) {
   return (
     <ol className="trip-stops" aria-label={label}>
       {rows.map((row) => (
-        <li key={row.key} className={`trip-stops__item trip-stops__item--${row.kind}`}>
+        <li key={row.key} className={`trip-stops__item trip-stops__item--${row.kind}${late[row.key] !== undefined ? " trip-stops__item--late" : ""}`}>
           {row.driveMinutes !== null && <span className="trip-stops__drive">{driveText(row)}</span>}
           <span className="trip-stops__line">
             <span className="trip-stops__label">
@@ -31,6 +33,7 @@ export function TripStops({ rows, label = "行程", late = {} }: { rows: readonl
             </span>
             <span className="trip-stops__name">{row.name}</span>
           </span>
+          {times[row.key] !== undefined && <span className="trip-stops__time">{times[row.key]}</span>}
           {row.stayMinutes !== null && <span className="trip-stops__stay">停留 {durationText(row.stayMinutes)}</span>}
           {row.deadline !== null && <span className="trip-stops__deadline">{row.deadline}</span>}
           {late[row.key] !== undefined && (
