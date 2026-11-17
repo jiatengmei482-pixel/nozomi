@@ -1,6 +1,6 @@
 {
   "project": "NOZOMI 用车平台",
-  "updated": "2026-11-16",
+  "updated": "2026-11-17",
   "statuses": {
     "todo": "未开始",
     "doing": "开发中",
@@ -1724,8 +1724,8 @@
             "单元、集成（本机假谷歌）、端到端（主站 + 嵌入页，chromium + webkit，含键盘上移下移和 360px）；独立审查、合并、部署后按 ADR 0096 第七节第 4 小节在测试站验收",
             "P1 遗留（#256 审查记下，P1 合并后另做）：订单页、司机页、供应商 / 运营订单详情每段写时长和公里（订单接口带 itinerary.legs，ADR 0096 第九节 P1 一行）；行程地图出图单设每日上限（现在和两点路线小地图共用 GOOGLE_STATIC_MAPS_DAILY_LIMIT）；部署冒烟核对 /map-markers/10.png 公网可取、是 PNG"
           ],
-          "evidence": "P1（地图和编号）：PR #256——新接口 GET /site/v1/itinerary-map（迁移 0490）；单元 domain itinerary-map 9 条 + google-itinerary-routes 3 条 + web charter-itinerary 11 条、map-markers 1 条；集成 site-itinerary-map.itest.ts 9 条（含 /site/v1/itinerary-legs）；组件 itinerary-map.test.tsx 8 条 + embed-flow 1 条；端到端 site-booking-itinerary-map.spec.ts 2 条（亮暗 axe、360 宽、10 个经停）+ site-embed-booking.spec.ts 1 条（chromium + webkit-embed）；截图 docs/acceptance/M9P-20-shots/。P2（顺序建议）：PR #267（基于 #256）——POST /site/v1/charter/order-suggestion、迁移 0530；单元 domain 7 条 + web 4 条、集成 site-order-suggestion.itest.ts 8 条、组件 order-suggestion.test.tsx 5 条、端到端 site-booking-order-suggestion.spec.ts 1 条。P3（指定到达时间 arrive_by）：单元 domain arrive-by.test.ts 8 条 + web arrive-by-display.test.ts 4 条、order-suggestion.test.ts 1 条；集成 site-arrive-by.itest.ts 5 条 + manual-quotes.itest.ts 1 条；组件 waypoints.test.tsx 1 条、order-suggestion.test.tsx 1 条；端到端 site-booking-arrive-by.spec.ts 1 条（chromium）；无迁移",
-          "updated": "2026-11-16"
+          "evidence": "P1（地图和编号）：PR #256——新接口 GET /site/v1/itinerary-map（迁移 0490）；单元 domain itinerary-map 9 条 + google-itinerary-routes 3 条 + web charter-itinerary 11 条、map-markers 1 条；集成 site-itinerary-map.itest.ts 9 条（含 /site/v1/itinerary-legs）；组件 itinerary-map.test.tsx 8 条 + embed-flow 1 条；端到端 site-booking-itinerary-map.spec.ts 2 条（亮暗 axe、360 宽、10 个经停）+ site-embed-booking.spec.ts 1 条（chromium + webkit-embed）；截图 docs/acceptance/M9P-20-shots/。P2（顺序建议）：PR #267（基于 #256）——POST /site/v1/charter/order-suggestion、迁移 0530；单元 domain 7 条 + web 4 条、集成 site-order-suggestion.itest.ts 8 条、组件 order-suggestion.test.tsx 5 条、端到端 site-booking-order-suggestion.spec.ts 1 条。P3（指定到达时间 arrive_by）：单元 domain arrive-by.test.ts 8 条 + web arrive-by-display.test.ts 4 条、order-suggestion.test.ts 1 条；集成 site-arrive-by.itest.ts 5 条 + manual-quotes.itest.ts 1 条；组件 waypoints.test.tsx 1 条、order-suggestion.test.tsx 1 条；端到端 site-booking-arrive-by.spec.ts 1 条（chromium）；无迁移。P3 已合并（PR #286，main 17fa9361）并部署到测试站；监工 2026-11-17 验收基本通过，提了 2 条修改待做：地点搜索结果排序、每个经停的预计到达时刻表",
+          "updated": "2026-11-17"
         },
         {
           "id": "M9P-09",
@@ -1750,9 +1750,9 @@
           "title": "机场套餐前端：商品页「机场套餐」绑定、价格页第四张表「机场套餐价」（空格灰字显示继承价）、/book/new 和嵌入预订页快捷入口「机场接机开始 / 机场送机结束」按航站楼选、备注航班号提示、明细和订单页场景名（ADR 0098）",
           "role": "frontend",
           "status": "review",
-          "acceptance": ["快捷入口只列能报机场套餐的机场、只列机场区域里的航站楼；价格页单独价高于继承价的格标黄；「改填其他地点」可退出；直接输入航站楼地址也匹配", "匹配到机场时备注提示「如需司机知道航班号，请填在这里」和计时提示；没有航班号字段、没有免费等待文案", "明细套餐行显示场景名，单独定价时不显示那一端加价；订单页、供应商 / 运营订单详情、司机页显示场景名", "新文案只有中文、全部走 i18n key（M11-01）", "组件测试 + 端到端（主站 + 嵌入页，chromium + webkit）；测试站验收并入 M9P-11"],
-          "evidence": "PR #265（草稿，合并 main 后补齐）：/book/new 和嵌入预订页快捷入口（按航站楼选、计时提示、改填其他地点，手机下「下一步：选择车型」在 M9E-32 底部按钮条里）、明细套餐行场景名、匹配到机场时备注提示航班号、供应商 / 运营订单详情和司机页场景名；商品页第 ① 步「机场套餐」绑定（租户可编辑、运营只读，校验错误落到行和格）；价格页第四张表「机场套餐价」（M9P-07 三张表之后，空格灰字显示继承价、单独价高于继承价标黄、可展开填单价，和价格表一起批量保存）；新文案只有中文、走 key 表 charter-airport-copy.ts；单元、组件、端到端（主站 site-charter-airport、后台 charter-airports、嵌入页 site-embed-booking「M9P-22 跨站」）已写，待 CI；测试站验收并入 M9P-11",
-          "updated": "2026-11-16"
+          "acceptance": ["快捷入口只列能报机场套餐的机场、只列机场区域里的航站楼；价格页单独价高于继承价的格标黄；「改填其他地点」可退出；直接输入航站楼地址也匹配", "匹配到机场时备注提示「如需司机知道航班号，请填在这里」和计时提示；没有航班号字段、没有免费等待文案", "明细套餐行显示场景名，单独定价时不显示那一端加价；订单页、供应商 / 运营订单详情、司机页显示场景名", "新文案只有中文、全部走 i18n key（M11-01）", "组件测试 + 端到端（主站 + 嵌入页，chromium + webkit）；测试站验收并入 M9P-11。测试站核对（2026-11-16）：/book/new 包车模式显示「机场接机开始」「机场送机结束」两个按钮，点后出现「上车地点（选择航站楼）」下拉、计时提示和「改填其他地点」；航站楼列表还没核对（测试站还没有商品绑定机场，业主 2026-11-17 同意给测试供应商绑定成田 / 羽田）；后台机场绑定和第四张价格表目前只有端到端覆盖，待测试站绑定后一并验收"],
+          "evidence": "PR #265 已合并（13d8423e），2026-11-16 部署到测试站（main 17fa9361 那次部署，18:15Z）：/book/new 和嵌入预订页快捷入口（按航站楼选、计时提示、改填其他地点，手机下「下一步：选择车型」在 M9E-32 底部按钮条里）、明细套餐行场景名、匹配到机场时备注提示航班号、供应商 / 运营订单详情和司机页场景名；商品页第 ① 步「机场套餐」绑定（租户可编辑、运营只读，校验错误落到行和格）；价格页第四张表「机场套餐价」（M9P-07 三张表之后，空格灰字显示继承价、单独价高于继承价标黄、可展开填单价，和价格表一起批量保存）；新文案只有中文、走 key 表 charter-airport-copy.ts；单元、组件、端到端（主站 site-charter-airport、后台 charter-airports、嵌入页 site-embed-booking「M9P-22 跨站」）已写，待 CI；测试站验收并入 M9P-11",
+          "updated": "2026-11-17"
         },
         {
           "id": "M9P-23",
@@ -3556,6 +3556,21 @@
       "date": "2026-11-16",
       "by": "backend",
       "summary": "M9P-20 P3 开发（分支 m9p-20-p3-arrive-by，按 ADR 0096 第三节第 6、7 小节，最晚到达）：官网询价、顺序建议、人工报价的经停可带 arrive_by（当天 / 次日 + HH:MM，必须晚于用车开始、不晚于开始 + 24 小时，否则 400）；不带时请求、快照逐字不变，不影响价格；快照 → 订单 jsonb 多一个可选键（不改约束、无迁移），官网订单页、供应商、运营、司机页显示「须在 14:00 前到达」，/sales/v1 去掉、接口说明不变；带 arrive_by 的经停是顺序建议的固定点，只在段内重排，请求键含到达时间。页面（主站、嵌入页同一组件）：经停行「指定到达时间（选填）」，早于出发时刻按次日并写「次日 01:00」；填了的行锁定（锁形图标、不能拖、说明「已锁定，只能用上移 / 下移调整」）；按当前顺序和建议顺序预计晚到时只提示（报价新增 stop_occupancy_minutes 供算每站占用）。遗留：供应商 / 运营订单详情的「预计晚到」标记要订单接口带逐段时长（itinerary.legs，P1 遗留），本期只显示到达时间；嵌入组件第 1 步（宿主页上的小表单）和预订草稿不带到达时间。待 CI、独立审查。"
+    },
+    {
+      "date": "2026-11-17",
+      "by": "frontend",
+      "summary": "M9P-22 #265 已合并（13d8423e），2026-11-16 随 main 17fa9361 部署到测试站（18:15Z）。测试站核对：/book/new 包车模式有「机场接机开始」「机场送机结束」，点后出现「上车地点（选择航站楼）」下拉、计时提示、「改填其他地点」；航站楼列表还没核对（测试站还没有商品绑定机场，业主 2026-11-17 同意给测试供应商绑定成田 / 羽田）；后台绑定和价格表目前只有端到端覆盖。状态保持待验收。"
+    },
+    {
+      "date": "2026-11-17",
+      "by": "backend",
+      "summary": "M9P-20 P3（指定到达时间）已合并（PR #286，main 17fa9361）并部署到测试站。监工 2026-11-17 验收基本通过，提 2 条修改待做：地点搜索结果排序；每个经停的预计到达时刻表。"
+    },
+    {
+      "date": "2026-11-17",
+      "by": "product",
+      "summary": "业主 2026-11-17 决定三项：① 平板 769–1023px 也用底部按钮条，和手机一样，桌面 ≥ 1024px 仍两栏（M9E-32 后续，补进 ADR 0100）；② ADR 0098 Q13：机场结束的套餐不再加下车点行程加价（套餐价已含去机场这段，避免重复收费）；③ 从机场出发的包车仍从预约的上车时间开始计时、没有免费等待，页面要写清楚，并建议上车时间定在航班落地后 60–90 分钟。三项由 M9P-22 / M9E-32 后续 PR 实施。"
     }
   ]
 }
