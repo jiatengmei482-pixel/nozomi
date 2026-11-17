@@ -1857,49 +1857,49 @@
           "id": "M9T-01",
           "title": "行程编排 domain（packages/domain/src/trip/）：标准行程单校验与上限、分段判定、同一天拆法枚举、住宿（含客人提供抵免、③抵扣）/ 停驻 / 工时与第二司机 / 附加项去重 / 返程函数、最短套餐价、方案组装与推荐、规则配置校验（ADR 0101 第三、四节）",
           "role": "backend",
-          "status": "review",
+          "status": "done",
           "acceptance": ["纯函数、不碰数据库和网络，不改 quote.ts、pricing.ts", "规则单元测试覆盖 ADR 0101 第七节第 5 条全部情形（13–15 小时只经出入库或多段触发）", "包车 golden、itinerary golden 0 条变化"],
-          "evidence": "packages/domain/src/trip/（itinerary / segments / rules / work-hours / fees / plans）+ 6 个测试文件 53 条；domain 全部 1644 条通过；不改 quote.ts / pricing.ts，golden 0 变化",
-          "updated": "2026-11-15"
+          "evidence": "packages/domain/src/trip/（itinerary / segments / rules / work-hours / fees / plans）+ 6 个测试文件 53 条；domain 全部 1644 条通过；不改 quote.ts / pricing.ts，golden 0 变化；#270 合并（2026-11-17）",
+          "updated": "2026-11-17"
         },
         {
           "id": "M9T-02",
           "title": "迁移 0600（trips、trip_plans、trip_segments、trip_fees、trip_rule_configs）、规则配置接口 GET/PUT /tenant/v1/products/:id/trip-rules、GET /platform/v1/products/:id/trip-rules、OpenAPI（ADR 0101 第二、五节）",
           "role": "backend",
-          "status": "review",
+          "status": "done",
           "acceptance": ["只新增表，不改已有表；行程表是平台表、规则配置是租户表（行级安全、授权登记）", "租户 A 读不到、改不了 B 的规则配置（集成测试）；返回只有结算价", "迁移测试；CI 全绿"],
-          "evidence": "迁移 0600（4 张平台表 + 租户表 trip_rule_configs，供应商快照列 supplier_tenant_id）、GET/PUT /tenant/v1/products/:id/trip-rules、GET /platform/v1/products/:id/trip-rules、OpenAPI；trip-rules.itest 7 条（含迁移约束、租户隔离、行级安全）；schema-structure / rls / tenant-isolation / password-change-bypass / platform-admin / products-openapi 登记并通过",
-          "updated": "2026-11-15"
+          "evidence": "迁移 0600（4 张平台表 + 租户表 trip_rule_configs，供应商快照列 supplier_tenant_id）、GET/PUT /tenant/v1/products/:id/trip-rules、GET /platform/v1/products/:id/trip-rules、OpenAPI；trip-rules.itest 7 条（含迁移约束、租户隔离、行级安全）；schema-structure / rls / tenant-isolation / password-change-bypass / platform-admin / products-openapi 登记并通过；#272 合并并单独部署（2026-11-17，迁移 0600 已在测试站执行；QA 供应商 GET trip-rules 返回默认配置）",
+          "updated": "2026-11-17"
         },
         {
           "id": "M9T-03",
           "title": "编排接口：POST /site/v1/trips、GET /site/v1/trips/:id、POST /site/v1/trips/:id/quote；逐段经 previewPlatformQuote 按官网渠道报价，写方案 / 段 / 费用，限频（ADR 0101 第三节）",
           "role": "backend",
-          "status": "review",
+          "status": "done",
           "blockedBy": "依赖 M9T-01、M9T-02",
           "acceptance": ["daily_best 每段对外价 = 同样条件下官网询价的中标价；one_car 每段 = 同一次比价里该租户该车型组自己的对外价（集成测试，接送机、点对点、包车各至少一条）", "编排找到的城市、路线与官网询价一致；charterCityFor / itineraryRoute / demandFacts 加 export 后官网询价行为不变（测试）", "报不出的段按官网条件记未覆盖需求（只记每天取最低价的那组段：多日看 daily_best、单日看 one_car；排除验收会话与 onlyTooShort；行程特有原因 P1 不记，D6）", "机场按坐标识别、接送机报不出回落点对点，与官网按点询价一致", "对客应答没有结算价、加价比例、供应商编号", "段报价 120 次 / 路线 200 次预算，超出降级为只报不拆（degraded: true），连不拆都报不完才 422；限频新键 site_trip_quote / site_trip_quote_day；CI 全绿"],
-          "evidence": "POST /site/v1/trips、GET /site/v1/trips/:id、POST /site/v1/trips/:id/quote（services/trips.ts、repos/trips.ts、routes/site-trips.ts）；domain trip/build.ts 方案组装与跨段费用（63 条单测）；B2 只加 export（charterCityFor、itineraryRoute、demandFacts）；限频键 site_trip / site_trip_quote / site_trip_quote_day；trips.itest（官网询价逐段一致、D4 住宿抵扣、报不出与未覆盖需求、限频）；OpenAPI",
-          "updated": "2026-11-15"
+          "evidence": "POST /site/v1/trips、GET /site/v1/trips/:id、POST /site/v1/trips/:id/quote（services/trips.ts、repos/trips.ts、routes/site-trips.ts）；domain trip/build.ts 方案组装与跨段费用（63 条单测）；B2 只加 export（charterCityFor、itineraryRoute、demandFacts）；限频键 site_trip / site_trip_quote / site_trip_quote_day；trips.itest（官网询价逐段一致、D4 住宿抵扣、报不出与未覆盖需求、限频）；OpenAPI；#274 合并（2026-11-17，补行程编号格式不对一律 404 TRIP_NOT_FOUND）",
+          "updated": "2026-11-17"
         },
         {
           "id": "M9T-04",
           "title": "固定测试集 30 条（东京、大阪，测试代码内构造）逐条比对段型、拆法、跨段费用、方案、推荐、unquoted；测试站验收（ADR 0101 第八节）",
           "role": "tester",
-          "status": "doing",
+          "status": "review",
           "blockedBy": "依赖 M9T-03",
           "acceptance": ["30 条期望全部写明并通过", "测试站用 QA 测试供应商（ADR 0077）跑通建行程、报价、看方案"],
-          "evidence": "固定测试集 31 条：apps/api/src/trip-fixed-set.itest.ts 东京 16 条（#297）+ trip-fixed-set-2.itest.ts 大阪、跨城、14 天、规则开关、建单校验 15 条；每条期望按 ADR 0101 第四节手算核对后写死。第二部分顺带修了两处：住宿按区域（byArea）只和①比对、永远匹配不到③；跨城市一车到底（P1d）没有拦下。测试站验收待做",
-          "updated": "2026-11-15"
+          "evidence": "固定测试集 31 条：apps/api/src/trip-fixed-set.itest.ts 东京 16 条（#297）+ trip-fixed-set-2.itest.ts 大阪、跨城、14 天、规则开关、建单校验 15 条；每条期望按 ADR 0101 第四节手算核对后写死。第二部分顺带修了两处：住宿按区域（byArea）只和①比对、永远匹配不到③；跨城市一车到底（P1d）没有拦下。测试站验收待做。测试站（2026-11-17，main 991c3fc9）：普通客人身份建两天东京行程并报价，200，两个方案都报出（35,200，每天拆成两段点对点）；QA 验收会话下两天都 OUT_OF_SERVICE_AREA——QA 测试供应商的包车区域全停用、商品未迁移三层，和测试站绑定成田羽田是同一个前置（第二开发在做），备好后补测",
+          "updated": "2026-11-17"
         },
         {
           "id": "M9T-05",
           "title": "行程单清理任务：readable_until（建单 + 30 天）后删除行程与下属方案、段、费用（ADR 0101 第二节，设计篇第八节第 6 小节；CLAUDE.md 第 7 条）",
           "role": "backend",
-          "status": "review",
+          "status": "done",
           "blockedBy": "依赖 M9T-02",
           "acceptance": ["只删 trips 及其级联行，不碰其他表；集成测试覆盖到期删、未到期留", "规则配置页（前端）不在本里程碑，随前端车道另开任务"],
-          "evidence": "services/trip-retention.ts（TripRetentionJobs：每小时一轮，readable_until 已过的 trips 分批删除，方案、段、费用级联；advisory 锁防多实例）；app.ts 登记（jobs 时启动）；trip-retention.itest 2 条（到期删、未到期留、级联、不碰别的表、分批与拿不到锁跳过）",
-          "updated": "2026-11-15"
+          "evidence": "services/trip-retention.ts（TripRetentionJobs：每小时一轮，readable_until 已过的 trips 分批删除，方案、段、费用级联；advisory 锁防多实例）；app.ts 登记（jobs 时启动）；trip-retention.itest 2 条（到期删、未到期留、级联、不碰别的表、分批与拿不到锁跳过）；#275 合并（2026-11-17）",
+          "updated": "2026-11-17"
         }
       ]
     },
@@ -3645,6 +3645,11 @@
       "date": "2026-11-17",
       "by": "开发（接手）",
       "summary": "M9T-00 #263 合并 main：ADR 改号 0100 → 0101（0100 已被 M9E-32 手机底部按钮条占用）；M9T 任务从 M10 移到新里程碑 M9T（check-roadmap 要求任务编号以里程碑编号开头）。内容不变。"
+    },
+    {
+      "date": "2026-11-17",
+      "by": "Codespace 开发",
+      "summary": "M9T：#263（ADR 改号 0101，M9T 移为独立里程碑）、#270、#272（迁移 0600 单独部署）、#274、#275、#297、#298 合并；固定测试集 31 条，顺带修了住宿 byArea 只认①、跨城一车到底没拦两处。测试站：普通客人身份建行程报价通过；QA 测试供应商验收卡在它的包车区域停用、未迁移三层（同成田羽田绑定的前置）。待业主决定：单日「成田接机 + 下午游览」在没有同一家能连着做时报不出（ADR 现行：单日只出一车到底），见 #288。M8-29 偶发：#291 的 tenant-isolation itest 一次；waypoints 组件测试取地图图片为 null 两次（#291、#272），#296 改为等图片挂上再取。"
     }
   ]
 }
