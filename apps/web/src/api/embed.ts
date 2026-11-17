@@ -25,14 +25,23 @@ export interface EmbedKey {
   layout: EmbedLayout;
   /** 允许整页嵌入（M9E-16，ADR 0095 Q13）：默认关 */
   allow_host_page: boolean;
+  /** 预订页地址（M9E-26）：合作网站自己的预订页；没填为 null */
+  booking_url: string | null;
   status: EmbedKeyStatus;
   note: string | null;
   version: number;
   created_at: string;
   updated_at: string;
-  /** 合作网站要放的代码 */
+  /** ①入口小程序（合作网站任何页面）；有②时 init 带 bookingUrl */
   snippet: string;
+  /** ②预订程序（只放预订页，M9E-26）；只有①时为 null */
+  booking_snippet: string | null;
+  /** 为什么只有①（M9E-26）；两段都有时为 null */
+  snippet_fallback: EmbedSnippetFallback | null;
 }
+
+/** 只有①的原因（M9E-26）：没填预订页地址、没开「允许整页嵌入」、预订页地址的网站不在白名单 */
+export type EmbedSnippetFallback = "no_booking_url" | "host_page_off" | "booking_url_not_allowed";
 
 export interface EmbedKeyWrite {
   name: string;
@@ -43,6 +52,8 @@ export interface EmbedKeyWrite {
   layout: EmbedLayout;
   /** 服务端是选填（不填时新建按关、修改保持原值）；后台页面总是带上 */
   allow_host_page: boolean;
+  /** 预订页地址（M9E-26）：服务端是选填（不填时新建按没有、修改保持原值）；后台页面总是带上，null = 清空 */
+  booking_url: string | null;
   note: string | null;
 }
 
@@ -58,8 +69,8 @@ export interface OrderEntrySource {
 
 /** 与 openapi.yaml 对账的字段（embed.contract.test.ts）。 */
 export const EMBED_SCHEMA_FIELDS = {
-  EmbedKey: ["id", "key", "name", "allowed_origins", "default_lang", "default_services", "layout", "allow_host_page", "status", "note", "version", "created_at", "updated_at", "snippet"],
-  EmbedKeyWrite: ["name", "allowed_origins", "default_lang", "default_services", "layout", "allow_host_page", "note"],
+  EmbedKey: ["id", "key", "name", "allowed_origins", "default_lang", "default_services", "layout", "allow_host_page", "booking_url", "status", "note", "version", "created_at", "updated_at", "snippet", "booking_snippet", "snippet_fallback"],
+  EmbedKeyWrite: ["name", "allowed_origins", "default_lang", "default_services", "layout", "allow_host_page", "booking_url", "note"],
   OrderEntrySource: ["kind", "embed_key_id", "embed_key_name", "embed_origin", "delivery"],
 } as const satisfies Record<string, readonly string[]>;
 

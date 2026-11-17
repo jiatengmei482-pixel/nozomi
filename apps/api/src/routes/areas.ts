@@ -33,6 +33,7 @@ import {
   updateArea,
 } from "../services/areas.ts";
 import { productCounts } from "../services/products.ts";
+import { type AreaCharterOverlap, type ProductAreaLayers, tenantAreaLayers } from "../services/area-layers.ts";
 import { type SharedArea, type SharedAreaShape, createAreaFromShared, getSharedArea, latestSharedVersions, listSharedAreasFor, similarSharedAreas, syncAreaToShared } from "../services/shared-areas.ts";
 import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import { type TenantPrincipal, authenticateTenant } from "../services/tenant-auth.ts";
@@ -119,6 +120,36 @@ export function areaJson(view: AreaView): Json {
     updated_at: area.updatedAt.toISOString(),
     ...(view.polygons === null ? {} : { polygons: view.polygons.map(polygonJson) }),
     ...(view.outsideOperatingM2 === undefined ? {} : { outside_operating_m2: view.outsideOperatingM2 }),
+    ...(view.charterOverlaps === undefined ? {} : { charter_layer_overlaps: view.charterOverlaps.map(charterOverlapJson) }),
+  };
+}
+
+/** 改了图形之后包车三层的重叠（M9P-13，只提醒）：面积给平方公里（两位小数，和保存价格时的 `AREA_LAYER_OVERLAP` 一样） */
+function charterOverlapJson(entry: AreaCharterOverlap): Json {
+  return {
+    product_id: entry.productId,
+    product_code: entry.code,
+    product_title: entry.title,
+    code: entry.overlapCode,
+    layer: entry.layer,
+    other_area_id: entry.otherAreaId,
+    other_area_name: entry.otherAreaName,
+    overlap_km2: Math.round(entry.areaM2 / 10_000) / 100,
+  };
+}
+
+/** 一个商品的三层区域（M9P-13）：①基础价（服务区域）、②行程、③上下车加价的区域编号 */
+function productAreaLayersJson(product: ProductAreaLayers): Json {
+  return {
+    product_id: product.productId,
+    code: product.code,
+    title: product.title,
+    category: product.category,
+    status: product.status,
+    charter_layout: product.charterLayout,
+    base: product.base,
+    itinerary: product.itinerary,
+    pickup_dropoff: product.updown,
   };
 }
 
@@ -311,6 +342,13 @@ export function registerAreaRoutes(app: FastifyInstance, ctx: AppContext): void 
     const point = parseInput(pointSchema, request.body, "body");
     const location = await checkAreaPoint(ctx, principal.tenantId, id, point);
     return { result: location.result, operate_polygon_ids: location.operatePolygonIds, forbid_polygon_ids: location.forbidPolygonIds };
+  });
+
+  // 区域在哪些商品里当哪一层（M9P-13）：区域详情、区域地图按商品和层筛选用。没有选任何区域的商品不列
+  app.get("/tenant/v1/area-layers", async (request) => {
+    const principal = await authenticate(request, "area.read");
+    parseInput(z.object({}).strict(), request.query, "querystring");
+    return { items: (await tenantAreaLayers(ctx, principal.tenantId)).map(productAreaLayersJson) };
   });
 
   app.get("/tenant/v1/area-map", async (request) => {

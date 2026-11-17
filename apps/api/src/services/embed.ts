@@ -43,6 +43,8 @@ export interface EmbedKey {
   layout: EmbedLayout;
   /** 允许整页嵌入（M9E-16，ADR 0095 Q13）：打开了 /embed/v1/frame-check 才放行 /embed/book 被白名单里的网站嵌入；默认关 */
   allowHostPage: boolean;
+  /** 预订页地址（M9E-26）：合作网站自己的预订页，规范化后的完整地址；没填为 null */
+  bookingUrl: string | null;
   status: EmbedKeyStatus;
   note: string | null;
   version: number;
@@ -59,6 +61,7 @@ interface EmbedKeyRow {
   default_services: EmbedService[];
   layout: EmbedLayout;
   allow_host_page: boolean;
+  booking_url: string | null;
   status: EmbedKeyStatus;
   note: string | null;
   version: number;
@@ -66,7 +69,7 @@ interface EmbedKeyRow {
   updated_at: Date;
 }
 
-const COLUMNS = "id, key, name, allowed_origins, default_lang, default_services, layout, allow_host_page, status, note, version, created_at, updated_at";
+const COLUMNS = "id, key, name, allowed_origins, default_lang, default_services, layout, allow_host_page, booking_url, status, note, version, created_at, updated_at";
 const fromRow = (row: EmbedKeyRow): EmbedKey => ({
   id: row.id,
   key: row.key,
@@ -76,6 +79,7 @@ const fromRow = (row: EmbedKeyRow): EmbedKey => ({
   defaultServices: row.default_services,
   layout: row.layout,
   allowHostPage: row.allow_host_page,
+  bookingUrl: row.booking_url,
   status: row.status,
   note: row.note,
   version: row.version,
@@ -111,15 +115,29 @@ export interface EmbedKeyWrite {
   layout?: string | undefined;
   /** 允许整页嵌入（M9E-16）；不填时新建按关、修改保持原值 */
   allowHostPage?: boolean | undefined;
+  /** 预订页地址（M9E-26）；null 或空白 = 清空。不填时新建按没有、修改保持原值（保持的原值也按这次的白名单核对） */
+  bookingUrl?: string | null | undefined;
   note: string | null;
 }
 
-function checked(ctx: AppContext, input: EmbedKeyWrite): { name: string; origins: string[]; layout: EmbedLayout | null; note: string | null } {
+interface Checked {
+  name: string;
+  origins: string[];
+  layout: EmbedLayout | null;
+  bookingUrl: string | null;
+  note: string | null;
+}
+
+/** `bookingUrl` 是这次要存的预订页地址（修改时没填的，调用方先换成原值），按这次提交的白名单核对 */
+function checked(ctx: AppContext, input: EmbedKeyWrite, bookingUrl: string | null): Checked {
   const note = input.note === null || input.note.trim() === "" ? null : input.note.trim();
-  const { issues, origins } = embedKeyIssues({ name: input.name, allowed_origins: input.allowedOrigins, default_lang: input.defaultLang, default_services: input.defaultServices, layout: input.layout, note }, originOptions(ctx));
-  if (issues.length > 0) throw validationFailed("body", issues.map((issue) => ({ path: issue.path, reason: issue.reason, message: ISSUE_TEXT[issue.reason] ?? "写得不对" })));
+  const result = embedKeyIssues(
+    { name: input.name, allowed_origins: input.allowedOrigins, default_lang: input.defaultLang, default_services: input.defaultServices, layout: input.layout, booking_url: bookingUrl, note },
+    originOptions(ctx),
+  );
+  if (result.issues.length > 0) throw validationFailed("body", result.issues.map((issue) => ({ path: issue.path, reason: issue.reason, message: issueText(issue.path, issue.reason) })));
   // 校验过了，这里只剩两种取值；null = 没填
-  return { name: input.name.trim(), origins, layout: (input.layout ?? null) as EmbedLayout | null, note };
+  return { name: input.name.trim(), origins: result.origins, layout: (input.layout ?? null) as EmbedLayout | null, bookingUrl: result.bookingUrl, note };
 }
 
 const ISSUE_TEXT: Readonly<Record<string, string>> = {
@@ -128,18 +146,35 @@ const ISSUE_TEXT: Readonly<Record<string, string>> = {
   INVALID: "写法不对：网站地址要写成 https://域名（可带端口），不带路径；不支持通配符",
   DUPLICATE: "重复了",
 };
+const BOOKING_URL_TEXT: Readonly<Record<string, string>> = {
+  OUT_OF_RANGE: "预订页地址最多 2,000 个字符",
+  INVALID: "预订页地址写法不对：要写完整的 https 地址，如 https://example.com/booking/，不带用户名密码",
+  NOT_ALLOWED_ORIGIN: "预订页地址的网站不在「允许的网站」里：要和其中一项的协议、域名、端口完全一样。改了允许的网站时，请一起改预订页地址或把它清空",
+};
+const issueText = (path: string, reason: string): string => (path === "/booking_url" ? BOOKING_URL_TEXT[reason] : ISSUE_TEXT[reason]) ?? "写得不对";
 
-const auditJson = (key: EmbedKey) => ({ key: key.key, name: key.name, allowed_origins: key.allowedOrigins, default_lang: key.defaultLang, default_services: key.defaultServices, layout: key.layout, allow_host_page: key.allowHostPage, status: key.status, note: key.note });
+const auditJson = (key: EmbedKey) => ({
+  key: key.key,
+  name: key.name,
+  allowed_origins: key.allowedOrigins,
+  default_lang: key.defaultLang,
+  default_services: key.defaultServices,
+  layout: key.layout,
+  allow_host_page: key.allowHostPage,
+  booking_url: key.bookingUrl,
+  status: key.status,
+  note: key.note,
+});
 
 export async function createEmbedKey(ctx: AppContext, principal: PlatformPrincipal, ip: string, input: EmbedKeyWrite): Promise<EmbedKey> {
-  const { name, origins, layout, note } = checked(ctx, input);
+  const { name, origins, layout, bookingUrl, note } = checked(ctx, input, input.bookingUrl ?? null);
   return withPlatformTx(ctx.pool, async (db) => {
     const now = ctx.now();
     const key = `nze_${randomBytes(24).toString("base64url")}`;
     const result = await db.query<EmbedKeyRow>(
-      `insert into embed_keys (key, name, allowed_origins, default_lang, default_services, layout, allow_host_page, note, created_at, updated_at, created_by, updated_by)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10, $10) returning ${COLUMNS}`,
-      [key, name, origins, input.defaultLang, [...input.defaultServices], layout ?? "auto", input.allowHostPage ?? false, note, now, principal.user.id],
+      `insert into embed_keys (key, name, allowed_origins, default_lang, default_services, layout, allow_host_page, booking_url, note, created_at, updated_at, created_by, updated_by)
+       values ($1, $2, $3, $4, $5, $6, $7, $11, $8, $9, $9, $10, $10) returning ${COLUMNS}`,
+      [key, name, origins, input.defaultLang, [...input.defaultServices], layout ?? "auto", input.allowHostPage ?? false, note, now, principal.user.id, bookingUrl],
     );
     const created = fromRow(result.rows[0] as EmbedKeyRow);
     await insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), { tenantId: null, resource: "embed_key", resourceId: created.id, action: "create", before: null, after: auditJson(created) });
@@ -148,19 +183,22 @@ export async function createEmbedKey(ctx: AppContext, principal: PlatformPrincip
 }
 
 export async function updateEmbedKey(ctx: AppContext, principal: PlatformPrincipal, ip: string, id: string, version: number, input: EmbedKeyWrite & { status: EmbedKeyStatus }): Promise<EmbedKey> {
-  const { name, origins, layout, note } = checked(ctx, input);
+  // 先校验一遍请求本身（没填预订页地址的先按没有），写法不对的不用等锁行就能回 400
+  const first = checked(ctx, input, input.bookingUrl ?? null);
   return withPlatformTx(ctx.pool, async (db) => {
     const current = await db.query<EmbedKeyRow>(`select ${COLUMNS} from embed_keys where id = $1 for update`, [id]);
     const row = current.rows[0];
     if (row === undefined) throw embedKeyNotFound();
     const before = fromRow(row);
     if (before.version !== version) throw versionConflict(before.version);
+    // 没填预订页地址 = 保持原值，但原值也要落在这次的白名单里：旧客户端改白名单拿掉了预订页的网站，同样 400（M9E-26）
+    const { name, origins, layout, bookingUrl, note } = input.bookingUrl === undefined ? checked(ctx, input, before.bookingUrl) : first;
     const now = ctx.now();
     const result = await db.query<EmbedKeyRow>(
-      `update embed_keys set name = $2, allowed_origins = $3, default_lang = $4, default_services = $5, layout = $6, allow_host_page = $11, note = $7, status = $8, version = version + 1, updated_at = $9, updated_by = $10
+      `update embed_keys set name = $2, allowed_origins = $3, default_lang = $4, default_services = $5, layout = $6, allow_host_page = $11, booking_url = $12, note = $7, status = $8, version = version + 1, updated_at = $9, updated_by = $10
        where id = $1 returning ${COLUMNS}`,
       // 没填外观、整页嵌入开关就保持原值（只会改名称、白名单的旧客户端不会把横条改回卡片，也不会关掉整页嵌入）
-      [id, name, origins, input.defaultLang, [...input.defaultServices], layout ?? before.layout, note, input.status, now, principal.user.id, input.allowHostPage ?? before.allowHostPage],
+      [id, name, origins, input.defaultLang, [...input.defaultServices], layout ?? before.layout, note, input.status, now, principal.user.id, input.allowHostPage ?? before.allowHostPage, bookingUrl],
     );
     const after = fromRow(result.rows[0] as EmbedKeyRow);
     await insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), { tenantId: null, resource: "embed_key", resourceId: id, action: "update", before: auditJson(before), after: auditJson(after) });

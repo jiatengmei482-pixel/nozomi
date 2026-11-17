@@ -119,13 +119,13 @@ export function currentLocation(): { path: string; state: unknown } | null {
 const restorers: (() => void)[] = [];
 
 /**
- * 假装是手机宽度（< 768px）：`matchMedia("(max-width: 767px)")` 为真；每个元素都在屏幕下方 `top` 像素处；
+ * 假装是手机宽度（< 768px）：`matchMedia("(max-width: 767px)")` 和新预订页底部按钮条的 `(max-width: 1023px)`（M9E-32；平板也用，业主 2026-11-17）为真；每个元素都在屏幕下方 `top` 像素处；
  * 记下 `scrollIntoView` 滚到了哪些元素（返回的数组里是元素 id）。resetBrowser 时还原。
  */
 export function narrowScreen(top = 2000): string[] {
   const scrolled: string[] = [];
   const original = { matchMedia: window.matchMedia, rect: Element.prototype.getBoundingClientRect, scroll: Element.prototype.scrollIntoView };
-  window.matchMedia = ((query: string) => ({ matches: query.includes("max-width: 767px"), media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false })) as typeof window.matchMedia;
+  window.matchMedia = ((query: string) => ({ matches: query.includes("max-width: 767px") || query.includes("max-width: 1023px"), media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false })) as typeof window.matchMedia;
   Element.prototype.getBoundingClientRect = function rect() {
     return { top, bottom: top + 40, left: 0, right: 320, width: 320, height: 40, x: 0, y: top, toJSON: () => ({}) } as DOMRect;
   };

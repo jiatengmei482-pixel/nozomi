@@ -3607,3 +3607,61 @@ p.stock-day__status.stock-cell--sold_out {
   flex: none;
   white-space: nowrap;
 }
+
+/* 商品页「机场套餐」绑定（M9P-22，ADR 0098 第三节第 8 小节）：两组，每组一行一个机场 */
+.airport-bindings__group {
+  border: 0;
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  display: grid;
+  gap: var(--space-3);
+}
+
+.airport-bindings__row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--space-2) var(--space-3);
+  align-items: start;
+  padding-bottom: var(--space-3);
+  border-bottom: var(--border-width) solid var(--color-border-default);
+}
+
+.airport-bindings__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: flex-end;
+}
+
+/* 价格页第四张表「机场套餐价」：空格灰字显示继承价，单独价高于继承价的格标黄 */
+.airport-prices__cell {
+  min-width: 9rem;
+  vertical-align: top;
+}
+
+.airport-prices__inherit {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.airport-prices__cell--warn {
+  background: var(--color-warning-bg);
+  outline: var(--border-width) solid var(--color-warning-border);
+  outline-offset: calc(-1 * var(--border-width));
+}
+
+.airport-prices__warn {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--color-warning-text);
+  font-size: var(--font-size-sm);
+}
+
+.airport-prices__units {
+  display: grid;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+}

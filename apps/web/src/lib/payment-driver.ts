@@ -42,7 +42,7 @@ export interface PaymentMount {
 
 export interface PaymentDriver {
   /** 在 `container` 里挂上付款表单（卡号等由 Stripe 的 iframe 收，不经过本站）。加载失败时抛 `PaymentLoadError`。 */
-  mount(container: HTMLElement, options: { publishableKey: string; clientSecret: string }): Promise<PaymentMount>;
+  mount(container: HTMLElement, options: { publishableKey: string; clientSecret: string; locale?: string }): Promise<PaymentMount>;
 }
 
 /** 付款组件没加载出来（Stripe.js 或 Payment Element 加载失败、查不到这笔付款）：页面提示检查网络后「重新加载」。 */
@@ -70,7 +70,7 @@ export function addressHasOrderToken(address: string): boolean {
   return false;
 }
 
-/** 官网是中文界面：Stripe 表单用简体中文。 */
+/** 官网是中文界面：Stripe 表单默认用简体中文（嵌入订单页按嵌入页的语言传，M9E-19）。 */
 export const STRIPE_LOCALE = "zh";
 
 /** Stripe 给的错误里，哪些是「卡 / 填写的问题」——告诉客人原因，客人可以改了或换卡再付。 */
@@ -204,7 +204,7 @@ const connectionError = (): StripeJsResult => ({ error: { type: "api_connection_
  */
 export function createStripePaymentDriver(load: () => Promise<StripeJsFactory> = () => loadStripeJs(), tokens: AppearanceTokens = SITE_APPEARANCE_TOKENS): PaymentDriver {
   return {
-    async mount(container, { publishableKey, clientSecret }) {
+    async mount(container, { publishableKey, clientSecret, locale = STRIPE_LOCALE }) {
       // 最后一道防线（ADR 0046）：订单页会先把令牌移出地址；万一没移，宁可不加载，也不让 Stripe.js 读到令牌
       if (addressHasOrderToken(window.location.href)) throw new PaymentLoadError("地址里还有订单令牌");
       let factory: StripeJsFactory;
@@ -213,7 +213,7 @@ export function createStripePaymentDriver(load: () => Promise<StripeJsFactory> =
       } catch {
         throw new PaymentLoadError("Stripe.js 没有加载出来");
       }
-      const stripe = factory(publishableKey, { locale: STRIPE_LOCALE });
+      const stripe = factory(publishableKey, { locale });
       const retrieved = await stripe.retrievePaymentIntent(clientSecret).catch(connectionError);
       if (retrieved.paymentIntent === undefined) throw new PaymentLoadError("查不到这笔付款");
       const state = stateOf(retrieved.paymentIntent);
@@ -222,7 +222,7 @@ export function createStripePaymentDriver(load: () => Promise<StripeJsFactory> =
       const lastError = lastFailure === null ? null : paymentFailureText(lastFailure);
       const awaitingPaymentMethod = retrieved.paymentIntent.status === "requires_payment_method";
 
-      const elements = stripe.elements({ clientSecret, appearance: stripeAppearance(tokens), locale: STRIPE_LOCALE });
+      const elements = stripe.elements({ clientSecret, appearance: stripeAppearance(tokens), locale });
       const element = elements.create("payment", PAYMENT_ELEMENT_OPTIONS);
       const ready = new Promise<void>((resolve, reject) => {
         element.on("ready", () => resolve());

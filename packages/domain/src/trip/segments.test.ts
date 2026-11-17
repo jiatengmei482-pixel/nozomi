@@ -1,4 +1,4 @@
-/** 分段判定与拆法（ADR 0100 第三节第 3、4 小节）。 */
+/** 分段判定与拆法（ADR 0101 第三节第 3、4 小节）。 */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type SegmentPoint, classifySegment, daySplitOptions, naturalBreakpoints, pointTimes } from "./segments.ts";

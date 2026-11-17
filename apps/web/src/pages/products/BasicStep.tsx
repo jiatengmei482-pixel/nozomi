@@ -27,6 +27,7 @@ import type { ServerIssue } from "../../lib/product-failure.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { useTenantCan } from "../../lib/use-master-access.ts";
 import { BrandDialog } from "./BrandDialog.tsx";
+import { CharterAirportsCard } from "./CharterAirportsCard.tsx";
 import { type StepController, StepShell } from "./StepShell.tsx";
 import { type ProductFrame, type StepProblem, stepMissing } from "./frame.ts";
 import { AreaMapButton } from "../areas/AreaMapDialog.tsx";
@@ -923,6 +924,8 @@ export function BasicStep({ frame }: { frame: ProductFrame }) {
                 </fieldset>
               </div>
             </section>
+            {/* 包车机场套餐的机场绑定（M9P-22，ADR 0098）：单独保存，不跟这一步的保存走 */}
+            {product !== null && product.category === "charter" && <CharterAirportsCard frame={frame} product={product} />}
             {/* 城市和接送点的名称来自公开数据，按许可要注明来源（ADR 0014、0024） */}
             <Attributions sources={placeSources(category === "airport_transfer")} />
             {addingBrand && (

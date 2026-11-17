@@ -68,10 +68,40 @@ export interface PriceRules {
   coverage: { total: number; priced: number; missing: number };
 }
 
+/** 批量保存里的一条：包车迁移过三层区域的整商品套餐价 `area_id` 为 null（ADR 0093 第五节，M9P-07） */
+export type PriceRuleWrite = Omit<PriceRuleInput, "area_id"> & { area_id: string | null };
+
 export interface PriceRuleBatch {
-  create: (PriceRuleInput & { ref: string })[];
-  update: (PriceRuleInput & { id: string })[];
+  create: (PriceRuleWrite & { ref: string })[];
+  update: (PriceRuleWrite & { id: string })[];
   delete: string[];
+}
+
+/** 三层区域迁移的套餐价条款（结算价，最小货币单位） */
+export interface CharterPackageTerms {
+  package_price: number;
+  package_km: number;
+  overtime_per_hour: number;
+  over_km_per_km: number;
+  valid_to: string | null;
+  status: PriceRuleStatus;
+}
+
+/** 三层区域迁移的「套餐价不一致」逐条明细（M9P-05 的只读接口；价格页顶部「迁移差异 N 条」，M9P-07） */
+export interface CharterMigrationDiff {
+  charter_layout: "three_layer" | null;
+  items: {
+    old_price_rule_id: string;
+    /** 旧的按服务区域的套餐价是哪个服务区域的 */
+    area_id: string;
+    vehicle_group_id: string;
+    package_hours: number | null;
+    valid_from: string;
+    old: CharterPackageTerms;
+    product_price_rule_id: string | null;
+    /** 对应的整商品套餐价；没有为 null */
+    product: CharterPackageTerms | null;
+  }[];
 }
 
 export interface AdjustRuleInput {
@@ -201,6 +231,10 @@ export function savePriceRules(token: string, productId: string, version: number
   return apiRequest("POST", `${product(productId)}/price-rules/batch`, { token, body: batch, headers: { ...ifMatch(version), "idempotency-key": idempotencyKey } });
 }
 
+export function getCharterMigrationDiff(token: string, productId: string): Promise<CharterMigrationDiff> {
+  return apiRequest("GET", `${product(productId)}/charter-migration-diff`, { token });
+}
+
 export function getAdjustRules(token: string, productId: string): Promise<AdjustRules> {
   return apiRequest("GET", `${product(productId)}/adjust-rules`, { token });
 }
@@ -328,6 +362,8 @@ export const PRICE_SCHEMA_FIELDS = {
   DistancePrice: ["id", "vehicle_group_id", "start_price", "per_km", "valid_from", "valid_to", "status", "created_at", "updated_at"],
   DistancePrices: ["version", "currency", "today", "items"],
   DistancePriceSaved: ["version", "distance_price"],
+  CharterMigrationDiff: ["charter_layout", "items"],
+  CharterPackageTerms: ["package_price", "package_km", "overtime_per_hour", "over_km_per_km", "valid_to", "status"],
 } as const satisfies {
   PriceRule: readonly (keyof PriceRuleBody)[];
   PriceCalendar: readonly (keyof PriceCalendar)[];
@@ -340,10 +376,12 @@ export const PRICE_SCHEMA_FIELDS = {
   DistancePrice: readonly (keyof DistancePriceBody)[];
   DistancePrices: readonly (keyof DistancePrices)[];
   DistancePriceSaved: readonly (keyof DistancePriceSaved)[];
+  CharterMigrationDiff: readonly (keyof CharterMigrationDiff)[];
+  CharterPackageTerms: readonly (keyof CharterPackageTerms)[];
 };
 /** 价格总览里每个商品的字段（schema 是内嵌的，对账时单独比）。 */
 export const PRICE_OVERVIEW_ITEM_FIELDS = ["product_id", "code", "status", "category", "title", "city", "coverage", "inventory_mode", "no_inventory_ahead", "price_rule_count", "has_active_price", "active_price_rule_count", "enabled_adjust_rule_count"] as const satisfies readonly (keyof PriceOverviewItem)[];
 export const NO_PRICE_REASONS = ["NO_RULE", "NOT_IN_EFFECT", "RULE_DISABLED", "NOT_POSITIVE", "OVER_LIMIT"] as const;
 export const PRICE_WRITE_FIELDS = { PriceRuleInput: PRICE_INPUT, AdjustRuleInput: ADJUST_INPUT, PriceRuleBatch: ["create", "update", "delete"], AdjustRuleOrder: ["ids"], DistancePriceInput: ["vehicle_group_id", "start_price", "per_km", "valid_from", "valid_to", "status"] } as const;
 /** 页面专门处理的错误码和原因。 */
-export const PRICE_ERROR_CODES = ["PRICE_RULE_CONFLICT", "VERSION_CONFLICT", "PUBLISH_CHECK_FAILED", "CONCURRENT_UPDATE", "IDEMPOTENCY_KEY_REUSED", "AREA_NOT_IN_PRODUCT", "VEHICLE_GROUP_NOT_IN_PRODUCT", "UNKNOWN_PRICE_RULE", "TOO_MANY", "ADJUST_RESULT_NOT_POSITIVE", "ADJUST_RESULT_TOO_LARGE", "ADJUST_STACK_NOT_POSITIVE", "ADJUST_STACK_OVER_LIMIT", "NO_PRICE_IN_SELECTION", "ROUNDING_UNIT_ZEROES_PRICES", "IDS_MISMATCH", "NO_ACTIVE_PRICE_RULE", "ALL_PRICE_RULES_DISABLED", "ALL_PRICE_RULES_EXPIRED", "DISTANCE_PRICE_CONFLICT", "DISTANCE_PRICE_NOT_ALLOWED"] as const;
+export const PRICE_ERROR_CODES = ["PRICE_RULE_CONFLICT", "VERSION_CONFLICT", "PUBLISH_CHECK_FAILED", "CONCURRENT_UPDATE", "IDEMPOTENCY_KEY_REUSED", "AREA_NOT_IN_PRODUCT", "VEHICLE_GROUP_NOT_IN_PRODUCT", "UNKNOWN_PRICE_RULE", "TOO_MANY", "ADJUST_RESULT_NOT_POSITIVE", "ADJUST_RESULT_TOO_LARGE", "ADJUST_STACK_NOT_POSITIVE", "ADJUST_STACK_OVER_LIMIT", "NO_PRICE_IN_SELECTION", "ROUNDING_UNIT_ZEROES_PRICES", "IDS_MISMATCH", "NO_ACTIVE_PRICE_RULE", "ALL_PRICE_RULES_DISABLED", "ALL_PRICE_RULES_EXPIRED", "DISTANCE_PRICE_CONFLICT", "DISTANCE_PRICE_NOT_ALLOWED", "AREA_LAYER_OVERLAP", "AREA_BASE_SURCHARGE_OVERLAP", "AREA_IS_PRODUCT_AREA", "CHARTER_LEGACY_READ_ONLY", "CHARTER_LAYOUT_NOT_MIGRATED"] as const;

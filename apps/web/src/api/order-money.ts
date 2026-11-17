@@ -5,10 +5,10 @@
  */
 import type { OrderAreaSurchargeView, OrderDistanceView, OrderItineraryMoneyView, OrderMileageView, OrderPricingRoute } from "../lib/order-area-price-display.ts";
 import type { OrderEntrySource } from "./embed.ts";
-import type { ExceptionStatus, ExceptionType, ExtraChargeStatus, ExtraChargeType, FulfilmentEventType, OrderCancelReason, OrderChangeStatus, OrderStatus, PaymentStatus, PricingBasis, RefundStatus, ServiceCategory, TicketPriority, TicketStatus, TicketType, VehicleLevel, ViewLinkVerification } from "@nozomi/domain";
+import type { FlightKind, ExceptionStatus, ExceptionType, ExtraChargeStatus, ExtraChargeType, FulfilmentEventType, OrderCancelReason, OrderChangeStatus, OrderStatus, PaymentStatus, PricingBasis, RefundStatus, ServiceCategory, TicketPriority, TicketStatus, TicketType, VehicleLevel, ViewLinkVerification } from "@nozomi/domain";
 import { query, TENANT_BASE } from "./areas.ts";
 import { apiRequest, apiUpload } from "./client.ts";
-import type { ListPage, Money, OrderDispatch, OrderEvent, OrderFile, OrderFulfilment, OrderLanding, OrderRecords, OrderVehicleGroup } from "./dispatch.ts";
+import type { FreeWaitBasis, ListPage, Money, OrderDispatch, OrderEvent, OrderFile, OrderFulfilment, OrderLanding, OrderRecords, OrderVehicleGroup } from "./dispatch.ts";
 import type { Approval } from "./channels.ts";
 import { PLATFORM_BASE } from "./platform.ts";
 import type { OrderItinerary, OrderWaypoint } from "../lib/charter-itinerary.ts";
@@ -203,6 +203,10 @@ export interface PlatformOrder {
   landing: OrderLanding | null;
   /** 免费等待分钟数；null 表示不限 */
   free_wait_minutes: number | null;
+  /** 客人选的国际 / 国内航班（M9E-28，ADR 0097）；没选、不是接机为 null */
+  flight_kind?: FlightKind | null;
+  /** 接机按航班锁定免费等待的依据（M9E-28）；以前的单、不是接机为 null */
+  free_wait_basis?: FreeWaitBasis | null;
   category: ServiceCategory;
   direction: "pickup" | "dropoff" | null;
   vehicle_group_id: string;

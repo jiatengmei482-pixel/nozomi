@@ -93,7 +93,11 @@ export function isBlankSurcharge(row: SurchargeRow): boolean {
 
 /** 读一个金额格：不能空（不加钱填 0）、不能是负数、不能有多余的小数、不能超过上限。 */
 export function readSurchargeAmount(text: string, field: SurchargeAmountField, currency: string): { minor: number } | { problem: string } {
-  const name = SURCHARGE_FIELD_NAMES[field];
+  return readNamedAmount(text, SURCHARGE_FIELD_NAMES[field], currency);
+}
+
+/** 同 `readSurchargeAmount`，提示里的名字由调用方给（包车三层区域的行程加价表，M9P-07）。 */
+export function readNamedAmount(text: string, name: string, currency: string): { minor: number } | { problem: string } {
   const read = tidyAmountText(text, currency);
   if (!read.ok) {
     if (read.reason === "empty") return { problem: `请填${name}，不加钱请填 0` };

@@ -9,11 +9,13 @@
  */
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { BrowserRouter } from "react-router";
 import type { SiteByPointsResult, SiteCity, SiteConfig, SiteOrder, SiteOrderEnvelope, SiteQuote } from "../../api/site.ts";
 import { EMBED_ORDER_KEY } from "../../embed/embed-order-store.ts";
+import { frameBarShift } from "../../embed/frame-bar.ts";
+import { type PaymentDriver, PaymentDriverContext } from "../../lib/payment-driver.ts";
 import { type ApiCall, apiError, json, stubApiWith, viewportWidth } from "../../testing/harness.tsx";
 import { EmbedApp } from "./EmbedApp.tsx";
 import { EMBED_FRAME } from "./EmbedFrame.tsx";
@@ -56,6 +58,7 @@ const quote: SiteQuote = {
   free_wait_minutes: 15,
   cancel_policy: { category: "point_to_point", level: "economy", tiers: [{ min_hours_before: 24, fee_bp: 0 }, { min_hours_before: 0, fee_bp: 10000 }] },
   available_addons: [],
+  itinerary_warnings: null,
 };
 const byPoints: SiteByPointsResult = { trip_type: "point_to_point", airport: null, fallback_category: null, city: { id: CITY_ID, code: city.code, name: city.name, timezone: city.timezone }, currency: "JPY", quotes: [quote], unavailable: [], expires_at: null, route: null };
 const ROUTE = { minutes: 25, meters: 14_200, polyline: null };
@@ -142,6 +145,42 @@ interface Options {
   route?: SiteByPointsResult["route"];
   /** 订单接口按调用次数给状态 */
   orderStatus?: (call: number) => SiteOrder["status"] | "gone";
+  /** 配了 Stripe（付款进 iframe，M9E-19）：下单应答带 client_secret */
+  payments?: boolean;
+}
+
+const PK = "pk_test_embed";
+const SECRET = "pi_3Embed_secret_abc";
+const sitePayment = { provider: "stripe" as const, status: "requires_payment_method", client_secret: SECRET, publishable_key: PK };
+
+interface DriverLog {
+  mounts: { publishableKey: string; clientSecret: string; locale?: string }[];
+  /** 挂付款表单那一刻的地址（回跳参数必须在这之前去掉） */
+  searchAtMount: string[];
+  confirms: string[];
+  /** 确认付款那一刻宿主已经收到的消息条数（看 modal{open:true} 是不是在确认之前发的） */
+  postedAtConfirm: number[];
+}
+/** 假的付款组件（Stripe 的 Payment Element 由组件测试 site-payment.test.tsx 覆盖）：记下挂载参数和确认时的 return_url */
+function fakeDriver(log: DriverLog, options: { awaiting?: boolean } = {}): PaymentDriver {
+  return {
+    async mount(_container, mountOptions) {
+      log.mounts.push(mountOptions);
+      log.searchAtMount.push(window.location.search);
+      return {
+        state: "open",
+        lastError: null,
+        awaitingPaymentMethod: options.awaiting ?? false,
+        validate: async () => ({ ok: true }),
+        confirm: async (returnUrl) => {
+          log.confirms.push(returnUrl);
+          log.postedAtConfirm.push(posted.length);
+          return { kind: "succeeded" };
+        },
+        destroy: () => undefined,
+      };
+    },
+  };
 }
 
 function stub(options: Options = {}): ApiCall[] {
@@ -149,11 +188,12 @@ function stub(options: Options = {}): ApiCall[] {
   return stubApiWith((call) => {
     const path = call.url.pathname;
     if (path === `/site/v1/booking-drafts/${DRAFT}`) return json(200, { draft: DRAFT_BODY, expires_at: "2030-11-20T00:00:00Z", source_matches: options.sourceMatches ?? true });
-    if (path === "/site/v1/config") return json(200, config);
+    if (path === "/site/v1/config") return json(200, options.payments === true ? { ...config, payments: { provider: "stripe", publishable_key: PK } } : config);
     if (path === "/site/v1/cities") return json(200, { items: [city] });
     if (call.method === "POST" && path === "/site/v1/quotes/by-points") return json(200, { ...byPoints, route: options.route ?? null });
     if (path === "/site/v1/fx/reference") return json(200, { available: false, from: "JPY", to: "USD", rate: null, as_of: null, reason: "NO_RATE" });
-    if (call.method === "POST" && path === "/site/v1/orders") return json(201, { ...envelopeOf("pending_payment"), payment: null, link: { token: TOKEN, expires_at: "2030-12-01T00:00:00.000Z" } });
+    if (call.method === "POST" && path === "/site/v1/orders") return json(201, { ...envelopeOf("pending_payment"), payment: options.payments === true ? sitePayment : null, link: { token: TOKEN, expires_at: "2030-12-01T00:00:00.000Z" } });
+    if (call.method === "GET" && path === "/site/v1/order/payment") return json(200, { payment: sitePayment });
     if (call.method === "GET" && path === "/site/v1/order") {
       orderReads += 1;
       const status = options.orderStatus?.(orderReads) ?? "pending_payment";
@@ -163,13 +203,14 @@ function stub(options: Options = {}): ApiCall[] {
   });
 }
 
-function open(path: string): void {
+function open(path: string, driver?: PaymentDriver): void {
   history.replaceState(null, "", path);
-  render(
+  const app = (
     <BrowserRouter>
       <EmbedApp />
-    </BrowserRouter>,
+    </BrowserRouter>
   );
+  render(driver === undefined ? app : <PaymentDriverContext.Provider value={driver}>{app}</PaymentDriverContext.Provider>);
 }
 const query = `?draft=${DRAFT}&key=${KEY}&lang=ja&host=${encodeURIComponent(HOST)}`;
 const bookUrl = `/embed/book${query}#ch=${CH}`;
@@ -183,7 +224,7 @@ async function toReview(actor: ReturnType<typeof userEvent.setup>): Promise<void
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
   keepsFrameParams();
   await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
-  await actor.click(screen.getByRole("button", { name: "下一步" }));
+  await actor.click(screen.getByRole("button", { name: "下一步：填写乘客信息" }));
   await screen.findByRole("heading", { name: "乘客信息", level: 2 });
   keepsFrameParams();
   await actor.type(screen.getByLabelText("乘车人姓名"), "王小明");
@@ -220,6 +261,9 @@ test("四步（iframe 1023 宽）：读草稿带 key、host，对得上时询价
   const pay = screen.getByRole("link", { name: new RegExp(EMBED_TEXTS.ja.payInNewWindow) });
   assert.equal(pay.getAttribute("href"), `/book/order#${TOKEN}`);
   assert.equal(pay.getAttribute("target"), "_blank");
+  // 付款在 iframe 里（M9E-19）：新窗口的主站订单页只是退路，写在付款区块下面的一句话里
+  assert.ok(pay.closest(".embed-book__pay-hint")?.textContent?.startsWith(EMBED_TEXTS.ja.payHint));
+  assert.ok(screen.getByRole("heading", { name: "付款" }), "付款区块就在这一页（这里没配 Stripe：付款暂未开放）");
 
   // 草稿齐了先挂第 1 步、报价后到第 2 步（同主站）
   assert.deepEqual(steps(), ["trip", "vehicle", "passenger", "review", "payment"]);
@@ -381,4 +425,167 @@ test("订单页顶层打开（没被嵌）：不读订单、不显示订单内�
   await screen.findByText(EMBED_TEXTS.ja.topLevel);
   assert.equal(calls.length, 0);
   assert.equal(within(document.body).queryByText(ORDER_NO, { exact: false }), null);
+});
+
+test("包车行程地图（M9P-20）：嵌入页和主站同一个组件——地图请求本站 /site/v1/itinerary-map（上车、经停、下车按顺序），列表编号 1–3；图出不来只留列表，不用 Leaflet", async () => {
+  const charterDraft = { ...DRAFT_BODY, tab: "charter", waypoints: [{ name: "河口湖", lat: 35.498, lng: 138.769, stay_minutes: 60 }] };
+  const charterQuote: SiteQuote = { ...quote, package: { hours: 8, km: 200 }, cancel_policy: { ...quote.cancel_policy, category: "charter" } };
+  const legs = [
+    { minutes: 100, meters: 98_000 },
+    { minutes: 110, meters: 101_000 },
+  ];
+  const calls = stubApiWith((call) => {
+    const path = call.url.pathname;
+    if (path === `/site/v1/booking-drafts/${DRAFT}`) return json(200, { draft: charterDraft, expires_at: "2030-11-20T00:00:00Z", source_matches: true });
+    if (path === "/site/v1/config") return json(200, config);
+    if (path === "/site/v1/cities") return json(200, { items: [city] });
+    if (path === "/site/v1/charter-packages") return json(200, { city: { id: CITY_ID, code: city.code, name: city.name, timezone: city.timezone }, items: [{ hours: 8 }] });
+    if (path === "/site/v1/fx/reference") return json(200, { available: false, from: "JPY", to: "USD", rate: null, as_of: null, reason: "NO_RATE" });
+    if (call.method === "POST" && path === "/site/v1/quotes") return json(200, { currency: "JPY", quotes: [charterQuote], unavailable: [], itinerary_route: { legs, drive_minutes: 210, stay_minutes: 60, total_minutes: 270, total_meters: 199_000 } });
+    return null;
+  });
+  open(bookUrl);
+  await screen.findByRole("heading", { name: "车型1" }, SLOW);
+  const list = screen.getByRole("list", { name: "行程" });
+  assert.deepEqual([...list.querySelectorAll("li")].map((item) => item.textContent), ["1 上车京王广场酒店10:00 出发", "行驶约 1 小时 40 分 · 98 公里2 经停河口湖预计 11:40 到 · 12:40 出发停留 1 小时", "行驶约 1 小时 50 分 · 101 公里3 下车东京站预计 14:30 到"]);
+  const loader = await waitFor(() => document.querySelector<HTMLImageElement>(".itinerary-map__loader") ?? assert.fail("没有要行程地图"), SLOW);
+  const url = new URL(loader.src, window.location.origin);
+  assert.equal(url.origin, window.location.origin, "图片地址是本站");
+  assert.equal(url.pathname, "/site/v1/itinerary-map");
+  assert.deepEqual(url.searchParams.getAll("p"), ["35.690500,139.694800", "35.498000,138.769000", "35.681200,139.767100"]);
+  fireEvent.error(loader);
+  await waitFor(() => assert.equal(document.querySelector(".itinerary-map"), null));
+  assert.ok(screen.getByRole("list", { name: "行程" }), "图出不来列表还在");
+  assert.equal(document.querySelector(".leaflet-container"), null, "不用 Leaflet 后备图");
+  assert.equal(calls.filter((call) => call.path.startsWith("/site/v1/route-map")).length, 0);
+});
+
+test("经停超过 10 个（13 个点以上，ADR 0099）：不请求行程地图，只显示列表和「经停较多，仅显示列表」；列表编号照常", async () => {
+  const stops = Array.from({ length: 11 }, (_, i) => ({ name: `点${i + 1}`, lat: 35.4 + i / 100, lng: 138.8, stay_minutes: 30 }));
+  const charterDraft = { ...DRAFT_BODY, tab: "charter", waypoints: stops };
+  const charterQuote: SiteQuote = { ...quote, package: { hours: 12, km: 300 }, cancel_policy: { ...quote.cancel_policy, category: "charter" } };
+  const calls = stubApiWith((call) => {
+    const path = call.url.pathname;
+    if (path === `/site/v1/booking-drafts/${DRAFT}`) return json(200, { draft: charterDraft, expires_at: "2030-11-20T00:00:00Z", source_matches: true });
+    if (path === "/site/v1/config") return json(200, config);
+    if (path === "/site/v1/cities") return json(200, { items: [city] });
+    if (path === "/site/v1/charter-packages") return json(200, { city: { id: CITY_ID, code: city.code, name: city.name, timezone: city.timezone }, items: [{ hours: 12 }] });
+    if (path === "/site/v1/fx/reference") return json(200, { available: false, from: "JPY", to: "USD", rate: null, as_of: null, reason: "NO_RATE" });
+    if (call.method === "POST" && path === "/site/v1/quotes") return json(200, { currency: "JPY", quotes: [charterQuote], unavailable: [] });
+    return null;
+  });
+  open(bookUrl);
+  await screen.findByRole("heading", { name: "车型1" }, SLOW);
+  const items = [...screen.getByRole("list", { name: "行程" }).querySelectorAll(".trip-stops__number")].map((node) => node.textContent);
+  assert.deepEqual(items, Array.from({ length: 13 }, (_, i) => String(i + 1)));
+  assert.ok(screen.getByText("经停较多，仅显示列表"));
+  assert.equal(document.querySelector(".itinerary-map"), null);
+  assert.equal(calls.filter((call) => call.path.startsWith("/site/v1/itinerary-map")).length, 0, "不请求地图");
+});
+
+test("iframe 390 宽（M9E-32，ADR 0100）：每一步的按钮在底部按钮条里、条留在文档流里；没收到带 top 的 viewport 时 sticky 贴底，收到后按宿主屏幕的下沿往上挪、不低于原位置；旧版组件脚本只发 height 时退回 sticky；换步后新条马上按最近的位置摆；不给 <html> 加底部空白", async () => {
+  screenWidth = viewportWidth(390);
+  stub();
+  const actor = userEvent.setup();
+  open(bookUrl);
+  await screen.findByRole("heading", { name: "车型1" }, SLOW);
+  const bar = (): HTMLElement => screen.getByRole("group", { name: "本步操作" });
+  const slot = (): HTMLElement => bar().parentElement as HTMLElement;
+  const shift = (): string => bar().style.getPropertyValue("--book-actionbar-shift");
+  const viewport = (fields: Record<string, unknown>) =>
+    act(() => void window.dispatchEvent(new MessageEvent("message", { data: { ns: "nozomi-booking", v: 1, ch: CH, type: "viewport", ...fields }, origin: HOST, source: parent as unknown as MessageEventSource })));
+  const rect = (top: number, height: number) => () => ({ top, bottom: top + height, left: 0, right: 390, width: 390, height, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
+
+  assert.ok(slot().classList.contains("step-bar-slot--frame"), "嵌入页：不用 fixed");
+  assert.equal(slot().hasAttribute("data-tracked"), false, "还没收到 viewport：sticky 贴底");
+  assert.equal(document.documentElement.hasAttribute("data-book-actionbar"), false, "不给宿主看不到的 <html> 留底部空白");
+  assert.equal(document.documentElement.hasAttribute("data-viewport-fit"), false, "iframe 里不改 viewport");
+  const next = within(bar()).getByRole("button", { name: "下一步：填写乘客信息" }) as HTMLButtonElement;
+  assert.equal(next.disabled, true);
+  assert.equal(document.getElementById(next.getAttribute("aria-describedby") ?? "")?.textContent, "请先选择车型");
+
+  slot().getBoundingClientRect = rect(2900, 80);
+  bar().getBoundingClientRect = rect(2900, 80);
+  await viewport({ height: 800, top: 300 });
+  assert.equal(slot().hasAttribute("data-tracked"), true);
+  const expected = frameBarShift({ frameTop: 300, hostHeight: 800, frameHeight: window.innerHeight, slotTop: 2900, barHeight: 80 });
+  assert.ok(expected < 0);
+  assert.equal(shift(), `${expected}px`, "条的下沿对齐 iframe 露在宿主屏幕上的那一截的底边");
+  slot().getBoundingClientRect = rect(100, 80);
+  await viewport({ height: 800, top: -2000 });
+  assert.equal(shift(), "0px", "原位置已经在屏幕里：不往下挪");
+  await viewport({ height: 800 });
+  assert.equal(slot().hasAttribute("data-tracked"), false, "旧版组件脚本（不带 top）：退回 sticky");
+  assert.equal(shift(), "");
+  assert.equal(document.querySelector("main")?.getAttribute("data-host-viewport"), "800");
+
+  await viewport({ height: 700, top: 50 });
+  await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
+  await actor.click(within(bar()).getByRole("button", { name: "下一步：填写乘客信息" }));
+  await screen.findByRole("heading", { name: "乘客信息", level: 2 });
+  assert.ok(within(bar()).getByRole("button", { name: "下一步：核对订单" }).closest("form"), "第 3 步的条在表单里");
+  assert.equal(slot().hasAttribute("data-tracked"), true, "换步后新条马上按最近收到的位置摆");
+  assert.match(shift(), /^-?\d+px$/);
+});
+
+test("付款进 iframe（M9E-19）：下单后同一页直接挂付款表单（不再点按钮、不开新窗口），Stripe 表单用嵌入页语言；确认前发 modal{open:true}、确认后 modal{open:false}；return_url 回到嵌入订单页、带 key / host / 频道号、不带令牌；付完发 completed", async () => {
+  screenWidth = viewportWidth(1023);
+  let paid = false;
+  const calls = stub({ payments: true, orderStatus: () => (paid ? "confirmed" : "pending_payment") });
+  ORDER_POLL.ms = 50;
+  const log: DriverLog = { mounts: [], confirms: [], postedAtConfirm: [], searchAtMount: [] };
+  const actor = userEvent.setup();
+  open(bookUrl, fakeDriver(log));
+  await toReview(actor);
+  await actor.click(screen.getByRole("checkbox", { name: /同意保存这次付款用的银行卡/ }));
+  await actor.click(screen.getByRole("button", { name: "去付款 →" }));
+  await screen.findByRole("heading", { name: `${EMBED_TEXTS.ja.orderNo} ${ORDER_NO}` }, SLOW);
+  const payButton = await screen.findByRole("button", { name: "付款 18,000 JPY" }, SLOW);
+  assert.equal(window.location.hash, `#ch=${CH}`, "订单页地址带频道号（# 后，不发给服务器），iframe 刷新后照样带得上");
+  assert.deepEqual(log.mounts, [{ publishableKey: PK, clientSecret: SECRET, locale: "ja" }], "用下单应答里的 client_secret 直接挂（不再读一次），语言跟嵌入页");
+  assert.equal(calls.filter((call) => call.path === "/site/v1/order/payment").length, 0);
+  assert.ok(screen.getByRole("link", { name: new RegExp(`^${EMBED_TEXTS.ja.payInNewWindow}`) }).closest(".embed-book__pay-hint"), "新窗口只是退路");
+
+  await actor.click(payButton);
+  await actor.click(await screen.findByRole("button", { name: "确认支付" }));
+  await waitFor(() => assert.equal(log.confirms.length, 1));
+  const back = new URL(log.confirms[0] as string);
+  assert.equal(back.origin + back.pathname, `${window.location.origin}/embed/book/order`);
+  assert.deepEqual(Object.fromEntries(back.searchParams), { draft: DRAFT, key: KEY, lang: "ja", host: HOST, ch: CH });
+  assert.doesNotMatch(log.confirms[0] as string, /nzo_/, "令牌不进 return_url");
+  const modal = messages().filter((message) => message["type"] === "modal").map((message) => message["open"]);
+  assert.deepEqual(modal, [true, false]);
+  const openIndex = messages().findIndex((message) => message["type"] === "modal" && message["open"] === true);
+  assert.ok(openIndex < (log.postedAtConfirm[0] ?? 0), "modal{open:true} 在确认付款之前发");
+  assert.ok(await screen.findByText(/付款成功，等待确认/));
+
+  paid = true;
+  await waitFor(() => assert.equal(messages().filter((message) => message["type"] === "completed").length, 1), SLOW);
+  assert.deepEqual(messages().find((message) => message["type"] === "completed"), { ns: "nozomi-booking", v: 1, ch: CH, type: "completed", orderNo: ORDER_NO, status: "submitted" });
+  assert.equal(screen.queryByRole("heading", { name: "付款" }), null, "付完付款区块收起");
+  assert.equal(sessionStorage.getItem(EMBED_ORDER_KEY), null);
+  assert.doesNotMatch(JSON.stringify(posted), /nzo_|pi_3Embed|secret/, "消息里没有令牌、付款编号");
+});
+
+test("银行整页回跳回到嵌入订单页（M9E-19）：令牌从 nozomi.payment-return 按付款编号取回，地址里的 payment_intent / client_secret / 频道号马上去掉；回跳后发给宿主的消息仍带频道号；Stripe 说还在等付款时提示重新付", async () => {
+  screenWidth = viewportWidth(390);
+  let paid = false;
+  stub({ payments: true, orderStatus: () => (paid ? "confirmed" : "pending_payment") });
+  ORDER_POLL.ms = 50;
+  sessionStorage.setItem("nozomi.payment-return", JSON.stringify({ intentId: "pi_3Embed", token: TOKEN, at: Date.now() }));
+  const log: DriverLog = { mounts: [], confirms: [], postedAtConfirm: [], searchAtMount: [] };
+  open(`/embed/book/order${query}&ch=${CH}&payment_intent=pi_3Embed&payment_intent_client_secret=${SECRET}&redirect_status=failed`, fakeDriver(log, { awaiting: true }));
+  await screen.findByRole("heading", { name: `${EMBED_TEXTS.ja.orderNo} ${ORDER_NO}` }, SLOW);
+  keepsFrameParams();
+  for (const name of ["payment_intent", "payment_intent_client_secret", "redirect_status", "ch"]) assert.equal(new URLSearchParams(window.location.search).has(name), false, `地址里还有 ${name}`);
+  assert.equal(sessionStorage.getItem("nozomi.payment-return"), null, "取回后立刻删掉");
+  assert.ok(await screen.findByText("上次付款没有完成，请重新付款。", {}, SLOW));
+  assert.deepEqual(log.mounts.map((mount) => mount.clientSecret), [SECRET]);
+  assert.doesNotMatch(log.searchAtMount[0] ?? "", /payment_intent|redirect_status|ch=/, "挂 Stripe 之前地址里的回跳参数已经去掉");
+  assert.equal(window.location.hash, `#ch=${CH}`, "频道号移到 # 后（iframe 再刷新也带得上）");
+  assert.deepEqual(messages()[0], { ns: "nozomi-booking", v: 1, ch: CH, type: "modal", open: false }, "回跳回来先告诉宿主验证窗口已关（整页跳走时没发出去）");
+  assert.ok(messages().length > 0);
+  assert.ok(messages().every((message) => message["ch"] === CH), "回跳后的 ready / step 带得上频道号");
+  paid = true;
+  await waitFor(() => assert.equal(messages().filter((message) => message["type"] === "completed").length, 1), SLOW);
 });

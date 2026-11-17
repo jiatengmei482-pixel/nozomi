@@ -4,6 +4,7 @@
  * 系统状态不自动刷新：每次请求都会写一条审计日志（填写、清空第三方密钥以后重新取一次）。
  * 第三方密钥（谷歌地图、Stripe 的填写、更换、清空、测试一下，ADR 0041）在 IntegrationSecretsSection.tsx。
  */
+import { itineraryCopy } from "../../lib/itinerary-texts.ts";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router";
 import { ApiError } from "../../api/client.ts";
@@ -773,6 +774,40 @@ function RouteUsageCard({ routes }: { routes: RouteUsageStatus }) {
   );
 }
 
+/** 包车经停顺序建议的优化调用（接口的 `routes_optimize`；M9P-20 P2，ADR 0096 第三节第 2 小节）：今天的用量、上限、被挡下的次数、最近一次失败 */
+function OptimizeUsageCard({ usage }: { usage: RouteUsageStatus }) {
+  const failure = usage.last_failure;
+  return (
+    <section className="card" aria-labelledby="integrations-optimize-title">
+      <div className="card__header">
+        <h2 className="card__title" id="integrations-optimize-title">
+          {itineraryCopy("optimizeTitle")}
+        </h2>
+        <StatusBadge {...routeUsageBadge(usage)} />
+      </div>
+      <p className="page-intro">{itineraryCopy("optimizeIntro")}</p>
+      <dl className="details">
+        <div className="details__item">
+          <dt>{itineraryCopy("optimizeCalls", { day: usage.day })}</dt>
+          <dd>{itineraryCopy("optimizeLimit", { calls: usage.calls, limit: usage.daily_limit })}</dd>
+        </div>
+        <div className="details__item">
+          <dt>{itineraryCopy("optimizeRefused")}</dt>
+          <dd>{`${usage.refused} 次`}</dd>
+        </div>
+        <div className="details__item">
+          <dt>今天失败</dt>
+          <dd>{`${usage.failures} 次`}</dd>
+        </div>
+        <div className="details__item">
+          <dt>最近一次失败</dt>
+          <dd>{failure === null ? "没有失败过" : `${when(failure.at)} ${failure.code}`}</dd>
+        </div>
+      </dl>
+    </section>
+  );
+}
+
 export function IntegrationsPage() {
   const { portal, account, token, handleAuthFailure } = usePortalSession();
   useDocumentTitle(`系统状态 · NOZOMI ${portal.name}`);
@@ -861,6 +896,7 @@ export function IntegrationsPage() {
         <DataTable label="系统状态" columns={columns} rows={items ?? []} rowKey={(row) => row.key} state={tableState} refreshing={state.status === "loading" && state.data !== null} onRetry={loaded.reload} empty={<StateBlock tone="neutral" title="没有可以检查的项目" />} />
       </div>
       {routes !== null && <RouteUsageCard routes={routes} />}
+      {state.data?.routes_optimize !== undefined && <OptimizeUsageCard usage={state.data.routes_optimize} />}
       {canRead && <IntegrationSecretsSection onChanged={loaded.reload} />}
       {fx !== null && <FxCenterCard fx={fx} />}
     </>,

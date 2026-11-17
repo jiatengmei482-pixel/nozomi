@@ -284,10 +284,10 @@ test("经停点过运营 / 禁行判断：落在商品报价区域的禁行区 �
   assert.equal(prices(trip("shinjuku", ["daibutsu"], "shinjuku"), product({ surchargeAreas: [FUJI, forbidKama, HAKONE] })), "IN_FORBIDDEN_AREA");
 });
 
-test("请求校验：经停点只有包车能给、最多 10 个、给了就要有下车点；没下车点的引擎也不报（DROPOFF_REQUIRED）", () => {
-  const ten = Array.from({ length: 10 }, () => P.gogome);
-  assert.deepEqual(quoteRequestIssues({ ...trip("shinjuku", undefined, "shinjuku"), waypoints: ten }), []);
-  assert.deepEqual(quoteRequestIssues({ ...trip("shinjuku", undefined, "shinjuku"), waypoints: [...ten, P.gogome] }), [{ path: "/waypoints", reason: "OUT_OF_RANGE" }]);
+test("请求校验：经停点只有包车能给、最多 25 个（M9P-10，路径接口上限）、给了就要有下车点；没下车点的引擎也不报（DROPOFF_REQUIRED）", () => {
+  const full = Array.from({ length: 25 }, () => P.gogome);
+  assert.deepEqual(quoteRequestIssues({ ...trip("shinjuku", undefined, "shinjuku"), waypoints: full }), []);
+  assert.deepEqual(quoteRequestIssues({ ...trip("shinjuku", undefined, "shinjuku"), waypoints: [...full, P.gogome] }), [{ path: "/waypoints", reason: "OUT_OF_RANGE" }]);
   assert.deepEqual(quoteRequestIssues({ ...trip("shinjuku", ["gogome"], "shinjuku"), dropoff: null }), [{ path: "/dropoff", reason: "REQUIRED" }]);
   assert.deepEqual(quoteRequestIssues({ ...trip("shinjuku", ["gogome"], "shinjuku"), category: "point_to_point", packageHours: null }), [{ path: "/waypoints", reason: "NOT_APPLICABLE" }]);
   assert.equal(prices({ ...trip("shinjuku", ["gogome"], "shinjuku"), dropoff: null }, product({ priceRules: [pkg], surchargeAreas: [] })), "DROPOFF_REQUIRED");

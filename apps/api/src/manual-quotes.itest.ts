@@ -162,9 +162,38 @@ test("包车带经停点（M9W-04）：可以不带时长（按行程计价）�
   assert.deepEqual([bad.status, bad.body.error.details.issues.map((issue: { path: string; reason: string }) => [issue.path, issue.reason])], [400, [["/trip/waypoints", "NOT_APPLICABLE"]]]);
   const noHours = await submit({ email: nextEmail(), trip: trip({ category: "charter", dropoff: null }) });
   assert.deepEqual([noHours.status, noHours.body.error.details.issues.map((issue: { path: string; reason: string }) => [issue.path, issue.reason])], [400, [["/trip/package_hours", "REQUIRED"]]]);
-  const tooMany = await submit({ email: nextEmail(), trip: trip({ category: "charter", waypoints: Array.from({ length: 11 }, () => stops[0]) }) });
-  assert.equal(tooMany.status, 400);
+  // 经停点上限和官网询价一样（M9P-10：25 个，只受路径接口上限）
+  const tooMany = await submit({ email: nextEmail(), trip: trip({ category: "charter", waypoints: Array.from({ length: 26 }, () => stops[0]) }) });
+  assert.deepEqual([tooMany.status, tooMany.body.error.details.issues.map((issue: { path: string; reason: string }) => issue.path)], [400, ["/trip/waypoints"]]);
+  const full = await submit({ email: nextEmail(), trip: trip({ category: "charter", waypoints: Array.from({ length: 25 }, () => stops[0]) }) });
+  assert.equal(full.status, 202, full.text);
   await assert.rejects(api.db.owner.query("update manual_quote_requests set package_hours = 4 where category <> 'charter'"), /manual_quote_requests_package_check/);
+});
+
+test("经停点的指定到达时间（M9P-20 P3）：只在指定了时记下来、详情原样解出来；和官网询价同一个校验（不晚于用车开始、超过 24 小时 400）", async () => {
+  const stops = [
+    { name: "横滨", lat: 35.4437, lng: 139.638, stay_minutes: 60, arrive_by: { day_offset: 0, time: "11:00" } },
+    { name: "箱根", lat: 35.2324, lng: 139.1069, stay_minutes: 90 },
+  ];
+  const res = await submit({ email: nextEmail(), trip: trip({ category: "charter", dropoff: null, waypoints: stops }) });
+  assert.equal(res.status, 202, res.text);
+  const detail = await platform("customer_service", "GET", `/manual-quote-requests/${(await latest()).id}`);
+  assertMatchesOpenApi("GET", "/platform/v1/manual-quote-requests/{id}", detail);
+  assert.deepEqual(detail.body.waypoints, stops);
+  assert.equal("arrive_by" in detail.body.waypoints[1], false, "没指定的经停没有这一项");
+  // 晚上出发、次日凌晨到：可以
+  const overnight = await submit({ email: nextEmail(), trip: trip({ category: "charter", dropoff: null, service_local: "2026-12-01T20:00", waypoints: [{ ...stops[1], arrive_by: { day_offset: 1, time: "01:00" } }] }) });
+  assert.equal(overnight.status, 202, overnight.text);
+  for (const [arriveBy, reason] of [
+    [{ day_offset: 0, time: "09:30" }, "NOT_AFTER_START"],
+    [{ day_offset: 0, time: "08:00" }, "NOT_AFTER_START"],
+    [{ day_offset: 1, time: "09:31" }, "TOO_LATE"],
+  ] as const) {
+    const bad = await submit({ email: nextEmail(), trip: trip({ category: "charter", dropoff: null, waypoints: [{ ...stops[1], arrive_by: arriveBy }] }) });
+    assert.deepEqual([bad.status, bad.body.error.details.issues.map((issue: { path: string; reason: string }) => [issue.path, issue.reason])], [400, [["/trip/waypoints/0/arrive_by", reason]]], JSON.stringify(arriveBy));
+  }
+  const format = await submit({ email: nextEmail(), trip: trip({ category: "charter", dropoff: null, waypoints: [{ ...stops[1], arrive_by: { day_offset: 2, time: "10:00" } }] }) });
+  assert.equal(format.status, 400);
 });
 
 test("防刷：陷阱字段有内容时照样 202、什么都不记；同一个联系方式同一个行程 24 小时内只记一次，过了 24 小时再记", async () => {

@@ -1,4 +1,4 @@
-/** 标准行程单校验（ADR 0100 第二节）。 */
+/** 标准行程单校验（ADR 0101 第二节）。 */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type TripDay, type TripItinerary, dayPoints, minuteOfDay, tripItineraryIssues, tripPlaceKey } from "./itinerary.ts";
