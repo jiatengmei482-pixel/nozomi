@@ -7,9 +7,11 @@
  *   从不用 "*"。消息里只有步骤名、高度、订单号、错误代码，不带草稿内容、令牌和任何个人信息。`host` 写法不对时一条都不发。
  * - `ready` 整个文档只发一次（页面准备好时调 `announce`），之后换页面不再发；内容高度一变就发 `resize`（同一帧只发一次）。
  * - 收宿主的消息：只认 `event.source === window.parent && event.origin === host`、频道号对得上的 viewport（只影响显示位置）。
+ *   viewport 的 height、top（M9E-32，ADR 0100）放进 `viewport`（可订阅），手机底部按钮条订阅它来停在宿主屏幕的下沿；滚动时频繁更新也不让整页重新渲染。
  */
 import { type ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { type FrameMessage, type FrameParams, envelope, frameParamsOf, parseHostMessage } from "../../embed/booking-protocol.ts";
+import { type HostViewportSource, createHostViewportStore } from "../../embed/frame-bar.ts";
 import { EMBED_TEXTS, type EmbedLang, type EmbedTexts } from "./embed-texts.ts";
 
 /** 嵌着这个页面的父窗口；顶层打开为 null。测试里换成替身 */
@@ -33,6 +35,8 @@ export interface EmbedFrameValue {
   send(message: FrameMessage): void;
   /** 页面准备好了：发 `ready`（整个文档只发一次）；地址没带 lang 时语言跟草稿 */
   announce(lang: EmbedLang | null): void;
+  /** 宿主最近一次发来的可视高度和 iframe 上沿位置（没收到为 null；旧版组件脚本不带 top） */
+  viewport: HostViewportSource;
 }
 
 const EmbedFrameContext = createContext<EmbedFrameValue | null>(null);
@@ -48,6 +52,7 @@ export function EmbedFrame({ children }: { children: ReactNode }) {
   const [parent] = useState(() => EMBED_FRAME.parent());
   const [draftLang, setDraftLang] = useState<EmbedLang | null>(null);
   const [hostViewport, setHostViewport] = useState<number | null>(null);
+  const [viewport] = useState(createHostViewportStore);
   const announced = useRef(false);
   const mainRef = useRef<HTMLElement | null>(null);
   const { host, ch } = params;
@@ -96,19 +101,21 @@ export function EmbedFrame({ children }: { children: ReactNode }) {
     };
   }, [canTalk, send]);
 
-  // 宿主发来的可视高度：只认父窗口、宿主 origin、同一个频道；只用来摆放弹窗（第三期 M9E-19），不改任何预订内容
+  // 宿主发来的可视高度：只认父窗口、宿主 origin、同一个频道；只用来摆放弹窗（第三期 M9E-19）和手机底部按钮条（M9E-32），不改任何预订内容
   useEffect(() => {
     if (!canTalk) return;
     const onMessage = (event: MessageEvent): void => {
       if (parent === null || event.source !== parent || event.origin !== host) return;
       const message = parseHostMessage(event.data, ch ?? "");
-      if (message !== null) setHostViewport(message.height);
+      if (message === null) return;
+      setHostViewport(message.height);
+      viewport.set({ height: message.height, top: message.top ?? null });
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [canTalk, parent, host, ch]);
+  }, [canTalk, parent, host, ch, viewport]);
 
-  const value = useMemo<EmbedFrameValue>(() => ({ params, inFrame: parent !== null, lang, t: EMBED_TEXTS[lang], send, announce }), [params, parent, lang, send, announce]);
+  const value = useMemo<EmbedFrameValue>(() => ({ params, inFrame: parent !== null, lang, t: EMBED_TEXTS[lang], send, announce, viewport }), [params, parent, lang, send, announce, viewport]);
   return (
     <EmbedFrameContext.Provider value={value}>
       <main className="embed-book" ref={mainRef} lang={lang === "zh" ? "zh-CN" : lang} data-host-viewport={hostViewport ?? undefined}>
@@ -118,10 +125,18 @@ export function EmbedFrame({ children }: { children: ReactNode }) {
   );
 }
 
-/** 嵌入页里站内地址的查询串：保留 draft、key、lang、host（Caddy 靠 key、host 做 frame-check，丢了整页重新加载就嵌不进去），去掉步骤号 */
+/**
+ * 嵌入页里站内地址的查询串：保留 draft、key、lang、host（Caddy 靠 key、host 做 frame-check，丢了整页重新加载就嵌不进去），去掉步骤号；
+ * 银行回跳带回来的频道号 `ch` 和 Stripe 加的 `payment_intent*`、`redirect_status`（里面有 client_secret）也去掉（M9E-19）。
+ */
 export function embedSearch(search: string): string {
   const query = new URLSearchParams(search);
-  query.delete("step");
+  for (const name of ["step", "ch", "payment_intent", "payment_intent_client_secret", "redirect_status"]) query.delete(name);
   const text = query.toString();
   return text === "" ? "" : `?${text}`;
+}
+
+/** 嵌入订单页地址的 # 部分：频道号放这里（不发给服务器、不进 Referer），iframe 刷新后 `frameParamsOf` 照样读得到（M9E-19） */
+export function embedHash(ch: string | null): string {
+  return ch === null ? "" : `#ch=${encodeURIComponent(ch)}`;
 }

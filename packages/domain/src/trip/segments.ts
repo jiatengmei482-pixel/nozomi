@@ -1,11 +1,11 @@
 /**
- * 分段判定与同一天的拆法（ADR 0100 第三节第 3、4 小节；设计篇第三节第 3、4 小节）。
+ * 分段判定与同一天的拆法（ADR 0101 第三节第 3、4 小节；设计篇第三节第 3、4 小节）。
  * 输入是编排器已经识别好的点（是不是机场 / 车站 / 酒店；机场按 `placeId` 或坐标落在平台机场里，同官网按点询价）。
  */
 export const TRIP_SEGMENT_TYPES = ["airport_pickup", "airport_dropoff", "p2p", "charter", "idle_day"] as const;
 export type TripSegmentType = (typeof TRIP_SEGMENT_TYPES)[number];
 
-/** 拆法用的平台常量（ADR 0100 第三节第 4 小节） */
+/** 拆法用的平台常量（ADR 0101 第三节第 4 小节） */
 export const TRIP_SPLIT_RULES = {
   /** 停留至少这么多分钟的点算自然断点 */
   splitStayMinutes: 60,
@@ -76,7 +76,7 @@ export function naturalBreakpoints(points: readonly SegmentPoint[]): number[] {
 /**
  * 一天的候选拆法（每天最多 4 种，含「不拆」）：不拆 → 每个断点各拆一刀 → 所有断点都拆。
  * 超过 4 种时按这个先后留满 4 种：不拆、机场旁的那一刀（接机 + 包车 / 包车 + 送机）、第一个酒店、其余按先后。
- * ADR 0100 第三节第 4 小节字面是「超出只留不拆和第一个酒店」；这里多留到 4 种（每天仍不超过 8 段、预算不变），在 PR 里列为偏离。
+ * ADR 0101 第三节第 4 小节字面是「超出只留不拆和第一个酒店」；这里多留到 4 种（每天仍不超过 8 段、预算不变），在 PR 里列为偏离。
  * 两个点的一天只有「不拆」。拆出来的段至少两个点（拆点不会是首末）。
  */
 export function daySplitOptions(points: readonly SegmentPoint[]): SplitOption[] {
@@ -98,7 +98,7 @@ export function daySplitOptions(points: readonly SegmentPoint[]): SplitOption[] 
 
 /**
  * 每个点的到达 / 出发时间（当天零点起的分钟，可以超过 1440）：起点出发 = `startMinute`；
- * 后一点到达 = 前一点出发 + 这一程行驶分钟；出发 = 到达 + 停留。客人只填起点时间，其余由服务器按路线推算（ADR 0100 第二节）。
+ * 后一点到达 = 前一点出发 + 这一程行驶分钟；出发 = 到达 + 停留。客人只填起点时间，其余由服务器按路线推算（ADR 0101 第二节）。
  */
 export function pointTimes(startMinute: number, legDriveMinutes: readonly number[], stays: readonly number[]): { arrive: number[]; depart: number[] } {
   if (stays.length !== legDriveMinutes.length + 1) throw new RangeError(`停留个数（${stays.length}）必须比行驶段数（${legDriveMinutes.length}）多一`);

@@ -101,7 +101,8 @@ function newRequestNo(now: Date): string {
 function tripKey(trip: ManualQuoteTrip): string {
   const point = (place: ManualQuotePlace | null) => (place === null ? null : [place.lat.toFixed(4), place.lng.toFixed(4)]);
   const parts: unknown[] = [trip.category, point(trip.pickup), point(trip.dropoff), trip.serviceLocal, trip.passengers, trip.luggage, trip.packageHours];
-  if (trip.waypoints.length > 0) parts.push(trip.waypoints.map((stop) => [point(stop), stop.stayMinutes]));
+  // 指定到达时间（M9P-20 P3）只在给了时加进去：没指定的行程键和以前一样
+  if (trip.waypoints.length > 0) parts.push(trip.waypoints.map((stop) => (stop.arriveBy === undefined ? [point(stop), stop.stayMinutes] : [point(stop), stop.stayMinutes, `${stop.arriveBy.day_offset}+${stop.arriveBy.time}`])));
   return JSON.stringify(parts);
 }
 

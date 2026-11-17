@@ -304,6 +304,7 @@ test("有报价时照旧：能往第 3 步「乘客信息」走，没有人工�
     free_wait_minutes: 0,
     cancel_policy: { category: "point_to_point", level: "economy", tiers: [{ min_hours_before: 0, fee_bp: 10000 }] },
     available_addons: [],
+    itinerary_warnings: null,
   } satisfies SiteQuoteResult["quotes"][number];
   let asked = 0;
   openPage(P2P_LINK, {

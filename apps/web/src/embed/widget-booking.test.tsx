@@ -139,7 +139,7 @@ test("postMessage：只认这个 iframe、主站 origin、频道号对得上的�
   assert.equal(frame.getAttribute("height"), "720", "别的来源、别的频道一律不理");
 
   fromFrame({ type: "ready", lang: "ja" });
-  assert.deepEqual(sent, [[{ ns: "nozomi-booking", v: 1, ch: channelOf(frame), type: "viewport", height: Math.round(window.innerHeight) }, BASE]]);
+  assert.deepEqual(sent, [[{ ns: "nozomi-booking", v: 1, ch: channelOf(frame), type: "viewport", height: Math.round(window.innerHeight), top: 0 }, BASE]], "带 iframe 上沿的位置 top（M9E-32）");
   window.dispatchEvent(new Event("resize"));
   assert.equal(sent.length, 2, "宿主窗口大小变了再发一次");
   assert.ok(sent.every(([, origin]) => origin === BASE), "targetOrigin 一律是主站 origin");
@@ -148,6 +148,49 @@ test("postMessage：只认这个 iframe、主站 origin、频道号对得上的�
   assert.equal(frame.getAttribute("height"), "1234");
   fromFrame({ type: "resize", height: 999_999 });
   assert.equal(frame.getAttribute("height"), "20000", "截到 20000");
+});
+
+test("宿主页滚动（M9E-32，ADR 0100）：ready 之后才发；同一帧只发一次 viewport，带 iframe 上沿的位置（取整、截到 ±20000）；位置没变不发；拆掉后不再听", async () => {
+  mountWithDraft();
+  const frame = iframe();
+  const sent: Record<string, unknown>[] = [];
+  const target = frame.contentWindow as Window;
+  target.postMessage = ((message: Record<string, unknown>, targetOrigin: string) => {
+    assert.equal(targetOrigin, BASE);
+    sent.push(message);
+  }) as typeof target.postMessage;
+  let top = 240;
+  frame.getBoundingClientRect = () => ({ top, bottom: top + 2000, left: 0, right: 390, width: 390, height: 2000, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
+  const scroll = (): boolean => window.dispatchEvent(new Event("scroll"));
+
+  scroll();
+  await wait(40);
+  assert.equal(sent.length, 0, "ready 之前不发");
+  fromFrame({ type: "ready", lang: "ja" });
+  assert.deepEqual(sent.map((message) => message["top"]), [240]);
+
+  top = -812.6;
+  scroll();
+  scroll();
+  scroll();
+  await wait(40);
+  assert.deepEqual(sent.map((message) => message["top"]), [240, -813], "连着滚三下只发一次，取整");
+  assert.equal(sent[1]?.["type"], "viewport");
+  assert.equal(sent[1]?.["height"], Math.round(window.innerHeight));
+  scroll();
+  await wait(40);
+  assert.equal(sent.length, 2, "位置没变不发");
+  top = -50_000;
+  document.body.dispatchEvent(new Event("scroll"));
+  await wait(40);
+  assert.deepEqual(sent.map((message) => message["top"]), [240, -813, -20_000], "页面里的滚动容器滚动（不冒泡，在捕获阶段听到）也发；截到 -20000");
+
+  root().replaceChildren();
+  mountBookingFrom(BASE, { key: KEY, root: "#flow" });
+  top = 10;
+  scroll();
+  await wait(40);
+  assert.equal(sent.length, 3, "同一个容器重新挂载后，旧 iframe 的滚动监听已拆掉");
 });
 
 test("3D 验证弹窗：modal open 时 iframe 滚到顶、高度设成可视高度（至少 480）；关掉后恢复按 resize 的高度", () => {
@@ -166,6 +209,19 @@ test("3D 验证弹窗：modal open 时 iframe 滚到顶、高度设成可视高�
   assert.equal(frame.getAttribute("height"), `${Math.max(Math.round(window.innerHeight), 480)}`, "弹窗开着时不跟着 resize 变");
   fromFrame({ type: "modal", open: false });
   assert.equal(frame.getAttribute("height"), "1900");
+});
+
+test("银行整页回跳（M9E-19）：modal 开着时 iframe 里换了新文档（发来新的 ready），宿主恢复按内容高度、之后的 resize 照常生效", () => {
+  mountWithDraft();
+  const frame = iframe();
+  frame.scrollIntoView = () => undefined;
+  fromFrame({ type: "ready", lang: "ja" });
+  fromFrame({ type: "resize", height: 1800 });
+  fromFrame({ type: "modal", open: true });
+  fromFrame({ type: "ready", lang: "ja" });
+  assert.equal(frame.getAttribute("height"), "1800");
+  fromFrame({ type: "resize", height: 1500 });
+  assert.equal(frame.getAttribute("height"), "1500");
 });
 
 test("事件：step、completed、error 交给 onEvent 并在容器上派发 nozomi:booking；ready、resize、modal 不转；字段只有白名单里的", () => {

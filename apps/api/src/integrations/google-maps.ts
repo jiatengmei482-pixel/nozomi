@@ -24,17 +24,17 @@ export const GOOGLE_MAPS_ATTEMPTS = 2;
 /** 应答正常不到 1 KB：最多读这么多字节，后面的不读（边读边截，不先把整个应答读进内存） */
 export const MAX_RESPONSE_BYTES = 64 * 1024;
 
-/** 读应答体的前 `MAX_RESPONSE_BYTES` 字节，够了就取消剩下的。 */
-export async function readCapped(res: Response): Promise<string> {
+/** 读应答体的前 `max` 字节（默认 `MAX_RESPONSE_BYTES`），够了就取消剩下的。 */
+export async function readCapped(res: Response, max: number = MAX_RESPONSE_BYTES): Promise<string> {
   if (res.body === null) return "";
   const reader = res.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
   try {
-    while (size < MAX_RESPONSE_BYTES) {
+    while (size < max) {
       const { done, value } = await reader.read();
       if (done) break;
-      const room = MAX_RESPONSE_BYTES - size;
+      const room = max - size;
       const chunk = value.byteLength > room ? value.subarray(0, room) : value;
       chunks.push(chunk);
       size += chunk.byteLength;
@@ -133,7 +133,7 @@ export const ROUTE_BUDGET_MS = 1_600;
 /** 每次尝试最多等多久（毫秒）。正常的应答一般在 300 毫秒以内 */
 export const ROUTE_ATTEMPT_TIMEOUT_MS = 1_000;
 /** 剩下的时间不到这么多就不再重试 */
-const ROUTE_MIN_RETRY_MS = 300;
+export const ROUTE_MIN_RETRY_MS = 300;
 /** 路线预估要的字段：只要里程和时长（Essentials 一档，不多取任何字段） */
 export const ROUTE_FIELD_MASK = "routes.distanceMeters,routes.duration";
 /** 给客人看的路线（M8-02，ADR 0069 B11）多要路线折线：仍是 Essentials 一档（不要路况、不要备选路线） */
@@ -195,7 +195,7 @@ function parseRoute(text: string, withPolyline: boolean): ComputedRoute {
 }
 
 /** 400 而又不是密钥的问题：谷歌认为请求的内容（起终点）无效。 */
-function routeFailure(httpStatus: number, text: string): RouteFailureCode {
+export function routeFailure(httpStatus: number, text: string): RouteFailureCode {
   const code = classifyCode(httpStatus, text);
   if (code === "UNEXPECTED" && httpStatus === 400) return "INVALID_POINTS";
   return code === "MODE_MISMATCH" ? "UNEXPECTED" : code;

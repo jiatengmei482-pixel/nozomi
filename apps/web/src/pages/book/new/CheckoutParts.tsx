@@ -127,19 +127,24 @@ export function PriceBlock({
   );
 }
 
-/** 去付款（提交「怎么联系你」）和支付方式；报价过期时换成「重新查询价格」。 */
-export function PayBlock({ busy, expired, onRequote }: { busy: boolean; expired: boolean; onRequote(): void }) {
+/** 「去付款 →」（用 form 属性提交第 4 步的表单）；报价过期时换成「重新查询价格」。电脑在页面最下面，手机在底部按钮条里（M9E-32） */
+export function PayButton({ busy, expired, onRequote, block = false }: { busy: boolean; expired: boolean; onRequote(): void; block?: boolean }) {
+  return expired ? (
+    <Button variant="primary" size="lg" block={block} onClick={onRequote}>
+      重新查询价格
+    </Button>
+  ) : (
+    <Button type="submit" form={CONTACT_FORM_ID} variant="primary" size="lg" block={block} loading={busy} loadingText="正在提交">
+      去付款 →
+    </Button>
+  );
+}
+
+/** 支付方式和去付款；`button` 为 false（手机，按钮在底部按钮条里）时只写支付方式。 */
+export function PayBlock({ busy, expired, onRequote, button = true }: { busy: boolean; expired: boolean; onRequote(): void; button?: boolean }) {
+  // 按钮放在最后（业主验收意见 2026-11-16）：支付方式写在按钮上面，按钮下面不再有内容
   return (
     <div className="book-summary__block book-pay">
-      {expired ? (
-        <Button variant="primary" size="lg" block onClick={onRequote}>
-          重新查询价格
-        </Button>
-      ) : (
-        <Button type="submit" form={CONTACT_FORM_ID} variant="primary" size="lg" block loading={busy} loadingText="正在提交">
-          去付款 →
-        </Button>
-      )}
       <p className="book-pay__methods">
         <span>支付方式：</span>
         <span className="book-pay__method">
@@ -147,6 +152,7 @@ export function PayBlock({ busy, expired, onRequote }: { busy: boolean; expired:
           银行卡
         </span>
       </p>
+      {button && <PayButton busy={busy} expired={expired} onRequote={onRequote} block />}
     </div>
   );
 }
@@ -184,6 +190,7 @@ export function ContactSection({
   actions,
   headingRef,
   riderErrors = {},
+  notesHint,
 }: {
   form: ContactForm;
   errors: OrderErrors;
@@ -197,6 +204,8 @@ export function ContactSection({
   headingRef?: Ref<HTMLHeadingElement>;
   /** 为他人预订时乘车人两栏的校验结果 */
   riderErrors?: Partial<Record<"riderName" | "riderPhone", string>>;
+  /** 备注框下面的提示（包车机场场景：「如需司机知道航班号，请填在这里」，ADR 0098 第三节第 6 小节） */
+  notesHint?: string;
 }) {
   return (
     <section aria-labelledby="book-contact-title" className="site-section book-new__contact">
@@ -238,7 +247,12 @@ export function ContactSection({
           <label className="field__label" htmlFor="book-notes">
             给司机的备注（选填）
           </label>
-          <textarea id="book-notes" className="input textarea" rows={3} maxLength={ORDER_FIELD_LIMITS.notesMax} value={form.notes} aria-invalid={errors.notes ? true : undefined} aria-describedby={errors.notes ? "book-notes-error" : undefined} onChange={(event) => onChange({ notes: event.target.value })} />
+          <textarea id="book-notes" className="input textarea" rows={3} maxLength={ORDER_FIELD_LIMITS.notesMax} value={form.notes} aria-invalid={errors.notes ? true : undefined} aria-describedby={[errors.notes ? "book-notes-error" : null, notesHint !== undefined ? "book-notes-hint" : null].filter((id) => id !== null).join(" ") || undefined} onChange={(event) => onChange({ notes: event.target.value })} />
+          {notesHint !== undefined && (
+            <p className="field__hint" id="book-notes-hint">
+              {notesHint}
+            </p>
+          )}
           {errors.notes && (
             <p className="field__error" id="book-notes-error">
               <Icon name="alert-triangle" className="field__error-icon" />

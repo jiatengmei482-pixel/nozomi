@@ -232,7 +232,7 @@ test("地址长度：300 个字（含 emoji，按字符算）可以下单，301 
   assert.deepEqual([noPickup.status, issuesOf(noPickup)], [400, [["/pickup_address", "REQUIRED"], ["/dropoff_address", "REQUIRED"]]]);
 });
 
-test("改单：点对点两端地址都能改（301 个字 TOO_LONG、不能填航班号）；包车上车、下车地址都能改（M8-15 起包车单有下车点）", async () => {
+test("改单：点对点两端地址都能改（301 个字 TOO_LONG；航班号可填、照查格式——点对点带航班号是机场接机，M9E-28 Q5）；包车上车、下车地址都能改（M8-15 起包车单有下车点）", async () => {
   const p2p = await placed(p2pBody(), { pickup_address: "东京站八重洲口", dropoff_address: "新宿站南口" });
   await payFor(p2p.order.id);
   const token = p2p.link.token as string;
@@ -242,8 +242,8 @@ test("改单：点对点两端地址都能改（301 个字 TOO_LONG、不能填�
   };
   const long = await patch({ dropoff_address: "地".repeat(301) });
   assert.deepEqual([long.status, issuesOf(long)], [400, [["/dropoff_address", "TOO_LONG"]]]);
-  const flight = await patch({ flight_no: "NH211" });
-  assert.deepEqual([flight.status, issuesOf(flight)], [400, [["/flight_no", "NOT_APPLICABLE"]]]);
+  const flight = await patch({ flight_no: "NH-211" });
+  assert.deepEqual([flight.status, issuesOf(flight)], [400, [["/flight_no", "INVALID_FLIGHT_NO"]]]);
   const changed = await patch({ pickup_address: "东京站丸之内北口", dropoff_address: "涩谷站八公口" });
   assert.equal(changed.status, 200, changed.text);
   const changedOrder = await approved(p2p.order.id, changed.body.change.id, token);

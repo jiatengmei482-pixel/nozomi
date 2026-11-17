@@ -241,7 +241,8 @@ test("13.9 用例 1–7：同区一次、两区各一次、下车同区行程照
   api.clock.advance(1_000);
   const p2p = await site.call("POST", "/site/v1/quotes", { body: { category: "point_to_point", city_id: m.ids.tokyo, pickup: P.shinjuku, dropoff: P.asakusa, waypoints: [{ name: "x", ...P.asakusa, stay_minutes: 0 }], service_local: SERVICE_LOCAL, passengers: 2, luggage: 1 }, ip: nextIp() });
   assert.deepEqual([p2p.status, p2p.body.error.details.issues.map((issue: any) => [issue.path, issue.reason])], [400, [["/waypoints", "NOT_APPLICABLE"]]]);
-  const tooMany = await quote("shinjuku", Array.from({ length: 11 }, () => "gogome" as Place), "shinjuku");
+  // 经停点上限 25 个（M9P-10，路径接口上限）
+  const tooMany = await quote("shinjuku", Array.from({ length: 26 }, () => "gogome" as Place), "shinjuku");
   assert.equal(tooMany.status, 400);
 });
 

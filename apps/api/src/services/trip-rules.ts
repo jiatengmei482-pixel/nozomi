@@ -1,5 +1,5 @@
 /**
- * 跨段规则配置（M9T-02，ADR 0100 第四、五节）：每个包车商品一份，存在租户表 `trip_rule_configs`。
+ * 跨段规则配置（M9T-02，ADR 0101 第四、五节）：每个包车商品一份，存在租户表 `trip_rule_configs`。
  * - `GET`：保存的值（没存为 null）+ 合并默认值后的生效值（前端据此标「默认」）；只有结算价（规则 4）；
  * - `PUT`：整体替换，带商品版本号（`If-Match`）；成功后商品版本号加一、配置 `version` 加一、写审计（`resource: product`、`after.trip_rules`）；
  * - 只有包车商品能配（`TRIP_RULES_NOT_APPLICABLE`）；`byArea` 只认本商品的①③区域，`fixedByCity` 只认平台启用城市（domain `tripRuleIssues`）。

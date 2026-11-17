@@ -462,9 +462,9 @@ test("服务规则：时区和币种的说明；免费等待预先填好、没�
   }));
   await screen.findByText(/Asia\/Tokyo（UTC\+9）/);
   assert.match(document.querySelector(".step .alert--info")?.textContent ?? "", /东京当地时间.*币种 JPY/);
-  assert.equal((screen.getByLabelText("接机免费等待的分钟数") as HTMLInputElement).value, "60");
+  assertAbsent(screen.queryByLabelText("接机免费等待的分钟数")); // 机场接机由平台按航班统一定（M9E-31）：没有输入框
+  assert.ok(screen.getByText("国际航班 90 分钟、国内航班 60 分钟"));
   assert.equal((screen.getByLabelText("送机免费等待的分钟数") as HTMLInputElement).value, "15");
-  assert.match(document.body.textContent ?? "", /国际航班平台规定最少 90 分钟/);
   assert.doesNotMatch(document.querySelector(".step__summary")?.textContent ?? "", /有未保存的修改/);
   assert.match(document.querySelector(".step__summary")?.textContent ?? "", /这一步还差 3 项/, "和步骤导航说的一样：免费等待是页面替你填好的建议值，还没存过，也算一项");
   assert.match(stepText("服务规则"), /还差 3 项/);
@@ -554,6 +554,11 @@ test("服务规则：包车按行程计价的三项配置和「下车点行程�
   assert.equal(dropoff.checked, true, "默认开");
   assert.ok(within(section).getByText("没有市外经停时，下车点所在行程区域收一次行程加价。默认开。"));
   assert.equal(dropoff.getAttribute("aria-describedby"), "itinerary-dropoff-hint");
+  // 经停顺序建议（M9P-20 P2，ADR 0096 第六节）：默认开，说明里写关了只是不显示建议价
+  const suggest = within(section).getByRole("checkbox", { name: "提示更省路程的经停顺序" }) as HTMLInputElement;
+  assert.equal(suggest.checked, true, "默认开");
+  assert.equal(suggest.getAttribute("aria-describedby"), "itinerary-suggest-hint");
+  assert.match(within(section).getByText(/客人填 2 个以上经停时/).textContent ?? "", /默认开/);
   // 填错了：指到输入框
   await actor.type(stop, "121");
   await actor.type(min, "0");
@@ -567,10 +572,37 @@ test("服务规则：包车按行程计价的三项配置和「下车点行程�
   await actor.clear(min);
   await actor.type(min, "13");
   await actor.click(dropoff);
+  await actor.click(suggest);
   await actor.click(screen.getByRole("button", { name: "保存草稿" }));
   await screen.findByText("已保存");
-  assert.deepEqual((writes(calls)[0]?.body as ServiceRulesBody).charter_itinerary, { dropoff_itinerary_surcharge: false, stop_occupancy_minutes: 15, buffer_minutes: 60, min_package_hours: 13 });
+  assert.deepEqual((writes(calls)[0]?.body as ServiceRulesBody).charter_itinerary, { dropoff_itinerary_surcharge: false, stop_occupancy_minutes: 15, buffer_minutes: 60, min_package_hours: 13, warn_minutes: 720, warn_km: 360, suggest_stop_order: false });
   await screen.findByText("最低套餐 13 小时比这个商品所有启用的套餐都长（最长 12 小时），这个商品将报不出价。");
+});
+
+test("服务规则：超限提醒线（M9P-10）——显示保存过的值（没设过是默认 720 分钟 / 360 公里），说明写清只提醒、仍可下单；改了提交 warn_minutes / warn_km；范围之外指到输入框", async () => {
+  const actor = user();
+  const charter = productOf({ category: "charter", poi_id: null, poi: null });
+  const base = rulesOf({ booking: { sale_from: null, sale_to: null, service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 24, note: null }, free_wait: { pickup: null, dropoff: null, general: { mode: "limited", minutes: 0 } }, charter_itinerary: { dropoff_itinerary_surcharge: true, stop_occupancy_minutes: 0, buffer_minutes: 0, min_package_hours: null, max_online_minutes: 780, warn_minutes: 720, warn_km: 360 } });
+  const calls = open(`/products/${PRODUCT_ID}/service-rules`, "admin", productRoutes({ product: charter, rules: { ...base, free_wait_minimums: { pickup: null, dropoff: null, general: 0 } } }, (call) => (call.method === "PUT" ? json(200, { ...rulesOf(call.body as ServiceRulesBody, 8), free_wait_minimums: { pickup: null, dropoff: null, general: 0 }, min_package_above_all: null }) : null)));
+  const section = (await screen.findByRole("heading", { name: "包车按行程计价" })).closest("section") as HTMLElement;
+  const minutes = within(section).getByLabelText("超限提醒：预计用时（分钟）") as HTMLInputElement;
+  const km = within(section).getByLabelText("超限提醒：全程（公里）") as HTMLInputElement;
+  assert.deepEqual([minutes.value, km.value], ["720", "360"]);
+  assert.ok(within(section).getByText("预计用时超过它时，在客人的行程时间表下方提醒缩减行程，客人仍可下单。60 到 1440 分钟，默认 720（12 小时）。"));
+  assert.ok(within(section).getByText("全程超过它时提醒（会产生较多超公里费），客人仍可下单。1 到 5000 公里，默认 360。"));
+  await actor.clear(minutes);
+  await actor.type(minutes, "30");
+  await actor.click(screen.getByRole("button", { name: "保存草稿" }));
+  await waitFor(() => assert.ok(screen.getAllByText("请填 60 到 1440 之间的整数（分钟）").length > 0));
+  assert.equal(writes(calls).length, 0);
+  await actor.clear(minutes);
+  await actor.type(minutes, "600");
+  await actor.clear(km);
+  await actor.type(km, "300");
+  await actor.click(screen.getByRole("button", { name: "保存草稿" }));
+  await screen.findByText("已保存");
+  const sent = (writes(calls)[0]?.body as ServiceRulesBody).charter_itinerary;
+  assert.deepEqual([sent?.warn_minutes, sent?.warn_km], [600, 300]);
 });
 
 test("服务规则：接送机没有包车按行程计价那一块，也不提交 charter_itinerary", async () => {
@@ -588,7 +620,7 @@ test("服务规则：后端指出的问题落在对应的输入框上；平台�
   const rules = rulesOf({ booking: { sale_from: null, sale_to: null, service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 0, note: null }, free_wait: { pickup: { mode: "limited", minutes: 60 }, dropoff: { mode: "unlimited" }, general: null }, addons: [{ addon_id: ADDON_ID, enabled: true, unit_price: 1000, first_free: true }] });
   const routes = productRoutes({ rules }, (call) => {
     if (call.method === "GET" && call.url.pathname === "/tenant/v1/master/addons") return page([{ ...seat, status: "disabled" }]);
-    if (call.method === "PUT") return apiError(400, "VALIDATION_FAILED", "bad", { issues: [{ path: "/free_wait/pickup/minutes", reason: "BELOW_PLATFORM_MINIMUM", message: "太短", detail: { min: 90 } }] });
+    if (call.method === "PUT") return apiError(400, "VALIDATION_FAILED", "bad", { issues: [{ path: "/free_wait/dropoff/minutes", reason: "BELOW_PLATFORM_MINIMUM", message: "太短", detail: { min: 30 } }] });
     return null;
   });
   open(`/products/${PRODUCT_ID}/service-rules`, "admin", routes);
@@ -598,16 +630,17 @@ test("服务规则：后端指出的问题落在对应的输入框上；平台�
   assert.equal((screen.getByLabelText("服务时间到") as HTMLInputElement).value, "24:00");
   await screen.findByText("提前预订时长是 0，客人随时可以订，用不到加急预订。");
   assert.deepEqual([...document.querySelectorAll<HTMLInputElement>('input[name="wait-dropoff"]')].map((radio) => radio.checked), [false, true], "送机存的是「不限时」");
-  await actor.clear(screen.getByLabelText("接机免费等待的分钟数"));
-  await actor.type(screen.getByLabelText("接机免费等待的分钟数"), "70");
+  // 机场接机只读（M9E-31），服务端按项退回的错误换在送机上测
+  await actor.clear(screen.getByLabelText("送机免费等待的分钟数"));
+  await actor.type(screen.getByLabelText("送机免费等待的分钟数"), "20");
   await actor.click(screen.getByRole("button", { name: "保存草稿" }));
-  await waitFor(() => assert.ok(screen.getAllByText("不能少于平台规定的 90 分钟").length > 0));
-  assertFocused(screen.getByLabelText("接机免费等待的分钟数"));
+  await waitFor(() => assert.ok(screen.getAllByText("不能少于平台规定的 30 分钟").length > 0));
+  assertFocused(screen.getByLabelText("送机免费等待的分钟数"));
 
   resetBrowser();
   open(`/products/${PRODUCT_ID}/service-rules`, "readonly", productRoutes({ rules }));
   await screen.findByText("你可以查看商品，但不能修改。需要修改的话，请联系你们的管理员开通。");
-  await waitFor(() => assert.equal((screen.getByLabelText("接机免费等待的分钟数") as HTMLInputElement).readOnly, true));
+  await waitFor(() => assert.equal((screen.getByLabelText("送机免费等待的分钟数") as HTMLInputElement).readOnly, true));
   assertAbsent(screen.queryByRole("button", { name: /保存/ }));
   assert.ok(screen.getByRole("link", { name: "回到列表" }));
 });
@@ -923,6 +956,25 @@ test("M8-20 上架检查「运营区域」：报价区域超出运营区域只�
   assert.match(row.textContent ?? "", /报价区域「东京 23 区」有约 2\.5 平方公里不在任何运营区域里，那部分不会报价/);
   assert.equal(within(row).getByRole("link", { name: /^去看区域/ }).getAttribute("href"), `/areas/${AREA_ID}`);
   assert.ok(screen.getByRole("button", { name: "上架" }));
+});
+
+test("M9P-07 上架检查「热门地标覆盖」：列出不在任何区域里的地标（写出名字，取不到名字的写个数），只提醒、不拦上架", async () => {
+  const LANDMARK = "77777777-7777-4777-8777-777777777777";
+  const UNKNOWN = "78787878-7878-4878-8878-787878787878";
+  const check = checkOf({ price_rules: [] });
+  check.items.push({ key: "charter_coverage", required: false, passed: false, issues: [LANDMARK, UNKNOWN].map((id) => ({ path: `/places/${id}`, reason: "CHARTER_POI_NOT_COVERED", message: "说明" })) });
+  const landmark = { ...haneda, id: LANDMARK, type: "poi", code: "POI-KWG", name: { zh: "河口湖" } } as unknown as Place;
+  const calls = open(`/products/${PRODUCT_ID}/publish`, "admin", productRoutes({ check }, (call) => (call.method === "GET" && call.url.pathname === "/tenant/v1/master/places" && call.url.searchParams.get("type") === "poi" ? page([landmark]) : null)));
+  await screen.findByText("可以上架了");
+  const row = (): string => document.querySelector('[data-check="charter_coverage"]')?.textContent ?? "";
+  await waitFor(() => assert.match(row(), /热门地标「河口湖」不在这个商品的任何区域里（基础价、行程加价、上下车加价区域都没有盖住），客人在这里上下车或经停报不出价/));
+  assert.match(row(), /热门地标覆盖/);
+  assert.match(row(), /有 2 处要留意/);
+  assert.match(row(), /有 1 个热门地标不在这个商品的任何区域里/, "取不到名字的写个数");
+  assert.match(row(), /需要的话到区域页面把它画进基础价、行程加价或上下车加价区域/);
+  assert.doesNotMatch(row(), /功能还在开发|不是必须/);
+  assert.ok(calls.some((call) => call.path.startsWith("/tenant/v1/master/places") && call.path.includes(`city_id=${CITY_ID}`)));
+  assert.ok(screen.getByRole("button", { name: "上架" }), "只是提醒，不拦上架");
 });
 
 // ───────────── M6-10 换步后标题的聚焦框 ─────────────

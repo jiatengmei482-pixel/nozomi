@@ -1,5 +1,5 @@
 /**
- * 跨段规则配置（ADR 0100 第四节表、第五节；默认值见第九节 Q2 / Q3，监工 2026-11-15 确认按默认值做）。
+ * 跨段规则配置（ADR 0101 第四节表、第五节；默认值见第九节 Q2 / Q3，监工 2026-11-15 确认按默认值做）。
  * 存在租户表 `trip_rule_configs.config`；金额是商品结算币种的最小单位，比例是基点，时长是分钟。
  * 没存的键 = 默认值；默认金额按日元写，商品结算币种不是日元时默认的住宿 / 停驻**不生效**（只用供应商填的值，Q3）。
  */
@@ -38,7 +38,7 @@ export interface EffectiveTripRules {
   returnTrip: { enabled: boolean; ratioBp: number; fixedByCity: readonly { cityId: string; minor: number }[]; maxOneWayKm: number };
 }
 
-/** 默认值（ADR 0100 第九节 Q2）。金额是日元结算价 */
+/** 默认值（ADR 0101 第九节 Q2）。金额是日元结算价 */
 export const TRIP_RULE_DEFAULTS = {
   currency: "JPY" as CurrencyCode,
   lodging: { enabled: true, perNightMinor: 15_000, offsetSurcharges: true },
@@ -95,7 +95,7 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> => type
 const intIn = (value: unknown, max: number): boolean => Number.isInteger(value) && (value as number) >= 0 && (value as number) <= max;
 
 /**
- * 规则配置的校验（PUT 整体替换前，ADR 0100 第五节）：
+ * 规则配置的校验（PUT 整体替换前，ADR 0101 第五节）：
  * - 只认已知的键；开关是布尔；金额 0–10 亿；比例 0–10000 基点；分钟 0–2880；公里 0–5000；
  * - `maxBindMinutes ≤ hardMaxBindMinutes`、`absoluteMinRestMinutes ≤ minRestMinutes`（合并默认值后比较）；
  * - `byArea` 最多 50 条、区域必须是**本商品**的区域（`productAreaIds`）、不重复；`fixedByCity` 最多 50 条、城市是平台启用城市、不重复。

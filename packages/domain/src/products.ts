@@ -66,6 +66,11 @@ export const PRODUCT_LIMITS = {
   /** 包车在线下单的预计用时上限（ADR 0093 第四节第 10 条）：可设 1–24 小时（分钟） */
   minOnlineMinutes: 60,
   maxOnlineMinutes: 1_440,
+  /** 包车超限提醒线（M9P-10，规格步骤 5）：预计用时可设 1–24 小时（分钟），全程可设 1–5000 公里（同按行程计价的全程上限） */
+  minWarnMinutes: 60,
+  maxWarnMinutes: 1_440,
+  minWarnKm: 1,
+  maxWarnKm: 5_000,
 } as const;
 
 /** 这个区域能不能给这个品类的商品用：业务类型和品类相同，或者是「通用」。 */
@@ -145,10 +150,19 @@ export interface CharterItineraryRules {
   minPackageHours: number | null;
   /** 在线下单上限（分钟，规格步骤 5、ADR 0093 第四节第 10 条）：预计用时 T 超过它的不在线报价（`ITINERARY_TOO_LONG`，转客服）。默认 780 = 13 小时 */
   maxOnlineMinutes: number;
+  /** 超限提醒（分钟，规格步骤 5，M9P-10）：预计用时 T 超过它时提醒客人缩减行程，仍可下单。默认 720 = 12 小时 */
+  warnMinutes: number;
+  /** 超限提醒（公里，规格步骤 5，M9P-10）：全程超过它时提醒，仍可下单。默认 360 */
+  warnKm: number;
+  /**
+   * 经停顺序建议（M9P-20 P2，ADR 0096 第六节）：客人填 2 个以上经停时，提示更省路程的顺序。默认开。
+   * 关 = 这个商品的报价卡片不显示建议价；匹配到的商品全关时不调谷歌优化。关了不影响按客人排的任何顺序报价。
+   */
+  suggestStopOrder: boolean;
 }
 
-/** 默认值：下车点行程加价开；T 的三项是 0 / 0 / 不限（行为不变，ADR 0091：不取业主建议值）；在线下单上限 13 小时 */
-export const DEFAULT_CHARTER_ITINERARY: Readonly<CharterItineraryRules> = { dropoffItinerarySurcharge: true, stopOccupancyMinutes: 0, bufferMinutes: 0, minPackageHours: null, maxOnlineMinutes: 780 };
+/** 默认值：下车点行程加价开；T 的三项是 0 / 0 / 不限（行为不变，ADR 0091：不取业主建议值）；在线下单上限 13 小时；超限提醒 12 小时 / 360 公里（只提醒，不影响价格） */
+export const DEFAULT_CHARTER_ITINERARY: Readonly<CharterItineraryRules> = { dropoffItinerarySurcharge: true, stopOccupancyMinutes: 0, bufferMinutes: 0, minPackageHours: null, maxOnlineMinutes: 780, warnMinutes: 720, warnKm: 360, suggestStopOrder: true };
 
 /** 业主建议值（ADR 0091 第二节第 1 小节）：只在页面上作灰色提示，不预填、不当默认值 */
 export const SUGGESTED_CHARTER_ITINERARY = { stopOccupancyMinutes: 15, bufferMinutes: 60, minPackageHours: 5 } as const;
@@ -197,10 +211,12 @@ export function freeWaitItems(category: ServiceCategory): FreeWaitItem[] {
 }
 
 /**
- * 平台统一的免等默认值（分钟），供应商只能设得更长：国际线 90、国内线 60、接站 30、其他 15、包车 0。
- * 这里给出某一项**最少**要设多少：
- * - 接机：机场只走国内线的是 60，只走国际线的是 90；两种都有或还没标明的按 60（报价时再按实际航班取 90 和供应商设的值里较大的）；
+ * 供应商保存服务规则时，免等每一项**最少**要设多少（分钟），按商品所在的接送点：
+ * - 接机：机场只走国际线的 90，其他（只走国内线、两种都有、没标明）60；
  * - 接站 30；送机 / 送站、点对点 15；包车 0。
+ * 这只是保存时的下限。机场接机客人实际得到的分钟数在下单时按航班由平台统一定：国际航班 90、国内航班 60、
+ * 航班类型未确认按 60，不看这里设的值（`lockArrivalFreeWait`，ADR 0097、M9E-28；2026-11-16 业主改为统一，M9E-31）。
+ * 接站、送机等仍按商品设的。
  */
 export function minimumFreeWaitMinutes(category: ServiceCategory, item: FreeWaitItem, pickupPlace: { type: PlaceType; flightScope: FlightScope | null } | null): number {
   if (category === "charter") return 0;
@@ -371,6 +387,8 @@ export function serviceRuleIssues(rules: ServiceRules, context: ServiceRuleConte
       if (itinerary.bufferMinutes !== undefined) integerIssue("/charter_itinerary/buffer_minutes", itinerary.bufferMinutes, 0, PRODUCT_LIMITS.maxBufferMinutes, issues);
       if (itinerary.minPackageHours !== undefined && itinerary.minPackageHours !== null) integerIssue("/charter_itinerary/min_package_hours", itinerary.minPackageHours, 1, PRICE_LIMITS.maxPackageHours, issues);
       if (itinerary.maxOnlineMinutes !== undefined) integerIssue("/charter_itinerary/max_online_minutes", itinerary.maxOnlineMinutes, PRODUCT_LIMITS.minOnlineMinutes, PRODUCT_LIMITS.maxOnlineMinutes, issues);
+      if (itinerary.warnMinutes !== undefined) integerIssue("/charter_itinerary/warn_minutes", itinerary.warnMinutes, PRODUCT_LIMITS.minWarnMinutes, PRODUCT_LIMITS.maxWarnMinutes, issues);
+      if (itinerary.warnKm !== undefined) integerIssue("/charter_itinerary/warn_km", itinerary.warnKm, PRODUCT_LIMITS.minWarnKm, PRODUCT_LIMITS.maxWarnKm, issues);
     }
   }
   return issues;
@@ -483,7 +501,7 @@ export function contentTitles(content: ProductContent): LocalizedText {
 
 // ---- 上架校验 ----
 
-export const PUBLISH_CHECK_KEYS = ["basic_info", "service_rules", "price_rules", "content", "adjust_rules", "inventory", "area_coverage", "charter_min_package", "charter_coverage", "charter_empty_cells"] as const;
+export const PUBLISH_CHECK_KEYS = ["basic_info", "service_rules", "price_rules", "content", "adjust_rules", "inventory", "area_coverage", "charter_min_package", "charter_coverage", "charter_empty_cells", "charter_layer_overlap"] as const;
 export type PublishCheckKey = (typeof PUBLISH_CHECK_KEYS)[number];
 
 export const PUBLISH_CHECK_NAMES: Readonly<Record<PublishCheckKey, string>> = {
@@ -497,6 +515,7 @@ export const PUBLISH_CHECK_NAMES: Readonly<Record<PublishCheckKey, string>> = {
   charter_min_package: "最低套餐",
   charter_coverage: "热门地标覆盖",
   charter_empty_cells: "加价表空格",
+  charter_layer_overlap: "三层区域重叠",
 };
 
 export type PublishIssueReason =
@@ -543,6 +562,8 @@ export type PublishIssueReason =
   | "CHARTER_POI_NOT_COVERED"
   /** 加价表空格（M9P-06，ADR 0093 第七节第 5 条）：②行程加价 / ③上下车加价表里这个区域这个车型组没有启用的规则 = 不报价（提醒） */
   | "CHARTER_EMPTY_CELL"
+  /** 包车三层区域有同层或①和③的重叠（M9P-13，#247 审查建议：区域页改图形不经过保存校验，上架检查补一项提醒） */
+  | "CHARTER_LAYER_OVERLAP"
   /** 这项功能还没有上线，所以这一项现在一定不满足（或对可选项：没有东西可查） */
   | "FEATURE_NOT_AVAILABLE";
 
@@ -606,6 +627,12 @@ export interface PublishFacts {
   charterUncoveredPlaces?: readonly string[];
   /** 加价表空格（M9P-06）：`layer` 是 itinerary（②）或 pickup_dropoff（③），`areaId` 区域、`vehicleGroupIndex` 是 `vehicleGroups` 里的下标。不给或空 = 没有这一项 */
   charterEmptyCells?: readonly { layer: "itinerary" | "pickup_dropoff"; areaId: string; vehicleGroupIndex: number }[];
+  /**
+   * 包车三层区域的重叠（M9P-13）：同层（①①、②②、③③）或①和③（`base_pickup_dropoff`，`a` 是①）重叠的区域对，`areaM2` 是面积（平方米），口径同保存校验 `charterLayerOverlaps`。
+   * 原因 `CHARTER_LAYER_OVERLAP`，`path` 是 `/{layer}/{区域 a}/{区域 b}`。
+   * 区域页改图形不经过保存校验，已有的重叠在这里提醒、不拦上架。不给或空 = 没有这一项
+   */
+  charterLayerOverlaps?: readonly { layer: "base" | "itinerary" | "pickup_dropoff" | "base_pickup_dropoff"; a: string; b: string; areaM2: number }[];
 }
 
 /**
@@ -629,6 +656,7 @@ export function minPackageAboveAll(rules: Pick<ServiceRules, "charterItinerary">
  * - 运营区域（ADR 0075）：勾选的报价区域有一部分不在任何运营区域里时多一项提醒（不拦上架）；没有这种情况时没有这一项。
  * - 最低套餐（ADR 0091）：包车的最低套餐比所有启用的套餐都长时多一项提醒（不拦上架）；没有这种情况时没有这一项。
  * - 包车覆盖检查、加价表空格（M9P-06，ADR 0093 第七节第 4、5 条）：有不在任何区域的清单地标、有没填的格时各多一项提醒（不拦上架）。
+ * - 三层区域重叠（M9P-13）：包车有同层或①和③重叠的区域时多一项提醒（不拦上架）。
  */
 export function publishCheck(facts: PublishFacts): PublishCheckItem[] {
   const basic: PublishIssue[] = [];
@@ -692,6 +720,9 @@ export function publishCheck(facts: PublishFacts): PublishCheckItem[] {
     ...((facts.charterEmptyCells ?? []).length === 0
       ? []
       : [item("charter_empty_cells", false, (facts.charterEmptyCells ?? []).map((cell): PublishIssue => ({ path: `/${cell.layer}/${cell.areaId}/vehicle_groups/${cell.vehicleGroupIndex}`, reason: "CHARTER_EMPTY_CELL" })))]),
+    ...((facts.charterLayerOverlaps ?? []).length === 0
+      ? []
+      : [item("charter_layer_overlap", false, (facts.charterLayerOverlaps ?? []).map((entry): PublishIssue => ({ path: `/${entry.layer}/${entry.a}/${entry.b}`, reason: "CHARTER_LAYER_OVERLAP", detail: { overlap_m2: entry.areaM2 } })))]),
   ];
 }
 

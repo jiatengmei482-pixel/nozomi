@@ -28,6 +28,7 @@ import {
   normalizeRing,
   parseShapeText,
   ringIssues,
+  subtractAreaRange,
 } from "@nozomi/domain";
 import type { AreaPolygon, AreaPolygonInput } from "../api/areas.ts";
 
@@ -92,6 +93,8 @@ export type EditorAction =
   | { type: "setCircle"; key: string; circle: CircleShape; live?: boolean }
   /** 把草稿里的图形换到画面上（算一步，可以撤销） */
   | { type: "restore"; shapes: readonly EditorShape[] }
+  /** 从本区域减去另一个区域（M9P-13）：去掉碰到的营运区块，换成减完的多边形（算一步，可以撤销） */
+  | { type: "subtract"; removeKeys: readonly string[]; rings: readonly (readonly Position[])[] }
   | { type: "undo" }
   | { type: "redo" };
 
@@ -165,6 +168,17 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     case "restore": {
       const next = action.shapes.reduce((max, shape) => Math.max(max, Number(shape.key.slice(1)) || 0), 0) + 1;
       return commit(state, action.shapes.map((shape) => ({ ...shape })), null, Math.max(state.nextKey, next));
+    }
+    case "subtract": {
+      const kept = state.shapes.filter((shape) => !action.removeKeys.includes(shape.key));
+      const added: EditorShape[] = [];
+      let counter = state.nextKey;
+      for (const ring of action.rings) {
+        added.push({ key: `s${counter}`, id: null, kind: "operate", seq: nextSeq([...kept, ...added], "operate"), label: "", source: "pasted", ring: ring.map(tidy), circle: null });
+        counter += 1;
+      }
+      if (kept.length + added.length > AREA_LIMITS.maxPolygons) return state;
+      return commit(state, [...kept, ...added], null, counter);
     }
     case "addPolygon": {
       if (state.shapes.length >= AREA_LIMITS.maxPolygons) return state;
@@ -383,4 +397,22 @@ export function metersToKmText(meters: number): string {
   const whole = Math.trunc(meters / 1000);
   const rest = String(meters % 1000).padStart(3, "0").replace(/0+$/, "");
   return rest === "" ? String(whole) : `${whole}.${rest}`;
+}
+
+/** 「从本区域减去另一个区域」的结果（M9P-13）：要去掉的营运区块（key）、换上的多边形、切掉的面积；或减不了的原因。 */
+export type EditorSubtraction =
+  | { ok: true; removeKeys: string[]; rings: Position[][]; removedM2: number; split: boolean }
+  | { ok: false; reason: "NO_OVERLAP" | "NOTHING_LEFT" | "TOO_COMPLEX" | "SHAPE_PROBLEMS" };
+
+/**
+ * 画面上的图形减去另一个区域（它的营运区减去它自己的禁行区）：算法在 @nozomi/domain 的 `subtractAreaRange`。
+ * 画面上还有不合法的图形时不算（`SHAPE_PROBLEMS`：先改好）。只算不改：确认后用 `subtract` 换到画面上。
+ */
+export function subtractFromEditor(shapes: readonly EditorShape[], other: readonly { kind: AreaPolygonKind; ring: readonly Position[] }[]): EditorSubtraction {
+  if (hasBlockingProblems(shapes)) return { ok: false, reason: "SHAPE_PROBLEMS" };
+  const result = subtractAreaRange(shapes.map((shape) => ({ kind: shape.kind, ring: shapeRing(shape) })), other);
+  if (!result.ok) return result;
+  const keep = new Set(result.keptIndexes);
+  const removeKeys = shapes.flatMap((shape, index) => (shape.kind === "operate" && !keep.has(index) ? [shape.key] : []));
+  return { ok: true, removeKeys, rings: result.rings, removedM2: result.removedM2, split: result.split };
 }

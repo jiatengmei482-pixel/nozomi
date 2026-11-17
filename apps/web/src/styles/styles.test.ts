@@ -62,8 +62,10 @@ test("字号、字重、行高、层级、圆角、阴影只引用令牌", () =>
 /**
  * 不是设计令牌、由页面脚本量出来的尺寸变量（只能是长度，不能是颜色、字号）。每加一个都要在对应页面规范里写明：
  * --driver-bar-height：司机页吸底按钮条的实际高度（docs/design/pages/driver.md 3b，M6-08）。
+ * --book-actionbar-h：新预订页手机底部按钮条的实际高度；--book-actionbar-shift：嵌入页里这条按宿主屏幕往上挪的距离
+ * （docs/design/pages/site-booking-v2.md 第 0 节、ADR 0100，M9E-32）。
  */
-const MEASURED_VARIABLES = new Set(["--driver-bar-height"]);
+const MEASURED_VARIABLES = new Set(["--driver-bar-height", "--book-actionbar-h", "--book-actionbar-shift"]);
 
 /**
  * 嵌入预订页的外观变量（M9E-17，ADR 0095 Q15）：和嵌入组件同名的 --nzb-*，只在 embed.css 的 :root[data-embed-book] 里定义、取值是主站令牌

@@ -42,6 +42,7 @@ import type { DbContext } from "../context.ts";
 import { type Db, withPlatformTx, withTenantTx } from "../db/context.ts";
 import { type AreaLastEditor, type AreaMapFilter, type AreaMapRow, lastAreaEditors, listAreaMapRows, listPolygonsOfAreas } from "../repos/area-map.ts";
 import { AppError, isRetryableDbError } from "../errors.ts";
+import { productsBindingArea } from "../repos/charter-airports.ts";
 import type { TimeCursor } from "../pagination.ts";
 import {
   type Area,
@@ -72,6 +73,7 @@ import { type AuditValue, type AuditValues, insertAuditLog } from "../repos/audi
 import { findTenantForPlatform } from "../repos/tenants.ts";
 import { type AreaUsage, areaUsage, compactAreaPriorities, productIdsUsingArea } from "../repos/products.ts";
 import { removePricingOfArea } from "./prices.ts";
+import { type AreaCharterOverlap, charterOverlapsOfArea } from "./area-layers.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
 import { type SystemTenantPrincipal, tenantWriteOrigin } from "./audit.ts";
 import { areaNameTaken, fieldLocked, masterDataNotReady, notFound, versionConflict } from "./errors.ts";
@@ -110,6 +112,11 @@ export interface AreaView {
    * 不小于 100 平方米时给面积，否则 0；详情和区域地图里算，列表不算（不给）。运营区域、停用的区域为 null
    */
   outsideOperatingM2?: number | null;
+  /**
+   * 改了图形之后（只在修改的应答里给，M9P-13 / #247 审查建议）：用到这个区域的包车商品里，它和同商品别的区域的三层重叠（同层、①∩③）。
+   * 只提醒、不拦保存。图形没变、或没有重叠时不给（应答和以前一样）
+   */
+  charterOverlaps?: AreaCharterOverlap[];
 }
 
 const UNUSED: AreaUsage = { productCount: 0, publishedProductCount: 0 };
@@ -458,7 +465,10 @@ export async function updateArea(
     if (polygonsChanged) [before["polygons"], after["polygons"]] = [stored.map(polygonAudit), drafts.map(polygonAudit)];
     if (sourceVersionChanged && current.sharedSource !== null) [before["shared_source_shape_version"], after["shared_source_shape_version"]] = [current.sharedSource.shapeVersion, sharedSourceVersion];
     await audit(db, ctx, writer, now, { areaId: id, action: "update", before, after });
-    return detail(db, tenantId, updated);
+    const view = await detail(db, tenantId, updated);
+    // 图形变了：用到它的包车商品里有三层重叠时提醒（不拦，#247 审查建议）；没有时应答和以前一样
+    const overlaps = polygonsChanged ? await charterOverlapsOfArea(db, tenantId, id) : [];
+    return overlaps.length > 0 ? { ...view, charterOverlaps: overlaps } : view;
   });
 }
 
@@ -505,6 +515,9 @@ export async function deleteArea(ctx: DbContext, writer: AreaWriter, id: string)
     if (!current) throw notFound("区域");
     const usage = (await areaUsage(db, tenantId, [id])).get(id) ?? UNUSED;
     if (usage.publishedProductCount > 0) throw areaInUse("删除", usage);
+    // 包车机场套餐的机场区域（M9P-21，ADR 0098 第三节第 2 小节）：绑定着的不能删，先在商品里解绑（数据库外键 restrict 兜底）
+    const airportProducts = await productsBindingArea(db, tenantId, id);
+    if (airportProducts.length > 0) throw new AppError(409, "AREA_IN_USE", "这个区域是包车机场套餐的机场区域，先在商品的「机场套餐」里解绑再删", { charter_airport_product_ids: airportProducts });
     if (areaRoleCanOperate(current.role) && current.status === "active") await assertOperatingKept(db, tenantId, { areaId: id, after: null });
     const stored = await listAreaPolygons(db, tenantId, id);
     const usedBy = await productIdsUsingArea(db, tenantId, id);
