@@ -235,7 +235,8 @@ test("按行程计价：车型卡、右侧栏、核对页显示明细（套餐�
     ["1 上车京王广场酒店09:00 出发", "行驶约 2 小时 · 120 公里2 经停五合目预计 11:00 到 · 12:00 出发停留 1 小时", "行驶约 30 分钟 · 20 公里3 经停河口湖预计 12:30 到 · 14:00 出发停留 1 小时 30 分", "行驶约 10 分钟 · 4 公里4 经停忠灵塔预计 14:10 到 · 14:40 出发停留 30 分钟", "行驶约 1 小时 50 分 · 110 公里5 下车新宿站预计 16:30 到"],
   );
   // 行程地图（M9P-20）：5 个点按顺序，编号和列表一致；alt 写全程
-  const mapLoader = document.querySelector<HTMLImageElement>(".itinerary-map__loader") as HTMLImageElement;
+  // 地图图片在报价后的下一次渲染才挂上（M8-29：CI 上偶发取到 null），等它出现
+  const mapLoader = await waitFor(() => document.querySelector<HTMLImageElement>(".itinerary-map__loader") ?? assert.fail("行程地图还没挂上"), SLOW);
   assert.deepEqual(new URL(mapLoader.src, "http://localhost").searchParams.getAll("p"), ["35.690500,139.694800", "35.395000,138.733000", "35.498000,138.769000", "35.501000,138.801000", "35.689600,139.700600"]);
   fireEvent.load(mapLoader);
   await waitFor(() => assert.equal(document.querySelector(".itinerary-map .route-map__image")?.getAttribute("alt"), "路线图：1 京王广场酒店 → 2 五合目 → 3 河口湖 → 4 忠灵塔 → 5 新宿站，约 7 小时 30 分 · 254 公里"));
