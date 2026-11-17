@@ -15,6 +15,16 @@ import { expectAccessible } from "./catalog.ts";
 import { type Point, charterWorld, linkPoint } from "./charter-support.ts";
 import { OWN_SITE_SOURCE, platformAdminHeaders, randomLetters } from "./support.ts";
 
+/** 正则里原样匹配一段文字 */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+/** 时间表一行：开头是行驶和序号、站名，后面某处有停留时长（中间可能夹着预计到达 / 出发时刻） */
+function stopRow(prefix: string, name: string, stay: string): RegExp {
+  return new RegExp(`^${escapeRegExp(prefix)}${escapeRegExp(name)}.*${escapeRegExp(stay)}`);
+}
+
+
 test.use(OWN_SITE_SOURCE);
 
 const SITE = `http://127.0.0.1:${E2E_WEB_PLACES_PORT}`;
@@ -166,12 +176,13 @@ test("包车行程地图：编号 1 = 上车、经停依次、最后 = 下车，
     return `行驶约 ${time} · ${km(leg.meters)}`;
   };
   const schedule = page.getByRole("region", { name: "行程时间表" });
+  // 每行还带预计到达 / 出发时刻（M9P-20 验收 b）：这里只核对行驶、站名、停留
   await expect(schedule.getByRole("list", { name: "行程" }).getByRole("listitem")).toHaveText([
-    "1 上车上车酒店",
-    `${drive(0)}2 经停${first.name}停留 1 小时`,
-    `${drive(1)}3 经停${second.name}停留 1 小时 30 分`,
-    `${drive(2)}4 经停${third.name}停留 30 分钟`,
-    `${drive(3)}5 下车市内下车点`,
+    /^1 上车上车酒店/,
+    stopRow(`${drive(0)}2 经停`, first.name, "停留 1 小时"),
+    stopRow(`${drive(1)}3 经停`, second.name, "停留 1 小时 30 分"),
+    stopRow(`${drive(2)}4 经停`, third.name, "停留 30 分钟"),
+    new RegExp(`^${escapeRegExp(drive(3))}5 下车市内下车点`),
   ]);
   const image = schedule.getByRole("img", { name: new RegExp(`^路线图：1 上车酒店 → 2 ${first.name} → 3 ${second.name} → 4 ${third.name} → 5 市内下车点，约 .+ · .+ 公里$`) });
   await expect(image).toBeVisible();

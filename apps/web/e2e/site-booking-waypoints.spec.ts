@@ -20,6 +20,16 @@ import { type Point, charterWorld, linkPoint } from "./charter-support.ts";
 import { routeStripe } from "./fake-stripe.ts";
 import { platformAdminHeaders, randomLetters } from "./support.ts";
 
+/** 正则里原样匹配一段文字 */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+/** 时间表一行：开头是行驶和序号、站名，后面某处有停留时长（中间可能夹着预计到达 / 出发时刻） */
+function stopRow(prefix: string, name: string, stay: string): RegExp {
+  return new RegExp(`^${escapeRegExp(prefix)}${escapeRegExp(name)}.*${escapeRegExp(stay)}`);
+}
+
+
 const SITE = `http://127.0.0.1:${E2E_WEB_STRIPE_PORT}`;
 const WAYPOINT_SURCHARGE = 11_000;
 const LEGS = [{ minutes: 25, meters: 12_000 }, { minutes: 30, meters: 15_000 }, { minutes: 20, meters: 9_000 }, { minutes: 35, meters: 18_000 }];
@@ -149,12 +159,13 @@ test("包车加 3 个经停点：增删排序、停留必填 → 按行程计价
   await expect(rows).toHaveText(["包车套餐 8 小时66,000 JPY", "行程加价（富士山地区，4 · 经停）11,000 JPY"]);
   // 行程时间表：行驶 25 + 30 + 20 + 35 = 110 分钟，停留 90 + 60 + 30 = 180 分钟，共 4 小时 50 分
   await expect(page.getByText("按行程预计 4 小时 50 分（行驶 1 小时 50 分 + 停留 3 小时），全程约 54 公里，套餐 8 小时").first()).toBeVisible();
+  // 每行还带预计到达 / 出发时刻（M9P-20 验收 b）：这里只核对行驶、站名、停留，时刻由 site-booking-arrive-by.spec.ts 核对
   await expect(page.getByRole("list", { name: "行程" }).getByRole("listitem")).toHaveText([
-    "1 上车上车酒店",
-    `行驶约 25 分钟 · 12 公里2 经停${first.name}停留 1 小时 30 分`,
-    `行驶约 30 分钟 · 15 公里3 经停${second.name}停留 1 小时`,
-    `行驶约 20 分钟 · 9 公里4 经停${trip.station.name}停留 30 分钟`,
-    "行驶约 35 分钟 · 18 公里5 下车市内下车点",
+    /^1 上车上车酒店/,
+    stopRow("行驶约 25 分钟 · 12 公里2 经停", first.name, "停留 1 小时 30 分"),
+    stopRow("行驶约 30 分钟 · 15 公里3 经停", second.name, "停留 1 小时"),
+    stopRow("行驶约 20 分钟 · 9 公里4 经停", trip.station.name, "停留 30 分钟"),
+    /^行驶约 35 分钟 · 18 公里5 下车市内下车点/,
   ]);
   await expect(page.getByText("价格按您填的经停点计算；当天临时去其他区域或超出预计可能会加收。").first()).toBeVisible();
   await card.getByRole("button", { name: `选择 ${trip.groupName}` }).click();
