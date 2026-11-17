@@ -152,7 +152,7 @@
 
 - 前台名称**自动生成**：机场开始「{机场名}接机 + {H} 小时包车」；机场结束「{H} 小时包车 + {机场名}送机」。
 - {机场名}：绑定上填了中文简称 `short_name_zh` 就用它（如「成田机场」——业主验收用例「成田机场接机 + 5 小时包车」按原文显示，审查必改第 5 条）；没填用主数据机场的中文名（`places.name.zh`，如「成田国际机场」），主数据没有中文名时用日文名（Q7）。简称只有中文，日文 / 英文在 M11 用主数据的对应语言名。
-- i18n key（新文案只做中文，M11-01）：`charter.scenario.airportStart`（`{airport}接机 + {hours} 小时包车`）、`charter.scenario.airportEnd`（`{hours} 小时包车 + {airport}送机`）、`book.charter.quickAirportStart`（「机场接机开始」）、`book.charter.quickAirportEnd`（「机场送机结束」）、`book.charter.pickTerminal`（「选择航站楼」）、`book.charter.quickExit`（「改填其他地点」）、`book.notes.flightHint`（「如需司机知道航班号，请填在这里」）、`book.charter.airportTimingHint`（「包车从预约的上车时间开始计时，没有免费等待，航班晚到也照常计时。建议把上车时间定在航班落地后 60–90 分钟（留出入境、取行李的时间）；担心航班延误请下单前联系客服」，2026-11-17 业主意见改写）、`tenant.charterAirport.*`（后台的表头、空格灰字、标黄提示、校验提示）。M11-01 的 i18n 模块在 #258 合并前还没有：实现时先用它；若 M9P-22 开工时仍未合并，在 `apps/web/src/lib` 放一个只含中文的同名 key 表，M11 时并入。后端只给结构化的 `airport_name`（中文简称或主数据中文名），不出拼好的文案；文案只在前端的 i18n key 里，M11 时按语言出。
+- i18n key（新文案只做中文，M11-01）：`charter.scenario.airportStart`（`{airport}接机 + {hours} 小时包车`）、`charter.scenario.airportEnd`（`{hours} 小时包车 + {airport}送机`）、`book.charter.quickAirportStart`（「机场接机开始」）、`book.charter.quickAirportEnd`（「机场送机结束」）、`book.charter.pickTerminal`（「选择航站楼」）、`book.charter.quickExit`（「改填其他地点」）、`book.notes.flightHint`（「如需司机知道航班号，请填在这里」）、`book.charter.airportTimingHint`（「包车从预约的上车时间开始计时，没有免费等待。建议把上车时间定在航班落地后 60–90 分钟（国内航班约 60 分钟，国际航班约 90 分钟，留出入境和取行李的时间）；航班可能延误时请再多留一些，或下单前联系客服」，2026-11-17 业主意见改写，#291）、`tenant.charterAirport.*`（后台的表头、空格灰字、标黄提示、校验提示）。M11-01 的 i18n 模块在 #258 合并前还没有：实现时先用它；若 M9P-22 开工时仍未合并，在 `apps/web/src/lib` 放一个只含中文的同名 key 表，M11 时并入。后端只给结构化的 `airport_name`（中文简称或主数据中文名），不出拼好的文案；文案只在前端的 i18n key 里，M11 时按语言出。
 
 ### 6. 航班号、免费等待、航班延误
 

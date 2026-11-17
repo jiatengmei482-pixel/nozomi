@@ -854,11 +854,21 @@ input[type="datetime-local"]:focus-within {
   font-weight: var(--font-weight-medium);
 }
 
+.trip-stops__item--late .trip-stops__name,
+.trip-stops__item--late .trip-stops__deadline {
+  color: var(--color-danger-text);
+}
+
+.trip-stops__time {
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
 .trip-stops__late {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  color: var(--color-warning-text);
+  color: var(--color-danger-text);
   font-size: var(--font-size-sm);
 }
 

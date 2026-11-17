@@ -139,7 +139,7 @@ test("电脑宽度：「机场接机开始」有计时提示，「改填其他�
   await actor.click(screen.getByRole("button", { name: "上一步" }));
   await actor.click(await screen.findByRole("button", { name: "机场接机开始" }));
   assert.ok(await screen.findByLabelText("上车地点（选择航站楼）"));
-  assert.ok(screen.getByText("包车从预约的上车时间开始计时，没有免费等待，航班晚到也照常计时。建议把上车时间定在航班落地后 60–90 分钟（留出入境、取行李的时间）；担心航班延误请下单前联系客服"));
+  assert.ok(screen.getByText("包车从预约的上车时间开始计时，没有免费等待。建议把上车时间定在航班落地后 60–90 分钟（国内航班约 60 分钟，国际航班约 90 分钟，留出入境和取行李的时间）；航班可能延误时请再多留一些，或下单前联系客服"));
   await actor.click(screen.getByRole("button", { name: "改填其他地点" }));
   assertAbsent(screen.queryByLabelText("上车地点（选择航站楼）"));
   assert.equal(screen.getByRole("button", { name: "机场接机开始" }).getAttribute("aria-pressed"), "false");
