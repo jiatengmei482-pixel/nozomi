@@ -19,7 +19,8 @@
  * （谷歌静态路线图经同源 /site/v1/route-map 出图、时长公里数、车型、出发地、目的地、航班落地时间、乘客 / 行李），1023、375 宽单栏、顶部摘要条；
  * 宿主窗口宽而预订区窄时照样单栏；宽窄切换后 resize 报的高度等于内容高度、不多发 step；亮暗两色 axe；截图存到 E2E_SCREENSHOT_DIR（m9e27-*.png）。
  * M9E-32（ADR 0100）：390 宽时 iframe 被撑到全高，每一步的主按钮和「上一步」在底部按钮条里，宿主页滚到顶部、中间时按宿主发的 viewport{top}
- * 停在宿主屏幕下沿看得见，滚到底回到原位置；截图 m9e32-embed-*.png。
+ * 停在宿主屏幕下沿看得见，滚到底回到原位置；截图 m9e32-embed-*.png。769–1023 的平板也用底部按钮条（业主 2026-11-17，ADR 0100 补充）：
+ * M9E-27 那条在 iframe 1023 宽时核对有条、1024 宽时没有。
  * M9P-22（ADR 0098 第三节第 7 小节）：iframe 里包车快捷入口「机场送机结束」按航站楼选，询价匹配到机场、明细写场景名，第 3 步备注提示航班号。
  */
 import { createServer, type Server } from "node:http";
@@ -453,7 +454,7 @@ async function expectHeightFollowsContent(page: Page, what: string): Promise<voi
   await expect.poll(async () => Number(await iframe.getAttribute("height")) - (await content()), { message: `${what}：iframe 高度等于内容高度` }).toBe(0);
 }
 
-test("M9E-27 跨站：分栏按 iframe 自己的宽度——1440、1024 两栏带主站同一个「行程摘要」右侧栏（静态路线图出图），1023、375 单栏；宽窄切换后高度照报、不多发 step；没有主站顶栏页脚；亮暗 axe；截图", async ({ page, request }) => {
+test("M9E-27 跨站：分栏按 iframe 自己的宽度——1440、1024 两栏带主站同一个「行程摘要」右侧栏（静态路线图出图），1023、375 单栏（单栏时按钮在底部按钮条里，平板业主 2026-11-17）；宽窄切换后高度照报、不多发 step；没有主站顶栏页脚；亮暗 axe；截图", async ({ page, request }) => {
   test.setTimeout(240_000);
   const world = await createWorld(request);
   const airport = await createAirport(request, world);
@@ -504,6 +505,9 @@ test("M9E-27 跨站：分栏按 iframe 自己的宽度——1440、1024 两栏�
       await expect(aside, `${what}：单栏（宿主窗口 ${viewport} 宽也一样）`).toHaveCount(0);
       await expect(bar.getByRole("button", { name: /行程摘要/ })).toBeVisible();
     }
+    // 每一步的按钮：两栏时在正文末尾；单栏（手机、769–1023 的平板，业主 2026-11-17 决定）在底部按钮条里
+    await expect(frame.locator(".step-bar"), `${what}：${wide ? "没有" : "有"}底部按钮条`).toHaveCount(wide ? 0 : 1);
+    await expect(frame.locator(wide ? ".book-new__actions" : ".step-bar").getByRole("button", { name: "下一步：核对订单" }), `${what}：「下一步：核对订单」的位置`).toBeVisible();
     await expect(frame.getByRole("heading", { level: 2, name: "乘客信息" }), `${what}：还在第 3 步`).toBeVisible();
     await expect.poll(() => frame.locator("html").evaluate((html) => html.scrollWidth - html.clientWidth), `${what}：不横向滚动`).toBeLessThanOrEqual(0);
     await expectHeightFollowsContent(page, what);

@@ -119,7 +119,7 @@ export function currentLocation(): { path: string; state: unknown } | null {
 const restorers: (() => void)[] = [];
 
 /**
- * 假装是手机宽度（< 768px）：`matchMedia("(max-width: 767px)")` 和新预订页底部按钮条的 `(max-width: 1023px)`（M9E-32；平板也用，业主 2026-11-17）为真；每个元素都在屏幕下方 `top` 像素处；
+ * 假装是手机 / 平板宽度（≤ 1023px）：`matchMedia("(max-width: 767px)")` 和新预订页底部按钮条的 `(max-width: 1023px)`（M9E-32，平板 2026-11-17 起也用）为真；每个元素都在屏幕下方 `top` 像素处；
  * 记下 `scrollIntoView` 滚到了哪些元素（返回的数组里是元素 id）。resetBrowser 时还原。
  */
 export function narrowScreen(top = 2000): string[] {

@@ -522,12 +522,12 @@
 
 /*
  * ---------- 每一步的按钮条（M9E-32，ADR 0100） ----------
- * 手机（≤ 768px，由脚本判断后才渲染 .step-bar，CSS 不另写断点）：「上一步」+ 主按钮放在一条底部按钮条里。
+ * 手机和平板（≤ 1023px，单栏；平板业主 2026-11-17 决定。由脚本判断后才渲染 .step-bar，CSS 不另写断点）：「上一步」+ 主按钮放在一条底部按钮条里。
  * - 主站（.step-bar-slot--fixed）：固定在屏幕底部，留 iPhone 安全区；<html data-book-actionbar> 时 body 底部留出条的实际高度
  *   （--book-actionbar-h，StepActionBar 量出来写的），不挡表单最后一项和页脚；scroll-padding 同样留出，聚焦的输入框不被盖住。
  * - 嵌入页（.step-bar-slot--frame）：iframe 被撑到内容全高，fixed 没用——条留在文档流里，默认 sticky 贴底（直接打开时有效）；
  *   收到宿主带 top 的 viewport 后（data-tracked）按宿主屏幕的下沿往上挪（--book-actionbar-shift，≤ 0）。
- * 电脑、平板照旧是正文末尾的 .book-new__actions。
+ * 电脑（≥ 1024px 两栏）照旧是正文末尾的 .book-new__actions。
  */
 
 .step-bar {
