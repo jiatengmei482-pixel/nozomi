@@ -43,7 +43,15 @@ export interface PriceRuleInput {
   status: PriceRuleStatus;
 }
 
-export interface PriceRuleBody extends PriceRuleInput {
+/**
+ * 一条价格的区域编号；整商品套餐价（`area_id` 为 null）记成空字符串，和页面上「整个商品」的记号 `WHOLE_PRODUCT_AREA` 一致。
+ * 加价、机场套餐、按区域的价格后端保证有区域，不会走到 null。
+ */
+export const ruleAreaId = (rule: { area_id: string | null }): string => rule.area_id ?? "";
+
+export interface PriceRuleBody extends Omit<PriceRuleInput, "area_id"> {
+  /** 迁移过三层区域的包车，整商品套餐价没有区域，为 null（ADR 0093 第五节，M9P-07F） */
+  area_id: string | null;
   id: string;
   /** 这条价格能报出的最低数（十进制字符串，最小货币单位）：试算和日历的基数 */
   base: string;

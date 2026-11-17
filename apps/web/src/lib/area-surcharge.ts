@@ -6,7 +6,7 @@
  * 日期重叠用 @nozomi/domain 的 findPriceRuleOverlaps（和后端同一份）；不用浮点数算钱。不依赖浏览器，用 node:test 直接测。
  */
 import { CURRENCIES, PRICE_LIMITS, type PriceRule, isCurrencyCode, addDays, findPriceRuleOverlaps, priceRuleIsActive, priceRuleIssues } from "@nozomi/domain";
-import type { PriceRuleBatch, PriceRuleBody, PriceRuleInput } from "../api/prices.ts";
+import { type PriceRuleBatch, type PriceRuleBody, type PriceRuleInput, ruleAreaId } from "../api/prices.ts";
 import { GROUPING_PROBLEM, otherCurrencyProblem, tidyAmountText } from "./amount-input.ts";
 import { CURRENCY_NAMES, moneyText, readAmount, tidyAmountDisplay } from "./product-display.ts";
 import { tidyDate } from "./time-input.ts";
@@ -58,7 +58,7 @@ export function surchargeRowFromRule(rule: PriceRuleBody, currency: string): Sur
   return {
     key: rule.id,
     id: rule.id,
-    areaId: rule.area_id,
+    areaId: ruleAreaId(rule),
     vehicleGroupId: rule.vehicle_group_id,
     packageHours: rule.package_hours ?? 0,
     pickup: amountShown(rule.pickup_surcharge ?? null, currency),

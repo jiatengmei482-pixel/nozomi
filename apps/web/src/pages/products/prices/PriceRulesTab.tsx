@@ -213,7 +213,10 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
 
   const readings = useMemo(() => new Map(rows.map((row) => [row.key, readRow(row, context)])), [rows, context]);
   const overlaps = useMemo(() => rowOverlaps(rows, context), [rows, context]);
-  const coverage = useMemo(() => tableCoverage(rows, context, areaIds, groupIds), [rows, context, areaIds, groupIds]);
+  // 迁移过三层的包车：只在旧的按区域套餐价里有的档也列出来（格子显示没填），不被藏起来（M9P-07F）
+  const legacyHoursKey = layered ? [...new Set(legacyPackageItems(prices.items).flatMap((item) => (item.package_hours === null ? [] : [item.package_hours])))].sort((x, y) => x - y).join(",") : "";
+  const legacyHours = useMemo(() => (legacyHoursKey === "" ? [] : legacyHoursKey.split(",").map(Number)), [legacyHoursKey]);
+  const coverage = useMemo(() => tableCoverage(rows, context, areaIds, groupIds, legacyHours), [rows, context, areaIds, groupIds, legacyHours]);
   /**
    * 「这一行的意思」例子里的套餐价（tenant-prices.md 17.2.3）：商品第一个服务区域、这个车型组和套餐、今天生效的基础定价（含没保存的修改）；没有为 null。
    */
@@ -533,15 +536,18 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
       return true;
     }
     // 三层区域重叠（ADR 0093 第七节第 1、2 条）：写出两个区域名和重叠面积，显示在对应的表里
-    if (layered && (err.code === "AREA_LAYER_OVERLAP" || err.code === "AREA_BASE_SURCHARGE_OVERLAP")) {
+    // 没迁移的商品（M9P-06 的同层 / ①③校验）同样写出区域名和面积，指到区域加价那张表（M9P-07F）
+    if (err.code === "AREA_LAYER_OVERLAP" || err.code === "AREA_BASE_SURCHARGE_OVERLAP") {
       const found = layerOverlapDetails(err.details);
       const sentences = found.map(layerOverlapSentence);
-      setLayerOverlap(found);
-      const target = found.some((entry) => entry.layer === "itinerary") ? "itinerary-title" : "updown-title";
+      if (layered) setLayerOverlap(found);
+      const target = !layered ? "surcharge-title" : found.some((entry) => entry.layer === "itinerary") ? "itinerary-title" : "updown-title";
       setRejection({ title: "没有保存。", text: sentences.length > 0 ? "有区域重叠，所以这一批都没有保存。" : err.message, items: sentences.map((text) => ({ text, target })) });
       return true;
     }
-    if (layered && (err.code === "CHARTER_LEGACY_READ_ONLY" || err.code === "CHARTER_LAYOUT_NOT_MIGRATED")) {
+    // 不看页面以为的布局（M9P-07F）：页面打开后商品才被迁移（或反过来）时，后端按现在的布局拒收；
+    // 这里只提示重新读取，读回来按新布局显示，不会每次保存都落到通用报错
+    if (err.code === "CHARTER_LEGACY_READ_ONLY" || err.code === "CHARTER_LAYOUT_NOT_MIGRATED") {
       setRejection({ title: "没有保存。", text: /[一-鿿]/.test(err.message) ? err.message : "迁移前的旧数据是只读的，请点「重新读取价格」后再保存。", items: [], reload: true });
       return true;
     }
@@ -787,7 +793,9 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   const groupNameOf = (id: string): string => groupName(id);
   const layerGroups = groups.map((group) => ({ id: group.vehicle_group_id, name: displayName(group.name).text, passengers: group.passengers, luggage: group.luggage }));
   const overlapFor = (layer: "itinerary" | "updown"): LayerOverlapDetail[] => (layerOverlap ?? []).filter((entry) => (entry.layer === "itinerary") === (layer === "itinerary"));
-  const layerAreaCount = (state: { rows: LayerRow[]; added: string[] }): number => new Set([...state.rows.filter((row) => !row.deleted).map((row) => row.areaId), ...state.added]).size;
+  // 表头的区域数不算挡住的区域（商品基础价区域上的③：标红、只能删，M9P-07F）
+  const layerAreaCount = (state: { rows: LayerRow[]; added: string[]; blocked: ReadonlySet<string> }): number =>
+    new Set([...state.rows.filter((row) => !row.deleted).map((row) => row.areaId), ...state.added].filter((areaId) => !state.blocked.has(areaId))).size;
   /** 继承价（ADR 0098 第三节第 4 小节）：普通套餐价和两张加价表都用页面上现在的内容（含没保存的修改）；机场那一端落在哪按区域图形算 */
   const airportInherit = () => {
     const shapes = areaShapes.state.data ?? [];
@@ -1134,6 +1142,15 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
             )}
             {category === "charter" && <Alert kind="info">{CHARTER_SUPPLIER_PRICE_NOTE}</Alert>}
             {layered && <MigrationDiffBanner diff={migrationDiff.state.data} currency={context.currency} areaName={layerAreaName} groupName={groupNameOf} />}
+            {/* 迁移差异没读出来时说一声（M9P-07F），不当成「没有差异」 */}
+            {layered && migrationDiff.state.status === "error" && (
+              <Alert kind="warning">
+                <span data-migration-diff-error>迁移差异（迁移前后套餐价不一致的地方）没有读出来。</span>{" "}
+                <Button size="sm" variant="text" onClick={migrationDiff.reload}>
+                  重试
+                </Button>
+              </Alert>
+            )}
             {layered && (
               <nav className="price-sections" aria-label="本页的分块">
                 {(

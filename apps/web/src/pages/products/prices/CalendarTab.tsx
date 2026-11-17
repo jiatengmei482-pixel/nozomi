@@ -6,7 +6,7 @@
 import { PRICING_MODEL_NAMES, type TripDirection, priceDirectionNames } from "@nozomi/domain";
 import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router";
-import { type CalendarDay, type PriceCalendar, getPriceCalendar } from "../../../api/prices.ts";
+import { type CalendarDay, type PriceCalendar, getPriceCalendar, ruleAreaId } from "../../../api/prices.ts";
 import { Alert } from "../../../components/Alert.tsx";
 import { Button, IconButton, LinkButton } from "../../../components/Button.tsx";
 import { Dialog } from "../../../components/Dialog.tsx";
@@ -49,7 +49,7 @@ export function CalendarTab({ shared }: { shared: PricesShared }) {
   const packages = useMemo(() => [...new Set(prices.items.flatMap((item) => (item.package_hours === null ? [] : [item.package_hours])))].sort((x, y) => x - y), [prices.items]);
 
   // ───── 现在看的组合和月份（都写在网址里）─────
-  const firstPriced = prices.items.find((item) => item.status === "enabled" && areaIds.includes(item.area_id) && groupIds.includes(item.vehicle_group_id)) ?? prices.items.find((item) => areaIds.includes(item.area_id) && groupIds.includes(item.vehicle_group_id));
+  const firstPriced = prices.items.find((item) => item.status === "enabled" && areaIds.includes(ruleAreaId(item)) && groupIds.includes(item.vehicle_group_id)) ?? prices.items.find((item) => areaIds.includes(ruleAreaId(item)) && groupIds.includes(item.vehicle_group_id));
   const wantedArea = params.get("area");
   const wantedGroup = params.get("vg");
   const unknown = (wantedArea !== null && !areaIds.includes(wantedArea)) || (wantedGroup !== null && !groupIds.includes(wantedGroup));

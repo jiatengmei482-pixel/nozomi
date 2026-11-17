@@ -8,7 +8,7 @@ import { type LocalizedText, PRICE_LIMITS, areaUsableByCategory, charterPriceWit
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { type AreaMapItem, type AreaMapResponse, fetchTenantAreaMap } from "../../../api/area-map.ts";
 import type { AreaSummary as TenantArea } from "../../../api/areas.ts";
-import type { PriceRuleBatch, PriceRules } from "../../../api/prices.ts";
+import { type PriceRuleBatch, type PriceRules, ruleAreaId } from "../../../api/prices.ts";
 import type { Product } from "../../../api/products.ts";
 import { Alert } from "../../../components/Alert.tsx";
 import { Button } from "../../../components/Button.tsx";
@@ -78,7 +78,7 @@ export interface SurchargeState {
   adopt(data: PriceRules, keepEdits: boolean): void;
 }
 
-const savedAreaOrder = (data: PriceRules): string[] => [...new Set(data.items.filter(isSurchargeItem).map((item) => item.area_id))];
+const savedAreaOrder = (data: PriceRules): string[] => [...new Set(data.items.filter(isSurchargeItem).map(ruleAreaId))];
 
 export function useSurcharges(prices: PriceRules): SurchargeState {
   const currency = prices.currency;
