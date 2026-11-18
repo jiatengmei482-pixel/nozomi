@@ -9,7 +9,7 @@
  * 金额是结算价、最小货币单位整数；日期重叠用 @nozomi/domain 的 findPriceRuleOverlaps（和后端同一份）。不依赖浏览器。
  */
 import { type PriceRule, type ServiceCategory, addDays, findPriceRuleOverlaps, priceRuleIsActive } from "@nozomi/domain";
-import type { PriceRuleBatch, PriceRuleBody, PriceRuleInput, PriceRules } from "../api/prices.ts";
+import { type PriceRuleBatch, type PriceRuleBody, type PriceRuleInput, type PriceRules, ruleAreaId } from "../api/prices.ts";
 import { readNamedAmount } from "./area-surcharge.ts";
 import { moneyText } from "./product-display.ts";
 import { tidyDate } from "./time-input.ts";
@@ -45,12 +45,12 @@ export function isLayeredCharter(category: ServiceCategory, prices: Pick<PriceRu
 
 /** 整商品套餐价（区域为空），区域换成 `WHOLE_PRODUCT_AREA` 好放进价格表。 */
 export function wholePackageItems(items: readonly PriceRuleBody[]): PriceRuleBody[] {
-  return items.filter((item) => item.pricing_model === "charter_package" && (item.area_id as string | null) === null).map((item) => ({ ...item, area_id: WHOLE_PRODUCT_AREA }));
+  return items.filter((item) => item.pricing_model === "charter_package" && item.area_id === null).map((item) => ({ ...item, area_id: WHOLE_PRODUCT_AREA }));
 }
 
 /** 迁移前的按服务区域套餐价（只读）。 */
 export function legacyPackageItems(items: readonly PriceRuleBody[]): PriceRuleBody[] {
-  return items.filter((item) => item.pricing_model === "charter_package" && (item.area_id as string | null) !== null);
+  return items.filter((item) => item.pricing_model === "charter_package" && item.area_id !== null);
 }
 
 /** 提交前把整商品套餐价的区域记号换回 null。 */
@@ -101,7 +101,7 @@ export function layerRowFromRule(rule: PriceRuleBody, model: LayerModel, currenc
     key: rule.id,
     id: rule.id,
     model,
-    areaId: rule.area_id,
+    areaId: ruleAreaId(rule),
     vehicleGroupId: rule.vehicle_group_id,
     packageHours: rule.package_hours,
     amount: shown(rule.itinerary_surcharge, currency),

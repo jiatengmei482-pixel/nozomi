@@ -10,7 +10,7 @@
  */
 import { type AirportScenarioKind, type PriceRule, PRICE_LIMITS, addDays, areaSurchargeFor, findPriceRuleOverlaps, locateInAreas, priceRuleCoversDate, priceRuleIsActive, scenarioEnd } from "@nozomi/domain";
 import type { Area } from "../api/areas.ts";
-import type { PriceRuleBatch, PriceRuleBody, PriceRuleInput } from "../api/prices.ts";
+import { type PriceRuleBatch, type PriceRuleBody, type PriceRuleInput, ruleAreaId } from "../api/prices.ts";
 import { readNamedAmount } from "./area-surcharge.ts";
 import { charterAirportText } from "./charter-airport-copy.ts";
 import { moneyText } from "./product-display.ts";
@@ -78,7 +78,7 @@ export function airportCellFromRule(rule: PriceRuleBody, currency: string): Airp
     key: rule.id,
     id: rule.id,
     scenario: scenarioOfDirection(rule.direction),
-    areaId: rule.area_id,
+    areaId: ruleAreaId(rule),
     vehicleGroupId: rule.vehicle_group_id,
     packageHours: rule.package_hours ?? 0,
     price: shown(rule.package_price, currency),
@@ -110,7 +110,7 @@ export function airportCellsOf(items: readonly PriceRuleBody[], currency: string
   const groups = new Map<string, PriceRuleBody[]>();
   for (const item of items) {
     if (item.pricing_model !== AIRPORT_MODEL || item.package_hours === null) continue;
-    const key = blankAirportKey(scenarioOfDirection(item.direction), item.area_id, item.vehicle_group_id, item.package_hours);
+    const key = blankAirportKey(scenarioOfDirection(item.direction), ruleAreaId(item), item.vehicle_group_id, item.package_hours);
     groups.set(key, [...(groups.get(key) ?? []), item]);
   }
   const cells: AirportCell[] = [];

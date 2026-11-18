@@ -30,7 +30,7 @@ import {
   priceRuleIssues,
   scaledInteger,
 } from "@nozomi/domain";
-import type { PriceRuleBatch, PriceRuleBody, PriceRuleInput } from "../api/prices.ts";
+import { type PriceRuleBatch, type PriceRuleBody, type PriceRuleInput, ruleAreaId } from "../api/prices.ts";
 import { GROUPING_PROBLEM, otherCurrencyProblem, plainDigits, tidyAmountText } from "./amount-input.ts";
 import { kmText } from "./distance.ts";
 import { CURRENCY_NAMES, amountText, moneyText, readAmount } from "./product-display.ts";
@@ -129,7 +129,7 @@ export function rowFromRule(rule: PriceRuleBody, currency: string): PriceRow {
   return {
     key: rule.id,
     id: rule.id,
-    areaId: rule.area_id,
+    areaId: ruleAreaId(rule),
     toAreaId: rule.to_area_id ?? null,
     vehicleGroupId: rule.vehicle_group_id,
     direction: rule.direction,
@@ -356,11 +356,12 @@ export interface Coverage {
 }
 
 /** 按页面上现在的内容算「该有价格的组合」。包车：只有空行的新套餐也算进去（接口不知道它们）。 */
-export function tableCoverage(rows: readonly PriceRow[], context: PriceContext, areaIds: readonly string[], vehicleGroupIds: readonly string[]): Coverage {
+/** `extraPackages`：另外要列出来的套餐时长（迁移过三层的包车：只在旧的按区域套餐价里有的档，M9P-07F），没有价格的格子算缺 */
+export function tableCoverage(rows: readonly PriceRow[], context: PriceContext, areaIds: readonly string[], vehicleGroupIds: readonly string[], extraPackages: readonly number[] = []): Coverage {
   const live = liveRules(rows, context).filter((entry) => entry.rule.areaId !== null && areaIds.includes(entry.rule.areaId) && vehicleGroupIds.includes(entry.rule.vehicleGroupId));
   const coverage = priceCoverage({ category: context.category, areaIds, vehicleGroupIds, rules: live.map((entry) => entry.rule), today: context.today });
   const combos: Coverage["combos"] = coverage.combos.map((combo) => ({ ...combo, row: combo.ruleIndex === null ? null : (live[combo.ruleIndex]?.row ?? null) }));
-  const packages = context.category === "charter" ? [...new Set([...coverage.packages, ...rows.filter((row) => !row.deleted && row.packageHours !== null).map((row) => row.packageHours as number)])].sort((x, y) => x - y) : [];
+  const packages = context.category === "charter" ? [...new Set([...coverage.packages, ...rows.filter((row) => !row.deleted && row.packageHours !== null).map((row) => row.packageHours as number), ...extraPackages])].sort((x, y) => x - y) : [];
   for (const hours of packages) {
     if (coverage.packages.includes(hours)) continue;
     for (const areaId of areaIds) for (const vehicleGroupId of vehicleGroupIds) combos.push({ areaId, vehicleGroupId, direction: null, packageHours: hours, state: "missing", ruleIndex: null, viaBoth: false, from: null, row: null });

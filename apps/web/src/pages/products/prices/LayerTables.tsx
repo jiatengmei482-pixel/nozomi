@@ -9,7 +9,7 @@
 import { type LocalizedText, areaUsableByCategory } from "@nozomi/domain";
 import { type ReactNode, useMemo, useState } from "react";
 import type { AreaSummary as TenantArea } from "../../../api/areas.ts";
-import type { CharterMigrationDiff, CharterPackageTerms, PriceRuleBatch, PriceRuleBody, PriceRules } from "../../../api/prices.ts";
+import { type CharterMigrationDiff, type CharterPackageTerms, type PriceRuleBatch, type PriceRuleBody, type PriceRules, ruleAreaId } from "../../../api/prices.ts";
 import type { Product } from "../../../api/products.ts";
 import { Alert } from "../../../components/Alert.tsx";
 import { Button } from "../../../components/Button.tsx";
@@ -60,7 +60,7 @@ export interface LayerState {
   adopt(data: PriceRules, keepEdits: boolean): void;
 }
 
-const savedAreas = (data: PriceRules, model: LayerModel): string[] => [...new Set(data.items.filter((item) => item.pricing_model === model).map((item) => item.area_id))];
+const savedAreas = (data: PriceRules, model: LayerModel): string[] => [...new Set(data.items.filter((item) => item.pricing_model === model).map(ruleAreaId))];
 
 export function useLayerRows(prices: PriceRules, model: LayerModel, blockedIds: readonly string[]): LayerState {
   const currency = prices.currency;
@@ -483,7 +483,7 @@ export function MigrationDiffBanner({ diff, currency, areaName, groupName }: { d
             <tbody>
               {items.map((item) => (
                 <tr key={`${item.old_price_rule_id}-${item.valid_from}`} className="price-table__row">
-                  <th scope="row">{areaName(item.area_id)}</th>
+                  <th scope="row">{areaName(ruleAreaId(item))}</th>
                   <td>{groupName(item.vehicle_group_id)}</td>
                   <td>{item.package_hours === null ? LAYER_TEXT.allPackages : `${item.package_hours} 小时`}</td>
                   <td>{`${termsText(item.old, currency)}（${item.valid_from} 起）`}</td>
@@ -525,7 +525,7 @@ export function LegacyPackages({ items, currency, areaName, groupName }: { items
           <tbody>
             {items.map((item) => (
               <tr key={item.id} className="price-table__row">
-                <th scope="row">{areaName(item.area_id)}</th>
+                <th scope="row">{areaName(ruleAreaId(item))}</th>
                 <td>{groupName(item.vehicle_group_id)}</td>
                 <td>{item.package_hours === null ? "" : `${item.package_hours} 小时`}</td>
                 <td className="price-table__number">{item.package_km ?? "—"}</td>

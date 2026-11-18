@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { PriceRuleBody } from "../api/prices.ts";
+import { type PriceRuleBody, ruleAreaId } from "../api/prices.ts";
 import { type PriceContext, type PriceRow, blankRow, buildBatch, isExtraSegment, kmTextToMeters, lowestText, metersToKmText, nextSegment, pricingSentence, readRow, rowChange, rowFromRule, rowOverlaps, rowState, tableCoverage, validitySentence, withBlankRows } from "./price-form.ts";
 
 const A1 = "area-1";
@@ -147,4 +147,16 @@ test("M1-14 没保存的新行：这个组合另外还有行时可以整行删�
   assert.equal(isExtraSegment([saved, added, lonely], lonely), false);
   assert.equal(isExtraSegment([saved, added], saved), false, "已保存的走「删除 / 撤销删除」");
   assert.equal(isExtraSegment([{ ...saved, deleted: true }, added], added), false, "另一行是将删除的，不算");
+});
+
+test("包车覆盖：extraPackages 里只在旧表里有的档也列出来，格子都算缺（M9P-07F）", () => {
+  const coverage = tableCoverage([], charter, ["whole"], ["g1"], [8, 5]);
+  assert.deepEqual(coverage.packages, [5, 8]);
+  assert.equal(coverage.missing, 2);
+  assert.deepEqual(tableCoverage([], charter, ["whole"], ["g1"]).packages, []);
+});
+
+test("ruleAreaId：整商品套餐价（area_id 为 null）记成空字符串，有区域的照原样（M9P-07F）", () => {
+  assert.equal(ruleAreaId({ area_id: null }), "");
+  assert.equal(ruleAreaId({ area_id: "a1" }), "a1");
 });
