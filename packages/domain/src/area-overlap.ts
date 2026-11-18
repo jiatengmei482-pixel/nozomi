@@ -21,7 +21,7 @@
  * 规模：边数 n 时，找交点用「按最小经度排序 + 扫描」，竖条按活动边表扫描；几十个区域、几千个点在毫秒级。
  * 极端情况（几百个区域、每个几千个点、彼此大面积交错）会到秒级，所以页面只在数据变化时算一次（ADR 0074「限制」）。
  */
-import { AREA_LIMITS, type AreaBizType, type AreaPolygonKind, type AreaRole, type Position, areaRoleCanOperate, areaRoleCanPrice, ringIssues } from "./areas.ts";
+import { AREA_LIMITS, type AreaBizType, type AreaPolygonKind, type AreaRole, type AreaSharing, type Position, areaRoleCanOperate, areaRoleCanPrice, ringIssues } from "./areas.ts";
 import type { ServiceCategory } from "./master-data.ts";
 import { areaUsableByCategory } from "./products.ts";
 
@@ -38,6 +38,8 @@ export interface OverlapAreaInput {
   role?: AreaRole;
   /** 停用的区域不参与 */
   active: boolean;
+  /** 分类（ADR 0102）：平台共享和供应商独立之间不算重叠；不给按供应商独立 */
+  sharing?: AreaSharing;
   polygons: readonly { kind: AreaPolygonKind; ring: readonly Position[] }[];
 }
 
@@ -65,6 +67,11 @@ export interface AreaOverlapResult {
 /** 两个区域可能被同一个商品同时选上（业务类型相同，或其中一个是通用）。 */
 export function areasCanCompete(a: AreaBizType, b: AreaBizType): boolean {
   return a === b || a === "general" || b === "general";
+}
+
+/** 两个区域算不算互相重叠：业务类型对得上（`areasCanCompete`），而且是同一分类（平台共享和供应商独立之间不算，ADR 0102） */
+function inputsCanCompete(a: Pick<OverlapAreaInput, "bizType" | "sharing">, b: Pick<OverlapAreaInput, "bizType" | "sharing">): boolean {
+  return areasCanCompete(a.bizType, b.bizType) && (a.sharing ?? "own") === (b.sharing ?? "own");
 }
 
 interface Edge {
@@ -257,7 +264,7 @@ export function findAreaOverlaps(areas: readonly OverlapAreaInput[]): AreaOverla
   const live = liveAreas(areas.filter((area) => area.role !== "operating"));
   // 每个区域营运区的外框；外框和任何一个能竞争的区域都碰不到的区域不用算
   const boxes = live.map(operateBox);
-  const candidate = live.map((area, i) => live.some((other, j) => j !== i && areasCanCompete(area.bizType, other.bizType) && boxesMeet(boxes[i] as Box, boxes[j] as Box)));
+  const candidate = live.map((area, i) => live.some((other, j) => j !== i && inputsCanCompete(area, other) && boxesMeet(boxes[i] as Box, boxes[j] as Box)));
   const used = live.filter((_, i) => candidate[i]);
   const empty: AreaOverlapResult = { pairs: [], pieces: [], byArea: new Map() };
   if (used.length < 2) return empty;
@@ -271,7 +278,7 @@ export function findAreaOverlaps(areas: readonly OverlapAreaInput[]): AreaOverla
       const competing: [number, number][] = [];
       for (let i = 0; i < ids.length; i += 1) {
         for (let j = i + 1; j < ids.length; j += 1) {
-          if (areasCanCompete((used[ids[i] as number] as OverlapAreaInput).bizType, (used[ids[j] as number] as OverlapAreaInput).bizType)) competing.push([ids[i] as number, ids[j] as number]);
+          if (inputsCanCompete(used[ids[i] as number] as OverlapAreaInput, used[ids[j] as number] as OverlapAreaInput)) competing.push([ids[i] as number, ids[j] as number]);
         }
       }
       if (competing.length === 0) continue;

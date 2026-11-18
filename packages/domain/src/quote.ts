@@ -9,7 +9,7 @@
  * 钱：结算价是商品所属子品牌币种的最小货币单位整数；中间结果用精确分数，只在最后取整一次（pricing.ts / money.ts）。
  */
 import { CHARTER_ITINERARY_LIMITS } from "./charter-itinerary-limits.ts";
-import { type AreaPolygonShape, type AreaRole, locatePoint } from "./areas.ts";
+import { type AreaPolygonShape, type AreaRole, type AreaSharing, locatePoint } from "./areas.ts";
 import { type AirportBinding, type AirportScenario, type AirportScenarioKind, airportPackagePricing, airportPackageRule, airportScenarios, scenarioEnd } from "./charter-airport.ts";
 import { type DistancePrice, type PricingBasis, selectDistancePrice } from "./distance-price.ts";
 import type { LatLng } from "./geo.ts";
@@ -211,6 +211,8 @@ export interface QuoteArea {
   shapes: readonly (AreaPolygonShape & { id: string })[];
   /** 区域用途（ADR 0075）：只有运营范围（`operatingAreas`）里给；用途是「运营」的区域，禁行区挡这家所有商品（M8-36 补充） */
   role?: AreaRole;
+  /** 分类（ADR 0102）：平台共享 / 供应商独立；不给按供应商独立 */
+  sharing?: AreaSharing;
 }
 
 export interface QuoteProduct {
@@ -602,17 +604,19 @@ const roundMinor = (amount: ExactAmount): number => roundFractionToUnit(amount.n
 /**
  * 一个点落在哪些区域里（报价第 4 步的判断，上车点、下车点各判一次；点对点和包车共用，ADR 0073 第一部分）：
  * `operating` 是点在营运区里、而且不在那个区域的禁行区里的区域（按给的先后）；`forbidden` 是点落在它的禁行区里的区域。停用的区域不算。
+ * 调用方每次只给同一层的区域（①商品区域、②行程、③上下车加价各判一次），所以「供应商独立优先」（ADR 0102）就在这里按层生效。
  */
 export function locateInAreas(areas: readonly QuoteArea[], point: LatLng): { operating: string[]; forbidden: string[] } {
-  const operating: string[] = [];
-  const forbidden: string[] = [];
+  const found: { area: QuoteArea; result: "operate" | "forbid" }[] = [];
   for (const area of areas) {
     if (!area.active) continue;
     const result = locatePoint(area.shapes, point).result;
-    if (result === "operate") operating.push(area.areaId);
-    else if (result === "forbid") forbidden.push(area.areaId);
+    if (result === "operate" || result === "forbid") found.push({ area, result });
   }
-  return { operating, forbidden };
+  // 供应商独立优先（ADR 0102）：点落进了供应商独立的区域（营运区或禁行区），同一次判断（同一层）里平台共享的区域就不算
+  const ownHit = found.some((entry) => (entry.area.sharing ?? "own") === "own");
+  const kept = ownHit ? found.filter((entry) => (entry.area.sharing ?? "own") === "own") : found;
+  return { operating: kept.filter((entry) => entry.result === "operate").map((entry) => entry.area.areaId), forbidden: kept.filter((entry) => entry.result === "forbid").map((entry) => entry.area.areaId) };
 }
 
 type AreaRefusal = "OUT_OF_SERVICE_AREA" | "IN_FORBIDDEN_AREA" | "NO_PRICING_AREA";
