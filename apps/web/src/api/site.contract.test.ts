@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 import { API_PATH_PREFIXES } from "../lib/api-prefixes.ts";
 import { UNAVAILABLE_REASON_TEXT } from "../lib/site-display.ts";
-import { SITE_BASE, SITE_ROUTE_MAP_LIMITS, siteRouteMapUrl, SITE_FX_REFERENCE_FIELDS, SITE_BY_POINTS_REQUEST_FIELDS, SITE_BY_POINTS_RESULT_FIELDS, SITE_ORDER_FIELDS, SITE_ORDER_REQUEST_FIELDS, SITE_ORDER_VEHICLE_GROUP_FIELDS, SITE_QUOTE_REQUEST_FIELDS, SITE_SCHEMA_FIELDS, SITE_TRIP_END_FIELDS, SITE_MANUAL_QUOTE_PATH, SITE_MANUAL_QUOTE_REQUEST_FIELDS, SITE_MANUAL_QUOTE_TRIP_FIELDS, SITE_TRIPS_PATH, SITE_TRIP_CREATED_FIELDS, SITE_TRIP_DAY_FIELDS, SITE_TRIP_FEE_FIELDS, SITE_TRIP_FIELDS, SITE_TRIP_ITEM_FIELDS, SITE_TRIP_ITEM_KINDS, SITE_TRIP_ITINERARY_FIELDS, SITE_TRIP_PARTY_FIELDS, SITE_TRIP_PLAN_DAY_FIELDS, SITE_TRIP_PLAN_FIELDS, SITE_TRIP_PLAN_KINDS, SITE_TRIP_SEGMENT_FIELDS, SITE_TRIP_UNQUOTED_FIELDS } from "./site.ts";
+import { SITE_BASE, SITE_ROUTE_MAP_LIMITS, siteRouteMapUrl, SITE_FX_REFERENCE_FIELDS, SITE_BY_POINTS_REQUEST_FIELDS, SITE_BY_POINTS_RESULT_FIELDS, SITE_ORDER_FIELDS, SITE_ORDER_REQUEST_FIELDS, SITE_ORDER_VEHICLE_GROUP_FIELDS, SITE_QUOTE_REQUEST_FIELDS, SITE_SCHEMA_FIELDS, SITE_TRIP_END_FIELDS, SITE_MANUAL_QUOTE_PATH, SITE_MANUAL_QUOTE_REQUEST_FIELDS, SITE_MANUAL_QUOTE_TRIP_FIELDS, SITE_TRIPS_PATH, SITE_TRIP_CREATED_FIELDS, SITE_TRIP_DAY_FIELDS, SITE_TRIP_FEE_FIELDS, SITE_TRIP_FIELDS, SITE_TRIP_ITEM_FIELDS, SITE_TRIP_ITEM_KINDS, SITE_TRIP_ITINERARY_FIELDS, SITE_TRIP_PARTY_FIELDS, SITE_TRIP_PLAN_DAY_FIELDS, SITE_TRIP_PLAN_FIELDS, SITE_TRIP_PLAN_KINDS, SITE_TRIP_SEGMENT_FIELDS, SITE_TRIP_UNQUOTED_FIELDS, SITE_TRIP_ORDER_QUOTE_FIELDS, SITE_TRIP_ORDER_QUOTE_REQUEST_FIELDS, siteTripOrderQuotePath } from "./site.ts";
 
 interface Schema {
   $ref?: string;
@@ -51,6 +51,7 @@ test("前端用到的官网接口都在 openapi.yaml 里；订单页的接口要
     ["post", SITE_TRIPS_PATH],
     ["get", `${SITE_TRIPS_PATH}/{id}`],
     ["post", `${SITE_TRIPS_PATH}/{id}/quote`],
+    ["post", `${SITE_TRIPS_PATH}/{id}/plans/{planId}/order-quote`],
   ];
   const guarded: [string, string][] = [
     ["get", `${SITE_BASE}/order`],
@@ -299,4 +300,26 @@ test("行程报价（M9T-03 / M9T-09）：建行程单的请求体、应答，�
   walk(trip, new Set(["SiteTrip"]));
   assert.ok(keys.has("plans") && keys.has("segments") && keys.has("price_breakdown"));
   assert.deepEqual([...keys].filter((key) => /settlement|markup|tenant_id|product_id|secret/i.test(key)), []);
+});
+
+test("行程下单出口（M9T-10）：请求体、应答字段和 openapi.yaml 一致；报价就是 SiteQuote、询价条件就是 SiteQuoteRequest；对客应答没有结算价、加价比例、供应商编号", () => {
+  interface Responses {
+    requestBody?: { required?: boolean; content: Record<string, { schema: Schema }> };
+    responses: Record<string, { content?: Record<string, { schema: Schema }> }>;
+  }
+  const path = `${SITE_TRIPS_PATH}/{id}/plans/{planId}/order-quote`;
+  assert.equal(siteTripOrderQuotePath("{id}", "{planId}").replaceAll("%7B", "{").replaceAll("%7D", "}"), path);
+  const operation = spec.paths[path]?.["post"] as unknown as Responses;
+  assert.notEqual(operation.requestBody?.required, true, "请求体可以不带");
+  assert.deepEqual(props(operation.requestBody?.content["application/json"]?.schema), sorted(SITE_TRIP_ORDER_QUOTE_REQUEST_FIELDS));
+  assert.equal(operation.responses["200"]?.content?.["application/json"]?.schema?.$ref, "#/components/schemas/SiteTripOrderQuote");
+  for (const status of ["404", "409", "429"]) assert.ok(operation.responses[status], `${status} 要有定义`);
+  const schema = schemas["SiteTripOrderQuote"];
+  assert.deepEqual(props(schema), sorted(SITE_TRIP_ORDER_QUOTE_FIELDS));
+  assert.deepEqual(sorted(schema?.required ?? []), sorted(SITE_TRIP_ORDER_QUOTE_FIELDS));
+  assert.equal(schema?.properties?.["quote"]?.$ref, "#/components/schemas/SiteQuote");
+  assert.equal(schema?.properties?.["quote_request"]?.$ref, "#/components/schemas/SiteQuoteRequest");
+  assert.equal(schema?.properties?.["itinerary_route"]?.oneOf?.[1]?.$ref, "#/components/schemas/SiteItineraryRoute");
+  const keys = [...props(schema), ...props(schemas["SiteQuote"])];
+  assert.deepEqual(keys.filter((key) => /settlement|markup|tenant|product_id|secret/i.test(key)), []);
 });

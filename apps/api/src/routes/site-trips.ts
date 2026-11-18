@@ -2,7 +2,9 @@
  * 官网的行程报价接口（M9T-03，ADR 0101 第三节）：
  * - `POST /site/v1/trips`：校验标准行程单、存为 draft，返回编号（每个地址每分钟 10 次，`site_trip`）；
  * - `GET /site/v1/trips/{id}`：行程单和最近一次报价的方案（过期的方案标 `expired`）；凭编号访问，过期、不存在、格式不对同一个 404（占 `site_read`）；
- * - `POST /site/v1/trips/{id}/quote`：编排 + 分段报价 + 跨段费用 + 方案对比（每个地址每分钟 5 次、每天 50 次，两个都放行才报；不和 `site_quote` 共用）。
+ * - `POST /site/v1/trips/{id}/quote`：编排 + 分段报价 + 跨段费用 + 方案对比（每个地址每分钟 5 次、每天 50 次，两个都放行才报；不和 `site_quote` 共用）；
+ * - `POST /site/v1/trips/{id}/plans/{planId}/order-quote`：单段方案转成一张普通官网报价（M9T-10，ADR 0101 第十三节第 3 小节），之后凭 `quote_id` 走现有下单、付款；
+ *   价格必须等于方案的对外总价（否则 409 `TRIP_PRICE_CHANGED`）。是一次官网正式询价，占 `site_quote`（每个地址每分钟 30 次）。
  * 请求体用 ADR 0101 第二节的标准行程单（camelCase）；应答字段是 snake_case，金额同官网询价（`{ amount, currency }`，主单位十进制字符串）。
  * 对客应答没有结算价、加价比例、供应商编号。
  */
@@ -13,8 +15,9 @@ import type { AppContext } from "../context.ts";
 import { siteAudienceOf } from "../services/qa-acceptance.ts";
 import { salesMoney } from "../services/sales-quotes.ts";
 import { takeSiteSlot } from "../services/site.ts";
-import { type TripView, createTrip, getTrip, quoteTrip } from "../services/trips.ts";
+import { type TripView, createTrip, getTrip, orderQuoteForPlan, quoteTrip } from "../services/trips.ts";
 import { parseInput, uuidSchema } from "../validation.ts";
+import { quoteJson, quotedCityJson } from "./site.ts";
 
 type Json = Record<string, unknown>;
 
@@ -50,6 +53,16 @@ export const tripItinerarySchema = z
       .strict()
       .default({ vehicleGroupIds: [], addons: [] }),
     days: z.array(daySchema).min(1).max(TRIP_LIMITS.maxDays),
+  })
+  .strict();
+
+/**
+ * 下单出口的请求体（可以不带）：`waypoint_names` 是包车这一段各经停点的显示名称（按顺序，个数要和经停点一样多），
+ * 只随报价锁定、下单时抄进订单给司机看，不影响价格；不带时写「经停 N」。
+ */
+const orderQuoteSchema = z
+  .object({
+    waypoint_names: z.array(z.string().trim().min(1).max(200)).max(TRIP_LIMITS.maxItemsPerDay).optional(),
   })
   .strict();
 
@@ -138,5 +151,24 @@ export function registerSiteTripRoutes(app: FastifyInstance, ctx: AppContext): v
     const { id } = request.params as { id: string };
     const view = await quoteTrip(ctx, id, { audience: await audience(request), ip: request.ip, log: request.log });
     return tripJson(view, ctx.now());
+  });
+
+  app.post("/site/v1/trips/:id/plans/:planId/order-quote", async (request) => {
+    // 一次官网正式询价（写询价日志和报价），和 POST /site/v1/quotes 同一个额度
+    await takeSiteSlot(ctx, "site_quote", { ip: request.ip });
+    const { id, planId } = request.params as { id: string; planId: string };
+    const input = parseInput(orderQuoteSchema, request.body, "body");
+    const result = await orderQuoteForPlan(ctx, id, planId, { audience: await audience(request), log: request.log, waypointNames: input.waypoint_names ?? null });
+    const route = result.itinerary;
+    return {
+      trip_id: result.tripId,
+      plan_id: result.planId,
+      currency: result.currency,
+      city: quotedCityJson(result.city),
+      quote: quoteJson(result.quote),
+      quote_request: result.quoteRequest,
+      itinerary_route: route === null ? null : { legs: route.legs.map((leg) => ({ minutes: leg.minutes, meters: leg.meters })), drive_minutes: route.driveMinutes, stay_minutes: route.stayMinutes, total_minutes: route.totalMinutes, total_meters: route.totalMeters },
+      expires_at: result.quote.expiresAt,
+    };
   });
 }

@@ -358,3 +358,145 @@ test("限频：建单每分钟 10 次、报价每分钟 5 次（同一地址）�
   assert.deepEqual(quotes.slice(0, 5), Array(5).fill(200));
   assert.equal(quotes[5], 429);
 });
+
+// ---- M9T-10：单段方案的下单出口（ADR 0101 第十三节第 3 小节） ----
+
+async function orderQuote(tripId: string, planId: string, body?: unknown): Promise<ApiResponse> {
+  api.clock.advance(1_000);
+  const res = await site.call("POST", `/site/v1/trips/${tripId}/plans/${planId}/order-quote`, { ip: nextIp(), ...(body === undefined ? {} : { body }) });
+  assertMatchesOpenApi("POST", "/site/v1/trips/{id}/plans/{planId}/order-quote", res);
+  return res;
+}
+/** 建单 + 报价，返回行程单编号和报出的方案 */
+async function quotedTrip(days: unknown[]): Promise<{ tripId: string; plans: any[] }> {
+  const created = await createTrip(trip(days));
+  assert.equal(created.status, 201, created.text);
+  const res = await quoteTrip(created.body.trip_id);
+  assert.equal(res.status, 200, res.text);
+  return { tripId: created.body.trip_id, plans: res.body.plans };
+}
+const ORDER_PASSENGER = { name: "王小华", phone: "+81 90-5555-6666", email: "trip.order@example.com" };
+
+test("M9T-10 单日一车到底（一段包车）→ 普通官网报价：价格 = 方案总价、车型组一致、经停点名称随报价锁定；凭 quote_id 走现有下单接口下成订单", async () => {
+  const { tripId, plans } = await quotedTrip([{ date: "2027-03-20", items: [start("shinjuku"), stop("asakusa"), end("ginza")] }]);
+  assert.deepEqual(plans.map((plan) => plan.kind), ["one_car"]);
+  const plan = plans[0];
+  assert.deepEqual(plan.days.flatMap((day: any) => day.segments.map((segment: any) => segment.type)), ["charter"]);
+  const res = await orderQuote(tripId, plan.plan_id, { waypoint_names: ["浅草寺"] });
+  assert.equal(res.status, 200, res.text);
+  assert.deepEqual([res.body.trip_id, res.body.plan_id, res.body.currency], [tripId, plan.plan_id, "JPY"]);
+  assert.equal(res.body.quote.price.total.amount, plan.total.amount);
+  assert.equal(res.body.quote.vehicle_group.id, plan.vehicle_group.id);
+  assert.equal(res.body.expires_at, res.body.quote.expires_at);
+  assert.equal(res.body.city.id, m.ids.tokyo);
+  assert.equal(res.body.itinerary_route.total_meters, 100_000);
+  // 等价的官网询价请求：按行程计价、自动选档，用车时间 = 这一段的开始时刻
+  assert.deepEqual(res.body.quote_request, {
+    category: "charter",
+    itinerary_pricing: true,
+    pickup: at("shinjuku"),
+    dropoff: at("ginza"),
+    waypoints: [{ name: "浅草寺", ...at("asakusa"), stay_minutes: 60 }],
+    service_local: "2027-03-20T09:00",
+    passengers: 2,
+    luggage: 1,
+    addons: [],
+  });
+  assert.doesNotMatch(res.text, /settlement|markup|tenant/);
+  // 是一张真的报价：写进 quotes，金额同方案
+  const stored = await api.db.owner.query<{ sell: string; vehicle_group_id: string }>("select sell_minor::text as sell, vehicle_group_id from quotes where id = $1", [res.body.quote.quote_id]);
+  assert.deepEqual(stored.rows[0], { sell: plan.total.amount, vehicle_group_id: plan.vehicle_group.id });
+  // 之后完全走现有下单流程
+  api.clock.advance(1_000);
+  const order = await site.call("POST", "/site/v1/orders", { headers: { "idempotency-key": randomUUID() }, body: { quote_id: res.body.quote.quote_id, passenger: ORDER_PASSENGER, save_payment_method: true, pickup_address: "新宿站", dropoff_address: "银座" }, ip: nextIp() });
+  assert.equal(order.status, 201, order.text);
+  assert.equal(order.body.order.quote_id, res.body.quote.quote_id);
+  assert.equal(order.body.order.price.total.amount, plan.total.amount);
+  assert.deepEqual(order.body.order.waypoints.map((stop: any) => stop.name), ["浅草寺"]);
+  // 不带经停点名称也行（写「经停 N」）；个数不对 400
+  const unnamed = await orderQuote(tripId, plan.plan_id);
+  assert.equal(unnamed.status, 200, unnamed.text);
+  assert.equal(unnamed.body.quote_request.waypoints[0].name, "经停 1");
+  const wrong = await orderQuote(tripId, plan.plan_id, { waypoint_names: ["浅草寺", "多一个"] });
+  assert.equal(wrong.status, 400, wrong.text);
+  assert.equal(wrong.body.error.details.issues[0].reason, "COUNT_MISMATCH");
+});
+
+test("M9T-10 单日接机（按坐标认成田）→ 接送机报价；羽田接机回落点对点的段 → 点对点报价；价格都 = 方案总价", async () => {
+  const narita = await quotedTrip([{ date: "2027-03-21", items: [{ kind: "arrive_flight", place: at("nearNarita"), time: "10:00" }, end("ginza")] }]);
+  const plan = narita.plans[0];
+  const res = await orderQuote(narita.tripId, plan.plan_id);
+  assert.equal(res.status, 200, res.text);
+  assert.equal(res.body.quote.price.total.amount, plan.total.amount);
+  assert.equal(res.body.quote.vehicle_group.id, plan.vehicle_group.id);
+  assert.deepEqual(res.body.quote_request, { category: "airport_transfer", city_id: m.ids.tokyo, airport_id: m.ids.narita, direction: "pickup", address: at("ginza"), service_local: "2027-03-21T10:00", passengers: 2, luggage: 1, addons: [] });
+  assert.deepEqual([res.body.city, res.body.itinerary_route], [null, null]);
+
+  const fallback = await quotedTrip([{ date: "2027-03-22", items: [{ kind: "arrive_flight", place: { placeId: haneda }, time: "10:00" }, end("ginza")] }]);
+  const direct = await orderQuote(fallback.tripId, fallback.plans[0].plan_id);
+  assert.equal(direct.status, 200, direct.text);
+  assert.equal(direct.body.quote.price.total.amount, fallback.plans[0].total.amount);
+  // 平台地点那一端用地点的坐标（从库里读回，按 6 位小数比）
+  const { pickup, ...rest } = direct.body.quote_request;
+  assert.deepEqual([pickup.lat.toFixed(6), pickup.lng.toFixed(6)], [P.haneda.lat.toFixed(6), P.haneda.lng.toFixed(6)]);
+  assert.deepEqual(rest, { category: "point_to_point", city_id: m.ids.tokyo, dropoff: at("ginza"), service_local: "2027-03-22T10:00", passengers: 2, luggage: 1, addons: [] });
+});
+
+test("M9T-10 价格对不上 → 409 TRIP_PRICE_CHANGED（带方案价和现在的价），让客人重新报价", async () => {
+  const { tripId, plans } = await quotedTrip([{ date: "2027-03-23", items: [start("shinjuku"), stop("asakusa"), end("ginza")] }]);
+  const plan = plans[0];
+  // 方案报出之后价格变了：直接把方案（和它唯一的一段）的对外价改高 1,000（等价于同样条件现在报出的价比方案便宜）
+  await api.db.owner.query("update trip_plans set sell_minor = sell_minor + 1000 where id = $1", [plan.plan_id]);
+  await api.db.owner.query("update trip_segments set sell_minor = sell_minor + 1000 where plan_id = $1", [plan.plan_id]);
+  const res = await orderQuote(tripId, plan.plan_id);
+  assert.equal(res.status, 409, res.text);
+  assert.equal(res.body.error.code, "TRIP_PRICE_CHANGED");
+  assert.deepEqual(res.body.error.details, { plan_total: { amount: String(Number(plan.total.amount) + 1000), currency: "JPY" }, quote_total: { amount: plan.total.amount, currency: "JPY" } });
+});
+
+test("M9T-10 拒绝：多段方案 409 TRIP_PLAN_NOT_SINGLE_SEGMENT（MULTI_SEGMENT）；带跨段费用 409（HAS_FEES）；过了 30 分钟 409 TRIP_PLAN_EXPIRED；方案 / 行程单不存在 404", async () => {
+  const multi = await quotedTrip([
+    { date: "2027-03-24", items: [start("shinjuku"), stop("asakusa"), end("ginza")] },
+    { date: "2027-03-25", items: [start("ginza"), stop("asakusa"), end("shinjuku")] },
+  ]);
+  for (const plan of multi.plans) {
+    const res = await orderQuote(multi.tripId, plan.plan_id);
+    assert.equal(res.status, 409, res.text);
+    assert.deepEqual([res.body.error.code, res.body.error.details], ["TRIP_PLAN_NOT_SINGLE_SEGMENT", { reason: "MULTI_SEGMENT", segment_count: 2 }]);
+  }
+
+  const single = await quotedTrip([{ date: "2027-03-26", items: [start("shinjuku"), stop("asakusa"), end("ginza")] }]);
+  const plan = single.plans[0];
+  // 方案 / 行程单不存在、方案不是这一行程的：404
+  const missingPlan = await orderQuote(single.tripId, randomUUID());
+  assert.deepEqual([missingPlan.status, missingPlan.body.error.code], [404, "TRIP_PLAN_NOT_FOUND"]);
+  const badPlanId = await orderQuote(single.tripId, "not-a-uuid");
+  assert.deepEqual([badPlanId.status, badPlanId.body.error.code], [404, "TRIP_PLAN_NOT_FOUND"]);
+  const otherTrip = await orderQuote(multi.tripId, plan.plan_id);
+  assert.deepEqual([otherTrip.status, otherTrip.body.error.code], [404, "TRIP_PLAN_NOT_FOUND"]);
+  const missingTrip = await orderQuote("x".repeat(43), plan.plan_id);
+  assert.deepEqual([missingTrip.status, missingTrip.body.error.code], [404, "TRIP_NOT_FOUND"]);
+
+  // 带跨段费用（例如单日超工时加第二司机）：一张普通报价放不下，不能桥接
+  await api.db.owner.query(
+    "insert into trip_fees (trip_id, plan_id, seq, fee_type, supplier_tenant_id, product_id, rule_version, settlement_minor, settlement_currency, sell_minor, night_index, day_index, area_id, label, calc) values ($1, $2, 0, 'second_driver', $3, $4, 0, 10000, 'JPY', 11500, null, 0, null, $5::jsonb, '{}'::jsonb)",
+    [single.tripId, plan.plan_id, m.b.tenantId, charterId, JSON.stringify({ zh: "第二司机（第 1 天）" })],
+  );
+  const withFee = await orderQuote(single.tripId, plan.plan_id);
+  assert.equal(withFee.status, 409, withFee.text);
+  assert.deepEqual([withFee.body.error.code, withFee.body.error.details], ["TRIP_PLAN_NOT_SINGLE_SEGMENT", { reason: "HAS_FEES", segment_count: 1 }]);
+  await api.db.owner.query("delete from trip_fees where plan_id = $1", [plan.plan_id]);
+
+  // 过了 30 分钟有效期：409 TRIP_PLAN_EXPIRED（重新报价）；重新报价后的新方案又能转
+  api.clock.advance(31 * 60_000);
+  const expired = await orderQuote(single.tripId, plan.plan_id);
+  assert.equal(expired.status, 409, expired.text);
+  assert.equal(expired.body.error.code, "TRIP_PLAN_EXPIRED");
+  const again = await quoteTrip(single.tripId);
+  assert.equal(again.status, 200, again.text);
+  const fresh = await orderQuote(single.tripId, again.body.plans[0].plan_id);
+  assert.equal(fresh.status, 200, fresh.text);
+  // 重新报价删掉了旧方案：旧编号 404
+  const gone = await orderQuote(single.tripId, plan.plan_id);
+  assert.deepEqual([gone.status, gone.body.error.code], [404, "TRIP_PLAN_NOT_FOUND"]);
+});

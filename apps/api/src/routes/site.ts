@@ -399,7 +399,7 @@ function priceBreakdownJson(items: readonly SellBreakdownItem[], currency: Curre
   return items.map((item) => ({ kind: item.kind, amount: salesMoney(item.amountMinor, currency), area_name: item.areaId === null ? null : (areaNames.get(item.areaId) ?? null), stop_seqs: item.stopSeqs ?? null, ...(item.fromDropoff === true ? { from_dropoff: true } : {}), ...(item.scenario === undefined ? {} : { scenario: { kind: item.scenario.kind, airport_id: item.scenario.placeId, airport_name: item.scenario.name } }) }));
 }
 
-function quoteJson(quote: SiteQuote): Json {
+export function quoteJson(quote: SiteQuote): Json {
   const group = quote.vehicleGroup;
   return {
     quote_id: quote.quoteId,
@@ -433,7 +433,7 @@ function quoteJson(quote: SiteQuote): Json {
 }
 
 /** 按哪个城市报的价（包车，M9P-02） */
-function quotedCityJson(city: QuotedCity | null): Json | null {
+export function quotedCityJson(city: QuotedCity | null): Json | null {
   return city === null ? null : { id: city.id, code: city.code, name: city.name, timezone: city.timezone };
 }
 
