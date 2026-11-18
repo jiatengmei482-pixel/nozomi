@@ -202,14 +202,36 @@ test("一口价说明（M8-09，ADR 0070）：接送机客人写「一口价已�
   assert.doesNotMatch(legacy.guest, /费用说明|含所有费用/);
   assert.match(legacy.guest, /已付金额：/);
   assert.doesNotMatch(legacy.tenant, /包车报价/);
-  // M9W-05：按行程计价的包车（结算价明细里有锁定的 itinerary）：超公里、超时已算进价格，只有当天超出预计的另收
+  // M9W-05：按行程计价的包车（结算价明细里有锁定的 itinerary）：超公里已算进价格，用时超出套餐或当天超出预计的部分另收（M9P-04 改）
   const itinerary = { routeMeters: 260_000, routeMinutes: 540, packageKm: 200, packageMinutes: 600, overMeters: 60_000, overtimeMinutes: 0, overKmPerKmMinor: 300, overtimePerHourMinor: 5_000, overKmMinor: 18_000, overtimeMinor: 0 };
   const planned = await mails(async (orderId) => {
     await charterAt(orderId, "2026-11-12T00:00:00+09:00");
     await api.db.owner.query("update orders set settlement = settlement || $2::jsonb where id = $1", [orderId, JSON.stringify({ itinerary })]);
   });
-  assert.match(planned.guest, /费用说明：一口价已含所有费用（高速费、停车费等），无需另付；超公里、超时已按预计行程算进价格，只有当天超出预计的部分服务后按实际收取\n/);
+  assert.match(planned.guest, /费用说明：一口价已含所有费用（高速费、停车费等），无需另付；超公里已按预计行程算进价格；用时超出套餐、或当天超出预计的部分，服务后按实际收取\n/);
   assert.doesNotMatch(planned.guest, /超出套餐的时长和公里/);
+});
+
+test("订单改了（M9E-28，ADR 0097 Q3）：派单前改航班重新锁定了免费等待，供应商邮件在改动内容后面写「免费等待 60 → 90 分钟」；没有重新锁定的照旧", async () => {
+  const order = await placeOrder();
+  await payFor(order.orderId);
+  await site.app.notificationJobs.tick();
+  const tenantId = (await api.db.owner.query("select tenant_id from orders where id = $1", [order.orderId])).rows[0].tenant_id as string;
+  const tenantMail = async (data: Record<string, unknown>): Promise<string> => {
+    smtp.reset();
+    await withTenantTx(api.db.pool, tenantId, (db) => enqueueNotification(db, { event: "order.changed", tenantId, orderId: order.orderId, dedupeKey: `order.changed:${randomUUID()}`, data }, api.clock.now()));
+    await site.app.notificationJobs.tick();
+    const tenant = smtp.messages.find((message) => bodyOf(message).includes(order.orderNo) && (message.to.includes(m.a.adminEmail) || message.to.includes(m.b.adminEmail)));
+    assert.ok(tenant, "供应商那封要有");
+    return bodyOf(tenant);
+  };
+  const relocked = await tenantMail({ change_id: randomUUID(), fields: ["flight_kind"], free_wait_minutes: { before: 60, after: 90 } });
+  assert.ok(relocked.includes("改动的内容：航班类型。免费等待 60 → 90 分钟（按客人的航班重新锁定，请按新的时长安排司机等候）。\n"), relocked);
+  const unlimited = await tenantMail({ change_id: randomUUID(), fields: ["flight_no"], free_wait_minutes: { before: 60, after: null } });
+  assert.ok(unlimited.includes("免费等待 60 分钟 → 不限时"), unlimited);
+  const plain = await tenantMail({ change_id: randomUUID(), fields: ["flight_no"] });
+  assert.ok(plain.includes("改动的内容：航班号。\n"), plain);
+  assert.doesNotMatch(plain, /免费等待/);
 });
 
 test("含公里数、含区域加价（M8-13，ADR 0073 第四部分）：客人确认邮件多「公里数」一行（每公里用对外价，订单上锁定的数）、已付金额后面「（含区域加价）」；供应商那封都没有；没有这些数的单照旧", async () => {

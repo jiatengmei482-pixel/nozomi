@@ -26,11 +26,14 @@ import { type TestDatabase, createMigratedTestDatabase } from "./testing/db.ts";
  * 以及付款批次（ADR 0040：一个批次里有几家供应商的账单）、运营后台填写的第三方密钥（ADR 0041：密文，租户碰不到），
  * 以及人工报价申请、跟进记录和官网设置（ADR 0076：客人的联系方式，只给平台的客服、运营），
  * 以及测试环境的验收会话和验收单被压下的邮件内容（ADR 0078：只给平台角色），
- * 以及共享库去重的标记（ADR 0083 补充：两个区域分属不同供应商，平台维护）。新增平台表时加到这里。
+ * 以及共享库去重的标记（ADR 0083 补充：两个区域分属不同供应商，平台维护），
+ * 以及嵌入组件的预订草稿、嵌入码和来源记录（ADR 0090：不属于任何供应商；来源只给平台，供应商看不到）。新增平台表时加到这里。
  */
 const PLATFORM_TABLES = [
   "addons",
   "approvals",
+  "area_cleanup_backups",
+  "area_cleanup_runs",
   "cancellation_policies",
   "channel_api_clients",
   "channel_cities",
@@ -39,17 +42,21 @@ const PLATFORM_TABLES = [
   "cities",
   "compensation_tables",
   "email_login_codes",
+  "embed_keys",
   "fx_fetches",
   "fx_locks",
   "fx_rates",
   "holidays",
   "integration_secrets",
+  "itinerary_route_polylines",
   "login_throttles",
   "manual_quote_request_events",
   "manual_quote_requests",
+  "manual_quote_trip_links",
   "markup_rules",
   "notification_suppressions",
   "order_change_sales",
+  "order_embed_sources",
   "order_exceptions",
   "order_payments",
   "order_refunds",
@@ -59,6 +66,7 @@ const PLATFORM_TABLES = [
   "passenger_email_changes",
   "payment_events",
   "bank_files",
+  "booking_drafts",
   "payout_batches",
   "place_api_usage",
   "places",
@@ -67,10 +75,13 @@ const PLATFORM_TABLES = [
   "platform_sessions",
   "platform_users",
   "qa_acceptance_sessions",
+  "quote_embed_sources",
   "quote_logs",
   "quotes",
   "route_api_usage",
   "route_estimates",
+  "route_optimize_api_usage",
+  "route_order_suggestions",
   "sales_rate_limits",
   "schema_migrations",
   "site_lookup_failures",
@@ -81,6 +92,11 @@ const PLATFORM_TABLES = [
   "static_map_images",
   "tenant_roles",
   "ticket_compensations",
+  // 行程报价（M9T-02，ADR 0101）：跨供应商的行程单、方案、服务段、跨段费用
+  "trip_fees",
+  "trip_plans",
+  "trip_segments",
+  "trips",
   "uncovered_demand_drops",
   "uncovered_demand_limits",
   "uncovered_demands",
@@ -102,6 +118,10 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     adjust_rules: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     // 计程价（M8-30，ADR 0080）：同价格规则
     distance_prices: ["DELETE", "INSERT", "SELECT", "UPDATE"],
+    // 包车机场绑定（M9P-21，ADR 0098）：供应商自己的配置，整组替换（先删后建）
+    charter_airport_bindings: ["DELETE", "INSERT", "SELECT", "UPDATE"],
+    // 跨段规则配置（M9T-02，ADR 0101）：供应商整体替换，不删（商品删了级联）
+    trip_rule_configs: ["INSERT", "SELECT", "UPDATE"],
     // 区域：供应商自己的业务数据，可以真的删除（ADR 0015）
     area_polygons: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     areas: ["DELETE", "INSERT", "SELECT", "UPDATE"],
@@ -198,6 +218,13 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     // 报价用到的租户表对平台只读：比价要把所有供应商的商品放在一起算（ADR 0020）
     adjust_rules: ["SELECT"],
     distance_prices: ["SELECT"],
+    charter_airport_bindings: ["SELECT"],
+    trip_rule_configs: ["SELECT"],
+    // 行程报价（M9T-02，ADR 0101）：编排接口重写方案（先删后插）、清理任务删过期行程
+    trips: ["DELETE", "INSERT", "SELECT", "UPDATE"],
+    trip_plans: ["DELETE", "INSERT", "SELECT"],
+    trip_segments: ["DELETE", "INSERT", "SELECT"],
+    trip_fees: ["DELETE", "INSERT", "SELECT"],
     // 双人复核（ADR 0023）：发起、写结论；不删
     approvals: ["INSERT", "SELECT", "UPDATE"],
     area_polygons: ["SELECT"],
@@ -303,6 +330,11 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     // 官网路线小地图（ADR 0072）：图片缓存覆盖写、写入时顺手删过期的；每日调用计数只增改
     static_map_images: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     static_map_api_usage: ["INSERT", "SELECT", "UPDATE"],
+    // 包车行程地图（M9P-20，ADR 0096）：一次带中间点的折线缓存，覆盖写、写入时顺手删过期的
+    itinerary_route_polylines: ["DELETE", "INSERT", "SELECT", "UPDATE"],
+    // 包车经停顺序建议（M9P-20 P2，ADR 0096 第三节）：建议顺序缓存覆盖写、写入时顺手删过期的；优化调用的每日计数只增改
+    route_order_suggestions: ["DELETE", "INSERT", "SELECT", "UPDATE"],
+    route_optimize_api_usage: ["INSERT", "SELECT", "UPDATE"],
     // /sales/v1 的限流计数
     sales_rate_limits: ["INSERT", "SELECT", "UPDATE"],
     // 未覆盖需求（ADR 0075）：记录时新增、累加次数；保留期清理删 365 天以前的；限流窗口、「被限掉」计数同样增改、清理
@@ -320,10 +352,19 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     // 人工报价申请（ADR 0076）：客人提交一行；客服改状态、指派；清除任务清空密文（不删行）。跟进记录只追加，清除时清空备注的密文
     manual_quote_requests: ["INSERT", "SELECT", "UPDATE"],
     manual_quote_request_events: ["INSERT", "SELECT", "UPDATE"],
+    // 人工报价申请关联行程单（M9T-08，ADR 0101 第十三节）：提交时追加一行，不改不删
+    manual_quote_trip_links: ["INSERT", "SELECT"],
     // 官网设置（ADR 0076）：全站一行，第一次保存时写入
     site_settings: ["INSERT", "SELECT", "UPDATE"],
     // 共享库去重（M8-31b，ADR 0083 补充）：标记一行，撤销时记撤销人和时间；不删
     shared_area_duplicates: ["INSERT", "SELECT", "UPDATE"],
+    // 预订草稿（ADR 0090）：建一次、不改；读的时候只读没过期的；清理任务删过期的
+    booking_drafts: ["DELETE", "INSERT", "SELECT"],
+    // 嵌入码（ADR 0090）：新建、修改白名单和状态；不删（停用）
+    embed_keys: ["INSERT", "SELECT", "UPDATE"],
+    // 询价和订单的来源（ADR 0090）：只追加
+    quote_embed_sources: ["INSERT", "SELECT"],
+    order_embed_sources: ["INSERT", "SELECT"],
     // 测试环境的验收会话（ADR 0078）：解锁时一行，结束时记结束时间；不删
     qa_acceptance_sessions: ["INSERT", "SELECT", "UPDATE"],
     // 验收单被压下没发的邮件内容（ADR 0078）：一封一行，只追加
@@ -380,7 +421,7 @@ const CROSS_TENANT_POLICIES: Readonly<Record<string, PolicyShape>> = {
   "product_vehicle_groups.product_vehicle_groups_platform_read": { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null },
   // 报价用到的租户表：平台只读（ADR 0020）
   // 调度人：运营后台只读查看商品（ADR 0021）
-  ...Object.fromEntries(["brands", "areas", "area_polygons", "product_areas", "price_rules", "adjust_rules", "distance_prices", "inventory_days", "product_dispatchers"].map((table) => [`${table}.${table}_platform_read`, { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null }])),
+  ...Object.fromEntries(["brands", "areas", "area_polygons", "product_areas", "price_rules", "adjust_rules", "distance_prices", "inventory_days", "product_dispatchers", "charter_airport_bindings", "trip_rule_configs"].map((table) => [`${table}.${table}_platform_read`, { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null }])),
   // 订单：销售端下单、支付回调、超时取消、运营后台查看（ADR 0026）
   "orders.orders_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
   "order_events.order_events_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },

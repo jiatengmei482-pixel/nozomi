@@ -48,7 +48,10 @@ let serial = 0;
 
 async function area(extra: Record<string, unknown> = {}): Promise<any> {
   api.clock.advance(1_000);
-  return ok(call("POST", "/areas", { body: { city_id: ids["tokyo"], name: { zh: `区域 ${(serial += 1)}` }, biz_type: "general", polygons: [{ kind: "operate", geometry: SQUARE }], ...extra } }), 201);
+  // 每个区域往东错开一格（只碰边、不重叠）：包车商品的服务区域不能重叠（M9P-06，ADR 0093 第七节）
+  const shift = serial * 0.2;
+  const geometry = { type: "Polygon", coordinates: SQUARE.coordinates.map((ring) => ring.map(([lng, lat]) => [(lng as number) + shift, lat])) };
+  return ok(call("POST", "/areas", { body: { city_id: ids["tokyo"], name: { zh: `区域 ${(serial += 1)}` }, biz_type: "general", polygons: [{ kind: "operate", geometry }], ...extra } }), 201);
 }
 
 /** 一个接送机草稿（成田机场，东京）。 */
@@ -290,6 +293,8 @@ test("服务规则：新商品是空的；整体保存、可以只填一部分�
     version: 1,
     currency: "JPY",
     free_wait_minimums: { pickup: 90, dropoff: 15, general: null },
+    // M9P-03：包车最低套餐比所有套餐都长时的提醒；别的品类为 null
+    min_package_above_all: null,
     rules: {
       booking: { sale_from: null, sale_to: null, service_time: null, lead_time_hours: null, note: null },
       urgent: { enabled: false, daily_quota: null, tiers: [] },

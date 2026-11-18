@@ -8,6 +8,10 @@
  *
  * 输入即提示（M8-02，ADR 0069 B1）：`autocomplete`（键：渠道授权范围 + 关键字，不含会话令牌）和选中后的 `details`（键：地点 ID）走同一套缓存、并发、冷却和每日上限。
  *
+ * 每个来源地址每天的额度（M8-45，ADR 0069 补记）：调用方可以给一个 `beforeGoogle`（带着来源地址），**只在真要调谷歌时**（命中缓存、
+ * 跟着别人正在查的同一次、没配置、冷却中都不问）、和全站每日名额同一处问一次；不放行就不调谷歌，结果是 `IP_DAILY_LIMIT`——
+ * 只跟这个地址有关：不冷却、不缓存、不记进全站的计数和「最近一次失败」。
+ *
  * 永远不抛异常：结果是候选地点 / 地址，或原因代码。客人只看到「暂时用不了」，页面退回常用地点、地图点选和手填。
  * 日志只记原因代码，不记密钥、关键字、坐标和谷歌返回的原文。
  */
@@ -21,7 +25,18 @@ import { recordPlaceOutcome, recordPlaceRefused, reservePlaceCall } from "../rep
 /** 读写计数的每条查询最多等多久（毫秒） */
 const PLACE_DB_TIMEOUT_MS = 500;
 
-export type PlaceLookup<T> = { ok: true; value: T; source: "cache" | "google" } | { ok: false; code: PlaceFailureCode };
+/** 这个来源地址今天调谷歌的额度用完了（M8-45）：只跟这个地址有关，不是谷歌的问题 */
+export type PlaceIpLimited = "IP_DAILY_LIMIT";
+
+export type PlaceLookup<T> = { ok: true; value: T; source: "cache" | "google" } | { ok: false; code: PlaceFailureCode | PlaceIpLimited };
+
+/** 真要调谷歌之前问一次（M8-45）：返回 false 就不调，结果是 `IP_DAILY_LIMIT`；抛异常按「记不了数」处理（不调，`UNAVAILABLE`）。 */
+export type PlaceBeforeGoogle = () => Promise<boolean>;
+
+/** 每次查询的附加选项 */
+export interface PlaceLookupOptions {
+  beforeGoogle?: PlaceBeforeGoogle;
+}
 
 export interface PlaceSearchLog {
   warn(obj: object, msg: string): void;
@@ -74,36 +89,41 @@ export class GooglePlaceSearch {
    * 按关键字（已规范化、长短合格）在城市附近搜。`cityId` 是缓存键里的范围：带城市时是城市编号，不带城市时是渠道授权范围的标识（M8-02）；
    * `accept` 是范围里的结果再筛一遍（不带城市时：在不在某个授权城市的范围里）。
    */
-  search(input: { cityId: string; query: string; bounds: LatLngBounds; regionCode: string | null; accept?: (location: LatLng) => boolean }): Promise<PlaceLookup<PlaceCandidate[]>> {
+  search(input: { cityId: string; query: string; bounds: LatLngBounds; regionCode: string | null; accept?: (location: LatLng) => boolean }, options: PlaceLookupOptions = {}): Promise<PlaceLookup<PlaceCandidate[]>> {
     const key = placeSearchCacheKey(input.cityId, input.query);
     const request: PlaceSearchRequest = { query: input.query, bounds: input.bounds, regionCode: input.regionCode, ...(input.accept === undefined ? {} : { accept: input.accept }) };
-    return this.#once(key, (apiKey, beforeAttempt) => this.#deps.search(apiKey, request, beforeAttempt)) as Promise<PlaceLookup<PlaceCandidate[]>>;
+    return this.#once(key, (apiKey, beforeAttempt) => this.#deps.search(apiKey, request, beforeAttempt), options) as Promise<PlaceLookup<PlaceCandidate[]>>;
   }
 
   /** 输入即提示：`scope` 是渠道授权范围的标识（缓存键用），会话令牌照传给谷歌但不进缓存键。 */
-  autocomplete(input: { scope: string; query: string; sessionToken: string; regionCodes: readonly string[]; bounds: LatLngBounds | null }): Promise<PlaceLookup<PlacePrediction[]>> {
+  autocomplete(input: { scope: string; query: string; sessionToken: string; regionCodes: readonly string[]; bounds: LatLngBounds | null }, options: PlaceLookupOptions = {}): Promise<PlaceLookup<PlacePrediction[]>> {
     const key = placeAutocompleteCacheKey(input.scope, input.query);
     const request: PlaceAutocompleteRequest = { query: input.query, sessionToken: input.sessionToken, regionCodes: input.regionCodes, bounds: input.bounds };
-    return this.#once(key, (apiKey, beforeAttempt) => this.#deps.autocomplete(apiKey, request, beforeAttempt)) as Promise<PlaceLookup<PlacePrediction[]>>;
+    return this.#once(key, (apiKey, beforeAttempt) => this.#deps.autocomplete(apiKey, request, beforeAttempt), options) as Promise<PlaceLookup<PlacePrediction[]>>;
   }
 
   /** 选中的地点的坐标、地址、类型（地点 ID 已核对过格式）。 */
-  details(input: { placeId: string; sessionToken: string | null }): Promise<PlaceLookup<PlaceDetails>> {
+  details(input: { placeId: string; sessionToken: string | null }, options: PlaceLookupOptions = {}): Promise<PlaceLookup<PlaceDetails>> {
     const key = placeDetailsCacheKey(input.placeId);
-    return this.#once(key, (apiKey, beforeAttempt) => this.#deps.details(apiKey, input.placeId, input.sessionToken, beforeAttempt)) as Promise<PlaceLookup<PlaceDetails>>;
+    return this.#once(key, (apiKey, beforeAttempt) => this.#deps.details(apiKey, input.placeId, input.sessionToken, beforeAttempt), options) as Promise<PlaceLookup<PlaceDetails>>;
   }
 
   /** 查一个坐标的地址（坐标先取整，调谷歌也用取整后的）。没有地址是 `value: null`。 */
-  reverse(input: { point: LatLng; regionCode: string }): Promise<PlaceLookup<string | null>> {
+  reverse(input: { point: LatLng; regionCode: string }, options: PlaceLookupOptions = {}): Promise<PlaceLookup<string | null>> {
     const rounded = placeReverseKey(input.point);
     const key = `${rounded.key}:${input.regionCode}`;
-    return this.#once(key, (apiKey, beforeAttempt) => this.#deps.reverse(apiKey, rounded.point, input.regionCode, beforeAttempt)) as Promise<PlaceLookup<string | null>>;
+    return this.#once(key, (apiKey, beforeAttempt) => this.#deps.reverse(apiKey, rounded.point, input.regionCode, beforeAttempt), options) as Promise<PlaceLookup<string | null>>;
   }
 
-  #once(key: string, run: (apiKey: string, beforeAttempt: () => Promise<boolean>) => Promise<PlaceCallResult<unknown>>): Promise<PlaceLookup<unknown>> {
+  async #once(key: string, run: (apiKey: string, beforeAttempt: () => Promise<boolean>) => Promise<PlaceCallResult<unknown>>, options: PlaceLookupOptions): Promise<PlaceLookup<unknown>> {
     const running = this.#inflight.get(key);
-    if (running !== undefined) return running;
-    const lookup = this.#lookup(key, run).finally(() => this.#inflight.delete(key));
+    if (running !== undefined) {
+      const shared = await running;
+      // 正在查的那一次因为「它的来源地址今天的额度用完了」没调谷歌：那不是这一位的结果，自己再查一次（按自己的地址问额度）
+      if (!shared.ok && shared.code === "IP_DAILY_LIMIT") return this.#once(key, run, options);
+      return shared;
+    }
+    const lookup = this.#lookup(key, run, options.beforeGoogle).finally(() => this.#inflight.delete(key));
     this.#inflight.set(key, lookup);
     return lookup;
   }
@@ -130,7 +150,7 @@ export class GooglePlaceSearch {
     this.#cache.set(key, { result, until: performance.now() + ttl });
   }
 
-  async #lookup(key: string, run: (apiKey: string, beforeAttempt: () => Promise<boolean>) => Promise<PlaceCallResult<unknown>>): Promise<PlaceLookup<unknown>> {
+  async #lookup(key: string, run: (apiKey: string, beforeAttempt: () => Promise<boolean>) => Promise<PlaceCallResult<unknown>>, beforeGoogle: PlaceBeforeGoogle | undefined): Promise<PlaceLookup<unknown>> {
     const { pool, log } = this.#deps;
     const cached = this.#fromCache(key);
     if (cached !== null) return cached.ok ? { ok: true, value: cached.value, source: "cache" } : cached;
@@ -148,7 +168,23 @@ export class GooglePlaceSearch {
 
     const day = routeUsageDay(this.#deps.now());
     let reserveFailed = false;
+    let ipAsked = false;
+    let ipLimited = false;
     const beforeAttempt = async (): Promise<boolean> => {
+      // 来源地址的额度：一次查询只问一次（谷歌超时重试的那一次不再扣），先于全站名额（被这一层挡下的不占全站名额）
+      if (beforeGoogle !== undefined && !ipAsked) {
+        ipAsked = true;
+        try {
+          if (!(await beforeGoogle())) {
+            ipLimited = true;
+            return false;
+          }
+        } catch (err) {
+          log.warn({ err }, "占用来源地址的地址提示每日额度失败，这次不调用谷歌");
+          reserveFailed = true;
+          return false;
+        }
+      }
       try {
         return await withPlatformTx(pool, (db) => reservePlaceCall(db, day, (used) => routeCallAllowed(used, this.#deps.dailyLimit)), { queryTimeoutMs: PLACE_DB_TIMEOUT_MS });
       } catch (err) {
@@ -159,6 +195,8 @@ export class GooglePlaceSearch {
       }
     };
     const called = await run(apiKey, beforeAttempt);
+    // 只是这个地址今天的额度用完了：谷歌没调，不冷却（别的地址照常）、不缓存、不记进全站的计数
+    if (ipLimited) return { ok: false, code: "IP_DAILY_LIMIT" };
     const result: PlaceCallResult<unknown> = !called.ok && called.code === "DAILY_LIMIT_REACHED" && reserveFailed ? { ok: false, code: "UNAVAILABLE" } : called;
 
     if (!result.ok) {

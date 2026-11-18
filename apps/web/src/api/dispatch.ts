@@ -6,6 +6,7 @@
  *   这里原样交给页面，不缓存、不打日志、不自动重试。
  * - 供应商的接口里没有对外价和加价比例（规则 4）；司机 H5 的接口里没有任何价格。
  */
+import type { FlightKind } from "@nozomi/domain";
 import type { TenantOrderRescue } from "./rescues.ts";
 import type { OrderItinerary, OrderWaypoint } from "../lib/charter-itinerary.ts";
 import type { OrderAreaSurchargeView, OrderDistanceView, OrderItineraryMoneyView, OrderMileageView, OrderPricingRoute } from "../lib/order-area-price-display.ts";
@@ -175,6 +176,10 @@ export interface TenantOrder {
   messaging: { app: string; handle: string } | null;
   notes: string | null;
   free_wait_minutes: number | null;
+  /** 客人选的国际 / 国内航班（M9E-28，ADR 0097）；没选、不是接机为 null */
+  flight_kind?: FlightKind | null;
+  /** 接机按航班锁定免费等待的依据（M9E-28）；以前的单、不是接机为 null */
+  free_wait_basis?: FreeWaitBasis | null;
   created_at: string;
   confirmed_at: string | null;
   cancelled_at: string | null;
@@ -552,6 +557,8 @@ export interface DriverTrip {
     status_name: string;
     category: "airport_transfer" | "point_to_point" | "charter";
     direction: "pickup" | "dropoff" | null;
+    /** 包车机场开始 / 机场结束（M9P-22，ADR 0098）：没有场景、旧接口为 null 或没有 */
+    charter_scenario?: { kind: "airport_start" | "airport_end"; airport_name: string } | null;
     service_time: string;
     service_local: string;
     timezone: string;
@@ -575,6 +582,10 @@ export interface DriverTrip {
     addons: { addon_id: string; quantity: number; name: Record<string, string> | null }[];
     driver_language: string | null;
     free_wait_minutes: number | null;
+    /** 客人选的国际 / 国内航班（M9E-28，ADR 0097）；没选、不是接机为 null */
+    flight_kind?: FlightKind | null;
+    /** 接机按航班锁定免费等待的依据（M9E-28）；以前的单、不是接机为 null */
+    free_wait_basis?: FreeWaitBasis | null;
   };
   driver: { name: string } | null;
   vehicle: { plate: string; model: string; color: string } | null;
@@ -641,3 +652,13 @@ export const DISPATCH_SCHEMA_FIELDS = {
   OrderVehicleGroup: ["id", "code", "name", "seats", "sample_models", "combos"],
   DriverTrip: ["order", "next_event", "pending_change", "driver", "vehicle", "dispatchers", "fulfilment", "landing", "free_wait", "contacts", "files", "no_show", "link", "server_time"],
 } as const;
+
+/**
+ * 接机按航班锁定免费等待的依据（M9E-28，ADR 0097）：`flight_kind` 按哪种航班锁的（null = 航班类型未确认，按国内线的下限）、
+ * `base` 商品自己设的（取下限前的底数）、`floor_minutes` 平台下限。最终分钟数是订单的 `free_wait_minutes`。
+ */
+export interface FreeWaitBasis {
+  flight_kind: FlightKind | null;
+  base: { mode: "limited"; minutes: number } | { mode: "unlimited" } | null;
+  floor_minutes: number;
+}

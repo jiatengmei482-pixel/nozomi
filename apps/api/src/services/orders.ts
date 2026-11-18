@@ -28,6 +28,8 @@ import {
   freeCancelAfterUnconfirmedChange,
   landingReportIssue,
   localDateTimeToInstant,
+  isFlightArrival,
+  lockArrivalFreeWait,
   normalizeFlightNo,
   normalizePhone,
   orderRiderOf,
@@ -294,7 +296,12 @@ async function placeOrder(ctx: AppContext, principal: SalesPrincipal, input: Sal
     const policy = await currentCancellationPolicy(db);
     const level = vehicleLevel(group.grade, group.seats);
     const cancelPolicy = { version: policy.version, category: request.category, level, tiers: cancellationRuleFor(policy.rules, request.category, level).tiers };
-    const freeWait = winner.offer.settlement.freeWait.value;
+    const flightNo = details.flightNo === null || details.flightNo.trim() === "" ? null : normalizeFlightNo(details.flightNo);
+    // 接机按航班锁定免费等待（M9E-28，ADR 0097；M9E-31 起平台统一）：国际 90、国内 / 未确认 60，不看商品设的；其他照商品设的
+    const productWait = winner.offer.settlement.freeWait.value;
+    const arrival = isFlightArrival({ category: request.category, direction: request.direction, placeType: product.place_type, flightNo });
+    const locked = arrival ? lockArrivalFreeWait(productWait, details.flightKind) : null;
+    const freeWaitMinutes = locked !== null ? locked.minutes : productWait !== null && productWait.mode === "limited" ? productWait.minutes : null;
     const point = (position: { lng: number; lat: number } | null, address: string | null) => (position === null ? null : { lng: position.lng, lat: position.lat, address: (address ?? "").trim() });
     const orderNo = orderNumber(now, orderNoRandom());
     await insertOrder(db, {
@@ -322,14 +329,16 @@ async function placeOrder(ctx: AppContext, principal: SalesPrincipal, input: Sal
       waypoints: orderWaypoints(request.waypoints),
       addons: request.addons.map((addon) => ({ addonId: addon.addonId, quantity: addon.quantity })),
       driverLanguage: request.driverLanguage,
-      flightNo: details.flightNo === null || details.flightNo.trim() === "" ? null : normalizeFlightNo(details.flightNo),
+      flightNo,
+      flightKind: arrival ? details.flightKind : null,
       passenger: { name: details.passenger.name.trim(), phone: normalizePhone(details.passenger.phone), email: details.passenger.email.trim(), ...withRider(orderRiderOf(details.rider)) },
       messaging: details.messaging === null ? null : { app: details.messaging.app, handle: details.messaging.handle.trim() },
       notes: details.notes === null || details.notes.trim() === "" ? null : details.notes.trim(),
       settlementMinor: winner.offer.settlement.totalMinor,
       settlementCurrency: winner.offer.settlement.currency,
       settlement: winner.offer.settlement,
-      freeWaitMinutes: freeWait !== null && freeWait.mode === "limited" ? freeWait.minutes : null,
+      freeWaitMinutes,
+      freeWaitBasis: locked?.basis ?? null,
       inventoryHeld: limited,
       paymentDueAt: paymentDeadline(now),
       createdAt: now,

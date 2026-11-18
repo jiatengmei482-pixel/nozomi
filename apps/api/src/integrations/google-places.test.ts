@@ -88,8 +88,9 @@ test("搜索成功：POST Text Search，字段掩码只要 ID、名称、地址�
   assert.deepEqual(result, {
     ok: true,
     value: [
-      { id: "ChIJa", name: "東京駅", address: "日本東京都千代田区丸の内1丁目", location: { lat: 35.6812, lng: 139.7671 }, kind: "other" },
+      // 机场排在没有类型的前面（候选排序，业主 2026-11-17）
       { id: "ChIJb", name: "羽田空港", address: "日本東京都大田区", location: { lat: 35.55, lng: 139.78 }, kind: "airport" },
+      { id: "ChIJa", name: "東京駅", address: "日本東京都千代田区丸の内1丁目", location: { lat: 35.6812, lng: 139.7671 }, kind: "other" },
     ],
   });
   assert.equal(seen.length, 1);
@@ -98,13 +99,13 @@ test("搜索成功：POST Text Search，字段掩码只要 ID、名称、地址�
   assert.equal(request.path, "/v1/places:searchText");
   assert.equal(request.headers["x-goog-api-key"], KEY);
   assert.equal(request.headers["x-goog-fieldmask"], PLACE_SEARCH_FIELD_MASK);
-  assert.equal(PLACE_SEARCH_FIELD_MASK, "places.id,places.displayName,places.formattedAddress,places.location,places.primaryType");
+  assert.equal(PLACE_SEARCH_FIELD_MASK, "places.id,places.displayName,places.formattedAddress,places.location,places.primaryType,places.types");
   assert.ok(!request.path.includes(KEY) && !request.body.includes(KEY));
   assert.deepEqual(JSON.parse(request.body), {
     textQuery: "东京站 酒店",
     languageCode: "zh-CN",
     regionCode: "JP",
-    pageSize: 5,
+    pageSize: 10,
     locationRestriction: { rectangle: { low: { latitude: BOUNDS.low.lat, longitude: BOUNDS.low.lng }, high: { latitude: BOUNDS.high.lat, longitude: BOUNDS.high.lng } } },
   });
 });
@@ -276,7 +277,7 @@ test("输入即提示的应答：没有 suggestions 是没有候选；查询预�
       { queryPrediction: { text: { text: "东京 酒店" } } },
       prediction("bad id!", "坏 ID", "x"),
       { placePrediction: { placeId: "ChIJ1", structuredFormat: { secondaryText: { text: "没有名称" } } } },
-      { placePrediction: { placeId: "ChIJ2", text: { text: "只有整段 文字" } } },
+      { placePrediction: { placeId: "ChIJ2", text: { text: "只有整段 文字" }, types: ["lodging"] } },
       prediction("ChIJ2", "重复", "x"),
       ...Array.from({ length: 8 }, (_, index) => prediction(`ChIJx${index}`, `第${index}个`, "东京")),
     ],
@@ -314,4 +315,50 @@ test("输入即提示、取坐标的失败和搜索一样归类：429 不重试�
   handler = () => ({ status: 200, body: {} });
   assert.deepEqual(await placeDetails(KEY, "ChIJa", null, { url: `${origin}/v1/places`, beforeAttempt: async () => false }), { ok: false, code: "DAILY_LIMIT_REACHED" });
   assert.equal(seen.length, 0);
+});
+
+test("候选排序（业主 2026-11-17）：搜「浅草寺」时名称完全一样的排第一；景点、车站、机场排在医院、公司前面；同一档保持谷歌的先后；排完再取前 5 条", () => {
+  const suggestion = (placeId: string, name: string, types: string[]) => ({ placePrediction: { placeId, structuredFormat: { mainText: { text: name }, secondaryText: { text: "东京都台东区" } }, types } });
+  const ranked = parsePlaceAutocomplete(
+    {
+      suggestions: [
+        suggestion("hosp", "浅草寺病院", ["hospital", "health", "point_of_interest", "establishment"]),
+        suggestion("corp", "浅草寺商事", ["corporate_office", "point_of_interest", "establishment"]),
+        suggestion("street", "浅草寺通り", ["route"]),
+        suggestion("station", "浅草駅", ["train_station", "transit_station"]),
+        suggestion("temple", "浅草寺", ["buddhist_temple", "place_of_worship", "tourist_attraction"]),
+        suggestion("shrine", "浅草神社", ["shinto_shrine", "place_of_worship"]),
+      ],
+    },
+    "浅草寺",
+  );
+  assert.ok(ranked.ok);
+  assert.deepEqual(
+    ranked.value.map((entry) => entry.id),
+    ["temple", "station", "shrine", "street", "hosp"],
+  );
+  // 全角空格、大小写不影响「完全一样」
+  const spaced = parsePlaceAutocomplete({ suggestions: [suggestion("a", "Tokyo Tower Hotel", ["lodging"]), suggestion("b", "TOKYO TOWER", ["tourist_attraction"])] }, "tokyo　tower");
+  assert.ok(spaced.ok);
+  assert.deepEqual(spaced.value.map((entry) => entry.id), ["b", "a"]);
+  // 不给关键字：只按类型排
+  const noQuery = parsePlaceAutocomplete({ suggestions: [suggestion("h", "某医院", ["hospital"]), suggestion("x", "某处", [])] });
+  assert.ok(noQuery.ok);
+  assert.deepEqual(noQuery.value.map((entry) => entry.id), ["x", "h"]);
+});
+
+test("文字搜索同样排序：主类型是医院的排在车站后面", () => {
+  const place = (id: string, name: string, primaryType: string) => ({ id, displayName: { text: name }, formattedAddress: "东京", location: { latitude: 35.7, longitude: 139.79 }, primaryType });
+  const ranked = parsePlaceSearch({ places: [place("h", "浅草寺病院", "hospital"), place("t", "浅草寺", "buddhist_temple")] }, BOUNDS, () => true, "浅草寺");
+  assert.ok(ranked.ok);
+  assert.deepEqual(ranked.value.map((entry) => entry.id), ["t", "h"]);
+});
+
+test("文字搜索向谷歌要 10 条、带 types，排序后取前 5 条：排在第 8 的「浅草寺」（types 里有景点）也能排到第一", () => {
+  const place = (id: string, name: string, primaryType: string, types: string[] = []) => ({ id, displayName: { text: name }, formattedAddress: "东京", location: { latitude: 35.7, longitude: 139.79 }, primaryType, types });
+  const others = Array.from({ length: 7 }, (_, i) => place(`c${i}`, `浅草寺前诊所${i}`, "medical_clinic", ["health"]));
+  const ranked = parsePlaceSearch({ places: [...others, place("t", "浅草寺", "place_of_worship_x", ["buddhist_temple", "tourist_attraction"])] }, BOUNDS, () => true, "浅草寺");
+  assert.ok(ranked.ok);
+  assert.equal(ranked.value.length, 5);
+  assert.equal(ranked.value[0]?.id, "t");
 });

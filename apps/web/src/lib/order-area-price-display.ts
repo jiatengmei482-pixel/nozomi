@@ -5,8 +5,10 @@
  * - 供应商后台：只有结算价（规则 4），金额币种在前（「JPY 250」，04 第 1 节）；接口里本来就没有对外价。
  * 一口价仍然只有一个总价：这些是说明，不写成算式。没有这些数的订单返回 null（那一项不出现，页面其余照常）。
  */
-import { type LocalizedText, type PricingBasis, consoleMoneyText, includedKmSummary, isCurrencyCode, parseMajor, routeMetersText, tenantIncludedKmSummary } from "@nozomi/domain";
+import { type LocalizedText, type PricingBasis, consoleMoneyText, displayStopNumber, includedKmSummary, isCurrencyCode, parseMajor, routeMetersText, tenantIncludedKmSummary } from "@nozomi/domain";
+import { charterAirportText } from "./charter-airport-copy.ts";
 import { durationText, kmText } from "./charter-itinerary.ts";
+import { itineraryCopy } from "./itinerary-texts.ts";
 import { moneyText } from "./dispatch-display.ts";
 import { displayName } from "./master-display.ts";
 import { pricingBasisLines } from "./pricing-basis-display.ts";
@@ -35,6 +37,16 @@ export interface OrderAreaSurchargeEndView {
   area_name: LocalizedText | null;
   settlement: Money;
   sell?: Money | null;
+  /** 机场套餐单独定价免掉的这一端（金额 0，M9P-21，ADR 0098） */
+  included_in_package?: true;
+}
+
+/** 包车机场开始 / 机场结束（M9P-21，ADR 0098）：下单时匹配到的场景 */
+export interface OrderCharterScenarioView {
+  kind: "airport_start" | "airport_end";
+  airport_id: string;
+  airport_name: string;
+  pricing: "own" | "inherit";
 }
 
 export interface OrderAreaSurchargeView {
@@ -43,7 +55,19 @@ export interface OrderAreaSurchargeView {
   dropoff: OrderAreaSurchargeEndView;
   /** 途经加价（M9W-01，和后端约定）：每个收了途经加价的区域一项，`stop_seqs` 是第几个经停点（从 1 起）；没有经停点、旧接口没有这一项 */
   waypoints?: (OrderAreaSurchargeEndView & { stop_seqs: number[] })[];
+  charter_scenario?: OrderCharterScenarioView;
 }
+
+/** 「机场套餐：成田机场接机（单独定价，已含上车加价）」「机场套餐：羽田机场送机（继承普通套餐价）」 */
+export function charterScenarioLine(scenario: OrderCharterScenarioView | undefined): string | null {
+  if (scenario === undefined) return null;
+  const start = scenario.kind === "airport_start";
+  const what = charterAirportText(start ? "order.charterScenario.airportStart" : "order.charterScenario.airportEnd", { airport: scenario.airport_name });
+  const how = scenario.pricing === "own" ? charterAirportText("order.charterScenario.own", { end: charterAirportText(start ? "order.charterScenario.endPickup" : "order.charterScenario.endDropoff") }) : charterAirportText("order.charterScenario.inherit");
+  return charterAirportText("order.charterScenario.line", { what, how });
+}
+
+const INCLUDED_IN_PACKAGE = charterAirportText("order.charterScenario.included");
 
 export const DELETED_AREA = "（已删除的区域）";
 
@@ -88,14 +112,17 @@ export function tenantDistanceLines(distance: OrderDistanceView | null | undefin
 
 /** 至少一端在加价区域里才写「区域加价」这一项（两端都在服务区域里 = 没有加价，不出现）。 */
 export function hasAreaSurcharge(surcharge: OrderAreaSurchargeView | null | undefined): surcharge is OrderAreaSurchargeView {
-  return surcharge !== null && surcharge !== undefined && (surcharge.pickup.area_id !== null || surcharge.dropoff.area_id !== null || (surcharge.waypoints?.length ?? 0) > 0);
+  return surcharge !== null && surcharge !== undefined && (surcharge.pickup.area_id !== null || surcharge.dropoff.area_id !== null || (surcharge.waypoints?.length ?? 0) > 0 || surcharge.charter_scenario !== undefined);
 }
 
 const END_LABELS = { pickup: "上车", dropoff: "下车" } as const;
 const IN_SERVICE_AREA = "在服务区域里，不加价";
 
-/** 途经加价那几行的开头：「经停（第 1、3 个经停点）」 */
-const waypointLabel = (seqs: readonly number[]): string => (seqs.length === 0 ? "经停" : `经停（第 ${seqs.join("、")} 个经停点）`);
+/** 途经加价那几行的开头：「经停（2、4 号点）」——编号同行程列表（上车 = 1，M9P-20），= stopSeq + 1 */
+const waypointLabel = (seqs: readonly number[]): string => {
+  const numbers = seqs.filter((seq) => Number.isInteger(seq) && seq >= 1).map(displayStopNumber);
+  return numbers.length === 0 ? "经停" : itineraryCopy("areaStops", { numbers: numbers.join("、") });
+};
 
 /** 运营后台「区域加价」：「上车：富士山 · 对外 1,100 JPY / 结算 1,000 JPY」「下车：在服务区域里，不加价」。 */
 export function platformSurchargeLines(surcharge: OrderAreaSurchargeView | null | undefined): string[] | null {
@@ -103,9 +130,10 @@ export function platformSurchargeLines(surcharge: OrderAreaSurchargeView | null 
   return (["pickup", "dropoff"] as const).map((end) => {
     const entry = surcharge[end];
     if (entry.area_id === null) return `${END_LABELS[end]}：${IN_SERVICE_AREA}`;
+    if (entry.included_in_package === true) return `${END_LABELS[end]}：${INCLUDED_IN_PACKAGE}`;
     const sell = entry.sell ?? null;
     return `${END_LABELS[end]}：${areaName({ name: entry.area_name })} · 对外 ${sell === null ? "—" : moneyText(sell)} / 结算 ${moneyText(entry.settlement)}`;
-  }).concat((surcharge.waypoints ?? []).map((entry) => `${waypointLabel(entry.stop_seqs)}：${areaName({ name: entry.area_name })} · 对外 ${entry.sell == null ? "—" : moneyText(entry.sell)} / 结算 ${moneyText(entry.settlement)}`));
+  }).concat((surcharge.waypoints ?? []).map((entry) => (entry.included_in_package === true ? `${waypointLabel(entry.stop_seqs)}：${INCLUDED_IN_PACKAGE}` : `${waypointLabel(entry.stop_seqs)}：${areaName({ name: entry.area_name })} · 对外 ${entry.sell == null ? "—" : moneyText(entry.sell)} / 结算 ${moneyText(entry.settlement)}`)), scenarioLines(surcharge));
 }
 
 /** 供应商后台「区域加价」：「上车：富士山 · 加 JPY 1,000」「下车：在服务区域里，不加价」。只有结算价。 */
@@ -114,8 +142,15 @@ export function tenantSurchargeLines(surcharge: OrderAreaSurchargeView | null | 
   return (["pickup", "dropoff"] as const).map((end) => {
     const entry = surcharge[end];
     if (entry.area_id === null) return `${END_LABELS[end]}：${IN_SERVICE_AREA}`;
+    if (entry.included_in_package === true) return `${END_LABELS[end]}：${INCLUDED_IN_PACKAGE}`;
     return `${END_LABELS[end]}：${areaName({ name: entry.area_name })} · 加 ${settlementText(entry.settlement)}`;
-  }).concat((surcharge.waypoints ?? []).map((entry) => `${waypointLabel(entry.stop_seqs)}：${areaName({ name: entry.area_name })} · 加 ${settlementText(entry.settlement)}`));
+  }).concat((surcharge.waypoints ?? []).map((entry) => (entry.included_in_package === true ? `${waypointLabel(entry.stop_seqs)}：${INCLUDED_IN_PACKAGE}` : `${waypointLabel(entry.stop_seqs)}：${areaName({ name: entry.area_name })} · 加 ${settlementText(entry.settlement)}`)), scenarioLines(surcharge));
+}
+
+/** 机场套餐那一行放在最后（没有场景时没有） */
+function scenarioLines(surcharge: OrderAreaSurchargeView): string[] {
+  const line = charterScenarioLine(surcharge.charter_scenario);
+  return line === null ? [] : [line];
 }
 
 function settlementText(money: Money): string {
@@ -164,17 +199,25 @@ export interface OrderItineraryMoneyView {
   overtime_fee: Money;
   over_km_per_km: Money;
   overtime_per_hour: Money;
+  /** 超时费下单时预收了没有（ADR 0091 第三节第 3 小节）：M9P-03 起的单 false；旧接口没有这一项，按 true（预收过） */
+  overtime_at_booking?: boolean;
+  /** 含经停点默认占用和整单缓冲的预计用时（分钟）：下单时这两项不为 0 才有 */
+  estimated_minutes?: number;
 }
 
 /**
  * 「超公里 / 超时」那一项的两行（结算价）：
  * 「超公里：全程 260 公里，套餐含 200 公里，超出 60 公里 × 每公里 JPY 300 = JPY 18,000」「超时：预计 9 小时（含停留），套餐 10 小时，超出 0 分钟 × 每小时 JPY 5,000 = JPY 0」；没有为 null。
+ * M9P-03 起的单下单时不收超时费（`overtime_at_booking: false`，ADR 0091 第三节第 3 小节）：不写单价和金额，写「预计超出 Z，未预收，服务后按实际提交」
+ * 或「未超出套餐时长」；有含缓冲的预计用时时在前面写「预计用时（含缓冲）X，」，让供应商和客人看到同一个预计用时。旧单照旧，一字不变。
  */
 export function itineraryOverageLines(audience: "platform" | "tenant", itinerary: OrderItineraryMoneyView | null | undefined): string[] | null {
   if (itinerary === null || itinerary === undefined) return null;
   const money = (value: Money): string => auditMoney(audience, value);
   return [
     `超公里：全程 ${kmText(itinerary.route_meters)}，套餐含 ${itinerary.package_km} 公里，超出 ${kmText(itinerary.over_meters)} × 每公里 ${money(itinerary.over_km_per_km)} = ${money(itinerary.over_km_fee)}`,
-    `超时：预计 ${durationText(itinerary.route_minutes)}（含停留），套餐 ${durationText(itinerary.package_minutes)}，超出 ${durationText(itinerary.overtime_minutes)} × 每小时 ${money(itinerary.overtime_per_hour)} = ${money(itinerary.overtime_fee)}`,
+    itinerary.overtime_at_booking === false
+      ? `超时：${itinerary.estimated_minutes === undefined ? "" : `预计用时（含缓冲）${durationText(itinerary.estimated_minutes)}，`}预计 ${durationText(itinerary.route_minutes)}（含停留），套餐 ${durationText(itinerary.package_minutes)}，${itinerary.overtime_minutes > 0 ? `预计超出 ${durationText(itinerary.overtime_minutes)}，未预收，服务后按实际提交` : "未超出套餐时长"}`
+      : `超时：预计 ${durationText(itinerary.route_minutes)}（含停留），套餐 ${durationText(itinerary.package_minutes)}，超出 ${durationText(itinerary.overtime_minutes)} × 每小时 ${money(itinerary.overtime_per_hour)} = ${money(itinerary.overtime_fee)}`,
   ];
 }

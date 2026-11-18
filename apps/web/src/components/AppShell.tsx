@@ -60,6 +60,8 @@ export function navEntries(portal: Portal, home: string, role: string | null, pl
   // 未覆盖需求（M8-20）：客人询价一家都报不出价的地方；单独一个权限（demand.read），排在报价试算后面（同属「商品与报价」这一段）
   if (portal === "platform" && platformCan("demand.read")) entries.push({ to: "/platform/uncovered-demands", label: "未覆盖需求", icon: "target", prefix: true });
   if (portal === "platform" && platformCan("channel.read")) entries.push({ to: "/platform/channels", label: "渠道", icon: "link", prefix: true });
+  // 嵌入组件（M9E-02，ADR 0090）：嵌入码和合作网站的域名白名单
+  if (portal === "platform" && platformCan("embed.read")) entries.push({ to: "/platform/embed-keys", label: "嵌入组件", icon: "link", prefix: true });
   if (portal === "platform" && platformCan("approval.read")) entries.push({ to: "/platform/approvals", label: "待审核", icon: "check-circle", prefix: true });
   if (portal === "platform" && platformCan("order.read")) entries.push({ to: "/platform/orders", label: "订单", icon: "package", prefix: true });
   // 订单中心（M4-03）：异常队列和看订单是同一个操作；工单单独一格（`ticket.read`）

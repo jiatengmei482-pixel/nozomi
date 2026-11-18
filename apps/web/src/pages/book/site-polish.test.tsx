@@ -30,6 +30,7 @@ const tiers = [{ min_hours_before: 48, fee_bp: 0 }, { min_hours_before: 24, fee_
 const quoteOf = (id: string, name: string, amount: string): SiteQuote => ({
   quote_id: id,
   available_addons: [],
+  itinerary_warnings: null,
   expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
   service_date: "2030-11-20",
   urgent: false,
@@ -360,4 +361,25 @@ test("F12：修改订单的字段级校验——顶部一条提示、出错字�
   assert.equal(screen.getByLabelText("邮箱").getAttribute("aria-invalid"), "true");
   assert.ok(screen.getByText("有几项没有通过检查，请看标红的地方。"));
   assert.equal(calls.filter((call) => call.method === "PATCH").length, 1);
+});
+
+test("M9E-02：从合作网站来的订单（服务端给了 return_url）付款后显示「返回原网站」，不带 Referer；没有时、待付款时都不显示", async () => {
+  const confirmed = orderOf({ status: "confirmed" });
+  const routeWith = (returnUrl: string | null, order: SiteOrder): Route => (call) => {
+    if (call.url.pathname === "/site/v1/config") return json(200, configOf());
+    if (call.method === "GET" && call.url.pathname === "/site/v1/order") return json(200, { ...envelopeOf(order), return_url: returnUrl });
+    return null;
+  };
+  open({ pathname: "/book/order", hash: `#${TOKEN}` }, routeWith("https://partner.example/thanks", confirmed));
+  const back = await screen.findByRole("link", { name: "返回原网站" });
+  assert.equal(back.getAttribute("href"), "https://partner.example/thanks");
+  assert.equal(back.getAttribute("rel"), "noopener noreferrer");
+  resetBrowser();
+  open({ pathname: "/book/order", hash: `#${TOKEN}` }, routeWith(null, confirmed));
+  await screen.findByRole("heading", { level: 1, name: /^订单 / });
+  assertAbsent(screen.queryByRole("link", { name: "返回原网站" }));
+  resetBrowser();
+  open({ pathname: "/book/order", hash: `#${TOKEN}` }, routeWith("https://partner.example/thanks", orderOf({ status: "pending_payment", payment_status: "pending" })));
+  await screen.findByRole("heading", { level: 1, name: /^订单 / });
+  assertAbsent(screen.queryByRole("link", { name: "返回原网站" }));
 });

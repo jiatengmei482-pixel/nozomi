@@ -70,6 +70,9 @@
 	#   @api   归 API 的路径前缀（/health、/platform/v1 等，前缀本身和它下面的全部路径）。和开发 / 端到端测试的
 	#          Vite 代理用的是同一张表（apps/web/src/lib/api-prefixes.ts），这里不再抄一遍
 	#   Content-Security-Policy 响应头：index.html 里那段内联的主题脚本按哈希放行，哈希是从构建产物现算的
+	#   嵌入预订页 /embed/book（M9E-16，ADR 0095）：handle @embed_book_pages，先用 forward_auth 问 API 能不能被这个宿主嵌入，
+	#          frame-ancestors 只放行 API 回的那一个宿主；排在下面的 handle 之前。X-Frame-Options 仍按上面的全局 DENY：
+	#          带强制 frame-ancestors 时浏览器忽略它（CSP3；Chromium、WebKit、Firefox 实测），老浏览器按 DENY 拒绝
 	import /etc/nozomi/web.caddy
 
 	handle @api {
@@ -86,6 +89,26 @@
 		handle @asset {
 			@existing file
 			header @existing Cache-Control "public, max-age=31536000, immutable"
+			file_server
+		}
+
+		# 包车行程地图 10–12 号标记的图标（M9P-20，ADR 0096）：谷歌的服务器出图时来取，必须公网可直接访问；长期不变，缓存 7 天。
+		# 不存在时 404，不回退到 index.html（谷歌拿到一份 HTML 当图标会出不了图）。
+		@map_markers path /map-markers/*
+		handle @map_markers {
+			@existing_marker file
+			header @existing_marker Cache-Control "public, max-age=604800"
+			file_server
+		}
+
+		# 嵌入组件脚本（ADR 0090）：合作网站跨站加载，所以放行跨源读取；短缓存（发新版 5 分钟内生效）。
+		# 不存在时 404，不回退到 index.html（合作网站拿到一份 HTML 当脚本执行会报错）。
+		# 类型写死并带 charset（M9E-07）：合作网站可能是 Shift_JIS 等非 UTF-8 页面，不依赖镜像里的扩展名表。产物本身也只含 ASCII，两道保险。
+		@widget path /embed/widget-v1.js
+		handle @widget {
+			header Content-Type "text/javascript; charset=utf-8"
+			header Cache-Control "public, max-age=300"
+			header Cross-Origin-Resource-Policy "cross-origin"
 			file_server
 		}
 

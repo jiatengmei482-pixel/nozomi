@@ -71,8 +71,11 @@ const GOOGLE_TRACES = [/AIza[0-9A-Za-z_-]{4,}/, /googleapis\.com/i, /gstatic\.co
 
 const coordinate = (page: Page, word: "上车" | "下车", which: "纬度" | "经度") => page.getByRole("group", { name: new RegExp(`${word}地点的坐标`) }).getByLabel(new RegExp(`^${which}`));
 
-test("构建产物里没有谷歌的密钥和接口地址", async () => {
-  const files = (await filesUnder(DIST)).filter((path) => /\.(js|css|html|json|map|txt)$/.test(path));
+test("构建产物里没有谷歌的密钥和接口地址（官网选点的谷歌地图小页面 maps/ 除外：它本来就要加载谷歌地图，M10-01 第 2 处；密钥照样不在里面）", async () => {
+  const pickerDir = join(DIST, "maps");
+  const all = (await filesUnder(DIST)).filter((path) => /\.(js|css|html|json|map|txt)$/.test(path));
+  for (const path of all.filter((entry) => entry.startsWith(pickerDir))) expect(/AIza[0-9A-Za-z_-]{35}/.test(await readFile(path, "utf8")), `${path} 里有密钥`).toBe(false);
+  const files = all.filter((path) => !path.startsWith(pickerDir));
   expect(files.length, "先运行 pnpm web:build").toBeGreaterThan(0);
   for (const path of files) {
     const text = await readFile(path, "utf8");
@@ -210,4 +213,43 @@ test("配置里没有地址搜索、没有底图：没有搜索框和地图按�
   await coordinate(page, "上车", "经度").fill("139.7671");
   await expect(coordinate(page, "上车", "经度")).toHaveValue("139.7671");
   expect(placesCalls).toEqual([]);
+});
+
+test("谷歌地图选点（M10-01 第 2 处）：配了浏览器密钥时打开同源的地图小页面（只有它的策略放行谷歌、只许同源嵌入）；谷歌全被挡住（模拟中国大陆）时收起地图、提示用搜索或直接输入地址，页面不卡", async ({ page, request }) => {
+  test.setTimeout(120_000);
+  await bookableWorld(request);
+  const picker = await request.get(`${SITE}/maps/picker.html?key=x`);
+  expect(picker.status()).toBe(200);
+  const pickerPolicy = picker.headers()["content-security-policy"] ?? "";
+  expect(pickerPolicy).toContain("frame-ancestors 'self'");
+  expect(pickerPolicy).toContain("https://maps.googleapis.com");
+  const bookPolicy = (await request.get(`${SITE}/book/new`)).headers()["content-security-policy"] ?? "";
+  expect(bookPolicy).toContain("frame-src 'self' ");
+  expect(bookPolicy, "下单页的策略照旧不放行谷歌").not.toMatch(/google|unsafe-/);
+
+  const blocked: string[] = [];
+  await page.route(/^https:\/\/([a-z0-9-]+\.)*(googleapis|gstatic|google)\.com\//, async (route) => {
+    blocked.push(route.request().url());
+    await route.abort("connectionrefused");
+  });
+  await page.route("**/site/v1/config", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as Record<string, unknown>;
+    await route.fulfill({ response, json: { ...body, maps_browser_key: `AIzaSy${"e".repeat(33)}` } });
+  });
+  const pickerRequests: string[] = [];
+  page.on("request", (sent) => {
+    if (new URL(sent.url()).pathname === "/maps/picker.html") pickerRequests.push(sent.url());
+  });
+  await page.goto(`${SITE}/book/new`);
+  const group = page.getByRole("group", { name: "出发地的地图" });
+  await group.getByRole("button", { name: "在地图上选点" }).click();
+  await expect(page.getByText("地图加载不出来（可能是网络原因）。请用上面的搜索找到地址；门牌、楼层等可以写在下单时的「给司机的备注」里。")).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator("iframe")).toHaveCount(0);
+  // 打开的是同源的地图小页面，带着密钥（谷歌挡住后它马上报失败、被收起，所以看请求而不是 iframe）
+  expect(pickerRequests.length).toBeGreaterThan(0);
+  expect(new URL(pickerRequests[0] ?? "").origin).toBe(SITE);
+  expect(new URL(pickerRequests[0] ?? "").searchParams.get("key")).toMatch(/^AIza/);
+  expect(blocked.some((url) => url.startsWith("https://maps.googleapis.com/maps/api/js?")), "确实试过加载谷歌地图脚本").toBe(true);
+  await expect(page.getByRole("combobox", { name: /出发地/ }).first()).toBeEditable();
 });

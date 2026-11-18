@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { arrivalFreeWaitMinutes, bookTabOf, decodePolyline, guestCurrencyOf, moneyDifference, parseBookingLink, pointName, referenceMoney, rejectionTexts, routeMapSize, routeSummaryText, seatPlan, suggestionNames, travellersText } from "./book-new.ts";
+import { arrivalFreeWait, arrivalHintText, bookTabOf, decodePolyline, guestCurrencyOf, moneyDifference, parseBookingLink, pointName, referenceMoney, rejectionTexts, routeMapSize, routeSummaryText, seatPlan, suggestionNames, travellersText } from "./book-new.ts";
 
 test("链接参数：编码、「纬度,经度」加名称、日期、时间、人数、行李都合法时全部读出", () => {
   assert.deepEqual(parseBookingLink("?from=NRT&to=35.6895,139.6917&to_name=%E4%BA%AC%E7%8E%8B%E5%B9%BF%E5%9C%BA%E9%85%92%E5%BA%97&date=2030-11-20&time=14:30&pax=2&bags=3"), {
@@ -11,6 +11,7 @@ test("链接参数：编码、「纬度,经度」加名称、日期、时间、�
     passengers: 2,
     luggage: 3,
     mode: null,
+    draft: null,
   });
   // 旧 /book 的包车跳过来（M8-15）
   assert.equal(parseBookingLink("?mode=charter").mode, "charter");
@@ -18,12 +19,23 @@ test("链接参数：编码、「纬度,经度」加名称、日期、时间、�
 
 test("链接参数：不合法的那一项为 null（不预填、不报错），其余照常", () => {
   const link = parseBookingLink("?from=91,10&to=%3Cscript%3E&date=2030-02-30&time=25:00&pax=0&bags=61");
-  assert.deepEqual(link, { from: null, to: null, date: null, time: null, passengers: null, luggage: null, mode: null });
-  assert.deepEqual(parseBookingLink(""), { from: null, to: null, date: null, time: null, passengers: null, luggage: null, mode: null });
+  assert.deepEqual(link, { from: null, to: null, date: null, time: null, passengers: null, luggage: null, mode: null, draft: null });
+  assert.deepEqual(parseBookingLink(""), { from: null, to: null, date: null, time: null, passengers: null, luggage: null, mode: null, draft: null });
   assert.equal(parseBookingLink("?mode=bus").mode, null);
   assert.deepEqual(parseBookingLink("?from=35.1,139.2&from_name=%20%20&pax=60&bags=0").from, { kind: "point", lat: 35.1, lng: 139.2, name: null });
   assert.equal(parseBookingLink("?pax=60&bags=0").passengers, 60);
   assert.equal(parseBookingLink("?pax=2.5").passengers, null);
+});
+
+test("链接里的预订草稿编号（M9E-01）：43 个 base64url 字符才认，认了之后其余参数一律不看；写法不对按没带", () => {
+  const id = "aZ09_-".repeat(7) + "x";
+  assert.deepEqual(parseBookingLink(`?draft=${id}&from=NRT&date=2030-11-20&mode=charter&pax=3`), { from: null, to: null, date: null, time: null, passengers: null, luggage: null, mode: null, draft: id });
+  for (const bad of ["short", `${id}A`, `${id.slice(0, 42)}=`, ""]) {
+    const link = parseBookingLink(`?draft=${encodeURIComponent(bad)}&from=NRT&pax=3`);
+    assert.equal(link.draft, null, bad);
+    assert.deepEqual(link.from, { kind: "code", code: "NRT" }, "编号不对时旧参数照旧");
+    assert.equal(link.passengers, 3);
+  }
 });
 
 test("链接里的 mode（M8-33）：区间 transfer 和 M8-27 的旧值 airport、p2p 都落到区间；charter 包车；别的值为 null", () => {
@@ -33,11 +45,18 @@ test("链接里的 mode（M8-33）：区间 transfer 和 M8-27 的旧值 airport
   assert.deepEqual(["?type=airport", "?type=p2p", "?type=charter", "?mode=charter&type=airport"].map((search) => parseBookingLink(search).mode), ["transfer", "transfer", "charter", "charter"], "参数名 type 也认，mode 优先");
 });
 
-test("接机提示的免费等待（M8-33）：有报价按所选商品自己设的（无限为 null）；没有报价时国际线 90、国内线 / 都有 / 没标明 60", () => {
-  assert.equal(arrivalFreeWaitMinutes({ free_wait_minutes: 120 }, "international"), 120);
-  assert.equal(arrivalFreeWaitMinutes({ free_wait_minutes: 45 }, "domestic"), 45);
-  assert.equal(arrivalFreeWaitMinutes({ free_wait_minutes: null }, "international"), null);
-  assert.deepEqual((["international", "domestic", "mixed", null] as const).map((scope) => arrivalFreeWaitMinutes(null, scope)), [90, 60, 60, 60]);
+test("接机的免费等待按航班定（M9E-31，业主 2026-11-16）：国际一律 90、国内一律 60，不看商品设的；没选写两种各最长多久", () => {
+  assert.deepEqual(arrivalFreeWait({ free_wait_minutes: 60 }, "international"), { kind: "minutes", minutes: 90 });
+  assert.deepEqual(arrivalFreeWait({ free_wait_minutes: 90 }, "domestic"), { kind: "minutes", minutes: 60 }, "商品设 90，国内仍 60（业主验收 #278 的问题）");
+  assert.deepEqual(arrivalFreeWait({ free_wait_minutes: 120 }, "international"), { kind: "minutes", minutes: 90 }, "商品设得更长也按 90");
+  assert.deepEqual(arrivalFreeWait({ free_wait_minutes: 75 }, null), { kind: "range", international: 90, domestic: 60 });
+  assert.deepEqual(arrivalFreeWait(null, null), { kind: "range", international: 90, domestic: 60 }, "还没报价：平台下限");
+  assert.deepEqual(arrivalFreeWait(null, "international"), { kind: "minutes", minutes: 90 });
+  assert.deepEqual(arrivalFreeWait({ free_wait_minutes: null }, "international"), { kind: "minutes", minutes: 90 }, "商品不限时也按 90 / 60");
+  assert.deepEqual(arrivalFreeWait({ free_wait_minutes: null }, null), { kind: "range", international: 90, domestic: 60 });
+  assert.equal(arrivalHintText({ kind: "range", international: 90, domestic: 60 }), "已识别为接机：司机按航班落地时间等候，落地后免费等待：国际线最长 90 分钟、国内线最长 60 分钟");
+  assert.equal(arrivalHintText({ kind: "minutes", minutes: 90 }), "已识别为接机：司机按航班落地时间等候，落地后免费等待 90 分钟");
+  assert.equal(arrivalHintText({ kind: "unlimited" }), "已识别为接机：司机按航班落地时间等候，不限时免费等待");
 });
 
 test("乘客 / 行李栏的写法", () => {
@@ -50,6 +69,10 @@ test("报不出价：三种原因按方案的说法，「没有商品」也说�
   assert.deepEqual(rejectionTexts(["OUT_OF_SERVICE_AREA", "NO_PRODUCT"]), { texts: ["这个地址暂时没有在线报价，请联系客服"], support: true });
   assert.deepEqual(rejectionTexts(["SOLD_OUT"]), { texts: ["这一天已经订满了，请换一天。"], support: false });
   assert.equal(rejectionTexts([]).texts.length, 1);
+  // M9W-10：其他原因不再让客人「换一个时间」，转人工报价（给客服电话）；没有原因时同样
+  assert.deepEqual(rejectionTexts(["NOT_AVAILABLE"]), { texts: ["这个行程暂时无法在线报价，请联系客服人工报价，或调整行程后再试。"], support: true });
+  assert.deepEqual(rejectionTexts([]), rejectionTexts(["NOT_AVAILABLE"]));
+  assert.doesNotMatch(JSON.stringify(rejectionTexts(["NOT_AVAILABLE"])), /换一个时间/);
   assert.doesNotMatch(JSON.stringify(rejectionTexts(["LEAD_TIME_TOO_SHORT", "OUT_OF_SERVICE_AREA", "CAPACITY_EXCEEDED", "NO_ROUTE"])), /[A-Z]{2,}_[A-Z]/);
 });
 

@@ -29,6 +29,12 @@ export interface Rescue {
   originalSettlementCurrency: CurrencyCode;
   /** 原结算币种 → 客人支付币种（原供应商那一单的报价快照里的）；同币种为 null */
   originalFx: FxQuote | null;
+  /**
+   * 救援差价的基准（M9P-01，ADR 0093 第二节救援 B）：原结算价 + 包车加价被新算法改出来的差（只往上补），原结算币种。
+   * 触发时算好；为 null = 这一列之前的救援，按原结算价。`deductionBase` 是怎么算出来的。
+   */
+  deductionBaseMinor: number | null;
+  deductionBase: DeductionBase | null;
   penaltyBp: number;
   penaltyTier: PenaltyTier;
   status: RescueStatus;
@@ -47,8 +53,15 @@ export interface Rescue {
   updatedAt: Date;
 }
 
+/** 救援差价基准的依据：订单上的加价合计、按当前规则重算的加价合计（结算价）；重算失败时 `fallbackReason` 是原因、基准退回原结算价 */
+export interface DeductionBase {
+  surchargeBefore: number;
+  surchargeAfter: number | null;
+  fallbackReason: string | null;
+}
+
 const RESCUE_COLUMNS = `r.id, r.order_id, r.original_tenant_id, r.trigger, r.triggered_by_type, r.triggered_by, r.reason, r.triggered_at, r.from_status, r.service_at, r.original_settlement_minor,
-  r.original_settlement_currency, r.original_fx, r.penalty_bp, r.penalty_tier, r.status, r.rescue_tenant_id, r.rescue_settlement_minor, r.rescue_settlement_currency, r.rescue_fx, r.rescued_via, r.rescued_at,
+  r.original_settlement_currency, r.original_fx, r.deduction_base_minor, r.deduction_base, r.penalty_bp, r.penalty_tier, r.status, r.rescue_tenant_id, r.rescue_settlement_minor, r.rescue_settlement_currency, r.rescue_fx, r.rescued_via, r.rescued_at,
   r.force_majeure_at, r.force_majeure_by, r.force_majeure_note, r.closed_at, r.version, r.created_at, r.updated_at`;
 
 function toRescue(row: Row): Rescue {
@@ -66,6 +79,8 @@ function toRescue(row: Row): Rescue {
     originalSettlementMinor: Number(row["original_settlement_minor"]),
     originalSettlementCurrency: row["original_settlement_currency"],
     originalFx: row["original_fx"],
+    deductionBaseMinor: row["deduction_base_minor"] === null ? null : Number(row["deduction_base_minor"]),
+    deductionBase: row["deduction_base"],
     penaltyBp: row["penalty_bp"],
     penaltyTier: row["penalty_tier"],
     status: row["status"],
@@ -85,17 +100,20 @@ function toRescue(row: Row): Rescue {
   };
 }
 
-export type NewRescue = Pick<Rescue, "orderId" | "originalTenantId" | "trigger" | "triggeredByType" | "triggeredBy" | "reason" | "triggeredAt" | "fromStatus" | "serviceAt" | "originalSettlementMinor" | "originalSettlementCurrency" | "originalFx" | "penaltyBp" | "penaltyTier">;
+export type NewRescue = Pick<
+  Rescue,
+  "orderId" | "originalTenantId" | "trigger" | "triggeredByType" | "triggeredBy" | "reason" | "triggeredAt" | "fromStatus" | "serviceAt" | "originalSettlementMinor" | "originalSettlementCurrency" | "originalFx" | "deductionBaseMinor" | "deductionBase" | "penaltyBp" | "penaltyTier"
+>;
 
 export async function insertRescue(db: Db, rescue: NewRescue): Promise<Rescue> {
   const result = await db.query<Row>(
     `insert into order_rescues as r (order_id, original_tenant_id, trigger, triggered_by_type, triggered_by, reason, triggered_at, from_status, service_at, original_settlement_minor,
-                                     original_settlement_currency, original_fx, penalty_bp, penalty_tier, status, created_at, updated_at)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13, $14, 'open', $7, $7)
+                                     original_settlement_currency, original_fx, penalty_bp, penalty_tier, status, created_at, updated_at, deduction_base_minor, deduction_base)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13, $14, 'open', $7, $7, $15, $16::jsonb)
      returning ${RESCUE_COLUMNS}`,
     [
       rescue.orderId, rescue.originalTenantId, rescue.trigger, rescue.triggeredByType, rescue.triggeredBy, rescue.reason, rescue.triggeredAt, rescue.fromStatus, rescue.serviceAt, rescue.originalSettlementMinor, rescue.originalSettlementCurrency,
-      rescue.originalFx === null ? null : JSON.stringify(rescue.originalFx), rescue.penaltyBp, rescue.penaltyTier,
+      rescue.originalFx === null ? null : JSON.stringify(rescue.originalFx), rescue.penaltyBp, rescue.penaltyTier, rescue.deductionBaseMinor, rescue.deductionBase === null ? null : JSON.stringify(rescue.deductionBase),
     ],
   );
   return toRescue(result.rows[0] as Row);

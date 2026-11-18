@@ -156,6 +156,44 @@ test("详情：包车经停点（M9W-04）在上车和下车地点之间按顺�
   assertAbsent(screen.queryByRole("list", { name: "经停点" }));
 });
 
+test("详情：带行程单（M9T-08）显示整张行程单——每天的点和时间、客人选的方案、两个方案的金额和报不出的原因；行程单已清理时写明，只剩地名；没关联不出这一块", async () => {
+  const trip = {
+    trip_id: "T".repeat(43),
+    plan_kind: "daily_best" as const,
+    purged: false,
+    labels: [["新宿酒店", "浅草寺"], []],
+    days: [
+      { date: "2030-12-01", items: [{ kind: "start" as const, name: "新宿酒店", time: "09:00", stay_minutes: null, place: { lat: 35.6905, lng: 139.7005 } }, { kind: "stop" as const, name: "浅草寺", time: null, stay_minutes: 90, place: { lat: 35.7148, lng: 139.7967 } }] },
+      { date: "2030-12-02", items: [] },
+    ],
+    plans: [
+      { kind: "one_car" as const, status: "unquoted" as const, recommended: false, amount: null, unquoted: [{ day_index: 1, reason: "OUT_OF_SERVICE_AREA" }] },
+      { kind: "daily_best" as const, status: "quoted" as const, recommended: true, amount: { amount: "88000", currency: "JPY" }, unquoted: [] },
+    ],
+  };
+  openDetail(detailOf({ trip }));
+  const card = (await screen.findByRole("heading", { level: 2, name: "整张行程单" })).closest("section") as HTMLElement;
+  assert.ok(within(card).getByText("每天各自最优"));
+  const days = within(card).getByRole("list", { name: "每天的行程" });
+  assert.match(days.textContent ?? "", /第 1 天 · 2030-12-01出发 · 09:00新宿酒店35\.69050, 139\.70050经停 · 停留 1 小时 30 分浅草寺/);
+  assert.match(days.textContent ?? "", /第 2 天 · 2030-12-02空闲日（不用车）/);
+  const plans = [...within(card).getByRole("list", { name: "报价方案" }).querySelectorAll(":scope > li")].map((item) => item.textContent);
+  assert.deepEqual(plans, ["一车到底报不出第 2 天：地点不在任何供应商的服务区域里", "每天各自最优（推荐）JPY 88,000"]);
+  resetBrowser();
+
+  openDetail(detailOf({ trip: { ...trip, plan_kind: null, purged: true, days: null, plans: null } }));
+  const purged = (await screen.findByRole("heading", { level: 2, name: "整张行程单" })).closest("section") as HTMLElement;
+  assert.ok(within(purged).getByText("没有选方案（全部报不出，转人工）"));
+  assert.ok(within(purged).getByText(/行程单已清理/));
+  assert.deepEqual([...within(purged).getByRole("list", { name: "每天的行程" }).querySelectorAll("li")].map((item) => item.textContent), ["第 1 天新宿酒店 → 浅草寺", "第 2 天空闲日（不用车）"]);
+  assertAbsent(within(purged).queryByRole("list", { name: "报价方案" }));
+  resetBrowser();
+
+  openDetail(detailOf({ trip: null }));
+  await screen.findByRole("heading", { level: 1, name: "申请 MQ20301120AB12CD34" });
+  assertAbsent(screen.queryByRole("heading", { level: 2, name: "整张行程单" }));
+});
+
 test("详情：验收留资（M8-39）在状态徽标旁标「验收」；真实客人的没有", async () => {
   openDetail(detailOf({ request: summaryOf({ is_acceptance: true }) }));
   const card = (await screen.findByRole("heading", { level: 2, name: "行程" })).closest("section") as HTMLElement;
@@ -212,7 +250,7 @@ test("详情：过了保留期的只写已清除，不能再改、不能写备�
 
 // ───────────── 官网设置 ─────────────
 
-const settingsOf = (changes: Partial<SiteSettings> = {}): SiteSettings => ({ support_whatsapp: null, page_width: "standard", version: 0, updated_at: null, updated_by: null, ...changes });
+const settingsOf = (changes: Partial<SiteSettings> = {}): SiteSettings => ({ support_whatsapp: null, page_width: "standard", maps_browser_key: null, version: 0, updated_at: null, updated_by: null, ...changes });
 
 function openSettings(role: string, settings: SiteSettings, put: (call: ApiCall) => Response = (call) => json(200, settingsOf({ support_whatsapp: "810000000000", version: settings.version + 1, updated_at: "2030-11-10T05:00:00.000Z", updated_by: { id: ME, name: "测试员工" } }))): ApiCall[] {
   return openApp("/platform/settings/site", "platform", role, (call) => {
@@ -291,4 +329,37 @@ test("官网设置 · 页面宽度（M8-28）：超级管理员选标准 / 较�
   assert.ok(readOnly.getByText(/^较宽（/));
   assert.ok(readOnly.getByText("只有超级管理员能改页面宽度。"));
   assertAbsent(readOnly.queryByRole("radio"));
+});
+
+test("官网设置 · 谷歌地图浏览器密钥（M10-01 第 2 处）：超级管理员粘贴保存（格式不对先拦、号码原样带回、带版本号）、清除；只显示开头几位；运营只读", async () => {
+  const key = `AIzaSy${"a".repeat(33)}`;
+  const calls = openSettings("super_admin", settingsOf({ support_whatsapp: "810000000000", version: 3 }), (call) => json(200, settingsOf({ support_whatsapp: "810000000000", maps_browser_key: (call.body as { maps_browser_key: string | null }).maps_browser_key, version: 4 })));
+  const actor = user();
+  const card = within(await screen.findByRole("region", { name: "谷歌地图（浏览器密钥）" }));
+  assert.ok(card.getByText("还没有填（官网选点用开源地图）"));
+  await actor.type(card.getByRole("textbox", { name: "浏览器密钥" }), "AIza-too-short");
+  await actor.click(card.getByRole("button", { name: "保存" }));
+  assert.ok(await card.findByText(/AIza 开头、共 39 位/));
+  assert.equal(calls.filter((call) => call.method === "PUT").length, 0, "格式不对不发请求");
+  await actor.clear(card.getByRole("textbox", { name: "浏览器密钥" }));
+  await actor.type(card.getByRole("textbox", { name: "浏览器密钥" }), ` ${key} `);
+  await actor.click(card.getByRole("button", { name: "保存" }));
+  await waitFor(() => assert.ok(calls.some((call) => call.method === "PUT")));
+  const put = calls.find((call) => call.method === "PUT");
+  assert.deepEqual(put?.body, { support_whatsapp: "810000000000", maps_browser_key: key });
+  assert.equal(put?.headers["if-match"], '"3"');
+  assert.ok(await screen.findByText(/选点地图改用谷歌地图/));
+  const saved = within(await screen.findByRole("region", { name: "谷歌地图（浏览器密钥）" }));
+  assert.ok(await saved.findByText("AIzaSyaa…（共 39 位）"));
+  assert.equal(screen.queryByText(key), null, "整串不摆出来");
+  await actor.click(saved.getByRole("button", { name: "清除密钥" }));
+  await waitFor(() => assert.equal(calls.filter((call) => call.method === "PUT").length, 2));
+  assert.deepEqual(calls.filter((call) => call.method === "PUT")[1]?.body, { support_whatsapp: "810000000000", maps_browser_key: null });
+  resetBrowser();
+
+  openSettings("operations", settingsOf({ maps_browser_key: key, version: 1 }));
+  const readOnly = within(await screen.findByRole("region", { name: "谷歌地图（浏览器密钥）" }));
+  assert.ok(readOnly.getByText("AIzaSyaa…（共 39 位）"));
+  assert.ok(readOnly.getByText("只有超级管理员能改这把密钥。"));
+  assertAbsent(readOnly.queryByRole("textbox"));
 });

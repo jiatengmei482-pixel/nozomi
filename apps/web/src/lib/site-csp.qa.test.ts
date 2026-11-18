@@ -4,7 +4,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { contentSecurityPolicy, isSitePagePath, renderEdgeConfig } from "../../build/edge-config.ts";
+import { MAPS_PICKER_PATH, contentSecurityPolicy, isMapsPickerPath, isSitePagePath, renderEdgeConfig } from "../../build/edge-config.ts";
 
 const HASH = `sha256-${"A".repeat(43)}=`;
 
@@ -38,18 +38,34 @@ test("路径大小写和前端路由、Caddy 一致：/Book/order 前端照样�
   for (const path of ["/Book", "/BOOK/order", "/Book/order"]) assert.equal(isSitePagePath(path), true, path);
 });
 
-test("Caddy 片段：恰好两条策略；放行 Stripe 的那条只挂在官网匹配器上；两条都没有 unsafe-*、data:、blob:、裸通配符和 http 来源；Stripe 之外不多放一个站外来源", () => {
+test("Caddy 片段：恰好四条策略（M9E-16 嵌入预订页、M10-01 地图小页面各一条）；放行 Stripe 的只有官网和嵌入预订页；这三条都没有 unsafe-*、data:、blob:、裸通配符和 http 来源；Stripe 之外不多放一个站外来源", () => {
   const html = '<!doctype html><html><head><script>1</script></head></html>';
   const lines = renderEdgeConfig(html).split("\n");
   const policies = lines.filter((line) => line.includes("Content-Security-Policy"));
-  assert.equal(policies.length, 2);
+  assert.equal(policies.length, 4);
+  assert.equal(policies.filter((line) => line.startsWith("header @maps_picker_pages ")).length, 1);
   const site = policies.find((line) => line.startsWith("header @site_pages ")) ?? "";
   const other = policies.find((line) => line.startsWith("header @other_pages ")) ?? "";
+  const embed = policies.find((line) => line.startsWith("\t\theader Content-Security-Policy ")) ?? "";
   assert.match(site, /js\.stripe\.com/);
+  assert.match(embed, /js\.stripe\.com/);
   assert.doesNotMatch(other, /stripe/);
-  for (const policy of [site, other, contentSecurityPolicy([HASH], [], { payments: true }), contentSecurityPolicy([HASH])]) {
+  for (const policy of [site, other, embed, contentSecurityPolicy([HASH], [], { payments: true }), contentSecurityPolicy([HASH])]) {
     assert.doesNotMatch(policy, /unsafe-|data:|blob:|http:|\s\*(\s|;|")/, policy);
     const hosts = [...policy.matchAll(/https:\/\/([^\s;"]+)/g)].map((match) => match[1] ?? "");
     for (const host of hosts) assert.ok(host.endsWith("stripe.com"), host);
   }
+});
+
+test("地图小页面（M10-01 第 2 处）：只有 /maps/picker.html（可带查询串）用放宽的策略，大小写、前后缀、编码绕过的都不算；放宽的只有谷歌的来源，只许同源嵌入、不能提交表单；官网页面只多放行同源 iframe", () => {
+  for (const path of [MAPS_PICKER_PATH, `${MAPS_PICKER_PATH}?key=AIza&lat=35.6`]) assert.equal(isMapsPickerPath(path), true, path);
+  for (const path of ["/maps/picker.htm", "/maps/pickerXhtml", "/Maps/picker.html", "/x/maps/picker.html", "/maps/picker.html/x", "/maps/../maps/picker.html", "/maps/picker%2Ehtml", "/book/new", "/maps/picker.html#x"]) assert.equal(isMapsPickerPath(path), false, path);
+  const lines = renderEdgeConfig('<!doctype html><html><head><script>1</script></head></html>').split("\n");
+  const picker = lines.find((line) => line.startsWith("header @maps_picker_pages ")) ?? "";
+  assert.match(picker, /frame-ancestors 'self'/);
+  assert.match(picker, /form-action 'none'/);
+  assert.doesNotMatch(picker, /stripe|http:/);
+  const hosts = [...picker.matchAll(/https:\/\/([^\s;"]+)/g)].map((match) => match[1] ?? "");
+  for (const host of hosts) assert.ok(/(^|\.)(googleapis|gstatic|google|googleusercontent)\.com$/.test(host), host);
+  assert.ok(lines.some((line) => line.startsWith("@other_pages ") && line.includes("/maps/picker")), "普通页面的匹配器排除地图小页面，每个响应恰好一条策略");
 });

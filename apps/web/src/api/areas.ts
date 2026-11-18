@@ -2,7 +2,7 @@
  * 供应商后台：区域、地图底图配置、首页数量、选城市和参考点用的平台主数据（只读）。
  * 类型手写，与 `apps/api/openapi.yaml` 对账（`areas.contract.test.ts`）。
  */
-import type { AreaBizType, AreaPolygonKind, AreaPolygonSource, AreaRole, LocalizedText, MasterDataStatus, PlaceType } from "@nozomi/domain";
+import type { AreaBizType, AreaPolygonKind, AreaPolygonSource, AreaRole, AreaSharing, LocalizedText, MasterDataStatus, PlaceType, ProductStatus, ServiceCategory } from "@nozomi/domain";
 import { apiRequest } from "./client.ts";
 import type { City, MasterPage, Place, Point } from "./master.ts";
 
@@ -50,6 +50,8 @@ export interface AreaSummary {
   /** 用途（M8-20，ADR 0075）：运营区域 / 报价区域 / 运营 + 报价。页面改版前可能没有这一项 */
   role?: AreaRole;
   status: MasterDataStatus;
+  /** 分类（ADR 0102）：shared 平台共享 / own 供应商独立。旧接口没有这一项，按 own */
+  sharing?: AreaSharing;
   operate_polygon_count: number;
   forbid_polygon_count: number;
   usage: AreaUsage;
@@ -94,6 +96,38 @@ export interface Area extends AreaSummary {
   /** 报价区域有多少平方米不在任何运营区域里（不到 100 平方米为 0；运营区域、停用的为 null；M8-20） */
   outside_operating_m2?: number | null;
 }
+
+/** 改了图形之后：用到这个区域的包车商品里，它和同商品别的区域的三层重叠（M9P-13，只提醒、不拦保存） */
+export interface AreaCharterOverlap {
+  product_id: string;
+  product_code: string;
+  product_title: LocalizedText;
+  code: "AREA_LAYER_OVERLAP" | "AREA_BASE_SURCHARGE_OVERLAP";
+  layer: "base" | "itinerary" | "pickup_dropoff" | "base_pickup_dropoff";
+  other_area_id: string;
+  other_area_name: LocalizedText;
+  overlap_km2: number;
+}
+
+/** 修改之后的区域：图形变了时另带 `charter_layer_overlaps` */
+export interface AreaSaved extends Area {
+  charter_layer_overlaps?: AreaCharterOverlap[];
+}
+
+/** 一个商品的三层区域（M9P-13）：①基础价（服务区域）、②行程、③上下车加价的区域编号 */
+export interface ProductAreaLayers {
+  product_id: string;
+  code: string;
+  title: LocalizedText;
+  category: ServiceCategory;
+  status: ProductStatus;
+  charter_layout: "three_layer" | null;
+  base: string[];
+  itinerary: string[];
+  pickup_dropoff: string[];
+}
+
+export const AREA_LAYERS_PATH = `${TENANT_BASE}/area-layers`;
 
 /** 提交的一块图形：多边形给 geometry，圆给 circle；已有的带 id，新加的不带。 */
 export interface AreaPolygonInput {
@@ -185,8 +219,13 @@ export function createArea(token: string, body: AreaCreate, idempotencyKey: stri
 }
 
 /** 修改：整体替换，`version` 放在 If-Match 里。 */
-export function updateArea(token: string, id: string, version: number, body: AreaUpdate): Promise<Area> {
+export function updateArea(token: string, id: string, version: number, body: AreaUpdate): Promise<AreaSaved> {
   return apiRequest("PUT", one(id), { token, body, headers: { "if-match": `"${version}"` } });
+}
+
+/** 本供应商每个商品用到的区域，按三层分（M9P-13） */
+export function fetchAreaLayers(token: string): Promise<{ items: ProductAreaLayers[] }> {
+  return apiRequest("GET", AREA_LAYERS_PATH, { token });
 }
 
 export function deleteArea(token: string, id: string): Promise<void> {
@@ -255,7 +294,7 @@ export function listTenantPlaces(token: string, cityId: string, type: PlaceType)
 }
 
 /** 对账用：每个类型的字段名清单。 */
-const SUMMARY = ["id", "name", "city_id", "city", "biz_type", "role", "status", "operate_polygon_count", "forbid_polygon_count", "usage", "version", "shape_version", "shared_source", "created_at", "updated_at"] as const;
+const SUMMARY = ["id", "name", "city_id", "city", "biz_type", "role", "status", "sharing", "operate_polygon_count", "forbid_polygon_count", "usage", "version", "shape_version", "shared_source", "created_at", "updated_at"] as const;
 const SHARED = ["id", "city_id", "name", "shape_version", "operate_polygon_count", "forbid_polygon_count", "updated_at"] as const;
 export const AREA_SCHEMA_FIELDS = {
   AreaSummary: SUMMARY,
@@ -268,6 +307,8 @@ export const AREA_SCHEMA_FIELDS = {
   SharedArea: SHARED,
   SharedAreaDetail: [...SHARED, "polygons"],
   SimilarSharedArea: [...SHARED, "reasons"],
+  AreaCharterOverlap: ["product_id", "product_code", "product_title", "code", "layer", "other_area_id", "other_area_name", "overlap_km2"],
+  ProductAreaLayers: ["product_id", "code", "title", "category", "status", "charter_layout", "base", "itinerary", "pickup_dropoff"],
 } as const satisfies {
   AreaSummary: readonly (keyof AreaSummary)[];
   Area: readonly (keyof Area)[];
@@ -279,6 +320,8 @@ export const AREA_SCHEMA_FIELDS = {
   SharedArea: readonly (keyof SharedArea)[];
   SharedAreaDetail: readonly (keyof SharedAreaDetail)[];
   SimilarSharedArea: readonly (keyof SimilarSharedArea)[];
+  AreaCharterOverlap: readonly (keyof AreaCharterOverlap)[];
+  ProductAreaLayers: readonly (keyof ProductAreaLayers)[];
 };
 
 export const AREA_WRITE_FIELDS = {

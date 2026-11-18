@@ -3,7 +3,7 @@
  * - 含所有费用：全部写（M8-09 起包车也是一口价全含，`FIXED_PRICE_RULES.charterAllInclusive`；ADR 0070）；
  * - 专车不拼车：全部写；
  * - 举牌接机：只有中标商品的「包含」清单里有才写（调用方传进来）；
- * - 免费等待 N 分钟：N 取报价里的值，0 或不限时不写；接机写「航班落地后」。
+ * - 免费等待 N 分钟：N 取报价里的值，0 或不限时不写；接机写「航班落地后」；接机还不知道航班类型时写国际线、国内线各最长多久（M9E-28）。
  * 平台没有自动跟踪航班（B14 决定不做），这里没有、也不能加「跟踪航班」。
  */
 
@@ -38,13 +38,14 @@ export const CHARTER_OVERAGE_TEXTS: Readonly<Record<FixedPriceLanguage, string>>
 };
 
 /**
- * 包车按行程计价（ADR 0089，M9W-05）时超出部分的说法：超公里、超时已按预计行程算进价格，只有当天超出预计的部分服务后加收。
+ * 包车按行程计价（ADR 0089，M9W-05）时超出部分的说法：超公里已按预计行程算进价格；用时超出套餐、或当天超出预计的部分服务后加收。
+ * M9P-04 改：M9P-03（ADR 0091 第三节）起报价不再含超时费，原来「超时已算进价格」的说法不对了。
  * 只用在按行程计价的报价和订单上；不按行程计价的包车照旧用 `CHARTER_OVERAGE_TEXTS`。
  */
 export const CHARTER_ITINERARY_OVERAGE_TEXTS: Readonly<Record<FixedPriceLanguage, string>> = {
-  zh: "超公里、超时已按预计行程算进价格，只有当天超出预计的部分服务后按实际收取",
-  ja: "距離・時間の超過分は予定の行程で料金に含まれています。当日予定を超えた分のみサービス後に実費でご請求します",
-  en: "Extra distance and time for the planned itinerary are already included; only usage beyond the plan on the day is charged after the service",
+  zh: "超公里已按预计行程算进价格；用时超出套餐、或当天超出预计的部分，服务后按实际收取",
+  ja: "距離の超過分は予定の行程で料金に含まれています。パッケージ時間を超えた分と、当日予定を超えた分はサービス後に実費でご請求します",
+  en: "Extra distance for the planned itinerary is already included; time beyond the package and usage beyond the plan on the day are charged after the service",
 };
 
 /** 供应商侧：包车报价须包含高速费、停车费（供应商后台价格规则、服务规则说明，接单邮件）。 */
@@ -57,6 +58,8 @@ export interface FixedPriceIncludesTexts {
   privateCar: string;
   meetAndGreet: string;
   freeWaitAfterLanding: (minutes: number) => string;
+  /** 接机还不知道是国际还是国内航班时（M9E-28，ADR 0097）：两种各等多久 */
+  freeWaitAfterLandingRange: (range: { international: number; domestic: number }) => string;
   freeWait: (minutes: number) => string;
 }
 
@@ -66,6 +69,7 @@ export const FIXED_PRICE_INCLUDES_TEXTS: Readonly<Record<FixedPriceLanguage, Fix
     privateCar: "专车专用，不拼车",
     meetAndGreet: "举牌接机",
     freeWaitAfterLanding: (minutes) => `航班落地后免费等待 ${minutes} 分钟`,
+    freeWaitAfterLandingRange: (range) => `航班落地后免费等待：国际线最长 ${range.international} 分钟、国内线最长 ${range.domestic} 分钟`,
     freeWait: (minutes) => `免费等待 ${minutes} 分钟`,
   },
   ja: {
@@ -73,6 +77,7 @@ export const FIXED_PRICE_INCLUDES_TEXTS: Readonly<Record<FixedPriceLanguage, Fix
     privateCar: "専用車（相乗りなし）",
     meetAndGreet: "ネームボードでお出迎え",
     freeWaitAfterLanding: (minutes) => `着陸後 ${minutes} 分間の無料待機`,
+    freeWaitAfterLandingRange: (range) => `着陸後の無料待機：国際線は最大 ${range.international} 分、国内線は最大 ${range.domestic} 分`,
     freeWait: (minutes) => `${minutes} 分間の無料待機`,
   },
   en: {
@@ -80,6 +85,7 @@ export const FIXED_PRICE_INCLUDES_TEXTS: Readonly<Record<FixedPriceLanguage, Fix
     privateCar: "Private car, no sharing",
     meetAndGreet: "Meet & greet with a name sign",
     freeWaitAfterLanding: (minutes) => `${minutes} minutes of free waiting after landing`,
+    freeWaitAfterLandingRange: (range) => `Free waiting after landing: up to ${range.international} minutes for international flights, up to ${range.domestic} minutes for domestic flights`,
     freeWait: (minutes) => `${minutes} minutes of free waiting`,
   },
 };
@@ -91,6 +97,11 @@ export interface FixedPriceIncludesInput {
   arrival: boolean;
   /** 报价里的免费等待分钟数；null 是不限时 */
   freeWaitMinutes: number | null;
+  /**
+   * 接机还不知道航班类型时（M9E-28，ADR 0097）：国际线、国内线各等多久（`arrivalFreeWaitRange`），写成「国际线最长 X 分钟、国内线最长 Y 分钟」，
+   * 优先于 `freeWaitMinutes`；知道了航班类型、不是接机、不限时的不给
+   */
+  freeWaitRange?: { international: number; domestic: number } | null;
   /** 中标商品的「包含」清单里有举牌接机 */
   meetAndGreet: boolean;
   /** 默认取 `FIXED_PRICE_RULES.charterAllInclusive` */
@@ -135,7 +146,8 @@ export function fixedPriceIncludes(input: FixedPriceIncludesInput, language: Fix
   items.push({ key: "private_car", text: texts.privateCar });
   if (input.meetAndGreet) items.push({ key: "meet_and_greet", text: texts.meetAndGreet });
   const minutes = input.freeWaitMinutes;
-  if (minutes !== null && minutes > 0) items.push({ key: "free_wait", text: input.arrival ? texts.freeWaitAfterLanding(minutes) : texts.freeWait(minutes) });
+  if (input.arrival && input.freeWaitRange) items.push({ key: "free_wait", text: texts.freeWaitAfterLandingRange(input.freeWaitRange) });
+  else if (minutes !== null && minutes > 0) items.push({ key: "free_wait", text: input.arrival ? texts.freeWaitAfterLanding(minutes) : texts.freeWait(minutes) });
   return items;
 }
 
@@ -146,7 +158,7 @@ export function fixedPriceIncludes(input: FixedPriceIncludesInput, language: Fix
 export function fixedPriceFeeNote(service: "transfer" | "charter", language: FixedPriceLanguage = "zh", options: { itinerary?: boolean } = {}): string {
   const texts = FIXED_PRICE_INCLUDES_TEXTS[language];
   if (service === "transfer") return texts.allInclusive;
-  // 按行程计价的包车（M9W-05）：超公里、超时已算进价格
+  // 按行程计价的包车（M9W-05）：超公里已算进价格，用时超出套餐或当天超出预计的部分另收（M9P-04 改）
   const overage = options.itinerary === true ? CHARTER_ITINERARY_OVERAGE_TEXTS[language] : CHARTER_OVERAGE_TEXTS[language];
   return `${texts.allInclusive}${language === "en" ? "; " : "；"}${overage}`;
 }

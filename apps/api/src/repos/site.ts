@@ -77,17 +77,19 @@ export interface BookableCharterPackage extends BookableRow {
 
 /**
  * 这个城市里上架的包车商品有哪些套餐时长：启用的、到 `today`（城市当地日期）还没过期的价格规则里出现的（每个时长 × 供应商一行）。
+ * 给了 `productIds` 时只看这几个商品（包车按上下车点匹配到的，M9P-02）。
  * 只用来给客人列可选的时长；某个时长那一天到底报不报得出价，询价时由报价引擎判断。
  */
-export async function listBookableCharterPackages(db: Db, cityId: string, today: string, listing: SiteListing = "published"): Promise<BookableCharterPackage[]> {
+export async function listBookableCharterPackages(db: Db, cityId: string, today: string, listing: SiteListing = "published", productIds: readonly string[] | null = null): Promise<BookableCharterPackage[]> {
   const rows = await db.query<{ hours: number; tenant_id: string; tenant_status: TenantStatus }>(
     `select distinct r.package_hours as hours, p.tenant_id, t.status as tenant_status
        from price_rules r
        join products p on p.tenant_id = r.tenant_id and p.id = r.product_id and p.status = $3 and p.category = 'charter' and p.city_id = $1
        join tenants t on t.id = p.tenant_id and ($3 = 'published' or t.is_test_tenant)
       where r.status = 'enabled' and r.pricing_model = 'charter_package' and (r.valid_to is null or r.valid_to >= $2::date)
+        and ($4::uuid[] is null or p.id = any($4::uuid[]))
       order by r.package_hours`,
-    [cityId, today, listing],
+    [cityId, today, listing, productIds],
   );
   return rows.rows.map((row) => ({ hours: row.hours, tenantId: row.tenant_id, tenantStatus: row.tenant_status }));
 }

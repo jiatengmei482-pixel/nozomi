@@ -26,9 +26,11 @@
 #      数据卷和镜像，在多次部署、清理旧镜像、回退之后原样还在
 #   9. 建管理员 → 经反向代理登录并用令牌取自己的资料 → 备份 → 删掉数据 → 恢复 → 数据回来，登录照常可用，
 #      应用账号仍是最小权限
+#  10. 嵌入预订页（M9E-16，ADR 0095）：无头 Chrome 打开另一个 origin 的宿主页嵌 /embed/book——白名单里、打开了「允许整页嵌入」的能嵌，
+#      白名单外、开关没开、冒充白名单宿主的嵌不进（Caddy 的 forward_auth + frame-ancestors 在真实镜像上生效）
 #
 # 用法：deploy/ci/smoke.sh [standalone|behind-proxy]
-#   需要 Docker（带 BuildKit）、curl、perl、openssl；占用本机 127.0.0.1 的 18080、18443（standalone）或 18080、18088（behind-proxy）端口
+#   需要 Docker（带 BuildKit）、curl、perl、openssl、python3、Chrome（google-chrome，或 Playwright 下载的 Chromium）；占用本机 127.0.0.1 的 18080、18443（standalone）或 18080、18088（behind-proxy）端口，第 10 步另占 18091、18092（宿主页）
 # 这里出现的所有「密码」都是明显的占位值，数据库是本次运行临时起的容器，结束即删除。
 set -euo pipefail
 
@@ -96,6 +98,8 @@ cleanup() {
       "$root_dir/current/bin/compose.sh" logs --tail 40 || true
     fi
   fi
+  # 第 10 步起的两个宿主页静态服务（没走到那一步时为空）
+  [[ -n "${host_server:-}" ]] && kill "$host_server" "${other_server:-}" >/dev/null 2>&1
   docker compose --project-name nozomi-ci down --volumes --remove-orphans >/dev/null 2>&1 || true
   docker rm --force --volumes "$outer_proxy" "$neighbor" >/dev/null 2>&1 || true
   docker volume rm "$neighbor-data" >/dev/null 2>&1 || true
@@ -265,7 +269,7 @@ check_frontend() {
   if grep -Eq "unsafe-inline|unsafe-eval|https?:|\*" <<<"${policy//$expected_tile_origin/}"; then fail "$label：内容安全策略不应放行内联、eval 或底图之外的任何站外来源：$policy"; fi
   # 官网页面（/book…）多放行 Stripe.js 必需的来源（ADR 0046）；上面查的根路径（后台、登录用的那一条）一个 Stripe 来源都没有。
   site_policy="$(request --max-time 10 --head "$base_url/book/order" | tr -d '\r' | sed -n 's/^[Cc]ontent-[Ss]ecurity-[Pp]olicy: //p')"
-  for directive in "script-src 'self' 'sha256-$script_hash' https://js.stripe.com https://*.js.stripe.com;" "connect-src 'self' https://api.stripe.com;" "frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com;" "frame-ancestors 'none'"; do
+  for directive in "script-src 'self' 'sha256-$script_hash' https://js.stripe.com https://*.js.stripe.com;" "connect-src 'self' https://api.stripe.com;" "frame-src 'self' https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com;" "frame-ancestors 'none'"; do
     grep -qF "$directive" <<<"$site_policy" || fail "$label：官网页面的内容安全策略缺少 $directive，实际策略：$site_policy"
   done
 
@@ -278,11 +282,31 @@ check_frontend() {
 
   # 接口前缀仍然到 API：前缀本身、带查询串、带下级路径。API 对不存在的路径返回统一格式的 JSON 错误。
   [[ "$(status_of "/health?probe=1")" == "200" ]] || fail "$label：/health 带查询串应仍由 API 返回 200"
-  for path in /platform/v1 "/platform/v1?probe=1" /tenant/v1 "/tenant/v1?probe=1" /sales/v1 "/sales/v1?probe=1" /driver/v1 "/driver/v1?probe=1" /site/v1 "/site/v1?probe=1" /webhooks "/webhooks?probe=1" /health/nothing /sales/v1/nothing/here; do
+  for path in /platform/v1 "/platform/v1?probe=1" /tenant/v1 "/tenant/v1?probe=1" /sales/v1 "/sales/v1?probe=1" /driver/v1 "/driver/v1?probe=1" /site/v1 "/site/v1?probe=1" /embed/v1 "/embed/v1?probe=1" /webhooks "/webhooks?probe=1" /health/nothing /sales/v1/nothing/here; do
     body="$(request --max-time 10 "$base_url$path")"
     [[ "$body" == '{"error":{"code":'* ]] || fail "$label：$path 应由 API 回答（统一格式的 JSON 错误），实际是：${body:0:120}"
     [[ "$(status_of "$path")" == "404" ]] || fail "$label：$path 在 API 里不存在，应返回 404"
   done
+
+  # 嵌入组件脚本（ADR 0090）：200、UTF-8 的 JavaScript 类型（M9E-07）、跨站可读
+  widget_headers="$(headers_of "/embed/widget-v1.js")"
+  grep -q '^http/[0-9.]* 200' <<<"$widget_headers" || fail "$label：/embed/widget-v1.js 应返回 200"
+  grep -q '^content-type: text/javascript; charset=utf-8$' <<<"$widget_headers" || fail "$label：/embed/widget-v1.js 应是 JavaScript 且声明 charset=utf-8"
+  grep -q '^cross-origin-resource-policy: cross-origin$' <<<"$widget_headers" || fail "$label：/embed/widget-v1.js 应允许跨站加载"
+
+  # 跨域只开在 /embed/v1（ADR 0090）：不存在的嵌入码带 Origin 是 403 且没有 CORS 头；/site/v1 带 Origin 也没有 CORS 头。
+  embed_headers="$(request --max-time 10 --dump-header - --output /dev/null --header 'origin: https://smoke.invalid' "$base_url/embed/v1/config?key=nze_smoke" | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
+  grep -q '^http/[0-9.]* 403' <<<"$embed_headers" || fail "$label：/embed/v1/config 对不存在的嵌入码应返回 403"
+  ! grep -q '^access-control-' <<<"$embed_headers" || fail "$label：/embed/v1 拒绝时不应带 CORS 头"
+  site_headers="$(request --max-time 10 --dump-header - --output /dev/null --header 'origin: https://smoke.invalid' "$base_url/site/v1/config" | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
+  ! grep -q '^access-control-' <<<"$site_headers" || fail "$label：/site/v1 永远不应带 CORS 头"
+
+  # 嵌入预订页（M9E-16，ADR 0095）：Caddy 先问 API 的 frame-check；不带嵌入码时被拒——403、frame-ancestors 'none'、不返回页面、不缓存
+  embed_book_headers="$(request --max-time 10 --dump-header - --output /dev/null "$base_url/embed/book" | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
+  grep -q '^http/[0-9.]* 403' <<<"$embed_book_headers" || fail "$label：/embed/book 不带嵌入码应返回 403"
+  grep -q "^content-security-policy: .*frame-ancestors 'none'" <<<"$embed_book_headers" || fail "$label：/embed/book 被拒时应是 frame-ancestors 'none'"
+  grep -q '^x-frame-options: deny' <<<"$embed_book_headers" || fail "$label：/embed/book 被拒时应带 X-Frame-Options: DENY"
+  if grep -qF '<div id="root">' <<<"$(request --max-time 10 "$base_url/embed/book")"; then fail "$label：/embed/book 被拒时不应返回 index.html"; fi
 
   # /assets/：真实存在的文件长缓存；不存在的是 404，而不是 index.html。
   asset="$(grep -o '/assets/[A-Za-z0-9._-]*\.js' <<<"$index" | head -n 1)"
@@ -379,6 +403,86 @@ request.end(body);
 JS
 
 current_release() { basename "$(readlink "$root_dir/current")"; }
+
+# 无头 Chrome：CI 的 runner 自带 google-chrome；开发机上退回 Playwright 下载的 Chromium。找不到就失败（不跳过）。
+headless_chrome() {
+  local candidate
+  for candidate in google-chrome google-chrome-stable chromium chromium-browser; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+      command -v "$candidate"
+      return 0
+    fi
+  done
+  for candidate in "$HOME"/.cache/ms-playwright/chromium_headless_shell-*/chrome-*/chrome-headless-shell "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome; do
+    if [[ -x "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# 宿主页（别的 origin）里嵌 /embed/book，等嵌入页发来 ready（ADR 0095 第六节）：收到就向宿主自己的静态服务请求 /beacon/<名字>-ready，
+# 冒烟从静态服务的访问日志里找这一行（不靠 --dump-dom：有的 Chrome 版本带它时不退出）。
+# 用法：embed_host_page <目录> <名字> <嵌入码> <宿主 origin>，生成 <目录>/<名字>.html
+embed_host_page() {
+  local site_origin="${base_url%/}"
+  cat >"$1/$2.html" <<HTML
+<!doctype html>
+<html><head><meta charset="utf-8"><title>smoke host</title></head>
+<body>
+<iframe title="NOZOMI" src="$site_origin/embed/book?key=$3&amp;host=$(printf '%s' "$4" | sed 's/:/%3A/g; s#/#%2F#g')&amp;lang=ja#ch=smoke"></iframe>
+<script>
+addEventListener("message", function (event) {
+  var data = event.data;
+  if (event.origin === "$site_origin" && data && data.ns === "nozomi-booking" && data.type === "ready" && data.ch === "smoke") new Image().src = "/beacon/$2-ready";
+});
+</script>
+</body></html>
+HTML
+}
+
+# 用无头 Chrome 打开宿主页，开 20 秒后关掉（嵌入页加载、发 ready、宿主发回执都在这段时间里）。
+# 用于「不应收到回执」的检查：要等满整段时间才能说没收到。Chrome 自己的输出记在 $work_dir/chrome.log，失败时打印。
+open_host_page() {
+  local profile
+  profile="$(mktemp -d "$work_dir/chrome-XXXXXX")"
+  printf '\n--- %s %s ---\n' "$(date -u +%H:%M:%S)" "$1" >>"$work_dir/chrome.log"
+  timeout --kill-after=5 20 "$chrome" --headless=new --no-sandbox --disable-gpu --ignore-certificate-errors --no-first-run \
+    --user-data-dir="$profile" "$1" >>"$work_dir/chrome.log" 2>&1 || true
+}
+
+# 「应收到回执」的检查（M8-29）：打开宿主页后一直等到访问日志里出现回执，最多 $3 秒；收到就关掉 Chrome。
+# 以前固定开 20 秒：CI 机器忙的时候，第一次启动 Chrome（新的用户目录、首次运行的初始化）加上嵌入页加载就可能超过 20 秒，回执没来得及发，
+# 同一个提交重跑又能过（#253、#259 的 deploy-smoke 都挂在这里）。断言不变：仍然必须真的收到 ready 回执，只是不再把机器忙当成失败。
+# 用法：open_host_page_until <网址> <访问日志> <回执路径> <最多等几秒>
+open_host_page_until() {
+  local profile chrome_pid waited=0
+  profile="$(mktemp -d "$work_dir/chrome-XXXXXX")"
+  printf '\n--- %s %s（等 %s）---\n' "$(date -u +%H:%M:%S)" "$1" "$3" >>"$work_dir/chrome.log"
+  timeout --kill-after=5 "$4" "$chrome" --headless=new --no-sandbox --disable-gpu --ignore-certificate-errors --no-first-run \
+    --user-data-dir="$profile" "$1" >>"$work_dir/chrome.log" 2>&1 &
+  chrome_pid=$!
+  while ! grep -q "GET $3" "$2"; do
+    if ! kill -0 "$chrome_pid" 2>/dev/null || [[ $waited -ge $4 ]]; then break; fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  kill "$chrome_pid" 2>/dev/null || true
+  wait "$chrome_pid" 2>/dev/null || true
+  printf '等了 %s 秒\n' "$waited" >>"$work_dir/chrome.log"
+  grep -q "GET $3" "$2"
+}
+
+# 第 10 步失败时把宿主静态服务的访问日志和 Chrome 的输出打出来，分得清是「宿主页没打开」「嵌入页没加载」还是「没发 ready」
+embed_diagnostics() {
+  printf '\n--- 宿主 %s 的访问日志 ---\n' "$host_origin" >&2
+  cat "$work_dir/host.log" >&2 2>/dev/null || true
+  printf '\n--- 宿主 %s 的访问日志 ---\n' "$other_origin" >&2
+  cat "$work_dir/other.log" >&2 2>/dev/null || true
+  printf '\n--- 无头 Chrome 的输出（最后 80 行）---\n' >&2
+  tail -n 80 "$work_dir/chrome.log" >&2 2>/dev/null || true
+}
 
 health_status() {
   request --max-time 10 --output /dev/null --write-out '%{http_code}' "$base_url/health$1" || true
@@ -601,5 +705,48 @@ expect_healthy "恢复后"
 [[ "$(db_value "select count(*) from audit_logs where action = 'login' and actor_type = 'platform_user'")" == "2" ]] ||
   fail "恢复后：审计日志里应有恢复前、恢复后各一次登录记录"
 check_db_accounts "恢复后"
+
+step "10. 嵌入预订页（M9E-16，ADR 0095）：无头浏览器里，白名单内、打开了「允许整页嵌入」的宿主能嵌 /embed/book，白名单外、开关没开的嵌不进"
+chrome="$(headless_chrome)" || fail "找不到无头 Chrome（google-chrome / chromium / Playwright 的 Chromium）"
+# 宿主页和主站不同站：主站是 localhost 时宿主用 127.0.0.1，反之亦然
+if [[ "$base_url" == *localhost* ]]; then host_name="127.0.0.1"; else host_name="localhost"; fi
+host_port="${SMOKE_HOST_PORT:-18091}"
+other_port="${SMOKE_OTHER_HOST_PORT:-18092}"
+host_origin="http://$host_name:$host_port"
+other_origin="http://$host_name:$other_port"
+# 嵌入码只在这次临时起的数据库里（测试数据，随容器删除）；运营后台要两步验证，这里直接用迁移账号写，建者记成第 9 步的管理员
+key_on="nze_smokeHostPageOn$(printf '%017d' 0)"
+key_off="nze_smokeHostPageOff$(printf '%016d' 0)"
+db_value "insert into embed_keys (key, name, allowed_origins, default_lang, default_services, allow_host_page, created_at, updated_at, created_by, updated_by)
+  select k.key, k.name, array['$host_origin'], 'ja', array['transfer'], k.allow, now(), now(), u.id, u.id
+  from (values ('$key_on', '冒烟·整页嵌入', true), ('$key_off', '冒烟·没开整页嵌入', false)) as k(key, name, allow)
+  cross join (select id from platform_users where email = '$admin_email') u" >/dev/null
+host_dir="$work_dir/host-pages"
+mkdir -p "$host_dir"
+embed_host_page "$host_dir" on "$key_on" "$host_origin"
+embed_host_page "$host_dir" off "$key_off" "$host_origin"
+embed_host_page "$host_dir" other "$key_on" "$other_origin"
+# 两个 origin 各一个静态服务，访问日志分开记（回执 /beacon/… 从这里找）
+python3 -u -m http.server "$host_port" --bind 127.0.0.1 --directory "$host_dir" >/dev/null 2>"$work_dir/host.log" &
+host_server=$!
+python3 -u -m http.server "$other_port" --bind 127.0.0.1 --directory "$host_dir" >/dev/null 2>"$work_dir/other.log" &
+other_server=$!
+for attempt in $(seq 1 30); do
+  if curl --silent --output /dev/null "http://127.0.0.1:$host_port/" && curl --silent --output /dev/null "http://127.0.0.1:$other_port/"; then break; fi
+  [[ $attempt -lt 30 ]] || fail "宿主页的静态服务没有起来"
+  sleep 1
+done
+open_host_page_until "$host_origin/on.html" "$work_dir/host.log" /beacon/on-ready 60 || { embed_diagnostics; fail "白名单里的宿主 $host_origin 应能嵌入 /embed/book（60 秒内收到嵌入页的 ready）"; }
+open_host_page "$other_origin/other.html"
+if grep -q 'GET /beacon/other-ready' "$work_dir/other.log"; then fail "不在白名单的宿主 $other_origin 不应能嵌入 /embed/book"; fi
+open_host_page "$host_origin/off.html"
+if grep -q 'GET /beacon/off-ready' "$work_dir/host.log"; then fail "没打开「允许整页嵌入」的嵌入码不应能嵌入 /embed/book"; fi
+# 宿主声明的 host 和真实父页面不一致（在别的网站上冒充白名单里的宿主）：frame-check 放行，但浏览器按 frame-ancestors 拦下
+open_host_page "$other_origin/on.html"
+if grep -q 'GET /beacon/on-ready' "$work_dir/other.log"; then fail "冒充白名单宿主的网站不应能嵌入 /embed/book"; fi
+# 前提：几张宿主页都真的打开过（没打开就谈不上「被拦」）
+for page in on off; do grep -q "GET /$page.html" "$work_dir/host.log" || fail "宿主页 $page.html 没有被浏览器打开"; done
+for page in other on; do grep -q "GET /$page.html" "$work_dir/other.log" || fail "宿主页 $page.html（$other_origin）没有被浏览器打开"; done
+kill "$host_server" "$other_server" 2>/dev/null || true
 
 step "冒烟全部通过（入口模式 $mode）"

@@ -8,6 +8,7 @@
  * - 派车、履约时间点、落地（M4-19）；代供应商回传履约（M4-18，`order.proxy_fulfilment`）。
  */
 import { ANONYMIZED_TEXT, VIEW_LINK_VERIFICATIONS, VIEW_LINK_VERIFICATION_NAMES, type ViewLinkVerification } from "@nozomi/domain";
+import { entrySourceText } from "../../lib/embed-display.ts";
 import { TextAreaField } from "../../components/TextAreaField.tsx";
 import { APPROVALS_PAGE_PATH } from "../../lib/channel-display.ts";
 import { RevealedTexts } from "./PassengerReveal.tsx";
@@ -105,7 +106,7 @@ const CANCELLABLE: readonly OrderStatus[] = ["pending_payment", "confirmed", "as
 const CHANGEABLE: readonly OrderStatus[] = ["confirmed", "assigned", "departed", "arrived"];
 
 /** 订单中心的筛选条件（网址参数名 → 说明）；状态、订单号原来就有，其余是 M4-02 加的。 */
-const ORDER_FILTERS = ["status", "service_from", "service_to", "created_from", "created_to", "city", "category", "exception", "passenger"] as const;
+const ORDER_FILTERS = ["status", "service_from", "service_to", "created_from", "created_to", "city", "category", "exception", "passenger", "embed_key"] as const;
 
 function OrderFilters({ cityOptions, citiesState, citiesEmptyText }: { cityOptions: { value: string; label: string; detail?: string; keywords?: string }[]; citiesState: string; citiesEmptyText: string }) {
   const [status, setStatus] = useFilterParam("status");
@@ -151,6 +152,8 @@ export function PlatformOrderListPage() {
   const exception = exceptionParam === "open" || exceptionParam === "none" ? exceptionParam : null;
   const passengerParam = (params.get("passenger") ?? "").trim();
   const passenger = passengerParam.length >= 2 ? passengerParam.slice(0, 100) : null;
+  // 只看某个嵌入码带来的订单（M9E-21）：从「嵌入组件」页的「查看这些订单」进来
+  const embedKey = uuidOrNull(params.get("embed_key"));
   const pageSize = pageSizeOf(params.get("size"));
   const [search, setSearch] = useState(q);
   const query: PlatformOrderQuery = {
@@ -165,6 +168,7 @@ export function PlatformOrderListPage() {
     ...(category === null ? {} : { category }),
     ...(exception === null ? {} : { exception }),
     ...(passenger === null ? {} : { passenger }),
+    ...(embedKey === null ? {} : { embed_key_id: embedKey }),
   };
   const filterKey = JSON.stringify(["platform-orders", query]);
   const pages = useCursorPages(filterKey);
@@ -233,6 +237,14 @@ export function PlatformOrderListPage() {
         onClear={clear}
       >
         <OrderFilters cityOptions={cityOptions} citiesState={cities.state.status} citiesEmptyText={cities.emptyText} />
+        {embedKey !== null && (
+          <p className="field__hint" data-embed-key-filter>
+            只看一个嵌入码带来的订单（从「嵌入组件」页进来）。{" "}
+            <Button size="sm" variant="text" onClick={() => setParam({ embed_key: null })}>
+              不限来源
+            </Button>
+          </p>
+        )}
       </FilterBar>
       <div className="card-table">
         <DataTable
@@ -656,6 +668,7 @@ export function PlatformOrderDetailPage() {
           {order.notes && <Detail label="备注">{order.notes}</Detail>}
           <Detail label="供应商">{order.tenant.name}</Detail>
           <Detail label="渠道">{`${order.channel.name}${order.channel_order_no ? `（${order.channel_order_no}）` : ""}`}</Detail>
+          {detail.entry_source !== undefined && <Detail label="来源">{entrySourceText(detail.entry_source)}</Detail>}
           <Detail label="对外价 / 结算价"><span className="price">{`${moneyText(order.sell)} / ${moneyText(order.settlement.total)}（加价 ${order.markup_bp / 100}%）`}</span></Detail>
           <Detail label="取消政策">{order.cancel_policy === null ? "按现在的平台政策" : `第 ${order.cancel_policy.version} 版 · ${levelName(order.cancel_policy.level)}：${tiersText(order.cancel_policy.tiers)}`}</Detail>
         </dl>

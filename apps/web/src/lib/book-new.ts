@@ -3,8 +3,8 @@
  * 链接参数、报不出价的说法、车型列表默认显示几个、乘客 / 行李栏的写法、车内俯视示意图的排布。
  * 价格、报价、下单逻辑都不在这里：报价走 `POST /site/v1/quotes/by-points`（包车走 `POST /site/v1/quotes`），只负责显示。
  */
-import { type CurrencyCode, formatMajor, isCurrencyCode, minorDigits, parseMajor, rateToFraction, roundFractionHalfAwayFromZero, routeKmText } from "@nozomi/domain";
-import { SITE_ROUTE_MAP_LIMITS, type SitePlaceKind, type SiteUnavailableReason } from "../api/site.ts";
+import { type CityCandidate, type CurrencyCode, type FlightKind, type FreeWait, type LatLng, arrivalFreeWaitRange, formatMajor, lockArrivalFreeWait, isCurrencyCode, minorDigits, parseMajor, rateToFraction, roundFractionHalfAwayFromZero, routeKmText, serviceCityOf } from "@nozomi/domain";
+import { SITE_ROUTE_MAP_LIMITS, type SiteCity, type SitePlaceKind, type SiteUnavailableReason } from "../api/site.ts";
 import { UNAVAILABLE_REASON_TEXT } from "./site-display.ts";
 
 export const SITE_NEW_BOOKING_PATH = "/book/new";
@@ -39,6 +39,8 @@ export interface BookingLink {
    * 都落到「区间」（M8-33）。参数名 `type` 同样认（旧链接）；`mode` 优先。别的值、没给为 null（默认区间）
    */
   mode: BookTab | null;
+  /** 嵌入组件建的预订草稿编号（`?draft=`，M9E-01，ADR 0090）：43 个 base64url 字符；带了它时其余参数一律不看 */
+  draft: string | null;
 }
 
 const CODE = /^[A-Za-z0-9][A-Za-z0-9_-]{1,39}$/;
@@ -85,6 +87,8 @@ function count(value: string | null, limits: { min: number; max: number }): numb
 /** 读链接参数：每一项单独判断，不合法的那一项为 null（页面不预填，不报错）。 */
 export function parseBookingLink(search: string): BookingLink {
   const params = new URLSearchParams(search);
+  const draft = params.get("draft");
+  if (draft !== null && /^[A-Za-z0-9_-]{43}$/.test(draft)) return { from: null, to: null, date: null, time: null, passengers: null, luggage: null, mode: null, draft };
   return {
     from: linkEnd(params.get("from"), params.get("from_name")),
     to: linkEnd(params.get("to"), params.get("to_name")),
@@ -93,6 +97,7 @@ export function parseBookingLink(search: string): BookingLink {
     passengers: count(params.get("pax"), TRAVELLER_LIMITS.passengers),
     luggage: count(params.get("bags"), TRAVELLER_LIMITS.luggage),
     mode: bookTabOf(params.get("mode")) ?? bookTabOf(params.get("type")),
+    draft: null,
   };
 }
 
@@ -110,6 +115,36 @@ export const BOOK_TAB_I18N: Readonly<Record<BookTab, { zh: string; ja: string; e
   transfer: { zh: "区间", ja: "区間", en: "Transfer" },
   charter: { zh: "包车", ja: "貸切", en: "Charter" },
 };
+
+/** 这个城市能订这个标签的服务：区间看接送机或点对点，包车看包车（和第 1 步顶部标签的判断一样）。 */
+export function cityOffersTab(city: Pick<SiteCity, "categories">, tab: BookTab): boolean {
+  return tab === "charter" ? city.categories.includes("charter") : city.categories.includes("airport_transfer") || city.categories.includes("point_to_point");
+}
+
+/**
+ * 还没有任何地点可参照时，「在地图上选点」默认打开的城市（M8-43）。规则：
+ * 能订当前标签（区间 / 包车）的城市里，官网能订的品类最多（服务最全）的那个；一样多时按城市列表的顺序（接口按城市编码排）取第一个。
+ * 一个能订当前标签的都没有时退回列表第一项；列表空为 null。不写死任何城市、国家。
+ * 以前直接取列表第一项：列表按编码排，第一项常是只开了接送机的城市（测试站是北京），点「选地图中间这个位置」会填进那个城市的地址。
+ */
+export function defaultMapCity<T extends Pick<SiteCity, "categories">>(cities: readonly T[], tab: BookTab): T | null {
+  let best: T | null = null;
+  for (const city of cities) {
+    if (!cityOffersTab(city, tab)) continue;
+    if (best === null || city.categories.length > best.categories.length) best = city;
+  }
+  return best ?? cities[0] ?? null;
+}
+
+/**
+ * 默认日期（「当地的明天」）按哪个城市的时区算（M8-44）：上车点（出发地 / 包车的上车地点）落在某个城市的范围里就用它；
+ * 还没选上车点、或上车点哪个城市都不在时，用地图默认打开的城市（`defaultMapCity`，列表空为 null）。
+ * 以前按列表第一项算：第一项是北京、客人在东京下单时，东京 00:00–01:00 之间「北京的明天」就是「东京的今天」。
+ */
+export function defaultDateCity<T extends Pick<SiteCity, "categories"> & CityCandidate>(cities: readonly T[], tab: BookTab, pickup: LatLng | null): T | null {
+  const found = pickup === null ? null : serviceCityOf(pickup, cities);
+  return found ?? defaultMapCity(cities, tab);
+}
 
 /** 链接里的 `mode`：包车 → charter；区间和 M8-27 的旧值（接送机 airport、点对点 p2p）→ transfer；别的值、没给为 null。 */
 export function bookTabOf(value: string | null): BookTab | null {
@@ -138,13 +173,27 @@ export function searchWithStep(search: string, step: BookStep): string {
 }
 
 /**
- * 接机提示里的免费等待分钟数（M8-33）：有报价时按所选商品自己设的（报价里的 `free_wait_minutes`，无限等待为 null）；
- * 还没有报价时按平台默认：国际线机场 90 分钟，国内线、都有或没标明 60 分钟（和供应商后台的最少值同一规则）。
+ * 接机的免费等待怎么给客人看（M9E-28，ADR 0097；2026-11-16 业主改为平台统一，M9E-31）：国际航班一律 90、国内航班一律 60，不看商品设的。
+ * - 客人选了国际 / 国内航班：那一种的分钟数；
+ * - 还没选（还没填到航班号那一步、或判断不出）：写「国际线最长 90 分钟、国内线最长 60 分钟」。
+ * `quoted`（报价里商品自己设的 `free_wait_minutes`）只留作记录，不影响结果；类型里的 `unlimited` 已不会出现，留给调用方的兜底。
  */
-export function arrivalFreeWaitMinutes(quoted: { free_wait_minutes: number | null } | null, flightScope: "international" | "domestic" | "mixed" | null): number | null {
-  if (quoted !== null) return quoted.free_wait_minutes;
-  return flightScope === "international" ? 90 : 60;
+export type ArrivalFreeWait = { kind: "minutes"; minutes: number } | { kind: "range"; international: number; domestic: number } | { kind: "unlimited" };
+
+export function arrivalFreeWait(quoted: { free_wait_minutes: number | null } | null, flightKind: FlightKind | null): ArrivalFreeWait {
+  const product: FreeWait | null = quoted === null ? null : quoted.free_wait_minutes === null ? { mode: "unlimited" } : { mode: "limited", minutes: quoted.free_wait_minutes };
+  if (flightKind !== null) return { kind: "minutes", minutes: lockArrivalFreeWait(product, flightKind).minutes as number };
+  return { kind: "range", ...arrivalFreeWaitRange() };
 }
+
+/** 接机提示（第 1 步）那一句。 */
+export function arrivalHintText(wait: ArrivalFreeWait): string {
+  if (wait.kind === "minutes") return `已识别为接机：司机按航班落地时间等候，落地后免费等待 ${wait.minutes} 分钟`;
+  if (wait.kind === "range") return `已识别为接机：司机按航班落地时间等候，落地后免费等待：国际线最长 ${wait.international} 分钟、国内线最长 ${wait.domestic} 分钟`;
+  return "已识别为接机：司机按航班落地时间等候，不限时免费等待";
+}
+
+export const FLIGHT_KIND_NAMES: Readonly<Record<FlightKind, string>> = { international: "国际航班", domestic: "国内航班" };
 
 /** 举牌姓名、乘车人姓名和电话的长度上限（M8-27 定，M8-32 起作为订单的正式字段单独提交，ADR 0082）。 */
 export const SIGN_NAME_MAX = 60;
@@ -153,7 +202,7 @@ export const RIDER_PHONE_MAX = 40;
 
 /**
  * 给司机的备注（M8-33、M8-32）：举牌姓名、乘车人已经是订单的正式字段，不再写进备注；
- * 只有改用点对点商品报价的接机 / 送机（点对点订单没有航班号栏）把航班号写在备注最前面。
+ * 只有改用点对点商品报价的送机把航班号写在备注最前面；改用点对点商品报价的接机，航班号和航班类型从 M9E-28 起作为正式字段提交（按航班定免费等待，ADR 0097 Q5）。
  */
 export function notesWithExtras(extras: { flightNo?: string }, notes: string): string {
   const flight = (extras.flightNo ?? "").trim().toUpperCase();

@@ -3,10 +3,10 @@
  * DOM 顺序固定：基本信息 → 绘制工具条 → 地图 → 图形列表与坐标表 → 自测 → 操作区；没有地图也能完成全部操作。
  */
 import { AREA_BIZ_TYPES, AREA_BIZ_TYPE_NAMES, AREA_LIMITS, AREA_ROLES, type AreaBizType, type AreaPolygonKind, type AreaRole, type LocalizedText, hasVisibleText } from "@nozomi/domain";
-import { Component, type FormEvent, type ReactNode, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { Component, type FormEvent, type ReactNode, useEffect, useMemo, useReducer, useRef, useState, lazy, Suspense } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { ApiError, NetworkError } from "../../api/client.ts";
-import { type Area, type AreaCreate, type MapConfig, type SharedArea, type SimilarSharedArea, createArea, fetchMapConfig, getArea, listTenantCities, similarSharedAreas, syncAreaToShared, updateArea } from "../../api/areas.ts";
+import { type Area, type AreaCreate, type AreaSaved, type MapConfig, type ProductAreaLayers, type SharedArea, type SimilarSharedArea, createArea, fetchAreaLayers, fetchMapConfig, getArea, listTenantCities, similarSharedAreas, syncAreaToShared, updateArea } from "../../api/areas.ts";
 import { type AreaMapItem, type AreaMapResponse, fetchTenantAreaMap } from "../../api/area-map.ts";
 import type { City } from "../../api/master.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
@@ -36,13 +36,19 @@ import { useLeaveGuard } from "../../lib/use-leave-guard.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { useTenantCan } from "../../lib/use-master-access.ts";
 import { readListPage } from "../master/shared.tsx";
-import { AreaMap, type MapTool, Swatch } from "./AreaMap.tsx";
+import type { MapTool } from "./AreaMap.tsx";
+import { Swatch } from "./area-swatch.tsx";
+/** 地图按需加载（M9E-25）：Leaflet 单独成包，打开地图时才下载，嵌入页和其他页面的首包里没有 Leaflet */
+const AreaMap = lazy(() => import("./AreaMap.tsx").then((module) => ({ default: module.AreaMap })));
 import { PasteDialog, type PasteRequest } from "./PasteDialog.tsx";
 import { SharedAreaDialog } from "./SharedAreaDialog.tsx";
 import { type ProbeResult, SelfTest } from "./SelfTest.tsx";
 import { OutsideImpacts } from "./OutsideImpacts.tsx";
 import { ShapeList } from "./ShapeList.tsx";
 import { AREA_FORBIDDEN_TEXT, AreaMoreItems, useAreaActions } from "./useAreaActions.tsx";
+import { SubtractDialog } from "./SubtractDialog.tsx";
+import { AreaUsage } from "./AreaUsage.tsx";
+import { editingOverlaps, km2Text, overlapLine, productLabel } from "../../lib/area-layers.ts";
 
 const BIZ_HINTS: Readonly<Record<AreaBizType, string>> = {
   general: "三类商品都可以用。",
@@ -67,6 +73,8 @@ interface TopNotice {
   action?: ReactNode;
   /** 409 `PRICING_AREA_OUTSIDE_OPERATING`：受影响的已上架商品和报价区域（M8-20） */
   outside?: OutsideImpact[];
+  /** 保存后用到这个区域的包车商品里的三层重叠（M9P-13）：一条一句 */
+  lines?: string[];
 }
 
 interface Problem {
@@ -109,6 +117,9 @@ export function AreaEditorPage() {
   const mapConfig = useLoad<MapConfig>("map-config", canRead ? fetchMapConfig : null);
   // 本供应商别的区域（带图形）：画面上的报价区域超出运营区域的部分按它们现算（M8-20）
   const siblings = useLoad<AreaMapResponse<AreaMapItem>>("area-editor-siblings", canRead && validId ? (authToken) => fetchTenantAreaMap(authToken) : null);
+  // 这个区域在哪些商品里当哪一层（M9P-13）：区域详情列出来，改图形时现算三层重叠
+  const layers = useLoad<{ items: ProductAreaLayers[] }>("area-layers", canRead && mode === "edit" && validId ? fetchAreaLayers : null);
+  const [subtracting, setSubtracting] = useState(false);
 
   const [cityId, setCityId] = useState<string | null>(null);
   const [name, setName] = useState<LocalizedText>({});
@@ -345,6 +356,13 @@ export function AreaEditorPage() {
     const current = { id: area?.id ?? "editing", bizType, role, active: area?.status !== "disabled", polygons: editor.shapes.map((shape) => ({ kind: shape.kind, ring: shapeRing(shape) })) };
     return editingOutside(current, others);
   }, [siblingItems, editor.shapes, bizType, role, area?.id, area?.status]);
+  // 用到这个区域的包车商品里的三层重叠（M9P-13，#247 审查建议）：按画面上的图形现算，只提醒、不拦保存
+  const layerItems = layers.state.data?.items ?? null;
+  const charterOverlaps = useMemo(() => {
+    if (siblingItems === null || layerItems === null || area === null || hasBlockingProblems(editor.shapes)) return [];
+    const others = siblingItems.map((item) => ({ id: item.id, bizType: item.biz_type, role: roleOf(item), active: item.status === "active", polygons: item.polygons.map((polygon) => ({ kind: polygon.kind, ring: areaRing(polygon.geometry) })) }));
+    return editingOverlaps({ id: area.id, bizType, role, active: area.status !== "disabled", polygons: editor.shapes.map((shape) => ({ kind: shape.kind, ring: shapeRing(shape) })) }, others, layerItems);
+  }, [siblingItems, layerItems, editor.shapes, area?.id, area?.status, bizType, role]);
   const unchangedForServer = !shapesDirty && role === initial.role && bizType === initial.bizType;
   const outsideM2 = outside !== null ? ([...outside.byArea.values()][0] ?? 0) : unchangedForServer ? (area?.outside_operating_m2 ?? 0) : 0;
   const overall = useMemo(() => areaProblems(editor.shapes), [editor.shapes]);
@@ -511,9 +529,25 @@ export function AreaEditorPage() {
     setSubmitting(true);
     try {
       const body = { name: cleanLocalized(name), biz_type: bizType, role, polygons: toPolygonInputs(editor.shapes) };
-      const saved = mode === "edit" && area ? await updateArea(token, area.id, area.version, body) : await createOrAdopt({ city_id: cityId ?? "", ...body });
+      const saved: AreaSaved = mode === "edit" && area ? await updateArea(token, area.id, area.version, body) : await createOrAdopt({ city_id: cityId ?? "", ...body });
       toast(mode === "edit" ? `已保存「${shortName(displayName(saved.name).text)}」` : `已新增区域「${shortName(displayName(saved.name).text)}」`);
       dropDraft();
+      const overlapsAfter = saved.charter_layer_overlaps ?? [];
+      if (mode === "edit" && overlapsAfter.length > 0) {
+        // 改了图形、用到它的包车商品里有三层重叠（后端算的）：留在这一页，换成保存后的内容，列出来（只提醒，已经保存了）
+        dispatch({ type: "load", polygons: saved.polygons });
+        setInitial({ name: saved.name, bizType: saved.biz_type, role: roleOf(saved), shapes: editorReducer(EMPTY_EDITOR, { type: "load", polygons: saved.polygons }).shapes });
+        setAdopted(`${saved.id}:${saved.version}`);
+        loaded.set(saved);
+        siblings.reload();
+        setNotice({
+          kind: "warning",
+          title: `已保存。用到这个区域的包车商品里有 ${overlapsAfter.length} 处三层区域重叠`,
+          text: "报价时一个点只能有一个答案：同一层的区域、基础价区域和上下车加价区域都不能重叠。可以用「从本区域减去另一个区域」切掉重叠的部分，再保存一次。",
+          lines: overlapsAfter.map((entry) => overlapLine({ productLabel: productLabel({ title: entry.product_title, category: "charter", code: entry.product_code }), otherName: displayName(entry.other_area_name).text, layer: entry.layer, areaM2: entry.overlap_km2 * 1_000_000 })),
+        });
+        return;
+      }
       setDiscarded(true);
       goBack();
     } catch (err) {
@@ -615,6 +649,13 @@ export function AreaEditorPage() {
             {notice.title && <strong className="alert__title">{notice.title}</strong>}
             <span>{notice.text}</span>
             {notice.outside && <OutsideImpacts impacts={notice.outside} knownNames={siblingNames} />}
+            {notice.lines && (
+              <ul className="area-editor__overlap-list" data-saved-overlaps="">
+                {notice.lines.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            )}
             {notice.action && <span className="alert__actions">{notice.action}</span>}
           </Alert>
         )}
@@ -691,7 +732,7 @@ export function AreaEditorPage() {
           </Alert>
         </div>
       )}
-      <div className="area-editor__layout">
+      <div className={mode === "edit" ? "area-editor__layout area-editor__layout--usage" : "area-editor__layout"}>
         <section className="card area-editor__basic" aria-labelledby="area-basic-title">
           <h2 className="card__title" id="area-basic-title">
             基本信息
@@ -799,6 +840,20 @@ export function AreaEditorPage() {
           </form>
         </section>
 
+        {mode === "edit" && area && (
+          <AreaUsage
+            areaId={area.id}
+            products={layerItems}
+            loadFailed={layers.state.data === null && layers.state.status === "error"}
+            onRetry={layers.reload}
+            canSeeProducts={canSeeProducts}
+            overlaps={charterOverlaps.map((entry) => ({
+              key: `${entry.product.product_id}:${entry.otherAreaId}:${entry.layer}`,
+              text: overlapLine({ productLabel: productLabel(entry.product), otherName: siblingNames.get(entry.otherAreaId) ?? "", layer: entry.layer, areaM2: entry.areaM2 }),
+            }))}
+          />
+        )}
+
         <div className="area-editor__map">
           {!readOnly && (
             <div className="draw-bar" role="toolbar" aria-label="绘制工具">
@@ -814,6 +869,9 @@ export function AreaEditorPage() {
                 </Button>
                 <Button size="sm" disabled={readOnly || submitting || full} onClick={() => setPaste({ kind: newKind })}>
                   粘贴坐标
+                </Button>
+                <Button size="sm" disabled={readOnly || submitting || !editor.shapes.some((shape) => shape.kind === "operate")} onClick={() => setSubtracting(true)}>
+                  从本区域减去另一个区域
                 </Button>
               </div>
               <fieldset className="draw-bar__kind">
@@ -849,22 +907,24 @@ export function AreaEditorPage() {
             </p>
           ) : mapUsable && tiles ? (
             <MapBoundary onBroken={() => setMapBroken(true)}>
-              <AreaMap
-                tiles={tiles}
-                shapes={editor.shapes}
-                selected={editor.selected}
-                dispatch={dispatch}
-                readOnly={readOnly || submitting}
-                tool={tool}
-                newKind={newKind}
-                onToolDone={() => setTool("select")}
-                onProbe={(point) => setPicked({ ...point, at: Date.now() })}
-                probe={probe}
-                cityCenter={{ lat: city.center.lat, lng: city.center.lng }}
-                fitSignal={fitSignal}
-                outside={outside?.pieces ?? []}
-                role={role}
-              />
+              <Suspense fallback={null}>
+                <AreaMap
+                  tiles={tiles}
+                  shapes={editor.shapes}
+                  selected={editor.selected}
+                  dispatch={dispatch}
+                  readOnly={readOnly || submitting}
+                  tool={tool}
+                  newKind={newKind}
+                  onToolDone={() => setTool("select")}
+                  onProbe={(point) => setPicked({ ...point, at: Date.now() })}
+                  probe={probe}
+                  cityCenter={{ lat: city.center.lat, lng: city.center.lng }}
+                  fitSignal={fitSignal}
+                  outside={outside?.pieces ?? []}
+                  role={role}
+                />
+              </Suspense>
             </MapBoundary>
           ) : (
             <p className="area-map-placeholder">{tiles === null && mapConfig.state.status === "ready" ? "这个环境没有配置地图底图。" : "地图没有加载出来。"}用「图形」里的坐标表、粘贴坐标和自测，可以完成全部操作。</p>
@@ -943,6 +1003,21 @@ export function AreaEditorPage() {
       )}
       {actions.dialog}
       {copier.dialog}
+      {!readOnly && (
+        <SubtractDialog
+          open={subtracting}
+          others={siblingItems === null ? null : siblingItems.filter((item) => item.id !== area?.id)}
+          loadFailed={siblingItems === null && siblings.state.status === "error"}
+          shapes={editor.shapes}
+          onClose={() => setSubtracting(false)}
+          onApply={(result, otherName) => {
+            setSubtracting(false);
+            dispatch({ type: "subtract", removeKeys: result.removeKeys, rings: result.rings });
+            setFitSignal((value) => value + 1);
+            toast(`已从本区域减去「${shortName(otherName)}」，切掉${km2Text(result.removedM2)}。保存后生效`);
+          }}
+        />
+      )}
       {paste && (
         <PasteDialog
           request={paste}

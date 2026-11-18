@@ -4,10 +4,11 @@
  * 供应商的接口里没有客人付的金额（对外价、退款、加收的客人金额，规则 4）；运营后台的有。
  */
 import type { OrderAreaSurchargeView, OrderDistanceView, OrderItineraryMoneyView, OrderMileageView, OrderPricingRoute } from "../lib/order-area-price-display.ts";
-import type { ExceptionStatus, ExceptionType, ExtraChargeStatus, ExtraChargeType, FulfilmentEventType, OrderCancelReason, OrderChangeStatus, OrderStatus, PaymentStatus, PricingBasis, RefundStatus, ServiceCategory, TicketPriority, TicketStatus, TicketType, VehicleLevel, ViewLinkVerification } from "@nozomi/domain";
+import type { OrderEntrySource } from "./embed.ts";
+import type { FlightKind, ExceptionStatus, ExceptionType, ExtraChargeStatus, ExtraChargeType, FulfilmentEventType, OrderCancelReason, OrderChangeStatus, OrderStatus, PaymentStatus, PricingBasis, RefundStatus, ServiceCategory, TicketPriority, TicketStatus, TicketType, VehicleLevel, ViewLinkVerification } from "@nozomi/domain";
 import { query, TENANT_BASE } from "./areas.ts";
 import { apiRequest, apiUpload } from "./client.ts";
-import type { ListPage, Money, OrderDispatch, OrderEvent, OrderFile, OrderFulfilment, OrderLanding, OrderRecords, OrderVehicleGroup } from "./dispatch.ts";
+import type { FreeWaitBasis, ListPage, Money, OrderDispatch, OrderEvent, OrderFile, OrderFulfilment, OrderLanding, OrderRecords, OrderVehicleGroup } from "./dispatch.ts";
 import type { Approval } from "./channels.ts";
 import { PLATFORM_BASE } from "./platform.ts";
 import type { OrderItinerary, OrderWaypoint } from "../lib/charter-itinerary.ts";
@@ -202,6 +203,10 @@ export interface PlatformOrder {
   landing: OrderLanding | null;
   /** 免费等待分钟数；null 表示不限 */
   free_wait_minutes: number | null;
+  /** 客人选的国际 / 国内航班（M9E-28，ADR 0097）；没选、不是接机为 null */
+  flight_kind?: FlightKind | null;
+  /** 接机按航班锁定免费等待的依据（M9E-28）；以前的单、不是接机为 null */
+  free_wait_basis?: FreeWaitBasis | null;
   category: ServiceCategory;
   direction: "pickup" | "dropoff" | null;
   vehicle_group_id: string;
@@ -326,6 +331,8 @@ export interface PlatformOrderDetail {
   pricing_basis?: PricingBasis;
   /** 计程部分（结算价，订单上锁定的）；一口价为 null。接口还没给时没有这一项 */
   mileage?: OrderMileageView | null;
+  /** 从哪里来（M9E-02，ADR 0090）：主站或嵌入组件，只做统计。旧的测试数据里可能没有这一项 */
+  entry_source?: OrderEntrySource;
 }
 
 /** 运营代改乘客邮箱的复核（ADR 0065）：只有打码后的地址。 */
@@ -357,6 +364,8 @@ export interface PlatformOrderQuery {
   exception?: "open" | "none";
   /** 乘客姓名（部分匹配）或电话（按数字部分匹配），至少 2 个字 */
   passenger?: string;
+  /** 只看某个嵌入码带来的订单（M9E-21） */
+  embed_key_id?: string;
   limit?: number;
   cursor?: string;
 }

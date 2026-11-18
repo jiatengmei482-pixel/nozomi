@@ -25,6 +25,8 @@ import { registerFxRoutes } from "./routes/fx.ts";
 import { registerInventoryRoutes } from "./routes/inventory.ts";
 import { registerPriceRoutes } from "./routes/prices.ts";
 import { registerProductRoutes } from "./routes/products.ts";
+import { registerCharterAirportRoutes } from "./routes/charter-airports.ts";
+import { registerTripRuleRoutes } from "./routes/trip-rules.ts";
 import { registerPlatformRoutes } from "./routes/platform.ts";
 import { registerPlatformProductRoutes } from "./routes/platform-products.ts";
 import { registerTenantRoutes } from "./routes/tenant.ts";
@@ -44,7 +46,11 @@ import { StripePaymentProvider, checkStripeKey } from "./integrations/stripe.ts"
 import { checkGoogleMapsKey, computeRoute } from "./integrations/google-maps.ts";
 import { GoogleRouteEstimator } from "./services/route-estimates.ts";
 import { fetchStaticMap } from "./integrations/google-static-maps.ts";
+import { computeItineraryPolyline } from "./integrations/google-itinerary-routes.ts";
 import { GoogleStaticMapService } from "./services/static-maps.ts";
+import { GoogleItineraryPolylines } from "./services/itinerary-polylines.ts";
+import { computeOptimizedOrder } from "./integrations/google-route-optimize.ts";
+import { GoogleOrderOptimizer } from "./services/order-optimizer.ts";
 import { autocompletePlaces, placeDetails, reverseGeocode, searchPlaces } from "./integrations/google-places.ts";
 import { GooglePlaceSearch } from "./services/place-search.ts";
 import { type IntegrationChecks, IntegrationSecretCache } from "./services/integration-secrets.ts";
@@ -69,11 +75,15 @@ import { registerNotificationRoutes } from "./routes/notifications.ts";
 import { registerTenantWebhookRoutes } from "./routes/tenant-webhooks.ts";
 import { registerViewLinkRoutes } from "./routes/view-link.ts";
 import { registerSiteRoutes } from "./routes/site.ts";
+import { registerSiteTripRoutes } from "./routes/site-trips.ts";
 import { registerUncoveredDemandRoutes } from "./routes/uncovered-demands.ts";
 import { registerPlatformSecurityRoutes } from "./routes/platform-security.ts";
 import { registerManualQuoteRoutes } from "./routes/manual-quotes.ts";
 import { registerReportRoutes } from "./routes/reports.ts";
 import { ManualQuoteRetentionJobs } from "./services/manual-quotes.ts";
+import { BookingDraftRetentionJobs } from "./services/booking-drafts.ts";
+import { TripRetentionJobs } from "./services/trip-retention.ts";
+import { registerEmbedRoutes } from "./routes/embed.ts";
 
 export interface AppDeps {
   config: AppConfig;
@@ -137,6 +147,8 @@ declare module "fastify" {
     passengerEncryption: PassengerEncryptionJobs;
     /** 人工报价申请的到期清除（M8-21，ADR 0076；服务进程用 `jobs` 启动它；测试直接调 `tick`） */
     manualQuoteRetention: ManualQuoteRetentionJobs;
+    bookingDraftRetention: BookingDraftRetentionJobs;
+    tripRetention: TripRetentionJobs;
     /** 推送给供应商的 Webhook 的投递任务（服务进程用 `jobs` 启动它；测试直接调 `tick`） */
     webhookJobs: WebhookJobs;
     /** 供应商账单：每月出上个月的账、确认期满视为确认（服务进程用 `jobs` 启动它；测试直接调 `tick`） */
@@ -234,10 +246,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     return reply.code(response.statusCode).send(response.body);
   });
 
-  // 带令牌或账号数据的响应不允许被任何缓存保存。唯一的例外是官网路线小地图的图片（不含任何个人或账号数据，ADR 0072）：成功时由接口自己给 `private, max-age=86400`
+  // 带令牌或账号数据的响应不允许被任何缓存保存。唯一的例外是官网路线小地图和包车行程地图的图片（不含任何个人或账号数据，ADR 0072、0096）：成功时由接口自己给 `private, max-age=86400`
   app.addHook("onSend", async (request, reply) => {
     const path = pathOnly(request.url);
-    if (reply.statusCode === 200 && request.routeOptions.url === "/site/v1/route-map") return;
+    if (reply.statusCode === 200 && (request.routeOptions.url === "/site/v1/route-map" || request.routeOptions.url === "/site/v1/itinerary-map")) return;
     if (path.startsWith("/platform/") || path.startsWith("/tenant/") || path.startsWith("/sales/") || path.startsWith("/driver/") || path.startsWith("/site/")) reply.header("cache-control", "no-store");
   });
 
@@ -299,6 +311,16 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     apiKey: () => secretCache.effective.googleMaps.apiKey,
     dailyLimit: config.staticMaps.dailyLimit,
     routes,
+    // 包车行程地图（M9P-20，ADR 0096）：一次带中间点的折线，计入路线的每日上限；10–12 号标记的图标在官网的公开路径下
+    itineraryRoutes: new GoogleItineraryPolylines({
+      pool,
+      now,
+      apiKey: () => secretCache.effective.googleMaps.apiKey,
+      dailyLimit: config.routes.dailyLimit,
+      compute: (apiKey, points, beforeAttempt) => computeItineraryPolyline(apiKey, points, { url: config.integrationEndpoints.googleMapsRoutesUrl, beforeAttempt }),
+      log: app.log,
+    }),
+    siteBaseUrl: config.publicBaseUrl,
     fetch: (apiKey, query, beforeAttempt) => fetchStaticMap(apiKey, query, { url: config.integrationEndpoints.googleStaticMapsUrl, beforeAttempt }),
     log: app.log,
   });
@@ -332,6 +354,15 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     places,
     routePreview: routes,
     routeMap,
+    // 包车经停顺序建议（M9P-20 P2）：同一把谷歌密钥，优化调用单设每日上限
+    orderOptimizer: new GoogleOrderOptimizer({
+      pool,
+      now,
+      apiKey: () => secretCache.effective.googleMaps.apiKey,
+      dailyLimit: config.orderSuggestion.dailyLimit,
+      compute: (apiKey, from, to, movable, beforeAttempt) => computeOptimizedOrder(apiKey, from, to, movable, { url: config.integrationEndpoints.googleMapsRoutesUrl, beforeAttempt }),
+      log: app.log,
+    }),
   };
   const orderJobs = new OrderJobs(context, app.log);
   app.decorate("orderJobs", orderJobs);
@@ -347,6 +378,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   app.decorate("passengerEncryption", passengerEncryption);
   const manualQuoteRetention = new ManualQuoteRetentionJobs(context, app.log);
   app.decorate("manualQuoteRetention", manualQuoteRetention);
+  const bookingDraftRetention = new BookingDraftRetentionJobs(context, app.log);
+  app.decorate("bookingDraftRetention", bookingDraftRetention);
+  const tripRetention = new TripRetentionJobs(context, app.log);
+  app.decorate("tripRetention", tripRetention);
   const billingJobs = new BillingJobs(context, app.log);
   app.decorate("billingJobs", billingJobs);
   // 发验证码在应答之后的后台做（ADR 0050）：关闭前等它们结束，别在连接池关掉之后还去写库
@@ -365,6 +400,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     passengerEncryption.start();
     uncoveredDemandJobs.start();
     manualQuoteRetention.start();
+    bookingDraftRetention.start();
+    tripRetention.start();
     app.addHook("onClose", () => fx.stop());
     app.addHook("onClose", () => orderJobs.stop());
     app.addHook("onClose", () => webhookJobs.stop());
@@ -375,6 +412,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     app.addHook("onClose", () => passengerEncryption.stop());
     app.addHook("onClose", () => uncoveredDemandJobs.stop());
     app.addHook("onClose", () => manualQuoteRetention.stop());
+    app.addHook("onClose", () => bookingDraftRetention.stop());
+    app.addHook("onClose", () => tripRetention.stop());
   }
   registerPlatformRoutes(app, context);
   registerPlatformSecurityRoutes(app, context);
@@ -385,6 +424,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerAreaRoutes(app, context);
   registerPlatformSharedAreaRoutes(app, context);
   registerProductRoutes(app, context);
+  registerCharterAirportRoutes(app, context);
+  registerTripRuleRoutes(app, context);
   registerPriceRoutes(app, context);
   registerInventoryRoutes(app, context);
   registerImportExportRoutes(app, context);
@@ -410,6 +451,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerTenantOnboardingRoutes(app, context);
   registerTenantProfileRoutes(app, context);
   registerSiteRoutes(app, context);
+  registerSiteTripRoutes(app, context);
+  registerEmbedRoutes(app, context);
   registerViewLinkRoutes(app, context);
   registerManualQuoteRoutes(app, context);
 

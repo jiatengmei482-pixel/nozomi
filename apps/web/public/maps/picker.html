@@ -1,0 +1,19 @@
+<!doctype html>
+<!--
+  官网选点地图（谷歌地图，M10-01 第 2 处，ADR 0044 补记）。由官网页面用 iframe 打开（同源），只有这一页的内容安全策略放行谷歌地图脚本；
+  选点结果用 postMessage 传回打开它的页面。密钥（浏览器密钥，限定了网址）在地址的 key 参数里。
+  谷歌按来源网址核对密钥，而全站默认不发 Referer：这一页改成只发域名（strict-origin），不带路径和参数。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="referrer" content="strict-origin" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>地图选点</title>
+    <link rel="stylesheet" href="/maps/picker.css" />
+    <script type="module" src="/maps/picker.js"></script>
+  </head>
+  <body>
+    <div id="map" role="application" aria-label="地图"></div>
+  </body>
+</html>

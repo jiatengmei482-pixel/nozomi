@@ -1,0 +1,528 @@
+/**
+ * 嵌入组件（M9E-03，ADR 0090）端到端：两个本机宿主网站（一个在嵌入码白名单里、一个不在）各放一段代码，
+ * 加载构建好的 /embed/widget-v1.js，经真实的 /embed/v1 → 真实 API → 真实 PostgreSQL。谷歌是本机的假服务器（global-setup）。
+ *
+ * - 白名单网站：宿主页把 div、input、button 全设成红底，组件外观不受影响；320 px 不横向滚动；axe 无问题；
+ *   键盘选地点、提交 → 建草稿 → 整页跳到主站 /book/new?draft= → 自动询价，价格等于在主站手填同样条件。
+ * - 不在白名单的网站：只显示「预订组件暂时无法使用」和主站链接，没有表单；配置接口被拒、浏览器读不到。
+ * - 建草稿失败（M9E-07，ADR 0090 第七节）：网络错误、429 两种（拦截改写应答）、400（客人填了不存在的日期，真实 API 拒绝）各显示第四节的那一句、不跳转；
+ *   400 标出日期并把焦点移过去，改正后去掉标记。
+ * - 包车（M9E-07）：选「包车」标签、不填经停点 → 跳 /book/new?draft= 后停在第 1 步等客人选时长、不询价 → 选 8 小时后报价。
+ * - 外观（M9E-14）：init 没传 layout 时用嵌入码后台设的（默认 auto：容器 ≥ 900 px 横条、窄了卡片），改窗口宽度来回换、已填的不丢；
+ *   后台改成横条后新打开的页面是横条；宿主 init 传了 card 以 init 为准。
+ * - 来源（M9E-12）：配了 Stripe 的那一组主站上，组件建草稿 → 询价带 `draft_id` → 下单 → 假 Stripe 测试卡 4242 付款 →
+ *   平台订单详情 `entry_source.kind` 是 `embed`、带嵌入码名称和网站 → 订单页「返回原网站」链到建草稿时的 return_url。
+ * - 被拒（M9E-22）：白名单网站 + 启用的嵌入码显示表单；嵌入码停用后显示「暂时无法使用」、没有表单，控制台写明先查停用；
+ *   取配置超时 / 连不上时先显示表单由组件测试覆盖（widget.test.tsx）。
+ */
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
+import { AxeBuilder } from "@axe-core/playwright";
+import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
+import { E2E_WEB_PLACES_PORT, E2E_WEB_STRIPE_PORT } from "../playwright.config.ts";
+import { TOKYO_STATION, airportLink, createAirport, publishTransfer } from "./book-new-support.ts";
+import { createSupplier, createWorld } from "./catalog.ts";
+import { charterWorld } from "./charter-support.ts";
+import { TEST_CARDS, routeStripe } from "./fake-stripe.ts";
+import { OWN_SITE_SOURCE, embedHostAsProduction, platformAdminHeaders, randomLetters } from "./support.ts";
+
+test.use(OWN_SITE_SOURCE);
+
+/** 有假谷歌密钥的那一组（地址输入即提示要用） */
+const SITE = `http://127.0.0.1:${E2E_WEB_PLACES_PORT}`;
+/** 配了 Stripe 测试密钥（指向本机假 Stripe）的那一组：要付款才看得到「返回原网站」。没有谷歌密钥，地址只选平台的机场、车站 */
+const STRIPE_SITE = `http://127.0.0.1:${E2E_WEB_STRIPE_PORT}`;
+// 每条用例的页面都像正式环境一样跨域请求主站（被拒的 403 读不出，组件走 no-cors 探测；M9E-22）
+test.beforeEach(async ({ context }) => {
+  await embedHostAsProduction(context, SITE, STRIPE_SITE);
+});
+
+/** 宿主页：所有 div、input、button 红底白字、30px、粗体、字距、大写、斜体（都加 !important），看组件会不会被染上（会继承的几项最容易穿进 Shadow DOM） */
+function hostPage(key: string, layout: string | null = null, site = SITE): string {
+  return `<!doctype html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>合作网站</title>
+<style>div, input, button { background: rgb(255, 0, 0) !important; color: rgb(255, 255, 255) !important; font-size: 30px !important; font-weight: 700 !important; letter-spacing: 6px !important; text-transform: uppercase !important; font-style: italic !important; } body { margin: 0; }</style></head>
+<body><main><h1>合作网站</h1><div id="nozomi-booking"></div></main>
+<script src="${site}/embed/widget-v1.js"></script>
+<script>NozomiBooking.init({ key: ${JSON.stringify(key)}, root: "#nozomi-booking", lang: new URLSearchParams(location.search).get("lang") || "zh", services: ["transfer", "charter"], redirectUrl: location.origin + "/thanks"${layout === null ? "" : `, layout: ${JSON.stringify(layout)}`} });</script>
+</body></html>`;
+}
+
+async function startHost(key: () => string, site = SITE): Promise<{ server: Server; origin: string }> {
+  const server = createServer((request, response) => {
+    const url = new URL(request.url ?? "/", "http://host");
+    if (url.pathname !== "/" && url.pathname !== "/index.html") {
+      response.writeHead(404).end();
+      return;
+    }
+    // ?layout=card：宿主页的 init 传 layout（M9E-14）
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(hostPage(key(), url.searchParams.get("layout"), site));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  return { server, origin: `http://127.0.0.1:${(server.address() as AddressInfo).port}` };
+}
+
+let allowedHost: { server: Server; origin: string };
+let otherHost: { server: Server; origin: string };
+/** 组件从配了 Stripe 的主站加载的宿主网站（M9E-12） */
+let payingHost: { server: Server; origin: string };
+let embedKey = "";
+
+test.beforeAll(async () => {
+  allowedHost = await startHost(() => embedKey);
+  otherHost = await startHost(() => embedKey);
+  payingHost = await startHost(() => embedKey, STRIPE_SITE);
+});
+test.afterAll(async () => {
+  await new Promise((resolve) => allowedHost.server.close(resolve));
+  await new Promise((resolve) => otherHost.server.close(resolve));
+  await new Promise((resolve) => payingHost.server.close(resolve));
+});
+
+const dayAfterTomorrow = (): string => new Date(Date.now() + 2 * 86_400_000 + 9 * 3_600_000).toISOString().slice(0, 10);
+
+async function quoteTotals(page: Page, open: () => Promise<unknown>): Promise<string[]> {
+  const response = page.waitForResponse((res) => res.url().endsWith("/site/v1/quotes/by-points") && res.request().method() === "POST");
+  await open();
+  const body = (await (await response).json()) as { quotes: { vehicle_group: { id: string }; price: { total: { amount: string; currency: string } } }[] };
+  return body.quotes.map((quote) => `${quote.vehicle_group.id}:${quote.price.total.amount} ${quote.price.total.currency}`).sort();
+}
+
+test("嵌入组件：白名单网站上样式不受宿主页影响、320 px、axe、键盘走完 → 建草稿 → 跳主站自动询价，价格等于手填；不在白名单的网站只显示暂时无法使用", async ({ page, request }) => {
+  test.setTimeout(180_000);
+  const world = await createWorld(request);
+  const airport = await createAirport(request, world);
+  const supplier = await createSupplier(request, world);
+  await publishTransfer(request, supplier, { ...world, airport });
+  const created = await request.post("/platform/v1/embed-keys", { headers: await platformAdminHeaders(request), data: { name: "端到端宿主", allowed_origins: [allowedHost.origin], default_lang: "ja", default_services: ["transfer", "charter"] } });
+  expect(created.status(), await created.text()).toBe(201);
+  embedKey = ((await created.json()) as { key: string }).key;
+
+  // ---- 不在白名单的网站 ----
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.goto(otherHost.origin);
+  await expect(page.getByText("预订组件暂时无法使用。请稍后刷新，或直接到主站预订。")).toBeVisible();
+  await expect(page.getByRole("link", { name: "到主站预订" })).toHaveAttribute("href", `${SITE}/book/new`);
+  await expect(page.getByRole("button", { name: "查看价格" })).toHaveCount(0);
+
+  // ---- 白名单网站 ----
+  await page.goto(allowedHost.origin);
+  const fromBox = page.getByRole("combobox", { name: "出发地" });
+  await expect(fromBox).toBeVisible();
+  await expect(page.getByRole("tab", { name: "区间" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: "包车" })).toBeVisible();
+  // 宿主页的红底和 30px 字号进不来
+  const styles = await page.evaluate(() => {
+    const shadow = document.querySelector("#nozomi-booking")?.shadowRoot;
+    const pick = (selector: string) => {
+      const node = shadow?.querySelector(selector);
+      if (node === null || node === undefined) return null;
+      const style = getComputedStyle(node);
+      return { background: style.backgroundColor, color: style.color, fontSize: style.fontSize, fontWeight: style.fontWeight, letterSpacing: style.letterSpacing, textTransform: style.textTransform, fontStyle: style.fontStyle };
+    };
+    return { box: pick(".nzb"), input: pick("input"), button: pick(".nzb-primary"), hint: pick(".nzb-hint"), widgetOverflow: (shadow?.querySelector(".nzb") as HTMLElement | null)?.scrollWidth ?? 0, page: document.documentElement.scrollWidth };
+  });
+  for (const part of [styles.box, styles.input]) {
+    expect(part?.background).toBe("rgb(255, 255, 255)");
+    expect(part?.fontSize).not.toBe("30px");
+  }
+  expect(styles.button?.background).not.toBe("rgb(255, 0, 0)");
+  for (const part of [styles.box, styles.hint, styles.input]) {
+    expect(part?.fontWeight, "宿主页的粗体进不来").toBe("400");
+    expect(part?.letterSpacing).toBe("normal");
+    expect(part?.textTransform).toBe("none");
+    expect(part?.fontStyle).toBe("normal");
+  }
+  expect(styles.page, "320 px 不横向滚动").toBeLessThanOrEqual(320);
+  expect(styles.widgetOverflow).toBeLessThanOrEqual(320);
+  const axe = await new AxeBuilder({ page }).include("#nozomi-booking").withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+  expect(axe.violations.map((violation) => `${violation.id}: ${violation.help}`)).toEqual([]);
+
+  // 键盘：出发地选平台的机场，目的地选谷歌候选，日期改成后天，Tab 到「查看价格」回车
+  await fromBox.focus();
+  // 打完整名称（带随机后缀）：只打前几个字时，并行用例建的「新预订机场XXXXX」也会排在候选里，方向键可能选到别人的（M8-29 同类）
+  await page.keyboard.type(airport.name);
+  await expect(page.getByRole("listbox", { name: "出发地的候选" }).getByRole("option", { name: new RegExp(airport.name) })).toBeVisible();
+  await page.keyboard.press("ArrowDown");
+  await expect(page.getByRole("listbox", { name: "出发地的候选" }).getByRole("option").first()).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(fromBox).toHaveValue(airport.name);
+  const toBox = page.getByRole("combobox", { name: "目的地" });
+  await toBox.focus();
+  await page.keyboard.type("東京駅");
+  const toList = page.getByRole("listbox", { name: "目的地的候选" });
+  await expect(toList.getByRole("option", { name: /東京駅/ }).first()).toBeVisible();
+  // 谷歌署名在候选列表外面、同一个弹出面板里（M9E-06）
+  await expect(toList.locator("xpath=..").getByText("Google Maps", { exact: true })).toBeVisible();
+  await expect(toList.getByText("Google Maps", { exact: true })).toHaveCount(0);
+  await page.keyboard.press("ArrowDown");
+  // 谷歌候选选中后组件再取坐标：等取到再提交，否则组件按「没选地点」先提示、不建草稿（M9E-07 本机重复跑时偶发）
+  const details = page.waitForResponse((res) => new URL(res.url()).pathname === "/embed/v1/places/details");
+  await page.keyboard.press("Enter");
+  expect((await details).status()).toBe(200);
+  await expect(toBox).toHaveValue(/東京駅/);
+  await page.getByLabel("日期").fill(dayAfterTomorrow());
+
+  const draftResponse = page.waitForResponse((res) => res.url().includes("/embed/v1/booking-drafts") && res.request().method() === "POST");
+  const submit = page.getByRole("button", { name: "查看价格" });
+  await submit.focus();
+  const viaWidget = await quoteTotals(page, async () => {
+    await page.keyboard.press("Enter");
+    expect((await draftResponse).status()).toBe(201);
+    await page.waitForURL(new RegExp(`^${SITE.replace(/\./g, "\\.")}/book/new\\?draft=[A-Za-z0-9_-]{43}`));
+  });
+  await expect(page.getByRole("heading", { name: "选择车型" })).toBeVisible();
+  expect(viaWidget.length).toBeGreaterThan(0);
+
+  // 主站手填同样条件（坐标、日期时间、人数行李取自草稿本身）：每个车型的价格一样
+  const draftId = new URL(page.url()).searchParams.get("draft") as string;
+  const saved = (await (await request.get(`${SITE}/site/v1/booking-drafts/${draftId}`)).json()) as { draft: { service_local: string; dropoff: { lat: number; lng: number; name: string }; passengers: number; luggage: number } };
+  const [date, time] = saved.draft.service_local.split("T") as [string, string];
+  const manual = await quoteTotals(page, () => page.goto(`${SITE}/book/new?${airportLink(airport)}&to=${saved.draft.dropoff.lat},${saved.draft.dropoff.lng}&to_name=${encodeURIComponent(saved.draft.dropoff.name)}&date=${date}&time=${time}&pax=${saved.draft.passengers}&bags=${saved.draft.luggage}`));
+  expect(viaWidget).toEqual(manual);
+});
+
+/** 给本 worker 的白名单宿主网站建一个嵌入码，宿主页随即用它 */
+async function useNewEmbedKey(request: APIRequestContext): Promise<void> {
+  const created = await request.post("/platform/v1/embed-keys", { headers: await platformAdminHeaders(request), data: { name: `端到端宿主 ${randomLetters(4)}`, allowed_origins: [allowedHost.origin], default_lang: "zh", default_services: ["transfer", "charter"] } });
+  expect(created.status(), await created.text()).toBe(201);
+  embedKey = ((await created.json()) as { key: string }).key;
+}
+
+/** 在组件的地址框里打完整名称（带随机后缀，不会选到并行用例的数据），点那一项候选 */
+async function choosePlace(page: Page, box: string, name: string): Promise<void> {
+  const input = page.getByRole("combobox", { name: box });
+  await input.fill(name);
+  await page.getByRole("listbox", { name: `${box}的候选` }).getByRole("option", { name: new RegExp(name) }).click();
+  await expect(input).toHaveValue(name);
+}
+
+test("嵌入组件建草稿失败：网络错误、429 两种、400 各显示一句，不跳转；400 标出日期、移焦点，改正后去掉标记（M9E-07）", async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const world = await createWorld(request);
+  const airport = await createAirport(request, world);
+  await useNewEmbedKey(request);
+  await page.goto(allowedHost.origin);
+  await choosePlace(page, "出发地", airport.name);
+  const toBox = page.getByRole("combobox", { name: "目的地" });
+  await toBox.fill("東京駅");
+  // 谷歌候选选中后组件再取坐标：等取到再提交，否则组件按「没选地点」先提示
+  const details = page.waitForResponse((res) => new URL(res.url()).pathname === "/embed/v1/places/details");
+  await page.getByRole("listbox", { name: "目的地的候选" }).getByRole("option", { name: /東京駅/ }).first().click();
+  expect((await details).status()).toBe(200);
+  await expect(toBox).toHaveValue(/東京駅/);
+  await page.getByLabel("日期").fill(dayAfterTomorrow());
+  const message = page.locator('[data-role="message"]');
+  const submit = page.getByRole("button", { name: "查看价格" });
+  const drafts: number[] = [];
+  page.on("response", (res) => {
+    if (res.url().includes("/embed/v1/booking-drafts") && res.request().method() === "POST") drafts.push(res.status());
+  });
+
+  // 网络错误：请求发不出去
+  let reply: "network" | { status: number; code: string } = "network";
+  const isDraftUrl = (url: URL): boolean => url.pathname === "/embed/v1/booking-drafts";
+  await page.route(isDraftUrl, async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    if (reply === "network") return route.abort("failed");
+    // 429：真的发到主站（请求体换成空对象，主站不建草稿；会占这条用例自己的来源地址和嵌入码各一次限速额度，用例只发 3 次，不影响别的用例），把应答改写成 429；保留主站给的跨域响应头，浏览器才读得到
+    const response = await route.fetch({ postData: "{}" });
+    return route.fulfill({ response, status: reply.status, contentType: "application/json", body: JSON.stringify({ error: { code: reply.code, message: "e2e" } }) });
+  });
+  // 网络错误时整个主站都连不上：建草稿读不出后组件探 GET 配置（no-cors，M9E-22），也让它失败
+  const isConfigUrl = (url: URL): boolean => url.pathname === "/embed/v1/config";
+  await page.route(isConfigUrl, (route) => (reply === "network" ? route.abort("failed") : route.fallback()));
+  await submit.click();
+  await expect(message).toHaveText("暂时连不上，请稍后再试或直接到主站预订。 到主站预订");
+  await expect(message.getByRole("link", { name: "到主站预订" })).toHaveAttribute("href", `${SITE}/book/new`);
+  await expect(submit).toHaveText("查看价格");
+
+  reply = { status: 429, code: "RATE_LIMITED" };
+  await submit.click();
+  await expect(message).toHaveText("操作太频繁，请稍等一分钟再试。");
+  reply = { status: 429, code: "EMBED_DRAFT_LIMIT" };
+  await submit.click();
+  await expect(message).toHaveText("暂时无法查询，请稍后再试或直接到主站预订。");
+  await page.unroute(isDraftUrl);
+  await page.unroute(isConfigUrl);
+  expect(drafts).toEqual([429, 429]);
+
+  // 400：不支持日期选择器的浏览器里日期框就是文本框，客人填了不存在的日期（2 月 30 日）；组件只查写法，真实 API 拒绝
+  const dateBox = page.getByLabel("日期");
+  await dateBox.evaluate((node) => node.setAttribute("type", "text"));
+  await dateBox.fill(`${new Date().getUTCFullYear() + 1}-02-30`);
+  const rejected = page.waitForResponse((res) => res.url().includes("/embed/v1/booking-drafts") && res.request().method() === "POST");
+  await submit.click();
+  const body = (await (await rejected).json()) as { error: { code: string; details: { issues: { path: string }[] } } };
+  expect((await rejected).status()).toBe(400);
+  expect(body.error.code).toBe("VALIDATION_FAILED");
+  expect(body.error.details.issues.map((issue) => issue.path)).toEqual(["/draft/service_local"]);
+  await expect(message).toHaveText("有几项填得不对，请检查后再试。");
+  await expect(dateBox).toHaveAttribute("aria-invalid", "true");
+  await expect(dateBox).toBeFocused();
+  await dateBox.fill(dayAfterTomorrow());
+  await expect.poll(() => dateBox.getAttribute("aria-invalid"), { message: "改正后去掉标记" }).toBeNull();
+
+  expect(new URL(page.url()).origin, "失败时都不跳转").toBe(allowedHost.origin);
+});
+
+test("嵌入组件包车：选「包车」、不填经停点 → 跳 /book/new?draft= 后停在第 1 步等客人选时长、不询价 → 选 8 小时后报价（M9E-07）", async ({ page, request }) => {
+  test.setTimeout(180_000);
+  // 城市有 4 小时、8 小时两档（只有一档时预订页会替客人选上）；上车站放在城市中心（商品区域里），下车选加价区域里的车站
+  const trip = await charterWorld(request, { extraPackageHours: 4 });
+  const pickupName = `包车上车站${randomLetters(5)}`;
+  const placed = await request.post("/platform/v1/master/places", { headers: await platformAdminHeaders(request), data: { type: "station", code: `STN-JP-${randomLetters(6)}`, city_id: trip.cityId, category: "rail", name: { zh: pickupName }, location: trip.pickup } });
+  expect(placed.status(), await placed.text()).toBe(201);
+  await useNewEmbedKey(request);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const charterQuotes: Record<string, unknown>[] = [];
+  page.on("request", (sent) => {
+    if (sent.method() === "POST" && new URL(sent.url()).pathname === "/site/v1/quotes") charterQuotes.push(sent.postDataJSON() as Record<string, unknown>);
+  });
+
+  await page.goto(allowedHost.origin);
+  await page.getByRole("tab", { name: "包车" }).click();
+  await expect(page.getByRole("tab", { name: "包车" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByText("不填经停点时，到预订页选包车时长。")).toBeVisible();
+  await choosePlace(page, "上车地点", pickupName);
+  await choosePlace(page, "下车地点", trip.station.name);
+  const date = dayAfterTomorrow();
+  await page.getByLabel("日期").fill(date);
+  const draftResponse = page.waitForResponse((res) => res.url().includes("/embed/v1/booking-drafts") && res.request().method() === "POST");
+  await page.getByRole("button", { name: "查看价格" }).click();
+  expect((await draftResponse).status()).toBe(201);
+  const sent = (await draftResponse).request().postDataJSON() as { draft: Record<string, unknown> };
+  expect(sent.draft).toMatchObject({ tab: "charter", waypoints: [], package_hours: null });
+  await page.waitForURL(new RegExp(`^${SITE.replace(/\./g, "\\.")}/book/new\\?draft=[A-Za-z0-9_-]{43}`));
+
+  // 第 1 步：地点、日期带过来了，时长空着、两档可选，不询价
+  await expect(page.getByRole("combobox", { name: "上车地点" })).toHaveValue(pickupName);
+  await expect(page.getByRole("combobox", { name: "下车地点" })).toHaveValue(trip.station.name);
+  const hours = page.getByLabel(/^包车时长/);
+  await expect(hours.locator("option[value='8']")).toHaveCount(1);
+  await expect(hours.locator("option[value='4']")).toHaveCount(1);
+  await expect(hours).toHaveValue("");
+  await page.waitForTimeout(1_000);
+  expect(charterQuotes, "没选时长不询价").toEqual([]);
+  expect(new URL(page.url()).searchParams.get("step"), "停在第 1 步").toBeNull();
+
+  // 选 8 小时 → 按 8 小时询价：套餐 70,000 + 下车加价 1,000，对外 78,100
+  await hours.selectOption("8");
+  await expect.poll(() => charterQuotes.length, { message: "选了时长就询价" }).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "下一步：选择车型" }).click();
+  const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: trip.groupName }) });
+  await expect(card).toContainText("78,100 JPY");
+  expect(charterQuotes.at(-1)).toMatchObject({ category: "charter", pickup: trip.pickup, dropoff: trip.station.location, package_hours: 8, service_local: `${date}T10:00` });
+});
+
+test("嵌入组件外观（M9E-14）：默认自动——窗口 1280 横条、899 卡片、900 横条、390 卡片，来回换已填的不丢；后台改成横条后新页面 800 px 也是横条；宿主 init 传 card 以 init 为准", async ({ browser, request }) => {
+  test.setTimeout(120_000);
+  const world = await createWorld(request);
+  const airport = await createAirport(request, world);
+  await useNewEmbedKey(request);
+  const layoutOf = (page: Page) => page.evaluate(() => document.querySelector("#nozomi-booking")?.shadowRoot?.querySelector(".nzb-shell")?.getAttribute("data-layout") ?? null);
+  // 每次新开一个浏览器上下文：配置应答在浏览器里缓存 60 秒，同一上下文里刷新可能拿到旧的
+  const open = async (width: number, query = ""): Promise<Page> => {
+    const context = await browser.newContext({ viewport: { width, height: 900 } });
+    await embedHostAsProduction(context, SITE);
+    const page = await context.newPage();
+    await page.goto(`${allowedHost.origin}/${query}`);
+    await expect(page.getByRole("combobox", { name: "出发地" })).toBeVisible();
+    return page;
+  };
+
+  const page = await open(1280);
+  expect(await layoutOf(page), "后台默认自动：1280 宽横条").toBe("bar");
+  await choosePlace(page, "出发地", airport.name);
+  const toBox = page.getByRole("combobox", { name: "目的地" });
+  await toBox.fill("打了一半");
+  await page.getByLabel("日期").fill(dayAfterTomorrow());
+  for (const [width, expected] of [[899, "card"], [900, "bar"], [390, "card"], [1440, "bar"]] as const) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect.poll(() => layoutOf(page), { message: `${width} px` }).toBe(expected);
+    await expect(page.getByRole("combobox", { name: "出发地" })).toHaveValue(airport.name);
+    await expect(toBox).toHaveValue("打了一半");
+    await expect(page.getByLabel("日期")).toHaveValue(dayAfterTomorrow());
+  }
+  await page.context().close();
+
+  const listed = (await (await request.get("/platform/v1/embed-keys", { headers: await platformAdminHeaders(request) })).json()) as { items: { id: string; key: string; version: number; name: string; allowed_origins: string[] }[] };
+  const current = listed.items.find((item) => item.key === embedKey);
+  expect(current).toBeDefined();
+  const { id, version, name, allowed_origins } = current as NonNullable<typeof current>;
+  const patched = await request.patch(`/platform/v1/embed-keys/${id}`, { headers: { ...(await platformAdminHeaders(request)), "if-match": `"${version}"` }, data: { name, allowed_origins, default_lang: "zh", default_services: ["transfer", "charter"], layout: "bar", note: null, status: "active" } });
+  expect(patched.status(), await patched.text()).toBe(200);
+  const barPage = await open(800);
+  expect(await layoutOf(barPage), "后台设横条：800 宽（自动时是卡片）也是横条").toBe("bar");
+  await barPage.context().close();
+
+  const cardPage = await open(1280, "?layout=card");
+  expect(await layoutOf(cardPage), "宿主 init 传了 card：后台设横条也用卡片").toBe("card");
+  await cardPage.context().close();
+});
+
+test("嵌入组件来的单记来源（M9E-12）：建草稿 → 询价带 draft_id → 下单 → 测试卡 4242 付款 → 平台订单详情来源是嵌入组件（带嵌入码名称）→ 订单页「返回原网站」链到 return_url", async ({ page, request }) => {
+  test.setTimeout(180_000);
+  const world = await createWorld(request);
+  const airport = await createAirport(request, world);
+  const supplier = await createSupplier(request, world);
+  await publishTransfer(request, supplier, { ...world, airport });
+  // 目的地：平台的车站（这一组主站没有谷歌密钥），放在东京站（供应商区域里）
+  const stationName = `嵌入来源车站${randomLetters(5)}`;
+  const placed = await request.post("/platform/v1/master/places", { headers: await platformAdminHeaders(request), data: { type: "station", code: `STN-JP-${randomLetters(6)}`, city_id: world.city.id, category: "rail", name: { zh: stationName }, location: TOKYO_STATION } });
+  expect(placed.status(), await placed.text()).toBe(201);
+  const keyName = `来源宿主 ${randomLetters(4)}`;
+  const created = await request.post("/platform/v1/embed-keys", { headers: await platformAdminHeaders(request), data: { name: keyName, allowed_origins: [payingHost.origin], default_lang: "zh", default_services: ["transfer", "charter"] } });
+  expect(created.status(), await created.text()).toBe(201);
+  const key = (await created.json()) as { id: string; key: string };
+  embedKey = key.key;
+  const fakeStripe = process.env["E2E_FAKE_STRIPE_URL"];
+  if (!fakeStripe) throw new Error("global-setup 没有启动假 Stripe");
+  await routeStripe(page, fakeStripe);
+  await page.setViewportSize({ width: 1280, height: 900 });
+
+  // 合作网站上的组件：选机场、车站、后天，查看价格 → 建草稿、跳主站
+  await page.goto(payingHost.origin);
+  await choosePlace(page, "出发地", airport.name);
+  await choosePlace(page, "目的地", stationName);
+  await page.getByLabel("日期").fill(dayAfterTomorrow());
+  const draftResponse = page.waitForResponse((res) => res.url().includes("/embed/v1/booking-drafts") && res.request().method() === "POST");
+  const quoteRequest = page.waitForRequest((sent) => new URL(sent.url()).pathname === "/site/v1/quotes/by-points" && sent.method() === "POST");
+  await page.getByRole("button", { name: "查看价格" }).click();
+  expect((await draftResponse).status()).toBe(201);
+  await page.waitForURL(new RegExp(`^${STRIPE_SITE.replace(/\./g, "\\.")}/book/new\\?draft=[A-Za-z0-9_-]{43}`));
+  const draftId = new URL(page.url()).searchParams.get("draft") as string;
+
+  // 主站的询价带上草稿编号：服务端凭它把来源记到报价上（这次漏带，单子都记成了主站）
+  expect(((await quoteRequest).postDataJSON() as { draft_id?: string }).draft_id).toBe(draftId);
+
+  // 选车 → 乘客信息 → 核对 → 下单
+  const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: world.group.name }) });
+  await card.getByRole("button", { name: `选择 ${world.group.name}` }).click();
+  await page.getByRole("button", { name: "下一步：填写乘客信息" }).click();
+  await expect(page.getByRole("heading", { level: 2, name: "乘客信息" })).toBeFocused();
+  await page.getByLabel("航班号").fill("NH211");
+  await page.getByRole("radio", { name: /^国际航班/ }).check();
+  await page.getByLabel("乘车人姓名").fill("王小明");
+  await page.getByLabel("邮箱").fill(`embed-source-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`);
+  await page.getByLabel("手机号（含国家区号）").fill("+81 90-1234-5678");
+  await page.getByRole("button", { name: "下一步：核对订单" }).click();
+  await expect(page.getByRole("heading", { name: "核对订单" })).toBeFocused();
+  await page.getByRole("checkbox", { name: /同意保存这次付款用的银行卡/ }).check();
+  const orderResponse = page.waitForResponse((res) => new URL(res.url()).pathname === "/site/v1/orders" && res.request().method() === "POST");
+  await page.getByRole("button", { name: "去付款 →" }).click();
+  expect((await orderResponse).status()).toBe(201);
+  const orderId = ((await (await orderResponse).json()) as { order: { id: string } }).order.id;
+
+  // 订单页：待付款时不显示「返回原网站」；测试卡 4242 付款确认后显示，链到建草稿时的 return_url
+  await expect(page.getByRole("heading", { level: 1, name: /^订单 NZ/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: "返回原网站" })).toHaveCount(0);
+  await page.getByLabel("卡号（假 Stripe）").fill(TEST_CARDS.success);
+  await page.getByRole("button", { name: /^付款 / }).click();
+  await page.getByRole("button", { name: "确认支付" }).click();
+  await expect(page.getByText("付款成功，订单已确认。派车后这里会显示司机和车辆。")).toBeVisible({ timeout: 20_000 });
+  const back = page.getByRole("link", { name: "返回原网站" });
+  await expect(back).toHaveAttribute("href", `${payingHost.origin}/thanks`);
+  await expect(back).toHaveAttribute("rel", "noopener noreferrer");
+
+  // 平台订单详情：来源是嵌入组件，带嵌入码名称和网站
+  const detail = await request.get(`/platform/v1/orders/${orderId}`, { headers: await platformAdminHeaders(request) });
+  expect(detail.status(), await detail.text()).toBe(200);
+  expect(((await detail.json()) as { entry_source: unknown }).entry_source).toEqual({ kind: "embed", embed_key_id: key.id, embed_key_name: keyName, embed_origin: payingHost.origin, delivery: "redirect" });
+});
+
+test("嵌入组件（M9E-22）：白名单网站 + 启用的嵌入码显示表单；表单开着时嵌入码被停用，提交说明这个网站暂时不能直接预订并给主站链接；停用后新打开显示「暂时无法使用」、没有表单，控制台写明要先查嵌入码是否停用", async ({ browser, request }) => {
+  test.setTimeout(120_000);
+  const world = await createWorld(request);
+  const airport = await createAirport(request, world);
+  await useNewEmbedKey(request);
+  const open = async (): Promise<{ page: Page; errors: string[] }> => {
+    // 新的浏览器上下文：配置应答在浏览器里缓存 60 秒
+    const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    await embedHostAsProduction(context, SITE);
+    const page = await context.newPage();
+    const errors: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "error") errors.push(message.text());
+    });
+    await page.goto(allowedHost.origin);
+    return { page, errors };
+  };
+
+  // (a) 白名单网站 + 启用的嵌入码：显示表单，控制台没有组件的报错
+  const active = await open();
+  await expect(active.page.getByRole("combobox", { name: "出发地" })).toBeVisible();
+  await expect(active.page.getByRole("button", { name: "查看价格" })).toBeVisible();
+  await expect(active.page.getByText("预订组件暂时无法使用", { exact: false })).toHaveCount(0);
+  expect(active.errors.filter((text) => text.startsWith("NozomiBooking"))).toEqual([]);
+  await choosePlace(active.page, "出发地", airport.name);
+  await choosePlace(active.page, "目的地", airport.name);
+  await active.page.getByLabel("日期").fill(dayAfterTomorrow());
+
+  // (b) 运营后台停用这个嵌入码
+  const listed = (await (await request.get("/platform/v1/embed-keys", { headers: await platformAdminHeaders(request) })).json()) as { items: { id: string; key: string; version: number; name: string; allowed_origins: string[] }[] };
+  const current = listed.items.find((item) => item.key === embedKey);
+  expect(current).toBeDefined();
+  const { id, version, name, allowed_origins } = current as NonNullable<typeof current>;
+  const disabled = await request.patch(`/platform/v1/embed-keys/${id}`, { headers: { ...(await platformAdminHeaders(request)), "if-match": `"${version}"` }, data: { name, allowed_origins, default_lang: "zh", default_services: ["transfer", "charter"], note: null, status: "disabled" } });
+  expect(disabled.status(), await disabled.text()).toBe(200);
+
+  // 表单开着时被停用：建草稿被拒（浏览器里读不出），组件探 GET 配置、主站有应答，按被拒说并给主站链接，不跳转
+  const draftStatuses: number[] = [];
+  active.page.on("requestfailed", (req) => {
+    if (new URL(req.url()).pathname === "/embed/v1/booking-drafts") draftStatuses.push(0);
+  });
+  await active.page.getByRole("button", { name: "查看价格" }).click();
+  const message = active.page.locator('[data-role="message"]');
+  await expect(message).toHaveText("这个网站暂时不能直接预订，请到主站预订。 到主站预订");
+  await expect(message.getByRole("link", { name: "到主站预订" })).toHaveAttribute("href", `${SITE}/book/new`);
+  expect(new URL(active.page.url()).origin, "不跳转").toBe(allowedHost.origin);
+  expect(draftStatuses, "建草稿请求在浏览器里失败（被拒的应答不带 CORS 头）").toEqual([0]);
+  await active.page.context().close();
+
+  // 新打开：被拒，显示「暂时无法使用」和主站链接、不显示表单；控制台写明原因要先查停用
+  const refused = await open();
+  await expect(refused.page.getByText("预订组件暂时无法使用。请稍后刷新，或直接到主站预订。")).toBeVisible();
+  await expect(refused.page.getByRole("link", { name: "到主站预订" })).toHaveAttribute("href", `${SITE}/book/new`);
+  await expect(refused.page.getByRole("button", { name: "查看价格" })).toHaveCount(0);
+  await expect.poll(() => refused.errors.find((text) => text.startsWith("NozomiBooking：主站拒绝了取配置的请求")) ?? null).toMatch(/嵌入码是否已在 NOZOMI 运营后台停用/);
+  await refused.page.context().close();
+});
+
+
+test("嵌入组件横条（M9E-11）：768–1100 宽、日文和英文下，地址框的占位文字、停留时长下拉的文字都不被截断", async ({ browser, request }) => {
+  test.setTimeout(180_000);
+  await useNewEmbedKey(request);
+  const problems: string[] = [];
+  for (const lang of ["ja", "en"] as const) {
+    for (const width of [768, 900, 1024, 1100]) {
+      const context = await browser.newContext({ viewport: { width, height: 900 } });
+      await embedHostAsProduction(context, SITE);
+      const page = await context.newPage();
+      await page.goto(`${allowedHost.origin}/?lang=${lang}&layout=bar`);
+      await page.waitForFunction(() => document.querySelector("#nozomi-booking")?.shadowRoot?.querySelector(".nzb-shell") !== null);
+      // 包车标签才有停留时长；两个标签都量
+      for (const tab of [0, 1]) {
+        const cut = await page.evaluate((index) => {
+          const root = document.querySelector("#nozomi-booking")?.shadowRoot;
+          if (!root) return ["没有组件"];
+          (root.querySelectorAll('[role="tab"]')[index] as HTMLElement | undefined)?.click();
+          const canvas = document.createElement("canvas").getContext("2d") as CanvasRenderingContext2D;
+          const found: string[] = [];
+          const fits = (node: HTMLElement, text: string, what: string): void => {
+            const style = getComputedStyle(node);
+            canvas.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+            const room = node.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+            const need = canvas.measureText(text).width;
+            if (text !== "" && need > room + 1) found.push(`${what}「${text}」需要 ${Math.ceil(need)} px，只有 ${Math.floor(room)} px`);
+          };
+          for (const input of root.querySelectorAll<HTMLInputElement>(".nzb-shell input[placeholder]")) if (input.offsetParent !== null) fits(input, input.placeholder, "占位文字");
+          for (const select of root.querySelectorAll<HTMLSelectElement>(".nzb-shell select")) if (select.offsetParent !== null) fits(select, select.selectedOptions[0]?.text ?? "", "下拉");
+          return found;
+        }, tab);
+        for (const entry of cut) problems.push(`${lang} ${width}px 标签${tab + 1}：${entry}`);
+      }
+      await context.close();
+    }
+  }
+  expect(problems, problems.join("\n")).toEqual([]);
+});

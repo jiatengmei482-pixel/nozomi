@@ -8,7 +8,7 @@ import { overKm } from "@nozomi/domain";
 import type { PriceRuleBody } from "../api/prices.ts";
 import { priceRowText } from "./inventory-form.ts";
 import { type PriceContext, type PriceRow, buildBatch, includedKmSentence, lowestText, mergePriceRow, readRow, rowChange, rowFromRule, rowOverlaps, tableCoverage } from "./price-form.ts";
-import { applyCopy, copyDraftFor, copyDraftIssues, emptyRouteDraft, planCopy, planRoute, routeDraftIssues, routeIssue, routePlanText, routesIn } from "./route-prices.ts";
+import { applyCopy, copyDraftFor, copyDraftIssues, copyGroupOptions, emptyRouteDraft, planCopy, planRoute, routeDraftIssues, routeIssue, routePlanText, routesIn } from "./route-prices.ts";
 
 const A = "area-a";
 const B = "area-b";
@@ -120,6 +120,16 @@ test("复制线路：默认反方向；只调价格（按比例四舍五入）�
   assert.equal(applied.length, 5);
   // 从行的「更多」进来：只复制那一行
   assert.equal(planCopy(source, copyDraftFor(source, { from: A, to: B }, p2p, "s2"), p2p).added.length, 1);
+});
+
+test("复制线路的车型组按页面上车型组的顺序排，不随哪一行先改过、排在前面而变（M8-12 验收观察 3）", () => {
+  // G2 那一行在前（例如改过以后排到了前面）
+  const source = [rowOf(rule("s2", { vehicle_group_id: G2 })), rowOf(rule("s1"))];
+  assert.deepEqual(copyGroupOptions(source, { from: A, to: B }, p2p, [G1, G2]), [G1, G2]);
+  assert.deepEqual(copyDraftFor(source, { from: A, to: B }, p2p, null, undefined, [G1, G2]).groups, [G1, G2]);
+  // 已经从商品去掉的车型组排最后
+  const removed = rowOf(rule("s3", { vehicle_group_id: "vg-removed" }));
+  assert.deepEqual(copyGroupOptions([removed, ...source], { from: A, to: B }, p2p, [G1, G2]), [G1, G2, "vg-removed"]);
 });
 
 test("载入最新内容按格子合：我改的格子留我的，别人改的别的格子换成最新的；同一格两人改得不一样标为冲突", () => {

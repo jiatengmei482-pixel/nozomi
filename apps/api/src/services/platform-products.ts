@@ -7,6 +7,7 @@
  *   只是租户编号来自「这个商品属于谁」，而不是登录令牌——这是平台员工的跨租户操作（ADR 0003）。
  * - 平台可以看结算价（规则 4 只限制 `/tenant/v1`）；这里不算对外价、不取加价比例。
  */
+import { type CharterAirportsView, getCharterAirportsForPlatform } from "./charter-airports.ts";
 import type { InventoryMode } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
@@ -23,7 +24,7 @@ import {
 } from "../repos/products.ts";
 import { type TenantStatus, findTenantForPlatform } from "../repos/tenants.ts";
 import { notFound } from "./errors.ts";
-import { type AdjustRulesView, type PriceRulesView, adjustRulesView, loadPricingContext, priceRulesView } from "./prices.ts";
+import { type AdjustRulesView, type CharterMigrationDiffView, type PriceRulesView, adjustRulesView, charterMigrationDiffView, loadPricingContext, priceRulesView } from "./prices.ts";
 import { type ProductView, type PublishCheckView, type ServiceRulesView, detail, publishCheckOf, serviceRulesView } from "./products.ts";
 
 export interface ProductTenantRef {
@@ -93,6 +94,33 @@ export interface PlatformProductDetail {
 }
 
 /** 一个商品的只读详情。不存在的编号 404（不区分属于哪个供应商）。 */
+/** 运营看一个包车商品的三层区域迁移差异（M9P-05，ADR 0093 第六节第 1 小节）：平台只读事务，任何供应商的商品 */
+export function getPlatformCharterMigrationDiff(ctx: AppContext, id: string): Promise<CharterMigrationDiffView> {
+  const now = ctx.now();
+  return withPlatformTx(
+    ctx.pool,
+    async (db) => {
+      const found = await findProductAcrossTenants(db, id);
+      if (!found) throw notFound("商品");
+      return charterMigrationDiffView(await loadPricingContext(db, found.tenantId, found.product.id, now, { lock: false }));
+    },
+    { snapshot: true },
+  );
+}
+
+/** 运营后台只读查看一个包车商品的机场绑定（M9P-21，ADR 0098 第三节第 8 小节），任何一家的商品 */
+export function getPlatformCharterAirports(ctx: AppContext, id: string): Promise<CharterAirportsView> {
+  return withPlatformTx(
+    ctx.pool,
+    async (db) => {
+      const found = await findProductAcrossTenants(db, id);
+      if (!found) throw notFound("商品");
+      return getCharterAirportsForPlatform(db, found.tenantId, found.product.id, found.product.version);
+    },
+    { snapshot: true },
+  );
+}
+
 export function getPlatformProduct(ctx: AppContext, id: string): Promise<PlatformProductDetail> {
   const now = ctx.now();
   return withPlatformTx(
@@ -107,7 +135,7 @@ export function getPlatformProduct(ctx: AppContext, id: string): Promise<Platfor
       return {
         tenant: { id: tenant.id, name: tenant.name, status: tenant.status },
         view: await detail(db, tenantId, product),
-        serviceRules: await serviceRulesView(db, tenantId, product),
+        serviceRules: await serviceRulesView(db, tenantId, product, now),
         prices: priceRulesView(pricing, product, pricing.priceRules),
         adjusts: adjustRulesView(pricing),
         inventory: {

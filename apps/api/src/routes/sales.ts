@@ -11,7 +11,7 @@
  */
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { MESSAGING_APPS, PRICE_LIMITS, QUOTE_RULES, SERVICE_CATEGORIES, TRIP_DIRECTIONS } from "@nozomi/domain";
+import { FLIGHT_KINDS, MESSAGING_APPS, PRICE_LIMITS, QUOTE_RULES, SERVICE_CATEGORIES, TRIP_DIRECTIONS } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { AppError } from "../errors.ts";
@@ -61,6 +61,7 @@ const orderSchema = z
     quote_id: z.string().regex(quoteIdSchema, "不是 quote_id 的格式（QT + 日期 + 10 位）"),
     passenger: passengerInput(),
     flight_no: text(20),
+    flight_kind: z.enum(FLIGHT_KINDS).nullable().default(null),
     pickup_address: singleLine(1_000).nullable().default(null),
     dropoff_address: singleLine(1_000).nullable().default(null),
     messaging: z.object({ app: z.enum(MESSAGING_APPS), handle: z.string().max(200) }).strict().nullable().default(null),
@@ -164,10 +165,19 @@ function orderDistanceJson(view: Pick<SalesOrderView, "order" | "sale">): Record
   return distance === null ? null : { included_km: distance.includedKm, route_meters: distance.routeMeters, over_km: distance.overKm, over_km_per_km: salesMoney(distance.overKmPerKmMinor, distance.currency) };
 }
 
+/**
+ * 渠道看到的经停点：不带指定到达时间（`arrive_by`，M9P-20 P3 只在官网开放，ADR 0096 第十节第 7 条：`/sales/v1` 本期不开放）。
+ * 渠道自己下的单本来就没有；官网渠道用渠道凭证读官网的单时也去掉，接口说明不变。
+ */
+function salesWaypointsJson(waypoints: SalesOrderView["order"]["waypoints"]): Record<string, unknown>[] | null {
+  return waypoints === null ? null : waypoints.map(({ arrive_by: _arriveBy, ...stop }) => stop);
+}
+
 export function salesOrderJson(view: SalesOrderView, now: Date): Record<string, unknown> {
   const { order, sale, payment } = view;
   return {
     ...orderTripJson(order),
+    waypoints: salesWaypointsJson(order.waypoints),
     quote_id: sale.quoteId,
     channel_order_no: sale.channelOrderNo,
     price: { total: salesMoney(sale.sellMinor, sale.currency), fx: sale.fx === null ? null : { rate: sale.fx.rate, as_of: sale.fx.asOf } },
@@ -232,11 +242,15 @@ export function registerSalesRoutes(app: FastifyInstance, ctx: AppContext): void
         driverLanguage: input.driver_language,
         vehicleGroupIds: input.vehicle_group_ids,
         currency: input.currency,
+        // 包车：渠道选的时长就是客人选的档（ADR 0093 第四节）——低于商品的最低套餐不报（ADR 0091 待确认第 3 条推荐「拦」），不收超时费，比价严格取最低
+        ...(input.category === "charter" ? { charterSelection: "manual" as const } : {}),
       },
       // 一个价都报不出时另记「未覆盖需求」（ADR 0075）：限流按 API 客户端，渠道接口没有地点名称
-      { log: request.log, request: { ...input, service_time: input.service_time.toISOString() }, demand: { channelKind: "sales", sourceKey: principal.apiClientId, pickupName: null, dropoffName: null, log: request.log } },
+      // 询价日志记 charter_selection（回放据此重现选档，ADR 0093 第四节）
+      { log: request.log, request: { ...input, service_time: input.service_time.toISOString(), ...(input.category === "charter" ? { charter_selection: "manual" } : {}) }, demand: { channelKind: "sales", sourceKey: principal.apiClientId, pickupName: null, dropoffName: null, log: request.log } },
     );
-    return { quotes: result.quotes.map(quoteJson), unavailable: result.unavailable.map((entry) => ({ vehicle_group_id: entry.vehicleGroupId, reasons: entry.reasons })) };
+    // `min_package_hours`：原因里有 PACKAGE_TOO_SHORT 时才给（ADR 0093 第四节第 7 条）
+    return { quotes: result.quotes.map(quoteJson), unavailable: result.unavailable.map((entry) => ({ vehicle_group_id: entry.vehicleGroupId, reasons: entry.reasons, ...(entry.minPackageHours === undefined ? {} : { min_package_hours: entry.minPackageHours }) })) };
   });
 
   app.post("/sales/v1/orders", async (request, reply) => {
@@ -252,6 +266,7 @@ export function registerSalesRoutes(app: FastifyInstance, ctx: AppContext): void
         details: {
           passenger: input.passenger,
           flightNo: input.flight_no,
+          flightKind: input.flight_kind,
           pickupAddress: input.pickup_address,
           dropoffAddress: input.dropoff_address,
           messaging: input.messaging,

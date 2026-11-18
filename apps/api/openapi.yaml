@@ -124,6 +124,8 @@ tags:
     description: |
       推送给供应商（ADR 0027）：供应商设置接收地址和订阅的事件，平台签名（HMAC-SHA256，`X-Timestamp` + `X-Signature: v1=…`，5 分钟防重放）后推送，
       失败按 1–5–30 分钟、2–6–24 小时重试，最终失败可在供应商后台和运营后台看到并手动重推。出站请求防 SSRF。
+  - name: 嵌入组件
+    description: 合作网站上的预订组件（ADR 0090）：运营后台管理嵌入码和域名白名单；`/embed/v1` 只对白名单里的网站跨域开放
   - name: 官网
     description: |
       `/site/v1`：官网（自营渠道）给浏览器的公开接口（ADR 0032；M3-10 起接送机、点对点、包车都能订，ADR 0035）。浏览器不持有渠道密钥：服务端以 `SITE_CLIENT_ID` 指定的 API 客户端身份调用和 `/sales/v1` 同一套询价、下单、取消、改单、落地、异议流程。
@@ -1676,7 +1678,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ items, fx_center, routes, static_maps ]
+                required: [ items, fx_center, routes, static_maps, routes_optimize ]
                 properties:
                   items:
                     type: array
@@ -1744,6 +1746,42 @@ paths:
                     description: |
                       官网路线小地图（谷歌 Maps Static API，ADR 0072）的运行状态，口径同 `routes`、单独计数：今天的调用次数、每日上限（`GOOGLE_STATIC_MAPS_DAILY_LIMIT`）、是否已到上限、
                       失败和被上限挡下的次数，最近一次成功、最近一次失败（原因代码同 domain 的 `STATIC_MAP_FAILURE_CODES`，如 `API_NOT_ENABLED` 表示谷歌云项目没开通 Maps Static API）。不含密钥和谷歌返回的原文。
+                    additionalProperties: false
+                    required: [ day, calls, daily_limit, daily_limit_reached, failures, refused, last_success_at, last_failure ]
+                    properties:
+                      day:
+                        type: string
+                        format: date
+                      calls:
+                        type: integer
+                      daily_limit:
+                        type: integer
+                      daily_limit_reached:
+                        type: boolean
+                      failures:
+                        type: integer
+                      refused:
+                        type: integer
+                      last_success_at:
+                        type: [ string, "null" ]
+                        format: date-time
+                      last_failure:
+                        type: [ object, "null" ]
+                        additionalProperties: false
+                        required: [ code, message, at ]
+                        properties:
+                          code:
+                            type: string
+                          message:
+                            type: [ string, "null" ]
+                          at:
+                            type: string
+                            format: date-time
+                  routes_optimize:
+                    type: object
+                    description: |
+                      包车经停顺序建议的优化调用（谷歌 Routes `optimizeWaypointOrder`，Compute Routes Pro，M9P-20 P2，ADR 0096 第三节第 2 小节）的运行状态，口径同 `routes`、单独计数：
+                      今天的调用次数（每段一次、重试各算一次）、每日上限（`GOOGLE_ROUTES_OPTIMIZE_DAILY_LIMIT`，默认 150）、是否已到上限、失败和被上限挡下的次数，最近一次成功、最近一次失败。
                     additionalProperties: false
                     required: [ day, calls, daily_limit, daily_limit_reached, failures, refused, last_success_at, last_failure ]
                     properties:
@@ -2046,6 +2084,16 @@ paths:
           schema:
             type: string
             format: date-time
+        - name: rows
+          in: query
+          description: |
+            M9P-14：给 `true` 时 `replay` 多一项 `resultRows`（逐行明细：询价编号、商品编码、这一行的摘要、各车型组的档、结算价、超时费、加价拆项），
+            部署前后各取一次，用 `pnpm replay:classify 前.json 后.json [--allow 类别,…] [--expect-state-change]` 按 ADR 0093 第六节第 5 小节归类（类别、前后金额）。不给时应答和以前一字不差。
+            逐行明细有价格，只读核对工作流的公开产物不放。审计的改后值多记 `rows: true`。
+            **建议 `days` 不超过 7**：30 天的测试站约 2,500 行，应答有几 MB，回放还受 45 秒时限；要看更长的窗口就分几段 `until` 取
+          schema:
+            type: string
+            enum: [ "true" ]
       responses:
         "200":
           description: 清单
@@ -2590,6 +2638,25 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/products/{id}/charter-airports:
+    get:
+      tags: [ 商品 ]
+      operationId: getPlatformProductCharterAirports
+      summary: 包车机场套餐的机场绑定（运营只读）
+      description: 需要操作 `product.read`。M9P-21（ADR 0098 第三节第 8 小节）：任何一家的包车商品的机场绑定，内容同 `GET /tenant/v1/products/{id}/charter-airports`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 机场绑定
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CharterAirports"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
   /platform/v1/products/{id}:
     get:
       tags: [ 供应商商品（平台） ]
@@ -2615,6 +2682,47 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PlatformProductDetail"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/products/{id}/charter-migration-diff:
+    get:
+      tags: [ 供应商商品（平台） ]
+      operationId: getPlatformCharterMigrationDiff
+      summary: 包车三层区域迁移的「套餐价不一致」逐条明细
+      description: |
+        需要操作 `product.read`（M9P-05，ADR 0093 第六节第 1 小节）。迁移过三层区域的包车商品：保留的旧按服务区域套餐价里，和整商品套餐价
+        （同车型组、套餐、生效开始日）不一样的那些（含整商品没有对应行的）。不存，随时由旧行现算。没迁移过的商品、别的品类：`items` 是空数组。
+        金额是供应商的结算价。只读、不写审计日志。不存在的编号 404。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 逐条明细
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CharterMigrationDiff"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/products/{id}/trip-rules:
+    get:
+      tags: [ 供应商商品（平台） ]
+      operationId: getPlatformProductTripRules
+      summary: 包车商品的跨段规则配置（运营只读）
+      description: 需要操作 `product.read`。M9T-02（ADR 0101 第五节）：任何一家的包车商品的跨段规则，内容同 `GET /tenant/v1/products/{id}/trip-rules`。只读、不写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 跨段规则
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TripRules"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
   /platform/v1/city-options:
@@ -4805,6 +4913,9 @@ paths:
         - 用途 `role`（M8-20，ADR 0075）不给 = 不改。改成运营区域时，有商品（任何状态）把它当报价区域用着（商品区域、区域加价、线路价）就不能改（409 `AREA_IN_USE`）。
           改小运营区域、改业务类型、把运营 + 报价改成报价区域，让已上架商品的报价区域多出「不在运营区域里」的部分时 409 `PRICING_AREA_OUTSIDE_OPERATING`。
           报价区域超出运营区域只提醒（`outside_operating_m2`），不拦保存。
+        - 包车三层区域（M9P-13，ADR 0093 第七节；#247 审查建议）：图形变了时，应答另带 `charter_layer_overlaps`——用到这个区域的包车商品（任何状态）里，
+          它和同一商品别的区域在同一层（①基础价、②行程、③上下车加价）或①和③之间的重叠（不到 0.01 平方公里的不算）。**只提醒、不拦保存**；图形没变、或没有重叠时不带这个字段（应答和以前一样）。
+          同样的重叠在商品的上架检查里列为 `charter_layer_overlap`（提醒）。
         有变化时 `version` 加一并写审计日志（`action` = `update`，前后值只含变了的那几项）。区域停用时、所属城市被平台停用后也可以改。
       security:
         - tenantToken: []
@@ -4819,11 +4930,11 @@ paths:
               $ref: "#/components/schemas/AreaUpdate"
       responses:
         "200":
-          description: 修改后的区域
+          description: 修改后的区域；改了图形、有三层重叠时另带 `charter_layer_overlaps`
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Area"
+                $ref: "#/components/schemas/AreaSaved"
         "400":
           $ref: "#/components/responses/AreaInvalid"
         "404":
@@ -5045,7 +5156,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Area"
+                $ref: "#/components/schemas/AreaSaved"
         "400":
           $ref: "#/components/responses/AreaInvalid"
         "404":
@@ -5175,6 +5286,39 @@ paths:
                 $ref: "#/components/schemas/SharedAreaDetail"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/area-layers:
+    get:
+      tags: [ 区域 ]
+      operationId: getTenantAreaLayers
+      summary: 区域在哪些商品里当哪一层
+      description: |
+        M9P-13（ADR 0093 第一节、第七节「后续」）。需要操作 `area.read`。本供应商的每个商品（任何状态）用到的区域，按三层分：
+        `base` ①基础价区域（商品的服务区域，按优先级）、`itinerary` ②行程区域（行程加价规则的区域）、`pickup_dropoff` ③上下车加价区域（上下车加价规则的区域）。
+        规则不分启用停用都算（和保存时的三层重叠校验同一个口径）。接送机、点对点商品只有 `base`。一个区域都没有的商品不列。按商品编码排。
+        区域详情用它写「在哪些商品里当什么用」，区域地图用它按商品和层筛选、标红重叠（重叠由页面用 `@nozomi/domain` 的 `charterLayerConflictPieces` 在浏览器里算）。只读。
+        不接受任何查询参数（`tenant_id` 只来自令牌）。
+      security:
+        - tenantToken: []
+      responses:
+        "200":
+          description: 商品和它们的三层区域
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ProductAreaLayers"
+        "400":
+          description: "`VALIDATION_FAILED`：带了查询参数（这个接口不接受任何查询参数）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /tenant/v1/area-map:
     get:
       tags: [ 区域 ]
@@ -5491,6 +5635,8 @@ paths:
         需要操作 `product.manage`。必须带 `If-Match`（商品只有一个版本号：它下面任何一部分变了都加一）。
         `areas`、`vehicle_groups`、`dispatchers` 带了哪个就整体替换哪个，没带的不动；可以分步保存。
         - 区域：只能选本供应商自己的、商品所在城市的、业务类型和品类相同或「通用」的区域；顺序就是优先级；新选的必须是启用中的。
+          包车（M9P-06，ADR 0093 第七节）：新选的服务区域（基础价区域）不能和别的服务区域重叠（400 `AREA_LAYER_OVERLAP`），不能和这个商品上下车加价的区域重叠（400 `AREA_BASE_SURCHARGE_OVERLAP`），
+          不能就是某条上下车加价的区域（400 `VALIDATION_FAILED`，原因 `AREA_IS_PRODUCT_AREA`）；只有边界接触（小于 0.01 平方公里）不算，已经选着的不回头拦。
         - 车型组：平台主数据；每个选一个「人数 / 行李数」组合，必须是这个车型组的可选组合之一；新选的必须是启用中的。
         - 调度人：姓名 + 电话。
         - `brand_id`、`city_id`、`category`、`poi_id` 不能改：带了且和现有的不同返回 409 `FIELD_LOCKED`。
@@ -5614,6 +5760,93 @@ paths:
           description: |
             - `VERSION_CONFLICT`：版本号不是最新的
             - `PUBLISH_CHECK_FAILED`：商品是已上架的，这样改完就不满足上架条件了
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+  /tenant/v1/products/{id}/charter-airports:
+    get:
+      tags: [ 商品 ]
+      operationId: getProductCharterAirports
+      summary: 包车机场套餐的机场绑定
+      description: |
+        需要操作 `product.read`。M9P-21（ADR 0098 第三节第 2 小节）：机场开始（`airport_start`）/ 机场结束（`airport_end`）各绑哪些机场、用哪块机场区域判断。
+        `effective` 为 false：机场区域或机场已停用，报价时这条不生效。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 机场绑定
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CharterAirports"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    put:
+      tags: [ 商品 ]
+      operationId: putProductCharterAirports
+      summary: 保存包车机场套餐的机场绑定（整组替换）
+      description: |
+        需要操作 `product.manage`。必须带 `If-Match`（商品的版本号）；保存后商品版本号加一。
+        - 只有迁移过三层区域的包车商品能设（400 `CHARTER_LAYOUT_NOT_MIGRATED`）。
+        - 机场区域只用来判断上 / 下车点在不在机场：本租户任何业务类型、任何用途的区域都行（别的租户的、不存在的按 404）；新选的不能是停用的（`AREA_DISABLED`）。
+        - 机场区域要被本商品的服务区域 ∪ 上下车加价区域完全覆盖（`AIRPORT_AREA_NOT_COVERED`，`detail.uncovered_m2`）。
+        - 机场（主数据，启用中的机场，否则 `UNKNOWN_AIRPORT`）和它所有启用的航站楼都要在机场区域里（`AIRPORT_NOT_IN_AREA`，`detail.places` 是不在的编码，逗号分隔）。
+        - 一个场景最多 10 个机场（`TOO_MANY`）；同一场景同一机场、同一机场区域只能出现一次（`DUPLICATE`）；中文简称 1–20 字。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ bindings ]
+              properties:
+                bindings:
+                  type: array
+                  maxItems: 100
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [ scenario, place_id, area_id ]
+                    properties:
+                      scenario:
+                        type: string
+                        enum: [ airport_start, airport_end ]
+                      place_id:
+                        type: string
+                        format: uuid
+                      area_id:
+                        type: string
+                        format: uuid
+                      short_name_zh:
+                        type: [ string, "null" ]
+                        description: 前台名称里的机场名（如「成田机场」）；不填用主数据的中文名
+      responses:
+        "200":
+          description: 保存后的机场绑定
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CharterAirports"
+        "400":
+          $ref: "#/components/responses/ProductInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `VERSION_CONFLICT`：版本号不是最新的
+            - `AIRPORT_PRICES_EXIST`：解绑的机场区域 × 场景还有机场套餐价，先删价格
           content:
             application/json:
               schema:
@@ -5871,6 +6104,11 @@ paths:
         包车区域加价 `charter_area_surcharge`（M8-15，ADR 0073）填 `pickup_surcharge`、`dropoff_surcharge` 和 `package_hours`，`waypoint_surcharge`（途经加价，M9W-01，ADR 0088）可不填（不填 = 对经停点没有规则）；它的 `area_id` 是加价区域：
         本租户的报价区域就行（不必是商品选的；不能是商品本身的区域 400 `AREA_IS_PRODUCT_AREA`；业务类型要是包车或通用 400 `AREA_NOT_USABLE`；用途要是报价区域或运营 + 报价 400 `AREA_ROLE_NOT_PRICING`（M8-20）；新选的不能是停用的 400 `AREA_DISABLED`）；
         区域不存在或是别的租户的：404（不区分）。加价区域不加进商品的区域列表。
+        包车三层区域（M9P-05，ADR 0093）：②行程加价 `charter_itinerary_surcharge` 填 `itinerary_surcharge`（区域可以是商品的服务区域）；整商品套餐价 `area_id` 为 null；②③的 `package_hours` 可为 null（= 所有套餐）。
+        这三种只有迁移过三层区域的商品（价格规则应答的 `charter_layout = three_layer`）能用，否则 400 `CHARTER_LAYOUT_NOT_MIGRATED`；
+        迁移过的商品不能新建、修改按服务区域的套餐价和上下车加价里的 `waypoint_surcharge`（迁移前的旧数据，只读；删除可以）：400 `CHARTER_LEGACY_READ_ONLY`。批量保存同样。
+        包车同层不重叠（M9P-06，ADR 0093 第七节）：这次新加进行程加价 / 上下车加价的区域，和同一层已有的区域重叠（≥ 0.01 平方公里）→ 400 `AREA_LAYER_OVERLAP`；
+        新加进上下车加价的区域和商品的服务区域重叠 → 400 `AREA_BASE_SURCHARGE_OVERLAP`。`details` 有 `areas`（两个区域名）、`area_ids`、`overlap_km2`（平方公里，两位小数）、`layer`、`overlaps`（全部）。已有的重叠不拦。
         点对点（M8-11，ADR 0073 第二部分）：
         - `to_area_id`（下车区域）可填：不填 = 区域价（和以前一样）；填了 = **单向线路价**，只管上车点在 `area_id`、下车点在 `to_area_id` 的单。
           必须是这个商品选的区域（400 `AREA_NOT_IN_PRODUCT`，路径 `/to_area_id`），不能等于 `area_id`（400 `SAME_AREA`）；不存在或是别的租户的区域 404。
@@ -6048,6 +6286,89 @@ paths:
             - `VERSION_CONFLICT`：商品已经被别人改过（`details.current_version` 是现在的版本号）
             - `PUBLISH_CHECK_FAILED`：商品已上架，这样改完就不满足上架条件了（`details.items` 同上架校验）
             - `CONCURRENT_UPDATE`：和别人同时进行的修改撞上了，什么都没有改动，请重试
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+  /tenant/v1/products/{id}/charter-migration-diff:
+    get:
+      tags: [ 价格 ]
+      operationId: getCharterMigrationDiff
+      summary: 包车三层区域迁移的「套餐价不一致」逐条明细
+      description: |
+        需要操作 `product.read`（M9P-05，ADR 0093 第六节第 1 小节）。同 `GET /platform/v1/products/{id}/charter-migration-diff`，只看得到自己的商品
+        （别的供应商的商品 404）；只有结算价，没有对外价和加价比例。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 逐条明细
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CharterMigrationDiff"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/products/{id}/trip-rules:
+    get:
+      tags: [ 商品 ]
+      operationId: getProductTripRules
+      summary: 包车商品的跨段规则配置（住宿、停驻、工时与第二司机、附加项去重、返程）
+      description: |
+        需要操作 `product.read`。M9T-02（ADR 0101 第四、五节）：`saved` 是保存的配置（没存过为 null），`effective` 是合并默认值后的生效值。
+        金额是商品结算币种（`settlement_currency`）的最小单位、只有结算价；比例是基点；时长是分钟。结算币种不是日元时，默认的住宿 / 停驻金额不生效（为 null）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 跨段规则
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TripRules"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    put:
+      tags: [ 商品 ]
+      operationId: putProductTripRules
+      summary: 保存包车商品的跨段规则配置（整体替换）
+      description: |
+        需要操作 `product.manage`。必须带 `If-Match`（商品的版本号）；保存后商品版本号加一、`rules_version` 加一、写审计。内容和已存的一样时、或没存过又提交空配置（`{}`、只有空分组）时不写、不改版本号。
+        - 只有包车商品能设（400 `TRIP_RULES_NOT_APPLICABLE`）。
+        - 校验不过是 400 `VALIDATION_FAILED`，`details.issues[].reason` 为下列之一：
+        - 只认已知的键（`UNKNOWN_KEY`）；分组或字段类型不对（`INVALID`）；金额 0–10 亿、比例 0–10000 基点、分钟 0–2880、公里 0–5000（`OUT_OF_RANGE`）；
+          `maxBindMinutes ≤ hardMaxBindMinutes`、`absoluteMinRestMinutes ≤ minRestMinutes`（合并默认值后比较，`ORDER`）。
+        - `lodging.byArea` 只能选本商品的服务区域或上下车加价区域（`AREA_NOT_FOUND`），`returnTrip.fixedByCity` 只能选平台启用城市（`CITY_NOT_FOUND`），各最多 50 条、不重复（`DUPLICATE`）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TripRuleConfig"
+      responses:
+        "200":
+          description: 保存后的跨段规则
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TripRules"
+        "400":
+          $ref: "#/components/responses/ProductInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`VERSION_CONFLICT`：版本号不是最新的"
           content:
             application/json:
               schema:
@@ -7861,7 +8182,7 @@ paths:
       tags: [ 渠道 ]
       operationId: listChannelQuoteLogs
       summary: 渠道的询价日志
-      description: 需要操作 `channel.read`。按时间从新到旧。每次 `/sales/v1/quotes` 一条：请求、候选数、报出的报价和中标租户。全部候选的排序依据和没报出价的原因存在库里（`quote_logs.bids` / `rejects`）。
+      description: 需要操作 `channel.read`。按时间从新到旧。每次 `/sales/v1/quotes` 一条：请求、候选数、报出的报价和中标租户、没报出价的每一条（商品、车型组、原始原因码，M9W-10）。全部候选的排序依据存在库里（`quote_logs.bids`）。
       security:
         - platformToken: []
       parameters:
@@ -8174,6 +8495,9 @@ paths:
         应答里的 `payment.client_secret` 交给客人的浏览器，用 Stripe.js 确认付款（会保存支付方式，用于服务后加收）；付款成功后平台收到 Stripe 的通知，订单自动确认（租户不能拒单）。
         Stripe 没配置 503 `PAYMENT_NOT_CONFIGURED`。收款服务出错 502 / 504（`PAYMENT_PROVIDER_*`，`details` 里有订单号），用同一个 `Idempotency-Key` 重试即可，不会重复下单。
         每个渠道每秒最多 10 次。
+
+        **接机的免费等待按航班定（M9E-28，ADR 0097）**：机场接机带上 `flight_kind`（`international` / `domestic`），下单时锁定：国际航班 90 分钟、国内航班 60 分钟；不给按「航班类型未确认」锁 60（M9E-31 起平台统一，不看商品设的分钟数，商品设得更长或「不限时」也一样）。报价里的 `free_wait_minutes` 是商品自己设的值、不是客人实际得到的，最终分钟数以订单的 `free_wait_minutes` 和 `free_wait_basis` 为准。
+        **注意：点对点单填了 `flight_no` 就表示「从机场接人」**（认出机场、改用点对点商品报价的接机），会按上面的规则锁定 90 / 60 分钟的免费等待。送机、市内点对点**不要**填 `flight_no`；送机的航班号请写在 `notes` 里。
       security:
         - salesToken: []
       parameters:
@@ -8296,7 +8620,8 @@ paths:
       description: |
         客人改单（ADR 0029、0060）。`If-Match` 带订单的 `version`。只给要改的字段：
         - 乘客信息、即时通讯、备注：**直接生效**，通知供应商和已派的司机；
-        - `service_time`、`pickup_address`、`dropoff_address`、`flight_no`、`passengers`、`luggage`：**返回 200 但订单内容不变**，生成修改申请（`change.status` = `pending_confirmation`），供应商同意才生效，确认前原预约有效。一次提交里两类都有就拆成两次改单，`change` 返回申请那一次；
+        - `service_time`、`pickup_address`、`dropoff_address`、`flight_no`、`flight_kind`、`passengers`、`luggage`：**返回 200 但订单内容不变**，生成修改申请（`change.status` = `pending_confirmation`），供应商同意才生效，确认前原预约有效。一次提交里两类都有就拆成两次改单，`change` 返回申请那一次；
+        - 接机改 `flight_no` / `flight_kind`（M9E-28，ADR 0097）：同意生效时还没派司机的，按新的航班类型重新锁定免费等待（`free_wait_minutes`、`free_wait_basis`），`order.changed` 推送里带 `free_wait_minutes: { before, after }`；已派司机的免费等待不变；
         - `service_time` 同一家供应商按新时间重新报价（不重新比价），对外价按原加价比例和汇率快照；贵了先用保存的支付方式补差价（扣不到 402 `CHANGE_PAYMENT_DECLINED`，这时联系信息已生效、其余没改），便宜了同意时退差价；报不出价 409 `CHANGE_NOT_SERVICEABLE`；
         - 进入最早用车时间前 24 小时后 30 分钟内没结论的申请失效（`expired`）。拒绝或失效：差价退回，只有用车前 24 小时内提出的改期，客人才能按 `CHANGE_NOT_CONFIRMED` 免费取消（`free_cancel_available`），其他按取消政策；
         - 出了免费取消期只能改航班号和乘客信息（409 `CHANGE_NOT_ALLOWED`）；超出车型容量 422 `CHANGE_REQUIRES_REBOOK`；车型、品类、城市、坐标接口里没有（400），按取消重下。
@@ -9938,6 +10263,13 @@ paths:
             type: string
             minLength: 2
             maxLength: 100
+        - name: embed_key_id
+          in: query
+          required: false
+          description: 只看某个嵌入码带来的订单（M9E-21，按订单来源记录）
+          schema:
+            type: string
+            format: uuid
       responses:
         "200":
           description: 一页订单
@@ -10002,7 +10334,10 @@ paths:
                   - pricing_route
                   - pricing_basis
                   - mileage
+                  - entry_source
                 properties:
+                  entry_source:
+                    $ref: "#/components/schemas/OrderEntrySource"
                   pricing_basis:
                     $ref: "#/components/schemas/PricingBasis"
                   mileage:
@@ -12647,6 +12982,659 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "429":
           $ref: "#/components/responses/RateLimited"
+  /platform/v1/embed-keys:
+    get:
+      tags: [ 嵌入组件 ]
+      operationId: listEmbedKeys
+      summary: 嵌入码列表
+      description: M9E-02，ADR 0090。需要 `embed.read`（超级管理员、运营、渠道经理、只读）。
+      security:
+        - platformToken: []
+      responses:
+        "200":
+          description: 嵌入码
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EmbedKey"
+    post:
+      tags: [ 嵌入组件 ]
+      operationId: createEmbedKey
+      summary: 新建嵌入码
+      description: 需要 `embed.manage`（超级管理员、运营、渠道经理）。嵌入码由服务端生成；白名单 1–20 个 origin，规范化后存。写审计。
+      security:
+        - platformToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmbedKeyWrite"
+      responses:
+        "201":
+          description: 建好的嵌入码
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmbedKey"
+  /platform/v1/embed-keys/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [ 嵌入组件 ]
+      operationId: getEmbedKey
+      summary: 嵌入码详情（含合作网站要放的代码）
+      description: 需要 `embed.read`。
+      security:
+        - platformToken: []
+      responses:
+        "200":
+          description: 嵌入码
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmbedKey"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    patch:
+      tags: [ 嵌入组件 ]
+      operationId: updateEmbedKey
+      summary: 修改嵌入码（名称、白名单、默认值、外观、整页嵌入、预订页地址、启用 / 停用）
+      description: 需要 `embed.manage`，请求头 `If-Match` 带当前版本号。改白名单、停用在服务端立即生效（组件的配置应答浏览器缓存 60 秒）。写审计。
+      security:
+        - platformToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/EmbedKeyWrite"
+                - type: object
+                  required: [ status ]
+                  properties:
+                    status:
+                      type: string
+                      enum: [ active, disabled ]
+      responses:
+        "200":
+          description: 改好的嵌入码
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmbedKey"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`VERSION_CONFLICT`：别人已经先改过了"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          description: "`PRECONDITION_REQUIRED`：没带 If-Match"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /embed/v1/config:
+    get:
+      tags: [ 嵌入组件 ]
+      operationId: getEmbedConfig
+      summary: 组件的配置（跨域）
+      description: |
+        合作网站页面上的组件调用。`Origin` 规范化后完全等于这个嵌入码白名单的某一项才回 200 和 `Access-Control-Allow-Origin`；
+        `null`、缺失、不在白名单、嵌入码不存在或停用一律 403，不带 CORS 头。`Cache-Control: private, max-age=60`。
+      security: []
+      parameters:
+        - name: key
+          in: query
+          required: true
+          description: 公开嵌入码（`nze_` 开头）
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 配置
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ lang, services, layout, site_origin ]
+                properties:
+                  lang:
+                    type: string
+                    enum: [ zh, ja, en ]
+                  services:
+                    type: array
+                    items:
+                      type: string
+                      enum: [ transfer, charter ]
+                  layout:
+                    type: string
+                    enum: [ auto, card, bar ]
+                    description: 嵌入码在运营后台设的外观（M9E-14）。组件 init 没传 `layout` 时用它；`auto` 按组件容器宽度选（≥ 900 px 横条，窄了卡片）
+                  site_origin:
+                    type: string
+                    description: 主站的 origin（组件跳转到这里的 /book/new）
+        "403":
+          description: "`EMBED_ORIGIN_NOT_ALLOWED`：嵌入码不存在或停用，或请求的 Origin 不在白名单里（不区分）；不带 CORS 头"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /embed/v1/places/autocomplete:
+    get:
+      tags: [ 嵌入组件 ]
+      operationId: embedPlaceAutocomplete
+      summary: 地址输入即提示（跨域）
+      description: 同 `GET /site/v1/places/autocomplete` 的实现、每地址额度和每日上限；先核白名单，另加每个嵌入码每分钟 600 次。
+      security: []
+      parameters:
+        - name: key
+          in: query
+          required: true
+          description: 公开嵌入码（`nze_` 开头）
+          schema:
+            type: string
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: session
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 候选
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ available, items ]
+                properties:
+                  available:
+                    type: boolean
+                  unavailable_reason:
+                    $ref: "#/components/schemas/SitePlaceUnavailableReason"
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SitePlaceSuggestion"
+        "403":
+          description: "`EMBED_ORIGIN_NOT_ALLOWED`：嵌入码不存在或停用，或请求的 Origin 不在白名单里（不区分）；不带 CORS 头"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /embed/v1/places/details:
+    get:
+      tags: [ 嵌入组件 ]
+      operationId: embedPlaceDetails
+      summary: 选中候选后取坐标（跨域）
+      description: 同 `GET /site/v1/places/details`；先核白名单，另加每个嵌入码每分钟 600 次。
+      security: []
+      parameters:
+        - name: key
+          in: query
+          required: true
+          description: 公开嵌入码（`nze_` 开头）
+          schema:
+            type: string
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: session
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 地点
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ available, place ]
+                properties:
+                  available:
+                    type: boolean
+                  unavailable_reason:
+                    $ref: "#/components/schemas/SitePlaceUnavailableReason"
+                  place:
+                    oneOf:
+                      - type: object
+                        additionalProperties: false
+                        required: [ id, address, location, kind ]
+                        properties:
+                          id:
+                            type: string
+                          address:
+                            type: [ string, "null" ]
+                          location:
+                            type: object
+                            additionalProperties: false
+                            required: [ lat, lng ]
+                            properties:
+                              lat:
+                                type: number
+                              lng:
+                                type: number
+                          kind:
+                            type: string
+                      - type: "null"
+        "403":
+          description: "`EMBED_ORIGIN_NOT_ALLOWED`：嵌入码不存在或停用，或请求的 Origin 不在白名单里（不区分）；不带 CORS 头"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /embed/v1/booking-drafts:
+    post:
+      tags: [ 嵌入组件 ]
+      operationId: createEmbedBookingDraft
+      summary: 建预订草稿（跨域），返回要跳转的主站地址
+      description: |
+        请求体超过 24 KB 在解析前 413。`draft` 按预订条件 v1 逐项严格校验（多一个键就 400）；`return_url` 不合格时忽略（不报错、不存）。
+        限速：每个来源地址 10 分钟 30 次、每个嵌入码每分钟 60 次（429 `RATE_LIMITED`）；每个嵌入码同时有效的草稿最多 5,000 个（429 `EMBED_DRAFT_LIMIT`）。
+        草稿 2 小时有效；来源（嵌入码、网站、返回地址）由服务端记下，只做统计。
+      security: []
+      parameters:
+        - name: key
+          in: query
+          required: true
+          description: 公开嵌入码（`nze_` 开头）
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ draft ]
+              properties:
+                draft:
+                  $ref: "#/components/schemas/BookingDraft"
+                return_url:
+                  type: string
+                  maxLength: 2000
+                  description: 付款后订单页「返回原网站」的地址；它的 origin 必须等于当前网站、并在白名单里
+                delivery:
+                  type: string
+                  enum: [ redirect, host_page ]
+                  description: 选填（M9E-16，ADR 0095）：组件传了 `bookingUrl`、草稿建好后跳合作网站自己的预订页时带 `host_page`；不带按跳主站算。只做统计
+      responses:
+        "201":
+          description: 建好的草稿
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ id, expires_at, url ]
+                properties:
+                  id:
+                    type: string
+                  expires_at:
+                    type: string
+                    format: date-time
+                  url:
+                    type: string
+                    description: 主站 /book/new?draft=<id>
+        "403":
+          description: "`EMBED_ORIGIN_NOT_ALLOWED`：嵌入码不存在或停用，或请求的 Origin 不在白名单里（不区分）；不带 CORS 头"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: "`PAYLOAD_TOO_LARGE`：请求体超过 24 KB"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: "`RATE_LIMITED` 或 `EMBED_DRAFT_LIMIT`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /embed/v1/frame-check:
+    get:
+      tags: [ 嵌入组件 ]
+      operationId: checkEmbedFrameAncestor
+      summary: 嵌入预订页 /embed/book 能不能被这个网站嵌入（Caddy 调用）
+      description: |
+        M9E-16，ADR 0095 第五节第 1 小节。Caddy 打开 `/embed/book` 前用 `forward_auth` 问一次（只转 `key`、`host` 两个参数），
+        204 时把 `X-Nozomi-Frame-Ancestor` 拼进 `frame-ancestors`；非 2xx 的应答原样回给浏览器。
+        **ADR 0090 共同规则的例外**：不看请求的 `Origin`、不回任何 CORS 头，按查询参数 `host` 核对：嵌入码存在、启用、打开了「允许整页嵌入」，
+        `host` 是规范的 origin 并完全等于白名单某一项才放行。其余一律 403，不区分原因。每次都查库（`no-store`）：改白名单、停用在下一次打开时生效。
+        按来源地址单独限速（每分钟 60 次，不占官网的额度），超了 429，同样等于不能嵌。
+      security: []
+      parameters:
+        - name: key
+          in: query
+          required: true
+          description: 公开嵌入码（`nze_` 开头）
+          schema:
+            type: string
+        - name: host
+          in: query
+          required: true
+          description: 宿主网站的 origin（`https://域名`，可带端口）
+          schema:
+            type: string
+      responses:
+        "204":
+          description: 能嵌。`Cache-Control` 为 `no-store`
+          headers:
+            X-Nozomi-Frame-Ancestor:
+              description: 规范化后的宿主 origin，原样写进 `frame-ancestors`
+              schema:
+                type: string
+        "403":
+          description: "不能嵌：一页极简 HTML，带 `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'` 和 `X-Frame-Options: DENY`"
+          content:
+            text/html:
+              schema:
+                type: string
+        "429":
+          description: 超过限速（同样等于不能嵌），正文同 403，带 `Retry-After`
+          content:
+            text/html:
+              schema:
+                type: string
+  /site/v1/booking-drafts/{id}:
+    get:
+      tags: [ 官网 ]
+      operationId: getSiteBookingDraft
+      summary: 读预订草稿（嵌入组件跳过来时预填用）
+      description: |
+        M9E-01，ADR 0090：嵌入组件先把预订条件交给主站暂存成草稿，再跳 `/book/new?draft=<id>`。只给预订条件和到期时刻，
+        不给来源（哪个嵌入码、哪个网站、返回地址）。草稿 2 小时有效，有效期内可以反复打开。
+        过期、不存在、编号格式不对一律 404 `BOOKING_DRAFT_NOT_FOUND`，不区分。不需要登录；每个地址每分钟 60 次；永远不带 CORS 头。
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 43 个 base64url 字符（256 位随机数）
+          schema:
+            type: string
+        - name: key
+          in: query
+          required: false
+          description: 嵌入页（`/embed/book`，M9E-17，ADR 0095）必传：iframe 地址里的嵌入码。带了 `key` 或 `host` 时应答多一个 `source_matches`
+          schema:
+            type: string
+            maxLength: 300
+        - name: host
+          in: query
+          required: false
+          description: 嵌入页必传：iframe 地址里的宿主 origin
+          schema:
+            type: string
+            maxLength: 300
+      responses:
+        "200":
+          description: 草稿
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ draft, expires_at ]
+                properties:
+                  draft:
+                    $ref: "#/components/schemas/BookingDraft"
+                  expires_at:
+                    type: string
+                    format: date-time
+                  source_matches:
+                    type: boolean
+                    description: |
+                      只在带了 `key` 或 `host` 时有：草稿上记的嵌入码、宿主 origin 和这次的完全一样为 true（两个都要带）。
+                      false 时嵌入页照常预填和报价，但询价不带 `draft_id`，来源按主站记。不返回嵌入码和来源本身。
+        "404":
+          description: "`BOOKING_DRAFT_NOT_FOUND`：过期、不存在或编号格式不对（不区分）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /site/v1/trips:
+    post:
+      tags: [ 官网 ]
+      operationId: createSiteTrip
+      summary: 建行程单（AI 行程报价 P1）
+      description: |
+        M9T-03，ADR 0101 第二、三节：校验标准行程单（只收结构化输入：平台地点或坐标、出发时间、停留分钟、人数行李、附加项、偏好的车型组；
+        不收自由文字、航班号、备注、司机语言），存为 `draft`，返回编号（43 个 base64url 字符，凭它访问）。行程单 30 天内可读、可反复报价。
+        平台地点只能是启用的机场 / 车站（400 `UNKNOWN_PLACE`）。官网没开 503 `SITE_NOT_OPEN`。每个地址每分钟 10 次。
+        带有效验收会话时建的是验收行程单（只报 QA 测试供应商，只有验收会话看得到）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TripItinerary"
+      responses:
+        "201":
+          description: 建好的行程单
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ trip_id, status, currency, readable_until ]
+                properties:
+                  trip_id:
+                    type: string
+                    pattern: "^[A-Za-z0-9_-]{43}$"
+                  status:
+                    type: string
+                    enum: [ draft ]
+                  currency:
+                    type: string
+                    description: 官网渠道的结算币种：方案金额都是这个币种
+                  readable_until:
+                    type: string
+                    format: date-time
+        "400":
+          description: "`VALIDATION_FAILED`：`details.issues[].reason` 有 `REQUIRED`、`OUT_OF_RANGE`、`INVALID`、`NOT_ASCENDING`、`NOT_CONSECUTIVE`（日期要连续，不用车的那天写成空闲日）、`FIRST_DAY_IDLE`、`LAST_DAY_IDLE`、`MUST_START_WITH_START`、`TIME_REQUIRED`、`TIME_NOT_ALLOWED`、`END_NOT_LAST`、`STAY_NOT_ALLOWED`、`TOO_FEW_POINTS`、`DUPLICATE`、`UNKNOWN_PLACE`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/trips/{id}:
+    get:
+      tags: [ 官网 ]
+      operationId: getSiteTrip
+      summary: 读行程单和最近一次报价的方案
+      description: |
+        M9T-03，ADR 0101 第三节：行程单原样、最近一次报价报出的方案（过了 30 分钟有效期的标 `expired: true`，要重新报价）、报不出的原因。
+        过期、不存在、编号格式不对、验收会话和普通客人互相看不到，一律 404 `TRIP_NOT_FOUND`。每个地址每分钟 120 次（和官网读接口共用）。
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 43 个 base64url 字符
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 行程单和方案
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteTrip"
+        "404":
+          description: "`TRIP_NOT_FOUND`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/trips/{id}/quote:
+    post:
+      tags: [ 官网 ]
+      operationId: quoteSiteTrip
+      summary: 行程报价（编排 + 分段报价 + 跨段费用 + 方案对比）
+      description: |
+        M9T-03，ADR 0101 第三、四节：按天分段（接机 / 送机 / 点对点 / 包车 / 空闲日），在自然断点试几种拆法，每一段按官网询价同样的规则试算
+        （不生成报价编号；下单前另行逐段正式询价，P1b），再出两个方案：`one_car` 一车到底（同一供应商同一车型组，含司机住宿、停驻、第二司机、
+        附加项去重等跨段费用）和 `daily_best` 每天各自最优（2 天以上用车时）。`daily_best` 便宜 10% 以上推荐它，否则推荐 `one_car`。
+        每次报价重写这一行程的全部方案。行程太长时后面几天只报「不拆」（`degraded: true`），连这样都报不完 422 `TRIP_TOO_COMPLEX`。
+        应答没有结算价、加价比例、供应商编号。每个地址每分钟 5 次、每天 50 次。
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 报价后的行程单和方案（同 `GET /site/v1/trips/{id}`）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteTrip"
+        "400":
+          description: "`VALIDATION_FAILED`：行程里的机场 / 车站已停用（`UNKNOWN_PLACE`）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: "`TRIP_NOT_FOUND`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: "`TRIP_TOO_COMPLEX`：行程太复杂，转人工报价"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/trips/{id}/plans/{planId}/order-quote:
+    post:
+      tags: [ 官网 ]
+      operationId: createSiteTripOrderQuote
+      summary: 单段方案转成普通官网报价（下单出口）
+      description: |
+        M9T-10，ADR 0101 第十三节第 3 小节。整个方案只有一段（例如单日一车到底）时，用这一段的报价条件（段型、品类、城市、开始时刻、各点、人数行李、附加项）
+        走一次官网正式询价（同 `POST /site/v1/quotes`：写询价日志、生成 `quote_id`、30 分钟有效），取方案车型组的那一张。
+        **价格必须等于方案的对外总价**（`plans[].total`），不一样、或这个车型组报不出了时 409 `TRIP_PRICE_CHANGED`（`details.plan_total`、`details.quote_total`，后者报不出时为 null），页面让客人重新报价。
+        成功后凭 `quote.quote_id` 走现有下单、付款（`POST /site/v1/orders`，`/book/new` 的乘客信息、下单、Stripe），不另有付款接口；`quote_request` 是等价的官网询价请求体，页面用它恢复 `/book/new` 的填写状态。
+        行程单不存在、已过期、编号格式不对、不是本渠道、验收会话和普通客人不一致 404 `TRIP_NOT_FOUND`；方案不存在、不是这一行程最近一次报价的、没报出 404 `TRIP_PLAN_NOT_FOUND`；
+        方案过了 30 分钟有效期 409 `TRIP_PLAN_EXPIRED`（重新报价）；方案不止一段（多段方案的预订方式待业主决定）、是空闲日、带跨段费用（一张普通报价放不下）409 `TRIP_PLAN_NOT_SINGLE_SEGMENT`
+        （`details.reason`：`MULTI_SEGMENT` / `IDLE_DAY` / `HAS_FEES`，`details.segment_count`）。这次询价报不出不记未覆盖需求。
+        和官网询价共用额度：每个地址每分钟 30 次。应答没有结算价、加价比例、供应商编号。
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 行程单编号（43 个 base64url 字符）
+          schema:
+            type: string
+        - name: planId
+          in: path
+          required: true
+          description: 方案编号（`plans[].plan_id`）
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                waypoint_names:
+                  type: array
+                  maxItems: 12
+                  description: 可选：包车这一段各经停点的显示名称（按顺序，个数要和经停点一样多，否则 400 `COUNT_MISMATCH`；接送机、点对点只能是空数组）。只随报价锁定、下单时抄进订单给司机看，不影响价格；不带时写「经停 N」
+                  items:
+                    type: string
+                    minLength: 1
+                    maxLength: 200
+      responses:
+        "200":
+          description: 生成的普通官网报价（价格 = 方案对外总价）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteTripOrderQuote"
+        "400":
+          description: "`VALIDATION_FAILED`：`waypoint_names` 个数不对（`COUNT_MISMATCH`）、行程里的机场 / 车站已停用（`UNKNOWN_PLACE`）等"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/QaSessionInvalid"
+        "404":
+          description: "`TRIP_NOT_FOUND`、`TRIP_PLAN_NOT_FOUND`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: "`TRIP_PRICE_CHANGED`、`TRIP_PLAN_EXPIRED`、`TRIP_PLAN_NOT_SINGLE_SEGMENT`：都要客人重新报价或换别的方式预订"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: "`CHANNEL_SCOPE_DENIED`、`ITINERARY_ROUTE_UNAVAILABLE`（同官网询价）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
   /site/v1/config:
     get:
       tags: [ 官网 ]
@@ -12754,6 +13742,150 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "503":
           $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/charter-airports:
+    get:
+      tags: [ 官网 ]
+      operationId: siteCharterAirports
+      summary: 包车快捷入口能选的机场和航站楼
+      description: |
+        M9P-21（ADR 0098 第三节第 7 小节）：「机场接机开始」（`airport_start`）/「机场送机结束」（`airport_end`）能选哪些机场：渠道授权范围里、渠道卖的、迁移过三层区域的包车商品在这个场景下绑定的机场。
+        只列坐标落在机场区域里的启用航站楼（机场没有启用的航站楼时是机场本身一项）；`name` 是前台名称里的机场名（中文简称，没填用主数据中文名）。
+      parameters:
+        - name: scenario
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [ airport_start, airport_end ]
+      responses:
+        "200":
+          description: 机场和航站楼
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [ id, code, name, city_id, terminals ]
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        code:
+                          type: string
+                        name:
+                          type: string
+                        city_id:
+                          type: string
+                          format: uuid
+                        terminals:
+                          type: array
+                          items:
+                            type: object
+                            additionalProperties: false
+                            required: [ id, code, name, location ]
+                            properties:
+                              id:
+                                type: string
+                                format: uuid
+                              code:
+                                type: string
+                              name:
+                                $ref: "#/components/schemas/LocalizedText"
+                              location:
+                                type: object
+                                additionalProperties: false
+                                required: [ lng, lat ]
+                                properties:
+                                  lng:
+                                    type: number
+                                  lat:
+                                    type: number
+        "400":
+          description: "`VALIDATION_FAILED`：`scenario` 没给或不对"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/QaSessionInvalid"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/charter-packages:
+    get:
+      tags: [ 官网 ]
+      operationId: listSiteCharterPackagesAt
+      summary: 按上下车点列包车套餐时长
+      description: |
+        M9P-02（ADR 0093 第三节第 3 条）：包车不再按「上车点所在城市」筛商品。上车点、下车点都落在某个包车商品的基础价区域（商品的服务区域）
+        或上下车加价区域（有启用的区域加价规则的区域）里，这个商品才算匹配；列出匹配到的商品的套餐时长（启用且到城市当地今天还没过期的套餐价，
+        从短到长、不重复）。经停点不影响匹配。`city` 是按哪个城市（匹配到几个城市时只取一个，同 `POST /site/v1/quotes`）；一个都没匹配到时
+        `city` 为 null、`items` 为空（页面说「这个地址暂时没有在线报价」）。按城市列的 `GET /site/v1/cities/{id}/charter-packages` 保留。
+        每个地址每分钟 120 次（和城市、机场列表共用）。
+      parameters:
+        - name: pickup
+          in: query
+          required: true
+          description: 上车点，`纬度,经度`（十进制度数），如 `35.5106,138.7637`
+          schema:
+            type: string
+        - name: dropoff
+          in: query
+          required: true
+          description: 下车点，`纬度,经度`
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 匹配到的城市和套餐时长
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ city, items ]
+                properties:
+                  city:
+                    oneOf:
+                      - type: "null"
+                      - type: object
+                        additionalProperties: false
+                        required: [ id, code, name, timezone ]
+                        properties:
+                          id:
+                            type: string
+                            format: uuid
+                          code:
+                            type: string
+                          name:
+                            $ref: "#/components/schemas/LocalizedText"
+                          timezone:
+                            type: string
+                    description: 按哪个城市；上下车点不在任何包车商品的区域里时为 null
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SiteCharterPackage"
+        "400":
+          description: "`VALIDATION_FAILED`：坐标没给或格式不对"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/QaSessionInvalid"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
   /site/v1/cities/{id}/places:
     get:
       tags: [ 官网 ]
@@ -12833,7 +13965,7 @@ paths:
         `kind`：机场（谷歌的主类型是机场，或平台的机场、航站楼）为 `airport`，其余 `other`——按两个坐标报价时用它认机场。
         关键字先规范化（全角转半角、空白并成一个），规范化后 2–100 个字。同一范围同一关键字 10 分钟内在服务端直接复用（进程内短时缓存，谷歌的名称、地址不存库）。
         谷歌没配置、到了每日上限（`GOOGLE_PLACES_DAILY_LIMIT`，和反查、输入即提示合计）、出错、超时时**不报错**：200 + `available: false`，`items` 只有平台的地点，页面退回「从常用地点选」、地图点选和手填。
-        带了城市、而城市不存在、停用或不在官网渠道的授权里 400 `UNKNOWN_CITY`。每个地址每分钟 20 次、每天 300 次（和反查、输入即提示合计）。
+        带了城市、而城市不存在、停用或不在官网渠道的授权里 400 `UNKNOWN_CITY`。每个地址每分钟 20 次（超了 429）；每天 300 次（M8-45 起只计真调谷歌的，和反查、输入即提示、取坐标合计，嵌入组件共用；命中缓存的不计），用完了不 429，而是 200 + `available: false` + `unavailable_reason: IP_DAILY_LIMIT`、只有平台的地点。
       parameters:
         - name: city_id
           in: query
@@ -12861,6 +13993,8 @@ paths:
                 properties:
                   available:
                     type: boolean
+                  unavailable_reason:
+                    $ref: "#/components/schemas/SitePlaceUnavailableReason"
                   items:
                     type: array
                     maxItems: 10
@@ -12886,7 +14020,7 @@ paths:
         平台的机场、航站楼、车站在前（`source: platform`，带坐标，规则同地址搜索）；谷歌的候选在后（`source: google`，Places API (New) Autocomplete，后端代调、密钥不进浏览器），
         **还没有坐标**（`location: null`），客人选中后用 `GET /site/v1/places/details` 带同一个 `session` 取坐标和类型。谷歌只给官网渠道授权的国家、授权城市合起来的范围里的。
         同一关键字 10 分钟内在服务端直接复用（不分会话）。谷歌没配置、到了每日上限（`GOOGLE_PLACES_DAILY_LIMIT`，和搜索、反查合计）、出错时 200 + `available: false`，只有平台的地点。
-        每个地址每分钟 60 次（和取坐标合计），每天 300 次（和搜索、反查合计）。
+        每个地址每分钟 60 次（和取坐标合计，超了 429）；每天 300 次（M8-45 起只计真调谷歌的，和取坐标、搜索、反查合计，嵌入组件共用；命中缓存、只有平台地点的不计），用完了不 429，而是 200 + `available: false` + `unavailable_reason: IP_DAILY_LIMIT`、只有平台的地点。
       parameters:
         - name: q
           in: query
@@ -12914,6 +14048,8 @@ paths:
                 properties:
                   available:
                     type: boolean
+                  unavailable_reason:
+                    $ref: "#/components/schemas/SitePlaceUnavailableReason"
                   items:
                     type: array
                     maxItems: 10
@@ -12937,7 +14073,7 @@ paths:
       description: |
         M8-02，ADR 0069 B1。用输入即提示给的谷歌地点 ID 和同一个会话令牌调 Place Details（只要地址、坐标、类型；Essentials 一档）。名称用输入即提示给的。
         同一个地点 10 分钟内在服务端直接复用。谷歌用不了时 200 + `available: false`、`place` 为 null（页面退回常用地点、地图点选和手填）。
-        每个地址每分钟 60 次（和输入即提示合计），每天 300 次（和搜索、反查合计）。
+        每个地址每分钟 60 次（和输入即提示合计，超了 429）；每天 300 次（M8-45 起只计真调谷歌的，和输入即提示、搜索、反查合计），用完了 200 + `available: false` + `unavailable_reason: IP_DAILY_LIMIT`。
       parameters:
         - name: id
           in: query
@@ -12965,6 +14101,8 @@ paths:
                 properties:
                   available:
                     type: boolean
+                  unavailable_reason:
+                    $ref: "#/components/schemas/SitePlaceUnavailableReason"
                   place:
                     oneOf:
                       - type: "null"
@@ -13001,7 +14139,7 @@ paths:
         M3-12，ADR 0044。客人在地图上点选或拖动标记后，页面用它把地址填进地址栏。服务端调谷歌 Geocoding API 反查（密钥只在服务端），
         坐标先取整到小数点后 4 位（约 11 米，同一个格子 10 分钟内直接复用）。
         坐标要在城市中心周围 80 公里以内，否则 400 `OUT_OF_CITY`；城市的规则同地址搜索（`UNKNOWN_CITY`）。
-        谷歌用不了时 200 + `available: false`；这里没有地址（海上、山里）时 `address` 为 null。每个地址每分钟 20 次、每天 300 次（和搜索合计）。
+        谷歌用不了时 200 + `available: false`；这里没有地址（海上、山里）时 `address` 为 null。每个地址每分钟 20 次（和搜索合计，超了 429）；每天 300 次（M8-45 起只计真调谷歌的，和搜索、输入即提示、取坐标合计），用完了 200 + `available: false` + `unavailable_reason: IP_DAILY_LIMIT`。
         **报价只看坐标**：地址文字只给司机看，服务区按询价请求里的坐标判断。
       parameters:
         - name: city_id
@@ -13036,6 +14174,8 @@ paths:
                 properties:
                   available:
                     type: boolean
+                  unavailable_reason:
+                    $ref: "#/components/schemas/SitePlaceUnavailableReason"
                   address:
                     type: [ string, "null" ]
                     maxLength: 240
@@ -13109,18 +14249,29 @@ paths:
         服务端以官网渠道的身份走正式询价（ADR 0035；和 `POST /sales/v1/quotes` 同一个流程：比价、加价、`quote_id` 30 分钟有效）。用车时间是城市当地时间；币种是渠道的结算币种。
         三种品类各填各的（`category` 不填是接送机）：接送机 `airport_id` + `direction` + `address`；点对点 `pickup` + `dropoff`；包车 `pickup` + `dropoff` + `package_hours`。
         该给的没给 400 `REQUIRED`，不该给的给了 400 `NOT_APPLICABLE`。包车的报价带 `package`（套餐时长和含的公里数）。
+        **城市**：接送机、点对点必填 `city_id`。包车可以不给（M9P-02，ADR 0093 第三节）：服务器按上下车点匹配商品——上车点、下车点都落在商品的基础价区域
+        或上下车加价区域里才参与，经停点不影响匹配——取匹配到的商品的城市询价；匹配到几个城市时只取一个（请求带的 `city_id` → 上车点所在城市 → 编号最小）；
+        一个都没有时不报（`unavailable` 是 `OUT_OF_SERVICE_AREA`）。带了 `city_id` 的包车请求同样先按点找；一个都没匹配到时按带的城市照旧询价。
+        包车的应答多一项 `city`（按哪个城市报的，没有为 null）。
         包车的下车地点（ADR 0073）**必填**（M8-15 暂为可选，M8-19 新预订页加了下车地点输入框后改回必填；`POST /sales/v1/quotes` 仍可选），不给 400 `REQUIRED`（`/dropoff`）。
         报价 = 基础定价 + 上车点所在加价区域的上车加价 + 下车点所在加价区域的下车加价（一口价，已含）；
         上车点或下车点不在商品本身的区域、也不在任何加价区域里的不报价（`unavailable` 是 `OUT_OF_SERVICE_AREA`，页面说「这个地址暂时没有在线报价，请联系客服」）。
+        包车不再按「上车点所在城市」筛商品：例如河口湖在东京包车的富士山加价区域里，就由东京包车报价、收富士山上车加价（M9P-02）。
         报价里含区域加价时 `includes_area_surcharge` 为 true（只说「含区域加价」，不单列金额）。包车下单时要填 `dropoff_address`（询价给了下车点的单都要填）。
         应答里每个车型组一个对外价，带车型组的名称、免费等待、按现在的平台取消政策下单后适用的阶梯。**没有中标供应商、结算价、加价比例。**
         每个地址每分钟 30 次。
 
-        **包车按行程计价**（M9W-01，ADR 0088 补充「最终报价公式」，业主 2026-11-13）：包车给 `itinerary_pricing: true` + `pickup` + `dropoff` + 可选 `waypoints`（含停留分钟），**不给 `package_hours`**（给了 400 `NOT_APPLICABLE`）。
-        服务器按上车点 → 经停点 1…N → 下车点逐段估路线（同一对坐标有缓存、受每日上限），全程米数 = 各段之和，总时长 = 各段行驶 + 各点停留；
-        每个车型组选能覆盖总时长的最小套餐（都覆盖不了时用最大套餐 + 超时费）。最终价 = 套餐价 + 上车加价 + 经停加价（同区一次）+ 下车加价 + 超公里费（全程 − 套餐含公里）× 超公里单价
-        + 超时费（总时长 − 套餐时长）× 超时单价，再过调价和平台加价；`price_breakdown` 逐项列出。应答多一项 `itinerary_route`（不叫 `route`：按两个坐标报价的应答里 `route` 已是路线预览）。全程和时长只由服务器算。
-        某一段路线取不到：422 `ITINERARY_ROUTE_UNAVAILABLE`（`details.leg` 是第几段，从 1 起），页面提示联系客服。不给 `itinerary_pricing` 时一切和以前一样。
+        **包车按行程计价**（M9W-01，ADR 0088 补充「最终报价公式」；M9P-03 起按 ADR 0093 第四节）：包车给 `itinerary_pricing: true` + `pickup` + `dropoff` + 可选 `waypoints`（含停留分钟），
+        `package_hours` 可给可不给（不给 = 自动选套餐；给了 = 客人手动升档）。
+        服务器按上车点 → 经停点 1…N → 下车点逐段估路线（同一对坐标有缓存、受每日上限），全程米数 D = 各段之和，行驶 + 停留 = `itinerary_route.total_minutes`；
+        **每个商品按自己的预计用时 T** = 行驶 + 停留 + 经停点个数 × 经停点默认占用 + 整单缓冲（商品服务规则 `charter_itinerary`，默认 0 / 0）选套餐：
+        候选是时长 ≥ T（且 ≥ 最低套餐）、这一档能报出的套餐，取「套餐价 + max(0, D − 套餐含公里) × 超公里单价」最低的（一样取短的）；一档都没有时只有最长那一档。
+        各商品各自选档、各自算总价后再比价（包车严格取最低：同价区间为 0）。最终价 = 套餐价 + 上车加价 + 行程加价 + 下车加价 + 超公里费，再过调价和平台加价；
+        **不含超时费**（超时由供应商服务后按实际提交），`price_breakdown` 没有 `overtime` 项。每个报价多给 `estimated_minutes`（中标商品的 T）、`includes_buffer`、`auto_package_hours`（自动选的档）、`itinerary_warnings`（超限提醒，M9P-10）。
+        手动升档：`package_hours` 低于商品的最低套餐、或比 T 短又不是最长那一档的商品不报，`unavailable` 是 `PACKAGE_TOO_SHORT`，另给 `min_package_hours`（能选的最短档）。
+        T 超过商品的在线下单上限（默认 13 小时）的商品不报，`unavailable` 是 `ITINERARY_TOO_LONG`（页面提示联系客服定制）。
+        应答多一项 `itinerary_route`（不叫 `route`：按两个坐标报价的应答里 `route` 已是路线预览）。全程和时长只由服务器算。
+        某一段路线取不到：422 `ITINERARY_ROUTE_UNAVAILABLE`（`details.leg` 是第几段，从 1 起），页面提示联系客服。不给 `itinerary_pricing` 时：客人选的 `package_hours` 低于商品的最低套餐同样报 `PACKAGE_TOO_SHORT`，别的和以前一样。
       requestBody:
         required: true
         content:
@@ -13133,22 +14284,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: false
-                required: [ currency, quotes, unavailable ]
-                properties:
-                  currency:
-                    type: string
-                  itinerary_route:
-                    $ref: "#/components/schemas/SiteItineraryRoute"
-                  quotes:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/SiteQuote"
-                  unavailable:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/SiteUnavailable"
+                $ref: "#/components/schemas/SiteQuoteResponse"
         "400":
           description: "`VALIDATION_FAILED`：城市（`UNKNOWN_CITY`）、机场（`UNKNOWN_PLACE`：不存在、停用或不在这个城市）、用车时间（`INVALID_FORMAT`）、这个品类该填的没填（`REQUIRED`）或不该填的填了（`NOT_APPLICABLE`）等"
           content:
@@ -13163,6 +14299,116 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "401":
           $ref: "#/components/responses/QaSessionInvalid"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/charter/order-suggestion:
+    post:
+      tags: [ 官网 ]
+      operationId: createSiteOrderSuggestion
+      summary: 包车经停顺序建议（M9P-20 P2）
+      description: |
+        ADR 0096 第三节。页面只在经停点集合变了、或其他询价字段（停留、日期时间、人数、行李、附加项、升档）变了时调用；拖动、上移下移只重新询价、不调这个接口。
+        - 必须带一份可核对的当前顺序询价：有效的 `quote_id`，或当前顺序一家都没报出、至少一家因超长报不出时询价应答里的 `inquiry_ref`（30 分钟内）；
+          上下车点、经停点集合（坐标按 3 位小数）要和它一致，否则 400 `SUGGESTION_NEEDS_QUOTE`，不调谷歌。
+        - 按固定点（上下车点、带 `arrive_by` 的经停，M9P-20 P3）切段，固定点不参与重排，每段 ≥ 2 个可动经停时调一次谷歌 Routes `optimizeWaypointOrder`（Compute Routes Pro），名额计入 `GOOGLE_ROUTES_OPTIMIZE_DAILY_LIMIT`（默认 150）；
+          段内顺序按「经停点集合」缓存 24 小时，同一组点换顺序、改停留都不再调谷歌。
+        - 用和报价同一口径的逐段路线算两种顺序的行驶米数、分钟：省 ≥ 5,000 米或 ≥ 10 分钟（平台配置）、另一项变差不超过 1 公里 / 3 分钟才成立；
+          成立才按建议顺序多询一次价（写询价日志、各有报价编号和 30 分钟有效期）。用 `inquiry_ref` 申请的不看阈值。
+        - 关了「经停顺序建议」的商品的报价卡片不带建议价；这次匹配到的商品全关时不调谷歌（`DISABLED`）。
+        - `refs` 是页面给每个经停的不透明标识，只在请求、应答之间往返：建议顺序 `order` 是按建议排好的 `refs`，不进请求键、报价快照、订单。
+        - 限频：每个地址每分钟 60 次、每天 600 次（全部计数）；按会话每分钟 5 次、每天 30 次，每个地址每天 25 次——这三项只数真要调谷歌的请求，
+          超了只是 `suggestion: null`（`RATE_LIMITED`），报价照常。另占一次官网询价的额度（每个地址每分钟 30 次）。
+        不成立时 `suggestion: null`，`reason`：`NOT_APPLICABLE`（没有一段有 2 个以上可动经停）、`DISABLED`、`UNAVAILABLE`（没配密钥、每日上限、谷歌出错、路线取不到）、
+        `RATE_LIMITED`、`NO_ROUTE`、`SAME_ORDER`（已经是建议顺序）、`BELOW_THRESHOLD`、`NO_QUOTE`（建议顺序报不出价）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ quote, refs, session ]
+              properties:
+                quote:
+                  $ref: "#/components/schemas/SiteQuoteRequest"
+                refs:
+                  type: array
+                  minItems: 2
+                  maxItems: 25
+                  items:
+                    type: string
+                    pattern: "^[A-Za-z0-9_-]{1,40}$"
+                quote_id:
+                  type: string
+                inquiry_ref:
+                  type: string
+                  format: uuid
+                session:
+                  type: string
+                  pattern: "^[A-Za-z0-9_-]{8,64}$"
+      responses:
+        "200":
+          description: 建议顺序和建议报价；不成立时 `suggestion` 为 null
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ suggestion, reason ]
+                properties:
+                  reason:
+                    type: [ string, "null" ]
+                    enum: [ NOT_APPLICABLE, DISABLED, UNAVAILABLE, RATE_LIMITED, NO_ROUTE, SAME_ORDER, BELOW_THRESHOLD, NO_QUOTE, null ]
+                  suggestion:
+                    oneOf:
+                      - type: "null"
+                      - type: object
+                        additionalProperties: false
+                        required: [ order, saved_meters, saved_minutes, current_itinerary_route, itinerary_route, request_key, thresholds, current_too_long, quote_result ]
+                        properties:
+                          order:
+                            type: array
+                            items:
+                              type: string
+                          saved_meters:
+                            type: integer
+                          saved_minutes:
+                            type: integer
+                          current_itinerary_route:
+                            $ref: "#/components/schemas/SiteItineraryRoute"
+                          itinerary_route:
+                            $ref: "#/components/schemas/SiteItineraryRoute"
+                          request_key:
+                            type: string
+                          thresholds:
+                            type: object
+                            additionalProperties: false
+                            required: [ min_saved_meters, min_saved_minutes ]
+                            properties:
+                              min_saved_meters:
+                                type: integer
+                              min_saved_minutes:
+                                type: integer
+                          current_too_long:
+                            type: boolean
+                          quote_result:
+                            $ref: "#/components/schemas/SiteQuoteResponse"
+        "400":
+          description: "`SUGGESTION_NEEDS_QUOTE`：没带、过期或对不上的报价 / 询价日志；`VALIDATION_FAILED`：不是按行程计价的包车、经停少于 2 个、`refs` 个数不对或重复"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/QaSessionInvalid"
+        "422":
+          description: "`CHANNEL_SCOPE_DENIED`：官网不卖"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "429":
           $ref: "#/components/responses/RateLimited"
         "503":
@@ -13401,6 +14647,158 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RouteMapUnavailable"
+  /site/v1/itinerary-map:
+    get:
+      tags: [ 官网 ]
+      operationId: getSiteItineraryMap
+      summary: 包车行程地图（多点静态路线图，编号 1、2、3…，PNG）
+      description: |
+        M9P-20 P1，ADR 0096 第二节。包车报价页（主站 `/book/new` 和嵌入页 `/embed/book`）的行程地图：服务端代调谷歌 Maps Static API（**密钥不进浏览器**），
+        灰色调底图和品牌色路线同 `/site/v1/route-map`；标记按行程顺序编号：1 = 上车，经停依次，最后 = 下车。1–9 用谷歌内置的单字符标记，
+        10–12 用官网公开路径 `/map-markers/10.png`…`12.png` 的图标（谷歌的服务器去取）。上车、下车是品牌色的大标记，经停是浅一档的中号标记。
+        折线：一次 Routes computeRoutes，经停作 `intermediates`（`via: false`），计入 `GOOGLE_ROUTES_DAILY_LIMIT`；同一组有序点（各自取整到 3 位小数）的折线在服务端存 7 天。
+        **只画线，不改报价**：页面上每段的时长、公里一律用报价应答的 `itinerary_route.legs`。
+        同一组有序点 × 主题 × 尺寸 × 倍率的图在服务端存 1 天；没有才调谷歌，计入 `GOOGLE_STATIC_MAPS_DAILY_LIMIT`（和路线小地图共用）。
+        成功：200，`content-type` 是图片，`Cache-Control: private, max-age=86400`。
+        出不了图：503 `ROUTE_MAP_UNAVAILABLE`，`details.reason` 同路线小地图；包车页面不论哪种原因都只显示行程列表（不用后备底图）。
+        和路线小地图共用每个地址每分钟 30 次、每天 200 次的额度。
+      parameters:
+        - name: p
+          in: query
+          required: true
+          description: 行程的点，按顺序重复 2–12 次（上车、经停、下车），每个写成「纬度,经度」
+          style: form
+          explode: true
+          schema:
+            type: array
+            minItems: 2
+            maxItems: 12
+            items:
+              type: string
+              pattern: "^-?\\d{1,3}(\\.\\d{1,9})?,-?\\d{1,3}(\\.\\d{1,9})?$"
+        - name: theme
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [ light, dark ]
+            default: light
+        - name: width
+          in: query
+          required: true
+          description: 图的宽（CSS 像素）
+          schema:
+            type: integer
+            minimum: 200
+            maximum: 640
+        - name: height
+          in: query
+          required: true
+          description: 图的高（CSS 像素）
+          schema:
+            type: integer
+            minimum: 150
+            maximum: 640
+        - name: scale
+          in: query
+          required: false
+          description: 倍率：高清屏用 2
+          schema:
+            type: integer
+            enum: [ 1, 2 ]
+            default: 1
+      responses:
+        "200":
+          description: 行程地图
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: "`private, max-age=86400`"
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/gif:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: "`VALIDATION_FAILED`：点少于 2 个或多于 12 个、格式或坐标不合法，主题、尺寸、倍率不在范围里，多余的参数"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          description: "`ROUTE_MAP_UNAVAILABLE`：出不了图，`details.reason` 是 `NOT_ENABLED` 或 `UNAVAILABLE`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RouteMapUnavailable"
+  /site/v1/itinerary-legs:
+    get:
+      tags: [ 官网 ]
+      operationId: getSiteItineraryLegs
+      summary: 包车行程逐段的约多少分钟、多少米（只作展示）
+      description: |
+        M9P-20 P1，ADR 0096 第二节第 3 小节。没有经停、按自选时长报价的包车不估路线，页面列表每段的时长和公里取这里的量，**只作展示，不进报价**
+        （有经停、按行程计价时一律用报价应答的 `itinerary_route.legs`）。和 `GET /site/v1/itinerary-map` 共用一次 Routes computeRoutes 和它 7 天的缓存：
+        同一组点先出了图就不再调谷歌。点的写法、个数同行程地图。分钟按秒四舍五入。取不到（没配密钥、每日上限、谷歌出错、官网没开……）时 200 `{ available: false, legs: null }`。
+        和路线小地图共用每个地址每分钟 30 次、每天 200 次的额度。
+      parameters:
+        - name: p
+          in: query
+          required: true
+          description: 行程的点，按顺序重复 2–12 次，每个写成「纬度,经度」
+          style: form
+          explode: true
+          schema:
+            type: array
+            minItems: 2
+            maxItems: 12
+            items:
+              type: string
+              pattern: "^-?\\d{1,3}(\\.\\d{1,9})?,-?\\d{1,3}(\\.\\d{1,9})?$"
+      responses:
+        "200":
+          description: 逐段的时长和里程；取不到时 available 为 false
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ available, legs ]
+                properties:
+                  available:
+                    type: boolean
+                  legs:
+                    type: [ array, "null" ]
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [ minutes, meters ]
+                      properties:
+                        minutes:
+                          type: integer
+                          minimum: 0
+                        meters:
+                          type: integer
+                          minimum: 0
+        "400":
+          description: "`VALIDATION_FAILED`：点少于 2 个或多于 12 个、格式或坐标不合法、多余的参数"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
   /site/v1/orders:
     post:
       tags: [ 官网 ]
@@ -13434,8 +14832,11 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ order, timeline, names, price_breakdown, payment, link ]
+                required: [ order, timeline, names, price_breakdown, return_url, payment, link ]
                 properties:
+                  return_url:
+                    type: [ string, "null" ]
+                    description: 见 `SiteOrderEnvelope.return_url`（M9E-02）
                   order:
                     $ref: "#/components/schemas/SiteOrder"
                   timeline:
@@ -13671,8 +15072,11 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ order, timeline, names, price_breakdown, change ]
+                required: [ order, timeline, names, price_breakdown, return_url, change ]
                 properties:
+                  return_url:
+                    type: [ string, "null" ]
+                    description: 见 `SiteOrderEnvelope.return_url`（M9E-02）
                   order:
                     $ref: "#/components/schemas/SiteOrder"
                   timeline:
@@ -13815,8 +15219,11 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ order, timeline, names, price_breakdown, replayed ]
+                required: [ order, timeline, names, price_breakdown, return_url, replayed ]
                 properties:
+                  return_url:
+                    type: [ string, "null" ]
+                    description: 见 `SiteOrderEnvelope.return_url`（M9E-02）
                   order:
                     $ref: "#/components/schemas/SiteOrder"
                   timeline:
@@ -13907,8 +15314,11 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ order, timeline, names, price_breakdown, extra_charge ]
+                required: [ order, timeline, names, price_breakdown, return_url, extra_charge ]
                 properties:
+                  return_url:
+                    type: [ string, "null" ]
+                    description: 见 `SiteOrderEnvelope.return_url`（M9E-02）
                   order:
                     $ref: "#/components/schemas/SiteOrder"
                   timeline:
@@ -16268,13 +17678,33 @@ paths:
                   description: 同意客服通过留下的方式联系
                 trip:
                   $ref: "#/components/schemas/ManualQuoteTripInput"
+                trip_id:
+                  type: string
+                  maxLength: 64
+                  description: |
+                    官网行程报价页带上的行程单编号（M9T-08，ADR 0101 第十三节第 2 小节）。要是本渠道、还没过期的行程单（验收会话和普通客人互相看不到），否则 404 `TRIP_NOT_FOUND`。
+                    `trip` 照常填第一天的行程。带了时必须同时带 `trip_labels`；关联记在新表，运营后台详情凭它显示整张行程单。三项都不带时和以前完全一样
+                plan_kind:
+                  type: [ string, "null" ]
+                  enum: [ one_car, daily_best, null ]
+                  description: 客人选的方案（「提交预订，客服确认」时）；全部报不出转人工时不给或给 null。只有带 `trip_id` 时才能给
+                trip_labels:
+                  type: array
+                  maxItems: 14
+                  description: 行程单每天、每个点的显示名称（行程单里只有坐标），天数、每天的点数要和行程单一一对应（否则 400 `/trip_labels` MISMATCH）。和联系方式一起加密保存、一起清除
+                  items:
+                    type: array
+                    maxItems: 12
+                    items:
+                      type: string
+                      maxLength: 300
                 website:
                   type: string
                   maxLength: 400
                   description: 陷阱字段：页面不显示、不要填
       responses:
         "202":
-          description: 已受理。不说明是不是重复提交
+          description: 已受理。不说明是不是重复提交（带行程单时，同一行程单、同一方案算同一个行程）
           content:
             application/json:
               schema:
@@ -16286,13 +17716,19 @@ paths:
                     type: string
                     enum: [ accepted ]
         "400":
-          description: "`VALIDATION_FAILED`：邮箱、WhatsApp 都没填（`/email` REQUIRED），格式不对（`/email`、`/whatsapp` FORMAT），没有同意（`/consent`），行程和用车类型对不上（`/trip/dropoff` REQUIRED、`/trip/package_hours` REQUIRED 或 NOT_APPLICABLE、`/trip/service_local` INVALID），城市不存在（`/trip/city_id` NOT_FOUND）"
+          description: "`VALIDATION_FAILED`：邮箱、WhatsApp 都没填（`/email` REQUIRED），格式不对（`/email`、`/whatsapp` FORMAT），没有同意（`/consent`），行程和用车类型对不上（`/trip/dropoff` REQUIRED、`/trip/package_hours` REQUIRED 或 NOT_APPLICABLE、`/trip/service_local` INVALID），城市不存在（`/trip/city_id` NOT_FOUND），行程单相关（`/trip_labels` REQUIRED、MISMATCH，`/plan_kind`、`/trip_labels` NOT_APPLICABLE）"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "401":
           $ref: "#/components/responses/QaSessionInvalid"
+        "404":
+          description: "`TRIP_NOT_FOUND`：带的行程单不存在、已过期、不是本渠道的，或验收会话和普通客人不一致"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "429":
           $ref: "#/components/responses/RateLimited"
         "503":
@@ -16406,7 +17842,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ request, contact, pickup, dropoff, waypoints, events ]
+                required: [ request, contact, pickup, dropoff, waypoints, events, trip ]
                 properties:
                   request:
                     $ref: "#/components/schemas/ManualQuoteRequestSummary"
@@ -16441,6 +17877,11 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/ManualQuoteEvent"
+                  trip:
+                    description: 官网行程报价页带来的行程单（M9T-08）；没关联为 null
+                    oneOf:
+                      - $ref: "#/components/schemas/ManualQuoteTripLink"
+                      - type: "null"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
         "503":
@@ -16592,6 +18033,10 @@ paths:
                   maxLength: 60
                 page_width:
                   $ref: "#/components/schemas/SitePageWidth"
+                maps_browser_key:
+                  type: [ string, "null" ]
+                  maxLength: 100
+                  description: 浏览器加载谷歌地图（Maps JavaScript API）用的密钥（M10-01 第 2 处），AIza 开头共 39 位；不给是不改，null 或空字符串是清空；格式不对 400（路径 `/maps_browser_key`）
       responses:
         "200":
           description: 保存后的设置
@@ -17241,7 +18686,7 @@ components:
     ImportFileInvalid:
       description: |
         `IMPORT_FILE_INVALID`：文件本身读不了，`details.reason` 是：`NOT_XLSX`（不是 .xlsx）、`CORRUPT`（损坏）、`TOO_LARGE`（解压后太大、行列或单元格超限）、
-        `UNSAFE`（有不允许的 XML 声明，或工作表指向文件外面）、`EMPTY`（没有表头）、`MISSING_COLUMNS`（`details.columns` 是缺的列）、`TOO_MANY_ROWS`（`details.max`）。
+        `UNSAFE`（有不允许的 XML 声明，或工作表指向文件外面）、`EMPTY`（没有表头）、`MISSING_COLUMNS`（`details.columns` 是缺的列）、`TOO_MANY_ROWS`（`details.max`）、`LEGACY_TEMPLATE`（价格：商品已经迁移到三层区域，这是迁移前的旧模版，M9P-05）。
         确认导入时没带或写错 `file_sha256`、没带幂等键是 `VALIDATION_FAILED`。
       content:
         application/json:
@@ -18414,7 +19859,7 @@ components:
           items:
             type: object
             additionalProperties: false
-            required: [ id, created_at, client_id, currency, city_id, category, candidate_count, quote_count, reject_count, duration_ms, request, quotes ]
+            required: [ id, created_at, client_id, currency, city_id, category, candidate_count, quote_count, reject_count, rejects, duration_ms, request, quotes ]
             properties:
               id:
                 type: string
@@ -18437,6 +19882,25 @@ components:
                 type: integer
               reject_count:
                 type: integer
+              rejects:
+                description: |
+                  没报出价的每一条（M9W-10，`reject_count` 就是它的条数）：哪个商品、哪个车型组（商品层面的为 null）、平台内部的原始原因码
+                  （和报价试算的 `QuoteRefusal` 同一套，另有 `NOT_IN_CHANNEL_SCOPE` = 商品不在渠道的授权范围里）。不是给渠道看的：
+                  例如经停点所在加价区域没设途经加价时，这里是 `NO_PRICE_RULE`，渠道 / 官网看到的是 `WAYPOINT_NOT_PRICED`
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [ product_id, vehicle_group_id, reason ]
+                  properties:
+                    product_id:
+                      type: [ string, "null" ]
+                      format: uuid
+                    vehicle_group_id:
+                      type: [ string, "null" ]
+                      format: uuid
+                    reason:
+                      type: string
               duration_ms:
                 type: integer
               request:
@@ -18614,7 +20078,7 @@ components:
                   type: string
         free_wait_minutes:
           type: [ integer, "null" ]
-          description: 免费等待分钟数；不限时或没有为 null
+          description: 商品自己设的免费等待分钟数；不限时或没有为 null。机场接机（以及带航班号的点对点单）客人实际得到的分钟数在下单时按航班由平台统一定（国际 90、国内 / 未确认 60，M9E-31），以订单的 `free_wait_minutes` 为准，不要把这里的值直接展示给接机客人
         distance:
           description: 点对点：价格是设了含公里数的一口价时，含多少公里、报价时的路线距离、超出公里数和超出每公里的对外价（已含在 `price.total` 里，是说明不是另一笔钱）；没设为 null（M8-11，新增字段）
           oneOf:
@@ -18661,7 +20125,9 @@ components:
             `NO_PRODUCT`（这里没有可卖的商品）、`OUT_OF_SERVICE_AREA`、`DROPOFF_REQUIRED`（包车没给下车地点，而商品设了区域加价；给了下车地点再询价，M8-15）、`LEAD_TIME_TOO_SHORT`、`SOLD_OUT`、`OUTSIDE_SERVICE_TIME`、`SERVICE_TIME_PASSED`、
             `CAPACITY_EXCEEDED`、`ADDON_NOT_OFFERED`、`DRIVER_LANGUAGE_NOT_OFFERED`、
             `NO_ROUTE`（里程计价：两点之间没有可行驶的路线，换个地点）、`TEMPORARILY_UNAVAILABLE`（里程计价：路线预估暂时不可用，稍后再试；ADR 0042）、`NOT_AVAILABLE`（其他）。
-            `WAYPOINT_NOT_PRICED`（包车经停点不在任何区域里，M9W-01）只在官网带经停点的询价里出现：渠道接口不开放经停点，不会给出
+            `WAYPOINT_NOT_PRICED`（包车经停点不在任何区域里，M9W-01）只在官网带经停点的询价里出现：渠道接口不开放经停点，不会给出。
+            `PACKAGE_TOO_SHORT`（包车选的 `package_hours` 比商品设的最低套餐短，M9P-03，ADR 0091、0093）：另给 `min_package_hours`，选不短于它的时长再询价。
+            `ITINERARY_TOO_LONG` 只在官网按行程计价时出现，渠道接口不会给出
           items:
             type: object
             additionalProperties: false
@@ -18670,11 +20136,15 @@ components:
               vehicle_group_id:
                 type: [ string, "null" ]
                 format: uuid
+              min_package_hours:
+                type: integer
+                minimum: 1
+                description: 原因里有 `PACKAGE_TOO_SHORT` 时：这个车型组里各商品能接受的最短套餐（小时）的最小值；没有这个原因时不给
               reasons:
                 type: array
                 items:
                   type: string
-                  enum: [ NO_PRODUCT, OUT_OF_SERVICE_AREA, DROPOFF_REQUIRED, WAYPOINT_NOT_PRICED, LEAD_TIME_TOO_SHORT, SOLD_OUT, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, CAPACITY_EXCEEDED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, NO_ROUTE, TEMPORARILY_UNAVAILABLE, NOT_AVAILABLE ]
+                  enum: [ NO_PRODUCT, OUT_OF_SERVICE_AREA, DROPOFF_REQUIRED, WAYPOINT_NOT_PRICED, PACKAGE_TOO_SHORT, ITINERARY_TOO_LONG, LEAD_TIME_TOO_SHORT, SOLD_OUT, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, CAPACITY_EXCEEDED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, NO_ROUTE, TEMPORARILY_UNAVAILABLE, NOT_AVAILABLE ]
     FxCurrency:
       type: string
       enum: [ JPY, KRW, CNY, USD, HKD, TWD, THB, SGD ]
@@ -19369,12 +20839,14 @@ components:
         `OUTSIDE_SALE_PERIOD`、`OUTSIDE_SERVICE_TIME`、`SERVICE_TIME_PASSED`、`LEAD_TIME_TOO_SHORT`、`URGENT_SOLD_OUT`、`OUT_OF_SERVICE_AREA`、`IN_FORBIDDEN_AREA`、
         `NO_PRICING_AREA`（M8-20，ADR 0075：地点在这个供应商的运营区域里，但商品没有勾选覆盖它的报价区域——这个商品不报，不退回基础价；
         只在报价试算、询价日志里出现，给渠道和官网的是 `OUT_OF_SERVICE_AREA`）、
-        `DROPOFF_REQUIRED`（包车没给下车地点、而商品设了区域加价，M8-15）、`WAYPOINT_NOT_PRICED`（包车有经停点不在这个商品的任何区域里，M9W-01，ADR 0088）、
+        `DROPOFF_REQUIRED`（包车没给下车地点、而商品设了区域加价，M8-15）、`WAYPOINT_NOT_PRICED`（包车有经停点不在这个商品的任何区域里，M9W-01，ADR 0088；经停点所在加价区域没有可用途经加价时这里仍是下面的 `NO_PRICE_RULE` 等，对外才报 `WAYPOINT_NOT_PRICED`，M9W-10）、
         `ADDON_NOT_OFFERED`、`DRIVER_LANGUAGE_NOT_OFFERED`、`SOLD_OUT`。包车的上车点、下车点都要在商品本身的区域或某个加价区域里，否则是 `OUT_OF_SERVICE_AREA` / `IN_FORBIDDEN_AREA`（ADR 0073）。
         车型组层面的（包车两端所在的加价区域没有这个车型组、套餐的区域加价也报 `NO_PRICE_RULE` / `PRICE_NOT_IN_EFFECT` / `PRICE_RULE_DISABLED`）：`VEHICLE_GROUP_NOT_OFFERED`、`VEHICLE_GROUP_DISABLED`、`CAPACITY_EXCEEDED`、
-        `NO_PRICE_RULE`、`PRICE_NOT_IN_EFFECT`、`PRICE_RULE_DISABLED`、`ROUTE_UNAVAILABLE`、`PRICE_NOT_POSITIVE`、`PRICE_OVER_LIMIT`。
+        `NO_PRICE_RULE`、`PRICE_NOT_IN_EFFECT`、`PRICE_RULE_DISABLED`、`ROUTE_UNAVAILABLE`、`PRICE_NOT_POSITIVE`、`PRICE_OVER_LIMIT`，
+        包车选档（M9P-03，ADR 0093 第四节）：`BELOW_MIN_PACKAGE`（选的套餐比商品的最低套餐短）、`PACKAGE_TOO_SHORT`（手动选的套餐比预计用时短，又不是最长那一档；这两个对外都是 `PACKAGE_TOO_SHORT`）。
+        商品层面的 `ITINERARY_TOO_LONG`（包车预计用时超过商品的在线下单上限，默认 13 小时，M9P-03）。
         只在平台侧比价时出现的：`FX_RATE_UNAVAILABLE`、`SELL_PRICE_OVER_LIMIT`。
-      enum: [ PRODUCT_NOT_PUBLISHED, TENANT_SUSPENDED, TENANT_NOT_ONBOARDED, TRIAL_DAILY_LIMIT, BRAND_DISABLED, SERVICE_RULES_INCOMPLETE, INVALID_SERVICE_TIME, OUTSIDE_SALE_PERIOD, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, LEAD_TIME_TOO_SHORT, URGENT_SOLD_OUT, OUT_OF_SERVICE_AREA, IN_FORBIDDEN_AREA, NO_PRICING_AREA, DROPOFF_REQUIRED, WAYPOINT_NOT_PRICED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, SOLD_OUT, VEHICLE_GROUP_NOT_OFFERED, VEHICLE_GROUP_DISABLED, CAPACITY_EXCEEDED, NO_PRICE_RULE, PRICE_NOT_IN_EFFECT, PRICE_RULE_DISABLED, ROUTE_UNAVAILABLE, PRICE_NOT_POSITIVE, PRICE_OVER_LIMIT, FX_RATE_UNAVAILABLE, SELL_PRICE_OVER_LIMIT ]
+      enum: [ PRODUCT_NOT_PUBLISHED, TENANT_SUSPENDED, TENANT_NOT_ONBOARDED, TRIAL_DAILY_LIMIT, BRAND_DISABLED, SERVICE_RULES_INCOMPLETE, INVALID_SERVICE_TIME, OUTSIDE_SALE_PERIOD, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, LEAD_TIME_TOO_SHORT, URGENT_SOLD_OUT, OUT_OF_SERVICE_AREA, IN_FORBIDDEN_AREA, NO_PRICING_AREA, DROPOFF_REQUIRED, WAYPOINT_NOT_PRICED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, SOLD_OUT, VEHICLE_GROUP_NOT_OFFERED, VEHICLE_GROUP_DISABLED, CAPACITY_EXCEEDED, NO_PRICE_RULE, PRICE_NOT_IN_EFFECT, PRICE_RULE_DISABLED, ROUTE_UNAVAILABLE, PRICE_NOT_POSITIVE, PRICE_OVER_LIMIT, BELOW_MIN_PACKAGE, PACKAGE_TOO_SHORT, ITINERARY_TOO_LONG, FX_RATE_UNAVAILABLE, SELL_PRICE_OVER_LIMIT ]
     QuoteRouteEstimate:
       type: object
       additionalProperties: false
@@ -19829,11 +21301,29 @@ components:
           $ref: "#/components/schemas/QuoteAreaSurchargeEnd"
         waypoints:
           description: |
-            途经加价（M9W-01，ADR 0088）：每个收了途经加价的加价区域一项，`stop_seqs` 是落在这个区域的经停点（从 1 起）。同一区域只收一次；
-            上 / 下车已经计价的区域、只在商品区域里的经停点不在这里。只有带经停点的报价才有这一项（没带经停点时没有这个键）
+            行程加价（途经加价，M9W-01，ADR 0088；ADR 0093 第二节）：每个收了行程加价的区域一项，`stop_seqs` 是落在这个区域的经停点（从 1 起）。同一区域只收一次；
+            只在商品区域里的经停点不在这里；上 / 下车也在这个区域时照收（M9P-01 起不再被上下车加价抵消）。带经停点的报价都有这个键；
+            没带经停点的只在收了下车点行程加价时有（那一项 `from_dropoff: true`、`stop_seqs` 为空）
           type: array
           items:
             $ref: "#/components/schemas/QuoteAreaSurchargeWaypoint"
+        charter_scenario:
+          description: 包车机场开始 / 机场结束（M9P-21，ADR 0098）：匹配到的场景；`pricing` 是单独定价（`own`）还是继承（`inherit`）。没有场景时没有这一项
+          type: object
+          additionalProperties: false
+          required: [ kind, airport_id, airport_name, pricing ]
+          properties:
+            kind:
+              type: string
+              enum: [ airport_start, airport_end ]
+            airport_id:
+              type: string
+              format: uuid
+            airport_name:
+              type: string
+            pricing:
+              type: string
+              enum: [ own, inherit ]
     QuoteAreaSurchargeWaypoint:
       type: object
       additionalProperties: false
@@ -19853,6 +21343,14 @@ components:
           items:
             type: integer
             minimum: 1
+        from_dropoff:
+          type: boolean
+          enum: [ true ]
+          description: 下车点行程加价（M9P-01，ADR 0093 第二节第 4 小节）：没有市外经停、下车点在这个区域里，算作一次经停收的；只有这一项带这个键，`stop_seqs` 为空
+        included_in_package:
+          type: boolean
+          enum: [ true ]
+          description: 机场套餐单独定价时含在套餐里、免掉的这一项（金额 0，M9P-21，ADR 0098）
     QuoteAreaSurchargeEnd:
       type: object
       additionalProperties: false
@@ -19868,6 +21366,10 @@ components:
         amount:
           type: integer
           minimum: 0
+        included_in_package:
+          type: boolean
+          enum: [ true ]
+          description: 机场套餐单独定价时含在套餐里、免掉的这一项（金额 0，M9P-21，ADR 0098）
     QuoteOffer:
       type: object
       additionalProperties: false
@@ -20035,6 +21537,57 @@ components:
                   logId: { type: string, description: 询价日志的编号 }
                   productCode: { type: string }
                   digest: { type: string, pattern: "^[0-9a-f]{64}$", description: 这一行的 SHA-256 }
+            resultRows:
+              type: array
+              description: 逐行明细（M9P-14），只在请求带 `rows=true` 时有；按询价编号、商品编码排序，和 `resultLineDigests` 一一对应（`digest` 相同）
+              items:
+                type: object
+                additionalProperties: false
+                required: [ logId, productCode, digest, legacy, manualPackage, refused, offers, refusedGroups ]
+                properties:
+                  logId: { type: string }
+                  productCode: { type: string }
+                  digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+                  legacy: { type: boolean, description: 包车的旧格式询价日志（没有 charter_selection，回放按旧口径选档、算超时费） }
+                  manualPackage: { type: boolean, description: 客人手动选的档（charter_selection 是 manual），档应该不变 }
+                  refused: { type: [ string, "null" ], description: 商品层面报不出的原因；报得出为 null }
+                  offers:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [ vehicleGroupId, packageHours, totalMinor, currency, pricingBasis, areaId, toAreaId, priceRuleId, baseMinor, adjustMinor, overtimeMinor, surcharge ]
+                      properties:
+                        vehicleGroupId: { type: string }
+                        packageHours: { type: [ integer, "null" ] }
+                        totalMinor: { type: integer, description: 结算价（最小货币单位） }
+                        currency: { type: string }
+                        pricingBasis: { type: string, description: 计价方式（摘要里也有） }
+                        areaId: { type: [ string, "null" ], description: 用的区域（摘要里也有） }
+                        toAreaId: { type: [ string, "null" ], description: 线路价的下车区域（摘要里也有） }
+                        priceRuleId: { type: [ string, "null" ], description: 价格规则编号（摘要里也有） }
+                        baseMinor: { type: integer, description: 调价前的基础价（含套餐、加价、超公里、超时费）；归类时金额在它上面拆账 }
+                        adjustMinor: { type: integer, description: 调价合计 }
+                        overtimeMinor: { type: [ integer, "null" ], description: 预收的超时费；不是按行程计价为 null }
+                        surcharge:
+                          type: [ object, "null" ]
+                          additionalProperties: false
+                          required: [ packageMinor, pickupMinor, dropoffMinor, itineraryMinor ]
+                          description: 包车区域加价拆项；不是包车为 null
+                          properties:
+                            packageMinor: { type: integer }
+                            pickupMinor: { type: integer }
+                            dropoffMinor: { type: integer }
+                            itineraryMinor: { type: integer, description: 行程加价各区域之和 }
+                  refusedGroups:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [ vehicleGroupId, reason ]
+                      properties:
+                        vehicleGroupId: { type: string }
+                        reason: { type: string }
             stateDigest:
               type: string
               pattern: "^[0-9a-f]{64}$"
@@ -20337,6 +21890,8 @@ components:
         - manual_quote.manage
         - site_settings.read
         - site_settings.manage
+        - embed.read
+        - embed.manage
     TenantAction:
       type: string
       enum:
@@ -21414,6 +22969,7 @@ components:
             - set
             - replace
             - clear
+            - migrate
         before:
           type:
             - object
@@ -21871,7 +23427,7 @@ components:
     Place:
       type: object
       additionalProperties: false
-      required: [ id, type, code, country_code, city_id, parent_id, city, parent, name, location, category, flight_scope, address, status, version, created_at, updated_at, source ]
+      required: [ id, type, code, country_code, city_id, parent_id, city, parent, name, location, category, flight_scope, address, status, version, created_at, updated_at, source, charter_coverage ]
       properties:
         id:
           type: string
@@ -21919,6 +23475,9 @@ components:
         address:
           type: [ string, "null" ]
           description: 地标的地址；其他类型为 null
+        charter_coverage:
+          type: boolean
+          description: 在不在包车上架的覆盖检查清单里（M9P-06，ADR 0093 第七节第 4 条；只有地标能勾，运营在地点页维护）。只在平台侧的应答里有（租户侧的 `TenantPlace` 没有）
         source:
           type: [ object, "null" ]
           description: 从公开数据源导入的机场才有；手工录入的为 null
@@ -22006,6 +23565,9 @@ components:
         address:
           type: [ string, "null" ]
           maxLength: 300
+        charter_coverage:
+          type: boolean
+          description: 放进 / 拿出包车上架的覆盖检查清单（M9P-06）。只有地标能设为 true（否则 400 `VALIDATION_FAILED`，路径 `/charter_coverage`）
     VehicleGroup:
       type: object
       additionalProperties: false
@@ -22650,11 +24212,15 @@ components:
           oneOf:
             - $ref: "#/components/schemas/Boundary"
             - type: "null"
+    AreaSharing:
+      type: string
+      enum: [ shared, own ]
+      description: 区域分类（ADR 0102）：shared 平台共享（「·通用」，多家供应商可用）/ own 供应商独立。重叠只在同一分类里算；两类重叠时报价按供应商独立优先
     AreaSummary:
       type: object
       additionalProperties: false
       description: 列表里的一项：不带图形的坐标
-      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, shape_version, shared_source, created_at, updated_at ]
+      required: [ id, name, city_id, city, biz_type, role, status, sharing, operate_polygon_count, forbid_polygon_count, usage, version, shape_version, shared_source, created_at, updated_at ]
       properties:
         id:
           type: string
@@ -22675,6 +24241,8 @@ components:
           $ref: "#/components/schemas/AreaRole"
         status:
           $ref: "#/components/schemas/MasterDataStatus"
+        sharing:
+          $ref: "#/components/schemas/AreaSharing"
         operate_polygon_count:
           type: integer
           minimum: 0
@@ -22715,7 +24283,7 @@ components:
       type: object
       additionalProperties: false
       description: 区域的详情：比列表项多全部图形，和「超出运营区域」的提醒
-      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, shape_version, shared_source, created_at, updated_at, polygons, outside_operating_m2 ]
+      required: [ id, name, city_id, city, biz_type, role, status, sharing, operate_polygon_count, forbid_polygon_count, usage, version, shape_version, shared_source, created_at, updated_at, polygons, outside_operating_m2 ]
       properties:
         id:
           type: string
@@ -22734,6 +24302,8 @@ components:
           $ref: "#/components/schemas/AreaRole"
         status:
           $ref: "#/components/schemas/MasterDataStatus"
+        sharing:
+          $ref: "#/components/schemas/AreaSharing"
         operate_polygon_count:
           type: integer
           minimum: 0
@@ -22783,11 +24353,131 @@ components:
             报价区域（`pricing` / `both`）真正的范围（营运区减去自己的禁行区）有多少平方米不在本租户任何启用中、业务类型相容的运营区域里（ADR 0075 第一部分第 2 节）。
             不到 100 平方米算 0；大于 0 时页面提示「这个报价区域有一部分不在任何运营区域里，那部分不会报价」。只是提醒，不拦保存。
             运营区域、停用的区域为 null。超出部分的形状由页面用 `@nozomi/domain` 的 `findPricingOutsideOperating` 在区域地图上画
+    AreaSaved:
+      type: object
+      additionalProperties: false
+      description: 修改（或切换到共享库新版本）之后的区域：和区域详情 `Area` 相同；图形变了、而且用到它的包车商品里有三层重叠时另带 `charter_layer_overlaps`（M9P-13，只提醒）
+      required: [ id, name, city_id, city, biz_type, role, status, sharing, operate_polygon_count, forbid_polygon_count, usage, version, shape_version, shared_source, created_at, updated_at, polygons, outside_operating_m2 ]
+      properties:
+        id:
+          $ref: "#/components/schemas/Area/properties/id"
+        name:
+          $ref: "#/components/schemas/Area/properties/name"
+        city_id:
+          $ref: "#/components/schemas/Area/properties/city_id"
+        city:
+          $ref: "#/components/schemas/Area/properties/city"
+        biz_type:
+          $ref: "#/components/schemas/Area/properties/biz_type"
+        role:
+          $ref: "#/components/schemas/Area/properties/role"
+        status:
+          $ref: "#/components/schemas/Area/properties/status"
+        sharing:
+          $ref: "#/components/schemas/AreaSharing"
+        operate_polygon_count:
+          $ref: "#/components/schemas/Area/properties/operate_polygon_count"
+        forbid_polygon_count:
+          $ref: "#/components/schemas/Area/properties/forbid_polygon_count"
+        usage:
+          $ref: "#/components/schemas/Area/properties/usage"
+        version:
+          $ref: "#/components/schemas/Area/properties/version"
+        shape_version:
+          $ref: "#/components/schemas/Area/properties/shape_version"
+        shared_source:
+          $ref: "#/components/schemas/Area/properties/shared_source"
+        created_at:
+          $ref: "#/components/schemas/Area/properties/created_at"
+        updated_at:
+          $ref: "#/components/schemas/Area/properties/updated_at"
+        polygons:
+          $ref: "#/components/schemas/Area/properties/polygons"
+        outside_operating_m2:
+          $ref: "#/components/schemas/Area/properties/outside_operating_m2"
+        charter_layer_overlaps:
+          type: array
+          description: 图形变了、而且有重叠时才有（至少一条）：用到这个区域的包车商品里，它和同一商品别的区域的三层重叠（同层、①和③），按商品编码排。只提醒、不拦保存
+          items:
+            $ref: "#/components/schemas/AreaCharterOverlap"
+    AreaCharterOverlap:
+      type: object
+      additionalProperties: false
+      required: [ product_id, product_code, product_title, code, layer, other_area_id, other_area_name, overlap_km2 ]
+      properties:
+        product_id:
+          type: string
+          format: uuid
+        product_code:
+          type: string
+        product_title:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedText"
+          description: 商品详情里各语言的标题（没填的语言不在里面，可能是空对象）
+        code:
+          type: string
+          enum: [ AREA_LAYER_OVERLAP, AREA_BASE_SURCHARGE_OVERLAP ]
+          description: 同层重叠 `AREA_LAYER_OVERLAP`；基础价区域和上下车加价区域重叠 `AREA_BASE_SURCHARGE_OVERLAP`（和保存价格时的错误码相同）
+        layer:
+          type: string
+          enum: [ base, itinerary, pickup_dropoff, base_pickup_dropoff ]
+        other_area_id:
+          type: string
+          format: uuid
+        other_area_name:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedText"
+        overlap_km2:
+          type: number
+          minimum: 0
+          description: 重叠面积，平方公里，两位小数
+    ProductAreaLayers:
+      type: object
+      additionalProperties: false
+      required: [ product_id, code, title, category, status, charter_layout, base, itinerary, pickup_dropoff ]
+      properties:
+        product_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        title:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedText"
+          description: 商品详情里各语言的标题（没填的语言不在里面，可能是空对象）
+        category:
+          type: string
+          enum: [ airport_transfer, point_to_point, charter ]
+        status:
+          type: string
+          enum: [ draft, published, unpublished, qa_listed ]
+        charter_layout:
+          type: [ string, "null" ]
+          enum: [ three_layer, null ]
+          description: 包车商品迁移过三层区域时是 `three_layer`（ADR 0093 第一节）；没迁移过、不是包车为 null
+        base:
+          type: array
+          description: ①基础价区域（服务区域）的编号，按优先级
+          items:
+            type: string
+            format: uuid
+        itinerary:
+          type: array
+          description: ②行程区域（行程加价规则的区域）的编号
+          items:
+            type: string
+            format: uuid
+        pickup_dropoff:
+          type: array
+          description: ③上下车加价区域（上下车加价规则的区域）的编号
+          items:
+            type: string
+            format: uuid
     AreaMapItem:
       type: object
       additionalProperties: false
       description: 区域地图的一项：和区域详情相同（带全部图形），另带最近修改人
-      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, shape_version, shared_source, created_at, updated_at, polygons, outside_operating_m2, last_editor ]
+      required: [ id, name, city_id, city, biz_type, role, status, sharing, operate_polygon_count, forbid_polygon_count, usage, version, shape_version, shared_source, created_at, updated_at, polygons, outside_operating_m2, last_editor ]
       properties:
         id:
           type: string
@@ -22806,6 +24496,8 @@ components:
           $ref: "#/components/schemas/AreaRole"
         status:
           $ref: "#/components/schemas/MasterDataStatus"
+        sharing:
+          $ref: "#/components/schemas/AreaSharing"
         operate_polygon_count:
           type: integer
           minimum: 0
@@ -22861,7 +24553,7 @@ components:
       type: object
       additionalProperties: false
       description: 运营后台区域地图的一项：和供应商后台的 `AreaMapItem` 相同，另带所属供应商
-      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, shape_version, shared_source, created_at, updated_at, polygons, outside_operating_m2, last_editor, tenant_id, tenant ]
+      required: [ id, name, city_id, city, biz_type, role, status, sharing, operate_polygon_count, forbid_polygon_count, usage, version, shape_version, shared_source, created_at, updated_at, polygons, outside_operating_m2, last_editor, tenant_id, tenant ]
       properties:
         id:
           type: string
@@ -22880,6 +24572,8 @@ components:
           $ref: "#/components/schemas/AreaRole"
         status:
           $ref: "#/components/schemas/MasterDataStatus"
+        sharing:
+          $ref: "#/components/schemas/AreaSharing"
         operate_polygon_count:
           type: integer
           minimum: 0
@@ -23622,11 +25316,70 @@ components:
               unit_price:
                 type: integer
                 minimum: 0
+        charter_itinerary:
+          type: object
+          additionalProperties: false
+          description: |
+            包车行程计价的商品级配置（M9P-01，ADR 0093 第二节第 4 小节；M9P-03 加预计用时 T 的三项和在线下单上限，ADR 0091、0093 第四节）。只有包车能设（别的品类给了非默认值 400 `NOT_APPLICABLE`）。
+            **不带这个键、或不带其中某一项 = 那一项保留原值**（旧页面保存服务规则不会把它清掉）；给了默认值 = 清掉（不存）。
+          properties:
+            stop_occupancy_minutes:
+              type: integer
+              minimum: 0
+              maximum: 120
+              description: 经停点默认占用（分钟）：每个经停点额外算进预计用时 T，和客人填的停留分开。默认 0（业主建议 15）
+            buffer_minutes:
+              type: integer
+              minimum: 0
+              maximum: 240
+              description: 整单缓冲（分钟），0 = 关闭。默认 0（业主建议 60）
+            min_package_hours:
+              type: [ integer, "null" ]
+              minimum: 1
+              maximum: 72
+              description: 最低套餐（小时），null = 不限（默认）。比这个短的套餐不报（`PACKAGE_TOO_SHORT`）；比所有启用的套餐都长时保存不拒，但应答 `min_package_above_all` 和上架检查给提醒
+            max_online_minutes:
+              type: integer
+              minimum: 60
+              maximum: 1440
+              description: 在线下单上限（分钟）：按行程计价的预计用时 T 超过它的不在线报价（`ITINERARY_TOO_LONG`，转客服）。默认 780（13 小时，规格步骤 5）
+            warn_minutes:
+              type: integer
+              minimum: 60
+              maximum: 1440
+              description: 超限提醒（分钟，M9P-10）：按行程计价的预计用时 T 大于它时，官网报价带 `itinerary_warnings` 含 `LONG_DURATION`，页面提醒客人缩减行程，仍可下单。默认 720（12 小时，规格步骤 5）
+            warn_km:
+              type: integer
+              minimum: 1
+              maximum: 5000
+              description: 超限提醒（公里，M9P-10）：全程大于它时，官网报价带 `itinerary_warnings` 含 `LONG_DISTANCE`，仍可下单。默认 360
+            suggest_stop_order:
+              type: boolean
+              default: true
+              description: 经停顺序建议（M9P-20 P2，ADR 0096 第六节）：客人填 2 个以上经停时，提示更省路程的顺序。默认开；关了只是这个商品的卡片不显示建议价
+            dropoff_itinerary_surcharge:
+              type: boolean
+              default: true
+              description: |
+                下车点行程加价，默认开：这一单没有落在基础价区域（服务区域）以外的经停点（没填，或都在服务区域里），下车点在某个行程区域里时，
+                把这个区域算作一次经停、收一次行程加价（不看上车点）。商品还没迁移到三层区域时，按下车点所在加价区域的「途经加价」收，没设途经加价就不收、照常报价。
     ProductServiceRules:
       type: object
       additionalProperties: false
-      required: [ version, currency, free_wait_minimums, rules ]
+      required: [ version, currency, free_wait_minimums, min_package_above_all, rules ]
       properties:
+        min_package_above_all:
+          description: 包车（M9P-03，ADR 0091）：最低套餐比这个商品所有启用的套餐都长时，这个商品将报不出价（保存不拒）；没有这种情况、别的品类为 null
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [ min_package_hours, longest_package_hours ]
+              properties:
+                min_package_hours:
+                  type: integer
+                longest_package_hours:
+                  type: integer
+            - type: "null"
         version:
           type: integer
           minimum: 1
@@ -23748,6 +25501,30 @@ components:
                     type: string
                   unit_price:
                     type: integer
+            charter_itinerary:
+              type: object
+              additionalProperties: false
+              required: [ dropoff_itinerary_surcharge, stop_occupancy_minutes, buffer_minutes, min_package_hours, max_online_minutes, warn_minutes, warn_km, suggest_stop_order ]
+              description: 只有包车商品有这一项（M9P-01、M9P-03）；没设过的给默认值，见 `ServiceRules.charter_itinerary`
+              properties:
+                dropoff_itinerary_surcharge:
+                  type: boolean
+                  description: 下车点行程加价（默认开）
+                stop_occupancy_minutes:
+                  type: integer
+                buffer_minutes:
+                  type: integer
+                min_package_hours:
+                  type: [ integer, "null" ]
+                max_online_minutes:
+                  type: integer
+                warn_minutes:
+                  type: integer
+                warn_km:
+                  type: integer
+                suggest_stop_order:
+                  type: boolean
+                  description: 经停顺序建议（默认开，M9P-20 P2）
     ProductContentText:
       type: object
       additionalProperties: false
@@ -23819,8 +25596,8 @@ components:
             properties:
               key:
                 type: string
-                enum: [ basic_info, service_rules, price_rules, content, adjust_rules, inventory, area_coverage ]
-                description: "`area_coverage`（运营区域，M8-20）只在有提醒时出现、从不必须：勾选的报价区域有一部分不在任何运营区域里（原因 `PRICING_AREA_OUTSIDE_OPERATING`，`path` 是 `/areas/{区域编号}`，`detail.outside_m2` 是面积）"
+                enum: [ basic_info, service_rules, price_rules, content, adjust_rules, inventory, area_coverage, charter_min_package, charter_coverage, charter_empty_cells, charter_layer_overlap ]
+                description: "`area_coverage`（运营区域，M8-20）只在有提醒时出现、从不必须：勾选的报价区域有一部分不在任何运营区域里（原因 `PRICING_AREA_OUTSIDE_OPERATING`，`path` 是 `/areas/{区域编号}`，`detail.outside_m2` 是面积）。`charter_min_package`（最低套餐，M9P-03）同样只在有提醒时出现：包车的最低套餐比所有启用的套餐都长（原因 `MIN_PACKAGE_ABOVE_ALL`，`detail` 有 `min_package_hours`、`longest_package_hours`）。`charter_coverage`（M9P-06）只在有提醒时出现：商品所在城市「包车覆盖检查」清单里的地标不在商品任何区域里（原因 `CHARTER_POI_NOT_COVERED`，`path` 是 `/places/{地点编号}`）。`charter_empty_cells`（M9P-06）只在有提醒时出现：行程加价 / 上下车加价表里某区域某车型组没有启用的规则（原因 `CHARTER_EMPTY_CELL`，`path` 是 `/itinerary/{区域编号}/vehicle_groups/{下标}` 或 `/pickup_dropoff/…`）。`charter_layer_overlap`（M9P-13）只在有提醒时出现：包车三层区域有同层或基础价区域和上下车加价区域的重叠（区域页改图形不经过保存校验，已有的重叠也列出；原因 `CHARTER_LAYER_OVERLAP`，`path` 是 `/{layer}/{区域 a}/{区域 b}`，`layer` 同 `AreaCharterOverlap.layer`，①和③时区域 a 是基础价区域；`detail` 有 `overlap_m2`、`area_a`、`area_b`）。迁移过三层区域的包车，`price_rules` 另要每个车型组至少一档整商品套餐价（原因 `CHARTER_GROUP_NO_PACKAGE`，`path` 是 `/vehicle_groups/{下标}`，M9P-05）"
               required:
                 type: boolean
                 description: 这一项不通过就不能上架
@@ -23847,7 +25624,7 @@ components:
                       type: string
                     detail:
                       type: object
-                      description: 原因的补充信息：数字（上限、最低值），或指明是哪一条（如调价规则的 `rule_id`、`name`）
+                      description: 原因的补充信息：数字（上限、最低值），或指明是哪一条（如调价规则的 `rule_id`、`name`；「热门地标覆盖」的地标名 `name`，M9P-07F）
                       additionalProperties:
                         type: [ number, string ]
     ProductTenantRef:
@@ -23969,15 +25746,60 @@ components:
               description: 从商品所在城市当地的今天起，还有剩余库存的日子有几天（限量时有意义；不限量时也照数，通常是 0）
         publish_check:
           $ref: "#/components/schemas/PublishCheck"
+    CharterAirports:
+      type: object
+      additionalProperties: false
+      required: [ version, bindings ]
+      properties:
+        version:
+          type: integer
+          description: 商品的版本号
+        bindings:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ scenario, place_id, place_code, place_name, area_id, area_name, short_name_zh, effective ]
+            properties:
+              scenario:
+                type: string
+                enum: [ airport_start, airport_end ]
+              place_id:
+                type: string
+                format: uuid
+              place_code:
+                type: string
+              place_name:
+                type: object
+                additionalProperties:
+                  type: string
+              area_id:
+                type: string
+                format: uuid
+              area_name:
+                type: object
+                additionalProperties:
+                  type: string
+              short_name_zh:
+                type: [ string, "null" ]
+              effective:
+                type: boolean
     PricingModel:
       type: string
-      enum: [ fixed, mileage_time, charter_package, charter_area_surcharge ]
+      enum: [ fixed, mileage_time, charter_package, charter_area_surcharge, charter_itinerary_surcharge, charter_airport_package ]
       description: |
         fixed：固定一口价；mileage_time：里程 + 时长；charter_package：包车套餐；
+        charter_airport_package：包车机场套餐价（M9P-21，ADR 0098）——`area_id` 是机场绑定的机场区域（不在商品区域里，业务类型、用途都不限），`direction` 是场景（`pickup` 机场开始 / `dropoff` 机场结束），`package_hours` 必填；
+        填 `package_price`（必填），`package_km`、`over_km_per_km`、`overtime_per_hour` 可以不填（= 同一车型组同一时长的普通套餐价）。有这一格 = 单独定价（替换普通套餐价、免掉场景那一端的机场加价），没有 = 继承。
+        只有迁移过三层区域的商品能用（400 `CHARTER_LAYOUT_NOT_MIGRATED`）；这个区域 × 方向在商品上没有机场绑定 → 400 `AIRPORT_BINDING_REQUIRED`。
+        charter_itinerary_surcharge：包车②行程加价（M9P-05，ADR 0093 第一节）——`area_id` 是行程区域（可以是商品的服务区域），填 `itinerary_surcharge`（经停点在这个区域时加，同一区域一单一次；可以是 0）；
+        只有迁移过三层区域的商品（`charter_layout = three_layer`）能用，否则 400 `CHARTER_LAYOUT_NOT_MIGRATED`；不参与上下车点匹配。
+        迁移过的商品：包车套餐的 `area_id` 为 null（整商品套餐价，按车型组 × 套餐填一次），按服务区域的旧套餐价和③行里的 `waypoint_surcharge` 只读（400 `CHARTER_LEGACY_READ_ONLY`，删除可以）；
+        ②③的 `package_hours` 可以为 null（= 这个车型组的所有套餐；同一区域先用套餐对得上的那条）。
         charter_area_surcharge：包车区域加价（M8-15，ADR 0073 第三部分）——`area_id` 是加价区域（本租户的报价区域，不必是商品选的，也不能是商品本身的区域），
         按车型组 × 套餐时长填 `pickup_surcharge`（上车点在这个区域时加）、`dropoff_surcharge`（下车点在这个区域时加），都可以是 0；
         `waypoint_surcharge`（途经加价，M9W-01，ADR 0088：经停点在这个区域时加，同一区域一单一次）可选，不填 = 这个区域对经停点没有规则。
-        区域加价不是基础定价：不算进缺价统计和上架检查；冲突只和同一区域 × 车型组 × 套餐时长的区域加价比（和同一区域的套餐价不冲突）
+        区域加价不是基础定价：不算进缺价统计和上架检查；冲突按三类（套餐价 / 上下车加价 / 行程加价）各算各的（和同一区域的别的类不冲突）
     PriceDirection:
       type: string
       enum: [ pickup, dropoff, both ]
@@ -24003,7 +25825,8 @@ components:
       description: 金额是子品牌币种的最小货币单位整数。这种计价方式不用的数留空（null 或不给）
       properties:
         area_id:
-          type: string
+          description: 区域。包车迁移过三层区域的商品（`charter_layout = three_layer`）的套餐价为 null（整商品套餐价，ADR 0093 第五节）；别的都必填
+          type: [ string, "null" ]
           format: uuid
         to_area_id:
           description: 点对点线路价的下车区域（M8-11，ADR 0073 第二部分）：填了 = 只管「上车点在 area_id、下车点在 to_area_id」的单（单向）；null = 区域价。只有点对点能填，必须是商品选的区域、不能等于 area_id
@@ -24021,7 +25844,7 @@ components:
           type: [ integer, "null" ]
           minimum: 1
           maximum: 72
-          description: 包车必填：套餐时长（小时）。其他品类为 null
+          description: 包车必填：套餐时长（小时）；迁移过三层区域的包车，②行程加价、③上下车加价可以为 null（= 所有套餐）。其他品类为 null
         pricing_model:
           $ref: "#/components/schemas/PricingModel"
         base_price:
@@ -24098,7 +25921,12 @@ components:
           minimum: 0
           maximum: 1000000000
         waypoint_surcharge:
-          description: 包车区域加价：途经加价——经停点在这个区域时加多少，同一区域一单只加一次（可以是 0；M9W-01，ADR 0088）。可以不填（null）：不填 = 这个区域对经停点没有规则（不当 0），经停点只落在这个区域时报不出
+          description: 包车区域加价：途经加价——经停点在这个区域时加多少，同一区域一单只加一次（可以是 0；M9W-01，ADR 0088）。可以不填（null）：不填 = 这个区域对经停点没有规则（不当 0），经停点只落在这个区域时报不出。修改已有规则（PUT、批量 update）时请求里没有这个键 = 保留原来的途经加价（M9W-06，旧页面改上 / 下车加价不会清掉它）；要清掉请显式传 null
+          type: [ integer, "null" ]
+          minimum: 0
+          maximum: 1000000000
+        itinerary_surcharge:
+          description: 包车②行程加价（M9P-05，ADR 0093）：经停点在这个区域时加多少，同一区域一单只加一次（可以是 0）。别的价格方式为 null
           type: [ integer, "null" ]
           minimum: 0
           maximum: 1000000000
@@ -24115,13 +25943,14 @@ components:
     PriceRule:
       type: object
       additionalProperties: false
-      required: [ id, area_id, to_area_id, vehicle_group_id, direction, package_hours, pricing_model, base_price, included_km, start_price, start_meters, start_minutes, per_km, per_minute, min_price, package_km, package_price, overtime_per_hour, over_km_per_km, pickup_surcharge, dropoff_surcharge, waypoint_surcharge, base, valid_from, valid_to, status, created_at, updated_at ]
+      required: [ id, area_id, to_area_id, vehicle_group_id, direction, package_hours, pricing_model, base_price, included_km, start_price, start_meters, start_minutes, per_km, per_minute, min_price, package_km, package_price, overtime_per_hour, over_km_per_km, pickup_surcharge, dropoff_surcharge, waypoint_surcharge, itinerary_surcharge, base, valid_from, valid_to, status, created_at, updated_at ]
       properties:
         id:
           type: string
           format: uuid
         area_id:
-          type: string
+          description: 区域；包车迁移过三层区域的整商品套餐价为 null（ADR 0093 第五节）
+          type: [ string, "null" ]
           format: uuid
         to_area_id:
           description: 点对点线路价的下车区域（M8-11，ADR 0073 第二部分）：填了 = 只管「上车点在 area_id、下车点在 to_area_id」的单（单向）；null = 区域价。只有点对点能填，必须是商品选的区域、不能等于 area_id
@@ -24217,6 +26046,11 @@ components:
           maximum: 1000000000
         waypoint_surcharge:
           description: 包车区域加价：途经加价——经停点在这个区域时加多少，同一区域一单只加一次（可以是 0；M9W-01，ADR 0088）。可以不填（null）：不填 = 这个区域对经停点没有规则（不当 0），经停点只落在这个区域时报不出
+          type: [ integer, "null" ]
+          minimum: 0
+          maximum: 1000000000
+        itinerary_surcharge:
+          description: 包车②行程加价（M9P-05，ADR 0093）：经停点在这个区域时加多少，同一区域一单只加一次（可以是 0）。别的价格方式为 null
           type: [ integer, "null" ]
           minimum: 0
           maximum: 1000000000
@@ -24255,7 +26089,7 @@ components:
     PriceRules:
       type: object
       additionalProperties: false
-      required: [ version, currency, rounding_unit, available_models, surcharge_models, today, items, coverage ]
+      required: [ version, currency, rounding_unit, available_models, surcharge_models, charter_layout, today, items, coverage ]
       properties:
         version:
           type: integer
@@ -24273,9 +26107,13 @@ components:
             $ref: "#/components/schemas/PricingModel"
         surcharge_models:
           type: array
-          description: 加价类的价格方式（包车：`charter_area_surcharge`；别的品类是空数组；M8-15）
+          description: 加价类的价格方式（包车：`charter_area_surcharge`；迁移过三层区域的包车另有 `charter_itinerary_surcharge`；别的品类是空数组；M8-15、M9P-05）
           items:
             $ref: "#/components/schemas/PricingModel"
+        charter_layout:
+          description: 包车用哪套价格表（M9P-05，ADR 0093 第一节）：null = 旧表（按服务区域的套餐价、上下车加价行里的途经加价）；`three_layer` = 新表（整商品套餐价、行程加价、上下车加价）。只由迁移脚本改
+          type: [ string, "null" ]
+          enum: [ three_layer, null ]
         today:
           type: string
           format: date
@@ -24290,7 +26128,7 @@ components:
       type: object
       additionalProperties: false
       description: 批量保存之后的全部价格规则（各字段同 `PriceRules`），外加这次新增的规则的编号
-      required: [ version, currency, rounding_unit, available_models, surcharge_models, today, items, coverage, created_ids ]
+      required: [ version, currency, rounding_unit, available_models, surcharge_models, charter_layout, today, items, coverage, created_ids ]
       properties:
         version:
           type: integer
@@ -24308,6 +26146,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/PricingModel"
+        charter_layout:
+          description: 包车用哪套价格表（M9P-05，ADR 0093 第一节）：null = 旧表（按服务区域的套餐价、上下车加价行里的途经加价）；`three_layer` = 新表（整商品套餐价、行程加价、上下车加价）。只由迁移脚本改
+          type: [ string, "null" ]
+          enum: [ three_layer, null ]
         today:
           type: string
           format: date
@@ -24364,6 +26206,161 @@ components:
           items:
             type: string
             format: uuid
+    CharterPackageTerms:
+      type: object
+      additionalProperties: false
+      required: [ package_price, package_km, overtime_per_hour, over_km_per_km, valid_to, status ]
+      properties:
+        package_price:
+          type: integer
+          description: 套餐价（结算价，子品牌币种的最小货币单位）
+        package_km:
+          type: integer
+        overtime_per_hour:
+          type: integer
+        over_km_per_km:
+          type: integer
+        valid_to:
+          type: [ string, "null" ]
+          format: date
+        status:
+          $ref: "#/components/schemas/RuleStatus"
+    TripRuleConfig:
+      type: object
+      additionalProperties: false
+      description: 跨段规则配置（ADR 0101 第四节表）。不填的键 = 默认值。金额是结算价最小单位，比例是基点，时长是分钟
+      properties:
+        lodging:
+          type: object
+          additionalProperties: false
+          properties:
+            enabled: { type: boolean }
+            perNightMinor: { type: integer, minimum: 0, maximum: 1000000000 }
+            byArea:
+              type: array
+              maxItems: 50
+              items:
+                type: object
+                additionalProperties: false
+                required: [ areaId, perNightMinor ]
+                properties:
+                  areaId: { type: string, format: uuid }
+                  perNightMinor: { type: integer, minimum: 0, maximum: 1000000000 }
+            offsetSurcharges: { type: boolean, description: 收住宿时抵掉前后两天的上下车空驶加价，再与「车回基地」取低（D4） }
+        idleDay:
+          type: object
+          additionalProperties: false
+          properties:
+            enabled: { type: boolean }
+            perDayMinor: { type: integer, minimum: 0, maximum: 1000000000 }
+            orShortestPackage: { type: boolean }
+        workHours:
+          type: object
+          additionalProperties: false
+          properties:
+            maxBindMinutes: { type: integer, minimum: 0, maximum: 2880 }
+            hardMaxBindMinutes: { type: integer, minimum: 0, maximum: 2880 }
+            minRestMinutes: { type: integer, minimum: 0, maximum: 2880 }
+            absoluteMinRestMinutes: { type: integer, minimum: 0, maximum: 2880 }
+            maxDriveMinutes: { type: integer, minimum: 0, maximum: 2880 }
+            maxDailyKm: { type: integer, minimum: 0, maximum: 5000 }
+            garageMinutes: { type: integer, minimum: 0, maximum: 2880 }
+            awayGarageMinutes: { type: integer, minimum: 0, maximum: 2880 }
+        secondDriver:
+          type: object
+          additionalProperties: false
+          properties:
+            enabled: { type: boolean }
+            mode: { type: string, enum: [ shortest_package, fixed ] }
+            fixedMinor: { type: integer, minimum: 0, maximum: 1000000000 }
+        bundleAddons:
+          type: object
+          additionalProperties: false
+          properties:
+            enabled: { type: boolean }
+        returnTrip:
+          type: object
+          additionalProperties: false
+          description: 返程费 P1 只做配置和计算函数，P1d 才接入报价（B3）
+          properties:
+            enabled: { type: boolean }
+            ratioBp: { type: integer, minimum: 0, maximum: 10000 }
+            fixedByCity:
+              type: array
+              maxItems: 50
+              items:
+                type: object
+                additionalProperties: false
+                required: [ cityId, minor ]
+                properties:
+                  cityId: { type: string, format: uuid }
+                  minor: { type: integer, minimum: 0, maximum: 1000000000 }
+            maxOneWayKm: { type: integer, minimum: 0, maximum: 5000 }
+    TripRules:
+      type: object
+      additionalProperties: false
+      required: [ product_id, version, rules_version, settlement_currency, saved, effective ]
+      properties:
+        product_id: { type: string, format: uuid }
+        version: { type: integer, description: 商品版本号（If-Match 用） }
+        rules_version: { type: integer, description: 配置自己的版本号；没存过为 0 }
+        settlement_currency: { type: string }
+        saved:
+          oneOf:
+            - $ref: "#/components/schemas/TripRuleConfig"
+            - type: "null"
+        effective:
+          type: object
+          description: 合并默认值后的生效值，每个键都有值；金额为 null = 没有可用金额（这一项不收）
+          required: [ lodging, idleDay, workHours, secondDriver, bundleAddons, returnTrip ]
+          properties:
+            lodging: { type: object }
+            idleDay: { type: object }
+            workHours: { type: object }
+            secondDriver: { type: object }
+            bundleAddons: { type: object }
+            returnTrip: { type: object }
+    CharterMigrationDiff:
+      type: object
+      additionalProperties: false
+      required: [ charter_layout, items ]
+      properties:
+        charter_layout:
+          type: [ string, "null" ]
+          enum: [ three_layer, null ]
+          description: null = 没迁移过（`items` 为空）
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ old_price_rule_id, area_id, vehicle_group_id, package_hours, valid_from, old, product_price_rule_id, product ]
+            properties:
+              old_price_rule_id:
+                type: string
+                format: uuid
+                description: 旧的按服务区域的套餐价（只读）
+              area_id:
+                type: string
+                format: uuid
+              vehicle_group_id:
+                type: string
+                format: uuid
+              package_hours:
+                type: [ integer, "null" ]
+              valid_from:
+                type: string
+                format: date
+              old:
+                $ref: "#/components/schemas/CharterPackageTerms"
+              product_price_rule_id:
+                type: [ string, "null" ]
+                format: uuid
+                description: 对应的整商品套餐价；没有为 null
+              product:
+                oneOf:
+                  - $ref: "#/components/schemas/CharterPackageTerms"
+                  - type: "null"
     PriceCoverage:
       type: object
       additionalProperties: false
@@ -24391,7 +26388,8 @@ components:
             required: [ area_id, vehicle_group_id, direction, package_hours, state, price_rule_id, via_both, from ]
             properties:
               area_id:
-                type: string
+                description: 区域；迁移过三层区域的包车按整商品套餐价统计「车型组 × 套餐」，为 null（ADR 0093 第五节）
+                type: [ string, "null" ]
                 format: uuid
               vehicle_group_id:
                 type: string
@@ -25460,6 +27458,8 @@ components:
             - AREA_ROLE_NOT_PRICING
             - AREA_DISABLED
             - SAME_AREA
+            - AREA_LAYER_OVERLAP
+            - AREA_BASE_SURCHARGE_OVERLAP
           description: |
             `REQUIRED` 必填的格空着；`FORMULA` 这一格是公式；`NOT_A_NUMBER` / `NOT_INTEGER` 不是数字 / 不是整数；
             `PRECISION` 小数位超过了币种的精度（或起步里程超过 1 位小数）；`OUT_OF_RANGE` 超出范围；
@@ -25467,7 +27467,8 @@ components:
             `DUPLICATE` 同一个价格编号 / 同一天出现了两次；`UNKNOWN_VALUE` 方向、计价方式、状态填了不认识的词；
             `NOT_APPLICABLE` 这种计价方式或品类不填这一列；`MODEL_NOT_ALLOWED` 这个品类不能用这种计价方式；
             `UNKNOWN_PRICE_RULE` 价格编号不是这个商品的；`AREA_NOT_IN_PRODUCT` / `VEHICLE_GROUP_NOT_IN_PRODUCT` 不是这个商品选的区域 / 车型组；
-            `AMBIGUOUS` 有不止一个区域叫这个名字；`INVENTORY_BELOW_OCCUPIED` 这一天有订单占着，不能改成这个数。
+            `AMBIGUOUS` 有不止一个区域叫这个名字；`INVENTORY_BELOW_OCCUPIED` 这一天有订单占着，不能改成这个数；
+            `AREA_LAYER_OVERLAP` / `AREA_BASE_SURCHARGE_OVERLAP` 包车三层区域：这一行新加进行程加价 / 上下车加价的区域和同一层已有的区域、或和基础价区域重叠（M9P-07，和保存同一套检查，预览就报，不等确认导入）。
             包车区域加价的行（M8-15）：`UNKNOWN_AREA` 本租户没有叫这个名字的区域；`AREA_IS_PRODUCT_AREA` 是商品本身的区域；`AREA_NOT_USABLE` 业务类型不是包车或通用；`AREA_DISABLED` 区域已停用。
             `AREA_ROLE_NOT_PRICING`（M8-20，ADR 0075）：认出的是运营区域，运营区域不带价格。
             点对点线路价的行（M8-11）：`SAME_AREA`「下车区域」和「区域」相同。
@@ -25589,11 +27590,19 @@ components:
       required: [ total, base, adjust, urgent, night, addons, driver_language, area_surcharge, to_area_id, distance ]
       properties:
         itinerary:
-          description: 包车按行程计价（M9W-01，ADR 0088 补充）：锁定的全程、套餐含量、超出量，和超公里费、超时费、两个单价（结算价；钱已含在 `base` 里）。没按行程计价的单没有这一项
+          description: |
+            包车按行程计价（M9W-01，ADR 0088 补充）：锁定的全程、套餐含量、超出量，和超公里费、超时费、两个单价（结算价；钱已含在 `base` 里）。没按行程计价的单没有这一项。
+            M9P-03 起的单下单时不收超时费（`overtime_at_booking: false`、`overtime_fee` 为 0，`overtime_minutes` 只是预计超出，服务后按实际提交）
           type: object
           additionalProperties: false
-          required: [ route_meters, route_minutes, package_km, package_minutes, over_meters, overtime_minutes, over_km_fee, overtime_fee, over_km_per_km, overtime_per_hour ]
+          required: [ route_meters, route_minutes, package_km, package_minutes, over_meters, overtime_minutes, over_km_fee, overtime_fee, over_km_per_km, overtime_per_hour, overtime_at_booking ]
           properties:
+            overtime_at_booking:
+              type: boolean
+              description: 超时费下单时预收了没有（ADR 0091 第三节第 3 小节）：M9P-03 之前的单 true（按下单时的规则预收），之后的 false
+            estimated_minutes:
+              type: integer
+              description: 含经停点默认占用和整单缓冲的预计用时（分钟）；只在下单时这两项不为 0 时有
             route_meters:
               type: integer
             route_minutes:
@@ -25639,7 +27648,7 @@ components:
                 dropoff:
                   $ref: "#/components/schemas/OrderSettlementSurchargeEnd"
                 waypoints:
-                  description: 途经加价（M9W-01，ADR 0088）：每个收了途经加价的区域一项；没有经停点的单没有这一项
+                  description: 行程加价（途经加价，M9W-01，ADR 0088、0093）：每个收了行程加价的区域一项；没有经停点、也没收下车点行程加价的单没有这一项
                   type: array
                   items:
                     type: object
@@ -25656,6 +27665,31 @@ components:
                         items:
                           type: integer
                           minimum: 1
+                      included_in_package:
+                        type: boolean
+                        enum: [ true ]
+                        description: 机场套餐单独定价时含在套餐里、免掉的这一项（金额 0，M9P-21，ADR 0098）
+                      from_dropoff:
+                        type: boolean
+                        enum: [ true ]
+                        description: 下车点行程加价（M9P-01，ADR 0093 第二节第 4 小节）：没有市外经停、下车点在这个区域里，算作一次经停收的；只有这一项带这个键，`stop_seqs` 为空
+                charter_scenario:
+                  description: 包车机场开始 / 机场结束（M9P-21，ADR 0098）：匹配到的场景；`pricing` 是单独定价（`own`）还是继承（`inherit`）。没有场景时没有这一项
+                  type: object
+                  additionalProperties: false
+                  required: [ kind, airport_id, airport_name, pricing ]
+                  properties:
+                    kind:
+                      type: string
+                      enum: [ airport_start, airport_end ]
+                    airport_id:
+                      type: string
+                      format: uuid
+                    airport_name:
+                      type: string
+                    pricing:
+                      type: string
+                      enum: [ own, inherit ]
             - type: "null"
         total:
           $ref: "#/components/schemas/SalesMoney"
@@ -25704,6 +27738,41 @@ components:
         stay_minutes:
           type: integer
           minimum: 0
+    OrderWaypointWithArrival:
+      type: object
+      additionalProperties: false
+      required: [ name, lat, lng, stay_minutes ]
+      description: |
+        包车订单的一个经停点（M9W-01，ADR 0088），带客人指定的到达时间（M9P-20 P3，ADR 0096 第三节第 6 小节）：官网订单页、供应商、运营、司机看的这一份。
+        `arrive_by` 只在客人指定了时有（下单时从报价快照抄过来，之后不能改）；渠道接口（`/sales/v1`）的 `OrderWaypoint` 本期没有这一项（ADR 0096 第十节第 7 条）
+      properties:
+        name:
+          type: string
+        lat:
+          type: number
+        lng:
+          type: number
+        stay_minutes:
+          type: integer
+          minimum: 0
+        arrive_by:
+          $ref: "#/components/schemas/WaypointArriveBy"
+    WaypointArriveBy:
+      type: object
+      additionalProperties: false
+      required: [ day_offset, time ]
+      description: |
+        经停的指定到达时间（M9P-20 P3，ADR 0096 第三节第 6 小节；按「最晚到达」理解，业主确认第十节第 3 条）：用车当地时间，`day_offset` 相对用车日期（0 当天、1 次日），能跨午夜。
+        询价时必须晚于用车开始、不晚于用车开始后 24 小时，否则 400 `VALIDATION_FAILED`（`/waypoints/{i}/arrive_by`，原因 `NOT_AFTER_START` / `TOO_LATE` / `FORMAT`）。
+        只固定这个经停在行程里的位置、给司机看：不影响价格和选档，首期按当前顺序预计晚到时只提示、不拦截
+      properties:
+        day_offset:
+          type: integer
+          enum: [ 0, 1 ]
+        time:
+          type: string
+          pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+          description: HH:MM（00:00–23:59）
     OrderSettlementSurchargeEnd:
       type: object
       additionalProperties: false
@@ -25714,6 +27783,10 @@ components:
           format: uuid
         amount:
           $ref: "#/components/schemas/SalesMoney"
+        included_in_package:
+          type: boolean
+          enum: [ true ]
+          description: 机场套餐单独定价时含在套餐里、免掉的这一项（金额 0，M9P-21，ADR 0098）
     OrderAreaSurcharge:
       type: object
       additionalProperties: false
@@ -25729,10 +27802,27 @@ components:
         dropoff:
           $ref: "#/components/schemas/OrderAreaSurchargeEnd"
         waypoints:
-          description: 途经加价（M9W-01，ADR 0088）：每个收了途经加价的加价区域一项（结算价）；没有经停点的单没有这一项
+          description: 行程加价（途经加价，M9W-01，ADR 0088、0093）：每个收了行程加价的区域一项（结算价）；没有经停点、也没收下车点行程加价的单没有这一项
           type: array
           items:
             $ref: "#/components/schemas/OrderAreaSurchargeWaypoint"
+        charter_scenario:
+          description: 包车机场开始 / 机场结束（M9P-21，ADR 0098）：下单时匹配到的场景；`pricing` 是单独定价（`own`，含这一端的机场加价）还是继承（`inherit`）。没有场景的单没有这一项
+          type: object
+          additionalProperties: false
+          required: [ kind, airport_id, airport_name, pricing ]
+          properties:
+            kind:
+              type: string
+              enum: [ airport_start, airport_end ]
+            airport_id:
+              type: string
+              format: uuid
+            airport_name:
+              type: string
+            pricing:
+              type: string
+              enum: [ own, inherit ]
     OrderAreaSurchargeWaypoint:
       type: object
       additionalProperties: false
@@ -25752,6 +27842,14 @@ components:
           items:
             type: integer
             minimum: 1
+        from_dropoff:
+          type: boolean
+          enum: [ true ]
+          description: 下车点行程加价（M9P-01，ADR 0093 第二节第 4 小节）：没有市外经停、下车点在这个区域里，算作一次经停收的；只有这一项带这个键，`stop_seqs` 为空
+        included_in_package:
+          type: boolean
+          enum: [ true ]
+          description: 机场套餐单独定价时含在套餐里、免掉的这一项（金额 0，M9P-21，ADR 0098）
     OrderAreaSurchargeEnd:
       type: object
       additionalProperties: false
@@ -25767,6 +27865,10 @@ components:
             - type: "null"
         settlement:
           $ref: "#/components/schemas/SalesMoney"
+        included_in_package:
+          type: boolean
+          enum: [ true ]
+          description: 机场套餐单独定价时含在套餐里、免掉的这一项（金额 0，M9P-21，ADR 0098）
     OrderDistance:
       type: object
       additionalProperties: false
@@ -25848,10 +27950,27 @@ components:
         dropoff:
           $ref: "#/components/schemas/PlatformOrderAreaSurchargeEnd"
         waypoints:
-          description: 途经加价（M9W-01，ADR 0088）：每个收了途经加价的加价区域一项（结算价）；没有经停点的单没有这一项
+          description: 行程加价（途经加价，M9W-01，ADR 0088、0093）：每个收了行程加价的区域一项（结算价）；没有经停点、也没收下车点行程加价的单没有这一项
           type: array
           items:
             $ref: "#/components/schemas/OrderAreaSurchargeWaypoint"
+        charter_scenario:
+          description: 包车机场开始 / 机场结束（M9P-21，ADR 0098）：下单时匹配到的场景；`pricing` 是单独定价（`own`，含这一端的机场加价）还是继承（`inherit`）。没有场景的单没有这一项
+          type: object
+          additionalProperties: false
+          required: [ kind, airport_id, airport_name, pricing ]
+          properties:
+            kind:
+              type: string
+              enum: [ airport_start, airport_end ]
+            airport_id:
+              type: string
+              format: uuid
+            airport_name:
+              type: string
+            pricing:
+              type: string
+              enum: [ own, inherit ]
     PlatformOrderAreaSurchargeEnd:
       type: object
       additionalProperties: false
@@ -25866,6 +27985,10 @@ components:
             - type: "null"
         settlement:
           $ref: "#/components/schemas/SalesMoney"
+        included_in_package:
+          type: boolean
+          enum: [ true ]
+          description: 机场套餐单独定价时含在套餐里、免掉的这一项（金额 0，M9P-21，ADR 0098）
         sell:
           oneOf:
             - $ref: "#/components/schemas/SalesMoney"
@@ -25875,7 +27998,7 @@ components:
       additionalProperties: false
       description: |
         渠道看到的订单：行程、乘客、客人支付的金额、付款状态。**没有结算价、加价比例**；中标租户只在付款成功后、渠道设置了「付款后展示」时出现。
-      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, waypoints, itinerary, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
+      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, waypoints, itinerary, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, flight_kind, free_wait_basis, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
       properties:
         pricing_basis:
           $ref: "#/components/schemas/PricingBasis"
@@ -25987,6 +28110,35 @@ components:
         free_wait_minutes:
           type: [ integer, "null" ]
           description: 免费等待分钟数；不限为 null
+        flight_kind:
+          type: [ string, "null" ]
+          enum: [ international, domestic, null ]
+          description: 客人填航班号时选的国际 / 国内航班（M9E-28，ADR 0097）；没选、渠道没给、不是接机为 null
+        free_wait_basis:
+          description: 接机按航班锁定免费等待的依据（M9E-28，ADR 0097）：`flight_kind` 按哪种航班锁的（null = 航班类型未确认，按国内线）、`base` 商品自己设的免费等待（只作记录，M9E-31 起机场接机不用它）、`floor_minutes` 这次给的平台统一分钟数（国际 90、国内 / 未确认 60）。最终分钟数 `free_wait_minutes` 就是 `floor_minutes`；M9E-31 之前按 max(商品, 下限) 锁的旧单保持原样（可能大于 `floor_minutes` 或为 null）。以前的单、不是接机的单为 null
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required: [ flight_kind, base, floor_minutes ]
+              properties:
+                flight_kind:
+                  type: [ string, "null" ]
+                  enum: [ international, domestic, null ]
+                base:
+                  oneOf:
+                    - type: "null"
+                    - type: object
+                      additionalProperties: false
+                      required: [ mode ]
+                      properties:
+                        mode:
+                          type: string
+                          enum: [ limited, unlimited ]
+                        minutes:
+                          type: integer
+                floor_minutes:
+                  type: integer
         created_at:
           type: string
           format: date-time
@@ -26101,7 +28253,7 @@ components:
       additionalProperties: false
       description: |
         供应商看到的订单：行程、乘客、结算价和明细。**没有渠道、对外价、加价比例、汇率**（规则 4）。只有付过款的单。
-      required: [ pending_change, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, waypoints, itinerary, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, product_id, product_version, settlement, dispatch, fulfilment, landing, cancel_policy, cancellation, version ]
+      required: [ pending_change, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, waypoints, itinerary, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, flight_kind, free_wait_basis, created_at, confirmed_at, cancelled_at, cancel_reason, product_id, product_version, settlement, dispatch, fulfilment, landing, cancel_policy, cancellation, version ]
       properties:
         pending_change:
           type: boolean
@@ -26179,7 +28331,7 @@ components:
           description: 包车的经停点（M9W-01，ADR 0088），按顺序：名称、坐标、停留分钟；下单后不能改。没有经停点的单、以前的单为 null（新增字段）
           type: [ array, "null" ]
           items:
-            $ref: "#/components/schemas/OrderWaypoint"
+            $ref: "#/components/schemas/OrderWaypointWithArrival"
         itinerary:
           description: 包车按行程计价（M9W-01，ADR 0088 补充）锁定的全程、总时长、套餐含量和超出量（没有金额）；没按行程计价的单为 null（新增字段）
           oneOf:
@@ -26204,6 +28356,35 @@ components:
         free_wait_minutes:
           type: [ integer, "null" ]
           description: 免费等待分钟数；不限为 null
+        flight_kind:
+          type: [ string, "null" ]
+          enum: [ international, domestic, null ]
+          description: 客人填航班号时选的国际 / 国内航班（M9E-28，ADR 0097）；没选、渠道没给、不是接机为 null
+        free_wait_basis:
+          description: 接机按航班锁定免费等待的依据（M9E-28，ADR 0097）：`flight_kind` 按哪种航班锁的（null = 航班类型未确认，按国内线）、`base` 商品自己设的免费等待（只作记录，M9E-31 起机场接机不用它）、`floor_minutes` 这次给的平台统一分钟数（国际 90、国内 / 未确认 60）。最终分钟数 `free_wait_minutes` 就是 `floor_minutes`；M9E-31 之前按 max(商品, 下限) 锁的旧单保持原样（可能大于 `floor_minutes` 或为 null）。以前的单、不是接机的单为 null
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required: [ flight_kind, base, floor_minutes ]
+              properties:
+                flight_kind:
+                  type: [ string, "null" ]
+                  enum: [ international, domestic, null ]
+                base:
+                  oneOf:
+                    - type: "null"
+                    - type: object
+                      additionalProperties: false
+                      required: [ mode ]
+                      properties:
+                        mode:
+                          type: string
+                          enum: [ limited, unlimited ]
+                        minutes:
+                          type: integer
+                floor_minutes:
+                  type: integer
         created_at:
           type: string
           format: date-time
@@ -26243,7 +28424,7 @@ components:
       additionalProperties: false
       description: |
         运营后台看到的订单：行程、乘客、中标租户、渠道、对外价、结算价、加价比例、汇率快照、付款状态。
-      required: [ notes_masked, passenger_anonymized_at, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, waypoints, itinerary, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, dispatch, fulfilment, landing, tenant, channel, quote_id, channel_order_no, product_id, product_version, sell, settlement, markup_bp, fx, fx_buffer_bp, payment_due_at, payment, cancel_policy, cancellation, is_acceptance, version ]
+      required: [ notes_masked, passenger_anonymized_at, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, waypoints, itinerary, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, flight_kind, free_wait_basis, created_at, confirmed_at, cancelled_at, cancel_reason, dispatch, fulfilment, landing, tenant, channel, quote_id, channel_order_no, product_id, product_version, sell, settlement, markup_bp, fx, fx_buffer_bp, payment_due_at, payment, cancel_policy, cancellation, is_acceptance, version ]
       properties:
         notes_masked:
           type: boolean
@@ -26325,7 +28506,7 @@ components:
           description: 包车的经停点（M9W-01，ADR 0088），按顺序：名称、坐标、停留分钟；下单后不能改。没有经停点的单、以前的单为 null（新增字段）
           type: [ array, "null" ]
           items:
-            $ref: "#/components/schemas/OrderWaypoint"
+            $ref: "#/components/schemas/OrderWaypointWithArrival"
         itinerary:
           description: 包车按行程计价（M9W-01，ADR 0088 补充）锁定的全程、总时长、套餐含量和超出量（没有金额）；没按行程计价的单为 null（新增字段）
           oneOf:
@@ -26350,6 +28531,35 @@ components:
         free_wait_minutes:
           type: [ integer, "null" ]
           description: 免费等待分钟数；不限为 null
+        flight_kind:
+          type: [ string, "null" ]
+          enum: [ international, domestic, null ]
+          description: 客人填航班号时选的国际 / 国内航班（M9E-28，ADR 0097）；没选、渠道没给、不是接机为 null
+        free_wait_basis:
+          description: 接机按航班锁定免费等待的依据（M9E-28，ADR 0097）：`flight_kind` 按哪种航班锁的（null = 航班类型未确认，按国内线）、`base` 商品自己设的免费等待（只作记录，M9E-31 起机场接机不用它）、`floor_minutes` 这次给的平台统一分钟数（国际 90、国内 / 未确认 60）。最终分钟数 `free_wait_minutes` 就是 `floor_minutes`；M9E-31 之前按 max(商品, 下限) 锁的旧单保持原样（可能大于 `floor_minutes` 或为 null）。以前的单、不是接机的单为 null
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required: [ flight_kind, base, floor_minutes ]
+              properties:
+                flight_kind:
+                  type: [ string, "null" ]
+                  enum: [ international, domestic, null ]
+                base:
+                  oneOf:
+                    - type: "null"
+                    - type: object
+                      additionalProperties: false
+                      required: [ mode ]
+                      properties:
+                        mode:
+                          type: string
+                          enum: [ limited, unlimited ]
+                        minutes:
+                          type: integer
+                floor_minutes:
+                  type: integer
         created_at:
           type: string
           format: date-time
@@ -27142,6 +29352,10 @@ components:
               maxLength: 500
         flight_no:
           type: [ string, "null" ]
+        flight_kind:
+          type: [ string, "null" ]
+          enum: [ international, domestic, null ]
+          description: 国际 / 国内航班（M9E-28，ADR 0097），跟着航班号给，只用于机场接机和带航班号的点对点单（改用点对点商品报价的接机）。下单时按它锁定免费等待：国际 90、国内 60；不给按「航班类型未确认」60（M9E-31 起平台统一，不看商品设的）。送机、接送站、包车给了 400
         messaging:
           oneOf:
             - $ref: "#/components/schemas/OrderMessaging"
@@ -27228,6 +29442,10 @@ components:
               type: string
         flight_no:
           type: [ string, "null" ]
+        flight_kind:
+          type: [ string, "null" ]
+          enum: [ international, domestic, null ]
+          description: 国际 / 国内航班（M9E-28，ADR 0097），跟着航班号给，只用于机场接机和带航班号的点对点单（改用点对点商品报价的接机）。下单时按它锁定免费等待：国际 90、国内 60；不给按「航班类型未确认」60（M9E-31 起平台统一，不看商品设的）。送机、接送站、包车给了 400
         messaging:
           oneOf:
             - $ref: "#/components/schemas/OrderMessaging"
@@ -27271,7 +29489,11 @@ components:
               description: 确认邮件和订单页链接发到这里
         flight_no:
           type: [ string, "null" ]
-          description: 航班号，如 `NH211`。接机（机场）必填；送机选填；接送站、点对点、包车不填
+          description: 航班号，如 `NH211`。接机（机场）必填；送机选填；点对点选填（填了表示从机场接人，按航班定免费等待，M9E-28）；接送站、包车不填
+        flight_kind:
+          type: [ string, "null" ]
+          enum: [ international, domestic, null ]
+          description: 国际 / 国内航班（M9E-28，ADR 0097），跟着航班号给，只用于机场接机和带航班号的点对点单（改用点对点商品报价的接机）。下单时按它锁定免费等待：国际 90、国内 60；不给按「航班类型未确认」60（M9E-31 起平台统一，不看商品设的）。送机、接送站、包车给了 400
         pickup_address:
           type: [ string, "null" ]
           maxLength: 300
@@ -27915,7 +30137,7 @@ components:
         order:
           type: object
           additionalProperties: false
-          required: [ order_no, status, status_name, category, direction, service_time, service_local, timezone, package_hours, passengers, luggage, flight_no, passenger, rider, messaging, notes, place, pickup, dropoff, waypoints, itinerary, pickup_point, addons, driver_language, free_wait_minutes ]
+          required: [ order_no, status, status_name, category, direction, service_time, service_local, timezone, package_hours, passengers, luggage, flight_no, passenger, rider, messaging, notes, place, pickup, dropoff, waypoints, itinerary, pickup_point, addons, driver_language, free_wait_minutes, flight_kind, free_wait_basis ]
           properties:
             order_no:
               type: string
@@ -27994,7 +30216,7 @@ components:
               description: 包车的经停点（M9W-01，ADR 0088），按顺序：名称、坐标、停留分钟（行程显示在 M9W-03）；没有为 null。不含任何价格
               type: [ array, "null" ]
               items:
-                $ref: "#/components/schemas/OrderWaypoint"
+                $ref: "#/components/schemas/OrderWaypointWithArrival"
             itinerary:
               description: 包车按行程计价锁定的全程、总时长（M9W-01；没有金额）；没按行程计价为 null
               oneOf:
@@ -28032,6 +30254,48 @@ components:
               type: [ string, "null" ]
             free_wait_minutes:
               type: [ integer, "null" ]
+            flight_kind:
+              type: [ string, "null" ]
+              enum: [ international, domestic, null ]
+              description: 客人填航班号时选的国际 / 国内航班（M9E-28，ADR 0097）；没选、渠道没给、不是接机为 null
+            free_wait_basis:
+              description: 接机按航班锁定免费等待的依据（M9E-28，ADR 0097）：`flight_kind` 按哪种航班锁的（null = 航班类型未确认，按国内线）、`base` 商品自己设的免费等待（只作记录，M9E-31 起机场接机不用它）、`floor_minutes` 这次给的平台统一分钟数（国际 90、国内 / 未确认 60）。最终分钟数 `free_wait_minutes` 就是 `floor_minutes`；M9E-31 之前按 max(商品, 下限) 锁的旧单保持原样（可能大于 `floor_minutes` 或为 null）。以前的单、不是接机的单为 null
+              oneOf:
+                - type: "null"
+                - type: object
+                  additionalProperties: false
+                  required: [ flight_kind, base, floor_minutes ]
+                  properties:
+                    flight_kind:
+                      type: [ string, "null" ]
+                      enum: [ international, domestic, null ]
+                    base:
+                      oneOf:
+                        - type: "null"
+                        - type: object
+                          additionalProperties: false
+                          required: [ mode ]
+                          properties:
+                            mode:
+                              type: string
+                              enum: [ limited, unlimited ]
+                            minutes:
+                              type: integer
+                    floor_minutes:
+                      type: integer
+            charter_scenario:
+              description: 包车机场开始 / 机场结束（M9P-22，ADR 0098）：场景和机场名，没有价格；没有场景为 null
+              oneOf:
+                - type: "null"
+                - type: object
+                  additionalProperties: false
+                  required: [ kind, airport_name ]
+                  properties:
+                    kind:
+                      type: string
+                      enum: [ airport_start, airport_end ]
+                    airport_name:
+                      type: string
         driver:
           oneOf:
             - type: object
@@ -28848,7 +31112,7 @@ components:
       type: object
       additionalProperties: false
       description: 一次救援（运营后台）：触发、违约金、救援单、改派结果、应扣款项、不可抗力
-      required: [ id, order, trigger, triggered_by_type, reason, triggered_at, from_status, original_tenant, original_settlement, penalty_bp, penalty_tier, penalty, status, rescue_tenant, rescue_settlement, rescued_via, rescued_at, force_majeure, closed_at, offers, deductions, version ]
+      required: [ id, order, trigger, triggered_by_type, reason, triggered_at, from_status, original_tenant, original_settlement, deduction_base, penalty_bp, penalty_tier, penalty, status, rescue_tenant, rescue_settlement, rescued_via, rescued_at, force_majeure, closed_at, offers, deductions, version ]
       properties:
         id:
           type: string
@@ -28897,6 +31161,29 @@ components:
           $ref: "#/components/schemas/RescueTenantRef"
         original_settlement:
           $ref: "#/components/schemas/SalesMoney"
+        deduction_base:
+          description: |
+            救援差价的基准（M9P-01 触发时算好、M9P-04 起给运营看，ADR 0093 第二节救援做法 B）：基准 = 原结算价 + max(0, 重算的加价合计 − 订单上的加价合计)，都是原结算币种。
+            候选列表上的差价和改派时记的救援差价都按 `base` 算。`surcharge_before` 是订单上的加价合计（上车 + 下车 + 行程加价），`surcharge_after` 是原订单的商品按当前规则重算的加价合计；
+            重算失败（商品没了、报不出、币种变了）时 `surcharge_after` 为 null、`fallback_reason` 是原因，基准退回原结算价。这一项上线前触发的救援为 null（按原结算价）
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required: [ base, surcharge_before, surcharge_after, fallback_reason ]
+              properties:
+                base:
+                  $ref: "#/components/schemas/SalesMoney"
+                surcharge_before:
+                  oneOf:
+                    - $ref: "#/components/schemas/SalesMoney"
+                    - type: "null"
+                surcharge_after:
+                  oneOf:
+                    - $ref: "#/components/schemas/SalesMoney"
+                    - type: "null"
+                fallback_reason:
+                  type: [ string, "null" ]
         penalty_bp:
           type: integer
         penalty_tier:
@@ -28979,10 +31266,226 @@ components:
         urgent:
           type: boolean
           description: 这家是按加急报的价（离用车太近）
+    BookingDraft:
+      type: object
+      description: 预订条件 v1（ADR 0090 第二节）。不含价格、报价编号、任何客人个人信息；多一个键就拒。
+      additionalProperties: false
+      required: [ v, tab, service_local, pickup, dropoff, waypoints, package_hours, passengers, luggage, lang ]
+      properties:
+        v:
+          type: integer
+          enum: [ 1 ]
+        tab:
+          type: string
+          enum: [ transfer, charter ]
+          description: 区间（接送机 / 点对点由 `/book/new` 按地点判断）或包车
+        service_local:
+          type: string
+          description: 城市当地 `YYYY-MM-DDTHH:mm`
+        pickup:
+          $ref: "#/components/schemas/BookingDraftPoint"
+        dropoff:
+          $ref: "#/components/schemas/BookingDraftPoint"
+        waypoints:
+          type: array
+          maxItems: 25
+          description: 只有包车能有；有经停点时按行程计价（ADR 0089）
+          items:
+            type: object
+            additionalProperties: false
+            required: [ name, lat, lng, stay_minutes ]
+            properties:
+              name:
+                type: string
+                minLength: 1
+                maxLength: 200
+              lat:
+                type: number
+                minimum: -90
+                maximum: 90
+              lng:
+                type: number
+                minimum: -180
+                maximum: 180
+              stay_minutes:
+                type: integer
+                minimum: 30
+                maximum: 480
+                description: 30 分钟一档
+        package_hours:
+          type: [ integer, "null" ]
+          minimum: 1
+          maximum: 72
+          description: 只有包车且没有经停点时可以给（1–72）；不在城市套餐里时 `/book/new` 清空、请客人重选
+        passengers:
+          type: integer
+          minimum: 1
+          maximum: 60
+        luggage:
+          type: integer
+          minimum: 0
+          maximum: 60
+        lang:
+          type: string
+          enum: [ zh, ja, en ]
+    BookingDraftPoint:
+      type: object
+      additionalProperties: false
+      description: 名称 1–200 个 UTF-16 单元（同 `/site/v1/quotes`）；坐标最多 7 位小数
+      required: [ name, lat, lng ]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        lat:
+          type: number
+          minimum: -90
+          maximum: 90
+        lng:
+          type: number
+          minimum: -180
+          maximum: 180
+    OrderEntrySource:
+      type: object
+      additionalProperties: false
+      description: 订单从哪里来（M9E-02，ADR 0090）。只做统计，不作为分佣、结算的依据；只给运营后台
+      required: [ kind, embed_key_id, embed_key_name, embed_origin, delivery ]
+      properties:
+        kind:
+          type: string
+          enum: [ book, embed ]
+          description: "`book` 主站（含旧订单），`embed` 嵌入组件（下单时核对过嵌入码启用、来源在白名单里）"
+        embed_key_id:
+          type: [ string, "null" ]
+        embed_key_name:
+          type: [ string, "null" ]
+        embed_origin:
+          type: [ string, "null" ]
+          description: 合作网站的 origin，如 https://embed-demo.moveglobal.io
+        delivery:
+          type: [ string, "null" ]
+          enum: [ redirect, host_page, null ]
+          description: "M9E-16，ADR 0095：`redirect` 跳主站下单、`host_page` 在合作网站页面里下单（嵌入预订流程）；主站来的单为 null"
+    EmbedKey:
+      type: object
+      additionalProperties: false
+      required: [ id, key, name, allowed_origins, default_lang, default_services, layout, allow_host_page, booking_url, status, note, version, created_at, updated_at, snippet, booking_snippet, snippet_fallback ]
+      properties:
+        order_stats:
+          type: object
+          additionalProperties: false
+          required: [ paid_30d, paid_total ]
+          description: 只在列表（GET /platform/v1/embed-keys）里给。这个嵌入码带来的订单数（M9E-21）：只算已付款、没取消的单（不含待付款、已取消、验收单）；只做统计，不作为分佣、结算依据（ADR 0090 第三节第 3 小节）
+          properties:
+            paid_30d:
+              type: integer
+              minimum: 0
+              description: 近 30 天（按下单时间）
+            paid_total:
+              type: integer
+              minimum: 0
+              description: 累计
+        id:
+          type: string
+          format: uuid
+        key:
+          type: string
+          description: 公开嵌入码（`nze_` 开头），写在合作网站页面里；不是密钥
+        name:
+          type: string
+          maxLength: 60
+        allowed_origins:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            type: string
+          description: 规范化后的 origin（https://域名，可带端口；测试环境另收本机 http）
+        default_lang:
+          type: string
+          enum: [ zh, ja, en ]
+        default_services:
+          type: array
+          items:
+            type: string
+            enum: [ transfer, charter ]
+        layout:
+          type: string
+          enum: [ auto, card, bar ]
+          description: 组件的外观（M9E-10、M9E-14）：`auto` 自动（按组件容器宽度，≥ 900 px 横条、窄了卡片）、`card` 卡片、`bar` 横条。由 `/embed/v1/config` 返回给组件（合作网站 init 传了 `layout` 时以 init 为准）；不写进要放的代码
+        allow_host_page:
+          type: boolean
+          description: 允许整页嵌入（M9E-16，ADR 0095 Q13，默认关）：打开了 `/embed/book` 才能被这个嵌入码白名单里的网站嵌入（`/embed/v1/frame-check`）
+        booking_url:
+          type: [ string, "null" ]
+          maxLength: 2000
+          description: 预订页地址（M9E-26，ADR 0095 附录 A）：合作网站自己的预订页，规范化后的完整地址；它的网站一定在 `allowed_origins` 里。没填为 null（已有的嵌入码都是 null）
+        status:
+          type: string
+          enum: [ active, disabled ]
+        note:
+          type: [ string, "null" ]
+        version:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        snippet:
+          type: string
+          description: 合作网站要放的代码 = ①入口小程序（`NozomiBooking.init`），可以放在任何页面。`booking_snippet` 不为 null 时 init 带 `bookingUrl`（= `booking_url`，客人填好行程后跳到合作网站的预订页）；为 null 时不带，和 M9E-26 之前逐字一样（客人跳主站）
+        booking_snippet:
+          type: [ string, "null" ]
+          description: ②预订程序（M9E-26，`NozomiBooking.mountBooking`），只放在 `booking_url` 那一页。填了 `booking_url`、`allow_host_page` 为 true、`booking_url` 的网站在白名单里才有，否则为 null
+        snippet_fallback:
+          type: [ string, "null" ]
+          enum: [ no_booking_url, host_page_off, booking_url_not_allowed, null ]
+          description: 为什么只有①（M9E-26）：`no_booking_url` 没填预订页地址、`host_page_off` 没开「允许整页嵌入」、`booking_url_not_allowed` 预订页地址的网站不在白名单（保存时会拦下，正常不出现）；两段都有时为 null
+    EmbedKeyWrite:
+      type: object
+      additionalProperties: false
+      required: [ name, allowed_origins, default_lang, default_services ]
+      properties:
+        name:
+          type: string
+          maxLength: 60
+        allowed_origins:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            type: string
+        default_lang:
+          type: string
+          enum: [ zh, ja, en ]
+        default_services:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [ transfer, charter ]
+        layout:
+          type: string
+          enum: [ auto, card, bar ]
+          description: 选填。新建不填按 `auto`；修改不填保持原值
+        allow_host_page:
+          type: boolean
+          description: 选填（M9E-16）。允许整页嵌入；新建不填按关，修改不填保持原值
+        booking_url:
+          type: [ string, "null" ]
+          description: >-
+            选填（M9E-26）。预订页地址：https（测试环境另收本机 http）、≤ 2,000 字符、不带用户名密码，网站（协议 + 域名 + 端口）必须完全等于这次提交的 `allowed_origins` 的某一项，否则 400 `VALIDATION_FAILED`（`/booking_url`，`INVALID` / `OUT_OF_RANGE` / `NOT_ALLOWED_ORIGIN`）。
+            null 或空白 = 清空。新建不填按没有；修改不填保持原值，但原值同样要落在这次的白名单里——改白名单拿掉了预订页的网站，要同时改或清空预订页地址，否则 400 `NOT_ALLOWED_ORIGIN`
+        note:
+          type: [ string, "null" ]
+          maxLength: 500
     SiteConfig:
       type: object
       additionalProperties: false
-      required: [ open, currency, payments, support_phone, support_whatsapp, page_width, address_search, map_tiles ]
+      required: [ open, currency, payments, support_phone, support_whatsapp, page_width, maps_browser_key, address_search, map_tiles ]
       properties:
         open:
           type: boolean
@@ -29014,6 +31517,10 @@ components:
           description: 客服 WhatsApp 号码（M8-21，ADR 0076）：运营后台「系统设置 → 官网设置」填的，wa.me 用的纯数字；没设置时为 null，页面不显示「通过 WhatsApp 联系我们」。官网没开时也照常给出
         page_width:
           $ref: "#/components/schemas/SitePageWidth"
+        maps_browser_key:
+          type: [ string, "null" ]
+          pattern: "^AIza[0-9A-Za-z_-]{35}$"
+          description: 浏览器加载谷歌地图用的密钥（M10-01 第 2 处）：运营后台「官网设置」填的，在谷歌后台限定了网址和 API，本来就公开；没填为 null，页面不加载谷歌地图
         address_search:
           type: boolean
           description: |
@@ -29144,6 +31651,13 @@ components:
           $ref: "#/components/schemas/SitePoint"
         kind:
           $ref: "#/components/schemas/SitePlaceKind"
+    SitePlaceUnavailableReason:
+      type: string
+      enum: [ IP_DAILY_LIMIT ]
+      description: |
+        M8-45。只在 `available: false` 且客人需要知道原因时出现：`IP_DAILY_LIMIT` 这个来源地址（IPv6 按 /64）今天调谷歌的额度（每天 300 次，
+        输入即提示、取坐标、搜索、反查合计，官网和嵌入组件共用）用完了——这次没调谷歌，`items` 只有平台的地点；页面提示「今天的地址提示次数用完了」。
+        谷歌没配置、全站每日上限、谷歌出错时不带这个字段（页面照旧说「暂时用不了」）。
     SitePlaceSuggestion:
       type: object
       additionalProperties: false
@@ -29219,6 +31733,9 @@ components:
           description: 客人选的附加服务和数量（M8-02，ADR 0069 B15）。照原样交给报价引擎：没有商品提供的车型组报不出价（`ADDON_NOT_OFFERED`）；价格只在报价的合计里，不单独给单价
           items:
             $ref: "#/components/schemas/SiteAddonRequest"
+        draft_id:
+          type: string
+          description: 可选（M9E-02，ADR 0090）：从嵌入组件的预订草稿来时带上草稿编号（43 位）。只用于记来源（统计），不影响报价；过期、不存在、超过 64 字的照常报价、不记
         pickup_name:
           type: [ string, "null" ]
           maxLength: 200
@@ -29249,7 +31766,7 @@ components:
     SiteQuoteRequest:
       type: object
       additionalProperties: false
-      required: [ city_id, service_local, passengers ]
+      required: [ service_local, passengers ]
       description: 各品类要填的字段不同（见 `POST /site/v1/quotes`）；不属于这个品类的字段不要填
       properties:
         category:
@@ -29258,6 +31775,7 @@ components:
         city_id:
           type: string
           format: uuid
+          description: 接送机、点对点必填；包车可以不给，服务器按上下车点找城市（M9P-02）
         airport_id:
           type: string
           format: uuid
@@ -29277,15 +31795,17 @@ components:
           description: 点对点、包车（必填；包车 M8-15 暂为可选，M8-19 改回必填，ADR 0073）：下车点的坐标
         itinerary_pricing:
           type: boolean
-          description: 包车按行程计价（M9W-01，ADR 0088 补充）：true 时不填 `package_hours`，服务器估路线、选套餐、收超公里 / 超时（见接口说明）；别的品类填 true 400 `NOT_APPLICABLE`
+          description: 包车按行程计价（M9W-01，ADR 0088 补充；M9P-03 起按 ADR 0093 第四节）：true 时服务器估路线、各商品按预计用时自己选套餐、收超公里（不收超时）；`package_hours` 可不填（自动选）或填更长的档（手动升档），见接口说明；别的品类填 true 400 `NOT_APPLICABLE`
         waypoints:
           type: array
-          maxItems: 10
+          maxItems: 25
           description: |
-            包车的经停点（途经景点，M9W-01，ADR 0088），按顺序，最多 10 个；选填，空数组和不填一样。别的品类填了 400 `NOT_APPLICABLE`（`/waypoints`）。
+            包车的经停点（途经景点，M9W-01，ADR 0088），按顺序，最多 25 个（M9P-10：只受路径接口一次 25 个中间点的上限，超出请联系客服定制）；选填，空数组和不填一样。别的品类填了 400 `NOT_APPLICABLE`（`/waypoints`）。
             经停点落在供应商的加价区域里时按那个区域的途经加价收（同一区域一单只收一次；上 / 下车已经在这个区域的不再收；只在商品服务区域里的不加）；
-            有经停点哪个区域都不在时报不出（`unavailable` 的原因 `WAYPOINT_NOT_PRICED`，`waypoint_stop_seqs` 指出是第几个），转人工报价。
-            名称、停留分钟随报价锁定，下单时抄进订单（不影响价格）
+            有经停点哪个区域都不在，或落在加价区域里、但那些区域对这个车型组和套餐没有可用的途经加价（且不在商品服务区域里）时报不出
+            （`unavailable` 的原因 `WAYPOINT_NOT_PRICED`，`waypoint_stop_seqs` 指出是第几个，M9W-10），转人工报价。
+            名称、停留分钟随报价锁定，下单时抄进订单（不影响价格）。
+            `arrive_by`（M9P-20 P3）：可选的指定到达时间，见 `WaypointArriveBy`；不影响价格、选档，带了的经停在顺序建议里是固定点、不参与重排
           items:
             type: object
             additionalProperties: false
@@ -29307,6 +31827,8 @@ components:
                 type: integer
                 minimum: 0
                 maximum: 1440
+              arrive_by:
+                $ref: "#/components/schemas/WaypointArriveBy"
         package_hours:
           type: integer
           minimum: 1
@@ -29332,6 +31854,9 @@ components:
           description: 客人选的附加服务和数量（M8-02，ADR 0069 B15）。照原样交给报价引擎：没有商品提供的车型组报不出价（`ADDON_NOT_OFFERED`）；价格只在报价的合计里，不单独给单价
           items:
             $ref: "#/components/schemas/SiteAddonRequest"
+        draft_id:
+          type: string
+          description: 可选（M9E-02，ADR 0090）：从嵌入组件的预订草稿来时带上草稿编号（43 位）。只用于记来源（统计），不影响报价；过期、不存在、超过 64 字的照常报价、不记
         pickup_name:
           type: [ string, "null" ]
           maxLength: 200
@@ -29376,7 +31901,7 @@ components:
     SiteQuote:
       type: object
       additionalProperties: false
-      required: [ quote_id, expires_at, service_date, urgent, vehicle_group, package, includes_area_surcharge, distance, pricing_basis, price, price_breakdown, free_wait_minutes, cancel_policy, available_addons ]
+      required: [ quote_id, expires_at, service_date, urgent, vehicle_group, package, includes_area_surcharge, distance, pricing_basis, price, price_breakdown, free_wait_minutes, cancel_policy, available_addons, estimated_minutes, includes_buffer, auto_package_hours, itinerary_warnings, stop_occupancy_minutes ]
       properties:
         price_breakdown:
           $ref: "#/components/schemas/SitePriceBreakdown"
@@ -29492,6 +32017,66 @@ components:
           description: 这个车型还能加哪些附加服务（M8-02）。选了以后带上 `addons` 重新询价，合计里就含附加服务费；没有可加的为空数组
           items:
             $ref: "#/components/schemas/SiteAddonOption"
+        estimated_minutes:
+          type: [ integer, "null" ]
+          description: 包车按行程计价（M9P-03，ADR 0091）：中标商品的预计用时 T（分钟，= 行驶 + 停留 + 经停点默认占用 + 整单缓冲）；页面写「预计用时 X 小时 Y 分钟」。别的报价为 null
+        includes_buffer:
+          type: [ boolean, "null" ]
+          description: 包车按行程计价：T 含不含经停点默认占用或整单缓冲（true 时页面写「（含缓冲）」）。别的报价为 null
+        auto_package_hours:
+          type: [ integer, "null" ]
+          description: 包车按行程计价：这个车型自动选的套餐（小时）；手动升档时是同一行程不带 `package_hours` 自动询价时这个车型中标的档（按比价口径，M9P-15；页面套餐下拉只列不短于它的），自动询价报不出时为 null。别的报价为 null
+        itinerary_warnings:
+          type: [ array, "null" ]
+          items:
+            type: string
+            enum: [ LONG_DURATION, LONG_DISTANCE ]
+          description: |
+            包车按行程计价的超限提醒（M9P-10，规格步骤 5）：按中标商品的提醒线（服务规则 `charter_itinerary.warn_minutes`、`warn_km`，默认 12 小时 / 360 公里）——
+            `LONG_DURATION`：`estimated_minutes` 大于提醒线；`LONG_DISTANCE`：全程（`itinerary_route.total_meters`）大于提醒公里数。先用时、后距离；都没超为空数组。
+            只是提醒，仍可下单（超过在线下单上限的不报价，原因 `ITINERARY_TOO_LONG`）。没按行程计价的报价为 null
+        stop_occupancy_minutes:
+          type: [ integer, "null" ]
+          minimum: 0
+          description: 包车按行程计价：中标商品每个经停点的默认占用（分钟，服务规则 `charter_itinerary.stop_occupancy_minutes`，没设为 0）。页面按「用车时间 + 逐段行驶 + 停留 + 每站占用」算带指定到达时间的经停预计几点到，晚于指定时间只提示（M9P-20 P3，ADR 0096 第三节第 6 小节）。别的报价为 null
+    SiteQuoteResponse:
+      type: object
+      additionalProperties: false
+      required: [ currency, quotes, unavailable ]
+      properties:
+        city:
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required: [ id, code, name, timezone ]
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                code:
+                  type: string
+                name:
+                  $ref: "#/components/schemas/LocalizedText"
+                timezone:
+                  type: string
+          description: 只有包车给：按哪个城市报的价（M9P-02）；上下车点不在任何包车商品的区域里、没带 `city_id` 时为 null
+        currency:
+          type: string
+        itinerary_route:
+          $ref: "#/components/schemas/SiteItineraryRoute"
+        inquiry_ref:
+          type: string
+          format: uuid
+          description: 询价日志编号（M9P-20 P2）：包车按行程计价、一家都没报出、至少一家因超长（ITINERARY_TOO_LONG）报不出时才有；只用来申请经停顺序建议（`POST /site/v1/charter/order-suggestion`），不能下单
+        quotes:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiteQuote"
+        unavailable:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiteUnavailable"
     SiteItineraryRoute:
       type: object
       additionalProperties: false
@@ -29526,16 +32111,20 @@ components:
           type: [ string, "null" ]
           format: uuid
         waypoint_stop_seqs:
-          description: 原因里有 `WAYPOINT_NOT_PRICED` 时：哪几个经停点不在任何区域里（从 1 起，M9W-01，ADR 0088）；没有这个原因时不给
+          description: 原因里有 `WAYPOINT_NOT_PRICED` 时：哪几个经停点报不出——不在任何区域里，或所在的加价区域没有可用的途经加价（从 1 起，M9W-01、M9W-10，ADR 0088）；没有这个原因时不给
           type: array
           items:
             type: integer
             minimum: 1
+        min_package_hours:
+          type: integer
+          minimum: 1
+          description: 原因里有 `PACKAGE_TOO_SHORT` 时（M9P-03）：这个车型最短能选几小时（各商品能接受的最短档里最小的）；没有这个原因时不给
         reasons:
           type: array
           items:
             type: string
-            enum: [ NO_PRODUCT, OUT_OF_SERVICE_AREA, DROPOFF_REQUIRED, WAYPOINT_NOT_PRICED, LEAD_TIME_TOO_SHORT, SOLD_OUT, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, CAPACITY_EXCEEDED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, NO_ROUTE, TEMPORARILY_UNAVAILABLE, NOT_AVAILABLE ]
+            enum: [ NO_PRODUCT, OUT_OF_SERVICE_AREA, DROPOFF_REQUIRED, WAYPOINT_NOT_PRICED, PACKAGE_TOO_SHORT, ITINERARY_TOO_LONG, LEAD_TIME_TOO_SHORT, SOLD_OUT, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, CAPACITY_EXCEEDED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, NO_ROUTE, TEMPORARILY_UNAVAILABLE, NOT_AVAILABLE ]
     SiteOrderRequest:
       type: object
       additionalProperties: false
@@ -29549,7 +32138,11 @@ components:
         flight_no:
           type: [ string, "null" ]
           maxLength: 20
-          description: 航班号：机场接机必填，送机可填
+          description: 航班号：机场接机必填，送机可填；点对点可填（改用点对点商品报价的接机，按航班定免费等待，M9E-28）
+        flight_kind:
+          type: [ string, "null" ]
+          enum: [ international, domestic, null ]
+          description: 国际 / 国内航班（M9E-28，ADR 0097），跟着航班号给，只用于机场接机和带航班号的点对点单（改用点对点商品报价的接机）。下单时按它锁定免费等待：国际 90、国内 60；不给按「航班类型未确认」60（M9E-31 起平台统一，不看商品设的）。送机、接送站、包车给了 400
         pickup_address:
           type: [ string, "null" ]
           maxLength: 1000
@@ -29671,7 +32264,7 @@ components:
       additionalProperties: false
       description: |
         客人在官网订单页看到的订单：和渠道看到的 `SalesOrder` 字段一样，只是落地信息里没有司机到达屏照片的文件编号（客人用不上，ADR 0032）。
-      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, waypoints, itinerary, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
+      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, waypoints, itinerary, addons, driver_language, flight_no, passenger, rider, messaging, notes, free_wait_minutes, flight_kind, free_wait_basis, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, includes_area_surcharge, distance, pricing_basis, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version ]
       properties:
         pricing_basis:
           $ref: "#/components/schemas/PricingBasis"
@@ -29758,7 +32351,7 @@ components:
           description: 包车的经停点（M9W-01，ADR 0088），按顺序：名称、坐标、停留分钟；下单后不能改。没有经停点的单、以前的单为 null（新增字段）
           type: [ array, "null" ]
           items:
-            $ref: "#/components/schemas/OrderWaypoint"
+            $ref: "#/components/schemas/OrderWaypointWithArrival"
         itinerary:
           description: 包车按行程计价（M9W-01，ADR 0088 补充）锁定的全程、总时长、套餐含量和超出量（没有金额）；没按行程计价的单为 null（新增字段）
           oneOf:
@@ -29783,6 +32376,35 @@ components:
         free_wait_minutes:
           type: [ integer, "null" ]
           description: 免费等待分钟数；不限为 null
+        flight_kind:
+          type: [ string, "null" ]
+          enum: [ international, domestic, null ]
+          description: 客人填航班号时选的国际 / 国内航班（M9E-28，ADR 0097）；没选、渠道没给、不是接机为 null
+        free_wait_basis:
+          description: 接机按航班锁定免费等待的依据（M9E-28，ADR 0097）：`flight_kind` 按哪种航班锁的（null = 航班类型未确认，按国内线）、`base` 商品自己设的免费等待（只作记录，M9E-31 起机场接机不用它）、`floor_minutes` 这次给的平台统一分钟数（国际 90、国内 / 未确认 60）。最终分钟数 `free_wait_minutes` 就是 `floor_minutes`；M9E-31 之前按 max(商品, 下限) 锁的旧单保持原样（可能大于 `floor_minutes` 或为 null）。以前的单、不是接机的单为 null
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required: [ flight_kind, base, floor_minutes ]
+              properties:
+                flight_kind:
+                  type: [ string, "null" ]
+                  enum: [ international, domestic, null ]
+                base:
+                  oneOf:
+                    - type: "null"
+                    - type: object
+                      additionalProperties: false
+                      required: [ mode ]
+                      properties:
+                        mode:
+                          type: string
+                          enum: [ limited, unlimited ]
+                        minutes:
+                          type: integer
+                floor_minutes:
+                  type: integer
         created_at:
           type: string
           format: date-time
@@ -29921,10 +32543,296 @@ components:
             within_delay_allowance:
               type: boolean
         - type: "null"
+    TripItinerary:
+      description: 标准行程单（ADR 0101 第二节，P1 子集；字段名 camelCase）。上限：14 天、每天 12 个点（没写终点时过夜点也算一个）、全程 60 个不同地点、附加项 10 个、人数 1–60、行李 0–60、停留 0–720 分钟
+      type: object
+      additionalProperties: false
+      required: [ schemaVersion, party, days ]
+      properties:
+        schemaVersion:
+          type: integer
+          enum: [ 1 ]
+        party:
+          type: object
+          additionalProperties: false
+          required: [ adults ]
+          properties:
+            adults: { type: integer, minimum: 0, maximum: 60 }
+            children: { type: integer, minimum: 0, maximum: 60 }
+            luggage: { type: integer, minimum: 0, maximum: 60 }
+        preferences:
+          type: object
+          additionalProperties: false
+          properties:
+            vehicleGroupIds:
+              description: 只在结果上过滤，不传给报价引擎
+              type: array
+              maxItems: 20
+              items: { type: string, format: uuid }
+            addons:
+              type: array
+              maxItems: 10
+              items:
+                type: object
+                additionalProperties: false
+                required: [ addonId ]
+                properties:
+                  addonId: { type: string, format: uuid }
+                  quantity: { type: integer, minimum: 1 }
+        days:
+          type: array
+          minItems: 1
+          maxItems: 14
+          items:
+            type: object
+            additionalProperties: false
+            required: [ date, items ]
+            properties:
+              date:
+                type: string
+                description: 当地日期 YYYY-MM-DD，逐日连续（不用车的那天写成空闲日）；第一天和最后一天要用车
+              items:
+                description: 空数组 = 空闲日。第一个点是 `start` / `arrive_flight`（带 `time`），之后是 `stop`（可带 `stayMinutes`），最后可选 `end` / `depart_flight`；后续各点的时间由服务器按路线推算
+                type: array
+                maxItems: 12
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [ kind, place ]
+                  properties:
+                    kind:
+                      type: string
+                      enum: [ arrive_flight, start, stop, end, depart_flight ]
+                    place:
+                      oneOf:
+                        - type: object
+                          additionalProperties: false
+                          required: [ placeId ]
+                          properties:
+                            placeId: { type: string, format: uuid, description: 平台的机场 / 车站 }
+                        - type: object
+                          additionalProperties: false
+                          required: [ lat, lng ]
+                          properties:
+                            lat: { type: number, minimum: -90, maximum: 90 }
+                            lng: { type: number, minimum: -180, maximum: 180 }
+                            kind: { type: string, enum: [ hotel, poi, address ] }
+                    time: { type: string, pattern: "^\\d{2}:\\d{2}$" }
+                    stayMinutes: { type: integer, minimum: 0, maximum: 720 }
+              nightAt:
+                description: 当晚过夜点；没写终点时当天终点就是它
+                type: [ object, "null" ]
+                additionalProperties: false
+                required: [ lat, lng ]
+                properties:
+                  lat: { type: number }
+                  lng: { type: number }
+              driverLodgingProvided:
+                type: boolean
+                description: 客人当晚给司机提供住宿（这一晚住宿费记 0）
+    SiteTrip:
+      description: 行程单和最近一次报价的方案（M9T-03，ADR 0101 第三节第 2 小节）。金额是渠道结算币种
+      type: object
+      additionalProperties: false
+      required: [ trip_id, status, currency, readable_until, itinerary, quoted_at, expires_at, plans, unquoted, degraded, manual_quote_suggested ]
+      properties:
+        trip_id: { type: string }
+        status: { type: string, enum: [ draft, quoted ] }
+        currency: { type: string }
+        readable_until: { type: string, format: date-time }
+        itinerary:
+          $ref: "#/components/schemas/TripItinerary"
+        quoted_at: { type: [ string, "null" ], format: date-time }
+        expires_at:
+          description: 报出的方案里最早到期的时刻；没有报出的方案为 null
+          type: [ string, "null" ]
+          format: date-time
+        plans:
+          description: 报出价的方案（都报不出时为空数组）
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ plan_id, kind, recommended, status, expired, total, vehicle_group, days, fees, warnings ]
+            properties:
+              plan_id: { type: string, format: uuid }
+              kind: { type: string, enum: [ one_car, daily_best ] }
+              recommended: { type: boolean }
+              status: { type: string, enum: [ quoted ] }
+              expired: { type: boolean }
+              total:
+                $ref: "#/components/schemas/SalesMoney"
+              vehicle_group:
+                description: 一车到底的车型组；每天各自最优为 null
+                oneOf:
+                  - type: object
+                    additionalProperties: false
+                    required: [ id, code, name, seats ]
+                    properties:
+                      id: { type: string, format: uuid }
+                      code: { type: string }
+                      name: { $ref: "#/components/schemas/LocalizedText" }
+                      seats: { type: integer }
+                  - type: "null"
+              days:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [ day_index, date, segments, fees ]
+                  properties:
+                    day_index: { type: integer, minimum: 0 }
+                    date: { type: string }
+                    segments:
+                      type: array
+                      items:
+                        type: object
+                        additionalProperties: false
+                        required: [ segment_id, type, start_local, end_local, amount, package_hours, other_vehicle, vehicle_group, price_breakdown, route ]
+                        properties:
+                          segment_id: { type: string, format: uuid }
+                          type: { type: string, enum: [ airport_pickup, airport_dropoff, p2p, charter, idle_day ] }
+                          start_local: { type: [ string, "null" ] }
+                          end_local: { type: [ string, "null" ] }
+                          amount:
+                            oneOf:
+                              - $ref: "#/components/schemas/SalesMoney"
+                              - type: "null"
+                          package_hours: { type: [ integer, "null" ] }
+                          other_vehicle:
+                            type: boolean
+                            description: 一车到底里这一天用了别的供应商（按段选车）
+                          vehicle_group:
+                            oneOf:
+                              - type: object
+                                additionalProperties: false
+                                required: [ id, name ]
+                                properties:
+                                  id: { type: string, format: uuid }
+                                  name:
+                                    oneOf:
+                                      - $ref: "#/components/schemas/LocalizedText"
+                                      - type: "null"
+                              - type: "null"
+                          price_breakdown:
+                            $ref: "#/components/schemas/SitePriceBreakdown"
+                          route:
+                            oneOf:
+                              - type: object
+                                additionalProperties: false
+                                required: [ meters, minutes ]
+                                properties:
+                                  meters: { type: integer }
+                                  minutes: { type: integer }
+                              - type: "null"
+                    fees:
+                      description: 挂在这一天的跨段费用（停驻、第二司机、附加项去重）
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/SiteTripFee"
+              fees:
+                description: 按晚算的跨段费用（司机住宿、住宿抵扣空驶费；抵扣为负数）
+                type: array
+                items:
+                  allOf:
+                    - $ref: "#/components/schemas/SiteTripFee"
+                  type: object
+                  properties:
+                    night_index: { type: [ integer, "null" ] }
+              warnings:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [ code, day_index ]
+                  properties:
+                    code: { type: string, enum: [ SECOND_DRIVER, SEGMENT_OTHER_VEHICLE, WORK_HOURS_HARD_LIMIT ] }
+                    day_index: { type: [ integer, "null" ] }
+        unquoted:
+          description: 报不出的原因（方案、哪一天、原因码，如 `NO_PRODUCT`、`OUT_OF_SERVICE_AREA`、`ROUTE_UNAVAILABLE`、`WORK_HOURS_HARD_LIMIT`、`WORK_HOURS_EXCEEDED`、`SECOND_DRIVER_PRICE_UNAVAILABLE`、`ONE_CAR_NOT_AVAILABLE`）
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ plan_kind, day_index, reason ]
+            properties:
+              plan_kind: { type: string, enum: [ one_car, daily_best ] }
+              day_index: { type: [ integer, "null" ] }
+              reason: { type: string }
+        degraded:
+          type: boolean
+          description: 行程太长、段报价超了预算，后面几天只报了「不拆」
+        manual_quote_suggested:
+          type: boolean
+          description: 建议转人工报价（M9T-07，ADR 0101 第十二节第 2 小节第 1 条）。已报过价、而且所有方案都报不出（`plans` 为空、原因都在 `unquoted`）时为 true；还没报价、只是部分方案报不出、报出的方案已过期（重新报价即可）时为 false
+    SiteTripFee:
+      type: object
+      required: [ type, label, amount ]
+      properties:
+        type: { type: string, enum: [ lodging, lodging_offset, idle, second_driver, bundle_discount, return ] }
+        label: { $ref: "#/components/schemas/LocalizedText" }
+        amount:
+          description: 同 SalesMoney，但抵扣类（`lodging_offset`、`bundle_discount`）为负数
+          type: object
+          additionalProperties: false
+          required: [ amount, currency ]
+          properties:
+            amount: { type: string, pattern: "^-?\\d+(\\.\\d+)?$" }
+            currency: { type: string }
+    SiteTripOrderQuote:
+      type: object
+      additionalProperties: false
+      description: 单段方案转成的普通官网报价（M9T-10，ADR 0101 第十三节第 3 小节）：凭 `quote.quote_id` 走现有下单、付款
+      required: [ trip_id, plan_id, currency, segment_type, city, quote, quote_request, itinerary_route, expires_at ]
+      properties:
+        trip_id:
+          type: string
+          pattern: "^[A-Za-z0-9_-]{43}$"
+        plan_id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+          description: 官网渠道的结算币种（= 方案金额的币种）
+        segment_type:
+          type: string
+          enum: [ airport_pickup, airport_dropoff, p2p, charter ]
+          description: 这一段的段型；接送机报不出回落点对点时仍是 airport_pickup / airport_dropoff（`quote_request.category` 为 point_to_point）
+        city:
+          description: 包车：按哪个城市报的价（同官网询价的 `city`）；接送机、点对点为 null（城市在 `quote_request.city_id`）
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required: [ id, code, name, timezone ]
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                code:
+                  type: string
+                name:
+                  $ref: "#/components/schemas/LocalizedText"
+                timezone:
+                  type: string
+        quote:
+          $ref: "#/components/schemas/SiteQuote"
+        quote_request:
+          $ref: "#/components/schemas/SiteQuoteRequest"
+          description: 等价的 `POST /site/v1/quotes` 请求体（包车是按行程计价、自动选档）：页面用它恢复 `/book/new` 的填写状态；没有 `pickup_name`、`dropoff_name`、`draft_id`
+        itinerary_route:
+          description: 包车按行程计价时服务器算的路线（同官网询价的 `itinerary_route`）；接送机、点对点为 null
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/SiteItineraryRoute"
+        expires_at:
+          type: string
+          format: date-time
+          description: 这张报价的有效期（30 分钟）
     SitePriceBreakdown:
       description: |
         对外价的简单明细（M9W-01，ADR 0088 第 4 节和补充；客人支付币种），按顺序：`base` 基础价（包车是套餐价）、`pickup` 上车加价、`waypoint` 一个区域的途经加价（逐区域）、
-        `dropoff` 下车加价、`over_km` 超公里、`overtime` 超时（这两项只在按行程计价时有）、`adjust` 调价、`other` 加急 / 夜间 / 附加服务 / 司机语言。除 `base` 外各项按这一单的汇率、缓冲、加价比例换算、各自取整；`base` 倒算吸收尾差，
+        `dropoff` 下车加价、`over_km` 超公里（只在按行程计价时有）、`overtime` 超时（只在部署前预收了超时费的旧单里出现，M9P-03 起的报价和订单不收超时费、没有这一项）、`adjust` 调价、`other` 加急 / 夜间 / 附加服务 / 司机语言。除 `base` 外各项按这一单的汇率、缓冲、加价比例换算、各自取整；`base` 倒算吸收尾差，
         **各项之和等于 `price.total`**。是 0 的调价、其他费用不列；没有加价区域的报价只有 `base` 一项（新增字段）
       type: array
       items:
@@ -29943,16 +32851,40 @@ components:
               - $ref: "#/components/schemas/LocalizedText"
               - type: "null"
           stop_seqs:
-            description: 途经加价：落在这个区域的是第几个经停点（从 1 起）；别的项为 null
+            description: 途经加价：落在这个区域的是第几个经停点（从 1 起；下车点行程加价是空数组）；别的项为 null
             type: [ array, "null" ]
             items:
               type: integer
               minimum: 1
+          from_dropoff:
+            type: boolean
+            enum: [ true ]
+            description: 下车点行程加价（M9P-01，ADR 0093 第二节第 4 小节）：没有市外经停、下车点在这个区域里，算作一次经停收的；只有这一项带这个键，`stop_seqs` 为空
+          scenario:
+            description: |
+              包车机场开始 / 机场结束套餐（M9P-21，ADR 0098）：只在 `base`（套餐）那一项、匹配到机场场景时有。页面据此显示「成田机场接机 + 5 小时包车」「5 小时包车 + 羽田机场送机」。
+              单独定价时，含在套餐里的那一端上 / 下车加价、下车点行程加价不再单列。
+            type: object
+            additionalProperties: false
+            required: [ kind, airport_id, airport_name ]
+            properties:
+              kind:
+                type: string
+                enum: [ airport_start, airport_end ]
+              airport_id:
+                type: string
+                format: uuid
+              airport_name:
+                type: string
+                description: 前台名称里的机场名（商品绑定上填的中文简称，没填时是机场主数据的中文名）
     SiteOrderEnvelope:
       type: object
       additionalProperties: false
-      required: [ order, timeline, names, price_breakdown ]
+      required: [ order, timeline, names, price_breakdown, return_url ]
       properties:
+        return_url:
+          type: [ string, "null" ]
+          description: 从嵌入组件来、下单时核对过白名单的「返回原网站」地址（M9E-02，ADR 0090）；没有为 null
         price_breakdown:
           description: |
             订单的对外价明细（M9W-04，ADR 0089 第 5 节）：只有包车按行程计价的单才有——取下单用的那份报价快照里的明细（和下单页看到的一样，不按现在的价格重算），
@@ -32332,16 +35264,120 @@ components:
           maximum: 72
         waypoints:
           type: array
-          maxItems: 10
+          maxItems: 25
           default: []
           description: 包车的经停点（M9W-04），按顺序；有经停点时可以不带 `package_hours`（按行程计价，由客服定套餐）。别的类型不能带
           items:
             $ref: "#/components/schemas/ManualQuoteWaypoint"
+    ManualQuoteTripLink:
+      type: object
+      additionalProperties: false
+      description: |
+        人工报价申请关联的行程单（M9T-08，ADR 0101 第十三节第 2 小节）。地名取申请密文里的 `trip_labels`，结构取行程单。
+        行程单 30 天后清理：之后 `purged` 为 true，`days`、`plans` 为 null，只剩 `labels`；申请的联系信息清除后 `labels` 也为 null。
+      required: [ trip_id, plan_kind, purged, labels, days, plans ]
+      properties:
+        trip_id:
+          type: string
+        plan_kind:
+          description: 客人选的方案；全部报不出转人工时为 null
+          type: [ string, "null" ]
+          enum: [ one_car, daily_best, null ]
+        purged:
+          type: boolean
+          description: 行程单已过可读期或已被清理
+        labels:
+          description: 每天、每个点的名称（按行程单的天、点顺序）
+          oneOf:
+            - type: array
+              items:
+                type: array
+                items:
+                  type: string
+            - type: "null"
+        days:
+          oneOf:
+            - type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [ date, items ]
+                properties:
+                  date:
+                    type: string
+                    format: date
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [ kind, name, time, stay_minutes, place ]
+                      properties:
+                        kind:
+                          type: string
+                          enum: [ arrive_flight, start, stop, end, depart_flight ]
+                        name:
+                          type: [ string, "null" ]
+                        time:
+                          type: [ string, "null" ]
+                          description: "`HH:MM`，只有当天起点有"
+                        stay_minutes:
+                          type: [ integer, "null" ]
+                        place:
+                          oneOf:
+                            - type: object
+                              additionalProperties: false
+                              required: [ place_id ]
+                              properties:
+                                place_id:
+                                  type: string
+                            - type: object
+                              additionalProperties: false
+                              required: [ lat, lng ]
+                              properties:
+                                lat:
+                                  type: number
+                                lng:
+                                  type: number
+            - type: "null"
+        plans:
+          description: 最近一次报价的方案；还没报过价为空数组
+          oneOf:
+            - type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [ kind, status, recommended, amount, unquoted ]
+                properties:
+                  kind:
+                    type: string
+                    enum: [ one_car, daily_best ]
+                  status:
+                    type: string
+                    enum: [ quoted, unquoted ]
+                  recommended:
+                    type: boolean
+                  amount:
+                    oneOf:
+                      - $ref: "#/components/schemas/SalesMoney"
+                      - type: "null"
+                  unquoted:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [ day_index, reason ]
+                      properties:
+                        day_index:
+                          type: [ integer, "null" ]
+                        reason:
+                          type: string
+            - type: "null"
     ManualQuoteWaypoint:
       type: object
       additionalProperties: false
       required: [ name, lat, lng, stay_minutes ]
-      description: 包车的一个经停点（M9W-04）：地点和停留分钟
+      description: 包车的一个经停点（M9W-04）：地点和停留分钟；`arrive_by` 是客人指定的到达时间（M9P-20 P3，和官网询价同一个写法和校验），只在指定了时有
       properties:
         name:
           type: string
@@ -32359,6 +35395,8 @@ components:
           type: integer
           minimum: 0
           maximum: 1440
+        arrive_by:
+          $ref: "#/components/schemas/WaypointArriveBy"
     ManualQuotePerson:
       type: object
       additionalProperties: false
@@ -32478,7 +35516,7 @@ components:
     SiteSettings:
       type: object
       additionalProperties: false
-      required: [ support_whatsapp, page_width, version, updated_at, updated_by ]
+      required: [ support_whatsapp, page_width, maps_browser_key, version, updated_at, updated_by ]
       properties:
         support_whatsapp:
           type: [ string, "null" ]
@@ -32486,6 +35524,10 @@ components:
           description: 客服 WhatsApp 号码，wa.me 用的纯数字（国家码 + 号码）；null 是没设置
         page_width:
           $ref: "#/components/schemas/SitePageWidth"
+        maps_browser_key:
+          type: [ string, "null" ]
+          pattern: "^AIza[0-9A-Za-z_-]{35}$"
+          description: 浏览器加载谷歌地图用的密钥；null 是没填
         version:
           type: integer
           description: 0 表示还没有设置过

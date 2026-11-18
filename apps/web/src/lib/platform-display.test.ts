@@ -61,6 +61,8 @@ const MENTIONS: Readonly<Record<PlatformAction, string>> = {
   "manual_quote.manage": "跟进人工报价申请",
   "site_settings.read": "看官网设置",
   "site_settings.manage": "修改官网设置",
+  "embed.read": "看嵌入组件",
+  "embed.manage": "管理嵌入组件",
 };
 
 /** 没有这项权限时，说明里绝不能出现的字眼（「供应商」「主数据」「平台员工」会出现在别的说法里，不在此列）。 */
@@ -106,6 +108,8 @@ const NEVER_WITHOUT: Readonly<Partial<Record<PlatformAction, string>>> = {
   "manual_quote.manage": "跟进人工报价",
   "site_settings.read": "官网设置",
   "site_settings.manage": "修改官网设置",
+  "embed.read": "嵌入组件",
+  "embed.manage": "管理嵌入组件",
 };
 
 test("每个操作都有说法（表的键就是 domain 的全部 PlatformAction）", () => {
@@ -132,7 +136,7 @@ test("验收发现的遗漏：运营、招商、渠道经理、客服能报价�
   for (const role of ["readonly", "risk"] as const) {
     assert.ok(roleAbilities(role).includes("查看供应商的商品和价格"), role);
   }
-  assert.deepEqual(roleAbilities("readonly"), ["看供应商", "查看供应商的商品和价格", "看主数据", "看渠道", "看待审核的改动", "看订单", "看工单", "看供应商账单和付款批次"]);
+  assert.deepEqual(roleAbilities("readonly"), ["看供应商", "查看供应商的商品和价格", "看主数据", "看渠道", "看待审核的改动", "看订单", "看工单", "看供应商账单和付款批次", "看嵌入组件（嵌入码和域名白名单）"]);
 });
 
 test("主数据运营、渠道经理、超级管理员的说明里都写上「看待审核的改动」（M1-18：原先被「审核汇率」「审核渠道」那一项吞掉了）", () => {

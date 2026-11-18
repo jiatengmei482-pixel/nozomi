@@ -10,9 +10,9 @@
  */
 import { type Browser, type Page, type Request, type Route, expect, test } from "@playwright/test";
 import { E2E_WEB_PLACES_PORT } from "../playwright.config.ts";
-import { TOKYO_STATION, airportLink, createAirport, encodePolyline, expectRouteLineVisible, publishTransfer, tomorrowInTokyo } from "./book-new-support.ts";
+import { TOKYO_STATION, airportLink, createAirport, encodePolyline, publishTransfer, tomorrowInTokyo } from "./book-new-support.ts";
 import { createSupplier, createWorld } from "./catalog.ts";
-import { OWN_SITE_SOURCE, expectMapFollowsTheme } from "./support.ts";
+import { OWN_SITE_SOURCE } from "./support.ts";
 
 // 官网按来源地址限速：每条用例带自己的文档专用地址，不和并行的官网用例在 127.0.0.1 上抢同一份额度（M8-17）
 test.use(OWN_SITE_SOURCE);
@@ -158,7 +158,7 @@ async function selectVehicle(page: Page, groupName: string): Promise<void> {
   await card.getByRole("button", { name: `选择 ${groupName}` }).click();
 }
 
-test("路线小地图（电脑 1280）：出图（亮暗各一张，切主题换图）；没开通退回现有底图；暂时不可用、图片坏了、连不上只留文字", async ({ page, request, browser }) => {
+test("路线小地图（电脑 1280）：出图（亮暗各一张，切主题换图）；没开通只留文字（M10-01）；暂时不可用、图片坏了、连不上只留文字", async ({ page, request, browser }) => {
   test.setTimeout(150_000);
   const trip = await prepareTrip(page, request);
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -174,26 +174,23 @@ test("路线小地图（电脑 1280）：出图（亮暗各一张，切主题换
   await page.screenshot({ path: test.info().outputPath("m810-desktop-dark.png"), fullPage: true });
   await page.emulateMedia({ colorScheme: "light" });
 
-  // 503 NOT_ENABLED：退回现有底图（Leaflet）画路线，底图署名在图下
+  // 503 NOT_ENABLED：和其他失败一样只留文字（M10-01：谷歌的路线不画在非谷歌的底图上）；已知没开通以后切换主题也不再要静态图
   await serveFailure(page, unavailable("NOT_ENABLED"));
   await page.goto(trip.link);
   await selectVehicle(page, trip.groupName);
-  await expectRouteLineVisible(page, TOKYO_STATION);
-  await expect(page.locator(".book-summary .route-map__attribution")).toBeVisible();
-  await expect(page.locator(".book-summary .route-map__image")).toHaveCount(0);
-  // 切换亮暗主题：现有底图当场跟着变，暗色只压暗瓦片，路线颜色不变（M6-08）；已知没开通，不再按新主题要静态图、不重建地图（M8-29）
-  const fallbackCanvas = page.locator(".book-summary .route-map__canvas");
-  await fallbackCanvas.evaluate((node) => node.setAttribute("data-e2e-opened", ""));
+  await expectTextOnly(page, "503 NOT_ENABLED");
+  await expect(page.locator(".book-summary .leaflet-container")).toHaveCount(0);
   let askedAgain = 0;
   const countRouteMap = (sent: Request): void => {
     if (new URL(sent.url()).pathname === "/site/v1/route-map") askedAgain += 1;
   };
   page.on("request", countRouteMap);
-  await expectMapFollowsTheme(page, fallbackCanvas, "新预订页路线图（现有底图）");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.waitForTimeout(300);
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.waitForTimeout(300);
   page.off("request", countRouteMap);
-  await expect(fallbackCanvas, "切换主题后还是同一个地图容器").toHaveAttribute("data-e2e-opened", "");
   expect(askedAgain, "切换主题后不再请求静态图").toBe(0);
-  await page.screenshot({ path: test.info().outputPath("m810-desktop-light-not-enabled.png"), fullPage: true });
 
   // 503 UNAVAILABLE、图片坏了（200 但不是能解码的图）、不是图片、连不上：只留文字
   const failures: [string, (route: Route) => Promise<void>][] = [
@@ -240,7 +237,7 @@ test.describe("手机 390（2 倍屏）", () => {
     const seen = await serveImages(page, browser);
     await page.goto(trip.link);
     await selectVehicle(page, trip.groupName);
-    await page.locator(".book-bar").getByRole("button", { name: "下一步" }).click();
+    await page.locator(".step-bar").getByRole("button", { name: "下一步：填写乘客信息" }).click();
     // 手机第 3 步：右侧栏是顶部的摘要条，展开后路线图在最上面（M8-27）
     await expect(page.getByRole("heading", { level: 2, name: "乘客信息" })).toBeFocused();
     await page.getByRole("button", { name: /^行程摘要/ }).click();
@@ -261,7 +258,7 @@ test.describe("手机 390（2 倍屏）", () => {
     await serveFailure(page, unavailable("UNAVAILABLE"));
     await page.goto(trip.link);
     await selectVehicle(page, trip.groupName);
-    await page.locator(".book-bar").getByRole("button", { name: "下一步" }).click();
+    await page.locator(".step-bar").getByRole("button", { name: "下一步：填写乘客信息" }).click();
     await page.getByRole("button", { name: /^行程摘要/ }).click();
     await expectTextOnly(page, "手机：503 UNAVAILABLE");
   });

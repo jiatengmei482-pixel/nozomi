@@ -49,9 +49,10 @@ function complete(extra: Partial<ServiceRules> = {}): ServiceRules {
 const reasons = (rules: ServiceRules, context: Parameters<typeof serviceRuleIssues>[1] = airport): string[] =>
   serviceRuleIssues(rules, context).map((issue) => `${issue.path} ${issue.reason}`);
 
-test("常量：状态三种（另有只有测试环境的 QA 测试供应商能用的「验收可售」，M8-26）；上架校验六项（另有只在有提醒时出现的「运营区域」，M8-20）；区域和品类的匹配；接送点只能是机场或车站", () => {
+test("常量：状态三种（另有只有测试环境的 QA 测试供应商能用的「验收可售」，M8-26）；上架校验六项（另有只在有提醒时出现的「运营区域」，M8-20；「最低套餐」，M9P-03）；区域和品类的匹配；接送点只能是机场或车站", () => {
   assert.deepEqual([...PRODUCT_STATUSES], ["draft", "published", "unpublished", "qa_listed"]);
-  assert.deepEqual([...PUBLISH_CHECK_KEYS], ["basic_info", "service_rules", "price_rules", "content", "adjust_rules", "inventory", "area_coverage"]);
+  // 「热门地标覆盖」「加价表空格」（M9P-06）同样只在有提醒时出现
+  assert.deepEqual([...PUBLISH_CHECK_KEYS], ["basic_info", "service_rules", "price_rules", "content", "adjust_rules", "inventory", "area_coverage", "charter_min_package", "charter_coverage", "charter_empty_cells", "charter_layer_overlap"]);
   assert.equal(areaUsableByCategory("charter", "charter"), true);
   assert.equal(areaUsableByCategory("charter", "general"), true);
   assert.equal(areaUsableByCategory("charter", "airport_transfer"), false);

@@ -113,6 +113,11 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   // 官网设置（M8-21）：看 site_settings.read；改 site_settings.manage（只归超级管理员；空的请求体有权限时 400，不会改到）
   { method: "GET", url: "/platform/v1/site-settings", action: "site_settings.read" },
   { method: "PUT", url: "/platform/v1/site-settings", action: "site_settings.manage", body: {} },
+  // 嵌入组件（M9E-02，ADR 0090）：看 embed.read；新建、改 embed.manage（空的请求体有权限时 400；不存在的编号有权限时 404 / 428，不会改到）
+  { method: "GET", url: "/platform/v1/embed-keys", action: "embed.read" },
+  { method: "GET", url: `/platform/v1/embed-keys/${MISSING}`, action: "embed.read" },
+  { method: "POST", url: "/platform/v1/embed-keys", action: "embed.manage", body: {} },
+  { method: "PATCH", url: `/platform/v1/embed-keys/${MISSING}`, action: "embed.manage", body: {} },
   { method: "GET", url: "/platform/v1/integration-secrets", action: "integration.read" },
   { method: "PUT", url: `/platform/v1/integration-secrets/${MISSING_SECRET}`, action: "integration.manage", body: {} },
   { method: "DELETE", url: `/platform/v1/integration-secrets/${MISSING_SECRET}`, action: "integration.manage" },
@@ -239,6 +244,9 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   { method: "POST", url: `/platform/v1/shared-areas/${MISSING}/mark-duplicate`, action: "master_data.manage", body: {} },
   { method: "POST", url: `/platform/v1/shared-areas/${MISSING}/unmark-duplicate`, action: "master_data.manage", body: {} },
   { method: "GET", url: `/platform/v1/products/${MISSING}`, action: "product.read" },
+  { method: "GET", url: `/platform/v1/products/${MISSING}/charter-migration-diff`, action: "product.read" },
+  { method: "GET", url: `/platform/v1/products/${MISSING}/charter-airports`, action: "product.read" },
+  { method: "GET", url: `/platform/v1/products/${MISSING}/trip-rules`, action: "product.read" },
   ...MASTER_PATHS.flatMap((path) => [
     { method: "GET", url: `/platform/v1/master/${path}`, action: "master_data.read" } as const,
     { method: "GET", url: `/platform/v1/master/${path}/${MISSING}`, action: "master_data.read" } as const,

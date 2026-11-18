@@ -36,6 +36,7 @@ import {
   holidayLookup,
   sellablePriceRules,
   sellableRouteRules,
+  isNonBaseRule,
   isSurchargeRule,
   areaRoleCanPrice,
   productPricingOutsideOperating,
@@ -52,10 +53,16 @@ import {
   isPickupPlaceType,
   minimumFreeWaitMinutes,
   normalizeServiceRules,
+  charterItineraryOf,
+  minPackageAboveAll,
   publishCheck,
   publishCheckSummary,
   serviceRuleIssues,
   tenantCanPublish,
+  locateInAreas,
+  type Position as AreaPosition,
+  type LocalizedText,
+  charterLayerOverlaps,
 } from "@nozomi/domain";
 import type { DbContext } from "../context.ts";
 import { type Db, isUniqueViolation, withTenantTx } from "../db/context.ts";
@@ -103,6 +110,7 @@ import { lockMasterReferencesShared } from "../repos/master-data.ts";
 import { type StoredPriceRule, listAdjustRules, listHolidays, listPriceRules } from "../repos/prices.ts";
 import { findOwnTenant } from "../repos/tenants.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
+import { assertNoCharterLayerOverlap } from "./charter-layers.ts";
 import { type SystemTenantPrincipal, tenantWriteOrigin } from "./audit.ts";
 import { fieldLocked, masterDataNotReady, notFound, versionConflict } from "./errors.ts";
 import { runIdempotent } from "./idempotency.ts";
@@ -299,6 +307,24 @@ export interface ProductInput extends ProductRelations {
 }
 
 /**
+ * 包车改基础价区域（①服务区域，M9P-06，ADR 0093 第七节）：新加进来的区域不能和别的①重叠，也不能和这个商品的③上下车加价区域重叠；
+ * 不能就是某条上下车加价的区域（`AREA_IS_PRODUCT_AREA`，同一区域不能既是①又是③）。已有的不回头拦。新建商品时还没有价格，只查①①。
+ */
+async function assertCharterBaseAreas(db: Db, tenantId: string, productId: string | null, areaIds: readonly string[], already: ReadonlySet<string>): Promise<void> {
+  const added = areaIds.filter((id) => !already.has(id));
+  if (added.length === 0) return;
+  const rules = productId === null ? [] : await listPriceRules(db, tenantId, productId);
+  const areasOf = (model: string): string[] => [...new Set(rules.flatMap((rule) => (rule.pricing.model === model && rule.areaId !== null ? [rule.areaId] : [])))];
+  const updown = areasOf("charter_area_surcharge");
+  const clash = added.findIndex((id) => updown.includes(id));
+  if (clash >= 0) {
+    throw validationFailed("body", [{ path: `/areas/${areaIds.indexOf(added[clash] as string)}/area_id`, reason: "AREA_IS_PRODUCT_AREA", message: "这个区域已经设了上下车加价：同一个区域不能既是基础价区域（服务区域）又设上下车加价。请先删掉它的上下车加价" }]);
+  }
+  const names = await findAreasForProduct(db, tenantId, [...new Set([...areaIds, ...updown])]);
+  await assertNoCharterLayerOverlap(db, tenantId, { base: areaIds, itinerary: areasOf("charter_itinerary_surcharge"), updown }, { base: added }, (id) => names.get(id)?.name);
+}
+
+/**
  * 检查这次要保存的区域、车型组、调度人，有问题抛 400（每条带路径和原因代码）。
  * 已经选着的区域和车型组即使后来被停用也可以留着（上架校验会指出来）；新选的必须是启用中的。
  */
@@ -406,6 +432,7 @@ export async function createProduct(
       if (issues.length > 0) invalid(issues);
       if (notReady[0]) throw notReady[0];
       await assertRelations(db, tenantId, input, input, { areaIds: new Set(), vehicleGroupIds: new Set() });
+      if (input.category === "charter" && input.areaIds !== undefined) await assertCharterBaseAreas(db, tenantId, null, input.areaIds, new Set());
       const product = await insertProduct(
         db,
         tenantId,
@@ -481,6 +508,7 @@ export async function updateProduct(ctx: DbContext, writer: ProductWriter, id: s
       await lockMasterReferences(db, current, patch.vehicleGroups.map((choice) => choice.vehicleGroupId), current.serviceRules);
     }
     await assertRelations(db, tenantId, current, patch, already);
+    if (current.category === "charter" && patch.areaIds !== undefined) await assertCharterBaseAreas(db, tenantId, current.id, patch.areaIds, already.areaIds);
 
     const beforeAudit = relationsAudit(before);
     const afterAudit: AuditValues = {
@@ -568,6 +596,11 @@ const RULE_MESSAGES: Readonly<Record<PublishIssueReason, string>> = {
   ADJUST_STACK_OVER_LIMIT: "调价规则生效时，有些价格调完超过了结算价的上限",
   NO_INVENTORY_AHEAD: "库存是限量的，但从今天起没有一天还有可售的库存，客人询价时报不出价",
   PRICING_AREA_OUTSIDE_OPERATING: "这个报价区域有一部分不在任何运营区域里，那部分不会报价。需要的话请补画运营区域",
+  MIN_PACKAGE_ABOVE_ALL: "最低套餐比这个商品所有启用的套餐都长，这个商品将报不出价",
+  CHARTER_GROUP_NO_PACKAGE: "这个车型组还没有套餐价（按车型组 × 套餐填一次），报不出价",
+  CHARTER_POI_NOT_COVERED: "城市热门地标清单里的这个地标不在这个商品的任何区域里：客人在这里上下车或经停报不出价。需要的话把它画进基础价、行程或上下车加价区域",
+  CHARTER_EMPTY_CELL: "这个区域这个车型组没有填加价：空格 = 在这里不报价。不加钱请填 0",
+  CHARTER_LAYER_OVERLAP: "这个商品有两个区域重叠：同一层的区域、基础价区域和上下车加价的区域都不能重叠。请到区域页面切掉重叠的部分",
   FEATURE_NOT_AVAILABLE: "这项功能还没有上线",
 };
 
@@ -578,6 +611,7 @@ function ruleMessage(issue: RuleIssue | PublishIssue): string {
   if (issue.reason === "TIER_NOT_WITHIN_LEAD_TIME" && detail["lead_time_hours"] !== undefined) return `加急的小时数不能超过提前预订时长（${detail["lead_time_hours"]} 小时）`;
   if (issue.reason === "OUT_OF_RANGE" && detail["min"] !== undefined && detail["max"] !== undefined) return `请填 ${detail["min"]} 到 ${detail["max"]} 之间的整数`;
   if (issue.reason === "BELOW_PLATFORM_MINIMUM" && detail["min"] !== undefined) return `不能短于平台规定的免等时长（${detail["min"]} 分钟）`;
+  if (issue.reason === "MIN_PACKAGE_ABOVE_ALL" && detail["min_package_hours"] !== undefined) return `最低套餐 ${detail["min_package_hours"]} 小时比这个商品所有启用的套餐（最长 ${detail["longest_package_hours"]} 小时）都长，这个商品将报不出价`;
   return RULE_MESSAGES[issue.reason];
 }
 
@@ -608,25 +642,43 @@ export interface ServiceRulesView {
   currency: CurrencyCode | null;
   /** 这个商品每一项免等最少要设多少分钟（平台规定）；这个品类不填的项是 null */
   freeWaitMinimums: Record<FreeWaitItem, number | null>;
+  /** 包车的最低套餐比所有启用的套餐都长（ADR 0091 第二节第 3 小节）：这个商品将报不出价，保存不拒、给提醒；没有这种情况为 null */
+  minPackageAboveAll: { minPackageHours: number; longestPackageHours: number } | null;
 }
 
+/** 包车商品现在选着的区域 × 车型组里启用、未过期的套餐时长（小时）：最低套餐的提醒用（ADR 0091），和上架检查同一个口径 */
+async function charterPackageHours(db: Db, tenantId: string, product: Product, now: Date): Promise<number[]> {
+  const view = await detail(db, tenantId, product);
+  const today = instantToLocal(now, view.city?.timezone ?? "UTC").date;
+  const selected = { areaIds: (view.areas ?? []).map((area) => area.areaId), vehicleGroupIds: (view.vehicleGroups ?? []).map((group) => group.vehicleGroupId) };
+  return packageHoursOf(sellablePriceRules((await listPriceRules(db, tenantId, product.id)).filter((rule) => !isNonBaseRule(rule)), selected, today));
+}
+
+/** 价格规则里包车套餐的时长 */
+const packageHoursOf = (rules: readonly StoredPriceRule[]): number[] => rules.flatMap((rule) => (rule.pricing.model === "charter_package" && rule.packageHours !== null ? [rule.packageHours] : []));
+
 /** 服务规则连同币种和平台规定的免等最低值。租户事务、平台事务（运营后台查看商品）都用它。 */
-export async function serviceRulesView(db: Db, tenantId: string, product: Product): Promise<ServiceRulesView> {
+export async function serviceRulesView(db: Db, tenantId: string, product: Product, now: Date): Promise<ServiceRulesView> {
   const context = await ruleContext(db, product);
   const applicable = freeWaitItems(product.category);
   const minimum = (item: FreeWaitItem): number | null => (applicable.includes(item) ? minimumFreeWaitMinutes(product.category, item, context.pickupPlace) : null);
+  const serviceRules = await effectiveServiceRules(db, product.serviceRules);
+  // 只有设了最低套餐的包车才去查套餐（别的商品不多查库）
+  const minPackage = product.category === "charter" && charterItineraryOf(serviceRules).minPackageHours !== null ? minPackageAboveAll(serviceRules, await charterPackageHours(db, tenantId, product, now)) : null;
   return {
-    product: { ...product, serviceRules: await effectiveServiceRules(db, product.serviceRules) },
+    product: { ...product, serviceRules },
     currency: (await findBrands(db, tenantId, [product.brandId])).get(product.brandId)?.currency ?? null,
     freeWaitMinimums: { pickup: minimum("pickup"), dropoff: minimum("dropoff"), general: minimum("general") },
+    minPackageAboveAll: minPackage,
   };
 }
 
 export async function getServiceRules(ctx: DbContext, tenantId: string, id: string): Promise<ServiceRulesView> {
+  const now = ctx.now();
   return readTx(ctx, tenantId, async (db) => {
     const product = await findProduct(db, tenantId, id, { lock: false });
     if (!product) throw notFound("商品");
-    return serviceRulesView(db, tenantId, product);
+    return serviceRulesView(db, tenantId, product, now);
   });
 }
 
@@ -635,13 +687,16 @@ export async function getServiceRules(ctx: DbContext, tenantId: string, id: stri
  * 附加服务必须是平台目录里的；开着的必须是启用中、适用于这个品类的。
  * 存的是整理之后的一份（时段只留一种写法；「首个免费」只有按个计费的附加服务能设，别的计费方式下带了也当作没设，不拒绝）。
  */
-export async function putServiceRules(ctx: DbContext, writer: ProductWriter, id: string, expectedVersion: number, input: ServiceRules): Promise<ServiceRulesView> {
+export async function putServiceRules(ctx: DbContext, writer: ProductWriter, id: string, expectedVersion: number, given: ServiceRules): Promise<ServiceRulesView> {
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;
   return writeTx(ctx, tenantId, async (db) => {
     const current = await findProduct(db, tenantId, id, { lock: true });
     if (!current) throw notFound("商品");
     if (current.version !== expectedVersion) throw versionConflict(current.version);
+    // 包车行程计价的配置（M9P-01、M9P-03）：请求里没有这个键、或没有其中某一项 = 那一项保留原值（旧页面保存不会把它清掉）
+    const kept = current.serviceRules.charterItinerary;
+    const input: ServiceRules = kept === undefined ? given : { ...given, charterItinerary: { ...kept, ...definedEntries(given.charterItinerary ?? {}) } };
     // 已上架的商品开了新的附加服务：先和平台停用附加服务互斥，再查它们是不是启用的
     if (current.status === "published") await lockMasterReferences(db, current, [], input);
     const rules = await effectiveServiceRules(db, input);
@@ -655,7 +710,7 @@ export async function putServiceRules(ctx: DbContext, writer: ProductWriter, id:
       else if (chosen.enabled && !addon.categories.includes(current.category)) issues.push({ path: `${at}/addon_id`, reason: "ADDON_NOT_APPLICABLE", message: RULE_MESSAGES.ADDON_NOT_APPLICABLE });
     }
     if (issues.length > 0) invalid(issues);
-    if (isDeepStrictEqual(rules, current.serviceRules)) return serviceRulesView(db, tenantId, current);
+    if (isDeepStrictEqual(rules, current.serviceRules)) return serviceRulesView(db, tenantId, current, now);
     const updated = await updateProductRow(db, tenantId, id, { serviceRules: rules }, now);
     await assertStillPublishable(db, tenantId, updated, now);
     await audit(db, writer, now, {
@@ -665,8 +720,13 @@ export async function putServiceRules(ctx: DbContext, writer: ProductWriter, id:
       before: { service_rules: current.serviceRules as unknown as AuditValue },
       after: { service_rules: updated.serviceRules as unknown as AuditValue },
     });
-    return serviceRulesView(db, tenantId, updated);
+    return serviceRulesView(db, tenantId, updated, now);
   });
+}
+
+/** 只留给了值的项（`undefined` 的当作没给） */
+function definedEntries<T extends object>(value: T): Partial<T> {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as Partial<T>;
 }
 
 // ---- 商品详情 ----
@@ -707,6 +767,10 @@ interface PublishChecked {
   items: PublishCheckItem[];
   adjustRules: { id: string; name: string }[];
   stacks: AdjustStackProblem[];
+  /** 「三层区域重叠」一项里的区域名（M9P-13）：写进提醒的句子 */
+  areaNames?: ReadonlyMap<string, string>;
+  /** 「热门地标覆盖」一项里的地标名（M9P-07F）：两个后台都直接写出名字，页面不用另取整张地标表 */
+  placeNames?: ReadonlyMap<string, string>;
 }
 
 const pad2 = (value: number): string => String(value).padStart(2, "0");
@@ -737,11 +801,35 @@ function publishCheckView(checked: PublishChecked): PublishCheckView {
         // 「调价规则」一项的每条原因带上是哪一条规则（页面凭它写出名字、链到那一条）；叠加出的问题带上是哪几条、什么时候
         const stack = item.key === "adjust_rules" && issue.path.startsWith("/stacks/") ? checked.stacks[Number(issue.path.slice("/stacks/".length))] : undefined;
         if (stack !== undefined) return stackIssue(issue, stack, checked.adjustRules);
+        if (item.key === "charter_layer_overlap") return charterOverlapIssue(issue, checked.areaNames ?? new Map());
+        if (item.key === "charter_coverage") {
+          const name = checked.placeNames?.get(issue.path.slice("/places/".length));
+          return name === undefined ? issue : { ...issue, detail: { ...issue.detail, name } };
+        }
         const rule = item.key === "adjust_rules" ? checked.adjustRules[Number(issue.path.slice(1))] : undefined;
         return rule === undefined ? issue : { ...issue, detail: { ...issue.detail, rule_id: rule.id, name: rule.name } };
       }),
     })),
   };
+}
+
+const CHARTER_LAYER_PHRASES: Readonly<Record<string, string>> = {
+  base: "基础价区域（服务区域）之间",
+  itinerary: "行程加价的区域之间",
+  pickup_dropoff: "上下车加价的区域之间",
+  base_pickup_dropoff: "基础价区域和上下车加价的区域",
+};
+
+/** 「三层区域重叠」的一条（M9P-13）：写出两个区域名、哪一层、面积（平方公里，两位小数），`detail` 带两个区域的编号 */
+function charterOverlapIssue(issue: InputIssue, names: ReadonlyMap<string, string>): InputIssue {
+  const [, layer = "", a = "", b = ""] = issue.path.split("/");
+  const km2 = Math.round(Number(issue.detail?.["overlap_m2"] ?? 0) / 10_000) / 100;
+  const pair = `「${names.get(a) ?? a}」和「${names.get(b) ?? b}」`;
+  const message =
+    layer === "base_pickup_dropoff"
+      ? `基础价区域${pair.replace("和", "和上下车加价的区域")}重叠约 ${km2} 平方公里：在基础价区域里上下车不加价，两者不能重叠。请到区域页面用「从本区域减去另一个区域」切掉重叠的部分`
+      : `${CHARTER_LAYER_PHRASES[layer] ?? ""}${pair}重叠约 ${km2} 平方公里：同一层的区域不能重叠（一个点只能有一个答案）。请到区域页面用「从本区域减去另一个区域」切掉重叠的部分`;
+  return { ...issue, message, detail: { ...issue.detail, area_a: a, area_b: b } };
 }
 
 function publishCheckFailed(checked: PublishChecked, message: string): AppError {
@@ -761,11 +849,13 @@ async function runPublishCheck(db: Db, tenantId: string, product: Product, now: 
   const today = instantToLocal(now, view.city?.timezone ?? "UTC").date;
   // 区域加价（ADR 0073）不算在上架检查的价格统计里：它的区域本来就不在商品的区域列表里，不是「已不在选择范围内的价格」
   const allPriceRules = await listPriceRules(db, tenantId, product.id);
-  const priceRules = allPriceRules.filter((rule) => !isSurchargeRule(rule));
+  // 迁移过三层区域的包车（ADR 0093 第五节）：套餐价只用整商品套餐价，按服务区域的旧行只读、报价不读，不算
+  const layered = product.category === "charter" && product.charterLayout === "three_layer";
+  const priceRules = allPriceRules.filter((rule) => !isNonBaseRule(rule) && (!layered || rule.areaId === null));
   const adjustRules = await listAdjustRules(db, tenantId, product.id);
   // 「可以卖的价格」：启用、未过期，而且区域和车型组都是商品现在选着的（price-overview、修改保护用的是同一个判断）
   const selected = { areaIds: (view.areas ?? []).map((area) => area.areaId), vehicleGroupIds: (view.vehicleGroups ?? []).map((group) => group.vehicleGroupId) };
-  const inSelection = priceRules.filter((rule) => selected.areaIds.includes(rule.areaId) && selected.vehicleGroupIds.includes(rule.vehicleGroupId));
+  const inSelection = priceRules.filter((rule) => (rule.areaId === null || selected.areaIds.includes(rule.areaId)) && selected.vehicleGroupIds.includes(rule.vehicleGroupId));
   const activePrices = sellablePriceRules(priceRules, selected, today);
   // 调价规则的检查连同点对点的线路价一起看（它们不算上架条件，但同样会被报出去，ADR 0073）
   const adjustedPrices = [...activePrices, ...sellableRouteRules(priceRules, selected, today)];
@@ -780,6 +870,7 @@ async function runPublishCheck(db: Db, tenantId: string, product: Product, now: 
   const areaCities = await findAreaCities(db, [...new Set((view.areas ?? []).map((area) => area.cityId))]);
   const addons = await findAddonsForProduct(db, product.serviceRules.addons.map((addon) => addon.addonId));
   const serviceRules = await effectiveServiceRules(db, product.serviceRules);
+  const overlaps = product.category === "charter" && options.light !== true ? await charterLayerOverlapFacts(db, tenantId, (view.areas ?? []).map((area) => area.areaId), allPriceRules) : [];
   const facts: PublishFacts = {
     category: product.category,
     brandActive: view.brand?.status === "active",
@@ -804,13 +895,65 @@ async function runPublishCheck(db: Db, tenantId: string, product: Product, now: 
     adjustStackProblems: stacks,
     // 勾选的报价区域超出运营区域的部分（ADR 0075）：提醒、不拦上架；列表概况、修改保护不算
     ...(options.light === true ? {} : { pricingOutsideOperating: await pricingOutsideOperating(db, tenantId, product, view.areas ?? [], allPriceRules) }),
+    // 包车的最低套餐比所有启用的套餐都长时提醒（ADR 0091，不拦上架）
+    ...(product.category === "charter" ? { charterPackageHours: packageHoursOf(activePrices) } : {}),
+    // 包车覆盖检查、加价表空格（M9P-06，ADR 0093 第七节第 4、5 条）：提醒、不拦上架；列表概况、修改保护不算
+    ...(product.category === "charter" && options.light !== true ? await charterCoverageFacts(db, tenantId, product, view.areas ?? [], allPriceRules, selected.vehicleGroupIds) : {}),
+    // 包车三层区域重叠（M9P-13，#247 审查建议）：区域页改图形不经过保存校验，这里提醒、不拦上架
+    ...(product.category === "charter" && options.light !== true ? { charterLayerOverlaps: overlaps } : {}),
+    // 迁移过三层区域的包车：每个车型组至少一档整商品套餐价（规格 P1 #7「上架拦下」）
+    ...(layered ? { charterGroupsWithoutPackage: selected.vehicleGroupIds.flatMap((groupId, index) => (activePrices.some((rule) => rule.vehicleGroupId === groupId) ? [] : [index])) } : {}),
   };
-  return { items: publishCheck(facts), adjustRules: adjustRules.map((rule) => ({ id: rule.id, name: rule.name })), stacks };
+  const areaNames = new Map<string, string>();
+  if (overlaps.length > 0) for (const [id, area] of await findAreasForProduct(db, tenantId, [...new Set(overlaps.flatMap((entry) => [entry.a, entry.b]))])) areaNames.set(id, displayText(area.name));
+  const placeNames = new Map<string, string>();
+  const uncoveredPlaces = facts.charterUncoveredPlaces ?? [];
+  if (uncoveredPlaces.length > 0) for (const row of (await db.query<{ id: string; name: LocalizedText }>("select id, name from places where id = any($1::uuid[])", [uncoveredPlaces])).rows) placeNames.set(row.id, displayText(row.name));
+  return { items: publishCheck(facts), adjustRules: adjustRules.map((rule) => ({ id: rule.id, name: rule.name })), stacks, areaNames, placeNames };
+}
+
+const displayText = (name: LocalizedText): string => name.zh ?? name.ja ?? name.en ?? name.ko ?? "";
+
+/** 包车三层区域里全部的同层、①∩③ 重叠（M9P-13）：口径和保存校验一样（规则不分启停），只是已有的也列出来 */
+async function charterLayerOverlapFacts(db: Db, tenantId: string, baseIds: readonly string[], rules: readonly StoredPriceRule[]): Promise<NonNullable<PublishFacts["charterLayerOverlaps"]>> {
+  const areasOf = (model: string): string[] => [...new Set(rules.flatMap((rule) => (rule.pricing.model === model && rule.areaId !== null ? [rule.areaId] : [])))];
+  const layers = { base: [...baseIds], itinerary: areasOf("charter_itinerary_surcharge"), updown: areasOf("charter_area_surcharge") };
+  if (layers.base.length + layers.itinerary.length + layers.updown.length < 2) return [];
+  const shapes = (await listTenantAreaShapes(db, tenantId)).map(areaShapeInput);
+  return charterLayerOverlaps(shapes, layers, layers).map((entry) => ({ layer: entry.layer, a: entry.a, b: entry.b, areaM2: entry.areaM2 }));
+}
+
+/**
+ * 包车上架检查的两项提醒（M9P-06，ADR 0093 第七节第 4、5 条）：
+ * - 覆盖检查：商品所在城市启用中、勾了「包车覆盖检查」的地标，不在商品任何①基础价、②行程、③上下车加价区域（启用的规则）里的；
+ * - 加价表空格：②③表里每个区域（有启用规则的）× 商品选的车型组，一条启用的规则都没有的格（= 不报价）。
+ */
+async function charterCoverageFacts(db: Db, tenantId: string, product: Product, areas: readonly { areaId: string }[], rules: readonly StoredPriceRule[], vehicleGroupIds: readonly string[]): Promise<Pick<PublishFacts, "charterUncoveredPlaces" | "charterEmptyCells">> {
+  const enabledAreas = (model: string): string[] => [...new Set(rules.flatMap((rule) => (rule.pricing.model === model && rule.status === "enabled" && rule.areaId !== null ? [rule.areaId] : [])))];
+  const itinerary = enabledAreas("charter_itinerary_surcharge");
+  const updown = enabledAreas("charter_area_surcharge");
+  const emptyCells: { layer: "itinerary" | "pickup_dropoff"; areaId: string; vehicleGroupIndex: number }[] = [];
+  for (const [layer, model, ids] of [["itinerary", "charter_itinerary_surcharge", itinerary], ["pickup_dropoff", "charter_area_surcharge", updown]] as const) {
+    for (const areaId of ids) {
+      for (const [index, groupId] of vehicleGroupIds.entries()) {
+        if (!rules.some((rule) => rule.pricing.model === model && rule.areaId === areaId && rule.vehicleGroupId === groupId && rule.status === "enabled")) emptyCells.push({ layer, areaId, vehicleGroupIndex: index });
+      }
+    }
+  }
+  const places = await db.query<{ id: string; lng: string; lat: string }>("select id, lng, lat from places where city_id = $1 and type = 'poi' and status = 'active' and charter_coverage order by code", [product.cityId]);
+  let uncovered: string[] = [];
+  if (places.rows.length > 0) {
+    const ids = [...new Set([...areas.map((area) => area.areaId), ...itinerary, ...updown])];
+    const shapes = (await listTenantAreaShapes(db, tenantId)).filter((shape) => ids.includes(shape.id));
+    const quoteAreas = shapes.map((shape) => ({ areaId: shape.id, active: shape.status === "active", shapes: shape.polygons.map((polygon, index) => ({ id: `${shape.id}-${index}`, kind: polygon.kind, ring: [...polygon.ring, polygon.ring[0] as AreaPosition] })) }));
+    uncovered = places.rows.filter((place) => locateInAreas(quoteAreas, { lng: Number(place.lng), lat: Number(place.lat) }).operating.length === 0).map((place) => place.id);
+  }
+  return { ...(uncovered.length === 0 ? {} : { charterUncoveredPlaces: uncovered }), ...(emptyCells.length === 0 ? {} : { charterEmptyCells: emptyCells }) };
 }
 
 /** 商品勾选的报价区域（商品区域、启用的包车区域加价的区域）里，有多少不在本租户运营范围里（ADR 0075，按商品品类取运营区域）。 */
 async function pricingOutsideOperating(db: Db, tenantId: string, product: Product, areas: readonly { areaId: string }[], rules: readonly StoredPriceRule[]): Promise<{ areaId: string; outsideM2: number }[]> {
-  const pricingIds = [...new Set([...areas.map((area) => area.areaId), ...rules.filter((rule) => isSurchargeRule(rule) && rule.status === "enabled").map((rule) => rule.areaId)])];
+  const pricingIds = [...new Set([...areas.map((area) => area.areaId), ...rules.flatMap((rule) => (isSurchargeRule(rule) && rule.status === "enabled" && rule.areaId !== null ? [rule.areaId] : []))])];
   if (pricingIds.length === 0) return [];
   const outside = productPricingOutsideOperating((await listTenantAreaShapes(db, tenantId)).map(areaShapeInput), pricingIds, product.category);
   return [...outside].map(([areaId, outsideM2]) => ({ areaId, outsideM2 }));

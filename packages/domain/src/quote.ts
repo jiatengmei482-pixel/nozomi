@@ -8,9 +8,12 @@
  *
  * 钱：结算价是商品所属子品牌币种的最小货币单位整数；中间结果用精确分数，只在最后取整一次（pricing.ts / money.ts）。
  */
-import { type AreaPolygonShape, type AreaRole, locatePoint } from "./areas.ts";
+import { CHARTER_ITINERARY_LIMITS } from "./charter-itinerary-limits.ts";
+import { type AreaPolygonShape, type AreaRole, type AreaSharing, locatePoint } from "./areas.ts";
+import { type AirportBinding, type AirportScenario, type AirportScenarioKind, airportPackagePricing, airportPackageRule, airportScenarios, scenarioEnd } from "./charter-airport.ts";
 import { type DistancePrice, type PricingBasis, selectDistancePrice } from "./distance-price.ts";
 import type { LatLng } from "./geo.ts";
+import type { ArriveBy } from "./arrive-by.ts";
 import { type InventoryDay, type InventoryMode, hasInventory } from "./inventory.ts";
 import type { AddonChargeUnit, FlightScope, PlaceType, ServiceCategory } from "./master-data.ts";
 import { type CurrencyCode, ceilFractionToUnit, minorDigits, roundFractionToUnit } from "./money.ts";
@@ -28,6 +31,7 @@ import {
   adjustRuleMatches,
   applyAdjustRules,
   areaSurchargeFor,
+  type CharterLayout,
   type CharterPackagePricing,
   charterOverage,
   compareExact,
@@ -35,13 +39,15 @@ import {
   exceedsSettlementLimit,
   formatExact,
   hasIncludedKm,
+  itineraryAreaIds,
   overKm,
+  priceRuleCoversDate,
   scaleExact,
   selectPriceRule,
   surchargeAreaIds,
   tripPrice,
 } from "./pricing.ts";
-import { type FreeWait, type ProductStatus, type ServiceRules, addonAllowsFirstFree, effectiveFreeWait, freeWaitItems, minimumFreeWaitMinutes } from "./products.ts";
+import { type FreeWait, type ProductStatus, type ServiceRules, addonAllowsFirstFree, charterItineraryOf, effectiveFreeWait, freeWaitItems, minimumFreeWaitMinutes } from "./products.ts";
 import { type SiteAudience, listedFor } from "./qa-acceptance.ts";
 import { type UrgentTier, checkBookingWindow, instantToLocal, localDateTimeToInstant, overlapMinutes } from "./service-time.ts";
 
@@ -76,8 +82,8 @@ export const QUOTE_RULES = {
   maxLuggage: 60,
   maxAddonKinds: 20,
   maxAddonQuantity: 20,
-  /** 包车一单最多几个经停点（ADR 0088） */
-  maxWaypoints: 10,
+  /** 包车一单最多几个经停点（M9P-10：只受路径接口上限，见 `CHARTER_ITINERARY_LIMITS`） */
+  maxWaypoints: CHARTER_ITINERARY_LIMITS.maxWaypoints,
   /** 包车按行程计价的全程上限：5000 公里、7 天（同试算的假定路线） */
   maxRouteMeters: 5_000_000,
   maxRouteMinutes: 10_080,
@@ -106,7 +112,7 @@ export interface QuoteRequest {
   /** 只看这些车型组；空 = 商品选的全部 */
   vehicleGroupIds: readonly string[];
   /**
-   * 包车的经停点（ADR 0088），按顺序，最多 10 个；引擎只用坐标（名称、停留分钟只存在报价快照里）。
+   * 包车的经停点（ADR 0088），按顺序，最多 `QUOTE_RULES.maxWaypoints` 个；引擎只用坐标（名称、停留分钟只存在报价快照里）。
    * 不给或空 = 没有经停点，报价和 M9W-01 之前逐分一致。只有包车能给，给了就要有下车点。
    */
   waypoints?: readonly QuoteWaypoint[];
@@ -115,13 +121,29 @@ export interface QuoteRequest {
    * 给了就按套餐的含公里、套餐时长收超公里、超时（和套餐价、区域加价一起过调价）；不给 = 和以前一样不预收（服务后按实际加收）。只有包车能给。
    */
   routeUsage?: RouteUsage;
+  /**
+   * 包车怎么定套餐（ADR 0093 第四节；进报价快照和询价日志，回放据此重现选档）：
+   * - `auto`：按行程自动选（`packageHours` 为 null、要给 `routeUsage`）——各商品各车型组在时长 ≥ 预计用时 T（且 ≥ 最低套餐）、能报出的档里
+   *   取「套餐价 + 超公里费」最低的；一档都没有时只有最长那一档；
+   * - `manual`：客人自选 `packageHours`（官网手动升档、不按行程计价的包车、`/sales/v1`）——低于最低套餐、或带了行程而比 T 短（又不是最长那一档）的不报；
+   * - `locked`：改期、救援按订单的档报，不判 T、最低套餐和在线下单上限。
+   * 带了它就不收超时费（规格第一节：超时由供应商服务后提交，ADR 0091 第三节），T 超过在线下单上限的不报（`auto` / `manual`）。
+   * **不带 = 部署前的口径**（旧单改期、救援、旧日志回放、golden）：选档和超时费和以前逐字一样。只有包车能给。
+   */
+  charterSelection?: CharterSelection;
 }
+
+export const CHARTER_SELECTIONS = ["auto", "manual", "locked"] as const;
+export type CharterSelection = (typeof CHARTER_SELECTIONS)[number];
 
 /** 包车按行程计价的全程（ADR 0088 补充）：`meters`、`minutes` 是引擎用的合计；`legs`（逐段行驶）、`stayMinutes`（停留合计）只随快照锁定，引擎不看 */
 export type RouteUsage = RouteEstimate & { readonly legs?: readonly RouteEstimate[]; readonly stayMinutes?: number };
 
-/** 一个经停点：引擎只看坐标；官网带来的名称、停留分钟（`snapshot.request.waypoints` 的写法 `{ name, lat, lng, stay_minutes }`）原样留在快照里，下单时抄进订单 */
-export type QuoteWaypoint = LatLng & { readonly name?: string; readonly stay_minutes?: number };
+/**
+ * 一个经停点：引擎只看坐标；官网带来的名称、停留分钟（`snapshot.request.waypoints` 的写法 `{ name, lat, lng, stay_minutes }`）原样留在快照里，下单时抄进订单。
+ * `arrive_by`（M9P-20 P3）：指定到达时间，同样原样留在快照里、抄进订单，报价不看它
+ */
+export type QuoteWaypoint = LatLng & { readonly name?: string; readonly stay_minutes?: number; readonly arrive_by?: ArriveBy };
 
 /** 请求里的经停点（不给按没有） */
 const waypointsOf = (request: Pick<QuoteRequest, "waypoints">): readonly QuoteWaypoint[] => request.waypoints ?? [];
@@ -133,7 +155,12 @@ export function quoteRequestIssues(request: QuoteRequest): QuoteRequestIssue[] {
   const issues: QuoteRequestIssue[] = [];
   const { category } = request;
   if ((category === "airport_transfer") !== (request.direction !== null)) issues.push({ path: "/direction", reason: category === "airport_transfer" ? "REQUIRED" : "NOT_APPLICABLE" });
-  if ((category === "charter") !== (request.packageHours !== null)) issues.push({ path: "/package_hours", reason: category === "charter" ? "REQUIRED" : "NOT_APPLICABLE" });
+  const selection = request.charterSelection;
+  if (selection !== undefined && (category !== "charter" || !(CHARTER_SELECTIONS as readonly string[]).includes(selection))) issues.push({ path: "/charter_selection", reason: category === "charter" ? "OUT_OF_RANGE" : "NOT_APPLICABLE" });
+  // 包车要给套餐时长，自动选套餐（ADR 0093 第四节）时不给
+  const needsHours = category === "charter" && selection !== "auto";
+  if (needsHours !== (request.packageHours !== null)) issues.push({ path: "/package_hours", reason: needsHours ? "REQUIRED" : "NOT_APPLICABLE" });
+  if (category === "charter" && selection === "auto" && request.routeUsage === undefined) issues.push({ path: "/route_usage", reason: "REQUIRED" });
   if (request.packageHours !== null && (!Number.isInteger(request.packageHours) || request.packageHours < 1 || request.packageHours > PRICE_LIMITS.maxPackageHours)) issues.push({ path: "/package_hours", reason: "OUT_OF_RANGE" });
   for (const point of quoteCheckPoints(request)) if (request[point] === null) issues.push({ path: `/${point}`, reason: "REQUIRED" });
   if (localDateTimeToInstant(request.serviceLocal, "UTC") === null) issues.push({ path: "/service_time", reason: "INVALID_SERVICE_TIME" });
@@ -184,6 +211,8 @@ export interface QuoteArea {
   shapes: readonly (AreaPolygonShape & { id: string })[];
   /** 区域用途（ADR 0075）：只有运营范围（`operatingAreas`）里给；用途是「运营」的区域，禁行区挡这家所有商品（M8-36 补充） */
   role?: AreaRole;
+  /** 分类（ADR 0102）：平台共享 / 供应商独立；不给按供应商独立 */
+  sharing?: AreaSharing;
 }
 
 export interface QuoteProduct {
@@ -208,10 +237,20 @@ export interface QuoteProduct {
   /** 商品选的区域，按优先级；`shapes` 是它的营运 / 禁行图形 */
   areas: readonly QuoteArea[];
   /**
-   * 包车的加价区域（ADR 0073 第三部分）：区域加价规则用到的区域和它们的图形（不在商品的区域列表里）。
+   * 包车的加价区域（ADR 0073 第三部分）：③上下车加价、②行程加价规则用到的区域和它们的图形（不在商品的区域列表里）。
    * 不给 = 没有；只有包车用。
    */
   surchargeAreas?: readonly QuoteArea[];
+  /**
+   * 包车用哪套价格表（M9P-05，ADR 0093 第一节）：`three_layer` = 经停只从②行程加价取、套餐价只用整商品套餐价（区域为空的）；
+   * 不给 = 旧表（③行里的途经加价、按服务区域的套餐价），即使有新格式的规则也不读。
+   */
+  charterLayout?: CharterLayout;
+  /**
+   * 包车的机场绑定（M9P-21，ADR 0098）：场景 × 机场 × 机场区域。不给或空 = 没有机场套餐，报价和以前逐字一样。
+   * 只对迁移过三层区域的商品生效。
+   */
+  airportBindings?: readonly AirportBinding[];
   /**
    * 这个供应商的运营范围（ADR 0075 第二部分）：本租户启用中的、用途是「运营」或「运营 + 报价」、业务类型和商品品类相容的区域（不限城市）。
    * 给了就在第 4 步先做运营判断，再做报价判断（点在运营范围里、但不在商品勾选的报价区域里 → `NO_PRICING_AREA`）；
@@ -311,6 +350,13 @@ export const QUOTE_REFUSALS = [
   "PRICE_NOT_POSITIVE",
   /** 结算价超过了上限 */
   "PRICE_OVER_LIMIT",
+  /** 包车：客人选的档比商品的最低套餐短（ADR 0091、0093 第四节第 7 条）。对外报 `PACKAGE_TOO_SHORT` */
+  "BELOW_MIN_PACKAGE",
+  /** 包车按行程计价：客人手动选的档比这个商品的预计用时 T 短，又不是最长那一档（ADR 0093 第四节第 7 条） */
+  "PACKAGE_TOO_SHORT",
+  // ---- 以下是商品层面的（M9P-03） ----
+  /** 包车：预计用时 T 超过商品的在线下单上限（默认 13 小时，规格步骤 5、ADR 0093 第四节第 10 条），转客服 */
+  "ITINERARY_TOO_LONG",
 ] as const;
 export type QuoteRefusal = (typeof QUOTE_REFUSALS)[number];
 
@@ -386,6 +432,20 @@ export interface SettlementBreakdown {
   mileage?: MileageBreakdown;
   /** 包车按行程计价（ADR 0088 补充）：全程、套餐含量、超出量和超公里 / 超时费（结算价）；钱已经算在 `baseMinor` 里。没按行程计价的报价没有这一项 */
   itinerary?: ItineraryBreakdown;
+  /**
+   * 包车机场开始 / 机场结束套餐（M9P-21，ADR 0098 第三节第 4 小节）：匹配到的场景、机场、机场区域；`pricing` 是单独定价（`own`，`priceRuleId` 是机场套餐价那一条）
+   * 还是继承（`inherit`，套餐价照旧是普通套餐价）；`name` 是前台名称里的机场名。没匹配到场景的报价没有这一项。
+   */
+  charterScenario?: CharterScenarioBreakdown;
+}
+
+export interface CharterScenarioBreakdown {
+  kind: AirportScenarioKind;
+  placeId: string;
+  areaId: string;
+  name: string;
+  pricing: "own" | "inherit";
+  priceRuleId: string | null;
 }
 
 /** 包车按行程计价的超公里、超时（结算价）。金额是各自四舍五入到最小单位的数（展示用），结算价用的是精确值 */
@@ -400,6 +460,48 @@ export interface ItineraryBreakdown {
   overtimePerHourMinor: number;
   overKmMinor: number;
   overtimeMinor: number;
+  /**
+   * 超时费是不是在下单时预收了（ADR 0091 第三节）：带 `charterSelection` 的报价（M9P-03 起）写 `false`，`overtimeMinor` 是 0，`overtimeMinutes` 照记（服务后参考）；
+   * 部署前的报价和订单没有这个键，读作 `true`（按下单时的规则预收过）。
+   */
+  overtimeAtBooking?: false;
+  /**
+   * 预计用时 T 的组成（ADR 0091 第一节）：经停点个数、经停点默认占用、整单缓冲（分钟）和 T（= `routeMinutes` + 个数 × 占用 + 缓冲）。
+   * 只在中标商品的占用或缓冲不为 0 时写，四项同时有或同时没有；改期、救援（`locked`）由服务层从原订单原样抄过来
+   */
+  stops?: number;
+  stopOccupancyMinutes?: number;
+  bufferMinutes?: number;
+  estimatedMinutes?: number;
+}
+
+/** 预计用时 T 写进明细的四项（ADR 0091） */
+export type ItineraryEstimate = Required<Pick<ItineraryBreakdown, "stops" | "stopOccupancyMinutes" | "bufferMinutes" | "estimatedMinutes">>;
+
+/** 结算价明细里的预计用时四项（没有为 null）：改期、救援从原订单抄到新明细用 */
+export function itineraryEstimateOf(itinerary: ItineraryBreakdown | null | undefined): ItineraryEstimate | null {
+  if (itinerary === undefined || itinerary === null || itinerary.estimatedMinutes === undefined) return null;
+  return { stops: itinerary.stops ?? 0, stopOccupancyMinutes: itinerary.stopOccupancyMinutes ?? 0, bufferMinutes: itinerary.bufferMinutes ?? 0, estimatedMinutes: itinerary.estimatedMinutes };
+}
+
+/**
+ * 改期、救援的新明细带上原订单的预计用时四项（ADR 0091 第三节第 2 小节：`locked` 不重算 T，引擎拿不到原值，由服务层原样抄，连续改期也不丢）。
+ * 原订单没有这四项（占用、缓冲为 0，或部署前的单）、或新明细没按行程计价时原样返回。
+ */
+export function withOrderEstimate(settlement: SettlementBreakdown, original: Pick<SettlementBreakdown, "itinerary">): SettlementBreakdown {
+  const estimate = itineraryEstimateOf(original.itinerary);
+  if (estimate === null || settlement.itinerary === undefined) return settlement;
+  return { ...settlement, itinerary: { ...settlement.itinerary, ...estimate } };
+}
+
+/**
+ * 预计用时 T（ADR 0091 第一节）= 行驶 + 停留（`routeUsage.minutes`）+ 经停点个数 × 经停点默认占用 + 整单缓冲，按商品的配置。
+ * `breakdown` 是要写进结算价明细的四项——只在占用或缓冲不为 0 时有（默认值下 T = 行驶 + 停留）。T 只用来选档、判断能不能选、显示，不用来算钱。
+ */
+export function itineraryEstimate(rules: Pick<ServiceRules, "charterItinerary">, routeUsage: Pick<RouteUsage, "minutes">, stops: number): { minutes: number; breakdown: ItineraryEstimate | null } {
+  const config = charterItineraryOf(rules);
+  const minutes = routeUsage.minutes + stops * config.stopOccupancyMinutes + config.bufferMinutes;
+  return { minutes, breakdown: config.stopOccupancyMinutes === 0 && config.bufferMinutes === 0 ? null : { stops, stopOccupancyMinutes: config.stopOccupancyMinutes, bufferMinutes: config.bufferMinutes, estimatedMinutes: minutes } };
 }
 
 /**
@@ -433,6 +535,8 @@ export interface AreaSurchargeEnd {
   areaId: string | null;
   priceRuleId: string | null;
   amountMinor: number;
+  /** 机场套餐单独定价时免掉的这一端（金额 0，`areaId` 是机场区域，ADR 0098）；别的没有这个键 */
+  includedInPackage?: true;
 }
 
 export interface AreaSurchargeBreakdown {
@@ -440,8 +544,9 @@ export interface AreaSurchargeBreakdown {
   pickup: AreaSurchargeEnd;
   dropoff: AreaSurchargeEnd;
   /**
-   * 途经加价（ADR 0088）：每个收了途经加价的加价区域一项（按第一个落进去的经停点的先后），`stopSeqs` 是落在这个区域里的经停点（从 1 起）。
-   * 同一区域只收一次；上 / 下车已经计价的区域、只在商品区域里的经停点不在这里。只有带经停点的报价才有这一项。
+   * 行程加价（途经加价，ADR 0088；ADR 0093 第二节）：每个收了行程加价的区域一项（按第一个落进去的经停点的先后），`stopSeqs` 是落在这个区域里的经停点（从 1 起）。
+   * 同一区域只收一次；只在商品区域里的经停点不在这里。上 / 下车也在这个区域时照收（M9P-01：不再被上下车加价抵消）。
+   * 带经停点的报价都有这一项（可能是空数组）；不带经停点的只在「下车点行程加价」收了钱时才有（那一项 `fromDropoff: true`）。
    */
   waypoints?: AreaSurchargeWaypoint[];
 }
@@ -450,12 +555,22 @@ export interface AreaSurchargeWaypoint {
   areaId: string;
   priceRuleId: string;
   amountMinor: number;
+  /** 落在这个区域里的经停点（从 1 起）；下车点行程加价那一项是空数组 */
   stopSeqs: number[];
+  /**
+   * 下车点行程加价（规格步骤 4，ADR 0093 第二节第 4 小节）：没有落在商品区域以外的经停点、下车点在这个区域里，把它算作一次经停收的。
+   * 只有这一项带这个键（`true`），别的项没有这个键。
+   */
+  fromDropoff?: true;
+  /** 机场结束单独定价时免掉的下车点行程加价（金额 0，ADR 0098 第三节第 4 小节第 2 步）；别的没有这个键 */
+  includedInPackage?: true;
 }
 
 export interface VehicleOffer {
   vehicleGroupId: string;
   packageHours: number | null;
+  /** 客人手动升档（`charterSelection: "manual"` 且按行程计价）时：这个商品这个车型组自动会选的档（官网据此只列不短于它的档，ADR 0093 第四节第 9 条）。别的报价没有 */
+  autoPackageHours?: number;
   /**
    * 用的是哪个区域、哪条价格规则（几个区域都能报时取最低的那个）。
    * 按计程价报的（M8-30，`settlement.pricingBasis` 是 `distance_only`）没有区域（null），`priceRuleId` 是那条计程价的编号
@@ -471,11 +586,16 @@ export type ProductQuote =
   /** 报得出的车型组各一个价；报不出的车型组各有原因 */
   | { ok: true; productId: string; tenantId: string; serviceDate: string; urgent: boolean; offers: VehicleOffer[]; refused: VehicleRefusal[] };
 
-/** 一个车型组报不出的原因；`WAYPOINT_NOT_PRICED` 带上是第几个经停点（从 1 起，ADR 0088） */
+/**
+ * 一个车型组报不出的原因。`stopSeq`：是第几个经停点报不出（从 1 起，ADR 0088）——`WAYPOINT_NOT_PRICED`（经停点哪个区域都不在），
+ * 或上 / 下车都报得出、只有经停点所在的加价区域没有可用的途经规则（原因码沿用 `NO_PRICE_RULE` / `PRICE_RULE_DISABLED` / `PRICE_NOT_IN_EFFECT`，M9W-10）
+ */
 export interface VehicleRefusal {
   vehicleGroupId: string;
   reason: QuoteRefusal;
   stopSeq?: number;
+  /** `BELOW_MIN_PACKAGE`、`PACKAGE_TOO_SHORT`：这个商品这个车型组能接受的最短档（小时，ADR 0093 第四节第 7 条） */
+  minPackageHours?: number;
 }
 
 const ZERO: ExactAmount = { numerator: 0n, denominator: 1n };
@@ -484,17 +604,19 @@ const roundMinor = (amount: ExactAmount): number => roundFractionToUnit(amount.n
 /**
  * 一个点落在哪些区域里（报价第 4 步的判断，上车点、下车点各判一次；点对点和包车共用，ADR 0073 第一部分）：
  * `operating` 是点在营运区里、而且不在那个区域的禁行区里的区域（按给的先后）；`forbidden` 是点落在它的禁行区里的区域。停用的区域不算。
+ * 调用方每次只给同一层的区域（①商品区域、②行程、③上下车加价各判一次），所以「供应商独立优先」（ADR 0102）就在这里按层生效。
  */
 export function locateInAreas(areas: readonly QuoteArea[], point: LatLng): { operating: string[]; forbidden: string[] } {
-  const operating: string[] = [];
-  const forbidden: string[] = [];
+  const found: { area: QuoteArea; result: "operate" | "forbid" }[] = [];
   for (const area of areas) {
     if (!area.active) continue;
     const result = locatePoint(area.shapes, point).result;
-    if (result === "operate") operating.push(area.areaId);
-    else if (result === "forbid") forbidden.push(area.areaId);
+    if (result === "operate" || result === "forbid") found.push({ area, result });
   }
-  return { operating, forbidden };
+  // 供应商独立优先（ADR 0102）：点落进了供应商独立的区域（营运区或禁行区），同一次判断（同一层）里平台共享的区域就不算
+  const ownHit = found.some((entry) => (entry.area.sharing ?? "own") === "own");
+  const kept = ownHit ? found.filter((entry) => (entry.area.sharing ?? "own") === "own") : found;
+  return { operating: kept.filter((entry) => entry.result === "operate").map((entry) => entry.area.areaId), forbidden: kept.filter((entry) => entry.result === "forbid").map((entry) => entry.area.areaId) };
 }
 
 type AreaRefusal = "OUT_OF_SERVICE_AREA" | "IN_FORBIDDEN_AREA" | "NO_PRICING_AREA";
@@ -598,10 +720,19 @@ interface CharterWaypoint extends CharterEnd {
   unpriced: boolean;
 }
 
-/** 包车区域判断的结果：基础定价用哪些区域；给了下车点时两端（和经停点）各在哪 */
+/**
+ * 包车区域判断的结果：基础定价用哪些区域；给了下车点时两端（和经停点）各在哪。
+ * 经停点的 `surchargeAreaIds` 是它落在的、收经停加价的区域：旧表是③（看行里的途经加价），迁移过三层区域的商品是②（ADR 0093 第一节）。
+ * `dropoffItineraryAreaIds`：下车点落在的②行程区域（下车点行程加价用；旧表没有②，查下车点所在③行的途经加价，为 null）。
+ */
 interface CharterAreas {
   areaIds: string[];
-  ends: { pickup: CharterEnd; dropoff: CharterEnd; waypoints: CharterWaypoint[] } | null;
+  ends: { pickup: CharterEnd; dropoff: CharterEnd; waypoints: CharterWaypoint[]; dropoffItineraryAreaIds: string[] | null } | null;
+}
+
+/** 迁移过三层区域（ADR 0093 第一节）：经停加价、下车点行程加价从②取，套餐价只用整商品套餐价 */
+function threeLayer(product: Pick<QuoteProduct, "charterLayout">): boolean {
+  return product.charterLayout === "three_layer";
 }
 
 /**
@@ -622,13 +753,18 @@ function charterEnds(product: QuoteProduct, request: QuoteRequest): CharterAreas
   // 经停点和上 / 下车点一样过运营区域的禁行判断（ADR 0088 第 3 节第 1 条）
   if (inOperatingForbidden(product, [request.pickup, request.dropoff, ...waypoints])) return { reason: "IN_FORBIDDEN_AREA" };
   const surchargeAreas = (product.surchargeAreas ?? []).filter((area) => surchargeIds.includes(area.areaId));
-  const located = (point: LatLng): { own: string[]; end: CharterEnd; forbidden: boolean; inOwnForbidden: boolean } => {
+  // 迁移过三层区域的商品：经停点、下车点行程加价看②行程区域（ADR 0093 第一节）；旧表看③（行里的途经加价）
+  const itineraryIds = threeLayer(product) ? itineraryAreaIds(product.priceRules) : null;
+  const itineraryAreas = itineraryIds === null ? [] : (product.surchargeAreas ?? []).filter((area) => itineraryIds.includes(area.areaId));
+  const locatedIn = (point: LatLng, ids: readonly string[], layer: readonly QuoteArea[]): { own: string[]; end: CharterEnd; forbidden: boolean; inOwnForbidden: boolean } => {
     const own = locateInAreas(product.areas, point);
-    const extra = locateInAreas(surchargeAreas, point);
+    const extra = locateInAreas(layer, point);
     // 加价区域按商品挂的先后（规则出现的先后）排，一样小的加价取前面的
-    const surcharge = surchargeIds.filter((id) => extra.operating.includes(id));
+    const surcharge = ids.filter((id) => extra.operating.includes(id));
     return { own: own.operating, end: { inProductArea: own.operating.length > 0, surchargeAreaIds: surcharge }, forbidden: own.forbidden.length + extra.forbidden.length > 0, inOwnForbidden: own.forbidden.length > 0 };
   };
+  const located = (point: LatLng) => locatedIn(point, surchargeIds, surchargeAreas);
+  const locatedStop = (point: LatLng) => (itineraryIds === null ? located(point) : locatedIn(point, itineraryIds, itineraryAreas));
   const pickup = located(request.pickup);
   const dropoff = located(request.dropoff);
   for (const [end, position] of [[pickup, request.pickup], [dropoff, request.dropoff]] as const) {
@@ -638,7 +774,7 @@ function charterEnds(product: QuoteProduct, request: QuoteRequest): CharterAreas
   }
   // 经停点（ADR 0088 第 3 节）：运营判断不过、或哪个区域都不在 = 这个商品不报（各车型组报 `WAYPOINT_NOT_PRICED`，指出是第几个点）；
   // 只落在加价区域的禁行区里、哪里都不在 = 同上 / 下车那一端，`IN_FORBIDDEN_AREA`
-  const stops = waypoints.map((position) => ({ position, at: located(position) }));
+  const stops = waypoints.map((position) => ({ position, at: locatedStop(position) }));
   const placed: CharterWaypoint[] = [];
   for (const { position, at } of stops) {
     const outside = outsideOperating(product, position);
@@ -650,7 +786,8 @@ function charterEnds(product: QuoteProduct, request: QuoteRequest): CharterAreas
   // 上车点、下车点或经停点落在这个商品某个报价区域的禁行区里：整个商品不报（M8-36；加价区域的禁行区不算，它们不是报价区域）
   if (pickup.inOwnForbidden || dropoff.inOwnForbidden || stops.some((stop) => stop.at.inOwnForbidden)) return { reason: "IN_FORBIDDEN_AREA" };
   const baseAreas = pickup.own.length > 0 ? pickup.own : dropoff.own.length > 0 ? dropoff.own : product.areas.filter((area) => area.active).map((area) => area.areaId);
-  return { areaIds: baseAreas, ends: { pickup: pickup.end, dropoff: dropoff.end, waypoints: placed } };
+  const dropoffItineraryAreaIds = itineraryIds === null ? null : locatedStop(request.dropoff).end.surchargeAreaIds;
+  return { areaIds: baseAreas, ends: { pickup: pickup.end, dropoff: dropoff.end, waypoints: placed, dropoffItineraryAreaIds } };
 }
 
 /**
@@ -665,9 +802,28 @@ function linePairs(product: QuoteProduct, usable: readonly string[], pickup: Lat
   return pickupIds.flatMap((areaId) => dropoffIds.filter((toAreaId) => toAreaId !== areaId).map((toAreaId): [string, string] => [areaId, toAreaId]));
 }
 
-/** 包车按行程计价的超公里、超时明细（结算价，ADR 0088 补充）：和 `basePrice` 同一个公式（`charterOverage`） */
-function itineraryOf(pricing: CharterPackagePricing, route: RouteEstimate, packageHours: number | null): ItineraryBreakdown {
+/**
+ * 包车按行程计价的超公里、超时明细（结算价，ADR 0088 补充）：和 `basePrice` 同一个公式（`charterOverage`）。
+ * `plan` 不为 null（带 `charterSelection`，ADR 0091 第三节）时超时费是 0、`overtimeAtBooking: false`，超出的分钟照记；有预计用时四项时一并写。
+ */
+function itineraryOf(pricing: CharterPackagePricing, route: RouteEstimate, packageHours: number | null, plan: SelectionPlan | null): ItineraryBreakdown {
   const overage = charterOverage(pricing, route, packageHours);
+  if (plan !== null) {
+    return {
+      routeMeters: route.meters,
+      routeMinutes: route.minutes,
+      packageKm: pricing.packageKm,
+      packageMinutes: (packageHours ?? 0) * 60,
+      overMeters: overage.overMeters,
+      overtimeMinutes: overage.overtimeMinutes,
+      overKmPerKmMinor: pricing.overKmPerKmMinor,
+      overtimePerHourMinor: pricing.overtimePerHourMinor,
+      overKmMinor: roundMinor(overage.overKm),
+      overtimeMinor: 0,
+      overtimeAtBooking: false,
+      ...(plan.estimate ?? {}),
+    };
+  }
   return {
     routeMeters: route.meters,
     routeMinutes: route.minutes,
@@ -752,13 +908,95 @@ function addonCharges(product: QuoteProduct, request: QuoteRequest, durationMinu
   return { charges, total };
 }
 
+/** 报价引擎的调用参数 */
+export interface QuoteOptions {
+  forOwner?: boolean;
+  audience?: SiteAudience;
+  legacyAreaRules?: boolean;
+  /**
+   * 包车已下的单改期时（M9P-16，监工替业主确认 2026-11-14「按下单时锁定」）：上车、下车、行程加价用下单时锁定的这几项（订单结算价明细 `areaSurcharge` 去掉套餐价），
+   * 不按现在的规则和算法重算——M9P-01（经停不被上下车抵消、下车点行程加价）、M9P-06（基础价区域优先）以及之后改了的加价规则都不作用到已下的单。
+   * 区域判断（点还在不在商品的区域里）照常做；套餐价、超公里、调价、加急、夜间、附加服务仍按改期后的时间现算（和以前一样）。不给 = 现算（新询价）。
+   */
+  lockedAreaSurcharge?: Omit<AreaSurchargeBreakdown, "packageMinor">;
+  /**
+   * 包车已下的单改期时下单时的机场场景（M9P-21，ADR 0098 第三节第 4 小节「改期」）：不重新匹配场景，按订单的场景报；
+   * 单独定价（`own`）时一定用同一机场区域 × 方向 × 车型组 × 档的机场套餐价，没有了就报不出（转人工），不退回普通价；继承（`inherit`）时照普通套餐价。
+   * `null` = 下单时没有场景：锁成普通套餐，不按上 / 下车点重新匹配（供应商后来才绑定机场、设单独价，也不改用机场价——加价已经锁住，换成机场价会把机场那部分收两次）。
+   * 不给 = 按上 / 下车点现匹配（新询价）。服务层只要锁了加价就一起锁场景（#261 审查必改 1）。
+   */
+  lockedCharterScenario?: CharterScenarioBreakdown | null;
+}
+
+/** 带 `charterSelection` 的包车按一个档算价时的口径（ADR 0091 第三节）：不收超时费；`estimate` 是要写进明细的预计用时四项（没有为 null） */
+interface SelectionPlan {
+  estimate: ItineraryEstimate | null;
+}
+
+/**
+ * 已下的包车单改期时锁哪份加价（M9P-16，ADR 0093 第二节）：下单时结算价明细里的上车、下车、行程加价（去掉套餐价）。
+ * 只在「行程没变」时锁——上车点、下车点、经停点（坐标和顺序）都和下单时的请求一样，套餐时长也没变；有一样变了（现在的改期接口改不了这些，防以后放开）
+ * 就不锁、按现在的规则现算（加价和新行程对不上）。不是包车、或下单时的结算价没有加价明细（M8-15 之前的单）也不锁。
+ */
+export function lockableAreaSurcharge(booked: { request: Pick<QuoteRequest, "category" | "pickup" | "dropoff" | "waypoints">; packageHours: number | null; areaSurcharge: AreaSurchargeBreakdown | null | undefined }, request: Pick<QuoteRequest, "category" | "pickup" | "dropoff" | "waypoints">, packageHours: number | null): Omit<AreaSurchargeBreakdown, "packageMinor"> | undefined {
+  if (request.category !== "charter" || booked.areaSurcharge === null || booked.areaSurcharge === undefined) return undefined;
+  const samePoint = (a: LatLng | null, b: LatLng | null): boolean => (a === null || b === null ? a === b : a.lat === b.lat && a.lng === b.lng);
+  const [before, after] = [waypointsOf(booked.request), waypointsOf(request)];
+  const sameTrip = samePoint(booked.request.pickup, request.pickup) && samePoint(booked.request.dropoff, request.dropoff) && before.length === after.length && before.every((stop, index) => samePoint(stop, after[index] as LatLng));
+  if (!sameTrip || booked.packageHours !== packageHours) return undefined;
+  const { packageMinor: _package, ...surcharge } = booked.areaSurcharge;
+  return surcharge;
+}
+
 /**
  * 一个商品对一次用车请求报价（第 2–9 步里和这个商品有关的全部）。
  * `forOwner`：供应商自己试算——没上架的商品也算（需求文档 `quote-preview`：用未上架商品试算报价），也不看供应商是不是被暂停。
  * `audience`：`acceptance` 是测试环境的验收会话（M8-26，ADR 0078）——只认测试供应商的「验收可售」商品，不看入驻状态；不给是普通客人（只认已上架）。
+ * 包车带 `charterSelection`（ADR 0093 第四节）时各车型组在引擎里自己选档（`selectPackages`）、不收超时费；不带的和以前逐字一样。
  * 请求本身写得对不对由 `quoteRequestIssues` 查，这里假定是对的。
  */
-export function quoteProduct(product: QuoteProduct, request: QuoteRequest, moment: QuoteMoment, options: { forOwner?: boolean; audience?: SiteAudience; legacyAreaRules?: boolean } = {}): ProductQuote {
+export function quoteProduct(product: QuoteProduct, request: QuoteRequest, moment: QuoteMoment, options: QuoteOptions = {}): ProductQuote {
+  // 机场开始 / 机场结束（ADR 0098）：匹配到场景时按场景报（替换普通套餐）；机场 → 机场两个场景各报一遍，每个车型组取结算价低的
+  const bindings = product.category === "charter" && threeLayer(product) ? (product.airportBindings ?? []) : [];
+  const locked = product.category === "charter" ? options.lockedCharterScenario : undefined;
+  const scenarios = locked === null ? [] : locked !== undefined ? [{ kind: locked.kind, placeId: locked.placeId, areaId: locked.areaId, name: locked.name }] : bindings.length === 0 ? [] : airportScenarios(bindings, request.pickup, request.dropoff);
+  if (scenarios.length === 0) return quoteForScenario(product, request, moment, options, null);
+  return cheaperPerGroup(scenarios.map((scenario) => quoteForScenario(product, request, moment, options, scenario)));
+}
+
+function quoteForScenario(product: QuoteProduct, request: QuoteRequest, moment: QuoteMoment, options: QuoteOptions, scenario: AirportScenario | null): ProductQuote {
+  const selection = product.category === "charter" ? request.charterSelection : undefined;
+  if (selection === undefined) return quoteAtHours(product, request, moment, options, null, scenario);
+  // 改期、救援：按订单的档，不判 T、最低套餐和在线下单上限；预计用时四项由服务层从原订单抄
+  if (selection === "locked") return quoteAtHours(product, request, moment, options, { estimate: null }, scenario);
+  return selectPackages(product, request, moment, options, selection, scenario);
+}
+
+/** 几个场景的报价合成一份：每个车型组取结算价低的（一样时取前面的，也就是机场开始）；都报不出时用第一个场景的原因 */
+function cheaperPerGroup(quotes: readonly ProductQuote[]): ProductQuote {
+  const ok = quotes.filter((quote): quote is Extract<ProductQuote, { ok: true }> => quote.ok);
+  const first = ok[0];
+  if (first === undefined) return quotes[0] as ProductQuote;
+  const groups = [...new Set(ok.flatMap((quote) => [...quote.offers, ...quote.refused].map((entry) => entry.vehicleGroupId)))];
+  const offers: VehicleOffer[] = [];
+  const refused: VehicleRefusal[] = [];
+  for (const vehicleGroupId of groups) {
+    let best: VehicleOffer | null = null;
+    for (const quote of ok) {
+      const offer = quote.offers.find((entry) => entry.vehicleGroupId === vehicleGroupId);
+      if (offer !== undefined && (best === null || offer.settlement.totalMinor < best.settlement.totalMinor)) best = offer;
+    }
+    if (best !== null) offers.push(best);
+    else {
+      const refusal = ok.map((quote) => quote.refused.find((entry) => entry.vehicleGroupId === vehicleGroupId)).find((entry) => entry !== undefined);
+      if (refusal !== undefined) refused.push(refusal);
+    }
+  }
+  return { ...first, offers, refused };
+}
+
+/** 按请求里的档（`request.packageHours`）报价；`plan` 不为 null 时是带 `charterSelection` 的口径（不收超时费） */
+function quoteAtHours(product: QuoteProduct, request: QuoteRequest, moment: QuoteMoment, options: QuoteOptions, plan: SelectionPlan | null, scenario: AirportScenario | null = null): ProductQuote {
   const refuse = (reason: QuoteRefusal): ProductQuote => ({ ok: false, productId: product.productId, tenantId: product.tenantId, reason });
   // 第 2 步：已上架、供应商和子品牌启用中（城市、品类、接送点由找商品的那一层筛）
   if (options.forOwner !== true) {
@@ -814,7 +1052,17 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
   const freeWait: SettlementBreakdown["freeWait"] = { item, value: effectiveFreeWait(product.category, product.serviceRules.freeWait[item]), platformMinimumMinutes: minimumFreeWaitMinutes(product.category, item, product.pickupPlace) };
   // 包车报价时 H = 套餐时长、里程不超套餐（超时、超公里履约后按实际结算），不看路线预估；其他品类把预估交给计价公式
   // 包车按行程计价（ADR 0088 补充）时用服务器估的全程和总时长：超时、超公里由套餐公式算出，和套餐价一起过调价；不按行程计价的照旧不看用量
-  const usage: TripUsage = product.category === "charter" ? (request.routeUsage === undefined ? {} : { meters: request.routeUsage.meters, minutes: request.routeUsage.minutes }) : moment.route === null ? {} : { meters: moment.route.meters, minutes: moment.route.minutes };
+  // 带 charterSelection（ADR 0091 第三节）：报价不含超时费，时长不交给套餐公式（超时由供应商服务后提交）
+  const usage: TripUsage =
+    product.category === "charter"
+      ? request.routeUsage === undefined
+        ? {}
+        : plan === null
+          ? { meters: request.routeUsage.meters, minutes: request.routeUsage.minutes }
+          : { meters: request.routeUsage.meters }
+      : moment.route === null
+        ? {}
+        : { meters: moment.route.meters, minutes: moment.route.minutes };
 
   const offers: VehicleOffer[] = [];
   const refused: VehicleRefusal[] = [];
@@ -837,30 +1085,71 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
     }
     // 包车的区域加价：上车、下车两端各取这一端最小的加价（在商品本身的区域里是 0）；有一端没有能用的加价，这个车型组不报
     let surcharge: Omit<AreaSurchargeBreakdown, "packageMinor"> | null = null;
-    if (ends !== null) {
-      // 一端落在加价区域里、而且这个车型组 / 套餐 / 日期有能用的区域加价：用它（几个都有时取最高），
-      // 哪怕这一端同时也在商品本身的（大范围）区域里——大运营区不能把小加价区盖成 0（M8-38，业主确认）。
-      // 加价区域都没有能用的加价时：在商品区域里算 0，否则报不出（和以前一样）。
+    // 经停点哪个区域都不在：这个车型组不报，指出第一个这样的经停点（ADR 0088 第 3 节第 4 条）。
+    // 加价锁定的改期（M9P-16）同样要查：锁的是金额，区域判断照常（运营后来删了经停所在的区域，照旧报不出）
+    const unpriced = ends === null ? -1 : ends.waypoints.findIndex((stop) => stop.unpriced);
+    if (unpriced >= 0) {
+      refused.push({ vehicleGroupId, reason: "WAYPOINT_NOT_PRICED", stopSeq: unpriced + 1 });
+      continue;
+    }
+    // 机场套餐（ADR 0098）：这个机场区域 × 场景 × 车型组 × 档有机场套餐价 = 单独定价（替换套餐价、免掉场景那一端的机场加价），没有 = 继承
+    // 改期锁定了场景（ADR 0098）：继承的单不改用后来设的机场套餐价；单独定价的单找不到机场套餐价就报不出
+    const lockedPricing = options.lockedCharterScenario?.pricing;
+    const ownRule = scenario === null || lockedPricing === "inherit" ? null : airportPackageRule(product.priceRules, { scenario, vehicleGroupId, packageHours: request.packageHours, date: local.date });
+    const ownPricing = ownRule === null ? null : airportPackagePricing(product.priceRules, ownRule, local.date);
+    if ((ownRule !== null && ownPricing === null) || (lockedPricing === "own" && ownRule === null)) {
+      refused.push({ vehicleGroupId, reason: "NO_PRICE_RULE" });
+      continue;
+    }
+    const waivedEnd = ownRule !== null && scenario !== null ? scenarioEnd(scenario.kind) : null;
+    const locked = product.category === "charter" && ends !== null ? options.lockedAreaSurcharge : undefined;
+    if (locked !== undefined) {
+      // 已下的单改期（M9P-16）：加价按下单时锁定的，不查现在的加价规则（M9P-01、M9P-06 的改动都不作用到已下的单）
+      surcharge = { pickup: { ...locked.pickup }, dropoff: { ...locked.dropoff }, ...(locked.waypoints === undefined ? {} : { waypoints: locked.waypoints.map((entry) => ({ ...entry, stopSeqs: [...entry.stopSeqs] })) }) };
+    } else if (ends !== null) {
+      // 基础价区域优先（M9P-06，ADR 0093 第二节，规格步骤 4；取代 M8-38「大运营区不能把小加价区盖成 0」）：
+      // 上车点、下车点、经停点落在商品任一①基础价区域里就不加价（经停跳过），不管它同时在不在③ / ②里。
+      // 不在①里时：落在加价区域里、这个车型组 / 套餐 / 日期有能用的加价就用它（迁移过渡期同层重叠时取最高），否则报不出（和以前一样）。
+      // 迁移过三层区域的商品：经停点查②行程加价，加价认空套餐（ADR 0093 第一节）
+      const layered = threeLayer(product);
       const endCharge = (end: CharterEnd, which: SurchargeEnd): AreaSurchargeEnd | QuoteRefusal => {
-        const chosen = end.surchargeAreaIds.length === 0 ? null : areaSurchargeFor(product.priceRules, { areaIds: end.surchargeAreaIds, vehicleGroupId, packageHours: request.packageHours, date: local.date, end: which, prefer: "highest" });
-        if (chosen !== null && chosen.rule !== null) return { areaId: chosen.areaId, priceRuleId: chosen.rule.id, amountMinor: chosen.amountMinor };
+        if (which === waivedEnd && scenario !== null) return { areaId: scenario.areaId, priceRuleId: null, amountMinor: 0, includedInPackage: true };
         if (end.inProductArea) return { areaId: null, priceRuleId: null, amountMinor: 0 };
+        const chosen = end.surchargeAreaIds.length === 0 ? null : areaSurchargeFor(product.priceRules, { areaIds: end.surchargeAreaIds, vehicleGroupId, packageHours: request.packageHours, date: local.date, end: which, prefer: "highest", threeLayer: layered });
+        if (chosen !== null && chosen.rule !== null) return { areaId: chosen.areaId, priceRuleId: chosen.rule.id, amountMinor: chosen.amountMinor };
         return chosen === null ? NO_PRICE_REFUSAL.NO_RULE : NO_PRICE_REFUSAL[chosen.noPriceReason];
       };
       const [pickupCharge, dropoffCharge] = [endCharge(ends.pickup, "pickup"), endCharge(ends.dropoff, "dropoff")];
-      // 经停点哪个区域都不在：这个车型组不报，指出第一个这样的经停点（ADR 0088 第 3 节第 4 条）
-      const unpriced = ends.waypoints.findIndex((stop) => stop.unpriced);
-      if (unpriced >= 0) {
-        refused.push({ vehicleGroupId, reason: "WAYPOINT_NOT_PRICED", stopSeq: unpriced + 1 });
-        continue;
-      }
       const waypointCharges = ends.waypoints.map((stop) => endCharge(stop, "waypoint"));
       const failures = [pickupCharge, dropoffCharge, ...waypointCharges].filter((entry): entry is QuoteRefusal => typeof entry === "string");
+      // 只有经停点那一端报不出（上 / 下车都报得出）：原因码照旧，另带上第一个报不出的经停点（M9W-10，ADR 0088 补充），官网据此转人工报价并指出是哪个点；
+      // 上 / 下车有一端报不出时和以前完全一样（不带经停点：去掉经停点也报不出）
+      const failedStop = typeof pickupCharge === "string" || typeof dropoffCharge === "string" ? -1 : waypointCharges.findIndex((entry) => typeof entry === "string");
       if (typeof pickupCharge === "string" || typeof dropoffCharge === "string" || failures.length > 0) {
-        refused.push({ vehicleGroupId, reason: pickRefusal(failures) });
+        refused.push({ vehicleGroupId, reason: pickRefusal(failures), ...(failedStop >= 0 ? { stopSeq: failedStop + 1 } : {}) });
         continue;
       }
-      surcharge = { pickup: pickupCharge, dropoff: dropoffCharge, ...(ends.waypoints.length === 0 ? {} : { waypoints: waypointSurcharges(waypointCharges as AreaSurchargeEnd[], [pickupCharge.areaId, dropoffCharge.areaId]) }) };
+      // 行程加价（ADR 0093 第二节）：只看经停点；上 / 下车也在同一区域照收，不抵消（M9P-01，规格 P0 #1）
+      const stopCharges = waypointSurcharges(waypointCharges as AreaSurchargeEnd[]);
+      // 下车点行程加价（规格步骤 4 伪代码末段，ADR 0093 第二节第 4 小节，商品级开关默认开）：按伪代码字面只看「已收区域为空」
+      // （①外的经停要么收了行程加价、要么前面已经报不出，所以这就等于没有①外经停），下车点不在商品区域里时，下车点所在的行程区域收一次；不看上车点。
+      // 不另用 locateInAreas 判断经停在不在①：M9P-06（①优先）之前，①∩③里的经停照现行规则收途经加价、进已收区域，另判会让同一区域收两次。
+      // 没迁移三层区域的商品查下车点所在加价区域的途经加价；迁移过的（M9P-05）查下车点所在的②行程区域（几个重叠时都取最高）：
+      // 没设、停用、不在生效期都跳过、不拒（它不是客人填的经停点）。
+      const dropoffAreas = ends.dropoffItineraryAreaIds ?? ends.dropoff.surchargeAreaIds;
+      const fromDropoff =
+        charterItineraryOf(product.serviceRules).dropoffItinerarySurcharge && stopCharges.length === 0 && !ends.dropoff.inProductArea && dropoffAreas.length > 0
+          ? areaSurchargeFor(product.priceRules, { areaIds: dropoffAreas, vehicleGroupId, packageHours: request.packageHours, date: local.date, end: "waypoint", prefer: "highest", threeLayer: layered })
+          : null;
+      // 机场结束（单独定价和继承都一样，业主 2026-11-17，ADR 0098 第十四节）：套餐价已含去机场的路程，下车点行程加价记 0、不收
+      if (fromDropoff !== null && fromDropoff.rule !== null) {
+        stopCharges.push(
+          waivedEnd === "dropoff" || scenario?.kind === "airport_end"
+            ? { areaId: fromDropoff.areaId, priceRuleId: fromDropoff.rule.id, amountMinor: 0, stopSeqs: [], fromDropoff: true, includedInPackage: true }
+            : { areaId: fromDropoff.areaId, priceRuleId: fromDropoff.rule.id, amountMinor: fromDropoff.amountMinor, stopSeqs: [], fromDropoff: true },
+        );
+      }
+      surcharge = { pickup: pickupCharge, dropoff: dropoffCharge, ...(ends.waypoints.length === 0 && stopCharges.length === 0 ? {} : { waypoints: stopCharges }) };
     }
     const surchargeMinor = surcharge === null ? 0 : surcharge.pickup.amountMinor + surcharge.dropoff.amountMinor + (surcharge.waypoints ?? []).reduce((sum, entry) => sum + entry.amountMinor, 0);
     // 第 5–7 步：每个能接的区域各算一遍，取结算价最低的；一样低的取商品里排在前面的区域。
@@ -919,6 +1208,7 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
           ...(surcharge === null ? {} : { areaSurcharge: { packageMinor: baseMinor - surchargeMinor - (candidate.extra.itinerary === undefined ? 0 : candidate.extra.itinerary.overKmMinor + candidate.extra.itinerary.overtimeMinor), ...surcharge } }),
           ...(candidate.toAreaId === null ? {} : { toAreaId: candidate.toAreaId }),
           ...candidate.extra,
+          ...(scenario === null ? {} : { charterScenario: { kind: scenario.kind, placeId: scenario.placeId, areaId: scenario.areaId, name: scenario.name, pricing: ownRule === null ? ("inherit" as const) : ("own" as const), priceRuleId: ownRule?.id ?? null } }),
         },
       };
     };
@@ -994,13 +1284,16 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
       continue;
     }
 
+    // 迁移过三层区域的包车：套餐价只用整商品套餐价（区域为空的规则，ADR 0093 第五节）；区域仍是基础价区域，调价规则按它匹配
+    const productWide = product.category === "charter" && threeLayer(product);
     const lineHits = routePairs.filter(([areaId, toAreaId]) => selectPriceRule(product.priceRules, { areaId, toAreaId, vehicleGroupId, direction: request.direction, packageHours: request.packageHours, date: local.date }) !== null);
     const tries: [string, string | null][] = lineHits.length > 0 ? lineHits : areas.areaIds.map((areaId) => [areaId, null]);
     for (const [areaId, toAreaId] of tries) {
       const priced = tripPrice({
-        priceRules: product.priceRules,
+        // 机场套餐单独定价：套餐价换成补齐后的机场套餐价（编号仍是机场套餐价那一条，ADR 0098）
+        priceRules: ownRule !== null && ownPricing !== null ? [{ ...ownRule, areaId: null, direction: null, pricing: ownPricing }] : product.priceRules,
         adjustRules: product.adjustRules,
-        query: { areaId, vehicleGroupId, direction: request.direction, packageHours: request.packageHours, date: local.date, ...(toAreaId === null ? {} : { toAreaId }) },
+        query: { areaId, vehicleGroupId, direction: request.direction, packageHours: request.packageHours, date: local.date, ...(toAreaId === null ? {} : { toAreaId }), ...(productWide || ownRule !== null ? { productWide: true } : {}) },
         minuteOfDay: local.minuteOfDay,
         usage,
         roundingUnit: product.roundingUnit,
@@ -1027,7 +1320,7 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
         overLimit: priced.noPriceReason === "OVER_LIMIT",
         // 含公里数的一口价也记下用到的路线预估：改期重算时用同一段路线（距离报价时锁定）
         usage: pricing.model === "mileage_time" || withKm ? moment.route : null,
-        extra: withKm && moment.route !== null ? { distance: distanceOf(pricing, moment.route.meters) } : pricing.model === "charter_package" && request.routeUsage !== undefined ? { itinerary: itineraryOf(pricing, request.routeUsage, request.packageHours) } : {},
+        extra: withKm && moment.route !== null ? { distance: distanceOf(pricing, moment.route.meters) } : pricing.model === "charter_package" && request.routeUsage !== undefined ? { itinerary: itineraryOf(pricing, request.routeUsage, request.packageHours, plan) } : {},
       });
     }
     if (best !== null) offers.push(best);
@@ -1036,14 +1329,158 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
   return { ok: true, productId: product.productId, tenantId: product.tenantId, serviceDate: local.date, urgent: window.urgentTier !== null, offers, refused };
 }
 
+/** 按车型组报不出、而和档无关的原因（自己选档时直接用按任一档试出来的结果） */
+const HOURS_INDEPENDENT: ReadonlySet<QuoteRefusal> = new Set(["VEHICLE_GROUP_NOT_OFFERED", "VEHICLE_GROUP_DISABLED", "CAPACITY_EXCEEDED", "WAYPOINT_NOT_PRICED"]);
+
 /**
- * 经停点的途经加价合到区域上（ADR 0088 第 3 节第 5 条）：每个经停点已经归到途经加价最高的那个加价区域（只在商品区域里的为 null，不加）；
- * 同一区域只加一次；上车、下车各自选中的那个加价区域（`chargedAreaIds`，那一端只在商品区域里时是 null）不再加，选中的加价是 0 也算。
+ * 这个商品这个车型组的套餐时长（从短到长）：基础价区域里的包车套餐价格规则（迁移过三层区域的商品是整商品套餐价，ADR 0093 第五节）；
+ * `usable` 时只算启用、用车日期在生效期内的（ADR 0093 第四节第 2 条）。能不能报出（加价规则齐全等）由逐档报价判断。
  */
-function waypointSurcharges(stops: readonly AreaSurchargeEnd[], chargedAreaIds: readonly (string | null)[]): AreaSurchargeWaypoint[] {
+function packageHoursFor(product: QuoteProduct, vehicleGroupId: string, areaIds: readonly string[], date: string, usable: boolean, scenario: AirportScenario | null = null): number[] {
+  const wide = threeLayer(product);
+  // 机场场景（ADR 0098）：这个机场区域 × 方向有机场套餐价的档也能选
+  const direction = scenario === null ? null : scenarioEnd(scenario.kind);
+  const hours = product.priceRules.flatMap((rule) =>
+    ((rule.pricing.model === "charter_package" && (wide ? rule.areaId === null : rule.areaId !== null && areaIds.includes(rule.areaId))) ||
+      (scenario !== null && rule.pricing.model === "charter_airport_package" && rule.areaId === scenario.areaId && rule.direction === direction)) &&
+    rule.vehicleGroupId === vehicleGroupId &&
+    rule.packageHours !== null &&
+    (!usable || (rule.status === "enabled" && priceRuleCoversDate(rule, date)))
+      ? [rule.packageHours]
+      : [],
+  );
+  return [...new Set(hours)].sort((a, b) => a - b);
+}
+
+/** 选档比的钱（规格步骤 3）：套餐价 + max(0, D − 套餐含公里) × 超公里单价。加价、调价不参与（ADR 0093 第四节第 3 条） */
+function packageCost(product: QuoteProduct, offer: VehicleOffer, meters: number, date: string): ExactAmount | null {
+  const rule = product.priceRules.find((entry) => entry.id === offer.priceRuleId && entry.packageHours === offer.packageHours && entry.vehicleGroupId === offer.vehicleGroupId);
+  if (rule === undefined) return null;
+  // 机场套餐单独定价：按补齐后的机场套餐价比（ADR 0098 第三节第 4 小节第 3 步）
+  const pricing = rule.pricing.model === "charter_package" ? rule.pricing : rule.pricing.model === "charter_airport_package" ? airportPackagePricing(product.priceRules, rule, date) : null;
+  if (pricing === null) return null;
+  const cost = addExact(exactFromMinor(pricing.packagePriceMinor), charterOverage(pricing, { meters }, offer.packageHours).overKm);
+  // 机场场景继承的档：单独定价会免掉的那几项（这一端③、机场结束的下车点行程加价）这里要付，算进比较
+  return offer.settlement.charterScenario?.pricing === "inherit" ? addExact(cost, exactFromMinor(airportEndSurcharge(offer.settlement))) : cost;
+}
+
+/** 机场场景那一端的机场加价（结算价）：机场开始 = 上车加价；机场结束 = 下车加价 + 下车点行程加价 */
+function airportEndSurcharge(settlement: SettlementBreakdown): number {
+  const scenario = settlement.charterScenario;
+  const surcharge = settlement.areaSurcharge;
+  if (scenario === undefined || surcharge === undefined || surcharge === null) return 0;
+  if (scenario.kind === "airport_start") return surcharge.pickup.amountMinor;
+  return surcharge.dropoff.amountMinor + (surcharge.waypoints ?? []).filter((entry) => entry.fromDropoff === true).reduce((sum, entry) => sum + entry.amountMinor, 0);
+}
+
+/**
+ * 包车在引擎里自己选档（ADR 0093 第四节，规格步骤 2、3、5）：
+ * - 预计用时 T 按这个商品的配置算（`itineraryEstimate`）；T 超过在线下单上限 → 整个商品不报（`ITINERARY_TOO_LONG`，转客服）；
+ * - `auto`：每个车型组的候选 = 可用的档里时长 ≥ T（且 ≥ 最低套餐）、并且这一档能报出的；取「套餐价 + 超公里费」最低的，一样时取短的。
+ *   候选一个都没有时只有最长那一档（仍要 ≥ 最低套餐；不退到更短的档，也不收超时费）；
+ * - `manual`：客人选的档低于最低套餐 → `BELOW_MIN_PACKAGE`；带了行程而比 T 短、又不是最长那一档 → `PACKAGE_TOO_SHORT`（都带上能接受的最短档）；
+ *   否则按这一档报，另记自动会选的档（`autoPackageHours`）。
+ * 每一档都是同一个商品按 `packageHours = 档` 完整算一遍（加价、调价、夜间、附加服务都按这一档），不收超时费。
+ */
+function selectPackages(product: QuoteProduct, request: QuoteRequest, moment: QuoteMoment, options: QuoteOptions, selection: "auto" | "manual", scenario: AirportScenario | null = null): ProductQuote {
+  const config = charterItineraryOf(product.serviceRules);
+  const route = request.routeUsage;
+  const estimate = route === undefined ? null : itineraryEstimate(product.serviceRules, route, waypointsOf(request).length);
+  const plan: SelectionPlan = { estimate: estimate?.breakdown ?? null };
+  const cache = new Map<number, ProductQuote>();
+  const at = (hours: number): ProductQuote => {
+    let quote = cache.get(hours);
+    if (quote === undefined) {
+      quote = quoteAtHours(product, { ...request, packageHours: hours }, moment, options, plan, scenario);
+      cache.set(hours, quote);
+    }
+    return quote;
+  };
+  // 商品层面的判断（上架、服务时间、区域、附加服务、库存……）和档无关：按客人选的档（自动选档时按 1 小时）试一次
+  const probe = at(request.packageHours ?? 1);
+  if (!probe.ok) return probe;
+  if (estimate !== null && estimate.minutes > config.maxOnlineMinutes) return { ok: false, productId: product.productId, tenantId: product.tenantId, reason: "ITINERARY_TOO_LONG" };
+  const ends = charterEnds(product, request);
+  const areaIds = "reason" in ends ? [] : ends.areaIds;
+  const minHours = config.minPackageHours;
+  const T = estimate?.minutes ?? null;
+  const acceptable = (hours: number): boolean => (minHours === null || hours >= minHours) && (T === null || hours * 60 >= T);
+  const isOffer = (entry: VehicleOffer | VehicleRefusal): entry is VehicleOffer => "settlement" in entry;
+  const offerAt = (hours: number, vehicleGroupId: string): VehicleOffer | VehicleRefusal => {
+    const quote = at(hours);
+    if (!quote.ok) return { vehicleGroupId, reason: quote.reason };
+    return quote.offers.find((offer) => offer.vehicleGroupId === vehicleGroupId) ?? quote.refused.find((entry) => entry.vehicleGroupId === vehicleGroupId) ?? { vehicleGroupId, reason: "NO_PRICE_RULE" };
+  };
+  /** 自动选档（ADR 0093 第四节第 2、3 条） */
+  const autoChoice = (vehicleGroupId: string, pool: readonly number[]): VehicleOffer | VehicleRefusal => {
+    const longest = pool[pool.length - 1];
+    if (longest === undefined) {
+      // 一档可用的都没有：原因按这个车型组最长的那一档（停用、过期的也算）报；一条套餐都没有是没有价格规则
+      const any = packageHoursFor(product, vehicleGroupId, areaIds, probe.serviceDate, false);
+      const last = any[any.length - 1];
+      return last === undefined ? { vehicleGroupId, reason: "NO_PRICE_RULE" } : offerAt(last, vehicleGroupId);
+    }
+    let best: { offer: VehicleOffer; cost: ExactAmount } | null = null;
+    for (const hours of pool.filter(acceptable)) {
+      const entry = offerAt(hours, vehicleGroupId);
+      if (!isOffer(entry)) continue;
+      const cost = packageCost(product, entry, route?.meters ?? 0, probe.serviceDate);
+      if (cost === null) continue;
+      // 从短到长，只有更便宜才换：一样时取短的
+      if (best === null || compareExact(cost, best.cost) < 0) best = { offer: entry, cost };
+    }
+    if (best !== null) return best.offer;
+    if (minHours !== null && longest < minHours) return { vehicleGroupId, reason: "BELOW_MIN_PACKAGE", minPackageHours: minHours };
+    return offerAt(longest, vehicleGroupId);
+  };
+  const offers: VehicleOffer[] = [];
+  const refused: VehicleRefusal[] = [];
+  const wanted = request.vehicleGroupIds.length === 0 ? product.vehicleGroups.map((group) => group.vehicleGroupId) : [...new Set(request.vehicleGroupIds)];
+  for (const vehicleGroupId of wanted) {
+    const early = probe.refused.find((entry) => entry.vehicleGroupId === vehicleGroupId && HOURS_INDEPENDENT.has(entry.reason));
+    if (early !== undefined) {
+      refused.push(early);
+      continue;
+    }
+    const pool = packageHoursFor(product, vehicleGroupId, areaIds, probe.serviceDate, true, scenario);
+    if (selection === "auto") {
+      const chosen = autoChoice(vehicleGroupId, pool);
+      if (isOffer(chosen)) offers.push(chosen);
+      else refused.push(chosen);
+      continue;
+    }
+    const hours = request.packageHours as number;
+    const longest = pool[pool.length - 1];
+    const shortest = pool.find(acceptable) ?? (longest !== undefined && (minHours === null || longest >= minHours) ? longest : (minHours ?? undefined));
+    const tooShort = (reason: "BELOW_MIN_PACKAGE" | "PACKAGE_TOO_SHORT"): VehicleRefusal => ({ vehicleGroupId, reason, ...(shortest === undefined ? {} : { minPackageHours: shortest }) });
+    if (minHours !== null && hours < minHours) {
+      refused.push(tooShort("BELOW_MIN_PACKAGE"));
+      continue;
+    }
+    // 不能短于 T（规格步骤 3）；T 超过所有档时最长那一档可以选
+    if (T !== null && longest !== undefined && hours * 60 < T && hours !== longest) {
+      refused.push(tooShort("PACKAGE_TOO_SHORT"));
+      continue;
+    }
+    const entry = offerAt(hours, vehicleGroupId);
+    if (!isOffer(entry)) {
+      refused.push(entry);
+      continue;
+    }
+    const auto = T === null ? null : autoChoice(vehicleGroupId, pool);
+    offers.push(auto !== null && isOffer(auto) && auto.packageHours !== null ? { ...entry, autoPackageHours: auto.packageHours } : entry);
+  }
+  return { ok: true, productId: product.productId, tenantId: product.tenantId, serviceDate: probe.serviceDate, urgent: probe.urgent, offers, refused };
+}
+
+/**
+ * 经停点的行程加价合到区域上（ADR 0088 第 3 节第 5 条；ADR 0093 第二节）：每个经停点已经归到途经加价最高的那个加价区域（只在商品区域里的为 null，不加）；
+ * 同一区域只加一次。上车、下车在同一区域也照收（M9P-01 去掉了 ADR 0088 的「上 / 下车已计价的区域不再加」）。
+ */
+function waypointSurcharges(stops: readonly AreaSurchargeEnd[]): AreaSurchargeWaypoint[] {
   const byArea = new Map<string, AreaSurchargeWaypoint>();
   for (const [index, stop] of stops.entries()) {
-    if (stop.areaId === null || stop.priceRuleId === null || chargedAreaIds.includes(stop.areaId)) continue;
+    if (stop.areaId === null || stop.priceRuleId === null) continue;
     const entry = byArea.get(stop.areaId);
     if (entry === undefined) byArea.set(stop.areaId, { areaId: stop.areaId, priceRuleId: stop.priceRuleId, amountMinor: stop.amountMinor, stopSeqs: [index + 1] });
     else entry.stopSeqs.push(index + 1);
@@ -1226,14 +1663,19 @@ export function sellEquivalentMinor(amountMinor: number, settlementCurrency: Cur
 /** 对外价明细的一项（ADR 0088 第 4 节）：客人支付币种的最小单位 */
 export interface SellBreakdownItem {
   /**
-   * `base` 基础价（包车是套餐价）、`pickup` 上车加价、`waypoint` 一个区域的途经加价、`dropoff` 下车加价、`over_km` 超公里、`overtime` 超时（包车按行程计价才有）、
+   * `base` 基础价（包车是套餐价）、`pickup` 上车加价、`waypoint` 一个区域的途经加价、`dropoff` 下车加价、`over_km` 超公里（包车按行程计价才有）、
+   * `overtime` 超时（只在部署前预收了超时费的旧单里出现，ADR 0091 第三节）、
    * `adjust` 调价、`other` 加急 / 夜间 / 附加服务 / 司机语言
    */
   kind: "base" | "pickup" | "waypoint" | "dropoff" | "over_km" | "overtime" | "adjust" | "other";
   /** 加价区域（上 / 下车加价、途经加价才有） */
   areaId: string | null;
-  /** 途经加价：落在这个区域的是第几个经停点（从 1 起） */
+  /** 途经加价：落在这个区域的是第几个经停点（从 1 起）；下车点行程加价是空数组 */
   stopSeqs?: number[];
+  /** 下车点行程加价（M9P-01）：只有那一项带这个键 */
+  fromDropoff?: true;
+  /** 包车机场套餐（M9P-21，ADR 0098）：基础价（套餐）那一项带上场景和机场名，页面按它显示「成田机场接机 + 5 小时包车」 */
+  scenario?: { kind: AirportScenarioKind; placeId: string; name: string };
   amountMinor: number;
 }
 
@@ -1247,20 +1689,23 @@ export function sellBreakdown(settlement: SettlementBreakdown, sell: Pick<SellPr
   const items: SellBreakdownItem[] = [];
   const surcharge = settlement.areaSurcharge;
   if (surcharge !== undefined && surcharge !== null) {
-    if (surcharge.pickup.areaId !== null) items.push({ kind: "pickup", areaId: surcharge.pickup.areaId, amountMinor: convert(surcharge.pickup.amountMinor) });
-    for (const entry of surcharge.waypoints ?? []) items.push({ kind: "waypoint", areaId: entry.areaId, stopSeqs: [...entry.stopSeqs], amountMinor: convert(entry.amountMinor) });
-    if (surcharge.dropoff.areaId !== null) items.push({ kind: "dropoff", areaId: surcharge.dropoff.areaId, amountMinor: convert(surcharge.dropoff.amountMinor) });
+    // 机场套餐单独定价免掉的项（金额 0、含在套餐里，ADR 0098）不列
+    if (surcharge.pickup.areaId !== null && surcharge.pickup.includedInPackage !== true) items.push({ kind: "pickup", areaId: surcharge.pickup.areaId, amountMinor: convert(surcharge.pickup.amountMinor) });
+    for (const entry of (surcharge.waypoints ?? []).filter((item) => item.includedInPackage !== true)) items.push({ kind: "waypoint", areaId: entry.areaId, stopSeqs: [...entry.stopSeqs], ...(entry.fromDropoff === true ? { fromDropoff: true as const } : {}), amountMinor: convert(entry.amountMinor) });
+    if (surcharge.dropoff.areaId !== null && surcharge.dropoff.includedInPackage !== true) items.push({ kind: "dropoff", areaId: surcharge.dropoff.areaId, amountMinor: convert(surcharge.dropoff.amountMinor) });
   }
   const itinerary = settlement.itinerary;
   if (itinerary !== undefined) {
     items.push({ kind: "over_km", areaId: null, amountMinor: convert(itinerary.overKmMinor) });
-    items.push({ kind: "overtime", areaId: null, amountMinor: convert(itinerary.overtimeMinor) });
+    // 超时费只在预收了的时候列（ADR 0091 第三节第 2 小节）：M9P-03 起的报价不收超时费，没有这一项；部署前预收了超时费的旧单照旧列，`base` 不会把它吞进去
+    if (itinerary.overtimeMinor > 0) items.push({ kind: "overtime", areaId: null, amountMinor: convert(itinerary.overtimeMinor) });
   }
   if (settlement.adjustMinor !== 0) items.push({ kind: "adjust", areaId: null, amountMinor: convert(settlement.adjustMinor) });
   const otherMinor = settlement.urgentMinor + settlement.nightMinor + settlement.addonsMinor + settlement.driverLanguageMinor;
   if (otherMinor !== 0) items.push({ kind: "other", areaId: null, amountMinor: convert(otherMinor) });
   const rest = items.reduce((sum, item) => sum + item.amountMinor, 0);
-  return [{ kind: "base", areaId: null, amountMinor: sell.sellMinor - rest }, ...items];
+  const scenario = settlement.charterScenario;
+  return [{ kind: "base", areaId: null, ...(scenario === undefined ? {} : { scenario: { kind: scenario.kind, placeId: scenario.placeId, name: scenario.name } }), amountMinor: sell.sellMinor - rest }, ...items];
 }
 
 /** 最低毛利金额换到客人支付的币种（精确值，不加缓冲）。要换却没有对得上的汇率返回 `FX_RATE_UNAVAILABLE`。 */
@@ -1359,7 +1804,7 @@ export interface QuoteSnapshot {
    * 全部参与比价的租户和它们的排序依据（含中标的）。`fx`、`fxBufferBp` 是这个候选算对外价用的汇率（结算币种 → 客人支付币种，同币种为 null）和缓冲：
    * 生效前试算（M3-07，ADR 0033）按快照汇率重算每个候选的对外价要用。M3-07 之前的快照没有这两项。
    */
-  candidates: { tenantId: string; productId: string; productVersion: number; settlementMinor: number; settlementCurrency: CurrencyCode; sellMinor: number; markupBp: number; fx?: FxQuote | null; fxBufferBp?: number; observation: boolean; scoreCenti: number; completedOrders: number; rankPrice: string; inBand: boolean; position: number }[];
+  candidates: { tenantId: string; productId: string; productVersion: number; settlementMinor: number; settlementCurrency: CurrencyCode; sellMinor: number; markupBp: number; fx?: FxQuote | null; fxBufferBp?: number; observation: boolean; scoreCenti: number; completedOrders: number; rankPrice: string; inBand: boolean; position: number; packageHours?: number | null }[];
 }
 
 export function quoteExpiresAt(createdAt: Date): Date {
@@ -1406,6 +1851,7 @@ export interface ComparedOffer extends RankCandidate {
 
 export interface ComparisonGroup {
   vehicleGroupId: string;
+  /** 请求里的套餐时长：包车自动选档（`charterSelection: "auto"`）时为 null，各候选的档看 `offer.packageHours` */
   packageHours: number | null;
   /** 全部候选，按名次；第一个是中标的 */
   ranked: RankedCandidate<ComparedOffer>[];
@@ -1416,8 +1862,11 @@ export interface ComparisonGroup {
 export interface QuoteComparison {
   /** 每个车型组（包车再按套餐）一组，只有一个中标价；按车型组编号排 */
   groups: ComparisonGroup[];
-  /** 没能参加比价的：商品层面的（`vehicleGroupId` 为 null）和某个车型组的；`WAYPOINT_NOT_PRICED` 带上是第几个经停点（ADR 0088） */
-  refused: { tenantId: string; productId: string; vehicleGroupId: string | null; reason: ComparisonRefusal; stopSeq?: number }[];
+  /**
+   * 没能参加比价的：商品层面的（`vehicleGroupId` 为 null）和某个车型组的；`WAYPOINT_NOT_PRICED` 带上是第几个经停点（ADR 0088）；
+   * `BELOW_MIN_PACKAGE`、`PACKAGE_TOO_SHORT` 带上这个商品能接受的最短档（ADR 0093 第四节第 7 条）
+   */
+  refused: { tenantId: string; productId: string; vehicleGroupId: string | null; reason: ComparisonRefusal; stopSeq?: number; minPackageHours?: number }[];
 }
 
 /**
@@ -1437,7 +1886,7 @@ export function compareQuotes(input: { request: QuoteRequest; currency: Currency
       refused.push({ tenantId: quote.tenantId, productId: quote.productId, vehicleGroupId: null, reason: quote.reason });
       continue;
     }
-    for (const item of quote.refused) refused.push({ tenantId: quote.tenantId, productId: quote.productId, vehicleGroupId: item.vehicleGroupId, reason: item.reason, ...(item.stopSeq === undefined ? {} : { stopSeq: item.stopSeq }) });
+    for (const item of quote.refused) refused.push({ tenantId: quote.tenantId, productId: quote.productId, vehicleGroupId: item.vehicleGroupId, reason: item.reason, ...(item.stopSeq === undefined ? {} : { stopSeq: item.stopSeq }), ...(item.minPackageHours === undefined ? {} : { minPackageHours: item.minPackageHours }) });
     for (const offer of quote.offers) {
       const sell = sellPrice({
         settlementMinor: offer.settlement.totalMinor,
@@ -1510,6 +1959,8 @@ export function compareQuotes(input: { request: QuoteRequest; currency: Currency
             rankPrice,
             inBand,
             position,
+            // 包车各商品自己选档（ADR 0093 第四节）：每个候选记它自己的档，排序依据能复算；不带 charterSelection 的快照和以前一样没有这一项
+            ...(input.request.charterSelection === undefined ? {} : { packageHours: candidate.offer.packageHours }),
           })),
         },
       };

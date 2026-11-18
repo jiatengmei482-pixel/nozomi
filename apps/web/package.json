@@ -6,10 +6,10 @@
   "description": "前端：供应商后台与运营后台（React + Vite）。只通过 API 取数据；样式只用 docs/design/tokens.css 的令牌。",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && vite build -c vite.widget.config.ts",
     "preview": "vite preview",
     "test:components": "node --import ./test/register.mjs --test \"src/**/*.test.tsx\"",
-    "test:e2e": "vite build && playwright test"
+    "test:e2e": "vite build && vite build -c vite.widget.config.ts && playwright test"
   },
   "dependencies": {
     "@nozomi/domain": "workspace:*",

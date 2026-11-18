@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes, randomInt } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { type APIRequestContext, type Locator, type Page, expect, test } from "@playwright/test";
+import { type APIRequestContext, type BrowserContext, type Locator, type Page, expect, test } from "@playwright/test";
 import { withPlatformTx } from "../../api/src/db/context.ts";
 import { createPool } from "../../api/src/db/pool.ts";
 import { newSiteLink } from "../../api/src/services/site.ts";
@@ -446,6 +446,17 @@ export const OWN_SITE_SOURCE: Parameters<typeof test.use>[0] = {
     await use({ "x-forwarded-for": siteSourceAddress() });
   },
 };
+
+/**
+ * 嵌入组件的宿主页（M9E-22）：让组件跨域请求主站时和正式环境一样是「简单请求」。`OWN_SITE_SOURCE` 的 X-Forwarded-For 是浏览器发的自定义头，
+ * 跨域时会让 GET 配置也先发预检，而主站的预检只放行 content-type，于是全被拒。这里把这个上下文的额外请求头清掉，改在路由里补到发往主站的请求上
+ * （路由里改的头不影响浏览器的跨域判断），限速仍按这条用例自己的地址算。`vite preview` 关了自带的 CORS（vite.config.ts），被拒的 403 和正式环境一样读不出。
+ */
+export async function embedHostAsProduction(context: BrowserContext, ...sites: string[]): Promise<void> {
+  const address = siteSourceAddress();
+  await context.setExtraHTTPHeaders({});
+  await context.route((url) => sites.includes(url.origin), (route) => route.fallback({ headers: { ...route.request().headers(), "x-forwarded-for": address } }));
+}
 
 /**
  * 地图跟着亮暗主题走（M6-08）：不刷新页面切换系统深浅色后，`canvas`（Leaflet 容器）在暗色时带压暗标记、亮色时没有；

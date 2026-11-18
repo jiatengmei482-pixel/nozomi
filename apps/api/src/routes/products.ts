@@ -17,6 +17,8 @@ import {
   type ProductContentText,
   SERVICE_CATEGORIES,
   type ServiceRules,
+  type CharterItineraryRules,
+  charterItineraryOf,
   type TenantAction,
   contentTitles,
 } from "@nozomi/domain";
@@ -124,6 +126,21 @@ const serviceRulesSchema = z.object({
     .default({}),
   addons: z.array(z.object({ addon_id: id, enabled: z.boolean().default(true), unit_price: amount, first_free: z.boolean().default(false) })).max(500).default([]),
   driver_languages: z.array(z.object({ language: z.string().max(10), unit_price: amount })).max(100).default([]),
+  // 包车行程计价的配置（M9P-01 下车点行程加价；M9P-03 预计用时 T 的三项、在线下单上限，ADR 0091、0093）：
+  // 没有这个键、或没有其中某一项 = 那一项保留原值（旧页面保存服务规则时不会把它清掉）；`min_package_hours: null` = 不限
+  charter_itinerary: z
+    .object({
+      dropoff_itinerary_surcharge: z.boolean().optional(),
+      stop_occupancy_minutes: z.number().finite().optional(),
+      buffer_minutes: z.number().finite().optional(),
+      min_package_hours: z.number().finite().nullable().optional(),
+      max_online_minutes: z.number().finite().optional(),
+      warn_minutes: z.number().finite().optional(),
+      warn_km: z.number().finite().optional(),
+      suggest_stop_order: z.boolean().optional(),
+    })
+    .strict()
+    .optional(),
 });
 
 function toServiceRules(input: z.output<typeof serviceRulesSchema>): ServiceRules {
@@ -140,15 +157,34 @@ function toServiceRules(input: z.output<typeof serviceRulesSchema>): ServiceRule
     freeWait: { pickup: input.free_wait.pickup, dropoff: input.free_wait.dropoff, general: input.free_wait.general },
     addons: input.addons.map((addon) => ({ addonId: addon.addon_id, enabled: addon.enabled, unitPriceMinor: addon.unit_price, firstFree: addon.first_free })),
     driverLanguages: input.driver_languages.map((entry) => ({ language: entry.language, unitPriceMinor: entry.unit_price })),
+    ...(input.charter_itinerary === undefined ? {} : { charterItinerary: charterItineraryInput(input.charter_itinerary) }),
+  };
+}
+
+/** 请求里给了的那几项（没给的不带键：保存时保留原值） */
+function charterItineraryInput(input: NonNullable<z.output<typeof serviceRulesSchema>["charter_itinerary"]>): Partial<CharterItineraryRules> {
+  return {
+    ...(input.dropoff_itinerary_surcharge === undefined ? {} : { dropoffItinerarySurcharge: input.dropoff_itinerary_surcharge }),
+    ...(input.stop_occupancy_minutes === undefined ? {} : { stopOccupancyMinutes: input.stop_occupancy_minutes }),
+    ...(input.buffer_minutes === undefined ? {} : { bufferMinutes: input.buffer_minutes }),
+    ...(input.min_package_hours === undefined ? {} : { minPackageHours: input.min_package_hours }),
+    ...(input.max_online_minutes === undefined ? {} : { maxOnlineMinutes: input.max_online_minutes }),
+    ...(input.warn_minutes === undefined ? {} : { warnMinutes: input.warn_minutes }),
+    ...(input.warn_km === undefined ? {} : { warnKm: input.warn_km }),
+    ...(input.suggest_stop_order === undefined ? {} : { suggestStopOrder: input.suggest_stop_order }),
   };
 }
 
 export function serviceRulesJson(view: ServiceRulesView): Json {
   const rules = view.product.serviceRules;
+  const itinerary = charterItineraryOf(rules);
+  const charter = view.product.category === "charter";
   return {
     version: view.product.version,
     currency: view.currency,
     free_wait_minimums: view.freeWaitMinimums,
+    // 包车：最低套餐比所有启用的套餐都长时的提醒（ADR 0091，保存不拒）；没有这种情况、别的品类为 null
+    min_package_above_all: view.minPackageAboveAll === null ? null : { min_package_hours: view.minPackageAboveAll.minPackageHours, longest_package_hours: view.minPackageAboveAll.longestPackageHours },
     rules: {
       booking: {
         sale_from: rules.booking.saleFrom,
@@ -162,6 +198,21 @@ export function serviceRulesJson(view: ServiceRulesView): Json {
       free_wait: { pickup: rules.freeWait.pickup, dropoff: rules.freeWait.dropoff, general: rules.freeWait.general },
       addons: rules.addons.map((addon) => ({ addon_id: addon.addonId, enabled: addon.enabled, unit_price: addon.unitPriceMinor, first_free: addon.firstFree })),
       driver_languages: rules.driverLanguages.map((entry) => ({ language: entry.language, unit_price: entry.unitPriceMinor })),
+      // 包车行程计价的配置（M9P-01）：没设过的给默认值（不写回库）；别的品类没有这个键
+      ...(charter
+        ? {
+            charter_itinerary: {
+              dropoff_itinerary_surcharge: itinerary.dropoffItinerarySurcharge,
+              stop_occupancy_minutes: itinerary.stopOccupancyMinutes,
+              buffer_minutes: itinerary.bufferMinutes,
+              min_package_hours: itinerary.minPackageHours,
+              max_online_minutes: itinerary.maxOnlineMinutes,
+              warn_minutes: itinerary.warnMinutes,
+              warn_km: itinerary.warnKm,
+              suggest_stop_order: itinerary.suggestStopOrder,
+            },
+          }
+        : {}),
     },
   };
 }

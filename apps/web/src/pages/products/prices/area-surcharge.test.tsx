@@ -87,6 +87,7 @@ function open(role: string, prices: PriceRules, extra: Route = () => null, areas
     if (at === "/tenant/v1/areas") return json(200, { items: areas, next_cursor: null, total: areas.length });
     if (at === "/tenant/v1/brands") return json(200, { items: [{ id: "b1", name: "NOZOMI", currency: "JPY", status: "active", version: 4, ...stamps }] });
     if (at === "/tenant/v1/dashboard/summary") return json(200, { areas: { active: 4, disabled: 1 }, products: { draft: 1, published: 0, unpublished: 0 } });
+    if (at === "/tenant/v1/area-map") return json(200, { items: [], truncated: false });
     return null;
   });
   render(
@@ -417,4 +418,76 @@ test("途经加价（M9W-01）：列表多「途经加价」一列（没设写�
   cell.focus();
   await waitFor(() => assert.match(section.textContent ?? "", /途经景点在富士山时加 JPY 10,000（几个景点都在这里只加一次/));
   assertNoRetailWords();
+});
+
+test("只设了区域加价、基础定价里没有的套餐（12 小时）：进「套餐」筛选（写明基础定价里没有）和汇总，不算「没填」；这一行的意思说没有套餐价", async () => {
+  const actor = user();
+  open("admin", pricesOf([...BASE_RULES, surcharge(), surcharge({ id: "s12", package_hours: 12, pickup_surcharge: 3000, dropoff_surcharge: 600 })]));
+  const section = await block();
+  const fuji = document.getElementById(`surcharge-area-${FUJI}`) as HTMLElement;
+  assert.equal(fuji.querySelectorAll(".surcharge-sum__value")[0]?.textContent, "1,000–3,000", "汇总算进 12 小时那一条");
+  assert.match(fuji.textContent ?? "", /3 个组合没填/, "没有基础定价的套餐不算没填");
+  const filter = within(section).getByRole("combobox", { name: "套餐" }) as HTMLSelectElement;
+  assert.deepEqual([...filter.options].map((option) => option.textContent), ["全部", "8 小时", "10 小时", "12 小时（基础定价里没有这个套餐）"]);
+  await actor.selectOptions(filter, "12");
+  assert.equal(fuji.querySelectorAll(".surcharge-sum__value")[0]?.textContent, "3,000");
+  assert.doesNotMatch(fuji.textContent ?? "", /组合没填/);
+  await actor.click(within(section).getByRole("button", { name: "展开「富士山」的各车型组和套餐" }));
+  // 只列已经有的那一条，不补空行
+  assert.ok(screen.getByLabelText("区域加价 · 富士山 · 舒适五座 · 12 小时 的上车加价"));
+  assert.equal(screen.queryByLabelText("区域加价 · 富士山 · 商务七座 · 12 小时 的上车加价"), null);
+  screen.getByLabelText("区域加价 · 富士山 · 舒适五座 · 12 小时 的上车加价").focus();
+  await waitFor(() => assert.match(document.querySelector(".surcharge .price-meaning")?.textContent ?? "", /上车点在富士山时加 JPY 3,000.*这个车型组和套餐还没有套餐价。/));
+});
+
+test("这一行的意思：例子代入今天生效的套餐价和合计（domain 加法）；有途经加价的也给合计", async () => {
+  const actor = user();
+  open("admin", pricesOf([...BASE_RULES, surcharge({ dropoff_surcharge: 800, waypoint_surcharge: 1500 })]));
+  const section = await block();
+  await actor.click(within(section).getByRole("button", { name: "展开「富士山」的各车型组和套餐" }));
+  screen.getByLabelText("区域加价 · 富士山 · 舒适五座 · 8 小时 的上车加价").focus();
+  await waitFor(() =>
+    assert.match(
+      document.querySelector(".surcharge .price-meaning")?.textContent ?? "",
+      /例：东京 23 区上车、富士山下车 = 套餐价 JPY 60,000 \+ 0 \+ JPY 800 = JPY 60,800（调价规则前）。东京 23 区出发、途经富士山再回来 = 套餐价 JPY 60,000 \+ JPY 1,500 = JPY 61,500。/,
+    ),
+  );
+  assertNoRetailWords();
+});
+
+test("已删除的加价区域：区域本身在区域页面停用了的标「区域已停用」；纯报价区域超出运营区域时行上提醒；「新增自定义区域」下面说默认是报价区域", async () => {
+  const CHIBA_ID = "s-chiba";
+  open(
+    "admin",
+    pricesOf([...BASE_RULES, surcharge(), surcharge({ id: CHIBA_ID, area_id: OFF, status: "disabled" })]),
+    (call) => (call.method === "GET" && call.url.pathname === "/tenant/v1/area-map" ? json(200, { items: [{ ...AREAS[1], polygons: [], outside_operating_m2: 2_500_000, last_editor: null }], truncated: false }) : null),
+  );
+  const section = await block();
+  const deleted = within(section).getByText("已删除的加价区域（1）").closest("details") as HTMLElement;
+  assert.match(deleted.textContent ?? "", /已停用的区域区域已停用恢复以后也用不到，要先到区域页面启用这个区域/);
+  const fuji = document.getElementById(`surcharge-area-${FUJI}`) as HTMLElement;
+  await waitFor(() => assert.match(fuji.textContent ?? "", /这个报价区域有.*不在任何运营区域里，那部分不会报价：在区域页面补画运营区域，或把它的用途改成「运营 \+ 报价」/));
+  assert.match(section.textContent ?? "", /新增的区域默认是「报价区域」：还要落在你的某个运营区域里才会报价。/);
+});
+
+test("没有超出运营区域、或是「运营 + 报价」的区域：不提醒；列表里没有纯报价区域时不取区域地图", async () => {
+  const calls = open("admin", pricesOf([...BASE_RULES, surcharge({ area_id: CHIBA })]));
+  const section = await block();
+  await waitFor(() => assert.ok(document.getElementById(`surcharge-area-${CHIBA}`)));
+  assert.doesNotMatch(section.textContent ?? "", /不在任何运营区域里/);
+  assert.equal(calls.filter((call) => call.path.startsWith("/tenant/v1/area-map")).length, 0);
+});
+
+test("保存以后读屏状态区清掉上一句（「……将删除，点保存后生效」不再留着）", async () => {
+  const actor = user();
+  const disabled = pricesOf([...BASE_RULES, surcharge({ status: "disabled" })], 8);
+  open("admin", pricesOf([...BASE_RULES, surcharge()]), (call) => (call.method === "POST" && call.url.pathname === `${BASE}/price-rules/batch` ? json(200, { ...disabled, created_ids: [] }) : null));
+  const section = await block();
+  await actor.click(within(section).getByRole("button", { name: "删除加价区域「富士山」" }));
+  await actor.click(within(await screen.findByRole("dialog", { name: "删除加价区域「富士山」？" })).getByRole("button", { name: "删除" }));
+  const said = (): string => [...document.querySelectorAll('[role="status"]')].map((node) => node.textContent).join("|");
+  assert.match(said(), /「富士山」将删除，点保存后生效/);
+  await save(actor);
+  await waitFor(() => assert.equal(document.getElementById(`surcharge-area-${FUJI}`), null));
+  assert.doesNotMatch(said(), /将删除，点保存后生效/);
 });

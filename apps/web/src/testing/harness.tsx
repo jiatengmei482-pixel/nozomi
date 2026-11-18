@@ -119,13 +119,13 @@ export function currentLocation(): { path: string; state: unknown } | null {
 const restorers: (() => void)[] = [];
 
 /**
- * 假装是手机宽度（< 768px）：`matchMedia("(max-width: 767px)")` 为真；每个元素都在屏幕下方 `top` 像素处；
+ * 假装是手机 / 平板宽度（≤ 1023px）：`matchMedia("(max-width: 767px)")` 和新预订页底部按钮条的 `(max-width: 1023px)`（M9E-32，平板 2026-11-17 起也用）为真；每个元素都在屏幕下方 `top` 像素处；
  * 记下 `scrollIntoView` 滚到了哪些元素（返回的数组里是元素 id）。resetBrowser 时还原。
  */
 export function narrowScreen(top = 2000): string[] {
   const scrolled: string[] = [];
   const original = { matchMedia: window.matchMedia, rect: Element.prototype.getBoundingClientRect, scroll: Element.prototype.scrollIntoView };
-  window.matchMedia = ((query: string) => ({ matches: query.includes("max-width: 767px"), media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false })) as typeof window.matchMedia;
+  window.matchMedia = ((query: string) => ({ matches: query.includes("max-width: 767px") || query.includes("max-width: 1023px"), media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false })) as typeof window.matchMedia;
   Element.prototype.getBoundingClientRect = function rect() {
     return { top, bottom: top + 40, left: 0, right: 320, width: 320, height: 40, x: 0, y: top, toJSON: () => ({}) } as DOMRect;
   };
@@ -138,6 +138,55 @@ export function narrowScreen(top = 2000): string[] {
     Element.prototype.scrollIntoView = original.scroll;
   });
   return scrolled;
+}
+
+/**
+ * 假装视口有 `width` 像素宽：`matchMedia` 按这个宽度回答 `(min-width: Npx)`、`(max-width: Npx)`（不问宽度的媒体查询都不满足）；`resize` 换宽度并通知监听者（同浏览器的 change 事件）。
+ * resetBrowser 或 `restore` 时还原。
+ */
+export function viewportWidth(width: number): { resize(next: number): void; restore(): void } {
+  const original = window.matchMedia;
+  let current = width;
+  const lists: { query: string; matches: boolean; listeners: Set<() => void> }[] = [];
+  const answer = (query: string): boolean => {
+    const min = /min-width:\s*(\d+)px/.exec(query)?.[1];
+    const max = /max-width:\s*(\d+)px/.exec(query)?.[1];
+    // 不问宽度的（暗色、减少动画等）一律不满足，同没有这些偏好的浏览器
+    if (min === undefined && max === undefined) return false;
+    return (min === undefined || current >= Number(min)) && (max === undefined || current <= Number(max));
+  };
+  window.matchMedia = ((query: string) => {
+    const entry = { query, matches: answer(query), listeners: new Set<() => void>() };
+    lists.push(entry);
+    return {
+      get matches() {
+        return entry.matches;
+      },
+      media: query,
+      onchange: null,
+      addEventListener: (_: string, listener: () => void) => entry.listeners.add(listener),
+      removeEventListener: (_: string, listener: () => void) => entry.listeners.delete(listener),
+      addListener: (listener: () => void) => entry.listeners.add(listener),
+      removeListener: (listener: () => void) => entry.listeners.delete(listener),
+      dispatchEvent: () => false,
+    };
+  }) as unknown as typeof window.matchMedia;
+  const restore = (): void => {
+    window.matchMedia = original;
+  };
+  restorers.push(restore);
+  return {
+    resize(next) {
+      current = next;
+      for (const entry of lists) {
+        const matches = answer(entry.query);
+        if (matches === entry.matches) continue;
+        entry.matches = matches;
+        for (const listener of [...entry.listeners]) listener();
+      }
+    },
+    restore,
+  };
 }
 
 /** 每个测试结束后调用：卸载组件，还原 fetch，还原 narrowScreen 换掉的东西，清空登录状态、主题和本地存储。 */

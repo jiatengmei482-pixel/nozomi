@@ -944,3 +944,58 @@
 .demand-table .table__other-names {
   white-space: normal;
 }
+
+/* 嵌入组件的代码（M9E-02）：等宽、自动换行，不横向滚动 */
+.code-block {
+  margin: 0;
+  padding: var(--space-3);
+  background: var(--color-bg-surface);
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 嵌入码的两段代码（M9E-26）：每段一个小标题 + 复制按钮（紧跟标题右边，不用输入框里的绝对定位）、一句说明、代码 */
+.snippet-part {
+  display: grid;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+  min-width: 0;
+}
+
+.snippet-part__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.snippet-part__head > .copy-button {
+  position: relative;
+  height: var(--control-height-md);
+}
+
+.snippet-part__title {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-bold);
+}
+
+.snippet-part__note {
+  margin: 0;
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+/* 只有①时为什么没有第二段：信息色的提示条，亮暗两套令牌都过对比度 */
+.snippet-part__fallback {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-info-text);
+  background: var(--color-info-bg);
+  border: var(--border-width) solid var(--color-info-border);
+  border-radius: var(--radius-sm);
+}

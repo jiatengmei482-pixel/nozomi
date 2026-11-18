@@ -13,7 +13,7 @@
  * 每次真正发请求之前问一次 `beforeAttempt`（每日调用上限），不允许就不发。
  * 永远不抛异常：结果是候选地点 / 地址，或原因代码（不带对方返回的原文）。
  */
-import { type LatLng, type LatLngBounds, type PlaceCandidate, type PlaceFailureCode, type PlaceKind, type PlacePrediction, PLACE_SEARCH_RULES, cleanPlaceText, inBounds, isGooglePlaceId, isValidLatLng, placeKindOfGoogleTypes } from "@nozomi/domain";
+import { type LatLng, type LatLngBounds, type PlaceCandidate, type PlaceFailureCode, type PlaceKind, type PlacePrediction, PLACE_SEARCH_RULES, cleanPlaceText, rankPlaces, inBounds, isGooglePlaceId, isValidLatLng, placeKindOfGoogleTypes } from "@nozomi/domain";
 import { GOOGLE_MAPS_ATTEMPTS, classifyCode, isTimeout, readCapped } from "./google-maps.ts";
 
 /** 整次最多花多久（毫秒）：客人在页面上等着，但不像询价那样还要等别的 */
@@ -23,7 +23,7 @@ export const PLACE_ATTEMPT_TIMEOUT_MS = 2_000;
 /** 剩下的时间不到这么多就不再重试 */
 const PLACE_MIN_RETRY_MS = 500;
 /** 搜索要的字段（Text Search 的 Pro 一档；不多取电话、评分、营业时间等更贵的字段） */
-export const PLACE_SEARCH_FIELD_MASK = "places.id,places.displayName,places.formattedAddress,places.location,places.primaryType";
+export const PLACE_SEARCH_FIELD_MASK = "places.id,places.displayName,places.formattedAddress,places.location,places.primaryType,places.types";
 /** 输入即提示要的字段：地点预测的 ID、名称和地址两段、类型（不要查询预测） */
 export const PLACE_AUTOCOMPLETE_FIELD_MASK = "suggestions.placePrediction.placeId,suggestions.placePrediction.structuredFormat,suggestions.placePrediction.text,suggestions.placePrediction.types";
 /** 取坐标和类型要的字段：Place Details 的 Essentials 一档（名称用输入即提示给的，不多取更贵的 `displayName`） */
@@ -109,7 +109,7 @@ export function placeSearchBody(request: PlaceSearchRequest): string {
     textQuery: request.query,
     languageCode: PLACE_LANGUAGE,
     ...(request.regionCode === null ? {} : { regionCode: request.regionCode }),
-    pageSize: PLACE_SEARCH_RULES.maxResults,
+    pageSize: PLACE_SEARCH_RULES.fetchResults,
     locationRestriction: {
       rectangle: {
         low: { latitude: request.bounds.low.lat, longitude: request.bounds.low.lng },
@@ -123,14 +123,14 @@ export function placeSearchBody(request: PlaceSearchRequest): string {
  * 读 Text Search 的应答：`{ places: [{ id, displayName: { text }, formattedAddress, location: { latitude, longitude } }] }`；
  * 没有 `places`（空对象）是没找到。缺名称或坐标、坐标不合法、不在范围里的那一条丢掉；`places` 不是数组当作看不懂。
  */
-export function parsePlaceSearch(body: unknown, bounds: LatLngBounds, accept: (location: LatLng) => boolean = () => true): PlaceCallResult<PlaceCandidate[]> {
+export function parsePlaceSearch(body: unknown, bounds: LatLngBounds, accept: (location: LatLng) => boolean = () => true, query = ""): PlaceCallResult<PlaceCandidate[]> {
   const places = (body as { places?: unknown }).places;
   if (places === undefined) return { ok: true, value: [] };
   if (!Array.isArray(places)) return { ok: false, code: "UNEXPECTED" };
-  const found: PlaceCandidate[] = [];
+  const found: { candidate: PlaceCandidate; types: string[] }[] = [];
   for (const entry of places as unknown[]) {
     if (typeof entry !== "object" || entry === null) continue;
-    const place = entry as { id?: unknown; displayName?: { text?: unknown } | null; formattedAddress?: unknown; location?: { latitude?: unknown; longitude?: unknown } | null; primaryType?: unknown };
+    const place = entry as { id?: unknown; displayName?: { text?: unknown } | null; formattedAddress?: unknown; location?: { latitude?: unknown; longitude?: unknown } | null; primaryType?: unknown; types?: unknown };
     const id = isGooglePlaceId(place.id) ? place.id : null;
     const name = cleanPlaceText(place.displayName?.text, PLACE_SEARCH_RULES.nameMaxLength);
     const address = cleanPlaceText(place.formattedAddress, PLACE_SEARCH_RULES.addressMaxLength) ?? "";
@@ -139,16 +139,16 @@ export function parsePlaceSearch(body: unknown, bounds: LatLngBounds, accept: (l
     if (id === null || name === null || typeof lat !== "number" || typeof lng !== "number") continue;
     const location = { lat, lng };
     if (!isValidLatLng(location) || !inBounds(location, bounds) || !accept(location)) continue;
-    if (found.some((other) => other.id === id)) continue;
-    found.push({ id, name, address, location, kind: placeKindOfGoogleTypes(place.primaryType) });
-    if (found.length >= PLACE_SEARCH_RULES.maxResults) break;
+    if (found.some((other) => other.candidate.id === id)) continue;
+    found.push({ candidate: { id, name, address, location, kind: placeKindOfGoogleTypes(place.primaryType) }, types: [...(typeof place.primaryType === "string" ? [place.primaryType] : []), ...(Array.isArray(place.types) ? place.types.filter((type): type is string => typeof type === "string") : [])] });
   }
-  return { ok: true, value: found };
+  // 先排序再取前几条（业主 2026-11-17：名称完全一样的、景点车站机场排在医院公司前面）
+  return { ok: true, value: rankPlaces(query, found, (entry) => entry.candidate.name, (entry) => entry.types).slice(0, PLACE_SEARCH_RULES.maxResults).map((entry) => entry.candidate) };
 }
 
 /** 按关键字在城市附近搜地点。 */
 export function searchPlaces(apiKey: string, request: PlaceSearchRequest, options: PlaceCallOptions): Promise<PlaceCallResult<PlaceCandidate[]>> {
-  return call(apiKey, { url: options.url, method: "POST", fieldMask: PLACE_SEARCH_FIELD_MASK, body: placeSearchBody(request) }, (body) => parsePlaceSearch(body, request.bounds, request.accept), options);
+  return call(apiKey, { url: options.url, method: "POST", fieldMask: PLACE_SEARCH_FIELD_MASK, body: placeSearchBody(request) }, (body) => parsePlaceSearch(body, request.bounds, request.accept, request.query), options);
 }
 
 export interface PlaceAutocompleteRequest {
@@ -180,11 +180,11 @@ export function placeAutocompleteBody(request: PlaceAutocompleteRequest): string
  * 读 Autocomplete 的应答：`{ suggestions: [{ placePrediction: { placeId, text: { text }, structuredFormat: { mainText: { text }, secondaryText: { text } }, types } }] }`；
  * 没有 `suggestions` 是没有候选。只要地点预测（查询预测 `queryPrediction` 丢掉）；缺 ID 或名称的丢掉；最多 5 条。`suggestions` 不是数组当作看不懂。
  */
-export function parsePlaceAutocomplete(body: unknown): PlaceCallResult<PlacePrediction[]> {
+export function parsePlaceAutocomplete(body: unknown, query = ""): PlaceCallResult<PlacePrediction[]> {
   const suggestions = (body as { suggestions?: unknown }).suggestions;
   if (suggestions === undefined) return { ok: true, value: [] };
   if (!Array.isArray(suggestions)) return { ok: false, code: "UNEXPECTED" };
-  const found: PlacePrediction[] = [];
+  const found: { prediction: PlacePrediction; types: string[] }[] = [];
   for (const entry of suggestions as unknown[]) {
     const prediction = (entry as { placePrediction?: unknown } | null)?.placePrediction as
       | { placeId?: unknown; text?: { text?: unknown } | null; structuredFormat?: { mainText?: { text?: unknown } | null; secondaryText?: { text?: unknown } | null } | null; types?: unknown }
@@ -194,16 +194,17 @@ export function parsePlaceAutocomplete(body: unknown): PlaceCallResult<PlacePred
     const id = isGooglePlaceId(prediction.placeId) ? prediction.placeId : null;
     const name = cleanPlaceText(prediction.structuredFormat?.mainText?.text, PLACE_SEARCH_RULES.nameMaxLength) ?? cleanPlaceText(prediction.text?.text, PLACE_SEARCH_RULES.nameMaxLength);
     const address = cleanPlaceText(prediction.structuredFormat?.secondaryText?.text, PLACE_SEARCH_RULES.addressMaxLength) ?? "";
-    if (id === null || name === null || found.some((other) => other.id === id)) continue;
-    found.push({ id, name, address, kind: placeKindOfGoogleTypes(undefined, prediction.types) });
-    if (found.length >= PLACE_SEARCH_RULES.maxResults) break;
+    if (id === null || name === null || found.some((other) => other.prediction.id === id)) continue;
+    const types = Array.isArray(prediction.types) ? prediction.types.filter((type): type is string => typeof type === "string") : [];
+    found.push({ prediction: { id, name, address, kind: placeKindOfGoogleTypes(undefined, prediction.types) }, types });
   }
-  return { ok: true, value: found };
+  // 先排序再取前几条（同上）
+  return { ok: true, value: rankPlaces(query, found, (entry) => entry.prediction.name, (entry) => entry.types).slice(0, PLACE_SEARCH_RULES.maxResults).map((entry) => entry.prediction) };
 }
 
 /** 输入即提示：按关键字给候选（还没有坐标）。 */
 export function autocompletePlaces(apiKey: string, request: PlaceAutocompleteRequest, options: PlaceCallOptions): Promise<PlaceCallResult<PlacePrediction[]>> {
-  return call(apiKey, { url: options.url, method: "POST", fieldMask: PLACE_AUTOCOMPLETE_FIELD_MASK, body: placeAutocompleteBody(request) }, parsePlaceAutocomplete, options);
+  return call(apiKey, { url: options.url, method: "POST", fieldMask: PLACE_AUTOCOMPLETE_FIELD_MASK, body: placeAutocompleteBody(request) }, (body) => parsePlaceAutocomplete(body, request.query), options);
 }
 
 /** 选中的地点的坐标、地址、类型（Place Details）。 */

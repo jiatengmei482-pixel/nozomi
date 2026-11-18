@@ -6,18 +6,20 @@
  *   每个地址 15 分钟 3 次、每天 10 次，每个联系方式每天 3 次，全站每小时 300 次；`website` 是给机器人填的陷阱字段（页面不显示），
  *   填了照样 202、什么都不记。应答一律 202 `{ status: "accepted" }`，重复提交也一样。
  *   带有效验收会话 Cookie 的记成验收留资（M8-39，ADR 0078 补充）；带了但会话无效、过期是 401 `QA_SESSION_INVALID`，和询价一样；production 不看 Cookie。
+ *   官网行程报价页可以再带 `trip_id`、`plan_kind`、`trip_labels`（M9T-08，ADR 0101 第十三节第 2 小节）：行程单要是本渠道、没过期的，
+ *   否则 404 `TRIP_NOT_FOUND`；地名按行程单的天、点一一对应，放进加密的联系信息；关联写进 `manual_quote_trip_links`。
  * 运营后台：
  * - `GET /platform/v1/manual-quote-requests`（`manual_quote.read`）：列表，没有个人信息，带各状态的数量；默认不列验收留资（`acceptance=only|include` 才列）；
  * - `GET /platform/v1/manual-quote-requests/assignees`（`manual_quote.manage`）：能被指派跟进的同事；
  * - `GET /platform/v1/manual-quote-requests/{id}`（`manual_quote.read`）：详情，解密联系方式、地点、备注，留审计；
  * - `PATCH /platform/v1/manual-quote-requests/{id}`（`manual_quote.manage`，If-Match）：改状态、指派；
  * - `POST /platform/v1/manual-quote-requests/{id}/notes`（`manual_quote.manage`）：写备注；
- * - `GET /platform/v1/site-settings`（`site_settings.read`）、`PUT`（`site_settings.manage`，只归超级管理员）：客服 WhatsApp 号码、页面宽度（M8-28）。
+ * - `GET /platform/v1/site-settings`（`site_settings.read`）、`PUT`（`site_settings.manage`，只归超级管理员）：客服 WhatsApp 号码、页面宽度（M8-28）、浏览器用的谷歌地图密钥（M10-01 第 2 处）。
  * 官网的 `GET /site/v1/config` 多 `support_whatsapp`、`page_width` 两项（在 `routes/site.ts`）。
  */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { MANUAL_QUOTE_RULES, MANUAL_QUOTE_STATUSES, SERVICE_CATEGORIES, manualQuoteEmail, manualQuoteTripIssues, whatsappDigits } from "@nozomi/domain";
+import { type CurrencyCode, MANUAL_QUOTE_RULES, MANUAL_QUOTE_STATUSES, SERVICE_CATEGORIES, TRIP_LIMITS, arriveByIssue, manualQuoteEmail, manualQuoteTripIssues, whatsappDigits } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { decodeTimeCursor } from "../pagination.ts";
 import type { ManualQuoteRow, SiteSettingsRow } from "../repos/manual-quotes.ts";
@@ -35,7 +37,9 @@ import {
 } from "../services/manual-quotes.ts";
 import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import { siteAudienceOf } from "../services/qa-acceptance.ts";
+import { salesMoney } from "../services/sales-quotes.ts";
 import { takeSiteSlot } from "../services/site.ts";
+import { ARRIVE_BY_MESSAGES, arriveBySchema } from "./site.ts";
 import { type InputIssue, ifMatchVersion, pageQuerySchema, parseInput, resourceId, singleLine, uuidSchema, validationFailed, visibleText } from "../validation.ts";
 
 type Json = Record<string, unknown>;
@@ -59,7 +63,18 @@ const tripSchema = z
     luggage: z.number().int().min(0).max(MANUAL_QUOTE_RULES.maxLuggage).default(0),
     package_hours: z.number().int().min(1).max(MANUAL_QUOTE_RULES.maxPackageHours).nullable().default(null),
     // 包车的经停点（M9W-04）：页面上客人填好的经停点按顺序带上；没有可以不给
-    waypoints: z.array(placeSchema.extend({ stay_minutes: z.number().int().min(0).max(MANUAL_QUOTE_RULES.maxStayMinutes) }).strict()).max(MANUAL_QUOTE_RULES.maxWaypoints).default([]),
+    // 指定到达时间（M9P-20 P3）：和官网询价同一个写法和校验，只记下来给客服看
+    waypoints: z
+      .array(
+        placeSchema
+          .extend({
+            stay_minutes: z.number().int().min(0).max(MANUAL_QUOTE_RULES.maxStayMinutes),
+            arrive_by: arriveBySchema.optional(),
+          })
+          .strict(),
+      )
+      .max(MANUAL_QUOTE_RULES.maxWaypoints)
+      .default([]),
   })
   .strict();
 
@@ -70,6 +85,13 @@ const submitSchema = z
     // 页面在提交按钮旁写明「提交即同意客服通过您留下的方式联系您」，客人点提交时带 true
     consent: z.literal(true, { errorMap: () => ({ message: "需要同意客服通过您留下的方式联系您" }) }),
     trip: tripSchema,
+    // 官网行程报价页（M9T-08，ADR 0101 第十三节第 2 小节）：行程单编号、所选方案、每天每个点的名称。三项都不给时和以前完全一样
+    trip_id: z.string().max(64).optional(),
+    plan_kind: z.enum(["one_car", "daily_best"]).nullable().optional(),
+    trip_labels: z
+      .array(z.array(placeSchema.shape.name).max(TRIP_LIMITS.maxItemsPerDay))
+      .max(TRIP_LIMITS.maxDays)
+      .optional(),
     // 陷阱字段：页面不显示，人不会填
     website: z.string().max(400).optional(),
   })
@@ -99,13 +121,24 @@ function submissionOf(body: z.output<typeof submitSchema>) {
     passengers: body.trip.passengers,
     luggage: body.trip.luggage,
     packageHours: body.trip.package_hours,
-    waypoints: body.trip.waypoints.map((stop) => ({ name: stop.name, lat: stop.lat, lng: stop.lng, stayMinutes: stop.stay_minutes })),
+    waypoints: body.trip.waypoints.map((stop) => ({ name: stop.name, lat: stop.lat, lng: stop.lng, stayMinutes: stop.stay_minutes, ...(stop.arrive_by === undefined ? {} : { arriveBy: { day_offset: stop.arrive_by.day_offset, time: stop.arrive_by.time } }) })),
   };
+  body.trip.waypoints.forEach((stop, index) => {
+    const issue = stop.arrive_by === undefined ? null : arriveByIssue(body.trip.service_local, stop.arrive_by);
+    if (issue !== null) issues.push({ path: `/trip/waypoints/${index}/arrive_by`, reason: issue, message: ARRIVE_BY_MESSAGES[issue] });
+  });
   for (const issue of manualQuoteTripIssues(trip)) {
     issues.push({ path: `/trip/${issue.field}`, reason: issue.reason, message: (TRIP_ISSUE_MESSAGES[issue.field] as Record<string, string>)[issue.reason] ?? "行程信息不对" });
   }
+  if (body.trip_id === undefined) {
+    if (body.plan_kind !== undefined) issues.push({ path: "/plan_kind", reason: "NOT_APPLICABLE", message: "只有带行程单编号时才有方案" });
+    if (body.trip_labels !== undefined) issues.push({ path: "/trip_labels", reason: "NOT_APPLICABLE", message: "只有带行程单编号时才有地点名称" });
+  } else if (body.trip_labels === undefined) {
+    issues.push({ path: "/trip_labels", reason: "REQUIRED", message: "带行程单编号时要带上每天每个点的名称" });
+  }
   if (issues.length > 0) throw validationFailed("body", issues);
-  return { email, whatsapp, cityId: body.trip.city_id, trip };
+  const tripLink = body.trip_id === undefined ? {} : { tripLink: { tripId: body.trip_id, planKind: body.plan_kind ?? null, labels: body.trip_labels ?? [] } };
+  return { email, whatsapp, cityId: body.trip.city_id, trip, ...tripLink };
 }
 
 const listSchema = pageQuerySchema.extend({
@@ -140,6 +173,19 @@ const settingsSchema = z
       }),
     // 页面宽度（M8-28，ADR 0079）：可选，不给是不改
     page_width: z.enum(["standard", "wide", "full"]).optional(),
+    // 浏览器加载谷歌地图用的密钥（M10-01 第 2 处）：可选，不给是不改，null 或空是清空；谷歌的 API 密钥是 AIza 开头共 39 位
+    maps_browser_key: z
+      .string()
+      .max(100)
+      .nullable()
+      .optional()
+      .transform((value, issue) => {
+        if (value === undefined) return undefined;
+        if (value === null || value.trim() === "") return null;
+        const key = value.trim();
+        if (!/^AIza[0-9A-Za-z_-]{35}$/.test(key)) issue.addIssue({ code: "custom", message: "谷歌地图密钥是 AIza 开头、共 39 位的一串字母数字，请从谷歌后台整串复制" });
+        return key;
+      }),
   })
   .strict();
 
@@ -181,13 +227,54 @@ function detailJson(detail: ManualQuoteDetail): Json {
     pickup: contact === null ? null : contact.pickup,
     dropoff: contact === null ? null : contact.dropoff,
     // 包车的经停点（M9W-04），按顺序；没有经停点、清除后为 null
-    waypoints: contact === null || contact.waypoints === undefined || contact.waypoints.length === 0 ? null : contact.waypoints.map((stop) => ({ name: stop.name, lat: stop.lat, lng: stop.lng, stay_minutes: stop.stayMinutes })),
+    waypoints: contact === null || contact.waypoints === undefined || contact.waypoints.length === 0 ? null : contact.waypoints.map((stop) => ({ name: stop.name, lat: stop.lat, lng: stop.lng, stay_minutes: stop.stayMinutes, ...(stop.arriveBy === undefined ? {} : { arrive_by: stop.arriveBy }) })),
     events: detail.events.map(eventJson),
+    trip: tripLinkJson(detail),
+  };
+}
+
+/**
+ * 关联的行程单（M9T-08，ADR 0101 第十三节第 2 小节）：每天的日期、点（名称取密文里的 `trip_labels`，结构取行程单）、两个方案的状态和金额、报不出的原因。
+ * 行程单已清理时 `days`、`plans` 为 null，`labels` 照样给；联系信息已清除时地名都没有。
+ */
+function tripLinkJson(detail: ManualQuoteDetail): Json | null {
+  const link = detail.trip;
+  if (link === null) return null;
+  const labels = detail.contact?.trip_labels ?? null;
+  const current = link.current;
+  return {
+    trip_id: link.tripId,
+    plan_kind: link.planKind,
+    purged: current === null,
+    labels,
+    days:
+      current === null
+        ? null
+        : current.trip.itinerary.days.map((day, dayIndex) => ({
+            date: day.date,
+            items: day.items.map((item, itemIndex) => ({
+              kind: item.kind,
+              name: labels?.[dayIndex]?.[itemIndex] ?? null,
+              time: item.time ?? null,
+              stay_minutes: item.stayMinutes ?? null,
+              place: "placeId" in item.place ? { place_id: item.place.placeId } : { lat: item.place.lat, lng: item.place.lng },
+            })),
+          })),
+    plans:
+      current === null
+        ? null
+        : current.plans.map((plan) => ({
+            kind: plan.kind,
+            status: plan.status,
+            recommended: plan.recommended,
+            amount: plan.sellMinor === null ? null : salesMoney(plan.sellMinor, plan.currency as CurrencyCode),
+            unquoted: plan.unquoted.map((entry) => ({ day_index: entry.day_index, reason: entry.reason })),
+          })),
   };
 }
 
 function settingsJson(settings: SiteSettingsRow): Json {
-  return { support_whatsapp: settings.supportWhatsapp, page_width: settings.pageWidth, version: settings.version, updated_at: iso(settings.updatedAt), updated_by: settings.updatedBy };
+  return { support_whatsapp: settings.supportWhatsapp, page_width: settings.pageWidth, maps_browser_key: settings.mapsBrowserKey, version: settings.version, updated_at: iso(settings.updatedAt), updated_by: settings.updatedBy };
 }
 
 export function registerManualQuoteRoutes(app: FastifyInstance, ctx: AppContext): void {
@@ -244,6 +331,6 @@ export function registerManualQuoteRoutes(app: FastifyInstance, ctx: AppContext)
     const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "site_settings.manage" });
     const body = parseInput(settingsSchema, request.body, "body");
     const header = request.headers["if-match"];
-    return settingsJson(await updateSiteSettings(ctx, principal, request.ip, body.support_whatsapp, body.page_width ?? null, header === undefined ? null : ifMatchVersion(header)));
+    return settingsJson(await updateSiteSettings(ctx, principal, request.ip, { supportWhatsapp: body.support_whatsapp, ...(body.page_width === undefined ? {} : { pageWidth: body.page_width }), ...(body.maps_browser_key === undefined ? {} : { mapsBrowserKey: body.maps_browser_key }) }, header === undefined ? null : ifMatchVersion(header)));
   });
 }

@@ -5,7 +5,8 @@
  * - 费用控制：每日上限按东京日期（23:59:59.999 / 0 点整）、同一进程跨午夜不被前一天的冷却挡、并发和含重试不超、两个进程合计不超、0 不调用、
  *   和路线预估分开（路线上限 0 / 已用满时地址搜索照常）、计数库超时就不调用（冷却 15 秒后恢复）；缓存命中不计次、10 分钟按毫秒的边界、500 条先进先出、同一个键（含反查格子）并发只调一次、
  *   请求无效缓存而其他失败不缓存（15 秒冷却之后重新调用）。
- * - 限速：按来源地址每分钟 20 次（第 21 次 429 + Retry-After，等够 Retry-After 恢复）、每天 300 次（第 301 次 429，24 小时后恢复）；
+ * - 限速：按来源地址每分钟 20 次（第 21 次 429 + Retry-After，等够 Retry-After 恢复）、每天调谷歌 300 次（M8-45：第 301 次不调谷歌、200 + available false
+ *   + unavailable_reason，不 429；24 小时后恢复；地址服务里「来源地址额度」这一层只问一次、不冷却、不缓存、不记全站计数）；
  *   TRUST_PROXY_HOPS=0 时 X-Forwarded-For 不起作用、=1 时只认最近一层代理写的地址——伪造都绕不过。
  * - 输入：规范化后 2 / 100 字的两侧（按字符，含表情）、全角半角、零宽和方向控制字符；坐标的各种不合法写法；城市范围的边上和刚出界；
  *   反查也检查渠道授权；城市停用；官网渠道暂停。
@@ -298,6 +299,46 @@ test("每日上限含重试：上限 3，两个关键字同时搜、谷歌每次
   assert.equal(searches().length, 3);
   assert.equal((await usage("2030-10-07")).calls, 3);
   reset();
+});
+
+test("来源地址的额度（M8-45，服务层）：命中缓存、冷却中不问；谷歌超时重试只问一次；不放行时 IP_DAILY_LIMIT、不调谷歌、不冷却、不缓存、不占全站名额；问的时候出错按 UNAVAILABLE 不调", async () => {
+  const fake = counting(() => ({ ok: true, value: [] }));
+  const places = service({ now: () => new Date("2030-10-09T03:00:00.000Z"), search: fake.search });
+  let asked = 0;
+  let allow = true;
+  const guard = { beforeGoogle: async () => (asked++, allow) };
+  const guarded = (query: string) => places.search({ cityId: "c-qa-m845", query, bounds: BOUNDS, regionCode: "JP" }, guard);
+  assert.equal((await guarded("额度 一")).ok, true);
+  assert.equal((await guarded("额度 一")).ok, true, "命中缓存");
+  assert.deepEqual([asked, fake.calls()], [1, 1]);
+  allow = false;
+  const before = (await usage("2030-10-09")).calls;
+  assert.deepEqual(await guarded("额度 二"), { ok: false, code: "IP_DAILY_LIMIT" });
+  assert.deepEqual([asked, fake.calls(), (await usage("2030-10-09")).calls], [2, 1, before], "不调谷歌、不占全站名额");
+  allow = true;
+  assert.equal((await guarded("额度 二")).ok, true, "没冷却、没缓存：放行后马上能查");
+  assert.equal((await ask(places, "额度 三")).ok, true, "不带额度检查的调用照常");
+  assert.deepEqual([asked, fake.calls()], [3, 3]);
+  // 谷歌第一回 503 第二回成功：重试那一回不再问来源地址的额度
+  let attempts = 0;
+  const retrying = service({
+    now: () => new Date("2030-10-09T03:00:00.000Z"),
+    search: async (_key, _request, beforeAttempt) => {
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        if (!(await beforeAttempt())) return { ok: false, code: "DAILY_LIMIT_REACHED" };
+        attempts++;
+      }
+      return { ok: true, value: [] };
+    },
+  });
+  asked = 0;
+  assert.equal((await retrying.search({ cityId: "c-qa-m845", query: "额度 重试", bounds: BOUNDS, regionCode: "JP" }, guard)).ok, true);
+  assert.deepEqual([asked, attempts], [1, 2]);
+  // 问额度出错：宽进不如少调，这次 UNAVAILABLE、不调谷歌
+  const broken = counting();
+  const failing = service({ now: () => new Date("2030-10-09T03:00:00.000Z"), search: broken.search });
+  const result = await failing.search({ cityId: "c-qa-m845", query: "额度 出错", bounds: BOUNDS, regionCode: "JP" }, { beforeGoogle: async () => { throw new Error("db down"); } });
+  assert.deepEqual([result, broken.calls()], [{ ok: false, code: "UNAVAILABLE" }, 0]);
 });
 
 test("每日上限 0：搜索和反查都不发请求，不计调用次数；页面不显示搜索", async () => {
@@ -641,17 +682,23 @@ test("伪造 X-Forwarded-For 绕不过：TRUST_PROXY_HOPS=0 时这个头不起�
 });
 
 // 放在最后：时钟往前拨了 24 小时以上，之后员工的登录令牌都过期了
-test("每天 300 次：第 301 次 429，Retry-After 是小时级的；过了 24 小时恢复", async () => {
+test("每天调谷歌 300 次（M8-45）：300 个新词都调谷歌，第 301 个新词不调谷歌、200 + available false + unavailable_reason（不 429）；过了 24 小时恢复", async () => {
+  // 全站每日上限放宽：这里测的是每个地址的额度
+  const app = await openSite({ GOOGLE_PLACES_DAILY_LIMIT: "100000" });
   const ip = "203.0.113.121";
-  const q = freshQuery();
+  reset();
   for (let used = 0; used < 300; used++) {
     if (used % 20 === 0) api.clock.advance(61_000);
-    assert.equal((await site.call("GET", searchUrl(q), { ip })).status, 200, `第 ${used + 1} 次`);
+    const res = await app.call("GET", searchUrl(freshQuery()), { ip });
+    assert.deepEqual([res.status, res.body.available], [200, true], `第 ${used + 1} 次`);
   }
+  assert.equal(searches().length, 300);
   api.clock.advance(61_000);
-  const limited = await site.call("GET", searchUrl(q), { ip });
-  assert.equal(limited.status, 429);
-  assert.ok(Number(limited.headers["retry-after"]) > 3_600, `Retry-After ${limited.headers["retry-after"]}`);
+  const limited = await app.call("GET", searchUrl(freshQuery()), { ip });
+  assert.deepEqual([limited.status, limited.body], [200, { available: false, unavailable_reason: "IP_DAILY_LIMIT", items: [] }]);
+  assert.equal(searches().length, 300, "没调谷歌");
   api.clock.advance(24 * 3_600_000);
-  assert.equal((await site.call("GET", searchUrl(q), { ip })).status, 200);
+  const again = await app.call("GET", searchUrl(freshQuery()), { ip });
+  assert.deepEqual([again.status, again.body.available, again.body.unavailable_reason], [200, true, undefined]);
+  reset();
 });

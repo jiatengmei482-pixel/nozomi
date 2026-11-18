@@ -138,6 +138,24 @@ export interface ServiceRulesBody {
   free_wait: { pickup: FreeWaitBody | null; dropoff: FreeWaitBody | null; general: FreeWaitBody | null };
   addons: { addon_id: string; enabled: boolean; unit_price: number; first_free: boolean }[];
   driver_languages: { language: string; unit_price: number }[];
+  /**
+   * 包车行程计价的商品配置（M9P-01、M9P-03，ADR 0091、0093）：读回来时包车一定有（没设过的是默认值），别的品类没有。
+   * 提交时不带这个键、或不带其中某一项 = 那一项保留原值（`max_online_minutes` 页面不提交）；`min_package_hours: null` = 不限
+   */
+  charter_itinerary?: CharterItineraryBody;
+}
+
+export interface CharterItineraryBody {
+  dropoff_itinerary_surcharge?: boolean;
+  stop_occupancy_minutes?: number;
+  buffer_minutes?: number;
+  min_package_hours?: number | null;
+  max_online_minutes?: number;
+  /** 超限提醒线（M9P-10）：预计用时（分钟）、全程（公里） */
+  warn_minutes?: number;
+  warn_km?: number;
+  /** 经停顺序建议（M9P-20 P2，ADR 0096 第六节）：默认开 */
+  suggest_stop_order?: boolean;
 }
 
 export interface ProductServiceRules {
@@ -145,6 +163,8 @@ export interface ProductServiceRules {
   currency: string | null;
   /** 平台规定的各项免费等待最少分钟数；这个品类不填的项是 null */
   free_wait_minimums: { pickup: number | null; dropoff: number | null; general: number | null };
+  /** 包车：最低套餐比所有启用的套餐都长时的提醒（M9P-03，ADR 0091）；没有这种情况、别的品类为 null */
+  min_package_above_all?: { min_package_hours: number; longest_package_hours: number } | null;
   rules: ServiceRulesBody;
 }
 
@@ -277,6 +297,11 @@ export function listPickupPlaces(token: string, cityId: string): Promise<Place[]
   return listAll(`${TENANT_BASE}/master/places`, token, { city_id: cityId, type: "airport,station", sort: "code" });
 }
 
+/** 一个城市下平台启用中的地标：上架检查「热门地标覆盖」按编号写出地标的名字（M9P-07）。 */
+export function listCityLandmarks(token: string, cityId: string): Promise<Place[]> {
+  return listAll(`${TENANT_BASE}/master/places`, token, { city_id: cityId, type: "poi", sort: "code" });
+}
+
 /** 平台的车型组；`all` 连已停用的一起（已选的车型组后来被停用时要对得上）。 */
 export function listTenantVehicleGroups(token: string): Promise<VehicleGroup[]> {
   return listAll(`${TENANT_BASE}/master/vehicle-groups`, token, { status: "all", sort: "code" });
@@ -297,7 +322,7 @@ export const PRODUCT_SCHEMA_FIELDS = {
   ProductSummary: [...BASE, "check"],
   Product: [...BASE, "areas", "vehicle_groups", "dispatchers"],
   Dispatcher: ["name", "phone"],
-  ProductServiceRules: ["version", "currency", "free_wait_minimums", "rules"],
+  ProductServiceRules: ["version", "currency", "free_wait_minimums", "min_package_above_all", "rules"],
   ProductContentText: ["title", "summary", "includes", "excludes", "itinerary", "pickup_guide"],
   ProductContentResponse: ["version", "content"],
   PublishCheck: ["can_publish", "items"],

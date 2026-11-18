@@ -2,7 +2,7 @@
  * 区域的数据访问（迁移 0011）。全部在租户事务（withTenantTx）里调用：
  * 每个函数都显式带 tenantId 并写在条件里（ADR 0003 的第一道防线），行级安全是兜底。
  */
-import type { AreaBizType, AreaPolygonKind, AreaPolygonSource, AreaRole, AreaStatus, GeoJsonMultiPolygon, GeoJsonPolygon, LocalizedText, MasterDataStatus, OverlapAreaInput, Ring, ServiceCategory } from "@nozomi/domain";
+import type { AreaBizType, AreaPolygonKind, AreaPolygonSource, AreaRole, AreaSharing, AreaStatus, GeoJsonMultiPolygon, GeoJsonPolygon, LocalizedText, MasterDataStatus, OverlapAreaInput, Ring, ServiceCategory } from "@nozomi/domain";
 import { ringToGeoJson } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
 import { type Page, type TimeCursor, toPage } from "../pagination.ts";
@@ -19,6 +19,8 @@ export interface Area {
   version: number;
   /** 图形版本（M8-31，ADR 0083）：只有图形变了才加一；共享库里的「版本」就是它 */
   shapeVersion: number;
+  /** 分类（ADR 0102）：平台共享 / 供应商独立 */
+  sharing: AreaSharing;
   /** 从共享库引用来的副本：来源区域和引用（或上次切换）时的图形版本；自己画的为 null */
   sharedSource: { areaId: string; shapeVersion: number } | null;
   createdAt: Date;
@@ -61,7 +63,7 @@ export interface AreaCity {
 
 type Row = Record<string, any>;
 
-const AREA_COLUMNS = "id, city_id, name, biz_type, role, status, version, shape_version, shared_source_area_id, shared_source_shape_version, created_at, updated_at";
+const AREA_COLUMNS = "id, city_id, name, biz_type, role, status, version, shape_version, sharing, shared_source_area_id, shared_source_shape_version, created_at, updated_at";
 
 export function toArea(row: Row): Area {
   return {
@@ -73,6 +75,7 @@ export function toArea(row: Row): Area {
     status: row["status"],
     version: row["version"],
     shapeVersion: row["shape_version"],
+    sharing: row["sharing"] ?? "own",
     sharedSource: row["shared_source_area_id"] === null || row["shared_source_area_id"] === undefined ? null : { areaId: row["shared_source_area_id"], shapeVersion: row["shared_source_shape_version"] },
     createdAt: row["created_at"],
     updatedAt: row["updated_at"],
@@ -290,19 +293,21 @@ export interface AreaShapes {
   bizType: AreaBizType;
   role: AreaRole;
   status: AreaStatus;
+  /** 分类（ADR 0102） */
+  sharing: AreaSharing;
   polygons: { kind: AreaPolygonKind; ring: Ring }[];
 }
 
 /** 区域连同图形 → 重叠、超出运营区域的计算（@nozomi/domain 的 area-overlap）要的样子 */
-export const areaShapeInput = (area: AreaShapes): OverlapAreaInput => ({ id: area.id, bizType: area.bizType, role: area.role, active: area.status === "active", polygons: area.polygons });
+export const areaShapeInput = (area: AreaShapes): OverlapAreaInput => ({ id: area.id, bizType: area.bizType, role: area.role, active: area.status === "active", sharing: area.sharing, polygons: area.polygons });
 
 /** 本租户的全部区域连同图形（只在租户事务里调用）。 */
 export async function listTenantAreaShapes(db: Db, tenantId: string): Promise<AreaShapes[]> {
-  const areas = await db.query<Row>("select id, biz_type, role, status from areas where tenant_id = $1 order by created_at, id", [tenantId]);
+  const areas = await db.query<Row>("select id, biz_type, role, status, sharing from areas where tenant_id = $1 order by created_at, id", [tenantId]);
   const polygons = await db.query<Row>("select area_id, kind, geometry from area_polygons where tenant_id = $1 order by area_id, position", [tenantId]);
   const byArea = new Map<string, { kind: AreaPolygonKind; ring: Ring }[]>();
   for (const row of polygons.rows) byArea.set(row["area_id"], [...(byArea.get(row["area_id"]) ?? []), { kind: row["kind"], ring: ((row["geometry"] as GeoJsonPolygon).coordinates[0] ?? []).slice(0, -1) }]);
-  return areas.rows.map((row) => ({ id: row["id"], bizType: row["biz_type"], role: row["role"], status: row["status"], polygons: byArea.get(row["id"]) ?? [] }));
+  return areas.rows.map((row) => ({ id: row["id"], bizType: row["biz_type"], role: row["role"], status: row["status"], sharing: row["sharing"], polygons: byArea.get(row["id"]) ?? [] }));
 }
 
 /** 已上架的商品和它们勾选的报价区域（商品区域、启用的包车区域加价的区域）：改运营区域之前核对用（ADR 0075 第一部分第 2 节）。 */

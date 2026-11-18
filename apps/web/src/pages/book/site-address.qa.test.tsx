@@ -89,7 +89,7 @@ test("地图选点后反查还没回来，客人改从搜索选了别的地点�
   open({ reverse: () => slow.promise });
   const actor = user();
   await actor.click(await screen.findByRole("button", { name: "在地图上选上车地点" }));
-  await actor.click(screen.getAllByRole("button", { name: "选地图中间这个位置" })[0] as HTMLElement);
+  await actor.click((await screen.findAllByRole("button", { name: "选地图中间这个位置" }))[0] as HTMLElement);
   await waitFor(() => assert.deepEqual(coordinatesOf("上车"), ["35.6895", "139.6917"]));
   await actor.type(screen.getByRole("searchbox", { name: "搜索上车地点（选填）" }), "东京站{Enter}");
   await actor.click(within(await screen.findByRole("list", { name: "搜索到的上车地点" })).getByRole("button", { name: /东京站大饭店/ }));

@@ -21,6 +21,7 @@ import { displayName } from "../../lib/master-display.ts";
 import { ADDRESS_LABELS, SITE_HOME_PATH, addressEnds, guestCancelPolicyText, guestInstantText, guestLocalText, newIdempotencyKey, packageText, priceNote, serviceTimeLabels, siteOrderUrl } from "../../lib/site-display.ts";
 import { ADDRESS_FIELDS, CONSENT_HELP, CONSENT_TEXT, FIELD_HINTS, MESSAGING_NAMES, type OrderErrors, type OrderForm, orderFailureOf, orderRequestOf, validateOrderForm } from "../../lib/site-order-form.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
+import { FlightKindField } from "./FlightKindField.tsx";
 import type { CheckoutState } from "./BookPage.tsx";
 import { SiteLayout, siteFailureText } from "./SiteLayout.tsx";
 import { SitePrice } from "./SitePrice.tsx";
@@ -44,7 +45,7 @@ export function CheckoutPage() {
     if (transfer) return draft.address.address;
     return end === "pickup" ? draft.from.address : draft.to.address;
   };
-  const [form, setForm] = useState<Form>({ name: "", phone: "", email: "", flightNo: "", pickupAddress: prefill("pickup"), dropoffAddress: prefill("dropoff"), messagingApp: "", messagingHandle: "", notes: "", consent: false });
+  const [form, setForm] = useState<Form>({ name: "", phone: "", email: "", flightNo: "", flightKind: "", pickupAddress: prefill("pickup"), dropoffAddress: prefill("dropoff"), messagingApp: "", messagingHandle: "", notes: "", consent: false });
   const [errors, setErrors] = useState<OrderErrors>({});
   const [notice, setNotice] = useState<Notice | null>(null);
   const [expired, setExpired] = useState(false);
@@ -170,6 +171,7 @@ export function CheckoutPage() {
         {transfer && (
           <TextField label={arrival ? "航班号" : "航班号（选填）"} size="lg" required={arrival} autoCapitalize="characters" value={form.flightNo} errors={errors.flightNo ? [errors.flightNo] : []} hint={arrival ? FIELD_HINTS.arrivalFlight : "如 NH211"} onChange={(event) => update({ flightNo: event.target.value })} />
         )}
+        {arrival && <FlightKindField value={form.flightKind} quoted={quote} errors={errors.flightKind ? [errors.flightKind] : []} onChange={(flightKind) => update({ flightKind })} />}
         {ends.map((end) => {
           const field = ADDRESS_FIELDS[end];
           const error = errors[field];

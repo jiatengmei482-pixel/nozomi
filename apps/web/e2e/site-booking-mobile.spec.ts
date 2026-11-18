@@ -95,10 +95,17 @@ test("M8-37 手机：地址、日期、时间都是全屏选择页（占满屏�
   const mapSheet = await openSheet(page, "出发地");
   await mapSheet.getByRole("button", { name: "在地图上选点" }).tap();
   await expect(mapSheet.getByRole("application")).toBeVisible();
+  // 选点后页面先放占位名「地图上选的位置（坐标）」，再查这个位置的地址、查到就换成地址（替身固定回東京都千代田区丸の内，和坐标无关）。
+  // 要等反查回来、页面换好名称再记「原来的值」，否则反查晚到时记下的是占位名、后面被换掉就误报「取消改了值」（M8-29，PR #191 CI）。
+  const reversed = page.waitForResponse((response) => new URL(response.url()).pathname === "/site/v1/places/reverse");
   await mapSheet.getByRole("button", { name: "选地图中间这个位置" }).tap();
   await expect(mapSheet).toBeHidden();
   const fromCell = page.getByRole("button", { name: /^出发地/ });
   await expect(fromCell).not.toContainText("点按输入地址");
+  const reverseAnswer = await reversed;
+  const { address } = (await reverseAnswer.json()) as { address?: string | null };
+  // 反查查到地址就用地址当名称；没查到（或被限流）就保留占位名
+  await expect(fromCell).toContainText(reverseAnswer.ok() && typeof address === "string" ? address : /地图上选的位置（[\d.-]+, [\d.-]+）/);
   const picked = (await fromCell.textContent()) ?? "";
 
   // 取消：选择页里打了字也不改原来的值

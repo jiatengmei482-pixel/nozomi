@@ -187,6 +187,9 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
       ["POST", `/platform/v1/shared-areas/${ids.userId}/mark-duplicate`, { keep_area_id: ids.userId, reason: "不该生效" }],
       ["POST", `/platform/v1/shared-areas/${ids.userId}/unmark-duplicate`, {}],
       ["GET", `/platform/v1/products/${ids.userId}`],
+      ["GET", `/platform/v1/products/${ids.userId}/charter-migration-diff`],
+      ["GET", `/platform/v1/products/${ids.userId}/charter-airports`],
+      ["GET", `/platform/v1/products/${ids.userId}/trip-rules`],
       ["GET", "/platform/v1/orders"],
       ["GET", `/platform/v1/orders/${ids.userId}`],
       ["GET", `/platform/v1/orders/${ids.userId}/files/${ids.userId}`],
@@ -282,6 +285,10 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
       ["POST", `/platform/v1/channels/${ids.userId}/api-clients/${ids.userId}/rotate`, {}],
       ["POST", `/platform/v1/channels/${ids.userId}/api-clients/${ids.userId}/revoke`],
       ["GET", `/platform/v1/channels/${ids.userId}/quote-logs`],
+      ["GET", "/platform/v1/embed-keys"],
+      ["POST", "/platform/v1/embed-keys", { name: "不该出现的嵌入码", allowed_origins: ["https://embed-demo.example.com"] }],
+      ["GET", `/platform/v1/embed-keys/${ids.userId}`],
+      ["PATCH", `/platform/v1/embed-keys/${ids.userId}`, { note: "不该生效" }],
       ["GET", "/platform/v1/approvals"],
       ["GET", `/platform/v1/approvals/${ids.userId}`],
       ["POST", `/platform/v1/approvals/${ids.userId}/pricing-impact`],
@@ -353,6 +360,11 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
     ["PUT", `/tenant/v1/products/${ids.userId}/price-rules/${ids.userId}`, PRICE_BODY],
     ["DELETE", `/tenant/v1/products/${ids.userId}/price-rules/${ids.userId}`],
     ["GET", `/tenant/v1/products/${ids.userId}/price-coverage`],
+    ["GET", `/tenant/v1/products/${ids.userId}/charter-migration-diff`],
+    ["GET", `/tenant/v1/products/${ids.userId}/charter-airports`],
+    ["PUT", `/tenant/v1/products/${ids.userId}/charter-airports`, { bindings: [] }],
+    ["GET", `/tenant/v1/products/${ids.userId}/trip-rules`],
+    ["PUT", `/tenant/v1/products/${ids.userId}/trip-rules`, {}],
     ["GET", `/tenant/v1/products/${ids.userId}/price-calendar`],
     ["GET", `/tenant/v1/products/${ids.userId}/adjust-rules`],
     ["POST", `/tenant/v1/products/${ids.userId}/adjust-rules`, ADJUST_BODY],
@@ -382,6 +394,7 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
     ["GET", "/tenant/v1/holidays"],
     ["GET", "/tenant/v1/map/config"],
     ["GET", "/tenant/v1/area-map"],
+    ["GET", "/tenant/v1/area-layers"],
     ["GET", "/tenant/v1/dashboard/summary"],
     ["GET", "/tenant/v1/fx-rates"],
     ["GET", "/tenant/v1/orders"],
@@ -468,8 +481,8 @@ function assertBlocked(res: ApiResponse, label: string): void {
 
 test("清单没有漏：上面手写的「业务接口」覆盖了全部已注册的、不在 auth/ 下的平台和租户路由", () => {
   const registered = api.app.registeredRoutes
-    // 销售端（/sales/v1）不用平台、租户的会话（渠道的 API 客户端令牌），Stripe 的通知（/webhooks）靠签名不靠登录，官网（/site/v1）是给客人的公开接口，都不在这份清单里
-    .filter((route) => route.method !== "HEAD" && route.method !== "OPTIONS" && !route.path.includes("/auth/") && route.path !== "/health" && !route.path.startsWith("/sales/") && !route.path.startsWith("/webhooks/") && !route.path.startsWith("/driver/") && !route.path.startsWith("/site/"))
+    // 销售端（/sales/v1）不用平台、租户的会话（渠道的 API 客户端令牌），Stripe 的通知（/webhooks）靠签名不靠登录，官网（/site/v1）和嵌入组件（/embed/v1，按嵌入码白名单核来源，M9E-02）是给客人的公开接口，都不在这份清单里
+    .filter((route) => route.method !== "HEAD" && route.method !== "OPTIONS" && !route.path.includes("/auth/") && route.path !== "/health" && !route.path.startsWith("/sales/") && !route.path.startsWith("/webhooks/") && !route.path.startsWith("/driver/") && !route.path.startsWith("/site/") && !route.path.startsWith("/embed/"))
     // 路径参数不管叫什么名字（:id、:ruleId、:country、:date）都按 :id 比
     .map((route) => `${route.method} ${route.path.replace(/:[A-Za-z]+/g, ":id")}`)
     .sort();

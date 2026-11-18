@@ -5,7 +5,7 @@
  *   这条路径不算对外价、不取加价比例，应答的结构里也没有这些字段（规则 4）。
  * 金额是最小货币单位的整数；`exact` 里是取整之前的精确值（十进制写法的字符串）。
  */
-import { type AreaSurchargeBreakdown, type ComparisonRefusal, type FxQuote, ROUTE_FAILURE_MESSAGES, guestRouteReason, type PlatformGrant, grantCan, scopeAllowsChannel, PRICE_LIMITS, type PlatformAction, QUOTE_RULES, SERVICE_CATEGORIES, type SettlementBreakdown, TRIP_DIRECTIONS, type TenantAction, type VehicleOffer } from "@nozomi/domain";
+import { type CharterScenarioBreakdown, type AreaSurchargeBreakdown, type ComparisonRefusal, type FxQuote, ROUTE_FAILURE_MESSAGES, guestRouteReason, type PlatformGrant, grantCan, scopeAllowsChannel, PRICE_LIMITS, type PlatformAction, QUOTE_RULES, SERVICE_CATEGORIES, type SettlementBreakdown, TRIP_DIRECTIONS, type TenantAction, type VehicleOffer } from "@nozomi/domain";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AppContext } from "../context.ts";
@@ -116,16 +116,29 @@ export const REFUSAL_MESSAGES: Readonly<Record<ComparisonRefusal, string>> = {
   ROUTE_UNAVAILABLE: "价格是「里程 + 时长」或设了含公里数的一口价，需要路线预估，而现在取不到（按计程价、区域外里程费报价时也一样）",
   PRICE_NOT_POSITIVE: "调价、取整之后价格不大于 0",
   PRICE_OVER_LIMIT: "价格超过了结算价的上限",
+  BELOW_MIN_PACKAGE: "选的套餐比这个商品设的最低套餐短",
+  PACKAGE_TOO_SHORT: "选的套餐比这个商品按行程算出的预计用时（含经停点默认占用和整单缓冲）短，又不是最长那一档",
+  ITINERARY_TOO_LONG: "预计用时超过了这个商品的在线下单上限（默认 13 小时），转客服",
   FX_RATE_UNAVAILABLE: "商品的结算币种和客人支付的币种不同，而现在没有可用的汇率（没有，或超过 48 小时没更新）",
   SELL_PRICE_OVER_LIMIT: "对外价超过了上限",
 };
 
-/** 包车区域加价的结算价明细（报价试算、订单共用的样子）：金额是结算币种的最小货币单位整数。`waypoints`（途经加价，ADR 0088）只在带经停点的报价上有。 */
-export function areaSurchargeJson(surcharge: AreaSurchargeBreakdown | null): Json | null {
+/**
+ * 包车区域加价的结算价明细（报价试算、订单共用的样子）：金额是结算币种的最小货币单位整数。`waypoints`（行程加价，ADR 0088、0093）在带经停点的报价上有；
+ * 不带经停点的只在收了下车点行程加价时有（那一项 `from_dropoff: true`、`stop_seqs` 为空，M9P-01）。
+ */
+export function areaSurchargeJson(surcharge: AreaSurchargeBreakdown | null, scenario?: CharterScenarioBreakdown): Json | null {
   if (surcharge === null) return null;
-  const end = (entry: AreaSurchargeBreakdown["pickup"]): Json => ({ area_id: entry.areaId, price_rule_id: entry.priceRuleId, amount: entry.amountMinor });
-  const waypoints = surcharge.waypoints === undefined ? {} : { waypoints: surcharge.waypoints.map((entry) => ({ area_id: entry.areaId, price_rule_id: entry.priceRuleId, amount: entry.amountMinor, stop_seqs: entry.stopSeqs })) };
-  return { package: surcharge.packageMinor, pickup: end(surcharge.pickup), dropoff: end(surcharge.dropoff), ...waypoints };
+  // 机场套餐单独定价免掉的项（M9P-21，ADR 0098）：金额 0，带 `included_in_package: true`
+  const included = (entry: { includedInPackage?: true }): Json => (entry.includedInPackage === true ? { included_in_package: true } : {});
+  const end = (entry: AreaSurchargeBreakdown["pickup"]): Json => ({ area_id: entry.areaId, price_rule_id: entry.priceRuleId, amount: entry.amountMinor, ...included(entry) });
+  const waypoints = surcharge.waypoints === undefined ? {} : { waypoints: surcharge.waypoints.map((entry) => ({ area_id: entry.areaId, price_rule_id: entry.priceRuleId, amount: entry.amountMinor, stop_seqs: entry.stopSeqs, ...(entry.fromDropoff === true ? { from_dropoff: true } : {}), ...included(entry) })) };
+  return { package: surcharge.packageMinor, pickup: end(surcharge.pickup), dropoff: end(surcharge.dropoff), ...waypoints, ...charterScenarioJson(scenario) };
+}
+
+/** 包车机场开始 / 机场结束（M9P-21，ADR 0098）：没有场景时不出现这个键 */
+export function charterScenarioJson(scenario: CharterScenarioBreakdown | undefined): Json {
+  return scenario === undefined ? {} : { charter_scenario: { kind: scenario.kind, airport_id: scenario.placeId, airport_name: scenario.name, pricing: scenario.pricing } };
 }
 
 /** 结算价的明细。两个接口共用——里面只有供应商自己的结算价，没有对外价和加价比例。 */
@@ -148,7 +161,7 @@ function settlementJson(settlement: SettlementBreakdown): Json {
     driver_language_code: settlement.driverLanguage,
     usage: settlement.usage,
     // 包车的区域加价（ADR 0073）：已含在 base 里；area_id 为 null = 这一端在商品本身的区域里（加 0）
-    area_surcharge: areaSurchargeJson(settlement.areaSurcharge ?? null),
+    area_surcharge: areaSurchargeJson(settlement.areaSurcharge ?? null, settlement.charterScenario),
     // 点对点（M8-11，ADR 0073 第二部分）：用的是线路价时的下车区域（上车区域是 offer 的 area_id）；区域价为 null
     to_area_id: settlement.toAreaId ?? null,
     // 含公里数的一口价：报价时锁定的路线距离（米）、超出公里数（向上取整）、超出每公里（结算价）；超出的钱已含在 base 里。没设的为 null

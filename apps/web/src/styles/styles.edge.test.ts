@@ -102,8 +102,8 @@ test("简写属性里的边框宽度、阴影、时长也只用令牌", () => {
 });
 
 const MEASURED_LENGTH_MODULE = "lib/measured-length.ts";
-/** 实测尺寸模块里唯一允许的写法：变量名先核对过在名单里，值只经 measuredPixels 写成「整数px」。 */
-const MEASURED_LENGTH_WRITE = "root.style.setProperty(name, measuredPixels(element.getBoundingClientRect().height))";
+/** 实测尺寸模块里唯一允许的写法（writeLength）：变量名、种类先核对过在名单里，值只经 measuredPixels 写成「整数px」。 */
+const MEASURED_LENGTH_WRITE = "target.style.setProperty(name, measuredPixels(length, kind))";
 
 test("组件代码里没有内联样式、没有写死的颜色，SVG 图标的颜色跟随文字（currentColor）", () => {
   // 唯一的例外：只有 lib/measured-length.ts 可以调 setProperty，把量出来的长度写进登记过的变量（只是长度，不是颜色、字号；M6-11）。
@@ -121,22 +121,38 @@ test("组件代码里没有内联样式、没有写死的颜色，SVG 图标的�
   }
 });
 
-test("实测尺寸模块（M6-11）：只有一处 setProperty，变量名先核对在名单里，值只写「整数px」；名单是 --driver-bar-height → driver.css", () => {
+test("实测尺寸模块（M6-11）：只有一处 setProperty，变量名先核对在名单里，值只写「整数px」；名单是司机页、新预订页按钮条的三个变量", () => {
   const module = sources.find((source) => source.name === MEASURED_LENGTH_MODULE);
   assert.ok(module, `找不到 ${MEASURED_LENGTH_MODULE}`);
   const text = stripComments(module.text);
   assert.equal((text.match(/\bsetProperty\b/g) ?? []).length, 1, "只有一处 setProperty");
   assert.ok(text.includes(MEASURED_LENGTH_WRITE), "setProperty 的值只能经 measuredPixels");
   assert.match(text, /if \(!isMeasuredLengthName\(name\)\) throw /, "变量名不在名单里就报错，不写");
-  assert.match(text, /return `\$\{Number\.isFinite\(length\) && length > 0 \? Math\.ceil\(length\) : 0\}px`;/, "值是向上取整的整数加 px");
-  assert.deepEqual(MEASURED_LENGTHS, { "--driver-bar-height": ["driver.css"] }, "名单只有这一个变量，只许 driver.css 引用");
+  assert.match(text, /return `\$\{Number\.isFinite\(length\) && length > 0 \? Math\.ceil\(length\) : 0\}px`;/, "高度是向上取整的整数加 px");
+  assert.match(text, /if \(kind === "offset"\) return `\$\{Number\.isFinite\(length\) \? Math\.round\(length\) \|\| 0 : 0\}px`;/, "位移是四舍五入的整数加 px");
+  assert.match(text, /if \(MEASURED_LENGTHS\[name\]\.kind !== kind\) throw /, "种类不对就报错，不写");
+  assert.deepEqual(
+    MEASURED_LENGTHS,
+    {
+      "--driver-bar-height": { kind: "height", sheets: ["driver.css"] },
+      "--book-actionbar-h": { kind: "height", sheets: ["book-new.css"] },
+      "--book-actionbar-shift": { kind: "offset", sheets: ["book-new.css"] },
+    },
+    "名单只有这三个变量，各自只许对应的样式表引用",
+  );
   for (const { name, text: code } of sources) {
     if (name !== MEASURED_LENGTH_MODULE) assert.doesNotMatch(stripComments(code), /\bsetProperty\b/, `${name} 自己调 setProperty，应改用 useMeasuredHeight`);
   }
 });
 
 test("组件代码不把字符串当 HTML 用，不用 eval，不留调试输出和没有任务编号的 TODO", () => {
-  for (const { name, text } of sources) {
+  // 唯一的例外：嵌入组件给合作网站开发者的控制台提示（M9E-03，ADR 0090 第四节：容器找不到、网站没进白名单时，放代码的人只能从控制台知道）。
+  // 只放行 embed/developer-notice.ts 里这一行固定前缀的 console.error；组件别处一律不许直接写控制台。
+  const NOTICE_FILE = "embed/developer-notice.ts";
+  const NOTICE_LINE = "console.error(`NozomiBooking：${message}`);";
+  assert.ok(sources.find((source) => source.name === NOTICE_FILE)?.text.includes(NOTICE_LINE), `${NOTICE_FILE} 应当只有这一行控制台输出`);
+  for (const { name, text: raw } of sources) {
+    const text = name === NOTICE_FILE ? raw.replace(NOTICE_LINE, "") : raw;
     assert.doesNotMatch(text, /dangerouslySetInnerHTML|\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\(/, `${name} 把字符串当 HTML 插入页面`);
     assert.doesNotMatch(text, /\beval\(|new Function\(/, `${name} 用了 eval`);
     assert.doesNotMatch(text, /\bconsole\.(log|debug|info|warn|error|trace)\(|\bdebugger\b/, `${name} 留了调试输出`);
@@ -146,10 +162,23 @@ test("组件代码不把字符串当 HTML 用，不用 eval，不留调试输出
   }
 });
 
+/** 唯一能写 SVG 命名空间字符串的文件（嵌入组件的图标，M9E-10 / M9E-11） */
+const SVG_ICON_FILE = "embed/widget-icons.ts";
 const EXTERNAL_LINK_REGISTRY = "lib/external-links.ts";
 const EXTERNAL_LINK_COMPONENT = "components/ExternalLink.tsx";
 const AREA_DRAFT_STORE = "lib/area-draft.ts";
 const PAYMENT_RETURN_STORE = "lib/payment-return.ts";
+/** 宿主页里存草稿号（M9E-16，ADR 0095 第三节第 2 小节）：组件脚本在合作网站页面上运行，只有这一个键 */
+const HOST_DRAFT_STORE = "embed/host-draft-store.ts";
+/** 嵌入页里存订单令牌（M9E-17，ADR 0095 第八节第 2 小节，修订 ADR 0046）：iframe 里主站域名下的文档，只有这一个键，宿主拿不到 */
+const EMBED_ORDER_STORE = "embed/embed-order-store.ts";
+/** 多日行程报价页的地名暂存（M9T-09，ADR 0101 第十三节）：行程单里只有坐标，地名按行程单编号存在本标签页 */
+const TRIP_LABELS_STORE = "lib/trip-labels-store.ts";
+/** 嵌入预订流程的 postMessage（M9E-16，ADR 0095 第六节）：宿主页一侧（组件脚本）和 iframe 里的嵌入页各一处，targetOrigin 都不是 "*" */
+const POST_MESSAGE_SENDERS: Readonly<Record<string, string>> = { "embed/widget-booking.ts": "this.origin", "pages/embed/EmbedFrame.tsx": "host",
+  // 官网选点的谷歌地图小页面（M10-01 第 2 处）：同源 iframe，targetOrigin 是本站自己
+  "pages/book/GoogleMapPicker.tsx": "window.location.origin",
+};
 const EXTERNAL_SCRIPT_REGISTRY = "lib/external-scripts.ts";
 const EXTERNAL_SCRIPT_LOADER = "lib/stripe-js.ts";
 const NEW_TAB_LINK_COMPONENT = "components/NewTabLink.tsx";
@@ -161,8 +190,10 @@ test("令牌不进 localStorage、不进 Cookie、不进网址：只有主题用
     if (/\blocalStorage\b/.test(text)) assert.equal(name, "theme/theme.ts", `${name} 用了 localStorage`);
     // 例外两个：区域编辑页的草稿（lib/area-draft.ts，负责人批准的最小放行）；付款时被带去银行验证再回来要取回订单令牌（lib/payment-return.ts，ADR 0046）。
     // 下面各有一条核对它们只碰自己的键
-    if (/\bsessionStorage\b/.test(text)) assert.ok(name === "auth/session-store.ts" || name === AREA_DRAFT_STORE || name === PAYMENT_RETURN_STORE, `${name} 用了 sessionStorage`);
-    assert.doesNotMatch(text, /document\.cookie|indexedDB|BroadcastChannel|postMessage\(/, `${name} 用了别的存放或传递途径`);
+    if (/\bsessionStorage\b/.test(text)) assert.ok(name === "auth/session-store.ts" || name === AREA_DRAFT_STORE || name === PAYMENT_RETURN_STORE || name === HOST_DRAFT_STORE || name === EMBED_ORDER_STORE || name === TRIP_LABELS_STORE, `${name} 用了 sessionStorage`);
+    assert.doesNotMatch(text, /document\.cookie|indexedDB|BroadcastChannel/, `${name} 用了别的存放或传递途径`);
+    // postMessage 只在嵌入预订流程的两处（下面另有一条核对）
+    if (!(name in POST_MESSAGE_SENDERS)) assert.doesNotMatch(text, /postMessage\(/, `${name} 用了别的存放或传递途径`);
     assert.doesNotMatch(text, /[?&](token|access_token|password)=/, `${name} 把令牌或密码拼进了查询串`);
     assert.doesNotMatch(text, /window\.open\(/, `${name} 打开新窗口（会带出 opener / Referer）`);
     // 新标签页打开的链接只允许出现在专用的站外链接组件里
@@ -206,6 +237,59 @@ test("区域草稿只用自己的键前缀：不读写登录状态的键，草�
   assert.match(text, /return `\$\{DRAFT_PREFIX\}\$\{owner\.tenantId\}\.\$\{owner\.userId\}\.\$\{area\}`;/);
 });
 
+test("宿主页的草稿号只用自己的一个键（M9E-16）：读、写、删各一次，都只针对这个键；不碰登录状态和令牌", () => {
+  const store = sources.find((source) => source.name === HOST_DRAFT_STORE);
+  assert.ok(store, `找不到 ${HOST_DRAFT_STORE}`);
+  const text = stripComments(store.text);
+  const keys = [...text.matchAll(/["'`](nozomi\.[^"'`$]*)/g)].map((match) => match[1]);
+  assert.deepEqual(keys, ["nozomi.host-draft"], "这个文件里只能有这一个键");
+  assert.equal((text.match(/sessionStorage\.(getItem|setItem|removeItem)\(HOST_DRAFT_KEY/g) ?? []).length, 3, "每次读、写、删都只针对这个键");
+  assert.equal((text.match(/sessionStorage\./g) ?? []).length, 3);
+  assert.doesNotMatch(text, /localStorage|session-store|token/i);
+});
+
+test("嵌入页的订单只用自己的一个键（M9E-17）：读、写、删各一次，都只针对这个键；只有嵌入页的预订页、订单页用它", () => {
+  const store = sources.find((source) => source.name === EMBED_ORDER_STORE);
+  assert.ok(store, `找不到 ${EMBED_ORDER_STORE}`);
+  const text = stripComments(store.text);
+  const keys = [...text.matchAll(/["'`](nozomi\.[^"'`$]*)/g)].map((match) => match[1]);
+  assert.deepEqual(keys, ["nozomi.embed-order"], "这个文件里只能有这一个键");
+  assert.equal((text.match(/sessionStorage\.(getItem|setItem|removeItem)\(EMBED_ORDER_KEY/g) ?? []).length, 3, "每次读、写、删都只针对这个键");
+  assert.equal((text.match(/sessionStorage\./g) ?? []).length, 3);
+  assert.doesNotMatch(text, /localStorage|session-store|postMessage/);
+  for (const { name, text: code } of sources) {
+    const used = stripComments(code);
+    if (/\b(rememberEmbedOrder|embedOrderFor|forgetEmbedOrder)\(/.test(used) && name !== EMBED_ORDER_STORE) assert.ok(name === "pages/embed/EmbedBookPage.tsx" || name === "pages/embed/EmbedOrderPage.tsx", `${name} 用了嵌入页的订单令牌`);
+  }
+});
+
+test("多日行程报价页的地名暂存（M9T-09）只用自己的一个键前缀：读、写各一次，都只针对按行程单编号拼的键；只有行程报价页用它", () => {
+  const store = sources.find((source) => source.name === TRIP_LABELS_STORE);
+  assert.ok(store, `找不到 ${TRIP_LABELS_STORE}`);
+  const text = stripComments(store.text);
+  const keys = [...text.matchAll(/["'`](nozomi\.[^"'`$]*)/g)].map((match) => match[1]);
+  assert.deepEqual(keys, ["nozomi.trip-labels."], "这个文件里只能有这一个键前缀");
+  assert.equal((text.match(/sessionStorage\.(getItem|setItem)\(tripLabelsKey\(tripId\)/g) ?? []).length, 2, "读、写都只针对这个键");
+  assert.equal((text.match(/sessionStorage\./g) ?? []).length, 2);
+  assert.doesNotMatch(text, /localStorage|session-store|postMessage|removeItem|clear\(/);
+  for (const { name, text: code } of sources) {
+    const used = stripComments(code);
+    if (/\b(saveTripLabels|loadTripLabels)\(/.test(used) && name !== TRIP_LABELS_STORE) assert.equal(name, "pages/book/trip/TripNewPage.tsx", `${name} 用了行程报价页的地名暂存`);
+  }
+});
+
+test("postMessage（M9E-16）：只有宿主页一侧和嵌入页各一处，targetOrigin 是核对过的 origin，从不用 \"*\"", () => {
+  for (const [name, origin] of Object.entries(POST_MESSAGE_SENDERS)) {
+    const source = sources.find((item) => item.name === name);
+    assert.ok(source, `找不到 ${name}`);
+    const text = stripComments(source.text);
+    const calls = [...text.matchAll(/postMessage\(([\s\S]*?)\);/g)].map((match) => match[1] ?? "");
+    assert.equal(calls.length, 1, `${name} 里只有一处 postMessage`);
+    assert.ok(calls[0]?.trimEnd().endsWith(`, ${origin}`), `${name} 的 targetOrigin 应是 ${origin}：${calls[0]}`);
+    assert.doesNotMatch(text, /["'`]\*["'`]/, `${name} 里不能出现 "*"`);
+  }
+});
+
 test("付款回跳只用自己的一个键：令牌只在确认付款前写入，取回时核对付款编号、过期时间，取一次就删", () => {
   const store = sources.find((source) => source.name === PAYMENT_RETURN_STORE);
   assert.ok(store, `找不到 ${PAYMENT_RETURN_STORE}`);
@@ -216,11 +300,11 @@ test("付款回跳只用自己的一个键：令牌只在确认付款前写入�
   assert.doesNotMatch(text, /sessionStorage\.(clear|key)\(|localStorage|session-store/);
   // 读出来以后先删再判断：对不上、过期的也不会留下
   assert.match(text, /raw = sessionStorage\.getItem\(RETURN_KEY\);[\s\S]*?forgetPaymentReturn\(\);\s*if \(raw === null\) return null;/);
-  // 唯一写入它的是订单页付款区块确认付款之前；唯一取出它的是订单页
+  // 唯一写入它的是订单页付款区块确认付款之前；取出它的只有主站订单页和嵌入订单页（付款进 iframe 后银行整页回跳到这里，M9E-19，ADR 0095 第七节第 3 小节）
   for (const { name, text: code } of sources) {
     const used = stripComments(code);
     if (/\brememberPaymentReturn\(/.test(used) && name !== PAYMENT_RETURN_STORE) assert.equal(name, "pages/book/OrderSections.tsx");
-    if (/\btakePaymentReturn\(/.test(used) && name !== PAYMENT_RETURN_STORE) assert.equal(name, "pages/book/OrderPage.tsx");
+    if (/\btakePaymentReturn\(/.test(used) && name !== PAYMENT_RETURN_STORE) assert.ok(name === "pages/book/OrderPage.tsx" || name === "pages/embed/EmbedOrderPage.tsx", `${name} 取了付款回跳的令牌`);
   }
 });
 
@@ -259,7 +343,10 @@ test("站外地址只登记在 lib/external-links.ts：恰好是预期的三个�
 
 test("前端只用相对路径调接口：代码里没有写死的站点地址、没有环境变量", () => {
   for (const { name, text } of sources) {
-    const withoutComments = stripComments(text);
+    // SVG 的命名空间是标识符、不是网址（不会被请求）：嵌入组件不能用 JSX，画图标要用 createElementNS（M9E-10）。
+    // 只在 embed/widget-icons.ts 里放行这一个完整的字符串（M9E-11）；别的文件要画 SVG 去用那里的函数
+    const stripped = stripComments(text);
+    const withoutComments = name === SVG_ICON_FILE ? stripped.replaceAll('"http://www.w3.org/2000/svg"', '""') : stripped;
     // 站外地址只允许集中登记在这两个文件里（上面各有一条核对它们的内容）
     if (name !== EXTERNAL_LINK_REGISTRY && name !== EXTERNAL_SCRIPT_REGISTRY) assert.doesNotMatch(withoutComments, /https?:\/\//, `${name} 里有写死的网址`);
     assert.doesNotMatch(withoutComments, /import\.meta\.env|process\.env/, `${name} 读了环境变量；密钥和配置不能进前端产物`);

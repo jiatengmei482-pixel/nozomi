@@ -9,7 +9,7 @@ import { query } from "./areas.ts";
 import { apiRequest } from "./client.ts";
 import type { MasterPage } from "./master.ts";
 import { PLATFORM_BASE } from "./platform.ts";
-import type { AdjustRules, Holidays, PriceRules } from "./prices.ts";
+import type { AdjustRules, CharterMigrationDiff, Holidays, PriceRules } from "./prices.ts";
 import type { Product, ProductContentBody, ProductServiceRules, ProductSummary, PublishCheckResult } from "./products.ts";
 
 export const PLATFORM_PRODUCTS_PATH = `${PLATFORM_BASE}/products`;
@@ -66,6 +66,11 @@ export function getPlatformProduct(token: string, id: string): Promise<PlatformP
 /** 符合条件的商品有几个（首页卡片用：只要 `total`，取一条就够）。 */
 export function countPlatformProducts(token: string, values: Omit<PlatformProductQuery, "limit" | "cursor">): Promise<number> {
   return listPlatformProducts(token, { ...values, limit: 1 }).then((page) => page.total);
+}
+
+/** 包车三层区域迁移的「套餐价不一致」逐条明细（结算价，M9P-05；运营后台价格页顶部「迁移差异 N 条」，M9P-07） */
+export function getPlatformCharterMigrationDiff(token: string, id: string): Promise<CharterMigrationDiff> {
+  return apiRequest("GET", `${PLATFORM_PRODUCTS_PATH}/${encodeURIComponent(id)}/charter-migration-diff`, { token });
 }
 
 export function getPlatformHolidays(token: string, values: { country_code?: string; from?: string; to?: string } = {}): Promise<Holidays> {

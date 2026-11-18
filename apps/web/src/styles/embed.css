@@ -1,0 +1,78 @@
+/*
+ * 嵌入预订页 /embed/book（M9E-16、M9E-17、M9E-27，ADR 0095 第四节；Q15）：在合作网站页面的 iframe 里，宽度跟 iframe，没有主站的顶栏和页脚。
+ *
+ * 外观（颜色、字体、圆角）以嵌入组件的 --nzb-* 变量为准，命名同 embed/widget-style.ts 的 .nzb-shell，默认值取自主站令牌
+ * （颜色和组件写死的默认值一样，embed-style.test.ts 核对）：
+ * - 复用的 /book/new 四步、订单区块读主站令牌，所以在嵌入页的文档里（main.tsx 给 <html> 加 data-embed-book）把主色、圆角改成取 --nzb-*；
+ * - 这个文件里的规则不直接写颜色、字体、圆角（继承上面改过的令牌）；
+ * - 传给 Stripe appearance 的取值也从 --nzb-* 读（lib/payment-driver.ts 的 EMBED_APPEARANCE_TOKENS）。
+ * 首期不跟随嵌入码的 theme，以后组件和嵌入页一起跟随（Q15）。嵌入页只有亮色（同组件）。
+ */
+:root[data-embed-book] {
+  --nzb-light: var(--color-bg-surface);
+  --nzb-dark: var(--color-text-primary);
+  --nzb-primary: var(--color-brand);
+  --nzb-on-primary: var(--color-on-brand);
+  --nzb-ink: var(--nzb-primary);
+  --nzb-radius-control: var(--radius-lg);
+  --nzb-font: var(--font-family-sans);
+
+  --color-primary: var(--nzb-primary);
+  --color-on-primary: var(--nzb-on-primary);
+  --radius-md: var(--nzb-radius-control);
+}
+
+.embed-book {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.embed-book__head,
+.embed-book__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.embed-book__title {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+}
+
+.embed-book__subtitle {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+}
+
+.embed-book__order-head,
+.embed-book__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* 付款按钮旁的说明（业主验收意见 2026-11-16）：紧贴按钮，正文字号，不用灰色小字 */
+.embed-book__pay-hint {
+  margin: 0;
+  font-size: var(--font-size-md);
+}
+
+/*
+ * 分栏和主站 /book/new 一样（M9E-27，ADR 0095 第十二节末第二轮决策）：book-new.css 的 ≥ 1024px 两栏、右侧栏原样用，
+ * 媒体查询在 iframe 的文档里按 iframe 自己的宽度算，不看宿主窗口；这里不另写分栏。
+ */
+
+/*
+ * iframe 的高度跟着内容（宿主按 resize 调），iframe 自己的视口就是整页内容：吸顶的摘要条在嵌入页里不吸顶。
+ * 手机底部按钮条另有办法（M9E-32，ADR 0100）：按宿主发来的 iframe 位置停在宿主屏幕下沿，见 book-new.css 的 .step-bar-slot--frame。
+ */
+.embed-book .book-summary-bar {
+  position: static;
+}

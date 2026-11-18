@@ -21,7 +21,7 @@
  * 规模：边数 n 时，找交点用「按最小经度排序 + 扫描」，竖条按活动边表扫描；几十个区域、几千个点在毫秒级。
  * 极端情况（几百个区域、每个几千个点、彼此大面积交错）会到秒级，所以页面只在数据变化时算一次（ADR 0074「限制」）。
  */
-import { type AreaBizType, type AreaPolygonKind, type AreaRole, type Position, areaRoleCanOperate, areaRoleCanPrice } from "./areas.ts";
+import { AREA_LIMITS, type AreaBizType, type AreaPolygonKind, type AreaRole, type AreaSharing, type Position, areaRoleCanOperate, areaRoleCanPrice, ringIssues } from "./areas.ts";
 import type { ServiceCategory } from "./master-data.ts";
 import { areaUsableByCategory } from "./products.ts";
 
@@ -38,6 +38,8 @@ export interface OverlapAreaInput {
   role?: AreaRole;
   /** 停用的区域不参与 */
   active: boolean;
+  /** 分类（ADR 0102）：平台共享和供应商独立之间不算重叠；不给按供应商独立 */
+  sharing?: AreaSharing;
   polygons: readonly { kind: AreaPolygonKind; ring: readonly Position[] }[];
 }
 
@@ -65,6 +67,11 @@ export interface AreaOverlapResult {
 /** 两个区域可能被同一个商品同时选上（业务类型相同，或其中一个是通用）。 */
 export function areasCanCompete(a: AreaBizType, b: AreaBizType): boolean {
   return a === b || a === "general" || b === "general";
+}
+
+/** 两个区域算不算互相重叠：业务类型对得上（`areasCanCompete`），而且是同一分类（平台共享和供应商独立之间不算，ADR 0102） */
+function inputsCanCompete(a: Pick<OverlapAreaInput, "bizType" | "sharing">, b: Pick<OverlapAreaInput, "bizType" | "sharing">): boolean {
+  return areasCanCompete(a.bizType, b.bizType) && (a.sharing ?? "own") === (b.sharing ?? "own");
 }
 
 interface Edge {
@@ -141,7 +148,7 @@ function operateBox(area: OverlapAreaInput): Box {
 /**
  * 竖条分解（重叠、超出运营区域共用）：把 `used` 的全部图形切成竖条，每个竖条里从下往上逐段交给 `visit`（同一个竖条的各段按从下到上的顺序一次给全）。
  */
-function sweepSpans(used: readonly OverlapAreaInput[], visit: (spans: readonly Span[]) => void): void {
+function sweepSpans(used: readonly OverlapAreaInput[], visit: (spans: readonly Span[]) => void, extraXs: readonly number[] = []): void {
   // 全部图形和它们的边（竖直的边不进竖条：它们正好落在竖条的边界上）
   const polygonArea: number[] = [];
   const polygonForbid: boolean[] = [];
@@ -163,6 +170,8 @@ function sweepSpans(used: readonly OverlapAreaInput[], visit: (spans: readonly S
     }
   });
   edges.sort((a, b) => a.x0 - b.x0);
+  // 额外的竖条边界（减去区域时竖着切开的位置，见 `subtractAreaRange`）
+  xs.push(...extraXs);
 
   // 交点的经度：按最小经度排好后，每条边只和最小经度落在自己范围里的边比
   for (let i = 0; i < edges.length; i += 1) {
@@ -255,7 +264,7 @@ export function findAreaOverlaps(areas: readonly OverlapAreaInput[]): AreaOverla
   const live = liveAreas(areas.filter((area) => area.role !== "operating"));
   // 每个区域营运区的外框；外框和任何一个能竞争的区域都碰不到的区域不用算
   const boxes = live.map(operateBox);
-  const candidate = live.map((area, i) => live.some((other, j) => j !== i && areasCanCompete(area.bizType, other.bizType) && boxesMeet(boxes[i] as Box, boxes[j] as Box)));
+  const candidate = live.map((area, i) => live.some((other, j) => j !== i && inputsCanCompete(area, other) && boxesMeet(boxes[i] as Box, boxes[j] as Box)));
   const used = live.filter((_, i) => candidate[i]);
   const empty: AreaOverlapResult = { pairs: [], pieces: [], byArea: new Map() };
   if (used.length < 2) return empty;
@@ -269,7 +278,7 @@ export function findAreaOverlaps(areas: readonly OverlapAreaInput[]): AreaOverla
       const competing: [number, number][] = [];
       for (let i = 0; i < ids.length; i += 1) {
         for (let j = i + 1; j < ids.length; j += 1) {
-          if (areasCanCompete((used[ids[i] as number] as OverlapAreaInput).bizType, (used[ids[j] as number] as OverlapAreaInput).bizType)) competing.push([ids[i] as number, ids[j] as number]);
+          if (inputsCanCompete(used[ids[i] as number] as OverlapAreaInput, used[ids[j] as number] as OverlapAreaInput)) competing.push([ids[i] as number, ids[j] as number]);
         }
       }
       if (competing.length === 0) continue;
@@ -366,4 +375,302 @@ export function productPricingOutsideOperating(areas: readonly OverlapAreaInput[
   const pricing = areas.filter((area) => pricingAreaIds.includes(area.id) && areaRoleCanPrice(area.role ?? "both"));
   const operating = areas.filter((area) => areaRoleCanOperate(area.role ?? "both") && areaUsableByCategory(category, area.bizType));
   return findPricingOutsideOperating(pricing, operating, () => true).byArea;
+}
+
+// ---- 包车三层区域的保存校验（M9P-06，ADR 0093 第七节第 1、2 条；规格第四节第 2 小节）----
+
+/** 只有边界接触不算重叠：小于 0.01 平方公里（ADR 0093 第七节第 1 条） */
+export const CHARTER_LAYER_OVERLAP_MIN_M2 = 10_000;
+
+export interface CharterLayerOverlap {
+  /** 同层重叠（①①、②②、③③）是 `AREA_LAYER_OVERLAP`；①和③重叠是 `AREA_BASE_SURCHARGE_OVERLAP` */
+  code: "AREA_LAYER_OVERLAP" | "AREA_BASE_SURCHARGE_OVERLAP";
+  layer: "base" | "itinerary" | "pickup_dropoff" | "base_pickup_dropoff";
+  a: string;
+  b: string;
+  areaM2: number;
+}
+
+/**
+ * 一个包车商品的三层区域里，这次新加的区域碰出来的重叠：同一层（①基础价、②行程、③上下车加价）两两不能重叠，①和③不能重叠；①②、②③可以。
+ * `layers` 是保存之后各层的区域编号；`added` 是这次新加进各层的（已有的重叠不回头拦，ADR 0093 第七节第 6 条：那些列进迁移报告，由运营处理）。
+ * 同一个区域既在①又在③由 `AREA_IS_PRODUCT_AREA` 管，这里不算。不看区域的用途和业务类型（同一个商品里的区域都会被同时用到）；停用的区域不算。
+ */
+export function charterLayerOverlaps(
+  shapes: readonly OverlapAreaInput[],
+  layers: { base: readonly string[]; itinerary: readonly string[]; updown: readonly string[] },
+  added: { base?: readonly string[]; itinerary?: readonly string[]; updown?: readonly string[] },
+): CharterLayerOverlap[] {
+  const inputs = (ids: readonly string[]): OverlapAreaInput[] => shapes.filter((shape) => ids.includes(shape.id)).map((shape) => ({ ...shape, role: "pricing" as const, bizType: "charter" as const }));
+  const pairsOf = (ids: readonly string[]) => (ids.length < 2 ? [] : findAreaOverlaps(inputs([...new Set(ids)])).pairs.filter((pair) => pair.areaM2 >= CHARTER_LAYER_OVERLAP_MIN_M2));
+  const result: CharterLayerOverlap[] = [];
+  const same = [
+    ["base", layers.base, added.base ?? []],
+    ["itinerary", layers.itinerary, added.itinerary ?? []],
+    ["pickup_dropoff", layers.updown, added.updown ?? []],
+  ] as const;
+  for (const [layer, ids, fresh] of same) {
+    if (fresh.length === 0) continue;
+    for (const pair of pairsOf(ids)) if (fresh.includes(pair.a) || fresh.includes(pair.b)) result.push({ code: "AREA_LAYER_OVERLAP", layer, a: pair.a, b: pair.b, areaM2: pair.areaM2 });
+  }
+  const freshBase = added.base ?? [];
+  const freshUpdown = added.updown ?? [];
+  if (freshBase.length + freshUpdown.length > 0) {
+    for (const pair of pairsOf([...layers.base, ...layers.updown])) {
+      const [base, updown] = layers.base.includes(pair.a) && layers.updown.includes(pair.b) && !layers.base.includes(pair.b) ? [pair.a, pair.b] : layers.base.includes(pair.b) && layers.updown.includes(pair.a) && !layers.base.includes(pair.a) ? [pair.b, pair.a] : [null, null];
+      if (base === null || updown === null) continue;
+      if (freshBase.includes(base) || freshUpdown.includes(updown)) result.push({ code: "AREA_BASE_SURCHARGE_OVERLAP", layer: "base_pickup_dropoff", a: base, b: updown, areaM2: pair.areaM2 });
+    }
+  }
+  return result;
+}
+
+/** 包车三层区域里不允许的重叠（同层、①和③）的一小块：形状（画在地图上标红）和是哪种。 */
+export interface CharterLayerConflictPiece extends AreaOverlapPiece {
+  layer: CharterLayerOverlap["layer"];
+}
+
+/**
+ * 一个包车商品三层区域里**全部**不允许的重叠部分（M9P-13「在地图上看全部」标红）：同层（①①、②②、③③）和①∩③，和保存校验同一个口径
+ * （`charterLayerOverlaps`：不看用途和业务类型、停用的不算、小于 0.01 平方公里的不算），只是不分新旧——已有的重叠也画出来。
+ * 同一个区域既在①又在③的（`AREA_IS_PRODUCT_AREA` 管）不算①∩③。
+ */
+export function charterLayerConflictPieces(shapes: readonly OverlapAreaInput[], layers: { base: readonly string[]; itinerary: readonly string[]; updown: readonly string[] }): CharterLayerConflictPiece[] {
+  const inputs = (ids: readonly string[]): OverlapAreaInput[] => shapes.filter((shape) => ids.includes(shape.id)).map((shape) => ({ ...shape, role: "pricing" as const, bizType: "charter" as const }));
+  const overlapsOf = (ids: readonly string[]) => {
+    const found = findAreaOverlaps(inputs([...new Set(ids)]));
+    const big = new Set(found.pairs.filter((pair) => pair.areaM2 >= CHARTER_LAYER_OVERLAP_MIN_M2).map((pair) => `${pair.a}|${pair.b}`));
+    return { pieces: found.pieces, has: (a: string, b: string): boolean => big.has(`${a}|${b}`) || big.has(`${b}|${a}`) };
+  };
+  const result: CharterLayerConflictPiece[] = [];
+  for (const [layer, ids] of [["base", layers.base], ["itinerary", layers.itinerary], ["pickup_dropoff", layers.updown]] as const) {
+    if (ids.length < 2) continue;
+    const { pieces, has } = overlapsOf(ids);
+    for (const piece of pieces) {
+      const involved = piece.areaIds.filter((id) => piece.areaIds.some((other) => other !== id && has(id, other)));
+      if (involved.length >= 2) result.push({ layer, areaIds: involved, ring: piece.ring });
+    }
+  }
+  if (layers.base.length > 0 && layers.updown.length > 0) {
+    const { pieces, has } = overlapsOf([...layers.base, ...layers.updown]);
+    const isBase = (id: string): boolean => layers.base.includes(id);
+    const isUpdown = (id: string): boolean => layers.updown.includes(id) && !layers.base.includes(id);
+    const clash = (a: string, b: string): boolean => ((isBase(a) && isUpdown(b)) || (isUpdown(a) && isBase(b))) && has(a, b);
+    for (const piece of pieces) {
+      const involved = piece.areaIds.filter((id) => piece.areaIds.some((other) => other !== id && clash(id, other)));
+      if (involved.length >= 2) result.push({ layer: "base_pickup_dropoff", areaIds: involved, ring: piece.ring });
+    }
+  }
+  return result;
+}
+
+// ---- 从本区域减去另一个区域（M9P-13，规格第四节第 3 小节；ADR 0093 第七节「后续」）----
+
+/** 参与减法的一块图形（区域的营运区、禁行区）。 */
+export interface SubtractShape {
+  kind: AreaPolygonKind;
+  ring: readonly Position[];
+}
+
+export type AreaSubtractResult =
+  | {
+      ok: true;
+      /** 碰到另一个区域的营运区块合起来减掉之后的新多边形（逆时针、不闭合、六位小数） */
+      rings: Position[][];
+      /** 没碰到另一个区域的营运区块（输入里的下标）：原样保留（圆还是圆）；禁行区一律原样保留 */
+      keptIndexes: number[];
+      /** 切掉了多少平方米（本区域营运区和另一个区域真正报价范围的公共部分） */
+      removedM2: number;
+      /** 另一个区域在本区域中间、减完会留下洞（区域的图形不能带洞）：已在洞的位置竖着切开，所以多出了几块 */
+      split: boolean;
+    }
+  /**
+   * `NO_OVERLAP`：两个区域没有重叠（不到 100 平方米）；`NOTHING_LEFT`：本区域的营运区整个在另一个区域里，减完什么都不剩；
+   * `TOO_COMPLEX`：减完的图形超出区域的上限（块数、点数），或成不了合法的多边形（极细的缝）——请手工处理
+   */
+  | { ok: false; reason: "NO_OVERLAP" | "NOTHING_LEFT" | "TOO_COMPLEX" };
+
+/** 坐标精度：和保存时一样，六位小数（areas.ts 的 round6） */
+const SUBTRACT_MICRO = 1_000_000;
+/** 竖着切开带洞的图形最多试几轮（每轮把每个洞从中间切开；切开不会产生新的洞，一轮就够，多两轮是保险） */
+const SUBTRACT_MAX_ROUNDS = 3;
+
+type MicroPoint = [number, number];
+type DirectedEdge = { from: MicroPoint; to: MicroPoint };
+
+const pointKey = (point: MicroPoint): string => `${point[0]},${point[1]}`;
+
+/**
+ * 互不重叠的一组竖条梯形（逆时针四个点）合起来的边界：竖边按全部端点拆成小段、向上向下相互抵消，横边方向相反的相互抵消；
+ * 剩下的有向边连成一圈圈（逆时针 = 外圈，顺时针 = 洞）。一个点上有几条出边时（两块只碰一个角）取最往左拐的那条，一圈只围一块。
+ */
+function traceTrapezoids(trapezoids: readonly MicroPoint[][]): MicroPoint[][] {
+  const segments = new Map<string, DirectedEdge & { count: number }>();
+  const add = (from: MicroPoint, to: MicroPoint): void => {
+    if (from[0] === to[0] && from[1] === to[1]) return;
+    const reverse = segments.get(`${pointKey(to)}>${pointKey(from)}`);
+    if (reverse !== undefined) {
+      reverse.count -= 1;
+      if (reverse.count === 0) segments.delete(`${pointKey(to)}>${pointKey(from)}`);
+      return;
+    }
+    const key = `${pointKey(from)}>${pointKey(to)}`;
+    const entry = segments.get(key);
+    if (entry === undefined) segments.set(key, { from, to, count: 1 });
+    else entry.count += 1;
+  };
+  const verticals = new Map<number, { low: number; high: number; up: boolean }[]>();
+  const vertical = (x: number, low: number, high: number, up: boolean): void => {
+    if (high > low) verticals.set(x, [...(verticals.get(x) ?? []), { low, high, up }]);
+  };
+  for (const ring of trapezoids) {
+    const [bottomLeft, bottomRight, topRight, topLeft] = ring as [MicroPoint, MicroPoint, MicroPoint, MicroPoint];
+    if (bottomLeft[0] === bottomRight[0]) continue;
+    add(bottomLeft, bottomRight);
+    add(topRight, topLeft);
+    vertical(bottomRight[0], bottomRight[1], topRight[1], true);
+    vertical(bottomLeft[0], bottomLeft[1], topLeft[1], false);
+  }
+  for (const [x, list] of verticals) {
+    const ys = [...new Set(list.flatMap((entry) => [entry.low, entry.high]))].sort((a, b) => a - b);
+    for (let i = 0; i + 1 < ys.length; i += 1) {
+      const y0 = ys[i] as number;
+      const y1 = ys[i + 1] as number;
+      let net = 0;
+      for (const entry of list) if (entry.low <= y0 && entry.high >= y1) net += entry.up ? 1 : -1;
+      for (let k = 0; k < Math.abs(net); k += 1) add(net > 0 ? [x, y0] : [x, y1], net > 0 ? [x, y1] : [x, y0]);
+    }
+  }
+  const outgoing = new Map<string, DirectedEdge[]>();
+  for (const { from, to, count } of segments.values()) {
+    for (let k = 0; k < count; k += 1) outgoing.set(pointKey(from), [...(outgoing.get(pointKey(from)) ?? []), { from, to }]);
+  }
+  const rings: MicroPoint[][] = [];
+  let budget = [...outgoing.values()].reduce((sum, list) => sum + list.length, 0) + 1;
+  for (const start of outgoing.keys()) {
+    while ((outgoing.get(start)?.length ?? 0) > 0) {
+      const first = (outgoing.get(start) as DirectedEdge[]).shift() as DirectedEdge;
+      const ring: MicroPoint[] = [first.from];
+      let current = first;
+      while (!(current.to[0] === first.from[0] && current.to[1] === first.from[1]) && budget > 0) {
+        budget -= 1;
+        ring.push(current.to);
+        const options = outgoing.get(pointKey(current.to)) ?? [];
+        if (options.length === 0) break;
+        const dx = current.to[0] - current.from[0];
+        const dy = current.to[1] - current.from[1];
+        let best = 0;
+        let bestTurn = -Infinity;
+        options.forEach((option, index) => {
+          const ox = option.to[0] - option.from[0];
+          const oy = option.to[1] - option.from[1];
+          const turn = Math.atan2(dx * oy - dy * ox, dx * ox + dy * oy);
+          if (turn > bestTurn) {
+            bestTurn = turn;
+            best = index;
+          }
+        });
+        current = options.splice(best, 1)[0] as DirectedEdge;
+      }
+      rings.push(ring);
+    }
+  }
+  return rings;
+}
+
+/** 去掉重复的点，和离前后两点连线不到一个最小单位（约 0.1 米）的点：竖条切出来的中间点、取整带来的细小折线 */
+function cleanRing(ring: readonly MicroPoint[]): MicroPoint[] {
+  let points = [...ring];
+  let changed = true;
+  while (changed && points.length >= 3) {
+    changed = false;
+    const kept: MicroPoint[] = [];
+    for (let i = 0; i < points.length; i += 1) {
+      const before = kept.length > 0 ? (kept[kept.length - 1] as MicroPoint) : (points[points.length - 1] as MicroPoint);
+      const point = points[i] as MicroPoint;
+      const after = points[(i + 1) % points.length] as MicroPoint;
+      const cross = (point[0] - before[0]) * (after[1] - before[1]) - (point[1] - before[1]) * (after[0] - before[0]);
+      if ((point[0] === before[0] && point[1] === before[1]) || Math.abs(cross) <= Math.hypot(after[0] - before[0], after[1] - before[1])) {
+        changed = true;
+        continue;
+      }
+      kept.push(point);
+    }
+    points = kept;
+  }
+  return points;
+}
+
+/** 有向面积的两倍（逆时针为正，单位：最小单位的平方） */
+function twiceArea(ring: readonly MicroPoint[]): number {
+  let sum = 0;
+  ring.forEach((point, i) => {
+    const next = ring[(i + 1) % ring.length] as MicroPoint;
+    sum += point[0] * next[1] - next[0] * point[1];
+  });
+  return sum;
+}
+
+function microRingM2(ring: readonly MicroPoint[]): number {
+  const lat = ring.reduce((sum, point) => sum + point[1], 0) / ring.length / SUBTRACT_MICRO;
+  return (Math.abs(twiceArea(ring)) / 2 / (SUBTRACT_MICRO * SUBTRACT_MICRO)) * METERS_PER_DEGREE * METERS_PER_DEGREE * Math.cos((lat * Math.PI) / 180);
+}
+
+/**
+ * 从本区域减去另一个区域（M9P-13）：本区域的营运区减去另一个区域「真正报价的范围」（它的营运区减去它自己的禁行区）。
+ * - 本区域的禁行区不动；营运区里碰不到另一个区域的块原样保留（`keptIndexes`），碰到的几块合起来减掉、换成新的多边形（`rings`）；
+ * - 和重叠用同一个竖条分解，结果精确（误差只来自浮点数），坐标取六位小数（和保存时一样）；
+ * - 区域的图形不能带洞：减完会留下洞时，在每个洞的位置竖着切开（`split`）。
+ * 纯计算：页面拿结果换掉编辑器里的图形，用户照常保存（保存时照常校验）。
+ */
+export function subtractAreaRange(base: readonly SubtractShape[], cutter: readonly SubtractShape[]): AreaSubtractResult {
+  const cutterInput: OverlapAreaInput = { id: "cut", bizType: "general", active: true, polygons: cutter.filter((shape) => shape.ring.length >= 3) };
+  const operate = base.flatMap((shape, index) => (shape.kind === "operate" && shape.ring.length >= 3 ? [{ shape, index }] : []));
+  const touched = operate.filter(({ shape }) => findAreaOverlaps([{ id: "base", bizType: "general", active: true, polygons: [{ kind: "operate", ring: shape.ring }] }, cutterInput]).pairs.length > 0);
+  if (touched.length === 0) return { ok: false, reason: "NO_OVERLAP" };
+  const keptIndexes = operate.filter(({ index }) => !touched.some((entry) => entry.index === index)).map(({ index }) => index);
+  const baseInput: OverlapAreaInput = { id: "base", bizType: "general", active: true, polygons: touched.map(({ shape }) => ({ kind: "operate" as const, ring: shape.ring })) };
+  const snap = (value: number): number => Math.round(value * SUBTRACT_MICRO);
+
+  const cuts: number[] = [];
+  for (let round = 0; round < SUBTRACT_MAX_ROUNDS; round += 1) {
+    let removed = 0;
+    // 按切开的位置分组：同一组的梯形连成边界，组与组之间的竖边不抵消（就是切开的缝）
+    const bands = new Map<number, MicroPoint[][]>();
+    sweepSpans(
+      [baseInput, cutterInput],
+      (spans) => {
+        for (const span of spans) if (span.ids.includes(0) && span.ids.includes(1)) removed += span.m2;
+        const band = cuts.filter((cut) => cut <= (spans[0]?.xa ?? 0) + EPSILON).length;
+        mergeSpans(
+          spans,
+          (span) => (span.ids.includes(0) && !span.ids.includes(1) ? "kept" : ""),
+          (_key, ring) => bands.set(band, [...(bands.get(band) ?? []), ring.map(([x, y]) => [snap(x), snap(y)] as MicroPoint)]),
+        );
+      },
+      cuts,
+    );
+    const outer: MicroPoint[][] = [];
+    const holes: MicroPoint[][] = [];
+    for (const group of bands.values()) {
+      for (const raw of traceTrapezoids(group)) {
+        const ring = cleanRing(raw);
+        if (ring.length < 3 || microRingM2(ring) < AREA_OVERLAP_MIN_M2) continue;
+        (twiceArea(ring) > 0 ? outer : holes).push(ring);
+      }
+    }
+    if (holes.length > 0) {
+      for (const hole of holes) {
+        const xs = hole.map((point) => point[0]);
+        cuts.push((Math.min(...xs) + Math.max(...xs)) / 2 / SUBTRACT_MICRO);
+      }
+      continue;
+    }
+    if (outer.length === 0 && keptIndexes.length === 0) return { ok: false, reason: "NOTHING_LEFT" };
+    const rings = outer.map((ring) => ring.map(([x, y]) => [x / SUBTRACT_MICRO, y / SUBTRACT_MICRO] as Position));
+    const blocks = rings.length + keptIndexes.length + base.filter((shape) => shape.kind === "forbid").length;
+    if (blocks > AREA_LIMITS.maxPolygons || rings.some((ring) => ringIssues(ring).length > 0)) return { ok: false, reason: "TOO_COMPLEX" };
+    return { ok: true, rings, keptIndexes, removedM2: Math.round(removed), split: cuts.length > 0 };
+  }
+  return { ok: false, reason: "TOO_COMPLEX" };
 }

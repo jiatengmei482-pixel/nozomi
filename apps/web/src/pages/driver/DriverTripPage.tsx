@@ -15,7 +15,7 @@
  *   样式表用它给页面底部留白、给滚动留边（scroll-padding-bottom），不挡最后一行和正在输入的框。包车「完成」缺分钟、公里时按钮旁写明原因。
  */
 import { CHANGE_FIELD_NAMES } from "../../lib/order-money-display.ts";
-import { DRIVER_ACTION_LABELS, EVIDENCE_FILE_RULES, localDateTimeToInstant } from "@nozomi/domain";
+import { DRIVER_ACTION_LABELS, EVIDENCE_FILE_RULES, displayStopNumber, localDateTimeToInstant } from "@nozomi/domain";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router";
 import { ApiError } from "../../api/client.ts";
@@ -38,9 +38,12 @@ import { AuthLayout } from "../../components/AuthLayout.tsx";
 import { Button } from "../../components/Button.tsx";
 import { ORDER_STATUS_BADGES, StatusBadge } from "../../components/StatusBadge.tsx";
 import { TextField } from "../../components/TextField.tsx";
-import { directionName, formatInZone, landingSourceName } from "../../lib/dispatch-display.ts";
+import { directionName, formatInZone, landingSourceName, orderFreeWaitDetail } from "../../lib/dispatch-display.ts";
 import { displayName } from "../../lib/master-display.ts";
+import { arriveByDeadlineText } from "../../lib/arrive-by-display.ts";
+import { scenarioPackageLabel } from "../../lib/charter-airport-copy.ts";
 import { durationText, orderItineraryText } from "../../lib/charter-itinerary.ts";
+import { itineraryCopy } from "../../lib/itinerary-texts.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useMeasuredHeight } from "../../lib/measured-length.ts";
 
@@ -240,6 +243,8 @@ export function DriverTripPage() {
   /** 打开页面时（服务器的时间）还没到下一步最早可以点的时间 */
   const notYet = trip.next_event !== null && trip.next_event.type === next?.type && Date.parse(trip.server_time) < Date.parse(trip.next_event.earliest_at) && reachedAt !== trip.next_event.earliest_at ? trip.next_event : null;
   const placeName = order.place === null ? null : displayName(order.place.name).text;
+  // 有经停点的包车（M9P-20）：上车、经停、下车都带编号，和官网、订单详情的行程列表一致
+  const stopsNumbered = order.waypoints != null && order.waypoints.length > 0;
   const landingOpen = trip.landing !== null && trip.landing.driver_reported_at === null && ["assigned", "departed", "arrived", "in_service"].includes(order.status);
 
   const upload = (kind: OrderFileKind, file: File): void => {
@@ -310,25 +315,31 @@ export function DriverTripPage() {
       </Section>
 
       <Section title="行程">
-        <p className="driver-key">{`上车：${order.pickup?.address ?? placeName ?? "—"}`}</p>
-        {/* 包车经停点（M9W-03）：按顺序，名称、停留和导航；没有价格 */}
+        {/* 包车机场开始 / 机场结束（M9P-22，ADR 0098）：司机一眼看到是机场接机还是送机 */}
+        {order.charter_scenario != null && order.package_hours !== null && <p className="driver-key">{scenarioPackageLabel(order.charter_scenario, order.package_hours)}</p>}
+        <p className="driver-key">{`${stopsNumbered ? "1 " : ""}上车：${order.pickup?.address ?? placeName ?? "—"}`}</p>
+        {/* 包车经停点（M9W-03）：按顺序，名称、停留和导航；没有价格。编号同官网行程列表（M9P-20）：上车 = 1、经停依次、下车 = 最后 */}
         {order.waypoints != null && order.waypoints.length > 0 && (
           <ol className="trip-stops" aria-label="经停点">
             {order.waypoints.map((stop, index) => (
-              <li key={`${index}-${stop.name}`} className="trip-stops__item">
+              <li key={`${index}-${stop.name}`} className="trip-stops__item trip-stops__item--stop">
                 <span className="trip-stops__line">
-                  <span className="trip-stops__label">{`经停 ${index + 1}`}</span>
+                  <span className="trip-stops__label">
+                    <span className="trip-stops__number">{displayStopNumber(index + 1)}</span> {itineraryCopy("stop")}
+                  </span>
                   <span className="trip-stops__name driver-key">{stop.name}</span>
                 </span>
                 <span className="trip-stops__stay">{`停留 ${durationText(stop.stay_minutes)}`}</span>
+                {/* 客人指定的到达时间（M9P-20 P3，最晚到达）：「须在 14:00 前到达」，跨午夜写「次日」 */}
+                {arriveByDeadlineText(stop.arrive_by) !== null && <span className="trip-stops__deadline driver-key">{arriveByDeadlineText(stop.arrive_by)}</span>}
                 <a className="link driver-nav" href={mapLink(stop)}>
-                  {`导航到经停 ${index + 1}`}
+                  {itineraryCopy("navigateTo", { number: displayStopNumber(index + 1) })}
                 </a>
               </li>
             ))}
           </ol>
         )}
-        <p className="driver-key">{`下车：${dropoffText(order, placeName)}`}</p>
+        <p className="driver-key">{`${stopsNumbered ? `${(order.waypoints?.length ?? 0) + 2} ` : ""}下车：${dropoffText(order, placeName)}`}</p>
         {orderItineraryText(order.itinerary) !== null && <p>{orderItineraryText(order.itinerary)}</p>}
         {order.pickup_point !== null && (
           <>
@@ -346,7 +357,7 @@ export function DriverTripPage() {
             <p className="field__hint">{`下车点坐标：${order.dropoff.lat.toFixed(6)}, ${order.dropoff.lng.toFixed(6)}`}</p>
           </>
         )}
-        <p>{`免费等待：${order.free_wait_minutes === null ? "不限" : `${order.free_wait_minutes} 分钟`}，从 ${formatInZone(trip.free_wait.start, zone)} 起${trip.free_wait.end ? `，到 ${formatInZone(trip.free_wait.end, zone)}` : ""}`}</p>
+        <p>{`免费等待：${orderFreeWaitDetail(order.free_wait_minutes, order.free_wait_basis)}，从 ${formatInZone(trip.free_wait.start, zone)} 起${trip.free_wait.end ? `，到 ${formatInZone(trip.free_wait.end, zone)}` : ""}`}</p>
         {trip.vehicle && <p>{`车辆：${trip.vehicle.plate} · ${trip.vehicle.model}`}</p>}
         {trip.dispatchers.map((dispatcher) => (
           <p key={dispatcher.phone}>

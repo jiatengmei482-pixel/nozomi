@@ -5,14 +5,14 @@ import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { render } from "@testing-library/react";
 import { resetBrowser } from "../testing/harness.tsx";
-import { MEASURED_LENGTHS, type MeasuredLengthName, isMeasuredLengthName, measuredPixels, useMeasuredHeight } from "./measured-length.ts";
+import { MEASURED_LENGTHS, type MeasuredLengthName, clearMeasuredLength, isMeasuredLengthName, measuredPixels, setMeasuredOffset, useMeasuredHeight } from "./measured-length.ts";
 
 afterEach(resetBrowser);
 
 const rootValue = (name: string): string => document.documentElement.style.getPropertyValue(name);
 
 function Probe({ element, name }: { element: HTMLElement | null; name: MeasuredLengthName }) {
-  useMeasuredHeight(element, name);
+  useMeasuredHeight(element, name as Parameters<typeof useMeasuredHeight>[1]);
   return null;
 }
 
@@ -22,9 +22,13 @@ const sized = (height: number): HTMLElement => {
   return element;
 };
 
-test("名单：只登记了 --driver-bar-height，只许 driver.css 引用", () => {
-  assert.deepEqual(MEASURED_LENGTHS, { "--driver-bar-height": ["driver.css"] });
-  assert.equal(isMeasuredLengthName("--driver-bar-height"), true);
+test("名单：司机页条高 → driver.css；新预订页条高、嵌入页条位移 → book-new.css", () => {
+  assert.deepEqual(MEASURED_LENGTHS, {
+    "--driver-bar-height": { kind: "height", sheets: ["driver.css"] },
+    "--book-actionbar-h": { kind: "height", sheets: ["book-new.css"] },
+    "--book-actionbar-shift": { kind: "offset", sheets: ["book-new.css"] },
+  });
+  for (const name of ["--driver-bar-height", "--book-actionbar-h", "--book-actionbar-shift"]) assert.equal(isMeasuredLengthName(name), true, name);
   for (const name of ["--color-text", "--driver-bar-height ", "driver-bar-height", "toString", "__proto__", "constructor", ""]) assert.equal(isMeasuredLengthName(name), false, name);
 });
 
@@ -34,6 +38,27 @@ test("值固定写成「整数px」：向上取整，不是有限正数时按 0p
   assert.equal(measuredPixels(0.2), "1px");
   for (const bad of [0, -3, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) assert.equal(measuredPixels(bad), "0px", String(bad));
   for (const value of [1, 12.5, 99.999, 1e6 + 0.1, Number.NaN, -1]) assert.match(measuredPixels(value), /^(0|[1-9]\d*)px$/);
+});
+
+test("位移写成「整数px」：四舍五入、可以是负数，不是有限数时按 0px，不写 -0px", () => {
+  assert.equal(measuredPixels(-37.4, "offset"), "-37px");
+  assert.equal(measuredPixels(-37.6, "offset"), "-38px");
+  assert.equal(measuredPixels(12.5, "offset"), "13px");
+  for (const bad of [0, -0, -0.2, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) assert.equal(measuredPixels(bad, "offset"), "0px", String(bad));
+  for (const value of [1, -12.5, 99.999, -1e6 - 0.1, Number.NaN]) assert.match(measuredPixels(value, "offset"), /^(0|-?[1-9]\d*)px$/);
+});
+
+test("位移写在指定元素自己身上、可清掉；高度变量不能当位移写，没登记的名字报错", () => {
+  const bar = document.createElement("div");
+  setMeasuredOffset(bar, "--book-actionbar-shift", -42.3);
+  assert.equal(bar.style.getPropertyValue("--book-actionbar-shift"), "-42px");
+  assert.equal(rootValue("--book-actionbar-shift"), "", "不写在 <html> 上");
+  clearMeasuredLength(bar, "--book-actionbar-shift");
+  assert.equal(bar.style.getPropertyValue("--book-actionbar-shift"), "");
+  assert.throws(() => setMeasuredOffset(bar, "--book-actionbar-h" as "--book-actionbar-shift", 10), /--book-actionbar-h 不是位移变量/);
+  assert.throws(() => setMeasuredOffset(bar, "--color-text" as "--book-actionbar-shift", 10), /--color-text 不是登记过的实测尺寸变量/);
+  assert.throws(() => clearMeasuredLength(bar, "--color-text" as MeasuredLengthName), /--color-text 不是登记过的实测尺寸变量/);
+  assert.equal(bar.getAttribute("style") ?? "", "");
 });
 
 test("量出来的高度写进 <html> 的变量；元素换成 null、组件卸载时去掉", () => {
@@ -56,5 +81,16 @@ test("没登记的变量名：报错，不写任何东西", () => {
     console.error = original;
   }
   assert.equal(rootValue("--color-text"), "");
+  assert.equal(document.documentElement.getAttribute("style") ?? "", "");
+});
+
+test("位移变量不能当高度量：报错，不写", () => {
+  const original = console.error;
+  console.error = () => undefined;
+  try {
+    assert.throws(() => render(<Probe element={sized(10)} name="--book-actionbar-shift" />), /--book-actionbar-shift 不是登记过的实测尺寸变量/);
+  } finally {
+    console.error = original;
+  }
   assert.equal(document.documentElement.getAttribute("style") ?? "", "");
 });

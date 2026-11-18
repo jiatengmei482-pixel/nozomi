@@ -66,11 +66,42 @@ export interface ManualQuoteDetail {
   /** 包车的经停点（M9W-04），按顺序；没有经停点、已清除为 null。旧接口没有这一项 */
   waypoints?: ManualQuoteWaypoint[] | null;
   events: ManualQuoteEvent[];
+  /** 官网行程报价页带来的行程单（M9T-08）；没关联为 null。旧接口没有这一项 */
+  trip?: ManualQuoteTripLink | null;
 }
 
-/** 包车的一个经停点（M9W-04）：地点和停留分钟 */
+export type TripPlanKind = "one_car" | "daily_best";
+
+/** 关联的行程单：地名取申请密文，结构取行程单；行程单已清理时 `days`、`plans` 为 null，只剩 `labels` */
+export interface ManualQuoteTripLink {
+  trip_id: string;
+  plan_kind: TripPlanKind | null;
+  purged: boolean;
+  labels: string[][] | null;
+  days: { date: string; items: ManualQuoteTripItem[] }[] | null;
+  plans: ManualQuoteTripPlan[] | null;
+}
+
+export interface ManualQuoteTripItem {
+  kind: "arrive_flight" | "start" | "stop" | "end" | "depart_flight";
+  name: string | null;
+  time: string | null;
+  stay_minutes: number | null;
+  place: { place_id: string } | { lat: number; lng: number };
+}
+
+export interface ManualQuoteTripPlan {
+  kind: TripPlanKind;
+  status: "quoted" | "unquoted";
+  recommended: boolean;
+  amount: { amount: string; currency: string } | null;
+  unquoted: { day_index: number | null; reason: string }[];
+}
+
+/** 包车的一个经停点（M9W-04）：地点和停留分钟；`arrive_by` 是客人指定的到达时间（M9P-20 P3），只在指定了时有 */
 export interface ManualQuoteWaypoint extends ManualQuotePlace {
   stay_minutes: number;
+  arrive_by?: { day_offset: 0 | 1; time: string };
 }
 
 export type ManualQuoteCounts = Record<ManualQuoteStatus, number>;
@@ -102,6 +133,8 @@ export interface SiteSettings {
   support_whatsapp: string | null;
   /** 官网页面宽度（M8-28，ADR 0079）；没设过是 standard */
   page_width: SitePageWidth;
+  /** 浏览器加载谷歌地图用的密钥（M10-01 第 2 处）；没填为 null */
+  maps_browser_key: string | null;
   /** 0 表示还没有设置过 */
   version: number;
   updated_at: string | null;
@@ -113,11 +146,14 @@ export const MANUAL_QUOTE_SCHEMA_FIELDS = {
   ManualQuoteRequestSummary: ["id", "request_no", "status", "category", "city", "service_local", "passengers", "luggage", "package_hours", "has_email", "has_whatsapp", "is_acceptance", "assignee", "version", "created_at", "updated_at", "finished_at", "purged_at"],
   ManualQuoteEvent: ["id", "kind", "from_status", "to_status", "assignee", "note", "actor", "created_at"],
   ManualQuotePlace: ["name", "lat", "lng"],
-  ManualQuoteWaypoint: ["name", "lat", "lng", "stay_minutes"],
+  ManualQuoteWaypoint: ["name", "lat", "lng", "stay_minutes", "arrive_by"],
   ManualQuotePerson: ["id", "name"],
-  SiteSettings: ["support_whatsapp", "page_width", "version", "updated_at", "updated_by"],
+  ManualQuoteTripLink: ["trip_id", "plan_kind", "purged", "labels", "days", "plans"],
+  SiteSettings: ["support_whatsapp", "page_width", "maps_browser_key", "version", "updated_at", "updated_by"],
 } as const satisfies Record<string, readonly string[]>;
-export const MANUAL_QUOTE_DETAIL_FIELDS: readonly (keyof ManualQuoteDetail)[] = ["request", "contact", "pickup", "dropoff", "waypoints", "events"];
+/** 只在有内容时才给的字段（不在 `required` 里）：经停点的指定到达时间（M9P-20 P3） */
+export const MANUAL_QUOTE_OPTIONAL_FIELDS: Readonly<Partial<Record<keyof typeof MANUAL_QUOTE_SCHEMA_FIELDS, readonly string[]>>> = { ManualQuoteWaypoint: ["arrive_by"] };
+export const MANUAL_QUOTE_DETAIL_FIELDS: readonly (keyof ManualQuoteDetail)[] = ["request", "contact", "pickup", "dropoff", "waypoints", "events", "trip"];
 export const MANUAL_QUOTE_QUERY_KEYS = ["limit", "cursor", "status", "assignee", "contact", "acceptance"] as const satisfies readonly (keyof ManualQuoteQuery)[];
 
 const one = (id: string): string => `${MANUAL_QUOTES_PATH}/${encodeURIComponent(id)}`;
@@ -149,8 +185,9 @@ export function getSiteSettings(token: string): Promise<SiteSettings> {
 }
 
 /**
- * 改官网设置。客服 WhatsApp 号码 `null` 是不设（官网不显示按钮）；`page_width` 不给是不改（M8-28）。已经设置过（版本 > 0）的带 If-Match。
+ * 改官网设置。客服 WhatsApp 号码 `null` 是不设（官网不显示按钮）；`page_width` 不给是不改（M8-28）；`maps_browser_key` 不给是不改、null 是清空（M10-01 第 2 处）。已经设置过（版本 > 0）的带 If-Match。
  */
-export function updateSiteSettings(token: string, version: number, supportWhatsapp: string | null, pageWidth?: SitePageWidth): Promise<SiteSettings> {
-  return apiRequest("PUT", SITE_SETTINGS_PATH, { token, body: { support_whatsapp: supportWhatsapp, ...(pageWidth !== undefined ? { page_width: pageWidth } : {}) }, ...(version > 0 ? { headers: ifMatch(version) } : {}) });
+export function updateSiteSettings(token: string, version: number, supportWhatsapp: string | null, changes: { pageWidth?: SitePageWidth; mapsBrowserKey?: string | null } = {}): Promise<SiteSettings> {
+  const body = { support_whatsapp: supportWhatsapp, ...(changes.pageWidth !== undefined ? { page_width: changes.pageWidth } : {}), ...(changes.mapsBrowserKey !== undefined ? { maps_browser_key: changes.mapsBrowserKey } : {}) };
+  return apiRequest("PUT", SITE_SETTINGS_PATH, { token, body, ...(version > 0 ? { headers: ifMatch(version) } : {}) });
 }

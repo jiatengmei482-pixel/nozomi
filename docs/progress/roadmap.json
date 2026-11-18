@@ -1,6 +1,6 @@
 {
   "project": "NOZOMI 用车平台",
-  "updated": "2026-11-13",
+  "updated": "2026-11-18",
   "statuses": {
     "todo": "未开始",
     "doing": "开发中",
@@ -480,8 +480,17 @@
           "role": "frontend",
           "status": "review",
           "acceptance": ["把「量元素高度、写进 CSS 变量」收进一个公用小模块（例如 lib/measured-length.ts 的 useMeasuredHeight(element, name)）：变量名只接受规定的几个，值固定写成「整数px」", "两个样式测试共用同一份变量名单；例外改为「只有这个模块可以调 setProperty」，不再按文件名替换字符串", "变量名单改成「变量 → 允许引用它的样式表」，--driver-bar-height 只许 driver.css 引用", "styles.edge.test.ts 的注释只提 setProperty（原规则本来不拦 removeProperty）", "来源：PR #177 独立复查（2026-11-13），不挡 #177 合并", "附带边角（#183 复查，不急）：离开确认里「保存并继续」保存失败后，紧接一次没有记录、目标地址相同的导航，可能沿用那次点击的 pointer 记录；保存失败时清掉记录即可"],
-          "evidence": "PR #202（https://github.com/jiatengmei482-pixel/nozomi/pull/202）；本机 typecheck 通过，样式和组件测试 9 个文件 159 条全过（新增 8 条），端到端 driver-time-window.spec.ts 2 条通过；反向试验确认原来能拦住的脚本改样式写法仍被拦下；全量见 PR 的 CI",
-          "updated": "2026-11-13"
+          "evidence": "PR #202（https://github.com/jiatengmei482-pixel/nozomi/pull/202）：lib/measured-length.ts（useMeasuredHeight、setMeasuredOffset、clearMeasuredLength；全站只有它的 writeLength 一处调 setProperty）；名单 MEASURED_LENGTHS 是「变量 → 种类（高度 / 位移）+ 允许引用的样式表」，两个样式测试共用：--driver-bar-height → driver.css；2026-11-19 合并 main 后把 M9E-32 新预订页按钮条的 --book-actionbar-h（高度）、--book-actionbar-shift（位移，可为负）也收进来，只许 book-new.css 引用；离开确认保存失败时清掉换步记录。本机见 PR",
+          "updated": "2026-11-19"
+        },
+        {
+          "id": "M6-12",
+          "title": "新预订页规范 3.3 的默认地图中心改按 #211 的规则写（defaultMapCity）",
+          "role": "designer",
+          "status": "todo",
+          "acceptance": ["site-booking-v2.md 3.3「地图从另一端（或第一个城市的中心）打开」改为：另一端选好了从另一端打开；都没有时从能订当前标签（区间 / 包车）、官网能订的品类最多的城市打开，一样多按列表顺序取第一个；一个能订的都没有时退回列表第一项（M8-43，PR #211）", "同一页第 3.2 节表格「日期（当地）」一行「默认第一个可订城市当地的明天」同步改为：按上车点所在城市当地的明天，还没选上车点时按上面这个默认城市（M8-44）", "来源：PR #211 独立审查（建议 b）；前端不改设计规范"],
+          "evidence": "",
+          "updated": "2026-11-14"
         }
       ]
     },
@@ -548,10 +557,11 @@
           "id": "M7-07",
           "title": "车型名、代表车型多语言（中 / 日 / 英 / 韩）",
           "role": "backend",
-          "status": "todo",
-          "acceptance": ["代表车型列表按 ADR 0068 改为多语言（不加新字段，走主站 LocalizedText 做法），按客人语言取名称", "页面上代表车型的 lang 属性按取到的语言标", "和 M8 方案 B3（多语言界面）一起排期", "业主决定（2026-11-13）：等 M8-08 的 B3（多语言界面）定了再排期"],
+          "status": "blocked",
+          "blockedBy": "已移至 M11-05（业主 2026-11-15：系统完成后再做）",
+          "acceptance": ["代表车型列表按 ADR 0068 改为多语言（不加新字段，走主站 LocalizedText 做法），按客人语言取名称", "页面上代表车型的 lang 属性按取到的语言标", "和 M8 方案 B3（多语言界面）一起排期", "业主决定（2026-11-13）：等 M8-08 的 B3（多语言界面）定了再排期", "业主 2026-11-15：系统完成后再做：移到最后阶段 M11，由 M11-05 承接，本条不再单独做"],
           "evidence": "",
-          "updated": "2026-11-13"
+          "updated": "2026-11-15"
         }
       ]
     },
@@ -795,9 +805,9 @@
           "role": "frontend",
           "status": "doing",
           "acceptance": [
-          "导入预览：含公里数超范围、只填一项时给专门的中文提示（现在借用金额和「必填」的说法）；手机宽度下线路价表、区域价表改为每条一张卡片（设计 §17.9）；复制对话框车型组顺序固定（M8-12 验收观察）","（已由 M8-12 完成）基础价格表「载入最新内容，保留我的修改」改为按格子合并（同 M8-12a 区域加价的做法），不再把别人改过的格子写回旧值", "区域加价：只设了加价、基础定价没有的套餐也出现在「套餐」筛选和汇总里；默认「报价区域」不在运营区域里时给提醒；已删除的加价区域标出区域本身已停用；保存后读屏状态区清掉旧提示", "区域加价与设计 §17 对齐：明细行「再加一段日期」、手机上「每个组合一行 + 底部改一条」、「这一行的意思」代入当天套餐价和合计（需 domain 提供加法函数）", "（2026-11-12 已修，分支 m8-25-import-overlap）M8-15 后端：导入预览里有一行 AREA_IS_PRODUCT_AREA 时，其余行仍要检查生效日期重叠（原来显示成「新增」）——原因是保存检查一有问题就跳过整批的重叠检查；改为有问题的行不参加、其余行照查，补 itest", "来源：M8-12a 验收（2026-11-10）缺陷 3 之外的 4–8 条"],
-          "evidence": "PR #160（https://github.com/jiatengmei482-pixel/nozomi/pull/160）：导入预览一行出错时其余行照查日期重叠；测试环境未实测（要登录）；其余各项未做",
-          "updated": "2026-11-12"
+          "（已做，https://github.com/jiatengmei482-pixel/nozomi/pull/207）导入预览：含公里数超范围、只填一项时给专门的中文提示（现在借用金额和「必填」的说法）", "（未做）手机宽度下线路价表、区域价表改为每条一张卡片（设计 §17.9）——新的卡片布局，工作量接近一个 PR，#207 没有放进来", "（已做，https://github.com/jiatengmei482-pixel/nozomi/pull/207）复制对话框车型组顺序固定（M8-12 验收观察）","（已由 M8-12 完成）基础价格表「载入最新内容，保留我的修改」改为按格子合并（同 M8-12a 区域加价的做法），不再把别人改过的格子写回旧值", "（已做，https://github.com/jiatengmei482-pixel/nozomi/pull/207）区域加价：只设了加价、基础定价没有的套餐也出现在「套餐」筛选和汇总里；默认「报价区域」不在运营区域里时给提醒；已删除的加价区域标出区域本身已停用；保存后读屏状态区清掉旧提示", "（已做，https://github.com/jiatengmei482-pixel/nozomi/pull/207）区域加价与设计 §17 对齐：「这一行的意思」代入当天套餐价和合计（domain 新增 charterPriceWithSurcharges，整数最小单位）", "（未做）区域加价与设计 §17 对齐：明细行「再加一段日期」、手机上「每个组合一行 + 底部改一条」——都是新交互（多段日期的行操作、手机上的改一条对话框），#207 没有放进来", "（2026-11-12 已修，分支 m8-25-import-overlap）M8-15 后端：导入预览里有一行 AREA_IS_PRODUCT_AREA 时，其余行仍要检查生效日期重叠（原来显示成「新增」）——原因是保存检查一有问题就跳过整批的重叠检查；改为有问题的行不参加、其余行照查，补 itest", "来源：M8-12a 验收（2026-11-10）缺陷 3 之外的 4–8 条"],
+          "evidence": "PR #160（https://github.com/jiatengmei482-pixel/nozomi/pull/160）：导入预览一行出错时其余行照查日期重叠；测试环境未实测（要登录）。PR #207（https://github.com/jiatengmei482-pixel/nozomi/pull/207，分支 m8-25-price-page-leftovers）：导入含公里数的专门提示、复制线路车型组顺序、区域加价四处小问题、「这一行的意思」代入套餐价和合计；本机：类型检查通过；domain 单元测试 1501 条（新增 1）、web lib 69 条（新增 2）、价格页组件测试 66 条（新增 6）、集成测试 p2p-route-prices 14 条（导入用例加 3 行和文字断言）+ import-export / charter-area-surcharge 25 条、端到端 charter-surcharge / route-prices 2 条全过。未做：手机卡片布局（线路价、区域价）、「再加一段日期」、手机上区域加价「每个组合一行 + 底部改一条」",
+          "updated": "2026-11-13"
         },
         {
           "id": "M8-21b",
@@ -822,8 +832,8 @@
           "title": "端到端去偶发：km-display 报价偶尔拿到替身默认路线（6,800 米）而不是测试写入缓存的 34,153 米",
           "role": "tester",
           "status": "doing",
-          "acceptance": ["查清 PR #150 run 42939235305 上 km-display.spec.ts:157 报价距离是 6800 的原因（路线缓存写入时机、键、并行用例互相覆盖或替身默认值），修测试或修代码，不靠加长等待", "同一类偶发还有 route-estimates-qa.spec.ts:127（PR #150 run 42947593270，官网点对点只有里程计价的商品）：一并查是否同一原因（路线替身 / 路线缓存在并行用例间互相影响）", "偶发（未修，待查）：e2e manual-quote.spec.ts:58 checkNarrow 的 axe 无障碍检查（catalog.ts:107）——#164 CI run 43202178851 报「人工报价列表（亮色）color-contrast」；#164 未改前端，同一用例在 main(c3c17425) 本地 3/3、#164 分支本地 2/3 同一行失败（本地为浏览器 Target crashed），main 与 #161 的 CI 均通过。疑为亮暗切换过渡中取样或内存压力。处理：登记后重跑", "已修：main run 43172522892（#160 合并后）token-check.qa.itest.ts:169「随机部分应有 43 个字符：38」——测试自身取随机部分的写法在 nzr_<租户>.<随机> 上又去了一次前缀，随机部分以「小写字母 + _」开头时（约 1%）被切短；与 #160 无关，不是产品问题。修法：有「.」时只取「.」后面；20 万次模拟旧写法错 2106 次、新写法 0 次", "另一类偶发：manual-quote.spec.ts:77 运营后台人工报价列表 axe color-contrast（PR #151 run 后一轮，同代码上一轮通过），查是否检查时机落在行高亮或过渡动画中", "另一类偶发：area-overview.spec.ts:264 第一次点地图选中区域（PR #152 run 43002718531，小区 JUB 的 aria-pressed 仍为 false；同代码上一轮 run 43001107329 e2e 通过），查是否地图加载完成前就点击", "另一类偶发：route-estimates.qa.itest.ts:346 并发用例（main 17753c83 的 CI run 42988235553，期望 2 实际 1；同代码 PR #151 的 CI 通过），导致 #151 合并后没有部署测试环境", "另一类偶发：site-payment.spec.ts:152 官网下单后用 Stripe 付款（测试卡 4242）付款成功等待确认（PR #154 只改文档，run 43029966780 e2e 失败一次，其余 409 个通过），查是否等待支付回调的时机问题", "该用例本机并行 20 次、CI 连续 3 轮不失败", "进展（2026-11-12，分支 m8-29-route-cache-race）：km-display.spec.ts:157 的原因查到——官网按两个坐标报价时，报价读路线缓存和「给客人看的路线」调谷歌（e2e 里是替身，一律 6,800 米）并行，后者把结果写回缓存，覆盖了用例写进去的里程；改为还没过期的成功缓存不覆盖（`saveRouteEstimate`），补 itest。route-estimates-qa.spec.ts:127 走旧的 /book 页面（POST /site/v1/quotes，不经过按两个坐标报价和 preview），不是这个原因，仍未查明；其余 4 类偶发也未处理", "另一类偶发（未修，已登记后重跑）：itest passenger-retention-ops.qa.itest.ts:228「批次上限」（PR #167 run 43264801551）——clone() 用 'NZ20260101' + md5 前 8 位给复制的订单编号，一次复制两千多单，撞上 orders_order_no_key 唯一约束（NZ2026010139434D8C）；与 #167 无关。修法：编号改用 generate_series 序号或 gen_random_uuid 拼足位数，保证不重复", "2026-11-12 结论（分支 m8-29-flaky-rest）：manual-quote.spec.ts:58/:77 已修——查找应答回来前旧表格半透明（.table--stale，opacity 0.6），axe 扫到它报 color-contrast；改为等按邮箱查找的应答回来、表格不再 aria-busy 再检查（人为推迟应答 2.5 秒时旧写法必失败、新写法 3/3 通过；单独运行 5/5）", "area-overview.spec.ts:264 已修——选了供应商后地图 fitBounds 平移约 170ms（leaflet-pan-anim），在平移途中量小区域位置再点会点歪；改为等地图停下（连续两帧位置不变、不在平移）再点；本机 --repeat-each=10 60/60（旧写法本机未复现失败，原因以 CI 那次和逐帧记录为证据）", "site-payment.spec.ts:152 已修——不是付款回调问题，是 createWorld 建城市编码（5 位随机字母）撞号 409 CODE_TAKEN；改为撞号换 tag 重建（同建机场的做法），本机 3×5 通过。另有约 12 个辅助函数用同样写法建城市，后续收进公共函数（未做）", "route-estimates.qa.itest.ts:346 已修——占每日名额事务的客户端时限 500ms 写死，CI 负载下偶尔超时、按设计不调谷歌；GoogleRouteEstimator 加可选 dbTimeoutMs（生产不传，仍 500），数调用次数的集成测试放宽到 5 秒；新增「库应答太慢（默认 500ms）就不调谷歌」和「放宽后照常调用」两条（用 tcp-proxy 卡住连接）；本机 41 条连跑 4 次全过；断言信息带上本次警告", "uncovered-demands.itest.ts:204 已修——main run 43258748905（#166 只改文档）失败：检查「日志里没有请求内容」用 includes(\"152\")，日志时间戳 / 耗时里碰巧带 152 就误报；改为只认单独出现的 152", "route-estimates-qa.spec.ts:127 已修（2026-11-13 业主决定 ② 允许改这个文件）——失败在 beforeAll 的前提检查：三个点各自在中心 ±0.08 度随机，路线缓存键取整到 3 位小数，偶尔有两个点落进同一格（测试数据问题，不是产品问题）。改为上车点在中心 ±0.06 度随机，两个下车点按固定偏移（+0.012/-0.015、-0.013/+0.011 度）从上车点算出，三点两两至少差 10 格、仍在区域内；前提检查和断言不变。本地模拟 100 万次：旧写法撞格 114 次（约 1/8800，与查到的频率一致）、新写法 0 次；该文件本机 --repeat-each=5 10/10 通过，类型检查通过", "已修（2026-11-13，分支 m8-29-route-map-theme）：e2e site-booking-route-map.spec.ts:185 expectMapFollowsTheme 报 getComputedStyle 参数不是 Element（PR #171 run 43310897506、main run 43324427085）。原因已证实：新预订页路线图按「起终点 + 主题」重建静态图组件，静态地图没开通（503 NOT_ENABLED）退回现有底图后，每切一次主题都重新要一次新主题的静态图、再问一次原因、再退回一次——本机在用例里逐帧记录：切两次主题多发 4 个 /site/v1/route-map 请求，.route-map__canvas 换成新节点，中间有一段是没有瓦片层的加载骨架；亮色那一轮「不压暗」在骨架上立刻成立，紧接着取瓦片层就是 null。这和 M6-08「切换主题时已打开的地图当场换瓦片或压暗，不重建地图」不符。改法：组件（StaticRouteMap.tsx）知道没开通以后把退回状态记在外层，切主题、换路线都直接用现有底图，不再要静态图，底图当场压暗或换瓦片；测试侧 expectMapFollowsTheme 取样式前先等瓦片层和矢量层出现（断言不变），用例加「切主题后还是同一个地图容器、不再请求静态图」。验证：新增组件测试 1 条（同一容器、同一瓦片层和路线、不再请求；旧组件上失败），book-new + map-theme 组件测试 52 条全过；类型检查通过；端到端 site-booking-route-map.spec.ts 单线程 --repeat-each=10 共 30/30 通过，area-roles.spec.ts（共用这个检查）2/2 通过", "已修：itest area-role-preview-report.itest.ts「statement_timeout 跟着时限收」（M8-34 新加，main run 43321503555 失败）——测试只认「2999ms」写法，PostgreSQL 显示整秒时写成「2s」，剩余时间刚好被收成整秒就失败；改为按单位换算成毫秒再比「不超过 3 秒」，要验证的内容不变；本机连跑 3 次通过", "业主决定（2026-11-13）：允许修改 route-estimates-qa.spec.ts：让测试挑的地点保证不会离得太近，不删断言（分支 m8-29-route-estimates-qa-points 在做）", "已修：itest area-role-preview-report.itest.ts「结果和命令行的 buildRolePreview 完全一样…」扫「应答里不能有坐标 145」偶发误报——M9W-00 加的 64 位十六进制摘要值随机含「145」片段（PR #189 CI）；扫坐标时跳过摘要值（不可能带出坐标），其余值照常检查", "（2026-11-13 深夜登记）site-booking-mobile.spec.ts:109「取消不改」：地图选点后断言出发地是占位名「地图上选的位置（坐标）」，坐标反查地址偶尔先回来、把名字换成反查到的地址（PR #191 的 CI，纯文档改动），断言等的是时序而不是行为；修法是等反查完成后再取「当前值」做比较，或让反查替身可控，不删不弱化断言"],
-          "evidence": "PR #159（https://github.com/jiatengmei482-pixel/nozomi/pull/159）：修了 km-display 一类（路线预览不再覆盖未过期的成功缓存）；未做测试环境验收；其余 5 类未查；分支 m8-29-flaky-rest：修了 manual-quote axe、area-overview 第一次点击、site-payment 建城市撞号、route-estimates 并发（时限可注入）、uncovered-demands 日志误报 5 类；PR #175（分支 m8-29-route-map-theme）：修了新预订页路线图切主题重建地图（site-booking-route-map:185）、statement_timeout 显示格式（原 #173）、route-estimates-qa:127（下车点按固定偏移从上车点算出，不再撞缓存格；本机 10/10）；passenger-retention-ops 订单编号撞号已登记未修",
+          "acceptance": ["查清 PR #150 run 42939235305 上 km-display.spec.ts:157 报价距离是 6800 的原因（路线缓存写入时机、键、并行用例互相覆盖或替身默认值），修测试或修代码，不靠加长等待", "同一类偶发还有 route-estimates-qa.spec.ts:127（PR #150 run 42947593270，官网点对点只有里程计价的商品）：一并查是否同一原因（路线替身 / 路线缓存在并行用例间互相影响）", "偶发（未修，待查）：e2e manual-quote.spec.ts:58 checkNarrow 的 axe 无障碍检查（catalog.ts:107）——#164 CI run 43202178851 报「人工报价列表（亮色）color-contrast」；#164 未改前端，同一用例在 main(c3c17425) 本地 3/3、#164 分支本地 2/3 同一行失败（本地为浏览器 Target crashed），main 与 #161 的 CI 均通过。疑为亮暗切换过渡中取样或内存压力。处理：登记后重跑", "已修：main run 43172522892（#160 合并后）token-check.qa.itest.ts:169「随机部分应有 43 个字符：38」——测试自身取随机部分的写法在 nzr_<租户>.<随机> 上又去了一次前缀，随机部分以「小写字母 + _」开头时（约 1%）被切短；与 #160 无关，不是产品问题。修法：有「.」时只取「.」后面；20 万次模拟旧写法错 2106 次、新写法 0 次", "另一类偶发：manual-quote.spec.ts:77 运营后台人工报价列表 axe color-contrast（PR #151 run 后一轮，同代码上一轮通过），查是否检查时机落在行高亮或过渡动画中", "另一类偶发：area-overview.spec.ts:264 第一次点地图选中区域（PR #152 run 43002718531，小区 JUB 的 aria-pressed 仍为 false；同代码上一轮 run 43001107329 e2e 通过），查是否地图加载完成前就点击", "另一类偶发：route-estimates.qa.itest.ts:346 并发用例（main 17753c83 的 CI run 42988235553，期望 2 实际 1；同代码 PR #151 的 CI 通过），导致 #151 合并后没有部署测试环境", "另一类偶发：site-payment.spec.ts:152 官网下单后用 Stripe 付款（测试卡 4242）付款成功等待确认（PR #154 只改文档，run 43029966780 e2e 失败一次，其余 409 个通过），查是否等待支付回调的时机问题", "该用例本机并行 20 次、CI 连续 3 轮不失败", "进展（2026-11-12，分支 m8-29-route-cache-race）：km-display.spec.ts:157 的原因查到——官网按两个坐标报价时，报价读路线缓存和「给客人看的路线」调谷歌（e2e 里是替身，一律 6,800 米）并行，后者把结果写回缓存，覆盖了用例写进去的里程；改为还没过期的成功缓存不覆盖（`saveRouteEstimate`），补 itest。route-estimates-qa.spec.ts:127 走旧的 /book 页面（POST /site/v1/quotes，不经过按两个坐标报价和 preview），不是这个原因，仍未查明；其余 4 类偶发也未处理", "另一类偶发（未修，已登记后重跑）：itest passenger-retention-ops.qa.itest.ts:228「批次上限」（PR #167 run 43264801551）——clone() 用 'NZ20260101' + md5 前 8 位给复制的订单编号，一次复制两千多单，撞上 orders_order_no_key 唯一约束（NZ2026010139434D8C）；与 #167 无关。修法：编号改用 generate_series 序号或 gen_random_uuid 拼足位数，保证不重复", "2026-11-12 结论（分支 m8-29-flaky-rest）：manual-quote.spec.ts:58/:77 已修——查找应答回来前旧表格半透明（.table--stale，opacity 0.6），axe 扫到它报 color-contrast；改为等按邮箱查找的应答回来、表格不再 aria-busy 再检查（人为推迟应答 2.5 秒时旧写法必失败、新写法 3/3 通过；单独运行 5/5）", "area-overview.spec.ts:264 已修——选了供应商后地图 fitBounds 平移约 170ms（leaflet-pan-anim），在平移途中量小区域位置再点会点歪；改为等地图停下（连续两帧位置不变、不在平移）再点；本机 --repeat-each=10 60/60（旧写法本机未复现失败，原因以 CI 那次和逐帧记录为证据）", "site-payment.spec.ts:152 已修——不是付款回调问题，是 createWorld 建城市编码（5 位随机字母）撞号 409 CODE_TAKEN；改为撞号换 tag 重建（同建机场的做法），本机 3×5 通过。另有约 12 个辅助函数用同样写法建城市，后续收进公共函数（未做）", "route-estimates.qa.itest.ts:346 已修——占每日名额事务的客户端时限 500ms 写死，CI 负载下偶尔超时、按设计不调谷歌；GoogleRouteEstimator 加可选 dbTimeoutMs（生产不传，仍 500），数调用次数的集成测试放宽到 5 秒；新增「库应答太慢（默认 500ms）就不调谷歌」和「放宽后照常调用」两条（用 tcp-proxy 卡住连接）；本机 41 条连跑 4 次全过；断言信息带上本次警告", "uncovered-demands.itest.ts:204 已修——main run 43258748905（#166 只改文档）失败：检查「日志里没有请求内容」用 includes(\"152\")，日志时间戳 / 耗时里碰巧带 152 就误报；改为只认单独出现的 152", "route-estimates-qa.spec.ts:127 已修（2026-11-13 业主决定 ② 允许改这个文件）——失败在 beforeAll 的前提检查：三个点各自在中心 ±0.08 度随机，路线缓存键取整到 3 位小数，偶尔有两个点落进同一格（测试数据问题，不是产品问题）。改为上车点在中心 ±0.06 度随机，两个下车点按固定偏移（+0.012/-0.015、-0.013/+0.011 度）从上车点算出，三点两两至少差 10 格、仍在区域内；前提检查和断言不变。本地模拟 100 万次：旧写法撞格 114 次（约 1/8800，与查到的频率一致）、新写法 0 次；该文件本机 --repeat-each=5 10/10 通过，类型检查通过", "已修（2026-11-13，分支 m8-29-route-map-theme）：e2e site-booking-route-map.spec.ts:185 expectMapFollowsTheme 报 getComputedStyle 参数不是 Element（PR #171 run 43310897506、main run 43324427085）。原因已证实：新预订页路线图按「起终点 + 主题」重建静态图组件，静态地图没开通（503 NOT_ENABLED）退回现有底图后，每切一次主题都重新要一次新主题的静态图、再问一次原因、再退回一次——本机在用例里逐帧记录：切两次主题多发 4 个 /site/v1/route-map 请求，.route-map__canvas 换成新节点，中间有一段是没有瓦片层的加载骨架；亮色那一轮「不压暗」在骨架上立刻成立，紧接着取瓦片层就是 null。这和 M6-08「切换主题时已打开的地图当场换瓦片或压暗，不重建地图」不符。改法：组件（StaticRouteMap.tsx）知道没开通以后把退回状态记在外层，切主题、换路线都直接用现有底图，不再要静态图，底图当场压暗或换瓦片；测试侧 expectMapFollowsTheme 取样式前先等瓦片层和矢量层出现（断言不变），用例加「切主题后还是同一个地图容器、不再请求静态图」。验证：新增组件测试 1 条（同一容器、同一瓦片层和路线、不再请求；旧组件上失败），book-new + map-theme 组件测试 52 条全过；类型检查通过；端到端 site-booking-route-map.spec.ts 单线程 --repeat-each=10 共 30/30 通过，area-roles.spec.ts（共用这个检查）2/2 通过", "已修：itest area-role-preview-report.itest.ts「statement_timeout 跟着时限收」（M8-34 新加，main run 43321503555 失败）——测试只认「2999ms」写法，PostgreSQL 显示整秒时写成「2s」，剩余时间刚好被收成整秒就失败；改为按单位换算成毫秒再比「不超过 3 秒」，要验证的内容不变；本机连跑 3 次通过", "业主决定（2026-11-13）：允许修改 route-estimates-qa.spec.ts：让测试挑的地点保证不会离得太近，不删断言（分支 m8-29-route-estimates-qa-points 在做）", "已修：itest area-role-preview-report.itest.ts「结果和命令行的 buildRolePreview 完全一样…」扫「应答里不能有坐标 145」偶发误报——M9W-00 加的 64 位十六进制摘要值随机含「145」片段（PR #189 CI）；扫坐标时跳过摘要值（不可能带出坐标），其余值照常检查", "（2026-11-13 深夜登记）site-booking-mobile.spec.ts:109「取消不改」：地图选点后断言出发地是占位名「地图上选的位置（坐标）」，坐标反查地址偶尔先回来、把名字换成反查到的地址（PR #191 的 CI，纯文档改动），断言等的是时序而不是行为；修法是等反查完成后再取「当前值」做比较，或让反查替身可控，不删不弱化断言", "已修（2026-11-13，分支 m8-29-waypoints-first-quote）：site-booking-waypoints.spec.ts:99 第一步（没有经停点、包车按 8 小时）车型卡 10 秒内没出来（PR #195 的 CI run 43486735721）。原因已证实，是测试数据问题、不是页面问题：不是询价慢——CI 的追踪里首屏询价按时发出并返回了 77,000 JPY，但车型是「商务七座RMQGA」而不是本用例的「商务七座XRJWQ」，用例按自己的车型名找卡片所以「找不到元素」。新预订页包车按上车地点选「中心最近」的包车城市（serviceCityOf，按设计），charter-support.ts 给每个用例在九州同一片（0.6×0.5 度）随机建城市，上车点放在中心东北约 1.4 公里；那次同时跑的 site-booking-charter / mobile-address 建的城市 ROILJ 中心离本用例上车点只有 385 米（自己城市中心 1,448 米），页面就按 ROILJ 询价、报出它的车型。修法：charter-support.ts 把上车点放在城市中心（距离 0，只有中心坐标完全相同的城市才会抢走），仍在商品区域里；断言和等待都没改。验证：用 CI 那次的两个城市中心坐标在本机建两个包车城市，旧写法必失败（页面按另一个城市报价，同样的「找不到元素」）、新写法通过；按 CI 那次 4 个包车城市模拟 20 万次：旧写法每轮约 2.4% 有用例撞上（本用例约 0.64%）、新写法 0 次；site-booking-waypoints.spec.ts 单线程 --repeat-each=10 共 10/10 通过；三个用 charterWorld 的文件（waypoints、charter、mobile-address）--workers=4 --repeat-each=3 chromium 12/12 通过（webkit-iphone 那 3 条本机没装 WebKit、起不来浏览器，交给 CI）；类型检查通过", "另一类偶发（未修，已登记）：单元测试 apps/api/src/integrations/xlsx.test.ts「最坏情况的用时：读一个在一秒以内」——M9P-01 分支本机和集成测试并行跑全套单元测试时 2,352ms 超时，单独重跑 12/12 通过；M9P-01 没改 xlsx。疑为机器负载下的计时断言，待查是否改成相对基准或放宽到 CI 机器的实测上限", "另一类偶发（未修，已登记）：e2e site-embed-widget.spec.ts:75（M9E-03 的「白名单网站上样式不受宿主页影响、320 px、axe、键盘走完 → 建草稿 → 跳主站」）——2026-11-14 M9E-14 分支本机和另一个会话的全套 pnpm check 同时跑时失败一次（10.6 秒处，失败现场被下一轮覆盖，没留下报错），同一代码单独重跑通过、整个文件 --repeat-each=2 共 8/8 通过；M9E-14 没改这条用例。疑为机器负载下的时序，待查", "另一类偶发（未修，已登记）：e2e master-data-qa.spec.ts:995（320 / 360 / 768 宽度下超长名称不撑破页面）——2026-11-14 PR #241（M9E-22）CI run 43610345734 失败一次：期望某处显示「QA Second Airport」，实际是同一用例造的超长机场名（QAVeryLongUnbrokenAirportName…）；M9E-22 只改嵌入组件、vite preview 的 CORS 和嵌入组件的端到端，没碰主数据页面，430 条中只此一条失败。疑为列表排序或并行用例的数据顺序，待查；按规则登记后重跑", "另一类偶发（未修，已登记）：集成测试 view-link-email.qa.itest.ts:401「邮件里的链接：只能看这一单…邮件正文没有姓名、电话、地址、航班、金额、供应商」——2026-11-14 PR #241（M9E-22）CI run 43615913380 失败一次：「邮件里不该有 JPY」。M9E-22 没碰邮件和订单；邮件里有随机的链接令牌（base64url）和订单号，疑为随机串里碰巧出现 JPY（或 ¥ / 円 以外的其他禁词）——应把这几个禁词的检查限定在去掉链接和订单号之后的正文里，待查；断言不削弱，按规则登记后重跑", "组件测试 apps/web/src/pages/products/prices/prices.test.tsx「新建调价规则：没填完整不能保存……」偶发找不到链接「周末夜间」（M9P-05 / PR #245 本机整套组件测试时机器内存紧张、几个会话同时跑；单独重跑通过）：查清是不是保存后列表刷新和断言之间的时序问题，修测试或修代码，不靠加长等待", "另一类偶发（未修，已登记）：e2e charter-estimate-breakdown.spec.ts:86（M9P-04 新加的用例 1、10 页面部分）——2026-11-14 M9P-04 分支本机单线程跑时 chromium「browserContext.newPage: Target crashed」一次（5.6 秒处，还没进到页面断言），同一代码前后各跑一次 2/2 通过；本机同时有别的会话的 vite preview 和集成测试，疑为内存压力，同 site-booking-waypoints.spec.ts:56 那次。按规则登记后重跑；同一轮本机单线程连跑 13 条时 platform-products.spec.ts:205 和 site-booking-mobile-address.spec.ts:206 也各在 axe 检查（catalog.ts:118）处报一次「Target crashed」，同属这一类，单独重跑；合并 main（#245）后再跑一轮 6 条时，charter-estimate-breakdown.spec.ts:100、site-booking-charter.spec.ts:93、site-booking-mobile-address.spec.ts:206 又各报一次「Page crashed / Target crashed」（当时另一个会话的 tsc 占 1.2 GB，可用内存 138 MB），三条都不是断言失败，单独重跑", "已修（2026-11-15，M9P-04 分支 PR #248）：e2e site-booking-charter.spec.ts:165「上车点在加价区域（车站）由这个包车商品报价 77,550」车型卡找不到（PR #248 CI run 43661459614；main 同代码通过、本机 --repeat-each=3 3/3 通过）。原因是测试数据：charter-support.ts 每个用例在九州 0.6 × 0.5 度里随机建城市，上车点是离自己中心约 0.165 度的加价区域车站，不受「上车点放在中心」那次修法保护；别的并行用例的商品区域 + 加价区域同时盖住这个车站和下车点、中心又更近时，页面按「上车点所在城市」选了别的城市报价。M9P-04 新加的 charter-estimate-breakdown.spec.ts 多建两个包车城市，撞上的机会变大。修法：城市中心改在 3 × 2.5 度里随机，断言和等待都不变；按 6 个包车用例同时跑模拟 20 万次，撞上的概率约 4.4% → 0.18%", "偶发（未修，待查）：集成 orders.qa.itest.ts:182「跨币种（美元）」规则 4 检查报「租户应答里出现了 USD」——#262（M9P-13，没有动订单）CI run 43687979758；本机同一用例 3/3 通过。疑似应答里的随机串（编号、令牌）碰巧含 USD 三个字母，待查清后按字段检查而不是整段文字子串，不放宽规则 4", "另一类偶发（未修，已登记后重跑）：e2e embed-key-delivery.spec.ts（M9E-26 新增）本机 2026-11-15 和另一个会话的 e2e 同时跑时浏览器「Target crashed」四次（截图、axe、点击、开新页各一次），另有一次 global-setup 里 API 30 秒没起来——本机可用内存约 300–400 MB、/dev/shm 只有 64 MB；等那边跑完后同一代码 --repeat-each=2 共 2/2 通过，再跑一次连同 build-output 6/6 通过。和 manual-quote.spec.ts 那条本地 Target crashed 同类，疑为本机内存压力，不是断言失败；CI 上再观察", "另一类偶发（未修，已登记后重跑）：deploy-smoke 第 10 步「白名单里的宿主 http://127.0.0.1:18091 应能嵌入 /embed/book（收到嵌入页的 ready）」——PR #249（M9E-26）run 43686005879 失败一次；同一 PR 上一轮（a38376d2）和同时段 main（3f3678d2）都通过，M9E-26 没改 Caddy、/embed/book、frame-check 和组件脚本（冒烟写库时不填新加的可空列 booking_url）。API 日志里第 10 步期间只有 /health，没有收到 frame-check；第 9 步备份恢复后 API 刚重启，Caddy 报过一次「lookup api … server misbehaving」。疑为恢复后容器间 DNS / forward_auth 还没就绪浏览器就打开了宿主页，待查是否要在第 10 步前等 Caddy 到 API 的转发恢复"],
+          "evidence": "PR #159（https://github.com/jiatengmei482-pixel/nozomi/pull/159）：修了 km-display 一类（路线预览不再覆盖未过期的成功缓存）；未做测试环境验收；其余 5 类未查；分支 m8-29-flaky-rest：修了 manual-quote axe、area-overview 第一次点击、site-payment 建城市撞号、route-estimates 并发（时限可注入）、uncovered-demands 日志误报 5 类；PR #175（分支 m8-29-route-map-theme）：修了新预订页路线图切主题重建地图（site-booking-route-map:185）、statement_timeout 显示格式（原 #173）、route-estimates-qa:127（下车点按固定偏移从上车点算出，不再撞缓存格；本机 10/10）；passenger-retention-ops 订单编号撞号已登记未修；2026-11-14 M9P-02 本机端到端：site-booking-waypoints.spec.ts:56 在亮暗 axe（expectBothThemes → expectAccessible）时 chromium「browserContext.newPage: Target crashed」一次，同一代码单独重跑通过，已登记未修",
           "updated": "2026-11-13"
         },
         {
@@ -865,7 +875,9 @@
             "运营区域仍作为「这一端能不能接单」的上限；城市匹配 80 / 150 公里规则保留",
             "所有产品都不报价 → 现有人工报价流程（留资 + 未覆盖需求 + WhatsApp）",
             "现在能报出的价格一分不变（最近 30 天询价只读回放对比）；客人页标注「按里程计价 / 含里程费 / 含区域加价」",
-            "业主 2026-11-11 确认的最终优先级；写 ADR；M8-14 按新规则验收"
+            "业主 2026-11-11 确认的最终优先级；写 ADR；M8-14 按新规则验收",
+            "另一类偶发（未修，已登记后重跑）：e2e site-embed-booking.spec.ts:176「宿主页又被别的网站嵌了一层」chromium page.goto 报 Page crashed（2026-11-14 M9E-17 分支本机，和组件测试同时跑、机器负载高时一次）；同一代码单独 --repeat-each=3 共 3/3 通过、此前整文件也通过；疑为浏览器内存压力，待查",
+            "同类偶发（未修，已登记后重跑）：2026-11-14 M9E-17 分支本机回归 e2e（--workers=1，47 条）里 site-booking-charter.spec.ts:92 和 site-payment.spec.ts:340 在 axe 检查（catalog.ts:118 expectAccessible）时 chromium「page.evaluate: Target crashed」各一次，和 site-booking-waypoints:56 那次同类；两条单独重跑都通过；疑为浏览器内存压力，待查"
           ],
           "evidence": "分支 m8-30-quote-priority（未开 PR，按指示）；ADR 0080；domain 单元测试 quote-priority 15 条 + quote-compat 新增 1 条（golden 全部样例：今天报得出的价逐分不变）；集成测试 distance-prices.itest.ts 6 条（接口、三种情形、运营上限、路线取不到、订单、只读回放 0 处变化）、tenant-isolation 新增 3 条；本机相关集成测试 25 个文件 375 条、单元测试 2,532 条通过；全套交 CI；测试环境部分验收（PR #154 docs/acceptance/M8-30.md）：合并前后 17 条线路 101 个价逐分一致、报不出原因不变，③一口价+里程 ④计程价 ⑤包车加价 ⑦订单 / 邮件标注 要用 QA 账号或验收口令，待有权限的会话补测；2026-11-12 待补 ①–③ 已在测试环境补完（docs/acceptance/M8-14.md），只剩 ④ 30 天询价回放，等 M8-34；④ 30 天询价回放 2026-11-12 用 M8-34 的只读接口在测试环境跑：767 条询价，原来报得出的价变化 0 处（docs/acceptance/M8-30.md「补测 ④」）",
           "updated": "2026-11-12"
@@ -1000,10 +1012,55 @@
           "id": "M8-41",
           "title": "M8-35 留下的两项后续：点对点回退时应答的城市、一口价 + 区域外里程的往返对称用例",
           "role": "backend",
-          "status": "todo",
+          "status": "review",
           "acceptance": ["M8-33 回退到点对点时，按两个坐标报价应答里的 city 仍是机场所在城市：改成实际报价用的城市，或在接口说明里写清楚含义（先查页面是否用到）", "「一口价 + 区域外里程」只有一端在区域里时，补往返对称的集成测试（两个方向都报、金额按各自所在区域的一口价算）", "来源：M8-35 独立审查意见（M8-35 关闭时转入，2026-11-13）"],
-          "evidence": "",
+          "evidence": "① 页面用应答的 city 定时区和城市名（BookNewPage），所以改代码：接送机回落到点对点、换了城市时 city 跟着换成实际报价的城市（services/site.ts）；现有用例断言回落时 city 是报价城市（夹具里机场和回落城市同为东京）。② distance-prices.itest 补反方向（区域外上车、区域里下车）的供应商试算和官网询价，和正方向同价、同计价方式",
+          "updated": "2026-11-18"
+        },
+        {
+          "id": "M8-42",
+          "title": "官网预订页地图选点后查地址：不因客人打字、点「取消」作废，出发地不再一直显示坐标",
+          "role": "frontend",
+          "status": "review",
+          "acceptance": ["地图选点（出发地、目的地、经停点）后查到的地址，只在这一格当前的值仍是那次地图选点时写入；客人已改选别的地点就丢弃，不覆盖", "和选择页里打字、点「取消」无关：查地址期间打开选择页打字再取消，查回来后仍换成地址；取消不改这一格的值（M8-37 已有行为不变）", "组件测试：① 反查慢、期间打开选择页打字再取消 → 反查回来后换成地址（去掉修复时失败）；② 反查慢、期间选了别的候选 → 反查回来后不覆盖新选的地点；不删不弱化已有断言", "来源：PR #204（M8-29 测试角色发现，PlaceField 的反查和搜索共用 round 计数）"],
+          "evidence": "PR #205（https://github.com/jiatengmei482-pixel/nozomi/pull/205）。只改 PlaceField.tsx：反查结果按「这一格的值是否还是那次选点」决定写不写，不再看搜索的 round；选择页开着时值变了不盖住正在打的字。新增组件测试 4 个（book-new.test.tsx：①在旧代码上失败；按审查意见补的「选择页开着时反查回来不盖住客人打的字」去掉该条件时失败；「切换区间 / 包车后旧地址框的反查不覆盖新框选的地点」去掉卸载判断时失败）；地址框卸载后旧的反查不再写入（审查顺带指出的旧问题）；本机组件测试 book-new / waypoints / manual-quote / map-theme 共 77 条通过，端到端 site-booking-mobile.spec.ts 单线程 --repeat-each=3 3/3 通过（带上与 PR #204 相同的测试改动：等反查回来再记原来的值），类型检查通过；未做测试环境验收",
           "updated": "2026-11-13"
+        },
+        {
+          "id": "M8-43",
+          "title": "M8-06 测试站抽查的三个小问题：地图选点的默认城市、明细里 0 元的超公里 / 超时、右侧栏经停点缩进",
+          "role": "frontend",
+          "status": "review",
+          "acceptance": ["新预订页「在地图上选点」还没选任何地址时，地图不再从城市列表第一项（测试站是北京）打开：另一端选好了从另一端打开；都没有时从能订当前标签（区间 / 包车）、官网能订的品类最多的城市打开，一样多按列表顺序（城市编码）取第一个；不写死城市、国家；组件测试证明默认中心不是列表第一项而是按规则选出的城市", "包车按行程计价的价格明细（车型卡、右侧栏、核对页、订单页同一个组件）：金额为 0 的「超公里费」「超时费」不显示，不是 0 的照旧显示，其他项目照旧；先按全部项目核对各项之和等于总价再去掉 0；后端 price_breakdown 不改；单元测试和组件测试覆盖 0 不显示、非 0 显示，已改的旧断言在 PR 里逐条说明", "右侧栏「经停点」的内容和其他项左边对齐、不多缩进，只用设计令牌；样式测试 + 端到端（1280 宽包车加经停点后的右侧栏）量左边位置相同", "亮暗两色、390 / 360 宽不横向滚动、axe 0：相关端到端用例（site-booking-waypoints、site-booking-new）本机跑过"],
+          "evidence": "PR #211（https://github.com/jiatengmei482-pixel/nozomi/pull/211）。新增测试：单元 5 条（default-map-city.test.ts 4、charter-itinerary.test.ts 1），组件 4 条（map-center.test.tsx 3、waypoints.test.tsx 1），样式 1 条，端到端 site-booking-waypoints.spec.ts 加右侧栏经停点左对齐断言；改 1 条旧断言（site.test.tsx 订单页明细去掉「超时费 0 JPY」，PR 里说明）。本机：typecheck 通过，apps/web 单元 558 条、pages/book 组件 + 样式 332 条全过，端到端（chromium）site-booking-waypoints / new / mobile / mobile-address / categories 共 7 条全过（webkit 本机缺依赖，交 CI）",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M8-43b",
+          "title": "待产品确认：手机选择页输入「東京駅」时第一条高亮候选是「東京国際空港」——是否调整候选排序",
+          "role": "product",
+          "status": "todo",
+          "acceptance": ["现象（M8-06 测试站抽查，2026-11-14）：手机全屏选择页输入「東京駅」，平台机场排在候选前面，第一条高亮的是「東京国際空港」，客人直接按回车会选成机场", "产品确认是否调整排序（例如名称完全匹配 / 车站优先于机场，或回车不默认选第一条），确认后再拆前端任务；不在 M8-43 里做"],
+          "evidence": "",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M8-44",
+          "title": "新预订页的默认日期按上车点所在城市的时区算（不再按城市列表第一项）",
+          "role": "frontend",
+          "status": "review",
+          "acceptance": ["默认日期（「当地的明天」）按上车点（出发地 / 包车的上车地点）所在城市的时区算；还没选上车点、或上车点哪个城市都不在时，按地图默认打开的城市（M8-43 的 defaultMapCity）的时区算；城市都没有时退回列表第一项", "客人定过的日期（自己改过、链接或预订草稿带了）不被改掉：之后换上车点、换标签都不覆盖", "组件测试用假时钟：东京 00:30（北京前一天 23:30）时默认日期是东京的明天；已选上车点在别的时区的城市（北京）时按那个城市；客人改过日期后再换上车点不覆盖；不删不弱化已有断言", "来源：PR #211 独立审查（不阻塞建议 a，2026-11-14）"],
+          "evidence": "PR #214（https://github.com/jiatengmei482-pixel/nozomi/pull/214）。新增测试：组件 10 条（default-date.test.tsx，假时钟东京 00:30 / 跨年 00:30：没选上车点、包车标签、上车点在北京再换回东京、链接上车点在北京、客人改过日期再换上车点、链接带日期、预订草稿带日期、换标签时默认日期跟着默认城市换、客人改过日期再换标签不变、还没报出价时右侧栏用车时间按上车点城市解读）、单元 1 条（default-map-city.test.ts 的 defaultDateCity）；没有删改已有断言。草稿带日期、换标签、右侧栏时区三处都做过「删掉 / 改坏那一行测试就失败」的验证。本机：typecheck、roadmap:check 通过，合并最新 main 后 pages/book 组件 + book-new 相关单元 + 嵌入组件 342 条全过",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M8-45",
+          "title": "官网地址提示：每个地址每天的额度只计真调谷歌的请求，用完不报「输入太快了」",
+          "role": "backend",
+          "status": "review",
+          "acceptance": ["每个地址每天的额度（新作用域 site_places_google_day，300 次，IPv6 按 /64）只在真要调谷歌时扣（和全站每日名额同一处）：命中缓存、只有平台地点的请求不扣；旧作用域 site_places_day 从代码删除，部署后计数从零开始", "额度用完不 429：不调谷歌，200 + available:false + unavailable_reason:\"IP_DAILY_LIMIT\"，平台的机场、车站照常；输入即提示、取坐标、搜索、反查共用，嵌入组件 /embed/v1/places/* 同一口径（每个嵌入码每分钟 600 次不变）；OpenAPI 同步", "每分钟限流不变：输入即提示、取坐标每分钟 60 次（site_autocomplete），搜索、反查每分钟 20 次，仍在入口扣、超了 429", "页面说法分开：429 仍说「输入太快了，请稍等几秒再输入」；IP_DAILY_LIMIT 说「今天的地址提示次数用完了，下面只有平台的机场和车站；也可以在地图上选点。」；其他 available:false 的说法不变；电脑地址框、手机全屏选择页、经停点、旧 /book 搜索同一说法", "ADR 0069 补一节说明口径变化", "测试：集成测试——同一地址同一个词命中缓存不扣；不同词调谷歌扣、扣满后 available:false + unavailable_reason、平台地点照常、不 429；每分钟限流仍 429；IPv6 /64；嵌入组件同一口径；组件测试——两种提示文字；ipv6-rate-limit-qa 的名单同步", "来源：业主测试站实测 2026-11-14（/book/new 包车上车地点输入「新宿」立刻提示「输入太快了」）"],
+          "evidence": "PR #216（https://github.com/jiatengmei482-pixel/nozomi/pull/216）。新作用域 site_places_google_day 在地址服务真调谷歌前扣，命中缓存不扣；用完 200 + available:false + unavailable_reason:IP_DAILY_LIMIT、平台地点照常、不 429；嵌入组件同一口径；页面分清「输入太快了」和「今天的地址提示次数用完了」。本机：类型检查通过；集成测试 site-places-google-day（新增 5 条）、site-places、site-places.qa（新增服务层 1 条）、site-by-points、embed、ipv6-rate-limit-qa、ipv6-rate-limit 共 92 条通过；组件 / 契约测试 book-new（新增 2 条）、site-address、site-address.qa、waypoints、site.contract、embed 共 105 条通过；已有测试按新口径改的 4 处在 PR 里逐条说明；未做测试环境验收",
+          "updated": "2026-11-14"
         }
       ]
     },
@@ -1072,8 +1129,930 @@
           "role": "backend",
           "status": "review",
           "acceptance": ["官网订单页显示锁定的对外价明细：/site/v1 订单应答 price_breakdown 取下单用的报价快照里的明细（和报价时同一个函数拆，不按现在的价格重算），各项之和等于订单对外价；只有包车按行程计价的单有，别的单、旧单、对不上（改期重算过价）时为 null，页面只显示总价", "供应商 / 运营订单详情「超公里 / 超时」写全程、套餐含量、超出量 × 单价 = 钱，只有结算价；/tenant/v1 应答没有对外价、加价比例、price_breakdown（规则 4，有测试断言）", "人工报价申请能带包车经停点：官网提交带 waypoints（≤10，名称、坐标、停留），有经停点时包车可以不带时长；经停点只放在密文里（ADR 0057），运营后台详情按顺序显示；别的类型带经停点 400；没有经停点时请求、去重键和以前完全一样", "OpenAPI 同步；旧订单显示不变；独立审查、合并、部署后测试站验收"],
-          "evidence": "分支 m9w-04-order-itinerary-money；本机：单元 19 条（order-price-notes 2、order-area-price-display 5、domain manual-quote 12）、组件 106 条（site / dispatch / order-money 74，manual-quotes / manual-quote / waypoints 32）、契约 110 + OpenAPI 4、集成 13 个文件 147 条（含 charter-waypoints、manual-quotes 新增用例）全部通过，类型检查通过；全套以 CI 为准",
+          "evidence": "分支 m9w-04-order-itinerary-money；本机：单元 19 条（order-price-notes 2、order-area-price-display 5、domain manual-quote 12）、组件 106 条（site / dispatch / order-money 74，manual-quotes / manual-quote / waypoints 32）、契约 110 + OpenAPI 4、集成 13 个文件 147 条（含 charter-waypoints、manual-quotes 新增用例）全部通过，类型检查通过；全套以 CI 为准；注意：ADR 0091 第四稿第三节第 3 小节会改动本任务「超公里 / 超时」里的超时一行——新口径订单写「预计超出 X 分钟，未预收，服务后按实际提交」，只有预收过超时费的旧单才显示「× 单价 = 金额」；price_breakdown 只在超时费大于 0 时有 overtime。本任务按旧单口径验收",
           "updated": "2026-11-13"
+        },
+        {
+          "id": "M9W-06",
+          "title": "M9W-01 审查遗留：按行程计价先核城市和套餐再估路线；修改区域加价没带途经加价时保留原值",
+          "role": "backend",
+          "status": "review",
+          "acceptance": ["按行程计价：城市不存在或停用 400 UNKNOWN_CITY（和普通询价一致）；城市没有能选的包车套餐直接 NO_PRODUCT；两种都不调路线估算（集成测试数调用次数）", "修改包车区域加价（PUT、批量 update）时请求里没有 waypoint_surcharge 键 = 保留原值，显式 null 才清掉；和导入旧模版同一口径；OpenAPI、ADR 0088 补充", "另两条（多档套餐都写询价日志；最短覆盖套餐不一定最便宜）不在本任务：前者没法在不改变报价结果的前提下提前停，后者是业主在 ADR 0089 第 3 节定的规则，记 M9W-07 待业主决定", "独立审查、合并、部署后测试站验收"],
+          "evidence": "",
+          "updated": "2026-11-13"
+        },
+        {
+          "id": "M9W-07",
+          "title": "按行程计价选套餐：最短覆盖套餐不一定最便宜、每档都写询价日志（业主已按新规格定，由 M9P-03 解决）",
+          "role": "product",
+          "status": "done",
+          "acceptance": ["业主决定选套餐规则：A. 维持 ADR 0089 第 3 节「能覆盖总时长的最小套餐」（客人看到的套餐时长最直观，可能不是最便宜）；B. 在能覆盖的套餐和更短套餐 + 超时之间取对外价最低的（对客人最划算，但套餐时长可能比行程短）。推荐 B", "定了 B 时新开实现任务：回放核对、改 ADR 0089；同时只把选中的那档写进返回结果，未选中的档次的询价日志标注「试算」以免占回放和统计"],
+          "evidence": "业主 2026-11-14 在正式需求文档 docs/requirements/charter-airport-packages-2026-11-14.md（PR #217） 第四节定了新规则，取代本任务的 A / B 两个选项：在不小于 T（需求二的预计用时，含经停点默认占用和整单缓冲）的套餐里，逐个算「套餐价 + 超公里费」取最低；区域加价、经停加价、超时费不参与比较，也不选比 T 短的档。注意这和原来的 B（含更短套餐 + 超时、按对外总价比）不同，不要按 B 实现。实现见 M9W-13（需求四）；「未选中档次的询价日志标注试算」已转入 M9W-13 的验收标准；2026-11-14 按业主《包车报价逻辑规格（开发版）》和 ADR 0093：由 M9P-03 解决（各商品含超公里取最低、一次询价一条日志）；M9W-13 已转入 M9P（ADR 0093 第九节对照表），「未选中档次的询价日志标注试算」不再需要（新口径一次询价只写一条日志）",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9W-10",
+          "title": "经停点所在加价区域没设途经加价时转人工报价并指出是哪个点；通用原因不再叫客人换时间",
+          "role": "backend",
+          "status": "review",
+          "acceptance": ["经停点那一端报不出（NO_PRICE_RULE / PRICE_RULE_DISABLED / PRICE_NOT_IN_EFFECT）时拒绝里带上 stopSeq；sales-quotes 凡带 stopSeq 的拒绝对外一律报 WAYPOINT_NOT_PRICED 并带 stopSeqs，询价日志、未覆盖需求保留原始原因码；上 / 下车那一端的原因码不变；不带经停点的询价报价和原因完全不变（golden、area-surcharge、charter-waypoints 测试原样通过）", "ADR 0088 补一节：对外原因口径与第 3 节第 4 条「沿用上 / 下车那一端的原因码」的关系，只影响对外原因、不影响价格", "NOT_AVAILABLE 通用文案不再让客人换时间，改为「这个行程暂时无法在线报价，请联系客服人工报价，或调整行程后再试。」；查清只用于供应商内部原因，和时间有关的各有各的原因", "测试：domain 单元测试（经停点那端各原因带 stopSeq）；charter-waypoints.itest.ts（加价区域只设上下车加价、经停点落在里面 → 官网应答 WAYPOINT_NOT_PRICED + waypoint_stop_seqs，未覆盖需求里仍是 NO_PRICE_RULE）；前端组件测试（新文案、WAYPOINT_NOT_PRICED 指出是哪个点）；不删不弱化已有断言", "可选：平台端 GET /platform/v1/channels/{id}/quote-logs 返回每条拒绝的 reason 和 product_id（不出现在 /tenant/v1），OpenAPI 同步、集成测试覆盖", "独立审查、合并、部署后测试站验收"],
+          "evidence": "PR #210（https://github.com/jiatengmei482-pixel/nozomi/pull/210）；本机 typecheck 通过；domain + api 单元测试 2211 条通过；web 组件测试 132 条、单元 / 契约 56 条通过；集成测试 92 条通过（charter-waypoints 11 条含新增 1 条、sales、charter-area-surcharge、charter-all-inclusive、uncovered-demands、quotes、quotes-qa、manual-quotes、platform-roles）；可选第 4 条已做",
+          "updated": "2026-11-13"
+        },
+        {
+          "id": "M9W-11",
+          "title": "需求二：包车按行程计价的预计用时 T（经停点默认占用、整单缓冲）、商品最低套餐、套餐不能短于 T、客人可升套餐；按新规格报价不再含超时费（ADR 0091，来源 docs/requirements/charter-pricing-spec-2026-11-14.md（PR #221）步骤 2、3 和 charter-airport-packages-2026-11-14.md 第二节）",
+          "role": "backend",
+          "status": "blocked",
+          "blockedBy": "已并入 M9P-03（ADR 0093 第四节、第九节），不在 M9W 下单独实施",
+          "acceptance": ["已并入 M9P-03：ADR 0091 第四稿收窄后的三件事——T 的定义、三项配置 service_rules.charterItinerary（默认 0 / 0 / 不限，PUT 不带键保留原值，非包车 400，租户隔离，最低套餐比所有套餐都长时提醒）、报价不再含超时费（price_breakdown 只在超时费大于 0 时写 overtime，OpenAPI 写「只在预收了超时费的旧单里出现」；新订单的供应商 / 运营订单详情写「预计超出 X 分钟，未预收，服务后按实际提交」，旧单照旧显示「× 单价 = 金额」；救援经 previewPlatformQuote：PlatformQuoteInput 加可选 charterSelection、函数内不设默认值，快照有 charterSelection 时传 locked + 订单的档、没有时不传，集成测试经 previewPlatformQuote 证明部署前的单救援超时费和档位不变；平台试算接口以后开放按行程计价时才传 auto）——在 M9P-03 里按 ADR 0091 第四节验收", "选档、比价、手动升档、PACKAGE_TOO_SHORT 对外口径按 ADR 0093 第四节（原 packageCheck / lockedItinerary / 服务层逐档询价的做法被取代）"],
+          "evidence": "",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9W-12",
+          "title": "需求一：机场开始 / 机场结束包车套餐（套餐场景、绑定机场区域、继承或单独定价、下单页快捷入口），并排查「服务区域又是加价区域时保存卡在有 N 条未保存」（来源 docs/requirements/charter-airport-packages-2026-11-14.md（PR #217） 第一节；先写 ADR）",
+          "role": "product",
+          "status": "blocked",
+          "blockedBy": "前半「机场开始 / 结束套餐」已移到 M9P-09，后半「服务区域又是加价区域时保存卡住」已移到 M9P-07（ADR 0093 第九节对照表），不在 M9W 下实施",
+          "acceptance": ["先写 ADR、独立审查后再拆实现任务", "P1：成田上车，「机场开始 5 小时」套餐选继承 → 显示「成田机场接机 + 5 小时包车」，结算价 33,000 + 14,000 = 47,000", "P1：同上，套餐单独填价 45,000 → 报 45,000，成田不再加 14,000", "P1：新宿上车、羽田下车 → 匹配「机场结束」套餐", "P1：上下车都不在机场 → 只匹配普通套餐", "P1：服务区域含成田，成田同时设区域加价并保存 → 保存成功"],
+          "evidence": "",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9W-13",
+          "title": "需求四：按「套餐价 + 超公里费」取最低选套餐（不小于 T 的套餐里；区域加价、经停加价、超时费不参与）+ 超限提醒（用时 / 距离 / 可选总价阈值，商品级配置；超过 13 小时不能在线下单）（来源 docs/requirements/charter-airport-packages-2026-11-14.md（PR #217） 第四节；先写 ADR）",
+          "role": "product",
+          "status": "blocked",
+          "blockedBy": "「含超公里取最低」和「超过 13 小时不能在线下单」已移到 M9P-03，「用时 / 距离超限提醒」已移到 M9P-10（ADR 0093 第九节对照表），不在 M9W 下实施",
+          "acceptance": ["先写 ADR、独立审查后再拆实现任务；提醒文案、阈值以文档第四节为准", "ADR 里决定「未选中档次的询价日志要不要标注试算」（M9W-07 转来），给出对回放（ADR 0086）和统计的影响——ADR 0093 第四节改为按行程计价一次询价只写一条日志，这一条随之不再需要", "P1：新宿→镰仓→新宿 132 公里 → 选 5 小时，报 46,200", "P1：新宿→镰仓→日光→新宿 454 公里 → 显示距离超限提醒，可继续下单", "P1：预计用时 13 小时 30 分 → 不允许在线下单，提示联系客服"],
+          "evidence": "",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9W-14",
+          "title": "需求三：经停点数量不限（以路径接口上限为准，超出提示联系客服定制），按完整路线计时计公里，明细逐个经停点列区域加价（来源 docs/requirements/charter-airport-packages-2026-11-14.md（PR #217） 第三节；先写 ADR，先查路径接口单次点数上限）",
+          "role": "product",
+          "status": "blocked",
+          "blockedBy": "已移到 M9P-10（ADR 0093 第九节对照表），不在 M9W 下实施",
+          "acceptance": ["先写 ADR（含路径接口单次计算点数上限的调查结论）、独立审查后再拆实现任务", "P2：添加 12 个经停点 → 可以添加，用时和价格随之增加", "P2：两个经停点都在镰仓区域 → 镰仓加价只收一次"],
+          "evidence": "",
+          "updated": "2026-11-14"
+        }
+      ]
+    },
+    {
+      "id": "M9E",
+      "name": "嵌入预订组件",
+      "goal": "业主 2026-11-13 新需求第 ③ 部分：合作网站放一行脚本，区间 / 包车两个标签，提交后跳主站预订页；嵌入码绑定域名白名单（ADR 0090）",
+      "tasks": [
+        {
+          "id": "M9E-00",
+          "title": "嵌入组件 ADR 0090：预订草稿 + 短编号、/embed/v1 域名白名单",
+          "role": "product",
+          "status": "review",
+          "acceptance": ["ADR 0090 写清草稿内容（区间 / 包车、上下车点、经停点含停留、日期时间、人数行李、包车时长；不含价格和个人信息）、草稿表和 2 小时有效期、嵌入码与白名单、/embed/v1 的 CORS 规则、return_url 校验、来源只做统计、组件脚本、测试计划和分 PR；写明取代 ADR 0087 草稿里的对应部分", "独立审查通过"],
+          "evidence": "PR #191（https://github.com/jiatengmei482-pixel/nozomi/pull/191）；独立审查第一轮「需要修改」9 条已按意见改（模型线路和订单行程方式如实写成这次不做并立 M9E-04 / M9E-05、CORS 和组件失败说法、待业主确认一节、5,000 上限已知限制、无效 draft_id 忽略、来源单独平台表、地址框提示、谷歌标识、验收补价格一致）；pnpm roadmap:check 通过",
+          "updated": "2026-11-13"
+        },
+        {
+          "id": "M9E-01",
+          "title": "嵌入组件·预订草稿：草稿表、GET /site/v1/booking-drafts/{id}、清理任务、/book/new?draft= 预填",
+          "role": "backend",
+          "status": "review",
+          "acceptance": ["domain BookingDraft 类型和 bookingDraftIssues 校验，单元测试覆盖区间 / 包车、经停点上限和停留规则、多余键和个人信息键被拒、16 KB", "迁移只建表 booking_drafts（id 43 位 base64url、content ≤ 16 KB、来源列可空、2 小时有效期），应用角色只有 select / insert / delete；不预置任何数据", "GET /site/v1/booking-drafts/{id}：200 只给 draft 和 expires_at；过期、不存在、格式不对同一个 404 BOOKING_DRAFT_NOT_FOUND；每地址每分钟 60 次；不带 CORS 头；集成测试", "清理任务每小时删过期草稿，只删过期的（集成测试）", "/book/new?draft=：区间、包车按时长、包车带经停点三种都能预填并自动询价，价格等于在主站手填同样条件；404 显示「链接已过期，请重新填写」和空白表单；不带 draft 时旧链接参数照旧（组件测试）", "地址框提示「只填地点，不要填姓名、电话」", "OpenAPI 同步；独立审查、合并、部署后测试站验收（随便编一个编号确认 404 口径和无 CORS 头）"],
+          "evidence": "分支 m9e-01-booking-drafts（叠在 m9e-00-embed-adr 上）。迁移 0390_booking_drafts.sql（#192 用了 0380）；domain booking-draft.ts（单元测试 11 条）；GET /site/v1/booking-drafts/{id}、BookingDraftRetentionJobs；集成测试 booking-drafts.itest.ts 10 条（最坏草稿写得进库、清理分批和拿不到锁跳过、只给条件不给来源、1 小时 59 分还能打开、过期 / 不存在 / 格式不对同一个 404、无 CORS 头、每地址每分钟 60 次、库里内容不合格按不存在、库约束、清理只删过期的、平台角色不能 update、租户角色无权限）；schema-structure.itest.ts 登记新表和权限（12 条通过）；前端 lib/book-new.test.ts 15 条、lib/booking-draft.test.ts 4 条、book-new.test.tsx + waypoints.test.tsx + site.contract.test.ts 共 67 条通过（新增 5 条：区间预填直接报价、包车带经停点按行程询价、包车按时长在 / 不在城市套餐里、过期 / 读不出两种提示）；openapi.test.ts 4 条；pnpm typecheck 通过；#193 审查后：input-hardening / ipv6-rate-limit-qa 登记新路由和额度、坐标限 7 位小数（挡 1e-300）、名称按 UTF-16 单元、库约束 32 KB 兜底、所有地址框提示只填地点",
+          "updated": "2026-11-13"
+        },
+        {
+          "id": "M9E-02",
+          "title": "嵌入组件·嵌入码与白名单、/embed/v1、来源统计",
+          "role": "backend",
+          "status": "review",
+          "acceptance": ["embed_keys 表和平台接口（列表、新建、详情、If-Match 修改、停用），权限 embed.read / embed.manage，新建、改白名单、停用写审计；不预置任何嵌入码", "一个迁移：embed_keys、quote_embed_sources、order_embed_sources 三张平台表，只建结构、不回填；租户角色无权限；两张来源表平台角色只有 select / insert（写入后不能改）", "运营后台「渠道 → 嵌入组件」：列表、新建、编辑、停用，详情页显示嵌入代码和「复制代码」；只读角色只能看", "/embed/v1/config、/embed/v1/places/autocomplete|details、POST /embed/v1/booking-drafts：嵌入码和 Origin 的核对在解析请求体之前；Origin 完全等于白名单某项才处理，通过后所有应答（200 / 201 / 400 / 413 / 429）都带 Access-Control-Allow-Origin 和 Vary: Origin；null、缺失、不在白名单、嵌入码停用 403 EMBED_ORIGIN_NOT_ALLOWED 且不带 Access-Control-Allow-Origin；预检同样；16 KB 413；每地址 10 分钟 30 次、每嵌入码每分钟 60 次、有效草稿 5,000 个上限（集成测试）", "return_url 按 ADR 0090 第五节第 2 小节校验，列出的用例都有单元测试；不合格时忽略不报错", "来源：报价带有效 draft_id 时记下来源（draft_id 格式不对、不存在、过期都忽略，不报错、不影响报价），下单时再核嵌入码和当前白名单，通过记 embed，否则记 book、不拒单；运营后台订单显示来源，官网订单页有合格 return_url 时显示「返回原网站」；/tenant/v1 和供应商 Webhook 不给来源字段（集成测试扫键）", "/site/v1、/platform/v1、/tenant/v1、/sales/v1、/driver/v1 带白名单 Origin 也不带 CORS 头（集成测试）；api-prefixes、edge-config、smoke 同步", "同一嵌入码有效草稿到 4,000 个时写告警日志 embed.draft_limit_near", "OpenAPI 同步；独立审查、合并、部署后测试站验收"],
+          "evidence": "分支 m9e-02-embed-keys（叠在 m9e-01-booking-drafts 上）。迁移 0400_embed_keys.sql；domain embed.ts（单元测试 6 条，含 return_url 全部用例）、access 权限 embed.read / embed.manage（access.test.ts 等 38 条）；/platform/v1/embed-keys、/embed/v1（onRequest 核对来源，通过后所有应答带 CORS 头）；来源表 quote_embed_sources / order_embed_sources；集成测试 embed.itest.ts 8 条（权限矩阵、白名单完全相等、预检、停用 / 移出白名单即 403、建草稿 201 / 400 / 413 带 CORS、return_url 不合格忽略、限速、5,000 上限及过期恢复、草稿 → 询价 → 下单记来源、移出白名单记主站、无效 draft_id 忽略、供应商看不到来源、/site /platform /tenant 无 CORS）；platform-admin.itest.ts 16 条、booking-drafts.itest.ts 8 条、schema-structure.itest.ts 12 条、site.itest / site-categories.itest 通过；前端 embed-keys.test.tsx 4 条、site-polish.test.tsx 12 条（返回原网站）、embed.contract / site.contract / order-money 契约、AppShell 菜单 13 条、platform-display 13 条、embed-display 1 条；deploy-web.test.ts 11 条（smoke 加 /embed/v1）；pnpm typecheck 通过；#196 审查后：地址提示先按地址再按嵌入码（复现「一个地址刷 601 次后别人 429」的集成测试）、audit-display 加 embed_key、运营页说明不写网址、Caddy 给 /embed/widget-v1.js 单开响应头（不存在 404，不落到 index.html；deploy-web 12 条、smoke 一条）、/embed/v1/places 集成测试、CORS 扫描加 /sales/v1 和 /driver/v1、供应商 Webhook 推送内容扫键、告警日志测试（4,000 写一条、之后每 250 个一条）、记报价来源出错只写日志、Expose-Headers Retry-After、403 带 no-store、停用前确认框；迁移改 0400；embed.itest.ts 11 条",
+          "updated": "2026-11-13"
+        },
+        {
+          "id": "M9E-03",
+          "title": "嵌入组件·widget-v1.js：区间 / 包车两个标签、Shadow DOM、先建草稿再跳转",
+          "role": "frontend",
+          "status": "review",
+          "acceptance": ["apps/web 单独构建入口产出 /embed/widget-v1.js，gzip ≤ 60 KB，不加载第三方资源；edge-config 给它单开响应头（JavaScript 类型、CORP cross-origin、nosniff、max-age 300），不存在时 404", "主站地址只认从 /embed/widget-v1.js 加载的 <script>：宿主页用 <img name=\"currentScript\"> 冒充时报错、不渲染、不请求任何地址，不退回宿主页地址", "NozomiBooking.init({ key, root, lang, services, redirectUrl })：root 找不到时控制台报错不渲染；lang、services 不合法用后台默认", "两个标签：区间（出发地、目的地、日期、时间、人数、行李）；包车（上车点、经停点 + 停留、下车点、日期、时间、人数、行李；不填经停点时跳到 /book/new 再选包车时长并报价，见 ADR 0090 第八节）；地址输入即提示走 /embed/v1/places，谷歌候选下方按谷歌地图平台的署名要求显示「Google Maps」（主站由 M9E-06 补上），地址框提示「只填地点」", "点「查询价格」先建草稿，成功后整页跳 /book/new?draft=，价格等于在主站手填同样条件；400、429（RATE_LIMITED / EMBED_DRAFT_LIMIT）、413 和读不出的失败按 ADR 0090 第四节各显示一句、不跳转；取配置失败（未授权和连不上分不出）显示「预订组件暂时无法使用…」和主站链接、不显示表单", "Shadow DOM 隔离：宿主页把 div、input、button 设成红底、改字重 / 字距 / 大小写 / 斜体（加 !important）时组件外观不变；320 px 不横向滚动；键盘能走完；axe 无严重问题（端到端，两个本机 origin：白名单内、外）", "独立审查、合并、部署后测试站验收：演示站 embed-demo.moveglobal.io 加入白名单、业主在工厂后台放代码后，区间和包车各用 Stripe 测试卡完整下一单；非白名单域名被拒"],
+          "evidence": "分支 m9e-03-widget（叠在 m9e-02-embed-keys 上）。apps/web/src/embed/：widget-core.ts（单元测试 5 条：init 参数、草稿通过主站同一套校验、查询前检查、失败说法、三语文案）、widget-ui.ts（Shadow DOM 界面，组件测试 widget.test.tsx 5 条：取配置失败只显示暂时无法使用、两个标签、地址提示带嵌入码不带 Cookie 且谷歌候选有 Powered by Google、先建草稿再跳转、400 / 429 两种 / 网络错误各一句、包车经停点和停留）；vite.widget.config.ts 单独构建 dist/embed/widget-v1.js（gzip 约 7 KB，超 60 KB 构建失败）；smoke 检查脚本 200 / JavaScript / CORP（Caddyfile 和 deploy-web.test.ts 那部分在 #196）；pnpm typecheck 通过。端到端 e2e/site-embed-widget.spec.ts 1 条：两个本机宿主网站（白名单内、外），宿主页 div / input / button 红底 30px 不影响组件、320 px 不横向滚动、axe 0、键盘选地点并提交 → 建草稿 → 跳主站 /book/new?draft= 自动询价，每个车型的价格等于在主站手填同样条件；不在白名单的网站只显示「暂时无法使用」；build-output.spec.ts 放行 embed/widget-v1.js；组件按主站规则把坐标保留 7 位小数、名称截到 200 个 UTF-16 单元（单元测试 5 条）；#197 审查后：主站地址只认 /embed/widget-v1.js 的 <script>（DOM clobbering 测试）、.nzb 也 all: initial（e2e 宿主页加字重 / 字距 / 大小写 / 斜体）、名称截断后去结尾空格、控制台输出集中到 developer-notice.ts（styles.edge.test.ts 只放行这一行）、包车无经停点在 /book/new 选时长（ADR 和验收同步、组件测试）、400 标出那一项、删除经停点后焦点、谷歌署名改「Google Maps」、widgetSizeProblem 单元测试；widget-core 7 条、widget 7 条、widget-size 1 条",
+          "updated": "2026-11-13"
+        },
+        {
+          "id": "M9E-04",
+          "title": "模型线路：后台配置常用线路（预填地点和停留），三个入口共用——待业主确认后排期",
+          "role": "backend",
+          "status": "blocked",
+          "blockedBy": "等业主确认要不要按需求 03 原样做（ADR 0090 第八节）",
+          "acceptance": ["业主确认要不要按需求 03 第 1.7 节（R21–R23）原样做（ADR 0090 第八节）", "确认后另写验收标准：后台配置、/book/new 预填、价格等于手填同样条件"],
+          "evidence": "",
+          "updated": "2026-11-13"
+        },
+        {
+          "id": "M9E-05",
+          "title": "统一订单格式的「行程方式」（需求 03 F1–F3：transfer / charter_package / charter_route）——待业主确认后排期",
+          "role": "backend",
+          "status": "blocked",
+          "blockedBy": "等业主确认要不要按需求 03 原样做（ADR 0090 第八节）",
+          "acceptance": ["业主确认要不要按需求 03 第二部分原样做（ADR 0090 第八节）", "确认后另写验收标准：新订单记行程方式、旧订单显示不变、/tenant/v1 不给来源"],
+          "evidence": "",
+          "updated": "2026-11-13"
+        },
+        {
+          "id": "M9E-06",
+          "title": "主站 /book/new 地址候选按谷歌地图平台的署名要求显示「Google Maps」（M9E-03 时发现主站没有，嵌入组件已有）",
+          "role": "frontend",
+          "status": "review",
+          "acceptance": ["候选里有谷歌来源的一项、页面上又没有谷歌地图时，列表下方显示「Google Maps」文字署名（不翻译、不改写），和嵌入组件一致；只有平台地点时不显示；上线前对一次谷歌地图平台现行的署名要求", "组件测试覆盖两种情况；独立审查、合并、部署后测试站看一眼", "署名始终可见：在候选列表（listbox）外、同一个弹出面板里，候选多（8–10 个）时也不被滚出可视区；listbox 里只有候选（#212 审查）", "上线前二选一（#212 审查，颜色和谷歌文档不一致）：请美工加署名专用令牌（亮色 #5E5E5E、暗色白色，主站和嵌入组件一起改），或改用谷歌的 Google Maps 标志"],
+          "evidence": "PR https://github.com/jiatengmei482-pixel/nozomi/pull/212 ；新增组件测试 6 个（google-attribution.test.tsx），嵌入组件测试补断言；本机相关组件 / 样式测试 349 个通过；按审查修改后新增端到端 site-google-attribution（10 个候选时署名始终可见，电脑、窄窗口、手机选择页、嵌入组件，亮暗 axe）4 个，相关端到端共 14 个通过（chromium）",
+          "updated": "2026-11-13"
+        },
+        {
+          "id": "M9E-07",
+          "title": "嵌入组件·#197 审查留下的后续：脚本字符编码、改正后去掉 aria-invalid、建草稿失败和包车的端到端",
+          "role": "frontend",
+          "status": "review",
+          "acceptance": ["字符编码：合作网站是 Shift_JIS 等非 UTF-8 页面时组件文字不乱码——构建产物 widget-v1.js 只含 ASCII（中日文转成 \\uXXXX，构建产物测试检查），Caddy 给 /embed/widget-v1.js 写死 Content-Type: text/javascript; charset=utf-8（deploy-web 测试），smoke 断言完整的 text/javascript; charset=utf-8；gzip 仍在 60 KB 预算内", "aria-invalid：400 标出错的那一项，客人改了（输入框打字、下拉改选）就去掉；再提交时只标服务端这次说的那一项（组件测试）", "端到端补齐 ADR 0090 第七节：建草稿网络错误、429（RATE_LIMITED / EMBED_DRAFT_LIMIT）各显示第四节的说法、不跳转（拦截改写应答）；400 用不合格的输入（不存在的日期）触发，标出日期并移焦点，改正后去掉标记；包车标签、无经停点 → 跳 /book/new?draft= 后停在第 1 步选时长、不询价 → 选 8 小时后报价", "独立审查、合并、部署后测试站看一眼脚本响应头"],
+          "evidence": "分支 m9e-07-widget-followups，PR https://github.com/jiatengmei482-pixel/nozomi/pull/213。字符编码：构建时 rolldown 压缩输出 asciiOnly，dist/embed/widget-v1.js 0 个非 ASCII 字节（约 21 KB，gzip 约 7.6 KB，预算 60 KB），build-output.spec.ts 新增 1 条（逐字节检查、文案以 \\u 转义保留）；Caddyfile 给脚本写死 Content-Type: text/javascript; charset=utf-8（本机 caddy:2 容器实测只有一个 Content-Type 头），deploy-web.test.ts 断言同步，smoke 断言改成完整的 text/javascript; charset=utf-8。aria-invalid：表单上 input / change 时去掉该项的标记，每次提交前清掉上一次的标记；widget.test.tsx 新增 1 条（下拉、地址框、改别的项不影响、再提交只标新的那项；去掉修复后这条会失败）。端到端 site-embed-widget.spec.ts 从 1 条到 3 条：建草稿网络错误 / 429 两种（page.route 拦截改写）/ 400（日期框按不支持日期选择器的浏览器当文本框填 2 月 30 日，真实 API 回 400 /draft/service_local）各一句、不跳转、400 标出日期并移焦点、改正后去掉标记；包车标签无经停点 → /book/new?draft= 停在第 1 步时长空着（城市 4 / 8 小时两档，charter-support 加可选的第二档）、不询价 → 选 8 小时按 8 小时询价、78,100 JPY。原有用例补「等谷歌候选取到坐标再提交」（本机重复跑时偶发）。本机：组件 / 单元 widget 8 + widget-core 7 + widget-size 1 + styles.edge 共 36 条，deploy-web 16 条，e2e site-embed-widget 3 条 × 3 遍 9 条、build-output 5 条全过；pnpm typecheck 通过",
+          "updated": "2026-11-13"
+        },
+        {
+          "id": "M9E-08",
+          "title": "嵌入组件：点了谷歌候选马上提交不再提示「请从候选里选」，取坐标期间改字 / 改选不被旧坐标覆盖（#213 独立审查）",
+          "role": "frontend",
+          "status": "review",
+          "acceptance": ["点了谷歌候选后马上点「查询价格」：按钮显示「正在取位置…」、不重复提交，坐标取回后自动接着建草稿；不提示「请从候选里选一个地点」", "取坐标期间客人又打字或选了别的候选，旧的坐标回来时不覆盖（框里显示什么，草稿里就是什么）", "取坐标失败时如实提示「取不到这个地点的位置，请重新选一个」、不建草稿，客人重选后可以提交", "取位置挂起 / 超时不会卡住提交：取位置最多等 10 秒，超时按取不到处理；被换掉 / 删掉的旧请求、切到「区间」后的经停点不再挡提交（#220 审查）"],
+          "evidence": "PR https://github.com/jiatengmei482-pixel/nozomi/pull/220 ；新增组件测试 4 个（widget.test.tsx，慢的取位置替身复现①②③，去掉修复时 4 个都失败）；本机 typecheck 通过，嵌入组件测试 20 个、端到端 site-embed-widget 1 个通过（chromium）；按 #220 审查修改后新增组件测试 3 个（取位置一直不回时改选、超时、切到区间不等经停点，换回上一版都失败），嵌入组件测试 23 个、端到端 1 个通过；按 #220 复审把超时改成 AbortController + setTimeout（老浏览器没有 AbortSignal.timeout），新增组件测试 1 个，嵌入组件测试 24 个通过",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9E-09",
+          "title": "MoveGlobal 工厂接入 NOZOMI 嵌入组件的改动说明（给工厂开发：站点可选 Good Journey / NOZOMI，演示站站点 73 先切换）",
+          "role": "product",
+          "status": "review",
+          "acceptance": ["新文档 docs/integration/moveglobal-factory-nozomi-widget.md，中文，工厂开发照着能直接改；不含账号、邮箱、密钥，fleetToken、corporateId、嵌入码一律占位", "后台「预订归属」加「预订组件来源」（默认 Good Journey）和「NOZOMI 嵌入码」（选 NOZOMI 必填，格式按 EMBED_KEY_FORMAT：nze_ + 32 位 base64url，共 36 字符）；已有数据缺字段一律按 Good Journey，不回填", "渲染：GJ 输出逐字不变；NOZOMI 在原 gojo-widget-container 位置输出 nozomi-booking 容器、defer 加载 widget-v1.js、DOMContentLoaded 时 init（key 转义、root、lang 按站点语言 ja / zh / en、services、redirectUrl 为站点首页），不输出 GJ 脚本；两段完整示例", "/booking/ 页 NOZOMI 模式放同一个组件、付款后回首页的理由和改法；快照测试（已有站点逐字相同 + NOZOMI 模式一份）；前提（白名单只写协议 + 域名、60 秒生效、将来 CSP 放行 script-src / connect-src）；验收步骤（区间、包车各下一单回演示站首页，非白名单只显示「暂时无法使用」，已有站点不变）；回退和重新发布；分工", "内容与 ADR 0090、widget-core.ts、domain embed.ts、apps/api 的实现一致"],
+          "evidence": "PR https://github.com/jiatengmei482-pixel/nozomi/pull/226 ；只改文档和 roadmap；node scripts/check-roadmap.mjs 通过；按 #226 独立审查修改：scriptLiteral 的 U+2028 / U+2029 正则改成转义写法（node 实测能编译，</script>、U+2028、U+2029 都转义、JSON.parse 回来等于原值），选 NOZOMI 但嵌入码空 / 格式不对时该站点构建报错（node 实测）并补测试要求，DOMContentLoaded 只在组件片段里数，脚本转存 / 改名的两种表现，ClientRouter 软跳转的处理和重复 init 是否安全，GJ 分支保持原静态写法，站点 73 嵌入码经 NOZOMI 侧确认、组件按 zh 显示，测试环境另收 localhost；按 #226 复审补：重复 init 的说法按代码改正（300 毫秒防抖、取位置最多 10 秒、旧实例进行中的请求照常跑完、老浏览器多一个 style），软跳转时脚本没加载完在其 load 事件再初始化，方案 2 的嵌入码同样用 scriptLiteral + set:html 输出",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9E-10",
+          "title": "嵌入组件重做外观：竖向卡片 card / 横向搜索条 bar 两种布局，init 加 layout、theme（接口不变）",
+          "role": "frontend",
+          "status": "review",
+          "acceptance": [
+            "init 新增可选 layout（card 默认 / bar）和 theme（primary、accent、radius、fontFamily，做成 CSS 变量，写错用默认，主色上的字自动挑够 4.5:1 的）；原有参数、草稿接口、提交、跳转、脚本地址不变，宿主页不用改代码",
+            "card：大圆角白卡片 + 半透明浅灰底，两行标签（主标题 + 副标题），日期时间合成一个控件、上车地、下车地竖排，输入框约 56 px，底部整宽「查看价格」",
+            "bar：文件夹式标签 + 白色圆角长条一行放下日期时间、From、交换、To、人数、圆形搜索按钮（未填好灰、可提交变主色）；经停点在长条下方展开；组件容器窄于 768 px 自动改 card（按容器宽度不按视口）",
+            "保留 Shadow DOM 隔离、三语、谷歌候选和署名（M9E-06）、#220 的取位置逻辑；隐私提示只在底部一行并用 aria-describedby 关联；每个控件有 label，键盘能走完（含加减器），焦点可见",
+            "嵌入码后台加「外观：卡片 / 横条」，生成的代码带 layout（迁移只加列、默认 card；OpenAPI、集成测试）",
+            "两种布局在演示站风格宿主和纯白宿主各截 1440 / 1024 / 768 / 390，附改前对比；现有组件测试和端到端全部通过",
+            "独立审查、合并、部署后在演示站看一眼两种布局"
+          ],
+          "evidence": "PR https://github.com/jiatengmei482-pixel/nozomi/pull/233 ；组件两种外观 card / 横条 bar（按组件容器宽度，bar 窄于 768 px 自动换 card），日期时间合成一个控件，人数行李改成紧凑加减器（主站选车那一步改不了人数行李，所以首屏保留），交换起终点按钮，隐私提示只在底部一行并用 aria-describedby 关联；theme 只留 primary / accent / radius / fontFamily 接口，做成 CSS 变量；嵌入码后台加「外观：卡片 / 横条」（迁移 0420 只加列（0410 由 M9P-01 使用），默认 card；/embed/v1/config 不变）。组件测试 widget.test.tsx 25 个（新增 8 个：外观切换、主题变量、隐私提示 aria-describedby、加减器、交换和横条按钮状态、日期时间控件、日期时间按组件语言显示、横条格子边框对比度）、widget-core 12 个（新增 5 个）；嵌入码后台 domain 7 个、embed-keys 页面 + 契约 8 个、embed.itest 12 个（新增 1 个）；端到端 site-embed-widget、site-google-attribution 本机通过（chromium）；截图 docs/acceptance/M9E-10-shots（JPEG，共约 1.8 MB；改前 before-*、改后 after-card-* / after-bar-*，演示站风格宿主和纯白宿主，1440 / 1024 / 768 / 390）；#233 审查前修改：横条格子加细边框（#7C8696，对白色长条 3.68:1、对格子底色 3.37:1）、日期时间按组件语言显示、合并 main（含 #213）；脚本 21.3 KB → 43.8 KB（含 #213 的纯 ASCII 转义），gzip 8.3 KB → 13.8 KB（预算 60 KB）；#233 独立审查后修改：横条选中标签加 3px 主色顶条（对白、米色、灰底都 ≥ 3:1）、theme 字色在白 / 深色里取高的且不到 4.5:1 退纯黑 / 纯白（#777777 用纯黑 4.69:1）、浅主色（#FFCC00）的选中标记条改深色、日期时间键盘编辑时显示原生分段且清空时显示「请选择日期 / 时间」、小标题改 fieldset + legend、交换按钮取位置时标不可用、重复 init 解除旧监听、英文「1 bag」单数；widget.test.tsx 29 个、widget-core 13 个",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9E-11",
+          "title": "嵌入组件外观后续（#233 审查留下的不阻塞项）：横条 1024 宽时文字截断、手机卡片人数弹层可能被宿主裁掉",
+          "role": "frontend",
+          "status": "review",
+          "acceptance": [
+            "横条在 768–1100 px 容器里：地址框占位文字（ja「住所・空港・ホテルなど」等）、停留时长下拉（en「Choose how long you stay」）不被截断，或改成更短的写法 / 换行；四个宽度、三种语言截图核对",
+            "卡片在 390 宽时，人数加减弹层不超出组件底边（宿主容器 overflow: hidden 时也不被裁掉）：改成在组件内展开或按可用空间向上弹出；端到端在 overflow: hidden 的宿主里验证",
+            "可选：styles.edge.test.ts 的 SVG 命名空间放行只限 embed/widget-icons.ts",
+            "重复 init：旧实例的异步回调（取位置、等位置的提交）要先看 destroyed，不再影响新表单（按钮状态和文字、错误提示、焦点）；改代码 + 测试（同一容器 init 两次，旧实例取位置 / 提交晚回来时新表单不变）"
+          ],
+          "evidence": "第 4 条（重复 init）：旧实例取坐标、搜索候选、等坐标的提交、建草稿和探配置回来后先看 destroyed，不再碰新表单；destroy 时叫醒等坐标的提交让它退出；widget.test 新增用例（不修时旧实例会建草稿，修后 0）。第 3 条：styles.edge 对 SVG 命名空间的放行只限 embed/widget-icons.ts。第 2 条：人数弹层往下放不下（超出组件底边）且上面放得下时往上弹（data-placement=up），widget.test 用排版尺寸桩验证三种情形；还没做 overflow: hidden 宿主里的端到端截图验证。剩第 1 条（横条 768–1100 截断，要截图核对）。第 1 条：端到端量出横条在 900 宽时地址框只有 116 px（日文占位要 176、英文 219），英文到 1024 宽仍不够；组件宽度 < 1200 px 时横条改成两行（出发地 · 交换 · 目的地 / 日期时间 · 人数 · 查询），新增端到端 768 / 900 / 1024 / 1100 × 日文 / 英文逐项量占位文字和停留时长下拉，全部放得下。四条都已完成（#310、#313）",
+          "updated": "2026-11-18"
+        },
+        {
+          "id": "M9E-14",
+          "title": "嵌入组件外观自动适配：layout 加 auto（默认，容器 ≥ 900 px 横条、窄了卡片），init 没传时用嵌入码后台的外观（/embed/v1/config 返回 layout）",
+          "role": "frontend",
+          "status": "review",
+          "acceptance": ["外观取值：init 传了（认识的）以 init 为准 > 嵌入码后台设的（/embed/v1/config 返回 layout）> auto；auto 按组件容器宽度（ResizeObserver，不按视口）≥ 900 px 横条、< 900 px 卡片，门槛可用 init 的 autoBreakpoint 改（768–4000，默认 900）；明确的 bar 仍是 < 768 px 退卡片", "换外观不闪、不丢已填内容：取到配置前不画表单，第一次画出来就是最终外观；换外观只改 data-layout、不重画", "后台嵌入码「外观」加「自动」并设为默认；生成的嵌入代码不再写 layout；迁移把已有的 card 改成 auto（bar 不变），PR 写明理由；OpenAPI、契约测试同步；公开接口只加 layout 一个字段", "生效时间核清楚（服务端缓存、配置应答 Cache-Control、widget-v1.js 的 max-age=300），目标 5 分钟内；测试站演示站嵌入码 embed-demo 的外观只读实测", "ADR 0090、工厂接入说明改成 auto / 阈值 / 优先级；接入说明补「组件位置与尺寸建议」（首屏底部整宽、首屏右侧、首屏下方、只在预订页，各给 CSS），数值用 Playwright 在 1440 / 1280 / 1024 / 768 / 390 实测，截图标明各宽度的实际外观", "测试：组件测试（优先级、899 / 900、改窗口宽度、768 退卡片、已填内容不丢、不闪）、集成测试（/embed/v1/config 返回 layout、迁移 0430）、端到端扩一条；变异检查"],
+          "evidence": "PR https://github.com/jiatengmei482-pixel/nozomi/pull/237 ；组件测试 widget.test.tsx 新增 4 个（优先级、899 / 900 和 autoBreakpoint、配置晚回来不闪、来回改宽度已填内容和焦点不丢）、widget-core 新增 2 个，嵌入组件 + 后台页面 + 契约共 57 个通过；domain embed 7 个；集成 embed.itest 外观用例改写（默认 auto、配置返回 layout、PATCH 后马上返回新值）、新增 embed-layout-migration.itest（0430：card→auto、bar 不变、其余不变），相关集成 35 个通过；端到端 site-embed-widget 新增 1 条；pnpm test 2,817 个通过；变异 16 个全部被抓到；测试站 embed-demo 外观只读实测为 bar；截图 docs/acceptance/M9E-14-shots（4 种位置 + 演示站现写法 × 1440 / 1280 / 1024 / 768 / 390，JPEG 约 2 MB）",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9E-15",
+          "title": "ADR 0095 草案：预订流程整体嵌在合作网站页面里（bookingUrl、mountBooking、/embed/book、按嵌入码生成 frame-ancestors、Payment Element 进 iframe）",
+          "role": "product",
+          "status": "review",
+          "acceptance": [
+            "对照现有代码写清现状：草稿跳转与来源（含 M9E-12）、付款方式（主站已是 Payment Element）、CSP / X-Frame-Options、#nzo_ 订单令牌",
+            "写清 /embed/book 的复用方式、路由构建、多语言；frame-ancestors 在哪一层生成、缓存、生效时间、无效 key；令牌与 CSRF；postMessage 协议；Stripe 对接、3DS、域名注册；来源 / 锁价 / 取消 / 邮件一致；回归清单；风险；分期估算；工厂接口说明附录",
+            "外部事实（Stripe、浏览器、谷歌条款、PCI）注明官方出处",
+            "待定事项 Q1–Q15 给出推荐，业主 / 监工答复后状态改为已采纳",
+            "#236 独立审查 8 项必改已改：Caddy 片段放进 route、镜像固定 ≥ 2.11.4、跨站验收（Q12）、return_url 带 key 和 host、Caddy 层测试、嵌入页只挂 /embed/book* 路由、frame-check 是 ADR 0090 Origin 规则的例外、nozomi.embed-order 是 ADR 0046 的修订"
+          ],
+          "evidence": "",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9E-16",
+          "title": "嵌在宿主页·第一期：init 加 bookingUrl（跳宿主页 ?nzdraft=）、mountBooking 骨架（iframe、超时后备、postMessage 核对、自动高度）、/embed/v1/frame-check + Caddy forward_auth 按嵌入码生成 frame-ancestors（ADR 0095 第三、五、六节）",
+          "role": "frontend",
+          "status": "done",
+          "acceptance": [
+            "不传 bookingUrl 时组件行为逐字不变（现有组件测试、site-embed-widget.spec.ts 原样通过）；传了合格的跳 bookingUrl?nzdraft=<草稿号>，不合格（不同 origin、非 https 等）按没传处理并在控制台报一句",
+            "/embed/book 只能被白名单里、本次声明的那一个宿主嵌入：非白名单、伪造 host、停用嵌入码、嵌套两层都被拒；其余页面仍 frame-ancestors 'none' + X-Frame-Options: DENY（security.spec.ts、deploy-web-csp-paths.qa.test.ts 在真实 caddy:2 上核对；伪造 X-Nozomi-Frame-Ancestor 请求头无效）",
+            "postMessage 双向核对 origin 和 source、从不用 \"*\"；消息键集合固定、不含个人信息；15 秒无 ready 显示后备链接",
+            "测试环境先 curl -I 核实外层 nginx 有没有自己加 X-Frame-Options / CSP，结果写进 PR",
+            "Caddy 片段写在 route { } 里（删伪造头 → forward_auth → header → try_files → file_server）；apps/web/Dockerfile 和 deploy-web-csp-paths.qa.test.ts 的 Caddy 镜像固定到 ≥ 2.11.4 的具体版本或 digest（CVE-2026-30851、CVE-2026-52845）",
+            "Caddy 层测试（端到端走 vite preview 测不到）：真实 Caddy 容器断言 /embed/book 的 frame-ancestors 和 X-Frame-Options、伪造头（含 _ 写法）无效、其余页面仍 'none' + DENY；deploy-smoke 加无头浏览器嵌入检查；preview 插件同规则并有一致性测试",
+            "frame-check 不走 ADR 0090 的 Origin 规则（按 host 参数核对）、单独限速；Caddy 只转 key、host 两个参数（不把 payment_intent_client_secret 带进 API 日志）；嵌入码加「允许整页嵌入」开关（Q13，默认关），运营后台嵌入码详情能开关、写审计",
+            "宿主页 sessionStorage 的 nozomi.host-draft：收到 completed、草稿 404 时删除，并显示「重新查询」入口",
+            "迁移排在 0430 之后，只加 delivery 列（booking_drafts、quote_embed_sources、order_embed_sources）和嵌入码的「允许整页嵌入」开关，不回填"
+          ],
+          "evidence": "PR #242；业主验收通过（2026-11-15，监工转达业主原话「嵌入程序可以了」）",
+          "updated": "2026-11-15"
+        },
+        {
+          "id": "M9E-17",
+          "title": "嵌在宿主页·第二期：/embed/book 复用 /book/new 四步（BookingShell 上下文、EmbedLayout、无 Leaflet）、iframe 内订单页（不含付款）、step / completed / error 事件、刷新续接（ADR 0095 第四、八、九节）",
+          "role": "frontend",
+          "status": "done",
+          "acceptance": [
+            "主站 /book/new、订单页的组件测试和 site-booking*.spec.ts、site-payment*.spec.ts 一条不改、全部通过；新增主站模式询价 / 下单请求体与重构前逐字相同",
+            "嵌入页询价带 draft_id，下单后平台订单详情来源为嵌入组件（宿主页内）",
+            "嵌入页不加载 Leaflet（静态图失败只显示时长和公里数）、不提供地图选点；地点候选下方有「Google Maps」",
+            "直接在地址栏打开 /embed/book 不显示预订流程，只给主站链接",
+            "嵌入页文档只挂 /embed/book* 路由树：navigate 到 /login、/platform 等只显示「请在新窗口打开」；每一步地址都保留 key、host；草稿上的嵌入码、宿主和本次 key、host 不一致时来源按主站记",
+            "390 宽不横向滚动、axe 无严重问题、键盘能走完；iframe 有 title",
+            "嵌入页样式只引用组件的 --nzb-* 变量（命名和默认值同 widget-style.ts），传给 Stripe appearance 的取值也从 --nzb-* 读（Q15）",
+            "路线图：首期和主站一样显示谷歌静态路线图，静态图失败时只显示时长和公里数，不加载 Leaflet（Q11；合规后备图随 M10-01）"
+          ],
+          "evidence": "PR #244（https://github.com/jiatengmei482-pixel/nozomi/pull/244）：集成测试 17 条（新增 source_matches 1 条）；组件测试新增 embed-flow 7、booking-shell 2（主站请求体逐字不变）、embed-style 4、embed-order-store 3，改 embed-book 17；跨站端到端 site-embed-booking 新增 2 条（chromium + webkit）；ADR 第十节回归 e2e 47 条。付款进 iframe、completed 的跨站端到端在 M9E-19；四步三语在 M11-04（原 M9E-18）；特商法、取消政策、隐私政策三页和嵌入页上的链接待业主给内容，登记为 M9E-24（Q14）；Leaflet 不进嵌入页打包产物登记为 M9E-25；业主验收通过（2026-11-15，监工转达业主原话「嵌入程序可以了」）",
+          "updated": "2026-11-15"
+        },
+        {
+          "id": "M9E-18",
+          "title": "嵌在宿主页·嵌入页中 / 日 / 英三语，必做（复用 widget-core.ts 的 TEXTS 和 BOOK_TAB_I18N 的写法、付款出错说法、日期金额格式、Stripe locale；主站仍只中文）（ADR 0095 第四节第 3 小节，Q4）",
+          "role": "frontend",
+          "status": "blocked",
+          "blockedBy": "已移至 M11-04（业主 2026-11-15：系统完成后再做）",
+          "acceptance": ["mountBooking 的 lang 为 zh / ja / en 时嵌入页、订单页、付款区块全部按该语言显示，主站页面文案逐字不变", "译文由业主或运营过目", "加一种语言只需在各文案表加一列、语言类型加一项，不改页面代码；第二批韩文、繁体中文（ko、zh-Hant，组件和嵌入码 default_lang 一起加）在本任务合并时登记为后续任务", "业主 2026-11-15：系统完成后再做：移到最后阶段 M11，由 M11-04 承接，本条不再单独做"],
+          "evidence": "",
+          "updated": "2026-11-15"
+        },
+        {
+          "id": "M9E-19",
+          "title": "嵌在宿主页·第三期：付款进 iframe（PaymentPanel 复用、return_url 指向 /embed/book/order、3D 验证弹窗 modal / viewport、银行回跳取令牌、新窗口打开订单页退路）；后端付款不改（ADR 0095 第七节）",
+          "role": "frontend",
+          "status": "doing",
+          "acceptance": [
+            "后端付款、Webhook、超时取消、退款无改动；假 Stripe 端到端在跨站宿主（localhost / 127.0.0.1）里付款成功、失败卡、3D 验证成功 / 失败各一遍",
+            "return_url 带 key、host：模拟银行整页回跳、订单页刷新后仍在 iframe 里正常显示",
+            "3D 验证弹窗在 390 宽和桌面都出现在客人可视范围内",
+            "Stripe 测试模式在跨站宿主上 Chrome、Safari（含 iOS）、Firefox 实测，结果写进 PR",
+            "频道号 ch 现在只在文档第一次加载时从 #ch= 读、放在内存里（EmbedFrame.tsx）；进订单页后地址里没有 #ch=，银行整页回跳、iframe 刷新后 ch 为空，宿主按频道核对会丢掉这些消息：回跳后的 ready / step / completed 要仍带得上 ch（例如 ch 随站内地址的 # 一起带上，或存进 iframe 自己的 sessionStorage），端到端覆盖回跳后宿主照样收到 completed（M9E-17 审查建议）"
+          ],
+          "evidence": "PR #279（main 4a025518，测试站 Deploy 43792336820 于 2026-11-16 02:29Z 成功）；演示站 chromium 区间 NZ20261116LC5WBDR3、包车 NZ202611160XYV6VCU 在 iframe 里用 4242 付款成功，宿主收到 modal open/close、paid、completed（docs/acceptance/M9E-30.md）；Safari（含 iOS）、Firefox 真机和 3D 验证卡未测，状态保持 doing",
+          "updated": "2026-11-16"
+        },
+        {
+          "id": "M9E-20",
+          "title": "嵌在宿主页·第四期：更新工厂接入说明（ADR 0095 附录 A 定稿）、演示站接入、测试站验收",
+          "role": "acceptance",
+          "status": "blocked",
+          "blockedBy": "M9E-19 合并、工厂上线 mountBooking",
+          "acceptance": [
+            "工厂接入后在 embed-demo.moveglobal.io 上，区间、包车各用 Stripe 测试卡全程不离开演示站下一单；运营后台来源为嵌入组件（宿主页内）",
+            "不在白名单的域名用 iframe 嵌入 /embed/book 被拒",
+            "手机 390 宽显示正常",
+            "跨站（非 moveglobal.io 宿主）只走到核对 / 付款页、不下单（测试环境的验收 Cookie 是 SameSite=Strict，跨站带不上，Q12）；跨站下单由本机端到端覆盖"
+          ],
+          "evidence": "",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9E-12",
+          "title": "嵌入组件来的单记不上来源：主站 /book/new 从草稿进来时询价要带 draft_id（测试站实测 2026-11-14）",
+          "role": "frontend",
+          "status": "done",
+          "acceptance": [
+            "从草稿进来（草稿读到了）时，/book/new 的每次询价都带 draft_id：接送（POST /site/v1/quotes/by-points）、包车（POST /site/v1/quotes，按时长和按行程），加附加服务后的重新报价也带；客人在主站改了行程仍带（来源记客人从哪个网站来，ADR 0090）",
+            "草稿过期、不存在（404）时不带 draft_id，读不出来（限速、网络）时照样带链接里的编号由服务端核对，客人手填照常报价；草稿在客人停留期间过期时服务端忽略 draft_id，照常报价下单、按主站算",
+            "接口不变（draft_id 本来就是可选字段），接送机、点对点、包车的报价结果不变",
+            "组件测试断言请求体里的 draft_id；端到端：组件建草稿 → 询价带 draft_id → 下单 → 假 Stripe 测试卡 4242 付款 → 平台订单详情 entry_source.kind 为 embed、带嵌入码名称 → 订单页「返回原网站」链到 return_url；去掉 draft_id 后新测试失败",
+            "测试站：从演示站用组件下一单，测试卡 4242 付款，订单页有「返回原网站」，运营后台订单详情来源为「嵌入组件 · 演示站」"
+          ],
+          "evidence": "PR https://github.com/jiatengmei482-pixel/nozomi/pull/239 ；根因：BookNewPage 的 requestOf() 包车、接送两个分支都没带 draft_id，后端收不到就按主站记；book-new.test.tsx 全文件 73 个通过（草稿相关新增 4 个、改 4 个断言：区间、包车按行程 / 按时长 / 到主站选时长并改下车点、M9P-03 手动升档、附加服务重新报价都带 draft_id；404 不带、429 照样带）；embed.itest 12 个通过（来源用例补草稿过期一段）；端到端 site-embed-widget 新增 1 条（组件建草稿 → 询价带 draft_id → 下单 → 假 Stripe 4242 付款 → 平台订单 entry_source 为 embed、带嵌入码名称 → 订单页返回原网站链到 return_url），PR CI check / e2e / deploy-smoke 全绿；变异：去掉 draft_id 组件测试 6 条失败（含升档那条）；ADR 0090 第三节第 3 小节补一句「改了行程仍算这个嵌入码」；后续 M9E-21（来源统计）、M9E-23（draft_id 超长 400）",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9E-21",
+          "title": "运营后台嵌入码列表显示订单数 / 来源统计（M9E-12 时登记；M9E-13–20 已有别的用途，编为 M9E-21；现在只有订单详情里一行「来源」）",
+          "role": "product",
+          "status": "review",
+          "acceptance": [
+            "先写清口径：按嵌入码统计哪些订单（已付款 / 全部、时间范围）、订单列表要不要能按来源筛选，请业主确认",
+            "来源只做统计，不作为分佣、结算依据（ADR 0090 第三节第 3 小节）"
+          ],
+          "evidence": "口径按推荐先做（#288【需业主决定】）：只算已付款、没取消的单（不含待付款、已取消、验收单），近 30 天（按下单时间）和累计；只做统计。第一批：GET /platform/v1/embed-keys 每项带 order_stats，运营后台嵌入码卡片显示「带来的订单」；embed.itest 断言付款前 0、付款回调后 1。订单列表按嵌入码筛选（GET /platform/v1/orders?embed_key_id=，嵌入码卡片「查看这些订单」）；embed.itest 断言筛选只列嵌入页来的单",
+          "updated": "2026-11-18"
+        },
+        {
+          "id": "M9E-23",
+          "title": "询价接口的 draft_id 超过 64 字时 400：按 ADR 0090「格式不对一律忽略」应只忽略、照常报价（M9E-12 审查登记）",
+          "role": "backend",
+          "status": "review",
+          "acceptance": [
+            "POST /site/v1/quotes、/quotes/by-points 的 draft_id 超过 64 字时不报 400，按「格式不对」忽略，照常报价、不记来源；OpenAPI 同步",
+            "集成测试：65 字、1,000 字的 draft_id 照常报价；主站前端只发 43 位编号，不受影响"
+          ],
+          "evidence": "询价的 draft_id 超过 64 字当没带、照常报价、按主站算（zod transform，OpenAPI 去掉 maxLength）；embed.itest 补用例",
+          "updated": "2026-11-17"
+        },
+        {
+          "id": "M9E-22",
+          "title": "嵌入组件取配置超时 / 连不上时仍显示表单（8 秒；被拒仍显示「暂时无法使用」）；晚回来的配置、提交被拒的提示（编号说明：M9E-21 已在还没合并的 M9E-12 分支里登记，所以用 M9E-22）",
+          "role": "frontend",
+          "status": "review",
+          "acceptance": [
+            "取配置 8 秒没回、网络错误、5xx：按 init 的 layout / lang / services（没传用 auto / 默认值）显示表单；被拒（读得到的 4xx，或浏览器读不到 CORS 但主站有应答）仍只显示「暂时无法使用」和主站链接",
+            "表单已显示后配置才回来：正常就只按它更新外观（init 没传 layout 时；不重画，已填的不丢），语言、标签不变；被拒就和打开时被拒一样换成「暂时无法使用」和主站链接（已填的只留在内存里）",
+            "建草稿被拒（读得到的 401 / 403 / 404，或读不出但对 GET 配置的 no-cors 探测成功）给「这个网站暂时不能直接预订」和主站链接；真连不上也给主站链接；端到端和正式环境一样被拒的 403 读不出（vite preview 关 CORS）；服务端校验不放宽",
+            "组件测试覆盖 8 秒超时、网络错误、5xx、4xx 被拒、配置晚回来（正常 / 被拒）、提交被拒；做变异检查；ADR 0090、工厂接入说明同步"
+          ],
+          "evidence": "PR #241；组件测试 54 条（widget.test.tsx + widget-core.test.ts，新增 7 条）、集成测试 embed.itest.ts 13 条（新增 1 条）、端到端 site-embed-widget.spec.ts 5 条（新增 1 条）本机全过；变异检查组件 27 个、后端 5 个全部杀死",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9E-24",
+          "title": "嵌入页的特定商取引法表示、取消政策、隐私政策链接（ADR 0095 Q14；M9E-17 审查必改项）",
+          "role": "frontend",
+          "status": "blocked",
+          "blockedBy": "业主提供特定商取引法表示、取消政策、隐私政策的内容",
+          "acceptance": [
+            "业主提供内容后：新增特定商取引法表示、取消政策、隐私政策三个页面，嵌入页顶部和核对页都有这三个链接，新窗口打开",
+            "内容只来自业主提供的文字，不自行编写；三页也能从主站访问；组件测试核对嵌入页顶部和核对页的三个链接、target=_blank"
+          ],
+          "evidence": "",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9E-25",
+          "title": "嵌入页不打包 Leaflet：RouteMap.tsx、SiteMapPicker.tsx 改为按需加载，嵌入页的产物里没有 Leaflet 代码（M9E-17 审查建议）",
+          "role": "frontend",
+          "status": "review",
+          "acceptance": [
+            "现在 Leaflet 在 RouteMap.tsx、SiteMapPicker.tsx 里是静态 import：嵌入页不渲染、不请求底图，但仍下载这段代码。改成只在主站真的要显示地图时才加载",
+            "主站地图选点、路线后备图行为不变（site-booking*.spec.ts、map-center / waypoints 组件测试原样通过）；嵌入页打开四步、订单页时不下载 Leaflet 的代码（端到端核对请求列表）；build-output.spec.ts 按 ADR 0095 的「一个 JS、一个 CSS」规则相应调整并写明理由"
+          ],
+          "evidence": "SiteMapPicker、RouteMap、AreaMap、AreaOverviewMap 改为 React.lazy + Suspense；图例小图样 Swatch 拆到 area-swatch.tsx。vite build：Leaflet 单独成包（约 159 KB），主包里没有 Leaflet 代码（_leaflet_id、LatLngBounds 只在地图包里）；主站、嵌入页打开地图时才下载",
+          "updated": "2026-11-18"
+        },
+        {
+          "id": "M9E-27",
+          "title": "业主反馈（优先于 M9P-20）：①嵌入预订页电脑宽度两栏，和主站 /book/new 一样带「行程摘要」右侧栏（ADR 0095 第二轮决策）；②接机免费等待分钟数（另一个开发角色负责）",
+          "role": "frontend",
+          "status": "done",
+          "acceptance": ["①iframe 自己的视口 ≥ 1024px：嵌入页两栏，左边四步，右边是主站同一个「行程摘要」右侧栏（谷歌静态路线图、约 X 分钟 · Y 公里、车型和价格、出发地、目的地、航班落地时间、乘客 / 行李）；< 1024px 照旧单栏、顶部摘要条。宽度按 iframe 自己的视口算，不看宿主窗口", "①复用 BookNewPage 的两栏和右侧栏，不另写；主站 /book/new 行为不变（book-new、booking-shell 组件测试原样通过）；嵌入页里没有主站顶栏、页脚、导航", "①postMessage v1 不变：换步照发 step；分栏切换（宽 ↔ 窄）后 resize 报的高度和内容实际高度一致；路线图是同源 /site/v1/route-map，嵌入页 CSP 放行、在 iframe 里显示出来", "①组件测试覆盖 1024 断点（1023 单栏、1024 两栏、宽窄切换）；端到端在嵌入页 1440 / 1024 / 375 宽核对分栏、右侧栏内容、路线图、resize 高度，亮暗两色 axe；做变异检查", "①本机 1440 / 1024 / 375 宽截图放 docs/acceptance/M9E-27-shots/；部署后在演示站 https://embed-demo.moveglobal.io/booking/ 再截 1440 / 1024 / 375 三张（验收角色）", "②接机免费等待分钟数：由另一个开发角色在本任务下单独实现和验收，见其 PR；本 PR 不涉及"],
+          "evidence": "①PR #254；组件测试 478 条本机全过（embed-flow 新增 1 条宽屏 / 宽窄切换、改 1 条为 1023 宽；embed-style、booking-shell 相应改）；变异检查 3 个全部杀死；端到端 site-embed-booking.spec.ts 9 条 chromium + webkit-embed 本机全过（新增 M9E-27 一条：1440 / 1024 / 1023 / 375）；截图 docs/acceptance/M9E-27-shots/；演示站截图待部署后由验收角色补；业主验收通过（2026-11-15，监工转达业主原话「嵌入程序可以了」）；业主验收的是①嵌入两栏（演示站截图见 PR #257）；②接机免费等待提示 PR #253，按航班定的后续在 M9E-28（PR #255）",
+          "updated": "2026-11-15"
+        },
+        {
+          "id": "M9E-26",
+          "title": "运营后台按「两段代码」交付嵌入组件：嵌入码加「预订页地址」，卡片拆成①入口小程序、②预订程序（对齐 Good Journey；优先于 M9E-24；后端 + 前端，role 字段只能填一个，记为 backend）",
+          "role": "backend",
+          "status": "review",
+          "acceptance": [
+            "嵌入码加选填的「预订页地址」booking_url：https（测试类环境同白名单另收本机 http）、≤ 2,000 字符、不带用户名密码，origin 必须完全等于这个嵌入码「允许的网站」里的某一项（同源、带路径）；迁移只加列；平台接口、OpenAPI、审计、If-Match 同步；改白名单后旧值的处理口径写进 PR 和 ADR 0095 附录",
+            "嵌入码卡片「合作网站要放的代码」拆成两段，各带复制按钮和一句中文说明：①入口小程序（任何页面，init 自动带 bookingUrl）、②预订程序（只放预订页，NozomiBooking.mountBooking）；写法以 packages/domain/src/embed.ts 和 ADR 0095 附录为准",
+            "兜底：没填预订页地址或没开「允许整页嵌入」时只显示①、①不带 bookingUrl（客人照旧跳主站），旁边写明原因",
+            "不影响已部署的旧代码：不带 bookingUrl 的旧代码行为不变；/embed/v1/config 不减字段；已有嵌入码不需要任何迁移操作",
+            "后台中文、无障碍（label、键盘、复制按钮的读屏提示）、亮暗 axe 0；同步 ADR 0095 附录和 docs/integration/moveglobal-factory-nozomi-widget.md（演示站预订页 https://embed-demo.moveglobal.io/booking/）",
+            "测试：域层（代码生成、校验）、集成（booking_url 校验、白名单、改白名单后旧值、权限）、组件（表单、两段代码、兜底、复制按钮）、端到端（后台填写后看到两段代码）；至少 2 次变异检查"
+          ],
+          "evidence": "PR #249（https://github.com/jiatengmei482-pixel/nozomi/pull/249）：迁移 0470 只加列；域层单元 embed.test 11 条（新增 4）；集成 embed-booking-url.itest 7 条（新增），原有 embed / host-page / layout 迁移 / 结构 / 草稿 44 条通过；组件 embed-keys 11 条（新增 4）；端到端 embed-key-delivery 1 条（新增，1280 / 390、亮暗 axe 0），build-output 通过；变异 3 次（不看整页嵌入开关、保持原值不核对新白名单、兜底说明写错）都被测试抓到；截图 docs/acceptance/M9E-26-shots/。改白名单后旧值：每次保存按这次提交的白名单核对，拿掉预订页所在网站又没改或清空就 400 NOT_ALLOWED_ORIGIN，不自动清空也不悄悄保留（ADR 0095 附录 A 第 0 条）",
+          "updated": "2026-11-15"
+        },
+        {
+          "id": "M9E-28",
+          "title": "接机免费等待按航班定：国际航班 90、国内航班 60，下单时按航班锁定，订单记下最终分钟数给供应商看（ADR 0097）",
+          "role": "backend",
+          "status": "review",
+          "acceptance": [
+            "监工替业主 2026-11-15 决定：按航班定；客人填了航班号时国际航班 90 分钟、国内航班 60 分钟（所有机场一样）",
+            "没填航班号或判断不出时，文案写「国际线最长 90 分钟、国内线最长 60 分钟」（Q2 补充：判断不出时同样这样写，要有测试）",
+            "下单确认时按航班锁定：国际航班 max(商品设的, 90)、国内航班 max(商品设的, 60)，商品设「不限时」的仍不限时；报价阶段价格和报价快照不变",
+            "订单记下最终给的分钟数（orders.free_wait_minutes）和依据（orders.flight_kind、orders.free_wait_basis），供应商后台订单详情、司机页、订单页都看得到；迁移 0480",
+            "修正 packages/domain/src/products.ts 里 minimumFreeWaitMinutes 上面那段说「报价时再按实际航班取 90」但没实现的注释（ADR 0097 第六节）",
+            "ADR 0097 第五节 Q1–Q5 2026-11-15 监工确认按推荐：Q1 先让客人选国际 / 国内（官网必选），按航班号查航班数据另立 M9E-29；Q2 判断不出锁 max(商品, 60)、订单标「航班类型未确认」；Q3 派单前改航班重新锁定并通知供应商，派单后不变；Q4 已有订单不回头改，通知供应商记为待办（平台不代发）；Q5 改用点对点商品报价的接机也按 90 / 60",
+            "不阻塞 #253（M9E-27）；本任务的 PR 基于 #253，接机还没选航班类型时的提示取代 #253 的取值"
+          ],
+          "evidence": "PR #255（基于 #253）；本机：单元 2904 条全过（新增 arrival-free-wait 6 条、web free-wait-display 4 条等）、组件 725 条全过（book / embed / orders / lib）、集成 202 条全过（新增 free-wait-by-flight 6 条、notifications 1 条）、端到端 site-booking-new 等 7 个文件 28 条全过；变异检查 10 处都抓到；独立审查（评论 6889670076）2 条必须改和 8 条建议已处理（ADR 0097 五之二）",
+          "updated": "2026-11-15"
+        },
+        {
+          "id": "M9E-29",
+          "title": "按航班号查航班数据判断国际 / 国内（ADR 0097 Q1 方案 A）：选服务商、费用和密钥由业主定",
+          "role": "backend",
+          "status": "blocked",
+          "blockedBy": "要业主选航班数据服务商（如 AeroDataBox、FlightAware AeroAPI、Cirium）、定费用，并自己把密钥填进设置页",
+          "acceptance": [
+            "按航班号和日期查出发、到达机场，比国家定国际 / 国内；查到的结果优先于客人自己选的（M9E-28 方案 B）",
+            "查不到、超时：按客人选的；客人也没选按「航班类型未确认」（ADR 0097 Q2）",
+            "密钥只通过 packages/config 读，不进代码、日志；接口限速、费用上限写清楚"
+          ],
+          "evidence": "",
+          "updated": "2026-11-15"
+        },
+        {
+          "id": "M9E-30",
+          "title": "业主验收意见（2026-11-16）：第 4 步「核对并付款」按 行程 → 价格明细 → 取消政策和注意事项 → 最下面付款按钮 排（主站和嵌入页同一份）；主站下单后付款区块紧跟订单号；嵌入页在付款进 iframe（M9E-19）上线前，付款按钮旁写清点一次在新窗口打开付款页",
+          "role": "frontend",
+          "status": "done",
+          "acceptance": [
+            "第 4 步：完整行程（含地图、车型、乘客行李、乘客信息）→ 价格明细和总价 → 取消政策和注意事项 → 同意保存银行卡和「去付款」在最后，手机上也一样；按钮后面没有别的控件",
+            "主站下单后订单页第一块就是付款（Payment Element），保存链接的提示在付款下面",
+            "嵌入页订单页：「在新窗口打开订单页付款」旁有说明（aria-describedby），点一次即打开主站付款页；不自动弹窗（浏览器会拦）",
+            "新文案中文、走键（checkout-texts.ts、EMBED_TEXTS）",
+            "主站和演示站各走一遍区间、包车（测试卡 4242），截图写进 docs/acceptance/"
+          ],
+          "evidence": "PR #278（main c6f0f3ff，测试站 Deploy 43787203992 于 2026-11-16 01:37Z 成功）；测试站验收 docs/acceptance/M9E-30.md：主站区间 NZ20261116Z1BRWXL4、包车 NZ20261116QL0X29EA，演示站区间 NZ20261116LC5WBDR3、包车 NZ202611160XYV6VCU，均用 4242 付款成功后取消全额退款；第 4 步顺序和手机 390 宽截图见 docs/acceptance/M9E-30-shots/",
+          "updated": "2026-11-16"
+        },
+        {
+          "id": "M9E-31",
+          "title": "接机免费等待改为平台统一：国际航班 90 分钟、国内航班 60 分钟，不看商品设的（业主验收 #278，2026-11-16；ADR 0097 第七节补记，作废 max(商品, 下限)）",
+          "role": "frontend",
+          "status": "review",
+          "acceptance": [
+            "领域规则 lockArrivalFreeWait：国际 90、国内 60、未确认 60，商品设得更长、不限时也按 90 / 60；单测覆盖",
+            "第 3 步「航班类型」两个选项、第 1 步接机提示、第 2 步「一口价包含」、旧下单页车型卡、订单页改单、嵌入页都按 90 / 60；没选写「国际线最长 90 分钟、国内线最长 60 分钟」",
+            "供应商后台服务规则：机场接机的免费等待只读显示「国际航班 90 分钟、国内航班 60 分钟 · 平台统一 · 不能修改」，接站、送机照旧可设；以前存的低于最少值的保存时补到最少值",
+            "供应商订单详情：商品设得更长或不限时的注明「机场接机按平台统一标准，商品设的……不适用」",
+            "已有订单不回头改；后端接口、数据库不改",
+            "合并部署后测试站第 3 步截图（国际 90 / 国内 60）"
+          ],
+          "evidence": "PR #282（main 74a517e1，2026-11-16 06:10Z 合并；审查“需修改”后补渠道 OpenAPI、两条集成测试和回归测试，复审通过）；测试站 Deploy 43819875595（main 1324dc7c，含 #282）成功后实测：/book/new 羽田→新宿 第 2 步「一口价包含」为「国际线最长 90 分钟、国内线最长 60 分钟」，第 3 步航班类型「国际航班 落地后免费等待 90 分钟 / 国内航班 落地后免费等待 60 分钟」，截图已发业主",
+          "updated": "2026-11-16"
+        },
+        {
+          "id": "M9E-32",
+          "title": "业主验收意见（2026-11-16，iPhone Safari 真机）：手机上每一步的主按钮和「上一步」固定在屏幕底部（主站和嵌入页；嵌入页按宿主发来的 iframe 位置摆放，ADR 0100）",
+          "role": "frontend",
+          "status": "done",
+          "acceptance": [
+            "手机宽度（≤ 768px）下，每一步的主按钮（「下一步：选择车型」「下一步：填写乘客信息」「下一步：核对订单」「去付款 →」）和「上一步」固定在屏幕底部的按钮条里，不用每步拉到最下面；第 2 步原来的「车型 · 一口价」条并进来，只有一条",
+            "主站 /book/new 和嵌入页 /embed/book 都改：嵌入页 iframe 被宿主撑到内容全高，宿主在滚动、resize 时发 viewport{height, top}，按钮条停在宿主屏幕下沿，客人在宿主页滚动时一直看得见；旧版组件脚本（不带 top）、直接打开时退回 sticky",
+            "底部按钮条不挡表单最后一项和页脚：页面底部留出同样高度；处理 iPhone 安全区 env(safe-area-inset-bottom)（这一页手机宽度下加 viewport-fit=cover，别的页面不变）",
+            "按钮不能点时（第 2 步还没选车、正在报价、报价失败）保持灰色并显示原因（文字，aria-describedby 关联），不隐藏；第 4 步没勾同意保存银行卡照旧点了提示",
+            "电脑版（宽屏两栏）布局不变",
+            "ADR 0100；协议 viewport 加可选 top（parseHostMessage 白名单，旧消息照旧能解析）；组件脚本 gzip 不超预算",
+            "单元、组件、端到端测试（主站 390 和嵌入演示：滚到页面顶部时按钮在视口内可见）",
+            "合并后手机 390 宽截图：主站和演示站各第 1、3、4 步"
+          ],
+          "evidence": "PR #284（main a8d3b733，2026-11-16 09:10Z 合并；独立审查后补两个端到端用例；CI 含 webkit-embed 全绿）；测试站 Deploy 成功后 Playwright 390 宽实测：主站 /book/new 第 1–4 步按钮条贴屏幕底部（第 2 步带车型和一口价，第 4 步滚到底同意保存银行卡在条上方没被挡）；演示站 embed-demo 宿主页在顶部和滚动中，iframe 里的按钮条都贴宿主屏幕下沿，滚到宿主页脚时回到原位；未下单、未付款；截图已发业主；业主 2026-11-16 晚 iPhone 真机验收 #284 通过",
+          "updated": "2026-11-16"
+        }
+      ]
+    },
+    {
+      "id": "M9P",
+      "name": "包车报价三层区域模型（业主开发版规格）",
+      "goal": "业主 2026-11-14《包车报价逻辑规格（开发版）》：基础价 / 行程 / 上下车加价三层区域，按上下车点匹配商品，各商品按「套餐价 + 超公里费」最低自选套餐后比价；只改包车，接送机、点对点报价完全不变（ADR 0093）",
+      "tasks": [
+        {
+          "id": "M9P-00",
+          "title": "ADR 0093：包车报价三层区域模型、商品匹配、各商品自选套餐比价、数据迁移",
+          "role": "product",
+          "status": "review",
+          "acceptance": ["ADR 0093 写清 10 项：三层区域、加价算法、商品匹配、选套餐与比价、套餐价车型组 × 套餐、数据迁移、后台校验、实施顺序和任务、验收、框架边界；每节写现状 → 新做法 → 对数据 / 报价的影响", "写明 ADR 0088 / 0089 / 0073 哪几条被取代并在原文加注；0091 沿用 / 作废什么；0092 不采纳、#219 改做法", "列出待业主确认的点（下车点当经停开关默认开等）", "按独立审查修订第二稿：golden 说法收窄并点名会变的样例；已下的单改期 / 救援的加价口径；过渡期下车点当经停查哪一层；和 0091 的分工；M9W → M9P 对照表；13 小时拦截挪进 M9P-03；新旧表按商品标志切换；业主确认第 5 条按规格字面重写、新增第 8、9 条（第三稿：改期 / 救援分开问，13 小时按规格直接做、改为告知，高速费停车费已由 ADR 0070 实现、删去）", "独立审查通过"],
+          "evidence": "PR #222（https://github.com/jiatengmei482-pixel/nozomi/pull/222）；只有文档和 roadmap，pnpm roadmap:check 通过",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9P-01",
+          "title": "P0 #1：经停区域与上 / 下车区域相同时照收行程加价；下车点行程加价：没有市外经停（没填或经停都在基础价区域）时下车点所在行程区域收一次（业务方 2026-11-14 已定，商品开关，默认开）（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
+          "role": "backend",
+          "status": "done",
+          "acceptance": ["引擎去掉「上 / 下车已计价的区域经停不再加」；同一区域多个经停仍只收一次", "先从 M9W-11 分支带过来 service_rules.charterItinerary 的读写（默认值不存键、PUT 不带键保留原值、只有包车能设、租户隔离集成测试），本任务只加 dropoffItinerarySurcharge（下车点行程加价，默认开）；三项配置在 M9P-03 生效", "下车点行程加价按规格定稿步骤 4 伪代码（ADR 0093 第二节第 4 小节，业务方已定 C，取代「没有经停时下车点当经停」）：开关开、已收区域为空（没有基础价区域以外的经停；经停同时在基础价区域和行程区域里算基础价区域内）、下车点不在任何基础价区域时，收下车点所在行程区域一次行程加价；只看下车点、不看上车点；有市外经停时不触发，所以不会和经停重复收", "下车点行程加价查哪一层：没迁移过的商品查下车点所在上下车加价区域那一行的途经加价，没设就跳过、不拒单；迁移过的查行程区域，不在任何行程区域就跳过；过渡期同层重叠取金额最高（ADR 0093 第二节）", "明细逐项：上车加价（区域名）、下车加价（区域名）、行程加价（区域名、第几个经停 / 下车点）", "规格第六节用例 2–7、16–19 的加价项做成测试（16 不填经停、17 经停浅草在基础价区域、18 景区上车不收行程加价、19 开关关闭），并加「经停同时在基础价区域和行程区域」「下车点在基础价区域与行程区域重叠处不触发」两条边界；接送机、点对点 golden 一字不改；包车 golden 变化（itinerary-golden 的 tokyo→fuji→fuji 等）按 ADR 0093 第六节第 4 小节逐条列在 PR 里，旧 golden 文件不重新生成；下车点行程加价对 charter-golden、itinerary-golden 没有预期变化——itinerary-golden 里经停都在基础价区域的只有 big 的 tokyo→fuji→tokyo、tokyo→fuji→fuji，下车点都在基础价区域，不触发（big|…|8h|150000m/480min|tokyo→fuji→fuji biz7 M9P-06 后仍是 50,000，用作断言）", "部署前格式的订单改期、救援：加价按新算法重算、超时费照旧（ADR 0093 第二节，业主确认第 8 条）", "救援差价基准（ADR 0093 第二节救援 B，待业主确认第 8 条）：order_rescues 加 deduction_base_minor（只加列）；触发救援时单独按订单的 productId 重算加价合计（areaSurcharge 的 pickup、dropoff、waypoints），调 quoteProduct 用 forOwner: true、moment.now 取下单时刻，只取加价三项；基准 = 原结算价 + max(0, 重算加价合计 − 快照加价合计)；rescueCandidates 列候选的差价和改派记的差价都用它（为空用原结算价）；扣款记录 basis 加 base_minor、surcharge_before、surcharge_after、base_fallback_reason；重算失败退回原结算价并记原因、写审计；不靠 charterSelection 区分新旧单；集成测试：P0 #1 旧单救援差价不含多出的行程加价、用车前 6 小时触发和供应商被暂停时触发都算出基准不退回、候选差价与改派差价一致、原供应商触发前调高套餐价差价不变、重算失败退回原结算价", "部署前后回放比对，差异行全部归到 ADR 0093 第六节第 5 小节第 1、2 类", "独立审查、合并、部署后测试站只核对用例 2–7、16–18 明细里的加价项（上 / 下车加价、行程加价）；套餐时长和总价取决于 M9P-02 / M9P-03，放到 M9P-11 一起验收", "先从 M9W-11 分支带过来 service_rules.charterItinerary 的读写（默认值不存键、PUT 不带键保留原值、只有包车能设、租户隔离集成测试），本任务只加 dropoffItinerarySurcharge（下车点行程加价，默认开；ADR 0093 第六稿改名）；三项配置在 M9P-03 生效", "下车点行程加价（业务方已定 C）：已收区域为空（没有①外经停）、下车点不在①时触发；没迁移过的商品查下车点所在上下车加价区域那一行的途经加价，没设就跳过、不拒单；迁移过的查行程区域，不在任何行程区域就跳过（ADR 0093 第二节第 4 小节）"],
+          "evidence": "PR #229（https://github.com/jiatengmei482-pixel/nozomi/pull/229）：引擎去掉经停被上下车抵消、下车点行程加价（开关 dropoffItinerarySurcharge 默认开，按 #227 定稿 C）、服务规则读写、明细 fromDropoff、救援差价基准（迁移 0410 只加列）。本机：类型检查通过；单元测试 2,798 条中 2,797 条通过（xlsx 计时 1 条在并行负载下超时、单独重跑通过，已记 M8-29）；新增单元测试 21 条（规格用例 1–9、16–19 等）；新增集成测试 7 条 + 相关集成测试 329 条通过。golden：接送机 / 点对点 / charter-golden 0 条变化，itinerary-golden 72 条（tokyo→fuji→fuji，全部 +3,000 行程加价，调价商品按比例）逐条列在 PR。CI、合并、部署、回放比对、测试站验收都还没做（以上是开 PR 时的状态）。测试站验收通过（监工 2026-11-14 确认「P0 验收通过」）：部署 main d2eea080（含 #229 M9P-01、#230 M9P-02），Deploy run 43579518453 的「部署到 staging」job 2026-11-14T09:14:55Z 成功；测试站公开预订页，经济7座、10h、前台价（结算价 × 1.1），只询价未下单：用例 3 新宿 → 经停河口湖 → 河口湖站 82,500、用例 16 新宿 → 河口湖站（不填经停，下车点行程加价生效）82,500、用例 4 河口湖站 → 忍野八海 + 河口湖（同一区域只收一次）→ 河口湖站 93,500、用例 5 河口湖站 → 芦之湖 → 河口湖站 93,500（只收箱根行程、不收富士山行程）、用例 18 河口湖站 → 新宿（不填经停）71,500，均与规格一致；部署前基线用例 16 为 71,500、用例 3 为 41,800（当时自动选 4h，富士山行程加价被下车加价抵消）。截图在 QA 机器本地 M9P-acc-case3/4/5/16/18.png，未提交。验收记录 docs/progress/2026-11-14.md。补充验收（测试站 2026-11-14 09:28–09:31Z，前台价，均与规格一致；截图 QA 机器本地 M9P-acc-case2/6/7/8/11/12.png）：用例 2 = 71,500；用例 6 = 82,500（富士山、箱根行程各收一次）；用例 7 = 45,100（两个经停在镰仓，镰仓行程只收一次）；用例 8 = 45,100（镰仓站上车现在由东京包车报价）；用例 11 甲府上车 → 不报价、转人工（OUT_OF_SERVICE_AREA）；用例 12 甲府经停 → 不报价、转人工（WAYPOINT_NOT_PRICED）。回放比对：做不了——部署前没有留回放快照，stateDigest 随回放窗口变化，事后补不出来。代码论证：引擎改动只在 quote.ts 的包车区域加价分支，而且只会让加价变多；回放路径（loadQuoteCandidates、area-role-preview）没改，所以接送机、点对点在回放里不会变；M9P-02 的第 3 类按 ADR 0093 本来就看不到回放差异。替代证据：golden 和规格用例测试；测试站用例 2–8、11、12、16、18；部署前后各一次的实例，用例 3（第 1 类）41,800 → 82,500、用例 16（第 2 类）71,500 → 82,500。部署后基线（留作 M9P-03 的「部署前」）：until=2026-11-14T09:13:00Z、30 天，1,322 条询价 / 2,451 行，resultDigest e36bac08…21ec9，stateDigest 024d1a09…17bc，同参数重跑结果完全一致。回放比对以代码论证 + 测试站实测替代。2026-11-14 监工替业主接受：代码论证 + golden 测试 + 测试站实测替代回放比对（监工原话：「接受替代证据（1,368 行一致 + golden 测试覆盖）代替回放比对」。1,368 行出自 11-13 M9W（#189）部署前后的回放：截止 2026-11-13T13:56Z、866 条日志，改后 1,368 行和改前对应的行逐行一致；那是 #189 的比对，不是 M9P 部署前后的比对。M9P 自己的数字：部署后基线 2,451 行，同参数重跑结果完全一致）",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9P-02",
+          "title": "P0 #2：包车按上下车点匹配商品（都在基础价区域或上下车加价区域里），不再按上车城市筛（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
+          "role": "backend",
+          "status": "done",
+          "acceptance": ["引擎：上 / 下车点只认基础价区域和有上下车加价规则的区域；经停不影响匹配、经停不在任何区域 → 不报（转人工）", "服务层：包车询价 city_id 可选，按点找出能匹配的商品所在城市（一个城市照旧流程；多个城市时只取一个——请求的 city_id、上车点的 serviceCityOf、编号最小的依次取——并打警告日志，不逐城询价合并；都没有 OUT_OF_SERVICE_AREA）；按点列套餐的接口", "前端：新预订页包车不再因上车点不在城市范围而不询价", "规格第六节用例 4、5、8、11、12 做成集成 / 端到端测试；/sales/v1 仍要 city_id", "接送机、点对点 0 变化（golden、回放）", "独立审查、合并、部署后测试站验收用例 4、5、8、11、12"],
+          "evidence": "PR #230（https://github.com/jiatengmei482-pixel/nozomi/pull/230）：domain charterMatches / chooseCharterCity（单元 10 条，含规格用例 4、5、8、11、12、18 和与引擎同一套判断的 1,352 组对照）；官网包车询价 city_id 可选、按点找城市、多城市只取一个并写警告日志、GET /site/v1/charter-packages?pickup=&dropoff=（集成 11 条 charter-match-by-areas.itest.ts；按 #230 独立审查补两条并做变异检查：请求带的 city_id 优先、去掉渠道过滤，两种改坏都被测试抓到）；新预订页不再按上车点所在城市拦（book 目录组件 316 条通过，新增 2 条）；本机单元 2,787 条、相关集成 55 个文件、组件全过；接送机、点对点和包车 golden 0 条变化；未做测试站验收；询价日志加 city_by（request = 客人带的城市，only / requested / pickup_city / smallest_id = 服务器按点选的）；CI 结果见 PR。测试站验收通过（监工 2026-11-14 确认「P0 验收通过」）：部署 main d2eea080（含 #229 M9P-01、#230 M9P-02），Deploy run 43579518453 的「部署到 staging」job 2026-11-14T09:14:55Z 成功；测试站公开预订页，经济7座、10h、前台价（结算价 × 1.1），只询价未下单：用例 3 新宿 → 经停河口湖 → 河口湖站 82,500、用例 16 新宿 → 河口湖站（不填经停，下车点行程加价生效）82,500、用例 4 河口湖站 → 忍野八海 + 河口湖（同一区域只收一次）→ 河口湖站 93,500、用例 5 河口湖站 → 芦之湖 → 河口湖站 93,500（只收箱根行程、不收富士山行程）、用例 18 河口湖站 → 新宿（不填经停）71,500，均与规格一致；部署前基线用例 16 为 71,500、用例 3 为 41,800（当时自动选 4h，富士山行程加价被下车加价抵消）。截图在 QA 机器本地 M9P-acc-case3/4/5/16/18.png，未提交。验收记录 docs/progress/2026-11-14.md。补充验收（测试站 2026-11-14 09:28–09:31Z，前台价，均与规格一致；截图 QA 机器本地 M9P-acc-case2/6/7/8/11/12.png）：用例 2 = 71,500；用例 6 = 82,500（富士山、箱根行程各收一次）；用例 7 = 45,100（两个经停在镰仓，镰仓行程只收一次）；用例 8 = 45,100（镰仓站上车现在由东京包车报价）；用例 11 甲府上车 → 不报价、转人工（OUT_OF_SERVICE_AREA）；用例 12 甲府经停 → 不报价、转人工（WAYPOINT_NOT_PRICED）。回放比对：做不了——部署前没有留回放快照，stateDigest 随回放窗口变化，事后补不出来。代码论证：引擎改动只在 quote.ts 的包车区域加价分支，而且只会让加价变多；回放路径（loadQuoteCandidates、area-role-preview）没改，所以接送机、点对点在回放里不会变；M9P-02 的第 3 类按 ADR 0093 本来就看不到回放差异。替代证据：golden 和规格用例测试；测试站用例 2–8、11、12、16、18；部署前后各一次的实例，用例 3（第 1 类）41,800 → 82,500、用例 16（第 2 类）71,500 → 82,500。部署后基线（留作 M9P-03 的「部署前」）：until=2026-11-14T09:13:00Z、30 天，1,322 条询价 / 2,451 行，resultDigest e36bac08…21ec9，stateDigest 024d1a09…17bc，同参数重跑结果完全一致。回放比对以代码论证 + 测试站实测替代。2026-11-14 监工替业主接受：代码论证 + golden 测试 + 测试站实测替代回放比对（监工原话：「接受替代证据（1,368 行一致 + golden 测试覆盖）代替回放比对」。1,368 行出自 11-13 M9W（#189）部署前后的回放：截止 2026-11-13T13:56Z、866 条日志，改后 1,368 行和改前对应的行逐行一致；那是 #189 的比对，不是 M9P 部署前后的比对。M9P 自己的数字：部署后基线 2,451 行，同参数重跑结果完全一致）",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9P-03",
+          "title": "需求二缓冲 T 和三项配置（ADR 0091 第四稿，M9W-11 并入）+ #6 含超公里取最低 + #5 各商品在引擎里自选套餐后比价；下单不收超时费；手动升套餐不短于 T；超过 13 小时不能在线下单（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
+          "role": "backend",
+          "status": "done",
+          "acceptance": ["复用 origin/m9w-11-package-buffer 的 itinerary golden（选档、超时费逐字段不变；加价变化按 M9P-01 / M9P-06 列；M9P-01 的下车点行程加价对它没有预期变化，ADR 0093 第六节第 4 小节）、itineraryEstimate、service_rules.charterItinerary 三项配置（ADR 0091 第四稿第一、二节；ADR 0093 第十二节）", "QuoteRequest.charterSelection（auto / manual / locked）进快照和询价日志；不带时选档和超时费逐字不变（含旧单改期的超时费）；packageHours 为空时碰到的现有代码（请求校验、加价查找、调价时刻、套餐价查找、ComparisonGroup、回放摘要）逐处改为按候选档代入并在 PR 列出", "候选 = 时长 ≥ T（且 ≥ 最低套餐）并且这一档的套餐价和加价规则齐全、能报出的套餐，没有时只有最长档；取「套餐价 + 超公里费」最低；加价、调价不参与选档", "不收超时费，按 ADR 0091 第四稿第三节：price_breakdown 只在超时费大于 0 时写 overtime（旧单订单页不变）；结算价明细 overtimeAtBooking: false；订单详情给 overtime_at_booking；平台试算按新口径、不含超时费；OpenAPI 写 overtime「只在预收了超时费的旧单里出现」", "itineraryQuotes 改为一次询价；应答 estimated_minutes、includes_buffer、auto_package_hours；手动 package_hours 短于 T 或低于最低套餐（且不是最长档）→ 对外 PACKAGE_TOO_SHORT + min_package_hours（/site/v1、/sales/v1 同口径，不记未覆盖需求）", "T 超过商品的在线下单上限（service_rules.charterItinerary.maxOnlineMinutes，默认 13 小时）→ ITINERARY_TOO_LONG，转人工（ADR 0093 第四节第 10 条，从 M9P-10 挪来）", "包车比价的同价区间按业主确认第 5 条（推荐 0，严格取最低）；接送机、点对点不变", "改期、救援：新口径的单传 locked；部署前的单不传（选档、超时费照旧）", "规格第六节用例 1、7、8、9、10 做成测试，16–18 加做自动选档后的总价（10h 以外的档按同一公式）；回放差异归到 ADR 0093 第六节第 5 小节第 4–7、11、12 类", "独立审查、合并、部署；回放比对通过后再请业主在东京包车填建议值（15 / 60），测试站验收", "P0 验收后续 B（监工 2026-11-14）：单个经停的停留上限保持 8 小时；有经停时客人要能手动升到更长的套餐（规格步骤 3：可以改长，不能短于 T）", "部署前先用固定 until 跑一次回放留底（用 M9P-01 / M9P-02 验收时留的部署后基线：until=2026-11-14T09:13:00Z、30 天，1,322 条询价 / 2,451 行，resultDigest e36bac08…21ec9，stateDigest 024d1a09…17bc），部署后用同样参数再跑一次比对（P0 验收教训：M9P-01 / M9P-02 部署前没留快照，回放比对只能以代码论证替代）", "有经停点时官网新预订页也能手动升到更长的套餐（规格步骤 3；测试站验收发现：有经停点时页面没有套餐时长控件，单个经停最长停留 8 小时，客人实际选不到 10 小时套餐）：单个经停停留上限仍是 8 小时不改；「包车时长」下拉默认「自动（N 小时）」（N = 报价里的 auto_package_hours，从 T 的那一档起），只列比它长的档，短于 T 的不出现、不能选；手动改了重新报价，请求带 itinerary_pricing + package_hours（charterSelection: manual）；行程（上下车点、经停点、停留）一改回到自动。组件测试 + 端到端：有经停点从自动选的档升到 10 小时，短于 T 的选项不存在"],
+          "evidence": "PR #240（https://github.com/jiatengmei482-pixel/nozomi/pull/240）：本机 pnpm check 全套通过——类型检查；单元 2,839 条、组件 1,315 条全过；集成 2,855 条（通过 2,854、跳过 1、失败 0）。按 #240 独立审查修改并合并最新 main 后复跑：单元 2,842 条、相关集成 112 条（charter-*、sales、uncovered-demands、quotes、products 共 11 个文件）全过；三处修改各做了变异检查（同价区间不设 0、选短了用「有一条」而不是「全是」、总价一样不取短档），都被测试抓住。新增单元 22 条、集成 9 条、组件 3 条、端到端 1 条（site-booking-package-upgrade.spec.ts，本机通过）；golden 0 条变化。测试站验收通过（监工 2026-11-14 确认）：部署 main 63412e05（#240），Deploy run 43607918381 的「部署到 staging」job 15:03:23Z 成功。回放比对 0 变化：参数同部署前基线（until=2026-11-14T09:13:00Z、30 天），stateDigest 024d1a09…17bc、resultDigest e36bac08…21ec9 都没变，1,322 条询价 / 2,451 行逐行 0 变化（接送机 492、点对点 686、包车 1,273）；这证明旧口径（不带 charterSelection）结果不变，新口径的选档靠测试站用例证明。测试站公开预订页，经济7座，前台价，只询价未下单：用例 10 新宿 → 鶴岡八幡宮（停 30 分）→ 新宿，T=177 分、132.5 km，自动选 5h = 45,100（套餐 36,300 + 镰仓行程 8,800），对照 4h + 超公里 = 46,492 更贵所以不选 4h（T 短于规格的 3h25m，因为测试站商品没配每站占用和整单缓冲，见 docs/ops/charter-itinerary-buffer-2026-11-14.md）；用例 13 新宿 → 河口湖（停 5h）→ 芦ノ湖（停 5h）→ 新宿，T=14h39m，不报价、ITINERARY_TOO_LONG、提示联系客服并给出人工报价表单；手动升档 新宿 → 河口湖（停 2h）→ 新宿，下拉显示「自动（7 小时）」和 8–12 小时，选 8h 重新询价 60,500；用例 3、16 复查仍是 82,500，明细不再有超时费。截图在 QA 机器本地 M9P-03-*.png，未提交。验收记录 docs/progress/2026-11-14.md。后续：下拉「自动（N 小时）」按车型显示追加进 M9P-04；手动 6h 时 auto_package_hours=6 与自动选 7h 不同，新建 M9P-15",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9P-04",
+          "title": "官网：预计用时（含缓冲）、套餐下拉只列 ≥ 自动档、明细逐项；供应商后台服务规则页三项配置和「下车点行程加价」开关（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
+          "role": "frontend",
+          "status": "review",
+          "acceptance": ["价格明细「预计用时 X 小时 Y 分钟（含缓冲）」；带经停时套餐下拉默认「自动（N 小时）」、只列 ≥ 自动档", "明细逐项列区域名和第几个经停 / 下车点", "供应商 / 运营订单详情的超时一行：新订单写「预计超出 X 分钟，未预收，服务后按实际提交」，旧单照旧「× 单价 = 金额」（ADR 0091 第四稿第三节第 3 小节）；官网 T 超过所选套餐时的提示文案按 0091 业主确认第 1 条；超过 13 小时提示联系客服", "服务规则页：经停点默认占用、整单缓冲、最低套餐（灰色写建议值，不预填）、「下车点行程加价」开关（默认开，说明写「没有市外经停时，下车点所在行程区域收一次行程加价」）", "组件测试 + 端到端（用例 1、10 的页面部分）", "独立审查、合并、部署后测试站验收", "#229 审查建议（M9P-01 后续）：运营后台救援页展示救援差价的基准（order_rescues.deduction_base_minor，以及重算前后的加价合计、退回原因）——旧单救援时原结算价 65,000、候选 75,500、差价 500 这种情况，不显示基准运营看不懂；后端救援视图接口同步加 deduction_base（OpenAPI）", "P0 验收后续 A（监工 2026-11-14，排在 M9P-03 之后）：不填经停时也显示价格明细，逐行列出套餐、上车加价、下车加价、下车点行程加价，让客人看懂价格是怎么来的", "有经停点时的套餐下拉（默认「自动（N 小时）」、只列比自动档长的、改了重新报价）已在 M9P-03（PR #240）做了，本任务只做预计用时、明细逐项和服务规则页等其余部分", "M9P-03 验收后续（监工 2026-11-14）：有经停时套餐下拉的「自动（N 小时）」现在取的是所有车型里最短的自动档——用例 10 下拉显示「自动（4 小时）」，经济7座卡片却是 5h，客人看到的不一致；改为按客人所选的车型（或卡片上的车型）显示该车型的自动档，下拉只列比这一档长的；组件测试覆盖两个车型自动档不同的情况", "进展（2026-11-14，分支 m9p-04-site-and-rules-ui，PR #248）：服务规则页加「包车按行程计价」一块（经停点默认占用、整单缓冲、最低套餐三个输入框，0 / 不限时空着、灰字占位写建议值，说明里写「建议 15 分钟」「建议 60 分钟，填 0 关闭」「可设为 5 小时」；「下车点行程加价」开关默认开；不加在线下单上限输入框；最低套餐比所有套餐都长时提醒）；官网明细套餐行下面写「预计用时 X 小时 Y 分钟（含缓冲）」，预计用时超过套餐时接着写「超过套餐时长，超出部分服务后按实际收取」（接口没有对外的超时单价，暂不写单价，见 PR 风险）；明细按套餐、上车加价、下车加价、行程加价（区域名，第几个经停点 / 下车点）排，「经停加价」改叫「行程加价」；不填经停点也逐项列明细；套餐下拉按所选车型的自动档（没选车型时各车型一样写这一档，不一样写「自动（按车型 4–5 小时）」、只列比最长的长的）；运营后台救援页和候选对话框写出救援差价基准（后端 PlatformRescue 只加 deduction_base 字段，OpenAPI 同步）。订单详情超时一行（新订单「预计超出 X 分钟，未预收，服务后按实际提交」）和超过 13 小时转客服在 M9P-03 已做"],
+          "evidence": "PR #248（https://github.com/jiatengmei482-pixel/nozomi/pull/248）：本机组件 / 单元测试（官网预订页、订单页、服务规则、救援、运营后台相关 752 条，charter-itinerary / service-rules-form / 契约 26 条）全过；集成测试 charter-dropoff-itinerary 8 条、救援和选档相关 37 条全过；端到端新加 charter-estimate-breakdown.spec.ts 2 条（用例 1、10、16、19 页面部分和服务规则页，亮暗 axe 0、390 宽不横向滚动），受影响的 site-booking-waypoints / site-booking-charter / charter-surcharge / site-booking-package-upgrade / rescue 等单线程全过；待独立审查、合并、部署后测试站验收",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9P-05",
+          "title": "数据结构：行程加价（新价格方式）、上下车加价改名、套餐价改「车型组 × 套餐」整商品一次填、products.charter_layout 按商品切换新旧表；迁移脚本和迁移报告（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
+          "role": "backend",
+          "status": "review",
+          "acceptance": ["迁移只做加法：price_rules 加价格方式 charter_itinerary_surcharge（套餐可空）；套餐价 area_id 可空；products 加 charter_layout（可空）；不改旧行", "引擎按商品标志切换：charter_layout = 'three_layer' 的商品经停只看行程加价、套餐价只用整商品套餐价；没迁移过的商品整套用旧表（即使有新格式的行也不读）；接口、导入导出同样按标志接受哪套表，没迁移过的商品不能新建新格式规则（CHARTER_LAYOUT_NOT_MIGRATED）", "规格金额表以外、设了途经加价的区域（横滨、千叶、埼玉、八王子 3,000；横须贺、木更津、神奈川西部、埼玉北部 6,000；秩父 9,000；成田市、成田北部、千叶超远 12,000；成田机场 14,000；静冈 15,000；群马温泉 20,000）原样同时进行程加价和上下车加价、金额不变（业务方 2026-11-14 已定 B）；成田机场外围与成田市、千叶超远的重叠维持按机场收 14,000，迁移报告标注「已定，待切割成田市、千叶超远的包车副本」（已定 A）；ADR 0093 第六节第 2 小节", "迁移脚本 --dry-run / --apply，可按商品执行、可重复执行，一个事务，写审计（actor_type system、source cli）；只新增行程加价和整商品套餐价，不改不删运营数据；经部署流水线的 migrate 容器（迁移账号，同 db:migrate）执行，不新开写接口、不给平台账号加写权限", "变量逐跳传递：GitHub Environment 变量 CHARTER_THREE_LAYER_MIGRATION → deploy.yml 部署步骤 env → deploy/client/remote.sh cmd_deploy 的变量列表 → deploy/bin/deploy.sh → compose.sh run -e 给 migrate 容器；deploy.sh 每次打一行「三层迁移：未设 / dry-run / apply」，只认这三个值，其他值报错中止", "报告卷：deploy/compose.yml 给 migrate 服务加只挂部署目录下 reports/ 的卷（deploy.sh 建目录，权限 700）；完整报告只写这里，Actions 日志只打计数、不进产物", "失败行为：脚本在 migrate-cli.ts 之后、新版本启动之前运行；dry-run 或 apply 失败都中止这次部署（和数据库迁移失败同样处理），apply 事务整体回滚，旧版本照常运行", "staging 自动部署的风险：只在本任务代码已部署到 staging 之后才设变量；设 apply 后手动触发一次部署，跑完立即清掉变量（同一次操作里做完），避免之后每次合并 main 都在没看过 dry-run 的情况下迁掉新建的包车商品", "运维文档：docs/deploy.md 加「测试环境执行三层区域迁移」一节（先 dry-run、看计数、再 apply、立即清变量、报告在服务器哪里）；docs/secrets.md 的 Environment 变量清单加上这个变量（取值、用完要清）", "「套餐价不一致」逐条明细的入口：只读接口 GET /platform/v1/products/{id}/charter-migration-diff（运营）和 GET /tenant/v1/products/{id}/charter-migration-diff（供应商只看自己的、只有结算价、租户隔离集成测试），由保留的旧按区域套餐价现算，逐条给区域、车型组、套餐、旧值、整商品值", "charter_layout 只由迁移脚本写（同一个事务、商品版本加一、审计），供应商和运营接口不能改", "迁移报告七项（套餐价不一致、基础价区域上的上下车加价、同层 / 基础价与上下车加价重叠及面积、只有途经加价的行、空格、景点覆盖、各商品迁移前后的标志和版本）", "价格接口、导入导出、OpenAPI 同步；新价格方式的租户隔离集成测试", "独立审查、合并"],
+          "evidence": "PR #245（https://github.com/jiatengmei482-pixel/nozomi/pull/245）：本机类型检查（含前端）通过；单元 2,283 条全过（新增 domain charter-three-layer.test.ts 9 条、deploy-script 3 条）；相关集成 342 条（charter-*、prices、price-import、import-export、platform-products、products-openapi、tenant-isolation、tenant-audit、audit、rls、schema-structure、distance-prices、p2p-route-prices、area-roles-migration、embed-layout-migration、quotes 共 25 个文件）全过，其中新增 charter-three-layer.itest.ts 9 条；包车、接送机、点对点 golden 0 条变化（只有迁移过的商品走新表）；部署前回放基线 until 2026-11-14T09:13:00Z、30 天：1,322 条询价、2,451 行，resultDigest e36bac08…、stateDigest 024d1a09…（和 M9P-03 部署后一致）。前端价格页（M9P-07）上线前不在测试站执行迁移",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9P-06",
+          "title": "引擎基础价区域优先；后台保存校验（同层不重叠、基础价与上下车加价区域不重叠、同一区域不能既是基础价又设上下车加价）；上架覆盖检查、空格提示（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
+          "role": "backend",
+          "status": "review",
+          "acceptance": ["点在任一基础价区域 → 上下车、经停都不加价（P1 #3）", "保存时同商品同层重叠 → 400 AREA_LAYER_OVERLAP（两区域名 + 重叠面积）；基础价与上下车加价重叠 → AREA_BASE_SURCHARGE_OVERLAP；保留 AREA_IS_PRODUCT_AREA（新文案）", "places 加 charter_coverage 列（只加列、不预置数据）；包车上架检查 charter_coverage 列出不在任何区域的清单地标（提醒）；空格提醒", "包车 golden 变化（charter-golden 里 M8-38 的「大区盖小加价区」「重叠取最高」落在基础价区域里的样例、itinerary-golden 里 big 商品的样例）按 ADR 0093 第六节第 4 小节逐条列在 PR 里（旧值 → 新值），旧 golden 文件不重新生成；报不出的样例原因码不变", "规格第六节用例 9、14、15 做成集成测试；回放差异归到第六节第 5 小节第 9、10 类", "独立审查、合并、部署后测试站验收", "#229 审查建议（M9P-01 后续）：itinerary-golden.test.ts 对 adjusted 商品的变化只断言「≥ 3,000」，M9P-06 改这份 golden 时一并收紧为「3,000 × 调价系数，误差不超过一个取整单位」"],
+          "evidence": "PR #247（https://github.com/jiatengmei482-pixel/nozomi/pull/247，基于 #245）：引擎基础价区域优先；保存校验 AREA_LAYER_OVERLAP / AREA_BASE_SURCHARGE_OVERLAP / AREA_IS_PRODUCT_AREA（价格保存、商品服务区域保存两处）；places.charter_coverage（迁移 0460，只加列）和平台地点接口；上架检查加「热门地标覆盖」「加价表空格」两项提醒；包车 golden 变化单列：charter-golden 115 条、itinerary-golden 48 条，全是 big 商品、只变便宜、报不出的原因不变（逐条旧值 → 新值在 *.m9p-06.json）；接送机、点对点 golden 0 条；adjusted 断言收紧为 3,000 × 调价系数（#229 建议）；规格用例 9、14、15 做成集成测试（charter-layers.itest.ts 5 条）；部署前回放基线同 M9P-05（until 2026-11-14T09:13:00Z、30 天，resultDigest e36bac08…、stateDigest 024d1a09…）",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9P-07",
+          "title": "价格页三张表（套餐价一次填、行程加价、上下车加价）、空格提示、保存前拦截（取代 #219 的放开做法）；运营后台地点勾「包车覆盖检查」（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
+          "role": "frontend",
+          "status": "doing",
+          "acceptance": ["价格页按商品的 charter_layout 显示：迁移过的套餐价按车型组 × 套餐一次填、旧的按区域套餐价折叠只读；没迁移过的照旧显示旧表（正式站不受影响）", "迁移过的商品价格页顶部显示「迁移差异 N 条」，点开看「套餐价不一致」逐条明细（M9P-05 的只读接口）", "行程加价、上下车加价两张表；空格「空 = 不报价」提示和汇总", "服务区域在上下车加价的区域下拉里灰掉；已有的基础价区域上的上下车加价行标红、可删除、不计入「未保存」，其余行照常保存", "取代 M9W-12 后半「服务区域又是加价区域时保存卡住」：批量保存不再整批卡住", "重叠被拦时显示区域名和面积；上架检查显示覆盖检查结果", "运营后台地点页勾选「包车覆盖检查」", "组件测试 + 端到端（用例 14、15）", "独立审查、合并、部署后测试站验收", "#247 审查建议（M9P-06 后续）：价格导入的预览也查包车三层重叠（AREA_LAYER_OVERLAP / AREA_BASE_SURCHARGE_OVERLAP）——现在只有确认导入时在 applyPriceChanges 里拦，预览说能导入、确认时报 400；后端在 previewPriceImport 里补只读检查，页面把重叠显示到对应的行"],
+          "evidence": "PR #281（main 1324dc7c，2026-11-16 06:20Z 合并；CI e2e 用例 14 曾因新行 ref 超 100 字符失败，记号缩短后本机和 CI 通过）；独立审查通过，8 条非阻塞建议记为 M9P-07F；待测试站部署后验收",
+          "updated": "2026-11-16"
+        },
+        {
+          "id": "M9P-07F",
+          "title": "M9P-07（#281）独立审查的 8 条非阻塞建议",
+          "role": "frontend",
+          "status": "review",
+          "acceptance": ["会话中途在旧版 / 三层布局之间切换时，CHARTER_LEGACY_READ_ONLY 不再反复报错", "没迁移的商品重叠被拦时也显示格式化的区域名和面积", "运营后台包车覆盖检查显示具体地点而不只是个数；地点列表不再整表拉取（listAll）", "OPTIONAL_NOTES 补 charter_empty_cells、charter_layer_overlap", "迁移差异加载失败时页面给出提示，不再静默", "layerAreaCount 不计入被灰掉（不能用）的区域", "只在旧表里有的套餐也能看到（不被隐藏）", "PriceRuleBody.area_id 类型改为 string | null"],
+          "evidence": "第一批（8 条里 7 条）：布局在会话中途变化时 CHARTER_LEGACY_READ_ONLY / NOT_MIGRATED 不再落到通用报错（不看页面以为的布局，提示重新读取）；没迁移的商品重叠被拦也写出区域名和面积、指到区域加价表；上架检查提醒补 charter_empty_cells、charter_layer_overlap 两条说明；迁移差异读不出时提示并可重试；表头区域数不算基础价区域上被挡住的③；只在旧表里有的套餐档也列成页签（格子显示没填）；PriceRuleBody.area_id 改为 string | null（ruleAreaId 统一转整商品记号）。#304 合并；第 3 条（上架检查热门地标直接带名字，运营后台也写出地标名，供应商后台不再整表拉取城市地标）#305 合并。8 条全部完成",
+          "updated": "2026-11-18"
+        },
+        {
+          "id": "M9P-08",
+          "title": "测试站执行三层区域数据迁移：回放留底 → 迁移脚本 → 回放比对分类 → 迁移报告交运营（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
+          "role": "backend",
+          "status": "done",
+          "acceptance": ["只在测试站执行，经部署流水线（不手工登录服务器、不新开接口）：M9P-05 已部署后，staging 先设 CHARTER_THREE_LAYER_MIGRATION=dry-run 部署、看日志里的计数，确认后改 apply 手动触发一次部署，跑完立即清掉变量（ADR 0093 第六节第 1 小节，按 docs/deploy.md 操作）", "迁移前后回放差异行逐行归类（ADR 0093 第六节第 5 小节），接送机、点对点 0 行变化", "完整迁移报告留在服务器本地磁盘，不进 Actions 产物；PR 和验收记录只写计数摘要；运营要处理的条目在价格页、区域页里看；不手改运营数据"],
+          "evidence": "2026-11-18 测试站执行：dry-run（包车 12 个，迁 12、跳过 0；新建行程加价 2,620 条；报告：套餐价不一致 8、基础价区域上的上下车加价 6、重叠 32、只有途经加价 0、空格 0）→ apply（业主经监工在 GitHub 设变量、Deploy #287）→ 变量已删除。回放（30 天、截止 2026-11-17T12:00Z、1,629 条）：运营区域对外差异前后都是 0；按现行规则的结果摘要变化（预期）。迁移前只存了摘要、没存逐行明细，未能用 replay:classify 逐行归类，改由 M9P-11 逐条核对价格",
+          "updated": "2026-11-18"
+        },
+        {
+          "id": "M9P-20",
+          "title": "包车行程地图（上车 = 1、经停依次、下车 = 最后，列表同编号、每段时长和公里）+ 经停顺序优化（≥ 2 个经停时按 Routes optimizeWaypointOrder 给建议顺序，两条路线两个报价，一键采用或拖动，指定到达时间的经停不重排）；设计见 ADR 0096",
+          "role": "backend",
+          "status": "review",
+          "acceptance": [
+            "按 ADR 0096 分三期：P1 地图和编号（主站、嵌入页都用谷歌静态地图，不加 Leaflet 后备）；P2 顺序优化（只在经停点集合变化时调用、只缓存顺序且与顺序无关、单独每日上限按调用次数计、按预订会话限频只数要调谷歌的请求、每个地址每天 25 次要调谷歌的请求加宽松兜底、必须带有效报价或超长时的询价日志编号、达到阈值才多算一次报价；经停标识 ref 不进 request_key、快照、订单和司机视图）；P3 指定到达时间（arrive_by，可跨午夜）",
+            "建议报价和请求绑定：停留、日期时间、人数、行李、到达时间、附加项、升档变了，服务器用缓存的顺序重算建议报价，不再调谷歌优化；「一键采用」核对 request_key，不一致不采用；建议顺序按经停标识 ref 回传、按 ref 重排；客人拖动后页面按新的当前报价重算可省的公里、分钟、日元，低于阈值或已排成建议顺序时收起建议块（端到端「先拖动、再采用」）；两份报价各按各的 expires_at 提示过期；当前顺序没有任何一家报出价、且至少一家因超长报不出时用询价日志编号申请建议；拖成超长时照算公里、分钟、不显示日元，路线取不到时收起；按预订会话限频、只数要调谷歌的请求",
+            "按最终顺序报价；订单、司机页、供应商 / 运营订单详情按「1 上车 … 最后下车」编号，明细和报不出提示的经停序号按 stopSeq + 1 显示，顺序与下单时的报价快照一致；改期、救援沿用订单顺序，不重新优化",
+            "区域加价在套餐档不变时与顺序无关：golden 带经停的样例对经停做排列，固定套餐档（手动选档）或固定 routeUsage，上车、下车、行程加价金额逐分相等（只有 stopSeqs 标注可变）；另有用例覆盖换顺序导致换档时加价按新档、差额算进省下的金额（口径待业主确认 ADR 0096 第十节第 10 条）；不带新字段的询价 golden 0 条变化",
+            "商品级开关 service_rules.charterItinerary.suggestStopOrder 默认开，服务规则页（M9P-04）加勾选框；阈值放平台配置，默认省 ≥ 5 公里或 ≥ 10 分钟",
+            "单元、集成（本机假谷歌）、端到端（主站 + 嵌入页，chromium + webkit，含键盘上移下移和 360px）；独立审查、合并、部署后按 ADR 0096 第七节第 4 小节在测试站验收",
+            "P1 遗留（#256 审查记下，P1 合并后另做）：订单页、司机页、供应商 / 运营订单详情每段写时长和公里（订单接口带 itinerary.legs，ADR 0096 第九节 P1 一行）；行程地图出图单设每日上限（现在和两点路线小地图共用 GOOGLE_STATIC_MAPS_DAILY_LIMIT）；部署冒烟核对 /map-markers/10.png 公网可取、是 PNG"
+          ],
+          "evidence": "P1（地图和编号）：PR #256——新接口 GET /site/v1/itinerary-map（迁移 0490）；单元 domain itinerary-map 9 条 + google-itinerary-routes 3 条 + web charter-itinerary 11 条、map-markers 1 条；集成 site-itinerary-map.itest.ts 9 条（含 /site/v1/itinerary-legs）；组件 itinerary-map.test.tsx 8 条 + embed-flow 1 条；端到端 site-booking-itinerary-map.spec.ts 2 条（亮暗 axe、360 宽、10 个经停）+ site-embed-booking.spec.ts 1 条（chromium + webkit-embed）；截图 docs/acceptance/M9P-20-shots/。P2（顺序建议）：PR #267（基于 #256）——POST /site/v1/charter/order-suggestion、迁移 0530；单元 domain 7 条 + web 4 条、集成 site-order-suggestion.itest.ts 8 条、组件 order-suggestion.test.tsx 5 条、端到端 site-booking-order-suggestion.spec.ts 1 条。P3（指定到达时间 arrive_by）：单元 domain arrive-by.test.ts 8 条 + web arrive-by-display.test.ts 4 条、order-suggestion.test.ts 1 条；集成 site-arrive-by.itest.ts 5 条 + manual-quotes.itest.ts 1 条；组件 waypoints.test.tsx 1 条、order-suggestion.test.tsx 1 条；端到端 site-booking-arrive-by.spec.ts 1 条（chromium）；无迁移。P3 已合并（PR #286，main 17fa9361）并部署到测试站；监工 2026-11-17 验收基本通过，提了 2 条修改待做：地点搜索结果排序、每个经停的预计到达时刻表；监工 2026-11-17 的 2 条修改已做：地点候选排序 #292（+ #300 文字搜索要 10 条带 types），每站预计时刻、来不及标红 #293；待监工复验",
+          "updated": "2026-11-18"
+        },
+        {
+          "id": "M9P-09",
+          "title": "需求一：机场开始 / 机场结束包车套餐——ADR 0098（机场绑定 + 机场套餐价表，有格 = 单独定价、空格 = 继承；套在三层区域模型上）；实施拆为 M9P-21 后端、M9P-22 前端（来源 docs/requirements/charter-airport-packages-2026-11-14.md 第一节，与规格冲突处以规格为准）",
+          "role": "product",
+          "status": "review",
+          "acceptance": ["ADR 0098 写清：现状（带文件行号）、需求原文、方案比较和推荐、和三层区域的关系（机场开始算③上车；单独定价只免这一端③加价；规则 A 重叠处单独定价整端免、不退回 12,000）、航班号 / 免费等待（不加，按业主明定）、数据模型和迁移 0520、/book/new 和嵌入页、后台、验收标准、工作量、风险、待确认项", "待确认项 Q1–Q12 每条写明按推荐采用的答案（监工常设规则，监工可改）", "按 ADR 拆后端（M9P-21）、前端（M9P-22）任务；机场用例并入 M9P-11", "独立审查通过"],
+          "evidence": "PR #259（https://github.com/jiatengmei482-pixel/nozomi/pull/259），ADR docs/adr/0098-charter-airport-packages.md；只有文档和 roadmap，node scripts/check-roadmap.mjs 通过",
+          "updated": "2026-11-15"
+        },
+        {
+          "id": "M9P-21",
+          "title": "机场套餐后端：迁移 0520（charter_airport_bindings、价格方式 charter_airport_package）、机场绑定接口与校验、引擎场景匹配与计价、明细 / 快照、改期 / 救援、站点机场接口、OpenAPI（ADR 0098）",
+          "role": "backend",
+          "status": "doing",
+          "acceptance": ["没配机场绑定的商品包车 golden、itinerary golden 0 条变化，回放 0 变化", "成田上车机场开始继承 = 33,000 + 14,000 = 47,000，套餐行「成田机场接机 + 5 小时包车」（绑定填中文简称）；单独填 45,000 → 45,000、没有上车加价", "新宿上车、羽田下车 → 机场结束（= 普通价）；上下车都不在机场 → 只有普通套餐", "机场 → 机场取结算价低的、一样取机场开始；成田外围重叠处单独定价整端免、不收千叶超远 12,000；单独定价免场景那一端③加价（机场结束另免下车点行程加价），另一端、经停照收；成田下车继承 = 61,000、单独 45,000", "自动选档比「场景套餐价 +（继承档才加）这一端机场加价 + 超公里费」取最低（5h 单独 45,000 vs 6h 继承 52,000 → 5h）；改期时单独定价的单仍按机场套餐价、找不到就报不出", "绑定校验：只限三层区域商品（CHARTER_LAYOUT_NOT_MIGRATED）、机场区域可为接送机 / 通用 / 包车类型、须被本商品①∪③完全覆盖（AIRPORT_AREA_NOT_COVERED）、机场和启用航站楼须在区域里（AIRPORT_NOT_IN_AREA）、绑定着的区域删不掉（409 AREA_IN_USE）；新价格方式须有绑定（AIRPORT_BINDING_REQUIRED）；租户隔离集成测试", "机场套餐价导入导出由后端解析、校验、冲突检查；迁移 0520 以实施时 main 最新列表重建约束，迁移测试覆盖每种价格方式；单元 + 集成（真实 PostgreSQL）；独立审查、合并、部署"],
+          "evidence": "PR #261（https://github.com/jiatengmei482-pixel/nozomi/pull/261）第一批：引擎、价格方式、迁移 0520、机场绑定接口（租户 / 运营只读）、官网快捷入口接口、改期锁定场景。本机：单元 charter-airport 12 条 + 相关 domain 23 个文件 368 条（golden 0 变化）；集成 charter-airports 7 条连同包车三层相关 3 个文件共 34 条全过；后端、前端类型检查通过。第二批：价格导入导出认「机场场景」列（机场套餐价），集成 charter-airports 8 条 + charter-three-layer 11 条全过；M9P-21 后端部分做完",
+          "updated": "2026-11-15"
+        },
+        {
+          "id": "M9P-22",
+          "title": "机场套餐前端：商品页「机场套餐」绑定、价格页第四张表「机场套餐价」（空格灰字显示继承价）、/book/new 和嵌入预订页快捷入口「机场接机开始 / 机场送机结束」按航站楼选、备注航班号提示、明细和订单页场景名（ADR 0098）",
+          "role": "frontend",
+          "status": "review",
+          "acceptance": ["快捷入口只列能报机场套餐的机场、只列机场区域里的航站楼；价格页单独价高于继承价的格标黄；「改填其他地点」可退出；直接输入航站楼地址也匹配", "匹配到机场时备注提示「如需司机知道航班号，请填在这里」和计时提示；没有航班号字段、没有免费等待文案", "明细套餐行显示场景名，单独定价时不显示那一端加价；订单页、供应商 / 运营订单详情、司机页显示场景名", "新文案只有中文、全部走 i18n key（M11-01）", "组件测试 + 端到端（主站 + 嵌入页，chromium + webkit）；测试站验收并入 M9P-11。测试站核对（2026-11-16）：/book/new 包车模式显示「机场接机开始」「机场送机结束」两个按钮，点后出现「上车地点（选择航站楼）」下拉、计时提示和「改填其他地点」；航站楼列表还没核对（测试站还没有商品绑定机场，业主 2026-11-17 同意给测试供应商绑定成田 / 羽田）；后台机场绑定和第四张价格表目前只有端到端覆盖，待测试站绑定后一并验收"],
+          "evidence": "PR #265 已合并（13d8423e），2026-11-16 部署到测试站（main 17fa9361 那次部署，18:15Z）：/book/new 和嵌入预订页快捷入口（按航站楼选、计时提示、改填其他地点，手机下「下一步：选择车型」在 M9E-32 底部按钮条里）、明细套餐行场景名、匹配到机场时备注提示航班号、供应商 / 运营订单详情和司机页场景名；商品页第 ① 步「机场套餐」绑定（租户可编辑、运营只读，校验错误落到行和格）；价格页第四张表「机场套餐价」（M9P-07 三张表之后，空格灰字显示继承价、单独价高于继承价标黄、可展开填单价，和价格表一起批量保存）；新文案只有中文、走 key 表 charter-airport-copy.ts；单元、组件、端到端（主站 site-charter-airport、后台 charter-airports、嵌入页 site-embed-booking「M9P-22 跨站」）已写，待 CI；测试站验收并入 M9P-11",
+          "updated": "2026-11-17"
+        },
+        {
+          "id": "M9P-23",
+          "title": "包车行程地图：上车和下车是同一个地点（取整后同一点）时合并成一个「1·N」标记，免得「1」盖住终点编号（#267 验收意见 2026-11-16）",
+          "role": "frontend",
+          "status": "done",
+          "acceptance": [
+            "环线（上车 = 下车）地图上只有一个「1·N」标记在上车点，经停照常；不同地点不合并",
+            "合并图标 /map-markers/1-N.png（N = 3…12）在官网静态目录，方形不超过 64 × 64；自定义图标种类不超过谷歌的 5 种",
+            "测试站：环线包车的地图能看到「1·N」"
+          ],
+          "evidence": "PR #278（main c6f0f3ff）；测试站环线包车 新宿駅 → 浅草寺 → 新宿駅 地图只有一个「1·3」标记（docs/acceptance/M9E-30-shots/main-charter-1-vehicles-loop-map.png、main-charter-2b-review-390.png）",
+          "updated": "2026-11-16"
+        },
+        {
+          "id": "M9P-10",
+          "title": "P2 #10 经停点不设业务上限（只受路径接口上限，M9W-14）、#11 超限提醒（12 小时 / 360 公里提醒、可继续下单，阈值商品级；13 小时拦截已在 M9P-03）（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
+          "role": "backend",
+          "status": "review",
+          "acceptance": ["查清路径接口单次点数上限，超出提示联系客服定制", "超限提醒文案按旧需求文档第四节第 3 条（M9W-13 后半）；超过 13 小时不能在线下单已随 M9P-03 上线，本任务只核对提醒和拦截的文案一致", "规格第六节用例 13 做成测试", "前端随同（行程时间表下方提醒）", "独立审查、合并、部署后测试站验收", "供应商后台服务规则页加「超限提醒：预计用时 / 全程」两个输入框（等 #248 合并后加进本任务的 PR）", "后续（#260 审查，ADR 0099 第二节第 1 条方案 A）：#256（M9P-20）和 #260 哪个后合并，由后合并的那个核对行程地图最多 12 个点（10 个经停）、超过时前端根本不请求 /site/v1/itinerary-map（不调谷歌、不加 Pro 计费档），只显示列表，并补组件测试"],
+          "evidence": "PR #260（https://github.com/jiatengmei482-pixel/nozomi/pull/260），ADR 0099：经停点上限 25 个（路径接口一次最多 25 个中间点；报价逐段两两调用不受限，地图折线 / 顺序建议受限），常量 CHARTER_ITINERARY_LIMITS.maxWaypoints 一处，迁移 0510 放宽订单约束，草稿上限 24 KB；服务规则 charter_itinerary.warn_minutes / warn_km（默认 720 / 360），官网报价 itinerary_warnings（LONG_DURATION / LONG_DISTANCE），/book/new 行程时间表下方提醒并写出最长一段，ITINERARY_TOO_LONG 文案对齐旧需求第四节第 3 条。本机：类型检查通过；集成 9 个文件 85 条全过（新增 5 条，含用例 13、454 公里提醒后下单、25 个经停点下单）；domain / web 单元、组件相关文件全过（新增 9 条）；4 处变异检查都被抓住；端到端新增 1 条（提醒断言本机通过，axe 步骤本机浏览器内存不足崩溃，以 CI 为准）。服务规则页两个输入框待 #248 合并后补。",
+          "updated": "2026-11-15"
+        },
+        {
+          "id": "M9P-11",
+          "title": "测试站逐条验收规格第六节用例 1–19（前台价 = 结算价 × 1.1）（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
+          "role": "acceptance",
+          "status": "done",
+          "acceptance": ["规格第六节用例 1–19 按规格编号逐条记录询价应答和截图，写 docs/acceptance/M9P-11.md；16–19 是下车点行程加价（开关打开，10h 套餐）：16 新宿 → 河口湖站下车（不填经停）= 套餐 + 富士山行程 + 富士山下车 75,000 / 82,500；17 新宿 → 浅草 → 河口湖站下车 = 同 16；18 河口湖上车 → 新宿下车（不填经停）= 套餐 + 富士山上车、不收行程加价 65,000 / 71,500；19 同 16 但商品关闭开关 = 只收富士山下车 65,000 / 71,500，在测试供应商的商品上做", "核对用例 1–15 在下车点行程加价下预期不变（尤其第 5 条仍不收富士山行程）", "测试站金额与规格表不同时按测试站实际配置算期望值验证公式，另列金额差异表交运营，不改运营数据", "核对 docs/acceptance/M9W-owner-2026-11-14.md 第 3 项已加注「已被新规格取代」"],
+          "evidence": "2026-11-18 测试站 QA 测试供应商按规格第六节配置（①东京含羽田、②富士山 / 箱根 / 镰仓、③富士山 / 镰仓 / 成田，4h 28,000 含 120 公里、5h 33,000、10h 55,000，超公里 500），验收会话逐条询价：1–19 全部符合；2、6、7、10 总价与规格一致，3、4、5、8、9、16–18 加价组成一致、套餐按真实路线自动选 4 / 5h（规格允许手动升 10h 核对）；11、12 转人工；13 ITINERARY_TOO_LONG；14、15 保存被拦；19 关掉下车点行程加价只收下车加价（测完恢复）。详见 #288",
+          "updated": "2026-11-18"
+        },
+        {
+          "id": "M9P-12",
+          "title": "清理：旧的按区域套餐价、上下车加价行里的途经加价、引擎旧路径（验证通过且业主同意后）（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
+          "role": "backend",
+          "status": "todo",
+          "acceptance": ["M9P-11 通过、业主同意后再做", "迁移删除旧数据前导出备份；回放比对 0 变化"],
+          "evidence": "",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M9P-13",
+          "title": "区域编辑器：从本区域减去另一个区域、在地图上看全部（按商品和层筛选、标红重叠）、区域详情显示在哪些商品里当哪一层（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
+          "role": "frontend",
+          "status": "review",
+          "acceptance": ["三项功能各有组件测试和端到端", "独立审查、合并、部署后测试站验收", "#247 审查建议（M9P-06 后续）：在区域页改图形不经过三层重叠校验，可以造出新的同层 / 基础价与上下车加价重叠——保存图形时对用到这个区域的包车商品查一遍（至少提醒），或在上架检查里加一项重叠提醒"],
+          "evidence": "PR #262（https://github.com/jiatengmei482-pixel/nozomi/pull/262）。本机：domain 单元 area-subtract 11 条 + 相关 domain 测试共 60 条全过；集成（真实 PostgreSQL）新增 area-layers.itest 5 条（含租户隔离），相关区域 / 商品 / 包车三层集成 102+ 条全过；web 单元 area-layers 5 条、契约 15 条；组件新增 area-layers 6 条、原有区域组件 54 条全过；端到端 area-layers.spec 1 条（三项功能 + 改图形提醒，亮暗 axe），截图 docs/acceptance/M9P-13-shots/；关键断言做过变异检查。全量见 PR 的 CI",
+          "updated": "2026-11-15"
+        },
+        {
+          "id": "M9P-14",
+          "title": "只读回放（area-role-preview）可选返回逐行明细（差异类别、前后金额），用来给回放差异归类（P0 验收后续）",
+          "role": "backend",
+          "status": "review",
+          "acceptance": ["GET /platform/v1/reports/area-role-preview 加可选参数，打开时逐行返回（询价编号、商品编码、差异类别、前后金额），不打开时应答和现在一字不差","差异类别按 ADR 0093 第六节第 5 小节的分类给出，前后金额来自两次回放的同一行","逐行明细只在平台运营接口返回；Actions 只读核对的公开计数摘要仍只带计数和摘要值，不带逐行明细和价格（仓库公开）","单元和集成测试：打开 / 不打开两种应答、类别判定、与 resultDigest 逐行摘要对得上","独立审查、合并、部署后测试站跑一次"],
+          "evidence": "PR #266（https://github.com/jiatengmei482-pixel/nozomi/pull/266）：GET /platform/v1/reports/area-role-preview 加可选 rows=true，replay 多一项 resultRows（询价编号、商品编码、和 resultLineDigests 同一个 digest、各车型组的档 / 结算价 / 超时费 / 加价拆项），不带时应答一字不差；pnpm replay:classify 前.json 后.json [--allow …] 按 ADR 0093 第六节第 5 小节归类（加价 1/2/9/10、超时费 4、选档 5/7、套餐价 8、13 小时 12，另列只有区域 / 规则变了、旧格式日志的选档 / 超时费、未归类），拆账在调价前的基础价上，输出前后金额和报不出的原因；未归类、声明以外的类别、只有一边有的行退出码 1，数据状态不同退出码 3。只读核对工作流不带 rows，公开产物不变。新增单元 4 条、集成 1 条；相关集成 14 条全过。",
+          "updated": "2026-11-15"
+        },
+        {
+          "id": "M9P-15",
+          "title": "查清手动报档时 auto_package_hours 和自动询价选的档不一致（M9P-03 验收后续）",
+          "role": "backend",
+          "status": "review",
+          "acceptance": ["复现（监工 2026-11-14 M9P-03 验收时发现）：测试站，新宿 → 河口湖（停 2h）→ 新宿。自动询价（不带 package_hours）选 7h，官网下拉显示「自动（7 小时）」。官网下拉只列 8–12 小时，选不到 6h，所以「手动报 6h」是直接调接口发的：POST /site/v1/quotes，category: charter、itinerary_pricing: true、pickup / dropoff / waypoints 同上、package_hours: 6（服务层按 charterSelection: manual 处理）。应答里 auto_package_hours = 6，和自动询价的 7h 不同。验收时没有记下这个 6 出自哪个商品、哪个车型组：复现时先逐条记下应答里每个报价的中标商品（候选是东京包车、远郊包车两个已上架商品）、车型组（经济7座等）和各自的 auto_package_hours，再和自动询价的应答逐条对照", "查清原因：是不是手动询价时别的商品中标（auto_package_hours 取的是中标商品自己会选的档），还是选档逻辑在 manual 和 auto 下口径不一致；写进 PR", "按查清的原因定口径：auto_package_hours 应该是哪一个商品、哪一个车型的自动档，和官网下拉「自动（N 小时）」（M9P-04）一致；如需改代码，补单元 / 集成测试复现这一例", "/site/v1、/sales/v1 同口径；不改 golden（不带 charterSelection 的旧口径不受影响）"],
+          "evidence": "PR #264（https://github.com/jiatengmei482-pixel/nozomi/pull/264）。原因：手动报档时 auto_package_hours 取的是手动询价中标商品自己会选的档，手动报的档换了商品中标就和自动询价对不上（测试站：自动甲 7h 中标；手动 6h 乙中标、乙自己会选 6h）；选档逻辑 manual / auto 同一个函数。改为同一行程不带 package_hours 自动询价时这个车型中标的档（服务层内存里多比一次，不记日志、不存报价；quote.ts、golden 不改）。新增集成 1 条复现这一例，去掉修正就失败（6 ≠ 7）；相关集成 29 条全过。",
+          "updated": "2026-11-15"
+        },
+        {
+          "id": "M9P-16",
+          "title": "已下的包车单改期、救援按下单时锁定的加价，不按新规则重算（监工替业主确认 2026-11-14；ADR 0093 待确认第 8 条改口径）",
+          "role": "backend",
+          "status": "review",
+          "acceptance": [
+            "现状（2026-11-14 查代码）：改期 apps/api/src/services/order-changes.ts 用快照的 request + 当前规则调 quoteProduct 整单重算（加价按当前引擎：M9P-01 经停不抵消、M9P-06 基础价区域优先都会作用到部署前的单）；救援 apps/api/src/services/rescues.ts 的 rescueCandidates 经 previewPlatformQuote 按当前规则重新比价，救援差价基准（M9P-01 救援 B）也按当前规则重算原订单的加价",
+            "改期用下单时锁定的加价（快照结算价明细 areaSurcharge 里的上车、下车、行程加价），不按新规则重算：M9P-01 / M9P-06 的改动不作用到已下的单；套餐价、加急、夜间等其余部分照旧按改期后的时间现算，写进 ADR",
+            "ADR 0093 待业主确认第 8 条改为「监工替业主确认 2026-11-14：按下单时锁定」，第二节「已下的单改期、救援」同步改写（救援 B 基准是否还需要一并说明）",
+            "集成测试：部署前格式的订单在①∩③处上车、经停被上下车抵消的单，改期后加价不变（套餐价等照旧按改期后的时间现算）",
+            "救援按方案 1（监工替业主确认 2026-11-14）：客人价锁定不重算；原供应商的扣款按救援 B 基准（算法改出来的加价不落到原供应商头上）；救援候选按现行规则报价——救援代码不改，ADR 0093 第二节写明",
+            "独立审查、合并、部署后测试站验收"
+          ],
+          "evidence": "PR #250（https://github.com/jiatengmei482-pixel/nozomi/pull/250）：改期时加价按下单时锁定（引擎 lockedAreaSurcharge，order-changes 的 reprice 经 lockableAreaSurcharge 只在行程和套餐时长都没变时锁），套餐价、调价、加急、夜间、附加服务照旧按改期后的时间现算；锁定时经停点区域判断照常（WAYPOINT_NOT_PRICED）；救援按方案 1（监工替业主确认 2026-11-14），代码不改；ADR 0093 第二节、第十三节第 8 条已改，边界情况标「建议口径，待监工确认」。测试：charter-dropoff-itinerary 集成 10 条（部署前格式的单改期 74,000 → 74,000、供应商后改加价和套餐价后改期、改两次期）；domain charter-three-layer 12 条；3 个变异检查（引擎忽略锁定、改期不传锁定、锁定时跳过经停区域判断）都被测出；合并 #247 后重跑改期 / 救援 / charter 集成和 domain 全过",
+          "updated": "2026-11-14"
+        }
+      ]
+    },
+    {
+      "id": "M9T",
+      "name": "AI 行程报价 P1 后端（同城多日）",
+      "goal": "按 ADR 0101（原编号 0100，2026-11-17 因撞号改号）实施 AI 行程报价 P1 后端：行程单、方案、服务段、跨段费用、规则配置；只做加法，不改现有报价。设计总篇见 ADR 0094（M10-00）。",
+      "tasks": [
+        {
+          "id": "M9T-00",
+          "title": "ADR 0101：AI 行程报价 P1 后端实施篇（同城多日底层：行程单 / 方案 / 服务段 / 跨段费用 / 规则配置的数据模型，编排接口只收结构化输入，住宿 / 停驻 / 工时与第二司机 / 返程四类规则，一车到底 vs 每天各自最优两个方案）",
+          "role": "product",
+          "status": "done",
+          "acceptance": ["写清范围（设计篇 ADR 0094 的 P1a + 返程函数 / 配置 / 单测，返程不接入编排；不做下单付款、新干线、跨城一车到底）、迁移 0600 的 5 张表、接口、分段判定与拆法、逐段经现有报价服务报价、四类规则的算法和配置键、方案与推荐、验收标准、固定测试集做法、待确认项（按原文第 8 节默认值）、工作量", "阻塞项 B2–B3、偏离 D1–D6、待确认 Q1–Q10 列清，监工 2026-11-15 书面确认", "独立审查通过"],
+          "evidence": "ADR docs/adr/0101-trip-quote-p1-backend.md；只有文档和 roadmap。PR #263：第一稿独立审查「需要修改后复核」（11 条必须修改），第二稿逐条处理；第二稿复核再提 M1–M3（未覆盖需求接法、机场按坐标与回落点对点、限频键一键一窗），第三稿处理（文末修改记录）。监工 2026-11-15 书面确认：B2 放行（加 export + 官网行为不变测试）、B3 接受、D1–D6 同意（D4 口径写入 ADR）、Q1–Q10 按默认值",
+          "updated": "2026-11-15"
+        },
+        {
+          "id": "M9T-01",
+          "title": "行程编排 domain（packages/domain/src/trip/）：标准行程单校验与上限、分段判定、同一天拆法枚举、住宿（含客人提供抵免、③抵扣）/ 停驻 / 工时与第二司机 / 附加项去重 / 返程函数、最短套餐价、方案组装与推荐、规则配置校验（ADR 0101 第三、四节）",
+          "role": "backend",
+          "status": "done",
+          "acceptance": ["纯函数、不碰数据库和网络，不改 quote.ts、pricing.ts", "规则单元测试覆盖 ADR 0101 第七节第 5 条全部情形（13–15 小时只经出入库或多段触发）", "包车 golden、itinerary golden 0 条变化"],
+          "evidence": "packages/domain/src/trip/（itinerary / segments / rules / work-hours / fees / plans）+ 6 个测试文件 53 条；domain 全部 1644 条通过；不改 quote.ts / pricing.ts，golden 0 变化；#270 合并（2026-11-17）",
+          "updated": "2026-11-17"
+        },
+        {
+          "id": "M9T-02",
+          "title": "迁移 0600（trips、trip_plans、trip_segments、trip_fees、trip_rule_configs）、规则配置接口 GET/PUT /tenant/v1/products/:id/trip-rules、GET /platform/v1/products/:id/trip-rules、OpenAPI（ADR 0101 第二、五节）",
+          "role": "backend",
+          "status": "done",
+          "acceptance": ["只新增表，不改已有表；行程表是平台表、规则配置是租户表（行级安全、授权登记）", "租户 A 读不到、改不了 B 的规则配置（集成测试）；返回只有结算价", "迁移测试；CI 全绿"],
+          "evidence": "迁移 0600（4 张平台表 + 租户表 trip_rule_configs，供应商快照列 supplier_tenant_id）、GET/PUT /tenant/v1/products/:id/trip-rules、GET /platform/v1/products/:id/trip-rules、OpenAPI；trip-rules.itest 7 条（含迁移约束、租户隔离、行级安全）；schema-structure / rls / tenant-isolation / password-change-bypass / platform-admin / products-openapi 登记并通过；#272 合并并单独部署（2026-11-17，迁移 0600 已在测试站执行；QA 供应商 GET trip-rules 返回默认配置）",
+          "updated": "2026-11-17"
+        },
+        {
+          "id": "M9T-03",
+          "title": "编排接口：POST /site/v1/trips、GET /site/v1/trips/:id、POST /site/v1/trips/:id/quote；逐段经 previewPlatformQuote 按官网渠道报价，写方案 / 段 / 费用，限频（ADR 0101 第三节）",
+          "role": "backend",
+          "status": "done",
+          "blockedBy": "依赖 M9T-01、M9T-02",
+          "acceptance": ["daily_best 每段对外价 = 同样条件下官网询价的中标价；one_car 每段 = 同一次比价里该租户该车型组自己的对外价（集成测试，接送机、点对点、包车各至少一条）", "编排找到的城市、路线与官网询价一致；charterCityFor / itineraryRoute / demandFacts 加 export 后官网询价行为不变（测试）", "报不出的段按官网条件记未覆盖需求（只记每天取最低价的那组段：多日看 daily_best、单日看 one_car；排除验收会话与 onlyTooShort；行程特有原因 P1 不记，D6）", "机场按坐标识别、接送机报不出回落点对点，与官网按点询价一致", "对客应答没有结算价、加价比例、供应商编号", "段报价 120 次 / 路线 200 次预算，超出降级为只报不拆（degraded: true），连不拆都报不完才 422；限频新键 site_trip_quote / site_trip_quote_day；CI 全绿"],
+          "evidence": "POST /site/v1/trips、GET /site/v1/trips/:id、POST /site/v1/trips/:id/quote（services/trips.ts、repos/trips.ts、routes/site-trips.ts）；domain trip/build.ts 方案组装与跨段费用（63 条单测）；B2 只加 export（charterCityFor、itineraryRoute、demandFacts）；限频键 site_trip / site_trip_quote / site_trip_quote_day；trips.itest（官网询价逐段一致、D4 住宿抵扣、报不出与未覆盖需求、限频）；OpenAPI；#274 合并（2026-11-17，补行程编号格式不对一律 404 TRIP_NOT_FOUND）",
+          "updated": "2026-11-17"
+        },
+        {
+          "id": "M9T-04",
+          "title": "固定测试集 30 条（东京、大阪，测试代码内构造）逐条比对段型、拆法、跨段费用、方案、推荐、unquoted；测试站验收（ADR 0101 第八节）",
+          "role": "tester",
+          "status": "done",
+          "blockedBy": "依赖 M9T-03",
+          "acceptance": ["30 条期望全部写明并通过", "测试站用 QA 测试供应商（ADR 0077）跑通建行程、报价、看方案"],
+          "evidence": "固定测试集 31 条：apps/api/src/trip-fixed-set.itest.ts 东京 16 条（#297）+ trip-fixed-set-2.itest.ts 大阪、跨城、14 天、规则开关、建单校验 15 条；每条期望按 ADR 0101 第四节手算核对后写死。第二部分顺带修了两处：住宿按区域（byArea）只和①比对、永远匹配不到③；跨城市一车到底（P1d）没有拦下。测试站验收待做。测试站（2026-11-17，main 991c3fc9）：普通客人身份建两天东京行程并报价，200，两个方案都报出（35,200，每天拆成两段点对点）；QA 验收会话下两天都 OUT_OF_SERVICE_AREA——QA 测试供应商的包车区域全停用、商品未迁移三层，和测试站绑定成田羽田是同一个前置（第二开发在做），备好后补测；2026-11-18 QA 测试供应商补测：两天东京 61,600（两方案同价推荐一车到底）、新宿→河口湖→新宿 71,500、羽田接机 + 浅草单日 30,800、第 2 天甲府两方案都报不出",
+          "updated": "2026-11-18"
+        },
+        {
+          "id": "M9T-05",
+          "title": "行程单清理任务：readable_until（建单 + 30 天）后删除行程与下属方案、段、费用（ADR 0101 第二节，设计篇第八节第 6 小节；CLAUDE.md 第 7 条）",
+          "role": "backend",
+          "status": "done",
+          "blockedBy": "依赖 M9T-02",
+          "acceptance": ["只删 trips 及其级联行，不碰其他表；集成测试覆盖到期删、未到期留", "规则配置页（前端）不在本里程碑，随前端车道另开任务"],
+          "evidence": "services/trip-retention.ts（TripRetentionJobs：每小时一轮，readable_until 已过的 trips 分批删除，方案、段、费用级联；advisory 锁防多实例）；app.ts 登记（jobs 时启动）；trip-retention.itest 2 条（到期删、未到期留、级联、不碰别的表、分批与拿不到锁跳过）；#275 合并（2026-11-17）",
+          "updated": "2026-11-17"
+        },
+        {
+          "id": "M9T-06",
+          "title": "ADR 0101 补记第十三节：官网行程报价页范围（/book/trip）、人工报价关联行程单（新表 manual_quote_trip_links，不给现有表加列）、地名放进加密联系信息、下单出口（单段方案桥接普通报价；多段方案待业主决定）",
+          "role": "product",
+          "status": "doing",
+          "acceptance": ["写清页面范围（按天填写、建单→报价→两个方案对比、样式同 /book/new、≤1023px 底部步骤条、文案表；embed 不做、验收前不加入口）", "人工报价关联用新表 manual_quote_trip_links（request_id 主键、ON DELETE CASCADE，trip_id 不加外键），地名 trip_labels 放进加密联系信息、保留期相同", "下单出口：单段方案 POST /site/v1/trips/{id}/plans/{planId}/order-quote 生成普通报价后走现有下单付款；多段方案 A / B / C 列清并标「待业主决定」", "只有文档和 roadmap；check-roadmap 通过"],
+          "evidence": "ADR docs/adr/0101-trip-quote-p1-backend.md 第十三节；PR 待合并",
+          "updated": "2026-11-18"
+        },
+        {
+          "id": "M9T-07",
+          "title": "报价应答加 manual_quote_suggested：已报价且所有方案都报不出时为 true（ADR 0101 第十二节第 2 小节第 1 条）",
+          "role": "backend",
+          "status": "doing",
+          "acceptance": ["GET /site/v1/trips/:id、POST /site/v1/trips/:id/quote 应答都带布尔 manual_quote_suggested；全部报不出为 true，部分报不出、未报价为 false", "OpenAPI SiteTrip 必填字段并写明含义；应答其余字段不变", "集成测试覆盖全部报不出、一个方案报出、新建未报价三种；CI 全绿"],
+          "updated": "2026-11-18"
+        },
+        {
+          "id": "M9T-08",
+          "title": "人工报价关联行程单：新表 manual_quote_trip_links、POST /site/v1/manual-quote-requests 收可选 trip_id / plan_kind、地名 trip_labels 放进加密联系信息、运营后台人工报价详情显示整张行程单或「行程单已清理」（ADR 0101 第十三节第 2 小节）",
+          "role": "backend",
+          "status": "done",
+          "evidence": "#316 新表 manual_quote_trip_links、提交带 trip_id / plan_kind / trip_labels（地名加密、到期一起清除）；#318 运营后台人工报价详情「整张行程单」（每天的点和时间、方案金额、报不出原因、已清理）",
+          "acceptance": ["只新增表，不给 manual_quote_requests 加列；trip_id 不加外键，行程单清理后关联行保留", "不带 trip_id 时人工报价申请行为不变（现有测试全过）；带了不属于本渠道或已过期的行程单 404 TRIP_NOT_FOUND", "trip_labels 随联系信息加密、到期一起清除（集成测试）", "运营后台详情显示每天的日期、时间、点、方案和报不出的原因；行程单已清理时显示「行程单已清理」；CI 全绿"],
+          "updated": "2026-11-18"
+        },
+        {
+          "id": "M9T-09",
+          "title": "官网行程报价页 /book/trip：按天填写、建单与报价、两个方案对比（每天编号地图）、全部报不出转人工、部分报不出写明原因（ADR 0101 第十三节第 1 小节）",
+          "role": "frontend",
+          "status": "review",
+          "evidence": "第 1 部分 #320：/book/trip 填写、建单、报价骨架；第 2 部分（本 PR）：方案对比卡片（逐天每段、费用、提示）、全部报不出「转人工报价」带 trip_id / trip_labels（M9T-08）",
+          "acceptance": ["样式同 /book/new：桌面两栏 + 每天一张编号地图，≤1023px 单栏 + 底部步骤条", "文案按 ADR 0101 第十三节文案表", "manual_quote_suggested 为 true 时只给转人工（带 trip_id）；部分报不出照常展示并写明原因", "不做 embed；验收通过前不加入口链接；组件测试与契约测试通过，测试站可直接打开地址验收"],
+          "updated": "2026-11-18"
+        },
+        {
+          "id": "M9T-10",
+          "title": "下单出口：单段方案经 POST /site/v1/trips/{id}/plans/{planId}/order-quote 生成普通官网报价后走现有下单付款；多段方案（和带跨段费用的单段方案）「提交预订，客服确认」= 带 trip_id + plan_kind 的人工报价（业主 2026-11-18 确认选 A）（ADR 0101 第十三节第 3 小节）",
+          "role": "backend",
+          "status": "review",
+          "evidence": "第 1 部分 #326（后端，已合并）：POST /site/v1/trips/{id}/plans/{planId}/order-quote（services/trips.ts orderQuoteForPlan、repos/trips.ts findTripPlanForOrder、routes/site-trips.ts）：单段方案按这一段的条件走一次官网正式询价（siteQuotes，写询价日志和 quotes），取方案车型组那一张，价格 ≠ 方案总价 409 TRIP_PRICE_CHANGED；方案过期 409 TRIP_PLAN_EXPIRED、多段 / 空闲日 / 带跨段费用 409 TRIP_PLAN_NOT_SINGLE_SEGMENT、方案不存在 404 TRIP_PLAN_NOT_FOUND；不新增表、不改表，占 site_quote 额度；OpenAPI SiteTripOrderQuote、前端 createSiteTripOrderQuote 与契约测试；trips.itest 4 条（包车 / 接机 / 回落点对点转报价并经 POST /site/v1/orders 下单、价格不一致、多段 / 费用 / 过期 / 404）。第 2 部分 #327（页面，已合并）：/book/trip 方案卡片——单段方案（整个方案一段、无跨段费用、/book/new 表示得了）「预订这个方案」→ order-quote（包车带经停点地名 waypoint_names）→ 路由 state 带着普通报价进 /book/new 第 3 步，BookNewPage 按 quote_request 预填、选好车型、第一次询价直接用这张报价（过期才照常询价），之后走现有乘客信息 / 下单 / Stripe，无新付款代码；409 TRIP_PRICE_CHANGED 写「价格有变化，请重新报价」+ 重新报价（NO_OFFER / CONDITIONS_CHANGED 另给转人工）、TRIP_PLAN_EXPIRED / NOT_FOUND 重新报价、NOT_SINGLE_SEGMENT 退回客服确认、429 / 断网同报价说法；多段方案按推荐 A「提交预订，客服确认」= 带 trip_id + plan_kind 的人工报价（业主 2026-11-18 确认选 A，#288；开关已去掉）；lib/trip-book.ts + 单元测试、trip-new / book-new 组件测试。业主 11-18 决定已记入 ADR 0101 第十三节第 3 小节；多段方案直接下单另见 P1b 付款 ADR。单日 one_car 取中标价另立 M9T-12（编排）。还差：测试站 Stripe 测试卡跑通",
+          "acceptance": ["桥接生成的报价价格与方案里这一段的对外价一致，不一致 409；之后完全走现有下单、付款流程，不新增付款代码", "不改现有报价、下单接口的入参与结果", "测试站用 Stripe 测试卡跑通单段方案下单付款；CI 全绿"],
+          "updated": "2026-11-18"
+        },
+        {
+          "id": "M9T-12",
+          "title": "单日 one_car 取中标价（编排）：单日行程方案的段改为和官网普通报价同一比价口径（取中标的那家），两处价格一致（业主 2026-11-18 决定 ②，ADR 0101 第十三节第 3 小节）",
+          "role": "backend",
+          "status": "todo",
+          "acceptance": ["单日行程 one_car 的段价 = 同条件官网询价的中标价（集成测试逐段比对）", "多日行程 one_car 仍取该租户自己的对外价，固定测试集期望按需更新并写明原因", "单段方案经 order-quote 桥接不再因比价口径不同 409；CI 全绿"],
+          "updated": "2026-11-19"
+        }
+      ]
+    },
+    {
+      "id": "M10",
+      "name": "AI 行程报价设计",
+      "goal": "业主 2026-11-14《AI 行程报价设计方案（草案 v1）》：在现有接送机、点对点、包车报价之上加「行程编排」层（只做加法），覆盖接机、送机、点对点、包车、多日、住宿、返程和城市间长途（新干线方案 vs 一包到底），地图展示路线，AI 只负责把一句话或上传行程解析成标准行程单、不定价（ADR 0094）",
+      "tasks": [
+        {
+          "id": "M10-00",
+          "title": "ADR 0094：AI 行程报价设计（差距盘点、数据模型、编排接口、跨段规则、3.7 城市间长途、地图、AI 解析、分期估算）",
+          "role": "product",
+          "status": "review",
+          "acceptance": ["原文逐字存档 docs/requirements/ai-trip-quote-design-2026-11-14.md（含 3.7 节和第 8 节追加的 5 行）", "差距盘点：现有引擎各项能力和原文 3.1–3.7 逐条标「已有 / 部分有 / 要新做」并写依据（文件:行）；特别确认超公里单价是否覆盖长途高速费、新干线站点主数据、谷歌公共交通时长和票价", "ADR 0094 草案覆盖数据模型（只新增表，与 orders 的关系、一次付款）、编排接口（结构化输入、分段判定、合并比价、多方案对比）、规则扩展点、与现有报价接口的边界和锁价、地图与计费估算、AI 解析（模型、结构化输出、置信度、上传、防注入、个人信息、成本、AI 不定价）、转人工、3.7", "P1–P5 分期估算（工作量、风险、依赖、验收方式）；原文第 8 节逐条建议默认值，拿不准的标「待业主定」", "按 #232 独立审查改第二稿：跨城一车到底单列 P1d 并写清基价来源；行程下单与一次付款重写（抽下单核心、行程付款 / 分摊 / 退款表、超时、异常队列、乘客资料保留、取消服务适配）；地图定为 Google Maps JS；evidence 等自由文字加密并纳入 30 天清理、人工报价摘要随人工报价单清除；分期重估、依赖补 M9P-02 / M9P-06", "独立审查通过；业主确认第十一节后再拆实施任务"],
+          "evidence": "PR #232（https://github.com/jiatengmei482-pixel/nozomi/pull/232）；只有文档和 roadmap，node scripts/check-roadmap.mjs 通过",
+          "updated": "2026-11-14"
+        },
+        {
+          "id": "M10-01",
+          "title": "核实并整改：官网 Leaflet 路线后备图和地图选点与谷歌《服务专用条款》19.2 / 14.2 / 6.2（谷歌内容不得用于非谷歌地图）",
+          "role": "frontend",
+          "status": "doing",
+          "acceptance": ["盘点所有把谷歌 Routes 折线、Places 搜索结果、Geocoding 反查结果和 Leaflet 非谷歌底图一起显示的地方（至少 apps/web/src/pages/book/new/RouteMap.tsx 后备路线图、SiteMapPicker.tsx 地图选点）", "逐处给出整改：改用谷歌地图（静态图或 Maps JS），或不显示地图只显示文字；方案写进 ADR（修订 ADR 0017 / 0072）并经独立审查", "整改后端到端测试覆盖：静态地图未开通时不再在 Leaflet 上画谷歌路线", "嵌入页 /embed/book（ADR 0095，Q11）同步改用同一套合规后备图：首期静态图失败时只显示时长和公里数，M10-01 之后显示和主站相同的路线摘要图；端到端覆盖嵌入页"],
+          "evidence": "核实（2026-11-18，#288【需业主决定】）：① 路线小地图后备把谷歌路线画在 OSM 底图上——按推荐 A 改为后备时只留文字，删掉 RouteMap.tsx（本 PR）；行程地图本来就没有后备。② 地图选点在 OSM 底图上点位置后用谷歌反查地址——推荐 B（不再用谷歌查，显示坐标、让客人补写地址），等业主回复再改",
+          "updated": "2026-11-18"
+        }
+      ]
+    },
+    {
+      "id": "M11",
+      "name": "多语言（系统完成后再做）",
+      "goal": "业主 2026-11-15：多语言不着急，等系统功能全部完成后再统一做。前置条件（业主 2026-11-15）：①系统功能全部完成 ②生成全部固定文案清单（中文，按页面分组、带位置说明）交业主定稿 ③定稿后冻结，再开翻译。开发期间新文案都走 i18n key，文案清单能从代码自动导出",
+      "tasks": [
+        {
+          "id": "M11-01",
+          "title": "开发期规则：新功能先只做中文，所有新文案走 i18n key（主站已有的日英文案保持不动、不删）",
+          "role": "frontend",
+          "status": "doing",
+          "acceptance": [
+            "新页面、新提示、新邮件 / 通知模板的固定文案一律用 i18n key，不在组件里写死中文",
+            "主站已有的日文、英文文案原样保留，不删、不改",
+            "审查时检查新代码有没有写死的中文文案",
+            "业主 2026-11-15 决定"
+          ],
+          "evidence": "",
+          "updated": "2026-11-15"
+        },
+        {
+          "id": "M11-02",
+          "title": "固定文案清单可从代码自动导出（中文，按页面分组，带位置说明：页面 / 组件 / 文件）",
+          "role": "frontend",
+          "status": "todo",
+          "acceptance": [
+            "一条命令导出全部固定文案：页面标题、按钮、提示、说明、错误提示、邮件 / 通知模板等",
+            "按页面分组，每条带 key、中文、出现位置（页面和文件）",
+            "能发现写死、没走 i18n key 的文案并列出来",
+            "输出给业主看的表格（如 CSV / Markdown）"
+          ],
+          "evidence": "",
+          "updated": "2026-11-15"
+        },
+        {
+          "id": "M11-03",
+          "title": "全部固定文案交业主定稿，定稿后冻结",
+          "role": "owner",
+          "status": "blocked",
+          "blockedBy": "系统功能全部完成，且 M11-02 清单已生成",
+          "acceptance": [
+            "用 M11-02 导出的清单交业主逐条定稿",
+            "定稿版本存进仓库，之后改中文文案要业主同意",
+            "冻结后才开始 M11-04、M11-05 的翻译"
+          ],
+          "evidence": "",
+          "updated": "2026-11-15"
+        },
+        {
+          "id": "M11-04",
+          "title": "多语言界面：主站、嵌入页、订单页、付款、邮件 / 通知按定稿文案出日文、英文（承接 M9E-18；韩文、繁体中文为第二批）",
+          "role": "frontend",
+          "status": "blocked",
+          "blockedBy": "M11-03 定稿冻结",
+          "acceptance": [
+            "承接原 M9E-18 的全部验收标准（嵌入页 zh / ja / en，日期金额格式、Stripe locale 等）",
+            "只翻译 M11-03 冻结的定稿文案",
+            "译文由业主或运营过目",
+            "加一种语言只加文案表一列，不改页面代码"
+          ],
+          "evidence": "",
+          "updated": "2026-11-15"
+        },
+        {
+          "id": "M11-05",
+          "title": "车型名、代表车型多语言（承接 M7-07）",
+          "role": "backend",
+          "status": "blocked",
+          "blockedBy": "M11-03 定稿冻结",
+          "acceptance": [
+            "承接原 M7-07 的验收标准（ADR 0068，按客人语言取名称）"
+          ],
+          "evidence": "",
+          "updated": "2026-11-15"
         }
       ]
     }
@@ -2221,8 +3200,513 @@
     },
     {
       "date": "2026-11-13",
+      "by": "backend",
+      "summary": "M9W-06 开发完成，待验收：#189 审查遗留的两项——按行程计价先核城市、查套餐再估路线（城市不对 400 UNKNOWN_CITY，没有套餐 NO_PRODUCT，都不调谷歌）；修改包车区域加价时没带途经加价这一项就保留原值（显式 null 才清掉）。另两项转 M9W-07 待业主决定。"
+    },
+    {
+      "date": "2026-11-13",
       "by": "Claude",
-      "summary": "M6-11 开发完成待验收：「量元素高度、写进 CSS 变量」收进公用模块 useMeasuredHeight（变量名只接受登记的、值固定整数px），两个样式测试共用同一份「变量 → 允许引用它的样式表」名单，只有这个模块可以调 setProperty；离开确认里「保存并继续」保存失败后不再沿用那次点击的记录（PR #202）。"
+      "summary": "新增 ADR 0090 和里程碑 M9E（嵌入预订组件）：组件先把预订条件交给主站暂存成 2 小时有效的预订草稿，再整页跳 /book/new?draft=<43 位短编号>；跨域只开 /embed/v1，只对嵌入码白名单里的网站放行；来源只做统计。取代 ADR 0087 草稿（#186，未合并）中草稿和嵌入组件的部分，线路式包车部分已由 ADR 0088 / 0089 实现。分 M9E-01 草稿、M9E-02 嵌入码与白名单、M9E-03 组件脚本三个 PR。"
+    },
+    {
+      "date": "2026-11-13",
+      "by": "backend",
+      "summary": "M9E-01 开发完成，待验收：预订草稿表（迁移 0390，只建结构；平台角色只有 select / insert / delete）、domain 的 BookingDraft 校验（区间 / 包车、经停点 ≤ 10 个且停留 30 分钟一档、有经停点时不给时长、多一个键就拒）、GET /site/v1/booking-drafts/{id}（只给条件和到期时刻，过期和不存在同一个 404，每地址每分钟 60 次，无 CORS）、每小时删过期草稿；/book/new?draft= 整份预填并在条件齐全时直接报价，过期时提示「链接已过期，请重新填写」。建草稿的接口随 M9E-02。"
+    },
+    {
+      "date": "2026-11-13",
+      "by": "Claude",
+      "summary": "ADR 0090 按 #191 独立审查意见修改：模型线路、订单行程方式这次不做（新增 M9E-04、M9E-05，待业主确认）；/embed/v1 来源核对在解析请求体之前，通过后所有应答带 CORS 头，组件对读不出的失败统一说「暂时无法使用」；新增「待业主确认」一节（Q7、Q8、Q9、Q10、Q11、Q14、Q16，地点名 200 字、途经点 10 个），答复前按推荐做；来源记在单独的平台表；M9E-01 / 03 验收补「价格等于手填同样条件」。"
+    },
+    {
+      "date": "2026-11-13",
+      "by": "backend",
+      "summary": "M9E-02 开发完成，待验收：运营后台「嵌入组件」（生成嵌入码、改域名白名单、停用、复制代码；运营、渠道经理能改，只读能看）；/embed/v1 配置、地址提示、建草稿只对白名单网站跨域开放，来源在解析请求体前核对，通过后所有应答都带 CORS 头；询价带有效草稿时记来源，下单再核一次白名单，运营后台订单显示「来源：嵌入组件 · 网站」，官网订单页显示「返回原网站」；供应商看不到来源。"
+    },
+    {
+      "date": "2026-11-13",
+      "by": "Claude",
+      "summary": "M8-29：site-booking-waypoints.spec.ts:99 首屏车型卡偶尔不出来查清并修好——不是页面慢，是并行用例各建的包车城市中心偶尔离得太近，页面按「中心最近」选了别的用例的城市、报出别的车型；包车准备（charter-support.ts）把上车点放在自己城市的中心，断言不变。用 CI 那次的坐标本机复现：旧写法必失败、新写法通过；M8-29 状态不变。"
+    },
+    {
+      "date": "2026-11-13",
+      "by": "frontend",
+      "summary": "M9E-03 嵌入组件脚本（进行中）：合作网站放一行脚本 + NozomiBooking.init，区间 / 包车两个标签画在 Shadow DOM 里，地址提示经主站 /embed/v1，点「查询价格」先建预订草稿再整页跳到 /book/new?draft=；取不到配置（未授权或连不上）只显示「暂时无法使用」和主站链接；脚本单独构建，gzip 约 7 KB。两个本机网站的端到端还没做。发现主站地址候选没有「Powered by Google」，新增 M9E-06。"
+    },
+    {
+      "date": "2026-11-13",
+      "by": "frontend",
+      "summary": "M9E-03 开发完成，待验收：补齐端到端（两个本机宿主网站、样式隔离、320 px、axe、键盘、建草稿跳主站后价格等于手填）；跳转地址改为取脚本所在的主站；组件生成的草稿按 #193 审查后的规则保留 7 位小数坐标、名称按 UTF-16 截断。"
+    },
+    {
+      "date": "2026-11-13",
+      "by": "frontend",
+      "summary": "M8-42 开发完成，待验收：官网预订页在地图上选点后，查地址期间客人又打开选择页打字或点「取消」，出发地不会再一直显示坐标，查回来照样换成地址；已经改选别的地点时，不会被查回来的地址覆盖。新增组件测试 2 个，PR #205。"
+    },
+    {
+      "date": "2026-11-13",
+      "by": "frontend",
+      "summary": "M8-42 按 #205 独立审查意见修改：选择页开着时查回来的地址不盖住客人正在打的字，补了测试；切换「区间 / 包车」时旧地址框查回来的地址不再覆盖新框里选的地点（以前就有的小问题），补了测试。仍待验收。"
+    },
+    {
+      "date": "2026-11-13",
+      "by": "frontend",
+      "summary": "M8-25 再做几项（PR #207，状态仍是进行中）：导入预览里含公里数超范围、只填一项时给专门的中文提示；复制线路对话框车型组顺序固定；区域加价——只设了加价的套餐进筛选和汇总、纯报价区域超出运营区域时提醒、已删除的加价区域标出区域已停用、保存后读屏状态区清掉旧提示；「这一行的意思」代入当天套餐价和合计（domain 新增整数加法函数）。没做：手机卡片布局、「再加一段日期」、手机上「每个组合一行 + 底部改一条」。"
+    },
+    {
+      "date": "2026-11-13",
+      "by": "backend",
+      "summary": "M9W-10 开发完成，待验收：经停点落在没设途经加价的加价区域里（不在商品区域）时，官网不再显示「请换一个时间再试」，改报「第 N 个经停点暂时没有在线报价」并转人工报价；内部日志仍记原始原因；通用原因文案改为请联系客服或调整行程；平台询价日志接口给出每条拒绝的商品和原因（可选项已做）。价格不变。PR #210。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "backend",
+      "summary": "M8-45（紧急）：业主在测试站输入「新宿」就提示「输入太快了」。原因是每个地址每天 300 次的地址提示额度连命中缓存、不花钱的请求也扣，打满后整整 24 小时都被拒，页面又把它说成「输入太快了」。改为只在真调谷歌时扣；用完了不再报错，而是只给平台的机场、车站，页面说「今天的地址提示次数用完了」，也可以在地图上选点；每分钟的防刷限制不变。嵌入组件同一口径。待验收。"
+    },
+    {
+      "date": "2026-11-13",
+      "by": "frontend",
+      "summary": "M9E-06 开发完成，待验收：官网预订页（出发地、目的地、手机全屏选择页、包车经停点）和旧询价页的地址候选里有谷歌给的地点时，列表最下面显示「Google Maps」小字，只有平台的机场、车站时不显示；和嵌入组件用同一份写法。依据谷歌 Places API 署名要求（地方小时可用文字），颜色用设计令牌的灰色，和谷歌文档给的色值略有不同，上线前请按谷歌文档核对。新增组件测试 6 个，PR #212。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "frontend",
+      "summary": "M9E-06 按 #212 独立审查修改：候选多的时候「Google Maps」不会再被滚到看不见——移到候选列表外、同一个弹出面板里固定在下方（电脑下拉、手机选择页、经停点、嵌入组件都改了），读屏也能读到；旧询价页的署名改在结果列表后面，不算进结果数；补了 10 个候选的端到端测试和嵌入组件样式测试。颜色和谷歌文档不一致这一点记进验收标准，上线前二选一（加专用颜色或改用谷歌标志）。仍待验收。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "frontend",
+      "summary": "M8-43 开发完成，待验收：地图选点没有参照时从能订当前标签、品类最多的城市打开（测试站是东京，不再是北京）；包车明细里 0 元的超公里费、超时费不再列出；右侧栏经停点和其他项对齐。另记 M8-43b 待产品确认「東京駅」候选排序。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "Claude",
+      "summary": "业主在测试站验收包车途经加价（docs/acceptance/M9W-owner-2026-11-14.md）：新宿→镰仓→新宿收经停 9,900；同区两个经停只收一次并写「第 1、2 个经停点」；经停镰仓 + 镰仓下车只收下车 9,900；镰仓 + 日光各收一次 9,900 / 16,500；加长停留后套餐随用时变、明细合计正确——通过。浅草 + 日光 7 小时日光没加价是运营配置问题（日光同时是服务区域、5/7/9/11 小时加价未填），不计入、不改代码。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "frontend",
+      "summary": "M8-44 开发完成，待验收：新预订页的默认日期改按上车点所在城市当地的明天算，还没选上车点时按地图默认打开的城市（测试站是东京），不再按城市列表第一项（北京）——以前东京时间 0 点到 1 点之间打开，默认日期会落在东京的当天。客人自己改过的日期不会被换掉。另记美工任务 M6-12：设计规范里地图默认中心和默认日期的写法按新规则改。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "frontend",
+      "summary": "M9E-08（#213 独立审查）：嵌入组件点了谷歌候选后马上点「查询价格」，不再提示「请从候选里选一个地点」——按钮显示「正在取位置…」，等位置取回自动接着跳转；取位置期间客人改字或改选别的，旧结果回来不会覆盖；取位置失败如实提示并让客人重选。补了 4 个组件测试（用慢的取位置替身复现）。待验收。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "frontend",
+      "summary": "M9E-08 按 #220 独立审查修改：取位置一直不回时「查询价格」不会再一直停在「正在取位置…」——取位置最多等 10 秒，超时按「取不到这个地点的位置」提示让客人重选；客人改字 / 改选 / 删经停点后马上不再等旧的那次，切到「区间」后也不再等经停点。补了 3 个组件测试。仍待验收。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "frontend",
+      "summary": "M9E-08 按 #220 复审修改：取位置的超时改用老浏览器（Safari 15 / iOS 15）也支持的写法，避免这些浏览器上每次选谷歌候选都提示「取不到位置」；补 1 个组件测试。仍待验收。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "ADR 0093 草案：按业主《包车报价逻辑规格（开发版）》定三层区域（基础价 / 行程加价 / 上下车加价）、按上下车点匹配商品、各商品按「套餐价 + 超公里费」最低自选套餐后比价、下单不收超时费、套餐价改「车型组 × 套餐」一次填、只做加法的数据迁移和回放分类比对、后台重叠校验；新开里程碑 M9P（M9P-00～13），顺序 P0 #1 #2 → 需求二 + #6 + #5 → 区域模型与校验 → 机场套餐 → 经停不限与超限提醒。待业主确认 7 条（下车点当经停默认开等）。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "按 #222 独立审查修订 ADR 0093 第二稿：包车 golden 会随 M9P-01 / M9P-06 变化，点名会变的样例并要求实现 PR 逐条列出；已下的单改期、救援加价按当前规则重算（推荐，待业主确认）；迁移前「下车点当经停」查上下车加价区域那一行的途经加价，没设就跳过不拒单；需求二以 0093 第四节为准，0091 只管 T、三项配置、去超时费，M9W-11 并入 M9P-03，列出 M9W-07 / 11～14 → M9P 对照表；超过 13 小时不能在线下单挪进 M9P-03；新旧价格表按商品是否迁移过（products.charter_layout）切换，不逐格回退；多城市先只取一个城市；同价区间问题按规格「总价最低」重写，推荐包车设为 0；新增业主确认 4 条（改期加价、13 小时、选档只比套餐价 + 超公里、高速费停车费）和任务 M9P-14。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "按 #222 复审修订 ADR 0093 第三稿：itinerary-golden 实为 504 条，tokyo→fuji→fuji 在 small / operating / adjusted 多收 3,000（adjusted 按调价比例），big 商品归基础价区域优先、变便宜；经停在行程区域里但没有规则时沿用现有原因码，不改成 WAYPOINT_NOT_PRICED，报不出的 golden 样例不变；明细保留 waypoints 键、只加可选 fromDropoff；只为经停设的区域迁移后仍能匹配；迁移脚本改走部署流水线的 migrate 容器（迁移账号）、由 staging 变量控制，报告不进 Actions 产物；高速费、停车费已由 ADR 0070 实现，删去确认项和 M9P-14；改期、救援分开推荐，写清救援差价会把算法造成的加价记到原供应商头上；13 小时按规格直接做；平台试算现在不能按行程计价，以后由试算路由传 auto，PlatformQuoteInput 不设默认值；M9P-02 改为多城市只取一个，M9P-06 去掉「经停只看行程区域」、补 golden 列表要求；M9W-07 恢复成 main 的内容，避免和 #218（改为已验收）冲突。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "按 #222 第三轮审查修订 ADR 0093 第四稿：救援 B 的差价基准改为「原结算价 + max(0, 按订单商品重算的加价合计 − 快照里的加价合计)」，套餐价、加急、调价不进基准，对所有订单同一公式、不靠 charterSelection 区分，触发救援时算好存进 order_rescues 新加的一列，重算失败退回原结算价（放在 M9P-01）；业主确认第 8 条同步改问法；改期 / 救援的调用写对（救援经 previewPlatformQuote）；「套餐价不一致」逐条明细加只读接口和价格页入口；M9P-05 写清迁移变量四跳传递、报告卷、失败中止部署、staging 自动部署时用完即清、改 docs/deploy.md 和 docs/secrets.md；M9P-08 去掉不准确的「不用 SSH」。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "按 #222 复核补 ADR 0093 救援 B：重算加价时用 forOwner: true、moment.now 取下单时刻，绕开上架、供应商暂停、提前预订时长和加急的判断，只取加价三项；救援候选列表上的差价和改派记的差价用同一个基准；扣款记录 basis 加 base_minor、加价前后合计和退回原因；补「用车前 6 小时触发」「供应商被暂停时触发」两条集成测试。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "按业主 2026-11-14 正式需求文档（机场开始 / 结束套餐、时长计算、超限提醒）排了四项，顺序 需求二 → 需求一 → 需求四 → 需求三。先写了需求二的 ADR 0091（自动选套餐加经停点默认占用和整单缓冲、商品最低套餐、客人可升套餐）：三项配置默认都是「不加」，保证现有报价一分不变，业主的建议值（15 分钟、60 分钟、最低 5 小时）等部署后回放比对通过再到后台填。M9W-07 按业主选择「取最低价」关闭；新立 M9W-11（需求二）、M9W-12（需求一）、M9W-13（需求四）、M9W-14（需求三），都还没开始。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "按 #218 独立审查意见改 ADR 0091（需求二）：退路在缓冲让最长档也不够时仍报最长档加超时；改期、救援、平台试算、回放不做「最低套餐 / 预计用时」判断，已下的单改期不会被拦；不往快照和询价日志里加新键，默认配置下逐字不变；新原因对外统一叫「套餐太短」并告诉客人最短几小时，只因选短了报不出时不记未覆盖需求；应答字段改名 auto_package_hours。M9W-07 的说明改为「业主按文档第四节定了新规则、取代原来的 A / B」，「试算标注」转入 M9W-13。待业主确认的点补到 6 条。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "按 #218 复审补 ADR 0091：写明默认配置下也会变的两件非价格的事（未覆盖需求只在全部报不出时记一次、报不出原因改为各档合并），是有意改动；改期时锁定的预计用时会写回新明细，连续改期超时费不变；客人手动选档不短于该车型自动档就放行；平台试算不含缓冲、会比官网低；最低套餐比所有套餐都长时给提醒。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "按业主新发的《包车报价逻辑规格（开发版）》修订 ADR 0091 第三稿：报价不再含超时费（由供应商服务后提交，单列为按新规格的有意改动，只影响行程比所选套餐长的按行程计价报价）；预计用时超过所有套餐时只报最大套餐、不加超时费；本篇只管预计用时、最低套餐和「不能短于预计用时」，含超公里取最低和各商品各自选套餐留给后面的任务。待业主确认改为 6 条。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "按 #218 第四轮独立审查和 #222 审查第 4 条修订 ADR 0091 第四稿：范围收窄为预计用时 T 的定义、三项商品配置（默认 0 / 0 / 不限）、报价不再含超时费；选档方式（packageCheck / lockedItinerary、服务层逐档询价）被 ADR 0093 第四节取代。对外明细只在超时费大于 0 时列超时一项，旧单订单页不变；新订单的供应商 / 运营订单详情写「预计超出 X 分钟，未预收，服务后按实际提交」；平台试算同样不含超时费；高速费、停车费「服务后不再另收」交给 ADR 0093 认领。M9W-11 并入 M9P-03，M9W-12～14 按 ADR 0093 对照表移到 M9P（标为受阻、写明去向），M9W-07 注明由 M9P-03 解决，M9W-04 注明超时一行会被 0091 改动。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "按 #218 复审补 ADR 0091：救援走 previewPlatformQuote，PlatformQuoteInput 加可选 charterSelection（函数内不设默认值），快照有 charterSelection 时传 locked 加订单的档、没有时不传，平台试算接口现在不能按行程计价、以后开放时才传 auto，补一条经 previewPlatformQuote 的救援集成测试；写明 overtime_at_booking 加在订单详情的 settlement.itinerary、引擎写 overtimeAtBooking、服务层从原订单抄 estimatedMinutes 等；客人和供应商看到的「超出」可能不一致的说明；#206 还改了「全程约」的显示；M9W-07 标题和 evidence 更新。本 PR 引用的 M9P 任务在 #222 里，建议先合并 #222。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "更正 ADR 0091 第三节第 4 小节：规格「报价含高速费、停车费，服务后不再另收」已由 ADR 0070 实现（2026-11-10 起下的包车单不能再加收高速费、停车费），不需要 ADR 0093 认领，也不另开任务（按 #222 复审第 6 条）。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "把业务方 2026-11-14 已定的三条写进 ADR 0093（第六稿）：A 成田机场外围重叠处按机场收 14,000，将来切成田市、千叶超远的包车副本；B 规格金额表以外设了途经加价的区域（横滨等 3,000 至群马温泉 20,000）迁移时原样同时进行程加价和上下车加价；C 下车点行程加价按规格定稿伪代码（没有基础价区域以外的经停、下车点不在基础价区域而在行程区域时收一次，只看下车点，商品开关默认开），取代「没有经停时下车点当经停」；业主确认第 1、2 条和新增的第 10、11 条标为已定。M9P-01 / 03 / 04 / 05 / 11 同步：开关改名 dropoffItinerarySurcharge，验收用例按规格编号 1–19，原 15 个用例在 C 下预期不变，charter-golden、itinerary-golden 没有预期变化。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "frontend",
+      "summary": "M9E-07 开发完成，待验收：嵌入组件脚本改成纯英文字符写法（中日文转义），合作网站页面不是 UTF-8 时也不会乱码，服务器响应头也写明 UTF-8；客人改正被标红的那一项后标记会去掉；补齐端到端：建草稿网络错误、操作太频繁、填错日期各显示一句不跳转，包车不填经停点跳到预订页后再选 8 小时能报价。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "M9E-09 写好给 MoveGlobal 工厂开发的接入说明（docs/integration/moveglobal-factory-nozomi-widget.md）：站点后台加「预订组件来源」和「NOZOMI 嵌入码」两项，默认仍是 Good Journey、老站点不用改数据；选 NOZOMI 的站点首页和 /booking/ 放我们的组件，付款后回站点首页；moveglobal、anshinride 等已有站点页面要求逐字不变并用快照测试保证；附验收步骤和回退办法。待工厂侧照做、演示站验收。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "M9E-09 按 #226 独立审查修改接入说明：修好转义函数示例里照抄会编译失败的两行；选了 NOZOMI 却没填嵌入码时让该站点发布直接报错并说明原因；补上站内软跳转时组件不出现的处理办法、脚本放错地方时的两种表现；站点 73 的嵌入码写明经 NOZOMI 侧确认、页面会按中文显示。仍待验收。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "M9E-09 按 #226 复审再补三处：重复初始化组件时会发生什么按代码写准；站内软跳转时组件脚本还没加载完的情况补了兜底；第二种初始化写法里的嵌入码也要转义后输出。仍待验收。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "backend",
+      "summary": "M9P-01 开发完成、开 PR #229（未合并）：经停的行程加价不再被上 / 下车加价抵消；新增下车点行程加价（已收区域为空且下车点不在服务区域时收，商品开关默认开，按 ADR 0093 第六稿 #227 改名 dropoffItinerarySurcharge）；救援差价基准 B。golden 变化 72 条都在 PR 里列了旧值 → 新值。测试站验收步骤写在 PR 里，等合并部署后安排。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "backend",
+      "summary": "M9P-02 开 PR #230：包车按上下车点匹配商品（上下车点都在商品的基础价区域或上下车加价区域里才参与），不再按上车点所在城市筛；官网包车询价 city_id 可选（匹配到几个城市时按请求的城市 → 上车点所在城市 → 编号最小取一个并写警告日志；一个都没有时 OUT_OF_SERVICE_AREA 并记未覆盖需求；带 city_id 的旧请求兼容）；新增按上下车点列套餐的接口；新预订页去掉「上车点不在城市范围就不询价」。引擎加价算法没改，golden 0 条变化；/sales/v1 不改。待独立审查、CI、合并（在 M9P-01 之后）和测试站验收用例 4、5、8、11、12、18。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "backend",
+      "summary": "按 #230 独立审查：charter-match-by-areas.itest.ts 补两条（河口湖→新宿带大阪的 city_id 按点匹配到东京、71,500、不写多城市警告；没上架的商品和渠道不卖的供应商的商品区域盖住甲府也不匹配，套餐接口 {city: null, items: []}、询价 OUT_OF_SERVICE_AREA），两条都做了变异检查；询价日志加 city_by；删掉走不到的城市必填判断。留到以后：① ADR 0093 第三节「未覆盖需求没有城市时不记」改成和代码一致（城市为空照记，同点对点），归 M9P-00；② 按行程计价时套餐也只列匹配到的商品（itineraryQuotes 改一次询价时一起改），归 M9P-03；③ #229（M9P-01）合并后在用例 4 补总价断言（对外 93,500），归 M9P-02 后续提交。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "新增里程碑 M10「AI 行程报价设计」和设计任务 M10-00（待审查）：原文逐字存档；ADR 0094 草案写差距盘点（现有引擎已有深夜 / 节假日加价、附加项、免费等待、超公里、取消、锁价、比价、改期救援；住宿、返程、多日、工时、长途档位、新干线方案都要新做）、只新增表的数据模型、编排接口、3.7 城市间长途、地图、AI 解析和 P1–P5 分期估算；三件特别确认：高速费制度上已全含但价格里没有高速费成分，档位算法要单列预估；新干线站点表结构有、数据为零；谷歌公共交通能拿时长、票价在日本没有保证，主要线路用固定表。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "按 #232 独立审查改 ADR 0094 第二稿（M10-00 仍待审查）：跨城市一车到底现有包车引擎报不出价，单列 P1d、写清异地日基价从商品自己的套餐价 + 超公里或长途档位价来；行程下单不再原样调用 placeOrder，改为抽下单核心、新增行程付款 / 分摊 / 退款表，列出超时、回调、退款、异常队列、乘客资料保留、取消服务的适配；地图按谷歌条款 19.2 / 14.2 定为 Google Maps JS，现有官网 Leaflet 后备路线图和地图选点的条款风险另开 M10-01；evidence 等自由文字加密并纳入 30 天清理；分期重估为 P1a 18–22、P1b 16–20、P1c 8–10、P1d 12–16、P2 10–12、P3 10–12、P4 7–9、P5 8–10 人日（合计约 89–111）。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "按 #232 复核补 ADR 0094 第三稿（M10-00 仍待审查）：跨城异地日改为「车辆出发①代表点 + 真实公里」的代理请求，仍走现有 quoteProduct / compareQuotes，调价、深夜、附加项、库存、对客价都不另写；多①取出发①的价；付款适配表补上待付子订单单段取消拦截（防多收）、继续付款入口、渠道订单视图和平台订单列表付款列；参考链接补全。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "frontend",
+      "summary": "M9E-10 开发完成，待验收：嵌入预订组件重做外观，按业主两张参考图做成两种可选布局——竖向卡片（默认）和横向搜索条（容器窄于 768 px 自动改卡片）；日期时间合成一个控件，人数行李改成紧凑的加减器，加交换起终点按钮，「只填地点」提示只在底部写一行；运营后台嵌入码可选「外观：卡片 / 横条」，生成的代码带上。主题参数先只留接口（主色、点缀色、圆角、字体），跟随宿主网站配色以后再做。接口、脚本地址不变，合作网站不用改代码。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "frontend",
+      "summary": "M9E-10 按 #233 独立审查修改：横条选中的标签加了一条主色顶条，不再只靠颜色区分；合作网站给的主色太亮或太灰时，按钮上的字自动换成够清楚的颜色；用键盘改日期时能看到正在改哪一段；交换按钮在取位置时显示不可用；同一页面重复初始化不再越积越多。横条 1024 宽时文字截断、手机卡片人数弹层可能被裁掉记为后续任务 M9E-11。仍待验收。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "P0 #1 / #2 测试站验收通过（监工确认）：main d2eea080（含 #229、#230）经 Deploy run 43579518453 于 09:14:55Z 部署到 staging；经济7座 10h 前台价用例 3 = 82,500、16 = 82,500、4 = 93,500、5 = 93,500、18 = 71,500，与规格一致，M9P-01、M9P-02 改为已验收。教训：之前的 Deploy 显示 success，但部署 job 因 main 上已有更新提交被跳过；凡要上测试站验收的 PR，合并后等部署完成再放下一个 PR 进 main。登记后续：A 不填经停也显示价格明细（追加进 M9P-04 的验收标准，排在 M9P-03 之后）；B 单个经停停留上限保持 8 小时、有经停时可手动升更长套餐、不短于 T（追加进 M9P-03 的验收标准，只改 roadmap 文字，实现在另一个分支）。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "P0 #1 / #2 补充验收证据：测试站 09:28–09:31Z 实测用例 2 = 71,500、6 = 82,500、7 = 45,100、8 = 45,100、11 不报价转人工（OUT_OF_SERVICE_AREA）、12 不报价转人工（WAYPOINT_NOT_PRICED），与规格一致。回放比对做不了（部署前没留快照，stateDigest 随窗口变，补不出来），以代码论证 + 测试站实测替代，M9P-01、M9P-02 保持已验收，待监工确认是否接受。留部署后基线（until=2026-11-14T09:13:00Z、30 天、1,322 条询价 / 2,451 行，同参数重跑一致）作为 M9P-03 的部署前基线，M9P-03 验收标准加「部署前用固定 until 跑一次回放」；新增 M9P-14：回放接口可选返回逐行明细（差异类别、前后金额）。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "M9P-01、M9P-02 回放比对的替代证据：2026-11-14 监工替业主接受（原话「接受替代证据（1,368 行一致 + golden 测试覆盖）代替回放比对」），两个任务 evidence 改写，状态保持已验收。核对 1,368 行的出处：11-13 M9W（#189）部署前后回放（截止 2026-11-13T13:56Z、866 条日志），改后 1,368 行和改前对应的行逐行一致，不是 M9P 自己的比对；M9P 的数字是部署后基线 2,451 行、同参数重跑完全一致。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "M9E-09 接入说明补上 M9E-10（#233）新加的组件参数：外观 layout（卡片默认 / 横条，横条在组件容器窄于 768 px 时自动变卡片；卡片适合首屏侧栏或手机，横条适合首屏底部整宽）和 theme（只预留接口，工厂这次不传）；工厂后台可选加「NOZOMI 组件外观」字段，默认卡片；写明以工厂页面里 init 传的值为准，NOZOMI 运营后台的「外观」只影响后台生成的代码、对工厂站点不起作用；GJ / NOZOMI 两种模式的示例代码、快照和验收步骤同步更新，按钮文字改为「查看价格」。附测试站现状：新版组件 10:29 UTC 已部署，客户站点最多 5 分钟拿到，演示站现在是卡片。只改文档。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "#235 审查后修改：接入说明里「重复调用 init」改准——旧实例取位置或等位置的提交晚回来时，可能改到新表单的按钮状态、提示和焦点，并请工厂侧不要在客人填表时对同一容器再次 init；M9E-11 加一条验收：旧实例的异步回调要先看 destroyed，改代码 + 测试。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "新增 ADR 0095 草案（M9E-15，待业主 / 监工定第十二节 Q1–Q11）：客人从合作网站预订不离开合作网站。要点：主站现在用的就是 Stripe Payment Element，不是托管 Checkout，付款后端一行不改，只是把付款区块放进嵌入页；嵌入页 /embed/book 只允许被该嵌入码白名单里的那一个网站嵌入，其余页面仍禁止被嵌；不依赖 Cookie（草稿号和订单令牌都不是 Cookie）；嵌入页不用 Leaflet 地图（谷歌条款）。实施拆成 M9E-16～M9E-20 四期，约 16 人日（做日英界面约 21 人日）。编号说明：M9E-12、M9E-13 已在还没合并的 M9E-12 分支里登记，另有分支 m9e-13-layout-from-key 也用了 M9E-13，所以 M9E-14 留空，避免撞号。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "ADR 0095 草案按 #236 独立审查修改（仍是草案，待定事项增至 Q1–Q15）：嵌入页的安全头配置改成按顺序执行的写法，原写法会让嵌入一律失败；Caddy 固定到修过两个伪造请求头漏洞的版本；测试环境的验收 Cookie 跨站带不上，跨站那一遍只走到付款页，真正下单在演示站做，跨站全流程由本机自动测试覆盖；银行回跳地址带上嵌入码和宿主；补 Caddy 层的测试；嵌入页里只能显示预订页面，后台页面不会出现在别人网站里；合作网站地址里的草稿号读出后去掉。新增要业主定的：每个嵌入码单独开「允许整页嵌入」（默认关）、嵌入页上写明卖方和特定商取引法表示、外观要不要跟随合作网站。工作量改为 18–21 人日（做日英界面 22–26 人日）。编号：layout:auto 那个任务由作者改号为 M9E-14，本篇仍是 M9E-15～M9E-20。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "ADR 0095 复审通过前补三处小改：合作网站页面上暂存的草稿号在下单完成或草稿过期时删掉，并给出「重新查询」；嵌入页的安全检查只把嵌入码和网站两个参数转给后端，银行回跳带回来的付款凭据不会进后端日志；运营后台加「允许整页嵌入」开关，放进第一期（M9E-16），工作量多半天，合计 18.5–21.5 人日（做日英界面 22.5–26.5 人日）。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "frontend",
+      "summary": "新增并完成 M9E-14（业主：像 Good Journey 的组件一样不用选外观、按屏幕自动适配）：组件外观加 auto 并设为默认，容器 ≥ 900 px 横条、窄了卡片；init 没传 layout 时用嵌入码后台设的外观（/embed/v1/config 返回）；后台「外观」加「自动」；迁移 0430 把已有的 card 改成 auto、bar 不变；运营保存后客户页面最迟约 1 分钟生效。接入说明补组件位置与尺寸建议和截图。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "product",
+      "summary": "ADR 0095 改为已采纳：监工替业主确认 Q1–Q15（Q4 首期中日英、第二批加韩/繁中；Q11 路线摘要图并入 M10-01；Q13 默认关、演示站由监工开；Q15 首期不跟随但和组件共用 theme 变量）"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "backend",
+      "summary": "M9P-03 开 PR #240：需求二（预计用时 T = 行驶 + 停留 + 经停数 × 每站默认占用 + 整单缓冲，三项配置和在线下单上限放进商品服务规则 charter_itinerary，默认 0 / 0 / 不限 / 13 小时）、差异表第 6 条（含超公里取最低选档）、第 5 条（各商品在引擎里各自选档、各自算总价再比价）；QuoteRequest.charterSelection（auto / manual / locked）进快照和询价日志；下单不收超时费（明细只在超时费大于 0 时列 overtime，订单详情 overtime_at_booking）；T 超过 13 小时 ITINERARY_TOO_LONG；手动升档不短于 T（PACKAGE_TOO_SHORT + min_package_hours）；官网按行程计价一次询价；改期、救援新口径传 locked、部署前的单不传（超时费、档位照旧）；包车新口径同价区间 0。按监工追加：有经停点时新预订页也能手动升到更长的套餐（下拉只列比自动档长的）。golden 全部 0 条变化（不带 charterSelection 的旧口径逐字不变），新口径期望另写测试。没有数据库迁移。待独立审查、CI、合并、部署、回放比对和测试站验收。M9P-02 日志里留给本任务的「按行程计价时套餐只列匹配到的商品」：现在每个商品在引擎里自己选档，按城市查套餐只用来判断有没有可订的套餐，不影响报价，保持不变。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "frontend",
+      "summary": "M9E-12 开发完成，待验收：测试站发现从合作网站嵌入组件来的订单在后台都记成「主站」，订单页也没有「返回原网站」。原因是主站新预订页询价时没把草稿编号带给服务端；现在接送、包车两种询价都带上，客人在主站改了行程也算组件来源，草稿过期或打不开时照常报价、按主站算。报价结果和对外接口都不变。另登记后续 M9E-21：运营后台按嵌入码统计订单数。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "acceptance",
+      "summary": "M9P-03 测试站验收通过（监工确认），改为已验收：部署 main 63412e05（#240，Deploy run 43607918381）；回放比对参数同部署前基线，1,322 条询价 / 2,451 行逐行 0 变化、两个摘要都没变；测试站用例 10 自动选 5h = 45,100（4h + 超公里 46,492 更贵）、用例 13 T=14h39m 转人工（ITINERARY_TOO_LONG）、有经停时手动升到 8h = 60,500、用例 3 / 16 仍 82,500 且不再有超时费。后续：下拉「自动（N 小时）」按车型显示追加进 M9P-04；新建 M9P-15 查手动报档时 auto_package_hours 与自动选档不一致。另写运营说明 docs/ops/charter-itinerary-buffer-2026-11-14.md：测试站东京包车、远郊包车的每站占用 / 整单缓冲都是 0，建议 15 / 60、在线下单上限保持 13 小时，由业主或运营在后台改（页面输入框在 M9P-04），开发不改数据。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "qa",
+      "summary": "M9E-12 测试站验收通过：演示站组件 → 下单 → 4242 付款 → 订单来源 embed（embed-demo）→「返回原网站」回演示站；见 docs/acceptance/M9E-12.md"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "frontend",
+      "summary": "新增并完成 M9E-22（M9E-21 已被 #239 占用）：嵌入组件取配置 8 秒没回、连不上、5xx 时按 init 的外观 / 语言 / 标签显示表单，被拒仍只显示「暂时无法使用」（浏览器读不出被拒的 403，组件再发一个 no-cors 请求区分被拒和断网）；表单显示后配置才回来，正常只换外观、被拒整个换成「暂时无法使用」；提交读不出时探 GET 配置区分被拒，被拒说明并给主站链接；端到端关掉 vite preview 自带的 CORS，和正式环境一样走 no-cors 探测。监工追加：嵌入码停用 / 不存在 / 网站不在白名单的应答按 ADR 0090 保持一样，原因写主站日志 embed.gate_refused，组件控制台按顺序列出要查的原因（第一条是停用）。ADR 0090、工厂接入说明同步。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "frontend",
+      "summary": "M9E-16 开发（PR #242，已合入 M9E-12、M9E-14）：合作网站的查价表单可以把客人带回合作网站自己的预订页，在那一页里用 iframe 显示主站的嵌入预订页（第一期是占位页：显示这次要订的内容，给「到主站继续预订」）；只有运营在后台打开「允许整页嵌入」、并且网站在白名单里才嵌得进去，其他网站、其他页面都嵌不进；嵌不进去时 15 秒后显示「到主站继续预订」；订单来源能区分「在合作网站页面里下单」。Caddy 固定到修过伪造请求头漏洞的 2.11.9；测试站外层 nginx 不另加安全头。本机跨站自动测试 chromium、webkit 各 6 条通过。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "frontend",
+      "summary": "M9E-17 开发中（PR #244，草稿）：合作网站页面里的预订框现在能走完主站的四步预订（和主站同一份页面，主站不变），下单后在框里显示订单；付款这一期先在新窗口打开主站订单页完成（付款放进框里是第三期 M9E-19），付完回到合作网站，框里自动显示付款已提交并通知合作网站；合作网站刷新页面能接着显示还没付的单；草稿和这次嵌入的网站对不上时来源按主站记。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "backend",
+      "summary": "M9P-05 开 PR #245：三层区域的数据结构（迁移 0450 只做加法：行程加价 charter_itinerary_surcharge、②③套餐可空、包车套餐 area_id 可空、products.charter_layout 只有迁移账号能写）；引擎按商品标志切换新旧表（迁移过的商品经停只看行程加价、套餐价只看整商品套餐价；没迁移过的逐字不变）；价格接口 CHARTER_LAYOUT_NOT_MIGRATED / CHARTER_LEGACY_READ_ONLY；上架检查每个车型组至少一档；导入导出只认新模版（LEGACY_TEMPLATE）；迁移脚本 dry-run / apply（一个事务、可重复、审计、报告七项，日志只打计数、完整报告在服务器 reports/）和部署流水线 CHARTER_THREE_LAYER_MIGRATION 四跳传递（production 设了直接中止）；「套餐价不一致」只读接口（平台 / 租户）。按 ADR 0093 的依赖，「减去」工具属 M9P-13，不在本任务。golden 0 条变化。前端价格页（M9P-07）上线前不在测试站执行迁移。待独立审查、CI、合并。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "backend",
+      "summary": "M9P-06 开 PR #247（基于 #245）：包车基础价区域优先（上 / 下车点、经停点落在任一基础价区域里就不加价，取代 M8-38「大运营区不能把小加价区盖成 0」）；保存时校验同商品同层不重叠、基础价与上下车加价区域不重叠、同一区域不能既是基础价又设上下车加价（价格保存和商品服务区域保存都查，只查新加的区域，已有的重叠不回头拦）；places.charter_coverage（迁移 0460）和平台地点接口勾选；包车上架检查加热门地标覆盖、加价表空格两项提醒（不拦）。包车 golden：charter 115 条、itinerary 48 条变化（只有大东京商品、只变便宜），逐条单列；接送机、点对点 0 条。已有测试里重叠的包车区域改成不重叠或直接写库模拟旧配置。待独立审查、CI，#245 合并后合并 main。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "qa",
+      "summary": "M9E-17 测试站验收通过：演示站首页组件查价 → 跳演示站 /booking/ → iframe 里四步下单 → 新窗口主站订单页 4242 测试卡付款 → iframe 订单页 2 秒内变「付款已提交」、宿主收到 completed；区间 NZ2026111545Q0J9JT（10,800 JPY）、包车 NZ20261115APQQF74Z（30,800 JPY）来源都是 embed / embed-demo / delivery host_page；验收单已按取消政策全额退款。见 docs/acceptance/M9E-17.md"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "backend",
+      "summary": "M9P-16 开 PR #250：已下的包车单改期时上车、下车、行程加价按下单时锁定（监工替业主确认 2026-11-14），M9P-01 / M9P-06 和下单后供应商改的加价都不作用到已下的单；套餐价等其余部分照旧按改期后的时间现算；行程或套餐时长和下单时不同就不锁（防以后放开改期范围）；锁定时经停点区域判断照常。救援按方案 1：客人价锁定，原供应商扣款按救援 B 基准，候选按现行规则报价，代码不改。ADR 0093 第二节、第十三节第 8 条已改。已合并 #247（quote.ts 加价分支冲突：锁定分支和基础价区域优先都保留）。待合并（等 #247 部署完）。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "frontend",
+      "summary": "M9E-27 ① 开 PR #254：ADR 0095 第二轮决策（监工代业主）——嵌入预订页按 iframe 自己的宽度分栏，≥ 1024px 两栏、复用主站 /book/new 的「行程摘要」右侧栏（静态路线图、时长公里数、车型价格、出发地、目的地、航班落地时间、乘客 / 行李），< 1024px 单栏；去掉 BookingShell.narrow 和 embed.css 的单栏规则，主站不变；postMessage 不变（换栏不发 step、高度照报）。组件 478 条、端到端 9 条（chromium + webkit）本机全过；截图 1440 / 1024 / 375。② 接机免费等待分钟数由另一个开发角色负责。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "product",
+      "summary": "M9P-20 登记（ADR 0096 草案，PR 待独立审查）：包车行程地图（编号 1、2、3…，主站和嵌入页先用谷歌静态地图，不加 Leaflet 后备）和经停顺序优化（Routes optimizeWaypointOrder，按 Compute Routes Pro 计费、单设每日上限、只在经停点集合变化时调用并按顺序无关的键缓存；达到阈值才多算一次报价；指定到达时间的经停不重排）。编号按监工指定用 M9P-20：M9P-16 已被 #250 占用，M9P-17～19 目前没有被占用，按监工要求不顺延、留空。排在 M9P-04 / M9P-06 之后、机场套餐（M9P-09）之前；受阻于 ADR 0096 采纳和 M9P-04。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "product",
+      "summary": "ADR 0096 第二稿（#252，按独立审查修订）：区域加价只在套餐档不变时与顺序无关，换档带来的加价差算进省下的金额，列为第十节第 10 条请业主确认，排列测试固定套餐档或用量；建议报价只缓存顺序，其他字段变了服务器按缓存顺序重算、不调谷歌优化，「一键采用」核对请求键；另补每地址限频和必须带有效报价、调用次数口径和免费额度共用、缓存条款四项交 M10-01、到达时间跨午夜和「最晚 / 准点」待选、编号 stopSeq + 1 换算、焦点和价格播报、10 个经停和手机按需出图的验收。工作量改为 18–24 人日。M9P-20 验收标准同步。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "product",
+      "summary": "ADR 0096 第三稿（#252，按第二稿复核修订）：建议顺序改用经停标识 ref 回传、按 ref 重排；客人拖动后页面按新的当前报价重算可省数字，低于阈值或已排成建议顺序时收起建议块，加「先拖动、再采用」端到端；当前顺序只因超长报不出时可用询价日志编号申请建议；限频改为按预订会话、只数要调谷歌的请求，地址只留宽松兜底；改正三处文字（第〇节第 2 条、新编号例子、areaSurchargeFor 出处）。工作量 19–25 人日。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "product",
+      "summary": "ADR 0096 采纳（#252 复核二通过；监工 2026-11-15 代业主确认第十节 10 条，全部按推荐，确认值逐条写进第十节）。按复核二建议定稿：每个地址每天 25 次只数要调谷歌的请求（低于全站 150），宽松兜底照留；经停标识 ref 只在请求、应答之间往返，不进 request_key、快照、订单、司机视图；超长时申请建议的条件改为「没有任何一家报出价、且至少一家因超长报不出」；拖成超长时照算公里、分钟、不显示日元，路线取不到时收起建议块。M9P-20 改为只受阻于 M9P-04（#248），验收第 1 条和第九节 P2 一行改成新的限频说法。PR 待 #248 部署后由监工合并。"
+    },
+    {
+      "date": "2026-11-14",
+      "by": "frontend",
+      "summary": "M9P-04 开发（PR #248）：官网预订页价格明细套餐下面写「预计用时 X 小时 Y 分钟（含缓冲）」，按套餐、上车加价、下车加价、行程加价（区域名、第几个经停点 / 下车点）逐项列，不填经停点也列；有经停点时套餐下拉的「自动（N 小时）」按客人选的车型；供应商后台服务规则页加经停点默认占用、整单缓冲、最低套餐（建议值灰字、不预填）和「下车点行程加价」开关；运营后台救援页写出救援差价基准。报价结果、主站请求体都没变。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "dev",
+      "summary": "业主验收嵌入预订（「嵌入程序可以了」）：M9E-16、M9E-17、M9E-27 标为已验收。之后嵌入方向只做收尾（M9E-28 接机等待按航班定、M9E-18 三语），主力转回包车：M9P-20 → 机场开始/结束套餐 → 不限经停。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "dev",
+      "summary": "业主决定多语言放到最后：新增里程碑 M11「多语言（系统完成后再做）」，前置条件为系统功能完成、固定文案清单（可从代码自动导出）交业主定稿并冻结；M9E-18 → M11-04，M7-07 → M11-05。开发期新功能只做中文、新文案走 i18n key，主站已有日英文案不动。M8-08 是待确认项合集，不整体移动。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "product",
+      "summary": "ADR 0098 草案（M9P-09 机场开始 / 结束套餐）：商品级机场绑定（场景 × 机场 × 判断用的①/③区域）+ 价格方式 charter_airport_package（有格 = 单独定价、空格 = 继承）；机场开始算③上车，单独定价只免这一端③加价，成田外围重叠处整端免；场景替换普通套餐，机场→机场取低；不加航班号和免费等待（业主明定），备注提示；迁移 0520。待确认 Q1–Q12 按推荐实施。实施拆为 M9P-21（后端）、M9P-22（前端），工作量 16–19 人日。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "product",
+      "summary": "ADR 0098 第二稿（#259 独立审查 6 条必改、6 条建议全部改进正文）：选档时继承档加这一端机场加价再比；单独定价另免下车点行程加价，继承成田下车 = 61,000 列为 Q13 待监工确认；机场区域按业主原文可选接送机 / 通用 / 包车类型、只判断场景、须被①∪③完全覆盖；航站楼坐标须在区域里；绑定加可选中文简称（验收文案原样）；区域外键 restrict + 409；0520 按实施时 main 最新列表重建约束并加迁移测试；工作量改为 20–23 人日。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "backend",
+      "summary": "M9P-10 开 PR #260（ADR 0099）：经停点上限从 10 改为路径接口上限 25 个（超出 400 并提示联系客服定制），一处常量各端共用；服务规则加超限提醒线（默认 12 小时 / 360 公里，商品级），官网报价带 itinerary_warnings，新预订页行程时间表下方提醒、仍可下单；13 小时拦截的文案对齐。服务规则页的两个输入框等 #248 合并后补。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "backend",
+      "summary": "M8-29：deploy-smoke 偶发（#253、#259 等）查清——挂的都是第 10 步嵌入预订页「白名单宿主应收到 ready」，日志里的 nozomi-ci-api-1 is unhealthy 是第 6 步故意部署坏版本的正常输出。原因是正向检查固定只开 20 秒无头 Chrome，CI 机器忙时第一次启动 Chrome 加嵌入页加载会超时；改为一直等到收到回执、最多 60 秒（断言不变），失败时打出宿主访问日志和 Chrome 输出。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "dev",
+      "summary": "M9P-07 拆成三个 PR：① 运营后台地点页「包车覆盖检查」勾选（本 PR）；② 价格导入预览也查包车三层重叠（#247 建议）；③ 价格页三张表、空格提示、保存前拦截。第一个 PR：地标编辑页加勾选框（只在编辑时，新增接口不收这一项）、地标列表加一列；新文案先写中文，M11-01 的 i18n key 机制合入 main 后一起迁移。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "frontend",
+      "summary": "M9P-13 待验收（PR #262）：区域编辑页「从本区域减去另一个区域」（domain 新增 subtractAreaRange，纯逻辑、不加依赖，留洞时自动竖切）；「在哪些商品里用」列出每个商品当 ① 基础价 / ② 行程 / ③ 上下车加价（新接口 GET /tenant/v1/area-layers）；区域地图按商品和层筛选，同商品同层、①∩③ 重叠标红。#247 审查建议按推荐：区域页改图形造成三层重叠只提醒不拦（编辑时现算、保存应答有重叠时带 charter_layer_overlaps、上架检查加一项提醒 charter_layer_overlap）。没有迁移。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "backend",
+      "summary": "M9P-14 开 PR #266：只读回放可以带 rows=true 取逐行明细，部署前后各取一次后用 pnpm replay:classify 把差异按 ADR 0093 第六节第 5 小节归类（加价、超时费、选档、套餐价、超长不报、未归类），给出前后金额；不带参数时应答不变，公开核对产物不变。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "backend",
+      "summary": "M9P-21 开工（ADR 0098，#259 复核通过）：报价引擎机场场景（匹配、单独定价免场景那一端③和下车点行程加价、选档时继承档加机场加价再比、机场 → 机场取低）、价格方式 charter_airport_package（isAirportPackageModel 单独一支，只查绑定 AIRPORT_BINDING_REQUIRED）、迁移 0520（机场绑定表、约束）、机场绑定接口和校验（覆盖、航站楼、删区域 409）、报价读绑定、官网明细带 scenario。还没做：机场套餐价导入导出解析、/site/v1/charter-airports、平台只读接口、改期强制沿用快照场景。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "frontend",
+      "summary": "M9P-22 开工（不依赖价格页的部分，M9P-07 还没合并）：快捷入口「机场接机开始 / 机场送机结束」按航站楼选、明细场景名、备注航班号提示、后台订单详情场景行；文案先放中文 key 表 charter-airport-copy.ts，M11 并入公用模块。价格页第四张表等 M9P-07。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "backend",
+      "summary": "登记 M9E-28（接机免费等待按航班定，监工替业主 2026-11-15 决定）并写 ADR 0097 草案：代码里没有任何航班数据来源，国际 / 国内现在只看机场主数据；下单锁定改 orders.free_wait_minutes、加航班类型和依据（迁移 0480）；推荐国际 max(商品值, 90)、国内 max(商品值, 60)。Q1–Q5 待定，状态记为受阻。不阻塞 #253。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "backend",
+      "summary": "M9E-28 开工：ADR 0097 第五节 Q1–Q5 监工确认按推荐（Q2 补充判断不出时的文案），改为已采纳；M9E-28 改为开发中，另立 M9E-29（按航班号查航班数据，等业主选服务商）。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "backend",
+      "summary": "M9E-28 按 #255 独立审查改完：供应商 order.changed 邮件写「免费等待 60 → 90 分钟」（必须改 1）；8 条建议按推荐做（以同意时为准并在审批页提示、旧单派单前改航班按新规则、点对点清掉航班号回到商品值、点对点接机在订单页能改航班、改单提示按商品值、派单后订单页写按派单时锁定、商品没设、渠道说明强调点对点带航班号就是机场接机），写进 ADR 0097 五之二；新加的页面文字按 M11-01 只做中文、集中成键。状态改为待验收。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "backend",
+      "summary": "M9E-26 开 PR #249：嵌入码加选填的「预订页地址」（迁移 0470 只加列，https、必须落在白名单某个网站下），运营后台嵌入码卡片按 Good Journey 的做法拆成①入口小程序（init 带 bookingUrl）和②预订程序（mountBooking），各带说明和复制按钮；没填地址或没开「允许整页嵌入」时只显示①（和以前逐字一样）并写明原因。改白名单拿掉预订页所在网站时拦下、要运营一起改或清空。已有的嵌入码和合作网站上的旧代码不受影响；ADR 0095 附录 A、工厂接入说明第 11 节已更新。演示站的预订页地址由监工上线后在后台填写。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "backend",
+      "summary": "M9P-20 P1 开 PR #256：包车行程地图（ADR 0096 第二节）。新接口 GET /site/v1/itinerary-map：一次带中间点的 computeRoutes 取折线（计入路线每日上限，存库 7 天，迁移 0490），多点静态图沿用 ADR 0072 的缓存、上限和失败分类；标记 1 = 上车、经停依次、最后 = 下车，1–9 谷歌内置、10–12 用官网 /map-markers/ 的自定义图标。主站和嵌入页包车第 2 步地图在上、同编号列表在下，每段写行驶时长和公里；图出不来只留列表、不用 Leaflet；换顺序 800 毫秒防抖、旧图盖「路线更新中」。明细、报不出、路线取不到、订单 / 司机页的编号统一按 stopSeq + 1（domain 的 stopNumbers / displayStopNumber）。订单接口带每段 legs 未做，留后续；P2 顺序建议仍受阻于 M9P-04，P3 未开始。待 CI、独立审查。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "backend",
+      "summary": "M9P-20 P1 按 #256 独立审查修改：组件脚本构建不再复制 public/（build-output 白名单加三个标记图标）；重拍截图（图片请求照常经真实 API，给浏览器的换成示意图）；列表编号和地图标记同用 --color-text-link（上下车实心、经停空心 / 中号），暗色不再反；右侧栏「经停点」按新编号；地图请求按 40 像素分档、换主题和尺寸同样 800 毫秒防抖，429 时按 retry_after 最多再试 2 次；没有经停、按自选时长报价的包车按 ADR 用地图折线那次调用的逐段量（新接口 GET /site/v1/itinerary-legs，和地图共用一次谷歌调用和 7 天缓存，只作展示）；加 webkit-embed 嵌入页、10 个经停两条端到端。P1 遗留三项记进 M9P-20 验收：订单 / 司机页每段时长公里、地图单设每日上限、部署冒烟核对 /map-markers/10.png。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "backend",
+      "summary": "M9P-20 P2 开 PR #267（基于 #256，第十节 10 条按推荐）：POST /site/v1/charter/order-suggestion——核对当前报价（或超长时的 inquiry_ref）、商品开关、按固定点切段、每段一次 optimizeWaypointOrder（Pro，单设每日上限 150，一次占齐）、顺序无关缓存 24 小时（迁移 0530）、按报价同一口径算省多少（5 公里或 10 分钟、另一项容差 1 公里 / 3 分钟）、成立才多询一次价；refs 只往返不进快照；会话和地址只数要调谷歌的请求。页面建议块（两栏 / 手机切换、采用直接用建议报价、恢复、保持、重算中、拖动后本地重算）、经停点指针拖动、服务规则页勾选框、系统状态卡片。价格变化播报未单独做；P3 未开始。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "backend",
+      "summary": "M9P-15 开 PR #264：手动报档时「自动档」改为同一行程自动询价中标的档（以前是手动询价中标商品自己会选的档，换了商品中标就对不上），和官网下拉「自动（N 小时）」一致。"
+    },
+    {
+      "date": "2026-11-16",
+      "by": "frontend",
+      "summary": "M9E-30、M9P-23 开发：按业主验收意见把第 4 步付款按钮放到最下面、下单后直接进付款、嵌入页付款按钮旁加说明；环线包车地图上下车合并成「1·N」标记。付款进 iframe（M9E-19）接着做。"
+    },
+    {
+      "date": "2026-11-16",
+      "by": "frontend",
+      "summary": "M9P-22 合并 main（M9P-07 三层表、M9E-31、M9E-32 底部按钮条、M9P-20 行程地图等）后补齐：商品页第 ① 步「机场套餐」绑定、价格页第四张表「机场套餐价」（继承价 = 普通套餐 + 那一端③加价，机场结束另加下车点行程加价；单独价高于继承价标黄）、快捷入口放进 M9E-32 的新结构；单元、组件、端到端已写，状态改为待验收（待 CI）。M9E-32 业主 2026-11-16 晚 iPhone 真机验收通过，改为已验收。"
+    },
+    {
+      "date": "2026-11-16",
+      "by": "backend",
+      "summary": "M9P-20 P3 开发（分支 m9p-20-p3-arrive-by，按 ADR 0096 第三节第 6、7 小节，最晚到达）：官网询价、顺序建议、人工报价的经停可带 arrive_by（当天 / 次日 + HH:MM，必须晚于用车开始、不晚于开始 + 24 小时，否则 400）；不带时请求、快照逐字不变，不影响价格；快照 → 订单 jsonb 多一个可选键（不改约束、无迁移），官网订单页、供应商、运营、司机页显示「须在 14:00 前到达」，/sales/v1 去掉、接口说明不变；带 arrive_by 的经停是顺序建议的固定点，只在段内重排，请求键含到达时间。页面（主站、嵌入页同一组件）：经停行「指定到达时间（选填）」，早于出发时刻按次日并写「次日 01:00」；填了的行锁定（锁形图标、不能拖、说明「已锁定，只能用上移 / 下移调整」）；按当前顺序和建议顺序预计晚到时只提示（报价新增 stop_occupancy_minutes 供算每站占用）。遗留：供应商 / 运营订单详情的「预计晚到」标记要订单接口带逐段时长（itinerary.legs，P1 遗留），本期只显示到达时间；嵌入组件第 1 步（宿主页上的小表单）和预订草稿不带到达时间。待 CI、独立审查。"
+    },
+    {
+      "date": "2026-11-17",
+      "by": "frontend",
+      "summary": "M9P-22 #265 已合并（13d8423e），2026-11-16 随 main 17fa9361 部署到测试站（18:15Z）。测试站核对：/book/new 包车模式有「机场接机开始」「机场送机结束」，点后出现「上车地点（选择航站楼）」下拉、计时提示、「改填其他地点」；航站楼列表还没核对（测试站还没有商品绑定机场，业主 2026-11-17 同意给测试供应商绑定成田 / 羽田）；后台绑定和价格表目前只有端到端覆盖。状态保持待验收。"
+    },
+    {
+      "date": "2026-11-17",
+      "by": "backend",
+      "summary": "M9P-20 P3（指定到达时间）已合并（PR #286，main 17fa9361）并部署到测试站。监工 2026-11-17 验收基本通过，提 2 条修改待做：地点搜索结果排序；每个经停的预计到达时刻表。"
+    },
+    {
+      "date": "2026-11-17",
+      "by": "product",
+      "summary": "业主 2026-11-17 决定三项：① 平板 769–1023px 也用底部按钮条，和手机一样，桌面 ≥ 1024px 仍两栏（M9E-32 后续，补进 ADR 0100）；② ADR 0098 Q13：机场结束的套餐不再加下车点行程加价（套餐价已含去机场这段，避免重复收费）；③ 从机场出发的包车仍从预约的上车时间开始计时、没有免费等待，页面要写清楚，并建议上车时间定在航班落地后 60–90 分钟。三项由 M9P-22 / M9E-32 后续 PR 实施。"
+    },
+    {
+      "date": "2026-11-15",
+      "by": "product",
+      "summary": "新开 M9T（AI 行程报价 P1 后端，监工 2026-11-15 指派第二开发）：ADR 0101 经三轮独立审查定稿，监工书面确认——设计篇 ADR 0094 的 P1a；迁移 0600 新增 trips / trip_plans / trip_segments / trip_fees（平台表）和 trip_rule_configs（租户表）；编排接口只收结构化输入，每段经 previewPlatformQuote 按官网渠道报价（入参与官网一致、机场按坐标识别、接送机回落点对点）、不写 quotes；方案出一车到底（同一租户同一车型组）和每天各自最优，便宜 10% 以上才推荐后者；住宿 / 停驻 / 工时与第二司机 / 附加项去重接入编排，返程只做函数 + 配置 + 单测（随 P1d）；B2 放行（charterCityFor / itineraryRoute / demandFacts 加 export）；Q1–Q10 按默认值。拆 M9T-01～05。"
+    },
+    {
+      "date": "2026-11-17",
+      "by": "开发（接手）",
+      "summary": "M9T-00 #263 合并 main：ADR 改号 0100 → 0101（0100 已被 M9E-32 手机底部按钮条占用）；M9T 任务从 M10 移到新里程碑 M9T（check-roadmap 要求任务编号以里程碑编号开头）。内容不变。"
+    },
+    {
+      "date": "2026-11-17",
+      "by": "Codespace 开发",
+      "summary": "M9T：#263（ADR 改号 0101，M9T 移为独立里程碑）、#270、#272（迁移 0600 单独部署）、#274、#275、#297、#298 合并；固定测试集 31 条，顺带修了住宿 byArea 只认①、跨城一车到底没拦两处。测试站：普通客人身份建行程报价通过；QA 测试供应商验收卡在它的包车区域停用、未迁移三层（同成田羽田绑定的前置）。待业主决定：单日「成田接机 + 下午游览」在没有同一家能连着做时报不出（ADR 现行：单日只出一车到底），见 #288。M8-29 偶发：#291 的 tenant-isolation itest 一次；waypoints 组件测试取地图图片为 null 两次（#291、#272），#296 改为等图片挂上再取。"
+    },
+    {
+      "date": "2026-11-18",
+      "by": "开发",
+      "summary": "M9T 下一阶段「AI 行程报价官网页面」（监工 2026-11-18 指派，计划见 #288）：ADR 0101 补第十三节——/book/trip 页面范围（样式同 /book/new，embed 不做，验收前不加入口）、人工报价关联行程单用新表 manual_quote_trip_links（不给现有表加列，trip_id 不加外键，地名放进加密联系信息）、下单出口（单段方案桥接普通报价走现有下单付款；多段方案待业主决定，推荐 A「提交预订，客服确认」）；拆 M9T-06～10。"
     }
   ]
 }

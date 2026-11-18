@@ -60,11 +60,18 @@ test("字号、字重、行高、层级、圆角、阴影只引用令牌", () =>
   }
 });
 
-/** 不是设计令牌、由页面脚本量出来的尺寸变量：名单和「谁可以引用」都只在 lib/measured-length.ts 登记，和 styles.edge.test.ts 共用这一份。 */
-const MEASURED_VARIABLES = new Map<string, readonly string[]>(Object.entries(MEASURED_LENGTHS));
+/** 不是设计令牌、由页面脚本量出来的尺寸变量：名单、种类和「谁可以引用」都只在 lib/measured-length.ts 登记，和 styles.edge.test.ts 共用这一份。 */
+const MEASURED_VARIABLES = new Map<string, readonly string[]>(Object.entries(MEASURED_LENGTHS).map(([name, entry]) => [name, entry.sheets]));
+
+/**
+ * 嵌入预订页的外观变量（M9E-17，ADR 0095 Q15）：和嵌入组件同名的 --nzb-*，只在 embed.css 的 :root[data-embed-book] 里定义、取值是主站令牌
+ * （embed-style.test.ts 另有核对）。只认那一块里以 --nzb- 开头的。
+ */
+const EMBED_THEME_VARIABLES = new Set([...(/:root\[data-embed-book\] \{([^}]*)\}/.exec(sheets.find((sheet) => sheet.name === "embed.css")?.css ?? "")?.[1] ?? "").matchAll(/(--nzb-[a-z-]+)\s*:/g)].map((match) => match[1] ?? ""));
 
 test("引用的每个令牌都在 docs/design/tokens.css 里定义过", () => {
-  const defined = new Set([...tokens.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((match) => match[1]).concat([...MEASURED_VARIABLES.keys()]));
+  assert.ok(EMBED_THEME_VARIABLES.has("--nzb-primary"));
+  const defined = new Set([...tokens.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((match) => match[1]).concat([...MEASURED_VARIABLES.keys(), ...EMBED_THEME_VARIABLES]));
   for (const { name, css } of sheets) {
     for (const match of css.matchAll(/var\((--[a-z0-9-]+)/g)) {
       assert.ok(defined.has(match[1]), `${name} 引用了不存在的令牌 ${match[1]}`);
@@ -72,19 +79,20 @@ test("引用的每个令牌都在 docs/design/tokens.css 里定义过", () => {
   }
 });
 
-test("实测尺寸变量只在登记的样式表里引用：--driver-bar-height 只许 driver.css 用", () => {
-  assert.deepEqual([...MEASURED_VARIABLES.keys()], ["--driver-bar-height"]);
-  assert.deepEqual(MEASURED_VARIABLES.get("--driver-bar-height"), ["driver.css"]);
-  let used = 0;
+test("实测尺寸变量只在登记的样式表里引用：--driver-bar-height 只许 driver.css，--book-actionbar-h / -shift 只许 book-new.css", () => {
+  assert.deepEqual(Object.fromEntries(MEASURED_VARIABLES), { "--driver-bar-height": ["driver.css"], "--book-actionbar-h": ["book-new.css"], "--book-actionbar-shift": ["book-new.css"] });
+  const used = new Map<string, number>();
   for (const { name, css } of sheets) {
     for (const match of css.matchAll(/--[a-z0-9-]+/g)) {
       const allowed = MEASURED_VARIABLES.get(match[0]);
       if (allowed === undefined) continue;
       assert.ok(allowed.includes(name), `${name} 引用了实测尺寸变量 ${match[0]}，只有 ${allowed.join("、")} 可以用`);
-      used += 1;
+      used.set(match[0], (used.get(match[0]) ?? 0) + 1);
     }
   }
-  assert.ok(used >= 2, "driver.css 用它给页面底部留白、给滚动留边");
+  assert.ok((used.get("--driver-bar-height") ?? 0) >= 2, "driver.css 用它给页面底部留白、给滚动留边");
+  assert.ok((used.get("--book-actionbar-h") ?? 0) >= 2, "book-new.css 用它给页面底部留白、给滚动留边");
+  assert.ok((used.get("--book-actionbar-shift") ?? 0) >= 1, "book-new.css 用它把嵌入页的条往上挪");
   for (const [variable, allowed] of MEASURED_VARIABLES) {
     for (const sheet of allowed) assert.ok(sheets.some((found) => found.name === sheet), `${variable} 登记的样式表 ${sheet} 不存在`);
     assert.ok(!tokens.includes(`${variable}:`), `${variable} 和设计令牌重名`);
@@ -188,4 +196,16 @@ test("首页入口卡片：标题链接自身的环去掉，同一条件下由�
   assert.match(ring?.body ?? "", /outline: var\(--focus-ring-width\) solid var\(--color-border-focus\);/);
   assert.match(ring?.body ?? "", /outline-offset: var\(--focus-ring-offset\);/);
   assert.ok(rules.some((rule) => rule.selector === "a.entry-card__title::after" && /position: absolute;/.test(rule.body) && /inset: 0;/.test(rule.body)), "::after 铺满整张卡片");
+});
+
+test("新预订页右侧栏「经停点」的列表不另缩进，和其他项的内容对齐；间距只用令牌（M8-43）", () => {
+  const css = sheets.find((sheet) => sheet.name === "book-new.css")?.css ?? "";
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((rule) => ({ selector: (rule[1] ?? "").trim().replace(/\s+/g, " "), body: (rule[2] ?? "").replace(/\s+/g, " ").trim() }));
+  const stops = rules.filter((rule) => rule.selector.split(",").some((part) => part.trim().startsWith(".book-summary__stops")));
+  assert.equal(stops.length, 1, "只有一条规则管经停点列表");
+  const body = stops[0]?.body ?? "";
+  assert.match(body, /(^|; )padding: 0;/);
+  assert.match(body, /(^|; )margin: 0;/);
+  assert.doesNotMatch(body, /padding-(left|inline-start)|margin-(left|inline-start)|text-indent/);
+  for (const value of declarations(body, /^(gap|padding|margin)$/)) assert.match(value, /^(0|var\(--space-[0-9-]+\))$/, `经停点列表的 ${value} 不是令牌`);
 });

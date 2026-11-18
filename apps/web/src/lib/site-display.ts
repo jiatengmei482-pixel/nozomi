@@ -2,7 +2,9 @@
  * 官网（M3-05，ADR 0032）页面上的说法和小规则：客人看到的订单状态、报不出价的原因、「我已落地」什么时候能点、
  * 订单页地址里的令牌、城市当地的日期时间。文案用客人的说法（「付款」「用车时间」），不出现「供应商」「结算价」。
  */
-import { AREA_SURCHARGE_NOTE as DOMAIN_AREA_SURCHARGE_NOTE, CHARTER_ITINERARY_OVERAGE_TEXTS, CHARTER_OVERAGE_TEXTS, type ExtraChargeStatus, FIXED_PRICE_INCLUDES_TEXTS, LANDING_RULES, type OrderChangeStatus, type OrderStatus, type PricingBasis, addDays, charterAllInclusiveFor, fixedPriceFeeNote, includedKmNote, isCurrencyCode, parseMajor, pricingBasisFeeNote, pricingBasisNote } from "@nozomi/domain";
+import type { FreeWaitBasis } from "../api/dispatch.ts";
+import { FREE_WAIT_TEXTS, dispatchedFreeWaitNote } from "./free-wait-display.ts";
+import { AREA_SURCHARGE_NOTE as DOMAIN_AREA_SURCHARGE_NOTE, CHARTER_ITINERARY_OVERAGE_TEXTS, CHARTER_OVERAGE_TEXTS, type ExtraChargeStatus, FIXED_PRICE_INCLUDES_TEXTS, LANDING_RULES, type OrderChangeStatus, type OrderStatus, type PricingBasis, addDays, arrivalFreeWaitRange, charterAllInclusiveFor, fixedPriceFeeNote, includedKmNote, isCurrencyCode, parseMajor, pricingBasisFeeNote, pricingBasisNote } from "@nozomi/domain";
 import type { CancelTier } from "../api/order-money.ts";
 import type { SiteCategory, SiteDirection, SiteOrder, SitePlace, SiteQuote, SiteUnavailableReason } from "../api/site.ts";
 import type { BadgeSpec } from "../components/StatusBadge.tsx";
@@ -10,6 +12,8 @@ import type { BadgeSpec } from "../components/StatusBadge.tsx";
 export const SITE_HOME_PATH = "/book";
 export const SITE_CHECKOUT_PATH = "/book/checkout";
 export const SITE_ORDER_PATH = "/book/order";
+/** 多日行程报价页（M9T-09，ADR 0101 第十三节）：验收通过前不在任何导航里放入口，只能直接打开地址 */
+export const SITE_TRIP_PATH = "/book/trip";
 
 /** 客人看到的服务名称（M3-10）。 */
 export const SITE_CATEGORY_NAMES: Readonly<Record<SiteCategory, string>> = { airport_transfer: "接送机", point_to_point: "点对点", charter: "包车" };
@@ -24,7 +28,7 @@ export const SITE_CATEGORY_HINTS: Readonly<Record<SiteCategory, string>> = {
 /** 包车超出套餐的部分怎么收（M8-09：包车一口价全含之后，只有超出套餐的时长和公里另收）。 */
 export const CHARTER_OVERAGE_NOTE = `${CHARTER_OVERAGE_TEXTS.zh}：先通知您，48 小时内可以在订单页提异议。`;
 
-/** 包车按行程计价（M9W-05，ADR 0089）：超公里、超时已按预计行程算进价格，只有当天超出预计的部分另收。不按行程计价的包车照旧用 `CHARTER_OVERAGE_NOTE` */
+/** 包车按行程计价（M9W-05，ADR 0089；M9P-04 改）：超公里已按预计行程算进价格，用时超出套餐或当天超出预计的部分另收。不按行程计价的包车照旧用 `CHARTER_OVERAGE_NOTE` */
 export const CHARTER_ITINERARY_OVERAGE_NOTE = `${CHARTER_ITINERARY_OVERAGE_TEXTS.zh}：先通知您，48 小时内可以在订单页提异议。`;
 
 /**
@@ -38,11 +42,11 @@ export function priceNote(category: SiteCategory): string {
 /**
  * 订单页的「费用说明」（ADR 0070）：接送机、点对点写含所有费用；按里程计价（`pricing_basis = distance_only`）的不是一口价，
  * 换成 domain `pricingBasisFeeNote` 的说法（M6-08）；包车按下单时间——分界后下的写含所有费用、超出套餐另收，
- * 分界前下的是按「高速、停车另收」报的价，不写（返回 null）。按行程计价的包车写超公里、超时已算进价格（M9W-05）。
+ * 分界前下的是按「高速、停车另收」报的价，不写（返回 null）。按行程计价的包车写超公里已算进价格、用时超出套餐或当天超出预计的部分另收（M9W-05，M9P-04 改）。
  */
 export function orderFeeNote(order: Pick<SiteOrder, "category" | "created_at"> & { pricing_basis?: PricingBasis | undefined; itinerary?: SiteOrder["itinerary"] | undefined }): string | null {
   if (order.category !== "charter") return pricingBasisFeeNote(order.pricing_basis) ?? fixedPriceFeeNote("transfer");
-  // 按行程计价的包车（订单上有锁定的 itinerary，M9W-05）：超公里、超时已算进价格
+  // 按行程计价的包车（订单上有锁定的 itinerary，M9W-05）：超公里已算进价格，用时超出套餐或当天超出预计的部分另收（M9P-04 改）
   return charterAllInclusiveFor(new Date(order.created_at)) ? fixedPriceFeeNote("charter", "zh", { itinerary: order.itinerary != null }) : null;
 }
 
@@ -104,6 +108,36 @@ export function serviceTimeLabels(category: SiteCategory, direction: SiteDirecti
   return category === "airport_transfer" && direction === "pickup"
     ? { date: "航班到达日期（当地）", time: "航班计划到达时间（当地）", fact: "航班计划到达" }
     : { date: "用车日期（当地）", time: "上车时间（当地）", fact: "上车时间" };
+}
+
+/**
+ * 报价里的免费等待（旧下单页的车型列表）：接机还不知道航班类型，按航班写国际线、国内线各最长多久（M9E-28，ADR 0097；
+ * 2026-11-16 起平台统一国际 90、国内 60，不看商品设的，商品「不限时」也一样，M9E-31）；其他同 `freeWaitText`。`minutes` 是报价里商品自己设的值。
+ */
+export function quoteFreeWaitText(minutes: number | null, category: SiteCategory, direction: SiteDirection | null): string {
+  if (category !== "airport_transfer" || direction !== "pickup") return freeWaitText(minutes, category, direction);
+  const range = arrivalFreeWaitRange();
+  return `国际线最长 ${range.international} 分钟、国内线最长 ${range.domestic} 分钟（从航班落地起算）`;
+}
+
+/**
+ * 订单上的免费等待（订单页、供应商、司机）：最终锁定的分钟数；按航班锁定的接机后面注明按哪种航班（M9E-28）——
+ * 航班类型未确认时注明「航班类型未确认，按国内线」。
+ */
+export function orderFreeWaitNote(basis: { flight_kind: "international" | "domestic" | null } | null | undefined): string | null {
+  if (basis === null || basis === undefined) return null;
+  return FREE_WAIT_TEXTS.basisKind[basis.flight_kind ?? "unconfirmed"];
+}
+
+/**
+ * 订单页的免费等待一项：分钟数和起算点，按航班锁定的接机再注明航班类型（M9E-28）；派了司机以后写「按派单时的 X 航班锁定 N 分钟」
+ * （2026-11-15 按推荐，审查建议 6：派单后客人改了航班类型，免费等待不变，不能让客人以为按新选的算）。
+ */
+export function orderFreeWaitText(order: { status: string; free_wait_minutes: number | null; category: SiteCategory; direction: SiteDirection | null; driver?: unknown; free_wait_basis?: FreeWaitBasis | null }): string {
+  const text = freeWaitText(order.free_wait_minutes, order.category, order.direction);
+  const dispatched = !(order.status === "pending_payment" || order.status === "confirmed") || (order.driver ?? null) !== null;
+  const note = dispatchedFreeWaitNote({ ...order, dispatched }) ?? orderFreeWaitNote(order.free_wait_basis);
+  return note === null ? text : `${text} · ${note}`;
 }
 
 /** 免费等待从什么时候算：只有接机从航班落地算。 */
@@ -187,6 +221,9 @@ export const UNAVAILABLE_REASON_TEXT: Readonly<Record<SiteUnavailableReason, str
   OUT_OF_SERVICE_AREA: "这个地址不在服务范围内，请换一个更靠近市区的地址。",
   DROPOFF_REQUIRED: "包车请填写下车地点。",
   WAYPOINT_NOT_PRICED: "有途经景点暂时没有在线报价，请联系客服人工报价，或去掉这个景点再试。",
+  PACKAGE_TOO_SHORT: "所选的套餐时长太短，请选更长的套餐。",
+  // 和超限提醒同一套文案（M9P-10，需求 charter-airport-packages-2026-11-14.md 第四节第 3 条）
+  ITINERARY_TOO_LONG: "该行程超出司机单日法定工作时长，无法在线预订。请缩减行程，或联系客服安排分两天用车。",
   LEAD_TIME_TOO_SHORT: "离用车时间太近了，请选晚一些的时间。",
   SOLD_OUT: "这一天已经订满了，请换一天。",
   OUTSIDE_SERVICE_TIME: "这个时间不在服务时间内，请换一个时间。",
@@ -196,7 +233,8 @@ export const UNAVAILABLE_REASON_TEXT: Readonly<Record<SiteUnavailableReason, str
   DRIVER_LANGUAGE_NOT_OFFERED: "所选的司机语言暂不提供。",
   NO_ROUTE: "这两个地点之间没有可行驶的路线，请换一个地址。",
   TEMPORARILY_UNAVAILABLE: "暂时算不出这段路程的价格，请稍后再试，或改订包车。",
-  NOT_AVAILABLE: "暂时没有可预订的车，请换一个时间再试。",
+  // 其他原因（供应商没设价、停用、价格超限……）：多半不是时间的问题，不让客人去换时间（M9W-10）；真的和时间有关的各有各的原因
+  NOT_AVAILABLE: "这个行程暂时无法在线报价，请联系客服人工报价，或调整行程后再试。",
 };
 
 const GUEST_LANDING_STATUSES: ReadonlySet<OrderStatus> = new Set(["confirmed", "assigned", "departed", "arrived"]);

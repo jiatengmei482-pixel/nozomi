@@ -185,7 +185,10 @@ export async function listBrandSellablePrices(db: Db, tenantId: string, brandId:
        join cities c on c.id = p.city_id
       where r.tenant_id = $1 and p.brand_id = $2 and r.status = 'enabled' and r.pricing_model <> 'charter_area_surcharge'
         and (r.valid_to is null or r.valid_to >= ($3::timestamptz at time zone c.timezone)::date)
-        and exists (select 1 from product_areas pa where pa.tenant_id = p.tenant_id and pa.product_id = p.id and pa.area_id = r.area_id)
+        and (exists (select 1 from product_areas pa where pa.tenant_id = p.tenant_id and pa.product_id = p.id and pa.area_id = r.area_id)
+             -- 机场套餐价按机场绑定带上（区域是机场区域，不在商品区域里，ADR 0098）
+             or (r.pricing_model = 'charter_airport_package'
+                 and exists (select 1 from charter_airport_bindings b where b.tenant_id = p.tenant_id and b.product_id = p.id and b.area_id = r.area_id)))
         and exists (select 1 from product_vehicle_groups pv where pv.tenant_id = p.tenant_id and pv.product_id = p.id and pv.vehicle_group_id = r.vehicle_group_id)
       order by p.code, r.created_at, r.id`,
     [tenantId, brandId, now],
@@ -235,7 +238,7 @@ export interface ProductPriceOverview {
  */
 export function activePriceRuleCountSql(now: string): string {
   return `(select count(*)::int from price_rules r
-              where r.tenant_id = p.tenant_id and r.product_id = p.id and r.status = 'enabled' and r.pricing_model <> 'charter_area_surcharge' and r.to_area_id is null
+              where r.tenant_id = p.tenant_id and r.product_id = p.id and r.status = 'enabled' and r.pricing_model not in ('charter_area_surcharge', 'charter_airport_package') and r.to_area_id is null
                 and (r.valid_to is null or r.valid_to >= (${now}::timestamptz at time zone c.timezone)::date)
                 and exists (select 1 from product_areas pa where pa.tenant_id = p.tenant_id and pa.product_id = p.id and pa.area_id = r.area_id)
                 and exists (select 1 from product_vehicle_groups pv where pv.tenant_id = p.tenant_id and pv.product_id = p.id and pv.vehicle_group_id = r.vehicle_group_id))`;
@@ -280,16 +283,18 @@ export async function listProductPriceOverview(db: Db, tenantId: string, now: Da
  * 整个供应商每个商品算缺价概况要用的东西：选的区域、车型组（按商品里的先后）和全部价格规则。
  * 三条查询取回全部，不按商品一个一个查。
  */
-export async function listPriceCoverageInputs(db: Db, tenantId: string): Promise<Map<string, { areaIds: string[]; vehicleGroupIds: string[]; rules: StoredPriceRule[] }>> {
-  const shapes = new Map<string, { areaIds: string[]; vehicleGroupIds: string[]; rules: StoredPriceRule[] }>();
+export async function listPriceCoverageInputs(db: Db, tenantId: string): Promise<Map<string, { areaIds: string[]; vehicleGroupIds: string[]; rules: StoredPriceRule[]; productWide: boolean }>> {
+  const shapes = new Map<string, { areaIds: string[]; vehicleGroupIds: string[]; rules: StoredPriceRule[]; productWide: boolean }>();
   const shape = (productId: string) => {
-    const found = shapes.get(productId) ?? { areaIds: [], vehicleGroupIds: [], rules: [] };
+    const found = shapes.get(productId) ?? { areaIds: [], vehicleGroupIds: [], rules: [], productWide: false };
     shapes.set(productId, found);
     return found;
   };
   for (const row of (await db.query<Row>("select product_id, area_id from product_areas where tenant_id = $1 order by product_id, priority", [tenantId])).rows) shape(row["product_id"]).areaIds.push(row["area_id"]);
   for (const row of (await db.query<Row>("select product_id, vehicle_group_id from product_vehicle_groups where tenant_id = $1 order by product_id, position", [tenantId])).rows) shape(row["product_id"]).vehicleGroupIds.push(row["vehicle_group_id"]);
   for (const row of (await db.query<Row>(`select product_id, ${PRICE_COLUMNS} from price_rules where tenant_id = $1 order by created_at, id`, [tenantId])).rows) shape(row["product_id"]).rules.push(toPriceRule(row));
+  // 迁移过三层区域的包车按整商品套餐价统计（ADR 0093 第五节）
+  for (const row of (await db.query<Row>("select id from products where tenant_id = $1 and category = 'charter' and charter_layout = 'three_layer'", [tenantId])).rows) shape(row["id"]).productWide = true;
   return shapes;
 }
 

@@ -394,24 +394,79 @@ test("加价区域被已上架的包车商品用着：不能停用、不能删�
   assert.equal(disabled.status, 200, disabled.text);
 });
 
-test("回归 M8-38：一端落在几个加价区域时用设了加价的、都设了取最高（800 和 500 取 800）；商品本身的大区域（加价 0）不能把加价区盖成 0；从共享库引用来的加价区域一样算", async () => {
-  // 「千叶东」整个在千叶里面，加价 800；千叶是 500：千叶站那个点两个都在，取 800
+test("M9P-06（ADR 0093 第二、七节，取代 M8-38）：新加的加价区域和同层已有的重叠、和商品区域重叠都拦下；已有的重叠数据按基础价区域优先、加价区域之间过渡期取最高；从共享库引用来的加价区域一样算", async () => {
+  // 「千叶东」整个在千叶里面（③③重叠）、「东京西」和商品本身的区域（东京 23 区）重叠（①③重叠）：经接口都建不出来
   const chibaEast = await newArea(m.b, m.ids.tokyo, "千叶东", square(140.05, 35.6, 140.25, 35.8));
-  // 「东京西」和商品本身的区域（东京 23 区）重叠，加价 300：东京那个点两个都在，用 300（不再算 0）
   const tokyoWest = await newArea(m.b, m.ids.tokyo, "东京西", square(139.45, 35.55, 139.75, 35.85));
-  // 甲画的「东京南」在共享库里，乙引用一份当加价区域（上车 200、下车 600）
-  const source = await newArea(m.a, m.ids.tokyo, "东京南·共享", square(139.55, 35.52, 139.85, 35.65));
+  for (const [areaId, code] of [[chibaEast, "AREA_LAYER_OVERLAP"], [tokyoWest, "AREA_BASE_SURCHARGE_OVERLAP"]] as const) {
+    const res = await tenantCall(m.b, "POST", `/products/${charterB.id}/price-rules/batch`, { version: await version(m.b, charterB.id), body: { create: [surcharge(areaId, 800, 800)] } });
+    assert.equal(res.status, 400, res.text);
+    assert.equal(res.body.error.code, code);
+  }
+  // 甲画的「千叶北」在共享库里，乙引用一份当加价区域（上车 200、下车 600）：不和别的区域重叠，照常能设
+  const source = await newArea(m.a, m.ids.tokyo, "千叶北·共享", square(140.0, 35.9, 140.3, 36.1));
   const copy = (await ok(tenantCall(m.b, "POST", "/areas/from-shared", { body: { shared_area_id: source, biz_type: "general", role: "both" } }), 201)).id;
-  await ok(tenantCall(m.b, "POST", `/products/${charterB.id}/price-rules/batch`, { version: await version(m.b, charterB.id), body: { create: [surcharge(chibaEast, 800, 800), surcharge(tokyoWest, 300, 300), surcharge(copy, 200, 600)] } }));
-  const preview = async (pickup: keyof typeof P, dropoff: keyof typeof P): Promise<any> => {
-    const res = await tenantCall(m.b, "POST", `/products/${charterB.id}/quote-preview`, { body: { pickup: P[pickup], dropoff: P[dropoff], package_hours: 8, service_time: SERVICE_LOCAL, passengers: 2, luggage: 1, vehicle_group_ids: [m.ids.biz7] } });
+  await ok(tenantCall(m.b, "POST", `/products/${charterB.id}/price-rules/batch`, { version: await version(m.b, charterB.id), body: { create: [surcharge(copy, 200, 600)] } }));
+  // M9P-06 之前已经存在的重叠配置：直接写库模拟
+  for (const [areaId, amount] of [[chibaEast, 800], [tokyoWest, 300]] as const) {
+    await api.db.owner.query(
+      `insert into price_rules (tenant_id, product_id, area_id, vehicle_group_id, package_hours, pricing_model, params, valid_from, status, created_at, updated_at)
+       values ($1, $2, $3, $4, 8, 'charter_area_surcharge', $5::jsonb, '2026-01-01', 'enabled', now(), now())`,
+      [m.b.tenantId, charterB.id, areaId, m.ids.biz7, JSON.stringify({ pickupSurchargeMinor: amount, dropoffSurchargeMinor: amount })],
+    );
+  }
+  const preview = async (pickup: { lng: number; lat: number }, dropoff: { lng: number; lat: number }): Promise<any> => {
+    const res = await tenantCall(m.b, "POST", `/products/${charterB.id}/quote-preview`, { body: { pickup, dropoff, package_hours: 8, service_time: SERVICE_LOCAL, passengers: 2, luggage: 1, vehicle_group_ids: [m.ids.biz7] } });
     assertMatchesOpenApi("POST", "/tenant/v1/products/{id}/quote-preview", res);
     assert.equal(res.status, 200, res.text);
     assert.equal(res.body.offers.length, 1, res.text);
     return res.body.offers[0].settlement;
   };
   const ends = (s: any) => [s.area_surcharge.pickup.area_id, s.area_surcharge.pickup.amount, s.area_surcharge.dropoff.area_id, s.area_surcharge.dropoff.amount, s.total];
-  assert.deepEqual(ends(await preview("chiba", "tokyo")), [chibaEast, 800, tokyoWest, 300, 71_100], "70,000 + 上车 800（千叶东，不是千叶 500）+ 下车 300（东京西，不被商品区域盖成 0）");
-  assert.deepEqual(ends(await preview("tokyo", "chiba")), [tokyoWest, 300, chibaEast, 800, 71_100]);
-  assert.deepEqual(ends(await preview("tokyo2", "tokyo2")), [tokyoWest, 300, copy, 600, 70_900], "上车 东京西 300 > 引用区 200；下车 引用区 600 > 东京西 300");
+  // 千叶站：千叶（500）和千叶东（800）都在，加价区域之间过渡期取最高 800；东京：在商品区域里，东京西 300 不再收（基础价区域优先）
+  assert.deepEqual(ends(await preview(P.chiba, P.tokyo)), [chibaEast, 800, null, 0, 70_800], "M8-38 时是 71,100（下车再收东京西 300）");
+  assert.deepEqual(ends(await preview(P.tokyo, P.chiba)), [null, 0, chibaEast, 800, 70_800]);
+  // 共享库引用来的加价区域照常算
+  assert.deepEqual(ends(await preview(P.tokyo, { lng: 140.15, lat: 36.0 })), [null, 0, copy, 600, 70_600]);
+});
+
+test("导入预览也查包车三层重叠（M9P-07，#247 审查建议）：新加的加价区域和同层已有的、和基础价区域重叠 → 预览就标在那一行的「区域」格、不能导入；确认导入 409 IMPORT_NOT_CLEAN，什么都不写", async () => {
+  const token = await tenantLogin(api, m.b.adminEmail);
+  // 「千叶南·导入」在千叶里面（③③重叠）；「东京西·导入」和商品区域（东京 23 区）重叠（①③），也和上面那条用例直接写库的「东京西」重叠（③③），先报哪一种都对
+  await newArea(m.b, m.ids.tokyo, "千叶南·导入", square(140.06, 35.61, 140.2, 35.75));
+  await newArea(m.b, m.ids.tokyo, "东京西·导入", square(139.46, 35.56, 139.7, 35.8));
+  const num = (value: number): XlsxWriteCell => ({ number: String(value) });
+  const header = ["价格编号", "区域", "车型组", "套餐时长(小时)", "套餐公里", "套餐价", "超时单价(每小时)", "超公里单价(每公里)", "上车加价", "下车加价", "生效开始", "生效结束", "状态"];
+  const file = writeXlsx([
+    {
+      name: "价格",
+      rows: [header, [null, "千叶南·导入", "VG-BIZ-7", num(8), null, null, null, null, num(700), num(700), "2026-01-01", null, null], [null, "东京西·导入", "VG-BIZ-7", num(8), null, null, null, null, num(300), num(300), "2026-01-01", null, null]],
+    },
+  ]);
+  const upload = async (path: string, extra: Record<string, string> = {}): Promise<ApiResponse> => {
+    api.clock.advance(1_000);
+    const res = await api.app.inject({ method: "POST", url: `/tenant/v1/products/${charterB.id}${path}`, payload: file, headers: { "content-type": XLSX_CONTENT_TYPE, authorization: `Bearer ${token}`, ...extra } });
+    return { status: res.statusCode, headers: res.headers, text: res.body, body: res.json() };
+  };
+  const seen = await upload("/price-rules/import/preview");
+  assertMatchesOpenApi("POST", "/tenant/v1/products/{id}/price-rules/import/preview", seen);
+  assert.equal(seen.status, 200, seen.text);
+  assert.equal(seen.body.can_import, false);
+  assert.deepEqual(seen.body.rows.map((row: any) => [row.action, row.issues.map((issue: any) => [issue.cell, issue.column])]), [
+    ["error", [["B2", "区域"]]],
+    ["error", [["B3", "区域"]]],
+  ]);
+  assert.equal(seen.body.rows[0].issues[0].reason, "AREA_LAYER_OVERLAP");
+  assert.ok(["AREA_LAYER_OVERLAP", "AREA_BASE_SURCHARGE_OVERLAP"].includes(seen.body.rows[1].issues[0].reason), seen.text);
+  assert.match(seen.body.rows[0].issues[0].message, /「千叶南·导入」|「千叶」/);
+  assert.match(seen.body.rows[0].issues[0].message, /平方公里/);
+  assert.match(seen.body.rows[1].issues[0].message, /「东京西·导入」/);
+  assert.equal(seen.body.summary.error, 2);
+
+  const before = (await ok(tenantCall(m.b, "GET", `/products/${charterB.id}/price-rules`))).items.length;
+  const confirmed = await upload(`/price-rules/import?file_sha256=${seen.body.file_sha256}`, { "if-match": `"${seen.body.version}"`, "idempotency-key": randomUUID() });
+  assert.equal(confirmed.status, 409, confirmed.text);
+  assert.equal(confirmed.body.error.code, "IMPORT_NOT_CLEAN");
+  assert.deepEqual(confirmed.body.error.details.preview.rows.map((row: any) => row.action), ["error", "error"]);
+  assert.equal((await ok(tenantCall(m.b, "GET", `/products/${charterB.id}/price-rules`))).items.length, before, "什么都没写");
 });

@@ -6,7 +6,7 @@
  * 日期重叠用 @nozomi/domain 的 findPriceRuleOverlaps（和后端同一份）；不用浮点数算钱。不依赖浏览器，用 node:test 直接测。
  */
 import { CURRENCIES, PRICE_LIMITS, type PriceRule, isCurrencyCode, addDays, findPriceRuleOverlaps, priceRuleIsActive, priceRuleIssues } from "@nozomi/domain";
-import type { PriceRuleBatch, PriceRuleBody, PriceRuleInput } from "../api/prices.ts";
+import { type PriceRuleBatch, type PriceRuleBody, type PriceRuleInput, ruleAreaId } from "../api/prices.ts";
 import { GROUPING_PROBLEM, otherCurrencyProblem, tidyAmountText } from "./amount-input.ts";
 import { CURRENCY_NAMES, moneyText, readAmount, tidyAmountDisplay } from "./product-display.ts";
 import { tidyDate } from "./time-input.ts";
@@ -58,7 +58,7 @@ export function surchargeRowFromRule(rule: PriceRuleBody, currency: string): Sur
   return {
     key: rule.id,
     id: rule.id,
-    areaId: rule.area_id,
+    areaId: ruleAreaId(rule),
     vehicleGroupId: rule.vehicle_group_id,
     packageHours: rule.package_hours ?? 0,
     pickup: amountShown(rule.pickup_surcharge ?? null, currency),
@@ -93,7 +93,11 @@ export function isBlankSurcharge(row: SurchargeRow): boolean {
 
 /** 读一个金额格：不能空（不加钱填 0）、不能是负数、不能有多余的小数、不能超过上限。 */
 export function readSurchargeAmount(text: string, field: SurchargeAmountField, currency: string): { minor: number } | { problem: string } {
-  const name = SURCHARGE_FIELD_NAMES[field];
+  return readNamedAmount(text, SURCHARGE_FIELD_NAMES[field], currency);
+}
+
+/** 同 `readSurchargeAmount`，提示里的名字由调用方给（包车三层区域的行程加价表，M9P-07）。 */
+export function readNamedAmount(text: string, name: string, currency: string): { minor: number } | { problem: string } {
   const read = tidyAmountText(text, currency);
   if (!read.ok) {
     if (read.reason === "empty") return { problem: `请填${name}，不加钱请填 0` };
@@ -251,18 +255,24 @@ export interface AreaSummary {
 
 const widen = (range: Range | null, value: number): Range => (range === null ? { min: value, max: value } : { min: Math.min(range.min, value), max: Math.max(range.max, value) });
 
-/** 一个加价区域在「看：」范围里的汇总：只看启用、现在或以后生效的，加上没保存的修改。 */
-export function areaSummary(rows: readonly SurchargeRow[], areaId: string, groupIds: readonly string[], packages: readonly number[], currency: string, today: string): AreaSummary {
+/**
+ * 一个加价区域在「看：」范围里的汇总：只看启用、现在或以后生效的，加上没保存的修改。
+ * `optionalPackages`：基础定价里没有、只设了区域加价的套餐——填了的照算进范围，没填的不算「没填」，也不算进组合数。
+ */
+export function areaSummary(rows: readonly SurchargeRow[], areaId: string, groupIds: readonly string[], packages: readonly number[], currency: string, today: string, optionalPackages: readonly number[] = []): AreaSummary {
   const live = liveSurcharges(rows.filter((row) => row.areaId === areaId), currency).filter((entry) => priceRuleIsActive(entry.rule, today));
   let pickup: Range | null = null;
   let dropoff: Range | null = null;
   let waypoint: Range | null = null;
   let waypointUnset = 0;
   let missing = 0;
+  let total = 0;
   for (const groupId of groupIds) {
     for (const hours of packages) {
       const found = live.filter((entry) => entry.rule.vehicleGroupId === groupId && entry.rule.packageHours === hours);
-      if (found.length === 0) missing += 1;
+      const optional = optionalPackages.includes(hours);
+      if (!optional) total += 1;
+      if (found.length === 0 && !optional) missing += 1;
       for (const entry of found) {
         if (entry.rule.pricing.model !== SURCHARGE_MODEL) continue;
         pickup = widen(pickup, entry.rule.pricing.pickupSurchargeMinor);
@@ -273,7 +283,7 @@ export function areaSummary(rows: readonly SurchargeRow[], areaId: string, group
       }
     }
   }
-  return { pickup, dropoff, waypoint, waypointUnset, missing, total: groupIds.length * packages.length };
+  return { pickup, dropoff, waypoint, waypointUnset, missing, total };
 }
 
 /** 汇总格的数：一样写一个数，不一样写「最小–最大」（不带币种，千分位）。 */

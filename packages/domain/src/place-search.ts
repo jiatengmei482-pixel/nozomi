@@ -17,6 +17,8 @@ export const PLACE_SEARCH_RULES = {
   queryMaxLength: 100,
   /** 一次最多给几个候选：手机一屏放得下，谷歌按条计费的档次和条数无关 */
   maxResults: 5,
+  /** 文字搜索向谷歌要几条（排序后取前 `maxResults` 条给客人；Text Search 按请求计费，条数不影响费用） */
+  fetchResults: 10,
   /** 搜索只在城市中心周围这么远（公里，正方形的半边长）以内：成田机场离东京站约 60 公里 */
   cityReachKm: 80,
   /** 反查前坐标取整到小数点后几位：4 位 ≈ 11 米，同一栋楼的几次点选共用一次查询 */
@@ -224,4 +226,39 @@ export function cleanPlaceText(value: unknown, maxLength: number): string | null
   if (text === "") return null;
   const chars = [...text];
   return chars.length <= maxLength ? text : `${chars.slice(0, maxLength - 1).join("")}…`;
+}
+
+/**
+ * 候选排序（业主 2026-11-17：搜「浅草寺」第一个是「浅草寺病院」）：谷歌给的顺序之上再排一次，同一档保持谷歌的先后。
+ * 1. 名称和关键字完全一样（去掉空白、全角半角统一、不分大小写）的在最前；
+ * 2. 然后按类型：景点、寺社、车站、机场、酒店等客人常去的 → 其他 → 医院、诊所、公司、办公楼等。
+ */
+export const PLACE_PREFERRED_TYPES: readonly string[] = [
+  "tourist_attraction", "place_of_worship", "buddhist_temple", "hindu_temple", "shinto_shrine", "church", "museum", "art_gallery", "park", "national_park", "amusement_park", "zoo", "aquarium",
+  "historical_landmark", "historical_place", "cultural_landmark", "monument", "castle", "observation_deck", "shopping_mall", "department_store", "lodging", "hotel", "resort_hotel",
+  "train_station", "subway_station", "transit_station", "light_rail_station", "bus_station", "ferry_terminal", "airport", "international_airport",
+];
+export const PLACE_DEMOTED_TYPES: readonly string[] = [
+  "hospital", "doctor", "dentist", "medical_clinic", "medical_lab", "pharmacy", "drugstore", "physiotherapist", "health", "veterinary_care",
+  "corporate_office", "establishment_office", "insurance_agency", "lawyer", "accounting", "real_estate_agency", "finance", "bank", "storage", "point_of_interest_office",
+];
+
+/** 规范化名称：全角半角统一（NFKC）、去掉空白、小写 */
+export function normalizePlaceName(text: string): string {
+  return text.normalize("NFKC").replace(/\s+/g, "").toLowerCase();
+}
+
+function placeRank(query: string, name: string, types: readonly string[]): number {
+  const exact = query !== "" && normalizePlaceName(name) === query ? 0 : 1;
+  const kind = types.some((type) => PLACE_PREFERRED_TYPES.includes(type)) ? 0 : types.some((type) => PLACE_DEMOTED_TYPES.includes(type)) ? 2 : 1;
+  return exact * 3 + kind;
+}
+
+/** 按上面的规则排序（稳定：同一档保持原来的先后）；`typesOf` 给出每个候选的谷歌类型（主类型、类型列表合在一起） */
+export function rankPlaces<T>(query: string, items: readonly T[], nameOf: (item: T) => string, typesOf: (item: T) => readonly string[]): T[] {
+  const normalized = normalizePlaceName(query);
+  return items
+    .map((item, index) => ({ item, index, rank: placeRank(normalized, nameOf(item), typesOf(item)) }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map((entry) => entry.item);
 }

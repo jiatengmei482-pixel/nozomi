@@ -26,6 +26,8 @@ let m: Market;
 let pay: FakePaymentProvider;
 let site: SiteApi;
 let charter: { id: string; tokyo: string; fuji: string; kamakura: string };
+/** 官网用的渠道 */
+let siteChannelId: string;
 
 const square = (west: number, south: number, east: number, north: number) => ({ type: "Polygon", coordinates: [[[west, south], [east, south], [east, north], [west, north], [west, south]]] });
 const P = {
@@ -38,6 +40,8 @@ const P = {
   tsurugaoka: { lng: 139.556, lat: 35.326 },
   daibutsu: { lng: 139.536, lat: 35.317 },
   sendai: { lng: 140.87, lat: 38.27 },
+  /** M9W-10 的箱根加价区域里（只设上 / 下车加价、没设途经加价） */
+  hakone: { lng: 139.05, lat: 35.2 },
   /** 路线替身对这个点算不出路线 */
   island: { lng: 139.6, lat: 34.0 },
 } satisfies Record<string, LatLng>;
@@ -50,8 +54,12 @@ const nextIp = (): string => `10.89.${(ipSeq += 1)}.9`;
 
 /** 路线替身：每一段 130 公里、`legMinutes` 分钟；到海上那个点算不出 */
 let legMinutes = 225;
-const routeLookup = async (input: { from: LatLng; to: LatLng }): Promise<RouteLookup> =>
-  input.to.lat === P.island.lat || input.from.lat === P.island.lat ? { ok: false, code: "NO_ROUTE" } : { ok: true, route: { meters: 130_000, minutes: legMinutes }, source: "google" };
+/** 路线替身被调了几次（M9W-06：城市不对、没有套餐时不调谷歌） */
+let routeCalls = 0;
+const routeLookup = async (input: { from: LatLng; to: LatLng }): Promise<RouteLookup> => {
+  routeCalls += 1;
+  return input.to.lat === P.island.lat || input.from.lat === P.island.lat ? { ok: false, code: "NO_ROUTE" } : { ok: true, route: { meters: 130_000, minutes: legMinutes }, source: "google" };
+};
 
 async function tenantCall(who: TenantFixture | string, method: HttpMethod, path: string, options: { body?: unknown; version?: number } = {}): Promise<ApiResponse> {
   const token = typeof who === "string" ? who : await tenantLogin(api, who.adminEmail);
@@ -84,6 +92,7 @@ before(async () => {
   await ok(tenantCall(m.b, "POST", `/products/${created.id}/publish`));
   charter = { id: created.id, tokyo, fuji, kamakura };
   const channel = await newChannel(api, m.staff.cm1.token, { name: "NOZOMI 官网" });
+  siteChannelId = channel.id;
   site = await siteApi(api, (await salesCredentials(api, m, channel.id)).clientId, pay, {}, { quote: { routes: { estimate: routeLookup } } });
 });
 after(async () => {
@@ -187,7 +196,8 @@ test("13.4 的 5 个算例（客人价 = 结算价 × 1.1）；price_breakdown �
     ["shinjuku", ["gogome", "kawaguchiko", "chureito"], "shinjuku", "71500"],
     ["shinjuku", ["tsurugaoka", "daibutsu"], "shinjuku", "67100"],
     ["shinjuku", ["daibutsu", "kawaguchiko"], "shinjuku", "78100"],
-    ["shinjuku", ["gogome"], "kawaguchikoStation", "71500"],
+    // M9P-01（新规格 P0 #1）：经停富士山、富士山下车 → 行程加价和下车加价都收（以前 71,500：途经被下车抵消）
+    ["shinjuku", ["gogome"], "kawaguchikoStation", "82500"],
     ["shinjuku", ["asakusa"], "shinjuku", "60500"],
   ];
   for (const [pickup, stops, dropoff, expected] of cases) {
@@ -204,18 +214,19 @@ test("13.4 的 5 个算例（客人价 = 结算价 × 1.1）；price_breakdown �
   ]);
   assert.equal(three.body.quotes[0].includes_area_surcharge, true);
   for (const key of ["settlement", "area_surcharge", "markup_bp", "waypoint_surcharge"]) assert.ok(!allKeys(three.body).has(key), key);
-  // 下车已在富士山：只有下车加价
+  // 下车也在富士山：M9P-01 起行程加价照收、不被下车加价抵消（以前只有下车加价）
   const station = await quote("shinjuku", ["gogome"], "kawaguchikoStation");
-  assert.deepEqual(station.body.quotes[0].price_breakdown.map((item: any) => [item.kind, item.amount.amount]), [["base", "60500"], ["dropoff", "11000"]]);
+  assert.deepEqual(station.body.quotes[0].price_breakdown.map((item: any) => [item.kind, item.amount.amount, item.stop_seqs]), [["base", "60500", null], ["waypoint", "11000", [1]], ["dropoff", "11000", null]]);
   // 报价快照锁定经停点（名称、坐标、停留分钟）
   const snapshot = await api.db.owner.query<{ snapshot: any }>("select snapshot from quotes where id = $1", [three.body.quotes[0].quote_id]);
   assert.deepEqual(snapshot.rows[0]?.snapshot.request.waypoints, [{ name: "景点 1", ...P.daibutsu, stay_minutes: 30 }, { name: "景点 2", ...P.kawaguchiko, stay_minutes: 30 }]);
 });
 
-test("13.9 用例 1–7：同区一次、两区各一次、下车同区只收下车、东京市内不加、不在任何区域转人工并指出第几个、不填途经点和现在完全一致", async () => {
+test("13.9 用例 1–7：同区一次、两区各一次、下车同区行程照收（M9P-01）、东京市内不加、不在任何区域转人工并指出第几个、不填途经点在东京下车和现在完全一致", async () => {
   assert.equal(total(await quote("shinjuku", ["gogome", "kawaguchiko", "chureito"], "shinjuku")), "71500");
   assert.equal(total(await quote("shinjuku", ["tsurugaoka", "gogome", "daibutsu", "chureito"], "shinjuku")), "78100");
-  assert.equal(total(await quote("shinjuku", ["gogome", "chureito"], "kawaguchikoStation")), "71500");
+  // M9P-01（新规格 P0 #1）：以前 71,500（只收下车），现在行程 + 下车
+  assert.equal(total(await quote("shinjuku", ["gogome", "chureito"], "kawaguchikoStation")), "82500");
   assert.equal(total(await quote("shinjuku", ["asakusa", "shinjuku"], "shinjuku")), "60500");
   const nowhere = await quote("shinjuku", ["gogome", "sendai"], "shinjuku");
   assert.deepEqual([nowhere.body.quotes, nowhere.body.unavailable], [[], [{ vehicle_group_id: null, reasons: ["WAYPOINT_NOT_PRICED"], waypoint_stop_seqs: [2] }]]);
@@ -230,7 +241,8 @@ test("13.9 用例 1–7：同区一次、两区各一次、下车同区只收下
   api.clock.advance(1_000);
   const p2p = await site.call("POST", "/site/v1/quotes", { body: { category: "point_to_point", city_id: m.ids.tokyo, pickup: P.shinjuku, dropoff: P.asakusa, waypoints: [{ name: "x", ...P.asakusa, stay_minutes: 0 }], service_local: SERVICE_LOCAL, passengers: 2, luggage: 1 }, ip: nextIp() });
   assert.deepEqual([p2p.status, p2p.body.error.details.issues.map((issue: any) => [issue.path, issue.reason])], [400, [["/waypoints", "NOT_APPLICABLE"]]]);
-  const tooMany = await quote("shinjuku", Array.from({ length: 11 }, () => "gogome" as Place), "shinjuku");
+  // 经停点上限 25 个（M9P-10，路径接口上限）
+  const tooMany = await quote("shinjuku", Array.from({ length: 26 }, () => "gogome" as Place), "shinjuku");
   assert.equal(tooMany.status, 400);
 });
 
@@ -299,6 +311,47 @@ test("下单：订单存经停点（之后谁都不能改）；供应商详情�
   assert.deepEqual(change.rows.map((entry) => [entry.before, entry.after]), [["71000", "71000"]]);
 });
 
+test("M9W-06：修改包车区域加价时请求里没有 waypoint_surcharge 这个键 → 保留原来的途经加价（批量、单条）；显式传 null 才清掉", async () => {
+  const find = async () => (await ok(tenantCall(m.b, "GET", `/products/${charter.id}/price-rules`))).items.find((item: any) => item.area_id === charter.fuji && item.package_hours === 8);
+  const original = await find();
+  const { id, base: _base, created_at: _c, updated_at: _u, waypoint_surcharge: _w, ...legacy } = original;
+  assert.equal(original.waypoint_surcharge, 10_000);
+  const batch = await tenantCall(m.b, "POST", `/products/${charter.id}/price-rules/batch`, { version: await version(m.b, charter.id), body: { update: [{ ...legacy, id, pickup_surcharge: 11_000 }] } });
+  assert.equal(batch.status, 200, batch.text);
+  assert.deepEqual([(await find()).pickup_surcharge, (await find()).waypoint_surcharge], [11_000, 10_000]);
+  const single = await tenantCall(m.b, "PUT", `/products/${charter.id}/price-rules/${id}`, { version: await version(m.b, charter.id), body: { ...legacy, pickup_surcharge: 12_000 } });
+  assertMatchesOpenApi("PUT", "/tenant/v1/products/{id}/price-rules/{ruleId}", single);
+  assert.equal(single.status, 200, single.text);
+  assert.deepEqual([(await find()).pickup_surcharge, (await find()).waypoint_surcharge], [12_000, 10_000]);
+  const cleared = await tenantCall(m.b, "POST", `/products/${charter.id}/price-rules/batch`, { version: await version(m.b, charter.id), body: { update: [{ ...legacy, id, waypoint_surcharge: null }] } });
+  assert.equal(cleared.status, 200, cleared.text);
+  assert.equal((await find()).waypoint_surcharge, null);
+  const restored = await tenantCall(m.b, "POST", `/products/${charter.id}/price-rules/batch`, { version: await version(m.b, charter.id), body: { update: [{ ...legacy, id, waypoint_surcharge: 10_000 }] } });
+  assert.equal(restored.status, 200, restored.text);
+  const back = await find();
+  assert.deepEqual([back.pickup_surcharge, back.dropoff_surcharge, back.waypoint_surcharge], [original.pickup_surcharge, original.dropoff_surcharge, 10_000]);
+});
+
+test("M9W-06：按行程计价先核城市、查套餐再估路线——城市不存在 400 UNKNOWN_CITY（和普通询价一样）；城市没有能选的包车套餐报 NO_PRODUCT；两种都不调路线估算", async () => {
+  const body = { category: "charter", pickup: P.shinjuku, dropoff: P.shinjuku, waypoints: [{ name: "河口湖", ...P.kawaguchiko, stay_minutes: 90 }], itinerary_pricing: true, service_local: SERVICE_LOCAL, passengers: 2, luggage: 1 };
+  const calls = routeCalls;
+  api.clock.advance(1_000);
+  const unknown = await site.call("POST", "/site/v1/quotes", { body: { ...body, city_id: randomUUID() }, ip: nextIp() });
+  assertMatchesOpenApi("POST", "/site/v1/quotes", unknown);
+  api.clock.advance(1_000);
+  const plain = await site.call("POST", "/site/v1/quotes", { body: { ...body, city_id: randomUUID(), itinerary_pricing: undefined, waypoints: undefined, package_hours: 10 }, ip: nextIp() });
+  assert.deepEqual([unknown.status, unknown.body.error.details.issues.map((issue: any) => [issue.path, issue.reason])], [400, [["/city_id", "UNKNOWN_CITY"]]]);
+  assert.deepEqual([plain.status, plain.body.error.details.issues.map((issue: any) => [issue.path, issue.reason])], [400, [["/city_id", "UNKNOWN_CITY"]]]);
+  api.clock.advance(1_000);
+  // M9P-02：包车先按上下车点匹配商品，带的 city_id 只在匹配到几个城市时用来挑——这里换成大阪的点（哪个包车商品都匹配不到，按带的城市照旧询价）
+  const osakaPoint = { lat: 34.7, lng: 135.5 };
+  const empty = await site.call("POST", "/site/v1/quotes", { body: { ...body, pickup: osakaPoint, dropoff: osakaPoint, waypoints: [{ name: "大阪城", lat: 34.687, lng: 135.526, stay_minutes: 90 }], city_id: m.ids.osaka }, ip: nextIp() });
+  assertMatchesOpenApi("POST", "/site/v1/quotes", empty);
+  assert.equal(empty.status, 200, empty.text);
+  assert.deepEqual([empty.body.quotes, empty.body.unavailable], [[], [{ vehicle_group_id: null, reasons: ["NO_PRODUCT"] }]]);
+  assert.equal(routeCalls, calls, "城市不对、没有套餐时不调路线估算");
+});
+
 test("13.9 用例 8（按取消重下）：下单后要去掉一个途经区域——取消原单，重新询价下单，新价少了镰仓的途经加价", async () => {
   const both = await quote("shinjuku", ["daibutsu", "kawaguchiko"], "shinjuku");
   const first = await placeAndPay(both.body.quotes[0].quote_id);
@@ -311,7 +364,7 @@ test("13.9 用例 8（按取消重下）：下单后要去掉一个途经区域�
   assert.deepEqual(second.body.order.waypoints, [{ name: "景点 1", ...P.kawaguchiko, stay_minutes: 30 }]);
 });
 
-test("按行程计价：逐段估路线、按总时长选套餐（能覆盖的最小套餐）、超公里 / 超时；明细 6 项、之和等于总价；锁进快照和订单", async () => {
+test("按行程计价：逐段估路线、各商品按预计用时自己选套餐（含超公里取最低，M9P-03）、超公里，不收超时费；明细逐项、之和等于总价；锁进快照和订单", async () => {
   legMinutes = 225;
   // 两段各 130 公里、225 分钟，停留 90 → 总时长 540 分钟（9 小时）→ 10 小时套餐（含 200 公里）；超公里 60 × 300 = 18,000；途经富士山 10,000
   api.clock.advance(1_000);
@@ -322,23 +375,33 @@ test("按行程计价：逐段估路线、按总时长选套餐（能覆盖的�
   assert.deepEqual(res.body.itinerary_route, { legs: [{ minutes: 225, meters: 130_000 }, { minutes: 225, meters: 130_000 }], drive_minutes: 450, stay_minutes: 90, total_minutes: 540, total_meters: 260_000 });
   const offer = res.body.quotes[0];
   assert.deepEqual([offer.package.hours, offer.price.total.amount], [10, String(((55_000 + 10_000 + 18_000) * 11) / 10)]);
-  assert.deepEqual(offer.price_breakdown.map((item: any) => [item.kind, item.amount.amount]), [["base", "60500"], ["waypoint", "11000"], ["over_km", "19800"], ["overtime", "0"]]);
+  // M9P-03（ADR 0091 第三节）：报价不含超时费，明细没有 overtime 项（以前固定列一项 0）
+  assert.deepEqual(offer.price_breakdown.map((item: any) => [item.kind, item.amount.amount]), [["base", "60500"], ["waypoint", "11000"], ["over_km", "19800"]]);
   assert.equal(breakdownSum(offer), Number(offer.price.total.amount));
+  // 预计用时 = 行驶 + 停留（商品没设占用、缓冲）；自动选的档就是中标的档
+  assert.deepEqual([offer.estimated_minutes, offer.includes_buffer, offer.auto_package_hours], [540, false, 10]);
   const snapshot = (await api.db.owner.query<{ snapshot: any }>("select snapshot from quotes where id = $1", [offer.quote_id])).rows[0]?.snapshot;
-  assert.deepEqual([snapshot.request.routeUsage.meters, snapshot.request.routeUsage.minutes, snapshot.request.packageHours, snapshot.winner.offer.settlement.itinerary.overKmMinor], [260_000, 540, 10, 18_000]);
+  // 一次询价（M9P-03）：快照记 charterSelection: auto、请求里没有套餐时长，中标的档在 offer 上
+  assert.deepEqual([snapshot.request.routeUsage.meters, snapshot.request.routeUsage.minutes, snapshot.request.packageHours, snapshot.request.charterSelection, snapshot.winner.offer.packageHours, snapshot.winner.offer.settlement.itinerary.overKmMinor], [260_000, 540, null, "auto", 10, 18_000]);
 
-  // 停留更久：总时长 650 分钟超过最大套餐 → 10 小时套餐 + 超时 50 分钟（5,000 / 小时）
+  // 停留更久：总时长 650 分钟超过最大套餐 → 只有 10 小时套餐，不收超时费（M9P-03：以前 + 超时 50 分钟 × 5,000 / 小时）
   api.clock.advance(1_000);
   const longer = await site.call("POST", "/site/v1/quotes", { body: { ...body, waypoints: [{ name: "河口湖", ...P.kawaguchiko, stay_minutes: 200 }] }, ip: nextIp() });
   const longOffer = longer.body.quotes[0];
-  assert.equal(longOffer.package.hours, 10);
-  assert.ok(Number(longOffer.price_breakdown.find((item: any) => item.kind === "overtime").amount.amount) > 0);
+  assert.deepEqual([longOffer.package.hours, longOffer.price.total.amount, longOffer.estimated_minutes], [10, offer.price.total.amount, 650]);
+  assert.equal(longOffer.price_breakdown.some((item: any) => item.kind === "overtime"), false);
   assert.equal(breakdownSum(longOffer), Number(longOffer.price.total.amount));
-  // 短行程：总时长 4 小时 → 8 小时套餐（含 150 公里；全程 260 公里超 110 公里）
+  // 短行程：总时长 4 小时，8、10 小时都能覆盖——含超公里取最低（规格步骤 3，差异表第 6 条）：
+  // 8 小时含 150 公里，超 110 公里 → 50,000 + 33,000 = 83,000；10 小时含 200 公里，超 60 公里 → 55,000 + 18,000 = 73,000，选 10 小时（以前按「能覆盖的最小套餐」选 8 小时）
   legMinutes = 90;
   api.clock.advance(1_000);
   const short = await site.call("POST", "/site/v1/quotes", { body: { ...body, waypoints: [{ name: "河口湖", ...P.kawaguchiko, stay_minutes: 60 }] }, ip: nextIp() });
-  assert.deepEqual([short.body.quotes[0].package.hours, short.body.quotes[0].price.total.amount], [8, String(((50_000 + 10_000 + 110 * 300) * 11) / 10)]);
+  assert.deepEqual([short.body.quotes[0].package.hours, short.body.quotes[0].price.total.amount, short.body.quotes[0].auto_package_hours], [10, String(((55_000 + 10_000 + 60 * 300) * 11) / 10), 10]);
+  // 客人手动选 8 小时（不短于预计用时）：按 8 小时报，另给自动选的档
+  api.clock.advance(1_000);
+  const manual8 = await site.call("POST", "/site/v1/quotes", { body: { ...body, waypoints: [{ name: "河口湖", ...P.kawaguchiko, stay_minutes: 60 }], package_hours: 8 }, ip: nextIp() });
+  assertMatchesOpenApi("POST", "/site/v1/quotes", manual8);
+  assert.deepEqual([manual8.body.quotes[0].package.hours, manual8.body.quotes[0].price.total.amount, manual8.body.quotes[0].auto_package_hours], [8, String(((50_000 + 10_000 + 110 * 300) * 11) / 10), 10]);
   legMinutes = 225;
 
   // 下单：订单的套餐时长是选中的，行程锁定量随结算价明细；司机页能看到全程（没有金额）
@@ -360,6 +423,8 @@ test("按行程计价：逐段估路线、按总时长选套餐（能覆盖的�
   assertMatchesOperation("GET", "/platform/v1/orders/{id}", platformView.status, platformView.body);
   const lockedItinerary = platformView.body.order.settlement.itinerary;
   assert.deepEqual([lockedItinerary.over_meters, lockedItinerary.over_km_per_km.amount, lockedItinerary.over_km_fee.amount, lockedItinerary.overtime_minutes, lockedItinerary.overtime_per_hour.amount, lockedItinerary.overtime_fee.amount], [60_000, "300", "18000", 0, "5000", "0"]);
+  // M9P-03：新订单下单时没预收超时费
+  assert.equal(lockedItinerary.overtime_at_booking, false);
   // 人工救援改派（manualSettlement）会把订单结算明细整份换成只有总价的（没有 itinerary），客人付的钱、报价快照不变：明细照旧给（审查 #192）。
   // 这里直接把结算明细换成那个样子，只模拟这一个效果；救援流程本身见 rescues.itest.ts
   await api.db.owner.query("update orders set settlement = settlement - 'itinerary' where id = $1", [placed.orderId]);
@@ -373,10 +438,14 @@ test("按行程计价：逐段估路线、按总时长选套餐（能覆盖的�
   assert.equal(repriced.body.price_breakdown, null);
   await api.db.owner.query("update order_sales set sell_minor = sell_minor - 100 where order_id = $1", [placed.orderId]);
 
-  // 参数检查：按行程计价不填套餐时长；别的品类不能按行程计价；某一段路线取不到 422
+  // 参数检查：按行程计价可以带套餐时长手动升档（M9P-03，以前 400 NOT_APPLICABLE）；比预计用时短的不报（PACKAGE_TOO_SHORT + 能选的最短档）；别的品类不能按行程计价；某一段路线取不到 422
   api.clock.advance(1_000);
   const withHours = await site.call("POST", "/site/v1/quotes", { body: { ...body, package_hours: 10 }, ip: nextIp() });
-  assert.deepEqual([withHours.status, withHours.body.error.details.issues.map((issue: any) => [issue.path, issue.reason])], [400, [["/package_hours", "NOT_APPLICABLE"]]]);
+  assert.deepEqual([withHours.status, withHours.body.quotes[0].package.hours], [200, 10]);
+  api.clock.advance(1_000);
+  const tooShort = await site.call("POST", "/site/v1/quotes", { body: { ...body, package_hours: 8 }, ip: nextIp() });
+  assertMatchesOpenApi("POST", "/site/v1/quotes", tooShort);
+  assert.deepEqual([tooShort.status, tooShort.body.quotes, tooShort.body.unavailable], [200, [], [{ vehicle_group_id: null, reasons: ["PACKAGE_TOO_SHORT"], min_package_hours: 10 }]]);
   api.clock.advance(1_000);
   const noRoute = await site.call("POST", "/site/v1/quotes", { body: { ...body, waypoints: [{ name: "河口湖", ...P.kawaguchiko, stay_minutes: 30 }, { name: "海上", ...P.island, stay_minutes: 30 }] }, ip: nextIp() });
   assertMatchesOpenApi("POST", "/site/v1/quotes", noRoute);
@@ -384,4 +453,43 @@ test("按行程计价：逐段估路线、按总时长选套餐（能覆盖的�
   api.clock.advance(1_000);
   const p2p = await site.call("POST", "/site/v1/quotes", { body: { category: "point_to_point", city_id: m.ids.tokyo, pickup: P.shinjuku, dropoff: P.asakusa, itinerary_pricing: true, service_local: SERVICE_LOCAL, passengers: 2, luggage: 1 }, ip: nextIp() });
   assert.deepEqual([p2p.status, p2p.body.error?.details?.issues?.[0]?.path], [400, "/itinerary_pricing"]);
+});
+
+test("M9W-10：经停点落在只设了上 / 下车加价的区域里（没设途经加价）、不在商品区域 → 官网对外报 WAYPOINT_NOT_PRICED 并指出第几个；询价日志、未覆盖需求里仍是 NO_PRICE_RULE；上 / 下车在那里照常报价", async () => {
+  const hakone = await newArea(m.b, "箱根", square(138.95, 35.1, 139.1, 35.24), "charter");
+  await ok(tenantCall(m.b, "POST", `/products/${charter.id}/price-rules/batch`, { version: await version(m.b, charter.id), body: { create: [surcharge(hakone, 10, 7_000, 7_000, null), surcharge(hakone, 8, 7_000, 7_000, null)] } }));
+  // 报价的目录有 30 秒缓存：建完规则之后让时间走过去
+  api.clock.advance(31_000);
+  // 上 / 下车在箱根：照常收上 / 下车加价（55,000 + 7,000）× 1.1
+  assert.equal(total(await quote("hakone", undefined, "shinjuku")), "68200");
+  assert.equal(total(await quote("shinjuku", ["kawaguchiko"], "hakone")), "79200");
+  await api.app.backgroundIdle();
+  await site.app.backgroundIdle();
+  await api.db.owner.query("delete from uncovered_demands");
+  const res = await quote("shinjuku", ["kawaguchiko", "hakone"], "shinjuku");
+  assert.equal(res.status, 200, res.text);
+  assert.deepEqual([res.body.quotes, res.body.unavailable], [[], [{ vehicle_group_id: null, reasons: ["WAYPOINT_NOT_PRICED"], waypoint_stop_seqs: [2] }]]);
+  // 平台内部：询价日志里这个商品的拒绝原因仍是原始的 NO_PRICE_RULE
+  const log = await api.db.owner.query<{ rejects: any[] }>("select rejects from quote_logs order by created_at desc, id desc limit 1");
+  assert.deepEqual(log.rows[0]?.rejects.filter((entry: any) => entry.product_id === charter.id).map((entry: any) => entry.reason), ["NO_PRICE_RULE"]);
+  // 平台端的询价日志接口也给出每条拒绝的商品和原始原因码（第 4 条）
+  const platformLogs = await api.call("GET", `/platform/v1/channels/${siteChannelId}/quote-logs`, { token: m.staff.readonly.token });
+  assertMatchesOperation("GET", "/platform/v1/channels/{id}/quote-logs", platformLogs.status, platformLogs.body);
+  const latest = platformLogs.body.items[0];
+  assert.equal(latest.reject_count, latest.rejects.length);
+  assert.deepEqual(latest.rejects.filter((entry: any) => entry.product_id === charter.id), [{ product_id: charter.id, vehicle_group_id: m.ids.biz7, reason: "NO_PRICE_RULE" }]);
+  await api.app.backgroundIdle();
+  await site.app.backgroundIdle();
+  const demands = (await api.db.owner.query<{ reason: string; refusal_counts: Record<string, number> }>("select reason, refusal_counts from uncovered_demands")).rows;
+  assert.equal(demands.length, 1);
+  assert.equal(demands[0]?.reason, "OTHER");
+  assert.ok((demands[0]?.refusal_counts["NO_PRICE_RULE"] ?? 0) >= 1, JSON.stringify(demands[0]));
+  assert.equal(demands[0]?.refusal_counts["WAYPOINT_NOT_PRICED"], undefined);
+  // 按行程计价同样：每档套餐都报不出，对外同一个原因、同一个经停点
+  legMinutes = 120;
+  const itinerary = await quote("shinjuku", ["kawaguchiko", "hakone"], "shinjuku", { itinerary_pricing: true, package_hours: undefined });
+  assert.equal(itinerary.status, 200, itinerary.text);
+  assert.deepEqual([itinerary.body.quotes, itinerary.body.unavailable], [[], [{ vehicle_group_id: null, reasons: ["WAYPOINT_NOT_PRICED"], waypoint_stop_seqs: [2] }]]);
+  // 不带经停点的询价完全不变
+  assert.equal(total(await quote("shinjuku", undefined, "shinjuku")), "60500");
 });

@@ -23,6 +23,7 @@ const osaka: City = { ...tokyo, id: OSAKA_ID, code: "CTY-JP-OSA", name: { zh: "�
 const airport = (id: string, code: string, name: string): Place => ({
   id,
   type: "airport",
+  charter_coverage: false,
   code,
   country_code: "JP",
   city_id: null,
@@ -429,6 +430,49 @@ test("编辑城市：只提交改过的字段，If-Match 带版本号；编码�
   await screen.findByRole("heading", { level: 1, name: "城市" });
   assert.equal(written(untouched).length, 0);
   assertAbsent(screen.queryByText(/已保存/));
+});
+
+test("地标编辑页：勾「放进包车覆盖检查」只提交 charter_coverage；取消勾选提交 false；只读角色看到文字不是勾选框；机场没有这一项（M9P-07）", async () => {
+  const POI_ID = "66666666-6666-4666-8666-666666666666";
+  const poi: Place = { ...hnd, id: POI_ID, type: "poi", code: "POI-000123", city_id: TOKYO_ID, city: tokyo, name: { zh: "东京塔" }, category: "attraction", source: null, status: "active", version: 2 };
+  const calls = open(`/platform/master/places/${POI_ID}`, "master_data", (call) => {
+    if (call.url.pathname !== `/platform/v1/master/places/${POI_ID}`) return null;
+    return call.method === "GET" ? json(200, poi) : json(200, { ...poi, charter_coverage: true, version: 3 });
+  });
+  const user = userEvent.setup();
+  const box = (await screen.findByRole("checkbox", { name: "放进包车覆盖检查" })) as HTMLInputElement;
+  assert.equal(box.checked, false);
+  assert.ok(screen.getByText(/同一城市的包车商品上架时会检查这个地标/));
+  await user.click(box);
+  await user.click(screen.getByRole("button", { name: "保存" }));
+  assert.ok(await screen.findByText("已保存「东京塔」"));
+  const patch = written(calls)[0];
+  assert.equal(patch?.method, "PATCH");
+  assert.deepEqual(patch?.body, { charter_coverage: true }, "只带改过的这一项");
+  assert.equal(patch?.headers["if-match"], '"2"');
+  resetBrowser();
+
+  const ticked = { ...poi, charter_coverage: true };
+  const unticking = open(`/platform/master/places/${POI_ID}`, "master_data", (call) => {
+    if (call.url.pathname !== `/platform/v1/master/places/${POI_ID}`) return null;
+    return call.method === "GET" ? json(200, ticked) : json(200, { ...ticked, charter_coverage: false, version: 3 });
+  });
+  const checked = (await screen.findByRole("checkbox", { name: "放进包车覆盖检查" })) as HTMLInputElement;
+  assert.equal(checked.checked, true);
+  await user.click(checked);
+  await user.click(screen.getByRole("button", { name: "保存" }));
+  assert.ok(await screen.findByText("已保存「东京塔」"));
+  assert.deepEqual(written(unticking)[0]?.body, { charter_coverage: false });
+  resetBrowser();
+
+  open(`/platform/master/places/${POI_ID}`, "readonly", (call) => (call.url.pathname === `/platform/v1/master/places/${POI_ID}` ? json(200, ticked) : null));
+  assert.ok(await screen.findByText("已放进检查清单"));
+  assertAbsent(screen.queryByRole("checkbox", { name: "放进包车覆盖检查" }));
+  resetBrowser();
+
+  open(`/platform/master/places/${HND_ID}`, "master_data", (call) => (call.url.pathname === `/platform/v1/master/places/${HND_ID}` ? json(200, hnd) : null));
+  await screen.findByLabelText("名称 英语");
+  assertAbsent(screen.queryByText("包车覆盖检查"));
 });
 
 test("别人先改了（VERSION_CONFLICT）：提示先载入最新内容，保存禁用，表单保持原样；载入后换成最新的值和版本号", async () => {

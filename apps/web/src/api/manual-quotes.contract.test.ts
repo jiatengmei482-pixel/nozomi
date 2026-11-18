@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 import { MANUAL_QUOTE_STATUSES } from "@nozomi/domain";
-import { MANUAL_QUOTES_PATH, MANUAL_QUOTE_DETAIL_FIELDS, MANUAL_QUOTE_QUERY_KEYS, MANUAL_QUOTE_SCHEMA_FIELDS, SITE_SETTINGS_PATH } from "./manual-quotes.ts";
+import { MANUAL_QUOTES_PATH, MANUAL_QUOTE_DETAIL_FIELDS, MANUAL_QUOTE_OPTIONAL_FIELDS, MANUAL_QUOTE_QUERY_KEYS, MANUAL_QUOTE_SCHEMA_FIELDS, SITE_SETTINGS_PATH } from "./manual-quotes.ts";
 
 interface Schema {
   type?: string | string[];
@@ -48,8 +48,9 @@ test("列表的筛选参数与接口一致", () => {
 
 test("应答的字段与 openapi.yaml 一致，且都是必有的；列表那一份没有任何联系方式和地点", () => {
   for (const [name, fields] of Object.entries(MANUAL_QUOTE_SCHEMA_FIELDS)) {
+    const optional: readonly string[] = MANUAL_QUOTE_OPTIONAL_FIELDS[name as keyof typeof MANUAL_QUOTE_SCHEMA_FIELDS] ?? [];
     assert.deepEqual(props(schemas[name]), sorted(fields), name);
-    assert.deepEqual(sorted(schemas[name]?.required ?? []), sorted(fields), `${name} 的必填字段`);
+    assert.deepEqual(sorted(schemas[name]?.required ?? []), sorted(fields.filter((field) => !optional.includes(field))), `${name} 的必填字段`);
   }
   const detail = spec.paths[`${MANUAL_QUOTES_PATH}/{id}`]?.["get"]?.responses?.["200"]?.content?.["application/json"]?.schema;
   assert.deepEqual(props(detail), sorted(MANUAL_QUOTE_DETAIL_FIELDS));
@@ -58,10 +59,10 @@ test("应答的字段与 openapi.yaml 一致，且都是必有的；列表那一
   assert.deepEqual(props(counts), sorted(MANUAL_QUOTE_STATUSES));
 });
 
-test("状态的枚举与 @nozomi/domain 一致；改状态、指派的请求体只有这两项；官网设置是号码和页面宽度两项（M8-28），页面宽度三档", () => {
+test("状态的枚举与 @nozomi/domain 一致；改状态、指派的请求体只有这两项；官网设置是号码、页面宽度（M8-28）、浏览器地图密钥（M10-01）三项，页面宽度三档", () => {
   assert.deepEqual(schemas["ManualQuoteStatus"]?.enum, [...MANUAL_QUOTE_STATUSES]);
   assert.deepEqual(props(spec.paths[`${MANUAL_QUOTES_PATH}/{id}`]?.["patch"]?.requestBody?.content["application/json"]?.schema), ["assignee_id", "status"]);
   assert.deepEqual(props(spec.paths[`${MANUAL_QUOTES_PATH}/{id}/notes`]?.["post"]?.requestBody?.content["application/json"]?.schema), ["note"]);
-  assert.deepEqual(props(spec.paths[SITE_SETTINGS_PATH]?.["put"]?.requestBody?.content["application/json"]?.schema), ["page_width", "support_whatsapp"]);
+  assert.deepEqual(props(spec.paths[SITE_SETTINGS_PATH]?.["put"]?.requestBody?.content["application/json"]?.schema), ["maps_browser_key", "page_width", "support_whatsapp"]);
   assert.deepEqual(schemas["SitePageWidth"]?.enum, ["standard", "wide", "full"]);
 });

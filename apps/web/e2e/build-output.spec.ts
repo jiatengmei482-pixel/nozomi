@@ -29,12 +29,26 @@ const WHATSAPP_CHAT_URL = /^https:\/\/wa\.me\/\$\{[A-Za-z_$][\w$]*\}\?text=\$\{e
 /** 库自带的网址：XML 命名空间、React 的报错说明页、react-router 的说明页、解析相对路径用的占位站点、地图库 Leaflet 的官网（它的署名控件用，我们没用那个控件，ADR 0017）。都不会被请求。 */
 const KNOWN_URLS = [/^http:\/\/www\.w3\.org\//, /^https:\/\/react\.dev\/errors\//, /^https:\/\/reactrouter\.com\//, /^https:\/\/github\.com\/ungap\/url-search-params\.$/, /^http:\/\/localhost$/, /^https:\/\/www\.geonames\.org\/$/, /^https:\/\/creativecommons\.org\/licenses\/by\/4\.0\/$/, /^https:\/\/ourairports\.com\/data\/$/, /^https:\/\/leafletjs\.com$/, /^https:\/\/js\.stripe\.com\/v3\/$/, WHATSAPP_CHAT_URL];
 
-test("产物只有 index.html 和带哈希的 JS / CSS，没有 source map", () => {
+test("产物只有 index.html、带哈希的 JS / CSS、组件脚本和标记图标（10–12 号、上下车合并的 1·N），没有 source map", () => {
   const names = files.map(relative).sort();
   expect(names.filter((name) => name.endsWith(".map"))).toEqual([]);
   expect(names).toContain("index.html");
-  for (const name of names) expect(name, "出现了预期之外的产物").toMatch(/^(index\.html|assets\/index-[\w-]{8,}\.(js|css))$/);
+  // 嵌入组件脚本（M9E-03，ADR 0090）：固定文件名，合作网站页面直接引用；包车行程地图 10–12 号标记的图标（M9P-20，ADR 0096）：谷歌出图时来取
+  for (const name of names) expect(name, "出现了预期之外的产物").toMatch(/^(index\.html|assets\/[\w-]+-[\w-]{8,}\.(js|css)|embed\/widget-v1\.js|map-markers\/(1[0-2]|1-([3-9]|1[0-2]))\.png|maps\/picker\.(html|js|css))$/);
+  // 官网选点的谷歌地图小页面（M10-01 第 2 处）：public/maps/ 原样复制，固定三个文件
+  expect(names.filter((name) => name.startsWith("maps/")).sort()).toEqual(["maps/picker.css", "maps/picker.html", "maps/picker.js"]);
+  expect(names.filter((name) => name.startsWith("map-markers/")).sort()).toEqual(["10", "11", "12", ...Array.from({ length: 10 }, (_, i) => `1-${i + 3}`)].map((n) => `map-markers/${n}.png`).sort());
   for (const { name, text } of textFiles) expect(text.includes("sourceMappingURL"), `${name} 指向了 source map`).toBe(false);
+});
+
+test("嵌入组件脚本只含 ASCII：中日英文案都转成 \\uXXXX，合作网站是 Shift_JIS 等非 UTF-8 页面时也不会乱码（M9E-07）", () => {
+  const bytes = readFileSync(join(DIST, "embed/widget-v1.js"));
+  const offending = bytes.findIndex((byte) => byte > 0x7f);
+  expect(offending, `第 ${offending} 个字节不是 ASCII`).toBe(-1);
+  const text = bytes.toString("latin1");
+  // 文案还在，只是换了写法：「预订组件暂时无法使用」的转义原样出现，运行时由 JS 还原成中文。
+  const escaped = [..."预订组件暂时无法使用"].map((char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`).join("");
+  expect(text.toLowerCase()).toContain(escaped);
 });
 
 test("产物里没有环境变量、密钥、数据库地址、本机路径、测试代码", () => {
@@ -51,11 +65,16 @@ test("产物里没有环境变量、密钥、数据库地址、本机路径、�
 test("产物不引用任何站外资源：index.html 只引用本站的 /assets/，JS 和 CSS 里没有站外网址（Stripe.js 的地址是唯一的站外脚本，只在官网要付款时加载，ADR 0046）", () => {
   const html = readFileSync(join(DIST, "index.html"), "utf8");
   const references = [...html.matchAll(/\b(?:src|href)="([^"]+)"/g)].map((match) => match[1] ?? "");
-  expect(references.length).toBe(2);
-  for (const reference of references) expect(reference).toMatch(/^\/assets\/index-[\w-]+\.(js|css)$/);
+  // 入口的 JS、CSS，加上 Vite 给首包依赖的小分包写的 modulepreload（M9E-25 按需加载以后才有）；都在本站 /assets/ 下
+  expect(references.filter((reference) => /^\/assets\/index-[\w-]+\.(js|css)$/.test(reference)).length).toBe(2);
+  for (const reference of references) expect(reference).toMatch(/^\/assets\/[\w-]+-[\w-]{8,}\.(js|css)$/);
   expect(html).toContain('<meta name="referrer" content="no-referrer" />');
 
-  for (const { name, text } of textFiles) {
+  // 谷歌地图小页面（M10-01 第 2 处）本来就要加载谷歌地图，单独核对：站外网址只有谷歌地图脚本这一个
+  const picker = textFiles.find((file) => file.name === "maps/picker.js");
+  expect(picker, "缺少 maps/picker.js").toBeTruthy();
+  expect([...(picker?.text ?? "").matchAll(/\bhttps?:\/\/[^\s"'`)<>\\$]+/g)].map((match) => match[0])).toEqual(["https://maps.googleapis.com/maps/api/js?key="]);
+  for (const { name, text } of textFiles.filter((file) => !file.name.startsWith("maps/"))) {
     const urls = [...text.matchAll(/\bhttps?:\/\/[^\s"'`)<>\\]+/g)].map((match) => match[0]);
     const unexpected = urls.filter((url) => !KNOWN_URLS.some((known) => known.test(url)));
     expect(unexpected, `${name} 里有站外网址`).toEqual([]);
@@ -77,6 +96,16 @@ test("设计令牌已并入产物的 CSS（亮色、暗色、手动覆盖三段�
   page.on("response", (response) => loaded.push(new URL(response.url()).pathname));
   await page.goto("/login");
   await expect(page.getByRole("button", { name: "登录" })).toBeVisible();
-  const expected = files.map(relative).filter((name) => name.startsWith("assets/")).map((name) => `/${name}`).sort();
+  // 首页只加载 index.html 引用的那几个文件；地图（Leaflet）的分包按需加载，这里不加载（M9E-25）
+  const html = readFileSync(join(DIST, "index.html"), "utf8");
+  const expected = [...html.matchAll(/\b(?:src|href)="(\/assets\/[^"]+)"/g)].map((match) => match[1] ?? "").sort();
   expect(loaded.filter((path) => path.startsWith("/assets/")).sort()).toEqual(expected);
+});
+
+test("首包里没有 Leaflet（M9E-25）：Leaflet 只在按需加载的地图分包里，index.html 引用的文件都不含它", () => {
+  const html = readFileSync(join(DIST, "index.html"), "utf8");
+  const initial = [...html.matchAll(/\b(?:src|href)="\/(assets\/[^"]+\.js)"/g)].map((match) => match[1] ?? "");
+  expect(initial.length).toBeGreaterThan(0);
+  for (const name of initial) expect(readFileSync(join(DIST, name), "utf8").includes("_leaflet_id"), `${name} 里有 Leaflet`).toBe(false);
+  expect(textFiles.some(({ name, text }) => name.endsWith(".js") && text.includes("_leaflet_id")), "Leaflet 还在产物里（地图分包）").toBe(true);
 });

@@ -54,6 +54,9 @@ async function latest(): Promise<any> {
   return (await ok(platform("customer_service", "GET", "/manual-quote-requests?limit=1"))).items[0];
 }
 
+/** 带行程单的申请（M9T-08 用例里建的），到期清除用例核对地名一起清掉 */
+let linked: { id: string; tripId: string } | null = null;
+
 const countRows = async (): Promise<number> => (await api.db.owner.query<{ n: number }>("select count(*)::int as n from manual_quote_requests")).rows[0]?.n ?? 0;
 
 before(async () => {
@@ -162,9 +165,38 @@ test("包车带经停点（M9W-04）：可以不带时长（按行程计价）�
   assert.deepEqual([bad.status, bad.body.error.details.issues.map((issue: { path: string; reason: string }) => [issue.path, issue.reason])], [400, [["/trip/waypoints", "NOT_APPLICABLE"]]]);
   const noHours = await submit({ email: nextEmail(), trip: trip({ category: "charter", dropoff: null }) });
   assert.deepEqual([noHours.status, noHours.body.error.details.issues.map((issue: { path: string; reason: string }) => [issue.path, issue.reason])], [400, [["/trip/package_hours", "REQUIRED"]]]);
-  const tooMany = await submit({ email: nextEmail(), trip: trip({ category: "charter", waypoints: Array.from({ length: 11 }, () => stops[0]) }) });
-  assert.equal(tooMany.status, 400);
+  // 经停点上限和官网询价一样（M9P-10：25 个，只受路径接口上限）
+  const tooMany = await submit({ email: nextEmail(), trip: trip({ category: "charter", waypoints: Array.from({ length: 26 }, () => stops[0]) }) });
+  assert.deepEqual([tooMany.status, tooMany.body.error.details.issues.map((issue: { path: string; reason: string }) => issue.path)], [400, ["/trip/waypoints"]]);
+  const full = await submit({ email: nextEmail(), trip: trip({ category: "charter", waypoints: Array.from({ length: 25 }, () => stops[0]) }) });
+  assert.equal(full.status, 202, full.text);
   await assert.rejects(api.db.owner.query("update manual_quote_requests set package_hours = 4 where category <> 'charter'"), /manual_quote_requests_package_check/);
+});
+
+test("经停点的指定到达时间（M9P-20 P3）：只在指定了时记下来、详情原样解出来；和官网询价同一个校验（不晚于用车开始、超过 24 小时 400）", async () => {
+  const stops = [
+    { name: "横滨", lat: 35.4437, lng: 139.638, stay_minutes: 60, arrive_by: { day_offset: 0, time: "11:00" } },
+    { name: "箱根", lat: 35.2324, lng: 139.1069, stay_minutes: 90 },
+  ];
+  const res = await submit({ email: nextEmail(), trip: trip({ category: "charter", dropoff: null, waypoints: stops }) });
+  assert.equal(res.status, 202, res.text);
+  const detail = await platform("customer_service", "GET", `/manual-quote-requests/${(await latest()).id}`);
+  assertMatchesOpenApi("GET", "/platform/v1/manual-quote-requests/{id}", detail);
+  assert.deepEqual(detail.body.waypoints, stops);
+  assert.equal("arrive_by" in detail.body.waypoints[1], false, "没指定的经停没有这一项");
+  // 晚上出发、次日凌晨到：可以
+  const overnight = await submit({ email: nextEmail(), trip: trip({ category: "charter", dropoff: null, service_local: "2026-12-01T20:00", waypoints: [{ ...stops[1], arrive_by: { day_offset: 1, time: "01:00" } }] }) });
+  assert.equal(overnight.status, 202, overnight.text);
+  for (const [arriveBy, reason] of [
+    [{ day_offset: 0, time: "09:30" }, "NOT_AFTER_START"],
+    [{ day_offset: 0, time: "08:00" }, "NOT_AFTER_START"],
+    [{ day_offset: 1, time: "09:31" }, "TOO_LATE"],
+  ] as const) {
+    const bad = await submit({ email: nextEmail(), trip: trip({ category: "charter", dropoff: null, waypoints: [{ ...stops[1], arrive_by: arriveBy }] }) });
+    assert.deepEqual([bad.status, bad.body.error.details.issues.map((issue: { path: string; reason: string }) => [issue.path, issue.reason])], [400, [["/trip/waypoints/0/arrive_by", reason]]], JSON.stringify(arriveBy));
+  }
+  const format = await submit({ email: nextEmail(), trip: trip({ category: "charter", dropoff: null, waypoints: [{ ...stops[1], arrive_by: { day_offset: 2, time: "10:00" } }] }) });
+  assert.equal(format.status, 400);
 });
 
 test("防刷：陷阱字段有内容时照样 202、什么都不记；同一个联系方式同一个行程 24 小时内只记一次，过了 24 小时再记", async () => {
@@ -281,6 +313,93 @@ test("详情：解密联系方式、地点和备注；每次打开写一条审�
   assert.equal((await platform("customer_service", "GET", "/manual-quote-requests/00000000-0000-4000-8000-000000000000")).status, 404);
 });
 
+test("带行程单（M9T-08）：关联写进新表，地名只在密文里；行程单不存在 / 编号不对 404；地名和行程单对不上、缺地名、没行程单却带方案或地名都 400，不记", async () => {
+  const at = (lat: number, lng: number) => ({ lat, lng });
+  const itinerary = {
+    schemaVersion: 1,
+    party: { adults: 2, children: 0, luggage: 1 },
+    days: [
+      { date: "2026-12-01", items: [{ kind: "start", place: at(35.6905, 139.7005), time: "09:00" }, { kind: "stop", place: at(35.7148, 139.7967), stayMinutes: 60 }, { kind: "end", place: at(35.6717, 139.765) }] },
+      { date: "2026-12-02", items: [{ kind: "start", place: at(35.6717, 139.765), time: "10:00" }, { kind: "end", place: at(35.6905, 139.7005) }] },
+    ],
+  };
+  api.clock.advance(1_000);
+  const created = await site.call("POST", "/site/v1/trips", { ip: nextIp(), body: itinerary });
+  assert.equal(created.status, 201, created.text);
+  const tripId = created.body.trip_id as string;
+  const labels = [["新宿行程酒店甲", "浅草寺行程乙", "银座行程丙"], ["银座行程丙", "新宿行程酒店甲"]];
+  const before = await countRows();
+
+  const rejected: [Record<string, unknown>, number, string, string | null][] = [
+    [{ trip_id: "x".repeat(43), trip_labels: labels }, 404, "TRIP_NOT_FOUND", null],
+    [{ trip_id: "short", trip_labels: labels }, 404, "TRIP_NOT_FOUND", null],
+    [{ trip_id: tripId }, 400, "VALIDATION_FAILED", "/trip_labels"],
+    [{ trip_id: tripId, trip_labels: [labels[0]] }, 400, "VALIDATION_FAILED", "/trip_labels"],
+    [{ trip_id: tripId, trip_labels: [labels[0], ["银座行程丙"]] }, 400, "VALIDATION_FAILED", "/trip_labels/1"],
+    [{ plan_kind: "one_car" }, 400, "VALIDATION_FAILED", "/plan_kind"],
+    [{ trip_labels: labels }, 400, "VALIDATION_FAILED", "/trip_labels"],
+    [{ trip_id: tripId, trip_labels: labels, plan_kind: "two_cars" }, 400, "VALIDATION_FAILED", null],
+  ];
+  for (const [body, status, code, path] of rejected) {
+    const res = await submit({ email: nextEmail(), ...body });
+    assert.equal(res.status, status, `${JSON.stringify(body)}: ${res.text}`);
+    assertMatchesOpenApi("POST", "/site/v1/manual-quote-requests", res);
+    assert.equal(res.body.error.code, code);
+    if (path !== null) assert.ok(res.body.error.details.issues.some((issue: { path: string }) => issue.path === path), res.text);
+  }
+  assert.equal(await countRows(), before, "被拒的都不记");
+
+  const email = nextEmail();
+  const accepted = await submit({ email, trip_id: tripId, plan_kind: "daily_best", trip_labels: labels });
+  assert.equal(accepted.status, 202, accepted.text);
+  assertMatchesOpenApi("POST", "/site/v1/manual-quote-requests", accepted);
+  const id = (await latest()).id as string;
+  const link = (await api.db.owner.query("select trip_id, plan_kind from manual_quote_trip_links where request_id = $1", [id])).rows;
+  assert.deepEqual(link, [{ trip_id: tripId, plan_kind: "daily_best" }]);
+  const stored = (await api.db.owner.query<{ row: string }>("select row_to_json(r)::text as row from manual_quote_requests r where id = $1", [id])).rows[0]?.row ?? "";
+  for (const name of labels.flat()) assert.ok(!stored.includes(name), `库里找不到地名原文：${name}`);
+
+  // 同一个行程单、同一个方案 24 小时内只记一次；换了方案（全部报不出转人工没有方案）另记一条
+  assert.equal((await submit({ email, trip_id: tripId, plan_kind: "daily_best", trip_labels: labels })).status, 202);
+  assert.equal(await countRows(), before + 1);
+  assert.equal((await submit({ email, trip_id: tripId, trip_labels: labels })).status, 202);
+  assert.equal(await countRows(), before + 2);
+  const manual = (await latest()).id as string;
+  assert.deepEqual((await api.db.owner.query("select trip_id, plan_kind from manual_quote_trip_links where request_id = $1", [manual])).rows, [{ trip_id: tripId, plan_kind: null }]);
+  // 不带行程单的申请没有关联行，详情 trip 为 null
+  await submit({ email: nextEmail() });
+  const plain = (await latest()).id as string;
+  assert.equal((await api.db.owner.query("select count(*)::int as n from manual_quote_trip_links where request_id = $1", [plain])).rows[0]?.n, 0);
+  assert.equal((await ok(platform("customer_service", "GET", `/manual-quote-requests/${plain}`))).trip, null);
+
+  // 运营后台详情显示整张行程单：本市场没有包车商品，报价两个方案都报不出（原因照列）
+  api.clock.advance(1_000);
+  assert.equal((await site.call("POST", `/site/v1/trips/${tripId}/quote`, { ip: nextIp() })).status, 200);
+  const detail = await platform("customer_service", "GET", `/manual-quote-requests/${id}`);
+  assert.equal(detail.status, 200, detail.text);
+  assertMatchesOpenApi("GET", "/platform/v1/manual-quote-requests/{id}", detail);
+  const shown = detail.body.trip;
+  assert.equal(shown.trip_id, tripId);
+  assert.equal(shown.plan_kind, "daily_best");
+  assert.equal(shown.purged, false);
+  assert.deepEqual(shown.labels, labels);
+  assert.deepEqual(
+    shown.days.map((day: { date: string; items: { kind: string; name: string; time: string | null; stay_minutes: number | null }[] }) => [day.date, day.items.map((item) => [item.kind, item.name, item.time, item.stay_minutes])]),
+    [
+      ["2026-12-01", [["start", "新宿行程酒店甲", "09:00", null], ["stop", "浅草寺行程乙", null, 60], ["end", "银座行程丙", null, null]]],
+      ["2026-12-02", [["start", "银座行程丙", "10:00", null], ["end", "新宿行程酒店甲", null, null]]],
+    ],
+  );
+  assert.deepEqual(shown.days[0].items[0].place, { lat: 35.6905, lng: 139.7005 });
+  assert.ok(shown.plans.length > 0 && shown.plans.every((plan: { status: string; amount: unknown; unquoted: unknown[] }) => plan.status === "unquoted" && plan.amount === null && plan.unquoted.length > 0), JSON.stringify(shown.plans));
+
+  // 行程单被清理（M9T-05 删行）后：显示「已清理」，地名照样在
+  await api.db.owner.query("delete from trips where id = $1", [tripId]);
+  const purged = await ok(platform("customer_service", "GET", `/manual-quote-requests/${id}`));
+  assert.deepEqual(purged.trip, { trip_id: tripId, plan_kind: "daily_best", purged: true, labels, days: null, plans: null });
+  linked = { id, tripId };
+});
+
 test("跟进：指派、改状态（If-Match）、备注；每一项一条跟进记录和一条审计；备注加密、审计里没有原文", async () => {
   await submit({ email: nextEmail() });
   const summary = await latest();
@@ -357,7 +476,7 @@ test("官网设置：客服 WhatsApp 号码只有超级管理员能改；运营�
   const empty = await platform("customer_service", "GET", "/site-settings");
   assert.equal(empty.status, 200);
   assertMatchesOpenApi("GET", "/platform/v1/site-settings", empty);
-  assert.deepEqual(empty.body, { support_whatsapp: null, page_width: "standard", version: 0, updated_at: null, updated_by: null });
+  assert.deepEqual(empty.body, { support_whatsapp: null, page_width: "standard", maps_browser_key: null, version: 0, updated_at: null, updated_by: null });
   assert.equal((await site.call("GET", "/site/v1/config", { ip: nextIp() })).body.support_whatsapp, null, "没设置时不给号码，页面不显示按钮");
 
   for (const { key: role } of PLATFORM_ROLES) {
@@ -386,8 +505,8 @@ test("官网设置：客服 WhatsApp 号码只有超级管理员能改；运营�
 
   const audits = (await api.db.owner.query("select actor_type, action, before, after from audit_logs where resource = 'site_settings' order by id")).rows;
   assert.deepEqual(audits, [
-    { actor_type: "platform_user", action: "update", before: { support_whatsapp: null, page_width: "standard" }, after: { support_whatsapp: "81312345678", page_width: "standard" } },
-    { actor_type: "platform_user", action: "update", before: { support_whatsapp: "81312345678", page_width: "standard" }, after: { support_whatsapp: null, page_width: "standard" } },
+    { actor_type: "platform_user", action: "update", before: { support_whatsapp: null, page_width: "standard", maps_browser_key: null }, after: { support_whatsapp: "81312345678", page_width: "standard", maps_browser_key: null } },
+    { actor_type: "platform_user", action: "update", before: { support_whatsapp: "81312345678", page_width: "standard", maps_browser_key: null }, after: { support_whatsapp: null, page_width: "standard", maps_browser_key: null } },
   ]);
 });
 
@@ -406,11 +525,11 @@ test("官网设置的页面宽度（M8-28）：三档、不给是不改、别的
     assert.ok(res.body.error.details.issues.some((issue: { path: string }) => issue.path === "/page_width"), res.text);
   }
   for (const { key: role } of PLATFORM_ROLES) {
-    if (role !== "super_admin") assert.equal((await platform(role, "PUT", "/site-settings", { support_whatsapp: null, page_width: "wide" }, ifMatch(current.version))).status, 403, role);
+    if (role !== "super_admin") assert.equal((await platform(role, "PUT", "/site-settings", { support_whatsapp: null, page_width: "wide", maps_browser_key: null }, ifMatch(current.version))).status, 403, role);
   }
   assert.equal((await ok(platform("super_admin", "GET", "/site-settings"))).version, current.version, "被拒的请求什么都没改");
 
-  const wide = await platform("super_admin", "PUT", "/site-settings", { support_whatsapp: "+81 3-1234-5678", page_width: "wide" }, ifMatch(current.version));
+  const wide = await platform("super_admin", "PUT", "/site-settings", { support_whatsapp: "+81 3-1234-5678", page_width: "wide", maps_browser_key: null }, ifMatch(current.version));
   assert.equal(wide.status, 200, wide.text);
   assertMatchesOpenApi("PUT", "/platform/v1/site-settings", wide);
   assert.equal(wide.body.page_width, "wide");
@@ -420,20 +539,53 @@ test("官网设置的页面宽度（M8-28）：三档、不给是不改、别的
   assert.equal(numberOnly.page_width, "wide", "只改号码的请求不动页面宽度");
   assert.equal(numberOnly.support_whatsapp, null);
 
-  const full = await ok(platform("super_admin", "PUT", "/site-settings", { support_whatsapp: null, page_width: "full" }, ifMatch(numberOnly.version)));
+  const full = await ok(platform("super_admin", "PUT", "/site-settings", { support_whatsapp: null, page_width: "full", maps_browser_key: null }, ifMatch(numberOnly.version)));
   assert.equal(full.page_width, "full");
   assert.equal((await site.call("GET", "/site/v1/config", { ip: nextIp() })).body.page_width, "full");
-  const same = await ok(platform("super_admin", "PUT", "/site-settings", { support_whatsapp: null, page_width: "full" }, ifMatch(full.version)));
+  const same = await ok(platform("super_admin", "PUT", "/site-settings", { support_whatsapp: null, page_width: "full", maps_browser_key: null }, ifMatch(full.version)));
   assert.equal(same.version, full.version, "没变化不加版本、不记审计");
 
   const audits = (await api.db.owner.query("select before, after from audit_logs where resource = 'site_settings' order by id")).rows.slice(-3);
   assert.deepEqual(audits, [
-    { before: { support_whatsapp: null, page_width: "standard" }, after: { support_whatsapp: "81312345678", page_width: "wide" } },
-    { before: { support_whatsapp: "81312345678", page_width: "wide" }, after: { support_whatsapp: null, page_width: "wide" } },
-    { before: { support_whatsapp: null, page_width: "wide" }, after: { support_whatsapp: null, page_width: "full" } },
+    { before: { support_whatsapp: null, page_width: "standard", maps_browser_key: null }, after: { support_whatsapp: "81312345678", page_width: "wide", maps_browser_key: null } },
+    { before: { support_whatsapp: "81312345678", page_width: "wide", maps_browser_key: null }, after: { support_whatsapp: null, page_width: "wide", maps_browser_key: null } },
+    { before: { support_whatsapp: null, page_width: "wide", maps_browser_key: null }, after: { support_whatsapp: null, page_width: "full", maps_browser_key: null } },
   ]);
 
-  await ok(platform("super_admin", "PUT", "/site-settings", { support_whatsapp: null, page_width: "standard" }, ifMatch(full.version)));
+  await ok(platform("super_admin", "PUT", "/site-settings", { support_whatsapp: null, page_width: "standard", maps_browser_key: null }, ifMatch(full.version)));
+});
+
+test("官网设置的谷歌地图浏览器密钥（M10-01 第 2 处）：不给是不改、null 或空是清空、格式不对 400；公开配置里给出；审计前后值", async () => {
+  const current = await ok(platform("super_admin", "GET", "/site-settings"));
+  assert.equal(current.maps_browser_key, null);
+  assert.equal((await site.call("GET", "/site/v1/config", { ip: nextIp() })).body.maps_browser_key, null);
+  const ifMatch = (version: number) => ({ "if-match": `"${version}"` });
+  const key = `AIza${"Sy0123456789abcdefghijklmnopqrstu".padEnd(35, "x")}`;
+  assert.equal(key.length, 39);
+
+  for (const bad of ["abc", `BIza${key.slice(4)}`, `${key}x`, "AIza 0123456789abcdefghijklmnopqrstuvw"]) {
+    const res = await platform("super_admin", "PUT", "/site-settings", { support_whatsapp: null, maps_browser_key: bad }, ifMatch(current.version));
+    assert.equal(res.status, 400, bad);
+    assert.ok(res.body.error.details.issues.some((issue: { path: string }) => issue.path === "/maps_browser_key"), res.text);
+  }
+  assert.equal((await platform("operations", "PUT", "/site-settings", { support_whatsapp: null, maps_browser_key: key }, ifMatch(current.version))).status, 403);
+
+  const saved = await platform("super_admin", "PUT", "/site-settings", { support_whatsapp: null, maps_browser_key: `  ${key} ` }, ifMatch(current.version));
+  assert.equal(saved.status, 200, saved.text);
+  assertMatchesOpenApi("PUT", "/platform/v1/site-settings", saved);
+  assert.equal(saved.body.maps_browser_key, key, "去掉首尾空白");
+  const config = await site.call("GET", "/site/v1/config", { ip: nextIp() });
+  assertMatchesOpenApi("GET", "/site/v1/config", config);
+  assert.equal(config.body.maps_browser_key, key);
+
+  const untouched = await ok(platform("super_admin", "PUT", "/site-settings", { support_whatsapp: "+81 3-1234-5678" }, ifMatch(saved.body.version)));
+  assert.equal(untouched.maps_browser_key, key, "不给是不改");
+  const cleared = await ok(platform("super_admin", "PUT", "/site-settings", { support_whatsapp: null, maps_browser_key: "" }, ifMatch(untouched.version)));
+  assert.equal(cleared.maps_browser_key, null);
+  assert.equal((await site.call("GET", "/site/v1/config", { ip: nextIp() })).body.maps_browser_key, null);
+
+  const audits = (await api.db.owner.query("select before, after from audit_logs where resource = 'site_settings' order by id")).rows.slice(-3);
+  assert.deepEqual(audits.map((row: { before: { maps_browser_key: string | null }; after: { maps_browser_key: string | null } }) => [row.before.maps_browser_key, row.after.maps_browser_key]), [[null, key], [key, key], [key, null]]);
 });
 
 test("到期清除：关闭 180 天后、或提交 365 天后清空联系方式、地点和备注；行和跟进记录留下；之后不能再跟进；每批一条审计", async () => {
@@ -481,6 +633,12 @@ test("到期清除：关闭 180 天后、或提交 365 天后清空联系方式�
   api.clock.advance(186 * 86_400_000);
   await api.app.manualQuoteRetention.tick();
   assert.notEqual((await api.db.owner.query("select purged_at from manual_quote_requests where id = $1", [open.id])).rows[0].purged_at, null, "提交满 365 天，没关闭也清除");
+  // 带行程单的申请（M9T-08）：地名和联系方式一起清掉，关联行留着
+  while ((await api.app.manualQuoteRetention.tick()).purged > 0);
+  assert.ok(linked !== null);
+  await relogin();
+  const linkedDetail = await ok(platform("customer_service", "GET", `/manual-quote-requests/${linked.id}`));
+  assert.deepEqual(linkedDetail.trip, { trip_id: linked.tripId, plan_kind: "daily_best", purged: true, labels: null, days: null, plans: null });
 
   const audits = (await api.db.owner.query("select actor_type, resource_id, after from audit_logs where resource = 'manual_quote_request' and action = 'anonymize_passenger' order by id")).rows;
   assert.ok(audits.length >= 2);

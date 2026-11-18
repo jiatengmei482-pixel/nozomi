@@ -1,0 +1,254 @@
+# ADR 0090：嵌入预订组件——预订草稿 + 短编号、`/embed/v1` 域名白名单
+
+- 状态：已采纳（2026-11-13，待独立审查）。
+- 依据：业主 2026-11-13 新需求第 ③ 部分「嵌入组件」（原话见 `docs/requirements/03-route-charter-order-embed.md`，在 PR #186 分支上）；业主口径：区间 / 包车两个标签，Shadow DOM 隔离样式，提交跳主站预订页，嵌入码绑定域名白名单，后台生成嵌入代码。
+- **取代 ADR 0087 草稿（PR #186，未合并）中的**：第三节「预订草稿」、第五节「`/embed/v1`」「组件脚本和路由同步」、第六节「安全」、第七节和第八节里嵌入组件的部分。0087 其余部分的去向：
+  - **已由 ADR 0088 / 0089 实现**（所以不采用 0087 的做法）：包车填途经点和停留、按全程时长和公里算最终价、价格明细和行程时间表——走 `POST /site/v1/quotes`（`itinerary_pricing` + `waypoints`），不另开 `charter-route` 接口、不建 `route_itineraries`。
+  - **这次不做**：① 模型线路（需求 03 第 1.7 节、R21–R23；ADR 0088「范围」也列在不做里）——嵌入组件不依赖它，先把组件上线；另立任务 M9E-04。② 统一订单格式里的「订单行程方式」（需求 03 F1–F3：`transfer` / `charter_package` / `charter_route`，订单上的地点列表）——订单已经有上下车点、经停点（ADR 0088 的 `orders.waypoints`）和锁定的报价编号，缺的只是一个统一的「行程方式」字段和把它给三个入口共用的结构；本篇只做其中的「渠道来源」（第三节第 3 小节）。另立任务 M9E-05。两项都要先请业主确认还要不要按 03 原样做（第八节）。
+- 报价引擎、比价、下单流程一行不改；组件不询价、不下单、不显示价格。
+
+## 一、总体
+
+```
+合作网站页面
+  <div id="nozomi-booking"></div>
+  <script src="https://<主站>/embed/widget-v1.js"></script>
+  <script>NozomiBooking.init({ key: "nze_…", root: "#nozomi-booking" })</script>
+        │ ① GET  /embed/v1/config?key=…            （跨域，只对白名单 Origin 回 CORS 头）
+        │ ② GET  /embed/v1/places/autocomplete|details（跨域，地址输入即提示）
+        │ ③ POST /embed/v1/booking-drafts?key=…    （跨域，建预订草稿，返回 43 位短编号）
+        ▼
+  整页跳转 https://<主站>/book/new?draft=<短编号>
+        │ ④ GET /site/v1/booking-drafts/{id}       （同源，读草稿预填）
+        ▼
+  主站原有的询价 → 选车 → 乘客信息 → 付款（不跨域、不变）
+```
+
+## 二、预订草稿
+
+### 1. 为什么用草稿、不把条件放进链接
+
+10 个经停点加名称放进链接会接近测试服务器前面共用 nginx 的请求行上限（不能 SSH、不改它）；而且只有服务端能记下「从哪个网站来」。所以组件先把预订条件 POST 到服务端暂存，跳转链接只带一个短编号。
+
+### 2. 预订条件 v1（domain 的 `BookingDraft` 类型和 `bookingDraftIssues` 校验）
+
+```json
+{
+  "v": 1,
+  "tab": "charter",
+  "service_local": "2026-12-01T09:00",
+  "pickup":  { "name": "銀座", "lat": 35.6717, "lng": 139.765 },
+  "dropoff": { "name": "新宿駅", "lat": 35.6896, "lng": 139.7006 },
+  "waypoints": [ { "name": "富士山五合目園地", "lat": 35.3955, "lng": 138.7334, "stay_minutes": 120 } ],
+  "package_hours": null,
+  "passengers": 2,
+  "luggage": 2,
+  "lang": "ja"
+}
+```
+
+| 键 | 规则（和 `/site/v1/quotes`、`/book/new` 页面同一口径） |
+| --- | --- |
+| `v` | 固定 1 |
+| `tab` | `transfer`（区间：接送机 / 点对点，由 `/book/new` 按地点自动判断，同 ADR 0081）或 `charter` |
+| `service_local` | 城市当地 `YYYY-MM-DDTHH:mm`；只校验格式和日历合法，不校验是否已过去（过去的由 `/book/new` 现有校验提示） |
+| `pickup`、`dropoff` | 必填；名称 1–200 字（同 `/site/v1/quotes` 经停点名称上限）；纬度 −90～90、经度 −180～180 |
+| `waypoints` | 只有 `charter` 可以有；0–10 个（`QUOTE_RULES.maxWaypoints`）；每个带 `stay_minutes`：30 的倍数、30–480（同页面的停留选项） |
+| `package_hours` | 只有 `charter` 且没有经停点时可以给（1–`PRICE_LIMITS.maxPackageHours` 的整数），客人仍可在 `/book/new` 改；有经停点时必须为 `null`（按行程计价自动选套餐，ADR 0089）；`transfer` 必须为 `null` |
+| `passengers`、`luggage` | 整数，乘客 1–60、行李 0–60（同 `/site/v1/quotes`） |
+| `lang` | `zh` / `ja` / `en`；`/book/new` 目前只有中文，先只记下 |
+
+- **不含价格、报价编号、任何客人个人信息**：只有上面这些键，多一个键就拒（`additionalProperties: false`；测试：多一个 `passenger` 键 400）。姓名、电话、邮箱在 `/book/new` 填。
+- **已知限制**：地点名称是自由文本，客人可能把电话填进去；不做内容识别，靠 2 小时过期删除兜底；组件和 `/book/new` 的地址框都提示「只填地点，不要填姓名、电话」。
+- 序列化后 ≤ 16 KB（库里 check 约束 `octet_length(content::text) <= 16384`；10 个经停点 × 200 字名称远小于这个数）。
+
+### 3. 表 `booking_drafts`（平台表，不带 `tenant_id`：不属于任何供应商）
+
+| 列 | 说明 |
+| --- | --- |
+| `id` text 主键 | 32 字节密码学随机数的 base64url，43 字符（256 位熵）：不可猜、不可枚举、不含时间 |
+| `content` jsonb | 预订条件 v1 |
+| `embed_key_id` uuid null、`embed_origin` text null、`return_url` text null | 建草稿时服务端记下的来源（第四节）；M9E-01 时只建列，全为空 |
+| `created_at`、`expires_at` | 有效期 **2 小时**（`BOOKING_DRAFT_TTL_MINUTES = 120`） |
+
+- 写入后不改：数据库角色只给 `select, insert, delete`，不给 `update`。
+- 有效期内可以反复打开（刷新、退回再进都行）；过期和不存在一样是 404。
+- 2 小时：客人比价、选车、填信息、付款（报价、待支付各 30 分钟）并允许刷新，足够；更长只是让坐标多留在库里。
+- **清理任务** `BookingDraftRetentionJobs`（同 `ManualQuoteRetentionJobs` 的做法）：启动 20 秒后第一次，之后每小时一轮；每轮最多 10 批、每批 500 行，`delete … where expires_at < now()`。
+
+### 4. 读取 `GET /site/v1/booking-drafts/{id}`（同源）
+
+- 200 `{ draft, expires_at }`；**不返回**嵌入码编号、来源、`return_url`。
+- 过期、不存在、编号格式不对：都是 404 `BOOKING_DRAFT_NOT_FOUND`，不区分。
+- 每个来源地址每分钟 60 次（现有站点限速表），超了 429。
+- 不带任何 CORS 头（`/site/v1` 永远不跨域）。
+
+### 5. `/book/new?draft=<id>`
+
+- 读到草稿：预填用车类型、上 / 下车点、经停点和停留、日期时间、人数行李、包车时长；条件齐全时自动询价（直接到第 2 步，同现有链接参数的做法）。
+- 404：页面顶部提示「链接已过期，请重新填写」，留空白表单；网络错误：提示「没能读取预订信息，请重新填写」。
+- 带 `draft` 时忽略其他旧链接参数；不带时旧参数（`from`、`to`、`date`、`time`、`pax`、`bags`、`mode`）照旧。
+- 主站自己的入口不建草稿，**不开** `POST /site/v1/booking-drafts`：少一个对外可写的接口。
+
+## 三、嵌入码与域名白名单
+
+### 1. 表 `embed_keys`（平台表）
+
+| 列 | 说明 |
+| --- | --- |
+| `id` uuid | 内部编号 |
+| `key` text 唯一 | 公开嵌入码 `nze_` + 24 字节随机数的 base64url；**不是密钥**，写在合作网站页面里 |
+| `name` | ≤ 60 字 |
+| `allowed_origins` text[] | 1–20 个 origin，规范化后存（第五节第 1 小节） |
+| `default_lang` | `zh` / `ja` / `en` |
+| `default_services` text[] | `transfer`、`charter` 的非空子集，顺序即标签顺序 |
+| `layout` | 外观 `auto`（默认）/ `card` / `bar`（M9E-10 加列，M9E-14 加 `auto` 并改为默认，见第四节） |
+| `status` | `active` / `disabled` |
+| `note` | ≤ 500 字 |
+| `version` int | `If-Match` 乐观锁 |
+| `created_at`、`updated_at` | |
+
+- 不预置任何嵌入码（规则 1）。
+- 嵌入码、报价来源、订单来源三张表在同一个迁移里建（M9E-02）。
+- 权限：`embed.read`（超级管理员、运营、渠道经理、只读）、`embed.manage`（超级管理员、运营、渠道经理）；不按城市 / 渠道范围限定（嵌入码是全平台的）。
+- 平台接口：`GET/POST /platform/v1/embed-keys`、`GET/PATCH /platform/v1/embed-keys/{id}`（`If-Match`，409 版本冲突）；新建、改白名单、停用 / 启用都写审计。
+- 运营后台「渠道 → 嵌入组件」：列表、新建、编辑、停用；详情页显示嵌入代码（第六节）和「复制代码」，并写明合作网站的内容安全策略要在 `script-src`、`connect-src` 放行主站域名。
+- 生效：服务端每次请求都查库（嵌入码按 `key` 有唯一索引，不另设缓存），改白名单、停用、外观立即生效；组件的配置应答 `Cache-Control: private, max-age=60`（只有访客自己的浏览器能存，前面的 nginx / Caddy 不存），所以浏览器侧 60 秒内生效。已经打开着的页面不重新取配置，访客下次打开或刷新页面时才按新设置。
+  组件脚本 `widget-v1.js` 是 `public, max-age=300`：它只影响**组件新版本**多久到访客那里（部署后最多 5 分钟），不影响后台设置的生效时间。
+
+### 2. `/embed/v1`（跨域只开在这里）
+
+| 接口 | 规则 |
+| --- | --- |
+| `GET /embed/v1/config?key=` | 200 `{ lang, services, layout, site_origin }`（`layout` 自 M9E-14） |
+| `GET /embed/v1/places/autocomplete`、`/places/details` | 同 `/site/v1/places/*` 的实现、每日上限、每地址限速；另加每个嵌入码每分钟 600 次 |
+| `POST /embed/v1/booking-drafts?key=` | 请求体 `{ draft, return_url? }`；超过 16 KB 在解析前 413；`draft` 按 `bookingDraftIssues` 严格校验，不合格 400 `VALIDATION_FAILED`；`return_url` 不合格时忽略（不报错、不存）；成功 201 `{ id, expires_at, url }`（`url` = 主站 `/book/new?draft=<id>`）。限速：每个来源地址 10 分钟 30 次（IPv6 按 /64）、每个嵌入码每分钟 60 次，超了 429 `RATE_LIMITED`；每个嵌入码同时有效的草稿最多 5,000 个（`BOOKING_DRAFT_LIMITS.activePerKey`），满了 429 `EMBED_DRAFT_LIMIT` |
+| 以上接口的 `OPTIONS` 预检 | 同样按 `key` + `Origin` 核对；通过回 `Access-Control-Allow-Methods: GET, POST`、`Access-Control-Allow-Headers: content-type`、`Access-Control-Max-Age: 600` |
+
+共同规则：
+
+- **核对在解析请求体之前**：嵌入码和 `Origin` 的核对放在路由的 `onRequest` 钩子里，比解析请求体（含 16 KB 上限的 413）、限速都早。
+- `Origin` 规范化后与这个嵌入码的白名单某项**完全相等**才处理；`Origin: null`、没有 `Origin`、不在白名单、嵌入码不存在或停用 → 403 `EMBED_ORIGIN_NOT_ALLOWED`，**不带** `Access-Control-Allow-Origin`（只带 `Vary: Origin`，免得缓存把一个来源的应答给了另一个来源）。
+- 来源一旦核对通过，这次请求的**所有应答**（200、201、400、413、429 含 `EMBED_DRAFT_LIMIT`、500）都带 `Access-Control-Allow-Origin: <请求的 Origin>` 和 `Vary: Origin`，组件才读得到状态码和错误码；**不开** `Access-Control-Allow-Credentials`；组件请求一律 `credentials: "omit"`。
+- **被拒的原因只写日志**（M9E-22）：上面几种被拒的应答保持完全一样（同一个 403、同一个错误码、没有透露原因的响应头），服务端另写一行日志 `embed.gate_refused`，`reason` 为 `key_unknown`（嵌入码不存在或格式不对）、`key_disabled`（已停用）、`origin_not_allowed`（`Origin` 为 null、缺失或不在白名单），已有的嵌入码记编号、不记不存在的嵌入码原文。NOZOMI 运维按它排查「组件显示暂时无法使用」。注意组件的 no-cors 探测（下一条）是不带 `Origin` 的 GET，所以每次被拒一般有两行：第一行是真实原因，第二行是探测——嵌入码有效时探测那行总是 `origin_not_allowed`、`origin: null`，排查时看第一行；合作网站只能从控制台那句提示里按顺序自查（第四节）。不在应答里区分：一是本节定的统一应答，二是浏览器里 403 不带 CORS 头本来就读不出，区分了组件也看不到，要让组件读到就得给被拒的应答开 CORS 头，那是另一个决定。
+- 被拒的 403 在浏览器里读不出来（`fetch` 只得到网络错误）。**M9E-22 修订**：组件读不出时再对同一地址发一个 `mode: "no-cors"`、`credentials: "omit"` 的请求——只要主站有应答（哪怕是 403）它就成功、内容读不到，所以它成功算「被拒」，也失败才算「连不上」；建草稿读不出时同样探 **GET 配置**（不对 POST 建草稿发 no-cors：通过校验会真的建出草稿）。代价：① 前面的代理在主站停机时回的、不带 CORS 头的 502 / 504 也算被拒（那时提交也建不了草稿）；② 白名单里的正常网站，第一个请求偶然断网、紧接着的探测又通了（探测不带 `Origin`，主站回 403），也会被当成被拒——打开时显示「暂时无法使用」而不是表单，提交时说「这个网站暂时不能直接预订」而不是「暂时连不上」；两种都给主站链接，客人刷新页面即恢复，概率低，接受。M9E-03 原文（已被替代）：组件分不出「未授权」和「连不上」。
+- `/site/v1`、`/platform/v1`、`/tenant/v1`、`/sales/v1`、`/driver/v1` 永远不带 CORS 头（集成测试带白名单 `Origin` 扫一遍）。报价、下单不跨域。
+
+### 3. 来源只做统计
+
+- `POST /site/v1/quotes`、`/quotes/by-points` 加可选 `draft_id`。`draft_id` 格式不对、不存在、已过期、草稿没有来源时**一律忽略**：不报错、不影响报价，只是不记来源（集成测试覆盖）。草稿有效时，服务端把草稿上的来源（`embed_key_id`、`embed_origin`、`return_url`）按报价编号记进平台表 `quote_embed_sources`（不进报价快照、不影响价格和比价）。
+- **客人在主站改了行程（换地点、改时长、加经停点或附加服务、手动升档）后，来源仍算这个嵌入码**（M9E-12 补）：来源记的是客人从哪个网站来（第二节第 1 小节），不比对草稿内容和询价条件。`/book/new` 读到草稿后这一页的每次询价都带 `draft_id`；草稿 404 时不带；读草稿遇到限速、网络错误时照样带链接里的编号（已核过 43 位格式），由服务端按上面的规则核对。来源在建草稿时由服务端按核对过的嵌入码写进草稿，下单时随报价带到订单，不按 Referer 推断。
+- 下单时取报价的来源，再核一次「嵌入码仍启用、`embed_origin` 仍在当前白名单」：通过记一行订单来源（嵌入码、网站、`return_url`——`return_url` 也再按当前白名单核一次才存）；否则不记，按主站（`book`）算，**不拒单、不报错**。
+- **存在哪里**：报价的来源、订单的来源各放一张平台表（`quote_embed_sources`、`order_embed_sources`），**不加在 `quotes` / `orders` 上**：租户角色（`nozomi_app`）对 `orders` 是整表 `select`（行级安全只按行过滤、不按列），来源加成列供应商在库里就读得到；`quotes` 虽然只给平台角色，报价、订单的来源也一起放单独的平台表，口径一致、写入后不能改。一个迁移（M9E-02），只建表、不回填：旧订单没有这一行，按主站显示。写入后不能改：平台角色对这两张表只有 `select` / `insert`（没有 `update` / `delete`），作用等同 `orders` 的「不可改列」触发器。
+- 订单来源只给官网订单应答（只给 `return_url`，用来显示「返回原网站」）和运营后台（来源「嵌入组件 · <网站>」）；`/tenant/v1` 和供应商 Webhook 不给（集成测试扫键）。
+- 来源**只用于统计**，不作为分佣、结算或任何金额的依据：非浏览器程序可以伪造 `Origin`。以后要分佣，先重新设计来源证明（例如合作方服务端签名），另写 ADR。
+
+## 四、组件脚本 `widget-v1.js`
+
+- 前端构建产物：`apps/web` 单独的构建入口，产出 `dist/embed/widget-v1.js`，由 Caddy 当静态文件给；**不放在** `/embed/v1/` 下（那个前缀整个归 API）。
+- `apps/web/src/lib/api-prefixes.ts` 加 `/embed/v1`（Vite 代理、`edge-config.ts` 的转发规则都从这张表来）；`edge-config.ts` 给 `/embed/widget-v1.js` 单开响应头：`text/javascript`、`Cache-Control: public, max-age=300`、`Cross-Origin-Resource-Policy: cross-origin`、`nosniff`；不存在时 404，不落到 `index.html`。
+- **主站地址**取自加载组件的那个 `<script>`：必须真是 `<script>` 元素（宿主页可以用 `<img name="currentScript">` 冒充 `document.currentScript`），而且路径是 `/embed/widget-v1.js`；拿不到时控制台报错、不渲染，**不退回宿主页自己的地址**。配置、地址提示、建草稿、跳转、「到主站预订」链接都用这个地址。
+- `NozomiBooking.init({ key, root, lang?, services?, redirectUrl? })`：`root` 是选择器或元素，找不到时控制台报错、不渲染；`lang`、`services` 不合法时用后台默认；`redirectUrl` 原样交给建草稿接口，由服务端校验。
+- M9E-10 补两个可选参数（只影响外观，不改接口、提交和跳转）：`NozomiBooking.init({ …, layout?, theme? })`。
+  - `layout`：`"auto"`、`"card"`（竖向卡片）或 `"bar"`（横向搜索条）。**M9E-14 修订**（业主 2026-11-14：「像 Good Journey 的组件一样，不用选外观，按屏幕自动适配」）：
+    - **取哪个**：init 传了（而且认识）以 init 为准；没传或不认识，用嵌入码在运营后台设的外观（`embed_keys.layout`，`/embed/v1/config` 返回）；两边都没有，用 `auto`。后台默认就是「自动」。
+    - **`auto`**：按组件容器（宿主给的 root，不是视口）的宽度，用 `ResizeObserver` 量：容器 **≥ 900 px 用横条，< 900 px 用卡片**；宽度变了随时换。门槛可用 init 的 `autoBreakpoint`（768–4000 的数，默认 900；写错、超出范围用 900）改。
+    - **`bar`**：容器不窄于 768 px 时用横条，窄了自动换成卡片（M9E-10 的规则不变）。**`card`**：一直是卡片。量不到宽度（0）都按卡片。
+    - **不闪、不丢**：取到配置之前组件不画表单（最多等 8 秒，见第四节「失败时的说法」，M9E-22），第一次画出来就是最终外观（不会先卡片再变横条）；两种外观是同一套 DOM，换外观只改 `data-layout`、不重画，已填的地点、打了一半的字、人数、日期、焦点都不动。
+    - 生成的嵌入代码**不再写 `layout`**（外观从配置里取，运营在后台改了合作网站不用改代码）；合作网站自己在 init 里写了的，以它为准。
+    - 已有数据（迁移 0430）：`card` 改成 `auto`——0420 加列时已有的嵌入码都按默认值填了 `card`、后台新建也默认选卡片，分不出是不是特意选的，按业主的意思（不用选、自动）当成没选；`bar` 只能是特意选的，不变。
+    - M9E-10 原文（已被上面替代）：`layout` 默认 `card`，后台外观只写进生成的代码、`/embed/v1/config` 不返回。
+  - `theme`：`{ primary?, accent?, radius?, fontFamily? }`，组件把它们变成 Shadow DOM 里的 CSS 变量。颜色只认 `#rgb` / `#rrggbb`，写错的项用默认（深蓝 `#1B2A5C`、浅米色点缀、圆角 24 px、系统字体）；主色、点缀色上的字在白色和深色（`#1A1F29`）里取对比度高的，高的那个也不到 4.5:1 时退到纯黑或纯白里高的那个（两者中总有一个 ≥ 4.58:1，例如 `#777777` 用纯黑 4.69:1）；白底上主色当文字（选中标签的字、链接、焦点环）不够 4.5:1 时改用深色；主色当白底上的标记条（卡片选中标签的底条、横条选中标签的顶条）不够 3:1 时也改用深色（例如 `#FFCC00`）。跟随宿主网站的颜色（读宿主页 CSS 变量）以后再做。
+  - 日期、时间按组件自己的语言（`lang`）显示，不按访客浏览器的语言；原生输入框只负责输入（键盘、读屏、手机的选择器照常）。用键盘编辑时原生输入框显示出来（看得到在改哪一段），失焦后回到格式化的文字；清空某一段时显示「请选择日期 / 时间」。横条的每格浅灰底加一条细边框，边框对白色长条、对格子底色都够 3:1（WCAG 1.4.11）；横条选中的标签除了 accent 底色，还有一条 3px 的主色顶条（不只靠颜色区分）。
+- 两个标签：「区间」（出发地、目的地、日期、时间、人数、行李）、「包车」（上车点、经停点 + 停留、下车点、日期、时间、人数、行李；不填经停点时**不选包车时长**，跳到 `/book/new` 后在那里选——城市能订哪几档只有主站知道，组件里写死会选到报不出价的档；见第八节）。地址经 `/embed/v1/places/*` 输入即提示，地址框提示「只填地点」（M9E-10 起只在表单底部写一行，各地址框用 `aria-describedby` 关联）。
+- 样式在 Shadow DOM 里（`adoptedStyleSheets`，不支持时退回 `<style>`），和合作网站互不影响：`:host` 和最外层容器都 `all: initial`，宿主页写在容器上的会继承的样式（字重、字距、大小写、斜体等，哪怕加 `!important`）也穿不进来；不加载任何第三方资源（字体、图标都内联或用系统字体）；gzip 后 ≤ 60 KB（构建时检查，超了构建失败）。
+- 点「查看价格」（M9E-10 前叫「查询价格」）：先建草稿，成功后整页跳转到上面那个主站的 `/book/new?draft=<编号>`（不用应答里的 `url`）；失败时在组件里提示、不跳转。草稿在点按钮时才建，所以页面开着多久都不影响来源。
+- **打开时取配置**（M9E-22 修订，业主 / 监工 2026-11-14：配置挂着不回时组件不能一直空白）：
+  - **被拒**（读得到的 4xx，或读不出但 no-cors 请求成功，见第三节第 2 小节）：显示「预订组件暂时无法使用。请稍后刷新，或直接到主站预订。」和主站链接；不显示表单。控制台另输出一句开发者看的提示：主站拒绝了取配置的请求、浏览器读不到具体原因，请依次检查嵌入码是否已停用、是否填错、本网站是否在白名单、组件脚本是否直接从主站加载；NOZOMI 运维可在日志 `embed.gate_refused` 查到是哪一种。
+  - **8 秒没回（常量 `CONFIG_TIMEOUT`）、连不上（no-cors 请求也失败）、5xx 或应答读不出 JSON**：照样显示表单——外观按 init 的 `layout`，没传按 `auto`；语言按 init 的 `lang`，没传用日文；标签按 init 的 `services`，没传两个都显示。客人提交时服务端照常核对嵌入码和白名单，不放宽。控制台提示一句「取组件配置超时或出错，先按 init 的参数显示表单」。
+  - **晚回来的配置**（8 秒后请求不取消，表单已显示后才回来），都不重画、已填的不丢：正常就只换外观（init 没传 `layout` 时换成后台设的，同上「换外观只改 `data-layout`」），语言和标签不变（换了要重画，打了一半的字会丢）；被拒就和打开时被拒一样，整个换成「暂时无法使用」和主站链接、控制台同一句提示，不留能填能提交的表单（需求：配置被拒时不显示表单；客人已填的内容只留在组件内存里，不显示）；出错不管。
+  - M9E-03 原文（已被上面替代）：打开时取配置失败（读不出状态：未授权或连不上）：显示「暂时无法使用」和主站链接；不显示表单。
+- **建草稿失败时的说法**：
+  - 建草稿 400：「有几项填得不对，请检查后再试」，把服务端指出的那一项标成有问题（`aria-invalid`）并把焦点移过去；429 `RATE_LIMITED`：「操作太频繁，请稍等一分钟再试」；429 `EMBED_DRAFT_LIMIT`：「暂时无法查询，请稍后再试或直接到主站预订」；被拒（M9E-22：读得到的 401 / 403 / 404，或读不出但对 GET 配置的 no-cors 探测成功——正式环境里被拒的 403 不带 CORS 头，走的是后者）：「这个网站暂时不能直接预订，请到主站预订。」加主站链接；413、5xx、真连不上（探测也失败）：「暂时连不上，请稍后再试或直接到主站预订」加主站链接（M9E-22 起）。不跳转。
+- 地址输入即提示来自谷歌、页面上又没有谷歌地图：按谷歌地图平台的署名要求，候选列表下方显示文字署名「Google Maps」（不翻译、不改写）。主站 `/book/new` 现在还没有，由 M9E-06 补上，做法和这里一样。
+- 容器 320 px 不横向滚动；键盘能走完；axe 无严重问题。
+
+## 五、安全
+
+### 1. 白名单的边界
+
+- 浏览器跨域请求自动带 `Origin`，网页脚本改不了；主站只对白名单 origin 回 CORS 头，所以未授权网站上的组件读不到配置、建不了草稿。
+- origin 规范化：WHATWG URL 解析；协议只收 `https:`（`APP_ENV` 是 `local` / `ci` / `staging` 时另收 `http://localhost:<端口>`、`http://127.0.0.1:<端口>`）；主机名小写、punycode；去掉默认端口；不能有路径（`/` 除外）、查询、片段、用户名密码；不支持通配符。比较时**完全相等**，不按后缀、主机名、包含。
+- 白名单防的是「别人把组件放到未授权网站上」，不是访问控制；非浏览器程序伪造 `Origin` 能拿到的只是公开配置、地址提示、一个 2 小时的草稿（受限速和数量上限）——和直接用主站一样。下单安全仍是 `/book/new` 和 `/site/v1` 现有的校验。
+- 嵌入码是公开标识；草稿编号不可猜、不可枚举，过期和不存在不区分，读取有限速。
+- **已知限制：每码 5,000 个有效草稿可能被人占满。** 伪造 `Origin` 的人换很多来源地址（IPv6 一个 /64 就够多），2 小时内建满 5,000 个，正常客人在这段时间里会被 429 `EMBED_DRAFT_LIMIT` 挡住（组件提示「暂时无法查询，请稍后再试或直接到主站预订」）。应对：同一个嵌入码的有效草稿到 80%（4,000 个）时写一条告警日志（`embed.draft_limit_near`，运维告警按它报）；运营在后台给这个合作网站新建嵌入码、停用旧码（合作网站换一行代码），旧码的草稿 2 小时内自然过期。上限本身不调大：它限制的是一个码最多占的库空间（约 80 MB）。
+- **已知限制：地址提示的每码额度可以被少数来源占满。** 地址提示每个来源地址每分钟 60 次、每个嵌入码每分钟 600 次，所以 10 个来源地址（或 10 个 IPv6 /64）就能在这一分钟里占满一个嵌入码的额度，正常客人这一分钟内地址提示 429（组件照常可以手填后到主站选点）。额度一分钟就恢复，不调大（它保护的是谷歌费用）；被持续刷时同样按上一条换码，运维告警按 429 次数报。
+
+### 2. `redirectUrl` / `return_url` 校验（domain 的 `embedReturnUrl`；建草稿、下单两处都调用）
+
+1. ≤ 2,000 字符；WHATWG URL 解析，失败就拒。
+2. 协议规则同 origin（只收 https，测试环境另收 localhost）；`javascript:`、`data:`、`blob:`、`file:` 一律拒。
+3. 不能带用户名、密码。
+4. 它的 origin 必须**完全等于**白名单某项，**并且等于建草稿请求的 `Origin`**。
+5. 下单时对**当前**白名单再核一次，通过才存进订单；订单页「返回原网站」链接 `rel="noopener noreferrer"`。
+
+测试用例至少：`javascript:alert(1)`、`data:text/html,…`、`https://user:pass@embed-demo.moveglobal.io/`、`https://embed-demo.moveglobal.io.evil.example/`、`https://evil.example/?u=https://embed-demo.moveglobal.io`、`https://embed-demo.moveglobal.io:8443/`（白名单没写端口时拒）、`http://embed-demo.moveglobal.io/`、2,000 字符过 / 2,001 字符拒、白名单里有但不等于请求 `Origin` 的另一个域名、建草稿后从白名单移除再下单。
+
+### 3. 为什么不用 iframe
+
+- 组件是脚本 + Shadow DOM，在合作网站页面里渲染，主站的 `frame-ancestors 'none'`、`X-Frame-Options: DENY`（ADR 0046）不变。
+- 组件受合作网站的内容安全策略约束：对方要在 `script-src`、`connect-src` 放行主站域名；生成代码的页面写明。
+- 演示站和测试环境同属 `moveglobal.io`（同站不同源）：组件只请求 `/embed/v1` 且 `credentials: "omit"`，主站 Cookie（验收会话 `nozomi_qa`，`Path=/site/v1`）不会带上。
+
+## 六、合作网站放的代码（后台详情页生成）
+
+```html
+<div id="nozomi-booking"></div>
+<script src="https://<主站域名>/embed/widget-v1.js" defer></script>
+<script>
+  window.addEventListener("DOMContentLoaded", function () {
+    NozomiBooking.init({ key: "nze_<嵌入码>", root: "#nozomi-booking", lang: "ja", services: ["transfer", "charter"] });
+  });
+</script>
+```
+
+## 七、测试计划
+
+| 层 | 内容 |
+| --- | --- |
+| domain 单元 | `booking-draft.test.ts`：区间 / 包车的键、10 个经停点 × 200 字 ≤ 16 KB、多余键和个人信息键被拒、停留 45 分被拒、有经停点时 `package_hours` 必须为空、日期时间格式；`embed-origin.test.ts`、`embed-return-url.test.ts`：第五节全部用例 |
+| 集成（真实 PostgreSQL） | 草稿：读到 / 过期和不存在同 404 / 格式不对 404 / 无 CORS / 限速 / 清理任务只删过期的 / 数据库角色不能 `update`；嵌入码：权限矩阵、`If-Match` 409、审计、白名单校验；`/embed/v1`：白名单 / `null` / 缺 Origin / 停用 / 预检、16 KB 413、每地址 / 每嵌入码限速、5,000 上限、`return_url` 不合格被忽略；来源：草稿 → 报价 → 下单记 `embed`，下单前移出白名单记 `book`；`/tenant/v1`、Webhook 扫键无来源字段；`/site/v1` 等永不带 CORS |
+| 前端组件 | `/book/new?draft=` 预填区间 / 包车 / 经停点、过期提示；运营后台嵌入码列表、表单、代码；组件的两个标签、未授权、建草稿失败提示 |
+| 端到端 | 两个本机 origin（白名单内、外）的宿主页：白名单的建草稿 → 跳 `/book/new?draft=` → 自动询价，价格等于在主站手填同样条件；非白名单（需求 03 E2，按本篇改写）显示「预订组件暂时无法使用…」、不显示表单；建草稿 429 / 400 / 网络错误（E12，改写）各显示第四节的说法、不跳转；宿主页全红样式不影响组件；320 px、axe |
+
+所有测试数据在测试里构造、结束清理；不预置任何嵌入码、草稿。
+
+## 八、待业主确认（答复前一律按「推荐」做，不停工）
+
+需求 03 末尾的 Q 表业主还没答复。下面是本篇按推荐定下、业主改主意时要改的地方：
+
+| # | 问题 | 本篇的做法（推荐） | 业主改主意时改哪里、代价 |
+| --- | --- | --- | --- |
+| Q7 | `redirectUrl` 是什么 | 付款后订单页「返回原网站」的链接，必须在白名单网站下（第五节第 2 小节） | 若要当「预订页地址」：有钓鱼风险，不建议；若不要这个功能：组件不传、订单页不显示，删一个字段，半天 |
+| Q8 | 语言 | 组件可选中文 / 日文 / 英文；跳到的 `/book/new` 目前只有中文，客人体验会断开 | `/book/new` 多语言随 M8-08 的 B3；在那之前若要求一致，组件只开中文，改默认值，半小时 |
+| Q9 | 演示站接哪个环境 | 测试环境（用 Stripe 测试卡验收） | 接正式环境：在正式站建嵌入码、白名单，演示站换一行代码，半小时；但只能真钱下单 |
+| Q10 | 演示站现有的 Good Journey 占位组件 | 去掉（业主在 MoveGlobal 工厂后台、站点 ID 73 操作） | 保留：两个组件并存，不影响我们的代码 |
+| Q11 | 嵌入组件的单要不要单独渠道 / 加价 | 和官网同渠道、同价，只记来源（只做统计） | 每个合作网站一个渠道：嵌入码绑渠道、询价用那个渠道的客户端，约 2 天，另写 ADR；分佣先重新设计来源证明 |
+| Q14 | 跳 `/book` 还是 `/book/new` | 跳 `/book/new`：新预订页是现在的正式预订入口，经停点和按行程计价只在新页面上 | 若要 `/book`：`/book` 带 `draft` 时转到 `/book/new`，一行路由，半小时 |
+| Q16 | 草稿有效期 | 2 小时 | 改常量 `BOOKING_DRAFT_RULES.ttlMinutes`，几分钟；更长只是坐标多留在库里 |
+| — | 地点名称上限 | 200 字（同 `/site/v1/quotes` 现有上限）；需求 03 写的是 240 | 要 240：询价接口、草稿、库约束三处一起放宽，半天；03 的 F7「240 字」作废，按 200 验 |
+| — | 途经点个数 | 10 个（随 ADR 0088 `QUOTE_RULES.maxWaypoints`）；需求 03 写的是 8 | 要 8：改一个常量，几分钟；03 的 F7「10 个地点」按 10 个途经点 + 上下车验 |
+| — | 包车不填经停点时在哪里选时长 | 嵌入组件不选，跳到 `/book/new` 再选（城市能订哪几档只有主站知道） | 要在组件里选：组件按 `GET /site/v1/cities/{id}/charter-packages` 的同样数据给一个时长下拉（要先按上车点认出城市），约 1 天 |
+| — | 模型线路、订单行程方式（F1–F3） | 这次不做，另立 M9E-04、M9E-05（见文首） | 要做就按 03 原样排期，各约 2–3 天 |
+
+## 九、分 PR（每个 PR：独立审查 → 合并 → 部署 → 测试站验收）
+
+| 任务 | 内容 | 依赖 |
+| --- | --- | --- |
+| M9E-01 | `BookingDraft` 类型和校验、`booking_drafts` 表、`GET /site/v1/booking-drafts/{id}`、清理任务、`/book/new?draft=` 预填（草稿由测试直接写库） | 本篇 |
+| M9E-02 | 嵌入码与白名单、运营后台页面和生成代码、`/embed/v1` 配置 / 地址提示 / 建草稿和 CORS、`return_url` 校验、来源只做统计（一个迁移：嵌入码、报价来源、订单来源三张表）、`api-prefixes` / `edge-config` / smoke | M9E-01 |
+| M9E-03 | `widget-v1.js`：init、两个标签、Shadow DOM、先建草稿再跳转、失败提示、谷歌标识、大小预算、端到端 | M9E-02 |
+| M9E-04 | 模型线路（需求 03 第 1.7 节）——待业主确认后排期 | M9E-01 |
+| M9E-05 | 统一订单格式的「行程方式」（需求 03 F1–F3）——待业主确认后排期 | — |
+
+测试站验收（M9E-03 之后）：演示站 `embed-demo.moveglobal.io` 加入白名单，业主在 MoveGlobal 工厂后台（站点 ID 73）放代码；区间、包车各用 Stripe 测试卡完整下一单；非白名单域名被拒。

@@ -97,7 +97,7 @@ export function readAmount(text: string, currency: string | null): AmountResult 
 // ───────────── 上架检查 ─────────────
 
 /** 前端有页面的步骤：上架检查里的项 → 步骤。价格规则、库存上线时在这里接上。 */
-export const CHECK_STEP: Readonly<Partial<Record<PublishCheckKey, ProductStepSlug>>> = { basic_info: "basic", service_rules: "service-rules", price_rules: "prices", adjust_rules: "prices", inventory: "inventory", content: "content", area_coverage: "basic" };
+export const CHECK_STEP: Readonly<Partial<Record<PublishCheckKey, ProductStepSlug>>> = { basic_info: "basic", service_rules: "service-rules", price_rules: "prices", adjust_rules: "prices", inventory: "inventory", content: "content", area_coverage: "basic", charter_min_package: "service-rules" };
 
 export function checkItemName(key: string): string {
   return (PUBLISH_CHECK_NAMES as Record<string, string>)[key] ?? "其他检查";
@@ -137,6 +137,8 @@ export interface CheckContext {
   station: boolean;
   /** 商品选的区域编号 → 名称（上架检查「运营区域」一项按编号指出是哪个区域，M8-20） */
   areaNames?: ReadonlyMap<string, string>;
+  /** 地标编号 → 名称（上架检查「热门地标覆盖」一项按编号指出是哪个地标，M9P-07）；取不到时只写个数 */
+  placeNames?: ReadonlyMap<string, string>;
 }
 
 /**
@@ -144,6 +146,7 @@ export interface CheckContext {
  * 写给供应商的「请联系你们的管理员 / 请联系平台运营」在运营后台说不通（M1-13）。
  */
 const PLATFORM_NOTES: Readonly<Record<string, string>> = {
+  "需要的话到区域页面把它画进基础价、行程加价或上下车加价区域": "供应商需要的话把它画进基础价、行程加价或上下车加价区域",
   请联系你们的管理员: "供应商的管理员可以在供应商后台重新启用",
   请联系平台运营: "需要平台在主数据里处理",
   "请联系平台运营，或在它现在的城市新建一个商品": "需要平台在主数据里处理，或由供应商在它现在的城市新建一个商品",
@@ -152,6 +155,9 @@ const PLATFORM_NOTES: Readonly<Record<string, string>> = {
 export function noteForPortal(note: string, portal: "tenant" | "platform"): string {
   return portal === "platform" ? (PLATFORM_NOTES[note] ?? note) : note;
 }
+
+/** 「热门地标覆盖」每条后面跟的一句（运营后台换成 PLATFORM_NOTES 里的说法） */
+const CHARTER_COVERAGE_NOTE = "需要的话到区域页面把它画进基础价、行程加价或上下车加价区域";
 
 function one(text: string, anchor: string | null, note?: string): CheckReason {
   return { text, anchor, ...(note ? { note } : {}) };
@@ -233,6 +239,19 @@ export function checkReasons(item: PublishCheckItemBody, context: CheckContext):
     }
   } else if (item.key === "inventory") {
     if (take(reason("NO_INVENTORY_AHEAD"))) out.push(one("库存是限量的，但从今天起没有一天有库存——上了架也卖不出去。", ""));
+  } else if (item.key === "charter_coverage") {
+    // 城市热门地标清单里不在这个商品任何①②③区域里的地标（M9P-06 / M9P-07，只提醒、不拦上架）：知道名字的一个地标一句，不知道的合成一句
+    const unnamed = item.issues.filter((issue) => {
+      if (issue.reason !== "CHARTER_POI_NOT_COVERED") return false;
+      known.add(issue);
+      // 后端直接带地标名（detail.name，M9P-07F）；老的应答没有时再查页面给的对照表
+      const detailName = typeof issue.detail?.["name"] === "string" ? issue.detail["name"] : undefined;
+      const name = detailName ?? context.placeNames?.get(/^\/places\/([^/]+)$/.exec(issue.path)?.[1] ?? "");
+      if (name === undefined) return true;
+      out.push(one(`热门地标「${name}」不在这个商品的任何区域里（基础价、行程加价、上下车加价区域都没有盖住），客人在这里上下车或经停报不出价`, null, CHARTER_COVERAGE_NOTE));
+      return false;
+    }).length;
+    if (unnamed > 0) out.push(one(`有 ${unnamed} 个热门地标不在这个商品的任何区域里（基础价、行程加价、上下车加价区域都没有盖住），客人在那里上下车或经停报不出价`, null, CHARTER_COVERAGE_NOTE));
   } else if (item.key === "area_coverage") {
     // 勾选的报价区域有一部分不在任何运营区域里（M8-20，只提醒、不拦上架）：一个区域一句
     for (const issue of item.issues) {

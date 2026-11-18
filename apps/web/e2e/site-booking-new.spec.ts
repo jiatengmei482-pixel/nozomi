@@ -4,9 +4,9 @@
  * 用地址搜索专用的那组 API 和前端（配置里有假密钥，见 playwright.config.ts 的 E2E_API_PLACES_PORT）。
  *
  * 平台经接口新建一个本用例专用的机场（坐标随机落在城市中心附近，不和别的用例的机场重叠，按两个坐标报价才认得出是它），
- * 供应商上架这个机场的接送机商品（一口价 20,000 日元，接机免费等待 60 分钟）。客人走四步（M8-27，ADR 0079）：
+ * 供应商上架这个机场的接送机商品（一口价 20,000 日元，接机免费等待 60 分钟；按航班定，国际航班补到 90，M9E-28）。客人走四步（M8-27，ADR 0079）：
  * - 手机宽：第 1 步出发地输入机场名 → 平台的机场在候选最前 → 选中；目的地输入「東京駅」→ 谷歌候选 → 选中（取坐标）→ 日期时间 →
- *   自动报价、认出接机（时间标签、免费等待 60 分钟的提示）→ 第 2 步车型卡、座位示意图、一口价包含、底部固定条 →
+ *   自动报价、认出接机（时间标签、免费等待「国际线最长 90 分钟、国内线最长 60 分钟」的提示）→ 第 2 步车型卡、座位示意图、一口价包含、底部固定条 →
  *   第 3 步乘客信息（航班号、举牌姓名）→ 第 4 步核对；顶部摘要条逐步累积；
  * - 电脑宽：两栏，右侧栏路线图在最上面、下面是确认过的内容；浏览器后退回到上一步、内容还在；
  * - 带参数的链接（from 机场编码、to 坐标加名称、日期、时间、人数、行李）打开就报价、到第 2 步。
@@ -14,7 +14,7 @@
  */
 import { expect, test } from "@playwright/test";
 import { E2E_TILE_PORT, E2E_WEB_PLACES_PORT, E2E_WEB_STRIPE_PORT } from "../playwright.config.ts";
-import { TOKYO_STATION, airportLink, createAirport, encodePolyline, expectNarrowAndAccessible, expectRouteLineVisible, publishTransfer, tomorrowInTokyo } from "./book-new-support.ts";
+import { TOKYO_STATION, airportLink, createAirport, encodePolyline, expectNarrowAndAccessible, publishTransfer, tomorrowInTokyo } from "./book-new-support.ts";
 import { createSupplier, createWorld, expectAccessible } from "./catalog.ts";
 import { TEST_CARDS, routeStripe } from "./fake-stripe.ts";
 import { OWN_SITE_SOURCE } from "./support.ts";
@@ -40,7 +40,7 @@ test("新预订页四步：输入即提示选机场和酒店 → 自动报价、
     const body = (await response.json()) as Record<string, unknown>;
     route.fulfill({ response, json: { ...body, route: { minutes: 25, meters: 14_200, polyline: encodePolyline([airport.location, { lat: (airport.location.lat + TOKYO_STATION.lat) / 2 + 0.01, lng: (airport.location.lng + TOKYO_STATION.lng) / 2 }, TOKYO_STATION]) } } });
   });
-  // 路线小地图（M8-10）：这里固定成「平台还没开通谷歌静态地图」，核对的是后备的现有底图；静态图的各种结果见 site-booking-route-map.spec.ts
+  // 路线小地图（M8-10）：这里固定成「平台还没开通谷歌静态地图」——只留文字、不显示地图（M10-01）；静态图的各种结果见 site-booking-route-map.spec.ts
   await page.route(`${SITE}/site/v1/route-map?**`, (route) => route.fulfill({ status: 503, json: { error: { code: "ROUTE_MAP_UNAVAILABLE", message: "路线图暂不可用", details: { reason: "NOT_ENABLED" } } } }));
   await page.setViewportSize({ width: 400, height: 800 });
 
@@ -56,9 +56,17 @@ test("新预订页四步：输入即提示选机场和酒店 → 自动报价、
   await expect(fromList.getByRole("option").first()).toContainText(airport.name);
   await expect(fromList.getByRole("option").first()).toContainText("机场");
   await expect(fromList.getByRole("option", { name: /東京駅/ })).toBeVisible();
+  // 有谷歌候选：候选列表下面、同一个面板里署名「Google Maps」一次（M9E-06），不在 listbox 里；亮暗两色、窄屏的 axe 在下面一起核对
+  const fromPanel = fromList.locator("xpath=..");
+  await expect(fromPanel.getByText("Google Maps", { exact: true })).toBeVisible();
+  await expect(fromPanel.getByText("Google Maps", { exact: true })).toHaveCount(1);
+  await expect(fromList.getByText("Google Maps", { exact: true })).toHaveCount(0);
+  await expect(fromPanel.locator(".google-attribution")).toHaveAttribute("translate", "no");
   await expectNarrowAndAccessible(page, "新预订页（候选展开）");
   await from.press("Enter");
   await expect(from).toHaveValue(airport.name);
+  // 只选了机场、还没报价：认出接机，还不知道航班类型——按航班写两种（M9E-28；M9E-27 以前这里写死 60，和嵌入页报价后的 90 对不上）
+  await expect(page.getByText("已识别为接机：司机按航班落地时间等候，落地后免费等待：国际线最长 90 分钟、国内线最长 60 分钟")).toBeVisible();
 
   // 目的地：谷歌候选，键盘选中（选中后后端取坐标）
   const to = page.getByRole("combobox", { name: "目的地" });
@@ -70,8 +78,8 @@ test("新预订页四步：输入即提示选机场和酒店 → 自动报价、
 
   await page.getByLabel("日期（当地）").fill(tomorrowInTokyo());
   await page.getByLabel("航班落地时间（当地）").fill("10:00");
-  // 填齐就自动报价：认出接机，时间标签、提示（免费等待取报价的 60 分钟）
-  await expect(page.getByText("已识别为接机：司机按航班落地时间等候，落地后免费等待 60 分钟")).toBeVisible();
+  // 填齐就自动报价：认出接机，时间标签、提示（商品设 60：国际 max(60, 90)、国内 60）
+  await expect(page.getByText("已识别为接机：司机按航班落地时间等候，落地后免费等待：国际线最长 90 分钟、国内线最长 60 分钟")).toBeVisible();
   // 标签条按所有可订城市的品类出现（测试库里别的用例的城市也算）；标签和标签不符的提示见组件测试 book-new.test.tsx
   const travellers = page.getByRole("button", { name: "乘客 / 行李 2 人 · 2 件" });
   await travellers.click();
@@ -92,16 +100,17 @@ test("新预订页四步：输入即提示选机场和酒店 → 自动报价、
   await expect(card.locator("figcaption")).toContainText("乘客座位 6 个 · 行李 5 件（行李按 28 寸行李箱计） · 人数少时空座位也可以放行李");
   await expect(card.locator("figcaption")).toContainText("示意图");
   const includes = page.getByRole("region", { name: "一口价包含" });
-  await expect(includes.getByRole("listitem")).toHaveText(["一口价已含所有费用（高速费、停车费等），无需另付", "专车专用，不拼车", "航班落地后免费等待 60 分钟"]);
+  await expect(includes.getByRole("listitem")).toHaveText(["一口价已含所有费用（高速费、停车费等），无需另付", "专车专用，不拼车", "航班落地后免费等待：国际线最长 90 分钟、国内线最长 60 分钟"]);
   await expect(page.locator("main")).not.toContainText("跟踪航班");
-  const bar = page.locator(".book-bar");
-  await expect(bar).toContainText(`${world.group.name} · 一口价 22,000 JPY`);
+  const bar = page.locator(".step-bar");
+  await expect(bar.locator(".step-bar__summary")).toContainText(`${world.group.name} · 一口价 22,000 JPY`);
   await expectNarrowAndAccessible(page, "新预订页第 2 步（座位示意图展开、底部固定条）");
-  await bar.getByRole("button", { name: "下一步" }).click();
+  await bar.getByRole("button", { name: "下一步：填写乘客信息" }).click();
 
-  // 第 3 步：乘客信息（接机的航班号必填、举牌姓名选填）
+  // 第 3 步：乘客信息（接机的航班号、航班类型必填，举牌姓名选填）
   await expect(page.getByRole("heading", { level: 2, name: "乘客信息" })).toBeFocused();
   await page.getByLabel("航班号").fill("NH211");
+  await page.getByRole("radio", { name: /^国际航班/ }).check();
   await page.getByLabel("举牌姓名（选填）").fill("WANG XIAOMING");
   await page.getByLabel("乘车人姓名").fill("王小明");
   await page.getByLabel("邮箱").fill(`book-new-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`);
@@ -114,9 +123,22 @@ test("新预订页四步：输入即提示选机场和酒店 → 自动报价、
   const review = page.getByRole("region", { name: "核对订单" });
   await expect(review.getByRole("button", { name: "修改行程" })).toBeVisible();
   await expect(review).toContainText("WANG XIAOMING");
+  await expect(review).toContainText("国际航班");
+  await expect(review).toContainText("航班落地后 90 分钟");
   await expect(review).toContainText("22,000");
-  await expect(review).toContainText("取消规则");
+  await expect(review).toContainText("取消政策和注意事项");
   await expect(page.getByRole("button", { name: "去付款 →" })).toBeVisible();
+  // 手机（M9E-32，业主验收意见 2026-11-16）：「上一步」「去付款」在固定在屏幕底部的按钮条里（滚到顶也看得见）；
+  // 滚到最底下时同意保存银行卡在条上方、没被挡住（页面底部留出了条的高度）
+  const stepBar = page.locator(".step-bar");
+  await expect(stepBar.getByRole("button", { name: "上一步" })).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const payBox = await stepBar.getByRole("button", { name: "去付款 →" }).boundingBox();
+  expect(payBox !== null && payBox.y >= 0 && payBox.y + payBox.height <= 800, `滚到顶时「去付款」在屏幕里：${JSON.stringify(payBox)}`).toBe(true);
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  const consentBox = await page.getByRole("checkbox", { name: /同意保存这次付款用的银行卡/ }).boundingBox();
+  const barBox = await stepBar.boundingBox();
+  expect(consentBox !== null && barBox !== null && consentBox.y + consentBox.height <= barBox.y, "滚到底：同意保存银行卡在条上方").toBe(true);
   await page.getByRole("button", { name: /^行程摘要/ }).click();
   const panel = page.locator("#book-summary-panel");
   await expect(panel).toContainText("3 人 · 2 件");
@@ -124,11 +146,13 @@ test("新预订页四步：输入即提示选机场和酒店 → 自动报价、
   await expect(panel).toContainText("NH211");
   await expectNarrowAndAccessible(page, "新预订页第 4 步（核对、摘要条展开）");
 
-  // 电脑宽：两栏，右侧栏最上面是路线图，下面是三步确认过的内容
+  // 电脑宽：两栏，右侧栏最上面是路线图，下面是三步确认过的内容（上面为了看底部条滚到了最底下，先滚回顶部，路线图才在视口里）
+  await page.evaluate(() => window.scrollTo(0, 0));
   await page.setViewportSize({ width: 1280, height: 900 });
   const aside = page.getByRole("complementary", { name: "行程摘要" });
   await expect(aside).toBeVisible();
-  await expectRouteLineVisible(page, airport.location);
+  await expect(aside.getByText("约 25 分钟 · 14.2 公里").first()).toBeVisible();
+  await expect(aside.locator(".route-map")).toHaveCount(0);
   await expect(aside).toContainText(world.group.name);
   await expect(aside).toContainText("22,000");
   await expect(aside).toContainText("NH211");
@@ -181,9 +205,11 @@ test("新预订页付款：选车 → 加附加服务（重新报价、右侧栏
   await page.getByRole("button", { name: "下一步：核对订单" }).click();
   await expect(page.getByText("有几项没有填好，请看标红的地方。")).toBeVisible();
   await expect(page.getByLabel("航班号")).toHaveAttribute("aria-invalid", "true");
+  await expect(page.getByText("请选择国际航班还是国内航班：国际航班免费等待更久")).toBeVisible();
   // 为他人预订：预订人收确认邮件，另填乘车人；举牌姓名默认跟乘车人
   await page.getByText("为他人预订", { exact: true }).click();
   await page.getByLabel("航班号").fill("NH 211");
+  await page.getByRole("radio", { name: /^国内航班/ }).check();
   await page.getByLabel("预订人姓名").fill("王小明");
   await page.getByLabel("邮箱").fill(`book-new-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`);
   await page.getByLabel("手机号（含国家区号）").fill("+81 90-1234-5678");
@@ -218,8 +244,8 @@ test("新预订页付款：选车 → 加附加服务（重新报价、右侧栏
   const placed = page.waitForRequest((sent) => new URL(sent.url()).pathname === "/site/v1/orders" && sent.method() === "POST");
   await page.getByRole("button", { name: "去付款 →" }).click();
   // M8-32（ADR 0082）：举牌姓名、乘车人姓名和电话是正式字段，不再写进备注
-  const sent = (await placed).postDataJSON() as { notes: string; sign_name: string | null; passenger_name: string | null; passenger_phone: string | null };
-  expect([sent.notes, sent.sign_name, sent.passenger_name, sent.passenger_phone]).toEqual(["两个大箱子", "李华", "李华", "+81 90-5555-6666"]);
+  const sent = (await placed).postDataJSON() as { notes: string; sign_name: string | null; passenger_name: string | null; passenger_phone: string | null; flight_kind: string };
+  expect([sent.notes, sent.sign_name, sent.passenger_name, sent.passenger_phone, sent.flight_kind]).toEqual(["两个大箱子", "李华", "李华", "+81 90-5555-6666", "domestic"]);
   await expect(page.getByRole("heading", { level: 1, name: /^订单 NZ/ })).toBeVisible();
   await expect(page.getByLabel("卡号（假 Stripe）")).toBeVisible();
   await expect(page.locator("main")).toContainText("23,100 JPY");
@@ -228,4 +254,6 @@ test("新预订页付款：选车 → 加附加服务（重新报价、右侧栏
   await page.getByRole("button", { name: "确认支付" }).click();
   await expect(page.getByRole("region", { name: "付款", exact: true }).getByRole("status")).toContainText("付款成功，等待确认。");
   await expect(page.getByText("付款成功，订单已确认。派车后这里会显示司机和车辆。")).toBeVisible({ timeout: 20_000 });
+  // 下单时按国内航班锁定（M9E-28）：商品设 60，max(60, 60) = 60，订单页注明航班类型
+  await expect(page.locator("main")).toContainText("60 分钟（从航班落地起算） · 国内航班");
 });

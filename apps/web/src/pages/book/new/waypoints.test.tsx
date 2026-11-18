@@ -1,13 +1,14 @@
 /**
  * 新预订页包车的经停点和按行程计价（M9W-02，ADR 0088；需求 charter-waypoint-surcharge.md 13.5）的组件测试：
- * 没有经停点时询价请求和以前完全一样；经停点增删、上下移动（焦点跟着走、播报）、最多 10 个；停留时长必填；
+ * 没有经停点时询价请求和以前完全一样；经停点增删、上下移动（焦点跟着走、播报）、最多 25 个（M9P-10）；停留时长必填；
  * 有经停点时请求带 itinerary_pricing 和 waypoints、不带 package_hours，包车时长下拉换成「按行程自动选套餐」；
- * 车型卡、右侧栏、核对页的对外价明细（各项之和 = 总价；对不上时不显示明细）、行程时间表和提示；经停点报不出价时指出是哪一个。
+ * 车型卡、右侧栏、核对页的对外价明细（各项之和 = 总价；对不上时不显示明细）、行程时间表和提示；经停点报不出价时指出是哪一个；
+ * 指定到达时间（M9P-20 P3）：锁定、次日推断、预计晚到提示。
  * 接口用测试替身（浏览器只连 /site/v1）；真实后端由 e2e/site-booking-waypoints.spec.ts 覆盖。
  */
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { App } from "../../../App.tsx";
@@ -48,6 +49,7 @@ function quoteOf(index: number, amount: number, breakdown?: SiteQuote["price_bre
     free_wait_minutes: 0,
     cancel_policy: { category: "charter", level: "economy", tiers: [{ min_hours_before: 24, fee_bp: 0 }, { min_hours_before: 0, fee_bp: 10000 }] },
     available_addons: [],
+    itinerary_warnings: null,
   };
 }
 
@@ -69,6 +71,9 @@ const plainResult: SiteQuoteResult = { currency: "JPY", quotes: [quoteOf(1, 77_0
 const GOOGLE_SPOT = { source: "google", id: "ChIJgogome", name: "富士山五合目園地", address: "山梨県富士吉田市上吉田", location: null, kind: "other" } as const;
 let placeDetails: () => Response | Promise<Response> = () => json(200, { available: true, place: { id: GOOGLE_SPOT.id, address: GOOGLE_SPOT.address, location: { lat: 35.395, lng: 138.733 }, kind: "other" } });
 
+/** 这段行程能订的套餐（`GET /site/v1/charter-packages`） */
+let packageHours = [8];
+
 function open(charter: (call: ApiCall) => Response = () => json(200, plainResult), order?: () => Response): ApiCall[] {
   const calls = stubApiWith((call) => {
     const path = call.url.pathname;
@@ -81,7 +86,7 @@ function open(charter: (call: ApiCall) => Response = () => json(200, plainResult
       return json(200, { available: true, items: name === undefined ? [] : [{ source: "platform", id: `spot-${name}`, name, address: "", location: SPOTS[name], kind: "station" }] });
     }
     if (path === "/site/v1/places/details") return placeDetails();
-    if (path === `/site/v1/cities/${CITY_ID}/charter-packages`) return json(200, { items: [{ hours: 8 }] });
+    if (path === "/site/v1/charter-packages") return json(200, { city: { id: CITY_ID, code: city.code, name: city.name, timezone: city.timezone }, items: packageHours.map((hours) => ({ hours })) });
     if (path === "/site/v1/fx/reference") return json(200, { available: false, from: "JPY", to: call.url.searchParams.get("to"), rate: null, as_of: null, reason: "NO_RATE" });
     if (call.method === "POST" && path === "/site/v1/quotes") return charter(call);
     if (call.method === "POST" && path === "/site/v1/orders") return order?.() ?? null;
@@ -114,16 +119,17 @@ async function addStop(actor: ReturnType<typeof user>, spot: string, stay: strin
 
 const stopNames = (): string[] => screen.getAllByRole("combobox", { name: /^经停点 \d+$/ }).map((box) => (box as HTMLInputElement).value);
 
-test("没有经停点：询价请求和以前完全一样（字段、顺序都相同，没有 itinerary_pricing、waypoints），包车时长照旧手选，车型卡不显示明细和行程提示", async () => {
+test("没有经停点：询价请求和以前完全一样（字段、顺序都相同，没有 itinerary_pricing、waypoints），包车时长照旧手选；车型卡照样逐项列明细（M9P-04），没有经停点的提示和行程时间表", async () => {
   wideScreen();
   const calls = open();
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
   const body = quotes(calls).at(-1) as Record<string, unknown>;
-  assert.deepEqual(Object.keys(body), ["category", "city_id", "pickup", "dropoff", "package_hours", "service_local", "passengers", "luggage", "pickup_name", "dropoff_name"].filter((key) => key in body));
-  assert.deepEqual(body, { category: "charter", city_id: CITY_ID, pickup: { lat: 35.6905, lng: 139.6948 }, dropoff: { lat: 35.6896, lng: 139.7006 }, package_hours: 8, service_local: "2030-11-20T09:00", passengers: 2, luggage: 2, ...("pickup_name" in body ? { pickup_name: body["pickup_name"] } : {}), ...("dropoff_name" in body ? { dropoff_name: body["dropoff_name"] } : {}) });
+  assert.deepEqual(Object.keys(body), ["category", "pickup", "dropoff", "package_hours", "service_local", "passengers", "luggage", "pickup_name", "dropoff_name"].filter((key) => key in body));
+  assert.deepEqual(body, { category: "charter", pickup: { lat: 35.6905, lng: 139.6948 }, dropoff: { lat: 35.6896, lng: 139.7006 }, package_hours: 8, service_local: "2030-11-20T09:00", passengers: 2, luggage: 2, ...("pickup_name" in body ? { pickup_name: body["pickup_name"] } : {}), ...("dropoff_name" in body ? { dropoff_name: body["dropoff_name"] } : {}) });
   assert.equal("itinerary_pricing" in body, false);
   assert.equal("waypoints" in body, false);
-  assertAbsent(screen.queryByLabelText("价格明细"));
+  // M9P-04（P0 验收后续 A）：不填经停点也逐项列明细；只是没有「按您填的经停点计算」的提示
+  assert.ok(screen.getAllByLabelText("价格明细").length > 0);
   assertAbsent(screen.queryByText(/价格按您填的经停点计算/));
   assertAbsent(screen.queryByText("行程时间表"));
   // M9W-05：不按行程计价的包车，「一口价包含」下面的说法照旧
@@ -132,7 +138,7 @@ test("没有经停点：询价请求和以前完全一样（字段、顺序都�
   assert.doesNotMatch(includes.textContent ?? "", /按预计行程/);
 });
 
-test("经停点：添加、上下移动（焦点跟着这一行、播报新位置）、删除（焦点到下一行的删除）；第一行上移、最后一行下移禁用；最多 10 个", async () => {
+test("经停点：添加、上下移动（焦点跟着这一行、播报新位置）、删除（焦点到下一行的删除）；第一行上移、最后一行下移禁用；最多 25 个（M9P-10，路径接口上限），加满后提示联系客服定制", async () => {
   wideScreen();
   open();
   const actor = user();
@@ -162,10 +168,14 @@ test("经停点：添加、上下移动（焦点跟着这一行、播报新位�
   assert.deepEqual(stopNames(), ["五合目", "忠灵塔"]);
   await waitFor(() => assertFocused(screen.getByRole("button", { name: "删除 忠灵塔" })));
 
-  for (let index = 0; index < 8; index += 1) await actor.click(screen.getByRole("button", { name: "添加经停点" }));
-  assert.equal(screen.getAllByRole("combobox", { name: /^经停点 \d+$/ }).length, 10);
+  for (let index = 0; index < 22; index += 1) await actor.click(screen.getByRole("button", { name: "添加经停点" }));
+  assert.equal(screen.getAllByRole("combobox", { name: /^经停点 \d+$/ }).length, 24);
+  assert.equal((screen.getByRole("button", { name: "添加经停点" }) as HTMLButtonElement).disabled, false, "24 个还能加");
+  assert.equal(screen.queryByText(/更多请联系客服定制/), null);
+  await actor.click(screen.getByRole("button", { name: "添加经停点" }));
+  assert.equal(screen.getAllByRole("combobox", { name: /^经停点 \d+$/ }).length, 25);
   assert.equal((screen.getByRole("button", { name: "添加经停点" }) as HTMLButtonElement).disabled, true);
-  assert.ok(screen.getByText("最多 10 个"));
+  assert.ok(screen.getByText("最多 25 个经停点，更多请联系客服定制。"));
 });
 
 test("停留时长必填：选了地点没选停留时不报价，点「下一步」标红「请选择停留时长」；选好后请求带 itinerary_pricing 和按顺序的 waypoints，不带 package_hours；包车时长下拉换成「按行程自动选套餐」", async () => {
@@ -217,27 +227,33 @@ test("按行程计价：车型卡、右侧栏、核对页显示明细（套餐�
   const rows = [...within(card).getByLabelText("价格明细").querySelectorAll(".price-breakdown__row")].map((row) => [row.querySelector("dt")?.textContent, row.querySelector("dd")?.textContent]);
   assert.deepEqual(rows, [
     ["包车套餐 10 小时", "60,500 JPY"],
-    ["经停加价（富士山地区，第 1、2、3 个经停点）", "11,000 JPY"],
+    ["行程加价（富士山地区，2、3、4 · 经停）", "11,000 JPY"],
   ]);
   const schedule = screen.getByRole("list", { name: "行程" });
   assert.deepEqual(
     [...schedule.querySelectorAll("li")].map((item) => item.textContent),
-    ["上车京王广场酒店", "行驶约 2 小时经停 1五合目停留 1 小时", "行驶约 30 分钟经停 2河口湖停留 1 小时 30 分", "行驶约 10 分钟经停 3忠灵塔停留 30 分钟", "行驶约 1 小时 50 分下车新宿站"],
+    ["1 上车京王广场酒店09:00 出发", "行驶约 2 小时 · 120 公里2 经停五合目预计 11:00 到 · 12:00 出发停留 1 小时", "行驶约 30 分钟 · 20 公里3 经停河口湖预计 12:30 到 · 14:00 出发停留 1 小时 30 分", "行驶约 10 分钟 · 4 公里4 经停忠灵塔预计 14:10 到 · 14:40 出发停留 30 分钟", "行驶约 1 小时 50 分 · 110 公里5 下车新宿站预计 16:30 到"],
   );
+  // 行程地图（M9P-20）：5 个点按顺序，编号和列表一致；alt 写全程
+  // 地图图片在报价后的下一次渲染才挂上（M8-29：CI 上偶发取到 null），等它出现
+  const mapLoader = await waitFor(() => document.querySelector<HTMLImageElement>(".itinerary-map__loader") ?? assert.fail("行程地图还没挂上"), SLOW);
+  assert.deepEqual(new URL(mapLoader.src, "http://localhost").searchParams.getAll("p"), ["35.690500,139.694800", "35.395000,138.733000", "35.498000,138.769000", "35.501000,138.801000", "35.689600,139.700600"]);
+  fireEvent.load(mapLoader);
+  await waitFor(() => assert.equal(document.querySelector(".itinerary-map .route-map__image")?.getAttribute("alt"), "路线图：1 京王广场酒店 → 2 五合目 → 3 河口湖 → 4 忠灵塔 → 5 新宿站，约 7 小时 30 分 · 254 公里"));
   assert.ok(screen.getByText("价格按您填的经停点计算；当天临时去其他区域或超出预计可能会加收。"));
-  // M9W-05：按行程计价时超公里、超时已算进价格，「一口价包含」下面不再说「超出套餐服务后按实际收取」
+  // M9W-05：按行程计价时超公里已算进价格、用时超出套餐另收（M9P-04 改），「一口价包含」下面用按行程计价的那一句，不用不按行程计价的「超出套餐的时长和公里服务后按实际收取」
   const includes = screen.getByRole("heading", { name: "一口价包含" }).closest("section") as HTMLElement;
-  assert.ok(within(includes).getByText("超公里、超时已按预计行程算进价格，只有当天超出预计的部分服务后按实际收取：先通知您，48 小时内可以在订单页提异议。"));
+  assert.ok(within(includes).getByText("超公里已按预计行程算进价格；用时超出套餐、或当天超出预计的部分，服务后按实际收取：先通知您，48 小时内可以在订单页提异议。"));
   assert.doesNotMatch(includes.textContent ?? "", /超出套餐的时长和公里/);
 
   await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
   const side = screen.getByRole("complementary", { name: "行程摘要" });
   const sideRows = [...within(side).getByLabelText("价格明细").querySelectorAll(".price-breakdown__row")].map((row) => row.textContent);
-  assert.deepEqual(sideRows, ["包车套餐 10 小时60,500 JPY", "经停加价（富士山地区，第 1、2、3 个经停点）11,000 JPY", "合计71,500 JPY"]);
+  assert.deepEqual(sideRows, ["包车套餐 10 小时60,500 JPY", "行程加价（富士山地区，2、3、4 · 经停）11,000 JPY", "合计71,500 JPY"]);
   const facts = [...side.querySelectorAll(".site-facts__item")].map((item) => item.querySelector("dt")?.textContent);
   assert.deepEqual(facts.slice(0, 6), ["用车类型", "上车地点", "经停点", "下车地点", "行程时长", "用车时间（当地时间）"]);
   assert.match(side.textContent ?? "", /包车 10 小时（按行程）/);
-  assert.match(side.textContent ?? "", /五合目（停留 1 小时）/);
+  assert.match(side.textContent ?? "", /2 五合目（停留 1 小时）/);
 
   await actor.click(screen.getByRole("button", { name: "下一步：填写乘客信息" }));
   await screen.findByRole("heading", { name: "乘客信息", level: 2 });
@@ -255,6 +271,57 @@ test("按行程计价：车型卡、右侧栏、核对页显示明细（套餐�
   assert.equal(order["quote_id"], "QT203011200000000001");
 });
 
+test("指定到达时间（M9P-20 P3）：填了的行锁定（没有拖动把手、有锁，按钮说明「已锁定，只能用上移 / 下移调整」，上移照常可用）；早于出发时刻的按次日并写「次日 08:00」；预计晚到时这一行提示；请求带 arrive_by", async () => {
+  wideScreen();
+  const calls = open((call) => json(200, (call.body as Record<string, unknown>)["itinerary_pricing"] === true ? itineraryResult() : plainResult));
+  const actor = user();
+  await screen.findByRole("heading", { name: "车型1" }, SLOW);
+  await actor.click(screen.getByRole("button", { name: "上一步" }));
+  await addStop(actor, "五合目", "60");
+  await addStop(actor, "河口湖", "90");
+  await addStop(actor, "忠灵塔", "30");
+  const rowOf = (name: string): HTMLElement => screen.getByRole("button", { name: `把 ${name} 上移` }).closest("li") as HTMLElement;
+  assert.ok(rowOf("河口湖").querySelector("[data-drag-handle]"), "没填到达时间：照常有拖动把手");
+
+  // 09:00 出发；河口湖 10:00 前到——按当前顺序预计 09:00 + 120 + 停 60 + 30 = 12:30 到
+  fireEvent.change(screen.getByLabelText("经停点 2 指定到达时间（选填）"), { target: { value: "10:00" } });
+  const row = rowOf("河口湖");
+  assertAbsent(row.querySelector("[data-drag-handle]"));
+  assert.ok(row.querySelector("[data-locked]"), "换成锁形图标");
+  const up = within(row).getByRole("button", { name: "把 河口湖 上移" }) as HTMLButtonElement;
+  assert.equal(up.disabled, false, "上移照常可用");
+  assert.equal(document.getElementById(up.getAttribute("aria-describedby") ?? "")?.textContent, "河口湖，须在 10:00 前到达，已锁定，不参与建议顺序，只能用上移 / 下移调整");
+  assert.equal(up.getAttribute("aria-describedby"), within(row).getByRole("button", { name: "把 河口湖 下移" }).getAttribute("aria-describedby"));
+  await waitFor(() => assert.ok(within(rowOf("河口湖")).getByText(/^预计 12:30 到，晚于指定的 10:00，来不及。请把上车时间提前到 \d\d:\d\d 或更早/)), SLOW);
+  await waitFor(() => assert.deepEqual((quotes(calls).at(-1)?.["waypoints"] as Record<string, unknown>[])[1]?.["arrive_by"], { day_offset: 0, time: "10:00" }), SLOW);
+  const body = quotes(calls).at(-1) as Record<string, unknown>;
+  assert.equal("arrive_by" in ((body["waypoints"] as Record<string, unknown>[])[0] as object), false, "没填的经停不带这个键");
+
+  // 早于出发时刻：按次日，行内写「次日 08:00」；预计 12:30 + 停 90 + 10 = 14:10 到，不晚
+  fireEvent.change(screen.getByLabelText("经停点 3 指定到达时间（选填）"), { target: { value: "08:00" } });
+  assert.ok(within(rowOf("忠灵塔")).getByText("次日 08:00"));
+  await waitFor(() => assert.deepEqual((quotes(calls).at(-1)?.["waypoints"] as Record<string, unknown>[])[2]?.["arrive_by"], { day_offset: 1, time: "08:00" }), SLOW);
+  await waitFor(() => assert.ok(within(rowOf("河口湖")).getByText(/^预计 12:30 到，晚于指定的 10:00，来不及。请把上车时间提前到 \d\d:\d\d 或更早/)), SLOW);
+  assert.equal(within(rowOf("忠灵塔")).queryByText(/晚于指定的/), null);
+
+  // 选车型这一步的行程列表：写「须在 10:00 前到达」「须在次日 08:00 前到达」，也标出晚到
+  await actor.click(screen.getByRole("button", { name: "下一步：选择车型" }));
+  const schedule = await screen.findByRole("list", { name: "行程" }, SLOW);
+  await waitFor(() => assert.match(schedule.textContent ?? "", /预计 12:30 到，晚于指定的 10:00/), SLOW);
+  assert.match(schedule.textContent ?? "", /须在 10:00 前到达/);
+  assert.match(schedule.textContent ?? "", /须在次日 08:00 前到达/);
+  await actor.click(screen.getByRole("button", { name: "上一步" }));
+
+  // 锁定的行用上移调整：顺序变了、到达时间跟着这一行走
+  await actor.click(within(rowOf("河口湖")).getByRole("button", { name: "把 河口湖 上移" }));
+  assert.deepEqual(stopNames(), ["河口湖", "五合目", "忠灵塔"]);
+  assert.equal((screen.getByLabelText("经停点 1 指定到达时间（选填）") as HTMLInputElement).value, "10:00");
+  // 清空到达时间：解锁，拖动把手回来
+  fireEvent.change(screen.getByLabelText("经停点 1 指定到达时间（选填）"), { target: { value: "" } });
+  assert.ok(rowOf("河口湖").querySelector("[data-drag-handle]"));
+  assertAbsent(rowOf("河口湖").querySelector("[data-locked]"));
+});
+
 test("明细加起来不等于总价：不显示明细，只显示总价（价格不能显示错）", async () => {
   wideScreen();
   open((call) => json(200, (call.body as Record<string, unknown>)["itinerary_pricing"] === true ? itineraryResult(FUJI_BREAKDOWN, 71_600) : plainResult));
@@ -268,6 +335,28 @@ test("明细加起来不等于总价：不显示明细，只显示总价（价�
   assertAbsent(screen.queryByText("60,500 JPY"));
 });
 
+test("M8-43：明细里金额为 0 的超公里费 / 超时费不列，不是 0 的照旧列（车型卡、右侧栏）；合计仍是总价", async () => {
+  wideScreen();
+  // 10 小时套餐 60,500 + 途经 11,000 + 超公里 0 + 超时 3,000 = 74,500
+  const breakdown: SiteQuote["price_breakdown"] = [...(FUJI_BREAKDOWN ?? []), { kind: "over_km", amount: yen(0), area_name: null, stop_seqs: null }, { kind: "overtime", amount: yen(3_000), area_name: null, stop_seqs: null }];
+  open((call) => json(200, (call.body as Record<string, unknown>)["itinerary_pricing"] === true ? itineraryResult(breakdown, 74_500) : plainResult));
+  const actor = user();
+  await screen.findByRole("heading", { name: "车型1" }, SLOW);
+  await actor.click(screen.getByRole("button", { name: "上一步" }));
+  await addStop(actor, "五合目", "60");
+  await actor.click(screen.getByRole("button", { name: "下一步：选择车型" }));
+  await waitFor(() => assert.match(screen.getByRole("heading", { name: "车型1" }).closest("li")?.textContent ?? "", /74,500 JPY/), SLOW);
+  const card = screen.getByRole("heading", { name: "车型1" }).closest("li") as HTMLElement;
+  const rows = [...within(card).getByLabelText("价格明细").querySelectorAll(".price-breakdown__row")].map((row) => row.textContent);
+  assert.deepEqual(rows, ["包车套餐 10 小时60,500 JPY", "行程加价（富士山地区，2、3、4 · 经停）11,000 JPY", "超时费3,000 JPY"]);
+  assertAbsent(within(card).queryByText("超公里费"));
+
+  await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
+  const side = screen.getByRole("complementary", { name: "行程摘要" });
+  const sideRows = [...within(side).getByLabelText("价格明细").querySelectorAll(".price-breakdown__row")].map((row) => row.textContent);
+  assert.deepEqual(sideRows, ["包车套餐 10 小时60,500 JPY", "行程加价（富士山地区，2、3、4 · 经停）11,000 JPY", "超时费3,000 JPY", "合计74,500 JPY"]);
+});
+
 test("经停点不在任何区域（WAYPOINT_NOT_PRICED）：指出第几个经停点和它的名字，转人工报价，不显示内部代码；人工报价带上经停点、不带之前选的时长（M9W-04）", async () => {
   wideScreen();
   const calls = open((call) =>
@@ -279,7 +368,7 @@ test("经停点不在任何区域（WAYPOINT_NOT_PRICED）：指出第几个经�
   await addStop(actor, "五合目", "60");
   await addStop(actor, "河口湖", "60");
   await actor.click(screen.getByRole("button", { name: "下一步：选择车型" }));
-  assert.ok(await screen.findByText("第 2 个经停点「河口湖」暂时没有在线报价，请联系客服人工报价，或去掉这个经停点再试。", {}, SLOW));
+  assert.ok(await screen.findByText("3 号点「河口湖」暂时没有在线报价，请联系客服人工报价，或去掉这个经停点再试。", {}, SLOW));
   assert.ok(screen.getByRole("heading", { name: "没有可预订的车" }));
   assert.equal(screen.getByRole("link", { name: "+81 3-1234-5678" }).getAttribute("href"), "tel:+81312345678");
   assert.doesNotMatch(document.body.textContent ?? "", /WAYPOINT_NOT_PRICED/);
@@ -293,6 +382,25 @@ test("经停点不在任何区域（WAYPOINT_NOT_PRICED）：指出第几个经�
   ]);
 });
 
+test("M9W-10：经停点所在加价区域没设途经加价（对外同样是 WAYPOINT_NOT_PRICED）、另有商品报 NOT_AVAILABLE：指出是哪个经停点，其余用新的通用说法，不叫客人换时间", async () => {
+  wideScreen();
+  open((call) =>
+    json(200, (call.body as Record<string, unknown>)["itinerary_pricing"] === true ? ({ currency: "JPY", quotes: [], unavailable: [{ vehicle_group_id: null, reasons: ["NOT_AVAILABLE", "WAYPOINT_NOT_PRICED"], waypoint_stop_seqs: [1] }] } satisfies SiteQuoteResult) : plainResult),
+  );
+  const actor = user();
+  await screen.findByRole("heading", { name: "车型1" }, SLOW);
+  await actor.click(screen.getByRole("button", { name: "上一步" }));
+  await addStop(actor, "五合目", "60");
+  await addStop(actor, "河口湖", "60");
+  await actor.click(screen.getByRole("button", { name: "下一步：选择车型" }));
+  assert.ok(await screen.findByText("2 号点「五合目」暂时没有在线报价，请联系客服人工报价，或去掉这个经停点再试。", {}, SLOW));
+  assert.ok(screen.getByText("这个行程暂时无法在线报价，请联系客服人工报价，或调整行程后再试。"));
+  assertAbsent(screen.queryByText(/河口湖」暂时没有在线报价/));
+  assert.equal(screen.getByRole("link", { name: "+81 3-1234-5678" }).getAttribute("href"), "tel:+81312345678");
+  assert.doesNotMatch(document.body.textContent ?? "", /换一个时间|WAYPOINT_NOT_PRICED|NOT_AVAILABLE/);
+  assert.ok(screen.getByRole("region", { name: "请客服人工报价" }));
+});
+
 test("按行程计价有一段路线算不出来（422 ITINERARY_ROUTE_UNAVAILABLE）：说清是哪两个点之间，转人工报价", async () => {
   wideScreen();
   open((call) => ((call.body as Record<string, unknown>)["itinerary_pricing"] === true ? apiError(422, "ITINERARY_ROUTE_UNAVAILABLE", "路线取不到", { leg: 2, reason: "NO_ROUTE" }) : json(200, plainResult)));
@@ -301,7 +409,7 @@ test("按行程计价有一段路线算不出来（422 ITINERARY_ROUTE_UNAVAILAB
   await actor.click(screen.getByRole("button", { name: "上一步" }));
   await addStop(actor, "五合目", "60");
   await actor.click(screen.getByRole("button", { name: "下一步：选择车型" }));
-  assert.ok(await screen.findByText("「五合目」到「新宿站」这一段路线暂时算不出来，没有在线报价。请联系客服人工报价，或调整经停点再试。", {}, SLOW));
+  assert.ok(await screen.findByText("第 2 段（2「五合目」→ 3「新宿站」）路线暂时算不出来，没有在线报价。请联系客服人工报价，或调整经停点再试。", {}, SLOW));
   assert.ok(screen.getByRole("heading", { name: "没有在线报价" }));
   assertAbsent(screen.queryByRole("button", { name: "重试" }));
 });
@@ -334,5 +442,119 @@ test("M9W-08：选了谷歌候选、坐标还没取回来时先选停留时长�
     assert.deepEqual((quotes(calls).at(-1) as Record<string, unknown>)["waypoints"], [{ name: `${GOOGLE_SPOT.name}（${GOOGLE_SPOT.address}）`, lat: 35.395, lng: 138.733, stay_minutes: 120 }]);
   } finally {
     placeDetails = fast;
+  }
+});
+
+test("M9P-03：有经停点时也能手动升到更长的套餐——下拉默认「自动（5 小时）」，只列比自动选的档长的（没有 4 小时）；选 10 小时重新报价，请求带 itinerary_pricing + package_hours；改经停点回到自动", async () => {
+  wideScreen();
+  packageHours = [4, 5, 8, 10];
+  // 自动选 5 小时（预计用时 4 小时 30 分）；手动选的档按那一档报价，报价里照样带自动选的档
+  const answer = (body: Record<string, unknown>): SiteQuoteResult => {
+    const hours = typeof body["package_hours"] === "number" ? body["package_hours"] : 5;
+    const total = hours === 10 ? 66_000 : 47_300;
+    return { ...itineraryResult([{ kind: "base", amount: yen(total), area_name: null, stop_seqs: null }], total), quotes: [{ ...quoteOf(1, total, [{ kind: "base", amount: yen(total), area_name: null, stop_seqs: null }]), package: { hours, km: 200 }, estimated_minutes: 270, includes_buffer: false, auto_package_hours: 5 }] };
+  };
+  try {
+    const calls = open((call) => json(200, answer(call.body as Record<string, unknown>)));
+    const actor = user();
+    await screen.findByRole("button", { name: "添加经停点" }, SLOW);
+    await addStop(actor, "五合目", "120");
+    const select = (await screen.findByLabelText(/^包车时长/, {}, SLOW)) as HTMLSelectElement;
+    assert.deepEqual([...select.options].map((option) => [option.value, option.textContent]), [["", "自动（5 小时）"], ["8", "8 小时"], ["10", "10 小时"]]);
+    assertAbsent(within(select).queryByRole("option", { name: "4 小时" }));
+    assert.equal(select.value, "");
+    assert.equal("package_hours" in (quotes(calls).at(-1) as Record<string, unknown>), false, "自动选档时不带 package_hours");
+
+    await actor.selectOptions(select, "10");
+    await waitFor(() => assert.equal((quotes(calls).at(-1) as Record<string, unknown>)["package_hours"], 10), SLOW);
+    const body = quotes(calls).at(-1) as Record<string, unknown>;
+    assert.deepEqual([body["itinerary_pricing"], Array.isArray(body["waypoints"])], [true, true]);
+    await actor.click(screen.getByRole("button", { name: "下一步：选择车型" }));
+    await waitFor(() => assert.match(screen.getByRole("heading", { name: "车型1" }).closest("li")?.textContent ?? "", /66,000 JPY/), SLOW);
+    assert.ok(screen.getAllByText(/套餐 10 小时/).length > 0);
+
+    // 改了经停点（行程变了）：回到自动选档
+    await actor.click(screen.getByRole("button", { name: "上一步" }));
+    await addStop(actor, "河口湖", "60");
+    await waitFor(() => assert.equal("package_hours" in (quotes(calls).at(-1) as Record<string, unknown>), false), SLOW);
+    assert.equal(((await screen.findByLabelText(/^包车时长/, {}, SLOW)) as HTMLSelectElement).value, "");
+  } finally {
+    packageHours = [8];
+  }
+});
+
+test("M9P-04：两个车型自动档不同（用例 10：车型1 5 小时、车型2 4 小时）——没选车型时写范围、只列比最长的长的；选了车型按它自己的档；车型卡套餐下面写预计用时（含缓冲）", async () => {
+  wideScreen();
+  packageHours = [4, 5, 6, 8];
+  const kamakura = (base: number) => [
+    { kind: "base" as const, amount: yen(base), area_name: null, stop_seqs: null },
+    { kind: "waypoint" as const, amount: yen(8_000), area_name: { zh: "镰仓" }, stop_seqs: [1] },
+  ];
+  const answer = (body: Record<string, unknown>): SiteQuoteResult => {
+    const hours = typeof body["package_hours"] === "number" ? body["package_hours"] : null;
+    return {
+      ...itineraryResult(),
+      quotes: [
+        { ...quoteOf(1, 41_000, kamakura(33_000)), package: { hours: hours ?? 5, km: 150 }, estimated_minutes: 252, includes_buffer: true, auto_package_hours: 5 },
+        { ...quoteOf(2, 44_000, kamakura(36_000)), package: { hours: hours ?? 4, km: 120 }, estimated_minutes: 240, includes_buffer: true, auto_package_hours: 4 },
+      ],
+    };
+  };
+  try {
+    const calls = open((call) => json(200, answer(call.body as Record<string, unknown>)));
+    const actor = user();
+    await screen.findByRole("button", { name: "添加经停点" }, SLOW);
+    await addStop(actor, "五合目", "30");
+    const options = async (): Promise<string[][]> => [...((await screen.findByLabelText(/^包车时长/, {}, SLOW)) as HTMLSelectElement).options].map((option) => [option.value, option.textContent ?? ""]);
+    await waitFor(async () => assert.deepEqual(await options(), [["", "自动（按车型 4–5 小时）"], ["6", "6 小时"], ["8", "8 小时"]]), SLOW);
+
+    await actor.click(screen.getByRole("button", { name: "下一步：选择车型" }));
+    const card = async (name: string): Promise<HTMLElement> => (await screen.findByRole("heading", { name }, SLOW)).closest("li") as HTMLElement;
+    // 车型卡：套餐那一行下面是这个车型自己的预计用时
+    assert.match((await card("车型1")).textContent ?? "", /包车套餐 5 小时预计用时 4 小时 12 分钟（含缓冲）33,000 JPY/);
+    assert.match((await card("车型1")).textContent ?? "", /行程加价（镰仓，2 · 经停）8,000 JPY/);
+    assert.match((await card("车型2")).textContent ?? "", /包车套餐 4 小时预计用时 4 小时（含缓冲）36,000 JPY/);
+
+    // 选车型1：下拉按它的 5 小时，不列 4、5 小时；只是显示变了，请求体不变（不带 package_hours）
+    await actor.click(within(await card("车型1")).getByRole("button", { pressed: false }));
+    await actor.click(screen.getByRole("button", { name: "上一步" }));
+    await waitFor(async () => assert.deepEqual(await options(), [["", "自动（5 小时）"], ["6", "6 小时"], ["8", "8 小时"]]), SLOW);
+    assert.equal("package_hours" in (quotes(calls).at(-1) as Record<string, unknown>), false);
+
+    // 换成车型2：按它的 4 小时，5 小时也能选
+    await actor.click(screen.getByRole("button", { name: "下一步：选择车型" }));
+    await actor.click(within(await card("车型2")).getByRole("button", { pressed: false }));
+    await actor.click(screen.getByRole("button", { name: "上一步" }));
+    await waitFor(async () => assert.deepEqual(await options(), [["", "自动（4 小时）"], ["5", "5 小时"], ["6", "6 小时"], ["8", "8 小时"]]), SLOW);
+  } finally {
+    packageHours = [8];
+  }
+});
+
+test("M9P-04：不填经停点、选的时长低于另一车型的最低套餐——写「有一个车型最短 10 小时」并给「改选 10 小时」，点了按 10 小时重新询价", async () => {
+  wideScreen();
+  packageHours = [8, 10];
+  const answer = (body: Record<string, unknown>): SiteQuoteResult =>
+    body["package_hours"] === 10
+      ? { currency: "JPY", quotes: [quoteOf(1, 99_000, [{ kind: "base", amount: yen(99_000), area_name: null, stop_seqs: null }]), quoteOf(2, 110_000, [{ kind: "base", amount: yen(110_000), area_name: null, stop_seqs: null }])], unavailable: [] }
+      : { ...plainResult, unavailable: [{ vehicle_group_id: "33333333-3333-4333-8333-333333333302", reasons: ["PACKAGE_TOO_SHORT"], min_package_hours: 10 }] };
+  try {
+    const calls = open((call) => json(200, answer(call.body as Record<string, unknown>)));
+    const actor = user();
+    await waitFor(() => assert.ok([...(screen.getByLabelText(/^包车时长/) as HTMLSelectElement).options].some((option) => option.value === "8")), SLOW);
+    await waitFor(async () => {
+      await actor.selectOptions(screen.getByLabelText(/^包车时长/), "8");
+      assert.equal((quotes(calls).at(-1) as Record<string, unknown> | undefined)?.["package_hours"], 8);
+    }, SLOW);
+    const next = screen.queryByRole("button", { name: "下一步：选择车型" });
+    if (next !== null) await actor.click(next);
+    await waitFor(() => assert.match(document.querySelector("main")?.textContent ?? "", /有一个车型最短 10 小时，选 8 小时订不了。/), SLOW);
+    assert.equal((quotes(calls).at(-1) as Record<string, unknown>)["package_hours"], 8);
+    await actor.click(screen.getByRole("button", { name: "改选 10 小时" }));
+    await waitFor(() => assert.equal((quotes(calls).at(-1) as Record<string, unknown>)["package_hours"], 10), SLOW);
+    await waitFor(() => assert.match(document.querySelector("main")?.textContent ?? "", /110,000 JPY/), SLOW);
+    assertAbsent(screen.queryByText(/最短 10 小时/));
+  } finally {
+    packageHours = [8];
   }
 });

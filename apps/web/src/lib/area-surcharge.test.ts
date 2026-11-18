@@ -87,6 +87,14 @@ test("汇总：一样写一个数，不一样写最小–最大；没填的组�
   assert.equal(commonAmount(rows, "fuji", "pickup", "JPY", TODAY), "");
 });
 
+test("只设了区域加价、基础定价里没有的套餐（M8-25）：填了的算进范围，没填的不算「没填」、不算进组合数", () => {
+  const rows = [surchargeRowFromRule(rule(), "JPY"), surchargeRowFromRule(rule({ id: "r12", package_hours: 12, pickup_surcharge: 3000 }), "JPY")];
+  const summary = areaSummary(rows, "fuji", ["g1", "g2"], [8, 12], "JPY", TODAY, [12]);
+  assert.deepEqual([summary.pickup, summary.missing, summary.total], [{ min: 1000, max: 3000 }, 1, 2]);
+  // 只看 12 小时：范围就是那一条，不提醒没填
+  assert.deepEqual([areaSummary(rows, "fuji", ["g1", "g2"], [12], "JPY", TODAY, [12]).pickup, areaSummary(rows, "fuji", ["g1", "g2"], [12], "JPY", TODAY, [12]).missing], [{ min: 3000, max: 3000 }, 0]);
+});
+
 test("一次给所有车型组和套餐填：空组合新填（空行就地填上），已经填了的按选择改最后一段或跳过", () => {
   const saved = surchargeRowFromRule(rule(), "JPY");
   const blank = { ...blankSurchargeRow("fuji", "g2", 8, TODAY) };

@@ -792,6 +792,17 @@ test("第 4 步 两道判断：点对点两端都要过；包车上车、下车�
   assert.equal(outcome(charter, { ...day(WEST, EAST), waypoints: [EAST] }), 98_000);
 });
 
+test("包车自己选档（M9P-03，ADR 0093 第四节）：最低套餐、不短于预计用时、在线下单上限各自的原因码", () => {
+  const pkg = (hours: number, priceMinor: number): PriceRule & { id: string } => ({ ...price({ model: "charter_package", packageKm: hours * 30, packagePriceMinor: priceMinor, overtimePerHourMinor: 5_000, overKmPerKmMinor: 400 }, { direction: null, packageHours: hours }), id: `pkg-${hours}` });
+  const charter = (charterItinerary: ServiceRules["charterItinerary"] = {}): QuoteProduct =>
+    product({ category: "charter", pickupPlace: null, priceRules: [pkg(5, 55_000), pkg(10, 98_000)], serviceRules: rules({ freeWait: { pickup: null, dropoff: null, general: { mode: "unlimited" } }, charterItinerary }) });
+  const day = (extra: Partial<QuoteRequest>): QuoteRequest => request({ category: "charter", direction: null, packageHours: 5, pickup: WEST, dropoff: EAST, charterSelection: "manual", ...extra });
+  assert.equal(outcome(charter({ minPackageHours: 10 }), day({})), "BELOW_MIN_PACKAGE");
+  assert.equal(outcome(charter(), day({ routeUsage: { meters: 100_000, minutes: 400 } })), "PACKAGE_TOO_SHORT");
+  assert.equal(outcome(charter(), day({ packageHours: null, charterSelection: "auto", routeUsage: { meters: 100_000, minutes: 800 } })), "ITINERARY_TOO_LONG");
+  assert.equal(outcome(charter(), day({ packageHours: null, charterSelection: "auto", routeUsage: { meters: 100_000, minutes: 400 } })), 98_000);
+});
+
 test("每一个报不出价的原因都有测试触发过（上面各条）", () => {
   assert.deepEqual(QUOTE_REFUSALS.filter((reason) => !seenRefusals.has(reason)), []);
 });

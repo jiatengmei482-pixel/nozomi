@@ -8,14 +8,13 @@
  */
 import { FX_CURRENCIES, MESSAGING_APPS, type MessagingApp, ORDER_FIELD_LIMITS } from "@nozomi/domain";
 import type { FormEvent, ReactNode, Ref } from "react";
-import type { MapTiles } from "../../../api/areas.ts";
 import type { SiteAddonOption, SiteFxReference, SiteMoney, SiteRoutePreview } from "../../../api/site.ts";
 import { AlertSlot, type Notice } from "../../../components/Alert.tsx";
 import { Button } from "../../../components/Button.tsx";
 import { SelectField } from "../../../components/FormFields.tsx";
 import { Icon } from "../../../components/Icon.tsx";
 import { TextField } from "../../../components/TextField.tsx";
-import { ADDON_QUANTITY, FX_REFERENCE_NOTE, RIDER_NAME_MAX, RIDER_PHONE_MAX, type TripPoint, decodePolyline, lockedRouteSummaryText, referenceMoney, routeSummaryText } from "../../../lib/book-new.ts";
+import { ADDON_QUANTITY, FX_REFERENCE_NOTE, RIDER_NAME_MAX, RIDER_PHONE_MAX, type TripPoint, lockedRouteSummaryText, referenceMoney, routeSummaryText } from "../../../lib/book-new.ts";
 import { moneyText } from "../../../lib/dispatch-display.ts";
 import { displayName } from "../../../lib/master-display.ts";
 import { CONSENT_HELP, CONSENT_TEXT, FIELD_HINTS, MESSAGING_NAMES, type OrderErrors } from "../../../lib/site-order-form.ts";
@@ -26,17 +25,16 @@ import { Stepper } from "./TravellersField.tsx";
 export const CONTACT_FORM_ID = "book-contact-form";
 
 /**
- * 路线：谷歌静态地图（M8-10，后端出图）+「约 X 分钟 · Y 公里」；平台还没开通静态地图时退回现有底图画折线（有折线和底图才画）；
- * 图出不来只写字；取不到路线（null）整块不显示。
+ * 路线：谷歌静态地图（M8-10，后端出图）+「约 X 分钟 · Y 公里」；图出不来（含平台还没开通静态地图）只写字，
+ * 不在非谷歌的底图上画谷歌的路线（M10-01）；取不到路线（null）整块不显示。
  */
-export function RouteBlock({ route, tiles, from, to, lockedMeters = null }: { route: SiteRoutePreview | null; tiles: MapTiles | null; from: TripPoint; to: TripPoint; lockedMeters?: number | null }) {
+export function RouteBlock({ route, from, to, lockedMeters = null }: { route: SiteRoutePreview | null; from: TripPoint; to: TripPoint; lockedMeters?: number | null }) {
   if (route === null) return null;
-  const points = route.polyline === null ? [] : decodePolyline(route.polyline);
   // 选了含公里数的车型（M8-13，规范 10.3）：公里数用报价锁定的路线、同一个取整（向上到 0.1 公里），和「公里数」那句话的 D 一样
   const text = lockedMeters === null ? routeSummaryText(route.minutes, route.meters) : lockedRouteSummaryText(route.minutes, lockedMeters);
   return (
     <div className="book-summary__block">
-      <RoutePicture from={from} to={to} points={points} tiles={tiles} label={`路线图：${from.name} → ${to.name}，${text}`} />
+      <RoutePicture from={from} to={to} label={`路线图：${from.name} → ${to.name}，${text}`} />
       <p className="book-summary__route">
         <Icon name="clock" />
         <span>{text}</span>
@@ -127,19 +125,24 @@ export function PriceBlock({
   );
 }
 
-/** 去付款（提交「怎么联系你」）和支付方式；报价过期时换成「重新查询价格」。 */
-export function PayBlock({ busy, expired, onRequote }: { busy: boolean; expired: boolean; onRequote(): void }) {
+/** 「去付款 →」（用 form 属性提交第 4 步的表单）；报价过期时换成「重新查询价格」。电脑在页面最下面，手机在底部按钮条里（M9E-32） */
+export function PayButton({ busy, expired, onRequote, block = false }: { busy: boolean; expired: boolean; onRequote(): void; block?: boolean }) {
+  return expired ? (
+    <Button variant="primary" size="lg" block={block} onClick={onRequote}>
+      重新查询价格
+    </Button>
+  ) : (
+    <Button type="submit" form={CONTACT_FORM_ID} variant="primary" size="lg" block={block} loading={busy} loadingText="正在提交">
+      去付款 →
+    </Button>
+  );
+}
+
+/** 支付方式和去付款；`button` 为 false（手机，按钮在底部按钮条里）时只写支付方式。 */
+export function PayBlock({ busy, expired, onRequote, button = true }: { busy: boolean; expired: boolean; onRequote(): void; button?: boolean }) {
+  // 按钮放在最后（业主验收意见 2026-11-16）：支付方式写在按钮上面，按钮下面不再有内容
   return (
     <div className="book-summary__block book-pay">
-      {expired ? (
-        <Button variant="primary" size="lg" block onClick={onRequote}>
-          重新查询价格
-        </Button>
-      ) : (
-        <Button type="submit" form={CONTACT_FORM_ID} variant="primary" size="lg" block loading={busy} loadingText="正在提交">
-          去付款 →
-        </Button>
-      )}
       <p className="book-pay__methods">
         <span>支付方式：</span>
         <span className="book-pay__method">
@@ -147,6 +150,7 @@ export function PayBlock({ busy, expired, onRequote }: { busy: boolean; expired:
           银行卡
         </span>
       </p>
+      {button && <PayButton busy={busy} expired={expired} onRequote={onRequote} block />}
     </div>
   );
 }
@@ -184,6 +188,7 @@ export function ContactSection({
   actions,
   headingRef,
   riderErrors = {},
+  notesHint,
 }: {
   form: ContactForm;
   errors: OrderErrors;
@@ -197,6 +202,8 @@ export function ContactSection({
   headingRef?: Ref<HTMLHeadingElement>;
   /** 为他人预订时乘车人两栏的校验结果 */
   riderErrors?: Partial<Record<"riderName" | "riderPhone", string>>;
+  /** 备注框下面的提示（包车机场场景：「如需司机知道航班号，请填在这里」，ADR 0098 第三节第 6 小节） */
+  notesHint?: string;
 }) {
   return (
     <section aria-labelledby="book-contact-title" className="site-section book-new__contact">
@@ -238,7 +245,12 @@ export function ContactSection({
           <label className="field__label" htmlFor="book-notes">
             给司机的备注（选填）
           </label>
-          <textarea id="book-notes" className="input textarea" rows={3} maxLength={ORDER_FIELD_LIMITS.notesMax} value={form.notes} aria-invalid={errors.notes ? true : undefined} aria-describedby={errors.notes ? "book-notes-error" : undefined} onChange={(event) => onChange({ notes: event.target.value })} />
+          <textarea id="book-notes" className="input textarea" rows={3} maxLength={ORDER_FIELD_LIMITS.notesMax} value={form.notes} aria-invalid={errors.notes ? true : undefined} aria-describedby={[errors.notes ? "book-notes-error" : null, notesHint !== undefined ? "book-notes-hint" : null].filter((id) => id !== null).join(" ") || undefined} onChange={(event) => onChange({ notes: event.target.value })} />
+          {notesHint !== undefined && (
+            <p className="field__hint" id="book-notes-hint">
+              {notesHint}
+            </p>
+          )}
           {errors.notes && (
             <p className="field__error" id="book-notes-error">
               <Icon name="alert-triangle" className="field__error-icon" />

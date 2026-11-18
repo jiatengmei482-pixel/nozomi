@@ -3,8 +3,8 @@
  * 这里把一份表单读成「接口的请求体 + @nozomi/domain 的规则对象 + 写错了的地方」。
  * 范围、上限、缺什么都问 @nozomi/domain（serviceRuleIssues / serviceRuleMissing）；这里只多管「字敲得不成样子」和「填了一半」。
  */
-import { DRIVER_LANGUAGES, type FreeWaitItem, type NightChargeUnit, PRODUCT_LIMITS, type RuleIssue, type ServiceCategory, type ServiceRuleContext, type ServiceRules, fixedFreeWaitIssues, fixedFreeWaitMinutes, freeWaitItems, normalizeDailyWindow, serviceRuleIssues } from "@nozomi/domain";
-import type { DailyWindowBody, FreeWaitBody, ServiceRulesBody } from "../api/products.ts";
+import { DEFAULT_CHARTER_ITINERARY, DRIVER_LANGUAGES, type FreeWaitItem, type NightChargeUnit, PRICE_LIMITS, PRODUCT_LIMITS, type RuleIssue, type ServiceCategory, type ServiceRuleContext, type ServiceRules, fixedFreeWaitIssues, fixedFreeWaitMinutes, freeWaitItems, normalizeDailyWindow, serviceRuleIssues } from "@nozomi/domain";
+import type { CharterItineraryBody, DailyWindowBody, FreeWaitBody, ServiceRulesBody } from "../api/products.ts";
 import { LANGUAGE_NAMES, amountText, readAmount } from "./product-display.ts";
 import { tidyDate, tidyTime } from "./time-input.ts";
 
@@ -24,6 +24,21 @@ export interface AddonField {
 export interface LanguageRow {
   language: string;
   price: string;
+}
+
+/**
+ * 包车按行程计价的配置（M9P-04，ADR 0091 第二节、0093 第二节第 4 小节）：经停点默认占用、整单缓冲（分钟，空着 = 0）、
+ * 最低套餐（小时，空着 = 不限）、下车点行程加价开关；超限提醒线（M9P-10：预计用时分钟、全程公里，空着 = 默认 720 / 360）。在线下单上限页面上不改（不提交，保留原值）。
+ */
+export interface ItineraryField {
+  dropoffSurcharge: boolean;
+  /** 经停顺序建议（M9P-20 P2，ADR 0096 第六节）：默认开 */
+  suggestStopOrder: boolean;
+  stopOccupancy: string;
+  buffer: string;
+  minPackage: string;
+  warnMinutes: string;
+  warnKm: string;
 }
 
 export interface RulesForm {
@@ -46,6 +61,8 @@ export interface RulesForm {
   wait: Record<FreeWaitItem, WaitField>;
   addons: Record<string, AddonField>;
   languages: LanguageRow[];
+  /** 只有包车有；别的品类为 null（不提交这一项） */
+  itinerary: ItineraryField | null;
 }
 
 export interface RulesFormContext extends ServiceRuleContext {
@@ -76,7 +93,7 @@ export function defaultNightUnit(category: ServiceCategory): NightChargeUnit {
 }
 
 /** 接口读到的规则 → 表单。从没保存过的免费等待预先填成「等 平台规定的最少分钟数」（保存这一步时才真的存下来）。 */
-export function formFromRules(body: ServiceRulesBody, context: Pick<RulesFormContext, "currency" | "category" | "minimums" | "firstFreeAllowed">): RulesForm {
+export function formFromRules(body: ServiceRulesBody, context: Pick<RulesFormContext, "currency" | "category" | "minimums" | "firstFreeAllowed"> & { pickupPlace?: RulesFormContext["pickupPlace"] | undefined }): RulesForm {
   const { booking, urgent, night } = body;
   const allDay = booking.service_time?.start === "00:00" && booking.service_time.end === "24:00";
   const fixed = fixedFreeWaitMinutes(context.category);
@@ -84,6 +101,10 @@ export function formFromRules(body: ServiceRulesBody, context: Pick<RulesFormCon
     // 平台固定的（包车 0）：不管以前存的是什么，表单里都是固定值，保存时就改成它
     if (fixed !== null) return { mode: "limited", minutes: String(fixed) };
     const saved = body.free_wait[item];
+    // 机场接机由平台按航班统一定（M9E-31）、页面只读：以前存的不到平台最少值的，表单里补到最少值，免得保存被一个看不到的输入框挡住
+    const minimum = context.minimums[item];
+    const airportPickup = item === "pickup" && context.category === "airport_transfer" && context.pickupPlace?.type !== "station";
+    if (airportPickup && saved !== null && saved.mode === "limited" && minimum !== null && saved.minutes < minimum) return { mode: "limited", minutes: String(minimum) };
     if (saved === null) return { mode: "limited", minutes: context.minimums[item] === null ? "" : String(context.minimums[item]) };
     return saved.mode === "unlimited" ? { mode: "unlimited", minutes: context.minimums[item] === null ? "" : String(context.minimums[item]) } : { mode: "limited", minutes: String(saved.minutes) };
   };
@@ -107,6 +128,24 @@ export function formFromRules(body: ServiceRulesBody, context: Pick<RulesFormCon
     wait: { pickup: wait("pickup"), dropoff: wait("dropoff"), general: wait("general") },
     addons: Object.fromEntries(body.addons.filter((addon) => addon.enabled).map((addon) => [addon.addon_id, { enabled: true, price: amountText(addon.unit_price, context.currency), firstFree: addon.first_free && context.firstFreeAllowed?.[addon.addon_id] !== false }])),
     languages: body.driver_languages.map((entry) => ({ language: entry.language, price: amountText(entry.unit_price, context.currency) })),
+    itinerary: context.category === "charter" ? itineraryField(body.charter_itinerary) : null,
+  };
+}
+
+/**
+ * 读回来的包车行程配置 → 表单。分钟数是 0（没设过，或设成了 0）时输入框空着，灰字占位写建议值——不预填建议值（ADR 0091 第二节第 1 小节）；
+ * 最低套餐不限时空着；开关没设过是开。
+ */
+function itineraryField(body: CharterItineraryBody | undefined): ItineraryField {
+  const minutes = (value: number | undefined): string => (value === undefined || value === 0 ? "" : String(value));
+  return {
+    dropoffSurcharge: body?.dropoff_itinerary_surcharge ?? true,
+    suggestStopOrder: body?.suggest_stop_order ?? true,
+    stopOccupancy: minutes(body?.stop_occupancy_minutes),
+    buffer: minutes(body?.buffer_minutes),
+    minPackage: body?.min_package_hours === null || body?.min_package_hours === undefined ? "" : String(body.min_package_hours),
+    warnMinutes: String(body?.warn_minutes ?? DEFAULT_CHARTER_ITINERARY.warnMinutes),
+    warnKm: String(body?.warn_km ?? DEFAULT_CHARTER_ITINERARY.warnKm),
   };
 }
 
@@ -150,6 +189,12 @@ export function rulePathTarget(path: string): string {
   if (wait) return `wait-${wait[1]}-minutes`;
   if (path.startsWith("/addons")) return "addons";
   if (path.startsWith("/driver_languages/")) return path.endsWith("unit_price") ? `language-${index}-price` : `language-${index}-select`;
+  if (path.startsWith("/charter_itinerary/stop_occupancy_minutes")) return "itinerary-stop-occupancy";
+  if (path.startsWith("/charter_itinerary/buffer_minutes")) return "itinerary-buffer";
+  if (path.startsWith("/charter_itinerary/min_package_hours")) return "itinerary-min-package";
+  if (path.startsWith("/charter_itinerary/warn_minutes")) return "itinerary-warn-minutes";
+  if (path.startsWith("/charter_itinerary/warn_km")) return "itinerary-warn-km";
+  if (path.startsWith("/charter_itinerary")) return "itinerary-dropoff";
   return "service-time-start";
 }
 
@@ -273,6 +318,37 @@ export function readRulesForm(form: RulesForm, context: RulesFormContext): Rules
     if (price !== null && row.language !== "" && usedLanguages.get(row.language) === index) languages.push({ language: row.language, unit_price: price });
   });
 
+  // 包车按行程计价的配置：分钟数空着 = 0，最低套餐空着 = 不限
+  let itinerary: Required<Omit<CharterItineraryBody, "max_online_minutes">> | null = null;
+  if (form.itinerary !== null) {
+    const minutes = (text: string, max: number, target: string, label: string): number => {
+      const tidy = tidyNumber(text);
+      if (tidy === "") return 0;
+      if (INTEGER.test(tidy) && Number(tidy) <= max) return Number(tidy);
+      problems.push({ text: `${label}：请填 0 到 ${max} 之间的整数（分钟）`, target });
+      return 0;
+    };
+    const stopOccupancy = minutes(form.itinerary.stopOccupancy, PRODUCT_LIMITS.maxStopOccupancyMinutes, "itinerary-stop-occupancy", "经停点默认占用");
+    const buffer = minutes(form.itinerary.buffer, PRODUCT_LIMITS.maxBufferMinutes, "itinerary-buffer", "整单缓冲");
+    const minText = tidyNumber(form.itinerary.minPackage);
+    let minPackage: number | null = null;
+    if (minText !== "") {
+      if (INTEGER.test(minText) && Number(minText) >= 1 && Number(minText) <= PRICE_LIMITS.maxPackageHours) minPackage = Number(minText);
+      else problems.push({ text: `最低套餐：请填 1 到 ${PRICE_LIMITS.maxPackageHours} 之间的整数（小时），不限请留空`, target: "itinerary-min-package" });
+    }
+    // 超限提醒线（M9P-10）：空着 = 默认值；范围同服务端
+    const ranged = (text: string, fallback: number, min: number, max: number, target: string, label: string, unit: string): number => {
+      const tidy = tidyNumber(text);
+      if (tidy === "") return fallback;
+      if (INTEGER.test(tidy) && Number(tidy) >= min && Number(tidy) <= max) return Number(tidy);
+      problems.push({ text: `${label}：请填 ${min} 到 ${max} 之间的整数（${unit}）`, target });
+      return fallback;
+    };
+    const warnMinutes = ranged(form.itinerary.warnMinutes, DEFAULT_CHARTER_ITINERARY.warnMinutes, PRODUCT_LIMITS.minWarnMinutes, PRODUCT_LIMITS.maxWarnMinutes, "itinerary-warn-minutes", "预计用时提醒线", "分钟");
+    const warnKm = ranged(form.itinerary.warnKm, DEFAULT_CHARTER_ITINERARY.warnKm, PRODUCT_LIMITS.minWarnKm, PRODUCT_LIMITS.maxWarnKm, "itinerary-warn-km", "全程提醒线", "公里");
+    itinerary = { dropoff_itinerary_surcharge: form.itinerary.dropoffSurcharge, stop_occupancy_minutes: stopOccupancy, buffer_minutes: buffer, min_package_hours: minPackage, warn_minutes: warnMinutes, warn_km: warnKm, suggest_stop_order: form.itinerary.suggestStopOrder };
+  }
+
   const body: ServiceRulesBody = {
     booking: { sale_from: saleFrom, sale_to: saleTo, service_time: serviceTime, lead_time_hours: leadTime, note },
     urgent: { enabled: form.urgent, daily_quota: quota, tiers },
@@ -280,6 +356,7 @@ export function readRulesForm(form: RulesForm, context: RulesFormContext): Rules
     free_wait: freeWait,
     addons,
     driver_languages: languages,
+    ...(itinerary === null ? {} : { charter_itinerary: itinerary }),
   };
   const rules: ServiceRules = {
     booking: { saleFrom, saleTo, serviceTime: camelWindow(serviceTime), leadTimeHours: leadTime, note },
@@ -288,6 +365,7 @@ export function readRulesForm(form: RulesForm, context: RulesFormContext): Rules
     freeWait,
     addons: addons.map((addon) => ({ addonId: addon.addon_id, enabled: true, unitPriceMinor: addon.unit_price, firstFree: addon.first_free })),
     driverLanguages: languages.map((entry) => ({ language: entry.language, unitPriceMinor: entry.unit_price })),
+    ...(itinerary === null ? {} : { charterItinerary: { dropoffItinerarySurcharge: itinerary.dropoff_itinerary_surcharge, stopOccupancyMinutes: itinerary.stop_occupancy_minutes, bufferMinutes: itinerary.buffer_minutes, minPackageHours: itinerary.min_package_hours, warnMinutes: itinerary.warn_minutes, warnKm: itinerary.warn_km, suggestStopOrder: itinerary.suggest_stop_order } }),
   };
   // 兜底：域里的规则还认为不对、而上面没有报过的（正常不会有）
   const reported = new Set(problems.map((problem) => problem.target));

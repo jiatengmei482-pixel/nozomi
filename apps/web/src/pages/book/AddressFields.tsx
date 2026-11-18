@@ -7,19 +7,23 @@
  * 报价只看坐标；地址文字给司机看。之后手改地址或坐标，「选中的常用地点」随之清掉。
  */
 import { ORDER_FIELD_LIMITS, normalizePlaceQuery, placeQueryIssue } from "@nozomi/domain";
-import { type KeyboardEvent, useId, useRef, useState } from "react";
+import { type KeyboardEvent, useId, useRef, useState, lazy, Suspense } from "react";
 import { ApiError } from "../../api/client.ts";
 import type { MapTiles } from "../../api/areas.ts";
 import { type SitePlace, type SitePlaceCandidate, reverseSitePlace, searchSitePlaces } from "../../api/site.ts";
 import { Button } from "../../components/Button.tsx";
 import { Combobox, type ComboboxOption } from "../../components/Combobox.tsx";
 import { type CoordinateValue, CoordinateInput } from "../../components/FormFields.tsx";
+import { GoogleMapsAttribution } from "../../components/GoogleMapsAttribution.tsx";
 import { Icon } from "../../components/Icon.tsx";
 import { TextField } from "../../components/TextField.tsx";
 import { displayName } from "../../lib/master-display.ts";
 import { placeQueryMatches } from "../../lib/place-search.ts";
 import { SITE_PLACE_TYPE_NAMES } from "../../lib/site-display.ts";
-import { type LatLngValue, SiteMapPicker } from "./SiteMapPicker.tsx";
+import type { LatLngValue } from "./SiteMapPicker.tsx";
+import { GoogleMapPicker } from "./GoogleMapPicker.tsx";
+/** 地图按需加载（M9E-25）：Leaflet 单独成包，打开地图时才下载，嵌入页和其他页面的首包里没有 Leaflet */
+const SiteMapPicker = lazy(() => import("./SiteMapPicker.tsx").then((module) => ({ default: module.SiteMapPicker })));
 
 export interface PointDraft {
   address: string;
@@ -45,7 +49,15 @@ export interface AddressLookup {
   center: LatLngValue;
   search: boolean;
   tiles: MapTiles | null;
+  /** 谷歌地图的浏览器密钥（M10-01 第 2 处）：有就只用谷歌地图选点，加载不出来时收起地图；没有照旧用开源地图 */
+  mapsKey: string | null;
 }
+
+/**
+ * 这个地址今天调谷歌的额度用完了（M8-45，应答带 `unavailable_reason: "IP_DAILY_LIMIT"`）：新预订页的输入即提示（含手机全屏选择页、经停点）和旧 /book 的地址搜索都用这一句开头。
+ * 和「输入太快了」（每分钟限流 429）、「暂时用不了」（谷歌出错、全站上限）分开说。
+ */
+export const PLACES_DAILY_LIMIT_TEXT = "今天的地址提示次数用完了";
 
 /**
  * 地址栏里写什么：名称，有地址时带上地址「名称（地址）」。
@@ -107,7 +119,7 @@ type SearchState =
 
 const FALLBACK = "可以从常用地点选，或在地图上点选、直接填写地址和坐标。";
 
-/** 地址搜索：按「搜索」或回车才查（每次都可能花钱），结果是一列按钮。 */
+/** 地址搜索：按「搜索」或回车才查（每次都可能花钱），结果是一列按钮；有谷歌的候选时列表末尾署名「Google Maps」（M9E-06）。 */
 function AddressSearch({ word, lookup, onPick }: { word: string; lookup: AddressLookup; onPick(candidate: SitePlaceCandidate): void }) {
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -127,7 +139,7 @@ function AddressSearch({ word, lookup, onPick }: { word: string; lookup: Address
     try {
       const found = await searchSitePlaces(lookup.cityId, normalized);
       if (mine !== round.current) return;
-      if (!found.available) setState({ kind: "unavailable", text: `地址搜索暂时用不了。${FALLBACK}` });
+      if (!found.available) setState({ kind: "unavailable", text: found.unavailable_reason === "IP_DAILY_LIMIT" ? `${PLACES_DAILY_LIMIT_TEXT}。${FALLBACK}` : `地址搜索暂时用不了。${FALLBACK}` });
       else setState(found.items.length === 0 ? { kind: "empty" } : { kind: "results", items: found.items });
     } catch (err) {
       if (mine !== round.current) return;
@@ -196,6 +208,7 @@ function AddressSearch({ word, lookup, onPick }: { word: string; lookup: Address
           ))}
         </ul>
       )}
+      {state.kind === "results" && <GoogleMapsAttribution items={state.items} />}
     </div>
   );
 }
@@ -226,6 +239,10 @@ export function AddressFields({
   // 城市里一个常用地点都没有时不显示这一栏（没什么可选的）
   const showPicker = places.kind !== "ready" || items.length > 0;
   const [mapOpen, setMapOpen] = useState(false);
+  /** 谷歌地图加载不出来（中国大陆的网络、密钥被拒）：收起地图，提示用搜索或直接写地址和坐标 */
+  const [mapUnavailable, setMapUnavailable] = useState(false);
+  const google = lookup !== null && lookup.mapsKey !== null && !mapUnavailable;
+  const canMap = google || (lookup !== null && lookup.mapsKey === null && lookup.tiles !== null);
   const [reverse, setReverse] = useState<ReverseState>({ kind: "idle" });
   const mapId = useId();
   // 反查是异步的：回来时用最新的值，并且只在坐标还是那一个时才填地址
@@ -318,7 +335,7 @@ export function AddressFields({
         value={value.coordinates}
         errors={{ lat: errors.lat ?? null, lng: errors.lng ?? null }}
         hint={
-          lookup !== null && (lookup.search || lookup.tiles !== null)
+          lookup !== null && (lookup.search || canMap)
             ? "搜索、选常用地点或在地图上选点都会自动填好；也可以在手机地图里长按这个地点，整段粘贴「纬度, 经度」。用来确认地点在服务范围内。"
             : "在手机地图里长按这个地点就能看到坐标，可以整段粘贴「纬度, 经度」。用来确认地点在服务范围内。"
         }
@@ -327,7 +344,13 @@ export function AddressFields({
           onChange({ ...value, coordinates, placeId: null });
         }}
       />
-      {lookup !== null && lookup.tiles !== null && (
+      {mapUnavailable && (
+        <p className="site-address__status site-address__status--warning" role="status">
+          <Icon name="alert-triangle" />
+          地图加载不出来（可能是网络原因）。请用上面的搜索，或直接写上地址和坐标。
+        </p>
+      )}
+      {lookup !== null && canMap && (
         // 上车、下车的地图可以同时展开：各自放进带名称的分组，读屏听得出「放大地图」「选地图中间这个位置」是哪一个地点的
         <div className="site-address__map" role="group" aria-label={`${word}地点的地图`}>
           <Button className="site-address__map-toggle" size="lg" aria-expanded={mapOpen} aria-controls={mapId} onClick={() => setMapOpen((open) => !open)}>
@@ -335,12 +358,20 @@ export function AddressFields({
             {mapOpen ? "收起地图" : `在地图上选${word}地点`}
           </Button>
           <div id={mapId} hidden={!mapOpen}>
-            {mapOpen && <SiteMapPicker tiles={lookup.tiles} center={lookup.center} point={current} word={word} onPick={(point) => void pickOnMap(point)} />}
+            {mapOpen &&
+              (google && lookup.mapsKey !== null ? (
+                <GoogleMapPicker apiKey={lookup.mapsKey} center={lookup.center} point={current} word={word} onPick={(point) => void pickOnMap(point)} onUnavailable={() => {
+                    setMapOpen(false);
+                    setMapUnavailable(true);
+                  }} />
+              ) : lookup.tiles !== null ? (
+                <Suspense fallback={null}><SiteMapPicker tiles={lookup.tiles} center={lookup.center} point={current} word={word} onPick={(point) => void pickOnMap(point)} /></Suspense>
+              ) : null)}
           </div>
           {reverseStatus}
         </div>
       )}
-      {(lookup === null || lookup.tiles === null) && reverseStatus}
+      {(lookup === null || !canMap) && reverseStatus}
     </div>
   );
 }
