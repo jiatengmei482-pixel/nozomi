@@ -24132,11 +24132,15 @@ components:
           oneOf:
             - $ref: "#/components/schemas/Boundary"
             - type: "null"
+    AreaSharing:
+      type: string
+      enum: [ shared, own ]
+      description: 区域分类（ADR 0102）：shared 平台共享（「·通用」，多家供应商可用）/ own 供应商独立。重叠只在同一分类里算；两类重叠时报价按供应商独立优先
     AreaSummary:
       type: object
       additionalProperties: false
       description: 列表里的一项：不带图形的坐标
-      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, shape_version, shared_source, created_at, updated_at ]
+      required: [ id, name, city_id, city, biz_type, role, status, sharing, operate_polygon_count, forbid_polygon_count, usage, version, shape_version, shared_source, created_at, updated_at ]
       properties:
         id:
           type: string
@@ -24157,6 +24161,8 @@ components:
           $ref: "#/components/schemas/AreaRole"
         status:
           $ref: "#/components/schemas/MasterDataStatus"
+        sharing:
+          $ref: "#/components/schemas/AreaSharing"
         operate_polygon_count:
           type: integer
           minimum: 0
@@ -24197,7 +24203,7 @@ components:
       type: object
       additionalProperties: false
       description: 区域的详情：比列表项多全部图形，和「超出运营区域」的提醒
-      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, shape_version, shared_source, created_at, updated_at, polygons, outside_operating_m2 ]
+      required: [ id, name, city_id, city, biz_type, role, status, sharing, operate_polygon_count, forbid_polygon_count, usage, version, shape_version, shared_source, created_at, updated_at, polygons, outside_operating_m2 ]
       properties:
         id:
           type: string
@@ -24216,6 +24222,8 @@ components:
           $ref: "#/components/schemas/AreaRole"
         status:
           $ref: "#/components/schemas/MasterDataStatus"
+        sharing:
+          $ref: "#/components/schemas/AreaSharing"
         operate_polygon_count:
           type: integer
           minimum: 0
@@ -24269,7 +24277,7 @@ components:
       type: object
       additionalProperties: false
       description: 修改（或切换到共享库新版本）之后的区域：和区域详情 `Area` 相同；图形变了、而且用到它的包车商品里有三层重叠时另带 `charter_layer_overlaps`（M9P-13，只提醒）
-      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, shape_version, shared_source, created_at, updated_at, polygons, outside_operating_m2 ]
+      required: [ id, name, city_id, city, biz_type, role, status, sharing, operate_polygon_count, forbid_polygon_count, usage, version, shape_version, shared_source, created_at, updated_at, polygons, outside_operating_m2 ]
       properties:
         id:
           $ref: "#/components/schemas/Area/properties/id"
@@ -24285,6 +24293,8 @@ components:
           $ref: "#/components/schemas/Area/properties/role"
         status:
           $ref: "#/components/schemas/Area/properties/status"
+        sharing:
+          $ref: "#/components/schemas/AreaSharing"
         operate_polygon_count:
           $ref: "#/components/schemas/Area/properties/operate_polygon_count"
         forbid_polygon_count:
@@ -24387,7 +24397,7 @@ components:
       type: object
       additionalProperties: false
       description: 区域地图的一项：和区域详情相同（带全部图形），另带最近修改人
-      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, shape_version, shared_source, created_at, updated_at, polygons, outside_operating_m2, last_editor ]
+      required: [ id, name, city_id, city, biz_type, role, status, sharing, operate_polygon_count, forbid_polygon_count, usage, version, shape_version, shared_source, created_at, updated_at, polygons, outside_operating_m2, last_editor ]
       properties:
         id:
           type: string
@@ -24406,6 +24416,8 @@ components:
           $ref: "#/components/schemas/AreaRole"
         status:
           $ref: "#/components/schemas/MasterDataStatus"
+        sharing:
+          $ref: "#/components/schemas/AreaSharing"
         operate_polygon_count:
           type: integer
           minimum: 0
@@ -24461,7 +24473,7 @@ components:
       type: object
       additionalProperties: false
       description: 运营后台区域地图的一项：和供应商后台的 `AreaMapItem` 相同，另带所属供应商
-      required: [ id, name, city_id, city, biz_type, role, status, operate_polygon_count, forbid_polygon_count, usage, version, shape_version, shared_source, created_at, updated_at, polygons, outside_operating_m2, last_editor, tenant_id, tenant ]
+      required: [ id, name, city_id, city, biz_type, role, status, sharing, operate_polygon_count, forbid_polygon_count, usage, version, shape_version, shared_source, created_at, updated_at, polygons, outside_operating_m2, last_editor, tenant_id, tenant ]
       properties:
         id:
           type: string
@@ -24480,6 +24492,8 @@ components:
           $ref: "#/components/schemas/AreaRole"
         status:
           $ref: "#/components/schemas/MasterDataStatus"
+        sharing:
+          $ref: "#/components/schemas/AreaSharing"
         operate_polygon_count:
           type: integer
           minimum: 0

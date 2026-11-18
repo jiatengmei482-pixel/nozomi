@@ -1,7 +1,7 @@
 /**
  * 区域列表（docs/design/pages/tenant-areas.md 第 2 节）：找和管；看形状进编辑页，这里不放地图。
  */
-import { AREA_BIZ_TYPES, AREA_BIZ_TYPE_NAMES, AREA_ROLES, type AreaBizType, type AreaRole, type MasterDataStatus } from "@nozomi/domain";
+import { AREA_BIZ_TYPES, AREA_BIZ_TYPE_NAMES, AREA_ROLES, AREA_SHARING_NAMES, type AreaBizType, type AreaRole, type MasterDataStatus } from "@nozomi/domain";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { type AreaSummary, listAreas, listTenantCities } from "../../api/areas.ts";
@@ -201,6 +201,8 @@ export function AreaListPage() {
     },
     { key: "biz", header: "业务类型", cell: (row) => <span className="tag">{AREA_BIZ_TYPE_NAMES[row.biz_type]}</span> },
     { key: "role", header: "用途", cell: (row) => <span className="tag">{roleName(roleOf(row))}</span> },
+    // 分类（ADR 0102）：平台共享 / 供应商独立；重叠只在同一分类里算，两类重叠时报价按供应商独立优先
+    { key: "sharing", header: "分类", cell: (row) => <span className="tag">{AREA_SHARING_NAMES[row.sharing ?? "own"]}</span> },
     { key: "operate", header: "营运区", align: "end", cell: (row) => row.operate_polygon_count },
     { key: "forbid", header: "禁行区", align: "end", cell: (row) => row.forbid_polygon_count },
     {

@@ -34,6 +34,14 @@ export type AreaRole = (typeof AREA_ROLES)[number];
 
 export const AREA_ROLE_NAMES: Readonly<Record<AreaRole, string>> = { operating: "运营区域", pricing: "报价区域", both: "运营 + 报价" };
 
+/**
+ * 区域分类（ADR 0102，业主 2026-11-18）：平台共享（「·通用」，多家供应商可用）/ 供应商独立。
+ * 重叠只在同一分类里算；两类重叠时报价按「供应商独立优先」（`locateInAreas`）。没有标记的都是供应商独立。
+ */
+export const AREA_SHARINGS = ["shared", "own"] as const;
+export type AreaSharing = (typeof AREA_SHARINGS)[number];
+export const AREA_SHARING_NAMES: Readonly<Record<AreaSharing, string>> = { shared: "平台共享", own: "供应商独立" };
+
 /** 能不能被商品勾选、挂价格（商品区域、包车区域加价、点对点线路价的两端）：报价区域和「运营 + 报价」 */
 export function areaRoleCanPrice(role: AreaRole): boolean {
   return role !== "operating";

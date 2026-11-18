@@ -445,7 +445,7 @@ export async function updateArea(
     }
     // 运营范围可能变小（图形、业务类型、用途变了）：已上架商品的报价区域不能因此多出「不在运营区域里」的部分
     if (areaRoleCanOperate(current.role) && current.status === "active" && (polygonsChanged || bizTypeChanged || roleChanged)) {
-      await assertOperatingKept(db, tenantId, { areaId: id, after: { id, bizType: input.bizType, role, status: current.status, polygons: drafts.map((draft) => ({ kind: draft.kind, ring: draft.ring })) } });
+      await assertOperatingKept(db, tenantId, { areaId: id, after: { id, bizType: input.bizType, role, status: current.status, sharing: current.sharing, polygons: drafts.map((draft) => ({ kind: draft.kind, ring: draft.ring })) } });
     }
 
     const nameKeys = areaNameKeys(input.name);

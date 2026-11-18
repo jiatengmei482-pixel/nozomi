@@ -2,7 +2,7 @@
  * 供应商后台：区域、地图底图配置、首页数量、选城市和参考点用的平台主数据（只读）。
  * 类型手写，与 `apps/api/openapi.yaml` 对账（`areas.contract.test.ts`）。
  */
-import type { AreaBizType, AreaPolygonKind, AreaPolygonSource, AreaRole, LocalizedText, MasterDataStatus, PlaceType, ProductStatus, ServiceCategory } from "@nozomi/domain";
+import type { AreaBizType, AreaPolygonKind, AreaPolygonSource, AreaRole, AreaSharing, LocalizedText, MasterDataStatus, PlaceType, ProductStatus, ServiceCategory } from "@nozomi/domain";
 import { apiRequest } from "./client.ts";
 import type { City, MasterPage, Place, Point } from "./master.ts";
 
@@ -50,6 +50,8 @@ export interface AreaSummary {
   /** 用途（M8-20，ADR 0075）：运营区域 / 报价区域 / 运营 + 报价。页面改版前可能没有这一项 */
   role?: AreaRole;
   status: MasterDataStatus;
+  /** 分类（ADR 0102）：shared 平台共享 / own 供应商独立。旧接口没有这一项，按 own */
+  sharing?: AreaSharing;
   operate_polygon_count: number;
   forbid_polygon_count: number;
   usage: AreaUsage;
@@ -292,7 +294,7 @@ export function listTenantPlaces(token: string, cityId: string, type: PlaceType)
 }
 
 /** 对账用：每个类型的字段名清单。 */
-const SUMMARY = ["id", "name", "city_id", "city", "biz_type", "role", "status", "operate_polygon_count", "forbid_polygon_count", "usage", "version", "shape_version", "shared_source", "created_at", "updated_at"] as const;
+const SUMMARY = ["id", "name", "city_id", "city", "biz_type", "role", "status", "sharing", "operate_polygon_count", "forbid_polygon_count", "usage", "version", "shape_version", "shared_source", "created_at", "updated_at"] as const;
 const SHARED = ["id", "city_id", "name", "shape_version", "operate_polygon_count", "forbid_polygon_count", "updated_at"] as const;
 export const AREA_SCHEMA_FIELDS = {
   AreaSummary: SUMMARY,
