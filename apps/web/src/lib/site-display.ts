@@ -12,6 +12,8 @@ import type { BadgeSpec } from "../components/StatusBadge.tsx";
 export const SITE_HOME_PATH = "/book";
 export const SITE_CHECKOUT_PATH = "/book/checkout";
 export const SITE_ORDER_PATH = "/book/order";
+/** 多日行程报价页（M9T-09，ADR 0101 第十三节）：验收通过前不在任何导航里放入口，只能直接打开地址 */
+export const SITE_TRIP_PATH = "/book/trip";
 
 /** 客人看到的服务名称（M3-10）。 */
 export const SITE_CATEGORY_NAMES: Readonly<Record<SiteCategory, string>> = { airport_transfer: "接送机", point_to_point: "点对点", charter: "包车" };

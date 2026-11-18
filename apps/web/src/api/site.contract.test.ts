@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 import { API_PATH_PREFIXES } from "../lib/api-prefixes.ts";
 import { UNAVAILABLE_REASON_TEXT } from "../lib/site-display.ts";
-import { SITE_BASE, SITE_ROUTE_MAP_LIMITS, siteRouteMapUrl, SITE_FX_REFERENCE_FIELDS, SITE_BY_POINTS_REQUEST_FIELDS, SITE_BY_POINTS_RESULT_FIELDS, SITE_ORDER_FIELDS, SITE_ORDER_REQUEST_FIELDS, SITE_ORDER_VEHICLE_GROUP_FIELDS, SITE_QUOTE_REQUEST_FIELDS, SITE_SCHEMA_FIELDS, SITE_TRIP_END_FIELDS, SITE_MANUAL_QUOTE_PATH, SITE_MANUAL_QUOTE_REQUEST_FIELDS, SITE_MANUAL_QUOTE_TRIP_FIELDS } from "./site.ts";
+import { SITE_BASE, SITE_ROUTE_MAP_LIMITS, siteRouteMapUrl, SITE_FX_REFERENCE_FIELDS, SITE_BY_POINTS_REQUEST_FIELDS, SITE_BY_POINTS_RESULT_FIELDS, SITE_ORDER_FIELDS, SITE_ORDER_REQUEST_FIELDS, SITE_ORDER_VEHICLE_GROUP_FIELDS, SITE_QUOTE_REQUEST_FIELDS, SITE_SCHEMA_FIELDS, SITE_TRIP_END_FIELDS, SITE_MANUAL_QUOTE_PATH, SITE_MANUAL_QUOTE_REQUEST_FIELDS, SITE_MANUAL_QUOTE_TRIP_FIELDS, SITE_TRIPS_PATH, SITE_TRIP_CREATED_FIELDS, SITE_TRIP_DAY_FIELDS, SITE_TRIP_FEE_FIELDS, SITE_TRIP_FIELDS, SITE_TRIP_ITEM_FIELDS, SITE_TRIP_ITEM_KINDS, SITE_TRIP_ITINERARY_FIELDS, SITE_TRIP_PARTY_FIELDS, SITE_TRIP_PLAN_DAY_FIELDS, SITE_TRIP_PLAN_FIELDS, SITE_TRIP_PLAN_KINDS, SITE_TRIP_SEGMENT_FIELDS, SITE_TRIP_UNQUOTED_FIELDS } from "./site.ts";
 
 interface Schema {
   $ref?: string;
@@ -14,6 +14,7 @@ interface Schema {
   properties?: Record<string, Schema>;
   items?: Schema;
   oneOf?: Schema[];
+  allOf?: Schema[];
   enum?: string[];
 }
 interface Operation {
@@ -47,6 +48,9 @@ test("前端用到的官网接口都在 openapi.yaml 里；订单页的接口要
     ["post", `${SITE_BASE}/orders`],
     ["post", `${SITE_BASE}/orders/lookup`],
     ["post", SITE_MANUAL_QUOTE_PATH],
+    ["post", SITE_TRIPS_PATH],
+    ["get", `${SITE_TRIPS_PATH}/{id}`],
+    ["post", `${SITE_TRIPS_PATH}/{id}/quote`],
   ];
   const guarded: [string, string][] = [
     ["get", `${SITE_BASE}/order`],
@@ -202,4 +206,96 @@ test("包车行程逐段的时长和里程（M9P-20）：应答字段和 openapi
   const schema = (spec.paths[`${SITE_BASE}/itinerary-legs`]?.["get"] as unknown as { responses: Record<string, { content: Record<string, { schema: Schema }> }> }).responses["200"]?.content["application/json"]?.schema;
   assert.deepEqual(props(schema), ["available", "legs"]);
   assert.deepEqual(props(schema?.properties?.["legs"]?.items), ["meters", "minutes"]);
+});
+
+test("行程报价（M9T-03 / M9T-09）：建行程单的请求体、应答，读行程单 / 报价的应答逐层和 openapi.yaml 一致；对客应答没有结算价、加价比例、供应商编号", () => {
+  interface Responses {
+    requestBody?: { content: Record<string, { schema: Schema }> };
+    responses: Record<string, { content?: Record<string, { schema: Schema }> }>;
+  }
+  const op = (method: string, path: string): Responses => spec.paths[path]?.[method] as unknown as Responses;
+  const ref = (schema: Schema | undefined): Schema | undefined => (schema?.$ref === undefined ? schema : schemas[schema.$ref.replace("#/components/schemas/", "")]);
+  assert.equal(SITE_TRIPS_PATH, `${SITE_BASE}/trips`);
+
+  // 请求体：标准行程单（camelCase）
+  const body = ref(op("post", SITE_TRIPS_PATH).requestBody?.content["application/json"]?.schema);
+  assert.equal(body, schemas["TripItinerary"]);
+  assert.deepEqual(props(body), sorted(SITE_TRIP_ITINERARY_FIELDS));
+  assert.deepEqual(sorted(body?.required ?? []), ["days", "party", "schemaVersion"]);
+  assert.deepEqual(body?.properties?.["schemaVersion"]?.enum, [1]);
+  assert.deepEqual(props(body?.properties?.["party"]), sorted(SITE_TRIP_PARTY_FIELDS));
+  assert.deepEqual(body?.properties?.["party"]?.required, ["adults"]);
+  const day = body?.properties?.["days"]?.items;
+  assert.deepEqual(props(day), sorted(SITE_TRIP_DAY_FIELDS));
+  assert.deepEqual(sorted(day?.required ?? []), ["date", "items"]);
+  const item = day?.properties?.["items"]?.items;
+  assert.deepEqual(props(item), sorted(SITE_TRIP_ITEM_FIELDS));
+  assert.deepEqual(sorted(item?.required ?? []), ["kind", "place"]);
+  assert.deepEqual(item?.properties?.["kind"]?.enum, [...SITE_TRIP_ITEM_KINDS]);
+  const places = item?.properties?.["place"]?.oneOf ?? [];
+  assert.deepEqual(places.map((place) => props(place)), [["placeId"], ["kind", "lat", "lng"]], "平台地点或坐标（可带种类）");
+  assert.deepEqual(places[1]?.properties?.["kind"]?.enum, ["hotel", "poi", "address"]);
+  assert.deepEqual(props(day?.properties?.["nightAt"]), ["lat", "lng"]);
+
+  // 建好的应答
+  const created = op("post", SITE_TRIPS_PATH).responses["201"]?.content?.["application/json"]?.schema;
+  assert.deepEqual(props(created), sorted(SITE_TRIP_CREATED_FIELDS));
+  assert.deepEqual(sorted(created?.required ?? []), sorted(SITE_TRIP_CREATED_FIELDS));
+
+  // 读行程单、报价：同一份 SiteTrip
+  for (const [method, path] of [["get", `${SITE_TRIPS_PATH}/{id}`], ["post", `${SITE_TRIPS_PATH}/{id}/quote`]] as const) {
+    assert.equal(op(method, path).responses["200"]?.content?.["application/json"]?.schema?.$ref, "#/components/schemas/SiteTrip", path);
+  }
+  assert.ok(op("post", `${SITE_TRIPS_PATH}/{id}/quote`).responses["422"], "太复杂 422 TRIP_TOO_COMPLEX");
+  assert.ok(op("post", `${SITE_TRIPS_PATH}/{id}/quote`).responses["429"], "限频 429");
+  const trip = schemas["SiteTrip"];
+  assert.deepEqual(props(trip), sorted(SITE_TRIP_FIELDS));
+  assert.deepEqual(sorted(trip?.required ?? []), sorted(SITE_TRIP_FIELDS));
+  assert.equal(trip?.properties?.["itinerary"]?.$ref, "#/components/schemas/TripItinerary");
+  const plan = trip?.properties?.["plans"]?.items;
+  assert.deepEqual(props(plan), sorted(SITE_TRIP_PLAN_FIELDS));
+  assert.deepEqual(sorted(plan?.required ?? []), sorted(SITE_TRIP_PLAN_FIELDS));
+  assert.deepEqual(plan?.properties?.["kind"]?.enum, [...SITE_TRIP_PLAN_KINDS]);
+  assert.deepEqual(props(plan?.properties?.["vehicle_group"]?.oneOf?.[0]), ["code", "id", "name", "seats"]);
+  assert.deepEqual(plan?.properties?.["warnings"]?.items?.properties?.["code"]?.enum, ["SECOND_DRIVER", "SEGMENT_OTHER_VEHICLE", "WORK_HOURS_HARD_LIMIT"]);
+  const planDay = plan?.properties?.["days"]?.items;
+  assert.deepEqual(props(planDay), sorted(SITE_TRIP_PLAN_DAY_FIELDS));
+  assert.deepEqual(sorted(planDay?.required ?? []), sorted(SITE_TRIP_PLAN_DAY_FIELDS));
+  const segment = planDay?.properties?.["segments"]?.items;
+  assert.deepEqual(props(segment), sorted(SITE_TRIP_SEGMENT_FIELDS));
+  assert.deepEqual(sorted(segment?.required ?? []), sorted(SITE_TRIP_SEGMENT_FIELDS));
+  assert.deepEqual(segment?.properties?.["type"]?.enum, ["airport_pickup", "airport_dropoff", "p2p", "charter", "idle_day"]);
+  assert.equal(planDay?.properties?.["fees"]?.items?.$ref, "#/components/schemas/SiteTripFee");
+  // 按晚算的费用：SiteTripFee 加一个 night_index
+  const nightFee = plan?.properties?.["fees"]?.items;
+  assert.equal(nightFee?.allOf?.[0]?.$ref, "#/components/schemas/SiteTripFee");
+  assert.deepEqual(props(nightFee), ["night_index"]);
+  assert.deepEqual(props(schemas["SiteTripFee"]), sorted(SITE_TRIP_FEE_FIELDS));
+  assert.deepEqual(sorted(schemas["SiteTripFee"]?.required ?? []), sorted(SITE_TRIP_FEE_FIELDS));
+  assert.deepEqual(schemas["SiteTripFee"]?.properties?.["type"]?.enum, ["lodging", "lodging_offset", "idle", "second_driver", "bundle_discount", "return"]);
+  const unquoted = trip?.properties?.["unquoted"]?.items;
+  assert.deepEqual(props(unquoted), sorted(SITE_TRIP_UNQUOTED_FIELDS));
+  assert.deepEqual(sorted(unquoted?.required ?? []), sorted(SITE_TRIP_UNQUOTED_FIELDS));
+  assert.deepEqual(unquoted?.properties?.["plan_kind"]?.enum, [...SITE_TRIP_PLAN_KINDS]);
+
+  // 对客：整棵 SiteTrip 里没有结算价、加价比例、供应商编号
+  const keys = new Set<string>();
+  const walk = (schema: Schema | undefined, seen: Set<string>): void => {
+    if (schema === undefined) return;
+    if (schema.$ref !== undefined) {
+      const name = schema.$ref.replace("#/components/schemas/", "");
+      if (seen.has(name)) return;
+      walk(schemas[name], new Set([...seen, name]));
+      return;
+    }
+    for (const [key, child] of Object.entries(schema.properties ?? {})) {
+      keys.add(key);
+      walk(child, seen);
+    }
+    walk(schema.items, seen);
+    for (const option of [...(schema.oneOf ?? []), ...(schema.allOf ?? [])]) walk(option, seen);
+  };
+  walk(trip, new Set(["SiteTrip"]));
+  assert.ok(keys.has("plans") && keys.has("segments") && keys.has("price_breakdown"));
+  assert.deepEqual([...keys].filter((key) => /settlement|markup|tenant_id|product_id|secret/i.test(key)), []);
 });
