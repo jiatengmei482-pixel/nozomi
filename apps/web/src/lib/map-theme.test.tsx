@@ -8,7 +8,6 @@ import assert from "node:assert/strict";
 import { act, render, waitFor } from "@testing-library/react";
 import type { MapTiles } from "../api/areas.ts";
 import { AreaOverviewMap } from "../pages/areas/AreaOverviewMap.tsx";
-import { RouteMap } from "../pages/book/new/RouteMap.tsx";
 import { SiteMapPicker } from "../pages/book/SiteMapPicker.tsx";
 import { resetBrowser } from "../testing/harness.tsx";
 import type { ColorScheme } from "../theme/use-color-scheme.ts";
@@ -50,34 +49,6 @@ test("applyMapTheme：切到暗色加压暗标记、切回去去掉；瓦片地�
   applyMapTheme(container, layer, tilesOf(DARK), "dark");
   assert.deepEqual(calls, [LIGHT, LIGHT, DARK]);
   assert.ok(!container.classList.contains(DIMMED_CLASS), "有暗色瓦片就不压暗");
-});
-
-test("新预订页路线图（Leaflet 后备）：打开后切换主题，压暗标记跟着变；路线还在、地图不重建", async () => {
-  await setTheme("light");
-  const { container } = render(<RouteMap tiles={tilesOf(null)} points={[{ lat: 35.68, lng: 139.76 }, { lat: 35.69, lng: 139.7 }]} label="路线图：东京站 → 新宿站" />);
-  const canvas = container.querySelector(".route-map__canvas") as HTMLElement;
-  await waitFor(() => assert.ok(canvas.classList.contains("leaflet-container")));
-  assert.ok(!canvas.classList.contains(DIMMED_CLASS));
-  const line = canvas.querySelector(".route-map__line");
-  assert.ok(line, "路线");
-  await setTheme("dark");
-  await waitFor(() => assert.ok(canvas.classList.contains(DIMMED_CLASS)));
-  assert.equal(canvas.querySelector(".route-map__line"), line, "路线是同一条，没有重画");
-  await setTheme("light");
-  await waitFor(() => assert.ok(!canvas.classList.contains(DIMMED_CLASS)));
-});
-
-test("新预订页路线图：底图有暗色样式时，切到暗色换暗色瓦片、不压暗；切回亮色换回来", async () => {
-  await setTheme("light");
-  const { container } = render(<RouteMap tiles={tilesOf(DARK)} points={[{ lat: 35.68, lng: 139.76 }, { lat: 35.69, lng: 139.7 }]} label="路线图：东京站 → 新宿站" />);
-  const canvas = container.querySelector(".route-map__canvas") as HTMLElement;
-  await waitFor(() => assert.ok(tileSources(canvas).length > 0));
-  assert.ok(tileSources(canvas).every((src) => src.startsWith("https://tiles.example.com/light/")));
-  await setTheme("dark");
-  await waitFor(() => assert.ok(tileSources(canvas).length > 0 && tileSources(canvas).every((src) => src.startsWith("https://tiles.example.com/dark/"))));
-  assert.ok(!canvas.classList.contains(DIMMED_CLASS));
-  await setTheme("light");
-  await waitFor(() => assert.ok(tileSources(canvas).length > 0 && tileSources(canvas).every((src) => src.startsWith("https://tiles.example.com/light/"))));
 });
 
 test("旧预订页地图选点：打开后切换主题，压暗标记跟着变", async () => {

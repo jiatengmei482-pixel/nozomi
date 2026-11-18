@@ -14,7 +14,7 @@
  */
 import { expect, test } from "@playwright/test";
 import { E2E_TILE_PORT, E2E_WEB_PLACES_PORT, E2E_WEB_STRIPE_PORT } from "../playwright.config.ts";
-import { TOKYO_STATION, airportLink, createAirport, encodePolyline, expectNarrowAndAccessible, expectRouteLineVisible, publishTransfer, tomorrowInTokyo } from "./book-new-support.ts";
+import { TOKYO_STATION, airportLink, createAirport, encodePolyline, expectNarrowAndAccessible, publishTransfer, tomorrowInTokyo } from "./book-new-support.ts";
 import { createSupplier, createWorld, expectAccessible } from "./catalog.ts";
 import { TEST_CARDS, routeStripe } from "./fake-stripe.ts";
 import { OWN_SITE_SOURCE } from "./support.ts";
@@ -40,7 +40,7 @@ test("新预订页四步：输入即提示选机场和酒店 → 自动报价、
     const body = (await response.json()) as Record<string, unknown>;
     route.fulfill({ response, json: { ...body, route: { minutes: 25, meters: 14_200, polyline: encodePolyline([airport.location, { lat: (airport.location.lat + TOKYO_STATION.lat) / 2 + 0.01, lng: (airport.location.lng + TOKYO_STATION.lng) / 2 }, TOKYO_STATION]) } } });
   });
-  // 路线小地图（M8-10）：这里固定成「平台还没开通谷歌静态地图」，核对的是后备的现有底图；静态图的各种结果见 site-booking-route-map.spec.ts
+  // 路线小地图（M8-10）：这里固定成「平台还没开通谷歌静态地图」——只留文字、不显示地图（M10-01）；静态图的各种结果见 site-booking-route-map.spec.ts
   await page.route(`${SITE}/site/v1/route-map?**`, (route) => route.fulfill({ status: 503, json: { error: { code: "ROUTE_MAP_UNAVAILABLE", message: "路线图暂不可用", details: { reason: "NOT_ENABLED" } } } }));
   await page.setViewportSize({ width: 400, height: 800 });
 
@@ -151,7 +151,8 @@ test("新预订页四步：输入即提示选机场和酒店 → 自动报价、
   await page.setViewportSize({ width: 1280, height: 900 });
   const aside = page.getByRole("complementary", { name: "行程摘要" });
   await expect(aside).toBeVisible();
-  await expectRouteLineVisible(page, airport.location);
+  await expect(aside.getByText("约 25 分钟 · 14.2 公里").first()).toBeVisible();
+  await expect(aside.locator(".route-map")).toHaveCount(0);
   await expect(aside).toContainText(world.group.name);
   await expect(aside).toContainText("22,000");
   await expect(aside).toContainText("NH211");

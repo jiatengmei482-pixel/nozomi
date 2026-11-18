@@ -1588,7 +1588,7 @@ export function BookNewPage() {
     );
 
     const routeResult = outcome?.mode === "transfer" ? outcome.result.route : null;
-    const routeBlock = draft.mode === "transfer" && draft.from !== null && draft.to !== null ? <RouteBlock route={routeResult} tiles={tiles} from={draft.from} to={draft.to} lockedMeters={selected?.distance?.route_meters ?? null} /> : null;
+    const routeBlock = draft.mode === "transfer" && draft.from !== null && draft.to !== null ? <RouteBlock route={routeResult} from={draft.from} to={draft.to} lockedMeters={selected?.distance?.route_meters ?? null} /> : null;
     /** 右侧栏 / 摘要条的内容：路线图在最上面，下面按步骤追加已经确认的内容 */
     const summaryContent = (
       <>
