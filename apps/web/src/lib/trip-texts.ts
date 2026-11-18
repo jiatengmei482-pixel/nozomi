@@ -107,6 +107,25 @@ export type TripTextKey =
   | "action.read"
   | "action.cities"
   // 报不出的原因（`unquoted[].reason`）；没列的原因码用 `reason.other`
+  | "dayHeading"
+  | "segment.airport_pickup"
+  | "segment.airport_dropoff"
+  | "segment.p2p"
+  | "segment.charter"
+  | "segment.charterHours"
+  | "segment.idle_day"
+  | "segmentTime"
+  | "otherVehicle"
+  | "planFees"
+  | "warning.SECOND_DRIVER"
+  | "warning.SECOND_DRIVERWhole"
+  | "warning.SEGMENT_OTHER_VEHICLE"
+  | "warning.SEGMENT_OTHER_VEHICLEWhole"
+  | "warning.WORK_HOURS_HARD_LIMIT"
+  | "warning.WORK_HOURS_HARD_LIMITWhole"
+  | "compare"
+  | "manual.cardHint"
+  | "manual.noTrip"
   | "reason.NO_OFFER"
   | "reason.NO_PRODUCT"
   | "reason.OUT_OF_SERVICE_AREA"
@@ -216,6 +235,25 @@ const ZH: Readonly<Record<TripTextKey, string>> = {
   dayList: "每天的行程",
   "announce.plans": "报价已出来，共 {n} 个方案",
   "announce.none": "这次没有报出方案",
+  dayHeading: "第 {n} 天 · {date}",
+  "segment.airport_pickup": "接机",
+  "segment.airport_dropoff": "送机",
+  "segment.p2p": "点对点用车",
+  "segment.charter": "包车",
+  "segment.charterHours": "包车 {hours} 小时",
+  "segment.idle_day": "不用车（车和司机留在当地）",
+  segmentTime: "{start}–{end}",
+  otherVehicle: "这一天换了别的车",
+  planFees: "其他费用",
+  "warning.SECOND_DRIVER": "第 {n} 天用车时间较长，已加第二位司机",
+  "warning.SECOND_DRIVERWhole": "用车时间较长，已加第二位司机",
+  "warning.SEGMENT_OTHER_VEHICLE": "第 {n} 天换了别的车",
+  "warning.SEGMENT_OTHER_VEHICLEWhole": "有几天换了别的车",
+  "warning.WORK_HOURS_HARD_LIMIT": "第 {n} 天用车时间接近上限",
+  "warning.WORK_HOURS_HARD_LIMITWhole": "用车时间接近上限",
+  compare: "两个方案对比",
+  "manual.cardHint": "留下邮箱或 WhatsApp，客服按整张行程单报价，不用再填行程",
+  "manual.noTrip": "第一天的行程不完整，没法转人工报价，请返回修改行程",
 
   "failure.tooComplex": "这个行程太复杂，暂时没法在线报价。",
   "failure.notFound": "这个行程已过期或不存在，请重新填写。",

@@ -104,6 +104,7 @@ function open(options: { at?: string; create?: Route; quote?: Route; read?: Rout
     if (call.method === "POST" && path === "/site/v1/trips") return options.create?.(call) ?? json(201, { trip_id: TRIP_ID, status: "draft", currency: "JPY", readable_until: "2030-12-20T00:00:00.000Z" });
     if (call.method === "POST" && path === `/site/v1/trips/${TRIP_ID}/quote`) return options.quote?.(call) ?? json(200, tripOf());
     if (call.method === "GET" && path === `/site/v1/trips/${TRIP_ID}`) return options.read?.(call) ?? json(200, tripOf());
+    if (call.method === "POST" && path === "/site/v1/manual-quote-requests") return json(202, { status: "accepted" });
     return null;
   });
   render(
@@ -302,13 +303,100 @@ test("刷新第 2 步（网址带行程单编号）：只读行程单、不重�
   assert.ok(screen.getByRole("button", { name: /3 人 · 2 件/ }));
 });
 
-test("全部方案报不出（manual_quote_suggested）：不显示方案，写「这个行程需要客服人工报价」", async () => {
+test("全部方案报不出（manual_quote_suggested）：不显示方案，点「转人工报价」留邮箱提交，带上行程单编号、第一天行程和每天的地名", async () => {
   wideScreen();
-  open({ at: `/book/trip?trip=${TRIP_ID}&step=2`, read: () => json(200, tripOf({ plans: [], unquoted: [{ plan_kind: "one_car", day_index: 0, reason: "NO_OFFER" }], manual_quote_suggested: true })) });
+  sessionStorage.setItem(`nozomi.trip-labels.${TRIP_ID}`, JSON.stringify({ v: 1, days: [["成田国际机场", HOTEL_NAME], [HOTEL_NAME, TEMPLE_NAME, HOTEL_NAME]] }));
+  const calls = open({ at: `/book/trip?trip=${TRIP_ID}&step=2`, read: () => json(200, tripOf({ plans: [], unquoted: [{ plan_kind: "one_car", day_index: 0, reason: "NO_OFFER" }], manual_quote_suggested: true })) });
   assert.ok(await screen.findByRole("heading", { name: "这个行程需要客服人工报价" }, SLOW));
-  assert.ok(screen.getByText("客服会按您填的行程人工报价"));
+  assert.ok(screen.getByText("留下邮箱或 WhatsApp，客服按整张行程单报价，不用再填行程"));
   assert.equal(screen.queryByRole("list", { name: "报价结果" }), null);
+  assert.equal(screen.queryByRole("list", { name: "两个方案对比" }), null);
   assert.ok(within(screen.getByRole("region", { name: "报不出的方案" })).getByText("这个方案暂时报不出：没有可用的车"));
+
+  const actor = user();
+  await actor.click(screen.getByRole("button", { name: "转人工报价" }));
+  assert.equal(document.activeElement, screen.getByRole("heading", { name: "这个行程需要客服人工报价" }), "表单出来后焦点在这块的标题");
+  await actor.type(screen.getByLabelText("邮箱"), "guest@example.com");
+  await actor.click(screen.getByRole("button", { name: "提交" }));
+  assert.ok(await screen.findByText(/已收到/, {}, SLOW));
+  const sent = posts(calls, "/site/v1/manual-quote-requests");
+  assert.equal(sent.length, 1);
+  const body = sent[0]?.body as Record<string, unknown>;
+  assert.equal(body["trip_id"], TRIP_ID);
+  assert.equal(body["plan_kind"], null);
+  assert.deepEqual(body["trip_labels"], [["成田国际机场", HOTEL_NAME], [HOTEL_NAME, TEMPLE_NAME, HOTEL_NAME]]);
+  assert.deepEqual(body["trip"], {
+    category: "airport_transfer",
+    city_id: null,
+    pickup: { name: "成田国际机场", lat: 35.772, lng: 140.3929 },
+    dropoff: { name: HOTEL_NAME, lat: HOTEL.lat, lng: HOTEL.lng },
+    service_local: "2030-11-20T14:30",
+    passengers: 3,
+    luggage: 2,
+    package_hours: null,
+  });
+  assert.equal(body["email"], "guest@example.com");
+});
+
+test("没存地名时转人工也能提交：地名写坐标，天数、每天点数和行程单一致", async () => {
+  wideScreen();
+  const calls = open({ at: `/book/trip?trip=${TRIP_ID}&step=2`, read: () => json(200, tripOf({ plans: [], unquoted: [{ plan_kind: "daily_best", day_index: null, reason: "NO_PRODUCT" }], manual_quote_suggested: true })) });
+  const actor = user();
+  await actor.click(await screen.findByRole("button", { name: "转人工报价" }, SLOW));
+  await actor.type(screen.getByLabelText("WhatsApp"), "+81 90 1234 5678");
+  await actor.click(screen.getByRole("button", { name: "提交" }));
+  assert.ok(await screen.findByText(/已收到/, {}, SLOW));
+  const labels = (posts(calls, "/site/v1/manual-quote-requests")[0]?.body as { trip_labels: string[][] }).trip_labels;
+  assert.deepEqual(labels.map((day) => day.length), [2, 3]);
+  assert.ok(labels.flat().every((name) => name.trim() !== ""));
+});
+
+test("两个方案对比卡片：逐天列出每一段的类型、时间、金额，挂在当天和按晚的费用，以及提示", async () => {
+  wideScreen();
+  const segment = (id: string, type: "airport_pickup" | "charter", start: string, end: string, amount: string, extra: { package_hours?: number; other_vehicle?: boolean } = {}) => ({
+    segment_id: id,
+    type,
+    start_local: start,
+    end_local: end,
+    amount: { amount, currency: "JPY" },
+    package_hours: extra.package_hours ?? null,
+    other_vehicle: extra.other_vehicle ?? false,
+    vehicle_group: null,
+    price_breakdown: [],
+    route: null,
+  });
+  const days = (otherVehicle: boolean) => [
+    { day_index: 0, date: "2030-11-20", segments: [segment("s1", "airport_pickup", "2030-11-20T14:30", "2030-11-20T16:00", "30000")], fees: [] },
+    { day_index: 1, date: "2030-11-21", segments: [segment("s2", "charter", "2030-11-21T09:00", "2030-11-21T17:00", "60000", { package_hours: 8, other_vehicle: otherVehicle })], fees: [{ type: "second_driver" as const, label: { zh: "第二司机" }, amount: { amount: "8000", currency: "JPY" } }] },
+  ];
+  open({
+    at: `/book/trip?trip=${TRIP_ID}&step=2`,
+    read: () =>
+      json(200, tripOf({
+        plans: [
+          planOf("one_car", "98000", { recommended: true, days: days(false), fees: [{ type: "lodging", label: { zh: "司机住宿（第 1 晚）" }, amount: { amount: "12000", currency: "JPY" }, night_index: 0 }], warnings: [{ code: "SECOND_DRIVER", day_index: 1 }] }),
+          planOf("daily_best", "91000", { days: days(true), warnings: [{ code: "SEGMENT_OTHER_VEHICLE", day_index: 1 }] }),
+        ],
+      })),
+  });
+  const compare = await screen.findByRole("list", { name: "两个方案对比" }, SLOW);
+  const oneCar = within(compare).getByRole("listitem", { name: "同一辆车跑完全程" });
+  assert.ok(within(oneCar).getByText("推荐"));
+  assert.ok(within(oneCar).getByRole("heading", { name: "第 1 天 · 11月20日" }));
+  assert.ok(within(oneCar).getByText("接机"));
+  assert.ok(within(oneCar).getByText("14:30–16:00"));
+  assert.ok(within(oneCar).getByText("30,000 JPY"));
+  assert.ok(within(oneCar).getByText("包车 8 小时"));
+  assert.ok(within(oneCar).getByText("第二司机"));
+  assert.ok(within(oneCar).getByText("司机住宿（第 1 晚）"));
+  assert.ok(within(oneCar).getByText("12,000 JPY"));
+  assert.ok(within(oneCar).getByText("第 2 天用车时间较长，已加第二位司机"));
+  assert.equal(within(oneCar).queryByText("这一天换了别的车"), null);
+  const daily = within(compare).getByRole("listitem", { name: "每天选最划算的车" });
+  assert.ok(within(daily).getByText("这一天换了别的车"));
+  assert.ok(within(daily).getByText("第 2 天换了别的车"));
+  assert.equal(within(daily).queryByText("推荐"), null);
+  assert.equal(screen.queryByRole("button", { name: "转人工报价" }), null, "报得出时不给转人工");
 });
 
 test("报出的方案过期了：写「请重新报价」，点「重新报价」再报一次、换成新结果", async () => {

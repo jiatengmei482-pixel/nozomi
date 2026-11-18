@@ -26,6 +26,7 @@ import {
   supportWhatsappMessage,
   validateManualQuoteContact,
 } from "../../lib/manual-quote-form.ts";
+import type { TripManualQuoteLink } from "../../lib/trip-manual.ts";
 import { siteFailureText } from "./SiteLayout.tsx";
 
 /** 「通过 WhatsApp 联系我们」：没有设置客服号码时什么都不显示。 */
@@ -38,7 +39,10 @@ export function WhatsappButton({ supportWhatsapp, trip }: { supportWhatsapp: str
   );
 }
 
-export function ManualQuoteBlock({ trip, supportWhatsapp, headingLevel = "h3" }: { trip: ManualQuoteTripDraft; supportWhatsapp: string | null; headingLevel?: "h2" | "h3" }) {
+/**
+ * `tripLink`：行程报价页（M9T-09）转人工时带上行程单编号、方案和每天的地名（M9T-08），`trip` 是第一天的行程；其他页面不给，请求和以前一样。
+ */
+export function ManualQuoteBlock({ trip, supportWhatsapp, headingLevel = "h3", tripLink }: { trip: ManualQuoteTripDraft; supportWhatsapp: string | null; headingLevel?: "h2" | "h3"; tripLink?: TripManualQuoteLink }) {
   const titleId = useId();
   const [contact, setContact] = useState<ManualQuoteContact>(emptyManualQuoteContact);
   const [errors, setErrors] = useState<ManualQuoteErrors>({});
@@ -75,8 +79,9 @@ export function ManualQuoteBlock({ trip, supportWhatsapp, headingLevel = "h3" }:
       (found.email !== undefined ? emailRef.current : whatsappRef.current)?.focus();
       return;
     }
-    const body = manualQuoteRequestOf(contact, trip);
-    if (body === null) return;
+    const request = manualQuoteRequestOf(contact, trip);
+    if (request === null) return;
+    const body = tripLink === undefined ? request : { ...request, trip_id: tripLink.tripId, plan_kind: tripLink.planKind, trip_labels: tripLink.labels };
     setProblem(null);
     setBusy(true);
     try {
