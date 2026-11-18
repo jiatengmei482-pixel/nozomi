@@ -138,6 +138,17 @@ export const WIDGET_CSS = `
 .nzb-shell[data-layout="bar"] .nzb-extra { padding-top: 6px; border-top: 1px solid #e3e6eb; }
 .nzb-shell[data-layout="bar"] .nzb-waypoint { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) 44px; max-width: 820px; align-items: end; }
 .nzb-shell[data-layout="bar"] .nzb-waypoint .nzb-place { grid-column: auto; }
+/* 横条不够宽时（M9E-11）：一行放不下时地址框会被挤到 50–180 px，日文、英文的占位文字被截断。
+   组件宽度 < 1200 px 改成两行：第一行出发地 · 交换 · 目的地，第二行日期时间 · 人数 · 查询（字段下面的提示是绝对定位，行距放宽） */
+@container (max-width: 1199px) {
+  .nzb-shell[data-layout="bar"] .nzb-form { grid-template-columns: minmax(0, 1fr) 40px minmax(0, 1fr) 56px; row-gap: 24px; }
+  .nzb-shell[data-layout="bar"] .nzb-form > .nzb-place[data-field="pickup"] { grid-row: 1; grid-column: 1; }
+  .nzb-shell[data-layout="bar"] .nzb-form > .nzb-swap { grid-row: 1; grid-column: 2; }
+  .nzb-shell[data-layout="bar"] .nzb-form > .nzb-place[data-field="dropoff"] { grid-row: 1; grid-column: 3 / 5; }
+  .nzb-shell[data-layout="bar"] .nzb-form > .nzb-when { grid-row: 2; grid-column: 1; }
+  .nzb-shell[data-layout="bar"] .nzb-form > .nzb-guests { grid-row: 2; grid-column: 3; }
+  .nzb-shell[data-layout="bar"] .nzb-form > .nzb-primary { grid-row: 2; grid-column: 4; }
+}
 @container (max-width: 440px) { .nzb { --nzb-pad: 16px; } .nzb-tab { padding: 10px 14px; } }
 `;
 
