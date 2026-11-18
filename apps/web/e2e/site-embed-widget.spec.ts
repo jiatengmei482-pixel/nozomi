@@ -43,7 +43,7 @@ function hostPage(key: string, layout: string | null = null, site = SITE): strin
 <style>div, input, button { background: rgb(255, 0, 0) !important; color: rgb(255, 255, 255) !important; font-size: 30px !important; font-weight: 700 !important; letter-spacing: 6px !important; text-transform: uppercase !important; font-style: italic !important; } body { margin: 0; }</style></head>
 <body><main><h1>合作网站</h1><div id="nozomi-booking"></div></main>
 <script src="${site}/embed/widget-v1.js"></script>
-<script>NozomiBooking.init({ key: ${JSON.stringify(key)}, root: "#nozomi-booking", lang: "zh", services: ["transfer", "charter"], redirectUrl: location.origin + "/thanks"${layout === null ? "" : `, layout: ${JSON.stringify(layout)}`} });</script>
+<script>NozomiBooking.init({ key: ${JSON.stringify(key)}, root: "#nozomi-booking", lang: new URLSearchParams(location.search).get("lang") || "zh", services: ["transfer", "charter"], redirectUrl: location.origin + "/thanks"${layout === null ? "" : `, layout: ${JSON.stringify(layout)}`} });</script>
 </body></html>`;
 }
 
@@ -486,4 +486,43 @@ test("嵌入组件（M9E-22）：白名单网站 + 启用的嵌入码显示表�
   await expect(refused.page.getByRole("button", { name: "查看价格" })).toHaveCount(0);
   await expect.poll(() => refused.errors.find((text) => text.startsWith("NozomiBooking：主站拒绝了取配置的请求")) ?? null).toMatch(/嵌入码是否已在 NOZOMI 运营后台停用/);
   await refused.page.context().close();
+});
+
+
+test("嵌入组件横条（M9E-11）：768–1100 宽、日文和英文下，地址框的占位文字、停留时长下拉的文字都不被截断", async ({ browser, request }) => {
+  test.setTimeout(180_000);
+  await useNewEmbedKey(request);
+  const problems: string[] = [];
+  for (const lang of ["ja", "en"] as const) {
+    for (const width of [768, 900, 1024, 1100]) {
+      const context = await browser.newContext({ viewport: { width, height: 900 } });
+      await embedHostAsProduction(context, SITE);
+      const page = await context.newPage();
+      await page.goto(`${allowedHost.origin}/?lang=${lang}&layout=bar`);
+      await page.waitForFunction(() => document.querySelector("#nozomi-booking")?.shadowRoot?.querySelector(".nzb-shell") !== null);
+      // 包车标签才有停留时长；两个标签都量
+      for (const tab of [0, 1]) {
+        const cut = await page.evaluate((index) => {
+          const root = document.querySelector("#nozomi-booking")?.shadowRoot;
+          if (!root) return ["没有组件"];
+          (root.querySelectorAll('[role="tab"]')[index] as HTMLElement | undefined)?.click();
+          const canvas = document.createElement("canvas").getContext("2d") as CanvasRenderingContext2D;
+          const found: string[] = [];
+          const fits = (node: HTMLElement, text: string, what: string): void => {
+            const style = getComputedStyle(node);
+            canvas.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+            const room = node.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+            const need = canvas.measureText(text).width;
+            if (text !== "" && need > room + 1) found.push(`${what}「${text}」需要 ${Math.ceil(need)} px，只有 ${Math.floor(room)} px`);
+          };
+          for (const input of root.querySelectorAll<HTMLInputElement>(".nzb-shell input[placeholder]")) if (input.offsetParent !== null) fits(input, input.placeholder, "占位文字");
+          for (const select of root.querySelectorAll<HTMLSelectElement>(".nzb-shell select")) if (select.offsetParent !== null) fits(select, select.selectedOptions[0]?.text ?? "", "下拉");
+          return found;
+        }, tab);
+        for (const entry of cut) problems.push(`${lang} ${width}px 标签${tab + 1}：${entry}`);
+      }
+      await context.close();
+    }
+  }
+  expect(problems, problems.join("\n")).toEqual([]);
 });

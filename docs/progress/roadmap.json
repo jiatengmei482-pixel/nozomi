@@ -1319,14 +1319,14 @@
           "id": "M9E-11",
           "title": "嵌入组件外观后续（#233 审查留下的不阻塞项）：横条 1024 宽时文字截断、手机卡片人数弹层可能被宿主裁掉",
           "role": "frontend",
-          "status": "doing",
+          "status": "review",
           "acceptance": [
             "横条在 768–1100 px 容器里：地址框占位文字（ja「住所・空港・ホテルなど」等）、停留时长下拉（en「Choose how long you stay」）不被截断，或改成更短的写法 / 换行；四个宽度、三种语言截图核对",
             "卡片在 390 宽时，人数加减弹层不超出组件底边（宿主容器 overflow: hidden 时也不被裁掉）：改成在组件内展开或按可用空间向上弹出；端到端在 overflow: hidden 的宿主里验证",
             "可选：styles.edge.test.ts 的 SVG 命名空间放行只限 embed/widget-icons.ts",
             "重复 init：旧实例的异步回调（取位置、等位置的提交）要先看 destroyed，不再影响新表单（按钮状态和文字、错误提示、焦点）；改代码 + 测试（同一容器 init 两次，旧实例取位置 / 提交晚回来时新表单不变）"
           ],
-          "evidence": "第 4 条（重复 init）：旧实例取坐标、搜索候选、等坐标的提交、建草稿和探配置回来后先看 destroyed，不再碰新表单；destroy 时叫醒等坐标的提交让它退出；widget.test 新增用例（不修时旧实例会建草稿，修后 0）。第 3 条：styles.edge 对 SVG 命名空间的放行只限 embed/widget-icons.ts。第 2 条：人数弹层往下放不下（超出组件底边）且上面放得下时往上弹（data-placement=up），widget.test 用排版尺寸桩验证三种情形；还没做 overflow: hidden 宿主里的端到端截图验证。剩第 1 条（横条 768–1100 截断，要截图核对）",
+          "evidence": "第 4 条（重复 init）：旧实例取坐标、搜索候选、等坐标的提交、建草稿和探配置回来后先看 destroyed，不再碰新表单；destroy 时叫醒等坐标的提交让它退出；widget.test 新增用例（不修时旧实例会建草稿，修后 0）。第 3 条：styles.edge 对 SVG 命名空间的放行只限 embed/widget-icons.ts。第 2 条：人数弹层往下放不下（超出组件底边）且上面放得下时往上弹（data-placement=up），widget.test 用排版尺寸桩验证三种情形；还没做 overflow: hidden 宿主里的端到端截图验证。剩第 1 条（横条 768–1100 截断，要截图核对）。第 1 条：端到端量出横条在 900 宽时地址框只有 116 px（日文占位要 176、英文 219），英文到 1024 宽仍不够；组件宽度 < 1200 px 时横条改成两行（出发地 · 交换 · 目的地 / 日期时间 · 人数 · 查询），新增端到端 768 / 900 / 1024 / 1100 × 日文 / 英文逐项量占位文字和停留时长下拉，全部放得下。四条都已完成（#310、#313）",
           "updated": "2026-11-18"
         },
         {
@@ -1714,7 +1714,7 @@
           "id": "M9P-20",
           "title": "包车行程地图（上车 = 1、经停依次、下车 = 最后，列表同编号、每段时长和公里）+ 经停顺序优化（≥ 2 个经停时按 Routes optimizeWaypointOrder 给建议顺序，两条路线两个报价，一键采用或拖动，指定到达时间的经停不重排）；设计见 ADR 0096",
           "role": "backend",
-          "status": "doing",
+          "status": "review",
           "acceptance": [
             "按 ADR 0096 分三期：P1 地图和编号（主站、嵌入页都用谷歌静态地图，不加 Leaflet 后备）；P2 顺序优化（只在经停点集合变化时调用、只缓存顺序且与顺序无关、单独每日上限按调用次数计、按预订会话限频只数要调谷歌的请求、每个地址每天 25 次要调谷歌的请求加宽松兜底、必须带有效报价或超长时的询价日志编号、达到阈值才多算一次报价；经停标识 ref 不进 request_key、快照、订单和司机视图）；P3 指定到达时间（arrive_by，可跨午夜）",
             "建议报价和请求绑定：停留、日期时间、人数、行李、到达时间、附加项、升档变了，服务器用缓存的顺序重算建议报价，不再调谷歌优化；「一键采用」核对 request_key，不一致不采用；建议顺序按经停标识 ref 回传、按 ref 重排；客人拖动后页面按新的当前报价重算可省的公里、分钟、日元，低于阈值或已排成建议顺序时收起建议块（端到端「先拖动、再采用」）；两份报价各按各的 expires_at 提示过期；当前顺序没有任何一家报出价、且至少一家因超长报不出时用询价日志编号申请建议；拖成超长时照算公里、分钟、不显示日元，路线取不到时收起；按预订会话限频、只数要调谷歌的请求",
@@ -1724,8 +1724,8 @@
             "单元、集成（本机假谷歌）、端到端（主站 + 嵌入页，chromium + webkit，含键盘上移下移和 360px）；独立审查、合并、部署后按 ADR 0096 第七节第 4 小节在测试站验收",
             "P1 遗留（#256 审查记下，P1 合并后另做）：订单页、司机页、供应商 / 运营订单详情每段写时长和公里（订单接口带 itinerary.legs，ADR 0096 第九节 P1 一行）；行程地图出图单设每日上限（现在和两点路线小地图共用 GOOGLE_STATIC_MAPS_DAILY_LIMIT）；部署冒烟核对 /map-markers/10.png 公网可取、是 PNG"
           ],
-          "evidence": "P1（地图和编号）：PR #256——新接口 GET /site/v1/itinerary-map（迁移 0490）；单元 domain itinerary-map 9 条 + google-itinerary-routes 3 条 + web charter-itinerary 11 条、map-markers 1 条；集成 site-itinerary-map.itest.ts 9 条（含 /site/v1/itinerary-legs）；组件 itinerary-map.test.tsx 8 条 + embed-flow 1 条；端到端 site-booking-itinerary-map.spec.ts 2 条（亮暗 axe、360 宽、10 个经停）+ site-embed-booking.spec.ts 1 条（chromium + webkit-embed）；截图 docs/acceptance/M9P-20-shots/。P2（顺序建议）：PR #267（基于 #256）——POST /site/v1/charter/order-suggestion、迁移 0530；单元 domain 7 条 + web 4 条、集成 site-order-suggestion.itest.ts 8 条、组件 order-suggestion.test.tsx 5 条、端到端 site-booking-order-suggestion.spec.ts 1 条。P3（指定到达时间 arrive_by）：单元 domain arrive-by.test.ts 8 条 + web arrive-by-display.test.ts 4 条、order-suggestion.test.ts 1 条；集成 site-arrive-by.itest.ts 5 条 + manual-quotes.itest.ts 1 条；组件 waypoints.test.tsx 1 条、order-suggestion.test.tsx 1 条；端到端 site-booking-arrive-by.spec.ts 1 条（chromium）；无迁移。P3 已合并（PR #286，main 17fa9361）并部署到测试站；监工 2026-11-17 验收基本通过，提了 2 条修改待做：地点搜索结果排序、每个经停的预计到达时刻表",
-          "updated": "2026-11-17"
+          "evidence": "P1（地图和编号）：PR #256——新接口 GET /site/v1/itinerary-map（迁移 0490）；单元 domain itinerary-map 9 条 + google-itinerary-routes 3 条 + web charter-itinerary 11 条、map-markers 1 条；集成 site-itinerary-map.itest.ts 9 条（含 /site/v1/itinerary-legs）；组件 itinerary-map.test.tsx 8 条 + embed-flow 1 条；端到端 site-booking-itinerary-map.spec.ts 2 条（亮暗 axe、360 宽、10 个经停）+ site-embed-booking.spec.ts 1 条（chromium + webkit-embed）；截图 docs/acceptance/M9P-20-shots/。P2（顺序建议）：PR #267（基于 #256）——POST /site/v1/charter/order-suggestion、迁移 0530；单元 domain 7 条 + web 4 条、集成 site-order-suggestion.itest.ts 8 条、组件 order-suggestion.test.tsx 5 条、端到端 site-booking-order-suggestion.spec.ts 1 条。P3（指定到达时间 arrive_by）：单元 domain arrive-by.test.ts 8 条 + web arrive-by-display.test.ts 4 条、order-suggestion.test.ts 1 条；集成 site-arrive-by.itest.ts 5 条 + manual-quotes.itest.ts 1 条；组件 waypoints.test.tsx 1 条、order-suggestion.test.tsx 1 条；端到端 site-booking-arrive-by.spec.ts 1 条（chromium）；无迁移。P3 已合并（PR #286，main 17fa9361）并部署到测试站；监工 2026-11-17 验收基本通过，提了 2 条修改待做：地点搜索结果排序、每个经停的预计到达时刻表；监工 2026-11-17 的 2 条修改已做：地点候选排序 #292（+ #300 文字搜索要 10 条带 types），每站预计时刻、来不及标红 #293；待监工复验",
+          "updated": "2026-11-18"
         },
         {
           "id": "M9P-09",
