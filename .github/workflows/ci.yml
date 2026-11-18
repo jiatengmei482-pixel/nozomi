@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+# 同一个 PR 又推了新提交：取消还在跑的旧一轮，免得几轮抢同一批机器、都变慢（2026-11-18）。
+# main 上的不取消：部署（deploy.yml）等 main 每一轮 CI 跑完才部署。
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('main-{0}', github.sha) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   check:
     runs-on: ubuntu-latest
