@@ -1835,3 +1835,11 @@ test("从行程报价页进来但报价已过期：按预填的行程照常询�
   open({ at: "/book/new?step=3", state: { fromTrip: { order: null } } });
   assert.ok(await screen.findByRole("heading", { name: "你的行程", level: 2 }, SLOW), "空白表单从第 1 步开始");
 });
+
+test("从行程报价页带来的接送报价没有城市：按报价请求的 city_id 从城市列表补上，时间框写「东京的当地时间」，也不再询价", async () => {
+  wideScreen();
+  const calls = open({ at: "/book/new", state: fromTripState() });
+  assert.ok(await screen.findByText("东京的当地时间", {}, SLOW));
+  await new Promise((resolve) => setTimeout(resolve, QUOTE_DEBOUNCE_MS + 200));
+  assert.equal(posts(calls).length, 0);
+});

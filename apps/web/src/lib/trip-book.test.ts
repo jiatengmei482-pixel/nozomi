@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { SiteQuote, SiteTrip, SiteTripItinerary, SiteTripOrderQuote, SiteTripPlan, SiteTripSegment } from "../api/site.ts";
-import { TRIP_BOOK_STATE, tripBookHandoff, tripBookHandoffOf, tripBookOutcome, tripBookSeedOf, tripBookableSegment, tripOrderQuoteBody } from "./trip-book.ts";
+import { TRIP_BOOK_STATE, type TripBookHandoff, tripBookCity, tripBookHandoff, tripBookHandoffOf, tripBookOutcome, tripBookSeedOf, tripBookableSegment, tripOrderQuoteBody } from "./trip-book.ts";
 
 const HOTEL = { lat: 35.6896, lng: 139.6917 };
 const TEMPLE = { lat: 35.7148, lng: 139.7967 };
@@ -123,4 +123,54 @@ test("预填和询价结果：日期时间人数按报价请求、车型按报�
   assert.deepEqual(charterSeed.waypoints, [{ point: { name: "浅草寺", lat: TEMPLE.lat, lng: TEMPLE.lng, kind: null }, stay: "90" }]);
   assert.equal(tripBookOutcome(charter, NOW)?.mode, "charter");
   assert.equal(tripBookOutcome({ ...charter, order: { ...charter.order, city: null } }, NOW), null, "包车没有城市");
+});
+
+test("路由 state 是旧格式或被改坏（刷新后历史记录里的 state 还在）：人数、行李、段型、金额、币种、包车城市任何一项不对都当作没有，不报错", () => {
+  const charter = tripBookHandoff(tripOf([charterDay(90)]), { segment: segment("charter"), dayIndex: 0 }, labels, orderOf("charter", "charter"));
+  const pickup = tripBookHandoff(tripOf([pickupDay]), { segment: segment("airport_pickup"), dayIndex: 0 }, null, orderOf("airport_pickup", "airport_transfer"));
+  assert.ok(charter);
+  assert.ok(pickup);
+  const wrap = (handoff: unknown) => ({ [TRIP_BOOK_STATE]: handoff });
+  const withOrder = (base: TripBookHandoff, order: Record<string, unknown>) => wrap({ ...base, order: { ...base.order, ...order } });
+  const withRequest = (base: TripBookHandoff, request: Record<string, unknown>) => withOrder(base, { quote_request: { ...base.order.quote_request, ...request } });
+  const withQuote = (base: TripBookHandoff, quote: Record<string, unknown>) => withOrder(base, { quote: { ...base.order.quote, ...quote } });
+  assert.ok(tripBookHandoffOf(wrap(charter)));
+  assert.ok(tripBookHandoffOf(wrap(pickup)), "接送的城市可以是 null");
+  const bad: [string, unknown][] = [
+    ["人数 0", withRequest(charter, { passengers: 0 })],
+    ["人数小数", withRequest(charter, { passengers: 1.5 })],
+    ["人数是字符串", withRequest(charter, { passengers: "2" })],
+    ["没有人数", withRequest(charter, { passengers: undefined })],
+    ["行李负数", withRequest(charter, { luggage: -1 })],
+    ["段型不认识", withOrder(charter, { segment_type: "shinkansen" })],
+    ["币种空", withOrder(charter, { currency: "" })],
+    ["金额不是数字", withQuote(charter, { price: { total: { amount: "1,000", currency: "JPY" }, fx: null } })],
+    ["金额是数", withQuote(charter, { price: { total: { amount: 1000, currency: "JPY" }, fx: null } })],
+    ["金额没币种", withQuote(charter, { price: { total: { amount: "1000" }, fx: null } })],
+    ["没有价格", withQuote(charter, { price: undefined })],
+    ["包车没有城市", withOrder(charter, { city: null })],
+    ["包车城市没时区", withOrder(charter, { city: { id: "c1", code: "x", name: { zh: "东京" }, timezone: "" } })],
+    ["接送城市格式不对", withOrder(pickup, { city: { id: "c1" } })],
+    ["接送带经停点", wrap({ ...pickup, waypoints: [{ name: "x", lat: 1, lng: 2, stay_minutes: 30 }] })],
+    ["车型没有名称", withQuote(charter, { vehicle_group: { id: "g1" } })],
+  ];
+  for (const [what, state] of bad) assert.equal(tripBookHandoffOf(state), null, what);
+});
+
+test("接送报价没带城市：按报价请求的 city_id 在城市列表里找（当地时间、城市名）；找不到为 null", () => {
+  const pickup = tripBookHandoff(tripOf([pickupDay]), { segment: segment("airport_pickup"), dayIndex: 0 }, null, { ...orderOf("airport_pickup", "airport_transfer"), quote_request: { category: "airport_transfer", city_id: "c1", service_local: "2030-11-20T14:30", passengers: 2, luggage: 1 } });
+  assert.ok(pickup);
+  const tokyo = { id: "c1", code: "CTY-JP-TYO", name: { zh: "东京" }, timezone: "Asia/Tokyo", country_code: "JP", center: { lat: 35.68, lng: 139.69 }, categories: ["airport_transfer" as const] };
+  assert.deepEqual(tripBookCity(pickup, [tokyo]), { id: "c1", code: "CTY-JP-TYO", name: { zh: "东京" }, timezone: "Asia/Tokyo" });
+  assert.equal(tripBookCity(pickup, []), null);
+});
+
+test("包车报价请求带了手动升档（itinerary_pricing + package_hours）：恢复成 /book/new 的升档", () => {
+  const order = orderOf("charter", "charter");
+  const charter = tripBookHandoff(tripOf([charterDay(90)]), { segment: segment("charter"), dayIndex: 0 }, labels, { ...order, quote_request: { ...order.quote_request, itinerary_pricing: true, package_hours: 8 } });
+  assert.ok(charter);
+  assert.equal(tripBookSeedOf(charter).upgradeHours, "8");
+  const plain = tripBookHandoff(tripOf([charterDay(90)]), { segment: segment("charter"), dayIndex: 0 }, labels, { ...order, quote_request: { ...order.quote_request, itinerary_pricing: true } });
+  assert.ok(plain);
+  assert.equal(tripBookSeedOf(plain).upgradeHours, "");
 });

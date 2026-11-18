@@ -37,6 +37,8 @@ export interface TripQuoteResultProps {
   supportWhatsapp?: string | null;
   /** 本标签页存的地名（页面读好传进来，只有页面碰暂存）；没有为 null，转人工时写坐标 */
   labels?: TripLabels | null;
+  /** 回第 1 步修改行程（预订时行程单已过期 404 时给）；不给就不显示 */
+  onEditTrip?: (() => void) | null;
 }
 
 const planName = (kind: SiteTripPlanKind): string => tripCopy(kind === "one_car" ? "plan.one_car" : "plan.daily_best");
@@ -114,7 +116,7 @@ function PlanManualBooking({ trip, plan, labels, supportWhatsapp, cta = "bookMan
 }
 
 /** 「预订这个方案」没成：要重新报价（价格变了、过期、方案不在了；`manual` 时另给转人工）、退回客服确认（后端说不是单段）、别的出错 */
-type BookProblem = { kind: "requote"; text: string; manual: boolean } | { kind: "manual"; text: string } | { kind: "failed"; text: string };
+type BookProblem = { kind: "requote"; text: string; manual: boolean } | { kind: "manual"; text: string } | { kind: "failed"; text: string; gone: boolean };
 
 function bookProblemOf(err: unknown): BookProblem {
   if (err instanceof ApiError) {
@@ -129,7 +131,8 @@ function bookProblemOf(err: unknown): BookProblem {
     if (err.code === "TRIP_PLAN_NOT_SINGLE_SEGMENT") return { kind: "manual", text: tripCopy("book.notSingle") };
   }
   // 太频繁、断网、行程单过期等：同报价的说法
-  return { kind: "failed", text: `${tripCopy("book.failed")}：${tripFailureOf(err, "book").text}` };
+  const failure = tripFailureOf(err, "book");
+  return { kind: "failed", text: `${tripCopy("book.failed")}：${failure.text}`, gone: failure.gone };
 }
 
 interface PlanActionProps {
@@ -139,13 +142,19 @@ interface PlanActionProps {
   supportWhatsapp: string | null;
   onQuote(): void;
   quoting: boolean;
+  onEditTrip: (() => void) | null;
 }
 
 /** 单段方案「预订这个方案」：转成普通报价后带进 `/book/new` 第 3 步（乘客信息），之后走现有下单、付款 */
-function PlanBooking({ trip, plan, bookable, labels, supportWhatsapp, onQuote, quoting }: PlanActionProps & { bookable: TripBookable }) {
+function PlanBooking({ trip, plan, bookable, labels, supportWhatsapp, onQuote, quoting, onEditTrip }: PlanActionProps & { bookable: TripBookable }) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<BookProblem | null>(null);
+  const problemRef = useRef<HTMLDivElement>(null);
+  // 退回客服确认时「预订这个方案」按钮没了（焦点会掉到 body）：焦点移到说明上，读屏接着读下面的「提交预订，客服确认」
+  useEffect(() => {
+    if (problem?.kind === "manual") problemRef.current?.focus();
+  }, [problem]);
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
@@ -170,7 +179,7 @@ function PlanBooking({ trip, plan, bookable, labels, supportWhatsapp, onQuote, q
         setProblem({ kind: "manual", text: tripCopy("book.notSingle") });
         return;
       }
-      // 带着报价进 /book/new（路由 state，不进任何存储）；浏览器后退回到这里的方案对比
+      // 带着报价进 /book/new：放在路由 state（不写 sessionStorage / localStorage，但留在浏览器这条历史记录里，含地名）；浏览器后退回到这里的方案对比
       void navigate({ pathname: SITE_NEW_BOOKING_PATH, search: TRIP_BOOK_SEARCH }, { state: { [TRIP_BOOK_STATE]: handoff } });
     } catch (err) {
       if (!alive.current) return;
@@ -189,7 +198,16 @@ function PlanBooking({ trip, plan, bookable, labels, supportWhatsapp, onQuote, q
           <p className="site-muted">{tripCopy("book.hint")}</p>
         </div>
       )}
-      <div role="alert">{problem !== null && <Alert kind={problem.kind === "failed" ? "danger" : "warning"}>{problem.text}</Alert>}</div>
+      <div role="alert" ref={problemRef} tabIndex={-1}>
+        {problem !== null && <Alert kind={problem.kind === "failed" ? "danger" : "warning"}>{problem.text}</Alert>}
+      </div>
+      {problem?.kind === "failed" && problem.gone && onEditTrip !== null && (
+        <div className="trip-plan__book">
+          <Button size="lg" onClick={onEditTrip}>
+            {tripCopy("editTrip")}
+          </Button>
+        </div>
+      )}
       {problem?.kind === "requote" && (
         <div className="trip-plan__book">
           <Button size="lg" loading={quoting} loadingText={tripCopy("quoting")} onClick={onQuote}>
@@ -329,7 +347,7 @@ function ManualQuoteSection({ trip, supportWhatsapp, labels }: { trip: SiteTrip;
   );
 }
 
-export function TripQuoteResult({ trip, onQuote, quoting, supportWhatsapp = null, labels = null }: TripQuoteResultProps) {
+export function TripQuoteResult({ trip, onQuote, quoting, supportWhatsapp = null, labels = null, onEditTrip = null }: TripQuoteResultProps) {
   const quoteButton = (label: string) => (
     <Button variant="primary" size="lg" loading={quoting} loadingText={tripCopy("quoting")} onClick={onQuote}>
       {label}
@@ -350,7 +368,7 @@ export function TripQuoteResult({ trip, onQuote, quoting, supportWhatsapp = null
       {trip.plans.length > 0 && (
         <ul className={trip.plans.length > 1 ? "trip-plans trip-plans--compare" : "trip-plans"} aria-label={trip.plans.length > 1 ? tripCopy("compare") : tripCopy("resultSection")}>
           {trip.plans.map((plan) => (
-            <PlanCard key={plan.plan_id} plan={plan} trip={trip} labels={labels} supportWhatsapp={supportWhatsapp} onQuote={onQuote} quoting={quoting} />
+            <PlanCard key={plan.plan_id} plan={plan} trip={trip} labels={labels} supportWhatsapp={supportWhatsapp} onQuote={onQuote} quoting={quoting} onEditTrip={onEditTrip} />
           ))}
         </ul>
       )}

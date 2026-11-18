@@ -5,10 +5,11 @@
  *   没有挂在某天或按晚的跨段费用；这一天的点都是坐标、最后一个点是终点；包车的中间地点停留时长要是 `/book/new` 经停点能选的档（30 分钟一档、最长 8 小时）——
  *   `/book/new` 显示不了的（例如「不停留」）不给在线下单，改走「提交预订，客服确认」。
  * - 点「预订这个方案」：`POST …/order-quote`（带包车经停点的地名），拿到的普通报价连同两端、经停点放进路由的 state（`TRIP_BOOK_STATE`），
- *   跳到 `/book/new?step=3`；`/book/new` 用它预填行程、直接用这张报价（不再询价）、选好车型，客人接着填乘客信息、下单、付款。不新增付款代码，不进任何存储。
+ *   跳到 `/book/new?step=3`；`/book/new` 用它预填行程、直接用这张报价（不再询价）、选好车型，客人接着填乘客信息、下单、付款。不新增付款代码，不写 sessionStorage / localStorage。
+ *   注意：路由 state 存在浏览器这条历史记录里（含地名），刷新、前进后退后还在，旧格式也可能回来——`tripBookHandoffOf` 逐项核对，不对就当作没有。
  * - 地名只在行程报价页手里（`trip-labels-store.ts` 只有那个页面读）；这里只收页面传进来的地名。
  */
-import type { SiteByPointsResult, SiteQuoteResult, SiteQuotedCity, SiteTrip, SiteTripOrderQuote, SiteTripPlan, SiteTripSegment } from "../api/site.ts";
+import type { SiteByPointsResult, SiteCity, SiteQuoteResult, SiteQuotedCity, SiteTrip, SiteTripOrderQuote, SiteTripPlan, SiteTripSegment } from "../api/site.ts";
 import type { BookTab, TripPoint } from "./book-new.ts";
 import { STAY_OPTIONS } from "./charter-itinerary.ts";
 import { tripPlaceName } from "./trip-form.ts";
@@ -109,7 +110,15 @@ const isObject = (value: unknown): value is Record<string, unknown> => typeof va
 const isPoint = (value: unknown): value is TripPoint => isObject(value) && typeof value["name"] === "string" && typeof value["lat"] === "number" && typeof value["lng"] === "number";
 const isWaypoint = (value: unknown): value is TripBookWaypoint => isObject(value) && typeof value["name"] === "string" && typeof value["lat"] === "number" && typeof value["lng"] === "number" && typeof value["stay_minutes"] === "number";
 
-/** 路由 state → 下单出口的内容；没有、格式不对时为 null（`/book/new` 照常从空白表单开始） */
+const SEGMENT_TYPES: readonly string[] = ["airport_pickup", "airport_dropoff", "p2p", "charter"] as const;
+const isCount = (value: unknown, min: number): boolean => typeof value === "number" && Number.isInteger(value) && value >= min;
+const isText = (value: unknown): value is string => typeof value === "string" && value.trim() !== "";
+const isCity = (value: unknown): boolean => isObject(value) && isText(value["id"]) && isText(value["timezone"]) && isObject(value["name"]);
+
+/**
+ * 路由 state → 下单出口的内容；没有、格式不对时为 null（`/book/new` 照常从空白表单开始，不会因为旧格式出错）。
+ * 核对：两端和经停点、段型、报价编号 / 有效期 / 车型 / 金额和币种、报价请求的用车时间和人数行李、城市（有就要有时区；包车必须有）。
+ */
 export function tripBookHandoffOf(state: unknown): TripBookHandoff | null {
   if (!isObject(state)) return null;
   const found = state[TRIP_BOOK_STATE];
@@ -117,15 +126,33 @@ export function tripBookHandoffOf(state: unknown): TripBookHandoff | null {
   const waypoints = found["waypoints"];
   if (!isPoint(found["from"]) || !isPoint(found["to"]) || !Array.isArray(waypoints) || !waypoints.every(isWaypoint)) return null;
   const order = found["order"];
-  if (!isObject(order) || typeof order["segment_type"] !== "string") return null;
+  if (!isObject(order) || typeof order["segment_type"] !== "string" || !SEGMENT_TYPES.includes(order["segment_type"]) || !isText(order["currency"])) return null;
+  const charter = order["segment_type"] === "charter";
+  const city = order["city"];
+  if (charter ? !isCity(city) : city !== null && !isCity(city)) return null;
+  if (!charter && waypoints.length > 0) return null;
   const quote = order["quote"];
   const request = order["quote_request"];
-  if (!isObject(quote) || !isObject(request) || typeof quote["quote_id"] !== "string" || typeof quote["expires_at"] !== "string") return null;
+  if (!isObject(quote) || !isObject(request) || !isText(quote["quote_id"]) || !isText(quote["expires_at"])) return null;
   const group = quote["vehicle_group"];
+  if (!isObject(group) || !isText(group["id"]) || !isObject(group["name"])) return null;
+  const price = quote["price"];
+  const total = isObject(price) ? price["total"] : null;
+  if (!isObject(total) || typeof total["amount"] !== "string" || !/^\d+(\.\d+)?$/.test(total["amount"]) || !isText(total["currency"])) return null;
   const serviceLocal = request["service_local"];
-  if (!isObject(group) || typeof group["id"] !== "string") return null;
   if (typeof serviceLocal !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(serviceLocal)) return null;
+  if (!isCount(request["passengers"], 1) || !isCount(request["luggage"], 0)) return null;
   return found as unknown as TripBookHandoff;
+}
+
+/**
+ * 接送报价没带城市时（后端只给包车的城市）：按报价请求的 `city_id` 在 `/book/new` 已读到的城市列表里找，
+ * 当地时间、城市名、人工报价的城市都按它；找不到为 null
+ */
+export function tripBookCity(handoff: TripBookHandoff, cities: readonly SiteCity[]): SiteQuotedCity | null {
+  const id = handoff.order.quote_request.city_id;
+  const found = id === undefined ? undefined : cities.find((entry) => entry.id === id);
+  return found === undefined ? null : { id: found.id, code: found.code, name: found.name, timezone: found.timezone };
 }
 
 /** `/book/new` 第 1 步要预填的内容（页面按它拼自己的表单） */
@@ -139,6 +166,8 @@ export interface TripBookSeed {
   luggage: number;
   /** 没有经停点的包车（行程报价页不会这样发）才用：报价里的套餐时长 */
   packageHours: string;
+  /** 有经停点、报价请求里带了手动升的套餐（`itinerary_pricing` + `package_hours`）：恢复成 /book/new 的升档；没有为 "" */
+  upgradeHours: string;
   waypoints: { point: TripPoint; stay: string }[];
   /** 预先选好的车型 = 这张报价的车型 */
   vehicleGroupId: string;
@@ -161,6 +190,7 @@ export function tripBookSeedOf(handoff: TripBookHandoff): TripBookSeed {
     passengers: request.passengers,
     luggage: request.luggage,
     packageHours: charter && handoff.waypoints.length === 0 && hours !== null ? String(hours) : "",
+    upgradeHours: charter && handoff.waypoints.length > 0 && request.itinerary_pricing === true && request.package_hours !== undefined ? String(request.package_hours) : "",
     waypoints: charter ? handoff.waypoints.map((stop) => ({ point: { name: stop.name, lat: stop.lat, lng: stop.lng, kind: null }, stay: String(stop.stay_minutes) })) : [],
     vehicleGroupId: order.quote.vehicle_group.id,
     tripType: charter ? null : order.segment_type === "airport_pickup" ? "pickup" : order.segment_type === "airport_dropoff" ? "dropoff" : "point_to_point",

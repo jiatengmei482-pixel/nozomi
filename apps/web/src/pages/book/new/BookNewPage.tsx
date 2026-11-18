@@ -17,6 +17,7 @@
  * 由 `BookingShell` 上下文给（booking-shell.tsx），默认值就是主站的行为。
  * 从多日行程报价页「预订这个方案」进来（M9T-10，ADR 0101 第十三节第 3 小节）：路由 state 里带着单段方案转成的普通报价（`lib/trip-book.ts`），
  * 打开时按它预填行程、选好车型，第一次询价直接用这张报价（过期了才照常询价），网址是第 3 步，客人接着填乘客信息、下单、付款。
+ * 路由 state 留在浏览器这条历史记录里（含地名），刷新后还在；格式由 `tripBookHandoffOf` 逐项核对，不对就当作没有。
  */
 import { charterAirportText, quoteScenario } from "../../../lib/charter-airport-copy.ts";
 import { type AirportQuickMode, AirportQuickButtons, TerminalSelect } from "./AirportQuickEntry.tsx";
@@ -91,7 +92,7 @@ import { type LiveSuggestion, liveSuggestion, orderChain, stopSetKey, suggestion
 import { arrivalLateTexts, arriveByDeadlineText, stopTimeTexts, suggestedLateTexts } from "../../../lib/arrive-by-display.ts";
 import { ADDRESS_ONLY_HINT, DRAFT_EXPIRED_TEXT, DRAFT_FAILED_TEXT, draftReadyToQuote, draftTrip } from "../../../lib/booking-draft.ts";
 import { ManualQuoteBlock } from "../ManualQuote.tsx";
-import { type TripBookSeed, tripBookHandoffOf, tripBookOutcome, tripBookSeedOf } from "../../../lib/trip-book.ts";
+import { type TripBookSeed, tripBookCity, tripBookHandoffOf, tripBookOutcome, tripBookSeedOf } from "../../../lib/trip-book.ts";
 import { siteFailureText, useSiteConfig } from "../SiteLayout.tsx";
 import { SitePrice } from "../SitePrice.tsx";
 import { checkoutCopy } from "../../../lib/checkout-texts.ts";
@@ -325,7 +326,12 @@ export function BookNewPage() {
   /** 包车套餐读失败后点「重试」：加一次重读 */
   const [charterRetry, setCharterRetry] = useState(0);
   /** 有经停点时客人手动升到的套餐（M9P-03）：只对选的那一段行程（上下车点、经停点）有效，行程一改就回到自动 */
-  const [upgrade, setUpgrade] = useState<{ key: string; hours: string } | null>(null);
+  const [upgrade, setUpgrade] = useState<{ key: string; hours: string } | null>(() => {
+    // 行程报价页带来的包车报价是手动升过档的（M9T-10）：恢复成这段行程的升档
+    if (tripSeed === null || tripSeed.upgradeHours === "") return null;
+    const key = itineraryKeyOf(tripSeedDraft(tripSeed));
+    return key === null ? null : { key, hours: tripSeed.upgradeHours };
+  });
   /** 这段行程最近一次报价里自动选的档：手动升档后的报价暂时报不出时，下拉照样从它起列 */
   const [lastAuto, setLastAuto] = useState<{ key: string; byVehicle: Record<string, number> } | null>(null);
   /** 没有经停的包车每段的时长和里程（M9P-20，ADR 0096）：和行程地图共用一次谷歌调用，只作展示；key 是这组点 */
@@ -538,7 +544,13 @@ export function BookNewPage() {
   }, [requestKey, quoteRound]);
 
   const current = quote.kind !== "idle" && quote.key === requestKey ? quote : null;
-  const outcome = current?.kind === "ready" ? current.outcome : null;
+  const readyOutcome = current?.kind === "ready" ? current.outcome : null;
+  // 行程报价页带来的接送报价没有城市（M9T-10，后端只给包车的）：按报价请求的 city_id 从已读到的城市列表补上——当地时间、城市名、人工报价的城市都按它
+  const outcome = useMemo((): Outcome | null => {
+    if (fromTrip === null || readyOutcome === null || readyOutcome !== tripOutcomeAtOpen?.outcome || readyOutcome.mode !== "transfer" || readyOutcome.result.city !== null) return readyOutcome;
+    const city = tripBookCity(fromTrip, cityList);
+    return city === null ? readyOutcome : { mode: "transfer", result: { ...readyOutcome.result, city } };
+  }, [readyOutcome, cityList]);
   const quotes = useMemo(() => (outcome === null ? [] : quotesByTotal(outcome.result.quotes)), [outcome]);
   const selected = quotes.find((entry) => entry.vehicle_group.id === selectedId) ?? null;
   // 经停顺序建议（M9P-20 P2）：≥ 2 个经停、当前顺序有了报价（或超长时的询价日志编号）才申请

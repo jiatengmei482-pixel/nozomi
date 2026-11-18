@@ -678,3 +678,27 @@ test("过期的方案：不给预订按钮，只给「重新报价」", async ()
   assert.equal(within(card).queryByRole("button", { name: "提交预订，客服确认" }), null);
   assert.ok(screen.getByRole("button", { name: "重新报价" }));
 });
+
+test("单段方案后端说不是单段（409 TRIP_PLAN_NOT_SINGLE_SEGMENT）：退回「提交预订，客服确认」，焦点移到说明上（不掉到页面开头）", async () => {
+  wideScreen();
+  open({ at: `/book/trip?trip=${TRIP_ID}&step=2`, read: () => json(200, singleTrip()), orderQuote: () => apiError(409, "TRIP_PLAN_NOT_SINGLE_SEGMENT", "x", { reason: "MULTI_SEGMENT", segment_count: 2 }) });
+  const card = await screen.findByRole("listitem", { name: "同一辆车跑完全程" }, SLOW);
+  await user().click(within(card).getByRole("button", { name: "预订这个方案" }));
+  const message = await within(card).findByText("这个方案不能直接在线下单，请提交预订，由客服确认", {}, SLOW);
+  assert.equal(within(card).queryByRole("button", { name: "预订这个方案" }), null);
+  assert.ok(within(card).getByRole("button", { name: "提交预订，客服确认" }));
+  const alert = message.closest('[role="alert"]');
+  assert.ok(alert);
+  await waitFor(() => assert.equal(document.activeElement, alert));
+});
+
+test("预订时行程单已过期（404 TRIP_NOT_FOUND）：写明并给「修改行程」，点了回第 1 步", async () => {
+  wideScreen();
+  open({ at: `/book/trip?trip=${TRIP_ID}&step=2`, read: () => json(200, singleTrip()), orderQuote: () => apiError(404, "TRIP_NOT_FOUND", "x") });
+  const card = await screen.findByRole("listitem", { name: "同一辆车跑完全程" }, SLOW);
+  const actor = user();
+  await actor.click(within(card).getByRole("button", { name: "预订这个方案" }));
+  assert.ok(await within(card).findByText("预订没有打开：这个行程已过期或不存在，请重新填写。", {}, SLOW));
+  await actor.click(within(card).getByRole("button", { name: "修改行程" }));
+  assert.ok(await screen.findByRole("heading", { name: "你的行程", level: 2 }, SLOW));
+});
