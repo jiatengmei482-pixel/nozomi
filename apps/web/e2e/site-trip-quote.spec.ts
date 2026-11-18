@@ -61,20 +61,23 @@ async function fillDay(page: Page, world: CharterWorld, home: { name: string }):
   await pick(page, "第 1 天 最后下车地点", home.name);
 }
 
-/** 第 2 步的结果骨架：报出的方案和报不出的原因至少有一样，各自有名称和金额 / 原因 */
+/** 第 2 步的结果：报出的方案和报不出的原因至少有一样，各自有名称和金额 / 原因；方案卡片逐天有段 */
 async function expectResultStructure(page: Page): Promise<void> {
-  const result = page.locator('[data-trip-result="skeleton"]');
+  const result = page.locator('[data-trip-result="plans"]');
   const manual = page.getByRole("heading", { name: "这个行程需要客服人工报价" });
   await expect(result.or(manual).first()).toBeVisible({ timeout: 60_000 });
-  const plans = page.getByRole("list", { name: "报价结果" }).getByRole("listitem");
+  // 一个方案时列表叫「报价结果」，两个时叫「两个方案对比」；只取方案卡片本身（卡片里还有每天、每段的列表）
+  const plans = page.locator(".trip-plans > li.trip-plan");
   const unquoted = page.getByRole("region", { name: "报不出的方案" }).getByRole("listitem");
   const planCount = await plans.count();
   const unquotedCount = await unquoted.count();
   expect(planCount + unquotedCount + (await manual.count()), "报出的方案、报不出的原因、转人工至少有一样").toBeGreaterThan(0);
   for (let index = 0; index < planCount; index += 1) {
     const plan = plans.nth(index);
-    await expect(plan.getByRole("heading")).toHaveText(/^(同一辆车跑完全程|每天选最划算的车)$/);
+    await expect(plan.getByRole("heading", { level: 3 })).toHaveText(/^(同一辆车跑完全程|每天选最划算的车)$/);
     await expect(plan.locator(".trip-plan__amount")).toHaveText(/^\d{1,3}(,\d{3})* JPY$/);
+    await expect(plan.getByRole("heading", { level: 4, name: /^第 1 天 · \d+月\d+日$/ })).toBeVisible();
+    expect(await plan.locator(".trip-plan__line").count(), "每个方案至少有一段").toBeGreaterThan(0);
   }
   for (let index = 0; index < unquotedCount; index += 1) await expect(unquoted.nth(index)).toHaveText(/^(同一辆车跑完全程|每天选最划算的车)(（第 \d+ 天）)?：这个方案暂时报不出：.+$/);
 }
@@ -131,7 +134,7 @@ test("行程报价页（电脑 1280）：按天填写 → 建行程单（标准�
   expect(seen.quotes).toHaveLength(1);
   expect(seen.reads, "刚建好的行程单不再读一次").toHaveLength(0);
   await expect(aside.getByRole("figure", { name: "第 1 天路线图" }).getByRole("listitem")).toHaveText([`1${home.name}`, `2${world.station.name}`, `3${home.name}`]);
-  const shown = await page.locator('[data-trip-result="skeleton"]').or(page.getByRole("heading", { name: "这个行程需要客服人工报价" })).first().innerText();
+  const shown = await page.locator('[data-trip-result="plans"]').or(page.getByRole("heading", { name: "这个行程需要客服人工报价" })).first().innerText();
   await expectBothThemes(page, "行程报价第 2 步（1280）");
   await screenshot(page, "step2-1280");
 
@@ -140,7 +143,7 @@ test("行程报价页（电脑 1280）：按天填写 → 建行程单（标准�
   await expectResultStructure(page);
   expect(seen.reads).toHaveLength(1);
   expect(seen.quotes, "刷新不重新报价").toHaveLength(1);
-  expect(await page.locator('[data-trip-result="skeleton"]').or(page.getByRole("heading", { name: "这个行程需要客服人工报价" })).first().innerText()).toBe(shown);
+  expect(await page.locator('[data-trip-result="plans"]').or(page.getByRole("heading", { name: "这个行程需要客服人工报价" })).first().innerText()).toBe(shown);
   await expect(aside.getByRole("figure", { name: "第 1 天路线图" }).getByRole("listitem")).toHaveText([`1${home.name}`, `2${world.station.name}`, `3${home.name}`]);
   // 上一步：表单用读回来的行程单填上
   await page.getByRole("button", { name: "上一步" }).click();

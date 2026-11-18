@@ -118,7 +118,7 @@
   overflow-wrap: anywhere;
 }
 
-/* ---------- 报价结果（骨架，第二部分换成方案对比卡片） ---------- */
+/* ---------- 报价结果：方案对比卡片（宽屏两个方案并排） ---------- */
 
 .trip-result {
   display: flex;
@@ -187,6 +187,76 @@
 
 .trip-plan__expired {
   color: var(--color-warning-text);
+}
+
+/* 左栏够宽（≥1280px）时两张卡片并排，窄了上下排，金额不挤 */
+@media (min-width: 1280px) {
+  .trip-plans--compare {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+}
+
+.trip-plan__days,
+.trip-plan__lines,
+.trip-plan__warnings {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trip-plan__days {
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: var(--border-width) solid var(--color-border-default);
+}
+
+.trip-plan__lines {
+  gap: var(--space-1);
+}
+
+.trip-plan__day-title {
+  margin: 0 0 var(--space-1);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+}
+
+.trip-plan__line {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.trip-plan__line-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+}
+
+.trip-plan__line--fee .trip-plan__line-name {
+  color: var(--color-text-secondary);
+}
+
+.trip-plan__line-note {
+  color: var(--color-warning-text);
+  font-size: var(--font-size-sm);
+}
+
+.trip-plan__line-amount {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.trip-plan__warnings {
+  gap: var(--space-1);
+  color: var(--color-warning-text);
+  font-size: var(--font-size-sm);
 }
 
 .trip-manual,

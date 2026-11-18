@@ -6,7 +6,7 @@
  *    不用车的日子、司机住宿），可增删天（最多 14 天）、增删地点（每天最多 12 个点）。点「查看报价」先在页面上检查，问题写在各自的字段下面；
  *    没问题就建行程单（`POST /site/v1/trips`），地名按行程单编号暂存在本标签页（`trip-labels-store.ts`，行程单里只有坐标），再报价（`POST …/quote`）。
  * 2. 报价结果（`?trip=<编号>&step=2`）：报价时显示骨架；刷新或从别处打开这个网址时读行程单（`GET /site/v1/trips/{id}`，最近一次报价的结果），不重新报价。
- *    结果先用骨架展示（`TripQuoteResult`：方案名、推荐、合计、报不出的原因）；第二部分换成方案对比卡片和转人工按钮。
+ *    结果是方案对比卡片和转人工报价（`TripQuoteResult`，第二部分）。
  *    太复杂（422 `TRIP_TOO_COMPLEX`）写「需要客服人工报价」；太频繁（429）写等多久；行程单过期（404）只能回去重新填。
  *    报价没拿到应答（断网、超时、网关 502/503/504）时服务端可能已经报完：先读一次行程单，已报过价就直接显示，不再报价（报价限流每分钟 5 次、每天 50 次）；
  *    还没报过才给「重试」。第 2 步的变化（报价中 → 结果 / 出错）由常驻的播报区告诉读屏。
@@ -408,7 +408,7 @@ export function TripNewPage() {
         />
       );
     } else {
-      result = <TripQuoteResult trip={view.trip} quoting={view.quoting} onQuote={() => quoteAgain(view.tripId)} />;
+      result = <TripQuoteResult trip={view.trip} quoting={view.quoting} onQuote={() => quoteAgain(view.tripId)} supportWhatsapp={config.config.support_whatsapp} labels={loadTripLabels(view.tripId)} />;
     }
 
     const resultStep = (

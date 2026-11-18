@@ -1931,9 +1931,8 @@
           "id": "M9T-09",
           "title": "官网行程报价页 /book/trip：按天填写、建单与报价、两个方案对比（每天编号地图）、全部报不出转人工、部分报不出写明原因（ADR 0101 第十三节第 1 小节）",
           "role": "frontend",
-          "status": "doing",
-          "blockedBy": "第 2 部分依赖 M9T-08",
-          "evidence": "第 1 部分：/book/trip 填写、建单、报价骨架（本 PR）",
+          "status": "review",
+          "evidence": "第 1 部分 #320：/book/trip 填写、建单、报价骨架；第 2 部分（本 PR）：方案对比卡片（逐天每段、费用、提示）、全部报不出「转人工报价」带 trip_id / trip_labels（M9T-08）",
           "acceptance": ["样式同 /book/new：桌面两栏 + 每天一张编号地图，≤1023px 单栏 + 底部步骤条", "文案按 ADR 0101 第十三节文案表", "manual_quote_suggested 为 true 时只给转人工（带 trip_id）；部分报不出照常展示并写明原因", "不做 embed；验收通过前不加入口链接；组件测试与契约测试通过，测试站可直接打开地址验收"],
           "updated": "2026-11-18"
         },
