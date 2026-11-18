@@ -1265,44 +1265,21 @@ test("路线（M8-10）：高清屏要 2 倍的图", async () => {
   }
 });
 
-test("路线（M8-10）：平台还没开通静态地图（503 NOT_ENABLED）时退回现有底图画折线，带底图署名；没有底图时只写字", async () => {
-  const notEnabled = (): Response => apiError(503, "ROUTE_MAP_UNAVAILABLE", "路线图暂不可用", { reason: "NOT_ENABLED" });
-  await openSelected({ config: configOf({ map_tiles: ROUTE_TILES }), quote: withRoute(), routeMap: notEnabled });
-  fireEvent.error(staticMap());
-  assert.ok(await screen.findByRole("img", { name: ROUTE_LABEL }, SLOW));
-  // 静态图坏了以后要再问一次接口才知道是 NOT_ENABLED，退回的底图在那之后才挂上：等底图本身出现，不能在找到图片角色后立刻查（PR #171 CI run 43306861619 偶发 null）
-  await waitFor(() => assert.ok(document.querySelector(".leaflet-container"), "现有底图"), SLOW);
-  assertAbsent(document.querySelector(".route-map__image"));
-  assert.ok(screen.getByRole("link", { name: "© OpenStreetMap" }));
-  assert.ok(screen.getByText("约 52 分钟 · 63.4 公里"));
-  resetBrowser();
-
-  await openSelected({ config: configOf({ map_tiles: null }), quote: withRoute(), routeMap: notEnabled });
-  fireEvent.error(staticMap());
-  await waitFor(() => assertAbsent(document.querySelector(".route-map")), SLOW);
-  assert.ok(screen.getByText("约 52 分钟 · 63.4 公里"));
-});
-
-test("路线（M8-29）：知道静态地图没开通以后切换亮暗主题，还是同一张现有底图（当场压暗、不重建），不再按新主题要静态图", async () => {
+test("路线（M10-01）：平台还没开通静态地图（503 NOT_ENABLED）时不显示地图、只写字——谷歌的路线不画在非谷歌的底图上；之后切换亮暗主题也不再要静态图", async () => {
   const notEnabled = (): Response => apiError(503, "ROUTE_MAP_UNAVAILABLE", "路线图暂不可用", { reason: "NOT_ENABLED" });
   const { calls } = await openSelected({ config: configOf({ map_tiles: ROUTE_TILES }), quote: withRoute(), routeMap: notEnabled });
   fireEvent.error(staticMap());
-  await waitFor(() => assert.ok(document.querySelector(".route-map__canvas.leaflet-container"), "现有底图"), SLOW);
-  const canvas = document.querySelector(".route-map__canvas") as HTMLElement;
-  const tilePane = canvas.querySelector(".leaflet-tile-pane");
-  const line = canvas.querySelector(".route-map__line");
+  await waitFor(() => assertAbsent(document.querySelector(".route-map")), SLOW);
+  assertAbsent(document.querySelector(".leaflet-container"));
+  assertAbsent(screen.queryByRole("link", { name: "© OpenStreetMap" }));
+  assert.ok(screen.getByText("约 52 分钟 · 63.4 公里"));
   const asked = (): number => calls.filter((call) => call.path.startsWith("/site/v1/route-map")).length;
   assert.equal(asked(), 1, "图坏了以后问过一次原因");
-
-  for (const theme of ["dark", "light", "dark"] as const) {
+  for (const theme of ["dark", "light"] as const) {
     document.documentElement.dataset["theme"] = theme;
-    await waitFor(() => assert.equal(canvas.classList.contains("area-map__canvas--dimmed"), theme === "dark", theme));
-    assert.equal(document.querySelector(".route-map__canvas"), canvas, `${theme}：还是同一个地图容器`);
-    assert.equal(canvas.querySelector(".leaflet-tile-pane"), tilePane, `${theme}：瓦片层没有重建`);
-    assert.equal(canvas.querySelector(".route-map__line"), line, `${theme}：路线没有重画`);
-    assertAbsent(document.querySelector(".route-map__image"));
-    assertAbsent(document.querySelector(".route-map__canvas--loading"));
-    assert.equal(asked(), 1, `${theme}：不再请求静态图`);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assertAbsent(document.querySelector(".route-map"));
+    assert.equal(asked(), 1, `${theme}：知道没开通以后不再要静态图`);
   }
 });
 
