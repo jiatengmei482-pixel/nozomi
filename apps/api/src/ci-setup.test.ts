@@ -166,3 +166,11 @@ test("端到端失败不自动重跑（M4-07）：偶发失败当场暴露，不
   const config = await readText("apps/web/playwright.config.ts");
   assert.match(config, /^\s*retries: 0,$/m);
 });
+
+test("同一个 PR 又推了新提交时取消旧的一轮；main 上的不取消（部署要等 main 每一轮跑完）", async () => {
+  const text = await readText(".github/workflows/ci.yml");
+  const parsed = parse(text) as { concurrency?: { group?: string; "cancel-in-progress"?: string } };
+  assert.match(parsed.concurrency?.group ?? "", /pull_request\.number/);
+  assert.match(parsed.concurrency?.group ?? "", /github\.sha/, "main 每个提交一组，互不取消");
+  assert.equal(parsed.concurrency?.["cancel-in-progress"], "${{ github.event_name == 'pull_request' }}");
+});
