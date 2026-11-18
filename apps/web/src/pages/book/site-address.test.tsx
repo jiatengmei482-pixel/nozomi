@@ -225,3 +225,36 @@ test("选点之后客人又改了地址栏：反查回来只更新坐标，不�
   // 地图、按钮、状态行在「上车地点的地图」这个分组里
   assert.ok(within(screen.getByRole("group", { name: "上车地点的地图" })).getByText("坐标已更新；地址栏保留您写的内容。"));
 });
+
+test("谷歌地图选点（M10-01 第 2 处）：配了浏览器密钥时打开谷歌地图小页面，选点照常填坐标、查地址；加载不出来时收起地图，提示用搜索或直接写地址和坐标", async () => {
+  const key = `AIzaSy${"b".repeat(33)}`;
+  const calls = open({ config: configOf({ address_search: true, map_tiles: tiles, maps_browser_key: key }) });
+  const actor = user();
+  await actor.click(await screen.findByRole("button", { name: "在地图上选上车地点" }));
+  const group = screen.getByRole("group", { name: "上车地点的地图" });
+  const frame = (await waitFor(() => {
+    const found = group.querySelector("iframe");
+    assert.ok(found);
+    return found;
+  })) as HTMLIFrameElement;
+  assert.ok(frame.getAttribute("src")?.startsWith(`/maps/picker.html?key=${key}&`));
+  assert.equal(group.querySelector(".leaflet-container"), null);
+  const send = (data: unknown) => window.dispatchEvent(new MessageEvent("message", { data, origin: window.location.origin, source: frame.contentWindow }));
+  send({ source: "nozomi-map", type: "ready" });
+  send({ source: "nozomi-map", type: "pick", lat: 35.6901234567, lng: 139.7001234567 });
+  await waitFor(() => assert.deepEqual(coordinatesOf("上车"), ["35.690123", "139.700123"]));
+  assert.ok(await screen.findByText("已填入这个位置的地址和坐标，可以在地址后面补充酒店名、楼层。"));
+  assert.ok(calls.some((call) => call.path.includes("/places/reverse")));
+
+  // 地图可能在选点后收起了：重新打开、拿新的 iframe 再报失败
+  if (group.querySelector("iframe") === null) await actor.click(screen.getByRole("button", { name: "在地图上选上车地点" }));
+  const again = (await waitFor(() => {
+    const found = group.querySelector("iframe");
+    assert.ok(found);
+    return found;
+  })) as HTMLIFrameElement;
+  window.dispatchEvent(new MessageEvent("message", { data: { source: "nozomi-map", type: "failed", reason: "load" }, origin: window.location.origin, source: again.contentWindow }));
+  assert.ok(await screen.findByText("地图加载不出来（可能是网络原因）。请用上面的搜索，或直接写上地址和坐标。"));
+  assertAbsent(screen.queryByRole("button", { name: "在地图上选上车地点" }));
+  assert.ok(screen.getByRole("button", { name: "在地图上选下车地点" }), "另一端的地图还能试");
+});

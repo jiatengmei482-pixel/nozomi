@@ -417,7 +417,7 @@ export function BookPage() {
     const labels = serviceTimeLabels(draft.category, draft.direction);
     // 地址搜索、地图选点要先选城市（搜索只在城市附近，地图从城市中心打开）
     const lookup: AddressLookup | null =
-      city === undefined ? null : { cityId: city.id, cityName: displayName(city.name).text, center: city.center, search: config.config.address_search === true, tiles: config.config.map_tiles ?? null };
+      city === undefined ? null : { cityId: city.id, cityName: displayName(city.name).text, center: city.center, search: config.config.address_search === true, tiles: config.config.map_tiles ?? null, mapsKey: config.config.maps_browser_key ?? null };
     const pointFields = pointsOf(draft).map(({ key, end }) => (
       <AddressFields key={`${key}-${draft.cityId}`} end={end} label={ADDRESS_LABELS[end]} value={draft[key]} errors={errors[key] ?? {}} places={places} lookup={lookup} onChange={(point) => update({ [key]: point })} />
     ));

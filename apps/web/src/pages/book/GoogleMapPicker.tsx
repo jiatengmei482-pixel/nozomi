@@ -61,7 +61,7 @@ export function GoogleMapPicker({ apiKey, center, point, word, onPick, onUnavail
       if (typeof data !== "object" || data === null || (data as { source?: unknown }).source !== SOURCE) return;
       const message = data as { type?: unknown; lat?: unknown; lng?: unknown };
       if (message.type === "ready") {
-        settled = true;
+        // 只停超时；之后谷歌才判定密钥被拒（gm_authFailure）发来的 failed 照样算
         window.clearTimeout(timer);
         setReady(true);
       } else if (message.type === "failed") {
