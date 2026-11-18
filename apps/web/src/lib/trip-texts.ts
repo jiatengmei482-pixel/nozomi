@@ -106,7 +106,6 @@ export type TripTextKey =
   | "action.quote"
   | "action.read"
   | "action.cities"
-  // 报不出的原因（`unquoted[].reason`）；没列的原因码用 `reason.other`
   | "dayHeading"
   | "segment.airport_pickup"
   | "segment.airport_dropoff"
@@ -126,6 +125,9 @@ export type TripTextKey =
   | "compare"
   | "manual.cardHint"
   | "manual.noTrip"
+  | "manual.unnamedPlace"
+  | "dayListOf"
+  // 报不出的原因（`unquoted[].reason`）；没列的原因码用 `reason.other`
   | "reason.NO_OFFER"
   | "reason.NO_PRODUCT"
   | "reason.OUT_OF_SERVICE_AREA"
@@ -254,6 +256,8 @@ const ZH: Readonly<Record<TripTextKey, string>> = {
   compare: "两个方案对比",
   "manual.cardHint": "留下邮箱或 WhatsApp，客服按整张行程单报价，不用再填行程",
   "manual.noTrip": "第一天的行程不完整，没法转人工报价，请返回修改行程",
+  "manual.unnamedPlace": "地图上选的位置",
+  dayListOf: "{plan}：每天的行程",
 
   "failure.tooComplex": "这个行程太复杂，暂时没法在线报价。",
   "failure.notFound": "这个行程已过期或不存在，请重新填写。",

@@ -9,7 +9,7 @@
  * - 下单按钮（单段方案走现有下单付款、多段方案按业主决定）是 M9T-10，不在本组件。
  */
 import { useEffect, useId, useRef, useState } from "react";
-import type { SiteTrip, SiteTripPlan, SiteTripPlanKind, SiteTripSegment, SiteTripWarningCode } from "../../../api/site.ts";
+import type { SiteTrip, SiteTripPlan, SiteTripPlanKind, SiteTripSegment, SiteTripSegmentType, SiteTripWarningCode } from "../../../api/site.ts";
 import { Button } from "../../../components/Button.tsx";
 import { moneyText } from "../../../lib/dispatch-display.ts";
 import { displayName } from "../../../lib/master-display.ts";
@@ -38,13 +38,30 @@ const dayDate = (date: string): string => {
   return month !== undefined && day !== undefined ? `${Number(month)}月${Number(day)}日` : date;
 };
 
+/** 段类型 → 文案键：新增段类型时这里编译不过，提醒补文案 */
+const SEGMENT_KEYS: Readonly<Record<SiteTripSegmentType, TripTextKey>> = {
+  airport_pickup: "segment.airport_pickup",
+  airport_dropoff: "segment.airport_dropoff",
+  p2p: "segment.p2p",
+  charter: "segment.charter",
+  idle_day: "segment.idle_day",
+};
+
+/** 提示码 → [某一天, 整个方案] 的文案键 */
+const WARNING_KEYS: Readonly<Record<SiteTripWarningCode, readonly [TripTextKey, TripTextKey]>> = {
+  SECOND_DRIVER: ["warning.SECOND_DRIVER", "warning.SECOND_DRIVERWhole"],
+  SEGMENT_OTHER_VEHICLE: ["warning.SEGMENT_OTHER_VEHICLE", "warning.SEGMENT_OTHER_VEHICLEWhole"],
+  WORK_HOURS_HARD_LIMIT: ["warning.WORK_HOURS_HARD_LIMIT", "warning.WORK_HOURS_HARD_LIMITWhole"],
+};
+
 function segmentName(segment: SiteTripSegment): string {
-  if (segment.type === "charter") return segment.package_hours === null ? tripCopy("segment.charter") : tripCopy("segment.charterHours", { hours: segment.package_hours });
-  return tripCopy(`segment.${segment.type}` as TripTextKey);
+  if (segment.type === "charter" && segment.package_hours !== null) return tripCopy("segment.charterHours", { hours: segment.package_hours });
+  return tripCopy(SEGMENT_KEYS[segment.type]);
 }
 
 function warningText(code: SiteTripWarningCode, dayIndex: number | null): string {
-  return dayIndex === null ? tripCopy(`warning.${code}Whole` as TripTextKey) : tripCopy(`warning.${code}` as TripTextKey, { n: dayIndex + 1 });
+  const [day, whole] = WARNING_KEYS[code];
+  return dayIndex === null ? tripCopy(whole) : tripCopy(day, { n: dayIndex + 1 });
 }
 
 function PlanCard({ plan }: { plan: SiteTripPlan }) {
@@ -69,7 +86,7 @@ function PlanCard({ plan }: { plan: SiteTripPlan }) {
         <span className="trip-plan__amount">{moneyText(plan.total)}</span>
       </p>
       {plan.expired && <p className="trip-plan__expired">{tripCopy("expired")}</p>}
-      <ol className="trip-plan__days" aria-label={tripCopy("dayList")}>
+      <ol className="trip-plan__days" aria-label={tripCopy("dayListOf", { plan: name })}>
         {plan.days.map((day) => (
           <li key={day.day_index} className="trip-plan__day" data-day-index={day.day_index}>
             <h4 className="trip-plan__day-title">{tripCopy("dayHeading", { n: day.day_index + 1, date: dayDate(day.date) })}</h4>
@@ -148,10 +165,11 @@ function ManualQuoteSection({ trip, supportWhatsapp }: { trip: SiteTrip; support
       <h3 id="trip-manual-title" ref={titleRef} tabIndex={-1} className="book-new__subtitle">
         {tripCopy("manual.title")}
       </h3>
-      <p className="site-muted">{draft === null ? tripCopy("manual.noTrip") : tripCopy("manual.cardHint")}</p>
+      {/* 表单展开后它自己有说明，这句就不重复了 */}
+      {!open && <p className="site-muted">{draft === null ? tripCopy("manual.noTrip") : tripCopy("manual.cardHint")}</p>}
       {draft !== null &&
         (open ? (
-          <ManualQuoteBlock trip={draft} supportWhatsapp={supportWhatsapp} tripLink={{ tripId: trip.trip_id, planKind: null, labels: tripLabelsFor(trip.itinerary, labels) }} />
+          <ManualQuoteBlock trip={draft} supportWhatsapp={supportWhatsapp} headingLevel="h4" tripLink={{ tripId: trip.trip_id, planKind: null, labels: tripLabelsFor(trip.itinerary, labels) }} />
         ) : (
           <div>
             <Button variant="primary" size="lg" onClick={() => setOpen(true)}>

@@ -42,7 +42,7 @@ export function WhatsappButton({ supportWhatsapp, trip }: { supportWhatsapp: str
 /**
  * `tripLink`：行程报价页（M9T-09）转人工时带上行程单编号、方案和每天的地名（M9T-08），`trip` 是第一天的行程；其他页面不给，请求和以前一样。
  */
-export function ManualQuoteBlock({ trip, supportWhatsapp, headingLevel = "h3", tripLink }: { trip: ManualQuoteTripDraft; supportWhatsapp: string | null; headingLevel?: "h2" | "h3"; tripLink?: TripManualQuoteLink }) {
+export function ManualQuoteBlock({ trip, supportWhatsapp, headingLevel = "h3", tripLink }: { trip: ManualQuoteTripDraft; supportWhatsapp: string | null; headingLevel?: "h2" | "h3" | "h4"; tripLink?: TripManualQuoteLink }) {
   const titleId = useId();
   const [contact, setContact] = useState<ManualQuoteContact>(emptyManualQuoteContact);
   const [errors, setErrors] = useState<ManualQuoteErrors>({});
