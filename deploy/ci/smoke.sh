@@ -269,7 +269,7 @@ check_frontend() {
   if grep -Eq "unsafe-inline|unsafe-eval|https?:|\*" <<<"${policy//$expected_tile_origin/}"; then fail "$label：内容安全策略不应放行内联、eval 或底图之外的任何站外来源：$policy"; fi
   # 官网页面（/book…）多放行 Stripe.js 必需的来源（ADR 0046）；上面查的根路径（后台、登录用的那一条）一个 Stripe 来源都没有。
   site_policy="$(request --max-time 10 --head "$base_url/book/order" | tr -d '\r' | sed -n 's/^[Cc]ontent-[Ss]ecurity-[Pp]olicy: //p')"
-  for directive in "script-src 'self' 'sha256-$script_hash' https://js.stripe.com https://*.js.stripe.com;" "connect-src 'self' https://api.stripe.com;" "frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com;" "frame-ancestors 'none'"; do
+  for directive in "script-src 'self' 'sha256-$script_hash' https://js.stripe.com https://*.js.stripe.com;" "connect-src 'self' https://api.stripe.com;" "frame-src 'self' https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com;" "frame-ancestors 'none'"; do
     grep -qF "$directive" <<<"$site_policy" || fail "$label：官网页面的内容安全策略缺少 $directive，实际策略：$site_policy"
   done
 

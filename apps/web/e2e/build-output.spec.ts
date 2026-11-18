@@ -34,7 +34,9 @@ test("产物只有 index.html、带哈希的 JS / CSS、组件脚本和标记图
   expect(names.filter((name) => name.endsWith(".map"))).toEqual([]);
   expect(names).toContain("index.html");
   // 嵌入组件脚本（M9E-03，ADR 0090）：固定文件名，合作网站页面直接引用；包车行程地图 10–12 号标记的图标（M9P-20，ADR 0096）：谷歌出图时来取
-  for (const name of names) expect(name, "出现了预期之外的产物").toMatch(/^(index\.html|assets\/[\w-]+-[\w-]{8,}\.(js|css)|embed\/widget-v1\.js|map-markers\/(1[0-2]|1-([3-9]|1[0-2]))\.png)$/);
+  for (const name of names) expect(name, "出现了预期之外的产物").toMatch(/^(index\.html|assets\/[\w-]+-[\w-]{8,}\.(js|css)|embed\/widget-v1\.js|map-markers\/(1[0-2]|1-([3-9]|1[0-2]))\.png|maps\/picker\.(html|js|css))$/);
+  // 官网选点的谷歌地图小页面（M10-01 第 2 处）：public/maps/ 原样复制，固定三个文件
+  expect(names.filter((name) => name.startsWith("maps/")).sort()).toEqual(["maps/picker.css", "maps/picker.html", "maps/picker.js"]);
   expect(names.filter((name) => name.startsWith("map-markers/")).sort()).toEqual(["10", "11", "12", ...Array.from({ length: 10 }, (_, i) => `1-${i + 3}`)].map((n) => `map-markers/${n}.png`).sort());
   for (const { name, text } of textFiles) expect(text.includes("sourceMappingURL"), `${name} 指向了 source map`).toBe(false);
 });
@@ -68,7 +70,11 @@ test("产物不引用任何站外资源：index.html 只引用本站的 /assets/
   for (const reference of references) expect(reference).toMatch(/^\/assets\/[\w-]+-[\w-]{8,}\.(js|css)$/);
   expect(html).toContain('<meta name="referrer" content="no-referrer" />');
 
-  for (const { name, text } of textFiles) {
+  // 谷歌地图小页面（M10-01 第 2 处）本来就要加载谷歌地图，单独核对：站外网址只有谷歌地图脚本这一个
+  const picker = textFiles.find((file) => file.name === "maps/picker.js");
+  expect(picker, "缺少 maps/picker.js").toBeTruthy();
+  expect([...(picker?.text ?? "").matchAll(/\bhttps?:\/\/[^\s"'`)<>\\$]+/g)].map((match) => match[0])).toEqual(["https://maps.googleapis.com/maps/api/js?key="]);
+  for (const { name, text } of textFiles.filter((file) => !file.name.startsWith("maps/"))) {
     const urls = [...text.matchAll(/\bhttps?:\/\/[^\s"'`)<>\\]+/g)].map((match) => match[0]);
     const unexpected = urls.filter((url) => !KNOWN_URLS.some((known) => known.test(url)));
     expect(unexpected, `${name} 里有站外网址`).toEqual([]);

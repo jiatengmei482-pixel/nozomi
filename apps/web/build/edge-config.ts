@@ -64,6 +64,37 @@ export const SITE_PAGE_PREFIX = "/book";
  */
 export const SITE_PAGE_URI_PATTERN = `^${SITE_PAGE_PREFIX}(/(order/?|checkout/?|new/?)?)?([?#].*)?$`;
 
+/**
+ * 官网选点用的谷歌地图小页面（M10-01 第 2 处，ADR 0044 补记）：静态文件 `public/maps/picker.html`，由官网页面用同源 iframe 打开。
+ * 谷歌地图脚本要求放宽内容安全策略（内联样式、eval），只给这一页放宽，官网下单、付款页面的策略不变。没有反斜杠：要原样放进 Caddy 的 CEL 表达式。
+ */
+export const MAPS_PICKER_PATH = "/maps/picker.html";
+export const MAPS_PICKER_URI_PATTERN = "^/maps/picker[.]html([?].*)?$";
+
+export function isMapsPickerPath(url: string): boolean {
+  return new RegExp(MAPS_PICKER_URI_PATTERN).test(url);
+}
+
+/**
+ * 地图小页面的策略：按谷歌地图的内容安全策略指南放行它的脚本、样式、图片、字体、接口、worker；只能被同源页面嵌入；不能提交表单、不能再嵌别的页面（谷歌自己的除外）。
+ */
+export function mapsPickerPolicy(): string {
+  return [
+    "default-src 'self'",
+    "script-src 'self' https://maps.googleapis.com https://maps.gstatic.com 'unsafe-eval' blob:",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "img-src 'self' data: https://*.googleapis.com https://*.gstatic.com https://*.google.com https://*.googleusercontent.com",
+    "font-src https://fonts.gstatic.com",
+    "connect-src 'self' https://*.googleapis.com https://*.google.com https://*.gstatic.com data: blob:",
+    "worker-src blob:",
+    "frame-src https://*.google.com",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'self'",
+  ].join("; ");
+}
+
 /** `url`：请求行里的原始地址（路径 + 查询串）。和 Caddy 片段里的 `@site_pages` 同一个正则。 */
 export function isSitePagePath(url: string): boolean {
   return new RegExp(SITE_PAGE_URI_PATTERN, "i").test(url);
@@ -137,7 +168,8 @@ export function contentSecurityPolicy(scriptHashes: readonly string[], imageSour
     ["img-src 'self'", ...imageSources].join(" "),
     "font-src 'self'",
     ["connect-src 'self'", ...(payments ? STRIPE_CSP_SOURCES.connect : [])].join(" "),
-    ...(payments ? [`frame-src ${STRIPE_CSP_SOURCES.frame.join(" ")}`] : []),
+    // 官网页面另放行同源的地图小页面（M10-01 第 2 处）
+    ...(payments ? [`frame-src 'self' ${STRIPE_CSP_SOURCES.frame.join(" ")}`] : []),
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'self'",
@@ -155,8 +187,9 @@ export function apiPathPatterns(prefixes: readonly string[] = API_PATH_PREFIXES)
 }
 
 /** 三条策略（官网页面、嵌入预订页、其余），vite preview 插件和 Caddy 片段用的是同一份（edge-config.test.ts 核对） */
-export function edgePolicies(scriptHashes: readonly string[], imageSources: readonly string[]): { site: string; other: string; embedBook(ancestor: string): string } {
+export function edgePolicies(scriptHashes: readonly string[], imageSources: readonly string[]): { site: string; other: string; mapsPicker: string; embedBook(ancestor: string): string } {
   return {
+    mapsPicker: mapsPickerPolicy(),
     site: contentSecurityPolicy(scriptHashes, imageSources, { payments: true }),
     other: contentSecurityPolicy(scriptHashes, imageSources),
     // 同官网页面（嵌入页里以后要付款，ADR 0095 第五节第 1 小节），只是 frame-ancestors 换成那一个宿主
@@ -180,13 +213,16 @@ export function renderEdgeConfig(indexHtml: string): string {
   const policies = edgePolicies(hashes, [MAP_TILE_CSP_PLACEHOLDER]);
   const isSitePage = `{http.request.orig_uri}.matches("(?i)${SITE_PAGE_URI_PATTERN}")`;
   const isEmbedBookPage = `{http.request.orig_uri}.matches("(?i)${EMBED_BOOK_URI_PATTERN}")`;
+  const isMapsPicker = `{http.request.orig_uri}.matches("${MAPS_PICKER_URI_PATTERN}")`;
   return [
     "# 构建前端镜像时由 apps/web/build/edge-config.ts 生成，不要手工修改。",
     `@api path ${apiPathPatterns().join(" ")}`,
     `@site_pages expression \`${isSitePage}\``,
     `@embed_book_pages expression \`${isEmbedBookPage}\``,
-    `@other_pages expression \`!${isSitePage} && !${isEmbedBookPage}\``,
+    `@maps_picker_pages expression \`${isMapsPicker}\``,
+    `@other_pages expression \`!${isSitePage} && !${isEmbedBookPage} && !${isMapsPicker}\``,
     `header @site_pages Content-Security-Policy "${policies.site}"`,
+    `header @maps_picker_pages Content-Security-Policy "${policies.mapsPicker}"`,
     `header @other_pages Content-Security-Policy "${policies.other}"`,
     "handle @embed_book_pages {",
     "\troute {",

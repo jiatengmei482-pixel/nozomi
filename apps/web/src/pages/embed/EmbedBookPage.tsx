@@ -134,6 +134,7 @@ export function EmbedBookPage() {
       title: t.title,
       frame: (body) => <div lang="zh-CN">{body}</div>,
       tiles: () => null,
+      mapsKey: () => null,
       // 草稿已经在上面读过了：直接交给四步，不再读第二次
       readDraft: () => Promise.resolve({ draft: saved, sourceMatches }),
       placed: (created, go) => {

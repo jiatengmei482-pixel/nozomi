@@ -156,7 +156,10 @@ const EMBED_ORDER_STORE = "embed/embed-order-store.ts";
 /** 多日行程报价页的地名暂存（M9T-09，ADR 0101 第十三节）：行程单里只有坐标，地名按行程单编号存在本标签页 */
 const TRIP_LABELS_STORE = "lib/trip-labels-store.ts";
 /** 嵌入预订流程的 postMessage（M9E-16，ADR 0095 第六节）：宿主页一侧（组件脚本）和 iframe 里的嵌入页各一处，targetOrigin 都不是 "*" */
-const POST_MESSAGE_SENDERS: Readonly<Record<string, string>> = { "embed/widget-booking.ts": "this.origin", "pages/embed/EmbedFrame.tsx": "host" };
+const POST_MESSAGE_SENDERS: Readonly<Record<string, string>> = { "embed/widget-booking.ts": "this.origin", "pages/embed/EmbedFrame.tsx": "host",
+  // 官网选点的谷歌地图小页面（M10-01 第 2 处）：同源 iframe，targetOrigin 是本站自己
+  "pages/book/GoogleMapPicker.tsx": "window.location.origin",
+};
 const EXTERNAL_SCRIPT_REGISTRY = "lib/external-scripts.ts";
 const EXTERNAL_SCRIPT_LOADER = "lib/stripe-js.ts";
 const NEW_TAB_LINK_COMPONENT = "components/NewTabLink.tsx";

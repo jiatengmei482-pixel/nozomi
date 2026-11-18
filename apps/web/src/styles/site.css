@@ -835,3 +835,21 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/* 谷歌地图选点（M10-01 第 2 处）：地图在同源 iframe 里，十字准星由谷歌地图自己的光标代替 */
+.site-map__canvas--google {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  cursor: default;
+}
+
+.site-map__loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  color: var(--color-text-secondary);
+  pointer-events: none;
+}

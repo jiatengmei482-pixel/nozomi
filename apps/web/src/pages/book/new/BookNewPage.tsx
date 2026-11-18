@@ -1025,6 +1025,7 @@ export function BookNewPage() {
     body = <StateBlock tone="neutral" title="暂时没有可预订的城市" description="现在还没有可以在线预订用车的城市，请稍后再来。" />;
   } else {
     const tiles = shell.tiles(config.config.map_tiles);
+    const mapsKey = shell.mapsKey(config.config.maps_browser_key ?? null);
     const centers: CityCandidate[] = cityList.map((city) => ({ id: city.id, center: city.center }));
     // 地图从另一端打开；另一端还没选时从当前标签的默认城市打开（M8-43，规则见 defaultMapCity）
     const fallbackCenter = defaultMapCity(cityList, draft.tab)?.center ?? null;
@@ -1101,6 +1102,7 @@ export function BookNewPage() {
           {...(errors.from !== undefined ? { error: errors.from } : {})}
           hint={ADDRESS_ONLY_HINT}
           tiles={tiles}
+          mapsKey={mapsKey}
           mapCenter={centerOf(draft.to)}
           cities={centers}
         />
@@ -1111,6 +1113,7 @@ export function BookNewPage() {
             onChange={(waypoints) => update({ waypoints })}
             errors={waypointCheck ? waypointErrors(draft.waypoints) : {}}
             tiles={tiles}
+            mapsKey={mapsKey}
             mapCenter={centerOf(draft.from)}
             cities={centers}
             startTime={draft.time}
@@ -1129,6 +1132,7 @@ export function BookNewPage() {
           hint={charter ? ["包车结束时在哪里下车，价格按上车和下车地点算。", ADDRESS_ONLY_HINT] : ADDRESS_ONLY_HINT}
           {...(charter && legacyCharterLink && draft.to === null ? { info: "请选择下车地点，包车现在按上车和下车地点报价。" } : {})}
           tiles={tiles}
+          mapsKey={mapsKey}
           mapCenter={centerOf(draft.from)}
           cities={centers}
         />
