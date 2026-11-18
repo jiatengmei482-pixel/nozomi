@@ -958,13 +958,12 @@ test("M8-20 上架检查「运营区域」：报价区域超出运营区域只�
   assert.ok(screen.getByRole("button", { name: "上架" }));
 });
 
-test("M9P-07 上架检查「热门地标覆盖」：列出不在任何区域里的地标（写出名字，取不到名字的写个数），只提醒、不拦上架", async () => {
+test("M9P-07 上架检查「热门地标覆盖」：列出不在任何区域里的地标（名字用接口给的 detail.name，没给的写个数；不另取整张地标表，M9P-07F），只提醒、不拦上架", async () => {
   const LANDMARK = "77777777-7777-4777-8777-777777777777";
   const UNKNOWN = "78787878-7878-4878-8878-787878787878";
   const check = checkOf({ price_rules: [] });
-  check.items.push({ key: "charter_coverage", required: false, passed: false, issues: [LANDMARK, UNKNOWN].map((id) => ({ path: `/places/${id}`, reason: "CHARTER_POI_NOT_COVERED", message: "说明" })) });
-  const landmark = { ...haneda, id: LANDMARK, type: "poi", code: "POI-KWG", name: { zh: "河口湖" } } as unknown as Place;
-  const calls = open(`/products/${PRODUCT_ID}/publish`, "admin", productRoutes({ check }, (call) => (call.method === "GET" && call.url.pathname === "/tenant/v1/master/places" && call.url.searchParams.get("type") === "poi" ? page([landmark]) : null)));
+  check.items.push({ key: "charter_coverage", required: false, passed: false, issues: [{ path: `/places/${LANDMARK}`, reason: "CHARTER_POI_NOT_COVERED", message: "说明", detail: { name: "河口湖" } }, { path: `/places/${UNKNOWN}`, reason: "CHARTER_POI_NOT_COVERED", message: "说明" }] });
+  const calls = open(`/products/${PRODUCT_ID}/publish`, "admin", productRoutes({ check }));
   await screen.findByText("可以上架了");
   const row = (): string => document.querySelector('[data-check="charter_coverage"]')?.textContent ?? "";
   await waitFor(() => assert.match(row(), /热门地标「河口湖」不在这个商品的任何区域里（基础价、行程加价、上下车加价区域都没有盖住），客人在这里上下车或经停报不出价/));
@@ -973,7 +972,7 @@ test("M9P-07 上架检查「热门地标覆盖」：列出不在任何区域里�
   assert.match(row(), /有 1 个热门地标不在这个商品的任何区域里/, "取不到名字的写个数");
   assert.match(row(), /需要的话到区域页面把它画进基础价、行程加价或上下车加价区域/);
   assert.doesNotMatch(row(), /功能还在开发|不是必须/);
-  assert.ok(calls.some((call) => call.path.startsWith("/tenant/v1/master/places") && call.path.includes(`city_id=${CITY_ID}`)));
+  assert.ok(!calls.some((call) => call.path.startsWith("/tenant/v1/master/places")), "不另取整张地标表");
   assert.ok(screen.getByRole("button", { name: "上架" }), "只是提醒，不拦上架");
 });
 

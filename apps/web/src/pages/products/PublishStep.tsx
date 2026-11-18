@@ -5,8 +5,7 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { ApiError } from "../../api/client.ts";
-import type { Place } from "../../api/master.ts";
-import { type Product, type ProductServiceRules, type PublishCheckItemBody, type PublishCheckResult, listCityLandmarks, setProductPublished } from "../../api/products.ts";
+import { type Product, type ProductServiceRules, type PublishCheckItemBody, type PublishCheckResult, setProductPublished } from "../../api/products.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { Button, LinkButton } from "../../components/Button.tsx";
@@ -15,7 +14,7 @@ import { Icon, type IconName } from "../../components/Icon.tsx";
 import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { useToast } from "../../components/Toast.tsx";
 import { areaEditPath } from "../../lib/area-paths.ts";
-import { displayName, shortName } from "../../lib/master-display.ts";
+import { shortName } from "../../lib/master-display.ts";
 import { CHECK_STEP, type CheckItemState, checkItemName, checkItemState, checkOverview, checkReasons, noteForPortal, productName, quoteNames } from "../../lib/product-display.ts";
 import { PRODUCT_FORBIDDEN_TEXT, saveFailureText } from "../../lib/product-failure.ts";
 import { localToday } from "../../lib/time-input.ts";
@@ -71,10 +70,6 @@ export function PublishStep({ frame, product, onReload, checkStatus }: { frame: 
   }, [rejected]);
 
   const check = rejected ?? frame.check;
-  // 「热门地标覆盖」（M9P-07）：接口只给地标编号，供应商后台取这个城市的地标写出名字；取不到时只写个数
-  const uncovered = check?.items.some((item) => item.key === "charter_coverage" && item.issues.length > 0) === true;
-  const landmarks = useLoad<Place[]>(`publish-landmarks:${product.city_id}`, uncovered && !onPlatform ? (session) => listCityLandmarks(session, product.city_id) : null);
-  const placeNames = landmarks.state.data === null ? null : new Map(landmarks.state.data.map((place) => [place.id, displayName(place.name).text]));
   const recheck = (): void => {
     setRejected(null);
     onReload();
@@ -170,7 +165,7 @@ export function PublishStep({ frame, product, onReload, checkStatus }: { frame: 
     const itemName = checkItemName(item.key);
     const step = CHECK_STEP[item.key as keyof typeof CHECK_STEP];
     // 不是必须的项也可能有要提醒的（调价规则会把价格调到不大于 0）
-    const reasons = state === "missing" || (state === "optional" && !item.passed) ? checkReasons(item, placeNames === null ? checkContext : { ...checkContext, placeNames }) : [];
+    const reasons = state === "missing" || (state === "optional" && !item.passed) ? checkReasons(item, checkContext) : [];
     const stepPath = item.key === "adjust_rules" ? pricePath(product.id, "adjust") : step ? productPath(product.id, step) : null;
     // 库存从今天起没有、报价区域超出运营区域（M8-20）：不拦上架，但要留意
     const heedful = HEEDFUL_KEYS.includes(item.key) && reasons.length > 0;

@@ -25488,7 +25488,7 @@ components:
                       type: string
                     detail:
                       type: object
-                      description: 原因的补充信息：数字（上限、最低值），或指明是哪一条（如调价规则的 `rule_id`、`name`）
+                      description: 原因的补充信息：数字（上限、最低值），或指明是哪一条（如调价规则的 `rule_id`、`name`；「热门地标覆盖」的地标名 `name`，M9P-07F）
                       additionalProperties:
                         type: [ number, string ]
     ProductTenantRef:
