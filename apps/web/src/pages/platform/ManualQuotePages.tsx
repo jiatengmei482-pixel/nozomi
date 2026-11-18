@@ -3,7 +3,7 @@
  * - 列表（`manual_quote.read`）：没有个人信息——只写客人留了邮箱还是 WhatsApp；按状态、跟进人、联系方式（完整的邮箱或号码）筛；上面是各状态的数量。
  * - 详情：打开才解密联系方式、两端地点、备注，每次打开都记审计（页面上写明）；邮箱点开发信，WhatsApp 点开去 wa.me。
  *   改状态、指派带版本号（If-Match），被别人改过时刷新再说；写备注（加密保存，到期和联系方式一起清除）。`manual_quote.manage` 才有这些操作。
- * - 带行程单的申请（M9T-08，ADR 0101 第十二节）：列表标「多日行程」；详情多一块「整张行程」——每天的点（名称或坐标、时间、停留）、
+ * - 带行程单的申请（M9T-08，ADR 0101 第十二节）：列表标「整张行程单」；详情多一块「整张行程」——每天的点（名称或坐标、时间、停留）、当晚住在哪、
  *   报价结果和报不出的原因；行程单 30 天后被清理时只写「已清理」。
  */
 import { MANUAL_QUOTE_RULES, MANUAL_QUOTE_STATUSES, type ManualQuoteStatus, manualQuoteStatusChangeAllowed } from "@nozomi/domain";
@@ -33,8 +33,8 @@ import {
   MANUAL_QUOTES_PAGE,
   MANUAL_QUOTE_STATUS_BADGES,
   MANUAL_QUOTE_TRIP_COPY,
-  MULTI_DAY_TRIP_BADGE,
   PURGED_BADGE,
+  TRIP_ATTACHED_BADGE,
   TRIP_PLAN_KIND_NAMES,
   TRIP_PLAN_STATUS_BADGES,
   contactKindsText,
@@ -49,6 +49,7 @@ import {
   tripItemCoordsText,
   tripItemMetaText,
   tripItemPlaceText,
+  tripNightText,
   tripPartyText,
   tripPlanText,
   tripUnquotedText,
@@ -156,7 +157,7 @@ export function ManualQuoteListPage() {
           <span className="table__muted manual-quote-trip">{manualQuoteTripText(row)}</span>
           {row.has_trip && (
             <span className="badge-row">
-              <StatusBadge {...MULTI_DAY_TRIP_BADGE} />
+              <StatusBadge {...TRIP_ATTACHED_BADGE} />
             </span>
           )}
         </span>
@@ -319,6 +320,7 @@ function TripBody({ trip }: { trip: ManualQuoteTrip }) {
       </dl>
       {trip.days.map((day, dayIndex) => {
         const title = tripDayTitle(dayIndex, day.date);
+        const night = tripNightText(day);
         return (
           <div key={day.date}>
             <h3 className="card__subtitle">{title}</h3>
@@ -329,17 +331,24 @@ function TripBody({ trip }: { trip: ManualQuoteTrip }) {
                 {day.items.map((item, index) => {
                   const coords = tripItemCoordsText(item);
                   const named = item.label !== null || item.place_name !== null;
+                  const place = tripItemPlaceText(item);
                   return (
                     <li key={`${index}-${item.kind}`}>
                       <span>{`${index + 1}. ${tripItemMetaText(item)}`}</span>
                       <span className="table__names">
-                        <span>{tripItemPlaceText(item)}</span>
+                        <span lang={place.lang}>{place.text}</span>
                         {named && coords !== null && <span className="table__muted mono">{coords}</span>}
                       </span>
                     </li>
                   );
                 })}
               </ol>
+            )}
+            {night !== null && (
+              <p>
+                {MANUAL_QUOTE_TRIP_COPY.nightAt}
+                <span lang={night.lang}>{night.text}</span>
+              </p>
             )}
           </div>
         );
@@ -530,7 +539,7 @@ export function ManualQuoteDetailPage() {
               <StatusBadge {...MANUAL_QUOTE_STATUS_BADGES[request.status]} />
               {request.purged_at !== null && <StatusBadge {...PURGED_BADGE} />}
               {request.is_acceptance && <StatusBadge {...ACCEPTANCE_BADGE} />}
-              {request.has_trip && <StatusBadge {...MULTI_DAY_TRIP_BADGE} />}
+              {request.has_trip && <StatusBadge {...TRIP_ATTACHED_BADGE} />}
             </span>
           </div>
           <p>{manualQuoteTripText(request)}</p>

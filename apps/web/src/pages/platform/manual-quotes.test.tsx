@@ -2,7 +2,7 @@
  * 运营后台「人工报价」和「系统设置 → 官网设置」（M8-21，ADR 0076）的组件测试：
  * 列表没有个人信息、各状态的数量、按状态 / 跟进人 / 联系方式筛（不完整的联系方式不去查）；详情的联系方式、发信和 WhatsApp 链接、审计提示、
  * 改状态和指派带版本号、被别人改过时刷新、写备注；已清除的不能再改；官网设置只有超级管理员能改（格式校验、第一次不带 If-Match），运营只读，没有权限的看不到。
- * 带行程单的申请（M9T-08）：列表标「多日行程」；详情的「整张行程」（每天的点、报价结果、报不出的原因）、行程单已清理、没带行程单三种。
+ * 带行程单的申请（M9T-08）：列表标「整张行程单」；详情的「整张行程」（每天的点、当晚住在哪、报价结果、报不出的原因）、行程单已清理、没带行程单三种。
  * 接口用测试替身；真实后端由 e2e/manual-quote.spec.ts 覆盖。
  */
 import { afterEach, test } from "node:test";
@@ -297,7 +297,6 @@ test("官网设置 · 页面宽度（M8-28）：超级管理员选标准 / 较�
 
 const TRIP: NonNullable<ManualQuoteDetail["trip"]> = {
   purged: false,
-  trip_id: "T".repeat(43),
   plan_kind: "daily_best",
   currency: "JPY",
   created_at: "2030-11-01T00:00:00.000Z",
@@ -306,14 +305,16 @@ const TRIP: NonNullable<ManualQuoteDetail["trip"]> = {
   days: [
     {
       date: "2030-11-20",
+      night_at: { lat: 35.6938, lng: 139.7034 },
       items: [
         { kind: "arrive_flight", time: "14:30", stay_minutes: null, lat: 35.7686, lng: 140.3887, place_id: "66666666-6666-4666-8666-666666666666", place_name: { zh: "成田机场" }, label: null },
         { kind: "stop", time: null, stay_minutes: 0, lat: 35.6938, lng: 139.7034, place_id: null, place_name: null, label: "新宿某酒店" },
       ],
     },
-    { date: "2030-11-21", items: [] },
+    { date: "2030-11-21", night_at: null, items: [] },
     {
       date: "2030-11-22",
+      night_at: { lat: 35.0116, lng: 135.7681 },
       items: [
         { kind: "start", time: "09:00", stay_minutes: null, lat: 35.6938, lng: 139.7034, place_id: null, place_name: null, label: "新宿某酒店" },
         { kind: "stop", time: null, stay_minutes: 90, lat: 35.7148, lng: 139.7967, place_id: null, place_name: null, label: null },
@@ -331,7 +332,7 @@ const TRIP: NonNullable<ManualQuoteDetail["trip"]> = {
   ],
 };
 
-test("列表（M9T-08）：带了行程单的申请标「多日行程」，没带的不标", async () => {
+test("列表（M9T-08）：带了行程单的申请标「整张行程单」，没带的不标", async () => {
   openApp("/platform/manual-quotes", "platform", "customer_service", (call) => {
     if (call.method === "GET" && call.url.pathname === "/platform/v1/manual-quote-requests") return json(200, { items: [summaryOf({ has_trip: true }), summaryOf({ id: "55555555-5555-4555-8555-555555555555", request_no: "MQ20301120ZZ99YY88" })], next_cursor: null, counts: COUNTS });
     if (call.method === "GET" && call.url.pathname === "/platform/v1/manual-quote-requests/assignees") return assignees();
@@ -339,28 +340,32 @@ test("列表（M9T-08）：带了行程单的申请标「多日行程」，没�
   });
   const table = await screen.findByRole("region", { name: "人工报价申请" });
   const tagged = (await within(table).findByText("MQ20301120AB12CD34")).closest(".table__names") as HTMLElement;
-  assert.equal(within(table).getAllByText("多日行程").length, 1);
-  assert.ok(within(tagged).getByText("多日行程"), "标记在带行程单的那一条");
-  assertAbsent(within(within(table).getByText("MQ20301120ZZ99YY88").closest(".table__names") as HTMLElement).queryByText("多日行程"));
+  assert.equal(within(table).getAllByText("整张行程单").length, 1);
+  assert.ok(within(tagged).getByText("整张行程单"), "标记在带行程单的那一条");
+  assertAbsent(within(within(table).getByText("MQ20301120ZZ99YY88").closest(".table__names") as HTMLElement).queryByText("整张行程单"));
 });
 
 test("详情（M9T-08）：「整张行程」按天列出编号的点（名称，没有名称用平台地点名或坐标）、时间、停留、空闲日；报价结果和报不出的原因（不认得的原因码写通用的话）", async () => {
   openDetail(detailOf({ request: summaryOf({ has_trip: true }), trip: TRIP }));
   const card = (await screen.findByRole("heading", { level: 2, name: "整张行程" })).closest("section") as HTMLElement;
-  assert.ok(within(screen.getByRole("heading", { level: 2, name: "行程" }).closest("section") as HTMLElement).getByText("多日行程"));
+  assert.ok(within(screen.getByRole("heading", { level: 2, name: "行程" }).closest("section") as HTMLElement).getByText("整张行程单"));
   assert.ok(within(card).getByText("成人 2 人、儿童 1 人，1 件行李"));
   assert.equal((within(card).getByText("客人当时看的方案").closest(".details__item") as HTMLElement).textContent, "客人当时看的方案每天各自最优");
   const day1 = within(card).getByRole("list", { name: "第 1 天 · 2030-11-20" });
   assert.deepEqual([...day1.querySelectorAll("li")].map((item) => item.textContent), ["1. 接机 · 14:30成田机场35.76860, 140.38870", "2. 经停 · 停留 0 分钟新宿某酒店35.69380, 139.70340"]);
+  assert.equal(within(day1).getByText("成田机场").getAttribute("lang"), "zh-Hans", "平台地点名带语言");
+  assert.equal(within(day1).getByText("新宿某酒店").getAttribute("lang"), null, "客人写的名称不带语言");
+  assert.ok(within(card).getByText((_, el) => el?.tagName === "P" && el.textContent === "当晚住在：新宿某酒店"), "过夜点和当天的点相同时用那个点的名称");
+  assert.ok(within(card).getByText((_, el) => el?.tagName === "P" && el.textContent === "当晚住在：35.01160, 135.76810"), "否则写坐标");
+  assert.equal(within(card).queryAllByText((_, el) => el?.tagName === "P" && (el.textContent ?? "").startsWith("当晚住在：")).length, 2, "没写过夜点的那天不写");
   assert.ok(within(card).getByRole("heading", { level: 3, name: "第 2 天 · 2030-11-21" }));
   assert.ok(within(card).getByText("空闲日（不用车）"));
   const day3 = within(card).getByRole("list", { name: "第 3 天 · 2030-11-22" });
   assert.deepEqual([...day3.querySelectorAll("li")].map((item) => item.textContent), ["1. 出发 · 09:00新宿某酒店35.69380, 139.70340", "2. 经停 · 停留 1 小时 30 分35.71480, 139.79670"], "没有名称的点只写坐标");
   const plans = within(card).getByRole("list", { name: "报价结果" });
-  assert.deepEqual([...plans.querySelectorAll("li")].map((item) => item.textContent), ["报出价一车到底（推荐）· 120,000 JPY", "报不出每天各自最优"]);
+  assert.deepEqual([...plans.querySelectorAll("li")].map((item) => item.textContent), ["报得出一车到底（推荐）· 120,000 JPY", "报不出每天各自最优"]);
   const reasons = within(card).getByRole("list", { name: "报不出的原因" });
   assert.deepEqual([...reasons.querySelectorAll("li")].map((item) => item.textContent), ["每天各自最优 · 第 3 天：这一天没有供应商报得出价", "每天各自最优 · 全程：未能在线报价（原因码 SOMETHING_NEW）"]);
-  assert.doesNotMatch(card.textContent ?? "", /TTTTTTTT/, "页面上不显示行程单编号");
 });
 
 test("详情（M9T-08）：行程单已被清理时写「行程单已清理（超过 30 天）」；没带行程单（或旧接口没有这一项）的不出「整张行程」", async () => {
@@ -373,7 +378,7 @@ test("详情（M9T-08）：行程单已被清理时写「行程单已清理（�
   openDetail(detailOf({ trip: null }));
   await screen.findByRole("heading", { level: 1, name: "申请 MQ20301120AB12CD34" });
   assertAbsent(screen.queryByRole("heading", { level: 2, name: "整张行程" }));
-  assertAbsent(screen.queryByText("多日行程"));
+  assertAbsent(screen.queryByText("整张行程单"));
   resetBrowser();
 
   openDetail(detailOf());

@@ -35147,15 +35147,12 @@ components:
     ManualQuoteTrip:
       type: object
       additionalProperties: false
-      required: [ purged, trip_id, plan_kind, currency, created_at, readable_until, party, days, quoted_at, plans, unquoted ]
-      description: 人工报价申请带的整张行程单（M9T-08，ADR 0101 第十二节第 2 条）和最近一次报价。只给员工看，没有结算价、供应商编号
+      required: [ purged, plan_kind, currency, created_at, readable_until, party, days, quoted_at, plans, unquoted ]
+      description: 人工报价申请带的整张行程单（M9T-08，ADR 0101 第十二节第 2 条）和最近一次报价。只给员工看，没有结算价、供应商编号；也没有行程单编号（客人的访问凭证，数据最少）
       properties:
         purged:
           type: boolean
           enum: [ false ]
-        trip_id:
-          type: string
-          description: 行程单编号（客人的访问凭证：不要转发、不要写进备注）
         plan_kind:
           type: [ string, "null" ]
           enum: [ one_car, daily_best, null ]
@@ -35182,11 +35179,21 @@ components:
           items:
             type: object
             additionalProperties: false
-            required: [ date, items ]
+            required: [ date, night_at, items ]
             properties:
               date:
                 type: string
                 format: date
+              night_at:
+                description: 当晚过夜点（只有坐标）；没写为 null
+                oneOf:
+                  - type: object
+                    additionalProperties: false
+                    required: [ lat, lng ]
+                    properties:
+                      lat: { type: number }
+                      lng: { type: number }
+                  - type: "null"
               items:
                 type: array
                 description: 当天的点，按顺序；空 = 空闲日
@@ -35325,7 +35332,7 @@ components:
           description: 测试环境验收会话里提交的验收留资（M8-39，ADR 0078 补充），不是真实客人；建好之后不会变
         has_trip:
           type: boolean
-          description: 带了行程单（M9T-08，从行程报价页转人工的多日行程）；行程单要打开详情看
+          description: 带了行程单（M9T-08，从行程报价页转人工；单日、多日都算）；行程单要打开详情看
         assignee:
           oneOf:
             - $ref: "#/components/schemas/ManualQuotePerson"

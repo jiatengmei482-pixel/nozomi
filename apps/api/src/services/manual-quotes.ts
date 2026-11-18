@@ -276,7 +276,6 @@ export type ManualQuoteTripView =
   | { purged: true }
   | {
       purged: false;
-      tripId: string;
       planKind: "one_car" | "daily_best" | null;
       trip: Pick<TripRow, "id" | "itinerary" | "currency" | "createdAt" | "readableUntil">;
       /** 最近一次报价的方案（没报过价为空） */
@@ -305,7 +304,6 @@ async function tripViewOf(db: Db, requestId: string, contact: SealedContact | nu
     placeIds.length === 0 ? [] : (await db.query<{ id: string; name: Record<string, string>; lat: number; lng: number }>("select id, name, lat::float8 as lat, lng::float8 as lng from places where id = any($1::uuid[])", [placeIds])).rows;
   return {
     purged: false,
-    tripId: link.tripId,
     planKind: link.planKind,
     trip,
     plans: await listTripPlans(db, link.tripId),

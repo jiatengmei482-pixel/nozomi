@@ -35,7 +35,7 @@ export interface ManualQuoteSummary {
   has_whatsapp: boolean;
   /** 测试环境验收会话里提交的验收留资（M8-39，ADR 0078 补充），不是真实客人 */
   is_acceptance: boolean;
-  /** 带了行程单（M9T-08，从行程报价页转人工的多日行程）；行程单要打开详情看 */
+  /** 带了行程单（M9T-08，从行程报价页转人工的整张行程单）；行程单要打开详情看 */
   has_trip: boolean;
   assignee: ManualQuotePerson | null;
   version: number;
@@ -96,17 +96,16 @@ export interface ManualQuoteTripPlan {
   expires_at: string | null;
 }
 
-/** 申请带的整张行程单（M9T-08）和最近一次报价；只给员工看 */
+/** 申请带的整张行程单（M9T-08）和最近一次报价；只给员工看（没有行程单编号：那是客人的访问凭证） */
 export interface ManualQuoteTrip {
   purged: false;
-  /** 客人访问行程单的凭证：不要转发、不要写进备注 */
-  trip_id: string;
   plan_kind: ManualQuoteTripPlanKind | null;
   currency: string;
   created_at: string;
   readable_until: string;
   party: { adults: number; children: number; luggage: number };
-  days: { date: string; items: ManualQuoteTripItem[] }[];
+  /** 每天的点；`night_at` 是当晚过夜点（只有坐标），没写为 null */
+  days: { date: string; night_at: { lat: number; lng: number } | null; items: ManualQuoteTripItem[] }[];
   quoted_at: string | null;
   plans: ManualQuoteTripPlan[];
   unquoted: { plan_kind: ManualQuoteTripPlanKind; day_index: number | null; reason: string }[];
@@ -165,7 +164,7 @@ export const MANUAL_QUOTE_SCHEMA_FIELDS = {
   ManualQuotePlace: ["name", "lat", "lng"],
   ManualQuoteWaypoint: ["name", "lat", "lng", "stay_minutes", "arrive_by"],
   ManualQuotePerson: ["id", "name"],
-  ManualQuoteTrip: ["purged", "trip_id", "plan_kind", "currency", "created_at", "readable_until", "party", "days", "quoted_at", "plans", "unquoted"],
+  ManualQuoteTrip: ["purged", "plan_kind", "currency", "created_at", "readable_until", "party", "days", "quoted_at", "plans", "unquoted"],
   ManualQuoteTripPurged: ["purged"],
   ManualQuoteTripItem: ["kind", "time", "stay_minutes", "lat", "lng", "place_id", "place_name", "label"],
   ManualQuoteTripPlan: ["kind", "status", "recommended", "total", "expires_at"],

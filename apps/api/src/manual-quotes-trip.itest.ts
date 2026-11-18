@@ -1,7 +1,7 @@
 /**
  * M9T-08：人工报价申请带上整张行程单（ADR 0101 第十二节第 2 条）。经真实接口、真实 PostgreSQL。
  *
- * 覆盖：带合格的行程单 → 链接行和申请同一个事务写入、各点名称只在密文里、列表 has_trip、详情有每天的点（名称、平台地点、坐标）和最近一次报价的方案、报不出的原因；
+ * 覆盖：带合格的行程单 → 链接行和申请同一个事务写入、各点名称只在密文里、列表 has_trip、详情有每天的点（名称、平台地点、坐标）、过夜点和最近一次报价的方案、没有行程单编号、报不出的原因；
  * 行程单不存在、格式不对、过了可读期、验收标记对不上（两个方向）→ 400 `/trip_id` NOT_FOUND，什么都不记；没带行程单却给了方案 / 名称、名称比行程单多 → 400；
  * 行程单被清理（删行）→ 详情 `{ purged: true }`；不带行程单的提交和以前一样（应答、去重、详情 `trip: null`）；带行程单的另行去重；
  * 审计里没有行程单编号；租户的数据库角色碰不到新表。
@@ -42,12 +42,12 @@ const firstLeg = (overrides: Record<string, unknown> = {}): Record<string, unkno
   ...overrides,
 });
 
-/** 两天的行程单：第一天成田接机（平台地点）到新宿，第二天新宿出发、浅草停 60 分钟、回新宿 */
+/** 两天的行程单：第一天成田接机（平台地点）到新宿、住新宿，第二天新宿出发、浅草停 60 分钟、回新宿 */
 const itinerary = () => ({
   schemaVersion: 1,
   party: { adults: 2, children: 1, luggage: 1 },
   days: [
-    { date: "2026-12-01", items: [{ kind: "arrive_flight", place: { placeId: m.ids.narita }, time: "14:30" }, { kind: "stop", place: { lat: 35.6938, lng: 139.7034, kind: "hotel" }, stayMinutes: 0 }] },
+    { date: "2026-12-01", items: [{ kind: "arrive_flight", place: { placeId: m.ids.narita }, time: "14:30" }, { kind: "stop", place: { lat: 35.6938, lng: 139.7034, kind: "hotel" }, stayMinutes: 0 }], nightAt: { lat: 35.6938, lng: 139.7034 } },
     {
       date: "2026-12-02",
       items: [
@@ -136,7 +136,8 @@ test("带合格的行程单：202；链接行和申请同时写入，名称只�
   assert.equal(body.request.has_trip, true);
   const view = body.trip;
   assert.equal(view.purged, false);
-  assert.equal(view.trip_id, tripId);
+  assert.ok(!("trip_id" in view), "详情不给行程单编号（客人的访问凭证）");
+  assert.ok(!JSON.stringify(body).includes(tripId), "详情里没有行程单编号");
   assert.equal(view.plan_kind, "daily_best");
   assert.equal(view.currency, "JPY");
   assert.deepEqual(view.party, { adults: 2, children: 1, luggage: 1 });
@@ -147,6 +148,8 @@ test("带合格的行程单：202；链接行和申请同时写入，名称只�
   assert.deepEqual(view.days[0].items[0], { kind: "arrive_flight", time: "14:30", stay_minutes: null, lat: 35.7686, lng: 140.3887, place_id: m.ids.narita, place_name: { zh: "成田机场" }, label: "成田机场 T1" });
   assert.deepEqual(view.days[1].items[1], { kind: "stop", time: null, stay_minutes: 60, lat: 35.7148, lng: 139.7967, place_id: null, place_name: null, label: "浅草寺" });
   assert.equal(view.days[1].items[2].label, null, "名称给了 null 的点");
+  assert.deepEqual(view.days[0].night_at, { lat: 35.6938, lng: 139.7034 }, "第一天的过夜点");
+  assert.equal(view.days[1].night_at, null, "没写过夜点为 null");
   assert.deepEqual(view.plans, [
     { kind: "one_car", status: "quoted", recommended: true, total: { amount: "120000", currency: "JPY" }, expires_at: new Date(now.getTime() + 30 * 60_000).toISOString() },
     { kind: "daily_best", status: "unquoted", recommended: false, total: null, expires_at: null },

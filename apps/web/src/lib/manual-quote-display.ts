@@ -81,8 +81,8 @@ export const SUPPORT_WHATSAPP_INVALID = "号码的格式不对：要带国家码
 
 // ───────────── 带行程单的申请（M9T-08，ADR 0101 第十二节第 2 条） ─────────────
 
-/** 列表、详情上的「多日行程」标记：客人从行程报价页转人工，带了整张行程单。 */
-export const MULTI_DAY_TRIP_BADGE: BadgeSpec = { tone: "info", label: "多日行程" };
+/** 列表、详情上的「整张行程单」标记：客人从行程报价页转人工，带了整张行程单（单日的行程单也算，所以不叫「多日」）。 */
+export const TRIP_ATTACHED_BADGE: BadgeSpec = { tone: "info", label: "整张行程单" };
 
 /** 「整张行程」一块的文字（集中在这里，页面不散写）。 */
 export const MANUAL_QUOTE_TRIP_COPY = {
@@ -97,6 +97,7 @@ export const MANUAL_QUOTE_TRIP_COPY = {
   noPlans: "客人还没有报过价。",
   unquoted: "报不出的原因",
   idleDay: "空闲日（不用车）",
+  nightAt: "当晚住在：",
 } as const;
 
 export const TRIP_PLAN_KIND_NAMES: Readonly<Record<ManualQuoteTripPlanKind, string>> = {
@@ -105,7 +106,7 @@ export const TRIP_PLAN_KIND_NAMES: Readonly<Record<ManualQuoteTripPlanKind, stri
 };
 
 export const TRIP_PLAN_STATUS_BADGES: Readonly<Record<ManualQuoteTripPlan["status"], BadgeSpec>> = {
-  quoted: { tone: "success", label: "报出价" },
+  quoted: { tone: "success", label: "报得出" },
   unquoted: { tone: "warning", label: "报不出" },
 };
 
@@ -159,11 +160,22 @@ export function tripPartyText(party: ManualQuoteTrip["party"]): string {
   return `成人 ${party.adults} 人${party.children > 0 ? `、儿童 ${party.children} 人` : ""}，${party.luggage} 件行李`;
 }
 
-/** 一个点的地点：客人页面上的名称，没有时用平台地点的名称，再没有用坐标（都没有写「地点已不存在」）。 */
-export function tripItemPlaceText(item: ManualQuoteTripItem): string {
-  if (item.label !== null) return item.label;
-  if (item.place_name !== null) return displayName(item.place_name).text;
-  return tripItemCoordsText(item) ?? "地点已不存在";
+/**
+ * 一个点的地点：客人页面上的名称，没有时用平台地点的名称（带语言，页面写 `lang`），再没有用坐标（都没有写「地点已不存在」）。
+ * 客人写的名称不知道是哪种语言，不带 `lang`。
+ */
+export function tripItemPlaceText(item: ManualQuoteTripItem): { text: string; lang?: string } {
+  if (item.label !== null) return { text: item.label };
+  if (item.place_name !== null) return displayName(item.place_name);
+  return { text: tripItemCoordsText(item) ?? "地点已不存在" };
+}
+
+/** 「当晚住在：…」的地点：坐标和当天某个点相同时用那个点的名称（没有名称的点不算），否则写坐标。 */
+export function tripNightText(day: ManualQuoteTrip["days"][number]): { text: string; lang?: string } | null {
+  const night = day.night_at;
+  if (night === null) return null;
+  const same = [...day.items].reverse().find((item) => item.lat === night.lat && item.lng === night.lng && (item.label !== null || item.place_name !== null));
+  return same === undefined ? { text: tripItemCoordsText(night) as string } : tripItemPlaceText(same);
 }
 
 export function tripItemCoordsText(item: Pick<ManualQuoteTripItem, "lat" | "lng">): string | null {

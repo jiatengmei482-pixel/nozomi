@@ -2,7 +2,7 @@
 --
 -- manual_quote_trip_links：客人从行程报价页转人工时带的行程单编号，一条申请最多一行（申请删了跟着删）。
 -- trip_id 不设外键：行程单建单 30 天后由清理任务（M9T-05）删除，链接行留下，运营后台详情据此显示「行程单已清理」。
--- trip_id 是客人凭它访问行程单的凭证（bearer），只在运营后台详情里给员工看，不进日志、不进审计。
+-- trip_id 是客人凭它访问行程单的凭证（bearer）：只在服务端用来取行程单，不回给运营后台页面，不进日志、不进审计。
 -- 每天各点的名称（客人页面上的文字）不在这里：和联系方式一起加密在 manual_quote_requests.contact_enc，随它一起清除。
 create table manual_quote_trip_links (
   request_id uuid primary key references manual_quote_requests (id) on delete cascade,

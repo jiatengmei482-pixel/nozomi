@@ -213,7 +213,7 @@ function summaryJson(row: ManualQuoteRow): Json {
     has_email: row.hasEmail,
     has_whatsapp: row.hasWhatsapp,
     is_acceptance: row.isAcceptance,
-    // 带了行程单（M9T-08）：列表上显示「多日行程」；行程单编号本身只在详情里
+    // 带了行程单（M9T-08）：列表上显示「整张行程单」；行程单编号不给员工页面
     has_trip: row.hasTrip,
     assignee: row.assignee,
     version: row.version,
@@ -243,8 +243,8 @@ function detailJson(detail: ManualQuoteDetail): Json {
 }
 
 /**
- * 详情里的整张行程单（M9T-08）：每天的点（坐标或平台地点、时间、停留、客人页面上的名称）、最近一次报价的各方案（状态、总价）和报不出的原因。
- * 只给员工看：没有结算价、供应商编号。
+ * 详情里的整张行程单（M9T-08）：每天的点（坐标或平台地点、时间、停留、客人页面上的名称）和当晚过夜点、最近一次报价的各方案（状态、总价）和报不出的原因。
+ * 只给员工看：没有结算价、供应商编号，也没有行程单编号（客人的访问凭证）。
  */
 function tripJson(view: ManualQuoteTripView): Json | null {
   if (view === null) return null;
@@ -253,7 +253,7 @@ function tripJson(view: ManualQuoteTripView): Json | null {
   const currency = trip.currency as CurrencyCode;
   return {
     purged: false,
-    trip_id: view.tripId,
+    // 行程单编号是客人访问行程单的凭证（bearer）：不给员工页面，数据最少
     plan_kind: view.planKind,
     currency,
     created_at: trip.createdAt.toISOString(),
@@ -261,6 +261,8 @@ function tripJson(view: ManualQuoteTripView): Json | null {
     party: { adults: trip.itinerary.party.adults, children: trip.itinerary.party.children, luggage: trip.itinerary.party.luggage },
     days: trip.itinerary.days.map((day, dayIndex) => ({
       date: day.date,
+      // 当晚过夜点（只有坐标）；没写为 null
+      night_at: day.nightAt === undefined || day.nightAt === null ? null : { lat: day.nightAt.lat, lng: day.nightAt.lng },
       items: day.items.map((item, itemIndex) => {
         const place = isPlaceIdPlace(item.place) ? (view.places.get(item.place.placeId) ?? null) : null;
         const coords = isPlaceIdPlace(item.place) ? place : item.place;
