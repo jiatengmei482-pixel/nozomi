@@ -54,6 +54,9 @@ async function latest(): Promise<any> {
   return (await ok(platform("customer_service", "GET", "/manual-quote-requests?limit=1"))).items[0];
 }
 
+/** 带行程单的申请（M9T-08 用例里建的），到期清除用例核对地名一起清掉 */
+let linked: { id: string; tripId: string } | null = null;
+
 const countRows = async (): Promise<number> => (await api.db.owner.query<{ n: number }>("select count(*)::int as n from manual_quote_requests")).rows[0]?.n ?? 0;
 
 before(async () => {
@@ -363,9 +366,38 @@ test("带行程单（M9T-08）：关联写进新表，地名只在密文里；�
   assert.equal(await countRows(), before + 2);
   const manual = (await latest()).id as string;
   assert.deepEqual((await api.db.owner.query("select trip_id, plan_kind from manual_quote_trip_links where request_id = $1", [manual])).rows, [{ trip_id: tripId, plan_kind: null }]);
-  // 不带行程单的申请没有关联行
+  // 不带行程单的申请没有关联行，详情 trip 为 null
   await submit({ email: nextEmail() });
-  assert.equal((await api.db.owner.query("select count(*)::int as n from manual_quote_trip_links where request_id = $1", [(await latest()).id])).rows[0]?.n, 0);
+  const plain = (await latest()).id as string;
+  assert.equal((await api.db.owner.query("select count(*)::int as n from manual_quote_trip_links where request_id = $1", [plain])).rows[0]?.n, 0);
+  assert.equal((await ok(platform("customer_service", "GET", `/manual-quote-requests/${plain}`))).trip, null);
+
+  // 运营后台详情显示整张行程单：本市场没有包车商品，报价两个方案都报不出（原因照列）
+  api.clock.advance(1_000);
+  assert.equal((await site.call("POST", `/site/v1/trips/${tripId}/quote`, { ip: nextIp() })).status, 200);
+  const detail = await platform("customer_service", "GET", `/manual-quote-requests/${id}`);
+  assert.equal(detail.status, 200, detail.text);
+  assertMatchesOpenApi("GET", "/platform/v1/manual-quote-requests/{id}", detail);
+  const shown = detail.body.trip;
+  assert.equal(shown.trip_id, tripId);
+  assert.equal(shown.plan_kind, "daily_best");
+  assert.equal(shown.purged, false);
+  assert.deepEqual(shown.labels, labels);
+  assert.deepEqual(
+    shown.days.map((day: { date: string; items: { kind: string; name: string; time: string | null; stay_minutes: number | null }[] }) => [day.date, day.items.map((item) => [item.kind, item.name, item.time, item.stay_minutes])]),
+    [
+      ["2026-12-01", [["start", "新宿行程酒店甲", "09:00", null], ["stop", "浅草寺行程乙", null, 60], ["end", "银座行程丙", null, null]]],
+      ["2026-12-02", [["start", "银座行程丙", "10:00", null], ["end", "新宿行程酒店甲", null, null]]],
+    ],
+  );
+  assert.deepEqual(shown.days[0].items[0].place, { lat: 35.6905, lng: 139.7005 });
+  assert.ok(shown.plans.length > 0 && shown.plans.every((plan: { status: string; amount: unknown; unquoted: unknown[] }) => plan.status === "unquoted" && plan.amount === null && plan.unquoted.length > 0), JSON.stringify(shown.plans));
+
+  // 行程单被清理（M9T-05 删行）后：显示「已清理」，地名照样在
+  await api.db.owner.query("delete from trips where id = $1", [tripId]);
+  const purged = await ok(platform("customer_service", "GET", `/manual-quote-requests/${id}`));
+  assert.deepEqual(purged.trip, { trip_id: tripId, plan_kind: "daily_best", purged: true, labels, days: null, plans: null });
+  linked = { id, tripId };
 });
 
 test("跟进：指派、改状态（If-Match）、备注；每一项一条跟进记录和一条审计；备注加密、审计里没有原文", async () => {
@@ -568,6 +600,12 @@ test("到期清除：关闭 180 天后、或提交 365 天后清空联系方式�
   api.clock.advance(186 * 86_400_000);
   await api.app.manualQuoteRetention.tick();
   assert.notEqual((await api.db.owner.query("select purged_at from manual_quote_requests where id = $1", [open.id])).rows[0].purged_at, null, "提交满 365 天，没关闭也清除");
+  // 带行程单的申请（M9T-08）：地名和联系方式一起清掉，关联行留着
+  while ((await api.app.manualQuoteRetention.tick()).purged > 0);
+  assert.ok(linked !== null);
+  await relogin();
+  const linkedDetail = await ok(platform("customer_service", "GET", `/manual-quote-requests/${linked.id}`));
+  assert.deepEqual(linkedDetail.trip, { trip_id: linked.tripId, plan_kind: "daily_best", purged: true, labels: null, days: null, plans: null });
 
   const audits = (await api.db.owner.query("select actor_type, resource_id, after from audit_logs where resource = 'manual_quote_request' and action = 'anonymize_passenger' order by id")).rows;
   assert.ok(audits.length >= 2);

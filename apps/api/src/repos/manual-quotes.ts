@@ -133,6 +133,11 @@ export async function insertManualQuoteTripLink(db: Db, link: { requestId: strin
   await db.query("insert into manual_quote_trip_links (request_id, trip_id, plan_kind, created_at) values ($1, $2, $3, $4)", [link.requestId, link.tripId, link.planKind, now]);
 }
 
+export async function findManualQuoteTripLink(db: Db, requestId: string): Promise<{ tripId: string; planKind: "one_car" | "daily_best" | null } | null> {
+  const row = (await db.query<{ trip_id: string; plan_kind: "one_car" | "daily_best" | null }>("select trip_id, plan_kind from manual_quote_trip_links where request_id = $1", [requestId])).rows[0];
+  return row === undefined ? null : { tripId: row.trip_id, planKind: row.plan_kind };
+}
+
 export async function cityExists(db: Db, cityId: string): Promise<boolean> {
   return ((await db.query("select 1 from cities where id = $1", [cityId])).rowCount ?? 0) > 0;
 }

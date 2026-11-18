@@ -19,7 +19,7 @@
  */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { MANUAL_QUOTE_RULES, MANUAL_QUOTE_STATUSES, SERVICE_CATEGORIES, TRIP_LIMITS, arriveByIssue, manualQuoteEmail, manualQuoteTripIssues, whatsappDigits } from "@nozomi/domain";
+import { type CurrencyCode, MANUAL_QUOTE_RULES, MANUAL_QUOTE_STATUSES, SERVICE_CATEGORIES, TRIP_LIMITS, arriveByIssue, manualQuoteEmail, manualQuoteTripIssues, whatsappDigits } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { decodeTimeCursor } from "../pagination.ts";
 import type { ManualQuoteRow, SiteSettingsRow } from "../repos/manual-quotes.ts";
@@ -37,6 +37,7 @@ import {
 } from "../services/manual-quotes.ts";
 import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import { siteAudienceOf } from "../services/qa-acceptance.ts";
+import { salesMoney } from "../services/sales-quotes.ts";
 import { takeSiteSlot } from "../services/site.ts";
 import { ARRIVE_BY_MESSAGES, arriveBySchema } from "./site.ts";
 import { type InputIssue, ifMatchVersion, pageQuerySchema, parseInput, resourceId, singleLine, uuidSchema, validationFailed, visibleText } from "../validation.ts";
@@ -215,6 +216,47 @@ function detailJson(detail: ManualQuoteDetail): Json {
     // 包车的经停点（M9W-04），按顺序；没有经停点、清除后为 null
     waypoints: contact === null || contact.waypoints === undefined || contact.waypoints.length === 0 ? null : contact.waypoints.map((stop) => ({ name: stop.name, lat: stop.lat, lng: stop.lng, stay_minutes: stop.stayMinutes, ...(stop.arriveBy === undefined ? {} : { arrive_by: stop.arriveBy }) })),
     events: detail.events.map(eventJson),
+    trip: tripLinkJson(detail),
+  };
+}
+
+/**
+ * 关联的行程单（M9T-08，ADR 0101 第十三节第 2 小节）：每天的日期、点（名称取密文里的 `trip_labels`，结构取行程单）、两个方案的状态和金额、报不出的原因。
+ * 行程单已清理时 `days`、`plans` 为 null，`labels` 照样给；联系信息已清除时地名都没有。
+ */
+function tripLinkJson(detail: ManualQuoteDetail): Json | null {
+  const link = detail.trip;
+  if (link === null) return null;
+  const labels = detail.contact?.trip_labels ?? null;
+  const current = link.current;
+  return {
+    trip_id: link.tripId,
+    plan_kind: link.planKind,
+    purged: current === null,
+    labels,
+    days:
+      current === null
+        ? null
+        : current.trip.itinerary.days.map((day, dayIndex) => ({
+            date: day.date,
+            items: day.items.map((item, itemIndex) => ({
+              kind: item.kind,
+              name: labels?.[dayIndex]?.[itemIndex] ?? null,
+              time: item.time ?? null,
+              stay_minutes: item.stayMinutes ?? null,
+              place: "placeId" in item.place ? { place_id: item.place.placeId } : { lat: item.place.lat, lng: item.place.lng },
+            })),
+          })),
+    plans:
+      current === null
+        ? null
+        : current.plans.map((plan) => ({
+            kind: plan.kind,
+            status: plan.status,
+            recommended: plan.recommended,
+            amount: plan.sellMinor === null ? null : salesMoney(plan.sellMinor, plan.currency as CurrencyCode),
+            unquoted: plan.unquoted.map((entry) => ({ day_index: entry.day_index, reason: entry.reason })),
+          })),
   };
 }
 
