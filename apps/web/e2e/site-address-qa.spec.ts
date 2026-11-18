@@ -237,12 +237,19 @@ test("谷歌地图选点（M10-01 第 2 处）：配了浏览器密钥时打开�
     const body = (await response.json()) as Record<string, unknown>;
     await route.fulfill({ response, json: { ...body, maps_browser_key: `AIzaSy${"e".repeat(33)}` } });
   });
+  const pickerRequests: string[] = [];
+  page.on("request", (sent) => {
+    if (new URL(sent.url()).pathname === "/maps/picker.html") pickerRequests.push(sent.url());
+  });
   await page.goto(`${SITE}/book/new`);
   const group = page.getByRole("group", { name: "出发地的地图" });
   await group.getByRole("button", { name: "在地图上选点" }).click();
-  await expect(group.locator("iframe")).toHaveAttribute("src", /^\/maps\/picker\.html\?key=AIza/);
   await expect(page.getByText("地图加载不出来（可能是网络原因）。请用上面的搜索找到地址；门牌、楼层等可以写在下单时的「给司机的备注」里。")).toBeVisible({ timeout: 15_000 });
   await expect(page.locator("iframe")).toHaveCount(0);
+  // 打开的是同源的地图小页面，带着密钥（谷歌挡住后它马上报失败、被收起，所以看请求而不是 iframe）
+  expect(pickerRequests.length).toBeGreaterThan(0);
+  expect(new URL(pickerRequests[0] ?? "").origin).toBe(SITE);
+  expect(new URL(pickerRequests[0] ?? "").searchParams.get("key")).toMatch(/^AIza/);
   expect(blocked.some((url) => url.startsWith("https://maps.googleapis.com/maps/api/js?")), "确实试过加载谷歌地图脚本").toBe(true);
   await expect(page.getByRole("combobox", { name: /出发地/ }).first()).toBeEditable();
 });
