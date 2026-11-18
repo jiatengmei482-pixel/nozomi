@@ -42,6 +42,7 @@ import {
   cityExists,
   countManualQuotesByStatus,
   findManualQuote,
+  findManualQuoteTripLink,
   hasRecentDuplicate,
   insertManualQuote,
   insertManualQuoteEvent,
@@ -65,7 +66,7 @@ import type { PlatformPrincipal } from "./platform-auth.ts";
 import { rateLimited, takeRateSlot } from "./rate-limit.ts";
 import { requireOpenSite } from "./site.ts";
 import { TRIP_ID, tripNotFound } from "./trips.ts";
-import { findReadableTrip } from "../repos/trips.ts";
+import { type StoredTripPlan, type TripRow, findReadableTrip, listTripPlans } from "../repos/trips.ts";
 
 // ---- 客人提交 ----
 
@@ -268,6 +269,15 @@ export interface ManualQuoteDetail {
   /** 清除后为 null */
   contact: SealedContact | null;
   events: ManualQuoteEventView[];
+  /** 官网行程报价页带来的行程单（M9T-08）；没关联为 null */
+  trip: ManualQuoteTripView | null;
+}
+
+export interface ManualQuoteTripView {
+  tripId: string;
+  planKind: "one_car" | "daily_best" | null;
+  /** 行程单还在（没过 30 天、没被清理）时的行程单和最近一次报价的方案；已清理为 null */
+  current: { trip: TripRow; plans: StoredTripPlan[] } | null;
 }
 
 function openEvents(ctx: AppContext, events: readonly ManualQuoteEventRow[]): ManualQuoteEventView[] {
@@ -282,10 +292,14 @@ export async function getManualQuoteRequest(ctx: AppContext, principal: Platform
     const request = await findManualQuote(db, id, principal.grant.scope, false);
     if (request === null) throw manualQuoteNotFound();
     const events = await listManualQuoteEvents(db, id);
-    if (request.contactEnc === null) return { request, contact: null, events: openEvents(ctx, events) };
+    const link = await findManualQuoteTripLink(db, id);
+    // 行程单按申请的渠道找（客人提交时已核对过渠道）；过了可读期或被清理任务删掉的，只剩密文里的地名
+    const current = link === null ? null : await findReadableTrip(db, link.tripId, request.channelId, ctx.now());
+    const trip = link === null ? null : { ...link, current: current === null ? null : { trip: current, plans: await listTripPlans(db, link.tripId) } };
+    if (request.contactEnc === null) return { request, contact: null, events: openEvents(ctx, events), trip };
     const contact = JSON.parse(crypto.openManualQuote("manual_quote_request", id, request.contactEnc)) as SealedContact;
     await insertAuditLog(db, origin(principal, ip, ctx.now()), { tenantId: null, resource: "manual_quote_request", resourceId: id, action: "view_passenger", before: null, after: { request_no: request.requestNo } });
-    return { request, contact, events: openEvents(ctx, events) };
+    return { request, contact, events: openEvents(ctx, events), trip };
   });
 }
 
