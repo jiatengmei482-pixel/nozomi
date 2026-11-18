@@ -241,7 +241,7 @@ test("谷歌地图选点（M10-01 第 2 处）：配了浏览器密钥时打开�
   const group = page.getByRole("group", { name: "出发地的地图" });
   await group.getByRole("button", { name: "在地图上选点" }).click();
   await expect(group.locator("iframe")).toHaveAttribute("src", /^\/maps\/picker\.html\?key=AIza/);
-  await expect(page.getByText("地图加载不出来（可能是网络原因）。请用上面的搜索，或直接输入地址。")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("地图加载不出来（可能是网络原因）。请用上面的搜索找到地址；门牌、楼层等可以写在下单时的「给司机的备注」里。")).toBeVisible({ timeout: 15_000 });
   await expect(page.locator("iframe")).toHaveCount(0);
   expect(blocked.some((url) => url.startsWith("https://maps.googleapis.com/maps/api/js?")), "确实试过加载谷歌地图脚本").toBe(true);
   await expect(page.getByRole("combobox", { name: /出发地/ }).first()).toBeEditable();

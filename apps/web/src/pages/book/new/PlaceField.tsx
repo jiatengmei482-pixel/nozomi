@@ -360,7 +360,7 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
   const map = mapUnavailable ? (
     <p className="site-address__status site-address__status--warning" role="status">
       <Icon name="alert-triangle" />
-      地图加载不出来（可能是网络原因）。请用上面的搜索，或直接输入地址。
+      地图加载不出来（可能是网络原因）。请用上面的搜索找到地址；门牌、楼层等可以写在下单时的「给司机的备注」里。
     </p>
   ) : canMap && mapCenter !== null && (
     <div className="site-address__map" role="group" aria-label={`${label}的地图`}>

@@ -110,7 +110,7 @@ test("地图加载不出来（小页面报 failed）：收起地图和按钮，�
   const { group, frame } = await openMap("出发地");
   fromFrame(frame, { source: "nozomi-map", type: "failed", reason: "load" });
   await waitFor(() => assert.equal(group.isConnected ? group.querySelector("iframe") : null, null));
-  assert.ok(await screen.findByText("地图加载不出来（可能是网络原因）。请用上面的搜索，或直接输入地址。"));
+  assert.ok(await screen.findByText("地图加载不出来（可能是网络原因）。请用上面的搜索找到地址；门牌、楼层等可以写在下单时的「给司机的备注」里。"));
   assert.equal(screen.queryByRole("button", { name: "在地图上选点" }) !== null && document.querySelector(".leaflet-container") !== null, false);
 });
 
