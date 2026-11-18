@@ -253,6 +253,9 @@ function KeyCard({ embedKey, canManage, onChanged }: { embedKey: EmbedKey; canMa
             <Detail label="外观">{EMBED_LAYOUT_NAMES[embedKey.layout]}</Detail>
             <Detail label="整页嵌入">{HOST_PAGE_NAMES[embedKey.allow_host_page ? "on" : "off"]}</Detail>
             <Detail label="预订页地址">{embedKey.booking_url ?? "未填写"}</Detail>
+            {embedKey.order_stats !== undefined && (
+              <Detail label="带来的订单">{`近 30 天 ${embedKey.order_stats.paid_30d} 单 · 累计 ${embedKey.order_stats.paid_total} 单（已付款、没取消；只做统计，不作为分佣、结算依据）`}</Detail>
+            )}
             {embedKey.note !== null && <Detail label="备注">{embedKey.note}</Detail>}
             <Detail label="最后修改">
               <LocalTime iso={embedKey.updated_at} />

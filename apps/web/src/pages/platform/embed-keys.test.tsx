@@ -46,9 +46,11 @@ const withSnippets = (changes: Partial<EmbedKey> = {}): EmbedKey => {
 };
 
 test("列表：嵌入码、允许的网站、默认值和要放的代码；能复制；只读角色没有新建、修改、停用", async () => {
-  openApp("/platform/embed-keys", "platform", "readonly", (call) => (call.method === "GET" && call.url.pathname === "/platform/v1/embed-keys" ? json(200, { items: [keyOf()] }) : null), ["embed.read"]);
+  openApp("/platform/embed-keys", "platform", "readonly", (call) => (call.method === "GET" && call.url.pathname === "/platform/v1/embed-keys" ? json(200, { items: [keyOf({ order_stats: { paid_30d: 3, paid_total: 12 } })] }) : null), ["embed.read"]);
   const card = await screen.findByRole("region", { name: /MoveGlobal 演示站/ });
   assert.ok(within(card).getByText(KEY));
+  // 带来的订单（M9E-21）：已付款、没取消的单，近 30 天和累计
+  assert.ok(within(card).getByText("近 30 天 3 单 · 累计 12 单（已付款、没取消；只做统计，不作为分佣、结算依据）"));
   assert.ok(within(card).getByText("https://embed-demo.moveglobal.io"));
   assert.ok(within(card).getByText("区间、包车"));
   assert.ok(within(card).getByText("自动"), "外观");

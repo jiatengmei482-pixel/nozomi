@@ -26,7 +26,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { BOOKING_DRAFT_RULES, EMBED_DELIVERIES, EMBED_KEY_STATUSES, EMBED_LANGS, EMBED_LAYOUTS, EMBED_RULES, EMBED_SERVICES, embedSnippets } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
-import { type EmbedGate, type EmbedKey, createEmbedDraft, createEmbedKey, embedGate, frameAncestorOf, getEmbedKey, listEmbedKeys, takeEmbedPlacesSlot, takeFrameCheckSlot, updateEmbedKey } from "../services/embed.ts";
+import { type EmbedGate, type EmbedKey, createEmbedDraft, embedOrderStats, createEmbedKey, embedGate, frameAncestorOf, getEmbedKey, listEmbedKeys, takeEmbedPlacesSlot, takeFrameCheckSlot, updateEmbedKey } from "../services/embed.ts";
 import { AppError } from "../errors.ts";
 import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import { placeUnavailableJson, siteAutocomplete, sitePlaceDetails, sitePlacesGoogleGuard, takeSiteSlot } from "../services/site.ts";
@@ -105,7 +105,9 @@ export function registerEmbedRoutes(app: FastifyInstance, ctx: AppContext): void
   // ---- 运营后台 ----
   app.get("/platform/v1/embed-keys", async (request) => {
     await authenticatePlatform(ctx, platformCredentials(request), { action: "embed.read" });
-    return { items: (await listEmbedKeys(ctx)).map((key) => embedKeyJson(ctx, key)) };
+    const [keys, stats] = await Promise.all([listEmbedKeys(ctx), embedOrderStats(ctx)]);
+    // 订单数（M9E-21）：只在列表里给
+    return { items: keys.map((key) => ({ ...embedKeyJson(ctx, key), order_stats: { paid_30d: stats.get(key.id)?.paid30d ?? 0, paid_total: stats.get(key.id)?.paidTotal ?? 0 } })) };
   });
 
   app.post("/platform/v1/embed-keys", async (request, reply) => {

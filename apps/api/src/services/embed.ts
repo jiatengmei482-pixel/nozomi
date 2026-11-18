@@ -99,6 +99,30 @@ export async function listEmbedKeys(ctx: AppContext): Promise<EmbedKey[]> {
   return result.rows.map(fromRow);
 }
 
+/** 每个嵌入码带来的订单数（M9E-21）：只算已付款、没取消的单（不含待付款、已取消、验收单），近 30 天和累计；只做统计，不作为分佣、结算依据（ADR 0090 第三节第 3 小节） */
+export interface EmbedOrderStats {
+  paid30d: number;
+  paidTotal: number;
+}
+
+export async function embedOrderStats(ctx: AppContext): Promise<Map<string, EmbedOrderStats>> {
+  const since = new Date(ctx.now().getTime() - 30 * 86_400_000);
+  const result = await withPlatformTx(
+    ctx.pool,
+    (db) =>
+      db.query<{ embed_key_id: string; recent: string; total: string }>(
+        `select s.embed_key_id, count(*) filter (where s.created_at >= $1)::text as recent, count(*)::text as total
+           from order_embed_sources s
+           join orders o on o.id = s.order_id
+          where o.status not in ('pending_payment', 'cancelled') and not o.is_acceptance
+          group by s.embed_key_id`,
+        [since],
+      ),
+    { snapshot: true },
+  );
+  return new Map(result.rows.map((row) => [row.embed_key_id, { paid30d: Number(row.recent), paidTotal: Number(row.total) }]));
+}
+
 export async function getEmbedKey(ctx: AppContext, id: string): Promise<EmbedKey> {
   const result = await withPlatformTx(ctx.pool, (db) => db.query<EmbedKeyRow>(`select ${COLUMNS} from embed_keys where id = $1`, [id]), { snapshot: true });
   const row = result.rows[0];
