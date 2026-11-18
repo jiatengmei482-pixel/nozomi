@@ -115,14 +115,31 @@ test("单日行程只出 one_car", () => {
   assert.equal(result.plans[0]?.tenantId, "T1");
 });
 
-test("单日单段（M9T-10，业主 2026-11-18 选 A）：one_car 只在各车型组中标的那家里取，不中标的更便宜也不用——和官网询价同一个口径", () => {
-  // T2 比中标的 T1 便宜（评分低、在价格带内没中标）
+test("单日（M9T-12，业主 2026-11-18 决定 ②）：one_car 的段只取各车型组中标的那家，不中标的更便宜也不用——和官网询价同一个口径", () => {
+  // 单段：T2 比中标的 T1 便宜（评分低、在价格带内没中标）
   const single = day(0, [segment("charter", [win(offer("T1", "V", 50_000, 40_000)), offer("T2", "V", 48_000, 38_000), win(offer("T3", "W", 60_000, 48_000))], 540, 300, SHINJUKU, GINZA)]);
   const result = buildTripPlans({ currency: "JPY", days: [single], product: products() });
   assert.deepEqual(result.plans.map((plan) => [plan.kind, plan.tenantId, plan.vehicleGroupId, plan.sellMinor]), [["one_car", "T1", "V", 50_000]]);
-  // 多天的 one_car 照旧取总价最低（不受影响）
+
+  // 两种拆法：T2 自己最便宜的是「不拆」（没中标），全中标的拆法是两段点对点（T1 两段都中标）→ 取 T1 两段，不取 T2
+  const charter = segment("charter", [win(offer("T1", "V", 30_000, 24_000)), offer("T2", "V", 15_000, 12_000)], 540, 300, SHINJUKU, GINZA);
+  const legA = segment("p2p", [win(offer("T1", "V", 9_000, 7_000)), offer("T2", "V", 8_000, 6_000)], 540, 60, SHINJUKU, HANEDA);
+  const legB = segment("p2p", [win(offer("T1", "V", 9_000, 7_000)), offer("T2", "V", 8_000, 6_000)], 660, 60, HANEDA, GINZA);
+  const options: BuildDay = { ...day(0, [charter]), options: [{ segments: [charter] }, { segments: [legA, legB] }] };
+  const split = buildTripPlans({ currency: "JPY", days: [options], product: products() });
+  assert.deepEqual([split.plans[0]?.tenantId, split.plans[0]?.days[0]?.optionIndex, split.plans[0]?.sellMinor], ["T1", 1, 18_000]);
+
+  // 多段、各段中标的不是同一家（没有全中标的一车到底）→ 回落到原来的取法，照样报得出
+  const mixed = day(0, [
+    segment("p2p", [win(offer("T1", "V", 9_000, 7_000)), offer("T2", "V", 9_500, 7_500)], 540, 60, SHINJUKU, HANEDA),
+    segment("p2p", [offer("T1", "V", 9_500, 7_500), win(offer("T2", "V", 9_000, 7_000))], 660, 60, HANEDA, GINZA),
+  ]);
+  const fallback = buildTripPlans({ currency: "JPY", days: [mixed], product: products() });
+  assert.deepEqual([fallback.plans[0]?.tenantId, fallback.plans[0]?.sellMinor], ["T1", 18_500]);
+
+  // 多天的 one_car 照旧取总价最低（T2 第 0 天没中标也照样选它，见「两天」那条）
   const multi = buildTripPlans({ currency: "JPY", days: twoDays(), product: products() });
-  assert.ok(multi.plans.some((plan) => plan.kind === "one_car" && plan.sellMinor !== null));
+  assert.equal(multi.plans[0]?.tenantId, "T2");
 });
 
 test("某天一个报价都没有：两个方案都报不出，带天和原因", () => {

@@ -112,9 +112,10 @@ export function oneCarCandidates(days: readonly QuotedDay<SegmentOffer>[]): CarK
 /**
  * 某个租户 × 车型组的一车到底各天组成（三级规则见文件头）。有包车段的一天报不出 → null（这个组合不能一车到底）；
  * 机场 / 点对点日报不出且当天也没有中标报价 → null。全部用车日都「不是同一辆车」也算不成一车到底 → null。
+ * `winnersOnly`：只用这个租户 × 车型组**中标**的报价（单日行程和官网询价同一口径，M9T-12）。
  */
-export function oneCarDays<O extends SegmentOffer>(days: readonly QuotedDay<O>[], key: CarKey): ChosenDay<O>[] | null {
-  const own = (segment: QuotedSegment<O>): O | undefined => segment.offers.find((offer) => offer.tenantId === key.tenantId && offer.vehicleGroupId === key.vehicleGroupId);
+export function oneCarDays<O extends SegmentOffer>(days: readonly QuotedDay<O>[], key: CarKey, options: { winnersOnly?: boolean } = {}): ChosenDay<O>[] | null {
+  const own = (segment: QuotedSegment<O>): O | undefined => segment.offers.find((offer) => offer.tenantId === key.tenantId && offer.vehicleGroupId === key.vehicleGroupId && (options.winnersOnly !== true || offer.winner));
   const chosen: ChosenDay<O>[] = [];
   for (const day of days) {
     if (day.options.length === 0) continue;
