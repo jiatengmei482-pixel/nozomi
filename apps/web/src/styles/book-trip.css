@@ -259,6 +259,22 @@
   font-size: var(--font-size-sm);
 }
 
+/* 方案卡片底部的下单出口（M9T-10）：「预订这个方案」/「提交预订，客服确认」、出错时的说明和「重新报价」 */
+.trip-plan__actions,
+.trip-plan__book {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.trip-plan__book {
+  align-items: flex-start;
+}
+
+.trip-plan__book p {
+  margin: 0;
+}
+
 .trip-manual,
 .trip-unquoted {
   display: flex;

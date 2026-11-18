@@ -5,6 +5,8 @@
  * 第 2 步的结果骨架（方案名、推荐、合计、车型、报不出的原因、全部报不出转人工、过期重新报价）；刷新（网址带行程单）只读不报价，回到第 1 步时表单用读回来的行程单填上；
  * 太复杂（422）、太频繁（429）、过期（404）的说法；报价没拿到应答时先读行程单（已报过价就直接显示、不再报价）；重新报价失败后「上一步」仍能填回表单；
  * 第 2 步的变化由常驻播报区告诉读屏；报价中右侧栏画表单里每天的路线；手机底部按钮条。
+ * M9T-10 下单出口：单段方案「预订这个方案」→ order-quote（带经停点地名）→ 带着报价进 /book/new 第 3 步（不再询价）；价格变了（409）写明并给「重新报价」；
+ * 多段方案「提交预订，客服确认」= 带这个方案 plan_kind 的人工报价。
  * 接口用测试替身（浏览器只连 /site/v1）；真实后端由 e2e/site-trip-quote.spec.ts 覆盖。
  */
 import { afterEach, test } from "node:test";
@@ -13,7 +15,7 @@ import { screen, waitFor, within, render } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router";
 import { App } from "../../../App.tsx";
-import type { SiteCity, SiteConfig, SiteTrip, SiteTripItinerary, SiteTripPlan } from "../../../api/site.ts";
+import type { SiteCity, SiteConfig, SiteQuote, SiteTrip, SiteTripItinerary, SiteTripOrderQuote, SiteTripPlan, SiteTripSegment } from "../../../api/site.ts";
 import { type ApiCall, apiError, deferred, json, narrowScreen, resetBrowser, stubApiWith } from "../../../testing/harness.tsx";
 
 const originalMatchMedia = window.matchMedia;
@@ -86,7 +88,7 @@ function tripOf(changes: Partial<SiteTrip> = {}): SiteTrip {
 
 type Route = (call: ApiCall & { url: URL }) => Response | Promise<Response> | null;
 
-function open(options: { at?: string; create?: Route; quote?: Route; read?: Route } = {}): ApiCall[] {
+function open(options: { at?: string; create?: Route; quote?: Route; read?: Route; orderQuote?: Route } = {}): ApiCall[] {
   const calls = stubApiWith((call) => {
     const path = call.url.pathname;
     if (path === "/site/v1/config") return json(200, config);
@@ -105,6 +107,11 @@ function open(options: { at?: string; create?: Route; quote?: Route; read?: Rout
     if (call.method === "POST" && path === `/site/v1/trips/${TRIP_ID}/quote`) return options.quote?.(call) ?? json(200, tripOf());
     if (call.method === "GET" && path === `/site/v1/trips/${TRIP_ID}`) return options.read?.(call) ?? json(200, tripOf());
     if (call.method === "POST" && path === "/site/v1/manual-quote-requests") return json(202, { status: "accepted" });
+    // 下单出口（M9T-10）和跳进去以后的 /book/new
+    if (call.method === "POST" && path.startsWith(`/site/v1/trips/${TRIP_ID}/plans/`) && path.endsWith("/order-quote")) return options.orderQuote?.(call) ?? null;
+    if (path === "/site/v1/charter-packages") return json(200, { city: quotedCity, items: [{ hours: 4 }, { hours: 8 }] });
+    if (path === "/site/v1/fx/reference") return json(200, { available: false, from: "JPY", to: call.url.searchParams.get("to"), rate: null, as_of: null, reason: "NO_RATE" });
+    if (path === "/site/v1/route-map") return apiError(503, "ROUTE_MAP_UNAVAILABLE", "x", { reason: "UNAVAILABLE" });
     return null;
   });
   render(
@@ -119,10 +126,11 @@ function open(options: { at?: string; create?: Route; quote?: Route; read?: Rout
 /** 测试里的地址栏（MemoryRouter 没有地址栏） */
 function Probe() {
   const location = useLocation();
-  return <div data-testid="probe" data-search={location.search} />;
+  return <div data-testid="probe" data-search={location.search} data-pathname={location.pathname} />;
 }
 
 const search = (): string => screen.getByTestId("probe").getAttribute("data-search") ?? "";
+const pathname = (): string => screen.getByTestId("probe").getAttribute("data-pathname") ?? "";
 const user = () => userEvent.setup();
 const posts = (calls: ApiCall[], path: string): ApiCall[] => calls.filter((call) => call.method === "POST" && call.path === path);
 /** 第 2 步常驻的播报区 */
@@ -532,4 +540,141 @@ test("刚建好的行程单正在报价：右侧栏画表单里每天的路线�
   assert.equal(within(aside).queryByText("选好地点后在这里显示每天的路线"), null);
   pending.resolve(json(200, tripOf()));
   assert.ok(await screen.findByRole("listitem", { name: "同一辆车跑完全程" }, SLOW));
+});
+
+// ---------- 下单出口（M9T-10） ----------
+
+const quotedCity = { id: CITY_ID, code: city.code, name: city.name, timezone: city.timezone };
+const ONE_CAR_GROUP = { id: "55555555-5555-4555-8555-555555555555", code: "VG-ALPHARD", name: { zh: "豪华七座" }, grade: "luxury", seats: 7, sample_models: ["Toyota Alphard"], combos: [{ passengers: 6, luggage: 4 }] };
+/** 单日包车：酒店 9:00 出发 → 浅草寺停留 90 分钟 → 回酒店 */
+const ONE_DAY: SiteTripItinerary = {
+  schemaVersion: 1,
+  party: { adults: 3, children: 0, luggage: 2 },
+  preferences: { vehicleGroupIds: [], addons: [] },
+  days: [{ date: "2030-11-20", items: [{ kind: "start", place: HOTEL, time: "09:00" }, { kind: "stop", place: TEMPLE, stayMinutes: 90 }, { kind: "end", place: HOTEL }] }],
+};
+
+function segmentOf(id: string, type: SiteTripSegment["type"], amount: string, start = "2030-11-20T09:00", end = "2030-11-20T13:00"): SiteTripSegment {
+  return { segment_id: id, type, start_local: start, end_local: end, amount: { amount, currency: "JPY" }, package_hours: type === "charter" ? 4 : null, other_vehicle: false, vehicle_group: null, price_breakdown: [], route: null };
+}
+
+const singlePlan = (): SiteTripPlan => planOf("one_car", "52000", { recommended: true, days: [{ day_index: 0, date: "2030-11-20", segments: [segmentOf("s1", "charter", "52000")], fees: [] }] });
+const singleTrip = (): SiteTrip => tripOf({ itinerary: ONE_DAY, plans: [singlePlan()] });
+
+function charterQuote(): SiteQuote {
+  return {
+    quote_id: "QT203011200000000099",
+    expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
+    service_date: "2030-11-20",
+    urgent: false,
+    vehicle_group: ONE_CAR_GROUP,
+    package: { hours: 4, km: null },
+    price: { total: { amount: "52000", currency: "JPY" }, fx: null },
+    free_wait_minutes: 0,
+    cancel_policy: { category: "charter", level: "luxury", tiers: [{ min_hours_before: 24, fee_bp: 0 }, { min_hours_before: 0, fee_bp: 10000 }] },
+    available_addons: [],
+    estimated_minutes: 150,
+    includes_buffer: false,
+    auto_package_hours: 4,
+    itinerary_warnings: [],
+  };
+}
+
+function orderQuoteOf(): SiteTripOrderQuote {
+  return {
+    trip_id: TRIP_ID,
+    plan_id: singlePlan().plan_id,
+    currency: "JPY",
+    segment_type: "charter",
+    city: quotedCity,
+    quote: charterQuote(),
+    quote_request: { category: "charter", itinerary_pricing: true, pickup: HOTEL, dropoff: HOTEL, waypoints: [{ name: TEMPLE_NAME, lat: TEMPLE.lat, lng: TEMPLE.lng, stay_minutes: 90 }], service_local: "2030-11-20T09:00", passengers: 3, luggage: 2, addons: [] },
+    itinerary_route: { legs: [{ minutes: 30, meters: 12000 }, { minutes: 30, meters: 12000 }], drive_minutes: 60, stay_minutes: 90, total_minutes: 150, total_meters: 24000 },
+    expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
+  };
+}
+
+const orderQuotePath = `/site/v1/trips/${TRIP_ID}/plans/${singlePlan().plan_id}/order-quote`;
+
+test("单段方案：卡片上是「预订这个方案」；点了按经停点地名转成普通报价，带着它进 /book/new 第 3 步（乘客信息），不再询价、车型已选好", async () => {
+  wideScreen();
+  sessionStorage.setItem(`nozomi.trip-labels.${TRIP_ID}`, JSON.stringify({ v: 1, days: [[HOTEL_NAME, TEMPLE_NAME, HOTEL_NAME]] }));
+  const calls = open({ at: `/book/trip?trip=${TRIP_ID}&step=2`, read: () => json(200, singleTrip()), orderQuote: () => json(200, orderQuoteOf()) });
+  const card = await screen.findByRole("listitem", { name: "同一辆车跑完全程" }, SLOW);
+  assert.equal(within(card).queryByRole("button", { name: "提交预订，客服确认" }), null, "单段方案不走客服确认");
+  await user().click(within(card).getByRole("button", { name: "预订这个方案" }));
+
+  assert.ok(await screen.findByRole("heading", { name: "乘客信息", level: 2 }, SLOW));
+  assert.equal(pathname(), "/book/new");
+  assert.equal(search(), "?step=3");
+  const sent = posts(calls, orderQuotePath);
+  assert.equal(sent.length, 1);
+  assert.deepEqual(sent[0]?.body, { waypoint_names: [TEMPLE_NAME] });
+  assert.ok(screen.getAllByText("豪华七座").length >= 1, "车型已选好（右侧栏）");
+  assert.equal(posts(calls, "/site/v1/quotes").length, 0, "直接用转好的报价，不再询价");
+  assert.equal(posts(calls, "/site/v1/quotes/by-points").length, 0);
+  assert.ok(screen.getByLabelText("乘车人姓名"), "接着填乘客信息");
+});
+
+test("单段方案价格变了（409 TRIP_PRICE_CHANGED）：留在方案对比，写「价格有变化，请重新报价」并给「重新报价」；这一车型报不出时另给「转人工报价」", async () => {
+  wideScreen();
+  let reason = "PRICE_CHANGED";
+  const calls = open({
+    at: `/book/trip?trip=${TRIP_ID}&step=2`,
+    read: () => json(200, singleTrip()),
+    quote: () => json(200, singleTrip()),
+    orderQuote: () => apiError(409, "TRIP_PRICE_CHANGED", "价格有变化，请重新报价", { plan_total: { amount: "52000", currency: "JPY" }, quote_total: null, reason }),
+  });
+  const actor = user();
+  let card = await screen.findByRole("listitem", { name: "同一辆车跑完全程" }, SLOW);
+  await actor.click(within(card).getByRole("button", { name: "预订这个方案" }));
+  assert.ok(await within(card).findByText("价格有变化，请重新报价", {}, SLOW));
+  assert.equal(within(card).queryByRole("button", { name: "转人工报价" }), null);
+  assert.equal(pathname(), "/book/trip");
+  await actor.click(within(card).getByRole("button", { name: "重新报价" }));
+  await waitFor(() => assert.equal(posts(calls, `/site/v1/trips/${TRIP_ID}/quote`).length, 1), SLOW);
+  // 新结果到了：上次的说明收起
+  await waitFor(() => assert.equal(screen.queryByText("价格有变化，请重新报价"), null), SLOW);
+
+  reason = "NO_OFFER";
+  card = await screen.findByRole("listitem", { name: "同一辆车跑完全程" }, SLOW);
+  await actor.click(within(card).getByRole("button", { name: "预订这个方案" }));
+  assert.ok(await within(card).findByText("价格有变化，请重新报价；也可以转人工报价，由客服按这个方案核对", {}, SLOW));
+  assert.ok(within(card).getByRole("button", { name: "重新报价" }));
+  assert.ok(within(card).getByRole("button", { name: "转人工报价" }));
+});
+
+test("多段方案：卡片上是「提交预订，客服确认」；留邮箱提交的是带行程单编号和这个方案 plan_kind 的人工报价", async () => {
+  wideScreen();
+  const days = [
+    { day_index: 0, date: "2030-11-20", segments: [segmentOf("s1", "airport_pickup", "30000", "2030-11-20T14:30", "2030-11-20T16:00")], fees: [] },
+    { day_index: 1, date: "2030-11-21", segments: [segmentOf("s2", "charter", "60000", "2030-11-21T09:00", "2030-11-21T13:00")], fees: [] },
+  ];
+  const calls = open({ at: `/book/trip?trip=${TRIP_ID}&step=2`, read: () => json(200, tripOf({ plans: [planOf("one_car", "98000", { recommended: true, days }), planOf("daily_best", "91000", { days })] })) });
+  const compare = await screen.findByRole("list", { name: "两个方案对比" }, SLOW);
+  const daily = within(compare).getByRole("listitem", { name: "每天选最划算的车" });
+  assert.equal(within(compare).queryByRole("button", { name: "预订这个方案" }), null, "多段方案不能直接在线下单");
+  const actor = user();
+  await actor.click(within(daily).getByRole("button", { name: "提交预订，客服确认" }));
+  assert.equal(document.activeElement, within(daily).getByLabelText("邮箱"), "表单出来后焦点在第一个框");
+  await actor.type(within(daily).getByLabelText("邮箱"), "guest@example.com");
+  await actor.click(within(daily).getByRole("button", { name: "提交" }));
+  assert.ok(await within(daily).findByText(/已收到/, {}, SLOW));
+  const sent = posts(calls, "/site/v1/manual-quote-requests");
+  assert.equal(sent.length, 1);
+  const body = sent[0]?.body as Record<string, unknown>;
+  assert.equal(body["trip_id"], TRIP_ID);
+  assert.equal(body["plan_kind"], "daily_best");
+  assert.deepEqual((body["trip_labels"] as string[][]).map((day) => day.length), [2, 3]);
+  assert.equal((body["trip"] as { category: string }).category, "airport_transfer", "trip 填第一天的行程");
+  assert.equal(posts(calls, orderQuotePath).length, 0);
+});
+
+test("过期的方案：不给预订按钮，只给「重新报价」", async () => {
+  wideScreen();
+  open({ at: `/book/trip?trip=${TRIP_ID}&step=2`, read: () => json(200, tripOf({ itinerary: ONE_DAY, plans: [{ ...singlePlan(), expired: true }] })) });
+  const card = await screen.findByRole("listitem", { name: "同一辆车跑完全程" }, SLOW);
+  assert.equal(within(card).queryByRole("button", { name: "预订这个方案" }), null);
+  assert.equal(within(card).queryByRole("button", { name: "提交预订，客服确认" }), null);
+  assert.ok(screen.getByRole("button", { name: "重新报价" }));
 });

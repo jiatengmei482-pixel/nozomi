@@ -15,6 +15,8 @@
  * 四种状态：加载中（骨架）、官网没开 / 没有可订城市（空）、出错（说明 + 重试）、正常。页面上没有供应商、结算价、加价比例。
  * 同一份组件也是嵌入预订页 `/embed/book` 的四步（M9E-17，ADR 0095）：两边不同的几处（外壳、单栏、不用 Leaflet、读草稿、下单后去哪、换步通知）
  * 由 `BookingShell` 上下文给（booking-shell.tsx），默认值就是主站的行为。
+ * 从多日行程报价页「预订这个方案」进来（M9T-10，ADR 0101 第十三节第 3 小节）：路由 state 里带着单段方案转成的普通报价（`lib/trip-book.ts`），
+ * 打开时按它预填行程、选好车型，第一次询价直接用这张报价（过期了才照常询价），网址是第 3 步，客人接着填乘客信息、下单、付款。
  */
 import { charterAirportText, quoteScenario } from "../../../lib/charter-airport-copy.ts";
 import { type AirportQuickMode, AirportQuickButtons, TerminalSelect } from "./AirportQuickEntry.tsx";
@@ -82,13 +84,14 @@ import { FIELD_HINTS, MESSAGING_NAMES, type OrderErrors, type OrderForm, type Or
 import { useDocumentTitle } from "../../../lib/use-document-title.ts";
 import { MANUAL_QUOTE_CHARTER_HOURS, type ManualQuoteTripDraft } from "../../../lib/manual-quote-form.ts";
 import { ItineraryWarnings } from "./ItineraryWarnings.tsx";
-import { ITINERARY_NOTE, type WaypointDraft, autoPackageChoice, autoPackageHoursByVehicle, breakdownLines, upgradePackageHours, durationText, itineraryMapAlt, itineraryMapPoints, itineraryPackageHours, itineraryRouteFailureText, itineraryText, minPackageHints, scheduleRows, waypointErrors, waypointUnavailableTexts, waypointsBody } from "../../../lib/charter-itinerary.ts";
+import { ITINERARY_NOTE, type WaypointDraft, newWaypoint, autoPackageChoice, autoPackageHoursByVehicle, breakdownLines, upgradePackageHours, durationText, itineraryMapAlt, itineraryMapPoints, itineraryPackageHours, itineraryRouteFailureText, itineraryText, minPackageHints, scheduleRows, waypointErrors, waypointUnavailableTexts, waypointsBody } from "../../../lib/charter-itinerary.ts";
 import { TripStops } from "../../../components/TripStops.tsx";
 import { itineraryCopy } from "../../../lib/itinerary-texts.ts";
 import { type LiveSuggestion, liveSuggestion, orderChain, stopSetKey, suggestionQuoteExpired, suggestionTitle } from "../../../lib/order-suggestion.ts";
 import { arrivalLateTexts, arriveByDeadlineText, stopTimeTexts, suggestedLateTexts } from "../../../lib/arrive-by-display.ts";
 import { ADDRESS_ONLY_HINT, DRAFT_EXPIRED_TEXT, DRAFT_FAILED_TEXT, draftReadyToQuote, draftTrip } from "../../../lib/booking-draft.ts";
 import { ManualQuoteBlock } from "../ManualQuote.tsx";
+import { type TripBookSeed, tripBookHandoffOf, tripBookOutcome, tripBookSeedOf } from "../../../lib/trip-book.ts";
 import { siteFailureText, useSiteConfig } from "../SiteLayout.tsx";
 import { SitePrice } from "../SitePrice.tsx";
 import { checkoutCopy } from "../../../lib/checkout-texts.ts";
@@ -252,6 +255,11 @@ function initialDraft(link: BookingLink): TripDraft {
   return { tab, mode: tab === "charter" ? "charter" : "transfer", from: null, to: null, date: link.date ?? "", time: link.time ?? "", passengers: link.passengers ?? 2, luggage: link.luggage ?? link.passengers ?? 2, packageHours: "", waypoints: [], flightNo: "", flightKind: "" };
 }
 
+/** 行程报价页带来的行程（M9T-10）→ 第 1 步的表单 */
+function tripSeedDraft(seed: TripBookSeed): TripDraft {
+  return { tab: seed.tab, mode: seed.tab, from: seed.from, to: seed.to, date: seed.date, time: seed.time, passengers: seed.passengers, luggage: seed.luggage, packageHours: seed.packageHours, waypoints: seed.waypoints.map((stop) => ({ ...newWaypoint(), point: stop.point, stay: stop.stay })), flightNo: "", flightKind: "" };
+}
+
 /**
  * 第 1 步「下一步」前的检查（航班号在第 3 步查）。`charterCity`：包车上下车点匹配到的城市；null = 没匹配到；undefined = 还在查（或还没选齐两端）。
  * 还在查时不拦：查完以后时长没选的，「能到哪一步」会把页面退回第 1 步（和以前读城市套餐时一样）。
@@ -285,6 +293,9 @@ export function BookNewPage() {
   useDocumentTitle(shell.title);
   const location = useLocation();
   const link = useMemo(() => parseBookingLink(location.search), []);
+  /** 从行程报价页「预订这个方案」进来（M9T-10）：路由 state 里的单段方案报价；没有为 null */
+  const fromTrip = useMemo(() => tripBookHandoffOf(location.state), []);
+  const tripSeed = useMemo(() => (fromTrip === null ? null : tripBookSeedOf(fromTrip)), [fromTrip]);
   const wide = useWideScreen();
   // 手机和平板（≤ 1023px，单栏）：每一步的按钮在底部按钮条里（M9E-32，ADR 0100；平板业主 2026-11-17 决定）；主站这时给 viewport 加 viewport-fit=cover（安全区）
   const compact = useCompactScreen() && !wide;
@@ -292,14 +303,14 @@ export function BookNewPage() {
   const { state: config, reload: reloadConfig } = useSiteConfig();
   const [cities, setCities] = useState<Load<SiteCity[]>>({ kind: "loading" });
   const [round, setRound] = useState(0);
-  const [draft, setDraft] = useState<TripDraft>(() => initialDraft(link));
+  const [draft, setDraft] = useState<TripDraft>(() => (tripSeed === null ? initialDraft(link) : tripSeedDraft(tripSeed)));
   /**
    * 读到了的预订草稿编号（M9E-12）：之后这一页的每次询价都带上，客人在主站改了行程也一样——来源记的是「客人从哪个网站来」（ADR 0090 第二节第 1 小节），
    * 不是行程有没有改。草稿过期或不存在（404）时为 null、不带；读不出来（限速、网络）时照样带链接里的编号（`parseBookingLink` 已核过 43 位格式，服务端无效就忽略）。
    */
   const [draftSource, setDraftSource] = useState<string | null>(null);
   /** 日期是客人定的（链接、草稿带了，或自己改过）：之后换上车点、换标签都不再改成默认日期（M8-44） */
-  const dateChosen = useRef(link.date !== null);
+  const dateChosen = useRef(link.date !== null || tripSeed !== null);
   const [errors, setErrors] = useState<Errors>({});
   /** 点过「下一步」而经停点没填完整：之后每一行的问题随改随显示 */
   const [waypointCheck, setWaypointCheck] = useState(false);
@@ -308,8 +319,8 @@ export function BookNewPage() {
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [quote, setQuote] = useState<QuoteState>({ kind: "idle" });
   const [quoteRound, setQuoteRound] = useState(0);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [recognized, setRecognized] = useState<{ ends: string; tripType: SiteByPointsResult["trip_type"] } | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(tripSeed?.vehicleGroupId ?? null);
+  const [recognized, setRecognized] = useState<{ ends: string; tripType: SiteByPointsResult["trip_type"] } | null>(() => (tripSeed !== null && tripSeed.tripType !== null ? { ends: sameEnds(tripSeed.from, tripSeed.to), tripType: tripSeed.tripType } : null));
   const [charterMatch, setCharterMatch] = useState<{ key: string; load: Load<CharterMatch> } | null>(null);
   /** 包车套餐读失败后点「重试」：加一次重读 */
   const [charterRetry, setCharterRetry] = useState(0);
@@ -473,6 +484,15 @@ export function BookNewPage() {
   latestRequest.current = request;
   /** 采用经停顺序建议时直接用建议报价（M9P-20 P2，ADR 0096 第三节第 5 小节）：按新顺序的请求键放在这里，重排后不再询价一次 */
   const preloaded = useRef(new Map<string, Outcome>());
+  /**
+   * 行程报价页带来的报价（M9T-10）：预填的行程第一次询价（`key` 还是 null 时记下那次的键）直接用它；改了行程（键变了）、点了重新查价（`round` 变了）就作废、照常询价。
+   * 报价已过期时一开始就是 null。
+   */
+  const [tripOutcomeAtOpen] = useState(() => {
+    const outcome = fromTrip === null ? null : tripBookOutcome(fromTrip, Date.now());
+    return outcome === null ? null : { key: null as string | null, round: 0, outcome: outcome as Outcome };
+  });
+  const tripOutcome = useRef(tripOutcomeAtOpen);
   useEffect(() => {
     const current = latestRequest.current;
     if (current === null) {
@@ -485,6 +505,13 @@ export function BookNewPage() {
       setQuote({ kind: "ready", key: current.key, outcome: ready });
       return;
     }
+    const seeded = tripOutcome.current;
+    if (seeded !== null && (seeded.key ?? current.key) === current.key && seeded.round === quoteRound) {
+      tripOutcome.current = { ...seeded, key: current.key };
+      setQuote({ kind: "ready", key: current.key, outcome: seeded.outcome });
+      return;
+    }
+    tripOutcome.current = null;
     let alive = true;
     setQuote({ kind: "loading", key: current.key });
     const timer = setTimeout(() => {

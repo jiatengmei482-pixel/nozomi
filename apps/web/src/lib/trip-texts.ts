@@ -106,6 +106,16 @@ export type TripTextKey =
   | "action.quote"
   | "action.read"
   | "action.cities"
+  | "action.book"
+  // 下单出口（M9T-10）
+  | "book.hint"
+  | "book.busy"
+  | "book.failed"
+  | "book.priceChanged"
+  | "book.priceChangedManual"
+  | "book.planGone"
+  | "book.notSingle"
+  | "bookManual.hint"
   | "dayHeading"
   | "segment.airport_pickup"
   | "segment.airport_dropoff"
@@ -271,6 +281,16 @@ const ZH: Readonly<Record<TripTextKey, string>> = {
   "action.quote": "报价",
   "action.read": "读取行程",
   "action.cities": "读取城市",
+  "action.book": "打开预订",
+
+  "book.hint": "接着填写乘客信息，然后在线付款",
+  "book.busy": "正在准备预订",
+  "book.failed": "预订没有打开",
+  "book.priceChanged": "价格有变化，请重新报价",
+  "book.priceChangedManual": "价格有变化，请重新报价；也可以转人工报价，由客服按这个方案核对",
+  "book.planGone": "这个方案已经更新，请重新报价",
+  "book.notSingle": "这个方案不能直接在线下单，请提交预订，由客服确认",
+  "bookManual.hint": "留下邮箱或 WhatsApp，客服按这个方案核对后联系您确认价格和预订",
 
   // 原因前面已经写了「方案（第 N 天）：」或「方案：」（整个方案），这里的说法不再说「这一天」，两种都读得通
   "reason.NO_OFFER": "没有可用的车",
