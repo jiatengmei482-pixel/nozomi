@@ -119,7 +119,8 @@ test("地址搜索、反查（M3-12）：应答只有 available 和候选 / 地�
   for (const path of ["search", "reverse", "autocomplete", "details"]) assert.ok(!(spec200(`${SITE_BASE}/places/${path}`)?.required ?? []).includes("unavailable_reason"), path);
   assert.deepEqual(props(schemas["SitePlaceCandidate"]), ["address", "id", "kind", "location", "name", "source"]);
   for (const schema of [spec200(`${SITE_BASE}/places/search`), spec200(`${SITE_BASE}/places/reverse`), schemas["SitePlaceCandidate"], schemas["SiteConfig"]]) {
-    assert.deepEqual(props(schema).filter((key) => /key|secret|token|google|raw/i.test(key)), []);
+    // 唯一的例外：浏览器加载谷歌地图用的密钥（M10-01 第 2 处），在谷歌后台限定了网址和 API，本来就要给浏览器；服务器用的密钥永远不出现
+    assert.deepEqual(props(schema).filter((key) => /key|secret|token|google|raw/i.test(key) && !(schema === schemas["SiteConfig"] && key === "maps_browser_key")), []);
   }
   assert.equal(schemas["SiteConfig"]?.properties?.["map_tiles"]?.$ref, "#/components/schemas/MapConfig/properties/tiles");
 });

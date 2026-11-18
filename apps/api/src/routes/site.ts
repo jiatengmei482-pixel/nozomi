@@ -578,6 +578,8 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
       support_whatsapp: settings.supportWhatsapp,
       // 页面宽度（M8-28，ADR 0079）：standard / wide / full，没设过是 standard；官网外壳按它定最宽
       page_width: settings.pageWidth,
+      // 浏览器加载谷歌地图用的密钥（M10-01 第 2 处）：运营后台「官网设置」填的，限定了网址和 API，本来就公开；没填为 null，页面不加载谷歌地图
+      maps_browser_key: settings.mapsBrowserKey,
       // 地址搜索（谷歌，后端代调）和地图底图（ADR 0044、0015）：页面按这两项决定显示哪几种选地址的方式
       address_search: config.addressSearch,
       map_tiles: config.open ? mapConfigJson(ctx.config.mapTiles)["tiles"] : null,

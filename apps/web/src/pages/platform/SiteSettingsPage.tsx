@@ -104,7 +104,7 @@ function WidthEditor({ settings, onSaved, onReload }: { settings: SiteSettings; 
     setBusy(true);
     try {
       // 号码原样带回去（接口要求有这一项），只改宽度
-      const saved = await updateSiteSettings(token, settings.version, settings.support_whatsapp, width);
+      const saved = await updateSiteSettings(token, settings.version, settings.support_whatsapp, { pageWidth: width });
       onSaved(saved);
       toast(`已保存，官网页面宽度改为「${PAGE_WIDTH_TEXT[saved.page_width].name}」，客人刷新页面后生效`);
     } catch (err) {
@@ -140,6 +140,73 @@ function WidthEditor({ settings, onSaved, onReload }: { settings: SiteSettings; 
         <Button type="submit" variant="primary" loading={busy} loadingText="保存中…">
           保存
         </Button>
+      </div>
+    </form>
+  );
+}
+
+/** 谷歌的 API 密钥：AIza 开头共 39 位（和后端同一个检查） */
+const MAPS_KEY = /^AIza[0-9A-Za-z_-]{35}$/;
+const MAPS_KEY_INVALID = "谷歌地图密钥是 AIza 开头、共 39 位的一串字母数字，请从谷歌后台整串复制";
+
+/** 只显示开头几位：密钥本来公开（会出现在官网网页里），这里也不整串摆出来 */
+export function mapsKeyHint(key: string): string {
+  return `${key.slice(0, 8)}…（共 ${key.length} 位）`;
+}
+
+function MapsKeyEditor({ settings, onSaved, onReload }: { settings: SiteSettings; onSaved(next: SiteSettings): void; onReload(): void }) {
+  const { token, handleAuthFailure } = usePortalSession();
+  const toast = useToast();
+  const [text, setText] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const submit = async (key: string | null): Promise<void> => {
+    setError(null);
+    setProblem(null);
+    setBusy(true);
+    try {
+      // 号码原样带回去（接口要求有这一项），只改地图密钥
+      const saved = await updateSiteSettings(token, settings.version, settings.support_whatsapp, { mapsBrowserKey: key });
+      onSaved(saved);
+      toast(saved.maps_browser_key === null ? "已清除，官网的选点地图不再用谷歌地图" : "已保存，客人刷新页面后选点地图改用谷歌地图");
+    } catch (err) {
+      if (handleAuthFailure(err)) return;
+      if (err instanceof ApiError && err.code === "VERSION_CONFLICT") {
+        setProblem("官网设置刚被别人改过，页面已刷新成最新的样子。请看过再改。");
+        onReload();
+      } else if (err instanceof ApiError && err.code === "VALIDATION_FAILED") setError(MAPS_KEY_INVALID);
+      else setProblem(`${failureText(err, "保存")}填的内容还在。`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const save = (event: FormEvent): void => {
+    event.preventDefault();
+    if (busy) return;
+    const value = text.trim();
+    if (!MAPS_KEY.test(value)) {
+      setError(value === "" ? "请粘贴密钥" : MAPS_KEY_INVALID);
+      return;
+    }
+    void submit(value);
+  };
+  return (
+    <form className="form" noValidate onSubmit={save}>
+      <div role="alert">{problem !== null && <Alert kind="danger">{problem}</Alert>}</div>
+      <dl className="details">
+        <Detail label="现在的密钥">{settings.maps_browser_key === null ? "还没有填（官网选点用开源地图）" : mapsKeyHint(settings.maps_browser_key)}</Detail>
+      </dl>
+      <TextField label={settings.maps_browser_key === null ? "浏览器密钥" : "换一把密钥"} autoComplete="off" spellCheck={false} maxLength={100} value={text} errors={error === null ? [] : [error]} hint="在谷歌后台新建的、限定了官网网址、只开 Maps JavaScript API 的那把；不是服务器用的密钥" onChange={(event) => setText(event.target.value)} />
+      <div className="form__actions">
+        <Button type="submit" variant="primary" loading={busy} loadingText="保存中…">
+          保存
+        </Button>
+        {settings.maps_browser_key !== null && (
+          <Button type="button" variant="secondary" disabled={busy} onClick={() => void submit(null)}>
+            清除密钥
+          </Button>
+        )}
       </div>
     </form>
   );
@@ -211,6 +278,24 @@ export function SiteSettingsPage() {
                 <Detail label="页面宽度">{`${PAGE_WIDTH_TEXT[settings.page_width].name}（${PAGE_WIDTH_TEXT[settings.page_width].help}）`}</Detail>
               </dl>
               <p className="table__muted">只有超级管理员能改页面宽度。</p>
+            </>
+          )}
+        </div>
+      </section>
+      <section className="card" aria-labelledby="site-settings-maps">
+        <h2 className="card__title" id="site-settings-maps">
+          谷歌地图（浏览器密钥）
+        </h2>
+        <p className="table__muted">官网「在地图上选点」用谷歌地图显示时要的密钥。它会出现在官网网页里，所以要在谷歌后台限定网址、只开 Maps JavaScript API。没填时选点仍用开源地图。</p>
+        <div className="form">
+          {canManage ? (
+            <MapsKeyEditor key={`maps-${settings.version}`} settings={settings} onSaved={set} onReload={reload} />
+          ) : (
+            <>
+              <dl className="details">
+                <Detail label="浏览器密钥">{settings.maps_browser_key === null ? "还没有填" : mapsKeyHint(settings.maps_browser_key)}</Detail>
+              </dl>
+              <p className="table__muted">只有超级管理员能改这把密钥。</p>
             </>
           )}
         </div>

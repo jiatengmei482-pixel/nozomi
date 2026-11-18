@@ -14,7 +14,7 @@
  * - `GET /platform/v1/manual-quote-requests/{id}`（`manual_quote.read`）：详情，解密联系方式、地点、备注，留审计；
  * - `PATCH /platform/v1/manual-quote-requests/{id}`（`manual_quote.manage`，If-Match）：改状态、指派；
  * - `POST /platform/v1/manual-quote-requests/{id}/notes`（`manual_quote.manage`）：写备注；
- * - `GET /platform/v1/site-settings`（`site_settings.read`）、`PUT`（`site_settings.manage`，只归超级管理员）：客服 WhatsApp 号码、页面宽度（M8-28）。
+ * - `GET /platform/v1/site-settings`（`site_settings.read`）、`PUT`（`site_settings.manage`，只归超级管理员）：客服 WhatsApp 号码、页面宽度（M8-28）、浏览器用的谷歌地图密钥（M10-01 第 2 处）。
  * 官网的 `GET /site/v1/config` 多 `support_whatsapp`、`page_width` 两项（在 `routes/site.ts`）。
  */
 import type { FastifyInstance } from "fastify";
@@ -172,6 +172,19 @@ const settingsSchema = z
       }),
     // 页面宽度（M8-28，ADR 0079）：可选，不给是不改
     page_width: z.enum(["standard", "wide", "full"]).optional(),
+    // 浏览器加载谷歌地图用的密钥（M10-01 第 2 处）：可选，不给是不改，null 或空是清空；谷歌的 API 密钥是 AIza 开头共 39 位
+    maps_browser_key: z
+      .string()
+      .max(100)
+      .nullable()
+      .optional()
+      .transform((value, issue) => {
+        if (value === undefined) return undefined;
+        if (value === null || value.trim() === "") return null;
+        const key = value.trim();
+        if (!/^AIza[0-9A-Za-z_-]{35}$/.test(key)) issue.addIssue({ code: "custom", message: "谷歌地图密钥是 AIza 开头、共 39 位的一串字母数字，请从谷歌后台整串复制" });
+        return key;
+      }),
   })
   .strict();
 
@@ -219,7 +232,7 @@ function detailJson(detail: ManualQuoteDetail): Json {
 }
 
 function settingsJson(settings: SiteSettingsRow): Json {
-  return { support_whatsapp: settings.supportWhatsapp, page_width: settings.pageWidth, version: settings.version, updated_at: iso(settings.updatedAt), updated_by: settings.updatedBy };
+  return { support_whatsapp: settings.supportWhatsapp, page_width: settings.pageWidth, maps_browser_key: settings.mapsBrowserKey, version: settings.version, updated_at: iso(settings.updatedAt), updated_by: settings.updatedBy };
 }
 
 export function registerManualQuoteRoutes(app: FastifyInstance, ctx: AppContext): void {
@@ -276,6 +289,6 @@ export function registerManualQuoteRoutes(app: FastifyInstance, ctx: AppContext)
     const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "site_settings.manage" });
     const body = parseInput(settingsSchema, request.body, "body");
     const header = request.headers["if-match"];
-    return settingsJson(await updateSiteSettings(ctx, principal, request.ip, body.support_whatsapp, body.page_width ?? null, header === undefined ? null : ifMatchVersion(header)));
+    return settingsJson(await updateSiteSettings(ctx, principal, request.ip, { supportWhatsapp: body.support_whatsapp, ...(body.page_width === undefined ? {} : { pageWidth: body.page_width }), ...(body.maps_browser_key === undefined ? {} : { mapsBrowserKey: body.maps_browser_key }) }, header === undefined ? null : ifMatchVersion(header)));
   });
 }

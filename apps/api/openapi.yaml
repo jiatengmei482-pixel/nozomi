@@ -17948,6 +17948,10 @@ paths:
                   maxLength: 60
                 page_width:
                   $ref: "#/components/schemas/SitePageWidth"
+                maps_browser_key:
+                  type: [ string, "null" ]
+                  maxLength: 100
+                  description: 浏览器加载谷歌地图（Maps JavaScript API）用的密钥（M10-01 第 2 处），AIza 开头共 39 位；不给是不改，null 或空字符串是清空；格式不对 400（路径 `/maps_browser_key`）
       responses:
         "200":
           description: 保存后的设置
@@ -31382,7 +31386,7 @@ components:
     SiteConfig:
       type: object
       additionalProperties: false
-      required: [ open, currency, payments, support_phone, support_whatsapp, page_width, address_search, map_tiles ]
+      required: [ open, currency, payments, support_phone, support_whatsapp, page_width, maps_browser_key, address_search, map_tiles ]
       properties:
         open:
           type: boolean
@@ -31414,6 +31418,10 @@ components:
           description: 客服 WhatsApp 号码（M8-21，ADR 0076）：运营后台「系统设置 → 官网设置」填的，wa.me 用的纯数字；没设置时为 null，页面不显示「通过 WhatsApp 联系我们」。官网没开时也照常给出
         page_width:
           $ref: "#/components/schemas/SitePageWidth"
+        maps_browser_key:
+          type: [ string, "null" ]
+          pattern: "^AIza[0-9A-Za-z_-]{35}$"
+          description: 浏览器加载谷歌地图用的密钥（M10-01 第 2 处）：运营后台「官网设置」填的，在谷歌后台限定了网址和 API，本来就公开；没填为 null，页面不加载谷歌地图
         address_search:
           type: boolean
           description: |
@@ -35255,7 +35263,7 @@ components:
     SiteSettings:
       type: object
       additionalProperties: false
-      required: [ support_whatsapp, page_width, version, updated_at, updated_by ]
+      required: [ support_whatsapp, page_width, maps_browser_key, version, updated_at, updated_by ]
       properties:
         support_whatsapp:
           type: [ string, "null" ]
@@ -35263,6 +35271,10 @@ components:
           description: 客服 WhatsApp 号码，wa.me 用的纯数字（国家码 + 号码）；null 是没设置
         page_width:
           $ref: "#/components/schemas/SitePageWidth"
+        maps_browser_key:
+          type: [ string, "null" ]
+          pattern: "^AIza[0-9A-Za-z_-]{35}$"
+          description: 浏览器加载谷歌地图用的密钥；null 是没填
         version:
           type: integer
           description: 0 表示还没有设置过
