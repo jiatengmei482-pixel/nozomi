@@ -589,7 +589,7 @@ test("规则 4：真实流程走一遍（确认、派车提醒、改单、改期
   const settlement = (await api.db.owner.query<{ settlement_minor: string }>("select settlement_minor from orders where id = $1", [order.orderId])).rows[0]!.settlement_minor;
   for (const mail of guestMails()) {
     const text = bodyOf(mail).replaceAll(order.orderNo, "");
-    assert.ok(!text.includes(String(settlement)), `客人邮件出现了结算价 ${settlement}：${text}`);
+    assert.doesNotMatch(text, new RegExp(`(?<![0-9A-Za-z])${settlement}(?![0-9A-Za-z])`), `客人邮件出现了结算价 ${settlement}：${text}`);
     assert.doesNotMatch(text, /结算|加价|markup/i);
   }
   assert.ok(guestMails().some((mail) => bodyOf(mail).includes(`JPY ${SELL}`)), "客人的确认邮件应该写自己付的钱");
@@ -597,7 +597,8 @@ test("规则 4：真实流程走一遍（确认、派车提醒、改单、改期
   const tenantApi = await api.call("GET", `/tenant/v1/notifications?order_id=${order.orderId}`, { token: await tenantLogin(api, side.adminEmail) });
   assert.equal(tenantApi.status, 200, tenantApi.text);
   for (const key of allKeys(tenantApi.body)) assert.doesNotMatch(key, /sell|markup|paid|refund|fx_|price|amount/i, key);
-  assert.ok(!tenantApi.text.includes(String(SELL)));
+  // 按独立的数字找（前后不是字母数字）：只查子串时，应答里随机编号（uuid、令牌）碰巧含「987654」会误报（main 上 25654a56 出现过一次）
+  assert.doesNotMatch(tenantApi.text, new RegExp(`(?<![0-9A-Za-z])${SELL}(?![0-9A-Za-z])`), "供应商的通知接口出现了对外价");
 });
 
 test("事后加收：供应商不收邮件；客人的金额是自己要付的（含加价），金额不串到供应商的记录", async () => {
