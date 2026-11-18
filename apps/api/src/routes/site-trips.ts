@@ -109,6 +109,9 @@ export function tripJson(view: TripView, now: Date): Json {
     }),
     unquoted: view.plans.flatMap((plan) => plan.unquoted.map((entry) => ({ plan_kind: plan.kind, day_index: entry.day_index, reason: entry.reason }))),
     degraded: view.degraded,
+    // 已报过价、而且一个方案都没报出（全部方案都在 unquoted 里）时建议转人工（ADR 0101 第十二节第 2 小节第 1 条）。
+    // 没报过价（view.plans 为空）、只是部分方案报不出、报出的方案过期了（重新报价即可）都是 false。
+    manual_quote_suggested: view.plans.length > 0 && quoted.length === 0,
   };
 }
 
