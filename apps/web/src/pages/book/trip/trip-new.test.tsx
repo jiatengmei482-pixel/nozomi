@@ -407,6 +407,14 @@ test("两个方案对比卡片：逐天列出每一段的类型、时间、金�
   assert.equal(screen.queryByRole("button", { name: "转人工报价" }), null, "报得出时不给转人工");
 });
 
+test("网址里的行程单编号格式不对：回到第 1 步，顶部说「这个行程已过期或不存在」，不发任何行程请求", async () => {
+  wideScreen();
+  const calls = open({ at: "/book/trip?trip=not-a-trip&step=2" });
+  assert.ok(await screen.findByText("这个行程已过期或不存在，请重新填写。", {}, SLOW));
+  assert.ok(screen.getByRole("heading", { name: "你的行程", level: 2 }));
+  assert.equal(calls.filter((call) => call.path.startsWith("/site/v1/trips")).length, 0);
+});
+
 test("报出的方案过期了：写「请重新报价」，点「重新报价」再报一次、换成新结果", async () => {
   wideScreen();
   const calls = open({ at: `/book/trip?trip=${TRIP_ID}&step=2`, read: () => json(200, tripOf({ plans: [planOf("one_car", "98000", { recommended: true, expired: true })] })), quote: () => json(200, tripOf({ plans: [planOf("one_car", "99000", { recommended: true })] })) });

@@ -19,6 +19,7 @@ import {
   tripDraftOf,
   tripFailureOf,
   tripIdOf,
+  tripParamMalformed,
   tripItineraryOf,
   tripLabelsOf,
   tripPlaceName,
@@ -225,4 +226,14 @@ test("文案表：ADR 0101 第十三节的键按表原文；日文、英文没�
   }
   assert.equal(tripReasonKey("SOMETHING_NEW"), "reason.other");
   assert.equal(tripReasonKey("toString"), "reason.other", "原型链上的名字不算");
+});
+
+test("网址里的行程单编号格式不对（抄错、截断）算作「找不到」；没带或格式对都不算", () => {
+  const good = "A".repeat(43);
+  assert.equal(tripParamMalformed(`?trip=${good}&step=2`), false);
+  assert.equal(tripParamMalformed(""), false);
+  assert.equal(tripParamMalformed("?step=2"), false);
+  assert.equal(tripParamMalformed("?trip=abc&step=2"), true);
+  assert.equal(tripParamMalformed(`?trip=${good}x`), true);
+  assert.equal(tripParamMalformed("?trip="), true);
 });

@@ -236,6 +236,12 @@ export function tripIdOf(search: string): string | null {
   return value !== null && TRIP_ID.test(value) ? value : null;
 }
 
+/** 网址带了 `trip` 但格式不对（抄错、截断、旧链接）：页面回到第 1 步，并说一句行程单找不到 */
+export function tripParamMalformed(search: string): boolean {
+  const value = new URLSearchParams(search).get("trip");
+  return value !== null && !TRIP_ID.test(value);
+}
+
 /** 第 2 步带行程单编号；第 1 步不带参数 */
 export function tripSearch(tripId: string | null, step: TripStep): string {
   if (step === 1 || tripId === null) return "";
