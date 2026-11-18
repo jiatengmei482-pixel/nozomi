@@ -50,6 +50,7 @@ const PLATFORM_TABLES = [
   "login_throttles",
   "manual_quote_request_events",
   "manual_quote_requests",
+  "manual_quote_trip_links",
   "markup_rules",
   "notification_suppressions",
   "order_change_sales",
@@ -349,6 +350,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     // 人工报价申请（ADR 0076）：客人提交一行；客服改状态、指派；清除任务清空密文（不删行）。跟进记录只追加，清除时清空备注的密文
     manual_quote_requests: ["INSERT", "SELECT", "UPDATE"],
     manual_quote_request_events: ["INSERT", "SELECT", "UPDATE"],
+    // 人工报价申请带的行程单（M9T-08，ADR 0101 第十二节）：提交时追加一行，不改不删
+    manual_quote_trip_links: ["INSERT", "SELECT"],
     // 官网设置（ADR 0076）：全站一行，第一次保存时写入
     site_settings: ["INSERT", "SELECT", "UPDATE"],
     // 共享库去重（M8-31b，ADR 0083 补充）：标记一行，撤销时记撤销人和时间；不删

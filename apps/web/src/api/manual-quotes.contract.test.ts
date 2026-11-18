@@ -66,3 +66,18 @@ test("状态的枚举与 @nozomi/domain 一致；改状态、指派的请求体�
   assert.deepEqual(props(spec.paths[SITE_SETTINGS_PATH]?.["put"]?.requestBody?.content["application/json"]?.schema), ["page_width", "support_whatsapp"]);
   assert.deepEqual(schemas["SitePageWidth"]?.enum, ["standard", "wide", "full"]);
 });
+
+test("带行程单（M9T-08）：详情的 trip 是整张行程单、已清理或 null 三种之一；方案、报不出原因的方案只有一车到底和每天各自最优；提交可带 trip_id、plan_kind、trip_labels", () => {
+  const detail = spec.paths[`${MANUAL_QUOTES_PATH}/{id}`]?.["get"]?.responses?.["200"]?.content?.["application/json"]?.schema;
+  const trip = detail?.properties?.["trip"];
+  assert.deepEqual((trip?.oneOf ?? []).map((option) => option.$ref ?? option.type), ["#/components/schemas/ManualQuoteTrip", "#/components/schemas/ManualQuoteTripPurged", "null"]);
+  assert.ok(detail?.required?.includes("trip"));
+  assert.deepEqual(schemas["ManualQuoteTripPurged"]?.properties?.["purged"]?.enum, [true]);
+  assert.deepEqual(schemas["ManualQuoteTrip"]?.properties?.["purged"]?.enum, [false]);
+  assert.deepEqual(schemas["ManualQuoteTripPlan"]?.properties?.["kind"]?.enum, ["one_car", "daily_best"]);
+  assert.deepEqual(schemas["ManualQuoteTripPlan"]?.properties?.["status"]?.enum, ["quoted", "unquoted"]);
+  assert.deepEqual(schemas["ManualQuoteTrip"]?.properties?.["plan_kind"]?.enum, ["one_car", "daily_best", null]);
+  const submit = spec.paths["/site/v1/manual-quote-requests"]?.["post"]?.requestBody?.content["application/json"]?.schema;
+  assert.deepEqual(submit?.properties?.["plan_kind"]?.enum, ["one_car", "daily_best"]);
+  assert.ok(!(submit?.required ?? []).includes("trip_id"), "trip_id 可选");
+});

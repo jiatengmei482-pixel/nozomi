@@ -4,8 +4,10 @@
  * - 列表没有个人信息：只有有没有邮箱 / WhatsApp；打开详情才解密联系方式、地点和备注，每次打开后端写一条审计。
  * - 改状态、指派要带版本号（If-Match）；备注不改版本号。
  * - 官网设置：客服 WhatsApp 号码（wa.me 用的纯数字），只有超级管理员能改；第一次保存不带 If-Match。
+ * - 带行程单的申请（M9T-08，ADR 0101 第十二节）：列表有 `has_trip`；详情的 `trip` 是整张行程单和最近一次报价，行程单 30 天后被清理时为 `{ purged: true }`。
  */
 import type { LocalizedText, ManualQuoteStatus, ServiceCategory } from "@nozomi/domain";
+import type { Money } from "./dispatch.ts";
 import type { SitePageWidth } from "./site.ts";
 import { query } from "./areas.ts";
 import { apiRequest } from "./client.ts";
@@ -33,6 +35,8 @@ export interface ManualQuoteSummary {
   has_whatsapp: boolean;
   /** 测试环境验收会话里提交的验收留资（M8-39，ADR 0078 补充），不是真实客人 */
   is_acceptance: boolean;
+  /** 带了行程单（M9T-08，从行程报价页转人工的多日行程）；行程单要打开详情看 */
+  has_trip: boolean;
   assignee: ManualQuotePerson | null;
   version: number;
   created_at: string;
@@ -66,6 +70,51 @@ export interface ManualQuoteDetail {
   /** 包车的经停点（M9W-04），按顺序；没有经停点、已清除为 null。旧接口没有这一项 */
   waypoints?: ManualQuoteWaypoint[] | null;
   events: ManualQuoteEvent[];
+  /** 带的行程单（M9T-08）：没带为 null；行程单已被清理为 `{ purged: true }`。旧接口没有这一项 */
+  trip?: ManualQuoteTrip | ManualQuoteTripPurged | null;
+}
+
+export type ManualQuoteTripPlanKind = "one_car" | "daily_best";
+
+/** 行程单的一个点：坐标或平台地点（机场 / 车站）、时间（只有当天起点有）、停留、客人页面上的名称 */
+export interface ManualQuoteTripItem {
+  kind: "arrive_flight" | "start" | "stop" | "end" | "depart_flight";
+  time: string | null;
+  stay_minutes: number | null;
+  lat: number | null;
+  lng: number | null;
+  place_id: string | null;
+  place_name: LocalizedText | null;
+  label: string | null;
+}
+
+export interface ManualQuoteTripPlan {
+  kind: ManualQuoteTripPlanKind;
+  status: "quoted" | "unquoted";
+  recommended: boolean;
+  total: Money | null;
+  expires_at: string | null;
+}
+
+/** 申请带的整张行程单（M9T-08）和最近一次报价；只给员工看 */
+export interface ManualQuoteTrip {
+  purged: false;
+  /** 客人访问行程单的凭证：不要转发、不要写进备注 */
+  trip_id: string;
+  plan_kind: ManualQuoteTripPlanKind | null;
+  currency: string;
+  created_at: string;
+  readable_until: string;
+  party: { adults: number; children: number; luggage: number };
+  days: { date: string; items: ManualQuoteTripItem[] }[];
+  quoted_at: string | null;
+  plans: ManualQuoteTripPlan[];
+  unquoted: { plan_kind: ManualQuoteTripPlanKind; day_index: number | null; reason: string }[];
+}
+
+/** 带过行程单，但行程单已被清理（建单 30 天后） */
+export interface ManualQuoteTripPurged {
+  purged: true;
 }
 
 /** 包车的一个经停点（M9W-04）：地点和停留分钟；`arrive_by` 是客人指定的到达时间（M9P-20 P3），只在指定了时有 */
@@ -111,16 +160,20 @@ export interface SiteSettings {
 
 /** 与 openapi.yaml 对账的字段（manual-quotes.contract.test.ts）。 */
 export const MANUAL_QUOTE_SCHEMA_FIELDS = {
-  ManualQuoteRequestSummary: ["id", "request_no", "status", "category", "city", "service_local", "passengers", "luggage", "package_hours", "has_email", "has_whatsapp", "is_acceptance", "assignee", "version", "created_at", "updated_at", "finished_at", "purged_at"],
+  ManualQuoteRequestSummary: ["id", "request_no", "status", "category", "city", "service_local", "passengers", "luggage", "package_hours", "has_email", "has_whatsapp", "is_acceptance", "has_trip", "assignee", "version", "created_at", "updated_at", "finished_at", "purged_at"],
   ManualQuoteEvent: ["id", "kind", "from_status", "to_status", "assignee", "note", "actor", "created_at"],
   ManualQuotePlace: ["name", "lat", "lng"],
   ManualQuoteWaypoint: ["name", "lat", "lng", "stay_minutes", "arrive_by"],
   ManualQuotePerson: ["id", "name"],
+  ManualQuoteTrip: ["purged", "trip_id", "plan_kind", "currency", "created_at", "readable_until", "party", "days", "quoted_at", "plans", "unquoted"],
+  ManualQuoteTripPurged: ["purged"],
+  ManualQuoteTripItem: ["kind", "time", "stay_minutes", "lat", "lng", "place_id", "place_name", "label"],
+  ManualQuoteTripPlan: ["kind", "status", "recommended", "total", "expires_at"],
   SiteSettings: ["support_whatsapp", "page_width", "version", "updated_at", "updated_by"],
 } as const satisfies Record<string, readonly string[]>;
 /** 只在有内容时才给的字段（不在 `required` 里）：经停点的指定到达时间（M9P-20 P3） */
 export const MANUAL_QUOTE_OPTIONAL_FIELDS: Readonly<Partial<Record<keyof typeof MANUAL_QUOTE_SCHEMA_FIELDS, readonly string[]>>> = { ManualQuoteWaypoint: ["arrive_by"] };
-export const MANUAL_QUOTE_DETAIL_FIELDS: readonly (keyof ManualQuoteDetail)[] = ["request", "contact", "pickup", "dropoff", "waypoints", "events"];
+export const MANUAL_QUOTE_DETAIL_FIELDS: readonly (keyof ManualQuoteDetail)[] = ["request", "contact", "pickup", "dropoff", "waypoints", "events", "trip"];
 export const MANUAL_QUOTE_QUERY_KEYS = ["limit", "cursor", "status", "assignee", "contact", "acceptance"] as const satisfies readonly (keyof ManualQuoteQuery)[];
 
 const one = (id: string): string => `${MANUAL_QUOTES_PATH}/${encodeURIComponent(id)}`;

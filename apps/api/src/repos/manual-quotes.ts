@@ -22,6 +22,8 @@ export interface ManualQuoteRow {
   contactEnc: string | null;
   /** 验收会话里提交的（M8-39，ADR 0078 补充）：服务端设，建好之后不能改 */
   isAcceptance: boolean;
+  /** 带了行程单（M9T-08）：有 `manual_quote_trip_links` 的一行 */
+  hasTrip: boolean;
   assignee: { id: string; name: string } | null;
   version: number;
   createdAt: Date;
@@ -49,6 +51,7 @@ interface Row {
   has_whatsapp: boolean;
   contact_enc: string | null;
   is_acceptance: boolean;
+  has_trip: boolean;
   assignee_id: string | null;
   assignee_name: string | null;
   version: number;
@@ -60,7 +63,8 @@ interface Row {
 }
 
 const SELECT = `select m.id, m.request_no, m.status, m.category, m.city_id, c.code as city_code, c.name as city_name, m.channel_id, m.service_local,
-       m.passengers, m.luggage, m.package_hours, m.has_email, m.has_whatsapp, m.contact_enc, m.is_acceptance, m.assignee_id, u.name as assignee_name,
+       m.passengers, m.luggage, m.package_hours, m.has_email, m.has_whatsapp, m.contact_enc, m.is_acceptance,
+       exists (select 1 from manual_quote_trip_links l where l.request_id = m.id) as has_trip, m.assignee_id, u.name as assignee_name,
        m.version, m.created_at, m.updated_at, m.finished_at, m.purged_at, m.created_at::text as created_at_text
   from manual_quote_requests m
   left join cities c on c.id = m.city_id
@@ -82,6 +86,7 @@ function toRow(row: Row): ManualQuoteRow {
     hasWhatsapp: row.has_whatsapp,
     contactEnc: row.contact_enc,
     isAcceptance: row.is_acceptance,
+    hasTrip: row.has_trip,
     assignee: row.assignee_id === null ? null : { id: row.assignee_id, name: row.assignee_name ?? "" },
     version: row.version,
     createdAt: row.created_at,
@@ -126,6 +131,22 @@ export async function insertManualQuote(db: Db, input: NewManualQuote, now: Date
     [input.id, input.requestNo, input.category, input.cityId, input.channelId, input.serviceLocal, input.passengers, input.luggage, input.packageHours, input.hasEmail, input.hasWhatsapp, input.contactEnc, input.emailBidx, input.whatsappBidx, input.dedupKey, input.isAcceptance, now],
   );
   await db.query("insert into manual_quote_request_events (request_id, kind, created_at) values ($1, 'created', $2)", [input.id, now]);
+}
+
+/** 申请带的行程单（M9T-08）。`tripId` 是客人访问行程单的凭证：调用方不写进日志、审计。 */
+export interface ManualQuoteTripLink {
+  tripId: string;
+  planKind: "one_car" | "daily_best" | null;
+}
+
+export async function insertManualQuoteTripLink(db: Db, requestId: string, link: ManualQuoteTripLink, now: Date): Promise<void> {
+  await db.query("insert into manual_quote_trip_links (request_id, trip_id, plan_kind, created_at) values ($1, $2, $3, $4)", [requestId, link.tripId, link.planKind, now]);
+}
+
+export async function findManualQuoteTripLink(db: Db, requestId: string): Promise<ManualQuoteTripLink | null> {
+  const result = await db.query<{ trip_id: string; plan_kind: ManualQuoteTripLink["planKind"] }>("select trip_id, plan_kind from manual_quote_trip_links where request_id = $1", [requestId]);
+  const row = result.rows[0];
+  return row === undefined ? null : { tripId: row.trip_id, planKind: row.plan_kind };
 }
 
 export async function cityExists(db: Db, cityId: string): Promise<boolean> {

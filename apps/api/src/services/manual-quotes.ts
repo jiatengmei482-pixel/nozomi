@@ -8,6 +8,9 @@
  * - 不写进 M8-20 的「未覆盖需求」：以后那边加一列可空的申请编号指过来，个人信息只在这里。
  * - 验收留资（M8-39，ADR 0078 补充）：带有效验收会话提交的记成 `is_acceptance`（由接口层按会话判断，库里建好后不能改）；
  *   去重和真实客人的分开；运营后台列表和各状态的数量默认不算它，按筛选参数才列出来。
+ * - 带行程单（M9T-08，ADR 0101 第十二节第 2 条）：可选的行程单编号要是这个官网渠道、还可读、验收标记和这次提交一致的，否则 400 `/trip_id` NOT_FOUND
+ *   （不说是哪一种）；链接行和申请同一个事务写入；各点名称加密在联系方式的密文里。行程单编号是客人的访问凭证，不进日志、审计。
+ *   运营后台详情凭它显示整张行程单和最近一次报价；行程单被清理（建单 30 天，M9T-05）后显示「已清理」。
  */
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
@@ -18,6 +21,7 @@ import {
   type ManualQuoteStatus,
   type ManualQuoteTrip,
   grantCan,
+  isPlaceIdPlace,
   manualQuoteEmail,
   manualQuotePurgeCutoffs,
   manualQuoteStatusChangeAllowed,
@@ -32,6 +36,7 @@ import { driverErrorCode } from "../db/pool.ts";
 import { AppError } from "../errors.ts";
 import { passengerEncryptionNotConfigured } from "../integrations/passenger-crypto.ts";
 import { type AuditOrigin, insertAuditLog } from "../repos/audit-logs.ts";
+import { type StoredTripPlan, type TripRow, findReadableTrip, findTripForStaff, listTripPlans } from "../repos/trips.ts";
 import {
   type ManualQuoteAcceptanceFilter,
   type ManualQuoteEventRow,
@@ -42,9 +47,11 @@ import {
   cityExists,
   countManualQuotesByStatus,
   findManualQuote,
+  findManualQuoteTripLink,
   hasRecentDuplicate,
   insertManualQuote,
   insertManualQuoteEvent,
+  insertManualQuoteTripLink,
   listActiveStaffWithRoles,
   listManualQuoteEvents,
   listManualQuotes,
@@ -57,7 +64,7 @@ import {
   updateManualQuote,
 } from "../repos/manual-quotes.ts";
 import { type Page, type TimeCursor, toPage } from "../pagination.ts";
-import { validationFailed } from "../validation.ts";
+import { type InputIssue, validationFailed } from "../validation.ts";
 import { consoleOrigin, platformActor } from "./audit.ts";
 import { notFound, versionConflict } from "./errors.ts";
 import type { PlatformPrincipal } from "./platform-auth.ts";
@@ -75,6 +82,16 @@ export interface ManualQuoteSubmission {
   trip: ManualQuoteTrip;
   /** 带有效验收会话提交的（接口层用 `siteAudienceOf` 判断；production 永远是 false） */
   acceptance: boolean;
+  /** 从行程报价页转人工时带的行程单（M9T-08）；没有为 null。`trip` 仍是第一天的一段 */
+  tripRef: ManualQuoteTripRef | null;
+}
+
+/** 申请带的行程单（M9T-08）。`tripId` 是客人访问行程单的凭证：不写日志、不进审计。 */
+export interface ManualQuoteTripRef {
+  tripId: string;
+  planKind: "one_car" | "daily_best" | null;
+  /** 每天、每个点在客人页面上的名称（行程单只存坐标、地点编号）；没有的点为 null，没给为 null */
+  labels: (string | null)[][] | null;
 }
 
 /** 密文里的内容：联系方式、两端地点和包车的经停点（M9W-04；没有经停点时不写这一项，M9W-04 之前的也没有）。 */
@@ -84,6 +101,8 @@ interface SealedContact {
   pickup: ManualQuotePlace;
   dropoff: ManualQuotePlace | null;
   waypoints?: ManualQuoteWaypoint[];
+  /** 行程单各点的名称（M9T-08，按天、按点）；没带行程单或没给名称时不写这一项 */
+  tripLabels?: (string | null)[][];
 }
 
 const NO_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -128,14 +147,26 @@ export async function submitManualQuote(ctx: AppContext, input: ManualQuoteSubmi
   // 验收留资和真实客人的留资各自去重：真实客人的一条不会因为验收先提交过同一行程而被当成重复丢掉（反过来也一样）。真实客人的键和以前完全相同
   const dedupParts: unknown[] = [emailBidx, whatsappBidx, tripKey(input.trip)];
   if (input.acceptance) dedupParts.push("acceptance");
+  // 带行程单的再加上行程单和方案（M9T-08）：同一段第一天、不同行程单的不算重复；不带的键和以前完全相同
+  if (input.tripRef !== null) dedupParts.push(["trip", input.tripRef.tripId, input.tripRef.planKind]);
   const dedupKey = crypto.manualQuoteFingerprint(JSON.stringify(dedupParts));
   await withPlatformTx(ctx.pool, async (db) => {
-    if (input.cityId !== null && !(await cityExists(db, input.cityId))) throw validationFailed("body", [{ path: "/trip/city_id", reason: "NOT_FOUND", message: "没有这个城市" }]);
+    const issues: InputIssue[] = [];
+    if (input.cityId !== null && !(await cityExists(db, input.cityId))) issues.push({ path: "/trip/city_id", reason: "NOT_FOUND", message: "没有这个城市" });
+    if (input.tripRef !== null) issues.push(...tripRefIssues(await findReadableTrip(db, input.tripRef.tripId, site.channel.id, now), input.tripRef, input.acceptance));
+    if (issues.length > 0) throw validationFailed("body", issues);
     // 同一个去重键并发提交两次：事务级的锁让第二次看得到第一次
     await db.query("select pg_advisory_xact_lock(hashtext($1))", [`nozomi.manual-quote:${dedupKey}`]);
     if (await hasRecentDuplicate(db, dedupKey, new Date(now.getTime() - MANUAL_QUOTE_RULES.duplicateWindowMs))) return;
     const id = randomUUID();
-    const sealed: SealedContact = { email: input.email, whatsapp: input.whatsapp, pickup: input.trip.pickup, dropoff: input.trip.dropoff, ...(input.trip.waypoints.length === 0 ? {} : { waypoints: input.trip.waypoints }) };
+    const sealed: SealedContact = {
+      email: input.email,
+      whatsapp: input.whatsapp,
+      pickup: input.trip.pickup,
+      dropoff: input.trip.dropoff,
+      ...(input.trip.waypoints.length === 0 ? {} : { waypoints: input.trip.waypoints }),
+      ...(input.tripRef === null || input.tripRef.labels === null ? {} : { tripLabels: input.tripRef.labels }),
+    };
     await insertManualQuote(
       db,
       {
@@ -158,7 +189,24 @@ export async function submitManualQuote(ctx: AppContext, input: ManualQuoteSubmi
       },
       now,
     );
+    if (input.tripRef !== null) await insertManualQuoteTripLink(db, id, { tripId: input.tripRef.tripId, planKind: input.tripRef.planKind }, now);
   });
+}
+
+/**
+ * 带的行程单合不合格：不存在、过了可读期、别的渠道的、验收标记和这次提交不一致的，一律 `/trip_id` NOT_FOUND（不说是哪一种）；
+ * 名称的天数、点数不能多于行程单。
+ */
+function tripRefIssues(trip: TripRow | null, ref: ManualQuoteTripRef, acceptance: boolean): InputIssue[] {
+  if (trip === null || trip.isAcceptance !== acceptance) return [{ path: "/trip_id", reason: "NOT_FOUND", message: "行程单不存在或已过期，请重新报价" }];
+  const days = trip.itinerary.days;
+  if (ref.labels === null) return [];
+  if (ref.labels.length > days.length) return [{ path: "/trip_labels", reason: "MISMATCH", message: "地点名称的天数比行程单多" }];
+  const issues: InputIssue[] = [];
+  ref.labels.forEach((labels, index) => {
+    if (labels.length > (days[index]?.items.length ?? 0)) issues.push({ path: `/trip_labels/${index}`, reason: "MISMATCH", message: "地点名称比这一天的点多" });
+  });
+  return issues;
 }
 
 // ---- 运营后台 ----
@@ -222,11 +270,48 @@ export interface ManualQuoteEventView extends Omit<ManualQuoteEventRow, "noteEnc
   note: string | null;
 }
 
+/** 详情里的行程单（M9T-08）：没带为 null；带了但行程单已被清理为 `{ purged: true }` */
+export type ManualQuoteTripView =
+  | null
+  | { purged: true }
+  | {
+      purged: false;
+      tripId: string;
+      planKind: "one_car" | "daily_best" | null;
+      trip: Pick<TripRow, "id" | "itinerary" | "currency" | "createdAt" | "readableUntil">;
+      /** 最近一次报价的方案（没报过价为空） */
+      plans: StoredTripPlan[];
+      /** 行程单里用到的平台地点（机场 / 车站） */
+      places: Map<string, { name: Record<string, string>; lat: number; lng: number }>;
+      /** 客人页面上的名称；联系方式已清除或没给时为 null */
+      labels: (string | null)[][] | null;
+    };
+
 export interface ManualQuoteDetail {
   request: ManualQuoteRow;
   /** 清除后为 null */
   contact: SealedContact | null;
   events: ManualQuoteEventView[];
+  trip: ManualQuoteTripView;
+}
+
+async function tripViewOf(db: Db, requestId: string, contact: SealedContact | null): Promise<ManualQuoteTripView> {
+  const link = await findManualQuoteTripLink(db, requestId);
+  if (link === null) return null;
+  const trip = await findTripForStaff(db, link.tripId);
+  if (trip === null) return { purged: true };
+  const placeIds = [...new Set(trip.itinerary.days.flatMap((day) => day.items.flatMap((item) => (isPlaceIdPlace(item.place) ? [item.place.placeId] : []))))];
+  const places =
+    placeIds.length === 0 ? [] : (await db.query<{ id: string; name: Record<string, string>; lat: number; lng: number }>("select id, name, lat::float8 as lat, lng::float8 as lng from places where id = any($1::uuid[])", [placeIds])).rows;
+  return {
+    purged: false,
+    tripId: link.tripId,
+    planKind: link.planKind,
+    trip,
+    plans: await listTripPlans(db, link.tripId),
+    places: new Map(places.map((place) => [place.id, { name: place.name, lat: Number(place.lat), lng: Number(place.lng) }])),
+    labels: contact?.tripLabels ?? null,
+  };
 }
 
 function openEvents(ctx: AppContext, events: readonly ManualQuoteEventRow[]): ManualQuoteEventView[] {
@@ -241,10 +326,11 @@ export async function getManualQuoteRequest(ctx: AppContext, principal: Platform
     const request = await findManualQuote(db, id, principal.grant.scope, false);
     if (request === null) throw manualQuoteNotFound();
     const events = await listManualQuoteEvents(db, id);
-    if (request.contactEnc === null) return { request, contact: null, events: openEvents(ctx, events) };
+    if (request.contactEnc === null) return { request, contact: null, events: openEvents(ctx, events), trip: await tripViewOf(db, id, null) };
     const contact = JSON.parse(crypto.openManualQuote("manual_quote_request", id, request.contactEnc)) as SealedContact;
+    // 审计只记申请编号：行程单编号是客人的访问凭证，不进审计
     await insertAuditLog(db, origin(principal, ip, ctx.now()), { tenantId: null, resource: "manual_quote_request", resourceId: id, action: "view_passenger", before: null, after: { request_no: request.requestNo } });
-    return { request, contact, events: openEvents(ctx, events) };
+    return { request, contact, events: openEvents(ctx, events), trip: await tripViewOf(db, id, contact) };
   });
 }
 

@@ -69,7 +69,8 @@ export const TRIP_RULES_API = {
   readableMs: 30 * 24 * 3_600_000,
 } as const;
 
-const TRIP_ID = /^[A-Za-z0-9_-]{43}$/;
+/** 行程单编号的写法（32 字节随机数的 base64url）；人工报价申请带行程单（M9T-08）也用它先筛格式 */
+export const TRIP_ID = /^[A-Za-z0-9_-]{43}$/;
 
 export const tripNotFound = (): AppError => new AppError(404, "TRIP_NOT_FOUND", "行程单不存在或已过期，请重新填写");
 export const tripTooComplex = (): AppError => new AppError(422, "TRIP_TOO_COMPLEX", "行程太复杂，没法在线报价，请联系客服人工报价");

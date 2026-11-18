@@ -31,6 +31,7 @@ const summaryOf = (changes: Partial<ManualQuoteSummary> = {}): ManualQuoteSummar
   has_email: true,
   has_whatsapp: true,
   is_acceptance: false,
+  has_trip: false,
   assignee: null,
   version: 3,
   created_at: "2030-11-10T01:00:00.000Z",

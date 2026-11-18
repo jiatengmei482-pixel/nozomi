@@ -35,6 +35,19 @@ export async function findReadableTrip(db: Db, id: string, channelId: string, no
   return { id: row.id, channelId: row.channel_id, status: row.status, itinerary: row.itinerary, currency: row.currency, isAcceptance: row.is_acceptance, createdAt: row.created_at, updatedAt: row.updated_at, readableUntil: row.readable_until };
 }
 
+/**
+ * 运营后台看人工报价申请带的行程单（M9T-08）：不限渠道、不看 `readable_until`（过了可读期、还没被清理的也给员工看）；
+ * 已被清理（M9T-05）或从来没有的为 null。
+ */
+export async function findTripForStaff(db: Db, id: string): Promise<Pick<TripRow, "id" | "itinerary" | "currency" | "isAcceptance" | "createdAt" | "readableUntil"> | null> {
+  const result = await db.query<{ id: string; itinerary: TripItinerary; currency: string; is_acceptance: boolean; created_at: Date; readable_until: Date }>(
+    "select id, itinerary, currency, is_acceptance, created_at, readable_until from trips where id = $1",
+    [id],
+  );
+  const row = result.rows[0];
+  return row === undefined ? null : { id: row.id, itinerary: row.itinerary, currency: row.currency, isAcceptance: row.is_acceptance, createdAt: row.created_at, readableUntil: row.readable_until };
+}
+
 export interface TripPlanInsert {
   seq: number;
   kind: "one_car" | "daily_best";

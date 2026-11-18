@@ -6,10 +6,11 @@
  *   每个地址 15 分钟 3 次、每天 10 次，每个联系方式每天 3 次，全站每小时 300 次；`website` 是给机器人填的陷阱字段（页面不显示），
  *   填了照样 202、什么都不记。应答一律 202 `{ status: "accepted" }`，重复提交也一样。
  *   带有效验收会话 Cookie 的记成验收留资（M8-39，ADR 0078 补充）；带了但会话无效、过期是 401 `QA_SESSION_INVALID`，和询价一样；production 不看 Cookie。
+ *   从行程报价页转人工时可以带 `trip_id`（M9T-08，ADR 0101 第十二节）、`plan_kind`、`trip_labels`（各点名称）；`trip` 仍是第一天的一段，照旧必填。
  * 运营后台：
  * - `GET /platform/v1/manual-quote-requests`（`manual_quote.read`）：列表，没有个人信息，带各状态的数量；默认不列验收留资（`acceptance=only|include` 才列）；
  * - `GET /platform/v1/manual-quote-requests/assignees`（`manual_quote.manage`）：能被指派跟进的同事；
- * - `GET /platform/v1/manual-quote-requests/{id}`（`manual_quote.read`）：详情，解密联系方式、地点、备注，留审计；
+ * - `GET /platform/v1/manual-quote-requests/{id}`（`manual_quote.read`）：详情，解密联系方式、地点、备注，留审计；带了行程单的有整张行程单（`trip`）；
  * - `PATCH /platform/v1/manual-quote-requests/{id}`（`manual_quote.manage`，If-Match）：改状态、指派；
  * - `POST /platform/v1/manual-quote-requests/{id}/notes`（`manual_quote.manage`）：写备注；
  * - `GET /platform/v1/site-settings`（`site_settings.read`）、`PUT`（`site_settings.manage`，只归超级管理员）：客服 WhatsApp 号码、页面宽度（M8-28）。
@@ -17,13 +18,26 @@
  */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { MANUAL_QUOTE_RULES, MANUAL_QUOTE_STATUSES, SERVICE_CATEGORIES, arriveByIssue, manualQuoteEmail, manualQuoteTripIssues, whatsappDigits } from "@nozomi/domain";
+import {
+  type CurrencyCode,
+  MANUAL_QUOTE_RULES,
+  MANUAL_QUOTE_STATUSES,
+  SERVICE_CATEGORIES,
+  TRIP_LIMITS,
+  arriveByIssue,
+  isPlaceIdPlace,
+  manualQuoteEmail,
+  manualQuoteTripIssues,
+  whatsappDigits,
+} from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { decodeTimeCursor } from "../pagination.ts";
 import type { ManualQuoteRow, SiteSettingsRow } from "../repos/manual-quotes.ts";
 import {
   type ManualQuoteDetail,
   type ManualQuoteEventView,
+  type ManualQuoteTripRef,
+  type ManualQuoteTripView,
   addManualQuoteNote,
   changeManualQuoteRequest,
   getManualQuoteRequest,
@@ -35,11 +49,16 @@ import {
 } from "../services/manual-quotes.ts";
 import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import { siteAudienceOf } from "../services/qa-acceptance.ts";
+import { salesMoney } from "../services/sales-quotes.ts";
+import { TRIP_ID } from "../services/trips.ts";
 import { takeSiteSlot } from "../services/site.ts";
 import { ARRIVE_BY_MESSAGES, arriveBySchema } from "./site.ts";
 import { type InputIssue, ifMatchVersion, pageQuerySchema, parseInput, resourceId, singleLine, uuidSchema, validationFailed, visibleText } from "../validation.ts";
 
 type Json = Record<string, unknown>;
+
+/** 行程单一个点的名称（M9T-08）最多多少字 */
+const MANUAL_QUOTE_TRIP_LABEL_MAX = 200;
 
 const placeSchema = z
   .object({
@@ -84,6 +103,13 @@ const submitSchema = z
     trip: tripSchema,
     // 陷阱字段：页面不显示，人不会填
     website: z.string().max(400).optional(),
+    // 从行程报价页转人工（M9T-08）：行程单编号（格式不对和不存在一样回 NOT_FOUND）、客人当时看的方案、各点在页面上的名称（按天、按点）
+    trip_id: z.string().max(100).optional(),
+    plan_kind: z.enum(["one_car", "daily_best"]).optional(),
+    trip_labels: z
+      .array(z.array(singleLine(MANUAL_QUOTE_TRIP_LABEL_MAX).nullable()).max(TRIP_LIMITS.maxItemsPerDay))
+      .max(TRIP_LIMITS.maxDays)
+      .optional(),
   })
   .strict();
 
@@ -120,8 +146,19 @@ function submissionOf(body: z.output<typeof submitSchema>) {
   for (const issue of manualQuoteTripIssues(trip)) {
     issues.push({ path: `/trip/${issue.field}`, reason: issue.reason, message: (TRIP_ISSUE_MESSAGES[issue.field] as Record<string, string>)[issue.reason] ?? "行程信息不对" });
   }
+  let tripRef: ManualQuoteTripRef | null = null;
+  if (body.trip_id === undefined) {
+    if (body.plan_kind !== undefined) issues.push({ path: "/plan_kind", reason: "NOT_APPLICABLE", message: "没有行程单就没有方案（请删掉）" });
+    if (body.trip_labels !== undefined) issues.push({ path: "/trip_labels", reason: "NOT_APPLICABLE", message: "没有行程单就没有地点名称（请删掉）" });
+  } else if (!TRIP_ID.test(body.trip_id)) {
+    // 格式不对和不存在同一个回答（不让人借此试探编号）
+    issues.push({ path: "/trip_id", reason: "NOT_FOUND", message: "行程单不存在或已过期，请重新报价" });
+  } else {
+    const labels = body.trip_labels === undefined ? null : body.trip_labels.map((day) => day.map((label) => (label === null || label.trim() === "" ? null : label.trim())));
+    tripRef = { tripId: body.trip_id, planKind: body.plan_kind ?? null, labels };
+  }
   if (issues.length > 0) throw validationFailed("body", issues);
-  return { email, whatsapp, cityId: body.trip.city_id, trip };
+  return { email, whatsapp, cityId: body.trip.city_id, trip, tripRef };
 }
 
 const listSchema = pageQuerySchema.extend({
@@ -176,6 +213,8 @@ function summaryJson(row: ManualQuoteRow): Json {
     has_email: row.hasEmail,
     has_whatsapp: row.hasWhatsapp,
     is_acceptance: row.isAcceptance,
+    // 带了行程单（M9T-08）：列表上显示「多日行程」；行程单编号本身只在详情里
+    has_trip: row.hasTrip,
     assignee: row.assignee,
     version: row.version,
     created_at: row.createdAt.toISOString(),
@@ -199,6 +238,47 @@ function detailJson(detail: ManualQuoteDetail): Json {
     // 包车的经停点（M9W-04），按顺序；没有经停点、清除后为 null
     waypoints: contact === null || contact.waypoints === undefined || contact.waypoints.length === 0 ? null : contact.waypoints.map((stop) => ({ name: stop.name, lat: stop.lat, lng: stop.lng, stay_minutes: stop.stayMinutes, ...(stop.arriveBy === undefined ? {} : { arrive_by: stop.arriveBy }) })),
     events: detail.events.map(eventJson),
+    trip: tripJson(detail.trip),
+  };
+}
+
+/**
+ * 详情里的整张行程单（M9T-08）：每天的点（坐标或平台地点、时间、停留、客人页面上的名称）、最近一次报价的各方案（状态、总价）和报不出的原因。
+ * 只给员工看：没有结算价、供应商编号。
+ */
+function tripJson(view: ManualQuoteTripView): Json | null {
+  if (view === null) return null;
+  if (view.purged) return { purged: true };
+  const { trip } = view;
+  const currency = trip.currency as CurrencyCode;
+  return {
+    purged: false,
+    trip_id: view.tripId,
+    plan_kind: view.planKind,
+    currency,
+    created_at: trip.createdAt.toISOString(),
+    readable_until: trip.readableUntil.toISOString(),
+    party: { adults: trip.itinerary.party.adults, children: trip.itinerary.party.children, luggage: trip.itinerary.party.luggage },
+    days: trip.itinerary.days.map((day, dayIndex) => ({
+      date: day.date,
+      items: day.items.map((item, itemIndex) => {
+        const place = isPlaceIdPlace(item.place) ? (view.places.get(item.place.placeId) ?? null) : null;
+        const coords = isPlaceIdPlace(item.place) ? place : item.place;
+        return {
+          kind: item.kind,
+          time: item.time ?? null,
+          stay_minutes: item.stayMinutes ?? null,
+          lat: coords === null ? null : coords.lat,
+          lng: coords === null ? null : coords.lng,
+          place_id: isPlaceIdPlace(item.place) ? item.place.placeId : null,
+          place_name: place === null ? null : place.name,
+          label: view.labels?.[dayIndex]?.[itemIndex] ?? null,
+        };
+      }),
+    })),
+    quoted_at: view.plans[0]?.quotedAt.toISOString() ?? null,
+    plans: view.plans.map((plan) => ({ kind: plan.kind, status: plan.status, recommended: plan.recommended, total: plan.sellMinor === null ? null : salesMoney(plan.sellMinor, currency), expires_at: iso(plan.expiresAt) })),
+    unquoted: view.plans.flatMap((plan) => plan.unquoted.map((entry) => ({ plan_kind: plan.kind, day_index: entry.day_index, reason: entry.reason }))),
   };
 }
 

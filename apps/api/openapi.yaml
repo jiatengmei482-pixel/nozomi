@@ -17575,6 +17575,10 @@ paths:
         测试环境的验收通道（M8-39，ADR 0078 补充）：带**有效**验收会话 Cookie 提交的记成验收留资（`is_acceptance`，建好后不能改），和真实客人的留资分开去重；
         运营后台列表默认不列它。带了 Cookie 但会话无效、过期、已结束，或通道没开：401 `QA_SESSION_INVALID`，什么都不记（和询价一样，不悄悄按普通客人记）。
         不带 Cookie 一切照旧；production 不看 Cookie。
+        从行程报价页转人工（M9T-08，ADR 0101 第十二节第 2 条）：可选带 `trip_id`（行程单编号）、`plan_kind`、`trip_labels`，`trip` 仍填第一天的一段（照旧必填）。
+        行程单要是这个官网的、还可读的（建单 30 天内），验收标记和这次提交一致（验收会话建的行程单只能由验收会话带，反过来也一样）；
+        否则 400 `/trip_id` NOT_FOUND（不说是哪一种，编号格式不对也一样）。带行程单的申请去重时再比行程单和方案；不带的和以前完全一样。
+        `trip_labels` 和联系方式一起加密保存、一起清除；行程单编号不进日志和审计。
       requestBody:
         required: true
         content:
@@ -17602,6 +17606,24 @@ paths:
                   type: string
                   maxLength: 400
                   description: 陷阱字段：页面不显示、不要填
+                trip_id:
+                  type: string
+                  maxLength: 100
+                  description: 行程单编号（`POST /site/v1/trips` 给的 `trip_id`，43 个字符）。客人的访问凭证：只放请求体，不放网址
+                plan_kind:
+                  type: string
+                  enum: [ one_car, daily_best ]
+                  description: 客人当时看的方案；只在带 `trip_id` 时可以给
+                trip_labels:
+                  type: array
+                  maxItems: 14
+                  description: 行程单每天、每个点在页面上的名称（行程单本身只存坐标和地点编号），按天、按点的顺序；不知道的点给 null。天数、点数不能多于行程单（多了 `/trip_labels` MISMATCH）。只在带 `trip_id` 时可以给
+                  items:
+                    type: array
+                    maxItems: 12
+                    items:
+                      type: [ string, "null" ]
+                      maxLength: 200
       responses:
         "202":
           description: 已受理。不说明是不是重复提交
@@ -17616,7 +17638,7 @@ paths:
                     type: string
                     enum: [ accepted ]
         "400":
-          description: "`VALIDATION_FAILED`：邮箱、WhatsApp 都没填（`/email` REQUIRED），格式不对（`/email`、`/whatsapp` FORMAT），没有同意（`/consent`），行程和用车类型对不上（`/trip/dropoff` REQUIRED、`/trip/package_hours` REQUIRED 或 NOT_APPLICABLE、`/trip/service_local` INVALID），城市不存在（`/trip/city_id` NOT_FOUND）"
+          description: "`VALIDATION_FAILED`：邮箱、WhatsApp 都没填（`/email` REQUIRED），格式不对（`/email`、`/whatsapp` FORMAT），没有同意（`/consent`），行程和用车类型对不上（`/trip/dropoff` REQUIRED、`/trip/package_hours` REQUIRED 或 NOT_APPLICABLE、`/trip/service_local` INVALID），城市不存在（`/trip/city_id` NOT_FOUND）；行程单不存在、已过期、不是这个官网的或验收标记对不上（`/trip_id` NOT_FOUND），名称比行程单多（`/trip_labels` MISMATCH），没带 `trip_id` 却给了 `plan_kind` / `trip_labels`（NOT_APPLICABLE）"
           content:
             application/json:
               schema:
@@ -17736,7 +17758,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ request, contact, pickup, dropoff, waypoints, events ]
+                required: [ request, contact, pickup, dropoff, waypoints, events, trip ]
                 properties:
                   request:
                     $ref: "#/components/schemas/ManualQuoteRequestSummary"
@@ -17771,6 +17793,12 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/ManualQuoteEvent"
+                  trip:
+                    description: "带的行程单（M9T-08）：没带为 null；带了但行程单已被清理（建单 30 天后，M9T-05）为 `{ purged: true }`"
+                    oneOf:
+                      - $ref: "#/components/schemas/ManualQuoteTrip"
+                      - $ref: "#/components/schemas/ManualQuoteTripPurged"
+                      - type: "null"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
         "503":
@@ -35107,6 +35135,135 @@ components:
           maximum: 1440
         arrive_by:
           $ref: "#/components/schemas/WaypointArriveBy"
+    ManualQuoteTripPurged:
+      type: object
+      additionalProperties: false
+      required: [ purged ]
+      description: 申请带过行程单，但行程单已被清理（建单 30 天后，M9T-05）
+      properties:
+        purged:
+          type: boolean
+          enum: [ true ]
+    ManualQuoteTrip:
+      type: object
+      additionalProperties: false
+      required: [ purged, trip_id, plan_kind, currency, created_at, readable_until, party, days, quoted_at, plans, unquoted ]
+      description: 人工报价申请带的整张行程单（M9T-08，ADR 0101 第十二节第 2 条）和最近一次报价。只给员工看，没有结算价、供应商编号
+      properties:
+        purged:
+          type: boolean
+          enum: [ false ]
+        trip_id:
+          type: string
+          description: 行程单编号（客人的访问凭证：不要转发、不要写进备注）
+        plan_kind:
+          type: [ string, "null" ]
+          enum: [ one_car, daily_best, null ]
+          description: 客人当时看的方案
+        currency:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        readable_until:
+          type: string
+          format: date-time
+          description: 客人能看、能再报价到何时；之后不久被清理
+        party:
+          type: object
+          additionalProperties: false
+          required: [ adults, children, luggage ]
+          properties:
+            adults: { type: integer }
+            children: { type: integer }
+            luggage: { type: integer }
+        days:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ date, items ]
+            properties:
+              date:
+                type: string
+                format: date
+              items:
+                type: array
+                description: 当天的点，按顺序；空 = 空闲日
+                items:
+                  $ref: "#/components/schemas/ManualQuoteTripItem"
+        quoted_at:
+          type: [ string, "null" ]
+          format: date-time
+          description: 最近一次报价的时间；没报过价为 null
+        plans:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManualQuoteTripPlan"
+        unquoted:
+          type: array
+          description: 报不出的原因（方案、哪一天、原因码），同官网行程报价应答的 `unquoted`
+          items:
+            type: object
+            additionalProperties: false
+            required: [ plan_kind, day_index, reason ]
+            properties:
+              plan_kind: { type: string, enum: [ one_car, daily_best ] }
+              day_index: { type: [ integer, "null" ] }
+              reason: { type: string }
+    ManualQuoteTripItem:
+      type: object
+      additionalProperties: false
+      required: [ kind, time, stay_minutes, lat, lng, place_id, place_name, label ]
+      properties:
+        kind:
+          type: string
+          enum: [ arrive_flight, start, stop, end, depart_flight ]
+        time:
+          type: [ string, "null" ]
+          description: HH:MM，只有当天起点有
+        stay_minutes:
+          type: [ integer, "null" ]
+        lat:
+          type: [ number, "null" ]
+          description: 坐标；平台地点取地点的坐标，地点已不存在时为 null
+        lng:
+          type: [ number, "null" ]
+        place_id:
+          type: [ string, "null" ]
+          format: uuid
+          description: 平台地点（机场 / 车站）
+        place_name:
+          oneOf:
+            - type: object
+              additionalProperties:
+                type: string
+              description: 平台地点的多语言名称
+            - type: "null"
+        label:
+          type: [ string, "null" ]
+          description: 客人页面上的名称（加密保存，联系方式清除后为 null）
+    ManualQuoteTripPlan:
+      type: object
+      additionalProperties: false
+      required: [ kind, status, recommended, total, expires_at ]
+      properties:
+        kind:
+          type: string
+          enum: [ one_car, daily_best ]
+        status:
+          type: string
+          enum: [ quoted, unquoted ]
+        recommended:
+          type: boolean
+        total:
+          description: 对客总价；报不出为 null
+          oneOf:
+            - $ref: "#/components/schemas/SalesMoney"
+            - type: "null"
+        expires_at:
+          type: [ string, "null" ]
+          format: date-time
     ManualQuotePerson:
       type: object
       additionalProperties: false
@@ -35120,7 +35277,7 @@ components:
     ManualQuoteRequestSummary:
       type: object
       additionalProperties: false
-      required: [ id, request_no, status, category, city, service_local, passengers, luggage, package_hours, has_email, has_whatsapp, is_acceptance, assignee, version, created_at, updated_at, finished_at, purged_at ]
+      required: [ id, request_no, status, category, city, service_local, passengers, luggage, package_hours, has_email, has_whatsapp, is_acceptance, has_trip, assignee, version, created_at, updated_at, finished_at, purged_at ]
       description: 一条申请，没有个人信息（联系方式、地点只在详情里）
       properties:
         id:
@@ -35166,6 +35323,9 @@ components:
         is_acceptance:
           type: boolean
           description: 测试环境验收会话里提交的验收留资（M8-39，ADR 0078 补充），不是真实客人；建好之后不会变
+        has_trip:
+          type: boolean
+          description: 带了行程单（M9T-08，从行程报价页转人工的多日行程）；行程单要打开详情看
         assignee:
           oneOf:
             - $ref: "#/components/schemas/ManualQuotePerson"
