@@ -364,12 +364,12 @@
 
 第十二节第 2 小节第 2 条写的是「人工报价申请加可选的 `trip_id`」。落地时**不给 `manual_quote_requests` 加列**，改为：
 
-- **新表 `manual_quote_trip_links`**（新迁移）：`request_id`（主键，外键 → `manual_quote_requests(id)`，`ON DELETE CASCADE`）、`trip_id`（text）、`created_at`。
+- **新表 `manual_quote_trip_links`**（新迁移）：`request_id`（主键，外键 → `manual_quote_requests(id)`，`ON DELETE CASCADE`）、`trip_id`（text）、`plan_kind`（可空）、`created_at`（迁移 0610）。
   - `trip_id` **不加外键到 `trips`**：行程单 30 天后由 M9T-05 清理删除，人工报价申请的保留期更长（ADR 0076），外键会挡住清理或级联删掉关联。行程单被清理后关联行留着，只是查不到行程。
   - 和 `manual_quote_requests` 同为平台表（无租户列、不开行级安全），读写权限照人工报价现有口径；schema 结构测试登记。
-- **请求**：`POST /site/v1/manual-quote-requests` 收可选的 `trip_id` 和 `plan_kind`（`one_car` / `daily_best`，可空）；`trip_id` 必须是本渠道、未过期的行程单，否则 404 `TRIP_NOT_FOUND`。`trip` 照现有规定填第一天的行程，现有校验、去重、限频不变；不带 `trip_id` 时行为和现在完全一样。
+- **请求**：`POST /site/v1/manual-quote-requests` 收可选的 `trip_id`、`plan_kind`（`one_car` / `daily_best`，可空）和 `trip_labels`（各点在客人页面上的名称，见下一条；只在带 `trip_id` 时可给）；`trip_id` 必须是本渠道、未过期、验收标记一致的行程单，否则 **400 `VALIDATION_FAILED`、`/trip_id` NOT_FOUND**——行程单不存在、已过期、属于别的渠道、验收标记对不上、编号格式不对都是同一个回答，不说是哪一种，也不回显编号（M9T-08 落地口径）。`trip` 照现有规定填第一天的行程，现有校验、去重、限频不变；不带 `trip_id` 时行为和现在完全一样。
 - **地点名称**：运营要看整张行程单的地名，但行程单里的地名会随 30 天清理消失。提交时把每天的点的显示名称放进现有加密联系信息 JSON（`contact_enc`）的新键 `trip_labels`（按天、按点顺序的数组），和联系方式、上下车点一起加密，**保留期、清除方式与现有联系信息完全相同**（ADR 0076 到期清除时一并清空）。不另建明文列。
-- **运营后台人工报价详情**：有关联时显示「整张行程单」——每天的日期、时间、点（名称取 `trip_labels`，结构取行程单）、客人选的方案（`plan_kind`）、每天报不出的原因；行程单已被清理时显示「行程单已清理」，仍显示 `trip_labels` 里的地名（联系信息已清除时则都不显示）。
+- **运营后台人工报价详情**：应答**不返回 `trip_id`**（客人访问行程单的凭证，数据最少；也不写日志、不进审计）。有关联时显示「整张行程单」——每天的日期、时间、点（名称取 `trip_labels`，结构取行程单）、客人选的方案（`plan_kind`）、每天报不出的原因；行程单已被清理时显示「行程单已清理」，仍显示 `trip_labels` 里的地名（联系信息已清除时则都不显示）。
 
 ### 3. 下单出口（M9T-10）
 
