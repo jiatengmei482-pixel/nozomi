@@ -159,7 +159,7 @@ test("官网下单后用 Stripe 付款（测试卡 4242）：付款成功等待�
 
   // 询价 → 选车 → 下单（和没配 Stripe 时同一套页面）
   const response = await page.goto(`${SITE}/book`);
-  expect(response?.headers()["content-security-policy"], "官网页面的策略放行 Stripe").toContain("frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com");
+  expect(response?.headers()["content-security-policy"], "官网页面的策略放行 Stripe").toContain("frame-src 'self' https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com");
   await page.getByLabel(/^城市/).selectOption({ label: world.city.name });
   await expect(page.getByLabel(/^机场/)).toHaveValue(world.airport.id);
   await page.getByLabel("下车地址或酒店名").fill("新宿站南口");

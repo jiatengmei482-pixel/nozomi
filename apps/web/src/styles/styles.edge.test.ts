@@ -154,7 +154,10 @@ const HOST_DRAFT_STORE = "embed/host-draft-store.ts";
 /** 嵌入页里存订单令牌（M9E-17，ADR 0095 第八节第 2 小节，修订 ADR 0046）：iframe 里主站域名下的文档，只有这一个键，宿主拿不到 */
 const EMBED_ORDER_STORE = "embed/embed-order-store.ts";
 /** 嵌入预订流程的 postMessage（M9E-16，ADR 0095 第六节）：宿主页一侧（组件脚本）和 iframe 里的嵌入页各一处，targetOrigin 都不是 "*" */
-const POST_MESSAGE_SENDERS: Readonly<Record<string, string>> = { "embed/widget-booking.ts": "this.origin", "pages/embed/EmbedFrame.tsx": "host" };
+const POST_MESSAGE_SENDERS: Readonly<Record<string, string>> = { "embed/widget-booking.ts": "this.origin", "pages/embed/EmbedFrame.tsx": "host",
+  // 官网选点的谷歌地图小页面（M10-01 第 2 处）：同源 iframe，targetOrigin 是本站自己
+  "pages/book/GoogleMapPicker.tsx": "window.location.origin",
+};
 const EXTERNAL_SCRIPT_REGISTRY = "lib/external-scripts.ts";
 const EXTERNAL_SCRIPT_LOADER = "lib/stripe-js.ts";
 const NEW_TAB_LINK_COMPONENT = "components/NewTabLink.tsx";
