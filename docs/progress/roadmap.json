@@ -1696,10 +1696,10 @@
           "id": "M9P-07F",
           "title": "M9P-07（#281）独立审查的 8 条非阻塞建议",
           "role": "frontend",
-          "status": "doing",
+          "status": "review",
           "acceptance": ["会话中途在旧版 / 三层布局之间切换时，CHARTER_LEGACY_READ_ONLY 不再反复报错", "没迁移的商品重叠被拦时也显示格式化的区域名和面积", "运营后台包车覆盖检查显示具体地点而不只是个数；地点列表不再整表拉取（listAll）", "OPTIONAL_NOTES 补 charter_empty_cells、charter_layer_overlap", "迁移差异加载失败时页面给出提示，不再静默", "layerAreaCount 不计入被灰掉（不能用）的区域", "只在旧表里有的套餐也能看到（不被隐藏）", "PriceRuleBody.area_id 类型改为 string | null"],
-          "evidence": "第一批（8 条里 7 条）：布局在会话中途变化时 CHARTER_LEGACY_READ_ONLY / NOT_MIGRATED 不再落到通用报错（不看页面以为的布局，提示重新读取）；没迁移的商品重叠被拦也写出区域名和面积、指到区域加价表；上架检查提醒补 charter_empty_cells、charter_layer_overlap 两条说明；迁移差异读不出时提示并可重试；表头区域数不算基础价区域上被挡住的③；只在旧表里有的套餐档也列成页签（格子显示没填）；PriceRuleBody.area_id 改为 string | null（ruleAreaId 统一转整商品记号）。剩第 3 条（运营后台覆盖检查显示具体地点、地点不整表拉取）",
-          "updated": "2026-11-16"
+          "evidence": "第一批（8 条里 7 条）：布局在会话中途变化时 CHARTER_LEGACY_READ_ONLY / NOT_MIGRATED 不再落到通用报错（不看页面以为的布局，提示重新读取）；没迁移的商品重叠被拦也写出区域名和面积、指到区域加价表；上架检查提醒补 charter_empty_cells、charter_layer_overlap 两条说明；迁移差异读不出时提示并可重试；表头区域数不算基础价区域上被挡住的③；只在旧表里有的套餐档也列成页签（格子显示没填）；PriceRuleBody.area_id 改为 string | null（ruleAreaId 统一转整商品记号）。#304 合并；第 3 条（上架检查热门地标直接带名字，运营后台也写出地标名，供应商后台不再整表拉取城市地标）#305 合并。8 条全部完成",
+          "updated": "2026-11-18"
         },
         {
           "id": "M9P-08",
