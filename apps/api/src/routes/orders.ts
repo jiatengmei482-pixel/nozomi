@@ -55,6 +55,8 @@ const platformListSchema = pageQuerySchema.extend({
   category: z.enum(SERVICE_CATEGORIES).optional(),
   exception: z.enum(["open", "none"]).optional(),
   passenger: z.string().trim().min(2).max(100).optional(),
+  // 只看某个嵌入码带来的订单（M9E-21）
+  embed_key_id: uuidSchema.transform((value) => value.toLowerCase()).optional(),
 });
 
 /**
@@ -310,6 +312,7 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
         category: query.category ?? null,
         exception: query.exception ?? null,
         passenger: query.passenger ?? null,
+        embedKeyId: query.embed_key_id ?? null,
         scopeCityIds: scope.cityIds,
         scopeChannelIds: scope.channelIds,
       },

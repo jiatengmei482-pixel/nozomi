@@ -38,6 +38,8 @@ export interface EmbedKey {
   booking_snippet: string | null;
   /** 为什么只有①（M9E-26）；两段都有时为 null */
   snippet_fallback: EmbedSnippetFallback | null;
+  /** 带来的订单数（M9E-21，只在列表里给）：只算已付款、没取消的单（不含验收单）；只做统计，不作为分佣、结算依据 */
+  order_stats?: { paid_30d: number; paid_total: number };
 }
 
 /** 只有①的原因（M9E-26）：没填预订页地址、没开「允许整页嵌入」、预订页地址的网站不在白名单 */
@@ -69,7 +71,7 @@ export interface OrderEntrySource {
 
 /** 与 openapi.yaml 对账的字段（embed.contract.test.ts）。 */
 export const EMBED_SCHEMA_FIELDS = {
-  EmbedKey: ["id", "key", "name", "allowed_origins", "default_lang", "default_services", "layout", "allow_host_page", "booking_url", "status", "note", "version", "created_at", "updated_at", "snippet", "booking_snippet", "snippet_fallback"],
+  EmbedKey: ["id", "key", "name", "allowed_origins", "default_lang", "default_services", "layout", "allow_host_page", "booking_url", "status", "note", "version", "created_at", "updated_at", "snippet", "booking_snippet", "snippet_fallback", "order_stats"],
   EmbedKeyWrite: ["name", "allowed_origins", "default_lang", "default_services", "layout", "allow_host_page", "booking_url", "note"],
   OrderEntrySource: ["kind", "embed_key_id", "embed_key_name", "embed_origin", "delivery"],
 } as const satisfies Record<string, readonly string[]>;

@@ -106,7 +106,7 @@ const CANCELLABLE: readonly OrderStatus[] = ["pending_payment", "confirmed", "as
 const CHANGEABLE: readonly OrderStatus[] = ["confirmed", "assigned", "departed", "arrived"];
 
 /** 订单中心的筛选条件（网址参数名 → 说明）；状态、订单号原来就有，其余是 M4-02 加的。 */
-const ORDER_FILTERS = ["status", "service_from", "service_to", "created_from", "created_to", "city", "category", "exception", "passenger"] as const;
+const ORDER_FILTERS = ["status", "service_from", "service_to", "created_from", "created_to", "city", "category", "exception", "passenger", "embed_key"] as const;
 
 function OrderFilters({ cityOptions, citiesState, citiesEmptyText }: { cityOptions: { value: string; label: string; detail?: string; keywords?: string }[]; citiesState: string; citiesEmptyText: string }) {
   const [status, setStatus] = useFilterParam("status");
@@ -152,6 +152,8 @@ export function PlatformOrderListPage() {
   const exception = exceptionParam === "open" || exceptionParam === "none" ? exceptionParam : null;
   const passengerParam = (params.get("passenger") ?? "").trim();
   const passenger = passengerParam.length >= 2 ? passengerParam.slice(0, 100) : null;
+  // 只看某个嵌入码带来的订单（M9E-21）：从「嵌入组件」页的「查看这些订单」进来
+  const embedKey = uuidOrNull(params.get("embed_key"));
   const pageSize = pageSizeOf(params.get("size"));
   const [search, setSearch] = useState(q);
   const query: PlatformOrderQuery = {
@@ -166,6 +168,7 @@ export function PlatformOrderListPage() {
     ...(category === null ? {} : { category }),
     ...(exception === null ? {} : { exception }),
     ...(passenger === null ? {} : { passenger }),
+    ...(embedKey === null ? {} : { embed_key_id: embedKey }),
   };
   const filterKey = JSON.stringify(["platform-orders", query]);
   const pages = useCursorPages(filterKey);
@@ -234,6 +237,14 @@ export function PlatformOrderListPage() {
         onClear={clear}
       >
         <OrderFilters cityOptions={cityOptions} citiesState={cities.state.status} citiesEmptyText={cities.emptyText} />
+        {embedKey !== null && (
+          <p className="field__hint" data-embed-key-filter>
+            只看一个嵌入码带来的订单（从「嵌入组件」页进来）。{" "}
+            <Button size="sm" variant="text" onClick={() => setParam({ embed_key: null })}>
+              不限来源
+            </Button>
+          </p>
+        )}
       </FilterBar>
       <div className="card-table">
         <DataTable

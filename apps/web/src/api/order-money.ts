@@ -364,6 +364,8 @@ export interface PlatformOrderQuery {
   exception?: "open" | "none";
   /** 乘客姓名（部分匹配）或电话（按数字部分匹配），至少 2 个字 */
   passenger?: string;
+  /** 只看某个嵌入码带来的订单（M9E-21） */
+  embed_key_id?: string;
   limit?: number;
   cursor?: string;
 }

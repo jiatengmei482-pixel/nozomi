@@ -231,3 +231,12 @@ test("订单列表的城市筛选：连已停用的城市也列出（筛历史�
   await actor.click(await screen.findByRole("combobox", { name: "城市" }));
   await waitFor(() => assert.deepEqual(optionNames(screen.getByRole("listbox", { name: "城市" })), ["全部", "东京", "名古屋（已停用）"]));
 });
+
+test("订单列表只看一个嵌入码带来的订单（M9E-21）：网址带 embed_key 时请求带 embed_key_id，提示里有「不限来源」，点了去掉", async () => {
+  const actor = userEvent.setup();
+  const KEY_ID = "66666666-6666-4666-8666-666666666666";
+  const calls = openApp(`/platform/orders?embed_key=${KEY_ID}`, "platform", CUSTOM, routes([OSAKA]), ["order.read"], { city_ids: [OSAKA.id], channel_ids: null });
+  await waitFor(() => assert.ok(calls.some((call) => call.path.startsWith("/platform/v1/orders?") && call.path.includes(`embed_key_id=${KEY_ID}`))));
+  await actor.click(await screen.findByRole("button", { name: "不限来源" }));
+  await waitFor(() => assert.ok(calls.some((call) => call.path.startsWith("/platform/v1/orders?") && !call.path.includes("embed_key_id"))));
+});
