@@ -6,13 +6,23 @@
  * - 部分报不出：照常展示报得出的方案，逐条写「方案（第 N 天）：这个方案暂时报不出：原因」。
  * - 全部报不出（`manual_quote_suggested`）：不展示方案，给「转人工报价」按钮；点开是现有的人工报价表单（邮箱 / WhatsApp），
  *   提交时带上行程单编号、`plan_kind: null` 和每天的地名（M9T-08），`trip` 填第一天的行程（`trip-manual.ts`）。
- * - 下单按钮（单段方案走现有下单付款、多段方案按业主决定）是 M9T-10，不在本组件。
+ * - 下单出口（M9T-10，ADR 0101 第十三节第 3 小节；没过期的方案卡片底部）：
+ *   - 单段方案（`tripBookableSegment`）：「预订这个方案」→ `POST …/order-quote`（包车带经停点的地名）→ 带着这张普通报价跳进 `/book/new` 第 3 步，
+ *     接着填乘客信息、下单、付款（`lib/trip-book.ts`）。价格变了（409 `TRIP_PRICE_CHANGED`）、方案过期 / 不在了写一句并给「重新报价」，
+ *     这一车型报不出 / 条件对不上时另给「转人工报价」；后端说不是单段时退回「提交预订，客服确认」；太频繁、断网同报价的说法。
+ *   - 多段方案：「提交预订，客服确认」= 带 `trip_id` + 这个方案的 `plan_kind` 的人工报价（`PlanManualBooking`）。业主 2026-11-18 确认选 A（#288）；P1b「一次付款多张子订单」上线后改为直接下单。
  */
 import { useEffect, useId, useRef, useState } from "react";
-import type { SiteTrip, SiteTripPlan, SiteTripPlanKind, SiteTripSegment, SiteTripSegmentType, SiteTripWarningCode } from "../../../api/site.ts";
+import { useNavigate } from "react-router";
+import { ApiError } from "../../../api/client.ts";
+import { type SiteTrip, type SiteTripPlan, type SiteTripPlanKind, type SiteTripSegment, type SiteTripSegmentType, type SiteTripWarningCode, createSiteTripOrderQuote } from "../../../api/site.ts";
+import { Alert } from "../../../components/Alert.tsx";
 import { Button } from "../../../components/Button.tsx";
+import { SITE_NEW_BOOKING_PATH } from "../../../lib/book-new.ts";
 import { moneyText } from "../../../lib/dispatch-display.ts";
 import { displayName } from "../../../lib/master-display.ts";
+import { TRIP_BOOK_SEARCH, TRIP_BOOK_STATE, type TripBookable, tripBookHandoff, tripBookableSegment, tripOrderQuoteBody } from "../../../lib/trip-book.ts";
+import { tripFailureOf } from "../../../lib/trip-form.ts";
 import type { TripLabels } from "../../../lib/trip-labels-store.ts";
 import { tripLabelsFor, tripManualQuoteDraft } from "../../../lib/trip-manual.ts";
 import { type TripTextKey, tripCopy, tripReasonKey } from "../../../lib/trip-texts.ts";
@@ -27,6 +37,8 @@ export interface TripQuoteResultProps {
   supportWhatsapp?: string | null;
   /** 本标签页存的地名（页面读好传进来，只有页面碰暂存）；没有为 null，转人工时写坐标 */
   labels?: TripLabels | null;
+  /** 回第 1 步修改行程（预订时行程单已过期 404 时给）；不给就不显示 */
+  onEditTrip?: (() => void) | null;
 }
 
 const planName = (kind: SiteTripPlanKind): string => tripCopy(kind === "one_car" ? "plan.one_car" : "plan.daily_best");
@@ -66,7 +78,154 @@ function warningText(code: SiteTripWarningCode, dayIndex: number | null): string
   return dayIndex === null ? tripCopy(whole) : tripCopy(day, { n: dayIndex + 1 });
 }
 
-function PlanCard({ plan }: { plan: SiteTripPlan }) {
+/**
+ * 「提交预订，客服确认」（M9T-10，业主 2026-11-18 确认选 A，#288；ADR 0101 第十三节第 3 小节）：
+ * 多段方案（和带跨段费用等不能直接在线下单的单段方案）给这个按钮，即带 `trip_id` + 这个方案 `plan_kind` 的人工报价，客服人工跟进。
+ * 点开是现有的人工报价表单，`trip` 填第一天的行程，`tripLink` 带这个方案的 `plan_kind`。
+ * 价格变了、这一车型报不出时的「转人工报价」也用它（`cta` 换文案）。P1b（一次付款多张子订单）上线后多段方案改为直接下单。
+ */
+function PlanManualBooking({ trip, plan, labels, supportWhatsapp, cta = "bookManual" }: { trip: SiteTrip; plan: SiteTripPlan; labels: TripLabels | null; supportWhatsapp: string | null; cta?: "bookManual" | "manual.cta" }) {
+  const [open, setOpen] = useState(false);
+  const formRef = useRef<HTMLDivElement>(null);
+  // 按钮点了就没了：焦点移到表单的第一个框
+  useEffect(() => {
+    if (open) formRef.current?.querySelector<HTMLInputElement>("input")?.focus();
+  }, [open]);
+  const draft = tripManualQuoteDraft(trip.itinerary, labels);
+  if (draft === null) return <p className="site-muted">{tripCopy("manual.noTrip")}</p>;
+  if (open) {
+    return (
+      <div ref={formRef} className="trip-plan__manual">
+        <ManualQuoteBlock trip={draft} supportWhatsapp={supportWhatsapp} headingLevel="h4" tripLink={{ tripId: trip.trip_id, planKind: plan.kind, labels: tripLabelsFor(trip.itinerary, labels) }} />
+      </div>
+    );
+  }
+  return (
+    <div className="trip-plan__book">
+      <Button variant={cta === "bookManual" ? "primary" : "secondary"} size="lg" onClick={() => setOpen(true)}>
+        {tripCopy(cta)}
+      </Button>
+      {cta === "bookManual" && <p className="site-muted">{tripCopy("bookManual.hint")}</p>}
+    </div>
+  );
+}
+
+/** 「预订这个方案」没成：要重新报价（价格变了、过期、方案不在了；`manual` 时另给转人工）、退回客服确认（后端说不是单段）、别的出错 */
+type BookProblem = { kind: "requote"; text: string; manual: boolean } | { kind: "manual"; text: string } | { kind: "failed"; text: string; gone: boolean };
+
+function bookProblemOf(err: unknown): BookProblem {
+  if (err instanceof ApiError) {
+    if (err.code === "TRIP_PRICE_CHANGED") {
+      // 这一车型这次报不出、条件已对不上（机场停用等）：重新报价也可能报不出，另给转人工
+      const reason = err.details["reason"];
+      const manual = reason === "NO_OFFER" || reason === "CONDITIONS_CHANGED";
+      return { kind: "requote", text: tripCopy(manual ? "book.priceChangedManual" : "book.priceChanged"), manual };
+    }
+    if (err.code === "TRIP_PLAN_EXPIRED") return { kind: "requote", text: tripCopy("expired"), manual: false };
+    if (err.code === "TRIP_PLAN_NOT_FOUND") return { kind: "requote", text: tripCopy("book.planGone"), manual: false };
+    if (err.code === "TRIP_PLAN_NOT_SINGLE_SEGMENT") return { kind: "manual", text: tripCopy("book.notSingle") };
+  }
+  // 太频繁、断网、行程单过期等：同报价的说法
+  const failure = tripFailureOf(err, "book");
+  return { kind: "failed", text: `${tripCopy("book.failed")}：${failure.text}`, gone: failure.gone };
+}
+
+interface PlanActionProps {
+  trip: SiteTrip;
+  plan: SiteTripPlan;
+  labels: TripLabels | null;
+  supportWhatsapp: string | null;
+  onQuote(): void;
+  quoting: boolean;
+  onEditTrip: (() => void) | null;
+}
+
+/** 单段方案「预订这个方案」：转成普通报价后带进 `/book/new` 第 3 步（乘客信息），之后走现有下单、付款 */
+function PlanBooking({ trip, plan, bookable, labels, supportWhatsapp, onQuote, quoting, onEditTrip }: PlanActionProps & { bookable: TripBookable }) {
+  const navigate = useNavigate();
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<BookProblem | null>(null);
+  const problemRef = useRef<HTMLDivElement>(null);
+  // 退回客服确认时「预订这个方案」按钮没了（焦点会掉到 body）：焦点移到说明上，读屏接着读下面的「提交预订，客服确认」
+  useEffect(() => {
+    if (problem?.kind === "manual") problemRef.current?.focus();
+  }, [problem]);
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+
+  // 重新报价拿到了新结果（行程单对象换了）：上次的说明收起
+  useEffect(() => setProblem(null), [trip]);
+
+  const book = async (): Promise<void> => {
+    if (busy || quoting) return;
+    setBusy(true);
+    setProblem(null);
+    try {
+      const order = await createSiteTripOrderQuote(trip.trip_id, plan.plan_id, tripOrderQuoteBody(trip, bookable, labels));
+      if (!alive.current) return;
+      const handoff = tripBookHandoff(trip, bookable, labels, order);
+      if (handoff === null) {
+        setBusy(false);
+        setProblem({ kind: "manual", text: tripCopy("book.notSingle") });
+        return;
+      }
+      // 带着报价进 /book/new：放在路由 state（不写 sessionStorage / localStorage，但留在浏览器这条历史记录里，含地名）；浏览器后退回到这里的方案对比
+      void navigate({ pathname: SITE_NEW_BOOKING_PATH, search: TRIP_BOOK_SEARCH }, { state: { [TRIP_BOOK_STATE]: handoff } });
+    } catch (err) {
+      if (!alive.current) return;
+      setBusy(false);
+      setProblem(bookProblemOf(err));
+    }
+  };
+
+  return (
+    <div className="trip-plan__actions">
+      {problem?.kind !== "manual" && (
+        <div className="trip-plan__book">
+          <Button variant="primary" size="lg" loading={busy} loadingText={tripCopy("book.busy")} onClick={() => void book()}>
+            {tripCopy("book")}
+          </Button>
+          <p className="site-muted">{tripCopy("book.hint")}</p>
+        </div>
+      )}
+      <div role="alert" ref={problemRef} tabIndex={-1}>
+        {problem !== null && <Alert kind={problem.kind === "failed" ? "danger" : "warning"}>{problem.text}</Alert>}
+      </div>
+      {problem?.kind === "failed" && problem.gone && onEditTrip !== null && (
+        <div className="trip-plan__book">
+          <Button size="lg" onClick={onEditTrip}>
+            {tripCopy("editTrip")}
+          </Button>
+        </div>
+      )}
+      {problem?.kind === "requote" && (
+        <div className="trip-plan__book">
+          <Button size="lg" loading={quoting} loadingText={tripCopy("quoting")} onClick={onQuote}>
+            {tripCopy("requote")}
+          </Button>
+        </div>
+      )}
+      {problem?.kind === "requote" && problem.manual && <PlanManualBooking trip={trip} plan={plan} labels={labels} supportWhatsapp={supportWhatsapp} cta="manual.cta" />}
+      {problem?.kind === "manual" && <PlanManualBooking trip={trip} plan={plan} labels={labels} supportWhatsapp={supportWhatsapp} />}
+    </div>
+  );
+}
+
+/** 卡片底部的下单出口：过期的不给（先重新报价）；单段给「预订这个方案」，其余「提交预订，客服确认」（业主 2026-11-18 选 A） */
+function PlanActions(props: PlanActionProps) {
+  const { trip, plan } = props;
+  if (plan.expired) return null;
+  const bookable = tripBookableSegment(trip, plan);
+  if (bookable !== null) return <PlanBooking {...props} bookable={bookable} />;
+  return <PlanManualBooking trip={trip} plan={plan} labels={props.labels} supportWhatsapp={props.supportWhatsapp} />;
+}
+
+function PlanCard({ plan, ...actions }: Omit<PlanActionProps, "plan"> & { plan: SiteTripPlan }) {
   const titleId = useId();
   const name = planName(plan.kind);
   const group = plan.vehicle_group === null ? null : displayName(plan.vehicle_group.name);
@@ -149,6 +308,7 @@ function PlanCard({ plan }: { plan: SiteTripPlan }) {
           ))}
         </ul>
       )}
+      <PlanActions plan={plan} {...actions} />
     </li>
   );
 }
@@ -182,7 +342,7 @@ function ManualQuoteSection({ trip, supportWhatsapp, labels }: { trip: SiteTrip;
   );
 }
 
-export function TripQuoteResult({ trip, onQuote, quoting, supportWhatsapp = null, labels = null }: TripQuoteResultProps) {
+export function TripQuoteResult({ trip, onQuote, quoting, supportWhatsapp = null, labels = null, onEditTrip = null }: TripQuoteResultProps) {
   const quoteButton = (label: string) => (
     <Button variant="primary" size="lg" loading={quoting} loadingText={tripCopy("quoting")} onClick={onQuote}>
       {label}
@@ -203,7 +363,7 @@ export function TripQuoteResult({ trip, onQuote, quoting, supportWhatsapp = null
       {trip.plans.length > 0 && (
         <ul className={trip.plans.length > 1 ? "trip-plans trip-plans--compare" : "trip-plans"} aria-label={trip.plans.length > 1 ? tripCopy("compare") : tripCopy("resultSection")}>
           {trip.plans.map((plan) => (
-            <PlanCard key={plan.plan_id} plan={plan} />
+            <PlanCard key={plan.plan_id} plan={plan} trip={trip} labels={labels} supportWhatsapp={supportWhatsapp} onQuote={onQuote} quoting={quoting} onEditTrip={onEditTrip} />
           ))}
         </ul>
       )}

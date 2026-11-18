@@ -236,6 +236,12 @@ export function tripIdOf(search: string): string | null {
   return value !== null && TRIP_ID.test(value) ? value : null;
 }
 
+/** 网址带了 `trip` 但格式不对（抄错、截断、旧链接）：页面回到第 1 步，并说一句行程单找不到 */
+export function tripParamMalformed(search: string): boolean {
+  const value = new URLSearchParams(search).get("trip");
+  return value !== null && !TRIP_ID.test(value);
+}
+
 /** 第 2 步带行程单编号；第 1 步不带参数 */
 export function tripSearch(tripId: string | null, step: TripStep): string {
   if (step === 1 || tripId === null) return "";
@@ -253,10 +259,10 @@ export interface TripFailure {
   gone: boolean;
 }
 
-const ACTION_KEYS = { create: "action.create", quote: "action.quote", read: "action.read" } as const;
+const ACTION_KEYS = { create: "action.create", quote: "action.quote", read: "action.read", book: "action.book" } as const;
 
-/** 建行程单、报价、读行程单出错时的说法：太复杂、找不到、太频繁单独说，其余同官网 */
-export function tripFailureOf(err: unknown, action: "create" | "quote" | "read"): TripFailure {
+/** 建行程单、报价、读行程单、预订（下单出口，M9T-10）出错时的说法：太复杂、找不到、太频繁单独说，其余同官网 */
+export function tripFailureOf(err: unknown, action: "create" | "quote" | "read" | "book"): TripFailure {
   if (err instanceof ApiError) {
     if (err.code === "TRIP_TOO_COMPLEX") return { text: tripCopy("failure.tooComplex"), manual: true, gone: false };
     if (err.code === "TRIP_NOT_FOUND") return { text: tripCopy("failure.notFound"), manual: false, gone: true };

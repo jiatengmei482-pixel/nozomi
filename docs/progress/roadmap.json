@@ -1938,12 +1938,20 @@
         },
         {
           "id": "M9T-10",
-          "title": "下单出口：单段方案经 POST /site/v1/trips/{id}/plans/{planId}/order-quote 生成普通官网报价后走现有下单付款；多段方案按业主决定（推荐 A：「提交预订，客服确认」= 带 trip_id + plan_kind 的人工报价）（ADR 0101 第十三节第 3 小节）",
+          "title": "下单出口：单段方案经 POST /site/v1/trips/{id}/plans/{planId}/order-quote 生成普通官网报价后走现有下单付款；多段方案（和带跨段费用的单段方案）「提交预订，客服确认」= 带 trip_id + plan_kind 的人工报价（业主 2026-11-18 确认选 A）（ADR 0101 第十三节第 3 小节）",
           "role": "backend",
-          "status": "doing",
-          "evidence": "第 1 部分（后端，本 PR）：POST /site/v1/trips/{id}/plans/{planId}/order-quote（services/trips.ts orderQuoteForPlan、repos/trips.ts findTripPlanForOrder、routes/site-trips.ts）：单段方案按这一段的条件走一次官网正式询价（siteQuotes，写询价日志和 quotes），取方案车型组那一张，价格 ≠ 方案总价 409 TRIP_PRICE_CHANGED；方案过期 409 TRIP_PLAN_EXPIRED、多段 / 空闲日 / 带跨段费用 409 TRIP_PLAN_NOT_SINGLE_SEGMENT、方案不存在 404 TRIP_PLAN_NOT_FOUND；不新增表、不改表，占 site_quote 额度；OpenAPI SiteTripOrderQuote、前端 createSiteTripOrderQuote 与契约测试；trips.itest 4 条（包车 / 接机 / 回落点对点转报价并经 POST /site/v1/orders 下单、价格不一致、多段 / 费用 / 过期 / 404）。第 2 部分（页面）待做；多段方案仍待业主决定（#288）",
+          "status": "review",
+          "evidence": "第 1 部分 #326（后端，已合并）：POST /site/v1/trips/{id}/plans/{planId}/order-quote（services/trips.ts orderQuoteForPlan、repos/trips.ts findTripPlanForOrder、routes/site-trips.ts）：单段方案按这一段的条件走一次官网正式询价（siteQuotes，写询价日志和 quotes），取方案车型组那一张，价格 ≠ 方案总价 409 TRIP_PRICE_CHANGED；方案过期 409 TRIP_PLAN_EXPIRED、多段 / 空闲日 / 带跨段费用 409 TRIP_PLAN_NOT_SINGLE_SEGMENT、方案不存在 404 TRIP_PLAN_NOT_FOUND；不新增表、不改表，占 site_quote 额度；OpenAPI SiteTripOrderQuote、前端 createSiteTripOrderQuote 与契约测试；trips.itest 4 条（包车 / 接机 / 回落点对点转报价并经 POST /site/v1/orders 下单、价格不一致、多段 / 费用 / 过期 / 404）。第 2 部分 #327（页面，已合并）：/book/trip 方案卡片——单段方案（整个方案一段、无跨段费用、/book/new 表示得了）「预订这个方案」→ order-quote（包车带经停点地名 waypoint_names）→ 路由 state 带着普通报价进 /book/new 第 3 步，BookNewPage 按 quote_request 预填、选好车型、第一次询价直接用这张报价（过期才照常询价），之后走现有乘客信息 / 下单 / Stripe，无新付款代码；409 TRIP_PRICE_CHANGED 写「价格有变化，请重新报价」+ 重新报价（NO_OFFER / CONDITIONS_CHANGED 另给转人工）、TRIP_PLAN_EXPIRED / NOT_FOUND 重新报价、NOT_SINGLE_SEGMENT 退回客服确认、429 / 断网同报价说法；多段方案按推荐 A「提交预订，客服确认」= 带 trip_id + plan_kind 的人工报价（业主 2026-11-18 确认选 A，#288；开关已去掉）；lib/trip-book.ts + 单元测试、trip-new / book-new 组件测试。业主 11-18 决定已记入 ADR 0101 第十三节第 3 小节；多段方案直接下单另见 P1b 付款 ADR。单日 one_car 取中标价另立 M9T-12（编排）。还差：测试站 Stripe 测试卡跑通",
           "acceptance": ["桥接生成的报价价格与方案里这一段的对外价一致，不一致 409；之后完全走现有下单、付款流程，不新增付款代码", "不改现有报价、下单接口的入参与结果", "测试站用 Stripe 测试卡跑通单段方案下单付款；CI 全绿"],
           "updated": "2026-11-18"
+        },
+        {
+          "id": "M9T-12",
+          "title": "单日 one_car 取中标价（编排）：单日行程方案的段改为和官网普通报价同一比价口径（取中标的那家），两处价格一致（业主 2026-11-18 决定 ②，ADR 0101 第十三节第 3 小节）",
+          "role": "backend",
+          "status": "todo",
+          "acceptance": ["单日行程 one_car 的段价 = 同条件官网询价的中标价（集成测试逐段比对）", "多日行程 one_car 仍取该租户自己的对外价，固定测试集期望按需更新并写明原因", "单段方案经 order-quote 桥接不再因比价口径不同 409；CI 全绿"],
+          "updated": "2026-11-19"
         }
       ]
     },

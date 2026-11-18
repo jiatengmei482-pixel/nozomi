@@ -39,6 +39,7 @@ import {
   tripDraftOf,
   tripFailureOf,
   tripIdOf,
+  tripParamMalformed,
   tripItineraryOf,
   tripLabelsOf,
   tripPlaceName,
@@ -111,7 +112,8 @@ export function TripNewPage() {
   const touched = useRef(false);
   /** 点过「查看报价」：之后每改一处都重新检查，问题随改随消失 */
   const [checked, setChecked] = useState(false);
-  const [notice, setNotice] = useState<Notice | null>(null);
+  // 网址里的行程单编号格式不对时，第 1 步顶部说明一句（不再静默回到空表单）
+  const [notice, setNotice] = useState<Notice | null>(() => (tripParamMalformed(location.search) ? { kind: "info", text: tripCopy("failure.notFound") } : null));
   const [creating, setCreating] = useState(false);
   const [view, setView] = useState<TripView>({ kind: "idle" });
   const viewRef = useRef(view);
@@ -408,7 +410,7 @@ export function TripNewPage() {
         />
       );
     } else {
-      result = <TripQuoteResult trip={view.trip} quoting={view.quoting} onQuote={() => quoteAgain(view.tripId)} supportWhatsapp={config.config.support_whatsapp} labels={loadTripLabels(view.tripId)} />;
+      result = <TripQuoteResult trip={view.trip} quoting={view.quoting} onQuote={() => quoteAgain(view.tripId)} supportWhatsapp={config.config.support_whatsapp} labels={loadTripLabels(view.tripId)} onEditTrip={() => goStep(1, null)} />;
     }
 
     const resultStep = (
