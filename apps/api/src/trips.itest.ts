@@ -316,6 +316,25 @@ test("接机按坐标认机场；每天各自最优取当天中标（经济 4 �
   assert.equal(oneCar.recommended, !expectDaily);
 });
 
+test("M9T-12 单日一车到底：每一段 = 同样条件官网询价这个车型组的中标价（逐段比对价格和明细），不取非中标供应商自己的价", async () => {
+  const created = await createTrip(trip([{ date: "2027-03-11", items: [{ kind: "arrive_flight", place: at("nearNarita"), time: "10:00" }, end("ginza")] }]));
+  const res = await quoteTrip(created.body.trip_id);
+  assert.equal(res.status, 200, res.text);
+  assert.deepEqual(res.body.plans.map((plan: any) => plan.kind), ["one_car"]);
+  const oneCar = res.body.plans[0];
+  const transfer = await official({ category: "airport_transfer", city_id: m.ids.tokyo, airport_id: m.ids.narita, direction: "pickup", address: at("ginza"), service_local: "2027-03-11T10:00" });
+  for (const segment of oneCar.days[0].segments) {
+    const winner = transfer.body.quotes.find((quote: any) => quote.vehicle_group.id === segment.vehicle_group.id);
+    assert.ok(winner, "官网询价里有这个车型组");
+    assert.equal(segment.amount.amount, winner.price.total.amount);
+    assert.deepEqual(segment.price_breakdown, winner.price_breakdown);
+  }
+  assert.equal(oneCar.total.amount, String(sum(oneCar.days[0].segments.map((segment: any) => segment.amount.amount))));
+  // 车型组里有非中标的供应商时（商务 7 座：甲 18,000 中标、乙 19,800），选到商务 7 座也只会是甲
+  const rows = await api.db.owner.query<any>("select s.supplier_tenant_id, s.settlement_minor::int as settlement from trip_segments s join trip_plans p on p.id = s.plan_id where p.trip_id = $1 and p.kind = 'one_car'", [created.body.trip_id]);
+  for (const row of rows.rows) assert.notDeepEqual(row, { supplier_tenant_id: m.b.tenantId, settlement: 19_800 });
+});
+
 test("接机报不出（羽田没有接送机商品）→ 照官网回落点对点：段型仍是接机、价 = 官网点对点询价；报出了就不记未覆盖需求", async () => {
   const created = await createTrip(trip([{ date: "2027-03-10", items: [{ kind: "arrive_flight", place: { placeId: haneda }, time: "10:00" }, end("ginza")] }]));
   const res = await quoteTrip(created.body.trip_id);
