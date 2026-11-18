@@ -408,7 +408,7 @@ export function TripNewPage() {
         />
       );
     } else {
-      result = <TripQuoteResult trip={view.trip} quoting={view.quoting} onQuote={() => quoteAgain(view.tripId)} supportWhatsapp={config.config.support_whatsapp} />;
+      result = <TripQuoteResult trip={view.trip} quoting={view.quoting} onQuote={() => quoteAgain(view.tripId)} supportWhatsapp={config.config.support_whatsapp} labels={loadTripLabels(view.tripId)} />;
     }
 
     const resultStep = (

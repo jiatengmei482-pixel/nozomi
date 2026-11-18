@@ -13,7 +13,7 @@ import type { SiteTrip, SiteTripPlan, SiteTripPlanKind, SiteTripSegment, SiteTri
 import { Button } from "../../../components/Button.tsx";
 import { moneyText } from "../../../lib/dispatch-display.ts";
 import { displayName } from "../../../lib/master-display.ts";
-import { loadTripLabels } from "../../../lib/trip-labels-store.ts";
+import type { TripLabels } from "../../../lib/trip-labels-store.ts";
 import { tripLabelsFor, tripManualQuoteDraft } from "../../../lib/trip-manual.ts";
 import { type TripTextKey, tripCopy, tripReasonKey } from "../../../lib/trip-texts.ts";
 import { ManualQuoteBlock } from "../ManualQuote.tsx";
@@ -25,6 +25,8 @@ export interface TripQuoteResultProps {
   quoting: boolean;
   /** 官网配置的客服 WhatsApp（转人工表单下面的按钮；没有为 null） */
   supportWhatsapp?: string | null;
+  /** 本标签页存的地名（页面读好传进来，只有页面碰暂存）；没有为 null，转人工时写坐标 */
+  labels?: TripLabels | null;
 }
 
 const planName = (kind: SiteTripPlanKind): string => tripCopy(kind === "one_car" ? "plan.one_car" : "plan.daily_best");
@@ -151,14 +153,13 @@ function PlanCard({ plan }: { plan: SiteTripPlan }) {
   );
 }
 
-function ManualQuoteSection({ trip, supportWhatsapp }: { trip: SiteTrip; supportWhatsapp: string | null }) {
+function ManualQuoteSection({ trip, supportWhatsapp, labels }: { trip: SiteTrip; supportWhatsapp: string | null; labels: TripLabels | null }) {
   const [open, setOpen] = useState(false);
   const titleRef = useRef<HTMLHeadingElement>(null);
   // 点了「转人工报价」按钮就没了，焦点移到这块的标题，读屏接着读表单
   useEffect(() => {
     if (open) titleRef.current?.focus();
   }, [open]);
-  const labels = loadTripLabels(trip.trip_id);
   const draft = tripManualQuoteDraft(trip.itinerary, labels);
   return (
     <section className="trip-manual" aria-labelledby="trip-manual-title">
@@ -181,7 +182,7 @@ function ManualQuoteSection({ trip, supportWhatsapp }: { trip: SiteTrip; support
   );
 }
 
-export function TripQuoteResult({ trip, onQuote, quoting, supportWhatsapp = null }: TripQuoteResultProps) {
+export function TripQuoteResult({ trip, onQuote, quoting, supportWhatsapp = null, labels = null }: TripQuoteResultProps) {
   const quoteButton = (label: string) => (
     <Button variant="primary" size="lg" loading={quoting} loadingText={tripCopy("quoting")} onClick={onQuote}>
       {label}
@@ -198,7 +199,7 @@ export function TripQuoteResult({ trip, onQuote, quoting, supportWhatsapp = null
           {quoteButton(tripCopy("quote"))}
         </div>
       )}
-      {trip.manual_quote_suggested && <ManualQuoteSection trip={trip} supportWhatsapp={supportWhatsapp} />}
+      {trip.manual_quote_suggested && <ManualQuoteSection trip={trip} supportWhatsapp={supportWhatsapp} labels={labels} />}
       {trip.plans.length > 0 && (
         <ul className={trip.plans.length > 1 ? "trip-plans trip-plans--compare" : "trip-plans"} aria-label={trip.plans.length > 1 ? tripCopy("compare") : tripCopy("resultSection")}>
           {trip.plans.map((plan) => (
