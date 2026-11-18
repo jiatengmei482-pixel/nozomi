@@ -143,6 +143,8 @@ test("组件代码不把字符串当 HTML 用，不用 eval，不留调试输出
   }
 });
 
+/** 唯一能写 SVG 命名空间字符串的文件（嵌入组件的图标，M9E-10 / M9E-11） */
+const SVG_ICON_FILE = "embed/widget-icons.ts";
 const EXTERNAL_LINK_REGISTRY = "lib/external-links.ts";
 const EXTERNAL_LINK_COMPONENT = "components/ExternalLink.tsx";
 const AREA_DRAFT_STORE = "lib/area-draft.ts";
@@ -302,8 +304,10 @@ test("站外地址只登记在 lib/external-links.ts：恰好是预期的三个�
 
 test("前端只用相对路径调接口：代码里没有写死的站点地址、没有环境变量", () => {
   for (const { name, text } of sources) {
-    // SVG 的命名空间是标识符、不是网址（不会被请求）：嵌入组件不能用 JSX，画图标要用 createElementNS（M9E-10，embed/widget-icons.ts）。只放行这一个完整的字符串
-    const withoutComments = stripComments(text).replaceAll('"http://www.w3.org/2000/svg"', '""');
+    // SVG 的命名空间是标识符、不是网址（不会被请求）：嵌入组件不能用 JSX，画图标要用 createElementNS（M9E-10）。
+    // 只在 embed/widget-icons.ts 里放行这一个完整的字符串（M9E-11）；别的文件要画 SVG 去用那里的函数
+    const stripped = stripComments(text);
+    const withoutComments = name === SVG_ICON_FILE ? stripped.replaceAll('"http://www.w3.org/2000/svg"', '""') : stripped;
     // 站外地址只允许集中登记在这两个文件里（上面各有一条核对它们的内容）
     if (name !== EXTERNAL_LINK_REGISTRY && name !== EXTERNAL_SCRIPT_REGISTRY) assert.doesNotMatch(withoutComments, /https?:\/\//, `${name} 里有写死的网址`);
     assert.doesNotMatch(withoutComments, /import\.meta\.env|process\.env/, `${name} 读了环境变量；密钥和配置不能进前端产物`);

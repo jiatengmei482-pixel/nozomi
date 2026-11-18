@@ -61,6 +61,7 @@ export const WIDGET_CSS = `
 .nzb-swap[aria-disabled="true"] { color: #9aa3b1; cursor: not-allowed; background: #ffffff; }
 .nzb-swap-icon { width: 20px; height: 20px; transform: rotate(90deg); }
 .nzb-pop { position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; width: min(320px, 100%); padding: 16px; background: #ffffff; border: 1px solid #d6dae1; border-radius: var(--nzb-radius-control); box-shadow: 0 16px 40px #141e462e; }
+.nzb-pop[data-placement="up"] { top: auto; bottom: calc(100% + 6px); }
 .nzb-pop[hidden] { display: none; }
 .nzb-step-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; }
 .nzb-step-label { font-weight: 600; }

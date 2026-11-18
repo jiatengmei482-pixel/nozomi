@@ -217,6 +217,10 @@ class Widget {
   destroy(): void {
     this.destroyed = true;
     for (const cleanup of this.cleanups.splice(0)) cleanup();
+    // 等坐标的提交（M9E-11）：叫醒它，让它看到已停掉后直接退出，不再碰新表单
+    const wake = this.wake;
+    this.wake = null;
+    wake?.();
   }
 
   private get t() {
@@ -511,6 +515,16 @@ class Widget {
     const field = el("div", { class: "nzb-field nzb-guests" }, [el("span", { id: labelId, class: "nzb-label" }, [t.guests]), trigger, pop]);
     const open = (show: boolean, refocus = false): void => {
       pop.hidden = !show;
+      // 人数弹层往下放不下时往上弹（M9E-11）：卡片里人数在最下面，往下会超出组件底边，合作网站的容器 overflow: hidden 时被裁掉
+      pop.removeAttribute("data-placement");
+      if (show) {
+        const shell = this.shadow.querySelector(".nzb-shell");
+        const box = pop.getBoundingClientRect();
+        const outer = shell?.getBoundingClientRect();
+        const anchor = trigger.getBoundingClientRect();
+        // 往上弹时弹层的顶边 = 按钮顶边 − 间距 6 − 弹层高度；上面也放不下就照旧往下（宁可被裁一点，也不盖住组件上沿以外）
+        if (outer !== undefined && box.bottom > outer.bottom && anchor.top - 6 - box.height >= outer.top) pop.setAttribute("data-placement", "up");
+      }
       trigger.setAttribute("aria-expanded", String(show));
       if (show) (pop.querySelector("[data-step]:not([aria-disabled])") as HTMLElement | null)?.focus();
       if (refocus) trigger.focus();
@@ -623,7 +637,8 @@ class Widget {
       status.textContent = t.locating;
       const job: Locating = { name: item.name, view: { status } };
       void getJson(this.url("/embed/v1/places/details", { id: item.id, session: used }), LOCATE_TIMEOUT.ms).then((details) => {
-        if (this.locating.get(slot) !== job) return;
+        // 同一个容器又 init 了一次（M9E-11）：旧实例晚回来的坐标不写进新表单
+        if (this.destroyed || this.locating.get(slot) !== job) return;
         const location: { lat: number; lng: number } | null = details.status === 200 ? (details.body?.place?.location ?? null) : null;
         if (location === null) {
           this.lostPlaces.add(slot);
@@ -640,7 +655,7 @@ class Widget {
       const mine = ++round;
       status.textContent = t.searching;
       const found = await getJson(this.url("/embed/v1/places/autocomplete", { q: query, session }));
-      if (mine !== round) return;
+      if (this.destroyed || mine !== round) return;
       const items: Suggestion[] = found.status === 200 && Array.isArray(found.body?.items) ? found.body.items : [];
       list.replaceChildren();
       status.textContent = items.length === 0 ? t.noMatch : "";
@@ -705,7 +720,9 @@ class Widget {
       this.busy = this.waiting = true;
       this.shadow.querySelector(".nzb-primary")?.setAttribute("aria-disabled", "true");
       this.submitLabel(t.locating);
-      while (this.blockingLocates() > 0) await new Promise<void>((resolve) => (this.wake = resolve));
+      while (this.blockingLocates() > 0 && !this.destroyed) await new Promise<void>((resolve) => (this.wake = resolve));
+      // 等的时候同一个容器又 init 了一次（M9E-11）：旧实例到此为止，按钮、提示、焦点都是新表单的
+      if (this.destroyed) return;
       this.busy = this.waiting = false;
       this.shadow.querySelector(".nzb-primary")?.removeAttribute("aria-disabled");
       this.submitLabel(t.submit);
@@ -746,6 +763,8 @@ class Widget {
     } catch {
       status = null;
     }
+    // 提交途中同一个容器又 init 了一次（M9E-11）：旧实例不跳转、不改新表单的按钮和提示
+    if (this.destroyed) return;
     // 跳到脚本所在的主站（不用应答里的 url：主站地址以加载脚本的那个为准）；传了合格的 bookingUrl 就跳合作网站自己的预订页
     if (status === 201 && typeof body?.id === "string") {
       this.go(this.bookingTarget === null ? `${this.base}/book/new?draft=${encodeURIComponent(body.id)}` : withDraft(this.bookingTarget, body.id));
@@ -753,6 +772,7 @@ class Widget {
     }
     // 浏览器里被拒的 403 不带 CORS 头、读不出：探一下 GET 配置，主站有应答就按被拒说（M9E-22）
     const failure = status === null && (await answered(this.url("/embed/v1/config"))) ? "refused" : draftFailureOf(status, typeof body?.error?.code === "string" ? body.error.code : null);
+    if (this.destroyed) return;
     this.busy = false;
     if (submit !== null) {
       this.submitLabel(t.submit);
