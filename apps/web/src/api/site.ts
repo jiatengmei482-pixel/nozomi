@@ -946,3 +946,162 @@ export async function siteRouteMapNotEnabled(url: string): Promise<boolean> {
     return false;
   }
 }
+
+// ---------- 行程报价（M9T-03 接口，M9T-09 页面；ADR 0101 第二、三、十三节） ----------
+
+/** 行程单里坐标点的种类（可选；拆点时 `hotel` 算自然断点） */
+export type SiteTripPlaceKind = "hotel" | "poi" | "address";
+/** 行程单里的一个点：平台地点（机场 / 车站的编号）或坐标。页面只发坐标，服务端按坐标认机场 */
+export type SiteTripPlace = { placeId: string } | { lat: number; lng: number; kind?: SiteTripPlaceKind };
+export const SITE_TRIP_ITEM_KINDS = ["arrive_flight", "start", "stop", "end", "depart_flight"] as const;
+export type SiteTripItemKind = (typeof SITE_TRIP_ITEM_KINDS)[number];
+
+export interface SiteTripItem {
+  kind: SiteTripItemKind;
+  place: SiteTripPlace;
+  /** `HH:MM`，只有当天第一个点（`start` / `arrive_flight`）带 */
+  time?: string;
+  /** 停留分钟（0–720），只有 `stop` 带 */
+  stayMinutes?: number;
+}
+
+export interface SiteTripDay {
+  /** 当地日期 `YYYY-MM-DD`，逐日连续 */
+  date: string;
+  /** 空数组 = 空闲日（不用车） */
+  items: SiteTripItem[];
+  /** 当晚过夜点；没写终点时当天终点就是它 */
+  nightAt?: { lat: number; lng: number } | null;
+  /** 客人当晚给司机提供住宿 */
+  driverLodgingProvided?: boolean;
+}
+
+/** 标准行程单（`TripItinerary`，字段名 camelCase）：建行程单的请求体，也是读回来的 `itinerary` */
+export interface SiteTripItinerary {
+  schemaVersion: 1;
+  party: { adults: number; children?: number; luggage?: number };
+  preferences?: { vehicleGroupIds?: string[]; addons?: { addonId: string; quantity?: number }[] };
+  days: SiteTripDay[];
+}
+
+/** `POST /site/v1/trips` 的应答 */
+export interface SiteTripCreated {
+  /** 43 个 base64url 字符，凭它读行程单、报价 */
+  trip_id: string;
+  status: "draft";
+  /** 官网渠道的结算币种：方案金额都是这个币种 */
+  currency: string;
+  readable_until: string;
+}
+
+export type SiteTripPlanKind = "one_car" | "daily_best";
+export const SITE_TRIP_PLAN_KINDS: readonly SiteTripPlanKind[] = ["one_car", "daily_best"];
+export type SiteTripSegmentType = "airport_pickup" | "airport_dropoff" | "p2p" | "charter" | "idle_day";
+export type SiteTripFeeType = "lodging" | "lodging_offset" | "idle" | "second_driver" | "bundle_discount" | "return";
+export type SiteTripWarningCode = "SECOND_DRIVER" | "SEGMENT_OTHER_VEHICLE" | "WORK_HOURS_HARD_LIMIT";
+
+/** 跨段费用：抵扣类（`lodging_offset`、`bundle_discount`）金额为负数 */
+export interface SiteTripFee {
+  type: SiteTripFeeType;
+  label: LocalizedText;
+  amount: SiteMoney;
+}
+
+export interface SiteTripSegment {
+  segment_id: string;
+  type: SiteTripSegmentType;
+  start_local: string | null;
+  end_local: string | null;
+  amount: SiteMoney | null;
+  package_hours: number | null;
+  /** 一车到底里这一天用了别的供应商（按段选车） */
+  other_vehicle: boolean;
+  vehicle_group: { id: string; name: LocalizedText | null } | null;
+  price_breakdown: SitePriceBreakdownItem[];
+  route: { meters: number; minutes: number } | null;
+}
+
+export interface SiteTripPlanDay {
+  day_index: number;
+  date: string;
+  segments: SiteTripSegment[];
+  /** 挂在这一天的跨段费用（停驻、第二司机、附加项去重） */
+  fees: SiteTripFee[];
+}
+
+export interface SiteTripPlan {
+  plan_id: string;
+  kind: SiteTripPlanKind;
+  recommended: boolean;
+  status: "quoted";
+  /** 过了 30 分钟有效期：要重新报价才能下单 */
+  expired: boolean;
+  total: SiteMoney;
+  /** 一车到底的车型组；每天各自最优为 null */
+  vehicle_group: { id: string; code: string; name: LocalizedText; seats: number } | null;
+  days: SiteTripPlanDay[];
+  /** 按晚算的跨段费用（司机住宿、住宿抵扣空驶费） */
+  fees: (SiteTripFee & { night_index?: number | null })[];
+  warnings: { code: SiteTripWarningCode; day_index: number | null }[];
+}
+
+/** 报不出的一条：哪个方案、哪一天（null = 整个方案）、原因码 */
+export interface SiteTripUnquoted {
+  plan_kind: SiteTripPlanKind;
+  day_index: number | null;
+  reason: string;
+}
+
+/** 行程单和最近一次报价的方案（`GET /site/v1/trips/{id}`、`POST …/quote` 的应答） */
+export interface SiteTrip {
+  trip_id: string;
+  status: "draft" | "quoted";
+  currency: string;
+  readable_until: string;
+  itinerary: SiteTripItinerary;
+  quoted_at: string | null;
+  expires_at: string | null;
+  /** 报出价的方案（都报不出时为空数组） */
+  plans: SiteTripPlan[];
+  unquoted: SiteTripUnquoted[];
+  /** 行程太长，后面几天只报了「不拆」 */
+  degraded: boolean;
+  /** 已报过价、所有方案都报不出：建议转人工报价 */
+  manual_quote_suggested: boolean;
+}
+
+/** 契约测试用：行程报价的请求、应答各层字段（和 openapi.yaml 的 TripItinerary、SiteTrip、SiteTripFee 逐层对账） */
+export const SITE_TRIP_FIELDS: readonly (keyof SiteTrip)[] = ["trip_id", "status", "currency", "readable_until", "itinerary", "quoted_at", "expires_at", "plans", "unquoted", "degraded", "manual_quote_suggested"];
+export const SITE_TRIP_CREATED_FIELDS: readonly (keyof SiteTripCreated)[] = ["trip_id", "status", "currency", "readable_until"];
+export const SITE_TRIP_ITINERARY_FIELDS: readonly (keyof SiteTripItinerary)[] = ["schemaVersion", "party", "preferences", "days"];
+export const SITE_TRIP_PARTY_FIELDS: readonly (keyof SiteTripItinerary["party"])[] = ["adults", "children", "luggage"];
+export const SITE_TRIP_DAY_FIELDS: readonly (keyof SiteTripDay)[] = ["date", "items", "nightAt", "driverLodgingProvided"];
+export const SITE_TRIP_ITEM_FIELDS: readonly (keyof SiteTripItem)[] = ["kind", "place", "time", "stayMinutes"];
+export const SITE_TRIP_PLAN_FIELDS: readonly (keyof SiteTripPlan)[] = ["plan_id", "kind", "recommended", "status", "expired", "total", "vehicle_group", "days", "fees", "warnings"];
+export const SITE_TRIP_PLAN_DAY_FIELDS: readonly (keyof SiteTripPlanDay)[] = ["day_index", "date", "segments", "fees"];
+export const SITE_TRIP_SEGMENT_FIELDS: readonly (keyof SiteTripSegment)[] = ["segment_id", "type", "start_local", "end_local", "amount", "package_hours", "other_vehicle", "vehicle_group", "price_breakdown", "route"];
+export const SITE_TRIP_FEE_FIELDS: readonly (keyof SiteTripFee)[] = ["type", "label", "amount"];
+export const SITE_TRIP_UNQUOTED_FIELDS: readonly (keyof SiteTripUnquoted)[] = ["plan_kind", "day_index", "reason"];
+
+export const SITE_TRIPS_PATH = `${SITE_BASE}/trips`;
+
+/** 建行程单（存为 draft）。每个地址每分钟 10 次；带有效验收会话时是验收行程单（Cookie 由 apiRequest 对 /site/v1 自动带上） */
+export function createSiteTrip(body: SiteTripItinerary): Promise<SiteTripCreated> {
+  return apiRequest("POST", SITE_TRIPS_PATH, { body });
+}
+
+/** 读行程单和最近一次报价的方案；过期、不存在一律 404 `TRIP_NOT_FOUND` */
+export function getSiteTrip(id: string): Promise<SiteTrip> {
+  return apiRequest("GET", `${SITE_TRIPS_PATH}/${encodeURIComponent(id)}`);
+}
+
+/**
+ * 一次行程报价要逐段试算（最多 120 次段报价、200 次路线），比单段询价慢得多：超时放宽到 60 秒，
+ * 不用全站默认的 10 秒（10 秒没结果按网络错误处理，客人会以为没报出来）。
+ */
+export const SITE_TRIP_QUOTE_TIMEOUT_MS = 60_000;
+
+/** 报价（编排 + 分段报价 + 方案对比）：每个地址每分钟 5 次、每天 50 次；太复杂 422 `TRIP_TOO_COMPLEX` */
+export function quoteSiteTrip(id: string): Promise<SiteTrip> {
+  return apiRequest("POST", `${SITE_TRIPS_PATH}/${encodeURIComponent(id)}/quote`, { timeoutMs: SITE_TRIP_QUOTE_TIMEOUT_MS });
+}

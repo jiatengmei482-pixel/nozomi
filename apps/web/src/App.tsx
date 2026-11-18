@@ -2,6 +2,7 @@
  * 路由表。供应商后台在根路径下，运营后台在 /platform 下；两边是同一批页面组件，路径取自 lib/portal.ts。
  * 路径不能落在归 API 的前缀下（见 lib/api-prefixes.ts）。
  */
+import { Suspense, lazy } from "react";
 import { Outlet, Route, Routes } from "react-router";
 import { PortalSession } from "./auth/PortalSession.tsx";
 import { ToastProvider } from "./components/Toast.tsx";
@@ -34,7 +35,7 @@ import { TENANT_NOTIFICATIONS_PATH } from "./lib/notification-display.ts";
 import { TenantNotificationsPage } from "./pages/notifications/NotificationPages.tsx";
 import { DEDUCTIONS_PATH, RESCUE_OFFERS_PATH } from "./lib/rescue-display.ts";
 import { DeductionsPage, RescueOffersPage } from "./pages/rescues/TenantRescuePages.tsx";
-import { SITE_CHECKOUT_PATH, SITE_HOME_PATH, SITE_ORDER_PATH } from "./lib/site-display.ts";
+import { SITE_CHECKOUT_PATH, SITE_HOME_PATH, SITE_ORDER_PATH, SITE_TRIP_PATH } from "./lib/site-display.ts";
 import { SITE_NEW_BOOKING_PATH } from "./lib/book-new.ts";
 import { BookPage } from "./pages/book/BookPage.tsx";
 import { BookNewPage } from "./pages/book/new/BookNewPage.tsx";
@@ -47,6 +48,10 @@ import { TENANT_PAYOUT_ACCOUNTS_PAGE } from "./lib/bank-file-display.ts";
 import { TenantPayoutAccountsPage } from "./pages/statements/TenantPayoutAccountsPage.tsx";
 import { TenantTicketDetailPage, TenantTicketListPage, TenantTicketNewPage } from "./pages/tickets/TenantTicketPages.tsx";
 import { TenantStatementDetailPage, TenantStatementListPage } from "./pages/statements/TenantStatementPages.tsx";
+import { Skeleton } from "./components/States.tsx";
+
+/** 多日行程报价页（M9T-09）按需加载：单独成包，别的页面的首包里没有它 */
+const TripNewPage = lazy(() => import("./pages/book/trip/TripNewPage.tsx").then((module) => ({ default: module.TripNewPage })));
 
 function portalRoutes(portal: Portal) {
   const { paths } = PORTALS[portal];
@@ -113,6 +118,15 @@ export function App() {
           <Route path={SITE_HOME_PATH} element={<BookPage />} />
           {/* 新预订页（M8-03，ADR 0069）：和旧页并存，M8-05 验收后再切换 */}
           <Route path={SITE_NEW_BOOKING_PATH} element={<BookNewPage />} />
+          {/* 多日行程报价页（M9T-09，ADR 0101 第十三节）：验收通过前不加入口链接，只能直接打开地址 */}
+          <Route
+            path={SITE_TRIP_PATH}
+            element={
+              <Suspense fallback={<Skeleton lines={["long", "control", "control", "control"]} label="正在打开行程报价页" />}>
+                <TripNewPage />
+              </Suspense>
+            }
+          />
           <Route path={SITE_CHECKOUT_PATH} element={<CheckoutPage />} />
           <Route path={SITE_ORDER_PATH} element={<OrderPage />} />
         </Route>

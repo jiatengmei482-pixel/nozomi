@@ -1,0 +1,221 @@
+/*
+ * 多日行程报价页 /book/trip（M9T-09，ADR 0101 第十三节）。版式沿用新预订页 book-new.css：两栏（≥ 1024px）、步骤条、区块卡片、底部按钮条；
+ * 这里只补本页自己的部分：两步的步骤条、每天的编辑块、每天一张路线图和它下面的地名列表、报价结果骨架。只用设计令牌。
+ */
+
+.trip-steps {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* ---------- 每天的编辑块 ---------- */
+
+.trip-day__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.trip-day__title {
+  margin: 0;
+}
+
+.trip-day__date {
+  margin: 0;
+}
+
+.trip-day__stops {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trip-day__stop {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-page);
+}
+
+.trip-day__remove-stop {
+  align-self: flex-start;
+}
+
+.trip-day__add,
+.trip-new__add-day {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.trip-day__add p,
+.trip-new__add-day p {
+  margin: 0;
+}
+
+/* ---------- 每天一张路线图 ---------- */
+
+.trip-new__maps,
+.trip-new__day-maps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.trip-map {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.trip-map__title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+}
+
+.trip-map__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trip-map__item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.trip-map__number {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-6);
+  height: var(--space-6);
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+}
+
+.trip-map__name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- 报价结果（骨架，第二部分换成方案对比卡片） ---------- */
+
+.trip-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.trip-plans {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trip-plan {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+}
+
+.trip-plan--recommended {
+  border-color: var(--color-primary);
+}
+
+.trip-plan__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.trip-plan__name,
+.trip-plan__vehicle,
+.trip-plan__total,
+.trip-plan__expired {
+  margin: 0;
+}
+
+.trip-plan__badge {
+  padding: var(--space-0-5) var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--color-primary-subtle);
+  color: var(--color-primary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+}
+
+.trip-plan__total {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.trip-plan__amount {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-heavy);
+  font-variant-numeric: tabular-nums;
+}
+
+.trip-plan__expired {
+  color: var(--color-warning-text);
+}
+
+.trip-manual,
+.trip-unquoted {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.trip-manual p,
+.trip-unquoted h3 {
+  margin: 0;
+}
+
+.trip-unquoted__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trip-unquoted__item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.trip-unquoted__plan {
+  font-weight: var(--font-weight-bold);
+}
