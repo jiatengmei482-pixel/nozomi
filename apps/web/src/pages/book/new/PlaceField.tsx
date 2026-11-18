@@ -22,6 +22,7 @@ import { Icon } from "../../../components/Icon.tsx";
 import { type TripPoint, pointName } from "../../../lib/book-new.ts";
 import { PLACES_DAILY_LIMIT_TEXT, addressText } from "../AddressFields.tsx";
 import type { LatLngValue } from "../SiteMapPicker.tsx";
+import { GoogleMapPicker } from "../GoogleMapPicker.tsx";
 /** 地图按需加载（M9E-25）：Leaflet 单独成包，打开地图时才下载，嵌入页和其他页面的首包里没有 Leaflet */
 const SiteMapPicker = lazy(() => import("../SiteMapPicker.tsx").then((module) => ({ default: module.SiteMapPicker })));
 import { FullScreenSheet } from "../../../components/FullScreenSheet.tsx";
@@ -60,15 +61,20 @@ export interface PlaceFieldProps {
   hint?: string | readonly string[];
   /** 输入框下面的信息提示（不是出错，如旧链接没有下车地点时请客人补选） */
   info?: string;
-  /** 地图选点的底图；null 时没有「在地图上选点」 */
+  /** 地图选点的底图（开源地图）；和 `mapsKey` 都没有时没有「在地图上选点」 */
   tiles: MapTiles | null;
+  /**
+   * 谷歌地图的浏览器密钥（M10-01 第 2 处）：有就只用谷歌地图选点（加载不出来时收起地图、不退回开源地图，谷歌查出的地址不配开源地图）；
+   * 没有时照旧用开源地图（业主配好密钥之前的过渡）
+   */
+  mapsKey?: string | null;
   /** 地图从哪里打开（另一端或第一个城市的中心） */
   mapCenter: LatLngValue | null;
   /** 地图选点后查地址用：按选的位置找最近的可订城市 */
   cities: readonly CityCandidate[];
 }
 
-export function PlaceField({ label, value, onChange, error, hint, info, tiles, mapCenter, cities }: PlaceFieldProps) {
+export function PlaceField({ label, value, onChange, error, hint, info, tiles, mapsKey = null, mapCenter, cities }: PlaceFieldProps) {
   const id = useId();
   const listId = `${id}-list`;
   const statusId = `${id}-status`;
@@ -82,6 +88,10 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
   const [active, setActive] = useState(-1);
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [mapOpen, setMapOpen] = useState(false);
+  /** 谷歌地图加载不出来（中国大陆的网络、密钥被拒）：收起「在地图上选点」，改提示用搜索或手写地址 */
+  const [mapUnavailable, setMapUnavailable] = useState(false);
+  const google = mapsKey !== null && !mapUnavailable;
+  const canMap = google || (mapsKey === null && tiles !== null);
   const session = useRef(newSessionToken());
   const round = useRef(0);
   /** 最新的字段值：地图选点的反查回来时，看字段是不是还是那次选点（M8-42） */
@@ -162,8 +172,8 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
             const daily = found.unavailable_reason === "IP_DAILY_LIMIT";
             const head = daily ? PLACES_DAILY_LIMIT_TEXT : "地址提示暂时用不了";
             const text = found.items.length > 0
-              ? `${head}，下面只有平台的机场和车站${tiles === null ? "。" : `${daily ? "；" : "。"}${FALLBACK_MAP}`}`
-              : `${head}。${tiles !== null ? "请在地图上选点，或" : "请"}输入机场、车站的名称。`;
+              ? `${head}，下面只有平台的机场和车站${!canMap ? "。" : `${daily ? "；" : "。"}${FALLBACK_MAP}`}`
+              : `${head}。${canMap ? "请在地图上选点，或" : "请"}输入机场、车站的名称。`;
             setStatus({ kind: "notice", warning: true, text });
           }
           else setStatus(found.items.length > 0 ? { kind: "results" } : { kind: "empty" });
@@ -173,7 +183,7 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
           setItems([]);
           setOpen(false);
           const busy = err instanceof ApiError && err.status === 429;
-          setStatus({ kind: "notice", warning: true, text: `${busy ? "输入太快了，请稍等几秒再输入。" : "地址提示暂时用不了。"}${tiles !== null ? FALLBACK_MAP : ""}` });
+          setStatus({ kind: "notice", warning: true, text: `${busy ? "输入太快了，请稍等几秒再输入。" : "地址提示暂时用不了。"}${canMap ? FALLBACK_MAP : ""}` });
         },
       );
     }, AUTOCOMPLETE_DEBOUNCE_MS);
@@ -201,7 +211,7 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
       session.current = newSessionToken();
       if (found.place === null) {
         const head = found.unavailable_reason === "IP_DAILY_LIMIT" ? `${PLACES_DAILY_LIMIT_TEXT}，没有取到这个地点的位置，请选平台的机场、车站。` : "没有取到这个地点的位置，请换一个候选。";
-        setStatus({ kind: "notice", warning: true, text: `${head}${tiles !== null ? FALLBACK_MAP : ""}` });
+        setStatus({ kind: "notice", warning: true, text: `${head}${canMap ? FALLBACK_MAP : ""}` });
         return;
       }
       setStatus({ kind: "idle" });
@@ -211,7 +221,7 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
     } catch {
       if (mine !== round.current) return;
       session.current = newSessionToken();
-      setStatus({ kind: "notice", warning: true, text: `没有取到这个地点的位置，请稍后再选一次。${tiles !== null ? FALLBACK_MAP : ""}` });
+      setStatus({ kind: "notice", warning: true, text: `没有取到这个地点的位置，请稍后再选一次。${canMap ? FALLBACK_MAP : ""}` });
     }
   };
 
@@ -282,7 +292,7 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
   if (status.kind === "short") statusText = "请至少输入 2 个字，如酒店名、地址或机场";
   else if (status.kind === "loading") statusText = "正在查找…";
   else if (status.kind === "results") statusText = `找到 ${items.length} 个地点，用 ↑↓ 选择、回车确认。`;
-  else if (status.kind === "empty") statusText = `没有找到。请换个说法（如酒店的英文名、地址）。${tiles !== null ? FALLBACK_MAP : ""}`;
+  else if (status.kind === "empty") statusText = `没有找到。请换个说法（如酒店的英文名、地址）。${canMap ? FALLBACK_MAP : ""}`;
   else if (status.kind === "notice") statusText = status.text;
   const warning = status.kind === "notice" && status.warning;
   const describedBy = [error !== undefined ? errorId : null, info !== undefined ? infoId : null, hint !== undefined ? hintId : null, statusText !== "" ? statusId : null].filter(Boolean).join(" ");
@@ -347,14 +357,27 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
       </p>
     </>
   );
-  const map = tiles !== null && mapCenter !== null && (
+  const map = mapUnavailable ? (
+    <p className="site-address__status site-address__status--warning" role="status">
+      <Icon name="alert-triangle" />
+      地图加载不出来（可能是网络原因）。请用上面的搜索，或直接输入地址。
+    </p>
+  ) : canMap && mapCenter !== null && (
     <div className="site-address__map" role="group" aria-label={`${label}的地图`}>
       <Button className="site-address__map-toggle" aria-expanded={mapOpen} aria-controls={mapId} onClick={() => setMapOpen((current) => !current)}>
         <Icon name="map" />
         {mapOpen ? "收起地图" : "在地图上选点"}
       </Button>
       <div id={mapId} hidden={!mapOpen}>
-        {mapOpen && <Suspense fallback={null}><SiteMapPicker tiles={tiles} center={mapCenter} point={value === null ? null : { lat: value.lat, lng: value.lng }} word={label} onPick={(point) => void pickOnMap(point)} /></Suspense>}
+        {mapOpen &&
+          (google ? (
+            <GoogleMapPicker apiKey={mapsKey} center={mapCenter} point={value === null ? null : { lat: value.lat, lng: value.lng }} word={label} onPick={(point) => void pickOnMap(point)} onUnavailable={() => {
+                setMapOpen(false);
+                setMapUnavailable(true);
+              }} />
+          ) : tiles !== null ? (
+            <Suspense fallback={null}><SiteMapPicker tiles={tiles} center={mapCenter} point={value === null ? null : { lat: value.lat, lng: value.lng }} word={label} onPick={(point) => void pickOnMap(point)} /></Suspense>
+          ) : null)}
       </div>
     </div>
   );

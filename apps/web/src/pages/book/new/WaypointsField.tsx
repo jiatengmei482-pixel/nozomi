@@ -35,6 +35,8 @@ export interface WaypointsFieldProps {
   onChange(next: WaypointDraft[]): void;
   errors: WaypointErrors;
   tiles: MapTiles | null;
+  /** 谷歌地图选点的浏览器密钥（M10-01 第 2 处），见 PlaceField */
+  mapsKey?: string | null;
   mapCenter: LatLngValue | null;
   cities: readonly CityCandidate[];
   /** 出发时刻 HH:MM（推断指定到达时间是当天还是次日）；没填为空 */
@@ -43,7 +45,7 @@ export interface WaypointsFieldProps {
   late?: Readonly<Record<string, string>>;
 }
 
-export function WaypointsField({ value, onChange, errors, tiles, mapCenter, cities, startTime = "", late = {} }: WaypointsFieldProps) {
+export function WaypointsField({ value, onChange, errors, tiles, mapsKey = null, mapCenter, cities, startTime = "", late = {} }: WaypointsFieldProps) {
   const [announce, setAnnounce] = useState("");
   const listRef = useRef<HTMLOListElement>(null);
   const addRef = useRef<HTMLButtonElement>(null);
@@ -159,6 +161,7 @@ export function WaypointsField({ value, onChange, errors, tiles, mapCenter, citi
                     {...(rowErrors.point !== undefined ? { error: rowErrors.point } : {})}
                     hint={ADDRESS_ONLY_HINT}
                     tiles={tiles}
+                    mapsKey={mapsKey}
                     mapCenter={entry.point ?? mapCenter}
                     cities={cities}
                   />

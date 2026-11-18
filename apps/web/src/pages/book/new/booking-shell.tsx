@@ -25,6 +25,8 @@ export interface BookingShell {
    * 静态路线图失败时只留「约 X 分钟 · Y 公里」（ADR 0095 第九节第 5 小节、Q11）。
    */
   tiles(configured: MapTiles | null): MapTiles | null;
+  /** 谷歌地图选点的浏览器密钥（M10-01 第 2 处）：主站用配置里的；嵌入页一律 null（不提供地图选点） */
+  mapsKey(configured: string | null): string | null;
   /** 读预订草稿；`sourceMatches` 为 false 时询价不带 `draft_id`，来源按主站记 */
   readDraft(id: string): Promise<{ draft: BookingDraft; sourceMatches: boolean }>;
   /** 下单成功以后去哪儿 */
@@ -48,6 +50,7 @@ export const MAIN_BOOKING_SHELL: BookingShell = {
     </SiteLayout>
   ),
   tiles: (configured) => configured,
+  mapsKey: (configured) => configured,
   // 主站不带 key、host：请求和以前一样；主站自己的草稿来源由服务端按草稿记，这里总是带上编号
   readDraft: (id) => getSiteBookingDraft(id).then(({ draft }) => ({ draft, sourceMatches: true })),
   placed: (created, navigate) => {

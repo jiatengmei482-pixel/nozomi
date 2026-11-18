@@ -26,7 +26,8 @@ test("放行付款的那一条：只在 script-src、connect-src 上加 Stripe�
   const site = directives(contentSecurityPolicy([HASH], ["https://tiles.example.com"], { payments: true }));
   assert.equal(site.get("script-src"), `'self' '${HASH}' https://js.stripe.com https://*.js.stripe.com`);
   assert.equal(site.get("connect-src"), "'self' https://api.stripe.com");
-  assert.equal(site.get("frame-src"), "https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com");
+  // 'self'：官网选点的谷歌地图小页面（M10-01 第 2 处）是同源 iframe
+  assert.equal(site.get("frame-src"), "'self' https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com");
   assert.equal(plain.get("frame-src"), undefined, "普通页面的 iframe 只按 default-src 'self'");
   for (const [name, value] of plain) if (name !== "script-src" && name !== "connect-src") assert.equal(site.get(name), value, name);
   assert.deepEqual([...site.keys()].filter((name) => !plain.has(name)), ["frame-src"]);

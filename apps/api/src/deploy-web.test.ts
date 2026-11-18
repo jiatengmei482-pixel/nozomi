@@ -16,6 +16,8 @@ import {
   API_UPSTREAM,
   EDGE_CONFIG_PATH,
   EMBED_BOOK_URI_PATTERN,
+  MAPS_PICKER_URI_PATTERN,
+  mapsPickerPolicy,
   FRAME_CHECK_PATH,
   SITE_PAGE_URI_PATTERN,
   isEmbedBookPagePath,
@@ -131,13 +133,17 @@ test("生成的 Caddy 片段：@api 匹配器、官网页面 / 嵌入预订页 /
   assert.equal(lines[1], `@site_pages expression \`${isSite}\``);
   // 嵌入预订页（M9E-16，ADR 0095 第五节第 1 小节）单独一个匹配器；其余页面排除前两者，三个互斥
   assert.equal(lines[2], `@embed_book_pages expression \`${isEmbed}\``);
-  assert.equal(lines[3], `@other_pages expression \`!${isSite} && !${isEmbed}\``);
+  // 官网选点的谷歌地图小页面（M10-01 第 2 处）单独一个匹配器（不分大小写以外的写法都不认）；其余页面排除前三者，四个互斥
+  const isPicker = `{http.request.orig_uri}.matches("${MAPS_PICKER_URI_PATTERN}")`;
+  assert.equal(lines[3], `@maps_picker_pages expression \`${isPicker}\``);
+  assert.equal(lines[4], `@other_pages expression \`!${isSite} && !${isEmbed} && !${isPicker}\``);
   // 图片来源里有一个 Caddy 的环境变量占位：部署时由 MAP_TILE_CSP_SOURCES 填入（地图底图的来源，ADR 0015），没配就是空
-  assert.equal(lines[4], `header @site_pages Content-Security-Policy "${contentSecurityPolicy(hashes, ["{$MAP_TILE_CSP_SOURCES}"], { payments: true })}"`);
-  assert.equal(lines[5], `header @other_pages Content-Security-Policy "${contentSecurityPolicy(hashes, ["{$MAP_TILE_CSP_SOURCES}"])}"`);
-  assert.ok(!/stripe/.test(lines[5] ?? ""), "后台和登录页的策略不放行 Stripe");
+  assert.equal(lines[5], `header @site_pages Content-Security-Policy "${contentSecurityPolicy(hashes, ["{$MAP_TILE_CSP_SOURCES}"], { payments: true })}"`);
+  assert.equal(lines[6], `header @maps_picker_pages Content-Security-Policy "${mapsPickerPolicy()}"`);
+  assert.equal(lines[7], `header @other_pages Content-Security-Policy "${contentSecurityPolicy(hashes, ["{$MAP_TILE_CSP_SOURCES}"])}"`);
+  assert.ok(!/stripe/.test(lines[7] ?? ""), "后台和登录页的策略不放行 Stripe");
   // 嵌入预订页：整段在 route 里按书写顺序执行——删伪造头 → forward_auth（只转 key、host，不带原地址、Cookie、Authorization）→ 加策略 → 不缓存 → index.html
-  assert.deepEqual(lines.slice(6), [
+  assert.deepEqual(lines.slice(8), [
     "handle @embed_book_pages {",
     "\troute {",
     "\t\trequest_header -X-Nozomi-Frame-Ancestor",
@@ -156,7 +162,8 @@ test("生成的 Caddy 片段：@api 匹配器、官网页面 / 嵌入预订页 /
     "\t}",
     "}",
   ]);
-  const policies = lines.filter((line) => line.includes("Content-Security-Policy"));
+  // 地图小页面的策略不带本站的脚本哈希和底图来源（它只加载自己的 picker.js 和谷歌地图），单独核对（apps/web/src/lib/site-csp.qa.test.ts）
+  const policies = lines.filter((line) => line.includes("Content-Security-Policy") && !line.startsWith("header @maps_picker_pages "));
   assert.equal(policies.length, 3);
   for (const line of policies) {
     assert.match(line, /; img-src 'self' \{\$MAP_TILE_CSP_SOURCES\}; font-src 'self';/);

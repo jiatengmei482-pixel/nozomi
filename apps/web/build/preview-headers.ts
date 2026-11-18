@@ -10,7 +10,7 @@
  * 纯逻辑，不依赖 vite；`preview-headers.test.ts` 核对它和 `renderEdgeConfig` 给出的策略逐字一致。
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { FRAME_ANCESTOR_HEADER, FRAME_CHECK_PATH, edgePolicies, isEmbedBookPagePath, isFrameAncestorSource, isSitePagePath } from "./edge-config.ts";
+import { FRAME_ANCESTOR_HEADER, FRAME_CHECK_PATH, edgePolicies, isEmbedBookPagePath, isFrameAncestorSource, isMapsPickerPath, isSitePagePath } from "./edge-config.ts";
 
 type Fetch = (url: string, init: { redirect: "manual"; headers: Record<string, string> }) => Promise<Response>;
 
@@ -36,6 +36,8 @@ export type PreviewDecision =
 export async function previewDecision(requestUrl: string, scriptHashes: readonly string[], imageSources: readonly string[], apiOrigin: string, fetchImpl: Fetch = fetch, forwardedFor?: string): Promise<PreviewDecision> {
   const policies = edgePolicies(scriptHashes, imageSources);
   const base = { "x-frame-options": "DENY" };
+  // 地图小页面（M10-01 第 2 处）：同源可嵌，所以不带 X-Frame-Options: DENY（Caddy 那边靠 frame-ancestors 覆盖）
+  if (isMapsPickerPath(requestUrl)) return { kind: "page", headers: { "content-security-policy": policies.mapsPicker } };
   if (!isEmbedBookPagePath(requestUrl)) return { kind: "page", headers: { ...base, "content-security-policy": isSitePagePath(requestUrl) ? policies.site : policies.other } };
   let response: Response;
   try {
