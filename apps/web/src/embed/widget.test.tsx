@@ -1277,3 +1277,33 @@ test("M9E-11 重复 init：旧实例在等坐标时同一个容器又 init 了�
   assert.equal($('[data-field="dropoff"] [aria-live]').textContent, "", "新表单没有「正在取位置」");
   assert.equal($<HTMLInputElement>('[data-field="dropoff"] input').value, "", "旧坐标不写进新表单");
 });
+
+test("M9E-11 人数弹层往下放不下时往上弹：超出组件底边且上面放得下 → data-placement=up；放得下照旧往下；上面也放不下照旧往下", async () => {
+  handler = places;
+  await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh" }, () => undefined);
+  const trigger = $<HTMLButtonElement>('[data-action="guests"]');
+  const pop = shadow().getElementById(trigger.getAttribute("aria-controls") ?? "") as HTMLElement;
+  const shell = $(".nzb-shell");
+  const rect = (top: number, height: number) => ({ top, bottom: top + height, height, left: 0, right: 300, width: 300, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
+  const layout = (shellTop: number, shellHeight: number, triggerTop: number, popHeight: number): void => {
+    shell.getBoundingClientRect = () => rect(shellTop, shellHeight);
+    trigger.getBoundingClientRect = () => rect(triggerTop, 48);
+    pop.getBoundingClientRect = () => rect(triggerTop + 48 + 6, popHeight);
+  };
+  const toggle = (): void => trigger.click();
+  // 人数在卡片最下面（按钮 400–448，组件到 460），弹层 200 高：往下到 654 超出，往上 194–394 放得下
+  layout(0, 460, 400, 200);
+  toggle();
+  assert.equal(pop.getAttribute("data-placement"), "up");
+  toggle();
+  assert.equal(pop.hasAttribute("data-placement"), false, "关上时清掉");
+  // 组件够高：往下放得下
+  layout(0, 900, 400, 200);
+  toggle();
+  assert.equal(pop.hasAttribute("data-placement"), false);
+  toggle();
+  // 上面也放不下（按钮 100–148）：照旧往下
+  layout(0, 200, 100, 200);
+  toggle();
+  assert.equal(pop.hasAttribute("data-placement"), false);
+});

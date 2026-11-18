@@ -1326,7 +1326,7 @@
             "可选：styles.edge.test.ts 的 SVG 命名空间放行只限 embed/widget-icons.ts",
             "重复 init：旧实例的异步回调（取位置、等位置的提交）要先看 destroyed，不再影响新表单（按钮状态和文字、错误提示、焦点）；改代码 + 测试（同一容器 init 两次，旧实例取位置 / 提交晚回来时新表单不变）"
           ],
-          "evidence": "第 4 条（重复 init）：旧实例取坐标、搜索候选、等坐标的提交、建草稿和探配置回来后先看 destroyed，不再碰新表单；destroy 时叫醒等坐标的提交让它退出；widget.test 新增用例（不修时旧实例会建草稿，修后 0）。第 3 条：styles.edge 对 SVG 命名空间的放行只限 embed/widget-icons.ts。其余两条（横条 768–1100 截断、卡片人数弹层被裁）待做",
+          "evidence": "第 4 条（重复 init）：旧实例取坐标、搜索候选、等坐标的提交、建草稿和探配置回来后先看 destroyed，不再碰新表单；destroy 时叫醒等坐标的提交让它退出；widget.test 新增用例（不修时旧实例会建草稿，修后 0）。第 3 条：styles.edge 对 SVG 命名空间的放行只限 embed/widget-icons.ts。第 2 条：人数弹层往下放不下（超出组件底边）且上面放得下时往上弹（data-placement=up），widget.test 用排版尺寸桩验证三种情形；还没做 overflow: hidden 宿主里的端到端截图验证。剩第 1 条（横条 768–1100 截断，要截图核对）",
           "updated": "2026-11-18"
         },
         {

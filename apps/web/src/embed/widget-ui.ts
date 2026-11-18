@@ -515,6 +515,16 @@ class Widget {
     const field = el("div", { class: "nzb-field nzb-guests" }, [el("span", { id: labelId, class: "nzb-label" }, [t.guests]), trigger, pop]);
     const open = (show: boolean, refocus = false): void => {
       pop.hidden = !show;
+      // 人数弹层往下放不下时往上弹（M9E-11）：卡片里人数在最下面，往下会超出组件底边，合作网站的容器 overflow: hidden 时被裁掉
+      pop.removeAttribute("data-placement");
+      if (show) {
+        const shell = this.shadow.querySelector(".nzb-shell");
+        const box = pop.getBoundingClientRect();
+        const outer = shell?.getBoundingClientRect();
+        const anchor = trigger.getBoundingClientRect();
+        // 往上弹时弹层的顶边 = 按钮顶边 − 间距 6 − 弹层高度；上面也放不下就照旧往下（宁可被裁一点，也不盖住组件上沿以外）
+        if (outer !== undefined && box.bottom > outer.bottom && anchor.top - 6 - box.height >= outer.top) pop.setAttribute("data-placement", "up");
+      }
       trigger.setAttribute("aria-expanded", String(show));
       if (show) (pop.querySelector("[data-step]:not([aria-disabled])") as HTMLElement | null)?.focus();
       if (refocus) trigger.focus();
