@@ -769,6 +769,8 @@ interface PublishChecked {
   stacks: AdjustStackProblem[];
   /** 「三层区域重叠」一项里的区域名（M9P-13）：写进提醒的句子 */
   areaNames?: ReadonlyMap<string, string>;
+  /** 「热门地标覆盖」一项里的地标名（M9P-07F）：两个后台都直接写出名字，页面不用另取整张地标表 */
+  placeNames?: ReadonlyMap<string, string>;
 }
 
 const pad2 = (value: number): string => String(value).padStart(2, "0");
@@ -800,6 +802,10 @@ function publishCheckView(checked: PublishChecked): PublishCheckView {
         const stack = item.key === "adjust_rules" && issue.path.startsWith("/stacks/") ? checked.stacks[Number(issue.path.slice("/stacks/".length))] : undefined;
         if (stack !== undefined) return stackIssue(issue, stack, checked.adjustRules);
         if (item.key === "charter_layer_overlap") return charterOverlapIssue(issue, checked.areaNames ?? new Map());
+        if (item.key === "charter_coverage") {
+          const name = checked.placeNames?.get(issue.path.slice("/places/".length));
+          return name === undefined ? issue : { ...issue, detail: { ...issue.detail, name } };
+        }
         const rule = item.key === "adjust_rules" ? checked.adjustRules[Number(issue.path.slice(1))] : undefined;
         return rule === undefined ? issue : { ...issue, detail: { ...issue.detail, rule_id: rule.id, name: rule.name } };
       }),
@@ -900,7 +906,10 @@ async function runPublishCheck(db: Db, tenantId: string, product: Product, now: 
   };
   const areaNames = new Map<string, string>();
   if (overlaps.length > 0) for (const [id, area] of await findAreasForProduct(db, tenantId, [...new Set(overlaps.flatMap((entry) => [entry.a, entry.b]))])) areaNames.set(id, displayText(area.name));
-  return { items: publishCheck(facts), adjustRules: adjustRules.map((rule) => ({ id: rule.id, name: rule.name })), stacks, areaNames };
+  const placeNames = new Map<string, string>();
+  const uncoveredPlaces = facts.charterUncoveredPlaces ?? [];
+  if (uncoveredPlaces.length > 0) for (const row of (await db.query<{ id: string; name: LocalizedText }>("select id, name from places where id = any($1::uuid[])", [uncoveredPlaces])).rows) placeNames.set(row.id, displayText(row.name));
+  return { items: publishCheck(facts), adjustRules: adjustRules.map((rule) => ({ id: rule.id, name: rule.name })), stacks, areaNames, placeNames };
 }
 
 const displayText = (name: LocalizedText): string => name.zh ?? name.ja ?? name.en ?? name.ko ?? "";
