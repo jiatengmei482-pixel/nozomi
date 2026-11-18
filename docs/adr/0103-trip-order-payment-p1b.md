@@ -192,7 +192,7 @@ ADR 0101 第四节已经规定每笔费用的「所属那一天、那个商品�
 - **可退的钱**：`refundableCharges`（`services/order-money.ts:29`）对子订单返回两类来源：
   - 「行程付款分到这张单的那部分」：可退 = `allocated_minor` − 这张单在 `trip_refunds` 里已退和正在退的；
   - 这张单自己的 `order_payments` 补收行（`kind = change`），同现在。
-  
+
   `refundableCharges` 现在返回 `{ payment: OrderPayment; availableMinor }[]`，要改为带来源的联合类型（`{ source: "order_payment", payment } | { source: "trip_payment", tripPayment, orderId }`）——**类型变了，调用方要跟着改**（`scheduleRefund`、`netPaidMinor`、手动重试 `order-money.ts:141-145`、取消、工单），普通订单只会出现第一种来源，结果不变（第九节对照测试）。`allocateRefund` 的拆法（从最近收的那一笔开始退）不变，落表时按来源分别写 `trip_refunds` 或 `order_refunds`。
 - **发退款**：新 `processTripRefund`，照抄 `processRefund` 的租约、重试（1 / 5 / 30 / 120 / 360 分钟，5 次后失败等财务）、作废逻辑（`services/order-money.ts` 文件头注释）；**手动重试**照抄 `order-money.ts:141-145` 的核对（`refundRetryRefusal`：已作废的不重试、重试后客人留下的不少于应留下的），其中「这笔付款还能退多少」换成这张子订单在行程付款上的可退额。Stripe 对**同一笔** PaymentIntent 做部分退款，幂等键 = 退款记录编号。`PaymentProvider.refundPayment` **接口不改**（`integrations/payments.ts:95-102`）：`intentId` 传行程付款的，`orderId` / `orderNo` 传子订单的，`refundId` 传 `trip_refunds.id`；所以 Stripe 元数据里是子订单号和退款记录编号（`integrations/stripe.ts:301`），**不带行程订单号**，按退款记录编号可查到行程订单。每张子订单的退款合计不超过它的 `allocated_minor`，所以全部子订单的退款合计不会超过这笔付款。
 - **退款回调**：按 Stripe 退款编号先查 `order_refunds`（`findRefundByProviderId`，`repos/refunds.ts:85`），查不到再查 `trip_refunds`。
