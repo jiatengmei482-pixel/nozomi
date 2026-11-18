@@ -1940,8 +1940,8 @@
           "id": "M9T-10",
           "title": "下单出口：单段方案经 POST /site/v1/trips/{id}/plans/{planId}/order-quote 生成普通官网报价后走现有下单付款；多段方案按业主决定（推荐 A：「提交预订，客服确认」= 带 trip_id + plan_kind 的人工报价）（ADR 0101 第十三节第 3 小节）",
           "role": "backend",
-          "status": "todo",
-          "blockedBy": "依赖 M9T-08、M9T-09；多段方案待业主决定（#288）",
+          "status": "doing",
+          "evidence": "第 1 部分（后端，本 PR）：POST /site/v1/trips/{id}/plans/{planId}/order-quote（services/trips.ts orderQuoteForPlan、repos/trips.ts findTripPlanForOrder、routes/site-trips.ts）：单段方案按这一段的条件走一次官网正式询价（siteQuotes，写询价日志和 quotes），取方案车型组那一张，价格 ≠ 方案总价 409 TRIP_PRICE_CHANGED；方案过期 409 TRIP_PLAN_EXPIRED、多段 / 空闲日 / 带跨段费用 409 TRIP_PLAN_NOT_SINGLE_SEGMENT、方案不存在 404 TRIP_PLAN_NOT_FOUND；不新增表、不改表，占 site_quote 额度；OpenAPI SiteTripOrderQuote、前端 createSiteTripOrderQuote 与契约测试；trips.itest 4 条（包车 / 接机 / 回落点对点转报价并经 POST /site/v1/orders 下单、价格不一致、多段 / 费用 / 过期 / 404）。第 2 部分（页面）待做；多段方案仍待业主决定（#288）",
           "acceptance": ["桥接生成的报价价格与方案里这一段的对外价一致，不一致 409；之后完全走现有下单、付款流程，不新增付款代码", "不改现有报价、下单接口的入参与结果", "测试站用 Stripe 测试卡跑通单段方案下单付款；CI 全绿"],
           "updated": "2026-11-18"
         }

@@ -56,12 +56,13 @@ import { withPlatformTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
 import { findQuotePlace } from "../repos/quotes.ts";
 import { type AirportCandidateRow, listActiveCities, listAirportsNear } from "../repos/site.ts";
-import { type StoredTripPlan, type TripFeeInsert, type TripPlanInsert, type TripRow, type TripSegmentInsert, findReadableTrip, insertTrip, listTripPlans, listTripRuleConfigs, replaceTripPlans } from "../repos/trips.ts";
+import { type StoredTripPlan, type TripFeeInsert, type TripPlanForOrder, type TripPlanInsert, type TripRow, type TripSegmentInsert, findReadableTrip, findTripPlanForOrder, insertTrip, listTripPlans, listTripRuleConfigs, replaceTripPlans } from "../repos/trips.ts";
+import { isUuid } from "../pagination.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
 import type { BackgroundLog } from "./background.ts";
 import { type PlatformQuoteInput, type PlatformQuotePreview, previewPlatformQuote } from "./quotes.ts";
-import { type SalesQuoteInput, demandFacts } from "./sales-quotes.ts";
-import { type SiteCity, type SiteWaypoint, charterCityFor, itineraryRoute, requireOpenSite, siteCities } from "./site.ts";
+import { type SalesQuoteInput, demandFacts, salesMoney } from "./sales-quotes.ts";
+import { type QuotedCity, type SiteCity, type SiteItinerary, type SiteQuote, type SiteQuoteInput, type SiteTrip, type SiteWaypoint, charterCityFor, itineraryRoute, requireOpenSite, siteCities, siteQuotes } from "./site.ts";
 import { type DemandFacts, recordUncoveredDemandLater } from "./uncovered-demands.ts";
 
 export const TRIP_RULES_API = {
@@ -585,6 +586,116 @@ export async function quoteTrip(ctx: AppContext, id: string, options: { audience
     "行程报价完成",
   );
   return getTrip(ctx, id, options.audience);
+}
+
+// ---- 下单出口（M9T-10，ADR 0101 第十三节第 3 小节） ----
+
+export const tripPlanNotFound = (): AppError => new AppError(404, "TRIP_PLAN_NOT_FOUND", "方案不存在，请重新报价");
+const tripPlanExpired = (expiresAt: Date | null): AppError => new AppError(409, "TRIP_PLAN_EXPIRED", "方案的报价已过 30 分钟有效期，请重新报价", { expires_at: expiresAt?.toISOString() ?? null });
+/** 单段才能桥接成一张普通报价：多段（待业主决定）、空闲日、带跨段费用的（一张普通报价放不下跨段费用，价格永远对不上）都不行 */
+const tripPlanNotSingleSegment = (reason: "MULTI_SEGMENT" | "IDLE_DAY" | "HAS_FEES", segmentCount: number): AppError =>
+  new AppError(409, "TRIP_PLAN_NOT_SINGLE_SEGMENT", "这个方案不能直接在线下单（只有整个方案只有一段、没有跨段费用的可以）", { reason, segment_count: segmentCount });
+/** 同样条件正式询价的价和方案里的对外价不一样（或这个车型组报不出了）：让客人重新报价 */
+/** `reason`：`PRICE_CHANGED` 报出了但价格不同；`NO_OFFER` 这个车型组这次报不出；`CONDITIONS_CHANGED` 条件已对不上（机场停用、认不出机场等） */
+type TripPriceChangedReason = "PRICE_CHANGED" | "NO_OFFER" | "CONDITIONS_CHANGED";
+const tripPriceChanged = (planTotal: { amount: string; currency: CurrencyCode }, quoteTotal: { amount: string; currency: CurrencyCode } | null, reason: TripPriceChangedReason): AppError =>
+  new AppError(409, "TRIP_PRICE_CHANGED", "价格有变化，请重新报价", { plan_total: planTotal, quote_total: quoteTotal, reason });
+
+/** 下单出口的结果：一张普通官网报价（和 `POST /site/v1/quotes` 应答里的一张同样）、按哪个城市报的、等价的官网询价请求（页面带进 /book/new） */
+export interface TripOrderQuote {
+  tripId: string;
+  planId: string;
+  currency: string;
+  /** 这一段的段型（`airport_pickup` / `airport_dropoff` / `p2p` / `charter`）：接送机回落点对点时，页面据此知道原本是接机 / 送机 */
+  segmentType: string;
+  quote: SiteQuote;
+  city: QuotedCity | null;
+  itinerary: SiteItinerary | null;
+  /** 等价的 `POST /site/v1/quotes` 请求体（snake_case）：页面用它恢复 /book/new 的填写状态 */
+  quoteRequest: Record<string, unknown>;
+}
+
+/**
+ * 单段方案 → 普通官网报价（M9T-10）：用这一段的报价条件（段型、品类、城市、开始时刻、点、人数行李、附加项）走一次官网正式询价（`siteQuotes`，
+ * 写询价日志和 `quotes`，30 分钟有效），取方案车型组的那一张；价格必须等于方案的对外总价，否则 409 `TRIP_PRICE_CHANGED`。
+ * 之后客人凭 `quote_id` 走现有下单、付款（`POST /site/v1/orders`），不另写付款代码。不新增表、不改表。
+ * 行程单不存在 / 过期 / 别的渠道 / 验收会话不一致 404 `TRIP_NOT_FOUND`；方案不存在或没报出 404 `TRIP_PLAN_NOT_FOUND`；方案过期 409 `TRIP_PLAN_EXPIRED`；
+ * 不是单段 409 `TRIP_PLAN_NOT_SINGLE_SEGMENT`。这次询价报不出不记未覆盖需求（编排时已按官网条件记过）。
+ */
+export async function orderQuoteForPlan(ctx: AppContext, id: string, planId: string, options: { audience: SiteAudience; log: TripLog; waypointNames: readonly string[] | null }): Promise<TripOrderQuote> {
+  if (!TRIP_ID.test(id)) throw tripNotFound();
+  if (!isUuid(planId)) throw tripPlanNotFound();
+  const { principal, channel } = await requireOpenSite(ctx);
+  const now = ctx.now();
+  const { trip, plan } = await withPlatformTx(
+    ctx.pool,
+    async (db) => {
+      const found = await findReadableTrip(db, id, principal.channelId, now);
+      if (found === null || found.isAcceptance !== (options.audience === "acceptance")) throw tripNotFound();
+      return { trip: found, plan: await findTripPlanForOrder(db, id, planId) };
+    },
+    { snapshot: true },
+  );
+  if (plan === null || plan.status !== "quoted" || plan.sellMinor === null) throw tripPlanNotFound();
+  if (plan.expiresAt === null || plan.expiresAt.getTime() <= now.getTime()) throw tripPlanExpired(plan.expiresAt);
+  if (plan.segments.length !== 1) throw tripPlanNotSingleSegment("MULTI_SEGMENT", plan.segments.length);
+  const segment = plan.segments[0] as TripPlanForOrder["segments"][number];
+  if (segment.segmentType === "idle_day" || segment.category === null || segment.startLocal === null) throw tripPlanNotSingleSegment("IDLE_DAY", 1);
+  if (plan.feeCount > 0) throw tripPlanNotSingleSegment("HAS_FEES", 1);
+  // ADR：价格等于方案里这一段的对外价；单段、无跨段费用时段价 = 方案总价，对不上说明数据不一致，同样当价格变了
+
+  const currency = plan.currency as CurrencyCode;
+  const planTotal = salesMoney(plan.sellMinor, currency);
+  const itinerary = trip.itinerary;
+  const env: Env = { ctx, channel, principal, audience: options.audience, itinerary, firstDate: (itinerary.days[0] as TripItinerary["days"][number]).date, cache: new Map(), p2pCities: null, segmentQuotes: 0, routeCalls: 0, log: options.log };
+  // 点按编排时同样的规则重新认（平台地点 → 坐标；坐标 → 认机场）；单段方案的这一段就是这一天的全部点
+  const points = (await resolvePoints(ctx, env)).days[segment.dayIndex] ?? null;
+  // 条件已经对不上（例如机场停用、认不出机场了）：和价格变了一样，让客人重新报价
+  if (points === null || points.length < 2) throw tripPriceChanged(planTotal, null, "CONDITIONS_CHANGED");
+  const first = points[0] as ResolvedPoint;
+  const last = points[points.length - 1] as ResolvedPoint;
+  const middle = points.slice(1, -1);
+  const waypointCount = segment.segmentType === "charter" ? middle.length : 0;
+  if (options.waypointNames !== null && options.waypointNames.length !== waypointCount) {
+    throw validationFailed("body", [{ path: "/waypoint_names", reason: "COUNT_MISMATCH", message: `经停点名称要和这一段的经停点一样多（${waypointCount} 个）` }]);
+  }
+  const ll = (p: LatLng): { lat: number; lng: number } => ({ lat: p.lat, lng: p.lng });
+  const party = { passengers: passengersOf(itinerary), luggage: itinerary.party.luggage, addons: itinerary.preferences.addons.map((addon) => ({ addonId: addon.addonId, quantity: addon.quantity })) };
+  const common = { service_local: segment.startLocal, passengers: party.passengers, luggage: party.luggage, addons: party.addons.map((addon) => ({ addon_id: addon.addonId, quantity: addon.quantity })) };
+  let tripInput: SiteTrip;
+  let cityId: string | null;
+  let quoteRequest: Record<string, unknown>;
+  if (segment.segmentType === "charter") {
+    // 同编排：按行程计价、自动选档；城市由服务器按上下车点找（charterCityFor）
+    const waypoints: SiteWaypoint[] = middle.map((p, i) => ({ name: options.waypointNames?.[i] ?? `经停 ${i + 1}`, lat: p.lat, lng: p.lng, stay_minutes: p.stayMinutes }));
+    tripInput = { category: "charter_itinerary", pickup: ll(first), dropoff: ll(last), waypoints };
+    cityId = null;
+    quoteRequest = { category: "charter", itinerary_pricing: true, pickup: ll(first), dropoff: ll(last), waypoints: waypoints.map((stop) => ({ name: stop.name, lat: stop.lat, lng: stop.lng, stay_minutes: stop.stay_minutes })), ...common };
+  } else if (segment.category === "airport_transfer") {
+    if (points.length !== 2 || segment.cityId === null) throw tripPriceChanged(planTotal, null, "CONDITIONS_CHANGED");
+    const pickup = segment.segmentType === "airport_pickup";
+    const airport = pickup ? first.airport : last.airport;
+    if (airport === null || airport.cityId !== segment.cityId) throw tripPriceChanged(planTotal, null, "CONDITIONS_CHANGED");
+    const address = ll(pickup ? last : first);
+    tripInput = { category: "airport_transfer", airportId: airport.id, direction: pickup ? "pickup" : "dropoff", address };
+    cityId = airport.cityId;
+    quoteRequest = { category: "airport_transfer", city_id: airport.cityId, airport_id: airport.id, direction: pickup ? "pickup" : "dropoff", address, ...common };
+  } else {
+    // 点对点段，和接送机报不出时回落点对点的那一段（段型仍是接机 / 送机，品类记 point_to_point）
+    if (points.length !== 2 || segment.cityId === null) throw tripPriceChanged(planTotal, null, "CONDITIONS_CHANGED");
+    tripInput = { category: "point_to_point", pickup: ll(first), dropoff: ll(last) };
+    cityId = segment.cityId;
+    quoteRequest = { category: "point_to_point", city_id: segment.cityId, pickup: ll(first), dropoff: ll(last), ...common };
+  }
+  const input: SiteQuoteInput = { cityId, trip: tripInput, serviceLocal: segment.startLocal, ...party, ...(options.audience === "acceptance" ? { audience: "acceptance" as const } : {}), log: options.log };
+  const result = await siteQuotes(ctx, input, { via: "trip_order_quote", trip_plan_id: planId });
+  const vehicleGroupId = segment.vehicleGroupId ?? plan.vehicleGroupId;
+  const quote = result.quotes.find((entry) => entry.vehicleGroup.id === vehicleGroupId) ?? null;
+  const matched = quote !== null && quote.currency === currency && quote.sellMinor === plan.sellMinor && segment.sellMinor === plan.sellMinor;
+  options.log.info({ event: "trip.order_quote", trip_id: id, plan_id: planId, segment_type: segment.segmentType, category: segment.category, quote_id: quote?.quoteId ?? null, matched }, matched ? "行程方案已转成普通报价" : "行程方案转普通报价时价格对不上");
+  if (quote === null) throw tripPriceChanged(planTotal, null, "NO_OFFER");
+  if (!matched) throw tripPriceChanged(planTotal, salesMoney(quote.sellMinor, quote.currency), "PRICE_CHANGED");
+  return { tripId: id, planId, currency, segmentType: segment.segmentType, quote, city: result.city ?? null, itinerary: result.itinerary ?? null, quoteRequest };
 }
 
 function planInsert(plan: BuiltPlan, seq: number, ctx: { buildDays: readonly BuildDay[]; segmentQuotes: ReadonlyMap<BuildSegment, SegmentQuote>; firstDate: string; currency: string; expiresAt: Date; degraded: boolean }): TripPlanInsert {

@@ -1105,3 +1105,40 @@ export const SITE_TRIP_QUOTE_TIMEOUT_MS = 60_000;
 export function quoteSiteTrip(id: string): Promise<SiteTrip> {
   return apiRequest("POST", `${SITE_TRIPS_PATH}/${encodeURIComponent(id)}/quote`, { timeoutMs: SITE_TRIP_QUOTE_TIMEOUT_MS });
 }
+
+/** 下单出口的请求体（M9T-10）：包车这一段各经停点的显示名称（按顺序、个数和经停点一样多），只给司机看、不影响价格；不带时写「经停 N」 */
+export interface SiteTripOrderQuoteRequest {
+  waypoint_names?: string[];
+}
+
+/** 单段方案转成的普通官网报价（M9T-10，ADR 0101 第十三节第 3 小节）：凭 `quote.quote_id` 走现有下单、付款（`createSiteOrder`） */
+export interface SiteTripOrderQuote {
+  trip_id: string;
+  plan_id: string;
+  currency: string;
+  /** 这一段的段型；接送机回落点对点时仍是接机 / 送机 */
+  segment_type: "airport_pickup" | "airport_dropoff" | "p2p" | "charter";
+  /** 包车：按哪个城市报的价；接送机、点对点为 null */
+  city: SiteQuotedCity | null;
+  /** 价格 = 方案的对外总价 */
+  quote: SiteQuote;
+  /** 等价的 `POST /site/v1/quotes` 请求体：恢复 /book/new 的填写状态用 */
+  quote_request: SiteQuoteRequest;
+  /** 包车按行程计价的路线；接送机、点对点为 null */
+  itinerary_route: SiteItineraryRouteJson | null;
+  expires_at: string;
+}
+
+export const SITE_TRIP_ORDER_QUOTE_FIELDS: readonly (keyof SiteTripOrderQuote)[] = ["trip_id", "plan_id", "currency", "segment_type", "city", "quote", "quote_request", "itinerary_route", "expires_at"];
+export const SITE_TRIP_ORDER_QUOTE_REQUEST_FIELDS: readonly (keyof SiteTripOrderQuoteRequest)[] = ["waypoint_names"];
+
+export const siteTripOrderQuotePath = (tripId: string, planId: string): string => `${SITE_TRIPS_PATH}/${encodeURIComponent(tripId)}/plans/${encodeURIComponent(planId)}/order-quote`;
+
+/**
+ * 单段方案 → 普通官网报价（M9T-10）。价格和方案对不上 409 `TRIP_PRICE_CHANGED`、方案过期 409 `TRIP_PLAN_EXPIRED`、
+ * 不是单段 409 `TRIP_PLAN_NOT_SINGLE_SEGMENT`（都让客人重新报价或换方式）；方案不存在 404 `TRIP_PLAN_NOT_FOUND`、行程单不在 404 `TRIP_NOT_FOUND`。
+ * 和官网询价共用每个地址每分钟 30 次
+ */
+export function createSiteTripOrderQuote(tripId: string, planId: string, body: SiteTripOrderQuoteRequest = {}): Promise<SiteTripOrderQuote> {
+  return apiRequest("POST", siteTripOrderQuotePath(tripId, planId), { body });
+}

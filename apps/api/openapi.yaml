@@ -13555,6 +13555,86 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "503":
           $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/trips/{id}/plans/{planId}/order-quote:
+    post:
+      tags: [ 官网 ]
+      operationId: createSiteTripOrderQuote
+      summary: 单段方案转成普通官网报价（下单出口）
+      description: |
+        M9T-10，ADR 0101 第十三节第 3 小节。整个方案只有一段（例如单日一车到底）时，用这一段的报价条件（段型、品类、城市、开始时刻、各点、人数行李、附加项）
+        走一次官网正式询价（同 `POST /site/v1/quotes`：写询价日志、生成 `quote_id`、30 分钟有效），取方案车型组的那一张。
+        **价格必须等于方案的对外总价**（`plans[].total`），不一样、或这个车型组报不出了时 409 `TRIP_PRICE_CHANGED`（`details.plan_total`、`details.quote_total`，后者报不出时为 null），页面让客人重新报价。
+        成功后凭 `quote.quote_id` 走现有下单、付款（`POST /site/v1/orders`，`/book/new` 的乘客信息、下单、Stripe），不另有付款接口；`quote_request` 是等价的官网询价请求体，页面用它恢复 `/book/new` 的填写状态。
+        行程单不存在、已过期、编号格式不对、不是本渠道、验收会话和普通客人不一致 404 `TRIP_NOT_FOUND`；方案不存在、不是这一行程最近一次报价的、没报出 404 `TRIP_PLAN_NOT_FOUND`；
+        方案过了 30 分钟有效期 409 `TRIP_PLAN_EXPIRED`（重新报价）；方案不止一段（多段方案的预订方式待业主决定）、是空闲日、带跨段费用（一张普通报价放不下）409 `TRIP_PLAN_NOT_SINGLE_SEGMENT`
+        （`details.reason`：`MULTI_SEGMENT` / `IDLE_DAY` / `HAS_FEES`，`details.segment_count`）。这次询价报不出不记未覆盖需求。
+        和官网询价共用额度：每个地址每分钟 30 次。应答没有结算价、加价比例、供应商编号。
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 行程单编号（43 个 base64url 字符）
+          schema:
+            type: string
+        - name: planId
+          in: path
+          required: true
+          description: 方案编号（`plans[].plan_id`）
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                waypoint_names:
+                  type: array
+                  maxItems: 12
+                  description: 可选：包车这一段各经停点的显示名称（按顺序，个数要和经停点一样多，否则 400 `COUNT_MISMATCH`；接送机、点对点只能是空数组）。只随报价锁定、下单时抄进订单给司机看，不影响价格；不带时写「经停 N」
+                  items:
+                    type: string
+                    minLength: 1
+                    maxLength: 200
+      responses:
+        "200":
+          description: 生成的普通官网报价（价格 = 方案对外总价）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteTripOrderQuote"
+        "400":
+          description: "`VALIDATION_FAILED`：`waypoint_names` 个数不对（`COUNT_MISMATCH`）、行程里的机场 / 车站已停用（`UNKNOWN_PLACE`）等"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/QaSessionInvalid"
+        "404":
+          description: "`TRIP_NOT_FOUND`、`TRIP_PLAN_NOT_FOUND`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: "`TRIP_PRICE_CHANGED`、`TRIP_PLAN_EXPIRED`、`TRIP_PLAN_NOT_SINGLE_SEGMENT`：都要客人重新报价或换别的方式预订"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: "`CHANNEL_SCOPE_DENIED`、`ITINERARY_ROUTE_UNAVAILABLE`（同官网询价）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
   /site/v1/config:
     get:
       tags: [ 官网 ]
@@ -32699,6 +32779,56 @@ components:
           properties:
             amount: { type: string, pattern: "^-?\\d+(\\.\\d+)?$" }
             currency: { type: string }
+    SiteTripOrderQuote:
+      type: object
+      additionalProperties: false
+      description: 单段方案转成的普通官网报价（M9T-10，ADR 0101 第十三节第 3 小节）：凭 `quote.quote_id` 走现有下单、付款
+      required: [ trip_id, plan_id, currency, segment_type, city, quote, quote_request, itinerary_route, expires_at ]
+      properties:
+        trip_id:
+          type: string
+          pattern: "^[A-Za-z0-9_-]{43}$"
+        plan_id:
+          type: string
+          format: uuid
+        currency:
+          type: string
+          description: 官网渠道的结算币种（= 方案金额的币种）
+        segment_type:
+          type: string
+          enum: [ airport_pickup, airport_dropoff, p2p, charter ]
+          description: 这一段的段型；接送机报不出回落点对点时仍是 airport_pickup / airport_dropoff（`quote_request.category` 为 point_to_point）
+        city:
+          description: 包车：按哪个城市报的价（同官网询价的 `city`）；接送机、点对点为 null（城市在 `quote_request.city_id`）
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required: [ id, code, name, timezone ]
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                code:
+                  type: string
+                name:
+                  $ref: "#/components/schemas/LocalizedText"
+                timezone:
+                  type: string
+        quote:
+          $ref: "#/components/schemas/SiteQuote"
+        quote_request:
+          $ref: "#/components/schemas/SiteQuoteRequest"
+          description: 等价的 `POST /site/v1/quotes` 请求体（包车是按行程计价、自动选档）：页面用它恢复 `/book/new` 的填写状态；没有 `pickup_name`、`dropoff_name`、`draft_id`
+        itinerary_route:
+          description: 包车按行程计价时服务器算的路线（同官网询价的 `itinerary_route`）；接送机、点对点为 null
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/SiteItineraryRoute"
+        expires_at:
+          type: string
+          format: date-time
+          description: 这张报价的有效期（30 分钟）
     SitePriceBreakdown:
       description: |
         对外价的简单明细（M9W-01，ADR 0088 第 4 节和补充；客人支付币种），按顺序：`base` 基础价（包车是套餐价）、`pickup` 上车加价、`waypoint` 一个区域的途经加价（逐区域）、

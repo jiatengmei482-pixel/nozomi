@@ -215,6 +215,47 @@ export async function listTripPlans(db: Db, tripId: string): Promise<StoredTripP
   }));
 }
 
+/** 下单出口（M9T-10）要的一个方案：报价条件按段重建（段型、品类、城市、开始时刻、车型组、对外价），另带跨段费用的笔数 */
+export interface TripPlanForOrder {
+  id: string;
+  kind: "one_car" | "daily_best";
+  status: "quoted" | "unquoted";
+  vehicleGroupId: string | null;
+  sellMinor: number | null;
+  currency: string;
+  expiresAt: Date | null;
+  segments: { dayIndex: number; segmentType: string; startLocal: string | null; category: string | null; cityId: string | null; vehicleGroupId: string | null; sellMinor: number | null }[];
+  feeCount: number;
+}
+
+/** 这一行程最近一次报价里的某个方案（编号要是 UUID，调用方先核过）；不是这一行程的、不存在的为 null */
+export async function findTripPlanForOrder(db: Db, tripId: string, planId: string): Promise<TripPlanForOrder | null> {
+  const plan = (
+    await db.query<{ id: string; kind: "one_car" | "daily_best"; status: "quoted" | "unquoted"; vehicle_group_id: string | null; sell_minor: string | null; currency: string; expires_at: Date | null }>(
+      "select id, kind, status, vehicle_group_id, sell_minor, currency, expires_at from trip_plans where id = $1 and trip_id = $2",
+      [planId, tripId],
+    )
+  ).rows[0];
+  if (plan === undefined) return null;
+  const segments = await db.query<{ day_index: number; segment_type: string; start_local: string | null; category: string | null; city_id: string | null; vehicle_group_id: string | null; sell_minor: string | null }>(
+    `select day_index, segment_type, to_char(start_local, 'YYYY-MM-DD"T"HH24:MI') as start_local, category, city_id, vehicle_group_id, sell_minor
+       from trip_segments where plan_id = $1 order by seq`,
+    [planId],
+  );
+  const fees = await db.query<{ n: number }>("select count(*)::int as n from trip_fees where plan_id = $1", [planId]);
+  return {
+    id: plan.id,
+    kind: plan.kind,
+    status: plan.status,
+    vehicleGroupId: plan.vehicle_group_id,
+    sellMinor: plan.sell_minor === null ? null : Number(plan.sell_minor),
+    currency: plan.currency,
+    expiresAt: plan.expires_at,
+    segments: segments.rows.map((row) => ({ dayIndex: row.day_index, segmentType: row.segment_type, startLocal: row.start_local, category: row.category, cityId: row.city_id, vehicleGroupId: row.vehicle_group_id, sellMinor: row.sell_minor === null ? null : Number(row.sell_minor) })),
+    feeCount: fees.rows[0]?.n ?? 0,
+  };
+}
+
 /** 编排时读各商品的跨段规则（平台只读策略）：没有配置的商品不在结果里 */
 export async function listTripRuleConfigs(db: Db, productIds: readonly string[]): Promise<Map<string, { version: number; config: TripRuleConfig }>> {
   if (productIds.length === 0) return new Map();
