@@ -363,7 +363,7 @@ test("详情（M9T-08）：「整张行程」按天列出编号的点（名称�
   const day3 = within(card).getByRole("list", { name: "第 3 天 · 2030-11-22" });
   assert.deepEqual([...day3.querySelectorAll("li")].map((item) => item.textContent), ["1. 出发 · 09:00新宿某酒店35.69380, 139.70340", "2. 经停 · 停留 1 小时 30 分35.71480, 139.79670"], "没有名称的点只写坐标");
   const plans = within(card).getByRole("list", { name: "报价结果" });
-  assert.deepEqual([...plans.querySelectorAll("li")].map((item) => item.textContent), ["报得出一车到底（推荐）· 120,000 JPY", "报不出每天各自最优"]);
+  assert.deepEqual([...plans.querySelectorAll("li")].map((item) => (item.textContent ?? "").replace(/\s+/g, " ")), ["报得出一车到底（推荐） · 120,000 JPY", "报不出每天各自最优"]);
   const reasons = within(card).getByRole("list", { name: "报不出的原因" });
   assert.deepEqual([...reasons.querySelectorAll("li")].map((item) => item.textContent), ["每天各自最优 · 第 3 天：这一天没有供应商报得出价", "每天各自最优 · 全程：未能在线报价（原因码 SOMETHING_NEW）"]);
 });
