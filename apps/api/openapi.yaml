@@ -32501,7 +32501,7 @@ components:
       description: 行程单和最近一次报价的方案（M9T-03，ADR 0101 第三节第 2 小节）。金额是渠道结算币种
       type: object
       additionalProperties: false
-      required: [ trip_id, status, currency, readable_until, itinerary, quoted_at, expires_at, plans, unquoted, degraded ]
+      required: [ trip_id, status, currency, readable_until, itinerary, quoted_at, expires_at, plans, unquoted, degraded, manual_quote_suggested ]
       properties:
         trip_id: { type: string }
         status: { type: string, enum: [ draft, quoted ] }
@@ -32629,6 +32629,9 @@ components:
         degraded:
           type: boolean
           description: 行程太长、段报价超了预算，后面几天只报了「不拆」
+        manual_quote_suggested:
+          type: boolean
+          description: 建议转人工报价（M9T-07，ADR 0101 第十二节第 2 小节第 1 条）。已报过价、而且所有方案都报不出（`plans` 为空、原因都在 `unquoted`）时为 true；还没报价、只是部分方案报不出、报出的方案已过期（重新报价即可）时为 false
     SiteTripFee:
       type: object
       required: [ type, label, amount ]
