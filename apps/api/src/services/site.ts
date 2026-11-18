@@ -1103,6 +1103,8 @@ export async function siteQuotesByPoints(ctx: AppContext, input: SiteByPointsInp
   ]);
   let result: SiteQuoteResult = first;
   let fallbackCategory: SiteByPointsResult["fallbackCategory"] = null;
+  // 应答里的城市 = 实际报价用的城市（M8-41）：回落到点对点、按出发地 / 目的地换了城市时跟着换，页面的时区、城市名才对
+  let quotedCity: { id: string; code: string; name: LocalizedText; timezone: string } | null = cityJson;
   if (trip.tripType !== "point_to_point" && first.quotes.length === 0) {
     // M8-33（ADR 0081）：有机场先用接送机商品；一个都报不出，再按出发地（不在时按目的地，M8-35）所在、官网能订点对点的城市用点对点商品报（同样走 M8-30 的规则）。
     // 接送机报得出时这里不运行，现有报价一分不变。
@@ -1115,11 +1117,12 @@ export async function siteQuotesByPoints(ctx: AppContext, input: SiteByPointsInp
       if (fallback.quotes.length > 0) {
         result = fallback;
         fallbackCategory = "point_to_point";
+        quotedCity = { id: p2pCity.id, code: p2pCity.code, name: p2pCity.name, timezone: p2pCity.timezone };
       }
     }
   }
   const expiresAt = result.quotes.reduce<string | null>((earliest, quote) => (earliest === null || quote.expiresAt < earliest ? quote.expiresAt : earliest), null);
-  return { ...result, tripType: trip.tripType, airport, fallbackCategory, city: cityJson, expiresAt, route };
+  return { ...result, tripType: trip.tripType, airport, fallbackCategory, city: quotedCity, expiresAt, route };
 }
 
 /**

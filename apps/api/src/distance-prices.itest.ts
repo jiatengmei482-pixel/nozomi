@@ -170,6 +170,10 @@ test("报价：两端都在报价区域里逐分不变；只有一端在 → 一
   const s2 = oneEnd.offers[0].settlement;
   assert.deepEqual([oneEnd.offers.length, s2.pricing_basis, s2.total, s2.mileage.km, s2.mileage.fee, s2.mileage.start_price], [1, "one_price_outside_km", 20_500, 35, 10_500, 0]);
   assert.deepEqual(oneEnd.refused, [{ vehicle_group_id: m.ids.eco4, reason: "NO_PRICE_RULE", message: oneEnd.refused[0].message }]);
+  // 往返对称（M8-41）：反方向（区域外上车、区域里下车）同样按区域里那一端的一口价 + 区域外里程，金额一样
+  const reverse = await preview("suburb", "city");
+  const r2 = reverse.offers[0].settlement;
+  assert.deepEqual([reverse.offers.length, reverse.offers[0].area_id, r2.pricing_basis, r2.total, r2.mileage.km, r2.mileage.fee, r2.mileage.start_price], [1, oneEnd.offers[0].area_id, "one_price_outside_km", 20_500, 35, 10_500, 0]);
   // 3,000 + 35 × 300 = 13,500；没有区域
   const neither = await preview("suburb", "suburb2");
   const s3 = neither.offers[0].settlement;
@@ -178,6 +182,8 @@ test("报价：两端都在报价区域里逐分不变；只有一端在 → 一
   const siteOneEnd = await bizQuote("city", "suburb");
   const siteNeither = await bizQuote("suburb", "suburb2");
   assert.deepEqual([siteOneEnd.pricing_basis, siteNeither.pricing_basis], ["one_price_outside_km", "distance_only"]);
+  const siteReverse = await bizQuote("suburb", "city");
+  assert.deepEqual([siteReverse.pricing_basis, siteReverse.price.total.amount], ["one_price_outside_km", siteOneEnd.price.total.amount], "反方向同价（M8-41）");
   assert.ok(siteOneEnd.price.total.amount > insideBefore.price.total.amount, "含里程费的比纯一口价贵");
   for (const quote of [siteOneEnd, siteNeither]) for (const name of [...RULE4_KEYS, "mileage", "per_km"]) assert.ok(!allKeys(quote).has(name), name);
 });
