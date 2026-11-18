@@ -21,7 +21,7 @@ import { areaRing, colorSlot, computeOverlaps, overlapText } from "../../lib/are
 import { computeOutside, outsideText, roleName, roleOf } from "../../lib/area-roles.ts";
 import { displayName } from "../../lib/master-display.ts";
 import { useLoad } from "../../lib/use-load.ts";
-import { type AreaOverviewMapProps, type OverviewArea } from "./AreaOverviewMap.tsx";
+import type { AreaOverviewMapProps, OverviewArea } from "./AreaOverviewMap.tsx";
 /** 地图按需加载（M9E-25）：Leaflet 单独成包，打开地图时才下载，嵌入页和其他页面的首包里没有 Leaflet */
 const AreaOverviewMap = lazy(() => import("./AreaOverviewMap.tsx").then((module) => ({ default: module.AreaOverviewMap })));
 

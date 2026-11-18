@@ -43,7 +43,7 @@ import { tenantOptionLabel } from "../../lib/platform-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan, useTenantCan } from "../../lib/use-master-access.ts";
-import { type OverviewArea, type OverviewMarker } from "./AreaOverviewMap.tsx";
+import type { OverviewArea, OverviewMarker } from "./AreaOverviewMap.tsx";
 /** 地图按需加载（M9E-25）：Leaflet 单独成包，打开地图时才下载，嵌入页和其他页面的首包里没有 Leaflet */
 const AreaOverviewMap = lazy(() => import("./AreaOverviewMap.tsx").then((module) => ({ default: module.AreaOverviewMap })));
 import { AreaMoreItems, useAreaActions } from "./useAreaActions.tsx";
