@@ -10,7 +10,7 @@
  *   - 单段方案（`tripBookableSegment`）：「预订这个方案」→ `POST …/order-quote`（包车带经停点的地名）→ 带着这张普通报价跳进 `/book/new` 第 3 步，
  *     接着填乘客信息、下单、付款（`lib/trip-book.ts`）。价格变了（409 `TRIP_PRICE_CHANGED`）、方案过期 / 不在了写一句并给「重新报价」，
  *     这一车型报不出 / 条件对不上时另给「转人工报价」；后端说不是单段时退回「提交预订，客服确认」；太频繁、断网同报价的说法。
- *   - 多段方案：「提交预订，客服确认」= 带 `trip_id` + 这个方案的 `plan_kind` 的人工报价（`PlanManualBooking`）。业主待定（#288 多段方案 A/B/C），按推荐 A。
+ *   - 多段方案：「提交预订，客服确认」= 带 `trip_id` + 这个方案的 `plan_kind` 的人工报价（`PlanManualBooking`）。业主 2026-11-18 确认选 A（#288）；P1b「一次付款多张子订单」上线后改为直接下单。
  */
 import { useEffect, useId, useRef, useState } from "react";
 import { useNavigate } from "react-router";
@@ -79,15 +79,10 @@ function warningText(code: SiteTripWarningCode, dayIndex: number | null): string
 }
 
 /**
- * 业主待定（#288 多段方案 A/B/C），按推荐 A：多段方案（和不能直接在线下单的单段方案）给「提交预订，客服确认」，
- * 即带 `trip_id` + 这个方案 `plan_kind` 的人工报价（ADR 0101 第十三节第 3 小节）。业主选 B（多段只展示）时把它改成 false，
- * 或连同 `PlanManualBooking` 一起删掉；单段方案的「预订这个方案」不受影响。
- */
-const MULTI_SEGMENT_MANUAL_BOOKING = true;
-
-/**
- * 「提交预订，客服确认」（M9T-10，按推荐 A）：点开是现有的人工报价表单，`trip` 填第一天的行程，`tripLink` 带这个方案的 `plan_kind`。
- * 价格变了、这一车型报不出时的「转人工报价」也用它（`cta` 换文案）。业主待定（#288 多段方案 A/B/C），按推荐 A。
+ * 「提交预订，客服确认」（M9T-10，业主 2026-11-18 确认选 A，#288；ADR 0101 第十三节第 3 小节）：
+ * 多段方案（和带跨段费用等不能直接在线下单的单段方案）给这个按钮，即带 `trip_id` + 这个方案 `plan_kind` 的人工报价，客服人工跟进。
+ * 点开是现有的人工报价表单，`trip` 填第一天的行程，`tripLink` 带这个方案的 `plan_kind`。
+ * 价格变了、这一车型报不出时的「转人工报价」也用它（`cta` 换文案）。P1b（一次付款多张子订单）上线后多段方案改为直接下单。
  */
 function PlanManualBooking({ trip, plan, labels, supportWhatsapp, cta = "bookManual" }: { trip: SiteTrip; plan: SiteTripPlan; labels: TripLabels | null; supportWhatsapp: string | null; cta?: "bookManual" | "manual.cta" }) {
   const [open, setOpen] = useState(false);
@@ -216,18 +211,18 @@ function PlanBooking({ trip, plan, bookable, labels, supportWhatsapp, onQuote, q
         </div>
       )}
       {problem?.kind === "requote" && problem.manual && <PlanManualBooking trip={trip} plan={plan} labels={labels} supportWhatsapp={supportWhatsapp} cta="manual.cta" />}
-      {problem?.kind === "manual" && MULTI_SEGMENT_MANUAL_BOOKING && <PlanManualBooking trip={trip} plan={plan} labels={labels} supportWhatsapp={supportWhatsapp} />}
+      {problem?.kind === "manual" && <PlanManualBooking trip={trip} plan={plan} labels={labels} supportWhatsapp={supportWhatsapp} />}
     </div>
   );
 }
 
-/** 卡片底部的下单出口：过期的不给（先重新报价）；单段给「预订这个方案」，其余按业主决定（推荐 A：提交预订，客服确认） */
+/** 卡片底部的下单出口：过期的不给（先重新报价）；单段给「预订这个方案」，其余「提交预订，客服确认」（业主 2026-11-18 选 A） */
 function PlanActions(props: PlanActionProps) {
   const { trip, plan } = props;
   if (plan.expired) return null;
   const bookable = tripBookableSegment(trip, plan);
   if (bookable !== null) return <PlanBooking {...props} bookable={bookable} />;
-  return MULTI_SEGMENT_MANUAL_BOOKING ? <PlanManualBooking trip={trip} plan={plan} labels={props.labels} supportWhatsapp={props.supportWhatsapp} /> : null;
+  return <PlanManualBooking trip={trip} plan={plan} labels={props.labels} supportWhatsapp={props.supportWhatsapp} />;
 }
 
 function PlanCard({ plan, ...actions }: Omit<PlanActionProps, "plan"> & { plan: SiteTripPlan }) {
