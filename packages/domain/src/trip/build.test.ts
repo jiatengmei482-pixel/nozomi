@@ -115,6 +115,16 @@ test("单日行程只出 one_car", () => {
   assert.equal(result.plans[0]?.tenantId, "T1");
 });
 
+test("单日单段（M9T-10，业主 2026-11-18 选 A）：one_car 只在各车型组中标的那家里取，不中标的更便宜也不用——和官网询价同一个口径", () => {
+  // T2 比中标的 T1 便宜（评分低、在价格带内没中标）
+  const single = day(0, [segment("charter", [win(offer("T1", "V", 50_000, 40_000)), offer("T2", "V", 48_000, 38_000), win(offer("T3", "W", 60_000, 48_000))], 540, 300, SHINJUKU, GINZA)]);
+  const result = buildTripPlans({ currency: "JPY", days: [single], product: products() });
+  assert.deepEqual(result.plans.map((plan) => [plan.kind, plan.tenantId, plan.vehicleGroupId, plan.sellMinor]), [["one_car", "T1", "V", 50_000]]);
+  // 多天的 one_car 照旧取总价最低（不受影响）
+  const multi = buildTripPlans({ currency: "JPY", days: twoDays(), product: products() });
+  assert.ok(multi.plans.some((plan) => plan.kind === "one_car" && plan.sellMinor !== null));
+});
+
 test("某天一个报价都没有：两个方案都报不出，带天和原因", () => {
   const days = [twoDays()[0] as BuildDay, day(1, [segment("charter", [], 1_440 + 540, 300, HAKONE, GINZA, ["OUT_OF_SERVICE_AREA"])])];
   const result = buildTripPlans({ currency: "JPY", days, product: products() });

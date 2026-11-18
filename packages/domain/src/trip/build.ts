@@ -339,7 +339,7 @@ function dailyBestPlan(input: TripBuildInput, byIndex: ReadonlyMap<number, Build
 
 /**
  * 组出方案：2 天以上用车出 `one_car` 和 `daily_best`，只有 1 天用车只出 `one_car`。
- * `one_car` 在所有能贯穿全部用车日的租户 × 车型组里取报得出、总价（段 + 跨段费用）最低的；都报不出时给原因最少的那个组合的原因，
+ * `one_car` 在所有能贯穿全部用车日的租户 × 车型组里取报得出、总价（段 + 跨段费用）最低的（只有一天用车且只有一段时只在各车型组中标的那家里取，和官网询价一致，M9T-10）；都报不出时给原因最少的那个组合的原因，
  * 一个组合都没有时给缺报价的那几天（没有这样的天时 `ONE_CAR_NOT_AVAILABLE`）。
  */
 export function buildTripPlans(input: TripBuildInput): TripBuildResult {
@@ -350,9 +350,13 @@ export function buildTripPlans(input: TripBuildInput): TripBuildResult {
   const usedCount = input.days.filter((day) => day.used).length;
   if (usedCount === 0) return { plans: [], unquoted: [] };
 
+  // 只有一天用车、整个方案只有一段时，这一段要能直接转成普通官网报价下单（M9T-10）：和官网询价同一个比价口径，只取各车型组中标的那家
+  // （业主 2026-11-18 选 A）；不中标的供应商哪怕更便宜也不用，否则方案价和官网报价对不上，客人订不了
+  const singleSegment = (plan: BuiltPlan): boolean => plan.days.length === 1 && plan.days[0]?.segments.length === 1;
   const candidates = oneCarCandidates(quoted)
     .map((key) => oneCarPlan(input, byIndex, quoted, key))
-    .filter((plan): plan is BuiltPlan => plan !== null);
+    .filter((plan): plan is BuiltPlan => plan !== null)
+    .filter((plan) => usedCount !== 1 || !singleSegment(plan) || plan.days[0]?.segments[0]?.offer.winner === true);
   const complete = candidates.filter((plan) => plan.unquoted.length === 0 && plan.sellMinor !== null);
   let oneCar: BuiltPlan;
   if (complete.length > 0 && brokenDays.length === 0) {
