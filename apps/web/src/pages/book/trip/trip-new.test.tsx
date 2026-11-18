@@ -140,8 +140,15 @@ async function pickPlace(actor: ReturnType<typeof user>, label: string, query: s
 }
 
 /** 第 1 天：2030-11-20 14:30 成田机场 → 京王广场酒店；乘客 3 人 */
+/** 日期框出现后页面还会自动填上城市当地的明天：等填好再改，否则自动填的值会和打进去的字拼在一起 */
+async function dateField(): Promise<HTMLInputElement> {
+  const date = (await screen.findByLabelText("日期（当地）", {}, SLOW)) as HTMLInputElement;
+  await waitFor(() => assert.match(date.value, /^\d{4}-\d{2}-\d{2}$/), SLOW);
+  return date;
+}
+
 async function fillFirstDay(actor: ReturnType<typeof user>): Promise<void> {
-  const date = (await screen.findByLabelText("日期（当地）")) as HTMLInputElement;
+  const date = await dateField();
   await actor.clear(date);
   await actor.type(date, "2030-11-20");
   await actor.type(screen.getByLabelText(/第 1 天 上车时间/), "14:30");
@@ -155,12 +162,12 @@ test("第 1 步：标题、两步的步骤条、乘客 / 行李、第 1 天（�
   wideScreen();
   open();
   assert.ok(await screen.findByRole("heading", { name: "多日行程报价", level: 1 }, SLOW));
-  assert.ok(screen.getByRole("heading", { name: "你的行程", level: 2 }));
+  assert.ok(await screen.findByRole("heading", { name: "你的行程", level: 2 }, SLOW));
   const steps = screen.getByRole("list", { name: "行程报价步骤" });
   assert.deepEqual(within(steps).getAllByRole("listitem").map((item) => item.textContent), ["1填写行程", "2报价结果"]);
   assert.ok(within(daySection(1)).getByRole("combobox", { name: "第 1 天 上车地点" }));
   assert.ok(within(daySection(1)).getByRole("combobox", { name: "第 1 天 最后下车地点" }));
-  assert.match((screen.getByLabelText("日期（当地）") as HTMLInputElement).value, /^\d{4}-\d{2}-\d{2}$/, "默认填了城市当地的明天");
+  assert.match((await dateField()).value, /^\d{4}-\d{2}-\d{2}$/, "默认填了城市当地的明天");
   assert.equal(within(daySection(1)).queryByRole("checkbox", { name: "这天不用车" }), null, "第一天要用车，不给勾");
   assert.equal(within(daySection(1)).queryByRole("checkbox", { name: "当晚为司机安排住宿" }), null, "只有一天时没有「当晚」");
   const aside = screen.getByRole("complementary", { name: "每天的路线" });
@@ -173,7 +180,7 @@ test("加一天 / 删一天：新的一天接着前一天的日期、上车地�
   wideScreen();
   open();
   const actor = user();
-  const date = (await screen.findByLabelText("日期（当地）", {}, SLOW)) as HTMLInputElement;
+  const date = await dateField();
   await actor.clear(date);
   await actor.type(date, "2030-11-20");
   await pickPlace(actor, "第 1 天 最后下车地点", "京王", /京王广场酒店/);
@@ -215,7 +222,9 @@ test("点「查看报价」前检查：时间、上车地点、最后下车地�
   await actor.click(screen.getByRole("button", { name: "查看报价" }));
   assert.ok(await screen.findByText("行程还有没填好的地方，请按提示修改"));
   const day = daySection(1);
-  for (const text of ["请填写上车时间", "请选择上车地点", "请选择最后下车地点", "请选择这个地点", "请选择停留时长"]) assert.ok(within(day).getByText(text), text);
+  for (const text of ["请填写上车时间", "请选择上车地点", "请选择最后下车地点", "请选择这个地点"]) assert.ok(within(day).getByText(text), text);
+  // 停留时长的占位选项也叫「请选择停留时长」：只认字段下面的那条问题
+  assert.ok(within(day).getAllByText("请选择停留时长").some((node) => node.closest(".field__errors") !== null), "请选择停留时长");
   await waitFor(() => assert.equal(document.activeElement?.getAttribute("aria-invalid"), "true"));
   assert.equal(posts(calls, "/site/v1/trips").length, 0);
   await actor.click(within(day).getByRole("button", { name: "删除第 1 天 第 2 个地点" }));

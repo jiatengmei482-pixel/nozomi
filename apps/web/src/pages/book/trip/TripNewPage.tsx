@@ -76,7 +76,8 @@ function resultAnnouncement(view: TripView): string {
   const { trip } = view;
   if (trip.plans.length > 0) return tripCopy("announce.plans", { n: trip.plans.length });
   if (trip.manual_quote_suggested) return tripCopy("manual.title");
-  if (!wasQuoted(trip)) return tripCopy("notQuoted");
+  // 还没报过价：结果区自己的提示（role="status"）会播报，这里不重复
+  if (!wasQuoted(trip)) return "";
   return tripCopy("announce.none");
 }
 
@@ -272,9 +273,9 @@ export function TripNewPage() {
   /** 回到第 1 步：表单还是空的（刷新到第 2 步）时用读回来的行程单填上（重新报价失败时用失败前读到的那份） */
   const backToForm = (): void => {
     const current = viewRef.current;
-    const known = current.kind === "ready" || current.kind === "failed" ? current.trip : undefined;
-    if (!touched.current && known !== undefined) {
-      setDraft(tripDraftOf(known.itinerary, loadTripLabels(current.tripId)));
+    const known = current.kind === "ready" || current.kind === "failed" ? current : null;
+    if (!touched.current && known?.trip !== undefined) {
+      setDraft(tripDraftOf(known.trip.itinerary, loadTripLabels(known.tripId)));
       touched.current = true;
     }
     goStep(1, null);
