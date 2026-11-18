@@ -1251,3 +1251,29 @@ test("M9E-22 配置没回来先显示的表单，提交时被拒（读得到的 
   assert.equal(calls.filter((call) => call.url.pathname === "/embed/v1/booking-drafts").length, 1);
   assert.deepEqual(went, []);
 });
+
+test("M9E-11 重复 init：旧实例在等坐标时同一个容器又 init 了一次——旧坐标晚回来不建草稿、不跳转，新表单的按钮、提示、取位置状态不受影响", async () => {
+  const slow = slowDetails();
+  handler = slow.handler;
+  const went: string[] = [];
+  await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh" }, (url) => went.push(`old:${url}`));
+  await pick("pickup", "成田", "成田国際空港");
+  await type("dropoff", "東京");
+  clickOption("dropoff");
+  submitForm();
+  await wait(20);
+  assert.equal($(".nzb-primary").textContent, "正在取位置…", "前提：旧实例在等坐标");
+  // 同一个容器再 init：换成新表单
+  await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh" }, (url) => went.push(`new:${url}`));
+  const freshLabel = $(".nzb-primary").textContent;
+  assert.notEqual(freshLabel, "正在取位置…");
+  slow.release("ChIJtokyo");
+  await wait(40);
+  assert.equal(slow.drafts.length, 0, "旧实例不建草稿");
+  assert.deepEqual(went, [], "旧实例不跳转");
+  assert.equal($(".nzb-primary").textContent, freshLabel, "新表单的按钮不被旧实例改");
+  assert.equal($(".nzb-primary").getAttribute("aria-disabled"), null);
+  assert.equal($('[data-role="message"]').textContent, "");
+  assert.equal($('[data-field="dropoff"] [aria-live]').textContent, "", "新表单没有「正在取位置」");
+  assert.equal($<HTMLInputElement>('[data-field="dropoff"] input').value, "", "旧坐标不写进新表单");
+});
