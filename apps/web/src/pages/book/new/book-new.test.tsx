@@ -16,6 +16,7 @@ import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter, useLocation, useNavigate } from "react-router";
 import { App } from "../../../App.tsx";
 import { FULL_SCREEN_PICKER_QUERY } from "./full-screen.tsx";
+import { QUOTE_DEBOUNCE_MS } from "./BookNewPage.tsx";
 import type { MapTiles } from "../../../api/areas.ts";
 import type { BookingDraft, SiteByPointsResult, SiteCity, SiteConfig, SiteQuote, SiteQuoteResult } from "../../../api/site.ts";
 import { type ApiCall, apiError, assertAbsent, assertFocused, currentLocation, deferred, json, narrowScreen, resetBrowser, stubApiWith, viewportWidth } from "../../../testing/harness.tsx";
@@ -100,6 +101,8 @@ interface Options {
   /** 地图选点后按坐标查地址（M8-42） */
   reverse?: Route;
   at?: string;
+  /** 打开时的路由 state（M9T-10：行程报价页「预订这个方案」带来的报价） */
+  state?: unknown;
 }
 
 function open(options: Options = {}): ApiCall[] {
@@ -132,12 +135,19 @@ function open(options: Options = {}): ApiCall[] {
     return null;
   });
   render(
-    <MemoryRouter initialEntries={[options.at ?? "/book/new"]}>
+    <MemoryRouter initialEntries={[entryOf(options.at ?? "/book/new", options.state)]}>
       <App />
       <History />
     </MemoryRouter>,
   );
   return calls;
+}
+
+/** 带路由 state 时拆成 pathname / search / state */
+function entryOf(at: string, state: unknown): string | { pathname: string; search: string; state: unknown } {
+  if (state === undefined) return at;
+  const index = at.indexOf("?");
+  return index < 0 ? { pathname: at, search: "", state } : { pathname: at.slice(0, index), search: at.slice(index), state };
 }
 
 /** 测试里的浏览器后退、前进和地址（MemoryRouter 没有地址栏）。 */
@@ -1771,4 +1781,65 @@ test("为他人预订：多出乘车人姓名和电话 / WhatsApp（必填），
   const body = posts(calls, "/site/v1/orders")[0]?.body as { passenger: unknown; notes: unknown; sign_name: unknown; passenger_name: unknown; passenger_phone: unknown };
   assert.deepEqual(body.passenger, { name: "王小明", phone: "+86 138 0000 0000", email: "booker@example.com" }, "确认邮件仍发给预订人");
   assert.deepEqual([body.sign_name, body.passenger_name, body.passenger_phone, body.notes], ["李华", "李华", "+81 90-5555-6666", null], "三项是正式字段，不再写进备注（M8-32）");
+});
+
+// ---------- 从行程报价页「预订这个方案」进来（M9T-10） ----------
+
+/** 单段接机方案转成的普通报价（路由 state），过期时间可调 */
+function fromTripState(expiresAt = new Date(Date.now() + 30 * 60_000).toISOString()): unknown {
+  return {
+    fromTrip: {
+      order: {
+        trip_id: "Trip_0123456789-abcdefghijklmnopqrstuvwxyzA",
+        plan_id: "44444444-4444-4444-8444-444444444441",
+        currency: "JPY",
+        segment_type: "airport_pickup",
+        city: null,
+        quote: { ...quoteOf(1), expires_at: expiresAt },
+        quote_request: { category: "airport_transfer", city_id: CITY_ID, airport_id: AIRPORT_ID, direction: "pickup", address: { lat: 35.6905, lng: 139.6948 }, service_local: "2030-11-20T14:30", passengers: 3, luggage: 2, addons: [] },
+        itinerary_route: null,
+        expires_at: expiresAt,
+      },
+      from: { name: "成田国际机场", lat: 35.772, lng: 140.3929, kind: "airport" },
+      to: { name: "京王广场酒店（东京都新宿区西新宿 2-2-1）", lat: 35.6905, lng: 139.6948, kind: null },
+      waypoints: [],
+    },
+  };
+}
+
+test("从行程报价页带着报价进来（M9T-10）：直接到第 3 步乘客信息，不再询价；行程按报价预填、车型已选好、按接机要航班号", async () => {
+  wideScreen();
+  const calls = open({ at: "/book/new?step=3", state: fromTripState() });
+  assert.ok(await screen.findByRole("heading", { name: "乘客信息", level: 2 }, SLOW));
+  assert.equal(search(), "?step=3");
+  assert.ok(screen.getByLabelText("航班号"), "按接机：第 3 步要航班号");
+  assert.ok(within(aside()).getAllByText("车型1").length >= 1, "车型已选好");
+  assert.ok(within(aside()).getAllByText(/京王广场酒店/).length >= 1, "行程按报价预填");
+  // 等过询价的停顿也没有询价
+  await new Promise((resolve) => setTimeout(resolve, QUOTE_DEBOUNCE_MS + 200));
+  assert.equal(posts(calls).length, 0);
+});
+
+test("从行程报价页进来但报价已过期：按预填的行程照常询价一次，同一车型还在就停在第 3 步；state 格式不对时当作没有", async () => {
+  wideScreen();
+  const calls = open({ at: "/book/new?step=3", state: fromTripState(new Date(Date.now() - 60_000).toISOString()) });
+  assert.ok(await screen.findByRole("heading", { name: "乘客信息", level: 2 }, SLOW));
+  await waitFor(() => assert.equal(posts(calls).length, 1), SLOW);
+  const body = posts(calls)[0]?.body as Record<string, unknown>;
+  assert.deepEqual(body["pickup"], { name: "成田国际机场", lat: 35.772, lng: 140.3929, kind: "airport" });
+  assert.equal(body["service_local"], "2030-11-20T14:30");
+  assert.equal(body["passengers"], 3);
+
+  resetBrowser();
+  wideScreen();
+  open({ at: "/book/new?step=3", state: { fromTrip: { order: null } } });
+  assert.ok(await screen.findByRole("heading", { name: "你的行程", level: 2 }, SLOW), "空白表单从第 1 步开始");
+});
+
+test("从行程报价页带来的接送报价没有城市：按报价请求的 city_id 从城市列表补上，时间框写「东京的当地时间」，也不再询价", async () => {
+  wideScreen();
+  const calls = open({ at: "/book/new", state: fromTripState() });
+  assert.ok(await screen.findByText("东京的当地时间", {}, SLOW));
+  await new Promise((resolve) => setTimeout(resolve, QUOTE_DEBOUNCE_MS + 200));
+  assert.equal(posts(calls).length, 0);
 });

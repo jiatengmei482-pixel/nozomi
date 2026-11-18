@@ -253,10 +253,10 @@ export interface TripFailure {
   gone: boolean;
 }
 
-const ACTION_KEYS = { create: "action.create", quote: "action.quote", read: "action.read" } as const;
+const ACTION_KEYS = { create: "action.create", quote: "action.quote", read: "action.read", book: "action.book" } as const;
 
-/** 建行程单、报价、读行程单出错时的说法：太复杂、找不到、太频繁单独说，其余同官网 */
-export function tripFailureOf(err: unknown, action: "create" | "quote" | "read"): TripFailure {
+/** 建行程单、报价、读行程单、预订（下单出口，M9T-10）出错时的说法：太复杂、找不到、太频繁单独说，其余同官网 */
+export function tripFailureOf(err: unknown, action: "create" | "quote" | "read" | "book"): TripFailure {
   if (err instanceof ApiError) {
     if (err.code === "TRIP_TOO_COMPLEX") return { text: tripCopy("failure.tooComplex"), manual: true, gone: false };
     if (err.code === "TRIP_NOT_FOUND") return { text: tripCopy("failure.notFound"), manual: false, gone: true };
