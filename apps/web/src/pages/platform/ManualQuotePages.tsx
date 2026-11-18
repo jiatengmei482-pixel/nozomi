@@ -3,12 +3,14 @@
  * - 列表（`manual_quote.read`）：没有个人信息——只写客人留了邮箱还是 WhatsApp；按状态、跟进人、联系方式（完整的邮箱或号码）筛；上面是各状态的数量。
  * - 详情：打开才解密联系方式、两端地点、备注，每次打开都记审计（页面上写明）；邮箱点开发信，WhatsApp 点开去 wa.me。
  *   改状态、指派带版本号（If-Match），被别人改过时刷新再说；写备注（加密保存，到期和联系方式一起清除）。`manual_quote.manage` 才有这些操作。
+ * - 带行程单的申请（M9T-08，ADR 0101 第十二节）：列表标「多日行程」；详情多一块「整张行程」——每天的点（名称或坐标、时间、停留）、
+ *   报价结果和报不出的原因；行程单 30 天后被清理时只写「已清理」。
  */
 import { MANUAL_QUOTE_RULES, MANUAL_QUOTE_STATUSES, type ManualQuoteStatus, manualQuoteStatusChangeAllowed } from "@nozomi/domain";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { ApiError } from "../../api/client.ts";
-import { type ManualQuoteDetail, type ManualQuoteEvent, type ManualQuotePage, type ManualQuotePerson, type ManualQuoteSummary, addManualQuoteNote, getManualQuote, listManualQuoteAssignees, listManualQuotes, updateManualQuote } from "../../api/manual-quotes.ts";
+import { type ManualQuoteDetail, type ManualQuoteEvent, type ManualQuotePage, type ManualQuotePerson, type ManualQuoteSummary, type ManualQuoteTrip, addManualQuoteNote, getManualQuote, listManualQuoteAssignees, listManualQuotes, updateManualQuote } from "../../api/manual-quotes.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
@@ -26,7 +28,31 @@ import { localOffsetLabel } from "../../lib/audit-display.ts";
 import { failureText } from "../../lib/failure.ts";
 import { arriveByDeadlineText } from "../../lib/arrive-by-display.ts";
 import { durationText } from "../../lib/charter-itinerary.ts";
-import { ACCEPTANCE_BADGE, MANUAL_QUOTES_PAGE, MANUAL_QUOTE_STATUS_BADGES, PURGED_BADGE, contactKindsText, contactQueryValid, guestWhatsappDigits, guestWhatsappGreeting, manualQuoteEventText, manualQuotePath, manualQuoteStatusOf, manualQuoteTripText } from "../../lib/manual-quote-display.ts";
+import {
+  ACCEPTANCE_BADGE,
+  MANUAL_QUOTES_PAGE,
+  MANUAL_QUOTE_STATUS_BADGES,
+  MANUAL_QUOTE_TRIP_COPY,
+  MULTI_DAY_TRIP_BADGE,
+  PURGED_BADGE,
+  TRIP_PLAN_KIND_NAMES,
+  TRIP_PLAN_STATUS_BADGES,
+  contactKindsText,
+  contactQueryValid,
+  guestWhatsappDigits,
+  guestWhatsappGreeting,
+  manualQuoteEventText,
+  manualQuotePath,
+  manualQuoteStatusOf,
+  manualQuoteTripText,
+  tripDayTitle,
+  tripItemCoordsText,
+  tripItemMetaText,
+  tripItemPlaceText,
+  tripPartyText,
+  tripPlanText,
+  tripUnquotedText,
+} from "../../lib/manual-quote-display.ts";
 import { auditLogPath } from "../../lib/platform-paths.ts";
 import { pageSizeOf, useCursorPages } from "../../lib/use-cursor-pages.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
@@ -128,6 +154,11 @@ export function ManualQuoteListPage() {
             {row.request_no}
           </Link>
           <span className="table__muted manual-quote-trip">{manualQuoteTripText(row)}</span>
+          {row.has_trip && (
+            <span className="badge-row">
+              <StatusBadge {...MULTI_DAY_TRIP_BADGE} />
+            </span>
+          )}
         </span>
       ),
     },
@@ -252,6 +283,93 @@ function ContactSection({ detail }: { detail: ManualQuoteDetail }) {
         <Detail label={detail.request.category === "charter" ? "下车地点" : "目的地"}>{dropoff === null ? null : <PlaceText place={dropoff} />}</Detail>
       </dl>
     </section>
+  );
+}
+
+/** 「整张行程」（M9T-08）：客人从行程报价页转人工时带的行程单；没带的申请不出这一块。 */
+function TripSection({ trip }: { trip: ManualQuoteDetail["trip"] }) {
+  if (trip === undefined || trip === null) return null;
+  return (
+    <section className="card" aria-labelledby="mq-trip">
+      <h2 className="card__title" id="mq-trip">
+        {MANUAL_QUOTE_TRIP_COPY.title}
+      </h2>
+      {trip.purged ? (
+        <>
+          <Alert kind="info">{MANUAL_QUOTE_TRIP_COPY.purged}</Alert>
+          <p className="table__muted">{MANUAL_QUOTE_TRIP_COPY.purgedHint}</p>
+        </>
+      ) : (
+        <TripBody trip={trip} />
+      )}
+    </section>
+  );
+}
+
+function TripBody({ trip }: { trip: ManualQuoteTrip }) {
+  return (
+    <>
+      <p className="table__muted">{MANUAL_QUOTE_TRIP_COPY.lead}</p>
+      <dl className="details">
+        <Detail label={MANUAL_QUOTE_TRIP_COPY.party}>{tripPartyText(trip.party)}</Detail>
+        {trip.plan_kind !== null && <Detail label={MANUAL_QUOTE_TRIP_COPY.planKind}>{TRIP_PLAN_KIND_NAMES[trip.plan_kind]}</Detail>}
+        <Detail label={MANUAL_QUOTE_TRIP_COPY.readableUntil}>
+          <LocalTime iso={trip.readable_until} />
+        </Detail>
+      </dl>
+      {trip.days.map((day, dayIndex) => {
+        const title = tripDayTitle(dayIndex, day.date);
+        return (
+          <div key={day.date}>
+            <h3 className="card__subtitle">{title}</h3>
+            {day.items.length === 0 ? (
+              <p className="table__muted">{MANUAL_QUOTE_TRIP_COPY.idleDay}</p>
+            ) : (
+              <ol className="details__lines" aria-label={title}>
+                {day.items.map((item, index) => {
+                  const coords = tripItemCoordsText(item);
+                  const named = item.label !== null || item.place_name !== null;
+                  return (
+                    <li key={`${index}-${item.kind}`}>
+                      <span>{`${index + 1}. ${tripItemMetaText(item)}`}</span>
+                      <span className="table__names">
+                        <span>{tripItemPlaceText(item)}</span>
+                        {named && coords !== null && <span className="table__muted mono">{coords}</span>}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+          </div>
+        );
+      })}
+      <h3 className="card__subtitle">{MANUAL_QUOTE_TRIP_COPY.plans}</h3>
+      {trip.plans.length === 0 ? (
+        <p className="table__muted">{MANUAL_QUOTE_TRIP_COPY.noPlans}</p>
+      ) : (
+        <ul className="details__lines" aria-label={MANUAL_QUOTE_TRIP_COPY.plans}>
+          {trip.plans.map((plan) => (
+            <li key={plan.kind}>
+              <span className="badge-row">
+                <StatusBadge {...TRIP_PLAN_STATUS_BADGES[plan.status]} />
+              </span>
+              <span>{tripPlanText(plan)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {trip.unquoted.length > 0 && (
+        <>
+          <h3 className="card__subtitle">{MANUAL_QUOTE_TRIP_COPY.unquoted}</h3>
+          <ul className="details__lines" aria-label={MANUAL_QUOTE_TRIP_COPY.unquoted}>
+            {trip.unquoted.map((entry, index) => (
+              <li key={`${entry.plan_kind}-${entry.day_index ?? "all"}-${index}`}>{tripUnquotedText(entry)}</li>
+            ))}
+          </ul>
+        </>
+      )}
+    </>
   );
 }
 
@@ -412,6 +530,7 @@ export function ManualQuoteDetailPage() {
               <StatusBadge {...MANUAL_QUOTE_STATUS_BADGES[request.status]} />
               {request.purged_at !== null && <StatusBadge {...PURGED_BADGE} />}
               {request.is_acceptance && <StatusBadge {...ACCEPTANCE_BADGE} />}
+              {request.has_trip && <StatusBadge {...MULTI_DAY_TRIP_BADGE} />}
             </span>
           </div>
           <p>{manualQuoteTripText(request)}</p>
@@ -435,6 +554,7 @@ export function ManualQuoteDetailPage() {
             </div>
           )}
         </section>
+        <TripSection trip={detail.trip} />
         <ContactSection detail={detail} />
         <section className="card" aria-labelledby="mq-events">
           <h2 className="card__title" id="mq-events">
