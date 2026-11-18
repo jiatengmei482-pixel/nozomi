@@ -244,7 +244,9 @@ export function checkReasons(item: PublishCheckItemBody, context: CheckContext):
     const unnamed = item.issues.filter((issue) => {
       if (issue.reason !== "CHARTER_POI_NOT_COVERED") return false;
       known.add(issue);
-      const name = context.placeNames?.get(/^\/places\/([^/]+)$/.exec(issue.path)?.[1] ?? "");
+      // 后端直接带地标名（detail.name，M9P-07F）；老的应答没有时再查页面给的对照表
+      const detailName = typeof issue.detail?.["name"] === "string" ? issue.detail["name"] : undefined;
+      const name = detailName ?? context.placeNames?.get(/^\/places\/([^/]+)$/.exec(issue.path)?.[1] ?? "");
       if (name === undefined) return true;
       out.push(one(`热门地标「${name}」不在这个商品的任何区域里（基础价、行程加价、上下车加价区域都没有盖住），客人在这里上下车或经停报不出价`, null, CHARTER_COVERAGE_NOTE));
       return false;

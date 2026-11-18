@@ -205,6 +205,10 @@ test("上架检查：热门地标覆盖（运营在平台地点接口勾选）�
   const coverage = detail.items.find((item: any) => item.key === "charter_coverage");
   assert.ok(coverage !== undefined && coverage.required === false, JSON.stringify(detail.items));
   assert.deepEqual(coverage.issues.map((issue: any) => [issue.path, issue.reason]), [[`/places/${poi.id}`, "CHARTER_POI_NOT_COVERED"]], "日光不在任何区域；浅草寺在东京市内");
+  // 带上地标名（M9P-07F）：两个后台都直接写出名字，页面不另取整张地标表
+  assert.equal(coverage.issues[0].detail.name, poi.name.zh);
+  const platformDetail = await ok(api.call("GET", `/platform/v1/products/${charter.id}`, { token: root }));
+  assert.equal(platformDetail.publish_check.items.find((item: any) => item.key === "charter_coverage").issues[0].detail.name, poi.name.zh, "运营后台的商品详情同样带名字");
   assert.ok(!keys.includes("charter_empty_cells"), "现在每个区域都填了 biz7");
   const product = await ok(tenantCall(m.b, "GET", `/products/${charter.id}`));
   const groups = [...product.vehicle_groups.map((group: any) => ({ vehicle_group_id: group.vehicle_group_id, passengers: group.passengers, luggage: group.luggage })), { vehicle_group_id: m.ids.eco4, passengers: 3, luggage: 2 }];
