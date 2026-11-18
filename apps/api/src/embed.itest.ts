@@ -388,6 +388,13 @@ test("来源：草稿 → 询价 → 下单记「嵌入组件」和返回地址�
   const raw = pay.event("payment_intent.succeeded", pay.intentObject(intent.id), { created: api.clock.now() });
   assert.equal((await deliverWebhook(api.app, raw, pay.sign(raw, api.clock.now()))).status, 200);
   assert.deepEqual(await statsOf(), { paid_30d: 1, paid_total: 1 }, "付款以后算一单（M9E-21）");
+  // 订单列表按嵌入码筛选（M9E-21）：只列这个嵌入码带来的单，主站来的那一单不在里面
+  const filtered = await api.call("GET", `/platform/v1/orders?embed_key_id=${key.id}`, { token: m.root });
+  assertMatchesOpenApi("GET", "/platform/v1/orders", filtered);
+  assert.equal(filtered.status, 200, filtered.text);
+  assert.deepEqual(filtered.body.items.map((item: any) => item.id), [embedded.order.id]);
+  assert.equal(filtered.body.total, 1);
+  assert.equal((await api.call("GET", "/platform/v1/orders?embed_key_id=not-a-uuid", { token: m.root })).status, 400);
   const tenantToken = await tenantLogin(api, m.a.adminEmail);
   const tenantView = await api.call("GET", `/tenant/v1/orders/${embedded.order.id}`, { token: tenantToken });
   assert.equal(tenantView.status, 200, tenantView.text);
