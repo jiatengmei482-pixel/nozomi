@@ -71,7 +71,7 @@ export interface OrderEntrySource {
 
 /** 与 openapi.yaml 对账的字段（embed.contract.test.ts）。 */
 export const EMBED_SCHEMA_FIELDS = {
-  EmbedKey: ["id", "key", "name", "allowed_origins", "default_lang", "default_services", "layout", "allow_host_page", "booking_url", "status", "note", "version", "created_at", "updated_at", "snippet", "booking_snippet", "snippet_fallback"],
+  EmbedKey: ["id", "key", "name", "allowed_origins", "default_lang", "default_services", "layout", "allow_host_page", "booking_url", "status", "note", "version", "created_at", "updated_at", "snippet", "booking_snippet", "snippet_fallback", "order_stats"],
   EmbedKeyWrite: ["name", "allowed_origins", "default_lang", "default_services", "layout", "allow_host_page", "booking_url", "note"],
   OrderEntrySource: ["kind", "embed_key_id", "embed_key_name", "embed_origin", "delivery"],
 } as const satisfies Record<string, readonly string[]>;
