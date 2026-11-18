@@ -5,6 +5,7 @@
  * - 过夜在③：住宿和两笔空驶加价按 D4 取低，跨段费用写进 trip_fees（含负数抵扣、规则版本），对客应答没有结算价、供应商编号；
  * - 报不出：一天的上下车点不在任何商品区域里 → 两个方案都报不出、记一条未覆盖需求；
  * - 重新报价重写方案；限频键独立。
+ * - M9T-07：manual_quote_suggested（未报价 false、全部报不出 true、报出一个或部分报不出 false）。
  * 路线替身：每一段 50 公里、60 分钟。测试数据全在本文件里经接口建出来（规则 1）。
  */
 import { after, before, test } from "node:test";
@@ -142,6 +143,8 @@ test("建单：跨字段校验（出发点要时间、日期升序）、平台�
   assertMatchesOpenApi("GET", "/site/v1/trips/{id}", read);
   assert.equal(read.status, 200, read.text);
   assert.deepEqual([read.body.status, read.body.plans, read.body.unquoted, read.body.expires_at], ["draft", [], [], null]);
+  // M9T-07：还没报价不建议转人工
+  assert.equal(read.body.manual_quote_suggested, false);
   assert.equal((await site.call("GET", "/site/v1/trips/short", { ip: nextIp() })).status, 404);
   assert.equal((await site.call("GET", `/site/v1/trips/${"x".repeat(43)}`, { ip: nextIp() })).body.error.code, "TRIP_NOT_FOUND");
   // 报价接口同样：编号格式不对（SQL 片段、带花括号）一律 404 TRIP_NOT_FOUND；超长的先被全站的路径长度限制拦成 414（同其他接口）
@@ -185,6 +188,8 @@ test("两天同城：每一段的对外价 = 同样条件的官网询价；一�
   assert.equal(segments[0][0].package_hours, day0.body.quotes[0].package.hours);
   assert.equal(oneCar.total.amount, String(sum([day0.body.quotes[0].price.total.amount, day1.body.quotes[0].price.total.amount])));
   assert.equal(daily.total.amount, oneCar.total.amount);
+  // M9T-07：两个方案都报出，不建议转人工
+  assert.equal(res.body.manual_quote_suggested, false);
   // 对客应答没有结算价、加价比例、供应商编号
   assert.doesNotMatch(res.text, /settlement|markup|tenant/);
   // GET 和报价应答同一份
@@ -245,11 +250,32 @@ test("报不出：一天的上下车点不在任何商品区域里 → 两个方
     { plan_kind: "daily_best", day_index: 1, reason: "OUT_OF_SERVICE_AREA" },
   ]);
   assert.equal(res.body.expires_at, null);
+  // M9T-07：所有方案都报不出 → 建议转人工；GET 同样
+  assert.equal(res.body.manual_quote_suggested, true);
+  assert.equal((await site.call("GET", `/site/v1/trips/${created.body.trip_id}`, { ip: nextIp() })).body.manual_quote_suggested, true);
   await site.app.backgroundIdle();
   const demands = await api.db.owner.query<any>("select category, city_id, package_hours, pickup_lat::float as lat from uncovered_demands where category = 'charter' and service_local = '2027-03-06T09:00'");
   assert.equal(demands.rows.length, before + 1);
   // 自动选档没有客人选的时长：按行驶 120 + 停留 60 分钟向上取整记 3 小时（同官网）
   assert.deepEqual(demands.rows[demands.rows.length - 1], { category: "charter", city_id: null, package_hours: 3, lat: 35.6622 });
+});
+
+test("M9T-07 部分报不出（一车到底报不出、每天各自最优报出）：照常给报出的方案和另一个方案的原因，不建议转人工", async () => {
+  const created = await createTrip(trip([
+    { date: "2027-03-12", items: [start("shinjuku"), stop("asakusa"), end("ginza")] },
+    { date: "2027-03-13", items: [start("ginza"), stop("asakusa"), end("shinjuku")] },
+  ]));
+  const res = await quoteTrip(created.body.trip_id);
+  assert.equal(res.status, 200, res.text);
+  assert.equal(res.body.plans.length, 2);
+  // 本文件的市场里一车到底总能报出；直接把它改成报不出，看应答怎么拼（部分报不出的真实组合见 trip-fixed-set-2 第 22 条）
+  await api.db.owner.query("update trip_plans set status = 'unquoted', sell_minor = null, settlement_minor = null, expires_at = null, recommended = false, unquoted = $2::jsonb where trip_id = $1 and kind = 'one_car'", [created.body.trip_id, JSON.stringify([{ day_index: 1, reason: "ONE_CAR_NOT_AVAILABLE" }])]);
+  const read = await site.call("GET", `/site/v1/trips/${created.body.trip_id}`, { ip: nextIp() });
+  assertMatchesOpenApi("GET", "/site/v1/trips/{id}", read);
+  assert.equal(read.status, 200, read.text);
+  assert.deepEqual(read.body.plans.map((plan: any) => plan.kind), ["daily_best"]);
+  assert.deepEqual(read.body.unquoted, [{ plan_kind: "one_car", day_index: 1, reason: "ONE_CAR_NOT_AVAILABLE" }]);
+  assert.equal(read.body.manual_quote_suggested, false);
 });
 
 /** 同样条件的官网接送机 / 点对点询价 */
@@ -295,6 +321,8 @@ test("接机报不出（羽田没有接送机商品）→ 照官网回落点对�
   const res = await quoteTrip(created.body.trip_id);
   assert.equal(res.status, 200, res.text);
   assert.deepEqual(res.body.plans.map((plan: any) => plan.kind), ["one_car"]);
+  // M9T-07：单日只有一个方案，报出了就不建议转人工
+  assert.equal(res.body.manual_quote_suggested, false);
   const segment = res.body.plans[0].days[0].segments[0];
   assert.equal(segment.type, "airport_pickup");
   const direct = await official({ category: "point_to_point", city_id: m.ids.tokyo, pickup: P.haneda, dropoff: at("ginza"), service_local: "2027-03-10T10:00" });

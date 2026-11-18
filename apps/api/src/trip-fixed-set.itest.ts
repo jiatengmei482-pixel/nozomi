@@ -252,5 +252,7 @@ for (const fixed of CASES) {
     assert.equal(res.status, 200, res.text);
     if (process.env["PRINT_FIXED"] === "1") console.log(`FIXED ${fixed.name} ${JSON.stringify(summary(res.body))}`);
     assert.deepEqual(summary(res.body), fixed.expected);
+    // M9T-07：全部方案报不出才建议转人工（第 22 条这种部分报不出为 false）
+    assert.equal(res.body.manual_quote_suggested, res.body.plans.length === 0);
   });
 }
