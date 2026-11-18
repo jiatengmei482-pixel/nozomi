@@ -116,20 +116,23 @@ export async function loadQuoteCandidates(db: Db, filter: QuoteCandidateFilter):
   const polygons = areaIds.length === 0 ? { rows: [] as Row[] } : await db.query<Row>("select id, area_id, kind, geometry from area_polygons where tenant_id = any($2::uuid[]) and area_id = any($1::uuid[]) order by area_id, position, id", [areaIds, tenantIds]);
   const shapes = new Map<string, { id: string; kind: "operate" | "forbid"; ring: Position[] }[]>();
   for (const row of polygons.rows) shapes.set(row["area_id"], [...(shapes.get(row["area_id"]) ?? []), { id: row["id"], kind: row["kind"], ring: (row["geometry"] as { coordinates: Position[][] }).coordinates[0] ?? [] }]);
+  // 区域分类（ADR 0102）：平台共享的区域在同一层里让位给供应商独立的（locateInAreas）；只标出共享的，其余按独立
+  const shared = areaIds.length === 0 ? new Set<string>() : new Set((await db.query<Row>("select id from areas where tenant_id = any($2::uuid[]) and id = any($1::uuid[]) and sharing = 'shared'", [areaIds, tenantIds])).rows.map((row) => row["id"] as string));
+  const sharingOf = (id: string): { sharing?: "shared" } => (shared.has(id) ? { sharing: "shared" } : {});
   const airportsByProduct = group(airportRows.rows, (row): AirportBinding => {
     const name = row["place_name"] as LocalizedText;
     return {
       scenario: row["scenario"],
       placeId: row["place_id"],
-      area: { areaId: row["area_id"], active: row["status"] === "active", shapes: shapes.get(row["area_id"]) ?? [] },
+      area: { areaId: row["area_id"], active: row["status"] === "active", shapes: shapes.get(row["area_id"]) ?? [], ...sharingOf(row["area_id"]) },
       name: (row["short_name_zh"] as string | null) ?? name.zh ?? name.ja ?? (row["place_code"] as string),
     };
   });
-  const areasByProduct = group(areas.rows, (row) => ({ areaId: row["area_id"] as string, active: row["status"] === "active", shapes: shapes.get(row["area_id"]) ?? [] }));
-  const surchargeAreasByProduct = group(surchargeRows.rows, (row) => ({ areaId: row["area_id"] as string, active: row["status"] === "active", shapes: shapes.get(row["area_id"]) ?? [] }));
+  const areasByProduct = group(areas.rows, (row) => ({ areaId: row["area_id"] as string, active: row["status"] === "active", shapes: shapes.get(row["area_id"]) ?? [], ...sharingOf(row["area_id"]) }));
+  const surchargeAreasByProduct = group(surchargeRows.rows, (row) => ({ areaId: row["area_id"] as string, active: row["status"] === "active", shapes: shapes.get(row["area_id"]) ?? [], ...sharingOf(row["area_id"]) }));
   const operatingByTenant = new Map<string, (QuoteArea & { bizType: AreaBizType })[]>();
   for (const row of operatingRows.rows) {
-    operatingByTenant.set(row["tenant_id"], [...(operatingByTenant.get(row["tenant_id"]) ?? []), { areaId: row["id"], active: true, bizType: row["biz_type"], role: row["role"], shapes: shapes.get(row["id"]) ?? [] }]);
+    operatingByTenant.set(row["tenant_id"], [...(operatingByTenant.get(row["tenant_id"]) ?? []), { areaId: row["id"], active: true, bizType: row["biz_type"], role: row["role"], shapes: shapes.get(row["id"]) ?? [], ...sharingOf(row["id"]) }]);
   }
   // 用途（M8-36 补充）：用途是「运营」的区域的禁行区挡这家所有商品；迁移前回放（everyAreaOperating）还没有 role 列，按迁移后的 both 算
   const operatingAreas = (tenantId: string, category: ServiceCategory): QuoteArea[] =>
@@ -254,7 +257,10 @@ export async function loadCharterCityCandidates(db: Db, filter: { cityIds: reado
   const polygons = areaIds.length === 0 ? { rows: [] as Row[] } : await db.query<Row>("select id, area_id, kind, geometry from area_polygons where tenant_id = any($2::uuid[]) and area_id = any($1::uuid[]) order by area_id, position, id", [areaIds, tenantIds]);
   const shapes = new Map<string, { id: string; kind: "operate" | "forbid"; ring: Position[] }[]>();
   for (const row of polygons.rows) shapes.set(row["area_id"], [...(shapes.get(row["area_id"]) ?? []), { id: row["id"], kind: row["kind"], ring: (row["geometry"] as { coordinates: Position[][] }).coordinates[0] ?? [] }]);
-  const areaOf = (row: Row, statusColumn: string): QuoteArea => ({ areaId: row["area_id"], active: row[statusColumn] === "active", shapes: shapes.get(row["area_id"]) ?? [] });
+  // 区域分类（ADR 0102）：平台共享的区域在同一层里让位给供应商独立的（locateInAreas）；只标出共享的，其余按独立
+  const shared = areaIds.length === 0 ? new Set<string>() : new Set((await db.query<Row>("select id from areas where tenant_id = any($2::uuid[]) and id = any($1::uuid[]) and sharing = 'shared'", [areaIds, tenantIds])).rows.map((row) => row["id"] as string));
+  const sharingOf = (id: string): { sharing?: "shared" } => (shared.has(id) ? { sharing: "shared" } : {});
+  const areaOf = (row: Row, statusColumn: string): QuoteArea => ({ areaId: row["area_id"], active: row[statusColumn] === "active", shapes: shapes.get(row["area_id"]) ?? [], ...sharingOf(row["area_id"]) });
   return products.rows.map((row): CharterCityCandidate => {
     const id = row["id"] as string;
     const rules = surchargeRules.rows.filter((entry) => entry["product_id"] === id);

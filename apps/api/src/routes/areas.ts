@@ -109,6 +109,8 @@ export function areaJson(view: AreaView): Json {
     biz_type: area.bizType,
     role: area.role,
     status: area.status,
+    // 分类（ADR 0102）：shared 平台共享 / own 供应商独立
+    sharing: area.sharing,
     operate_polygon_count: view.operatePolygonCount,
     forbid_polygon_count: view.forbidPolygonCount,
     usage: { product_count: view.usage.productCount, published_product_count: view.usage.publishedProductCount },
