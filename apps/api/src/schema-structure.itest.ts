@@ -32,6 +32,8 @@ import { type TestDatabase, createMigratedTestDatabase } from "./testing/db.ts";
 const PLATFORM_TABLES = [
   "addons",
   "approvals",
+  "area_cleanup_backups",
+  "area_cleanup_runs",
   "cancellation_policies",
   "channel_api_clients",
   "channel_cities",

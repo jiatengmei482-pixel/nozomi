@@ -454,3 +454,17 @@ NOZOMI_SSH_USER=nozomi NOZOMI_SSH_KEY_FILE=nozomi-deploy私钥路径 \
 - **失败怎么办**：迁移出错时整次撤销（一条都不写）、这次部署中止，线上仍是旧版本。看日志里的错误码，告诉 Claude。
 - 只在测试环境：`production` 设了这个变量，部署会直接报错停下。
 
+## 测试环境执行区域重叠清理（ADR 0102）
+
+和上面的三层迁移同一套做法，变量名是 `AREA_OVERLAP_CLEANUP`。前提：ADR 0102 的区域分类（迁移 0630）和清理脚本（迁移 0640）都已部署到测试环境。
+
+1. GitHub 仓库 → Settings → Environments → `staging` → Environment variables → 新建 `AREA_OVERLAP_CLEANUP`，值填 `dry-run`。
+2. Actions → 左侧选 **Deploy** → **Run workflow**（选 `staging`）。部署日志里「执行区域重叠清理」下面有一行计数：标成平台共享几个、停用没人用的重复几个、包车三层重叠清理前几处、切掉几对、没解决几对、清理后几处。`dry-run` 不改任何数据。
+3. 计数没问题，把值改成 `apply`，再 **Run workflow** 部署一次。
+4. **部署一结束就删掉这个变量**。
+5. 清理前后各跑一次只读回放（同一个截止时间、同样的天数），逐条比对价格变化。
+
+- **明细在哪**：清理前每个区域的整行、图形和全部关联存在数据库表 `area_cleanup_backups`（按批次号，日志里有），每次执行的计数和改动编号在 `area_cleanup_runs`。日志里只有计数，不写区域名称和价格。
+- **失败怎么办**：出错时整次撤销、这次部署中止，线上仍是旧版本。
+- 只在测试环境：`production` 设了这个变量，部署会直接报错停下。
+
