@@ -5,12 +5,13 @@
  * - 图没出来时再问一次原因：平台还没开通（NOT_ENABLED）→ 现有底图画路线（RouteMap.tsx）；其他任何失败 → 不显示地图，只留下面那行「约 X 分钟 · Y 公里」，不报错。
  * - 知道没开通以后就一直用现有底图（换路线、切主题都不再要静态图）：切主题时底图当场换瓦片或压暗，不重建地图（M6-08，M8-29）。
  */
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, lazy, Suspense } from "react";
 import type { MapTiles } from "../../../api/areas.ts";
 import { type SitePoint, siteRouteMapNotEnabled, siteRouteMapUrl } from "../../../api/site.ts";
 import { routeMapSize } from "../../../lib/book-new.ts";
 import { type ColorScheme, useColorScheme } from "../../../theme/use-color-scheme.ts";
-import { RouteMap } from "./RouteMap.tsx";
+/** 地图按需加载（M9E-25）：Leaflet 单独成包，打开地图时才下载，嵌入页和其他页面的首包里没有 Leaflet */
+const RouteMap = lazy(() => import("./RouteMap.tsx").then((module) => ({ default: module.RouteMap })));
 
 /** 图一直没出来（既没加载完也没报错）多久以后放弃，只留文字。 */
 export const ROUTE_MAP_TIMEOUT_MS = 15_000;
@@ -28,7 +29,7 @@ interface Props {
 export function RoutePicture(props: Props) {
   const scheme = useColorScheme();
   const [notEnabled, setNotEnabled] = useState(false);
-  if (notEnabled) return props.tiles !== null && props.points.length >= 2 ? <RouteMap tiles={props.tiles} points={props.points} label={props.label} /> : null;
+  if (notEnabled) return props.tiles !== null && props.points.length >= 2 ? <Suspense fallback={null}><RouteMap tiles={props.tiles} points={props.points} label={props.label} /></Suspense> : null;
   const key = `${props.from.lat},${props.from.lng};${props.to.lat},${props.to.lng};${scheme}`;
   return <StaticRouteMap key={key} {...props} scheme={scheme} onNotEnabled={() => setNotEnabled(true)} />;
 }

@@ -162,7 +162,7 @@ test("地图：默认收起；展开后点地图 → 坐标填好、查这个位
   assert.equal(toggle.getAttribute("aria-expanded"), "false");
   await actor.click(toggle);
   assert.equal(screen.getByRole("button", { name: "收起地图" }).getAttribute("aria-expanded"), "true");
-  const map = screen.getByRole("application", { name: /地图：点一下选上车位置/ });
+  const map = await screen.findByRole("application", { name: /地图：点一下选上车位置/ });
   assert.ok(screen.getByText("© OpenStreetMap"));
   fireEvent.click(map, { clientX: 0, clientY: 0 });
   await waitFor(() => assert.notEqual(coordinatesOf("上车")[0], ""));
@@ -183,7 +183,7 @@ test("地图的键盘做法：方向键移动地图，按「选地图中间这�
   assert.ok(await screen.findByText("坐标已填好，暂时查不到这个位置的地址，请在上面写上地址或酒店名。"));
   assert.equal(addressOf("上车"), "新宿某酒店", "查不到地址时不动客人写的");
 
-  const map = screen.getByRole("application", { name: /地图/ });
+  const map = await screen.findByRole("application", { name: /地图/ });
   map.focus();
   assert.equal(document.activeElement, map, "地图可以聚焦");
   fireEvent.keyDown(map, { key: "ArrowRight", code: "ArrowRight", keyCode: 39 });

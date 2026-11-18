@@ -3,7 +3,7 @@
  * DOM 顺序固定：基本信息 → 绘制工具条 → 地图 → 图形列表与坐标表 → 自测 → 操作区；没有地图也能完成全部操作。
  */
 import { AREA_BIZ_TYPES, AREA_BIZ_TYPE_NAMES, AREA_LIMITS, AREA_ROLES, type AreaBizType, type AreaPolygonKind, type AreaRole, type LocalizedText, hasVisibleText } from "@nozomi/domain";
-import { Component, type FormEvent, type ReactNode, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { Component, type FormEvent, type ReactNode, useEffect, useMemo, useReducer, useRef, useState, lazy, Suspense } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { ApiError, NetworkError } from "../../api/client.ts";
 import { type Area, type AreaCreate, type AreaSaved, type MapConfig, type ProductAreaLayers, type SharedArea, type SimilarSharedArea, createArea, fetchAreaLayers, fetchMapConfig, getArea, listTenantCities, similarSharedAreas, syncAreaToShared, updateArea } from "../../api/areas.ts";
@@ -36,7 +36,10 @@ import { useLeaveGuard } from "../../lib/use-leave-guard.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { useTenantCan } from "../../lib/use-master-access.ts";
 import { readListPage } from "../master/shared.tsx";
-import { AreaMap, type MapTool, Swatch } from "./AreaMap.tsx";
+import type { MapTool } from "./AreaMap.tsx";
+import { Swatch } from "./area-swatch.tsx";
+/** 地图按需加载（M9E-25）：Leaflet 单独成包，打开地图时才下载，嵌入页和其他页面的首包里没有 Leaflet */
+const AreaMap = lazy(() => import("./AreaMap.tsx").then((module) => ({ default: module.AreaMap })));
 import { PasteDialog, type PasteRequest } from "./PasteDialog.tsx";
 import { SharedAreaDialog } from "./SharedAreaDialog.tsx";
 import { type ProbeResult, SelfTest } from "./SelfTest.tsx";
@@ -904,22 +907,24 @@ export function AreaEditorPage() {
             </p>
           ) : mapUsable && tiles ? (
             <MapBoundary onBroken={() => setMapBroken(true)}>
-              <AreaMap
-                tiles={tiles}
-                shapes={editor.shapes}
-                selected={editor.selected}
-                dispatch={dispatch}
-                readOnly={readOnly || submitting}
-                tool={tool}
-                newKind={newKind}
-                onToolDone={() => setTool("select")}
-                onProbe={(point) => setPicked({ ...point, at: Date.now() })}
-                probe={probe}
-                cityCenter={{ lat: city.center.lat, lng: city.center.lng }}
-                fitSignal={fitSignal}
-                outside={outside?.pieces ?? []}
-                role={role}
-              />
+              <Suspense fallback={null}>
+                <AreaMap
+                  tiles={tiles}
+                  shapes={editor.shapes}
+                  selected={editor.selected}
+                  dispatch={dispatch}
+                  readOnly={readOnly || submitting}
+                  tool={tool}
+                  newKind={newKind}
+                  onToolDone={() => setTool("select")}
+                  onProbe={(point) => setPicked({ ...point, at: Date.now() })}
+                  probe={probe}
+                  cityCenter={{ lat: city.center.lat, lng: city.center.lng }}
+                  fitSignal={fitSignal}
+                  outside={outside?.pieces ?? []}
+                  role={role}
+                />
+              </Suspense>
             </MapBoundary>
           ) : (
             <p className="area-map-placeholder">{tiles === null && mapConfig.state.status === "ready" ? "这个环境没有配置地图底图。" : "地图没有加载出来。"}用「图形」里的坐标表、粘贴坐标和自测，可以完成全部操作。</p>
