@@ -32,6 +32,8 @@ export interface SiteConfig {
    * 官网页面宽度（M8-28，ADR 0079）：运营后台「官网设置 → 页面宽度」。standard 内容最宽约 1200px（默认）、wide 约 1440px、full 接近全屏（最宽约 1920px）。
    */
   page_width: SitePageWidth;
+  /** 浏览器加载谷歌地图用的密钥（M10-01 第 2 处）：运营后台「官网设置」填的；null 时不加载谷歌地图。旧接口没有这一项 */
+  maps_browser_key?: string | null;
 }
 
 /** 官网页面宽度的三档（M8-28）。 */
@@ -505,7 +507,7 @@ export interface BookingDraft {
 export const SITE_SCHEMA_FIELDS = {
   BookingDraft: ["v", "tab", "service_local", "pickup", "dropoff", "waypoints", "package_hours", "passengers", "luggage", "lang"],
   BookingDraftPoint: ["name", "lat", "lng"],
-  SiteConfig: ["open", "currency", "payments", "support_phone", "support_whatsapp", "page_width", "address_search", "map_tiles"],
+  SiteConfig: ["open", "currency", "payments", "support_phone", "support_whatsapp", "page_width", "maps_browser_key", "address_search", "map_tiles"],
   SiteCity: ["id", "code", "name", "timezone", "country_code", "center", "categories"],
   SitePlaceCandidate: ["source", "id", "name", "address", "location", "kind"],
   SitePlaceSuggestion: ["source", "id", "name", "address", "location", "kind"],

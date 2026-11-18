@@ -294,32 +294,35 @@ export interface SiteSettingsRow {
   supportWhatsapp: string | null;
   /** 官网页面宽度（M8-28，ADR 0079）；没设过是 standard */
   pageWidth: SitePageWidth;
+  /** 浏览器加载谷歌地图用的密钥（M10-01 第 2 处）；没填为 null */
+  mapsBrowserKey: string | null;
   version: number;
   updatedAt: Date | null;
   updatedBy: { id: string; name: string } | null;
 }
 
 export async function readSiteSettings(db: Db, lock = false): Promise<SiteSettingsRow> {
-  const result = await db.query<{ support_whatsapp: string | null; page_width: SitePageWidth; version: number; updated_at: Date; updated_by: string; updated_by_name: string }>(
-    `select s.support_whatsapp, s.page_width, s.version, s.updated_at, s.updated_by, u.name as updated_by_name
+  const result = await db.query<{ support_whatsapp: string | null; page_width: SitePageWidth; maps_browser_key: string | null; version: number; updated_at: Date; updated_by: string; updated_by_name: string }>(
+    `select s.support_whatsapp, s.page_width, s.maps_browser_key, s.version, s.updated_at, s.updated_by, u.name as updated_by_name
        from site_settings s join platform_users u on u.id = s.updated_by${lock ? " for update of s" : ""}`,
   );
   const row = result.rows[0];
-  if (row === undefined) return { supportWhatsapp: null, pageWidth: "standard", version: 0, updatedAt: null, updatedBy: null };
-  return { supportWhatsapp: row.support_whatsapp, pageWidth: row.page_width, version: row.version, updatedAt: row.updated_at, updatedBy: { id: row.updated_by, name: row.updated_by_name } };
+  if (row === undefined) return { supportWhatsapp: null, pageWidth: "standard", mapsBrowserKey: null, version: 0, updatedAt: null, updatedBy: null };
+  return { supportWhatsapp: row.support_whatsapp, pageWidth: row.page_width, mapsBrowserKey: row.maps_browser_key, version: row.version, updatedAt: row.updated_at, updatedBy: { id: row.updated_by, name: row.updated_by_name } };
 }
 
 /** 保存（第一次写入那一行）；`expectedVersion` 对不上返回 false。 */
-export async function saveSiteSettings(db: Db, supportWhatsapp: string | null, pageWidth: SitePageWidth, expectedVersion: number, userId: string, now: Date): Promise<boolean> {
+export async function saveSiteSettings(db: Db, values: { supportWhatsapp: string | null; pageWidth: SitePageWidth; mapsBrowserKey: string | null }, expectedVersion: number, userId: string, now: Date): Promise<boolean> {
+  const params = [values.supportWhatsapp, values.pageWidth, values.mapsBrowserKey, now, userId];
   const result =
     expectedVersion === 0
-      ? await db.query("insert into site_settings (id, support_whatsapp, page_width, version, updated_at, updated_by) values (true, $1, $2, 1, $3, $4) on conflict (id) do nothing", [supportWhatsapp, pageWidth, now, userId])
-      : await db.query("update site_settings set support_whatsapp = $1, page_width = $2, version = version + 1, updated_at = $3, updated_by = $4 where version = $5", [supportWhatsapp, pageWidth, now, userId, expectedVersion]);
+      ? await db.query("insert into site_settings (id, support_whatsapp, page_width, maps_browser_key, version, updated_at, updated_by) values (true, $1, $2, $3, 1, $4, $5) on conflict (id) do nothing", params)
+      : await db.query("update site_settings set support_whatsapp = $1, page_width = $2, maps_browser_key = $3, version = version + 1, updated_at = $4, updated_by = $5 where version = $6", [...params, expectedVersion]);
   return (result.rowCount ?? 0) === 1;
 }
 
-/** 官网的公开配置只要号码和页面宽度。 */
-export async function readPublicSiteSettings(db: Db): Promise<{ supportWhatsapp: string | null; pageWidth: SitePageWidth }> {
-  const row = (await db.query<{ support_whatsapp: string | null; page_width: SitePageWidth }>("select support_whatsapp, page_width from site_settings")).rows[0];
-  return { supportWhatsapp: row?.support_whatsapp ?? null, pageWidth: row?.page_width ?? "standard" };
+/** 官网的公开配置只要号码、页面宽度和浏览器用的地图密钥。 */
+export async function readPublicSiteSettings(db: Db): Promise<{ supportWhatsapp: string | null; pageWidth: SitePageWidth; mapsBrowserKey: string | null }> {
+  const row = (await db.query<{ support_whatsapp: string | null; page_width: SitePageWidth; maps_browser_key: string | null }>("select support_whatsapp, page_width, maps_browser_key from site_settings")).rows[0];
+  return { supportWhatsapp: row?.support_whatsapp ?? null, pageWidth: row?.page_width ?? "standard", mapsBrowserKey: row?.maps_browser_key ?? null };
 }

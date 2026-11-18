@@ -133,6 +133,8 @@ export interface SiteSettings {
   support_whatsapp: string | null;
   /** 官网页面宽度（M8-28，ADR 0079）；没设过是 standard */
   page_width: SitePageWidth;
+  /** 浏览器加载谷歌地图用的密钥（M10-01 第 2 处）；没填为 null */
+  maps_browser_key: string | null;
   /** 0 表示还没有设置过 */
   version: number;
   updated_at: string | null;
@@ -147,7 +149,7 @@ export const MANUAL_QUOTE_SCHEMA_FIELDS = {
   ManualQuoteWaypoint: ["name", "lat", "lng", "stay_minutes", "arrive_by"],
   ManualQuotePerson: ["id", "name"],
   ManualQuoteTripLink: ["trip_id", "plan_kind", "purged", "labels", "days", "plans"],
-  SiteSettings: ["support_whatsapp", "page_width", "version", "updated_at", "updated_by"],
+  SiteSettings: ["support_whatsapp", "page_width", "maps_browser_key", "version", "updated_at", "updated_by"],
 } as const satisfies Record<string, readonly string[]>;
 /** 只在有内容时才给的字段（不在 `required` 里）：经停点的指定到达时间（M9P-20 P3） */
 export const MANUAL_QUOTE_OPTIONAL_FIELDS: Readonly<Partial<Record<keyof typeof MANUAL_QUOTE_SCHEMA_FIELDS, readonly string[]>>> = { ManualQuoteWaypoint: ["arrive_by"] };
@@ -183,8 +185,9 @@ export function getSiteSettings(token: string): Promise<SiteSettings> {
 }
 
 /**
- * 改官网设置。客服 WhatsApp 号码 `null` 是不设（官网不显示按钮）；`page_width` 不给是不改（M8-28）。已经设置过（版本 > 0）的带 If-Match。
+ * 改官网设置。客服 WhatsApp 号码 `null` 是不设（官网不显示按钮）；`page_width` 不给是不改（M8-28）；`maps_browser_key` 不给是不改、null 是清空（M10-01 第 2 处）。已经设置过（版本 > 0）的带 If-Match。
  */
-export function updateSiteSettings(token: string, version: number, supportWhatsapp: string | null, pageWidth?: SitePageWidth): Promise<SiteSettings> {
-  return apiRequest("PUT", SITE_SETTINGS_PATH, { token, body: { support_whatsapp: supportWhatsapp, ...(pageWidth !== undefined ? { page_width: pageWidth } : {}) }, ...(version > 0 ? { headers: ifMatch(version) } : {}) });
+export function updateSiteSettings(token: string, version: number, supportWhatsapp: string | null, changes: { pageWidth?: SitePageWidth; mapsBrowserKey?: string | null } = {}): Promise<SiteSettings> {
+  const body = { support_whatsapp: supportWhatsapp, ...(changes.pageWidth !== undefined ? { page_width: changes.pageWidth } : {}), ...(changes.mapsBrowserKey !== undefined ? { maps_browser_key: changes.mapsBrowserKey } : {}) };
+  return apiRequest("PUT", SITE_SETTINGS_PATH, { token, body, ...(version > 0 ? { headers: ifMatch(version) } : {}) });
 }
