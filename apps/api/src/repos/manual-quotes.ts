@@ -128,6 +128,11 @@ export async function insertManualQuote(db: Db, input: NewManualQuote, now: Date
   await db.query("insert into manual_quote_request_events (request_id, kind, created_at) values ($1, 'created', $2)", [input.id, now]);
 }
 
+/** 人工报价申请关联的行程单（M9T-08）：提交时和申请同一个事务写入 */
+export async function insertManualQuoteTripLink(db: Db, link: { requestId: string; tripId: string; planKind: "one_car" | "daily_best" | null }, now: Date): Promise<void> {
+  await db.query("insert into manual_quote_trip_links (request_id, trip_id, plan_kind, created_at) values ($1, $2, $3, $4)", [link.requestId, link.tripId, link.planKind, now]);
+}
+
 export async function cityExists(db: Db, cityId: string): Promise<boolean> {
   return ((await db.query("select 1 from cities where id = $1", [cityId])).rowCount ?? 0) > 0;
 }

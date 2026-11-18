@@ -45,6 +45,7 @@ import {
   hasRecentDuplicate,
   insertManualQuote,
   insertManualQuoteEvent,
+  insertManualQuoteTripLink,
   listActiveStaffWithRoles,
   listManualQuoteEvents,
   listManualQuotes,
@@ -63,6 +64,8 @@ import { notFound, versionConflict } from "./errors.ts";
 import type { PlatformPrincipal } from "./platform-auth.ts";
 import { rateLimited, takeRateSlot } from "./rate-limit.ts";
 import { requireOpenSite } from "./site.ts";
+import { TRIP_ID, tripNotFound } from "./trips.ts";
+import { findReadableTrip } from "../repos/trips.ts";
 
 // ---- 客人提交 ----
 
@@ -75,6 +78,16 @@ export interface ManualQuoteSubmission {
   trip: ManualQuoteTrip;
   /** 带有效验收会话提交的（接口层用 `siteAudienceOf` 判断；production 永远是 false） */
   acceptance: boolean;
+  /** 官网行程报价页带上的行程单（M9T-08，ADR 0101 第十三节第 2 小节）；普通询价页不带 */
+  tripLink?: ManualQuoteTripLink;
+}
+
+export interface ManualQuoteTripLink {
+  tripId: string;
+  /** 客人选的方案；全部报不出时转人工为 null */
+  planKind: "one_car" | "daily_best" | null;
+  /** 每天、每个点的显示名称，按行程单的天、点顺序（行程单里只有坐标，地名由页面带上） */
+  labels: string[][];
 }
 
 /** 密文里的内容：联系方式、两端地点和包车的经停点（M9W-04；没有经停点时不写这一项，M9W-04 之前的也没有）。 */
@@ -84,6 +97,8 @@ interface SealedContact {
   pickup: ManualQuotePlace;
   dropoff: ManualQuotePlace | null;
   waypoints?: ManualQuoteWaypoint[];
+  /** 关联了行程单时每天、每个点的名称（M9T-08）；行程单 30 天清理后运营仍能看到地名，清除联系信息时一并清掉 */
+  trip_labels?: string[][];
 }
 
 const NO_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -104,6 +119,13 @@ function tripKey(trip: ManualQuoteTrip): string {
   // 指定到达时间（M9P-20 P3）只在给了时加进去：没指定的行程键和以前一样
   if (trip.waypoints.length > 0) parts.push(trip.waypoints.map((stop) => (stop.arriveBy === undefined ? [point(stop), stop.stayMinutes] : [point(stop), stop.stayMinutes, `${stop.arriveBy.day_offset}+${stop.arriveBy.time}`])));
   return JSON.stringify(parts);
+}
+
+/** 地名数组和行程单的天数、每天的点数对不上时，返回出错的位置 */
+function tripLabelsMismatch(labels: readonly (readonly string[])[], days: readonly { items: readonly unknown[] }[]): string | null {
+  if (labels.length !== days.length) return "/trip_labels";
+  const day = labels.findIndex((names, index) => names.length !== days[index]?.items.length);
+  return day === -1 ? null : `/trip_labels/${day}`;
 }
 
 /** 占一次按联系方式、全站的额度：单独的事务先提交，后面出错这一次照样算数。 */
@@ -128,14 +150,32 @@ export async function submitManualQuote(ctx: AppContext, input: ManualQuoteSubmi
   // 验收留资和真实客人的留资各自去重：真实客人的一条不会因为验收先提交过同一行程而被当成重复丢掉（反过来也一样）。真实客人的键和以前完全相同
   const dedupParts: unknown[] = [emailBidx, whatsappBidx, tripKey(input.trip)];
   if (input.acceptance) dedupParts.push("acceptance");
+  // 带行程单的再加上行程单编号和方案：同一个行程单选了另一个方案再提交，不算重复。不带的键和以前完全相同
+  if (input.tripLink !== undefined) dedupParts.push(["trip", input.tripLink.tripId, input.tripLink.planKind]);
+  if (input.tripLink !== undefined && !TRIP_ID.test(input.tripLink.tripId)) throw tripNotFound();
   const dedupKey = crypto.manualQuoteFingerprint(JSON.stringify(dedupParts));
   await withPlatformTx(ctx.pool, async (db) => {
     if (input.cityId !== null && !(await cityExists(db, input.cityId))) throw validationFailed("body", [{ path: "/trip/city_id", reason: "NOT_FOUND", message: "没有这个城市" }]);
     // 同一个去重键并发提交两次：事务级的锁让第二次看得到第一次
     await db.query("select pg_advisory_xact_lock(hashtext($1))", [`nozomi.manual-quote:${dedupKey}`]);
+    const link = input.tripLink;
+    if (link !== undefined) {
+      // 本渠道、还可读的行程单；验收会话和普通客人互相看不到（同 GET /site/v1/trips/{id}）
+      const trip = await findReadableTrip(db, link.tripId, site.channel.id, now);
+      if (trip === null || trip.isAcceptance !== input.acceptance) throw tripNotFound();
+      const path = tripLabelsMismatch(link.labels, trip.itinerary.days);
+      if (path !== null) throw validationFailed("body", [{ path, reason: "MISMATCH", message: "地点名称要和行程单的天数、每天的点数一一对应" }]);
+    }
     if (await hasRecentDuplicate(db, dedupKey, new Date(now.getTime() - MANUAL_QUOTE_RULES.duplicateWindowMs))) return;
     const id = randomUUID();
-    const sealed: SealedContact = { email: input.email, whatsapp: input.whatsapp, pickup: input.trip.pickup, dropoff: input.trip.dropoff, ...(input.trip.waypoints.length === 0 ? {} : { waypoints: input.trip.waypoints }) };
+    const sealed: SealedContact = {
+      email: input.email,
+      whatsapp: input.whatsapp,
+      pickup: input.trip.pickup,
+      dropoff: input.trip.dropoff,
+      ...(input.trip.waypoints.length === 0 ? {} : { waypoints: input.trip.waypoints }),
+      ...(link === undefined ? {} : { trip_labels: link.labels }),
+    };
     await insertManualQuote(
       db,
       {
@@ -158,6 +198,7 @@ export async function submitManualQuote(ctx: AppContext, input: ManualQuoteSubmi
       },
       now,
     );
+    if (link !== undefined) await insertManualQuoteTripLink(db, { requestId: id, tripId: link.tripId, planKind: link.planKind }, now);
   });
 }
 

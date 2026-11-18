@@ -6,6 +6,8 @@
  *   每个地址 15 分钟 3 次、每天 10 次，每个联系方式每天 3 次，全站每小时 300 次；`website` 是给机器人填的陷阱字段（页面不显示），
  *   填了照样 202、什么都不记。应答一律 202 `{ status: "accepted" }`，重复提交也一样。
  *   带有效验收会话 Cookie 的记成验收留资（M8-39，ADR 0078 补充）；带了但会话无效、过期是 401 `QA_SESSION_INVALID`，和询价一样；production 不看 Cookie。
+ *   官网行程报价页可以再带 `trip_id`、`plan_kind`、`trip_labels`（M9T-08，ADR 0101 第十三节第 2 小节）：行程单要是本渠道、没过期的，
+ *   否则 404 `TRIP_NOT_FOUND`；地名按行程单的天、点一一对应，放进加密的联系信息；关联写进 `manual_quote_trip_links`。
  * 运营后台：
  * - `GET /platform/v1/manual-quote-requests`（`manual_quote.read`）：列表，没有个人信息，带各状态的数量；默认不列验收留资（`acceptance=only|include` 才列）；
  * - `GET /platform/v1/manual-quote-requests/assignees`（`manual_quote.manage`）：能被指派跟进的同事；
@@ -17,7 +19,7 @@
  */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { MANUAL_QUOTE_RULES, MANUAL_QUOTE_STATUSES, SERVICE_CATEGORIES, arriveByIssue, manualQuoteEmail, manualQuoteTripIssues, whatsappDigits } from "@nozomi/domain";
+import { MANUAL_QUOTE_RULES, MANUAL_QUOTE_STATUSES, SERVICE_CATEGORIES, TRIP_LIMITS, arriveByIssue, manualQuoteEmail, manualQuoteTripIssues, whatsappDigits } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { decodeTimeCursor } from "../pagination.ts";
 import type { ManualQuoteRow, SiteSettingsRow } from "../repos/manual-quotes.ts";
@@ -82,6 +84,13 @@ const submitSchema = z
     // 页面在提交按钮旁写明「提交即同意客服通过您留下的方式联系您」，客人点提交时带 true
     consent: z.literal(true, { errorMap: () => ({ message: "需要同意客服通过您留下的方式联系您" }) }),
     trip: tripSchema,
+    // 官网行程报价页（M9T-08，ADR 0101 第十三节第 2 小节）：行程单编号、所选方案、每天每个点的名称。三项都不给时和以前完全一样
+    trip_id: z.string().max(64).optional(),
+    plan_kind: z.enum(["one_car", "daily_best"]).nullable().optional(),
+    trip_labels: z
+      .array(z.array(placeSchema.shape.name).max(TRIP_LIMITS.maxItemsPerDay))
+      .max(TRIP_LIMITS.maxDays)
+      .optional(),
     // 陷阱字段：页面不显示，人不会填
     website: z.string().max(400).optional(),
   })
@@ -120,8 +129,15 @@ function submissionOf(body: z.output<typeof submitSchema>) {
   for (const issue of manualQuoteTripIssues(trip)) {
     issues.push({ path: `/trip/${issue.field}`, reason: issue.reason, message: (TRIP_ISSUE_MESSAGES[issue.field] as Record<string, string>)[issue.reason] ?? "行程信息不对" });
   }
+  if (body.trip_id === undefined) {
+    if (body.plan_kind !== undefined) issues.push({ path: "/plan_kind", reason: "NOT_APPLICABLE", message: "只有带行程单编号时才有方案" });
+    if (body.trip_labels !== undefined) issues.push({ path: "/trip_labels", reason: "NOT_APPLICABLE", message: "只有带行程单编号时才有地点名称" });
+  } else if (body.trip_labels === undefined) {
+    issues.push({ path: "/trip_labels", reason: "REQUIRED", message: "带行程单编号时要带上每天每个点的名称" });
+  }
   if (issues.length > 0) throw validationFailed("body", issues);
-  return { email, whatsapp, cityId: body.trip.city_id, trip };
+  const tripLink = body.trip_id === undefined ? {} : { tripLink: { tripId: body.trip_id, planKind: body.plan_kind ?? null, labels: body.trip_labels ?? [] } };
+  return { email, whatsapp, cityId: body.trip.city_id, trip, ...tripLink };
 }
 
 const listSchema = pageQuerySchema.extend({
