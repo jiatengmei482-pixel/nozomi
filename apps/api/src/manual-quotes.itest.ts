@@ -310,6 +310,64 @@ test("详情：解密联系方式、地点和备注；每次打开写一条审�
   assert.equal((await platform("customer_service", "GET", "/manual-quote-requests/00000000-0000-4000-8000-000000000000")).status, 404);
 });
 
+test("带行程单（M9T-08）：关联写进新表，地名只在密文里；行程单不存在 / 编号不对 404；地名和行程单对不上、缺地名、没行程单却带方案或地名都 400，不记", async () => {
+  const at = (lat: number, lng: number) => ({ lat, lng });
+  const itinerary = {
+    schemaVersion: 1,
+    party: { adults: 2, children: 0, luggage: 1 },
+    days: [
+      { date: "2026-12-01", items: [{ kind: "start", place: at(35.6905, 139.7005), time: "09:00" }, { kind: "stop", place: at(35.7148, 139.7967), stayMinutes: 60 }, { kind: "end", place: at(35.6717, 139.765) }] },
+      { date: "2026-12-02", items: [{ kind: "start", place: at(35.6717, 139.765), time: "10:00" }, { kind: "end", place: at(35.6905, 139.7005) }] },
+    ],
+  };
+  api.clock.advance(1_000);
+  const created = await site.call("POST", "/site/v1/trips", { ip: nextIp(), body: itinerary });
+  assert.equal(created.status, 201, created.text);
+  const tripId = created.body.trip_id as string;
+  const labels = [["新宿行程酒店甲", "浅草寺行程乙", "银座行程丙"], ["银座行程丙", "新宿行程酒店甲"]];
+  const before = await countRows();
+
+  const rejected: [Record<string, unknown>, number, string, string | null][] = [
+    [{ trip_id: "x".repeat(43), trip_labels: labels }, 404, "TRIP_NOT_FOUND", null],
+    [{ trip_id: "short", trip_labels: labels }, 404, "TRIP_NOT_FOUND", null],
+    [{ trip_id: tripId }, 400, "VALIDATION_FAILED", "/trip_labels"],
+    [{ trip_id: tripId, trip_labels: [labels[0]] }, 400, "VALIDATION_FAILED", "/trip_labels"],
+    [{ trip_id: tripId, trip_labels: [labels[0], ["银座行程丙"]] }, 400, "VALIDATION_FAILED", "/trip_labels/1"],
+    [{ plan_kind: "one_car" }, 400, "VALIDATION_FAILED", "/plan_kind"],
+    [{ trip_labels: labels }, 400, "VALIDATION_FAILED", "/trip_labels"],
+    [{ trip_id: tripId, trip_labels: labels, plan_kind: "two_cars" }, 400, "VALIDATION_FAILED", null],
+  ];
+  for (const [body, status, code, path] of rejected) {
+    const res = await submit({ email: nextEmail(), ...body });
+    assert.equal(res.status, status, `${JSON.stringify(body)}: ${res.text}`);
+    assertMatchesOpenApi("POST", "/site/v1/manual-quote-requests", res);
+    assert.equal(res.body.error.code, code);
+    if (path !== null) assert.ok(res.body.error.details.issues.some((issue: { path: string }) => issue.path === path), res.text);
+  }
+  assert.equal(await countRows(), before, "被拒的都不记");
+
+  const email = nextEmail();
+  const accepted = await submit({ email, trip_id: tripId, plan_kind: "daily_best", trip_labels: labels });
+  assert.equal(accepted.status, 202, accepted.text);
+  assertMatchesOpenApi("POST", "/site/v1/manual-quote-requests", accepted);
+  const id = (await latest()).id as string;
+  const link = (await api.db.owner.query("select trip_id, plan_kind from manual_quote_trip_links where request_id = $1", [id])).rows;
+  assert.deepEqual(link, [{ trip_id: tripId, plan_kind: "daily_best" }]);
+  const stored = (await api.db.owner.query<{ row: string }>("select row_to_json(r)::text as row from manual_quote_requests r where id = $1", [id])).rows[0]?.row ?? "";
+  for (const name of labels.flat()) assert.ok(!stored.includes(name), `库里找不到地名原文：${name}`);
+
+  // 同一个行程单、同一个方案 24 小时内只记一次；换了方案（全部报不出转人工没有方案）另记一条
+  assert.equal((await submit({ email, trip_id: tripId, plan_kind: "daily_best", trip_labels: labels })).status, 202);
+  assert.equal(await countRows(), before + 1);
+  assert.equal((await submit({ email, trip_id: tripId, trip_labels: labels })).status, 202);
+  assert.equal(await countRows(), before + 2);
+  const manual = (await latest()).id as string;
+  assert.deepEqual((await api.db.owner.query("select trip_id, plan_kind from manual_quote_trip_links where request_id = $1", [manual])).rows, [{ trip_id: tripId, plan_kind: null }]);
+  // 不带行程单的申请没有关联行
+  await submit({ email: nextEmail() });
+  assert.equal((await api.db.owner.query("select count(*)::int as n from manual_quote_trip_links where request_id = $1", [(await latest()).id])).rows[0]?.n, 0);
+});
+
 test("跟进：指派、改状态（If-Match）、备注；每一项一条跟进记录和一条审计；备注加密、审计里没有原文", async () => {
   await submit({ email: nextEmail() });
   const summary = await latest();

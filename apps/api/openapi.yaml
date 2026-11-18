@@ -17598,13 +17598,33 @@ paths:
                   description: 同意客服通过留下的方式联系
                 trip:
                   $ref: "#/components/schemas/ManualQuoteTripInput"
+                trip_id:
+                  type: string
+                  maxLength: 64
+                  description: |
+                    官网行程报价页带上的行程单编号（M9T-08，ADR 0101 第十三节第 2 小节）。要是本渠道、还没过期的行程单（验收会话和普通客人互相看不到），否则 404 `TRIP_NOT_FOUND`。
+                    `trip` 照常填第一天的行程。带了时必须同时带 `trip_labels`；关联记在新表，运营后台详情凭它显示整张行程单。三项都不带时和以前完全一样
+                plan_kind:
+                  type: [ string, "null" ]
+                  enum: [ one_car, daily_best, null ]
+                  description: 客人选的方案（「提交预订，客服确认」时）；全部报不出转人工时不给或给 null。只有带 `trip_id` 时才能给
+                trip_labels:
+                  type: array
+                  maxItems: 14
+                  description: 行程单每天、每个点的显示名称（行程单里只有坐标），天数、每天的点数要和行程单一一对应（否则 400 `/trip_labels` MISMATCH）。和联系方式一起加密保存、一起清除
+                  items:
+                    type: array
+                    maxItems: 12
+                    items:
+                      type: string
+                      maxLength: 300
                 website:
                   type: string
                   maxLength: 400
                   description: 陷阱字段：页面不显示、不要填
       responses:
         "202":
-          description: 已受理。不说明是不是重复提交
+          description: 已受理。不说明是不是重复提交（带行程单时，同一行程单、同一方案算同一个行程）
           content:
             application/json:
               schema:
@@ -17616,13 +17636,19 @@ paths:
                     type: string
                     enum: [ accepted ]
         "400":
-          description: "`VALIDATION_FAILED`：邮箱、WhatsApp 都没填（`/email` REQUIRED），格式不对（`/email`、`/whatsapp` FORMAT），没有同意（`/consent`），行程和用车类型对不上（`/trip/dropoff` REQUIRED、`/trip/package_hours` REQUIRED 或 NOT_APPLICABLE、`/trip/service_local` INVALID），城市不存在（`/trip/city_id` NOT_FOUND）"
+          description: "`VALIDATION_FAILED`：邮箱、WhatsApp 都没填（`/email` REQUIRED），格式不对（`/email`、`/whatsapp` FORMAT），没有同意（`/consent`），行程和用车类型对不上（`/trip/dropoff` REQUIRED、`/trip/package_hours` REQUIRED 或 NOT_APPLICABLE、`/trip/service_local` INVALID），城市不存在（`/trip/city_id` NOT_FOUND），行程单相关（`/trip_labels` REQUIRED、MISMATCH，`/plan_kind`、`/trip_labels` NOT_APPLICABLE）"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "401":
           $ref: "#/components/responses/QaSessionInvalid"
+        "404":
+          description: "`TRIP_NOT_FOUND`：带的行程单不存在、已过期、不是本渠道的，或验收会话和普通客人不一致"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "429":
           $ref: "#/components/responses/RateLimited"
         "503":

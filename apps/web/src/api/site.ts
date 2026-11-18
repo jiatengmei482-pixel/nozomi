@@ -564,10 +564,16 @@ export interface SiteManualQuoteRequest {
   trip: SiteManualQuoteTrip;
   /** 陷阱字段：页面上人看不到，人不会填 */
   website: string;
+  /** 官网行程报价页带上的行程单编号（M9T-08，ADR 0101 第十三节第 2 小节）；带了必须同时带 `trip_labels` */
+  trip_id?: string;
+  /** 客人选的方案；全部报不出转人工时不给 */
+  plan_kind?: "one_car" | "daily_best" | null;
+  /** 行程单每天、每个点的显示名称，天数和每天点数要和行程单一致 */
+  trip_labels?: string[][];
 }
 
 export const SITE_MANUAL_QUOTE_PATH = `${SITE_BASE}/manual-quote-requests`;
-export const SITE_MANUAL_QUOTE_REQUEST_FIELDS: readonly (keyof SiteManualQuoteRequest)[] = ["email", "whatsapp", "consent", "trip", "website"];
+export const SITE_MANUAL_QUOTE_REQUEST_FIELDS: readonly (keyof SiteManualQuoteRequest)[] = ["email", "whatsapp", "consent", "trip", "website", "trip_id", "plan_kind", "trip_labels"];
 export const SITE_MANUAL_QUOTE_TRIP_FIELDS: readonly (keyof SiteManualQuoteTrip)[] = ["category", "city_id", "pickup", "dropoff", "service_local", "passengers", "luggage", "package_hours", "waypoints"];
 
 /** 客人留下邮箱或 WhatsApp，请客服人工报价。应答一律 202（不说明是不是重复提交）。 */
