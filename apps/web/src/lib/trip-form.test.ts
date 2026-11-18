@@ -216,7 +216,13 @@ test("文案表：ADR 0101 第十三节的键按表原文；日文、英文没�
     assert.equal(tripCopy(key, {}, "en"), tripCopy(key), key);
   }
   assert.equal(tripCopy("day", { n: 3 }), "第 3 天");
-  assert.equal(tripCopy("unquoted", { reason: tripCopy(tripReasonKey("WORK_HOURS_HARD_LIMIT")) }), "这个方案暂时报不出：这一天用车时间太长，可以拆成两天或改坐新干线");
+  assert.equal(tripCopy("unquoted", { reason: tripCopy(tripReasonKey("WORK_HOURS_HARD_LIMIT")) }), "这个方案暂时报不出：用车时间太长，请拆成两天或减少地点");
+  assert.equal(tripCopy(tripReasonKey("CAPACITY_EXCEEDED")), "人数或行李超出了可选车型能坐、能装的范围");
+  assert.equal(tripCopy(tripReasonKey("SERVICE_TIME_PASSED")), "用车时间已经过了");
+  assert.equal(tripCopy(tripReasonKey("OUTSIDE_SERVICE_TIME")), "用车时间不在服务时间内");
+  for (const key of Object.keys(TRIP_TEXTS.zh).filter((name) => name.startsWith("reason."))) {
+    assert.doesNotMatch(TRIP_TEXTS.zh[key as keyof typeof TRIP_TEXTS.zh] ?? "", /这一天|新干线/, `${key}：整个方案报不出时也读得通`);
+  }
   assert.equal(tripReasonKey("SOMETHING_NEW"), "reason.other");
   assert.equal(tripReasonKey("toString"), "reason.other", "原型链上的名字不算");
 });

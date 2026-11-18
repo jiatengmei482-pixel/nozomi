@@ -18,7 +18,7 @@ export function TripDayMap({ dayNumber, points, headingLevel = "h3" }: { dayNumb
   const Heading = headingLevel;
   const chain = points.map((point, index) => `${index + 1} ${point.name}`).join(" → ");
   return (
-    <figure className="trip-map" aria-label={tripCopy("day", { n: dayNumber })}>
+    <figure className="trip-map" aria-label={tripCopy("mapFigure", { n: dayNumber })}>
       <Heading className="trip-map__title">{tripCopy("day", { n: dayNumber })}</Heading>
       {points.length <= ITINERARY_MAP_RULES.maxPoints && <ItineraryMap points={points.map((point) => ({ lat: point.lat, lng: point.lng }))} alt={tripCopy("mapAlt", { n: dayNumber, chain })} />}
       <ol className="trip-map__list">

@@ -41,8 +41,6 @@ import { BookPage } from "./pages/book/BookPage.tsx";
 import { BookNewPage } from "./pages/book/new/BookNewPage.tsx";
 import { CheckoutPage } from "./pages/book/CheckoutPage.tsx";
 import { OrderPage } from "./pages/book/OrderPage.tsx";
-/** 多日行程报价页（M9T-09）按需加载：单独成包，别的页面的首包里没有它 */
-const TripNewPage = lazy(() => import("./pages/book/trip/TripNewPage.tsx").then((module) => ({ default: module.TripNewPage })));
 import { SiteErrorBoundary } from "./pages/book/SiteLayout.tsx";
 import { TENANT_TICKETS_PAGE, TENANT_TICKET_NEW_PATH } from "./lib/order-center-display.ts";
 import { TENANT_STATEMENTS_PAGE } from "./lib/billing-display.ts";
@@ -50,6 +48,10 @@ import { TENANT_PAYOUT_ACCOUNTS_PAGE } from "./lib/bank-file-display.ts";
 import { TenantPayoutAccountsPage } from "./pages/statements/TenantPayoutAccountsPage.tsx";
 import { TenantTicketDetailPage, TenantTicketListPage, TenantTicketNewPage } from "./pages/tickets/TenantTicketPages.tsx";
 import { TenantStatementDetailPage, TenantStatementListPage } from "./pages/statements/TenantStatementPages.tsx";
+import { Skeleton } from "./components/States.tsx";
+
+/** 多日行程报价页（M9T-09）按需加载：单独成包，别的页面的首包里没有它 */
+const TripNewPage = lazy(() => import("./pages/book/trip/TripNewPage.tsx").then((module) => ({ default: module.TripNewPage })));
 
 function portalRoutes(portal: Portal) {
   const { paths } = PORTALS[portal];
@@ -120,7 +122,7 @@ export function App() {
           <Route
             path={SITE_TRIP_PATH}
             element={
-              <Suspense fallback={null}>
+              <Suspense fallback={<Skeleton lines={["long", "control", "control", "control"]} label="正在打开行程报价页" />}>
                 <TripNewPage />
               </Suspense>
             }

@@ -8,6 +8,8 @@
  * 2. 报价结果（`?trip=<编号>&step=2`）：报价时显示骨架；刷新或从别处打开这个网址时读行程单（`GET /site/v1/trips/{id}`，最近一次报价的结果），不重新报价。
  *    结果先用骨架展示（`TripQuoteResult`：方案名、推荐、合计、报不出的原因）；第二部分换成方案对比卡片和转人工按钮。
  *    太复杂（422 `TRIP_TOO_COMPLEX`）写「需要客服人工报价」；太频繁（429）写等多久；行程单过期（404）只能回去重新填。
+ *    报价没拿到应答（断网、超时、网关 502/503/504）时服务端可能已经报完：先读一次行程单，已报过价就直接显示，不再报价（报价限流每分钟 5 次、每天 50 次）；
+ *    还没报过才给「重试」。第 2 步的变化（报价中 → 结果 / 出错）由常驻的播报区告诉读屏。
  * 布局同 `/book/new`：电脑（≥ 1024px）两栏，右侧栏是每天一张带编号的路线图；手机、平板（≤ 1023px）单栏，路线图在每天的块里，
  * 每一步的按钮在底部按钮条（`StepActionBar`，ADR 0100）。测试环境的验收会话（QA 验收通道）照常生效：官网接口自动带验收 Cookie，建的是验收行程单、只报 QA 测试供应商。
  * 页面上没有供应商、结算价、加价比例。文案都在 `lib/trip-texts.ts`。
@@ -15,6 +17,7 @@
 import type { CityCandidate } from "@nozomi/domain";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
+import { ApiError, NetworkError } from "../../../api/client.ts";
 import { type SiteCity, type SiteTrip, createSiteTrip, getSiteTrip, listSiteCities, quoteSiteTrip } from "../../../api/site.ts";
 import { AlertSlot, type Notice } from "../../../components/Alert.tsx";
 import { Button } from "../../../components/Button.tsx";
@@ -60,7 +63,22 @@ type TripView =
   | { kind: "idle" }
   | { kind: "loading"; tripId: string; action: "quote" | "read" }
   | { kind: "ready"; tripId: string; trip: SiteTrip; quoting: boolean }
-  | { kind: "failed"; tripId: string; action: "quote" | "read"; failure: TripFailure };
+  | { kind: "failed"; tripId: string; action: "quote" | "read"; failure: TripFailure; trip?: SiteTrip };
+
+/** 报价没拿到应答：服务端可能已经报完了（断网、超时、网关超时） */
+const mayHaveQuoted = (err: unknown): boolean => err instanceof NetworkError || (err instanceof ApiError && (err.status === 502 || err.status === 503 || err.status === 504));
+const wasQuoted = (trip: SiteTrip): boolean => trip.status === "quoted" || trip.quoted_at !== null || trip.plans.length > 0 || trip.unquoted.length > 0;
+
+/** 第 2 步状态变化时给读屏的一句话（报价中由骨架自己播报） */
+function resultAnnouncement(view: TripView): string {
+  if (view.kind === "failed") return view.failure.manual ? tripCopy("manual.title") : `${tripCopy(view.action === "quote" ? "failure.quote" : "failure.read")}：${view.failure.text}`;
+  if (view.kind !== "ready" || view.quoting) return "";
+  const { trip } = view;
+  if (trip.plans.length > 0) return tripCopy("announce.plans", { n: trip.plans.length });
+  if (trip.manual_quote_suggested) return tripCopy("manual.title");
+  if (!wasQuoted(trip)) return tripCopy("notQuoted");
+  return tripCopy("announce.none");
+}
 
 const STEPS: readonly { step: TripStep; name: string }[] = [
   { step: 1, name: tripCopy("step1") },
@@ -101,6 +119,8 @@ export function TripNewPage() {
   const formHeading = useRef<HTMLHeadingElement>(null);
   const resultHeading = useRef<HTMLHeadingElement>(null);
   const addDayButton = useRef<HTMLButtonElement>(null);
+  /** 刚用当前表单建好的行程单：报价时右侧栏先画表单里每天的路线（表单再改就作废） */
+  const draftTrip = useRef<string | null>(null);
   const step = tripStepOf(location.search);
   const urlTrip = tripIdOf(location.search);
 
@@ -147,16 +167,28 @@ export function TripNewPage() {
   useEffect(() => {
     if (shownStep.current === step) return;
     shownStep.current = step;
-    (step === 1 ? formHeading : resultHeading).current?.focus();
+    const target = (step === 1 ? formHeading : resultHeading).current;
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView?.({ block: "start" });
   }, [step]);
 
-  const runQuote = useCallback((tripId: string): void => {
+  const runQuote = useCallback((tripId: string, known?: SiteTrip): void => {
+    const show = (next: TripView): void => {
+      if (alive.current) setView((current) => (current.kind !== "idle" && current.tripId === tripId ? next : current));
+    };
+    const fail = (err: unknown, trip: SiteTrip | undefined): void => show({ kind: "failed", tripId, action: "quote", failure: tripFailureOf(err, "quote"), ...(trip !== undefined ? { trip } : {}) });
     quoteSiteTrip(tripId).then(
-      (trip) => {
-        if (alive.current) setView((current) => (current.kind !== "idle" && current.tripId === tripId ? { kind: "ready", tripId, trip, quoting: false } : current));
-      },
+      (trip) => show({ kind: "ready", tripId, trip, quoting: false }),
       (err: unknown) => {
-        if (alive.current) setView((current) => (current.kind !== "idle" && current.tripId === tripId ? { kind: "failed", tripId, action: "quote", failure: tripFailureOf(err, "quote") } : current));
+        if (!mayHaveQuoted(err)) {
+          fail(err, known);
+          return;
+        }
+        // 没拿到应答：服务端可能已经报完。先读一次，报过了就直接显示，不再占报价次数；还没报过才给「重试」
+        getSiteTrip(tripId).then(
+          (trip) => (wasQuoted(trip) ? show({ kind: "ready", tripId, trip, quoting: false }) : fail(err, trip)),
+          () => fail(err, known),
+        );
       },
     );
   }, []);
@@ -189,14 +221,17 @@ export function TripNewPage() {
   }, [step, urlTrip, goStep, readTrip]);
 
   const quoteAgain = (tripId: string): void => {
-    setView((current) => (current.kind === "ready" && current.tripId === tripId ? { ...current, quoting: true } : { kind: "loading", tripId, action: "quote" }));
-    runQuote(tripId);
+    const current = viewRef.current;
+    const known = current.kind !== "idle" && current.kind !== "loading" && current.tripId === tripId ? current.trip : undefined;
+    setView(current.kind === "ready" && current.tripId === tripId ? { ...current, quoting: true } : { kind: "loading", tripId, action: "quote" });
+    runQuote(tripId, known);
   };
 
   const errors = checked ? validateTripDraft(draft) : null;
 
   const change = (next: TripFormDraft): void => {
     touched.current = true;
+    draftTrip.current = null;
     setDraft(next);
   };
 
@@ -227,17 +262,19 @@ export function TripNewPage() {
     if (!alive.current) return;
     setCreating(false);
     saveTripLabels(tripId, tripLabelsOf(draft));
+    draftTrip.current = tripId;
     // 先记下「这个行程单正在报价」再换网址：第 2 步的读取看到它就不再 GET
     setView({ kind: "loading", tripId, action: "quote" });
     goStep(2, tripId);
     runQuote(tripId);
   };
 
-  /** 回到第 1 步：表单还是空的（刷新到第 2 步）时用读回来的行程单填上 */
+  /** 回到第 1 步：表单还是空的（刷新到第 2 步）时用读回来的行程单填上（重新报价失败时用失败前读到的那份） */
   const backToForm = (): void => {
     const current = viewRef.current;
-    if (!touched.current && current.kind === "ready") {
-      setDraft(tripDraftOf(current.trip.itinerary, loadTripLabels(current.tripId)));
+    const known = current.kind === "ready" || current.kind === "failed" ? current.trip : undefined;
+    if (!touched.current && known !== undefined) {
+      setDraft(tripDraftOf(known.itinerary, loadTripLabels(current.tripId)));
       touched.current = true;
     }
     goStep(1, null);
@@ -347,9 +384,10 @@ export function TripNewPage() {
       </>
     );
 
-    const resultTrip = view.kind === "ready" && view.tripId === urlTrip ? view.trip : null;
+    const resultTrip = (view.kind === "ready" || view.kind === "failed") && view.tripId === urlTrip ? (view.trip ?? null) : null;
+    const draftMapDays = draft.days.map((day, index) => ({ dayNumber: index + 1, points: chosenPoints(day) }));
     const mapDays: { dayNumber: number; points: TripMapPoint[] }[] =
-      step === 1 ? draft.days.map((day, index) => ({ dayNumber: index + 1, points: chosenPoints(day) })) : resultTrip === null ? [] : itineraryMapDays(resultTrip);
+      step === 1 ? draftMapDays : resultTrip !== null ? itineraryMapDays(resultTrip) : urlTrip !== null && urlTrip === draftTrip.current ? draftMapDays : [];
     const shownMaps = mapDays.filter((day) => day.points.length >= 2);
 
     let result;
@@ -377,6 +415,10 @@ export function TripNewPage() {
         <h2 id="trip-result-title" ref={resultHeading} tabIndex={-1} className="site-section__title">
           {tripCopy("resultSection")}
         </h2>
+        {/* 播报区常驻（不随结果区的骨架屏卸掉）：报价中 → 结果 / 出错时读屏读得到 */}
+        <p className="visually-hidden" role="status" aria-live="polite">
+          {view.kind !== "idle" && view.tripId === urlTrip ? resultAnnouncement(view) : ""}
+        </p>
         {result}
         {!wide && shownMaps.length > 0 && (
           <section className="trip-new__day-maps" aria-labelledby="trip-day-maps-title">

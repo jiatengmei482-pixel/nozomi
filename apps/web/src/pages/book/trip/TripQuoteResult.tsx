@@ -51,10 +51,13 @@ export function TripQuoteResult({ trip, onQuote, quoting }: TripQuoteResultProps
           {trip.plans.map((plan) => {
             const name = planName(plan.kind);
             const group = plan.vehicle_group === null ? null : displayName(plan.vehicle_group.name);
+            const titleId = `trip-plan-${plan.plan_id}-title`;
             return (
-              <li key={plan.plan_id} className={plan.recommended ? "trip-plan trip-plan--recommended" : "trip-plan"} data-plan-kind={plan.kind} aria-label={name}>
+              <li key={plan.plan_id} className={plan.recommended ? "trip-plan trip-plan--recommended" : "trip-plan"} data-plan-kind={plan.kind} aria-labelledby={titleId}>
                 <div className="trip-plan__head">
-                  <h3 className="book-new__subtitle trip-plan__name">{name}</h3>
+                  <h3 id={titleId} className="book-new__subtitle trip-plan__name">
+                    {name}
+                  </h3>
                   {plan.recommended && <span className="trip-plan__badge">{tripCopy("recommended")}</span>}
                 </div>
                 {group !== null && (

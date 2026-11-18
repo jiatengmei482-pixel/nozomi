@@ -116,7 +116,7 @@ test("行程报价页（电脑 1280）：按天填写 → 建行程单（标准�
   expect(seen.creates).toHaveLength(0);
   await fillDay(page, world, home);
   const aside = page.getByRole("complementary", { name: "每天的路线" });
-  await expect(aside.getByRole("figure", { name: "第 1 天" }).getByRole("listitem")).toHaveText([`1${home.name}`, `2${world.station.name}`, `3${home.name}`]);
+  await expect(aside.getByRole("figure", { name: "第 1 天路线图" }).getByRole("listitem")).toHaveText([`1${home.name}`, `2${world.station.name}`, `3${home.name}`]);
   await expectBothThemes(page, "行程报价第 1 步（1280）");
   await screenshot(page, "step1-1280");
 
@@ -128,7 +128,7 @@ test("行程报价页（电脑 1280）：按天填写 → 建行程单（标准�
   await expectResultStructure(page);
   expect(seen.quotes).toHaveLength(1);
   expect(seen.reads, "刚建好的行程单不再读一次").toHaveLength(0);
-  await expect(aside.getByRole("figure", { name: "第 1 天" }).getByRole("listitem")).toHaveText([`1${home.name}`, `2${world.station.name}`, `3${home.name}`]);
+  await expect(aside.getByRole("figure", { name: "第 1 天路线图" }).getByRole("listitem")).toHaveText([`1${home.name}`, `2${world.station.name}`, `3${home.name}`]);
   const shown = await page.locator('[data-trip-result="skeleton"]').or(page.getByRole("heading", { name: "这个行程需要客服人工报价" })).first().innerText();
   await expectBothThemes(page, "行程报价第 2 步（1280）");
   await screenshot(page, "step2-1280");
@@ -139,7 +139,7 @@ test("行程报价页（电脑 1280）：按天填写 → 建行程单（标准�
   expect(seen.reads).toHaveLength(1);
   expect(seen.quotes, "刷新不重新报价").toHaveLength(1);
   expect(await page.locator('[data-trip-result="skeleton"]').or(page.getByRole("heading", { name: "这个行程需要客服人工报价" })).first().innerText()).toBe(shown);
-  await expect(aside.getByRole("figure", { name: "第 1 天" }).getByRole("listitem")).toHaveText([`1${home.name}`, `2${world.station.name}`, `3${home.name}`]);
+  await expect(aside.getByRole("figure", { name: "第 1 天路线图" }).getByRole("listitem")).toHaveText([`1${home.name}`, `2${world.station.name}`, `3${home.name}`]);
   // 上一步：表单用读回来的行程单填上
   await page.getByRole("button", { name: "上一步" }).click();
   await expect(page.getByRole("combobox", { name: "第 1 天 第 2 个地点", exact: true })).toHaveValue(world.station.name);
@@ -156,7 +156,7 @@ test("行程报价页（手机 390）：路线图在当天的块里，「查看�
   await expect(page.getByRole("complementary", { name: "每天的路线" })).toHaveCount(0);
   await fillDay(page, world, home);
   const day = page.getByRole("region", { name: "第 1 天", exact: true });
-  await expect(day.getByRole("figure", { name: "第 1 天" }).getByRole("listitem")).toHaveCount(3);
+  await expect(day.getByRole("figure", { name: "第 1 天路线图" }).getByRole("listitem")).toHaveCount(3);
   const bar = page.getByRole("group", { name: "本步操作" });
   await expect(bar.getByRole("button", { name: "查看报价" })).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -169,7 +169,7 @@ test("行程报价页（手机 390）：路线图在当天的块里，「查看�
   expectTripBody(seen.creates[0]?.postDataJSON() as Record<string, unknown>, world, home);
   await expectResultStructure(page);
   await expect(page.getByRole("group", { name: "本步操作" }).getByRole("button", { name: "上一步" })).toBeVisible();
-  await expect(page.getByRole("region", { name: "每天的行程" }).getByRole("figure", { name: "第 1 天" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "每天的行程" }).getByRole("figure", { name: "第 1 天路线图" })).toBeVisible();
   const overflow2 = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow2, "390px 第 2 步横向溢出").toBe(0);
   await expectBothThemes(page, "行程报价第 2 步（390）");

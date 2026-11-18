@@ -3,7 +3,8 @@
  * 第 1 步按天填写（加一天 / 删一天、上限、这天不用车、加中间地点）、点「查看报价」前的检查（问题写在各自的字段下面，不发请求）、
  * 建行程单的请求体（标准行程单：机场开头 arrive_flight、只发坐标、过夜点、停留）→ 报价 → 网址 `?trip=…&step=2`、地名存进本标签页；
  * 第 2 步的结果骨架（方案名、推荐、合计、车型、报不出的原因、全部报不出转人工、过期重新报价）；刷新（网址带行程单）只读不报价，回到第 1 步时表单用读回来的行程单填上；
- * 太复杂（422）、太频繁（429）、过期（404）的说法；手机底部按钮条。
+ * 太复杂（422）、太频繁（429）、过期（404）的说法；报价没拿到应答时先读行程单（已报过价就直接显示、不再报价）；重新报价失败后「上一步」仍能填回表单；
+ * 第 2 步的变化由常驻播报区告诉读屏；报价中右侧栏画表单里每天的路线；手机底部按钮条。
  * 接口用测试替身（浏览器只连 /site/v1）；真实后端由 e2e/site-trip-quote.spec.ts 覆盖。
  */
 import { afterEach, test } from "node:test";
@@ -13,7 +14,7 @@ import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router";
 import { App } from "../../../App.tsx";
 import type { SiteCity, SiteConfig, SiteTrip, SiteTripItinerary, SiteTripPlan } from "../../../api/site.ts";
-import { type ApiCall, apiError, json, narrowScreen, resetBrowser, stubApiWith } from "../../../testing/harness.tsx";
+import { type ApiCall, apiError, deferred, json, narrowScreen, resetBrowser, stubApiWith } from "../../../testing/harness.tsx";
 
 const originalMatchMedia = window.matchMedia;
 afterEach(() => {
@@ -123,6 +124,12 @@ function Probe() {
 const search = (): string => screen.getByTestId("probe").getAttribute("data-search") ?? "";
 const user = () => userEvent.setup();
 const posts = (calls: ApiCall[], path: string): ApiCall[] => calls.filter((call) => call.method === "POST" && call.path === path);
+/** 第 2 步常驻的播报区 */
+const announcer = (): HTMLElement => {
+  const found = document.querySelector<HTMLElement>('.trip-new__result > p[role="status"][aria-live="polite"]');
+  assert.ok(found, "第 2 步有常驻播报区");
+  return found;
+};
 const daySection = (n: number): HTMLElement => screen.getByRole("region", { name: `第 ${n} 天` });
 
 async function pickPlace(actor: ReturnType<typeof user>, label: string, query: string, option: RegExp): Promise<void> {
@@ -257,7 +264,7 @@ test("建行程单 → 报价：请求体是标准行程单（机场开头 arriv
   assert.equal(within(dailyBest).queryByText("推荐"), null);
   // 右侧栏：每天一张路线图，下面按编号列地名（地名取存的）
   const aside = screen.getByRole("complementary", { name: "每天的路线" });
-  const day2 = within(aside).getByRole("figure", { name: "第 2 天" });
+  const day2 = within(aside).getByRole("figure", { name: "第 2 天路线图" });
   assert.deepEqual(within(day2).getAllByRole("listitem").map((item) => item.textContent), [`1${HOTEL_NAME}`, `2${TEMPLE_NAME}`, `3${HOTEL_NAME}`]);
 });
 
@@ -270,7 +277,7 @@ test("刷新第 2 步（网址带行程单编号）：只读行程单、不重�
   assert.equal(screen.queryByRole("listitem", { name: "同一辆车跑完全程" }), null);
   const unquoted = screen.getByRole("region", { name: "报不出的方案" });
   assert.deepEqual(within(unquoted).getAllByRole("listitem").map((item) => item.textContent), [
-    "同一辆车跑完全程（第 2 天）：这个方案暂时报不出：这一天用车时间太长，可以拆成两天或改坐新干线",
+    "同一辆车跑完全程（第 2 天）：这个方案暂时报不出：用车时间太长，请拆成两天或减少地点",
     "同一辆车跑完全程：这个方案暂时报不出：暂时没有合适的车",
   ]);
   assert.equal(calls.filter((call) => call.method === "GET" && call.path === `/site/v1/trips/${TRIP_ID}`).length, 1);
@@ -292,7 +299,7 @@ test("全部方案报不出（manual_quote_suggested）：不显示方案，写�
   assert.ok(await screen.findByRole("heading", { name: "这个行程需要客服人工报价" }, SLOW));
   assert.ok(screen.getByText("客服会按您填的行程人工报价"));
   assert.equal(screen.queryByRole("list", { name: "报价结果" }), null);
-  assert.ok(within(screen.getByRole("region", { name: "报不出的方案" })).getByText("这个方案暂时报不出：这一天没有可用的车"));
+  assert.ok(within(screen.getByRole("region", { name: "报不出的方案" })).getByText("这个方案暂时报不出：没有可用的车"));
 });
 
 test("报出的方案过期了：写「请重新报价」，点「重新报价」再报一次、换成新结果", async () => {
@@ -357,10 +364,75 @@ test("手机、平板（≤ 1023px）：没有右侧栏，路线图在每天的�
   const actor = user();
   await fillFirstDay(actor);
   assert.equal(screen.queryByRole("complementary", { name: "每天的路线" }), null);
-  assert.ok(within(daySection(1)).getByRole("figure", { name: "第 1 天" }), "路线图就在这一天的块里");
+  assert.ok(within(daySection(1)).getByRole("figure", { name: "第 1 天路线图" }), "路线图就在这一天的块里");
   const bar = screen.getByRole("group", { name: "本步操作" });
   await actor.click(within(bar).getByRole("button", { name: "查看报价" }));
   assert.ok(await screen.findByRole("listitem", { name: "同一辆车跑完全程" }, SLOW));
   assert.ok(within(screen.getByRole("group", { name: "本步操作" })).getByRole("button", { name: "上一步" }));
   assert.ok(screen.getByRole("region", { name: "每天的行程" }), "第 2 步每天的路线在结果下面");
+});
+
+test("报价没拿到应答（断网 / 超时）：先读一次行程单，服务端已报过价就直接显示结果、不再报价，也不给「重试」", async () => {
+  wideScreen();
+  const calls = open({ quote: () => Promise.reject(new TypeError("Failed to fetch")) });
+  const actor = user();
+  await fillFirstDay(actor);
+  await actor.click(screen.getByRole("button", { name: "查看报价" }));
+  assert.ok(await screen.findByRole("listitem", { name: "同一辆车跑完全程" }, SLOW));
+  assert.equal(screen.queryByRole("button", { name: "重试" }), null);
+  assert.equal(posts(calls, `/site/v1/trips/${TRIP_ID}/quote`).length, 1, "只报了一次");
+  assert.equal(calls.filter((call) => call.method === "GET" && call.path === `/site/v1/trips/${TRIP_ID}`).length, 1, "失败后读了一次行程单");
+  await waitFor(() => assert.equal(announcer().textContent, "报价已出来，共 2 个方案"), SLOW);
+});
+
+test("报价没拿到应答、读回来还没报过价：给「重试」；读屏听到出错；重试成功后显示结果", async () => {
+  wideScreen();
+  let attempts = 0;
+  const calls = open({
+    quote: () => {
+      attempts += 1;
+      return attempts === 1 ? Promise.reject(new TypeError("Failed to fetch")) : json(200, tripOf());
+    },
+    read: () => json(200, tripOf({ status: "draft", quoted_at: null, expires_at: null, plans: [], unquoted: [] })),
+  });
+  const actor = user();
+  await fillFirstDay(actor);
+  await actor.click(screen.getByRole("button", { name: "查看报价" }));
+  assert.ok(await screen.findByRole("heading", { name: "报价没有查出来" }, SLOW));
+  assert.match(announcer().textContent ?? "", /^报价没有查出来：/);
+  await actor.click(screen.getByRole("button", { name: "重试" }));
+  assert.ok(await screen.findByRole("listitem", { name: "同一辆车跑完全程" }, SLOW));
+  assert.equal(posts(calls, `/site/v1/trips/${TRIP_ID}/quote`).length, 2);
+});
+
+test("刷新到第 2 步后重新报价失败：「上一步」仍用失败前读到的行程单填回表单", async () => {
+  wideScreen();
+  sessionStorage.setItem(`nozomi.trip-labels.${TRIP_ID}`, JSON.stringify({ v: 1, days: [["成田国际机场", "酒店"], ["酒店", "浅草寺", "酒店"]] }));
+  open({
+    at: `/book/trip?trip=${TRIP_ID}&step=2`,
+    read: () => json(200, tripOf({ status: "draft", quoted_at: null, expires_at: null, plans: [], unquoted: [] })),
+    quote: () => apiError(429, "RATE_LIMITED", "x", {}, { "retry-after": "30" }),
+  });
+  assert.ok(await screen.findByText("这个行程还没有报价", {}, SLOW));
+  await user().click(screen.getByRole("button", { name: "查看报价" }));
+  assert.ok(await screen.findByText("操作太频繁了，请 30 秒后再试。", {}, SLOW));
+  await user().click(screen.getByRole("button", { name: "上一步" }));
+  assert.ok(await screen.findByRole("heading", { name: "你的行程", level: 2 }));
+  assert.equal((screen.getByLabelText("日期（当地）") as HTMLInputElement).value, "2030-11-20");
+  assert.equal((within(daySection(2)).getByRole("combobox", { name: "第 2 天 第 2 个地点" }) as HTMLInputElement).value, "浅草寺");
+});
+
+test("刚建好的行程单正在报价：右侧栏画表单里每天的路线，不显示空状态", async () => {
+  wideScreen();
+  const pending = deferred();
+  open({ quote: () => pending.promise });
+  const actor = user();
+  await fillFirstDay(actor);
+  await actor.click(screen.getByRole("button", { name: "查看报价" }));
+  assert.ok(await screen.findByRole("heading", { name: "报价结果", level: 2 }, SLOW));
+  const aside = screen.getByRole("complementary", { name: "每天的路线" });
+  assert.ok(within(aside).getByRole("figure", { name: "第 1 天路线图" }));
+  assert.equal(within(aside).queryByText("选好地点后在这里显示每天的路线"), null);
+  pending.resolve(json(200, tripOf()));
+  assert.ok(await screen.findByRole("listitem", { name: "同一辆车跑完全程" }, SLOW));
 });

@@ -60,6 +60,7 @@ export type TripTextKey =
   | "dayRemoved"
   | "mapTitle"
   | "mapAlt"
+  | "mapFigure"
   | "mapEmpty"
   | "mapAside"
   // 校验
@@ -90,6 +91,8 @@ export type TripTextKey =
   | "manual.hint"
   | "editTrip"
   | "dayList"
+  | "announce.plans"
+  | "announce.none"
   // 出错
   | "failure.tooComplex"
   | "failure.notFound"
@@ -119,6 +122,11 @@ export type TripTextKey =
   | "reason.ITINERARY_TOO_LONG"
   | "reason.LEAD_TIME_TOO_SHORT"
   | "reason.SOLD_OUT"
+  | "reason.CAPACITY_EXCEEDED"
+  | "reason.SERVICE_TIME_PASSED"
+  | "reason.OUTSIDE_SERVICE_TIME"
+  | "reason.WAYPOINT_NOT_PRICED"
+  | "reason.ADDON_NOT_OFFERED"
   | "reason.other";
 
 const ZH: Readonly<Record<TripTextKey, string>> = {
@@ -175,6 +183,7 @@ const ZH: Readonly<Record<TripTextKey, string>> = {
   dayRemoved: "已删除第 {n} 天",
   mapTitle: "行程地图",
   mapAlt: "第 {n} 天路线图：{chain}",
+  mapFigure: "第 {n} 天路线图",
   mapEmpty: "选好地点后在这里显示每天的路线",
   mapAside: "每天的路线",
 
@@ -205,6 +214,8 @@ const ZH: Readonly<Record<TripTextKey, string>> = {
   "manual.hint": "客服会按您填的行程人工报价",
   editTrip: "修改行程",
   dayList: "每天的行程",
+  "announce.plans": "报价已出来，共 {n} 个方案",
+  "announce.none": "这次没有报出方案",
 
   "failure.tooComplex": "这个行程太复杂，暂时没法在线报价。",
   "failure.notFound": "这个行程已过期或不存在，请重新填写。",
@@ -219,21 +230,27 @@ const ZH: Readonly<Record<TripTextKey, string>> = {
   "action.read": "读取行程",
   "action.cities": "读取城市",
 
-  "reason.NO_OFFER": "这一天没有可用的车",
-  "reason.NO_PRODUCT": "这一天的地点暂时没有在线报价",
-  "reason.OUT_OF_SERVICE_AREA": "这一天的地点不在服务范围内",
-  "reason.ROUTE_UNAVAILABLE": "这一天的路线暂时算不出来",
+  // 原因前面已经写了「方案（第 N 天）：」或「方案：」（整个方案），这里的说法不再说「这一天」，两种都读得通
+  "reason.NO_OFFER": "没有可用的车",
+  "reason.NO_PRODUCT": "这里暂时没有在线报价",
+  "reason.OUT_OF_SERVICE_AREA": "有地点不在服务范围内",
+  "reason.ROUTE_UNAVAILABLE": "路线暂时算不出来",
   "reason.ONE_CAR_NOT_AVAILABLE": "没有一辆车能跑完全部日子",
   "reason.CROSS_CITY_ONE_CAR": "行程跨了城市，暂时不能同一辆车跑完",
-  "reason.WORK_HOURS_EXCEEDED": "这一天用车时间太长，司机工作时间不够",
-  "reason.WORK_HOURS_HARD_LIMIT": "这一天用车时间太长，可以拆成两天或改坐新干线",
-  "reason.SECOND_DRIVER_PRICE_UNAVAILABLE": "这一天需要第二位司机，暂时报不出价",
+  "reason.WORK_HOURS_EXCEEDED": "用车时间太长，司机工作时间不够",
+  "reason.WORK_HOURS_HARD_LIMIT": "用车时间太长，请拆成两天或减少地点",
+  "reason.SECOND_DRIVER_PRICE_UNAVAILABLE": "需要第二位司机，暂时报不出价",
   "reason.LODGING_PRICE_UNAVAILABLE": "司机住宿费暂时报不出",
   "reason.IDLE_DAY_PRICE_UNAVAILABLE": "不用车那天的停驻费暂时报不出",
   "reason.FEE_PRICE_UNAVAILABLE": "部分费用暂时报不出",
-  "reason.ITINERARY_TOO_LONG": "这一天的行程太长",
+  "reason.ITINERARY_TOO_LONG": "行程太长",
   "reason.LEAD_TIME_TOO_SHORT": "离用车时间太近，来不及安排",
-  "reason.SOLD_OUT": "这一天的车已经订满",
+  "reason.SOLD_OUT": "车已经订满",
+  "reason.CAPACITY_EXCEEDED": "人数或行李超出了可选车型能坐、能装的范围",
+  "reason.SERVICE_TIME_PASSED": "用车时间已经过了",
+  "reason.OUTSIDE_SERVICE_TIME": "用车时间不在服务时间内",
+  "reason.WAYPOINT_NOT_PRICED": "途经的地点暂时报不出价",
+  "reason.ADDON_NOT_OFFERED": "所选的附加服务暂时不能提供",
   "reason.other": "暂时没有合适的车",
 };
 
