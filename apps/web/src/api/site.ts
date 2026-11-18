@@ -1116,6 +1116,8 @@ export interface SiteTripOrderQuote {
   trip_id: string;
   plan_id: string;
   currency: string;
+  /** 这一段的段型；接送机回落点对点时仍是接机 / 送机 */
+  segment_type: "airport_pickup" | "airport_dropoff" | "p2p" | "charter";
   /** 包车：按哪个城市报的价；接送机、点对点为 null */
   city: SiteQuotedCity | null;
   /** 价格 = 方案的对外总价 */
@@ -1127,7 +1129,7 @@ export interface SiteTripOrderQuote {
   expires_at: string;
 }
 
-export const SITE_TRIP_ORDER_QUOTE_FIELDS: readonly (keyof SiteTripOrderQuote)[] = ["trip_id", "plan_id", "currency", "city", "quote", "quote_request", "itinerary_route", "expires_at"];
+export const SITE_TRIP_ORDER_QUOTE_FIELDS: readonly (keyof SiteTripOrderQuote)[] = ["trip_id", "plan_id", "currency", "segment_type", "city", "quote", "quote_request", "itinerary_route", "expires_at"];
 export const SITE_TRIP_ORDER_QUOTE_REQUEST_FIELDS: readonly (keyof SiteTripOrderQuoteRequest)[] = ["waypoint_names"];
 
 export const siteTripOrderQuotePath = (tripId: string, planId: string): string => `${SITE_TRIPS_PATH}/${encodeURIComponent(tripId)}/plans/${encodeURIComponent(planId)}/order-quote`;

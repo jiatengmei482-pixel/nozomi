@@ -384,7 +384,7 @@ test("M9T-10 单日一车到底（一段包车）→ 普通官网报价：价格
   assert.deepEqual(plan.days.flatMap((day: any) => day.segments.map((segment: any) => segment.type)), ["charter"]);
   const res = await orderQuote(tripId, plan.plan_id, { waypoint_names: ["浅草寺"] });
   assert.equal(res.status, 200, res.text);
-  assert.deepEqual([res.body.trip_id, res.body.plan_id, res.body.currency], [tripId, plan.plan_id, "JPY"]);
+  assert.deepEqual([res.body.trip_id, res.body.plan_id, res.body.currency, res.body.segment_type], [tripId, plan.plan_id, "JPY", "charter"]);
   assert.equal(res.body.quote.price.total.amount, plan.total.amount);
   assert.equal(res.body.quote.vehicle_group.id, plan.vehicle_group.id);
   assert.equal(res.body.expires_at, res.body.quote.expires_at);
@@ -430,12 +430,13 @@ test("M9T-10 单日接机（按坐标认成田）→ 接送机报价；羽田接
   assert.equal(res.body.quote.price.total.amount, plan.total.amount);
   assert.equal(res.body.quote.vehicle_group.id, plan.vehicle_group.id);
   assert.deepEqual(res.body.quote_request, { category: "airport_transfer", city_id: m.ids.tokyo, airport_id: m.ids.narita, direction: "pickup", address: at("ginza"), service_local: "2027-03-21T10:00", passengers: 2, luggage: 1, addons: [] });
-  assert.deepEqual([res.body.city, res.body.itinerary_route], [null, null]);
+  assert.deepEqual([res.body.city, res.body.itinerary_route, res.body.segment_type], [null, null, "airport_pickup"]);
 
   const fallback = await quotedTrip([{ date: "2027-03-22", items: [{ kind: "arrive_flight", place: { placeId: haneda }, time: "10:00" }, end("ginza")] }]);
   const direct = await orderQuote(fallback.tripId, fallback.plans[0].plan_id);
   assert.equal(direct.status, 200, direct.text);
   assert.equal(direct.body.quote.price.total.amount, fallback.plans[0].total.amount);
+  assert.equal(direct.body.segment_type, "airport_pickup", "回落点对点的段仍报原段型");
   // 平台地点那一端用地点的坐标（从库里读回，按 6 位小数比）
   const { pickup, ...rest } = direct.body.quote_request;
   assert.deepEqual([pickup.lat.toFixed(6), pickup.lng.toFixed(6)], [P.haneda.lat.toFixed(6), P.haneda.lng.toFixed(6)]);
@@ -451,7 +452,7 @@ test("M9T-10 价格对不上 → 409 TRIP_PRICE_CHANGED（带方案价和现在�
   const res = await orderQuote(tripId, plan.plan_id);
   assert.equal(res.status, 409, res.text);
   assert.equal(res.body.error.code, "TRIP_PRICE_CHANGED");
-  assert.deepEqual(res.body.error.details, { plan_total: { amount: String(Number(plan.total.amount) + 1000), currency: "JPY" }, quote_total: { amount: plan.total.amount, currency: "JPY" } });
+  assert.deepEqual(res.body.error.details, { plan_total: { amount: String(Number(plan.total.amount) + 1000), currency: "JPY" }, quote_total: { amount: plan.total.amount, currency: "JPY" }, reason: "PRICE_CHANGED" });
 });
 
 test("M9T-10 拒绝：多段方案 409 TRIP_PLAN_NOT_SINGLE_SEGMENT（MULTI_SEGMENT）；带跨段费用 409（HAS_FEES）；过了 30 分钟 409 TRIP_PLAN_EXPIRED；方案 / 行程单不存在 404", async () => {

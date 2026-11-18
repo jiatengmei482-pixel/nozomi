@@ -32783,7 +32783,7 @@ components:
       type: object
       additionalProperties: false
       description: 单段方案转成的普通官网报价（M9T-10，ADR 0101 第十三节第 3 小节）：凭 `quote.quote_id` 走现有下单、付款
-      required: [ trip_id, plan_id, currency, city, quote, quote_request, itinerary_route, expires_at ]
+      required: [ trip_id, plan_id, currency, segment_type, city, quote, quote_request, itinerary_route, expires_at ]
       properties:
         trip_id:
           type: string
@@ -32794,6 +32794,10 @@ components:
         currency:
           type: string
           description: 官网渠道的结算币种（= 方案金额的币种）
+        segment_type:
+          type: string
+          enum: [ airport_pickup, airport_dropoff, p2p, charter ]
+          description: 这一段的段型；接送机报不出回落点对点时仍是 airport_pickup / airport_dropoff（`quote_request.category` 为 point_to_point）
         city:
           description: 包车：按哪个城市报的价（同官网询价的 `city`）；接送机、点对点为 null（城市在 `quote_request.city_id`）
           oneOf:

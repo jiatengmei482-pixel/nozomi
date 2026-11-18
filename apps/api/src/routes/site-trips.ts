@@ -167,6 +167,7 @@ export function registerSiteTripRoutes(app: FastifyInstance, ctx: AppContext): v
       city: quotedCityJson(result.city),
       quote: quoteJson(result.quote),
       quote_request: result.quoteRequest,
+      segment_type: result.segmentType,
       itinerary_route: route === null ? null : { legs: route.legs.map((leg) => ({ minutes: leg.minutes, meters: leg.meters })), drive_minutes: route.driveMinutes, stay_minutes: route.stayMinutes, total_minutes: route.totalMinutes, total_meters: route.totalMeters },
       expires_at: result.quote.expiresAt,
     };
