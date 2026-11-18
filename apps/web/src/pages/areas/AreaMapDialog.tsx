@@ -9,7 +9,7 @@
  * 供应商后台取 `/tenant/v1/area-map`（只有自己的区域）；运营后台取 `/platform/v1/area-map`，要给 `tenantId`（只看那个供应商的）。
  * 打开时才取数据；底图没有配置时只列区域和重叠，不画地图。
  */
-import { useMemo, useState } from "react";
+import { useMemo, useState, lazy, Suspense } from "react";
 import { type AreaMapItem, type AreaMapResponse, fetchPlatformAreaMap, fetchPlatformMapConfig, fetchTenantAreaMap } from "../../api/area-map.ts";
 import { type MapConfig, fetchMapConfig } from "../../api/areas.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
@@ -21,7 +21,9 @@ import { areaRing, colorSlot, computeOverlaps, overlapText } from "../../lib/are
 import { computeOutside, outsideText, roleName, roleOf } from "../../lib/area-roles.ts";
 import { displayName } from "../../lib/master-display.ts";
 import { useLoad } from "../../lib/use-load.ts";
-import { AreaOverviewMap, type AreaOverviewMapProps, type OverviewArea } from "./AreaOverviewMap.tsx";
+import { type AreaOverviewMapProps, type OverviewArea } from "./AreaOverviewMap.tsx";
+/** 地图按需加载（M9E-25）：Leaflet 单独成包，打开地图时才下载，嵌入页和其他页面的首包里没有 Leaflet */
+const AreaOverviewMap = lazy(() => import("./AreaOverviewMap.tsx").then((module) => ({ default: module.AreaOverviewMap })));
 
 export interface AreaMapDialogProps {
   open: boolean;
@@ -126,7 +128,7 @@ export function AreaMapDialog({ open, areaIds, onClose, title = "在地图上查
             ) : tiles === null ? (
               <p className="area-map-placeholder">{mapConfig.state.status === "ready" ? "这个环境没有配置地图底图。" : "地图没有加载出来。"}区域和重叠照常列在上面。</p>
             ) : (
-              <AreaOverviewMap tiles={tiles} areas={mapAreas} selected={selected} onSelect={setSelected} overlaps={overlaps.pieces} showOverlaps focusSignal={focusSignal} marker={null} outside={chosenOutside} label="选中区域的地图" {...(surfaceFactory ? { surfaceFactory } : {})} />
+              <Suspense fallback={null}><AreaOverviewMap tiles={tiles} areas={mapAreas} selected={selected} onSelect={setSelected} overlaps={overlaps.pieces} showOverlaps focusSignal={focusSignal} marker={null} outside={chosenOutside} label="选中区域的地图" {...(surfaceFactory ? { surfaceFactory } : {})} /></Suspense>
             )}
           </div>
         </div>

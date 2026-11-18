@@ -12,7 +12,7 @@
  *   这时只画选中商品选中层的区域，同一个包车商品里同层、①∩③ 的重叠标红（`charterLayerConflictPieces`，和保存校验同一口径），不再画一般的重叠。
  */
 import { AREA_BIZ_TYPE_NAMES } from "@nozomi/domain";
-import { type ChangeEvent, type DragEvent, type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, type DragEvent, type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { type AreaMapItem, type AreaMapResponse, type PlatformAreaMapItem, fetchPlatformAreaMap, fetchPlatformMapConfig, fetchTenantAreaMap } from "../../api/area-map.ts";
 import { type MapConfig, type ProductAreaLayers, TENANT_BASE, fetchAreaLayers, fetchMapConfig, listAll } from "../../api/areas.ts";
@@ -43,7 +43,9 @@ import { tenantOptionLabel } from "../../lib/platform-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan, useTenantCan } from "../../lib/use-master-access.ts";
-import { AreaOverviewMap, type OverviewArea, type OverviewMarker } from "./AreaOverviewMap.tsx";
+import { type OverviewArea, type OverviewMarker } from "./AreaOverviewMap.tsx";
+/** 地图按需加载（M9E-25）：Leaflet 单独成包，打开地图时才下载，嵌入页和其他页面的首包里没有 Leaflet */
+const AreaOverviewMap = lazy(() => import("./AreaOverviewMap.tsx").then((module) => ({ default: module.AreaOverviewMap })));
 import { AreaMoreItems, useAreaActions } from "./useAreaActions.tsx";
 import { ALL_LAYERS, AREA_LAYERS, AREA_LAYER_NAMES, AREA_LAYER_SHORT, type LayerSelection, type ProductFilter, layerConflicts, layerMembership, overlapLine, productLabel } from "../../lib/area-layers.ts";
 
@@ -441,7 +443,7 @@ export function AreaOverviewPage() {
             ) : tiles === null ? (
               <p className="area-map-placeholder">{mapConfig.state.status === "ready" ? "这个环境没有配置地图底图。" : "地图没有加载出来。"}区域的名称、形状和重叠照常列在左边。</p>
             ) : (
-              <AreaOverviewMap tiles={tiles} areas={mapAreas} selected={selected} onSelect={pickFromMap} overlaps={shownPieces} showOverlaps={membership === null} focusSignal={focusSignal} marker={marker} outside={shownOutside} conflicts={shownConflicts} demands={demandPoints} />
+              <Suspense fallback={null}><AreaOverviewMap tiles={tiles} areas={mapAreas} selected={selected} onSelect={pickFromMap} overlaps={shownPieces} showOverlaps={membership === null} focusSignal={focusSignal} marker={marker} outside={shownOutside} conflicts={shownConflicts} demands={demandPoints} /></Suspense>
             )}
           </div>
         </div>

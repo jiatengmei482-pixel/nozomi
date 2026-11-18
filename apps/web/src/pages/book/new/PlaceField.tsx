@@ -12,7 +12,7 @@
  * 浏览器只连 `/site/v1`，不连谷歌（ADR 0044）。
  */
 import { type CityCandidate, normalizePlaceQuery, placeQueryIssue, serviceCityOf } from "@nozomi/domain";
-import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useId, useRef, useState, lazy, Suspense } from "react";
 import { ApiError } from "../../../api/client.ts";
 import type { MapTiles } from "../../../api/areas.ts";
 import { type SitePlaceSuggestion, autocompleteSitePlaces, getSitePlaceDetails, reverseSitePlace } from "../../../api/site.ts";
@@ -21,7 +21,9 @@ import { GoogleMapsAttribution } from "../../../components/GoogleMapsAttribution
 import { Icon } from "../../../components/Icon.tsx";
 import { type TripPoint, pointName } from "../../../lib/book-new.ts";
 import { PLACES_DAILY_LIMIT_TEXT, addressText } from "../AddressFields.tsx";
-import { type LatLngValue, SiteMapPicker } from "../SiteMapPicker.tsx";
+import type { LatLngValue } from "../SiteMapPicker.tsx";
+/** 地图按需加载（M9E-25）：Leaflet 单独成包，打开地图时才下载，嵌入页和其他页面的首包里没有 Leaflet */
+const SiteMapPicker = lazy(() => import("../SiteMapPicker.tsx").then((module) => ({ default: module.SiteMapPicker })));
 import { FullScreenSheet } from "../../../components/FullScreenSheet.tsx";
 import { PickerTrigger, useFullScreenPickers } from "./full-screen.tsx";
 
@@ -352,7 +354,7 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
         {mapOpen ? "收起地图" : "在地图上选点"}
       </Button>
       <div id={mapId} hidden={!mapOpen}>
-        {mapOpen && <SiteMapPicker tiles={tiles} center={mapCenter} point={value === null ? null : { lat: value.lat, lng: value.lng }} word={label} onPick={(point) => void pickOnMap(point)} />}
+        {mapOpen && <Suspense fallback={null}><SiteMapPicker tiles={tiles} center={mapCenter} point={value === null ? null : { lat: value.lat, lng: value.lng }} word={label} onPick={(point) => void pickOnMap(point)} /></Suspense>}
       </div>
     </div>
   );

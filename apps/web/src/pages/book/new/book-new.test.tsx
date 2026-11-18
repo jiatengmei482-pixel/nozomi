@@ -396,7 +396,7 @@ async function pickFromOnMapInSheet(actor: ReturnType<typeof user>): Promise<HTM
   await actor.click(fromCell);
   const sheet = await screen.findByRole("dialog", { name: "出发地" });
   await actor.click(within(within(sheet).getByRole("group", { name: "出发地的地图" })).getByRole("button", { name: "在地图上选点" }));
-  await actor.click(within(sheet).getByRole("button", { name: "选地图中间这个位置" }));
+  await actor.click(await within(sheet).findByRole("button", { name: "选地图中间这个位置" }));
   await waitFor(() => assertAbsent(screen.queryByRole("dialog", { name: "出发地" })));
   assert.match(fromCell.textContent ?? "", /地图上选的位置（/);
   return fromCell;

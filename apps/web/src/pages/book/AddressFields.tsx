@@ -7,7 +7,7 @@
  * 报价只看坐标；地址文字给司机看。之后手改地址或坐标，「选中的常用地点」随之清掉。
  */
 import { ORDER_FIELD_LIMITS, normalizePlaceQuery, placeQueryIssue } from "@nozomi/domain";
-import { type KeyboardEvent, useId, useRef, useState } from "react";
+import { type KeyboardEvent, useId, useRef, useState, lazy, Suspense } from "react";
 import { ApiError } from "../../api/client.ts";
 import type { MapTiles } from "../../api/areas.ts";
 import { type SitePlace, type SitePlaceCandidate, reverseSitePlace, searchSitePlaces } from "../../api/site.ts";
@@ -20,7 +20,9 @@ import { TextField } from "../../components/TextField.tsx";
 import { displayName } from "../../lib/master-display.ts";
 import { placeQueryMatches } from "../../lib/place-search.ts";
 import { SITE_PLACE_TYPE_NAMES } from "../../lib/site-display.ts";
-import { type LatLngValue, SiteMapPicker } from "./SiteMapPicker.tsx";
+import type { LatLngValue } from "./SiteMapPicker.tsx";
+/** 地图按需加载（M9E-25）：Leaflet 单独成包，打开地图时才下载，嵌入页和其他页面的首包里没有 Leaflet */
+const SiteMapPicker = lazy(() => import("./SiteMapPicker.tsx").then((module) => ({ default: module.SiteMapPicker })));
 
 export interface PointDraft {
   address: string;
@@ -343,7 +345,7 @@ export function AddressFields({
             {mapOpen ? "收起地图" : `在地图上选${word}地点`}
           </Button>
           <div id={mapId} hidden={!mapOpen}>
-            {mapOpen && <SiteMapPicker tiles={lookup.tiles} center={lookup.center} point={current} word={word} onPick={(point) => void pickOnMap(point)} />}
+            {mapOpen && <Suspense fallback={null}><SiteMapPicker tiles={lookup.tiles} center={lookup.center} point={current} word={word} onPick={(point) => void pickOnMap(point)} /></Suspense>}
           </div>
           {reverseStatus}
         </div>

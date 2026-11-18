@@ -1500,13 +1500,13 @@
           "id": "M9E-25",
           "title": "嵌入页不打包 Leaflet：RouteMap.tsx、SiteMapPicker.tsx 改为按需加载，嵌入页的产物里没有 Leaflet 代码（M9E-17 审查建议）",
           "role": "frontend",
-          "status": "todo",
+          "status": "review",
           "acceptance": [
             "现在 Leaflet 在 RouteMap.tsx、SiteMapPicker.tsx 里是静态 import：嵌入页不渲染、不请求底图，但仍下载这段代码。改成只在主站真的要显示地图时才加载",
             "主站地图选点、路线后备图行为不变（site-booking*.spec.ts、map-center / waypoints 组件测试原样通过）；嵌入页打开四步、订单页时不下载 Leaflet 的代码（端到端核对请求列表）；build-output.spec.ts 按 ADR 0095 的「一个 JS、一个 CSS」规则相应调整并写明理由"
           ],
-          "evidence": "",
-          "updated": "2026-11-14"
+          "evidence": "SiteMapPicker、RouteMap、AreaMap、AreaOverviewMap 改为 React.lazy + Suspense；图例小图样 Swatch 拆到 area-swatch.tsx。vite build：Leaflet 单独成包（约 159 KB），主包里没有 Leaflet 代码（_leaflet_id、LatLngBounds 只在地图包里）；主站、嵌入页打开地图时才下载",
+          "updated": "2026-11-18"
         },
         {
           "id": "M9E-27",
