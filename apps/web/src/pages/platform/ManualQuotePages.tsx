@@ -8,7 +8,7 @@ import { MANUAL_QUOTE_RULES, MANUAL_QUOTE_STATUSES, type ManualQuoteStatus, manu
 import { type FormEvent, type ReactNode, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { ApiError } from "../../api/client.ts";
-import { type ManualQuoteDetail, type ManualQuoteEvent, type ManualQuotePage, type ManualQuotePerson, type ManualQuoteSummary, addManualQuoteNote, getManualQuote, listManualQuoteAssignees, listManualQuotes, updateManualQuote } from "../../api/manual-quotes.ts";
+import { type ManualQuoteDetail, type ManualQuoteEvent, type ManualQuotePage, type ManualQuotePerson, type ManualQuoteSummary, type ManualQuoteTripLink, addManualQuoteNote, getManualQuote, listManualQuoteAssignees, listManualQuotes, updateManualQuote } from "../../api/manual-quotes.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
@@ -26,7 +26,8 @@ import { localOffsetLabel } from "../../lib/audit-display.ts";
 import { failureText } from "../../lib/failure.ts";
 import { arriveByDeadlineText } from "../../lib/arrive-by-display.ts";
 import { durationText } from "../../lib/charter-itinerary.ts";
-import { ACCEPTANCE_BADGE, MANUAL_QUOTES_PAGE, MANUAL_QUOTE_STATUS_BADGES, PURGED_BADGE, contactKindsText, contactQueryValid, guestWhatsappDigits, guestWhatsappGreeting, manualQuoteEventText, manualQuotePath, manualQuoteStatusOf, manualQuoteTripText } from "../../lib/manual-quote-display.ts";
+import { ACCEPTANCE_BADGE, MANUAL_QUOTES_PAGE, MANUAL_QUOTE_STATUS_BADGES, PURGED_BADGE, contactKindsText, contactQueryValid, guestWhatsappDigits, guestWhatsappGreeting, manualQuoteEventText, manualQuotePath, manualQuoteStatusOf, manualQuoteTripText, TRIP_ITEM_NAMES, TRIP_PLAN_NAMES, tripUnquotedText } from "../../lib/manual-quote-display.ts";
+import { moneyLabel } from "../../lib/order-center-display.ts";
 import { auditLogPath } from "../../lib/platform-paths.ts";
 import { pageSizeOf, useCursorPages } from "../../lib/use-cursor-pages.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
@@ -255,6 +256,82 @@ function ContactSection({ detail }: { detail: ManualQuoteDetail }) {
   );
 }
 
+/** 官网行程报价页带来的整张行程单（M9T-08，ADR 0101 第十三节第 2 小节）：每天的点和时间、客人选的方案、两个方案的状态和金额、报不出的原因 */
+function TripSection({ trip }: { trip: ManualQuoteTripLink }) {
+  const chosen = trip.plan_kind === null ? "没有选方案（全部报不出，转人工）" : TRIP_PLAN_NAMES[trip.plan_kind];
+  return (
+    <section className="card" aria-labelledby="mq-trip">
+      <h2 className="card__title" id="mq-trip">
+        整张行程单
+      </h2>
+      <dl className="details">
+        <Detail label="行程单编号">
+          <span className="mono">{trip.trip_id}</span>
+        </Detail>
+        <Detail label="客人选的方案">{chosen}</Detail>
+      </dl>
+      {trip.purged && <p className="table__muted">行程单已清理（建单 30 天后清理），只剩客人提交时的地名，时间和报价看不到了。</p>}
+      {trip.days !== null ? (
+        <ol className="details__lines" aria-label="每天的行程">
+          {trip.days.map((day, dayIndex) => (
+            <li key={day.date}>
+              <strong>{`第 ${dayIndex + 1} 天 · ${day.date}`}</strong>
+              {day.items.length === 0 ? (
+                <span className="table__muted">空闲日（不用车）</span>
+              ) : (
+                <ol className="details__lines">
+                  {day.items.map((item, index) => (
+                    <li key={index}>
+                      <span>{[TRIP_ITEM_NAMES[item.kind], item.time, item.stay_minutes === null ? null : `停留 ${durationText(item.stay_minutes)}`].filter((part) => part !== null).join(" · ")}</span>
+                      <span className="table__names">
+                        <span>{item.name ?? "（地名已清除）"}</span>
+                        <span className="table__muted mono">{"place_id" in item.place ? "平台地点" : `${item.place.lat.toFixed(5)}, ${item.place.lng.toFixed(5)}`}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </li>
+          ))}
+        </ol>
+      ) : trip.labels !== null ? (
+        <ol className="details__lines" aria-label="每天的行程">
+          {trip.labels.map((names, dayIndex) => (
+            <li key={dayIndex}>
+              <strong>{`第 ${dayIndex + 1} 天`}</strong>
+              <span>{names.length === 0 ? "空闲日（不用车）" : names.join(" → ")}</span>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="table__muted">联系信息已过保留期，行程单的地名也已清除。</p>
+      )}
+      {trip.plans !== null && (
+        <>
+          <h3 className="card__subtitle">报价方案</h3>
+          {trip.plans.length === 0 ? (
+            <p className="table__muted">还没有报过价。</p>
+          ) : (
+            <ul className="details__lines" aria-label="报价方案">
+              {trip.plans.map((plan) => (
+                <li key={plan.kind}>
+                  <strong>{`${TRIP_PLAN_NAMES[plan.kind]}${plan.recommended ? "（推荐）" : ""}`}</strong>
+                  <span>{plan.status === "quoted" && plan.amount !== null ? moneyLabel(plan.amount) : "报不出"}</span>
+                  {plan.unquoted.map((entry, index) => (
+                    <span key={index} className="table__muted">
+                      {tripUnquotedText(entry)}
+                    </span>
+                  ))}
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 function PlaceText({ place }: { place: { name: string; lat: number; lng: number } }) {
   return (
     <span className="table__names">
@@ -436,6 +513,7 @@ export function ManualQuoteDetailPage() {
           )}
         </section>
         <ContactSection detail={detail} />
+        {detail.trip != null && <TripSection trip={detail.trip} />}
         <section className="card" aria-labelledby="mq-events">
           <h2 className="card__title" id="mq-events">
             跟进记录

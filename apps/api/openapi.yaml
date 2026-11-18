@@ -17762,7 +17762,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ request, contact, pickup, dropoff, waypoints, events ]
+                required: [ request, contact, pickup, dropoff, waypoints, events, trip ]
                 properties:
                   request:
                     $ref: "#/components/schemas/ManualQuoteRequestSummary"
@@ -17797,6 +17797,11 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/ManualQuoteEvent"
+                  trip:
+                    description: 官网行程报价页带来的行程单（M9T-08）；没关联为 null
+                    oneOf:
+                      - $ref: "#/components/schemas/ManualQuoteTripLink"
+                      - type: "null"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
         "503":
@@ -35120,6 +35125,110 @@ components:
           description: 包车的经停点（M9W-04），按顺序；有经停点时可以不带 `package_hours`（按行程计价，由客服定套餐）。别的类型不能带
           items:
             $ref: "#/components/schemas/ManualQuoteWaypoint"
+    ManualQuoteTripLink:
+      type: object
+      additionalProperties: false
+      description: |
+        人工报价申请关联的行程单（M9T-08，ADR 0101 第十三节第 2 小节）。地名取申请密文里的 `trip_labels`，结构取行程单。
+        行程单 30 天后清理：之后 `purged` 为 true，`days`、`plans` 为 null，只剩 `labels`；申请的联系信息清除后 `labels` 也为 null。
+      required: [ trip_id, plan_kind, purged, labels, days, plans ]
+      properties:
+        trip_id:
+          type: string
+        plan_kind:
+          description: 客人选的方案；全部报不出转人工时为 null
+          type: [ string, "null" ]
+          enum: [ one_car, daily_best, null ]
+        purged:
+          type: boolean
+          description: 行程单已过可读期或已被清理
+        labels:
+          description: 每天、每个点的名称（按行程单的天、点顺序）
+          oneOf:
+            - type: array
+              items:
+                type: array
+                items:
+                  type: string
+            - type: "null"
+        days:
+          oneOf:
+            - type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [ date, items ]
+                properties:
+                  date:
+                    type: string
+                    format: date
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [ kind, name, time, stay_minutes, place ]
+                      properties:
+                        kind:
+                          type: string
+                          enum: [ arrive_flight, start, stop, end, depart_flight ]
+                        name:
+                          type: [ string, "null" ]
+                        time:
+                          type: [ string, "null" ]
+                          description: "`HH:MM`，只有当天起点有"
+                        stay_minutes:
+                          type: [ integer, "null" ]
+                        place:
+                          oneOf:
+                            - type: object
+                              additionalProperties: false
+                              required: [ place_id ]
+                              properties:
+                                place_id:
+                                  type: string
+                            - type: object
+                              additionalProperties: false
+                              required: [ lat, lng ]
+                              properties:
+                                lat:
+                                  type: number
+                                lng:
+                                  type: number
+            - type: "null"
+        plans:
+          description: 最近一次报价的方案；还没报过价为空数组
+          oneOf:
+            - type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [ kind, status, recommended, amount, unquoted ]
+                properties:
+                  kind:
+                    type: string
+                    enum: [ one_car, daily_best ]
+                  status:
+                    type: string
+                    enum: [ quoted, unquoted ]
+                  recommended:
+                    type: boolean
+                  amount:
+                    oneOf:
+                      - $ref: "#/components/schemas/SalesMoney"
+                      - type: "null"
+                  unquoted:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [ day_index, reason ]
+                      properties:
+                        day_index:
+                          type: [ integer, "null" ]
+                        reason:
+                          type: string
+            - type: "null"
     ManualQuoteWaypoint:
       type: object
       additionalProperties: false

@@ -156,6 +156,44 @@ test("详情：包车经停点（M9W-04）在上车和下车地点之间按顺�
   assertAbsent(screen.queryByRole("list", { name: "经停点" }));
 });
 
+test("详情：带行程单（M9T-08）显示整张行程单——每天的点和时间、客人选的方案、两个方案的金额和报不出的原因；行程单已清理时写明，只剩地名；没关联不出这一块", async () => {
+  const trip = {
+    trip_id: "T".repeat(43),
+    plan_kind: "daily_best" as const,
+    purged: false,
+    labels: [["新宿酒店", "浅草寺"], []],
+    days: [
+      { date: "2030-12-01", items: [{ kind: "start" as const, name: "新宿酒店", time: "09:00", stay_minutes: null, place: { lat: 35.6905, lng: 139.7005 } }, { kind: "stop" as const, name: "浅草寺", time: null, stay_minutes: 90, place: { lat: 35.7148, lng: 139.7967 } }] },
+      { date: "2030-12-02", items: [] },
+    ],
+    plans: [
+      { kind: "one_car" as const, status: "unquoted" as const, recommended: false, amount: null, unquoted: [{ day_index: 1, reason: "OUT_OF_SERVICE_AREA" }] },
+      { kind: "daily_best" as const, status: "quoted" as const, recommended: true, amount: { amount: "88000", currency: "JPY" }, unquoted: [] },
+    ],
+  };
+  openDetail(detailOf({ trip }));
+  const card = (await screen.findByRole("heading", { level: 2, name: "整张行程单" })).closest("section") as HTMLElement;
+  assert.ok(within(card).getByText("每天各自最优"));
+  const days = within(card).getByRole("list", { name: "每天的行程" });
+  assert.match(days.textContent ?? "", /第 1 天 · 2030-12-01出发 · 09:00新宿酒店35\.69050, 139\.70050经停 · 停留 1 小时 30 分浅草寺/);
+  assert.match(days.textContent ?? "", /第 2 天 · 2030-12-02空闲日（不用车）/);
+  const plans = [...within(card).getByRole("list", { name: "报价方案" }).querySelectorAll(":scope > li")].map((item) => item.textContent);
+  assert.deepEqual(plans, ["一车到底报不出第 2 天：地点不在任何供应商的服务区域里", "每天各自最优（推荐）JPY 88,000"]);
+  resetBrowser();
+
+  openDetail(detailOf({ trip: { ...trip, plan_kind: null, purged: true, days: null, plans: null } }));
+  const purged = (await screen.findByRole("heading", { level: 2, name: "整张行程单" })).closest("section") as HTMLElement;
+  assert.ok(within(purged).getByText("没有选方案（全部报不出，转人工）"));
+  assert.ok(within(purged).getByText(/行程单已清理/));
+  assert.deepEqual([...within(purged).getByRole("list", { name: "每天的行程" }).querySelectorAll("li")].map((item) => item.textContent), ["第 1 天新宿酒店 → 浅草寺", "第 2 天空闲日（不用车）"]);
+  assertAbsent(within(purged).queryByRole("list", { name: "报价方案" }));
+  resetBrowser();
+
+  openDetail(detailOf({ trip: null }));
+  await screen.findByRole("heading", { level: 1, name: "申请 MQ20301120AB12CD34" });
+  assertAbsent(screen.queryByRole("heading", { level: 2, name: "整张行程单" }));
+});
+
 test("详情：验收留资（M8-39）在状态徽标旁标「验收」；真实客人的没有", async () => {
   openDetail(detailOf({ request: summaryOf({ is_acceptance: true }) }));
   const card = (await screen.findByRole("heading", { level: 2, name: "行程" })).closest("section") as HTMLElement;

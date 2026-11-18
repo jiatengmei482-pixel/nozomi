@@ -66,6 +66,36 @@ export interface ManualQuoteDetail {
   /** 包车的经停点（M9W-04），按顺序；没有经停点、已清除为 null。旧接口没有这一项 */
   waypoints?: ManualQuoteWaypoint[] | null;
   events: ManualQuoteEvent[];
+  /** 官网行程报价页带来的行程单（M9T-08）；没关联为 null。旧接口没有这一项 */
+  trip?: ManualQuoteTripLink | null;
+}
+
+export type TripPlanKind = "one_car" | "daily_best";
+
+/** 关联的行程单：地名取申请密文，结构取行程单；行程单已清理时 `days`、`plans` 为 null，只剩 `labels` */
+export interface ManualQuoteTripLink {
+  trip_id: string;
+  plan_kind: TripPlanKind | null;
+  purged: boolean;
+  labels: string[][] | null;
+  days: { date: string; items: ManualQuoteTripItem[] }[] | null;
+  plans: ManualQuoteTripPlan[] | null;
+}
+
+export interface ManualQuoteTripItem {
+  kind: "arrive_flight" | "start" | "stop" | "end" | "depart_flight";
+  name: string | null;
+  time: string | null;
+  stay_minutes: number | null;
+  place: { place_id: string } | { lat: number; lng: number };
+}
+
+export interface ManualQuoteTripPlan {
+  kind: TripPlanKind;
+  status: "quoted" | "unquoted";
+  recommended: boolean;
+  amount: { amount: string; currency: string } | null;
+  unquoted: { day_index: number | null; reason: string }[];
 }
 
 /** 包车的一个经停点（M9W-04）：地点和停留分钟；`arrive_by` 是客人指定的到达时间（M9P-20 P3），只在指定了时有 */
@@ -118,11 +148,12 @@ export const MANUAL_QUOTE_SCHEMA_FIELDS = {
   ManualQuotePlace: ["name", "lat", "lng"],
   ManualQuoteWaypoint: ["name", "lat", "lng", "stay_minutes", "arrive_by"],
   ManualQuotePerson: ["id", "name"],
+  ManualQuoteTripLink: ["trip_id", "plan_kind", "purged", "labels", "days", "plans"],
   SiteSettings: ["support_whatsapp", "page_width", "maps_browser_key", "version", "updated_at", "updated_by"],
 } as const satisfies Record<string, readonly string[]>;
 /** 只在有内容时才给的字段（不在 `required` 里）：经停点的指定到达时间（M9P-20 P3） */
 export const MANUAL_QUOTE_OPTIONAL_FIELDS: Readonly<Partial<Record<keyof typeof MANUAL_QUOTE_SCHEMA_FIELDS, readonly string[]>>> = { ManualQuoteWaypoint: ["arrive_by"] };
-export const MANUAL_QUOTE_DETAIL_FIELDS: readonly (keyof ManualQuoteDetail)[] = ["request", "contact", "pickup", "dropoff", "waypoints", "events"];
+export const MANUAL_QUOTE_DETAIL_FIELDS: readonly (keyof ManualQuoteDetail)[] = ["request", "contact", "pickup", "dropoff", "waypoints", "events", "trip"];
 export const MANUAL_QUOTE_QUERY_KEYS = ["limit", "cursor", "status", "assignee", "contact", "acceptance"] as const satisfies readonly (keyof ManualQuoteQuery)[];
 
 const one = (id: string): string => `${MANUAL_QUOTES_PATH}/${encodeURIComponent(id)}`;

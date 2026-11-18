@@ -2,7 +2,7 @@
  * 运营后台「人工报价」「官网设置」的地址、状态徽标和文字（M8-21，ADR 0076；规范 docs/design/pages/platform-tickets.md 第 9 节、platform-settings.md 第 9 节）。
  */
 import { MANUAL_QUOTE_STATUSES, MANUAL_QUOTE_STATUS_NAMES, type ManualQuoteStatus, manualQuoteEmail, whatsappDigits } from "@nozomi/domain";
-import type { ManualQuoteEvent, ManualQuoteSummary } from "../api/manual-quotes.ts";
+import type { ManualQuoteEvent, ManualQuoteSummary, ManualQuoteTripItem, TripPlanKind } from "../api/manual-quotes.ts";
 import type { BadgeSpec } from "../components/StatusBadge.tsx";
 import { SERVICE_CATEGORY_NAMES, displayName } from "./master-display.ts";
 import { SETTINGS_ROOT } from "./platform-paths.ts";
@@ -76,3 +76,27 @@ export function supportWhatsappText(digits: string): string {
 
 export const SUPPORT_WHATSAPP_HINT = "填带国家码的号码，如 +81 开头的日本号码；可以有空格、连字符。保存后官网报不出价时显示「通过 WhatsApp 联系我们」，清空就不显示。";
 export const SUPPORT_WHATSAPP_INVALID = "号码的格式不对：要带国家码（不以 0 开头），共 8 到 15 位数字，如 +81 开头的日本号码";
+
+/** 行程报价的两个方案（M9T-08，运营后台叫法；官网文案见 ADR 0101 第十三节文案表） */
+export const TRIP_PLAN_NAMES: Readonly<Record<TripPlanKind, string>> = { one_car: "一车到底", daily_best: "每天各自最优" };
+
+/** 行程单里点的种类 */
+export const TRIP_ITEM_NAMES: Readonly<Record<ManualQuoteTripItem["kind"], string>> = { arrive_flight: "接机", start: "出发", stop: "经停", end: "结束", depart_flight: "送机" };
+
+/** 方案报不出的原因（编排和段报价的原因码）；认不得的照原样写原因码 */
+const TRIP_UNQUOTED_REASONS: Readonly<Record<string, string>> = {
+  NO_OFFER: "没有供应商能报这一段",
+  OUT_OF_SERVICE_AREA: "地点不在任何供应商的服务区域里",
+  CROSS_CITY_ONE_CAR: "行程跨城市，一车到底报不了",
+  ONE_CAR_NOT_AVAILABLE: "没有一家供应商能用同一辆车跑完全程",
+  ROUTE_UNAVAILABLE: "查不到路线",
+  LODGING_PRICE_UNAVAILABLE: "供应商没设司机住宿费",
+  SECOND_DRIVER_PRICE_UNAVAILABLE: "供应商没设第二司机费",
+  FEE_PRICE_UNAVAILABLE: "供应商没设跨段费用",
+  WORK_HOURS_HARD_LIMIT: "超过司机工时上限",
+};
+
+export function tripUnquotedText(entry: { day_index: number | null; reason: string }): string {
+  const reason = TRIP_UNQUOTED_REASONS[entry.reason] ?? entry.reason;
+  return entry.day_index === null ? reason : `第 ${entry.day_index + 1} 天：${reason}`;
+}
