@@ -1922,8 +1922,8 @@
           "id": "M9T-08",
           "title": "人工报价关联行程单：新表 manual_quote_trip_links、POST /site/v1/manual-quote-requests 收可选 trip_id / plan_kind、地名 trip_labels 放进加密联系信息、运营后台人工报价详情显示整张行程单或「行程单已清理」（ADR 0101 第十三节第 2 小节）",
           "role": "backend",
-          "status": "todo",
-          "blockedBy": "依赖 M9T-06",
+          "status": "done",
+          "evidence": "#316 新表 manual_quote_trip_links、提交带 trip_id / plan_kind / trip_labels（地名加密、到期一起清除）；#317 运营后台人工报价详情「整张行程单」（每天的点和时间、方案金额、报不出原因、已清理）",
           "acceptance": ["只新增表，不给 manual_quote_requests 加列；trip_id 不加外键，行程单清理后关联行保留", "不带 trip_id 时人工报价申请行为不变（现有测试全过）；带了不属于本渠道或已过期的行程单 404 TRIP_NOT_FOUND", "trip_labels 随联系信息加密、到期一起清除（集成测试）", "运营后台详情显示每天的日期、时间、点、方案和报不出的原因；行程单已清理时显示「行程单已清理」；CI 全绿"],
           "updated": "2026-11-18"
         },

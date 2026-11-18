@@ -54,6 +54,9 @@ async function latest(): Promise<any> {
   return (await ok(platform("customer_service", "GET", "/manual-quote-requests?limit=1"))).items[0];
 }
 
+/** 带行程单的申请（M9T-08 用例里建的），到期清除用例核对地名一起清掉 */
+let linked: { id: string; tripId: string } | null = null;
+
 const countRows = async (): Promise<number> => (await api.db.owner.query<{ n: number }>("select count(*)::int as n from manual_quote_requests")).rows[0]?.n ?? 0;
 
 before(async () => {
@@ -394,6 +397,7 @@ test("带行程单（M9T-08）：关联写进新表，地名只在密文里；�
   await api.db.owner.query("delete from trips where id = $1", [tripId]);
   const purged = await ok(platform("customer_service", "GET", `/manual-quote-requests/${id}`));
   assert.deepEqual(purged.trip, { trip_id: tripId, plan_kind: "daily_best", purged: true, labels, days: null, plans: null });
+  linked = { id, tripId };
 });
 
 test("跟进：指派、改状态（If-Match）、备注；每一项一条跟进记录和一条审计；备注加密、审计里没有原文", async () => {
@@ -596,6 +600,12 @@ test("到期清除：关闭 180 天后、或提交 365 天后清空联系方式�
   api.clock.advance(186 * 86_400_000);
   await api.app.manualQuoteRetention.tick();
   assert.notEqual((await api.db.owner.query("select purged_at from manual_quote_requests where id = $1", [open.id])).rows[0].purged_at, null, "提交满 365 天，没关闭也清除");
+  // 带行程单的申请（M9T-08）：地名和联系方式一起清掉，关联行留着
+  while ((await api.app.manualQuoteRetention.tick()).purged > 0);
+  assert.ok(linked !== null);
+  await relogin();
+  const linkedDetail = await ok(platform("customer_service", "GET", `/manual-quote-requests/${linked.id}`));
+  assert.deepEqual(linkedDetail.trip, { trip_id: linked.tripId, plan_kind: "daily_best", purged: true, labels: null, days: null, plans: null });
 
   const audits = (await api.db.owner.query("select actor_type, resource_id, after from audit_logs where resource = 'manual_quote_request' and action = 'anonymize_passenger' order by id")).rows;
   assert.ok(audits.length >= 2);
