@@ -170,6 +170,20 @@ test("运营后台：product.read 才能看；全部供应商，带所属供应�
   assert.equal((await api.call("GET", "/platform/v1/area-map?tenant_id=x", { token: root })).status, 400);
 });
 
+test("分类（ADR 0102）：标成平台共享的区域，两个后台的区域地图都显示 shared（原来查询漏了这一列，一律显示 own）", async () => {
+  const target = (await api.call("GET", "/platform/v1/area-map", { token: root })).body.items.find((entry: any) => entry.name.zh === "乙东京");
+  assert.equal(target.sharing, "own");
+  await api.db.owner.query("update areas set sharing = 'shared' where id = $1", [target.id]);
+  try {
+    const platform = (await api.call("GET", "/platform/v1/area-map", { token: root })).body.items.find((entry: any) => entry.id === target.id);
+    assert.equal(platform.sharing, "shared");
+    const tenant = (await api.call("GET", "/tenant/v1/area-map", { token: b.adminToken })).body.items.find((entry: any) => entry.id === target.id);
+    assert.equal(tenant.sharing, "shared");
+  } finally {
+    await api.db.owner.query("update areas set sharing = 'own' where id = $1", [target.id]);
+  }
+});
+
 test("底图配置：任何平台员工都能取，和供应商后台的同一份", async () => {
   const tenantConfig = await api.call("GET", "/tenant/v1/map/config", { token: a.adminToken });
   for (const { key } of PLATFORM_ROLES) {
