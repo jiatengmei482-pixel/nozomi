@@ -223,6 +223,16 @@ test("哪里都不在 = 不报价、转人工（OUT_OF_SERVICE_AREA）；落在�
   assert.equal(total(charter({ priceRules: [pkg("base-8"), surcharge("s-chiba", "chiba", 500, 500, { status: "disabled" }), SURCHARGES[0] as PriceRule & { id: string }] }), trip("tokyo", "chiba")), "OUT_OF_SERVICE_AREA");
 });
 
+test("M8-36 补用例：上车点只在加价区域（③千叶）里、又落在本商品报价区域（①东京）的禁行区里 → 不报（IN_FORBIDDEN_AREA），③盖住也不行；下车点同理", () => {
+  const tokyoForbidsChiba: QuoteArea = { ...TOKYO, shapes: [...TOKYO.shapes, { id: "tokyo-no-chiba", kind: "forbid", ring: square(140.05, 35.6, 140.15, 35.8) }] };
+  assert.equal(total(charter(), trip("chiba", "tokyo")), 50_500, "对照：没有禁行区时千叶上车照收 500");
+  assert.equal(total(charter({ areas: [tokyoForbidsChiba] }), trip("chiba", "tokyo")), "IN_FORBIDDEN_AREA");
+  assert.equal(total(charter({ areas: [tokyoForbidsChiba] }), trip("tokyo", "chiba")), "IN_FORBIDDEN_AREA");
+  // 禁行区以外的千叶照常：上车点挪到禁行区外（140.25, 35.7）仍收 500
+  const outside = { ...trip("chiba", "tokyo"), pickup: { lng: 140.25, lat: 35.7 } };
+  assert.equal(total(charter({ areas: [tokyoForbidsChiba] }), outside), 50_500);
+});
+
 test("上车点不在商品区域里也能报（ADR 0073）：基础定价用下车点所在的商品区域；两端都只在加价区域里时商品的每个区域都算、取最低", () => {
   const second = area("tokyo-east", square(139.85, 35.5, 139.95, 35.9));
   const product = charter({ areas: [TOKYO, second], priceRules: [pkg("base-8"), pkg("east-8", { areaId: "tokyo-east" }, 45_000), ...SURCHARGES] });
