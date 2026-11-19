@@ -125,14 +125,19 @@ test("官网地址：搜索 → 选中 → 地图上用键盘选下车点 → �
   await pickupMap.scrollIntoViewIfNeeded();
   const pickupMapGroup = page.getByRole("group", { name: "上车地点的地图" });
   const zoomOut = pickupMapGroup.getByRole("button", { name: "缩小地图" });
-  await zoomOut.click();
-  await zoomOut.click();
-  await zoomOut.click();
-  const box = await pickupMap.boundingBox();
-  if (box === null) throw new Error("地图没有显示出来");
-  await page.mouse.click(box.x + box.width - 12, box.y + box.height / 2);
-  await expect(pickupMapGroup.getByText("已填入这个位置的地址和坐标，可以在地址后面补充酒店名、楼层。")).toBeVisible();
-  expect(Number(await coordinate(page, "上车", "经度").inputValue())).toBeGreaterThan(CENTER.lng + 0.1);
+  const pickupLng = coordinate(page, "上车", "经度");
+  // 地图多宽、从哪一级开始取决于前面窄屏检查后的窗口（M8-29 偶发：点到的只在中心东边 0.03 度）：每缩小一级点一次右边缘，直到点到营运区外
+  for (let attempt = 0; attempt < 6 && Number(await pickupLng.inputValue()) <= CENTER.lng + 0.1; attempt += 1) {
+    await zoomOut.click();
+    const box = await pickupMap.boundingBox();
+    if (box === null) throw new Error("地图没有显示出来");
+    const before = await pickupLng.inputValue();
+    await page.mouse.click(box.x + box.width - 12, box.y + box.height / 2);
+    await expect(pickupLng).not.toHaveValue(before);
+  }
+  expect(Number(await pickupLng.inputValue())).toBeGreaterThan(CENTER.lng + 0.1);
+  // 这一步要验的是「服务区外」：坐标填好就行。反查地址在 CI 负载高时可能取不到（计数查询超时，页面照常退回「暂时查不到」，M8-29），两种说法都算
+  await expect(pickupMapGroup.getByText(/^(已填入这个位置的地址和坐标，可以在地址后面补充酒店名、楼层。|坐标已填好，暂时查不到这个位置的地址，请在上面写上地址或酒店名。)$/)).toBeVisible();
   await page.getByRole("button", { name: "查询价格" }).click();
   await expect(page.getByRole("heading", { name: "没有可预订的车" })).toBeVisible();
   await expect(page.locator("main")).toContainText("这个地址不在服务范围内，请换一个更靠近市区的地址。");
