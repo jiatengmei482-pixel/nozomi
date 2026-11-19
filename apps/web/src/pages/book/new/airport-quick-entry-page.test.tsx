@@ -1,6 +1,6 @@
 /**
  * 包车快捷入口在新预订页里（M9P-22，ADR 0098 第三节第 6、7 小节）的组件测试：
- * - 手机宽度（M9E-32 底部按钮条）：「机场送机结束」→ 下车点照常用地址搜索（输入「羽田第3ターミナル」选谷歌候选），按坐标自动认出「羽田机场 第 3 航站楼」（业主 2026-11-19），
+ * - 手机宽度（M9E-32 底部按钮条）：「机场送机结束」→ 下车点照常用地址搜索（输入「羽田第 3 ターミナル」选谷歌候选），按坐标自动认出「羽田机场 第 3 航站楼」（业主 2026-11-19），
  *   第 1 步「下一步：选择车型」在底部条（本步操作）里、没有旧的 .book-actions / .book-bar；询价带客人选的地点的坐标；明细套餐行写场景名「8 小时包车 + 羽田机场送机」；匹配到机场时第 3 步备注框提示航班号，没有航班号字段。
  * - 电脑宽度：「机场接机开始」有计时提示；「改填其他地点」回到普通地址输入。
  * 接口用测试替身（浏览器只连 /site/v1）；真实后端由 e2e/site-charter-airport.spec.ts 覆盖。
@@ -108,7 +108,7 @@ test("手机宽度：「机场送机结束」用地址搜索选羽田第 3 航�
   // 下车点照常用地址搜索：快捷入口打开时那一端先清空
   const box = (await screen.findByRole("combobox", { name: "下车地点" })) as HTMLInputElement;
   assert.equal(box.value, "");
-  await actor.type(box, "羽田第3ターミナル");
+  await actor.type(box, "羽田第 3 ターミナル");
   await actor.click(await screen.findByRole("option", { name: /羽田空港 第3ターミナル/ }, SLOW));
   await screen.findByText("已识别：羽田机场 第 3 航站楼", {}, SLOW);
   assert.ok(calls.some((call) => call.path === `/site/v1/airports/at?lat=${T3_PLACE.lat}&lng=${T3_PLACE.lng}&kind=airport`));

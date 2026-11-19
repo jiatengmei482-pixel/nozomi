@@ -9,7 +9,7 @@ export const CHARTER_AIRPORT_COPY = {
   "charter.scenario.airportEnd": "{hours} 小时包车 + {airport}送机",
   "book.charter.quickAirportStart": "机场接机开始",
   "book.charter.quickAirportEnd": "机场送机结束",
-  "book.charter.searchAirportHint": "在上面的「{label}」里输入机场名称或地址（任何语言都可以，如 成田机场、Narita Airport、羽田第3ターミナル），选中后自动识别机场和航站楼",
+  "book.charter.searchAirportHint": "在上面的「{label}」里输入机场名称或地址（任何语言都可以，如 成田机场、Narita Airport、羽田第 3 ターミナル），选中后自动识别机场和航站楼",
   "book.charter.matchingAirport": "正在识别机场…",
   "book.charter.recognized": "已识别：{place}",
   "book.charter.noAirport": "没有认出这是哪个机场。可以照常询价（价格按这个地点算），也可以换一个地点",

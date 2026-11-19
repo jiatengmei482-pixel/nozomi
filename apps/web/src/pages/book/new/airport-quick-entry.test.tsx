@@ -85,7 +85,7 @@ test("还没选地点：提示在地址搜索里输入机场名（任何语言�
   const user = userEvent.setup();
   await user.click(screen.getByRole("button", { name: "机场接机开始" }));
   assert.equal(screen.getByRole("button", { name: "机场接机开始" }).getAttribute("aria-pressed"), "true");
-  assert.ok(screen.getByText("在上面的「上车地点」里输入机场名称或地址（任何语言都可以，如 成田机场、Narita Airport、羽田第3ターミナル），选中后自动识别机场和航站楼"));
+  assert.ok(screen.getByText("在上面的「上车地点」里输入机场名称或地址（任何语言都可以，如 成田机场、Narita Airport、羽田第 3 ターミナル），选中后自动识别机场和航站楼"));
   assert.ok(screen.getByText(/包车从预约的上车时间开始计时，没有免费等待。建议把上车时间定在航班落地后 60–90 分钟/));
   await user.click(screen.getByRole("button", { name: "改填其他地点" }));
   assert.ok(screen.getByText("普通地址输入"));
