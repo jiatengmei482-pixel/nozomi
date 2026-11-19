@@ -363,6 +363,8 @@ export function StepShell({
               onClick={(event) => {
                 const to = leaving;
                 setLeaving(null);
+                // 被拦下的那次点击记下的换步作废：存好了由 save 按这次点击重新记；没存成（校验不过、保存失败）就不留记录（M6-11）
+                clearStepChange();
                 if (to !== null) void save(to, inputSourceOf(event));
               }}
             >

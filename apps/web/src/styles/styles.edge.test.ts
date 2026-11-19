@@ -8,6 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import { runInNewContext } from "node:vm";
+import { MEASURED_LENGTHS } from "../lib/measured-length.ts";
 
 const STYLES_DIR = new URL("./", import.meta.url);
 const SRC_DIR = new URL("../", import.meta.url);
@@ -100,21 +101,15 @@ test("简写属性里的边框宽度、阴影、时长也只用令牌", () => {
   }
 });
 
+const MEASURED_LENGTH_MODULE = "lib/measured-length.ts";
+/** 实测尺寸模块里唯一允许的写法（writeLength）：变量名、种类先核对过在名单里，值只经 measuredPixels 写成「整数px」。 */
+const MEASURED_LENGTH_WRITE = "target.style.setProperty(name, measuredPixels(length, kind))";
+
 test("组件代码里没有内联样式、没有写死的颜色，SVG 图标的颜色跟随文字（currentColor）", () => {
-  // 例外只有两处，都只是长度，不是颜色、字号；只放行这两个文件里、写这几个变量的 setProperty / removeProperty：
-  // - 司机页把吸底按钮条量出来的高度写进 <html> 的 --driver-bar-height（driver.md 3b，M6-08）；
-  // - 新预订页手机底部按钮条量出来的高度写进 <html> 的 --book-actionbar-h，嵌入页里这条往上挪的距离写在条自己的 --book-actionbar-shift（ADR 0100，M9E-32）。
-  const driverPage = sources.find((source) => source.name === "pages/driver/DriverTripPage.tsx");
-  assert.match(driverPage?.text ?? "", /export const BAR_HEIGHT_VARIABLE = "--driver-bar-height";/);
-  const stepBar = sources.find((source) => source.name === "pages/book/new/StepActionBar.tsx");
-  assert.match(stepBar?.text ?? "", /export const STEP_BAR_HEIGHT_VARIABLE = "--book-actionbar-h";/);
-  assert.match(stepBar?.text ?? "", /export const STEP_BAR_SHIFT_VARIABLE = "--book-actionbar-shift";/);
-  const allowed: Record<string, string[]> = {
-    "pages/driver/DriverTripPage.tsx": [".style.setProperty(BAR_HEIGHT_VARIABLE,"],
-    "pages/book/new/StepActionBar.tsx": [".style.setProperty(STEP_BAR_HEIGHT_VARIABLE,", ".style.setProperty(STEP_BAR_SHIFT_VARIABLE,"],
-  };
+  // 唯一的例外：只有 lib/measured-length.ts 可以调 setProperty，把量出来的长度写进登记过的变量（只是长度，不是颜色、字号；M6-11）。
+  // 下一条核对它只有这一处 setProperty、名单和写法都对。
   for (const { name, text: raw } of sources) {
-    const text = (allowed[name] ?? []).reduce((rest, call) => rest.replaceAll(call, ""), raw);
+    const text = name === MEASURED_LENGTH_MODULE ? raw.replace(MEASURED_LENGTH_WRITE, "") : raw;
     assert.doesNotMatch(text, /\bstyle=\{/, `${name} 用了内联样式`);
     assert.doesNotMatch(text, /\.style\.[a-zA-Z]+\s*=|\.style\.setProperty\(|cssText/, `${name} 用脚本改样式`);
     assert.doesNotMatch(text, /["'`]#[0-9a-fA-F]{3,8}["'`]/, `${name} 里有十六进制颜色`);
@@ -123,6 +118,30 @@ test("组件代码里没有内联样式、没有写死的颜色，SVG 图标的�
       const value = match[2] ?? match[3] ?? "";
       assert.match(value, /^(none|currentColor)$/, `${name}：${match[1]}="${value}" 写死了颜色`);
     }
+  }
+});
+
+test("实测尺寸模块（M6-11）：只有一处 setProperty，变量名先核对在名单里，值只写「整数px」；名单是司机页、新预订页按钮条的三个变量", () => {
+  const module = sources.find((source) => source.name === MEASURED_LENGTH_MODULE);
+  assert.ok(module, `找不到 ${MEASURED_LENGTH_MODULE}`);
+  const text = stripComments(module.text);
+  assert.equal((text.match(/\bsetProperty\b/g) ?? []).length, 1, "只有一处 setProperty");
+  assert.ok(text.includes(MEASURED_LENGTH_WRITE), "setProperty 的值只能经 measuredPixels");
+  assert.match(text, /if \(!isMeasuredLengthName\(name\)\) throw /, "变量名不在名单里就报错，不写");
+  assert.match(text, /return `\$\{Number\.isFinite\(length\) && length > 0 \? Math\.ceil\(length\) : 0\}px`;/, "高度是向上取整的整数加 px");
+  assert.match(text, /if \(kind === "offset"\) return `\$\{Number\.isFinite\(length\) \? Math\.round\(length\) \|\| 0 : 0\}px`;/, "位移是四舍五入的整数加 px");
+  assert.match(text, /if \(MEASURED_LENGTHS\[name\]\.kind !== kind\) throw /, "种类不对就报错，不写");
+  assert.deepEqual(
+    MEASURED_LENGTHS,
+    {
+      "--driver-bar-height": { kind: "height", sheets: ["driver.css"] },
+      "--book-actionbar-h": { kind: "height", sheets: ["book-new.css"] },
+      "--book-actionbar-shift": { kind: "offset", sheets: ["book-new.css"] },
+    },
+    "名单只有这三个变量，各自只许对应的样式表引用",
+  );
+  for (const { name, text: code } of sources) {
+    if (name !== MEASURED_LENGTH_MODULE) assert.doesNotMatch(stripComments(code), /\bsetProperty\b/, `${name} 自己调 setProperty，应改用 useMeasuredHeight`);
   }
 });
 

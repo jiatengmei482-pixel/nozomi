@@ -478,10 +478,10 @@
           "id": "M6-11",
           "title": "样式检查的「实测高度」例外收进公用模块（M6-08 司机页吸底条审查的后续）",
           "role": "frontend",
-          "status": "todo",
+          "status": "review",
           "acceptance": ["把「量元素高度、写进 CSS 变量」收进一个公用小模块（例如 lib/measured-length.ts 的 useMeasuredHeight(element, name)）：变量名只接受规定的几个，值固定写成「整数px」", "两个样式测试共用同一份变量名单；例外改为「只有这个模块可以调 setProperty」，不再按文件名替换字符串", "变量名单改成「变量 → 允许引用它的样式表」，--driver-bar-height 只许 driver.css 引用", "styles.edge.test.ts 的注释只提 setProperty（原规则本来不拦 removeProperty）", "来源：PR #177 独立复查（2026-11-13），不挡 #177 合并", "附带边角（#183 复查，不急）：离开确认里「保存并继续」保存失败后，紧接一次没有记录、目标地址相同的导航，可能沿用那次点击的 pointer 记录；保存失败时清掉记录即可"],
-          "evidence": "",
-          "updated": "2026-11-13"
+          "evidence": "PR #202（https://github.com/jiatengmei482-pixel/nozomi/pull/202）：lib/measured-length.ts（useMeasuredHeight、setMeasuredOffset、clearMeasuredLength；全站只有它的 writeLength 一处调 setProperty）；名单 MEASURED_LENGTHS 是「变量 → 种类（高度 / 位移）+ 允许引用的样式表」，两个样式测试共用：--driver-bar-height → driver.css；2026-11-19 合并 main 后把 M9E-32 新预订页按钮条的 --book-actionbar-h（高度）、--book-actionbar-shift（位移，可为负）也收进来，只许 book-new.css 引用；离开确认保存失败时清掉换步记录。本机见 PR",
+          "updated": "2026-11-19"
         },
         {
           "id": "M6-12",

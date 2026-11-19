@@ -12,6 +12,7 @@ import { App } from "../../../App.tsx";
 import type { AdjustRuleBody, AdjustRules, CalendarDay, CalendarSegment, PriceCalendar, PriceOverviewItem, PriceRuleBody, PriceRules } from "../../../api/prices.ts";
 import type { Product, PublishCheckItemBody, PublishCheckResult } from "../../../api/products.ts";
 import { type ApiCall, apiError, assertAbsent, assertFocused, json, narrowScreen, resetBrowser, signIn, stubApiWith } from "../../../testing/harness.tsx";
+import { navigationSource } from "../step-title.tsx";
 
 afterEach(resetBrowser);
 
@@ -319,6 +320,20 @@ test("调价规则列表：顺序只靠上移 / 下移，动过要点保存；�
   await screen.findByText("已保存顺序");
   assert.deepEqual([...document.querySelectorAll(".adjust-table tbody th a")].map((node) => node.textContent), ["周末夜间", "国庆旺季"]);
   assert.doesNotMatch(pageText(), /IDS_MISMATCH/);
+});
+
+test("调价规则列表：顺序没保存就离开，「保存并继续」保存失败时留下，被拦下那次点击记下的输入方式清掉（M6-11）", async () => {
+  const actor = user();
+  const calls = open(`/products/${PRODUCT_ID}/prices/adjust`, "admin", { adjusts: adjustsOf([adjustOf(), weekend]) }, (call) => (call.method === "PUT" && call.url.pathname === `${BASE}/adjust-rules/order` ? apiError(500, "INTERNAL", "boom") : null));
+  await actor.click(await screen.findByRole("button", { name: "下移 国庆旺季" }));
+  const link = within(screen.getByRole("navigation", { name: "价格规则的分区" })).getByRole("link", { name: /价格规则/ });
+  const target = new URL((link as HTMLAnchorElement).href).pathname;
+  await actor.click(link);
+  await actor.click(within(await screen.findByRole("dialog", { name: "顺序改了，还没有保存" })).getByRole("button", { name: "保存并继续" }));
+  await waitFor(() => assert.equal(writes(calls).length, 1));
+  await waitFor(() => assert.ok(!(screen.getByRole("button", { name: "保存顺序" }) as HTMLButtonElement).disabled));
+  assert.ok(screen.getByText("顺序改了，还没有保存。"), "没存成，留在列表上");
+  assert.equal(navigationSource({ pathname: target, key: "after-failure" }, "PUSH"), "unknown");
 });
 
 test("调价规则列表：草稿的启停立即生效；已上架的先确认；启用被拒（调完不大于 0）开关弹回并带去修改；删除要确认并带 If-Match", async () => {

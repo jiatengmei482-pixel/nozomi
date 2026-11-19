@@ -10,10 +10,11 @@
  *     不低于原位置、不高过 iframe 上沿；没收到（旧版组件脚本、直接打开）时退回 `position: sticky; bottom: 0`。
  * - 主按钮点不了（如第 2 步还没选车）时保持灰色并显示原因，按钮用 `aria-describedby` 指向原因（`STEP_BAR_REASON_ID`）；不隐藏。
  *
- * 只写长度变量，不改别的样式（styles.edge.test.ts 只放行这个文件里写这两个变量的 setProperty）。
+ * 只写长度变量，不改别的样式：两个变量都经 lib/measured-length.ts 写（M6-11；全站只有那个模块能调 setProperty）。
  */
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { type HostViewportSource, frameBarShift } from "../../../embed/frame-bar.ts";
+import { clearMeasuredLength, setMeasuredOffset, useMeasuredHeight } from "../../../lib/measured-length.ts";
 import { stepBarCopy } from "../../../lib/step-bar-texts.ts";
 
 /** 单栏宽度：≤ 1023px（手机 + 平板，业主 2026-11-17：平板也用底部按钮条）。电脑两栏仍是 ≥ 1024px */
@@ -21,9 +22,9 @@ export const COMPACT_QUERY = "(max-width: 1023px)";
 /** 主按钮点不了的原因（同一时间页面上只有一条按钮条） */
 export const STEP_BAR_REASON_ID = "book-step-reason";
 /** 主站手机底部条的实际高度（<html> 上；页面底部留出同样高度） */
-export const STEP_BAR_HEIGHT_VARIABLE = "--book-actionbar-h";
+export const STEP_BAR_HEIGHT_VARIABLE = "--book-actionbar-h" as const;
 /** 嵌入页里条往上挪多少（条自己身上） */
-export const STEP_BAR_SHIFT_VARIABLE = "--book-actionbar-shift";
+export const STEP_BAR_SHIFT_VARIABLE = "--book-actionbar-shift" as const;
 /** 主站手机底部条在页面上时 <html> 带这个属性（book-new.css 按它给 body 留底部空白） */
 const ACTIVE_ATTRIBUTE = "data-book-actionbar";
 /** 嵌入页里收到了带 top 的 viewport：条按宿主屏幕摆放（book-new.css 按它从 sticky 换成 translateY） */
@@ -84,23 +85,18 @@ export function StepActionBar({ compact, frame, back, primary, reason = null, su
   const barRef = useRef<HTMLDivElement | null>(null);
   const mode = !compact ? "inline" : frame === undefined ? "fixed" : "frame";
 
-  // 主站：量条的高度写到 <html>，页面底部留出同样高度
+  // 主站：量条的高度写到 <html>（经 useMeasuredHeight，M6-11），<html> 带上属性，页面底部留出同样高度
+  const [bar, setBar] = useState<HTMLDivElement | null>(null);
+  const attachBar = useCallback((element: HTMLDivElement | null): void => {
+    barRef.current = element;
+    setBar(element);
+  }, []);
+  useMeasuredHeight(mode === "fixed" ? bar : null, STEP_BAR_HEIGHT_VARIABLE);
   useEffect(() => {
-    const bar = barRef.current;
-    if (mode !== "fixed" || bar === null) return;
+    if (mode !== "fixed") return;
     const root = document.documentElement;
-    const measure = (): void => {
-      root.style.setProperty(STEP_BAR_HEIGHT_VARIABLE, `${Math.ceil(bar.getBoundingClientRect().height)}px`);
-    };
     root.setAttribute(ACTIVE_ATTRIBUTE, "");
-    measure();
-    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
-    observer?.observe(bar);
-    return () => {
-      observer?.disconnect();
-      root.removeAttribute(ACTIVE_ATTRIBUTE);
-      root.style.removeProperty(STEP_BAR_HEIGHT_VARIABLE);
-    };
+    return () => root.removeAttribute(ACTIVE_ATTRIBUTE);
   }, [mode]);
 
   // 嵌入页：按宿主屏幕的下沿摆放；宿主发来新位置时马上挪，iframe 自己变高变窄、条变高时下一帧再算
@@ -113,13 +109,13 @@ export function StepActionBar({ compact, frame, back, primary, reason = null, su
       const view = frame.current();
       if (view === null || view.top === null) {
         slot.removeAttribute(TRACKED_ATTRIBUTE);
-        bar.style.removeProperty(STEP_BAR_SHIFT_VARIABLE);
+        clearMeasuredLength(bar, STEP_BAR_SHIFT_VARIABLE);
         return;
       }
       // 先换成文档流里的原位置（不再 sticky）再量
       slot.setAttribute(TRACKED_ATTRIBUTE, "");
       const shift = frameBarShift({ frameTop: view.top, hostHeight: view.height, frameHeight: window.innerHeight, slotTop: slot.getBoundingClientRect().top, barHeight: bar.getBoundingClientRect().height });
-      bar.style.setProperty(STEP_BAR_SHIFT_VARIABLE, `${shift}px`);
+      setMeasuredOffset(bar, STEP_BAR_SHIFT_VARIABLE, shift);
     };
     const schedule = (): void => {
       if (raf === 0) {
@@ -164,7 +160,7 @@ export function StepActionBar({ compact, frame, back, primary, reason = null, su
   }
   return (
     <div ref={slotRef} className={`step-bar-slot step-bar-slot--${mode}`}>
-      <div ref={barRef} className="step-bar" role="group" aria-label={stepBarCopy("label")}>
+      <div ref={attachBar} className="step-bar" role="group" aria-label={stepBarCopy("label")}>
         {summary != null && summary !== false && <p className="step-bar__summary">{summary}</p>}
         {reasonLine}
         <div className="step-bar__buttons">
