@@ -407,7 +407,9 @@ test("邮件里的链接：只能看这一单；能试算取消费、改备注�
   const mail = mailsTo(email)[0] as string;
   const token = tokenIn(mail) as string;
   assert.ok(token, mail);
-  for (const secret of [PASSENGER_NAME, PASSENGER_PHONE, "9033334444", DROPOFF_TEXT, "JL061", "甲车队", "乙车队", "成田", "商务", "JPY", "¥", "円", neighbour.order.order_no]) assert.equal(mail.includes(secret), false, `邮件里不该有 ${secret}`);
+  // 去掉随机的链接令牌和本单编号再查：令牌（base64url）碰巧含「JPY」之类会误报（#241 CI run 43615913380，M8-29）；本单编号下一行单独查
+  const prose = mail.replaceAll(token, "").replaceAll(mine.order.order_no, "");
+  for (const secret of [PASSENGER_NAME, PASSENGER_PHONE, "9033334444", DROPOFF_TEXT, "JL061", "甲车队", "乙车队", "成田", "商务", "JPY", "¥", "円", neighbour.order.order_no]) assert.equal(prose.includes(secret), false, `邮件里不该有 ${secret}`);
   assert.equal(mail.includes(mine.order.order_no), true);
   assert.match(mail, /以前收到的链接仍然可以使用/);
 

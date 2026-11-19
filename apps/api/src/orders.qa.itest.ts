@@ -37,6 +37,8 @@ class HookedPayments extends FakePaymentProvider {
 
 /** 汇率替身：1 日元 = 0.0067 美元、9.6 韩元 */
 const RATES: Partial<Record<CurrencyCode, string>> = { USD: "0.0067", KRW: "9.6" };
+/** 作为独立的值出现（前后不是字母数字）：随机编号、令牌里碰巧含这几个字符不算 */
+const standalone = (value: string): RegExp => new RegExp(`(?<![0-9A-Za-z])${value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![0-9A-Za-z])`);
 const fxQuote = async (from: CurrencyCode, to: CurrencyCode, at: Date): Promise<FxQuote | null> => (from === "JPY" && RATES[to] !== undefined ? { from, to, rate: RATES[to] as string, asOf: at.toISOString() } : null);
 
 let api: TestApi;
@@ -179,9 +181,10 @@ test("跨币种（美元，两位小数）：订单、收款金额严格等于�
   const tenant = await api.call("GET", `/tenant/v1/orders/${order.id}`, { token: m.b.adminToken });
   assert.equal(tenant.status, 200, tenant.text);
   assert.deepEqual(tenant.body.order.settlement.total, { amount: String(snapshot.winner.offer.settlement.totalMinor), currency: "JPY" });
-  for (const leak of ["USD", "0.0067", quote.price.total.amount, String(snapshot.winner.sell.sellMinor), quote.quote_id, channelId]) assert.ok(!tenant.text.includes(leak), `租户应答里出现了 ${leak}`);
+  // 按独立的值找（前后不是字母数字）：只查子串时，应答里随机编号、令牌碰巧含「USD」或这串数字会误报（#262 CI run 43687979758，M8-29）
+  for (const leak of ["USD", "0.0067", quote.price.total.amount, String(snapshot.winner.sell.sellMinor), quote.quote_id, channelId]) assert.doesNotMatch(tenant.text, standalone(leak), `租户应答里出现了 ${leak}`);
   const list = await api.call("GET", "/tenant/v1/orders?limit=200", { token: m.b.adminToken });
-  for (const leak of ["USD", "0.0067", quote.quote_id]) assert.ok(!list.text.includes(leak), `租户列表里出现了 ${leak}`);
+  for (const leak of ["USD", "0.0067", quote.quote_id]) assert.doesNotMatch(list.text, standalone(leak), `租户列表里出现了 ${leak}`);
 });
 
 test("跨币种（韩元，零小数）：对外价没有小数点，Stripe 金额就是韩元整数", async () => {
