@@ -5,7 +5,7 @@
 import type { AddonChargeUnit, FlightScope, LocalizedText, ServiceCategory, TenantStatus } from "@nozomi/domain";
 import type { PassengerContact } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
-import { type OrderVehicleGroupRef, findOrderVehicleGroup } from "./master-data.ts";
+import { type OrderVehicleGroupRef, containsPattern, findOrderVehicleGroup } from "./master-data.ts";
 
 export interface SiteClientRow {
   /** API 客户端的内部编号 */
@@ -144,6 +144,50 @@ export async function findSitePlaceByCode(db: Db, code: string, cityIds: readonl
   );
   const row = rows.rows[0];
   return row === undefined ? null : { id: row.id, type: row.type, code: row.code, name: row.name, address: row.address, lng: Number(row.lng), lat: Number(row.lat) };
+}
+
+/** 按名称或三字码搜到的一个机场（包车快捷入口，业主 2026-11-19）：坐标、启用的航站楼（没登记就是空的） */
+export interface SiteAirportSearchRow {
+  id: string;
+  code: string;
+  name: LocalizedText;
+  cityId: string;
+  lng: number;
+  lat: number;
+  terminals: { id: string; code: string; name: LocalizedText; lng: number; lat: number }[];
+}
+
+/**
+ * 按名称（中 / 日 / 英 / 韩任一种，包含即可，不分大小写）或编码（三字码，完全相同）搜平台主数据里的机场：启用的、城市启用且在渠道授权里的。
+ * 编码完全相同的排前面，其余按编码；最多 `limit` 个。只读主数据、不调谷歌。
+ */
+export async function searchSiteAirports(db: Db, query: string, cityIds: readonly string[] | null, limit = 10): Promise<SiteAirportSearchRow[]> {
+  const like = containsPattern(query);
+  const airports = await db.query<{ id: string; code: string; name: LocalizedText; city_id: string; lng: string; lat: string }>(
+    `select pl.id, pl.code, pl.name, pl.city_id, pl.lng, pl.lat
+       from places pl
+       join cities c on c.id = pl.city_id and c.status = 'active'
+      where pl.type = 'airport' and pl.status = 'active' and pl.parent_id is null
+        and ($3::uuid[] is null or c.id = any($3::uuid[]))
+        and (upper(pl.code) = upper($1) or exists (select 1 from jsonb_each_text(pl.name) n where n.value ilike $2 escape '\\'))
+      order by (upper(pl.code) = upper($1)) desc, pl.code
+      limit $4`,
+    [query, like, cityIds, limit],
+  );
+  if (airports.rows.length === 0) return [];
+  const terminals = await db.query<{ id: string; code: string; name: LocalizedText; parent_id: string; lng: string; lat: string }>(
+    "select id, code, name, parent_id, lng, lat from places where parent_id = any($1::uuid[]) and type = 'terminal' and status = 'active' order by code",
+    [airports.rows.map((row) => row.id)],
+  );
+  return airports.rows.map((row) => ({
+    id: row.id,
+    code: row.code,
+    name: row.name,
+    cityId: row.city_id,
+    lng: Number(row.lng),
+    lat: Number(row.lat),
+    terminals: terminals.rows.filter((terminal) => terminal.parent_id === row.id).map((terminal) => ({ id: terminal.id, code: terminal.code, name: terminal.name, lng: Number(terminal.lng), lat: Number(terminal.lat) })),
+  }));
 }
 
 /** 包车报价用的价格规则里的套餐公里数（按报价编号）。 */

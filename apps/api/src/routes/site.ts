@@ -59,6 +59,7 @@ import {
   siteAutocomplete,
   siteCharterPackages,
   siteCharterAirports,
+  siteSearchAirports,
   siteCharterPackagesAt,
   siteCities,
   siteConfig,
@@ -626,6 +627,23 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
         code: airport.code,
         name: airport.name,
         city_id: airport.cityId,
+        terminals: airport.terminals.map((terminal) => ({ id: terminal.id, code: terminal.code, name: terminal.name, location: { lng: terminal.lng, lat: terminal.lat } })),
+      })),
+    };
+  });
+
+  /** 包车快捷入口先选机场（业主 2026-11-19）：`?q=成田` / `?q=NRT`，按名称或三字码搜平台主数据的机场，带坐标和登记的航站楼（没登记是空的） */
+  app.get("/site/v1/airports", async (request) => {
+    await takeSiteSlot(ctx, "site_read", { ip: request.ip });
+    const input = parseInput(z.object({ q: z.string().max(40) }).strict(), request.query, "querystring");
+    const airports = await siteSearchAirports(ctx, input.q);
+    return {
+      items: airports.map((airport) => ({
+        id: airport.id,
+        code: airport.code,
+        name: airport.name,
+        city_id: airport.cityId,
+        location: { lng: airport.lng, lat: airport.lat },
         terminals: airport.terminals.map((terminal) => ({ id: terminal.id, code: terminal.code, name: terminal.name, location: { lng: terminal.lng, lat: terminal.lat } })),
       })),
     };

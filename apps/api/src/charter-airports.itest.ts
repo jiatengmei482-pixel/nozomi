@@ -240,6 +240,27 @@ test("官网快捷入口：只列能报机场套餐的机场和机场区域里�
   assert.equal(bad.status, 400, bad.text);
 });
 
+test("官网快捷入口先选机场（业主 2026-11-19）：按名称（任一种语言、包含即可）或三字码搜主数据的机场，带坐标和登记的航站楼；没登记航站楼的给空列表；不看商品绑定", async () => {
+  await ok(api.call("POST", "/platform/v1/master/places", { token: m.root, body: { type: "airport", code: "HND", city_id: m.ids.tokyo, name: { zh: "羽田机场", en: "Haneda Airport", ja: "羽田空港" }, flight_scope: "international", location: { lng: 139.7798, lat: 35.5494 } } }), 201);
+  const search = async (q: string) => {
+    const res = await site.call("GET", `/site/v1/airports?q=${encodeURIComponent(q)}`, { ip: nextIp() });
+    assertMatchesOpenApi("GET", "/site/v1/airports", res);
+    assert.equal(res.status, 200, res.text);
+    return res.body.items;
+  };
+  const narita = await search("成田");
+  assert.deepEqual(narita.map((airport: any) => [airport.code, airport.name.zh, airport.location, airport.terminals.map((terminal: any) => [terminal.code, terminal.location])]), [["NRT", "成田机场", { lng: 140.3887, lat: 35.7686 }, [["NRT-T1", P.naritaT1]]]]);
+  assert.deepEqual((await search(" nrt ")).map((airport: any) => airport.code), ["NRT"], "三字码不分大小写、去掉首尾空白");
+  // 羽田没有绑定任何商品、也没登记航站楼：照样搜得到，航站楼是空的（页面让客人自己填）
+  for (const q of ["haneda", "羽田空港", "HND"]) assert.deepEqual((await search(q)).map((airport: any) => [airport.code, airport.terminals]), [["HND", []]], q);
+  assert.deepEqual(await search("   "), []);
+  assert.deepEqual(await search("%"), [], "通配符按字面");
+  const long = await site.call("GET", `/site/v1/airports?q=${"x".repeat(41)}`, { ip: nextIp() });
+  assert.equal(long.status, 400, long.text);
+  const missing = await site.call("GET", "/site/v1/airports", { ip: nextIp() });
+  assert.equal(missing.status, 400, missing.text);
+});
+
 test("官网询价：成田航站楼上车 → 机场开始；继承照收上车加价，单独 45,000 不再列上车加价；机场区域外的酒店不是机场", async () => {
   const inherit = await quote("naritaT1", "shinjuku");
   assert.deepEqual(inherit.price_breakdown[0].scenario, { kind: "airport_start", airport_id: m.ids.narita, airport_name: "成田机场" });
