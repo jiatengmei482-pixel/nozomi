@@ -92,6 +92,8 @@ import {
   listBookableCities,
   listCityPlaces,
   findSitePlaceByCode,
+  searchSiteAirports,
+  type SiteAirportSearchRow,
   type AirportCandidateRow,
   type SiteCityInfo,
   listActiveCities,
@@ -438,6 +440,17 @@ export async function sitePlaceByCode(ctx: AppContext, code: string): Promise<Si
   const row = await withPlatformTx(ctx.pool, (db) => findSitePlaceByCode(db, code, channel.scope.cityIds), { snapshot: true });
   if (row === null) throw notFound("地点");
   return { id: row.id, type: row.type, code: row.code, name: row.name, address: row.address, lng: row.lng, lat: row.lat };
+}
+
+/**
+ * 包车快捷入口「机场接机开始 / 机场送机结束」先选机场（业主 2026-11-19）：按名称（中 / 日 / 英 / 韩）或三字码搜平台主数据的机场，
+ * 只读主数据、不调谷歌；不看哪个商品绑了机场（机场套餐能不能报由报价按坐标判断，绑了的照样匹配）。关键字去掉首尾空白，空的给空列表。
+ */
+export async function siteSearchAirports(ctx: AppContext, query: string): Promise<SiteAirportSearchRow[]> {
+  const { channel } = await requireOpenSite(ctx);
+  const keyword = query.trim();
+  if (keyword === "") return [];
+  return withPlatformTx(ctx.pool, (db) => searchSiteAirports(db, keyword, channel.scope.cityIds), { snapshot: true });
 }
 
 /**

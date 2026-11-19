@@ -617,6 +617,21 @@ export function listSiteCharterAirports(scenario: SiteAirportScenario): Promise<
   return apiRequest("GET", `${SITE_BASE}/charter-airports?scenario=${encodeURIComponent(scenario)}`);
 }
 
+/** 按名称或三字码搜到的一个机场（包车快捷入口先选机场，业主 2026-11-19）：坐标和登记的航站楼（没登记是空的） */
+export interface SiteAirport {
+  id: string;
+  code: string;
+  name: LocalizedText;
+  city_id: string;
+  location: { lng: number; lat: number };
+  terminals: { id: string; code: string; name: LocalizedText; location: { lng: number; lat: number } }[];
+}
+
+/** 按名称（中 / 日 / 英 / 韩）或三字码搜平台主数据的机场，最多 10 个 */
+export function searchSiteAirports(query: string): Promise<{ items: SiteAirport[] }> {
+  return apiRequest("GET", `${SITE_BASE}/airports?q=${encodeURIComponent(query)}`);
+}
+
 export function listSitePlaces(cityId: string): Promise<{ items: SitePlace[] }> {
   return apiRequest("GET", `${SITE_BASE}/cities/${encodeURIComponent(cityId)}/places`);
 }

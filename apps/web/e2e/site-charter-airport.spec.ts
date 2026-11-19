@@ -3,7 +3,7 @@
  * 真实浏览器 → 构建好的前端 → 真实 API → 真实 PostgreSQL。准备见 charter-airport-support.ts（迁移过三层区域的包车商品绑了一个机场，机场在①里）。
  * 嵌入页（iframe）的那一半在 site-embed-booking.spec.ts 的「M9P-22 跨站」（chromium + webkit-embed）。
  *
- * - 手机 390（M9E-32 底部按钮条）：「机场接机开始」→ 上车点改成「选择航站楼」下拉，列出绑定的机场和区域里的航站楼；有「从预约时间开始计时」的提示；
+ * - 手机 390（M9E-32 底部按钮条）：「机场接机开始」→ 上车点改成先输入机场名称搜机场、从候选里选，再按航站楼下拉选（业主 2026-11-19）；有「从预约时间开始计时」的提示；
  *   第 1 步的「下一步：选择车型」在底部按钮条里，没有旧的 .book-actions / .book-bar；询价带航站楼坐标，引擎按几何匹配到机场开始，
  *   明细套餐行写「{简称}接机 + 8 小时包车」；第 3 步备注框提示「如需司机知道航班号，请填在这里」，没有航班号字段、没有免费等待；
  * - 电脑 1280：「改填其他地点」退回普通地址输入；「机场送机结束」→ 下车点按航站楼选，明细写「8 小时包车 + {简称}送机」。
@@ -31,6 +31,9 @@ test("M9P-22 主站手机 390：「机场接机开始」按航站楼选，底部
   await page.getByRole("button", { name: "机场接机开始" }).click();
   await expect(page.getByRole("button", { name: "机场接机开始" })).toHaveAttribute("aria-pressed", "true");
   const terminal = page.getByLabel("上车地点（选择航站楼）");
+  // 先输入机场名称搜机场、从候选里选（业主 2026-11-19），再按航站楼选
+  await page.getByLabel("上车地点（输入机场名称或三字码）").fill(trip.airportName);
+  await page.getByRole("button", { name: trip.airportLabel }).click();
   await expect(terminal.locator("option", { hasText: trip.terminalLabel })).toHaveCount(1);
   // 选好航站楼、行程填齐后页面自己就去询价（停顿一下），所以在选之前就开始等这次询价
   const quoted = page.waitForResponse((res) => new URL(res.url()).pathname === "/site/v1/quotes" && res.request().method() === "POST");
@@ -70,13 +73,16 @@ test("M9P-22 主站电脑 1280：「改填其他地点」退回普通地址输�
   await expect(page.getByRole("heading", { name: "你的行程" })).toBeVisible();
 
   await page.getByRole("button", { name: "机场接机开始" }).click();
-  await expect(page.getByLabel("上车地点（选择航站楼）")).toBeVisible();
+  await expect(page.getByLabel("上车地点（输入机场名称或三字码）")).toBeVisible();
   await page.getByRole("button", { name: "改填其他地点" }).click();
-  await expect(page.getByLabel("上车地点（选择航站楼）")).toHaveCount(0);
+  await expect(page.getByLabel("上车地点（输入机场名称或三字码）")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "机场接机开始" })).toHaveAttribute("aria-pressed", "false");
 
   await page.getByRole("button", { name: "机场送机结束" }).click();
   const terminal = page.getByLabel("下车地点（选择航站楼）");
+  // 先输入机场名称搜机场、从候选里选（业主 2026-11-19），再按航站楼选
+  await page.getByLabel("下车地点（输入机场名称或三字码）").fill(trip.airportName);
+  await page.getByRole("button", { name: trip.airportLabel }).click();
   await expect(terminal.locator("option", { hasText: trip.terminalLabel })).toHaveCount(1);
   // 选好航站楼、行程填齐后页面自己就去询价（停顿一下），所以在选之前就开始等这次询价
   const quoted = page.waitForResponse((res) => new URL(res.url()).pathname === "/site/v1/quotes" && res.request().method() === "POST");

@@ -416,6 +416,9 @@ test("M9P-22 跨站：iframe 里包车快捷入口「机场送机结束」按航
   await frame.getByRole("button", { name: "机场送机结束" }).click();
   await expect(frame.getByRole("button", { name: "机场送机结束" })).toHaveAttribute("aria-pressed", "true");
   const terminal = frame.getByLabel("下车地点（选择航站楼）");
+  // 先输入机场名称搜机场、从候选里选（业主 2026-11-19），再按航站楼选
+  await frame.getByLabel("下车地点（输入机场名称或三字码）").fill(trip.airportName);
+  await frame.getByRole("button", { name: trip.airportLabel }).click();
   await expect(terminal.locator("option", { hasText: trip.terminalLabel })).toHaveCount(1);
   // 选好航站楼、行程填齐后页面自己就去询价（停顿一下），所以在选之前就开始等这次询价
   const quoted = page.waitForResponse((res) => new URL(res.url()).pathname === "/site/v1/quotes" && res.request().method() === "POST");

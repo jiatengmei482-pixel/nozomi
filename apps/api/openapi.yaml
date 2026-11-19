@@ -13742,6 +13742,93 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "503":
           $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/airports:
+    get:
+      tags: [ 官网 ]
+      operationId: siteSearchAirports
+      summary: 按名称或三字码搜机场（包车快捷入口先选机场）
+      description: |
+        业主 2026-11-19：「机场接机开始 / 机场送机结束」先输入机场名称（中 / 日 / 英 / 韩，包含即可）或三字码（完全相同，排前面），从候选里选机场。
+        只读平台主数据（启用的机场，城市启用且在渠道授权里），不调谷歌，不看哪个商品绑了机场；最多 10 个。
+        `location` 是机场坐标（报价、路线用）；`terminals` 是登记的启用航站楼，没登记是空数组（页面让客人自己填航站楼，可空）。`q` 去掉首尾空白后为空时 `items` 为空。
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            maxLength: 40
+      responses:
+        "200":
+          description: 机场候选
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [ id, code, name, city_id, location, terminals ]
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        code:
+                          type: string
+                        name:
+                          $ref: "#/components/schemas/LocalizedText"
+                        city_id:
+                          type: string
+                          format: uuid
+                        location:
+                          type: object
+                          additionalProperties: false
+                          required: [ lng, lat ]
+                          properties:
+                            lng:
+                              type: number
+                            lat:
+                              type: number
+                        terminals:
+                          type: array
+                          items:
+                            type: object
+                            additionalProperties: false
+                            required: [ id, code, name, location ]
+                            properties:
+                              id:
+                                type: string
+                                format: uuid
+                              code:
+                                type: string
+                              name:
+                                $ref: "#/components/schemas/LocalizedText"
+                              location:
+                                type: object
+                                additionalProperties: false
+                                required: [ lng, lat ]
+                                properties:
+                                  lng:
+                                    type: number
+                                  lat:
+                                    type: number
+        "400":
+          description: "`VALIDATION_FAILED`：`q` 没给或超过 40 个字"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/QaSessionInvalid"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
   /site/v1/charter-airports:
     get:
       tags: [ 官网 ]
