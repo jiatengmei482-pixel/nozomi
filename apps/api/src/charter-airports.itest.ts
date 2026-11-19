@@ -240,25 +240,34 @@ test("官网快捷入口：只列能报机场套餐的机场和机场区域里�
   assert.equal(bad.status, 400, bad.text);
 });
 
-test("官网快捷入口先选机场（业主 2026-11-19）：按名称（任一种语言、包含即可）或三字码搜主数据的机场，带坐标和登记的航站楼；没登记航站楼的给空列表；不看商品绑定", async () => {
-  await ok(api.call("POST", "/platform/v1/master/places", { token: m.root, body: { type: "airport", code: "HND", city_id: m.ids.tokyo, name: { zh: "羽田机场", en: "Haneda Airport", ja: "羽田空港" }, flight_scope: "international", location: { lng: 139.7798, lat: 35.5494 } } }), 201);
-  const search = async (q: string) => {
-    const res = await site.call("GET", `/site/v1/airports?q=${encodeURIComponent(q)}`, { ip: nextIp() });
-    assertMatchesOpenApi("GET", "/site/v1/airports", res);
+test("官网快捷入口按坐标认机场（业主 2026-11-19 第二次反馈）：3 公里以内（地址搜索说是机场时 10 公里）认成最近的机场，离航站楼 ≤ 500 米认出航站楼；没登记航站楼的机场照样认；不看商品绑定", async () => {
+  await ok(api.call("POST", "/platform/v1/master/places", { token: m.root, body: { type: "airport", code: "HND", city_id: m.ids.tokyo, name: { en: "Tokyo Haneda International Airport", ja: "東京国際空港" }, flight_scope: "international", location: { lng: 139.7798, lat: 35.5494 } } }), 201);
+  const at = async (point: { lat: number; lng: number }, kind?: "airport" | "other") => {
+    const res = await site.call("GET", `/site/v1/airports/at?lat=${point.lat}&lng=${point.lng}${kind === undefined ? "" : `&kind=${kind}`}`, { ip: nextIp() });
+    assertMatchesOpenApi("GET", "/site/v1/airports/at", res);
     assert.equal(res.status, 200, res.text);
-    return res.body.items;
+    return res.body;
   };
-  const narita = await search("成田");
-  assert.deepEqual(narita.map((airport: any) => [airport.code, airport.name.zh, airport.location, airport.terminals.map((terminal: any) => [terminal.code, terminal.location])]), [["NRT", "成田机场", { lng: 140.3887, lat: 35.7686 }, [["NRT-T1", P.naritaT1]]]]);
-  assert.deepEqual((await search(" nrt ")).map((airport: any) => airport.code), ["NRT"], "三字码不分大小写、去掉首尾空白");
-  // 羽田没有绑定任何商品、也没登记航站楼：照样搜得到，航站楼是空的（页面让客人自己填）
-  for (const q of ["haneda", "羽田空港", "HND"]) assert.deepEqual((await search(q)).map((airport: any) => [airport.code, airport.terminals]), [["HND", []]], q);
-  assert.deepEqual(await search("   "), []);
-  assert.deepEqual(await search("%"), [], "通配符按字面");
-  const long = await site.call("GET", `/site/v1/airports?q=${"x".repeat(41)}`, { ip: nextIp() });
-  assert.equal(long.status, 400, long.text);
-  const missing = await site.call("GET", "/site/v1/airports", { ip: nextIp() });
-  assert.equal(missing.status, 400, missing.text);
+  const brief = (body: any) => [body.airport?.code ?? null, (body.airport?.terminals ?? []).map((terminal: any) => terminal.code), body.airport?.terminals.find((terminal: any) => terminal.id === body.terminal_id)?.code ?? null];
+  // 第 1 航站楼本身（谷歌给的「成田空港 第1ターミナル」那种点）：机场 + 航站楼
+  assert.deepEqual(brief(await at(P.naritaT1)), ["NRT", ["NRT-T1"], "NRT-T1"]);
+  const narita = await at(P.naritaT1);
+  assert.deepEqual(narita.airport.location, { lng: 140.3887, lat: 35.7686 });
+  // 机场南边约 1 公里：还是成田，但离第 1 航站楼超过 500 米，认不出航站楼（页面让客人选填）
+  assert.deepEqual(brief(await at({ lat: 35.7596, lng: 140.3887 })), ["NRT", ["NRT-T1"], null]);
+  // 6 公里外：地址搜索说是机场才认（10 公里以内），没有类型、或类型是其他不认
+  const far = { lat: 35.7686 + 0.054, lng: 140.3887 };
+  assert.deepEqual(brief(await at(far, "airport")), ["NRT", ["NRT-T1"], null]);
+  assert.deepEqual(await at(far), { airport: null, terminal_id: null });
+  assert.deepEqual(await at(far, "other"), { airport: null, terminal_id: null });
+  // 羽田：没有中文名、没登记航站楼、没有商品绑定，照样认出来
+  assert.deepEqual(brief(await at({ lat: 35.5494, lng: 139.7798 }, "airport")), ["HND", [], null]);
+  // 市区：不是机场
+  assert.deepEqual(await at(P.shinjuku), { airport: null, terminal_id: null });
+  for (const query of ["lat=&lng=140.38", "lng=140.38", "lat=95&lng=140", "lat=35.7&lng=140.3&kind=station"]) {
+    const bad = await site.call("GET", `/site/v1/airports/at?${query}`, { ip: nextIp() });
+    assert.equal(bad.status, 400, `${query}：${bad.text}`);
+  }
 });
 
 test("官网询价：成田航站楼上车 → 机场开始；继承照收上车加价，单独 45,000 不再列上车加价；机场区域外的酒店不是机场", async () => {

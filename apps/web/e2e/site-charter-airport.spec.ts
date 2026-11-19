@@ -3,7 +3,7 @@
  * 真实浏览器 → 构建好的前端 → 真实 API → 真实 PostgreSQL。准备见 charter-airport-support.ts（迁移过三层区域的包车商品绑了一个机场，机场在①里）。
  * 嵌入页（iframe）的那一半在 site-embed-booking.spec.ts 的「M9P-22 跨站」（chromium + webkit-embed）。
  *
- * - 手机 390（M9E-32 底部按钮条）：「机场接机开始」→ 上车点改成先输入机场名称搜机场、从候选里选，再按航站楼下拉选（业主 2026-11-19）；有「从预约时间开始计时」的提示；
+ * - 手机 390（M9E-32 底部按钮条）：「机场接机开始」→ 上车点照常用地址搜索输入机场名，系统按坐标认出机场和航站楼（业主 2026-11-19）；有「从预约时间开始计时」的提示；
  *   第 1 步的「下一步：选择车型」在底部按钮条里，没有旧的 .book-actions / .book-bar；询价带航站楼坐标，引擎按几何匹配到机场开始，
  *   明细套餐行写「{简称}接机 + 8 小时包车」；第 3 步备注框提示「如需司机知道航班号，请填在这里」，没有航班号字段、没有免费等待；
  * - 电脑 1280：「改填其他地点」退回普通地址输入；「机场送机结束」→ 下车点按航站楼选，明细写「8 小时包车 + {简称}送机」。
@@ -30,14 +30,13 @@ test("M9P-22 主站手机 390：「机场接机开始」按航站楼选，底部
 
   await page.getByRole("button", { name: "机场接机开始" }).click();
   await expect(page.getByRole("button", { name: "机场接机开始" })).toHaveAttribute("aria-pressed", "true");
-  const terminal = page.getByLabel("上车地点（选择航站楼）");
-  // 先输入机场名称搜机场、从候选里选（业主 2026-11-19），再按航站楼选
-  await page.getByLabel("上车地点（输入机场名称或三字码）").fill(trip.airportName);
-  await page.getByRole("button", { name: trip.airportLabel }).click();
-  await expect(terminal.locator("option", { hasText: trip.terminalLabel })).toHaveCount(1);
+  const terminal = page.getByRole("combobox", { name: "上车地点" });
+  // 和别的地点一样用地址搜索输入机场名、选候选（业主 2026-11-19），系统按坐标认出机场和航站楼
+  await terminal.fill(trip.airportName);
   // 选好航站楼、行程填齐后页面自己就去询价（停顿一下），所以在选之前就开始等这次询价
   const quoted = page.waitForResponse((res) => new URL(res.url()).pathname === "/site/v1/quotes" && res.request().method() === "POST");
-  await terminal.selectOption({ label: trip.terminalLabel });
+  await page.getByRole("option", { name: new RegExp(trip.airportName) }).first().click();
+  await expect(page.getByText(`已识别：${trip.terminalLabel}`)).toBeVisible();
   await expect(page.getByText("包车从预约的上车时间开始计时，没有免费等待。建议把上车时间定在航班落地后 60–90 分钟（国内航班约 60 分钟，国际航班约 90 分钟，留出入境和取行李的时间）；航班可能延误时请再多留一些，或下单前联系客服")).toBeVisible();
   await expect(page.getByLabel(/^包车时长/)).toHaveValue("8");
 
@@ -50,7 +49,7 @@ test("M9P-22 主站手机 390：「机场接机开始」按航站楼选，底部
   const response = await quoted;
   expect(response.status()).toBe(200);
   const body = JSON.parse(response.request().postData() ?? "{}") as { pickup: { lat: number; lng: number } };
-  expect(body.pickup).toEqual(trip.terminal);
+  expect(body.pickup).toEqual(trip.airport);
   const result = (await response.json()) as { quotes: { price_breakdown?: { kind: string; scenario?: { kind: string; airport_name: string } }[] }[] };
   expect(result.quotes[0]?.price_breakdown?.find((item) => item.kind === "base")?.scenario, "引擎按几何匹配到机场开始").toMatchObject({ kind: "airport_start", airport_name: trip.shortName });
   await expect(page.getByText(`${trip.shortName}接机 + 8 小时包车`).first()).toBeVisible();
@@ -73,24 +72,23 @@ test("M9P-22 主站电脑 1280：「改填其他地点」退回普通地址输�
   await expect(page.getByRole("heading", { name: "你的行程" })).toBeVisible();
 
   await page.getByRole("button", { name: "机场接机开始" }).click();
-  await expect(page.getByLabel("上车地点（输入机场名称或三字码）")).toBeVisible();
+  await expect(page.getByText(/在上面的「上车地点」里输入机场名称或地址/)).toBeVisible();
   await page.getByRole("button", { name: "改填其他地点" }).click();
-  await expect(page.getByLabel("上车地点（输入机场名称或三字码）")).toHaveCount(0);
+  await expect(page.getByText(/在上面的「上车地点」里输入机场名称或地址/)).toHaveCount(0);
   await expect(page.getByRole("button", { name: "机场接机开始" })).toHaveAttribute("aria-pressed", "false");
 
   await page.getByRole("button", { name: "机场送机结束" }).click();
-  const terminal = page.getByLabel("下车地点（选择航站楼）");
-  // 先输入机场名称搜机场、从候选里选（业主 2026-11-19），再按航站楼选
-  await page.getByLabel("下车地点（输入机场名称或三字码）").fill(trip.airportName);
-  await page.getByRole("button", { name: trip.airportLabel }).click();
-  await expect(terminal.locator("option", { hasText: trip.terminalLabel })).toHaveCount(1);
+  const terminal = page.getByRole("combobox", { name: "下车地点" });
+  // 和别的地点一样用地址搜索输入机场名、选候选（业主 2026-11-19），系统按坐标认出机场和航站楼
+  await terminal.fill(trip.airportName);
   // 选好航站楼、行程填齐后页面自己就去询价（停顿一下），所以在选之前就开始等这次询价
   const quoted = page.waitForResponse((res) => new URL(res.url()).pathname === "/site/v1/quotes" && res.request().method() === "POST");
-  await terminal.selectOption({ label: trip.terminalLabel });
+  await page.getByRole("option", { name: new RegExp(trip.airportName) }).first().click();
+  await expect(page.getByText(`已识别：${trip.terminalLabel}`)).toBeVisible();
   // 机场送机结束不出「从预约时间开始计时」的提示
   await expect(page.getByText(/包车从预约的上车时间开始计时/)).toHaveCount(0);
   await page.getByRole("button", { name: "下一步：选择车型" }).click();
   const body = JSON.parse((await quoted).request().postData() ?? "{}") as { dropoff: { lat: number; lng: number } };
-  expect(body.dropoff).toEqual(trip.terminal);
+  expect(body.dropoff).toEqual(trip.airport);
   await expect(page.getByText(`8 小时包车 + ${trip.shortName}送机`).first()).toBeVisible();
 });
