@@ -36,6 +36,8 @@ import {
   chooseCharterCity,
   channelSellsTenant,
   cityBounds,
+  recognizeAirport,
+  recognizeTerminal,
   classifyPointsTrip,
   cleanPlaceText,
   type CurrencyCode,
@@ -92,8 +94,6 @@ import {
   listBookableCities,
   listCityPlaces,
   findSitePlaceByCode,
-  searchSiteAirports,
-  type SiteAirportSearchRow,
   type AirportCandidateRow,
   type SiteCityInfo,
   listActiveCities,
@@ -442,15 +442,34 @@ export async function sitePlaceByCode(ctx: AppContext, code: string): Promise<Si
   return { id: row.id, type: row.type, code: row.code, name: row.name, address: row.address, lng: row.lng, lat: row.lat };
 }
 
+/** 按坐标认出的机场（包车快捷入口，业主 2026-11-19 第二次反馈）：机场、启用的航站楼（没登记是空的）、认出的航站楼 */
+export interface SiteAirportAt {
+  airport: { id: string; code: string; name: LocalizedText; cityId: string; lng: number; lat: number; terminals: { id: string; code: string; name: LocalizedText; lng: number; lat: number }[] } | null;
+  /** 点离某个启用航站楼 ≤ 500 米时是它的编号（`recognizeTerminal`）；认不出为 null */
+  terminalId: string | null;
+}
+
 /**
- * 包车快捷入口「机场接机开始 / 机场送机结束」先选机场（业主 2026-11-19）：按名称（中 / 日 / 英 / 韩）或三字码搜平台主数据的机场，
- * 只读主数据、不调谷歌；不看哪个商品绑了机场（机场套餐能不能报由报价按坐标判断，绑了的照样匹配）。关键字去掉首尾空白，空的给空列表。
+ * 包车「机场接机开始 / 机场送机结束」：客人用和别的地点一样的地址搜索选了地点，这里按坐标认出是哪个机场（和按两个坐标报价同一个规则 `recognizeAirport`：
+ * 3 公里以内；地址搜索说是机场时 10 公里以内）和航站楼（`recognizeTerminal`）。只读主数据、不调谷歌；候选是渠道授权范围里、城市启用的机场。
+ * 认不出机场时 `airport` 为 null（页面照常让客人询价，不卡住）。
  */
-export async function siteSearchAirports(ctx: AppContext, query: string): Promise<SiteAirportSearchRow[]> {
+export async function siteAirportAt(ctx: AppContext, point: LatLng, kind: PlaceKind | null): Promise<SiteAirportAt> {
   const { channel } = await requireOpenSite(ctx);
-  const keyword = query.trim();
-  if (keyword === "") return [];
-  return withPlatformTx(ctx.pool, (db) => searchSiteAirports(db, keyword, channel.scope.cityIds), { snapshot: true });
+  return withPlatformTx(
+    ctx.pool,
+    async (db) => {
+      const cities = (await listActiveCities(db, channel.scope.cityIds)).map((city) => city.id);
+      const candidates = await listAirportsNear(db, cities, [cityBounds(point, AIRPORT_LOOKUP_KM)]);
+      const match = recognizeAirport({ lat: point.lat, lng: point.lng, kind }, candidates);
+      if (match === null) return { airport: null, terminalId: null };
+      const place = (await listPlacesWithTerminals(db, [match.airport.id])).get(match.airport.id);
+      const terminals = (place?.terminals ?? []).filter((terminal) => terminal.status === "active").map((terminal) => ({ id: terminal.id, code: terminal.code, name: terminal.name, lng: terminal.lng, lat: terminal.lat }));
+      const terminal = recognizeTerminal(point, terminals);
+      return { airport: { id: match.airport.id, code: match.airport.code, name: match.airport.name, cityId: match.airport.cityId, lng: match.airport.lng, lat: match.airport.lat, terminals }, terminalId: terminal?.id ?? null };
+    },
+    { snapshot: true },
+  );
 }
 
 /**

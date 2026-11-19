@@ -1,7 +1,7 @@
 /**
  * 包车快捷入口在新预订页里（M9P-22，ADR 0098 第三节第 6、7 小节）的组件测试：
- * - 手机宽度（M9E-32 底部按钮条）：「机场送机结束」→ 下车点先搜机场（输入「羽田」）、选机场，再按航站楼选（业主 2026-11-19），第 1 步「下一步：选择车型」在底部条（本步操作）里、没有旧的 .book-actions / .book-bar；
- *   询价带航站楼坐标；明细套餐行写场景名「8 小时包车 + 羽田机场送机」；匹配到机场时第 3 步备注框提示航班号，没有航班号字段。
+ * - 手机宽度（M9E-32 底部按钮条）：「机场送机结束」→ 下车点照常用地址搜索（输入「羽田第 3 ターミナル」选谷歌候选），按坐标自动认出「羽田机场 第 3 航站楼」（业主 2026-11-19），
+ *   第 1 步「下一步：选择车型」在底部条（本步操作）里、没有旧的 .book-actions / .book-bar；询价带客人选的地点的坐标；明细套餐行写场景名「8 小时包车 + 羽田机场送机」；匹配到机场时第 3 步备注框提示航班号，没有航班号字段。
  * - 电脑宽度：「机场接机开始」有计时提示；「改填其他地点」回到普通地址输入。
  * 接口用测试替身（浏览器只连 /site/v1）；真实后端由 e2e/site-charter-airport.spec.ts 覆盖。
  */
@@ -11,7 +11,7 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { App } from "../../../App.tsx";
-import type { SiteAirport, SiteCity, SiteConfig, SiteQuote, SiteQuoteResult } from "../../../api/site.ts";
+import type { SiteAirportAt, SiteCity, SiteConfig, SiteQuote, SiteQuoteResult } from "../../../api/site.ts";
 import { type ApiCall, assertAbsent, json, resetBrowser, stubApiWith } from "../../../testing/harness.tsx";
 
 const originalMatchMedia = window.matchMedia;
@@ -31,7 +31,7 @@ const city: SiteCity = { id: CITY_ID, code: "CTY-JP-TYO", name: { zh: "东京" }
 const config: SiteConfig = { open: true, currency: "JPY", payments: null, support_phone: "+81 3-1234-5678", support_whatsapp: null, address_search: true, page_width: "standard", map_tiles: null };
 /** 上车：京王广场酒店，下车：新宿站，日期时间也带上（带齐了直接到第 2 步） */
 const LINK = "/book/new?mode=charter&from=35.6905,139.6948&from_name=%E4%BA%AC%E7%8E%8B%E5%B9%BF%E5%9C%BA%E9%85%92%E5%BA%97&to=35.6896,139.7006&to_name=%E6%96%B0%E5%AE%BF%E7%AB%99&date=2030-11-20&time=09:00";
-const HANEDA: SiteAirport = {
+const HANEDA: NonNullable<SiteAirportAt["airport"]> = {
   id: "44444444-4444-4444-8444-444444444444",
   code: "HND",
   name: { zh: "羽田机场" },
@@ -42,6 +42,10 @@ const HANEDA: SiteAirport = {
     { id: "55555555-5555-4555-8555-555555555553", code: "HND-T3", name: { zh: "第 3 航站楼" }, location: { lng: 139.768, lat: 35.545 } },
   ],
 };
+
+/** 谷歌给的「羽田空港 第3ターミナル」：在第 3 航站楼旁边（离它不到 500 米） */
+const T3_PLACE = { lat: 35.5451, lng: 139.7682 };
+const T3_SUGGESTION = { source: "google", id: "ChIJhnd3", name: "羽田空港 第3ターミナル", address: "東京都大田区羽田空港", location: null, kind: "airport" } as const;
 
 const yen = (amount: number) => ({ amount: String(amount), currency: "JPY" });
 function quoteOf(scenario: "airport_end" | null): SiteQuote {
@@ -68,8 +72,9 @@ function open(scenarioFor: (call: ApiCall) => "airport_end" | null): ApiCall[] {
     const path = call.url.pathname;
     if (path === "/site/v1/config") return json(200, config);
     if (path === "/site/v1/cities") return json(200, { items: [city] });
-    if (path === "/site/v1/airports") return json(200, { items: [HANEDA] });
-    if (path === "/site/v1/places/autocomplete") return json(200, { available: true, items: [] });
+    if (path === "/site/v1/airports/at") return json(200, call.url.searchParams.get("lat") === String(T3_PLACE.lat) ? { airport: HANEDA, terminal_id: HANEDA.terminals[1]!.id } : { airport: null, terminal_id: null });
+    if (path === "/site/v1/places/autocomplete") return json(200, { available: true, items: (call.url.searchParams.get("q") ?? "").includes("羽田") ? [T3_SUGGESTION] : [] });
+    if (path === "/site/v1/places/details") return json(200, { available: true, place: { id: T3_SUGGESTION.id, address: "日本、〒144-0041 東京都大田区羽田空港２丁目６−５", location: { lat: T3_PLACE.lat, lng: T3_PLACE.lng }, kind: "airport" } });
     if (path === "/site/v1/charter-packages") return json(200, { city: { id: CITY_ID, code: city.code, name: city.name, timezone: city.timezone }, items: [{ hours: 8 }] });
     if (path === "/site/v1/fx/reference") return json(200, { available: false, from: "JPY", to: call.url.searchParams.get("to"), rate: null, as_of: null, reason: "NO_RATE" });
     if (call.method === "POST" && path === "/site/v1/quotes") return json(200, resultOf(scenarioFor(call)));
@@ -92,20 +97,23 @@ async function pickHours(actor: ReturnType<typeof user>): Promise<void> {
   if (select.value !== "8") await actor.selectOptions(select, "8");
 }
 
-test("手机宽度：「机场送机结束」按航站楼选，「下一步：选择车型」在底部按钮条里；询价带航站楼坐标；明细写场景名；第 3 步备注框提示航班号、没有航班号字段", async () => {
+test("手机宽度：「机场送机结束」用地址搜索选羽田第 3 航站楼、自动认出，「下一步：选择车型」在底部按钮条里；询价带航站楼坐标；明细写场景名；第 3 步备注框提示航班号、没有航班号字段", async () => {
   screenWidth("compact");
-  const calls = open((call) => ((call.body as { dropoff?: { lat: number } }).dropoff?.lat === 35.545 ? "airport_end" : null));
+  const calls = open((call) => ((call.body as { dropoff?: { lat: number } }).dropoff?.lat === T3_PLACE.lat ? "airport_end" : null));
   const actor = user();
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
   await actor.click(screen.getByRole("button", { name: "上一步" }));
   await actor.click(await screen.findByRole("button", { name: "机场送机结束" }));
   assert.equal(screen.getByRole("button", { name: "机场送机结束" }).getAttribute("aria-pressed"), "true");
-  await actor.type(screen.getByLabelText("下车地点（输入机场名称或三字码）"), "羽田");
-  await actor.click(await screen.findByRole("button", { name: "羽田机场（HND）" }, SLOW));
-  assert.ok(calls.some((call) => call.path === `/site/v1/airports?q=${encodeURIComponent("羽田")}`));
-  const terminal = screen.getByLabelText("下车地点（选择航站楼）") as HTMLSelectElement;
-  assert.deepEqual([...terminal.options].map((option) => option.textContent), ["不指定航站楼", "羽田机场 第 1 航站楼", "羽田机场 第 3 航站楼"]);
-  await actor.selectOptions(terminal, HANEDA.terminals[1]!.id);
+  // 下车点照常用地址搜索：快捷入口打开时那一端先清空
+  const box = (await screen.findByRole("combobox", { name: "下车地点" })) as HTMLInputElement;
+  assert.equal(box.value, "");
+  await actor.type(box, "羽田第 3 ターミナル");
+  await actor.click(await screen.findByRole("option", { name: /羽田空港 第3ターミナル/ }, SLOW));
+  await screen.findByText("已识别：羽田机场 第 3 航站楼", {}, SLOW);
+  assert.ok(calls.some((call) => call.path === `/site/v1/airports/at?lat=${T3_PLACE.lat}&lng=${T3_PLACE.lng}&kind=airport`));
+  // 认出了航站楼：不用选、不用填
+  assertAbsent(screen.queryByLabelText(/航站楼，选填/));
   // 机场结束不出「从预约时间开始计时」的提示（只有机场接机开始有）
   assertAbsent(screen.queryByText(/包车从预约的上车时间开始计时/));
   await pickHours(actor);
@@ -119,7 +127,7 @@ test("手机宽度：「机场送机结束」按航站楼选，「下一步：�
   await actor.click(next);
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
   const body = quotes(calls).at(-1) as { dropoff: { lat: number; lng: number }; package_hours: number };
-  assert.deepEqual([body.dropoff, body.package_hours], [{ lat: 35.545, lng: 139.768 }, 8]);
+  assert.deepEqual([body.dropoff, body.package_hours], [T3_PLACE, 8]);
   await waitFor(() => assert.ok(screen.getAllByText(/8 小时包车 \+ 羽田机场送机/).length > 0), SLOW);
 
   await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
@@ -140,9 +148,11 @@ test("电脑宽度：「机场接机开始」有计时提示，「改填其他�
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
   await actor.click(screen.getByRole("button", { name: "上一步" }));
   await actor.click(await screen.findByRole("button", { name: "机场接机开始" }));
-  assert.ok(await screen.findByLabelText("上车地点（输入机场名称或三字码）"));
+  assert.ok(await screen.findByText(/在上面的「上车地点」里输入机场名称或地址（任何语言都可以/));
+  assert.equal(((await screen.findByRole("combobox", { name: "上车地点" })) as HTMLInputElement).value, "", "快捷入口打开时上车点先清空");
   assert.ok(screen.getByText("包车从预约的上车时间开始计时，没有免费等待。建议把上车时间定在航班落地后 60–90 分钟（国内航班约 60 分钟，国际航班约 90 分钟，留出入境和取行李的时间）；航班可能延误时请再多留一些，或下单前联系客服"));
   await actor.click(screen.getByRole("button", { name: "改填其他地点" }));
-  assertAbsent(screen.queryByLabelText("上车地点（输入机场名称或三字码）"));
+  assertAbsent(screen.queryByText(/在上面的「上车地点」里输入机场名称或地址/));
+  assert.equal((screen.getByRole("combobox", { name: "上车地点" }) as HTMLInputElement).value, "京王广场酒店", "退出快捷入口放回原来的上车点");
   assert.equal(screen.getByRole("button", { name: "机场接机开始" }).getAttribute("aria-pressed"), "false");
 });

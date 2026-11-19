@@ -13742,83 +13742,101 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "503":
           $ref: "#/components/responses/SiteNotOpen"
-  /site/v1/airports:
+  /site/v1/airports/at:
     get:
       tags: [ 官网 ]
-      operationId: siteSearchAirports
-      summary: 按名称或三字码搜机场（包车快捷入口先选机场）
+      operationId: siteAirportAt
+      summary: 按坐标认机场和航站楼（包车快捷入口）
       description: |
-        业主 2026-11-19：「机场接机开始 / 机场送机结束」先输入机场名称（中 / 日 / 英 / 韩，包含即可）或三字码（完全相同，排前面），从候选里选机场。
-        只读平台主数据（启用的机场，城市启用且在渠道授权里），不调谷歌，不看哪个商品绑了机场；最多 10 个。
-        `location` 是机场坐标（报价、路线用）；`terminals` 是登记的启用航站楼，没登记是空数组（页面让客人自己填航站楼，可空）。`q` 去掉首尾空白后为空时 `items` 为空。
+        业主 2026-11-19：「机场接机开始 / 机场送机结束」的地点和别的地点一样用地址搜索（任何语言输入机场名或地址），选中后按坐标认出是哪个机场：
+        和按两个坐标报价同一个规则（3 公里以内；`kind=airport` 即地址搜索说是机场时 10 公里以内，取最近的）。候选是渠道授权范围里、城市启用的机场；只读主数据、不调谷歌。
+        认出机场后，点离某个启用航站楼 ≤ 500 米时 `terminal_id` 是它，否则为 null（页面让客人选填）。认不出机场时 `airport` 为 null。
       parameters:
-        - name: q
+        - name: lat
           in: query
           required: true
           schema:
+            type: number
+            minimum: -90
+            maximum: 90
+        - name: lng
+          in: query
+          required: true
+          schema:
+            type: number
+            minimum: -180
+            maximum: 180
+        - name: kind
+          in: query
+          required: false
+          description: 地址搜索给的地点类型；客人手填、地图选点的不给
+          schema:
             type: string
-            maxLength: 40
+            enum: [ airport, other ]
       responses:
         "200":
-          description: 机场候选
+          description: 认出的机场（可能为 null）
           content:
             application/json:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ items ]
+                required: [ airport, terminal_id ]
                 properties:
-                  items:
-                    type: array
-                    items:
-                      type: object
-                      additionalProperties: false
-                      required: [ id, code, name, city_id, location, terminals ]
-                      properties:
-                        id:
-                          type: string
-                          format: uuid
-                        code:
-                          type: string
-                        name:
-                          $ref: "#/components/schemas/LocalizedText"
-                        city_id:
-                          type: string
-                          format: uuid
-                        location:
-                          type: object
-                          additionalProperties: false
-                          required: [ lng, lat ]
-                          properties:
-                            lng:
-                              type: number
-                            lat:
-                              type: number
-                        terminals:
-                          type: array
-                          items:
+                  airport:
+                    oneOf:
+                      - type: "null"
+                      - type: object
+                        additionalProperties: false
+                        required: [ id, code, name, city_id, location, terminals ]
+                        properties:
+                          id:
+                            type: string
+                            format: uuid
+                          code:
+                            type: string
+                          name:
+                            $ref: "#/components/schemas/LocalizedText"
+                          city_id:
+                            type: string
+                            format: uuid
+                          location:
                             type: object
                             additionalProperties: false
-                            required: [ id, code, name, location ]
+                            required: [ lng, lat ]
                             properties:
-                              id:
-                                type: string
-                                format: uuid
-                              code:
-                                type: string
-                              name:
-                                $ref: "#/components/schemas/LocalizedText"
-                              location:
-                                type: object
-                                additionalProperties: false
-                                required: [ lng, lat ]
-                                properties:
-                                  lng:
-                                    type: number
-                                  lat:
-                                    type: number
+                              lng:
+                                type: number
+                              lat:
+                                type: number
+                          terminals:
+                            type: array
+                            items:
+                              type: object
+                              additionalProperties: false
+                              required: [ id, code, name, location ]
+                              properties:
+                                id:
+                                  type: string
+                                  format: uuid
+                                code:
+                                  type: string
+                                name:
+                                  $ref: "#/components/schemas/LocalizedText"
+                                location:
+                                  type: object
+                                  additionalProperties: false
+                                  required: [ lng, lat ]
+                                  properties:
+                                    lng:
+                                      type: number
+                                    lat:
+                                      type: number
+                  terminal_id:
+                    type: [ string, "null" ]
+                    format: uuid
         "400":
-          description: "`VALIDATION_FAILED`：`q` 没给或超过 40 个字"
+          description: "`VALIDATION_FAILED`：坐标没给、不是数字或超出范围；`kind` 不对"
           content:
             application/json:
               schema:

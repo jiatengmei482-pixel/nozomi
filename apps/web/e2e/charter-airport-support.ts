@@ -37,12 +37,9 @@ export interface CharterAirportWorld extends CharterWorld {
   shortName: string;
   airport: Point;
   terminal: Point;
-  /** 主数据里机场的中文名和三字码（快捷入口先按它们搜机场，业主 2026-11-19） */
+  /** 主数据里机场的中文名（快捷入口在地址搜索里输入它，平台的机场排在候选前面，业主 2026-11-19） */
   airportName: string;
-  airportCode: string;
-  /** 快捷入口搜索结果里这个机场的写法：「{主数据中文名}（{三字码}）」 */
-  airportLabel: string;
-  /** 快捷入口航站楼下拉里这个航站楼的写法：「{主数据中文名} 第 1 航站楼」 */
+  /** 认出航站楼时的写法：「{主数据中文名} 第 1 航站楼」（航站楼离机场坐标约 280 米，在 500 米以内） */
   terminalLabel: string;
 }
 
@@ -80,5 +77,5 @@ export async function charterAirportWorld(request: APIRequestContext): Promise<C
   });
   expect(bound.status(), await bound.text()).toBe(200);
   const airportName = `快捷入口机场${tag}`;
-  return { ...trip, shortName, airport: airportAt, terminal: terminalAt, airportName, airportCode: code, airportLabel: `${airportName}（${code}）`, terminalLabel: `${airportName} 第 1 航站楼` };
+  return { ...trip, shortName, airport: airportAt, terminal: terminalAt, airportName, terminalLabel: `${airportName} 第 1 航站楼` };
 }

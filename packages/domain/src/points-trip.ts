@@ -14,6 +14,11 @@ export const BY_POINTS_RULES = {
    * 谷歌给的机场坐标和平台主数据的机场坐标可以差一两公里（大机场的几个航站楼相隔几公里）。再远就不认（不能把别的小机场当成它）
    */
   airportKindRadiusMeters: 10_000,
+  /**
+   * 认出机场以后，点离某个启用的航站楼坐标不超过这么远（米）就当作这个航站楼（包车快捷入口，业主 2026-11-19）。
+   * 主数据里航站楼只有一个坐标点、没有范围；成田、羽田的航站楼之间都在 1 公里以上，500 米不会认错
+   */
+  terminalRadiusMeters: 500,
 } as const;
 
 /** 一端：坐标和地址搜索给的类型（客人手填、地图选点的没有类型，为 null）。 */
@@ -55,6 +60,13 @@ export function recognizeAirport<T extends AirportCandidate>(end: TripEnd, airpo
   if (found.meters <= BY_POINTS_RULES.airportRadiusMeters) return { airport: found.airport, meters, matchedBy: "distance" };
   if (end.kind === "airport" && found.meters <= BY_POINTS_RULES.airportKindRadiusMeters) return { airport: found.airport, meters, matchedBy: "kind" };
   return null;
+}
+
+/** 认出机场以后认航站楼：离这个点最近、不超过 500 米的那个；都不在范围内为 null（距离一样时按编号的字典序） */
+export function recognizeTerminal<T extends AirportCandidate>(point: LatLng, terminals: readonly T[]): T | null {
+  if (!isValidLatLng(point)) throw new RangeError("无效坐标");
+  const found = nearest(point, terminals);
+  return found !== null && found.meters <= BY_POINTS_RULES.terminalRadiusMeters ? found.airport : null;
 }
 
 /** 行程类型：`pickup` 接机（机场 → 地址）、`dropoff` 送机（地址 → 机场）、`point_to_point` 点对点。 */

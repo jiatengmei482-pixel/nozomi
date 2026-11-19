@@ -59,7 +59,7 @@ import {
   siteAutocomplete,
   siteCharterPackages,
   siteCharterAirports,
-  siteSearchAirports,
+  siteAirportAt,
   siteCharterPackagesAt,
   siteCities,
   siteConfig,
@@ -632,20 +632,30 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
     };
   });
 
-  /** 包车快捷入口先选机场（业主 2026-11-19）：`?q=成田` / `?q=NRT`，按名称或三字码搜平台主数据的机场，带坐标和登记的航站楼（没登记是空的） */
-  app.get("/site/v1/airports", async (request) => {
+  /**
+   * 包车快捷入口按坐标认机场（业主 2026-11-19 第二次反馈）：`?lat=&lng=&kind=airport|other`（`kind` 是地址搜索给的类型，可不给）。
+   * 认出的机场带坐标和登记的航站楼；点离某个航站楼 ≤ 500 米时 `terminal_id` 是它。认不出机场时 `airport` 为 null。
+   */
+  app.get("/site/v1/airports/at", async (request) => {
     await takeSiteSlot(ctx, "site_read", { ip: request.ip });
-    const input = parseInput(z.object({ q: z.string().max(40) }).strict(), request.query, "querystring");
-    const airports = await siteSearchAirports(ctx, input.q);
+    // 留空的坐标是「没填」，不能被数字转换当成 0
+    const coordinate = (min: number, max: number) => z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), z.coerce.number().min(min).max(max));
+    const input = parseInput(z.object({ lat: coordinate(-90, 90), lng: coordinate(-180, 180), kind: z.enum(["airport", "other"]).optional() }).strict(), request.query, "querystring");
+    const found = await siteAirportAt(ctx, { lat: input.lat, lng: input.lng }, input.kind ?? null);
+    const airport = found.airport;
     return {
-      items: airports.map((airport) => ({
-        id: airport.id,
-        code: airport.code,
-        name: airport.name,
-        city_id: airport.cityId,
-        location: { lng: airport.lng, lat: airport.lat },
-        terminals: airport.terminals.map((terminal) => ({ id: terminal.id, code: terminal.code, name: terminal.name, location: { lng: terminal.lng, lat: terminal.lat } })),
-      })),
+      airport:
+        airport === null
+          ? null
+          : {
+              id: airport.id,
+              code: airport.code,
+              name: airport.name,
+              city_id: airport.cityId,
+              location: { lng: airport.lng, lat: airport.lat },
+              terminals: airport.terminals.map((terminal) => ({ id: terminal.id, code: terminal.code, name: terminal.name, location: { lng: terminal.lng, lat: terminal.lat } })),
+            },
+      terminal_id: found.terminalId,
     };
   });
 

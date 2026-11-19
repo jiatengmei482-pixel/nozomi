@@ -617,19 +617,24 @@ export function listSiteCharterAirports(scenario: SiteAirportScenario): Promise<
   return apiRequest("GET", `${SITE_BASE}/charter-airports?scenario=${encodeURIComponent(scenario)}`);
 }
 
-/** 按名称或三字码搜到的一个机场（包车快捷入口先选机场，业主 2026-11-19）：坐标和登记的航站楼（没登记是空的） */
-export interface SiteAirport {
-  id: string;
-  code: string;
-  name: LocalizedText;
-  city_id: string;
-  location: { lng: number; lat: number };
-  terminals: { id: string; code: string; name: LocalizedText; location: { lng: number; lat: number } }[];
+/** 按坐标认出的机场（包车快捷入口，业主 2026-11-19）：机场（认不出为 null）、登记的航站楼、认出的航站楼（离它 ≤ 500 米） */
+export interface SiteAirportAt {
+  airport: {
+    id: string;
+    code: string;
+    name: LocalizedText;
+    city_id: string;
+    location: { lng: number; lat: number };
+    terminals: { id: string; code: string; name: LocalizedText; location: { lng: number; lat: number } }[];
+  } | null;
+  terminalId: string | null;
 }
 
-/** 按名称（中 / 日 / 英 / 韩）或三字码搜平台主数据的机场，最多 10 个 */
-export function searchSiteAirports(query: string): Promise<{ items: SiteAirport[] }> {
-  return apiRequest("GET", `${SITE_BASE}/airports?q=${encodeURIComponent(query)}`);
+/** 这个地点是哪个机场、哪个航站楼（只读平台主数据，不调谷歌）；`kind` 是地址搜索给的类型 */
+export async function findSiteAirportAt(point: { lat: number; lng: number; kind?: SitePlaceKind | null }): Promise<SiteAirportAt> {
+  const query = new URLSearchParams({ lat: String(point.lat), lng: String(point.lng), ...(point.kind ? { kind: point.kind } : {}) });
+  const body = await apiRequest<{ airport: SiteAirportAt["airport"]; terminal_id: string | null }>("GET", `${SITE_BASE}/airports/at?${query.toString()}`);
+  return { airport: body.airport, terminalId: body.terminal_id };
 }
 
 export function listSitePlaces(cityId: string): Promise<{ items: SitePlace[] }> {

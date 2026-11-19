@@ -20,7 +20,7 @@
  * 路由 state 留在浏览器这条历史记录里（含地名），刷新后还在；格式由 `tripBookHandoffOf` 逐项核对，不对就当作没有。
  */
 import { charterAirportText, quoteScenario } from "../../../lib/charter-airport-copy.ts";
-import { type AirportQuickMode, AirportQuickButtons, TerminalSelect } from "./AirportQuickEntry.tsx";
+import { AirportMatch, type AirportQuickMode, AirportQuickButtons } from "./AirportQuickEntry.tsx";
 import { type CityCandidate, type CurrencyCode, type FlightKind, ORDER_FIELD_LIMITS, fixedPriceIncludes, fixedPriceIncludesTitle, fixedPriceLabel, isInternationalPhone, serviceCityOf, displayStopNumber, reorderByRefs } from "@nozomi/domain";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
@@ -1030,7 +1030,7 @@ export function BookNewPage() {
     target?.scrollIntoView?.({ block: "start" });
   }, [step]);
 
-  // 包车快捷入口（M9P-22，ADR 0098）：「机场接机开始」时上车点按航站楼选，「机场送机结束」时下车点按航站楼选
+  // 包车快捷入口（M9P-22，ADR 0098；业主 2026-11-19）：「机场接机开始」时上车点用地址搜索选机场、自动认机场和航站楼，「机场送机结束」时下车点同样
   const [airportMode, setAirportMode] = useState<AirportQuickMode>(null);
   // 打开快捷入口前那一端填的地点：「改填其他地点」或换成另一个快捷入口时放回去，客人不用重填
   const airportSaved = useRef<{ from: TripPoint | null; to: TripPoint | null }>({ from: null, to: null });
@@ -1038,7 +1038,7 @@ export function BookNewPage() {
     const changes: Partial<TripDraft> = {};
     if (airportMode === "airport_start" && mode !== "airport_start") changes.from = airportSaved.current.from;
     if (airportMode === "airport_end" && mode !== "airport_end") changes.to = airportSaved.current.to;
-    // 打开快捷入口：那一端改成按航站楼选，先记下再清掉原来填的
+    // 打开快捷入口：那一端清空让客人搜机场，先记下原来填的
     if (mode === "airport_start" && airportMode !== "airport_start") {
       airportSaved.current.from = draft.from;
       changes.from = null;
@@ -1130,11 +1130,8 @@ export function BookNewPage() {
             onMode={switchAirportMode}
           />
         )}
-        {charter && airportMode === "airport_start" ? (
-          <TerminalSelect scenario="airport_start" label="上车地点" value={draft.from} onChange={(from) => update({ from })} onExit={() => switchAirportMode(null)} />
-        ) : (
-          <PlaceField
-          key={`from-${draft.mode}`}
+        <PlaceField
+          key={`from-${draft.mode}-${airportMode === "airport_start" ? "airport" : "place"}`}
           label={charter ? "上车地点" : "出发地"}
           value={draft.from}
           onChange={(from) => update({ from })}
@@ -1145,7 +1142,7 @@ export function BookNewPage() {
           mapCenter={centerOf(draft.to)}
           cities={centers}
         />
-        )}
+        {charter && airportMode === "airport_start" && <AirportMatch scenario="airport_start" label="上车地点" value={draft.from} onChange={(from) => update({ from })} onExit={() => switchAirportMode(null)} />}
         {charter && (
           <WaypointsField
             value={draft.waypoints}
@@ -1159,11 +1156,8 @@ export function BookNewPage() {
             late={lateByWaypoint}
           />
         )}
-        {charter && airportMode === "airport_end" ? (
-          <TerminalSelect scenario="airport_end" label="下车地点" value={draft.to} onChange={(to) => update({ to })} onExit={() => switchAirportMode(null)} />
-        ) : (
         <PlaceField
-          key={`to-${draft.mode}`}
+          key={`to-${draft.mode}-${airportMode === "airport_end" ? "airport" : "place"}`}
           label={charter ? "下车地点" : "目的地"}
           value={draft.to}
           onChange={(to) => update({ to })}
@@ -1175,7 +1169,7 @@ export function BookNewPage() {
           mapCenter={centerOf(draft.from)}
           cities={centers}
         />
-        )}
+        {charter && airportMode === "airport_end" && <AirportMatch scenario="airport_end" label="下车地点" value={draft.to} onChange={(to) => update({ to })} onExit={() => switchAirportMode(null)} />}
         {charter && charterCity === null && (
           <div className="book-new__notice" role="status">
             <p>这个地址暂时没有在线报价，请联系客服</p>

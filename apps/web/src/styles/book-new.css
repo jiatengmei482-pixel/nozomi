@@ -1442,12 +1442,9 @@ button.book-steps__link:hover .book-steps__name {
   gap: var(--space-2);
 }
 
-/* 快捷入口先选机场：搜到的机场候选（业主 2026-11-19） */
-.book-new__airport-results {
-  display: flex;
-  flex-wrap: wrap;
+/* 快捷入口：地址搜索下面的「已识别」、航站楼选填（业主 2026-11-19） */
+.book-new__airport-match {
+  display: grid;
   gap: var(--space-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
+  justify-items: start;
 }
