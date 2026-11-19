@@ -956,6 +956,43 @@ export function lockableAreaSurcharge(booked: { request: Pick<QuoteRequest, "cat
  * 请求本身写得对不对由 `quoteRequestIssues` 查，这里假定是对的。
  */
 export function quoteProduct(product: QuoteProduct, request: QuoteRequest, moment: QuoteMoment, options: QuoteOptions = {}): ProductQuote {
+  const primary = quoteAsLocated(product, request, moment, options);
+  // 独立区域报不出时退回共享区域（ADR 0102 第四节补充）：只有同时挂了两类区域的商品才可能用到；进了禁行区的不退
+  if (!mixesSharing(product) || (primary.ok ? primary.refused.length === 0 : primary.reason === "IN_FORBIDDEN_AREA")) return primary;
+  return withSharedFallback(primary, quoteAsLocated(withoutOwnPriority(product), request, moment, options));
+}
+
+/** 商品（任何一层）同时挂了启用的平台共享区域和供应商独立区域 */
+function mixesSharing(product: QuoteProduct): boolean {
+  const areas = [...product.areas, ...(product.operatingAreas ?? []), ...(product.surchargeAreas ?? [])].filter((area) => area.active);
+  return areas.some((area) => area.sharing === "shared") && areas.some((area) => (area.sharing ?? "own") === "own");
+}
+
+/** 不按「独立优先」判断的同一个商品：每一层的区域都当作同一类，点落在哪些就都算（ADR 0102 之前的口径） */
+function withoutOwnPriority(product: QuoteProduct): QuoteProduct {
+  const flat = <A extends QuoteArea>(areas: readonly A[]): A[] => areas.map((area) => ({ ...area, sharing: "shared" }));
+  return { ...product, areas: flat(product.areas), ...(product.operatingAreas === undefined ? {} : { operatingAreas: flat(product.operatingAreas) }), ...(product.surchargeAreas === undefined ? {} : { surchargeAreas: flat(product.surchargeAreas) }) };
+}
+
+/**
+ * 按「独立优先」报不出的车型组用不按优先的结果补（ADR 0102 第四节补充）：报得出的车型组照旧用独立区域的价（不比高低）；
+ * 报不出的车型组退回去也报不出时，原因照旧用独立优先的那个。整个商品报不出（禁行区除外，调用方已挡）而退回去报得出时用退回的结果。
+ */
+function withSharedFallback(primary: ProductQuote, fallback: ProductQuote): ProductQuote {
+  if (!fallback.ok) return primary;
+  if (!primary.ok) return fallback;
+  const offers = [...primary.offers];
+  const refused: VehicleRefusal[] = [];
+  for (const refusal of primary.refused) {
+    const rescued = fallback.offers.find((offer) => offer.vehicleGroupId === refusal.vehicleGroupId);
+    if (rescued === undefined) refused.push(refusal);
+    else offers.push(rescued);
+  }
+  return { ...primary, offers, refused };
+}
+
+/** 按 `locateInAreas` 的判断（同一层供应商独立优先）报价 */
+function quoteAsLocated(product: QuoteProduct, request: QuoteRequest, moment: QuoteMoment, options: QuoteOptions): ProductQuote {
   // 机场开始 / 机场结束（ADR 0098）：匹配到场景时按场景报（替换普通套餐）；机场 → 机场两个场景各报一遍，每个车型组取结算价低的
   const bindings = product.category === "charter" && threeLayer(product) ? (product.airportBindings ?? []) : [];
   const locked = product.category === "charter" ? options.lockedCharterScenario : undefined;

@@ -7,7 +7,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { type OverlapAreaInput, charterLayerOverlaps, findAreaOverlaps } from "./area-overlap.ts";
 import type { Position } from "./areas.ts";
-import { type QuoteArea, locateInAreas } from "./quote.ts";
+import { type PriceRule, type Pricing } from "./pricing.ts";
+import { emptyServiceRules } from "./products.ts";
+import { type QuoteArea, type QuoteProduct, type QuoteRequest, locateInAreas, quoteProduct } from "./quote.ts";
 
 const square = (west: number, south: number, east: number, north: number): Position[] => [
   [west, south],
@@ -54,5 +56,58 @@ describe("报价：同一层里供应商独立优先", () => {
   });
   it("停用的独立区域不算，点照算共享的", () => {
     assert.deepEqual(locateInAreas([quoteArea("shared", big, "shared"), { ...quoteArea("own", inner), active: false }], center), { operating: ["shared"], forbidden: [] });
+  });
+});
+
+describe("报价：独立区域报不出时退回共享区域（ADR 0102 第四节补充）", () => {
+  // 点对点：上车点在「东京市」（独立）和「23区·通用」（共享）里，下车点只在「成田·通用」（共享）里
+  const narita = square(140.2, 35.7, 140.5, 35.9);
+  const fixed = (basePriceMinor: number): Pricing => ({ model: "fixed", basePriceMinor });
+  const rule = (areaId: string, vehicleGroupId: string, minor: number, toAreaId: string | null = null): PriceRule & { id: string } => ({ id: `${areaId}-${toAreaId ?? ""}-${vehicleGroupId}`, areaId, toAreaId, vehicleGroupId, direction: null, packageHours: null, pricing: fixed(minor), validFrom: "2026-01-01", validTo: null, status: "enabled" });
+  const product = (priceRules: (PriceRule & { id: string })[], areas: QuoteArea[] = [quoteArea("tokyo-own", inner), quoteArea("23ku-shared", big, "shared"), quoteArea("narita-shared", narita, "shared")]): QuoteProduct => ({
+    productId: "prd-1",
+    tenantId: "tenant-a",
+    category: "point_to_point",
+    status: "published",
+    tenantActive: true,
+    brandActive: true,
+    currency: "JPY",
+    roundingUnit: 1,
+    timeZone: "Asia/Tokyo",
+    pickupPlace: null,
+    areas,
+    vehicleGroups: [{ vehicleGroupId: "sedan", passengers: 3, luggage: 2, active: true }, { vehicleGroupId: "van", passengers: 6, luggage: 4, active: true }],
+    serviceRules: { ...emptyServiceRules(), booking: { saleFrom: null, saleTo: null, serviceTime: { start: "00:00", end: "24:00" }, leadTimeHours: 24, note: null }, freeWait: { pickup: null, dropoff: null, general: { mode: "limited", minutes: 15 } } },
+    addonCatalog: [],
+    priceRules,
+    adjustRules: [],
+    inventoryMode: "unlimited",
+  });
+  const request = (dropoff = { lat: 35.8, lng: 140.3 }): QuoteRequest => ({ category: "point_to_point", direction: null, pickup: center, dropoff, packageHours: null, serviceLocal: "2026-10-20T10:00", passengers: 2, luggage: 1, addons: [], driverLanguage: null, vehicleGroupIds: ["sedan", "van"] });
+  const moment = { now: new Date("2026-10-07T01:00:00Z"), route: null, inventoryDay: null, urgentUsed: 0 };
+  const prices = (p: QuoteProduct, r: QuoteRequest = request()): Record<string, unknown> => {
+    const quoted = quoteProduct(p, r, moment);
+    if (!quoted.ok) return { product: quoted.reason };
+    return Object.fromEntries([...quoted.offers.map((offer) => [offer.vehicleGroupId, `${offer.areaId}:${offer.settlement.totalMinor}`]), ...quoted.refused.map((entry) => [entry.vehicleGroupId, entry.reason])]);
+  };
+
+  it("独立区域没有这条线路价：这个车型组用共享区域的线路价；独立区域有价的车型组照旧用独立的价（不比高低）", () => {
+    const rules = [rule("23ku-shared", "sedan", 20_000, "narita-shared"), rule("23ku-shared", "van", 25_000, "narita-shared"), rule("tokyo-own", "van", 30_000, "narita-shared")];
+    assert.deepEqual(prices(product(rules)), { sedan: "23ku-shared:20000", van: "tokyo-own:30000" });
+  });
+  it("独立区域只有区域价、没有线路价：照旧用独立区域的区域价（报得出就不退）", () => {
+    const rules = [rule("23ku-shared", "sedan", 20_000, "narita-shared"), rule("tokyo-own", "sedan", 9_000)];
+    assert.deepEqual(prices(product(rules)), { sedan: "tokyo-own:9000", van: "NO_PRICE_RULE" });
+  });
+  it("退回去也报不出：原因照旧", () => {
+    assert.deepEqual(prices(product([rule("tokyo-own", "van", 30_000, "narita-shared")])), { sedan: "NO_PRICE_RULE", van: "tokyo-own:30000" });
+  });
+  it("独立区域的禁行区盖住上车点：照旧不报，不退回共享区域", () => {
+    const areas = [quoteArea("tokyo-own", big, "own", inner), quoteArea("23ku-shared", big, "shared"), quoteArea("narita-shared", narita, "shared")];
+    assert.deepEqual(prices(product([rule("23ku-shared", "sedan", 20_000, "narita-shared")], areas)), { product: "IN_FORBIDDEN_AREA" });
+  });
+  it("只有共享或只有独立区域的商品：和以前一样", () => {
+    const owned = [quoteArea("tokyo-own", inner), quoteArea("23ku", big), quoteArea("narita", narita)];
+    assert.deepEqual(prices(product([rule("23ku", "sedan", 20_000, "narita"), rule("tokyo-own", "sedan", 25_000, "narita")], owned)), { sedan: "23ku:20000", van: "NO_PRICE_RULE" }, "都是独立：两个都算、取低的");
   });
 });
