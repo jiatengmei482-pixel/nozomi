@@ -16,8 +16,10 @@ import { randomUUID } from "node:crypto";
 import type { LatLng, RouteLookup } from "@nozomi/domain";
 import { withPlatformTx, withTenantTx } from "./db/context.ts";
 import { parseArgs } from "./db/charter-three-layer-cli.ts";
+import { parseLegacyCleanupArgs } from "./db/legacy-price-cleanup-cli.ts";
 import { XLSX_CONTENT_TYPE, readXlsx, writeXlsx } from "./integrations/xlsx.ts";
 import { countReport, runCharterThreeLayerMigration } from "./services/charter-three-layer.ts";
+import { legacyCleanupCountsLine, runLegacyPriceCleanup } from "./services/legacy-price-cleanup.ts";
 import type { ApiResponse, HttpMethod, TenantFixture, TestApi } from "./testing/api.ts";
 import { createTestApi } from "./testing/api.ts";
 import { type Market, buildMarket, newChannel, ok, salesCredentials } from "./testing/market.ts";
@@ -86,8 +88,8 @@ const itinerary = (areaId: string, hours: number | null, amount: number) => ({ a
  * 一个「迁移前」的东京包车：服务区域东京市内（10h 55,000、8h 50,000）和横滨（10h 58,000，和东京市内不一致）；
  * ③富士山 10,000 / 10,000、途经 10,000；八王子 3,000 / 3,000、途经 3,000（和富士山重叠一块）；秩父上下车 0 / 0、只有途经 9,000。
  */
-async function newCharter(who: TenantFixture): Promise<Charter> {
-  const area = async (name: string, polygon: ReturnType<typeof square>): Promise<string> => (await ok(tenantCall(who, "POST", "/areas", { body: { city_id: m.ids.tokyo, name: { zh: name }, biz_type: "charter", polygons: [{ kind: "operate", geometry: polygon }] } }), 201)).id;
+async function newCharter(who: TenantFixture, nameSuffix = ""): Promise<Charter> {
+  const area = async (name: string, polygon: ReturnType<typeof square>): Promise<string> => (await ok(tenantCall(who, "POST", "/areas", { body: { city_id: m.ids.tokyo, name: { zh: `${name}${nameSuffix}` }, biz_type: "charter", polygons: [{ kind: "operate", geometry: polygon }] } }), 201)).id;
   // 横滨北边和东京市内重叠一条（①①）；八王子东边伸进东京市内（①③），西边和富士山重叠（③③ / 迁移后②②）——
   // 这些是 M9P-06 之前的旧配置，现在经接口建不出来：先按不重叠的图形建好，最后用迁移账号把图形改成重叠的（区域图形的修改不查商品的三层重叠）
   const yokohama = await area("横滨", square(139.5, 35.3, 139.7, 35.5));
@@ -397,4 +399,88 @@ test("迁移脚本：不带 --product 时迁全部还没迁过的包车商品（
   assert.throws(() => parseArgs(["--dry-run", "--apply"]), /--dry-run 或 --apply/);
   assert.throws(() => parseArgs(["--apply", "--product", "x"]), /UUID/);
   assert.throws(() => parseArgs(["--apply", "--force"]), /不认识的参数/);
+});
+
+// ---- M9P-12：迁移过三层的商品清掉旧价格数据（按服务区域的旧套餐价、③行里的途经加价）----
+
+const legacyLeft = async (productId: string): Promise<{ pkg: number; wp: number }> =>
+  (
+    await api.db.owner.query(
+      `select count(*) filter (where pricing_model = 'charter_package' and area_id is not null)::int as pkg,
+              count(*) filter (where pricing_model = 'charter_area_surcharge' and params ? 'waypointSurchargeMinor')::int as wp
+         from price_rules where product_id = $1`,
+      [productId],
+    )
+  ).rows[0];
+const allRules = async (): Promise<string> => JSON.stringify((await api.db.owner.query("select id, area_id, pricing_model, params, status from price_rules order by id")).rows);
+const countOf = async (sql: string, params: unknown[] = []): Promise<number> => (await api.db.owner.query(sql, params)).rows[0].n;
+
+test("M9P-12 旧价格清理：dry-run 不写库；apply 只动迁移过的商品（删按服务区域的旧套餐价、去掉③行的途经加价，整行进备份表、写审计、版本号加一），报价逐条不变；没迁移过的一条不碰；再跑 0 改动", async () => {
+  // 一个没迁移过的包车（正式站的商品都是这样）：旧数据一条都不能动；下架，不参与比价
+  const untouched = await newCharter(m.b, "（未迁移）");
+  await ok(tenantCall(m.b, "POST", `/products/${untouched.id}/unpublish`));
+  const untouchedBefore = await legacyLeft(untouched.id);
+  assert.deepEqual(untouchedBefore, { pkg: 3, wp: 3 });
+  const migrated = (await api.db.owner.query("select id, version from products where category = 'charter' and charter_layout = 'three_layer' order by id")).rows as { id: string; version: number }[];
+  assert.deepEqual(migrated.map((row) => row.id).sort(), [charter.id, charterA.id].sort());
+  let expectPkg = 0;
+  let expectWp = 0;
+  for (const product of migrated) {
+    const left = await legacyLeft(product.id);
+    expectPkg += left.pkg;
+    expectWp += left.wp;
+  }
+  assert.ok(expectPkg > 0 && expectWp > 0, "两类旧数据都有");
+  const before: string[] = [];
+  for (const [pickup, stops, dropoff] of SCENARIOS) before.push(await settlements(pickup, stops, dropoff));
+  const rulesBefore = await allRules();
+
+  // dry-run：计数对，库里什么都不变（备份、记录也回滚）
+  const dry = await runLegacyPriceCleanup(api.db.owner, { mode: "dry-run", now: new Date(api.clock.now()) });
+  assert.deepEqual([dry.counts.migratedProducts, dry.counts.changedProducts, dry.counts.areaPackagesDeleted, dry.counts.waypointsStripped], [2, 2, expectPkg, expectWp]);
+  assert.ok(dry.counts.untouchedProducts >= 1);
+  assert.equal(await allRules(), rulesBefore);
+  assert.equal(await countOf("select count(*)::int as n from legacy_price_cleanup_backups"), 0);
+  assert.equal(await countOf("select count(*)::int as n from legacy_price_cleanup_runs"), 0);
+  assert.match(legacyCleanupCountsLine(dry), new RegExp(`删掉按服务区域的旧套餐价 ${expectPkg} 条`));
+
+  // apply
+  const report = await runLegacyPriceCleanup(api.db.owner, { mode: "apply", now: new Date(api.clock.now()) });
+  assert.deepEqual(report.counts, dry.counts);
+  for (const product of migrated) {
+    assert.deepEqual(await legacyLeft(product.id), { pkg: 0, wp: 0 });
+    assert.equal((await layoutOf(product.id)).version, product.version + 1);
+  }
+  assert.deepEqual(await legacyLeft(untouched.id), untouchedBefore, "没迁移过的商品一条不碰");
+  // ③行整行保留，上 / 下车加价不变
+  const updown = (await api.db.owner.query("select params from price_rules where product_id = $1 and pricing_model = 'charter_area_surcharge' order by (params->>'pickupSurchargeMinor')::int", [charterA.id])).rows.map((row) => row.params);
+  assert.deepEqual(updown, [{ pickupSurchargeMinor: 0, dropoffSurchargeMinor: 0 }, { pickupSurchargeMinor: 3_000, dropoffSurchargeMinor: 3_000 }, { pickupSurchargeMinor: 10_000, dropoffSurchargeMinor: 10_000 }]);
+  // 备份：每条整行一份（去掉途经加价的那些备份里还在）
+  const backups = (await api.db.owner.query("select action, price_rule from legacy_price_cleanup_backups where run_id = $1", [report.runId])).rows;
+  assert.equal(backups.filter((row) => row.action === "delete_area_package").length, expectPkg);
+  assert.ok(backups.filter((row) => row.action === "strip_waypoint").every((row) => typeof row.price_rule.params.waypointSurchargeMinor === "number"));
+  assert.equal(backups.length, expectPkg + expectWp);
+  assert.equal(await countOf("select count(*)::int as n from legacy_price_cleanup_runs where id = $1 and mode = 'apply'", [report.runId]), 1);
+  const audits = (await api.db.owner.query("select resource, action, actor_type, source from audit_logs where after->>'reason' = 'legacy_price_cleanup'")).rows;
+  assert.equal(audits.length, expectPkg + expectWp + 2);
+  assert.ok(audits.every((row) => row.actor_type === "system" && row.source === "cli"));
+
+  // 报价逐条不变（迁移过的商品本来就不读这两类数据）
+  const after: string[] = [];
+  for (const [pickup, stops, dropoff] of SCENARIOS) after.push(await settlements(pickup, stops, dropoff));
+  assert.deepEqual(after, before);
+
+  // 再跑一次：没有可清的了
+  const again = await runLegacyPriceCleanup(api.db.owner, { mode: "apply", now: new Date(api.clock.now()) });
+  assert.deepEqual([again.counts.changedProducts, again.counts.areaPackagesDeleted, again.counts.waypointsStripped], [0, 0, 0]);
+  assert.deepEqual(await legacyLeft(untouched.id), untouchedBefore);
+});
+
+test("M9P-12 旧价格清理的命令行参数：--dry-run / --apply 二选一，或按 LEGACY_PRICE_CLEANUP；别的报错", () => {
+  assert.equal(parseLegacyCleanupArgs(["--dry-run"]), "dry-run");
+  assert.equal(parseLegacyCleanupArgs([], { LEGACY_PRICE_CLEANUP: "apply" }), "apply");
+  assert.throws(() => parseLegacyCleanupArgs([]), /--dry-run 或 --apply/);
+  assert.throws(() => parseLegacyCleanupArgs(["--dry-run", "--apply"]), /--dry-run 或 --apply/);
+  assert.throws(() => parseLegacyCleanupArgs([], { LEGACY_PRICE_CLEANUP: "yes" }), /dry-run/);
+  assert.throws(() => parseLegacyCleanupArgs(["--force"]), /不认识的参数/);
 });

@@ -226,6 +226,8 @@ jobs:
       CHARTER_THREE_LAYER_MIGRATION: ${{ vars.CHARTER_THREE_LAYER_MIGRATION }}
       # 区域重叠清理（ADR 0102 第五节第 3 步）：同样只在 staging 临时设 dry-run / apply，用完立即删（docs/deploy.md）
       AREA_OVERLAP_CLEANUP: ${{ vars.AREA_OVERLAP_CLEANUP }}
+      # 包车旧价格清理（M9P-12）：同样只在 staging 临时设 dry-run / apply，用完立即删（docs/deploy.md）
+      LEGACY_PRICE_CLEANUP: ${{ vars.LEGACY_PRICE_CLEANUP }}
     steps:
       - name: 检查这个环境的非密钥配置
         run: |
@@ -282,6 +284,19 @@ jobs:
               exit 1
               ;;
           esac
+          case "${LEGACY_PRICE_CLEANUP:-}" in
+            "" ) ;;
+            dry-run | apply)
+              if [[ "$APP_ENV" == "production" ]]; then
+                echo "::error title=LEGACY_PRICE_CLEANUP 只能在测试环境设::正式环境不执行包车旧价格清理。请到 Settings → Environments → production 删掉这个变量。"
+                exit 1
+              fi
+              ;;
+            *)
+              echo "::error title=LEGACY_PRICE_CLEANUP 不对::只能不设、或设成 dry-run / apply。"
+              exit 1
+              ;;
+          esac
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.plan.outputs.sha }}
@@ -310,7 +325,7 @@ jobs:
           status=0
           # 拉镜像用的令牌是本次运行的短期令牌，经标准输入一路传给服务器上的 docker login，
           # 不出现在任何命令行参数里；deploy.sh 结束时会登出。
-          # APP_DOMAIN、ACME_EMAIL、EDGE_MODE、EDGE_LISTEN、REGISTRY_USER、CHARTER_THREE_LAYER_MIGRATION、AREA_OVERLAP_CLEANUP 由 remote.sh 从环境里读出并传给服务器。
+          # APP_DOMAIN、ACME_EMAIL、EDGE_MODE、EDGE_LISTEN、REGISTRY_USER、CHARTER_THREE_LAYER_MIGRATION、AREA_OVERLAP_CLEANUP、LEGACY_PRICE_CLEANUP 由 remote.sh 从环境里读出并传给服务器。
           printf '%s' "$REGISTRY_TOKEN" | REGISTRY_HOST="$REGISTRY" deploy/client/remote.sh deploy "$APP_ENV" "$SHA" "$IMAGE" ||
             status=$?
           case "$status" in

@@ -965,3 +965,46 @@ test("三层区域迁移：变量是别的值、或在正式环境设了 → 不
   assert.equal(await linkTarget("current"), "releases/v1");
   assert.equal(indexOfCall(await calls(), activationOf("v2")), -1);
 });
+
+// ---- 包车旧价格清理（M9P-12）：变量控制、在数据库迁移之后新版本启动之前、失败中止 ----
+
+const LEGACY_CLEANUP = /run --rm --no-deps -T -e LEGACY_PRICE_CLEANUP=(dry-run|apply) migrate node apps\/api\/src\/db\/legacy-price-cleanup-cli\.ts$/;
+
+test("包车旧价格清理：不设变量时不运行，日志打一行「未设」；dry-run / apply 在数据库迁移之后、新版本启动之前用 migrate 容器执行", linuxOnly, async () => {
+  const none = await deploy("v1");
+  assert.equal(none.code, 0, none.output);
+  assert.match(none.output, /包车旧价格清理：未设/);
+  assert.equal(indexOfCall(await calls(), /legacy-price-cleanup-cli/), -1);
+  for (const [id, mode] of [["v2", "dry-run"], ["v3", "apply"]] as const) {
+    await clearCalls();
+    const result = await deploy(id, { LEGACY_PRICE_CLEANUP: mode });
+    assert.equal(result.code, 0, result.output);
+    assert.match(result.output, new RegExp(`包车旧价格清理：${mode}`));
+    const log = await calls();
+    const migrate = indexOfCall(log, /run --rm --no-deps -T migrate node apps\/api\/src\/db\/migrate-cli\.ts$/);
+    const cleanup = indexOfCall(log, LEGACY_CLEANUP);
+    const start = indexOfCall(log, activationOf(id));
+    assert.ok(migrate >= 0 && cleanup > migrate && start > cleanup, log.join("\n"));
+    assert.equal(LEGACY_CLEANUP.exec(log[cleanup] ?? "")?.[1], mode);
+  }
+});
+
+test("包车旧价格清理：变量是别的值、或在正式环境设了 → 不动线上就中止（参数错误）；清理失败 → 中止部署，旧版本照常", linuxOnly, async () => {
+  const wrong = await deploy("v1", { LEGACY_PRICE_CLEANUP: "yes" });
+  assert.equal(wrong.code, 1, wrong.output);
+  assert.match(wrong.output, /LEGACY_PRICE_CLEANUP 只能不设、或设成 dry-run \/ apply/);
+  assert.equal(indexOfCall(await calls(), /migrate/), -1);
+
+  const production = await deploy("v1", { APP_ENV: "production", LEGACY_PRICE_CLEANUP: "apply" });
+  assert.equal(production.code, 1, production.output);
+  assert.match(production.output, /LEGACY_PRICE_CLEANUP 只能在测试环境设/);
+
+  assert.equal((await deploy("v1")).code, 0);
+  await clearCalls();
+  await failWhen("legacy-price-cleanup-cli");
+  const failed = await deploy("v2", { LEGACY_PRICE_CLEANUP: "apply" });
+  assert.equal(failed.code, 10, failed.output);
+  assert.match(failed.output, /包车旧价格清理失败（apply，写入已整体撤销），旧版本没有被替换/);
+  assert.equal(await linkTarget("current"), "releases/v1");
+  assert.equal(indexOfCall(await calls(), activationOf("v2")), -1);
+});

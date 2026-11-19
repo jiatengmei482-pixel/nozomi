@@ -27,7 +27,8 @@ import { type TestDatabase, createMigratedTestDatabase } from "./testing/db.ts";
  * 以及人工报价申请、跟进记录和官网设置（ADR 0076：客人的联系方式，只给平台的客服、运营），
  * 以及测试环境的验收会话和验收单被压下的邮件内容（ADR 0078：只给平台角色），
  * 以及共享库去重的标记（ADR 0083 补充：两个区域分属不同供应商，平台维护），
- * 以及嵌入组件的预订草稿、嵌入码和来源记录（ADR 0090：不属于任何供应商；来源只给平台，供应商看不到）。新增平台表时加到这里。
+ * 以及嵌入组件的预订草稿、嵌入码和来源记录（ADR 0090：不属于任何供应商；来源只给平台，供应商看不到），
+ * 以及包车旧价格清理的备份和记录（M9P-12：跨全部供应商的原始价格，只给迁移账号）。新增平台表时加到这里。
  */
 const PLATFORM_TABLES = [
   "addons",
@@ -49,6 +50,8 @@ const PLATFORM_TABLES = [
   "holidays",
   "integration_secrets",
   "itinerary_route_polylines",
+  "legacy_price_cleanup_backups",
+  "legacy_price_cleanup_runs",
   "login_throttles",
   "manual_quote_request_events",
   "manual_quote_requests",
