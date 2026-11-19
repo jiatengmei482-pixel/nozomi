@@ -460,8 +460,9 @@ open_host_page_until() {
   local profile chrome_pid waited=0
   profile="$(mktemp -d "$work_dir/chrome-XXXXXX")"
   printf '\n--- %s %s（等 %s）---\n' "$(date -u +%H:%M:%S)" "$1" "$3" >>"$work_dir/chrome.log"
+  # 网络日志（失败时 embed_diagnostics 摘出和 /embed/book 有关的请求、网络错误）：M8-29，2026-11-19 有一次 iframe 一个请求都没发到站点
   timeout --kill-after=5 "$4" "$chrome" --headless=new --no-sandbox --disable-gpu --ignore-certificate-errors --no-first-run \
-    --user-data-dir="$profile" "$1" >>"$work_dir/chrome.log" 2>&1 &
+    --log-net-log="$profile/netlog.json" --user-data-dir="$profile" "$1" >>"$work_dir/chrome.log" 2>&1 &
   chrome_pid=$!
   while ! grep -q "GET $3" "$2"; do
     if ! kill -0 "$chrome_pid" 2>/dev/null || [[ $waited -ge $4 ]]; then break; fi
@@ -482,6 +483,13 @@ embed_diagnostics() {
   cat "$work_dir/other.log" >&2 2>/dev/null || true
   printf '\n--- 无头 Chrome 的输出（最后 80 行）---\n' >&2
   tail -n 80 "$work_dir/chrome.log" >&2 2>/dev/null || true
+  printf '\n--- 无头 Chrome 的网络日志：和站点有关的请求、网络错误（每次打开最多 40 条）---\n' >&2
+  local netlog
+  for netlog in "$work_dir"/chrome-*/netlog.json; do
+    [[ -s "$netlog" ]] || continue
+    printf '%s\n' "${netlog#"$work_dir"/}" >&2
+    grep -oE '"(url|original_url)":"[^"]*(embed|frame-check|beacon)[^"]*"|"net_error":-[0-9]+' "$netlog" | sort | uniq -c | head -n 40 >&2 || true
+  done
 }
 
 health_status() {
@@ -736,7 +744,13 @@ for attempt in $(seq 1 30); do
   [[ $attempt -lt 30 ]] || fail "宿主页的静态服务没有起来"
   sleep 1
 done
-open_host_page_until "$host_origin/on.html" "$work_dir/host.log" /beacon/on-ready 60 || { embed_diagnostics; fail "白名单里的宿主 $host_origin 应能嵌入 /embed/book（60 秒内收到嵌入页的 ready）"; }
+# 无头 Chrome 偶尔整个页面卡住、iframe 一个请求都没发（M8-29，2026-11-19，站点日志里这段时间没有任何请求）：打印诊断后换新的配置再开一次；
+# 真的嵌不进的话两次都失败
+if ! open_host_page_until "$host_origin/on.html" "$work_dir/host.log" /beacon/on-ready 60; then
+  embed_diagnostics
+  printf '\n第一次没收到 ready，换新的浏览器配置再试一次\n' >&2
+  open_host_page_until "$host_origin/on.html" "$work_dir/host.log" /beacon/on-ready 60 || { embed_diagnostics; fail "白名单里的宿主 $host_origin 应能嵌入 /embed/book（两次各 60 秒内都没收到嵌入页的 ready）"; }
+fi
 open_host_page "$other_origin/other.html"
 if grep -q 'GET /beacon/other-ready' "$work_dir/other.log"; then fail "不在白名单的宿主 $other_origin 不应能嵌入 /embed/book"; fi
 open_host_page "$host_origin/off.html"

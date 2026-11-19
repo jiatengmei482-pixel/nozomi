@@ -38,6 +38,8 @@ cleanup() {
   if ((${#containers[@]} > 0)); then
     docker rm --force --volumes "${containers[@]}" >/dev/null 2>&1 || true
   fi
+  # 各情形在子 shell 里跑（run_check），子 shell 里建的容器不在上面的数组里：按名称前缀再清一遍
+  docker ps --all --quiet --filter "name=^nozomi-bootstrap-check-" | xargs --no-run-if-empty docker rm --force --volumes >/dev/null 2>&1 || true
   [[ -n "$work_dir" && -d "$work_dir" ]] && rm -rf -- "$work_dir"
   exit "$status"
 }
@@ -326,14 +328,48 @@ check_shared() {
   fi
 }
 
-check_shared "CentOS Stream 10" quay.io/centos/centos:stream10 rhel
-check_shared "CentOS Stream 9" quay.io/centos/centos:stream9 rhel
-check_shared "Ubuntu 24.04" ubuntu:24.04 debian
+# 每种情形限时，超时（只有超时）换一个新容器再跑一次（M8-29）：公共软件源偶尔慢到一点一点地传（apt 的超时只管断线、不管慢），
+# 2026-11-19 一个 Ubuntu 24.04 容器装包卡了 20 分钟，整步 25 分钟超时。正常一种情形一两分钟。
+# 检查本身失败（fail）不重试：脚本真有问题照样马上红。
+CHECK_TIMEOUT_SECONDS="${BOOTSTRAP_CHECK_TIMEOUT_SECONDS:-360}"
+kill_tree() {
+  local child
+  for child in $(pgrep -P "$1" 2>/dev/null); do kill_tree "$child"; done
+  kill -TERM "$1" 2>/dev/null || true
+}
+run_check() {
+  local kind="$1" label="$2" image="$3" name pid waited attempt
+  name="nozomi-bootstrap-check-$kind-${image//[^a-z0-9]/}"
+  for attempt in 1 2; do
+    ("check_$kind" "$label" "$image" "$4") &
+    pid=$!
+    waited=0
+    while kill -0 "$pid" 2>/dev/null && ((waited < CHECK_TIMEOUT_SECONDS)); do
+      sleep 5
+      waited=$((waited + 5))
+    done
+    if ! kill -0 "$pid" 2>/dev/null; then
+      wait "$pid" || exit 1
+      return 0
+    fi
+    # 超时：停掉子 shell 和它下面的全部进程（docker run / exec 的客户端），等它退出后再删容器——
+    # 先删的话，还在拉镜像的 docker run 会在删完之后才把容器建出来，下一次就同名冲突
+    printf '\n--- %s（%s）%s 秒还没跑完，第 %s 次：换一个新容器重来 ---\n' "$label" "$kind" "$CHECK_TIMEOUT_SECONDS" "$attempt"
+    kill_tree "$pid"
+    wait "$pid" 2>/dev/null || true
+    docker rm --force --volumes "$name" >/dev/null 2>&1 || true
+  done
+  fail "$label（$kind）两次都在 $CHECK_TIMEOUT_SECONDS 秒内没有跑完（多半是软件源太慢）"
+}
 
-check_fresh "Ubuntu 22.04" ubuntu:22.04 debian
-check_fresh "Ubuntu 24.04" ubuntu:24.04 debian
-check_fresh "CentOS Stream 9" quay.io/centos/centos:stream9 rhel
-check_fresh "CentOS Stream 10" quay.io/centos/centos:stream10 rhel
+run_check shared "CentOS Stream 10" quay.io/centos/centos:stream10 rhel
+run_check shared "CentOS Stream 9" quay.io/centos/centos:stream9 rhel
+run_check shared "Ubuntu 24.04" ubuntu:24.04 debian
+
+run_check fresh "Ubuntu 22.04" ubuntu:22.04 debian
+run_check fresh "Ubuntu 24.04" ubuntu:24.04 debian
+run_check fresh "CentOS Stream 9" quay.io/centos/centos:stream9 rhel
+run_check fresh "CentOS Stream 10" quay.io/centos/centos:stream10 rhel
 
 printf '\n=== 不支持的系统应明确报错 ===\n'
 if output="$(docker run --rm --interactive debian:12-slim bash -s -- staging 22 "$public_key" <"$repo_root/deploy/bootstrap.sh" 2>&1)"; then
