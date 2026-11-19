@@ -212,10 +212,12 @@ test("回填中途崩溃（连接在一批中间被杀）：这一批整批回�
   const victim = sorted[2] as (typeof sorted)[number];
   const passengerBefore = (await row(victim.id)).passenger;
   await closeGate(victim.id);
-  const running = backfillBatch(ctx, "orders", null, 100);
+  // 马上挂上「应当失败」的处理：连接被杀后这一批可能在下面等 pg_terminate_backend 应答时就失败，
+  // 那时还没有处理的话 node 记成未处理的 rejection，整条用例算失败（main 825f2afb 的 CI，M8-29）
+  const running = assert.rejects(backfillBatch(ctx, "orders", null, 100));
   const pid = await backfillStuck();
   await api.db.owner.query("select pg_terminate_backend($1)", [pid]);
-  await assert.rejects(running);
+  await running;
   await openGate();
   for (const order of orders) {
     const current = await row(order.id);
