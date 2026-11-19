@@ -998,9 +998,11 @@ test("320 / 360 / 768 宽度下，超长不带空格的名称和编码不撑破�
   const long = `Supercalifragilistic${"expialidocious".repeat(12)}`.slice(0, 200);
   const city = await createCity(request, country, "Africa/Bamako", { zh: "巴".repeat(200), en: long });
   const airportCode = `Y${randomLetters(2)}`;
+  // 名称带这一轮的标记：同一个国家可能还有别的待处理机场（另一个浏览器项目同时跑的这条用例、之前失败重跑留下的），不能认错（M8-29）
+  const secondName = `QA Second Airport ${randomLetters(4)}`;
   await importAirports(country, [
     { iata: airportCode, name: `QA${"VeryLongUnbrokenAirportName".repeat(6)}`, lat: 12.533544, lng: -7.949944 },
-    { iata: `Y${randomLetters(2)}`, name: "QA Second Airport", lat: 12.5, lng: -7.9 },
+    { iata: `Y${randomLetters(2)}`, name: secondName, lat: 12.5, lng: -7.9 },
   ]);
   const addonCode = `ADD-Y${randomLetters(8)}_${"LONG_".repeat(6)}`.slice(0, 44);
   await post(request, "addons", { code: addonCode, categories: ["airport_transfer", "point_to_point", "charter"], charge_unit: "per_duration", name: { zh: "服".repeat(200), ja: "サ".repeat(200), en: long, ko: "서".repeat(200) }, description: { zh: "说".repeat(2000) } });
@@ -1115,13 +1117,31 @@ test("320 / 360 / 768 宽度下，超长不带空格的名称和编码不撑破�
   await bothThemes("流水线页：组合框打开");
   await page.keyboard.press("Escape");
   // 超长名称的这个先跳过，处理名称长度正常的那个：「本次已处理」、Toast、「跳过过」标签
-  await page.getByRole("button", { name: "跳过" }).click();
-  await expect(page.locator(".pending__name")).toHaveText("QA Second Airport");
+  // 队列是「start 指定的这个 + 这个国家其余待处理的（按服务器顺序）」，下一个不一定是这一轮的第二个机场（M8-29 偶发）：
+  // 跳过只在页面里改队列顺序、不写库，所以跳到这一轮的第二个为止
+  const pendingName = page.locator(".pending__name");
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const before = (await pendingName.textContent()) ?? "";
+    await page.getByRole("button", { name: "跳过" }).click();
+    // 等卡片换成下一个再看（不读到点击前的旧名称）
+    await expect(pendingName).not.toHaveText(before);
+    if ((await pendingName.textContent()) === secondName) break;
+  }
+  await expect(pendingName).toHaveText(secondName);
   await page.getByRole("combobox", { name: /所属城市/ }).click();
   await page.getByRole("option").first().click();
   await page.getByRole("button", { name: "保存并启用" }).click();
   await expect(page.locator(".toast").filter({ hasText: "已启用「" })).toBeVisible();
   await expect(page.locator(".done-list__item")).toHaveCount(1);
+  // 跳过过的超长名称那个排回队里：同样可能隔着别的待处理机场，跳到它为止再看「跳过过」标签
+  const pendingCode = page.locator(".pending__code");
+  await expect(pendingName).not.toHaveText(secondName);
+  for (let attempt = 0; attempt < 20 && (await pendingCode.textContent()) !== airportCode; attempt += 1) {
+    const before = (await pendingCode.textContent()) ?? "";
+    await page.getByRole("button", { name: "跳过" }).click();
+    await expect(pendingCode).not.toHaveText(before);
+  }
+  await expect(pendingCode).toHaveText(airportCode);
   await expect(page.getByText("跳过过")).toBeVisible();
   await sweep("流水线页：处理完一个（本次已处理 + Toast + 跳过过的标签）");
   await bothThemes("流水线页：处理完一个");
