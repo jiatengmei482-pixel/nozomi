@@ -38,8 +38,6 @@ cleanup() {
   if ((${#containers[@]} > 0)); then
     docker rm --force --volumes "${containers[@]}" >/dev/null 2>&1 || true
   fi
-  # 各情形在子 shell 里跑（run_check），子 shell 里建的容器不在上面的数组里：按名称前缀再清一遍
-  docker ps --all --quiet --filter "name=^nozomi-bootstrap-check-" | xargs --no-run-if-empty docker rm --force --volumes >/dev/null 2>&1 || true
   [[ -n "$work_dir" && -d "$work_dir" ]] && rm -rf -- "$work_dir"
   exit "$status"
 }
@@ -340,6 +338,8 @@ kill_tree() {
 run_check() {
   local kind="$1" label="$2" image="$3" name pid waited attempt
   name="nozomi-bootstrap-check-$kind-${image//[^a-z0-9]/}"
+  # 子 shell 里建的容器记不进上面的数组：在这里按名称记上，退出时一并删
+  containers+=("$name")
   for attempt in 1 2; do
     ("check_$kind" "$label" "$image" "$4") &
     pid=$!
