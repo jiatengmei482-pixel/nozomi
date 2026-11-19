@@ -250,6 +250,20 @@ validate_area_overlap_cleanup() {
   esac
 }
 
+# 包车旧价格清理（M9P-12）：由 GitHub Environment 变量 LEGACY_PRICE_CLEANUP 决定，规矩和三层迁移、区域重叠清理一样：
+# 不设 = 不运行；dry-run = 算完回滚；apply = 写库。只在测试环境执行，正式环境设了中止。
+validate_legacy_price_cleanup() {
+  case "${LEGACY_PRICE_CLEANUP:-}" in
+    "") log "包车旧价格清理：未设" ;;
+    dry-run | apply)
+      [[ "$APP_ENV" != "production" ]] ||
+        die "$EXIT_USAGE" "LEGACY_PRICE_CLEANUP 只能在测试环境设：请到正式环境的 Environment variables 删掉它再部署"
+      log "包车旧价格清理：$LEGACY_PRICE_CLEANUP"
+      ;;
+    *) die "$EXIT_USAGE" "LEGACY_PRICE_CLEANUP 只能不设、或设成 dry-run / apply（现在是「$LEGACY_PRICE_CLEANUP」）" ;;
+  esac
+}
+
 # 迁移报告目录（<根目录>/reports，权限 700，只有部署账号读得到）：migrate 容器把完整报告写在这里，不进部署日志。
 ensure_reports_dir() {
   mkdir -p "$root_dir/reports"
@@ -344,6 +358,7 @@ cmd_deploy() {
   validate_edge
   validate_three_layer_migration
   validate_area_overlap_cleanup
+  validate_legacy_price_cleanup
   # 真实环境必须用部署专用账号：用 root 部署会留下 root 属主的文件，之后部署账号就写不进去了。
   [[ "$APP_ENV" == "ci" || "$(id -u)" -ne 0 ]] ||
     die "$EXIT_USAGE" "不要用 root 部署。请改用初始化流程建好的 nozomi 账号（GitHub 上是这个环境的 VPS_SSH_USER；手工部署是 NOZOMI_SSH_USER）再重新部署"
@@ -424,6 +439,14 @@ cmd_deploy() {
     "$release_dir/bin/compose.sh" run --rm --no-deps -T -e AREA_OVERLAP_CLEANUP="$AREA_OVERLAP_CLEANUP" \
       migrate node apps/api/src/db/area-cleanup-cli.ts ||
       die "$EXIT_NOT_SWITCHED" "区域重叠清理失败（$AREA_OVERLAP_CLEANUP，写入已整体撤销），旧版本没有被替换"
+  fi
+
+  # 包车旧价格清理：同样在数据库迁移之后、新版本启动之前，用临时 migrate 容器、迁移账号执行；日志里只有计数，整行在数据库的备份表里
+  if [[ -n "${LEGACY_PRICE_CLEANUP:-}" ]]; then
+    log "执行包车旧价格清理（$LEGACY_PRICE_CLEANUP）"
+    "$release_dir/bin/compose.sh" run --rm --no-deps -T -e LEGACY_PRICE_CLEANUP="$LEGACY_PRICE_CLEANUP" \
+      migrate node apps/api/src/db/legacy-price-cleanup-cli.ts ||
+      die "$EXIT_NOT_SWITCHED" "包车旧价格清理失败（$LEGACY_PRICE_CLEANUP，写入已整体撤销），旧版本没有被替换"
   fi
 
   log "启动新版本并等待健康检查通过（最多 $HEALTH_TIMEOUT_SECONDS 秒）"
