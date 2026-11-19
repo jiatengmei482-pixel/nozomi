@@ -324,8 +324,11 @@ test("冒烟：两种入口模式都经反向代理检查前端、接口前缀�
   // 嵌入预订页（M9E-16）：不带嵌入码时经 Caddy 问 API 被拒
   assert.match(check, /"\$base_url\/embed\/book"[\s\S]*frame-ancestors 'none'/);
   // 无头浏览器真的嵌一次（ADR 0095 第十节）：白名单内能嵌；白名单外、开关没开、冒充白名单宿主都嵌不进；几张宿主页都确实打开过
-  // 白名单内要真的收到 ready 回执：最多等 60 秒，收到就关（M8-29）；等待函数最后一行仍是「访问日志里有回执」，没收到就失败
-  assert.match(smoke, /\nopen_host_page_until "\$host_origin\/on\.html" "\$work_dir\/host\.log" \/beacon\/on-ready 60 \|\| \{ embed_diagnostics; fail /);
+  // 白名单内要真的收到 ready 回执：每次最多等 60 秒，收到就关；第一次没收到打印诊断、换新配置再开一次，两次都没收到就失败（M8-29）；
+  // 等待函数最后一行仍是「访问日志里有回执」
+  assert.match(smoke, /\nif ! open_host_page_until "\$host_origin\/on\.html" "\$work_dir\/host\.log" \/beacon\/on-ready 60; then\n  embed_diagnostics\n[^\n]*\n  open_host_page_until "\$host_origin\/on\.html" "\$work_dir\/host\.log" \/beacon\/on-ready 60 \|\| \{ embed_diagnostics; fail /);
+  // 失败时的诊断里有无头 Chrome 的网络日志摘要（每次打开都记网络日志）
+  assert.match(smoke, /--log-net-log="\$profile\/netlog\.json"/);
   const untilStart = smoke.indexOf("open_host_page_until() {");
   assert.ok(untilStart >= 0, "没有 open_host_page_until");
   assert.match(smoke.slice(untilStart, smoke.indexOf("\n}\n", untilStart)), /\n  grep -q "GET \$3" "\$2"$/);
