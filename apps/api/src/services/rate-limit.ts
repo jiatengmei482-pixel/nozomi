@@ -59,6 +59,10 @@ export const SALES_RATE_LIMITS = {
   site_trip_quote: { max: 5, windowMs: 60_000 },
   /** 同上，每个地址每天 50 次（一个键只有一个时间窗，所以另起一个键） */
   site_trip_quote_day: { max: 50, windowMs: 86_400_000 },
+  /** AI 一句话行程（M9T-32，ADR 0104 第七节）：每个地址每分钟 3 次（IPv6 按 /64）；全站每天的额度按 trip_parse_runs 数（东京时间的自然日） */
+  site_trip_parse: { max: 3, windowMs: 60_000 },
+  /** 同上，每个地址每天 20 次 */
+  site_trip_parse_day: { max: 20, windowMs: 86_400_000 },
   /** 嵌入组件建预订草稿（M9E-02，ADR 0090）：每个地址 10 分钟 30 次（IPv6 按 /64） */
   embed_draft_ip: { max: 30, windowMs: 600_000 },
   /** 同上，每个嵌入码每分钟 60 次 */

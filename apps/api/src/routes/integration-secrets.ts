@@ -16,7 +16,9 @@ import {
   saveIntegrationSecretValue,
   testIntegrationSecret,
 } from "../services/integration-secrets.ts";
-import { parseInput } from "../validation.ts";
+import { type AiTripSettingsView, getAiTripSettings, updateAiTripSettings } from "../services/ai-trip-settings.ts";
+import { TRIP_PARSE_MODELS, TRIP_PARSE_MODES } from "../services/trip-parse.ts";
+import { ifMatchVersion, parseInput } from "../validation.ts";
 import type { PlatformAction } from "@nozomi/domain";
 
 /** 粘贴进来的值：长度的业务限制（20–255）在 config 的校验里，这里只挡掉大得离谱的请求体。 */
@@ -26,8 +28,34 @@ const stripeSchema = z.object({ secret_key: secretText, publishable_key: secretT
 /** 邮件发送七项：业务规则（端口、加密方式、主机）在 config 和 domain 的校验里，这里只看类型。 */
 const emailSchema = z.object({ host: secretText, port: z.number(), encryption: secretText, username: secretText, password: secretText, from_name: secretText, from_address: secretText });
 
+const aiTripSettingsSchema = z.object({ model_mode: z.enum(TRIP_PARSE_MODES) }).strict();
+
+function aiTripSettingsJson(view: AiTripSettingsView): Record<string, unknown> {
+  return {
+    model_mode: view.mode,
+    version: view.version,
+    updated_at: view.updatedAt?.toISOString() ?? null,
+    models: { sonnet: TRIP_PARSE_MODELS.sonnet, haiku: TRIP_PARSE_MODELS.haiku },
+    today: { date: view.today.date, sonnet: view.today.sonnet, haiku: view.today.haiku, sonnet_retries: view.today.sonnetRetries, used: view.today.used, limit: view.today.limit },
+  };
+}
+
 export function registerIntegrationSecretRoutes(app: FastifyInstance, ctx: AppContext): void {
   const authenticate = (request: FastifyRequest, action: PlatformAction): Promise<PlatformPrincipal> => authenticatePlatform(ctx, platformCredentials(request), { action });
+
+  // AI 一句话行程用哪个 Claude 型号（M9T-32，ADR 0104 第六节）：和 Claude 密钥同一组权限，只有超级管理员能改
+  app.get("/platform/v1/ai-trip-settings", async (request) => {
+    await authenticate(request, "integration.read");
+    return aiTripSettingsJson(await getAiTripSettings(ctx));
+  });
+
+  app.put("/platform/v1/ai-trip-settings", async (request) => {
+    const principal = await authenticate(request, "integration.manage");
+    const body = parseInput(aiTripSettingsSchema, request.body, "body");
+    // 第一次保存（还没有设置行）不带 If-Match，之后必须带（同官网设置）
+    const header = request.headers["if-match"];
+    return aiTripSettingsJson(await updateAiTripSettings(ctx, principal, request.ip, body.model_mode, header === undefined ? 0 : ifMatchVersion(header)));
+  });
 
   app.get("/platform/v1/integration-secrets", async (request) => {
     const principal = await authenticate(request, "integration.read");

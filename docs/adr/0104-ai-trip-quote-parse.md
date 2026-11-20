@@ -282,7 +282,7 @@ AI 只给地名文字（`name` + `kind` + `cityHint`），**不让 AI 给坐标*
 | 输入长度 | 1–500 字 | zod；页面字数提示 |
 | 同一地址每分钟 | 3 次 | 新限频键 `site_trip_parse`（`apps/api/src/services/rate-limit.ts`，IPv6 按 /64，ADR 0045） |
 | 同一地址每天 | 20 次 | 新键 `site_trip_parse_day`（按 /64） |
-| 全站每天 | 300 次（`AI_TRIP_DAILY_LIMIT`） | 新键 `site_trip_parse_all`，桶固定为全站一个（同 `site_manual_quote_all` 的做法）；**先占名额再调 Claude**，调用失败也算一次 |
+| 全站每天 | 300 次（`AI_TRIP_DAILY_LIMIT`） | **按东京时间的自然日数 `trip_parse_runs` 里 `attempt = 1` 的行**（M9T-32 实施时改：限频键是从第一次请求起滚 24 小时的窗，和后台「今天用了几次」对不上；数行数两边一致，`parse-status` 也能直接判断满没满）。同一把咨询锁里先数再插一行 `pending`，**先占名额再调 Claude**，调用失败也算一次 |
 | 单次输出 | `max_tokens` 4,000 | 第四节 |
 | 放大 | 天数、点数、地名数上限；一次最多搜 20 个地名 | 第四节第 2 小节、第五节 |
 | Anthropic 侧 | 业主在 Console 设每月花费上限 | 第六节 |
@@ -328,7 +328,7 @@ AI 只给地名文字（`name` + `kind` + `cityHint`），**不让 AI 给坐标*
 | 单元（domain） | 模式结果 → 表单草稿的转换（null → `missing`、日期补空闲日、超 14 天、每天点数）；个人信息替换规则；`unused` / `out_of_scope` 的值格式过滤 |
 | 集成（真实 PostgreSQL，Claude 用测试替身） | `anthropic.ts` 做成可注入的接口，测试里换成返回固定 JSON 的替身（替身记下每次请求用的型号）：三种用法各走一遍（切换后下一次就用新型号、不用重启；第三种用法 Haiku 技术失败 → 改用 Sonnet 一次、两行记录、只占一个全站名额；Haiku 返回 `missing` 不触发重试）；`ai-trip-settings` 的权限（只有超级管理员能改）、版本号冲突、审计；每个型号今天的次数；正常、缺字段、拒答（`stop_reason: refusal`）、`max_tokens`、超时、5xx、两次不合格、注入样例（输出里带价格文字 → 应答里没有任何价格）；限频三档（含全站额度先占后调）；没配密钥 → 503 + `parse-status` false；地名解析走现有地址搜索的替身（resolved / ambiguous / unresolved / 名额用完）；`trip_parse_runs` 不含任何输入文字（逐列检查）；密钥项的读写、权限、打码、审计（照 `integration-secrets` 现有测试加一项） |
 | 组件（前端） | 输入框显隐、替换确认、「AI 填的」「请补填」「请选一个」标记、候选选择、失败提示、改过的格去标签 |
-| 端到端（Playwright） | 测试环境起 API 时注入 Claude 替身（只在 `NODE_ENV=test` 且显式开关时生效，正式构建里没有这条路径）：主站 `/book/trip` 一句话 → 填表 → 补填 → 查看报价 → 方案；AI 不可用时表单照常 |
+| 端到端（Playwright） | 测试环境起 API 时把 `ANTHROPIC_API_URL` 指到本机的假 Claude 服务（和假谷歌、假 Stripe 同一做法：只有 local / ci 能改这个地址，staging / production 改了启动报错；正式构建里没有任何替身代码）：主站 `/book/trip` 一句话 → 填表 → 补填 → 查看报价 → 方案；AI 不可用时表单照常 |
 | **CI 不调真 Anthropic 接口** | CI 没有密钥；替身覆盖全部分支 |
 | 评估（手动，不进 CI） | `pnpm ai:trip-eval --model sonnet\|haiku\|all`：固定测试集 ≥ 50 句（中 / 日 / 英各 ≥ 15，含 10 条注入样例、5 条非行程），期望写在测试代码里（不含真实个人信息）；在测试站服务器上用后台生效的密钥跑，**两个型号各跑一遍**，输出各自的字段准确率、平均耗时和每次花费，结果写回本篇第四节。跑一遍两个型号约 $1–2 |
 

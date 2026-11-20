@@ -6,7 +6,7 @@
  * 不进 state、不进 localStorage、不进地址、不打日志；提交成功后输入框随对话框一起清掉，页面上只显示后端给的打码值。
  * 邮件发送除了密码还有六项不是密钥的（主机、端口、用户名……）：更换时带上现在的值，只有密码每次都要重新填（ADR 0048：防止改了主机后把旧密码发到别处）。
  */
-import { type FormEvent, useEffect, useId, useRef, useState } from "react";
+import { type FormEvent, Fragment, useEffect, useId, useRef, useState } from "react";
 import { ApiError, NetworkError } from "../../api/client.ts";
 import { type IntegrationSecretItem, type IntegrationSecretKey, type IntegrationSecrets, type IntegrationTestResult, type SecretFieldName, type SmtpEncryption, type SmtpSettings, clearIntegrationSecret, listIntegrationSecrets, saveIntegrationSecret, testIntegrationSecret } from "../../api/platform.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
@@ -23,6 +23,7 @@ import { failureText } from "../../lib/failure.ts";
 import { formatLocalDateTime } from "../../lib/master-display.ts";
 import { EMAIL_TEST_FAILURES, type FieldErrors, SECRET_FIELD_HINTS, secretFormErrors, serverFieldErrors } from "../../lib/secret-form.ts";
 import { useLoad } from "../../lib/use-load.ts";
+import { AiTripModelCard } from "./AiTripModelCard.tsx";
 
 const ENCRYPTION_MISSING_TEXT = "服务器还没有配置数据加密密钥，现在不能在后台填写密钥。请联系技术人员在服务器上配置好以后再来填写。";
 const NO_PERMISSION_TEXT = "只有超级管理员可以填写、更换、清空和测试密钥。需要的话，请联系超级管理员。";
@@ -497,7 +498,11 @@ export function IntegrationSecretsSection({ onChanged }: { onChanged(): void }) 
         )}
         {!data.can_manage && <p className="page-intro">{NO_PERMISSION_TEXT}</p>}
         {data.items.map((item) => (
-          <SecretCard key={item.key} item={item} canManage={data.can_manage} encryptionReady={data.encryption_configured} encryptionNoteId={encryptionNoteId} onFill={() => setOpen({ kind: "fill", key: item.key })} onClear={() => setOpen({ kind: "clear", key: item.key })} />
+          <Fragment key={item.key}>
+            <SecretCard item={item} canManage={data.can_manage} encryptionReady={data.encryption_configured} encryptionNoteId={encryptionNoteId} onFill={() => setOpen({ kind: "fill", key: item.key })} onClear={() => setOpen({ kind: "clear", key: item.key })} />
+            {/* Claude 密钥下面：用哪个型号（M9T-32） */}
+            {item.key === "anthropic" && <AiTripModelCard canManage={data.can_manage} />}
+          </Fragment>
         ))}
       </>
     );

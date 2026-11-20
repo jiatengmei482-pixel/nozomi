@@ -43,7 +43,7 @@ import { registerTenantOnboardingRoutes } from "./routes/tenant-onboarding.ts";
 import { registerTenantProfileRoutes } from "./routes/tenant-profile.ts";
 import type { PaymentProvider } from "./integrations/payments.ts";
 import { StripePaymentProvider, checkStripeKey } from "./integrations/stripe.ts";
-import { checkAnthropicKey } from "./integrations/anthropic.ts";
+import { type ClaudeJsonCaller, checkAnthropicKey, createClaudeJsonCaller } from "./integrations/anthropic.ts";
 import { checkGoogleMapsKey, computeRoute } from "./integrations/google-maps.ts";
 import { GoogleRouteEstimator } from "./services/route-estimates.ts";
 import { fetchStaticMap } from "./integrations/google-static-maps.ts";
@@ -113,6 +113,8 @@ export interface AppDeps {
    * 集成测试给一个打开了 `allowLocalTargets` 的发送器，推到本机的假服务器。
    */
   webhookSender?: WebhookSender;
+  /** 调 Claude 的替身（只给集成测试）；不给时用官方 SDK，连 `ANTHROPIC_API_URL` */
+  claude?: ClaudeJsonCaller;
   /** 运营后台填写的第三方密钥在本进程的缓存多久重读一次（毫秒，ADR 0041）；不给用 5 秒。测试用它模拟「另一个进程改了密钥」 */
   integrationSecretsTtlMs?: number;
   /** 发邮件的替身（只给测试：本机假 SMTP 的证书、缩短的时限）；不给时用真的，回环地址只有 local / ci 放行 */
@@ -349,6 +351,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     },
     integrations: secretCache,
     integrationChecks,
+    claude: deps.claude ?? createClaudeJsonCaller(config.integrationEndpoints.anthropicApiUrl),
     mailer: deps.mailer ?? new SmtpMailer({ allowLoopback: config.appEnv === "local" || config.appEnv === "ci", ehloName: new URL(config.publicBaseUrl).hostname }),
     quote: { ...defaultQuoteDeps(config, fx.rates, routes, now), ...deps.quote },
     secretBox,

@@ -2,6 +2,7 @@
  * 接口集成测试的公共搭建：独立 schema 的真实数据库 + 仓库里的真实迁移 + 可拨动的时钟 + 常用的请求辅助。
  * 测试数据只在这里和各测试里构造，`close()` 时连同 schema 一起删除（规则 1）。
  */
+import type { ClaudeJsonCaller } from "../integrations/anthropic.ts";
 import { NO_ORDER_OPTIMIZER } from "../services/order-optimizer.ts";
 import assert from "node:assert/strict";
 import type { FastifyInstance } from "fastify";
@@ -122,6 +123,8 @@ export interface TestApiOptions {
   mailer?: Mailer;
   /** 只读核对回放的时限（毫秒，ADR 0086）；不给用默认的 45 秒 */
   rolePreviewBudgetMs?: number;
+  /** 调 Claude 的替身（AI 一句话行程，M9T-32）；不给时连测试配置里的地址（不可达，等同出错） */
+  claude?: ClaudeJsonCaller;
 }
 
 export async function createTestApi(options: TestApiOptions = {}): Promise<TestApi> {
@@ -148,6 +151,7 @@ export async function createTestApi(options: TestApiOptions = {}): Promise<TestA
     ...(options.integrationSecretsTtlMs === undefined ? {} : { integrationSecretsTtlMs: options.integrationSecretsTtlMs }),
     ...(options.mailer === undefined ? {} : { mailer: options.mailer }),
     ...(options.rolePreviewBudgetMs === undefined ? {} : { rolePreviewBudgetMs: options.rolePreviewBudgetMs }),
+    ...(options.claude === undefined ? {} : { claude: options.claude }),
     logDestination: { write: (line) => void (logs += line) },
   });
 
@@ -281,6 +285,7 @@ export function testContext(config: AppConfig, pool: Pool, now: () => Date, quot
     payments: null,
     integrations: new IntegrationSecretCache({ pool, config, secretBox, log: silent }),
     integrationChecks: { googleMaps: async () => unreachable, stripe: async () => unreachable, anthropic: async () => unreachable },
+    claude: async () => ({ ok: false, failure: "error", usage: null, httpStatus: null }),
     mailer: { send: async () => unreachable },
     quote: { ...defaultQuoteDeps(config, fx.rates, NO_ROUTES, now), ...quote },
     secretBox,

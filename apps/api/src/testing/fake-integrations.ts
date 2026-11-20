@@ -111,6 +111,56 @@ export function startFakeAnthropic(port = 0): Promise<FakeService> {
   return startFake("/v1/models", { body: { data: [{ type: "model", id: "claude-sonnet-5-5" }], has_more: true } }, port);
 }
 
+/** Claude 消息接口（`POST /v1/messages`）的成功应答：一个 text 块，内容是 `output` 的 JSON（结构化输出） */
+export function anthropicMessageBody(output: unknown, options: { model?: string; stopReason?: string } = {}): unknown {
+  return {
+    id: "msg_fake",
+    type: "message",
+    role: "assistant",
+    model: options.model ?? "claude-sonnet-5-5",
+    content: [{ type: "text", text: JSON.stringify(output) }],
+    stop_reason: options.stopReason ?? "end_turn",
+    stop_sequence: null,
+    usage: { input_tokens: 420, output_tokens: 900, cache_read_input_tokens: 2_800, cache_creation_input_tokens: 0 },
+  };
+}
+
+/**
+ * 端到端用的「一句话行程」固定结果（ADR 0104 第三节的例子）：11 月 25 日成田接机 → 浅草寺 → 新宿的酒店；第 3 天京王广场酒店 → 羽田；4 人，行李没说；航班 NH211。
+ * 日期在测试当天之后才会被采用（domain 里早于今天的日期当没说），端到端按需要改。
+ */
+export const E2E_TRIP_PARSE_OUTPUT = {
+  firstDate: null,
+  dateSource: null,
+  passengers: 4,
+  luggage: null,
+  days: [
+    { dayOffset: 0, time: null, start: { name: "成田機場", kind: "airport", specific: true, cityHint: null, stayMinutes: null }, stops: [{ name: "浅草寺", kind: "poi", specific: true, cityHint: "東京", stayMinutes: 120 }], end: { name: "新宿的酒店", kind: "hotel", specific: false, cityHint: "東京", stayMinutes: null }, lodgingProvided: false },
+    { dayOffset: 2, time: "10:00", start: { name: "京王广场酒店", kind: "hotel", specific: true, cityHint: "東京", stayMinutes: null }, stops: [], end: { name: "羽田机场", kind: "airport", specific: true, cityHint: null, stayMinutes: null }, lodgingProvided: false },
+  ],
+  unused: [{ code: "FLIGHT_NUMBER", value: "NH211" }],
+  outOfScope: [],
+} as const;
+
+/**
+ * 假 Claude 消息接口（M9T-32）：配置用的地址是 `ANTHROPIC_API_URL`（SDK 的 baseURL = `origin`）。
+ * 默认回 `E2E_TRIP_PARSE_OUTPUT`；客人的话里有「讲个笑话」时回空行程（页面应提示「没看出行程」），有「AI 出错」时回 529。
+ */
+export function startFakeAnthropicMessages(port = 0): Promise<FakeService> {
+  let service: FakeService | null = null;
+  const reply = (): FakeReply => {
+    const last = service?.requests.at(-1)?.body ?? "";
+    if (last.includes("讲个笑话")) return { body: anthropicMessageBody({ ...E2E_TRIP_PARSE_OUTPUT, days: [] }) };
+    if (last.includes("AI 出错")) return { status: 529, body: anthropicErrorBody("overloaded_error") };
+    return { body: anthropicMessageBody(E2E_TRIP_PARSE_OUTPUT) };
+  };
+  return startFake("", { body: anthropicMessageBody(E2E_TRIP_PARSE_OUTPUT) }, port).then((started) => {
+    service = started;
+    started.respond(reply);
+    return started;
+  });
+}
+
 /** Anthropic 的错误应答（`error.type`） */
 export function anthropicErrorBody(type: string): unknown {
   return { type: "error", error: { type, message: "error from fake anthropic" } };

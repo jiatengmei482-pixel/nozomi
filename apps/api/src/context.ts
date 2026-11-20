@@ -4,6 +4,7 @@
  */
 import type { AppConfig } from "@nozomi/config";
 import type { Pool } from "./db/pool.ts";
+import type { ClaudeJsonCaller } from "./integrations/anthropic.ts";
 import type { PaymentProvider } from "./integrations/payments.ts";
 import type { SecretBox } from "./integrations/secret-box.ts";
 import type { Mailer } from "./integrations/smtp.ts";
@@ -50,4 +51,6 @@ export interface AppContext {
   routeMap: RouteMapRenderer;
   /** 包车经停顺序建议的谷歌优化调用（M9P-20 P2，ADR 0096 第三节）：顺序无关的缓存、单独的每日上限、冷却 */
   orderOptimizer: OrderOptimizer;
+  /** AI 一句话行程调 Claude（M9T-32，ADR 0104 第四节）：测试里换成替身 */
+  claude: ClaudeJsonCaller;
 }

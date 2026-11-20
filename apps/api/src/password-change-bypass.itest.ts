@@ -178,6 +178,8 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
       ["PUT", `/platform/v1/integration-secrets/${ids.integration ?? "google-maps"}`, { api_key: "AIzaBypassBypassBypassBypass0001" }],
       ["DELETE", `/platform/v1/integration-secrets/${ids.integration ?? "google-maps"}`],
       ["POST", `/platform/v1/integration-secrets/${ids.integration ?? "google-maps"}/test`],
+      ["GET", "/platform/v1/ai-trip-settings"],
+      ["PUT", "/platform/v1/ai-trip-settings", { model_mode: "haiku" }],
       ["GET", "/platform/v1/products"],
       ["GET", "/platform/v1/area-map"],
       ["GET", "/platform/v1/map/config"],

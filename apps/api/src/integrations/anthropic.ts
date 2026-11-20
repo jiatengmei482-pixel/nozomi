@@ -1,16 +1,17 @@
 /**
- * 外部服务：Claude（Anthropic API，ADR 0104 第六节）。M9T-31 只有运营后台的「测试一下」（`checkAnthropicKey`）；AI 行程解析（M9T-32）另写。
+ * 外部服务：Claude（Anthropic API，ADR 0104 第六节）。运营后台的「测试一下」（`checkAnthropicKey`，M9T-31）和 AI 行程解析的调用（`createClaudeJsonCaller`，M9T-32）。
  *
  * 「测试一下」：
  * - 调用：模型列表 `GET /v1/models?limit=1`。不生成任何内容，**不产生 token 费用**；密钥无效、没权限时 Anthropic 照样返回 401 / 403，正好用来判断。
  *   不按某个型号查（型号还没定，ADR 0104 第二节【需业主决定】Q1），只看这把密钥能不能用。
- * - 密钥放在请求头 `x-api-key` 里，不放在网址里；带 `anthropic-version`；不跟随重定向。
+ * - 密钥放在请求头 `x-api-key` 里，不放在网址里；带 `anthropic-version`；不跟随重定向。（解析调用走官方 SDK，SDK 1.x 放在 `Authorization: Bearer` 里，同样不在网址里。）
  * - 每次尝试最多等 5 秒；连不上、超时、对方 5xx（含 529 过载）时再试 1 次。429 不重试。应答体只读前 64 KB。
  * - 失败换成 `IntegrationCheckCode`：按 HTTP 状态和 `error.type`（`authentication_error`、`permission_error`、`rate_limit_error`、`overloaded_error` 等）归类；
  *   说明是我们自己写的，不带对方返回的原文。
  *
  * 单元测试和集成测试都用本机的假服务器（地址由配置 `ANTHROPIC_MODELS_URL` 指定，只有 local / ci 能改），不联网。
  */
+import Anthropic from "@anthropic-ai/sdk";
 import { readCapped } from "./google-maps.ts";
 import { type IntegrationCheckCode, type IntegrationCheckResult, checkFailed } from "./integration-check.ts";
 
@@ -81,4 +82,73 @@ export async function checkAnthropicKey(apiKey: string, options: AnthropicCheckO
     }
   }
   return last;
+}
+
+// ---------- AI 一句话行程：调 Claude 拿结构化 JSON（M9T-32，ADR 0104 第四节第 2 小节） ----------
+
+/** 一次结构化输出请求。系统提示字节不变（进缓存）；今天的日期和客人的话放在用户消息里。 */
+export interface ClaudeJsonRequest {
+  model: string;
+  system: string;
+  user: string;
+  schema: Record<string, unknown>;
+  maxTokens: number;
+  timeoutMs: number;
+}
+
+export interface ClaudeUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+}
+
+/**
+ * 结果：`ok` 时 `text` 是模型给的 JSON 文字（结构由调用方再用 zod 校验）。
+ * 失败只给归类，不带对方返回的原文（可能回显客人的话，ADR 0104 第九节）：
+ * `refused`（安全分类器拒答）、`max_tokens`（到了上限，不用半截结果）、`timeout`、`model_unavailable`（型号不存在 / 没权限用）、`error`（其余）。
+ */
+export type ClaudeJsonResult =
+  | { ok: true; text: string; usage: ClaudeUsage }
+  | { ok: false; failure: "refused" | "max_tokens" | "timeout" | "model_unavailable" | "error"; usage: ClaudeUsage | null; httpStatus: number | null };
+
+export type ClaudeJsonCaller = (apiKey: string, request: ClaudeJsonRequest) => Promise<ClaudeJsonResult>;
+
+const usageOf = (usage: Anthropic.Usage): ClaudeUsage => ({ inputTokens: usage.input_tokens, outputTokens: usage.output_tokens, cacheReadTokens: usage.cache_read_input_tokens ?? 0 });
+
+/**
+ * 用官方 SDK 调 `POST /v1/messages`。`baseURL` 是配置 `ANTHROPIC_API_URL`（只有 local / ci 能改到本机的假服务器）。
+ * - `effort: low` + 结构化输出 `output_config.format`；不传 `thinking`（两个型号默认自适应）、不传采样参数；
+ * - 系统提示加 `cache_control`；SDK 自带重试 1 次（只重试 429 / 5xx / 断线）；超时按请求给。
+ * 每把密钥一个 SDK 客户端，换了密钥下一次就用新的。
+ */
+export function createClaudeJsonCaller(baseURL: string): ClaudeJsonCaller {
+  let cached: { apiKey: string; client: Anthropic } | null = null;
+  const clientFor = (apiKey: string): Anthropic => {
+    if (cached?.apiKey !== apiKey) cached = { apiKey, client: new Anthropic({ apiKey, baseURL, maxRetries: 1 }) };
+    return cached.client;
+  };
+  return async (apiKey, request) => {
+    try {
+      const response = await clientFor(apiKey).messages.create(
+        {
+          model: request.model,
+          max_tokens: request.maxTokens,
+          system: [{ type: "text", text: request.system, cache_control: { type: "ephemeral" } }],
+          messages: [{ role: "user", content: request.user }],
+          output_config: { effort: "low", format: { type: "json_schema", schema: request.schema } },
+        },
+        { timeout: request.timeoutMs },
+      );
+      const usage = usageOf(response.usage);
+      if (response.stop_reason === "refusal") return { ok: false, failure: "refused", usage, httpStatus: 200 };
+      if (response.stop_reason === "max_tokens" || response.stop_reason === "model_context_window_exceeded") return { ok: false, failure: "max_tokens", usage, httpStatus: 200 };
+      const text = response.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("");
+      return { ok: true, text, usage };
+    } catch (err) {
+      if (err instanceof Anthropic.APIConnectionTimeoutError) return { ok: false, failure: "timeout", usage: null, httpStatus: null };
+      if (err instanceof Anthropic.NotFoundError || err instanceof Anthropic.PermissionDeniedError) return { ok: false, failure: "model_unavailable", usage: null, httpStatus: err.status };
+      if (err instanceof Anthropic.APIError) return { ok: false, failure: "error", usage: null, httpStatus: typeof err.status === "number" ? err.status : null };
+      return { ok: false, failure: "error", usage: null, httpStatus: null };
+    }
+  };
 }

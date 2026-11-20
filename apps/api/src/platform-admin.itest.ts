@@ -122,6 +122,9 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   { method: "PUT", url: `/platform/v1/integration-secrets/${MISSING_SECRET}`, action: "integration.manage", body: {} },
   { method: "DELETE", url: `/platform/v1/integration-secrets/${MISSING_SECRET}`, action: "integration.manage" },
   { method: "POST", url: `/platform/v1/integration-secrets/${MISSING_SECRET}/test`, action: "integration.manage" },
+  // AI 一句话行程用哪个型号（M9T-32）：和第三方密钥同一组权限
+  { method: "GET", url: "/platform/v1/ai-trip-settings", action: "integration.read" },
+  { method: "PUT", url: "/platform/v1/ai-trip-settings", action: "integration.manage", body: {} },
   // 报价试算（ADR 0020）：看得到各供应商的结算价和加价比例
   { method: "POST", url: "/platform/v1/quotes/preview", action: "quote.preview", body: {} },
   // 只读核对的回放清单（M8-34，ADR 0086）：和试算同一项权限

@@ -128,6 +128,7 @@ test("测试用的服务地址：local / ci 可以指到本机，staging / produ
     googleGeocodeUrl: "http://127.0.0.1:4013/geocode",
     googleStaticMapsUrl: "http://127.0.0.1:4016/maps/api/staticmap",
     anthropicModelsUrl: "http://127.0.0.1:4017/v1/models",
+    anthropicApiUrl: "https://api.anthropic.com",
     stripeApi: { host: "127.0.0.1", port: 4011, protocol: "http" },
   });
   assert.deepEqual(loadConfig(base).integrationEndpoints, {
@@ -138,6 +139,7 @@ test("测试用的服务地址：local / ci 可以指到本机，staging / produ
     googleGeocodeUrl: "https://geocode.googleapis.com/v4beta/geocode/location",
     googleStaticMapsUrl: "https://maps.googleapis.com/maps/api/staticmap",
     anthropicModelsUrl: "https://api.anthropic.com/v1/models",
+    anthropicApiUrl: "https://api.anthropic.com",
     stripeApi: null,
   });
   for (const env of ["staging", "production"]) {
@@ -268,4 +270,14 @@ test("Claude：后台优先、配置文件 ANTHROPIC_API_KEY 后备、都没有�
 
   assert.throws(() => loadConfig({ ...base, ANTHROPIC_API_KEY: "sk-wrong-prefix-000000000000" }), /ANTHROPIC_API_KEY 的写法不对/);
   assert.throws(() => loadConfig({ ...base, APP_ENV: "staging", ANTHROPIC_MODELS_URL: "http://127.0.0.1:9/v1/models" }), /不能修改 ANTHROPIC_MODELS_URL/);
+});
+
+test("AI 一句话行程（M9T-32）：消息接口地址只有 local / ci 能改；总开关默认开、每天上限默认 300", () => {
+  const defaults = loadConfig(base);
+  assert.equal(defaults.integrationEndpoints.anthropicApiUrl, "https://api.anthropic.com");
+  assert.deepEqual(defaults.aiTripParse, { enabled: true, dailyLimit: 300 });
+  assert.deepEqual(loadConfig({ ...base, AI_TRIP_PARSE_ENABLED: "false", AI_TRIP_DAILY_LIMIT: "0" }).aiTripParse, { enabled: false, dailyLimit: 0 });
+  assert.equal(loadConfig({ ...base, APP_ENV: "ci", ANTHROPIC_API_URL: "http://127.0.0.1:4018" }).integrationEndpoints.anthropicApiUrl, "http://127.0.0.1:4018");
+  assert.throws(() => loadConfig({ ...base, APP_ENV: "staging", ANTHROPIC_API_URL: "http://127.0.0.1:9" }), /不能修改 ANTHROPIC_API_URL/);
+  assert.throws(() => loadConfig({ ...base, AI_TRIP_DAILY_LIMIT: "-1" }));
 });
