@@ -118,3 +118,17 @@ test("个人信息替换：邮箱、电话、卡号、证件号换成占位符�
   assert.equal(scrubPersonalInfo(trip), trip);
   assert.equal(scrubPersonalInfo("2026/11/25 10"), "2026/11/25 10");
 });
+
+test("紧挨着重复的同一个地点只留一个：途经和终点同名去掉途经；起点后面紧跟同名途经也去掉；不相邻的重复（回到起点）保留", () => {
+  const dup = ok(output({ days: [day(0, { start: place("名古屋駅"), stops: [place("名古屋駅"), place("トヨタ博物館"), place("トヨタ博物館 ")], end: place("トヨタ博物館") })] }));
+  assert.deepEqual(dup.draft.days[0]?.stops.map((s) => s.query), []);
+  assert.equal(dup.draft.days[0]?.end?.query, "トヨタ博物館");
+  const loop = ok(output({ days: [day(0, { start: place("京都駅"), stops: [place("金閣寺"), place("嵐山")], end: place("京都駅") })] }));
+  assert.deepEqual(loop.draft.days[0]?.stops.map((s) => s.query), ["金閣寺", "嵐山"]);
+});
+
+test("去重后再编号：STAY_OFF_GRID 指的途经点下标和表单一致", () => {
+  const result = ok(output({ days: [day(0, { start: place("新宿"), stops: [place("新宿"), place("浅草寺", { stayMinutes: 45 })], end: place("上野") })] }));
+  assert.deepEqual(result.draft.days[0]?.stops.map((s) => s.query), ["浅草寺"]);
+  assert.deepEqual(result.assumptions, [{ code: "STAY_OFF_GRID", field: "days[0].stops[0].stay_minutes", value: 45 }]);
+});
