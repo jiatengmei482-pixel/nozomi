@@ -280,7 +280,7 @@ export function testContext(config: AppConfig, pool: Pool, now: () => Date, quot
     fx,
     payments: null,
     integrations: new IntegrationSecretCache({ pool, config, secretBox, log: silent }),
-    integrationChecks: { googleMaps: async () => unreachable, stripe: async () => unreachable },
+    integrationChecks: { googleMaps: async () => unreachable, stripe: async () => unreachable, anthropic: async () => unreachable },
     mailer: { send: async () => unreachable },
     quote: { ...defaultQuoteDeps(config, fx.rates, NO_ROUTES, now), ...quote },
     secretBox,

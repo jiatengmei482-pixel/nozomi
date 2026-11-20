@@ -32,6 +32,7 @@ const TEST_NOTES: Readonly<Record<IntegrationSecretKey, string>> = {
   google_maps: "「测试一下」会真的调用一次谷歌地图（查一条东京站到新宿站的路线），每次产生极少量费用，通常在谷歌每月的免费额度内。",
   stripe: "「测试一下」只查一次账户余额，不收钱、不产生费用，也不改任何数据。",
   email: "「测试一下」会发一封测试邮件到你自己的登录邮箱，不能发给别人。邮件服务器接收以后，请去邮箱确认，也看看垃圾邮件。",
+  anthropic: "「测试一下」只查一次 Claude 的模型列表，不让 AI 生成任何内容，不产生费用。",
 };
 
 /** 填的是什么：邮件发送七项里只有密码是密钥，叫「设置」 */
@@ -41,6 +42,7 @@ const nounOf = (key: IntegrationSecretKey): string => (key === "email" ? "设置
 function clearConsequence(item: IntegrationSecretItem): string {
   if (item.env_configured) return "服务器配置文件里也有这一项，清空后马上改用那里的值。";
   if (item.key === "email") return "服务器配置文件里没有这一项，清空后邮件发送就是「未配置」，系统发不了邮件，直到重新填写。";
+  if (item.key === "anthropic") return "服务器配置文件里没有这一项，清空后 Claude 就是「未配置」，AI 行程解析会停下来（客人照常手填行程），直到重新填写。";
   return item.key === "stripe" ? "服务器配置文件里没有这一项，清空后 Stripe 支付就是「未配置」，客人将不能在线付款，直到重新填写。" : "服务器配置文件里没有这一项，清空后谷歌地图就是「未配置」，用到它的功能会停下来，直到重新填写。";
 }
 

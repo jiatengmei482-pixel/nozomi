@@ -221,7 +221,7 @@ export function listIntegrations(token: string): Promise<IntegrationsOverview> {
 //
 // 填写的密钥原文只出现在 PUT 的请求体里：这里不缓存、不打日志、不放进地址；应答和错误里都没有原文（后端保证）。
 
-export type IntegrationSecretKey = "google_maps" | "stripe" | "email";
+export type IntegrationSecretKey = "google_maps" | "stripe" | "email" | "anthropic";
 export type SecretSource = "admin" | "env" | "none";
 export type SecretFieldName = "api_key" | "secret_key" | "publishable_key" | "webhook_secret" | "host" | "port" | "encryption" | "username" | "password" | "from_name" | "from_address";
 export type SmtpEncryption = "tls" | "starttls" | "none";
@@ -239,7 +239,7 @@ export interface SmtpSettings {
 export interface IntegrationSecretItem {
   key: IntegrationSecretKey;
   label: string;
-  /** 填写时要填的几项（谷歌地图 1 项，Stripe 3 项，邮件发送 7 项） */
+  /** 填写时要填的几项（谷歌地图、Claude 1 项，Stripe 3 项，邮件发送 7 项） */
   fields: { name: SecretFieldName; label: string }[];
   state: "configured" | "missing";
   source: SecretSource;
@@ -280,7 +280,7 @@ export interface IntegrationTestResult {
 
 /** 地址里的写法：google_maps → google-maps */
 const secretPath = (key: IntegrationSecretKey): string => `${INTEGRATION_SECRETS_PATH}/${key.replaceAll("_", "-")}`;
-/** 「测试一下」：后端对谷歌最多等 5 秒 × 2 次、对 Stripe 8 秒 × 2 次、发测试邮件总共 15 秒，页面多等一些 */
+/** 「测试一下」：后端对谷歌、Claude 最多等 5 秒 × 2 次、对 Stripe 8 秒 × 2 次、发测试邮件总共 15 秒，页面多等一些 */
 export const INTEGRATION_TEST_TIMEOUT_MS = 30_000;
 
 export function listIntegrationSecrets(token: string): Promise<IntegrationSecrets> {

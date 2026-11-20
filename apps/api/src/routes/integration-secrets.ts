@@ -38,7 +38,7 @@ export function registerIntegrationSecretRoutes(app: FastifyInstance, ctx: AppCo
     const principal = await authenticate(request, "integration.manage");
     const key = integrationKeyOf(request.params);
     let input: SecretInput;
-    if (key === "google_maps") {
+    if (key === "google_maps" || key === "anthropic") {
       input = { key, apiKey: parseInput(googleMapsSchema, request.body, "body").api_key };
     } else if (key === "stripe") {
       const body = parseInput(stripeSchema, request.body, "body");
