@@ -113,6 +113,9 @@ export function TripNewPage() {
   const [cities, setCities] = useState<Load<SiteCity[]>>({ kind: "loading" });
   const [round, setRound] = useState(0);
   const [draft, setDraft] = useState<TripFormDraft>(initialTripDraft);
+  /** 最新的表单（AI 整理结果回来时判断表单是不是还空着） */
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   /** 客人动过表单（日期由页面自动填的不算）：之后不再自动改日期，回到第 1 步时也不用读回来的行程单覆盖 */
   const touched = useRef(false);
   /** 点过「查看报价」：之后每改一处都重新检查，问题随改随消失 */
@@ -120,7 +123,7 @@ export function TripNewPage() {
   // 网址里的行程单编号格式不对时，第 1 步顶部说明一句（不再静默回到空表单）
   const [notice, setNotice] = useState<Notice | null>(() => (tripParamMalformed(location.search) ? { kind: "info", text: tripCopy("failure.notFound") } : null));
   const [creating, setCreating] = useState(false);
-  /** AI 整理后表单顶部的摘要（客人再用 AI 整理或回到空表单时换掉） */
+  /** AI 整理后表单顶部的摘要（再用 AI 整理一次时换掉） */
   const [aiSummary, setAiSummary] = useState<{ headline: string; summary: TripAiSummary } | null>(null);
   const aiSummaryRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<TripView>({ kind: "idle" });
@@ -366,7 +369,7 @@ export function TripNewPage() {
 
     const formStep = (
       <>
-        <TripAiInput blank={tripDraftBlank(draft)} onFill={fillFromAi} />
+        <TripAiInput isBlank={() => tripDraftBlank(draftRef.current)} onFill={fillFromAi} />
         <section aria-labelledby="trip-form-title" className="site-section trip-new__party">
           <h2 id="trip-form-title" ref={formHeading} tabIndex={-1} className="site-section__title">
             {tripCopy("tripSection")}

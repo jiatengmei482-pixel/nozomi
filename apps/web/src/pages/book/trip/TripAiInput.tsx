@@ -18,7 +18,7 @@ export type TripAiFilled = Extract<TripAiFill, { kind: "filled" }>;
 
 type Status = { kind: "checking" } | { kind: "hidden" } | { kind: "ready"; maxChars: number };
 
-export function TripAiInput({ blank, onFill }: { /** 表单还没填行程内容（不用问「替换吗」） */ blank: boolean; onFill(fill: TripAiFilled): void }) {
+export function TripAiInput({ isBlank, onFill }: { /** 表单现在还没填行程内容（不用问「替换吗」）；结果回来时再问一次，整理期间客人可能已经动手填了 */ isBlank(): boolean; onFill(fill: TripAiFilled): void }) {
   const id = useId();
   const inputId = `${id}-text`;
   const [status, setStatus] = useState<Status>({ kind: "checking" });
@@ -33,14 +33,17 @@ export function TripAiInput({ blank, onFill }: { /** 表单还没填行程内容
   useEffect(() => {
     alive.current = true;
     let current = true;
-    getSiteTripParseStatus().then(
-      (result) => {
+    getSiteTripParseStatus()
+      .then((result) => {
         if (!current) return;
-        const maxChars = Number.isInteger(result.max_chars) && result.max_chars > 0 ? Math.min(result.max_chars, TRIP_AI_MAX_CHARS) : TRIP_AI_MAX_CHARS;
-        setStatus(result.available ? { kind: "ready", maxChars } : { kind: "hidden" });
-      },
-      () => current && setStatus({ kind: "hidden" }),
-    );
+        const available = typeof result === "object" && result !== null && result.available === true;
+        const max = available ? result.max_chars : 0;
+        const maxChars = Number.isInteger(max) && max > 0 ? Math.min(max, TRIP_AI_MAX_CHARS) : TRIP_AI_MAX_CHARS;
+        setStatus(available ? { kind: "ready", maxChars } : { kind: "hidden" });
+      })
+      .catch(() => {
+        if (current) setStatus({ kind: "hidden" });
+      });
     return () => {
       current = false;
       alive.current = false;
@@ -70,7 +73,7 @@ export function TripAiInput({ blank, onFill }: { /** 表单还没填行程内容
       const fill = tripAiFillOf(await parseSiteTrip(text.trim()));
       if (!alive.current) return;
       if (fill.kind === "failed") setError(fill.text);
-      else if (blank) onFill(fill);
+      else if (isBlank()) onFill(fill);
       else setPending(fill);
     } catch (err) {
       if (!alive.current) return;
@@ -106,9 +109,10 @@ export function TripAiInput({ blank, onFill }: { /** 表单还没填行程内容
           onChange={(event) => {
             setText(event.target.value);
             setPending(null);
+            setError(null);
           }}
         />
-        <p id={`${id}-count`} className={over ? "field__hint trip-ai__count trip-ai__count--over" : "field__hint trip-ai__count"} aria-live={over ? "polite" : "off"}>
+        <p id={`${id}-count`} className={over ? "field__hint trip-ai__count trip-ai__count--over" : "field__hint trip-ai__count"}>
           {tripCopy("ai.count", { n: length, max: maxChars })}
         </p>
         {error !== null && (
