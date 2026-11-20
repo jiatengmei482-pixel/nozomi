@@ -191,7 +191,7 @@ test("服务端的新提示代码：没说年份（DATE_YEAR_INFERRED）进请�
     result([{ idle: false, time: "09:00", start: at("酒店", HOTEL), stops: [{ ...at("浅草寺", TEMPLE), stay_minutes: null }], end: at("酒店", HOTEL) }], {}, {
       assumptions: [
         { code: "DATE_YEAR_INFERRED", field: "date", value: "2030-11-20" },
-        { code: "STAY_OFF_GRID", field: "days[0].stops[0]", value: 45 },
+        { code: "STAY_OFF_GRID", field: "days[0].stops[0].stay_minutes", value: 45 },
       ],
     }),
   );
