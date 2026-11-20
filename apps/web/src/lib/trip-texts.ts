@@ -1,7 +1,8 @@
 /**
  * 官网行程报价页 `/book/trip`（M9T-09，ADR 0101 第十三节）的固定文案，按键取。
  * 写法同 `checkout-texts.ts`、`itinerary-texts.ts`：中文必填；日文、英文暂时留空，取不到时退回中文，以后补译只改这里。
- * ADR 0101 第十三节文案表里的键（`trip.` 前缀去掉）按表原文；表里没有的（校验、加载、出错等）是本页补的。`{名字}` 是占位，由 `tripCopy` 按参数替换。
+ * ADR 0101 第十三节文案表里的键（`trip.` 前缀去掉）按表原文；表里没有的（校验、加载、出错等）是本页补的。
+ * AI 一句话（`ai.*`，M9T-33）：ADR 0104 第十一节文案表里的键按表原文，其余是本页补的。服务端应答里拼好的 `texts` 不用，文案只在这里。`{名字}` 是占位，由 `tripCopy` 按参数替换。
  */
 export type TripLang = "zh" | "ja" | "en";
 
@@ -20,6 +21,59 @@ export type TripTextKey =
   | "manual.cta"
   | "book"
   | "bookManual"
+  // AI 一句话（ADR 0104 第十一节文案表，`trip.` 前缀去掉）
+  | "ai.title"
+  | "ai.placeholder"
+  | "ai.submit"
+  | "ai.working"
+  | "ai.note"
+  | "ai.replaceConfirm"
+  | "ai.summary"
+  | "ai.filled"
+  | "ai.missing"
+  | "ai.pickOne"
+  | "ai.notFound"
+  | "ai.unused.FLIGHT_NUMBER"
+  | "ai.unused.CHARTER_HOURS"
+  | "ai.outOfScope"
+  | "ai.failed"
+  | "ai.dailyLimit"
+  | "ai.notATrip"
+  | "ai.tooLong"
+  // AI 一句话：本页补的
+  | "ai.label"
+  | "ai.count"
+  | "ai.tooManyChars"
+  | "ai.empty"
+  | "ai.replace"
+  | "ai.cancel"
+  | "ai.rateLimited"
+  | "ai.rateLimitedSeconds"
+  | "ai.summaryMissing"
+  | "ai.summaryConfirm"
+  | "ai.summaryUnused"
+  | "ai.summaryOutOfScope"
+  | "ai.field.date"
+  | "ai.field.passengers"
+  | "ai.field.luggage"
+  | "ai.field.time"
+  | "ai.field.start"
+  | "ai.field.stop"
+  | "ai.field.end"
+  | "ai.field.stay"
+  | "ai.field.other"
+  | "ai.assume.DATE_FROM_RELATIVE"
+  | "ai.assume.stay"
+  | "ai.assume.other"
+  | "ai.unused.VEHICLE_TYPE"
+  | "ai.unused.DRIVER_LANGUAGE"
+  | "ai.unused.CHILD_SEAT"
+  | "ai.unused.OTHER_REQUEST"
+  | "ai.unused.other"
+  | "ai.scope.BUS"
+  | "ai.scope.ACCESSIBLE_VEHICLE"
+  | "ai.scope.OVERSEAS"
+  | "ai.scope.OTHER"
   // 页面
   | "documentTitle"
   | "intro"
@@ -174,6 +228,59 @@ const ZH: Readonly<Record<TripTextKey, string>> = {
   "manual.cta": "转人工报价",
   book: "预订这个方案",
   bookManual: "提交预订，客服确认",
+  // AI 一句话（ADR 0104 第十一节文案表）
+  "ai.title": "一句话描述你的行程",
+  "ai.placeholder": "例如：11 月 25 日成田接机，先去浅草寺再去新宿酒店，第二天包车 8 小时去日光，第三天送羽田，4 个人 6 件行李",
+  "ai.submit": "帮我填好",
+  "ai.working": "正在整理…",
+  "ai.note": "由 AI 整理，价格由系统按规则计算；请勿填写姓名、电话等个人信息",
+  "ai.replaceConfirm": "用 AI 整理的结果替换现在填的内容吗？",
+  "ai.summary": "已按你的描述填好 {days} 天行程。标黄的地方请补填或确认，然后点「查看报价」",
+  "ai.filled": "AI 填的",
+  "ai.missing": "请补填",
+  "ai.pickOne": "找到几个地点，请选一个",
+  "ai.notFound": "没找到「{name}」，请重新搜索",
+  "ai.unused.FLIGHT_NUMBER": "航班号 {value}：行程报价暂不用航班号，下单时可以填在备注里",
+  "ai.unused.CHARTER_HOURS": "你说的「包车 {value} 小时」会按实际路线自动选套餐，报价里能看到",
+  "ai.outOfScope": "行程里有暂时报不了价的部分（{what}），可以转人工报价",
+  "ai.failed": "暂时没法自动整理，请直接在下面填写",
+  "ai.dailyLimit": "今天的自动整理次数已满，请直接填写",
+  "ai.notATrip": "没看出行程，请写上日期、地点，或直接在下面填写",
+  "ai.tooLong": "行程较长，请分段报价或转人工",
+  // AI 一句话：本页补的
+  "ai.label": "行程描述",
+  "ai.count": "{n} / {max} 字",
+  "ai.tooManyChars": "最多 {max} 字，请删短一些",
+  "ai.empty": "请先写一句行程",
+  "ai.replace": "替换",
+  "ai.cancel": "取消",
+  "ai.rateLimited": "请稍后再试",
+  "ai.rateLimitedSeconds": "请 {n} 秒后再试",
+  "ai.summaryMissing": "请补填",
+  "ai.summaryConfirm": "请确认",
+  "ai.summaryUnused": "没有用上的信息",
+  "ai.summaryOutOfScope": "不在报价范围",
+  "ai.field.date": "第 1 天的日期",
+  "ai.field.passengers": "人数（先按 {n} 人填了）",
+  "ai.field.luggage": "行李件数（先按 {n} 件填了）",
+  "ai.field.time": "第 {n} 天的上车时间",
+  "ai.field.start": "第 {n} 天的上车地点",
+  "ai.field.stop": "第 {n} 天第 {m} 个中间地点",
+  "ai.field.end": "第 {n} 天的最后下车地点",
+  "ai.field.stay": "第 {n} 天第 {m} 个中间地点的停留时长",
+  "ai.field.other": "标黄的地方",
+  "ai.assume.DATE_FROM_RELATIVE": "第 1 天的日期按 {value} 填",
+  "ai.assume.stay": "第 {n} 天第 {m} 个中间地点的停留时长没有对应的选项，请自己选",
+  "ai.assume.other": "{field}是推算出来的",
+  "ai.unused.VEHICLE_TYPE": "指定车型：报价后在方案里选车型",
+  "ai.unused.DRIVER_LANGUAGE": "司机语言：下单时可以填在备注里",
+  "ai.unused.CHILD_SEAT": "儿童座椅：报价后在附加服务里选",
+  "ai.unused.OTHER_REQUEST": "其他要求：下单时可以填在备注里",
+  "ai.unused.other": "有一些信息报价用不上，下单时可以填在备注里",
+  "ai.scope.BUS": "大巴",
+  "ai.scope.ACCESSIBLE_VEHICLE": "无障碍车",
+  "ai.scope.OVERSEAS": "海外段",
+  "ai.scope.OTHER": "其他",
 
   documentTitle: "多日行程报价 · NOZOMI 用车",
   intro: "按天填写每天的用车时间和要去的地点，我们按整个行程给出报价",
