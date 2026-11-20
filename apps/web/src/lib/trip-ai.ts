@@ -183,8 +183,18 @@ export function tripAiFillOf(result: SiteTripParseResult): TripAiFill {
   });
 
   for (const assumption of result.assumptions ?? []) {
-    if (assumption.code === "DATE_FROM_RELATIVE" && isDate(assumption.value) && assumption.value === date) {
-      confirm.push(tripCopy("ai.assume.DATE_FROM_RELATIVE", { value: dateText(assumption.value) }));
+    if ((assumption.code === "DATE_FROM_RELATIVE" || assumption.code === "DATE_YEAR_INFERRED") && isDate(assumption.value) && assumption.value === date) {
+      confirm.push(tripCopy(`ai.assume.${assumption.code}`, { value: dateText(assumption.value) }));
+      continue;
+    }
+    // 停留不在 30 分钟档上（服务端已把它变成 null）：和本地检查同一句，请客人自己选
+    const offGrid = assumption.code === "STAY_OFF_GRID" ? /^days\[(\d+)\]\.stops\[(\d+)\]/.exec(assumption.field ?? "") : null;
+    if (offGrid !== null) {
+      const text = tripCopy("ai.assume.stay", { n: Number(offGrid[1]) + 1, m: Number(offGrid[2]) + 1 });
+      confirm.push(text);
+      const stopText = tripCopy("ai.field.stay", { n: Number(offGrid[1]) + 1, m: Number(offGrid[2]) + 1 });
+      const at = missing.indexOf(stopText);
+      if (at >= 0) missing.splice(at, 1);
       continue;
     }
     const field = assumption.field === undefined ? null : tripAiFieldText(assumption.field, party);

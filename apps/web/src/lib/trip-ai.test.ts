@@ -185,3 +185,17 @@ test("失败的说法：没配密钥收起；额度用完、没看出行程、�
   assert.deepEqual(tripAiFailureOf(api(503, "AI_UNAVAILABLE")), { text: "暂时没法自动整理，请直接在下面填写", hide: false });
   assert.deepEqual(tripAiFailureOf(new NetworkError()), { text: "暂时没法自动整理，请直接在下面填写", hide: false });
 });
+
+test("服务端的新提示代码：没说年份（DATE_YEAR_INFERRED）进请确认；停留不在档上（STAY_OFF_GRID，服务端已置空）改进请确认、不再算请补填", () => {
+  const fill = filled(
+    result([{ idle: false, time: "09:00", start: at("酒店", HOTEL), stops: [{ ...at("浅草寺", TEMPLE), stay_minutes: null }], end: at("酒店", HOTEL) }], {}, {
+      assumptions: [
+        { code: "DATE_YEAR_INFERRED", field: "date", value: "2030-11-20" },
+        { code: "STAY_OFF_GRID", field: "days[0].stops[0]", value: 45 },
+      ],
+    }),
+  );
+  assert.deepEqual(fill.summary.confirm, ["第 1 天的日期按 11 月 20 日填（没说年份，取今天以后最近的那天）", "第 1 天第 1 个中间地点的停留时长没有对应的选项，请自己选"]);
+  assert.deepEqual(fill.summary.missing, []);
+  assert.equal(fill.draft.days[0]?.stops[0]?.stay, "");
+});

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { manualQuoteTripIssues } from "@nozomi/domain";
 import type { SiteTripItinerary } from "../api/site.ts";
 import { manualQuoteRequestOf } from "./manual-quote-form.ts";
-import { tripLabelText, tripLabelsFor, tripManualQuoteDraft } from "./trip-manual.ts";
+import { tripFormManualQuoteDraft, tripLabelText, tripLabelsFor, tripManualQuoteDraft } from "./trip-manual.ts";
 
 const HOTEL = { lat: 35.6896, lng: 139.6917 };
 const TEMPLE = { lat: 35.7148, lng: 139.7967 };
@@ -71,4 +71,14 @@ test("地名清洗：空白压成一个空格；按 UTF-16 长度截到 300，�
   assert.equal(long, "😀".repeat(150));
   assert.equal(tripLabelText("a".repeat(301)).length, 300);
   assert.equal(tripLabelText("   "), "地图上选的位置");
+});
+
+test("还没建行程单时（AI 整理后转人工）：从表单第一天取，可以不齐（缺的留空，由人工报价块提示）", () => {
+  const day = { key: "d1", idle: false, time: "", start: { name: "成田国际机场", ...NARITA, kind: "airport" as const }, stops: [], end: null, lodgingProvided: false };
+  const partial = tripFormManualQuoteDraft({ date: "2030-11-20", passengers: 4, luggage: 2, days: [day] });
+  assert.deepEqual(partial, { cityId: null, pickup: { name: "成田国际机场", ...NARITA }, dropoff: null, serviceLocal: null, passengers: 4, luggage: 2, category: "airport_transfer", packageHours: null });
+  const withStop = tripFormManualQuoteDraft({ date: "2030-11-20", passengers: 4, luggage: 2, days: [{ ...day, time: "09:00", stops: [{ key: "s1", point: { name: "浅草寺", ...TEMPLE, kind: null }, stay: "60" }], end: { name: "酒店", ...HOTEL, kind: null } }] });
+  assert.equal(withStop.category, "charter");
+  assert.equal(withStop.serviceLocal, "2030-11-20T09:00");
+  assert.deepEqual(withStop.waypoints, [{ name: "浅草寺", ...TEMPLE, stayMinutes: 60 }]);
 });
