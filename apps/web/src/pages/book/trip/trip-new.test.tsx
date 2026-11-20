@@ -770,6 +770,12 @@ async function aiBox(parse?: Route): Promise<{ box: HTMLTextAreaElement; calls: 
   return { box: screen.getByLabelText("行程描述") as HTMLTextAreaElement, calls };
 }
 
+/** AI 整理后的摘要框（不用按角色 + 名称在整页里找：整页的按名称查询太慢） */
+async function aiSummary(): Promise<HTMLElement> {
+  await waitFor(() => assert.ok(document.querySelector(".trip-ai-summary")), SLOW);
+  return document.querySelector(".trip-ai-summary") as HTMLElement;
+}
+
 const writeBox = (box: HTMLTextAreaElement, text: string): void => {
   fireEvent.change(box, { target: { value: text } });
 };
@@ -800,7 +806,7 @@ test("AI 一句话：没看出行程、太频繁、额度用完：输入框下�
   fireEvent.click(screen.getByRole("button", { name: "帮我填好" }));
   assert.ok(await screen.findByText("没看出行程，请写上日期、地点，或直接在下面填写", {}, SLOW));
   assert.deepEqual(posts(calls, "/site/v1/trips/parse")[0]?.body, { text: "你好", lang: "zh" });
-  assert.equal(screen.queryByRole("region", { name: /已按你的描述填好/ }), null);
+  assert.equal(document.querySelector(".trip-ai-summary"), null);
 
   answer = () => apiError(429, "RATE_LIMITED", "x", {}, { "retry-after": "30" });
   fireEvent.click(screen.getByRole("button", { name: "帮我填好" }));
@@ -816,11 +822,13 @@ test("AI 一句话：整理中按钮变「正在整理…」、输入框只读�
   const slow = deferred();
   const { box } = await aiBox(() => slow.promise);
   writeBox(box, "成田接机");
-  fireEvent.click(screen.getByRole("button", { name: "帮我填好" }));
-  assert.ok(await screen.findByRole("button", { name: /正在整理…/ }, SLOW));
+  const button = screen.getByRole("button", { name: "帮我填好" });
+  fireEvent.click(button);
+  await waitFor(() => assert.equal(button.getAttribute("aria-busy"), "true"), SLOW);
+  assert.match(button.textContent ?? "", /正在整理…/);
   assert.equal(box.readOnly, true);
   slow.resolve(apiError(503, "AI_NOT_CONFIGURED", "x"));
-  await waitFor(() => assert.equal(screen.queryByRole("heading", { name: "一句话描述你的行程" }), null), SLOW);
+  await waitFor(() => assert.equal(document.querySelector(".trip-ai"), null), SLOW);
   assert.ok(screen.getByRole("heading", { name: "你的行程", level: 2 }));
 });
 
@@ -850,18 +858,19 @@ test("AI 一句话：表单已经填了东西时先问「替换吗」，取消�
   const actor = user();
   await dateField();
   await pickPlace(actor, "第 1 天 最后下车地点", "京王", /京王广场酒店/);
-  await actor.type(await screen.findByLabelText("行程描述"), "成田接机去浅草寺再去新宿的酒店，坐大巴");
+  writeBox((await screen.findByLabelText("行程描述", {}, SLOW)) as HTMLTextAreaElement, "成田接机去浅草寺再去新宿的酒店，坐大巴");
   await actor.click(screen.getByRole("button", { name: "帮我填好" }));
 
   assert.ok(await screen.findByText("用 AI 整理的结果替换现在填的内容吗？", {}, SLOW));
-  await waitFor(() => assert.equal(document.activeElement, screen.getByRole("button", { name: "替换" })));
-  await actor.click(screen.getByRole("button", { name: "取消" }));
+  await waitFor(() => assert.equal(document.activeElement, screen.getByText("替换").closest("button")));
+  await actor.click(screen.getByText("取消").closest("button") as HTMLElement);
   assert.equal(screen.queryByText("用 AI 整理的结果替换现在填的内容吗？"), null);
   assert.equal((within(daySection(1)).getByRole("combobox", { name: "第 1 天 最后下车地点" }) as HTMLInputElement).value, HOTEL_NAME, "取消后表单不动");
 
   await actor.click(screen.getByRole("button", { name: "帮我填好" }));
-  await actor.click(await screen.findByRole("button", { name: "替换" }, SLOW));
-  const summary = await screen.findByRole("region", { name: /已按你的描述填好 1 天行程/ }, SLOW);
+  await actor.click((await screen.findByText("替换", {}, SLOW)).closest("button") as HTMLElement);
+  const summary = await aiSummary();
+  assert.match(summary.textContent ?? "", /已按你的描述填好 1 天行程/);
   assert.equal(posts(calls, "/site/v1/trips/parse").length, 2);
   const missing = within(summary).getByRole("heading", { name: "请补填" }).nextElementSibling as HTMLElement;
   assert.deepEqual(within(missing).getAllByRole("listitem").map((item) => item.textContent), ["人数（先按 2 人填了）", "第 1 天的上车时间", "第 1 天的最后下车地点"]);
@@ -880,11 +889,12 @@ test("AI 一句话：可用时表单上方有输入框；整理好的结果直�
   assert.ok(screen.getByText("由 AI 整理，价格由系统按规则计算；请勿填写姓名、电话等个人信息"));
   const box = screen.getByLabelText("行程描述") as HTMLTextAreaElement;
   await dateField();
-  await actor.type(box, SENTENCE);
-  assert.ok(screen.getByText(`${[...SENTENCE].length} / 500 字`));
+  writeBox(box, SENTENCE);
+  assert.ok(await screen.findByText(`${[...SENTENCE].length} / 500 字`));
   await actor.click(screen.getByRole("button", { name: "帮我填好" }));
 
-  const summary = await screen.findByRole("region", { name: "已按你的描述填好 2 天行程。标黄的地方请补填或确认，然后点「查看报价」" }, SLOW);
+  const summary = await aiSummary();
+  assert.ok(within(summary).getByText("已按你的描述填好 2 天行程。标黄的地方请补填或确认，然后点「查看报价」"));
   assert.deepEqual(posts(calls, "/site/v1/trips/parse")[0]?.body, { text: SENTENCE, lang: "zh" });
   assert.equal(within(summary).queryByRole("heading", { name: "请补填" }), null, "都齐了，没有请补填");
   assert.ok(within(summary).getByText("第 1 天的日期按 11 月 20 日填"));
