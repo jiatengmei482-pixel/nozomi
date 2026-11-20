@@ -1169,8 +1169,6 @@ export function createSiteTripOrderQuote(tripId: string, planId: string, body: S
 export interface SiteTripParseStatus {
   available: boolean;
   max_chars: number;
-  /** 不可用的原因（ADR 0104 第三节没写，后端给了就用：额度用完时页面换一句提示） */
-  reason?: string;
 }
 
 export type SiteTripParseKind = "airport" | "station" | "hotel" | "poi" | "address";
