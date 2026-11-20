@@ -1790,10 +1790,10 @@
           "id": "M9P-12",
           "title": "清理：旧的按区域套餐价、上下车加价行里的途经加价、引擎旧路径（验证通过且业主同意后）（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
           "role": "backend",
-          "status": "doing",
+          "status": "done",
           "acceptance": ["M9P-11 通过、业主同意后再做", "迁移删除旧数据前导出备份；回放比对 0 变化", "业主 2026-11-18 已同意（监工 2026-11-19 在 #288 转达）：只清测试站的旧价格数据，先备份、先 dry-run 报计数", "范围（2026-11-19）：只动迁移过三层的包车商品——删按服务区域的旧套餐价、③上下车加价行去掉途经加价（整行保留）；没迁移过的商品和引擎旧路径不动（正式站全部没迁移过，还要用）"],
-          "evidence": "",
-          "updated": "2026-11-19"
+          "evidence": "测试站 apply：Deploy #328，批次 d646a41f-b9c6-4452-9973-51ad30f01dce，12 个三层包车商品、删按服务区域的旧套餐价 551 条、③上下车加价行去掉途经加价 2,620 条、只在旧行 0 个，和 dry-run 一致；备份表保留该批次；staging 变量 LEGACY_PRICE_CLEANUP 已删。回放核对（监工 2026-11-20 在测试站运营后台调只读接口 GET /platform/v1/reports/area-role-preview?days=90&until=2026-11-18T09:19:00Z，200）：logs 1,657 / replayed 1,657 / skipped 0 / evaluations 3,092 / resultLines 3,092 / externalDiffCount 0，询价数、计算次数和清理前基线（1,657 / 3,092）一致。清理后基线（以后引擎改动的「部署前」）：resultDigest 5883c0f2135aefbc9e06f936c7de2e02be8308ef1c6e24af228898b3322192c9，stateDigest c7a334e1ba46bbc1fe3049a8e9da491e5669e8c8725a5a79cce115bb0b9c618b。限制：清理前的两个摘要只存在上个会话的临时目录，已丢失，所以没有逐条 / 摘要级的前后比对（删了价格行，stateDigest 本来也必然不同）；0 变化的依据是计数一致 + 报价引擎对三层商品不读这两类旧数据（代码）+ #340 集成测试覆盖清理前后报价相同。监工 2026-11-20 转达按此改完成",
+          "updated": "2026-11-20"
         },
         {
           "id": "M9P-13",
@@ -3761,6 +3761,7 @@
     {"date": "2026-11-20", "by": "Codespace 开发", "summary": "M9T-30：业主 11-20 定完 ADR 0104 五项——Q1 Sonnet 5.5、Haiku 5.5 两个都接，运营后台三选一（Sonnet 默认 / Haiku / 先 Haiku 出错再 Sonnet），新表 ai_trip_settings，后台显示每个型号今天的次数；Q2–Q5 按推荐。ADR 改为已采纳，工期改 11–14 人日（M9T-32 5–6、M9T-34 1.5–2）。M9T-31 已由 #347 完成。"},
     {"date": "2026-11-20", "by": "Codespace 开发", "summary": "M9T-32 开工（第一部分）：domain 纯函数 packages/domain/src/trip/parse.ts——Claude 结果 → /book/trip 表单草稿（不猜：没说的 null 并列进 missing；推算日期进 assumptions；中间补空闲日；超 14 天 / 每天 12 点 / 全程 60 地名报 TRIP_TOO_LONG；停留只出 30 分钟档；unused 值按格式过滤）、要查坐标的地名（泛指不查、最多 20 个）、发送前替换邮箱 / 电话 / 卡号 / 证件号。ADR 0104 第三、四节按第二开发意见收口：point.kind 只给 airport / null、应答去掉 texts、parse-status 加 reason、空闲日字段为 null、模型输出加 specific 与 dateSource year_inferred、missing 由服务端从 null 推出。"},
     {"date": "2026-11-20", "by": "Codespace 开发", "summary": "M9T-32 第二部分：POST /site/v1/trips/parse、GET parse-status（官方 SDK，结构化输出 + effort low，系统提示缓存；结果 zod 再校验、不合格再调一次；拒答 / 到上限 / 超时 / 出错退回手填）；三种用法（Sonnet 默认 / Haiku / 先 Haiku 技术失败改用 Sonnet 重试，不另占名额）；限频每地址每分钟 3、每天 20，全站每天 300 按东京自然日数调用记录；新表 ai_trip_settings、trip_parse_runs（不含文字，90 天随行程单清理删）；GET / PUT /platform/v1/ai-trip-settings 与后台「使用的型号」卡片（今天每个型号的次数）；端到端用的假 Claude 消息接口（ANTHROPIC_API_URL，只有 local / ci 能改）。"},
-    {"date": "2026-11-20", "by": "Codespace 开发", "summary": "M9T-32 后端完成（#349、#350 已合并），改为待验收。M9T-34 开工：固定测试集 52 句（中 18、日 17、英 17；注入 10、非行程 5，「今天」固定 2026-11-20）、逐字段评分（日期、人数、行李、天数、每天的点和先后）、注入越界检查、非行程判对、费用估算；评估命令 pnpm ai:trip-eval 和线上解析走同一条路，不占全站额度。等业主在测试站填好 Claude 密钥后跑两个型号，结果写回 ADR 0104 第四节。"}
+    {"date": "2026-11-20", "by": "Codespace 开发", "summary": "M9T-32 后端完成（#349、#350 已合并），改为待验收。M9T-34 开工：固定测试集 52 句（中 18、日 17、英 17；注入 10、非行程 5，「今天」固定 2026-11-20）、逐字段评分（日期、人数、行李、天数、每天的点和先后）、注入越界检查、非行程判对、费用估算；评估命令 pnpm ai:trip-eval 和线上解析走同一条路，不占全站额度。等业主在测试站填好 Claude 密钥后跑两个型号，结果写回 ADR 0104 第四节。"},
+    {"date": "2026-11-20", "by": "Codespace 开发", "summary": "M9P-12 已验收：测试站旧价格清理（批次 d646a41f…，删旧套餐价 551 条、去途经加价 2,620 条）后，监工跑只读回放（until 2026-11-18T09:19Z、90 天）：1,657 条询价 / 3,092 次计算和清理前一致，skipped 0；清理后的 resultDigest 5883c0f2…、stateDigest c7a334e1… 记为新基线。清理前的摘要已丢失，没有摘要级前后比对，依据是计数 + 代码 + #340 集成测试。"}
   ]
 }
