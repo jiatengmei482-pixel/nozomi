@@ -4,7 +4,7 @@
  * 「测试一下」：
  * - 调用：模型列表 `GET /v1/models?limit=1`。不生成任何内容，**不产生 token 费用**；密钥无效、没权限时 Anthropic 照样返回 401 / 403，正好用来判断。
  *   不按某个型号查（型号还没定，ADR 0104 第二节【需业主决定】Q1），只看这把密钥能不能用。
- * - 密钥放在请求头 `x-api-key` 里，不放在网址里；带 `anthropic-version`；不跟随重定向。
+ * - 密钥放在请求头 `x-api-key` 里，不放在网址里；带 `anthropic-version`；不跟随重定向。（解析调用走官方 SDK，SDK 1.x 放在 `Authorization: Bearer` 里，同样不在网址里。）
  * - 每次尝试最多等 5 秒；连不上、超时、对方 5xx（含 529 过载）时再试 1 次。429 不重试。应答体只读前 64 KB。
  * - 失败换成 `IntegrationCheckCode`：按 HTTP 状态和 `error.type`（`authentication_error`、`permission_error`、`rate_limit_error`、`overloaded_error` 等）归类；
  *   说明是我们自己写的，不带对方返回的原文。

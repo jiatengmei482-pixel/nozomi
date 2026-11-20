@@ -325,3 +325,28 @@ export const PLATFORM_SCHEMA_FIELDS = {
 };
 /** 页面专门处理的错误码。 */
 export const PLATFORM_ERROR_CODES = ["EMAIL_TAKEN", "LAST_ADMIN_REQUIRED", "ACCOUNT_NOT_ACTIVATED", "ACCOUNT_NOT_ACTIVE", "INTEGRATION_SECRET_NOT_SET", "INTEGRATION_NOT_CONFIGURED", "INTEGRATION_ENCRYPTION_NOT_CONFIGURED"] as const;
+
+// ---------- AI 一句话行程用哪个 Claude 型号（M9T-32，ADR 0104 第六节） ----------
+
+export type AiTripModelMode = "sonnet" | "haiku" | "haiku_then_sonnet";
+
+export interface AiTripSettings {
+  model_mode: AiTripModelMode;
+  /** 0 = 还没保存过（用默认的 Sonnet） */
+  version: number;
+  updated_at: string | null;
+  models: { sonnet: string; haiku: string };
+  /** 东京时间今天：Sonnet / Haiku 各调了几次、其中改用 Sonnet 重试几次、全站已用 / 上限 */
+  today: { date: string; sonnet: number; haiku: number; sonnet_retries: number; used: number; limit: number };
+}
+
+export const AI_TRIP_SETTINGS_PATH = "/platform/v1/ai-trip-settings";
+
+export function getAiTripSettings(token: string): Promise<AiTripSettings> {
+  return apiRequest("GET", AI_TRIP_SETTINGS_PATH, { token });
+}
+
+/** 改用法。已经保存过（版本 > 0）的带 If-Match。 */
+export function updateAiTripSettings(token: string, version: number, mode: AiTripModelMode): Promise<AiTripSettings> {
+  return apiRequest("PUT", AI_TRIP_SETTINGS_PATH, { token, body: { model_mode: mode }, ...(version > 0 ? { headers: { "if-match": `"${version}"` } } : {}) });
+}
