@@ -744,46 +744,57 @@ const PARSED = {
   texts: { summary: "服务端拼的文案（页面不用）" },
 };
 
-test("AI 一句话：可用时表单上方有输入框；整理好的结果直接填进空表单，顶部摘要写请确认 / 没有用上的信息（不用服务端的 texts），之后「查看报价」建的行程单和手填的一样", async () => {
+// 每条限时 30 秒：卡住时只挂这一条、日志里看得出是哪条，不拖住整个组件测试
+test("AI 一句话：parse-status 说不可用或问不到时不显示输入框", { timeout: 30_000 }, async () => {
   wideScreen();
-  const calls = open({ parseStatus: AI_ON, parse: () => json(200, PARSED) });
-  const actor = user();
-  assert.ok(await screen.findByRole("heading", { name: "一句话描述你的行程", level: 2 }, SLOW));
-  assert.ok(screen.getByText("由 AI 整理，价格由系统按规则计算；请勿填写姓名、电话等个人信息"));
-  const box = screen.getByLabelText("行程描述") as HTMLTextAreaElement;
+  open({ parseStatus: () => apiError(404, "NOT_FOUND", "x") });
+  assert.ok(await screen.findByRole("heading", { name: "你的行程", level: 2 }, SLOW));
   await dateField();
-  await actor.type(box, SENTENCE);
-  assert.ok(screen.getByText(`${[...SENTENCE].length} / 500 字`));
-  await actor.click(screen.getByRole("button", { name: "帮我填好" }));
-
-  const summary = await screen.findByRole("region", { name: "已按你的描述填好 2 天行程。标黄的地方请补填或确认，然后点「查看报价」" }, SLOW);
-  assert.deepEqual(posts(calls, "/site/v1/trips/parse")[0]?.body, { text: SENTENCE, lang: "zh" });
-  assert.equal(within(summary).queryByRole("heading", { name: "请补填" }), null, "都齐了，没有请补填");
-  assert.ok(within(summary).getByText("第 1 天的日期按 11 月 20 日填"));
-  assert.ok(within(summary).getByText("航班号 NH211：行程报价暂不用航班号，下单时可以填在备注里"));
-  assert.ok(within(summary).getByText("你说的「包车 8 小时」会按实际路线自动选套餐，报价里能看到"));
-  assert.equal(screen.queryByText("服务端拼的文案（页面不用）"), null);
-  await waitFor(() => assert.equal(document.activeElement, summary), SLOW);
-
-  assert.equal((screen.getByLabelText("日期（当地）") as HTMLInputElement).value, "2030-11-20");
-  assert.equal((within(daySection(1)).getByRole("combobox", { name: "第 1 天 上车地点" }) as HTMLInputElement).value, "成田国际机场");
-  assert.equal((within(daySection(2)).getByRole("combobox", { name: "第 2 天 第 2 个地点" }) as HTMLInputElement).value, TEMPLE_NAME);
-  assert.equal((screen.getByLabelText(/第 2 天 第 2 个地点 停留时长/) as HTMLSelectElement).value, "90");
-
-  await actor.click(screen.getByRole("button", { name: "查看报价" }));
-  assert.ok(await screen.findByRole("heading", { name: "报价结果", level: 2 }, SLOW));
-  assert.deepEqual(posts(calls, "/site/v1/trips")[0]?.body, {
-    schemaVersion: 1,
-    party: { adults: 3, children: 0, luggage: 2 },
-    days: [
-      { date: "2030-11-20", items: [{ kind: "arrive_flight", place: { lat: 35.772, lng: 140.3929 }, time: "14:30" }, { kind: "end", place: HOTEL }], nightAt: HOTEL },
-      { date: "2030-11-21", items: [{ kind: "start", place: HOTEL, time: "09:00" }, { kind: "stop", place: TEMPLE, stayMinutes: 90 }, { kind: "end", place: HOTEL }] },
-    ],
-  });
-  assert.deepEqual(JSON.parse(sessionStorage.getItem(`nozomi.trip-labels.${TRIP_ID}`) ?? "null"), { v: 1, days: [["成田国际机场", HOTEL_NAME], [HOTEL_NAME, TEMPLE_NAME, HOTEL_NAME]] });
+  assert.equal(screen.queryByRole("heading", { name: "一句话描述你的行程" }), null);
+  assert.equal(screen.queryByLabelText("行程描述"), null);
 });
 
-test("AI 一句话：表单已经填了东西时先问「替换吗」，取消不动、替换才换；缺的写进「请补填」（人数按默认填了的写明），不在档上的停留进「请确认」，多个候选的地点留空", async () => {
+test("AI 一句话：没写 / 超过 500 字不发请求；没看出行程、太频繁、额度用完写在输入框下面且表单不动；整理中按钮变「正在整理…」、输入框只读；没配密钥整块收起；不可用时不显示", { timeout: 30_000 }, async () => {
+  wideScreen();
+  let answer: Route = () => apiError(422, "NOT_A_TRIP", "x");
+  const slow = deferred();
+  const calls = open({ parseStatus: AI_ON, parse: (call) => answer(call) });
+  const actor = user();
+  await dateField();
+  const box = (await screen.findByLabelText("行程描述", {}, SLOW)) as HTMLTextAreaElement;
+  await actor.click(screen.getByRole("button", { name: "帮我填好" }));
+  assert.ok(screen.getByText("请先写一句行程"));
+  await actor.click(box);
+  await actor.paste("长".repeat(501));
+  assert.ok(screen.getByText("501 / 500 字"));
+  await actor.click(screen.getByRole("button", { name: "帮我填好" }));
+  assert.ok(screen.getByText("最多 500 字，请删短一些"));
+  assert.equal(posts(calls, "/site/v1/trips/parse").length, 0);
+
+  await actor.clear(box);
+  await actor.type(box, "你好");
+  await actor.click(screen.getByRole("button", { name: "帮我填好" }));
+  assert.ok(await screen.findByText("没看出行程，请写上日期、地点，或直接在下面填写", {}, SLOW));
+  assert.equal(screen.queryByRole("region", { name: /已按你的描述填好/ }), null);
+
+  answer = () => apiError(429, "RATE_LIMITED", "x", {}, { "retry-after": "30" });
+  await actor.click(screen.getByRole("button", { name: "帮我填好" }));
+  assert.ok(await screen.findByText("请 30 秒后再试", {}, SLOW));
+
+  answer = () => apiError(503, "AI_DAILY_LIMIT", "x");
+  await actor.click(screen.getByRole("button", { name: "帮我填好" }));
+  assert.ok(await screen.findByText("今天的自动整理次数已满，请直接填写", {}, SLOW));
+
+  answer = () => slow.promise;
+  await actor.click(screen.getByRole("button", { name: "帮我填好" }));
+  assert.ok(await screen.findByRole("button", { name: /正在整理…/ }, SLOW));
+  assert.equal(box.readOnly, true);
+  slow.resolve(apiError(503, "AI_NOT_CONFIGURED", "x"));
+  await waitFor(() => assert.equal(screen.queryByRole("heading", { name: "一句话描述你的行程" }), null), SLOW);
+  assert.ok(screen.getByRole("heading", { name: "你的行程", level: 2 }), "表单照常");
+});
+
+test("AI 一句话：表单已经填了东西时先问「替换吗」，取消不动、替换才换；缺的写进「请补填」（人数按默认填了的写明），不在档上的停留进「请确认」，多个候选的地点留空", { timeout: 30_000 }, async () => {
   wideScreen();
   const partial = {
     ...PARSED,
@@ -831,51 +842,41 @@ test("AI 一句话：表单已经填了东西时先问「替换吗」，取消�
   assert.equal(posts(calls, "/site/v1/trips").length, 0, "AI 不建单");
 });
 
-test("AI 一句话：没写 / 超过 500 字不发请求；没看出行程、太频繁、额度用完写在输入框下面且表单不动；整理中按钮变「正在整理…」、输入框只读；没配密钥整块收起；不可用时不显示", async () => {
+test("AI 一句话：可用时表单上方有输入框；整理好的结果直接填进空表单，顶部摘要写请确认 / 没有用上的信息（不用服务端的 texts），之后「查看报价」建的行程单和手填的一样", { timeout: 30_000 }, async () => {
   wideScreen();
-  let answer: Route = () => apiError(422, "NOT_A_TRIP", "x");
-  const slow = deferred();
-  const calls = open({ parseStatus: AI_ON, parse: (call) => answer(call) });
+  const calls = open({ parseStatus: AI_ON, parse: () => json(200, PARSED) });
   const actor = user();
+  assert.ok(await screen.findByRole("heading", { name: "一句话描述你的行程", level: 2 }, SLOW));
+  assert.ok(screen.getByText("由 AI 整理，价格由系统按规则计算；请勿填写姓名、电话等个人信息"));
+  const box = screen.getByLabelText("行程描述") as HTMLTextAreaElement;
   await dateField();
-  const box = (await screen.findByLabelText("行程描述", {}, SLOW)) as HTMLTextAreaElement;
+  await actor.type(box, SENTENCE);
+  assert.ok(screen.getByText(`${[...SENTENCE].length} / 500 字`));
   await actor.click(screen.getByRole("button", { name: "帮我填好" }));
-  assert.ok(screen.getByText("请先写一句行程"));
-  await actor.click(box);
-  await actor.paste("长".repeat(501));
-  assert.ok(screen.getByText("501 / 500 字"));
-  await actor.click(screen.getByRole("button", { name: "帮我填好" }));
-  assert.ok(screen.getByText("最多 500 字，请删短一些"));
-  assert.equal(posts(calls, "/site/v1/trips/parse").length, 0);
 
-  await actor.clear(box);
-  await actor.type(box, "你好");
-  await actor.click(screen.getByRole("button", { name: "帮我填好" }));
-  assert.ok(await screen.findByText("没看出行程，请写上日期、地点，或直接在下面填写", {}, SLOW));
-  assert.equal(screen.queryByRole("region", { name: /已按你的描述填好/ }), null);
+  const summary = await screen.findByRole("region", { name: "已按你的描述填好 2 天行程。标黄的地方请补填或确认，然后点「查看报价」" }, SLOW);
+  assert.deepEqual(posts(calls, "/site/v1/trips/parse")[0]?.body, { text: SENTENCE, lang: "zh" });
+  assert.equal(within(summary).queryByRole("heading", { name: "请补填" }), null, "都齐了，没有请补填");
+  assert.ok(within(summary).getByText("第 1 天的日期按 11 月 20 日填"));
+  assert.ok(within(summary).getByText("航班号 NH211：行程报价暂不用航班号，下单时可以填在备注里"));
+  assert.ok(within(summary).getByText("你说的「包车 8 小时」会按实际路线自动选套餐，报价里能看到"));
+  assert.equal(screen.queryByText("服务端拼的文案（页面不用）"), null);
+  await waitFor(() => assert.equal(document.activeElement, summary), SLOW);
 
-  answer = () => apiError(429, "RATE_LIMITED", "x", {}, { "retry-after": "30" });
-  await actor.click(screen.getByRole("button", { name: "帮我填好" }));
-  assert.ok(await screen.findByText("请 30 秒后再试", {}, SLOW));
+  assert.equal((screen.getByLabelText("日期（当地）") as HTMLInputElement).value, "2030-11-20");
+  assert.equal((within(daySection(1)).getByRole("combobox", { name: "第 1 天 上车地点" }) as HTMLInputElement).value, "成田国际机场");
+  assert.equal((within(daySection(2)).getByRole("combobox", { name: "第 2 天 第 2 个地点" }) as HTMLInputElement).value, TEMPLE_NAME);
+  assert.equal((screen.getByLabelText(/第 2 天 第 2 个地点 停留时长/) as HTMLSelectElement).value, "90");
 
-  answer = () => apiError(503, "AI_DAILY_LIMIT", "x");
-  await actor.click(screen.getByRole("button", { name: "帮我填好" }));
-  assert.ok(await screen.findByText("今天的自动整理次数已满，请直接填写", {}, SLOW));
-
-  answer = () => slow.promise;
-  await actor.click(screen.getByRole("button", { name: "帮我填好" }));
-  assert.ok(await screen.findByRole("button", { name: /正在整理…/ }, SLOW));
-  assert.equal(box.readOnly, true);
-  slow.resolve(apiError(503, "AI_NOT_CONFIGURED", "x"));
-  await waitFor(() => assert.equal(screen.queryByRole("heading", { name: "一句话描述你的行程" }), null), SLOW);
-  assert.ok(screen.getByRole("heading", { name: "你的行程", level: 2 }), "表单照常");
-});
-
-test("AI 一句话：parse-status 说不可用或问不到时不显示输入框", async () => {
-  wideScreen();
-  open({ parseStatus: () => apiError(404, "NOT_FOUND", "x") });
-  assert.ok(await screen.findByRole("heading", { name: "你的行程", level: 2 }, SLOW));
-  await dateField();
-  assert.equal(screen.queryByRole("heading", { name: "一句话描述你的行程" }), null);
-  assert.equal(screen.queryByLabelText("行程描述"), null);
+  await actor.click(screen.getByRole("button", { name: "查看报价" }));
+  assert.ok(await screen.findByRole("heading", { name: "报价结果", level: 2 }, SLOW));
+  assert.deepEqual(posts(calls, "/site/v1/trips")[0]?.body, {
+    schemaVersion: 1,
+    party: { adults: 3, children: 0, luggage: 2 },
+    days: [
+      { date: "2030-11-20", items: [{ kind: "arrive_flight", place: { lat: 35.772, lng: 140.3929 }, time: "14:30" }, { kind: "end", place: HOTEL }], nightAt: HOTEL },
+      { date: "2030-11-21", items: [{ kind: "start", place: HOTEL, time: "09:00" }, { kind: "stop", place: TEMPLE, stayMinutes: 90 }, { kind: "end", place: HOTEL }] },
+    ],
+  });
+  assert.deepEqual(JSON.parse(sessionStorage.getItem(`nozomi.trip-labels.${TRIP_ID}`) ?? "null"), { v: 1, days: [["成田国际机场", HOTEL_NAME], [HOTEL_NAME, TEMPLE_NAME, HOTEL_NAME]] });
 });
