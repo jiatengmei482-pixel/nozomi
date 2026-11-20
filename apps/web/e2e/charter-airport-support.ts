@@ -3,6 +3,7 @@
  * - 用迁移脚本（部署时同一个函数，表的所有者账号）把商品迁到三层区域（机场绑定只给迁移过的商品）；
  * - 平台在商品区域（①）里建一个机场和它的一个航站楼；
  * - 供应商画一块只包住机场和航站楼的机场区域（接送机类型，落在①里，满足「被①∪③完全覆盖」），把机场绑成「机场开始」「机场结束」，填中文简称。
+ * - 另建一个名称本身带航站楼（「…第2ターミナル」）、没登记航站楼的机场，用来测快捷入口按地点名称预填航站楼（监工 2026-11-20）。
  * 机场在①里：继承时 = 普通套餐价（没有加价），套餐行写「{简称}接机 + 8 小时包车」「8 小时包车 + {简称}送机」。
  */
 import { type APIRequestContext, expect } from "@playwright/test";
@@ -41,6 +42,8 @@ export interface CharterAirportWorld extends CharterWorld {
   airportName: string;
   /** 认出航站楼时的写法：「{主数据中文名} 第 1 航站楼」（航站楼离机场坐标约 280 米，在 500 米以内） */
   terminalLabel: string;
+  /** 名称本身带航站楼、没登记航站楼的另一个机场（离上面的机场约 4 公里，按坐标认出的是它自己）：地址搜索选它时航站楼预填「第2ターミナル」 */
+  namedTerminalAirport: { name: string; location: Point };
 }
 
 export async function charterAirportWorld(request: APIRequestContext): Promise<CharterAirportWorld> {
@@ -77,5 +80,14 @@ export async function charterAirportWorld(request: APIRequestContext): Promise<C
   });
   expect(bound.status(), await bound.text()).toBe(200);
   const airportName = `快捷入口机场${tag}`;
-  return { ...trip, shortName, airport: airportAt, terminal: terminalAt, airportName, terminalLabel: `${airportName} 第 1 航站楼` };
+  const namedAt = offset(trip.center, -0.02, 0.02);
+  const namedName = `预填航站楼机场${tag}第2ターミナル`;
+  let named = 0;
+  for (let attempt = 0; attempt < 8 && named !== 201; attempt += 1) {
+    const made = await request.post("/platform/v1/master/places", { headers: admin, data: { type: "airport", code: `R${randomLetters(2)}`, city_id: trip.cityId, name: { zh: namedName }, location: namedAt, flight_scope: "mixed" } });
+    named = made.status();
+    if (named !== 201) expect(named, `新建名称带航站楼的机场：${await made.text()}`).toBe(409);
+  }
+  expect(named, "建出了名称带航站楼的机场").toBe(201);
+  return { ...trip, namedTerminalAirport: { name: namedName, location: namedAt }, shortName, airport: airportAt, terminal: terminalAt, airportName, terminalLabel: `${airportName} 第 1 航站楼` };
 }

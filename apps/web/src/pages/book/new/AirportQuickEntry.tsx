@@ -4,6 +4,7 @@
  * 选中后这里按坐标认出是哪个机场、哪个航站楼（`GET /site/v1/airports/at`，和按两个坐标报价同一个认机场的规则），客人不用选机场、不用记三字码：
  * - 认出航站楼（离登记的航站楼 ≤ 500 米）：只显示「已识别」；
  * - 认出机场、没认出航站楼：机场登记了航站楼就下拉选填（不选 = 用客人选的地点），没登记就让客人自己填（可空）；
+ *   地点名本身带航站楼（「羽田空港第3ターミナル」「Terminal 1」「第1航站楼」「T2」）时预先选上编号对得上的那个 / 预先填上那段，客人可改；
  * - 认不出机场：说明一句，照常可以询价（价格按地点算，机场套餐由报价按坐标匹配），不卡住。
  * 「机场接机开始」的计时提示照旧；「改填其他地点」退出快捷入口。文案走 i18n key（M11-01）。
  */
@@ -13,6 +14,7 @@ import { type SiteAirportAt, type SiteAirportScenario, findSiteAirportAt } from 
 import { charterAirportText } from "../../../lib/charter-airport-copy.ts";
 import type { TripPoint } from "../../../lib/book-new.ts";
 import { displayName } from "../../../lib/master-display.ts";
+import { type NameTerminal, registeredTerminalNumber, replaceTerminalInName, terminalFromName } from "../../../lib/terminal-from-name.ts";
 
 export type AirportQuickMode = SiteAirportScenario | null;
 
@@ -60,12 +62,15 @@ export function AirportMatch({ scenario, label, value, onChange, onExit }: { sce
   const [lookup, setLookup] = useState<Lookup>({ state: "idle" });
   const [terminalId, setTerminalId] = useState("");
   const [terminalText, setTerminalText] = useState("");
+  // 从地点名称里认出、预先选上 / 填上的航站楼（客人可改）
+  const [prefilled, setPrefilled] = useState<NameTerminal | null>(null);
 
   useEffect(() => {
     if (samePoint(value, emitted.current)) return;
     setBase(value);
     setTerminalId("");
     setTerminalText("");
+    setPrefilled(null);
   }, [value]);
 
   useEffect(() => {
@@ -76,7 +81,11 @@ export function AirportMatch({ scenario, label, value, onChange, onExit }: { sce
     let alive = true;
     setLookup({ state: "loading" });
     findSiteAirportAt(base).then(
-      (result) => alive && setLookup({ state: "done", result }),
+      (result) => {
+        if (!alive) return;
+        setLookup({ state: "done", result });
+        prefillFromName(base, result);
+      },
       () => alive && setLookup({ state: "failed" }),
     );
     return () => {
@@ -88,6 +97,24 @@ export function AirportMatch({ scenario, label, value, onChange, onExit }: { sce
     emitted.current = point;
     onChange(point);
   };
+
+  /** 认出机场、没认出航站楼，而地点名本身带航站楼：登记了航站楼就选上编号对得上的唯一那个（交出它的坐标），没登记就填上那段原文（名称里已经有，地点不用改） */
+  function prefillFromName(place: TripPoint, result: SiteAirportAt): void {
+    const airport = result.airport;
+    if (airport === null || airport.terminals.some((terminal) => terminal.id === result.terminalId)) return;
+    const found = terminalFromName(place.name);
+    if (found === null) return;
+    if (airport.terminals.length === 0) {
+      setTerminalText(found.text);
+      setPrefilled(found);
+      return;
+    }
+    const matches = airport.terminals.filter((terminal) => registeredTerminalNumber(terminal) === found.number);
+    if (matches.length !== 1) return;
+    setTerminalId(matches[0]!.id);
+    setPrefilled(found);
+    emit(terminalPoint(airportName(airport), matches[0]!));
+  }
 
   const timing = scenario === "airport_start" ? <p className="field__hint">{charterAirportText("book.charter.airportTimingHint")}</p> : null;
   const exit = (
@@ -132,6 +159,7 @@ export function AirportMatch({ scenario, label, value, onChange, onExit }: { sce
                 </option>
               ))}
             </select>
+            {prefilled !== null && terminalId !== "" ? <p className="field__hint">{charterAirportText("book.charter.terminalFromName")}</p> : null}
           </>
         ) : (
           <>
@@ -148,11 +176,12 @@ export function AirportMatch({ scenario, label, value, onChange, onExit }: { sce
               onChange={(event) => {
                 setTerminalText(event.target.value);
                 const text = event.target.value.trim();
-                emit(text === "" ? base : { ...base, name: `${base.name} ${text}` });
+                if (prefilled !== null) emit({ ...base, name: replaceTerminalInName(base.name, prefilled, text) });
+                else emit(text === "" ? base : { ...base, name: `${base.name} ${text}` });
               }}
             />
             <p id={`${terminalTextId}-hint`} className="field__hint">
-              {charterAirportText("book.charter.terminalFreeHint")}
+              {charterAirportText(prefilled !== null && terminalText === prefilled.text ? "book.charter.terminalFromName" : "book.charter.terminalFreeHint")}
             </p>
           </>
         );

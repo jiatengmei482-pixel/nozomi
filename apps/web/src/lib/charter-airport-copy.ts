@@ -17,6 +17,7 @@ export const CHARTER_AIRPORT_COPY = {
   "book.charter.anyTerminal": "不指定航站楼",
   "book.charter.terminalOptional": "航站楼，选填",
   "book.charter.terminalFreeHint": "这个机场没有登记航站楼，知道的话写上（如 第 1 航站楼），不知道可以空着",
+  "book.charter.terminalFromName": "已按选中地点的名称填上航站楼，不对可以改",
   "book.charter.quickExit": "改填其他地点",
   "book.notes.flightHint": "如需司机知道航班号，请填在这里",
   "book.charter.airportTimingHint": "包车从预约的上车时间开始计时，没有免费等待。建议把上车时间定在航班落地后 60–90 分钟（国内航班约 60 分钟，国际航班约 90 分钟，留出入境和取行李的时间）；航班可能延误时请再多留一些，或下单前联系客服",
