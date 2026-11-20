@@ -14,6 +14,7 @@ import {
   type AdminIntegrationSecrets,
   type AppConfig,
   type EffectiveIntegrations,
+  ANTHROPIC_FIELD,
   GOOGLE_MAPS_FIELD,
   INTEGRATION_SECRET_KEYS,
   type IntegrationSecretKey,
@@ -29,6 +30,7 @@ import {
   type StripeKeys,
   adminStripeKeyIssues,
   envIntegrations,
+  anthropicKeyIssues,
   googleMapsKeyIssues,
   isIntegrationSecretKey,
   maskLast4,
@@ -196,11 +198,13 @@ export class IntegrationSecretCache {
       }
       secretValues.push(...Object.values(values));
       if (row.integration === "google_maps") opened.googleMaps = { apiKey: values[GOOGLE_MAPS_FIELD] ?? "" };
+      else if (row.integration === "anthropic") opened.anthropic = { apiKey: values[ANTHROPIC_FIELD] ?? "" };
       else opened.stripe = { secretKey: values[STRIPE_FIELDS.secretKey] ?? "", publishableKey: values[STRIPE_FIELDS.publishableKey] ?? "", webhookSecret: values[STRIPE_FIELDS.webhookSecret] ?? "" };
     }
     const effective = resolveIntegrations(this.#config, opened);
     if (effective.adminIgnored.googleMaps && admin.google_maps) admin.google_maps.problem = "NOT_ALLOWED_IN_ENV";
     if (effective.adminIgnored.stripe && admin.stripe) admin.stripe.problem = "NOT_ALLOWED_IN_ENV";
+    if (effective.adminIgnored.anthropic && admin.anthropic) admin.anthropic.problem = "NOT_ALLOWED_IN_ENV";
     if ((effective.adminIgnored.email || hostForbidden) && admin.email) admin.email.problem = "NOT_ALLOWED_IN_ENV";
     return { effective, admin, secretValues };
   }
@@ -245,12 +249,14 @@ function smtpSettingsOf(values: Record<string, string>): SmtpSettings {
 export interface IntegrationChecks {
   googleMaps(apiKey: string): Promise<IntegrationCheckResult>;
   stripe(config: NonNullable<EffectiveIntegrations["stripe"]["config"]>): Promise<IntegrationCheckResult>;
+  anthropic(apiKey: string): Promise<IntegrationCheckResult>;
 }
 
-const LABELS: Readonly<Record<IntegrationSecretKey, string>> = { google_maps: "谷歌地图", stripe: "Stripe 支付", email: "邮件发送" };
+const LABELS: Readonly<Record<IntegrationSecretKey, string>> = { google_maps: "谷歌地图", stripe: "Stripe 支付", email: "邮件发送", anthropic: "Claude（AI 行程解析）" };
 
 const FIELD_LABELS: Readonly<Record<IntegrationSecretKey, readonly { name: string; label: string }[]>> = {
   google_maps: [{ name: GOOGLE_MAPS_FIELD, label: "API 密钥" }],
+  anthropic: [{ name: ANTHROPIC_FIELD, label: "API 密钥（sk-ant- 开头）" }],
   stripe: [
     { name: STRIPE_FIELDS.secretKey, label: "Secret key（sk_ 开头）" },
     { name: STRIPE_FIELDS.publishableKey, label: "Publishable key（pk_ 开头）" },
@@ -281,6 +287,11 @@ const ISSUE_MESSAGES: Readonly<Record<SecretFieldIssue["reason"], string>> = {
   HOST_FORBIDDEN: "不能填内网地址：请填写邮件服务商给的公网主机名",
 };
 
+/** Claude 这一项的说法：前缀不是 Stripe 的那几个 */
+const ANTHROPIC_ISSUE_MESSAGES: Readonly<Partial<Record<SecretFieldIssue["reason"], string>>> = {
+  PREFIX: "开头不对：Claude 的 API 密钥以 sk-ant- 开头，请到 Anthropic Console 的 API Keys 页面复制",
+};
+
 /** 邮件发送这一项的说法：沿用 Stripe 的 `REQUIRED`、`FORMAT` 说法会让人以为要填别的东西。 */
 const EMAIL_ISSUE_MESSAGES: Readonly<Partial<Record<SecretFieldIssue["reason"], string>>> = {
   REQUIRED: "必填（七项要一起填）",
@@ -288,10 +299,10 @@ const EMAIL_ISSUE_MESSAGES: Readonly<Partial<Record<SecretFieldIssue["reason"], 
 };
 
 function issueMessage(key: IntegrationSecretKey, issue: SecretFieldIssue): string {
-  return (key === "email" ? EMAIL_ISSUE_MESSAGES[issue.reason] : undefined) ?? ISSUE_MESSAGES[issue.reason];
+  return (key === "email" ? EMAIL_ISSUE_MESSAGES[issue.reason] : key === "anthropic" ? ANTHROPIC_ISSUE_MESSAGES[issue.reason] : undefined) ?? ISSUE_MESSAGES[issue.reason];
 }
 
-/** 路径里的那一项：`google-maps` / `stripe` / `email`。 */
+/** 路径里的那一项：`google-maps` / `stripe` / `email` / `anthropic`。 */
 export function integrationKeyOf(params: unknown): IntegrationSecretKey {
   const raw = typeof params === "object" && params !== null ? (params as { key?: unknown }).key : undefined;
   const key = typeof raw === "string" ? raw.replaceAll("-", "_") : "";
@@ -304,15 +315,17 @@ function encryptionNotConfigured(): AppError {
 }
 
 function sourceOf(effective: EffectiveIntegrations, key: IntegrationSecretKey): SecretSource {
-  return key === "google_maps" ? effective.googleMaps.source : key === "stripe" ? effective.stripe.source : effective.email.source;
+  return key === "google_maps" ? effective.googleMaps.source : key === "stripe" ? effective.stripe.source : key === "anthropic" ? effective.anthropic.source : effective.email.source;
 }
 
-/** 生效的那一份里用来打码显示的值：谷歌地图是密钥本身，Stripe 是 secret key，邮件发送是密码。 */
+/** 生效的那一份里用来打码显示的值：谷歌地图、Claude 是密钥本身，Stripe 是 secret key，邮件发送是密码。 */
 function effectiveValue(effective: EffectiveIntegrations, key: IntegrationSecretKey): string | null {
+  if (key === "anthropic") return effective.anthropic.apiKey;
   return key === "google_maps" ? effective.googleMaps.apiKey : key === "stripe" ? (effective.stripe.config?.secretKey ?? null) : (effective.email.config?.password ?? null);
 }
 
 function envConfigured(config: AppConfig, key: IntegrationSecretKey): boolean {
+  if (key === "anthropic") return config.anthropicApiKey !== null;
   return key === "google_maps" ? config.googleMapsApiKey !== null : key === "stripe" ? config.stripe !== null : config.smtp !== null;
 }
 
@@ -383,7 +396,7 @@ export interface EmailInput {
   fromAddress: string;
 }
 
-export type SecretInput = { key: "google_maps"; apiKey: string } | { key: "stripe"; keys: StripeKeys } | { key: "email"; settings: EmailInput };
+export type SecretInput = { key: "google_maps"; apiKey: string } | { key: "anthropic"; apiKey: string } | { key: "stripe"; keys: StripeKeys } | { key: "email"; settings: EmailInput };
 
 /** 邮件发送的校验 + 去空白：写法的规则在 config，主机是不是内网的规则在 domain。不合格抛 400，不回显填的值。 */
 function cleanedEmailSettings(ctx: AppContext, input: EmailInput): SmtpSettings {
@@ -425,6 +438,10 @@ export async function saveIntegrationSecretValue(ctx: AppContext, principal: Pla
     const apiKey = cleaned(input.apiKey);
     issuesOrThrow(input.key, googleMapsKeyIssues(apiKey));
     values = { [GOOGLE_MAPS_FIELD]: apiKey };
+  } else if (input.key === "anthropic") {
+    const apiKey = cleaned(input.apiKey);
+    issuesOrThrow(input.key, anthropicKeyIssues(apiKey));
+    values = { [ANTHROPIC_FIELD]: apiKey };
   } else if (input.key === "stripe") {
     const keys = { secretKey: cleaned(input.keys.secretKey), publishableKey: cleaned(input.keys.publishableKey), webhookSecret: cleaned(input.keys.webhookSecret) };
     issuesOrThrow(input.key, adminStripeKeyIssues(ctx.config.appEnv, keys));
@@ -497,7 +514,7 @@ async function checkEmail(ctx: AppContext, principal: PlatformPrincipal, setting
 
 type EmailCheckResult = { ok: true } | { ok: false; code: SmtpFailureCode | "MESSAGE_INVALID"; message: string };
 
-const TEST_NOT_CONFIGURED: Readonly<Record<IntegrationSecretKey, string>> = { google_maps: "谷歌地图 还没有配置，先填写密钥再测试", stripe: "Stripe 还没有配置，先填写密钥再测试", email: "邮件发送还没有配置，先填写再测试" };
+const TEST_NOT_CONFIGURED: Readonly<Record<IntegrationSecretKey, string>> = { google_maps: "谷歌地图 还没有配置，先填写密钥再测试", stripe: "Stripe 还没有配置，先填写密钥再测试", email: "邮件发送还没有配置，先填写再测试", anthropic: "Claude 还没有配置，先填写密钥再测试" };
 
 /** 「测试一下」：用现在生效的那一份（不论来自后台还是配置文件）调一次对方最便宜的只读接口；邮件发送是发一封测试邮件给自己。 */
 export async function testIntegrationSecret(ctx: AppContext, principal: PlatformPrincipal, key: IntegrationSecretKey, ip: string): Promise<Record<string, unknown>> {
@@ -507,7 +524,8 @@ export async function testIntegrationSecret(ctx: AppContext, principal: Platform
   const mapsKey = effective.googleMaps.apiKey;
   const stripe = effective.stripe.config;
   const smtp = effective.email.config;
-  if (key === "google_maps" ? mapsKey === null : key === "stripe" ? stripe === null : smtp === null) {
+  const anthropicKey = effective.anthropic.apiKey;
+  if (key === "google_maps" ? mapsKey === null : key === "stripe" ? stripe === null : key === "anthropic" ? anthropicKey === null : smtp === null) {
     throw new AppError(409, "INTEGRATION_NOT_CONFIGURED", TEST_NOT_CONFIGURED[key]);
   }
   const retryAfter = ctx.integrations.claimTest(key, ctx.now());
@@ -518,7 +536,9 @@ export async function testIntegrationSecret(ctx: AppContext, principal: Platform
       ? await ctx.integrationChecks.googleMaps(mapsKey as string)
       : key === "stripe"
         ? await ctx.integrationChecks.stripe(stripe as NonNullable<typeof stripe>)
-        : await checkEmail(ctx, principal, smtp as SmtpSettings);
+        : key === "anthropic"
+          ? await ctx.integrationChecks.anthropic(anthropicKey as string)
+          : await checkEmail(ctx, principal, smtp as SmtpSettings);
   const now = ctx.now();
   await withPlatformTx(ctx.pool, (db) =>
     insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), {

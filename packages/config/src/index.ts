@@ -11,7 +11,7 @@
  *   服务进程的环境里不应该有它。两者不能是同一个账号。
  */
 import { z } from "zod";
-import { type EffectiveIntegrations, SECRET_SOURCE_LABELS, SMTP_FIELDS, STRIPE_FIELDS, type SmtpSettings, envIntegrations, isSmtpEncryption, maskLast4, smtpSettingsIssues, stripeKeyIssues, stripeModeOf } from "./integration-secrets.ts";
+import { type EffectiveIntegrations, SECRET_SOURCE_LABELS, anthropicKeyIssues, SMTP_FIELDS, STRIPE_FIELDS, type SmtpSettings, envIntegrations, isSmtpEncryption, maskLast4, smtpSettingsIssues, stripeKeyIssues, stripeModeOf } from "./integration-secrets.ts";
 
 export * from "./integration-secrets.ts";
 
@@ -190,6 +190,10 @@ const rawSchema = z.object({
   STRIPE_WEBHOOK_SECRET: optionalString,
 
   GOOGLE_MAPS_API_KEY: optionalString,
+  // Claude（Anthropic API，AI 行程解析，ADR 0104 第六节）的后备密钥；推荐在运营后台填写，后台优先
+  ANTHROPIC_API_KEY: optionalString,
+  // 「测试一下」连的 Anthropic 模型列表地址：只给本机和 CI 的测试用（同 GOOGLE_*_URL）
+  ANTHROPIC_MODELS_URL: optionalString,
   // 路线预估每天（东京时间）最多调用谷歌 Routes API 几次（ADR 0042，费用控制；不是密钥）。默认 1000，0 = 不调用（里程 + 时长的商品暂时无法报价）
   GOOGLE_ROUTES_DAILY_LIMIT: z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), z.coerce.number().int().min(0).max(1_000_000).default(1_000)),
   // 包车经停顺序建议（M9P-20 P2，ADR 0096 第三节）：优化调用（Compute Routes Pro）单设每日上限，按发给谷歌的调用次数计；成立阈值（省的米数、行驶分钟）
@@ -297,6 +301,8 @@ export interface IntegrationEndpoints {
   googleGeocodeUrl: string;
   /** 谷歌 Maps Static API 的地址（官网路线小地图，M8-10，ADR 0072） */
   googleStaticMapsUrl: string;
+  /** Anthropic 的模型列表地址（「测试一下」Claude 密钥用，ADR 0104 第六节） */
+  anthropicModelsUrl: string;
   /** Stripe 接口的主机；null = Stripe 官方地址 */
   stripeApi: { host: string; port: number; protocol: "http" | "https" } | null;
 }
@@ -316,6 +322,8 @@ export interface AppConfig {
   dataEncryptionKey: string | null;
   stripe: StripeConfig | null;
   googleMapsApiKey: string | null;
+  /** Claude（Anthropic API，ADR 0104）：服务器配置文件里的后备密钥；没配时为 null（还可以在运营后台填写） */
+  anthropicApiKey: string | null;
   /** 邮件发送（ADR 0048）：服务器配置文件里的 SMTP；没配时为 null（还可以在运营后台填写） */
   smtp: SmtpSettings | null;
   /** 路线预估（ADR 0042）：每天（东京时间）最多调用谷歌 Routes API 几次；0 = 不调用 */
@@ -449,6 +457,7 @@ const DEFAULT_GOOGLE_GEOCODE_URL = "https://geocode.googleapis.com/v4beta/geocod
 const DEFAULT_GOOGLE_PLACES_AUTOCOMPLETE_URL = "https://places.googleapis.com/v1/places:autocomplete";
 const DEFAULT_GOOGLE_PLACE_DETAILS_URL = "https://places.googleapis.com/v1/places";
 const DEFAULT_GOOGLE_STATIC_MAPS_URL = "https://maps.googleapis.com/maps/api/staticmap";
+const DEFAULT_ANTHROPIC_MODELS_URL = "https://api.anthropic.com/v1/models";
 
 /**
  * 「测试一下」和收款连到哪里（ADR 0041）。正式的地址是默认值；只有 local / ci 可以改到本机的假服务器上（端到端测试用），
@@ -459,7 +468,7 @@ function parseIntegrationEndpoints(env: z.output<typeof rawSchema>, issues: stri
   const routesUrl = env.GOOGLE_MAPS_ROUTES_URL ?? DEFAULT_GOOGLE_MAPS_ROUTES_URL;
   if (routesUrl !== DEFAULT_GOOGLE_MAPS_ROUTES_URL && !local) issues.push(`${env.APP_ENV} 环境不能修改 GOOGLE_MAPS_ROUTES_URL（只给本机和 CI 的测试用）`);
   if (!URL.canParse(routesUrl)) issues.push("GOOGLE_MAPS_ROUTES_URL 不是合法的网址");
-  const fixed = (name: "GOOGLE_PLACES_SEARCH_URL" | "GOOGLE_PLACES_AUTOCOMPLETE_URL" | "GOOGLE_PLACE_DETAILS_URL" | "GOOGLE_GEOCODE_URL" | "GOOGLE_STATIC_MAPS_URL", fallback: string): string => {
+  const fixed = (name: "GOOGLE_PLACES_SEARCH_URL" | "GOOGLE_PLACES_AUTOCOMPLETE_URL" | "GOOGLE_PLACE_DETAILS_URL" | "GOOGLE_GEOCODE_URL" | "GOOGLE_STATIC_MAPS_URL" | "ANTHROPIC_MODELS_URL", fallback: string): string => {
     const value = env[name] ?? fallback;
     if (value !== fallback && !local) issues.push(`${env.APP_ENV} 环境不能修改 ${name}（只给本机和 CI 的测试用）`);
     if (!URL.canParse(value)) issues.push(`${name} 不是合法的网址`);
@@ -470,6 +479,7 @@ function parseIntegrationEndpoints(env: z.output<typeof rawSchema>, issues: stri
   const autocompleteUrl = fixed("GOOGLE_PLACES_AUTOCOMPLETE_URL", DEFAULT_GOOGLE_PLACES_AUTOCOMPLETE_URL);
   const detailsUrl = fixed("GOOGLE_PLACE_DETAILS_URL", DEFAULT_GOOGLE_PLACE_DETAILS_URL);
   const staticMapsUrl = fixed("GOOGLE_STATIC_MAPS_URL", DEFAULT_GOOGLE_STATIC_MAPS_URL);
+  const anthropicModelsUrl = fixed("ANTHROPIC_MODELS_URL", DEFAULT_ANTHROPIC_MODELS_URL);
   let stripeApi: IntegrationEndpoints["stripeApi"] = null;
   if (env.STRIPE_API_URL !== undefined) {
     if (!local) issues.push(`${env.APP_ENV} 环境不能配置 STRIPE_API_URL（只给本机和 CI 的测试用）`);
@@ -480,7 +490,7 @@ function parseIntegrationEndpoints(env: z.output<typeof rawSchema>, issues: stri
       stripeApi = { host: url.hostname, port: url.port === "" ? (protocol === "https" ? 443 : 80) : Number(url.port), protocol };
     }
   }
-  return { googleMapsRoutesUrl: routesUrl, googlePlacesSearchUrl: placesSearchUrl, googlePlacesAutocompleteUrl: autocompleteUrl, googlePlaceDetailsUrl: detailsUrl, googleGeocodeUrl: geocodeUrl, googleStaticMapsUrl: staticMapsUrl, stripeApi };
+  return { googleMapsRoutesUrl: routesUrl, googlePlacesSearchUrl: placesSearchUrl, googlePlacesAutocompleteUrl: autocompleteUrl, googlePlaceDetailsUrl: detailsUrl, googleGeocodeUrl: geocodeUrl, googleStaticMapsUrl: staticMapsUrl, anthropicModelsUrl, stripeApi };
 }
 
 /** 验收通道口令的长度（和 @nozomi/domain 的 `QA_ACCEPTANCE_RULES` 一致；config 不依赖 domain，单元测试核对两边一致）。 */
@@ -522,6 +532,8 @@ export function loadConfig(source: Record<string, string | undefined> = process.
   const mapTiles = parseMapTiles(env, issues);
   // 正式环境不再要求配置文件里有谷歌地图和 Stripe（ADR 0041）：可以在运营后台填写，两处都没有时 /health 显示「未配置」
   const googleMapsApiKey = env.GOOGLE_MAPS_API_KEY ?? null;
+  const anthropicApiKey = env.ANTHROPIC_API_KEY ?? null;
+  if (anthropicApiKey !== null && anthropicKeyIssues(anthropicApiKey).length > 0) issues.push("ANTHROPIC_API_KEY 的写法不对：应以 sk-ant- 开头，只有字母、数字、-、_");
   const integrationEndpoints = parseIntegrationEndpoints(env, issues);
   const dataEncryptionKey = env.DATA_ENCRYPTION_KEY ?? null;
   if (dataEncryptionKey === null && env.APP_ENV === "production") {
@@ -555,6 +567,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     dataEncryptionKey,
     stripe,
     googleMapsApiKey,
+    anthropicApiKey,
     smtp,
     routes: { dailyLimit: env.GOOGLE_ROUTES_DAILY_LIMIT },
     orderSuggestion: { dailyLimit: env.GOOGLE_ROUTES_OPTIMIZE_DAILY_LIMIT, minSavedMeters: env.CHARTER_ORDER_SUGGEST_MIN_METERS, minSavedMinutes: env.CHARTER_ORDER_SUGGEST_MIN_MINUTES },
@@ -608,7 +621,7 @@ export function loadMigrationConfig(source: Record<string, string | undefined> =
 export type IntegrationState = "configured" | "missing";
 
 export interface IntegrationStatus {
-  key: "database" | "auth" | "dataEncryption" | "stripe" | "googleMaps" | "email" | "fx";
+  key: "database" | "auth" | "dataEncryption" | "stripe" | "googleMaps" | "email" | "anthropic" | "fx";
   label: string;
   state: IntegrationState;
   detail: string;
@@ -628,6 +641,7 @@ export function integrationStatus(config: AppConfig, options: IntegrationStatusO
   const stripe = effective.stripe.config;
   const mapsKey = effective.googleMaps.apiKey;
   const smtp = effective.email.config;
+  const anthropicKey = effective.anthropic.apiKey;
   const origin = (source: EffectiveIntegrations["stripe"]["source"], secret: string): string => `${SECRET_SOURCE_LABELS[source]}${hints ? `（${maskLast4(secret)}）` : ""}`;
   return [
     { key: "database", label: "数据库", state: "configured", detail: maskUrl(config.databaseUrl) },
@@ -644,6 +658,9 @@ export function integrationStatus(config: AppConfig, options: IntegrationStatusO
     smtp
       ? { key: "email", label: "邮件发送", state: "configured", detail: `${hints ? `${smtp.host}:${smtp.port} · ` : ""}${origin(effective.email.source, smtp.password)}` }
       : { key: "email", label: "邮件发送", state: "missing", detail: "未配置，不能发邮件" },
+    anthropicKey
+      ? { key: "anthropic", label: "Claude（AI 行程解析）", state: "configured", detail: origin(effective.anthropic.source, anthropicKey) }
+      : { key: "anthropic", label: "Claude（AI 行程解析）", state: "missing", detail: "未配置，AI 行程解析不可用（客人照常手填行程）" },
     { key: "fx", label: "汇率数据源", state: "configured", detail: `${new URL(config.fx.sourceUrl).host} · 缓冲 ${basisPointsToPercentText(config.fx.bufferBp)}%` },
   ];
 }

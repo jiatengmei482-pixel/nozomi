@@ -142,7 +142,7 @@ test("第三方密钥（ADR 0041、0048）：看、填写 / 更换、清空、�
   assert.deepEqual(props(list), [...top].sort());
   assert.equal(ref(list?.properties?.["items"]?.items), "IntegrationSecretItem");
   const one = `${INTEGRATION_SECRETS_PATH}/{key}`;
-  assert.deepEqual(spec.components.parameters["IntegrationSecretKeyPath"] && (spec.components.parameters["IntegrationSecretKeyPath"] as { schema?: Schema }).schema?.enum, ["google-maps", "stripe", "email"]);
+  assert.deepEqual(spec.components.parameters["IntegrationSecretKeyPath"] && (spec.components.parameters["IntegrationSecretKeyPath"] as { schema?: Schema }).schema?.enum, ["google-maps", "stripe", "email", "anthropic"]);
   const save = op("put", one);
   assert.deepEqual(props(response(save, "200")), ["action", "item"]);
   const bodies = ((request(save) as { oneOf?: Schema[] })?.oneOf ?? []).map((schema) => props(schema));
@@ -151,5 +151,5 @@ test("第三方密钥（ADR 0041、0048）：看、填写 / 更换、清空、�
   const result: (keyof IntegrationTestResult)[] = ["key", "ok", "code", "message", "source", "source_label", "tested_at"];
   assert.deepEqual(props(response(op("post", `${one}/test`), "200")), [...result].sort());
   assert.deepEqual(schemas["SecretSource"]?.enum, ["admin", "env", "none"]);
-  assert.deepEqual(schemas["IntegrationSecretKey"]?.enum, ["google_maps", "stripe", "email"]);
+  assert.deepEqual(schemas["IntegrationSecretKey"]?.enum, ["google_maps", "stripe", "email", "anthropic"]);
 });

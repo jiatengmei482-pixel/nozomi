@@ -106,6 +106,16 @@ export function startFakeStripe(port = 0): Promise<FakeService> {
   return startFake("", { body: stripeBalanceBody() }, port);
 }
 
+/** 假 Anthropic 的模型列表（`GET /v1/models`，Claude 密钥的「测试一下」，ADR 0104 第六节）；配置用的地址是 `ANTHROPIC_MODELS_URL` */
+export function startFakeAnthropic(port = 0): Promise<FakeService> {
+  return startFake("/v1/models", { body: { data: [{ type: "model", id: "claude-sonnet-5-5" }], has_more: true } }, port);
+}
+
+/** Anthropic 的错误应答（`error.type`） */
+export function anthropicErrorBody(type: string): unknown {
+  return { type: "error", error: { type, message: "error from fake anthropic" } };
+}
+
 /** 谷歌 Places Text Search 的一个地点。 */
 export function googlePlace(id: string, name: string, lat: number, lng: number, address: string): unknown {
   return { id, displayName: { text: name, languageCode: "ja" }, formattedAddress: address, location: { latitude: lat, longitude: lng } };

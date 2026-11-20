@@ -75,6 +75,7 @@
 | `STRIPE_PUBLISHABLE_KEY` | Stripe 的前台密钥 | 你填。同一页面的 Publishable key。测试环境 `pk_test_` 开头，正式环境 `pk_live_` 开头 |
 | `STRIPE_WEBHOOK_SECRET` | Stripe 通知的验证密钥 | 你填。Stripe 控制台 → Developers → Webhooks → Add endpoint，网址填 `https://你的域名/webhooks/stripe`，要接收的事件选这 10 个：`payment_intent.succeeded`、`payment_intent.payment_failed`、`payment_intent.processing`、`payment_intent.requires_action`、`payment_intent.canceled`、`charge.refunded`、`charge.dispute.created`、`refund.updated`、`refund.failed`、`charge.refund.updated`（后三个是退款的结果，ADR 0029） → 建好后点开，复制 Signing secret（`whsec_` 开头）。要等这个环境第一次部署成功、域名能打开之后再建 |
 | `GOOGLE_MAPS_API_KEY` | 谷歌地图密钥（算里程和时长、搜地址） | 你填（也可以不写在这里、改在运营后台填，见表格下面）。Google Cloud Console → 新建项目 → 启用 Routes API、Places API (New) 和 Geocoding API → 凭据 → 创建 API 密钥，并限制只能调用这三个 API（官网地址搜索用 Places API (New)，地图点选后查地址用 Geocoding API，ADR 0044） |
+| `ANTHROPIC_API_KEY` | Claude（Anthropic API）的密钥，AI 一句话行程解析用（ADR 0104） | 可以不填，推荐在运营后台填（见下面「Claude 也在运营后台填」）。以 `sk-ant-` 开头。测试站、正式站各用一把 |
 
 邮件发送（通用 SMTP，ADR 0048）**推荐在运营后台填**，也可以写在这里（七项要么都填、要么都不填，只有 `SMTP_PASSWORD` 是密钥）：
 
@@ -137,6 +138,14 @@
 - 后台填的密钥用数据加密密钥（`DATA_ENCRYPTION_KEY`）加密后存在数据库里；页面上永远只显示末 4 位，谁都看不到原文。只有超级管理员能填、能换、能清空、能测试，每次操作都记在审计日志里（只记末 4 位）。
 - 规则和 `.env` 一样：Stripe 三项一起填；测试环境只收测试密钥（`sk_test_`、`pk_test_` 开头），正式环境只收正式密钥（`sk_live_`、`pk_live_` 开头）。
 - 「测试一下」：谷歌地图会调用一次 Routes API（最便宜的一档，费用极少）；Stripe 只查一次余额（不产生费用）。结果显示「可用」或「不可用」和原因（密钥无效、没开通 API、网络不通等）。
+
+**Claude 也在运营后台填（推荐，ADR 0104 第六节）**：超级管理员登录运营后台 → 系统设置 → 系统状态 → 第三方密钥 → 「Claude（AI 行程解析）」，粘贴 API 密钥，保存后点「测试一下」。
+
+- 密钥在 Anthropic Console（Anthropic 的开发者后台）→ API Keys → Create Key 生成，以 `sk-ant-` 开头。先在 Console 里绑卡、充值，并在 Limits 里设每月花费上限（建议 50 美元）。
+- **测试站、正式站各建一把**，分别填进两边的后台，这样能分开看用量、分开停用。
+- 优先顺序、加密保存、立即生效、权限和审计都和谷歌地图一样；页面上只显示末 4 位。
+- 「测试一下」只查一次模型列表，不让 AI 生成内容，**不产生费用**。结果显示「可用」或原因（密钥无效、权限不够、请求太频繁、对方出错、连不上等）。
+- 没填时 AI 行程解析不可用，客人照常手填行程，其他功能不受影响。
 
 **邮件发送也在运营后台填（推荐）**：超级管理员登录运营后台 → 系统设置 → 系统状态 → 第三方密钥 → 「邮件发送」，填写主机、端口、加密方式、用户名、密码、发件人名称和地址，保存后点「测试一下」。
 

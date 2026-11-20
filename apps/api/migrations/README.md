@@ -117,3 +117,4 @@
 | `0560_itinerary_map.sql` | 包车行程地图（M9P-20 P1，ADR 0096）：静态地图图片缓存 `static_map_images` 的键多认一种有序多点键（`…\|i1:点>点>…`，2–12 个点）；新表 `itinerary_route_polylines`（一次带中间点的折线，7 天，平台表）。不含任何数据 |
 | `0570_route_order_suggestions.sql` | 包车经停顺序建议（M9P-20 P2，ADR 0096 第三节）：建议顺序缓存 `route_order_suggestions`（段内可动经停排序后的键，24 小时；没有路线 1 天）、优化调用每日计数 `route_optimize_api_usage`。都是平台表，不含任何数据 |
 | `0600_trip_quote.sql` | AI 行程报价 P1（M9T-02，ADR 0101 第二节）：平台表 `trips`、`trip_plans`、`trip_segments`、`trip_fees`（行程单、方案、服务段、跨段费用，只授权平台角色）和租户表 `trip_rule_configs`（跨段规则配置，行级安全，平台只读）。只建结构，不含任何数据；编号按监工要求从 0600 起 |
+| `0660_integration_secrets_anthropic.sql` | 运营后台填写 Claude 密钥（M9T-31，ADR 0104 第六节）：`integration_secrets` 的取值多一项 `anthropic`。只放宽约束，不含任何数据 |

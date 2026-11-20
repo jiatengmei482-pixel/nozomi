@@ -3,7 +3,8 @@
  * - 只有超级管理员能填写、更换、清空、测试；其他内置角色、自建角色（勾不了这一格）、没完成两步验证的会话都是 403；技术只看得到状态和来源。
  * - 接口返回、错误信息、审计、日志里都没有原文（逐个值比对）；库里存的是密文。
  * - 保存后不重启立即生效（/health、收款的通知验签、测试一下都用新值）；清空后回落到服务器配置文件；另一个进程最迟一个缓存周期后用上。
- * - 「测试一下」走本机的假谷歌、假 Stripe：可用和各种不可用。
+ * - 「测试一下」走本机的假谷歌、假 Stripe、假 Anthropic：可用和各种不可用。
+ * - Claude（M9T-31，ADR 0104 第六节）：同谷歌地图一样一个字段，`sk-ant-` 开头；配置文件这一侧没有。
  * - 租户拿不到任何相关信息。
  * 这里的「密钥」都是测试里现场拼的假值。服务器配置文件这一侧：谷歌地图有（假值），Stripe 没有。
  */
@@ -22,7 +23,7 @@ import { INTEGRATION_TEST_INTERVAL_MS, saveIntegrationSecretValue } from "./serv
 import type { PlatformPrincipal } from "./services/platform-auth.ts";
 import { type ApiResponse, type HttpMethod, TEST_PASSWORD, type TenantFixture, type TestApi, createTestApi, testContext } from "./testing/api.ts";
 import { FAKE_SECRETS, testEnv } from "./testing/fixtures.ts";
-import { type FakeService, googleErrorBody, startFakeGoogleRoutes, startFakeStripe, stripeBalanceBody } from "./testing/fake-integrations.ts";
+import { type FakeService, anthropicErrorBody, googleErrorBody, startFakeAnthropic, startFakeGoogleRoutes, startFakeStripe, stripeBalanceBody } from "./testing/fake-integrations.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
 import { sleep } from "./testing/process.ts";
 
@@ -30,15 +31,18 @@ const fakeKey = (prefix: string): string => `${prefix}${randomBytes(14).toString
 const MAPS_KEY = fakeKey("AIza");
 const MAPS_KEY_2 = fakeKey("AIza");
 const STRIPE = { secret_key: fakeKey("sk_test_"), publishable_key: fakeKey("pk_test_"), webhook_secret: fakeKey("whsec_") };
+const CLAUDE_KEY = fakeKey("sk-ant-api03-");
+const CLAUDE_KEY_2 = fakeKey("sk-ant-api03-");
 const STRIPE_LIVE = { secret_key: fakeKey("sk_live_"), publishable_key: fakeKey("pk_live_"), webhook_secret: fakeKey("whsec_") };
 /** 不能出现在任何返回、审计、日志里的原文：后台填的、配置文件里的 */
-const SECRETS = [MAPS_KEY, MAPS_KEY_2, ...Object.values(STRIPE), ...Object.values(STRIPE_LIVE), FAKE_SECRETS.googleMapsApiKey];
+const SECRETS = [MAPS_KEY, MAPS_KEY_2, CLAUDE_KEY, CLAUDE_KEY_2, ...Object.values(STRIPE), ...Object.values(STRIPE_LIVE), FAKE_SECRETS.googleMapsApiKey];
 const ENV = { STRIPE_SECRET_KEY: "", STRIPE_PUBLISHABLE_KEY: "", STRIPE_WEBHOOK_SECRET: "" };
 const last4 = (value: string): string => `••••${value.slice(-4)}`;
 
 let api: TestApi;
 let google: FakeService;
 let stripe: FakeService;
+let anthropic: FakeService;
 let root: string;
 const tokens = new Map<PlatformRole, string>();
 let tenant: TenantFixture;
@@ -83,7 +87,7 @@ const check = (key: string, token = root): Promise<ApiResponse> => {
   return checkNow(key, token);
 };
 const itemOf = (res: ApiResponse, key: string): any => res.body.items.find((item: any) => item.key === key);
-const healthState = async (app: FastifyInstance | null, key: "googleMaps" | "stripe"): Promise<string> => {
+const healthState = async (app: FastifyInstance | null, key: "googleMaps" | "stripe" | "anthropic"): Promise<string> => {
   const res = app === null ? await api.call("GET", "/health") : await app.inject({ method: "GET", url: "/health" }).then((r) => ({ body: r.json() }));
   return res.body.integrations.find((item: any) => item.key === key).state;
 };
@@ -101,7 +105,8 @@ async function addStaff(email: string, role: string): Promise<string> {
 before(async () => {
   google = await startFakeGoogleRoutes();
   stripe = await startFakeStripe();
-  api = await createTestApi({ env: { ...ENV, GOOGLE_MAPS_ROUTES_URL: google.url, STRIPE_API_URL: stripe.origin }, integrationSecretsTtlMs: 0 });
+  anthropic = await startFakeAnthropic();
+  api = await createTestApi({ env: { ...ENV, GOOGLE_MAPS_ROUTES_URL: google.url, STRIPE_API_URL: stripe.origin, ANTHROPIC_MODELS_URL: anthropic.url }, integrationSecretsTtlMs: 0 });
   root = await api.superAdminToken("root@platform.test");
   tokens.set("super_admin", root);
   for (const { key } of PLATFORM_ROLES) if (key !== "super_admin") tokens.set(key, await addStaff(`${key.replace("_", "-")}@platform.test`, key));
@@ -111,6 +116,7 @@ after(async () => {
   await api.close();
   await google.close();
   await stripe.close();
+  await anthropic.close();
 });
 
 test("只有超级管理员能填写、更换、清空、测试：其他 9 个内置角色一律 403；有 integration.read 的技术只看得到状态和来源", async () => {
@@ -130,7 +136,7 @@ test("只有超级管理员能填写、更换、清空、测试：其他 9 个�
     assert.equal(item.masked, null, item.key);
     assert.equal(item.admin, null, item.key);
   }
-  assert.deepEqual(tech.body.items.map((i: any) => [i.key, i.state, i.source]), [["google_maps", "configured", "env"], ["stripe", "missing", "none"], ["email", "configured", "env"]]);
+  assert.deepEqual(tech.body.items.map((i: any) => [i.key, i.state, i.source]), [["google_maps", "configured", "env"], ["stripe", "missing", "none"], ["email", "configured", "env"], ["anthropic", "missing", "none"]]);
   assert.equal((await listSecrets(tokens.get("operations")!)).status, 403, "没有 integration.read 的看不到");
   const own = await listSecrets();
   assert.equal(own.body.can_manage, true);
@@ -373,6 +379,57 @@ test("租户拿不到任何相关信息：平台接口 401，租户一侧没有�
     (err: any) => err.code === "42501",
   );
   await clear("google-maps");
+});
+
+test("Claude（AI 行程解析）：只有超级管理员能填；填写 → 打码、密文、立即生效（/health、测试一下用新值，只查模型列表）→ 更换 → 清空回到未配置；sk-ant- 以外的开头 400；审计只有末 4 位", async () => {
+  anthropic.requests.length = 0;
+  const before = itemOf(await listSecrets(), "anthropic");
+  assert.deepEqual([before.label, before.state, before.source, before.env_configured, before.fields], ["Claude（AI 行程解析）", "missing", "none", false, [{ name: "api_key", label: "API 密钥（sk-ant- 开头）" }]]);
+  assert.equal(await healthState(null, "anthropic"), "missing");
+  const notConfigured = await check("anthropic");
+  assert.deepEqual([notConfigured.status, notConfigured.body.error.code], [409, "INTEGRATION_NOT_CONFIGURED"]);
+
+  for (const role of ["operations", "tech", "finance"] as const) {
+    const res = await save("anthropic", { api_key: CLAUDE_KEY }, tokens.get(role));
+    assert.equal(res.status, 403, `${role} 不能填`);
+  }
+  const wrong = await save("anthropic", { api_key: fakeKey("sk-proj-") });
+  assert.equal(wrong.status, 400);
+  assert.deepEqual(wrong.body.error.details.issues.map((issue: any) => [issue.path, issue.reason]), [["/api_key", "PREFIX"]]);
+  assert.match(wrong.body.error.details.issues[0].message, /sk-ant-/);
+
+  const saved = await save("anthropic", { api_key: ` ${CLAUDE_KEY}\n` });
+  assert.equal(saved.status, 200, saved.text);
+  assert.deepEqual([saved.body.action, saved.body.item.state, saved.body.item.source, saved.body.item.masked], ["set", "configured", "admin", last4(CLAUDE_KEY)]);
+  const row = (await api.db.owner.query("select sealed, hints from integration_secrets where integration = 'anthropic'")).rows[0];
+  assert.ok(!row.sealed.includes(CLAUDE_KEY));
+  assert.deepEqual(row.hints, { api_key: last4(CLAUDE_KEY) });
+  assert.equal(await healthState(null, "anthropic"), "configured");
+
+  const tested = await check("anthropic");
+  assert.deepEqual([tested.status, tested.body.ok, tested.body.message, tested.body.source], [200, true, "Claude（AI 行程解析）可用", "admin"]);
+  const request = anthropic.requests.at(-1);
+  assert.deepEqual([request?.method, request?.path, request?.headers["x-api-key"]], ["GET", "/v1/models?limit=1", CLAUDE_KEY], "只查模型列表，用后台刚填的密钥");
+
+  anthropic.respond({ status: 401, body: anthropicErrorBody("authentication_error") });
+  const invalid = await check("anthropic");
+  assert.deepEqual([invalid.body.ok, invalid.body.code], [false, "KEY_INVALID"]);
+  anthropic.respond({ body: { data: [] } });
+
+  const replaced = await save("anthropic", { api_key: CLAUDE_KEY_2 });
+  assert.deepEqual([replaced.body.action, replaced.body.item.masked], ["replace", last4(CLAUDE_KEY_2)]);
+  await check("anthropic");
+  assert.equal(anthropic.requests.at(-1)?.headers["x-api-key"], CLAUDE_KEY_2);
+
+  const cleared = await clear("anthropic");
+  assert.deepEqual([cleared.status, cleared.body.item.source, cleared.body.item.state], [200, "none", "missing"]);
+  assert.equal(await healthState(null, "anthropic"), "missing");
+
+  const rows = (await auditRows()).filter((r) => r.resource_id === "anthropic");
+  assert.deepEqual(rows.map((r) => r.action), ["set", "test", "test", "replace", "test", "clear"]);
+  assert.deepEqual([rows[0].before, rows[0].after], [null, { hints: { api_key: last4(CLAUDE_KEY) } }]);
+  assert.deepEqual(rows[2].after, { source: "admin", ok: false, code: "KEY_INVALID" });
+  for (const r of rows) assertNoSecret([r.before, r.after], `审计 ${r.action}`);
 });
 
 test("日志里没有任何一把密钥的原文（含测试一下失败、校验不过的请求）", () => {
