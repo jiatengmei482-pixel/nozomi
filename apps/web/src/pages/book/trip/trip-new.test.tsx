@@ -11,7 +11,7 @@
  */
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { screen, waitFor, within, render } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within, render } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router";
 import { App } from "../../../App.tsx";
@@ -754,44 +754,74 @@ test("AI 一句话：parse-status 说不可用或问不到时不显示输入框"
   assert.equal(screen.queryByLabelText("行程描述"), null);
 });
 
-test("AI 一句话：没写 / 超过 500 字不发请求；没看出行程、太频繁、额度用完写在输入框下面且表单不动；整理中按钮变「正在整理…」、输入框只读；没配密钥整块收起；不可用时不显示", { timeout: 30_000 }, async () => {
+test("AI 一句话：可用时表单上方有输入框、字数、「帮我填好」和一行小字", { timeout: 30_000 }, async () => {
+  wideScreen();
+  open({ parseStatus: AI_ON });
+  assert.ok(await screen.findByRole("heading", { name: "一句话描述你的行程", level: 2 }, SLOW));
+  assert.ok(screen.getByText("0 / 500 字"));
+  assert.ok(screen.getByRole("button", { name: "帮我填好" }));
+  assert.ok(screen.getByText("由 AI 整理，价格由系统按规则计算；请勿填写姓名、电话等个人信息"));
+});
+
+/** 打开页面、等输入框出来；返回输入框 */
+async function aiBox(parse?: Route): Promise<{ box: HTMLTextAreaElement; calls: ApiCall[] }> {
+  const calls = open({ parseStatus: AI_ON, ...(parse === undefined ? {} : { parse }) });
+  await screen.findByRole("heading", { name: "一句话描述你的行程", level: 2 }, SLOW);
+  return { box: screen.getByLabelText("行程描述") as HTMLTextAreaElement, calls };
+}
+
+const writeBox = (box: HTMLTextAreaElement, text: string): void => {
+  fireEvent.change(box, { target: { value: text } });
+};
+
+test("AI 一句话：没写时点「帮我填好」提示先写一句，不发请求", { timeout: 30_000 }, async () => {
+  wideScreen();
+  const { calls } = await aiBox();
+  fireEvent.click(screen.getByRole("button", { name: "帮我填好" }));
+  assert.ok(await screen.findByText("请先写一句行程"));
+  assert.equal(posts(calls, "/site/v1/trips/parse").length, 0);
+});
+
+test("AI 一句话：超过 500 字时字数提示、点了说最多 500 字，不发请求", { timeout: 30_000 }, async () => {
+  wideScreen();
+  const { box, calls } = await aiBox();
+  writeBox(box, "长".repeat(501));
+  assert.ok(await screen.findByText("501 / 500 字"));
+  fireEvent.click(screen.getByRole("button", { name: "帮我填好" }));
+  assert.ok(await screen.findByText("最多 500 字，请删短一些"));
+  assert.equal(posts(calls, "/site/v1/trips/parse").length, 0);
+});
+
+test("AI 一句话：没看出行程、太频繁、额度用完：输入框下面一句话，表单不动", { timeout: 30_000 }, async () => {
   wideScreen();
   let answer: Route = () => apiError(422, "NOT_A_TRIP", "x");
-  const slow = deferred();
-  const calls = open({ parseStatus: AI_ON, parse: (call) => answer(call) });
-  const actor = user();
-  await dateField();
-  const box = (await screen.findByLabelText("行程描述", {}, SLOW)) as HTMLTextAreaElement;
-  await actor.click(screen.getByRole("button", { name: "帮我填好" }));
-  assert.ok(screen.getByText("请先写一句行程"));
-  await actor.click(box);
-  await actor.paste("长".repeat(501));
-  assert.ok(screen.getByText("501 / 500 字"));
-  await actor.click(screen.getByRole("button", { name: "帮我填好" }));
-  assert.ok(screen.getByText("最多 500 字，请删短一些"));
-  assert.equal(posts(calls, "/site/v1/trips/parse").length, 0);
-
-  await actor.clear(box);
-  await actor.type(box, "你好");
-  await actor.click(screen.getByRole("button", { name: "帮我填好" }));
+  const { box, calls } = await aiBox((call) => answer(call));
+  writeBox(box, "你好");
+  fireEvent.click(screen.getByRole("button", { name: "帮我填好" }));
   assert.ok(await screen.findByText("没看出行程，请写上日期、地点，或直接在下面填写", {}, SLOW));
+  assert.deepEqual(posts(calls, "/site/v1/trips/parse")[0]?.body, { text: "你好", lang: "zh" });
   assert.equal(screen.queryByRole("region", { name: /已按你的描述填好/ }), null);
 
   answer = () => apiError(429, "RATE_LIMITED", "x", {}, { "retry-after": "30" });
-  await actor.click(screen.getByRole("button", { name: "帮我填好" }));
+  fireEvent.click(screen.getByRole("button", { name: "帮我填好" }));
   assert.ok(await screen.findByText("请 30 秒后再试", {}, SLOW));
 
   answer = () => apiError(503, "AI_DAILY_LIMIT", "x");
-  await actor.click(screen.getByRole("button", { name: "帮我填好" }));
+  fireEvent.click(screen.getByRole("button", { name: "帮我填好" }));
   assert.ok(await screen.findByText("今天的自动整理次数已满，请直接填写", {}, SLOW));
+});
 
-  answer = () => slow.promise;
-  await actor.click(screen.getByRole("button", { name: "帮我填好" }));
+test("AI 一句话：整理中按钮变「正在整理…」、输入框只读；没配密钥整块收起，表单照常", { timeout: 30_000 }, async () => {
+  wideScreen();
+  const slow = deferred();
+  const { box } = await aiBox(() => slow.promise);
+  writeBox(box, "成田接机");
+  fireEvent.click(screen.getByRole("button", { name: "帮我填好" }));
   assert.ok(await screen.findByRole("button", { name: /正在整理…/ }, SLOW));
   assert.equal(box.readOnly, true);
   slow.resolve(apiError(503, "AI_NOT_CONFIGURED", "x"));
   await waitFor(() => assert.equal(screen.queryByRole("heading", { name: "一句话描述你的行程" }), null), SLOW);
-  assert.ok(screen.getByRole("heading", { name: "你的行程", level: 2 }), "表单照常");
+  assert.ok(screen.getByRole("heading", { name: "你的行程", level: 2 }));
 });
 
 test("AI 一句话：表单已经填了东西时先问「替换吗」，取消不动、替换才换；缺的写进「请补填」（人数按默认填了的写明），不在档上的停留进「请确认」，多个候选的地点留空", { timeout: 30_000 }, async () => {
