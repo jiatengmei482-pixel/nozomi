@@ -72,9 +72,11 @@ export interface PlaceFieldProps {
   mapCenter: LatLngValue | null;
   /** 地图选点后查地址用：按选的位置找最近的可订城市 */
   cities: readonly CityCandidate[];
+  /** 还没选地点时搜索框里预先放的字（行程报价页 AI 整理后没找到的地名，M9T-33）；只在第一次显示时用 */
+  initialText?: string;
 }
 
-export function PlaceField({ label, value, onChange, error, hint, info, tiles, mapsKey = null, mapCenter, cities }: PlaceFieldProps) {
+export function PlaceField({ label, value, onChange, error, hint, info, tiles, mapsKey = null, mapCenter, cities, initialText }: PlaceFieldProps) {
   const id = useId();
   const listId = `${id}-list`;
   const statusId = `${id}-status`;
@@ -82,7 +84,7 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
   const hintId = `${id}-hint`;
   const infoId = `${id}-info`;
   const mapId = `${id}-map`;
-  const [text, setText] = useState(value?.name ?? "");
+  const [text, setText] = useState(value?.name ?? initialText ?? "");
   const [items, setItems] = useState<SitePlaceSuggestion[]>([]);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
