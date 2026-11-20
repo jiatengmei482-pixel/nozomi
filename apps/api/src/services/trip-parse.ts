@@ -28,7 +28,7 @@ import {
 import type { AppContext } from "../context.ts";
 import { type Db, withPlatformTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
-import type { ClaudeJsonResult, ClaudeUsage } from "../integrations/anthropic.ts";
+import type { ClaudeJsonCaller, ClaudeJsonResult, ClaudeUsage } from "../integrations/anthropic.ts";
 import { requireOpenSite, siteSearchPlaces, sitePlacesGoogleGuard } from "./site.ts";
 
 /** 两个型号（ADR 0104 第四节第 1 小节）。型号 ID 写在代码里，选哪个在后台改。 */
@@ -266,7 +266,7 @@ async function insertRetryRun(ctx: AppContext, model: string, mode: TripParseMod
 
 // ---------- 调 Claude ----------
 
-type ModelOutcome = { kind: "ok"; result: TripParseResult } | { kind: "not_a_trip" } | { kind: "too_long" } | { kind: "failed"; status: "refused" | "invalid" | "timeout" | "error" };
+export type ModelOutcome = { kind: "ok"; result: TripParseResult } | { kind: "not_a_trip" } | { kind: "too_long" } | { kind: "failed"; status: "refused" | "invalid" | "timeout" | "error" };
 
 const addUsage = (a: ClaudeUsage | null, b: ClaudeUsage | null): ClaudeUsage | null =>
   a === null ? b : b === null ? a : { inputTokens: a.inputTokens + b.inputTokens, outputTokens: a.outputTokens + b.outputTokens, cacheReadTokens: a.cacheReadTokens + b.cacheReadTokens };
@@ -280,11 +280,11 @@ function parseOutput(result: Extract<ClaudeJsonResult, { ok: true }>): TripParse
   }
 }
 
-/** 用一个型号解析：结构不合格（含 dayOffset 重复）再调一次。返回结果和两次合计的用量。 */
-async function runModel(ctx: AppContext, apiKey: string, model: string, user: string): Promise<{ outcome: ModelOutcome; usage: ClaudeUsage | null }> {
+/** 用一个型号解析一句话（线上接口和评估脚本 `pnpm ai:trip-eval` 共用，保证评估的就是线上的做法）。`today` 是东京时间的今天。 */
+export async function parseWithModel(claude: ClaudeJsonCaller, apiKey: string, model: string, user: string, today: string): Promise<{ outcome: ModelOutcome; usage: ClaudeUsage | null }> {
   let usage: ClaudeUsage | null = null;
   for (let call = 1; call <= 2; call++) {
-    const response = await ctx.claude(apiKey, { model, system: TRIP_PARSE_SYSTEM_PROMPT, user, schema: TRIP_PARSE_SCHEMA, maxTokens: TRIP_PARSE_MAX_TOKENS, timeoutMs: TRIP_PARSE_TIMEOUT_MS });
+    const response = await claude(apiKey, { model, system: TRIP_PARSE_SYSTEM_PROMPT, user, schema: TRIP_PARSE_SCHEMA, maxTokens: TRIP_PARSE_MAX_TOKENS, timeoutMs: TRIP_PARSE_TIMEOUT_MS });
     usage = addUsage(usage, response.usage);
     if (!response.ok) {
       const status = response.failure === "refused" ? "refused" : response.failure === "timeout" ? "timeout" : response.failure === "max_tokens" ? "invalid" : "error";
@@ -292,7 +292,7 @@ async function runModel(ctx: AppContext, apiKey: string, model: string, user: st
     }
     const output = parseOutput(response);
     if (output === null) continue;
-    const built = buildTripParseDraft(output, tokyoToday(ctx.now()));
+    const built = buildTripParseDraft(output, today);
     if (built.ok) return { outcome: { kind: "ok", result: built.result }, usage };
     if (built.code === "NOT_A_TRIP") return { outcome: { kind: "not_a_trip" }, usage };
     if (built.code === "TRIP_TOO_LONG") return { outcome: { kind: "too_long" }, usage };
@@ -369,7 +369,7 @@ export async function parseTripText(ctx: AppContext, text: string, ip: string, a
   for (const [index, model] of models.entries()) {
     if (index > 0) runId = await insertRetryRun(ctx, model, mode, acceptance);
     const started = Date.now();
-    const { outcome, usage } = await runModel(ctx, apiKey, model, user);
+    const { outcome, usage } = await parseWithModel(ctx.claude, apiKey, model, user, tokyoToday(ctx.now()));
     const latencyMs = Date.now() - started;
     if (outcome.kind === "failed") {
       await finishRun(ctx, runId, { status: outcome.status, usage, latencyMs });
