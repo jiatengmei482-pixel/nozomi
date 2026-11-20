@@ -954,3 +954,56 @@ test("AI 一句话：有「不在报价范围」的部分时摘要里给「转�
   await waitFor(() => assert.equal(cta.getAttribute("aria-expanded"), "true"));
   assert.equal(consent.closest("[hidden]"), null, "点开后显示");
 });
+
+test("AI 一句话：表单格子上标「AI 填的」/「请补填」；改过的格子去掉标记", { timeout: 30_000 }, async () => {
+  wideScreen();
+  const { box } = await aiBox(() => json(200, { ...PARSED, draft: { ...PARSED.draft, passengers: null, days: [{ ...PARSED.draft.days[0], time: null }, PARSED.draft.days[1]] } }));
+  writeBox(box, SENTENCE);
+  fireEvent.click(screen.getByRole("button", { name: "帮我填好" }));
+  await aiSummary();
+  const time = screen.getByLabelText(/第 1 天 上车时间/) as HTMLInputElement;
+  const timeCell = time.closest(".trip-ai-cell") as HTMLElement;
+  assert.ok(timeCell.classList.contains("trip-ai-cell--missing"), "没给时间：请补填");
+  assert.equal(within(timeCell).getByText("请补填").className, "trip-ai-cell__badge");
+  const startCell = within(daySection(1)).getByRole("combobox", { name: "第 1 天 上车地点" }).closest(".trip-ai-cell") as HTMLElement;
+  assert.ok(startCell.classList.contains("trip-ai-cell--filled"));
+  assert.ok(within(startCell).getByText("AI 填的"));
+  const travellers = screen.getByRole("button", { name: /乘客 \/ 行李/ }).closest(".trip-ai-cell") as HTMLElement;
+  assert.ok(travellers.classList.contains("trip-ai-cell--missing"), "人数没说：请补填");
+
+  fireEvent.change(time, { target: { value: "14:30" } });
+  await waitFor(() => assert.equal(timeCell.classList.contains("trip-ai-cell--missing"), false), SLOW);
+  assert.equal(within(timeCell).queryByText("请补填"), null);
+  assert.ok(time.isConnected, "去掉标记时输入框不重新挂载");
+  assert.ok(startCell.classList.contains("trip-ai-cell--filled"), "别的格子不受影响");
+});
+
+test("AI 一句话：多个候选列在地点框下面，点一个才填；没找到的地名放进搜索框并提示", { timeout: 30_000 }, async () => {
+  wideScreen();
+  const other = { ...hotelPoint, name: "新宿华盛顿酒店", address: "东京都新宿区西新宿 3-2-9", lat: 35.6889 };
+  const day = {
+    idle: false,
+    time: "09:00",
+    start: resolved("成田机场", naritaPoint),
+    stops: [{ query: "某个小店", kind: "poi", stay_minutes: 60, match: { status: "unresolved" } }],
+    end: { query: "新宿的酒店", kind: "hotel", match: { status: "ambiguous", candidates: [hotelPoint, other] } },
+    lodging_provided: false,
+  };
+  const { box } = await aiBox(() => json(200, { ...PARSED, draft: { ...PARSED.draft, days: [day] }, assumptions: [] }));
+  writeBox(box, "成田接机去某个小店再去新宿的酒店");
+  fireEvent.click(screen.getByRole("button", { name: "帮我填好" }));
+  await aiSummary();
+  const end = within(daySection(1)).getByRole("combobox", { name: "第 1 天 最后下车地点" }) as HTMLInputElement;
+  const endCell = end.closest(".trip-ai-cell") as HTMLElement;
+  const group = endCell.querySelector(".trip-ai-cell__candidates") as HTMLElement;
+  assert.ok(within(group).getByText("找到几个地点，请选一个"));
+  const choices = within(group).getAllByRole("button");
+  assert.deepEqual(choices.map((choice) => choice.textContent), [HOTEL_NAME, "新宿华盛顿酒店（东京都新宿区西新宿 3-2-9）"]);
+  fireEvent.click(choices[0] as HTMLElement);
+  await waitFor(() => assert.equal(end.value, HOTEL_NAME), SLOW);
+  assert.equal(document.querySelector(".trip-ai-cell__candidates"), null, "选好后候选收起");
+
+  const stop = within(daySection(1)).getByRole("combobox", { name: "第 1 天 第 2 个地点" }) as HTMLInputElement;
+  assert.equal(stop.value, "某个小店", "没找到：搜索框里预放 AI 给的地名");
+  assert.ok(within(daySection(1)).getByText("没找到「某个小店」，请重新搜索"));
+});
