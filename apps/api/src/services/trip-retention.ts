@@ -3,12 +3,13 @@
  *
  * 行程单 `readable_until`（建单 + 30 天）过后 `GET` 已经是 404；这里每小时删一轮过期的 `trips`，方案、段、费用随外键级联删除。
  * 行程单只有坐标、时间、人数，不含姓名电话，也不是任何业务记录（P1 不下单），过期就删、不留痕。
- * 只删 `trips`（和它级联的 `trip_plans` / `trip_segments` / `trip_fees`），不碰别的表。写法同 `BookingDraftRetentionJobs`：
+ * 删 `trips`（和它级联的 `trip_plans` / `trip_segments` / `trip_fees`）；顺带删 90 天前的 AI 行程解析调用记录 `trip_parse_runs`（M9T-32），不碰别的表。写法同 `BookingDraftRetentionJobs`：
  * 分批（每批 500、一轮最多 10 批）、advisory 锁防多实例同时清。
  */
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
 import { driverErrorCode } from "../db/pool.ts";
+import { purgeTripParseRuns } from "./trip-parse.ts";
 
 const FIRST_TICK_MS = 25_000;
 const TICK_INTERVAL_MS = 3_600_000;
@@ -60,6 +61,9 @@ export class TripRetentionJobs {
   async tick(): Promise<TripPurgeResult> {
     const result = await runTripPurge(this.ctx);
     if (result.deleted > 0) this.log.info({ event: "trip.purged", deleted: result.deleted, batches: result.batches }, "过期行程单已删除");
+    // AI 一句话行程的调用记录（M9T-32，不含文字）保留 90 天，同一个任务顺带删
+    const runs = await purgeTripParseRuns(this.ctx);
+    if (runs > 0) this.log.info({ event: "trip_parse_runs.purged", deleted: runs }, "过期的 AI 行程解析调用记录已删除");
     return result;
   }
 

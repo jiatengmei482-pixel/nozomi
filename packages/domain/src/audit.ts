@@ -66,6 +66,8 @@ export const AUDIT_RESOURCES = [
   "shared_area_duplicate",
   // 嵌入组件的嵌入码（M9E-02，ADR 0090）：新建（create）、修改名称 / 白名单 / 默认值 / 状态（update）；前后值是嵌入码本身（公开标识，不是密钥）
   "embed_key",
+  // AI 一句话行程用哪个 Claude 型号（M9T-32，ADR 0104 第六节）：只有 update，前后值是用法（sonnet / haiku / haiku_then_sonnet）
+  "ai_trip_settings",
 ] as const;
 
 export type AuditResource = (typeof AUDIT_RESOURCES)[number];

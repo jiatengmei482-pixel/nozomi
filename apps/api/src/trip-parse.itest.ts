@@ -9,9 +9,9 @@
 import { after, before, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import type { ClaudeJsonRequest, ClaudeJsonResult } from "./integrations/anthropic.ts";
-import { TRIP_PARSE_MODELS, forgetTripParseMode } from "./services/trip-parse.ts";
-import { type TestApi, createTestApi } from "./testing/api.ts";
-import { type Market, buildMarket, newChannel, salesCredentials } from "./testing/market.ts";
+import { TRIP_PARSE_MODELS, forgetTripParseMode, tokyoToday } from "./services/trip-parse.ts";
+import { TEST_PASSWORD, type TestApi, createTestApi } from "./testing/api.ts";
+import { type Market, type Staff, addStaff, buildMarket, newChannel, salesCredentials } from "./testing/market.ts";
 import { FakePaymentProvider } from "./testing/payments.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
 import { type SiteApi, siteApi } from "./testing/site.ts";
@@ -243,4 +243,43 @@ test("每个地址每分钟 3 次：第 4 次 429，不调 Claude", async () => 
   assert.equal(res.status, 429);
   assert.equal(res.body.error.code, "RATE_LIMITED");
   assert.equal(calls.length, 3);
+});
+
+test("后台型号设置：技术只能看、超级管理员能改；版本号；审计；改完下一次解析就用新的；今天每个型号的次数", async () => {
+  // 前面的用例拨过时钟，令牌重新拿
+  const root = (await api.platformLogin({ body: { email: "root@platform.test", password: TEST_PASSWORD } })).body.access_token as string;
+  const tech: Staff = await addStaff(api, root, "tech@trip-parse.test", "tech");
+  const settings = (token: string, method: "GET" | "PUT" = "GET", body?: unknown, ifMatch?: string) =>
+    api.call(method, "/platform/v1/ai-trip-settings", { token, ...(body === undefined ? {} : { body }), ...(ifMatch === undefined ? {} : { headers: { "if-match": ifMatch } }) });
+  const initial = await settings(tech.token);
+  assert.equal(initial.status, 200, initial.text);
+  assertMatchesOpenApi("GET", "/platform/v1/ai-trip-settings", initial);
+  assert.equal(initial.body.model_mode, "sonnet");
+  assert.equal(initial.body.version, 0);
+  assert.deepEqual(initial.body.models, { sonnet: TRIP_PARSE_MODELS.sonnet, haiku: TRIP_PARSE_MODELS.haiku });
+  assert.equal((await settings(tech.token, "PUT", { model_mode: "haiku" })).status, 403, "技术不能改");
+  assert.equal((await settings(root, "PUT", { model_mode: "opus" })).status, 400);
+
+  const saved = await settings(root, "PUT", { model_mode: "haiku_then_sonnet" });
+  assert.equal(saved.status, 200, saved.text);
+  assertMatchesOpenApi("PUT", "/platform/v1/ai-trip-settings", saved);
+  assert.equal(saved.body.version, 1);
+  assert.equal((await settings(root, "PUT", { model_mode: "haiku" })).status, 409, "保存过之后不带 If-Match 当成版本 0，对不上");
+  assert.equal((await settings(root, "PUT", { model_mode: "haiku" }, "9")).status, 409);
+  const audits = (await api.db.owner.query("select action, before, after from audit_logs where resource = 'ai_trip_settings' order by id")).rows;
+  assert.deepEqual(audits, [{ action: "update", before: { model_mode: "sonnet" }, after: { model_mode: "haiku_then_sonnet" } }]);
+
+  // 不清本进程的缓存：同一进程里改完立刻生效
+  replies.push({ ok: false, failure: "error", usage: null, httpStatus: 500 });
+  assert.equal((await parse("成田接机")).status, 200);
+  assert.deepEqual(calls.map((c) => c.model), [TRIP_PARSE_MODELS.haiku, TRIP_PARSE_MODELS.sonnet]);
+  assert.equal((await parse("成田接机")).status, 200);
+  const today = (await settings(tech.token)).body.today;
+  assert.deepEqual(today, { date: tokyoToday(api.clock.now()), sonnet: 1, haiku: 2, sonnet_retries: 1, used: 2, limit: 300 });
+});
+
+test("调用记录 90 天后由行程单清理任务删", async () => {
+  await api.db.owner.query("insert into trip_parse_runs (created_at, model, mode, attempt, status) values ($1::timestamptz - interval '91 days', 'claude-sonnet-5-5', 'sonnet', 1, 'ok'), ($1::timestamptz - interval '89 days', 'claude-sonnet-5-5', 'sonnet', 1, 'ok')", [api.clock.now()]);
+  await api.app.tripRetention.tick();
+  assert.equal((await runs()).length, 1);
 });

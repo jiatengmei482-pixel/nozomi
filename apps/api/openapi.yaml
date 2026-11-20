@@ -1813,6 +1813,128 @@ paths:
                           at:
                             type: string
                             format: date-time
+  /platform/v1/ai-trip-settings:
+    get:
+      tags: [ 平台系统 ]
+      operationId: getAiTripSettings
+      summary: AI 一句话行程用哪个 Claude 型号、今天每个型号用了几次
+      description: M9T-32，ADR 0104 第六节。需要操作 `integration.read`（超级管理员、技术）。
+      security:
+        - platformToken: []
+      responses:
+        "200":
+          description: 现在的用法和今天的次数
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ model_mode, version, updated_at, models, today ]
+                properties:
+                  model_mode:
+                    type: string
+                    enum: [ sonnet, haiku, haiku_then_sonnet ]
+                  version:
+                    type: integer
+                    description: 0 = 还没保存过（用默认的 sonnet）
+                  updated_at:
+                    type: [ string, "null" ]
+                    format: date-time
+                  models:
+                    type: object
+                    additionalProperties: false
+                    required: [ sonnet, haiku ]
+                    properties:
+                      sonnet: { type: string }
+                      haiku: { type: string }
+                  today:
+                    type: object
+                    additionalProperties: false
+                    required: [ date, sonnet, haiku, sonnet_retries, used, limit ]
+                    description: 东京时间今天的调用次数（数 trip_parse_runs）
+                    properties:
+                      date: { type: string, format: date }
+                      sonnet: { type: integer, description: 调 Sonnet 的次数（含改用 Sonnet 的重试） }
+                      haiku: { type: integer }
+                      sonnet_retries: { type: integer, description: 先 Haiku 失败、改用 Sonnet 重试的次数 }
+                      used: { type: integer, description: 全站已用（客人的请求数，重试不另算） }
+                      limit: { type: integer, description: 全站每天上限（AI_TRIP_DAILY_LIMIT） }
+    put:
+      tags: [ 平台系统 ]
+      operationId: updateAiTripSettings
+      summary: 改 AI 一句话行程的用法（三选一）
+      description: |
+        需要操作 `integration.manage`（超级管理员）。`sonnet`（默认）只用 Sonnet 5.5；`haiku` 只用 Haiku 5.5；`haiku_then_sonnet` 先 Haiku，技术失败（超时、出错、拒答、两次不合格）时改用 Sonnet 重试一次。
+        改完本进程立刻生效，别的进程最多 5 秒，不重新部署。已经保存过的要带 `If-Match`（版本号）。写审计（`ai_trip_settings` / `update`，前后的用法）。
+      security:
+        - platformToken: []
+      parameters:
+        - name: If-Match
+          in: header
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ model_mode ]
+              properties:
+                model_mode:
+                  type: string
+                  enum: [ sonnet, haiku, haiku_then_sonnet ]
+      responses:
+        "200":
+          description: 保存后的用法和今天的次数
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ model_mode, version, updated_at, models, today ]
+                properties:
+                  model_mode:
+                    type: string
+                    enum: [ sonnet, haiku, haiku_then_sonnet ]
+                  version:
+                    type: integer
+                    description: 0 = 还没保存过（用默认的 sonnet）
+                  updated_at:
+                    type: [ string, "null" ]
+                    format: date-time
+                  models:
+                    type: object
+                    additionalProperties: false
+                    required: [ sonnet, haiku ]
+                    properties:
+                      sonnet: { type: string }
+                      haiku: { type: string }
+                  today:
+                    type: object
+                    additionalProperties: false
+                    required: [ date, sonnet, haiku, sonnet_retries, used, limit ]
+                    description: 东京时间今天的调用次数（数 trip_parse_runs）
+                    properties:
+                      date: { type: string, format: date }
+                      sonnet: { type: integer, description: 调 Sonnet 的次数（含改用 Sonnet 的重试） }
+                      haiku: { type: integer }
+                      sonnet_retries: { type: integer, description: 先 Haiku 失败、改用 Sonnet 重试的次数 }
+                      used: { type: integer, description: 全站已用（客人的请求数，重试不另算） }
+                      limit: { type: integer, description: 全站每天上限（AI_TRIP_DAILY_LIMIT） }
+        "400":
+          description: "`VALIDATION_FAILED`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: 版本对不上（`VERSION_CONFLICT`）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /platform/v1/integration-secrets:
     get:
       tags: [ 平台系统 ]

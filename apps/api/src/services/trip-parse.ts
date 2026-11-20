@@ -392,3 +392,16 @@ export async function parseTripText(ctx: AppContext, text: string, ip: string, a
   }
   throw unavailable();
 }
+
+/** 调用记录保留 90 天（ADR 0104 第七节）：随行程单清理任务每小时删一批（最多 5,000 行） */
+export const TRIP_PARSE_RUN_RETENTION_DAYS = 90;
+
+export async function purgeTripParseRuns(ctx: AppContext): Promise<number> {
+  return withPlatformTx(ctx.pool, async (db) => {
+    const removed = await db.query(
+      "delete from trip_parse_runs where id in (select id from trip_parse_runs where created_at < $1::timestamptz - make_interval(days => $2) order by created_at limit 5000)",
+      [ctx.now(), TRIP_PARSE_RUN_RETENTION_DAYS],
+    );
+    return removed.rowCount ?? 0;
+  });
+}
