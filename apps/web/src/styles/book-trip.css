@@ -382,3 +382,55 @@
   margin: 0;
   padding-inline-start: var(--space-4);
 }
+
+/* AI 整理后的格子标记（M9T-33 第二部分） */
+.trip-ai-cell {
+  display: contents;
+}
+
+.trip-ai-cell--marked {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.trip-ai-cell--missing {
+  padding: var(--space-2);
+  border: var(--border-width) solid var(--color-warning-border);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-bg);
+}
+
+.trip-ai-cell__badge {
+  align-self: flex-end;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--color-bg-subtle);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.trip-ai-cell--missing .trip-ai-cell__badge {
+  color: var(--color-warning-text);
+}
+
+.trip-ai-cell__candidates ul {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trip-ai-cell__pick {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-warning-text);
+}
+
+.trip-ai-cell__candidate {
+  justify-content: flex-start;
+  text-align: start;
+}
