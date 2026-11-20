@@ -1219,7 +1219,6 @@ export interface SiteTripParseResult {
   draft: SiteTripParseDraft;
   /** 没得到的：`date`、`passengers`、`luggage`、`days[0].time` 这样的字段路径 */
   missing: { field: string }[];
-  /** 推算出来的，请客人确认 */
   /** 推算出来的，请客人确认：`DATE_FROM_RELATIVE`、`DATE_YEAR_INFERRED`、`STAY_OFF_GRID` */
   assumptions: { code: string; field?: string; value?: string | number | null }[];
   /** 客人说了、报价用不上的 */
