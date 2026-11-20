@@ -195,9 +195,16 @@ export function buildTripParseDraft(output: TripParseModelOutput, today: string)
     if (start === null) missing.push({ field: `days[${index}].start` });
     const end = placeDraft(day.end);
     const stops: TripParseStopDraft[] = [];
+    // 紧挨着重复的同一个地点（「…→ トヨタ博物館 → トヨタ博物館」，M9T-34 评估里 Sonnet 出过一次）只留一个：连续去同一处没有意义，留着表单会多一行。
+    // 先去重再编号，`STAY_OFF_GRID` 指的途经点下标和表单一致
+    const sameAs = (a: TripParsePlaceDraft | null, b: TripParsePlaceDraft | null): boolean => a !== null && b !== null && a.query.normalize("NFKC").toLowerCase() === b.query.normalize("NFKC").toLowerCase();
+    const kept: { model: TripParseModelPlace; place: TripParsePlaceDraft }[] = [];
     for (const stop of day.stops) {
       const place = placeDraft(stop);
-      if (place === null) continue;
+      if (place !== null && !sameAs(kept.at(-1)?.place ?? start, place)) kept.push({ model: stop, place });
+    }
+    while (kept.length > 0 && sameAs((kept.at(-1) as { place: TripParsePlaceDraft }).place, end)) kept.pop();
+    for (const { model: stop, place } of kept) {
       let stayMinutes: number | null = null;
       if (stop.stayMinutes !== null) {
         if (isTripStayOption(stop.stayMinutes)) stayMinutes = stop.stayMinutes;
