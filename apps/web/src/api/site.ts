@@ -1162,3 +1162,83 @@ export const siteTripOrderQuotePath = (tripId: string, planId: string): string =
 export function createSiteTripOrderQuote(tripId: string, planId: string, body: SiteTripOrderQuoteRequest = {}): Promise<SiteTripOrderQuote> {
   return apiRequest("POST", siteTripOrderQuotePath(tripId, planId), { body });
 }
+
+// ---------- AI 一句话行程（M9T-33，ADR 0104 第三节；后端 M9T-32） ----------
+
+/** `GET /site/v1/trips/parse-status`：AI 能不能用（没配密钥、后台关了、全站今天额度用完时 `available: false`） */
+export interface SiteTripParseStatus {
+  available: boolean;
+  max_chars: number;
+}
+
+export type SiteTripParseKind = "airport" | "station" | "hotel" | "poi" | "address";
+
+/** 地址搜索的结果：唯一（直接填）/ 2–5 个候选（客人选）/ 没找到 */
+export interface SiteTripParsePoint {
+  name: string;
+  address?: string;
+  lat: number;
+  lng: number;
+  kind?: string | null;
+}
+
+export type SiteTripParseMatch = { status: "resolved"; point: SiteTripParsePoint } | { status: "ambiguous"; candidates: SiteTripParsePoint[] } | { status: "unresolved" };
+
+export interface SiteTripParsePlace {
+  /** AI 给的地名文字（客人说的） */
+  query: string;
+  kind?: SiteTripParseKind | null;
+  match: SiteTripParseMatch;
+}
+
+export interface SiteTripParseStop extends SiteTripParsePlace {
+  stay_minutes?: number | null;
+}
+
+export interface SiteTripParseDay {
+  idle: boolean;
+  /** 上车时间 HH:MM；null = 请补填 */
+  time?: string | null;
+  start?: SiteTripParsePlace | null;
+  stops?: SiteTripParseStop[] | null;
+  end?: SiteTripParsePlace | null;
+  lodging_provided?: boolean | null;
+}
+
+export interface SiteTripParseDraft {
+  /** 第 1 天；null = 请补填 */
+  date: string | null;
+  passengers: number | null;
+  luggage: number | null;
+  days: SiteTripParseDay[];
+}
+
+export interface SiteTripParseResult {
+  draft: SiteTripParseDraft;
+  /** 没得到的：`date`、`passengers`、`luggage`、`days[0].time` 这样的字段路径 */
+  missing: { field: string }[];
+  /** 推算出来的，请客人确认 */
+  assumptions: { code: string; field?: string; value?: string | number | null }[];
+  /** 客人说了、报价用不上的 */
+  unused: { code: string; value?: string | number | null }[];
+  /** 不在报价范围（大巴、海外段等） */
+  out_of_scope: { code: string }[];
+  // 应答里的 `texts`（服务端拼好的提示）页面不用：对客文案只在 trip-texts.ts 一处
+}
+
+export const SITE_TRIP_PARSE_PATH = `${SITE_TRIPS_PATH}/parse`;
+export const SITE_TRIP_PARSE_STATUS_PATH = `${SITE_TRIPS_PATH}/parse-status`;
+/** ADR 0104 第二节：目标 10 秒，超时 20 秒；页面多等几秒，免得服务端刚好在 20 秒时返回 */
+export const SITE_TRIP_PARSE_TIMEOUT_MS = 25_000;
+
+export function getSiteTripParseStatus(): Promise<SiteTripParseStatus> {
+  return apiRequest("GET", SITE_TRIP_PARSE_STATUS_PATH);
+}
+
+/**
+ * 把客人的一句话整理成行程表单的草稿（不建单、不报价、不存原话）。
+ * 失败：400 `VALIDATION_FAILED`、422 `NOT_A_TRIP` / `TRIP_TOO_LONG`、429 `RATE_LIMITED`、503 `AI_NOT_CONFIGURED` / `AI_DAILY_LIMIT` / `AI_UNAVAILABLE`
+ */
+export function parseSiteTrip(text: string, lang: "zh" | "ja" | "en" = "zh"): Promise<SiteTripParseResult> {
+  return apiRequest("POST", SITE_TRIP_PARSE_PATH, { body: { text, lang }, timeoutMs: SITE_TRIP_PARSE_TIMEOUT_MS });
+}

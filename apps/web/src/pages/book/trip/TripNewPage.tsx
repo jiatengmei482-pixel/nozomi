@@ -13,6 +13,8 @@
  * 布局同 `/book/new`：电脑（≥ 1024px）两栏，右侧栏是每天一张带编号的路线图；手机、平板（≤ 1023px）单栏，路线图在每天的块里，
  * 每一步的按钮在底部按钮条（`StepActionBar`，ADR 0100）。测试环境的验收会话（QA 验收通道）照常生效：官网接口自动带验收 Cookie，建的是验收行程单、只报 QA 测试供应商。
  * 页面上没有供应商、结算价、加价比例。文案都在 `lib/trip-texts.ts`。
+ * 第 1 步表单上方是「一句话描述你的行程」（`TripAiInput`，M9T-33，ADR 0104）：AI 整理的结果整份替换表单，顶部写摘要（请补填 / 请确认 / 没有用上 / 不在报价范围），
+ * 之后照常点「查看报价」，页面检查照旧；AI 不可用时整块不显示。
  */
 import type { CityCandidate } from "@nozomi/domain";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -47,12 +49,15 @@ import {
   tripStepOf,
   validateTripDraft,
 } from "../../../lib/trip-form.ts";
+import { type TripAiSummary, tripDraftBlank } from "../../../lib/trip-ai.ts";
 import { loadTripLabels, saveTripLabels } from "../../../lib/trip-labels-store.ts";
 import { tripCopy } from "../../../lib/trip-texts.ts";
 import { useDocumentTitle } from "../../../lib/use-document-title.ts";
 import { SiteLayout, siteFailureText, useSiteConfig } from "../SiteLayout.tsx";
 import { StepActionBar, useCompactScreen, useViewportFitCover } from "../new/StepActionBar.tsx";
 import { TravellersField } from "../new/TravellersField.tsx";
+import { type TripAiFilled, TripAiInput } from "./TripAiInput.tsx";
+import { TripAiSummaryBlock } from "./TripAiSummaryBlock.tsx";
 import { TripDayEditor } from "./TripDayEditor.tsx";
 import { type TripMapPoint, TripDayMap } from "./TripDayMap.tsx";
 import { TripQuoteResult } from "./TripQuoteResult.tsx";
@@ -108,6 +113,9 @@ export function TripNewPage() {
   const [cities, setCities] = useState<Load<SiteCity[]>>({ kind: "loading" });
   const [round, setRound] = useState(0);
   const [draft, setDraft] = useState<TripFormDraft>(initialTripDraft);
+  /** 最新的表单（AI 整理结果回来时判断表单是不是还空着） */
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   /** 客人动过表单（日期由页面自动填的不算）：之后不再自动改日期，回到第 1 步时也不用读回来的行程单覆盖 */
   const touched = useRef(false);
   /** 点过「查看报价」：之后每改一处都重新检查，问题随改随消失 */
@@ -115,6 +123,9 @@ export function TripNewPage() {
   // 网址里的行程单编号格式不对时，第 1 步顶部说明一句（不再静默回到空表单）
   const [notice, setNotice] = useState<Notice | null>(() => (tripParamMalformed(location.search) ? { kind: "info", text: tripCopy("failure.notFound") } : null));
   const [creating, setCreating] = useState(false);
+  /** AI 整理后表单顶部的摘要（再用 AI 整理一次时换掉） */
+  const [aiSummary, setAiSummary] = useState<{ headline: string; summary: TripAiSummary; round: number } | null>(null);
+  const aiSummaryRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<TripView>({ kind: "idle" });
   const viewRef = useRef(view);
   viewRef.current = view;
@@ -238,6 +249,24 @@ export function TripNewPage() {
     setDraft(next);
   };
 
+  /** AI 整理好了：表单整份替换（之前的检查结果作废，点「查看报价」时再检查），焦点移到摘要 */
+  const fillFromAi = (fill: TripAiFilled): void => {
+    touched.current = true;
+    draftTrip.current = null;
+    setDraft(fill.draft);
+    setChecked(false);
+    setNotice(null);
+    setAiSummary({ headline: fill.headline, summary: fill.summary, round: (aiSummary?.round ?? 0) + 1 });
+  };
+
+  // 摘要框画出来以后再移焦点（不用 requestAnimationFrame：那时摘要框可能还没渲染出来）
+  const aiRound = aiSummary?.round ?? 0;
+  useEffect(() => {
+    if (aiRound === 0) return;
+    aiSummaryRef.current?.focus({ preventScroll: true });
+    aiSummaryRef.current?.scrollIntoView?.({ block: "start" });
+  }, [aiRound]);
+
   const focusFirstProblem = (): void => {
     requestAnimationFrame(() => document.querySelector<HTMLElement>('.trip-new [aria-invalid="true"]')?.focus());
   };
@@ -344,10 +373,12 @@ export function TripNewPage() {
 
     const formStep = (
       <>
+        <TripAiInput isBlank={() => tripDraftBlank(draftRef.current)} onFill={fillFromAi} />
         <section aria-labelledby="trip-form-title" className="site-section trip-new__party">
           <h2 id="trip-form-title" ref={formHeading} tabIndex={-1} className="site-section__title">
             {tripCopy("tripSection")}
           </h2>
+          {aiSummary !== null && <TripAiSummaryBlock ref={aiSummaryRef} headline={aiSummary.headline} summary={aiSummary.summary} />}
           <AlertSlot notice={notice} />
           <TravellersField passengers={draft.passengers} luggage={draft.luggage} onChange={(value) => change({ ...draft, ...value })} />
         </section>

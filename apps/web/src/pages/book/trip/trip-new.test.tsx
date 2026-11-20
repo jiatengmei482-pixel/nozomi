@@ -11,7 +11,7 @@
  */
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { screen, waitFor, within, render } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within, render } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router";
 import { App } from "../../../App.tsx";
@@ -88,7 +88,7 @@ function tripOf(changes: Partial<SiteTrip> = {}): SiteTrip {
 
 type Route = (call: ApiCall & { url: URL }) => Response | Promise<Response> | null;
 
-function open(options: { at?: string; create?: Route; quote?: Route; read?: Route; orderQuote?: Route } = {}): ApiCall[] {
+function open(options: { at?: string; create?: Route; quote?: Route; read?: Route; orderQuote?: Route; parseStatus?: Route; parse?: Route } = {}): ApiCall[] {
   const calls = stubApiWith((call) => {
     const path = call.url.pathname;
     if (path === "/site/v1/config") return json(200, config);
@@ -103,6 +103,9 @@ function open(options: { at?: string; create?: Route; quote?: Route; read?: Rout
     }
     // 路线图是 <img>；图出不来时页面再问一次原因
     if (path === "/site/v1/itinerary-map") return apiError(503, "ROUTE_MAP_UNAVAILABLE", "x", { reason: "UNAVAILABLE" });
+    // AI 一句话（M9T-33）：默认不可用（输入框不显示）
+    if (call.method === "GET" && path === "/site/v1/trips/parse-status") return options.parseStatus?.(call) ?? json(200, { available: false, max_chars: 500 });
+    if (call.method === "POST" && path === "/site/v1/trips/parse") return options.parse?.(call) ?? null;
     if (call.method === "POST" && path === "/site/v1/trips") return options.create?.(call) ?? json(201, { trip_id: TRIP_ID, status: "draft", currency: "JPY", readable_until: "2030-12-20T00:00:00.000Z" });
     if (call.method === "POST" && path === `/site/v1/trips/${TRIP_ID}/quote`) return options.quote?.(call) ?? json(200, tripOf());
     if (call.method === "GET" && path === `/site/v1/trips/${TRIP_ID}`) return options.read?.(call) ?? json(200, tripOf());
@@ -412,7 +415,7 @@ test("网址里的行程单编号格式不对：回到第 1 步，顶部说「�
   const calls = open({ at: "/book/trip?trip=not-a-trip&step=2" });
   assert.ok(await screen.findByText("这个行程已过期或不存在，请重新填写。", {}, SLOW));
   assert.ok(screen.getByRole("heading", { name: "你的行程", level: 2 }));
-  assert.equal(calls.filter((call) => call.path.startsWith("/site/v1/trips")).length, 0);
+  assert.equal(calls.filter((call) => call.path.startsWith("/site/v1/trips") && call.path !== "/site/v1/trips/parse-status").length, 0);
 });
 
 test("报出的方案过期了：写「请重新报价」，点「重新报价」再报一次、换成新结果", async () => {
@@ -709,4 +712,220 @@ test("预订时行程单已过期（404 TRIP_NOT_FOUND）：写明并给「修�
   assert.ok(await within(card).findByText("预订没有打开：这个行程已过期或不存在，请重新填写。", {}, SLOW));
   await actor.click(within(card).getByRole("button", { name: "修改行程" }));
   assert.ok(await screen.findByRole("heading", { name: "你的行程", level: 2 }, SLOW));
+});
+
+// ---------- AI 一句话（M9T-33，ADR 0104） ----------
+
+const AI_ON: Route = () => json(200, { available: true, max_chars: 500 });
+const SENTENCE = "11月20日成田接机 NH211 去京王广场酒店，第二天9点从酒店出发去浅草寺玩一个半小时再回酒店，包车8小时，3个人2件行李";
+const naritaPoint = { name: "成田国际机场", lat: 35.772, lng: 140.3929, kind: "airport" };
+const hotelPoint = { name: "京王广场酒店", address: "东京都新宿区西新宿 2-2-1", ...HOTEL, kind: "hotel" };
+const templePoint = { name: "浅草寺", address: "东京都台东区浅草 2-3-1", ...TEMPLE, kind: "poi" };
+const resolved = (query: string, point: object) => ({ query, match: { status: "resolved", point } });
+
+/** 两天都齐全的解析结果（和「建行程单 → 报价」那条测试同一个行程） */
+const PARSED = {
+  draft: {
+    date: "2030-11-20",
+    passengers: 3,
+    luggage: 2,
+    days: [
+      { idle: false, time: "14:30", start: { ...resolved("成田机场", naritaPoint), kind: "airport" }, stops: [], end: { ...resolved("京王广场酒店", hotelPoint), kind: "hotel" }, lodging_provided: false },
+      { idle: false, time: "09:00", start: resolved("酒店", hotelPoint), stops: [{ ...resolved("浅草寺", templePoint), kind: "poi", stay_minutes: 90 }], end: resolved("酒店", hotelPoint), lodging_provided: false },
+    ],
+  },
+  missing: [],
+  assumptions: [{ code: "DATE_FROM_RELATIVE", field: "date", value: "2030-11-20" }],
+  unused: [
+    { code: "FLIGHT_NUMBER", value: "NH211" },
+    { code: "CHARTER_HOURS", value: "8" },
+  ],
+  out_of_scope: [],
+  texts: { summary: "服务端拼的文案（页面不用）" },
+};
+
+// 每条限时 30 秒：卡住时只挂这一条、日志里看得出是哪条，不拖住整个组件测试
+test("AI 一句话：parse-status 说不可用或问不到时不显示输入框", { timeout: 30_000 }, async () => {
+  wideScreen();
+  open({ parseStatus: () => apiError(404, "NOT_FOUND", "x") });
+  assert.ok(await screen.findByRole("heading", { name: "你的行程", level: 2 }, SLOW));
+  await dateField();
+  assert.equal(screen.queryByRole("heading", { name: "一句话描述你的行程" }), null);
+  assert.equal(screen.queryByLabelText("行程描述"), null);
+});
+
+test("AI 一句话：可用时表单上方有输入框、字数、「帮我填好」和一行小字", { timeout: 30_000 }, async () => {
+  wideScreen();
+  open({ parseStatus: AI_ON });
+  assert.ok(await screen.findByRole("heading", { name: "一句话描述你的行程", level: 2 }, SLOW));
+  assert.ok(screen.getByText("0 / 500 字"));
+  assert.ok(screen.getByRole("button", { name: "帮我填好" }));
+  assert.ok(screen.getByText("由 AI 整理，价格由系统按规则计算；请勿填写姓名、电话等个人信息"));
+});
+
+/** 打开页面、等输入框出来；返回输入框 */
+async function aiBox(parse?: Route): Promise<{ box: HTMLTextAreaElement; calls: ApiCall[] }> {
+  const calls = open({ parseStatus: AI_ON, ...(parse === undefined ? {} : { parse }) });
+  await screen.findByRole("heading", { name: "一句话描述你的行程", level: 2 }, SLOW);
+  return { box: screen.getByLabelText("行程描述") as HTMLTextAreaElement, calls };
+}
+
+/** AI 整理后的摘要框（不用按角色 + 名称在整页里找：整页的按名称查询太慢） */
+async function aiSummary(): Promise<HTMLElement> {
+  await waitFor(() => assert.ok(document.querySelector(".trip-ai-summary")), SLOW);
+  return document.querySelector(".trip-ai-summary") as HTMLElement;
+}
+
+const writeBox = (box: HTMLTextAreaElement, text: string): void => {
+  fireEvent.change(box, { target: { value: text } });
+};
+
+test("AI 一句话：没写时点「帮我填好」提示先写一句，不发请求", { timeout: 30_000 }, async () => {
+  wideScreen();
+  const { calls } = await aiBox();
+  fireEvent.click(screen.getByRole("button", { name: "帮我填好" }));
+  assert.ok(await screen.findByText("请先写一句行程"));
+  assert.equal(posts(calls, "/site/v1/trips/parse").length, 0);
+});
+
+test("AI 一句话：超过 500 字时字数提示、点了说最多 500 字，不发请求", { timeout: 30_000 }, async () => {
+  wideScreen();
+  const { box, calls } = await aiBox();
+  writeBox(box, "长".repeat(501));
+  assert.ok(await screen.findByText("501 / 500 字"));
+  fireEvent.click(screen.getByRole("button", { name: "帮我填好" }));
+  assert.ok(await screen.findByText("最多 500 字，请删短一些"));
+  assert.equal(posts(calls, "/site/v1/trips/parse").length, 0);
+});
+
+test("AI 一句话：没看出行程、太频繁、额度用完：输入框下面一句话，表单不动", { timeout: 30_000 }, async () => {
+  wideScreen();
+  let answer: Route = () => apiError(422, "NOT_A_TRIP", "x");
+  const { box, calls } = await aiBox((call) => answer(call));
+  writeBox(box, "你好");
+  fireEvent.click(screen.getByRole("button", { name: "帮我填好" }));
+  assert.ok(await screen.findByText("没看出行程，请写上日期、地点，或直接在下面填写", {}, SLOW));
+  assert.deepEqual(posts(calls, "/site/v1/trips/parse")[0]?.body, { text: "你好", lang: "zh" });
+  assert.equal(document.querySelector(".trip-ai-summary"), null);
+
+  answer = () => apiError(429, "RATE_LIMITED", "x", {}, { "retry-after": "30" });
+  fireEvent.click(screen.getByRole("button", { name: "帮我填好" }));
+  assert.ok(await screen.findByText("请 30 秒后再试", {}, SLOW));
+
+  answer = () => apiError(503, "AI_DAILY_LIMIT", "x");
+  fireEvent.click(screen.getByRole("button", { name: "帮我填好" }));
+  assert.ok(await screen.findByText("今天的自动整理次数已满，请直接填写", {}, SLOW));
+});
+
+test("AI 一句话：没配密钥（503 AI_NOT_CONFIGURED）整块收起，表单照常", { timeout: 30_000 }, async () => {
+  wideScreen();
+  const { box } = await aiBox(() => apiError(503, "AI_NOT_CONFIGURED", "x"));
+  writeBox(box, "成田接机");
+  fireEvent.click(screen.getByRole("button", { name: "帮我填好" }));
+  await waitFor(() => assert.equal((document.querySelector(".trip-ai") as HTMLElement | null)?.hidden, true), SLOW);
+  assert.ok(screen.getByRole("heading", { name: "你的行程", level: 2 }));
+});
+
+test("AI 一句话：整理中按钮变「正在整理…」、输入框只读；结果回来后恢复", { timeout: 30_000 }, async () => {
+  wideScreen();
+  const slow = deferred();
+  const { box } = await aiBox(() => slow.promise);
+  writeBox(box, "成田接机");
+  const button = screen.getByRole("button", { name: "帮我填好" });
+  fireEvent.click(button);
+  await waitFor(() => assert.equal(button.getAttribute("aria-busy"), "true"), SLOW);
+  assert.match(button.textContent ?? "", /正在整理…/);
+  assert.equal(box.readOnly, true);
+  slow.resolve(apiError(422, "NOT_A_TRIP", "x"));
+  assert.ok(await screen.findByText("没看出行程，请写上日期、地点，或直接在下面填写", {}, SLOW));
+  assert.equal(box.readOnly, false);
+});
+
+test("AI 一句话：表单已经填了东西时先问「替换吗」，取消不动、替换才换；缺的写进「请补填」（人数按默认填了的写明），不在档上的停留进「请确认」，多个候选的地点留空", { timeout: 30_000 }, async () => {
+  wideScreen();
+  const partial = {
+    ...PARSED,
+    draft: {
+      date: "2030-11-20",
+      passengers: null,
+      luggage: 2,
+      days: [
+        {
+          idle: false,
+          time: null,
+          start: resolved("成田机场", naritaPoint),
+          stops: [{ ...resolved("浅草寺", templePoint), stay_minutes: 45 }],
+          end: { query: "新宿的酒店", kind: "hotel", match: { status: "ambiguous", candidates: [hotelPoint, { ...hotelPoint, name: "新宿华盛顿酒店", lat: 35.6889 }] } },
+        },
+      ],
+    },
+    assumptions: [],
+    unused: [],
+    out_of_scope: [{ code: "BUS" }],
+  };
+  const calls = open({ parseStatus: AI_ON, parse: () => json(200, partial) });
+  const actor = user();
+  await dateField();
+  await pickPlace(actor, "第 1 天 最后下车地点", "京王", /京王广场酒店/);
+  writeBox((await screen.findByLabelText("行程描述", {}, SLOW)) as HTMLTextAreaElement, "成田接机去浅草寺再去新宿的酒店，坐大巴");
+  await actor.click(screen.getByRole("button", { name: "帮我填好" }));
+
+  assert.ok(await screen.findByText("用 AI 整理的结果替换现在填的内容吗？", {}, SLOW));
+  await waitFor(() => assert.equal(document.activeElement, screen.getByText("替换").closest("button")));
+  await actor.click(screen.getByText("取消").closest("button") as HTMLElement);
+  assert.equal(screen.queryByText("用 AI 整理的结果替换现在填的内容吗？"), null);
+  assert.equal((within(daySection(1)).getByRole("combobox", { name: "第 1 天 最后下车地点" }) as HTMLInputElement).value, HOTEL_NAME, "取消后表单不动");
+
+  await actor.click(screen.getByRole("button", { name: "帮我填好" }));
+  await actor.click((await screen.findByText("替换", {}, SLOW)).closest("button") as HTMLElement);
+  const summary = await aiSummary();
+  assert.match(summary.textContent ?? "", /已按你的描述填好 1 天行程/);
+  assert.equal(posts(calls, "/site/v1/trips/parse").length, 2);
+  const missing = within(summary).getByRole("heading", { name: "请补填" }).nextElementSibling as HTMLElement;
+  assert.deepEqual(within(missing).getAllByRole("listitem").map((item) => item.textContent), ["人数（先按 2 人填了）", "第 1 天的上车时间", "第 1 天的最后下车地点"]);
+  assert.ok(within(summary).getByText("第 1 天第 1 个中间地点的停留时长没有对应的选项，请自己选"));
+  assert.ok(within(summary).getByText("行程里有暂时报不了价的部分（大巴），可以转人工报价"));
+  assert.equal((within(daySection(1)).getByRole("combobox", { name: "第 1 天 最后下车地点" }) as HTMLInputElement).value, "", "两个候选：留空等客人选");
+  assert.equal((screen.getByLabelText(/第 1 天 第 2 个地点 停留时长/) as HTMLSelectElement).value, "");
+  assert.equal(posts(calls, "/site/v1/trips").length, 0, "AI 不建单");
+});
+
+test("AI 一句话：可用时表单上方有输入框；整理好的结果直接填进空表单，顶部摘要写请确认 / 没有用上的信息（不用服务端的 texts），之后「查看报价」建的行程单和手填的一样", { timeout: 30_000 }, async () => {
+  wideScreen();
+  const calls = open({ parseStatus: AI_ON, parse: () => json(200, PARSED) });
+  const actor = user();
+  assert.ok(await screen.findByRole("heading", { name: "一句话描述你的行程", level: 2 }, SLOW));
+  assert.ok(screen.getByText("由 AI 整理，价格由系统按规则计算；请勿填写姓名、电话等个人信息"));
+  const box = screen.getByLabelText("行程描述") as HTMLTextAreaElement;
+  await dateField();
+  writeBox(box, SENTENCE);
+  assert.ok(await screen.findByText(`${[...SENTENCE].length} / 500 字`));
+  await actor.click(screen.getByRole("button", { name: "帮我填好" }));
+
+  const summary = await aiSummary();
+  assert.ok(within(summary).getByText("已按你的描述填好 2 天行程。标黄的地方请补填或确认，然后点「查看报价」"));
+  assert.deepEqual(posts(calls, "/site/v1/trips/parse")[0]?.body, { text: SENTENCE, lang: "zh" });
+  assert.equal(within(summary).queryByRole("heading", { name: "请补填" }), null, "都齐了，没有请补填");
+  assert.ok(within(summary).getByText("第 1 天的日期按 11 月 20 日填"));
+  assert.ok(within(summary).getByText("航班号 NH211：行程报价暂不用航班号，下单时可以填在备注里"));
+  assert.ok(within(summary).getByText("你说的「包车 8 小时」会按实际路线自动选套餐，报价里能看到"));
+  assert.equal(screen.queryByText("服务端拼的文案（页面不用）"), null);
+  await waitFor(() => assert.equal(document.activeElement, summary), SLOW);
+
+  assert.equal((screen.getByLabelText("日期（当地）") as HTMLInputElement).value, "2030-11-20");
+  assert.equal((within(daySection(1)).getByRole("combobox", { name: "第 1 天 上车地点" }) as HTMLInputElement).value, "成田国际机场");
+  assert.equal((within(daySection(2)).getByRole("combobox", { name: "第 2 天 第 2 个地点" }) as HTMLInputElement).value, TEMPLE_NAME);
+  assert.equal((screen.getByLabelText(/第 2 天 第 2 个地点 停留时长/) as HTMLSelectElement).value, "90");
+
+  await actor.click(screen.getByRole("button", { name: "查看报价" }));
+  assert.ok(await screen.findByRole("heading", { name: "报价结果", level: 2 }, SLOW));
+  assert.deepEqual(posts(calls, "/site/v1/trips")[0]?.body, {
+    schemaVersion: 1,
+    party: { adults: 3, children: 0, luggage: 2 },
+    days: [
+      { date: "2030-11-20", items: [{ kind: "arrive_flight", place: { lat: 35.772, lng: 140.3929 }, time: "14:30" }, { kind: "end", place: HOTEL }], nightAt: HOTEL },
+      { date: "2030-11-21", items: [{ kind: "start", place: HOTEL, time: "09:00" }, { kind: "stop", place: TEMPLE, stayMinutes: 90 }, { kind: "end", place: HOTEL }] },
+    ],
+  });
+  assert.deepEqual(JSON.parse(sessionStorage.getItem(`nozomi.trip-labels.${TRIP_ID}`) ?? "null"), { v: 1, days: [["成田国际机场", HOTEL_NAME], [HOTEL_NAME, TEMPLE_NAME, HOTEL_NAME]] });
 });
