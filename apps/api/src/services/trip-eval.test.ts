@@ -79,3 +79,19 @@ test("命令行参数和报告：型号选择、不认识的参数报错；报�
   assert.match(text, /t1 passengers：4 → 3/);
   assert.doesNotMatch(text, /…/, "报告里没有原句");
 });
+
+test("工作流 ai-trip-eval.yml：只能手动触发、只连 staging、不新增 secret（只用部署那五项）、型号只能三选一、跑完删 SSH 密钥", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const { parse } = await import("yaml");
+  const text = await readFile(new URL("../../../../.github/workflows/ai-trip-eval.yml", import.meta.url), "utf8");
+  const workflow = parse(text) as { on: Record<string, { inputs: Record<string, { options?: string[] }> }>; permissions: Record<string, string>; jobs: Record<string, { environment: string; steps: { if?: string; run?: string }[] }> };
+  assert.deepEqual(Object.keys(workflow.on), ["workflow_dispatch"]);
+  assert.deepEqual(workflow.on["workflow_dispatch"]?.inputs["model"]?.options, ["all", "sonnet", "haiku"]);
+  assert.deepEqual(workflow.permissions, { contents: "read" });
+  const job = workflow.jobs["eval"];
+  assert.equal(job?.environment, "staging");
+  assert.deepEqual([...new Set(text.match(/secrets\.[A-Z_]+/g))].sort(), ["secrets.VPS_HOST", "secrets.VPS_SSH_KNOWN_HOSTS", "secrets.VPS_SSH_PORT", "secrets.VPS_SSH_PRIVATE_KEY", "secrets.VPS_SSH_USER"]);
+  assert.match(text, /\/opt\/nozomi\/staging\/current\/bin\/compose\.sh exec -T api node apps\/api\/src\/cli\/trip-eval\.ts/);
+  assert.doesNotMatch(text, /production/);
+  assert.ok(job?.steps.some((step) => step.if === "always()" && (step.run ?? "").includes("rm -rf")));
+});
