@@ -6,3 +6,4 @@ export * from "./work-hours.ts";
 export * from "./fees.ts";
 export * from "./plans.ts";
 export * from "./build.ts";
+export * from "./parse.ts";

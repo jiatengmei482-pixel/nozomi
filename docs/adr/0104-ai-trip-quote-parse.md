@@ -100,10 +100,11 @@ AI 输出模式里日期、时间、人数、行李、每个地点都**允许为
 ### 1. `GET /site/v1/trips/parse-status`
 
 ```jsonc
-{ "available": true, "max_chars": 500 }
+{ "available": true, "max_chars": 500, "reason": null }
 ```
 
 - `available: false` 的情况：没配密钥、后台关了这个功能（`AI_TRIP_PARSE_ENABLED=false`）、全站今天的额度用完。页面据此不显示输入框（额度用完时显示「今天的自动整理次数已满，请直接填写」）。
+- `reason`（M9T-32 与第二开发对齐，2026-11-20）：全站今天额度用完时为 `"DAILY_LIMIT"`，其余情况一律 `null`（不细分没配密钥 / 功能关闭，不泄露密钥状态）。
 - 不返回模型名、额度数字、密钥状态细节。限频 `site_read`。
 
 ### 2. `POST /site/v1/trips/parse`
@@ -129,19 +130,25 @@ AI 输出模式里日期、时间、人数、行李、每个地点都**允许为
         "start": { "query": "成田机场", "kind": "airport", "match": { "status": "resolved", "point": { "name": "成田国际机场", "lat": 35.7647, "lng": 140.3863, "kind": "airport" } } },
         "stops": [ { "query": "浅草寺", "kind": "poi", "stay_minutes": null,
                      "match": { "status": "ambiguous", "candidates": [ { "name": "…", "address": "…", "lat": 0, "lng": 0, "kind": "poi" } ] } } ],
-        "end": { "query": "新宿的酒店", "kind": "hotel", "match": { "status": "unresolved" } },
+        "end": { "query": "新宿的酒店", "kind": "hotel", "match": { "status": "unresolved" } },   // 泛指的酒店不查，直接 unresolved
         "lodging_provided": false }
     ]
   },
   "missing": [ { "field": "days[0].time" } ],
   "assumptions": [ { "code": "DATE_FROM_RELATIVE", "field": "date", "value": "2026-11-25" } ],
   "unused": [ { "code": "FLIGHT_NUMBER", "value": "NH211" }, { "code": "CHARTER_HOURS", "value": "8" } ],
-  "out_of_scope": [ { "code": "BUS" } ],
-  "texts": { "summary": "已按你的描述填好 3 天行程……", "…": "…" }   // 服务端按 lang 从文案表拼好的提示，前端也可以只用代码自己拼
+  "out_of_scope": [ { "code": "BUS" } ]
 }
 ```
 
 - `match.status`：`resolved`（唯一、可信，直接填）/ `ambiguous`（2–5 个候选，客人选）/ `unresolved`（没找到）。`point` 的形状和页面现有的 `TripPoint` 一致，前端直接放进 `TripDayDraft`。
+- **和第二开发对齐的细节**（M9T-32，2026-11-20，#288）：
+  - `point.kind` / 候选的 `kind` 只给 `"airport"` 或 `null`（和页面 `TripPoint.kind` 一致）；外层地点的 `kind`（`airport / station / hotel / poi / address`）只作显示提示。
+  - `stay_minutes` 只出 0–720、每 30 分钟一档的值；客人说了但不在档上的（「玩 45 分钟」）不填，进 `assumptions`（`STAY_OFF_GRID`，`value` 是原分钟数）。
+  - 应答**没有 `texts`**：对客文案只在前端 `trip-texts.ts` 一处，前端按代码拼。`lang` 收下但现在不影响应答（留给以后服务端文案）。
+  - 空闲日：`idle: true` 的那天 `time / start / end` 为 `null`、`stops` 为空数组，`lodging_provided` 照给；`days` 是从第 1 天到最后一天的连续天数，空闲日由服务端补好。
+  - `missing` 的字段：`date`、`passengers`、`luggage`、`days[i].time`、`days[i].start`（客人没说从哪出发时起点空着，不拿途经点顶替）。
+  - `assumptions` 的代码：`DATE_FROM_RELATIVE`（「下周三」「明天」推算）、`DATE_YEAR_INFERRED`（只说了月日，补了年）、`STAY_OFF_GRID`。
 - `assumptions`、`unused`、`out_of_scope` 只有**代码 + 结构化的值**（日期、数字、航班号格式的字符串、枚举），**没有 AI 写的自由文字**；`value` 只允许匹配各自格式的值（航班号 `^[A-Z0-9]{2}\d{1,4}$`、小时数 1–24 等），不合格的丢掉。
 - 应答里没有原文片段、没有 token 数和费用。
 
@@ -188,7 +195,7 @@ AI 输出模式里日期、时间、人数、行李、每个地点都**允许为
 
 ### 2. 调用方式
 
-- 后端 `apps/api` 用官方 `@anthropic-ai/sdk`（新增依赖），`client.messages.create`；新模块 `apps/api/src/integrations/anthropic.ts` 只做「发请求、收结构化结果、归类错误」，其余逻辑在 `services/trip-parse.ts` 和 `packages/domain/src/trip/parse.ts`（纯函数：结果校验、把 null 变成 `missing`、日期补空闲日、文案拼装）。
+- 后端 `apps/api` 用官方 `@anthropic-ai/sdk`（新增依赖），`client.messages.create`；新模块 `apps/api/src/integrations/anthropic.ts` 只做「发请求、收结构化结果、归类错误」，其余逻辑在 `services/trip-parse.ts` 和 `packages/domain/src/trip/parse.ts`（纯函数：把 null 变成 `missing`、日期补空闲日、值格式过滤、个人信息替换；结构校验用 zod 在 `apps/api`）。
 - 参数：
   - `model`：配置；
   - `max_tokens`：4,000（一句话的输出连思考在内一般 1,000–2,500；到了上限按失败处理，不用半截结果）；
@@ -207,9 +214,10 @@ AI 输出模式里日期、时间、人数、行李、每个地点都**允许为
 
 ### 3. 输出模式（`TRIP_PARSE_SCHEMA`，要点）
 
-- 顶层：`firstDate`（`YYYY-MM-DD` 或 null）、`dateSource`（`stated / relative / null`）、`passengers`、`luggage`（整数或 null）、`days[]`、`missing[]`（枚举）、`unused[]`（`{code, value}`，`code` 枚举：`FLIGHT_NUMBER / CHARTER_HOURS / VEHICLE_TYPE / DRIVER_LANGUAGE / CHILD_SEAT / OTHER_REQUEST`）、`outOfScope[]`（枚举：`BUS / ACCESSIBLE_VEHICLE / OVERSEAS / OTHER`）。
+- 顶层：`firstDate`（`YYYY-MM-DD` 或 null）、`dateSource`（`stated / relative / year_inferred / null`）、`passengers`、`luggage`（整数或 null）、`days[]`、`unused[]`（`{code, value}`，`code` 枚举：`FLIGHT_NUMBER / CHARTER_HOURS / VEHICLE_TYPE / DRIVER_LANGUAGE / CHILD_SEAT / OTHER_REQUEST`）、`outOfScope[]`（枚举：`BUS / ACCESSIBLE_VEHICLE / OVERSEAS / OTHER`）。
 - 每天：`dayOffset`（相对第 1 天，0 起）、`time`、`start`、`stops[]`、`end`、`lodgingProvided`。
-- 每个地点：`name`（客人说的地名，≤ 80 字）、`kind`（`airport / station / hotel / poi / address`）、`cityHint`（城市名，可空）、`stayMinutes`（客人说了才填）。
+- 每个地点：`name`（客人说的地名，≤ 80 字）、`kind`（`airport / station / hotel / poi / address`）、`specific`（有具体名称为 true；「酒店」「新宿的酒店」这类泛指为 false，服务端不查）、`cityHint`（城市名，可空）、`stayMinutes`（客人说了才填）。
+- 模型**不输出 `missing`**（M9T-32 实施时改）：服务端按哪些字段是 null 推出 `missing`，少一处模型可能前后不一致的地方。
 - **没有价格、金额、折扣、姓名、电话、邮箱字段**；`OTHER_REQUEST` 的 `value` 不收（只记「有其他要求」），避免自由文字流到页面。
 
 ### 4. 系统提示要点（写进代码，进测试）
@@ -317,7 +325,7 @@ AI 只给地名文字（`name` + `kind` + `cityHint`），**不让 AI 给坐标*
 
 | 层 | 内容 |
 | --- | --- |
-| 单元（domain） | 模式结果 → 表单草稿的转换（null → `missing`、日期补空闲日、超 14 天、每天点数）；个人信息替换规则；`unused` / `out_of_scope` 的值格式过滤；文案拼装三种语言 |
+| 单元（domain） | 模式结果 → 表单草稿的转换（null → `missing`、日期补空闲日、超 14 天、每天点数）；个人信息替换规则；`unused` / `out_of_scope` 的值格式过滤 |
 | 集成（真实 PostgreSQL，Claude 用测试替身） | `anthropic.ts` 做成可注入的接口，测试里换成返回固定 JSON 的替身（替身记下每次请求用的型号）：三种用法各走一遍（切换后下一次就用新型号、不用重启；第三种用法 Haiku 技术失败 → 改用 Sonnet 一次、两行记录、只占一个全站名额；Haiku 返回 `missing` 不触发重试）；`ai-trip-settings` 的权限（只有超级管理员能改）、版本号冲突、审计；每个型号今天的次数；正常、缺字段、拒答（`stop_reason: refusal`）、`max_tokens`、超时、5xx、两次不合格、注入样例（输出里带价格文字 → 应答里没有任何价格）；限频三档（含全站额度先占后调）；没配密钥 → 503 + `parse-status` false；地名解析走现有地址搜索的替身（resolved / ambiguous / unresolved / 名额用完）；`trip_parse_runs` 不含任何输入文字（逐列检查）；密钥项的读写、权限、打码、审计（照 `integration-secrets` 现有测试加一项） |
 | 组件（前端） | 输入框显隐、替换确认、「AI 填的」「请补填」「请选一个」标记、候选选择、失败提示、改过的格去标签 |
 | 端到端（Playwright） | 测试环境起 API 时注入 Claude 替身（只在 `NODE_ENV=test` 且显式开关时生效，正式构建里没有这条路径）：主站 `/book/trip` 一句话 → 填表 → 补填 → 查看报价 → 方案；AI 不可用时表单照常 |
