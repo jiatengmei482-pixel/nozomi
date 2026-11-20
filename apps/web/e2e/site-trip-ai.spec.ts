@@ -26,6 +26,12 @@ async function setClaudeKey(request: APIRequestContext, on: boolean): Promise<vo
   expect(response.ok(), await response.text()).toBe(true);
 }
 
+// 用例超时时 finally 里的 request 可能已经拆掉：再兜底清空一次，别让 Claude 密钥留在库里影响别的用例
+test.afterAll(async ({ request }) => {
+  const headers = await platformAdminHeaders(request);
+  await request.delete("/platform/v1/integration-secrets/anthropic", { headers });
+});
+
 test("一句话行程：填了密钥后输入框可用——整理成表单和摘要；没看出行程、AI 出错各一句话；清空密钥后不显示；亮暗 axe", async ({ page, request }) => {
   test.setTimeout(120_000);
   await charterWorld(request);
@@ -33,9 +39,12 @@ test("一句话行程：填了密钥后输入框可用——整理成表单和�
   try {
     await page.setExtraHTTPHeaders({ "x-forwarded-for": `198.51.100.${1 + Math.floor(Math.random() * 250)}` });
     await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`${SITE}/book/trip`);
+    // 页面开在另一个 API 进程（官网付款那组）：那边的密钥缓存最多 5 秒才更新，页面只在打开时问一次 parse-status —— 刷新到输入框出现为止
+    await expect(async () => {
+      await page.goto(`${SITE}/book/trip`);
+      await expect(page.getByRole("heading", { name: "一句话描述你的行程", level: 2 })).toBeVisible({ timeout: 5_000 });
+    }).toPass({ timeout: 30_000 });
     const section = page.locator(".trip-ai");
-    await expect(page.getByRole("heading", { name: "一句话描述你的行程", level: 2 })).toBeVisible({ timeout: 15_000 });
     const box = page.getByLabel("行程描述");
     for (const scheme of ["light", "dark"] as const) {
       await page.emulateMedia({ colorScheme: scheme });
