@@ -240,7 +240,7 @@ AI 只给地名文字（`name` + `kind` + `cityHint`），**不让 AI 给坐标*
 | 迁移：放宽 `integration_secrets.integration` 的取值约束，加 `anthropic` | 新迁移（照 `0130_integration_secrets_email.sql` 的写法，只改约束、不含数据） |
 | 校验 `anthropicKeyIssues`：去首尾空白，20–255 个字符，只能有字母、数字、`-`、`_`，以 `sk-ant-` 开头 | `packages/config`（同 `googleMapsKeyIssues` 的写法；报错不回显值） |
 | 配置文件里的后备 `ANTHROPIC_API_KEY`（可不填） | `packages/config` 的环境变量表；`docs/secrets.md` 加一行 |
-| 「测试一下」：调 Anthropic 的模型查询接口（`models.retrieve`，取当前配置的模型），不产生 token 费用；结果只给「可用 / 密钥无效 / 没有这个模型的权限 / 连不上」 | `apps/api/src/integrations/integration-check.ts` |
+| 「测试一下」：查一次模型列表（`GET /v1/models?limit=1`），不生成内容、不产生 token 费用；不按某个型号查（M9T-31 先于型号决定实施，监工 2026-11-20）；结果只给「可用 / 密钥无效 / 权限不够 / 请求太频繁 / 对方出错 / 连不上」。型号可用性在 M9T-32 解析时按 `not_found_error` 报「型号不可用」 | `apps/api/src/integrations/anthropic.ts` |
 | `/health` 的 `integrations` 多一项 `anthropic`：已配置 / 未配置 | 同现有三项 |
 
 - 生效值只经 `packages/config` 的 `resolveIntegrations` 选出（CLAUDE.md 规则 5），每次调用现取，换了密钥下一次解析就用新的。
