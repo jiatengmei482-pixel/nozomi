@@ -180,6 +180,7 @@ test("失败的说法：没配密钥收起；额度用完、没看出行程、�
   assert.equal(tripAiFailureOf(api(422, "TRIP_TOO_LONG")).text, "行程较长，请分段报价或转人工");
   assert.equal(tripAiFailureOf(api(400, "VALIDATION_FAILED")).text, "最多 500 字，请删短一些");
   assert.equal(tripAiFailureOf(api(429, "RATE_LIMITED", 12)).text, "请 12 秒后再试");
+  assert.equal(tripAiFailureOf(api(429, "RATE_LIMITED", 120)).text, "请 2 分钟后再试");
   assert.equal(tripAiFailureOf(api(429, "RATE_LIMITED")).text, "请稍后再试");
   assert.deepEqual(tripAiFailureOf(api(503, "AI_UNAVAILABLE")), { text: "暂时没法自动整理，请直接在下面填写", hide: false });
   assert.deepEqual(tripAiFailureOf(new NetworkError()), { text: "暂时没法自动整理，请直接在下面填写", hide: false });

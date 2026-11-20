@@ -13,7 +13,7 @@
  */
 import { ApiError } from "../api/client.ts";
 import type { SiteTripParsePlace, SiteTripParsePoint, SiteTripParseResult } from "../api/site.ts";
-import { addressText } from "../pages/book/AddressFields.tsx";
+import { addressText } from "./address-text.ts";
 import { TRAVELLER_LIMITS, type TripPoint } from "./book-new.ts";
 import { MAX_TRIP_DAYS, MAX_TRIP_STOPS, TRIP_STAY_OPTIONS, type TripDayDraft, type TripFormDraft, type TripStopDraft, initialTripDraft, newTripDay, newTripStop } from "./trip-form.ts";
 import { type TripTextKey, tripCopy } from "./trip-texts.ts";
@@ -232,7 +232,8 @@ export function tripAiFailureOf(err: unknown): TripAiFailure {
     if (err.code === "VALIDATION_FAILED") return { text: tripCopy("ai.tooManyChars", { max: TRIP_AI_MAX_CHARS }), hide: false };
     if (err.status === 429) {
       const seconds = err.retryAfterSeconds;
-      return { text: seconds !== null && seconds > 0 ? tripCopy("ai.rateLimitedSeconds", { n: seconds }) : tripCopy("ai.rateLimited"), hide: false };
+      const text = seconds === null || seconds <= 0 ? tripCopy("ai.rateLimited") : seconds < 60 ? tripCopy("ai.rateLimitedSeconds", { n: seconds }) : tripCopy("ai.rateLimitedMinutes", { n: Math.ceil(seconds / 60) });
+      return { text, hide: false };
     }
   }
   return { text: tripCopy("ai.failed"), hide: false };

@@ -49,6 +49,7 @@ export type TripTextKey =
   | "ai.cancel"
   | "ai.rateLimited"
   | "ai.rateLimitedSeconds"
+  | "ai.rateLimitedMinutes"
   | "ai.summaryMissing"
   | "ai.summaryConfirm"
   | "ai.summaryUnused"
@@ -256,6 +257,7 @@ const ZH: Readonly<Record<TripTextKey, string>> = {
   "ai.cancel": "取消",
   "ai.rateLimited": "请稍后再试",
   "ai.rateLimitedSeconds": "请 {n} 秒后再试",
+  "ai.rateLimitedMinutes": "请 {n} 分钟后再试",
   "ai.summaryMissing": "请补填",
   "ai.summaryConfirm": "请确认",
   "ai.summaryUnused": "没有用上的信息",
