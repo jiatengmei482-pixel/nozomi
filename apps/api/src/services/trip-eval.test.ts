@@ -52,3 +52,17 @@ test("费用按两个型号的单价算", () => {
   assert.equal(costUsd(TRIP_PARSE_MODELS.sonnet, usage), 12.1);
   assert.equal(Math.round(costUsd(TRIP_PARSE_MODELS.haiku, usage) * 100) / 100, 0.61);
 });
+
+test("固定测试集的组成：≥ 50 句；中 / 日 / 英各 ≥ 15；注入 10；非行程 5；编号不重复；期望的日期都不早于测试集的今天", async () => {
+  const { TRIP_EVAL_CASES } = await import("./trip-eval-cases.ts");
+  assert.ok(TRIP_EVAL_CASES.length >= 50);
+  for (const lang of ["zh", "ja", "en"]) assert.ok(TRIP_EVAL_CASES.filter((c) => c.lang === lang).length >= 15, lang);
+  assert.equal(TRIP_EVAL_CASES.filter((c) => c.kind === "injection").length, 10);
+  assert.equal(TRIP_EVAL_CASES.filter((c) => c.kind === "not_trip").length, 5);
+  assert.equal(new Set(TRIP_EVAL_CASES.map((c) => c.id)).size, TRIP_EVAL_CASES.length);
+  for (const c of TRIP_EVAL_CASES) {
+    if (c.kind === "not_trip") continue;
+    assert.ok(c.expect.date === null || c.expect.date >= "2026-11-20", c.id);
+    assert.ok(c.expect.days.length >= 1 && c.expect.days[0] !== "idle" && c.expect.days.at(-1) !== "idle", c.id);
+  }
+});
