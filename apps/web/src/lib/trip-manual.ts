@@ -7,7 +7,7 @@
 import { MANUAL_QUOTE_RULES } from "@nozomi/domain";
 import type { SiteTripItinerary, SiteTripPlanKind } from "../api/site.ts";
 import type { ManualQuoteTripDraft } from "./manual-quote-form.ts";
-import { tripDraftOf, tripPlaceName } from "./trip-form.ts";
+import { type TripFormDraft, tripDraftOf, tripPlaceName } from "./trip-form.ts";
 import type { TripLabels } from "./trip-labels-store.ts";
 import { tripCopy } from "./trip-texts.ts";
 
@@ -50,4 +50,21 @@ export function tripManualQuoteDraft(itinerary: SiteTripItinerary, labels: TripL
   if (stops.length === 0 && end === null) return null;
   if (stops.length > 0) return { ...base, category: "charter", packageHours: null, waypoints: stops };
   return { ...base, category: airport ? "airport_transfer" : "point_to_point", packageHours: null };
+}
+
+/**
+ * 还没建行程单时（第 1 步，AI 整理后说有「不在报价范围」的部分，M9T-33）从页面上的表单取第一天，填人工报价申请的 `trip`。
+ * 和 `tripManualQuoteDraft` 同一口径（第一天的上车点、最后下车点、中间地点），但可以不齐：缺的留空，由人工报价块提示「请先在上面选好…」。
+ */
+export function tripFormManualQuoteDraft(form: TripFormDraft): ManualQuoteTripDraft {
+  const day = form.days[0];
+  const place = (point: { name: string; lat: number; lng: number } | null) => (point === null ? null : { name: point.name, lat: point.lat, lng: point.lng });
+  const usable = day !== undefined && !day.idle ? day : null;
+  const start = usable?.start ?? null;
+  const end = usable?.end ?? null;
+  const stops = (usable?.stops ?? []).flatMap((stop) => (stop.point === null ? [] : [{ name: stop.point.name, lat: stop.point.lat, lng: stop.point.lng, stayMinutes: Number(stop.stay) || 0 }]));
+  const serviceLocal = form.date !== "" && usable !== null && usable.time !== "" ? `${form.date}T${usable.time}` : null;
+  const base = { cityId: null, pickup: place(start), dropoff: place(end), serviceLocal, passengers: form.passengers, luggage: form.luggage };
+  if (stops.length > 0) return { ...base, category: "charter", packageHours: null, waypoints: stops };
+  return { ...base, category: start?.kind === "airport" || end?.kind === "airport" ? "airport_transfer" : "point_to_point", packageHours: null };
 }

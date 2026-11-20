@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 import { API_PATH_PREFIXES } from "../lib/api-prefixes.ts";
 import { UNAVAILABLE_REASON_TEXT } from "../lib/site-display.ts";
-import { SITE_BASE, SITE_ROUTE_MAP_LIMITS, siteRouteMapUrl, SITE_FX_REFERENCE_FIELDS, SITE_BY_POINTS_REQUEST_FIELDS, SITE_BY_POINTS_RESULT_FIELDS, SITE_ORDER_FIELDS, SITE_ORDER_REQUEST_FIELDS, SITE_ORDER_VEHICLE_GROUP_FIELDS, SITE_QUOTE_REQUEST_FIELDS, SITE_SCHEMA_FIELDS, SITE_TRIP_END_FIELDS, SITE_MANUAL_QUOTE_PATH, SITE_MANUAL_QUOTE_REQUEST_FIELDS, SITE_MANUAL_QUOTE_TRIP_FIELDS, SITE_TRIPS_PATH, SITE_TRIP_CREATED_FIELDS, SITE_TRIP_DAY_FIELDS, SITE_TRIP_FEE_FIELDS, SITE_TRIP_FIELDS, SITE_TRIP_ITEM_FIELDS, SITE_TRIP_ITEM_KINDS, SITE_TRIP_ITINERARY_FIELDS, SITE_TRIP_PARTY_FIELDS, SITE_TRIP_PLAN_DAY_FIELDS, SITE_TRIP_PLAN_FIELDS, SITE_TRIP_PLAN_KINDS, SITE_TRIP_SEGMENT_FIELDS, SITE_TRIP_UNQUOTED_FIELDS, SITE_TRIP_ORDER_QUOTE_FIELDS, SITE_TRIP_ORDER_QUOTE_REQUEST_FIELDS, siteTripOrderQuotePath } from "./site.ts";
+import { SITE_BASE, SITE_ROUTE_MAP_LIMITS, siteRouteMapUrl, SITE_FX_REFERENCE_FIELDS, SITE_BY_POINTS_REQUEST_FIELDS, SITE_BY_POINTS_RESULT_FIELDS, SITE_ORDER_FIELDS, SITE_ORDER_REQUEST_FIELDS, SITE_ORDER_VEHICLE_GROUP_FIELDS, SITE_QUOTE_REQUEST_FIELDS, SITE_SCHEMA_FIELDS, SITE_TRIP_END_FIELDS, SITE_MANUAL_QUOTE_PATH, SITE_MANUAL_QUOTE_REQUEST_FIELDS, SITE_MANUAL_QUOTE_TRIP_FIELDS, SITE_TRIPS_PATH, SITE_TRIP_CREATED_FIELDS, SITE_TRIP_DAY_FIELDS, SITE_TRIP_FEE_FIELDS, SITE_TRIP_FIELDS, SITE_TRIP_ITEM_FIELDS, SITE_TRIP_ITEM_KINDS, SITE_TRIP_ITINERARY_FIELDS, SITE_TRIP_PARTY_FIELDS, SITE_TRIP_PLAN_DAY_FIELDS, SITE_TRIP_PLAN_FIELDS, SITE_TRIP_PLAN_KINDS, SITE_TRIP_SEGMENT_FIELDS, SITE_TRIP_UNQUOTED_FIELDS, SITE_TRIP_ORDER_QUOTE_FIELDS, SITE_TRIP_ORDER_QUOTE_REQUEST_FIELDS, siteTripOrderQuotePath, SITE_TRIP_PARSE_PATH, SITE_TRIP_PARSE_STATUS_PATH, SITE_TRIP_PARSE_STATUS_FIELDS, SITE_TRIP_PARSE_RESULT_FIELDS, SITE_TRIP_PARSE_DRAFT_FIELDS, SITE_TRIP_PARSE_DAY_FIELDS, SITE_TRIP_PARSE_PLACE_FIELDS, SITE_TRIP_PARSE_POINT_FIELDS } from "./site.ts";
 
 interface Schema {
   $ref?: string;
@@ -52,6 +52,8 @@ test("前端用到的官网接口都在 openapi.yaml 里；订单页的接口要
     ["get", `${SITE_TRIPS_PATH}/{id}`],
     ["post", `${SITE_TRIPS_PATH}/{id}/quote`],
     ["post", `${SITE_TRIPS_PATH}/{id}/plans/{planId}/order-quote`],
+    ["get", SITE_TRIP_PARSE_STATUS_PATH],
+    ["post", SITE_TRIP_PARSE_PATH],
   ];
   const guarded: [string, string][] = [
     ["get", `${SITE_BASE}/order`],
@@ -322,4 +324,48 @@ test("行程下单出口（M9T-10）：请求体、应答字段和 openapi.yaml 
   assert.equal(schema?.properties?.["itinerary_route"]?.oneOf?.[1]?.$ref, "#/components/schemas/SiteItineraryRoute");
   const keys = [...props(schema), ...props(schemas["SiteQuote"])];
   assert.deepEqual(keys.filter((key) => /settlement|markup|tenant|product_id|secret/i.test(key)), []);
+});
+
+test("AI 一句话行程（M9T-33）：parse-status / parse 的请求体、应答各层字段和 openapi.yaml 一致；页面认的提示代码都在枚举里", () => {
+  interface Operation2 {
+    requestBody?: { content: Record<string, { schema: Schema }> };
+    responses: Record<string, { content?: Record<string, { schema: Schema }>; $ref?: string }>;
+  }
+  const op = (method: string, path: string): Operation2 => spec.paths[path]?.[method] as unknown as Operation2;
+  assert.equal(SITE_TRIP_PARSE_STATUS_PATH, `${SITE_TRIPS_PATH}/parse-status`);
+  assert.equal(SITE_TRIP_PARSE_PATH, `${SITE_TRIPS_PATH}/parse`);
+
+  const status = op("get", SITE_TRIP_PARSE_STATUS_PATH).responses["200"]?.content?.["application/json"]?.schema;
+  assert.deepEqual(props(status), sorted(SITE_TRIP_PARSE_STATUS_FIELDS));
+  assert.deepEqual(sorted(status?.required ?? []), sorted(SITE_TRIP_PARSE_STATUS_FIELDS));
+  assert.deepEqual(status?.properties?.["reason"]?.enum, ["DAILY_LIMIT", null]);
+
+  const request = op("post", SITE_TRIP_PARSE_PATH).requestBody?.content["application/json"]?.schema;
+  assert.deepEqual(props(request), ["lang", "text"]);
+  assert.deepEqual(request?.properties?.["lang"]?.enum, ["zh", "ja", "en"]);
+  for (const code of ["400", "422", "429", "503"]) assert.ok(op("post", SITE_TRIP_PARSE_PATH).responses[code], `parse ${code}`);
+
+  const result = schemas["TripParseResult"];
+  assert.equal(op("post", SITE_TRIP_PARSE_PATH).responses["200"]?.content?.["application/json"]?.schema?.$ref, "#/components/schemas/TripParseResult");
+  assert.deepEqual(props(result), sorted(SITE_TRIP_PARSE_RESULT_FIELDS), "没有 texts：对客文案只在前端");
+  const draft = result?.properties?.["draft"];
+  assert.deepEqual(props(draft), sorted(SITE_TRIP_PARSE_DRAFT_FIELDS));
+  const day = draft?.properties?.["days"]?.items;
+  assert.deepEqual(props(day), sorted(SITE_TRIP_PARSE_DAY_FIELDS));
+  assert.equal(day?.properties?.["stops"]?.items?.$ref, "#/components/schemas/TripParsePlace");
+  const place = schemas["TripParsePlace"];
+  assert.deepEqual(props(place), sorted(SITE_TRIP_PARSE_PLACE_FIELDS));
+  assert.deepEqual(
+    (place?.properties?.["match"]?.oneOf ?? []).map((option) => option.properties?.["status"]?.enum?.[0]),
+    ["resolved", "ambiguous", "unresolved"],
+  );
+  const point = schemas["TripParsePoint"];
+  assert.deepEqual(props(point), sorted(SITE_TRIP_PARSE_POINT_FIELDS));
+  assert.deepEqual(point?.properties?.["kind"]?.enum, ["airport", null], "填进表单的种类只有机场 / 其他");
+
+  // 页面按代码拼文案：服务端会给的代码，页面都有说法（认不出的有通用说法，这里只核对已知的）
+  const codes = (field: string): string[] => result?.properties?.[field]?.items?.properties?.["code"]?.enum ?? [];
+  assert.deepEqual(codes("assumptions"), ["DATE_FROM_RELATIVE", "DATE_YEAR_INFERRED", "STAY_OFF_GRID"]);
+  assert.deepEqual(codes("unused"), ["FLIGHT_NUMBER", "CHARTER_HOURS", "VEHICLE_TYPE", "DRIVER_LANGUAGE", "CHILD_SEAT", "OTHER_REQUEST"]);
+  assert.deepEqual(codes("out_of_scope"), ["BUS", "ACCESSIBLE_VEHICLE", "OVERSEAS", "OTHER"]);
 });

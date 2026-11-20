@@ -1169,6 +1169,8 @@ export function createSiteTripOrderQuote(tripId: string, planId: string, body: S
 export interface SiteTripParseStatus {
   available: boolean;
   max_chars: number;
+  /** 不可用的原因：全站今天的额度用完为 `DAILY_LIMIT`（页面写一句「今天的自动整理次数已满」），其余（没配密钥、功能关了）不细分为 null */
+  reason: "DAILY_LIMIT" | null;
 }
 
 export type SiteTripParseKind = "airport" | "station" | "hotel" | "poi" | "address";
@@ -1217,7 +1219,7 @@ export interface SiteTripParseResult {
   draft: SiteTripParseDraft;
   /** 没得到的：`date`、`passengers`、`luggage`、`days[0].time` 这样的字段路径 */
   missing: { field: string }[];
-  /** 推算出来的，请客人确认 */
+  /** 推算出来的，请客人确认：`DATE_FROM_RELATIVE`、`DATE_YEAR_INFERRED`、`STAY_OFF_GRID` */
   assumptions: { code: string; field?: string; value?: string | number | null }[];
   /** 客人说了、报价用不上的 */
   unused: { code: string; value?: string | number | null }[];
@@ -1225,6 +1227,14 @@ export interface SiteTripParseResult {
   out_of_scope: { code: string }[];
   // 应答里的 `texts`（服务端拼好的提示）页面不用：对客文案只在 trip-texts.ts 一处
 }
+
+/** 契约测试用：解析接口的应答各层字段（和 openapi.yaml 的 TripParseResult / TripParsePlace / TripParsePoint 逐层对账） */
+export const SITE_TRIP_PARSE_STATUS_FIELDS: readonly (keyof SiteTripParseStatus)[] = ["available", "max_chars", "reason"];
+export const SITE_TRIP_PARSE_RESULT_FIELDS: readonly (keyof SiteTripParseResult)[] = ["draft", "missing", "assumptions", "unused", "out_of_scope"];
+export const SITE_TRIP_PARSE_DRAFT_FIELDS: readonly (keyof SiteTripParseDraft)[] = ["date", "passengers", "luggage", "days"];
+export const SITE_TRIP_PARSE_DAY_FIELDS: readonly (keyof SiteTripParseDay)[] = ["idle", "time", "start", "stops", "end", "lodging_provided"];
+export const SITE_TRIP_PARSE_PLACE_FIELDS: readonly (keyof SiteTripParseStop)[] = ["query", "kind", "stay_minutes", "match"];
+export const SITE_TRIP_PARSE_POINT_FIELDS: readonly (keyof SiteTripParsePoint)[] = ["name", "address", "lat", "lng", "kind"];
 
 export const SITE_TRIP_PARSE_PATH = `${SITE_TRIPS_PATH}/parse`;
 export const SITE_TRIP_PARSE_STATUS_PATH = `${SITE_TRIPS_PATH}/parse-status`;

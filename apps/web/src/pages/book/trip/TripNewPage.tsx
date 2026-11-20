@@ -51,8 +51,10 @@ import {
 } from "../../../lib/trip-form.ts";
 import { type TripAiSummary, tripDraftBlank } from "../../../lib/trip-ai.ts";
 import { loadTripLabels, saveTripLabels } from "../../../lib/trip-labels-store.ts";
+import { tripFormManualQuoteDraft } from "../../../lib/trip-manual.ts";
 import { tripCopy } from "../../../lib/trip-texts.ts";
 import { useDocumentTitle } from "../../../lib/use-document-title.ts";
+import { ManualQuoteBlock } from "../ManualQuote.tsx";
 import { SiteLayout, siteFailureText, useSiteConfig } from "../SiteLayout.tsx";
 import { StepActionBar, useCompactScreen, useViewportFitCover } from "../new/StepActionBar.tsx";
 import { TravellersField } from "../new/TravellersField.tsx";
@@ -126,6 +128,8 @@ export function TripNewPage() {
   /** AI 整理后表单顶部的摘要（再用 AI 整理一次时换掉） */
   const [aiSummary, setAiSummary] = useState<{ headline: string; summary: TripAiSummary; round: number } | null>(null);
   const aiSummaryRef = useRef<HTMLDivElement>(null);
+  /** 摘要里「不在报价范围」下面的转人工报价块展开了 */
+  const [aiManual, setAiManual] = useState(false);
   const [view, setView] = useState<TripView>({ kind: "idle" });
   const viewRef = useRef(view);
   viewRef.current = view;
@@ -378,7 +382,24 @@ export function TripNewPage() {
           <h2 id="trip-form-title" ref={formHeading} tabIndex={-1} className="site-section__title">
             {tripCopy("tripSection")}
           </h2>
-          {aiSummary !== null && <TripAiSummaryBlock ref={aiSummaryRef} headline={aiSummary.headline} summary={aiSummary.summary} />}
+          {aiSummary !== null && (
+            <TripAiSummaryBlock
+              ref={aiSummaryRef}
+              headline={aiSummary.headline}
+              summary={aiSummary.summary}
+              manual={
+                <>
+                  <Button aria-expanded={aiManual} onClick={() => setAiManual((open) => !open)}>
+                    {tripCopy("manual.cta")}
+                  </Button>
+                  {/* 常驻挂载、用 hidden 收起：收起再展开时客人填的联系方式还在（卸掉正在用的输入在组件测试里还会卡死，见 #348） */}
+                  <div hidden={!aiManual}>
+                    <ManualQuoteBlock trip={tripFormManualQuoteDraft(draft)} supportWhatsapp={config.config.support_whatsapp} headingLevel="h4" />
+                  </div>
+                </>
+              }
+            />
+          )}
           <AlertSlot notice={notice} />
           <TravellersField passengers={draft.passengers} luggage={draft.luggage} onChange={(value) => change({ ...draft, ...value })} />
         </section>

@@ -65,6 +65,7 @@ export type TripTextKey =
   | "ai.field.other"
   | "ai.assume.DATE_FROM_RELATIVE"
   | "ai.assume.stay"
+  | "ai.assume.DATE_YEAR_INFERRED"
   | "ai.assume.other"
   | "ai.unused.VEHICLE_TYPE"
   | "ai.unused.DRIVER_LANGUAGE"
@@ -272,6 +273,7 @@ const ZH: Readonly<Record<TripTextKey, string>> = {
   "ai.field.stay": "第 {n} 天第 {m} 个中间地点的停留时长",
   "ai.field.other": "标黄的地方",
   "ai.assume.DATE_FROM_RELATIVE": "第 1 天的日期按 {value}填",
+  "ai.assume.DATE_YEAR_INFERRED": "第 1 天的日期按 {value}填（没说年份，取今天以后最近的那天）",
   "ai.assume.stay": "第 {n} 天第 {m} 个中间地点的停留时长没有对应的选项，请自己选",
   "ai.assume.other": "{field}是推算出来的",
   "ai.unused.VEHICLE_TYPE": "指定车型：报价后在方案里选车型",

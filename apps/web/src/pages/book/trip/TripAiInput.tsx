@@ -1,7 +1,8 @@
 /**
  * `/book/trip` 表单上方的「一句话描述你的行程」（M9T-33，ADR 0104 第二节第 1 小节）。
  *
- * - 先问一次 `GET /site/v1/trips/parse-status`：不可用（没配密钥、功能关了、今天额度用完）或问不到时整块不显示，页面照常手填。
+ * - 先问一次 `GET /site/v1/trips/parse-status`：不可用（没配密钥、功能关了）或问不到时整块不显示，页面照常手填；
+ *   全站今天的额度用完（`reason: DAILY_LIMIT`）时只显示标题和一句「今天的自动整理次数已满，请直接填写」，没有输入框。
  * - 多行输入框（最多 500 字，右下角字数）+「帮我填好」+ 一行小字。点了以后按钮变「正在整理…」、输入框只读。
  * - 成功：表单还没填行程内容时直接整份替换；已经填了先问「用 AI 整理的结果替换现在填的内容吗？」（页面上的一块，不用浏览器弹窗），选「替换」才换。
  * - 失败：输入框下面一句话（ADR 0104 第三节失败表），表单不动；没配密钥（503 `AI_NOT_CONFIGURED`）整块收起。
@@ -16,7 +17,7 @@ import { tripCopy } from "../../../lib/trip-texts.ts";
 
 export type TripAiFilled = Extract<TripAiFill, { kind: "filled" }>;
 
-type Status = { kind: "checking" } | { kind: "hidden" } | { kind: "ready"; maxChars: number };
+type Status = { kind: "checking" } | { kind: "hidden" } | { kind: "limit" } | { kind: "ready"; maxChars: number };
 
 export function TripAiInput({ isBlank, onFill }: { /** 表单现在还没填行程内容（不用问「替换吗」）；结果回来时再问一次，整理期间客人可能已经动手填了 */ isBlank(): boolean; onFill(fill: TripAiFilled): void }) {
   const id = useId();
@@ -41,7 +42,8 @@ export function TripAiInput({ isBlank, onFill }: { /** 表单现在还没填行�
         const available = typeof result === "object" && result !== null && result.available === true;
         const max = available ? result.max_chars : 0;
         const maxChars = Number.isInteger(max) && max > 0 ? Math.min(max, TRIP_AI_MAX_CHARS) : TRIP_AI_MAX_CHARS;
-        setStatus(available ? { kind: "ready", maxChars } : { kind: "hidden" });
+        const limit = typeof result === "object" && result !== null && result.reason === "DAILY_LIMIT";
+        setStatus(available ? { kind: "ready", maxChars } : limit ? { kind: "limit" } : { kind: "hidden" });
       })
       .catch(() => {
         if (current) setStatus({ kind: "hidden" });
@@ -56,6 +58,16 @@ export function TripAiInput({ isBlank, onFill }: { /** 表单现在还没填行�
     if (pending !== null) replaceButton.current?.focus();
   }, [pending]);
 
+  if (status.kind === "limit") {
+    return (
+      <section aria-labelledby={`${id}-title`} className="site-section trip-ai">
+        <h2 id={`${id}-title`} className="site-section__title">
+          {tripCopy("ai.title")}
+        </h2>
+        <p className="site-muted">{tripCopy("ai.dailyLimit")}</p>
+      </section>
+    );
+  }
   if (status.kind !== "ready") return null;
   const { maxChars } = status;
   const length = tripAiLength(text);

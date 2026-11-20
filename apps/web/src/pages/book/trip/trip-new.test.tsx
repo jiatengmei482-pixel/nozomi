@@ -15,6 +15,7 @@ import { fireEvent, screen, waitFor, within, render } from "@testing-library/rea
 import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router";
 import { App } from "../../../App.tsx";
+import { MANUAL_QUOTE_TEXTS } from "../../../lib/manual-quote-form.ts";
 import type { SiteCity, SiteConfig, SiteQuote, SiteTrip, SiteTripItinerary, SiteTripOrderQuote, SiteTripPlan, SiteTripSegment } from "../../../api/site.ts";
 import { type ApiCall, apiError, deferred, json, narrowScreen, resetBrowser, stubApiWith } from "../../../testing/harness.tsx";
 
@@ -928,4 +929,28 @@ test("AI 一句话：可用时表单上方有输入框；整理好的结果直�
     ],
   });
   assert.deepEqual(JSON.parse(sessionStorage.getItem(`nozomi.trip-labels.${TRIP_ID}`) ?? "null"), { v: 1, days: [["成田国际机场", HOTEL_NAME], [HOTEL_NAME, TEMPLE_NAME, HOTEL_NAME]] });
+});
+
+test("AI 一句话：全站今天的额度用完（parse-status reason DAILY_LIMIT）时只写一句「今天的自动整理次数已满」，没有输入框", { timeout: 30_000 }, async () => {
+  wideScreen();
+  open({ parseStatus: () => json(200, { available: false, max_chars: 500, reason: "DAILY_LIMIT" }) });
+  assert.ok(await screen.findByText("今天的自动整理次数已满，请直接填写", {}, SLOW));
+  assert.ok(screen.getByRole("heading", { name: "一句话描述你的行程", level: 2 }));
+  assert.equal(screen.queryByLabelText("行程描述"), null);
+});
+
+test("AI 一句话：有「不在报价范围」的部分时摘要里给「转人工报价」，点开是人工报价表单（按表单第一天带上行程）", { timeout: 30_000 }, async () => {
+  wideScreen();
+  const { box } = await aiBox(() => json(200, { ...PARSED, out_of_scope: [{ code: "OVERSEAS" }] }));
+  writeBox(box, "成田接机，之后去首尔");
+  fireEvent.click(screen.getByRole("button", { name: "帮我填好" }));
+  const summary = await aiSummary();
+  assert.ok(within(summary).getByText("行程里有暂时报不了价的部分（海外段），可以转人工报价"));
+  const cta = within(summary).getByText("转人工报价").closest("button") as HTMLButtonElement;
+  assert.equal(cta.getAttribute("aria-expanded"), "false");
+  const consent = within(summary).getByText(MANUAL_QUOTE_TEXTS.consent);
+  assert.ok(consent.closest("[hidden]"), "没点开时人工报价表单收着");
+  fireEvent.click(cta);
+  await waitFor(() => assert.equal(cta.getAttribute("aria-expanded"), "true"));
+  assert.equal(consent.closest("[hidden]"), null, "点开后显示");
 });
