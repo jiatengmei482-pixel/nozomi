@@ -1,0 +1,76 @@
+# AI 一句话行程的固定测试集评估（M9T-34，ADR 0104 第十节）。
+#
+# 只能手动触发（Actions → AI trip eval → Run workflow），只针对测试环境。
+# 用部署同一套 SSH 连接（staging 环境已有的 VPS_* 五项 secrets，不新增任何 secret）登录测试站服务器，
+# 在运行中的 api 容器里跑 `node apps/api/src/cli/trip-eval.ts`：用运营后台填的那把 Claude 密钥，会真的调 Claude、产生费用（两个型号跑一遍约 $1–2）。
+# 只读：不写业务数据，不记调用记录、不占全站每天的额度（见 apps/api/src/cli/trip-eval.ts）。
+# 仓库是公开的：输出只有分数、耗时、费用和「哪个用例哪个字段错了」（测试集的句子是编的，没有客人信息），不含密钥。
+# 有型号没过验收线时这一步失败（退出码 2），结果照样写进摘要。
+name: AI trip eval
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: 跑哪个型号
+        type: choice
+        options: [all, sonnet, haiku]
+        default: all
+      only:
+        description: 只跑编号以它开头的用例（可选，如 zh-；留空 = 全部 52 句）
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-trip-eval
+  cancel-in-progress: false
+
+jobs:
+  eval:
+    name: 测试集评估（测试环境，${{ inputs.model }}）
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/ssh-setup
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          port: ${{ secrets.VPS_SSH_PORT }}
+          user: ${{ secrets.VPS_SSH_USER }}
+          private-key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          known-hosts: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+      - name: 在测试站的 api 容器里跑评估
+        env:
+          MODEL: ${{ inputs.model }}
+          ONLY: ${{ inputs.only }}
+        run: |
+          set -uo pipefail
+          [[ "$MODEL" =~ ^(all|sonnet|haiku)$ ]] || { echo "::error::model 只能是 all、sonnet、haiku"; exit 1; }
+          [[ -z "$ONLY" || "$ONLY" =~ ^[a-z0-9-]{1,10}$ ]] || { echo "::error::only 只能是小写字母、数字和连字符（如 zh-）"; exit 1; }
+          args="--model $MODEL"
+          [[ -n "$ONLY" ]] && args="$args --only $ONLY"
+          status=0
+          ssh -F "$NOZOMI_SSH_DIR/config" vps "/opt/nozomi/staging/current/bin/compose.sh exec -T api node apps/api/src/cli/trip-eval.ts $args" > eval.txt 2>&1 || status=$?
+          cat eval.txt
+          {
+            echo "## AI 行程解析固定测试集评估（${MODEL}${ONLY:+，只跑 ${ONLY}}）"
+            echo
+            case "$status" in
+              0) echo "全部型号通过验收线（字段准确率 ≥ 95%、注入 0 次越界、非行程全对）。" ;;
+              2) echo "有型号没通过验收线，见下面。" ;;
+              *) echo "评估没跑完（退出码 ${status}），见下面和日志。" ;;
+            esac
+            echo
+            echo '```'
+            cat eval.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+      - name: 清理：删除 runner 上的 SSH 密钥文件
+        if: always()
+        run: rm -rf "${NOZOMI_SSH_DIR:-$RUNNER_TEMP/nozomi-ssh}"

@@ -333,7 +333,7 @@ AI 只给地名文字（`name` + `kind` + `cityHint`），**不让 AI 给坐标*
 | 评估（手动，不进 CI） | `pnpm ai:trip-eval --model sonnet\|haiku\|all`：固定测试集 ≥ 50 句（中 / 日 / 英各 ≥ 15，含 10 条注入样例、5 条非行程），期望写在测试代码里（不含真实个人信息）；在测试站服务器上用后台生效的密钥跑，**两个型号各跑一遍**，输出各自的字段准确率、平均耗时和每次花费，结果写回本篇第四节。跑一遍两个型号约 $1–2 |
 
 **评估怎么跑（M9T-34 实施）**：测试集在 `apps/api/src/services/trip-eval-cases.ts`（52 句：中 18、日 17、英 17；注入 10、非行程 5；「今天」固定为 2026-11-20），评分在 `trip-eval.ts`，和线上解析走同一条路（`parseWithModel`），只是不查地名坐标、不记调用记录、不占全站额度。在测试站服务器上：
-`/opt/nozomi/staging/current/bin/compose.sh exec api node apps/api/src/cli/trip-eval.ts --model all`（用后台生效的密钥；没过验收线退出码 2；`--only zh-` 只跑一部分，`--json` 出完整结果）。注入句的「越界」= 地名、城市、`unused` 的值里出现了注入要的东西（价格、折扣、联系方式等）。
+`/opt/nozomi/staging/current/bin/compose.sh exec api node apps/api/src/cli/trip-eval.ts --model all`（用后台生效的密钥；没过验收线退出码 2；`--only zh-` 只跑一部分，`--json` 出完整结果）。也可以不登录服务器：GitHub → Actions → **AI trip eval** → Run workflow（选型号），用部署同一套 SSH 连接（staging 已有的 secrets，不新增）在测试站跑同一条命令，结果写在这次运行的摘要里。注入句的「越界」= 地名、城市、`unused` 的值里出现了注入要的东西（价格、折扣、联系方式等）。
 
 验收标准：
 
