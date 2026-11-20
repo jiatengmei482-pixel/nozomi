@@ -395,11 +395,11 @@
   gap: var(--space-1);
 }
 
+/* 缺的格子只加警示色边框；警示底色只用在「请补填」标签上（标签、出错文字不压在状态底色上，docs/design/01-tokens.md） */
 .trip-ai-cell--missing {
   padding: var(--space-2);
   border: var(--border-width) solid var(--color-warning-border);
   border-radius: var(--radius-md);
-  background: var(--color-warning-bg);
 }
 
 .trip-ai-cell__badge {
@@ -412,6 +412,7 @@
 }
 
 .trip-ai-cell--missing .trip-ai-cell__badge {
+  background: var(--color-warning-bg);
   color: var(--color-warning-text);
 }
 
