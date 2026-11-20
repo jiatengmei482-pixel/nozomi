@@ -481,7 +481,7 @@
           "status": "review",
           "acceptance": ["把「量元素高度、写进 CSS 变量」收进一个公用小模块（例如 lib/measured-length.ts 的 useMeasuredHeight(element, name)）：变量名只接受规定的几个，值固定写成「整数px」", "两个样式测试共用同一份变量名单；例外改为「只有这个模块可以调 setProperty」，不再按文件名替换字符串", "变量名单改成「变量 → 允许引用它的样式表」，--driver-bar-height 只许 driver.css 引用", "styles.edge.test.ts 的注释只提 setProperty（原规则本来不拦 removeProperty）", "来源：PR #177 独立复查（2026-11-13），不挡 #177 合并", "附带边角（#183 复查，不急）：离开确认里「保存并继续」保存失败后，紧接一次没有记录、目标地址相同的导航，可能沿用那次点击的 pointer 记录；保存失败时清掉记录即可"],
           "evidence": "PR #202（https://github.com/jiatengmei482-pixel/nozomi/pull/202）：lib/measured-length.ts（useMeasuredHeight、setMeasuredOffset、clearMeasuredLength；全站只有它的 writeLength 一处调 setProperty）；名单 MEASURED_LENGTHS 是「变量 → 种类（高度 / 位移）+ 允许引用的样式表」，两个样式测试共用：--driver-bar-height → driver.css；2026-11-19 合并 main 后把 M9E-32 新预订页按钮条的 --book-actionbar-h（高度）、--book-actionbar-shift（位移，可为负）也收进来，只许 book-new.css 引用；离开确认保存失败时清掉换步记录。本机见 PR",
-          "updated": "2026-11-20"
+          "updated": "2026-11-19"
         },
         {
           "id": "M6-12",
@@ -1793,7 +1793,7 @@
           "status": "done",
           "acceptance": ["M9P-11 通过、业主同意后再做", "迁移删除旧数据前导出备份；回放比对 0 变化", "业主 2026-11-18 已同意（监工 2026-11-19 在 #288 转达）：只清测试站的旧价格数据，先备份、先 dry-run 报计数", "范围（2026-11-19）：只动迁移过三层的包车商品——删按服务区域的旧套餐价、③上下车加价行去掉途经加价（整行保留）；没迁移过的商品和引擎旧路径不动（正式站全部没迁移过，还要用）"],
           "evidence": "测试站 apply：Deploy #328，批次 d646a41f-b9c6-4452-9973-51ad30f01dce，12 个三层包车商品、删按服务区域的旧套餐价 551 条、③上下车加价行去掉途经加价 2,620 条、只在旧行 0 个，和 dry-run 一致；备份表保留该批次；staging 变量 LEGACY_PRICE_CLEANUP 已删。回放核对（监工 2026-11-20 在测试站运营后台调只读接口 GET /platform/v1/reports/area-role-preview?days=90&until=2026-11-18T09:19:00Z，200）：logs 1,657 / replayed 1,657 / skipped 0 / evaluations 3,092 / resultLines 3,092 / externalDiffCount 0，询价数、计算次数和清理前基线（1,657 / 3,092）一致。清理后基线（以后引擎改动的「部署前」）：resultDigest 5883c0f2135aefbc9e06f936c7de2e02be8308ef1c6e24af228898b3322192c9，stateDigest c7a334e1ba46bbc1fe3049a8e9da491e5669e8c8725a5a79cce115bb0b9c618b。限制：清理前的两个摘要只存在上个会话的临时目录，已丢失，所以没有逐条 / 摘要级的前后比对（删了价格行，stateDigest 本来也必然不同）；0 变化的依据是计数一致 + 报价引擎对三层商品不读这两类旧数据（代码）+ #340 集成测试覆盖清理前后报价相同。监工 2026-11-20 转达按此改完成",
-          "updated": "2026-11-19"
+          "updated": "2026-11-20"
         },
         {
           "id": "M9P-13",
