@@ -931,13 +931,21 @@ test("AI 一句话：可用时表单上方有输入框；整理好的结果直�
   const summary = await aiSummary();
   step("t9 s3");
   assert.ok(within(summary).getByText("已按你的描述填好 2 天行程。标黄的地方请补填或确认，然后点「查看报价」"));
+  step("t9 s3.1");
   assert.deepEqual(posts(calls, "/site/v1/trips/parse")[0]?.body, { text: SENTENCE, lang: "zh" });
+  step("t9 s3.2");
   assert.equal(within(summary).queryByRole("heading", { name: "请补填" }), null, "都齐了，没有请补填");
+  step("t9 s3.3");
   assert.ok(within(summary).getByText("第 1 天的日期按 11 月 20 日填"));
+  step("t9 s3.4");
   assert.ok(within(summary).getByText("航班号 NH211：行程报价暂不用航班号，下单时可以填在备注里"));
+  step("t9 s3.5");
   assert.ok(within(summary).getByText("你说的「包车 8 小时」会按实际路线自动选套餐，报价里能看到"));
+  step("t9 s3.6");
   assert.equal(screen.queryByText("服务端拼的文案（页面不用）"), null);
+  step("t9 s3.7");
   await waitFor(() => assert.equal(document.activeElement, summary), SLOW);
+  step("t9 s3.8");
   step("t9 s4");
 
   assert.equal((screen.getByLabelText("日期（当地）") as HTMLInputElement).value, "2030-11-20");
