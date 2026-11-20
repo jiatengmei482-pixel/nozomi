@@ -144,6 +144,54 @@ test("机场没登记航站楼（羽田没有中文名，按主数据的显示�
   assert.equal(screen.queryByLabelText("上车地点（航站楼，选填）"), null);
 });
 
+test("地点名带航站楼、机场没登记航站楼：预先填上那段原文（地点不改），客人改了就换掉名称里那段，清空就去掉", async () => {
+  stubAt(() => ({ airport: HANEDA, terminal_id: null }));
+  const picked: TripPoint[] = [];
+  render(<Harness onPick={(point) => picked.push(point)} />);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "机场接机开始" }));
+  const place: TripPoint = { name: "羽田空港第3ターミナル", lat: 35.5437, lng: 139.7686, kind: "airport" };
+  choose(place);
+  await screen.findByText("已识别：Tokyo Haneda International Airport");
+  const free = screen.getByLabelText("上车地点（航站楼，选填）") as HTMLInputElement;
+  assert.equal(free.value, "第3ターミナル");
+  assert.ok(screen.getByText("已按选中地点的名称填上航站楼，不对可以改"));
+  assert.deepEqual(picked, []);
+  await user.clear(free);
+  assert.deepEqual(picked.at(-1), { ...place, name: "羽田空港" });
+  await user.type(free, "第2ターミナル");
+  assert.deepEqual(picked.at(-1), { ...place, name: "羽田空港第2ターミナル" });
+  assert.ok(screen.getByText("这个机场没有登记航站楼，知道的话写上（如 第 1 航站楼），不知道可以空着"));
+});
+
+test("地点名带航站楼、坐标没对上登记的航站楼：选上编号对得上的那个并交出它的坐标；客人可以改回不指定", async () => {
+  stubAt(() => ({ airport: NARITA, terminal_id: null }));
+  const picked: TripPoint[] = [];
+  render(<Harness onPick={(point) => picked.push(point)} />);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "机场接机开始" }));
+  const place: TripPoint = { name: "Narita Airport Terminal 2", lat: 35.7647, lng: 140.3863, kind: "airport" };
+  choose(place);
+  await screen.findByText("已识别：成田机场");
+  const select = screen.getByLabelText("上车地点（航站楼，选填）") as HTMLSelectElement;
+  assert.equal(select.value, NARITA.terminals[1]!.id);
+  assert.deepEqual(picked, [{ name: "成田机场 第 2 航站楼", lat: 35.765, lng: 140.388, kind: "airport" }]);
+  assert.ok(screen.getByText("已按选中地点的名称填上航站楼，不对可以改"));
+  await user.selectOptions(select, "");
+  assert.deepEqual(picked.at(-1), place);
+});
+
+test("地点名带的航站楼编号对不上登记的：不预选", async () => {
+  stubAt(() => ({ airport: NARITA, terminal_id: null }));
+  const picked: TripPoint[] = [];
+  render(<Harness onPick={(point) => picked.push(point)} />);
+  await userEvent.setup().click(screen.getByRole("button", { name: "机场接机开始" }));
+  choose({ name: "成田空港 第3ターミナル", lat: 35.7647, lng: 140.3863, kind: "airport" });
+  await screen.findByText("已识别：成田机场");
+  assert.equal((screen.getByLabelText("上车地点（航站楼，选填）") as HTMLSelectElement).value, "");
+  assert.deepEqual(picked, []);
+});
+
 test("识别出错：说明可以照常询价，不卡住", async () => {
   stubAt(() => "fail");
   render(<Harness onPick={() => undefined} />);
