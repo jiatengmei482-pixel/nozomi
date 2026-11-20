@@ -6,10 +6,11 @@
  * 4. 在地图上选（选填，有底图才有）：点地图、拖标记、或用键盘移动地图后选中间的位置 → 坐标填好，再查这个位置的地址填进地址栏。
  * 报价只看坐标；地址文字给司机看。之后手改地址或坐标，「选中的常用地点」随之清掉。
  */
-import { ORDER_FIELD_LIMITS, normalizePlaceQuery, placeQueryIssue } from "@nozomi/domain";
+import { normalizePlaceQuery, placeQueryIssue } from "@nozomi/domain";
 import { type KeyboardEvent, useId, useRef, useState, lazy, Suspense } from "react";
 import { ApiError } from "../../api/client.ts";
 import type { MapTiles } from "../../api/areas.ts";
+import { addressText } from "../../lib/address-text.ts";
 import { type SitePlace, type SitePlaceCandidate, reverseSitePlace, searchSitePlaces } from "../../api/site.ts";
 import { Button } from "../../components/Button.tsx";
 import { Combobox, type ComboboxOption } from "../../components/Combobox.tsx";
@@ -59,22 +60,8 @@ export interface AddressLookup {
  */
 export const PLACES_DAILY_LIMIT_TEXT = "今天的地址提示次数用完了";
 
-/**
- * 地址栏里写什么：名称，有地址时带上地址「名称（地址）」。
- * 不超过下单允许的地址长度（`ORDER_FIELD_LIMITS.addressMax`，按字符数，和后端同口径）：放不下时截短地址、末尾加「…」，名称总是留着。
- */
-export function addressText(nameText: string, detail: string | null): string {
-  const max = ORDER_FIELD_LIMITS.addressMax;
-  const name = [...nameText.trim()];
-  if (name.length >= max) return name.slice(0, max).join("");
-  const address = [...(detail ?? "").trim()];
-  if (address.length === 0 || address.join("") === name.join("")) return name.join("");
-  // 名称 +「（」+ 地址 +「）」
-  const room = max - name.length - 2;
-  if (room < 2) return name.join("");
-  const shown = address.length <= room ? address.join("") : `${address.slice(0, room - 1).join("")}…`;
-  return `${name.join("")}（${shown}）`;
-}
+// 地址栏里写什么（名称 +「（地址）」）挪到 lib/address-text.ts（纯 .ts，lib 和单元测试也能用；M9T-33），这里照旧导出
+export { addressText };
 
 /** 选中一个常用地点后地址栏里写什么。 */
 export function placeAddress(place: SitePlace): string {
