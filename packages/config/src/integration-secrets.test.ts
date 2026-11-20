@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   NO_ADMIN_SECRETS,
   adminStripeKeyIssues,
+  anthropicKeyIssues,
   effectiveSecretValues,
   envIntegrations,
   googleMapsKeyIssues,
@@ -35,39 +36,39 @@ test("打码：只露末 4 位；太短的值只有圆点，不露任何字符",
 
 test("优先顺序：后台填写的优先，后台没填用配置文件，都没有是未配置", () => {
   const both = loadConfig({ ...base, ...envStripe, GOOGLE_MAPS_API_KEY: ENV_MAPS });
-  const fromAdmin = resolveIntegrations(both, { googleMaps: { apiKey: ADMIN_MAPS }, stripe: adminStripe, email: null });
+  const fromAdmin = resolveIntegrations(both, { googleMaps: { apiKey: ADMIN_MAPS }, stripe: adminStripe, email: null, anthropic: null });
   assert.deepEqual(fromAdmin.googleMaps, { apiKey: ADMIN_MAPS, source: "admin" });
   assert.deepEqual(fromAdmin.stripe, { config: { ...adminStripe, mode: "test" }, source: "admin" });
-  assert.deepEqual(fromAdmin.adminIgnored, { googleMaps: false, stripe: false, email: false });
+  assert.deepEqual(fromAdmin.adminIgnored, { googleMaps: false, stripe: false, email: false, anthropic: false });
 
   const fromEnv = resolveIntegrations(both, NO_ADMIN_SECRETS);
   assert.deepEqual(fromEnv.googleMaps, { apiKey: ENV_MAPS, source: "env" });
   assert.equal(fromEnv.stripe.source, "env");
   assert.equal(fromEnv.stripe.config?.secretKey, envStripe.STRIPE_SECRET_KEY);
 
-  const mixed = resolveIntegrations(both, { googleMaps: { apiKey: ADMIN_MAPS }, stripe: null, email: null });
+  const mixed = resolveIntegrations(both, { googleMaps: { apiKey: ADMIN_MAPS }, stripe: null, email: null, anthropic: null });
   assert.equal(mixed.googleMaps.source, "admin");
   assert.equal(mixed.stripe.source, "env");
 
   const none = resolveIntegrations(loadConfig(base), NO_ADMIN_SECRETS);
   assert.deepEqual([none.googleMaps, none.stripe], [{ apiKey: null, source: "none" }, { config: null, source: "none" }]);
-  const adminOnly = resolveIntegrations(loadConfig(base), { googleMaps: { apiKey: ADMIN_MAPS }, stripe: adminStripe, email: null });
+  const adminOnly = resolveIntegrations(loadConfig(base), { googleMaps: { apiKey: ADMIN_MAPS }, stripe: adminStripe, email: null, anthropic: null });
   assert.deepEqual([adminOnly.googleMaps.source, adminOnly.stripe.source], ["admin", "admin"]);
 });
 
 test("后台的值不适用于当前环境（测试密钥到了正式环境）：不生效，回落到配置文件，并标出来", () => {
   const production = loadConfig({ ...base, AUTH_JWT_SECRET: "x".repeat(64), APP_ENV: "production", DATA_ENCRYPTION_KEY: "k".repeat(40) });
-  const resolved = resolveIntegrations(production, { googleMaps: null, stripe: adminStripe, email: null });
+  const resolved = resolveIntegrations(production, { googleMaps: null, stripe: adminStripe, email: null, anthropic: null });
   assert.deepEqual(resolved.stripe, { config: null, source: "none" });
   assert.equal(resolved.adminIgnored.stripe, true);
-  const live = resolveIntegrations(production, { googleMaps: null, stripe: liveStripe, email: null });
+  const live = resolveIntegrations(production, { googleMaps: null, stripe: liveStripe, email: null, anthropic: null });
   assert.equal(live.stripe.source, "admin");
   assert.equal(live.stripe.config?.mode, "live");
 });
 
 test("集成状态按生效的值：来源和打码都跟着变；/health 用的 state 也跟着变", () => {
   const config = loadConfig(base);
-  const status = integrationStatus(config, { effective: resolveIntegrations(config, { googleMaps: { apiKey: ADMIN_MAPS }, stripe: adminStripe, email: null }) });
+  const status = integrationStatus(config, { effective: resolveIntegrations(config, { googleMaps: { apiKey: ADMIN_MAPS }, stripe: adminStripe, email: null, anthropic: null }) });
   const byKey = new Map(status.map((s) => [s.key, s]));
   assert.equal(byKey.get("googleMaps")?.state, "configured");
   assert.equal(byKey.get("googleMaps")?.detail, "后台设置（••••1234）");
@@ -112,13 +113,13 @@ test("后台填写的写法：太短、太长、带空格或别的字符的都�
 
 test("日志脱敏要抹掉的生效值：谷歌地图密钥和 Stripe 三项", () => {
   const config = loadConfig(base);
-  const values = effectiveSecretValues(resolveIntegrations(config, { googleMaps: { apiKey: ADMIN_MAPS }, stripe: adminStripe, email: null }));
+  const values = effectiveSecretValues(resolveIntegrations(config, { googleMaps: { apiKey: ADMIN_MAPS }, stripe: adminStripe, email: null, anthropic: null }));
   assert.deepEqual(values.sort(), [ADMIN_MAPS, ...Object.values(adminStripe)].sort());
   assert.deepEqual(effectiveSecretValues(resolveIntegrations(config, NO_ADMIN_SECRETS)), []);
 });
 
 test("测试用的服务地址：local / ci 可以指到本机，staging / production 不能改", () => {
-  const ci = loadConfig({ ...base, APP_ENV: "ci", GOOGLE_MAPS_ROUTES_URL: "http://127.0.0.1:4010/directions/v2:computeRoutes", GOOGLE_PLACES_SEARCH_URL: "http://127.0.0.1:4012/v1/places:searchText", GOOGLE_PLACES_AUTOCOMPLETE_URL: "http://127.0.0.1:4014/v1/places:autocomplete", GOOGLE_PLACE_DETAILS_URL: "http://127.0.0.1:4015/v1/places", GOOGLE_GEOCODE_URL: "http://127.0.0.1:4013/geocode", GOOGLE_STATIC_MAPS_URL: "http://127.0.0.1:4016/maps/api/staticmap", STRIPE_API_URL: "http://127.0.0.1:4011" });
+  const ci = loadConfig({ ...base, APP_ENV: "ci", GOOGLE_MAPS_ROUTES_URL: "http://127.0.0.1:4010/directions/v2:computeRoutes", GOOGLE_PLACES_SEARCH_URL: "http://127.0.0.1:4012/v1/places:searchText", GOOGLE_PLACES_AUTOCOMPLETE_URL: "http://127.0.0.1:4014/v1/places:autocomplete", GOOGLE_PLACE_DETAILS_URL: "http://127.0.0.1:4015/v1/places", GOOGLE_GEOCODE_URL: "http://127.0.0.1:4013/geocode", GOOGLE_STATIC_MAPS_URL: "http://127.0.0.1:4016/maps/api/staticmap", ANTHROPIC_MODELS_URL: "http://127.0.0.1:4017/v1/models", STRIPE_API_URL: "http://127.0.0.1:4011" });
   assert.deepEqual(ci.integrationEndpoints, {
     googleMapsRoutesUrl: "http://127.0.0.1:4010/directions/v2:computeRoutes",
     googlePlacesSearchUrl: "http://127.0.0.1:4012/v1/places:searchText",
@@ -126,6 +127,7 @@ test("测试用的服务地址：local / ci 可以指到本机，staging / produ
     googlePlaceDetailsUrl: "http://127.0.0.1:4015/v1/places",
     googleGeocodeUrl: "http://127.0.0.1:4013/geocode",
     googleStaticMapsUrl: "http://127.0.0.1:4016/maps/api/staticmap",
+    anthropicModelsUrl: "http://127.0.0.1:4017/v1/models",
     stripeApi: { host: "127.0.0.1", port: 4011, protocol: "http" },
   });
   assert.deepEqual(loadConfig(base).integrationEndpoints, {
@@ -135,11 +137,12 @@ test("测试用的服务地址：local / ci 可以指到本机，staging / produ
     googlePlaceDetailsUrl: "https://places.googleapis.com/v1/places",
     googleGeocodeUrl: "https://geocode.googleapis.com/v4beta/geocode/location",
     googleStaticMapsUrl: "https://maps.googleapis.com/maps/api/staticmap",
+    anthropicModelsUrl: "https://api.anthropic.com/v1/models",
     stripeApi: null,
   });
   for (const env of ["staging", "production"]) {
     const extra = env === "production" ? { AUTH_JWT_SECRET: "x".repeat(64), DATA_ENCRYPTION_KEY: "k".repeat(40) } : {};
-    for (const override of [{ GOOGLE_MAPS_ROUTES_URL: "http://127.0.0.1:4010/x" }, { GOOGLE_PLACES_SEARCH_URL: "http://127.0.0.1:4012/x" }, { GOOGLE_GEOCODE_URL: "http://127.0.0.1:4013/x" }, { GOOGLE_PLACES_AUTOCOMPLETE_URL: "http://127.0.0.1:4014/x" }, { GOOGLE_PLACE_DETAILS_URL: "http://127.0.0.1:4015/x" }, { GOOGLE_STATIC_MAPS_URL: "http://127.0.0.1:4016/x" }, { STRIPE_API_URL: "http://127.0.0.1:4011" }]) {
+    for (const override of [{ GOOGLE_MAPS_ROUTES_URL: "http://127.0.0.1:4010/x" }, { GOOGLE_PLACES_SEARCH_URL: "http://127.0.0.1:4012/x" }, { GOOGLE_GEOCODE_URL: "http://127.0.0.1:4013/x" }, { GOOGLE_PLACES_AUTOCOMPLETE_URL: "http://127.0.0.1:4014/x" }, { GOOGLE_PLACE_DETAILS_URL: "http://127.0.0.1:4015/x" }, { GOOGLE_STATIC_MAPS_URL: "http://127.0.0.1:4016/x" }, { ANTHROPIC_MODELS_URL: "http://127.0.0.1:4017/x" }, { STRIPE_API_URL: "http://127.0.0.1:4011" }]) {
       assert.throws(() => loadConfig({ ...base, ...extra, APP_ENV: env, ...override }), /只给本机和 CI 的测试用/, `${env} ${Object.keys(override)[0]}`);
     }
   }
@@ -232,4 +235,37 @@ test("SMTP 集成状态：超级管理员看到主机、端口、来源和末 4 
   const values = effectiveSecretValues(envIntegrations(config));
   assert.ok(values.includes("env-Pass-word-0002"));
   for (const notSecret of ["smtp.env.example.com", "env-user", "tls", "465"]) assert.ok(!values.includes(notSecret), notSecret);
+});
+
+// ---- Claude（M9T-31，ADR 0104 第六节）----
+const ENV_CLAUDE = `sk-ant-${"e".repeat(30)}5678`;
+const ADMIN_CLAUDE = `sk-ant-${"a".repeat(30)}1234`;
+
+test("Claude 密钥的校验：20–255 个字母、数字、-、_，以 sk-ant- 开头；报错不带值", () => {
+  assert.deepEqual(anthropicKeyIssues(ADMIN_CLAUDE), []);
+  assert.deepEqual(anthropicKeyIssues("sk-ant-short"), [{ field: "api_key", reason: "TOO_SHORT" }]);
+  assert.deepEqual(anthropicKeyIssues(`sk-ant-${"a".repeat(300)}`), [{ field: "api_key", reason: "TOO_LONG" }]);
+  assert.deepEqual(anthropicKeyIssues(`sk-ant-${"a".repeat(20)} x`), [{ field: "api_key", reason: "FORMAT" }]);
+  assert.deepEqual(anthropicKeyIssues(`sk-proj-${"a".repeat(30)}`), [{ field: "api_key", reason: "PREFIX" }]);
+});
+
+test("Claude：后台优先、配置文件 ANTHROPIC_API_KEY 后备、都没有是未配置；状态打码；日志脱敏带上它；配置文件写错启动报错", () => {
+  const withEnv = loadConfig({ ...base, ANTHROPIC_API_KEY: ENV_CLAUDE });
+  assert.equal(withEnv.anthropicApiKey, ENV_CLAUDE);
+  assert.deepEqual(resolveIntegrations(withEnv, NO_ADMIN_SECRETS).anthropic, { apiKey: ENV_CLAUDE, source: "env" });
+  const admin = resolveIntegrations(withEnv, { ...NO_ADMIN_SECRETS, anthropic: { apiKey: ADMIN_CLAUDE } });
+  assert.deepEqual(admin.anthropic, { apiKey: ADMIN_CLAUDE, source: "admin" });
+  assert.ok(effectiveSecretValues(admin).includes(ADMIN_CLAUDE));
+  const broken = resolveIntegrations(withEnv, { ...NO_ADMIN_SECRETS, anthropic: { apiKey: "not-a-claude-key-0000000" } });
+  assert.deepEqual([broken.anthropic.source, broken.adminIgnored.anthropic], ["env", true]);
+  assert.deepEqual(resolveIntegrations(loadConfig(base), NO_ADMIN_SECRETS).anthropic, { apiKey: null, source: "none" });
+
+  const status = integrationStatus(withEnv, { effective: admin });
+  const claude = status.find((item) => item.key === "anthropic");
+  assert.deepEqual(claude, { key: "anthropic", label: "Claude（AI 行程解析）", state: "configured", detail: "后台设置（••••1234）" });
+  assert.ok(!JSON.stringify(status).includes(ADMIN_CLAUDE));
+  assert.equal(integrationStatus(loadConfig(base)).find((item) => item.key === "anthropic")?.state, "missing");
+
+  assert.throws(() => loadConfig({ ...base, ANTHROPIC_API_KEY: "sk-wrong-prefix-000000000000" }), /ANTHROPIC_API_KEY 的写法不对/);
+  assert.throws(() => loadConfig({ ...base, APP_ENV: "staging", ANTHROPIC_MODELS_URL: "http://127.0.0.1:9/v1/models" }), /不能修改 ANTHROPIC_MODELS_URL/);
 });

@@ -30,6 +30,7 @@ export function secretValues(config: AppConfig): string[] {
     config.stripe?.secretKey,
     config.stripe?.webhookSecret,
     config.googleMapsApiKey,
+    config.anthropicApiKey,
     config.smtp?.password,
     // 测试环境验收通道的口令（M8-26，ADR 0078）
     config.qaAcceptance?.token,

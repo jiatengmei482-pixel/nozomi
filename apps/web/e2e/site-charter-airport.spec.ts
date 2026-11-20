@@ -79,10 +79,15 @@ test("M9P-22 主站电脑 1280：「改填其他地点」退回普通地址输�
 
   await page.getByRole("button", { name: "机场送机结束" }).click();
   const terminal = page.getByRole("combobox", { name: "下车地点" });
+  // 地点名称本身带航站楼、机场没登记航站楼：航站楼预填名称里那段（监工 2026-11-20），客人可改
+  await terminal.fill(trip.namedTerminalAirport.name);
+  await page.getByRole("option", { name: new RegExp(trip.namedTerminalAirport.name) }).first().click();
+  await expect(page.getByLabel("下车地点（航站楼，选填）")).toHaveValue("第2ターミナル");
+  await expect(page.getByText("已按选中地点的名称填上航站楼，不对可以改")).toBeVisible();
   // 和别的地点一样用地址搜索输入机场名、选候选（业主 2026-11-19），系统按坐标认出机场和航站楼
   await terminal.fill(trip.airportName);
-  // 选好航站楼、行程填齐后页面自己就去询价（停顿一下），所以在选之前就开始等这次询价
-  const quoted = page.waitForResponse((res) => new URL(res.url()).pathname === "/site/v1/quotes" && res.request().method() === "POST");
+  // 选好航站楼、行程填齐后页面自己就去询价（停顿一下），所以在选之前就开始等这次询价（只等下车点是这个机场的那次，前面选预填机场时的询价不算）
+  const quoted = page.waitForResponse((res) => new URL(res.url()).pathname === "/site/v1/quotes" && res.request().method() === "POST" && (JSON.parse(res.request().postData() ?? "{}") as { dropoff?: { lat: number } }).dropoff?.lat === trip.airport.lat);
   await page.getByRole("option", { name: new RegExp(trip.airportName) }).first().click();
   await expect(page.getByText(`已识别：${trip.terminalLabel}`)).toBeVisible();
   // 机场送机结束不出「从预约时间开始计时」的提示

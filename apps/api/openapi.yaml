@@ -1853,8 +1853,8 @@ paths:
       operationId: saveIntegrationSecret
       summary: 填写或更换一项第三方密钥（只限超级管理员）
       description: |
-        需要操作 `integration.manage`（只归超级管理员，自建角色勾不了）。`key` 是 `google-maps`、`stripe` 或 `email`。
-        - 谷歌地图：`{ api_key }`；Stripe：`{ secret_key, publishable_key, webhook_secret }` 三项一起填。首尾的空白会去掉。
+        需要操作 `integration.manage`（只归超级管理员，自建角色勾不了）。`key` 是 `google-maps`、`stripe`、`email` 或 `anthropic`。
+        - 谷歌地图、Claude（AI 行程解析，ADR 0104）：`{ api_key }`（Claude 以 `sk-ant-` 开头）；Stripe：`{ secret_key, publishable_key, webhook_secret }` 三项一起填。首尾的空白会去掉。
         - 邮件发送（ADR 0048）：`{ host, port, encryption, username, password, from_name, from_address }` 七项一起填，**每次保存都要重新填密码**（防止改了主机后把旧密码发到别处）。
           `port` 是数字，只能是 25、465、587、2525；`encryption` 是 `tls`、`starttls` 或 `none`（明文，只有 local / ci 允许）；`host` 不能是内网、回环、链路本地地址和只在内网解析的名字；`password` 8–255 个字符；名称、用户名、密码不能有换行等控制字符。
         - 每项 20–255 个字符，只能有英文字母、数字、下划线、连字符。Stripe：secret key `sk_test_` / `sk_live_`、publishable key `pk_test_` / `pk_live_`、webhook signing secret `whsec_` 开头，
@@ -18601,10 +18601,10 @@ components:
       name: key
       in: path
       required: true
-      description: "哪一项：google-maps 谷歌地图；stripe Stripe 支付；email 邮件发送"
+      description: "哪一项：google-maps 谷歌地图；stripe Stripe 支付；email 邮件发送；anthropic Claude（AI 行程解析）"
       schema:
         type: string
-        enum: [ google-maps, stripe, email ]
+        enum: [ google-maps, stripe, email, anthropic ]
     RoleKeyPath:
       name: key
       in: path
@@ -20784,7 +20784,7 @@ components:
       properties:
         key:
           type: string
-          enum: [ database, auth, dataEncryption, stripe, googleMaps, email, fx ]
+          enum: [ database, auth, dataEncryption, stripe, googleMaps, email, anthropic, fx ]
         label:
           type: string
         state:
@@ -20792,7 +20792,7 @@ components:
           enum: [ configured, missing ]
     IntegrationSecretKey:
       type: string
-      enum: [ google_maps, stripe, email ]
+      enum: [ google_maps, stripe, email, anthropic ]
     SecretSource:
       type: string
       enum: [ admin, env, none ]
@@ -20896,7 +20896,7 @@ components:
       properties:
         key:
           type: string
-          enum: [ database, auth, dataEncryption, stripe, googleMaps, email, fx ]
+          enum: [ database, auth, dataEncryption, stripe, googleMaps, email, anthropic, fx ]
         label:
           type: string
         state:

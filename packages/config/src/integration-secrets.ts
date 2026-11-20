@@ -8,7 +8,7 @@
 import type { AppConfig, AppEnv, StripeConfig } from "./index.ts";
 
 /** 能在运营后台填写的集成。 */
-export const INTEGRATION_SECRET_KEYS = ["google_maps", "stripe", "email"] as const;
+export const INTEGRATION_SECRET_KEYS = ["google_maps", "stripe", "email", "anthropic"] as const;
 export type IntegrationSecretKey = (typeof INTEGRATION_SECRET_KEYS)[number];
 
 export function isIntegrationSecretKey(value: string): value is IntegrationSecretKey {
@@ -43,7 +43,7 @@ export type SecretFieldIssueReason =
   | "FORMAT"
   | "TOO_SHORT"
   | "TOO_LONG"
-  /** 前缀不对（Stripe：sk_ / pk_ / whsec_） */
+  /** 前缀不对（Stripe：sk_ / pk_ / whsec_；Claude：sk-ant-） */
   | "PREFIX"
   /** Stripe 的 secret key 和 publishable key 一个是测试一个是正式 */
   | "MODE_MISMATCH"
@@ -116,6 +116,19 @@ export function adminSecretFormatIssue(field: string, value: string): SecretFiel
 export function googleMapsKeyIssues(apiKey: string): SecretFieldIssue[] {
   const issue = adminSecretFormatIssue(GOOGLE_MAPS_FIELD, apiKey);
   return issue === null ? [] : [issue];
+}
+
+// ---- Claude（Anthropic API，AI 行程解析，ADR 0104 第六节）----
+
+export const ANTHROPIC_FIELD = "api_key";
+/** Anthropic 的 API 密钥都以这个开头 */
+export const ANTHROPIC_KEY_PREFIX = "sk-ant-";
+
+/** Claude 密钥的校验（后台填写和服务器配置文件共用）：写法同其他后台密钥（20–255 个字母、数字、`-`、`_`），以 `sk-ant-` 开头。报错不带值。 */
+export function anthropicKeyIssues(apiKey: string): SecretFieldIssue[] {
+  const issue = adminSecretFormatIssue(ANTHROPIC_FIELD, apiKey);
+  if (issue !== null) return [issue];
+  return apiKey.startsWith(ANTHROPIC_KEY_PREFIX) ? [] : [{ field: ANTHROPIC_FIELD, reason: "PREFIX" }];
 }
 
 /** 后台填写 Stripe 三项的校验：先看每项的写法，写法都对再按 `stripeKeyIssues` 的规则。 */
@@ -230,16 +243,18 @@ export interface AdminIntegrationSecrets {
   googleMaps: { apiKey: string } | null;
   stripe: StripeKeys | null;
   email: SmtpSettings | null;
+  anthropic: { apiKey: string } | null;
 }
 
-export const NO_ADMIN_SECRETS: AdminIntegrationSecrets = { googleMaps: null, stripe: null, email: null };
+export const NO_ADMIN_SECRETS: AdminIntegrationSecrets = { googleMaps: null, stripe: null, email: null, anthropic: null };
 
 export interface EffectiveIntegrations {
   googleMaps: { apiKey: string | null; source: SecretSource };
   stripe: { config: StripeConfig | null; source: SecretSource };
   email: { config: SmtpSettings | null; source: SecretSource };
+  anthropic: { apiKey: string | null; source: SecretSource };
   /** 后台有值，但不适用于当前环境（Stripe 的测试 / 正式规则、SMTP 的明文），所以没有生效 */
-  adminIgnored: { googleMaps: boolean; stripe: boolean; email: boolean };
+  adminIgnored: { googleMaps: boolean; stripe: boolean; email: boolean; anthropic: boolean };
 }
 
 /** 按优先顺序选出生效的值：后台的优先，其次配置文件，都没有就是未配置。 */
@@ -247,6 +262,7 @@ export function resolveIntegrations(config: AppConfig, admin: AdminIntegrationSe
   const adminMaps = admin.googleMaps !== null && googleMapsKeyIssues(admin.googleMaps.apiKey).length === 0 ? admin.googleMaps.apiKey : null;
   const adminStripe = admin.stripe !== null && adminStripeKeyIssues(config.appEnv, admin.stripe).length === 0 ? admin.stripe : null;
   const adminStripeMode = adminStripe === null ? null : stripeModeOf(adminStripe.secretKey);
+  const adminAnthropic = admin.anthropic !== null && anthropicKeyIssues(admin.anthropic.apiKey).length === 0 ? admin.anthropic.apiKey : null;
   const adminEmail = admin.email !== null && smtpSettingsIssues(config.appEnv, admin.email).length === 0 ? admin.email : null;
   return {
     googleMaps:
@@ -258,7 +274,13 @@ export function resolveIntegrations(config: AppConfig, admin: AdminIntegrationSe
         ? { config: { ...adminStripe, mode: adminStripeMode }, source: "admin" }
         : { config: config.stripe, source: config.stripe === null ? "none" : "env" },
     email: adminEmail !== null ? { config: adminEmail, source: "admin" } : { config: config.smtp, source: config.smtp === null ? "none" : "env" },
-    adminIgnored: { googleMaps: admin.googleMaps !== null && adminMaps === null, stripe: admin.stripe !== null && adminStripe === null, email: admin.email !== null && adminEmail === null },
+    anthropic: adminAnthropic !== null ? { apiKey: adminAnthropic, source: "admin" } : { apiKey: config.anthropicApiKey, source: config.anthropicApiKey === null ? "none" : "env" },
+    adminIgnored: {
+      googleMaps: admin.googleMaps !== null && adminMaps === null,
+      stripe: admin.stripe !== null && adminStripe === null,
+      email: admin.email !== null && adminEmail === null,
+      anthropic: admin.anthropic !== null && adminAnthropic === null,
+    },
   };
 }
 
@@ -267,8 +289,8 @@ export function envIntegrations(config: AppConfig): EffectiveIntegrations {
   return resolveIntegrations(config, NO_ADMIN_SECRETS);
 }
 
-/** 生效的 Stripe 三项、谷歌地图密钥、SMTP 密码的原文：日志脱敏要把它们都抹掉。SMTP 的其他项不是密钥（`587`、`tls` 不该被抹掉）。 */
+/** 生效的 Stripe 三项、谷歌地图密钥、SMTP 密码、Claude 密钥的原文：日志脱敏要把它们都抹掉。SMTP 的其他项不是密钥（`587`、`tls` 不该被抹掉）。 */
 export function effectiveSecretValues(effective: EffectiveIntegrations): string[] {
   const stripe = effective.stripe.config;
-  return [effective.googleMaps.apiKey, stripe?.secretKey, stripe?.webhookSecret, stripe?.publishableKey, effective.email.config?.password].filter((value): value is string => typeof value === "string");
+  return [effective.googleMaps.apiKey, stripe?.secretKey, stripe?.webhookSecret, stripe?.publishableKey, effective.email.config?.password, effective.anthropic.apiKey].filter((value): value is string => typeof value === "string");
 }

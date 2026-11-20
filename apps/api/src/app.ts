@@ -43,6 +43,7 @@ import { registerTenantOnboardingRoutes } from "./routes/tenant-onboarding.ts";
 import { registerTenantProfileRoutes } from "./routes/tenant-profile.ts";
 import type { PaymentProvider } from "./integrations/payments.ts";
 import { StripePaymentProvider, checkStripeKey } from "./integrations/stripe.ts";
+import { checkAnthropicKey } from "./integrations/anthropic.ts";
 import { checkGoogleMapsKey, computeRoute } from "./integrations/google-maps.ts";
 import { GoogleRouteEstimator } from "./services/route-estimates.ts";
 import { fetchStaticMap } from "./integrations/google-static-maps.ts";
@@ -293,6 +294,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   const integrationChecks: IntegrationChecks = {
     googleMaps: (apiKey) => checkGoogleMapsKey(apiKey, { url: config.integrationEndpoints.googleMapsRoutesUrl }),
     stripe: (stripe) => checkStripeKey(stripe, { endpoint: stripeEndpoint }),
+    anthropic: (apiKey) => checkAnthropicKey(apiKey, { url: config.integrationEndpoints.anthropicModelsUrl }),
   };
   // 路线预估（ADR 0042）：每次现取生效的谷歌密钥（运营后台填写的优先），换了密钥下一次询价就用新的
   const routes = new GoogleRouteEstimator({

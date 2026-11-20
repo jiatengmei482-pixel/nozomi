@@ -1958,8 +1958,8 @@
           "id": "M9T-30",
           "title": "ADR 0104：AI 一句话行程报价（P3 实施篇）——Claude 把一句话整理成 /book/trip 表单草稿、地名经现有地址搜索变坐标、无状态解析接口、第三方密钥新增 Claude 项、限频与隐私、测试与分工（只有文档）",
           "role": "product",
-          "status": "doing",
-          "evidence": "ADR 0104 草案；【需业主决定】Q1–Q5 先按推荐写进正文",
+          "status": "review",
+          "evidence": "PR #346：ADR 0104 已采纳（业主 2026-11-20 定完 Q1–Q5）",
           "acceptance": ["监工确认、业主定 Q1–Q5 后改为已采纳", "第三节接口约定两位开发在 #288 对过"],
           "updated": "2026-11-20"
         },
@@ -1967,16 +1967,16 @@
           "id": "M9T-31",
           "title": "第三方密钥新增「Claude（AI 行程解析）」：迁移放宽 integration_secrets 取值、packages/config 校验与 ANTHROPIC_API_KEY 后备、后台页、「测试一下」（模型查询，不产生 token 费用）、/health、docs/secrets.md（ADR 0104 第六节）",
           "role": "backend",
-          "status": "todo",
-          "evidence": "",
+          "status": "review",
+          "evidence": "PR #347 已合并（1254ff87）：后台第三方密钥「Claude（AI 行程解析）」、测试一下查模型列表、/health 一项；单元、集成测试；待业主在测试站填密钥后验收",
           "acceptance": ["只有超级管理员能填，打码、审计、后台优先同现有三项（集成测试）", "代码、日志、仓库里没有密钥原文"],
           "updated": "2026-11-20"
         },
         {
           "id": "M9T-32",
-          "title": "POST /site/v1/trips/parse、GET /site/v1/trips/parse-status：Claude 结构化输出 + zod 校验、null → 请补填、个人信息替换、地名经现有地址搜索解析、三档限频（同地址每分钟 3 / 每天 20、全站每天 300）、trip_parse_runs（不含文字）；不建行程单、不存原文（ADR 0104 第三～五、七、九节）",
+          "title": "POST /site/v1/trips/parse、GET /site/v1/trips/parse-status：Claude 结构化输出 + zod 校验、Sonnet 5.5 / Haiku 5.5 两个型号与后台三选一（ai_trip_settings，先 Haiku 出错再 Sonnet）、每个型号今天的次数、null → 请补填、个人信息替换、地名经现有地址搜索解析、三档限频（同地址每分钟 3 / 每天 20、全站每天 300）、trip_parse_runs（不含文字）；不建行程单、不存原文（ADR 0104 第三～七、九节）",
           "role": "backend",
-          "status": "todo",
+          "status": "doing",
           "evidence": "",
           "acceptance": ["Claude 用测试替身覆盖正常、缺字段、拒答、超时、不合格两次、注入样例；CI 不调真接口", "没配密钥 / 出错 / 额度用完 → 503，报价接口和 trips 表无改动", "trip_parse_runs 逐列检查不含输入文字"],
           "updated": "2026-11-20"
@@ -3754,6 +3754,9 @@
       "by": "开发",
       "summary": "M9T 下一阶段「AI 行程报价官网页面」（监工 2026-11-18 指派，计划见 #288）：ADR 0101 补第十三节——/book/trip 页面范围（样式同 /book/new，embed 不做，验收前不加入口）、人工报价关联行程单用新表 manual_quote_trip_links（不给现有表加列，trip_id 不加外键，地名放进加密联系信息）、下单出口（单段方案桥接普通报价走现有下单付款；多段方案待业主决定，推荐 A「提交预订，客服确认」）；拆 M9T-06～10。"
     },
-    {"date": "2026-11-20", "by": "Codespace 开发", "summary": "M9T-30：AI 一句话行程报价设计 ADR 0104（草案，业主 11-20 决定做、用 Claude，监工在 #288 转达）。客人一句话 → Claude（推荐 Sonnet 5.5，effort low，一次约 ¥2.5–5，上线前测试集比 Haiku 5.5）整理成 /book/trip 表单草稿，地名经现有地址搜索变坐标，缺的标「请补填」不猜，AI 不出价；无状态解析接口、不存原文；密钥放运营后台第三方密钥新增的 Claude 项；三档限频；嵌入页先不上。拆 M9T-31～34（M9T-33 前端归第二开发），约 9–12 人日。M9T-11、M9T-13 起留给 P1b（#330），本组从 M9T-30 起。"}
+    {"date": "2026-11-20", "by": "Codespace 开发", "summary": "M9P-22 快捷入口补充（监工 2026-11-20）：客人在地址搜索里选的地点名本身带航站楼（「第3ターミナル」「Terminal 1」「第1航站楼」「T2」「제2여객터미널」等）、而坐标没认出航站楼时，机场没登记航站楼就把那段预填进「航站楼（选填）」，登记了就预选编号对得上的唯一那个，客人可改；主站和嵌入页同一组件。单元、组件、端到端（主站、嵌入页）已补。"},
+    {"date": "2026-11-20", "by": "Codespace 开发", "summary": "M9T-31（ADR 0104 第六节，监工 11-20 指派先做，不依赖型号）：运营后台「第三方密钥」新增「Claude（AI 行程解析）」——迁移 0660 放宽 integration_secrets 取值；packages/config 校验（sk-ant- 开头）、ANTHROPIC_API_KEY 后备、/health 和集成状态多一项；「测试一下」查模型列表 GET /v1/models?limit=1（不产生 token 费用；不按型号查，型号待业主定）；docs/secrets.md 写业主步骤。单元、集成（只有超级管理员、打码、密文、审计、立即生效）已补。M9T-31 条目在 ADR PR #346 里，合并后改状态。"},
+    {"date": "2026-11-20", "by": "Codespace 开发", "summary": "M9T-30：AI 一句话行程报价设计 ADR 0104（草案，业主 11-20 决定做、用 Claude，监工在 #288 转达）。客人一句话 → Claude（推荐 Sonnet 5.5，effort low，一次约 ¥2.5–5，上线前测试集比 Haiku 5.5）整理成 /book/trip 表单草稿，地名经现有地址搜索变坐标，缺的标「请补填」不猜，AI 不出价；无状态解析接口、不存原文；密钥放运营后台第三方密钥新增的 Claude 项；三档限频；嵌入页先不上。拆 M9T-31～34（M9T-33 前端归第二开发），约 9–12 人日。M9T-11、M9T-13 起留给 P1b（#330），本组从 M9T-30 起。"},
+    {"date": "2026-11-20", "by": "Codespace 开发", "summary": "M9T-30：业主 11-20 定完 ADR 0104 五项——Q1 Sonnet 5.5、Haiku 5.5 两个都接，运营后台三选一（Sonnet 默认 / Haiku / 先 Haiku 出错再 Sonnet），新表 ai_trip_settings，后台显示每个型号今天的次数；Q2–Q5 按推荐。ADR 改为已采纳，工期改 11–14 人日（M9T-32 5–6、M9T-34 1.5–2）。M9T-31 已由 #347 完成。"}
   ]
 }
