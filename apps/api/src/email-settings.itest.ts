@@ -431,7 +431,7 @@ test("后台那一份解不开：不生效、回落到配置文件，页面标�
 test("其他两项不受影响：settings 是 null", async () => {
   const seen = await list();
   for (const key of ["google_maps", "stripe"]) assert.equal(seen.body.items.find((i: any) => i.key === key).settings, null, key);
-  assert.deepEqual(seen.body.items.map((i: any) => i.key), ["google_maps", "stripe", "email"]);
+  assert.deepEqual(seen.body.items.map((i: any) => i.key), ["google_maps", "stripe", "email", "anthropic"]);
 });
 
 test("服务器没有配置数据加密密钥：不能在后台填写（503），也不碰数据库", async () => {

@@ -60,11 +60,12 @@ test("集成状态只有「已配置 / 未配置」：每项只含 key、label�
   assert.ok(!text.includes(password), "响应里出现了数据库密码");
   assert.deepEqual(
     body.integrations.map((i: any) => i.key),
-    ["database", "auth", "dataEncryption", "stripe", "googleMaps", "email", "fx"],
+    ["database", "auth", "dataEncryption", "stripe", "googleMaps", "email", "anthropic", "fx"],
   );
   for (const item of body.integrations) {
     assert.deepEqual(Object.keys(item), ["key", "label", "state"]);
-    assert.equal(item.state, "configured");
+    // Claude（M9T-31）在测试配置里不配：其余都配了
+    assert.equal(item.state, item.key === "anthropic" ? "missing" : "configured", item.key);
   }
   // 以前放在 detail 里的内容：打码的连接串、密钥长度、密钥首尾、汇率源主机名，现在都不应该出现
   assert.ok(!text.includes("detail"));
