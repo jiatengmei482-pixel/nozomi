@@ -831,7 +831,7 @@ test("AI 一句话：没配密钥（503 AI_NOT_CONFIGURED）整块收起，表�
   step("7b click");
   fireEvent.click(screen.getByRole("button", { name: "帮我填好" }));
   step("7b wait hidden");
-  await waitFor(() => assert.equal(document.querySelector(".trip-ai"), null), SLOW);
+  await waitFor(() => assert.equal((document.querySelector(".trip-ai") as HTMLElement | null)?.hidden, true), SLOW);
   step("7b done");
   assert.ok(screen.getByRole("heading", { name: "你的行程", level: 2 }));
 });

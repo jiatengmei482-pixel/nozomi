@@ -26,6 +26,8 @@ export function TripAiInput({ isBlank, onFill }: { /** 表单现在还没填行�
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<TripAiFilled | null>(null);
+  /** 用的时候才发现没配密钥（503 AI_NOT_CONFIGURED）：整块收起。用 hidden 藏起来而不是卸掉（卸掉正在用的输入框在测试环境里会卡死，见 #348） */
+  const [off, setOff] = useState(false);
   const alive = useRef(true);
   const input = useRef<HTMLTextAreaElement>(null);
   const replaceButton = useRef<HTMLButtonElement>(null);
@@ -78,7 +80,7 @@ export function TripAiInput({ isBlank, onFill }: { /** 表单现在还没填行�
     } catch (err) {
       if (!alive.current) return;
       const failure = tripAiFailureOf(err);
-      if (failure.hide) setStatus({ kind: "hidden" });
+      if (failure.hide) setOff(true);
       else setError(failure.text);
     } finally {
       if (alive.current) setWorking(false);
@@ -88,7 +90,7 @@ export function TripAiInput({ isBlank, onFill }: { /** 表单现在还没填行�
   const describedBy = [`${id}-count`, `${id}-note`, error !== null ? `${id}-error` : null].filter((value) => value !== null).join(" ");
 
   return (
-    <section aria-labelledby={`${id}-title`} className="site-section trip-ai">
+    <section aria-labelledby={`${id}-title`} className="site-section trip-ai" hidden={off}>
       <h2 id={`${id}-title`} className="site-section__title">
         {tripCopy("ai.title")}
       </h2>
