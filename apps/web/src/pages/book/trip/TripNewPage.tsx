@@ -261,7 +261,6 @@ export function TripNewPage() {
     setChecked(false);
     setNotice(null);
     setAiSummary({ headline: fill.headline, summary: fill.summary, round: (aiSummary?.round ?? 0) + 1 });
-    setAiManual(false);
   };
 
   // 摘要框画出来以后再移焦点（不用 requestAnimationFrame：那时摘要框可能还没渲染出来）
@@ -391,9 +390,12 @@ export function TripNewPage() {
               manual={
                 <>
                   <Button aria-expanded={aiManual} onClick={() => setAiManual((open) => !open)}>
-                    {tripCopy("ai.manualCta")}
+                    {tripCopy("manual.cta")}
                   </Button>
-                  {aiManual && <ManualQuoteBlock trip={tripFormManualQuoteDraft(draft)} supportWhatsapp={config.config.support_whatsapp} headingLevel="h4" />}
+                  {/* 常驻挂载、用 hidden 收起：收起再展开时客人填的联系方式还在（卸掉正在用的输入在组件测试里还会卡死，见 #348） */}
+                  <div hidden={!aiManual}>
+                    <ManualQuoteBlock trip={tripFormManualQuoteDraft(draft)} supportWhatsapp={config.config.support_whatsapp} headingLevel="h4" />
+                  </div>
                 </>
               }
             />

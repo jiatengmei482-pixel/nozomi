@@ -948,7 +948,9 @@ test("AI 一句话：有「不在报价范围」的部分时摘要里给「转�
   assert.ok(within(summary).getByText("行程里有暂时报不了价的部分（海外段），可以转人工报价"));
   const cta = within(summary).getByText("转人工报价").closest("button") as HTMLButtonElement;
   assert.equal(cta.getAttribute("aria-expanded"), "false");
+  const consent = within(summary).getByText(MANUAL_QUOTE_TEXTS.consent);
+  assert.ok(consent.closest("[hidden]"), "没点开时人工报价表单收着");
   fireEvent.click(cta);
-  assert.ok(await within(summary).findByText(MANUAL_QUOTE_TEXTS.consent));
-  assert.equal(cta.getAttribute("aria-expanded"), "true");
+  await waitFor(() => assert.equal(cta.getAttribute("aria-expanded"), "true"));
+  assert.equal(consent.closest("[hidden]"), null, "点开后显示");
 });
