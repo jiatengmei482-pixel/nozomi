@@ -66,3 +66,16 @@ test("固定测试集的组成：≥ 50 句；中 / 日 / 英各 ≥ 15；注入
     assert.ok(c.expect.days.length >= 1 && c.expect.days[0] !== "idle" && c.expect.days.at(-1) !== "idle", c.id);
   }
 });
+
+test("命令行参数和报告：型号选择、不认识的参数报错；报告列出验收线和错的字段（没有原句）", async () => {
+  const { readEvalOptions, renderSummary } = await import("../cli/trip-eval.ts");
+  assert.deepEqual(readEvalOptions([]).models, [TRIP_PARSE_MODELS.sonnet, TRIP_PARSE_MODELS.haiku]);
+  assert.deepEqual(readEvalOptions(["--model", "haiku", "--only", "zh-"]), { models: [TRIP_PARSE_MODELS.haiku], only: "zh-", json: false });
+  assert.throws(() => readEvalOptions(["--model", "opus"]));
+  assert.throws(() => readEvalOptions(["--write"]));
+  const results = await runTripEval(fake([output({ passengers: 3 })]), "k", TRIP_PARSE_MODELS.sonnet, [trip]);
+  const text = renderSummary(summarize(TRIP_PARSE_MODELS.sonnet, results), results);
+  assert.match(text, /字段准确率 85\.7%（6 \/ 7）✗ 要 ≥ 95%/);
+  assert.match(text, /t1 passengers：4 → 3/);
+  assert.doesNotMatch(text, /…/, "报告里没有原句");
+});
