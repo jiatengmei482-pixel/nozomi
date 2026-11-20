@@ -305,3 +305,75 @@
 .trip-unquoted__plan {
   font-weight: var(--font-weight-bold);
 }
+
+/* ---------- AI 一句话（M9T-33，ADR 0104） ---------- */
+
+.trip-ai .field {
+  margin: 0;
+}
+
+.trip-ai__text {
+  min-height: calc(var(--space-6) * 3);
+}
+
+.trip-ai__count {
+  text-align: end;
+}
+
+.trip-ai__count--over {
+  color: var(--color-warning-text);
+}
+
+.trip-ai__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.trip-ai__note {
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+
+.trip-ai__confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-subtle);
+}
+
+.trip-ai__confirm p {
+  margin: 0;
+}
+
+.trip-ai-summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-warning-border);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-bg);
+}
+
+.trip-ai-summary__headline,
+.trip-ai-summary__title {
+  margin: 0;
+}
+
+.trip-ai-summary__headline {
+  font-weight: var(--font-weight-bold);
+}
+
+.trip-ai-summary__title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+}
+
+.trip-ai-summary__list {
+  margin: 0;
+  padding-inline-start: var(--space-4);
+}
