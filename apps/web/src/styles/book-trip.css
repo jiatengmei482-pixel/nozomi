@@ -308,6 +308,11 @@
 
 /* ---------- AI 一句话（M9T-33，ADR 0104） ---------- */
 
+/* 用的时候才发现没配密钥：整块收起（.site-section 有 display: flex，hidden 要另写） */
+.trip-ai[hidden] {
+  display: none;
+}
+
 .trip-ai .field {
   margin: 0;
 }
