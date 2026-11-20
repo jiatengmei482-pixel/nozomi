@@ -817,43 +817,27 @@ test("AI 一句话：没看出行程、太频繁、额度用完：输入框下�
   assert.ok(await screen.findByText("今天的自动整理次数已满，请直接填写", {}, SLOW));
 });
 
-/** 定位 CI 里卡住的步骤：同步写到 stderr（Linux 上管道是同步写），进程卡死时日志里也看得到走到哪一步 */
-const step = (name: string): void => {
-  process.stderr.write(`[ai-test] ${name}\n`);
-};
-
 test("AI 一句话：没配密钥（503 AI_NOT_CONFIGURED）整块收起，表单照常", { timeout: 30_000 }, async () => {
   wideScreen();
-  step("7b open");
   const { box } = await aiBox(() => apiError(503, "AI_NOT_CONFIGURED", "x"));
-  step("7b write");
   writeBox(box, "成田接机");
-  step("7b click");
   fireEvent.click(screen.getByRole("button", { name: "帮我填好" }));
-  step("7b wait hidden");
   await waitFor(() => assert.equal((document.querySelector(".trip-ai") as HTMLElement | null)?.hidden, true), SLOW);
-  step("7b done");
   assert.ok(screen.getByRole("heading", { name: "你的行程", level: 2 }));
 });
 
 test("AI 一句话：整理中按钮变「正在整理…」、输入框只读；结果回来后恢复", { timeout: 30_000 }, async () => {
   wideScreen();
   const slow = deferred();
-  step("7a open");
   const { box } = await aiBox(() => slow.promise);
   writeBox(box, "成田接机");
   const button = screen.getByRole("button", { name: "帮我填好" });
-  step("7a click");
   fireEvent.click(button);
-  step("7a wait busy");
   await waitFor(() => assert.equal(button.getAttribute("aria-busy"), "true"), SLOW);
-  step("7a busy");
   assert.match(button.textContent ?? "", /正在整理…/);
   assert.equal(box.readOnly, true);
   slow.resolve(apiError(422, "NOT_A_TRIP", "x"));
-  step("7a resolved");
   assert.ok(await screen.findByText("没看出行程，请写上日期、地点，或直接在下面填写", {}, SLOW));
-  step("7a done");
   assert.equal(box.readOnly, false);
 });
 
@@ -882,27 +866,19 @@ test("AI 一句话：表单已经填了东西时先问「替换吗」，取消�
   const calls = open({ parseStatus: AI_ON, parse: () => json(200, partial) });
   const actor = user();
   await dateField();
-  step("t8 s1");
   await pickPlace(actor, "第 1 天 最后下车地点", "京王", /京王广场酒店/);
-  step("t8 s2");
   writeBox((await screen.findByLabelText("行程描述", {}, SLOW)) as HTMLTextAreaElement, "成田接机去浅草寺再去新宿的酒店，坐大巴");
   await actor.click(screen.getByRole("button", { name: "帮我填好" }));
-  step("t8 s3");
 
   assert.ok(await screen.findByText("用 AI 整理的结果替换现在填的内容吗？", {}, SLOW));
   await waitFor(() => assert.equal(document.activeElement, screen.getByText("替换").closest("button")));
-  step("t8 s4");
   await actor.click(screen.getByText("取消").closest("button") as HTMLElement);
-  step("t8 s5");
   assert.equal(screen.queryByText("用 AI 整理的结果替换现在填的内容吗？"), null);
   assert.equal((within(daySection(1)).getByRole("combobox", { name: "第 1 天 最后下车地点" }) as HTMLInputElement).value, HOTEL_NAME, "取消后表单不动");
 
   await actor.click(screen.getByRole("button", { name: "帮我填好" }));
-  step("t8 s6");
   await actor.click((await screen.findByText("替换", {}, SLOW)).closest("button") as HTMLElement);
-  step("t8 s7");
   const summary = await aiSummary();
-  step("t8 s8");
   assert.match(summary.textContent ?? "", /已按你的描述填好 1 天行程/);
   assert.equal(posts(calls, "/site/v1/trips/parse").length, 2);
   const missing = within(summary).getByRole("heading", { name: "请补填" }).nextElementSibling as HTMLElement;
@@ -922,31 +898,19 @@ test("AI 一句话：可用时表单上方有输入框；整理好的结果直�
   assert.ok(screen.getByText("由 AI 整理，价格由系统按规则计算；请勿填写姓名、电话等个人信息"));
   const box = screen.getByLabelText("行程描述") as HTMLTextAreaElement;
   await dateField();
-  step("t9 s1");
   writeBox(box, SENTENCE);
   assert.ok(await screen.findByText(`${[...SENTENCE].length} / 500 字`));
   await actor.click(screen.getByRole("button", { name: "帮我填好" }));
-  step("t9 s2");
 
   const summary = await aiSummary();
-  step("t9 s3");
   assert.ok(within(summary).getByText("已按你的描述填好 2 天行程。标黄的地方请补填或确认，然后点「查看报价」"));
-  step("t9 s3.1");
   assert.deepEqual(posts(calls, "/site/v1/trips/parse")[0]?.body, { text: SENTENCE, lang: "zh" });
-  step("t9 s3.2");
   assert.equal(within(summary).queryByRole("heading", { name: "请补填" }), null, "都齐了，没有请补填");
-  step("t9 s3.3");
   assert.ok(within(summary).getByText("第 1 天的日期按 11 月 20 日填"));
-  step("t9 s3.4");
   assert.ok(within(summary).getByText("航班号 NH211：行程报价暂不用航班号，下单时可以填在备注里"));
-  step("t9 s3.5");
   assert.ok(within(summary).getByText("你说的「包车 8 小时」会按实际路线自动选套餐，报价里能看到"));
-  step("t9 s3.6");
   assert.equal(screen.queryByText("服务端拼的文案（页面不用）"), null);
-  step("t9 s3.7");
   await waitFor(() => assert.equal(document.activeElement, summary), SLOW);
-  step("t9 s3.8");
-  step("t9 s4");
 
   assert.equal((screen.getByLabelText("日期（当地）") as HTMLInputElement).value, "2030-11-20");
   assert.equal((within(daySection(1)).getByRole("combobox", { name: "第 1 天 上车地点" }) as HTMLInputElement).value, "成田国际机场");
@@ -954,7 +918,6 @@ test("AI 一句话：可用时表单上方有输入框；整理好的结果直�
   assert.equal((screen.getByLabelText(/第 2 天 第 2 个地点 停留时长/) as HTMLSelectElement).value, "90");
 
   await actor.click(screen.getByRole("button", { name: "查看报价" }));
-  step("t9 s5");
   assert.ok(await screen.findByRole("heading", { name: "报价结果", level: 2 }, SLOW));
   assert.deepEqual(posts(calls, "/site/v1/trips")[0]?.body, {
     schemaVersion: 1,

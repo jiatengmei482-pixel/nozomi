@@ -124,7 +124,7 @@ export function TripNewPage() {
   const [notice, setNotice] = useState<Notice | null>(() => (tripParamMalformed(location.search) ? { kind: "info", text: tripCopy("failure.notFound") } : null));
   const [creating, setCreating] = useState(false);
   /** AI 整理后表单顶部的摘要（再用 AI 整理一次时换掉） */
-  const [aiSummary, setAiSummary] = useState<{ headline: string; summary: TripAiSummary } | null>(null);
+  const [aiSummary, setAiSummary] = useState<{ headline: string; summary: TripAiSummary; round: number } | null>(null);
   const aiSummaryRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<TripView>({ kind: "idle" });
   const viewRef = useRef(view);
@@ -256,12 +256,16 @@ export function TripNewPage() {
     setDraft(fill.draft);
     setChecked(false);
     setNotice(null);
-    setAiSummary({ headline: fill.headline, summary: fill.summary });
-    requestAnimationFrame(() => {
-      aiSummaryRef.current?.focus({ preventScroll: true });
-      aiSummaryRef.current?.scrollIntoView?.({ block: "start" });
-    });
+    setAiSummary({ headline: fill.headline, summary: fill.summary, round: (aiSummary?.round ?? 0) + 1 });
   };
+
+  // 摘要框画出来以后再移焦点（不用 requestAnimationFrame：那时摘要框可能还没渲染出来）
+  const aiRound = aiSummary?.round ?? 0;
+  useEffect(() => {
+    if (aiRound === 0) return;
+    aiSummaryRef.current?.focus({ preventScroll: true });
+    aiSummaryRef.current?.scrollIntoView?.({ block: "start" });
+  }, [aiRound]);
 
   const focusFirstProblem = (): void => {
     requestAnimationFrame(() => document.querySelector<HTMLElement>('.trip-new [aria-invalid="true"]')?.focus());
