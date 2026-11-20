@@ -61,6 +61,7 @@ export const UNREACHABLE_INTEGRATIONS: Record<string, string> = {
   GOOGLE_GEOCODE_URL: "http://127.0.0.1:1/v4beta/geocode/location",
   GOOGLE_STATIC_MAPS_URL: "http://127.0.0.1:1/maps/api/staticmap",
   STRIPE_API_URL: "http://127.0.0.1:1",
+  ANTHROPIC_API_URL: "http://127.0.0.1:1",
 };
 
 /** 迁移命令（`db:migrate`）的环境变量：只需要迁移账号的连接串。 */

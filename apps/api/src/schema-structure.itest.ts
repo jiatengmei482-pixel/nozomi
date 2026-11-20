@@ -100,6 +100,9 @@ const PLATFORM_TABLES = [
   "trip_plans",
   "trip_segments",
   "trips",
+  // AI 一句话行程（M9T-32，ADR 0104）：型号设置（全站一行）、调用记录（不含文字）
+  "ai_trip_settings",
+  "trip_parse_runs",
   "uncovered_demand_drops",
   "uncovered_demand_limits",
   "uncovered_demands",
@@ -359,6 +362,9 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     manual_quote_trip_links: ["INSERT", "SELECT"],
     // 官网设置（ADR 0076）：全站一行，第一次保存时写入
     site_settings: ["INSERT", "SELECT", "UPDATE"],
+    // AI 一句话行程（M9T-32，ADR 0104）：型号设置只改不删；调用记录 90 天后由清理任务删
+    ai_trip_settings: ["INSERT", "SELECT", "UPDATE"],
+    trip_parse_runs: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     // 共享库去重（M8-31b，ADR 0083 补充）：标记一行，撤销时记撤销人和时间；不删
     shared_area_duplicates: ["INSERT", "SELECT", "UPDATE"],
     // 预订草稿（ADR 0090）：建一次、不改；读的时候只读没过期的；清理任务删过期的

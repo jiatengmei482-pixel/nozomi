@@ -5,6 +5,7 @@
   "type": "module",
   "description": "后端服务：Fastify + PostgreSQL。接口层只做鉴权、校验、调用、返回；业务规则在 @nozomi/domain。",
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.11.0",
     "@nozomi/config": "workspace:*",
     "@nozomi/domain": "workspace:*",
     "fastify": "^5.6.0",

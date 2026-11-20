@@ -5,16 +5,19 @@
  * - `POST /site/v1/trips/{id}/quote`：编排 + 分段报价 + 跨段费用 + 方案对比（每个地址每分钟 5 次、每天 50 次，两个都放行才报；不和 `site_quote` 共用）；
  * - `POST /site/v1/trips/{id}/plans/{planId}/order-quote`：单段方案转成一张普通官网报价（M9T-10，ADR 0101 第十三节第 3 小节），之后凭 `quote_id` 走现有下单、付款；
  *   价格必须等于方案的对外总价（否则 409 `TRIP_PRICE_CHANGED`）。是一次官网正式询价，占 `site_quote`（每个地址每分钟 30 次）。
+ * - `GET /site/v1/trips/parse-status`、`POST /site/v1/trips/parse`：AI 一句话行程（M9T-32，ADR 0104 第三节），把客人的一句话整理成表单草稿，不建行程单、不存原话；
+ *   每个地址每分钟 3 次、每天 20 次，全站每天按后台上限（`AI_TRIP_DAILY_LIMIT`）。
  * 请求体用 ADR 0101 第二节的标准行程单（camelCase）；应答字段是 snake_case，金额同官网询价（`{ amount, currency }`，主单位十进制字符串）。
  * 对客应答没有结算价、加价比例、供应商编号。
  */
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { type CurrencyCode, type LocalizedText, TRIP_ITEM_KINDS, TRIP_LIMITS, TRIP_PLACE_KINDS, type TripItinerary } from "@nozomi/domain";
+import { type CurrencyCode, type LocalizedText, TRIP_ITEM_KINDS, TRIP_LIMITS, TRIP_PARSE_MAX_CHARS, TRIP_PLACE_KINDS, type TripItinerary, type TripParsePlaceDraft, tripParseLookupKey, tripParseTextLength } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { siteAudienceOf } from "../services/qa-acceptance.ts";
 import { salesMoney } from "../services/sales-quotes.ts";
 import { takeSiteSlot } from "../services/site.ts";
+import { type TripParseMatch, type TripParseResponse, parseTripText, tripParseAvailability } from "../services/trip-parse.ts";
 import { type TripView, createTrip, getTrip, orderQuoteForPlan, quoteTrip } from "../services/trips.ts";
 import { parseInput, uuidSchema } from "../validation.ts";
 import { quoteJson, quotedCityJson } from "./site.ts";
@@ -128,8 +131,65 @@ export function tripJson(view: TripView, now: Date): Json {
   };
 }
 
+/** 一句话：去掉首尾空白后 1–500 个字符（按 Unicode 码点数）；`lang` 现在不影响应答（文案在前端） */
+const tripParseRequestSchema = z
+  .object({
+    text: z
+      .string()
+      .transform((value) => value.trim())
+      .refine((value) => tripParseTextLength(value) >= 1, "请写上行程")
+      .refine((value) => tripParseTextLength(value) <= TRIP_PARSE_MAX_CHARS, `最多 ${TRIP_PARSE_MAX_CHARS} 个字`),
+    lang: z.enum(["zh", "ja", "en"]).optional(),
+  })
+  .strict();
+
+function matchJson(match: TripParseMatch | undefined): Json {
+  if (match === undefined || match.status === "unresolved") return { status: "unresolved" };
+  if (match.status === "resolved") return { status: "resolved", point: match.point };
+  return { status: "ambiguous", candidates: match.candidates };
+}
+
+/** ADR 0104 第三节第 2 小节的应答（snake_case）。泛指的、没查的地名是 unresolved */
+function tripParseJson({ result, matches }: TripParseResponse): Json {
+  const place = (draft: TripParsePlaceDraft | null): Json | null => (draft === null ? null : { query: draft.query, kind: draft.kind, match: matchJson(draft.specific ? matches.get(tripParseLookupKey(draft)) : undefined) });
+  return {
+    draft: {
+      date: result.draft.date,
+      passengers: result.draft.passengers,
+      luggage: result.draft.luggage,
+      days: result.draft.days.map((day) => ({
+        idle: day.idle,
+        time: day.time,
+        start: place(day.start),
+        stops: day.stops.map((stop) => ({ ...(place(stop) as Json), stay_minutes: stop.stayMinutes })),
+        end: place(day.end),
+        lodging_provided: day.lodgingProvided,
+      })),
+    },
+    missing: result.missing,
+    assumptions: result.assumptions,
+    unused: result.unused,
+    out_of_scope: result.outOfScope,
+  };
+}
+
 export function registerSiteTripRoutes(app: FastifyInstance, ctx: AppContext): void {
   const audience = (request: FastifyRequest) => siteAudienceOf(ctx, request.headers.cookie);
+
+  // AI 一句话行程（M9T-32，ADR 0104 第三节）：无状态，只把整理好的草稿交给页面填表；不建行程单、不报价、不存原话
+  app.get("/site/v1/trips/parse-status", async (request) => {
+    await takeSiteSlot(ctx, "site_read", { ip: request.ip });
+    const status = await tripParseAvailability(ctx);
+    return { available: status.available, max_chars: TRIP_PARSE_MAX_CHARS, reason: status.reason };
+  });
+
+  app.post("/site/v1/trips/parse", { bodyLimit: 16 * 1024 }, async (request) => {
+    await takeSiteSlot(ctx, "site_trip_parse", { ip: request.ip });
+    await takeSiteSlot(ctx, "site_trip_parse_day", { ip: request.ip });
+    const input = parseInput(tripParseRequestSchema, request.body, "body");
+    const parsed = await parseTripText(ctx, input.text, request.ip, (await audience(request)) === "acceptance");
+    return tripParseJson(parsed);
+  });
 
   app.post("/site/v1/trips", { bodyLimit: 128 * 1024 }, async (request, reply) => {
     await takeSiteSlot(ctx, "site_trip", { ip: request.ip });

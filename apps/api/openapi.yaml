@@ -13477,6 +13477,86 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "503":
           $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/trips/parse-status:
+    get:
+      tags: [ 官网 ]
+      operationId: getSiteTripParseStatus
+      summary: AI 一句话行程现在能不能用
+      description: |
+        M9T-32，ADR 0104 第三节第 1 小节。`available: false`：官网没开、功能关了、没配 Claude 密钥（`reason: null`，不细分），或全站今天（东京时间）的额度用完（`reason: DAILY_LIMIT`）。
+        不返回型号、额度数字、密钥状态。占 `site_read`。
+      responses:
+        "200":
+          description: 是否显示一句话输入框
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ available, max_chars, reason ]
+                properties:
+                  available:
+                    type: boolean
+                  max_chars:
+                    type: integer
+                    enum: [ 500 ]
+                  reason:
+                    type: [ string, "null" ]
+                    enum: [ DAILY_LIMIT, null ]
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /site/v1/trips/parse:
+    post:
+      tags: [ 官网 ]
+      operationId: parseSiteTrip
+      summary: AI 一句话行程：把客人的一句话整理成 /book/trip 表单草稿
+      description: |
+        M9T-32，ADR 0104 第三节第 2 小节。**无状态**：不建行程单、不报价、不存原话；价格只由客人确认表单后的「查看报价」算。
+        客人没说的（日期、人数、行李、上车时间、起点）为 null 并列进 `missing`，不猜；推算的进 `assumptions`；地名经地址搜索换坐标（`match`）。
+        发给 Claude 前把邮箱、电话、卡号、证件号换成占位符。每个地址每分钟 3 次、每天 20 次；全站每天按后台上限（默认 300）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ text ]
+              properties:
+                text:
+                  type: string
+                  description: 去掉首尾空白后 1–500 个字符（按 Unicode 码点数）
+                lang:
+                  type: string
+                  enum: [ zh, ja, en ]
+                  description: 页面语言；现在不影响应答（对客文案在前端）
+      responses:
+        "200":
+          description: 表单草稿和提示代码
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TripParseResult"
+        "400":
+          description: "`VALIDATION_FAILED`：空、超过 500 字"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: "`NOT_A_TRIP`（一天行程都没看出来）、`TRIP_TOO_LONG`（超过 14 天、某天超过 12 个点或全程超过 60 个地名）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          description: "`SITE_NOT_OPEN`；`AI_NOT_CONFIGURED`（没配密钥 / 功能关闭）；`AI_DAILY_LIMIT`（全站今天的额度用完）；`AI_UNAVAILABLE`（超时、出错、拒答、输出两次不合格）。都不影响表单和报价接口"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /site/v1/trips/{id}:
     get:
       tags: [ 官网 ]
@@ -32648,6 +32728,133 @@ components:
             within_delay_allowance:
               type: boolean
         - type: "null"
+    TripParsePoint:
+      type: object
+      additionalProperties: false
+      required: [ name, address, lat, lng, kind ]
+      properties:
+        name: { type: string }
+        address: { type: string }
+        lat: { type: number }
+        lng: { type: number }
+        kind:
+          type: [ string, "null" ]
+          enum: [ airport, null ]
+    TripParsePlace:
+      type: object
+      additionalProperties: false
+      required: [ query, kind, match ]
+      properties:
+        query:
+          type: string
+          description: Claude 给的地名文字（客人的写法，≤ 80 字）
+        kind:
+          type: string
+          enum: [ airport, station, hotel, poi, address ]
+          description: 只作显示提示；填进表单的是 `match.point.kind`
+        stay_minutes:
+          type: [ integer, "null" ]
+          description: 只有途经点有：0–720、30 分钟一档；客人没说或不在档上为 null
+        match:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [ status, point ]
+              properties:
+                status: { type: string, enum: [ resolved ] }
+                point: { $ref: "#/components/schemas/TripParsePoint" }
+            - type: object
+              additionalProperties: false
+              required: [ status, candidates ]
+              properties:
+                status: { type: string, enum: [ ambiguous ] }
+                candidates:
+                  type: array
+                  minItems: 2
+                  maxItems: 5
+                  items: { $ref: "#/components/schemas/TripParsePoint" }
+            - type: object
+              additionalProperties: false
+              required: [ status ]
+              properties:
+                status: { type: string, enum: [ unresolved ] }
+    TripParseResult:
+      type: object
+      additionalProperties: false
+      required: [ draft, missing, assumptions, unused, out_of_scope ]
+      properties:
+        draft:
+          type: object
+          additionalProperties: false
+          required: [ date, passengers, luggage, days ]
+          properties:
+            date:
+              type: [ string, "null" ]
+              format: date
+            passengers: { type: [ integer, "null" ] }
+            luggage: { type: [ integer, "null" ] }
+            days:
+              type: array
+              minItems: 1
+              maxItems: 14
+              description: "从第 1 天到最后一天的连续天数；中间不用车的天是 `idle: true`（time / start / end 为 null，stops 为空）"
+              items:
+                type: object
+                additionalProperties: false
+                required: [ idle, time, start, stops, end, lodging_provided ]
+                properties:
+                  idle: { type: boolean }
+                  time: { type: [ string, "null" ], pattern: "^\\d{2}:\\d{2}$" }
+                  start:
+                    oneOf:
+                      - $ref: "#/components/schemas/TripParsePlace"
+                      - type: "null"
+                  stops:
+                    type: array
+                    items: { $ref: "#/components/schemas/TripParsePlace" }
+                  end:
+                    oneOf:
+                      - $ref: "#/components/schemas/TripParsePlace"
+                      - type: "null"
+                  lodging_provided: { type: boolean }
+        missing:
+          type: array
+          description: 请补填：`date`、`passengers`、`luggage`、`days[i].time`、`days[i].start`
+          items:
+            type: object
+            additionalProperties: false
+            required: [ field ]
+            properties:
+              field: { type: string }
+        assumptions:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ code, field, value ]
+            properties:
+              code: { type: string, enum: [ DATE_FROM_RELATIVE, DATE_YEAR_INFERRED, STAY_OFF_GRID ] }
+              field: { type: string }
+              value: { type: [ string, integer ] }
+        unused:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ code, value ]
+            properties:
+              code: { type: string, enum: [ FLIGHT_NUMBER, CHARTER_HOURS, VEHICLE_TYPE, DRIVER_LANGUAGE, CHILD_SEAT, OTHER_REQUEST ] }
+              value:
+                type: [ string, "null" ]
+                description: 只有航班号（`^[A-Z0-9]{2}\\d{1,4}$`）和包车小时数（1–24）有值
+        out_of_scope:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ code ]
+            properties:
+              code: { type: string, enum: [ BUS, ACCESSIBLE_VEHICLE, OVERSEAS, OTHER ] }
     TripItinerary:
       description: 标准行程单（ADR 0101 第二节，P1 子集；字段名 camelCase）。上限：14 天、每天 12 个点（没写终点时过夜点也算一个）、全程 60 个不同地点、附加项 10 个、人数 1–60、行李 0–60、停留 0–720 分钟
       type: object
