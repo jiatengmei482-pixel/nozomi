@@ -955,7 +955,7 @@ test("AI 一句话：有「不在报价范围」的部分时摘要里给「转�
   assert.equal(consent.closest("[hidden]"), null, "点开后显示");
 });
 
-test("AI 一句话：表单格子上标「AI 填的」/「请补填」；改过的格子去掉标记", { timeout: 30_000 }, async () => {
+test("AI 一句话：表单格子上标「AI 填的，可改」/「请补填」；改过的格子去掉标记", { timeout: 30_000 }, async () => {
   wideScreen();
   const { box } = await aiBox(() => json(200, { ...PARSED, draft: { ...PARSED.draft, passengers: null, days: [{ ...PARSED.draft.days[0], time: null }, PARSED.draft.days[1]] } }));
   writeBox(box, SENTENCE);
@@ -967,7 +967,7 @@ test("AI 一句话：表单格子上标「AI 填的」/「请补填」；改过�
   assert.equal(within(timeCell).getByText("请补填").className, "trip-ai-cell__badge");
   const startCell = within(daySection(1)).getByRole("combobox", { name: "第 1 天 上车地点" }).closest(".trip-ai-cell") as HTMLElement;
   assert.ok(startCell.classList.contains("trip-ai-cell--filled"));
-  assert.ok(within(startCell).getByText("AI 填的"));
+  assert.ok(within(startCell).getByText("AI 填的，可改"));
   const travellers = screen.getByRole("button", { name: /乘客 \/ 行李/ }).closest(".trip-ai-cell") as HTMLElement;
   assert.ok(travellers.classList.contains("trip-ai-cell--missing"), "人数没说：请补填");
 

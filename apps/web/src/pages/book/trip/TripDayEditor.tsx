@@ -6,7 +6,7 @@
  * - 不是最后一天时「当晚为司机安排住宿」；
  * - 手机、平板（≤ 1023px）这一天的路线图就在块里；电脑上在右侧栏（`inlineMap`）。
  * 出错写在各自的字段下面（文案在 `trip-texts.ts`）。
- * AI 一句话整理后（M9T-33）：格子上标「AI 填的」/「请补填」（`TripAiCell`），多个候选列在地点框下面点选，没找到的地名放进搜索框并提示；客人改过的格子去掉标记（`ai.touch`）。
+ * AI 一句话整理后（M9T-33）：格子上标「AI 填的，可改」/「请补填」（`TripAiCell`），多个候选列在地点框下面点选，没找到的地名放进搜索框并提示；客人改过的格子去掉标记（`ai.touch`）。
  */
 import type { CityCandidate } from "@nozomi/domain";
 import type { ReactNode } from "react";
