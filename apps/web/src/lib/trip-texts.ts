@@ -67,6 +67,8 @@ export type TripTextKey =
   | "ai.assume.stay"
   | "ai.assume.DATE_YEAR_INFERRED"
   | "ai.assume.other"
+  | "ai.assume.STAY_DEFAULT"
+  | "ai.assume.STAY_DEFAULT_MIXED"
   | "ai.unused.VEHICLE_TYPE"
   | "ai.unused.DRIVER_LANGUAGE"
   | "ai.unused.CHILD_SEAT"
@@ -238,7 +240,7 @@ const ZH: Readonly<Record<TripTextKey, string>> = {
   "ai.note": "由 AI 整理，价格由系统按规则计算；请勿填写姓名、电话等个人信息",
   "ai.replaceConfirm": "用 AI 整理的结果替换现在填的内容吗？",
   "ai.summary": "已按你的描述填好 {days} 天行程。标黄的地方请补填或确认，然后点「查看报价」",
-  "ai.filled": "AI 填的",
+  "ai.filled": "AI 填的，可改",
   "ai.missing": "请补填",
   "ai.pickOne": "找到几个地点，请选一个",
   "ai.notFound": "没找到「{name}」，请重新搜索",
@@ -276,6 +278,8 @@ const ZH: Readonly<Record<TripTextKey, string>> = {
   "ai.assume.DATE_YEAR_INFERRED": "第 1 天的日期按 {value}填（没说年份，取今天以后最近的那天）",
   "ai.assume.stay": "第 {n} 天第 {m} 个中间地点的停留时长没有对应的选项，请自己选",
   "ai.assume.other": "{field}是推算出来的",
+  "ai.assume.STAY_DEFAULT": "没说停留多久的地点先按 {value}填了，可改",
+  "ai.assume.STAY_DEFAULT_MIXED": "没说停留多久的地点先按常见时长填了，可改",
   "ai.unused.VEHICLE_TYPE": "指定车型：报价后在方案里选车型",
   "ai.unused.DRIVER_LANGUAGE": "司机语言：下单时可以填在备注里",
   "ai.unused.CHILD_SEAT": "儿童座椅：报价后在附加服务里选",
