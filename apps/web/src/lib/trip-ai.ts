@@ -7,6 +7,8 @@
  * - 停留：只收 0–720、每 30 分钟一档（`TRIP_STAY_OPTIONS`）；不在档上的丢掉并进「请确认」；没给的进「请补填」（页面检查要求每个中间地点选停留）。
  * - 空闲日（`idle: true`）：忽略当天的时间和地点；`days` 按应答原样排，前端不自己插天（服务端补好中间的空闲日）。
  * - 人数、行李没给：表单这两格不能空，先按默认值填上，进「请补填」写明按几人 / 几件填的。
+ * - 服务端直接认定 / 给默认的（M9T-33 第三部分，监工 11-21 验收意见）：`PLACE_PICKED`（明确地名取了第一候选）、`START_FROM_PREVIOUS_END`（起点用上一天终点）
+ *   只在格子上标「AI 填的，可改」，摘要不另说；`STAY_DEFAULT`（停留没说，给了默认值）在「请确认」里合成一句。都不进「请补填」。
  * - 应答里的 `texts` 不用，摘要文案只按代码从 `trip-texts.ts` 拼；`missing` 由这里按草稿自己算（和服务端的一致，不依赖它）。
  * - 超出页面上限（14 天、每天 12 个点）当作「行程较长」，不截断。
  * 页面标记（「AI 填的」「请补填」、候选、没找到）要用的格子编号放在 `marks` 里：`date`、`passengers`、`luggage`、`<天 key>.time|start|end`、`<地点 key>.point|stay`。
@@ -121,6 +123,14 @@ function dateText(value: string): string {
   return `${Number(month)} 月 ${Number(day)} 日`;
 }
 
+/** 60 → 1 小时、90 → 1 小时 30 分钟、30 → 30 分钟（默认停留那一句用） */
+function stayText(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours === 0) return `${rest} 分钟`;
+  return rest === 0 ? `${hours} 小时` : `${hours} 小时 ${rest} 分钟`;
+}
+
 /** 解析应答 → 表单草稿、标记、摘要 */
 export function tripAiFillOf(result: SiteTripParseResult): TripAiFill {
   const source = result.draft;
@@ -182,6 +192,7 @@ export function tripAiFillOf(result: SiteTripParseResult): TripAiFill {
     return { ...base, time, start, stops, end, lodgingProvided };
   });
 
+  const stayDefaults = new Set<string>();
   for (const assumption of result.assumptions ?? []) {
     if ((assumption.code === "DATE_FROM_RELATIVE" || assumption.code === "DATE_YEAR_INFERRED") && isDate(assumption.value) && assumption.value === date) {
       confirm.push(tripCopy(`ai.assume.${assumption.code}`, { value: dateText(assumption.value) }));
@@ -197,9 +208,21 @@ export function tripAiFillOf(result: SiteTripParseResult): TripAiFill {
       if (at >= 0) missing.splice(at, 1);
       continue;
     }
+    // 明确地名直接认定、上一天终点当起点：格子上已有「AI 填的，可改」，摘要里不再多一句
+    if (assumption.code === "PLACE_PICKED" || assumption.code === "START_FROM_PREVIOUS_END") continue;
+    // 停留没说、先给了默认值：只在格子上标「AI 填的，可改」，摘要里合成一句（不管几处）
+    if (assumption.code === "STAY_DEFAULT") {
+      const stay = /^days\[(\d+)\]\.stops\[(\d+)\]/.exec(assumption.field ?? "");
+      const draftStop = stay === null ? undefined : formDays[Number(stay[1])]?.stops[Number(stay[2])];
+      if (draftStop !== undefined && draftStop.stay !== "") stayDefaults.add(draftStop.stay);
+      continue;
+    }
     const field = assumption.field === undefined ? null : tripAiFieldText(assumption.field, party);
     confirm.push(tripCopy("ai.assume.other", { field: field ?? tripCopy("ai.field.other") }));
   }
+
+  if (stayDefaults.size === 1) confirm.push(tripCopy("ai.assume.STAY_DEFAULT", { value: stayText(Number([...stayDefaults][0])) }));
+  else if (stayDefaults.size > 1) confirm.push(tripCopy("ai.assume.STAY_DEFAULT_MIXED"));
 
   const unused: string[] = [];
   for (const item of result.unused ?? []) {

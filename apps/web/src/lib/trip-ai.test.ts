@@ -199,3 +199,55 @@ test("服务端的新提示代码：没说年份（DATE_YEAR_INFERRED）进请�
   assert.deepEqual(fill.summary.missing, []);
   assert.equal(fill.draft.days[0]?.stops[0]?.stay, "");
 });
+
+test("服务端直接认定 / 给默认（监工 11-21 验收意见）：PLACE_PICKED、START_FROM_PREVIOUS_END 只标 AI 填的、摘要不另说；STAY_DEFAULT 合成一句；都不进请补填", () => {
+  const stop = (stay: number) => ({ ...at("浅草寺", TEMPLE), stay_minutes: stay });
+  const fill = filled(
+    result(
+      [
+        { idle: false, time: "10:00", start: at("成田机场", NARITA), stops: [stop(60), stop(60)], end: at("新宿酒店", HOTEL) },
+        { idle: false, time: "08:00", start: at("新宿酒店", HOTEL), stops: [], end: at("成田", NARITA) },
+      ],
+      {},
+      {
+        assumptions: [
+          { code: "PLACE_PICKED", field: "days[0].start" },
+          { code: "PLACE_PICKED", field: "days[0].stops[0]" },
+          { code: "START_FROM_PREVIOUS_END", field: "days[1].start" },
+          { code: "STAY_DEFAULT", field: "days[0].stops[0].stay_minutes", value: 60 },
+          { code: "STAY_DEFAULT", field: "days[0].stops[1].stay_minutes", value: 60 },
+        ],
+      },
+    ),
+  );
+  assert.deepEqual(fill.marks.missing, []);
+  assert.deepEqual(fill.summary.missing, []);
+  assert.deepEqual(fill.summary.confirm, ["没说停留多久的地点先按 1 小时填了，可改"]);
+  const stays = fill.draft.days[0]?.stops.map((item) => item.stay);
+  assert.deepEqual(stays, ["60", "60"]);
+  assert.ok(fill.draft.days[0]?.stops.every((item) => fill.marks.filled.includes(`${item.key}.stay`)));
+
+  const mixed = filled(
+    result([{ idle: false, time: "10:00", start: at("成田机场", NARITA), stops: [stop(60), stop(90)], end: at("新宿酒店", HOTEL) }], {}, {
+      assumptions: [
+        { code: "STAY_DEFAULT", field: "days[0].stops[0].stay_minutes", value: 60 },
+        { code: "STAY_DEFAULT", field: "days[0].stops[1].stay_minutes", value: 90 },
+        { code: "STAY_DEFAULT", field: "days[0].stops[5].stay_minutes", value: 60 },
+      ],
+    }),
+  );
+  assert.deepEqual(mixed.summary.confirm, ["没说停留多久的地点先按常见时长填了，可改"]);
+
+  const half = filled(result([{ idle: false, time: "10:00", start: at("成田机场", NARITA), stops: [stop(90)], end: at("新宿酒店", HOTEL) }], {}, { assumptions: [{ code: "STAY_DEFAULT", field: "days[0].stops[0].stay_minutes" }] }));
+  assert.deepEqual(half.summary.confirm, ["没说停留多久的地点先按 1 小时 30 分钟填了，可改"], "以表单里实际填的为准，不看 value");
+});
+
+test("STAY_DEFAULT 碰上不在档上的停留（表单里是空的）：不出默认那句，照旧只有「请自己选」一句", () => {
+  const fill = filled(
+    result([{ idle: false, time: "10:00", start: at("成田机场", NARITA), stops: [{ ...at("浅草寺", TEMPLE), stay_minutes: 45 }], end: at("新宿酒店", HOTEL) }], {}, {
+      assumptions: [{ code: "STAY_DEFAULT", field: "days[0].stops[0].stay_minutes", value: 45 }],
+    }),
+  );
+  assert.deepEqual(fill.summary.confirm, ["第 1 天第 1 个中间地点的停留时长没有对应的选项，请自己选"]);
+  assert.equal(fill.draft.days[0]?.stops[0]?.stay, "");
+});
