@@ -1219,7 +1219,7 @@ export interface SiteTripParseResult {
   draft: SiteTripParseDraft;
   /** 没得到的：`date`、`passengers`、`luggage`、`days[0].time` 这样的字段路径 */
   missing: { field: string }[];
-  /** 推算出来的，请客人确认：`DATE_FROM_RELATIVE`、`DATE_YEAR_INFERRED`、`STAY_OFF_GRID` */
+  /** 推算出来的，请客人确认：`DATE_FROM_RELATIVE`、`DATE_YEAR_INFERRED`、`STAY_OFF_GRID`；直接认定 / 给默认的：`PLACE_PICKED`、`START_FROM_PREVIOUS_END`、`STAY_DEFAULT` */
   assumptions: { code: string; field?: string; value?: string | number | null }[];
   /** 客人说了、报价用不上的 */
   unused: { code: string; value?: string | number | null }[];
