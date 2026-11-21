@@ -31,7 +31,7 @@ const claude: IntegrationSecretItem = {
 };
 const secrets = (canManage: boolean): IntegrationSecrets => ({ precedence_note: "运营后台填写的优先。", can_manage: canManage, encryption_configured: true, items: [claude] });
 const settingsOf = (changes: Partial<AiTripSettings> = {}): AiTripSettings => ({
-  model_mode: "sonnet",
+  model_mode: "haiku_then_sonnet",
   version: 0,
   updated_at: null,
   models: { sonnet: "claude-sonnet-5-5", haiku: "claude-haiku-5-5" },
@@ -87,7 +87,7 @@ test("超级管理员：改成 Haiku 保存（第一次不带 If-Match）；再�
     return json(200, current);
   });
   const region = await screen.findByRole("region", { name: "Claude（AI 行程解析）· 使用的型号" });
-  const radio = await within(region).findByRole("radio", { name: /Sonnet（默认，推荐）/ });
+  const radio = await within(region).findByRole("radio", { name: /先 Haiku，出错再用 Sonnet（默认，推荐）/ });
   assert.equal((radio as HTMLInputElement).checked, true);
   await actor.click(within(region).getByRole("radio", { name: /^Haiku/ }));
   await actor.click(within(region).getByRole("button", { name: "保存" }));

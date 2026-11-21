@@ -290,7 +290,7 @@ AI 只给地名文字（`name` + `kind` + `cityHint`），**不让 AI 给坐标*
 - 生效值只经 `packages/config` 的 `resolveIntegrations` 选出（CLAUDE.md 规则 5），每次调用现取，换了密钥下一次解析就用新的。
 - 权限、加密（`SecretBox` 用途 `integration-secret`）、打码（末 4 位）、审计、限速全部照旧；只有超级管理员能填。
 - 其他非密钥配置走 `packages/config` 的环境变量，有默认值：`AI_TRIP_PARSE_ENABLED`（默认 true，有密钥才生效）、`AI_TRIP_DAILY_LIMIT`（默认 300）。
-- **型号选择不是环境变量，在后台改**（业主要求切换不重新部署）：新的平台表 `ai_trip_settings`（全站一行，同 `site_settings` 的单行写法：`model_mode` 取 `sonnet / haiku / haiku_then_sonnet`、`version`、`updated_at`、`updated_by`；不预置，没有行 = `sonnet`）。接口 `GET / PUT /platform/v1/ai-trip-settings`，权限同第三方密钥（`integration.manage`，只有超级管理员能改；`integration.read` 能看），带 `If-Match` 版本号，改动写审计（前后的用法）。
+- **型号选择不是环境变量，在后台改**（业主要求切换不重新部署）：新的平台表 `ai_trip_settings`（全站一行，同 `site_settings` 的单行写法：`model_mode` 取 `sonnet / haiku / haiku_then_sonnet`、`version`、`updated_at`、`updated_by`；不预置，没有行 = `haiku_then_sonnet`；原为 `sonnet`，业主 2026-11-21 选定后改，见第十二节）。接口 `GET / PUT /platform/v1/ai-trip-settings`，权限同第三方密钥（`integration.manage`，只有超级管理员能改；`integration.read` 能看），带 `If-Match` 版本号，改动写审计（前后的用法）。
 - 页面：运营后台「第三方密钥 → Claude（AI 行程解析）」卡片下面加一块「使用的型号」：三个单选项（带一句话说明和每次大概费用）+ 保存；下面一行「今天（东京时间）：Sonnet N 次 · Haiku M 次（其中改用 Sonnet 重试 K 次）· 全站上限 300 次，已用 X 次」，数字来自 `trip_parse_runs`（第七节）。
 - **测试站和正式站各用一把密钥**（业主在 Anthropic Console 建两把，分别填进两边的后台），这样能分开看用量、分开停用。正式站上线前再填。
 - 业主要做的（实施完成后在 #288 写成一步一步）：Anthropic Console 注册 → 充值 / 绑卡 → 设每月花费上限（建议 $50）→ 建 API 密钥 → 运营后台「系统设置 → 第三方密钥 → Claude（AI 行程解析）」粘贴 → 点「测试一下」。**不要把密钥发在聊天里**。

@@ -4,7 +4,7 @@
  * 一次解析：
  * 1. 官网开着、功能开着、有密钥，否则 503 `AI_NOT_CONFIGURED`；
  * 2. 占全站今天（东京时间）的名额：`trip_parse_runs` 先插一行 `pending`（锁住同一把锁再数，并发也不超）；满了 503 `AI_DAILY_LIMIT`；
- * 3. 按后台选的用法调 Claude（`ai_trip_settings`，没有行 = Sonnet）：结构不合格再调一次；第三种用法 Haiku 技术失败时改用 Sonnet 重试一次（记第二行，不另占名额）；
+ * 3. 按后台选的用法调 Claude（`ai_trip_settings`，没有行 = 先 Haiku 出错再 Sonnet）：结构不合格再调一次；第三种用法 Haiku 技术失败时改用 Sonnet 重试一次（记第二行，不另占名额）；
  * 4. domain 的 `buildTripParseDraft` 把结果变成草稿（不猜：没说的 null + `missing`）；
  * 5. 地名用现有地址搜索换坐标（每个地址每天的谷歌额度照旧扣）；明确的地名取第一候选（`matchOf`）；
  * 6. 记下 token、耗时、天数、地名数（不含任何文字）。
@@ -39,7 +39,8 @@ export const TRIP_PARSE_MODELS = { sonnet: "claude-sonnet-5-5", haiku: "claude-h
 
 export const TRIP_PARSE_MODES = ["sonnet", "haiku", "haiku_then_sonnet"] as const;
 export type TripParseMode = (typeof TRIP_PARSE_MODES)[number];
-export const DEFAULT_TRIP_PARSE_MODE: TripParseMode = "sonnet";
+/** 没有设置行时的用法：业主 2026-11-21 选「先 Haiku，出错再用 Sonnet」（ADR 0104 第十二节），正式站上线即用这个 */
+export const DEFAULT_TRIP_PARSE_MODE: TripParseMode = "haiku_then_sonnet";
 
 export const TRIP_PARSE_MAX_TOKENS = 4_000;
 export const TRIP_PARSE_TIMEOUT_MS = 20_000;
@@ -180,7 +181,7 @@ export function tripParseUserMessage(text: string, now: Date): string {
 
 let modeCache: { pool: unknown; mode: TripParseMode; at: number } | null = null;
 
-/** 现在的用法（5 秒缓存；没有设置行 = Sonnet） */
+/** 现在的用法（5 秒缓存；没有设置行 = `DEFAULT_TRIP_PARSE_MODE`） */
 export async function currentTripParseMode(ctx: AppContext): Promise<TripParseMode> {
   const at = Date.now();
   if (modeCache !== null && modeCache.pool === ctx.pool && at - modeCache.at < MODE_CACHE_MS) return modeCache.mode;

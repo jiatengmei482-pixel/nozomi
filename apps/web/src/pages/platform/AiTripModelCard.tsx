@@ -1,6 +1,6 @@
 /**
  * 运营后台「第三方密钥」里 Claude 那一项下面的「使用的型号」（M9T-32，ADR 0104 第六节）：
- * 三选一（Sonnet 默认 / Haiku / 先 Haiku 出错再用 Sonnet），保存后下一次解析就用新的，不重新部署；
+ * 三选一（Sonnet / Haiku / 先 Haiku 出错再用 Sonnet，默认第三种：业主 2026-11-21 选定，ADR 0104 第十二节），保存后下一次解析就用新的，不重新部署；
  * 下面一行是东京时间今天每个型号用了几次、全站已用 / 上限。只有超级管理员能改，技术只能看。
  */
 import { type FormEvent, useId, useState } from "react";
@@ -16,9 +16,9 @@ import { failureText } from "../../lib/failure.ts";
 import { useLoad } from "../../lib/use-load.ts";
 
 export const AI_TRIP_MODE_OPTIONS: readonly ChoiceOption<AiTripModelMode>[] = [
-  { value: "sonnet", label: "Sonnet（默认，推荐）", hint: "整理最稳。一次约 ¥2–4。" },
-  { value: "haiku", label: "Haiku", hint: "最便宜，一次约 ¥0.1–0.3；多日行程可能拆错天，要等测试集结果再用。" },
-  { value: "haiku_then_sonnet", label: "先 Haiku，出错再用 Sonnet", hint: "多数时候是 Haiku 的价钱；Haiku 超时、出错、拒答时自动改用 Sonnet 重试一次。理解错了但格式对的情况它发现不了。" },
+  { value: "sonnet", label: "Sonnet", hint: "测试集准确率和 Haiku 一样（99.6%），慢约 1 秒。一次约 ¥0.4。客人反馈填错多时可以切到这一项。" },
+  { value: "haiku", label: "Haiku", hint: "最便宜、最快，一次约 ¥0.03；出错时不重试，直接让客人手填。" },
+  { value: "haiku_then_sonnet", label: "先 Haiku，出错再用 Sonnet（默认，推荐）", hint: "多数时候是 Haiku 的价钱；Haiku 超时、出错、拒答时自动改用 Sonnet 重试一次。理解错了但格式对的情况它发现不了，靠客人在表单上看、改。" },
 ];
 
 const modeLabel = (mode: AiTripModelMode): string => AI_TRIP_MODE_OPTIONS.find((option) => option.value === mode)?.label ?? mode;
