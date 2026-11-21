@@ -132,6 +132,27 @@ test("正常解析：默认 Sonnet；草稿按第三节；没说的请补填；�
   assert.deepEqual(rows, [{ model: TRIP_PARSE_MODELS.sonnet, mode: "sonnet", attempt: 1, status: "ok", input_tokens: 3_100, output_tokens: 900, cache_read_tokens: 2_800, days: 3, places: 2, places_resolved: 1 }]);
 });
 
+test("少让客人补（监工 11-21 验收意见）：第 2 天没说起点用上一天终点、停留没说给默认，都进 assumptions、不进 missing；平台机场名称对上不算挑的", async () => {
+  replies.push(json(goodOutput({ luggage: 6, days: [
+    { dayOffset: 0, time: "10:00", start: place("成田机场", { kind: "airport" }), stops: [place("浅草寺")], end: place("新宿的酒店", { kind: "hotel", specific: false }), lodgingProvided: false },
+    { dayOffset: 1, time: "08:00", start: null, stops: [place("日光")], end: null, lodgingProvided: false },
+  ] })));
+  const res = await parse("12月5日上午10点成田机场接机，先去浅草寺再去新宿酒店，第二天早上8点包车去日光，4个人6件行李");
+  assert.equal(res.status, 200, res.text);
+  assertMatchesOpenApi("POST", "/site/v1/trips/parse", res);
+  const { draft, missing, assumptions } = res.body;
+  assert.deepEqual(missing, []);
+  assert.deepEqual(assumptions, [
+    { code: "STAY_DEFAULT", field: "days[0].stops[0].stay_minutes", value: 60 },
+    { code: "START_FROM_PREVIOUS_END", field: "days[1].start", value: "新宿的酒店" },
+    { code: "STAY_DEFAULT", field: "days[1].stops[0].stay_minutes", value: 60 },
+  ]);
+  assert.equal(draft.days[0].stops[0].stay_minutes, 60);
+  assert.deepEqual(draft.days[1].start, { query: "新宿的酒店", kind: "hotel", match: { status: "unresolved" } }, "上一天是泛指的酒店：照抄，仍要客人选哪家");
+  assert.equal(draft.days[0].start.match.status, "resolved");
+  assert.equal("picked" in draft.days[0].start.match, false, "内部标记不出现在应答里");
+});
+
 test("调用记录不含任何文字：表里只有型号、用法、状态这几个文字列", async () => {
   const columns = (await api.db.owner.query("select column_name, data_type from information_schema.columns where table_schema = current_schema() and table_name = 'trip_parse_runs' and data_type in ('text', 'character varying', 'jsonb', 'json', 'bytea')")).rows.map((r) => r.column_name).sort();
   assert.deepEqual(columns, ["mode", "model", "status"]);

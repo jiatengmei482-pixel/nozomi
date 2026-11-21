@@ -1,7 +1,7 @@
 /** AI 一句话行程：模型结果 → 表单草稿、个人信息替换（ADR 0104 第二、三、九节，M9T-32）。 */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type TripParseModelDay, type TripParseModelOutput, type TripParseModelPlace, buildTripParseDraft, isTripStayOption, scrubPersonalInfo, tripParseLookups } from "./parse.ts";
+import { type TripParseModelDay, type TripParseModelOutput, type TripParseModelPlace, buildTripParseDraft, isTripStayOption, scrubPersonalInfo, tripParseDefaultStay, tripParseLookups } from "./parse.ts";
 
 const TODAY = "2026-11-20";
 const place = (name: string, extra: Partial<TripParseModelPlace> = {}): TripParseModelPlace => ({ name, kind: "poi", specific: true, cityHint: null, stayMinutes: null, ...extra });
@@ -26,9 +26,10 @@ test("说全了：日期、人数、行李、时间照填，没有 missing", () 
   assert.equal(result.draft.days[0]?.end?.kind, "hotel");
 });
 
-test("不猜：日期、人数、行李、时间、起点没说 → null 并列进 missing", () => {
-  const result = ok(output({ firstDate: null, dateSource: null, passengers: null, luggage: null, days: [day(0, { time: null, start: null, stops: [place("日光东照宫")] })] }));
+test("不猜：日期、人数、行李、时间、第 1 天起点没说 → null 并列进 missing", () => {
+  const result = ok(output({ firstDate: null, dateSource: null, passengers: null, luggage: null, days: [day(0, { time: null, start: null, stops: [place("日光东照宫", { stayMinutes: 120 })] })] }));
   assert.deepEqual(result.missing.map((m) => m.field), ["date", "passengers", "luggage", "days[0].time", "days[0].start"]);
+  assert.deepEqual(result.assumptions, []);
   assert.equal(result.draft.date, null);
   assert.equal(result.draft.days[0]?.start, null);
   assert.equal(result.draft.days[0]?.stops[0]?.query, "日光东照宫", "途经点不拿去顶替起点");
@@ -72,10 +73,16 @@ test("超 14 天、一天超 12 个点、全程超 60 个地名 → TRIP_TOO_LON
   assert.deepEqual(buildTripParseDraft(output({ days: many }), TODAY), { ok: false, code: "TRIP_TOO_LONG" });
 });
 
-test("停留：在档上照填；没说为 null；不在档上不填并进 assumptions", () => {
-  const result = ok(output({ days: [day(0, { stops: [place("浅草寺", { stayMinutes: 120 }), place("晴空塔"), place("银座", { stayMinutes: 45 })] })] }));
-  assert.deepEqual(result.draft.days[0]?.stops.map((s) => s.stayMinutes), [120, null, null]);
-  assert.deepEqual(result.assumptions, [{ code: "STAY_OFF_GRID", field: "days[0].stops[2].stay_minutes", value: 45 }]);
+test("停留：在档上照填；没说给默认（景点、地址 1 小时，酒店、车站、机场 30 分钟）进 STAY_DEFAULT；不在档上不填并进 STAY_OFF_GRID", () => {
+  const result = ok(output({ days: [day(0, { stops: [place("浅草寺", { stayMinutes: 120 }), place("晴空塔"), place("银座", { stayMinutes: 45 }), place("东京站", { kind: "station" })] })] }));
+  assert.deepEqual(result.draft.days[0]?.stops.map((s) => s.stayMinutes), [120, 60, null, 30]);
+  assert.deepEqual(result.assumptions, [
+    { code: "STAY_DEFAULT", field: "days[0].stops[1].stay_minutes", value: 60 },
+    { code: "STAY_OFF_GRID", field: "days[0].stops[2].stay_minutes", value: 45 },
+    { code: "STAY_DEFAULT", field: "days[0].stops[3].stay_minutes", value: 30 },
+  ]);
+  assert.equal(result.missing.length, 0, "默认停留不进请补填");
+  for (const kind of ["airport", "station", "hotel", "poi", "address"] as const) assert.equal(isTripStayOption(tripParseDefaultStay(kind)), true, kind);
   assert.equal(isTripStayOption(0), true);
   assert.equal(isTripStayOption(720), true);
   assert.equal(isTripStayOption(750), false);
@@ -131,4 +138,23 @@ test("去重后再编号：STAY_OFF_GRID 指的途经点下标和表单一致", 
   const result = ok(output({ days: [day(0, { start: place("新宿"), stops: [place("新宿"), place("浅草寺", { stayMinutes: 45 })], end: place("上野") })] }));
   assert.deepEqual(result.draft.days[0]?.stops.map((s) => s.query), ["浅草寺"]);
   assert.deepEqual(result.assumptions, [{ code: "STAY_OFF_GRID", field: "days[0].stops[0].stay_minutes", value: 45 }]);
+});
+
+test("第 2 天起没说起点：用上一个用车日的终点（没终点用最后一个途经点），进 START_FROM_PREVIOUS_END、不进 missing；隔着空闲日也接得上", () => {
+  const result = ok(output({ days: [
+    day(0, { end: place("京王广场酒店", { kind: "hotel", cityHint: "东京" }) }),
+    day(1, { start: null, stops: [place("日光东照宫", { stayMinutes: 120 })], end: null }),
+    day(3, { start: null, end: place("羽田机场", { kind: "airport" }) }),
+  ] }));
+  assert.deepEqual(result.draft.days[1]?.start, { query: "京王广场酒店", kind: "hotel", specific: true, cityHint: "东京" });
+  assert.equal(result.draft.days[2]?.idle, true);
+  assert.equal(result.draft.days[3]?.start?.query, "日光东照宫", "上一用车日没终点：最后一个途经点");
+  assert.deepEqual(result.assumptions, [
+    { code: "START_FROM_PREVIOUS_END", field: "days[1].start", value: "京王广场酒店" },
+    { code: "START_FROM_PREVIOUS_END", field: "days[3].start", value: "日光东照宫" },
+  ]);
+  assert.deepEqual(result.missing, []);
+  const generic = ok(output({ days: [day(0, { end: place("新宿的酒店", { kind: "hotel", specific: false }) }), day(1, { start: null })] }));
+  assert.equal(generic.draft.days[1]?.start?.specific, false, "上一天是泛指的酒店：照抄，仍由客人补具体哪家");
+  assert.deepEqual(tripParseLookups(generic.draft).map((p) => p.query), ["成田机场", "京王广场酒店"], "照抄的起点不多查一次");
 });
