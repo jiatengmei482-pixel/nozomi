@@ -25,7 +25,7 @@
 #   8. 和别的项目隔离：本项目的容器 / 网络 / 数据卷都以 nozomi-ci 开头；事先放在旁边的「别人的」容器、
 #      数据卷和镜像，在多次部署、清理旧镜像、回退之后原样还在
 #   9. 建管理员 → 经反向代理登录并用令牌取自己的资料 → 备份 → 删掉数据 → 恢复 → 数据回来，登录照常可用，
-#      应用账号仍是最小权限
+#      应用账号仍是最小权限；再写两行、恢复到两行之间的时间点（ADR 0105）并替换正在运行的数据库，正好剩前一行
 #  10. 嵌入预订页（M9E-16，ADR 0095）：无头 Chrome 打开另一个 origin 的宿主页嵌 /embed/book——白名单里、打开了「允许整页嵌入」的能嵌，
 #      白名单外、开关没开、冒充白名单宿主的嵌不进（Caddy 的 forward_auth + frame-ancestors 在真实镜像上生效）
 #
@@ -539,6 +539,8 @@ if [[ "$mode" == "behind-proxy" ]]; then
   start_outer_proxy
 fi
 expect_healthy "首次部署后"
+# 恢复到任意时间点（ADR 0105）：部署后数据库开着 WAL 归档，部署脚本已经做了第一次基础备份
+"$root_dir/current/bin/pitr-status.sh" || fail "首次部署后：WAL 归档和基础备份应当正常（pitr-status.sh）"
 body="$(request --max-time 10 "$base_url/health")"
 grep -q '"status":"ok"' <<<"$body" || fail "/health 的 status 不是 ok"
 grep -q '"env":"ci"' <<<"$body" || fail "/health 的 env 不是 ci"
@@ -678,7 +680,7 @@ project_networks="$(docker network ls "${project_filter[@]}" --format '{{.Name}}
 project_volumes="$(docker volume ls "${project_filter[@]}" --format '{{.Name}}')"
 [[ "$(wc -l <<<"$project_containers")" == "3" ]] || fail "本项目应正好有 3 个容器，实际是：$project_containers"
 [[ "$(wc -l <<<"$project_networks")" == "2" ]] || fail "本项目应正好有 2 个网络，实际是：$project_networks"
-[[ "$(wc -l <<<"$project_volumes")" == "3" ]] || fail "本项目应正好有 3 个数据卷，实际是：$project_volumes"
+[[ "$(wc -l <<<"$project_volumes")" == "4" ]] || fail "本项目应正好有 4 个数据卷（数据库、WAL 归档、证书两个），实际是：$project_volumes"
 if grep -Ev '^nozomi-ci-' <<<"$project_containers"; then fail "本项目的容器名应全部以 nozomi-ci- 开头"; fi
 if grep -Ev '^nozomi-ci_' <<<"$project_networks"$'\n'"$project_volumes"; then fail "本项目的网络和数据卷名应全部以 nozomi-ci_ 开头"; fi
 [[ "$(docker inspect --format '{{.Id}} {{.State.StartedAt}}' "$neighbor")" == "$neighbor_before" ]] ||
@@ -713,6 +715,20 @@ expect_healthy "恢复后"
 [[ "$(db_value "select count(*) from audit_logs where action = 'login' and actor_type = 'platform_user'")" == "2" ]] ||
   fail "恢复后：审计日志里应有恢复前、恢复后各一次登录记录"
 check_db_accounts "恢复后"
+
+step "9b. 恢复到时间点并替换正在运行的数据库（ADR 0105，走的是上面同一条 restore.sh）"
+compose exec -T db psql -U nozomi -d nozomi -v ON_ERROR_STOP=1 --quiet -c 'insert into smoke_marker values (43)'
+pitr_target="$(db_value "select to_char(clock_timestamp() at time zone 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') || 'Z'")"
+sleep 1.2
+compose exec -T db psql -U nozomi -d nozomi -v ON_ERROR_STOP=1 --quiet -c 'insert into smoke_marker values (44)'
+"$root_dir/current/bin/pitr-restore.sh" "$pitr_target" --apply --yes
+restored="$(db_value 'select string_agg(id::text, $$,$$ order by id) from smoke_marker')"
+[[ "$restored" == "42,43" ]] || fail "恢复到时间点后应正好有 42、43 两行，实际是「$restored」"
+expect_healthy "恢复到时间点后"
+[[ "$(login_status)" == "200" ]] || fail "恢复到时间点后：同一个管理员登录应返回 200"
+check_db_accounts "恢复到时间点后"
+find "$root_dir/backups" -name 'nozomi-ci-pitr-*.dump' | grep -q . || fail "恢复到时间点时应把恢复出来的数据留一份在 backups/"
+"$root_dir/current/bin/pitr-status.sh" || fail "恢复到时间点后：WAL 归档和基础备份应当照常"
 
 step "10. 嵌入预订页（M9E-16，ADR 0095）：无头浏览器里，白名单内、打开了「允许整页嵌入」的宿主能嵌 /embed/book，白名单外、开关没开的嵌不进"
 chrome="$(headless_chrome)" || fail "找不到无头 Chrome（google-chrome / chromium / Playwright 的 Chromium）"

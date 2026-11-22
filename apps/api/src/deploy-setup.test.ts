@@ -24,6 +24,11 @@ interface ComposeService {
   cap_drop?: string[];
   read_only?: boolean;
   profiles?: string[];
+  user?: string;
+  entrypoint?: string[];
+  command?: string[];
+  tmpfs?: string[];
+  security_opt?: string[];
 }
 
 interface ComposeFile {
@@ -80,6 +85,11 @@ const PRODUCTION_SCRIPTS = [
   "deploy/bin/deploy.sh",
   "deploy/bin/backup.sh",
   "deploy/bin/restore.sh",
+  "deploy/bin/pitr-common.sh",
+  "deploy/bin/pitr-backup.sh",
+  "deploy/bin/pitr-offsite.sh",
+  "deploy/bin/pitr-status.sh",
+  "deploy/bin/pitr-restore.sh",
   "deploy/client/remote.sh",
   "deploy/client/push-local.sh",
 ];
@@ -89,6 +99,7 @@ const SERVER_SCRIPTS = [
   "deploy/ci/smoke.sh",
   "deploy/ci/bootstrap-check.sh",
   "deploy/ci/push-local-check.sh",
+  "deploy/ci/pitr-drill.sh",
 ];
 
 /** 去掉注释行，只留下会被执行的内容。 */
@@ -112,8 +123,8 @@ test("compose：三个服务都自动重启、都有健康检查", () => {
     assert.equal(service.restart, "unless-stopped", `${name} 没有设置自动重启`);
     assert.ok((service.healthcheck?.test.length ?? 0) > 1, `${name} 没有健康检查`);
   }
-  assert.deepEqual(Object.keys(compose.services).sort(), ["api", "caddy", "db", "migrate"]);
-  assert.equal(compose.services["migrate"]?.restart, "no");
+  assert.deepEqual(Object.keys(compose.services).sort(), ["api", "caddy", "db", "migrate", "offsite", "pitr-restore"]);
+  for (const name of ["migrate", "offsite", "pitr-restore"]) assert.equal(compose.services[name]?.restart, "no", name);
 });
 
 test("compose：数据库和 API 不映射任何端口到主机，只有反向代理对外开 80 和 443", () => {
@@ -202,6 +213,75 @@ test("初始化脚本生成两个不同用途的数据库密码；部署、恢�
   const restore = await readText("deploy/bin/restore.sh");
   assert.match(restore, /pg_restore -U nozomi -d nozomi --no-owner --exit-on-error/);
   assert.ok(!/--no-acl|--no-privileges|\s-x\s/.test(restore), "恢复时不能丢掉授权：权限角色对各表的权限记在备份里");
+});
+
+test("恢复到任意时间点（ADR 0105）：数据库开着 WAL 归档、归档进 pitr 卷且不覆盖已有文件；临时恢复库碰不到正在运行的数据", () => {
+  const db = compose.services["db"];
+  const command = db?.command ?? [];
+  assert.equal(command[0], "postgres");
+  assert.ok(command.includes("archive_mode=on"));
+  assert.ok(command.includes("archive_timeout=60"), "最多 60 秒归档一次：异地和本机的 WAL 最多差一分钟");
+  const archive = command.find((item) => item.startsWith("archive_command=")) ?? "";
+  assert.match(archive, /d=\/pitr\/wal\/\$\$\(pg_controldata \./, "按数据库实例的系统标识分目录");
+  assert.match(archive, /if \[ -f \$\$f \]; then gzip -dc \$\$f \| cmp -s - %p; else/, "同名文件已在时只比较内容，不覆盖");
+  assert.match(archive, /\.part && sync \$\$f\.part && mv \$\$f\.part \$\$f/, "先写临时文件、落盘、再改名");
+  assert.deepEqual(db?.entrypoint?.slice(0, 2), ["bash", "-c"]);
+  assert.match(db?.entrypoint?.[2] ?? "", /^install -d -o postgres -g postgres -m 700 \/pitr \/pitr\/wal \/pitr\/base && exec docker-entrypoint\.sh "\$\$@"$/);
+  assert.deepEqual(db?.volumes, ["db-data:/var/lib/postgresql/data", "pitr:/pitr"]);
+
+  const scratch = compose.services["pitr-restore"];
+  assert.deepEqual(scratch?.profiles, ["tools"], "临时恢复库不常驻");
+  assert.equal(scratch?.image, db?.image, "恢复用的数据库版本必须和正在运行的一样");
+  assert.deepEqual(scratch?.volumes, ["pitr:/pitr:ro", "pitr-scratch:/var/lib/postgresql/data"], "只读归档、写自己的卷，不碰 db-data");
+  assert.ok(scratch?.command?.includes("listen_addresses="), "临时恢复库不监听任何端口");
+  assert.ok(scratch?.command?.includes("archive_mode=off"), "临时恢复库不往归档里写");
+  assert.deepEqual(scratch?.networks, ["backend"]);
+  assert.equal(scratch?.ports, undefined);
+});
+
+test("异地备份（ADR 0105）：restic 固定版本；配置全部来自 .env 的变量、没有默认值；不以 root 运行、文件系统只读、只接自己的出网网络", () => {
+  const offsite = compose.services["offsite"];
+  assert.match(offsite?.image ?? "", /^restic\/restic:\d+\.\d+\.\d+$/);
+  assert.deepEqual(offsite?.profiles, ["tools"]);
+  assert.deepEqual(offsite?.environment, {
+    RESTIC_REPOSITORY: "${OFFSITE_BACKUP_REPOSITORY:-}",
+    RESTIC_PASSWORD: "${OFFSITE_BACKUP_PASSWORD:-}",
+    AWS_ACCESS_KEY_ID: "${OFFSITE_BACKUP_ACCESS_KEY_ID:-}",
+    AWS_SECRET_ACCESS_KEY: "${OFFSITE_BACKUP_SECRET_ACCESS_KEY:-}",
+    AWS_DEFAULT_REGION: "${OFFSITE_BACKUP_REGION:-}",
+    RESTIC_CACHE_DIR: "/tmp/restic-cache",
+  });
+  assert.equal(offsite?.user, "999:999", "和数据库容器里的 postgres 同一个用户号：读得了归档，不是 root");
+  assert.equal(offsite?.read_only, true);
+  assert.deepEqual(offsite?.cap_drop, ["ALL"]);
+  assert.deepEqual(offsite?.security_opt, ["no-new-privileges:true"]);
+  assert.deepEqual(offsite?.networks, ["offsite"], "不在数据库所在的内部网络里");
+  assert.equal(compose.networks?.["offsite"], null);
+  // 异地备份的配置只给 offsite：别的服务的环境里没有
+  for (const [name, service] of Object.entries(compose.services)) {
+    if (name === "offsite") continue;
+    for (const value of Object.values(service.environment ?? {})) assert.ok(!/OFFSITE_BACKUP_/.test(value), `${name} 拿到了异地备份的配置`);
+  }
+});
+
+test("恢复到任意时间点的脚本：不配异地备份照常工作；部署成功后兜底做基础备份且失败不影响部署；恢复替换正式数据走 restore.sh；CI 有容器里的恢复演练", async () => {
+  const offsiteScript = await readText("deploy/bin/pitr-offsite.sh");
+  assert.match(offsiteScript, /没有配置异地备份（\.env 里的 OFFSITE_BACKUP_\* 都是空的）：备份只在这台服务器上/);
+  assert.match(offsiteScript, /--exclude '\*\.part' --exclude '\*\.partial'/);
+  const status = await readText("deploy/bin/pitr-status.sh");
+  assert.match(status, /正式环境还没有配置异地备份/);
+  const deployScript = await readText("deploy/bin/deploy.sh");
+  assert.match(deployScript, /"\$release_dir\/bin\/pitr-backup\.sh" --if-older-than-hours 20 \|\|\n\s+log "基础备份没有做成（不影响本次部署结果）/);
+  assert.ok(deployScript.indexOf('pitr-backup.sh" --if-older-than-hours') > deployScript.indexOf("cleanup_old ||"), "基础备份在切换版本、清理之后");
+  const restore = await readText("deploy/bin/pitr-restore.sh");
+  assert.match(restore, /"\$pitr_bin_dir\/restore\.sh" "\$dump" \$\{confirm:\+"\$confirm"\}/);
+  assert.ok(!/exec -T db (pg_restore|psql -U nozomi -d nozomi)/.test(codeOf(restore)), "pitr-restore.sh 自己不改正在运行的数据库");
+  const runs = (ciWorkflow.jobs["deploy-smoke"]?.steps ?? []).map((step) => step.run ?? "");
+  assert.ok(runs.includes("deploy/ci/pitr-drill.sh"));
+  const drill = await readText("deploy/ci/pitr-drill.sh");
+  for (const value of drill.matchAll(/^(?:POSTGRES_PASSWORD|POSTGRES_APP_PASSWORD|AUTH_JWT_SECRET|DATA_ENCRYPTION_KEY|OFFSITE_BACKUP_[A-Z_]+)=(.*)$/gm)) {
+    assert.match(value[1] ?? "", /^(ci-placeholder-|short$|s3:http:\/\/s3:9000\/)/, `演练脚本里只能是占位值：${value[0]}`);
+  }
 });
 
 test("CI 用的覆盖文件只改反向代理的证书方式和端口，不改别的服务", async () => {
@@ -380,7 +460,17 @@ test("上传到服务器的文件（流水线和手工部署共用的 remote.sh�
   assert.equal(upload, "compose.yml compose.behind-proxy.yml Caddyfile bin");
   assert.equal(smoke, upload);
   const shipped = (await readdir(new URL("deploy/bin/", ROOT))).sort();
-  assert.deepEqual(shipped, ["backup.sh", "compose.sh", "deploy.sh", "restore.sh"]);
+  assert.deepEqual(shipped, [
+    "backup.sh",
+    "compose.sh",
+    "deploy.sh",
+    "pitr-backup.sh",
+    "pitr-common.sh",
+    "pitr-offsite.sh",
+    "pitr-restore.sh",
+    "pitr-status.sh",
+    "restore.sh",
+  ]);
   // deploy/ 下除了上传的这几样，只有不上服务器的东西：初始化脚本（经标准输入执行）、CI 脚本、发起端脚本
   const top = (await readdir(new URL("deploy/", ROOT))).sort();
   assert.deepEqual(top, ["Caddyfile", "bin", "bootstrap.sh", "ci", "client", "compose.behind-proxy.yml", "compose.yml"]);
@@ -562,11 +652,21 @@ test("与同一台机器上别的 Compose 项目隔离：项目名明确且带�
       assert.equal(definition?.name, undefined, `${path} 的 ${name} 不应另起名字（名字要带项目名前缀）`);
     }
   }
-  assert.deepEqual(Object.keys(compose.networks ?? {}).sort(), ["backend", "edge"]);
-  assert.deepEqual(Object.keys(compose.volumes ?? {}).sort(), ["caddy-config", "caddy-data", "db-data"]);
+  assert.deepEqual(Object.keys(compose.networks ?? {}).sort(), ["backend", "edge", "offsite"]);
+  assert.deepEqual(Object.keys(compose.volumes ?? {}).sort(), ["caddy-config", "caddy-data", "db-data", "pitr", "pitr-scratch"]);
   // 挂进容器的只有本项目自己的命名卷、版本目录里的 Caddyfile，和本环境部署目录下的报告目录（只挂给 migrate，M9P-05：包车三层区域迁移的报告）
   const mounts = Object.values(compose.services).flatMap((service) => service.volumes ?? []);
-  assert.deepEqual(mounts.sort(), ["${REPORTS_DIR:?缺少 REPORTS_DIR，请通过 bin/deploy.sh 部署}:/reports:z", "./Caddyfile:/etc/caddy/Caddyfile:ro,z", "caddy-config:/config", "caddy-data:/data", "db-data:/var/lib/postgresql/data"]);
+  assert.deepEqual(mounts.sort(), [
+    "${REPORTS_DIR:?缺少 REPORTS_DIR，请通过 bin/deploy.sh 部署}:/reports:z",
+    "./Caddyfile:/etc/caddy/Caddyfile:ro,z",
+    "caddy-config:/config",
+    "caddy-data:/data",
+    "db-data:/var/lib/postgresql/data",
+    "pitr-scratch:/var/lib/postgresql/data",
+    "pitr:/pitr",
+    "pitr:/pitr",
+    "pitr:/pitr:ro",
+  ]);
   assert.deepEqual(compose.services["migrate"]?.volumes, ["${REPORTS_DIR:?缺少 REPORTS_DIR，请通过 bin/deploy.sh 部署}:/reports:z"], "报告目录只挂给 migrate");
   assert.match(await readText("deploy/bin/deploy.sh"), /^REPORTS_DIR=\$root_dir\/reports$/m, "报告目录在本环境的部署目录下，不在版本目录里（跨版本保留）");
   // 数据库不发布任何主机端口（两种模式都是）
@@ -595,7 +695,8 @@ test("与别的项目隔离：任何脚本和流水线里都没有会波及全�
   /** 真实服务器上运行的脚本和流水线还不能碰 Docker 的配置和内核的包过滤规则（CI 脚本里只有「检查它们没被动过」）。 */
   const hostWide = [/daemon\.json/, /\biptables\b|\bnft\b/];
   for (const path of everywhere) {
-    const code = codeOf(await readText(path));
+    // 异地备份脚本里 restic 自己的「清理旧快照」（restic forget --prune）作用于异地仓库，和 Docker 无关
+    const code = codeOf(await readText(path)).replace(/^\s*restic forget [^\n]*--prune \|\|$/m, "");
     const patterns = path.startsWith("deploy/ci/") ? machineWide : [...machineWide, ...hostWide];
     for (const pattern of patterns) assert.ok(!pattern.test(code), `${path} 里有会波及别的项目的命令：${pattern}`);
   }
