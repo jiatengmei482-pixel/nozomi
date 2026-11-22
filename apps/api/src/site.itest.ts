@@ -48,17 +48,17 @@ after(async () => {
 
 const quoteBody = (extra: Record<string, unknown> = {}) => ({ city_id: m.ids.tokyo, airport_id: m.ids.narita, direction: "pickup", address: ADDRESS, service_local: SERVICE_LOCAL, passengers: 2, luggage: 1, ...extra });
 
-async function quoteFor(vehicleGroupId: string, ip?: string): Promise<any> {
+async function quoteFor(vehicleGroupId: string, ip?: string, serviceLocal = SERVICE_LOCAL): Promise<any> {
   api.clock.advance(1_000);
-  const res = await site.call("POST", "/site/v1/quotes", { body: quoteBody(), ...(ip === undefined ? {} : { ip }) });
+  const res = await site.call("POST", "/site/v1/quotes", { body: quoteBody({ service_local: serviceLocal }), ...(ip === undefined ? {} : { ip }) });
   assert.equal(res.status, 200, res.text);
   const quote = res.body.quotes.find((q: any) => q.vehicle_group.id === vehicleGroupId);
   assert.ok(quote, res.text);
   return quote;
 }
 
-async function placeOrder(on: SiteApi = site, ip?: string): Promise<any> {
-  const quote = await quoteFor(m.ids.biz7, ip);
+async function placeOrder(on: SiteApi = site, ip?: string, serviceLocal = SERVICE_LOCAL): Promise<any> {
+  const quote = await quoteFor(m.ids.biz7, ip, serviceLocal);
   api.clock.advance(1_000);
   const res = await on.call("POST", "/site/v1/orders", {
     headers: { "idempotency-key": randomUUID() },
@@ -332,12 +332,14 @@ test("事后加收：客人在订单页看到要付多少（客人支付币种�
 });
 
 test("验收标准：客人可点「我已落地」——付款前不能点；离计划到达 3 小时以上不能点；落地后点了记系统时间、以客人为准，再点不能改", async () => {
-  const placed = (await placeOrder(site, "198.51.100.150")).body;
+  // 前一条测试完成订单时把时钟拨到了 SCHEDULED 前 3 小时（ADR 0064），这一单另订两天后整点的
+  const scheduled = new Date(Math.ceil((api.clock.now().getTime() + 48 * HOUR) / HOUR) * HOUR);
+  const placed = (await placeOrder(site, "198.51.100.150", new Date(scheduled.getTime() + 9 * HOUR).toISOString().slice(0, 16))).body;
   const token = placed.link.token;
   const unpaid = await guest(token, "POST", "/site/v1/order/landed");
   assert.deepEqual([unpaid.status, unpaid.body.error.code], [409, "ORDER_STATE_INVALID"]);
   await payFor(placed.order.id);
-  api.clock.advance(SCHEDULED.getTime() - 4 * HOUR - api.clock.now().getTime());
+  api.clock.advance(scheduled.getTime() - 4 * HOUR - api.clock.now().getTime());
   const early = await guest(token, "POST", "/site/v1/order/landed");
   assertMatchesOpenApi("POST", "/site/v1/order/landed", early);
   assert.deepEqual([early.status, early.body.error.code], [409, "LANDING_TOO_EARLY"]);

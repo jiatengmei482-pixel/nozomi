@@ -69,6 +69,9 @@ async function platformCharges(orderId: string): Promise<any[]> {
 }
 
 test("提交：只有已完成的单、服务结束 24 小时内（正好 24 小时还行）；类型按品类、金额上限、凭证是这一单的票据；只读角色不能交；供应商看不到客人付多少", async () => {
+  // 别的单先完成：完成一张单要把时钟拨到它的用车时间附近（ADR 0064），放在后面会拨过这一单「24 小时内」的检查
+  const foreign = await completed();
+  const foreignFile = await uploadReceipt(api, await tenantLogin(api, m.b.adminEmail), foreign.id);
   const order = await flow.paidOrder({ serviceTime: iso(api.clock.now().getTime() + 3 * 24 * HOUR) });
   const early = await submit(order.id, { type: "waiting", amount: 2_000 });
   assert.deepEqual([early.status, early.body.error.code, early.body.error.details.reason], [409, "EXTRA_CHARGE_NOT_ALLOWED", "ORDER_NOT_COMPLETED"]);
@@ -86,8 +89,6 @@ test("提交：只有已完成的单、服务结束 24 小时内（正好 24 小
   assert.equal(await reason({ type: "charter_overtime", amount: 800, file_ids: [file] }), "TYPE_NOT_ALLOWED");
   assert.equal(await reason({ type: "waiting", amount: 0 }), "AMOUNT_INVALID");
   assert.equal(await reason({ type: "waiting", amount: 19_801 }), "AMOUNT_OVER_LIMIT", "不能超过这一单的结算价");
-  const foreign = await completed();
-  const foreignFile = await uploadReceipt(api, await tenantLogin(api, m.b.adminEmail), foreign.id);
   assert.equal((await submit(order.id, { type: "waiting", amount: 100, file_ids: [foreignFile] }, token)).status, 400, "别的单的照片不算这一单的凭证");
   const readonly = await addTenantUser(api, await tenantLogin(api, m.b.adminEmail), "ro@market-b.test", "readonly");
   assert.equal((await submit(order.id, { type: "waiting", amount: 100 }, readonly.token)).status, 403);

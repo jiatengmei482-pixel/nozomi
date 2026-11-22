@@ -27,15 +27,30 @@ export async function reachFulfilmentWindow(api: TestApi, orderId: string): Prom
   if (gap > 0) api.clock.advance(gap);
 }
 
-/** 派车、出发、到达、接到客人、完成（供应商后台的接口）。 */
+/**
+ * 市场里的令牌（平台超管、两家供应商的管理员、平台员工）全部重新登录，原地换掉。
+ * 给拨过时钟（如 `reachFulfilmentWindow`）、之后还要用 `m.*` 里令牌的测试用：同一个文件后面的测试照常拿 `m.*` 就行。
+ */
+export async function reloginMarket(api: TestApi, m: Market): Promise<void> {
+  m.root = await platformLogin(api, "root@platform.test");
+  m.a.adminToken = await tenantLogin(api, m.a.adminEmail);
+  m.b.adminToken = await tenantLogin(api, m.b.adminEmail);
+  for (const staff of Object.values(m.staff)) staff.token = await platformLogin(api, staff.email);
+}
+
+/**
+ * 派车、出发、到达、接到客人、完成（供应商调度接口）。
+ * 派车在现在的时钟下做；回传前先把时钟拨进窗口（`reachFulfilmentWindow`），所以调用方手里拨之前拿的令牌可能已经过期，之后要用的重新登录。
+ */
 export async function completeOrder(api: TestApi, m: Market, side: "a" | "b", orderId: string, until: "assigned" | "in_service" | "completed" = "completed"): Promise<void> {
   const who = { ...m[side], adminToken: await tenantLogin(api, m[side].adminEmail) };
   await ok(assign(api, who, orderId, (await newDriver(api, who)).id, (await newVehicle(api, who, m.ids.biz7)).id));
   if (until === "assigned") return;
   await reachFulfilmentWindow(api, orderId);
-  for (const type of ["departed", "arrived", "picked_up"]) await ok(api.call("POST", `/tenant/v1/orders/${orderId}/events`, { token: who.adminToken, body: { type } }));
+  const token = await tenantLogin(api, m[side].adminEmail);
+  for (const type of ["departed", "arrived", "picked_up"]) await ok(api.call("POST", `/tenant/v1/orders/${orderId}/events`, { token, body: { type } }));
   if (until === "in_service") return;
-  await ok(api.call("POST", `/tenant/v1/orders/${orderId}/events`, { token: who.adminToken, body: { type: "completed" } }));
+  await ok(api.call("POST", `/tenant/v1/orders/${orderId}/events`, { token, body: { type: "completed" } }));
 }
 
 /** 一张 JPEG（格式按开头的字节判断，内容是什么不重要）。 */

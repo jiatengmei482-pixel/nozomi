@@ -16,7 +16,7 @@ import { addTenantUser, createTestApi } from "./testing/api.ts";
 import { deniedByDatabase } from "./testing/db.ts";
 import { assign, newDriver, newVehicle } from "./testing/dispatch.ts";
 import { type Market, type Staff, addStaff, allKeys, buildMarket, newChannel, ok, salesCredentials } from "./testing/market.ts";
-import { completeOrder, platformLogin, tenantLogin } from "./testing/money.ts";
+import { completeOrder, platformLogin, reachFulfilmentWindow, tenantLogin } from "./testing/money.ts";
 import { FakePaymentProvider, deliverWebhook } from "./testing/payments.ts";
 import { type SalesFlow, salesFlow } from "./testing/sales-flow.ts";
 import { type SiteApi, siteApi } from "./testing/site.ts";
@@ -147,7 +147,10 @@ async function noShowClaimed(): Promise<string> {
   const orderId = await paidOrder(3 * 24);
   const who = { ...m.b, adminToken: await tenantToken(m.b) };
   await ok(assign(api, who, orderId, (await newDriver(api, who)).id, (await newVehicle(api, who, m.ids.biz7)).id));
-  for (const type of ["departed", "arrived"]) await ok(api.call("POST", `/tenant/v1/orders/${orderId}/events`, { token: who.adminToken, body: { type } }));
+  // 出发、到达最早在用车前 24 小时（ADR 0064）
+  await reachFulfilmentWindow(api, orderId);
+  const onSite = await tenantToken(m.b);
+  for (const type of ["departed", "arrived"]) await ok(api.call("POST", `/tenant/v1/orders/${orderId}/events`, { token: onSite, body: { type } }));
   const link = (await api.db.owner.query<{ id: string }>("select id from driver_links where tenant_id = $1 and order_id = $2 order by created_at desc limit 1", [m.b.tenantId, orderId])).rows[0] as { id: string };
   const now = api.clock.now();
   await api.db.owner.query("insert into order_no_show_claims (tenant_id, order_id, submitted_at, checklist, free_wait_start, free_wait_end, status, link_id) values ($1, $2, $3, '[]'::jsonb, $4, $3, 'pending_review', $5)", [
@@ -584,9 +587,10 @@ test("渠道只看到自己订单上由客人、渠道提的工单：客服登�
   assert.deepEqual([foreign.status, foreign.text], [404, missing.text]);
 });
 
+/** 官网下一单，用车在 3 天后（东京当地时间）：前面的用例完成订单时拨过时钟（ADR 0064），不用写死的日期。 */
 async function siteOrder(passenger: string): Promise<{ id: string; link: string }> {
   api.clock.advance(1_000);
-  const quoted = await site.call("POST", "/site/v1/quotes", { body: { city_id: m.ids.tokyo, airport_id: m.ids.narita, direction: "pickup", address: { lng: 139.7, lat: 35.6 }, service_local: "2026-12-20T10:00", passengers: 2, luggage: 1 } });
+  const quoted = await site.call("POST", "/site/v1/quotes", { body: { city_id: m.ids.tokyo, airport_id: m.ids.narita, direction: "pickup", address: { lng: 139.7, lat: 35.6 }, service_local: new Date(api.clock.now().getTime() + 3 * DAY + 9 * HOUR).toISOString().slice(0, 16), passengers: 2, luggage: 1 } });
   assert.equal(quoted.status, 200, quoted.text);
   const quote = quoted.body.quotes.find((q: any) => q.vehicle_group.id === m.ids.biz7);
   api.clock.advance(1_000);
