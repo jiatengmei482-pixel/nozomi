@@ -613,7 +613,7 @@
           "role": "frontend",
           "status": "review",
           "acceptance": ["只在 M8-03、M8-04 验收通过后做；旧链接参数能转到新页面", "价格规则、订单、付款逻辑不顺手改", "亮暗两套、360px 不横向滚动、axe 通过；测试全过（PR 的 CI 绿）"],
-          "evidence": "PR 待开；/book 换成新预订页，旧地址 /book/new、/book/checkout 带查询串和页面状态转到 /book；删除旧询价页、旧下单页、旧地址搜索；嵌入组件建草稿的链接改为 /book；单元 / 组件 / 端到端（含 360px、亮暗 axe）本机通过，全量见 PR 的 CI",
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/367 ；/book 换成新预订页，旧地址 /book/new、/book/checkout 带查询串和页面状态转到 /book；删除旧询价页、旧下单页、旧地址搜索；嵌入组件建草稿的链接改为 /book；单元 / 组件 / 端到端（含 360px、亮暗 axe）本机通过，全量见 PR 的 CI",
           "updated": "2026-11-22"
         },
         {
