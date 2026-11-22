@@ -601,7 +601,7 @@ type TripPriceChangedReason = "PRICE_CHANGED" | "NO_OFFER" | "CONDITIONS_CHANGED
 const tripPriceChanged = (planTotal: { amount: string; currency: CurrencyCode }, quoteTotal: { amount: string; currency: CurrencyCode } | null, reason: TripPriceChangedReason): AppError =>
   new AppError(409, "TRIP_PRICE_CHANGED", "价格有变化，请重新报价", { plan_total: planTotal, quote_total: quoteTotal, reason });
 
-/** 下单出口的结果：一张普通官网报价（和 `POST /site/v1/quotes` 应答里的一张同样）、按哪个城市报的、等价的官网询价请求（页面带进 /book/new） */
+/** 下单出口的结果：一张普通官网报价（和 `POST /site/v1/quotes` 应答里的一张同样）、按哪个城市报的、等价的官网询价请求（页面带进 /book） */
 export interface TripOrderQuote {
   tripId: string;
   planId: string;
@@ -611,7 +611,7 @@ export interface TripOrderQuote {
   quote: SiteQuote;
   city: QuotedCity | null;
   itinerary: SiteItinerary | null;
-  /** 等价的 `POST /site/v1/quotes` 请求体（snake_case）：页面用它恢复 /book/new 的填写状态 */
+  /** 等价的 `POST /site/v1/quotes` 请求体（snake_case）：页面用它恢复 /book 的填写状态 */
   quoteRequest: Record<string, unknown>;
 }
 
