@@ -31,8 +31,27 @@ services:
       POSTGRES_USER: nozomi
       POSTGRES_DB: nozomi
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?缺少 POSTGRES_PASSWORD，请先运行服务器初始化}
+    # 恢复到任意时间点（ADR 0105）：WAL 每满一段、或者最多 60 秒就归档一次，压缩后写进 pitr 数据卷的
+    # wal/<数据库实例的系统标识>/（换了服务器、重建过的实例各用各的目录，文件名不会撞上）；
+    # 基础备份由 bin/pitr-backup.sh 写进同一个卷的 base/。入口先以 root 把这两个目录建好、交给 postgres，再交回官方入口。
+    # 归档命令：同名文件已在（上次归档到一半数据库重启）且内容一致就算成功，不一致就失败、不覆盖；写完先落盘再改名，不留半截文件。
+    entrypoint:
+      - bash
+      - -c
+      - install -d -o postgres -g postgres -m 700 /pitr /pitr/wal /pitr/base && exec docker-entrypoint.sh "$$@"
+      - docker-entrypoint.sh
+    command:
+      - postgres
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_timeout=60
+      - -c
+      - >-
+        archive_command=d=/pitr/wal/$$(pg_controldata . | sed -n 's/^Database system identifier: *//p'); [ "$$d" != /pitr/wal/ ] || exit 1; f=$$d/%f.gz; mkdir -p $$d; if [ -f $$f ]; then gzip -dc $$f | cmp -s - %p; else gzip -c %p > $$f.part && sync $$f.part && mv $$f.part $$f && sync $$d; fi
     volumes:
       - db-data:/var/lib/postgresql/data
+      - pitr:/pitr
     # 只在内部网络，不映射任何端口到主机；backend 网络也没有外网出口。
     networks:
       - backend
@@ -165,6 +184,52 @@ services:
       - no-new-privileges:true
     logging: *logging
 
+  # 恢复到某个时间点用的临时数据库（ADR 0105）：不常驻，只由 bin/pitr-restore.sh 启动。
+  # 从 pitr 卷（只读）里取基础备份和 WAL，恢复进自己的 pitr-scratch 卷；正在运行的 db 和它的数据卷一概不碰。
+  # 只听本地套接字、不监听任何端口；用 bin/compose.sh exec pitr-restore psql … 查看。
+  pitr-restore:
+    image: postgres:16
+    profiles:
+      - tools
+    restart: "no"
+    stop_grace_period: 30s
+    command: ["postgres", "-c", "listen_addresses=", "-c", "archive_mode=off"]
+    volumes:
+      - pitr:/pitr:ro
+      - pitr-scratch:/var/lib/postgresql/data
+    networks:
+      - backend
+    logging: *logging
+
+  # 异地备份（ADR 0105）：restic 把 pitr 卷加密后传到 S3 兼容的对象存储。不常驻，只由 bin/pitr-offsite.sh 临时启动。
+  # 五项配置都在服务器的 .env（docs/deploy.md「恢复到任意时间点」）；没配时脚本根本不启动它，备份只在本机。
+  # 以 postgres 的用户号运行（归档文件只有它能读）；要写 pitr 卷只为了「从异地取回」；只接自己那个能出外网的网络。
+  offsite:
+    image: restic/restic:0.18.0
+    profiles:
+      - tools
+    restart: "no"
+    user: "999:999"
+    environment:
+      RESTIC_REPOSITORY: ${OFFSITE_BACKUP_REPOSITORY:-}
+      RESTIC_PASSWORD: ${OFFSITE_BACKUP_PASSWORD:-}
+      AWS_ACCESS_KEY_ID: ${OFFSITE_BACKUP_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${OFFSITE_BACKUP_SECRET_ACCESS_KEY:-}
+      AWS_DEFAULT_REGION: ${OFFSITE_BACKUP_REGION:-}
+      RESTIC_CACHE_DIR: /tmp/restic-cache
+    volumes:
+      - pitr:/pitr
+    networks:
+      - offsite
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging: *logging
+
   # 反向代理 + 前端静态文件。镜像是 nozomi-web（官方 Caddy 加上构建好的前端，apps/web/Dockerfile），
   # 和 API_IMAGE 同一个仓库前缀、同一个标签，由 bin/deploy.sh 从 API_IMAGE 推出来：前端和后端一起部署、一起回退。
   # 换数据加密密钥后把旧密文重新加密（ADR 0106）：bin/compose.sh run --rm data-key-rotation [--execute]。
@@ -236,8 +301,14 @@ networks:
   backend:
     internal: true
   edge:
+  # 只给异地备份用：能出外网，但上面没有数据库和 API。
+  offsite:
 
 volumes:
   db-data:
+  # WAL 归档和基础备份（ADR 0105）
+  pitr:
+  # 恢复到时间点时的临时数据库
+  pitr-scratch:
   caddy-data:
   caddy-config:

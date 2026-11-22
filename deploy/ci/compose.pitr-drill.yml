@@ -1,0 +1,11 @@
+# 只给 CI 的恢复演练用（deploy/ci/pitr-drill.sh）。真实环境不使用。
+# 加一个 S3 兼容的对象存储（rclone serve s3，数据放在容器自己的临时目录里），挂在异地备份用的网络上，
+# 代替负责人以后选的那家对象存储。用户名和密码是明显的占位值。
+services:
+  s3:
+    image: rclone/rclone:1.69.1
+    profiles:
+      - tools
+    command: ["serve", "s3", "--addr", ":9000", "--auth-key", "ci-placeholder-access-key,ci-placeholder-secret-key", "/data"]
+    networks:
+      - offsite

@@ -456,6 +456,10 @@ cmd_deploy() {
       point_link current "$release_dir"
     fi
     cleanup_old || log "清理旧版本和旧镜像时出错（不影响本次部署结果）"
+    # 恢复到任意时间点（ADR 0105）：最近一次基础备份超过 20 小时（或者还没有）就做一次，并清理本机过期的归档。
+    # 平时由每天的定时任务做；这里兜底那些还没重新运行初始化、没装上这个定时任务的服务器。失败不影响部署结果。
+    "$release_dir/bin/pitr-backup.sh" --if-older-than-hours 20 ||
+      log "基础备份没有做成（不影响本次部署结果）：请在服务器上运行 $release_dir/bin/pitr-status.sh 查看原因"
     log "部署成功：$release_id 已在运行"
     return 0
   fi

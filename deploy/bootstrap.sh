@@ -317,7 +317,8 @@ HEADER
   ensure_generated_secret "$file" POSTGRES_APP_PASSWORD 24
   ensure_generated_secret "$file" AUTH_JWT_SECRET 48
   ensure_generated_secret "$file" DATA_ENCRYPTION_KEY 32
-  for key in STRIPE_SECRET_KEY STRIPE_PUBLISHABLE_KEY STRIPE_WEBHOOK_SECRET GOOGLE_MAPS_API_KEY MAP_TILE_URL_TEMPLATE MAP_TILE_ATTRIBUTION SITE_CLIENT_ID SITE_SUPPORT_PHONE; do
+  for key in STRIPE_SECRET_KEY STRIPE_PUBLISHABLE_KEY STRIPE_WEBHOOK_SECRET GOOGLE_MAPS_API_KEY MAP_TILE_URL_TEMPLATE MAP_TILE_ATTRIBUTION SITE_CLIENT_ID SITE_SUPPORT_PHONE \
+    OFFSITE_BACKUP_REPOSITORY OFFSITE_BACKUP_ACCESS_KEY_ID OFFSITE_BACKUP_SECRET_ACCESS_KEY OFFSITE_BACKUP_PASSWORD BACKUP_HEARTBEAT_URL; do
     ensure_placeholder "$file" "$key"
   done
   chown "$DEPLOY_USER:$DEPLOY_USER" "$file"
@@ -377,10 +378,14 @@ install_backup_cron() {
   cat >"$cron_file" <<CRON
 # NOZOMI $app_env 每日数据库备份（由 deploy/bootstrap.sh 生成，重新运行初始化会重写）。
 # 每天 03:17（服务器时间）执行；备份在 $env_dir/backups/，保留 14 天。
-# 第一次部署之前 current 还不存在，这条任务什么都不做。
+# 恢复到任意时间点（ADR 0105）：每天 03:47 做基础备份并清理过期的归档、同步异地；每 15 分钟同步一次异地（没配就什么都不做），
+# 再检查一遍备份状态。结果都在系统日志里，标签 nozomi-pitr。
+# 第一次部署之前 current 还不存在，这几条任务什么都不做。
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 17 3 * * * $DEPLOY_USER [ -x $env_dir/current/bin/backup.sh ] && $env_dir/current/bin/backup.sh daily 2>&1 | logger -t nozomi-backup
+47 3 * * * $DEPLOY_USER [ -x $env_dir/current/bin/pitr-backup.sh ] && $env_dir/current/bin/pitr-backup.sh 2>&1 | logger -t nozomi-pitr
+*/15 * * * * $DEPLOY_USER [ -x $env_dir/current/bin/pitr-status.sh ] && { $env_dir/current/bin/pitr-offsite.sh sync --quiet-if-unconfigured; $env_dir/current/bin/pitr-status.sh; } 2>&1 | logger -t nozomi-pitr
 CRON
   chown root:root "$cron_file"
   chmod 644 "$cron_file"
@@ -390,7 +395,7 @@ CRON
     systemctl enable --now "$cron_service" >/dev/null 2>&1 ||
       die "定时任务服务 $cron_service 启动失败（每日备份依赖它），请在服务器上运行 systemctl status $cron_service 查看原因"
   fi
-  log "每日备份的定时任务已安装：$cron_file"
+  log "每日备份和恢复到任意时间点的定时任务已安装：$cron_file"
 }
 
 main() {

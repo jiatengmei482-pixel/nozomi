@@ -174,6 +174,11 @@ check_common() {
   [[ "$(in_container "$name" 'stat -c "%a %U" /etc/cron.d/nozomi-backup-staging')" == "644 root" ]] || fail "定时任务文件应为 644、属于 root"
   in_container "$name" "grep -q '^17 3 \* \* \* nozomi \[ -x /opt/nozomi/staging/current/bin/backup.sh \] && /opt/nozomi/staging/current/bin/backup.sh daily ' /etc/cron.d/nozomi-backup-staging" ||
     fail "定时任务的内容不对"
+  in_container "$name" "grep -q '^47 3 \* \* \* nozomi \[ -x /opt/nozomi/staging/current/bin/pitr-backup.sh \] && /opt/nozomi/staging/current/bin/pitr-backup.sh ' /etc/cron.d/nozomi-backup-staging" ||
+    fail "定时任务里应有每天的基础备份（ADR 0105）"
+  in_container "$name" "grep -q '^\*/15 \* \* \* \* nozomi .*pitr-offsite.sh sync --quiet-if-unconfigured; .*pitr-status.sh; } 2>&1 | logger -t nozomi-pitr\$' /etc/cron.d/nozomi-backup-staging" ||
+    fail "定时任务里应有每 15 分钟的异地同步和备份状态检查（ADR 0105）"
+  in_container "$name" "grep -qx 'OFFSITE_BACKUP_REPOSITORY=' /opt/nozomi/staging/.env" || fail ".env 里应留出异地备份的空位，等负责人填"
   package_installed "$name" "$family" "$cron_package" || fail "应已安装定时任务服务 $cron_package"
   in_container "$name" "grep -qx 'enable --now $cron_service' $systemctl_log" || fail "应启用定时任务服务 $cron_service"
   if in_container "$name" "grep -Eq '^(restart|reload|stop|disable|mask) ' $systemctl_log"; then

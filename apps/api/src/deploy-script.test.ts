@@ -205,6 +205,26 @@ test("首次部署成功：拉镜像 → 起数据库 → 建应用账号 → �
   assert.deepEqual(await readdir(join(sandbox.root, "backups")), []);
 });
 
+test("部署成功后兜底做基础备份（ADR 0105）：在新版本健康、切换之后；没做成只记一行，不影响部署结果和退出码", linuxOnly, async () => {
+  // 替身对「show archive_mode」什么都不输出，相当于数据库没开归档：pitr-backup.sh 报错退出
+  const result = await deploy("v1");
+  assert.equal(result.code, 0, result.output);
+  assert.equal(await linkTarget("current"), "releases/v1");
+  assert.match(result.output, /基础备份没有做成（不影响本次部署结果）/);
+  assert.match(result.output, /部署成功：v1 已在运行/);
+  const log = await calls();
+  const activate = indexOfCall(log, activationOf("v1"));
+  const archiveCheck = indexOfCall(log, /exec -T db psql -U nozomi -d postgres .* -c show archive_mode$/);
+  assert.ok(activate >= 0 && archiveCheck > activate, log.join("\n"));
+  assert.ok(!log.some((line) => line.includes("pg_basebackup")), "数据库没开归档时不应去做基础备份");
+
+  // 连 compose 调用本身都失败也一样
+  await failWhen("show archive_mode");
+  const again = await deploy("v2");
+  assert.equal(again.code, 0, again.output);
+  assert.equal(await linkTarget("current"), "releases/v2");
+});
+
 test("每次 docker compose 调用都带项目名、密钥文件和该版本的变量文件", linuxOnly, async () => {
   await deploy("v1");
   const composeCalls = (await calls()).filter((line) => line.includes("] compose "));
