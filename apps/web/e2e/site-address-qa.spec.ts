@@ -176,8 +176,21 @@ test("键盘：地图聚焦后 + / - 真的缩放、方向键平移，Tab 到「
   await page.keyboard.press("-");
   await page.keyboard.press("-");
   await expect.poll(() => (zooms.length === 0 ? Number.POSITIVE_INFINITY : Math.min(...zooms)), { message: "按 - 没有缩小" }).toBe(startZoom - 1);
-  await page.keyboard.press("ArrowLeft");
-  await page.keyboard.press("ArrowUp");
+  // 地图库在上一次平移的动画没走完时不理方向键：每按一次等地图停稳再按下一个
+  const pane = map.locator(".leaflet-map-pane");
+  const panWith = async (key: string): Promise<void> => {
+    const before = await pane.evaluate((element) => getComputedStyle(element).transform);
+    await page.keyboard.press(key);
+    await expect
+      .poll(async () => {
+        const first = await pane.evaluate((element) => getComputedStyle(element).transform);
+        await page.waitForTimeout(100);
+        return first !== before && first === (await pane.evaluate((element) => getComputedStyle(element).transform));
+      }, { message: `按 ${key} 地图没有平移` })
+      .toBe(true);
+  };
+  await panWith("ArrowLeft");
+  await panWith("ArrowUp");
 
   // 只用 Tab 走到「选地图中间这个位置」，回车选中
   for (let i = 0; i < 6 && !(await pickCenter.evaluate((element) => element === document.activeElement)); i++) await page.keyboard.press("Tab");
