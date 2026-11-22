@@ -14,7 +14,7 @@ import { type TestApi, TEST_PASSWORD, createTestApi } from "./testing/api.ts";
 import { assign, newDriver, newVehicle, seedOrder } from "./testing/dispatch.ts";
 import { type FakeSmtp, type FakeSmtpMessage, decodedMailHtml, decodedMailText, startFakeSmtp } from "./testing/fake-integrations.ts";
 import { type Market, allKeys, buildMarket, newChannel, ok, salesCredentials } from "./testing/market.ts";
-import { tenantLogin } from "./testing/money.ts";
+import { reachFulfilmentWindow, tenantLogin } from "./testing/money.ts";
 import { FakePaymentProvider, deliverWebhook } from "./testing/payments.ts";
 import { type SiteApi, siteApi } from "./testing/site.ts";
 
@@ -609,10 +609,13 @@ test("事后加收：供应商不收邮件；客人的金额是自己要付的�
   const token = await tenantLogin(api, side.adminEmail);
   const who = { ...side, adminToken: token };
   await ok(assign(api, who, order.orderId, (await newDriver(api, who)).id, (await newVehicle(api, who, m.ids.biz7)).id));
-  for (const type of ["departed", "arrived", "picked_up", "completed"]) await ok(api.call("POST", `/tenant/v1/orders/${order.orderId}/events`, { token, body: { type } }));
+  // 接到客人、完成最早在用车前 3 小时（ADR 0064）：拨过去以后重新登录
+  await reachFulfilmentWindow(api, order.orderId);
+  const onSite = await tenantLogin(api, side.adminEmail);
+  for (const type of ["departed", "arrived", "picked_up", "completed"]) await ok(api.call("POST", `/tenant/v1/orders/${order.orderId}/events`, { token: onSite, body: { type } }));
   await site.app.notificationJobs.tick();
   smtp.reset();
-  const charge = await api.call("POST", `/tenant/v1/orders/${order.orderId}/extra-charges`, { token, body: { type: "waiting", amount: 3_000, description: "等待费" } });
+  const charge = await api.call("POST", `/tenant/v1/orders/${order.orderId}/extra-charges`, { token: onSite, body: { type: "waiting", amount: 3_000, description: "等待费" } });
   assert.equal(charge.status, 201, charge.text);
   await site.app.notificationJobs.tick();
   assert.ok(!smtp.messages.some((message) => message.to.includes(side.adminEmail)), "加收不给供应商发邮件");

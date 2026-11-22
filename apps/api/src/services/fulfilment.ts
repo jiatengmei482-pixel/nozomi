@@ -6,7 +6,7 @@
  * - 包车完成时必须上报实际时长和里程（超时、超公里的依据，需求「完成时填实际时长和公里」），其他品类选填；
  * - 每次状态变化记一条状态流水，并给供应商排一条 `order.status_changed` 推送。
  * 平台代传（M4-18，ADR 0052）也走这里，多带一个 `ProxyMark`：履约时间和流水用运营填的发生时间，流水和推送标明来源。
- * 司机自己回传有时间窗口（M4-32，ADR 0064）：太早的 422 `FULFILMENT_TOO_EARLY`；供应商的调度接口不受影响，代传在发起时按同一份窗口校验发生时间。
+ * 司机和供应商调度接口回传有时间窗口（M4-32、M4-33，ADR 0064）：太早的 422 `FULFILMENT_TOO_EARLY`；代传在发起时按同一份窗口校验发生时间。
  */
 import {
   FULFILMENT_EARLIEST_HOURS_BEFORE_SERVICE,
@@ -110,8 +110,8 @@ export function assertCompletionActual(order: Pick<Order, "category">, input: Pi
 }
 
 /** 司机太早回传（ADR 0064）：哪一步、最早什么时候（时刻和城市当地时间）、用车前几小时。 */
-export function fulfilmentTooEarlyError(order: Pick<Order, "serviceAt" | "timezone">, type: FulfilmentEventType): AppError {
-  return new AppError(422, "FULFILMENT_TOO_EARLY", fulfilmentTooEarlyMessage(type, order.serviceAt, order.timezone), {
+export function fulfilmentTooEarlyError(order: Pick<Order, "serviceAt" | "timezone">, type: FulfilmentEventType, audience: "driver" | "dispatch" = "driver"): AppError {
+  return new AppError(422, "FULFILMENT_TOO_EARLY", fulfilmentTooEarlyMessage(type, order.serviceAt, order.timezone, audience), {
     type,
     earliest_at: fulfilmentEarliestAt(type, order.serviceAt).toISOString(),
     earliest_local: fulfilmentEarliestLocal(type, order.serviceAt, order.timezone),
@@ -122,12 +122,13 @@ export function fulfilmentTooEarlyError(order: Pick<Order, "serviceAt" | "timezo
 
 /**
  * 回传一个履约状态。`order` 已在本事务里锁住。`proxy` 只有平台代传才有。
- * 先判状态（页面过时、重复点是 409），再判司机的时间窗口：用系统收到的时间（`now`）和订单现在的用车时间比，太早的不写任何东西。
+ * 先判状态（页面过时、重复点是 409），再判时间窗口（司机和供应商调度接口）：用系统收到的时间（`now`）和订单现在的用车时间比，太早的不写任何东西。
  */
 export async function applyFulfilmentEvent(db: Db, order: Order, input: FulfilmentInput, actor: FulfilmentActor, now: Date, proxy: ProxyMark | null = null): Promise<void> {
   const to = TARGET[input.type];
   if (!orderTransitionAllowed(order.status, to)) throw orderStateInvalid(order.status, input.type);
-  if (actor.type === "driver" && fulfilmentTooEarly(input.type, now, order.serviceAt)) throw fulfilmentTooEarlyError(order, input.type);
+  // 司机（M4-32）和供应商调度接口（M4-33）用同一份窗口；平台代传在发起时按报的发生时间另行校验（ADR 0052）
+  if (actor.type !== "platform_user" && fulfilmentTooEarly(input.type, now, order.serviceAt)) throw fulfilmentTooEarlyError(order, input.type, actor.type === "driver" ? "driver" : "dispatch");
   const at = proxy?.occurredAt ?? now;
   const change: FulfilmentChange = { status: to };
   if (input.type === "departed") change.departedAt = at;

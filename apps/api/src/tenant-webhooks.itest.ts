@@ -275,7 +275,8 @@ test("同一张订单按顺序投：前一条在等重试，后一条不发；�
   await configure("a", ["order.assigned", "order.status_changed"]);
   receiver.respond([503, 200]);
   receiver.received.length = 0;
-  const order = await seedOrder(api, m, "a", { serviceAt: new Date(api.clock.now().getTime() + 5 * 24 * 3_600_000) });
+  // 用车时间在 20 小时后：已经可以回传出发（最早用车前 24 小时，ADR 0064）
+  const order = await seedOrder(api, m, "a", { serviceAt: new Date(api.clock.now().getTime() + 20 * 3_600_000) });
   const token = await adminToken("a");
   await ok(assign(api, { ...m.a, adminToken: token }, order.id, (await newDriver(api, { ...m.a, adminToken: token })).id, (await newVehicle(api, { ...m.a, adminToken: token }, m.ids.biz7)).id));
   await ok(api.call("POST", `/tenant/v1/orders/${order.id}/events`, { token, body: { type: "departed" } }));
@@ -290,7 +291,8 @@ test("同一张订单按顺序投：前一条在等重试，后一条不发；�
 
 test("订阅暂停或删除：新事件不排队；已经排着的不再发，记为失败（WEBHOOK_NOT_CONFIGURED）；没订阅的事件不排队", async () => {
   await configure("a", ["order.status_changed"]);
-  const order = await seedOrder(api, m, "a", { serviceAt: new Date(api.clock.now().getTime() + 6 * 24 * 3_600_000) });
+  // 用车时间在 21 小时后：已经可以回传出发、到达（最早用车前 24 小时，ADR 0064）
+  const order = await seedOrder(api, m, "a", { serviceAt: new Date(api.clock.now().getTime() + 21 * 3_600_000) });
   const token = await adminToken("a");
   await ok(assign(api, { ...m.a, adminToken: token }, order.id, (await newDriver(api, { ...m.a, adminToken: token })).id, (await newVehicle(api, { ...m.a, adminToken: token }, m.ids.biz7)).id));
   assert.equal((await api.db.owner.query("select 1 from webhook_deliveries where order_id = $1", [order.id])).rowCount, 0, "没订阅 order.assigned");

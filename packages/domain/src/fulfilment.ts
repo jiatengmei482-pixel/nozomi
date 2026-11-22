@@ -313,10 +313,23 @@ export const DRIVER_ACTION_LABELS: Readonly<Record<FulfilmentEventType, string>>
   completed: "服务完成",
 };
 
-/** 太早时给司机看的说明：哪一步（按钮上的叫法）、最早几点可以点（当地时间）、为什么。 */
-export function fulfilmentTooEarlyMessage(type: FulfilmentEventType, serviceAt: Date, timeZone: string): string {
+/** 供应商调度接口回传的每一步（M4-33）：说明里用状态的叫法和接口里的 `type`，对接方的日志里一眼对得上。 */
+export const DISPATCH_EVENT_LABELS: Readonly<Record<FulfilmentEventType, string>> = {
+  departed: "已出发",
+  arrived: "已到达",
+  picked_up: "接到客人",
+  completed: "已完成",
+};
+
+/**
+ * 太早时的说明：哪一步、最早几点可以（当地时间）、为什么。
+ * `driver`：给司机看，用司机页按钮上的叫法；`dispatch`：供应商调度接口（M4-33），给调度员和对接方的日志看。
+ */
+export function fulfilmentTooEarlyMessage(type: FulfilmentEventType, serviceAt: Date, timeZone: string, audience: "driver" | "dispatch" = "driver"): string {
   const service = instantToLocal(serviceAt, timeZone).dateTime.replace("T", " ");
-  return `现在还不能点「${DRIVER_ACTION_LABELS[type]}」：最早在用车前 ${FULFILMENT_EARLIEST_HOURS_BEFORE_SERVICE[type]} 小时，也就是 ${fulfilmentEarliestLocal(type, serviceAt, timeZone)}（${timeZone} 当地时间）以后才能点（用车时间 ${service}）。行程有变请联系调度。`;
+  const earliest = `最早在用车前 ${FULFILMENT_EARLIEST_HOURS_BEFORE_SERVICE[type]} 小时，也就是 ${fulfilmentEarliestLocal(type, serviceAt, timeZone)}（${timeZone} 当地时间）以后`;
+  if (audience === "dispatch") return `现在还不能回传「${DISPATCH_EVENT_LABELS[type]}」（${type}）：${earliest}才能回传（用车时间 ${service}）。用车时间有变请先改单。`;
+  return `现在还不能点「${DRIVER_ACTION_LABELS[type]}」：${earliest}才能点（用车时间 ${service}）。行程有变请联系调度。`;
 }
 
 export const PROXY_FULFILMENT_RULES = {

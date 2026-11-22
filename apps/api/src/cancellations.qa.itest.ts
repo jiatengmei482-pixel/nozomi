@@ -15,7 +15,7 @@ import { type TestApi, createTestApi } from "./testing/api.ts";
 import { type Market, type Staff, addStaff, allValues, buildMarket, ok } from "./testing/market.ts";
 import { FakePaymentProvider, deliverWebhook } from "./testing/payments.ts";
 import { type SalesFlow, salesFlow } from "./testing/sales-flow.ts";
-import { completeOrder, platformLogin, tenantLogin } from "./testing/money.ts";
+import { completeOrder, platformLogin, reachFulfilmentWindow, tenantLogin } from "./testing/money.ts";
 
 let api: TestApi;
 let m: Market;
@@ -199,10 +199,11 @@ test("真的取消落在阶梯边界上（商务车 ≥ 48 小时免费）：正
   assert.deepEqual(tenant.order.cancellation.tenant_share, { amount: String(portionBasisPoints(BASE_SETTLEMENT, 5_000)), currency: "JPY" });
 });
 
-test("取消与司机接到客人同时发生：要么取消成功、退款一次、之后不能再接到；要么接到了、取消 409、不退款——不会两边都成功", async () => {
+test("取消与司机接到客人同时发生：要么取消成功、按阶梯最多退一次、之后不能再接到；要么接到了、取消 409、不退款——不会两边都成功", async () => {
   for (let round = 0; round < 3; round += 1) {
     const order = await flow.paidOrder({ serviceTime: `${tokyoDay(12)}T1${round}:00:00+09:00` });
     await completeOrder(api, m, "b", order.id, "assigned");
+    await reachFulfilmentWindow(api, order.id);
     const admin = await tenantLogin(api, m.b.adminEmail);
     for (const type of ["departed", "arrived"]) await ok(api.call("POST", `/tenant/v1/orders/${order.id}/events`, { token: admin, body: { type } }));
     api.clock.advance(1_000);
@@ -212,7 +213,9 @@ test("取消与司机接到客人同时发生：要么取消成功、退款一�
     const refunds = pay.refundsOf(order.id);
     if (cancelled.status === 200) {
       assert.notEqual(picked.status, 200, "取消成功了，接到客人就不能也成功");
-      assert.deepEqual([status, refunds.length], ["cancelled", 1]);
+      // 接到客人最早在用车前 3 小时（ADR 0064），这时取消按阶梯扣 100%：应退 0 就不退，有应退的只退一次
+      const due = Number(cancelled.body.order.cancellation.refund.amount);
+      assert.deepEqual([status, refunds.map((refund) => refund.amountMinor)], ["cancelled", due === 0 ? [] : [due]]);
     } else {
       assert.deepEqual([cancelled.status, cancelled.body.error.code, picked.status, status, refunds.length], [409, "ORDER_STATE_INVALID", 200, "in_service", 0]);
     }

@@ -19,6 +19,8 @@ let api: TestApi;
 let m: Market;
 /** 用车时间：测试时钟（2026-10-07 01:00Z）之后 13 天 */
 const SERVICE = new Date("2026-10-20T01:00:00Z");
+/** 回传履约状态的单：用车时间在现在之后 2 小时，出发到完成都已在时间窗口里（ADR 0064，供应商调度接口也受限） */
+const withinWindow = (): Date => new Date(api.clock.now().getTime() + 2 * 3_600_000);
 
 before(async () => {
   api = await createTestApi();
@@ -60,7 +62,7 @@ test("派车：派给符合要求的司机和车辆，订单变成已派车；�
 });
 
 test("改派：已派车、司机已出发时可以换人换车（出发后回到已派车）；旧链接立即作废；同一组再派一次什么都不变；到达后不能改派", async () => {
-  const order = await seedOrder(api, m, "a", { serviceAt: new Date("2026-10-21T05:00:00Z") });
+  const order = await seedOrder(api, m, "a", { serviceAt: withinWindow() });
   const [d1, d2] = [await newDriver(api, m.a), await newDriver(api, m.a)];
   const [v1, v2] = [await newVehicle(api, m.a, m.ids.biz7), await newVehicle(api, m.a, m.ids.biz7)];
   const first = await ok(assign(api, m.a, order.id, d1.id, v1.id));
@@ -181,7 +183,7 @@ test("司机链接：重新生成后旧的作废、新的能用；吊销后不�
 });
 
 test("调度系统回传：出发 → 到达 → 接到客人 → 完成，不能跳步不能重复；带定位算出距上车点的距离；包车完成要填实际时长和里程", async () => {
-  const order = await seedOrder(api, m, "a", { serviceAt: new Date("2026-10-28T01:00:00Z") });
+  const order = await seedOrder(api, m, "a", { serviceAt: withinWindow() });
   await ok(assign(api, m.a, order.id, (await newDriver(api, m.a)).id, (await newVehicle(api, m.a, m.ids.biz7)).id));
   const report = (body: Record<string, unknown>) => api.call("POST", `/tenant/v1/orders/${order.id}/events`, { token: m.a.adminToken, body });
   const skip = await report({ type: "arrived" });
@@ -202,7 +204,7 @@ test("调度系统回传：出发 → 到达 → 接到客人 → 完成，不�
 });
 
 test("包车完成时必须填实际时长和里程", async () => {
-  const order = await seedOrder(api, m, "a", { serviceAt: new Date("2026-10-28T05:00:00Z") });
+  const order = await seedOrder(api, m, "a", { serviceAt: withinWindow() });
   await api.db.owner.query("update orders set category = 'charter', place_id = null, direction = null, package_hours = 5, flight_no = null, pickup = dropoff, dropoff = null where id = $1", [order.id]);
   await ok(assign(api, m.a, order.id, (await newDriver(api, m.a)).id, (await newVehicle(api, m.a, m.ids.biz7)).id));
   for (const type of ["departed", "arrived", "picked_up"]) await ok(api.call("POST", `/tenant/v1/orders/${order.id}/events`, { token: m.a.adminToken, body: { type } }));

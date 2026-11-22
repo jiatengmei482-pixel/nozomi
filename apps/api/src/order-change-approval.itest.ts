@@ -416,8 +416,13 @@ test("订单走到修改不再适用：司机出发后，同意 409；定时任�
   const res = await patch(order.id, { service_time: iso(newAt) });
   const other = await dispatched(oldAt + HOUR);
   const flight = await patch(other.order.id, { flight_no: "JL5" });
-  for (const id of [order.id, other.order.id]) await ok(api.call("POST", `/tenant/v1/orders/${id}/events`, { token: b.adminToken, body: { type: "departed" } }));
+  // 出发最早在用车前 24 小时（ADR 0064）：各自到点出发；改期申请的期限是那之后 30 分钟，出发时还没结论
+  api.clock.advance(oldAt - 24 * HOUR - api.clock.now().getTime());
+  b.adminToken = await tenantLogin(api, m.b.adminEmail);
+  await ok(api.call("POST", `/tenant/v1/orders/${order.id}/events`, { token: b.adminToken, body: { type: "departed" } }));
   assert.equal((await tenantDecide(order.id, res.body.change.id, "confirm")).body.error.code, "ORDER_STATE_INVALID");
+  api.clock.advance(HOUR);
+  await ok(api.call("POST", `/tenant/v1/orders/${other.order.id}/events`, { token: b.adminToken, body: { type: "departed" } }));
   await api.app.orderJobs.money();
   const after = await salesGet(order.id);
   assert.deepEqual([after.changes[0].status, after.service_time, pay.refundsOf(order.id).length], ["expired", order.service_time, 1]);
