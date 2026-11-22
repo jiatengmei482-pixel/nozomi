@@ -9,6 +9,9 @@
  * - AES-256-GCM，每次加密随机 96 位 IV；附加数据（AAD）是这条记录的归属（如租户编号、员工编号），密文搬到别人的行里解不开；
  * - 存储格式 `v1.<IV>.<认证标签>.<密文>`（各段 base64url），以后换算法时加 `v2`。
  * 解不开（主密钥换了、密文被改过、搬到了别的行）抛 `SecretBoxError`，调用方按「密钥不可用」处理，不把原因细节往外说。
+ *
+ * 换主密钥（ADR 0106）：换的那段时间同时带着旧主密钥（`DATA_ENCRYPTION_KEY_PREVIOUS`）。加密、指纹只用新的；解密先试新的、再试旧的，
+ * 所以换密钥那一刻起旧密文照常能读，后台任务再把它们逐行改成新密钥的密文（`data-key-rotation.ts`）。
  */
 import { createCipheriv, createDecipheriv, createHmac, hkdfSync, randomBytes } from "node:crypto";
 
@@ -29,10 +32,14 @@ export class SecretBox {
   private readonly keys = new Map<SecretPurpose, Buffer>();
   private readonly macKeys = new Map<SecretPurpose, Buffer>();
   private readonly masterKey: string;
+  /** 换密钥期间的旧主密钥；只用来解密 */
+  readonly previous: SecretBox | null;
 
-  constructor(masterKey: string) {
+  constructor(masterKey: string, previousMasterKey: string | null = null) {
     if (masterKey.length < 32) throw new RangeError("主密钥至少 32 个字符");
+    if (previousMasterKey === masterKey) throw new RangeError("旧主密钥和新主密钥相同");
     this.masterKey = masterKey;
+    this.previous = previousMasterKey === null ? null : new SecretBox(previousMasterKey);
   }
 
   private key(purpose: SecretPurpose): Buffer {
@@ -63,7 +70,18 @@ export class SecretBox {
     return [VERSION, iv.toString("base64url"), cipher.getAuthTag().toString("base64url"), ciphertext.toString("base64url")].join(".");
   }
 
+  /** 解密：先试当前主密钥，换密钥期间再试旧主密钥。 */
   open(purpose: SecretPurpose, owner: string, sealed: string): string {
+    try {
+      return this.openCurrent(purpose, owner, sealed);
+    } catch (err) {
+      if (this.previous === null) throw err;
+      return this.previous.openCurrent(purpose, owner, sealed);
+    }
+  }
+
+  /** 只用当前主密钥解密：换密钥时用来判断这一行是不是已经换成新密钥了。 */
+  openCurrent(purpose: SecretPurpose, owner: string, sealed: string): string {
     const parts = sealed.split(".");
     if (parts.length !== 4 || parts[0] !== VERSION) throw new SecretBoxError();
     const [, ivText, tagText, bodyText] = parts as [string, string, string, string];
@@ -79,4 +97,9 @@ export class SecretBox {
       throw new SecretBoxError();
     }
   }
+}
+
+/** 按配置建：没配置主密钥时为 null；换密钥期间带上旧主密钥（ADR 0106）。 */
+export function secretBoxFromConfig(config: { dataEncryptionKey: string | null; dataEncryptionPreviousKey: string | null }): SecretBox | null {
+  return config.dataEncryptionKey === null ? null : new SecretBox(config.dataEncryptionKey, config.dataEncryptionPreviousKey);
 }

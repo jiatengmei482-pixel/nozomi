@@ -13,7 +13,7 @@ import { parseArgs } from "node:util";
 import { ConfigError, loadConfig } from "@nozomi/config";
 import { createPool, driverErrorCode } from "../db/pool.ts";
 import { createClaudeJsonCaller } from "../integrations/anthropic.ts";
-import { SecretBox } from "../integrations/secret-box.ts";
+import { secretBoxFromConfig } from "../integrations/secret-box.ts";
 import { IntegrationSecretCache } from "../services/integration-secrets.ts";
 import { type TripEvalCaseResult, type TripEvalSummary, runTripEval, summarize } from "../services/trip-eval.ts";
 import { TRIP_EVAL_CASES } from "../services/trip-eval-cases.ts";
@@ -64,7 +64,7 @@ async function main(): Promise<void> {
   const pool = createPool(config.databaseUrl, { max: 1 });
   try {
     const silent = { info: () => undefined, warn: () => undefined, error: () => undefined };
-    const secrets = new IntegrationSecretCache({ pool, config, secretBox: config.dataEncryptionKey === null ? null : new SecretBox(config.dataEncryptionKey), log: silent });
+    const secrets = new IntegrationSecretCache({ pool, config, secretBox: secretBoxFromConfig(config), log: silent });
     await secrets.ensureFresh();
     const apiKey = secrets.effective.anthropic.apiKey;
     if (apiKey === null) throw new UsageError("Claude 密钥没有配置：先在运营后台「第三方密钥」填写。");

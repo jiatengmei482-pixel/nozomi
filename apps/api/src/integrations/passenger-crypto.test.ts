@@ -117,3 +117,33 @@ test("性能：一页 200 行解密在几十毫秒量级（不做 N+1 查询，�
   for (let i = 0; i < 200; i += 1) crypto.readOrderPassenger(T1, ORDER, enc, PASSENGER);
   assert.ok(performance.now() - started < 200, "200 行超过 200 毫秒");
 });
+
+test("换主密钥（ADR 0106）：带着旧主密钥时，旧密钥写的密文按标记解开（明文是占位也能读）、不报警；查找用的盲索引新旧各一个；新写入只用新密钥", () => {
+  const alerts: object[] = [];
+  const RETIRED: PassengerEncryptionSettings = { readSource: "ciphertext", plaintextWrite: false, backfillEnabled: true };
+  const old = make(RETIRED, KEY);
+  const sealed = old.sealOrderPassenger(T1, ORDER, PASSENGER);
+  const note = old.sealManualQuote("manual_quote_note", ORDER, "备注");
+  const rotating = new PassengerCrypto(new SecretBox(OTHER_KEY, KEY), RETIRED, { error: (obj) => void alerts.push(obj) });
+  assert.deepEqual(rotating.readOrderPassenger(T1, ORDER, sealed.enc, ENCRYPTED_PASSENGER), PASSENGER);
+  assert.equal(rotating.openManualQuote("manual_quote_note", ORDER, note), "备注");
+  assert.deepEqual(alerts, []);
+  assert.equal(rotating.previousPrefix, old.currentPrefix);
+  assert.ok(!rotating.isCurrent(sealed.enc), "旧密钥的密文不算当前");
+  assert.equal(rotating.openForVerify("order", T1, ORDER, sealed.enc), null, "核对只认新密钥：没换完不能说全部一致");
+  assert.equal(rotating.openPrevious("order", T1, ORDER, sealed.enc), JSON.stringify(PASSENGER));
+  assert.equal(rotating.openPrevious("order", T2, ORDER, sealed.enc), null, "旧密文搬到别家也解不开");
+
+  const lookup = rotating.lookupIndexes(T1, "email", PASSENGER.email);
+  assert.equal(lookup.length, 2);
+  assert.ok(lookup.includes(sealed.emailBidx as string), "旧密钥的盲索引查得到");
+  assert.equal(rotating.indexMatches(T1, "email", PASSENGER.email, sealed.emailBidx), true);
+  assert.equal(rotating.indexMatches(T1, "email", "other@example.test", sealed.emailBidx), false);
+  assert.equal(rotating.indexMatches(T1, "email", PASSENGER.email, make(RETIRED, `${KEY}-third`).index(T1, "email", PASSENGER.email)), null, "别的密钥算的：没有结论");
+  assert.deepEqual(make(RETIRED, OTHER_KEY).lookupIndexes(T1, "email", PASSENGER.email), [rotating.index(T1, "email", PASSENGER.email)], "没在换时只有一个");
+
+  const fresh = rotating.sealOrderPassenger(T1, ORDER, PASSENGER);
+  assert.ok(rotating.isCurrent(fresh.enc) && rotating.isCurrent(fresh.emailBidx));
+  assert.deepEqual(make(RETIRED, OTHER_KEY).readOrderPassenger(T1, ORDER, fresh.enc, ENCRYPTED_PASSENGER), PASSENGER, "删掉旧主密钥后新密文照常读");
+  assert.throws(() => make(RETIRED, OTHER_KEY).readOrderPassenger(T1, ORDER, sealed.enc, ENCRYPTED_PASSENGER), (err: unknown) => err instanceof AppError && err.code === "PASSENGER_DECRYPT_FAILED", "旧密文没换就删旧主密钥：读不出来（所以要先换完）");
+});

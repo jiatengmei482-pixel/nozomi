@@ -6,6 +6,7 @@
  * - 读：`PASSENGER_READ_SOURCE=plaintext` 读明文；否则有当前密钥的密文就解密，没有（没回填、密钥换过）读明文。解不开时退回明文并报警。
  *   明文恰好是加密占位（三项都是，只看一项的话客人写的字样会被当成占位）时，两种模式都读密文，切开关读到的内容相同；密文也没有或解不开才报错，不把占位当内容。
  * - 日志和错误里只有种类、记录编号和数量，没有内容。
+ * - 换主密钥期间（ADR 0106）：按密钥标记选钥匙，旧密钥的密文照常解开（不报警）；盲索引按两把钥匙各算一个去查。新写入的只用新密钥。
  */
 import { ENCRYPTED_PASSENGER, ENCRYPTED_TEXT, type ContactIndexKind, type PassengerContact, containsPassenger, hasEncryptedPlaceholderPassenger, isEncryptedPlaceholderPassenger, normalizeEmailForIndex, normalizeNameForIndex, normalizePhoneForIndex, replacePassengers } from "@nozomi/domain";
 import { AppError } from "../errors.ts";
@@ -14,9 +15,9 @@ import type { SecretBox } from "./secret-box.ts";
 export type PassengerCopyKind = "order_change" | "webhook_delivery" | "notification";
 /** 人工报价申请（M8-21，ADR 0076）：平台数据，没有租户；联系方式和两端地点一份密文，客服备注一条一份。 */
 export type ManualQuoteSealKind = "manual_quote_request" | "manual_quote_note";
-type SealKind = "order" | PassengerCopyKind | ManualQuoteSealKind;
+export type SealKind = "order" | PassengerCopyKind | ManualQuoteSealKind;
 /** 人工报价申请的密文、盲索引用的「租户」位置：固定值，和任何供应商的订单分开（同一个邮箱算出的盲索引不同）。 */
-const MANUAL_QUOTE_OWNER = "platform:manual_quote";
+export const MANUAL_QUOTE_OWNER = "platform:manual_quote";
 
 export interface PassengerCryptoLog {
   error(obj: object, msg: string): void;
@@ -51,6 +52,11 @@ export function isPassengerDecryptFailure(err: unknown): boolean {
   return err instanceof AppError && err.code === PASSENGER_DECRYPT_FAILED;
 }
 
+/** 密钥标记：主密钥的 HMAC 前 8 位，能在库里数出哪些行是哪把钥匙写的。 */
+function keyId(box: SecretBox): string {
+  return box.mac("passenger-index", "nozomi.key-id").slice(0, 8);
+}
+
 function samePassenger(a: PassengerContact, b: PassengerContact): boolean {
   return a.name === b.name && a.phone === b.phone && a.email === b.email;
 }
@@ -60,13 +66,15 @@ export class PassengerCrypto {
   private readonly settings: PassengerEncryptionSettings;
   private readonly log: PassengerCryptoLog;
   private readonly kid: string | null;
+  private readonly previousKid: string | null;
   private readonly alerts = new Map<string, { at: number; suppressed: number }>();
 
   constructor(box: SecretBox | null, settings: PassengerEncryptionSettings, log: PassengerCryptoLog = SILENT_LOG) {
     this.box = box;
     this.settings = settings;
     this.log = log;
-    this.kid = box === null ? null : box.mac("passenger-index", "nozomi.key-id").slice(0, 8);
+    this.kid = box === null ? null : keyId(box);
+    this.previousKid = box?.previous == null ? null : keyId(box.previous);
   }
 
   get configured(): boolean {
@@ -90,6 +98,11 @@ export class PassengerCrypto {
     return this.kid === null ? null : `${this.kid}:`;
   }
 
+  /** 换密钥期间旧密钥的前缀；没在换时为 null。 */
+  get previousPrefix(): string | null {
+    return this.previousKid === null ? null : `${this.previousKid}:`;
+  }
+
   /** 这个密文或盲索引是不是当前密钥算的。 */
   isCurrent(stored: string | null | undefined): stored is string {
     return this.kid !== null && typeof stored === "string" && stored.startsWith(`${this.kid}:`);
@@ -99,6 +112,19 @@ export class PassengerCrypto {
   index(tenantId: string, kind: ContactIndexKind, value: string): string {
     if (this.box === null) throw passengerEncryptionNotConfigured();
     return `${this.kid}:${this.box.mac("passenger-index", JSON.stringify([tenantId, kind, value]))}`;
+  }
+
+  /** 查找用的盲索引：当前密钥一个，换密钥期间再加旧密钥一个（还没重新加密的行存的是旧的）。 */
+  lookupIndexes(tenantId: string, kind: ContactIndexKind, value: string): string[] {
+    const current = this.index(tenantId, kind, value);
+    const previous = this.box?.previous;
+    return previous == null ? [current] : [current, `${this.previousKid}:${previous.mac("passenger-index", JSON.stringify([tenantId, kind, value]))}`];
+  }
+
+  /** 存的盲索引是不是这个值算出来的：当前密钥或旧密钥算的都能比；别的密钥算的（或没有）返回 null，由调用方按内容比。 */
+  indexMatches(tenantId: string, kind: ContactIndexKind, value: string, stored: string | null): boolean | null {
+    if (this.box === null || !this.isReadable(stored)) return null;
+    return this.lookupIndexes(tenantId, kind, value).includes(stored);
   }
 
   /** 新写入一单的乘客信息：没有主密钥时报错，不写明文冒充加密。 */
@@ -118,7 +144,7 @@ export class PassengerCrypto {
   readOrderPassenger(tenantId: string, orderId: string, enc: string | null, plain: PassengerContact): PassengerContact {
     const usable = !isEncryptedPlaceholderPassenger(plain);
     if (usable && !this.readsCiphertext) return plain;
-    const opened = this.isCurrent(enc) ? this.tryOpen("order", tenantId, orderId, enc) : null;
+    const opened = this.isReadable(enc) ? this.tryOpen("order", tenantId, orderId, enc) : null;
     if (opened === null) return usable ? plain : this.unreadable("order", orderId);
     const passenger = JSON.parse(opened) as PassengerContact;
     if (usable && !samePassenger(passenger, plain)) this.alert("passenger.cipher_mismatch", { kind: "order", id: orderId }, "乘客信息的密文和明文对不上");
@@ -134,7 +160,7 @@ export class PassengerCrypto {
   readValues<T>(kind: PassengerCopyKind, tenantId: string, id: string, enc: string | null, plain: T): T {
     const usable = !hasEncryptedPlaceholderPassenger(plain);
     if (usable && !this.readsCiphertext) return plain;
-    const opened = this.isCurrent(enc) ? this.tryOpen(kind, tenantId, id, enc) : null;
+    const opened = this.isReadable(enc) ? this.tryOpen(kind, tenantId, id, enc) : null;
     if (opened !== null) return JSON.parse(opened) as T;
     return usable ? plain : this.unreadable(kind, id);
   }
@@ -148,7 +174,7 @@ export class PassengerCrypto {
   readRecipient(tenantId: string | null, eventId: string, enc: string | null, plain: string): string {
     const usable = plain !== ENCRYPTED_TEXT;
     if (usable && !this.readsCiphertext) return plain;
-    const opened = tenantId !== null && this.isCurrent(enc) ? this.tryOpen("notification", tenantId, eventId, enc) : null;
+    const opened = tenantId !== null && this.isReadable(enc) ? this.tryOpen("notification", tenantId, eventId, enc) : null;
     if (opened !== null) return opened;
     return usable ? plain : this.unreadable("notification", eventId);
   }
@@ -168,7 +194,7 @@ export class PassengerCrypto {
 
   /** 解开人工报价申请的密文；不是当前密钥的、解不开的报 503（不退回任何明文：这里没有明文列）。 */
   openManualQuote(kind: ManualQuoteSealKind, id: string, enc: string): string {
-    const opened = this.isCurrent(enc) ? this.tryOpen(kind, MANUAL_QUOTE_OWNER, id, enc) : null;
+    const opened = this.isReadable(enc) ? this.tryOpen(kind, MANUAL_QUOTE_OWNER, id, enc) : null;
     return opened ?? this.unreadable(kind, id);
   }
 
@@ -177,17 +203,37 @@ export class PassengerCrypto {
     return this.index(MANUAL_QUOTE_OWNER, kind, value);
   }
 
+  /** 按联系方式查人工报价申请用：换密钥期间两把钥匙各一个。 */
+  manualQuoteLookupIndexes(kind: "email" | "phone", value: string): string[] {
+    return this.lookupIndexes(MANUAL_QUOTE_OWNER, kind, value);
+  }
+
   /** 人工报价申请的去重键：联系方式的盲索引加行程要点算出的 HMAC，不能反推出内容。 */
   manualQuoteFingerprint(text: string): string {
     if (this.box === null) throw passengerEncryptionNotConfigured();
     return `${this.kid}:${this.box.mac("passenger-index", JSON.stringify([MANUAL_QUOTE_OWNER, "dedup", text]))}`;
   }
 
-  /** `--verify` 用：这段密文能不能用当前密钥解开，解开是什么。解不开返回 null，不报警。 */
+  /** `--verify` 用：这段密文能不能用当前密钥解开，解开是什么。解不开返回 null，不报警。旧密钥的密文也算解不开：清明文、删旧密钥之前都要先换完。 */
   openForVerify(kind: SealKind, tenantId: string, id: string, enc: string): string | null {
-    if (this.box === null) return null;
+    return this.isCurrent(enc) ? this.openWith(this.box, kind, tenantId, id, enc) : null;
+  }
+
+  /** 换密钥用：旧密钥写的密文解开是什么。不是旧密钥的、解不开的返回 null，不报警。 */
+  openPrevious(kind: SealKind, tenantId: string, id: string, enc: string): string | null {
+    return this.previousKid !== null && enc.startsWith(`${this.previousKid}:`) ? this.openWith(this.box?.previous ?? null, kind, tenantId, id, enc) : null;
+  }
+
+  /** 当前密钥或旧密钥写的密文（按密钥标记）：能读。别的密钥写的按「密钥换过」处理，不去解。 */
+  private isReadable(stored: string | null | undefined): stored is string {
+    if (typeof stored !== "string") return false;
+    return [this.kid, this.previousKid].some((kid) => kid !== null && stored.startsWith(`${kid}:`));
+  }
+
+  private openWith(box: SecretBox | null, kind: SealKind, tenantId: string, id: string, enc: string): string | null {
+    if (box === null) return null;
     try {
-      return this.box.open("passenger-data", this.owner(kind, tenantId, id), enc.slice(enc.indexOf(":") + 1));
+      return box.openCurrent("passenger-data", this.owner(kind, tenantId, id), enc.slice(enc.indexOf(":") + 1));
     } catch {
       return null;
     }
@@ -203,7 +249,7 @@ export class PassengerCrypto {
   }
 
   private tryOpen(kind: SealKind, tenantId: string, id: string, enc: string): string | null {
-    const opened = this.openForVerify(kind, tenantId, id, enc);
+    const opened = this.isCurrent(enc) ? this.openForVerify(kind, tenantId, id, enc) : this.openPrevious(kind, tenantId, id, enc);
     if (opened === null) this.alert("passenger.decrypt_failed", { kind, id }, "乘客信息的密文解不开，退回读明文");
     return opened;
   }

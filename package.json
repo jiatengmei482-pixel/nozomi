@@ -18,6 +18,7 @@
     "qa:tenant-ensure": "node --env-file-if-exists=.env apps/api/src/cli/qa-tenant-ensure.ts",
     "privacy:anonymize": "node --env-file-if-exists=.env apps/api/src/cli/privacy-anonymize.ts",
     "passenger:backfill": "node --env-file-if-exists=.env apps/api/src/cli/passenger-backfill.ts",
+    "data-key:rotate": "node --env-file-if-exists=.env apps/api/src/cli/data-key-rotation.ts",
     "masterdata:import-airports": "node --env-file-if-exists=.env apps/api/src/cli/masterdata-import-airports.ts",
     "masterdata:import-cities": "node --env-file-if-exists=.env apps/api/src/cli/masterdata-import-cities.ts",
     "masterdata:import-airport-names": "node --env-file-if-exists=.env apps/api/src/cli/masterdata-import-airport-names.ts",

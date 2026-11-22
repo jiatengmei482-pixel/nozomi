@@ -27,6 +27,7 @@ export function secretValues(config: AppConfig): string[] {
     config.databaseUrl,
     config.authJwtSecret,
     config.dataEncryptionKey,
+    config.dataEncryptionPreviousKey,
     config.stripe?.secretKey,
     config.stripe?.webhookSecret,
     config.googleMapsApiKey,
