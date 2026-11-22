@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ConfigError, DEFAULT_LOGIN_MAX_ATTEMPTS_PER_IP, basisPointsToPercentText, databaseUserOf, integrationStatus, loadConfig, loadMigrationConfig, mapTileOrigin, maskLast4, percentToBasisPoints } from "./index.ts";
+import { ConfigError, DEFAULT_LOGIN_MAX_ATTEMPTS_PER_IP, basisPointsToPercentText, databaseUserOf, integrationStatus, loadConfig, loadDataKeyRotationConfig, loadMigrationConfig, mapTileOrigin, maskLast4, percentToBasisPoints } from "./index.ts";
 
 const base = {
   DATABASE_URL: "postgres://app:pw@localhost:5432/nozomi",
@@ -323,6 +323,32 @@ test("数据加密密钥：至少 32 个字符、不能和登录签名密钥相�
   assert.deepEqual(status, { key: "dataEncryption", label: "数据加密密钥", state: "configured", detail: "48 个字符" });
   assert.ok(!JSON.stringify(integrationStatus(c)).includes(key));
   assert.equal(loadConfig({ ...base, DATA_ENCRYPTION_KEY: "  " }).dataEncryptionKey, null, "空白视为未填写");
+});
+
+test("换数据加密密钥（ADR 0106）：旧密钥 DATA_ENCRYPTION_KEY_PREVIOUS 可选；要有新密钥、至少 32 个字符、不能和新密钥或登录签名密钥相同；状态写明正在换，没有原文", () => {
+  const key = "Kd8".repeat(16);
+  const previous = "Pr7".repeat(16);
+  assert.equal(loadConfig({ ...base, DATA_ENCRYPTION_KEY: key }).dataEncryptionPreviousKey, null);
+  assert.equal(loadConfig({ ...base, DATA_ENCRYPTION_KEY: key, DATA_ENCRYPTION_KEY_PREVIOUS: "  " }).dataEncryptionPreviousKey, null, "空白视为未填写");
+  const c = loadConfig({ ...base, DATA_ENCRYPTION_KEY: key, DATA_ENCRYPTION_KEY_PREVIOUS: previous });
+  assert.equal(c.dataEncryptionPreviousKey, previous);
+  const status = integrationStatus(c).find((s) => s.key === "dataEncryption");
+  assert.match(status?.detail ?? "", /^48 个字符 · 正在换密钥/);
+  assert.ok(!JSON.stringify(integrationStatus(c)).includes(previous));
+  assert.ok(issuesOf({ ...base, DATA_ENCRYPTION_KEY_PREVIOUS: previous }).some((i) => i.includes("就必须配置 DATA_ENCRYPTION_KEY")));
+  assert.ok(issuesOf({ ...base, DATA_ENCRYPTION_KEY: key, DATA_ENCRYPTION_KEY_PREVIOUS: "short" }).some((i) => i.includes("DATA_ENCRYPTION_KEY_PREVIOUS 至少 32 个字符")));
+  assert.ok(issuesOf({ ...base, DATA_ENCRYPTION_KEY: key, DATA_ENCRYPTION_KEY_PREVIOUS: key }).some((i) => i.includes("DATA_ENCRYPTION_KEY_PREVIOUS 和 DATA_ENCRYPTION_KEY 相同")));
+  assert.ok(issuesOf({ ...base, DATA_ENCRYPTION_KEY: key, DATA_ENCRYPTION_KEY_PREVIOUS: base.AUTH_JWT_SECRET }).some((i) => i.includes("DATA_ENCRYPTION_KEY_PREVIOUS 不能和 AUTH_JWT_SECRET 相同")));
+});
+
+test("换数据加密密钥的命令只读迁移账号的连接串和新旧两把密钥：缺一不可，新旧相同拒绝", () => {
+  const migrationUrl = "postgres://nozomi:owner-password@localhost:5432/nozomi";
+  const key = "Kd8".repeat(16);
+  const previous = "Pr7".repeat(16);
+  assert.deepEqual(loadDataKeyRotationConfig({ DATABASE_MIGRATION_URL: migrationUrl, DATA_ENCRYPTION_KEY: key, DATA_ENCRYPTION_KEY_PREVIOUS: previous }), { databaseMigrationUrl: migrationUrl, dataEncryptionKey: key, dataEncryptionPreviousKey: previous });
+  for (const env of [{ DATA_ENCRYPTION_KEY: key, DATA_ENCRYPTION_KEY_PREVIOUS: previous }, { DATABASE_MIGRATION_URL: migrationUrl, DATA_ENCRYPTION_KEY: key }, { DATABASE_MIGRATION_URL: migrationUrl, DATA_ENCRYPTION_KEY_PREVIOUS: previous }, { DATABASE_MIGRATION_URL: migrationUrl, DATA_ENCRYPTION_KEY: key, DATA_ENCRYPTION_KEY_PREVIOUS: key }]) {
+    assert.throws(() => loadDataKeyRotationConfig(env), ConfigError, JSON.stringify(Object.keys(env)));
+  }
 });
 
 test("官网的客服电话（ADR 0032 待定事项 6）：不配 = null；配了必须以 + 开头、只含数字空格连字符，首尾空白去掉", () => {

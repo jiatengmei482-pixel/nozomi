@@ -10,7 +10,7 @@ import { attachPassengerCrypto } from "../db/context.ts";
 import { DbIdentityError } from "../db/identity.ts";
 import { createPool, driverErrorCode } from "../db/pool.ts";
 import { PassengerCrypto } from "../integrations/passenger-crypto.ts";
-import { SecretBox } from "../integrations/secret-box.ts";
+import { secretBoxFromConfig } from "../integrations/secret-box.ts";
 import { BACKFILL_TABLES, planPassengerBackfill, runPassengerBackfill, verifyPassengerEncryption } from "../services/passenger-encryption.ts";
 
 const USAGE = "用法：pnpm passenger:backfill [--dry-run]（默认，只看数量）\n      pnpm passenger:backfill --execute（真正加密一轮，可以反复运行）\n      pnpm passenger:backfill --verify（核对密文，只读）";
@@ -33,7 +33,7 @@ async function main(): Promise<void> {
   const config = loadConfig();
   if (config.dataEncryptionKey === null) throw new UsageError("没有配置 DATA_ENCRYPTION_KEY：不能加密。");
   const pool = createPool(config.databaseUrl, { max: 2 });
-  attachPassengerCrypto(pool, new PassengerCrypto(new SecretBox(config.dataEncryptionKey), config.passengerEncryption));
+  attachPassengerCrypto(pool, new PassengerCrypto(secretBoxFromConfig(config), config.passengerEncryption));
   const ctx = { pool, config, now: () => new Date() } as unknown as AppContext;
   try {
     if (mode === "verify") {

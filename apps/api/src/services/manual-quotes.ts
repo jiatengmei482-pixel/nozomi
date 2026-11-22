@@ -217,16 +217,16 @@ function origin(principal: PlatformPrincipal, ip: string, now: Date): AuditOrigi
   return consoleOrigin(platformActor(principal.user), ip, now);
 }
 
-/** 运营后台按联系方式查：像邮箱的按邮箱，其余按 WhatsApp（+ 可有可无）；都不像的 400。 */
-export function contactSearchIndex(ctx: AppContext, raw: string): string {
+/** 运营后台按联系方式查：像邮箱的按邮箱，其余按 WhatsApp（+ 可有可无）；都不像的 400。换密钥期间新旧两把钥匙各一个盲索引（ADR 0106）。 */
+export function contactSearchIndexes(ctx: AppContext, raw: string): string[] {
   const crypto = passengerCryptoOfPool(ctx.pool);
   if (!crypto.configured) throw passengerEncryptionNotConfigured();
   if (raw.includes("@")) {
     const email = manualQuoteEmail(raw);
-    if (email !== null) return crypto.manualQuoteIndex("email", email);
+    if (email !== null) return crypto.manualQuoteLookupIndexes("email", email);
   } else {
     const digits = whatsappDigits(raw, { requirePlus: false });
-    if (digits !== null) return crypto.manualQuoteIndex("phone", digits);
+    if (digits !== null) return crypto.manualQuoteLookupIndexes("phone", digits);
   }
   throw validationFailed("querystring", [{ path: "/contact", reason: "FORMAT", message: "请输入完整的邮箱，或带国家码的 WhatsApp 号码" }]);
 }
@@ -250,7 +250,7 @@ export async function listManualQuoteRequests(
   const filter: ManualQuoteFilter = {
     status: query.status,
     assignee: query.assignee === "me" ? principal.user.id : query.assignee,
-    contactBidx: query.contact === null ? null : contactSearchIndex(ctx, query.contact),
+    contactBidx: query.contact === null ? null : contactSearchIndexes(ctx, query.contact),
   };
   return withPlatformTx(ctx.pool, async (db) => {
     const rows = await listManualQuotes(db, filter, query.acceptance, principal.grant.scope, limit, cursor);

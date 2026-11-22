@@ -1235,12 +1235,12 @@ export function contactMatches(contact: string, passenger: { email: string; phon
   return key.kind === "email" ? key.value === normalizeEmailForIndex(passenger.email) : key.value === normalizePhoneForIndex(passenger.phone);
 }
 
-/** 盲索引的结论：这一行有当前密钥算的盲索引就有结论，不用解密；没回填、密钥换过、读明文模式时是 null。 */
+/** 盲索引的结论：这一行有当前密钥（换密钥期间也包括旧密钥）算的盲索引就有结论，不用解密；没回填、别的密钥算的、读明文模式时是 null。 */
 function indexVerdict(crypto: PassengerCrypto, contact: string, found: { tenantId: string; emailBidx: string | null; phoneBidx: string | null }): boolean | null {
   const key = contactLookupKey(contact);
   if (key === null) return false;
   const stored = key.kind === "email" ? found.emailBidx : found.phoneBidx;
-  return crypto.readsCiphertext && crypto.isCurrent(stored) ? crypto.index(found.tenantId, key.kind, key.value) === stored : null;
+  return crypto.readsCiphertext ? crypto.indexMatches(found.tenantId, key.kind, key.value, stored) : null;
 }
 
 /** 核对这张单（ADR 0057）：有盲索引比盲索引，否则按内容比，规则相同。 */

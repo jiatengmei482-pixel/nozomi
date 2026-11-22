@@ -14,7 +14,7 @@ import { NO_ROUTES, type QuoteDeps, defaultQuoteDeps } from "../services/quote-d
 import type { PaymentProvider } from "../integrations/payments.ts";
 import { attachPassengerCrypto } from "../db/context.ts";
 import { PassengerCrypto } from "../integrations/passenger-crypto.ts";
-import { SecretBox } from "../integrations/secret-box.ts";
+import { secretBoxFromConfig } from "../integrations/secret-box.ts";
 import type { Mailer } from "../integrations/smtp.ts";
 import { GooglePlaceSearch } from "../services/place-search.ts";
 import { NO_ROUTE_PREVIEW } from "../services/route-estimates.ts";
@@ -274,7 +274,7 @@ export async function addTenantUser(
 export function testContext(config: AppConfig, pool: Pool, now: () => Date, quote: Partial<QuoteDeps> = {}): AppContext {
   const silent = { info: () => undefined, warn: () => undefined, error: () => undefined };
   const fx = new FxCenter({ pool, now, config: config.fx, log: silent });
-  const secretBox = config.dataEncryptionKey === null ? null : new SecretBox(config.dataEncryptionKey);
+  const secretBox = secretBoxFromConfig(config);
   attachPassengerCrypto(pool, new PassengerCrypto(secretBox, config.passengerEncryption));
   const unreachable = { ok: false as const, code: "UNREACHABLE" as const, message: "测试上下文不连外部服务" };
   return {

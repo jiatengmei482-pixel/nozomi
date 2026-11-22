@@ -147,7 +147,7 @@ export interface ManualQuoteFilter {
   /** 指给谁：某人的编号；`unassigned` 是没人跟进的 */
   assignee: string | "unassigned" | null;
   /** 联系方式的盲索引（邮箱或 WhatsApp，精确匹配） */
-  contactBidx: string | null;
+  contactBidx: string[] | null;
 }
 
 /** 验收留资（M8-39）：默认 `exclude`（只列真实客人的）；`only` 只列验收的；`include` 两种都列。 */
@@ -166,7 +166,7 @@ export async function listManualQuotes(db: Db, filter: ManualQuoteFilter, accept
         and ${acceptanceWhere("$9")}
         and ($3::text is null or m.status = $3)
         and ($4::text is null or ($4 = 'unassigned' and m.assignee_id is null) or m.assignee_id::text = $4)
-        and ($5::text is null or m.email_bidx = $5 or m.whatsapp_bidx = $5)
+        and ($5::text[] is null or m.email_bidx = any($5::text[]) or m.whatsapp_bidx = any($5::text[]))
         and ($6::timestamptz is null or (m.created_at, m.id) < ($6::timestamptz, $7::uuid))
       order by m.created_at desc, m.id desc
       limit $8`,

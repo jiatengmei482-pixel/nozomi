@@ -223,16 +223,32 @@ ls -lh /opt/nozomi/staging/backups/                                  # 先看有
 - 服务器上只保留当前和上一个两个版本，更早的自动清理。
 - 测试环境服务器信息没填全时，GitHub 的 Deployments 列表里仍会多出一条 staging 记录（那是「检查配置」这一步留下的），是否真的部署了以 Actions 里的摘要为准。
 
-### 不要随便更换数据加密密钥（`DATA_ENCRYPTION_KEY`）
+### 更换数据加密密钥（`DATA_ENCRYPTION_KEY`，ADR 0106）
 
-供应商的收款账号是用这把密钥加密存放的，**目前没有把旧数据换成新密钥的工具**。换了之后：
+这把密钥加密了乘客的姓名电话邮箱、人工报价的联系方式、供应商的收款账号和 Webhook 签名密钥、平台员工的两步验证密钥、后台填写的第三方密钥。**平时不要动它**；怀疑泄露时按下面换，负责人不用参与。**不能直接改 `DATA_ENCRYPTION_KEY` 的值**：那样以上数据全部解不开。
 
-- 已存的收款账号都解不开：转账文件不能生成（批准时被拒绝）、已生成的文件不能下载（页面写明「账号解不开」，不会给出缺账号的文件）。
-- 恢复办法只有两种：把密钥改回原来的值；或者作废这些文件，请每家供应商重新提交收款账户，再由两位财务复核。
-- 备份数据库时要同时保管这把密钥：只有数据库备份、没有密钥，账号也恢复不了。
-- 乘客信息（见下一节）在明文列清掉之前不受影响：回填任务会用新密钥重新加密。明文列清掉之后，**换密钥会让乘客信息永久读不出来**，必须先做好多密钥读取（ADR 0057「换主密钥」）。
+换的时候要同时留着旧密钥，等旧数据都重新加密完再删。用部署用户登录服务器（环境名按实际替换），全程不在屏幕上显示密钥：
 
-确实要换（比如怀疑泄露）：先把已生成、未付款的转账文件处理完，再告诉 Claude 安排。
+```bash
+cd /opt/nozomi/staging
+cp -p .env .env.before-key-rotation                      # 留一份，回退用；权限保持 600
+old="$(sed -n 's/^DATA_ENCRYPTION_KEY=//p' .env)"
+new="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
+sed -i "s/^DATA_ENCRYPTION_KEY=.*/DATA_ENCRYPTION_KEY=$new/" .env
+printf 'DATA_ENCRYPTION_KEY_PREVIOUS=%s\n' "$old" >>.env
+unset old new
+current/bin/compose.sh up -d api                         # 带着两把密钥重启：旧数据照常能读
+current/bin/compose.sh run --rm data-key-rotation        # 只看数量：每张表还有几行是旧密钥、几行两把都解不开
+current/bin/compose.sh run --rm data-key-rotation --execute
+current/bin/compose.sh exec api node apps/api/src/cli/passenger-backfill.ts --verify
+```
+
+- `--execute` 最后一行是「全部换成新密钥了」，`--verify` 是「数据全部一致」，才删旧密钥：从 `.env` 删掉 `DATA_ENCRYPTION_KEY_PREVIOUS` 那一行，再 `current/bin/compose.sh up -d api`。
+- 还有「旧密钥」的行：重新运行 `--execute`（刚好被业务锁着的行这一轮会跳过）。有「两把都解不开」的行：先不要删旧密钥，把输出贴给 Claude。
+- 期间要部署新版本照常部署：`.env` 里的两行会一起带上。
+- **回退**（删旧密钥之前随时可以，数据不丢）：把 `.env` 里两行的值对调（旧的放回 `DATA_ENCRYPTION_KEY`、新的放到 `DATA_ENCRYPTION_KEY_PREVIOUS`），`current/bin/compose.sh up -d api`，再 `run --rm data-key-rotation --execute` 换回旧密钥，最后删掉 `DATA_ENCRYPTION_KEY_PREVIOUS`。**不要直接拿 `.env.before-key-rotation` 覆盖回去**：已经换成新密钥的行会读不出来。
+- `.env.before-key-rotation` 里是旧密钥：**和换密钥之前的数据库备份一起保管，到这些备份过期再删**；用旧备份恢复时要用旧密钥。
+- 收款账号：换的过程中转账文件照常生成和下载，不用先处理完。
 
 ### 乘客信息加密存储（ADR 0057）
 
