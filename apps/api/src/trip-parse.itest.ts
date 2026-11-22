@@ -98,12 +98,12 @@ test("parse-status：有密钥、官网开着 → 可用；没密钥、功能关
   assert.equal(calls.length, 0, "不可用时不调 Claude");
 });
 
-test("正常解析：默认 Sonnet；草稿按第三节；没说的请补填；平台的成田机场直接认出；泛指的酒店不查；应答里没有价格和原话", async () => {
+test("正常解析：默认先 Haiku（业主 11-21 选定）；草稿按第三节；没说的请补填；平台的成田机场直接认出；泛指的酒店不查；应答里没有价格和原话", async () => {
   const res = await parse("10月25日成田接机先去浅草寺玩2小时再去新宿的酒店，27日9点送成田，4个人，航班 NH211，电话 090-1234-5678");
   assert.equal(res.status, 200, res.text);
   assertMatchesOpenApi("POST", "/site/v1/trips/parse", res);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0]?.model, TRIP_PARSE_MODELS.sonnet);
+  assert.equal(calls[0]?.model, TRIP_PARSE_MODELS.haiku);
   assert.match(calls[0]?.user ?? "", /Today in Japan is 2026-10-07 \(Wednesday\)/);
   assert.match(calls[0]?.user ?? "", /电话 \[PHONE\]/, "电话发出前换成占位符");
   assert.doesNotMatch(calls[0]?.user ?? "", /1234-5678/);
@@ -129,7 +129,7 @@ test("正常解析：默认 Sonnet；草稿按第三节；没说的请补填；�
   assert.doesNotMatch(res.text, /五折|1 円|090|浅草寺玩/, "应答里没有模型的自由文字、没有原话");
 
   const rows = await runs();
-  assert.deepEqual(rows, [{ model: TRIP_PARSE_MODELS.sonnet, mode: "sonnet", attempt: 1, status: "ok", input_tokens: 3_100, output_tokens: 900, cache_read_tokens: 2_800, days: 3, places: 2, places_resolved: 1 }]);
+  assert.deepEqual(rows, [{ model: TRIP_PARSE_MODELS.haiku, mode: "haiku_then_sonnet", attempt: 1, status: "ok", input_tokens: 3_100, output_tokens: 900, cache_read_tokens: 2_800, days: 3, places: 2, places_resolved: 1 }]);
 });
 
 test("少让客人补（监工 11-21 验收意见）：第 2 天没说起点用上一天终点、停留没说给默认，都进 assumptions、不进 missing；平台机场名称对上不算挑的", async () => {
@@ -183,6 +183,8 @@ test("不是行程 → 422 NOT_A_TRIP；太长 → 422 TRIP_TOO_LONG；都记一
 });
 
 test("拒答、到上限、超时 → 503 AI_UNAVAILABLE，不重调；结构不合格先再调一次，两次都不合格才 503", async () => {
+  // 只用一个型号时的行为（默认用法会在 Haiku 技术失败后改用 Sonnet，另一条测试覆盖）
+  await setMode("sonnet");
   for (const failure of ["refused", "max_tokens", "timeout"] as const) {
     replies.push({ ok: false, failure, usage: failure === "timeout" ? null : USAGE, httpStatus: failure === "timeout" ? null : 200 });
     const res = await parse("成田接机");
@@ -275,28 +277,30 @@ test("后台型号设置：技术只能看、超级管理员能改；版本号�
   const initial = await settings(tech.token);
   assert.equal(initial.status, 200, initial.text);
   assertMatchesOpenApi("GET", "/platform/v1/ai-trip-settings", initial);
-  assert.equal(initial.body.model_mode, "sonnet");
+  assert.equal(initial.body.model_mode, "haiku_then_sonnet", "没有设置行：先 Haiku 出错再 Sonnet");
   assert.equal(initial.body.version, 0);
   assert.deepEqual(initial.body.models, { sonnet: TRIP_PARSE_MODELS.sonnet, haiku: TRIP_PARSE_MODELS.haiku });
   assert.equal((await settings(tech.token, "PUT", { model_mode: "haiku" })).status, 403, "技术不能改");
   assert.equal((await settings(root, "PUT", { model_mode: "opus" })).status, 400);
 
-  const saved = await settings(root, "PUT", { model_mode: "haiku_then_sonnet" });
+  const saved = await settings(root, "PUT", { model_mode: "sonnet" });
   assert.equal(saved.status, 200, saved.text);
   assertMatchesOpenApi("PUT", "/platform/v1/ai-trip-settings", saved);
   assert.equal(saved.body.version, 1);
   assert.equal((await settings(root, "PUT", { model_mode: "haiku" })).status, 409, "保存过之后不带 If-Match 当成版本 0，对不上");
   assert.equal((await settings(root, "PUT", { model_mode: "haiku" }, "9")).status, 409);
   const audits = (await api.db.owner.query("select action, before, after from audit_logs where resource = 'ai_trip_settings' order by id")).rows;
-  assert.deepEqual(audits, [{ action: "update", before: { model_mode: "sonnet" }, after: { model_mode: "haiku_then_sonnet" } }]);
+  assert.deepEqual(audits, [{ action: "update", before: { model_mode: "haiku_then_sonnet" }, after: { model_mode: "sonnet" } }]);
 
   // 不清本进程的缓存：同一进程里改完立刻生效
+  assert.equal((await parse("成田接机")).status, 200);
+  assert.deepEqual(calls.map((c) => c.model), [TRIP_PARSE_MODELS.sonnet]);
+  assert.equal((await settings(root, "PUT", { model_mode: "haiku_then_sonnet" }, '"1"')).status, 200);
   replies.push({ ok: false, failure: "error", usage: null, httpStatus: 500 });
   assert.equal((await parse("成田接机")).status, 200);
-  assert.deepEqual(calls.map((c) => c.model), [TRIP_PARSE_MODELS.haiku, TRIP_PARSE_MODELS.sonnet]);
-  assert.equal((await parse("成田接机")).status, 200);
+  assert.deepEqual(calls.map((c) => c.model), [TRIP_PARSE_MODELS.sonnet, TRIP_PARSE_MODELS.haiku, TRIP_PARSE_MODELS.sonnet]);
   const today = (await settings(tech.token)).body.today;
-  assert.deepEqual(today, { date: tokyoToday(api.clock.now()), sonnet: 1, haiku: 2, sonnet_retries: 1, used: 2, limit: 300 });
+  assert.deepEqual(today, { date: tokyoToday(api.clock.now()), sonnet: 2, haiku: 1, sonnet_retries: 1, used: 2, limit: 300 });
 });
 
 test("调用记录 90 天后由行程单清理任务删", async () => {

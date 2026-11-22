@@ -290,7 +290,7 @@ AI 只给地名文字（`name` + `kind` + `cityHint`），**不让 AI 给坐标*
 - 生效值只经 `packages/config` 的 `resolveIntegrations` 选出（CLAUDE.md 规则 5），每次调用现取，换了密钥下一次解析就用新的。
 - 权限、加密（`SecretBox` 用途 `integration-secret`）、打码（末 4 位）、审计、限速全部照旧；只有超级管理员能填。
 - 其他非密钥配置走 `packages/config` 的环境变量，有默认值：`AI_TRIP_PARSE_ENABLED`（默认 true，有密钥才生效）、`AI_TRIP_DAILY_LIMIT`（默认 300）。
-- **型号选择不是环境变量，在后台改**（业主要求切换不重新部署）：新的平台表 `ai_trip_settings`（全站一行，同 `site_settings` 的单行写法：`model_mode` 取 `sonnet / haiku / haiku_then_sonnet`、`version`、`updated_at`、`updated_by`；不预置，没有行 = `sonnet`）。接口 `GET / PUT /platform/v1/ai-trip-settings`，权限同第三方密钥（`integration.manage`，只有超级管理员能改；`integration.read` 能看），带 `If-Match` 版本号，改动写审计（前后的用法）。
+- **型号选择不是环境变量，在后台改**（业主要求切换不重新部署）：新的平台表 `ai_trip_settings`（全站一行，同 `site_settings` 的单行写法：`model_mode` 取 `sonnet / haiku / haiku_then_sonnet`、`version`、`updated_at`、`updated_by`；不预置，没有行 = `haiku_then_sonnet`；原为 `sonnet`，业主 2026-11-21 选定后改，见第十二节）。接口 `GET / PUT /platform/v1/ai-trip-settings`，权限同第三方密钥（`integration.manage`，只有超级管理员能改；`integration.read` 能看），带 `If-Match` 版本号，改动写审计（前后的用法）。
 - 页面：运营后台「第三方密钥 → Claude（AI 行程解析）」卡片下面加一块「使用的型号」：三个单选项（带一句话说明和每次大概费用）+ 保存；下面一行「今天（东京时间）：Sonnet N 次 · Haiku M 次（其中改用 Sonnet 重试 K 次）· 全站上限 300 次，已用 X 次」，数字来自 `trip_parse_runs`（第七节）。
 - **测试站和正式站各用一把密钥**（业主在 Anthropic Console 建两把，分别填进两边的后台），这样能分开看用量、分开停用。正式站上线前再填。
 - 业主要做的（实施完成后在 #288 写成一步一步）：Anthropic Console 注册 → 充值 / 绑卡 → 设每月花费上限（建议 $50）→ 建 API 密钥 → 运营后台「系统设置 → 第三方密钥 → Claude（AI 行程解析）」粘贴 → 点「测试一下」。**不要把密钥发在聊天里**。
@@ -427,7 +427,7 @@ AI 只给地名文字（`name` + `kind` + `cityHint`），**不让 AI 给坐标*
 - **A（推荐）先不申请**：输入只是行程描述，发送前已去掉邮箱电话等；API 数据默认不用于训练。
 - B 申请：需要和 Anthropic 签约，时间不确定，不影响本篇的实现。
 
-**型号——业主 2026-11-21 选 A（监工 #288 23:53 转达）**：运营后台「使用的型号」用**先 Haiku，出错再用 Sonnet**（第四节第 1 小节的测试集结果：两个型号准确率一样，Haiku 快约 1 秒、费用约 1/14）。测试站已由监工在后台切换；正式站上线后同样在后台选这一项。每周看一次后台「今天的次数」里改用 Sonnet 重试的比例；客人反馈填错多就切回 Sonnet（后台一点，不重新部署）。
+**型号——业主 2026-11-21 选 A（监工 #288 23:53 转达）**：运营后台「使用的型号」用**先 Haiku，出错再用 Sonnet**（第四节第 1 小节的测试集结果：两个型号准确率一样，Haiku 快约 1 秒、费用约 1/14）。测试站已由监工在后台切换；代码里没有设置行时的默认也改为这一项（`DEFAULT_TRIP_PARSE_MODE`），正式站上线即用，不用再去后台点。每周看一次后台「今天的次数」里改用 Sonnet 重试的比例；客人反馈填错多就切回 Sonnet（后台一点，不重新部署）。
 
 ---
 
@@ -449,7 +449,7 @@ AI 只给地名文字（`name` + `kind` + `cityHint`），**不让 AI 给坐标*
 - 第二节第 3 小节：停留没说给默认时长（景点、地址 1 小时；酒店、车站、机场 30 分钟），第 2 天起没说起点用上一个用车日的终点，都标「AI 填的，可改」、不进「请补填」；日期、人数、行李、上车时间照旧不猜。
 - 第三节第 2 小节：`assumptions` 加 `PLACE_PICKED`、`START_FROM_PREVIOUS_END`、`STAY_DEFAULT`（代码名和格式按第二开发 #288 01:36 的约定，前端 #358 已上线）；`missing` 的 `days[i].start` 只剩第 1 个用车日。
 - 第五节第 1 小节：候选去重（同名或 200 米内算一个，留平台的）；机场优先平台机场主数据；机场、车站、景点、城市 / 区名取第一候选；酒店名称对得上才取，连锁没说分店仍让客人选。系统提示补一句「连锁酒店没说分店不算具体」。
-- 第十二节：记下业主 11-21 选「先 Haiku，出错再用 Sonnet」。
+- 第十二节：记下业主 11-21 选「先 Haiku，出错再用 Sonnet」。没有设置行时的默认从 Sonnet 改为这一项；后台选项说明按第四节测试集结果更新。
 
 ### 采纳（2026-11-20）
 
