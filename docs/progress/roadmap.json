@@ -575,10 +575,10 @@
           "id": "M8-01",
           "title": "预订页重新设计的开发方案（ADR 0069）",
           "role": "product",
-          "status": "review",
+          "status": "done",
           "acceptance": ["对照现有框架分 A / B 两类，B 类写清改进方案、风险和业主要做的事", "记录业主已确认的 B1、B11、B12、B13、B14、B15、B16 和 B4 的做法", "价格规则、订单、付款逻辑不顺手改", "亮暗两套、360px 不横向滚动、axe 通过；测试全过（PR 的 CI 绿）"],
-          "evidence": "",
-          "updated": "2026-11-09"
+          "evidence": " ；M8-06 测试站验收通过（2026-11-22，docs/acceptance/M8.md「M8-06 测试站验收」）",
+          "updated": "2026-11-22"
         },
         {
           "id": "M8-02",
@@ -611,19 +611,19 @@
           "id": "M8-05",
           "title": "验收通过后 /book 切换到新流程、删除旧的城市 / 接送 / 机场下拉框",
           "role": "frontend",
-          "status": "review",
+          "status": "done",
           "acceptance": ["只在 M8-03、M8-04 验收通过后做；旧链接参数能转到新页面", "价格规则、订单、付款逻辑不顺手改", "亮暗两套、360px 不横向滚动、axe 通过；测试全过（PR 的 CI 绿）"],
-          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/367 ；/book 换成新预订页，旧地址 /book/new、/book/checkout 带查询串和页面状态转到 /book；删除旧询价页、旧下单页、旧地址搜索；嵌入组件建草稿的链接改为 /book；单元 / 组件 / 端到端（含 360px、亮暗 axe）本机通过，全量见 PR 的 CI",
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/367 ；/book 换成新预订页，旧地址 /book/new、/book/checkout 带查询串和页面状态转到 /book；删除旧询价页、旧下单页、旧地址搜索；嵌入组件建草稿的链接改为 /book；单元 / 组件 / 端到端（含 360px、亮暗 axe）本机通过，全量见 PR 的 CI ；M8-06 测试站验收通过（2026-11-22，docs/acceptance/M8.md「M8-06 测试站验收」）",
           "updated": "2026-11-22"
         },
         {
           "id": "M8-06",
           "title": "M8 验收",
           "role": "acceptance",
-          "status": "todo",
+          "status": "done",
           "acceptance": ["测试环境逐项验证，截图存 /home/codespace/import/ui-screens/（m8- 开头）", "价格规则、订单、付款逻辑不顺手改", "亮暗两套、360px 不横向滚动、axe 通过；测试全过（PR 的 CI 绿）"],
-          "evidence": "",
-          "updated": "2026-11-09"
+          "evidence": "docs/acceptance/M8.md「M8-06 测试站验收（2026-11-22）」：12 项中 11 项通过，亮暗、360 无横向滚动、axe 0 违规，截图 /home/codespace/import/ui-screens/m8-06-1122-*.png；M8-34 等负责人在 GitHub staging 环境填 3 个 secrets 跑一次工作流，单独跟踪",
+          "updated": "2026-11-22"
         },
         {
           "id": "M8-07",
@@ -741,10 +741,10 @@
           "id": "M8-22",
           "title": "CI 部署冒烟：演练容器的系统软件源加超时、重试和 Azure 镜像",
           "role": "backend",
-          "status": "review",
+          "status": "done",
           "acceptance": ["服务器初始化演练容器里，apt、dnf 加超时和重试（曾改用 Azure 镜像，遇到镜像未同步、软件包 404，已改回官方软件源）；被测的初始化脚本不改", "这一步加 25 分钟上限，卡住时尽快失败而不是拖到整个作业 60 分钟超时；端到端测试一步的上限从 20 分钟放到 30 分钟（用例 400 多条，正常 17～20 分钟），整个任务上限 60 分钟", "不改业务代码；CI 全绿"],
-          "evidence": "本机在 ubuntu:22.04、24.04 容器里验证换源后 apt-get update 成功，CentOS Stream 9 的 dnf 设置写入正确",
-          "updated": "2026-11-10"
+          "evidence": "本机在 ubuntu:22.04、24.04 容器里验证换源后 apt-get update 成功，CentOS Stream 9 的 dnf 设置写入正确 ；M8-06 测试站验收通过（2026-11-22，docs/acceptance/M8.md「M8-06 测试站验收」）",
+          "updated": "2026-11-22"
         },
         {
           "id": "M8-16",
@@ -914,10 +914,10 @@
           "id": "M8-31",
           "title": "区域共享库：已有区域对所有供应商开放引用，新建区域自动进共享库",
           "role": "backend",
-          "status": "review",
+          "status": "done",
           "acceptance": ["供应商在「商品配置 → 区域」可搜索 / 在地图上选择共享库里的区域并引用；系统没有的自己新建，新建的自动进共享库", "引用 = 复制一份到自己名下并记住来源和版本（遵守租户隔离）；创建者改形状 = 共享库生成新版本，不悄悄改别人已引用的区域和报价，引用方自己决定是否切换；平台可编辑 / 合并重复区域", "新建时提示库里已有相似 / 重叠区域，可直接引用", "共享库只共享名称和形状，不显示创建者，不共享价格和加价；QA 测试供应商的区域不进共享库", "现有各供应商的区域和报价一分不变，不删任何数据；写 ADR"],
-          "evidence": "PR #156（https://github.com/jiatengmei482-pixel/nozomi/pull/156）；测试环境独立验收通过（附备注）：迁移已应用、只加结构，新接口已部署；登录后的界面和引用 / 同步流程未验证；「平台编辑 / 合并重复区域」本次未做（ADR 写明等业主定规则）；「平台编辑 / 合并重复区域」已由 M8-31b 按业主选的 B 做完（隐藏重复的一份、以后的引用指向另一份，待验收）。M8-31 的开发部分至此全部完成，剩登录后界面和引用 / 同步流程的验收",
-          "updated": "2026-11-13"
+          "evidence": "PR #156（https://github.com/jiatengmei482-pixel/nozomi/pull/156）；测试环境独立验收通过（附备注）：迁移已应用、只加结构，新接口已部署；登录后的界面和引用 / 同步流程未验证；「平台编辑 / 合并重复区域」本次未做（ADR 写明等业主定规则）；「平台编辑 / 合并重复区域」已由 M8-31b 按业主选的 B 做完（隐藏重复的一份、以后的引用指向另一份，待验收）。M8-31 的开发部分至此全部完成，剩登录后界面和引用 / 同步流程的验收 ；M8-06 测试站验收通过（2026-11-22，docs/acceptance/M8.md「M8-06 测试站验收」）",
+          "updated": "2026-11-22"
         },
         {
           "id": "M8-31b",
@@ -943,8 +943,8 @@
           "role": "backend",
           "status": "review",
           "acceptance": ["方案见 docs/delivery/proposals/staging-readonly-check.md：A 测试环境只读核对工作流（只读白名单命令、只能 staging、结果存 Actions 产物、deploy.md 补文档）；B PR 版本预览（二选一或不做）；C main 部署被跳过时提醒", "业主先决定做哪几项；不在 M8-30 里顺手改；不登录服务器、不改正式环境", "业主 2026-11-12 改为 A 不用 SSH：只读平台接口 GET /platform/v1/reports/area-role-preview（quote.preview、只读事务、审计、限速、45 秒时限）+ Actions 手动工作流 staging-readonly-check.yml（只能 staging、只读账号两步验证登录、结果存产物、有变化则失败）；ADR 0086；B、C 本次不做，留作方案", "回放加截止时间和摘要值（引擎改动前后比对用）见 M9W-00"],
-          "evidence": "PR #167（https://github.com/jiatengmei482-pixel/nozomi/pull/167）；分支 m8-34-staging-readonly；ADR 0086；新增单元测试 11 条（scripts/staging-readonly-check.mjs 的登录、两步验证、拿到令牌后一定退出、退出码、不打印密钥、产物和摘要只有计数（仓库公开）；工作流静态检查）、集成测试 7 条（area-role-preview-report.itest.ts：401/403/DATA_SCOPE_DENIED、和 buildRolePreview 逐字段一致、只读（只有审计和限速表变化）、天数校验、限速、接口层 503 REPORT_TIMEOUT、statement_timeout 跟着时限收）；独立审查意见 5 项已改；守卫测试登记 platform-admin PROTECTED、password-change-bypass、ipv6 限速清单。本机相关测试全部通过，全套交 CI。业主要做：按 docs/deploy.md 第九节建只读账号、在 GitHub staging 环境填 3 个 secrets；已合并（PR #167）、已部署；测试环境验收：接口 200（30 天 767 条，变化 0）、400 / 401 正确、有审计；Actions 按钮要负责人在 GitHub staging 环境填 3 个 secrets 后才能跑，未验；回放加截止时间和摘要值见 M9W-00（PR #188）",
-          "updated": "2026-11-13"
+          "evidence": "PR #167（https://github.com/jiatengmei482-pixel/nozomi/pull/167）；分支 m8-34-staging-readonly；ADR 0086；新增单元测试 11 条（scripts/staging-readonly-check.mjs 的登录、两步验证、拿到令牌后一定退出、退出码、不打印密钥、产物和摘要只有计数（仓库公开）；工作流静态检查）、集成测试 7 条（area-role-preview-report.itest.ts：401/403/DATA_SCOPE_DENIED、和 buildRolePreview 逐字段一致、只读（只有审计和限速表变化）、天数校验、限速、接口层 503 REPORT_TIMEOUT、statement_timeout 跟着时限收）；独立审查意见 5 项已改；守卫测试登记 platform-admin PROTECTED、password-change-bypass、ipv6 限速清单。本机相关测试全部通过，全套交 CI。业主要做：按 docs/deploy.md 第九节建只读账号、在 GitHub staging 环境填 3 个 secrets；已合并（PR #167）、已部署；测试环境验收：接口 200（30 天 767 条，变化 0）、400 / 401 正确、有审计；Actions 按钮要负责人在 GitHub staging 环境填 3 个 secrets 后才能跑，未验；回放加截止时间和摘要值见 M9W-00（PR #188） ；M8-06 验收（2026-11-22）：只读接口实测通过（回放 68 条、变化 0；参数错 400、无令牌 401），Actions「Staging readonly check」还没运行过——等负责人在 GitHub staging 环境填 STAGING_READONLY_EMAIL / PASSWORD / TOTP 后手动跑一次",
+          "updated": "2026-11-22"
         },
         {
           "id": "M8-35",
@@ -995,10 +995,10 @@
           "id": "M8-39",
           "title": "验收会话里提交的人工报价留资带「验收」标记（不混进真实客人的留资）",
           "role": "backend",
-          "status": "review",
+          "status": "done",
           "acceptance": ["带有效验收会话 Cookie 提交 POST /site/v1/manual-quote-requests 时，留资记成验收留资（同 ADR 0078 对订单的做法：服务端设、建好后不能改）", "运营后台人工报价列表默认不显示验收留资，或标「验收」徽标（按 ADR 定）；不发给客服的提醒", "集成测试：带会话 / 不带会话各一条；租户隔离不变", "来源：M8-14 验收观察 2（MQ2026111207VMAEYF 在运营后台和真实留资混在一起）"],
-          "evidence": "PR #185（https://github.com/jiatengmei482-pixel/nozomi/pull/185）。迁移 0360_manual_quote_acceptance.sql（manual_quote_requests.is_acceptance 默认 false + 建好后不能改的触发器，不回填）；做法写在 ADR 0078「补充：验收留资」。新增测试 9 个：集成 8 个（apps/api/src/manual-quotes-acceptance.itest.ts：不带会话照旧、带有效会话记成验收留资且列表默认不列 / acceptance=only|include 才列 / 数量跟着筛选、去重分开、过期 / 已结束 / 写坏 / 通道没开 401 且不记、不发通知不记未覆盖需求、触发器不能改、production 不看 Cookie、租户隔离），组件 1 个（详情页「验收」徽标）；接口对账登记 is_acceptance、acceptance。本机：类型检查通过；相关集成测试（本文件、manual-quotes、qa-acceptance、schema-structure、platform-admin、password-change-bypass、ipv6-rate-limit-qa、uncovered-demands）和 openapi、migration-order 共 106 条、人工报价组件 11 条、接口对账 4 条全部通过；全套交 CI",
-          "updated": "2026-11-13"
+          "evidence": "PR #185（https://github.com/jiatengmei482-pixel/nozomi/pull/185）。迁移 0360_manual_quote_acceptance.sql（manual_quote_requests.is_acceptance 默认 false + 建好后不能改的触发器，不回填）；做法写在 ADR 0078「补充：验收留资」。新增测试 9 个：集成 8 个（apps/api/src/manual-quotes-acceptance.itest.ts：不带会话照旧、带有效会话记成验收留资且列表默认不列 / acceptance=only|include 才列 / 数量跟着筛选、去重分开、过期 / 已结束 / 写坏 / 通道没开 401 且不记、不发通知不记未覆盖需求、触发器不能改、production 不看 Cookie、租户隔离），组件 1 个（详情页「验收」徽标）；接口对账登记 is_acceptance、acceptance。本机：类型检查通过；相关集成测试（本文件、manual-quotes、qa-acceptance、schema-structure、platform-admin、password-change-bypass、ipv6-rate-limit-qa、uncovered-demands）和 openapi、migration-order 共 106 条、人工报价组件 11 条、接口对账 4 条全部通过；全套交 CI ；M8-06 测试站验收通过（2026-11-22，docs/acceptance/M8.md「M8-06 测试站验收」）",
+          "updated": "2026-11-22"
         },
         {
           "id": "M8-40",
@@ -1013,56 +1013,58 @@
           "id": "M8-41",
           "title": "M8-35 留下的两项后续：点对点回退时应答的城市、一口价 + 区域外里程的往返对称用例",
           "role": "backend",
-          "status": "review",
+          "status": "done",
           "acceptance": ["M8-33 回退到点对点时，按两个坐标报价应答里的 city 仍是机场所在城市：改成实际报价用的城市，或在接口说明里写清楚含义（先查页面是否用到）", "「一口价 + 区域外里程」只有一端在区域里时，补往返对称的集成测试（两个方向都报、金额按各自所在区域的一口价算）", "来源：M8-35 独立审查意见（M8-35 关闭时转入，2026-11-13）"],
-          "evidence": "① 页面用应答的 city 定时区和城市名（BookNewPage），所以改代码：接送机回落到点对点、换了城市时 city 跟着换成实际报价的城市（services/site.ts）；现有用例断言回落时 city 是报价城市（夹具里机场和回落城市同为东京）。② distance-prices.itest 补反方向（区域外上车、区域里下车）的供应商试算和官网询价，和正方向同价、同计价方式",
-          "updated": "2026-11-18"
+          "evidence": "① 页面用应答的 city 定时区和城市名（BookNewPage），所以改代码：接送机回落到点对点、换了城市时 city 跟着换成实际报价的城市（services/site.ts）；现有用例断言回落时 city 是报价城市（夹具里机场和回落城市同为东京）。② distance-prices.itest 补反方向（区域外上车、区域里下车）的供应商试算和官网询价，和正方向同价、同计价方式 ；M8-06 测试站验收通过（2026-11-22，docs/acceptance/M8.md「M8-06 测试站验收」）",
+          "updated": "2026-11-22"
         },
         {
           "id": "M8-42",
           "title": "官网预订页地图选点后查地址：不因客人打字、点「取消」作废，出发地不再一直显示坐标",
           "role": "frontend",
-          "status": "review",
+          "status": "done",
           "acceptance": ["地图选点（出发地、目的地、经停点）后查到的地址，只在这一格当前的值仍是那次地图选点时写入；客人已改选别的地点就丢弃，不覆盖", "和选择页里打字、点「取消」无关：查地址期间打开选择页打字再取消，查回来后仍换成地址；取消不改这一格的值（M8-37 已有行为不变）", "组件测试：① 反查慢、期间打开选择页打字再取消 → 反查回来后换成地址（去掉修复时失败）；② 反查慢、期间选了别的候选 → 反查回来后不覆盖新选的地点；不删不弱化已有断言", "来源：PR #204（M8-29 测试角色发现，PlaceField 的反查和搜索共用 round 计数）"],
-          "evidence": "PR #205（https://github.com/jiatengmei482-pixel/nozomi/pull/205）。只改 PlaceField.tsx：反查结果按「这一格的值是否还是那次选点」决定写不写，不再看搜索的 round；选择页开着时值变了不盖住正在打的字。新增组件测试 4 个（book-new.test.tsx：①在旧代码上失败；按审查意见补的「选择页开着时反查回来不盖住客人打的字」去掉该条件时失败；「切换区间 / 包车后旧地址框的反查不覆盖新框选的地点」去掉卸载判断时失败）；地址框卸载后旧的反查不再写入（审查顺带指出的旧问题）；本机组件测试 book-new / waypoints / manual-quote / map-theme 共 77 条通过，端到端 site-booking-mobile.spec.ts 单线程 --repeat-each=3 3/3 通过（带上与 PR #204 相同的测试改动：等反查回来再记原来的值），类型检查通过；未做测试环境验收",
-          "updated": "2026-11-13"
+          "evidence": "PR #205（https://github.com/jiatengmei482-pixel/nozomi/pull/205）。只改 PlaceField.tsx：反查结果按「这一格的值是否还是那次选点」决定写不写，不再看搜索的 round；选择页开着时值变了不盖住正在打的字。新增组件测试 4 个（book-new.test.tsx：①在旧代码上失败；按审查意见补的「选择页开着时反查回来不盖住客人打的字」去掉该条件时失败；「切换区间 / 包车后旧地址框的反查不覆盖新框选的地点」去掉卸载判断时失败）；地址框卸载后旧的反查不再写入（审查顺带指出的旧问题）；本机组件测试 book-new / waypoints / manual-quote / map-theme 共 77 条通过，端到端 site-booking-mobile.spec.ts 单线程 --repeat-each=3 3/3 通过（带上与 PR #204 相同的测试改动：等反查回来再记原来的值），类型检查通过；未做测试环境验收 ；M8-06 测试站验收通过（2026-11-22，docs/acceptance/M8.md「M8-06 测试站验收」）",
+          "updated": "2026-11-22"
         },
         {
           "id": "M8-43",
           "title": "M8-06 测试站抽查的三个小问题：地图选点的默认城市、明细里 0 元的超公里 / 超时、右侧栏经停点缩进",
           "role": "frontend",
-          "status": "review",
+          "status": "done",
           "acceptance": ["新预订页「在地图上选点」还没选任何地址时，地图不再从城市列表第一项（测试站是北京）打开：另一端选好了从另一端打开；都没有时从能订当前标签（区间 / 包车）、官网能订的品类最多的城市打开，一样多按列表顺序（城市编码）取第一个；不写死城市、国家；组件测试证明默认中心不是列表第一项而是按规则选出的城市", "包车按行程计价的价格明细（车型卡、右侧栏、核对页、订单页同一个组件）：金额为 0 的「超公里费」「超时费」不显示，不是 0 的照旧显示，其他项目照旧；先按全部项目核对各项之和等于总价再去掉 0；后端 price_breakdown 不改；单元测试和组件测试覆盖 0 不显示、非 0 显示，已改的旧断言在 PR 里逐条说明", "右侧栏「经停点」的内容和其他项左边对齐、不多缩进，只用设计令牌；样式测试 + 端到端（1280 宽包车加经停点后的右侧栏）量左边位置相同", "亮暗两色、390 / 360 宽不横向滚动、axe 0：相关端到端用例（site-booking-waypoints、site-booking-new）本机跑过"],
-          "evidence": "PR #211（https://github.com/jiatengmei482-pixel/nozomi/pull/211）。新增测试：单元 5 条（default-map-city.test.ts 4、charter-itinerary.test.ts 1），组件 4 条（map-center.test.tsx 3、waypoints.test.tsx 1），样式 1 条，端到端 site-booking-waypoints.spec.ts 加右侧栏经停点左对齐断言；改 1 条旧断言（site.test.tsx 订单页明细去掉「超时费 0 JPY」，PR 里说明）。本机：typecheck 通过，apps/web 单元 558 条、pages/book 组件 + 样式 332 条全过，端到端（chromium）site-booking-waypoints / new / mobile / mobile-address / categories 共 7 条全过（webkit 本机缺依赖，交 CI）",
-          "updated": "2026-11-14"
+          "evidence": "PR #211（https://github.com/jiatengmei482-pixel/nozomi/pull/211）。新增测试：单元 5 条（default-map-city.test.ts 4、charter-itinerary.test.ts 1），组件 4 条（map-center.test.tsx 3、waypoints.test.tsx 1），样式 1 条，端到端 site-booking-waypoints.spec.ts 加右侧栏经停点左对齐断言；改 1 条旧断言（site.test.tsx 订单页明细去掉「超时费 0 JPY」，PR 里说明）。本机：typecheck 通过，apps/web 单元 558 条、pages/book 组件 + 样式 332 条全过，端到端（chromium）site-booking-waypoints / new / mobile / mobile-address / categories 共 7 条全过（webkit 本机缺依赖，交 CI） ；M8-06 测试站验收通过（2026-11-22，docs/acceptance/M8.md「M8-06 测试站验收」）",
+          "updated": "2026-11-22"
         },
         {
           "id": "M8-43b",
           "title": "待产品确认：手机选择页输入「東京駅」时第一条高亮候选是「東京国際空港」——是否调整候选排序",
           "role": "product",
-          "status": "review",
+          "status": "done",
           "acceptance": ["现象（M8-06 测试站抽查，2026-11-14）：手机全屏选择页输入「東京駅」，平台机场排在候选前面，第一条高亮的是「東京国際空港」，客人直接按回车会选成机场", "产品确认是否调整排序（例如名称完全匹配 / 车站优先于机场，或回车不默认选第一条），确认后再拆前端任务；不在 M8-43 里做"],
-          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/368 ；按推荐做（产品决定）：输入里说了是车站（駅、车站、station），机场、航站楼只在名称整段包含时才给；说了是机场，车站同理；回车仍选第一条。单元测试覆盖平台没有东京站时「東京駅」不再给出東京国際空港",
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/368 ；按推荐做（产品决定）：输入里说了是车站（駅、车站、station），机场、航站楼只在名称整段包含时才给；说了是机场，车站同理；回车仍选第一条。单元测试覆盖平台没有东京站时「東京駅」不再给出東京国際空港 ；M8-06 测试站验收通过（2026-11-22，docs/acceptance/M8.md「M8-06 测试站验收」）",
           "updated": "2026-11-22"
         },
         {
           "id": "M8-44",
           "title": "新预订页的默认日期按上车点所在城市的时区算（不再按城市列表第一项）",
           "role": "frontend",
-          "status": "review",
+          "status": "done",
           "acceptance": ["默认日期（「当地的明天」）按上车点（出发地 / 包车的上车地点）所在城市的时区算；还没选上车点、或上车点哪个城市都不在时，按地图默认打开的城市（M8-43 的 defaultMapCity）的时区算；城市都没有时退回列表第一项", "客人定过的日期（自己改过、链接或预订草稿带了）不被改掉：之后换上车点、换标签都不覆盖", "组件测试用假时钟：东京 00:30（北京前一天 23:30）时默认日期是东京的明天；已选上车点在别的时区的城市（北京）时按那个城市；客人改过日期后再换上车点不覆盖；不删不弱化已有断言", "来源：PR #211 独立审查（不阻塞建议 a，2026-11-14）"],
-          "evidence": "PR #214（https://github.com/jiatengmei482-pixel/nozomi/pull/214）。新增测试：组件 10 条（default-date.test.tsx，假时钟东京 00:30 / 跨年 00:30：没选上车点、包车标签、上车点在北京再换回东京、链接上车点在北京、客人改过日期再换上车点、链接带日期、预订草稿带日期、换标签时默认日期跟着默认城市换、客人改过日期再换标签不变、还没报出价时右侧栏用车时间按上车点城市解读）、单元 1 条（default-map-city.test.ts 的 defaultDateCity）；没有删改已有断言。草稿带日期、换标签、右侧栏时区三处都做过「删掉 / 改坏那一行测试就失败」的验证。本机：typecheck、roadmap:check 通过，合并最新 main 后 pages/book 组件 + book-new 相关单元 + 嵌入组件 342 条全过",
-          "updated": "2026-11-14"
+          "evidence": "PR #214（https://github.com/jiatengmei482-pixel/nozomi/pull/214）。新增测试：组件 10 条（default-date.test.tsx，假时钟东京 00:30 / 跨年 00:30：没选上车点、包车标签、上车点在北京再换回东京、链接上车点在北京、客人改过日期再换上车点、链接带日期、预订草稿带日期、换标签时默认日期跟着默认城市换、客人改过日期再换标签不变、还没报出价时右侧栏用车时间按上车点城市解读）、单元 1 条（default-map-city.test.ts 的 defaultDateCity）；没有删改已有断言。草稿带日期、换标签、右侧栏时区三处都做过「删掉 / 改坏那一行测试就失败」的验证。本机：typecheck、roadmap:check 通过，合并最新 main 后 pages/book 组件 + book-new 相关单元 + 嵌入组件 342 条全过 ；M8-06 测试站验收通过（2026-11-22，docs/acceptance/M8.md「M8-06 测试站验收」）",
+          "updated": "2026-11-22"
         },
         {
           "id": "M8-45",
           "title": "官网地址提示：每个地址每天的额度只计真调谷歌的请求，用完不报「输入太快了」",
           "role": "backend",
-          "status": "review",
+          "status": "done",
           "acceptance": ["每个地址每天的额度（新作用域 site_places_google_day，300 次，IPv6 按 /64）只在真要调谷歌时扣（和全站每日名额同一处）：命中缓存、只有平台地点的请求不扣；旧作用域 site_places_day 从代码删除，部署后计数从零开始", "额度用完不 429：不调谷歌，200 + available:false + unavailable_reason:\"IP_DAILY_LIMIT\"，平台的机场、车站照常；输入即提示、取坐标、搜索、反查共用，嵌入组件 /embed/v1/places/* 同一口径（每个嵌入码每分钟 600 次不变）；OpenAPI 同步", "每分钟限流不变：输入即提示、取坐标每分钟 60 次（site_autocomplete），搜索、反查每分钟 20 次，仍在入口扣、超了 429", "页面说法分开：429 仍说「输入太快了，请稍等几秒再输入」；IP_DAILY_LIMIT 说「今天的地址提示次数用完了，下面只有平台的机场和车站；也可以在地图上选点。」；其他 available:false 的说法不变；电脑地址框、手机全屏选择页、经停点、旧 /book 搜索同一说法", "ADR 0069 补一节说明口径变化", "测试：集成测试——同一地址同一个词命中缓存不扣；不同词调谷歌扣、扣满后 available:false + unavailable_reason、平台地点照常、不 429；每分钟限流仍 429；IPv6 /64；嵌入组件同一口径；组件测试——两种提示文字；ipv6-rate-limit-qa 的名单同步", "来源：业主测试站实测 2026-11-14（/book/new 包车上车地点输入「新宿」立刻提示「输入太快了」）"],
-          "evidence": "PR #216（https://github.com/jiatengmei482-pixel/nozomi/pull/216）。新作用域 site_places_google_day 在地址服务真调谷歌前扣，命中缓存不扣；用完 200 + available:false + unavailable_reason:IP_DAILY_LIMIT、平台地点照常、不 429；嵌入组件同一口径；页面分清「输入太快了」和「今天的地址提示次数用完了」。本机：类型检查通过；集成测试 site-places-google-day（新增 5 条）、site-places、site-places.qa（新增服务层 1 条）、site-by-points、embed、ipv6-rate-limit-qa、ipv6-rate-limit 共 92 条通过；组件 / 契约测试 book-new（新增 2 条）、site-address、site-address.qa、waypoints、site.contract、embed 共 105 条通过；已有测试按新口径改的 4 处在 PR 里逐条说明；未做测试环境验收",
-          "updated": "2026-11-14"
-        }
+          "evidence": "PR #216（https://github.com/jiatengmei482-pixel/nozomi/pull/216）。新作用域 site_places_google_day 在地址服务真调谷歌前扣，命中缓存不扣；用完 200 + available:false + unavailable_reason:IP_DAILY_LIMIT、平台地点照常、不 429；嵌入组件同一口径；页面分清「输入太快了」和「今天的地址提示次数用完了」。本机：类型检查通过；集成测试 site-places-google-day（新增 5 条）、site-places、site-places.qa（新增服务层 1 条）、site-by-points、embed、ipv6-rate-limit-qa、ipv6-rate-limit 共 92 条通过；组件 / 契约测试 book-new（新增 2 条）、site-address、site-address.qa、waypoints、site.contract、embed 共 105 条通过；已有测试按新口径改的 4 处在 PR 里逐条说明；未做测试环境验收 ；M8-06 测试站验收通过（2026-11-22，docs/acceptance/M8.md「M8-06 测试站验收」）",
+          "updated": "2026-11-22"
+        },
+        {"id": "M8-46", "title": "共享区域库对话框：引用前看得到形状（地图预览）、列表名称和块数分开、城市名按一种语言显示", "role": "frontend", "status": "todo", "acceptance": ["M8-06 验收问题 3：ADR 0083 写了地图预览延后，但 roadmap 没有任务", "引用前能在地图上看到区域形状；列表里名称和块数分开显示；城市下拉不混排中英日名称", "亮暗两套、360px 不横向滚动、axe 通过；测试全过"], "evidence": "", "updated": "2026-11-22"},
+        {"id": "M8-47", "title": "预订页小问题：无效草稿编号给提示、点对点无城市时摘要不留空、输入「羽田」时平台的羽田机场也出现", "role": "frontend", "status": "todo", "acceptance": ["M8-06 验收信息项：/book?draft=<无效编号> 时告诉客人链接已失效，再按空白第 1 步打开", "点对点没有城市时行程摘要不显示「点对点 · 」后面空着", "输入「羽田」「羽田空港」时平台的羽田机场出现在候选里（查平台主数据的名称、别名）", "价格规则、订单、付款逻辑不改；测试全过"], "evidence": "", "updated": "2026-11-22"}
       ]
     },
     {
@@ -3772,6 +3774,7 @@
     {"date": "2026-11-22", "by": "Codespace 开发", "summary": "业主决定（监工 #288 转达）：异地备份服务商先搁置，等其他都做好再定。M4-23 标「搁置（业主延后）」，M4-25 清除乘客明文随之延后；本机的 WAL 归档和恢复到任意时间点照常运行。"},
     {"date": "2026-11-22", "by": "Codespace 开发", "summary": "M4-33 待验收：供应商调度接口（/tenant/v1/orders/{id}/events）回传也按 ADR 0064 的时间窗口拦：出发、到达最早用车前 24 小时，接到客人、完成最早用车前 3 小时，太早返回 422 FULFILMENT_TOO_EARLY，说明写给调度系统看，什么都不写。供应商后台没有页面调用这个接口；正式站还没上线、没有对接方，所以直接上线。平台代传不受限制。29 个受影响的集成测试按新规则改写（订单改订到临近时间或拨时钟后重新登录），旧的「不受影响」用例改成断言拦下，补了边界测试。"},
     {"date": "2026-11-22", "by": "Codespace 开发", "summary": "M8-43b 待验收（按推荐做，没等确认）：手机选地点输入「東京駅」时第一条是「東京国際空港」——原因是平台没有东京站这个地点时，去掉「駅」按「東京」两个字找把羽田凑上来了，平台的地点又排在谷歌的「東京駅」前面。现在输入里说了是车站，就不按字凑机场；说了是机场，也不凑车站；名称整段包含的照给。回车选第一条的行为不变。"},
-    {"date": "2026-11-22", "by": "Codespace 开发", "summary": "M8-05 待验收：官网 /book 换成新的四步预订页；以前的地址 /book/new、/book/checkout（收藏的链接、以前嵌入组件给的链接）自动转到 /book，链接参数照带；删掉旧的城市 / 接送 / 机场下拉框询价页、旧下单页和旧地址搜索。价格、订单、付款逻辑没动。"}
+    {"date": "2026-11-22", "by": "Codespace 开发", "summary": "M8-05 待验收：官网 /book 换成新的四步预订页；以前的地址 /book/new、/book/checkout（收藏的链接、以前嵌入组件给的链接）自动转到 /book，链接参数照带；删掉旧的城市 / 接送 / 机场下拉框询价页、旧下单页和旧地址搜索。价格、订单、付款逻辑没动。"},
+    {"date": "2026-11-22", "by": "Codespace 开发", "summary": "M8-06 测试站验收：12 个待验收的 M8 任务中 11 个通过（含今天的 M8-05 新预订页、M8-43b 東京駅排序），改为已验收；M8-34 只读接口通过，但 Actions 工作流要负责人在 GitHub 填 3 个 secrets 后跑一次，保持待验收。新登记 M8-46（共享区域库地图预览等）、M8-47（预订页小问题）。早期验收租户没标成测试供应商、区域出现在共享库，交业主决定。"}
   ]
 }
