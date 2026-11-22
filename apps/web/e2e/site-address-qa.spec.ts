@@ -4,16 +4,17 @@
  *
  * - 密钥不进浏览器：构建产物、页面、浏览器收到的每个应答、cookie / localStorage / sessionStorage 里都没有 `AIza` 开头的东西，也没有谷歌的接口地址；
  *   浏览器只连本站和底图；内容安全策略的 connect-src 只有 'self' 和 Stripe（官网付款，ADR 0046）、img-src 只多了底图来源、没有任何谷歌来源，整个流程没有违反策略的事件。
- * - 键盘：搜索框里回车只搜索、不发询价；地图聚焦后 `+` / `-` 真的缩放（瓦片的层级变了）、方向键平移，Tab 到「选地图中间这个位置」回车选中准星处。
- * - 配置里没有地址搜索也没有底图时：没有搜索框和地图按钮，常用地点和手填照常，浏览器不请求 /site/v1/places。
+ * - 键盘：地图聚焦后 `+` / `-` 真的缩放（瓦片的层级变了）、方向键平移，Tab 到「选地图中间这个位置」回车选中准星处；只选一端不发询价。
+ * - 配置里没有底图、也没有谷歌地图的浏览器密钥时：没有「在地图上选点」，地址框照常能输入。
  *   （只改浏览器收到的 /site/v1/config 这一项来模拟，其余接口都是真的。）
+ * 页面都是预订页 /book（M8-05 起是四步新流程，地址框是输入即提示 PlaceField）。
  */
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
+import { type APIRequestContext, expect, test } from "@playwright/test";
 import { E2E_TILE_PORT, E2E_WEB_PLACES_PORT } from "../playwright.config.ts";
-import { CENTER, type Supplier, type World, createProductByApi, createSupplier, createWorld } from "./catalog.ts";
+import { type Supplier, type World, createProductByApi, createSupplier, createWorld } from "./catalog.ts";
 import { OWN_SITE_SOURCE } from "./support.ts";
 
 // 官网按来源地址限速：每条用例带自己的文档专用地址，不和并行的官网用例在 127.0.0.1 上抢同一份额度（M8-17）
@@ -69,8 +70,6 @@ async function filesUnder(dir: string): Promise<string[]> {
 /** 浏览器里谷歌的痕迹：密钥前缀和谷歌地图的接口 / 脚本地址 */
 const GOOGLE_TRACES = [/AIza[0-9A-Za-z_-]{4,}/, /googleapis\.com/i, /gstatic\.com/i, /maps\.google\./i];
 
-const coordinate = (page: Page, word: "上车" | "下车", which: "纬度" | "经度") => page.getByRole("group", { name: new RegExp(`${word}地点的坐标`) }).getByLabel(new RegExp(`^${which}`));
-
 test("构建产物里没有谷歌的密钥和接口地址（官网选点的谷歌地图小页面 maps/ 除外：它本来就要加载谷歌地图，M10-01 第 2 处；密钥照样不在里面）", async () => {
   const pickerDir = join(DIST, "maps");
   const all = (await filesUnder(DIST)).filter((path) => /\.(js|css|html|json|map|txt)$/.test(path));
@@ -83,9 +82,9 @@ test("构建产物里没有谷歌的密钥和接口地址（官网选点的谷�
   }
 });
 
-test("密钥不进浏览器：搜索、选中、地图选点全程，应答、页面、存储里没有密钥；只连本站和底图；内容安全策略不放行谷歌，也没有违反策略的事件", async ({ page, request }) => {
+test("密钥不进浏览器：输入即提示、选中、地图选点全程，应答、页面、存储里没有密钥；只连本站和底图；内容安全策略不放行谷歌，也没有违反策略的事件", async ({ page, request }) => {
   test.setTimeout(120_000);
-  const world = await bookableWorld(request);
+  await bookableWorld(request);
   const origins = new Set<string>();
   const bodies: { url: string; text: string }[] = [];
   page.on("request", (sent) => origins.add(new URL(sent.url()).origin));
@@ -112,18 +111,18 @@ test("密钥不进浏览器：搜索、选中、地图选点全程，应答、�
   expect(directives.get("default-src"), csp).toEqual(["'self'"]);
   expect(/google|gstatic/i.test(csp), csp).toBe(false);
 
-  await page.getByLabel(/^城市/).selectOption({ label: world.city.name });
-  const search = page.getByRole("searchbox", { name: "搜索上车地点（选填）" });
-  await search.fill("東京駅");
-  await search.press("Enter");
-  await page.getByRole("list", { name: "搜索到的上车地点" }).getByRole("button", { name: /東京駅/ }).click();
-  await expect(coordinate(page, "上车", "纬度")).toHaveValue("35.6812");
-  await page.getByRole("button", { name: "在地图上选下车地点" }).click();
-  await page.getByRole("button", { name: "选地图中间这个位置" }).click();
-  await expect(page.getByText("已填入这个位置的地址和坐标，可以在地址后面补充酒店名、楼层。")).toBeVisible();
-  await expect(coordinate(page, "下车", "纬度")).toHaveValue(String(CENTER.lat));
+  // 预订页（M8-05 起 /book 是四步新流程）：出发地输入即提示、选中谷歌候选（后端取坐标）；目的地在地图上选中间的位置（后端反查地址）
+  const from = page.getByRole("combobox", { name: "出发地" });
+  await from.fill("東京駅");
+  await page.getByRole("listbox", { name: "出发地的候选" }).getByRole("option", { name: /東京駅/ }).click();
+  await expect(from).toHaveValue(/^東京駅/);
+  const toMap = page.getByRole("group", { name: "目的地的地图" });
+  await toMap.getByRole("button", { name: "在地图上选点" }).click();
+  await toMap.getByRole("button", { name: "选地图中间这个位置" }).click();
+  await expect(page.getByRole("combobox", { name: "目的地" })).toHaveValue("日本、〒100-0005 東京都千代田区丸の内１丁目９");
 
-  expect(bodies.some((body) => body.url.includes("/site/v1/places/search")), "浏览器发了搜索").toBe(true);
+  expect(bodies.some((body) => body.url.includes("/site/v1/places/autocomplete")), "浏览器发了输入即提示").toBe(true);
+  expect(bodies.some((body) => body.url.includes("/site/v1/places/details")), "浏览器取了候选的坐标").toBe(true);
   expect(bodies.some((body) => body.url.includes("/site/v1/places/reverse")), "浏览器发了反查").toBe(true);
   for (const body of bodies) for (const trace of GOOGLE_TRACES) expect(trace.test(body.text), `${body.url} 的应答里有 ${trace}`).toBe(false);
   const html = await page.content();
@@ -135,35 +134,33 @@ test("密钥不进浏览器：搜索、选中、地图选点全程，应答、�
   expect(await page.evaluate(() => (window as unknown as { __cspViolations: string[] }).__cspViolations)).toEqual([]);
 });
 
-test("键盘：搜索框回车只搜索不询价；地图聚焦后 + / - 真的缩放、方向键平移，Tab 到「选地图中间这个位置」回车选中准星处", async ({ page, request }) => {
+test("键盘：地图聚焦后 + / - 真的缩放、方向键平移，Tab 到「选地图中间这个位置」回车选中准星处；只选一端不询价", async ({ page, request }) => {
   test.setTimeout(120_000);
-  const world = await bookableWorld(request);
+  await bookableWorld(request);
   const quotes: string[] = [];
   const zooms: number[] = [];
+  const picked: { lat: number; lng: number }[] = [];
   page.on("request", (sent) => {
     const url = new URL(sent.url());
-    if (sent.method() === "POST" && url.pathname === "/site/v1/quotes") quotes.push(url.pathname);
+    if (sent.method() === "POST" && url.pathname.startsWith("/site/v1/quotes")) quotes.push(url.pathname);
     if (url.origin === TILE_ORIGIN) zooms.push(Number(url.pathname.split("/")[1]));
+    if (url.pathname === "/site/v1/places/reverse") picked.push({ lat: Number(url.searchParams.get("lat")), lng: Number(url.searchParams.get("lng")) });
   });
   await page.setViewportSize({ width: 360, height: 740 });
   await page.goto(`${SITE}/book`);
-  await page.getByLabel(/^城市/).selectOption({ label: world.city.name });
 
-  const search = page.getByRole("searchbox", { name: "搜索上车地点（选填）" });
-  await search.focus();
-  await page.keyboard.type("東京駅");
-  await page.keyboard.press("Enter");
-  await expect(page.getByRole("list", { name: "搜索到的上车地点" })).toBeVisible();
-  expect(quotes, "回车发了询价").toEqual([]);
-  await expect(page.getByText("有几项没有填好，请看标红的地方。")).toHaveCount(0);
-
-  const toggle = page.getByRole("button", { name: "在地图上选下车地点" });
+  const toMap = page.getByRole("group", { name: "目的地的地图" });
+  const toggle = toMap.getByRole("button", { name: "在地图上选点" });
   await toggle.focus();
   await page.keyboard.press("Enter");
-  const map = page.getByRole("application", { name: /地图：点一下选下车位置/ });
+  const map = page.getByRole("application", { name: /地图：点一下选目的地位置/ });
   await expect(map).toBeVisible();
   await expect.poll(() => zooms.length).toBeGreaterThan(0);
   const startZoom = Math.max(...zooms);
+  // 先不动地图选一次中间的位置，记下起点
+  const pickCenter = toMap.getByRole("button", { name: "选地图中间这个位置" });
+  await pickCenter.click();
+  await expect.poll(() => picked.length).toBe(1);
   await map.focus();
   await expect(map).toBeFocused();
   zooms.length = 0;
@@ -177,42 +174,32 @@ test("键盘：搜索框回车只搜索不询价；地图聚焦后 + / - 真的�
   await page.keyboard.press("ArrowUp");
 
   // 只用 Tab 走到「选地图中间这个位置」，回车选中
-  const pickCenter = page.getByRole("button", { name: "选地图中间这个位置" });
   for (let i = 0; i < 6 && !(await pickCenter.evaluate((element) => element === document.activeElement)); i++) await page.keyboard.press("Tab");
   await expect(pickCenter).toBeFocused();
   await page.keyboard.press("Enter");
-  await expect(page.getByText("已填入这个位置的地址和坐标，可以在地址后面补充酒店名、楼层。")).toBeVisible();
-  const lat = Number(await coordinate(page, "下车", "纬度").inputValue());
-  const lng = Number(await coordinate(page, "下车", "经度").inputValue());
-  expect(lat, "方向键往上移动了地图").toBeGreaterThan(CENTER.lat);
-  expect(lng, "方向键往左移动了地图").toBeLessThan(CENTER.lng);
-  expect(quotes, "选点过程发了询价").toEqual([]);
+  await expect.poll(() => picked.length).toBe(2);
+  const [first, second] = picked as [{ lat: number; lng: number }, { lat: number; lng: number }];
+  expect(second.lat, "方向键往上移动了地图").toBeGreaterThan(first.lat);
+  expect(second.lng, "方向键往左移动了地图").toBeLessThan(first.lng);
+  expect(quotes, "只选了目的地，不询价").toEqual([]);
 });
 
-test("配置里没有地址搜索、没有底图：没有搜索框和地图按钮，常用地点和手填照常，浏览器不请求 /site/v1/places", async ({ page, request }) => {
+test("配置里没有底图、也没有谷歌地图的浏览器密钥：没有「在地图上选点」，地址框照常能输入", async ({ page, request }) => {
   test.setTimeout(120_000);
-  const world = await bookableWorld(request);
-  const placesCalls: string[] = [];
-  page.on("request", (sent) => {
-    if (new URL(sent.url()).pathname.startsWith("/site/v1/places/")) placesCalls.push(sent.url());
-  });
+  await bookableWorld(request);
   await page.route("**/site/v1/config", async (route) => {
     const response = await route.fetch();
     const body = (await response.json()) as Record<string, unknown>;
-    expect(body["address_search"], "这组 API 本来是有地址搜索的").toBe(true);
-    await route.fulfill({ response, json: { ...body, address_search: false, map_tiles: null } });
+    await route.fulfill({ response, json: { ...body, map_tiles: null, maps_browser_key: null } });
   });
   await page.goto(`${SITE}/book`);
-  await page.getByLabel(/^城市/).selectOption({ label: world.city.name });
-  await expect(page.getByLabel("上车地址或酒店名")).toBeVisible();
-  await expect(page.getByRole("searchbox")).toHaveCount(0);
+  const from = page.getByRole("combobox", { name: "出发地" });
+  await expect(from).toBeEditable();
   await expect(page.getByRole("button", { name: /在地图上选/ })).toHaveCount(0);
   await expect(page.getByRole("application")).toHaveCount(0);
-  await page.getByLabel("上车地址或酒店名").fill("東京駅 丸の内北口");
-  await coordinate(page, "上车", "纬度").fill("35.6812");
-  await coordinate(page, "上车", "经度").fill("139.7671");
-  await expect(coordinate(page, "上车", "经度")).toHaveValue("139.7671");
-  expect(placesCalls).toEqual([]);
+  await from.fill("東京駅");
+  await page.getByRole("listbox", { name: "出发地的候选" }).getByRole("option", { name: /東京駅/ }).click();
+  await expect(from).toHaveValue(/^東京駅/);
 });
 
 test("谷歌地图选点（M10-01 第 2 处）：配了浏览器密钥时打开同源的地图小页面（只有它的策略放行谷歌、只许同源嵌入）；谷歌全被挡住（模拟中国大陆）时收起地图、提示用搜索或直接输入地址，页面不卡", async ({ page, request }) => {
@@ -223,7 +210,7 @@ test("谷歌地图选点（M10-01 第 2 处）：配了浏览器密钥时打开�
   const pickerPolicy = picker.headers()["content-security-policy"] ?? "";
   expect(pickerPolicy).toContain("frame-ancestors 'self'");
   expect(pickerPolicy).toContain("https://maps.googleapis.com");
-  const bookPolicy = (await request.get(`${SITE}/book/new`)).headers()["content-security-policy"] ?? "";
+  const bookPolicy = (await request.get(`${SITE}/book`)).headers()["content-security-policy"] ?? "";
   expect(bookPolicy).toContain("frame-src 'self' ");
   expect(bookPolicy, "下单页的策略照旧不放行谷歌").not.toMatch(/google|unsafe-/);
 
@@ -241,7 +228,7 @@ test("谷歌地图选点（M10-01 第 2 处）：配了浏览器密钥时打开�
   page.on("request", (sent) => {
     if (new URL(sent.url()).pathname === "/maps/picker.html") pickerRequests.push(sent.url());
   });
-  await page.goto(`${SITE}/book/new`);
+  await page.goto(`${SITE}/book`);
   const group = page.getByRole("group", { name: "出发地的地图" });
   await group.getByRole("button", { name: "在地图上选点" }).click();
   await expect(page.getByText("地图加载不出来（可能是网络原因）。请用上面的搜索找到地址；门牌、楼层等可以写在下单时的「给司机的备注」里。")).toBeVisible({ timeout: 15_000 });

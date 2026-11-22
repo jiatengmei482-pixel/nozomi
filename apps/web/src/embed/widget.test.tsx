@@ -77,7 +77,7 @@ test("取配置被拒（浏览器里 403 不带 CORS 头读不出，主站有应
   assert.deepEqual(logged, [[`NozomiBooking：${REFUSED_NOTICE}`]]);
   assert.match(REFUSED_NOTICE, /① 嵌入码是否已在 NOZOMI 运营后台停用；② 嵌入码是否填错；③ 本网站的域名是否在这个嵌入码的白名单里；④ 组件脚本是否直接从主站加载。NOZOMI 运维可在主站日志 embed\.gate_refused/);
   assert.match($('[role="status"]').textContent ?? "", /预订组件暂时无法使用/);
-  assert.equal($<HTMLAnchorElement>("a").getAttribute("href"), `${BASE}/book/new`);
+  assert.equal($<HTMLAnchorElement>("a").getAttribute("href"), `${BASE}/book`);
   assert.equal(shadow().querySelector("form"), null);
   assert.equal(calls[0]?.url.href, `${BASE}/embed/v1/config?key=${KEY}`);
   assert.equal(calls[0]?.init?.credentials, "omit");
@@ -137,7 +137,7 @@ test("区间：地址提示经主站（带嵌入码和会话令牌、不带 Cook
   assert.ok(calls.some((call) => call.url.pathname === "/embed/v1/places/details"), "谷歌候选选中后再取坐标");
   $<HTMLFormElement>("form").dispatchEvent(new Event("submit", { cancelable: true }));
   await wait(30);
-  assert.deepEqual(went, [`${BASE}/book/new?draft=${"D".repeat(43)}`]);
+  assert.deepEqual(went, [`${BASE}/book?draft=${"D".repeat(43)}`]);
   const body = drafted as { draft: Record<string, unknown>; return_url: string };
   assert.equal(body.return_url, "https://partner.example/thanks");
   assert.deepEqual(body.draft["pickup"], { name: "成田国際空港", lat: 35.772, lng: 140.3929 });
@@ -170,7 +170,7 @@ test("建草稿失败：400、429 两种、网络错误各显示一句，不跳�
   assert.equal(await submit(), "暂时无法查询，请稍后再试或直接到主站预订。");
   reply = "network";
   assert.equal(await submit(), "暂时连不上，请稍后再试或直接到主站预订。 到主站预订", "读不出的失败后面跟主站链接（M9E-22）");
-  assert.equal($<HTMLAnchorElement>('[data-role="message"] a').getAttribute("href"), `${BASE}/book/new`);
+  assert.equal($<HTMLAnchorElement>('[data-role="message"] a').getAttribute("href"), `${BASE}/book`);
   reply = { status: 429, body: { error: { code: "RATE_LIMITED" } } };
   assert.equal(await submit(), "操作太频繁，请稍等一分钟再试。", "下一次失败换掉上一次的链接");
   assert.equal(shadow().querySelector('[data-role="message"] a'), null);
@@ -400,7 +400,7 @@ test("M9E-08 ①：点了谷歌候选马上点「查看价格」——按钮显�
   await wait(30);
   assert.equal(slow.drafts.length, 1, "只建一次草稿");
   assert.deepEqual((slow.drafts[0] as { draft: Record<string, unknown> }).draft["dropoff"], { name: "東京駅", lat: 35.6812, lng: 139.7671 });
-  assert.deepEqual(went, [`${BASE}/book/new?draft=${"D".repeat(43)}`]);
+  assert.deepEqual(went, [`${BASE}/book?draft=${"D".repeat(43)}`]);
   assert.equal($('[data-field="dropoff"] [aria-live]').textContent, "");
 });
 
@@ -1098,7 +1098,7 @@ test("M9E-22 取配置读得到的 4xx（嵌入码无效 / 停用、不在白名
     handler = (url, init) => (url.pathname === "/embed/v1/config" ? { status, body: { error: { code: "EMBED_ORIGIN_NOT_ALLOWED" } } } : places(url, init));
     await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "en" });
     assert.match($('[role="status"]').textContent ?? "", /The booking form is unavailable right now/, `${status}`);
-    assert.equal($<HTMLAnchorElement>("a").getAttribute("href"), `${BASE}/book/new`);
+    assert.equal($<HTMLAnchorElement>("a").getAttribute("href"), `${BASE}/book`);
     assert.equal(shadow().querySelector("form"), null, `${status}：不显示表单`);
     assert.equal(noCorsCalls(), 0);
   }
@@ -1187,7 +1187,7 @@ test("M9E-22 表单已显示后配置才回来（被拒）：整个换成「暂�
     }
     assert.equal(shadow().querySelector("form"), null, "不留能填能提交的表单");
     assert.match($('[role="status"]').textContent ?? "", /预订组件暂时无法使用/);
-    assert.equal($<HTMLAnchorElement>('[role="status"] a').getAttribute("href"), `${BASE}/book/new`);
+    assert.equal($<HTMLAnchorElement>('[role="status"] a').getAttribute("href"), `${BASE}/book`);
     assert.equal(shadow().querySelectorAll(".nzb-shell").length, 1, "只有一份");
     assert.deepEqual(logged, [[`NozomiBooking：${REFUSED_NOTICE}`]]);
   });
@@ -1233,16 +1233,16 @@ test("M9E-22 配置没回来先显示的表单，提交时被拒（读得到的 
   for (const status of [403, 401, 404]) {
     reply = { status, body: { error: { code: "EMBED_ORIGIN_NOT_ALLOWED" } } };
     assert.equal(await submit(), "这个网站暂时不能直接预订，请到主站预订。 到主站预订", `${status}`);
-    assert.equal($<HTMLAnchorElement>('[data-role="message"] a').getAttribute("href"), `${BASE}/book/new`);
+    assert.equal($<HTMLAnchorElement>('[data-role="message"] a').getAttribute("href"), `${BASE}/book`);
     assert.equal($(".nzb-primary").textContent, "查看价格", "按钮恢复");
   }
   reply = "blocked";
   assert.equal(await submit(), "暂时连不上，请稍后再试或直接到主站预订。 到主站预订", "读不出、探 GET 配置也连不上：按连不上说，也给链接");
-  assert.equal($<HTMLAnchorElement>('[data-role="message"] a').getAttribute("href"), `${BASE}/book/new`);
+  assert.equal($<HTMLAnchorElement>('[data-role="message"] a').getAttribute("href"), `${BASE}/book`);
   configReply = "blocked";
   calls = [];
   assert.equal(await submit(), "这个网站暂时不能直接预订，请到主站预订。 到主站预订", "浏览器里被拒（读不出、主站对 GET 配置有应答）：按被拒说");
-  assert.equal($<HTMLAnchorElement>('[data-role="message"] a').getAttribute("href"), `${BASE}/book/new`);
+  assert.equal($<HTMLAnchorElement>('[data-role="message"] a').getAttribute("href"), `${BASE}/book`);
   assert.deepEqual(
     calls.filter((call) => call.init?.mode === "no-cors").map((call) => [call.url.pathname, call.init?.method ?? "GET", call.init?.credentials]),
     [["/embed/v1/config", "GET", "omit"]],

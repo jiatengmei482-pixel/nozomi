@@ -59,7 +59,7 @@ async function version(request: APIRequestContext, headers: Record<string, strin
 
 /**
  * 平台建城市和车站；供应商建两个区域、上架包车商品（套餐价 + 加价区域的区域加价）。
- * `extraPackageHours`：商品区域再多上架一档套餐（M9E-07 嵌入组件包车用）。城市只有 8 小时一档时 `/book/new` 会替客人选上，
+ * `extraPackageHours`：商品区域再多上架一档套餐（M9E-07 嵌入组件包车用）。城市只有 8 小时一档时 `/book` 会替客人选上，
  * 多一档才能看到「停在第 1 步等客人选时长」。这一档 40,000 日元、没有区域加价。
  * `packages`：商品区域再多上架的几档套餐（时长、套餐价、含公里；M9P-03 有经停点时手动升档用），没有区域加价。
  * `waypointSurcharge`：加价区域的途经加价（M9P-04；没迁移过的商品，经停点和下车点行程加价都查这一列）——给了时 `packages` 的每一档也在加价区域配同样的上 / 下车、途经加价。

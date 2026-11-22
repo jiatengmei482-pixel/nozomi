@@ -5,7 +5,7 @@
  * 第 2 步的结果骨架（方案名、推荐、合计、车型、报不出的原因、全部报不出转人工、过期重新报价）；刷新（网址带行程单）只读不报价，回到第 1 步时表单用读回来的行程单填上；
  * 太复杂（422）、太频繁（429）、过期（404）的说法；报价没拿到应答时先读行程单（已报过价就直接显示、不再报价）；重新报价失败后「上一步」仍能填回表单；
  * 第 2 步的变化由常驻播报区告诉读屏；报价中右侧栏画表单里每天的路线；手机底部按钮条。
- * M9T-10 下单出口：单段方案「预订这个方案」→ order-quote（带经停点地名）→ 带着报价进 /book/new 第 3 步（不再询价）；价格变了（409）写明并给「重新报价」；
+ * M9T-10 下单出口：单段方案「预订这个方案」→ order-quote（带经停点地名）→ 带着报价进 /book 第 3 步（不再询价）；价格变了（409）写明并给「重新报价」；
  * 多段方案「提交预订，客服确认」= 带这个方案 plan_kind 的人工报价。
  * 接口用测试替身（浏览器只连 /site/v1）；真实后端由 e2e/site-trip-quote.spec.ts 覆盖。
  */
@@ -111,7 +111,7 @@ function open(options: { at?: string; create?: Route; quote?: Route; read?: Rout
     if (call.method === "POST" && path === `/site/v1/trips/${TRIP_ID}/quote`) return options.quote?.(call) ?? json(200, tripOf());
     if (call.method === "GET" && path === `/site/v1/trips/${TRIP_ID}`) return options.read?.(call) ?? json(200, tripOf());
     if (call.method === "POST" && path === "/site/v1/manual-quote-requests") return json(202, { status: "accepted" });
-    // 下单出口（M9T-10）和跳进去以后的 /book/new
+    // 下单出口（M9T-10）和跳进去以后的 /book
     if (call.method === "POST" && path.startsWith(`/site/v1/trips/${TRIP_ID}/plans/`) && path.endsWith("/order-quote")) return options.orderQuote?.(call) ?? null;
     if (path === "/site/v1/charter-packages") return json(200, { city: quotedCity, items: [{ hours: 4 }, { hours: 8 }] });
     if (path === "/site/v1/fx/reference") return json(200, { available: false, from: "JPY", to: call.url.searchParams.get("to"), rate: null, as_of: null, reason: "NO_RATE" });
@@ -608,7 +608,7 @@ function orderQuoteOf(): SiteTripOrderQuote {
 
 const orderQuotePath = `/site/v1/trips/${TRIP_ID}/plans/${singlePlan().plan_id}/order-quote`;
 
-test("单段方案：卡片上是「预订这个方案」；点了按经停点地名转成普通报价，带着它进 /book/new 第 3 步（乘客信息），不再询价、车型已选好", async () => {
+test("单段方案：卡片上是「预订这个方案」；点了按经停点地名转成普通报价，带着它进 /book 第 3 步（乘客信息），不再询价、车型已选好", async () => {
   wideScreen();
   sessionStorage.setItem(`nozomi.trip-labels.${TRIP_ID}`, JSON.stringify({ v: 1, days: [[HOTEL_NAME, TEMPLE_NAME, HOTEL_NAME]] }));
   const calls = open({ at: `/book/trip?trip=${TRIP_ID}&step=2`, read: () => json(200, singleTrip()), orderQuote: () => json(200, orderQuoteOf()) });
@@ -617,7 +617,7 @@ test("单段方案：卡片上是「预订这个方案」；点了按经停点�
   await user().click(within(card).getByRole("button", { name: "预订这个方案" }));
 
   assert.ok(await screen.findByRole("heading", { name: "乘客信息", level: 2 }, SLOW));
-  assert.equal(pathname(), "/book/new");
+  assert.equal(pathname(), "/book");
   assert.equal(search(), "?step=3");
   const sent = posts(calls, orderQuotePath);
   assert.equal(sent.length, 1);

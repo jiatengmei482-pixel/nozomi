@@ -1,48 +1,20 @@
 /**
  * 端到端：官网下单（M3-05，ADR 0032）。真实浏览器 → 前端 → 真实 API（`/site/v1`，官网的渠道和 API 客户端由 global-setup 经运营后台接口建好）→ 真实 PostgreSQL，不 mock 接口。
- * 客人在 /book 询价（日期时间按东京的「现在」往后推）→ 选车 → 填订单 → 订单页：端到端测试里没有 Stripe，页面写「付款暂未开放」、订单待支付；
+ * 客人打开带参数的预订链接 /book（M8-05 起是四步新流程；本用例专用的机场，日期时间按东京的「现在」往后推）→ 选车 → 乘客信息 → 核对、去付款 →
+ * 订单页：端到端测试里没有 Stripe，页面写「付款暂未开放」、订单待支付；
  * 「付款」由用例用迁移账号直接在库里把这一单记成已付款、已确认（支付替身：等同于收到 Stripe 的付款成功通知，只在测试里构造）→ 刷新后点「我已落地」（验收标准）。
  * 另外看「查订单」页（链接发到邮箱的流程见 site-lookup-email.spec.ts），用邮件里那种链接打开订单；每一步在 320 / 360 / 400 宽不横向滚动，亮色、暗色各过一遍 axe。
- * M3-11（pages/site-booking.md 11.2）：查询后焦点到结果、订单页「当下要做的事」排第一、取消政策的客人说法和「不退款」、
+ * M3-11（pages/site-booking.md 11.2）：订单页「当下要做的事」排第一、取消政策的客人说法和「不退款」、
  * 日期「…月…日（周…）」、「复制链接」按钮、改单表单的字段级错误、顶栏当前页和 320px 的两行排法。
  */
-import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
+import { type Page, expect, test } from "@playwright/test";
 import { createPool } from "../../api/src/db/pool.ts";
-import { CENTER, type Supplier, type World, createProductByApi, createSupplier, createWorld, expectAccessible } from "./catalog.ts";
+import { airportLink, createAirport, publishTransfer } from "./book-new-support.ts";
+import { CENTER, createSupplier, createWorld, expectAccessible } from "./catalog.ts";
 import { E2E_SUPPORT_PHONE, issueSiteLink, OWN_SITE_SOURCE } from "./support.ts";
 
 // 官网按来源地址限速：每条用例带自己的文档专用地址，不和并行的官网用例在 127.0.0.1 上抢同一份额度（M8-17）
 test.use(OWN_SITE_SOURCE);
-
-const RULES = {
-  booking: { sale_from: null, sale_to: null, service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 0, note: null },
-  urgent: { enabled: false, daily_quota: null, tiers: [] },
-  night: { enabled: false, window: null, amount: null, charge_unit: null },
-  free_wait: { pickup: { mode: "limited", minutes: 60 }, dropoff: { mode: "limited", minutes: 60 }, general: null },
-  addons: [],
-  driver_languages: [],
-};
-
-async function version(request: APIRequestContext, supplier: Supplier, id: string): Promise<number> {
-  return ((await (await request.get(`/tenant/v1/products/${id}`, { headers: supplier.headers })).json()) as { version: number }).version;
-}
-
-/** 经供应商接口配好、上架的接送机商品：一口价 20,000 日元，从城市当地的今天起生效，全天可订、不要提前量。 */
-async function publishedProduct(request: APIRequestContext, supplier: Supplier, world: World): Promise<void> {
-  const product = await createProductByApi(request, supplier, world, "airport_transfer");
-  const rules = await request.put(`/tenant/v1/products/${product.id}/service-rules`, { headers: { ...supplier.headers, "if-match": `"${product.version}"` }, data: RULES });
-  expect(rules.status(), await rules.text()).toBe(200);
-  const content = await request.put(`/tenant/v1/products/${product.id}/content`, { headers: { ...supplier.headers, "if-match": `"${((await rules.json()) as { version: number }).version}"` }, data: { zh: { title: "官网接送机", pickup_guide: "到达大厅 2 号出口" } } });
-  expect(content.status(), await content.text()).toBe(200);
-  const { today } = (await (await request.get(`/tenant/v1/products/${product.id}/price-rules`, { headers: supplier.headers })).json()) as { today: string };
-  const price = await request.post(`/tenant/v1/products/${product.id}/price-rules/batch`, {
-    headers: { ...supplier.headers, "if-match": `"${await version(request, supplier, product.id)}"`, "idempotency-key": crypto.randomUUID() },
-    data: { create: [{ ref: "a", area_id: supplier.area.id, vehicle_group_id: world.group.id, direction: "both", package_hours: null, pricing_model: "fixed", base_price: 20000, start_price: null, start_meters: null, start_minutes: null, per_km: null, per_minute: null, min_price: null, package_km: null, package_price: null, overtime_per_hour: null, over_km_per_km: null, valid_from: today, valid_to: null, status: "enabled" }], update: [], delete: [] },
-  });
-  expect(price.status(), await price.text()).toBe(200);
-  const published = await request.post(`/tenant/v1/products/${product.id}/publish`, { headers: supplier.headers });
-  expect(published.status(), await published.text()).toBe(200);
-}
 
 /** 东京的「现在 + 两小时」（取整到 5 分钟）：离计划到达不到 3 小时，付款后马上就能点「我已落地」。 */
 function serviceTimeInTokyo(): { date: string; time: string } {
@@ -107,67 +79,63 @@ async function expectAccessibleBothThemes(page: Page, what: string): Promise<voi
   await page.emulateMedia({ colorScheme: "light" });
 }
 
-test("官网：询价 → 选车 → 下单（付款暂未开放，订单待支付）→ 订单页 → 付款后点「我已落地」；在查订单页，用邮件里那种链接打开订单", async ({ page, request, browser }) => {
+test("官网：预订页带参数的链接报价 → 选车 → 乘客信息 → 核对、去付款（付款暂未开放，订单待支付）→ 订单页 → 付款后点「我已落地」；在查订单页，用邮件里那种链接打开订单", async ({ page, request, browser }) => {
   test.setTimeout(120_000);
   const world = await createWorld(request);
+  const airport = await createAirport(request, world);
   const supplier = await createSupplier(request, world);
-  await publishedProduct(request, supplier, world);
+  await publishTransfer(request, supplier, { ...world, airport });
   const when = serviceTimeInTokyo();
   const email = `guest-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`;
   await page.setViewportSize({ width: 400, height: 800 });
 
-  // 询价
-  await page.goto("/book");
-  await expect(page.getByRole("heading", { level: 1, name: "预订用车" })).toBeVisible();
+  // 预订页（M8-05 起 /book 就是四步新流程）：带参数的链接打开即报价——出发地是本用例的机场（坐标加名称，认出接机），目的地坐标加名称
+  await page.goto(`/book?${airportLink(airport)}&to=${CENTER.lat + 0.01},${CENTER.lng + 0.01}&to_name=${encodeURIComponent("新宿站南口")}&date=${when.date}&time=${when.time}`);
+  await expect(page.getByRole("heading", { level: 1, name: "预订接送车" })).toBeVisible();
   await expect(page.getByText(/GeoNames/)).toBeVisible();
   await expect(page.getByText(/OurAirports/)).toBeVisible();
   await expect(page.getByRole("navigation", { name: "官网" }).getByRole("link", { name: "预订用车" })).toHaveAttribute("aria-current", "page");
   await expectHeaderRowsAt320(page);
-  await page.getByLabel(/^城市/).selectOption({ label: world.city.name });
-  await expect(page.getByLabel(/^机场/)).toHaveValue(world.airport.id);
-  await page.getByLabel("下车地址或酒店名").fill("新宿站南口");
-  await page.getByLabel(/^纬度/).fill(String(CENTER.lat + 0.01));
-  await page.getByLabel(/^经度/).fill(String(CENTER.lng + 0.01));
-  await page.getByLabel("航班到达日期（当地）").fill(when.date);
-  await page.getByLabel("航班计划到达时间（当地）").fill(when.time);
-  await expectNoOverflow(page, "询价页");
-  await expectAccessibleBothThemes(page, "询价页");
-  await page.getByRole("button", { name: "查询价格" }).click();
-  // 结果在长表单下面：焦点和屏幕都到结果标题（F4）
-  const results = page.getByRole("heading", { level: 2, name: /可预订的车/ });
-  await expect(results).toBeFocused();
-  await expect(results).toBeInViewport();
+  // 旧页面的城市、机场下拉框和「查询价格」都没有了
+  await expect(page.getByLabel(/^城市/)).toHaveCount(0);
+  await expect(page.getByLabel(/^机场/)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "查询价格" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "选择车型" })).toBeVisible();
+  await expect(page.locator(".book-summary-bar__text")).toContainText(`接机 · ${airport.name} → 新宿站南口`);
   const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: world.group.name }) });
   await expect(card).toContainText("22,000 JPY");
-  await expect(card).toContainText("国际线最长 90 分钟、国内线最长 60 分钟（从航班落地起算）");
-  await expect(card).toContainText("24 小时内取消收全额");
-  await expect(card).not.toContainText(/≥|扣 100%/);
-  // 车型标识 4 项（M7-03，ADR 0068），座位一项仍写全部组合
+  // 车型标识 4 项（M7-03，ADR 0068）
   await expect(card).toContainText("代表车型丰田埃尔法");
   await expect(card).toContainText("同级车型丰田埃尔法 or similar");
   await expect(card).toContainText("最多乘客6 人");
   await expect(card).toContainText("最多行李5 件");
-  await expect(card).toContainText("7 座（最多 6 人 + 4 件行李 或 5 人 + 5 件行李）");
+  await expect(page.getByRole("region", { name: "一口价包含" })).toContainText("航班落地后免费等待：国际线最长 90 分钟、国内线最长 60 分钟");
   await expect(page.locator("main")).not.toContainText(/结算|加价|供应商|20,000/);
-  await expectNoOverflow(page, "询价结果");
-  await expectAccessibleBothThemes(page, "询价结果");
-  await card.getByRole("button", { name: `预订${world.group.name}` }).click();
+  await expectNoOverflow(page, "预订页（车型和价格）");
+  await expectAccessibleBothThemes(page, "预订页（车型和价格）");
+  await card.getByRole("button", { name: `选择 ${world.group.name}` }).click();
+  await page.locator(".step-bar").getByRole("button", { name: "下一步：填写乘客信息" }).click();
 
-  // 下单
-  await expect(page.getByRole("heading", { level: 1, name: "填写订单" })).toBeVisible();
-  await expect(page.locator("main")).toContainText(`${world.airport.name}（${world.airport.code}） → 新宿站南口`);
-  await expect(page.locator("main")).toContainText("同级车型丰田埃尔法 or similar");
-  await page.getByRole("button", { name: /提交订单/ }).click();
-  await expect(page.getByText("需要同意保存支付方式才能下单")).toBeVisible();
+  // 乘客信息 → 核对 → 去付款（下单）
+  await expect(page.getByRole("heading", { level: 2, name: "乘客信息" })).toBeFocused();
   await page.getByLabel("乘车人姓名").fill("王小明");
-  await page.getByLabel("手机号（带国家码）").fill("+81 90-1234-5678");
+  await page.getByLabel("手机号（含国家区号）").fill("+81 90-1234-5678");
   await page.getByLabel("邮箱").fill(email);
   await page.getByLabel("航班号").fill("NH 211");
   await page.getByRole("radio", { name: /^国际航班/ }).check();
-  await page.getByRole("checkbox", { name: /同意保存/ }).check();
-  await expectNoOverflow(page, "下单页");
-  await expectAccessibleBothThemes(page, "下单页");
-  await page.getByRole("button", { name: /提交订单/ }).click();
+  await expectNoOverflow(page, "预订页（乘客信息）");
+  await expectAccessibleBothThemes(page, "预订页（乘客信息）");
+  await page.getByRole("button", { name: "下一步：核对订单" }).click();
+  const review = page.getByRole("region", { name: "核对订单" });
+  await expect(review).toContainText("新宿站南口");
+  await expect(review).toContainText("24 小时内取消收全额");
+  await expect(review).not.toContainText(/≥|扣 100%/);
+  await page.locator(".step-bar").getByRole("button", { name: "去付款 →" }).click();
+  await expect(page.getByText("需要同意保存支付方式才能下单")).toBeVisible();
+  await page.getByRole("checkbox", { name: /同意保存这次付款用的银行卡/ }).check();
+  await expectNoOverflow(page, "预订页（核对）");
+  await expectAccessibleBothThemes(page, "预订页（核对）");
+  await page.locator(".step-bar").getByRole("button", { name: "去付款 →" }).click();
 
   // 订单页：待付款，付款暂未开放
   const heading = page.getByRole("heading", { level: 1, name: /^订单 NZ/ });

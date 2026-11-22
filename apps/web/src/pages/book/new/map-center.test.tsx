@@ -35,7 +35,7 @@ const BEIJING_P2P = { ...BEIJING, categories: ["airport_transfer", "point_to_poi
 const TOKYO = cityOf("22222222-2222-4222-8222-222222222222", "CTY-JP-G13NKZ", "东京", { lat: 35.6895, lng: 139.6917 }, ["airport_transfer", "point_to_point", "charter"]);
 const KYOTO = cityOf("33333333-3333-4333-8333-333333333333", "CTY-JP-G13TKM", "京都", { lat: 35.0116, lng: 135.7681 }, ["point_to_point", "charter"]);
 
-function open(cities: SiteCity[], at = "/book/new"): ApiCall[] {
+function open(cities: SiteCity[], at = "/book"): ApiCall[] {
   const calls = stubApiWith((call) => {
     const path = call.url.pathname;
     if (path === "/site/v1/config") return json(200, config);
@@ -80,14 +80,14 @@ test("区间、还没选任何地址：地图从能订区间、品类最多的�
 
 test("包车、还没选任何地址：只在能订包车的城市里选（列表第一项北京品类一样多也不选），从京都打开", async () => {
   wideScreen();
-  const calls = open([BEIJING_P2P, KYOTO], "/book/new?mode=charter");
+  const calls = open([BEIJING_P2P, KYOTO], "/book?mode=charter");
   const picked = await pickMapCenter(calls, "上车地点");
   assert.deepEqual(picked, { city: KYOTO.id, lat: KYOTO.center.lat, lng: KYOTO.center.lng });
 });
 
 test("另一端选好了：照旧从另一端打开（不用默认城市）", async () => {
   wideScreen();
-  const calls = open([BEIJING, TOKYO], "/book/new?to=39.91,116.41&to_name=%E5%8C%97%E4%BA%AC%E9%85%92%E5%BA%97");
+  const calls = open([BEIJING, TOKYO], "/book?to=39.91,116.41&to_name=%E5%8C%97%E4%BA%AC%E9%85%92%E5%BA%97");
   const picked = await pickMapCenter(calls, "出发地");
   assert.deepEqual(picked, { city: BEIJING.id, lat: 39.91, lng: 116.41 });
 });

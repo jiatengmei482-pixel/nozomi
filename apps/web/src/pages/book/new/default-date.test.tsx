@@ -42,7 +42,7 @@ const SHINJUKU_STATION = { source: "platform", id: "44444444-4444-4444-8444-4444
 
 const DRAFT_ID = "aZ09_-".repeat(7) + "x";
 
-function open(at = "/book/new", draft: BookingDraft | null = null, cities: SiteCity[] = [BEIJING, TOKYO]): void {
+function open(at = "/book", draft: BookingDraft | null = null, cities: SiteCity[] = [BEIJING, TOKYO]): void {
   stubApiWith((call) => {
     const path = call.url.pathname;
     if (draft !== null && path === `/site/v1/booking-drafts/${DRAFT_ID}`) return json(200, { draft, expires_at: "2030-11-21T00:00:00.000Z" });
@@ -90,7 +90,7 @@ test("东京 00:30（北京前一天 23:30）、还没选上车点：默认日�
 test("包车标签：同样按地图默认城市（东京）的明天", async () => {
   mock.timers.enable({ apis: ["Date"], now: NOW });
   wideScreen();
-  open("/book/new?mode=charter");
+  open("/book?mode=charter");
   await screen.findByRole("combobox", { name: "上车地点" }, SLOW);
   await waitFor(() => assert.equal(dateBox().value, TOKYO_TOMORROW), SLOW);
 });
@@ -111,7 +111,7 @@ test("选了别的时区城市里的上车点：按那个城市（北京）的�
 test("链接给的上车点在北京：一打开就按北京的明天", async () => {
   mock.timers.enable({ apis: ["Date"], now: NOW });
   wideScreen();
-  open("/book/new?from=39.91,116.41&from_name=%E5%8C%97%E4%BA%AC%E9%85%92%E5%BA%97");
+  open("/book?from=39.91,116.41&from_name=%E5%8C%97%E4%BA%AC%E9%85%92%E5%BA%97");
   await screen.findByRole("combobox", { name: "出发地" }, SLOW);
   await waitFor(() => assert.equal(dateBox().value, BEIJING_TOMORROW), SLOW);
 });
@@ -137,7 +137,7 @@ test("客人改过日期：再换上车点（换到别的时区）不覆盖", as
 test("链接带了日期：不管上车点在哪都不改", async () => {
   mock.timers.enable({ apis: ["Date"], now: NOW });
   wideScreen();
-  open("/book/new?date=2030-12-05&from=39.91,116.41&from_name=%E5%8C%97%E4%BA%AC%E9%85%92%E5%BA%97");
+  open("/book?date=2030-12-05&from=39.91,116.41&from_name=%E5%8C%97%E4%BA%AC%E9%85%92%E5%BA%97");
   await screen.findByDisplayValue("北京酒店", undefined, SLOW);
   assert.equal(dateBox().value, "2030-12-05");
 });
@@ -146,7 +146,7 @@ test("预订草稿带了日期（上车点在北京、日期 2030-12-05）：日
   mock.timers.enable({ apis: ["Date"], now: NOW });
   wideScreen();
   const draft: BookingDraft = { v: 1, tab: "transfer", service_local: "2030-12-05T14:30", pickup: { name: "北京酒店", lat: 39.91, lng: 116.41 }, dropoff: { name: "北京站", lat: 39.9029, lng: 116.4271 }, waypoints: [], package_hours: null, passengers: 2, luggage: 2, lang: "zh" };
-  open(`/book/new?draft=${DRAFT_ID}&step=1`, draft);
+  open(`/book?draft=${DRAFT_ID}&step=1`, draft);
   await screen.findByDisplayValue("北京酒店", undefined, SLOW);
   assert.equal(dateBox().value, "2030-12-05");
   // 等默认日期的副作用跑完（上车点换成北京后会重算一次）再看一遍
@@ -161,7 +161,7 @@ const TOKYO_CHARTER: SiteCity = { ...TOKYO, categories: ["charter"] };
 test("没改过日期、还没选上车点时换标签：默认城市跟着标签换，日期跟着换（区间北京的明天 → 包车东京的明天）", async () => {
   mock.timers.enable({ apis: ["Date"], now: NOW });
   wideScreen();
-  open("/book/new", null, [BEIJING_TRANSFER, TOKYO_CHARTER]);
+  open("/book", null, [BEIJING_TRANSFER, TOKYO_CHARTER]);
   const actor = user();
   await screen.findByRole("combobox", { name: "出发地" }, SLOW);
   await waitFor(() => assert.equal(dateBox().value, BEIJING_TOMORROW), SLOW);
@@ -172,7 +172,7 @@ test("没改过日期、还没选上车点时换标签：默认城市跟着标�
 test("客人改过日期后换标签（区间 → 包车，默认城市从北京换成东京）：日期不变", async () => {
   mock.timers.enable({ apis: ["Date"], now: NOW });
   wideScreen();
-  open("/book/new", null, [BEIJING_TRANSFER, TOKYO_CHARTER]);
+  open("/book", null, [BEIJING_TRANSFER, TOKYO_CHARTER]);
   const actor = user();
   await screen.findByRole("combobox", { name: "出发地" }, SLOW);
   await waitFor(() => assert.equal(dateBox().value, BEIJING_TOMORROW), SLOW);

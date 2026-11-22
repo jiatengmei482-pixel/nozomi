@@ -114,7 +114,7 @@ test("规格用例 1、10 的页面部分：明细套餐下面写预计用时（
   });
 
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto(`${SITE}/book/new?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.nearby, "市内下车点")}&date=${tomorrowInTokyo()}&time=10:00`);
+  await page.goto(`${SITE}/book?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.nearby, "市内下车点")}&date=${tomorrowInTokyo()}&time=10:00`);
   const add = page.getByRole("button", { name: "添加经停点" });
   await expect(add).toBeVisible();
   await add.click();
@@ -161,7 +161,7 @@ test("不填经停点也逐项列明细（用例 16）；供应商在服务规�
   const site = await siteContext.newPage();
   await site.setExtraHTTPHeaders({ "x-forwarded-for": `192.0.2.${1 + Math.floor(Math.random() * 250)}` });
   await site.setViewportSize({ width: 1280, height: 900 });
-  const link = `${SITE}/book/new?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.station.location, trip.station.name)}&date=${tomorrowInTokyo()}&time=10:00`;
+  const link = `${SITE}/book?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.station.location, trip.station.name)}&date=${tomorrowInTokyo()}&time=10:00`;
   const card = site.getByRole("listitem").filter({ has: site.getByRole("heading", { name: trip.groupName }) });
   const rows = card.getByLabel("价格明细").locator(".price-breakdown__row");
 

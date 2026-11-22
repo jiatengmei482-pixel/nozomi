@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { SiteOrder, SiteQuote } from "../api/site.ts";
-import { AREA_SURCHARGE_NOTE, CHARTER_OVERAGE_NOTE, addressEnds, freeWaitText, guestCancelPolicyText, guestInstantText, guestLocalText, orderAddressEnds, orderFeeNote, orderSectionSequence, primaryOrderSection, priceNote, quotesByTotal } from "./site-display.ts";
+import { AREA_SURCHARGE_NOTE, CHARTER_OVERAGE_NOTE, addressEnds, freeWaitText, guestCancelPolicyText, guestInstantText, guestLocalText, orderAddressEnds, orderFeeNote, orderSectionSequence, primaryOrderSection, quotesByTotal } from "./site-display.ts";
 
 const HOUR = 3_600_000;
 
@@ -112,9 +112,7 @@ test("免费等待的客人说法：包车是 0（从约定的开始时间起计
   assert.equal(freeWaitText(null, "point_to_point", null), "不限时");
 });
 
-test("包车一口价全含（M8-09）：询价说明写含所有费用、超出套餐另收；订单页的费用说明按下单时间，分界前下的包车单不写", () => {
-  assert.equal(priceNote("charter"), "按车计价的套餐价，一口价已含所有费用（高速费、停车费等），无需另付。超出套餐的时长和公里服务后按实际收取：先通知您，48 小时内可以在订单页提异议。");
-  assert.equal(priceNote("airport_transfer"), "按车计价的一口价，已含高速费和停车费。");
+test("包车一口价全含（M8-09）：超出套餐另收的说法；订单页的费用说明按下单时间，分界前下的包车单不写", () => {
   assert.equal(CHARTER_OVERAGE_NOTE, "超出套餐的时长和公里服务后按实际收取：先通知您，48 小时内可以在订单页提异议。");
   for (const category of ["airport_transfer", "point_to_point"] as const) assert.equal(orderFeeNote({ category, created_at: "2026-10-01T00:00:00.000Z" }), "一口价已含所有费用（高速费、停车费等），无需另付");
   assert.equal(orderFeeNote({ category: "charter", created_at: "2026-11-09T15:00:00.000Z" }), "一口价已含所有费用（高速费、停车费等），无需另付；超出套餐的时长和公里服务后按实际收取");

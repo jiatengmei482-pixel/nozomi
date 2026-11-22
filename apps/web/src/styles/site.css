@@ -222,7 +222,6 @@
   padding: 0;
 }
 
-.site-quotes,
 .site-charges {
   display: flex;
   flex-direction: column;
@@ -238,27 +237,6 @@
   border-radius: var(--radius-lg);
 }
 
-/*
- * 报价卡片（M6-05）：描边 + shadow-card（暗色下阴影几乎看不见，靠描边）。
- * 从上到下：车型和总价一行（放不下时总价换行、靠右）→ 细线 → 车的信息 → 一个撑满的主按钮。
- */
-.site-quote {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  padding: var(--space-4);
-  border: var(--border-width) solid var(--color-border-default);
-  border-radius: var(--radius-lg);
-  background: var(--color-bg-surface);
-  box-shadow: var(--shadow-card);
-}
-
-.site-quote > .site-facts {
-  padding-top: var(--space-4);
-  border-top: var(--border-width) solid var(--color-border-default);
-}
-
-.site-quote__head,
 .site-charge__head,
 .site-order__head {
   display: flex;
@@ -266,17 +244,6 @@
   gap: var(--space-2) var(--space-4);
   align-items: baseline;
   justify-content: space-between;
-}
-
-.site-quote__name {
-  min-width: 0;
-  font-size: var(--font-size-xl);
-  font-weight: var(--font-weight-bold);
-  line-height: var(--line-height-tight);
-}
-
-.site-quote__price {
-  margin-left: auto;
 }
 
 .site-charge__name {
@@ -452,10 +419,6 @@
     padding-inline: max(var(--space-6), calc((100cqi - var(--layout-site-max-width)) / 2 + var(--space-6)));
   }
 
-  .site-quote {
-    padding: var(--space-6);
-  }
-
   .site__main {
     padding: var(--space-8) var(--space-6) var(--space-12);
   }
@@ -507,33 +470,7 @@
   overflow-wrap: anywhere;
 }
 
-/* ---------- 地址：搜索、常用地点、手填、地图选点（M3-12，site-booking.md 3.6） ---------- */
-
-.site-address {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  min-width: 0;
-}
-
-.site-address-search {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  min-width: 0;
-}
-
-/* 搜索框和「搜索」按钮一行；按钮和输入框底边对齐（标签在输入框上面），帮助文字在两者下面 */
-.site-address-search__row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  gap: var(--space-2);
-}
-
-.site-address-search__button {
-  margin-top: calc(var(--font-size-md) * var(--line-height-normal) + var(--space-1));
-}
+/* ---------- 地址：状态行、地图选点（M3-12，site-booking.md 3.6；M8-05 起只有预订页的地址框 PlaceField 用） ---------- */
 
 .site-address__status {
   display: flex;
@@ -561,56 +498,6 @@
   flex: none;
   margin-top: var(--space-0-5);
   color: var(--color-warning-text);
-}
-
-.site-address-search__results {
-  display: flex;
-  flex-direction: column;
-  margin: 0;
-  padding: 0;
-  border: var(--border-width) solid var(--color-border-default);
-  border-radius: var(--radius-md);
-  list-style: none;
-  overflow: hidden;
-}
-
-.site-address-search__results > li + li {
-  border-top: var(--border-width) solid var(--color-border-default);
-}
-
-/* 每个候选是一整行按钮（触屏至少 48px 高），名称在上、地址在下 */
-.site-address-search__result {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-0-5);
-  width: 100%;
-  min-height: var(--control-height-lg);
-  padding: var(--space-3) var(--space-4);
-  border: 0;
-  background: var(--color-bg-surface);
-  color: var(--color-text-primary);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  overflow-wrap: anywhere;
-}
-
-.site-address-search__result:hover {
-  background: var(--color-bg-hover);
-}
-
-.site-address-search__result:focus-visible {
-  outline: var(--focus-ring-width) solid var(--color-border-focus);
-  outline-offset: calc(var(--focus-ring-width) * -1);
-}
-
-.site-address-search__name {
-  font-weight: var(--font-weight-bold);
-}
-
-.site-address-search__address {
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-md);
 }
 
 /* 一个地点的地图（按钮、地图、选点后的状态行）：读屏里是一个带名称的分组 */

@@ -1,8 +1,9 @@
 /**
  * 官网按页面规范调整（M3-11，pages/site-booking.md 第 11.2 节）的组件测试：
- * F1 订单页区块按「客人当下要做的事」排序 · F2 客服区块登记了号码才显示 · F3 官网自己的崩溃兜底 · F4 查询后焦点到结果 ·
- * F5 「复制链接」带文字 · F6 报价按总价排序 · F7 取消政策客人说法、扣全额写不退款 · F8 日期「10月26日（周一）」 ·
+ * F1 订单页区块按「客人当下要做的事」排序 · F2 客服区块登记了号码才显示 · F3 官网自己的崩溃兜底 ·
+ * F5 「复制链接」带文字 · F7 取消政策客人说法、扣全额写不退款 · F8 日期「10月26日（周一）」 ·
  * F9 乘车人拆三项 · F10 顶栏 DOM 顺序 · F11 当前页入口 · F12 异议理由和改单的字段级错误。接口用测试替身。
+ * F4（查询后焦点到结果）、F6（报价按总价排序）在旧询价页上测过，M8-05 删掉旧页后由新预订页的测试覆盖（pages/book/new/book-new.test.tsx）。
  */
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
@@ -10,8 +11,8 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { App } from "../../App.tsx";
-import type { SiteConfig, SiteOrder, SiteOrderEnvelope, SiteQuote } from "../../api/site.ts";
-import { type ApiCall, apiError, assertAbsent, assertFocused, json, resetBrowser, stubApiWith } from "../../testing/harness.tsx";
+import type { SiteConfig, SiteOrder, SiteOrderEnvelope } from "../../api/site.ts";
+import { type ApiCall, apiError, assertAbsent, json, resetBrowser, stubApiWith } from "../../testing/harness.tsx";
 
 afterEach(resetBrowser);
 
@@ -25,22 +26,7 @@ const PHONE = "+81 3-1234-5678";
 
 const configOf = (changes: Partial<SiteConfig> = {}): SiteConfig => ({ open: true, currency: "JPY", payments: null, support_phone: null, support_whatsapp: null, address_search: false, page_width: "standard", map_tiles: null, ...changes });
 const city = { id: CITY_ID, code: "CTY-JP-TYO", name: { zh: "东京" }, timezone: "Asia/Tokyo", country_code: "JP", center: { lat: 35.6895, lng: 139.6917 }, categories: ["airport_transfer" as const] };
-const airport = { id: AIRPORT_ID, code: "NRT", name: { zh: "成田机场" }, location: { lng: 140.3887, lat: 35.7686 } };
 const tiers = [{ min_hours_before: 48, fee_bp: 0 }, { min_hours_before: 24, fee_bp: 5000 }, { min_hours_before: 0, fee_bp: 10000 }];
-const quoteOf = (id: string, name: string, amount: string): SiteQuote => ({
-  quote_id: id,
-  available_addons: [],
-  itinerary_warnings: null,
-  expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
-  service_date: "2030-11-20",
-  urgent: false,
-  package: null,
-  vehicle_group: { id: `33333333-3333-4333-8333-33333333333${id.slice(-1)}`, code: `VG-${id}`, name: { zh: name }, grade: "business", seats: 7, sample_models: [], combos: [] },
-  price: { total: { amount, currency: "JPY" }, fx: null },
-  free_wait_minutes: 90,
-  cancel_policy: { category: "airport_transfer", level: "business", tiers },
-});
-
 const orderOf = (changes: Partial<SiteOrder> = {}): SiteOrder => ({
   id: ORDER_ID,
   order_no: "NZ20261026POLI2345",
@@ -118,26 +104,12 @@ const openOrder = (order: SiteOrder, config?: SiteConfig, extra?: Route, state?:
 /** 订单页上区块标题（h2）的先后。 */
 const sectionTitles = (): string[] => screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent ?? "");
 
-const bookingRoutes = (quotes: SiteQuote[], unavailable: unknown[] = []): Route => (call) => {
+/** 预订页（M8-05 起 /book 是四步新流程）打开要的接口：配置、城市 */
+const bookingRoutes: Route = (call) => {
   if (call.url.pathname === "/site/v1/config") return json(200, configOf());
   if (call.url.pathname === "/site/v1/cities") return json(200, { items: [city] });
-  if (call.url.pathname === `/site/v1/cities/${CITY_ID}/places`) return json(200, { items: [] });
-  if (call.url.pathname === `/site/v1/cities/${CITY_ID}/airports`) return json(200, { items: [airport] });
-  if (call.method === "POST" && call.url.pathname === "/site/v1/quotes") return json(200, { quotes, unavailable });
   return null;
 };
-
-async function fillInquiry(actor: ReturnType<typeof user>): Promise<void> {
-  await screen.findByRole("heading", { level: 1, name: "预订用车" });
-  await waitFor(() => assert.equal((screen.getByLabelText(/^机场/) as HTMLSelectElement).value, AIRPORT_ID));
-  await actor.type(screen.getByLabelText("下车地址或酒店名"), "东京站八重洲口");
-  await actor.type(screen.getByLabelText(/^纬度/), "35.6812");
-  await actor.type(screen.getByLabelText(/^经度/), "139.7671");
-  const date = screen.getByLabelText("航班到达日期（当地）") as HTMLInputElement;
-  await actor.clear(date);
-  await actor.type(date, "2030-11-20");
-  await actor.type(screen.getByLabelText("航班计划到达时间（当地）"), "10:00");
-}
 
 // ───────────── F1 区块顺序 ─────────────
 
@@ -208,32 +180,6 @@ test("F3：官网页面崩溃时用官网自己的兜底：不提管理员，说
   }
 });
 
-// ───────────── F4、F6、F7 询价结果 ─────────────
-
-test("F4、F6、F7：查询后焦点移到结果标题；报价按总价从低到高；取消政策是客人的说法", async () => {
-  open("/book", bookingRoutes([quoteOf("QT3", "豪华 7 座", "45000"), quoteOf("QT1", "商务 7 座", "21780"), quoteOf("QT2", "经济 5 座", "9800")]));
-  const actor = user();
-  await fillInquiry(actor);
-  await actor.click(screen.getByRole("button", { name: "查询价格" }));
-  const heading = await screen.findByRole("heading", { level: 2, name: "可预订的车（3 种）" });
-  assertFocused(heading);
-  assert.equal(heading.getAttribute("tabindex"), "-1");
-  assert.deepEqual(screen.getAllByRole("heading", { level: 3 }).map((name) => name.textContent), ["经济 5 座", "商务 7 座", "豪华 7 座"]);
-  assert.deepEqual(
-    screen.getAllByText("用车前 48 小时以上取消免费；24–48 小时内取消收 50%；24 小时内取消收全额").length,
-    3,
-  );
-  assert.doesNotMatch(document.body.textContent ?? "", /≥|扣 100%/);
-});
-
-test("F4：报不出价时焦点同样移到结果标题", async () => {
-  open("/book", bookingRoutes([], [{ vehicle_group_id: "x", reasons: ["OUT_OF_SERVICE_AREA"] }]));
-  const actor = user();
-  await fillInquiry(actor);
-  await actor.click(screen.getByRole("button", { name: "查询价格" }));
-  assertFocused(await screen.findByRole("heading", { level: 2, name: "没有可预订的车" }));
-});
-
 // ───────────── F5、F8、F9 订单页 ─────────────
 
 test("F5：刚下单的提示里是带文字的「复制链接」按钮，点了把订单链接写进剪贴板", async () => {
@@ -283,9 +229,9 @@ test("F7：订单页的取消政策是客人的说法；扣全额时确认框写
 
 // ───────────── F10、F11 顶栏 ─────────────
 
-test("F10、F11：顶栏 DOM 顺序是品牌、主题切换、入口；当前页的入口标 aria-current", async () => {
-  open("/book", bookingRoutes([]));
-  await screen.findByRole("heading", { level: 1, name: "预订用车" });
+test("F10、F11：顶栏 DOM 顺序是品牌、主题切换、入口；当前页的入口标 aria-current（预订页 /book、从旧地址 /book/new、/book/checkout 转过来的也是「预订用车」）", async () => {
+  open("/book", bookingRoutes);
+  await screen.findByRole("heading", { level: 1, name: "预订接送车" });
   const header = document.querySelector(".site__header") as HTMLElement;
   assert.deepEqual([...header.children].map((child) => child.className), ["site__brand", "site__theme", "site__nav"]);
   const focusable = [...header.querySelectorAll<HTMLElement>("a, button")].map((element) => element.getAttribute("aria-label") ?? element.textContent);
@@ -300,11 +246,13 @@ test("F10、F11：顶栏 DOM 顺序是品牌、主题切换、入口；当前页
   const nav2 = screen.getByRole("navigation", { name: "官网" });
   assert.equal(within(nav2).getByRole("link", { name: "查订单" }).getAttribute("aria-current"), "page");
   assert.equal(within(nav2).getByRole("link", { name: "预订用车" }).getAttribute("aria-current"), null);
-  resetBrowser();
 
-  open("/book/checkout", () => null);
-  await screen.findByRole("heading", { level: 1, name: "填写订单" });
-  assert.equal(within(screen.getByRole("navigation", { name: "官网" })).getByRole("link", { name: "预订用车" }).getAttribute("aria-current"), "true", "下单是预订流程的一步");
+  for (const legacy of ["/book/new", "/book/checkout"]) {
+    resetBrowser();
+    open(legacy, bookingRoutes);
+    await screen.findByRole("heading", { level: 1, name: "预订接送车" });
+    assert.equal(within(screen.getByRole("navigation", { name: "官网" })).getByRole("link", { name: "预订用车" }).getAttribute("aria-current"), "page", legacy);
+  }
 });
 
 // ───────────── F12 字段级错误 ─────────────

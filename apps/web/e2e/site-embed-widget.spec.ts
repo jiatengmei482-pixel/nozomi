@@ -3,11 +3,11 @@
  * 加载构建好的 /embed/widget-v1.js，经真实的 /embed/v1 → 真实 API → 真实 PostgreSQL。谷歌是本机的假服务器（global-setup）。
  *
  * - 白名单网站：宿主页把 div、input、button 全设成红底，组件外观不受影响；320 px 不横向滚动；axe 无问题；
- *   键盘选地点、提交 → 建草稿 → 整页跳到主站 /book/new?draft= → 自动询价，价格等于在主站手填同样条件。
+ *   键盘选地点、提交 → 建草稿 → 整页跳到主站 /book?draft= → 自动询价，价格等于在主站手填同样条件。
  * - 不在白名单的网站：只显示「预订组件暂时无法使用」和主站链接，没有表单；配置接口被拒、浏览器读不到。
  * - 建草稿失败（M9E-07，ADR 0090 第七节）：网络错误、429 两种（拦截改写应答）、400（客人填了不存在的日期，真实 API 拒绝）各显示第四节的那一句、不跳转；
  *   400 标出日期并把焦点移过去，改正后去掉标记。
- * - 包车（M9E-07）：选「包车」标签、不填经停点 → 跳 /book/new?draft= 后停在第 1 步等客人选时长、不询价 → 选 8 小时后报价。
+ * - 包车（M9E-07）：选「包车」标签、不填经停点 → 跳 /book?draft= 后停在第 1 步等客人选时长、不询价 → 选 8 小时后报价。
  * - 外观（M9E-14）：init 没传 layout 时用嵌入码后台设的（默认 auto：容器 ≥ 900 px 横条、窄了卡片），改窗口宽度来回换、已填的不丢；
  *   后台改成横条后新打开的页面是横条；宿主 init 传了 card 以 init 为准。
  * - 来源（M9E-12）：配了 Stripe 的那一组主站上，组件建草稿 → 询价带 `draft_id` → 下单 → 假 Stripe 测试卡 4242 付款 →
@@ -101,7 +101,7 @@ test("嵌入组件：白名单网站上样式不受宿主页影响、320 px、ax
   await page.setViewportSize({ width: 320, height: 800 });
   await page.goto(otherHost.origin);
   await expect(page.getByText("预订组件暂时无法使用。请稍后刷新，或直接到主站预订。")).toBeVisible();
-  await expect(page.getByRole("link", { name: "到主站预订" })).toHaveAttribute("href", `${SITE}/book/new`);
+  await expect(page.getByRole("link", { name: "到主站预订" })).toHaveAttribute("href", `${SITE}/book`);
   await expect(page.getByRole("button", { name: "查看价格" })).toHaveCount(0);
 
   // ---- 白名单网站 ----
@@ -168,7 +168,7 @@ test("嵌入组件：白名单网站上样式不受宿主页影响、320 px、ax
   const viaWidget = await quoteTotals(page, async () => {
     await page.keyboard.press("Enter");
     expect((await draftResponse).status()).toBe(201);
-    await page.waitForURL(new RegExp(`^${SITE.replace(/\./g, "\\.")}/book/new\\?draft=[A-Za-z0-9_-]{43}`));
+    await page.waitForURL(new RegExp(`^${SITE.replace(/\./g, "\\.")}/book\\?draft=[A-Za-z0-9_-]{43}`));
   });
   await expect(page.getByRole("heading", { name: "选择车型" })).toBeVisible();
   expect(viaWidget.length).toBeGreaterThan(0);
@@ -177,7 +177,7 @@ test("嵌入组件：白名单网站上样式不受宿主页影响、320 px、ax
   const draftId = new URL(page.url()).searchParams.get("draft") as string;
   const saved = (await (await request.get(`${SITE}/site/v1/booking-drafts/${draftId}`)).json()) as { draft: { service_local: string; dropoff: { lat: number; lng: number; name: string }; passengers: number; luggage: number } };
   const [date, time] = saved.draft.service_local.split("T") as [string, string];
-  const manual = await quoteTotals(page, () => page.goto(`${SITE}/book/new?${airportLink(airport)}&to=${saved.draft.dropoff.lat},${saved.draft.dropoff.lng}&to_name=${encodeURIComponent(saved.draft.dropoff.name)}&date=${date}&time=${time}&pax=${saved.draft.passengers}&bags=${saved.draft.luggage}`));
+  const manual = await quoteTotals(page, () => page.goto(`${SITE}/book?${airportLink(airport)}&to=${saved.draft.dropoff.lat},${saved.draft.dropoff.lng}&to_name=${encodeURIComponent(saved.draft.dropoff.name)}&date=${date}&time=${time}&pax=${saved.draft.passengers}&bags=${saved.draft.luggage}`));
   expect(viaWidget).toEqual(manual);
 });
 
@@ -233,7 +233,7 @@ test("嵌入组件建草稿失败：网络错误、429 两种、400 各显示一
   await page.route(isConfigUrl, (route) => (reply === "network" ? route.abort("failed") : route.fallback()));
   await submit.click();
   await expect(message).toHaveText("暂时连不上，请稍后再试或直接到主站预订。 到主站预订");
-  await expect(message.getByRole("link", { name: "到主站预订" })).toHaveAttribute("href", `${SITE}/book/new`);
+  await expect(message.getByRole("link", { name: "到主站预订" })).toHaveAttribute("href", `${SITE}/book`);
   await expect(submit).toHaveText("查看价格");
 
   reply = { status: 429, code: "RATE_LIMITED" };
@@ -265,7 +265,7 @@ test("嵌入组件建草稿失败：网络错误、429 两种、400 各显示一
   expect(new URL(page.url()).origin, "失败时都不跳转").toBe(allowedHost.origin);
 });
 
-test("嵌入组件包车：选「包车」、不填经停点 → 跳 /book/new?draft= 后停在第 1 步等客人选时长、不询价 → 选 8 小时后报价（M9E-07）", async ({ page, request }) => {
+test("嵌入组件包车：选「包车」、不填经停点 → 跳 /book?draft= 后停在第 1 步等客人选时长、不询价 → 选 8 小时后报价（M9E-07）", async ({ page, request }) => {
   test.setTimeout(180_000);
   // 城市有 4 小时、8 小时两档（只有一档时预订页会替客人选上）；上车站放在城市中心（商品区域里），下车选加价区域里的车站
   const trip = await charterWorld(request, { extraPackageHours: 4 });
@@ -292,7 +292,7 @@ test("嵌入组件包车：选「包车」、不填经停点 → 跳 /book/new?d
   expect((await draftResponse).status()).toBe(201);
   const sent = (await draftResponse).request().postDataJSON() as { draft: Record<string, unknown> };
   expect(sent.draft).toMatchObject({ tab: "charter", waypoints: [], package_hours: null });
-  await page.waitForURL(new RegExp(`^${SITE.replace(/\./g, "\\.")}/book/new\\?draft=[A-Za-z0-9_-]{43}`));
+  await page.waitForURL(new RegExp(`^${SITE.replace(/\./g, "\\.")}/book\\?draft=[A-Za-z0-9_-]{43}`));
 
   // 第 1 步：地点、日期带过来了，时长空着、两档可选，不询价
   await expect(page.getByRole("combobox", { name: "上车地点" })).toHaveValue(pickupName);
@@ -389,7 +389,7 @@ test("嵌入组件来的单记来源（M9E-12）：建草稿 → 询价带 draft
   const quoteRequest = page.waitForRequest((sent) => new URL(sent.url()).pathname === "/site/v1/quotes/by-points" && sent.method() === "POST");
   await page.getByRole("button", { name: "查看价格" }).click();
   expect((await draftResponse).status()).toBe(201);
-  await page.waitForURL(new RegExp(`^${STRIPE_SITE.replace(/\./g, "\\.")}/book/new\\?draft=[A-Za-z0-9_-]{43}`));
+  await page.waitForURL(new RegExp(`^${STRIPE_SITE.replace(/\./g, "\\.")}/book\\?draft=[A-Za-z0-9_-]{43}`));
   const draftId = new URL(page.url()).searchParams.get("draft") as string;
 
   // 主站的询价带上草稿编号：服务端凭它把来源记到报价上（这次漏带，单子都记成了主站）
@@ -474,7 +474,7 @@ test("嵌入组件（M9E-22）：白名单网站 + 启用的嵌入码显示表�
   await active.page.getByRole("button", { name: "查看价格" }).click();
   const message = active.page.locator('[data-role="message"]');
   await expect(message).toHaveText("这个网站暂时不能直接预订，请到主站预订。 到主站预订");
-  await expect(message.getByRole("link", { name: "到主站预订" })).toHaveAttribute("href", `${SITE}/book/new`);
+  await expect(message.getByRole("link", { name: "到主站预订" })).toHaveAttribute("href", `${SITE}/book`);
   expect(new URL(active.page.url()).origin, "不跳转").toBe(allowedHost.origin);
   expect(draftStatuses, "建草稿请求在浏览器里失败（被拒的应答不带 CORS 头）").toEqual([0]);
   await active.page.context().close();
@@ -482,7 +482,7 @@ test("嵌入组件（M9E-22）：白名单网站 + 启用的嵌入码显示表�
   // 新打开：被拒，显示「暂时无法使用」和主站链接、不显示表单；控制台写明原因要先查停用
   const refused = await open();
   await expect(refused.page.getByText("预订组件暂时无法使用。请稍后刷新，或直接到主站预订。")).toBeVisible();
-  await expect(refused.page.getByRole("link", { name: "到主站预订" })).toHaveAttribute("href", `${SITE}/book/new`);
+  await expect(refused.page.getByRole("link", { name: "到主站预订" })).toHaveAttribute("href", `${SITE}/book`);
   await expect(refused.page.getByRole("button", { name: "查看价格" })).toHaveCount(0);
   await expect.poll(() => refused.errors.find((text) => text.startsWith("NozomiBooking：主站拒绝了取配置的请求")) ?? null).toMatch(/嵌入码是否已在 NOZOMI 运营后台停用/);
   await refused.page.context().close();

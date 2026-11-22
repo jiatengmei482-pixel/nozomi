@@ -280,7 +280,7 @@ test("草稿过期（error DRAFT_NOT_FOUND）：删存储，iframe 上方显示�
   assert.equal(fetched[0]?.url.pathname, "/embed/v1/config");
 });
 
-test("15 秒没收到 ready：拿掉 iframe，显示一句话和「到主站继续预订」（新标签页，主站 /book/new?draft=），控制台提示开发者", async () => {
+test("15 秒没收到 ready：拿掉 iframe，显示一句话和「到主站继续预订」（新标签页，主站 /book?draft=），控制台提示开发者", async () => {
   READY_TIMEOUT.ms = 30;
   mountWithDraft({ lang: "ja" });
   await wait(60);
@@ -288,7 +288,7 @@ test("15 秒没收到 ready：拿掉 iframe，显示一句话和「到主站继�
   const fallback = root().querySelector('[data-nozomi-booking="fallback"]')?.shadowRoot as ShadowRoot;
   assert.match(fallback.textContent ?? "", new RegExp(BOOKING_TEXTS.ja.failed));
   const link = fallback.querySelector("a") as HTMLAnchorElement;
-  assert.equal(link.getAttribute("href"), `${BASE}/book/new?draft=${DRAFT}`);
+  assert.equal(link.getAttribute("href"), `${BASE}/book?draft=${DRAFT}`);
   assert.equal(link.getAttribute("target"), "_blank");
   assert.equal(link.getAttribute("rel"), "noopener noreferrer");
   assert.ok(consoleErrors.some((line) => line.startsWith("NozomiBooking：") && line.includes("白名单") && line.includes("允许整页嵌入")));
@@ -373,9 +373,9 @@ async function submitInit(options: Record<string, unknown>): Promise<{ body: Rec
   return { body: drafted, went };
 }
 
-test("init 不传 bookingUrl：行为逐字不变——跳主站 /book/new?draft=，建草稿不带 delivery，控制台不说话", async () => {
+test("init 不传 bookingUrl：行为逐字不变——跳主站 /book?draft=，建草稿不带 delivery，控制台不说话", async () => {
   const { body, went } = await submitInit({});
-  assert.deepEqual(went, [`${BASE}/book/new?draft=${"E".repeat(43)}`]);
+  assert.deepEqual(went, [`${BASE}/book?draft=${"E".repeat(43)}`]);
   assert.deepEqual(Object.keys(body), ["draft"]);
   assert.deepEqual(consoleErrors, []);
 });
@@ -390,7 +390,7 @@ test("init 传合格的 bookingUrl（同一个 origin）：草稿建好后跳 bo
 for (const bad of ["https://other.example/booking/", "/booking/", "http://partner.example/booking/", "https://user:pw@localhost/booking/"]) {
   test(`init 传不合格的 bookingUrl（${bad}）：按没传处理（跳主站、不带 delivery），控制台报一句`, async () => {
     const { body, went } = await submitInit({ bookingUrl: bad });
-    assert.deepEqual(went, [`${BASE}/book/new?draft=${"E".repeat(43)}`]);
+    assert.deepEqual(went, [`${BASE}/book?draft=${"E".repeat(43)}`]);
     assert.equal("delivery" in body, false);
     assert.equal(consoleErrors.length, 1);
     assert.match(consoleErrors[0] ?? "", /^NozomiBooking：bookingUrl 不合格/);

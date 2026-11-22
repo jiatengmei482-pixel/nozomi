@@ -149,7 +149,7 @@ async function expectSummaryRows(page: Page, width: number, step: string): Promi
 
 async function walk(page: Page, tab: Tab, size: { width: number; height: number }): Promise<void> {
   const width = size.width;
-  await page.goto(`${SITE}/book/new?${tab.link}`);
+  await page.goto(`${SITE}/book?${tab.link}`);
   const card = page.locator(".book-vehicle").first();
   await expect(card).toBeVisible();
   await expect(page).toHaveURL(/[?&]step=2/);
@@ -223,7 +223,7 @@ test("M8-37b 电脑 1280 布局不变：地址框整行上下排、日期时间�
   const [transfer] = await tabs(request);
   if (transfer === undefined) throw new Error("没有准备好区间的链接");
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto(`${SITE}/book/new?${transfer.link}`);
+  await page.goto(`${SITE}/book?${transfer.link}`);
   await page.getByRole("button", { name: /^第 1 步/ }).click();
   const from = await box(page.getByRole("combobox", { name: "出发地" }), "出发地");
   const to = await box(page.getByRole("combobox", { name: "目的地" }), "目的地");

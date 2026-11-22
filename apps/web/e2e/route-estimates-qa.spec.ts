@@ -4,39 +4,33 @@
  *
  * 路线结果怎么来：别的用例会短暂在运营后台填一把谷歌密钥（integration-secrets.spec.ts），所以「有没有密钥」不是确定的。
  * 这里把要用的两组起终点直接写进路线缓存（平台角色，和服务进程一样的权限）：一组「没有路线」（1 天的负缓存），一组 9.25 公里 25 分钟——
- * 缓存在查密钥之前，结果确定。起终点每次运行随机，用例结束删掉这两行。
+ * 缓存在查密钥之前，结果确定。上车点是本用例自己的城市的中心（每次运行随机，M8-05 起预订页按两个坐标报价，见 book-new-support.ts 的 pointToPointCity），
+ * 用例结束删掉这两行。
  *
- * - 官网点对点：没有路线 → 「换一个地址」；暂时算不出（没有密钥）→ 「稍后再试」；不出现原因代码和内部说法；320 / 768 宽不横向滚动，亮暗 axe。
+ * - 官网点对点（预订页 /book 的带参数链接，M8-05 起是四步新流程）：没有路线 → 「换一个地址」；暂时算不出（没有密钥）→ 「稍后再试」；不出现原因代码和内部说法；
+ *   320 / 768 宽不横向滚动，亮暗 axe。
  * - 运营后台报价试算：来自缓存（写明来源，结算价和手算一致）、起终点重合（按 0、起步价）、假定值、没有路线（原因码 + 怎么办的警示条）；
  *   320 / 768 宽不横向滚动，亮暗 axe。「刚调用谷歌」这一种来源要有密钥，由组件测试 products.test.tsx 覆盖。
  */
-import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
+import { type Page, expect, test } from "@playwright/test";
 import { type LatLng, routeCacheKey } from "@nozomi/domain";
 import { withPlatformTx } from "../../api/src/db/context.ts";
 import { createPool } from "../../api/src/db/pool.ts";
-import { CENTER, type Supplier, type World, choose, createProductByApi, createSupplier, createWorld, expectAccessible } from "./catalog.ts";
+import { pointToPointCity } from "./book-new-support.ts";
+import { type World, choose, expectAccessible } from "./catalog.ts";
 import { adminCredentials, loginAs, OWN_SITE_SOURCE } from "./support.ts";
 
 // 官网按来源地址限速：每条用例带自己的文档专用地址，不和并行的官网用例在 127.0.0.1 上抢同一份额度（M8-17）
 test.use(OWN_SITE_SOURCE);
 
-const RULES = {
-  booking: { sale_from: null, sale_to: null, service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 0, note: null },
-  urgent: { enabled: false, daily_quota: null, tiers: [] },
-  night: { enabled: false, window: null, amount: null, charge_unit: null },
-  free_wait: { pickup: null, dropoff: null, general: { mode: "limited", minutes: 30 } },
-  addons: [],
-  driver_languages: [],
-};
-const EMPTY_PRICE = { direction: null, package_hours: null, start_price: null, start_meters: null, start_minutes: null, per_km: null, per_minute: null, min_price: null, package_km: null, package_price: null, overtime_per_hour: null, over_km_per_km: null, base_price: null };
 /** 起步 3,000 日元含 5 公里 20 分钟，超出每公里 400、每分钟 80 */
 const METERED = { pricing_model: "mileage_time", start_price: 3_000, start_meters: 5_000, start_minutes: 20, per_km: 400, per_minute: 80 };
 
 const GUEST_NO_ROUTE = "这两个地点之间没有可行驶的路线，请换一个地址。";
 const GUEST_TEMPORARY = "暂时算不出这段路程的价格，请稍后再试，或改订包车。";
 
-/** 区域（中心 ±0.1 度）里的一个随机点（中心 ±spread 度），4 位小数 */
-const randomPoint = (spread = 0.08): LatLng => ({ lat: Number((CENTER.lat - spread + Math.random() * spread * 2).toFixed(4)), lng: Number((CENTER.lng - spread + Math.random() * spread * 2).toFixed(4)) });
+/** 区域（城市中心 ±0.1 度）里的一个随机点（中心 ±spread 度），4 位小数 */
+const randomPoint = (spread = 0.08): LatLng => ({ lat: Number((center.lat - spread + Math.random() * spread * 2).toFixed(4)), lng: Number((center.lng - spread + Math.random() * spread * 2).toFixed(4)) });
 /** 从 point 按固定偏移（度）算出的点，4 位小数 */
 const offsetPoint = (point: LatLng, dLat: number, dLng: number): LatLng => ({ lat: Number((point.lat + dLat).toFixed(4)), lng: Number((point.lng + dLng).toFixed(4)) });
 
@@ -49,23 +43,6 @@ async function db<T>(fn: (query: (text: string, values: unknown[]) => Promise<un
   } finally {
     await pool.end();
   }
-}
-
-async function publishMetered(request: APIRequestContext, supplier: Supplier, world: World): Promise<void> {
-  const product = await createProductByApi(request, supplier, world, "point_to_point");
-  const rules = await request.put(`/tenant/v1/products/${product.id}/service-rules`, { headers: { ...supplier.headers, "if-match": `"${product.version}"` }, data: RULES });
-  expect(rules.status(), await rules.text()).toBe(200);
-  const content = await request.put(`/tenant/v1/products/${product.id}/content`, { headers: { ...supplier.headers, "if-match": `"${((await rules.json()) as { version: number }).version}"` }, data: { zh: { title: "官网市内里程计价" } } });
-  expect(content.status(), await content.text()).toBe(200);
-  const { today } = (await (await request.get(`/tenant/v1/products/${product.id}/price-rules`, { headers: supplier.headers })).json()) as { today: string };
-  const version = ((await (await request.get(`/tenant/v1/products/${product.id}`, { headers: supplier.headers })).json()) as { version: number }).version;
-  const created = await request.post(`/tenant/v1/products/${product.id}/price-rules/batch`, {
-    headers: { ...supplier.headers, "if-match": `"${version}"`, "idempotency-key": crypto.randomUUID() },
-    data: { create: [{ ...EMPTY_PRICE, ...METERED, ref: "a", area_id: supplier.area.id, vehicle_group_id: world.group.id, valid_from: today, valid_to: null, status: "enabled" }], update: [], delete: [] },
-  });
-  expect(created.status(), await created.text()).toBe(200);
-  const published = await request.post(`/tenant/v1/products/${product.id}/publish`, { headers: supplier.headers });
-  expect(published.status(), await published.text()).toBe(200);
 }
 
 function tomorrowInTokyo(): string {
@@ -89,6 +66,7 @@ async function expectNarrowAndAccessible(page: Page, what: string): Promise<void
 }
 
 let world: World;
+let center: LatLng;
 let pickup: LatLng;
 let noRoute: LatLng;
 let cached: LatLng;
@@ -96,11 +74,10 @@ const seeded: string[] = [];
 
 test.beforeAll(async ({ request }) => {
   test.setTimeout(120_000);
-  world = await createWorld(request);
-  await publishMetered(request, await createSupplier(request, world), world);
-  // 三个点各自随机时偶尔有两个落进同一个缓存格（键取整到 3 位小数，约每 8 千次一次）：上车点随机，两个下车点按固定偏移算出，
-  // 两两至少差 0.011 度（11 格以上），仍在区域内（±0.06 再偏 0.015 以内）
-  pickup = randomPoint(0.06);
+  // 本用例自己的城市（中心每次运行随机）：预订页按两个坐标报价、按出发地找「中心最近」的城市，出发地放在中心（见 book-new-support.ts 的 pointToPointCity）
+  ({ world, center } = await pointToPointCity(request, METERED));
+  // 两个下车点按固定偏移算出：和上车点、彼此至少差 0.011 度（11 个缓存格以上，键取整到 3 位小数），仍在区域内
+  pickup = center;
   noRoute = offsetPoint(pickup, 0.012, -0.015);
   cached = offsetPoint(pickup, -0.013, 0.011);
   const bad = routeCacheKey(pickup, noRoute);
@@ -116,30 +93,22 @@ test.afterAll(async () => {
   if (seeded.length > 0) await db((query) => query("delete from route_estimates where cache_key = any($1)", [seeded]));
 });
 
+/** 预订页（M8-05 起 /book 是四步新流程）带参数的链接：两端坐标加名称、明天 10:00，打开即报价（两端都不是机场，按点对点） */
 async function siteQuote(page: Page, to: LatLng): Promise<void> {
-  await page.getByLabel("上车地址或酒店名").fill("测试上车点");
-  const from = page.getByRole("group", { name: /上车地点的坐标/ });
-  await from.getByLabel(/^纬度/).fill(String(pickup.lat));
-  await from.getByLabel(/^经度/).fill(String(pickup.lng));
-  await page.getByLabel("下车地址或酒店名").fill("测试下车点");
-  const dropoff = page.getByRole("group", { name: /下车地点的坐标/ });
-  await dropoff.getByLabel(/^纬度/).fill(String(to.lat));
-  await dropoff.getByLabel(/^经度/).fill(String(to.lng));
-  await page.getByRole("button", { name: "查询价格" }).click();
+  await page.goto(`/book?from=${pickup.lat},${pickup.lng}&from_name=${encodeURIComponent("测试上车点")}&to=${to.lat},${to.lng}&to_name=${encodeURIComponent("测试下车点")}&date=${tomorrowInTokyo()}&time=10:00`);
+  await expect(page.getByRole("heading", { name: "选择车型" })).toBeVisible();
 }
+
+/** 报不出价时那一块（「没有可预订的车」和原因） */
+const rejected = (page: Page) => page.locator(".book-new__rejected");
 
 test("官网点对点（只有里程计价的商品）：没有路线时说换个地址，暂时算不出时说稍后再试；不出现原因代码和内部说法；320 / 768 宽、亮暗 axe", async ({ page }) => {
   test.setTimeout(150_000);
   await page.setViewportSize({ width: 768, height: 1024 });
-  await page.goto("/book");
-  await page.getByLabel(/^城市/).selectOption({ label: world.city.name });
-  // 这个城市只有点对点一种服务：不出服务的单选，直接是点对点的表单
-  await expect(page.getByLabel("下车地址或酒店名")).toBeVisible();
-  await page.getByLabel("用车日期（当地）").fill(tomorrowInTokyo());
-  await page.getByLabel("上车时间（当地）").fill("10:00");
 
   await siteQuote(page, noRoute);
-  const results = page.getByRole("region", { name: "没有可预订的车" });
+  const results = rejected(page);
+  await expect(results).toContainText("没有可预订的车");
   await expect(results).toContainText(GUEST_NO_ROUTE);
   await expect(results).not.toContainText(GUEST_TEMPORARY);
   await expect(page.locator("main")).not.toContainText(/NO_ROUTE|TEMPORARILY|谷歌|密钥|配额|上限|ROUTE_UNAVAILABLE/);
@@ -152,9 +121,9 @@ test("官网点对点（只有里程计价的商品）：没有路线时说换�
   // 暂时算不出：服务进程没有配置谷歌密钥（别的用例短暂填了一把时，假谷歌会给出路线——换一组点再试）
   await expect(async () => {
     await siteQuote(page, randomPoint());
-    await expect(page.getByRole("region", { name: "没有可预订的车" })).toContainText(GUEST_TEMPORARY, { timeout: 3_000 });
+    await expect(rejected(page)).toContainText(GUEST_TEMPORARY, { timeout: 3_000 });
   }).toPass({ timeout: 60_000, intervals: [2_000, 5_000] });
-  await expect(page.getByRole("region", { name: "没有可预订的车" })).not.toContainText(GUEST_NO_ROUTE);
+  await expect(rejected(page)).not.toContainText(GUEST_NO_ROUTE);
   await expect(page.locator("main")).not.toContainText(/NOT_CONFIGURED|TEMPORARILY|谷歌|密钥|配额|上限/);
   await expectNarrowAndAccessible(page, "官网：暂时算不出");
 });

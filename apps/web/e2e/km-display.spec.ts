@@ -168,7 +168,7 @@ test("含公里数的点对点单：新预订页车型卡和车费下面「含 3
   // ── 官网新预订页（电脑 1280）：链接带两端 → 自动报价 ──
   await page.setViewportSize({ width: 1280, height: 900 });
   const quoted = page.waitForResponse((response) => new URL(response.url()).pathname === "/site/v1/quotes/by-points" && response.request().method() === "POST");
-  await page.goto(`${SITE}/book/new?${linkPoint("from", trip.pickup, "北口酒店")}&${linkPoint("to", trip.dropoff, "东边车站")}&date=${tomorrowInTokyo()}&time=10:00&pax=2&bags=1`);
+  await page.goto(`${SITE}/book?${linkPoint("from", trip.pickup, "北口酒店")}&${linkPoint("to", trip.dropoff, "东边车站")}&date=${tomorrowInTokyo()}&time=10:00&pax=2&bags=1`);
   const answer = await quoted;
   expect(answer.status(), await answer.text()).toBe(200);
   const offer = ((await answer.json()) as { quotes: { vehicle_group: { id: string }; price: { total: { amount: string } }; distance: { included_km: number; route_meters: number; over_km: number; over_km_per_km: { amount: string; currency: string } } | null }[] }).quotes.find((entry) => entry.vehicle_group.id === trip.groupId);

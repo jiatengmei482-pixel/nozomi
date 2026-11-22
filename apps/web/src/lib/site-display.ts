@@ -4,40 +4,27 @@
  */
 import type { FreeWaitBasis } from "../api/dispatch.ts";
 import { FREE_WAIT_TEXTS, dispatchedFreeWaitNote } from "./free-wait-display.ts";
-import { AREA_SURCHARGE_NOTE as DOMAIN_AREA_SURCHARGE_NOTE, CHARTER_ITINERARY_OVERAGE_TEXTS, CHARTER_OVERAGE_TEXTS, type ExtraChargeStatus, FIXED_PRICE_INCLUDES_TEXTS, LANDING_RULES, type OrderChangeStatus, type OrderStatus, type PricingBasis, addDays, arrivalFreeWaitRange, charterAllInclusiveFor, fixedPriceFeeNote, includedKmNote, isCurrencyCode, parseMajor, pricingBasisFeeNote, pricingBasisNote } from "@nozomi/domain";
+import { AREA_SURCHARGE_NOTE as DOMAIN_AREA_SURCHARGE_NOTE, CHARTER_ITINERARY_OVERAGE_TEXTS, CHARTER_OVERAGE_TEXTS, type ExtraChargeStatus, LANDING_RULES, type OrderChangeStatus, type OrderStatus, type PricingBasis, addDays, charterAllInclusiveFor, fixedPriceFeeNote, includedKmNote, isCurrencyCode, parseMajor, pricingBasisFeeNote, pricingBasisNote } from "@nozomi/domain";
 import type { CancelTier } from "../api/order-money.ts";
-import type { SiteCategory, SiteDirection, SiteOrder, SitePlace, SiteQuote, SiteUnavailableReason } from "../api/site.ts";
+import type { SiteCategory, SiteDirection, SiteOrder, SiteQuote, SiteUnavailableReason } from "../api/site.ts";
 import type { BadgeSpec } from "../components/StatusBadge.tsx";
 
+/** 预订页（M8-05 起是 M8-03 的四步新流程，ADR 0069 A5） */
 export const SITE_HOME_PATH = "/book";
-export const SITE_CHECKOUT_PATH = "/book/checkout";
+/**
+ * 以前的预订地址（M8-05，ADR 0069 A5）：M8-03 起的新预订页 `/book/new`（以前的嵌入组件脚本、后端建预订草稿时给的链接、客人收藏的链接里还有）、旧下单页 `/book/checkout`。
+ * 打开时转到 `SITE_HOME_PATH`，查询串、`#` 后面和路由 state 原样带过去（链接参数、`?draft=`、`?step=`、行程报价页带来的报价都照常）。
+ */
+export const SITE_LEGACY_BOOKING_PATHS = ["/book/new", "/book/checkout"] as const;
 export const SITE_ORDER_PATH = "/book/order";
 /** 多日行程报价页（M9T-09，ADR 0101 第十三节）：验收通过前不在任何导航里放入口，只能直接打开地址 */
 export const SITE_TRIP_PATH = "/book/trip";
-
-/** 客人看到的服务名称（M3-10）。 */
-export const SITE_CATEGORY_NAMES: Readonly<Record<SiteCategory, string>> = { airport_transfer: "接送机", point_to_point: "点对点", charter: "包车" };
-
-/** 选服务时每种服务下面的一句说明。 */
-export const SITE_CATEGORY_HINTS: Readonly<Record<SiteCategory, string>> = {
-  airport_transfer: "机场和酒店、地址之间",
-  point_to_point: "市内两个地点之间",
-  charter: "按小时包一辆车，司机全程陪同",
-};
 
 /** 包车超出套餐的部分怎么收（M8-09：包车一口价全含之后，只有超出套餐的时长和公里另收）。 */
 export const CHARTER_OVERAGE_NOTE = `${CHARTER_OVERAGE_TEXTS.zh}：先通知您，48 小时内可以在订单页提异议。`;
 
 /** 包车按行程计价（M9W-05，ADR 0089；M9P-04 改）：超公里已按预计行程算进价格，用时超出套餐或当天超出预计的部分另收。不按行程计价的包车照旧用 `CHARTER_OVERAGE_NOTE` */
 export const CHARTER_ITINERARY_OVERAGE_NOTE = `${CHARTER_ITINERARY_OVERAGE_TEXTS.zh}：先通知您，48 小时内可以在订单页提异议。`;
-
-/**
- * 价格包含什么（询价结果上方的一句）。包车也是一口价全含（ADR 0070）：高速费、停车费不另收，只有超出套餐的时长和公里服务后按实际收取。
- * 「含所有费用」的说法取 domain `fixed-price-includes.ts`（和新预订页、确认邮件同一来源）。
- */
-export function priceNote(category: SiteCategory): string {
-  return category === "charter" ? `按车计价的套餐价，${FIXED_PRICE_INCLUDES_TEXTS.zh.allInclusive}。${CHARTER_OVERAGE_NOTE}` : "按车计价的一口价，已含高速费和停车费。";
-}
 
 /**
  * 订单页的「费用说明」（ADR 0070）：接送机、点对点写含所有费用；按里程计价（`pricing_basis = distance_only`）的不是一口价，
@@ -111,16 +98,6 @@ export function serviceTimeLabels(category: SiteCategory, direction: SiteDirecti
 }
 
 /**
- * 报价里的免费等待（旧下单页的车型列表）：接机还不知道航班类型，按航班写国际线、国内线各最长多久（M9E-28，ADR 0097；
- * 2026-11-16 起平台统一国际 90、国内 60，不看商品设的，商品「不限时」也一样，M9E-31）；其他同 `freeWaitText`。`minutes` 是报价里商品自己设的值。
- */
-export function quoteFreeWaitText(minutes: number | null, category: SiteCategory, direction: SiteDirection | null): string {
-  if (category !== "airport_transfer" || direction !== "pickup") return freeWaitText(minutes, category, direction);
-  const range = arrivalFreeWaitRange();
-  return `国际线最长 ${range.international} 分钟、国内线最长 ${range.domestic} 分钟（从航班落地起算）`;
-}
-
-/**
  * 订单上的免费等待（订单页、供应商、司机）：最终锁定的分钟数；按航班锁定的接机后面注明按哪种航班（M9E-28）——
  * 航班类型未确认时注明「航班类型未确认，按国内线」。
  */
@@ -152,8 +129,6 @@ export function freeWaitText(minutes: number | null, category: SiteCategory, dir
 export function packageText(hours: number, km: number | null): string {
   return km === null ? `${hours} 小时` : `${hours} 小时，含 ${countText(km)} 公里`;
 }
-
-export const SITE_PLACE_TYPE_NAMES: Readonly<Record<SitePlace["type"], string>> = { airport: "机场", station: "车站", poi: "地标" };
 
 /** 订单页的地址：令牌在 `#` 后面，不会发给服务器、不进访问日志。 */
 export function siteOrderUrl(token: string): string {

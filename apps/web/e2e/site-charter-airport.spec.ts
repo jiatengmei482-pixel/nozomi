@@ -1,5 +1,5 @@
 /**
- * 端到端：包车机场套餐的快捷入口（M9P-22，ADR 0098 第三节第 6、7 小节，第六节第 10 条）——主站 /book/new。
+ * 端到端：包车机场套餐的快捷入口（M9P-22，ADR 0098 第三节第 6、7 小节，第六节第 10 条）——主站 /book。
  * 真实浏览器 → 构建好的前端 → 真实 API → 真实 PostgreSQL。准备见 charter-airport-support.ts（迁移过三层区域的包车商品绑了一个机场，机场在①里）。
  * 嵌入页（iframe）的那一半在 site-embed-booking.spec.ts 的「M9P-22 跨站」（chromium + webkit-embed）。
  *
@@ -25,7 +25,7 @@ test("M9P-22 主站手机 390：「机场接机开始」按航站楼选，底部
   test.setTimeout(180_000);
   const trip = await charterAirportWorld(request);
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(`${SITE}/book/new?mode=charter&${linkPoint("to", trip.nearby, "市内下车点")}&date=${tomorrowInTokyo()}&time=10:00`);
+  await page.goto(`${SITE}/book?mode=charter&${linkPoint("to", trip.nearby, "市内下车点")}&date=${tomorrowInTokyo()}&time=10:00`);
   await expect(page.getByRole("heading", { name: "你的行程" })).toBeVisible();
 
   await page.getByRole("button", { name: "机场接机开始" }).click();
@@ -68,7 +68,7 @@ test("M9P-22 主站电脑 1280：「改填其他地点」退回普通地址输�
   test.setTimeout(180_000);
   const trip = await charterAirportWorld(request);
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto(`${SITE}/book/new?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&date=${tomorrowInTokyo()}&time=10:00`);
+  await page.goto(`${SITE}/book?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&date=${tomorrowInTokyo()}&time=10:00`);
   await expect(page.getByRole("heading", { name: "你的行程" })).toBeVisible();
 
   await page.getByRole("button", { name: "机场接机开始" }).click();

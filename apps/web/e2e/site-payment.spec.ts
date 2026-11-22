@@ -12,6 +12,7 @@
  */
 import { type APIRequestContext, type Page, type Request, expect, test } from "@playwright/test";
 import { E2E_WEB_STRIPE_PORT } from "../playwright.config.ts";
+import { airportLink, createAirport, publishTransfer } from "./book-new-support.ts";
 import { CENTER, type Supplier, type World, createProductByApi, createSupplier, createWorld, expectAccessible } from "./catalog.ts";
 import { TEST_CARDS, routeStripe } from "./fake-stripe.ts";
 
@@ -151,32 +152,31 @@ async function expectAccessibleBothThemes(page: Page, what: string): Promise<voi
 
 test("官网下单后用 Stripe 付款（测试卡 4242）：付款成功等待确认 → Stripe 的通知到了自动显示已确认；策略一样都没拦下，只去本站和 Stripe，令牌不进 Stripe 的请求", async ({ page, request }) => {
   test.setTimeout(120_000);
-  const world = await sellableWorld(request);
+  // 本用例专用的机场：预订页按两个坐标报价，认得出是它（别的用例的城市机场坐标都一样）
+  const world = await createWorld(request);
+  const airport = await createAirport(request, world);
+  const supplier = await createSupplier(request, world);
+  await publishTransfer(request, supplier, { ...world, airport });
   const source = sourceAddress();
   const { routed, cspBlocked, requests } = await preparePage(page, source);
   const when = tokyoIn(26);
   await page.setViewportSize({ width: 400, height: 800 });
 
-  // 询价 → 选车 → 下单（和没配 Stripe 时同一套页面）
-  const response = await page.goto(`${SITE}/book`);
+  // 预订页（M8-05 起 /book 是四步新流程，和没配 Stripe 时同一套页面）：带参数的链接报价 → 选车 → 乘客信息 → 核对、去付款
+  const response = await page.goto(`${SITE}/book?${airportLink(airport)}&to=${CENTER.lat + 0.01},${CENTER.lng + 0.01}&to_name=${encodeURIComponent("新宿站南口")}&date=${when.date}&time=${when.time}`);
   expect(response?.headers()["content-security-policy"], "官网页面的策略放行 Stripe").toContain("frame-src 'self' https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com");
-  await page.getByLabel(/^城市/).selectOption({ label: world.city.name });
-  await expect(page.getByLabel(/^机场/)).toHaveValue(world.airport.id);
-  await page.getByLabel("下车地址或酒店名").fill("新宿站南口");
-  await page.getByLabel(/^纬度/).fill(String(CENTER.lat + 0.01));
-  await page.getByLabel(/^经度/).fill(String(CENTER.lng + 0.01));
-  await page.getByLabel("航班到达日期（当地）").fill(when.date);
-  await page.getByLabel("航班计划到达时间（当地）").fill(when.time);
-  await page.getByRole("button", { name: "查询价格" }).click();
   const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: world.group.name }) });
-  await card.getByRole("button", { name: `预订${world.group.name}` }).click();
+  await card.getByRole("button", { name: `选择 ${world.group.name}` }).click();
+  const bar = page.locator(".step-bar");
+  await bar.getByRole("button", { name: "下一步：填写乘客信息" }).click();
   await page.getByLabel("乘车人姓名").fill("王小明");
-  await page.getByLabel("手机号（带国家码）").fill("+81 90-1234-5678");
+  await page.getByLabel("手机号（含国家区号）").fill("+81 90-1234-5678");
   await page.getByLabel("邮箱").fill(`pay-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`);
   await page.getByLabel("航班号").fill("NH 211");
   await page.getByRole("radio", { name: /^国际航班/ }).check();
-  await page.getByRole("checkbox", { name: /同意保存/ }).check();
-  await page.getByRole("button", { name: /提交订单/ }).click();
+  await page.getByRole("button", { name: "下一步：核对订单" }).click();
+  await page.getByRole("checkbox", { name: /同意保存这次付款用的银行卡/ }).check();
+  await bar.getByRole("button", { name: "去付款 →" }).click();
 
   // 订单页：待付款，付款区块排第一，Stripe 的表单挂上了
   await expect(page.getByRole("heading", { level: 1, name: /^订单 NZ/ })).toBeVisible();

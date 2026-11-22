@@ -1,5 +1,5 @@
 /**
- * 端到端：新预订页 `/book/new` 的包车下车地点和区域加价（M8-19；规范 site-booking-v2.md 10.1、10.2、10.4；ADR 0073）。
+ * 端到端：新预订页 `/book` 的包车下车地点和区域加价（M8-19；规范 site-booking-v2.md 10.1、10.2、10.4；ADR 0073）。
  * 真实浏览器 → 前端 → 真实 API（`/site/v1`）→ 真实 PostgreSQL，不 mock 接口。
  *
  * 包车的城市、区域、商品见 charter-support.ts（8 小时套餐对外 77,000，加价区域上车加 500、下车加 1,000，加价区域里有一个车站，下车地点框里能搜到）。客人：
@@ -105,7 +105,7 @@ test("新预订页包车：下车地点必填（旧链接只有上车地点时�
 
   // 手机 390：旧包车链接只有上车地点
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(`${SITE}/book/new?mode=charter&${linkPoint("from", trip.pickup, LONG_PICKUP)}&date=${date}&time=10:00`);
+  await page.goto(`${SITE}/book?mode=charter&${linkPoint("from", trip.pickup, LONG_PICKUP)}&date=${date}&time=10:00`);
   const pickup = page.getByRole("combobox", { name: "上车地点" });
   const dropoff = page.getByRole("combobox", { name: "下车地点" });
   await expect(pickup).toHaveValue(LONG_PICKUP);
@@ -155,17 +155,17 @@ test("新预订页包车：下车地点必填（旧链接只有上车地点时�
 
   // 电脑 1280：下车地点在商品区域里 → 77,000，不写含区域加价
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto(`${SITE}/book/new?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.nearby, "市内下车点")}&date=${date}&time=10:00`);
+  await page.goto(`${SITE}/book?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.nearby, "市内下车点")}&date=${date}&time=10:00`);
   const plain = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: trip.groupName }) });
   await expect(plain).toContainText("77,000 JPY");
   await expect(page.locator("main")).not.toContainText("含区域加价");
 
   // 上车地点在加价区域（M9P-02）：同一个包车商品报价，收上车加价 500
-  await page.goto(`${SITE}/book/new?mode=charter&${linkPoint("from", trip.station.location, trip.station.name)}&${linkPoint("to", trip.nearby, "市内下车点")}&date=${date}&time=10:00`);
+  await page.goto(`${SITE}/book?mode=charter&${linkPoint("from", trip.station.location, trip.station.name)}&${linkPoint("to", trip.nearby, "市内下车点")}&date=${date}&time=10:00`);
   await expect(page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: trip.groupName }) })).toContainText("77,550 JPY");
 
   // 下车地点不在任何区域：按上下车点没匹配到包车商品，第 1 步就说转人工 + 客服电话，不询价（M9P-02）
-  await page.goto(`${SITE}/book/new?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.nowhere, "很远的地方")}&date=${date}&time=10:00`);
+  await page.goto(`${SITE}/book?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.nowhere, "很远的地方")}&date=${date}&time=10:00`);
   await expect(page.locator(".book-new__notice")).toContainText(MANUAL);
   await expect(page.getByRole("heading", { name: "请客服人工报价" })).toBeVisible();
   await expect(page.getByRole("link", { name: SUPPORT_PHONE }).first()).toHaveAttribute("href", "tel:+81300000000");
@@ -173,7 +173,7 @@ test("新预订页包车：下车地点必填（旧链接只有上车地点时�
   await expectBothThemes(page, "新预订页包车电脑（转人工）");
 
   // 加价区域的下车地点（链接带 to）→ 选车 → 右侧栏车费下面含区域加价 → 下单
-  await page.goto(`${SITE}/book/new?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.station.location, trip.station.name)}&date=${date}&time=10:00`);
+  await page.goto(`${SITE}/book?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.station.location, trip.station.name)}&date=${date}&time=10:00`);
   const surcharged = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: trip.groupName }) });
   await expect(surcharged).toContainText("78,100 JPY");
   await surcharged.getByRole("button", { name: `选择 ${trip.groupName}` }).click();

@@ -226,7 +226,7 @@ test("供应商在价格页设包车区域加价（两个区域）→ 运营报�
 
   // ── 官网新预订页：同一条路线只有一个价，写「含区域加价」；M9P-04 起逐项列明细（对外价：上车 500 → 550，下车 1,000 → 1,100） ──
   const site = await browser.newPage({ locale: "zh-CN", viewport: { width: 1280, height: 900 } });
-  const link = `${SITE}/book/new?mode=charter&from=${trip.pickup.lat},${trip.pickup.lng}&from_name=${encodeURIComponent("甲上车点")}&to=${trip.dropoff.lat},${trip.dropoff.lng}&to_name=${encodeURIComponent("乙下车点")}&date=${tomorrowInTokyo()}&time=10:00`;
+  const link = `${SITE}/book?mode=charter&from=${trip.pickup.lat},${trip.pickup.lng}&from_name=${encodeURIComponent("甲上车点")}&to=${trip.dropoff.lat},${trip.dropoff.lng}&to_name=${encodeURIComponent("乙下车点")}&date=${tomorrowInTokyo()}&time=10:00`;
   await site.goto(link);
   const card = site.getByRole("listitem").filter({ has: site.getByRole("heading", { name: trip.groupName }) });
   await expect(card).toContainText("含区域加价，已算在这个价格里");

@@ -1,6 +1,6 @@
 /**
  * 嵌入预订页的四步和 iframe 里的订单页（M9E-17，ADR 0095 第四、六、八、九节）的组件测试：
- * - 复用 /book/new 四步：读草稿带 key、host；对得上时询价带 draft_id，对不上时不带；不提供地图选点（不用 Leaflet）；
+ * - 复用 /book 四步：读草稿带 key、host；对得上时询价带 draft_id，对不上时不带；不提供地图选点（不用 Leaflet）；
  * - 分栏和主站一样按 iframe 自己的视口（M9E-27）：< 1024px 单栏、顶部摘要条；≥ 1024px 两栏、主站同一个「行程摘要」右侧栏；宽窄切换不重发 step；
  *   每一步的地址都保留 draft、key、lang、host；换步发 step；下单后进 iframe 里的订单页，令牌放 history.state 和 nozomi.embed-order，不进地址、不发给宿主；
  * - 订单页（不在 iframe 里付款，M9E-19 再做）：待付款时给新窗口的主站订单页链接、隔几秒读一次；看到付款完成发 step paid + completed{orderNo, status: submitted} 一次，删掉记录；
@@ -282,7 +282,7 @@ test("iframe ≥ 1024 宽（M9E-27）：和主站一样两栏，右边是同一�
   const aside = screen.getByRole("complementary", { name: "行程摘要" });
   assert.equal(screen.queryAllByRole("button", { name: /行程摘要/ }).length, 0, "两栏时没有顶部摘要条");
   assert.ok(within(aside).getByText(ROUTE_TEXT), "右侧栏最上面是路线：约 X 分钟 · Y 公里");
-  assert.ok(document.querySelector(".book-new > .book-new__aside") === aside, "右侧栏是主站 /book/new 的那一栏");
+  assert.ok(document.querySelector(".book-new > .book-new__aside") === aside, "右侧栏是主站 /book 的那一栏");
   assert.equal(document.querySelectorAll(".leaflet-container").length, 0, "没有 Leaflet 地图");
   // 主站外壳 SiteLayout 的顶栏、导航、页脚（.site__*）一样都不在；页面上的 <nav>、<footer> 也没有
   assert.deepEqual([...document.querySelectorAll(".site, .site__header, .site__nav, .site__footer, nav, footer")].map((node) => node.className), [], "没有主站顶栏、导航、页脚");

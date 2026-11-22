@@ -35,11 +35,9 @@ import { TENANT_NOTIFICATIONS_PATH } from "./lib/notification-display.ts";
 import { TenantNotificationsPage } from "./pages/notifications/NotificationPages.tsx";
 import { DEDUCTIONS_PATH, RESCUE_OFFERS_PATH } from "./lib/rescue-display.ts";
 import { DeductionsPage, RescueOffersPage } from "./pages/rescues/TenantRescuePages.tsx";
-import { SITE_CHECKOUT_PATH, SITE_HOME_PATH, SITE_ORDER_PATH, SITE_TRIP_PATH } from "./lib/site-display.ts";
-import { SITE_NEW_BOOKING_PATH } from "./lib/book-new.ts";
-import { BookPage } from "./pages/book/BookPage.tsx";
+import { SITE_HOME_PATH, SITE_LEGACY_BOOKING_PATHS, SITE_ORDER_PATH, SITE_TRIP_PATH } from "./lib/site-display.ts";
 import { BookNewPage } from "./pages/book/new/BookNewPage.tsx";
-import { CheckoutPage } from "./pages/book/CheckoutPage.tsx";
+import { LegacyBookingRedirect } from "./pages/book/LegacyBookingRedirect.tsx";
 import { OrderPage } from "./pages/book/OrderPage.tsx";
 import { SiteErrorBoundary } from "./pages/book/SiteLayout.tsx";
 import { TENANT_TICKETS_PAGE, TENANT_TICKET_NEW_PATH } from "./lib/order-center-display.ts";
@@ -115,9 +113,11 @@ export function App() {
         <Route path={DRIVER_PAGE_PATH} element={<DriverTripPage />} />
         {/* 官网（ADR 0032）：客人不需要账号；订单页凭链接里的令牌（# 后面）。面向客人的独立外观，不在任何一个后台里 */}
         <Route element={<SiteErrorBoundary />}>
-          <Route path={SITE_HOME_PATH} element={<BookPage />} />
-          {/* 新预订页（M8-03，ADR 0069）：和旧页并存，M8-05 验收后再切换 */}
-          <Route path={SITE_NEW_BOOKING_PATH} element={<BookNewPage />} />
+          {/* 预订页（M8-03 的四步新流程，ADR 0069；M8-05 起换下旧的城市 / 接送 / 机场下拉框询价页和旧下单页）；以前的地址转过来 */}
+          <Route path={SITE_HOME_PATH} element={<BookNewPage />} />
+          {SITE_LEGACY_BOOKING_PATHS.map((path) => (
+            <Route key={path} path={path} element={<LegacyBookingRedirect />} />
+          ))}
           {/* 多日行程报价页（M9T-09，ADR 0101 第十三节）：验收通过前不加入口链接，只能直接打开地址 */}
           <Route
             path={SITE_TRIP_PATH}
@@ -127,7 +127,6 @@ export function App() {
               </Suspense>
             }
           />
-          <Route path={SITE_CHECKOUT_PATH} element={<CheckoutPage />} />
           <Route path={SITE_ORDER_PATH} element={<OrderPage />} />
         </Route>
         {portalRoutes("platform")}

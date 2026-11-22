@@ -27,6 +27,7 @@ import {
   hostDraftRecord,
   hostEventOf,
   isDraftId,
+  mainSiteBookingUrl,
   parseFrameMessage,
   readHostDraftRecord,
   withoutDraft,
@@ -280,7 +281,7 @@ class BookingMount {
     notice.hidden = false;
   }
 
-  /** 嵌不进去：一句话 + 「到主站继续预订」（新标签页打开主站 /book/new?draft=） */
+  /** 嵌不进去：一句话 + 「到主站继续预订」（新标签页打开主站 /book?draft=） */
   private renderFailed(draft: string): void {
     this.destroy();
     const host = el("div", { "data-nozomi-booking": "fallback" });
@@ -288,7 +289,7 @@ class BookingMount {
     this.part = host;
     const shadow = host.attachShadow({ mode: "open" });
     shadow.append(el("style", {}, [FRAME_CSS]));
-    const link = el("a", { class: "nzb-link", href: `${this.base}/book/new?draft=${encodeURIComponent(draft)}`, target: "_blank", rel: "noopener noreferrer" }, [this.t.goToSite]);
+    const link = el("a", { class: "nzb-link", href: mainSiteBookingUrl(this.base, draft), target: "_blank", rel: "noopener noreferrer" }, [this.t.goToSite]);
     shadow.append(el("div", { class: "nzb-shell", "data-layout": "card" }, [el("div", { class: "nzb", role: "status" }, [el("p", { class: "nzb-message" }, [this.t.failed]), link])]));
   }
 }

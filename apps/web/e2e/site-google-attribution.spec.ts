@@ -77,7 +77,7 @@ for (const size of [{ width: 1280, height: 800 }, { width: 360, height: 740 }]) 
   test(`新预订页 ${size.width} 宽下拉：10 个候选时署名固定在面板底部、始终看得见；listbox 里只有候选；亮暗 axe`, async ({ page }) => {
     await page.setViewportSize(size);
     await tenSuggestions(page, "/site/v1/places/autocomplete");
-    await page.goto(`${SITE}/book/new`);
+    await page.goto(`${SITE}/book`);
     await page.getByRole("combobox", { name: "出发地" }).fill("酒店");
     const list = page.getByRole("listbox", { name: "出发地的候选" });
     await expect(list.getByRole("option")).toHaveCount(10);
@@ -96,7 +96,7 @@ test("新预订页手机全屏选择页 360 宽：10 个候选时署名始终看
   const context = await browser.newContext({ viewport: { width: 360, height: 740 }, hasTouch: true, isMobile: true, locale: "zh-CN" });
   const page = await context.newPage();
   await tenSuggestions(page, "/site/v1/places/autocomplete");
-  await page.goto(`${SITE}/book/new`);
+  await page.goto(`${SITE}/book`);
   await page.getByRole("button", { name: /^出发地/ }).tap();
   const sheet = page.getByRole("dialog", { name: "出发地" });
   await sheet.getByRole("combobox", { name: "出发地" }).fill("酒店");

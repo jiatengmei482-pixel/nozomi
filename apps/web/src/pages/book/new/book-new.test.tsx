@@ -1,5 +1,5 @@
 /**
- * 新预订页 `/book/new`（M8-03，ADR 0069 A3、修正版 v2；规范 site-booking-v2.md）的组件测试：
+ * 预订页 `/book`（M8-03 的新流程，M8-05 起换下旧页；ADR 0069 A3、修正版 v2；规范 site-booking-v2.md）的组件测试：
  * 地址框输入即提示（至少 2 个字、停顿后查、会话令牌、平台地点在前、谷歌候选选中后取坐标）、认出接机后的时间标签和提示（N 取报价）、
  * 「乘客 / 行李」合并栏、车型「显示全部」（电脑 4 个、手机 3 个）、车内示意图的座位和行李个数、编号和文字、链接参数、报不出价的说法、
  * 包车也写「含所有费用」（M8-09，ADR 0070）、任何时候都没有「跟踪航班」、手机分步和底部固定条；
@@ -7,6 +7,8 @@
  * M8-10：路线小地图用后端出的谷歌静态图（出图、没开通退回底图、其他失败只写字）。
  * M8-27：四步（网址 ?step=N、前进后退、换步不丢内容）、右侧栏逐步累积、手机摘要条、第 3 步乘客信息、第 4 步核对和付款。
  * M8-33：标签只有「区间 / 包车」（不再有接送机 / 点对点和标签不符的提示）、旧链接 mode=airport / p2p 落到区间、接机还没有报价时按机场默认免费等待。
+ * M8-05：以前的地址 `/book/new`、`/book/checkout` 转到 `/book`（查询串、路由 state 照带）；从旧询价页、旧下单页的测试挪过来的几条
+ * （车型按总价从低到高、车型标识、两点之间没有路线的说法、帮助文字不当占位文字、报价过期只给「重新查询价格」、浏览器存储里没有谷歌的东西）。
  * 接口用测试替身（浏览器只连 /site/v1）；真实后端由 e2e/site-booking-new.spec.ts 覆盖。
  */
 import { afterEach, test } from "node:test";
@@ -135,7 +137,7 @@ function open(options: Options = {}): ApiCall[] {
     return null;
   });
   render(
-    <MemoryRouter initialEntries={[entryOf(options.at ?? "/book/new", options.state)]}>
+    <MemoryRouter initialEntries={[entryOf(options.at ?? "/book", options.state)]}>
       <App />
       <History />
     </MemoryRouter>,
@@ -155,7 +157,7 @@ function History() {
   const navigate = useNavigate();
   const location = useLocation();
   return (
-    <div data-testid="history" data-search={location.search}>
+    <div data-testid="history" data-pathname={location.pathname} data-search={location.search}>
       <button type="button" onClick={() => void navigate(-1)}>
         测试：后退
       </button>
@@ -167,6 +169,7 @@ function History() {
 }
 
 const search = (): string => screen.getByTestId("history").getAttribute("data-search") ?? "";
+const pathname = (): string => screen.getByTestId("history").getAttribute("data-pathname") ?? "";
 
 const user = () => userEvent.setup();
 const posts = (calls: ApiCall[], path = "/site/v1/quotes/by-points"): ApiCall[] => calls.filter((call) => call.method === "POST" && call.path === path);
@@ -637,7 +640,7 @@ test("车型：电脑默认 4 个、手机 3 个，下面「显示全部 N 个�
   for (const narrow of [false, true]) {
     if (narrow) narrowScreen();
     else wideScreen();
-    open({ at: "/book/new?from=35.772,140.3929&to=35.6905,139.6948&date=2030-11-20&time=14:30", quote: () => json(200, byPoints({ quotes: [1, 2, 3, 4, 5, 6].map((index) => quoteOf(index)) })) });
+    open({ at: "/book?from=35.772,140.3929&to=35.6905,139.6948&date=2030-11-20&time=14:30", quote: () => json(200, byPoints({ quotes: [1, 2, 3, 4, 5, 6].map((index) => quoteOf(index)) })) });
     const actor = user();
     await screen.findByRole("heading", { name: "车型1" }, SLOW);
     const shown = narrow ? 3 : 4;
@@ -653,7 +656,7 @@ test("车型：电脑默认 4 个、手机 3 个，下面「显示全部 N 个�
 
 test("座位示意图：选中的车型才展开；乘客座位 1–N、行李 1–M 和最多乘客、最多行李一致；文字说明、示意图、28 寸；最多行李旁边也写 28 寸", async () => {
   wideScreen();
-  open({ at: "/book/new?from=35.772,140.3929&to=35.6905,139.6948&date=2030-11-20&time=14:30", quote: () => json(200, byPoints({ quotes: [quoteOf(1, { passengers: 6, luggage: 4 }), quoteOf(2, { passengers: 3, luggage: 2 })] })) });
+  open({ at: "/book?from=35.772,140.3929&to=35.6905,139.6948&date=2030-11-20&time=14:30", quote: () => json(200, byPoints({ quotes: [quoteOf(1, { passengers: 6, luggage: 4 }), quoteOf(2, { passengers: 3, luggage: 2 })] })) });
   const actor = user();
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
   assertAbsent(screen.queryByRole("img", { name: /车内示意图/ }));
@@ -680,7 +683,7 @@ test("座位示意图：选中的车型才展开；乘客座位 1–N、行李 1
 
 test("链接参数：from 编码（按编码取一次平台地点，不调谷歌、不逐城市扫描）、to 坐标加名称、date、time、pax、bags 打开就报价；不合法的只是不预填；链接带来的地点不算地址联想，不带 pickup_name / dropoff_name（M8-20）", async () => {
   wideScreen();
-  const calls = open({ at: "/book/new?from=NRT&to=35.6905,139.6948&to_name=%E4%BA%AC%E7%8E%8B%E5%B9%BF%E5%9C%BA%E9%85%92%E5%BA%97&date=2030-11-20&time=14:30&pax=3&bags=1" });
+  const calls = open({ at: "/book?from=NRT&to=35.6905,139.6948&to_name=%E4%BA%AC%E7%8E%8B%E5%B9%BF%E5%9C%BA%E9%85%92%E5%BA%97&date=2030-11-20&time=14:30&pax=3&bags=1" });
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
   assert.deepEqual(calls.filter((call) => call.path.startsWith("/site/v1/places/by-code")).map((call) => call.path), ["/site/v1/places/by-code?code=NRT"], "每个编码只按编码取一次");
   assert.equal(calls.filter((call) => /\/site\/v1\/cities\/[^/]+\/places/.test(call.path)).length, 0, "不逐城市扫描");
@@ -697,7 +700,7 @@ test("链接参数：from 编码（按编码取一次平台地点，不调谷歌
   resetBrowser();
 
   wideScreen();
-  const bad = open({ at: "/book/new?from=999,1&to=%3Cb%3E&date=2030-13-01&time=99:99&pax=0&bags=x" });
+  const bad = open({ at: "/book?from=999,1&to=%3Cb%3E&date=2030-13-01&time=99:99&pax=0&bags=x" });
   const from = (await screen.findByRole("combobox", { name: "出发地" })) as HTMLInputElement;
   assert.equal(from.value, "");
   assert.notEqual((screen.getByLabelText("日期（当地）") as HTMLInputElement).value, "2030-13-01");
@@ -724,7 +727,7 @@ const draftOf = (changes: Partial<BookingDraft> = {}): BookingDraft => ({
 
 test("预订草稿（M9E-01、M9E-12）：区间按草稿整份预填，直接到第 2 步按两个坐标报价、带上草稿编号；只读一次草稿，其余链接参数不看", async () => {
   wideScreen();
-  const calls = open({ at: `/book/new?draft=${DRAFT_ID}&from=HND&pax=9`, draft: () => json(200, { draft: draftOf(), expires_at: "2030-11-19T02:00:00.000Z" }) });
+  const calls = open({ at: `/book?draft=${DRAFT_ID}&from=HND&pax=9`, draft: () => json(200, { draft: draftOf(), expires_at: "2030-11-19T02:00:00.000Z" }) });
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
   assert.deepEqual(calls.filter((call) => call.path.startsWith("/site/v1/booking-drafts/")).map((call) => call.path), [`/site/v1/booking-drafts/${DRAFT_ID}`]);
   assert.equal(calls.filter((call) => call.path.startsWith("/site/v1/places/by-code")).length, 0, "带草稿时不看 from");
@@ -743,7 +746,7 @@ test("预订草稿（M9E-01、M9E-12）：区间按草稿整份预填，直接�
 test("预订草稿（M9E-01）：包车带经停点按行程询价（带 itinerary_pricing 和 waypoints、不带时长）", async () => {
   wideScreen();
   const draft = draftOf({ tab: "charter", pickup: { name: "银座", lat: 35.6717, lng: 139.765 }, dropoff: { name: "新宿站", lat: 35.6896, lng: 139.7006 }, waypoints: [{ name: "浅草寺", lat: 35.7148, lng: 139.7967, stay_minutes: 60 }] });
-  const calls = open({ at: `/book/new?draft=${DRAFT_ID}`, draft: () => json(200, { draft, expires_at: "2030-11-19T02:00:00.000Z" }) });
+  const calls = open({ at: `/book?draft=${DRAFT_ID}`, draft: () => json(200, { draft, expires_at: "2030-11-19T02:00:00.000Z" }) });
   await waitFor(() => assert.equal(posts(calls, "/site/v1/quotes").length > 0, true), SLOW);
   const body = posts(calls, "/site/v1/quotes")[0]?.body as Record<string, unknown>;
   assert.equal(body.category, "charter");
@@ -757,7 +760,7 @@ test("预订草稿（M9E-01）：包车带经停点按行程询价（带 itinera
 test("预订草稿（M9E-01）：包车按时长，时长在城市套餐里——预填后到第 2 步按这个时长询价", async () => {
   wideScreen();
   const draft = draftOf({ tab: "charter", pickup: { name: "银座", lat: 35.6717, lng: 139.765 }, dropoff: { name: "新宿站", lat: 35.6896, lng: 139.7006 }, package_hours: 8 });
-  const calls = open({ at: `/book/new?draft=${DRAFT_ID}`, packages: [4, 8], draft: () => json(200, { draft, expires_at: "2030-11-19T02:00:00.000Z" }) });
+  const calls = open({ at: `/book?draft=${DRAFT_ID}`, packages: [4, 8], draft: () => json(200, { draft, expires_at: "2030-11-19T02:00:00.000Z" }) });
   await waitFor(() => assert.equal(posts(calls, "/site/v1/quotes").length > 0, true), SLOW);
   const body = posts(calls, "/site/v1/quotes")[0]?.body as Record<string, unknown>;
   assert.deepEqual([body.category, body.package_hours, "itinerary_pricing" in body, body.draft_id], ["charter", 8, false, DRAFT_ID]);
@@ -767,7 +770,7 @@ test("预订草稿（M9E-01）：包车按时长，时长在城市套餐里—�
 test("预订草稿（M9E-01）：包车按时长，时长不在城市套餐里——清空时长、停在第 1 步、不询价", async () => {
   wideScreen();
   const draft = draftOf({ tab: "charter", pickup: { name: "银座", lat: 35.6717, lng: 139.765 }, dropoff: { name: "新宿站", lat: 35.6896, lng: 139.7006 }, package_hours: 5 });
-  const calls = open({ at: `/book/new?draft=${DRAFT_ID}`, packages: [4, 8], draft: () => json(200, { draft, expires_at: "2030-11-19T02:00:00.000Z" }) });
+  const calls = open({ at: `/book?draft=${DRAFT_ID}`, packages: [4, 8], draft: () => json(200, { draft, expires_at: "2030-11-19T02:00:00.000Z" }) });
   await waitFor(() => assert.ok(calls.some((call) => call.path.startsWith("/site/v1/charter-packages?"))), SLOW);
   await waitFor(() => assert.equal((screen.getByRole("combobox", { name: "上车地点" }) as HTMLInputElement).value, "银座"));
   await new Promise((resolve) => setTimeout(resolve, 800));
@@ -780,7 +783,7 @@ test("预订草稿（M9E-01）：包车按时长，时长不在城市套餐里�
 test("预订草稿（M9E-03）：嵌入组件的包车、没填经停点（不带时长）——停在第 1 步，客人在预订页选时长后报价", async () => {
   wideScreen();
   const draft = draftOf({ tab: "charter", pickup: { name: "银座", lat: 35.6717, lng: 139.765 }, dropoff: { name: "新宿站", lat: 35.6896, lng: 139.7006 }, package_hours: null });
-  const calls = open({ at: `/book/new?draft=${DRAFT_ID}`, packages: [4, 8], draft: () => json(200, { draft, expires_at: "2030-11-19T02:00:00.000Z" }) });
+  const calls = open({ at: `/book?draft=${DRAFT_ID}`, packages: [4, 8], draft: () => json(200, { draft, expires_at: "2030-11-19T02:00:00.000Z" }) });
   const hours = (await screen.findByLabelText(/^包车时长/, {}, SLOW)) as HTMLSelectElement;
   await waitFor(() => assert.equal((screen.getByRole("combobox", { name: "上车地点" }) as HTMLInputElement).value, "银座"));
   await waitFor(() => assert.ok([...hours.options].some((option) => option.value === "8")));
@@ -804,7 +807,7 @@ test("预订草稿（M9E-03）：嵌入组件的包车、没填经停点（不�
 test("预订草稿（M9E-12）：草稿过期或不存在（404）时客人手填后的询价不带草稿编号；读不出来（429）时照样带链接里的编号（服务端核对）；都照常报价", async () => {
   for (const reply of [undefined, () => apiError(429, "RATE_LIMITED", "太频繁", {}, { "retry-after": "30" })]) {
     wideScreen();
-    const calls = open({ at: `/book/new?draft=${DRAFT_ID}`, ...(reply === undefined ? {} : { draft: reply }) });
+    const calls = open({ at: `/book?draft=${DRAFT_ID}`, ...(reply === undefined ? {} : { draft: reply }) });
     const actor = user();
     assert.ok(await screen.findByText(reply === undefined ? "链接已过期，请重新填写。" : "没能读取预订信息，请重新填写，或稍后刷新页面。", {}, SLOW));
     await fillTrip(actor);
@@ -820,7 +823,7 @@ test("预订草稿（M9E-12）：包车有经停点、客人在主站手动升�
   wideScreen();
   const draft = draftOf({ tab: "charter", pickup: { name: "银座", lat: 35.6717, lng: 139.765 }, dropoff: { name: "新宿站", lat: 35.6896, lng: 139.7006 }, waypoints: [{ name: "浅草寺", lat: 35.7148, lng: 139.7967, stay_minutes: 60 }] });
   const calls = open({
-    at: `/book/new?draft=${DRAFT_ID}`,
+    at: `/book?draft=${DRAFT_ID}`,
     packages: [4, 5, 8, 10],
     draft: () => json(200, { draft, expires_at: "2030-11-19T02:00:00.000Z" }),
     charter: (call) => {
@@ -843,7 +846,7 @@ test("预订草稿（M9E-12）：包车有经停点、客人在主站手动升�
 test("预订草稿（M9E-12）：加了附加服务重新报价（下单用这一次的报价）也带草稿编号", async () => {
   const seat = { id: "a1a1a1a1-aaaa-4aaa-8aaa-aaaaaaaaaaa1", code: "ADD-SEAT", name: { zh: "儿童座椅" }, charge_unit: "per_item" } as const;
   const { calls, actor } = await openSelected({
-    at: `/book/new?draft=${DRAFT_ID}`,
+    at: `/book?draft=${DRAFT_ID}`,
     draft: () => json(200, { draft: draftOf(), expires_at: "2030-11-19T02:00:00.000Z" }),
     quote: (call) =>
       (call.body as { addons?: unknown }).addons === undefined
@@ -859,7 +862,7 @@ test("预订草稿（M9E-12）：加了附加服务重新报价（下单用这�
 
 test("预订草稿（M9E-01）：过期或不存在时说「链接已过期」并留空白表单；读不出来（限速、网络）另一种说法；都不报价", async () => {
   wideScreen();
-  const calls = open({ at: `/book/new?draft=${DRAFT_ID}` });
+  const calls = open({ at: `/book?draft=${DRAFT_ID}` });
   assert.ok(await screen.findByText("链接已过期，请重新填写。", {}, SLOW));
   assert.equal(screen.getAllByText("只填地点，不要填姓名、电话。").length, 2, "出发地、目的地框都提示只填地点（ADR 0090）");
   assert.equal((screen.getByRole("combobox", { name: "出发地" }) as HTMLInputElement).value, "");
@@ -869,7 +872,7 @@ test("预订草稿（M9E-01）：过期或不存在时说「链接已过期」�
   resetBrowser();
 
   wideScreen();
-  open({ at: `/book/new?draft=${DRAFT_ID}`, draft: () => apiError(429, "RATE_LIMITED", "太频繁", {}, { "retry-after": "30" }) });
+  open({ at: `/book?draft=${DRAFT_ID}`, draft: () => apiError(429, "RATE_LIMITED", "太频繁", {}, { "retry-after": "30" }) });
   assert.ok(await screen.findByText("没能读取预订信息，请重新填写，或稍后刷新页面。", {}, SLOW));
 });
 
@@ -882,7 +885,7 @@ test("报不出价：时间太近、人数太多、地址不在服务范围各�
     ["NOT_AVAILABLE", "这个行程暂时无法在线报价，请联系客服人工报价，或调整行程后再试。"],
   ] as const) {
     wideScreen();
-    open({ at: "/book/new?from=35.772,140.3929&to=35.6905,139.6948&date=2030-11-20&time=14:30", quote: () => json(200, byPoints({ quotes: [], unavailable: [{ vehicle_group_id: null, reasons: [reason] }] })) });
+    open({ at: "/book?from=35.772,140.3929&to=35.6905,139.6948&date=2030-11-20&time=14:30", quote: () => json(200, byPoints({ quotes: [], unavailable: [{ vehicle_group_id: null, reasons: [reason] }] })) });
     assert.ok(await screen.findByText(text, {}, SLOW));
     assert.ok(screen.getByRole("heading", { name: "没有可预订的车" }));
     assert.equal(screen.getByRole("link", { name: "+81 3-1234-5678" }).getAttribute("href"), "tel:+81312345678");
@@ -894,7 +897,7 @@ test("报不出价：时间太近、人数太多、地址不在服务范围各�
 
 test("一口价包含：接送写「含所有费用」、专车、免费等待；包车也写「含所有费用」（M8-09），下面只说超出套餐的时长和公里另收；任何时候都没有「跟踪航班」，也没有举牌（报价里没有商品的包含清单）", async () => {
   wideScreen();
-  const calls = open({ at: "/book/new?from=35.772,140.3929&to=35.6905,139.6948&date=2030-11-20&time=14:30" });
+  const calls = open({ at: "/book?from=35.772,140.3929&to=35.6905,139.6948&date=2030-11-20&time=14:30" });
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
   const includes = screen.getByRole("region", { name: "一口价包含" });
   assert.deepEqual(within(includes).getAllByRole("listitem").map((item) => item.textContent), ["一口价已含所有费用（高速费、停车费等），无需另付", "专车专用，不拼车", "航班落地后免费等待：国际线最长 90 分钟、国内线最长 60 分钟"]);
@@ -974,7 +977,7 @@ test("手机分步：每步一屏、步骤条；第 1 步没填好时标红；�
   assert.equal((screen.getByRole("combobox", { name: "出发地" }) as HTMLInputElement).value, "成田国际机场", "回到第 1 步内容还在");
 });
 
-const LINK_AT = "/book/new?from=35.772,140.3929&from_name=%E6%88%90%E7%94%B0%E5%9B%BD%E9%99%85%E6%9C%BA%E5%9C%BA&to=35.6905,139.6948&to_name=%E4%BA%AC%E7%8E%8B%E5%B9%BF%E5%9C%BA%E9%85%92%E5%BA%97&date=2030-11-20&time=14:30";
+const LINK_AT = "/book?from=35.772,140.3929&from_name=%E6%88%90%E7%94%B0%E5%9B%BD%E9%99%85%E6%9C%BA%E5%9C%BA&to=35.6905,139.6948&to_name=%E4%BA%AC%E7%8E%8B%E5%B9%BF%E5%9C%BA%E9%85%92%E5%BA%97&date=2030-11-20&time=14:30";
 
 test("手机底部按钮条（M9E-32，ADR 0100）：每一步的「上一步」+ 主按钮在一条固定条里，量出的高度写到 <html> 给页面底部留空；viewport 加 viewport-fit=cover、离开还原；第 4 步「去付款」在条里、同意保存银行卡在条上方，没勾照旧提示", async () => {
   const meta = document.createElement("meta");
@@ -1076,7 +1079,7 @@ test("平板 769–1023 也用底部按钮条（同手机，业主 2026-11-17，
 /** 电脑宽：链接打开就报价、直接到第 2 步，选第一个车型。 */
 async function openSelected(options: Options = {}): Promise<{ calls: ApiCall[]; actor: ReturnType<typeof user> }> {
   wideScreen();
-  const calls = open({ at: "/book/new?from=35.772,140.3929&from_name=%E6%88%90%E7%94%B0%E5%9B%BD%E9%99%85%E6%9C%BA%E5%9C%BA&to=35.6905,139.6948&to_name=%E4%BA%AC%E7%8E%8B%E5%B9%BF%E5%9C%BA%E9%85%92%E5%BA%97&date=2030-11-20&time=14:30", ...options });
+  const calls = open({ at: "/book?from=35.772,140.3929&from_name=%E6%88%90%E7%94%B0%E5%9B%BD%E9%99%85%E6%9C%BA%E5%9C%BA&to=35.6905,139.6948&to_name=%E4%BA%AC%E7%8E%8B%E5%B9%BF%E5%9C%BA%E9%85%92%E5%BA%97&date=2030-11-20&time=14:30", ...options });
   const actor = user();
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
   await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
@@ -1328,7 +1331,7 @@ test("路线：取不到路线时这一块不出现，不要静态图", async ()
 
 test("链接参数：编码找不到、或被限速读不出来时，页面说一句（不静默），其余照常预填，不自动报价", async () => {
   wideScreen();
-  const calls = open({ at: "/book/new?from=ZZZ&to=35.6905,139.6948&to_name=%E4%BA%AC%E7%8E%8B&date=2030-11-20&time=14:30" });
+  const calls = open({ at: "/book?from=ZZZ&to=35.6905,139.6948&to_name=%E4%BA%AC%E7%8E%8B&date=2030-11-20&time=14:30" });
   assert.ok(await screen.findByText("链接里的地点「ZZZ」没有找到，请在下面重新选择出发地。", {}, SLOW));
   await waitFor(() => assert.equal((screen.getByRole("combobox", { name: "目的地" }) as HTMLInputElement).value, "京王"));
   assert.equal((screen.getByRole("combobox", { name: "出发地" }) as HTMLInputElement).value, "");
@@ -1336,7 +1339,7 @@ test("链接参数：编码找不到、或被限速读不出来时，页面说�
   resetBrowser();
 
   wideScreen();
-  open({ at: "/book/new?from=NRT&to=HND", byCode: () => apiError(429, "RATE_LIMITED", "太频繁", {}, { "retry-after": "30" }) });
+  open({ at: "/book?from=NRT&to=HND", byCode: () => apiError(429, "RATE_LIMITED", "太频繁", {}, { "retry-after": "30" }) });
   assert.ok(await screen.findByText("链接里的地点「NRT」、「HND」暂时没有读出来，请稍后刷新页面，或在下面直接选择。", {}, SLOW));
 });
 
@@ -1360,12 +1363,12 @@ test("附加服务报不出价时点「去付款」：说这个车型现在加�
 
 // ---- M8-19：包车的下车地点（必填）、含区域加价（规范 site-booking-v2.md 10.1、10.2、10.4） ----
 
-const CHARTER_LINK = "/book/new?mode=charter&from=35.6905,139.6948&from_name=%E4%BA%AC%E7%8E%8B%E5%B9%BF%E5%9C%BA%E9%85%92%E5%BA%97&date=2030-11-20&time=09:00";
+const CHARTER_LINK = "/book?mode=charter&from=35.6905,139.6948&from_name=%E4%BA%AC%E7%8E%8B%E5%B9%BF%E5%9C%BA%E9%85%92%E5%BA%97&date=2030-11-20&time=09:00";
 const charterQuotes = (surcharge: boolean): SiteQuoteResult => ({ currency: "JPY", quotes: [{ ...quoteOf(1, { freeWait: 0, amount: 78650, package: { hours: 8, km: 150 } }), includes_area_surcharge: surcharge }], unavailable: [] });
 
 test("包车：字段顺序 服务 → 上车地点 → 下车地点 → 包车时长 → 日期时间；下车地点是同一个地址框，帮助文字；没选下车地点不报价，选了以后询价带 dropoff 坐标", async () => {
   wideScreen();
-  const calls = open({ at: "/book/new?mode=charter", charter: () => json(200, charterQuotes(false)) });
+  const calls = open({ at: "/book?mode=charter", charter: () => json(200, charterQuotes(false)) });
   const actor = user();
   await screen.findByRole("heading", { name: "你的行程" });
   await pickPlace(actor, "上车地点", "京王", /京王广场酒店/);
@@ -1425,7 +1428,7 @@ test("包车含区域加价：车型卡价格下面、右侧栏车费下面写�
 for (const [basis, note] of [["one_price_outside_km", "含里程费"], ["distance_only", "按里程计价"]] as const) {
   test(`点对点 ${basis}：车型卡、右侧栏、核对页写「${note}」，只有一个总价，不写计程的单价和金额`, async () => {
     wideScreen();
-    open({ at: "/book/new?from=35.6905,139.6948&to=35.6581,139.7017&date=2030-11-20&time=14:30", quote: () => json(200, byPoints({ trip_type: "point_to_point", airport: null, quotes: [{ ...quoteOf(1, { amount: 23400 }), pricing_basis: basis }] })) });
+    open({ at: "/book?from=35.6905,139.6948&to=35.6581,139.7017&date=2030-11-20&time=14:30", quote: () => json(200, byPoints({ trip_type: "point_to_point", airport: null, quotes: [{ ...quoteOf(1, { amount: 23400 }), pricing_basis: basis }] })) });
     const actor = user();
     const card = (await screen.findByRole("heading", { name: "车型1" }, SLOW)).closest("li") as HTMLElement;
     assert.ok(within(card).getByText(note));
@@ -1441,7 +1444,7 @@ for (const [basis, note] of [["one_price_outside_km", "含里程费"], ["distanc
 
 test("一口价（one_price）和旧接口没有 pricing_basis：不出任何计价标注", async () => {
   wideScreen();
-  open({ at: "/book/new?from=35.772,140.3929&to=35.6905,139.6948&date=2030-11-20&time=14:30", quote: () => json(200, byPoints({ quotes: [{ ...quoteOf(1), pricing_basis: "one_price" }, quoteOf(2)] })) });
+  open({ at: "/book?from=35.772,140.3929&to=35.6905,139.6948&date=2030-11-20&time=14:30", quote: () => json(200, byPoints({ quotes: [{ ...quoteOf(1), pricing_basis: "one_price" }, quoteOf(2)] })) });
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
   assertAbsent(screen.queryByText("含里程费"));
   assertAbsent(screen.queryByText("按里程计价"));
@@ -1459,7 +1462,7 @@ for (const [basis, title, items] of [
 ] as const) {
   test(`点对点 ${basis}：清单标题「${title}」，第一条「${items[0]}」`, async () => {
     wideScreen();
-    open({ at: "/book/new?from=35.6905,139.6948&to=35.6581,139.7017&date=2030-11-20&time=14:30", quote: () => json(200, byPoints({ trip_type: "point_to_point", airport: null, quotes: [{ ...quoteOf(1), pricing_basis: basis }] })) });
+    open({ at: "/book?from=35.6905,139.6948&to=35.6581,139.7017&date=2030-11-20&time=14:30", quote: () => json(200, byPoints({ trip_type: "point_to_point", airport: null, quotes: [{ ...quoteOf(1), pricing_basis: basis }] })) });
     await screen.findByRole("heading", { name: "车型1" }, SLOW);
     const includes = screen.getByRole("region", { name: title });
     assert.deepEqual(within(includes).getAllByRole("listitem").map((item) => item.textContent).slice(0, 2), items);
@@ -1469,7 +1472,7 @@ for (const [basis, title, items] of [
 
 test("列表里一口价和按里程计价都有：没选车时用按里程计价的说法；选了一口价的车换回「一口价包含」，选了按里程计价的又换回来；旧接口没有 pricing_basis 照旧；手机底部条「一口价」/「车费」跟着换", async () => {
   wideScreen();
-  open({ at: "/book/new?from=35.6905,139.6948&to=35.6581,139.7017&date=2030-11-20&time=14:30", quote: () => json(200, byPoints({ trip_type: "point_to_point", airport: null, quotes: [quoteOf(1), { ...quoteOf(2), pricing_basis: "distance_only" }] })) });
+  open({ at: "/book?from=35.6905,139.6948&to=35.6581,139.7017&date=2030-11-20&time=14:30", quote: () => json(200, byPoints({ trip_type: "point_to_point", airport: null, quotes: [quoteOf(1), { ...quoteOf(2), pricing_basis: "distance_only" }] })) });
   const actor = user();
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
   const items = (title: string): string[] => within(screen.getByRole("region", { name: title })).getAllByRole("listitem").map((item) => item.textContent ?? "").slice(0, 2);
@@ -1482,7 +1485,7 @@ test("列表里一口价和按里程计价都有：没选车时用按里程计�
   // 手机第 2 步底部条：选了按里程计价的车写「车型 · 车费 价格」，选了一口价的写「车型 · 一口价 价格」
   resetBrowser();
   narrowScreen();
-  open({ at: "/book/new?from=35.6905,139.6948&to=35.6581,139.7017&date=2030-11-20&time=14:30", quote: () => json(200, byPoints({ trip_type: "point_to_point", airport: null, quotes: [quoteOf(1), { ...quoteOf(2), pricing_basis: "distance_only" }] })) });
+  open({ at: "/book?from=35.6905,139.6948&to=35.6581,139.7017&date=2030-11-20&time=14:30", quote: () => json(200, byPoints({ trip_type: "point_to_point", airport: null, quotes: [quoteOf(1), { ...quoteOf(2), pricing_basis: "distance_only" }] })) });
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
   const bar = (): string => document.querySelector(".step-bar__summary")?.textContent ?? "";
   await actor.click(screen.getByRole("button", { name: "选择 车型2" }));
@@ -1539,7 +1542,7 @@ test("包车上车或下车地点不在任何区域（OUT_OF_SERVICE_AREA）：�
 
 test("M9P-02：河口湖上车（离东京中心约 85 公里，不在任何城市范围里）也去按上下车点查套餐；匹配到东京就照常报价，询价不带城市", async () => {
   wideScreen();
-  const calls = open({ at: "/book/new?mode=charter&from=35.5106,138.7637&from_name=%E6%B2%B3%E5%8F%A3%E6%B9%96&to=35.6905,139.6948&to_name=%E6%96%B0%E5%AE%BF&date=2030-11-20&time=09:00", packages: [10], charter: () => json(200, { city: quotedCity, ...charterQuotes(true) }) });
+  const calls = open({ at: "/book?mode=charter&from=35.5106,138.7637&from_name=%E6%B2%B3%E5%8F%A3%E6%B9%96&to=35.6905,139.6948&to_name=%E6%96%B0%E5%AE%BF&date=2030-11-20&time=09:00", packages: [10], charter: () => json(200, { city: quotedCity, ...charterQuotes(true) }) });
   await waitFor(() => assert.ok(calls.some((call) => call.path.startsWith("/site/v1/charter-packages?"))), SLOW);
   const asked = new URLSearchParams(calls.find((call) => call.path.startsWith("/site/v1/charter-packages?"))?.path.split("?")[1] ?? "");
   assert.deepEqual([asked.get("pickup"), asked.get("dropoff")], ["35.5106,138.7637", "35.6905,139.6948"]);
@@ -1552,7 +1555,7 @@ test("M9P-02：河口湖上车（离东京中心约 85 公里，不在任何城�
 
 test("M9P-02：上下车点不在任何包车商品的区域里（如甲府）：不询价，说「这个地址暂时没有在线报价，请联系客服」，给人工报价", async () => {
   wideScreen();
-  const calls = open({ at: "/book/new?mode=charter&from=35.6622,138.5683&from_name=%E7%94%B2%E5%BA%9C&to=35.6905,139.6948&to_name=%E6%96%B0%E5%AE%BF&date=2030-11-20&time=09:00", charterPackages: () => json(200, { city: null, items: [] }) });
+  const calls = open({ at: "/book?mode=charter&from=35.6622,138.5683&from_name=%E7%94%B2%E5%BA%9C&to=35.6905,139.6948&to_name=%E6%96%B0%E5%AE%BF&date=2030-11-20&time=09:00", charterPackages: () => json(200, { city: null, items: [] }) });
   assert.ok(await screen.findByText("这个地址暂时没有在线报价，请联系客服", {}, SLOW));
   await new Promise((resolve) => setTimeout(resolve, 600));
   assert.equal(posts(calls, "/site/v1/quotes").length, 0);
@@ -1623,7 +1626,7 @@ test("旧链接 mode=airport / mode=p2p / mode=transfer 都落到「区间」；
   for (const [mode, checked] of [["airport", "区间"], ["p2p", "区间"], ["transfer", "区间"], ["charter", "包车"]] as const) {
     cleanup();
     resetBrowser();
-    open({ at: `/book/new?mode=${mode}` });
+    open({ at: `/book?mode=${mode}` });
     await screen.findByRole("heading", { name: "你的行程" });
     assert.equal((screen.getByRole("radio", { name: checked }) as HTMLInputElement).checked, true, `mode=${mode}`);
   }
@@ -1683,7 +1686,7 @@ test("接机免费等待按航班定（M9E-28）：只选了机场、还没报�
 
 test("右侧栏四步一直在：第 1 步只有路线图和一句说明；之后逐步追加 行程 → 车型和一个价格 → 乘客信息；网址 ?step=N，浏览器后退前进换步，内容不丢；没走到的步骤从网址打开停在能到的那一步", async () => {
   wideScreen();
-  open({ at: "/book/new?step=3", config: configOf({ map_tiles: ROUTE_TILES }), quote: withRoute() });
+  open({ at: "/book?step=3", config: configOf({ map_tiles: ROUTE_TILES }), quote: withRoute() });
   const actor = user();
   await screen.findByRole("heading", { name: "你的行程" });
   assert.ok(within(aside()).getByText("每确认一步，这里会加上那一步的内容。"), "网址要第 3 步但行程还没填：停在第 1 步");
@@ -1809,7 +1812,7 @@ function fromTripState(expiresAt = new Date(Date.now() + 30 * 60_000).toISOStrin
 
 test("从行程报价页带着报价进来（M9T-10）：直接到第 3 步乘客信息，不再询价；行程按报价预填、车型已选好、按接机要航班号", async () => {
   wideScreen();
-  const calls = open({ at: "/book/new?step=3", state: fromTripState() });
+  const calls = open({ at: "/book?step=3", state: fromTripState() });
   assert.ok(await screen.findByRole("heading", { name: "乘客信息", level: 2 }, SLOW));
   assert.equal(search(), "?step=3");
   assert.ok(screen.getByLabelText("航班号"), "按接机：第 3 步要航班号");
@@ -1822,7 +1825,7 @@ test("从行程报价页带着报价进来（M9T-10）：直接到第 3 步乘�
 
 test("从行程报价页进来但报价已过期：按预填的行程照常询价一次，同一车型还在就停在第 3 步；state 格式不对时当作没有", async () => {
   wideScreen();
-  const calls = open({ at: "/book/new?step=3", state: fromTripState(new Date(Date.now() - 60_000).toISOString()) });
+  const calls = open({ at: "/book?step=3", state: fromTripState(new Date(Date.now() - 60_000).toISOString()) });
   assert.ok(await screen.findByRole("heading", { name: "乘客信息", level: 2 }, SLOW));
   await waitFor(() => assert.equal(posts(calls).length, 1), SLOW);
   const body = posts(calls)[0]?.body as Record<string, unknown>;
@@ -1832,14 +1835,143 @@ test("从行程报价页进来但报价已过期：按预填的行程照常询�
 
   resetBrowser();
   wideScreen();
-  open({ at: "/book/new?step=3", state: { fromTrip: { order: null } } });
+  open({ at: "/book?step=3", state: { fromTrip: { order: null } } });
   assert.ok(await screen.findByRole("heading", { name: "你的行程", level: 2 }, SLOW), "空白表单从第 1 步开始");
 });
 
 test("从行程报价页带来的接送报价没有城市：按报价请求的 city_id 从城市列表补上，时间框写「东京的当地时间」，也不再询价", async () => {
   wideScreen();
-  const calls = open({ at: "/book/new", state: fromTripState() });
+  const calls = open({ at: "/book", state: fromTripState() });
   assert.ok(await screen.findByText("东京的当地时间", {}, SLOW));
   await new Promise((resolve) => setTimeout(resolve, QUOTE_DEBOUNCE_MS + 200));
   assert.equal(posts(calls).length, 0);
+});
+
+// ---------- M8-05：/book 切换到新流程；以前的地址转过来；从旧询价页、旧下单页的测试挪过来的 ----------
+
+test("以前的地址（M8-05）：/book/new 带链接参数转到 /book，查询串原样、打开即报价；/book/new?draft= 照样读草稿；/book/checkout 转到 /book 的第 1 步，旧下单页留在历史里的 state 不认", async () => {
+  wideScreen();
+  const link = "?from=35.772,140.3929&from_name=%E6%88%90%E7%94%B0%E5%9B%BD%E9%99%85%E6%9C%BA%E5%9C%BA&to=35.6905,139.6948&date=2030-11-20&time=14:30&pax=3&bags=1";
+  const calls = open({ at: `/book/new${link}` });
+  assert.ok(await screen.findByRole("heading", { name: "车型1" }, SLOW));
+  assert.equal(pathname(), "/book");
+  const params = new URLSearchParams(search());
+  for (const [key, value] of new URLSearchParams(link)) assert.equal(params.get(key), value, key);
+  const body = posts(calls)[0]?.body as Record<string, unknown>;
+  assert.equal(body["passengers"], 3);
+  assert.equal(body["luggage"], 1);
+  assertAbsent(screen.queryByLabelText(/^城市/));
+  assertAbsent(screen.queryByLabelText(/^机场/));
+  assertAbsent(screen.queryByRole("button", { name: "查询价格" }));
+
+  resetBrowser();
+  wideScreen();
+  const draftCalls = open({ at: `/book/new?draft=${"D".repeat(43)}` });
+  await waitFor(() => assert.ok(draftCalls.some((call) => call.path === `/site/v1/booking-drafts/${"D".repeat(43)}`)), SLOW);
+  assert.equal(pathname(), "/book");
+  assert.equal(search(), `?draft=${"D".repeat(43)}`);
+
+  resetBrowser();
+  wideScreen();
+  const oldCheckoutState = { quote: quoteOf(1), city, airport: null, draft: { cityId: CITY_ID, category: "airport_transfer", airportId: AIRPORT_ID, direction: "pickup" } };
+  const checkoutCalls = open({ at: "/book/checkout", state: oldCheckoutState });
+  assert.ok(await screen.findByRole("heading", { name: "你的行程", level: 2 }, SLOW));
+  assert.equal(pathname(), "/book");
+  assert.equal(search(), "");
+  assert.equal(posts(checkoutCalls).length + posts(checkoutCalls, "/site/v1/orders").length, 0, "不询价、不下单");
+});
+
+test("以前的地址（M8-05）：行程报价页带着报价跳 /book/new?step=3（旧版页面留在浏览器里的）——路由 state 跟着转过去，直接到第 3 步、不再询价", async () => {
+  wideScreen();
+  const calls = open({ at: "/book/new?step=3", state: fromTripState() });
+  assert.ok(await screen.findByRole("heading", { name: "乘客信息", level: 2 }, SLOW));
+  assert.equal(pathname(), "/book");
+  assert.equal(search(), "?step=3");
+  assert.ok(within(aside()).getAllByText("车型1").length >= 1, "车型已选好");
+  await new Promise((resolve) => setTimeout(resolve, QUOTE_DEBOUNCE_MS + 200));
+  assert.equal(posts(calls).length, 0);
+});
+
+test("车型按总价从低到高（原旧询价页 F6）；车型标识（M7-03）：代表车型、同级车型（标 lang=en）、最多乘客、最多行李，没填代表车型时不出空的项", async () => {
+  wideScreen();
+  const bare = quoteOf(2, { amount: 9800 });
+  const plain = { ...bare, vehicle_group: { ...bare.vehicle_group, sample_models: [] } };
+  open({ at: "/book?from=35.772,140.3929&to=35.6905,139.6948&date=2030-11-20&time=14:30", quote: () => json(200, byPoints({ quotes: [quoteOf(1, { amount: 30000 }), plain, quoteOf(3, { amount: 21000 })] })) });
+  await screen.findByRole("heading", { name: "车型1" }, SLOW);
+  assert.deepEqual(screen.getAllByRole("heading", { level: 3, name: /^车型\d$/ }).map((heading) => heading.textContent), ["车型2", "车型3", "车型1"]);
+  const fact = (card: HTMLElement, label: string): HTMLElement | null => (within(card).queryByText(label, { selector: "dt" })?.nextElementSibling ?? null) as HTMLElement | null;
+  const card = screen.getByRole("heading", { name: "车型1" }).closest("li") as HTMLElement;
+  assert.equal(fact(card, "代表车型")?.textContent, "Toyota Noah");
+  assert.equal(fact(card, "代表车型")?.getAttribute("lang"), "en");
+  assert.equal(fact(card, "同级车型")?.textContent, "Toyota Noah, Toyota Voxy or similar");
+  assert.equal(fact(card, "同级车型")?.getAttribute("lang"), "en");
+  assert.equal(fact(card, "最多乘客")?.textContent, "6 人");
+  assert.match(fact(card, "最多行李")?.textContent ?? "", /^4 件（.*28 寸.*）$/);
+  const other = screen.getByRole("heading", { name: "车型2" }).closest("li") as HTMLElement;
+  assert.equal(fact(other, "代表车型"), null);
+  assert.equal(fact(other, "同级车型"), null);
+  assert.equal(fact(other, "最多乘客")?.getAttribute("lang"), null, "人数不是车型名，不标 lang");
+  assert.equal([...other.querySelectorAll("dd")].filter((node) => (node.textContent ?? "").trim() === "").length, 0, "没有空的项");
+});
+
+test("区间两点之间没有路线、路线暂时算不出（原旧询价页的点对点）：说换地址或稍后再试，不出现原因代码", async () => {
+  for (const [reason, text] of [
+    ["NO_ROUTE", "这两个地点之间没有可行驶的路线，请换一个地址。"],
+    ["TEMPORARILY_UNAVAILABLE", "暂时算不出这段路程的价格，请稍后再试，或改订包车。"],
+  ] as const) {
+    wideScreen();
+    open({ at: "/book?from=35.6905,139.6948&to=35.6581,139.7017&date=2030-11-20&time=14:30", quote: () => json(200, byPoints({ trip_type: "point_to_point", airport: null, quotes: [], unavailable: [{ vehicle_group_id: null, reasons: [reason] }] })) });
+    assert.ok(await screen.findByText(text, {}, SLOW));
+    assert.ok(screen.getByRole("heading", { name: "没有可预订的车" }));
+    assert.doesNotMatch(document.body.textContent ?? "", new RegExp(reason));
+    resetBrowser();
+  }
+});
+
+test("页面规范（M3-09，原旧下单页）：手机号、航班号的格式示例写在帮助文字里、不当占位文字；没勾同意时提示关联到复选框", async () => {
+  const { actor } = await openSelected();
+  await next(actor, NEXT_CONTACT);
+  await screen.findByRole("heading", { name: "乘客信息", level: 2 });
+  const phone = screen.getByLabelText("手机号（含国家区号）") as HTMLInputElement;
+  const flight = screen.getByLabelText("航班号") as HTMLInputElement;
+  assert.equal(phone.placeholder, "");
+  assert.equal(flight.placeholder, "");
+  assert.match(document.getElementById(phone.getAttribute("aria-describedby") ?? "")?.textContent ?? "", /如 \+81 90-1234-5678/);
+  assert.match((flight.getAttribute("aria-describedby") ?? "").split(" ").map((id) => document.getElementById(id)?.textContent ?? "").join(" "), /如 NH211/);
+  await actor.type(screen.getByLabelText("乘车人姓名"), "王小明");
+  await actor.type(screen.getByLabelText("邮箱"), "guest@example.com");
+  await actor.type(phone, "+86 138 0000 0000");
+  await actor.type(flight, "NH211");
+  await actor.click(screen.getByRole("radio", { name: /^国际航班/ }));
+  await next(actor, NEXT_REVIEW);
+  await screen.findByRole("heading", { name: "核对订单" });
+  await actor.click(screen.getByRole("button", { name: "去付款 →" }));
+  const consent = screen.getByRole("checkbox", { name: /同意保存这次付款用的银行卡/ });
+  assert.equal(consent.getAttribute("aria-invalid"), "true");
+  assert.equal(document.getElementById((consent.getAttribute("aria-describedby") ?? "").split(" ")[0] ?? "")?.textContent, "需要同意保存支付方式才能下单");
+});
+
+test("报价过期（原旧下单页）：点「去付款」后接口说过期——提示过了 30 分钟、按钮换成「重新查询价格」、不再下单；点了重新询价，回到「去付款」", async () => {
+  const { calls, actor } = await openSelected({ order: () => apiError(410, "QUOTE_EXPIRED", "报价已过有效期，请重新询价") });
+  await toReview(actor);
+  await actor.click(screen.getByRole("checkbox", { name: /同意保存这次付款用的银行卡/ }));
+  await actor.click(screen.getByRole("button", { name: "去付款 →" }));
+  assert.ok(await screen.findByText("报价已经过了 30 分钟的有效期，请重新查询价格。", {}, SLOW));
+  assertAbsent(screen.queryByRole("button", { name: "去付款 →" }));
+  assert.equal(posts(calls, "/site/v1/orders").length, 1);
+  const quoted = posts(calls).length;
+  await actor.click(screen.getByRole("button", { name: "重新查询价格" }));
+  await waitFor(() => assert.ok(posts(calls).length > quoted, "重新询价"), SLOW);
+  assert.ok(await screen.findByRole("button", { name: "去付款 →" }, SLOW));
+});
+
+test("浏览器存储里没有谷歌的任何东西（原旧询价页的地址搜索）：打字、选谷歌候选、取坐标、报价之后，localStorage / sessionStorage / cookie 都没有关键字、谷歌的地点 ID 或 AIza 开头的值", async () => {
+  wideScreen();
+  const calls = open();
+  const actor = user();
+  await pickPlace(actor, "出发地", "成田", /成田国际机场/);
+  await pickPlace(actor, "目的地", "京王唯一关键字", /京王广场酒店/);
+  await waitFor(() => assert.ok(calls.some((call) => call.path.startsWith("/site/v1/places/details"))), SLOW);
+  const stored = [document.cookie, ...Object.keys(localStorage).map((key) => `${key}=${localStorage.getItem(key)}`), ...Object.keys(sessionStorage).map((key) => `${key}=${sessionStorage.getItem(key)}`)].join("\n");
+  for (const needle of ["AIza", "唯一关键字", "ChIJkeio"]) assert.ok(!stored.includes(needle), `浏览器存储里有 ${needle}`);
 });

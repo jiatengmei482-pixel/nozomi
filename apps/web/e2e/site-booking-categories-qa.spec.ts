@@ -1,16 +1,16 @@
 /**
  * 端到端（测试角色补充，M3-10，ADR 0035）：真实浏览器 → 前端 → 真实 API（`/site/v1`）→ 真实 PostgreSQL。
- * - 320 / 360 / 768 宽都不横向滚动，亮色、暗色都过 axe：询价页（点对点选了名称很长的常用地点、包车）、询价结果、下单页、订单页和展开的「修改订单」；
+ * - 320 / 360 / 768 宽都不横向滚动，亮色、暗色都过 axe：预订页（点对点链接带名称很长的上下车点，M8-05 起 /book 是四步新流程）的车型和价格、乘客信息，订单页和展开的「修改订单」；
  * - 包车单的订单页：改单只有上车地址、没有航班号；点对点单两端地址都在；
  * - 缺陷：待付款的单页面给了「修改订单」，后端却只允许确认后改（提交必定失败）；
- * - 缺陷：同一标签页换一张单的链接（只换 # 后面），展开着的修改表单还是上一张单的内容；
- * - 只上架了点对点的城市选不到包车（服务单选里没有），换回有包车的城市能选（M8-15 起选了包车跳到新预订页的包车）。
+ * - 缺陷：同一标签页换一张单的链接（只换 # 后面），展开着的修改表单还是上一张单的内容。
  * 订单经 /site/v1 接口下（和页面同一个接口；端到端没有 Stripe，订单待付款）。要改单的用例用支付替身把单记成已付款、已确认（待付款的单不能改，和后端一致），数据都在本次运行的临时 schema 里。
  */
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
+import { pointToPointCity } from "./book-new-support.ts";
 import { CENTER, type Supplier, type World, createProductByApi, createSupplier, createWorld, expectAccessible } from "./catalog.ts";
 import { createPool } from "../../api/src/db/pool.ts";
-import { platformAdminHeaders, randomLetters, OWN_SITE_SOURCE } from "./support.ts";
+import { randomLetters, OWN_SITE_SOURCE } from "./support.ts";
 
 // 官网按来源地址限速：每条用例带自己的文档专用地址，不和并行的官网用例在 127.0.0.1 上抢同一份额度（M8-17）
 test.use(OWN_SITE_SOURCE);
@@ -48,21 +48,6 @@ async function publishedProduct(request: APIRequestContext, supplier: Supplier, 
   expect(created.status(), await created.text()).toBe(200);
   const published = await request.post(`/tenant/v1/products/${product.id}/publish`, { headers: supplier.headers });
   expect(published.status(), await published.text()).toBe(200);
-}
-
-/** 平台在城市里建一个名称很长的车站和一个地址很长的地标。 */
-async function createPlaces(request: APIRequestContext, world: World): Promise<{ station: string; poi: string }> {
-  const headers = await platformAdminHeaders(request);
-  const station = `${LONG_NAME}${randomLetters(3)}`;
-  const poi = `长地址酒店${randomLetters(4)}`;
-  for (const data of [
-    { type: "station", code: `STN-JP-${randomLetters(6)}`, city_id: world.city.id, category: "rail", name: { zh: station }, location: POINT },
-    { type: "poi", code: `POI-${randomLetters(8)}`, city_id: world.city.id, category: "hotel", name: { zh: poi }, location: OTHER, address: LONG_ADDRESS },
-  ]) {
-    const response = await request.post("/platform/v1/master/places", { headers, data });
-    expect(response.status(), await response.text()).toBe(201);
-  }
-  return { station, poi };
 }
 
 function tokyoDayAfter(days: number): string {
@@ -120,45 +105,30 @@ async function placeByApi(request: APIRequestContext, quoteBody: Record<string, 
   return body.link.token;
 }
 
-test("官网点对点、包车（测试角色补充）：长名称的常用地点在 320 / 360 / 768 宽不横向滚动，亮暗两色过 axe；订单页改单按服务只给有的地址栏", async ({ page, request }) => {
+test("官网点对点、包车（测试角色补充）：长名称的上下车点在 320 / 360 / 768 宽不横向滚动，亮暗两色过 axe；订单页改单按服务只给有的地址栏", async ({ page, request }) => {
   test.setTimeout(180_000);
   const world = await createWorld(request);
   const supplier = await createSupplier(request, world);
   await publishedProduct(request, supplier, world, "point_to_point", { pricing_model: "fixed", base_price: 15000 });
   await publishedProduct(request, supplier, world, "charter", { pricing_model: "charter_package", package_hours: 8, package_km: 150, package_price: 70000, overtime_per_hour: 5000, over_km_per_km: 400 });
-  const { station, poi } = await createPlaces(request, world);
+  const station = `${LONG_NAME}${randomLetters(3)}`;
+  const poi = `长地址酒店${randomLetters(4)}（${LONG_ADDRESS}）`;
   await page.setViewportSize({ width: 768, height: 1024 });
 
-  // 询价页：点对点，上车点选名称很长的车站，下车点选地址很长的地标
-  await page.goto("/book");
-  await page.getByLabel(/^城市/).selectOption({ label: world.city.name });
-  await page.getByRole("group", { name: /服务/ }).getByRole("radio", { name: /点对点/ }).check();
-  await page.getByRole("combobox", { name: "从常用地点选上车地点（选填）" }).fill(station.slice(0, 12));
-  await page.getByRole("option", { name: new RegExp(station) }).click();
-  await expect(page.getByLabel("上车地址或酒店名")).toHaveValue(station);
-  await page.getByRole("combobox", { name: "从常用地点选下车地点（选填）" }).fill(poi);
-  await page.getByRole("option", { name: new RegExp(poi) }).click();
-  await expect(page.getByLabel("下车地址或酒店名")).toHaveValue(`${poi}（${LONG_ADDRESS}）`);
-  await page.getByLabel("用车日期（当地）").fill(tokyoDayAfter(3));
-  await page.getByLabel("上车时间（当地）").fill("10:00");
-  await expectNoOverflow(page, "询价页（点对点，长地址）");
-  await expectAccessibleBothThemes(page, "询价页（点对点，长地址）");
-  await page.getByRole("button", { name: "查询价格" }).click();
-  const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: world.group.name }) });
+  // 预订页（M8-05 起 /book 是四步新流程）：点对点的带参数链接，上车点是名称很长的车站，下车点是地址很长的酒店（链接里的名称最多留 120 个字）
+  // 预订页按两个坐标报价、按出发地找城市：用本用例自己的点对点城市（catalog.ts 的城市中心都一样，见 pointToPointCity）
+  const own = await pointToPointCity(request, { pricing_model: "fixed", base_price: 15000 });
+  await page.goto(`/book?from=${own.center.lat},${own.center.lng}&from_name=${encodeURIComponent(station)}&to=${own.center.lat + 0.01},${own.center.lng + 0.01}&to_name=${encodeURIComponent(poi)}&date=${tokyoDayAfter(3)}&time=10:00`);
+  await expect(page.getByRole("heading", { name: "选择车型" })).toBeVisible();
+  const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: own.world.group.name }) });
   await expect(card).toContainText("16,500 JPY");
-  await expectNoOverflow(page, "询价结果（点对点）");
-  await card.getByRole("button", { name: `预订${world.group.name}` }).click();
-  await expect(page.getByRole("heading", { level: 1, name: "填写订单" })).toBeVisible();
-  await expectNoOverflow(page, "下单页（点对点，长地址）");
-  await expectAccessibleBothThemes(page, "下单页（点对点，长地址）");
-
-  // 包车：旧 /book 选了包车跳到新预订页的包车（M8-15，ADR 0073：包车要选下车地点）
-  await page.goto("/book");
-  await page.getByLabel(/^城市/).selectOption({ label: world.city.name });
-  await page.getByRole("group", { name: /服务/ }).getByRole("radio", { name: /包车/ }).click();
-  await expect(page).toHaveURL(/\/book\/new\?mode=charter$/);
-  await expect(page.getByRole("heading", { name: "你的行程" })).toBeVisible();
-  await expect(page.getByRole("group", { name: "用车类型" }).getByRole("radio", { name: "包车" })).toBeChecked();
+  await expectNoOverflow(page, "预订页（点对点，长地址，车型和价格）");
+  await expectAccessibleBothThemes(page, "预订页（点对点，长地址，车型和价格）");
+  await card.getByRole("button", { name: `选择 ${own.world.group.name}` }).click();
+  await page.getByRole("button", { name: "下一步：填写乘客信息" }).first().click();
+  await expect(page.getByRole("heading", { level: 2, name: "乘客信息" })).toBeVisible();
+  await expectNoOverflow(page, "预订页（点对点，长地址，乘客信息）");
+  await expectAccessibleBothThemes(page, "预订页（点对点，长地址，乘客信息）");
 
   // 包车单的订单页：展开「修改订单」有上车地址和下车地址（M8-19，规范 site-booking-v2.md 10.6），没有航班号
   // 包车下车地点必填（M8-15）：下车点也在商品的区域里，不加价
@@ -184,34 +154,6 @@ test("官网点对点、包车（测试角色补充）：长名称的常用地�
   await expect(page.getByLabel("下车地址或酒店名")).toHaveValue(LONG_ADDRESS);
   await expectNoOverflow(page, "订单页（点对点，展开修改）");
   await expectAccessibleBothThemes(page, "订单页（点对点，展开修改）");
-});
-
-test("只上架了点对点的城市：服务里没有包车（只有一种时不显示单选）；换到有包车的城市能选包车", async ({ page, request }) => {
-  test.setTimeout(120_000);
-  const onlyP2p = await createWorld(request);
-  const p2pSupplier = await createSupplier(request, onlyP2p);
-  await publishedProduct(request, p2pSupplier, onlyP2p, "point_to_point", { pricing_model: "fixed", base_price: 15000 });
-  const full = await createWorld(request);
-  const fullSupplier = await createSupplier(request, full);
-  await publishedProduct(request, fullSupplier, full, "point_to_point", { pricing_model: "fixed", base_price: 15000 });
-  await publishedProduct(request, fullSupplier, full, "charter", { pricing_model: "charter_package", package_hours: 4, package_km: 60, package_price: 40000, overtime_per_hour: 5000, over_km_per_km: 400 });
-  await page.setViewportSize({ width: 360, height: 740 });
-
-  await page.goto("/book");
-  await page.getByLabel(/^城市/).selectOption({ label: onlyP2p.city.name });
-  await expect(page.getByRole("group", { name: /服务/ })).toHaveCount(0);
-  await expect(page.getByLabel("下车地址或酒店名")).toBeVisible();
-  await expect(page.getByLabel(/^包车时长/)).toHaveCount(0);
-
-  await page.getByLabel(/^城市/).selectOption({ label: full.city.name });
-  const services = page.getByRole("group", { name: /服务/ });
-  await expect(services.getByRole("radio")).toHaveCount(2);
-  // 包车跳到新预订页的包车（M8-15）
-  await services.getByRole("radio", { name: /包车/ }).click();
-  await expect(page).toHaveURL(/\/book\/new\?mode=charter$/);
-  await expect(page.getByRole("heading", { name: "你的行程" })).toBeVisible();
-  // 新预订页四步（M8-27）：第 1 步的「包车」标签已选上（旧页面点了单选就跳走，单选本身不会停在选中状态，所以用 click）
-  await expect(page.getByRole("group", { name: "用车类型" }).getByRole("radio", { name: "包车" })).toBeChecked();
 });
 
 test("缺陷：待付款的点对点 / 包车单（Stripe 没配置时官网的单都是待付款）页面给了「修改订单」，可后端只允许确认后再改——客人改了地址提交必定失败", async ({ page, request }) => {
