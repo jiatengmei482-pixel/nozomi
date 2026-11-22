@@ -2060,7 +2060,7 @@
             "能发现写死、没走 i18n key 的文案并列出来",
             "输出给业主看的表格（如 CSV / Markdown）"
           ],
-          "evidence": "PR 待开；`pnpm copy:export` 导出到 docs/copy/（README.md 给业主看、copy.csv 给 Excel、按区域分的 Markdown）：共 12501 条，写死 12033 条、已走 key 468 条；按页面分组、带文件和行号；新增单元测试 29 条；`--check` 检查是不是最新（不进 CI）",
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/372 ；`pnpm copy:export` 导出到 docs/copy/（README.md 给业主看、copy.csv 给 Excel、按区域分的 Markdown）：共 12501 条，写死 12033 条、已走 key 468 条；按页面分组、带文件和行号；新增单元测试 29 条；`--check` 检查是不是最新（不进 CI）",
           "updated": "2026-11-22"
         },
         {
