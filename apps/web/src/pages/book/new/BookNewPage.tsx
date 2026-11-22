@@ -426,6 +426,8 @@ export function BookNewPage() {
         alive = false;
       };
     }
+    // 带了草稿编号但写法不对（M8-47）：和草稿过期一样说一句，其余参数照旧预填
+    if (link.badDraft) setNotice({ kind: "warning", text: DRAFT_EXPIRED_TEXT });
     if (link.from === null && link.to === null) return;
     void Promise.all([resolveLinkEnd(link.from), resolveLinkEnd(link.to)]).then(([fromEnd, toEnd]) => {
       if (!alive) return;
@@ -1743,6 +1745,8 @@ export function BookNewPage() {
       </section>
     );
 
+    const fromName = draft.from?.name.trim() ?? "";
+    const toName = draft.to?.name.trim() ?? "";
     /** 手机、平板：右侧栏变成顶部可展开的摘要条，收起时写行程和价格（手机上两端各占一行） */
     const summaryBar = !wide && (
       <div className="book-summary-bar">
@@ -1757,14 +1761,15 @@ export function BookNewPage() {
           <span className="book-summary-bar__text">
             {draft.from !== null && step > 1 ? (
               <>
+                {/* 地点名是空的（M8-47）：只写行程类型，不留「点对点 · 」后面空着；终点名是空的不写箭头 */}
                 <span className="book-summary-bar__end">
-                  <span className="book-summary-bar__fixed">{`${tripName} · `}</span>
-                  <span className="book-summary-bar__place">{draft.from.name}</span>
+                  <span className="book-summary-bar__fixed">{fromName === "" ? tripName : `${tripName} · `}</span>
+                  {fromName !== "" && <span className="book-summary-bar__place">{fromName}</span>}
                 </span>
-                {draft.to !== null && (
+                {toName !== "" && (
                   <span className="book-summary-bar__end">
                     <span className="book-summary-bar__fixed book-summary-bar__to">{" → "}</span>
-                    <span className="book-summary-bar__place">{draft.to.name}</span>
+                    <span className="book-summary-bar__place">{toName}</span>
                   </span>
                 )}
               </>

@@ -257,3 +257,26 @@ test("新预订页付款：选车 → 加附加服务（重新报价、右侧栏
   // 下单时按国内航班锁定（M9E-28）：商品设 60，max(60, 60) = 60，订单页注明航班类型
   await expect(page.locator("main")).toContainText("60 分钟（从航班落地起算） · 国内航班");
 });
+
+test("M8-47：链接里的预订草稿编号写法不对、或者草稿不存在（已过期）——都说「预订链接已过期或无效」，留空白第 1 步，客人可以接着填；窄屏、亮暗 axe", async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const world = await createWorld(request);
+  const airport = await createAirport(request, world);
+  const supplier = await createSupplier(request, world);
+  await publishTransfer(request, supplier, { ...world, airport });
+  await page.setViewportSize({ width: 360, height: 740 });
+  for (const draft of ["ZZZZZZ", "Q".repeat(43)]) {
+    await page.goto(`${SITE}/book?draft=${draft}`);
+    await expect(page.getByText("预订链接已过期或无效，请在下面重新填写行程。")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "你的行程" })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "出发地" })).toHaveValue("");
+    await expect(page.getByRole("heading", { name: "选择车型" })).toHaveCount(0);
+    await expectNarrowAndAccessible(page, `草稿编号 ${draft.length} 位`);
+  }
+  // 客人接着填：提示随第一次修改消失，照常可以选地点
+  const from = page.getByRole("combobox", { name: "出发地" });
+  await from.fill(airport.name);
+  await page.getByRole("listbox", { name: "出发地的候选" }).getByRole("option").first().click();
+  await expect(from).toHaveValue(airport.name);
+  await expect(page.getByText("预订链接已过期或无效，请在下面重新填写行程。")).toHaveCount(0);
+});

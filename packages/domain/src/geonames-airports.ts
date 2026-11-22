@@ -72,6 +72,15 @@ function nameRank(language: AirportNameLanguage, tag: string, preferred: boolean
   return (language === "ja" ? 0 : ZH_TAGS.indexOf(tag)) * 4 + kind;
 }
 
+/**
+ * 搜索别名（M8-47）收哪些语言标签：日文和各种汉字写的中文（含繁体、粤语、吴语的写法）。
+ * 只用来让客人按这些写法搜到平台的机场（「羽田」「羽田空港」找到正式名称是「東京国際空港」的羽田机场），不显示。
+ */
+const SEARCH_NAME_TAG = /^(ja|zh(-[A-Za-z]+)?|yue|wuu)$/;
+
+/** 一个机场最多收几个搜索别名（和迁移 0680 的检查约束一致） */
+export const AIRPORT_SEARCH_NAME_LIMIT = 20;
+
 /** 数据源里的一个机场：三字码、坐标和挑出来的日文、中文名。 */
 export interface SourceAirportNames {
   /** GeoNames 的编号（geonameid） */
@@ -86,6 +95,11 @@ export interface SourceAirportNames {
   names: Partial<Record<AirportNameLanguage, string>>;
   /** 数据源里有中文名，但都是繁体（所以 names 里没有 zh） */
   traditionalOnly: boolean;
+  /**
+   * 搜索别名（M8-47）：数据源里这个机场所有用汉字、假名写的日文、中文名称（俗称也收，历史名称不收），去重，按数据源编号排，
+   * 最多 AIRPORT_SEARCH_NAME_LIMIT 个。包括挑成正式名称的那个（平台以后改了名称，搜原来的写法照样找得到）。
+   */
+  searchNames: string[];
 }
 
 export interface SkippedAirportNameRow {
@@ -163,9 +177,23 @@ function better(current: Candidate | undefined, next: Candidate): boolean {
   return current === undefined || next.rank < current.rank || (next.rank === current.rank && next.order < current.order);
 }
 
+/** 搜索别名按数据源编号排、去重（NFKC 后相同的算一个），最多 AIRPORT_SEARCH_NAME_LIMIT 个 */
+function searchNamesOf(entries: readonly { order: number; text: string }[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const entry of [...entries].sort((a, b) => a.order - b.order)) {
+    const key = entry.text.normalize("NFKC");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(entry.text);
+    if (result.length === AIRPORT_SEARCH_NAME_LIMIT) break;
+  }
+  return result;
+}
+
 /**
  * 从国家文件里认出所选国家的机场，再从各语言名称文件里给它们配上三字码和日文、中文名。
- * 两种文件都可以给多个（每个国家一个）；名称文件里不是机场的记录、俗称、历史名称一律不看。
+ * 两种文件都可以给多个（每个国家一个）；名称文件里不是机场的记录、历史名称一律不看，俗称只收进搜索别名（M8-47）。
  */
 export function selectAirportNames(countryTexts: readonly string[], namesTexts: readonly string[], countries: readonly string[]): AirportNameSelection {
   const wanted = new Set(countries.filter(isCountryCode));
@@ -174,6 +202,7 @@ export function selectAirportNames(countryTexts: readonly string[], namesTexts: 
   const codes = new Map<string, Set<string>>();
   const best = new Map<string, Partial<Record<AirportNameLanguage, Candidate>>>();
   const traditional = new Set<string>();
+  const searchNames = new Map<string, { order: number; text: string }[]>();
   for (const text of namesTexts) {
     for (const [index, line] of lines(text).entries()) {
       if (line === "") continue;
@@ -182,8 +211,13 @@ export function selectAirportNames(countryTexts: readonly string[], namesTexts: 
       if (cells.length < 4) throw new CsvError(`名称文件的第 ${index + 1} 行不是 GeoNames 的 alternateNames 格式（至少要有 4 列）`);
       const [nameId, geonameId, tag, rawName, preferred, short, colloquial, historic] = cells;
       if (geonameId === undefined || tag === undefined || rawName === undefined || !records.has(geonameId)) continue;
-      if (colloquial === "1" || historic === "1") continue;
+      if (historic === "1") continue;
       const text = rawName.trim();
+      const order = /^\d+$/.test(nameId ?? "") ? Number(nameId) : Number.MAX_SAFE_INTEGER;
+      if (SEARCH_NAME_TAG.test(tag) && hasVisibleText(text) && text.length <= MAX_NAME_LENGTH && isCjkName("ja", text)) {
+        (searchNames.get(geonameId) ?? searchNames.set(geonameId, []).get(geonameId))?.push({ order, text });
+      }
+      if (colloquial === "1") continue;
       if (tag === "iata") {
         if (isIataCode(text)) (codes.get(geonameId) ?? codes.set(geonameId, new Set()).get(geonameId))?.add(text);
         continue;
@@ -194,7 +228,7 @@ export function selectAirportNames(countryTexts: readonly string[], namesTexts: 
         traditional.add(geonameId);
         continue;
       }
-      const candidate: Candidate = { rank: nameRank(language, tag, preferred === "1", short === "1"), order: /^\d+$/.test(nameId ?? "") ? Number(nameId) : Number.MAX_SAFE_INTEGER, text };
+      const candidate: Candidate = { rank: nameRank(language, tag, preferred === "1", short === "1"), order, text };
       const entry = best.get(geonameId) ?? {};
       if (better(entry[language], candidate)) entry[language] = candidate;
       best.set(geonameId, entry);
@@ -216,7 +250,7 @@ export function selectAirportNames(countryTexts: readonly string[], namesTexts: 
       if (candidate !== undefined) names[language] = candidate.text;
     }
     for (const iata of iataCodes) {
-      const airport: SourceAirportNames = { ...record, iata, names, traditionalOnly: names.zh === undefined && traditional.has(record.sourceRef) };
+      const airport: SourceAirportNames = { ...record, iata, names, traditionalOnly: names.zh === undefined && traditional.has(record.sourceRef), searchNames: searchNamesOf(searchNames.get(record.sourceRef) ?? []) };
       byIata.set(iata, [...(byIata.get(iata) ?? []), airport]);
     }
   }
@@ -246,6 +280,8 @@ export interface ExistingAirportNames {
   lat: number;
   lng: number;
   nameSources: NameSources;
+  /** 库里现在的搜索别名（M8-47，`places.search_names`） */
+  searchNames: readonly string[];
 }
 
 export interface AirportNameFill {
@@ -273,6 +309,11 @@ export interface AirportNamePlan {
   notFound: string[];
   /** 中文名空着、数据源里只有繁体的机场（中文名没有填） */
   traditionalOnly: string[];
+  /**
+   * 搜索别名要换成数据源这一份的机场（M8-47）：对上了（国家、坐标都核对过）、和库里的不一样的。不看名称有没有填、平台改没改过名称——
+   * 别名只给搜索用，每次按数据源整份替换，不算修改。
+   */
+  searchNames: { id: string; code: string; names: string[] }[];
 }
 
 function isEmpty(text: string | undefined): boolean {
@@ -292,7 +333,7 @@ export function planAirportNameImport(existing: readonly ExistingAirportNames[],
   const scope = new Set(countries);
   const byIata = new Map(selection.airports.map((airport) => [airport.iata, airport]));
   const ambiguous = new Map(selection.ambiguous.map((entry) => [entry.iata, entry.refs]));
-  const plan: AirportNamePlan = { fills: [], unchanged: [], keptFilled: [], keptCleared: [], conflicts: [], notFound: [], traditionalOnly: [] };
+  const plan: AirportNamePlan = { fills: [], unchanged: [], keptFilled: [], keptCleared: [], conflicts: [], notFound: [], traditionalOnly: [], searchNames: [] };
   for (const airport of [...existing].sort((x, y) => (x.code < y.code ? -1 : x.code > y.code ? 1 : 0))) {
     if (!scope.has(airport.countryCode)) continue;
     const refs = ambiguous.get(airport.code);
@@ -314,6 +355,7 @@ export function planAirportNameImport(existing: readonly ExistingAirportNames[],
       plan.conflicts.push({ code: airport.code, reason: `数据源里这个三字码的机场「${incoming.label}」和库里的坐标相差约 ${Math.round(meters / 1000)} 公里，可能不是同一个机场，没有填` });
       continue;
     }
+    if (incoming.searchNames.join("\n") !== airport.searchNames.join("\n")) plan.searchNames.push({ id: airport.id, code: airport.code, names: incoming.searchNames });
     const name: LocalizedText = { ...airport.name };
     const nameSources: NameSources = { ...airport.nameSources };
     const languages: AirportNameLanguage[] = [];

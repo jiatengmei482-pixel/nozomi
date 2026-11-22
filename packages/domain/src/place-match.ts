@@ -62,6 +62,11 @@ export interface PlatformSuggestionPlace {
   name: Partial<Record<"ja" | "zh" | "en" | "ko", string>>;
   /** 航站楼所属机场的名称（各语言）；其余为 null */
   parentName: Partial<Record<"ja" | "zh" | "en" | "ko", string>> | null;
+  /**
+   * 只给搜索用的别名（M8-47，`places.search_names`；航站楼连同所属机场的）：数据源里的其他日文、中文写法，
+   * 如羽田的「羽田空港」——正式日文名是「東京国際空港」，名称里没有「羽田」两个字。不显示。
+   */
+  searchNames?: readonly string[];
   lat: number;
   lng: number;
 }
@@ -91,7 +96,7 @@ function queryPlaceKind(query: string): "station" | "airport" | null {
 
 /**
  * 关键字匹配的平台地点，排在谷歌的结果前面（不依赖谷歌也能搜到机场、航站楼、车站）：
- * 名称（各语言，航站楼连同所属机场的名称）或编码匹配 `placeQueryMatch`；整段包含的在前，再按机场、航站楼、车站，再按编码。最多 `limit` 个。
+ * 名称（各语言，航站楼连同所属机场的名称）、搜索别名或编码匹配 `placeQueryMatch`；整段包含的在前，再按机场、航站楼、车站，再按编码。最多 `limit` 个。
  * 输入说了是车站（「東京駅」「Tokyo Station」），机场、航站楼只在整段包含时才给；说了是机场，车站同理（M8-43b：去掉「駅」按字找会把
  * 「東京国際空港」排到第一条，客人按回车就选成了机场；谷歌的「東京駅」排在平台地点后面）。
  */
@@ -101,7 +106,7 @@ export function platformPlaceSuggestions<T extends PlatformSuggestionPlace>(plac
   const otherKind = (type: PlatformSuggestionType): boolean => (wanted === "station" && type !== "station") || (wanted === "airport" && type === "station");
   const ranked: { place: T; whole: boolean }[] = [];
   for (const place of places) {
-    const haystack = [...Object.values(place.parentName ?? {}), ...Object.values(place.name), place.code].join(" ");
+    const haystack = [...Object.values(place.parentName ?? {}), ...Object.values(place.name), ...(place.searchNames ?? []), place.code].join(" ");
     const match = placeQueryMatch(haystack, query);
     if (match === "pieces" && otherKind(place.type)) continue;
     if (match !== null) ranked.push({ place, whole: match === "whole" });

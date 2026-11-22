@@ -809,7 +809,7 @@ test("预订草稿（M9E-12）：草稿过期或不存在（404）时客人手�
     wideScreen();
     const calls = open({ at: `/book?draft=${DRAFT_ID}`, ...(reply === undefined ? {} : { draft: reply }) });
     const actor = user();
-    assert.ok(await screen.findByText(reply === undefined ? "链接已过期，请重新填写。" : "没能读取预订信息，请重新填写，或稍后刷新页面。", {}, SLOW));
+    assert.ok(await screen.findByText(reply === undefined ? "预订链接已过期或无效，请在下面重新填写行程。" : "没能读取预订信息，请重新填写，或稍后刷新页面。", {}, SLOW));
     await fillTrip(actor);
     await waitFor(() => assert.equal(posts(calls).length > 0, true), SLOW);
     for (const call of posts(calls)) assert.equal((call.body as Record<string, unknown>).draft_id, reply === undefined ? undefined : DRAFT_ID);
@@ -860,10 +860,10 @@ test("预订草稿（M9E-12）：加了附加服务重新报价（下单用这�
   for (const call of posts(calls)) assert.equal((call.body as { draft_id?: unknown }).draft_id, DRAFT_ID);
 });
 
-test("预订草稿（M9E-01）：过期或不存在时说「链接已过期」并留空白表单；读不出来（限速、网络）另一种说法；都不报价", async () => {
+test("预订草稿（M9E-01）：过期或不存在时说「链接已过期或无效」并留空白表单；读不出来（限速、网络）另一种说法；都不报价", async () => {
   wideScreen();
   const calls = open({ at: `/book?draft=${DRAFT_ID}` });
-  assert.ok(await screen.findByText("链接已过期，请重新填写。", {}, SLOW));
+  assert.ok(await screen.findByText("预订链接已过期或无效，请在下面重新填写行程。", {}, SLOW));
   assert.equal(screen.getAllByText("只填地点，不要填姓名、电话。").length, 2, "出发地、目的地框都提示只填地点（ADR 0090）");
   assert.equal((screen.getByRole("combobox", { name: "出发地" }) as HTMLInputElement).value, "");
   assert.equal((screen.getByRole("combobox", { name: "目的地" }) as HTMLInputElement).value, "");
@@ -874,6 +874,33 @@ test("预订草稿（M9E-01）：过期或不存在时说「链接已过期」�
   wideScreen();
   open({ at: `/book?draft=${DRAFT_ID}`, draft: () => apiError(429, "RATE_LIMITED", "太频繁", {}, { "retry-after": "30" }) });
   assert.ok(await screen.findByText("没能读取预订信息，请重新填写，或稍后刷新页面。", {}, SLOW));
+});
+
+test("预订草稿（M8-47）：链接里的草稿编号写法不对（ZZZZZZ、空的）时不读草稿，同样说链接已过期或无效，留空白第 1 步；客人填好后照常报价、不带编号", async () => {
+  for (const bad of ["ZZZZZZ", ""]) {
+    wideScreen();
+    const calls = open({ at: `/book?draft=${bad}` });
+    const actor = user();
+    const notice = await screen.findByText("预订链接已过期或无效，请在下面重新填写行程。", {}, SLOW);
+    assert.ok(notice.closest('[role="alert"], [role="status"]'), "提示在读屏会念的区域里");
+    assert.equal(calls.filter((call) => call.path.startsWith("/site/v1/booking-drafts/")).length, 0, "写法不对不去读草稿");
+    assert.equal((screen.getByRole("combobox", { name: "出发地" }) as HTMLInputElement).value, "");
+    assert.equal(search().includes("step=2"), false);
+    await fillTrip(actor);
+    await next(actor, NEXT_VEHICLES);
+    await screen.findByRole("heading", { name: "车型1" }, SLOW);
+    for (const call of posts(calls)) assert.equal((call.body as Record<string, unknown>).draft_id, undefined);
+    resetBrowser();
+  }
+});
+
+test("手机摘要条（M8-47）：上车地点名是空的时只写行程类型，不留「点对点 · 」后面空着；下车地点名空的不写箭头", async () => {
+  narrowScreen();
+  open({ at: `/book?draft=${DRAFT_ID}`, draft: () => json(200, { draft: draftOf({ pickup: { name: " ", lat: 35.6896, lng: 139.7006 }, dropoff: { name: "", lat: 35.6905, lng: 139.6948 } }), expires_at: "2030-11-19T02:00:00.000Z" }) });
+  await screen.findByRole("heading", { name: "车型1" }, SLOW);
+  const text = document.querySelector(".book-summary-bar__text")?.textContent ?? "";
+  assert.doesNotMatch(text, /·|→/);
+  assert.notEqual(text.trim(), "");
 });
 
 test("报不出价：时间太近、人数太多、地址不在服务范围各有说法和客服电话；不显示内部代码", async () => {

@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CsvError } from "./csv.ts";
 import {
+  AIRPORT_SEARCH_NAME_LIMIT,
   type AirportNameSelection,
   type ExistingAirportNames,
   SAME_AIRPORT_DISTANCE_METERS,
@@ -195,7 +196,7 @@ const SOURCE: AirportNameSelection = select(
 );
 
 function existing(overrides: Partial<ExistingAirportNames> & { code: string }): ExistingAirportNames {
-  return { id: `id-${overrides.code}`, countryCode: "JP", name: { en: `${overrides.code} Airport` }, lat: 35.765, lng: 140.386, nameSources: {}, ...overrides };
+  return { id: `id-${overrides.code}`, countryCode: "JP", name: { en: `${overrides.code} Airport` }, lat: 35.765, lng: 140.386, nameSources: {}, searchNames: [], ...overrides };
 }
 
 test("只填空着的语言：已经有的不改；记下是从哪条数据填的", () => {
@@ -263,4 +264,41 @@ test("对不上的交给人：坐标相差超过 10 公里、国家不同、三�
   assert.match(unclear.conflicts[0]?.reason ?? "", /2 个机场记录都用这个三字码（990110、990111）/);
   const near = planAirportNameImport([existing({ code: "QNA", lat: 35.765 + 5_000 / 111_000 })], SOURCE, ["JP"], "geonames");
   assert.equal(near.fills.length, 1, "相差 5 公里以内照样填");
+});
+
+test("搜索别名（M8-47）：数据源里用汉字、假名写的日文、中文名都收（俗称、繁体、粤语、吴语也收），历史名称、罗马字、其他语言不收；按编号排、去重", () => {
+  const selection = select([{ id: 990200 }], [
+    { nameId: 9_100_001, id: 990200, tag: "iata", name: "QHS" },
+    { nameId: 9_100_002, id: 990200, tag: "en", name: "Test Haneda Airport" },
+    { nameId: 9_100_003, id: 990200, tag: "ja", name: "Tesuto Kokusai Kūkō" },
+    { nameId: 9_100_004, id: 990200, tag: "ja", name: "テスト東京国際空港" },
+    { nameId: 9_100_005, id: 990200, tag: "ja", name: "テスト羽田空港" },
+    { nameId: 9_100_006, id: 990200, tag: "zh", name: "測試東京國際機場" },
+    { nameId: 9_100_007, id: 990200, tag: "wuu", name: "测试东京国际机场" },
+    { nameId: 9_100_008, id: 990200, tag: "yue", name: "測試東京國際機場" },
+    { nameId: 9_100_009, id: 990200, tag: "ja", name: "テスト羽田", colloquial: true },
+    { nameId: 9_100_010, id: 990200, tag: "ja", name: "旧テスト空港", historic: true },
+    { nameId: 9_100_011, id: 990200, tag: "ko", name: "테스트 공항" },
+    { nameId: 9_100_012, id: 990200, tag: "", name: "テスト無標記" },
+  ]);
+  const airport = selection.airports[0];
+  assert.deepEqual(airport?.searchNames, ["テスト東京国際空港", "テスト羽田空港", "測試東京國際機場", "测试东京国际机场", "テスト羽田"]);
+  assert.deepEqual(airport?.names, { ja: "テスト東京国際空港" }, "正式名称的挑法不变：俗称、繁体照样不当名称");
+  const many = select([{ id: 990201 }], [{ id: 990201, tag: "iata", name: "QHT" }, ...Array.from({ length: 25 }, (_, index) => ({ id: 990201, tag: "ja", name: `テスト${index}空港` }))]);
+  assert.equal(many.airports[0]?.searchNames.length, AIRPORT_SEARCH_NAME_LIMIT);
+});
+
+test("搜索别名（M8-47）：对上了的机场按数据源整份替换，和库里一样的不动；名称平台改过也照样换；对不上的不动", () => {
+  const plan = planAirportNameImport(
+    [
+      existing({ code: "QHA", lat: 35.553, lng: 139.781, name: { en: "QHA Airport", ja: "平台填的名字" }, searchNames: ["旧的别名"] }),
+      existing({ code: "QNA", searchNames: ["テスト成田国際空港", "测试成田国际机场"] }),
+      existing({ code: "QIC", lat: 37.46, lng: 126.44, searchNames: [] }),
+    ],
+    SOURCE,
+    ["JP"],
+    "geonames",
+  );
+  assert.deepEqual(plan.searchNames, [{ id: "id-QHA", code: "QHA", names: ["テスト東京国際空港", "測試東京國際機場"] }]);
+  assert.deepEqual(plan.conflicts.map((conflict) => conflict.code), ["QIC"]);
 });
