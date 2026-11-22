@@ -9,7 +9,7 @@
  * - 嵌不进去（不在白名单、嵌入码没开「允许整页嵌入」、宿主页再被别的网站嵌一层）：15 秒后显示后备一句话和「到主站继续预订」。
  * - 主站别的页面仍不能被嵌（frame-ancestors 'none' + X-Frame-Options: DENY）。
  * 第二期（M9E-17，ADR 0095 第四、八、九节）：
- * - iframe 里走完 /book/new 的四步（询价带 draft_id、没有 Leaflet），键盘提交，下单后进 iframe 里的订单页（令牌不进地址、不发给宿主）；
+ * - iframe 里走完 /book 的四步（询价带 draft_id、没有 Leaflet），键盘提交，下单后进 iframe 里的订单页（令牌不进地址、不发给宿主）；
  *   iframe 自己刷新、宿主页刷新都接着显示这张待付款的单；平台订单详情来源是「宿主页内」；390 宽、axe；
  * - A 网站建的草稿在 B 网站打开：询价不带 draft_id（来源按主站记）。
  * 第三期（M9E-19，ADR 0095 第七节）：下单后在 iframe 里直接挂付款表单（假 Stripe），要 3D 验证的卡在 iframe 里弹验证框，宿主先收到 modal{open:true}
@@ -69,7 +69,7 @@ function hostHtml(host: Host, path: string, nestedSrc: string): string | null {
 <script>NozomiBooking.mountBooking({ key: ${JSON.stringify(host.key)}, root: "#flow", lang: "zh", onEvent: function (event) { window.__events.push(event); } });</script></body></html>`;
   }
   if (path === "/nest/") return `${head}<iframe title="再嵌一层" src="${nestedSrc}" width="800" height="900"></iframe></main></body></html>`;
-  if (path === "/main-site/") return `${head}<iframe title="主站预订页" src="${SITE}/book/new"></iframe><iframe title="主站登录页" src="${SITE}/login"></iframe></main></body></html>`;
+  if (path === "/main-site/") return `${head}<iframe title="主站预订页" src="${SITE}/book"></iframe><iframe title="主站登录页" src="${SITE}/login"></iframe></main></body></html>`;
   return null;
 }
 
@@ -209,14 +209,14 @@ for (const [label, options, nested] of [
     // 组件按墙上时间等 15 秒；并行跑、机器忙时浏览器的计时器会晚几秒触发（本机 chromium 实测晚到 21 秒），这里多给一些
     await expect(scope.getByText("预订页暂时打不开。请刷新，或到主站继续预订。")).toBeVisible({ timeout: 45_000 });
     const link = scope.getByRole("link", { name: "到主站继续预订" });
-    await expect(link).toHaveAttribute("href", `${SITE}/book/new?draft=${draft}`);
+    await expect(link).toHaveAttribute("href", `${SITE}/book?draft=${draft}`);
     await expect(link).toHaveAttribute("target", "_blank");
     await expect(scope.locator('iframe[title="NOZOMI 用车预订"]')).toHaveCount(0);
   });
 }
 
-test("主站别的页面仍不能被任何网站嵌入：/book/new、/login 带 frame-ancestors 'none' 和 X-Frame-Options: DENY，iframe 里出不来", async ({ page, request }) => {
-  for (const path of ["/book/new", "/login", "/embed/book/x"]) {
+test("主站别的页面仍不能被任何网站嵌入：/book、/login 带 frame-ancestors 'none' 和 X-Frame-Options: DENY，iframe 里出不来", async ({ page, request }) => {
+  for (const path of ["/book", "/login", "/embed/book/x"]) {
     const response = await request.get(`${SITE}${path}`);
     expect(response.headers()["content-security-policy"], path).toContain("frame-ancestors 'none'");
     expect(response.headers()["x-frame-options"], path).toBe("DENY");

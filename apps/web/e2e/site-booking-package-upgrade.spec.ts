@@ -68,7 +68,7 @@ test("有经停点：服务器按预计用时自动选 8 小时；下拉只列�
   });
 
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto(`${SITE}/book/new?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.nearby, "市内下车点")}&date=${tomorrowInTokyo()}&time=10:00`);
+  await page.goto(`${SITE}/book?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.nearby, "市内下车点")}&date=${tomorrowInTokyo()}&time=10:00`);
   const add = page.getByRole("button", { name: "添加经停点" });
   await expect(add).toBeVisible();
   await add.click();

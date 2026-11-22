@@ -1,6 +1,6 @@
 /**
- * 官网的点对点、包车和地址输入辅助（M3-10）的组件测试：选服务、按服务拼询价请求（只给这个服务的字段）、包车跳到新预订页（M8-15）、
- * 从常用地点选地址（填好名称和坐标；手改后清掉选择；读不出来照样能自己写）、下单页和订单页按服务显示行程、改单只给这一单有的地址。
+ * 官网的点对点、包车（M3-10）在订单页的组件测试：按服务显示行程、改单只给这一单有的地址。
+ * 询价、下单在预订页的测试里（new/book-new.test.tsx；M8-05 删掉了旧询价页的服务单选、常用地点下拉框和旧下单页）。
  * 接口用测试替身；真实后端由集成测试 site-categories.itest.ts 和端到端测试 e2e/site-booking-categories.spec.ts 覆盖。
  */
 import { afterEach, test } from "node:test";
@@ -9,10 +9,9 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { App } from "../../App.tsx";
-import type { SiteCity, SiteOrder, SiteOrderEnvelope, SitePlace, SiteQuote } from "../../api/site.ts";
+import type { SiteOrder, SiteOrderEnvelope } from "../../api/site.ts";
 import { changeRequestOf } from "./OrderSections.tsx";
-import { placeAddress } from "./AddressFields.tsx";
-import { type ApiCall, apiError, assertAbsent, json, resetBrowser, stubApiWith } from "../../testing/harness.tsx";
+import { type ApiCall, assertAbsent, json, resetBrowser, stubApiWith } from "../../testing/harness.tsx";
 
 afterEach(resetBrowser);
 
@@ -21,25 +20,7 @@ const GROUP_ID = "33333333-3333-4333-8333-333333333333";
 const ORDER_ID = "44444444-4444-4444-8444-444444444444";
 const TOKEN = `nzo_${"A".repeat(43)}`;
 
-const city: SiteCity = { id: CITY_ID, code: "CTY-JP-TYO", name: { zh: "东京" }, timezone: "Asia/Tokyo", country_code: "JP", center: { lat: 35.6895, lng: 139.6917 }, categories: ["airport_transfer", "point_to_point", "charter"] };
-const station: SitePlace = { id: "66666666-6666-4666-8666-666666666666", type: "station", code: "STN-JP-TOKYO", name: { zh: "东京站", ja: "東京駅" }, address: null, location: { lng: 139.7671, lat: 35.6812 } };
-const hotel: SitePlace = { id: "77777777-7777-4777-8777-777777777777", type: "poi", code: "POI-000001", name: { zh: "新宿某酒店" }, address: "新宿区西新宿 2-7-2", location: { lng: 139.6917, lat: 35.6895 } };
 const tiers = [{ min_hours_before: 48, fee_bp: 0 }, { min_hours_before: 24, fee_bp: 5000 }, { min_hours_before: 0, fee_bp: 10000 }];
-
-const quoteOf = (changes: Partial<SiteQuote>): SiteQuote => ({
-  quote_id: "QT20261026ABCDEFGHIJ",
-  available_addons: [],
-  itinerary_warnings: null,
-  expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
-  service_date: "2030-11-20",
-  urgent: false,
-  vehicle_group: { id: GROUP_ID, code: "VG-BIZ-7", name: { zh: "商务 7 座" }, grade: "business", seats: 7, sample_models: [], combos: [{ passengers: 6, luggage: 4 }] },
-  package: null,
-  price: { total: { amount: "16500", currency: "JPY" }, fx: null },
-  free_wait_minutes: 30,
-  cancel_policy: { category: "point_to_point", level: "business", tiers },
-  ...changes,
-});
 
 type Route = (call: ApiCall & { url: URL }) => Response | Promise<Response> | null;
 const user = () => userEvent.setup();
@@ -53,132 +34,6 @@ function open(entry: string | { pathname: string; hash?: string; state?: unknown
   );
   return calls;
 }
-
-const routes = (options: { places?: () => Response; packages?: () => Response; quotes?: Route } = {}): Route => (call) => {
-  const path = call.url.pathname;
-  if (call.method === "GET" && path === "/site/v1/config") return json(200, { open: true, currency: "JPY", payments: null, support_phone: null, address_search: false, map_tiles: null });
-  if (call.method === "GET" && path === "/site/v1/cities") return json(200, { items: [city] });
-  if (call.method === "GET" && path === `/site/v1/cities/${CITY_ID}/airports`) return json(200, { items: [] });
-  if (call.method === "GET" && path === `/site/v1/cities/${CITY_ID}/places`) return options.places?.() ?? json(200, { items: [station, hotel] });
-  if (call.method === "GET" && path === `/site/v1/cities/${CITY_ID}/charter-packages`) return options.packages?.() ?? json(200, { items: [{ hours: 4 }, { hours: 8 }] });
-  if (call.method === "POST" && path === "/site/v1/quotes") return options.quotes?.(call) ?? null;
-  return null;
-};
-
-async function setTime(actor: ReturnType<typeof user>): Promise<void> {
-  const date = screen.getByLabelText("用车日期（当地）") as HTMLInputElement;
-  await actor.clear(date);
-  await actor.type(date, "2030-11-20");
-  await actor.type(screen.getByLabelText("上车时间（当地）"), "10:00");
-}
-
-test("点对点：选服务后只有上车、下车两个地点；从常用地点选好名称和坐标；请求体只有点对点的字段；下单页两端地址带过去、没有航班号", async () => {
-  const calls = open("/book", routes({ quotes: () => json(200, { currency: "JPY", quotes: [quoteOf({})], unavailable: [] }) }));
-  const actor = user();
-  await screen.findByRole("heading", { level: 1, name: "预订用车" });
-  const services = await screen.findByRole("group", { name: /服务/ });
-  assert.deepEqual(within(services).getAllByRole("radio").map((radio) => (radio as HTMLInputElement).value), ["airport_transfer", "point_to_point", "charter"]);
-  await actor.click(within(services).getByRole("radio", { name: /点对点/ }));
-  assertAbsent(screen.queryByLabelText(/^机场/));
-  assertAbsent(screen.queryByLabelText(/^航班/));
-
-  await actor.click(screen.getByRole("button", { name: "查询价格" }));
-  assert.ok(await screen.findByText("请填写上车的地址或酒店名"));
-  assert.ok(screen.getByText("请填写下车的地址或酒店名"));
-
-  // 上车点从常用地点里选（输入日文名也找得到），下车点选一个地标：地址带上地标的地址
-  await actor.type(screen.getByRole("combobox", { name: "从常用地点选上车地点（选填）" }), "東京駅");
-  await actor.keyboard("{Enter}");
-  assert.equal((screen.getByLabelText("上车地址或酒店名") as HTMLInputElement).value, "东京站");
-  const pickupCoordinates = screen.getByRole("group", { name: /上车地点的坐标/ });
-  assert.equal((within(pickupCoordinates).getByLabelText(/^纬度/) as HTMLInputElement).value, "35.6812");
-  assert.equal((within(pickupCoordinates).getByLabelText(/^经度/) as HTMLInputElement).value, "139.7671");
-  await actor.type(screen.getByRole("combobox", { name: "从常用地点选下车地点（选填）" }), "新宿");
-  await actor.keyboard("{Enter}");
-  assert.equal((screen.getByLabelText("下车地址或酒店名") as HTMLInputElement).value, "新宿某酒店（新宿区西新宿 2-7-2）");
-  await setTime(actor);
-  await actor.click(screen.getByRole("button", { name: "查询价格" }));
-  const card = (await screen.findByRole("heading", { name: "商务 7 座" })).closest("li") as HTMLElement;
-  assert.deepEqual(calls.find((call) => call.method === "POST")?.body, {
-    category: "point_to_point",
-    city_id: CITY_ID,
-    service_local: "2030-11-20T10:00",
-    passengers: 2,
-    luggage: 1,
-    pickup: { lat: 35.6812, lng: 139.7671 },
-    dropoff: { lat: 35.6895, lng: 139.6917 },
-  });
-  assert.ok(within(card).getByText("30 分钟（从约定的上车时间起算）"));
-  assert.ok(screen.getByText(/已含高速费和停车费/));
-
-  await actor.click(within(card).getByRole("button", { name: "预订商务 7 座" }));
-  assert.ok(await screen.findByRole("heading", { level: 1, name: "填写订单" }));
-  assert.ok(screen.getByText("东京站 → 新宿某酒店（新宿区西新宿 2-7-2）"));
-  assert.equal((screen.getByLabelText("上车地址或酒店名") as HTMLInputElement).value, "东京站");
-  assert.equal((screen.getByLabelText("下车地址或酒店名") as HTMLInputElement).value, "新宿某酒店（新宿区西新宿 2-7-2）");
-  assertAbsent(screen.queryByLabelText(/^航班号/));
-});
-
-test("从常用地点选了以后手改地址：选择清掉，地址和坐标保留客人改的；常用地点读不出来时照样能自己写；城市没有常用地点时不出这一栏", async () => {
-  open("/book", routes());
-  const actor = user();
-  const services = await screen.findByRole("group", { name: /服务/ });
-  await actor.click(within(services).getByRole("radio", { name: /点对点/ }));
-  const picker = screen.getByRole("combobox", { name: "从常用地点选上车地点（选填）" }) as HTMLInputElement;
-  await actor.type(picker, "东京站");
-  await actor.keyboard("{Enter}");
-  assert.equal(picker.value, "东京站");
-  await actor.type(screen.getByLabelText("上车地址或酒店名"), "八重洲口");
-  assert.equal((screen.getByLabelText("上车地址或酒店名") as HTMLInputElement).value, "东京站八重洲口");
-  assert.equal(picker.value, "", "手改以后不再算「选了东京站」");
-  assert.equal((within(screen.getByRole("group", { name: /上车地点的坐标/ })).getByLabelText(/^纬度/) as HTMLInputElement).value, "35.6812");
-
-  resetBrowser();
-  open("/book", routes({ places: () => apiError(500, "INTERNAL", "出错了") }));
-  await screen.findByRole("heading", { level: 1, name: "预订用车" });
-  assert.ok(await screen.findByText("常用地点没有读出来，可以直接在下面写地址和坐标。"));
-  assert.ok(screen.getByLabelText("下车地址或酒店名"));
-
-  resetBrowser();
-  const calls = open("/book", routes({ places: () => json(200, { items: [] }) }));
-  await screen.findByRole("heading", { level: 1, name: "预订用车" });
-  assert.ok(await screen.findByLabelText("下车地址或酒店名"));
-  await waitFor(() => assert.equal(calls.filter((call) => call.path.endsWith("/places")).length, 1));
-  await waitFor(() => assertAbsent(screen.queryByRole("combobox", { name: /从常用地点/ })));
-});
-
-test("包车：选了包车就跳到新预订页的包车（M8-15，ADR 0073：包车要选下车地点，旧页面不再询包车的价）", async () => {
-  const calls = open("/book", routes());
-  const actor = user();
-  const services = await screen.findByRole("group", { name: /服务/ });
-  await actor.click(within(services).getByRole("radio", { name: /包车/ }));
-  assert.ok(await screen.findByRole("heading", { name: "你的行程" }));
-  assert.ok((screen.getByRole("radio", { name: "包车" }) as HTMLInputElement).checked, "打开就是包车");
-  assert.ok(screen.getAllByText("上车地点").length > 0);
-  assertAbsent(screen.queryByLabelText(/^包车时长/));
-  assert.equal(calls.filter((call) => call.method === "POST").length, 0);
-});
-
-test("点对点：两点之间没有路线、路线暂时算不出时，告诉客人换地址或稍后再试，不出现原因代码", async () => {
-  let reasons = ["NO_ROUTE"];
-  open("/book", routes({ quotes: () => json(200, { currency: "JPY", quotes: [], unavailable: [{ vehicle_group_id: GROUP_ID, reasons }] }) }));
-  const actor = user();
-  await actor.click(within(await screen.findByRole("group", { name: /服务/ })).getByRole("radio", { name: /点对点/ }));
-  await actor.type(screen.getByRole("combobox", { name: "从常用地点选上车地点（选填）" }), "东京站");
-  await actor.keyboard("{Enter}");
-  await actor.type(screen.getByRole("combobox", { name: "从常用地点选下车地点（选填）" }), "新宿");
-  await actor.keyboard("{Enter}");
-  await setTime(actor);
-  await actor.click(screen.getByRole("button", { name: "查询价格" }));
-  assert.ok(await screen.findByRole("heading", { name: "没有可预订的车" }));
-  assert.ok(screen.getByText("这两个地点之间没有可行驶的路线，请换一个地址。"));
-
-  reasons = ["TEMPORARILY_UNAVAILABLE"];
-  await actor.click(screen.getByRole("button", { name: "查询价格" }));
-  assert.ok(await screen.findByText("暂时算不出这段路程的价格，请稍后再试，或改订包车。"));
-  assertAbsent(screen.queryByText("这两个地点之间没有可行驶的路线，请换一个地址。"));
-  assert.doesNotMatch(document.body.textContent ?? "", /NO_ROUTE|TEMPORARILY_UNAVAILABLE/);
-});
 
 const charterOrder = (changes: Partial<SiteOrder> = {}): SiteOrder => ({
   id: ORDER_ID,
@@ -263,12 +118,6 @@ test("订单页：包车写套餐时长和上车地点、没有「我已落地�
   assert.deepEqual(changeRequestOf(p2p, { ...form, pickupAddress: "东京站八重洲口", dropoffAddress: " 涩谷站 " }), { pickup_address: "东京站八重洲口", dropoff_address: "涩谷站" });
   assert.deepEqual(changeRequestOf(p2p, { ...form, dropoffAddress: " " }), { error: "下车地址不能为空" });
   assert.deepEqual(changeRequestOf(p2p, { ...form, flightNo: "NH211" }), {}, "点对点没有航班号，不提交");
-});
-
-test("常用地点填进地址栏的写法：名称；地标有地址时带上地址", () => {
-  assert.equal(placeAddress(station), "东京站");
-  assert.equal(placeAddress(hotel), "新宿某酒店（新宿区西新宿 2-7-2）");
-  assert.equal(placeAddress({ ...hotel, address: "  " }), "新宿某酒店");
 });
 
 test("订单页（M8-19）：有下车点的包车单在「上车地点」后面写「下车地点」；改单列上车、下车两个地址，只提交改了的", async () => {

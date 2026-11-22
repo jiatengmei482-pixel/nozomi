@@ -269,7 +269,7 @@ test("供应商在价格页设线路价 甲区 → 乙区（带返程、含 30 �
   // ── 官网新预订页：同一条路线，报价里有含公里数（超出 5 公里），卡片上的总价就是报价的总价 ──
   const site = await browser.newPage({ locale: "zh-CN", viewport: { width: 1280, height: 900 } });
   const answered = site.waitForResponse((response) => response.url().includes("/site/v1/quotes") && response.request().method() === "POST" && response.status() === 200);
-  await site.goto(`${SITE}/book/new?from=${trip.pickup.lat},${trip.pickup.lng}&from_name=${encodeURIComponent("甲区上车点")}&to=${trip.dropoff.lat},${trip.dropoff.lng}&to_name=${encodeURIComponent("乙区下车点")}&date=${tomorrowInTokyo()}&time=10:00`);
+  await site.goto(`${SITE}/book?from=${trip.pickup.lat},${trip.pickup.lng}&from_name=${encodeURIComponent("甲区上车点")}&to=${trip.dropoff.lat},${trip.dropoff.lng}&to_name=${encodeURIComponent("乙区下车点")}&date=${tomorrowInTokyo()}&time=10:00`);
   const body = (await (await answered).json()) as { quotes?: { vehicle_group: { name: Record<string, string> }; distance: { included_km: number; over_km: number; route_meters: number } | null; price: { total: { amount: string; currency: string } } }[] };
   const offer = (body.quotes ?? []).find((quote) => Object.values(quote.vehicle_group.name).includes(trip.groupName));
   expect(offer, JSON.stringify(body).slice(0, 500)).toBeTruthy();

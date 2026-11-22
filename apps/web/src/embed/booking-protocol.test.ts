@@ -5,6 +5,7 @@ import {
   BOOKING_ERROR_CODES,
   BOOKING_STEPS,
   HOST_DRAFT_TTL_MS,
+  MAIN_SITE_BOOKING_PATH,
   bookingUrlOf,
   clampHeight,
   clampOffset,
@@ -14,12 +15,14 @@ import {
   hostDraftRecord,
   hostEventOf,
   hostOriginOf,
+  mainSiteBookingUrl,
   parseFrameMessage,
   parseHostMessage,
   readHostDraftRecord,
   withDraft,
   withoutDraft,
 } from "./booking-protocol.ts";
+import { SITE_HOME_PATH } from "../lib/site-display.ts";
 
 const CH = "0123456789abcdef0123456789abcdef";
 const DRAFT = "D".repeat(43);
@@ -152,4 +155,11 @@ test("iframe 地址：draft、key、lang、host 在查询串，频道号在 # �
   assert.equal(frameParamsOf(`${url.search}&ch=a%3Cb`, "").ch, null);
   for (const host of ["https://partner.example/", "https://Partner.example", "http://partner.example", "https://partner.example:443", "null", "", "javascript:alert(1)"]) assert.equal(hostOriginOf(host), null, host);
   assert.equal(hostOriginOf("http://localhost:4174"), "http://localhost:4174");
+});
+
+test("主站预订页（M8-05）：组件脚本里另写的那份路径就是前端路由的预订页 /book；带草稿编号时编码后放进 ?draft=", () => {
+  assert.equal(MAIN_SITE_BOOKING_PATH, SITE_HOME_PATH);
+  assert.equal(mainSiteBookingUrl("https://site.example"), "https://site.example/book");
+  assert.equal(mainSiteBookingUrl("https://site.example", DRAFT), `https://site.example/book?draft=${DRAFT}`);
+  assert.equal(mainSiteBookingUrl("", "a b"), "/book?draft=a%20b");
 });

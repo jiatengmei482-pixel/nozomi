@@ -126,7 +126,7 @@ async function headerBoxes(page: Page): Promise<{ brand: Box; theme: Box; nav: B
 
 test("F10：顶栏各宽度都是两行（M6-05：第一行品牌色带上品牌和主题切换，第二行入口）；从左到右、从上到下的顺序都和 Tab 顺序（品牌 → 主题 → 入口）一致", async ({ page }) => {
   await page.goto("/book");
-  await expect(page.getByRole("heading", { level: 1, name: "预订用车" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "预订接送车" })).toBeVisible();
 
   await page.setViewportSize({ width: 320, height: 640 });
   const narrow = await headerBoxes(page);
@@ -151,8 +151,8 @@ test("F10：顶栏各宽度都是两行（M6-05：第一行品牌色带上品牌
     order.push(await page.evaluate(() => (document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.textContent ?? "").trim()));
   }
   expect(order).toEqual(["NOZOMI 用车", "切换主题", "预订用车", "查订单"]);
-  await expectNoOverflow(page, "询价页");
-  await expectAccessibleNarrowAndWide(page, "询价页");
+  await expectNoOverflow(page, "预订页");
+  await expectAccessibleNarrowAndWide(page, "预订页");
 });
 
 test("订单页在 320 / 360 / 768 宽不横向滚动、两色过 axe：待付款（带「需要帮助」）→ 已付款「我已落地」排第一 → 取消确认展开 → 改单表单多项出错", async ({ page, request }) => {

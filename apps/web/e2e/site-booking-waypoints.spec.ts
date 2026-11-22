@@ -101,7 +101,7 @@ test("包车加 3 个经停点：增删排序、停留必填 → 按行程计价
   });
 
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto(`${SITE}/book/new?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.nearby, "市内下车点")}&date=${date}&time=10:00`);
+  await page.goto(`${SITE}/book?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.nearby, "市内下车点")}&date=${date}&time=10:00`);
   const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: trip.groupName }) });
   await expect(card).toContainText("77,000 JPY");
   expect(plainBodies.at(-1), "没有经停点：请求和以前一样").toMatchObject({ category: "charter", package_hours: 8 });

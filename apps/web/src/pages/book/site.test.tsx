@@ -1,16 +1,17 @@
 /**
- * 官网页面的组件测试（M3-05，ADR 0032）：询价（暂未开放、没有城市、出错、校验、结果里没有供应商和结算价、报不出价的原因）→ 下单（校验、请求体、
- * 幂等键重试不变、报价过期）→ 订单页（令牌只在请求头、付款暂未开放 / Stripe.js 的假实现、我已落地、取消先看退多少、改单只给改了的字段、异议、找回、链接失效）。
+ * 官网页面的组件测试（M3-05，ADR 0032）：预订页打不开时的说法（暂未开放、没有城市、出错）→ 订单页（令牌只在请求头、付款暂未开放 / Stripe.js 的假实现、
+ * 我已落地、取消先看退多少、改单只给改了的字段、异议、找回、链接失效）。询价、下单（校验、请求体、幂等键重试不变、报价过期）在预订页的测试里
+ * （new/book-new.test.tsx；M8-05 起 /book 就是那个页面，旧的询价页、下单页已删）。
  * 接口用测试替身；真实后端由集成测试 site.itest.ts 和端到端测试 e2e/site-booking.spec.ts 覆盖。
  */
 import { LOOKUP_SENT_TEXT } from "./OrderPage.tsx";
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { App } from "../../App.tsx";
-import type { SiteCity, SiteConfig, SiteOrder, SiteOrderEnvelope, SiteQuote } from "../../api/site.ts";
+import type { SiteConfig, SiteOrder, SiteOrderEnvelope, SiteQuote } from "../../api/site.ts";
 import { type PaymentDriver, PaymentDriverContext, createStripePaymentDriver } from "../../lib/payment-driver.ts";
 import { fakeStripeJs } from "../../testing/fake-stripe-js.ts";
 import { changeRequestOf } from "./OrderSections.tsx";
@@ -24,12 +25,9 @@ const GROUP_ID = "33333333-3333-4333-8333-333333333333";
 const ORDER_ID = "44444444-4444-4444-8444-444444444444";
 const CHARGE_ID = "55555555-5555-4555-8555-555555555555";
 const TOKEN = `nzo_${"A".repeat(43)}`;
-const NEW_TOKEN = `nzo_${"B".repeat(43)}`;
 const HOUR = 3_600_000;
 
 const openConfig: SiteConfig = { open: true, currency: "JPY", payments: null, support_phone: null, support_whatsapp: null, address_search: false, page_width: "standard", map_tiles: null };
-const city: SiteCity = { id: CITY_ID, code: "CTY-JP-TYO", name: { zh: "东京" }, timezone: "Asia/Tokyo", country_code: "JP", center: { lat: 35.6895, lng: 139.6917 }, categories: ["airport_transfer"] };
-const airport = { id: AIRPORT_ID, code: "NRT", name: { zh: "成田机场" }, location: { lng: 140.3887, lat: 35.7686 } };
 const tiers = [{ min_hours_before: 48, fee_bp: 0 }, { min_hours_before: 24, fee_bp: 5000 }, { min_hours_before: 0, fee_bp: 10000 }];
 const quote: SiteQuote = {
   quote_id: "QT20261026ABCDEFGHIJ",
@@ -116,26 +114,6 @@ function open(entry: string | { pathname: string; hash?: string; state?: unknown
   return calls;
 }
 
-const bookingRoutes = (extra: Route = () => null): Route => (call) => {
-  if (call.method === "GET" && call.url.pathname === "/site/v1/config") return json(200, openConfig);
-  if (call.method === "GET" && call.url.pathname === "/site/v1/cities") return json(200, { items: [city] });
-  if (call.method === "GET" && call.url.pathname === `/site/v1/cities/${CITY_ID}/airports`) return json(200, { items: [airport] });
-  if (call.method === "GET" && call.url.pathname === `/site/v1/cities/${CITY_ID}/places`) return json(200, { items: [] });
-  return extra(call);
-};
-
-async function fillInquiry(actor: ReturnType<typeof user>): Promise<void> {
-  await screen.findByRole("heading", { level: 1, name: "预订用车" });
-  await waitFor(() => assert.equal((screen.getByLabelText(/^机场/) as HTMLSelectElement).value, AIRPORT_ID));
-  await actor.type(screen.getByLabelText("下车地址或酒店名"), "东京站八重洲口");
-  await actor.type(screen.getByLabelText(/^纬度/), "35.6812");
-  await actor.type(screen.getByLabelText(/^经度/), "139.7671");
-  const date = screen.getByLabelText("航班到达日期（当地）") as HTMLInputElement;
-  await actor.clear(date);
-  await actor.type(date, "2030-11-20");
-  await actor.type(screen.getByLabelText("航班计划到达时间（当地）"), "10:00");
-}
-
 test("官网没开：说暂未开放，告诉已下单的客人去「查订单」；配置读不出来：说明并能重试", async () => {
   open("/book", (call) => (call.url.pathname === "/site/v1/config" ? json(200, { open: false, currency: null, payments: null, support_phone: null, address_search: false, map_tiles: null }) : null));
   assert.ok(await screen.findByRole("heading", { name: "暂未开放预订" }));
@@ -152,122 +130,6 @@ test("官网没开：说暂未开放，告诉已下单的客人去「查订单�
   fail = false;
   await user().click(screen.getByRole("button", { name: "重试" }));
   assert.ok(await screen.findByRole("heading", { name: "暂时没有可预订的城市" }));
-});
-
-test("询价：唯一的城市和机场自动选好；没填的标红；请求体是当地时间和坐标；结果有价格、免费等待、取消政策，没有供应商和结算价；选车带到下单页", async () => {
-  const calls = open(
-    "/book",
-    bookingRoutes((call) => (call.method === "POST" && call.url.pathname === "/site/v1/quotes" ? json(200, { currency: "JPY", quotes: [quote], unavailable: [] }) : null)),
-  );
-  const actor = user();
-  await screen.findByRole("heading", { level: 1, name: "预订用车" });
-  await waitFor(() => assert.equal((screen.getByLabelText(/^机场/) as HTMLSelectElement).value, AIRPORT_ID));
-  await actor.click(screen.getByRole("button", { name: "查询价格" }));
-  assert.ok(await screen.findByText("请填写下车的地址或酒店名"));
-  assert.ok(screen.getByText("请输入纬度"));
-  assert.ok(screen.getByText("请选择时间"));
-  assert.equal(calls.filter((call) => call.method === "POST").length, 0);
-
-  await fillInquiry(actor);
-  await actor.click(screen.getByRole("button", { name: "查询价格" }));
-  const card = (await screen.findByRole("heading", { name: "商务 7 座" })).closest("li") as HTMLElement;
-  assert.deepEqual(calls.find((call) => call.method === "POST")?.body, { category: "airport_transfer", city_id: CITY_ID, service_local: "2030-11-20T10:00", passengers: 2, luggage: 1, airport_id: AIRPORT_ID, direction: "pickup", address: { lat: 35.6812, lng: 139.7671 } });
-  assert.equal(card.querySelector(".site-quote__price")?.textContent, "21,780 JPY", "价格数字和币种分两段套样式（M6-05），文字不变");
-  assert.ok(within(card).getByText("国际线最长 90 分钟、国内线最长 60 分钟（从航班落地起算）"), "接机按航班写两种（M9E-31）：商品设 90，国内仍 60");
-  assert.ok(within(card).getByText("用车前 48 小时以上取消免费；24–48 小时内取消收 50%；24 小时内取消收全额"));
-  assert.doesNotMatch(document.body.textContent ?? "", /结算|加价|供应商/);
-  await actor.click(within(card).getByRole("button", { name: "预订商务 7 座" }));
-  assert.ok(await screen.findByRole("heading", { level: 1, name: "填写订单" }));
-  assert.ok(screen.getByText("成田机场（NRT） → 东京站八重洲口"));
-  assert.equal((screen.getByLabelText("下车地址或酒店名") as HTMLInputElement).value, "东京站八重洲口");
-});
-
-test("询价：报不出价时说明原因和怎么改；限速时说要等多久", async () => {
-  let throttled = false;
-  open(
-    "/book",
-    bookingRoutes((call) => {
-      if (call.method !== "POST") return null;
-      return throttled ? apiError(429, "RATE_LIMITED", "请求过于频繁", { retry_after_seconds: 40 }, { "retry-after": "40" }) : json(200, { currency: "JPY", quotes: [], unavailable: [{ vehicle_group_id: null, reasons: ["LEAD_TIME_TOO_SHORT", "OUT_OF_SERVICE_AREA"] }] });
-    }),
-  );
-  const actor = user();
-  await fillInquiry(actor);
-  await actor.click(screen.getByRole("button", { name: "查询价格" }));
-  assert.ok(await screen.findByRole("heading", { name: "没有可预订的车" }));
-  assert.ok(screen.getByText("离用车时间太近了，请选晚一些的时间。"));
-  assert.ok(screen.getByText("这个地址不在服务范围内，请换一个更靠近市区的地址。"));
-  throttled = true;
-  await actor.click(screen.getByRole("button", { name: "查询价格" }));
-  assert.ok(await screen.findByText("操作太频繁了，请 40 秒后再试。"));
-});
-
-const checkoutEntry = () => ({ pathname: "/book/checkout", state: { quote, city, airport, draft: { cityId: CITY_ID, category: "airport_transfer", airportId: AIRPORT_ID, direction: "pickup", address: { address: "东京站八重洲口", coordinates: { lat: "35.681200", lng: "139.767100" }, placeId: null }, from: { address: "", coordinates: { lat: "", lng: "" }, placeId: null }, to: { address: "", coordinates: { lat: "", lng: "" }, placeId: null }, packageHours: "", date: "2030-11-20", time: "10:00", passengers: "2", luggage: "1" } } });
-
-async function fillCheckout(actor: ReturnType<typeof user>): Promise<void> {
-  await actor.type(screen.getByLabelText("乘车人姓名"), "王小明");
-  await actor.type(screen.getByLabelText("手机号（带国家码）"), "+81 90-1234-5678");
-  await actor.type(screen.getByLabelText("邮箱"), "guest@example.com");
-  await actor.type(screen.getByLabelText("航班号"), "nh 211");
-  await actor.click(screen.getByRole("radio", { name: /^国际航班/ }));
-}
-
-test("下单：接机必填航班号和航班类型（M9E-28）、手机号要带国家码、要同意保存支付方式；请求体只有该有的；网络失败再点用同一个幂等键；成功后到订单页，付款暂未开放", async () => {
-  let attempts = 0;
-  const calls = open(checkoutEntry(), (call) => {
-    if (call.method === "POST" && call.url.pathname === "/site/v1/orders") {
-      attempts += 1;
-      if (attempts === 1) throw new TypeError("network");
-      return json(201, { ...envelopeOf(orderOf({ status: "pending_payment", confirmed_at: null, payment_status: "creating", payment_due_at: new Date(Date.now() + 30 * 60_000).toISOString() })), payment: null, link: { token: TOKEN, expires_at: "2026-12-20T01:00:00.000Z" } });
-    }
-    if (call.method === "GET" && call.url.pathname === "/site/v1/config") return json(200, openConfig);
-    if (call.method === "GET" && call.url.pathname === "/site/v1/order") return json(200, envelopeOf(orderOf({ status: "pending_payment", confirmed_at: null, payment_status: "creating", payment_due_at: new Date(Date.now() + 30 * 60_000).toISOString() })));
-    return null;
-  });
-  const actor = user();
-  await screen.findByRole("heading", { level: 1, name: "填写订单" });
-  await actor.type(screen.getByLabelText("手机号（带国家码）"), "090-1234-5678");
-  await actor.click(screen.getByRole("button", { name: /提交订单/ }));
-  assert.ok(await screen.findByText("请填写乘车人姓名"));
-  assert.ok(screen.getByText(/请填写带国家码的手机号/));
-  assert.ok(screen.getByText("接机要填航班号，司机按航班落地时间等候"));
-  assert.ok(screen.getByText("请选择国际航班还是国内航班：国际航班免费等待更久"));
-  assert.ok(screen.getByRole("radio", { name: /^国际航班\s*落地后免费等待 90 分钟$/ }), "选项后写这种航班免费等多久");
-  assert.ok(screen.getByText("需要同意保存支付方式才能下单"));
-  await actor.clear(screen.getByLabelText("手机号（带国家码）"));
-  await fillCheckout(actor);
-  await actor.click(screen.getByRole("checkbox", { name: /同意保存/ }));
-  await actor.click(screen.getByRole("button", { name: /提交订单/ }));
-  assert.ok(await screen.findByText(/网络连接失败/));
-  await actor.click(screen.getByRole("button", { name: /提交订单/ }));
-  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261026ABCD2345" });
-  const posts = calls.filter((call) => call.method === "POST");
-  assert.equal(posts.length, 2);
-  assert.equal(posts[0]?.headers["idempotency-key"], posts[1]?.headers["idempotency-key"], "重试用同一个幂等键");
-  assert.deepEqual(posts[1]?.body, { quote_id: quote.quote_id, passenger: { name: "王小明", phone: "+81 90-1234-5678", email: "guest@example.com" }, flight_no: "nh 211", flight_kind: "international", pickup_address: null, dropoff_address: "东京站八重洲口", messaging: null, notes: null, save_payment_method: true, sign_name: null, passenger_name: null, passenger_phone: null });
-  assert.ok(screen.getByText(/订单已提交/));
-  assert.ok(screen.getByText(/付款暂未开放/));
-  // 刚下单直接进付款（业主验收意见 2026-11-16）：付款区块紧跟订单号，「订单已提交」和保存链接的提示在付款下面
-  const payHeading = screen.getByRole("heading", { level: 2, name: "付款" });
-  assert.ok(payHeading.compareDocumentPosition(screen.getByText(/订单已提交/)) & Node.DOCUMENT_POSITION_FOLLOWING, "付款在「订单已提交」前面");
-  assert.equal(document.querySelectorAll("h2#site-payment-title").length, 1, "付款区块只出一次");
-  assert.equal(calls.find((call) => urlOf(call).pathname === "/site/v1/order")?.headers["authorization"], `Bearer ${TOKEN}`);
-  assert.equal(localStorage.length + sessionStorage.length, 0, "令牌不进任何存储");
-});
-
-test("下单：报价过期时说明并只给「重新查询价格」；直接打开下单页说先选车", async () => {
-  open(checkoutEntry(), (call) => (call.method === "POST" ? apiError(410, "QUOTE_EXPIRED", "报价已过有效期，请重新询价") : null));
-  const actor = user();
-  await screen.findByRole("heading", { level: 1, name: "填写订单" });
-  await fillCheckout(actor);
-  await actor.click(screen.getByRole("checkbox", { name: /同意保存/ }));
-  await actor.click(screen.getByRole("button", { name: /提交订单/ }));
-  assert.ok(await screen.findByText("报价已经过了 30 分钟的有效期，请重新查询价格。"));
-  assertAbsent(screen.queryByRole("button", { name: /提交订单/ }));
-  assert.ok(screen.getByRole("link", { name: "重新查询价格" }));
-  resetBrowser();
-  open("/book/checkout", () => null);
-  assert.ok(await screen.findByRole("heading", { name: "还没有选车" }));
 });
 
 test("订单页付款：Stripe 配置了时用付款组件（只拿 publishable key 和 client_secret），付款前页面内确认，付完刷新订单直到确认", async () => {
@@ -501,23 +363,8 @@ test("查订单：链接格式不对（# 后面不是令牌）也提示链接无
   }
 });
 
-test("页面规范（M3-09，docs/design/pages/site-booking.md）：格式示例写在帮助文字里、不当占位文字；没勾同意时提示关联到复选框；取消订单的入口是次要按钮，页面内确认时才是危险按钮", async () => {
-  open(checkoutEntry(), () => null);
+test("页面规范（M3-09，docs/design/pages/site-booking.md）：订单号的格式示例写在帮助文字里、不当占位文字；取消订单的入口是次要按钮，页面内确认时才是危险按钮（预订页的帮助文字、同意保存的提示见 new/book-new.test.tsx）", async () => {
   const actor = user();
-  await screen.findByRole("heading", { level: 1, name: "填写订单" });
-  const phone = screen.getByLabelText("手机号（带国家码）") as HTMLInputElement;
-  const flight = screen.getByLabelText("航班号") as HTMLInputElement;
-  assert.equal(phone.placeholder, "");
-  assert.equal(flight.placeholder, "");
-  assert.match(document.getElementById(phone.getAttribute("aria-describedby") ?? "")?.textContent ?? "", /如 \+81 90-1234-5678/);
-  assert.match(document.getElementById(flight.getAttribute("aria-describedby") ?? "")?.textContent ?? "", /如 NH211/);
-  assert.ok(screen.getByText("总价（按车计价，已含高速费和停车费）"));
-  await actor.click(screen.getByRole("button", { name: /提交订单/ }));
-  const consent = screen.getByRole("checkbox", { name: /同意保存/ });
-  assert.equal(consent.getAttribute("aria-invalid"), "true");
-  assert.equal(document.getElementById((consent.getAttribute("aria-describedby") ?? "").split(" ")[0] ?? "")?.textContent, "需要同意保存支付方式才能下单");
-
-  resetBrowser();
   open("/book/order", (call) => (call.url.pathname === "/site/v1/config" ? json(200, openConfig) : null));
   const orderNo = (await screen.findByLabelText("订单号")) as HTMLInputElement;
   assert.equal(orderNo.placeholder, "");
@@ -540,42 +387,6 @@ test("页面规范（M3-09，docs/design/pages/site-booking.md）：格式示例
 const factValue = (scope: HTMLElement, label: string): HTMLElement | null => (within(scope).queryByText(label, { selector: "dt" })?.nextElementSibling ?? null) as HTMLElement | null;
 const labelled = { ...quote.vehicle_group, sample_models: ["Toyota Alphard", "Toyota Vellfire"], combos: [{ passengers: 6, luggage: 4 }, { passengers: 5, luggage: 5 }] };
 
-test("车型标识（M7-03）：报价卡片有代表车型、同级车型、最多乘客、最多行李，座位一项仍写全部组合；没填代表车型时不出空的项", async () => {
-  const bare = { ...quote, quote_id: "QT20261026BAREBAREBA", vehicle_group: { ...quote.vehicle_group, id: "66666666-6666-4666-8666-666666666666", code: "VG-STD-5", name: { zh: "舒适 5 座" }, seats: 5, sample_models: [], combos: [{ passengers: 4, luggage: 2 }] } };
-  open("/book", bookingRoutes((call) => (call.method === "POST" && call.url.pathname === "/site/v1/quotes" ? json(200, { currency: "JPY", quotes: [{ ...quote, vehicle_group: labelled }, bare], unavailable: [] }) : null)));
-  const actor = user();
-  await fillInquiry(actor);
-  await actor.click(screen.getByRole("button", { name: "查询价格" }));
-  const card = (await screen.findByRole("heading", { name: "商务 7 座" })).closest("li") as HTMLElement;
-  assert.equal(factValue(card, "代表车型")?.textContent, "Toyota Alphard");
-  assert.equal(factValue(card, "代表车型")?.getAttribute("lang"), "en");
-  assert.equal(factValue(card, "同级车型")?.textContent, "Toyota Alphard, Toyota Vellfire or similar");
-  assert.equal(factValue(card, "同级车型")?.getAttribute("lang"), "en");
-  assert.equal(factValue(card, "最多乘客")?.textContent, "6 人");
-  assert.equal(factValue(card, "最多行李")?.textContent, "5 件");
-  assert.equal(factValue(card, "座位")?.textContent, "7 座（最多 6 人 + 4 件行李 或 5 人 + 5 件行李）", "组合是选车依据，保留");
-  assert.ok(card.querySelector(".site-facts .site-facts__item > dt"), "4 项和卡片其他项在同一个 site-facts 里");
-  assert.doesNotMatch(card.textContent ?? "", /参考车型|或同级/);
-
-  const other = screen.getByRole("heading", { name: "舒适 5 座" }).closest("li") as HTMLElement;
-  assert.equal(factValue(other, "代表车型"), null);
-  assert.equal(factValue(other, "同级车型"), null);
-  assert.equal(factValue(other, "最多乘客")?.textContent, "4 人");
-  assert.equal(factValue(other, "最多乘客")?.getAttribute("lang"), null, "人数不是车型名，不标 lang");
-  assert.equal(factValue(other, "最多行李")?.textContent, "2 件");
-  assert.doesNotMatch(other.textContent ?? "", /or similar/);
-});
-
-test("车型标识（M7-03）：填写订单的「行程」在车型下面有 4 项", async () => {
-  const entry = checkoutEntry();
-  open({ ...entry, state: { ...entry.state, quote: { ...quote, vehicle_group: labelled } } }, () => null);
-  const summary = (await screen.findByRole("heading", { name: "行程" })).closest("section") as HTMLElement;
-  const labels = [...summary.querySelectorAll("dt")].map((node) => node.textContent);
-  assert.deepEqual(labels.slice(labels.indexOf("车型"), labels.indexOf("车型") + 6), ["车型", "代表车型", "同级车型", "最多乘客", "最多行李", "人数 / 行李"]);
-  assert.equal(factValue(summary, "同级车型")?.textContent, "Toyota Alphard, Toyota Vellfire or similar");
-  assert.equal(factValue(summary, "最多行李")?.textContent, "5 件");
-});
-
 test("车型标识（M7-03）：订单页（查订单进来的也是它）的「行程」在车型下面有 4 项；没填代表车型时只有最多乘客、最多行李", async () => {
   const names = (models: string[]) => ({ ...envelopeOf().names, vehicle_group: { code: "VG-BIZ-7", name: { zh: "商务 7 座" }, seats: 7, sample_models: models, combos: labelled.combos } });
   open({ pathname: "/book/order", hash: `#${TOKEN}` }, (call) => (call.url.pathname === "/site/v1/config" ? json(200, openConfig) : call.url.pathname === "/site/v1/order" ? json(200, { ...envelopeOf(), names: names(["Toyota Alphard"]) }) : null));
@@ -593,36 +404,6 @@ test("车型标识（M7-03）：订单页（查订单进来的也是它）的「
   assert.equal(factValue(bare, "同级车型"), null);
   assert.equal(factValue(bare, "最多乘客")?.textContent, "6 人");
   assert.equal([...bare.querySelectorAll("dd")].filter((node) => (node.textContent ?? "").trim() === "").length, 0, "没有空的项");
-});
-
-test("旧预订页报不出价（M8-21）：原因下面有「请客服人工报价」（邮箱、WhatsApp）；提交带上机场和地址两端的行程；没设置客服 WhatsApp 时不显示按钮", async () => {
-  const calls = open(
-    "/book",
-    bookingRoutes((call) => {
-      if (call.method === "POST" && call.url.pathname === "/site/v1/quotes") return json(200, { currency: "JPY", quotes: [], unavailable: [{ vehicle_group_id: null, reasons: ["OUT_OF_SERVICE_AREA"] }] });
-      if (call.method === "POST" && call.url.pathname === "/site/v1/manual-quote-requests") return json(202, { status: "accepted" });
-      return null;
-    }),
-  );
-  const actor = user();
-  await fillInquiry(actor);
-  await actor.click(screen.getByRole("button", { name: "查询价格" }));
-  const region = await screen.findByRole("region", { name: "请客服人工报价" });
-  assert.equal(screen.queryByRole("link", { name: /WhatsApp/ }), null);
-  await actor.type(within(region).getByLabelText("邮箱"), "guest@example.com");
-  await actor.click(within(region).getByRole("button", { name: "提交" }));
-  assert.ok(await screen.findByText(/已收到。/));
-  const body = calls.find((call) => call.path === "/site/v1/manual-quote-requests")?.body as { trip: Record<string, unknown> };
-  assert.deepEqual(body.trip, {
-    category: "airport_transfer",
-    city_id: CITY_ID,
-    pickup: { name: "成田机场（NRT）", lat: 35.7686, lng: 140.3887 },
-    dropoff: { name: "东京站八重洲口", lat: 35.6812, lng: 139.7671 },
-    service_local: "2030-11-20T10:00",
-    passengers: 2,
-    luggage: 1,
-    package_hours: null,
-  });
 });
 
 // ---- M8-13：订单页的「含区域加价」「公里数」，旧预订页报价卡片的「公里数」（规范 site-booking-v2.md 10.2、10.3、10.6） ----
@@ -674,19 +455,6 @@ test("订单页（M8-30b）：按订单上锁定的计价方式在「总价」�
   const trip = (await screen.findByRole("heading", { name: "行程" })).closest("section") as HTMLElement;
   assert.equal(trip.querySelector(".site-facts__note"), null);
   assert.equal(factValue(trip, "费用说明")?.textContent, "一口价已含所有费用（高速费、停车费等），无需另付");
-});
-
-test("旧预订页（M8-13，10.6 第 1 条）：点对点报价卡片车型标识下面写「公里数」那一句，没设含公里数的卡片不写", async () => {
-  const kmQuote: SiteQuote = { ...quote, distance: { included_km: 30, route_meters: 34_200, over_km: 5, over_km_per_km: { amount: "330", currency: "JPY" } } };
-  const plain: SiteQuote = { ...quote, quote_id: "QT20261026PLAINPLAIN", vehicle_group: { ...quote.vehicle_group, id: "66666666-6666-4666-8666-666666666666", code: "VG-STD-5", name: { zh: "舒适 5 座" } } };
-  open("/book", bookingRoutes((call) => (call.method === "POST" && call.url.pathname === "/site/v1/quotes" ? json(200, { currency: "JPY", quotes: [kmQuote, plain], unavailable: [] }) : null)));
-  const actor = user();
-  await fillInquiry(actor);
-  await actor.click(screen.getByRole("button", { name: "查询价格" }));
-  const card = (await screen.findByRole("heading", { name: "商务 7 座" })).closest("li") as HTMLElement;
-  assert.equal(factValue(card, "公里数")?.textContent, "含 30 公里，本次路线约 34.2 公里，超出 5 公里 × 330 JPY（已含在一口价里）");
-  const other = screen.getByRole("heading", { name: "舒适 5 座" }).closest("li") as HTMLElement;
-  assert.equal(factValue(other, "公里数"), null);
 });
 
 test("订单页（M9W-03）：包车有经停点时「经停点」按顺序写上车 → 经停（停留）→ 下车；总价下面写可能加收的提示、全程和预计时长；没有经停点的单不变", async () => {

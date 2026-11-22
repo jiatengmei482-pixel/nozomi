@@ -55,13 +55,6 @@ export interface SiteCity {
   categories: SiteCategory[];
 }
 
-export interface SiteAirport {
-  id: string;
-  code: string;
-  name: LocalizedText;
-  location: { lng: number; lat: number };
-}
-
 export type SiteDirection = "pickup" | "dropoff";
 
 export interface SitePoint {
@@ -509,10 +502,8 @@ export const SITE_SCHEMA_FIELDS = {
   BookingDraftPoint: ["name", "lat", "lng"],
   SiteConfig: ["open", "currency", "payments", "support_phone", "support_whatsapp", "page_width", "maps_browser_key", "address_search", "map_tiles"],
   SiteCity: ["id", "code", "name", "timezone", "country_code", "center", "categories"],
-  SitePlaceCandidate: ["source", "id", "name", "address", "location", "kind"],
   SitePlaceSuggestion: ["source", "id", "name", "address", "location", "kind"],
   SiteRoutePreview: ["minutes", "meters", "polyline"],
-  SiteAirport: ["id", "code", "name", "location"],
   SiteCharterPackage: ["hours"],
   SitePlace: ["id", "type", "code", "name", "address", "location"],
   SiteQuote: ["quote_id", "expires_at", "service_date", "urgent", "vehicle_group", "package", "includes_area_surcharge", "distance", "pricing_basis", "price", "price_breakdown", "free_wait_minutes", "cancel_policy", "available_addons", "estimated_minutes", "includes_buffer", "auto_package_hours", "itinerary_warnings", "stop_occupancy_minutes"],
@@ -587,14 +578,6 @@ export function listSiteCities(): Promise<{ items: SiteCity[] }> {
   return apiRequest("GET", `${SITE_BASE}/cities`);
 }
 
-export function listSiteAirports(cityId: string): Promise<{ items: SiteAirport[] }> {
-  return apiRequest("GET", `${SITE_BASE}/cities/${encodeURIComponent(cityId)}/airports`);
-}
-
-export function listSiteCharterPackages(cityId: string): Promise<{ items: SiteCharterPackage[] }> {
-  return apiRequest("GET", `${SITE_BASE}/cities/${encodeURIComponent(cityId)}/charter-packages`);
-}
-
 /** 按上下车点列包车套餐时长（M9P-02）：匹配到的城市和套餐；不匹配时城市为 null、列表为空 */
 export function listSiteCharterPackagesAt(pickup: { lat: number; lng: number }, dropoff: { lat: number; lng: number }): Promise<{ city: SiteQuotedCity | null; items: SiteCharterPackage[] }> {
   const query = new URLSearchParams({ pickup: `${pickup.lat},${pickup.lng}`, dropoff: `${dropoff.lat},${dropoff.lng}` });
@@ -637,35 +620,14 @@ export async function findSiteAirportAt(point: { lat: number; lng: number; kind?
   return { airport: body.airport, terminalId: body.terminal_id };
 }
 
-export function listSitePlaces(cityId: string): Promise<{ items: SitePlace[] }> {
-  return apiRequest("GET", `${SITE_BASE}/cities/${encodeURIComponent(cityId)}/places`);
-}
-
 /** 地点的类型：airport 机场（谷歌的类型是机场，或平台的机场、航站楼）/ other 其他。按两个坐标报价时用它认机场（M8-02）。 */
 export type SitePlaceKind = "airport" | "other";
-
-/** 地址搜索的一个候选：平台的机场、车站（排在前面）或谷歌给的地点（名称、地址、坐标、类型）。 */
-export interface SitePlaceCandidate {
-  source: "platform" | "google";
-  id: string;
-  name: string;
-  address: string;
-  location: { lat: number; lng: number };
-  kind: SitePlaceKind;
-}
 
 /**
  * `available` 为 false 时客人要知道的原因（M8-45）：`IP_DAILY_LIMIT` 这个地址今天调谷歌的额度用完了（页面说「今天的地址提示次数用完了」）；
  * 其余（没配置、全站上限、谷歌出错）不带这个字段，页面照旧说「暂时用不了」。
  */
 export type SitePlaceUnavailableReason = "IP_DAILY_LIMIT";
-
-/** `available` 为 false：谷歌这次用不了（没配置、到了每日上限、谷歌出错、这个地址今天的额度用完），`items` 只有平台的地点；页面退回常用地点、地图和手填。 */
-export interface SitePlaceSearchResult {
-  available: boolean;
-  unavailable_reason?: SitePlaceUnavailableReason;
-  items: SitePlaceCandidate[];
-}
 
 /** 输入即提示的一个候选（M8-02）：谷歌的还没有坐标（`location` 为 null），选中后用 `getSitePlaceDetails` 取。 */
 export interface SitePlaceSuggestion {
@@ -694,11 +656,6 @@ export interface SiteReverseResult {
   unavailable_reason?: SitePlaceUnavailableReason;
   /** 这个位置的地址；查不到为 null */
   address: string | null;
-}
-
-/** `cityId` 为 null 时在官网渠道授权的全部城市里搜（M8-02）。 */
-export function searchSitePlaces(cityId: string | null, query: string): Promise<SitePlaceSearchResult> {
-  return apiRequest("GET", `${SITE_BASE}/places/search?${cityId === null ? "" : `city_id=${encodeURIComponent(cityId)}&`}q=${encodeURIComponent(query)}`);
 }
 
 /**
@@ -1142,7 +1099,7 @@ export interface SiteTripOrderQuote {
   city: SiteQuotedCity | null;
   /** 价格 = 方案的对外总价 */
   quote: SiteQuote;
-  /** 等价的 `POST /site/v1/quotes` 请求体：恢复 /book/new 的填写状态用 */
+  /** 等价的 `POST /site/v1/quotes` 请求体：恢复 /book 的填写状态用 */
   quote_request: SiteQuoteRequest;
   /** 包车按行程计价的路线；接送机、点对点为 null */
   itinerary_route: SiteItineraryRouteJson | null;

@@ -1,6 +1,6 @@
 /**
  * 端到端：官网页面宽度（M8-28，ADR 0079）。真实浏览器 → 前端 → 真实 API → 真实 PostgreSQL，不 mock 接口。
- * 超级管理员在运营后台「系统设置 → 官网设置 → 页面宽度」选「最宽」保存 → 客人打开 `/book/new`，1920 宽的屏幕上内容比「标准」宽、右侧栏宽度不变；
+ * 超级管理员在运营后台「系统设置 → 官网设置 → 页面宽度」选「最宽」保存 → 客人打开 `/book`，1920 宽的屏幕上内容比「标准」宽、右侧栏宽度不变；
  * 平板（820）和手机（390）不受影响：单栏、摘要条、不横向滚动。用例结束改回原来的宽度（官网设置是全站一份，别的用例也在用）。
  */
 import { type APIRequestContext, expect, test } from "@playwright/test";
@@ -33,7 +33,7 @@ test("页面宽度：超级管理员在官网设置选「最宽」→ 官网电�
   try {
     await setWidth(request, "standard");
     await page.setViewportSize({ width: 1920, height: 1000 });
-    await page.goto("/book/new");
+    await page.goto("/book");
     await expect(page.locator(".site")).toHaveAttribute("data-width", "standard");
     const standard = await page.locator(".site__main").boundingBox();
     const standardAside = await page.locator(".book-new__aside").boundingBox();
@@ -47,7 +47,7 @@ test("页面宽度：超级管理员在官网设置选「最宽」→ 官网电�
     await card.getByRole("button", { name: "保存" }).click();
     await expect(page.getByText(/官网页面宽度改为「最宽」/)).toBeVisible();
 
-    await page.goto("/book/new");
+    await page.goto("/book");
     await expect(page.locator(".site")).toHaveAttribute("data-width", "full");
     const full = await page.locator(".site__main").boundingBox();
     const fullAside = await page.locator(".book-new__aside").boundingBox();

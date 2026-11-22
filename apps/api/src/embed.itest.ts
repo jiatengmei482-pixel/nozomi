@@ -276,7 +276,7 @@ test("建草稿：201 + 主站地址，主站读得到；多余键 400、24 KB 4
   assert.equal(created.status, 201, created.text);
   assertMatchesOpenApi("POST", "/embed/v1/booking-drafts", created);
   assert.match(created.body.id, /^[A-Za-z0-9_-]{43}$/);
-  assert.equal(new URL(created.body.url).pathname, "/book/new");
+  assert.equal(new URL(created.body.url).pathname, "/book");
   assert.equal(new URL(created.body.url).searchParams.get("draft"), created.body.id);
   assert.equal(created.headers["access-control-allow-origin"], PARTNER);
   const read = await api.call("GET", `/site/v1/booking-drafts/${created.body.id}`, { ip: nextIp() });

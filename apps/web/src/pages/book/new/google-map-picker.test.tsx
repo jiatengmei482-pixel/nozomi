@@ -43,7 +43,7 @@ function open(mapsKey: string | null): ApiCall[] {
     return null;
   });
   render(
-    <MemoryRouter initialEntries={["/book/new"]}>
+    <MemoryRouter initialEntries={["/book"]}>
       <App />
     </MemoryRouter>,
   );

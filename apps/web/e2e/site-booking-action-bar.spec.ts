@@ -1,5 +1,5 @@
 /**
- * 端到端：手机 390 宽的底部按钮条（M9E-32，业主验收意见 2026-11-16 iPhone Safari，ADR 0100）——主站 /book/new。
+ * 端到端：手机 390 宽的底部按钮条（M9E-32，业主验收意见 2026-11-16 iPhone Safari，ADR 0100）——主站 /book。
  * 嵌入页（iframe 被宿主撑到全高）的那一半在 site-embed-booking.spec.ts 的「M9E-32 跨站」。
  *
  * - 每一步的主按钮（「下一步：选择车型」「下一步：填写乘客信息」「下一步：核对订单」「去付款 →」）和「上一步」在底部按钮条里，
@@ -54,7 +54,7 @@ test("M9E-32 主站手机 390：四步的主按钮和「上一步」在底部按
   const bar = page.locator(".step-bar");
 
   // 第 1 步
-  await page.goto(`${SITE}/book/new`);
+  await page.goto(`${SITE}/book`);
   await expect(page.getByRole("heading", { name: "你的行程" })).toBeVisible();
   await expectOnScreenAtTop(page, bar.getByRole("button", { name: "下一步：选择车型" }), "第 1 步「下一步：选择车型」");
   await expect(page.locator(".book-new__actions")).toHaveCount(0);
@@ -62,7 +62,7 @@ test("M9E-32 主站手机 390：四步的主按钮和「上一步」在底部按
   await snapshot(page, "m9e32-main-step1");
 
   // 第 2 步：链接打开就报价
-  await page.goto(`${SITE}/book/new?${airportLink(airport)}&to=${TOKYO_STATION.lat},${TOKYO_STATION.lng}&to_name=${encodeURIComponent("東京駅八重洲口")}&date=${tomorrowInTokyo()}&time=11:30&pax=2&bags=1`);
+  await page.goto(`${SITE}/book?${airportLink(airport)}&to=${TOKYO_STATION.lat},${TOKYO_STATION.lng}&to_name=${encodeURIComponent("東京駅八重洲口")}&date=${tomorrowInTokyo()}&time=11:30&pax=2&bags=1`);
   const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: world.group.name }) });
   await expect(card).toBeVisible();
   const next = bar.getByRole("button", { name: "下一步：填写乘客信息" });
@@ -121,7 +121,7 @@ test.describe("平板 900（业主 2026-11-17：769–1023 也用底部按钮条
     const bar = page.locator(".step-bar");
 
     // 第 1 步：条固定在屏幕底部（position: fixed，下沿贴着视口下沿）
-    await page.goto(`${SITE}/book/new`);
+    await page.goto(`${SITE}/book`);
     await expect(page.getByRole("heading", { name: "你的行程" })).toBeVisible();
     await expect(page.locator(".step-bar-slot--fixed > .step-bar")).toHaveCount(1);
     await expect(page.locator(".book-new__actions")).toHaveCount(0);
@@ -132,7 +132,7 @@ test.describe("平板 900（业主 2026-11-17：769–1023 也用底部按钮条
     await expectAboveBarAtBottom(page, page.locator(".site__footer"), "平板第 1 步页脚");
 
     // 第 2 步：没选车时灰着、写原因；选了车可点
-    await page.goto(`${SITE}/book/new?${airportLink(airport)}&to=${TOKYO_STATION.lat},${TOKYO_STATION.lng}&to_name=${encodeURIComponent("東京駅八重洲口")}&date=${tomorrowInTokyo()}&time=11:30&pax=2&bags=1`);
+    await page.goto(`${SITE}/book?${airportLink(airport)}&to=${TOKYO_STATION.lat},${TOKYO_STATION.lng}&to_name=${encodeURIComponent("東京駅八重洲口")}&date=${tomorrowInTokyo()}&time=11:30&pax=2&bags=1`);
     const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: world.group.name }) });
     await expect(card).toBeVisible();
     const next = bar.getByRole("button", { name: "下一步：填写乘客信息" });

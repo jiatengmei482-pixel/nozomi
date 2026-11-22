@@ -1,15 +1,11 @@
 /**
- * 新预订页（`/book/new`，M8-03，ADR 0069 A3 和「修正版 v2」；规范 docs/design/pages/site-booking-v2.md）的小规则：
+ * 预订页（`/book`，M8-03 起的新流程，M8-05 换下旧页；ADR 0069 A3 和「修正版 v2」；规范 docs/design/pages/site-booking-v2.md）的小规则：
  * 链接参数、报不出价的说法、车型列表默认显示几个、乘客 / 行李栏的写法、车内俯视示意图的排布。
  * 价格、报价、下单逻辑都不在这里：报价走 `POST /site/v1/quotes/by-points`（包车走 `POST /site/v1/quotes`），只负责显示。
  */
 import { type CityCandidate, type CurrencyCode, type FlightKind, type FreeWait, type LatLng, arrivalFreeWaitRange, formatMajor, lockArrivalFreeWait, isCurrencyCode, minorDigits, parseMajor, rateToFraction, roundFractionHalfAwayFromZero, routeKmText, serviceCityOf } from "@nozomi/domain";
 import { SITE_ROUTE_MAP_LIMITS, type SiteCity, type SitePlaceKind, type SiteUnavailableReason } from "../api/site.ts";
 import { UNAVAILABLE_REASON_TEXT } from "./site-display.ts";
-
-export const SITE_NEW_BOOKING_PATH = "/book/new";
-/** 新预订页的包车（M8-15，ADR 0073）：旧 `/book` 选了包车就跳到这里——包车要选下车地点，旧页面没有 */
-export const SITE_NEW_CHARTER_URL = `${SITE_NEW_BOOKING_PATH}?mode=charter`;
 
 /** 乘客、行李的上下限（和询价接口一致）。 */
 export const TRAVELLER_LIMITS = { passengers: { min: 1, max: 60 }, luggage: { min: 0, max: 60 } } as const;
@@ -35,7 +31,7 @@ export interface BookingLink {
   passengers: number | null;
   luggage: number | null;
   /**
-   * 打开时选哪个标签：`mode=charter` 包车（旧 `/book` 的包车跳过来）；`mode=transfer`，以及 M8-27 的旧值 `airport`、`p2p`，
+   * 打开时选哪个标签：`mode=charter` 包车（M8-15 起旧询价页的包车跳过来时带的）；`mode=transfer`，以及 M8-27 的旧值 `airport`、`p2p`，
    * 都落到「区间」（M8-33）。参数名 `type` 同样认（旧链接）；`mode` 优先。别的值、没给为 null（默认区间）
    */
   mode: BookTab | null;

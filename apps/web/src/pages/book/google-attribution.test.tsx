@@ -1,8 +1,7 @@
 /**
  * 地址候选的谷歌署名（M9E-06，ADR 0090 第四节）的组件测试：
- * - 新预订页 `/book/new` 的地址框（电脑页面上、手机全屏选择页）和包车经停点：候选里有谷歌来源时，候选列表（listbox）后面、同一个面板里
+ * - 预订页 `/book` 的地址框（电脑页面上、手机全屏选择页）和包车经停点：候选里有谷歌来源时，候选列表（listbox）后面、同一个面板里
  *   署名「Google Maps」，listbox 里只有候选（不进 ↑↓、不算进「找到 N 个地点」）；只有平台的机场、车站时不署名；
- * - 旧询价页 `/book` 的地址搜索：有谷歌来源时搜索结果列表后面署名（列表项数不含署名），只有平台地点时不署名；
  * - 候选很多时署名始终在可视区里：jsdom 量不了布局，由 e2e/site-google-attribution.spec.ts 核对（10 个候选）；
  * - 嵌入组件和主站共用同一份写法（`lib/google-attribution.ts`）：文字、英文、不让浏览器翻译；源代码里别处不再写死这几个字。
  * 接口用测试替身（浏览器只连 /site/v1）。
@@ -34,7 +33,7 @@ const airport = { source: "platform", id: "22222222-2222-4222-8222-222222222222"
 const station = { source: "platform", id: "66666666-6666-4666-8666-666666666666", name: "新宿站", address: "", location: { lat: 35.6896, lng: 139.7006 }, kind: "other" } as const;
 const hotel = { source: "google", id: "ChIJkeio", name: "京王广场酒店", address: "东京都新宿区西新宿 2-2-1", location: null, kind: "other" } as const;
 /** 包车链接：上车、下车、日期时间都带上，好直接加经停点 */
-const CHARTER_LINK = "/book/new?mode=charter&from=35.6905,139.6948&from_name=%E4%BA%AC%E7%8E%8B&to=35.6896,139.7006&to_name=%E6%96%B0%E5%AE%BF%E7%AB%99&date=2030-11-20&time=09:00";
+const CHARTER_LINK = "/book?mode=charter&from=35.6905,139.6948&from_name=%E4%BA%AC%E7%8E%8B&to=35.6896,139.7006&to_name=%E6%96%B0%E5%AE%BF%E7%AB%99&date=2030-11-20&time=09:00";
 
 /** 「成田」：平台的机场 + 谷歌的地点；「新宿」：只有平台的车站 */
 function suggestionsFor(q: string) {
@@ -43,19 +42,12 @@ function suggestionsFor(q: string) {
   return [hotel];
 }
 
-function open(at = "/book/new"): void {
+function open(at = "/book"): void {
   stubApiWith((call) => {
     const path = call.url.pathname;
     if (path === "/site/v1/config") return json(200, config);
-    // 旧询价页：只有一个城市、一种品类时直接到地址（和 site-address.test.tsx 一样）
-    if (path === "/site/v1/cities") return json(200, { items: [at === "/book" ? { ...city, categories: ["point_to_point"] } : city] });
+    if (path === "/site/v1/cities") return json(200, { items: [city] });
     if (path === "/site/v1/places/autocomplete") return json(200, { available: true, items: suggestionsFor(call.url.searchParams.get("q") ?? "") });
-    if (path === `/site/v1/cities/${CITY_ID}/places`) return json(200, { items: [] });
-    if (path === "/site/v1/places/search") {
-      const q = call.url.searchParams.get("q") ?? "";
-      const items = suggestionsFor(q).map((item) => ({ ...item, location: item.location ?? { lat: 35.6905, lng: 139.6948 } }));
-      return json(200, { available: true, items });
-    }
     if (path === `/site/v1/cities/${CITY_ID}/charter-packages`) return json(200, { items: [{ hours: 8 }] });
     if (path === "/site/v1/fx/reference") return json(200, { available: false, from: "JPY", to: call.url.searchParams.get("to"), rate: null, as_of: null, reason: "NO_RATE" });
     if (call.method === "POST" && path === "/site/v1/quotes") return json(200, { currency: "JPY", quotes: [], unavailable: [] });
@@ -122,7 +114,7 @@ test("嵌入组件和主站共用同一份写法：widget-ui.ts 引用 lib/googl
   assert.deepEqual(hardCoded, []);
 });
 
-test("/book/new 电脑：有谷歌候选时列表末尾署名「Google Maps」，不是候选、不算进个数；只有平台的车站时不署名", async () => {
+test("/book 电脑：有谷歌候选时列表末尾署名「Google Maps」，不是候选、不算进个数；只有平台的车站时不署名", async () => {
   window.matchMedia = ((query: string) => ({ matches: query.includes("min-width: 1024px"), media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false })) as typeof window.matchMedia;
   open();
   const actor = user();
@@ -144,7 +136,7 @@ test("/book/new 电脑：有谷歌候选时列表末尾署名「Google Maps」�
   assertAbsent((toList.parentElement as HTMLElement).querySelector(".google-attribution"));
 });
 
-test("/book/new 手机全屏选择页：有谷歌候选时署名；只有平台地点时不署名", async () => {
+test("/book 手机全屏选择页：有谷歌候选时署名；只有平台地点时不署名", async () => {
   window.matchMedia = ((query: string) => ({ matches: query === FULL_SCREEN_PICKER_QUERY || query === "(pointer: coarse)", media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false })) as typeof window.matchMedia;
   open();
   const actor = user();
@@ -162,7 +154,7 @@ test("/book/new 手机全屏选择页：有谷歌候选时署名；只有平台�
   assertAbsent(within(sheet).queryByText("Google Maps"));
 });
 
-test("/book/new 包车经停点：有谷歌候选时署名；只有平台地点时不署名", async () => {
+test("/book 包车经停点：有谷歌候选时署名；只有平台地点时不署名", async () => {
   window.matchMedia = ((query: string) => ({ matches: query.includes("min-width: 1024px"), media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false })) as typeof window.matchMedia;
   open(CHARTER_LINK);
   const actor = user();
@@ -177,19 +169,4 @@ test("/book/new 包车经停点：有谷歌候选时署名；只有平台地点�
   await actor.type(box, "新宿");
   await within(list).findByRole("option", { name: /新宿站/ }, SLOW);
   assertAbsent(within(list.parentElement as HTMLElement).queryByText("Google Maps"));
-});
-
-test("旧询价页 /book 地址搜索：有谷歌来源时搜索结果末尾署名一次；只有平台地点时不署名", async () => {
-  open("/book");
-  const actor = user();
-  await actor.type(await screen.findByRole("searchbox", { name: "搜索上车地点（选填）" }), "成田{Enter}");
-  const results = await screen.findByRole("list", { name: "搜索到的上车地点" }, SLOW);
-  assert.equal(within(results).getAllByRole("button").length, 2, "署名不是可选的结果");
-  assert.equal(within(results).getAllByRole("listitem").length, 2, "读屏报的项数只算结果，不含署名");
-  assertAttribution(results);
-
-  await actor.type(screen.getByRole("searchbox", { name: "搜索下车地点（选填）" }), "新宿{Enter}");
-  const dropoff = await screen.findByRole("list", { name: "搜索到的下车地点" }, SLOW);
-  within(dropoff).getByRole("button", { name: /新宿站/ });
-  assertAbsent(within(dropoff.parentElement as HTMLElement).queryByText("Google Maps"));
 });

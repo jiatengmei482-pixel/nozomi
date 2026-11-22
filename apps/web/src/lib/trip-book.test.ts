@@ -1,4 +1,4 @@
-/** 行程报价页的下单出口（M9T-10 第二部分）：哪些方案能直接在线下单、order-quote 的请求体、带去 /book/new 的内容（路由 state 的核对、预填、当作询价结果）。 */
+/** 行程报价页的下单出口（M9T-10 第二部分）：哪些方案能直接在线下单、order-quote 的请求体、带去 /book 的内容（路由 state 的核对、预填、当作询价结果）。 */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { SiteQuote, SiteTrip, SiteTripItinerary, SiteTripOrderQuote, SiteTripPlan, SiteTripSegment } from "../api/site.ts";
@@ -54,12 +54,12 @@ function orderOf(segmentType: SiteTripOrderQuote["segment_type"], category: "air
   };
 }
 
-test("能直接在线下单：整个方案只有一段、没有跨段费用、包车停留在 /book/new 能选的档；多段、空闲日、带费用、「不停留」的经停都不行", () => {
+test("能直接在线下单：整个方案只有一段、没有跨段费用、包车停留在 /book 能选的档；多段、空闲日、带费用、「不停留」的经停都不行", () => {
   const charter = tripOf([charterDay(90)]);
   const single = tripBookableSegment(charter, planOf([{ day_index: 0, date: "2030-11-20", segments: [segment("charter")], fees: [] }]));
   assert.equal(single?.dayIndex, 0);
   assert.equal(single?.segment.type, "charter");
-  assert.equal(tripBookableSegment(tripOf([charterDay(0)]), planOf([{ day_index: 0, date: "2030-11-20", segments: [segment("charter")], fees: [] }])), null, "不停留 /book/new 选不了");
+  assert.equal(tripBookableSegment(tripOf([charterDay(0)]), planOf([{ day_index: 0, date: "2030-11-20", segments: [segment("charter")], fees: [] }])), null, "不停留 /book 选不了");
   assert.equal(tripBookableSegment(charter, planOf([{ day_index: 0, date: "2030-11-20", segments: [segment("charter")], fees: [fee] }])), null, "挂在当天的费用");
   assert.equal(tripBookableSegment(charter, planOf([{ day_index: 0, date: "2030-11-20", segments: [segment("charter")], fees: [] }], [fee])), null, "按晚的费用");
   const two = tripOf([pickupDay, charterDay(90)]);
@@ -81,7 +81,7 @@ test("order-quote 请求体：包车带经停点地名（个数和经停点一�
   assert.equal(tripOrderQuoteBody(charter, bookable, long).waypoint_names?.[0]?.length, 200, "截到 200 个字");
 });
 
-test("带去 /book/new 的内容：两端（机场标 airport）、经停点；路由 state 核对格式，不对的当作没有", () => {
+test("带去 /book 的内容：两端（机场标 airport）、经停点；路由 state 核对格式，不对的当作没有", () => {
   const charter = tripOf([charterDay(90)]);
   const handoff = tripBookHandoff(charter, { segment: segment("charter"), dayIndex: 0 }, labels, orderOf("charter", "charter"));
   assert.ok(handoff);
@@ -165,7 +165,7 @@ test("接送报价没带城市：按报价请求的 city_id 在城市列表里�
   assert.equal(tripBookCity(pickup, []), null);
 });
 
-test("包车报价请求带了手动升档（itinerary_pricing + package_hours）：恢复成 /book/new 的升档", () => {
+test("包车报价请求带了手动升档（itinerary_pricing + package_hours）：恢复成 /book 的升档", () => {
   const order = orderOf("charter", "charter");
   const charter = tripBookHandoff(tripOf([charterDay(90)]), { segment: segment("charter"), dayIndex: 0 }, labels, { ...order, quote_request: { ...order.quote_request, itinerary_pricing: true, package_hours: 8 } });
   assert.ok(charter);

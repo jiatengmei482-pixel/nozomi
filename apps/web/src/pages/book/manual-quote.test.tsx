@@ -211,7 +211,7 @@ function openPage(at: string, options: { config?: SiteConfig; byPoints?: () => R
   return calls;
 }
 
-const P2P_LINK = "/book/new?from=35.6896,139.7006&from_name=%E6%96%B0%E5%AE%BF%E7%AB%99&to=35.6586,139.7454&to_name=%E4%B8%9C%E4%BA%AC%E5%A1%94&date=2030-11-20&time=14:30";
+const P2P_LINK = "/book?from=35.6896,139.7006&from_name=%E6%96%B0%E5%AE%BF%E7%AB%99&to=35.6586,139.7454&to_name=%E4%B8%9C%E4%BA%AC%E5%A1%94&date=2030-11-20&time=14:30";
 
 /** 报不出价时只有人工报价那一块：下单用的乘客信息（姓名、手机号、同意保存银行卡）、「去付款」和往第 3 步的「下一步」都不出现（M8-21b，规范 11.1） */
 function assertNoCheckout(): void {
@@ -257,7 +257,7 @@ test("新预订页渠道不卖这一段（CHANNEL_SCOPE_DENIED）：同样有人
 
 test("新预订页包车、上车地点不在任何能订包车的城市：说明 + 客服电话；给通用的包车时长，选了以后提交带 package_hours、没有城市", async () => {
   wideScreen();
-  const calls = openPage("/book/new?mode=charter&from=26.2124,127.6809&from_name=%E9%82%A3%E9%9C%B8&to=26.3,127.8&to_name=%E5%8C%97%E8%B0%B7&date=2030-11-20&time=09:00");
+  const calls = openPage("/book?mode=charter&from=26.2124,127.6809&from_name=%E9%82%A3%E9%9C%B8&to=26.3,127.8&to_name=%E5%8C%97%E8%B0%B7&date=2030-11-20&time=09:00");
   const actor = user();
   const region = await screen.findByRole("region", { name: "请客服人工报价" }, SLOW);
   assert.ok(screen.getByText("这个地址暂时没有在线报价，请联系客服"));
@@ -285,7 +285,7 @@ test("新预订页没有车（报价列表为空、也没有原因）同样给�
   assertNoCheckout();
   resetBrowser();
   wideScreen();
-  openPage("/book/new");
+  openPage("/book");
   await screen.findByRole("combobox", { name: "出发地" }, SLOW);
   assertAbsent(screen.queryByRole("region", { name: "请客服人工报价" }));
 });

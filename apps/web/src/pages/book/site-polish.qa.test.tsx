@@ -138,7 +138,7 @@ test("F3：订单页崩溃后，点顶栏「查订单」能离开兜底页，看
   }
 });
 
-test("F3：订单页崩溃后，点顶栏「预订用车」能回到询价页", async () => {
+test("F3：订单页崩溃后，点顶栏「预订用车」能回到预订页", async () => {
   const quiet = console.error;
   console.error = () => undefined;
   try {
@@ -146,7 +146,7 @@ test("F3：订单页崩溃后，点顶栏「预订用车」能回到询价页", 
     openOrder(envelopeOf(broken), () => json(200, configOf()));
     assert.ok(await screen.findByRole("heading", { level: 1, name: "页面出了点问题" }));
     await user().click(within(screen.getByRole("navigation", { name: "官网" })).getByRole("link", { name: "预订用车" }));
-    assert.ok(await screen.findByRole("heading", { level: 1, name: "预订用车" }));
+    assert.ok(await screen.findByRole("heading", { level: 1, name: "预订接送车" }));
   } finally {
     console.error = quiet;
   }

@@ -13,6 +13,16 @@ export const PROTOCOL_VERSION = 1;
 /** 嵌入页的路径（同一个前端包里的路由，ADR 0095 第四节第 2 小节） */
 export const EMBED_BOOK_PATH = "/embed/book";
 export const EMBED_BOOK_ORDER_PATH = "/embed/book/order";
+/**
+ * 主站的预订页（M8-05 起是 `/book`，和前端路由的 `SITE_HOME_PATH` 一致，booking-protocol.test.ts 核对）：组件「到主站预订」、建好草稿后整页跳去的地方。
+ * 组件脚本单独打包、不引 lib/site-display.ts，所以这里另写一份。以前的 `/book/new` 仍能打开（转到这里）。
+ */
+export const MAIN_SITE_BOOKING_PATH = "/book";
+
+/** 主站预订页带上草稿编号的地址（相对 `base`，即加载组件脚本的主站） */
+export function mainSiteBookingUrl(base: string, draft: string | null = null): string {
+  return `${base}${MAIN_SITE_BOOKING_PATH}${draft === null ? "" : `?draft=${encodeURIComponent(draft)}`}`;
+}
 
 export const BOOKING_STEPS = ["trip", "vehicle", "passenger", "review", "payment", "paid", "expired"] as const;
 export type BookingStep = (typeof BOOKING_STEPS)[number];

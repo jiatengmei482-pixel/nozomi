@@ -90,7 +90,7 @@ test("查看令牌只在 # 后面和订单接口的 Authorization 里：每个�
   await expect(page.getByRole("heading", { level: 1, name: `订单 ${orderNo}` })).toBeVisible();
   // 站内跳转再回来：来源页（Referer）是带 # 的订单页
   await page.getByRole("link", { name: "预订用车" }).first().click();
-  await expect(page.getByRole("heading", { level: 1, name: "预订用车" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "预订接送车" })).toBeVisible();
   await page.goBack();
   await expect(page.getByRole("heading", { level: 1, name: `订单 ${orderNo}` })).toBeVisible();
   await page.reload();

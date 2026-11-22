@@ -1,5 +1,5 @@
 /**
- * 端到端：手机上的新预订页 `/book/new`（M8-37，用户反馈：手机上地址候选被输入框、键盘盖住选不了）。
+ * 端到端：手机上的新预订页 `/book`（M8-37，用户反馈：手机上地址候选被输入框、键盘盖住选不了）。
  * 业主 2026-11-12 的方案：移动设备优先保证操作流程——手机触屏上地址、日期、时间都是「点一下 → 全屏选择页 → 选好回到页面」。
  * 全屏选择页是原生 <dialog>（在页面最上层），这里核对：
  * - 选择页占满屏幕、在最上层（候选正中这一点上就是候选本身，没有别的东西盖住）；
@@ -85,7 +85,7 @@ test("M8-37 手机：地址、日期、时间都是全屏选择页（占满屏�
   await publishTransfer(request, supplier, { ...world, airport });
   await simulateKeyboard(page);
 
-  await page.goto(`${SITE}/book/new`);
+  await page.goto(`${SITE}/book`);
   await expect(page.getByRole("heading", { level: 1, name: "预订接送车" })).toBeVisible();
   expect(await page.evaluate(() => window.matchMedia("(pointer: coarse)").matches)).toBe(true);
   // 页面上没有直接打字的地址框，只有点了打开选择页的那一格

@@ -125,7 +125,7 @@ test("包车行程地图：编号 1 = 上车、经停依次、最后 = 下车，
 
   // 没有经停：2 个点，「1 上车」「2 下车」
   const twoPoints = page.waitForResponse((response) => response.url().startsWith(`${SITE}/site/v1/itinerary-map?`));
-  await page.goto(`${SITE}/book/new?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.nearby, "市内下车点")}&date=${date}&time=10:00`);
+  await page.goto(`${SITE}/book?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.nearby, "市内下车点")}&date=${date}&time=10:00`);
   const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: trip.groupName }) });
   await expect(card).toContainText("77,000 JPY");
   const plain = await twoPoints;
@@ -238,7 +238,7 @@ test("10 个经停：列表编号 1–12，地图请求按顺序带 12 个点、
     stops.push({ name, location });
   }
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto(`${SITE}/book/new?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.nearby, "市内下车点")}&date=${tomorrowInTokyo()}&time=08:00`);
+  await page.goto(`${SITE}/book?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.nearby, "市内下车点")}&date=${tomorrowInTokyo()}&time=08:00`);
   // 有 8、12 小时两档：停在第 1 步等客人选时长；加了经停点就按行程自动选
   await expect(page.getByRole("button", { name: "添加经停点" })).toBeVisible();
   for (const [index, stop] of stops.entries()) {

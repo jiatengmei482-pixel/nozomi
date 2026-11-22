@@ -7,7 +7,7 @@
  *
  * - 只调 `/embed/v1`（配置、地址提示、建草稿），一律 `credentials: "omit"`；不询价、不下单、不显示价格。
  * - 界面画在 Shadow DOM 里，和合作网站的样式互不影响；不加载任何第三方资源。
- * - 点「查看价格」先建预订草稿，成功后整页跳到主站 `/book/new?draft=<编号>`；失败在组件里提示、不跳转。
+ * - 点「查看价格」先建预订草稿，成功后整页跳到主站预订页 `/book?draft=<编号>`；失败在组件里提示、不跳转。
  *   传了合格的 `bookingUrl`（M9E-16，ADR 0095）时改跳合作网站自己的预订页 `bookingUrl?nzdraft=<编号>`，建草稿时带 `delivery: "host_page"`。
  * - 取配置（M9E-22，见 configOutcome / start）：被拒只显示「暂时无法使用」和主站链接；8 秒没回、连不上、5xx 先按 init 的参数显示表单。
  */
@@ -42,7 +42,7 @@ import {
   tomorrow,
 } from "./widget-core.ts";
 import { icon } from "./widget-icons.ts";
-import { bookingUrlOf, withDraft } from "./booking-protocol.ts";
+import { bookingUrlOf, mainSiteBookingUrl, withDraft } from "./booking-protocol.ts";
 import { tellDeveloper } from "./developer-notice.ts";
 import { WIDGET_CSS, themeCss } from "./widget-style.ts";
 import { GOOGLE_MAPS_ATTRIBUTION, GOOGLE_MAPS_ATTRIBUTION_ATTRIBUTES, hasGoogleSource } from "../lib/google-attribution.ts";
@@ -302,12 +302,12 @@ class Widget {
   /** 提示行写一句失败（M9E-22）：被拒、读不出的失败后面跟主站链接 */
   private failWith(message: HTMLElement, failure: keyof typeof FAILURE_TEXT_KEY): void {
     message.textContent = this.t[FAILURE_TEXT_KEY[failure]];
-    if (failure === "refused" || failure === "unreachable") message.append(" ", el("a", { href: `${this.base}/book/new`, class: "nzb-link", rel: "noopener" }, [this.t.goToSite]));
+    if (failure === "refused" || failure === "unreachable") message.append(" ", el("a", { href: mainSiteBookingUrl(this.base), class: "nzb-link", rel: "noopener" }, [this.t.goToSite]));
   }
 
   private renderUnavailable(): void {
     this.clear();
-    const link = el("a", { href: `${this.base}/book/new`, class: "nzb-link", rel: "noopener" }, [this.t.goToSite]);
+    const link = el("a", { href: mainSiteBookingUrl(this.base), class: "nzb-link", rel: "noopener" }, [this.t.goToSite]);
     this.shadow.append(this.frame({ role: "status" }, [el("p", { class: "nzb-message" }, [this.t.unavailable]), link]));
   }
 
@@ -767,7 +767,7 @@ class Widget {
     if (this.destroyed) return;
     // 跳到脚本所在的主站（不用应答里的 url：主站地址以加载脚本的那个为准）；传了合格的 bookingUrl 就跳合作网站自己的预订页
     if (status === 201 && typeof body?.id === "string") {
-      this.go(this.bookingTarget === null ? `${this.base}/book/new?draft=${encodeURIComponent(body.id)}` : withDraft(this.bookingTarget, body.id));
+      this.go(this.bookingTarget === null ? mainSiteBookingUrl(this.base, body.id) : withDraft(this.bookingTarget, body.id));
       return;
     }
     // 浏览器里被拒的 403 不带 CORS 头、读不出：探一下 GET 配置，主站有应答就按被拒说（M9E-22）

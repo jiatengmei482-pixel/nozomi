@@ -13261,7 +13261,7 @@ paths:
                     description: 嵌入码在运营后台设的外观（M9E-14）。组件 init 没传 `layout` 时用它；`auto` 按组件容器宽度选（≥ 900 px 横条，窄了卡片）
                   site_origin:
                     type: string
-                    description: 主站的 origin（组件跳转到这里的 /book/new）
+                    description: 主站的 origin（组件跳转到这里的 /book）
         "403":
           description: "`EMBED_ORIGIN_NOT_ALLOWED`：嵌入码不存在或停用，或请求的 Origin 不在白名单里（不区分）；不带 CORS 头"
           content:
@@ -13439,7 +13439,7 @@ paths:
                     format: date-time
                   url:
                     type: string
-                    description: 主站 /book/new?draft=<id>
+                    description: 主站 /book?draft=<id>
         "403":
           description: "`EMBED_ORIGIN_NOT_ALLOWED`：嵌入码不存在或停用，或请求的 Origin 不在白名单里（不区分）；不带 CORS 头"
           content:
@@ -13509,7 +13509,7 @@ paths:
       operationId: getSiteBookingDraft
       summary: 读预订草稿（嵌入组件跳过来时预填用）
       description: |
-        M9E-01，ADR 0090：嵌入组件先把预订条件交给主站暂存成草稿，再跳 `/book/new?draft=<id>`。只给预订条件和到期时刻，
+        M9E-01，ADR 0090：嵌入组件先把预订条件交给主站暂存成草稿，再跳 `/book?draft=<id>`。只给预订条件和到期时刻，
         不给来源（哪个嵌入码、哪个网站、返回地址）。草稿 2 小时有效，有效期内可以反复打开。
         过期、不存在、编号格式不对一律 404 `BOOKING_DRAFT_NOT_FOUND`，不区分。不需要登录；每个地址每分钟 60 次；永远不带 CORS 头。
       parameters:
@@ -13776,7 +13776,7 @@ paths:
         M9T-10，ADR 0101 第十三节第 3 小节。整个方案只有一段（例如单日一车到底）时，用这一段的报价条件（段型、品类、城市、开始时刻、各点、人数行李、附加项）
         走一次官网正式询价（同 `POST /site/v1/quotes`：写询价日志、生成 `quote_id`、30 分钟有效），取方案车型组的那一张。
         **价格必须等于方案的对外总价**（`plans[].total`），不一样、或这个车型组报不出了时 409 `TRIP_PRICE_CHANGED`（`details.plan_total`、`details.quote_total`，后者报不出时为 null），页面让客人重新报价。
-        成功后凭 `quote.quote_id` 走现有下单、付款（`POST /site/v1/orders`，`/book/new` 的乘客信息、下单、Stripe），不另有付款接口；`quote_request` 是等价的官网询价请求体，页面用它恢复 `/book/new` 的填写状态。
+        成功后凭 `quote.quote_id` 走现有下单、付款（`POST /site/v1/orders`，`/book` 的乘客信息、下单、Stripe），不另有付款接口；`quote_request` 是等价的官网询价请求体，页面用它恢复 `/book` 的填写状态。
         行程单不存在、已过期、编号格式不对、不是本渠道、验收会话和普通客人不一致 404 `TRIP_NOT_FOUND`；方案不存在、不是这一行程最近一次报价的、没报出 404 `TRIP_PLAN_NOT_FOUND`；
         方案过了 30 分钟有效期 409 `TRIP_PLAN_EXPIRED`（重新报价）；方案不止一段（多段方案的预订方式待业主决定）、是空闲日、带跨段费用（一张普通报价放不下）409 `TRIP_PLAN_NOT_SINGLE_SEGMENT`
         （`details.reason`：`MULTI_SEGMENT` / `IDLE_DAY` / `HAS_FEES`，`details.segment_count`）。这次询价报不出不记未覆盖需求。
@@ -14970,7 +14970,7 @@ paths:
       operationId: getSiteItineraryMap
       summary: 包车行程地图（多点静态路线图，编号 1、2、3…，PNG）
       description: |
-        M9P-20 P1，ADR 0096 第二节。包车报价页（主站 `/book/new` 和嵌入页 `/embed/book`）的行程地图：服务端代调谷歌 Maps Static API（**密钥不进浏览器**），
+        M9P-20 P1，ADR 0096 第二节。包车报价页（主站 `/book` 和嵌入页 `/embed/book`）的行程地图：服务端代调谷歌 Maps Static API（**密钥不进浏览器**），
         灰色调底图和品牌色路线同 `/site/v1/route-map`；标记按行程顺序编号：1 = 上车，经停依次，最后 = 下车。1–9 用谷歌内置的单字符标记，
         10–12 用官网公开路径 `/map-markers/10.png`…`12.png` 的图标（谷歌的服务器去取）。上车、下车是品牌色的大标记，经停是浅一档的中号标记。
         折线：一次 Routes computeRoutes，经停作 `intermediates`（`via: false`），计入 `GOOGLE_ROUTES_DAILY_LIMIT`；同一组有序点（各自取整到 3 位小数）的折线在服务端存 7 天。
@@ -31595,7 +31595,7 @@ components:
         tab:
           type: string
           enum: [ transfer, charter ]
-          description: 区间（接送机 / 点对点由 `/book/new` 按地点判断）或包车
+          description: 区间（接送机 / 点对点由 `/book` 按地点判断）或包车
         service_local:
           type: string
           description: 城市当地 `YYYY-MM-DDTHH:mm`
@@ -31633,7 +31633,7 @@ components:
           type: [ integer, "null" ]
           minimum: 1
           maximum: 72
-          description: 只有包车且没有经停点时可以给（1–72）；不在城市套餐里时 `/book/new` 清空、请客人重选
+          description: 只有包车且没有经停点时可以给（1–72）；不在城市套餐里时 `/book` 清空、请客人重选
         passengers:
           type: integer
           minimum: 1
@@ -33268,7 +33268,7 @@ components:
           $ref: "#/components/schemas/SiteQuote"
         quote_request:
           $ref: "#/components/schemas/SiteQuoteRequest"
-          description: 等价的 `POST /site/v1/quotes` 请求体（包车是按行程计价、自动选档）：页面用它恢复 `/book/new` 的填写状态；没有 `pickup_name`、`dropoff_name`、`draft_id`
+          description: 等价的 `POST /site/v1/quotes` 请求体（包车是按行程计价、自动选档）：页面用它恢复 `/book` 的填写状态；没有 `pickup_name`、`dropoff_name`、`draft_id`
         itinerary_route:
           description: 包车按行程计价时服务器算的路线（同官网询价的 `itinerary_route`）；接送机、点对点为 null
           oneOf:

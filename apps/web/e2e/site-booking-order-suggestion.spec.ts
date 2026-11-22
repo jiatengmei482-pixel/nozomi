@@ -71,7 +71,7 @@ test("经停顺序建议：出现建议块 → 采用（焦点到行程标题、
   });
 
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto(`${SITE}/book/new?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.nearby, "市内下车点")}&date=${tomorrowInTokyo()}&time=10:00`);
+  await page.goto(`${SITE}/book?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&${linkPoint("to", trip.nearby, "市内下车点")}&date=${tomorrowInTokyo()}&time=10:00`);
   const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: trip.groupName }) });
   await expect(card).toContainText("JPY");
   await page.getByRole("button", { name: "上一步" }).click();

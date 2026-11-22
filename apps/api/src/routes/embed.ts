@@ -215,7 +215,7 @@ export function registerEmbedRoutes(app: FastifyInstance, ctx: AppContext): void
     const { gate } = gateOf(request);
     const body = parseInput(draftBodySchema, request.body, "body");
     const stored = await createEmbedDraft(ctx, gate, request.ip, { draft: body.draft, return_url: body.return_url, delivery: body.delivery }, request.log);
-    const url = new URL("/book/new", ctx.config.publicBaseUrl);
+    const url = new URL("/book", ctx.config.publicBaseUrl);
     url.searchParams.set("draft", stored.id);
     return reply.code(201).send({ id: stored.id, expires_at: stored.expiresAt.toISOString(), url: url.href });
   });

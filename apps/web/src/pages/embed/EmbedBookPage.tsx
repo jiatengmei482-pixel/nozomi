@@ -5,7 +5,7 @@
  * - 先看本标签页有没有这个草稿下过、还待付款的单（`nozomi.embed-order`，宿主页刷新后续接）：有就进订单页；已付款、已取消、读不到的立即删掉，照常预订。
  * - 读草稿时带上 iframe 地址里的 `key`、`host`：服务端回答草稿上记的嵌入码、宿主和这次对不对得上（`source_matches`）；
  *   对不上时照常预填和报价，但询价不带 `draft_id`，来源按主站记。
- * - 读到草稿后发 `ready`，然后就是 `/book/new` 的四步（同一份组件，`BookingShell` 换外壳）：和主站一样 iframe ≥ 1024px 两栏、带「行程摘要」右侧栏，
+ * - 读到草稿后发 `ready`，然后就是主站预订页 `/book` 的四步（同一份组件，`BookingShell` 换外壳）：和主站一样 iframe ≥ 1024px 两栏、带「行程摘要」右侧栏，
  *   < 1024px 单栏、顶部摘要条（M9E-27，按 iframe 自己的视口）；不用 Leaflet（不提供地图选点，
  *   静态路线图失败时只留时长和公里数）、换步发 `step`、下单后进 iframe 里的订单页（令牌放 history.state 和 `nozomi.embed-order`，不进地址、不发给宿主）。
  *   读不到草稿发 `ready` 再发 `error`。
@@ -17,7 +17,7 @@ import { useNavigate } from "react-router";
 import { ApiError } from "../../api/client.ts";
 import { type BookingDraft, getSiteBookingDraft, getSiteOrder } from "../../api/site.ts";
 import { NewTabLink } from "../../components/NewTabLink.tsx";
-import { type BookingErrorCode, type BookingStep, EMBED_BOOK_ORDER_PATH } from "../../embed/booking-protocol.ts";
+import { type BookingErrorCode, type BookingStep, EMBED_BOOK_ORDER_PATH, mainSiteBookingUrl } from "../../embed/booking-protocol.ts";
 import { embedOrderFor, forgetEmbedOrder, rememberEmbedOrder } from "../../embed/embed-order-store.ts";
 import type { BookStep } from "../../lib/book-new.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
@@ -47,7 +47,7 @@ export function EmbedHeader({ children }: { children?: ReactNode }) {
 /** 没被嵌、地址不完整：两种都不显示预订内容 */
 export function EmbedRefusal() {
   const { inFrame, params, t } = useEmbedFrame();
-  const siteLink = `/book/new${params.draft === null ? "" : `?draft=${encodeURIComponent(params.draft)}`}`;
+  const siteLink = mainSiteBookingUrl("", params.draft);
   if (!inFrame) {
     return (
       <section className="embed-book__section" role="status">
@@ -149,7 +149,7 @@ export function EmbedBookPage() {
   }, [load, live, draft, send, t.title, params.ch, frame.viewport]);
 
   if (!inFrame || host === null) return <EmbedRefusal />;
-  const siteLink = `/book/new${draft === null ? "" : `?draft=${encodeURIComponent(draft)}`}`;
+  const siteLink = mainSiteBookingUrl("", draft);
   return (
     <>
       <EmbedHeader />

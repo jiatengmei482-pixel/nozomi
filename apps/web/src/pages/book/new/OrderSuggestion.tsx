@@ -1,5 +1,5 @@
 /**
- * 包车经停顺序建议（M9P-20 P2，ADR 0096 第三节、第四节）：主站 `/book/new` 和嵌入页 `/embed/book` 共用。
+ * 包车经停顺序建议（M9P-20 P2，ADR 0096 第三节、第四节）：主站 `/book` 和嵌入页 `/embed/book` 共用。
  * - `useOrderSuggestion`：经停点集合或其他询价字段变了、当前顺序有了可核对的询价（报价编号，或超长时的询价日志编号）以后，
  *   停 `ORDER_SUGGESTION_SETTLE` 再调 `POST /site/v1/charter/order-suggestion`；只换顺序不调（建议块在页面里按新的当前报价重算）；
  *   「保持我的顺序」以后同一组点这次不再提示；

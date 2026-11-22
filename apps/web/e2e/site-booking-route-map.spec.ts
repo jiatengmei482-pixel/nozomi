@@ -38,7 +38,7 @@ async function prepareTrip(page: Page, request: Parameters<typeof createWorld>[0
     await route.fulfill({ response, json: { ...body, route: { minutes: 25, meters: 14_200, polyline: encodePolyline([airport.location, { lat: (airport.location.lat + TOKYO_STATION.lat) / 2 + 0.01, lng: (airport.location.lng + TOKYO_STATION.lng) / 2 }, TOKYO_STATION]) } } });
   });
   const name = encodeURIComponent("東京駅八重洲口");
-  return { link: `${SITE}/book/new?${airportLink(airport)}&to=${TOKYO_STATION.lat},${TOKYO_STATION.lng}&to_name=${name}&date=${tomorrowInTokyo()}&time=11:30&pax=2&bags=2`, groupName: world.group.name };
+  return { link: `${SITE}/book?${airportLink(airport)}&to=${TOKYO_STATION.lat},${TOKYO_STATION.lng}&to_name=${name}&date=${tomorrowInTokyo()}&time=11:30&pax=2&bags=2`, groupName: world.group.name };
 }
 
 /** 在一个空白页里画一张 PNG：灰色底、一条线、左下角「Google」、右下角版权（亮暗两套灰），尺寸 = 宽高 × 倍率。 */

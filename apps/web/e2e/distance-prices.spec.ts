@@ -155,7 +155,7 @@ async function seedRoute(from: LatLng, to: LatLng, meters: number): Promise<void
 /** 打开新预订页（链接带两端 → 自动报价），返回这个车型组的报价应答原文和报价 */
 async function quoteOnSite(page: Page, trip: Setup, from: LatLng, to: LatLng): Promise<{ raw: string; quote: { pricing_basis?: string; price: { total: { amount: string } } } | undefined }> {
   const quoted = page.waitForResponse((response) => new URL(response.url()).pathname === "/site/v1/quotes/by-points" && response.request().method() === "POST");
-  await page.goto(`${SITE}/book/new?${linkPoint("from", from, "北边酒店")}&${linkPoint("to", to, "南边海滩")}&date=${tomorrowInTokyo()}&time=10:00&pax=2&bags=1`);
+  await page.goto(`${SITE}/book?${linkPoint("from", from, "北边酒店")}&${linkPoint("to", to, "南边海滩")}&date=${tomorrowInTokyo()}&time=10:00&pax=2&bags=1`);
   const answer = await quoted;
   const raw = await answer.text();
   expect(answer.status(), raw).toBe(200);

@@ -82,7 +82,7 @@ test("报不出价：客人留下邮箱和 WhatsApp → 客服在「人工报价
   await publishTransfer(request, supplier, world);
   await setSupportWhatsapp(request, null);
   const date = tomorrowInTokyo();
-  const link = `/book/new?from=${FROM.lat},${FROM.lng}&from_name=${encodeURIComponent(FROM.name)}&to=${TO.lat},${TO.lng}&to_name=${encodeURIComponent(TO.name)}&date=${date}&time=10:00`;
+  const link = `/book?from=${FROM.lat},${FROM.lng}&from_name=${encodeURIComponent(FROM.name)}&to=${TO.lat},${TO.lng}&to_name=${encodeURIComponent(TO.name)}&date=${date}&time=10:00`;
   const guestEmail = `fictional.guest.${randomBytes(4).toString("hex")}@e2e.example.com`;
 
   try {

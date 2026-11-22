@@ -1,11 +1,11 @@
 /**
- * 行程报价页的下单出口（M9T-10 第二部分，ADR 0101 第十三节第 3 小节）：单段方案 → 普通官网报价 → 现有 `/book/new` 的乘客信息、下单、付款。
+ * 行程报价页的下单出口（M9T-10 第二部分，ADR 0101 第十三节第 3 小节）：单段方案 → 普通官网报价 → 现有 `/book` 的乘客信息、下单、付款。
  *
  * - 哪些方案能直接在线下单（`tripBookableSegment`）：整个方案只有一段（空闲日也算一段，和后端 `TRIP_PLAN_NOT_SINGLE_SEGMENT` 同一口径）、不是空闲日、
- *   没有挂在某天或按晚的跨段费用；这一天的点都是坐标、最后一个点是终点；包车的中间地点停留时长要是 `/book/new` 经停点能选的档（30 分钟一档、最长 8 小时）——
- *   `/book/new` 显示不了的（例如「不停留」）不给在线下单，改走「提交预订，客服确认」。
+ *   没有挂在某天或按晚的跨段费用；这一天的点都是坐标、最后一个点是终点；包车的中间地点停留时长要是 `/book` 经停点能选的档（30 分钟一档、最长 8 小时）——
+ *   `/book` 显示不了的（例如「不停留」）不给在线下单，改走「提交预订，客服确认」。
  * - 点「预订这个方案」：`POST …/order-quote`（带包车经停点的地名），拿到的普通报价连同两端、经停点放进路由的 state（`TRIP_BOOK_STATE`），
- *   跳到 `/book/new?step=3`；`/book/new` 用它预填行程、直接用这张报价（不再询价）、选好车型，客人接着填乘客信息、下单、付款。不新增付款代码，不写 sessionStorage / localStorage。
+ *   跳到 `/book?step=3`；`/book` 用它预填行程、直接用这张报价（不再询价）、选好车型，客人接着填乘客信息、下单、付款。不新增付款代码，不写 sessionStorage / localStorage。
  *   注意：路由 state 存在浏览器这条历史记录里（含地名），刷新、前进后退后还在，旧格式也可能回来——`tripBookHandoffOf` 逐项核对，不对就当作没有。
  * - 地名只在行程报价页手里（`trip-labels-store.ts` 只有那个页面读）；这里只收页面传进来的地名。
  */
@@ -16,9 +16,9 @@ import { tripPlaceName } from "./trip-form.ts";
 import type { TripLabels } from "./trip-labels-store.ts";
 import { tripCopy } from "./trip-texts.ts";
 
-/** 路由 state 里放下单出口内容的键（`navigate("/book/new?step=3", { state: { [TRIP_BOOK_STATE]: … } })`） */
+/** 路由 state 里放下单出口内容的键（`navigate("/book?step=3", { state: { [TRIP_BOOK_STATE]: … } })`） */
 export const TRIP_BOOK_STATE = "fromTrip";
-/** 跳进 `/book/new` 的第几步：第 3 步「乘客信息」（车型和价格已经定了） */
+/** 跳进 `/book` 的第几步：第 3 步「乘客信息」（车型和价格已经定了） */
 export const TRIP_BOOK_SEARCH = "?step=3";
 /** 后端 `waypoint_names` 每个最多 200 个字（按 UTF-16 算） */
 const NAME_MAX = 200;
@@ -37,7 +37,7 @@ export interface TripBookWaypoint {
   stay_minutes: number;
 }
 
-/** 放进路由 state 带去 `/book/new` 的内容 */
+/** 放进路由 state 带去 `/book` 的内容 */
 export interface TripBookHandoff {
   order: SiteTripOrderQuote;
   from: TripPoint;
@@ -45,7 +45,7 @@ export interface TripBookHandoff {
   waypoints: TripBookWaypoint[];
 }
 
-/** 单段、无跨段费用、`/book/new` 表示得了的方案；否则 null（多段方案走「提交预订，客服确认」）。不看是否过期（过期由卡片另外处理） */
+/** 单段、无跨段费用、`/book` 表示得了的方案；否则 null（多段方案走「提交预订，客服确认」）。不看是否过期（过期由卡片另外处理） */
 export function tripBookableSegment(trip: SiteTrip, plan: SiteTripPlan): TripBookable | null {
   if (plan.fees.length > 0 || plan.days.some((day) => day.fees.length > 0)) return null;
   const all = plan.days.flatMap((day) => day.segments.map((segment) => ({ segment, dayIndex: day.day_index })));
@@ -95,7 +95,7 @@ export function tripOrderQuoteBody(trip: SiteTrip, bookable: TripBookable, label
   return { waypoint_names: tripBookWaypoints(trip, bookable, labels).map((stop) => stop.name) };
 }
 
-/** 拿到普通报价后带去 `/book/new` 的内容；这一天缺上下车点（页面不会这样发）时为 null */
+/** 拿到普通报价后带去 `/book` 的内容；这一天缺上下车点（页面不会这样发）时为 null */
 export function tripBookHandoff(trip: SiteTrip, bookable: TripBookable, labels: TripLabels | null, order: SiteTripOrderQuote): TripBookHandoff | null {
   const count = trip.itinerary.days[bookable.dayIndex]?.items.length ?? 0;
   const from = pointAt(trip, labels, bookable.dayIndex, 0);
@@ -104,7 +104,7 @@ export function tripBookHandoff(trip: SiteTrip, bookable: TripBookable, labels: 
   return { order, from, to, waypoints: tripBookWaypoints(trip, bookable, labels) };
 }
 
-// ---------- `/book/new` 一侧 ----------
+// ---------- `/book` 一侧 ----------
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 const isPoint = (value: unknown): value is TripPoint => isObject(value) && typeof value["name"] === "string" && typeof value["lat"] === "number" && typeof value["lng"] === "number";
@@ -116,7 +116,7 @@ const isText = (value: unknown): value is string => typeof value === "string" &&
 const isCity = (value: unknown): boolean => isObject(value) && isText(value["id"]) && isText(value["timezone"]) && isObject(value["name"]);
 
 /**
- * 路由 state → 下单出口的内容；没有、格式不对时为 null（`/book/new` 照常从空白表单开始，不会因为旧格式出错）。
+ * 路由 state → 下单出口的内容；没有、格式不对时为 null（`/book` 照常从空白表单开始，不会因为旧格式出错）。
  * 核对：两端和经停点、段型、报价编号 / 有效期 / 车型 / 金额和币种、报价请求的用车时间和人数行李、城市（有就要有时区；包车必须有）。
  */
 export function tripBookHandoffOf(state: unknown): TripBookHandoff | null {
@@ -146,7 +146,7 @@ export function tripBookHandoffOf(state: unknown): TripBookHandoff | null {
 }
 
 /**
- * 接送报价没带城市时（后端只给包车的城市）：按报价请求的 `city_id` 在 `/book/new` 已读到的城市列表里找，
+ * 接送报价没带城市时（后端只给包车的城市）：按报价请求的 `city_id` 在 `/book` 已读到的城市列表里找，
  * 当地时间、城市名、人工报价的城市都按它；找不到为 null
  */
 export function tripBookCity(handoff: TripBookHandoff, cities: readonly SiteCity[]): SiteQuotedCity | null {
@@ -155,7 +155,7 @@ export function tripBookCity(handoff: TripBookHandoff, cities: readonly SiteCity
   return found === undefined ? null : { id: found.id, code: found.code, name: found.name, timezone: found.timezone };
 }
 
-/** `/book/new` 第 1 步要预填的内容（页面按它拼自己的表单） */
+/** `/book` 第 1 步要预填的内容（页面按它拼自己的表单） */
 export interface TripBookSeed {
   tab: BookTab;
   from: TripPoint;
@@ -166,7 +166,7 @@ export interface TripBookSeed {
   luggage: number;
   /** 没有经停点的包车（行程报价页不会这样发）才用：报价里的套餐时长 */
   packageHours: string;
-  /** 有经停点、报价请求里带了手动升的套餐（`itinerary_pricing` + `package_hours`）：恢复成 /book/new 的升档；没有为 "" */
+  /** 有经停点、报价请求里带了手动升的套餐（`itinerary_pricing` + `package_hours`）：恢复成 /book 的升档；没有为 "" */
   upgradeHours: string;
   waypoints: { point: TripPoint; stay: string }[];
   /** 预先选好的车型 = 这张报价的车型 */
@@ -197,11 +197,11 @@ export function tripBookSeedOf(handoff: TripBookHandoff): TripBookSeed {
   };
 }
 
-/** 和 `/book/new` 的询价结果同形：接送按两个坐标报价的结果，包车带按哪个城市报的价 */
+/** 和 `/book` 的询价结果同形：接送按两个坐标报价的结果，包车带按哪个城市报的价 */
 export type TripBookOutcome = { mode: "transfer"; result: SiteByPointsResult } | { mode: "charter"; result: SiteQuoteResult; city: SiteQuotedCity };
 
 /**
- * 把这张报价当作 `/book/new` 这次询价的结果（不再询价一次）。报价已过期、包车没有城市时为 null：`/book/new` 照常按预填的行程重新询价。
+ * 把这张报价当作 `/book` 这次询价的结果（不再询价一次）。报价已过期、包车没有城市时为 null：`/book` 照常按预填的行程重新询价。
  * 接送：接机 / 送机报不出时回落点对点的（报价请求是点对点、段型是接机 / 送机）标 `fallback_category`，页面照样按接送机、下单按点对点；机场的名称没有，为 null。
  */
 export function tripBookOutcome(handoff: TripBookHandoff, now: number): TripBookOutcome | null {

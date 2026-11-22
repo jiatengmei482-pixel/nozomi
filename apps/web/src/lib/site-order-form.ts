@@ -1,5 +1,5 @@
 /**
- * 官网下单表单的规则（M3-05 起在 `pages/book/CheckoutPage.tsx`；M8-04 抽出来，新预订页「怎么联系你」同一套）：
+ * 官网下单表单的规则（M3-05 起在旧下单页；M8-04 抽出来给新预订页「怎么联系你」用，M8-05 删掉旧下单页后只有预订页用）：
  * 字段、前端校验、后端校验结果对回字段、拼 `POST /site/v1/orders` 的请求体、下单失败的说法。规则本身没有改。
  */
 import { type FlightKind, type MessagingApp, isFlightNo, isInternationalPhone } from "@nozomi/domain";
@@ -60,7 +60,7 @@ export const RIDER_SERVER_PATHS: Readonly<Record<string, RiderField>> = {
   "/passenger_phone": "riderPhone",
 };
 
-export const ADDRESS_FIELDS = { pickup: "pickupAddress", dropoff: "dropoffAddress" } as const;
+const ADDRESS_FIELDS = { pickup: "pickupAddress", dropoff: "dropoffAddress" } as const;
 
 /** 同意保存银行卡的那一句和说明（第五轮决策 ⑤）。 */
 export const CONSENT_TEXT = "同意保存这次付款用的银行卡，用于服务后产生的费用（如超时等候）";

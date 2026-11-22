@@ -159,7 +159,7 @@ test("顶层打开（没被嵌）：不读草稿、不显示预订内容、不�
   const calls = stubApiWith(() => null);
   open(url());
   await screen.findByText(EMBED_TEXTS.ja.topLevel);
-  assert.equal(screen.getByRole("link", { name: EMBED_TEXTS.ja.goToSite }).getAttribute("href"), `/book/new?draft=${DRAFT}`);
+  assert.equal(screen.getByRole("link", { name: EMBED_TEXTS.ja.goToSite }).getAttribute("href"), `/book?draft=${DRAFT}`);
   assert.equal(calls.length, 0);
   assert.deepEqual(posted, []);
   assert.equal(screen.queryByText("成田国際空港"), null);
@@ -173,7 +173,7 @@ function Go({ to }: { to: string }) {
   return null;
 }
 
-for (const target of ["/login", "/platform", "/platform/orders", "/tenant", "/book/new", "/book/order", "/embed/booking"]) {
+for (const target of ["/login", "/platform", "/platform/orders", "/tenant", "/book", "/book/order", "/embed/booking"]) {
   test(`路由隔离：在嵌入页的文档里换到 ${target} 只显示「请在新窗口打开」，不渲染登录、后台、主站页面`, async () => {
     stubApiWith(() => null);
     history.replaceState(null, "", url());

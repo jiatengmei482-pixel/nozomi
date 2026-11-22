@@ -7,7 +7,7 @@
  * - 全部报不出（`manual_quote_suggested`）：不展示方案，给「转人工报价」按钮；点开是现有的人工报价表单（邮箱 / WhatsApp），
  *   提交时带上行程单编号、`plan_kind: null` 和每天的地名（M9T-08），`trip` 填第一天的行程（`trip-manual.ts`）。
  * - 下单出口（M9T-10，ADR 0101 第十三节第 3 小节；没过期的方案卡片底部）：
- *   - 单段方案（`tripBookableSegment`）：「预订这个方案」→ `POST …/order-quote`（包车带经停点的地名）→ 带着这张普通报价跳进 `/book/new` 第 3 步，
+ *   - 单段方案（`tripBookableSegment`）：「预订这个方案」→ `POST …/order-quote`（包车带经停点的地名）→ 带着这张普通报价跳进 `/book` 第 3 步，
  *     接着填乘客信息、下单、付款（`lib/trip-book.ts`）。价格变了（409 `TRIP_PRICE_CHANGED`）、方案过期 / 不在了写一句并给「重新报价」，
  *     这一车型报不出 / 条件对不上时另给「转人工报价」；后端说不是单段时退回「提交预订，客服确认」；太频繁、断网同报价的说法。
  *   - 多段方案：「提交预订，客服确认」= 带 `trip_id` + 这个方案的 `plan_kind` 的人工报价（`PlanManualBooking`）。业主 2026-11-18 确认选 A（#288）；P1b「一次付款多张子订单」上线后改为直接下单。
@@ -18,7 +18,7 @@ import { ApiError } from "../../../api/client.ts";
 import { type SiteTrip, type SiteTripPlan, type SiteTripPlanKind, type SiteTripSegment, type SiteTripSegmentType, type SiteTripWarningCode, createSiteTripOrderQuote } from "../../../api/site.ts";
 import { Alert } from "../../../components/Alert.tsx";
 import { Button } from "../../../components/Button.tsx";
-import { SITE_NEW_BOOKING_PATH } from "../../../lib/book-new.ts";
+import { SITE_HOME_PATH } from "../../../lib/site-display.ts";
 import { moneyText } from "../../../lib/dispatch-display.ts";
 import { displayName } from "../../../lib/master-display.ts";
 import { TRIP_BOOK_SEARCH, TRIP_BOOK_STATE, type TripBookable, tripBookHandoff, tripBookableSegment, tripOrderQuoteBody } from "../../../lib/trip-book.ts";
@@ -140,7 +140,7 @@ interface PlanActionProps {
   onEditTrip: (() => void) | null;
 }
 
-/** 单段方案「预订这个方案」：转成普通报价后带进 `/book/new` 第 3 步（乘客信息），之后走现有下单、付款 */
+/** 单段方案「预订这个方案」：转成普通报价后带进 `/book` 第 3 步（乘客信息），之后走现有下单、付款 */
 function PlanBooking({ trip, plan, bookable, labels, supportWhatsapp, onQuote, quoting, onEditTrip }: PlanActionProps & { bookable: TripBookable }) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
@@ -174,8 +174,8 @@ function PlanBooking({ trip, plan, bookable, labels, supportWhatsapp, onQuote, q
         setProblem({ kind: "manual", text: tripCopy("book.notSingle") });
         return;
       }
-      // 带着报价进 /book/new：放在路由 state（不写 sessionStorage / localStorage，但留在浏览器这条历史记录里，含地名）；浏览器后退回到这里的方案对比
-      void navigate({ pathname: SITE_NEW_BOOKING_PATH, search: TRIP_BOOK_SEARCH }, { state: { [TRIP_BOOK_STATE]: handoff } });
+      // 带着报价进预订页 /book：放在路由 state（不写 sessionStorage / localStorage，但留在浏览器这条历史记录里，含地名）；浏览器后退回到这里的方案对比
+      void navigate({ pathname: SITE_HOME_PATH, search: TRIP_BOOK_SEARCH }, { state: { [TRIP_BOOK_STATE]: handoff } });
     } catch (err) {
       if (!alive.current) return;
       setBusy(false);

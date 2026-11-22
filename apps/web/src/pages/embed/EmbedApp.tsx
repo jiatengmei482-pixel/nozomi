@@ -3,7 +3,7 @@
  *
  * 这个文档是「允许被嵌入」的（Caddy 按嵌入码给 frame-ancestors），而 CSP 只在加载文档时定一次、前端换路由时不再检查，
  * 所以在这个文档里换到任何别的路径都只显示「请在新窗口打开」（新标签页链接），不渲染别的页面；这里也不放指向别的前缀的站内 <Link>。
- * 预订页（EmbedBookPage，`/book/new` 的四步）和订单页（EmbedOrderPage）都在 EmbedFrame 里：和宿主说话、发 ready / resize 由它统一管（M9E-17）。
+ * 预订页（EmbedBookPage，`/book` 的四步）和订单页（EmbedOrderPage）都在 EmbedFrame 里：和宿主说话、发 ready / resize 由它统一管（M9E-17）。
  */
 import { Route, Routes, useLocation } from "react-router";
 import { NewTabLink } from "../../components/NewTabLink.tsx";

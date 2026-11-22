@@ -1,5 +1,5 @@
 /**
- * 端到端：新预订页 `/book/new`（M8-03，ADR 0069 A3、修正版 v2）。真实浏览器 → 前端 → 真实 API（`/site/v1`）→ 真实 PostgreSQL，不 mock 接口；
+ * 端到端：新预订页 `/book`（M8-03，ADR 0069 A3、修正版 v2）。真实浏览器 → 前端 → 真实 API（`/site/v1`）→ 真实 PostgreSQL，不 mock 接口；
  * 谷歌是 global-setup 起的本机假服务器（假 Autocomplete 对任何关键字都给「東京駅」，假 Place Details 给它的坐标），**从不调用真实的谷歌**。
  * 用地址搜索专用的那组 API 和前端（配置里有假密钥，见 playwright.config.ts 的 E2E_API_PLACES_PORT）。
  *
@@ -44,7 +44,7 @@ test("新预订页四步：输入即提示选机场和酒店 → 自动报价、
   await page.route(`${SITE}/site/v1/route-map?**`, (route) => route.fulfill({ status: 503, json: { error: { code: "ROUTE_MAP_UNAVAILABLE", message: "路线图暂不可用", details: { reason: "NOT_ENABLED" } } } }));
   await page.setViewportSize({ width: 400, height: 800 });
 
-  await page.goto(`${SITE}/book/new`);
+  await page.goto(`${SITE}/book`);
   await expect(page.getByRole("heading", { level: 1, name: "预订接送车" })).toBeVisible();
   await expect(page.getByRole("list", { name: "预订步骤" }).getByRole("listitem")).toHaveCount(4);
   await expect(page.getByRole("heading", { name: "选择车型" })).toHaveCount(0);
@@ -168,7 +168,7 @@ test("新预订页四步：输入即提示选机场和酒店 → 自动报价、
 
   // 带参数的链接：出发地写机场编码（按编码取一次平台地点，不调谷歌），目的地是坐标加名称，打开就报价、到第 2 步
   await page.setViewportSize({ width: 400, height: 800 });
-  await page.goto(`${SITE}/book/new?from=${airport.code}&to=${TOKYO_STATION.lat},${TOKYO_STATION.lng}&to_name=${encodeURIComponent("東京駅八重洲口")}&date=${tomorrowInTokyo()}&time=11:30&pax=3&bags=1`);
+  await page.goto(`${SITE}/book?from=${airport.code}&to=${TOKYO_STATION.lat},${TOKYO_STATION.lng}&to_name=${encodeURIComponent("東京駅八重洲口")}&date=${tomorrowInTokyo()}&time=11:30&pax=3&bags=1`);
   await expect(page.getByRole("heading", { name: "选择车型" })).toBeVisible();
   await expect(page.locator(".book-summary-bar__text")).toContainText(`接机 · ${airport.name} → 東京駅八重洲口`);
   await page.getByRole("button", { name: /^行程摘要/ }).click();
@@ -188,7 +188,7 @@ test("新预订页付款：选车 → 加附加服务（重新报价、右侧栏
   const fakeStripe = process.env["E2E_FAKE_STRIPE_URL"];
   if (!fakeStripe) throw new Error("global-setup 没有启动假 Stripe");
   await routeStripe(page, fakeStripe);
-  const link = `${STRIPE_SITE}/book/new?${airportLink(airport)}&to=${TOKYO_STATION.lat},${TOKYO_STATION.lng}&to_name=${encodeURIComponent("東京駅八重洲口")}&date=${tomorrowInTokyo()}&time=11:30&pax=2&bags=2`;
+  const link = `${STRIPE_SITE}/book?${airportLink(airport)}&to=${TOKYO_STATION.lat},${TOKYO_STATION.lng}&to_name=${encodeURIComponent("東京駅八重洲口")}&date=${tomorrowInTokyo()}&time=11:30&pax=2&bags=2`;
 
   // 电脑：链接打开到第 2 步 → 选车 → 加附加服务，右侧栏的合计跟着变
   await page.setViewportSize({ width: 1280, height: 900 });

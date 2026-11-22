@@ -63,7 +63,7 @@ test("主站模式的请求与重构前逐字相同：读草稿不带 key / host
     return null;
   });
   render(
-    <MemoryRouter initialEntries={[`/book/new?draft=${DRAFT}`]}>
+    <MemoryRouter initialEntries={[`/book?draft=${DRAFT}`]}>
       <App />
       <Where />
     </MemoryRouter>,

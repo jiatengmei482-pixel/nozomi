@@ -31,7 +31,7 @@ const CITY_ID = "11111111-1111-4111-8111-111111111111";
 const city: SiteCity = { id: CITY_ID, code: "CTY-JP-TYO", name: { zh: "东京" }, timezone: "Asia/Tokyo", country_code: "JP", center: { lat: 35.6895, lng: 139.6917 }, categories: ["charter"] };
 const config: SiteConfig = { open: true, currency: "JPY", payments: null, support_phone: "+81 3-1234-5678", support_whatsapp: null, address_search: true, page_width: "standard", map_tiles: null };
 /** 上车：京王广场酒店，下车：新宿站（链接带上），日期时间也带上 */
-const LINK = "/book/new?mode=charter&from=35.6905,139.6948&from_name=%E4%BA%AC%E7%8E%8B%E5%B9%BF%E5%9C%BA%E9%85%92%E5%BA%97&to=35.6896,139.7006&to_name=%E6%96%B0%E5%AE%BF%E7%AB%99&date=2030-11-20&time=09:00";
+const LINK = "/book?mode=charter&from=35.6905,139.6948&from_name=%E4%BA%AC%E7%8E%8B%E5%B9%BF%E5%9C%BA%E9%85%92%E5%BA%97&to=35.6896,139.7006&to_name=%E6%96%B0%E5%AE%BF%E7%AB%99&date=2030-11-20&time=09:00";
 /** 经停点候选：按输入的字返回一个带坐标的平台地点 */
 const SPOTS: Record<string, { lat: number; lng: number }> = { 五合目: { lat: 35.395, lng: 138.733 }, 河口湖: { lat: 35.498, lng: 138.769 }, 忠灵塔: { lat: 35.501, lng: 138.801 } };
 
