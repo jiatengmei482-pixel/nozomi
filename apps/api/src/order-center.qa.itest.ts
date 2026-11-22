@@ -13,7 +13,7 @@ import type { CurrencyCode, FxQuote } from "@nozomi/domain";
 import { TEST_PASSWORD, type TestApi, createTestApi } from "./testing/api.ts";
 import { assign, newDriver, newVehicle } from "./testing/dispatch.ts";
 import { DROPOFF, type Market, type Staff, addStaff, buildMarket, ok } from "./testing/market.ts";
-import { completeOrder, platformLogin, tenantLogin } from "./testing/money.ts";
+import { completeOrder, platformLogin, reachFulfilmentWindow, tenantLogin } from "./testing/money.ts";
 import { FakePaymentProvider, deliverWebhook } from "./testing/payments.ts";
 import { type SalesFlow, salesFlow } from "./testing/sales-flow.ts";
 
@@ -79,7 +79,10 @@ async function noShowClaimed(): Promise<string> {
   const orderId = await paidOrder(iso(api.clock.now().getTime() + 3 * DAY));
   const who = { ...m.b, adminToken: await tenantLogin(api, m.b.adminEmail) };
   await ok(assign(api, who, orderId, (await newDriver(api, who)).id, (await newVehicle(api, who, m.ids.biz7)).id));
-  for (const type of ["departed", "arrived"]) await ok(api.call("POST", `/tenant/v1/orders/${orderId}/events`, { token: who.adminToken, body: { type } }));
+  // 出发、到达最早在用车前 24 小时（ADR 0064）
+  await reachFulfilmentWindow(api, orderId);
+  const onSite = await tenantLogin(api, m.b.adminEmail);
+  for (const type of ["departed", "arrived"]) await ok(api.call("POST", `/tenant/v1/orders/${orderId}/events`, { token: onSite, body: { type } }));
   const link = (await api.db.owner.query<{ id: string }>("select id from driver_links where tenant_id = $1 and order_id = $2 order by created_at desc limit 1", [m.b.tenantId, orderId])).rows[0] as { id: string };
   const now = api.clock.now();
   await api.db.owner.query("insert into order_no_show_claims (tenant_id, order_id, submitted_at, checklist, free_wait_start, free_wait_end, status, link_id) values ($1, $2, $3, '[]'::jsonb, $4, $3, 'pending_review', $5)", [
@@ -282,9 +285,11 @@ test("乘客搜索按字面：\"%\"、\"_\"、\"%%\"、\".*\" 不会匹配全部
 // ---- 数据范围 ----
 
 async function scopedStaff(name: string, scope: { city_ids: string[] | null; channel_ids: string[] | null }): Promise<string> {
-  const role = await ok(api.call("POST", "/platform/v1/roles", { token: m.root, body: { name, grants: ["orders:view", "orders:edit", "exceptions:view", "exceptions:edit", "tickets:view", "tickets:edit"], data_scope: scope } }), 201);
+  // 前面的用例完成订单时拨过时钟（ADR 0064），超管重新登录
+  const root = await platformLogin(api, "root@platform.test");
+  const role = await ok(api.call("POST", "/platform/v1/roles", { token: root, body: { name, grants: ["orders:view", "orders:edit", "exceptions:view", "exceptions:edit", "tickets:view", "tickets:edit"], data_scope: scope } }), 201);
   const email = `scope-${randomUUID().slice(0, 8)}@platform.test`;
-  const invited = await ok(api.call("POST", "/platform/v1/staff", { token: m.root, body: { email, name, role: role.key } }), 201);
+  const invited = await ok(api.call("POST", "/platform/v1/staff", { token: root, body: { email, name, role: role.key } }), 201);
   await ok(api.call("POST", "/platform/v1/auth/accept-invite", { body: { token: invited.invite.token, password: TEST_PASSWORD } }));
   return platformLogin(api, email);
 }
@@ -387,9 +392,10 @@ function ceilCents(minimumJpy: number, rate: string): number {
 }
 
 test("跨币种赔付：客人付美元时，「至少等值 ¥500」用判定那一刻汇率中心的 JPY→USD 汇率向上取整，汇率和取数时间记进赔付记录；试算和判定一致", async () => {
+  // 先完成订单再写汇率：完成要把时钟拨到用车前 3 小时（ADR 0064），先写的汇率会过 48 小时
+  const order = await usdCompletedOrder();
   const asOf = new Date(api.clock.now().getTime() - HOUR);
   await seedCentralRates(asOf, "150");
-  const order = await usdCompletedOrder();
   const ticketId = await complaint(order.id);
   const body = { scenario: "late_15_29", liable_party: "platform" };
   const csToken = await login(support);
@@ -418,9 +424,10 @@ test("跨币种 + 复核：发起时按当时的汇率算最低额，复核期�
   const change = await ok(api.call("POST", "/platform/v1/compensation-table/changes", { token: await ops(), body: rules }), 202);
   await ok(api.call("POST", `/platform/v1/approvals/${change.approval.id}/approve`, { token: await login(finance), body: {} }));
 
+  // 先完成订单再写汇率（同上一条）
+  const order = await usdCompletedOrder();
   const firstAsOf = new Date(api.clock.now().getTime() - 10 * 60_000);
   await seedCentralRates(firstAsOf, "150");
-  const order = await usdCompletedOrder();
   const ticketId = await complaint(order.id);
   const pending = await api.call("POST", `/platform/v1/tickets/${ticketId}/decide`, { token: await login(support), body: { outcome: "upheld", note: "服务态度", compensation: { scenario: "service_complaint", liable_party: "tenant" } } });
   assert.equal(pending.status, 202, pending.text);
@@ -472,5 +479,5 @@ test("汇率中心的汇率超过 48 小时：美元的单试算、判定都 409
   const jpyOrder = await paidOrder(iso(api.clock.now().getTime() + 3 * DAY));
   await completeOrder(api, m, "b", jpyOrder);
   const jpyTicket = await complaint(jpyOrder);
-  assert.equal((await api.call("POST", `/platform/v1/tickets/${jpyTicket}/decide`, { token: csToken, body: { outcome: "upheld", note: "x", compensation: body } })).status, 200);
+  assert.equal((await api.call("POST", `/platform/v1/tickets/${jpyTicket}/decide`, { token: await login(support), body: { outcome: "upheld", note: "x", compensation: body } })).status, 200);
 });

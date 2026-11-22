@@ -182,3 +182,13 @@ test("下一步：已派车→出发→到达→接到→完成；其他状态�
   const expected: Record<string, FulfilmentEventType> = { assigned: "departed", departed: "arrived", arrived: "picked_up", in_service: "completed" };
   for (const status of ORDER_STATUSES) assert.equal(nextFulfilmentEvent(status), expected[status] ?? null, status);
 });
+
+test("供应商调度接口的说明（M4-33）：用状态的叫法和接口里的 type，提示先改单；司机的说明不变", () => {
+  const serviceAt = new Date("2026-11-04T20:26:00+09:00");
+  assert.equal(
+    fulfilmentTooEarlyMessage("completed", serviceAt, "Asia/Tokyo", "dispatch"),
+    "现在还不能回传「已完成」（completed）：最早在用车前 3 小时，也就是 2026-11-04 17:26（Asia/Tokyo 当地时间）以后才能回传（用车时间 2026-11-04 20:26）。用车时间有变请先改单。",
+  );
+  assert.equal(fulfilmentTooEarlyMessage("completed", serviceAt, "Asia/Tokyo", "driver"), fulfilmentTooEarlyMessage("completed", serviceAt, "Asia/Tokyo"));
+  for (const type of FULFILMENT_EVENTS) assert.ok(fulfilmentTooEarlyMessage(type, serviceAt, "Asia/Tokyo", "dispatch").includes(`（${type}）`));
+});

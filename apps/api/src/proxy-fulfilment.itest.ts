@@ -397,8 +397,8 @@ test("代传「接到客人」也要复核：提交后仍是已到达，客人�
   assert.equal((await api.db.owner.query("select 1 from order_events where order_id = $1 and to_status = 'in_service'", [raced.orderId])).rowCount, 1);
 });
 
-test("代传接到客人、完成的最早时间是用车前 3 小时（出发、到达仍是 24 小时）；只限代传，司机和供应商自己回传不受影响", async () => {
-  const { orderId, tenantToken } = await dispatched(20);
+test("代传接到客人、完成的最早时间是用车前 3 小时（出发、到达仍是 24 小时）；供应商调度接口、司机自己回传是同一份窗口（太早 422，M4-33）", async () => {
+  const { orderId, tenantToken, driverToken } = await dispatched(20);
   assert.equal((await proxy(orderId, { type: "departed" })).status, 200);
   api.clock.advance(MINUTE);
   assert.equal((await proxy(orderId, { type: "arrived" })).status, 200);
@@ -406,7 +406,13 @@ test("代传接到客人、完成的最早时间是用车前 3 小时（出发�
   const res = await proxy(orderId, { type: "picked_up" });
   assert.deepEqual([res.status, res.body.error.details.issues[0].reason, res.body.error.details.issues[0].message], [400, "TOO_EARLY", "发生时间不能早于用车时间前 3 小时"]);
   assert.equal((await detailOf(orderId)).order.status, "arrived");
-  assert.equal((await api.call("POST", `/tenant/v1/orders/${orderId}/events`, { token: tenantToken, body: { type: "picked_up" } })).status, 200);
+  const tenant = await api.call("POST", `/tenant/v1/orders/${orderId}/events`, { token: tenantToken, body: { type: "picked_up" } });
+  assert.deepEqual([tenant.status, tenant.body.error.code, tenant.body.error.details.hours_before_service], [422, "FULFILMENT_TOO_EARLY", 3], tenant.text);
+  const driver = await api.call("POST", "/driver/v1/trip/events", { token: driverToken, body: { type: "picked_up" } });
+  assert.deepEqual([driver.status, driver.body.error.details], [422, tenant.body.error.details]);
+  assert.equal((await detailOf(orderId)).order.status, "arrived");
+  // 「完成」的窗口：现在没有入口能在用车前 20 小时进服务中，用迁移账号把单摆成服务中（测试数据）
+  await api.db.owner.query("update orders set status = 'in_service', picked_up_at = $2 where id = $1", [orderId, api.clock.now()]);
   assert.equal((await proxy(orderId, { type: "completed" })).body.error.details.issues[0].reason, "TOO_EARLY");
 });
 

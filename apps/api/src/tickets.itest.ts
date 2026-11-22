@@ -16,7 +16,7 @@ import { createTestApi } from "./testing/api.ts";
 import { deniedByDatabase } from "./testing/db.ts";
 import { assign, newDriver, newVehicle } from "./testing/dispatch.ts";
 import { type Market, type Staff, addStaff, allKeys, buildMarket, newChannel, ok, salesCredentials } from "./testing/market.ts";
-import { completeOrder, platformLogin, tenantLogin, uploadReceipt } from "./testing/money.ts";
+import { completeOrder, platformLogin, reachFulfilmentWindow, tenantLogin, uploadReceipt } from "./testing/money.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
 import { FakePaymentProvider, deliverWebhook } from "./testing/payments.ts";
 import { type SalesFlow, salesFlow } from "./testing/sales-flow.ts";
@@ -300,6 +300,8 @@ test("司机未到：客服建「履约失败」工单，判定时按供应商�
 });
 
 test("征求租户意见：24 小时内不能判定；供应商回复（只能引用这一单的照片）后变成处理中；内部备注供应商看不到；没回复的到期那一刻起可以判（超时视为认可）", async () => {
+  // 别的单先完成：完成一张单要把时钟拨到它的用车时间附近（ADR 0064），放在后面会拨过这张工单 24 小时的回复期限
+  const otherOrder = await completedOrder();
   const order = await completedOrder();
   const ticket = await channelComplaint(order.id);
   const token = await cs();
@@ -321,7 +323,6 @@ test("征求租户意见：24 小时内不能判定；供应商回复（只能�
   assertTenantSafe(seen.body, "供应商的工单详情");
   // 引用别的单的照片不行；引用这一单的票据可以
   const bToken = await tenantToken(m.b);
-  const otherOrder = await completedOrder();
   const foreignFile = await uploadReceipt(api, bToken, otherOrder.id);
   const bad = await api.call("POST", `/tenant/v1/tickets/${ticket.id}/messages`, { token: bToken, body: { body: "看这张", file_ids: [foreignFile] } });
   assert.deepEqual([bad.status, bad.body.error.details.issues[0].reason], [400, "FILE_NOT_FOUND"]);
@@ -351,7 +352,10 @@ async function noShowClaimed(): Promise<string> {
   const order = await paidOrder(3 * 24);
   const who = { ...m.b, adminToken: await tenantToken(m.b) };
   await ok(assign(api, who, order.id, (await newDriver(api, who)).id, (await newVehicle(api, who, m.ids.biz7)).id));
-  for (const type of ["departed", "arrived"]) await ok(api.call("POST", `/tenant/v1/orders/${order.id}/events`, { token: who.adminToken, body: { type } }));
+  // 出发、到达最早在用车前 24 小时（ADR 0064）
+  await reachFulfilmentWindow(api, order.id);
+  const onSite = await tenantToken(m.b);
+  for (const type of ["departed", "arrived"]) await ok(api.call("POST", `/tenant/v1/orders/${order.id}/events`, { token: onSite, body: { type } }));
   const link = (await api.db.owner.query<{ id: string }>("select id from driver_links where tenant_id = $1 and order_id = $2 order by created_at desc limit 1", [m.b.tenantId, order.id])).rows[0] as { id: string };
   const now = api.clock.now();
   await api.db.owner.query("insert into order_no_show_claims (tenant_id, order_id, submitted_at, checklist, free_wait_start, free_wait_end, status, link_id) values ($1, $2, $3, '[]'::jsonb, $4, $3, 'pending_review', $5)", [

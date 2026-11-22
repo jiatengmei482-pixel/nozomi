@@ -24,6 +24,11 @@ beforeEach(async () => {
 });
 
 const moveTo = (at: number): void => w.api.clock.advance(at - w.api.clock.now().getTime());
+/**
+ * 现在之后 `hours` 小时（对齐整点）的用车时间。要回传履约的单用它而不用 freshDay：拨进回传窗口（ADR 0064）只拨一两天；
+ * freshDay 一次比一次远，每条都拨过去，时钟会越过测试司机、车辆证件的有效期（2030-01-01）。
+ */
+const hoursAhead = (hours: number): number => Math.ceil((w.api.clock.now().getTime() + hours * HOUR) / HOUR) * HOUR;
 const tenantOrder = async (id: string): Promise<any> => (await ok(w.api.call("GET", `/tenant/v1/orders/${id}`, { token: w.b.adminToken }))).order;
 const linkExpiries = async (orderId: string): Promise<number[]> => (await w.api.db.owner.query("select expires_at from driver_links where order_id = $1 and revoked_at is null", [orderId])).rows.map((row) => row.expires_at.getTime());
 const exceptions = async (orderId: string): Promise<any[]> => (await w.api.db.owner.query("select status, close_kind from order_exceptions where order_id = $1 and type = 'change_unconfirmed'", [orderId])).rows;
@@ -184,7 +189,10 @@ test("取消入口逐个核对：运营代取消免收费（双人复核批准�
 
   w.smtp.reset();
   for (const stage of ["departed", "arrived"] as const) {
-    const onRoad = await w.dispatched();
+    const onRoad = await w.dispatched(hoursAhead(25));
+    // 出发、到达最早在用车前 24 小时（ADR 0064）
+    moveTo(Date.parse(onRoad.order.service_time) - 24 * HOUR);
+    await w.relogin();
     await ok(w.api.call("POST", `/tenant/v1/orders/${onRoad.order.id}/events`, { token: w.b.adminToken, body: { type: "departed" } }));
     if (stage === "arrived") await ok(w.api.call("POST", `/tenant/v1/orders/${onRoad.order.id}/events`, { token: w.b.adminToken, body: { type: "arrived" } }));
     await ok(w.salesCancel(onRoad.order.id));
@@ -302,7 +310,10 @@ test("缺陷：单进了救援改派后，之前留下的修改待办还写着�
 });
 
 test("服务开始、完成：没结论的航班号申请被定时任务记为没确认，要决定的待办关掉，运营提醒关闭；完成后同意 409", async () => {
-  const { order } = await w.dispatched();
+  const { order } = await w.dispatched(hoursAhead(25));
+  // 接到客人最早在用车前 3 小时（ADR 0064）：到那时提的航班号申请，还没结论服务就开始了
+  moveTo(Date.parse(order.service_time) - 3 * HOUR);
+  await w.relogin();
   const change = (await w.patch(order.id, { flight_no: "JL5" })).body.change;
   for (const type of ["departed", "arrived", "picked_up"]) await ok(w.api.call("POST", `/tenant/v1/orders/${order.id}/events`, { token: w.b.adminToken, body: { type } }));
   assert.equal((await w.tenantDecide(order.id, change.id, "confirm")).body.error.code, "ORDER_STATE_INVALID");
@@ -316,10 +327,14 @@ test("服务开始、完成：没结论的航班号申请被定时任务记为�
 
 test("缺陷：服务已开始时，航班号申请被记为没确认，客人结果邮件还建议「在订单页取消」——这时已经取消不了", async () => {
   const email = `fictional.guest.${crypto.randomUUID().slice(0, 8)}@example.test`;
-  const placed = await site.place(w.freshDay(), email);
+  const serviceAt = hoursAhead(25);
+  const placed = await site.place(serviceAt, email);
   const driver = await newDriver(w.api, w.b, { email: fictionalEmail() });
   const vehicle = await newVehicle(w.api, w.b, w.m.ids.biz7);
   await ok(assign(w.api, w.b, placed.order.id, driver.id, vehicle.id));
+  // 接到客人最早在用车前 3 小时（ADR 0064）
+  moveTo(serviceAt - 3 * HOUR);
+  await w.relogin();
   await ok(w.api.call("POST", `/tenant/v1/orders/${placed.order.id}/events`, { token: w.b.adminToken, body: { type: "departed" } }));
   const res = await site.patch(placed.token, placed.ip, { flight_no: "JL5" });
   assert.equal(res.body.change?.status, "pending_confirmation", res.text);
@@ -418,10 +433,13 @@ test("缺陷：司机已经到达现场时，用几天前被拒的申请仍能�
 });
 
 test("缺陷：司机出发后系统把没结论的改时间申请记为「没确认」，客人马上能免费取消——不是供应商不处理，而是司机已经在路上", async () => {
-  const oldAt = w.freshDay();
+  const oldAt = hoursAhead(50);
   const newAt = oldAt + DAY;
   const { order } = await w.dispatched(oldAt);
   const change = (await w.patch(order.id, { service_time: iso(newAt) })).body.change;
+  // 出发最早在用车前 24 小时（ADR 0064），申请的期限是那之后 30 分钟：出发时还没结论
+  moveTo(oldAt - 24 * HOUR);
+  await w.relogin();
   await ok(w.api.call("POST", `/tenant/v1/orders/${order.id}/events`, { token: w.b.adminToken, body: { type: "departed" } }));
   await w.api.app.orderJobs.money();
   const seen = await w.salesGet(order.id);
@@ -573,9 +591,12 @@ test("救援转给甲之后：客人再改，申请和待办都到甲；乙看�
 });
 
 test("缺陷：单已经完成，订单还写「可以免费取消」（free_cancel_available: true），实际取消 409——渠道和页面按这个字段判断会误导", async () => {
-  const { order } = await w.dispatched();
+  const { order } = await w.dispatched(hoursAhead(50));
   const change = (await w.patch(order.id, { passengers: 3 })).body.change;
   await ok(w.tenantDecide(order.id, change.id, "reject", { note: "排不出车" }));
+  // 接到客人、完成最早在用车前 3 小时（ADR 0064）
+  moveTo(Date.parse(order.service_time) - 3 * HOUR);
+  await w.relogin();
   for (const type of ["departed", "arrived", "picked_up", "completed"]) await ok(w.api.call("POST", `/tenant/v1/orders/${order.id}/events`, { token: w.b.adminToken, body: { type } }));
   const seen = await w.salesGet(order.id);
   assert.equal(seen.status, "completed");

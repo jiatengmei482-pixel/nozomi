@@ -1,14 +1,16 @@
 /**
  * M4-32 测试角色：司机回传履约的时间窗口（ADR 0064），经真实接口、真实 PostgreSQL（本文件自己的 schema，结束即删）。
- * - 每一步的边界（正好、早 1 毫秒、晚 1 毫秒）都经接口；供应商先把单推进去、司机接着点太早的下一步；
+ * - 每一步的边界（正好、早 1 毫秒、晚 1 毫秒）都经接口；前面的步骤在它自己的窗口里经供应商调度接口推进，司机接着点太早的下一步
+ *   （前一步和这一步最早时间相同时，经接口到不了「前一步已做、这一步还差 1 毫秒」，前一步用迁移账号写库摆出来）；
  * - 太早时整个库什么都没写（逐表比对：订单、状态流水、定位、推送、通知、评分、审计、司机链接的使用时间）；
  * - 先判状态再判时间：重复点、过时页面、no-show 之后都是 409；已取消是链接失效；
  * - 并发：太早时同一步连点、两步同时点；窗口内同一步连点只成功一次；
  * - 时区（首尔、纽约）、跨午夜、带秒的用车时间；
  * - 接口：422 的 message、details 和 OpenAPI 一致，没有客人信息；`next_event` 每一步、完成后、no-show 后都对；
  * - 司机令牌只管自己这一单（别的租户、改派后的旧链接、请求里夹带时间都没用）；
- * - 其他入口不受误伤：供应商调度接口、平台代传（同一份窗口，正好 / 早 1 毫秒）、落地时间上报、no-show；
- * - ADR 0064 的只读查询：在只读事务里执行，找得到提前的、不误报边界和航班晚点的。
+ * - 供应商调度接口用同一份窗口（M4-33）：太早 422、details 和司机的相同、什么都不写；
+ * - 其他入口不受误伤：平台代传（同一份窗口，正好 / 早 1 毫秒）、落地时间上报、no-show；
+ * - ADR 0064 的只读查询：在只读事务里执行，找得到提前的、不误报边界和航班晚点的（现在各入口都点不出提前完成，提前的单是窗口里正常完成后用迁移账号把用车时间往后改出来的）。
  * 订单由 testing/dispatch.ts 的 seedOrder 直接写入（都是虚构数据），先造好再按需要挪时钟。
  */
 import { randomBytes } from "node:crypto";
@@ -83,6 +85,14 @@ const tenantEvent = async (orderId: string, type: string) => {
   tenantToken = await tenantLogin(api, m.a.adminEmail);
   return api.call("POST", `/tenant/v1/orders/${orderId}/events`, { token: tenantToken, body: { type } });
 };
+/**
+ * 用迁移账号把单摆成「`step` 已做」（只改状态和这一步的时间，不经接口、不写流水和推送）。
+ * 只用在经接口到不了的状态：出发和到达、接到和完成的最早时间相同，前一步一做，这一步就不再太早。
+ */
+async function forceDone(orderId: string, step: "departed" | "picked_up"): Promise<void> {
+  const column = step === "departed" ? "departed_at" : "picked_up_at";
+  await api.db.owner.query(`update orders set status = $2, ${column} = $3 where id = $1`, [orderId, STATUS_AFTER[step], api.clock.now()]);
+}
 const statusOf = async (orderId: string): Promise<string> => (await api.db.owner.query<{ status: string }>("select status from orders where id = $1", [orderId])).rows[0]?.status as string;
 
 /** 整个测试 schema 每张表的行数和内容摘要：太早时要求一张表都没变。 */
@@ -114,11 +124,16 @@ function assertTooEarly(res: Awaited<ReturnType<typeof event>>, type: Step, serv
 // ---- 边界（经接口） ----
 
 for (const type of STEPS) {
-  test(`边界「${type}」：早 1 毫秒 422 且整个库不变；正好那一刻 200；（前面的步骤由供应商提前推进）`, async () => {
+  test(`边界「${type}」：早 1 毫秒 422 且整个库不变；正好那一刻 200；（前面的步骤先推进好）`, async () => {
     const serviceAt = serviceIn(72);
     const order = await dispatched(serviceAt);
-    // 前面的步骤由供应商调度接口提前做完（供应商不受窗口影响），司机只点这一步
-    for (const step of STEPS.slice(0, STEPS.indexOf(type))) await ok(tenantEvent(order.id, step));
+    // 前面的步骤：在它自己的窗口里经供应商调度接口做；和这一步同一个最早时间的，用迁移账号摆出来（见 forceDone）
+    for (const step of STEPS.slice(0, STEPS.indexOf(type))) {
+      if (earliestOf(step, serviceAt) < earliestOf(type, serviceAt)) {
+        moveTo(earliestOf(step, serviceAt));
+        await ok(tenantEvent(order.id, step));
+      } else await forceDone(order.id, step as "departed" | "picked_up");
+    }
     moveTo(earliestOf(type, serviceAt) - 1);
     const before = await snapshot();
     assertTooEarly(await event(order.token, type), type, serviceAt);
@@ -148,7 +163,7 @@ test("边界：晚 1 毫秒也可以；航班晚 10 小时到达、用车后 22 
 test("太早时什么都不写：带定位点到达（会算距离、写定位、评分、通知）也一样；司机链接的最后使用时间也不变", async () => {
   const serviceAt = serviceIn(72);
   const order = await dispatched(serviceAt);
-  await ok(tenantEvent(order.id, "departed"));
+  await forceDone(order.id, "departed");
   const before = await snapshot();
   assertTooEarly(await event(order.token, "arrived", { location: { lng: 140.389, lat: 35.769, accuracy_m: 5 } }), "arrived", serviceAt);
   assertTooEarly(await event(order.token, "arrived", { location: { lng: 140.389, lat: 35.769 } }), "arrived", serviceAt);
@@ -164,14 +179,15 @@ test("先判状态：太早的时段里跳步、重复点都是 409 ORDER_STATE_
     const res = await event(order.token, type);
     assert.deepEqual([res.status, res.body.error.code], [409, "ORDER_STATE_INVALID"], type);
   }
-  // 供应商已经推进到服务中：司机过时的页面再点出发、到达、接到客人是 409
-  for (const step of ["departed", "arrived", "picked_up"] as const) await ok(tenantEvent(order.id, step));
-  for (const type of ["departed", "arrived", "picked_up"]) {
+  // 用车前 24 小时供应商推进到已到达：司机过时的页面再点出发、到达是 409，跳到完成也是 409
+  moveTo(earliestOf("departed", serviceAt));
+  for (const step of ["departed", "arrived"] as const) await ok(tenantEvent(order.id, step));
+  for (const type of ["departed", "arrived", "completed"]) {
     const res = await event(order.token, type);
     assert.deepEqual([res.status, res.body.error.code], [409, "ORDER_STATE_INVALID"], `过时页面 ${type}`);
   }
-  // 下一步「完成」才是太早
-  assertTooEarly(await event(order.token, "completed"), "completed", serviceAt);
+  // 下一步「接到客人」才是太早
+  assertTooEarly(await event(order.token, "picked_up"), "picked_up", serviceAt);
 });
 
 test("已完成后再点任何一步都是 409；已取消的单链接失效（401，不给行程和客人信息）", async () => {
@@ -247,6 +263,7 @@ test("跨午夜：东京 01:00 的单，接到客人最早是前一天 22:00；2
   const tokyoMidnight = Math.ceil((base + 9 * HOUR) / (24 * HOUR)) * 24 * HOUR - 9 * HOUR;
   const serviceAt = tokyoMidnight + HOUR;
   const order = await dispatched(serviceAt);
+  moveTo(earliestOf("departed", serviceAt));
   await ok(tenantEvent(order.id, "departed"));
   await ok(tenantEvent(order.id, "arrived"));
   moveTo(serviceAt - 3 * HOUR - 1);
@@ -357,17 +374,38 @@ test("司机令牌只管自己这一单：同一个司机两张单互不影响�
   assert.deepEqual([stale.status, stale.body.error.code], [401, "DRIVER_LINK_INVALID"]);
 });
 
-// ---- 其他入口不受误伤 ----
+// ---- 供应商调度接口（M4-33：同一份窗口） ----
 
-test("供应商调度接口：用车前三天四步都能回传，应答没有窗口的字段（ADR 0064「范围」不拦）", async () => {
-  const order = await dispatched(serviceIn(72));
-  for (const type of STEPS) {
-    const res = await tenantEvent(order.id, type);
-    assert.equal(res.status, 200, `${type} ${res.text}`);
-    assert.ok(!res.text.includes("next_event") && !res.text.includes("FULFILMENT_TOO_EARLY"));
-  }
-  assert.equal(await statusOf(order.id), "completed");
+test("供应商调度接口：用车前三天回传出发 422 FULFILMENT_TOO_EARLY，details 和司机的相同，整个库不变；正好那一刻 200，应答没有 next_event", async () => {
+  const serviceAt = serviceIn(72);
+  const order = await dispatched(serviceAt);
+  // 登录会写登录记录：先登录再拍快照，回传直接用这个令牌
+  const report = (token: string) => api.call("POST", `/tenant/v1/orders/${order.id}/events`, { token, body: { type: "departed" } });
+  let token = await tenantLogin(api, m.a.adminEmail);
+  let before = await snapshot();
+  const refused = await report(token);
+  assertMatchesOpenApi("POST", "/tenant/v1/orders/{id}/events", refused);
+  assert.deepEqual([refused.status, refused.body.error.code], [422, "FULFILMENT_TOO_EARLY"], refused.text);
+  const driver = await event(order.token, "departed");
+  assertTooEarly(driver, "departed", serviceAt);
+  assert.deepEqual(refused.body.error.details, driver.body.error.details, "details 和司机的相同");
+  assert.ok(refused.body.error.message.includes(`「已出发」（departed）`) && refused.body.error.message.includes(`${tokyoLocal(earliestOf("departed", serviceAt))}（Asia/Tokyo 当地时间）`), refused.body.error.message);
+  for (const secret of ["王小明", "+819012345678", "guest@example.com", "NH211", "东京站"]) assert.ok(!refused.text.includes(secret), `422 里不能有客人信息：${secret}`);
+  assert.deepEqual(changedTables(before, await snapshot()), [], "太早时一张表都不能变");
+  moveTo(earliestOf("departed", serviceAt) - 1);
+  token = await tenantLogin(api, m.a.adminEmail);
+  before = await snapshot();
+  const edge = await report(token);
+  assert.deepEqual([edge.status, edge.body.error.code], [422, "FULFILMENT_TOO_EARLY"], "早 1 毫秒");
+  assert.deepEqual(changedTables(before, await snapshot()), [], "早 1 毫秒也一张表都不能变");
+  api.clock.advance(1);
+  const done = await report(token);
+  assert.equal(done.status, 200, done.text);
+  assert.ok(!done.text.includes("next_event"));
+  assert.equal(await statusOf(order.id), "departed");
 });
+
+// ---- 其他入口不受误伤 ----
 
 test("平台代传：出发正好用车前 24 小时可以、早 1 毫秒 400 TOO_EARLY（和 ADR 0052 一样，不是司机的 422）", async () => {
   // 代传只认销售渠道的单：经销售接口下单付款（乙中标），再把用车时间挪到 30 小时后
@@ -410,11 +448,14 @@ test("ADR 0064 的查询：在只读事务里能执行；找得到供应商提�
   const sql = /```sql\n([\s\S]*?)```/.exec(adr)?.[1];
   assert.ok(sql !== undefined);
 
-  // 供应商提前 3 天点完（真问题）；只有「到达」提前（出发正常）的也要找得到
-  const early = await dispatched(serviceIn(72));
+  // 供应商提前 3 天点完（真问题）；只有「接到客人」「完成」提前（出发、到达正常）的也要找得到。
+  // 现在哪个入口都点不出来（M4-33）：在窗口里经供应商调度接口正常点完，再用迁移账号把用车时间往后改，摆出窗口上线前留下的数据
+  const early = await dispatched(serviceIn(2));
   for (const type of STEPS) await ok(tenantEvent(early.id, type));
-  const onlyPickupEarly = await dispatched(serviceIn(10));
+  await api.db.owner.query("update orders set service_at = service_at + interval '72 hours' where id = $1", [early.id]);
+  const onlyPickupEarly = await dispatched(serviceIn(2));
   for (const type of STEPS) await ok(tenantEvent(onlyPickupEarly.id, type));
+  await api.db.owner.query("update orders set service_at = service_at + interval '8 hours' where id = $1", [onlyPickupEarly.id]);
   // 正好在边界（司机点的）
   const edgeAt = serviceIn(30);
   const edge = await dispatched(edgeAt);

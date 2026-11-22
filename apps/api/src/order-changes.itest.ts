@@ -214,7 +214,8 @@ test("运营代客人改单：同样要供应商确认（联系信息直接生�
 
 test("出了免费取消期只能改航班号和乘客信息；司机出发后不能改时间和人数", async () => {
   const order = await flow.paidOrder({ serviceTime: iso(api.clock.now().getTime() + 4 * DAY) });
-  const departed = await flow.paidOrder({ serviceTime: iso(api.clock.now().getTime() + 4 * DAY + HOUR) });
+  // 这张在 30 小时后那一刻要能出发（最早用车前 24 小时，ADR 0064）：用车时间比上一张早 7 小时
+  const departed = await flow.paidOrder({ serviceTime: iso(api.clock.now().getTime() + 4 * DAY - 7 * HOUR) });
   const who = { ...m.b, adminToken: await tenantLogin(api, m.b.adminEmail) };
   await ok(assign(api, who, departed.id, (await newDriver(api, who)).id, (await newVehicle(api, who, m.ids.biz7)).id));
   api.clock.advance(new Date(order.service_time).getTime() - 30 * HOUR - api.clock.now().getTime());

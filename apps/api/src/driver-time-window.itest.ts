@@ -4,7 +4,7 @@
  * - 边界：正好在最早时间那一刻可以，早 1 毫秒不行；航班晚点时比用车时间晚很多照样可以；
  * - 状态不对时先报 409（页面过时），不报太早；
  * - 司机页的这一单带上下一步最早什么时候可以点；
- * - 供应商的调度接口不受这次的窗口影响（ADR 0064「范围」）；
+ * - 供应商调度接口用同一份窗口（M4-33）：太早 422、details 和司机的相同、什么都不写；正好最早那一刻可以，早 1 毫秒不行；
  * - ADR 0064 里识别「提前完成」订单的只读查询能执行，找得到提前完成的单、找不到正常的单。
  */
 import { readFile } from "node:fs/promises";
@@ -14,6 +14,7 @@ import { type TestApi, createTestApi } from "./testing/api.ts";
 import { type Market, buildMarket, ok } from "./testing/market.ts";
 import { assign, newDriver, newVehicle, seedOrder } from "./testing/dispatch.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
+import { tenantLogin } from "./testing/money.ts";
 
 let api: TestApi;
 let m: Market;
@@ -28,7 +29,7 @@ const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 
 async function dispatched(serviceAt: Date): Promise<{ order: Awaited<ReturnType<typeof seedOrder>>; token: string; tenantToken: string }> {
-  const tenantToken = (await ok(api.call("POST", "/tenant/v1/auth/login", { body: { email: m.a.adminEmail, password: "Quiet-Harbor-2026" } }))).access_token;
+  const tenantToken = await tenantLogin(api, m.a.adminEmail);
   const who = { ...m.a, adminToken: tenantToken };
   const order = await seedOrder(api, m, "a", { serviceAt });
   const res = await ok(assign(api, who, order.id, (await newDriver(api, who)).id, (await newVehicle(api, who, m.ids.biz7)).id));
@@ -107,11 +108,81 @@ test("司机页的这一单带下一步最早什么时候可以点；完成以�
   assert.equal(serving.next_event, null);
 });
 
-test("供应商的调度接口不受这次的窗口影响：用车前两天仍可回传（ADR 0064「范围」）；ADR 里的只读查询找得到这张提前完成的单，找不到正常完成的单", async () => {
+/** 供应商调度接口回传一步。 */
+const dispatchEvent = (orderId: string, tenantToken: string, type: string) => api.call("POST", `/tenant/v1/orders/${orderId}/events`, { token: tenantToken, body: { type } });
+
+/** 订单行上的履约时间、状态流水和定位记录（太早被拒时都不能动）。 */
+async function written(orderId: string): Promise<unknown> {
+  const order = await api.db.owner.query("select status, version, departed_at, arrived_at, picked_up_at, completed_at, updated_at from orders where id = $1", [orderId]);
+  const events = await api.db.owner.query("select to_status, actor from order_events where order_id = $1 order by seq", [orderId]);
+  const locations = await api.db.owner.query("select kind from order_locations where order_id = $1", [orderId]);
+  const pushes = await api.db.owner.query("select 1 from webhook_deliveries where order_id = $1", [orderId]);
+  return { order: order.rows[0], events: events.rows, locations: locations.rows, pushes: pushes.rowCount };
+}
+
+test("M4-33：供应商调度接口用车前两天回传出发——422 FULFILMENT_TOO_EARLY，details 和司机的相同，什么都不写；接到客人同样按用车前 3 小时拦；状态不对先报 409", async () => {
   const serviceAt = serviceIn(49);
-  const { order, tenantToken } = await dispatched(serviceAt);
-  for (const type of ["departed", "arrived", "picked_up", "completed"]) await ok(api.call("POST", `/tenant/v1/orders/${order.id}/events`, { token: tenantToken, body: { type } }));
-  assert.equal((await trail(order.id)).status, "completed");
+  const { order, token, tenantToken } = await dispatched(serviceAt);
+  const before = await written(order.id);
+  const refused = await dispatchEvent(order.id, tenantToken, "departed");
+  assertMatchesOpenApi("POST", "/tenant/v1/orders/{id}/events", refused);
+  assert.deepEqual([refused.status, refused.body.error.code], [422, "FULFILMENT_TOO_EARLY"], refused.text);
+  const earliest = new Date(serviceAt.getTime() - 24 * HOUR);
+  const earliestLocal = new Date(earliest.getTime() + 9 * HOUR).toISOString().slice(0, 16).replace("T", " ");
+  assert.deepEqual(refused.body.error.details, { type: "departed", earliest_at: earliest.toISOString(), earliest_local: earliestLocal, timezone: "Asia/Tokyo", hours_before_service: 24 });
+  assert.match(refused.body.error.message, new RegExp(`「已出发」（departed）.*${earliestLocal}.*Asia/Tokyo`));
+  const driver = await event(token, "departed");
+  assert.equal(driver.status, 422, driver.text);
+  assert.deepEqual(refused.body.error.details, driver.body.error.details, "和司机的 details 相同");
+  for (const type of ["arrived", "picked_up", "completed"]) {
+    const skipped = await dispatchEvent(order.id, tenantToken, type);
+    assert.deepEqual([skipped.status, skipped.body.error.code], [409, "ORDER_STATE_INVALID"], `${type}：还没出发，先报状态不对`);
+  }
+  assert.deepEqual(await written(order.id), before, "订单、流水、定位、推送都没动");
+
+  moveTo(new Date(serviceAt.getTime() - 24 * HOUR));
+  const later = await tenantLogin(api, m.a.adminEmail);
+  await ok(dispatchEvent(order.id, later, "departed"));
+  await ok(dispatchEvent(order.id, later, "arrived"));
+  const afterArrived = await written(order.id);
+  const pickedUp = await dispatchEvent(order.id, later, "picked_up");
+  assert.deepEqual([pickedUp.status, pickedUp.body.error.code, pickedUp.body.error.details.hours_before_service], [422, "FULFILMENT_TOO_EARLY", 3], pickedUp.text);
+  assert.deepEqual(pickedUp.body.error.details, (await event(token, "picked_up")).body.error.details, "和司机的 details 相同");
+  const skipped = await dispatchEvent(order.id, later, "completed");
+  assert.deepEqual([skipped.status, skipped.body.error.code], [409, "ORDER_STATE_INVALID"], "先判状态再判时间");
+  assert.deepEqual(await written(order.id), afterArrived);
+});
+
+test("M4-33 边界：供应商调度接口正好在最早那一刻可以，早 1 毫秒 422 且什么都不写", async () => {
+  const serviceAt = serviceIn(30);
+  const { order } = await dispatched(serviceAt);
+  moveTo(new Date(serviceAt.getTime() - 24 * HOUR - 1));
+  const tenantToken = await tenantLogin(api, m.a.adminEmail);
+  const before = await written(order.id);
+  const early = await dispatchEvent(order.id, tenantToken, "departed");
+  assert.deepEqual([early.status, early.body.error.code, early.body.error.details.earliest_at], [422, "FULFILMENT_TOO_EARLY", new Date(serviceAt.getTime() - 24 * HOUR).toISOString()], early.text);
+  assert.deepEqual(await written(order.id), before);
+  api.clock.advance(1);
+  assert.equal((await ok(dispatchEvent(order.id, tenantToken, "departed"))).order.status, "departed");
+  assert.equal((await ok(dispatchEvent(order.id, tenantToken, "arrived"))).order.status, "arrived");
+
+  moveTo(new Date(serviceAt.getTime() - 3 * HOUR - 1));
+  const relogged = await tenantLogin(api, m.a.adminEmail);
+  const arrived = await written(order.id);
+  const tooEarly = await dispatchEvent(order.id, relogged, "picked_up");
+  assert.deepEqual([tooEarly.status, tooEarly.body.error.code, tooEarly.body.error.details.earliest_at], [422, "FULFILMENT_TOO_EARLY", new Date(serviceAt.getTime() - 3 * HOUR).toISOString()], tooEarly.text);
+  assert.deepEqual(await written(order.id), arrived);
+  api.clock.advance(1);
+  assert.equal((await ok(dispatchEvent(order.id, relogged, "picked_up"))).order.status, "in_service");
+  assert.equal((await ok(dispatchEvent(order.id, relogged, "completed"))).order.status, "completed");
+});
+
+test("ADR 0064 的只读查询找得到提前完成的单（含供应商调度接口回传的），找不到正常完成的单", async () => {
+  // 现在各个来源都回传不了提前完成；这张单经供应商调度接口在窗口里正常完成，再用迁移账号把用车时间往后改两天，
+  // 造出「窗口上线前就提前完成」的历史数据（只在测试里构造，规则 1）
+  const early = await dispatched(serviceIn(2));
+  for (const type of ["departed", "arrived", "picked_up", "completed"]) await ok(dispatchEvent(early.order.id, early.tenantToken, type));
+  await api.db.owner.query("update orders set service_at = service_at + interval '2 days' where id = $1", [early.order.id]);
 
   const normal = await dispatched(serviceIn(2));
   for (const type of ["departed", "arrived", "picked_up", "completed"]) await ok(event(normal.token, type));
@@ -120,7 +191,7 @@ test("供应商的调度接口不受这次的窗口影响：用车前两天仍�
   assert.ok(sql !== undefined, "ADR 0064 里有只读查询");
   const found = await api.db.owner.query<{ order_no: string; who: string }>(sql);
   const numbers = found.rows.map((row) => row.order_no);
-  assert.ok(numbers.includes(order.orderNo), "提前完成的单找得到");
+  assert.ok(numbers.includes(early.order.orderNo), "提前完成的单找得到");
   assert.ok(!numbers.includes(normal.order.orderNo), "正常完成的单找不到");
-  assert.equal(found.rows.find((row) => row.order_no === order.orderNo)?.who, "departed:tenant_user, arrived:tenant_user, in_service:tenant_user, completed:tenant_user");
+  assert.equal(found.rows.find((row) => row.order_no === early.order.orderNo)?.who, "departed:tenant_user, arrived:tenant_user, in_service:tenant_user, completed:tenant_user");
 });

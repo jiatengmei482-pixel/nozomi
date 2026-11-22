@@ -18,7 +18,7 @@ import { type TestApi, TEST_PASSWORD, createTestApi } from "./testing/api.ts";
 import { assign, newDriver, newVehicle, seedOrder } from "./testing/dispatch.ts";
 import { type FakeSmtp, type FakeSmtpMessage, decodedMailText, startFakeSmtp } from "./testing/fake-integrations.ts";
 import { type Market, addStaff, buildMarket, newChannel, ok, salesCredentials } from "./testing/market.ts";
-import { tenantLogin } from "./testing/money.ts";
+import { reachFulfilmentWindow, reloginMarket, tenantLogin } from "./testing/money.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
 import { FakePaymentProvider, deliverWebhook } from "./testing/payments.ts";
 import { type SalesFlow, salesFlow } from "./testing/sales-flow.ts";
@@ -75,16 +75,16 @@ beforeEach(async () => {
   smtp.reset();
 });
 
-/** 每张单用不同的用车时间，避开同一天的额度。 */
-function nextService(): { local: string } {
+/** 每张单用不同的用车时间，避开同一天的额度。`days` 天后再往后错开（要回传履约的单给 1 天多：拨到窗口里只拨不到一天，不越过别的单的用车时间）。 */
+function nextService(days = 10): { local: string } {
   serviceClock += 1;
-  const at = new Date(api.clock.now().getTime() + 10 * 24 * HOUR + serviceClock * HOUR);
+  const at = new Date(api.clock.now().getTime() + days * 24 * HOUR + serviceClock * HOUR);
   return { local: new Date(at.getTime() + 9 * HOUR).toISOString().slice(0, 16) };
 }
 
-async function placeOrder(on: SiteApi = site): Promise<{ orderId: string; orderNo: string; token: string; sellMinorText: string }> {
+async function placeOrder(on: SiteApi = site, service = nextService()): Promise<{ orderId: string; orderNo: string; token: string; sellMinorText: string }> {
   api.clock.advance(1_000);
-  const quotes = await on.call("POST", "/site/v1/quotes", { ip: `198.51.100.${(serviceClock % 200) + 1}`, body: { category: "airport_transfer", city_id: m.ids.tokyo, airport_id: m.ids.narita, direction: "pickup", address: { lng: 139.7, lat: 35.6 }, service_local: nextService().local, passengers: 2, luggage: 1 } });
+  const quotes = await on.call("POST", "/site/v1/quotes", { ip: `198.51.100.${(serviceClock % 200) + 1}`, body: { category: "airport_transfer", city_id: m.ids.tokyo, airport_id: m.ids.narita, direction: "pickup", address: { lng: 139.7, lat: 35.6 }, service_local: service.local, passengers: 2, luggage: 1 } });
   assert.equal(quotes.status, 200, quotes.text);
   const quote = quotes.body.quotes.find((row: any) => row.vehicle_group.id === m.ids.biz7);
   assert.ok(quote, quotes.text);
@@ -555,7 +555,7 @@ test("派车在租户事务里也能入发件箱；不是官网的单不产生�
 });
 
 test("官网单的派车、到达：邮件带司机信息", async () => {
-  const order = await placeOrder();
+  const order = await placeOrder(site, nextService(1));
   await payFor(order.orderId);
   await site.app.notificationJobs.tick();
   const tenantRow = (await api.db.owner.query<{ tenant_id: string }>("select tenant_id from orders where id = $1", [order.orderId])).rows[0]!;
@@ -586,15 +586,18 @@ test("官网单的派车、到达：邮件带司机信息", async () => {
   assert.deepEqual(assigned, ["expired", "sent", "sent"], "改派后中间那个司机的通知不再发");
   assert.ok(bodyOf(smtp.messages.find((message) => message.to.includes(GUEST_EMAIL)) as FakeSmtpMessage).includes(driver3.name));
   smtp.reset();
-  await ok(api.call("POST", `/tenant/v1/orders/${order.orderId}/events`, { token, body: { type: "departed" } }));
-  await ok(api.call("POST", `/tenant/v1/orders/${order.orderId}/events`, { token, body: { type: "arrived" } }));
+  // 出发、到达最早在用车前 24 小时（ADR 0064）：拨过去以后令牌过期，市场里的令牌全部重新登录
+  await reachFulfilmentWindow(api, order.orderId);
+  await reloginMarket(api, m);
+  await ok(api.call("POST", `/tenant/v1/orders/${order.orderId}/events`, { token: side.adminToken, body: { type: "departed" } }));
+  await ok(api.call("POST", `/tenant/v1/orders/${order.orderId}/events`, { token: side.adminToken, body: { type: "arrived" } }));
   await site.app.notificationJobs.tick();
   assert.equal((await guestRow(order.orderId, "order.driver_arrived")).status, "sent");
   assert.equal(smtp.messages.filter((message) => message.to.includes(GUEST_EMAIL)).length, 1);
 });
 
 test("真实业务流程都入发件箱：客人改单、事后加收（客人看到的金额）、工单回复、超时提醒、异常、征求意见", async () => {
-  const order = await placeOrder();
+  const order = await placeOrder(site, nextService(1));
   await payFor(order.orderId);
   await site.app.notificationJobs.tick();
   const tenantRow = (await api.db.owner.query<{ tenant_id: string; version: number; service_at: Date }>("select tenant_id, version, service_at from orders where id = $1", [order.orderId])).rows[0]!;
@@ -631,10 +634,13 @@ test("真实业务流程都入发件箱：客人改单、事后加收（客人�
   const who = { ...side, adminToken: token };
   const driver = await newDriver(api, who);
   await ok(assign(api, who, order.orderId, driver.id, (await newVehicle(api, who, m.ids.biz7)).id));
-  for (const type of ["departed", "arrived", "picked_up", "completed"]) await ok(api.call("POST", `/tenant/v1/orders/${order.orderId}/events`, { token, body: { type } }));
+  // 接到客人、完成最早在用车前 3 小时（ADR 0064）：拨过去以后令牌过期，市场里的令牌全部重新登录
+  await reachFulfilmentWindow(api, order.orderId);
+  await reloginMarket(api, m);
+  for (const type of ["departed", "arrived", "picked_up", "completed"]) await ok(api.call("POST", `/tenant/v1/orders/${order.orderId}/events`, { token: side.adminToken, body: { type } }));
   await site.app.notificationJobs.tick();
   smtp.reset();
-  const charge = await api.call("POST", `/tenant/v1/orders/${order.orderId}/extra-charges`, { token, body: { type: "waiting", amount: 2_000, description: "等了 40 分钟" } });
+  const charge = await api.call("POST", `/tenant/v1/orders/${order.orderId}/extra-charges`, { token: side.adminToken, body: { type: "waiting", amount: 2_000, description: "等了 40 分钟" } });
   assert.equal(charge.status, 201, charge.text);
   await site.app.notificationJobs.tick();
   const chargeMail = smtp.messages.find((message) => message.to.includes(GUEST_EMAIL));
