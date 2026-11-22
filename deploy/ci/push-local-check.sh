@@ -321,8 +321,8 @@ published="$(on_server 'docker port nozomi-staging-caddy-1')"
 [[ "$published" == "8080/tcp -> $edge_listen" ]] || fail "反向代理应只发布回环地址上的一个端口，实际是：$published"
 [[ "$(on_server 'docker network ls --format "{{.Name}}" | grep -Ev "^(bridge|host|none)$" | sort | tr "\n" " "')" == "nozomi-staging_backend nozomi-staging_edge " ]] ||
   fail "新增的网络应只有本项目的两个"
-[[ "$(on_server 'docker volume ls --format "{{.Name}}" | sort | tr "\n" " "')" == "deploy_data nozomi-staging_caddy-config nozomi-staging_caddy-data nozomi-staging_db-data " ]] ||
-  fail "数据卷应只有别人的 deploy_data 和本项目的三个"
+[[ "$(on_server 'docker volume ls --format "{{.Name}}" | sort | tr "\n" " "')" == "deploy_data nozomi-staging_caddy-config nozomi-staging_caddy-data nozomi-staging_db-data nozomi-staging_pitr " ]] ||
+  fail "数据卷应只有别人的 deploy_data 和本项目的四个（数据库、WAL 归档、证书两个）"
 state_after="$(machine_state)"
 [[ "$state_before" == "$state_after" ]] || {
   diff <(printf '%s\n' "$state_before") <(printf '%s\n' "$state_after") || true
