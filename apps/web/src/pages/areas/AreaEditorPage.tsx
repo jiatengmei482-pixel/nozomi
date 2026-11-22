@@ -698,6 +698,7 @@ export function AreaEditorPage() {
         <SharedAreaDialog
           open={sharingPick !== null}
           cities={cities.state.data}
+          citiesFailed={cities.state.status === "error"}
           initial={{ cityId: cityId ?? "", picked: sharingPick }}
           onClose={() => setSharingPick(null)}
           onCreated={(created) => {
