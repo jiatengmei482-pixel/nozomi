@@ -44,3 +44,18 @@ test("不同用途派生不同的子密钥：两步验证密钥的密文不能�
   assert.throws(() => box.open("platform-totp-secret", "owner-1", webhook), SecretBoxError);
   assert.equal(box.open("tenant-webhook-secret", "owner-1", webhook), "secret");
 });
+
+test("换主密钥（ADR 0106）：带着旧主密钥时旧密文照常解开，新加密只用新主密钥；openCurrent 只认新主密钥；新旧相同直接拒绝", () => {
+  const NEW = `${KEY}-new`;
+  const oldSealed = new SecretBox(KEY).seal("payout-account", "t:1", "GB00FAKE");
+  const rotating = new SecretBox(NEW, KEY);
+  assert.equal(rotating.open("payout-account", "t:1", oldSealed), "GB00FAKE");
+  assert.throws(() => rotating.openCurrent("payout-account", "t:1", oldSealed), SecretBoxError);
+  assert.throws(() => rotating.open("payout-account", "t:2", oldSealed), SecretBoxError, "旧密文换了归属也解不开");
+  const newSealed = rotating.seal("payout-account", "t:1", "GB00FAKE");
+  assert.equal(new SecretBox(NEW).open("payout-account", "t:1", newSealed), "GB00FAKE", "删掉旧主密钥后新密文照常解开");
+  assert.throws(() => new SecretBox(KEY).open("payout-account", "t:1", newSealed), SecretBoxError, "新密文不是旧主密钥加密的");
+  assert.equal(rotating.mac("passenger-index", "x"), new SecretBox(NEW).mac("passenger-index", "x"), "指纹只用新主密钥");
+  assert.throws(() => new SecretBox(NEW).open("payout-account", "t:1", oldSealed), SecretBoxError, "没带旧主密钥时旧密文解不开");
+  assert.throws(() => new SecretBox(KEY, KEY), RangeError);
+});

@@ -16,9 +16,12 @@ import { PassengerCrypto, type PassengerEncryptionSettings } from "./integration
 import { SecretBox } from "./integrations/secret-box.ts";
 import { findOrderForPlatform } from "./repos/orders.ts";
 import { insertRescuedOrder, markOrderRescued } from "./repos/rescues.ts";
+import { planDataKeyRotation, rotationDone, runDataKeyRotation } from "./services/data-key-rotation.ts";
+import { insertManualQuote } from "./repos/manual-quotes.ts";
+import type { Db } from "./db/context.ts";
 import { backfillBatch, checkRetiredPlaintext, planPassengerBackfill, runPassengerBackfill, verifyPassengerEncryption } from "./services/passenger-encryption.ts";
 import { runPassengerRetention } from "./services/passenger-retention.ts";
-import { type ApiResponse, type TestApi, createTestApi } from "./testing/api.ts";
+import { type ApiResponse, TEST_PASSWORD, type TestApi, createTestApi } from "./testing/api.ts";
 import { seedOrder, startFakeReceiver, type FakeReceiver } from "./testing/dispatch.ts";
 import { type FakeSmtp, startFakeSmtp } from "./testing/fake-integrations.ts";
 import { FAKE_SECRETS, testEnv } from "./testing/fixtures.ts";
@@ -45,6 +48,7 @@ let ctx: AppContext;
 let box: SecretBox;
 let alerts: { event?: string }[] = [];
 let counter = 0;
+let siteChannelId: string;
 
 const useCrypto = (settings: PassengerEncryptionSettings, key: SecretBox | null = box): PassengerCrypto => {
   const crypto = new PassengerCrypto(key, settings, { error: (obj) => void alerts.push(obj as { event?: string }) });
@@ -58,6 +62,7 @@ before(async () => {
   api = await createTestApi({ payments: pay });
   m = await buildMarket(api);
   const channelId = (await newChannel(api, m.staff.cm1.token, { name: "NOZOMI 官网" })).id;
+  siteChannelId = channelId;
   const client = await salesCredentials(api, m, channelId);
   site = await siteApi(api, client.clientId, pay, { SMTP_HOST: smtp.host, SMTP_PORT: String(smtp.port), SMTP_ENCRYPTION: "none", SMTP_USERNAME: "mailer", SMTP_PASSWORD: "fake-smtp-password-Zq7", SMTP_FROM_NAME: "NOZOMI", SMTP_FROM_ADDRESS: "no-reply@nozomi.test" }, { integrationSecretsTtlMs: 0 });
   receiver = await startFakeReceiver();
@@ -495,6 +500,78 @@ test("换主密钥：旧密文不报警地退回明文，查订单不受影响�
   assert.equal(verified.mismatched.orders, 0);
   useCrypto(DUAL);
   await runPassengerBackfill(ctx, { pauseMs: 0 });
+});
+
+test("换主密钥（ADR 0106，多密钥读取）：明文已清、只有密文时也能换——带着旧密钥照常读和查；换的命令把乘客信息、人工报价、Webhook 签名密钥、收款账号都改成新密钥；删掉旧密钥后照常读", async () => {
+  const NEW_KEY = "third-fake-master-key-for-multi-key-rotation-0123456789";
+  useCrypto(RETIRED);
+  const passenger = fictional();
+  const order = await placeOrder(passenger);
+  const owner = await tenantOfOrder(order.id);
+  await subscribe(owner);
+  const tenantId = m[owner].tenantId;
+  const payout = await ok(api.call("POST", "/tenant/v1/payout-accounts", { token: await tenantLogin(api, m[owner].adminEmail), body: { currency: "JPY", beneficiary_name: "Fictional Transport KK", beneficiary_address: "1-1 Example Dori, Testville", bank_name: "Fictional Bank", bank_address: "2 Sample Street, Testville", swift_bic: "fakejpjt", account_kind: "account", account_number: "99887766554433", current_password: TEST_PASSWORD } }), 201);
+  const quoteId = randomUUID();
+  const quoteEmail = `rotation.${randomUUID().slice(0, 8)}@example.test`;
+  const oldCrypto = useCrypto(RETIRED);
+  await insertManualQuote(api.db.owner as unknown as Db, {
+    id: quoteId, requestNo: `MQ-ROT-${quoteId.slice(0, 6)}`, category: "airport_transfer", cityId: null, channelId: siteChannelId, serviceLocal: "2026-12-24T10:00", passengers: 2, luggage: 1, packageHours: null,
+    hasEmail: true, hasWhatsapp: false, contactEnc: oldCrypto.sealManualQuote("manual_quote_request", quoteId, JSON.stringify({ email: quoteEmail, whatsapp: null, pickup: { label: "成田机场" }, dropoff: null })),
+    emailBidx: oldCrypto.manualQuoteIndex("email", quoteEmail), whatsappBidx: null, dedupKey: oldCrypto.manualQuoteFingerprint(quoteId), isAcceptance: false,
+  }, api.clock.now());
+  assert.equal((await orderRow(order.id)).passenger.name, ENCRYPTED_TEXT, "明文列只有占位：只能靠密文");
+
+  // 运营员工的两步验证密钥也会换成新密钥，而测试里的服务进程一直用测试密钥：先登录好（真实部署时服务带着新密钥重启）
+  const opsToken = await ops();
+  const reveal = async (): Promise<any> => ok(api.call("POST", `/platform/v1/orders/${order.id}/passenger/reveal`, { token: opsToken }));
+
+  // 换上新密钥、带着旧密钥：旧的照常读、照常查，不报警
+  const rotating = new SecretBox(NEW_KEY, FAKE_SECRETS.dataEncryptionKey);
+  const crypto = useCrypto(RETIRED, rotating);
+  alerts = [];
+  assert.equal((await reveal()).passenger.email, passenger.email);
+  assert.equal((await lookup(order, passenger.email)).queued, true, "查订单比的是旧密钥的盲索引");
+  const filtered = await ok(api.call("GET", `/platform/v1/orders?passenger=${encodeURIComponent(passenger.email)}`, { token: opsToken }));
+  assert.ok(filtered.items.some((item: { id: string }) => item.id === order.id), "运营按整串邮箱筛选：旧密钥的盲索引也筛得到");
+  const quotes = await ok(api.call("GET", `/platform/v1/manual-quote-requests?contact=${encodeURIComponent(quoteEmail)}`, { token: m.root }));
+  assert.deepEqual(quotes.items.map((item: { id: string }) => item.id), [quoteId], "人工报价按联系方式查：旧密钥的盲索引也查得到");
+  assert.deepEqual(alerts, []);
+
+  // dry-run 数得出，不改数据
+  const keys = { box: rotating, crypto };
+  const plan = await planDataKeyRotation(api.db.owner, keys);
+  assert.ok(plan["orders"]!.previous >= 1 && plan["manual_quote_requests"]!.previous >= 1 && plan["tenant_webhooks"]!.previous >= 1 && plan["payout_accounts"]!.previous >= 1, JSON.stringify(plan));
+  assert.equal((await orderRow(order.id)).passenger_enc.startsWith(crypto.previousPrefix as string), true);
+
+  // 换：业务表的触发器（平台角色改不了收款账号的密文）不挡所有者；重复跑没有可换的
+  await runDataKeyRotation(api.db.owner, keys, { batchSize: 3 });
+  const after = await planDataKeyRotation(api.db.owner, keys);
+  for (const [name, counts] of Object.entries(after)) assert.equal(counts.previous, 0, `${name} 还有旧密钥的行`);
+  assert.deepEqual(Object.values((await runDataKeyRotation(api.db.owner, keys)).rekeyed).filter((n) => n > 0), []);
+  assert.equal(rotationDone(after), Object.values(after).every((counts) => counts.unreadable === 0));
+  const row = await orderRow(order.id);
+  assert.ok(crypto.isCurrent(row.passenger_enc) && crypto.isCurrent(row.passenger_email_bidx) && crypto.isCurrent(row.passenger_phone_bidx) && crypto.isCurrent(row.passenger_name_bidx));
+  assert.equal(row.passenger.name, ENCRYPTED_TEXT, "明文列不动");
+
+  // 删掉旧密钥：只用新密钥照常读、查；Webhook 签名密钥、收款账号也只用新密钥解得开
+  useCrypto(RETIRED, new SecretBox(NEW_KEY));
+  alerts = [];
+  assert.equal((await reveal()).passenger.email, passenger.email);
+  assert.equal((await lookup(order, passenger.email)).queued, true);
+  assert.deepEqual((await ok(api.call("GET", `/platform/v1/manual-quote-requests?contact=${encodeURIComponent(quoteEmail)}`, { token: m.root }))).items.map((item: { id: string }) => item.id), [quoteId]);
+  assert.deepEqual(alerts, []);
+  const only = new SecretBox(NEW_KEY);
+  const webhook = (await api.db.owner.query("select secret_ciphertext from tenant_webhooks where tenant_id = $1", [tenantId])).rows[0];
+  assert.match(only.open("tenant-webhook-secret", tenantId, webhook.secret_ciphertext), /\S{16,}/);
+  const account = (await api.db.owner.query("select account_sealed from payout_accounts where tenant_id = $1 and id = $2", [tenantId, payout.account.id])).rows[0];
+  assert.equal(only.open("payout-account", `${tenantId}:${payout.account.id}`, account.account_sealed), "99887766554433");
+  const contact = (await api.db.owner.query("select contact_enc from manual_quote_requests where id = $1", [quoteId])).rows[0];
+  assert.equal(JSON.parse(new PassengerCrypto(only, RETIRED).openManualQuote("manual_quote_request", quoteId, contact.contact_enc)).email, quoteEmail);
+
+  // 收尾：换回测试用的密钥，后面的用例不受影响
+  const back = new SecretBox(FAKE_SECRETS.dataEncryptionKey, NEW_KEY);
+  await runDataKeyRotation(api.db.owner, { box: back, crypto: useCrypto(DUAL, back) });
+  await api.db.owner.query("update payout_accounts set status = 'withdrawn', withdrawn_at = $3 where tenant_id = $1 and id = $2", [tenantId, payout.account.id, api.clock.now()]);
 });
 
 test("没配置主密钥：下单 503 写明原因，不写明文冒充加密；已有的单照常能读、能查；回填不跑", async () => {

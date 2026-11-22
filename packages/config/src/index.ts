@@ -184,6 +184,8 @@ const rawSchema = z.object({
   // 数据加密密钥（ADR 0027、0030）：加密库里需要还原原文的密钥（供应商的 Webhook 签名密钥、平台员工的两步验证密钥）。服务器上由初始化 / 部署脚本自动生成；
   // 只有 production 必须配置，其他环境不配时供应商不能设置 Webhook、平台员工不能绑定、验证两步验证（接口 503，/health 和 config:check 显示「未配置」）
   DATA_ENCRYPTION_KEY: optionalString,
+  // 换数据加密密钥期间的旧密钥（ADR 0106）：只用来读还没换成新密钥的密文，后台任务把它们重新加密；全部换完、核对无误后删掉
+  DATA_ENCRYPTION_KEY_PREVIOUS: optionalString,
 
   STRIPE_SECRET_KEY: optionalString,
   STRIPE_PUBLISHABLE_KEY: optionalString,
@@ -326,6 +328,8 @@ export interface AppConfig {
   authJwtSecret: string;
   /** 数据加密密钥（ADR 0027、0030）；没有配置时为 null：供应商不能设置 Webhook，平台员工不能绑定、验证两步验证 */
   dataEncryptionKey: string | null;
+  /** 换密钥期间的旧主密钥（ADR 0106）：只解密、不加密；没在换时为 null */
+  dataEncryptionPreviousKey: string | null;
   stripe: StripeConfig | null;
   googleMapsApiKey: string | null;
   /** Claude（Anthropic API，ADR 0104）：服务器配置文件里的后备密钥；没配时为 null（还可以在运营后台填写） */
@@ -521,7 +525,7 @@ function parseQaAcceptance(env: z.output<typeof rawSchema>, issues: string[]): {
     issues.push(`QA_ACCEPTANCE_TOKEN 要是 ${QA_ACCEPTANCE_TOKEN_LENGTH.min}–${QA_ACCEPTANCE_TOKEN_LENGTH.max} 个字母、数字或符号（不含空格），建议用 openssl rand -hex 32 生成`);
     return null;
   }
-  if ([env.AUTH_JWT_SECRET, env.DATA_ENCRYPTION_KEY, env.STRIPE_SECRET_KEY, env.STRIPE_WEBHOOK_SECRET, env.SMTP_PASSWORD].includes(token)) {
+  if ([env.AUTH_JWT_SECRET, env.DATA_ENCRYPTION_KEY, env.DATA_ENCRYPTION_KEY_PREVIOUS, env.STRIPE_SECRET_KEY, env.STRIPE_WEBHOOK_SECRET, env.SMTP_PASSWORD].includes(token)) {
     issues.push("QA_ACCEPTANCE_TOKEN 不能和别的密钥相同：请单独生成一个");
     return null;
   }
@@ -553,6 +557,13 @@ export function loadConfig(source: Record<string, string | undefined> = process.
   if (env.PASSENGER_PLAINTEXT_WRITE === "false" && dataEncryptionKey === null) issues.push("PASSENGER_PLAINTEXT_WRITE=false 必须配置 DATA_ENCRYPTION_KEY：否则乘客信息哪里都不存");
   if (dataEncryptionKey !== null && dataEncryptionKey.length < 32) issues.push("DATA_ENCRYPTION_KEY 至少 32 个字符");
   if (dataEncryptionKey !== null && dataEncryptionKey === env.AUTH_JWT_SECRET) issues.push("DATA_ENCRYPTION_KEY 不能和 AUTH_JWT_SECRET 相同：两把密钥各管一件事，一把泄露不连累另一把");
+  const dataEncryptionPreviousKey = env.DATA_ENCRYPTION_KEY_PREVIOUS ?? null;
+  if (dataEncryptionPreviousKey !== null) {
+    if (dataEncryptionKey === null) issues.push("配置了 DATA_ENCRYPTION_KEY_PREVIOUS 就必须配置 DATA_ENCRYPTION_KEY：旧密钥只用来读，新内容要用新密钥加密");
+    if (dataEncryptionPreviousKey.length < 32) issues.push("DATA_ENCRYPTION_KEY_PREVIOUS 至少 32 个字符");
+    if (dataEncryptionPreviousKey === dataEncryptionKey) issues.push("DATA_ENCRYPTION_KEY_PREVIOUS 和 DATA_ENCRYPTION_KEY 相同：没在换密钥时删掉 DATA_ENCRYPTION_KEY_PREVIOUS");
+    if (dataEncryptionPreviousKey === env.AUTH_JWT_SECRET) issues.push("DATA_ENCRYPTION_KEY_PREVIOUS 不能和 AUTH_JWT_SECRET 相同");
+  }
   if (env.APP_ENV === "production" && env.AUTH_JWT_SECRET.length < 64) {
     issues.push("production 环境的 AUTH_JWT_SECRET 至少 64 个字符");
   }
@@ -575,6 +586,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     databaseMigrationUrl,
     authJwtSecret: env.AUTH_JWT_SECRET,
     dataEncryptionKey,
+    dataEncryptionPreviousKey,
     stripe,
     googleMapsApiKey,
     anthropicApiKey,
@@ -629,6 +641,31 @@ export function loadMigrationConfig(source: Record<string, string | undefined> =
   return { databaseMigrationUrl: parsed.data.DATABASE_MIGRATION_URL, databaseUrl };
 }
 
+const dataKeyRotationSchema = z.object({
+  DATABASE_MIGRATION_URL: databaseUrlSchema("DATABASE_MIGRATION_URL"),
+  DATA_ENCRYPTION_KEY: z.string().trim().min(32, "DATA_ENCRYPTION_KEY 至少 32 个字符"),
+  DATA_ENCRYPTION_KEY_PREVIOUS: z.string().trim().min(32, "DATA_ENCRYPTION_KEY_PREVIOUS 至少 32 个字符（换密钥时把原来的 DATA_ENCRYPTION_KEY 填在这里）"),
+});
+
+export interface DataKeyRotationConfig {
+  /** 迁移账号（表的所有者）：供应商收款账号的密文平台角色改不了，只有所有者能换 */
+  databaseMigrationUrl: string;
+  dataEncryptionKey: string;
+  dataEncryptionPreviousKey: string;
+}
+
+/** 换数据加密主密钥的命令（ADR 0106）：只读连接串和新旧两把主密钥，不要求服务进程的其他配置。 */
+export function loadDataKeyRotationConfig(source: Record<string, string | undefined> = process.env): DataKeyRotationConfig {
+  const parsed = dataKeyRotationSchema.safeParse(source);
+  if (!parsed.success) {
+    throw new ConfigError(parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`));
+  }
+  if (parsed.data.DATA_ENCRYPTION_KEY === parsed.data.DATA_ENCRYPTION_KEY_PREVIOUS) {
+    throw new ConfigError(["DATA_ENCRYPTION_KEY_PREVIOUS 和 DATA_ENCRYPTION_KEY 相同：新主密钥还没换上"]);
+  }
+  return { databaseMigrationUrl: parsed.data.DATABASE_MIGRATION_URL, dataEncryptionKey: parsed.data.DATA_ENCRYPTION_KEY, dataEncryptionPreviousKey: parsed.data.DATA_ENCRYPTION_KEY_PREVIOUS };
+}
+
 export type IntegrationState = "configured" | "missing";
 
 export interface IntegrationStatus {
@@ -658,7 +695,7 @@ export function integrationStatus(config: AppConfig, options: IntegrationStatusO
     { key: "database", label: "数据库", state: "configured", detail: maskUrl(config.databaseUrl) },
     { key: "auth", label: "登录签名密钥", state: "configured", detail: `${config.authJwtSecret.length} 个字符` },
     config.dataEncryptionKey
-      ? { key: "dataEncryption", label: "数据加密密钥", state: "configured", detail: `${config.dataEncryptionKey.length} 个字符` }
+      ? { key: "dataEncryption", label: "数据加密密钥", state: "configured", detail: `${config.dataEncryptionKey.length} 个字符${config.dataEncryptionPreviousKey === null ? "" : " · 正在换密钥（还留着旧密钥，旧数据重新加密完再删）"}` }
       : { key: "dataEncryption", label: "数据加密密钥", state: "missing", detail: "未配置，不能下新订单和改乘客信息，供应商不能设置 Webhook，平台员工不能绑定两步验证（登录不了运营后台），运营后台不能填写第三方密钥" },
     stripe
       ? { key: "stripe", label: "Stripe 支付", state: "configured", detail: `${stripe.mode === "live" ? "正式" : "测试"}模式 · ${origin(effective.stripe.source, stripe.secretKey)}` }

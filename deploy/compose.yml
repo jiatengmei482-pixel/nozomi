@@ -13,7 +13,7 @@
 # 传给 API 的环境变量全部集中在下面 api.environment 一处；新增变量只改这里。
 #
 # 数据库有两个账号（ADR 0010）：
-#   - nozomi      迁移账号，表的所有者。只有 db 容器自己和临时启动的 migrate 服务用它。
+#   - nozomi      迁移账号，表的所有者。只有 db 容器自己、临时启动的 migrate 服务和换密钥工具（data-key-rotation）用它。
 #   - nozomi_api  应用账号，权限最小。api 容器只拿得到它的连接串，拿不到迁移账号的密码。
 
 x-logging: &logging
@@ -80,8 +80,10 @@ services:
       # 这里不能出现 POSTGRES_PASSWORD（迁移账号的密码）：服务进程发现自己连的是所有者或超级用户会拒绝启动。
       DATABASE_URL: postgres://nozomi_api:${POSTGRES_APP_PASSWORD:?缺少 POSTGRES_APP_PASSWORD，请重新部署或重新运行服务器初始化}@db:5432/nozomi
       AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?缺少 AUTH_JWT_SECRET，请先运行服务器初始化}
-      # 数据加密密钥（ADR 0027、0030）：由初始化脚本或部署脚本自动生成，不要修改
+      # 数据加密密钥（ADR 0027、0030）：由初始化脚本或部署脚本自动生成，不要修改；要换按 docs/deploy.md「更换数据加密密钥」做（ADR 0106）
       DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:?缺少 DATA_ENCRYPTION_KEY，请重新部署或重新运行服务器初始化}
+      # 只在换密钥的那段时间有值：旧密钥，只用来读还没换成新密钥的密文
+      DATA_ENCRYPTION_KEY_PREVIOUS: ${DATA_ENCRYPTION_KEY_PREVIOUS:-}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
@@ -230,6 +232,30 @@ services:
 
   # 反向代理 + 前端静态文件。镜像是 nozomi-web（官方 Caddy 加上构建好的前端，apps/web/Dockerfile），
   # 和 API_IMAGE 同一个仓库前缀、同一个标签，由 bin/deploy.sh 从 API_IMAGE 推出来：前端和后端一起部署、一起回退。
+  # 换数据加密密钥后把旧密文重新加密（ADR 0106）：bin/compose.sh run --rm data-key-rotation [--execute]。
+  # 用迁移账号（收款账号的密文只有表的所有者能换）；只在换密钥时手工运行，平时不启动。
+  data-key-rotation:
+    image: ${API_IMAGE}
+    profiles:
+      - tools
+    restart: "no"
+    init: true
+    environment:
+      DATABASE_MIGRATION_URL: postgres://nozomi:${POSTGRES_PASSWORD}@db:5432/nozomi
+      DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:-}
+      DATA_ENCRYPTION_KEY_PREVIOUS: ${DATA_ENCRYPTION_KEY_PREVIOUS:-}
+    entrypoint: ["node", "apps/api/src/cli/data-key-rotation.ts"]
+    networks:
+      - backend
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging: *logging
+
   caddy:
     image: ${WEB_IMAGE:?缺少 WEB_IMAGE，请通过 bin/deploy.sh 部署}
     restart: unless-stopped

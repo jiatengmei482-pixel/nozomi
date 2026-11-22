@@ -727,13 +727,13 @@ export interface PlatformOrderRow {
 }
 
 /**
- * 筛选词可能对应的盲索引。盲索引按租户隔离，跨供应商筛选时每家算一次（HMAC 很快，几百家也是毫秒级）。没配置主密钥时为空，只靠明文匹配。
+ * 筛选词可能对应的盲索引。盲索引按租户隔离，跨供应商筛选时每家算一次（HMAC 很快，几百家也是毫秒级）；换密钥期间每家再多算一个旧密钥的（ADR 0106）。没配置主密钥时为空，只靠明文匹配。
  */
 async function passengerFilterIndexes(db: Db, tenantId: string | null, query: string): Promise<{ email: string[]; phone: string[]; name: string[] }> {
   const crypto = passengerCryptoOf(db);
   if (!crypto.configured) return { email: [], phone: [], name: [] };
   const tenants = tenantId !== null ? [tenantId] : (await db.query<{ id: string }>("select id from tenants")).rows.map((row) => row.id);
-  const each = (kind: ContactIndexKind, value: string): string[] => (value === "" ? [] : tenants.map((tenant) => crypto.index(tenant, kind, value)));
+  const each = (kind: ContactIndexKind, value: string): string[] => (value === "" ? [] : tenants.flatMap((tenant) => crypto.lookupIndexes(tenant, kind, value)));
   return { email: normalizeEmailForIndex(query).includes("@") ? each("email", normalizeEmailForIndex(query)) : [], phone: each("phone", normalizePhoneForIndex(query)), name: each("name", normalizeNameForIndex(query)) };
 }
 

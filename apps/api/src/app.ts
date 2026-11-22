@@ -66,7 +66,7 @@ import { WebhookJobs } from "./services/webhook-jobs.ts";
 import { NotificationJobs } from "./services/notification-jobs.ts";
 import { attachPassengerCrypto } from "./db/context.ts";
 import { PassengerCrypto } from "./integrations/passenger-crypto.ts";
-import { SecretBox } from "./integrations/secret-box.ts";
+import { secretBoxFromConfig } from "./integrations/secret-box.ts";
 import { type Mailer, SmtpMailer } from "./integrations/smtp.ts";
 import { HttpsWebhookSender, type WebhookSender } from "./integrations/webhook-sender.ts";
 import { registerFleetRoutes } from "./routes/fleet.ts";
@@ -256,7 +256,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     if (path.startsWith("/platform/") || path.startsWith("/tenant/") || path.startsWith("/sales/") || path.startsWith("/driver/") || path.startsWith("/site/")) reply.header("cache-control", "no-store");
   });
 
-  const secretBox = config.dataEncryptionKey === null ? null : new SecretBox(config.dataEncryptionKey);
+  const secretBox = secretBoxFromConfig(config);
   attachPassengerCrypto(pool, new PassengerCrypto(secretBox, config.passengerEncryption, app.log));
   if (secretBox === null) app.log.error({ event: "passenger.encryption_not_configured" }, "没有配置 DATA_ENCRYPTION_KEY：不能下新订单、不能改乘客信息（ADR 0057）");
   const secretCache = new IntegrationSecretCache({ pool, config, secretBox, log: app.log, ...(deps.integrationSecretsTtlMs === undefined ? {} : { ttlMs: deps.integrationSecretsTtlMs }) });

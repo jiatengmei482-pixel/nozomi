@@ -10,7 +10,7 @@ import { attachPassengerCrypto } from "../db/context.ts";
 import { DbIdentityError } from "../db/identity.ts";
 import { createPool, driverErrorCode } from "../db/pool.ts";
 import { PassengerCrypto } from "../integrations/passenger-crypto.ts";
-import { SecretBox } from "../integrations/secret-box.ts";
+import { secretBoxFromConfig } from "../integrations/secret-box.ts";
 import { planPassengerRetention, runPassengerRetention } from "../services/passenger-retention.ts";
 
 const USAGE = "用法：pnpm privacy:anonymize [--dry-run]（默认，只看数量）\n      pnpm privacy:anonymize --execute（真正脱敏一轮，不可逆）";
@@ -49,7 +49,7 @@ async function main(): Promise<void> {
   if (mode === "execute" && !config.passengerRetention.enabled) throw new UsageError("PASSENGER_RETENTION_ENABLED 是 false：开关关闭时不能执行。");
   const pool = createPool(config.databaseUrl, { max: 2 });
   // 脱敏要读这单已知的联系方式：和服务进程用同一把密钥（ADR 0057）
-  attachPassengerCrypto(pool, new PassengerCrypto(config.dataEncryptionKey === null ? null : new SecretBox(config.dataEncryptionKey), config.passengerEncryption));
+  attachPassengerCrypto(pool, new PassengerCrypto(secretBoxFromConfig(config), config.passengerEncryption));
   const ctx = { pool, config, now: () => new Date() } as unknown as AppContext;
   try {
     const plan = await planPassengerRetention(ctx);

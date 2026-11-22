@@ -116,15 +116,15 @@ function runsOf(job: Job | undefined): string {
 }
 
 test("compose：三个服务都自动重启、都有健康检查", () => {
-  // migrate 不是常驻服务（带 profile，只在部署 / 恢复时临时运行一次），所以不自动重启、没有健康检查
+  // migrate、data-key-rotation 不是常驻服务（带 profile，只在部署 / 恢复 / 换密钥时临时运行一次），所以不自动重启、没有健康检查
   const longRunning = Object.entries(compose.services).filter(([, service]) => service.profiles === undefined);
   assert.deepEqual(longRunning.map(([name]) => name).sort(), ["api", "caddy", "db"]);
   for (const [name, service] of longRunning) {
     assert.equal(service.restart, "unless-stopped", `${name} 没有设置自动重启`);
     assert.ok((service.healthcheck?.test.length ?? 0) > 1, `${name} 没有健康检查`);
   }
-  assert.deepEqual(Object.keys(compose.services).sort(), ["api", "caddy", "db", "migrate", "offsite", "pitr-restore"]);
-  for (const name of ["migrate", "offsite", "pitr-restore"]) assert.equal(compose.services[name]?.restart, "no", name);
+  assert.deepEqual(Object.keys(compose.services).sort(), ["api", "caddy", "data-key-rotation", "db", "migrate", "offsite", "pitr-restore"]);
+  for (const name of ["data-key-rotation", "migrate", "offsite", "pitr-restore"]) assert.equal(compose.services[name]?.restart, "no", name);
 });
 
 test("compose：数据库和 API 不映射任何端口到主机，只有反向代理对外开 80 和 443", () => {
@@ -152,6 +152,7 @@ test("compose：API 的密钥全部来自变量替换，文件里没有写死的
   for (const key of [
     "AUTH_JWT_SECRET",
     "DATA_ENCRYPTION_KEY",
+    "DATA_ENCRYPTION_KEY_PREVIOUS",
     "STRIPE_SECRET_KEY",
     "STRIPE_PUBLISHABLE_KEY",
     "STRIPE_WEBHOOK_SECRET",
@@ -170,7 +171,22 @@ test("compose：API 的密钥全部来自变量替换，文件里没有写死的
   assert.deepEqual(api?.cap_drop, ["ALL"]);
 });
 
-test("compose：迁移账号的密码只给数据库容器和临时的 migrate 服务；api 容器的环境里没有它，也没有迁移用的连接串（ADR 0010）", () => {
+test("compose：换数据加密密钥的工具（ADR 0106）只在手工运行时启动，只拿迁移账号的连接串和新旧两把数据加密密钥，没有登录签名密钥和第三方密钥；文件系统只读、去掉全部特权", () => {
+  const tool = compose.services["data-key-rotation"];
+  assert.ok(tool, "缺少 data-key-rotation 服务");
+  assert.deepEqual(tool.profiles, ["tools"]);
+  assert.equal(tool.image, "${API_IMAGE}");
+  assert.deepEqual(tool.environment, {
+    DATABASE_MIGRATION_URL: "postgres://nozomi:${POSTGRES_PASSWORD}@db:5432/nozomi",
+    DATA_ENCRYPTION_KEY: "${DATA_ENCRYPTION_KEY:-}",
+    DATA_ENCRYPTION_KEY_PREVIOUS: "${DATA_ENCRYPTION_KEY_PREVIOUS:-}",
+  });
+  assert.deepEqual(tool.networks, ["backend"]);
+  assert.equal(tool.read_only, true);
+  assert.deepEqual(tool.cap_drop, ["ALL"]);
+});
+
+test("compose：迁移账号的密码只给数据库容器、临时的 migrate 服务和换密钥工具；api 容器的环境里没有它，也没有迁移用的连接串（ADR 0010）", () => {
   const apiEnvironment = compose.services["api"]?.environment ?? {};
   assert.ok(!("DATABASE_MIGRATION_URL" in apiEnvironment));
   for (const [key, value] of Object.entries(apiEnvironment)) {
