@@ -37,6 +37,8 @@ export interface BookingLink {
   mode: BookTab | null;
   /** 嵌入组件建的预订草稿编号（`?draft=`，M9E-01，ADR 0090）：43 个 base64url 字符；带了它时其余参数一律不看 */
   draft: string | null;
+  /** 带了 `?draft=` 但写法不对（不是 43 个 base64url 字符）：页面说一句链接已失效，其余参数照旧（M8-47） */
+  badDraft: boolean;
 }
 
 const CODE = /^[A-Za-z0-9][A-Za-z0-9_-]{1,39}$/;
@@ -84,7 +86,8 @@ function count(value: string | null, limits: { min: number; max: number }): numb
 export function parseBookingLink(search: string): BookingLink {
   const params = new URLSearchParams(search);
   const draft = params.get("draft");
-  if (draft !== null && /^[A-Za-z0-9_-]{43}$/.test(draft)) return { from: null, to: null, date: null, time: null, passengers: null, luggage: null, mode: null, draft };
+  const goodDraft = draft !== null && /^[A-Za-z0-9_-]{43}$/.test(draft);
+  if (goodDraft) return { from: null, to: null, date: null, time: null, passengers: null, luggage: null, mode: null, draft, badDraft: false };
   return {
     from: linkEnd(params.get("from"), params.get("from_name")),
     to: linkEnd(params.get("to"), params.get("to_name")),
@@ -94,6 +97,7 @@ export function parseBookingLink(search: string): BookingLink {
     luggage: count(params.get("bags"), TRAVELLER_LIMITS.luggage),
     mode: bookTabOf(params.get("mode")) ?? bookTabOf(params.get("type")),
     draft: null,
+    badDraft: draft !== null,
   };
 }
 

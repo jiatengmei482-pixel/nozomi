@@ -132,6 +132,12 @@ async function airports(): Promise<Record<string, Snapshot>> {
   );
 }
 
+/** 各机场的搜索别名（M8-47） */
+async function searchNames(): Promise<Record<string, string[]>> {
+  const rows = await api.db.owner.query("select code, search_names from places where type = 'airport' order by code");
+  return Object.fromEntries(rows.rows.map((row) => [row.code, row.search_names]));
+}
+
 async function auditCount(): Promise<number> {
   return (await api.db.owner.query("select count(*)::int as n from audit_logs where resource = 'place' and action = 'update'")).rows[0].n;
 }
@@ -155,7 +161,9 @@ test("试运行：显示将要填的名称，数据库没有任何变化", async
   assert.match(output, /试运行：下面是将要做的改动，数据库没有任何变化/);
   assert.match(output, /将给 3 个机场填名称（日文 3 个、中文 1 个）/);
   assert.match(output, /NRT：日文「成田国際空港」，中文「成田国际机场」/);
+  assert.match(output, /将更新 3 个机场的搜索别名/);
   assert.deepEqual(await airports(), before);
+  assert.deepEqual(Object.values(await searchNames()), [[], [], [], [], []], "试运行不写别名");
   assert.equal(await auditCount(), audits);
 });
 
@@ -170,6 +178,10 @@ test("导入：注明来源和许可；按三字码只填空着的日文、中�
   assert.match(output, /数据源里只有繁体中文名、中文名没有填的 1 个（请在后台填简体）：HND/);
   assert.match(output, /已经有名称、和数据源的不一样，没有覆盖 1 处：\n {2}- KIX 中文：库里是「关西机场（平台）」（平台填的），数据源是「关西国际机场」/);
   assert.match(output, /数据源里找不到的：QZZ/);
+  assert.match(output, /更新了 3 个机场的搜索别名/);
+
+  // M8-47：数据源里的其他日文、中文写法记成搜索别名（羽田的「羽田空港」），罗马字、英文不收；不算修改（下面核对版本号只加一、审计日志只有填名称的 3 条）
+  assert.deepEqual(await searchNames(), { HND: ["東京国際空港", "羽田空港", "東京國際機場"], ICN: [], KIX: ["関西国際空港", "关西国际机场"], NRT: ["成田国際空港", "成田国际机场", "成田國際機場"], QZZ: [] });
 
   const now = await airports();
   assert.deepEqual(now["NRT"]?.name, { en: "Test Narita International Airport", ja: "成田国際空港", zh: "成田国际机场" });
@@ -204,6 +216,7 @@ test("可重复运行：同样的文件再导入一次，什么都不变（版�
   const { code, output } = await run(["--country", "JP", ...LOCAL()]);
   assert.equal(code, 0, output);
   assert.match(output, /给 0 个机场填了名称（日文 0 个、中文 0 个）；没有要填的 3 个/);
+  assert.doesNotMatch(output, /搜索别名/, "别名和数据源一样：不用更新");
   assert.deepEqual(await airports(), before);
   assert.equal(await auditCount(), audits);
 });

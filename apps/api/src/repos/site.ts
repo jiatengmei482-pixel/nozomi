@@ -289,14 +289,16 @@ export interface SuggestionPlaceRow {
   code: string;
   name: LocalizedText;
   parentName: LocalizedText | null;
+  /** 搜索别名（M8-47）：自己的和所属机场的（航站楼），只给按名称找用 */
+  searchNames: string[];
   lat: number;
   lng: number;
 }
 
 export async function listSuggestionPlaces(db: Db, cityIds: readonly string[]): Promise<SuggestionPlaceRow[]> {
   if (cityIds.length === 0) return [];
-  const rows = await db.query<{ id: string; type: SuggestionPlaceRow["type"]; code: string; name: LocalizedText; parent_name: LocalizedText | null; lat: string; lng: string }>(
-    `select pl.id, pl.type, pl.code, pl.name, parent.name as parent_name, pl.lat, pl.lng
+  const rows = await db.query<{ id: string; type: SuggestionPlaceRow["type"]; code: string; name: LocalizedText; parent_name: LocalizedText | null; search_names: string[]; lat: string; lng: string }>(
+    `select pl.id, pl.type, pl.code, pl.name, parent.name as parent_name, pl.search_names || coalesce(parent.search_names, '{}') as search_names, pl.lat, pl.lng
        from places pl
        left join places parent on parent.id = pl.parent_id
        join cities c on c.id = coalesce(pl.city_id, parent.city_id) and c.status = 'active'
@@ -307,7 +309,7 @@ export async function listSuggestionPlaces(db: Db, cityIds: readonly string[]): 
       limit $2`,
     [cityIds, SUGGESTION_PLACE_LIMIT],
   );
-  return rows.rows.map((row) => ({ id: row.id, type: row.type, code: row.code, name: row.name, parentName: row.parent_name, lat: Number(row.lat), lng: Number(row.lng) }));
+  return rows.rows.map((row) => ({ id: row.id, type: row.type, code: row.code, name: row.name, parentName: row.parent_name, searchNames: row.search_names, lat: Number(row.lat), lng: Number(row.lng) }));
 }
 
 /** 按两个坐标报价认机场用的候选（M8-02）：启用的机场，所在城市启用并在 `cityIds` 里，坐标在 `box` 里（先用外接矩形筛一遍）。 */

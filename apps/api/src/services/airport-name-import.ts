@@ -8,12 +8,13 @@
  * - 每次写入都核对版本号：导入运行期间平台在后台改过的机场不覆盖，列进「需要人工处理」。
  * - 填名称是一次真正的修改：版本号加一、更新时间改为现在、写审计日志（操作者「系统」，入口「命令行」）。
  *   不改机场的启用状态，也不动 OurAirports 那一套来源标记（source / source_overridden）。
+ * - 搜索别名（M8-47，`places.search_names`）每次按数据源整份替换：只给官网按名称找机场用，不算修改（版本号、更新时间不变，不写审计日志）。
  */
 import { type AirportNamePlan, type AirportNameSelection, GEONAMES, planAirportNameImport } from "@nozomi/domain";
 import { withPlatformTx } from "../db/context.ts";
 import type { Pool } from "../db/pool.ts";
 import { type AuditOrigin, insertAuditLog } from "../repos/audit-logs.ts";
-import { PLACES, listAllAirports, tryLockAirportNameImport, updateMasterRowAtVersion } from "../repos/master-data.ts";
+import { PLACES, listAirportSearchNames, listAllAirports, setAirportSearchNames, tryLockAirportNameImport, updateMasterRowAtVersion } from "../repos/master-data.ts";
 import { MasterImportError } from "./import-errors.ts";
 
 /** 机场名称导入没有进行（或整体回滚了）、换个时间再运行即可的情况。 */
@@ -33,8 +34,9 @@ export function importAirportNames(pool: Pool, selection: AirportNameSelection, 
       throw new AirportNameImportError("IMPORT_ALREADY_RUNNING", "另一个机场名称导入正在运行。数据库没有任何变化，请等它结束后再试");
     }
     const existing = await listAllAirports(db);
+    const searchNames = await listAirportSearchNames(db);
     const plan = planAirportNameImport(
-      existing.map((place) => ({ id: place.id, code: place.code, countryCode: place.countryCode, name: place.name, lat: place.lat, lng: place.lng, nameSources: place.nameSources })),
+      existing.map((place) => ({ id: place.id, code: place.code, countryCode: place.countryCode, name: place.name, lat: place.lat, lng: place.lng, nameSources: place.nameSources, searchNames: searchNames.get(place.id) ?? [] })),
       selection,
       options.countries,
       GEONAMES.source,
@@ -62,6 +64,7 @@ export function importAirportNames(pool: Pool, selection: AirportNameSelection, 
       });
     }
     plan.fills = applied;
+    await setAirportSearchNames(db, plan.searchNames);
     return plan;
   });
 }

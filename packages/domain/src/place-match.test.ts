@@ -38,6 +38,19 @@ test("M8-43b：输入说了是车站，不按字凑出机场、航站楼；说�
   assert.deepEqual(platformPlaceSuggestions([...ALL, AIRPORT_STATION], "成田空港駅").map((p) => p.id), ["nrt-stn", "nrt", "nrt-t1"], "两种词都有：不按种类排除，整段包含的车站在前");
 });
 
+test("M8-47：搜索别名也能搜到——正式名称里没有「羽田」的羽田机场，按别名「羽田空港」找得到；航站楼带上所属机场的别名；显示名照旧", () => {
+  const haneda = { ...HANEDA, searchNames: ["東京国際空港", "羽田空港"] };
+  const hndT3 = { ...place("hnd-t3", "terminal", "HND-T3", { zh: "第 3 航站楼", en: "Terminal 3" }, HANEDA.name), searchNames: ["羽田空港"] };
+  const places = [TOKYO_STATION, NRT_T1, NARITA, haneda, hndT3];
+  assert.deepEqual(platformPlaceSuggestions(ALL, "羽田"), [], "没有别名时找不到（原来的问题）");
+  assert.deepEqual(platformPlaceSuggestions(places, "羽田").map((p) => p.id), ["hnd", "hnd-t3"]);
+  assert.deepEqual(platformPlaceSuggestions(places, "羽田空港").map((p) => p.id), ["hnd", "hnd-t3"]);
+  assert.deepEqual(platformPlaceSuggestions(places, "羽田机场").map((p) => p.id), ["hnd", "hnd-t3"], "中文说法按字找");
+  assert.deepEqual(platformPlaceSuggestions(places, "羽田 第 3").map((p) => p.id), ["hnd-t3"]);
+  assert.deepEqual(platformPlaceSuggestions(places, "羽田駅"), [], "说了是车站：别名按字凑上的机场照样不给（M8-43b）");
+  assert.equal(platformPlaceDisplayName(haneda), "東京国際空港");
+});
+
 test("平台地点最多给 5 个；同一档里按编码排", () => {
   const many = Array.from({ length: 8 }, (_, i) => place(`s${i}`, "station", `STN-JP-S${7 - i}`, { zh: `新宿站 ${i}` }));
   const found = platformPlaceSuggestions(many, "新宿");

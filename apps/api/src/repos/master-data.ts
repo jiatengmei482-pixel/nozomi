@@ -560,6 +560,27 @@ export async function setAirportMunicipalities(db: Db, source: string, entries: 
   return result.rowCount ?? 0;
 }
 
+/** 全部机场现在的搜索别名（M8-47，`places.search_names`），给机场名称导入做比较用。 */
+export async function listAirportSearchNames(db: Db): Promise<Map<string, string[]>> {
+  const result = await db.query<{ id: string; search_names: string[] }>("select id, search_names from places where type = 'airport'");
+  return new Map(result.rows.map((row) => [row.id, row.search_names]));
+}
+
+/**
+ * 把数据源给的搜索别名整份写到这些机场上（M8-47）。只给官网按名称找机场用，和所属城市名一样不算一次修改：
+ * 版本号、更新时间、「平台改过」的标记都不变，不写审计日志。返回实际改了几条。
+ */
+export async function setAirportSearchNames(db: Db, entries: readonly { id: string; names: readonly string[] }[]): Promise<number> {
+  if (entries.length === 0) return 0;
+  const result = await db.query(
+    `update places p set search_names = array(select jsonb_array_elements_text(v.names))
+       from jsonb_to_recordset($1::jsonb) as v(id uuid, names jsonb)
+      where p.id = v.id and p.type = 'airport' and p.search_names is distinct from array(select jsonb_array_elements_text(v.names))`,
+    [JSON.stringify(entries.map((entry) => ({ id: entry.id, names: entry.names })))],
+  );
+  return result.rowCount ?? 0;
+}
+
 /** 把数据源给的人口写到这些导入的城市上。同样不算一次修改。返回实际改了几条。 */
 export async function setCityPopulations(db: Db, source: string, entries: readonly { sourceRef: string; population: number }[]): Promise<number> {
   if (entries.length === 0) return 0;

@@ -6,6 +6,7 @@
  * - 文件：不带 `--file` 时自动下载所选国家的两个文件——<国家码>.zip（认出哪些记录是机场）和 alternatenames/<国家码>.zip（三字码和各语言名称）。
  *   带 `--file <国家文件> --names-file <名称文件>` 就完全不联网（两个都可以给多次，每个国家一个；.zip 或解压好的 .txt 都行）。
  * - 按三字码对应到库里的机场。只填空着的语言：已经有名称的不改；以前由导入填过、后来平台删掉的不再补回去。
+ * - 同时把数据源里这个机场的其他日文、中文写法记成搜索别名（M8-47，如羽田的「羽田空港」），官网输入「羽田」就能找到平台的羽田机场；每次整份替换。
  * - 可以反复运行：第二次运行时已经填过的都会跳过。
  * - `--dry-run` 只显示将要做什么，不写数据库。
  * 每个填了名称的机场都写审计日志（操作者是「系统」，入口是命令行）。
@@ -113,6 +114,9 @@ function report(options: Options, sources: Sources, selection: AirportNameSelect
     const shown = plan.fills.slice(0, LIST_LIMIT).map((fill) => `  - ${fill.code}：${fill.languages.map((language) => `${LANGUAGE_NAMES[language]}「${fill.after[language] ?? ""}」`).join("，")}`);
     lines.push(...shown);
     if (plan.fills.length > LIST_LIMIT) lines.push(`  - …… 其余 ${plan.fills.length - LIST_LIMIT} 个略`);
+  }
+  if (plan.searchNames.length > 0) {
+    lines.push(`${options.dryRun ? "将更新" : "更新了"} ${plan.searchNames.length} 个机场的搜索别名（数据源里的其他日文、中文写法，只给官网按名称找机场用，不算修改）`);
   }
   if (plan.keptFilled.length > 0) {
     lines.push(`已经有名称、和数据源的不一样，没有覆盖 ${plan.keptFilled.length} 处：`);

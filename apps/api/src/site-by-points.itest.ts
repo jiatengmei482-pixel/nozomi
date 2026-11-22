@@ -512,6 +512,34 @@ test("输入即提示：平台的机场、车站在前（带坐标），谷歌�
   });
 });
 
+test("M8-47 搜索别名：名称里没有、只在 search_names（机场名称导入写的）里的写法也能搜到平台的机场和它的航站楼；显示名照旧；说了是车站时不按字凑", async () => {
+  const platform = (body: Record<string, unknown>): Promise<any> => ok(api.call("POST", "/platform/v1/master/places", { token: m.root, body }), 201);
+  const airport = (await platform({ type: "airport", code: "QSN", city_id: m.ids.tokyo, name: { ja: "試験国際空港", en: "Test International Airport" }, location: { lat: 35.91, lng: 139.31 } })).id;
+  const terminal = (await platform({ type: "terminal", code: "QSN-T2", parent_id: airport, name: { zh: "第 2 航站楼" }, location: { lat: 35.911, lng: 139.311 } })).id;
+  try {
+    const suggest = async (q: string): Promise<{ source: string; id: string; name: string }[]> => {
+      reset();
+      autocomplete.respond({ body: googleAutocompleteBody([]) });
+      const res = await site.call("GET", `/site/v1/places/autocomplete?q=${encodeURIComponent(q)}&session=${SESSION}`, { ip: nextIp() });
+      assert.equal(res.status, 200, res.text);
+      return res.body.items.filter((item: { source: string }) => item.source === "platform");
+    };
+    assert.deepEqual(await suggest("杜若空港"), [], "还没有别名：找不到（M8-06 验收里「羽田空港」的情形）");
+    await api.db.owner.query("update places set search_names = $2 where id = $1", [airport, ["試験国際空港", "杜若空港"]]);
+    for (const q of ["杜若", "杜若空港", "杜若机场"]) {
+      assert.deepEqual((await suggest(q)).map((item) => [item.id, item.name]), [[airport, "試験国際空港"], [terminal, "試験国際空港 第 2 航站楼"]], q);
+    }
+    assert.deepEqual((await suggest("杜若 第 2")).map((item) => item.id), [terminal], "航站楼带上所属机场的别名");
+    assert.deepEqual(await suggest("杜若駅"), [], "说了是车站：按字凑上的机场不给（M8-43b）");
+    const search = await site.call("GET", `/site/v1/places/search?q=${encodeURIComponent("杜若空港")}`, { ip: nextIp() });
+    assert.equal(search.status, 200, search.text);
+    assert.equal(search.body.items[0]?.id, airport, "不带城市的地址搜索也一样");
+    assert.ok(!JSON.stringify(search.body).includes("search_names"), "别名不出现在应答里");
+  } finally {
+    await api.db.owner.query("update places set status = 'disabled' where id = any($1::uuid[])", [[airport, terminal]]);
+  }
+});
+
 test("输入即提示的缓存：同一关键字（大小写、全角半角不同、换了会话）10 分钟内不再调谷歌；选中后取坐标也缓存", async () => {
   reset();
   const q = `Hilton ${randomUUID().slice(0, 6)}`;

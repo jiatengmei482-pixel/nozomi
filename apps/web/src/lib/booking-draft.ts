@@ -47,5 +47,6 @@ export function draftReadyToQuote(trip: DraftTrip): boolean {
 
 /** 地址框的提示：地点名称是自由文本，只填地点（ADR 0090） */
 export const ADDRESS_ONLY_HINT = "只填地点，不要填姓名、电话。";
-export const DRAFT_EXPIRED_TEXT = "链接已过期，请重新填写。";
+/** 草稿过期、不存在，或链接里的编号写法不对（M8-47）：都说链接失效了，请客人在下面重新填 */
+export const DRAFT_EXPIRED_TEXT = "预订链接已过期或无效，请在下面重新填写行程。";
 export const DRAFT_FAILED_TEXT = "没能读取预订信息，请重新填写，或稍后刷新页面。";
