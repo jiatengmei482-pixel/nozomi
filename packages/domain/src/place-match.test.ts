@@ -20,8 +20,22 @@ test("平台地点：名称（各语言）、编码都能搜到；航站楼连�
   assert.deepEqual(platformPlaceSuggestions(ALL, "Narita terminal").map((p) => p.id), ["nrt-t1"]);
   assert.deepEqual(platformPlaceSuggestions(ALL, "hnd").map((p) => p.id), ["hnd"]);
   assert.deepEqual(platformPlaceSuggestions(ALL, "東京").map((p) => p.id), ["hnd", "tyo-stn"]);
-  assert.deepEqual(platformPlaceSuggestions(ALL, "Tokyo Station").map((p) => p.id), ["tyo-stn", "hnd"], "整段包含的车站排在只按词匹配上的机场前面");
   assert.deepEqual(platformPlaceSuggestions(ALL, "希尔顿酒店"), []);
+});
+
+test("M8-43b：输入说了是车站，不按字凑出机场、航站楼；说了是机场，不按字凑出车站；整段包含的照给", () => {
+  const ONLY_AIRPORTS = [NRT_T1, HANEDA, NARITA];
+  assert.deepEqual(platformPlaceSuggestions(ONLY_AIRPORTS, "東京駅"), [], "平台没有东京站时，第一条不能是東京国際空港（谷歌的東京駅排在平台地点后面）");
+  assert.deepEqual(platformPlaceSuggestions(ONLY_AIRPORTS, "Tokyo Station"), []);
+  assert.deepEqual(platformPlaceSuggestions(ONLY_AIRPORTS, "东京火车站"), []);
+  assert.deepEqual(platformPlaceSuggestions(ALL, "東京駅").map((p) => p.id), ["tyo-stn"]);
+  assert.deepEqual(platformPlaceSuggestions(ALL, "Tokyo Station").map((p) => p.id), ["tyo-stn"]);
+  assert.deepEqual(platformPlaceSuggestions(ALL, "東京空港").map((p) => p.id), ["hnd"], "说了是机场，不按字凑出东京站");
+  assert.deepEqual(platformPlaceSuggestions(ALL, "成田机场").map((p) => p.id), ["nrt", "nrt-t1"], "说了是机场，机场和它的航站楼照给");
+  assert.deepEqual(platformPlaceSuggestions(ALL, "东京").map((p) => p.id), ["tyo-stn"], "没说是哪种（东京站的中文名整段包含）");
+  assert.deepEqual(platformPlaceSuggestions(ALL, "東京").map((p) => p.id), ["hnd", "tyo-stn"], "没说是哪种：两种都给");
+  const AIRPORT_STATION = place("nrt-stn", "station", "STN-JP-NRT", { ja: "成田空港駅", en: "Narita Airport Station" });
+  assert.deepEqual(platformPlaceSuggestions([...ALL, AIRPORT_STATION], "成田空港駅").map((p) => p.id), ["nrt-stn", "nrt", "nrt-t1"], "两种词都有：不按种类排除，整段包含的车站在前");
 });
 
 test("平台地点最多给 5 个；同一档里按编码排", () => {
