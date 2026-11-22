@@ -77,16 +77,33 @@ export function platformPlaceDisplayName(place: Pick<PlatformSuggestionPlace, "c
   return parent === null ? own : `${parent} ${own}`;
 }
 
+/** 输入里表示「车站」「机场」的词（M8-43b）：客人说了要哪一种，就不按字把另一种凑上来 */
+const STATION_WORDS = ["火车站", "车站", "車站", "駅", "station"];
+const AIRPORT_WORDS = ["机场", "機場", "空港", "airport", "航站楼", "terminal"];
+
+/** 输入说的是车站还是机场；两种都说了或都没说为 null */
+function queryPlaceKind(query: string): "station" | "airport" | null {
+  const text = normalize(query);
+  const station = STATION_WORDS.some((word) => text.includes(word));
+  const airport = AIRPORT_WORDS.some((word) => text.includes(word));
+  return station === airport ? null : station ? "station" : "airport";
+}
+
 /**
  * 关键字匹配的平台地点，排在谷歌的结果前面（不依赖谷歌也能搜到机场、航站楼、车站）：
  * 名称（各语言，航站楼连同所属机场的名称）或编码匹配 `placeQueryMatch`；整段包含的在前，再按机场、航站楼、车站，再按编码。最多 `limit` 个。
+ * 输入说了是车站（「東京駅」「Tokyo Station」），机场、航站楼只在整段包含时才给；说了是机场，车站同理（M8-43b：去掉「駅」按字找会把
+ * 「東京国際空港」排到第一条，客人按回车就选成了机场；谷歌的「東京駅」排在平台地点后面）。
  */
 export function platformPlaceSuggestions<T extends PlatformSuggestionPlace>(places: readonly T[], query: string, limit: number = PLATFORM_SUGGESTION_LIMIT): T[] {
   const typeOrder = (type: PlatformSuggestionType): number => PLATFORM_SUGGESTION_TYPES.indexOf(type);
+  const wanted = queryPlaceKind(query);
+  const otherKind = (type: PlatformSuggestionType): boolean => (wanted === "station" && type !== "station") || (wanted === "airport" && type === "station");
   const ranked: { place: T; whole: boolean }[] = [];
   for (const place of places) {
     const haystack = [...Object.values(place.parentName ?? {}), ...Object.values(place.name), place.code].join(" ");
     const match = placeQueryMatch(haystack, query);
+    if (match === "pieces" && otherKind(place.type)) continue;
     if (match !== null) ranked.push({ place, whole: match === "whole" });
   }
   ranked.sort((a, b) => Number(b.whole) - Number(a.whole) || typeOrder(a.place.type) - typeOrder(b.place.type) || (a.place.code < b.place.code ? -1 : a.place.code > b.place.code ? 1 : 0));
