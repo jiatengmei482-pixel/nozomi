@@ -32941,7 +32941,7 @@ components:
                   lodging_provided: { type: boolean }
         missing:
           type: array
-          description: 请补填：`date`、`passengers`、`luggage`、`days[i].time`、`days[i].start`
+          description: 请补填：`date`、`passengers`、`luggage`、`days[i].time`、`days[i].start`（只有第 1 个用车日没说起点时才有）
           items:
             type: object
             additionalProperties: false
@@ -32950,12 +32950,16 @@ components:
               field: { type: string }
         assumptions:
           type: array
+          description: >-
+            推算出来的或服务端替客人填的（ADR 0104 第二节第 3 小节、第五节第 1 小节）。`DATE_FROM_RELATIVE`、`DATE_YEAR_INFERRED`（value 是日期）、`STAY_OFF_GRID`（value 是原分钟数，表单那格空着）请客人确认；
+            `PLACE_PICKED`（明确地名取了第一候选，field 是 `days[i].start|end`、`days[i].stops[j]`，value 是取的地点名）、
+            `START_FROM_PREVIOUS_END`（没说起点，用了上一个用车日的终点，value 是地名）、`STAY_DEFAULT`（没说停留多久，value 是默认分钟数）已经填好、可改，不进 `missing`。
           items:
             type: object
             additionalProperties: false
             required: [ code, field, value ]
             properties:
-              code: { type: string, enum: [ DATE_FROM_RELATIVE, DATE_YEAR_INFERRED, STAY_OFF_GRID ] }
+              code: { type: string, enum: [ DATE_FROM_RELATIVE, DATE_YEAR_INFERRED, STAY_OFF_GRID, PLACE_PICKED, START_FROM_PREVIOUS_END, STAY_DEFAULT ] }
               field: { type: string }
               value: { type: [ string, integer ] }
         unused:

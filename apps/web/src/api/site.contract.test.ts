@@ -365,7 +365,7 @@ test("AI 一句话行程（M9T-33）：parse-status / parse 的请求体、应�
 
   // 页面按代码拼文案：服务端会给的代码，页面都有说法（认不出的有通用说法，这里只核对已知的）
   const codes = (field: string): string[] => result?.properties?.[field]?.items?.properties?.["code"]?.enum ?? [];
-  assert.deepEqual(codes("assumptions"), ["DATE_FROM_RELATIVE", "DATE_YEAR_INFERRED", "STAY_OFF_GRID"]);
+  assert.deepEqual(codes("assumptions"), ["DATE_FROM_RELATIVE", "DATE_YEAR_INFERRED", "STAY_OFF_GRID", "PLACE_PICKED", "START_FROM_PREVIOUS_END", "STAY_DEFAULT"]);
   assert.deepEqual(codes("unused"), ["FLIGHT_NUMBER", "CHARTER_HOURS", "VEHICLE_TYPE", "DRIVER_LANGUAGE", "CHILD_SEAT", "OTHER_REQUEST"]);
   assert.deepEqual(codes("out_of_scope"), ["BUS", "ACCESSIBLE_VEHICLE", "OVERSEAS", "OTHER"]);
 });

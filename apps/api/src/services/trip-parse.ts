@@ -6,7 +6,7 @@
  * 2. 占全站今天（东京时间）的名额：`trip_parse_runs` 先插一行 `pending`（锁住同一把锁再数，并发也不超）；满了 503 `AI_DAILY_LIMIT`；
  * 3. 按后台选的用法调 Claude（`ai_trip_settings`，没有行 = Sonnet）：结构不合格再调一次；第三种用法 Haiku 技术失败时改用 Sonnet 重试一次（记第二行，不另占名额）；
  * 4. domain 的 `buildTripParseDraft` 把结果变成草稿（不猜：没说的 null + `missing`）；
- * 5. 地名用现有地址搜索换坐标（每个地址每天的谷歌额度照旧扣）；
+ * 5. 地名用现有地址搜索换坐标（每个地址每天的谷歌额度照旧扣）；明确的地名取第一候选（`matchOf`）；
  * 6. 记下 token、耗时、天数、地名数（不含任何文字）。
  * 日志只记归类和计数，不记客人的话和模型返回的内容（第九节）。
  */
@@ -17,10 +17,13 @@ import {
   TRIP_PARSE_PLACE_KINDS,
   TRIP_PARSE_SCOPE_CODES,
   TRIP_PARSE_UNUSED_CODES,
+  type TripParseAssumption,
   type TripParseModelOutput,
+  type TripParsePlaceKind,
   type TripParsePlaceDraft,
   type TripParseResult,
   buildTripParseDraft,
+  haversineMeters,
   scrubPersonalInfo,
   tripParseLookupKey,
   tripParseLookups,
@@ -150,7 +153,7 @@ Rules:
 - Dates and times are Japan time. The user message gives today's date. "firstDate" is day 1 of the trip. dateSource: "stated" when the customer gave the full date or month and day in the current year context clearly; "relative" when you computed it from words like "tomorrow" or "next Wednesday"; "year_inferred" when only month and day were given and you chose the next such date after today. Never use a date before today.
 - Split the trip into days. "dayOffset" is 0 for day 1, 1 for day 2, and so on. Only include days on which the car is used; skip days the customer does not mention.
 - For each day: "start" is where the car picks them up, "stops" are places visited in order, "end" is where the day finishes. An airport arrival is the start of that day; a departure to an airport is the end of that day. When a day obviously continues from where the previous day ended (for example from the hotel) but the customer did not say so, set start to that same place name.
-- Place names: copy the customer's own wording (any language) without translating, and add the city in "cityHint" when the customer gave it or it is unambiguous. Never invent places or coordinates. Use the same name every time the same place is meant ("the hotel", "back to the hotel"). "specific" is false for generic references such as "hotel", "my hotel", "a hotel in Shinjuku"; true for a named place.
+- Place names: copy the customer's own wording (any language) without translating, and add the city in "cityHint" when the customer gave it or it is unambiguous. Never invent places or coordinates. Use the same name every time the same place is meant ("the hotel", "back to the hotel"). "specific" is false for generic references such as "hotel", "my hotel", "a hotel in Shinjuku", and for a hotel chain without the branch; true for a named place.
 - "stayMinutes" only when the customer said how long to stay at that stop.
 - passengers counts all people including children. luggage counts pieces of luggage.
 - "unused": things the customer said that this form cannot use. FLIGHT_NUMBER with the flight number as value; CHARTER_HOURS with the number of hours as value when they asked for a charter of N hours; VEHICLE_TYPE, DRIVER_LANGUAGE, CHILD_SEAT, OTHER_REQUEST with value null.
@@ -310,20 +313,63 @@ export interface TripParsePoint {
   kind: "airport" | null;
 }
 
-export type TripParseMatch = { status: "resolved"; point: TripParsePoint } | { status: "ambiguous"; candidates: TripParsePoint[] } | { status: "unresolved" };
+/** `picked`：有几个不同的候选、按规则取了一个（应答里加 `PLACE_PICKED`，页面标「AI 填的，可改」）；只有一个候选时为 false */
+export type TripParseMatch = { status: "resolved"; point: TripParsePoint; picked: boolean } | { status: "ambiguous"; candidates: TripParsePoint[] } | { status: "unresolved" };
 
 const normalizeName = (text: string): string => text.normalize("NFKC").toLowerCase().replace(/\s+/g, "");
+/** 相距这么近（米）的候选算同一个地方（「浅草寺 / Senso-ji / 浅草寺 五重塔」） */
+const SAME_PLACE_METERS = 200;
+/** 明确的地名直接取第一候选：机场、车站、景点、城市 / 区名（ADR 0104 第五节第 1 小节）。酒店另看名称（连锁店不猜分店） */
+const PICK_FIRST_KINDS: ReadonlySet<TripParsePlaceKind> = new Set(["airport", "station", "poi", "address"]);
+
+type SearchItem = { source: "platform" | "google"; name: string; address: string; location: { lat: number; lng: number } | null; kind: string };
 
 /**
- * 一个地名的搜索结果 → 匹配：1 个候选、或第 1 个是平台地点且名称完全对上 → resolved；2–5 个 → ambiguous；0 个 → unresolved。
- * 只收有坐标的候选；`kind` 只给 airport 或 null（和页面的 TripPoint 一致）。
+ * 一个地名的搜索结果 → 匹配（ADR 0104 第五节第 1 小节，监工 11-21 验收意见）：
+ * 1. 只收有坐标的候选；平台的排在谷歌前面，同名或相距 200 米内的算一个、留前面的；
+ * 2. 0 个 → unresolved；1 个、或第 1 个是平台地点且名称完全对上 → resolved；
+ * 3. AI 说是机场：有平台机场就取平台机场（主数据），否则取第一个机场候选，再没有取第一个；
+ * 4. 车站、景点、城市 / 区名：取第一个；酒店：第一个名称和客人说的互相包含才取（「APA 酒店」这类连锁不猜分店）；
+ * 5. 其余 2–5 个 → ambiguous。`kind` 只给 airport 或 null（和页面的 TripPoint 一致）。
  */
-export function matchOf(query: string, items: readonly { source: "platform" | "google"; name: string; address: string; location: { lat: number; lng: number } | null; kind: string }[]): TripParseMatch {
-  const points = items.flatMap((item) => (item.location === null ? [] : [{ source: item.source, point: { name: item.name, address: item.address, lat: item.location.lat, lng: item.location.lng, kind: item.kind === "airport" ? ("airport" as const) : null } }]));
+export function matchOf(place: { query: string; kind: TripParsePlaceKind }, items: readonly SearchItem[]): TripParseMatch {
+  const points: { source: SearchItem["source"]; point: TripParsePoint }[] = [];
+  // 平台的（机场、车站主数据）排前面，去重时留平台的那条
+  for (const item of [...items].sort((a, b) => Number(a.source === "google") - Number(b.source === "google"))) {
+    if (item.location === null) continue;
+    const point = { name: item.name, address: item.address, lat: item.location.lat, lng: item.location.lng, kind: item.kind === "airport" ? ("airport" as const) : null };
+    const same = points.some((seen) => normalizeName(seen.point.name) === normalizeName(point.name) || haversineMeters(seen.point, point) <= SAME_PLACE_METERS);
+    if (!same) points.push({ source: item.source, point });
+  }
   const first = points[0];
   if (first === undefined) return { status: "unresolved" };
-  if (points.length === 1 || (first.source === "platform" && normalizeName(first.point.name) === normalizeName(query))) return { status: "resolved", point: first.point };
+  const query = normalizeName(place.query);
+  if (points.length === 1 || (first.source === "platform" && normalizeName(first.point.name) === query)) return { status: "resolved", point: first.point, picked: false };
+  if (place.kind === "airport") {
+    const airport = points.find((entry) => entry.source === "platform" && entry.point.kind === "airport") ?? points.find((entry) => entry.point.kind === "airport") ?? first;
+    return { status: "resolved", point: airport.point, picked: true };
+  }
+  if (PICK_FIRST_KINDS.has(place.kind)) return { status: "resolved", point: first.point, picked: true };
+  const name = normalizeName(first.point.name);
+  if (name.includes(query) || query.includes(name)) return { status: "resolved", point: first.point, picked: true };
   return { status: "ambiguous", candidates: points.slice(0, MAX_CANDIDATES).map((entry) => entry.point) };
+}
+
+/** 取了第一候选的地点 → `PLACE_PICKED`（字段写法同 `missing`）。起点是照抄上一天终点的不重复加（已有 `START_FROM_PREVIOUS_END`） */
+export function placePickedAssumptions(result: TripParseResult, matches: ReadonlyMap<string, TripParseMatch>): TripParseAssumption[] {
+  const copied = new Set(result.assumptions.filter((item) => item.code === "START_FROM_PREVIOUS_END").map((item) => item.field));
+  const picked: TripParseAssumption[] = [];
+  const check = (place: TripParsePlaceDraft | null, field: string): void => {
+    if (place === null || !place.specific || copied.has(field)) return;
+    const match = matches.get(tripParseLookupKey(place));
+    if (match?.status === "resolved" && match.picked) picked.push({ code: "PLACE_PICKED", field, value: match.point.name });
+  };
+  result.draft.days.forEach((day, d) => {
+    check(day.start, `days[${d}].start`);
+    day.stops.forEach((stop, s) => check(stop, `days[${d}].stops[${s}]`));
+    check(day.end, `days[${d}].end`);
+  });
+  return picked;
 }
 
 async function resolvePlaces(ctx: AppContext, places: readonly TripParsePlaceDraft[], ip: string): Promise<Map<string, TripParseMatch>> {
@@ -333,7 +379,7 @@ async function resolvePlaces(ctx: AppContext, places: readonly TripParsePlaceDra
     for (let place = queue.shift(); place !== undefined; place = queue.shift()) {
       try {
         const result = await siteSearchPlaces(ctx, null, place.query, sitePlacesGoogleGuard(ctx, ip));
-        found.set(tripParseLookupKey(place), matchOf(place.query, result.items));
+        found.set(tripParseLookupKey(place), matchOf(place, result.items));
       } catch {
         // 地址搜索出问题不影响整次解析：这一项客人自己搜
         found.set(tripParseLookupKey(place), { status: "unresolved" });
@@ -388,7 +434,8 @@ export async function parseTripText(ctx: AppContext, text: string, ip: string, a
     const matches = await resolvePlaces(ctx, lookups, ip);
     const resolved = [...matches.values()].filter((match) => match.status === "resolved").length;
     await finishRun(ctx, runId, { status: "ok", usage, latencyMs: Date.now() - started, days: outcome.result.draft.days.length, places: lookups.length, placesResolved: resolved });
-    return { result: outcome.result, matches };
+    const result = { ...outcome.result, assumptions: [...outcome.result.assumptions, ...placePickedAssumptions(outcome.result, matches)] };
+    return { result, matches };
   }
   throw unavailable();
 }

@@ -2,7 +2,9 @@
  * AI 一句话行程（ADR 0104，M9T-32）的纯函数：
  * - `scrubPersonalInfo`：发给 Claude 之前，把邮箱、电话、卡号、证件号样式的字符串换成占位符（第九节）；
  * - `buildTripParseDraft`：Claude 按输出模式给的结果（已经过结构校验）→ 表单草稿 + `missing / assumptions / unused / out_of_scope`（第二、三节）。
- *   「不猜」：客人没说的一律 null，并列进 `missing`；推算出来的列进 `assumptions`；不在格式里的值丢掉。
+ *   客人没说的日期、时间、人数、行李一律 null，并列进 `missing`；推算出来的列进 `assumptions`；不在格式里的值丢掉。
+ *   地点和停留按监工 11-21 验收意见（ADR 0104 第二节第 3 小节）少让客人补：没说起点用上一天的终点（`START_FROM_PREVIOUS_END`），
+ *   没说停留给默认时长（`STAY_DEFAULT`），都标「AI 填的，可改」、不进 `missing`。
  * 地名换坐标不在这里（要查地址搜索），由服务层按 `places` 去查。
  */
 import { addDays } from "../pricing.ts";
@@ -90,7 +92,7 @@ export interface TripParseDraft {
   days: TripParseDayDraft[];
 }
 
-export const TRIP_PARSE_ASSUMPTION_CODES = ["DATE_FROM_RELATIVE", "DATE_YEAR_INFERRED", "STAY_OFF_GRID"] as const;
+export const TRIP_PARSE_ASSUMPTION_CODES = ["DATE_FROM_RELATIVE", "DATE_YEAR_INFERRED", "STAY_OFF_GRID", "STAY_DEFAULT", "START_FROM_PREVIOUS_END", "PLACE_PICKED"] as const;
 export type TripParseAssumptionCode = (typeof TRIP_PARSE_ASSUMPTION_CODES)[number];
 
 export interface TripParseAssumption {
@@ -112,6 +114,11 @@ export type TripParseOutcome = { ok: true; result: TripParseResult } | { ok: fal
 
 const FLIGHT_NUMBER = /^[A-Z0-9]{2}\d{1,4}$/;
 const isInt = (value: unknown, min: number, max: number): value is number => Number.isInteger(value) && (value as number) >= min && (value as number) <= max;
+
+/** 客人没说停留多久时先填的时长（分钟，在 30 分钟档上）：景点、地址 1 小时；酒店、车站、机场 30 分钟（放行李、接人） */
+export function tripParseDefaultStay(kind: TripParsePlaceKind): number {
+  return kind === "poi" || kind === "address" ? 60 : 30;
+}
 
 /** 停留分钟是否在表单的档上（0–720，每 30 分钟一档） */
 export function isTripStayOption(minutes: number): boolean {
@@ -182,6 +189,8 @@ export function buildTripParseDraft(output: TripParseModelOutput, today: string)
 
   const byOffset = new Map(days.map((day) => [day.dayOffset - first, day]));
   const draftDays: TripParseDayDraft[] = [];
+  // 上一个用车日最后到的地方（终点，没有终点就是最后一个途经点）；中间隔着不用车的日子也算（人还在那里）
+  let previousEnd: TripParsePlaceDraft | null = null;
   for (let index = 0; index < span; index++) {
     const day = byOffset.get(index);
     if (day === undefined) {
@@ -190,8 +199,12 @@ export function buildTripParseDraft(output: TripParseModelOutput, today: string)
     }
     const time = day.time !== null && minuteOfDay(day.time) !== null ? day.time : null;
     if (time === null) missing.push({ field: `days[${index}].time` });
-    // 客人没说从哪出发（「第二天去日光」）：起点空着请补填，不拿途经点顶替
-    const start = placeDraft(day.start);
+    // 客人没说从哪出发（「第二天去日光」）：用上一天的终点；第 1 天没说才请补填。不拿本天的途经点顶替
+    let start = placeDraft(day.start);
+    if (start === null && previousEnd !== null) {
+      start = { ...previousEnd };
+      assumptions.push({ code: "START_FROM_PREVIOUS_END", field: `days[${index}].start`, value: start.query });
+    }
     if (start === null) missing.push({ field: `days[${index}].start` });
     const end = placeDraft(day.end);
     const stops: TripParseStopDraft[] = [];
@@ -206,13 +219,18 @@ export function buildTripParseDraft(output: TripParseModelOutput, today: string)
     while (kept.length > 0 && sameAs((kept.at(-1) as { place: TripParsePlaceDraft }).place, end)) kept.pop();
     for (const { model: stop, place } of kept) {
       let stayMinutes: number | null = null;
-      if (stop.stayMinutes !== null) {
-        if (isTripStayOption(stop.stayMinutes)) stayMinutes = stop.stayMinutes;
-        else if (isInt(stop.stayMinutes, 1, 24 * 60)) assumptions.push({ code: "STAY_OFF_GRID", field: `days[${index}].stops[${stops.length}].stay_minutes`, value: stop.stayMinutes });
-      }
+      const field = `days[${index}].stops[${stops.length}].stay_minutes`;
+      if (stop.stayMinutes === null) {
+        // 没说停留多久：先按常见时长填上（可改），不让客人每个点都补一次
+        stayMinutes = tripParseDefaultStay(place.kind);
+        assumptions.push({ code: "STAY_DEFAULT", field, value: stayMinutes });
+      } else if (isTripStayOption(stop.stayMinutes)) stayMinutes = stop.stayMinutes;
+      // 说了但不在档上（「停 45 分钟」）：不替客人取整，请他自己选
+      else if (isInt(stop.stayMinutes, 1, 24 * 60)) assumptions.push({ code: "STAY_OFF_GRID", field, value: stop.stayMinutes });
       stops.push({ ...place, stayMinutes });
     }
     draftDays.push({ idle: false, time, start, stops, end, lodgingProvided: day.lodgingProvided });
+    previousEnd = end ?? stops.at(-1) ?? previousEnd;
   }
 
   const unused: { code: TripParseUnusedCode; value: string | null }[] = [];
