@@ -151,16 +151,22 @@ test("键盘：地图聚焦后 + / - 真的缩放、方向键平移，Tab 到「
 
   const toMap = page.getByRole("group", { name: "目的地的地图" });
   const toggle = toMap.getByRole("button", { name: "在地图上选点" });
+  const map = page.getByRole("application", { name: /地图：点一下选目的地位置/ });
+  const pickCenter = toMap.getByRole("button", { name: "选地图中间这个位置" });
+  // 先不动地图选一次中间的位置，记下起点（选好后地图收起）
+  await toggle.click();
+  await expect(map).toBeVisible();
+  await pickCenter.click();
+  await expect.poll(() => picked.length).toBe(1);
+  await expect(map).toHaveCount(0);
+
+  // 再用键盘打开地图（从选好的点打开）
+  zooms.length = 0;
   await toggle.focus();
   await page.keyboard.press("Enter");
-  const map = page.getByRole("application", { name: /地图：点一下选目的地位置/ });
   await expect(map).toBeVisible();
   await expect.poll(() => zooms.length).toBeGreaterThan(0);
   const startZoom = Math.max(...zooms);
-  // 先不动地图选一次中间的位置，记下起点
-  const pickCenter = toMap.getByRole("button", { name: "选地图中间这个位置" });
-  await pickCenter.click();
-  await expect.poll(() => picked.length).toBe(1);
   await map.focus();
   await expect(map).toBeFocused();
   zooms.length = 0;
