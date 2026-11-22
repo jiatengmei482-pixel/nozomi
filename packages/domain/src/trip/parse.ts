@@ -4,7 +4,8 @@
  * - `buildTripParseDraft`：Claude 按输出模式给的结果（已经过结构校验）→ 表单草稿 + `missing / assumptions / unused / out_of_scope`（第二、三节）。
  *   客人没说的日期、时间、人数、行李一律 null，并列进 `missing`；推算出来的列进 `assumptions`；不在格式里的值丢掉。
  *   地点和停留按监工 11-21 验收意见（ADR 0104 第二节第 3 小节）少让客人补：没说起点用上一天的终点（`START_FROM_PREVIOUS_END`），
- *   没说停留给默认时长（`STAY_DEFAULT`），都标「AI 填的，可改」、不进 `missing`。
+ *   没说停留给默认时长（`STAY_DEFAULT`），有途经点没说终点按回到起点（`END_AT_START`），都标「AI 填的，可改」、不进 `missing`；
+ *   泛指的地点（「新宿的酒店」）标 `PLACE_TOO_VAGUE`，页面请客人选具体哪一家。
  * 地名换坐标不在这里（要查地址搜索），由服务层按 `places` 去查。
  */
 import { addDays } from "../pricing.ts";
@@ -92,7 +93,7 @@ export interface TripParseDraft {
   days: TripParseDayDraft[];
 }
 
-export const TRIP_PARSE_ASSUMPTION_CODES = ["DATE_FROM_RELATIVE", "DATE_YEAR_INFERRED", "STAY_OFF_GRID", "STAY_DEFAULT", "START_FROM_PREVIOUS_END", "PLACE_PICKED"] as const;
+export const TRIP_PARSE_ASSUMPTION_CODES = ["DATE_FROM_RELATIVE", "DATE_YEAR_INFERRED", "STAY_OFF_GRID", "STAY_DEFAULT", "START_FROM_PREVIOUS_END", "END_AT_START", "PLACE_PICKED", "PLACE_TOO_VAGUE"] as const;
 export type TripParseAssumptionCode = (typeof TRIP_PARSE_ASSUMPTION_CODES)[number];
 
 export interface TripParseAssumption {
@@ -132,6 +133,9 @@ function placeDraft(place: TripParseModelPlace | null): TripParsePlaceDraft | nu
   const cityHint = place.cityHint?.trim().slice(0, TRIP_PARSE_MAX_NAME) || null;
   return { query, kind: place.kind, specific: place.specific, cityHint };
 }
+
+/** 照抄一个地点（上一天终点当起点、起点当终点）：各天的格子互不影响 */
+const copyPlace = (place: TripParsePlaceDraft): TripParsePlaceDraft => ({ ...place });
 
 /** 一天里的点数（起点 + 途经 + 终点） */
 const pointCount = (day: TripParseModelDay): number => (day.start === null ? 0 : 1) + day.stops.length + (day.end === null ? 0 : 1);
@@ -200,13 +204,18 @@ export function buildTripParseDraft(output: TripParseModelOutput, today: string)
     const time = day.time !== null && minuteOfDay(day.time) !== null ? day.time : null;
     if (time === null) missing.push({ field: `days[${index}].time` });
     // 客人没说从哪出发（「第二天去日光」）：用上一天的终点；第 1 天没说才请补填。不拿本天的途经点顶替
-    let start = placeDraft(day.start);
+    let start: TripParsePlaceDraft | null = placeDraft(day.start);
     if (start === null && previousEnd !== null) {
-      start = { ...previousEnd };
+      start = copyPlace(previousEnd);
       assumptions.push({ code: "START_FROM_PREVIOUS_END", field: `days[${index}].start`, value: start.query });
     }
     if (start === null) missing.push({ field: `days[${index}].start` });
-    const end = placeDraft(day.end);
+    // 有途经点、没说回哪（「包车 8 小时去日光」）：先按回到当天起点填（可改），不进请补填
+    let end: TripParsePlaceDraft | null = placeDraft(day.end);
+    if (end === null && start !== null && day.stops.length > 0) {
+      end = copyPlace(start);
+      assumptions.push({ code: "END_AT_START", field: `days[${index}].end`, value: end.query });
+    }
     const stops: TripParseStopDraft[] = [];
     // 紧挨着重复的同一个地点（「…→ トヨタ博物館 → トヨタ博物館」，M9T-34 评估里 Sonnet 出过一次）只留一个：连续去同一处没有意义，留着表单会多一行。
     // 先去重再编号，`STAY_OFF_GRID` 指的途经点下标和表单一致
@@ -232,6 +241,16 @@ export function buildTripParseDraft(output: TripParseModelOutput, today: string)
     draftDays.push({ idle: false, time, start, stops, end, lodgingProvided: day.lodgingProvided });
     previousEnd = end ?? stops.at(-1) ?? previousEnd;
   }
+
+  // 没说是哪一家（「新宿的酒店」）：不查，页面说「没说是哪一家，请搜索选一家」，和「搜不到」分开
+  draftDays.forEach((draftDay, d) => {
+    const vague = (place: TripParsePlaceDraft | null, field: string): void => {
+      if (place !== null && !place.specific) assumptions.push({ code: "PLACE_TOO_VAGUE", field, value: place.query });
+    };
+    vague(draftDay.start, `days[${d}].start`);
+    draftDay.stops.forEach((stop, s) => vague(stop, `days[${d}].stops[${s}]`));
+    vague(draftDay.end, `days[${d}].end`);
+  });
 
   const unused: { code: TripParseUnusedCode; value: string | null }[] = [];
   for (const item of output.unused) {

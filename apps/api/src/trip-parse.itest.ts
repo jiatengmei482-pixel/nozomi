@@ -122,7 +122,7 @@ test("正常解析：默认先 Haiku（业主 11-21 选定）；草稿按第三�
   assert.equal(day1.stops[0].stay_minutes, 120);
   assert.equal(day1.stops[0].match.status, "unresolved", "谷歌不可达：查不到就让客人自己搜");
   assert.deepEqual(missing, [{ field: "luggage" }, { field: "days[0].time" }]);
-  assert.deepEqual(assumptions, []);
+  assert.deepEqual(assumptions, [{ code: "PLACE_TOO_VAGUE", field: "days[0].end", value: "新宿的酒店" }, { code: "PLACE_TOO_VAGUE", field: "days[2].start", value: "新宿的酒店" }], "没说是哪一家：和搜不到分开标");
   assert.deepEqual(unused, [{ code: "FLIGHT_NUMBER", value: "NH211" }, { code: "OTHER_REQUEST", value: null }]);
   assert.deepEqual(out_of_scope, []);
   assert.equal("texts" in res.body, false);
@@ -132,10 +132,11 @@ test("正常解析：默认先 Haiku（业主 11-21 选定）；草稿按第三�
   assert.deepEqual(rows, [{ model: TRIP_PARSE_MODELS.haiku, mode: "haiku_then_sonnet", attempt: 1, status: "ok", input_tokens: 3_100, output_tokens: 900, cache_read_tokens: 2_800, days: 3, places: 2, places_resolved: 1 }]);
 });
 
-test("少让客人补（监工 11-21 验收意见）：第 2 天没说起点用上一天终点、停留没说给默认，都进 assumptions、不进 missing；平台机场名称对上不算挑的", async () => {
+test("少让客人补（监工 11-21 验收意见）：说了起点照用、没说起点用上一天终点、包车日没说终点回起点、停留没说给默认，都进 assumptions、不进 missing；平台机场名称对上不算挑的", async () => {
   replies.push(json(goodOutput({ luggage: 6, days: [
     { dayOffset: 0, time: "10:00", start: place("成田机场", { kind: "airport" }), stops: [place("浅草寺")], end: place("新宿的酒店", { kind: "hotel", specific: false }), lodgingProvided: false },
-    { dayOffset: 1, time: "08:00", start: null, stops: [place("日光")], end: null, lodgingProvided: false },
+    { dayOffset: 1, time: "08:00", start: place("新宿", { kind: "address" }), stops: [place("日光")], end: null, lodgingProvided: false },
+    { dayOffset: 2, time: "09:00", start: null, stops: [], end: place("羽田机场", { kind: "airport" }), lodgingProvided: false },
   ] })));
   const res = await parse("12月5日上午10点成田机场接机，先去浅草寺再去新宿酒店，第二天早上8点包车去日光，4个人6件行李");
   assert.equal(res.status, 200, res.text);
@@ -144,11 +145,15 @@ test("少让客人补（监工 11-21 验收意见）：第 2 天没说起点用�
   assert.deepEqual(missing, []);
   assert.deepEqual(assumptions, [
     { code: "STAY_DEFAULT", field: "days[0].stops[0].stay_minutes", value: 60 },
-    { code: "START_FROM_PREVIOUS_END", field: "days[1].start", value: "新宿的酒店" },
+    { code: "END_AT_START", field: "days[1].end", value: "新宿" },
     { code: "STAY_DEFAULT", field: "days[1].stops[0].stay_minutes", value: 60 },
+    { code: "START_FROM_PREVIOUS_END", field: "days[2].start", value: "新宿" },
+    { code: "PLACE_TOO_VAGUE", field: "days[0].end", value: "新宿的酒店" },
   ]);
   assert.equal(draft.days[0].stops[0].stay_minutes, 60);
-  assert.deepEqual(draft.days[1].start, { query: "新宿的酒店", kind: "hotel", match: { status: "unresolved" } }, "上一天是泛指的酒店：照抄，仍要客人选哪家");
+  assert.equal(draft.days[1].start.query, "新宿", "客人说了从新宿出发：按他说的，不拿上一天的酒店顶替");
+  assert.equal(draft.days[1].end.query, "新宿", "包车日没说回哪：回到当天起点");
+  assert.equal(draft.days[2].start.query, "新宿");
   assert.equal(draft.days[0].start.match.status, "resolved");
   assert.equal("picked" in draft.days[0].start.match, false, "内部标记不出现在应答里");
 });

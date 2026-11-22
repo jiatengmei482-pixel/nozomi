@@ -1007,3 +1007,16 @@ test("AI 一句话：多个候选列在地点框下面，点一个才填；没�
   assert.equal(stop.value, "某个小店", "没找到：搜索框里预放 AI 给的地名");
   assert.ok(within(daySection(1)).getByText("没找到「某个小店」，请重新搜索"));
 });
+
+test("AI 一句话：没说是哪一家（PLACE_TOO_VAGUE）的地点提示「没说是哪一家」，搜索框里预放客人的说法", { timeout: 30_000 }, async () => {
+  wideScreen();
+  const day = { idle: false, time: "09:00", start: resolved("成田机场", naritaPoint), stops: [], end: { query: "新宿的酒店", kind: "hotel", match: { status: "unresolved" } }, lodging_provided: false };
+  const { box } = await aiBox(() => json(200, { ...PARSED, draft: { ...PARSED.draft, days: [day] }, assumptions: [{ code: "PLACE_TOO_VAGUE", field: "days[0].end", value: "新宿的酒店" }] }));
+  writeBox(box, "成田接机去新宿的酒店");
+  fireEvent.click(screen.getByRole("button", { name: "帮我填好" }));
+  await aiSummary();
+  const end = within(daySection(1)).getByRole("combobox", { name: "第 1 天 最后下车地点" }) as HTMLInputElement;
+  assert.equal(end.value, "新宿的酒店");
+  assert.ok(within(daySection(1)).getByText("「新宿的酒店」没说是哪一家，请搜索选一家"));
+  assert.equal(within(daySection(1)).queryByText(/没找到/), null);
+});

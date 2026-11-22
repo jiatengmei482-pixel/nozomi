@@ -63,7 +63,7 @@ export function TripDayEditor({ day, index, count, date, onDate, dateError, erro
   /** 地点格子：标记、候选、没找到的地名（提示 + 预填进搜索框） */
   const placeCell = (cell: string, field: (extra: { info?: string; initialText?: string }) => ReactNode, pick: (point: TripPoint) => void) => {
     const notFound = ai?.marks.notFound[cell];
-    const extra = notFound === undefined ? {} : { info: tripCopy("ai.notFound", { name: notFound }), initialText: notFound };
+    const extra = notFound === undefined ? {} : { info: tripCopy(ai?.marks.vague.includes(cell) === true ? "ai.vague" : "ai.notFound", { name: notFound }), initialText: notFound };
     const candidates = ai?.marks.candidates[cell];
     return (
       <TripAiCell state={stateOf(cell)} {...(candidates === undefined ? {} : { candidates })} onPick={(point) => { touch(cell); pick(point); }}>

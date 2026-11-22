@@ -32953,13 +32953,14 @@ components:
           description: >-
             推算出来的或服务端替客人填的（ADR 0104 第二节第 3 小节、第五节第 1 小节）。`DATE_FROM_RELATIVE`、`DATE_YEAR_INFERRED`（value 是日期）、`STAY_OFF_GRID`（value 是原分钟数，表单那格空着）请客人确认；
             `PLACE_PICKED`（明确地名取了第一候选，field 是 `days[i].start|end`、`days[i].stops[j]`，value 是取的地点名）、
-            `START_FROM_PREVIOUS_END`（没说起点，用了上一个用车日的终点，value 是地名）、`STAY_DEFAULT`（没说停留多久，value 是默认分钟数）已经填好、可改，不进 `missing`。
+            `START_FROM_PREVIOUS_END`（没说起点，用了上一个用车日的终点，value 是地名）、`STAY_DEFAULT`（没说停留多久，value 是默认分钟数）、`END_AT_START`（有途经点没说终点，按回到当天起点填了，value 是地名）已经填好、可改，不进 `missing`；
+            `PLACE_TOO_VAGUE`（客人没说是哪一家，如「新宿的酒店」，没有查；value 是客人的说法）：这一格空着，请客人搜索选一个。
           items:
             type: object
             additionalProperties: false
             required: [ code, field, value ]
             properties:
-              code: { type: string, enum: [ DATE_FROM_RELATIVE, DATE_YEAR_INFERRED, STAY_OFF_GRID, PLACE_PICKED, START_FROM_PREVIOUS_END, STAY_DEFAULT ] }
+              code: { type: string, enum: [ DATE_FROM_RELATIVE, DATE_YEAR_INFERRED, STAY_OFF_GRID, PLACE_PICKED, START_FROM_PREVIOUS_END, STAY_DEFAULT, END_AT_START, PLACE_TOO_VAGUE ] }
               field: { type: string }
               value: { type: [ string, integer ] }
         unused:
