@@ -11359,6 +11359,8 @@ paths:
       description: |
         需要操作 `order.dispatch`。`departed` 已出发 → `arrived` 已到达 → `picked_up` 接到客人（服务中）→ `completed` 已完成，不能跳步、不能重复（409 `ORDER_STATE_INVALID`）。
         时间用系统收到的时间；带了定位就记一条，「已到达」时还算出距上车点多少米。包车完成时必须填实际时长和里程。和司机 H5 是同一套规则；每次状态变化都给 Webhook 排一条 `order.status_changed`。
+        时间窗口（M4-33，和司机 H5 同一份，ADR 0064）：`departed`、`arrived` 最早在用车前 24 小时，`picked_up`、`completed` 最早在用车前 3 小时（按订单现在的用车时间，含那一刻），
+        再早是 422 `FULFILMENT_TOO_EARLY`，什么都不写。只管太早，航班晚点时比用车时间晚多少都可以。状态不对时先报 409。
       security:
         - tenantToken: []
       parameters:
@@ -11385,6 +11387,14 @@ paths:
           $ref: "#/components/responses/ResourceNotFound"
         "409":
           description: "`ORDER_STATE_INVALID`：`details.status`、`details.action`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: |
+            `FULFILMENT_TOO_EARLY`：还没到这一步最早可以回传的时间。`message` 是给调度员看的说明（带接口里的 `type`）；
+            `details` 和司机 H5 的相同：`type` 哪一步，`earliest_at` 最早的时刻，`earliest_local` 城市当地时间（`YYYY-MM-DD HH:mm`），`timezone`，`hours_before_service` 最早在用车前几小时。
           content:
             application/json:
               schema:

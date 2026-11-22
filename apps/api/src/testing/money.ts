@@ -16,11 +16,23 @@ export async function tenantLogin(api: TestApi, email: string): Promise<string> 
   return (await ok(api.call("POST", "/tenant/v1/auth/login", { body: { email, password: TEST_PASSWORD } }))).access_token;
 }
 
+/**
+ * 把测试时钟拨到这张单可以回传「接到客人」「完成」的时刻（用车前 3 小时，ADR 0064；M4-33 起供应商调度接口也受这个窗口限制）。
+ * 时钟只往前走：已经过了就不动。
+ */
+export async function reachFulfilmentWindow(api: TestApi, orderId: string): Promise<void> {
+  const row = (await api.db.owner.query<{ service_at: Date }>("select service_at from orders where id = $1 order by status = 'rescued' limit 1", [orderId])).rows[0];
+  if (row === undefined) throw new Error("没有这张单");
+  const gap = row.service_at.getTime() - 3 * 3_600_000 - api.clock.now().getTime();
+  if (gap > 0) api.clock.advance(gap);
+}
+
 /** 派车、出发、到达、接到客人、完成（供应商后台的接口）。 */
 export async function completeOrder(api: TestApi, m: Market, side: "a" | "b", orderId: string, until: "assigned" | "in_service" | "completed" = "completed"): Promise<void> {
   const who = { ...m[side], adminToken: await tenantLogin(api, m[side].adminEmail) };
   await ok(assign(api, who, orderId, (await newDriver(api, who)).id, (await newVehicle(api, who, m.ids.biz7)).id));
   if (until === "assigned") return;
+  await reachFulfilmentWindow(api, orderId);
   for (const type of ["departed", "arrived", "picked_up"]) await ok(api.call("POST", `/tenant/v1/orders/${orderId}/events`, { token: who.adminToken, body: { type } }));
   if (until === "in_service") return;
   await ok(api.call("POST", `/tenant/v1/orders/${orderId}/events`, { token: who.adminToken, body: { type: "completed" } }));
