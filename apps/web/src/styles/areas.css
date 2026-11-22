@@ -1178,3 +1178,114 @@
 .picked__map {
   margin-top: var(--space-2);
 }
+
+/* 「从共享库引用」对话框（M8-31、M8-46）：列表一项 = 名称一行、块数一行，按钮在右边（窄屏在下面）；展开「看形状」时地图在这一项下面 */
+.shared-area__search,
+.shared-area__confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.shared-area__confirm .shared-area__preview {
+  margin-top: 0;
+}
+
+.shared-area__search > .button {
+  align-self: flex-start;
+}
+
+.shared-area__results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.shared-area__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+}
+
+.shared-area__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-1) var(--space-3);
+  align-items: center;
+  padding: var(--space-3);
+}
+
+.shared-area__item + .shared-area__item {
+  border-top: var(--border-width) solid var(--color-border-default);
+}
+
+.shared-area__item--expanded {
+  background: var(--color-bg-subtle);
+}
+
+.shared-area__name {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  min-width: 0;
+  margin: 0;
+  font-weight: var(--font-weight-medium);
+  overflow-wrap: anywhere;
+}
+
+.shared-area__pieces {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.shared-area__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.shared-area__preview {
+  grid-column: 1 / -1;
+  min-width: 0;
+  margin-top: var(--space-2);
+}
+
+.shared-area__map .area-map {
+  height: min(44dvh, 360px);
+  min-height: 240px;
+}
+
+.shared-area__preview-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.shared-area__preview-note p {
+  margin: 0;
+}
+
+@media (min-width: 480px) {
+  .shared-area__item {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .shared-area__name,
+  .shared-area__pieces {
+    grid-column: 1;
+  }
+
+  .shared-area__actions {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    justify-content: flex-end;
+  }
+}

@@ -305,6 +305,7 @@ export function AreaListPage() {
           <SharedAreaDialog
             open={sharing}
             cities={cities.state.data}
+            citiesFailed={cities.state.status === "error"}
             onClose={() => setSharing(false)}
             onCreated={(area) => {
               setSharing(false);

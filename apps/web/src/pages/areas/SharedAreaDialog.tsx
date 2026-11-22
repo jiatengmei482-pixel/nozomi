@@ -1,40 +1,52 @@
 /**
  * 从区域共享库引用（M8-31，ADR 0083）：选城市、按名称搜 → 选一个 → 定名称、业务类型、用途 → 在自己名下建一个副本。
- * 共享库只有名称和形状概况，不显示是哪家供应商建的；引用后副本是你自己的区域，来源以后改图形不会悄悄改你的。
+ * 共享库只有名称和形状，不显示是哪家供应商建的；引用后副本是你自己的区域，来源以后改图形不会悄悄改你的。
+ * 引用前看得到形状（M8-46）：列表里每一项可以展开「看形状」，选定之后的确认步骤也画出形状。
  */
 import { AREA_BIZ_TYPES, AREA_BIZ_TYPE_NAMES, AREA_ROLES, AREA_ROLE_NAMES, type AreaBizType, type AreaRole } from "@nozomi/domain";
-import { type FormEvent, useEffect, useId, useState } from "react";
+import { type FormEvent, useEffect, useId, useMemo, useState } from "react";
 import { ApiError, NetworkError } from "../../api/client.ts";
 import { type Area, type SharedArea, createAreaFromShared, listSharedAreas } from "../../api/areas.ts";
 import type { City } from "../../api/master.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { Button } from "../../components/Button.tsx";
+import { Combobox } from "../../components/Combobox.tsx";
 import { Dialog } from "../../components/Dialog.tsx";
 import { useToast } from "../../components/Toast.tsx";
 import { NETWORK_FAILURE_TEXT } from "../../lib/failure.ts";
 import { displayName } from "../../lib/master-display.ts";
 import { newIdempotencyKey } from "../../lib/site-display.ts";
+import { cityOption } from "../master/shared.tsx";
+import type { AreaOverviewMapProps } from "./AreaOverviewMap.tsx";
+import { SharedAreaPreview, sharedAreaPieces } from "./SharedAreaPreview.tsx";
 
 export interface SharedAreaDialogProps {
   open: boolean;
   cities: readonly City[] | null;
+  /** 城市没有取回来（网络、服务器出错）：城市框里说加载失败，不一直转圈 */
+  citiesFailed?: boolean;
   /** 新建页里打开时：预先选好的城市和要引用的那一个（相似提示里点「引用」） */
   initial?: { cityId: string; picked?: SharedArea | null };
   onClose(): void;
   onCreated(area: Area): void;
+  /** 测试、换底图用（形状预览的地图） */
+  surfaceFactory?: AreaOverviewMapProps["surfaceFactory"];
 }
 
-export function SharedAreaDialog({ open, cities, initial, onClose, onCreated }: SharedAreaDialogProps) {
+export function SharedAreaDialog({ open, cities, citiesFailed = false, initial, onClose, onCreated, surfaceFactory }: SharedAreaDialogProps) {
   const { token, handleAuthFailure } = usePortalSession();
   const toast = useToast();
-  const ids = { city: useId(), q: useId(), name: useId(), biz: useId(), role: useId() };
-  const activeCities = (cities ?? []).filter((city) => city.status === "active");
+  const ids = { q: useId(), name: useId(), biz: useId(), role: useId(), preview: useId() };
+  // 城市选项和其他选城市的地方同一种写法（显示名按 中文 → 英语 → 日语，旁边是城市编码；用任意一种语言的名称都能搜到）
+  const cityOptions = useMemo(() => (cities ?? []).filter((city) => city.status === "active").map(cityOption), [cities]);
   const [cityId, setCityId] = useState(initial?.cityId ?? "");
   const [q, setQ] = useState("");
   const [results, setResults] = useState<{ items: SharedArea[]; truncated: boolean } | null>(null);
   const [searching, setSearching] = useState(false);
   const [picked, setPicked] = useState<SharedArea | null>(initial?.picked ?? null);
+  // 列表里展开「看形状」的那一个（一次只展开一个）
+  const [previewId, setPreviewId] = useState<string | null>(null);
   const [name, setName] = useState(initial?.picked ? displayName(initial.picked.name).text : "");
   const [bizType, setBizType] = useState<AreaBizType>("general");
   const [role, setRole] = useState<AreaRole>("both");
@@ -50,6 +62,7 @@ export function SharedAreaDialog({ open, cities, initial, onClose, onCreated }: 
     setPicked(initial?.picked ?? null);
     setName(initial?.picked ? displayName(initial.picked.name).text : "");
     setResults(null);
+    setPreviewId(null);
     setError(null);
     setBizType("general");
     setRole("both");
@@ -69,6 +82,7 @@ export function SharedAreaDialog({ open, cities, initial, onClose, onCreated }: 
     if (cityId === "") return;
     setSearching(true);
     setError(null);
+    setPreviewId(null);
     try {
       setResults(await listSharedAreas(token, cityId, q));
     } catch (err) {
@@ -129,15 +143,16 @@ export function SharedAreaDialog({ open, cities, initial, onClose, onCreated }: 
       {error !== null && <Alert kind="danger">{error}</Alert>}
       {picked === null ? (
         <form className="shared-area__search" onSubmit={(event) => void search(event)}>
-          <div className="field">
-            <label className="field__label" htmlFor={ids.city}>城市</label>
-            <select id={ids.city} className="input select" value={cityId} onChange={(event) => setCityId(event.target.value)}>
-              <option value="">请选择城市</option>
-              {activeCities.map((city) => (
-                <option key={city.id} value={city.id}>{displayName(city.name).text}</option>
-              ))}
-            </select>
-          </div>
+          <Combobox
+            label="城市"
+            placeholder="请选择城市"
+            options={cityOptions}
+            value={cityId === "" ? null : cityId}
+            onChange={(value) => setCityId(value ?? "")}
+            loading={cities === null && !citiesFailed}
+            loadFailed={cities === null && citiesFailed}
+            emptyText="平台还没有启用中的城市"
+          />
           <div className="field">
             <label className="field__label" htmlFor={ids.q}>名称（选填）</label>
             <input id={ids.q} className="input" value={q} maxLength={100} onChange={(event) => setQ(event.target.value)} />
@@ -151,22 +166,40 @@ export function SharedAreaDialog({ open, cities, initial, onClose, onCreated }: 
                 <p className="field__hint">这个城市的共享库里还没有符合条件的区域，可以自己新建（新建的会自动进共享库）。</p>
               ) : (
                 <ul className="shared-area__list" aria-label="共享区域">
-                  {results.items.map((item) => (
-                    <li key={item.id} className="shared-area__item">
-                      <span lang={displayName(item.name).lang}>{displayName(item.name).text}</span>
-                      <span className="field__hint">营运区 {item.operate_polygon_count} 块{item.forbid_polygon_count > 0 ? ` · 禁行区 ${item.forbid_polygon_count} 块` : ""}</span>
-                      <Button
-                        variant="secondary"
-                        aria-label={`引用「${displayName(item.name).text}」`}
-                        onClick={() => {
-                          setPicked(item);
-                          setName(displayName(item.name).text);
-                        }}
-                      >
-                        引用
-                      </Button>
-                    </li>
-                  ))}
+                  {results.items.map((item) => {
+                    const shown = displayName(item.name);
+                    const expanded = previewId === item.id;
+                    const panelId = `${ids.preview}-${item.id}`;
+                    return (
+                      <li key={item.id} className={expanded ? "shared-area__item shared-area__item--expanded" : "shared-area__item"}>
+                        <p className="shared-area__name">
+                          {expanded && <span className="area-dot area-color--0" aria-hidden="true" />}
+                          <span lang={shown.lang}>{shown.text}</span>
+                        </p>
+                        <p className="shared-area__pieces">{sharedAreaPieces(item)}</p>
+                        <div className="shared-area__actions">
+                          <Button size="sm" aria-expanded={expanded} aria-controls={expanded ? panelId : undefined} aria-label={`${expanded ? "收起" : "看"}「${shown.text}」的形状`} onClick={() => setPreviewId(expanded ? null : item.id)}>
+                            {expanded ? "收起形状" : "看形状"}
+                          </Button>
+                          <Button
+                            size="sm"
+                            aria-label={`引用「${shown.text}」`}
+                            onClick={() => {
+                              setPicked(item);
+                              setName(shown.text);
+                            }}
+                          >
+                            引用
+                          </Button>
+                        </div>
+                        {expanded && (
+                          <div id={panelId} className="shared-area__preview">
+                            <SharedAreaPreview area={item} {...(surfaceFactory ? { surfaceFactory } : {})} />
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
               {results.truncated && <p className="field__hint">只显示了最近修改的 50 个，请输入名称缩小范围。</p>}
@@ -174,10 +207,16 @@ export function SharedAreaDialog({ open, cities, initial, onClose, onCreated }: 
           )}
         </form>
       ) : (
-        <form id="shared-area-form" onSubmit={(event) => void submit(event)}>
-          <p>
-            引用「<span lang={displayName(picked.name).lang}>{displayName(picked.name).text}</span>」（营运区 {picked.operate_polygon_count} 块）
+        <form id="shared-area-form" className="shared-area__confirm" onSubmit={(event) => void submit(event)}>
+          <p className="shared-area__name">
+            <span className="area-dot area-color--0" aria-hidden="true" />
+            <span>
+              引用「<span lang={displayName(picked.name).lang}>{displayName(picked.name).text}</span>」（{sharedAreaPieces(picked)}）
+            </span>
           </p>
+          <div className="shared-area__preview">
+            <SharedAreaPreview area={picked} {...(surfaceFactory ? { surfaceFactory } : {})} />
+          </div>
           <div className="field">
             <label className="field__label" htmlFor={ids.name}>在你这里叫什么</label>
             <input id={ids.name} className="input" value={name} maxLength={100} onChange={(event) => setName(event.target.value)} />
