@@ -1978,7 +1978,7 @@
           "title": "POST /site/v1/trips/parse、GET /site/v1/trips/parse-status：Claude 结构化输出 + zod 校验、Sonnet 5.5 / Haiku 5.5 两个型号与后台三选一（ai_trip_settings，先 Haiku 出错再 Sonnet）、每个型号今天的次数、null → 请补填、个人信息替换、地名经现有地址搜索解析、三档限频（同地址每分钟 3 / 每天 20、全站每天 300）、trip_parse_runs（不含文字）；不建行程单、不存原文（ADR 0104 第三～七、九节）",
           "role": "backend",
           "status": "review",
-          "evidence": "PR #349（domain 纯函数）、#350（解析接口、parse-status、后台型号三选一与今天的次数、限频与全站额度、调用记录与 90 天清理、端到端假 Claude）均已合并（e9aa5aed）；集成 11 + 单元 + 组件 3。测试站验收等业主填 Claude 密钥和 M9T-33 部署",
+          "evidence": "PR #349（domain 纯函数）、#350（解析接口、parse-status、后台型号三选一与今天的次数、限频与全站额度、调用记录与 90 天清理、端到端假 Claude）均已合并（e9aa5aed）；集成 11 + 单元 + 组件 3。按监工 11-21 验收意见补：#359（明确地名取第一候选、候选去重、默认停留、起点接上一天终点）、#360（默认用法先 Haiku 出错再 Sonnet）、#361（说了起点照用、包车日没说终点回起点、泛指地点提示没说是哪一家），集成 12 条。测试站验收：监工重跑 5 句",
           "acceptance": ["Claude 用测试替身覆盖正常、缺字段、拒答、超时、不合格两次、注入样例；CI 不调真接口", "没配密钥 / 出错 / 额度用完 → 503，报价接口和 trips 表无改动", "trip_parse_runs 逐列检查不含输入文字"],
           "updated": "2026-11-20"
         },
