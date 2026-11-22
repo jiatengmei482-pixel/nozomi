@@ -21,7 +21,7 @@ export async function tenantLogin(api: TestApi, email: string): Promise<string> 
  * 时钟只往前走：已经过了就不动。
  */
 export async function reachFulfilmentWindow(api: TestApi, orderId: string): Promise<void> {
-  const row = (await api.db.owner.query<{ service_at: Date }>("select service_at from orders where id = $1 order by status = 'rescued' limit 1", [orderId])).rows[0];
+  const row = (await api.db.owner.query<{ service_at: Date }>("select service_at from orders where id = $1", [orderId])).rows[0];
   if (row === undefined) throw new Error("没有这张单");
   const gap = row.service_at.getTime() - 3 * 3_600_000 - api.clock.now().getTime();
   if (gap > 0) api.clock.advance(gap);
