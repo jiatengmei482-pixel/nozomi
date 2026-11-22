@@ -44,6 +44,8 @@ export interface TripAiMarks {
   candidates: Record<string, TripAiCandidate[]>;
   /** 没找到的地点格子 → AI 给的地名（预先放进搜索框） */
   notFound: Record<string, string>;
+  /** 没找到的格子里，客人本来就没说是哪一家的（服务端 `PLACE_TOO_VAGUE`）：提示换成「没说是哪一家」 */
+  vague: string[];
 }
 
 export interface TripAiSummary {
@@ -139,7 +141,9 @@ export function tripAiFillOf(result: SiteTripParseResult): TripAiFill {
   if (days.length > MAX_TRIP_DAYS || days.some((day) => !day.idle && (day.stops?.length ?? 0) > MAX_TRIP_STOPS)) return { kind: "failed", text: tripCopy("ai.tooLong") };
 
   const defaults = initialTripDraft();
-  const marks: TripAiMarks = { filled: [], missing: [], candidates: {}, notFound: {} };
+  const marks: TripAiMarks = { filled: [], missing: [], candidates: {}, notFound: {}, vague: [] };
+  /** 字段路径（`days[0].end`）→ 表单格子，给按字段指格子的提示代码用 */
+  const placeCells = new Map<string, string>();
   const missing: string[] = [];
   const confirm: string[] = [];
 
@@ -161,6 +165,7 @@ export function tripAiFillOf(result: SiteTripParseResult): TripAiFill {
   note("luggage", luggage === source.luggage, "luggage");
 
   const place = (cell: string, field: string, found: PlaceResult): TripPoint | null => {
+    placeCells.set(field, cell);
     note(cell, found.point !== null, field);
     if (found.candidates !== undefined) marks.candidates[cell] = found.candidates;
     if (found.notFound !== undefined) marks.notFound[cell] = found.notFound;
@@ -208,8 +213,14 @@ export function tripAiFillOf(result: SiteTripParseResult): TripAiFill {
       if (at >= 0) missing.splice(at, 1);
       continue;
     }
-    // 明确地名直接认定、上一天终点当起点：格子上已有「AI 填的，可改」，摘要里不再多一句
-    if (assumption.code === "PLACE_PICKED" || assumption.code === "START_FROM_PREVIOUS_END") continue;
+    // 明确地名直接认定、上一天终点当起点、包车日没说终点回到起点：格子上已有「AI 填的，可改」，摘要里不再多一句
+    if (assumption.code === "PLACE_PICKED" || assumption.code === "START_FROM_PREVIOUS_END" || assumption.code === "END_AT_START") continue;
+    // 没说是哪一家：那一格本来就在「请补填」里，只把格子下的提示换成「没说是哪一家」
+    if (assumption.code === "PLACE_TOO_VAGUE") {
+      const cell = placeCells.get(assumption.field ?? "");
+      if (cell !== undefined && marks.notFound[cell] !== undefined && !marks.vague.includes(cell)) marks.vague.push(cell);
+      continue;
+    }
     // 停留没说、先给了默认值：只在格子上标「AI 填的，可改」，摘要里合成一句（不管几处）
     if (assumption.code === "STAY_DEFAULT") {
       const stay = /^days\[(\d+)\]\.stops\[(\d+)\]/.exec(assumption.field ?? "");

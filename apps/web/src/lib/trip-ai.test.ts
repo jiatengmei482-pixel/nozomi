@@ -251,3 +251,30 @@ test("STAY_DEFAULT 碰上不在档上的停留（表单里是空的）：不出�
   assert.deepEqual(fill.summary.confirm, ["第 1 天第 1 个中间地点的停留时长没有对应的选项，请自己选"]);
   assert.equal(fill.draft.days[0]?.stops[0]?.stay, "");
 });
+
+test("END_AT_START 只标 AI 填的、摘要不另说；PLACE_TOO_VAGUE 让那一格提示「没说是哪一家」（照旧请补填），对不上格子的忽略", () => {
+  const vague = { query: "新宿的酒店", match: { status: "unresolved" as const } };
+  const fill = filled(
+    result(
+      [
+        { idle: false, time: "10:00", start: at("成田机场", NARITA), stops: [], end: vague },
+        { idle: false, time: "08:00", start: at("新宿", HOTEL), stops: [{ ...at("日光", NARITA), stay_minutes: 240 }], end: at("新宿", HOTEL) },
+      ],
+      {},
+      {
+        assumptions: [
+          { code: "END_AT_START", field: "days[1].end", value: "新宿" },
+          { code: "PLACE_TOO_VAGUE", field: "days[0].end", value: "新宿的酒店" },
+          { code: "PLACE_TOO_VAGUE", field: "days[1].start", value: "新宿" },
+          { code: "PLACE_TOO_VAGUE", field: "days[9].end", value: "x" },
+        ],
+      },
+    ),
+  );
+  const endCell = `${fill.draft.days[0]?.key}.end`;
+  assert.deepEqual(fill.marks.vague, [endCell], "已经填好的格子不算");
+  assert.deepEqual(fill.marks.missing, [endCell]);
+  assert.equal(fill.marks.notFound[endCell], "新宿的酒店");
+  assert.ok(fill.marks.filled.includes(`${fill.draft.days[1]?.key}.end`));
+  assert.deepEqual(fill.summary.confirm, []);
+});

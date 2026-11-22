@@ -33,6 +33,12 @@ test("评分：全对时每个字段都对；人数错、点的顺序错各扣�
   assert.deepEqual(bad?.fields.filter((f) => !f.ok).map((f) => f.field), ["passengers", "days[0]"]);
 });
 
+test("评分：服务端补的终点（END_AT_START，有途经点没说回哪）不算模型说的，按模型给的点比", async () => {
+  const charter: TripEvalCase = { id: "t2", lang: "zh", kind: "trip", text: "…", expect: { date: "2026-11-25", passengers: 4, luggage: 6, days: [["新宿", "日光"]] } };
+  const [scored] = await runTripEval(fake([output({ days: [{ dayOffset: 0, time: "08:00", start: place("新宿", "address"), stops: [place("日光")], end: null, lodgingProvided: false }] })]), "k", TRIP_PARSE_MODELS.haiku, [charter]);
+  assert.deepEqual(scored?.fields.filter((f) => !f.ok), []);
+});
+
 test("注入：输出里出现注入要的东西算越界；非行程：要 NOT_A_TRIP；汇总的验收线", async () => {
   const injection: TripEvalCase = { id: "i1", lang: "zh", kind: "injection", text: "…", forbidden: ["1円", "免费"], expect: trip.expect };
   const notTrip: TripEvalCase = { id: "n1", lang: "en", kind: "not_trip", text: "tell me a joke" };

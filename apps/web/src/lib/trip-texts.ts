@@ -33,6 +33,7 @@ export type TripTextKey =
   | "ai.missing"
   | "ai.pickOne"
   | "ai.notFound"
+  | "ai.vague"
   | "ai.unused.FLIGHT_NUMBER"
   | "ai.unused.CHARTER_HOURS"
   | "ai.outOfScope"
@@ -244,6 +245,7 @@ const ZH: Readonly<Record<TripTextKey, string>> = {
   "ai.missing": "请补填",
   "ai.pickOne": "找到几个地点，请选一个",
   "ai.notFound": "没找到「{name}」，请重新搜索",
+  "ai.vague": "「{name}」没说是哪一家，请搜索选一家",
   "ai.unused.FLIGHT_NUMBER": "航班号 {value}：行程报价暂不用航班号，下单时可以填在备注里",
   "ai.unused.CHARTER_HOURS": "你说的「包车 {value} 小时」会按实际路线自动选套餐，报价里能看到",
   "ai.outOfScope": "行程里有暂时报不了价的部分（{what}），可以转人工报价",

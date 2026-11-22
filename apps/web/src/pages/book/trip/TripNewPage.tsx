@@ -135,7 +135,7 @@ export function TripNewPage() {
     setAiMarks((current) => {
       if (current === null) return current;
       const without = <T,>(record: Record<string, T>): Record<string, T> => Object.fromEntries(Object.entries(record).filter(([key]) => key !== cell));
-      return { filled: current.filled.filter((entry) => entry !== cell), missing: current.missing.filter((entry) => entry !== cell), candidates: without(current.candidates), notFound: without(current.notFound) };
+      return { filled: current.filled.filter((entry) => entry !== cell), missing: current.missing.filter((entry) => entry !== cell), candidates: without(current.candidates), notFound: without(current.notFound), vague: current.vague.filter((entry) => entry !== cell) };
     });
   }, []);
   /** 摘要里「不在报价范围」下面的转人工报价块展开了 */
