@@ -1,6 +1,6 @@
 /**
  * 官网页面的外观（M3-05，ADR 0032；docs/design/03-layout.md「官网下单页」）：不用后台的菜单壳。
- * 单栏、内容最宽 `layout-reading-max-width`、居中；顶部是品牌、主题切换和两个入口；底部是数据来源的署名
+ * 单栏、内容最宽 `layout-reading-max-width`、居中；顶部是品牌、主题切换和两个入口；底部是三个法律页面的链接（M9E-24）和数据来源的署名
  * （页面上有城市、机场的名称：GeoNames CC BY 4.0、OurAirports 公有领域）。
  */
 import { Component, type ReactNode, useCallback, useEffect, useState, useSyncExternalStore } from "react";
@@ -13,6 +13,7 @@ import { Button } from "../../components/Button.tsx";
 import { StateBlock } from "../../components/States.tsx";
 import { failureText } from "../../lib/failure.ts";
 import { SITE_HOME_PATH, SITE_ORDER_PATH } from "../../lib/site-display.ts";
+import { LEGAL_LINKS } from "../../lib/legal-pages.ts";
 import { ThemeSwitcher } from "../../theme/ThemeSwitcher.tsx";
 
 /** 顶栏的入口：当前页是哪一个（F11）。预订页（四步都在 `/book`）是「预订用车」，订单页和查订单都算「查订单」。 */
@@ -87,11 +88,19 @@ export function SiteLayout({ children, attribution = true }: { children: ReactNo
         </nav>
       </header>
       <main className="site__main">{children}</main>
-      {attribution && (
-        <footer className="site__footer">
-          <Attributions sources={placeSources(true)} />
-        </footer>
-      )}
+      <footer className="site__footer">
+        {/* 法律页面（M9E-24，ADR 0107）：每个官网页面的页脚都有这三个链接 */}
+        <ul className="site__legal" lang="ja" aria-label="法的事項">
+          {LEGAL_LINKS.map((link) => (
+            <li key={link.key}>
+              <Link to={link.to} className="site__legal-link" aria-current={navCurrent(pathname, link.to)}>
+                {link.label}
+              </Link>
+            </li>
+          ))}
+        </ul>
+        {attribution && <Attributions sources={placeSources(true)} />}
+      </footer>
     </div>
   );
 }
