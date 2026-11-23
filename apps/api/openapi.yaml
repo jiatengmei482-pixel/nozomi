@@ -13864,6 +13864,29 @@ paths:
                 $ref: "#/components/schemas/SiteConfig"
         "429":
           $ref: "#/components/responses/RateLimited"
+  /site/v1/legal-pages:
+    get:
+      tags: [ 官网 ]
+      operationId: getSiteLegalPages
+      summary: 法律页面用的设置和取消政策（特定商取引法表記・キャンセルポリシー・プライバシーポリシー）
+      description: |
+        不需要登录（M9E-24，ADR 0107）。三页的正文是业主定稿的日文，在前端；这里给业主留空（【 】）、由运营后台「官网设置」填的几项（没填为 null，页面显示「未設定」），
+        和平台当前的取消政策（`cancellation_policy`，同 `GET /platform/v1/cancellation-policy`；キャンセルポリシー的取消费表按它生成）。每个地址每分钟 120 次。
+      responses:
+        "200":
+          description: 法律页面用的内容
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/LegalPageValues"
+                  - type: object
+                    required: [ cancellation_policy ]
+                    properties:
+                      cancellation_policy:
+                        $ref: "#/components/schemas/CancellationPolicy"
+        "429":
+          $ref: "#/components/responses/RateLimited"
   /site/v1/cities:
     get:
       tags: [ 官网 ]
@@ -18305,6 +18328,78 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "503":
           $ref: "#/components/responses/PassengerEncryptionUnavailable"
+  /platform/v1/legal-page-settings:
+    get:
+      tags: [ 官网设置 ]
+      operationId: getLegalPageSettings
+      summary: 法律页面设置（三页里业主留空的几项）
+      description: 需要操作 `site_settings.read`（超级管理员、运营、客服）。`version` 为 0 表示还没有设置过（每一项都是 null）。M9E-24，ADR 0107。
+      security:
+        - platformToken: []
+      responses:
+        "200":
+          description: 现在的设置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LegalPageSettings"
+    put:
+      tags: [ 官网设置 ]
+      operationId: updateLegalPageSettings
+      summary: 改法律页面设置
+      description: |
+        需要操作 `site_settings.manage`（只归超级管理员）。整份替换：每一项都要给，`null` 或空白是清空（页面显示「未設定」）；首尾空白去掉。
+        长度：販売事業者名 200 字、日本国内の連絡先 300 字、メールアドレス 254 字（要像邮箱）、各事業者名 100 字、所在国 40 字；`published_on` 是 YYYY-MM-DD。不合格 400 `VALIDATION_FAILED`。
+        已经设置过的要带 `If-Match`（版本号），对不上 409。写审计（`legal_page_settings` / `update`，前后值原样记：都是要公开在页面上的内容）。
+      security:
+        - platformToken: []
+      parameters:
+        - name: If-Match
+          in: header
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ seller, japan_contact, email, mail_provider, mail_provider_country, map_provider, map_provider_country, server_provider, server_provider_country, published_on ]
+              properties:
+                seller:
+                  type: [ string, "null" ]
+                japan_contact:
+                  type: [ string, "null" ]
+                email:
+                  type: [ string, "null" ]
+                mail_provider:
+                  type: [ string, "null" ]
+                mail_provider_country:
+                  type: [ string, "null" ]
+                map_provider:
+                  type: [ string, "null" ]
+                map_provider_country:
+                  type: [ string, "null" ]
+                server_provider:
+                  type: [ string, "null" ]
+                server_provider_country:
+                  type: [ string, "null" ]
+                published_on:
+                  type: [ string, "null" ]
+      responses:
+        "200":
+          description: 保存后的设置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LegalPageSettings"
+        "409":
+          description: 版本对不上（`VERSION_CONFLICT`）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /platform/v1/site-settings:
     get:
       tags: [ 官网设置 ]
@@ -20926,7 +21021,7 @@ components:
     HealthResponse:
       type: object
       additionalProperties: false
-      required: [ status, env, database, migrations, integrations ]
+      required: [ status, env, database, migrations, integrations, legal_pages ]
       properties:
         status:
           type: string
@@ -20942,6 +21037,12 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/IntegrationStatus"
+        legal_pages:
+          type: string
+          enum: [ complete, incomplete, unknown ]
+          description: |
+            法律页面（特定商取引法表記・キャンセルポリシー・プライバシーポリシー）里业主留空的几项，运营后台「官网设置」填齐了没有（M9E-24，ADR 0107 第三节）。
+            只报告、不影响 `status` 和 200 / 503（正式站第一次部署时还没人能登录后台去填）。数据库不通、读不到时为 `unknown`。
     DatabaseHealth:
       type: object
       additionalProperties: false
@@ -35962,6 +36063,59 @@ components:
       type: string
       enum: [ standard, wide, full ]
       description: 官网页面宽度（M8-28，ADR 0079）：标准（最宽 1200px）、较宽（1440px）、最宽（1920px）；全站一个值，没设过是 standard。平板、手机不受影响
+    LegalProvider:
+      type: object
+      additionalProperties: false
+      required: [ name, country ]
+      properties:
+        name:
+          type: [ string, "null" ]
+        country:
+          type: [ string, "null" ]
+          description: 所在国（照填写原样显示）
+    LegalPageValues:
+      type: object
+      description: 法律页面里业主留空、运营后台填的几项（M9E-24，ADR 0107）；没填为 null
+      required: [ seller, japan_contact, email, mail_provider, map_provider, server_provider, published_on, complete ]
+      properties:
+        seller:
+          type: [ string, "null" ]
+          description: 販売事業者名（特定商取引法表記、プライバシーポリシー开头共用）
+        japan_contact:
+          type: [ string, "null" ]
+          description: 日本国内の連絡先
+        email:
+          type: [ string, "null" ]
+          description: メールアドレス（两页共用）
+        mail_provider:
+          $ref: "#/components/schemas/LegalProvider"
+        map_provider:
+          $ref: "#/components/schemas/LegalProvider"
+        server_provider:
+          $ref: "#/components/schemas/LegalProvider"
+        published_on:
+          type: [ string, "null" ]
+          format: date
+          description: プライバシーポリシーの制定日
+        complete:
+          type: boolean
+          description: 每一项都填了
+    LegalPageSettings:
+      allOf:
+        - $ref: "#/components/schemas/LegalPageValues"
+        - type: object
+          required: [ version, updated_at, updated_by ]
+          properties:
+            version:
+              type: integer
+              description: 0 表示还没有设置过
+            updated_at:
+              type: [ string, "null" ]
+              format: date-time
+            updated_by:
+              oneOf:
+                - $ref: "#/components/schemas/ManualQuotePerson"
+                - type: "null"
     SiteSettings:
       type: object
       additionalProperties: false
