@@ -15,7 +15,7 @@
  * 第三期（M9E-19，ADR 0095 第七节）：下单后在 iframe 里直接挂付款表单（假 Stripe），要 3D 验证的卡在 iframe 里弹验证框，宿主先收到 modal{open:true}
  *   再收到 modal{open:false}；付完宿主的 onEvent 收到 completed；模拟银行整页回跳到 return_url（带 key、host、ch，过得了 frame-check）后照常显示、
  *   地址里的付款参数去掉、回跳后的消息仍带频道号，换 4242 付完收到 completed。被拒的卡：iframe 里显示被拒的原因、表单留着、订单仍是待付款、
- *   宿主没收到 completed，换 4242 付完才收到。宿主窗口 390 宽、客人往下滚过（iframe 上沿在屏幕外）时点「确认支付」：验证框的标题和按钮都在宿主屏幕里。
+ *   宿主没收到 completed，换 4242 付完才收到。宿主窗口 390 宽、客人往下滚过（iframe 上沿在屏幕外）时点「确认付款」：验证框的标题和按钮都在宿主屏幕里。
  * M9E-27（ADR 0095 第十二节末第二轮决策）：分栏按 iframe 自己的宽度——iframe 1440、1024 宽两栏，右边是主站同一个「行程摘要」右侧栏
  * （谷歌静态路线图经同源 /site/v1/route-map 出图、时长公里数、车型、出发地、目的地、航班落地时间、乘客 / 行李），1023、375 宽单栏、顶部摘要条；
  * 宿主窗口宽而预订区窄时照样单栏；宽窄切换后 resize 报的高度等于内容高度、不多发 step；亮暗两色 axe；截图存到 E2E_SCREENSHOT_DIR（m9e27-*.png）。
@@ -746,7 +746,7 @@ test("M9E-19 跨站：iframe 里用被拒的卡付款——显示被拒的原因
   const cardField = frame.getByLabel("卡号（假 Stripe）");
   await cardField.fill(TEST_CARDS.declined);
   await frame.getByRole("button", { name: /^付款 / }).click();
-  await frame.getByRole("button", { name: "确认支付" }).click();
+  await frame.getByRole("button", { name: "确认付款" }).click();
   await expect(frame.getByRole("alert").filter({ hasText: "付款没有成功" })).toHaveText("付款没有成功：您的银行卡被拒绝了。请换一张卡，或联系发卡银行。");
   await expect(cardField, "被拒后付款表单留着，可以换卡").toBeVisible();
   await expect.poll(async () => (await hostMessages(page)).filter((message) => message.data["type"] === "modal").map((message) => message.data["open"])).toEqual([true, false]);
@@ -766,7 +766,7 @@ test("M9E-19 跨站：iframe 里用被拒的卡付款——显示被拒的原因
 
   await cardField.fill(TEST_CARDS.success);
   await frame.getByRole("button", { name: /^付款 / }).click();
-  await frame.getByRole("button", { name: "确认支付" }).click();
+  await frame.getByRole("button", { name: "确认付款" }).click();
   await expect(frame.getByText(/付款成功，等待确认/)).toBeVisible();
   await expect.poll(async () => (await hostEvents(page)).some((event) => event.type === "completed"), { timeout: 30_000 }).toBe(true);
   const completed = (await hostMessages(page)).filter((message) => message.data["type"] === "completed");
@@ -785,8 +785,8 @@ test("M9E-19 跨站：宿主页手机 390 宽——3D 验证框弹出时在客�
   await expect.poll(async () => page.locator('iframe[title="NOZOMI 用车预订"]').evaluate((element) => Math.round(element.getBoundingClientRect().width))).toBeLessThanOrEqual(390);
   await frame.getByLabel("卡号（假 Stripe）").fill(TEST_CARDS.threeDs);
   await frame.getByRole("button", { name: /^付款 / }).click();
-  // 客人往下滚过：「确认支付」在宿主屏幕上方附近，iframe 的上沿已经滚出屏幕（不处理 modal 的话，验证框的标题和按钮就在屏幕外）
-  const confirm = frame.getByRole("button", { name: "确认支付" });
+  // 客人往下滚过：「确认付款」在宿主屏幕上方附近，iframe 的上沿已经滚出屏幕（不处理 modal 的话，验证框的标题和按钮就在屏幕外）
+  const confirm = frame.getByRole("button", { name: "确认付款" });
   await expect(confirm).toBeVisible();
   const embedFrame = page.locator('iframe[title="NOZOMI 用车预订"]');
   const confirmTop = (await confirm.boundingBox())?.y ?? 0;
