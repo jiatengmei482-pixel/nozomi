@@ -24,6 +24,7 @@ import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { BookNewPage } from "../book/new/BookNewPage.tsx";
 import { type BookingShell, BookingShellContext } from "../book/new/booking-shell.tsx";
 import { embedHash, embedSearch, useEmbedFrame } from "./EmbedFrame.tsx";
+import { LegalLinks } from "../legal/LegalLinks.tsx";
 
 /** 读草稿（含先看有没有待续接的单）最多等这么久：再不回就当读不出（发 error LOAD_FAILED），宿主不至于一直等 ready；测试里调短 */
 export const DRAFT_TIMEOUT = { ms: 10_000 };
@@ -32,13 +33,14 @@ type Load = { kind: "loading" } | { kind: "ready"; draft: BookingDraft; sourceMa
 
 const STEP_NAMES: Readonly<Record<BookStep, BookingStep>> = { 1: "trip", 2: "vehicle", 3: "passenger", 4: "review" };
 
-/** 嵌入页顶部：标题和卖方（Q14） */
+/** 嵌入页顶部：标题、卖方和三个法律页面的链接（Q14；M9E-24，ADR 0107：新窗口打开主站的页面） */
 export function EmbedHeader({ children }: { children?: ReactNode }) {
   const { t } = useEmbedFrame();
   return (
     <header className="embed-book__head">
       <h1 className="embed-book__title">{t.title}</h1>
       <p className="embed-book__seller">{t.seller}</p>
+      <LegalLinks className="embed-book__legal" />
       {children}
     </header>
   );
