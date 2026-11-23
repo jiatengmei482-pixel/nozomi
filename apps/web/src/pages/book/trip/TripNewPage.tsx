@@ -353,7 +353,7 @@ export function TripNewPage() {
   } else if (cityList.length === 0) {
     body = <StateBlock tone="neutral" title={tripCopy("noCitiesTitle")} description={tripCopy("noCitiesText")} />;
   } else {
-    const tiles = config.config.map_tiles;
+    const mapsKey = config.config.maps_browser_key ?? null;
     const centers: CityCandidate[] = cityList.map((city) => ({ id: city.id, center: city.center }));
     const fallbackCenter = mapCity?.center ?? null;
     const fullDays = draft.days.length >= MAX_TRIP_DAYS;
@@ -436,7 +436,7 @@ export function TripNewPage() {
             errors={errors?.days[day.key]}
             onChange={(next) => change({ ...draft, days: draft.days.map((entry) => (entry.key === day.key ? next : entry)) })}
             onRemove={() => removeDay(day.key, index + 1)}
-            tiles={tiles}
+            mapsKey={mapsKey}
             fallbackCenter={fallbackCenter}
             cities={centers}
             inlineMap={!wide}

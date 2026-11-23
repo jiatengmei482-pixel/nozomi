@@ -13,7 +13,6 @@
 import type { CityCandidate } from "@nozomi/domain";
 import { ADDRESS_ONLY_HINT } from "../../../lib/booking-draft.ts";
 import { type KeyboardEvent, type PointerEvent, useRef, useState } from "react";
-import type { MapTiles } from "../../../api/areas.ts";
 import { Button, IconButton } from "../../../components/Button.tsx";
 import { SelectField } from "../../../components/FormFields.tsx";
 import { Icon } from "../../../components/Icon.tsx";
@@ -22,7 +21,7 @@ import { draftArriveBy, lockedDescription, nextDayHint } from "../../../lib/arri
 import { itineraryCopy } from "../../../lib/itinerary-texts.ts";
 import { MAX_WAYPOINTS, STAY_OPTIONS, type WaypointDraft, type WaypointErrors, durationText, moveWaypoint, moveWaypointTo, newWaypoint } from "../../../lib/charter-itinerary.ts";
 import { waypointLimitText } from "../../../lib/itinerary-warnings.ts";
-import type { LatLngValue } from "../SiteMapPicker.tsx";
+import type { LatLngValue } from "../../../lib/lat-lng.ts";
 import { PlaceField } from "./PlaceField.tsx";
 
 const STAY_CHOICES = STAY_OPTIONS.map((minutes) => ({ value: String(minutes), label: durationText(minutes) }));
@@ -34,7 +33,6 @@ export interface WaypointsFieldProps {
   value: readonly WaypointDraft[];
   onChange(next: WaypointDraft[]): void;
   errors: WaypointErrors;
-  tiles: MapTiles | null;
   /** 谷歌地图选点的浏览器密钥（M10-01 第 2 处），见 PlaceField */
   mapsKey?: string | null;
   mapCenter: LatLngValue | null;
@@ -45,7 +43,7 @@ export interface WaypointsFieldProps {
   late?: Readonly<Record<string, string>>;
 }
 
-export function WaypointsField({ value, onChange, errors, tiles, mapsKey = null, mapCenter, cities, startTime = "", late = {} }: WaypointsFieldProps) {
+export function WaypointsField({ value, onChange, errors, mapsKey = null, mapCenter, cities, startTime = "", late = {} }: WaypointsFieldProps) {
   const [announce, setAnnounce] = useState("");
   const listRef = useRef<HTMLOListElement>(null);
   const addRef = useRef<HTMLButtonElement>(null);
@@ -160,7 +158,6 @@ export function WaypointsField({ value, onChange, errors, tiles, mapsKey = null,
                     onChange={(point) => update(entry.key, { point })}
                     {...(rowErrors.point !== undefined ? { error: rowErrors.point } : {})}
                     hint={ADDRESS_ONLY_HINT}
-                    tiles={tiles}
                     mapsKey={mapsKey}
                     mapCenter={entry.point ?? mapCenter}
                     cities={cities}

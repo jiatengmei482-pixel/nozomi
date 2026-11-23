@@ -2,15 +2,14 @@
  * 新预订页「在地图上选点」还没有地点可参照时从哪个城市打开（M8-43）：
  * 不再是城市列表第一项（测试站是只开了接送机的北京），而是能订当前标签（区间 / 包车）、品类最多的城市，一样多按列表顺序；
  * 另一端选好了时照旧从另一端打开。
- * 直接点「选地图中间这个位置」，看填进去的坐标和反查地址用的城市。
+ * 地图是谷歌地图小页面（M10-01，配了浏览器密钥才有）：看小页面打开时的中心坐标，再以小页面的身份选这个中心，看反查地址用的城市。
  */
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { App } from "../../../App.tsx";
-import type { MapTiles } from "../../../api/areas.ts";
 import type { SiteCity, SiteConfig } from "../../../api/site.ts";
 import { type ApiCall, json, resetBrowser, stubApiWith } from "../../../testing/harness.tsx";
 
@@ -26,8 +25,7 @@ function wideScreen(): void {
 }
 
 const SLOW = { timeout: 3000 };
-const TILES: MapTiles = { url_template: "http://127.0.0.1:1/{z}/{x}/{y}.png", dark_url_template: null, min_zoom: 3, max_zoom: 19, tile_size: 256, referrer_policy: "strict-origin", attribution: [{ text: "© OpenStreetMap", href: "https://www.openstreetmap.org/copyright" }] };
-const config: SiteConfig = { open: true, currency: "JPY", payments: null, support_phone: null, support_whatsapp: null, address_search: true, page_width: "standard", map_tiles: TILES };
+const config: SiteConfig = { open: true, currency: "JPY", payments: null, support_phone: null, support_whatsapp: null, address_search: true, page_width: "standard", maps_browser_key: `AIzaSy${"k".repeat(33)}`, map_tiles: null };
 
 const cityOf = (id: string, code: string, zh: string, center: { lat: number; lng: number }, categories: SiteCity["categories"]): SiteCity => ({ id, code, name: { zh }, timezone: "Asia/Tokyo", country_code: code.slice(4, 6), center, categories });
 const BEIJING = cityOf("11111111-1111-4111-8111-111111111111", "CTY-CN-BEIJING", "北京", { lat: 39.9042, lng: 116.4074 }, ["airport_transfer"]);
@@ -56,12 +54,20 @@ function open(cities: SiteCity[], at = "/book"): ApiCall[] {
   return calls;
 }
 
-/** 打开某个地址框的地图、不移动直接选中间：返回反查用的城市和坐标 */
+/** 打开某个地址框的地图、直接选地图打开时的中心：返回反查用的城市和坐标 */
 async function pickMapCenter(calls: ApiCall[], label: string): Promise<{ city: string | null; lat: number; lng: number }> {
   const actor = userEvent.setup();
   const group = await screen.findByRole("group", { name: `${label}的地图` }, SLOW);
   await actor.click(within(group).getByRole("button", { name: "在地图上选点" }));
-  await actor.click(await within(group).findByRole("button", { name: "选地图中间这个位置" }));
+  const frame = (await waitFor(() => {
+    const found = group.querySelector("iframe");
+    assert.ok(found);
+    return found;
+  }, SLOW)) as HTMLIFrameElement;
+  const opened = new URL(frame.getAttribute("src") ?? "", "http://localhost").searchParams;
+  act(() => {
+    window.dispatchEvent(new MessageEvent("message", { data: { source: "nozomi-map", type: "pick", lat: Number(opened.get("lat")), lng: Number(opened.get("lng")) }, origin: window.location.origin, source: frame.contentWindow }));
+  });
   const reverse = await waitFor(() => {
     const found = calls.find((call) => call.path.startsWith("/site/v1/places/reverse"));
     assert.ok(found, "选点后按位置反查地址");

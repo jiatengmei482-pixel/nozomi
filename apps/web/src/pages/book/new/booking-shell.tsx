@@ -5,7 +5,6 @@
  */
 import { type ReactNode, createContext, useContext } from "react";
 import type { NavigateFunction } from "react-router";
-import type { MapTiles } from "../../../api/areas.ts";
 import type { HostViewportSource } from "../../../embed/frame-bar.ts";
 import { type BookingDraft, type SiteLink, type SiteOrderEnvelope, type SitePayment, getSiteBookingDraft } from "../../../api/site.ts";
 import type { BookStep } from "../../../lib/book-new.ts";
@@ -21,11 +20,8 @@ export interface BookingShell {
   /** 页面外壳：主站是 SiteLayout（顶栏、页脚）+ 页面标题；嵌入页没有顶栏页脚，标题和卖方说明在嵌入页自己那一层 */
   frame(body: ReactNode): ReactNode;
   /**
-   * 地图选点（`SiteMapPicker`）和路线后备图（`RouteMap`）用的底图。两者都是 Leaflet：嵌入页一律 null——不提供地图选点，
-   * 静态路线图失败时只留「约 X 分钟 · Y 公里」（ADR 0095 第九节第 5 小节、Q11）。
+   * 谷歌地图选点的浏览器密钥（M10-01 第 2 处）：主站用配置里的（没配时也不提供地图选点）；嵌入页一律 null——不提供地图选点（ADR 0095 第九节第 5 小节、Q11）。
    */
-  tiles(configured: MapTiles | null): MapTiles | null;
-  /** 谷歌地图选点的浏览器密钥（M10-01 第 2 处）：主站用配置里的；嵌入页一律 null（不提供地图选点） */
   mapsKey(configured: string | null): string | null;
   /** 读预订草稿；`sourceMatches` 为 false 时询价不带 `draft_id`，来源按主站记 */
   readDraft(id: string): Promise<{ draft: BookingDraft; sourceMatches: boolean }>;
@@ -49,7 +45,6 @@ export const MAIN_BOOKING_SHELL: BookingShell = {
       {body}
     </SiteLayout>
   ),
-  tiles: (configured) => configured,
   mapsKey: (configured) => configured,
   // 主站不带 key、host：请求和以前一样；主站自己的草稿来源由服务端按草稿记，这里总是带上编号
   readDraft: (id) => getSiteBookingDraft(id).then(({ draft }) => ({ draft, sourceMatches: true })),

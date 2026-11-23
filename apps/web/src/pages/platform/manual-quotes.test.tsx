@@ -339,7 +339,7 @@ test("官网设置 · 谷歌地图浏览器密钥（M10-01 第 2 处）：超级
   const calls = openSettings("super_admin", settingsOf({ support_whatsapp: "810000000000", version: 3 }), (call) => json(200, settingsOf({ support_whatsapp: "810000000000", maps_browser_key: (call.body as { maps_browser_key: string | null }).maps_browser_key, version: 4 })));
   const actor = user();
   const card = within(await screen.findByRole("region", { name: "谷歌地图（浏览器密钥）" }));
-  assert.ok(card.getByText("还没有填（官网选点用开源地图）"));
+  assert.ok(card.getByText("还没有填（官网不提供地图选点，客人用搜索找地址）"));
   await actor.type(card.getByRole("textbox", { name: "浏览器密钥" }), "AIza-too-short");
   await actor.click(card.getByRole("button", { name: "保存" }));
   assert.ok(await card.findByText(/AIza 开头、共 39 位/));
@@ -351,7 +351,7 @@ test("官网设置 · 谷歌地图浏览器密钥（M10-01 第 2 处）：超级
   const put = calls.find((call) => call.method === "PUT");
   assert.deepEqual(put?.body, { support_whatsapp: "810000000000", maps_browser_key: key });
   assert.equal(put?.headers["if-match"], '"3"');
-  assert.ok(await screen.findByText(/选点地图改用谷歌地图/));
+  assert.ok(await screen.findByText(/可以在谷歌地图上选点/));
   const saved = within(await screen.findByRole("region", { name: "谷歌地图（浏览器密钥）" }));
   assert.ok(await saved.findByText("AIzaSyaa…（共 39 位）"));
   assert.equal(screen.queryByText(key), null, "整串不摆出来");

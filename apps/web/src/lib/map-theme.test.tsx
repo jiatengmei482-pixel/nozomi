@@ -1,5 +1,5 @@
 /**
- * 地图底图跟着亮暗主题走（M6-08）：取哪套瓦片、要不要压暗；已经打开的地图（新预订页路线图、旧预订页地图选点、区域编辑页、区域地图）
+ * 地图底图跟着亮暗主题走（M6-08）：取哪套瓦片、要不要压暗；已经打开的地图（区域编辑页、区域地图）
  * 切换主题（`<html data-theme>`）时当场换瓦片地址或压暗标记，不重建地图、路线和标记不动。
  * 压暗只作用在瓦片那一层（样式里的 `.leaflet-tile-pane`）由端到端测试在真实浏览器里核对。
  */
@@ -8,7 +8,6 @@ import assert from "node:assert/strict";
 import { act, render, waitFor } from "@testing-library/react";
 import type { MapTiles } from "../api/areas.ts";
 import { AreaOverviewMap } from "../pages/areas/AreaOverviewMap.tsx";
-import { SiteMapPicker } from "../pages/book/SiteMapPicker.tsx";
 import { resetBrowser } from "../testing/harness.tsx";
 import type { ColorScheme } from "../theme/use-color-scheme.ts";
 import type { MapSurface } from "./map-surface.ts";
@@ -49,15 +48,6 @@ test("applyMapTheme：切到暗色加压暗标记、切回去去掉；瓦片地�
   applyMapTheme(container, layer, tilesOf(DARK), "dark");
   assert.deepEqual(calls, [LIGHT, LIGHT, DARK]);
   assert.ok(!container.classList.contains(DIMMED_CLASS), "有暗色瓦片就不压暗");
-});
-
-test("旧预订页地图选点：打开后切换主题，压暗标记跟着变", async () => {
-  await setTheme("dark");
-  const { container } = render(<SiteMapPicker tiles={tilesOf(null)} center={{ lat: 35.68, lng: 139.76 }} point={null} word="上车" onPick={() => {}} />);
-  const canvas = container.querySelector(".leaflet-container") as HTMLElement;
-  await waitFor(() => assert.ok(canvas.classList.contains(DIMMED_CLASS)));
-  await setTheme("light");
-  await waitFor(() => assert.ok(!canvas.classList.contains(DIMMED_CLASS)));
 });
 
 test("区域地图：切换主题时把新主题交给底图（换瓦片或压暗），不重建底图", async () => {

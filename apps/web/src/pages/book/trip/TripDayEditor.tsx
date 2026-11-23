@@ -10,7 +10,6 @@
  */
 import type { CityCandidate } from "@nozomi/domain";
 import type { ReactNode } from "react";
-import type { MapTiles } from "../../../api/areas.ts";
 import { Button, IconButton } from "../../../components/Button.tsx";
 import { SelectField } from "../../../components/FormFields.tsx";
 import { Icon } from "../../../components/Icon.tsx";
@@ -20,7 +19,7 @@ import { durationText } from "../../../lib/charter-itinerary.ts";
 import { MAX_TRIP_STOPS, TRIP_STAY_OPTIONS, type TripDayDraft, type TripDayErrors, chosenPoints, newTripStop } from "../../../lib/trip-form.ts";
 import type { TripAiMarks } from "../../../lib/trip-ai.ts";
 import { tripCopy } from "../../../lib/trip-texts.ts";
-import type { LatLngValue } from "../SiteMapPicker.tsx";
+import type { LatLngValue } from "../../../lib/lat-lng.ts";
 import { PickerTextField } from "../new/full-screen.tsx";
 import { PlaceField } from "../new/PlaceField.tsx";
 import { type TripAiCellState, TripAiCell } from "./TripAiMark.tsx";
@@ -40,7 +39,8 @@ export interface TripDayEditorProps {
   errors: TripDayErrors | undefined;
   onChange(day: TripDayDraft): void;
   onRemove(): void;
-  tiles: MapTiles | null;
+  /** 谷歌地图选点的浏览器密钥（M10-01），见 PlaceField；没有时不提供地图选点 */
+  mapsKey: string | null;
   fallbackCenter: LatLngValue | null;
   cities: readonly CityCandidate[];
   /** 手机、平板：路线图画在这一天的块里 */
@@ -49,7 +49,7 @@ export interface TripDayEditorProps {
   ai?: { marks: TripAiMarks; touch(cell: string): void } | undefined;
 }
 
-export function TripDayEditor({ day, index, count, date, onDate, dateError, errors, onChange, onRemove, tiles, fallbackCenter, cities, inlineMap, ai }: TripDayEditorProps) {
+export function TripDayEditor({ day, index, count, date, onDate, dateError, errors, onChange, onRemove, mapsKey, fallbackCenter, cities, inlineMap, ai }: TripDayEditorProps) {
   const n = index + 1;
   const titleId = `trip-day-${day.key}-title`;
   const update = (changes: Partial<TripDayDraft>): void => onChange({ ...day, ...changes });
@@ -131,7 +131,7 @@ export function TripDayEditor({ day, index, count, date, onDate, dateError, erro
           {placeCell(
             `${day.key}.start`,
             (extra) => (
-              <PlaceField label={tripCopy("start", { n })} value={day.start} onChange={(start) => { touch(`${day.key}.start`); update({ start }); }} {...errorOf(errors?.start)} hint={ADDRESS_ONLY_HINT} tiles={tiles} mapCenter={centerOf(day.end ?? near)} cities={cities} {...extra} />
+              <PlaceField label={tripCopy("start", { n })} value={day.start} onChange={(start) => { touch(`${day.key}.start`); update({ start }); }} {...errorOf(errors?.start)} hint={ADDRESS_ONLY_HINT} mapsKey={mapsKey} mapCenter={centerOf(day.end ?? near)} cities={cities} {...extra} />
             ),
             (start) => update({ start }),
           )}
@@ -146,7 +146,7 @@ export function TripDayEditor({ day, index, count, date, onDate, dateError, erro
                     {placeCell(
                       `${stop.key}.point`,
                       (extra) => (
-                        <PlaceField label={tripCopy("stop", { n, m })} value={stop.point} onChange={(point) => { touch(`${stop.key}.point`); replace({ point }); }} {...errorOf(problem?.point)} tiles={tiles} mapCenter={centerOf(near)} cities={cities} {...extra} />
+                        <PlaceField label={tripCopy("stop", { n, m })} value={stop.point} onChange={(point) => { touch(`${stop.key}.point`); replace({ point }); }} {...errorOf(problem?.point)} mapsKey={mapsKey} mapCenter={centerOf(near)} cities={cities} {...extra} />
                       ),
                       (point) => replace({ point }),
                     )}
@@ -182,7 +182,7 @@ export function TripDayEditor({ day, index, count, date, onDate, dateError, erro
           {placeCell(
             `${day.key}.end`,
             (extra) => (
-              <PlaceField label={tripCopy("end", { n })} value={day.end} onChange={(end) => { touch(`${day.key}.end`); update({ end }); }} {...errorOf(errors?.end)} hint={ADDRESS_ONLY_HINT} tiles={tiles} mapCenter={centerOf(day.start ?? near)} cities={cities} {...extra} />
+              <PlaceField label={tripCopy("end", { n })} value={day.end} onChange={(end) => { touch(`${day.key}.end`); update({ end }); }} {...errorOf(errors?.end)} hint={ADDRESS_ONLY_HINT} mapsKey={mapsKey} mapCenter={centerOf(day.start ?? near)} cities={cities} {...extra} />
             ),
             (end) => update({ end }),
           )}

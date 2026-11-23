@@ -42,9 +42,9 @@ function Where() {
   return <div data-testid="where" data-path={`${location.pathname}${location.hash}`} />;
 }
 
-test("默认外壳就是主站：地图底图原样、换步不做别的", () => {
-  const tiles = { url: "x" } as never;
-  assert.equal(MAIN_BOOKING_SHELL.tiles(tiles), tiles);
+test("默认外壳就是主站：谷歌地图浏览器密钥原样（没配就是 null、不提供地图选点）、换步不做别的", () => {
+  assert.equal(MAIN_BOOKING_SHELL.mapsKey("AIzaSyTest"), "AIzaSyTest");
+  assert.equal(MAIN_BOOKING_SHELL.mapsKey(null), null);
   assert.equal(MAIN_BOOKING_SHELL.title, "预订用车 · NOZOMI 用车");
   assert.equal(MAIN_BOOKING_SHELL.stepShown(2), undefined);
 });

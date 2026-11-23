@@ -9,11 +9,11 @@
  * 2. 车型和价格：现有车型列表、车内示意图、附加服务、「一口价包含」。报不出价时只有人工报价那一块（M8-21b）。
  * 3. 乘客信息：乘车人、邮箱、手机、接机的航班号（必填）和举牌姓名（选填，M8-32 起是订单的正式字段）、即时通讯、备注。字段和校验同旧下单页（`lib/site-order-form.ts`）。
  * 4. 核对并付款：前三步的内容各带「修改」回到那一步，车费合计和参考价、取消规则、同意保存银行卡、去付款（`POST /site/v1/orders`，下单后进现有订单页付款）。
- * 右侧栏（≥ 1024px）四步一直在：最上面路线图（M8-10 静态图，Leaflet 兜底），下面按步骤追加已确认的内容：行程 → 车型和一个价格 → 乘客信息。
+ * 右侧栏（≥ 1024px）四步一直在：最上面路线图（M8-10 谷歌静态图；出不来时只写「约 X 分钟 · Y 公里」，M10-01），下面按步骤追加已确认的内容：行程 → 车型和一个价格 → 乘客信息。
  * 手机、平板（< 1024px）单栏，右侧栏变成顶部可展开的摘要条。
  * 链接参数 from / to / date / time / pax / bags / mode（parseBookingLink）：打开就预填并报价，齐了直接到第 2 步；不合法的只是不预填。
  * 四种状态：加载中（骨架）、官网没开 / 没有可订城市（空）、出错（说明 + 重试）、正常。页面上没有供应商、结算价、加价比例。
- * 同一份组件也是嵌入预订页 `/embed/book` 的四步（M9E-17，ADR 0095）：两边不同的几处（外壳、单栏、不用 Leaflet、读草稿、下单后去哪、换步通知）
+ * 同一份组件也是嵌入预订页 `/embed/book` 的四步（M9E-17，ADR 0095）：两边不同的几处（外壳、不提供地图选点、读草稿、下单后去哪、换步通知）
  * 由 `BookingShell` 上下文给（booking-shell.tsx），默认值就是主站的行为。
  * 从多日行程报价页「预订这个方案」进来（M9T-10，ADR 0101 第十三节第 3 小节）：路由 state 里带着单段方案转成的普通报价（`lib/trip-book.ts`），
  * 打开时按它预填行程、选好车型，第一次询价直接用这张报价（过期了才照常询价），网址是第 3 步，客人接着填乘客信息、下单、付款。
@@ -1066,7 +1066,6 @@ export function BookNewPage() {
   } else if (cityList.length === 0) {
     body = <StateBlock tone="neutral" title="暂时没有可预订的城市" description="现在还没有可以在线预订用车的城市，请稍后再来。" />;
   } else {
-    const tiles = shell.tiles(config.config.map_tiles);
     const mapsKey = shell.mapsKey(config.config.maps_browser_key ?? null);
     const centers: CityCandidate[] = cityList.map((city) => ({ id: city.id, center: city.center }));
     // 地图从另一端打开；另一端还没选时从当前标签的默认城市打开（M8-43，规则见 defaultMapCity）
@@ -1140,7 +1139,6 @@ export function BookNewPage() {
           onChange={(from) => update({ from })}
           {...(errors.from !== undefined ? { error: errors.from } : {})}
           hint={ADDRESS_ONLY_HINT}
-          tiles={tiles}
           mapsKey={mapsKey}
           mapCenter={centerOf(draft.to)}
           cities={centers}
@@ -1151,8 +1149,7 @@ export function BookNewPage() {
             value={draft.waypoints}
             onChange={(waypoints) => update({ waypoints })}
             errors={waypointCheck ? waypointErrors(draft.waypoints) : {}}
-            tiles={tiles}
-            mapsKey={mapsKey}
+              mapsKey={mapsKey}
             mapCenter={centerOf(draft.from)}
             cities={centers}
             startTime={draft.time}
@@ -1167,7 +1164,6 @@ export function BookNewPage() {
           {...(errors.to !== undefined ? { error: errors.to } : {})}
           hint={charter ? ["包车结束时在哪里下车，价格按上车和下车地点算。", ADDRESS_ONLY_HINT] : ADDRESS_ONLY_HINT}
           {...(charter && legacyCharterLink && draft.to === null ? { info: "请选择下车地点，包车现在按上车和下车地点报价。" } : {})}
-          tiles={tiles}
           mapsKey={mapsKey}
           mapCenter={centerOf(draft.from)}
           cities={centers}

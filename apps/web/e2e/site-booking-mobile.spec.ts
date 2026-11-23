@@ -5,7 +5,7 @@
  * - 选择页占满屏幕、在最上层（候选正中这一点上就是候选本身，没有别的东西盖住）；
  * - 用 `visualViewport` 模拟手机键盘已经弹出（可见区域只剩上面 364px，真机上页面不变矮）：输入框和第一条候选都在键盘上面；
  * - 用手指点选后选择页关闭、页面上显示选中的值；「取消」不改原来的值；
- * - 在地图上选点（选择页里打开地图、选中间位置）后回到页面；
+ * - 在地图上选点（选择页里打开谷歌地图、选中间位置；地图小页面换成假页面，M10-01）后回到页面；
  * - 日期、时间的选择页「确定」后回到页面；
  * - 走到第 2 步。电脑和鼠标操作的窄窗口不受影响（site-booking-new.spec.ts 照旧在页面上选）。
  * 用地址搜索专用的那组 API 和前端（假谷歌，见 site-booking-new.spec.ts），不调用真实的谷歌。
@@ -14,7 +14,7 @@ import { type Locator, type Page, expect, test } from "@playwright/test";
 import { E2E_WEB_PLACES_PORT } from "../playwright.config.ts";
 import { createAirport, publishTransfer, tomorrowInTokyo } from "./book-new-support.ts";
 import { createSupplier, createWorld } from "./catalog.ts";
-import { OWN_SITE_SOURCE } from "./support.ts";
+import { OWN_SITE_SOURCE, useFakeGoogleMapPicker } from "./support.ts";
 
 test.use(OWN_SITE_SOURCE);
 // iPhone 13 的可见区域（390 × 664，去掉浏览器地址栏和工具栏），手指操作
@@ -84,6 +84,7 @@ test("M8-37 手机：地址、日期、时间都是全屏选择页（占满屏�
   const supplier = await createSupplier(request, world);
   await publishTransfer(request, supplier, { ...world, airport });
   await simulateKeyboard(page);
+  await useFakeGoogleMapPicker(page);
 
   await page.goto(`${SITE}/book`);
   await expect(page.getByRole("heading", { level: 1, name: "预订用车" })).toBeVisible();
@@ -91,10 +92,12 @@ test("M8-37 手机：地址、日期、时间都是全屏选择页（占满屏�
   // 页面上没有直接打字的地址框，只有点了打开选择页的那一格
   await expect(page.getByRole("combobox", { name: "出发地" })).toHaveCount(0);
 
-  // 在地图上选点：选择页里打开地图、选中间位置 → 回到页面，出发地有了值
+  // 在地图上选点：选择页里打开谷歌地图（同源小页面）、选中间位置 → 回到页面，出发地有了值；没有开源地图
   const mapSheet = await openSheet(page, "出发地");
   await mapSheet.getByRole("button", { name: "在地图上选点" }).tap();
-  await expect(mapSheet.getByRole("application")).toBeVisible();
+  await expect(mapSheet.locator("iframe")).toHaveAttribute("src", /^\/maps\/picker\.html\?key=/);
+  await expect(mapSheet.getByRole("button", { name: "选地图中间这个位置" })).toBeEnabled();
+  await expect(page.locator(".leaflet-container")).toHaveCount(0);
   // 选点后页面先放占位名「地图上选的位置（坐标）」，再查这个位置的地址、查到就换成地址（替身固定回東京都千代田区丸の内，和坐标无关）。
   // 要等反查回来、页面换好名称再记「原来的值」，否则反查晚到时记下的是占位名、后面被换掉就误报「取消改了值」（M8-29，PR #191 CI）。
   const reversed = page.waitForResponse((response) => new URL(response.url()).pathname === "/site/v1/places/reverse");

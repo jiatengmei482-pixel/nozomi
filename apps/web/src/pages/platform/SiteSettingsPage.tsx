@@ -171,7 +171,7 @@ function MapsKeyEditor({ settings, onSaved, onReload }: { settings: SiteSettings
       // 号码原样带回去（接口要求有这一项），只改地图密钥
       const saved = await updateSiteSettings(token, settings.version, settings.support_whatsapp, { mapsBrowserKey: key });
       onSaved(saved);
-      toast(saved.maps_browser_key === null ? "已清除，官网的选点地图不再用谷歌地图" : "已保存，客人刷新页面后选点地图改用谷歌地图");
+      toast(saved.maps_browser_key === null ? "已清除，客人刷新页面后官网不再提供地图选点" : "已保存，客人刷新页面后可以在谷歌地图上选点");
     } catch (err) {
       if (handleAuthFailure(err)) return;
       if (err instanceof ApiError && err.code === "VERSION_CONFLICT") {
@@ -197,7 +197,7 @@ function MapsKeyEditor({ settings, onSaved, onReload }: { settings: SiteSettings
     <form className="form" noValidate onSubmit={save}>
       <div role="alert">{problem !== null && <Alert kind="danger">{problem}</Alert>}</div>
       <dl className="details">
-        <Detail label="现在的密钥">{settings.maps_browser_key === null ? "还没有填（官网选点用开源地图）" : mapsKeyHint(settings.maps_browser_key)}</Detail>
+        <Detail label="现在的密钥">{settings.maps_browser_key === null ? "还没有填（官网不提供地图选点，客人用搜索找地址）" : mapsKeyHint(settings.maps_browser_key)}</Detail>
       </dl>
       <TextField label={settings.maps_browser_key === null ? "浏览器密钥" : "换一把密钥"} autoComplete="off" spellCheck={false} maxLength={100} value={text} errors={error === null ? [] : [error]} hint="在谷歌后台新建的、限定了官网网址、只开 Maps JavaScript API 的那把；不是服务器用的密钥" onChange={(event) => setText(event.target.value)} />
       <div className="form__actions">
@@ -288,7 +288,7 @@ export function SiteSettingsPage() {
         <h2 className="card__title" id="site-settings-maps">
           谷歌地图（浏览器密钥）
         </h2>
-        <p className="table__muted">官网「在地图上选点」用谷歌地图显示时要的密钥。它会出现在官网网页里，所以要在谷歌后台限定网址、只开 Maps JavaScript API。没填时选点仍用开源地图。</p>
+        <p className="table__muted">官网「在地图上选点」用谷歌地图显示时要的密钥。它会出现在官网网页里，所以要在谷歌后台限定网址、只开 Maps JavaScript API。没填时官网不提供地图选点，客人用搜索找地址。</p>
         <div className="form">
           {canManage ? (
             <MapsKeyEditor key={`maps-${settings.version}`} settings={settings} onSaved={set} onReload={reload} />
