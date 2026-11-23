@@ -61,6 +61,7 @@ export const RESOURCE_NAMES: Readonly<Record<string, string>> = {
   bank_file: "银行转账文件",
   manual_quote_request: "人工报价申请",
   site_settings: "官网设置",
+  legal_page_settings: "法律页面设置",
   qa_acceptance_session: "验收会话",
   shared_area_duplicate: "共享库重复区域",
   embed_key: "嵌入组件的嵌入码",
