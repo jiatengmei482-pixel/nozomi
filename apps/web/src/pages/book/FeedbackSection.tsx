@@ -26,7 +26,7 @@ export const FEEDBACK_SUBMITTED_TEXT = "已提交。平台一般 2 小时内答�
 
 function errorText(err: unknown): string {
   if (err instanceof ApiError && err.code === "COMPLAINT_WINDOW_CLOSED") return "已超过投诉时限：服务结束后 14 天内可以投诉。如果还有问题，请联系客服。";
-  if (err instanceof ApiError && err.code === "TICKET_LIMIT_REACHED") return "这一单已经提了很多次，请直接联系客服。";
+  if (err instanceof ApiError && err.code === "TICKET_LIMIT_REACHED") return "这张订单的反馈次数已达上限，请直接联系客服。";
   return siteFailureText(err, "提交");
 }
 
@@ -126,7 +126,7 @@ export function FeedbackSection({ token, order }: { token: string; order: Pick<S
       {tickets === null && !loadFailed && <Skeleton lines={["medium"]} label="正在读取已提交的反馈" />}
       {loadFailed && (
         <p className="site-muted">
-          已提交的反馈没有读出来。
+          已提交的反馈加载失败，请刷新重试。
           <Button variant="text" onClick={load}>
             重试
           </Button>

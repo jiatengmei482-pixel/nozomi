@@ -52,6 +52,7 @@ import {
   notificationFailureAction,
   notificationStale,
   renderNotification,
+  serviceReminderNote,
   type vehicleLabelMailVariables,
   resolvePlatformGrant,
   scopeAllowsChannel,
@@ -242,9 +243,11 @@ async function guestVariables(db: Db, event: StoredNotificationEvent, order: Ord
     base["change_decline_advice"] = CHANGE_DECLINE_ADVICE[String(event.data["advice"])] ?? (CHANGE_DECLINE_ADVICE["policy"] as string);
     base["change_decline_reason"] = changeDeclineReason(String(event.data["advice"]));
   }
+  if (event.event === "order.service_reminder") base["service_reminder_note"] = serviceReminderNote(order);
   if (event.event === "extra_charge.submitted") {
     const charge = await findExtraChargeForPlatform(db, order.id, String(event.data["charge_id"]));
-    if (charge !== null) Object.assign(base, { extra_charge_type: EXTRA_CHARGE_TYPE_NAMES[charge.type as ExtraChargeType], extra_charge_amount: moneyText(customerAmountOf(charge, sale), sale.currency), dispute_until: tokyoText(charge.disputeUntil) });
+    // 邮件写「当地时间」：按订单所在城市的时区，不是供应商后台用的东京时间
+    if (charge !== null) Object.assign(base, { extra_charge_type: EXTRA_CHARGE_TYPE_NAMES[charge.type as ExtraChargeType], extra_charge_amount: moneyText(customerAmountOf(charge, sale), sale.currency), dispute_until: clockText(instantToLocal(charge.disputeUntil, order.timezone).dateTime) });
   }
   return base;
 }

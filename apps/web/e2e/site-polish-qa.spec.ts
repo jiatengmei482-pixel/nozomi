@@ -126,7 +126,7 @@ async function headerBoxes(page: Page): Promise<{ brand: Box; theme: Box; nav: B
 
 test("F10：顶栏各宽度都是两行（M6-05：第一行品牌色带上品牌和主题切换，第二行入口）；从左到右、从上到下的顺序都和 Tab 顺序（品牌 → 主题 → 入口）一致", async ({ page }) => {
   await page.goto("/book");
-  await expect(page.getByRole("heading", { level: 1, name: "预订接送车" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "预订用车" })).toBeVisible();
 
   await page.setViewportSize({ width: 320, height: 640 });
   const narrow = await headerBoxes(page);
@@ -188,14 +188,14 @@ test("订单页在 320 / 360 / 768 宽不横向滚动、两色过 axe：待付�
 
   await page.getByRole("button", { name: "修改订单" }).click();
   await page.getByLabel("乘车人姓名").fill("");
-  await page.getByLabel("手机号（带国家码）").fill("090-1234-5678");
+  await page.getByLabel("手机号（含国家码）").fill("090-1234-5678");
   await page.getByLabel("邮箱").fill("not-an-email");
   await page.getByLabel("航班号").fill("N");
   await page.getByLabel("下车地址或酒店名").fill(" ");
   await page.getByLabel("人数").fill("0");
   await page.getByRole("button", { name: "提交修改" }).click();
   await expect(page.getByText("有几项没有填好，请看标红的地方。")).toBeVisible();
-  for (const label of ["乘车人姓名", "手机号（带国家码）", "邮箱", "航班号", "下车地址或酒店名", "人数"]) {
+  for (const label of ["乘车人姓名", "手机号（含国家码）", "邮箱", "航班号", "下车地址或酒店名", "人数"]) {
     await expect(page.getByLabel(label), label).toHaveAttribute("aria-invalid", "true");
   }
   await expect(page.getByLabel("行李（件）"), "没改的行李不标红").not.toHaveAttribute("aria-invalid", "true");

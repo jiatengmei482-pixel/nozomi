@@ -129,7 +129,7 @@ async function pay(page: Page, card: string): Promise<void> {
   await cardField(page).fill(card);
   await page.getByRole("button", { name: "付款 22,000 JPY" }).click();
   await expect(page.getByRole("group", { name: "确认付款" })).toBeVisible();
-  await page.getByRole("button", { name: "确认支付" }).click();
+  await page.getByRole("button", { name: "确认付款" }).click();
 }
 
 async function expectNoOverflow(page: Page, what: string): Promise<void> {
@@ -170,7 +170,7 @@ test("官网下单后用 Stripe 付款（测试卡 4242）：付款成功等待�
   const bar = page.locator(".step-bar");
   await bar.getByRole("button", { name: "下一步：填写乘客信息" }).click();
   await page.getByLabel("乘车人姓名").fill("王小明");
-  await page.getByLabel("手机号（含国家区号）").fill("+81 90-1234-5678");
+  await page.getByLabel("手机号（含国家码）").fill("+81 90-1234-5678");
   await page.getByLabel("邮箱").fill(`pay-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`);
   await page.getByLabel("航班号").fill("NH 211");
   await page.getByRole("radio", { name: /^国际航班/ }).check();
@@ -248,11 +248,11 @@ test("3D 验证卡：弹出银行的验证框（hooks.stripe.com），验证失�
   await page.goto(`${SITE}/book/order#${placed.token}`);
   await expect(cardField(page)).toBeVisible();
 
-  // 验收时的情形：1280×900，滚到下面点「确认支付」，提示的位置已经在屏幕上方
+  // 验收时的情形：1280×900，滚到下面点「确认付款」，提示的位置已经在屏幕上方
   await page.setViewportSize({ width: 1280, height: 900 });
   await cardField(page).fill(TEST_CARDS.threeDs);
   await page.getByRole("button", { name: "付款 22,000 JPY" }).click();
-  const confirmPay = page.getByRole("button", { name: "确认支付" });
+  const confirmPay = page.getByRole("button", { name: "确认付款" });
   await confirmPay.evaluate((button) => button.scrollIntoView({ block: "start" }));
   await expect(paymentSection(page).getByRole("heading", { name: "付款" })).not.toBeInViewport();
   await confirmPay.click();
@@ -312,7 +312,7 @@ test("失败卡：Stripe.js 加载不出来时能重新加载；被拒、余额�
   // Stripe.js 加载不出来（网络不通）
   await routeStripe(page, fakeStripeUrl(), { stripeJs: "fail" });
   await page.goto(`${SITE}/book/order#${placed.token}`);
-  await expect(paymentSection(page).getByRole("alert")).toContainText("付款组件没有加载出来，请检查网络后点「重新加载」。");
+  await expect(paymentSection(page).getByRole("alert")).toContainText("付款组件加载失败，请检查网络后点「重新加载」。");
   await expectAccessibleBothThemes(page, "订单页（付款组件没加载出来）");
   await page.unrouteAll({ behavior: "wait" });
   const routed = await routeStripe(page, fakeStripeUrl());

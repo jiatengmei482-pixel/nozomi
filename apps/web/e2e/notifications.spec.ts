@@ -19,7 +19,7 @@ test("运营后台看通知记录和模板：说明「已发送」的含义；�
   await page.getByRole("link", { name: "看通知模板" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "通知模板" })).toBeVisible();
   const templates = page.getByRole("region", { name: "通知模板" });
-  await expect(templates.getByText("预订已确认：{{order_no}}")).toBeVisible();
+  await expect(templates.getByText("【NOZOMI】预订已确认：{{order_no}}")).toBeVisible();
   await expect(page.getByRole("button", { name: "保存" })).toHaveCount(0);
   await expectAccessible(page, "通知模板");
 

@@ -133,7 +133,7 @@ const returnEntry = (intent: string, redirectStatus = "succeeded", secret = `${i
 
 // ---- 令牌 ----
 
-test("令牌：只有点了「确认支付」才写进本标签页；打开页面、校验、看确认框、点返回都不写；取消确认后也没有留下", async () => {
+test("令牌：只有点了「确认付款」才写进本标签页；打开页面、校验、看确认框、点返回都不写；取消确认后也没有留下", async () => {
   const stripe = fakeStripeJs();
   openSection(stripe);
   await screen.findByRole("button", { name: payName });
@@ -165,7 +165,7 @@ test("令牌：确认付款的每一种结果（成功、处理中、被拒、�
     };
     openSection(stripe);
     await toConfirm();
-    await userEvent.setup().click(screen.getByRole("button", { name: "确认支付" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "确认付款" }));
     await waitFor(() => assert.equal(stripe.calls.confirm.length, 1));
     await waitFor(() => assert.equal(sessionStorage.getItem(RETURN_KEY), null));
     assert.deepEqual(JSON.parse(written ?? "{}").token, TOKEN_A, "确认请求发出时令牌已记下");
@@ -182,13 +182,13 @@ test("令牌：同一标签页两张单交错——A 被带去银行没回来，
   stripe.confirm = never;
   const a = openApp(stripe, { pathname: "/book/order", hash: `#${TOKEN_A}` });
   await toConfirm();
-  await userEvent.setup().click(screen.getByRole("button", { name: "确认支付" }));
+  await userEvent.setup().click(screen.getByRole("button", { name: "确认付款" }));
   await waitFor(() => assert.equal(JSON.parse(sessionStorage.getItem(RETURN_KEY) ?? "{}").intentId, "pi_AAA"));
   a.unmount();
 
   const b = openApp(stripe, { pathname: "/book/order", hash: `#${TOKEN_B}` });
   await toConfirm();
-  await userEvent.setup().click(screen.getByRole("button", { name: "确认支付" }));
+  await userEvent.setup().click(screen.getByRole("button", { name: "确认付款" }));
   await waitFor(() => assert.equal(JSON.parse(sessionStorage.getItem(RETURN_KEY) ?? "{}").intentId, "pi_BBB"));
   b.unmount();
 
@@ -327,7 +327,7 @@ test("重复付款：确认按钮连点（3D 验证弹窗开着、请求还没�
   fireEvent.click(pay);
   await screen.findByRole("group", { name: "确认付款" });
   assert.equal(submits, 1);
-  const confirm = screen.getByRole("button", { name: "确认支付" });
+  const confirm = screen.getByRole("button", { name: "确认付款" });
   fireEvent.click(confirm);
   fireEvent.click(confirm);
   await userEvent.setup().dblClick(screen.getByRole("button", { name: /正在付款/ }));
@@ -341,13 +341,13 @@ test("重复付款：网络失败后再点，还是同一笔付款（不重新�
   stripe.confirm = async () => ({ error: { type: "api_connection_error" } });
   const { calls } = openSection(stripe);
   await toConfirm();
-  await userEvent.setup().click(screen.getByRole("button", { name: "确认支付" }));
-  await screen.findByText(/没有连上 Stripe，这次付款可能没有提交/);
+  await userEvent.setup().click(screen.getByRole("button", { name: "确认付款" }));
+  await screen.findByText(/付款服务连接失败，这次付款可能没有提交/);
   assert.equal(stripe.calls.retrieve.length, 2, "没连上时先再查一次");
 
   stripe.confirm = async () => ({ paymentIntent: intentOf("succeeded") });
   await toConfirm();
-  await userEvent.setup().click(screen.getByRole("button", { name: "确认支付" }));
+  await userEvent.setup().click(screen.getByRole("button", { name: "确认付款" }));
   await screen.findByText(/^付款成功，等待确认。/);
   assert.equal(stripe.calls.confirm.length, 2);
   assert.equal(stripe.calls.confirm[0]?.return_url, stripe.calls.confirm[1]?.return_url);
@@ -365,7 +365,7 @@ test("重复付款：别的标签页已经付过——确认时 Stripe 回 unexp
   };
   openSection(stripe);
   await toConfirm();
-  await userEvent.setup().click(screen.getByRole("button", { name: "确认支付" }));
+  await userEvent.setup().click(screen.getByRole("button", { name: "确认付款" }));
   assert.ok(await screen.findByText(/^付款成功，等待确认。/));
   assertAbsent(screen.queryByRole("button", { name: /^付款 / }));
 });
@@ -380,7 +380,7 @@ test("付款已取消：付款期限在页面开着时过了，点确认才发�
   };
   const { refreshes } = openSection(stripe);
   await toConfirm();
-  await userEvent.setup().click(screen.getByRole("button", { name: "确认支付" }));
+  await userEvent.setup().click(screen.getByRole("button", { name: "确认付款" }));
   await waitFor(() => assert.equal(stripe.calls.retrieve.length, 2));
   await waitFor(() => assert.equal(document.querySelector('[role="alert"]')?.textContent === "", false));
   assertAbsent(screen.queryByRole("button", { name: payName }));
@@ -417,7 +417,7 @@ test("轮询边界（假时钟，用正式的间隔）：马上一次，之后�
   await toConfirm();
   assert.ok(stubbed.length >= 1);
   mock.timers.enable({ apis: ["setTimeout", "Date"], now: Date.now() });
-  fireEvent.click(screen.getByRole("button", { name: "确认支付" }));
+  fireEvent.click(screen.getByRole("button", { name: "确认付款" }));
   await act(async () => {
     for (let i = 0; i < 20; i += 1) await Promise.resolve();
   });
@@ -469,7 +469,7 @@ test("金额：按钮和确认框原样显示后端的十进制字符串：日�
   for (const [amount, currency, text] of cases) {
     openSection(fakeStripeJs(), order({ price: { total: { amount, currency }, fx: null } }));
     await userEvent.setup().click(await screen.findByRole("button", { name: `付款 ${text}` }));
-    assert.ok(await screen.findByText(`确认支付 ${text}？`), text);
+    assert.ok(await screen.findByText(`确认付款 ${text}？`), text);
     resetBrowser();
   }
 });

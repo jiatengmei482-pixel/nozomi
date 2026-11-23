@@ -151,10 +151,10 @@ test("订单页付款：Stripe 配置了时用付款组件（只拿 publishable 
   await actor.click(await screen.findByRole("button", { name: "付款 21,780 JPY" }));
   assert.deepEqual(stripe.calls.stripe, [{ publishableKey: "pk_test_abc", locale: "zh" }]);
   assert.deepEqual(stripe.calls.elements.map((entry) => entry.clientSecret), ["pi_1_secret_2"]);
-  assert.ok(await screen.findByText("确认支付 21,780 JPY？"));
+  assert.ok(await screen.findByText("确认付款 21,780 JPY？"));
   assert.equal(stripe.calls.confirm.length, 0, "先确认");
   paid = true;
-  await actor.click(screen.getByRole("button", { name: "确认支付" }));
+  await actor.click(screen.getByRole("button", { name: "确认付款" }));
   await screen.findByText("付款成功，订单已确认");
   assert.equal(stripe.calls.confirm.length, 1);
   assert.ok(calls.filter((call) => urlOf(call).pathname === "/site/v1/order").length >= 2);
@@ -344,7 +344,7 @@ test("查订单：限速提示等多久或联系客服；邮件发不了时请�
   assert.ok(await screen.findByText("尝试次数过多，请 30 分钟后再试，或联系客服。"));
   reply = () => apiError(503, "ORDER_LINK_EMAIL_UNAVAILABLE", "暂时发不了邮件");
   await actor.click(screen.getByRole("button", { name: "发送订单链接" }));
-  assert.ok(await screen.findByText("暂时发不了邮件，请联系客服找回订单。"));
+  assert.ok(await screen.findByText("邮件暂时无法发送，请联系客服找回订单。"));
 });
 
 test("查订单：链接格式不对（# 后面不是令牌）也提示链接无效或已过期，不去请求订单；只有 # 没有内容时只显示表单", async () => {
