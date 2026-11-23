@@ -59,6 +59,7 @@ pnpm test:integration  # 只跑集成测试（连真实 PostgreSQL）
 pnpm test:e2e          # 端到端测试（Playwright）；第一次先运行 pnpm --filter @nozomi/web exec playwright install --with-deps chromium
 pnpm config:check      # 看当前环境哪些账号已配置
 pnpm progress:build    # 本地生成进度页到 site/index.html
+pnpm copy:export       # 导出全部固定文案清单到 docs/copy/（给业主定稿用，M11-02）；--check 只检查是不是最新
 ```
 
 ## 一个任务的完整流程

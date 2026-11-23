@@ -30,13 +30,14 @@
     "web:dev": "pnpm --filter @nozomi/web dev",
     "web:build": "pnpm --filter @nozomi/web build",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit",
-    "test": "node --test \"packages/*/src/**/*.test.ts\" \"apps/*/src/**/*.test.ts\" && pnpm --filter @nozomi/web test:components",
+    "test": "node --test \"packages/*/src/**/*.test.ts\" \"apps/*/src/**/*.test.ts\" \"scripts/**/*.test.ts\" && pnpm --filter @nozomi/web test:components",
     "test:e2e": "pnpm --filter @nozomi/web test:e2e",
     "test:integration": "node --env-file-if-exists=.env --test \"apps/*/src/**/*.itest.ts\"",
     "check": "pnpm typecheck && pnpm test && pnpm test:integration && pnpm roadmap:check",
     "config:check": "node packages/config/src/cli.ts",
     "roadmap:check": "node scripts/check-roadmap.mjs",
-    "progress:build": "node scripts/build-progress.mjs"
+    "progress:build": "node scripts/build-progress.mjs",
+    "copy:export": "node scripts/copy-export/cli.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

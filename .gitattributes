@@ -1,0 +1,2 @@
+# 固定文案清单由 pnpm copy:export 生成（M11-02），PR 里默认折叠
+docs/copy/** linguist-generated=true
