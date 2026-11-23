@@ -103,6 +103,7 @@ import { PlaceField } from "./PlaceField.tsx";
 import { PriceBreakdown } from "./PriceBreakdown.tsx";
 import { WaypointsField } from "./WaypointsField.tsx";
 import { useBookingShell } from "./booking-shell.tsx";
+import { LegalLinks } from "../../legal/LegalLinks.tsx";
 import { FlightKindField } from "../FlightKindField.tsx";
 import { PickerTextField } from "./full-screen.tsx";
 import { TravellersField } from "./TravellersField.tsx";
@@ -1723,6 +1724,8 @@ export function BookNewPage() {
             <li>{checkoutCopy("payDueNote")}</li>
             <li>{checkoutCopy("cardNote")}</li>
           </ul>
+          {/* 法律页面（M9E-24，ADR 0107）：主站和嵌入页的核对页都有，新窗口打开，正在填的表不丢 */}
+          <LegalLinks className="book-review__legal" />
         </section>
         <form id={CONTACT_FORM_ID} className="site-form book-review__pay" noValidate onSubmit={(event) => void submitOrder(event)}>
           <AlertSlot notice={contactNotice} />
