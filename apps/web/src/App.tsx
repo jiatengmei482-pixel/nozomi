@@ -40,6 +40,8 @@ import { BookNewPage } from "./pages/book/new/BookNewPage.tsx";
 import { LegacyBookingRedirect } from "./pages/book/LegacyBookingRedirect.tsx";
 import { OrderPage } from "./pages/book/OrderPage.tsx";
 import { SiteErrorBoundary } from "./pages/book/SiteLayout.tsx";
+import { LEGAL_CANCELLATION_PATH, LEGAL_PRIVACY_PATH, LEGAL_TOKUSHOHO_PATH } from "./lib/legal-display.ts";
+import { CancellationPolicyLegalPage, PrivacyPolicyPage, TokushohoPage } from "./pages/legal/LegalPages.tsx";
 import { TENANT_TICKETS_PAGE, TENANT_TICKET_NEW_PATH } from "./lib/order-center-display.ts";
 import { TENANT_STATEMENTS_PAGE } from "./lib/billing-display.ts";
 import { TENANT_PAYOUT_ACCOUNTS_PAGE } from "./lib/bank-file-display.ts";
@@ -128,6 +130,10 @@ export function App() {
             }
           />
           <Route path={SITE_ORDER_PATH} element={<OrderPage />} />
+          {/* 三份法律文案（M9E-24，ADR 0107）：官网没开放时也能看 */}
+          <Route path={LEGAL_TOKUSHOHO_PATH} element={<TokushohoPage />} />
+          <Route path={LEGAL_CANCELLATION_PATH} element={<CancellationPolicyLegalPage />} />
+          <Route path={LEGAL_PRIVACY_PATH} element={<PrivacyPolicyPage />} />
         </Route>
         {portalRoutes("platform")}
         {portalRoutes("tenant")}

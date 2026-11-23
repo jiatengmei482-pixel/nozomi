@@ -128,7 +128,7 @@
 
 | key | 状态 | 中文 | 类型 | 位置 |
 | --- | --- | --- | --- | --- |
-| `app.43e7e2d4` | 写死 | 接口不存在 | 文字 | [app.ts:239](../../apps/api/src/app.ts#L239) |
+| `app.43e7e2d4` | 写死 | 接口不存在 | 文字 | [app.ts:240](../../apps/api/src/app.ts#L240) |
 
 ## 统一的错误返回格式（errors.ts）
 
@@ -155,7 +155,7 @@
 
 | key | 状态 | 中文 | 类型 | 位置 |
 | --- | --- | --- | --- | --- |
-| `health.5958ca4a` | 写死 | 超过 {ms} 毫秒未完成 | 文字 | [health.ts:24](../../apps/api/src/health.ts#L24) |
+| `health.5958ca4a` | 写死 | 超过 {ms} 毫秒未完成 | 文字 | [health.ts:29](../../apps/api/src/health.ts#L29) |
 
 ## 游标分页（pagination.ts）
 
@@ -2145,15 +2145,15 @@
 
 | key | 状态 | 中文 | 类型 | 位置 |
 | --- | --- | --- | --- | --- |
-| `site.5b4aed8a` | 写死 | 官网暂未开放预订，请稍后再来 | 错误提示 | [site.ts:133](../../apps/api/src/services/site.ts#L133) |
-| `site.07e3200b` | 写死 | 订单链接无效或已过期，请在「查订单」填订单号和下单邮箱，我们会把新链接发到下单邮箱 | 错误提示 | [site.ts:137](../../apps/api/src/services/site.ts#L137) |
-| `site.20181878` | 写死 | 暂时发不了邮件，请联系客服找回订单 | 错误提示 | [site.ts:141](../../apps/api/src/services/site.ts#L141) |
-| `site.2a6cc074` | 写死 | 地点 | 错误提示 | [site.ts:441](../../apps/api/src/services/site.ts#L441) |
-| `site.65ebce5a` | 写死 | 城市不存在或暂不开放 | 提示 | [site.ts:481](../../apps/api/src/services/site.ts#L481)、749 行 |
-| `site.276319f5` | 写死 | 这个位置离城市太远，请在城市附近选点 | 提示 | [site.ts:622](../../apps/api/src/services/site.ts#L622) |
-| `site.27f09bde` | 写死 | 第 {leg} 段路线暂时算不出来，没法按行程报价，请联系客服人工报价 | 错误提示 | [site.ts:754](../../apps/api/src/services/site.ts#L754) |
-| `site.003064a0` | 写死 | 机场不存在、已停用，或者不在这个城市 | 提示 | [site.ts:951](../../apps/api/src/services/site.ts#L951) |
-| `site.35a599b0` | 写死 | 用车时间写成当地的 YYYY-MM-DDTHH:mm，并且是这个城市里存在的时间 | 提示 | [site.ts:957](../../apps/api/src/services/site.ts#L957) |
+| `site.5b4aed8a` | 写死 | 官网暂未开放预订，请稍后再来 | 错误提示 | [site.ts:134](../../apps/api/src/services/site.ts#L134) |
+| `site.07e3200b` | 写死 | 订单链接无效或已过期，请在「查订单」填订单号和下单邮箱，我们会把新链接发到下单邮箱 | 错误提示 | [site.ts:138](../../apps/api/src/services/site.ts#L138) |
+| `site.20181878` | 写死 | 暂时发不了邮件，请联系客服找回订单 | 错误提示 | [site.ts:142](../../apps/api/src/services/site.ts#L142) |
+| `site.2a6cc074` | 写死 | 地点 | 错误提示 | [site.ts:443](../../apps/api/src/services/site.ts#L443) |
+| `site.65ebce5a` | 写死 | 城市不存在或暂不开放 | 提示 | [site.ts:483](../../apps/api/src/services/site.ts#L483)、751 行 |
+| `site.276319f5` | 写死 | 这个位置离城市太远，请在城市附近选点 | 提示 | [site.ts:624](../../apps/api/src/services/site.ts#L624) |
+| `site.27f09bde` | 写死 | 第 {leg} 段路线暂时算不出来，没法按行程报价，请联系客服人工报价 | 错误提示 | [site.ts:756](../../apps/api/src/services/site.ts#L756) |
+| `site.003064a0` | 写死 | 机场不存在、已停用，或者不在这个城市 | 提示 | [site.ts:953](../../apps/api/src/services/site.ts#L953) |
+| `site.35a599b0` | 写死 | 用车时间写成当地的 YYYY-MM-DDTHH:mm，并且是这个城市里存在的时间 | 提示 | [site.ts:959](../../apps/api/src/services/site.ts#L959) |
 
 ## 租户用户的登录、会话校验、退出、接受邀请（tenant-auth.ts）
 

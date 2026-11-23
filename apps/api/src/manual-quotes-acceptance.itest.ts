@@ -19,6 +19,7 @@ import { type Market, buildMarket, newChannel, ok, salesCredentials } from "./te
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
 import { FakePaymentProvider } from "./testing/payments.ts";
 import { type SiteApi, siteApi } from "./testing/site.ts";
+import { fillLegalSettings } from "./testing/legal.ts";
 
 const TOKEN = "qa-acceptance-token-for-mq-itests-only-Hx41pWz8Lc";
 const SESSION_PATH = "/site/v1/qa-acceptance/session";
@@ -255,6 +256,8 @@ test("标记建好之后谁都不能改（触发器）；跟进照常（改状�
 });
 
 test("production 不看 Cookie（第二道关）：带着测试环境的有效会话提交，照样按真实客人记", async () => {
+  // 正式环境要先填齐法律文案的待补项才开放预订（M9E-24，ADR 0107）
+  await fillLegalSettings(api, m.root);
   const prod = await productionSite();
   const cookie = await unlock();
   const email = nextEmail();

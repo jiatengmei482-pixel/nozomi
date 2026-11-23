@@ -1,21 +1,22 @@
 # 嵌入预订（合作网站上的组件和嵌入页）
 
-由 `pnpm copy:export` 从代码生成，不要手改。本区域共 93 条：写死 65 条，已走 key 28 条。列的意思见 [README](README.md)。
+由 `pnpm copy:export` 从代码生成，不要手改。本区域共 94 条：写死 66 条，已走 key 28 条。列的意思见 [README](README.md)。
 
 ## 页面
 
-- [嵌入预订页（合作网站里的预订页）](#嵌入预订页合作网站里的预订页)（24 条）
+- [嵌入预订页（合作网站里的预订页）](#嵌入预订页合作网站里的预订页)（25 条）
 - [嵌入组件脚本（合作网站页面上的询价框）](#嵌入组件脚本合作网站页面上的询价框)（68 条）
 - [嵌入组件脚本的大小预算（widget-size.ts）](#嵌入组件脚本的大小预算widget-sizets)（1 条）
 
 ## 嵌入预订页（合作网站里的预订页）
 
-文件：`apps/web/src/pages/embed/EmbedApp.tsx`、`apps/web/src/pages/embed/embed-texts.ts`
+文件：`apps/web/src/pages/embed/EmbedApp.tsx`、`apps/web/src/pages/embed/EmbedBookPage.tsx`、`apps/web/src/pages/embed/embed-texts.ts`
 
 | key | 状态 | 中文 | 类型 | 位置 |
 | --- | --- | --- | --- | --- |
 | `EmbedApp.383753fe` | 写死 | 这个页面不能在合作网站里显示，请在新窗口打开。 | 正文 | [EmbedApp.tsx:24](../../apps/web/src/pages/embed/EmbedApp.tsx#L24) |
 | `EmbedApp.769150f4` | 写死 | 在新窗口打开 | 链接 | [EmbedApp.tsx:26](../../apps/web/src/pages/embed/EmbedApp.tsx#L26) |
+| `EmbedBookPage.96e8de30` | 写死 | 法律文案 | 名称 | [EmbedBookPage.tsx:44](../../apps/web/src/pages/embed/EmbedBookPage.tsx#L44) |
 | `embed.title` | 已走 key | NOZOMI 用车预订 | 标题 | [embed-texts.ts:35](../../apps/web/src/pages/embed/embed-texts.ts#L35) |
 | `embed.loading` | 已走 key | 正在读取预订内容… | 文字 | [embed-texts.ts:36](../../apps/web/src/pages/embed/embed-texts.ts#L36) |
 | `embed.seller` | 已走 key | 本预订由 NOZOMI 提供并收款。 | 文字 | [embed-texts.ts:37](../../apps/web/src/pages/embed/embed-texts.ts#L37) |
