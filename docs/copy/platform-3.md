@@ -1,12 +1,12 @@
 # 运营后台（第 3 / 3 份）
 
-由 `pnpm copy:export` 从代码生成，不要手改。本区域共 3906 条：写死 3900 条，已走 key 6 条。列的意思见 [README](README.md)。
+由 `pnpm copy:export` 从代码生成，不要手改。本区域共 3935 条：写死 3929 条，已走 key 6 条。列的意思见 [README](README.md)。
 
 本区域分 3 份：[第 1 份](platform.md) · [第 2 份](platform-2.md) · 第 3 份
 
 ## 页面
 
-- [多个页面共用：审计日志的显示（audit-display.ts）](#多个页面共用审计日志的显示audit-displayts)（246 条）
+- [多个页面共用：审计日志的显示（audit-display.ts）](#多个页面共用审计日志的显示audit-displayts)（248 条）
 - [多个页面共用：运营后台「人工报价」「官网设置」的地址、状态徽标和文字（manual-quote-display.ts）](#多个页面共用运营后台人工报价官网设置的地址状态徽标和文字manual-quote-displayts)（31 条）
 - [多个页面共用：一次性链接（one-time-link.ts）](#多个页面共用一次性链接one-time-linkts)（14 条）
 - [多个页面共用：路线预估（route-display.ts）](#多个页面共用路线预估route-displayts)（22 条）
@@ -31,12 +31,12 @@
 
 | key | 状态 | 中文 | 类型 | 位置 |
 | --- | --- | --- | --- | --- |
-| `audit-display.521c1482` | 写死 | 平台员工 | 文字 | [audit-display.ts:11](../../apps/web/src/lib/audit-display.ts#L11)、202 行 |
-| `audit-display.1c6c8309` | 写死 | 供应商 | 文字 | [audit-display.ts:12](../../apps/web/src/lib/audit-display.ts#L12)、256、302 行 |
-| `audit-display.5154573c` | 写死 | 供应商的账号 | 文字 | [audit-display.ts:13](../../apps/web/src/lib/audit-display.ts#L13)、202 行 |
+| `audit-display.521c1482` | 写死 | 平台员工 | 文字 | [audit-display.ts:11](../../apps/web/src/lib/audit-display.ts#L11)、204 行 |
+| `audit-display.1c6c8309` | 写死 | 供应商 | 文字 | [audit-display.ts:12](../../apps/web/src/lib/audit-display.ts#L12)、258、304 行 |
+| `audit-display.5154573c` | 写死 | 供应商的账号 | 文字 | [audit-display.ts:13](../../apps/web/src/lib/audit-display.ts#L13)、204 行 |
 | `audit-display.658f2d01` | 写死 | 系统状态 | 文字 | [audit-display.ts:14](../../apps/web/src/lib/audit-display.ts#L14) |
 | `audit-display.f5412a1e` | 写死 | 第三方密钥 | 文字 | [audit-display.ts:15](../../apps/web/src/lib/audit-display.ts#L15) |
-| `audit-display.b199fa87` | 写死 | 城市 | 文字 | [audit-display.ts:16](../../apps/web/src/lib/audit-display.ts#L16)、255 行 |
+| `audit-display.b199fa87` | 写死 | 城市 | 文字 | [audit-display.ts:16](../../apps/web/src/lib/audit-display.ts#L16)、257 行 |
 | `audit-display.b8b0fa49` | 写死 | 地点 | 文字 | [audit-display.ts:17](../../apps/web/src/lib/audit-display.ts#L17) |
 | `audit-display.8265c78b` | 写死 | 车型组 | 文字 | [audit-display.ts:18](../../apps/web/src/lib/audit-display.ts#L18) |
 | `audit-display.6c141dd5` | 写死 | 附加服务 | 文字 | [audit-display.ts:19](../../apps/web/src/lib/audit-display.ts#L19) |
@@ -55,7 +55,7 @@
 | `audit-display.8e86637f` | 写死 | 加价规则 | 文字 | [audit-display.ts:32](../../apps/web/src/lib/audit-display.ts#L32) |
 | `audit-display.5c984a86` | 写死 | API 客户端 | 文字 | [audit-display.ts:33](../../apps/web/src/lib/audit-display.ts#L33) |
 | `audit-display.f28a57b6` | 写死 | 双人复核 | 文字 | [audit-display.ts:34](../../apps/web/src/lib/audit-display.ts#L34) |
-| `audit-display.20f4b703` | 写死 | 角色 | 文字 | [audit-display.ts:35](../../apps/web/src/lib/audit-display.ts#L35)、246 行 |
+| `audit-display.20f4b703` | 写死 | 角色 | 文字 | [audit-display.ts:35](../../apps/web/src/lib/audit-display.ts#L35)、248 行 |
 | `audit-display.706aa0cc` | 写死 | 供应商的企业信息 | 文字 | [audit-display.ts:36](../../apps/web/src/lib/audit-display.ts#L36) |
 | `audit-display.5c10858c` | 写死 | 供应商的资料修改申请 | 文字 | [audit-display.ts:37](../../apps/web/src/lib/audit-display.ts#L37) |
 | `audit-display.6a2638dc` | 写死 | 供应商的文件 | 文字 | [audit-display.ts:38](../../apps/web/src/lib/audit-display.ts#L38) |
@@ -63,14 +63,14 @@
 | `audit-display.f0160422` | 写死 | 供应商的合同 | 文字 | [audit-display.ts:40](../../apps/web/src/lib/audit-display.ts#L40) |
 | `audit-display.ea9ab885` | 写死 | 司机 | 文字 | [audit-display.ts:41](../../apps/web/src/lib/audit-display.ts#L41) |
 | `audit-display.c6ad4ceb` | 写死 | 车辆 | 文字 | [audit-display.ts:42](../../apps/web/src/lib/audit-display.ts#L42) |
-| `audit-display.602dac13` | 写死 | 订单 | 文字 | [audit-display.ts:43](../../apps/web/src/lib/audit-display.ts#L43)、264 行 |
+| `audit-display.602dac13` | 写死 | 订单 | 文字 | [audit-display.ts:43](../../apps/web/src/lib/audit-display.ts#L43)、266 行 |
 | `audit-display.7cd51667` | 写死 | 司机链接 | 文字 | [audit-display.ts:44](../../apps/web/src/lib/audit-display.ts#L44) |
 | `audit-display.5c5192e9` | 写死 | 供应商的 Webhook 设置 | 文字 | [audit-display.ts:45](../../apps/web/src/lib/audit-display.ts#L45) |
 | `audit-display.12942751` | 写死 | Webhook 推送 | 文字 | [audit-display.ts:46](../../apps/web/src/lib/audit-display.ts#L46) |
 | `audit-display.04a701f6` | 写死 | 通知 | 文字 | [audit-display.ts:47](../../apps/web/src/lib/audit-display.ts#L47) |
 | `audit-display.b8635f09` | 写死 | 免打扰设置 | 文字 | [audit-display.ts:48](../../apps/web/src/lib/audit-display.ts#L48) |
 | `audit-display.d777847d` | 写死 | 平台取消政策 | 文字 | [audit-display.ts:49](../../apps/web/src/lib/audit-display.ts#L49) |
-| `audit-display.65745223` | 写死 | 改单 | 文字 | [audit-display.ts:50](../../apps/web/src/lib/audit-display.ts#L50)、140 行 |
+| `audit-display.65745223` | 写死 | 改单 | 文字 | [audit-display.ts:50](../../apps/web/src/lib/audit-display.ts#L50)、141 行 |
 | `audit-display.7ef90162` | 写死 | 事后加收 | 文字 | [audit-display.ts:51](../../apps/web/src/lib/audit-display.ts#L51) |
 | `audit-display.c387a965` | 写死 | 退款 | 文字 | [audit-display.ts:52](../../apps/web/src/lib/audit-display.ts#L52) |
 | `audit-display.4b065253` | 写死 | 救援改派 | 文字 | [audit-display.ts:53](../../apps/web/src/lib/audit-display.ts#L53) |
@@ -88,195 +88,197 @@
 | `audit-display.c82e1532` | 写死 | 共享库重复区域 | 文字 | [audit-display.ts:65](../../apps/web/src/lib/audit-display.ts#L65) |
 | `audit-display.c3ea6e14` | 写死 | 嵌入组件的嵌入码 | 文字 | [audit-display.ts:66](../../apps/web/src/lib/audit-display.ts#L66) |
 | `audit-display.8d2fcb83` | 写死 | AI 行程解析用的 Claude 型号 | 文字 | [audit-display.ts:67](../../apps/web/src/lib/audit-display.ts#L67) |
-| `audit-display.177b5620` | 写死 | 登录 | 文字 | [audit-display.ts:71](../../apps/web/src/lib/audit-display.ts#L71) |
-| `audit-display.a63f1e5a` | 写死 | 登录失败 | 提示 | [audit-display.ts:72](../../apps/web/src/lib/audit-display.ts#L72) |
-| `audit-display.8de02aa0` | 写死 | 请求邮箱验证码 | 文字 | [audit-display.ts:73](../../apps/web/src/lib/audit-display.ts#L73) |
-| `audit-display.88c6408b` | 写死 | 邮箱验证码校验失败 | 提示 | [audit-display.ts:74](../../apps/web/src/lib/audit-display.ts#L74) |
-| `audit-display.bb62bf47` | 写死 | 标记调整中 | 文字 | [audit-display.ts:75](../../apps/web/src/lib/audit-display.ts#L75) |
-| `audit-display.dd3648e4` | 写死 | 发官网订单链接 | 文字 | [audit-display.ts:76](../../apps/web/src/lib/audit-display.ts#L76) |
-| `audit-display.e27292a6` | 写死 | 退出登录 | 文字 | [audit-display.ts:77](../../apps/web/src/lib/audit-display.ts#L77) |
-| `audit-display.71212c6c` | 写死 | 新建 | 文字 | [audit-display.ts:78](../../apps/web/src/lib/audit-display.ts#L78) |
-| `audit-display.6f170221` | 写死 | 修改 | 文字 | [audit-display.ts:79](../../apps/web/src/lib/audit-display.ts#L79) |
-| `audit-display.b2546e54` | 写死 | 删除 | 文字 | [audit-display.ts:80](../../apps/web/src/lib/audit-display.ts#L80) |
-| `audit-display.404f2800` | 写死 | 邀请 | 文字 | [audit-display.ts:81](../../apps/web/src/lib/audit-display.ts#L81) |
-| `audit-display.306d35cb` | 写死 | 接受邀请 | 文字 | [audit-display.ts:82](../../apps/web/src/lib/audit-display.ts#L82) |
-| `audit-display.301420fc` | 写死 | 停用 | 文字 | [audit-display.ts:83](../../apps/web/src/lib/audit-display.ts#L83) |
-| `audit-display.cac7fee2` | 写死 | 启用 | 文字 | [audit-display.ts:84](../../apps/web/src/lib/audit-display.ts#L84)、105、313 行 |
-| `audit-display.b42c25fd` | 写死 | 暂停 | 文字 | [audit-display.ts:85](../../apps/web/src/lib/audit-display.ts#L85)、106 行 |
-| `audit-display.b1160ec4` | 写死 | 恢复 | 文字 | [audit-display.ts:86](../../apps/web/src/lib/audit-display.ts#L86) |
-| `audit-display.c37ec56e` | 写死 | 上架 | 文字 | [audit-display.ts:87](../../apps/web/src/lib/audit-display.ts#L87) |
-| `audit-display.0cf8841f` | 写死 | 下架 | 文字 | [audit-display.ts:88](../../apps/web/src/lib/audit-display.ts#L88) |
-| `audit-display.6323336d` | 写死 | 改角色 | 文字 | [audit-display.ts:89](../../apps/web/src/lib/audit-display.ts#L89) |
-| `audit-display.cf498891` | 写死 | 修改密码 | 文字 | [audit-display.ts:90](../../apps/web/src/lib/audit-display.ts#L90) |
-| `audit-display.a3bb4b22` | 写死 | 发出密码重置 | 文字 | [audit-display.ts:91](../../apps/web/src/lib/audit-display.ts#L91) |
-| `audit-display.d8a13953` | 写死 | 重设密码 | 文字 | [audit-display.ts:92](../../apps/web/src/lib/audit-display.ts#L92) |
-| `audit-display.204726c9` | 写死 | 查看 | 文字 | [audit-display.ts:93](../../apps/web/src/lib/audit-display.ts#L93) |
-| `audit-display.037576f2` | 写死 | 立即拉取 | 文字 | [audit-display.ts:94](../../apps/web/src/lib/audit-display.ts#L94) |
-| `audit-display.a8d11589` | 写死 | 挂起待确认 | 文字 | [audit-display.ts:95](../../apps/web/src/lib/audit-display.ts#L95) |
-| `audit-display.4851ccc6` | 写死 | 确认生效 | 按钮 | [audit-display.ts:96](../../apps/web/src/lib/audit-display.ts#L96) |
-| `audit-display.8558d385` | 写死 | 放弃 | 文字 | [audit-display.ts:97](../../apps/web/src/lib/audit-display.ts#L97) |
-| `audit-display.328e99dc` | 写死 | 过期告警 | 文字 | [audit-display.ts:98](../../apps/web/src/lib/audit-display.ts#L98) |
-| `audit-display.c7e19059` | 写死 | 发起复核 | 文字 | [audit-display.ts:99](../../apps/web/src/lib/audit-display.ts#L99) |
-| `audit-display.8536450a` | 写死 | 批准 | 文字 | [audit-display.ts:100](../../apps/web/src/lib/audit-display.ts#L100) |
-| `audit-display.da58b902` | 写死 | 驳回 | 文字 | [audit-display.ts:101](../../apps/web/src/lib/audit-display.ts#L101) |
-| `audit-display.5f8bebde` | 写死 | 撤回 | 文字 | [audit-display.ts:102](../../apps/web/src/lib/audit-display.ts#L102) |
-| `audit-display.543d1d54` | 写死 | 轮换密钥 | 文字 | [audit-display.ts:103](../../apps/web/src/lib/audit-display.ts#L103) |
-| `audit-display.ecf8e37a` | 写死 | 吊销 | 文字 | [audit-display.ts:104](../../apps/web/src/lib/audit-display.ts#L104) |
-| `audit-display.b16bb27c` | 写死 | 锁定生效 | 文字 | [audit-display.ts:107](../../apps/web/src/lib/audit-display.ts#L107) |
-| `audit-display.473f2b7a` | 写死 | 解除锁定 | 文字 | [audit-display.ts:108](../../apps/web/src/lib/audit-display.ts#L108) |
-| `audit-display.1a75fcba` | 写死 | 到期失效 | 文字 | [audit-display.ts:109](../../apps/web/src/lib/audit-display.ts#L109) |
-| `audit-display.f6d7abb3` | 写死 | 开始绑定两步验证 | 文字 | [audit-display.ts:110](../../apps/web/src/lib/audit-display.ts#L110) |
-| `audit-display.8bb3400b` | 写死 | 绑定两步验证 | 文字 | [audit-display.ts:111](../../apps/web/src/lib/audit-display.ts#L111) |
-| `audit-display.78bcf7b9` | 写死 | 通过两步验证 | 文字 | [audit-display.ts:112](../../apps/web/src/lib/audit-display.ts#L112) |
-| `audit-display.4b2174bc` | 写死 | 两步验证失败 | 提示 | [audit-display.ts:113](../../apps/web/src/lib/audit-display.ts#L113) |
-| `audit-display.bf0fde0e` | 写死 | 重新生成恢复码 | 文字 | [audit-display.ts:114](../../apps/web/src/lib/audit-display.ts#L114) |
-| `audit-display.f37831c5` | 写死 | 重置两步验证 | 文字 | [audit-display.ts:115](../../apps/web/src/lib/audit-display.ts#L115) |
-| `audit-display.8d466b6d` | 写死 | 清空 IP 白名单 | 文字 | [audit-display.ts:116](../../apps/web/src/lib/audit-display.ts#L116) |
-| `audit-display.92147179` | 写死 | 提交审核 | 按钮 | [audit-display.ts:117](../../apps/web/src/lib/audit-display.ts#L117) |
-| `audit-display.1ffa2876` | 写死 | 退回补充 | 文字 | [audit-display.ts:118](../../apps/web/src/lib/audit-display.ts#L118) |
-| `audit-display.4ed6ad64` | 写死 | 签约 | 文字 | [audit-display.ts:119](../../apps/web/src/lib/audit-display.ts#L119) |
-| `audit-display.cdbf924d` | 写死 | 开始试运营 | 文字 | [audit-display.ts:120](../../apps/web/src/lib/audit-display.ts#L120) |
-| `audit-display.8ec34d71` | 写死 | 转为正式 | 文字 | [audit-display.ts:121](../../apps/web/src/lib/audit-display.ts#L121) |
-| `audit-display.252b87d5` | 写死 | 清退 | 文字 | [audit-display.ts:122](../../apps/web/src/lib/audit-display.ts#L122) |
-| `audit-display.2b050025` | 写死 | 观察期变化 | 文字 | [audit-display.ts:123](../../apps/web/src/lib/audit-display.ts#L123) |
-| `audit-display.24483231` | 写死 | 上传 | 文字 | [audit-display.ts:124](../../apps/web/src/lib/audit-display.ts#L124) |
-| `audit-display.cd6fd131` | 写死 | 要求补充 | 文字 | [audit-display.ts:125](../../apps/web/src/lib/audit-display.ts#L125) |
-| `audit-display.53151807` | 写死 | 填写 | 文字 | [audit-display.ts:126](../../apps/web/src/lib/audit-display.ts#L126) |
-| `audit-display.cda247ca` | 写死 | 更换 | 文字 | [audit-display.ts:127](../../apps/web/src/lib/audit-display.ts#L127) |
-| `audit-display.efea8daa` | 写死 | 清空 | 文字 | [audit-display.ts:128](../../apps/web/src/lib/audit-display.ts#L128) |
-| `audit-display.6a350d6f` | 写死 | 数据迁移 | 文字 | [audit-display.ts:129](../../apps/web/src/lib/audit-display.ts#L129) |
-| `audit-display.8c60aeb0` | 写死 | 指派 | 文字 | [audit-display.ts:130](../../apps/web/src/lib/audit-display.ts#L130) |
-| `audit-display.52766a1f` | 写死 | 改派 | 文字 | [audit-display.ts:131](../../apps/web/src/lib/audit-display.ts#L131)、182 行 |
-| `audit-display.77da2201` | 写死 | 生成 | 文字 | [audit-display.ts:132](../../apps/web/src/lib/audit-display.ts#L132)、190 行 |
-| `audit-display.55bfea07` | 写死 | 重试 | 文字 | [audit-display.ts:133](../../apps/web/src/lib/audit-display.ts#L133) |
-| `audit-display.a8c875da` | 写死 | 发送测试 | 文字 | [audit-display.ts:134](../../apps/web/src/lib/audit-display.ts#L134) |
-| `audit-display.e47d3344` | 写死 | 取消 | 按钮 | [audit-display.ts:135](../../apps/web/src/lib/audit-display.ts#L135) |
-| `audit-display.3acc7ad4` | 写死 | 查看乘客联系方式 | 文字 | [audit-display.ts:136](../../apps/web/src/lib/audit-display.ts#L136) |
-| `audit-display.73eac52b` | 写死 | 查看工单文字原文 | 文字 | [audit-display.ts:137](../../apps/web/src/lib/audit-display.ts#L137) |
-| `audit-display.539f059f` | 写死 | 乘客信息自动脱敏 | 文字 | [audit-display.ts:138](../../apps/web/src/lib/audit-display.ts#L138) |
-| `audit-display.b90aa3a9` | 写死 | 查看证据照片 | 文字 | [audit-display.ts:139](../../apps/web/src/lib/audit-display.ts#L139) |
-| `audit-display.8990c6c6` | 写死 | 审核 | 文字 | [audit-display.ts:141](../../apps/web/src/lib/audit-display.ts#L141) |
-| `audit-display.280a235e` | 写死 | 扣款 | 文字 | [audit-display.ts:142](../../apps/web/src/lib/audit-display.ts#L142) |
-| `audit-display.86c98993` | 写死 | 发起 | 文字 | [audit-display.ts:143](../../apps/web/src/lib/audit-display.ts#L143) |
-| `audit-display.f335dfc5` | 写死 | 发救援单 | 文字 | [audit-display.ts:144](../../apps/web/src/lib/audit-display.ts#L144) |
-| `audit-display.d4601620` | 写死 | 接单 | 文字 | [audit-display.ts:145](../../apps/web/src/lib/audit-display.ts#L145) |
-| `audit-display.8cfd1d99` | 写死 | 免除 | 文字 | [audit-display.ts:146](../../apps/web/src/lib/audit-display.ts#L146) |
-| `audit-display.19eeb7ce` | 写死 | 认领 | 文字 | [audit-display.ts:147](../../apps/web/src/lib/audit-display.ts#L147) |
-| `audit-display.cc92630a` | 写死 | 关闭 | 文字 | [audit-display.ts:148](../../apps/web/src/lib/audit-display.ts#L148) |
-| `audit-display.cd9d84ae` | 写死 | 回复 | 文字 | [audit-display.ts:149](../../apps/web/src/lib/audit-display.ts#L149) |
-| `audit-display.f42328fa` | 写死 | 备注 | 说明 | [audit-display.ts:150](../../apps/web/src/lib/audit-display.ts#L150) |
-| `audit-display.9403b428` | 写死 | 征求供应商意见 | 文字 | [audit-display.ts:151](../../apps/web/src/lib/audit-display.ts#L151)、186 行 |
-| `audit-display.2b1d4f1e` | 写死 | 登记已付 | 文字 | [audit-display.ts:152](../../apps/web/src/lib/audit-display.ts#L152) |
-| `audit-display.53010792` | 写死 | 提异议 | 文字 | [audit-display.ts:153](../../apps/web/src/lib/audit-display.ts#L153)、188 行 |
-| `audit-display.8814e735` | 写死 | 作废 | 文字 | [audit-display.ts:154](../../apps/web/src/lib/audit-display.ts#L154) |
-| `audit-display.6d0f821c` | 写死 | 下载 | 文字 | [audit-display.ts:155](../../apps/web/src/lib/audit-display.ts#L155)、190 行 |
-| `audit-display.00ac42d8` | 写死 | 下载前核对不通过 | 提示 | [audit-display.ts:156](../../apps/web/src/lib/audit-display.ts#L156) |
-| `audit-display.04105d87` | 写死 | 派车 | 文字 | [audit-display.ts:182](../../apps/web/src/lib/audit-display.ts#L182) |
-| `audit-display.3aa18aff` | 写死 | 取消订单 | 按钮 | [audit-display.ts:182](../../apps/web/src/lib/audit-display.ts#L182) |
-| `audit-display.b2a73198` | 写死 | 重发司机链接邮件 | 文字 | [audit-display.ts:183](../../apps/web/src/lib/audit-display.ts#L183) |
-| `audit-display.d2e242c9` | 写死 | 生成司机链接 | 文字 | [audit-display.ts:183](../../apps/web/src/lib/audit-display.ts#L183) |
-| `audit-display.7e1b1a5d` | 写死 | 发起救援 | 文字 | [audit-display.ts:184](../../apps/web/src/lib/audit-display.ts#L184) |
-| `audit-display.9f7f59e4` | 写死 | 认定不可抗力 | 文字 | [audit-display.ts:184](../../apps/web/src/lib/audit-display.ts#L184) |
-| `audit-display.d2bee7d0` | 写死 | 接救援单 | 文字 | [audit-display.ts:185](../../apps/web/src/lib/audit-display.ts#L185) |
-| `audit-display.f3d66422` | 写死 | 拒绝救援单 | 文字 | [audit-display.ts:185](../../apps/web/src/lib/audit-display.ts#L185) |
-| `audit-display.37485970` | 写死 | 登记另付已付 | 文字 | [audit-display.ts:186](../../apps/web/src/lib/audit-display.ts#L186) |
-| `audit-display.5615d566` | 写死 | 内部备注 | 说明 | [audit-display.ts:186](../../apps/web/src/lib/audit-display.ts#L186)、272 行 |
-| `audit-display.5a03c24c` | 写死 | 判定 | 文字 | [audit-display.ts:186](../../apps/web/src/lib/audit-display.ts#L186) |
-| `audit-display.72c79316` | 写死 | 关闭工单 | 文字 | [audit-display.ts:186](../../apps/web/src/lib/audit-display.ts#L186) |
-| `audit-display.87462764` | 写死 | 认领 / 转交 | 文字 | [audit-display.ts:186](../../apps/web/src/lib/audit-display.ts#L186)、187 行 |
-| `audit-display.a82f7415` | 写死 | 留言（供应商看得到） | 文字 | [audit-display.ts:186](../../apps/web/src/lib/audit-display.ts#L186) |
-| `audit-display.483401b5` | 写死 | 写说明关闭 | 文字 | [audit-display.ts:187](../../apps/web/src/lib/audit-display.ts#L187) |
-| `audit-display.3a19c862` | 写死 | 答复异议 | 文字 | [audit-display.ts:188](../../apps/web/src/lib/audit-display.ts#L188) |
-| `audit-display.6bf5a05e` | 写死 | 确认账单 | 按钮 | [audit-display.ts:188](../../apps/web/src/lib/audit-display.ts#L188) |
-| `audit-display.7cbf93b3` | 写死 | 出账 | 文字 | [audit-display.ts:188](../../apps/web/src/lib/audit-display.ts#L188) |
-| `audit-display.9feb10bb` | 写死 | 作废并重出 | 文字 | [audit-display.ts:188](../../apps/web/src/lib/audit-display.ts#L188) |
-| `audit-display.6d43262c` | 写死 | 锁定 | 文字 | [audit-display.ts:189](../../apps/web/src/lib/audit-display.ts#L189) |
-| `audit-display.b07a101d` | 写死 | 全部付完 | 文字 | [audit-display.ts:189](../../apps/web/src/lib/audit-display.ts#L189) |
-| `audit-display.e713bf2b` | 写死 | 收尾（已付款） | 文字 | [audit-display.ts:190](../../apps/web/src/lib/audit-display.ts#L190) |
-| `audit-display.6428b1eb` | 写死 | 审核加收 | 文字 | [audit-display.ts:191](../../apps/web/src/lib/audit-display.ts#L191) |
-| `audit-display.e43d90c8` | 写死 | 测试一下 | 文字 | [audit-display.ts:192](../../apps/web/src/lib/audit-display.ts#L192) |
-| `audit-display.53755ba4` | 写死 | 查看客人的联系方式 | 文字 | [audit-display.ts:193](../../apps/web/src/lib/audit-display.ts#L193) |
-| `audit-display.b7bab14b` | 写死 | 到期清除联系方式 | 文字 | [audit-display.ts:193](../../apps/web/src/lib/audit-display.ts#L193) |
-| `audit-display.e1aa761e` | 写死 | 改状态 | 文字 | [audit-display.ts:193](../../apps/web/src/lib/audit-display.ts#L193) |
-| `audit-display.4a954a42` | 写死 | 结束验收会话 | 文字 | [audit-display.ts:195](../../apps/web/src/lib/audit-display.ts#L195) |
-| `audit-display.5397ff8e` | 写死 | 解锁验收会话 | 文字 | [audit-display.ts:195](../../apps/web/src/lib/audit-display.ts#L195) |
-| `audit-display.aa87ec10` | 写死 | 验收口令不对 | 提示 | [audit-display.ts:195](../../apps/web/src/lib/audit-display.ts#L195) |
-| `audit-display.78b0dd70` | 写死 | 撤销重复标记 | 文字 | [audit-display.ts:197](../../apps/web/src/lib/audit-display.ts#L197) |
-| `audit-display.82ceaaff` | 写死 | 标为重复（在共享库里隐藏） | 文字 | [audit-display.ts:197](../../apps/web/src/lib/audit-display.ts#L197) |
-| `audit-display.64273db0` | 写死 | 修改嵌入码（名称、允许的网站、默认值、启用 / 停用） | 文字 | [audit-display.ts:198](../../apps/web/src/lib/audit-display.ts#L198) |
-| `audit-display.91ed024d` | 写死 | 生成嵌入码 | 文字 | [audit-display.ts:198](../../apps/web/src/lib/audit-display.ts#L198) |
-| `audit-display.f68d0b52` | 写死 | 切换 AI 行程解析用的 Claude 型号 | 文字 | [audit-display.ts:199](../../apps/web/src/lib/audit-display.ts#L199) |
-| `audit-display.38eab86e` | 写死 | 没有登录的访问者 | 文字 | [audit-display.ts:202](../../apps/web/src/lib/audit-display.ts#L202) |
-| `audit-display.76761ff3` | 写死 | 系统（命令行或定时任务） | 文字 | [audit-display.ts:202](../../apps/web/src/lib/audit-display.ts#L202) |
-| `audit-display.6c7b80e6` | 写死 | 定时任务 | 文字 | [audit-display.ts:203](../../apps/web/src/lib/audit-display.ts#L203) |
-| `audit-display.6ff3303e` | 写死 | 接口 | 文字 | [audit-display.ts:203](../../apps/web/src/lib/audit-display.ts#L203) |
-| `audit-display.7739d49e` | 写死 | 命令行 | 文字 | [audit-display.ts:203](../../apps/web/src/lib/audit-display.ts#L203) |
-| `audit-display.a51bb046` | 写死 | 后台 | 文字 | [audit-display.ts:203](../../apps/web/src/lib/audit-display.ts#L203) |
-| `audit-display.0385caeb` | 写死 | 回复客人（客人和渠道看得到，供应商看不到） | 文字 | [audit-display.ts:215](../../apps/web/src/lib/audit-display.ts#L215) |
-| `audit-display.a5a3955f` | 写死 | 名称 | 名称 | [audit-display.ts:244](../../apps/web/src/lib/audit-display.ts#L244) |
-| `audit-display.7654c510` | 写死 | 邮箱 | 文字 | [audit-display.ts:245](../../apps/web/src/lib/audit-display.ts#L245) |
-| `audit-display.fe0e8128` | 写死 | 状态 | 文字 | [audit-display.ts:247](../../apps/web/src/lib/audit-display.ts#L247) |
-| `audit-display.66e955db` | 写死 | 原因 | 提示 | [audit-display.ts:248](../../apps/web/src/lib/audit-display.ts#L248) |
-| `audit-display.bc800439` | 写死 | 用了临时密码 | 文字 | [audit-display.ts:249](../../apps/web/src/lib/audit-display.ts#L249) |
-| `audit-display.b94489da` | 写死 | 必须先改密码 | 文字 | [audit-display.ts:250](../../apps/web/src/lib/audit-display.ts#L250) |
-| `audit-display.0d64471f` | 写死 | 编码 | 文字 | [audit-display.ts:251](../../apps/web/src/lib/audit-display.ts#L251) |
-| `audit-display.ae6057f4` | 写死 | 标题 | 标题 | [audit-display.ts:252](../../apps/web/src/lib/audit-display.ts#L252) |
-| `audit-display.11a6ac4d` | 写死 | 打码后的密钥（只有末 4 位） | 说明 | [audit-display.ts:253](../../apps/web/src/lib/audit-display.ts#L253) |
-| `audit-display.21793ab7` | 写死 | 币种 | 文字 | [audit-display.ts:254](../../apps/web/src/lib/audit-display.ts#L254) |
-| `audit-display.0b7ae9a1` | 写死 | 品类 | 文字 | [audit-display.ts:257](../../apps/web/src/lib/audit-display.ts#L257) |
-| `audit-display.6dbfcd99` | 写死 | 库存模式 | 文字 | [audit-display.ts:258](../../apps/web/src/lib/audit-display.ts#L258) |
-| `audit-display.09023dff` | 写死 | 取整单位 | 文字 | [audit-display.ts:259](../../apps/web/src/lib/audit-display.ts#L259) |
-| `audit-display.30625e85` | 写死 | 版本号 | 文字 | [audit-display.ts:260](../../apps/web/src/lib/audit-display.ts#L260) |
-| `audit-display.27006714` | 写死 | 项目 | 文字 | [audit-display.ts:261](../../apps/web/src/lib/audit-display.ts#L261) |
-| `audit-display.907b478b` | 写死 | 数量 | 文字 | [audit-display.ts:262](../../apps/web/src/lib/audit-display.ts#L262) |
-| `audit-display.d78d54c0` | 写死 | 类型 | 文字 | [audit-display.ts:263](../../apps/web/src/lib/audit-display.ts#L263) |
-| `audit-display.05c4d8f5` | 写死 | 优先级 | 文字 | [audit-display.ts:265](../../apps/web/src/lib/audit-display.ts#L265) |
-| `audit-display.73ed7a37` | 写死 | 处理人 | 文字 | [audit-display.ts:266](../../apps/web/src/lib/audit-display.ts#L266) |
-| `audit-display.b3ca5121` | 写死 | 工单号 | 文字 | [audit-display.ts:267](../../apps/web/src/lib/audit-display.ts#L267) |
-| `audit-display.3f8c1a6d` | 写死 | 结论 | 文字 | [audit-display.ts:268](../../apps/web/src/lib/audit-display.ts#L268) |
-| `audit-display.4212a593` | 写死 | 责任方 | 文字 | [audit-display.ts:269](../../apps/web/src/lib/audit-display.ts#L269) |
-| `audit-display.5d695f19` | 写死 | 说明 | 说明 | [audit-display.ts:270](../../apps/web/src/lib/audit-display.ts#L270) |
-| `audit-display.061aec17` | 写死 | 内容 | 邮件正文 | [audit-display.ts:271](../../apps/web/src/lib/audit-display.ts#L271) |
-| `audit-display.d2aebff7` | 写死 | 处理说明 | 文字 | [audit-display.ts:273](../../apps/web/src/lib/audit-display.ts#L273) |
-| `audit-display.07023b32` | 写死 | 凭证号 | 文字 | [audit-display.ts:274](../../apps/web/src/lib/audit-display.ts#L274) |
-| `audit-display.5e857c21` | 写死 | 账单号 | 文字 | [audit-display.ts:275](../../apps/web/src/lib/audit-display.ts#L275) |
-| `audit-display.baaa1549` | 写死 | 周期 | 文字 | [audit-display.ts:276](../../apps/web/src/lib/audit-display.ts#L276) |
-| `audit-display.9b33c777` | 写死 | 所在国家 | 文字 | [audit-display.ts:277](../../apps/web/src/lib/audit-display.ts#L277) |
-| `audit-display.204c0248` | 写死 | 法定名称 | 名称 | [audit-display.ts:278](../../apps/web/src/lib/audit-display.ts#L278) |
-| `audit-display.3a8f8444` | 写死 | 登记号 | 文字 | [audit-display.ts:279](../../apps/web/src/lib/audit-display.ts#L279) |
-| `audit-display.26a20d93` | 写死 | 注册地址 | 文字 | [audit-display.ts:280](../../apps/web/src/lib/audit-display.ts#L280) |
-| `audit-display.621e18d0` | 写死 | 联系人 | 名称 | [audit-display.ts:281](../../apps/web/src/lib/audit-display.ts#L281) |
-| `audit-display.c97c3b35` | 写死 | 联系电话 | 文字 | [audit-display.ts:282](../../apps/web/src/lib/audit-display.ts#L282) |
-| `audit-display.91ded7b3` | 写死 | 联系邮箱 | 文字 | [audit-display.ts:283](../../apps/web/src/lib/audit-display.ts#L283) |
-| `audit-display.2985fdb1` | 写死 | 摘要 | 说明 | [audit-display.ts:288](../../apps/web/src/lib/audit-display.ts#L288) |
-| `audit-display.39fa7361` | 写死 | 申请的内容 | 文字 | [audit-display.ts:288](../../apps/web/src/lib/audit-display.ts#L288) |
-| `audit-display.49fc9441` | 写死 | 复核对象的编号 | 文字 | [audit-display.ts:288](../../apps/web/src/lib/audit-display.ts#L288) |
-| `audit-display.9ad78f24` | 写死 | 复核类别 | 文字 | [audit-display.ts:288](../../apps/web/src/lib/audit-display.ts#L288) |
-| `audit-display.9dfb9974` | 写死 | 复核对象的类型 | 文字 | [audit-display.ts:288](../../apps/web/src/lib/audit-display.ts#L288) |
-| `audit-display.e4574c4f` | 写死 | 用途 | 文字 | [audit-display.ts:290](../../apps/web/src/lib/audit-display.ts#L290) |
-| `audit-display.55f22837` | 写死 | 已暂停 | 文字 | [audit-display.ts:301](../../apps/web/src/lib/audit-display.ts#L301) |
-| `audit-display.f97c1f14` | 写死 | 正常 | 文字 | [audit-display.ts:301](../../apps/web/src/lib/audit-display.ts#L301) |
-| `audit-display.5ac0c429` | 写死 | 租户 | 文字 | [audit-display.ts:302](../../apps/web/src/lib/audit-display.ts#L302) |
-| `audit-display.1dc5c234` | 写死 | 已付款 | 文字 | [audit-display.ts:305](../../apps/web/src/lib/audit-display.ts#L305)、306 行 |
-| `audit-display.2db8c76d` | 写死 | 收账单中 | 文字 | [audit-display.ts:305](../../apps/web/src/lib/audit-display.ts#L305) |
-| `audit-display.5780a037` | 写死 | 已锁定 | 文字 | [audit-display.ts:305](../../apps/web/src/lib/audit-display.ts#L305) |
-| `audit-display.8afc30ca` | 写死 | 已生成 | 文字 | [audit-display.ts:306](../../apps/web/src/lib/audit-display.ts#L306) |
-| `audit-display.e073142c` | 写死 | 已下载 | 文字 | [audit-display.ts:306](../../apps/web/src/lib/audit-display.ts#L306) |
-| `audit-display.eb664e60` | 写死 | 已作废 | 文字 | [audit-display.ts:306](../../apps/web/src/lib/audit-display.ts#L306) |
-| `audit-display.39c73f95` | 写死 | 已撤回 | 文字 | [audit-display.ts:307](../../apps/web/src/lib/audit-display.ts#L307)、308 行 |
-| `audit-display.8403a542` | 写死 | 已被替换 | 文字 | [audit-display.ts:307](../../apps/web/src/lib/audit-display.ts#L307) |
-| `audit-display.de970ffa` | 写死 | 待审核 | 文字 | [audit-display.ts:307](../../apps/web/src/lib/audit-display.ts#L307)、308 行 |
-| `audit-display.e3f14ea8` | 写死 | 已驳回 | 文字 | [audit-display.ts:307](../../apps/web/src/lib/audit-display.ts#L307)、308 行 |
-| `audit-display.f7c85404` | 写死 | 生效中 | 文字 | [audit-display.ts:307](../../apps/web/src/lib/audit-display.ts#L307) |
-| `audit-display.083532ee` | 写死 | 已生效 | 文字 | [audit-display.ts:308](../../apps/web/src/lib/audit-display.ts#L308) |
-| `audit-display.204d212c` | 写死 | 待激活 | 文字 | [audit-display.ts:311](../../apps/web/src/lib/audit-display.ts#L311) |
-| `audit-display.4141fe64` | 写死 | 已停用 | 文字 | [audit-display.ts:311](../../apps/web/src/lib/audit-display.ts#L311)、313 行 |
-| `audit-display.8c876645` | 写死 | 在用 | 文字 | [audit-display.ts:311](../../apps/web/src/lib/audit-display.ts#L311) |
-| `audit-display.9fdae6c7` | 写死 | 限量 | 文字 | [audit-display.ts:319](../../apps/web/src/lib/audit-display.ts#L319) |
-| `audit-display.de32caea` | 写死 | 不限量 | 文字 | [audit-display.ts:319](../../apps/web/src/lib/audit-display.ts#L319) |
-| `audit-display.b16aae97` | 写死 | （空） | 文字 | [audit-display.ts:337](../../apps/web/src/lib/audit-display.ts#L337) |
-| `audit-display.84df4d8a` | 写死 | 是 | 文字 | [audit-display.ts:338](../../apps/web/src/lib/audit-display.ts#L338) |
-| `audit-display.b331610c` | 写死 | 否 | 文字 | [audit-display.ts:338](../../apps/web/src/lib/audit-display.ts#L338) |
+| `audit-display.5d4cf727` | 写死 | 法律文案的待补项 | 文字 | [audit-display.ts:68](../../apps/web/src/lib/audit-display.ts#L68) |
+| `audit-display.177b5620` | 写死 | 登录 | 文字 | [audit-display.ts:72](../../apps/web/src/lib/audit-display.ts#L72) |
+| `audit-display.a63f1e5a` | 写死 | 登录失败 | 提示 | [audit-display.ts:73](../../apps/web/src/lib/audit-display.ts#L73) |
+| `audit-display.8de02aa0` | 写死 | 请求邮箱验证码 | 文字 | [audit-display.ts:74](../../apps/web/src/lib/audit-display.ts#L74) |
+| `audit-display.88c6408b` | 写死 | 邮箱验证码校验失败 | 提示 | [audit-display.ts:75](../../apps/web/src/lib/audit-display.ts#L75) |
+| `audit-display.bb62bf47` | 写死 | 标记调整中 | 文字 | [audit-display.ts:76](../../apps/web/src/lib/audit-display.ts#L76) |
+| `audit-display.dd3648e4` | 写死 | 发官网订单链接 | 文字 | [audit-display.ts:77](../../apps/web/src/lib/audit-display.ts#L77) |
+| `audit-display.e27292a6` | 写死 | 退出登录 | 文字 | [audit-display.ts:78](../../apps/web/src/lib/audit-display.ts#L78) |
+| `audit-display.71212c6c` | 写死 | 新建 | 文字 | [audit-display.ts:79](../../apps/web/src/lib/audit-display.ts#L79) |
+| `audit-display.6f170221` | 写死 | 修改 | 文字 | [audit-display.ts:80](../../apps/web/src/lib/audit-display.ts#L80) |
+| `audit-display.b2546e54` | 写死 | 删除 | 文字 | [audit-display.ts:81](../../apps/web/src/lib/audit-display.ts#L81) |
+| `audit-display.404f2800` | 写死 | 邀请 | 文字 | [audit-display.ts:82](../../apps/web/src/lib/audit-display.ts#L82) |
+| `audit-display.306d35cb` | 写死 | 接受邀请 | 文字 | [audit-display.ts:83](../../apps/web/src/lib/audit-display.ts#L83) |
+| `audit-display.301420fc` | 写死 | 停用 | 文字 | [audit-display.ts:84](../../apps/web/src/lib/audit-display.ts#L84) |
+| `audit-display.cac7fee2` | 写死 | 启用 | 文字 | [audit-display.ts:85](../../apps/web/src/lib/audit-display.ts#L85)、106、315 行 |
+| `audit-display.b42c25fd` | 写死 | 暂停 | 文字 | [audit-display.ts:86](../../apps/web/src/lib/audit-display.ts#L86)、107 行 |
+| `audit-display.b1160ec4` | 写死 | 恢复 | 文字 | [audit-display.ts:87](../../apps/web/src/lib/audit-display.ts#L87) |
+| `audit-display.c37ec56e` | 写死 | 上架 | 文字 | [audit-display.ts:88](../../apps/web/src/lib/audit-display.ts#L88) |
+| `audit-display.0cf8841f` | 写死 | 下架 | 文字 | [audit-display.ts:89](../../apps/web/src/lib/audit-display.ts#L89) |
+| `audit-display.6323336d` | 写死 | 改角色 | 文字 | [audit-display.ts:90](../../apps/web/src/lib/audit-display.ts#L90) |
+| `audit-display.cf498891` | 写死 | 修改密码 | 文字 | [audit-display.ts:91](../../apps/web/src/lib/audit-display.ts#L91) |
+| `audit-display.a3bb4b22` | 写死 | 发出密码重置 | 文字 | [audit-display.ts:92](../../apps/web/src/lib/audit-display.ts#L92) |
+| `audit-display.d8a13953` | 写死 | 重设密码 | 文字 | [audit-display.ts:93](../../apps/web/src/lib/audit-display.ts#L93) |
+| `audit-display.204726c9` | 写死 | 查看 | 文字 | [audit-display.ts:94](../../apps/web/src/lib/audit-display.ts#L94) |
+| `audit-display.037576f2` | 写死 | 立即拉取 | 文字 | [audit-display.ts:95](../../apps/web/src/lib/audit-display.ts#L95) |
+| `audit-display.a8d11589` | 写死 | 挂起待确认 | 文字 | [audit-display.ts:96](../../apps/web/src/lib/audit-display.ts#L96) |
+| `audit-display.4851ccc6` | 写死 | 确认生效 | 按钮 | [audit-display.ts:97](../../apps/web/src/lib/audit-display.ts#L97) |
+| `audit-display.8558d385` | 写死 | 放弃 | 文字 | [audit-display.ts:98](../../apps/web/src/lib/audit-display.ts#L98) |
+| `audit-display.328e99dc` | 写死 | 过期告警 | 文字 | [audit-display.ts:99](../../apps/web/src/lib/audit-display.ts#L99) |
+| `audit-display.c7e19059` | 写死 | 发起复核 | 文字 | [audit-display.ts:100](../../apps/web/src/lib/audit-display.ts#L100) |
+| `audit-display.8536450a` | 写死 | 批准 | 文字 | [audit-display.ts:101](../../apps/web/src/lib/audit-display.ts#L101) |
+| `audit-display.da58b902` | 写死 | 驳回 | 文字 | [audit-display.ts:102](../../apps/web/src/lib/audit-display.ts#L102) |
+| `audit-display.5f8bebde` | 写死 | 撤回 | 文字 | [audit-display.ts:103](../../apps/web/src/lib/audit-display.ts#L103) |
+| `audit-display.543d1d54` | 写死 | 轮换密钥 | 文字 | [audit-display.ts:104](../../apps/web/src/lib/audit-display.ts#L104) |
+| `audit-display.ecf8e37a` | 写死 | 吊销 | 文字 | [audit-display.ts:105](../../apps/web/src/lib/audit-display.ts#L105) |
+| `audit-display.b16bb27c` | 写死 | 锁定生效 | 文字 | [audit-display.ts:108](../../apps/web/src/lib/audit-display.ts#L108) |
+| `audit-display.473f2b7a` | 写死 | 解除锁定 | 文字 | [audit-display.ts:109](../../apps/web/src/lib/audit-display.ts#L109) |
+| `audit-display.1a75fcba` | 写死 | 到期失效 | 文字 | [audit-display.ts:110](../../apps/web/src/lib/audit-display.ts#L110) |
+| `audit-display.f6d7abb3` | 写死 | 开始绑定两步验证 | 文字 | [audit-display.ts:111](../../apps/web/src/lib/audit-display.ts#L111) |
+| `audit-display.8bb3400b` | 写死 | 绑定两步验证 | 文字 | [audit-display.ts:112](../../apps/web/src/lib/audit-display.ts#L112) |
+| `audit-display.78bcf7b9` | 写死 | 通过两步验证 | 文字 | [audit-display.ts:113](../../apps/web/src/lib/audit-display.ts#L113) |
+| `audit-display.4b2174bc` | 写死 | 两步验证失败 | 提示 | [audit-display.ts:114](../../apps/web/src/lib/audit-display.ts#L114) |
+| `audit-display.bf0fde0e` | 写死 | 重新生成恢复码 | 文字 | [audit-display.ts:115](../../apps/web/src/lib/audit-display.ts#L115) |
+| `audit-display.f37831c5` | 写死 | 重置两步验证 | 文字 | [audit-display.ts:116](../../apps/web/src/lib/audit-display.ts#L116) |
+| `audit-display.8d466b6d` | 写死 | 清空 IP 白名单 | 文字 | [audit-display.ts:117](../../apps/web/src/lib/audit-display.ts#L117) |
+| `audit-display.92147179` | 写死 | 提交审核 | 按钮 | [audit-display.ts:118](../../apps/web/src/lib/audit-display.ts#L118) |
+| `audit-display.1ffa2876` | 写死 | 退回补充 | 文字 | [audit-display.ts:119](../../apps/web/src/lib/audit-display.ts#L119) |
+| `audit-display.4ed6ad64` | 写死 | 签约 | 文字 | [audit-display.ts:120](../../apps/web/src/lib/audit-display.ts#L120) |
+| `audit-display.cdbf924d` | 写死 | 开始试运营 | 文字 | [audit-display.ts:121](../../apps/web/src/lib/audit-display.ts#L121) |
+| `audit-display.8ec34d71` | 写死 | 转为正式 | 文字 | [audit-display.ts:122](../../apps/web/src/lib/audit-display.ts#L122) |
+| `audit-display.252b87d5` | 写死 | 清退 | 文字 | [audit-display.ts:123](../../apps/web/src/lib/audit-display.ts#L123) |
+| `audit-display.2b050025` | 写死 | 观察期变化 | 文字 | [audit-display.ts:124](../../apps/web/src/lib/audit-display.ts#L124) |
+| `audit-display.24483231` | 写死 | 上传 | 文字 | [audit-display.ts:125](../../apps/web/src/lib/audit-display.ts#L125) |
+| `audit-display.cd6fd131` | 写死 | 要求补充 | 文字 | [audit-display.ts:126](../../apps/web/src/lib/audit-display.ts#L126) |
+| `audit-display.53151807` | 写死 | 填写 | 文字 | [audit-display.ts:127](../../apps/web/src/lib/audit-display.ts#L127) |
+| `audit-display.cda247ca` | 写死 | 更换 | 文字 | [audit-display.ts:128](../../apps/web/src/lib/audit-display.ts#L128) |
+| `audit-display.efea8daa` | 写死 | 清空 | 文字 | [audit-display.ts:129](../../apps/web/src/lib/audit-display.ts#L129) |
+| `audit-display.6a350d6f` | 写死 | 数据迁移 | 文字 | [audit-display.ts:130](../../apps/web/src/lib/audit-display.ts#L130) |
+| `audit-display.8c60aeb0` | 写死 | 指派 | 文字 | [audit-display.ts:131](../../apps/web/src/lib/audit-display.ts#L131) |
+| `audit-display.52766a1f` | 写死 | 改派 | 文字 | [audit-display.ts:132](../../apps/web/src/lib/audit-display.ts#L132)、183 行 |
+| `audit-display.77da2201` | 写死 | 生成 | 文字 | [audit-display.ts:133](../../apps/web/src/lib/audit-display.ts#L133)、191 行 |
+| `audit-display.55bfea07` | 写死 | 重试 | 文字 | [audit-display.ts:134](../../apps/web/src/lib/audit-display.ts#L134) |
+| `audit-display.a8c875da` | 写死 | 发送测试 | 文字 | [audit-display.ts:135](../../apps/web/src/lib/audit-display.ts#L135) |
+| `audit-display.e47d3344` | 写死 | 取消 | 按钮 | [audit-display.ts:136](../../apps/web/src/lib/audit-display.ts#L136) |
+| `audit-display.3acc7ad4` | 写死 | 查看乘客联系方式 | 文字 | [audit-display.ts:137](../../apps/web/src/lib/audit-display.ts#L137) |
+| `audit-display.73eac52b` | 写死 | 查看工单文字原文 | 文字 | [audit-display.ts:138](../../apps/web/src/lib/audit-display.ts#L138) |
+| `audit-display.539f059f` | 写死 | 乘客信息自动脱敏 | 文字 | [audit-display.ts:139](../../apps/web/src/lib/audit-display.ts#L139) |
+| `audit-display.b90aa3a9` | 写死 | 查看证据照片 | 文字 | [audit-display.ts:140](../../apps/web/src/lib/audit-display.ts#L140) |
+| `audit-display.8990c6c6` | 写死 | 审核 | 文字 | [audit-display.ts:142](../../apps/web/src/lib/audit-display.ts#L142) |
+| `audit-display.280a235e` | 写死 | 扣款 | 文字 | [audit-display.ts:143](../../apps/web/src/lib/audit-display.ts#L143) |
+| `audit-display.86c98993` | 写死 | 发起 | 文字 | [audit-display.ts:144](../../apps/web/src/lib/audit-display.ts#L144) |
+| `audit-display.f335dfc5` | 写死 | 发救援单 | 文字 | [audit-display.ts:145](../../apps/web/src/lib/audit-display.ts#L145) |
+| `audit-display.d4601620` | 写死 | 接单 | 文字 | [audit-display.ts:146](../../apps/web/src/lib/audit-display.ts#L146) |
+| `audit-display.8cfd1d99` | 写死 | 免除 | 文字 | [audit-display.ts:147](../../apps/web/src/lib/audit-display.ts#L147) |
+| `audit-display.19eeb7ce` | 写死 | 认领 | 文字 | [audit-display.ts:148](../../apps/web/src/lib/audit-display.ts#L148) |
+| `audit-display.cc92630a` | 写死 | 关闭 | 文字 | [audit-display.ts:149](../../apps/web/src/lib/audit-display.ts#L149) |
+| `audit-display.cd9d84ae` | 写死 | 回复 | 文字 | [audit-display.ts:150](../../apps/web/src/lib/audit-display.ts#L150) |
+| `audit-display.f42328fa` | 写死 | 备注 | 说明 | [audit-display.ts:151](../../apps/web/src/lib/audit-display.ts#L151) |
+| `audit-display.9403b428` | 写死 | 征求供应商意见 | 文字 | [audit-display.ts:152](../../apps/web/src/lib/audit-display.ts#L152)、187 行 |
+| `audit-display.2b1d4f1e` | 写死 | 登记已付 | 文字 | [audit-display.ts:153](../../apps/web/src/lib/audit-display.ts#L153) |
+| `audit-display.53010792` | 写死 | 提异议 | 文字 | [audit-display.ts:154](../../apps/web/src/lib/audit-display.ts#L154)、189 行 |
+| `audit-display.8814e735` | 写死 | 作废 | 文字 | [audit-display.ts:155](../../apps/web/src/lib/audit-display.ts#L155) |
+| `audit-display.6d0f821c` | 写死 | 下载 | 文字 | [audit-display.ts:156](../../apps/web/src/lib/audit-display.ts#L156)、191 行 |
+| `audit-display.00ac42d8` | 写死 | 下载前核对不通过 | 提示 | [audit-display.ts:157](../../apps/web/src/lib/audit-display.ts#L157) |
+| `audit-display.04105d87` | 写死 | 派车 | 文字 | [audit-display.ts:183](../../apps/web/src/lib/audit-display.ts#L183) |
+| `audit-display.3aa18aff` | 写死 | 取消订单 | 按钮 | [audit-display.ts:183](../../apps/web/src/lib/audit-display.ts#L183) |
+| `audit-display.b2a73198` | 写死 | 重发司机链接邮件 | 文字 | [audit-display.ts:184](../../apps/web/src/lib/audit-display.ts#L184) |
+| `audit-display.d2e242c9` | 写死 | 生成司机链接 | 文字 | [audit-display.ts:184](../../apps/web/src/lib/audit-display.ts#L184) |
+| `audit-display.7e1b1a5d` | 写死 | 发起救援 | 文字 | [audit-display.ts:185](../../apps/web/src/lib/audit-display.ts#L185) |
+| `audit-display.9f7f59e4` | 写死 | 认定不可抗力 | 文字 | [audit-display.ts:185](../../apps/web/src/lib/audit-display.ts#L185) |
+| `audit-display.d2bee7d0` | 写死 | 接救援单 | 文字 | [audit-display.ts:186](../../apps/web/src/lib/audit-display.ts#L186) |
+| `audit-display.f3d66422` | 写死 | 拒绝救援单 | 文字 | [audit-display.ts:186](../../apps/web/src/lib/audit-display.ts#L186) |
+| `audit-display.37485970` | 写死 | 登记另付已付 | 文字 | [audit-display.ts:187](../../apps/web/src/lib/audit-display.ts#L187) |
+| `audit-display.5615d566` | 写死 | 内部备注 | 说明 | [audit-display.ts:187](../../apps/web/src/lib/audit-display.ts#L187)、274 行 |
+| `audit-display.5a03c24c` | 写死 | 判定 | 文字 | [audit-display.ts:187](../../apps/web/src/lib/audit-display.ts#L187) |
+| `audit-display.72c79316` | 写死 | 关闭工单 | 文字 | [audit-display.ts:187](../../apps/web/src/lib/audit-display.ts#L187) |
+| `audit-display.87462764` | 写死 | 认领 / 转交 | 文字 | [audit-display.ts:187](../../apps/web/src/lib/audit-display.ts#L187)、188 行 |
+| `audit-display.a82f7415` | 写死 | 留言（供应商看得到） | 文字 | [audit-display.ts:187](../../apps/web/src/lib/audit-display.ts#L187) |
+| `audit-display.483401b5` | 写死 | 写说明关闭 | 文字 | [audit-display.ts:188](../../apps/web/src/lib/audit-display.ts#L188) |
+| `audit-display.3a19c862` | 写死 | 答复异议 | 文字 | [audit-display.ts:189](../../apps/web/src/lib/audit-display.ts#L189) |
+| `audit-display.6bf5a05e` | 写死 | 确认账单 | 按钮 | [audit-display.ts:189](../../apps/web/src/lib/audit-display.ts#L189) |
+| `audit-display.7cbf93b3` | 写死 | 出账 | 文字 | [audit-display.ts:189](../../apps/web/src/lib/audit-display.ts#L189) |
+| `audit-display.9feb10bb` | 写死 | 作废并重出 | 文字 | [audit-display.ts:189](../../apps/web/src/lib/audit-display.ts#L189) |
+| `audit-display.6d43262c` | 写死 | 锁定 | 文字 | [audit-display.ts:190](../../apps/web/src/lib/audit-display.ts#L190) |
+| `audit-display.b07a101d` | 写死 | 全部付完 | 文字 | [audit-display.ts:190](../../apps/web/src/lib/audit-display.ts#L190) |
+| `audit-display.e713bf2b` | 写死 | 收尾（已付款） | 文字 | [audit-display.ts:191](../../apps/web/src/lib/audit-display.ts#L191) |
+| `audit-display.6428b1eb` | 写死 | 审核加收 | 文字 | [audit-display.ts:192](../../apps/web/src/lib/audit-display.ts#L192) |
+| `audit-display.e43d90c8` | 写死 | 测试一下 | 文字 | [audit-display.ts:193](../../apps/web/src/lib/audit-display.ts#L193) |
+| `audit-display.53755ba4` | 写死 | 查看客人的联系方式 | 文字 | [audit-display.ts:194](../../apps/web/src/lib/audit-display.ts#L194) |
+| `audit-display.b7bab14b` | 写死 | 到期清除联系方式 | 文字 | [audit-display.ts:194](../../apps/web/src/lib/audit-display.ts#L194) |
+| `audit-display.e1aa761e` | 写死 | 改状态 | 文字 | [audit-display.ts:194](../../apps/web/src/lib/audit-display.ts#L194) |
+| `audit-display.4a954a42` | 写死 | 结束验收会话 | 文字 | [audit-display.ts:196](../../apps/web/src/lib/audit-display.ts#L196) |
+| `audit-display.5397ff8e` | 写死 | 解锁验收会话 | 文字 | [audit-display.ts:196](../../apps/web/src/lib/audit-display.ts#L196) |
+| `audit-display.aa87ec10` | 写死 | 验收口令不对 | 提示 | [audit-display.ts:196](../../apps/web/src/lib/audit-display.ts#L196) |
+| `audit-display.78b0dd70` | 写死 | 撤销重复标记 | 文字 | [audit-display.ts:198](../../apps/web/src/lib/audit-display.ts#L198) |
+| `audit-display.82ceaaff` | 写死 | 标为重复（在共享库里隐藏） | 文字 | [audit-display.ts:198](../../apps/web/src/lib/audit-display.ts#L198) |
+| `audit-display.64273db0` | 写死 | 修改嵌入码（名称、允许的网站、默认值、启用 / 停用） | 文字 | [audit-display.ts:199](../../apps/web/src/lib/audit-display.ts#L199) |
+| `audit-display.91ed024d` | 写死 | 生成嵌入码 | 文字 | [audit-display.ts:199](../../apps/web/src/lib/audit-display.ts#L199) |
+| `audit-display.f68d0b52` | 写死 | 切换 AI 行程解析用的 Claude 型号 | 文字 | [audit-display.ts:200](../../apps/web/src/lib/audit-display.ts#L200) |
+| `audit-display.9e2b8627` | 写死 | 修改法律文案的待补项 | 文字 | [audit-display.ts:201](../../apps/web/src/lib/audit-display.ts#L201) |
+| `audit-display.38eab86e` | 写死 | 没有登录的访问者 | 文字 | [audit-display.ts:204](../../apps/web/src/lib/audit-display.ts#L204) |
+| `audit-display.76761ff3` | 写死 | 系统（命令行或定时任务） | 文字 | [audit-display.ts:204](../../apps/web/src/lib/audit-display.ts#L204) |
+| `audit-display.6c7b80e6` | 写死 | 定时任务 | 文字 | [audit-display.ts:205](../../apps/web/src/lib/audit-display.ts#L205) |
+| `audit-display.6ff3303e` | 写死 | 接口 | 文字 | [audit-display.ts:205](../../apps/web/src/lib/audit-display.ts#L205) |
+| `audit-display.7739d49e` | 写死 | 命令行 | 文字 | [audit-display.ts:205](../../apps/web/src/lib/audit-display.ts#L205) |
+| `audit-display.a51bb046` | 写死 | 后台 | 文字 | [audit-display.ts:205](../../apps/web/src/lib/audit-display.ts#L205) |
+| `audit-display.0385caeb` | 写死 | 回复客人（客人和渠道看得到，供应商看不到） | 文字 | [audit-display.ts:217](../../apps/web/src/lib/audit-display.ts#L217) |
+| `audit-display.a5a3955f` | 写死 | 名称 | 名称 | [audit-display.ts:246](../../apps/web/src/lib/audit-display.ts#L246) |
+| `audit-display.7654c510` | 写死 | 邮箱 | 文字 | [audit-display.ts:247](../../apps/web/src/lib/audit-display.ts#L247) |
+| `audit-display.fe0e8128` | 写死 | 状态 | 文字 | [audit-display.ts:249](../../apps/web/src/lib/audit-display.ts#L249) |
+| `audit-display.66e955db` | 写死 | 原因 | 提示 | [audit-display.ts:250](../../apps/web/src/lib/audit-display.ts#L250) |
+| `audit-display.bc800439` | 写死 | 用了临时密码 | 文字 | [audit-display.ts:251](../../apps/web/src/lib/audit-display.ts#L251) |
+| `audit-display.b94489da` | 写死 | 必须先改密码 | 文字 | [audit-display.ts:252](../../apps/web/src/lib/audit-display.ts#L252) |
+| `audit-display.0d64471f` | 写死 | 编码 | 文字 | [audit-display.ts:253](../../apps/web/src/lib/audit-display.ts#L253) |
+| `audit-display.ae6057f4` | 写死 | 标题 | 标题 | [audit-display.ts:254](../../apps/web/src/lib/audit-display.ts#L254) |
+| `audit-display.11a6ac4d` | 写死 | 打码后的密钥（只有末 4 位） | 说明 | [audit-display.ts:255](../../apps/web/src/lib/audit-display.ts#L255) |
+| `audit-display.21793ab7` | 写死 | 币种 | 文字 | [audit-display.ts:256](../../apps/web/src/lib/audit-display.ts#L256) |
+| `audit-display.0b7ae9a1` | 写死 | 品类 | 文字 | [audit-display.ts:259](../../apps/web/src/lib/audit-display.ts#L259) |
+| `audit-display.6dbfcd99` | 写死 | 库存模式 | 文字 | [audit-display.ts:260](../../apps/web/src/lib/audit-display.ts#L260) |
+| `audit-display.09023dff` | 写死 | 取整单位 | 文字 | [audit-display.ts:261](../../apps/web/src/lib/audit-display.ts#L261) |
+| `audit-display.30625e85` | 写死 | 版本号 | 文字 | [audit-display.ts:262](../../apps/web/src/lib/audit-display.ts#L262) |
+| `audit-display.27006714` | 写死 | 项目 | 文字 | [audit-display.ts:263](../../apps/web/src/lib/audit-display.ts#L263) |
+| `audit-display.907b478b` | 写死 | 数量 | 文字 | [audit-display.ts:264](../../apps/web/src/lib/audit-display.ts#L264) |
+| `audit-display.d78d54c0` | 写死 | 类型 | 文字 | [audit-display.ts:265](../../apps/web/src/lib/audit-display.ts#L265) |
+| `audit-display.05c4d8f5` | 写死 | 优先级 | 文字 | [audit-display.ts:267](../../apps/web/src/lib/audit-display.ts#L267) |
+| `audit-display.73ed7a37` | 写死 | 处理人 | 文字 | [audit-display.ts:268](../../apps/web/src/lib/audit-display.ts#L268) |
+| `audit-display.b3ca5121` | 写死 | 工单号 | 文字 | [audit-display.ts:269](../../apps/web/src/lib/audit-display.ts#L269) |
+| `audit-display.3f8c1a6d` | 写死 | 结论 | 文字 | [audit-display.ts:270](../../apps/web/src/lib/audit-display.ts#L270) |
+| `audit-display.4212a593` | 写死 | 责任方 | 文字 | [audit-display.ts:271](../../apps/web/src/lib/audit-display.ts#L271) |
+| `audit-display.5d695f19` | 写死 | 说明 | 说明 | [audit-display.ts:272](../../apps/web/src/lib/audit-display.ts#L272) |
+| `audit-display.061aec17` | 写死 | 内容 | 邮件正文 | [audit-display.ts:273](../../apps/web/src/lib/audit-display.ts#L273) |
+| `audit-display.d2aebff7` | 写死 | 处理说明 | 文字 | [audit-display.ts:275](../../apps/web/src/lib/audit-display.ts#L275) |
+| `audit-display.07023b32` | 写死 | 凭证号 | 文字 | [audit-display.ts:276](../../apps/web/src/lib/audit-display.ts#L276) |
+| `audit-display.5e857c21` | 写死 | 账单号 | 文字 | [audit-display.ts:277](../../apps/web/src/lib/audit-display.ts#L277) |
+| `audit-display.baaa1549` | 写死 | 周期 | 文字 | [audit-display.ts:278](../../apps/web/src/lib/audit-display.ts#L278) |
+| `audit-display.9b33c777` | 写死 | 所在国家 | 文字 | [audit-display.ts:279](../../apps/web/src/lib/audit-display.ts#L279) |
+| `audit-display.204c0248` | 写死 | 法定名称 | 名称 | [audit-display.ts:280](../../apps/web/src/lib/audit-display.ts#L280) |
+| `audit-display.3a8f8444` | 写死 | 登记号 | 文字 | [audit-display.ts:281](../../apps/web/src/lib/audit-display.ts#L281) |
+| `audit-display.26a20d93` | 写死 | 注册地址 | 文字 | [audit-display.ts:282](../../apps/web/src/lib/audit-display.ts#L282) |
+| `audit-display.621e18d0` | 写死 | 联系人 | 名称 | [audit-display.ts:283](../../apps/web/src/lib/audit-display.ts#L283) |
+| `audit-display.c97c3b35` | 写死 | 联系电话 | 文字 | [audit-display.ts:284](../../apps/web/src/lib/audit-display.ts#L284) |
+| `audit-display.91ded7b3` | 写死 | 联系邮箱 | 文字 | [audit-display.ts:285](../../apps/web/src/lib/audit-display.ts#L285) |
+| `audit-display.2985fdb1` | 写死 | 摘要 | 说明 | [audit-display.ts:290](../../apps/web/src/lib/audit-display.ts#L290) |
+| `audit-display.39fa7361` | 写死 | 申请的内容 | 文字 | [audit-display.ts:290](../../apps/web/src/lib/audit-display.ts#L290) |
+| `audit-display.49fc9441` | 写死 | 复核对象的编号 | 文字 | [audit-display.ts:290](../../apps/web/src/lib/audit-display.ts#L290) |
+| `audit-display.9ad78f24` | 写死 | 复核类别 | 文字 | [audit-display.ts:290](../../apps/web/src/lib/audit-display.ts#L290) |
+| `audit-display.9dfb9974` | 写死 | 复核对象的类型 | 文字 | [audit-display.ts:290](../../apps/web/src/lib/audit-display.ts#L290) |
+| `audit-display.e4574c4f` | 写死 | 用途 | 文字 | [audit-display.ts:292](../../apps/web/src/lib/audit-display.ts#L292) |
+| `audit-display.55f22837` | 写死 | 已暂停 | 文字 | [audit-display.ts:303](../../apps/web/src/lib/audit-display.ts#L303) |
+| `audit-display.f97c1f14` | 写死 | 正常 | 文字 | [audit-display.ts:303](../../apps/web/src/lib/audit-display.ts#L303) |
+| `audit-display.5ac0c429` | 写死 | 租户 | 文字 | [audit-display.ts:304](../../apps/web/src/lib/audit-display.ts#L304) |
+| `audit-display.1dc5c234` | 写死 | 已付款 | 文字 | [audit-display.ts:307](../../apps/web/src/lib/audit-display.ts#L307)、308 行 |
+| `audit-display.2db8c76d` | 写死 | 收账单中 | 文字 | [audit-display.ts:307](../../apps/web/src/lib/audit-display.ts#L307) |
+| `audit-display.5780a037` | 写死 | 已锁定 | 文字 | [audit-display.ts:307](../../apps/web/src/lib/audit-display.ts#L307) |
+| `audit-display.8afc30ca` | 写死 | 已生成 | 文字 | [audit-display.ts:308](../../apps/web/src/lib/audit-display.ts#L308) |
+| `audit-display.e073142c` | 写死 | 已下载 | 文字 | [audit-display.ts:308](../../apps/web/src/lib/audit-display.ts#L308) |
+| `audit-display.eb664e60` | 写死 | 已作废 | 文字 | [audit-display.ts:308](../../apps/web/src/lib/audit-display.ts#L308) |
+| `audit-display.39c73f95` | 写死 | 已撤回 | 文字 | [audit-display.ts:309](../../apps/web/src/lib/audit-display.ts#L309)、310 行 |
+| `audit-display.8403a542` | 写死 | 已被替换 | 文字 | [audit-display.ts:309](../../apps/web/src/lib/audit-display.ts#L309) |
+| `audit-display.de970ffa` | 写死 | 待审核 | 文字 | [audit-display.ts:309](../../apps/web/src/lib/audit-display.ts#L309)、310 行 |
+| `audit-display.e3f14ea8` | 写死 | 已驳回 | 文字 | [audit-display.ts:309](../../apps/web/src/lib/audit-display.ts#L309)、310 行 |
+| `audit-display.f7c85404` | 写死 | 生效中 | 文字 | [audit-display.ts:309](../../apps/web/src/lib/audit-display.ts#L309) |
+| `audit-display.083532ee` | 写死 | 已生效 | 文字 | [audit-display.ts:310](../../apps/web/src/lib/audit-display.ts#L310) |
+| `audit-display.204d212c` | 写死 | 待激活 | 文字 | [audit-display.ts:313](../../apps/web/src/lib/audit-display.ts#L313) |
+| `audit-display.4141fe64` | 写死 | 已停用 | 文字 | [audit-display.ts:313](../../apps/web/src/lib/audit-display.ts#L313)、315 行 |
+| `audit-display.8c876645` | 写死 | 在用 | 文字 | [audit-display.ts:313](../../apps/web/src/lib/audit-display.ts#L313) |
+| `audit-display.9fdae6c7` | 写死 | 限量 | 文字 | [audit-display.ts:321](../../apps/web/src/lib/audit-display.ts#L321) |
+| `audit-display.de32caea` | 写死 | 不限量 | 文字 | [audit-display.ts:321](../../apps/web/src/lib/audit-display.ts#L321) |
+| `audit-display.b16aae97` | 写死 | （空） | 文字 | [audit-display.ts:339](../../apps/web/src/lib/audit-display.ts#L339) |
+| `audit-display.84df4d8a` | 写死 | 是 | 文字 | [audit-display.ts:340](../../apps/web/src/lib/audit-display.ts#L340) |
+| `audit-display.b331610c` | 写死 | 否 | 文字 | [audit-display.ts:340](../../apps/web/src/lib/audit-display.ts#L340) |
 
 ## 多个页面共用：运营后台「人工报价」「官网设置」的地址、状态徽标和文字（manual-quote-display.ts）
 

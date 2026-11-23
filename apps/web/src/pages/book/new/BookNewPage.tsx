@@ -45,6 +45,7 @@ import {
   listSiteCities,
 } from "../../../api/site.ts";
 import { AlertSlot, type Notice } from "../../../components/Alert.tsx";
+import { LegalLinks } from "../../../components/LegalLinks.tsx";
 import { Button } from "../../../components/Button.tsx";
 import { SelectField } from "../../../components/FormFields.tsx";
 import { Icon } from "../../../components/Icon.tsx";
@@ -1727,6 +1728,8 @@ export function BookNewPage() {
         <form id={CONTACT_FORM_ID} className="site-form book-review__pay" noValidate onSubmit={(event) => void submitOrder(event)}>
           <AlertSlot notice={contactNotice} />
           <ConsentField checked={contact.consent} error={contactErrors.consent} onChange={(consent) => updateContact({ consent })} />
+          {/* 三份法律文案（M9E-24）：下单前可以看，新标签页打开（不离开正在核对的这一页；嵌入页里也是去主站的地址） */}
+          <LegalLinks newTab label="法律文案" />
           {/* 手机上「去付款」在底部按钮条里（用 form 属性提交这张表单），同意保存银行卡仍在页面最下面（条的上方） */}
           <PayBlock busy={busy} expired={expired} onRequote={requote} button={!compact} />
         </form>

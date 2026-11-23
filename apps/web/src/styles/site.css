@@ -740,3 +740,96 @@
   color: var(--color-text-secondary);
   pointer-events: none;
 }
+
+/*
+ * 三份法律文案的链接（M9E-24）：主站页脚、预订第 4 步「核对订单」、嵌入页顶部共用。一行排开、放不下换行。
+ */
+.legal-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--font-size-md);
+}
+
+.legal-links > li {
+  min-width: 0;
+}
+
+/*
+ * 法律文案页面（M9E-24）：大段文字，正文最宽 layout-reading-max-width、居左（在官网正文里）。
+ * 表格按组件规范第 5 节方式 A：只在自己的容器里横向滚动；文字可以折行（条款很长，不能整行不换）。
+ */
+.legal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  width: min(var(--layout-reading-max-width), 100%);
+  min-width: 0;
+  line-height: var(--line-height-loose);
+  overflow-wrap: anywhere;
+}
+
+.legal-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.legal-section__title {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+}
+
+.legal-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding-left: var(--space-6);
+  list-style: disc;
+}
+
+/* 表格的第一列默认不换行（data.css，给编码用）；条款的项目名要能换行 */
+.table.legal-table th,
+.table.legal-table td {
+  white-space: normal;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.table.legal-table tbody th:first-child {
+  width: 30%;
+  min-width: 112px;
+  font-family: var(--font-family-sans-ja);
+  font-weight: var(--font-weight-medium);
+}
+
+/* 四列、五列的表（取消费、委托事业者）：容器里横向滚动，各列不被挤成一两个字宽 */
+.legal-table--wide {
+  min-width: var(--layout-form-max-width);
+}
+
+/* 待补项没填：「未設定」用警示色的小底块（文字 + 颜色，01-tokens.md 固定搭配 warning-text / warning-bg） */
+.legal-unset {
+  display: inline-block;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-normal);
+  white-space: nowrap;
+}
+
+.legal-multiline {
+  white-space: pre-line;
+}
+
+.legal-break {
+  overflow-wrap: anywhere;
+}

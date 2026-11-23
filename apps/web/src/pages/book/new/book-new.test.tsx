@@ -2002,3 +2002,24 @@ test("浏览器存储里没有谷歌的任何东西（原旧询价页的地址�
   const stored = [document.cookie, ...Object.keys(localStorage).map((key) => `${key}=${localStorage.getItem(key)}`), ...Object.keys(sessionStorage).map((key) => `${key}=${sessionStorage.getItem(key)}`)].join("\n");
   for (const needle of ["AIza", "唯一关键字", "ChIJkeio"]) assert.ok(!stored.includes(needle), `浏览器存储里有 ${needle}`);
 });
+
+test("第 4 步核对（M9E-24）：「去付款」上方一行三份法律文案的链接，新标签页打开；页脚也有这三个链接（站内）", async () => {
+  const { actor } = await openSelected();
+  await toReview(actor);
+  const review = screen.getByRole("region", { name: "核对订单" });
+  const list = within(review).getByRole("list", { name: "法律文案" });
+  assert.ok(list.closest("form"), "在下单的表单里，挨着「去付款」");
+  assert.deepEqual(
+    within(list).getAllByRole("link").map((link) => [link.textContent?.replace("（在新标签页打开）", ""), link.getAttribute("href"), link.getAttribute("target"), link.getAttribute("rel")]),
+    [
+      ["特定商取引法に基づく表記", "/legal/tokushoho", "_blank", "noopener"],
+      ["キャンセルポリシー", "/legal/cancellation", "_blank", "noopener"],
+      ["プライバシーポリシー", "/legal/privacy", "_blank", "noopener"],
+    ],
+  );
+  const footer = within(screen.getByRole("navigation", { name: "法律文案" }));
+  assert.deepEqual(
+    footer.getAllByRole("link").map((link) => link.getAttribute("href")),
+    ["/legal/tokushoho", "/legal/cancellation", "/legal/privacy"],
+  );
+});

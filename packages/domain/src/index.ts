@@ -50,6 +50,7 @@ export * from "./webhooks.ts";
 export * from "./tenants.ts";
 export * from "./tenant-profile.ts";
 export * from "./cancellation.ts";
+export * from "./legal-pages.ts";
 export * from "./order-changes.ts";
 export * from "./extra-charges.ts";
 export * from "./rescue.ts";

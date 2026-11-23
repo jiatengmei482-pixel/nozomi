@@ -1,6 +1,6 @@
 # 运营后台（第 2 / 3 份）
 
-由 `pnpm copy:export` 从代码生成，不要手改。本区域共 3906 条：写死 3900 条，已走 key 6 条。列的意思见 [README](README.md)。
+由 `pnpm copy:export` 从代码生成，不要手改。本区域共 3935 条：写死 3929 条，已走 key 6 条。列的意思见 [README](README.md)。
 
 本区域分 3 份：[第 1 份](platform.md) · 第 2 份 · [第 3 份](platform-3.md)
 
@@ -11,7 +11,7 @@
 - [工单（列表、新建）](#工单列表新建)（76 条）
 - [工单详情](#工单详情)（176 条）
 - [人工报价](#人工报价)（87 条）
-- [官网设置](#官网设置)（49 条）
+- [官网设置](#官网设置)（76 条）
 - [嵌入组件](#嵌入组件)（90 条）
 - [赔付表](#赔付表)（53 条）
 - [财务结算（账单、付款批次）](#财务结算账单付款批次)（121 条）
@@ -595,59 +595,86 @@
 
 ## 官网设置
 
-文件：`apps/web/src/pages/platform/SiteSettingsPage.tsx`
+文件：`apps/web/src/pages/platform/LegalSettingsSection.tsx`、`apps/web/src/pages/platform/SiteSettingsPage.tsx`
 
 | key | 状态 | 中文 | 类型 | 位置 |
 | --- | --- | --- | --- | --- |
-| `SiteSettingsPage.d9203f3b` | 写死 | 系统设置 | 名称 | [SiteSettingsPage.tsx:29](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L29) |
-| `SiteSettingsPage.64834174` | 写死 | 您好 | 文字 | [SiteSettingsPage.tsx:34](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L34) |
-| `SiteSettingsPage.ba43eca1` | 写死 | 在 WhatsApp 里打开看看 | 链接 | [SiteSettingsPage.tsx:35](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L35) |
-| `SiteSettingsPage.2babb6ef` | 写死 | 已清空，官网不再显示 WhatsApp 按钮 | 提示 | [SiteSettingsPage.tsx:62](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L62) |
-| `SiteSettingsPage.c4cf1944` | 写死 | 已保存，官网的 WhatsApp 按钮用这个号码 | 提示 | [SiteSettingsPage.tsx:62](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L62) |
-| `SiteSettingsPage.0f1818f3` | 写死 | 号码刚被别人改过，页面已刷新成最新的样子。请看过再改。 | 文字 | [SiteSettingsPage.tsx:66](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L66) |
-| `SiteSettingsPage.d6aaf951` | 写死 | {…}填的内容还在。 | 文字 | [SiteSettingsPage.tsx:69](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L69)、179 行 |
-| `SiteSettingsPage.f6fa2887` | 写死 | 保存 | 文字 | [SiteSettingsPage.tsx:69](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L69)、81、115、142、179、204 行 |
-| `SiteSettingsPage.773faa5c` | 写死 | 客服 WhatsApp 号码 | 名称 | [SiteSettingsPage.tsx:77](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L77)、247 行 |
-| `SiteSettingsPage.b3aa7d89` | 写死 | 保存中… | 文字 | [SiteSettingsPage.tsx:79](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L79)、140、202 行 |
-| `SiteSettingsPage.0aa464ba` | 写死 | 标准 | 名称 | [SiteSettingsPage.tsx:89](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L89) |
-| `SiteSettingsPage.51cfad22` | 写死 | 内容最宽约 1200 像素，适合多数电脑屏幕（默认） | 说明 | [SiteSettingsPage.tsx:89](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L89) |
-| `SiteSettingsPage.00ce6cdd` | 写死 | 较宽 | 名称 | [SiteSettingsPage.tsx:90](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L90) |
-| `SiteSettingsPage.5f1fb4ea` | 写死 | 内容最宽约 1440 像素，大屏幕上表单更宽 | 说明 | [SiteSettingsPage.tsx:90](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L90) |
-| `SiteSettingsPage.9b471930` | 写死 | 最宽 | 名称 | [SiteSettingsPage.tsx:91](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L91) |
-| `SiteSettingsPage.b2827324` | 写死 | 接近全屏，两侧留边，最宽约 1920 像素 | 说明 | [SiteSettingsPage.tsx:91](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L91) |
-| `SiteSettingsPage.b94deed6` | 写死 | 已保存，官网页面宽度改为「{name}」，客人刷新页面后生效 | 提示 | [SiteSettingsPage.tsx:109](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L109) |
-| `SiteSettingsPage.ffca0160` | 写死 | 官网设置刚被别人改过，页面已刷新成最新的样子。请看过再改。 | 文字 | [SiteSettingsPage.tsx:113](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L113)、176 行 |
-| `SiteSettingsPage.070ce6fc` | 写死 | {…}选的宽度还在，可以再点一次「保存」。 | 文字 | [SiteSettingsPage.tsx:115](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L115) |
-| `SiteSettingsPage.1dcf149d` | 写死 | 页面宽度 | 表单标签 | [SiteSettingsPage.tsx:124](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L124)、270、278 行 |
-| `SiteSettingsPage.9d7f8f27` | 写死 | 谷歌地图密钥是 AIza 开头、共 39 位的一串字母数字，请从谷歌后台整串复制 | 提示 | [SiteSettingsPage.tsx:150](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L150) |
-| `SiteSettingsPage.488f141e` | 写死 | {…}…（共 {length} 位） | 说明 | [SiteSettingsPage.tsx:154](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L154) |
-| `SiteSettingsPage.66a6a339` | 写死 | 已清除，官网的选点地图不再用谷歌地图 | 提示 | [SiteSettingsPage.tsx:172](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L172) |
-| `SiteSettingsPage.debe140d` | 写死 | 已保存，客人刷新页面后选点地图改用谷歌地图 | 提示 | [SiteSettingsPage.tsx:172](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L172) |
-| `SiteSettingsPage.49e7658d` | 写死 | 请粘贴密钥 | 错误提示 | [SiteSettingsPage.tsx:189](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L189) |
-| `SiteSettingsPage.7c4f5ea7` | 写死 | 还没有填（官网选点用开源地图） | 正文 | [SiteSettingsPage.tsx:198](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L198) |
-| `SiteSettingsPage.fb277682` | 写死 | 现在的密钥 | 名称 | [SiteSettingsPage.tsx:198](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L198) |
-| `SiteSettingsPage.46207e43` | 写死 | 在谷歌后台新建的、限定了官网网址、只开 Maps JavaScript API 的那把；不是服务器用的密钥 | 说明 | [SiteSettingsPage.tsx:200](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L200) |
-| `SiteSettingsPage.7e7453bf` | 写死 | 浏览器密钥 | 名称 | [SiteSettingsPage.tsx:200](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L200)、296 行 |
-| `SiteSettingsPage.fdefdef9` | 写死 | 换一把密钥 | 名称 | [SiteSettingsPage.tsx:200](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L200) |
-| `SiteSettingsPage.72ca3a09` | 写死 | 清除密钥 | 按钮 | [SiteSettingsPage.tsx:208](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L208) |
-| `SiteSettingsPage.2ccecdae` | 写死 | 官网设置 · NOZOMI {name} | 浏览器标题 | [SiteSettingsPage.tsx:217](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L217) |
-| `SiteSettingsPage.a765e835` | 写死 | 官网设置 | 名称 | [SiteSettingsPage.tsx:222](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L222)、223 行 |
-| `SiteSettingsPage.107e278f` | 写死 | 重试 | 按钮 | [SiteSettingsPage.tsx:231](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L231) |
-| `SiteSettingsPage.22b66813` | 写死 | 官网设置没有加载出来 | 标题 | [SiteSettingsPage.tsx:231](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L231) |
-| `SiteSettingsPage.8b0757d6` | 写死 | 请检查网络后重试。 | 说明 | [SiteSettingsPage.tsx:231](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L231) |
-| `SiteSettingsPage.f91b276d` | 写死 | 官网一家供应商都报不出价时，客人除了留下联系方式，还可以点「通过 WhatsApp 联系我们」，直接把行程发给这个号码。 | 正文 | [SiteSettingsPage.tsx:236](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L236) |
-| `SiteSettingsPage.ce58f982` | 写死 | 客服 WhatsApp | 标题 | [SiteSettingsPage.tsx:239](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L239) |
-| `SiteSettingsPage.f2e441fd` | 写死 | 还没有设置（官网不显示 WhatsApp 按钮） | 正文 | [SiteSettingsPage.tsx:247](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L247) |
-| `SiteSettingsPage.1691cb36` | 写死 | 只有超级管理员能改这个号码：号码填错或被换掉，客人就会把行程发给别人。 | 正文 | [SiteSettingsPage.tsx:249](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L249) |
-| `SiteSettingsPage.08ccadf3` | 写死 | 试一下 | 名称 | [SiteSettingsPage.tsx:253](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L253) |
-| `SiteSettingsPage.6d15fb1b` | 写死 | 最后修改 | 名称 | [SiteSettingsPage.tsx:254](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L254) |
-| `SiteSettingsPage.7a052034` | 写死 | 还没有设置过 | 正文 | [SiteSettingsPage.tsx:256](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L256) |
-| `SiteSettingsPage.a3efece2` | 写死 | 官网所有页面（首页、预订、下单、订单页）的内容最宽多少。只影响电脑屏幕；手机和平板始终是单栏，不受这个设置影响。 | 正文 | [SiteSettingsPage.tsx:271](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L271) |
-| `SiteSettingsPage.695e3cad` | 写死 | 只有超级管理员能改页面宽度。 | 正文 | [SiteSettingsPage.tsx:280](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L280) |
-| `SiteSettingsPage.bcdbbd5c` | 写死 | 谷歌地图（浏览器密钥） | 标题 | [SiteSettingsPage.tsx:287](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L287) |
-| `SiteSettingsPage.0c2c0ffd` | 写死 | 官网「在地图上选点」用谷歌地图显示时要的密钥。它会出现在官网网页里，所以要在谷歌后台限定网址、只开 Maps JavaScript API。没填时选点仍用开源地图。 | 正文 | [SiteSettingsPage.tsx:289](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L289) |
-| `SiteSettingsPage.1a38d779` | 写死 | 还没有填 | 正文 | [SiteSettingsPage.tsx:296](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L296) |
-| `SiteSettingsPage.f35df324` | 写死 | 只有超级管理员能改这把密钥。 | 正文 | [SiteSettingsPage.tsx:298](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L298) |
+| `LegalSettingsSection.0e776885` | 写死 | 太长了：最多 {…} 个字，请删短一些 | 文字 | [LegalSettingsSection.tsx:31](../../apps/web/src/pages/platform/LegalSettingsSection.tsx#L31) |
+| `LegalSettingsSection.5f3671b2` | 写死 | 邮箱的格式不对，请填完整的邮箱，如 support@example.com | 文字 | [LegalSettingsSection.tsx:33](../../apps/web/src/pages/platform/LegalSettingsSection.tsx#L33) |
+| `LegalSettingsSection.cd1d6810` | 写死 | 日期不对，请用日期选择器选一天 | 文字 | [LegalSettingsSection.tsx:35](../../apps/web/src/pages/platform/LegalSettingsSection.tsx#L35) |
+| `LegalSettingsSection.4bdd536f` | 写死 | 这一项的内容不对，请检查后重试 | 文字 | [LegalSettingsSection.tsx:37](../../apps/web/src/pages/platform/LegalSettingsSection.tsx#L37) |
+| `LegalSettingsSection.9c824f25` | 写死 | 法律文案的待补项刚被别人改过，页面已刷新成最新的样子。请看过再改。 | 文字 | [LegalSettingsSection.tsx:56](../../apps/web/src/pages/platform/LegalSettingsSection.tsx#L56) |
+| `LegalSettingsSection.6c3b67b6` | 写死 | 已保存，法律文案的待补项都填齐了 | 提示 | [LegalSettingsSection.tsx:79](../../apps/web/src/pages/platform/LegalSettingsSection.tsx#L79) |
+| `LegalSettingsSection.efbb8a25` | 写死 | 已保存，还缺 {length} 项 | 提示 | [LegalSettingsSection.tsx:79](../../apps/web/src/pages/platform/LegalSettingsSection.tsx#L79) |
+| `LegalSettingsSection.6d6609df` | 写死 | 保存 | 文字 | [LegalSettingsSection.tsx:93](../../apps/web/src/pages/platform/LegalSettingsSection.tsx#L93)、94、111 行 |
+| `LegalSettingsSection.c61d9661` | 写死 | 有几项填得不对，请看各项下面的说明。填的内容还在。 | 文字 | [LegalSettingsSection.tsx:93](../../apps/web/src/pages/platform/LegalSettingsSection.tsx#L93) |
+| `LegalSettingsSection.d006ac62` | 写死 | {…}填的内容还在。 | 文字 | [LegalSettingsSection.tsx:93](../../apps/web/src/pages/platform/LegalSettingsSection.tsx#L93)、94 行 |
+| `LegalSettingsSection.503e649a` | 写死 | 用在：{usedIn} | 说明 | [LegalSettingsSection.tsx:104](../../apps/web/src/pages/platform/LegalSettingsSection.tsx#L104) |
+| `LegalSettingsSection.b9dbbc64` | 写死 | 保存中… | 文字 | [LegalSettingsSection.tsx:109](../../apps/web/src/pages/platform/LegalSettingsSection.tsx#L109) |
+| `LegalSettingsSection.4524c5e0` | 写死 | 还缺 {length} 项：{…} | 正文 | [LegalSettingsSection.tsx:121](../../apps/web/src/pages/platform/LegalSettingsSection.tsx#L121) |
+| `LegalSettingsSection.59b38a68` | 写死 | {length} 项都已填写。 | 正文 | [LegalSettingsSection.tsx:121](../../apps/web/src/pages/platform/LegalSettingsSection.tsx#L121) |
+| `LegalSettingsSection.ea709d6e` | 写死 | 正式环境：都已填齐，不影响官网开放预订。 | 正文 | [LegalSettingsSection.tsx:124](../../apps/web/src/pages/platform/LegalSettingsSection.tsx#L124) |
+| `LegalSettingsSection.dc68de3e` | 写死 | 正式环境：没填齐前官网不开放预订。请超级管理员把缺的几项填好。 | 提示 | [LegalSettingsSection.tsx:126](../../apps/web/src/pages/platform/LegalSettingsSection.tsx#L126) |
+| `LegalSettingsSection.b92a9cac` | 写死 | 测试站：没填的地方页面显示「未設定」，官网照常开放。 | 正文 | [LegalSettingsSection.tsx:129](../../apps/web/src/pages/platform/LegalSettingsSection.tsx#L129) |
+| `LegalSettingsSection.8b1394ba` | 写死 | 法律文案的待补项 | 标题 | [LegalSettingsSection.tsx:143](../../apps/web/src/pages/platform/LegalSettingsSection.tsx#L143) |
+| `LegalSettingsSection.822b0916` | 写死 | 官网的三份日文法律文案（特定商取引法に基づく表記、キャンセルポリシー、プライバシーポリシー）里要填的几处。正文由业主定稿，这里只填空着的地方。 | 正文 | [LegalSettingsSection.tsx:144](../../apps/web/src/pages/platform/LegalSettingsSection.tsx#L144) |
+| `LegalSettingsSection.46bf5e0c` | 写死 | 重试 | 按钮 | [LegalSettingsSection.tsx:147](../../apps/web/src/pages/platform/LegalSettingsSection.tsx#L147) |
+| `LegalSettingsSection.c7774d09` | 写死 | 请检查网络后重试。 | 说明 | [LegalSettingsSection.tsx:147](../../apps/web/src/pages/platform/LegalSettingsSection.tsx#L147) |
+| `LegalSettingsSection.c7aef7e3` | 写死 | 法律文案的待补项没有加载出来 | 标题 | [LegalSettingsSection.tsx:147](../../apps/web/src/pages/platform/LegalSettingsSection.tsx#L147) |
+| `LegalSettingsSection.023cc72e` | 写死 | 还没有填 | 正文 | [LegalSettingsSection.tsx:175](../../apps/web/src/pages/platform/LegalSettingsSection.tsx#L175) |
+| `LegalSettingsSection.28c17389` | 写死 | 只有超级管理员能改法律文案的待补项。 | 正文 | [LegalSettingsSection.tsx:179](../../apps/web/src/pages/platform/LegalSettingsSection.tsx#L179) |
+| `LegalSettingsSection.cd6732e9` | 写死 | 看看页面 | 名称 | [LegalSettingsSection.tsx:183](../../apps/web/src/pages/platform/LegalSettingsSection.tsx#L183) |
+| `LegalSettingsSection.16372d25` | 写死 | 最后修改 | 名称 | [LegalSettingsSection.tsx:192](../../apps/web/src/pages/platform/LegalSettingsSection.tsx#L192) |
+| `LegalSettingsSection.3de17186` | 写死 | 还没有设置过 | 正文 | [LegalSettingsSection.tsx:194](../../apps/web/src/pages/platform/LegalSettingsSection.tsx#L194) |
+| `SiteSettingsPage.d9203f3b` | 写死 | 系统设置 | 名称 | [SiteSettingsPage.tsx:31](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L31) |
+| `SiteSettingsPage.64834174` | 写死 | 您好 | 文字 | [SiteSettingsPage.tsx:36](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L36) |
+| `SiteSettingsPage.ba43eca1` | 写死 | 在 WhatsApp 里打开看看 | 链接 | [SiteSettingsPage.tsx:37](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L37) |
+| `SiteSettingsPage.2babb6ef` | 写死 | 已清空，官网不再显示 WhatsApp 按钮 | 提示 | [SiteSettingsPage.tsx:64](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L64) |
+| `SiteSettingsPage.c4cf1944` | 写死 | 已保存，官网的 WhatsApp 按钮用这个号码 | 提示 | [SiteSettingsPage.tsx:64](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L64) |
+| `SiteSettingsPage.0f1818f3` | 写死 | 号码刚被别人改过，页面已刷新成最新的样子。请看过再改。 | 文字 | [SiteSettingsPage.tsx:68](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L68) |
+| `SiteSettingsPage.d6aaf951` | 写死 | {…}填的内容还在。 | 文字 | [SiteSettingsPage.tsx:71](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L71)、181 行 |
+| `SiteSettingsPage.f6fa2887` | 写死 | 保存 | 文字 | [SiteSettingsPage.tsx:71](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L71)、83、117、144、181、206 行 |
+| `SiteSettingsPage.773faa5c` | 写死 | 客服 WhatsApp 号码 | 名称 | [SiteSettingsPage.tsx:79](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L79)、249 行 |
+| `SiteSettingsPage.b3aa7d89` | 写死 | 保存中… | 文字 | [SiteSettingsPage.tsx:81](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L81)、142、204 行 |
+| `SiteSettingsPage.0aa464ba` | 写死 | 标准 | 名称 | [SiteSettingsPage.tsx:91](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L91) |
+| `SiteSettingsPage.51cfad22` | 写死 | 内容最宽约 1200 像素，适合多数电脑屏幕（默认） | 说明 | [SiteSettingsPage.tsx:91](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L91) |
+| `SiteSettingsPage.00ce6cdd` | 写死 | 较宽 | 名称 | [SiteSettingsPage.tsx:92](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L92) |
+| `SiteSettingsPage.5f1fb4ea` | 写死 | 内容最宽约 1440 像素，大屏幕上表单更宽 | 说明 | [SiteSettingsPage.tsx:92](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L92) |
+| `SiteSettingsPage.9b471930` | 写死 | 最宽 | 名称 | [SiteSettingsPage.tsx:93](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L93) |
+| `SiteSettingsPage.b2827324` | 写死 | 接近全屏，两侧留边，最宽约 1920 像素 | 说明 | [SiteSettingsPage.tsx:93](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L93) |
+| `SiteSettingsPage.b94deed6` | 写死 | 已保存，官网页面宽度改为「{name}」，客人刷新页面后生效 | 提示 | [SiteSettingsPage.tsx:111](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L111) |
+| `SiteSettingsPage.ffca0160` | 写死 | 官网设置刚被别人改过，页面已刷新成最新的样子。请看过再改。 | 文字 | [SiteSettingsPage.tsx:115](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L115)、178 行 |
+| `SiteSettingsPage.070ce6fc` | 写死 | {…}选的宽度还在，可以再点一次「保存」。 | 文字 | [SiteSettingsPage.tsx:117](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L117) |
+| `SiteSettingsPage.1dcf149d` | 写死 | 页面宽度 | 表单标签 | [SiteSettingsPage.tsx:126](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L126)、272、280 行 |
+| `SiteSettingsPage.9d7f8f27` | 写死 | 谷歌地图密钥是 AIza 开头、共 39 位的一串字母数字，请从谷歌后台整串复制 | 提示 | [SiteSettingsPage.tsx:152](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L152) |
+| `SiteSettingsPage.488f141e` | 写死 | {…}…（共 {length} 位） | 说明 | [SiteSettingsPage.tsx:156](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L156) |
+| `SiteSettingsPage.66a6a339` | 写死 | 已清除，官网的选点地图不再用谷歌地图 | 提示 | [SiteSettingsPage.tsx:174](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L174) |
+| `SiteSettingsPage.debe140d` | 写死 | 已保存，客人刷新页面后选点地图改用谷歌地图 | 提示 | [SiteSettingsPage.tsx:174](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L174) |
+| `SiteSettingsPage.49e7658d` | 写死 | 请粘贴密钥 | 错误提示 | [SiteSettingsPage.tsx:191](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L191) |
+| `SiteSettingsPage.7c4f5ea7` | 写死 | 还没有填（官网选点用开源地图） | 正文 | [SiteSettingsPage.tsx:200](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L200) |
+| `SiteSettingsPage.fb277682` | 写死 | 现在的密钥 | 名称 | [SiteSettingsPage.tsx:200](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L200) |
+| `SiteSettingsPage.46207e43` | 写死 | 在谷歌后台新建的、限定了官网网址、只开 Maps JavaScript API 的那把；不是服务器用的密钥 | 说明 | [SiteSettingsPage.tsx:202](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L202) |
+| `SiteSettingsPage.7e7453bf` | 写死 | 浏览器密钥 | 名称 | [SiteSettingsPage.tsx:202](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L202)、298 行 |
+| `SiteSettingsPage.fdefdef9` | 写死 | 换一把密钥 | 名称 | [SiteSettingsPage.tsx:202](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L202) |
+| `SiteSettingsPage.72ca3a09` | 写死 | 清除密钥 | 按钮 | [SiteSettingsPage.tsx:210](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L210) |
+| `SiteSettingsPage.2ccecdae` | 写死 | 官网设置 · NOZOMI {name} | 浏览器标题 | [SiteSettingsPage.tsx:219](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L219) |
+| `SiteSettingsPage.a765e835` | 写死 | 官网设置 | 名称 | [SiteSettingsPage.tsx:224](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L224)、225 行 |
+| `SiteSettingsPage.107e278f` | 写死 | 重试 | 按钮 | [SiteSettingsPage.tsx:233](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L233) |
+| `SiteSettingsPage.22b66813` | 写死 | 官网设置没有加载出来 | 标题 | [SiteSettingsPage.tsx:233](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L233) |
+| `SiteSettingsPage.8b0757d6` | 写死 | 请检查网络后重试。 | 说明 | [SiteSettingsPage.tsx:233](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L233) |
+| `SiteSettingsPage.f91b276d` | 写死 | 官网一家供应商都报不出价时，客人除了留下联系方式，还可以点「通过 WhatsApp 联系我们」，直接把行程发给这个号码。 | 正文 | [SiteSettingsPage.tsx:238](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L238) |
+| `SiteSettingsPage.ce58f982` | 写死 | 客服 WhatsApp | 标题 | [SiteSettingsPage.tsx:241](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L241) |
+| `SiteSettingsPage.f2e441fd` | 写死 | 还没有设置（官网不显示 WhatsApp 按钮） | 正文 | [SiteSettingsPage.tsx:249](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L249) |
+| `SiteSettingsPage.1691cb36` | 写死 | 只有超级管理员能改这个号码：号码填错或被换掉，客人就会把行程发给别人。 | 正文 | [SiteSettingsPage.tsx:251](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L251) |
+| `SiteSettingsPage.08ccadf3` | 写死 | 试一下 | 名称 | [SiteSettingsPage.tsx:255](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L255) |
+| `SiteSettingsPage.6d15fb1b` | 写死 | 最后修改 | 名称 | [SiteSettingsPage.tsx:256](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L256) |
+| `SiteSettingsPage.7a052034` | 写死 | 还没有设置过 | 正文 | [SiteSettingsPage.tsx:258](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L258) |
+| `SiteSettingsPage.a3efece2` | 写死 | 官网所有页面（首页、预订、下单、订单页）的内容最宽多少。只影响电脑屏幕；手机和平板始终是单栏，不受这个设置影响。 | 正文 | [SiteSettingsPage.tsx:273](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L273) |
+| `SiteSettingsPage.695e3cad` | 写死 | 只有超级管理员能改页面宽度。 | 正文 | [SiteSettingsPage.tsx:282](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L282) |
+| `SiteSettingsPage.bcdbbd5c` | 写死 | 谷歌地图（浏览器密钥） | 标题 | [SiteSettingsPage.tsx:289](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L289) |
+| `SiteSettingsPage.0c2c0ffd` | 写死 | 官网「在地图上选点」用谷歌地图显示时要的密钥。它会出现在官网网页里，所以要在谷歌后台限定网址、只开 Maps JavaScript API。没填时选点仍用开源地图。 | 正文 | [SiteSettingsPage.tsx:291](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L291) |
+| `SiteSettingsPage.1a38d779` | 写死 | 还没有填 | 正文 | [SiteSettingsPage.tsx:298](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L298) |
+| `SiteSettingsPage.f35df324` | 写死 | 只有超级管理员能改这把密钥。 | 正文 | [SiteSettingsPage.tsx:300](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L300) |
 
 ## 嵌入组件
 
