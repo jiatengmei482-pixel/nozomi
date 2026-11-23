@@ -2,7 +2,7 @@
  * 嵌入组件（M9E-03，ADR 0090 第四节）在浏览器环境（happy-dom）里的行为：界面在 Shadow DOM 里；取配置被拒只显示「暂时无法使用」，
  * 超时、连不上、5xx 按 init 的参数显示表单（M9E-22）；
  * 两个标签；地址提示经 `/embed/v1/places`、带嵌入码、不带 Cookie，谷歌候选有「Powered by Google」；
- * 点「查看价格」先建草稿再跳转；400 / 429 / 网络错误各一句、不跳转。接口用替身（不连主站）。
+ * 点「查询价格」先建草稿再跳转；400 / 429 / 网络错误各一句、不跳转。接口用替身（不连主站）。
  */
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
@@ -99,7 +99,7 @@ test("界面在 Shadow DOM 里，合作网站的样式进不来；两个标签�
   assert.ok(shadow().textContent?.includes("Enter a place only"));
 });
 
-test("区间：地址提示经主站（带嵌入码和会话令牌、不带 Cookie），谷歌候选有标识；查看价格先建草稿再跳转", async () => {
+test("区间：地址提示经主站（带嵌入码和会话令牌、不带 Cookie），谷歌候选有标识；查询价格先建草稿再跳转", async () => {
   let drafted: unknown = null;
   handler = (url, init) => {
     if (url.pathname === "/embed/v1/booking-drafts") {
@@ -380,7 +380,7 @@ async function type(field: string, query: string): Promise<void> {
 const clickOption = (field: string): void => ($(`[data-field="${field}"] [role="option"]`) as HTMLElement).click();
 const submitForm = (): void => void $<HTMLFormElement>("form").dispatchEvent(new Event("submit", { cancelable: true }));
 
-test("M9E-08 ①：点了谷歌候选马上点「查看价格」——按钮显示「正在取位置…」、重复点不重复提交，坐标回来后自动接着建草稿，不提示「请从候选里选」", async () => {
+test("M9E-08 ①：点了谷歌候选马上点「查询价格」——按钮显示「正在取位置…」、重复点不重复提交，坐标回来后自动接着建草稿，不提示「请从候选里选」", async () => {
   const slow = slowDetails();
   handler = slow.handler;
   const went: string[] = [];
@@ -475,7 +475,7 @@ test("M9E-08 ③：取坐标失败如实提示、不建草稿，客人重选后�
   assert.equal($('[data-field="dropoff"] [aria-live]').textContent, "取不到这个地点的位置，请重新选一个");
   assert.equal($('[data-role="message"]').textContent, "取不到这个地点的位置，请重新选一个");
   assert.equal(shadow().activeElement, $('[data-field="dropoff"] input'), "焦点移到要重选的地址框");
-  assert.equal($(".nzb-primary").textContent, "查看价格");
+  assert.equal($(".nzb-primary").textContent, "查询价格");
   assert.equal($(".nzb-primary").getAttribute("aria-disabled"), null);
   assert.equal(slow.drafts.length, 0);
   await type("dropoff", "新宿");
@@ -500,7 +500,7 @@ test("M9E-08 审查：取位置一直不回时，客人改选自带坐标的候�
   await wait(20);
   assert.equal($(".nzb-primary").textContent, "正在取位置…");
   await type("dropoff", "成田");
-  assert.equal($(".nzb-primary").textContent, "查看价格", "改字后不再等那次取位置");
+  assert.equal($(".nzb-primary").textContent, "查询价格", "改字后不再等那次取位置");
   assert.equal($(".nzb-primary").getAttribute("aria-disabled"), null);
   clickOption("dropoff");
   submitForm();
@@ -526,7 +526,7 @@ test("M9E-08 审查：取位置超时按「取不到这个地点的位置」提�
     await wait(150);
     assert.equal($('[data-field="dropoff"] [aria-live]').textContent, "取不到这个地点的位置，请重新选一个");
     assert.equal($('[data-role="message"]').textContent, "取不到这个地点的位置，请重新选一个");
-    assert.equal($(".nzb-primary").textContent, "查看价格");
+    assert.equal($(".nzb-primary").textContent, "查询价格");
     assert.equal($(".nzb-primary").getAttribute("aria-disabled"), null);
     assert.equal(slow.drafts.length, 0);
     await type("dropoff", "新宿");
@@ -840,7 +840,7 @@ test("M9E-10 人数和行李的加减器：键盘能开关，到头的按钮 ari
   assert.deepEqual([sent?.draft["passengers"], sent?.draft["luggage"]], [3, 0]);
 });
 
-test("M9E-10 交换起点和终点；横条的搜索按钮填好前 data-ready=false，填好后 true（按钮的读屏名字始终是「查看价格」）", async () => {
+test("M9E-10 交换起点和终点；横条的搜索按钮填好前 data-ready=false，填好后 true（按钮的读屏名字始终是「查询价格」）", async () => {
   let drafted: { draft: Record<string, unknown> } | null = null;
   handler = (url, init) => {
     if (url.pathname === "/embed/v1/booking-drafts") {
@@ -851,7 +851,7 @@ test("M9E-10 交换起点和终点；横条的搜索按钮填好前 data-ready=f
   };
   await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh", layout: "bar" }, () => undefined);
   assert.equal($(".nzb-primary").getAttribute("data-ready"), "false");
-  assert.equal($(".nzb-primary").textContent, "查看价格");
+  assert.equal($(".nzb-primary").textContent, "查询价格");
   await pick("pickup", "成田", "成田国際空港");
   assert.equal($(".nzb-primary").getAttribute("data-ready"), "false");
   await pick("dropoff", "東京", "東京駅");
@@ -1085,7 +1085,7 @@ test("M9E-22 取配置连不上（no-cors 也失败）、5xx：马上按 init �
     assert.ok(Date.now() - started < 2_000, `${JSON.stringify(reply)}：不等 8 秒`);
     assert.ok(shadow().querySelector("form"), `${JSON.stringify(reply)}：显示表单`);
     assert.equal(shadow().querySelector('[role="status"]'), null, "不显示「暂时无法使用」");
-    assert.equal($(".nzb-primary").textContent, "查看价格");
+    assert.equal($(".nzb-primary").textContent, "查询价格");
     assert.deepEqual(tabTitles(), []);
     assert.equal(noCorsCalls(), reply === "network" ? 1 : 0, "读得到状态的不再试 no-cors");
   }
@@ -1234,7 +1234,7 @@ test("M9E-22 配置没回来先显示的表单，提交时被拒（读得到的 
     reply = { status, body: { error: { code: "EMBED_ORIGIN_NOT_ALLOWED" } } };
     assert.equal(await submit(), "这个网站暂时不能直接预订，请到主站预订。 到主站预订", `${status}`);
     assert.equal($<HTMLAnchorElement>('[data-role="message"] a').getAttribute("href"), `${BASE}/book`);
-    assert.equal($(".nzb-primary").textContent, "查看价格", "按钮恢复");
+    assert.equal($(".nzb-primary").textContent, "查询价格", "按钮恢复");
   }
   reply = "blocked";
   assert.equal(await submit(), "暂时连不上，请稍后再试或直接到主站预订。 到主站预订", "读不出、探 GET 配置也连不上：按连不上说，也给链接");

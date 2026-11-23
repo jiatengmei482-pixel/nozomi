@@ -81,7 +81,7 @@ export function validateOrderForm(form: OrderForm, trip: OrderTrip): OrderErrors
   if (trip.transfer && form.flightNo.trim() !== "" && !isFlightNo(form.flightNo)) errors.flightNo = "航班号的格式不对，如 NH211、MU523";
   if (trip.arrival && form.flightKind === "") errors.flightKind = "请选择国际航班还是国内航班：国际航班免费等待更久";
   for (const end of trip.ends) if (form[ADDRESS_FIELDS[end]].trim() === "") errors[ADDRESS_FIELDS[end]] = end === "pickup" ? "请填写上车的地址或酒店名" : "请填写下车的地址或酒店名";
-  if (form.messagingApp !== "" && form.messagingHandle.trim() === "") errors.messagingHandle = "选了即时通讯就要填账号";
+  if (form.messagingApp !== "" && form.messagingHandle.trim() === "") errors.messagingHandle = "已选择即时通讯工具，请填写账号";
   if (!form.consent) errors.consent = "需要同意保存支付方式才能下单";
   return errors;
 }

@@ -231,7 +231,7 @@ test("F7：订单页的取消政策是客人的说法；扣全额时确认框写
 
 test("F10、F11：顶栏 DOM 顺序是品牌、主题切换、入口；当前页的入口标 aria-current（预订页 /book、从旧地址 /book/new、/book/checkout 转过来的也是「预订用车」）", async () => {
   open("/book", bookingRoutes);
-  await screen.findByRole("heading", { level: 1, name: "预订接送车" });
+  await screen.findByRole("heading", { level: 1, name: "预订用车" });
   const header = document.querySelector(".site__header") as HTMLElement;
   assert.deepEqual([...header.children].map((child) => child.className), ["site__brand", "site__theme", "site__nav"]);
   const focusable = [...header.querySelectorAll<HTMLElement>("a, button")].map((element) => element.getAttribute("aria-label") ?? element.textContent);
@@ -250,7 +250,7 @@ test("F10、F11：顶栏 DOM 顺序是品牌、主题切换、入口；当前页
   for (const legacy of ["/book/new", "/book/checkout"]) {
     resetBrowser();
     open(legacy, bookingRoutes);
-    await screen.findByRole("heading", { level: 1, name: "预订接送车" });
+    await screen.findByRole("heading", { level: 1, name: "预订用车" });
     assert.equal(within(screen.getByRole("navigation", { name: "官网" })).getByRole("link", { name: "预订用车" }).getAttribute("aria-current"), "page", legacy);
   }
 });
@@ -284,7 +284,7 @@ test("F12：修改订单的字段级校验——顶部一条提示、出错字�
   const actor = user();
   await actor.click(await screen.findByRole("button", { name: "修改订单" }));
   const name = screen.getByLabelText("乘车人姓名");
-  const phone = screen.getByLabelText("手机号（带国家码）");
+  const phone = screen.getByLabelText("手机号（含国家码）");
   const flight = screen.getByLabelText("航班号");
   await actor.clear(name);
   await actor.clear(phone);

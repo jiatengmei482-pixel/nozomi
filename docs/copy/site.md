@@ -1,6 +1,6 @@
 # 官网（客人预订）
 
-由 `pnpm copy:export` 从代码生成，不要手改。本区域共 862 条：写死 636 条，已走 key 226 条。列的意思见 [README](README.md)。
+由 `pnpm copy:export` 从代码生成，不要手改。本区域共 861 条：写死 635 条，已走 key 226 条。列的意思见 [README](README.md)。
 
 ## 页面
 
@@ -16,7 +16,7 @@
 - [多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）](#多个页面共用官网行程报价页-booktriptrip-textsts)（202 条）
 - [多个页面共用：官网的地图选点（GoogleMapPicker.tsx）](#多个页面共用官网的地图选点googlemappickertsx)（3 条）
 - [多个页面共用：官网报不出价时的「留下联系方式、人工报价」和「通过 What…（ManualQuote.tsx）](#多个页面共用官网报不出价时的留下联系方式人工报价和通过-whatmanualquotetsx)（10 条）
-- [多个页面共用：官网订单页的各个区块（OrderSections.tsx）](#多个页面共用官网订单页的各个区块ordersectionstsx)（182 条）
+- [多个页面共用：官网订单页的各个区块（OrderSections.tsx）](#多个页面共用官网订单页的各个区块ordersectionstsx)（181 条）
 - [多个页面共用：官网的地图选点（SiteMapPicker.tsx）](#多个页面共用官网的地图选点sitemappickertsx)（5 条）
 - [多个页面共用：新预订页的一个地址框（PlaceField.tsx）](#多个页面共用新预订页的一个地址框placefieldtsx)（26 条）
 - [多个页面共用：包车的对外价明细（PriceBreakdown.tsx）](#多个页面共用包车的对外价明细pricebreakdowntsx)（2 条）
@@ -58,7 +58,7 @@
 | `site-order-form.da1db7fe` | 写死 | 请选择国际航班还是国内航班：国际航班免费等待更久 | 文字 | [site-order-form.ts:82](../../apps/web/src/lib/site-order-form.ts#L82) |
 | `site-order-form.43d51a2d` | 写死 | 请填写下车的地址或酒店名 | 文字 | [site-order-form.ts:83](../../apps/web/src/lib/site-order-form.ts#L83) |
 | `site-order-form.e50b1627` | 写死 | 请填写上车的地址或酒店名 | 文字 | [site-order-form.ts:83](../../apps/web/src/lib/site-order-form.ts#L83) |
-| `site-order-form.8a27042d` | 写死 | 选了即时通讯就要填账号 | 文字 | [site-order-form.ts:84](../../apps/web/src/lib/site-order-form.ts#L84) |
+| `site-order-form.b42146ec` | 写死 | 已选择即时通讯工具，请填写账号 | 文字 | [site-order-form.ts:84](../../apps/web/src/lib/site-order-form.ts#L84) |
 | `site-order-form.b5f5bf11` | 写死 | 需要同意保存支付方式才能下单 | 文字 | [site-order-form.ts:85](../../apps/web/src/lib/site-order-form.ts#L85) |
 | `site-order-form.42a9c64b` | 写死 | 报价已经过了 30 分钟的有效期，请重新查询价格。 | 文字 | [site-order-form.ts:112](../../apps/web/src/lib/site-order-form.ts#L112) |
 | `site-order-form.a3901cd6` | 写死 | 这个报价已经下过单了。要再订一辆，请重新查询价格。 | 文字 | [site-order-form.ts:112](../../apps/web/src/lib/site-order-form.ts#L112) |
@@ -75,7 +75,7 @@
 | `BookNewPage.57c54c9f` | 写死 | 上车地点 | 文字 | [BookNewPage.tsx:248](../../apps/web/src/pages/book/new/BookNewPage.tsx#L248)、538、1138、1148、1503 行 |
 | `BookNewPage.7b821b8c` | 写死 | 下车地点 | 文字 | [BookNewPage.tsx:248](../../apps/web/src/pages/book/new/BookNewPage.tsx#L248)、538、1164、1175、1523 行 |
 | `BookNewPage.0617425f` | 写死 | 链接里的地点{…}没有找到，请在下面重新选择{which}。 | 文字 | [BookNewPage.tsx:249](../../apps/web/src/pages/book/new/BookNewPage.tsx#L249) |
-| `BookNewPage.9b45becd` | 写死 | 链接里的地点{…}暂时没有读出来，请稍后刷新页面，或在下面直接选择。 | 文字 | [BookNewPage.tsx:251](../../apps/web/src/pages/book/new/BookNewPage.tsx#L251) |
+| `BookNewPage.8de657f9` | 写死 | 链接里的地点{…}暂时无法读取，请稍后刷新页面，或在下面直接选择。 | 文字 | [BookNewPage.tsx:251](../../apps/web/src/pages/book/new/BookNewPage.tsx#L251) |
 | `BookNewPage.0f9d8336` | 写死 | 请从候选里选出发地 | 文字 | [BookNewPage.tsx:271](../../apps/web/src/pages/book/new/BookNewPage.tsx#L271) |
 | `BookNewPage.af68712f` | 写死 | 请从候选里选上车地点 | 文字 | [BookNewPage.tsx:271](../../apps/web/src/pages/book/new/BookNewPage.tsx#L271) |
 | `BookNewPage.45f2175d` | 写死 | 这个地址暂时没有在线报价，请联系客服 | 文字 | [BookNewPage.tsx:272](../../apps/web/src/pages/book/new/BookNewPage.tsx#L272)、539、1178 行 |
@@ -109,7 +109,7 @@
 | `BookNewPage.4653cb0b` | 写死 | 重试 | 按钮 | [BookNewPage.tsx:1061](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1061)、1065、1217、1290 行 |
 | `BookNewPage.597336a1` | 写死 | 暂未开放预订 | 标题 | [BookNewPage.tsx:1063](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1063) |
 | `BookNewPage.fd26ebca` | 写死 | 官网的在线预订还没有开放，请稍后再来。已经下过单的客人可以点上方的「查订单」查看订单。 | 说明 | [BookNewPage.tsx:1063](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1063) |
-| `BookNewPage.584f1d9b` | 写死 | 城市列表没有读出来 | 标题 | [BookNewPage.tsx:1065](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1065) |
+| `BookNewPage.87ddb3eb` | 写死 | 城市列表加载失败，请刷新重试 | 标题 | [BookNewPage.tsx:1065](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1065) |
 | `BookNewPage.04e51a10` | 写死 | 暂时没有可预订的城市 | 标题 | [BookNewPage.tsx:1067](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1067) |
 | `BookNewPage.f163951b` | 写死 | 现在还没有可以在线预订用车的城市，请稍后再来。 | 说明 | [BookNewPage.tsx:1067](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1067) |
 | `BookNewPage.0b7d61b4` | 写死 | 用车时间（当地） | 名称 | [BookNewPage.tsx:1078](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1078) |
@@ -124,7 +124,7 @@
 | `BookNewPage.b2b70d17` | 写死 | 第 {number} 步：{name}（已完成，回到这一步） | 读屏说明 | [BookNewPage.tsx:1099](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1099) |
 | `BookNewPage.63b87d40` | 写死 | 第 {number} 步：{name}{…} | 读屏说明 | [BookNewPage.tsx:1103](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1103) |
 | `BookNewPage.c632b0e1` | 写死 | （当前） | 读屏说明 | [BookNewPage.tsx:1103](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1103) |
-| `BookNewPage.faf3d664` | 写死 | 你的行程 | 标题 | [BookNewPage.tsx:1117](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1117) |
+| `BookNewPage.92fbe7f4` | 写死 | 您的行程 | 标题 | [BookNewPage.tsx:1117](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1117) |
 | `BookNewPage.df7e4bdc` | 写死 | 用车类型 | 表单标签 | [BookNewPage.tsx:1121](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1121)、1499 行 |
 | `BookNewPage.ce510457` | 写死 | 包车结束时在哪里下车，价格按上车和下车地点算。 | 说明 | [BookNewPage.tsx:1168](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1168) |
 | `BookNewPage.8afe6885` | 写死 | 请选择下车地点，包车现在按上车和下车地点报价。 | 文字 | [BookNewPage.tsx:1169](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1169) |
@@ -136,7 +136,7 @@
 | `BookNewPage.644b71e1` | 写死 | 包车时长：按行程自动选套餐 | 正文 | [BookNewPage.tsx:1201](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1201) |
 | `BookNewPage.8db00818` | 写死 | 有经停点时，按各段行驶时间和停留时长算出总时长，自动选合适的套餐。 | 正文 | [BookNewPage.tsx:1203](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1203) |
 | `BookNewPage.75dc7fa1` | 写死 | 想多留些时间可以选更长的套餐；不能选比预计用时短的 | 说明 | [BookNewPage.tsx:1213](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1213) |
-| `BookNewPage.05b10dea` | 写死 | 包车时长没有读出来 | 标题 | [BookNewPage.tsx:1217](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1217) |
+| `BookNewPage.e37da5ac` | 写死 | 包车时长加载失败，请刷新重试 | 标题 | [BookNewPage.tsx:1217](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1217) |
 | `BookNewPage.08158d8d` | 写死 | 正在读取 | 输入框占位 | [BookNewPage.tsx:1227](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1227) |
 | `BookNewPage.1316b921` | 写死 | 先选上车、下车地点 | 输入框占位 | [BookNewPage.tsx:1227](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1227) |
 | `BookNewPage.7297716d` | 写死 | 请选择时长 | 输入框占位 | [BookNewPage.tsx:1227](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1227) |
@@ -145,13 +145,13 @@
 | `BookNewPage.4ff77eb3` | 写死 | {cityName}的当地时间 | 说明 | [BookNewPage.tsx:1238](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1238) |
 | `BookNewPage.e5efcd14` | 写死 | 下一步：选择车型 | 按钮 | [BookNewPage.tsx:1255](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1255) |
 | `BookNewPage.55d12785` | 写死 | 改选 {hours} 小时 | 按钮 | [BookNewPage.tsx:1271](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1271) |
-| `BookNewPage.51ba1197` | 写死 | 选好上车地点、下车地点、包车时长、日期和时间后，这里会列出能坐下的车型和价格。 | 正文 | [BookNewPage.tsx:1281](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1281) |
-| `BookNewPage.f7e12a64` | 写死 | 填好出发地、目的地、日期和时间后，这里会列出能坐下的车型和一口价。 | 正文 | [BookNewPage.tsx:1281](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1281) |
+| `BookNewPage.20d449b7` | 写死 | 选好上车地点、下车地点、包车时长、日期和时间后，这里会列出可乘坐的车型和价格。 | 正文 | [BookNewPage.tsx:1281](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1281) |
+| `BookNewPage.e6aa0efc` | 写死 | 填好出发地、目的地、日期和时间后，这里会列出可乘坐的车型和一口价。 | 正文 | [BookNewPage.tsx:1281](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1281) |
 | `BookNewPage.96584c87` | 写死 | 正在查询价格 | 名称 | [BookNewPage.tsx:1283](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1283) |
-| `BookNewPage.34617c14` | 写死 | 价格没有查出来 | 标题 | [BookNewPage.tsx:1288](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1288) |
 | `BookNewPage.589c19f4` | 写死 | 没有在线报价 | 标题 | [BookNewPage.tsx:1288](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1288) |
+| `BookNewPage.99e3fe01` | 写死 | 价格查询失败，请重试 | 标题 | [BookNewPage.tsx:1288](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1288) |
 | `BookNewPage.2c46d70f` | 写死 | 没有可预订的车 | 标题 | [BookNewPage.tsx:1312](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1312) |
-| `BookNewPage.f4f761da` | 写死 | 按价格从低到高 · 坐不下的已隐藏。报价 30 分钟内有效（到当地时间 {…}），过了请重新查询。 | 正文 | [BookNewPage.tsx:1332](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1332) |
+| `BookNewPage.a20ada80` | 写死 | 按价格从低到高 · 座位不足的已隐藏。报价 30 分钟内有效（到当地时间 {…}），过了请重新查询。 | 正文 | [BookNewPage.tsx:1332](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1332) |
 | `BookNewPage.ccfebb59` | 写死 | 行程时间表 | 标题 | [BookNewPage.tsx:1338](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1338) |
 | `BookNewPage.6373c8ca` | 写死 | 选择车型 | 标题 | [BookNewPage.tsx:1389](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1389) |
 | `BookNewPage.4e3fd180` | 写死 | 上一步 | 按钮 | [BookNewPage.tsx:1411](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1411)、1484 行 |
@@ -174,7 +174,7 @@
 | `BookNewPage.b9e44eec` | 写死 | 免费等待 | 正文 | [BookNewPage.tsx:1568](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1568) |
 | `BookNewPage.22028ae5` | 写死 | 不限时 | 正文 | [BookNewPage.tsx:1569](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1569) |
 | `BookNewPage.8c34d128` | 写死 | 航班落地后 {freeWait} 分钟 | 正文 | [BookNewPage.tsx:1569](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1569) |
-| `BookNewPage.5b8adaaf` | 写死 | 乘车人电话/WhatsApp | 正文 | [BookNewPage.tsx:1580](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1580) |
+| `BookNewPage.49c21280` | 写死 | 乘车人电话 / WhatsApp | 正文 | [BookNewPage.tsx:1580](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1580) |
 | `BookNewPage.b7c2e6e8` | 写死 | 举牌姓名 | 正文 | [BookNewPage.tsx:1587](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1587) |
 | `BookNewPage.08773378` | 写死 | 给司机的备注 | 正文 | [BookNewPage.tsx:1599](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1599) |
 | `BookNewPage.94d63521` | 写死 | 车型和价格 | 标题 | [BookNewPage.tsx:1614](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1614)、1691 行 |
@@ -185,7 +185,7 @@
 | `BookNewPage.a9922481` | 写死 | 修改{what} | 读屏说明 | [BookNewPage.tsx:1654](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1654) |
 | `BookNewPage.0af303e3` | 写死 | 修改 | 按钮 | [BookNewPage.tsx:1656](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1656) |
 | `BookNewPage.851bbd69` | 写死 | 核对订单 | 标题 | [BookNewPage.tsx:1669](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1669) |
-| `BookNewPage.ec517f42` | 写死 | 选的车型现在报不出价了，请点「修改」重新选择车型。 | 正文 | [BookNewPage.tsx:1710](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1710) |
+| `BookNewPage.a4a9edb6` | 写死 | 选的车型现在无法在线报价，请点「修改」重新选择车型。 | 正文 | [BookNewPage.tsx:1710](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1710) |
 | `BookNewPage.f7748eb6` | 写死 | 正在重新查询价格… | 正文 | [BookNewPage.tsx:1710](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1710) |
 | `BookNewPage.629417d3` | 写死 | 法律文案 | 名称 | [BookNewPage.tsx:1732](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1732) |
 | `BookNewPage.e51eb20c` | 写死 | 行程摘要 | 正文 | [BookNewPage.tsx:1760](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1760)、1786、1808 行 |
@@ -212,10 +212,10 @@
 | `CheckoutParts.008472ce` | 写死 | 乘车人姓名 | 名称 | [CheckoutParts.tsx:224](../../apps/web/src/pages/book/new/CheckoutParts.tsx#L224)、229 行 |
 | `CheckoutParts.fe53f7ea` | 写死 | 预订人姓名 | 名称 | [CheckoutParts.tsx:224](../../apps/web/src/pages/book/new/CheckoutParts.tsx#L224) |
 | `CheckoutParts.82bdfc93` | 写死 | 邮箱 | 名称 | [CheckoutParts.tsx:225](../../apps/web/src/pages/book/new/CheckoutParts.tsx#L225) |
-| `CheckoutParts.e78a65a3` | 写死 | 手机号（含国家区号） | 名称 | [CheckoutParts.tsx:226](../../apps/web/src/pages/book/new/CheckoutParts.tsx#L226) |
+| `CheckoutParts.df46a858` | 写死 | 手机号（含国家码） | 名称 | [CheckoutParts.tsx:226](../../apps/web/src/pages/book/new/CheckoutParts.tsx#L226) |
 | `CheckoutParts.57f35fc6` | 写死 | 确认邮件仍发给上面的预订人 | 说明 | [CheckoutParts.tsx:229](../../apps/web/src/pages/book/new/CheckoutParts.tsx#L229) |
 | `CheckoutParts.2d310e9f` | 写死 | 司机当天联系乘车人用，如 +81 90-1234-5678 | 说明 | [CheckoutParts.tsx:230](../../apps/web/src/pages/book/new/CheckoutParts.tsx#L230) |
-| `CheckoutParts.5cbd26ff` | 写死 | 乘车人电话/WhatsApp | 名称 | [CheckoutParts.tsx:230](../../apps/web/src/pages/book/new/CheckoutParts.tsx#L230) |
+| `CheckoutParts.f396c092` | 写死 | 乘车人电话 / WhatsApp | 名称 | [CheckoutParts.tsx:230](../../apps/web/src/pages/book/new/CheckoutParts.tsx#L230) |
 | `CheckoutParts.56678932` | 写死 | 微信 / LINE / WhatsApp（选填） | 名称 | [CheckoutParts.tsx:236](../../apps/web/src/pages/book/new/CheckoutParts.tsx#L236) |
 | `CheckoutParts.d4367956` | 写死 | 不填 | 输入框占位 | [CheckoutParts.tsx:237](../../apps/web/src/pages/book/new/CheckoutParts.tsx#L237) |
 | `CheckoutParts.142d663e` | 写死 | 即时通讯账号 | 名称 | [CheckoutParts.tsx:242](../../apps/web/src/pages/book/new/CheckoutParts.tsx#L242) |
@@ -256,7 +256,7 @@
 | `trip-ai.e1969ab0` | 写死 | {rest} 分钟 | 文字 | [trip-ai.ts:132](../../apps/web/src/lib/trip-ai.ts#L132) |
 | `trip-ai.0c025e01` | 写死 | {hours} 小时 | 文字 | [trip-ai.ts:133](../../apps/web/src/lib/trip-ai.ts#L133) |
 | `trip-ai.67fabc3a` | 写死 | {hours} 小时 {rest} 分钟 | 文字 | [trip-ai.ts:133](../../apps/web/src/lib/trip-ai.ts#L133) |
-| `TripQuoteResult.5809e058` | 写死 | {…}月{…}日 | 文字 | [TripQuoteResult.tsx:52](../../apps/web/src/pages/book/trip/TripQuoteResult.tsx#L52) |
+| `TripQuoteResult.ae44d7c5` | 写死 | {…} 月 {…} 日 | 文字 | [TripQuoteResult.tsx:52](../../apps/web/src/pages/book/trip/TripQuoteResult.tsx#L52) |
 
 ## 订单页（查订单、管理订单）
 
@@ -266,7 +266,7 @@
 | --- | --- | --- | --- | --- |
 | `FeedbackSection.df5a203d` | 写死 | 已提交。平台一般 2 小时内答复（用车当天的 15 分钟内），3 个工作日内处理完；答复会显示在这里，请稍后回到这个页面查看。 | 文字 | [FeedbackSection.tsx:25](../../apps/web/src/pages/book/FeedbackSection.tsx#L25) |
 | `FeedbackSection.71d81294` | 写死 | 已超过投诉时限：服务结束后 14 天内可以投诉。如果还有问题，请联系客服。 | 提示 | [FeedbackSection.tsx:28](../../apps/web/src/pages/book/FeedbackSection.tsx#L28) |
-| `FeedbackSection.eb185bd0` | 写死 | 这一单已经提了很多次，请直接联系客服。 | 提示 | [FeedbackSection.tsx:29](../../apps/web/src/pages/book/FeedbackSection.tsx#L29) |
+| `FeedbackSection.e77fd494` | 写死 | 这张订单的反馈次数已达上限，请直接联系客服。 | 提示 | [FeedbackSection.tsx:29](../../apps/web/src/pages/book/FeedbackSection.tsx#L29) |
 | `FeedbackSection.195de9aa` | 写死 | 提交 | 文字 | [FeedbackSection.tsx:30](../../apps/web/src/pages/book/FeedbackSection.tsx#L30)、178 行 |
 | `FeedbackSection.c3944156` | 写死 | 反馈 | 正文 | [FeedbackSection.tsx:39](../../apps/web/src/pages/book/FeedbackSection.tsx#L39) |
 | `FeedbackSection.2e7b049f` | 写死 | 编号 {ticket\_no} · 提交于 {…} | 正文 | [FeedbackSection.tsx:42](../../apps/web/src/pages/book/FeedbackSection.tsx#L42) |
@@ -284,7 +284,7 @@
 | `FeedbackSection.2023efbb` | 写死 | 投诉和反馈 | 标题 | [FeedbackSection.tsx:124](../../apps/web/src/pages/book/FeedbackSection.tsx#L124) |
 | `FeedbackSection.c0fd2955` | 写死 | 对这次用车不满意、东西落在车上，或者有别的问题，可以在这里告诉平台。平台核实后会在这里答复；投诉成立的按统一的赔付标准补偿。 | 正文 | [FeedbackSection.tsx:125](../../apps/web/src/pages/book/FeedbackSection.tsx#L125) |
 | `FeedbackSection.007fc2ef` | 写死 | 正在读取已提交的反馈 | 名称 | [FeedbackSection.tsx:126](../../apps/web/src/pages/book/FeedbackSection.tsx#L126) |
-| `FeedbackSection.4bbca67d` | 写死 | 已提交的反馈没有读出来。 | 正文 | [FeedbackSection.tsx:129](../../apps/web/src/pages/book/FeedbackSection.tsx#L129) |
+| `FeedbackSection.14d3dcb9` | 写死 | 已提交的反馈加载失败，请刷新重试。 | 正文 | [FeedbackSection.tsx:129](../../apps/web/src/pages/book/FeedbackSection.tsx#L129) |
 | `FeedbackSection.42345af7` | 写死 | 重试 | 按钮 | [FeedbackSection.tsx:132](../../apps/web/src/pages/book/FeedbackSection.tsx#L132) |
 | `FeedbackSection.21801896` | 写死 | 已提交的反馈 | 读屏说明 | [FeedbackSection.tsx:136](../../apps/web/src/pages/book/FeedbackSection.tsx#L136) |
 | `FeedbackSection.bd2066dc` | 写死 | 是哪类问题 | 标题 | [FeedbackSection.tsx:145](../../apps/web/src/pages/book/FeedbackSection.tsx#L145) |
@@ -305,7 +305,7 @@
 | `OrderPage.b0008973` | 写死 | 如信息匹配，链接已发送到下单邮箱。请查收邮件（也看看垃圾邮件），打开邮件里的链接查看订单。 | 文字 | [OrderPage.tsx:46](../../apps/web/src/pages/book/OrderPage.tsx#L46) |
 | `OrderPage.23097501` | 写死 | 已结束超过 180 天的订单，链接和联系方式可能已按隐私规则清除，收不到新链接，需要帮助请联系客服。 | 说明 | [OrderPage.tsx:49](../../apps/web/src/pages/book/OrderPage.tsx#L49) |
 | `OrderPage.21ac6ea1` | 写死 | 订单链接无效或已过期。请填订单号和下单邮箱，我们会把新的订单链接发到您的邮箱。 | 文字 | [OrderPage.tsx:51](../../apps/web/src/pages/book/OrderPage.tsx#L51) |
-| `OrderPage.8ba1c0a1` | 写死 | 暂时发不了邮件，请联系客服找回订单。 | 文字 | [OrderPage.tsx:54](../../apps/web/src/pages/book/OrderPage.tsx#L54) |
+| `OrderPage.0ad26d66` | 写死 | 邮件暂时无法发送，请联系客服找回订单。 | 文字 | [OrderPage.tsx:54](../../apps/web/src/pages/book/OrderPage.tsx#L54) |
 | `OrderPage.bc8c1a50` | 写死 | 发送订单链接 | 文字 | [OrderPage.tsx:59](../../apps/web/src/pages/book/OrderPage.tsx#L59)、103 行 |
 | `OrderPage.ff4d42cd` | 写死 | 订单号是 NZ 开头的 18 位，如 NZ20261026AB12CD34 | 文字 | [OrderPage.tsx:78](../../apps/web/src/pages/book/OrderPage.tsx#L78) |
 | `OrderPage.62c981b8` | 写死 | 请填写下单时的邮箱 | 文字 | [OrderPage.tsx:79](../../apps/web/src/pages/book/OrderPage.tsx#L79) |
@@ -328,7 +328,7 @@
 | `OrderPage.ee272d3c` | 写死 | 输入订单号和下单时填的邮箱，我们会把订单链接发到这个邮箱。打开链接就能查看订单、付款、取消或修改。 | 正文 | [OrderPage.tsx:180](../../apps/web/src/pages/book/OrderPage.tsx#L180) |
 | `OrderPage.fe46c77b` | 写死 | 订单 {orderNo} · NOZOMI 用车 | 浏览器标题 | [OrderPage.tsx:241](../../apps/web/src/pages/book/OrderPage.tsx#L241) |
 | `OrderPage.ec5f5837` | 写死 | 读取订单 | 文字 | [OrderPage.tsx:273](../../apps/web/src/pages/book/OrderPage.tsx#L273) |
-| `OrderPage.bdb5d823` | 写死 | 订单没有读出来 | 标题 | [OrderPage.tsx:294](../../apps/web/src/pages/book/OrderPage.tsx#L294) |
+| `OrderPage.55d11ae1` | 写死 | 订单加载失败，请刷新重试 | 标题 | [OrderPage.tsx:294](../../apps/web/src/pages/book/OrderPage.tsx#L294) |
 | `OrderPage.f7230824` | 写死 | 重试 | 按钮 | [OrderPage.tsx:294](../../apps/web/src/pages/book/OrderPage.tsx#L294) |
 | `OrderPage.3897a19c` | 写死 | 订单 {order\_no} | 标题 | [OrderPage.tsx:323](../../apps/web/src/pages/book/OrderPage.tsx#L323) |
 | `OrderPage.8f8e16ff` | 写死 | 付款成功，订单已确认。派车后这里会显示司机和车辆。 | 提示 | [OrderPage.tsx:326](../../apps/web/src/pages/book/OrderPage.tsx#L326) |
@@ -512,7 +512,7 @@
 | `step-bar.label` | 已走 key | 本步操作 | 名称 | [step-bar-texts.ts:10](../../apps/web/src/lib/step-bar-texts.ts#L10) |
 | `step-bar.needVehicle` | 已走 key | 请先选择车型 | 文字 | [step-bar-texts.ts:11](../../apps/web/src/lib/step-bar-texts.ts#L11) |
 | `step-bar.quoting` | 已走 key | 正在查询价格，查好后请选择车型 | 文字 | [step-bar-texts.ts:12](../../apps/web/src/lib/step-bar-texts.ts#L12) |
-| `step-bar.quoteFailed` | 已走 key | 价格没有查出来，请先点「重试」 | 提示 | [step-bar-texts.ts:13](../../apps/web/src/lib/step-bar-texts.ts#L13) |
+| `step-bar.quoteFailed` | 已走 key | 价格查询失败，请先点「重试」 | 提示 | [step-bar-texts.ts:13](../../apps/web/src/lib/step-bar-texts.ts#L13) |
 
 ## 多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）
 
@@ -535,24 +535,24 @@
 | `trip.manual.cta` | 已走 key | 转人工报价 | 文字 | [trip-texts.ts:233](../../apps/web/src/lib/trip-texts.ts#L233) |
 | `trip.book` | 已走 key | 预订这个方案 | 文字 | [trip-texts.ts:234](../../apps/web/src/lib/trip-texts.ts#L234) |
 | `trip.bookManual` | 已走 key | 提交预订，客服确认 | 文字 | [trip-texts.ts:235](../../apps/web/src/lib/trip-texts.ts#L235) |
-| `trip.ai.title` | 已走 key | 一句话描述你的行程 | 标题 | [trip-texts.ts:237](../../apps/web/src/lib/trip-texts.ts#L237) |
+| `trip.ai.title` | 已走 key | 一句话描述您的行程 | 标题 | [trip-texts.ts:237](../../apps/web/src/lib/trip-texts.ts#L237) |
 | `trip.ai.placeholder` | 已走 key | 例如：11 月 25 日成田接机，先去浅草寺再去新宿酒店，第二天包车 8 小时去日光，第三天送羽田，4 个人 6 件行李 | 输入框占位 | [trip-texts.ts:238](../../apps/web/src/lib/trip-texts.ts#L238) |
 | `trip.ai.submit` | 已走 key | 帮我填好 | 按钮 | [trip-texts.ts:239](../../apps/web/src/lib/trip-texts.ts#L239) |
 | `trip.ai.working` | 已走 key | 正在整理… | 文字 | [trip-texts.ts:240](../../apps/web/src/lib/trip-texts.ts#L240) |
 | `trip.ai.note` | 已走 key | 由 AI 整理，价格由系统按规则计算；请勿填写姓名、电话等个人信息 | 说明 | [trip-texts.ts:241](../../apps/web/src/lib/trip-texts.ts#L241) |
 | `trip.ai.replaceConfirm` | 已走 key | 用 AI 整理的结果替换现在填的内容吗？ | 按钮 | [trip-texts.ts:242](../../apps/web/src/lib/trip-texts.ts#L242) |
-| `trip.ai.summary` | 已走 key | 已按你的描述填好 {days} 天行程。标黄的地方请补填或确认，然后点「查看报价」 | 说明 | [trip-texts.ts:243](../../apps/web/src/lib/trip-texts.ts#L243) |
+| `trip.ai.summary` | 已走 key | 已按您的描述填好 {days} 天行程。标黄的地方请补填或确认，然后点「查看报价」 | 说明 | [trip-texts.ts:243](../../apps/web/src/lib/trip-texts.ts#L243) |
 | `trip.ai.filled` | 已走 key | AI 填的，可改 | 文字 | [trip-texts.ts:244](../../apps/web/src/lib/trip-texts.ts#L244) |
 | `trip.ai.missing` | 已走 key | 请补填 | 文字 | [trip-texts.ts:245](../../apps/web/src/lib/trip-texts.ts#L245) |
 | `trip.ai.pickOne` | 已走 key | 找到几个地点，请选一个 | 文字 | [trip-texts.ts:246](../../apps/web/src/lib/trip-texts.ts#L246) |
 | `trip.ai.notFound` | 已走 key | 没找到「{name}」，请重新搜索 | 文字 | [trip-texts.ts:247](../../apps/web/src/lib/trip-texts.ts#L247) |
-| `trip.ai.vague` | 已走 key | 「{name}」没说是哪一家，请搜索选一家 | 文字 | [trip-texts.ts:248](../../apps/web/src/lib/trip-texts.ts#L248) |
+| `trip.ai.vague` | 已走 key | 「{name}」有多家，请搜索选择具体是哪一家 | 文字 | [trip-texts.ts:248](../../apps/web/src/lib/trip-texts.ts#L248) |
 | `trip.ai.unused.FLIGHT_NUMBER` | 已走 key | 航班号 {value}：行程报价暂不用航班号，下单时可以填在备注里 | 文字 | [trip-texts.ts:249](../../apps/web/src/lib/trip-texts.ts#L249) |
-| `trip.ai.unused.CHARTER_HOURS` | 已走 key | 你说的「包车 {value} 小时」会按实际路线自动选套餐，报价里能看到 | 文字 | [trip-texts.ts:250](../../apps/web/src/lib/trip-texts.ts#L250) |
+| `trip.ai.unused.CHARTER_HOURS` | 已走 key | 您说的「包车 {value} 小时」会按实际路线自动选套餐，报价里能看到 | 文字 | [trip-texts.ts:250](../../apps/web/src/lib/trip-texts.ts#L250) |
 | `trip.ai.outOfScope` | 已走 key | 行程里有暂时报不了价的部分（{what}），可以转人工报价 | 文字 | [trip-texts.ts:251](../../apps/web/src/lib/trip-texts.ts#L251) |
-| `trip.ai.failed` | 已走 key | 暂时没法自动整理，请直接在下面填写 | 提示 | [trip-texts.ts:252](../../apps/web/src/lib/trip-texts.ts#L252) |
+| `trip.ai.failed` | 已走 key | 暂时无法自动整理，请直接在下面填写 | 提示 | [trip-texts.ts:252](../../apps/web/src/lib/trip-texts.ts#L252) |
 | `trip.ai.dailyLimit` | 已走 key | 今天的自动整理次数已满，请直接填写 | 文字 | [trip-texts.ts:253](../../apps/web/src/lib/trip-texts.ts#L253) |
-| `trip.ai.notATrip` | 已走 key | 没看出行程，请写上日期、地点，或直接在下面填写 | 文字 | [trip-texts.ts:254](../../apps/web/src/lib/trip-texts.ts#L254) |
+| `trip.ai.notATrip` | 已走 key | 没能识别出行程，请写上日期、地点，或直接在下面填写 | 文字 | [trip-texts.ts:254](../../apps/web/src/lib/trip-texts.ts#L254) |
 | `trip.ai.tooLong` | 已走 key | 行程较长，请分段报价或转人工 | 文字 | [trip-texts.ts:255](../../apps/web/src/lib/trip-texts.ts#L255) |
 | `trip.ai.label` | 已走 key | 行程描述 | 名称 | [trip-texts.ts:257](../../apps/web/src/lib/trip-texts.ts#L257) |
 | `trip.ai.count` | 已走 key | {n} / {max} 字 | 文字 | [trip-texts.ts:258](../../apps/web/src/lib/trip-texts.ts#L258) |
@@ -568,8 +568,8 @@
 | `trip.ai.summaryUnused` | 已走 key | 没有用上的信息 | 说明 | [trip-texts.ts:268](../../apps/web/src/lib/trip-texts.ts#L268) |
 | `trip.ai.summaryOutOfScope` | 已走 key | 不在报价范围 | 说明 | [trip-texts.ts:269](../../apps/web/src/lib/trip-texts.ts#L269) |
 | `trip.ai.field.date` | 已走 key | 第 1 天的日期 | 文字 | [trip-texts.ts:270](../../apps/web/src/lib/trip-texts.ts#L270) |
-| `trip.ai.field.passengers` | 已走 key | 人数（先按 {n} 人填了） | 文字 | [trip-texts.ts:271](../../apps/web/src/lib/trip-texts.ts#L271) |
-| `trip.ai.field.luggage` | 已走 key | 行李件数（先按 {n} 件填了） | 文字 | [trip-texts.ts:272](../../apps/web/src/lib/trip-texts.ts#L272) |
+| `trip.ai.field.passengers` | 已走 key | 人数（暂按 {n} 人） | 文字 | [trip-texts.ts:271](../../apps/web/src/lib/trip-texts.ts#L271) |
+| `trip.ai.field.luggage` | 已走 key | 行李件数（暂按 {n} 件） | 文字 | [trip-texts.ts:272](../../apps/web/src/lib/trip-texts.ts#L272) |
 | `trip.ai.field.time` | 已走 key | 第 {n} 天的上车时间 | 文字 | [trip-texts.ts:273](../../apps/web/src/lib/trip-texts.ts#L273) |
 | `trip.ai.field.start` | 已走 key | 第 {n} 天的上车地点 | 文字 | [trip-texts.ts:274](../../apps/web/src/lib/trip-texts.ts#L274) |
 | `trip.ai.field.stop` | 已走 key | 第 {n} 天第 {m} 个中间地点 | 文字 | [trip-texts.ts:275](../../apps/web/src/lib/trip-texts.ts#L275) |
@@ -605,10 +605,10 @@
 | `trip.retry` | 已走 key | 重试 | 文字 | [trip-texts.ts:306](../../apps/web/src/lib/trip-texts.ts#L306) |
 | `trip.notOpenTitle` | 已走 key | 暂未开放预订 | 标题 | [trip-texts.ts:307](../../apps/web/src/lib/trip-texts.ts#L307) |
 | `trip.notOpenText` | 已走 key | 官网的在线预订还没有开放，请稍后再来。 | 文字 | [trip-texts.ts:308](../../apps/web/src/lib/trip-texts.ts#L308) |
-| `trip.citiesFailed` | 已走 key | 城市列表没有读出来 | 提示 | [trip-texts.ts:309](../../apps/web/src/lib/trip-texts.ts#L309) |
+| `trip.citiesFailed` | 已走 key | 城市列表加载失败，请刷新重试 | 提示 | [trip-texts.ts:309](../../apps/web/src/lib/trip-texts.ts#L309) |
 | `trip.noCitiesTitle` | 已走 key | 暂时没有可预订的城市 | 标题 | [trip-texts.ts:310](../../apps/web/src/lib/trip-texts.ts#L310) |
 | `trip.noCitiesText` | 已走 key | 现在还没有可以在线预订用车的城市，请稍后再来。 | 文字 | [trip-texts.ts:311](../../apps/web/src/lib/trip-texts.ts#L311) |
-| `trip.tripSection` | 已走 key | 你的行程 | 文字 | [trip-texts.ts:312](../../apps/web/src/lib/trip-texts.ts#L312) |
+| `trip.tripSection` | 已走 key | 您的行程 | 文字 | [trip-texts.ts:312](../../apps/web/src/lib/trip-texts.ts#L312) |
 | `trip.date` | 已走 key | 日期（当地） | 文字 | [trip-texts.ts:313](../../apps/web/src/lib/trip-texts.ts#L313) |
 | `trip.dateAuto` | 已走 key | 日期：{date}（接着前一天） | 文字 | [trip-texts.ts:314](../../apps/web/src/lib/trip-texts.ts#L314) |
 | `trip.time` | 已走 key | 第 {n} 天 上车时间（当地） | 文字 | [trip-texts.ts:315](../../apps/web/src/lib/trip-texts.ts#L315) |
@@ -679,17 +679,17 @@
 | `trip.warning.WORK_HOURS_HARD_LIMITWhole` | 已走 key | 用车时间接近上限 | 文字 | [trip-texts.ts:382](../../apps/web/src/lib/trip-texts.ts#L382) |
 | `trip.compare` | 已走 key | 两个方案对比 | 文字 | [trip-texts.ts:383](../../apps/web/src/lib/trip-texts.ts#L383) |
 | `trip.manual.cardHint` | 已走 key | 留下邮箱或 WhatsApp，客服按整张行程单报价，不用再填行程 | 说明 | [trip-texts.ts:384](../../apps/web/src/lib/trip-texts.ts#L384) |
-| `trip.manual.noTrip` | 已走 key | 第一天的行程不完整，没法转人工报价，请返回修改行程 | 文字 | [trip-texts.ts:385](../../apps/web/src/lib/trip-texts.ts#L385) |
+| `trip.manual.noTrip` | 已走 key | 第一天的行程不完整，无法转人工报价，请返回修改行程 | 文字 | [trip-texts.ts:385](../../apps/web/src/lib/trip-texts.ts#L385) |
 | `trip.manual.unnamedPlace` | 已走 key | 地图上选的位置 | 文字 | [trip-texts.ts:386](../../apps/web/src/lib/trip-texts.ts#L386) |
 | `trip.dayListOf` | 已走 key | {plan}：每天的行程 | 文字 | [trip-texts.ts:387](../../apps/web/src/lib/trip-texts.ts#L387) |
-| `trip.failure.tooComplex` | 已走 key | 这个行程太复杂，暂时没法在线报价。 | 文字 | [trip-texts.ts:389](../../apps/web/src/lib/trip-texts.ts#L389) |
+| `trip.failure.tooComplex` | 已走 key | 这个行程太复杂，暂时无法在线报价。 | 文字 | [trip-texts.ts:389](../../apps/web/src/lib/trip-texts.ts#L389) |
 | `trip.failure.notFound` | 已走 key | 这个行程已过期或不存在，请重新填写。 | 文字 | [trip-texts.ts:390](../../apps/web/src/lib/trip-texts.ts#L390) |
 | `trip.failure.rateLimited` | 已走 key | 操作太频繁了，请稍后再试。 | 文字 | [trip-texts.ts:391](../../apps/web/src/lib/trip-texts.ts#L391) |
 | `trip.failure.rateLimitedSeconds` | 已走 key | 操作太频繁了，请 {n} 秒后再试。 | 文字 | [trip-texts.ts:392](../../apps/web/src/lib/trip-texts.ts#L392) |
 | `trip.failure.rateLimitedMinutes` | 已走 key | 操作太频繁了，请 {n} 分钟后再试。 | 文字 | [trip-texts.ts:393](../../apps/web/src/lib/trip-texts.ts#L393) |
-| `trip.failure.quote` | 已走 key | 报价没有查出来 | 文字 | [trip-texts.ts:394](../../apps/web/src/lib/trip-texts.ts#L394) |
-| `trip.failure.create` | 已走 key | 行程没有保存 | 文字 | [trip-texts.ts:395](../../apps/web/src/lib/trip-texts.ts#L395) |
-| `trip.failure.read` | 已走 key | 行程没有读出来 | 文字 | [trip-texts.ts:396](../../apps/web/src/lib/trip-texts.ts#L396) |
+| `trip.failure.quote` | 已走 key | 价格查询失败，请重试 | 文字 | [trip-texts.ts:394](../../apps/web/src/lib/trip-texts.ts#L394) |
+| `trip.failure.create` | 已走 key | 行程保存失败，请重试 | 文字 | [trip-texts.ts:395](../../apps/web/src/lib/trip-texts.ts#L395) |
+| `trip.failure.read` | 已走 key | 行程加载失败，请重试 | 文字 | [trip-texts.ts:396](../../apps/web/src/lib/trip-texts.ts#L396) |
 | `trip.action.create` | 已走 key | 保存行程 | 文字 | [trip-texts.ts:397](../../apps/web/src/lib/trip-texts.ts#L397) |
 | `trip.action.quote` | 已走 key | 报价 | 文字 | [trip-texts.ts:398](../../apps/web/src/lib/trip-texts.ts#L398) |
 | `trip.action.read` | 已走 key | 读取行程 | 文字 | [trip-texts.ts:399](../../apps/web/src/lib/trip-texts.ts#L399) |
@@ -707,21 +707,21 @@
 | `trip.reason.NO_PRODUCT` | 已走 key | 这里暂时没有在线报价 | 文字 | [trip-texts.ts:414](../../apps/web/src/lib/trip-texts.ts#L414) |
 | `trip.reason.OUT_OF_SERVICE_AREA` | 已走 key | 有地点不在服务范围内 | 文字 | [trip-texts.ts:415](../../apps/web/src/lib/trip-texts.ts#L415) |
 | `trip.reason.ROUTE_UNAVAILABLE` | 已走 key | 路线暂时算不出来 | 文字 | [trip-texts.ts:416](../../apps/web/src/lib/trip-texts.ts#L416) |
-| `trip.reason.ONE_CAR_NOT_AVAILABLE` | 已走 key | 没有一辆车能跑完全部日子 | 文字 | [trip-texts.ts:417](../../apps/web/src/lib/trip-texts.ts#L417) |
+| `trip.reason.ONE_CAR_NOT_AVAILABLE` | 已走 key | 没有一辆车能覆盖全部天数 | 文字 | [trip-texts.ts:417](../../apps/web/src/lib/trip-texts.ts#L417) |
 | `trip.reason.CROSS_CITY_ONE_CAR` | 已走 key | 行程跨了城市，暂时不能同一辆车跑完 | 文字 | [trip-texts.ts:418](../../apps/web/src/lib/trip-texts.ts#L418) |
 | `trip.reason.WORK_HOURS_EXCEEDED` | 已走 key | 用车时间太长，司机工作时间不够 | 文字 | [trip-texts.ts:419](../../apps/web/src/lib/trip-texts.ts#L419) |
 | `trip.reason.WORK_HOURS_HARD_LIMIT` | 已走 key | 用车时间太长，请拆成两天或减少地点 | 文字 | [trip-texts.ts:420](../../apps/web/src/lib/trip-texts.ts#L420) |
-| `trip.reason.SECOND_DRIVER_PRICE_UNAVAILABLE` | 已走 key | 需要第二位司机，暂时报不出价 | 文字 | [trip-texts.ts:421](../../apps/web/src/lib/trip-texts.ts#L421) |
-| `trip.reason.LODGING_PRICE_UNAVAILABLE` | 已走 key | 司机住宿费暂时报不出 | 文字 | [trip-texts.ts:422](../../apps/web/src/lib/trip-texts.ts#L422) |
-| `trip.reason.IDLE_DAY_PRICE_UNAVAILABLE` | 已走 key | 不用车那天的停驻费暂时报不出 | 文字 | [trip-texts.ts:423](../../apps/web/src/lib/trip-texts.ts#L423) |
-| `trip.reason.FEE_PRICE_UNAVAILABLE` | 已走 key | 部分费用暂时报不出 | 文字 | [trip-texts.ts:424](../../apps/web/src/lib/trip-texts.ts#L424) |
+| `trip.reason.SECOND_DRIVER_PRICE_UNAVAILABLE` | 已走 key | 需要第二位司机，暂时无法在线报价 | 文字 | [trip-texts.ts:421](../../apps/web/src/lib/trip-texts.ts#L421) |
+| `trip.reason.LODGING_PRICE_UNAVAILABLE` | 已走 key | 司机住宿费暂时无法在线报价 | 文字 | [trip-texts.ts:422](../../apps/web/src/lib/trip-texts.ts#L422) |
+| `trip.reason.IDLE_DAY_PRICE_UNAVAILABLE` | 已走 key | 不用车那天的停驻费暂时无法在线报价 | 文字 | [trip-texts.ts:423](../../apps/web/src/lib/trip-texts.ts#L423) |
+| `trip.reason.FEE_PRICE_UNAVAILABLE` | 已走 key | 部分费用暂时无法在线报价 | 文字 | [trip-texts.ts:424](../../apps/web/src/lib/trip-texts.ts#L424) |
 | `trip.reason.ITINERARY_TOO_LONG` | 已走 key | 行程太长 | 文字 | [trip-texts.ts:425](../../apps/web/src/lib/trip-texts.ts#L425) |
 | `trip.reason.LEAD_TIME_TOO_SHORT` | 已走 key | 离用车时间太近，来不及安排 | 说明 | [trip-texts.ts:426](../../apps/web/src/lib/trip-texts.ts#L426) |
 | `trip.reason.SOLD_OUT` | 已走 key | 车已经订满 | 文字 | [trip-texts.ts:427](../../apps/web/src/lib/trip-texts.ts#L427) |
 | `trip.reason.CAPACITY_EXCEEDED` | 已走 key | 人数或行李超出了可选车型能坐、能装的范围 | 文字 | [trip-texts.ts:428](../../apps/web/src/lib/trip-texts.ts#L428) |
 | `trip.reason.SERVICE_TIME_PASSED` | 已走 key | 用车时间已经过了 | 文字 | [trip-texts.ts:429](../../apps/web/src/lib/trip-texts.ts#L429) |
 | `trip.reason.OUTSIDE_SERVICE_TIME` | 已走 key | 用车时间不在服务时间内 | 文字 | [trip-texts.ts:430](../../apps/web/src/lib/trip-texts.ts#L430) |
-| `trip.reason.WAYPOINT_NOT_PRICED` | 已走 key | 途经的地点暂时报不出价 | 文字 | [trip-texts.ts:431](../../apps/web/src/lib/trip-texts.ts#L431) |
+| `trip.reason.WAYPOINT_NOT_PRICED` | 已走 key | 途经的地点暂时无法在线报价 | 文字 | [trip-texts.ts:431](../../apps/web/src/lib/trip-texts.ts#L431) |
 | `trip.reason.ADDON_NOT_OFFERED` | 已走 key | 所选的附加服务暂时不能提供 | 文字 | [trip-texts.ts:432](../../apps/web/src/lib/trip-texts.ts#L432) |
 | `trip.reason.other` | 已走 key | 暂时没有合适的车 | 文字 | [trip-texts.ts:433](../../apps/web/src/lib/trip-texts.ts#L433) |
 
@@ -767,23 +767,22 @@
 | `OrderSections.c463ca2c` | 写死 | 机场 | 名称 | [OrderSections.tsx:90](../../apps/web/src/pages/book/OrderSections.tsx#L90) |
 | `OrderSections.1144d4fe` | 写死 | 这张订单现在不能付款了（可能已超过付款期限），订单状态马上会更新。 | 文字 | [OrderSections.tsx:113](../../apps/web/src/pages/book/OrderSections.tsx#L113) |
 | `OrderSections.a265b86c` | 写死 | 上次付款没有完成，请重新付款。 | 提示 | [OrderSections.tsx:115](../../apps/web/src/pages/book/OrderSections.tsx#L115) |
-| `OrderSections.3400b992` | 写死 | 没有连上 Stripe，这次付款可能没有提交。请检查网络后再点「付款」；同一张订单不会被扣两次。 | 文字 | [OrderSections.tsx:116](../../apps/web/src/pages/book/OrderSections.tsx#L116) |
+| `OrderSections.3ee11aa4` | 写死 | 付款服务连接失败，这次付款可能没有提交。请检查网络后再点「付款」；同一张订单不会被扣两次。 | 文字 | [OrderSections.tsx:116](../../apps/web/src/pages/book/OrderSections.tsx#L116) |
 | `OrderSections.89215c41` | 写死 | 银行正在处理这笔付款，处理完订单会自动确认（通常几分钟内），页面会自动更新，请不要重复付款。 | 文字 | [OrderSections.tsx:119](../../apps/web/src/pages/book/OrderSections.tsx#L119) |
 | `OrderSections.fdea7a40` | 写死 | 付款成功，等待确认。订单通常几秒钟内确认，页面会自动更新，请不要重复付款。 | 文字 | [OrderSections.tsx:119](../../apps/web/src/pages/book/OrderSections.tsx#L119) |
 | `OrderSections.ccc3a38c` | 写死 | {head}确认比平时慢：您可以先关掉页面，稍后再打开这个链接查看；有疑问请联系客服。 | 文字 | [OrderSections.tsx:120](../../apps/web/src/pages/book/OrderSections.tsx#L120) |
 | `OrderSections.af35b579` | 写死 | 上次付款没有成功：{lastError} | 文字 | [OrderSections.tsx:214](../../apps/web/src/pages/book/OrderSections.tsx#L214) |
-| `OrderSections.af9b841e` | 写死 | 付款组件没有加载出来，请检查网络后点「重新加载」。 | 文字 | [OrderSections.tsx:221](../../apps/web/src/pages/book/OrderSections.tsx#L221) |
+| `OrderSections.94702b70` | 写死 | 付款组件加载失败，请检查网络后点「重新加载」。 | 文字 | [OrderSections.tsx:221](../../apps/web/src/pages/book/OrderSections.tsx#L221) |
 | `OrderSections.ce282679` | 写死 | 准备付款 | 文字 | [OrderSections.tsx:221](../../apps/web/src/pages/book/OrderSections.tsx#L221) |
-| `OrderSections.43646cad` | 写死 | 付款没有完成。请稍后再试；一直不行请联系客服。 | 文字 | [OrderSections.tsx:279](../../apps/web/src/pages/book/OrderSections.tsx#L279) |
+| `OrderSections.47ca8719` | 写死 | 付款没有完成。请稍后再试；多次失败请联系客服。 | 文字 | [OrderSections.tsx:279](../../apps/web/src/pages/book/OrderSections.tsx#L279) |
 | `OrderSections.56072186` | 写死 | 付款没有成功：{message} | 文字 | [OrderSections.tsx:279](../../apps/web/src/pages/book/OrderSections.tsx#L279) |
 | `OrderSections.bd72dc54` | 写死 | 请在当地时间 {due} 前付款，过时订单会自动取消。付款信息由 Stripe 处理，本站不保存卡号。 | 正文 | [OrderSections.tsx:293](../../apps/web/src/pages/book/OrderSections.tsx#L293) |
 | `OrderSections.35e165df` | 写死 | 正在加载付款组件 | 名称 | [OrderSections.tsx:297](../../apps/web/src/pages/book/OrderSections.tsx#L297) |
 | `OrderSections.a03e2791` | 写死 | 重新加载 | 按钮 | [OrderSections.tsx:298](../../apps/web/src/pages/book/OrderSections.tsx#L298) |
-| `OrderSections.fb9ac376` | 写死 | 确认付款 | 读屏说明 | [OrderSections.tsx:301](../../apps/web/src/pages/book/OrderSections.tsx#L301) |
-| `OrderSections.cb093359` | 写死 | 确认支付 {…}？ | 正文 | [OrderSections.tsx:302](../../apps/web/src/pages/book/OrderSections.tsx#L302) |
+| `OrderSections.fb9ac376` | 写死 | 确认付款 | 读屏说明 | [OrderSections.tsx:301](../../apps/web/src/pages/book/OrderSections.tsx#L301)、307 行 |
+| `OrderSections.d3d3f0e0` | 写死 | 确认付款 {…}？ | 正文 | [OrderSections.tsx:302](../../apps/web/src/pages/book/OrderSections.tsx#L302) |
 | `OrderSections.c4bc0138` | 写死 | 如果银行要求验证，会弹出银行的验证窗口，请按提示完成。 | 正文 | [OrderSections.tsx:303](../../apps/web/src/pages/book/OrderSections.tsx#L303) |
 | `OrderSections.6de825e1` | 写死 | 正在付款 | 文字 | [OrderSections.tsx:305](../../apps/web/src/pages/book/OrderSections.tsx#L305) |
-| `OrderSections.25bdc23e` | 写死 | 确认支付 | 按钮 | [OrderSections.tsx:307](../../apps/web/src/pages/book/OrderSections.tsx#L307) |
 | `OrderSections.8e32606c` | 写死 | 返回 | 按钮 | [OrderSections.tsx:310](../../apps/web/src/pages/book/OrderSections.tsx#L310) |
 | `OrderSections.3e4c8896` | 写死 | 正在检查 | 文字 | [OrderSections.tsx:315](../../apps/web/src/pages/book/OrderSections.tsx#L315) |
 | `OrderSections.ddd43d4a` | 写死 | 付款 {…} | 按钮 | [OrderSections.tsx:316](../../apps/web/src/pages/book/OrderSections.tsx#L316) |
@@ -802,7 +801,7 @@
 | `OrderSections.87bc42c6` | 写死 | {…}（{…}当地时间） | 正文 | [OrderSections.tsx:395](../../apps/web/src/pages/book/OrderSections.tsx#L395) |
 | `OrderSections.0b0e3ce3` | 写死 | 航班号 | 名称 | [OrderSections.tsx:397](../../apps/web/src/pages/book/OrderSections.tsx#L397)、804、953 行 |
 | `OrderSections.f1a4c66e` | 写死 | 车型 | 名称 | [OrderSections.tsx:398](../../apps/web/src/pages/book/OrderSections.tsx#L398) |
-| `OrderSections.4c71c5b3` | 写死 | 人数 / 行李 | 名称 | [OrderSections.tsx:400](../../apps/web/src/pages/book/OrderSections.tsx#L400) |
+| `OrderSections.031dde21` | 写死 | 乘客 / 行李 | 名称 | [OrderSections.tsx:400](../../apps/web/src/pages/book/OrderSections.tsx#L400) |
 | `OrderSections.d23d41b9` | 写死 | {passengers} 人 / {luggage} 件 | 正文 | [OrderSections.tsx:401](../../apps/web/src/pages/book/OrderSections.tsx#L401) |
 | `OrderSections.5502f689` | 写死 | 预订人 | 名称 | [OrderSections.tsx:404](../../apps/web/src/pages/book/OrderSections.tsx#L404) |
 | `OrderSections.e62a0bac` | 写死 | 乘车人 | 名称 | [OrderSections.tsx:404](../../apps/web/src/pages/book/OrderSections.tsx#L404)、409 行 |
@@ -911,8 +910,8 @@
 | `OrderSections.a00589ca` | 写死 | 乘车人随时可以改 | 正文 | [OrderSections.tsx:943](../../apps/web/src/pages/book/OrderSections.tsx#L943) |
 | `OrderSections.f71ed544` | 写死 | {…}；地址、备注、人数行李和用车时间在免费取消期内可以改，改时间会按新时间重新计价（多退少补）。换车型请取消后重新预订。 | 正文 | [OrderSections.tsx:943](../../apps/web/src/pages/book/OrderSections.tsx#L943) |
 | `OrderSections.49a502f4` | 写死 | 乘车人姓名 | 名称 | [OrderSections.tsx:950](../../apps/web/src/pages/book/OrderSections.tsx#L950) |
+| `OrderSections.7df9ce0a` | 写死 | 手机号（含国家码） | 名称 | [OrderSections.tsx:951](../../apps/web/src/pages/book/OrderSections.tsx#L951) |
 | `OrderSections.b411d21f` | 写死 | 以 + 和国家码开头，如 +81 90-1234-5678 | 说明 | [OrderSections.tsx:951](../../apps/web/src/pages/book/OrderSections.tsx#L951) |
-| `OrderSections.be7510f5` | 写死 | 手机号（带国家码） | 名称 | [OrderSections.tsx:951](../../apps/web/src/pages/book/OrderSections.tsx#L951) |
 | `OrderSections.24c160de` | 写死 | 如 NH211 | 说明 | [OrderSections.tsx:953](../../apps/web/src/pages/book/OrderSections.tsx#L953) |
 | `OrderSections.fa26c2be` | 写死 | 航班号（选填） | 名称 | [OrderSections.tsx:953](../../apps/web/src/pages/book/OrderSections.tsx#L953) |
 | `OrderSections.ed3a33cf` | 写死 | 行李（件） | 名称 | [OrderSections.tsx:985](../../apps/web/src/pages/book/OrderSections.tsx#L985) |
@@ -958,7 +957,7 @@
 | `SiteMapPicker.0532bbab` | 写死 | 地图：点一下选{word}位置，或拖动标记；也可以用方向键移动地图、加号减号缩放，再按地图下面的「选地图中间这个位置」 | 读屏说明 | [SiteMapPicker.tsx:134](../../apps/web/src/pages/book/SiteMapPicker.tsx#L134) |
 | `SiteMapPicker.4551a538` | 写死 | 放大地图 | 读屏说明 | [SiteMapPicker.tsx:161](../../apps/web/src/pages/book/SiteMapPicker.tsx#L161) |
 | `SiteMapPicker.ef19acb1` | 写死 | 缩小地图 | 读屏说明 | [SiteMapPicker.tsx:164](../../apps/web/src/pages/book/SiteMapPicker.tsx#L164) |
-| `SiteMapPicker.4ceda6a1` | 写死 | 地图没有加载出来。可以用上面的搜索、常用地点，或直接填写地址和坐标。 | 正文 | [SiteMapPicker.tsx:168](../../apps/web/src/pages/book/SiteMapPicker.tsx#L168) |
+| `SiteMapPicker.989fe33d` | 写死 | 地图加载失败。可以用上面的搜索、常用地点，或直接填写地址和坐标。 | 正文 | [SiteMapPicker.tsx:168](../../apps/web/src/pages/book/SiteMapPicker.tsx#L168) |
 | `SiteMapPicker.6df8dc07` | 写死 | 选地图中间这个位置 | 按钮 | [SiteMapPicker.tsx:192](../../apps/web/src/pages/book/SiteMapPicker.tsx#L192) |
 
 ## 多个页面共用：新预订页的一个地址框（PlaceField.tsx）
@@ -969,7 +968,7 @@
 
 | key | 状态 | 中文 | 类型 | 位置 |
 | --- | --- | --- | --- | --- |
-| `PlaceField.fc872f45` | 写死 | 今天的地址提示次数用完了 | 文字 | [PlaceField.tsx:35](../../apps/web/src/pages/book/new/PlaceField.tsx#L35) |
+| `PlaceField.08fffc39` | 写死 | 地址提示暂时不可用 | 文字 | [PlaceField.tsx:35](../../apps/web/src/pages/book/new/PlaceField.tsx#L35) |
 | `PlaceField.53ffb5ec` | 写死 | 车站 | 文字 | [PlaceField.tsx:53](../../apps/web/src/pages/book/new/PlaceField.tsx#L53) |
 | `PlaceField.c00e886a` | 写死 | 机场 | 文字 | [PlaceField.tsx:53](../../apps/web/src/pages/book/new/PlaceField.tsx#L53) |
 | `PlaceField.5b6ec7a2` | 写死 | 也可以在地图上选点。 | 文字 | [PlaceField.tsx:59](../../apps/web/src/pages/book/new/PlaceField.tsx#L59) |
@@ -1032,7 +1031,7 @@
 | key | 状态 | 中文 | 类型 | 位置 |
 | --- | --- | --- | --- | --- |
 | `booking-shell.99e48b29` | 写死 | 预订用车 · NOZOMI 用车 | 标题 | [booking-shell.tsx:44](../../apps/web/src/pages/book/new/booking-shell.tsx#L44) |
-| `booking-shell.6bd11448` | 写死 | 预订接送车 | 标题 | [booking-shell.tsx:47](../../apps/web/src/pages/book/new/booking-shell.tsx#L47) |
+| `booking-shell.811c8da6` | 写死 | 预订用车 | 标题 | [booking-shell.tsx:47](../../apps/web/src/pages/book/new/booking-shell.tsx#L47) |
 | `booking-shell.1f18f529` | 写死 | 输入出发地和目的地，马上看到所有车型的一口价 | 正文 | [booking-shell.tsx:48](../../apps/web/src/pages/book/new/booking-shell.tsx#L48) |
 
 ## 多个页面共用：手机触屏上的新预订页（full-screen.tsx）

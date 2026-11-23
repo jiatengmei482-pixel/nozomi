@@ -132,7 +132,7 @@ test("带令牌的链接打开待付款的单：挂表单之前地址就没有�
 
   const actor = userEvent.setup();
   await actor.click(pay);
-  await actor.click(await screen.findByRole("button", { name: "确认支付" }));
+  await actor.click(await screen.findByRole("button", { name: "确认付款" }));
   await screen.findByText(/付款成功，等待确认/);
   assertClean(stripe);
   assert.equal(stripe.calls.confirm[0]?.return_url, "http://localhost/book/order");
@@ -204,7 +204,7 @@ test("付完：这个文档里 Stripe.js 还在，地址不放回令牌；刷新
   const actor = userEvent.setup();
   await actor.click(await screen.findByRole("button", { name: "付款 21,780 JPY" }));
   status = "confirmed";
-  await actor.click(await screen.findByRole("button", { name: "确认支付" }));
+  await actor.click(await screen.findByRole("button", { name: "确认付款" }));
   await screen.findByText("付款成功，订单已确认。派车后这里会显示司机和车辆。", undefined, { timeout: 5000 });
   assert.equal(address(), "/book/order");
   assert.ok(screen.getByRole("button", { name: "复制订单链接" }));

@@ -43,7 +43,7 @@ async function placeFromVehicles(page: Page, email: string): Promise<string> {
   await expect(page.getByRole("heading", { level: 2, name: "乘客信息" })).toBeFocused();
   await expect(page.getByLabel(/^航班号/)).toHaveCount(0);
   await page.getByLabel("乘车人姓名").fill("陈小红");
-  await page.getByLabel("手机号（含国家区号）").fill("+81 90-2222-3333");
+  await page.getByLabel("手机号（含国家码）").fill("+81 90-2222-3333");
   await page.getByLabel("邮箱").fill(email);
   await page.getByRole("button", { name: "下一步：核对订单" }).click();
   await page.getByRole("checkbox", { name: /同意保存这次付款用的银行卡/ }).check();
@@ -64,7 +64,7 @@ test("官网点对点：带参数的预订链接（两端都不是机场）→ �
 
   // 点对点：M8-05 起 /book 是四步新流程，客人不选「接送机还是点对点」，两端都不是机场就按点对点报价
   await page.goto(`/book?from=${center.lat},${center.lng}&from_name=${encodeURIComponent(station)}&to=${center.lat + 0.01},${center.lng + 0.01}&to_name=${encodeURIComponent("新宿站南口")}&date=${date}&time=10:00`);
-  await expect(page.getByRole("heading", { level: 1, name: "预订接送车" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "预订用车" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "选择车型" })).toBeVisible();
   await expect(page.locator(".book-summary-bar__text")).toContainText(`${station} → 新宿站南口`);
   const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: world.group.name }) });
@@ -84,7 +84,7 @@ test("官网点对点：带参数的预订链接（两端都不是机场）→ �
   // 包车：M8-15 起旧询价页跳去的地址 /book/new?mode=charter 转到 /book?mode=charter，第 1 步的「包车」标签已选上；包车下单由 site-booking-charter.spec.ts 覆盖
   await page.goto("/book/new?mode=charter");
   await expect(page).toHaveURL(/\/book\?mode=charter$/);
-  await expect(page.getByRole("heading", { name: "你的行程" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "您的行程" })).toBeVisible();
   await expect(page.getByRole("group", { name: "用车类型" }).getByRole("radio", { name: "包车" })).toBeChecked();
   await expect(page.getByLabel(/^城市/)).toHaveCount(0);
 });

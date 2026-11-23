@@ -259,7 +259,7 @@ test("按行程计价：车型卡、右侧栏、核对页显示明细（套餐�
   await screen.findByRole("heading", { name: "乘客信息", level: 2 });
   await actor.type(screen.getByLabelText("乘车人姓名"), "王小明");
   await actor.type(screen.getByLabelText("邮箱"), "guest@example.com");
-  await actor.type(screen.getByLabelText("手机号（含国家区号）"), "+86 138 0000 0000");
+  await actor.type(screen.getByLabelText("手机号（含国家码）"), "+86 138 0000 0000");
   await actor.click(screen.getByRole("button", { name: "下一步：核对订单" }));
   const review = await screen.findByRole("region", { name: "核对订单" });
   assert.ok(within(review).getByLabelText("价格明细"));

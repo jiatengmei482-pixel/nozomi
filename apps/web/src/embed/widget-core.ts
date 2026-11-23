@@ -64,7 +64,7 @@ export interface WidgetForm {
 
 export type FormProblem = "pickup" | "dropoff" | "date" | "time" | `waypoint-${number}` | `stay-${number}`;
 
-/** 点「查看价格」前的检查（服务端会按同一套规则再查一次） */
+/** 点「查询价格」前的检查（服务端会按同一套规则再查一次） */
 export function formProblems(form: WidgetForm): FormProblem[] {
   const problems: FormProblem[] = [];
   const unnamed = (point: WidgetPoint | null): boolean => point === null || trimName(point.name) === "";
@@ -163,8 +163,8 @@ export function pendingText(lang: WidgetLang, key: PendingKey): string {
 
 export const TEXTS: Readonly<Record<WidgetLang, Texts>> = {
   zh: {
-    transfer: "区间接送", charter: "按时包车", transferSub: "预约接送", charterSub: "专属司机", when: "用车日期和时间", from: "出发地", to: "目的地", pickup: "上车地点", dropoff: "下车地点", waypoint: "经停点", stay: "停留时长", addWaypoint: "添加经停点", removeWaypoint: "删除经停点",
-    date: "日期", time: "时间", passengers: "乘客", luggage: "行李", submit: "查看价格", submitting: "正在跳转…", placeOnly: "只填地点，不要填姓名、电话。",
+    transfer: "区间", charter: "包车", transferSub: "", charterSub: "", when: "用车日期和时间", from: "出发地", to: "目的地", pickup: "上车地点", dropoff: "下车地点", waypoint: "经停点", stay: "停留时长", addWaypoint: "添加经停点", removeWaypoint: "删除经停点",
+    date: "日期", time: "时间", passengers: "乘客", luggage: "行李", submit: "查询价格", submitting: "正在跳转…", placeOnly: "只填地点，不要填姓名、电话。",
     pickPlace: "请从候选里选一个地点", pickStay: "请选择停留时长", pickDate: "请选择日期", pickTime: "请选择时间", noMatch: "没有找到，换个说法试试", searching: "正在查找…", locating: "正在取位置…", locateFailed: "取不到这个地点的位置，请重新选一个",
     unavailable: "预订组件暂时无法使用。请稍后刷新，或直接到主站预订。", goToSite: "到主站预订",
     invalid: "有几项填得不对，请检查后再试。", tooFast: "操作太频繁，请稍等一分钟再试。", busy: "暂时无法查询，请稍后再试或直接到主站预订。", refused: "这个网站暂时不能直接预订，请到主站预订。", unreachable: "暂时连不上，请稍后再试或直接到主站预订。",

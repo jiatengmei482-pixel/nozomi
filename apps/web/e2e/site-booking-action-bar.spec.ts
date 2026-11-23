@@ -55,7 +55,7 @@ test("M9E-32 主站手机 390：四步的主按钮和「上一步」在底部按
 
   // 第 1 步
   await page.goto(`${SITE}/book`);
-  await expect(page.getByRole("heading", { name: "你的行程" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "您的行程" })).toBeVisible();
   await expectOnScreenAtTop(page, bar.getByRole("button", { name: "下一步：选择车型" }), "第 1 步「下一步：选择车型」");
   await expect(page.locator(".book-new__actions")).toHaveCount(0);
   await expectAboveBarAtBottom(page, page.locator(".site__footer"), "第 1 步页脚");
@@ -85,7 +85,7 @@ test("M9E-32 主站手机 390：四步的主按钮和「上一步」在底部按
   await page.getByRole("radio", { name: /^国际航班/ }).check();
   await page.getByLabel("乘车人姓名").fill("王小明");
   await page.getByLabel("邮箱").fill(`m9e32-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`);
-  await page.getByLabel("手机号（含国家区号）").fill("+81 90-1234-5678");
+  await page.getByLabel("手机号（含国家码）").fill("+81 90-1234-5678");
   await expectOnScreenAtTop(page, bar.getByRole("button", { name: "下一步：核对订单" }), "第 3 步「下一步：核对订单」");
   await expectAboveBarAtBottom(page, page.getByLabel("给司机的备注（选填）"), "第 3 步最后一项");
   await snapshot(page, "m9e32-main-step3");
@@ -122,7 +122,7 @@ test.describe("平板 900（业主 2026-11-17：769–1023 也用底部按钮条
 
     // 第 1 步：条固定在屏幕底部（position: fixed，下沿贴着视口下沿）
     await page.goto(`${SITE}/book`);
-    await expect(page.getByRole("heading", { name: "你的行程" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "您的行程" })).toBeVisible();
     await expect(page.locator(".step-bar-slot--fixed > .step-bar")).toHaveCount(1);
     await expect(page.locator(".book-new__actions")).toHaveCount(0);
     expect(await bar.evaluate((element) => getComputedStyle(element).position)).toBe("fixed");
