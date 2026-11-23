@@ -191,7 +191,7 @@ test("读不出已提交的反馈：说明并能重试；待付款的单没有�
     return json(200, { items: [ticketOf()] });
   });
   const block = await section();
-  await within(block).findByText(/已提交的反馈没有读出来/);
+  await within(block).findByText(/已提交的反馈加载失败，请刷新重试/);
   await user().click(within(block).getByRole("button", { name: "重试" }));
   await within(block).findByText("投诉服务：司机迟到了 40 分钟");
   resetBrowser();

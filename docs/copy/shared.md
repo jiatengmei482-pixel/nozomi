@@ -1840,7 +1840,7 @@
 | key | 状态 | 中文 | 类型 | 位置 |
 | --- | --- | --- | --- | --- |
 | `payment-errors.80440a83` | 写死 | 您的银行卡被拒绝了。请换一张卡，或联系发卡银行。 | 文字 | [payment-errors.ts:16](../../apps/web/src/lib/payment-errors.ts#L16) |
-| `payment-errors.c71ee28d` | 写死 | 银行没有接受这次付款。请换一张卡，或稍后再试；一直不行请联系客服。 | 文字 | [payment-errors.ts:17](../../apps/web/src/lib/payment-errors.ts#L17) |
+| `payment-errors.59d379fa` | 写死 | 银行没有接受这次付款。请换一张卡，或稍后再试；多次失败请联系客服。 | 文字 | [payment-errors.ts:17](../../apps/web/src/lib/payment-errors.ts#L17) |
 | `payment-errors.c945639d` | 写死 | 请检查银行卡信息后再付。 | 文字 | [payment-errors.ts:18](../../apps/web/src/lib/payment-errors.ts#L18) |
 | `payment-errors.0290b50f` | 写死 | 卡号不正确。请检查后再付。 | 文字 | [payment-errors.ts:20](../../apps/web/src/lib/payment-errors.ts#L20) |
 | `payment-errors.35ece861` | 写死 | 安全码不正确。请检查后再付。 | 文字 | [payment-errors.ts:21](../../apps/web/src/lib/payment-errors.ts#L21) |

@@ -165,7 +165,7 @@ export function SiteMapPicker({ tiles, center, point, word, onPick }: SiteMapPic
             <Icon name="minus" />
           </button>
         </div>
-        {tileTrouble && <p className="site-map__trouble">地图没有加载出来。可以用上面的搜索、常用地点，或直接填写地址和坐标。</p>}
+        {tileTrouble && <p className="site-map__trouble">地图加载失败。可以用上面的搜索、常用地点，或直接填写地址和坐标。</p>}
         <p className="site-map__attribution">
           {tiles.attribution.map((entry) =>
             entry.href !== null ? (

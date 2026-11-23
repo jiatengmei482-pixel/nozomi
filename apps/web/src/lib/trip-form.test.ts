@@ -186,7 +186,7 @@ test("网址：?trip=<43 位编号>&step=2；格式不对的编号当作没有�
 });
 
 test("出错说法：太复杂给转人工、过期回第 1 步、太频繁按秒 / 分钟、其他同官网", () => {
-  assert.deepEqual(tripFailureOf(new ApiError(422, "TRIP_TOO_COMPLEX", "x", {}, null), "quote"), { text: "这个行程太复杂，暂时没法在线报价。", manual: true, gone: false });
+  assert.deepEqual(tripFailureOf(new ApiError(422, "TRIP_TOO_COMPLEX", "x", {}, null), "quote"), { text: "这个行程太复杂，暂时无法在线报价。", manual: true, gone: false });
   assert.deepEqual(tripFailureOf(new ApiError(404, "TRIP_NOT_FOUND", "x", {}, null), "read"), { text: "这个行程已过期或不存在，请重新填写。", manual: false, gone: true });
   assert.equal(tripFailureOf(new ApiError(429, "RATE_LIMITED", "x", {}, 30), "quote").text, "操作太频繁了，请 30 秒后再试。");
   assert.equal(tripFailureOf(new ApiError(429, "RATE_LIMITED", "x", {}, 90), "quote").text, "操作太频繁了，请 2 分钟后再试。");

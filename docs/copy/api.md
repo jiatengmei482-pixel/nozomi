@@ -1551,29 +1551,29 @@
 
 | key | 状态 | 中文 | 类型 | 位置 |
 | --- | --- | --- | --- | --- |
-| `notification-jobs.4b2a598f` | 写死 | 邮件发送还没有配置，配好后自动发送 | 提示 | [notification-jobs.ts:133](../../apps/api/src/services/notification-jobs.ts#L133) |
-| `notification-jobs.3a27b703` | 写死 | 测试环境的验收单：只给 {QA\_ACCEPTANCE\_MAIL\_RECIPIENT} 发信，这一封没有发出，内容可在发送记录里查看 | 提示 | [notification-jobs.ts:136](../../apps/api/src/services/notification-jobs.ts#L136) |
-| `notification-jobs.4231139b` | 写死 | 包车 {packageHours} 小时 | 文字 | [notification-jobs.ts:190](../../apps/api/src/services/notification-jobs.ts#L190) |
-| `notification-jobs.9f48d156` | 写死 | 见订单 | 文字 | [notification-jobs.ts:190](../../apps/api/src/services/notification-jobs.ts#L190)、191 行 |
-| `notification-jobs.0c1d3ad4` | 写死 | {before} → {after} 分钟 | 文字 | [notification-jobs.ts:226](../../apps/api/src/services/notification-jobs.ts#L226) |
-| `notification-jobs.1e74ee43` | 写死 | {after} 分钟 | 文字 | [notification-jobs.ts:226](../../apps/api/src/services/notification-jobs.ts#L226) |
-| `notification-jobs.723ff9a4` | 写死 | 不限时 | 文字 | [notification-jobs.ts:226](../../apps/api/src/services/notification-jobs.ts#L226) |
-| `notification-jobs.9285e611` | 写死 | {before} 分钟 | 文字 | [notification-jobs.ts:226](../../apps/api/src/services/notification-jobs.ts#L226) |
-| `notification-jobs.7cc5ab0f` | 写死 | 免费等待 {change}（按客人的航班重新锁定，请按新的时长安排司机等候）。 | 文字 | [notification-jobs.ts:227](../../apps/api/src/services/notification-jobs.ts#L227) |
-| `notification-jobs.d1558dd6` | 写死 | 订单信息 | 文字 | [notification-jobs.ts:230](../../apps/api/src/services/notification-jobs.ts#L230) |
-| `notification-jobs.9fd94507` | 写死 | （见供应商详情） | 名称 | [notification-jobs.ts:296](../../apps/api/src/services/notification-jobs.ts#L296) |
-| `notification-jobs.1086cccd` | 写死 | 企业信息 | 文字 | [notification-jobs.ts:297](../../apps/api/src/services/notification-jobs.ts#L297) |
-| `notification-jobs.a028e366` | 写死 | 请到异常队列查看 | 文字 | [notification-jobs.ts:302](../../apps/api/src/services/notification-jobs.ts#L302) |
-| `notification-jobs.d57be254` | 写死 | 见汇率中心的拉取记录 | 文字 | [notification-jobs.ts:306](../../apps/api/src/services/notification-jobs.ts#L306) |
-| `notification-jobs.fa9188bd` | 写死 | 汇率源缺币种，这批整批拒收，继续用上一批 | 文字 | [notification-jobs.ts:306](../../apps/api/src/services/notification-jobs.ts#L306) |
-| `notification-jobs.677e6ca0` | 写死 | 汇率变动超过 3%，已挂起，等待人工确认 | 文字 | [notification-jobs.ts:310](../../apps/api/src/services/notification-jobs.ts#L310) |
-| `notification-jobs.c0b35d82` | 写死 | 汇率超过 48 小时没有更新，已暂停跨币种报价 | 文字 | [notification-jobs.ts:310](../../apps/api/src/services/notification-jobs.ts#L310) |
-| `notification-jobs.64aa19b0` | 写死 | 涉及币种：{…} | 文字 | [notification-jobs.ts:311](../../apps/api/src/services/notification-jobs.ts#L311) |
-| `notification-jobs.9fb2d01e` | 写死 | 最后一次更新时间见汇率中心 | 文字 | [notification-jobs.ts:311](../../apps/api/src/services/notification-jobs.ts#L311) |
-| `notification-jobs.cfaad56f` | 写死 | 最后一次更新：{…} | 文字 | [notification-jobs.ts:311](../../apps/api/src/services/notification-jobs.ts#L311) |
-| `notification-jobs.d811a069` | 写死 | 见汇率中心 | 文字 | [notification-jobs.ts:311](../../apps/api/src/services/notification-jobs.ts#L311) |
-| `notification-jobs.a89b8a54` | 写死 | 订单号：{orderNo} | 文字 | [notification-jobs.ts:315](../../apps/api/src/services/notification-jobs.ts#L315) |
-| `notification-jobs.ef675876` | 写死 | 这个订单号不存在：有人可能在猜订单号。 | 文字 | [notification-jobs.ts:315](../../apps/api/src/services/notification-jobs.ts#L315) |
+| `notification-jobs.4b2a598f` | 写死 | 邮件发送还没有配置，配好后自动发送 | 提示 | [notification-jobs.ts:134](../../apps/api/src/services/notification-jobs.ts#L134) |
+| `notification-jobs.3a27b703` | 写死 | 测试环境的验收单：只给 {QA\_ACCEPTANCE\_MAIL\_RECIPIENT} 发信，这一封没有发出，内容可在发送记录里查看 | 提示 | [notification-jobs.ts:137](../../apps/api/src/services/notification-jobs.ts#L137) |
+| `notification-jobs.4231139b` | 写死 | 包车 {packageHours} 小时 | 文字 | [notification-jobs.ts:191](../../apps/api/src/services/notification-jobs.ts#L191) |
+| `notification-jobs.9f48d156` | 写死 | 见订单 | 文字 | [notification-jobs.ts:191](../../apps/api/src/services/notification-jobs.ts#L191)、192 行 |
+| `notification-jobs.0c1d3ad4` | 写死 | {before} → {after} 分钟 | 文字 | [notification-jobs.ts:227](../../apps/api/src/services/notification-jobs.ts#L227) |
+| `notification-jobs.1e74ee43` | 写死 | {after} 分钟 | 文字 | [notification-jobs.ts:227](../../apps/api/src/services/notification-jobs.ts#L227) |
+| `notification-jobs.723ff9a4` | 写死 | 不限时 | 文字 | [notification-jobs.ts:227](../../apps/api/src/services/notification-jobs.ts#L227) |
+| `notification-jobs.9285e611` | 写死 | {before} 分钟 | 文字 | [notification-jobs.ts:227](../../apps/api/src/services/notification-jobs.ts#L227) |
+| `notification-jobs.7cc5ab0f` | 写死 | 免费等待 {change}（按客人的航班重新锁定，请按新的时长安排司机等候）。 | 文字 | [notification-jobs.ts:228](../../apps/api/src/services/notification-jobs.ts#L228) |
+| `notification-jobs.d1558dd6` | 写死 | 订单信息 | 文字 | [notification-jobs.ts:231](../../apps/api/src/services/notification-jobs.ts#L231) |
+| `notification-jobs.9fd94507` | 写死 | （见供应商详情） | 名称 | [notification-jobs.ts:299](../../apps/api/src/services/notification-jobs.ts#L299) |
+| `notification-jobs.1086cccd` | 写死 | 企业信息 | 文字 | [notification-jobs.ts:300](../../apps/api/src/services/notification-jobs.ts#L300) |
+| `notification-jobs.a028e366` | 写死 | 请到异常队列查看 | 文字 | [notification-jobs.ts:305](../../apps/api/src/services/notification-jobs.ts#L305) |
+| `notification-jobs.d57be254` | 写死 | 见汇率中心的拉取记录 | 文字 | [notification-jobs.ts:309](../../apps/api/src/services/notification-jobs.ts#L309) |
+| `notification-jobs.fa9188bd` | 写死 | 汇率源缺币种，这批整批拒收，继续用上一批 | 文字 | [notification-jobs.ts:309](../../apps/api/src/services/notification-jobs.ts#L309) |
+| `notification-jobs.677e6ca0` | 写死 | 汇率变动超过 3%，已挂起，等待人工确认 | 文字 | [notification-jobs.ts:313](../../apps/api/src/services/notification-jobs.ts#L313) |
+| `notification-jobs.c0b35d82` | 写死 | 汇率超过 48 小时没有更新，已暂停跨币种报价 | 文字 | [notification-jobs.ts:313](../../apps/api/src/services/notification-jobs.ts#L313) |
+| `notification-jobs.64aa19b0` | 写死 | 涉及币种：{…} | 文字 | [notification-jobs.ts:314](../../apps/api/src/services/notification-jobs.ts#L314) |
+| `notification-jobs.9fb2d01e` | 写死 | 最后一次更新时间见汇率中心 | 文字 | [notification-jobs.ts:314](../../apps/api/src/services/notification-jobs.ts#L314) |
+| `notification-jobs.cfaad56f` | 写死 | 最后一次更新：{…} | 文字 | [notification-jobs.ts:314](../../apps/api/src/services/notification-jobs.ts#L314) |
+| `notification-jobs.d811a069` | 写死 | 见汇率中心 | 文字 | [notification-jobs.ts:314](../../apps/api/src/services/notification-jobs.ts#L314) |
+| `notification-jobs.a89b8a54` | 写死 | 订单号：{orderNo} | 文字 | [notification-jobs.ts:318](../../apps/api/src/services/notification-jobs.ts#L318) |
+| `notification-jobs.ef675876` | 写死 | 这个订单号不存在：有人可能在猜订单号。 | 文字 | [notification-jobs.ts:318](../../apps/api/src/services/notification-jobs.ts#L318) |
 
 ## 通知中心的接口层业务（notifications.ts）
 

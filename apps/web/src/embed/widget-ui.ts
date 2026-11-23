@@ -7,7 +7,7 @@
  *
  * - 只调 `/embed/v1`（配置、地址提示、建草稿），一律 `credentials: "omit"`；不询价、不下单、不显示价格。
  * - 界面画在 Shadow DOM 里，和合作网站的样式互不影响；不加载任何第三方资源。
- * - 点「查看价格」先建预订草稿，成功后整页跳到主站预订页 `/book?draft=<编号>`；失败在组件里提示、不跳转。
+ * - 点「查询价格」先建预订草稿，成功后整页跳到主站预订页 `/book?draft=<编号>`；失败在组件里提示、不跳转。
  *   传了合格的 `bookingUrl`（M9E-16，ADR 0095）时改跳合作网站自己的预订页 `bookingUrl?nzdraft=<编号>`，建草稿时带 `delivery: "host_page"`。
  * - 取配置（M9E-22，见 configOutcome / start）：被拒只显示「暂时无法使用」和主站链接；8 秒没回、连不上、5xx 先按 init 的参数显示表单。
  */
@@ -92,7 +92,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string,
   return node;
 }
 
-/** 取位置最多等这么久（M9E-08 审查）：一直不回就按「取不到这个地点的位置」处理，不让「查看价格」一直停在「正在取位置…」；测试里调短 */
+/** 取位置最多等这么久（M9E-08 审查）：一直不回就按「取不到这个地点的位置」处理，不让「查询价格」一直停在「正在取位置…」；测试里调短 */
 export const LOCATE_TIMEOUT = { ms: 10_000 };
 
 /** 超时用 AbortController + setTimeout（和 api/client.ts 的 send 一样）：Safari 15 / iOS 15 等老浏览器没有 AbortSignal.timeout（#220 复审） */
@@ -166,7 +166,7 @@ class Widget {
   private readonly locating = new Map<unknown, Locating>();
   /** 取坐标失败的地址框：提示「取不到这个地点的位置，请重新选一个」 */
   private readonly lostPlaces = new Set<unknown>();
-  /** 点了「查看价格」、在等取坐标（按钮显示「正在取位置…」） */
+  /** 点了「查询价格」、在等取坐标（按钮显示「正在取位置…」） */
   private waiting = false;
   /** 提交在等取坐标时：正在取坐标的记录一有变化（取完、被换掉 / 删掉、切标签、删经停点）就叫醒它重新看 */
   private wake: (() => void) | null = null;
@@ -390,9 +390,11 @@ class Widget {
     if (this.services.length > 1) {
       const tabs = el("div", { class: "nzb-tabs", role: "tablist", "aria-label": t.tabs });
       for (const service of this.services) {
+        // 中文的标签只有一个词（区间 / 包车，和官网同一叫法），没有副标题
+        const sub = t[service === "transfer" ? "transferSub" : "charterSub"];
         const tab = el("button", { type: "button", role: "tab", class: "nzb-tab", "aria-selected": String(this.form.tab === service), "data-tab": service }, [
           el("span", { class: "nzb-tab-title" }, [t[service]]),
-          el("span", { class: "nzb-tab-sub" }, [t[service === "transfer" ? "transferSub" : "charterSub"]]),
+          ...(sub === "" ? [] : [el("span", { class: "nzb-tab-sub" }, [sub])]),
         ]);
         tab.addEventListener("click", () => {
           this.form.tab = service;
@@ -620,7 +622,7 @@ class Widget {
       panel.hidden = true;
       input.setAttribute("aria-expanded", "false");
     };
-    // 谷歌候选没有坐标，选中后再取（M9E-08）：取的期间点「查看价格」会先等它；期间客人又打字或选了别的，旧的坐标回来不写回
+    // 谷歌候选没有坐标，选中后再取（M9E-08）：取的期间点「查询价格」会先等它；期间客人又打字或选了别的，旧的坐标回来不写回
     const choose = (item: Suggestion): void => {
       close();
       input.value = item.name;

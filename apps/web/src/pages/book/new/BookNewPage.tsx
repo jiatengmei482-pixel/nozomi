@@ -247,7 +247,7 @@ function linkNotice(ends: LinkResolution[], mode: BookMode): string | null {
     const which = (mode === "charter" ? ["上车地点", "下车地点"] : ["出发地", "目的地"]).filter((_, index) => ends[index]?.kind === "missing").join("和");
     return `链接里的地点${missing.join("、")}没有找到，请在下面重新选择${which}。`;
   }
-  if (failed.length > 0) return `链接里的地点${failed.join("、")}暂时没有读出来，请稍后刷新页面，或在下面直接选择。`;
+  if (failed.length > 0) return `链接里的地点${failed.join("、")}暂时无法读取，请稍后刷新页面，或在下面直接选择。`;
   return null;
 }
 
@@ -1061,7 +1061,7 @@ export function BookNewPage() {
   } else if (!config.config.open) {
     body = <StateBlock tone="neutral" title="暂未开放预订" description="官网的在线预订还没有开放，请稍后再来。已经下过单的客人可以点上方的「查订单」查看订单。" />;
   } else if (cities.kind === "failed") {
-    body = <StateBlock title="城市列表没有读出来" description={cities.message} action={<Button size="lg" onClick={() => setRound((value) => value + 1)}>重试</Button>} />;
+    body = <StateBlock title="城市列表加载失败，请刷新重试" description={cities.message} action={<Button size="lg" onClick={() => setRound((value) => value + 1)}>重试</Button>} />;
   } else if (cityList.length === 0) {
     body = <StateBlock tone="neutral" title="暂时没有可预订的城市" description="现在还没有可以在线预订用车的城市，请稍后再来。" />;
   } else {
@@ -1112,7 +1112,7 @@ export function BookNewPage() {
     const tripSection = (
       <section aria-labelledby="book-trip-title" className="site-section book-new__trip" ref={tripSectionRef}>
         <h2 id="book-trip-title" ref={tripHeading} tabIndex={-1} className="site-section__title">
-          你的行程
+          您的行程
         </h2>
         <AlertSlot notice={notice} />
         {tabs.length > 1 && (
@@ -1213,7 +1213,7 @@ export function BookNewPage() {
             onChange={(hours) => setUpgrade({ key: itineraryKey, hours })}
           />
         )}
-        {charter && packageLoad?.kind === "failed" && <StateBlock headingLevel="h3" title="包车时长没有读出来" description={packageLoad.message} action={<Button size="lg" onClick={() => setCharterRetry((value) => value + 1)}>重试</Button>} />}
+        {charter && packageLoad?.kind === "failed" && <StateBlock headingLevel="h3" title="包车时长加载失败，请刷新重试" description={packageLoad.message} action={<Button size="lg" onClick={() => setCharterRetry((value) => value + 1)}>重试</Button>} />}
         {charter &&
           draft.from !== null &&
           charterCity !== null &&
@@ -1277,14 +1277,14 @@ export function BookNewPage() {
 
     let vehicles;
     if (current === null) {
-      vehicles = <p className="site-muted">{charter ? "选好上车地点、下车地点、包车时长、日期和时间后，这里会列出能坐下的车型和价格。" : "填好出发地、目的地、日期和时间后，这里会列出能坐下的车型和一口价。"}</p>;
+      vehicles = <p className="site-muted">{charter ? "选好上车地点、下车地点、包车时长、日期和时间后，这里会列出可乘坐的车型和价格。" : "填好出发地、目的地、日期和时间后，这里会列出可乘坐的车型和一口价。"}</p>;
     } else if (current.kind === "loading") {
       vehicles = <Skeleton lines={["long", "medium", "long", "medium"]} label="正在查询价格" />;
     } else if (current.kind === "failed") {
       vehicles = (
         <StateBlock
           headingLevel="h3"
-          title={current.scope ? "没有在线报价" : "价格没有查出来"}
+          title={current.scope ? "没有在线报价" : "价格查询失败，请重试"}
           description={current.message}
           action={current.scope ? <SupportPhone phone={supportPhone} /> : <Button size="lg" onClick={() => setQuoteRound((value) => value + 1)}>重试</Button>}
         />
@@ -1328,7 +1328,7 @@ export function BookNewPage() {
       vehicles = (
         <>
           <p className="site-muted">
-            按价格从低到高 · 坐不下的已隐藏。报价 30 分钟内有效（到当地时间 {formatInZone(expires, timezone).slice(11)}），过了请重新查询。
+            按价格从低到高 · 座位不足的已隐藏。报价 30 分钟内有效（到当地时间 {formatInZone(expires, timezone).slice(11)}），过了请重新查询。
           </p>
           {minHintBlock}
           {charter && charterRows !== null && (
@@ -1576,7 +1576,7 @@ export function BookNewPage() {
               <dd>{contact.riderName.trim()}</dd>
             </div>
             <div className="site-facts__item">
-              <dt>乘车人电话/WhatsApp</dt>
+              <dt>乘车人电话 / WhatsApp</dt>
               <dd>{contact.riderPhone.trim()}</dd>
             </div>
           </>
@@ -1706,7 +1706,7 @@ export function BookNewPage() {
             </h3>
           </div>
           {selected === null || vehicleName === null ? (
-            <p>{current?.kind === "loading" ? "正在重新查询价格…" : "选的车型现在报不出价了，请点「修改」重新选择车型。"}</p>
+            <p>{current?.kind === "loading" ? "正在重新查询价格…" : "选的车型现在无法在线报价，请点「修改」重新选择车型。"}</p>
           ) : (
             <>
               <PriceBlock fare={selected.price.total} basisNote={sitePriceBasisNote(selected)} kmNote={kmNote} priced={pricedState} currency={guestCurrency} onCurrency={(code) => setGuestCurrency(code as CurrencyCode)} reference={reference !== null && reference.to === guestCurrency ? reference : null} />

@@ -187,7 +187,7 @@ test("新预订页包车：下车地点必填（旧链接只有上车地点时�
   await page.getByRole("button", { name: "下一步：填写乘客信息" }).click();
   await page.getByLabel("乘车人姓名").fill("陈小红");
   await page.getByLabel("邮箱").fill(`charter-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`);
-  await page.getByLabel("手机号（含国家区号）").fill("+81 90-2222-3333");
+  await page.getByLabel("手机号（含国家码）").fill("+81 90-2222-3333");
   await page.getByRole("button", { name: "下一步：核对订单" }).click();
   await expect(page.getByRole("region", { name: "核对订单" })).toContainText(NOTE);
   await page.getByRole("checkbox", { name: /同意保存/ }).check();

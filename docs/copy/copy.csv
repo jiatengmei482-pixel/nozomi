@@ -27,7 +27,7 @@
 官网（客人预订）,预订页（/book）,site-order-form.da1db7fe,写死,请选择国际航班还是国内航班：国际航班免费等待更久,文字,,apps/web/src/lib/site-order-form.ts,82,
 官网（客人预订）,预订页（/book）,site-order-form.43d51a2d,写死,请填写下车的地址或酒店名,文字,,apps/web/src/lib/site-order-form.ts,83,
 官网（客人预订）,预订页（/book）,site-order-form.e50b1627,写死,请填写上车的地址或酒店名,文字,,apps/web/src/lib/site-order-form.ts,83,
-官网（客人预订）,预订页（/book）,site-order-form.8a27042d,写死,选了即时通讯就要填账号,文字,,apps/web/src/lib/site-order-form.ts,84,
+官网（客人预订）,预订页（/book）,site-order-form.b42146ec,写死,已选择即时通讯工具，请填写账号,文字,,apps/web/src/lib/site-order-form.ts,84,
 官网（客人预订）,预订页（/book）,site-order-form.b5f5bf11,写死,需要同意保存支付方式才能下单,文字,,apps/web/src/lib/site-order-form.ts,85,
 官网（客人预订）,预订页（/book）,site-order-form.42a9c64b,写死,报价已经过了 30 分钟的有效期，请重新查询价格。,文字,text,apps/web/src/lib/site-order-form.ts,112,
 官网（客人预订）,预订页（/book）,site-order-form.a3901cd6,写死,这个报价已经下过单了。要再订一辆，请重新查询价格。,文字,text,apps/web/src/lib/site-order-form.ts,112,
@@ -44,7 +44,7 @@
 官网（客人预订）,预订页（/book）,BookNewPage.57c54c9f,写死,上车地点,文字,which,apps/web/src/pages/book/new/BookNewPage.tsx,247 537 1137 1147 1502,
 官网（客人预订）,预订页（/book）,BookNewPage.7b821b8c,写死,下车地点,文字,which,apps/web/src/pages/book/new/BookNewPage.tsx,247 537 1163 1174 1522,
 官网（客人预订）,预订页（/book）,BookNewPage.0617425f,写死,链接里的地点{…}没有找到，请在下面重新选择{which}。,文字,linkNotice(),apps/web/src/pages/book/new/BookNewPage.tsx,248,
-官网（客人预订）,预订页（/book）,BookNewPage.9b45becd,写死,链接里的地点{…}暂时没有读出来，请稍后刷新页面，或在下面直接选择。,文字,linkNotice(),apps/web/src/pages/book/new/BookNewPage.tsx,250,
+官网（客人预订）,预订页（/book）,BookNewPage.8de657f9,写死,链接里的地点{…}暂时无法读取，请稍后刷新页面，或在下面直接选择。,文字,linkNotice(),apps/web/src/pages/book/new/BookNewPage.tsx,250,
 官网（客人预订）,预订页（/book）,BookNewPage.0f9d8336,写死,请从候选里选出发地,文字,,apps/web/src/pages/book/new/BookNewPage.tsx,270,
 官网（客人预订）,预订页（/book）,BookNewPage.af68712f,写死,请从候选里选上车地点,文字,,apps/web/src/pages/book/new/BookNewPage.tsx,270,
 官网（客人预订）,预订页（/book）,BookNewPage.45f2175d,写死,这个地址暂时没有在线报价，请联系客服,文字,,apps/web/src/pages/book/new/BookNewPage.tsx,271 538 1177,
@@ -78,7 +78,7 @@
 官网（客人预订）,预订页（/book）,BookNewPage.4653cb0b,写死,重试,按钮,<Button>,apps/web/src/pages/book/new/BookNewPage.tsx,1060 1064 1216 1289,
 官网（客人预订）,预订页（/book）,BookNewPage.597336a1,写死,暂未开放预订,标题,title,apps/web/src/pages/book/new/BookNewPage.tsx,1062,
 官网（客人预订）,预订页（/book）,BookNewPage.fd26ebca,写死,官网的在线预订还没有开放，请稍后再来。已经下过单的客人可以点上方的「查订单」查看订单。,说明,description,apps/web/src/pages/book/new/BookNewPage.tsx,1062,
-官网（客人预订）,预订页（/book）,BookNewPage.584f1d9b,写死,城市列表没有读出来,标题,title,apps/web/src/pages/book/new/BookNewPage.tsx,1064,
+官网（客人预订）,预订页（/book）,BookNewPage.87ddb3eb,写死,城市列表加载失败，请刷新重试,标题,title,apps/web/src/pages/book/new/BookNewPage.tsx,1064,
 官网（客人预订）,预订页（/book）,BookNewPage.04e51a10,写死,暂时没有可预订的城市,标题,title,apps/web/src/pages/book/new/BookNewPage.tsx,1066,
 官网（客人预订）,预订页（/book）,BookNewPage.f163951b,写死,现在还没有可以在线预订用车的城市，请稍后再来。,说明,description,apps/web/src/pages/book/new/BookNewPage.tsx,1066,
 官网（客人预订）,预订页（/book）,BookNewPage.0b7d61b4,写死,用车时间（当地）,名称,timeLabel,apps/web/src/pages/book/new/BookNewPage.tsx,1077,
@@ -93,7 +93,7 @@
 官网（客人预订）,预订页（/book）,BookNewPage.b2b70d17,写死,第 {number} 步：{name}（已完成，回到这一步）,读屏说明,aria-label,apps/web/src/pages/book/new/BookNewPage.tsx,1098,
 官网（客人预订）,预订页（/book）,BookNewPage.63b87d40,写死,第 {number} 步：{name}{…},读屏说明,aria-label,apps/web/src/pages/book/new/BookNewPage.tsx,1102,
 官网（客人预订）,预订页（/book）,BookNewPage.c632b0e1,写死,（当前）,读屏说明,aria-label,apps/web/src/pages/book/new/BookNewPage.tsx,1102,
-官网（客人预订）,预订页（/book）,BookNewPage.faf3d664,写死,你的行程,标题,<h2>,apps/web/src/pages/book/new/BookNewPage.tsx,1116,
+官网（客人预订）,预订页（/book）,BookNewPage.92fbe7f4,写死,您的行程,标题,<h2>,apps/web/src/pages/book/new/BookNewPage.tsx,1116,
 官网（客人预订）,预订页（/book）,BookNewPage.df7e4bdc,写死,用车类型,表单标签,<legend>,apps/web/src/pages/book/new/BookNewPage.tsx,1120 1498,
 官网（客人预订）,预订页（/book）,BookNewPage.ce510457,写死,包车结束时在哪里下车，价格按上车和下车地点算。,说明,hint,apps/web/src/pages/book/new/BookNewPage.tsx,1167,
 官网（客人预订）,预订页（/book）,BookNewPage.8afe6885,写死,请选择下车地点，包车现在按上车和下车地点报价。,文字,info,apps/web/src/pages/book/new/BookNewPage.tsx,1168,
@@ -105,7 +105,7 @@
 官网（客人预订）,预订页（/book）,BookNewPage.644b71e1,写死,包车时长：按行程自动选套餐,正文,<strong>,apps/web/src/pages/book/new/BookNewPage.tsx,1200,
 官网（客人预订）,预订页（/book）,BookNewPage.8db00818,写死,有经停点时，按各段行驶时间和停留时长算出总时长，自动选合适的套餐。,正文,<p>,apps/web/src/pages/book/new/BookNewPage.tsx,1202,
 官网（客人预订）,预订页（/book）,BookNewPage.75dc7fa1,写死,想多留些时间可以选更长的套餐；不能选比预计用时短的,说明,hint,apps/web/src/pages/book/new/BookNewPage.tsx,1212,
-官网（客人预订）,预订页（/book）,BookNewPage.05b10dea,写死,包车时长没有读出来,标题,title,apps/web/src/pages/book/new/BookNewPage.tsx,1216,
+官网（客人预订）,预订页（/book）,BookNewPage.e37da5ac,写死,包车时长加载失败，请刷新重试,标题,title,apps/web/src/pages/book/new/BookNewPage.tsx,1216,
 官网（客人预订）,预订页（/book）,BookNewPage.08158d8d,写死,正在读取,输入框占位,placeholder,apps/web/src/pages/book/new/BookNewPage.tsx,1226,
 官网（客人预订）,预订页（/book）,BookNewPage.1316b921,写死,先选上车、下车地点,输入框占位,placeholder,apps/web/src/pages/book/new/BookNewPage.tsx,1226,
 官网（客人预订）,预订页（/book）,BookNewPage.7297716d,写死,请选择时长,输入框占位,placeholder,apps/web/src/pages/book/new/BookNewPage.tsx,1226,
@@ -114,13 +114,13 @@
 官网（客人预订）,预订页（/book）,BookNewPage.4ff77eb3,写死,{cityName}的当地时间,说明,hint,apps/web/src/pages/book/new/BookNewPage.tsx,1237,
 官网（客人预订）,预订页（/book）,BookNewPage.e5efcd14,写死,下一步：选择车型,按钮,<Button>,apps/web/src/pages/book/new/BookNewPage.tsx,1254,
 官网（客人预订）,预订页（/book）,BookNewPage.55d12785,写死,改选 {hours} 小时,按钮,<Button>,apps/web/src/pages/book/new/BookNewPage.tsx,1270,
-官网（客人预订）,预订页（/book）,BookNewPage.51ba1197,写死,选好上车地点、下车地点、包车时长、日期和时间后，这里会列出能坐下的车型和价格。,正文,<p>,apps/web/src/pages/book/new/BookNewPage.tsx,1280,
-官网（客人预订）,预订页（/book）,BookNewPage.f7e12a64,写死,填好出发地、目的地、日期和时间后，这里会列出能坐下的车型和一口价。,正文,<p>,apps/web/src/pages/book/new/BookNewPage.tsx,1280,
+官网（客人预订）,预订页（/book）,BookNewPage.20d449b7,写死,选好上车地点、下车地点、包车时长、日期和时间后，这里会列出可乘坐的车型和价格。,正文,<p>,apps/web/src/pages/book/new/BookNewPage.tsx,1280,
+官网（客人预订）,预订页（/book）,BookNewPage.e6aa0efc,写死,填好出发地、目的地、日期和时间后，这里会列出可乘坐的车型和一口价。,正文,<p>,apps/web/src/pages/book/new/BookNewPage.tsx,1280,
 官网（客人预订）,预订页（/book）,BookNewPage.96584c87,写死,正在查询价格,名称,label,apps/web/src/pages/book/new/BookNewPage.tsx,1282,
-官网（客人预订）,预订页（/book）,BookNewPage.34617c14,写死,价格没有查出来,标题,title,apps/web/src/pages/book/new/BookNewPage.tsx,1287,
 官网（客人预订）,预订页（/book）,BookNewPage.589c19f4,写死,没有在线报价,标题,title,apps/web/src/pages/book/new/BookNewPage.tsx,1287,
+官网（客人预订）,预订页（/book）,BookNewPage.99e3fe01,写死,价格查询失败，请重试,标题,title,apps/web/src/pages/book/new/BookNewPage.tsx,1287,
 官网（客人预订）,预订页（/book）,BookNewPage.2c46d70f,写死,没有可预订的车,标题,<h3>,apps/web/src/pages/book/new/BookNewPage.tsx,1311,
-官网（客人预订）,预订页（/book）,BookNewPage.f4f761da,写死,按价格从低到高 · 坐不下的已隐藏。报价 30 分钟内有效（到当地时间 {…}），过了请重新查询。,正文,<p>,apps/web/src/pages/book/new/BookNewPage.tsx,1331,
+官网（客人预订）,预订页（/book）,BookNewPage.a20ada80,写死,按价格从低到高 · 座位不足的已隐藏。报价 30 分钟内有效（到当地时间 {…}），过了请重新查询。,正文,<p>,apps/web/src/pages/book/new/BookNewPage.tsx,1331,
 官网（客人预订）,预订页（/book）,BookNewPage.ccfebb59,写死,行程时间表,标题,<h3>,apps/web/src/pages/book/new/BookNewPage.tsx,1337,
 官网（客人预订）,预订页（/book）,BookNewPage.6373c8ca,写死,选择车型,标题,<h2>,apps/web/src/pages/book/new/BookNewPage.tsx,1388,
 官网（客人预订）,预订页（/book）,BookNewPage.4e3fd180,写死,上一步,按钮,<Button>,apps/web/src/pages/book/new/BookNewPage.tsx,1410 1483,
@@ -143,7 +143,7 @@
 官网（客人预订）,预订页（/book）,BookNewPage.b9e44eec,写死,免费等待,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1567,
 官网（客人预订）,预订页（/book）,BookNewPage.22028ae5,写死,不限时,正文,<dd>,apps/web/src/pages/book/new/BookNewPage.tsx,1568,
 官网（客人预订）,预订页（/book）,BookNewPage.8c34d128,写死,航班落地后 {freeWait} 分钟,正文,<dd>,apps/web/src/pages/book/new/BookNewPage.tsx,1568,
-官网（客人预订）,预订页（/book）,BookNewPage.5b8adaaf,写死,乘车人电话/WhatsApp,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1579,
+官网（客人预订）,预订页（/book）,BookNewPage.49c21280,写死,乘车人电话 / WhatsApp,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1579,
 官网（客人预订）,预订页（/book）,BookNewPage.b7c2e6e8,写死,举牌姓名,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1586,
 官网（客人预订）,预订页（/book）,BookNewPage.08773378,写死,给司机的备注,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1598,
 官网（客人预订）,预订页（/book）,BookNewPage.94d63521,写死,车型和价格,标题,<h3>,apps/web/src/pages/book/new/BookNewPage.tsx,1613 1690,
@@ -154,7 +154,7 @@
 官网（客人预订）,预订页（/book）,BookNewPage.a9922481,写死,修改{what},读屏说明,aria-label,apps/web/src/pages/book/new/BookNewPage.tsx,1653,
 官网（客人预订）,预订页（/book）,BookNewPage.0af303e3,写死,修改,按钮,<Button>,apps/web/src/pages/book/new/BookNewPage.tsx,1655,
 官网（客人预订）,预订页（/book）,BookNewPage.851bbd69,写死,核对订单,标题,<h2>,apps/web/src/pages/book/new/BookNewPage.tsx,1668,
-官网（客人预订）,预订页（/book）,BookNewPage.ec517f42,写死,选的车型现在报不出价了，请点「修改」重新选择车型。,正文,<p>,apps/web/src/pages/book/new/BookNewPage.tsx,1709,
+官网（客人预订）,预订页（/book）,BookNewPage.a4a9edb6,写死,选的车型现在无法在线报价，请点「修改」重新选择车型。,正文,<p>,apps/web/src/pages/book/new/BookNewPage.tsx,1709,
 官网（客人预订）,预订页（/book）,BookNewPage.f7748eb6,写死,正在重新查询价格…,正文,<p>,apps/web/src/pages/book/new/BookNewPage.tsx,1709,
 官网（客人预订）,预订页（/book）,BookNewPage.e51eb20c,写死,行程摘要,正文,<span>,apps/web/src/pages/book/new/BookNewPage.tsx,1757 1783 1805,
 官网（客人预订）,预订页（/book）,BookNewPage.dc4b4482,写死,还没有确认的内容,正文,<span>,apps/web/src/pages/book/new/BookNewPage.tsx,1777,
@@ -180,10 +180,10 @@
 官网（客人预订）,预订页（/book）,CheckoutParts.008472ce,写死,乘车人姓名,名称,label,apps/web/src/pages/book/new/CheckoutParts.tsx,224 229,
 官网（客人预订）,预订页（/book）,CheckoutParts.fe53f7ea,写死,预订人姓名,名称,label,apps/web/src/pages/book/new/CheckoutParts.tsx,224,
 官网（客人预订）,预订页（/book）,CheckoutParts.82bdfc93,写死,邮箱,名称,label,apps/web/src/pages/book/new/CheckoutParts.tsx,225,
-官网（客人预订）,预订页（/book）,CheckoutParts.e78a65a3,写死,手机号（含国家区号）,名称,label,apps/web/src/pages/book/new/CheckoutParts.tsx,226,
+官网（客人预订）,预订页（/book）,CheckoutParts.df46a858,写死,手机号（含国家码）,名称,label,apps/web/src/pages/book/new/CheckoutParts.tsx,226,
 官网（客人预订）,预订页（/book）,CheckoutParts.57f35fc6,写死,确认邮件仍发给上面的预订人,说明,hint,apps/web/src/pages/book/new/CheckoutParts.tsx,229,
 官网（客人预订）,预订页（/book）,CheckoutParts.2d310e9f,写死,司机当天联系乘车人用，如 +81 90-1234-5678,说明,hint,apps/web/src/pages/book/new/CheckoutParts.tsx,230,
-官网（客人预订）,预订页（/book）,CheckoutParts.5cbd26ff,写死,乘车人电话/WhatsApp,名称,label,apps/web/src/pages/book/new/CheckoutParts.tsx,230,
+官网（客人预订）,预订页（/book）,CheckoutParts.f396c092,写死,乘车人电话 / WhatsApp,名称,label,apps/web/src/pages/book/new/CheckoutParts.tsx,230,
 官网（客人预订）,预订页（/book）,CheckoutParts.56678932,写死,微信 / LINE / WhatsApp（选填）,名称,label,apps/web/src/pages/book/new/CheckoutParts.tsx,236,
 官网（客人预订）,预订页（/book）,CheckoutParts.d4367956,写死,不填,输入框占位,placeholder,apps/web/src/pages/book/new/CheckoutParts.tsx,237,
 官网（客人预订）,预订页（/book）,CheckoutParts.142d663e,写死,即时通讯账号,名称,label,apps/web/src/pages/book/new/CheckoutParts.tsx,242,
@@ -217,10 +217,10 @@
 官网（客人预订）,多日行程报价页（/book/trip）,trip-ai.e1969ab0,写死,{rest} 分钟,文字,stayText(),apps/web/src/lib/trip-ai.ts,132,
 官网（客人预订）,多日行程报价页（/book/trip）,trip-ai.0c025e01,写死,{hours} 小时,文字,stayText(),apps/web/src/lib/trip-ai.ts,133,
 官网（客人预订）,多日行程报价页（/book/trip）,trip-ai.67fabc3a,写死,{hours} 小时 {rest} 分钟,文字,stayText(),apps/web/src/lib/trip-ai.ts,133,
-官网（客人预订）,多日行程报价页（/book/trip）,TripQuoteResult.5809e058,写死,{…}月{…}日,文字,dayDate(),apps/web/src/pages/book/trip/TripQuoteResult.tsx,52,
+官网（客人预订）,多日行程报价页（/book/trip）,TripQuoteResult.ae44d7c5,写死,{…} 月 {…} 日,文字,dayDate(),apps/web/src/pages/book/trip/TripQuoteResult.tsx,52,
 官网（客人预订）,订单页（查订单、管理订单）,FeedbackSection.df5a203d,写死,已提交。平台一般 2 小时内答复（用车当天的 15 分钟内），3 个工作日内处理完；答复会显示在这里，请稍后回到这个页面查看。,文字,FEEDBACK_SUBMITTED_TEXT,apps/web/src/pages/book/FeedbackSection.tsx,25,
 官网（客人预订）,订单页（查订单、管理订单）,FeedbackSection.71d81294,写死,已超过投诉时限：服务结束后 14 天内可以投诉。如果还有问题，请联系客服。,提示,errorText(),apps/web/src/pages/book/FeedbackSection.tsx,28,
-官网（客人预订）,订单页（查订单、管理订单）,FeedbackSection.eb185bd0,写死,这一单已经提了很多次，请直接联系客服。,提示,errorText(),apps/web/src/pages/book/FeedbackSection.tsx,29,
+官网（客人预订）,订单页（查订单、管理订单）,FeedbackSection.e77fd494,写死,这张订单的反馈次数已达上限，请直接联系客服。,提示,errorText(),apps/web/src/pages/book/FeedbackSection.tsx,29,
 官网（客人预订）,订单页（查订单、管理订单）,FeedbackSection.195de9aa,写死,提交,文字,siteFailureText(),apps/web/src/pages/book/FeedbackSection.tsx,30 178,
 官网（客人预订）,订单页（查订单、管理订单）,FeedbackSection.c3944156,写死,反馈,正文,<span>,apps/web/src/pages/book/FeedbackSection.tsx,39,
 官网（客人预订）,订单页（查订单、管理订单）,FeedbackSection.2e7b049f,写死,编号 {ticket_no} · 提交于 {…},正文,<p>,apps/web/src/pages/book/FeedbackSection.tsx,42,
@@ -238,7 +238,7 @@
 官网（客人预订）,订单页（查订单、管理订单）,FeedbackSection.2023efbb,写死,投诉和反馈,标题,<h2>,apps/web/src/pages/book/FeedbackSection.tsx,124,
 官网（客人预订）,订单页（查订单、管理订单）,FeedbackSection.c0fd2955,写死,对这次用车不满意、东西落在车上，或者有别的问题，可以在这里告诉平台。平台核实后会在这里答复；投诉成立的按统一的赔付标准补偿。,正文,<p>,apps/web/src/pages/book/FeedbackSection.tsx,125,
 官网（客人预订）,订单页（查订单、管理订单）,FeedbackSection.007fc2ef,写死,正在读取已提交的反馈,名称,label,apps/web/src/pages/book/FeedbackSection.tsx,126,
-官网（客人预订）,订单页（查订单、管理订单）,FeedbackSection.4bbca67d,写死,已提交的反馈没有读出来。,正文,<p>,apps/web/src/pages/book/FeedbackSection.tsx,129,
+官网（客人预订）,订单页（查订单、管理订单）,FeedbackSection.14d3dcb9,写死,已提交的反馈加载失败，请刷新重试。,正文,<p>,apps/web/src/pages/book/FeedbackSection.tsx,129,
 官网（客人预订）,订单页（查订单、管理订单）,FeedbackSection.42345af7,写死,重试,按钮,<Button>,apps/web/src/pages/book/FeedbackSection.tsx,132,
 官网（客人预订）,订单页（查订单、管理订单）,FeedbackSection.21801896,写死,已提交的反馈,读屏说明,aria-label,apps/web/src/pages/book/FeedbackSection.tsx,136,
 官网（客人预订）,订单页（查订单、管理订单）,FeedbackSection.bd2066dc,写死,是哪类问题,标题,legend,apps/web/src/pages/book/FeedbackSection.tsx,145,
@@ -259,7 +259,7 @@
 官网（客人预订）,订单页（查订单、管理订单）,OrderPage.b0008973,写死,如信息匹配，链接已发送到下单邮箱。请查收邮件（也看看垃圾邮件），打开邮件里的链接查看订单。,文字,LOOKUP_SENT_TEXT,apps/web/src/pages/book/OrderPage.tsx,46,
 官网（客人预订）,订单页（查订单、管理订单）,OrderPage.23097501,写死,已结束超过 180 天的订单，链接和联系方式可能已按隐私规则清除，收不到新链接，需要帮助请联系客服。,说明,EXPIRED_LINK_HINT,apps/web/src/pages/book/OrderPage.tsx,49,
 官网（客人预订）,订单页（查订单、管理订单）,OrderPage.21ac6ea1,写死,订单链接无效或已过期。请填订单号和下单邮箱，我们会把新的订单链接发到您的邮箱。,文字,EXPIRED_LINK_TEXT,apps/web/src/pages/book/OrderPage.tsx,51,
-官网（客人预订）,订单页（查订单、管理订单）,OrderPage.8ba1c0a1,写死,暂时发不了邮件，请联系客服找回订单。,文字,MAIL_UNAVAILABLE_TEXT,apps/web/src/pages/book/OrderPage.tsx,54,
+官网（客人预订）,订单页（查订单、管理订单）,OrderPage.0ad26d66,写死,邮件暂时无法发送，请联系客服找回订单。,文字,MAIL_UNAVAILABLE_TEXT,apps/web/src/pages/book/OrderPage.tsx,54,
 官网（客人预订）,订单页（查订单、管理订单）,OrderPage.bc8c1a50,写死,发送订单链接,文字,siteFailureText(),apps/web/src/pages/book/OrderPage.tsx,59 103,
 官网（客人预订）,订单页（查订单、管理订单）,OrderPage.ff4d42cd,写死,订单号是 NZ 开头的 18 位，如 NZ20261026AB12CD34,文字,,apps/web/src/pages/book/OrderPage.tsx,78,
 官网（客人预订）,订单页（查订单、管理订单）,OrderPage.62c981b8,写死,请填写下单时的邮箱,文字,,apps/web/src/pages/book/OrderPage.tsx,79,
@@ -282,7 +282,7 @@
 官网（客人预订）,订单页（查订单、管理订单）,OrderPage.ee272d3c,写死,输入订单号和下单时填的邮箱，我们会把订单链接发到这个邮箱。打开链接就能查看订单、付款、取消或修改。,正文,<p>,apps/web/src/pages/book/OrderPage.tsx,180,
 官网（客人预订）,订单页（查订单、管理订单）,OrderPage.fe46c77b,写死,订单 {orderNo} · NOZOMI 用车,浏览器标题,useDocumentTitle(),apps/web/src/pages/book/OrderPage.tsx,241,
 官网（客人预订）,订单页（查订单、管理订单）,OrderPage.ec5f5837,写死,读取订单,文字,siteFailureText(),apps/web/src/pages/book/OrderPage.tsx,273,
-官网（客人预订）,订单页（查订单、管理订单）,OrderPage.bdb5d823,写死,订单没有读出来,标题,title,apps/web/src/pages/book/OrderPage.tsx,294,
+官网（客人预订）,订单页（查订单、管理订单）,OrderPage.55d11ae1,写死,订单加载失败，请刷新重试,标题,title,apps/web/src/pages/book/OrderPage.tsx,294,
 官网（客人预订）,订单页（查订单、管理订单）,OrderPage.f7230824,写死,重试,按钮,<Button>,apps/web/src/pages/book/OrderPage.tsx,294,
 官网（客人预订）,订单页（查订单、管理订单）,OrderPage.3897a19c,写死,订单 {order_no},标题,<h1>,apps/web/src/pages/book/OrderPage.tsx,323,
 官网（客人预订）,订单页（查订单、管理订单）,OrderPage.8f8e16ff,写死,付款成功，订单已确认。派车后这里会显示司机和车辆。,提示,<Alert>,apps/web/src/pages/book/OrderPage.tsx,326,
@@ -323,7 +323,7 @@
 官网（客人预订）,多个页面共用：新预订页每一步的按钮条（step-bar-texts.ts）,step-bar.label,已走 key,本步操作,名称,ZH,apps/web/src/lib/step-bar-texts.ts,10,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：新预订页每一步的按钮条（step-bar-texts.ts）,step-bar.needVehicle,已走 key,请先选择车型,文字,ZH,apps/web/src/lib/step-bar-texts.ts,11,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：新预订页每一步的按钮条（step-bar-texts.ts）,step-bar.quoting,已走 key,正在查询价格，查好后请选择车型,文字,ZH,apps/web/src/lib/step-bar-texts.ts,12,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：新预订页每一步的按钮条（step-bar-texts.ts）,step-bar.quoteFailed,已走 key,价格没有查出来，请先点「重试」,提示,ZH,apps/web/src/lib/step-bar-texts.ts,13,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：新预订页每一步的按钮条（step-bar-texts.ts）,step-bar.quoteFailed,已走 key,价格查询失败，请先点「重试」,提示,ZH,apps/web/src/lib/step-bar-texts.ts,13,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.title,已走 key,多日行程报价,标题,ZH,apps/web/src/lib/trip-texts.ts,223,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.day,已走 key,第 {n} 天,文字,ZH,apps/web/src/lib/trip-texts.ts,224,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.addDay,已走 key,加一天,文字,ZH,apps/web/src/lib/trip-texts.ts,225,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
@@ -337,24 +337,24 @@
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.manual.cta,已走 key,转人工报价,文字,ZH,apps/web/src/lib/trip-texts.ts,233,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.book,已走 key,预订这个方案,文字,ZH,apps/web/src/lib/trip-texts.ts,234,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.bookManual,已走 key,提交预订，客服确认,文字,ZH,apps/web/src/lib/trip-texts.ts,235,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.title,已走 key,一句话描述你的行程,标题,ZH,apps/web/src/lib/trip-texts.ts,237,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.title,已走 key,一句话描述您的行程,标题,ZH,apps/web/src/lib/trip-texts.ts,237,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.placeholder,已走 key,例如：11 月 25 日成田接机，先去浅草寺再去新宿酒店，第二天包车 8 小时去日光，第三天送羽田，4 个人 6 件行李,输入框占位,ZH,apps/web/src/lib/trip-texts.ts,238,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.submit,已走 key,帮我填好,按钮,ZH,apps/web/src/lib/trip-texts.ts,239,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.working,已走 key,正在整理…,文字,ZH,apps/web/src/lib/trip-texts.ts,240,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.note,已走 key,由 AI 整理，价格由系统按规则计算；请勿填写姓名、电话等个人信息,说明,ZH,apps/web/src/lib/trip-texts.ts,241,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.replaceConfirm,已走 key,用 AI 整理的结果替换现在填的内容吗？,按钮,ZH,apps/web/src/lib/trip-texts.ts,242,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.summary,已走 key,已按你的描述填好 {days} 天行程。标黄的地方请补填或确认，然后点「查看报价」,说明,ZH,apps/web/src/lib/trip-texts.ts,243,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.summary,已走 key,已按您的描述填好 {days} 天行程。标黄的地方请补填或确认，然后点「查看报价」,说明,ZH,apps/web/src/lib/trip-texts.ts,243,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.filled,已走 key,AI 填的，可改,文字,ZH,apps/web/src/lib/trip-texts.ts,244,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.missing,已走 key,请补填,文字,ZH,apps/web/src/lib/trip-texts.ts,245,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.pickOne,已走 key,找到几个地点，请选一个,文字,ZH,apps/web/src/lib/trip-texts.ts,246,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.notFound,已走 key,没找到「{name}」，请重新搜索,文字,ZH,apps/web/src/lib/trip-texts.ts,247,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.vague,已走 key,「{name}」没说是哪一家，请搜索选一家,文字,ZH,apps/web/src/lib/trip-texts.ts,248,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.vague,已走 key,「{name}」有多家，请搜索选择具体是哪一家,文字,ZH,apps/web/src/lib/trip-texts.ts,248,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.unused.FLIGHT_NUMBER,已走 key,航班号 {value}：行程报价暂不用航班号，下单时可以填在备注里,文字,ZH,apps/web/src/lib/trip-texts.ts,249,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.unused.CHARTER_HOURS,已走 key,你说的「包车 {value} 小时」会按实际路线自动选套餐，报价里能看到,文字,ZH,apps/web/src/lib/trip-texts.ts,250,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.unused.CHARTER_HOURS,已走 key,您说的「包车 {value} 小时」会按实际路线自动选套餐，报价里能看到,文字,ZH,apps/web/src/lib/trip-texts.ts,250,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.outOfScope,已走 key,行程里有暂时报不了价的部分（{what}），可以转人工报价,文字,ZH,apps/web/src/lib/trip-texts.ts,251,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.failed,已走 key,暂时没法自动整理，请直接在下面填写,提示,ZH,apps/web/src/lib/trip-texts.ts,252,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.failed,已走 key,暂时无法自动整理，请直接在下面填写,提示,ZH,apps/web/src/lib/trip-texts.ts,252,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.dailyLimit,已走 key,今天的自动整理次数已满，请直接填写,文字,ZH,apps/web/src/lib/trip-texts.ts,253,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.notATrip,已走 key,没看出行程，请写上日期、地点，或直接在下面填写,文字,ZH,apps/web/src/lib/trip-texts.ts,254,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.notATrip,已走 key,没能识别出行程，请写上日期、地点，或直接在下面填写,文字,ZH,apps/web/src/lib/trip-texts.ts,254,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.tooLong,已走 key,行程较长，请分段报价或转人工,文字,ZH,apps/web/src/lib/trip-texts.ts,255,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.label,已走 key,行程描述,名称,ZH,apps/web/src/lib/trip-texts.ts,257,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.count,已走 key,{n} / {max} 字,文字,ZH,apps/web/src/lib/trip-texts.ts,258,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
@@ -370,8 +370,8 @@
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.summaryUnused,已走 key,没有用上的信息,说明,ZH,apps/web/src/lib/trip-texts.ts,268,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.summaryOutOfScope,已走 key,不在报价范围,说明,ZH,apps/web/src/lib/trip-texts.ts,269,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.field.date,已走 key,第 1 天的日期,文字,ZH,apps/web/src/lib/trip-texts.ts,270,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.field.passengers,已走 key,人数（先按 {n} 人填了）,文字,ZH,apps/web/src/lib/trip-texts.ts,271,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.field.luggage,已走 key,行李件数（先按 {n} 件填了）,文字,ZH,apps/web/src/lib/trip-texts.ts,272,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.field.passengers,已走 key,人数（暂按 {n} 人）,文字,ZH,apps/web/src/lib/trip-texts.ts,271,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.field.luggage,已走 key,行李件数（暂按 {n} 件）,文字,ZH,apps/web/src/lib/trip-texts.ts,272,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.field.time,已走 key,第 {n} 天的上车时间,文字,ZH,apps/web/src/lib/trip-texts.ts,273,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.field.start,已走 key,第 {n} 天的上车地点,文字,ZH,apps/web/src/lib/trip-texts.ts,274,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.ai.field.stop,已走 key,第 {n} 天第 {m} 个中间地点,文字,ZH,apps/web/src/lib/trip-texts.ts,275,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
@@ -407,10 +407,10 @@
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.retry,已走 key,重试,文字,ZH,apps/web/src/lib/trip-texts.ts,306,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.notOpenTitle,已走 key,暂未开放预订,标题,ZH,apps/web/src/lib/trip-texts.ts,307,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.notOpenText,已走 key,官网的在线预订还没有开放，请稍后再来。,文字,ZH,apps/web/src/lib/trip-texts.ts,308,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.citiesFailed,已走 key,城市列表没有读出来,提示,ZH,apps/web/src/lib/trip-texts.ts,309,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.citiesFailed,已走 key,城市列表加载失败，请刷新重试,提示,ZH,apps/web/src/lib/trip-texts.ts,309,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.noCitiesTitle,已走 key,暂时没有可预订的城市,标题,ZH,apps/web/src/lib/trip-texts.ts,310,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.noCitiesText,已走 key,现在还没有可以在线预订用车的城市，请稍后再来。,文字,ZH,apps/web/src/lib/trip-texts.ts,311,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.tripSection,已走 key,你的行程,文字,ZH,apps/web/src/lib/trip-texts.ts,312,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.tripSection,已走 key,您的行程,文字,ZH,apps/web/src/lib/trip-texts.ts,312,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.date,已走 key,日期（当地）,文字,ZH,apps/web/src/lib/trip-texts.ts,313,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.dateAuto,已走 key,日期：{date}（接着前一天）,文字,ZH,apps/web/src/lib/trip-texts.ts,314,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.time,已走 key,第 {n} 天 上车时间（当地）,文字,ZH,apps/web/src/lib/trip-texts.ts,315,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
@@ -481,17 +481,17 @@
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.warning.WORK_HOURS_HARD_LIMITWhole,已走 key,用车时间接近上限,文字,ZH,apps/web/src/lib/trip-texts.ts,382,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.compare,已走 key,两个方案对比,文字,ZH,apps/web/src/lib/trip-texts.ts,383,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.manual.cardHint,已走 key,留下邮箱或 WhatsApp，客服按整张行程单报价，不用再填行程,说明,ZH,apps/web/src/lib/trip-texts.ts,384,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.manual.noTrip,已走 key,第一天的行程不完整，没法转人工报价，请返回修改行程,文字,ZH,apps/web/src/lib/trip-texts.ts,385,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.manual.noTrip,已走 key,第一天的行程不完整，无法转人工报价，请返回修改行程,文字,ZH,apps/web/src/lib/trip-texts.ts,385,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.manual.unnamedPlace,已走 key,地图上选的位置,文字,ZH,apps/web/src/lib/trip-texts.ts,386,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.dayListOf,已走 key,{plan}：每天的行程,文字,ZH,apps/web/src/lib/trip-texts.ts,387,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.failure.tooComplex,已走 key,这个行程太复杂，暂时没法在线报价。,文字,ZH,apps/web/src/lib/trip-texts.ts,389,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.failure.tooComplex,已走 key,这个行程太复杂，暂时无法在线报价。,文字,ZH,apps/web/src/lib/trip-texts.ts,389,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.failure.notFound,已走 key,这个行程已过期或不存在，请重新填写。,文字,ZH,apps/web/src/lib/trip-texts.ts,390,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.failure.rateLimited,已走 key,操作太频繁了，请稍后再试。,文字,ZH,apps/web/src/lib/trip-texts.ts,391,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.failure.rateLimitedSeconds,已走 key,操作太频繁了，请 {n} 秒后再试。,文字,ZH,apps/web/src/lib/trip-texts.ts,392,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.failure.rateLimitedMinutes,已走 key,操作太频繁了，请 {n} 分钟后再试。,文字,ZH,apps/web/src/lib/trip-texts.ts,393,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.failure.quote,已走 key,报价没有查出来,文字,ZH,apps/web/src/lib/trip-texts.ts,394,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.failure.create,已走 key,行程没有保存,文字,ZH,apps/web/src/lib/trip-texts.ts,395,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.failure.read,已走 key,行程没有读出来,文字,ZH,apps/web/src/lib/trip-texts.ts,396,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.failure.quote,已走 key,价格查询失败，请重试,文字,ZH,apps/web/src/lib/trip-texts.ts,394,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.failure.create,已走 key,行程保存失败，请重试,文字,ZH,apps/web/src/lib/trip-texts.ts,395,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.failure.read,已走 key,行程加载失败，请重试,文字,ZH,apps/web/src/lib/trip-texts.ts,396,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.action.create,已走 key,保存行程,文字,ZH,apps/web/src/lib/trip-texts.ts,397,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.action.quote,已走 key,报价,文字,ZH,apps/web/src/lib/trip-texts.ts,398,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.action.read,已走 key,读取行程,文字,ZH,apps/web/src/lib/trip-texts.ts,399,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
@@ -509,21 +509,21 @@
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.reason.NO_PRODUCT,已走 key,这里暂时没有在线报价,文字,ZH,apps/web/src/lib/trip-texts.ts,414,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.reason.OUT_OF_SERVICE_AREA,已走 key,有地点不在服务范围内,文字,ZH,apps/web/src/lib/trip-texts.ts,415,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.reason.ROUTE_UNAVAILABLE,已走 key,路线暂时算不出来,文字,ZH,apps/web/src/lib/trip-texts.ts,416,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.reason.ONE_CAR_NOT_AVAILABLE,已走 key,没有一辆车能跑完全部日子,文字,ZH,apps/web/src/lib/trip-texts.ts,417,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.reason.ONE_CAR_NOT_AVAILABLE,已走 key,没有一辆车能覆盖全部天数,文字,ZH,apps/web/src/lib/trip-texts.ts,417,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.reason.CROSS_CITY_ONE_CAR,已走 key,行程跨了城市，暂时不能同一辆车跑完,文字,ZH,apps/web/src/lib/trip-texts.ts,418,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.reason.WORK_HOURS_EXCEEDED,已走 key,用车时间太长，司机工作时间不够,文字,ZH,apps/web/src/lib/trip-texts.ts,419,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.reason.WORK_HOURS_HARD_LIMIT,已走 key,用车时间太长，请拆成两天或减少地点,文字,ZH,apps/web/src/lib/trip-texts.ts,420,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.reason.SECOND_DRIVER_PRICE_UNAVAILABLE,已走 key,需要第二位司机，暂时报不出价,文字,ZH,apps/web/src/lib/trip-texts.ts,421,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.reason.LODGING_PRICE_UNAVAILABLE,已走 key,司机住宿费暂时报不出,文字,ZH,apps/web/src/lib/trip-texts.ts,422,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.reason.IDLE_DAY_PRICE_UNAVAILABLE,已走 key,不用车那天的停驻费暂时报不出,文字,ZH,apps/web/src/lib/trip-texts.ts,423,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.reason.FEE_PRICE_UNAVAILABLE,已走 key,部分费用暂时报不出,文字,ZH,apps/web/src/lib/trip-texts.ts,424,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.reason.SECOND_DRIVER_PRICE_UNAVAILABLE,已走 key,需要第二位司机，暂时无法在线报价,文字,ZH,apps/web/src/lib/trip-texts.ts,421,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.reason.LODGING_PRICE_UNAVAILABLE,已走 key,司机住宿费暂时无法在线报价,文字,ZH,apps/web/src/lib/trip-texts.ts,422,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.reason.IDLE_DAY_PRICE_UNAVAILABLE,已走 key,不用车那天的停驻费暂时无法在线报价,文字,ZH,apps/web/src/lib/trip-texts.ts,423,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.reason.FEE_PRICE_UNAVAILABLE,已走 key,部分费用暂时无法在线报价,文字,ZH,apps/web/src/lib/trip-texts.ts,424,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.reason.ITINERARY_TOO_LONG,已走 key,行程太长,文字,ZH,apps/web/src/lib/trip-texts.ts,425,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.reason.LEAD_TIME_TOO_SHORT,已走 key,离用车时间太近，来不及安排,说明,ZH,apps/web/src/lib/trip-texts.ts,426,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.reason.SOLD_OUT,已走 key,车已经订满,文字,ZH,apps/web/src/lib/trip-texts.ts,427,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.reason.CAPACITY_EXCEEDED,已走 key,人数或行李超出了可选车型能坐、能装的范围,文字,ZH,apps/web/src/lib/trip-texts.ts,428,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.reason.SERVICE_TIME_PASSED,已走 key,用车时间已经过了,文字,ZH,apps/web/src/lib/trip-texts.ts,429,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.reason.OUTSIDE_SERVICE_TIME,已走 key,用车时间不在服务时间内,文字,ZH,apps/web/src/lib/trip-texts.ts,430,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.reason.WAYPOINT_NOT_PRICED,已走 key,途经的地点暂时报不出价,文字,ZH,apps/web/src/lib/trip-texts.ts,431,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.reason.WAYPOINT_NOT_PRICED,已走 key,途经的地点暂时无法在线报价,文字,ZH,apps/web/src/lib/trip-texts.ts,431,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.reason.ADDON_NOT_OFFERED,已走 key,所选的附加服务暂时不能提供,文字,ZH,apps/web/src/lib/trip-texts.ts,432,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网行程报价页 /book/trip（trip-texts.ts）,trip.reason.other,已走 key,暂时没有合适的车,文字,ZH,apps/web/src/lib/trip-texts.ts,433,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网的地图选点（GoogleMapPicker.tsx）,GoogleMapPicker.a4fc5b6b,写死,地图：点一下选{word}位置，或拖动标记；也可以用方向键移动地图，再按地图下面的「选地图中间这个位置」,标题,title,apps/web/src/pages/book/GoogleMapPicker.tsx,94,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
@@ -542,23 +542,22 @@
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.c463ca2c,写死,机场,名称,placeName(),apps/web/src/pages/book/OrderSections.tsx,90,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.1144d4fe,写死,这张订单现在不能付款了（可能已超过付款期限），订单状态马上会更新。,文字,CANNOT_PAY_TEXT,apps/web/src/pages/book/OrderSections.tsx,113,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.a265b86c,写死,上次付款没有完成，请重新付款。,提示,RETURN_FAILED_TEXT,apps/web/src/pages/book/OrderSections.tsx,115,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
-官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.3400b992,写死,没有连上 Stripe，这次付款可能没有提交。请检查网络后再点「付款」；同一张订单不会被扣两次。,文字,NETWORK_TEXT,apps/web/src/pages/book/OrderSections.tsx,116,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.3ee11aa4,写死,付款服务连接失败，这次付款可能没有提交。请检查网络后再点「付款」；同一张订单不会被扣两次。,文字,NETWORK_TEXT,apps/web/src/pages/book/OrderSections.tsx,116,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.89215c41,写死,银行正在处理这笔付款，处理完订单会自动确认（通常几分钟内），页面会自动更新，请不要重复付款。,文字,head,apps/web/src/pages/book/OrderSections.tsx,119,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.fdea7a40,写死,付款成功，等待确认。订单通常几秒钟内确认，页面会自动更新，请不要重复付款。,文字,head,apps/web/src/pages/book/OrderSections.tsx,119,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.ccc3a38c,写死,{head}确认比平时慢：您可以先关掉页面，稍后再打开这个链接查看；有疑问请联系客服。,文字,submittedText(),apps/web/src/pages/book/OrderSections.tsx,120,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.af35b579,写死,上次付款没有成功：{lastError},文字,text,apps/web/src/pages/book/OrderSections.tsx,214,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
-官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.af9b841e,写死,付款组件没有加载出来，请检查网络后点「重新加载」。,文字,text,apps/web/src/pages/book/OrderSections.tsx,221,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.94702b70,写死,付款组件加载失败，请检查网络后点「重新加载」。,文字,text,apps/web/src/pages/book/OrderSections.tsx,221,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.ce282679,写死,准备付款,文字,siteFailureText(),apps/web/src/pages/book/OrderSections.tsx,221,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
-官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.43646cad,写死,付款没有完成。请稍后再试；一直不行请联系客服。,文字,showFailure(),apps/web/src/pages/book/OrderSections.tsx,279,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.47ca8719,写死,付款没有完成。请稍后再试；多次失败请联系客服。,文字,showFailure(),apps/web/src/pages/book/OrderSections.tsx,279,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.56072186,写死,付款没有成功：{message},文字,showFailure(),apps/web/src/pages/book/OrderSections.tsx,279,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.bd72dc54,写死,请在当地时间 {due} 前付款，过时订单会自动取消。付款信息由 Stripe 处理，本站不保存卡号。,正文,<p>,apps/web/src/pages/book/OrderSections.tsx,293,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.35e165df,写死,正在加载付款组件,名称,label,apps/web/src/pages/book/OrderSections.tsx,297,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.a03e2791,写死,重新加载,按钮,<Button>,apps/web/src/pages/book/OrderSections.tsx,298,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
-官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.fb9ac376,写死,确认付款,读屏说明,aria-label,apps/web/src/pages/book/OrderSections.tsx,301,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
-官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.cb093359,写死,确认支付 {…}？,正文,<p>,apps/web/src/pages/book/OrderSections.tsx,302,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.fb9ac376,写死,确认付款,读屏说明,aria-label,apps/web/src/pages/book/OrderSections.tsx,301 307,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.d3d3f0e0,写死,确认付款 {…}？,正文,<p>,apps/web/src/pages/book/OrderSections.tsx,302,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.c4bc0138,写死,如果银行要求验证，会弹出银行的验证窗口，请按提示完成。,正文,<p>,apps/web/src/pages/book/OrderSections.tsx,303,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.6de825e1,写死,正在付款,文字,loadingText,apps/web/src/pages/book/OrderSections.tsx,305,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
-官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.25bdc23e,写死,确认支付,按钮,<Button>,apps/web/src/pages/book/OrderSections.tsx,307,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.8e32606c,写死,返回,按钮,<Button>,apps/web/src/pages/book/OrderSections.tsx,310,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.3e4c8896,写死,正在检查,文字,loadingText,apps/web/src/pages/book/OrderSections.tsx,315,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.ddd43d4a,写死,付款 {…},按钮,<Button>,apps/web/src/pages/book/OrderSections.tsx,316,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
@@ -577,7 +576,7 @@
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.87bc42c6,写死,{…}（{…}当地时间）,正文,<Fact>,apps/web/src/pages/book/OrderSections.tsx,395,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.0b0e3ce3,写死,航班号,名称,label,apps/web/src/pages/book/OrderSections.tsx,397 804 953,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.f1a4c66e,写死,车型,名称,label,apps/web/src/pages/book/OrderSections.tsx,398,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
-官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.4c71c5b3,写死,人数 / 行李,名称,label,apps/web/src/pages/book/OrderSections.tsx,400,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.031dde21,写死,乘客 / 行李,名称,label,apps/web/src/pages/book/OrderSections.tsx,400,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.d23d41b9,写死,{passengers} 人 / {luggage} 件,正文,<Fact>,apps/web/src/pages/book/OrderSections.tsx,401,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.5502f689,写死,预订人,名称,label,apps/web/src/pages/book/OrderSections.tsx,404,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.e62a0bac,写死,乘车人,名称,label,apps/web/src/pages/book/OrderSections.tsx,404 409,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
@@ -686,8 +685,8 @@
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.a00589ca,写死,乘车人随时可以改,正文,<p>,apps/web/src/pages/book/OrderSections.tsx,943,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.f71ed544,写死,{…}；地址、备注、人数行李和用车时间在免费取消期内可以改，改时间会按新时间重新计价（多退少补）。换车型请取消后重新预订。,正文,<p>,apps/web/src/pages/book/OrderSections.tsx,943,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.49a502f4,写死,乘车人姓名,名称,label,apps/web/src/pages/book/OrderSections.tsx,950,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.7df9ce0a,写死,手机号（含国家码）,名称,label,apps/web/src/pages/book/OrderSections.tsx,951,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.b411d21f,写死,以 + 和国家码开头，如 +81 90-1234-5678,说明,hint,apps/web/src/pages/book/OrderSections.tsx,951,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
-官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.be7510f5,写死,手机号（带国家码）,名称,label,apps/web/src/pages/book/OrderSections.tsx,951,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.24c160de,写死,如 NH211,说明,hint,apps/web/src/pages/book/OrderSections.tsx,953,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.fa26c2be,写死,航班号（选填）,名称,label,apps/web/src/pages/book/OrderSections.tsx,953,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.ed3a33cf,写死,行李（件）,名称,label,apps/web/src/pages/book/OrderSections.tsx,985,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
@@ -724,9 +723,9 @@
 官网（客人预订）,多个页面共用：官网的地图选点（SiteMapPicker.tsx）,SiteMapPicker.0532bbab,写死,地图：点一下选{word}位置，或拖动标记；也可以用方向键移动地图、加号减号缩放，再按地图下面的「选地图中间这个位置」,读屏说明,aria-label,apps/web/src/pages/book/SiteMapPicker.tsx,134,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网的地图选点（SiteMapPicker.tsx）,SiteMapPicker.4551a538,写死,放大地图,读屏说明,aria-label,apps/web/src/pages/book/SiteMapPicker.tsx,161,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网的地图选点（SiteMapPicker.tsx）,SiteMapPicker.ef19acb1,写死,缩小地图,读屏说明,aria-label,apps/web/src/pages/book/SiteMapPicker.tsx,164,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：官网的地图选点（SiteMapPicker.tsx）,SiteMapPicker.4ceda6a1,写死,地图没有加载出来。可以用上面的搜索、常用地点，或直接填写地址和坐标。,正文,<p>,apps/web/src/pages/book/SiteMapPicker.tsx,168,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：官网的地图选点（SiteMapPicker.tsx）,SiteMapPicker.989fe33d,写死,地图加载失败。可以用上面的搜索、常用地点，或直接填写地址和坐标。,正文,<p>,apps/web/src/pages/book/SiteMapPicker.tsx,168,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：官网的地图选点（SiteMapPicker.tsx）,SiteMapPicker.6df8dc07,写死,选地图中间这个位置,按钮,<Button>,apps/web/src/pages/book/SiteMapPicker.tsx,192,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.fc872f45,写死,今天的地址提示次数用完了,文字,PLACES_DAILY_LIMIT_TEXT,apps/web/src/pages/book/new/PlaceField.tsx,35,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.08fffc39,写死,地址提示暂时不可用,文字,PLACES_DAILY_LIMIT_TEXT,apps/web/src/pages/book/new/PlaceField.tsx,35,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.53ffb5ec,写死,车站,文字,suggestionDetail(),apps/web/src/pages/book/new/PlaceField.tsx,53,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.c00e886a,写死,机场,文字,suggestionDetail(),apps/web/src/pages/book/new/PlaceField.tsx,53,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.5b6ec7a2,写死,也可以在地图上选点。,文字,FALLBACK_MAP,apps/web/src/pages/book/new/PlaceField.tsx,59,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
@@ -762,7 +761,7 @@
 官网（客人预订）,多个页面共用：「乘客 / 行李」合并栏（TravellersField.tsx）,TravellersField.02e7b080,写死,行李,名称,label,apps/web/src/pages/book/new/TravellersField.tsx,48,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：「乘客 / 行李」合并栏（TravellersField.tsx）,TravellersField.d679b22c,写死,件,文字,unit,apps/web/src/pages/book/new/TravellersField.tsx,48,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：新预订页的「页面外壳」（booking-shell.tsx）,booking-shell.99e48b29,写死,预订用车 · NOZOMI 用车,标题,title,apps/web/src/pages/book/new/booking-shell.tsx,44,官网（客人预订） · 预订页（/book）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
-官网（客人预订）,多个页面共用：新预订页的「页面外壳」（booking-shell.tsx）,booking-shell.6bd11448,写死,预订接送车,标题,<h1>,apps/web/src/pages/book/new/booking-shell.tsx,47,官网（客人预订） · 预订页（/book）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+官网（客人预订）,多个页面共用：新预订页的「页面外壳」（booking-shell.tsx）,booking-shell.811c8da6,写死,预订用车,标题,<h1>,apps/web/src/pages/book/new/booking-shell.tsx,47,官网（客人预订） · 预订页（/book）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：新预订页的「页面外壳」（booking-shell.tsx）,booking-shell.1f18f529,写死,输入出发地和目的地，马上看到所有车型的一口价,正文,<p>,apps/web/src/pages/book/new/booking-shell.tsx,48,官网（客人预订） · 预订页（/book）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：手机触屏上的新预订页（full-screen.tsx）,full-screen.6e1e7fb8,写死,点按选择日期,输入框占位,placeholder,apps/web/src/pages/book/new/full-screen.tsx,105,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：手机触屏上的新预订页（full-screen.tsx）,full-screen.fa4b2959,写死,点按选择时间,输入框占位,placeholder,apps/web/src/pages/book/new/full-screen.tsx,105,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
@@ -773,7 +772,7 @@
 嵌入预订（合作网站上的组件和嵌入页）,嵌入预订页（合作网站里的预订页）,embed.loading,已走 key,正在读取预订内容…,文字,EMBED_TEXTS,apps/web/src/pages/embed/embed-texts.ts,36,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入预订页（合作网站里的预订页）,embed.seller,已走 key,本预订由 NOZOMI 提供并收款。,文字,EMBED_TEXTS,apps/web/src/pages/embed/embed-texts.ts,37,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入预订页（合作网站里的预订页）,embed.expired,已走 key,这次查询已过期，请在上方重新查询。,文字,EMBED_TEXTS,apps/web/src/pages/embed/embed-texts.ts,38,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入预订页（合作网站里的预订页）,embed.failed,已走 key,预订内容暂时读不出来，请稍后刷新，或到主站预订。,提示,EMBED_TEXTS,apps/web/src/pages/embed/embed-texts.ts,39,
+嵌入预订（合作网站上的组件和嵌入页）,嵌入预订页（合作网站里的预订页）,embed.failed,已走 key,预订内容暂时无法加载，请稍后刷新，或到主站预订。,提示,EMBED_TEXTS,apps/web/src/pages/embed/embed-texts.ts,39,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入预订页（合作网站里的预订页）,embed.topLevel,已走 key,请在合作网站上预订，或到 NOZOMI 主站预订。,文字,EMBED_TEXTS,apps/web/src/pages/embed/embed-texts.ts,40,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入预订页（合作网站里的预订页）,embed.goToSite,已走 key,到 NOZOMI 主站预订,文字,EMBED_TEXTS,apps/web/src/pages/embed/embed-texts.ts,41,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入预订页（合作网站里的预订页）,embed.badAddress,已走 key,预订页的地址不完整，请回到合作网站重新打开。,文字,EMBED_TEXTS,apps/web/src/pages/embed/embed-texts.ts,42,
@@ -781,14 +780,14 @@
 嵌入预订（合作网站上的组件和嵌入页）,嵌入预订页（合作网站里的预订页）,embed.orderPending,已走 key,请在下面填写银行卡完成付款。30 分钟内没有付款，订单会自动取消。,文字,EMBED_TEXTS,apps/web/src/pages/embed/embed-texts.ts,44,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入预订页（合作网站里的预订页）,embed.payInNewWindow,已走 key,在新窗口打开订单页付款,文字,EMBED_TEXTS,apps/web/src/pages/embed/embed-texts.ts,45,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入预订页（合作网站里的预订页）,embed.payHint,已走 key,付款表单打不开时，可以,说明,EMBED_TEXTS,apps/web/src/pages/embed/embed-texts.ts,46,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入预订页（合作网站里的预订页）,embed.payLoadFailed,已走 key,付款组件没有加载出来，请检查网络后重试。,提示,EMBED_TEXTS,apps/web/src/pages/embed/embed-texts.ts,47,
+嵌入预订（合作网站上的组件和嵌入页）,嵌入预订页（合作网站里的预订页）,embed.payLoadFailed,已走 key,付款组件加载失败，请检查网络后重试。,提示,EMBED_TEXTS,apps/web/src/pages/embed/embed-texts.ts,47,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入预订页（合作网站里的预订页）,embed.openOrder,已走 key,在新窗口打开订单页,文字,EMBED_TEXTS,apps/web/src/pages/embed/embed-texts.ts,48,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入预订页（合作网站里的预订页）,embed.manageNote,已走 key,取消、修改订单请在新窗口打开订单页操作。订单链接也会发到您的邮箱。,说明,EMBED_TEXTS,apps/web/src/pages/embed/embed-texts.ts,49,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入预订页（合作网站里的预订页）,embed.paid,已走 key,付款已提交。订单确认后会发邮件通知您，派车后可以在订单页看到司机和车辆。,文字,EMBED_TEXTS,apps/web/src/pages/embed/embed-texts.ts,50,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入预订页（合作网站里的预订页）,embed.cancelled,已走 key,这张订单已取消。,文字,EMBED_TEXTS,apps/web/src/pages/embed/embed-texts.ts,51,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入预订页（合作网站里的预订页）,embed.orderMissing,已走 key,这里找不到刚才的订单了。请用邮件里的链接，或到主站「查订单」找回。,文字,EMBED_TEXTS,apps/web/src/pages/embed/embed-texts.ts,52,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入预订页（合作网站里的预订页）,embed.lookup,已走 key,到主站查订单,文字,EMBED_TEXTS,apps/web/src/pages/embed/embed-texts.ts,53,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入预订页（合作网站里的预订页）,embed.orderFailed,已走 key,订单暂时读不出来，请稍后重试。,提示,EMBED_TEXTS,apps/web/src/pages/embed/embed-texts.ts,54,
+嵌入预订（合作网站上的组件和嵌入页）,嵌入预订页（合作网站里的预订页）,embed.orderFailed,已走 key,订单暂时无法加载，请稍后重试。,提示,EMBED_TEXTS,apps/web/src/pages/embed/embed-texts.ts,54,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入预订页（合作网站里的预订页）,embed.retry,已走 key,重试,文字,EMBED_TEXTS,apps/web/src/pages/embed/embed-texts.ts,55,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入预订页（合作网站里的预订页）,embed.orderNo,已走 key,订单号,文字,EMBED_TEXTS,apps/web/src/pages/embed/embed-texts.ts,56,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-booking.booking.expired,已走 key,这次查询已过期。,文字,BOOKING_TEXTS,apps/web/src/embed/widget-booking.ts,54,
@@ -804,21 +803,19 @@
 嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.021f1cd7,写死,上车地点,文字,pickup,apps/web/src/embed/widget-core.ts,166,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.32e116b8,写死,经停点,文字,waypoint,apps/web/src/embed/widget-core.ts,166,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.6738382d,写死,停留时长,文字,stay,apps/web/src/embed/widget-core.ts,166,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.688de784,写死,专属司机,文字,charterSub,apps/web/src/embed/widget-core.ts,166,
+嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.6c8116fd,写死,区间,文字,transfer,apps/web/src/embed/widget-core.ts,166,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.7a8306f9,写死,删除经停点,文字,removeWaypoint,apps/web/src/embed/widget-core.ts,166,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.88bb8748,写死,下车地点,文字,dropoff,apps/web/src/embed/widget-core.ts,166,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.9243ff05,写死,按时包车,文字,charter,apps/web/src/embed/widget-core.ts,166,
+嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.89ecbde1,写死,包车,文字,charter,apps/web/src/embed/widget-core.ts,166,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.95b00c8e,写死,用车日期和时间,文字,when,apps/web/src/embed/widget-core.ts,166,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.95f43ba0,写死,出发地,文字,from,apps/web/src/embed/widget-core.ts,166,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.bc8ab1ba,写死,目的地,文字,to,apps/web/src/embed/widget-core.ts,166,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.d912dc25,写死,区间接送,文字,transfer,apps/web/src/embed/widget-core.ts,166,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.ecf2c7d4,写死,预约接送,文字,transferSub,apps/web/src/embed/widget-core.ts,166,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.f2f80a6b,写死,添加经停点,文字,addWaypoint,apps/web/src/embed/widget-core.ts,166,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.4ceb14cc,写死,乘客,文字,passengers,apps/web/src/embed/widget-core.ts,167,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.4e1b77bf,写死,行李,文字,luggage,apps/web/src/embed/widget-core.ts,167,
+嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.70de32cd,写死,查询价格,按钮,submit,apps/web/src/embed/widget-core.ts,167,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.7aef77bd,写死,只填地点，不要填姓名、电话。,文字,placeOnly,apps/web/src/embed/widget-core.ts,167,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.dc2ee299,写死,日期,文字,date,apps/web/src/embed/widget-core.ts,167,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.e0aa55f3,写死,查看价格,按钮,submit,apps/web/src/embed/widget-core.ts,167,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.eb23c635,写死,时间,文字,time,apps/web/src/embed/widget-core.ts,167,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.f1de26c1,写死,正在跳转…,文字,submitting,apps/web/src/embed/widget-core.ts,167,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.1f041113,写死,请选择停留时长,文字,pickStay,apps/web/src/embed/widget-core.ts,168,
@@ -998,9 +995,9 @@
 嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-ui.d099f8cd,写死,主站拒绝了取配置的请求（浏览器读不到具体原因）。请依次检查：① 嵌入码是否已在 NOZOMI 运营后台停用；② 嵌入码是否填错；③ 本网站的域名是否在这个嵌入码的白名单里；④ 组件脚本是否直接从主站加载。NOZOMI 运维可在主站日志 embed.gate_refused 查到是哪一种。,文字,REFUSED_NOTICE,apps/web/src/embed/widget-ui.ts,126,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-ui.83d830e5,写死,bookingUrl 不合格（要用 https、和当前页同一个域名和端口），已按没传处理：草稿建好后跳到主站。,文字,tellDeveloper(),apps/web/src/embed/widget-ui.ts,204,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-ui.d7f60640,写死,取组件配置超时或出错，先按 init 的参数显示表单。,文字,tellDeveloper(),apps/web/src/embed/widget-ui.ts,274,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-ui.0f505117,写死,请直接从主站的 {WIDGET_SCRIPT_PATH} 加载组件脚本（不要改名、转存或合并进别的文件）。,文字,tellDeveloper(),apps/web/src/embed/widget-ui.ts,818,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-ui.dc84553f,写死,init 需要 key（嵌入码）和 root（容器）。,文字,tellDeveloper(),apps/web/src/embed/widget-ui.ts,822,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-ui.1772d022,写死,init 找不到 root 指定的容器。,文字,tellDeveloper(),apps/web/src/embed/widget-ui.ts,827,
+嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-ui.0f505117,写死,请直接从主站的 {WIDGET_SCRIPT_PATH} 加载组件脚本（不要改名、转存或合并进别的文件）。,文字,tellDeveloper(),apps/web/src/embed/widget-ui.ts,820,
+嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-ui.dc84553f,写死,init 需要 key（嵌入码）和 root（容器）。,文字,tellDeveloper(),apps/web/src/embed/widget-ui.ts,824,
+嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-ui.1772d022,写死,init 找不到 root 指定的容器。,文字,tellDeveloper(),apps/web/src/embed/widget-ui.ts,829,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本的大小预算（widget-size.ts）,widget-size.3a91541b,写死,嵌入组件脚本 gzip 后 {size} 字节，超过预算 {budget} 字节,文字,widgetSizeProblem(),apps/web/src/embed/widget-size.ts,10,
 司机页,司机任务页,DriverTripPage.29665c38,写死,没有指定（包车，按客人安排）,文字,dropoffText(),apps/web/src/pages/driver/DriverTripPage.tsx,84,
 司机页,司机任务页,DriverTripPage.58bad823,写死,链接无效或已过期，请联系调度重新发送。,提示,errorText(),apps/web/src/pages/driver/DriverTripPage.tsx,95,
@@ -9661,7 +9658,7 @@
 前端公共组件和共用文案,付款组件的接入点（payment-driver.ts）,payment-driver.3f0070eb,写死,查不到这笔付款,错误提示,PaymentLoadError(),apps/web/src/lib/payment-driver.ts,218,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 前端公共组件和共用文案,付款组件的接入点（payment-driver.ts）,payment-driver.45c8cf1d,写死,付款表单没有加载出来,错误提示,PaymentLoadError(),apps/web/src/lib/payment-driver.ts,229,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 前端公共组件和共用文案,Stripe 的付款错误 → 给客人看的中文（payment-errors.ts）,payment-errors.80440a83,写死,您的银行卡被拒绝了。请换一张卡，或联系发卡银行。,文字,DECLINED,apps/web/src/lib/payment-errors.ts,16,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
-前端公共组件和共用文案,Stripe 的付款错误 → 给客人看的中文（payment-errors.ts）,payment-errors.c71ee28d,写死,银行没有接受这次付款。请换一张卡，或稍后再试；一直不行请联系客服。,文字,UNKNOWN,apps/web/src/lib/payment-errors.ts,17,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+前端公共组件和共用文案,Stripe 的付款错误 → 给客人看的中文（payment-errors.ts）,payment-errors.59d379fa,写死,银行没有接受这次付款。请换一张卡，或稍后再试；多次失败请联系客服。,文字,UNKNOWN,apps/web/src/lib/payment-errors.ts,17,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 前端公共组件和共用文案,Stripe 的付款错误 → 给客人看的中文（payment-errors.ts）,payment-errors.c945639d,写死,请检查银行卡信息后再付。,文字,CHECK_CARD,apps/web/src/lib/payment-errors.ts,18,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 前端公共组件和共用文案,Stripe 的付款错误 → 给客人看的中文（payment-errors.ts）,payment-errors.0290b50f,写死,卡号不正确。请检查后再付。,文字,NUMBER_WRONG,apps/web/src/lib/payment-errors.ts,20,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 前端公共组件和共用文案,Stripe 的付款错误 → 给客人看的中文（payment-errors.ts）,payment-errors.35ece861,写死,安全码不正确。请检查后再付。,文字,CVC_WRONG,apps/web/src/lib/payment-errors.ts,21,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
@@ -10235,85 +10232,86 @@
 邮件和通知模板,邮箱验证码登录的规则（email-login.ts）,email-login.e74c586f,写死,你正在登录 NOZOMI {…}，验证码是：,文字,text,packages/domain/src/email-login.ts,62,
 邮件和通知模板,邮箱验证码登录的规则（email-login.ts）,email-login.a6297047,写死,验证码 {…} 分钟内有效，只能用一次。请不要告诉任何人，NOZOMI 的工作人员也不会向你索取。,文字,text,packages/domain/src/email-login.ts,66,
 邮件和通知模板,邮箱验证码登录的规则（email-login.ts）,email-login.35185a0e,写死,如果不是你本人操作，请忽略这封邮件，你的账号不受影响。,文字,text,packages/domain/src/email-login.ts,67,
-邮件和通知模板,通知中心（notifications.ts）,notifications.3eb38d34,写死,平台员工,文字,staff,packages/domain/src/notifications.ts,13,
-邮件和通知模板,通知中心（notifications.ts）,notifications.7d81313a,写死,供应商,文字,tenant,packages/domain/src/notifications.ts,13,
-邮件和通知模板,通知中心（notifications.ts）,notifications.7e74bf5c,写死,司机,文字,driver,packages/domain/src/notifications.ts,13,
-邮件和通知模板,通知中心（notifications.ts）,notifications.ae304e12,写死,客人,文字,guest,packages/domain/src/notifications.ts,13,
-邮件和通知模板,通知中心（notifications.ts）,notifications.e7779d8f,写死,订单确认,文字,order.confirmed,packages/domain/src/notifications.ts,59,
-邮件和通知模板,通知中心（notifications.ts）,notifications.c0636e38,写死,司机信息,文字,order.assigned,packages/domain/src/notifications.ts,60,
-邮件和通知模板,通知中心（notifications.ts）,notifications.fbe6dd51,写死,司机链接,文字,order.driver_link,packages/domain/src/notifications.ts,61,
-邮件和通知模板,通知中心（notifications.ts）,notifications.24b9ece3,写死,司机：客人申请修改,文字,order.driver_change_pending,packages/domain/src/notifications.ts,62,
-邮件和通知模板,通知中心（notifications.ts）,notifications.82155968,写死,司机：任务有更新,文字,order.driver_changed,packages/domain/src/notifications.ts,63,
-邮件和通知模板,通知中心（notifications.ts）,notifications.079817a4,写死,司机：修改没有通过,文字,order.driver_change_declined,packages/domain/src/notifications.ts,64,
-邮件和通知模板,通知中心（notifications.ts）,notifications.b7c9e2d6,写死,司机：任务取消,文字,order.driver_cancelled,packages/domain/src/notifications.ts,65,
-邮件和通知模板,通知中心（notifications.ts）,notifications.abfc2509,写死,用车提醒,文字,order.service_reminder,packages/domain/src/notifications.ts,66,
-邮件和通知模板,通知中心（notifications.ts）,notifications.282b1912,写死,司机已到达,文字,order.driver_arrived,packages/domain/src/notifications.ts,67,
-邮件和通知模板,通知中心（notifications.ts）,notifications.7256dda8,写死,订单修改,文字,order.changed,packages/domain/src/notifications.ts,68,
-邮件和通知模板,通知中心（notifications.ts）,notifications.81cb744b,写死,修改待确认,文字,order.change_pending,packages/domain/src/notifications.ts,69,
-邮件和通知模板,通知中心（notifications.ts）,notifications.0dea2e7f,写死,修改未通过,文字,order.change_declined,packages/domain/src/notifications.ts,70,
-邮件和通知模板,通知中心（notifications.ts）,notifications.c5146cae,写死,订单取消,文字,order.cancelled,packages/domain/src/notifications.ts,71,
-邮件和通知模板,通知中心（notifications.ts）,notifications.cab7b0d8,写死,服务后费用,文字,extra_charge.submitted,packages/domain/src/notifications.ts,72,
-邮件和通知模板,通知中心（notifications.ts）,notifications.77f361ec,写死,工单回复,文字,ticket.guest_reply,packages/domain/src/notifications.ts,73,
-邮件和通知模板,通知中心（notifications.ts）,notifications.dcd0b9e5,写死,订单链接,文字,order.view_link,packages/domain/src/notifications.ts,74,
-邮件和通知模板,通知中心（notifications.ts）,notifications.250b50bc,写死,救援新订单,文字,order.rescue_assigned,packages/domain/src/notifications.ts,75,
-邮件和通知模板,通知中心（notifications.ts）,notifications.d808a56d,写死,进入救援改派,文字,order.rescue_started,packages/domain/src/notifications.ts,76,
-邮件和通知模板,通知中心（notifications.ts）,notifications.2c219f07,写死,超时未派车,文字,order.dispatch_overdue,packages/domain/src/notifications.ts,77,
-邮件和通知模板,通知中心（notifications.ts）,notifications.edfae6d5,写死,司机未出发,文字,order.departure_overdue,packages/domain/src/notifications.ts,78,
-邮件和通知模板,通知中心（notifications.ts）,notifications.bb8793f9,写死,工单待回复,文字,ticket.reply_requested,packages/domain/src/notifications.ts,79,
-邮件和通知模板,通知中心（notifications.ts）,notifications.4d1052e0,写死,资质快到期,文字,tenant.document_expiring,packages/domain/src/notifications.ts,80,
-邮件和通知模板,通知中心（notifications.ts）,notifications.4eef66f2,写死,资质已到期,文字,tenant.document_expired,packages/domain/src/notifications.ts,81,
-邮件和通知模板,通知中心（notifications.ts）,notifications.55b85be0,写死,进入观察期,文字,tenant.observation_started,packages/domain/src/notifications.ts,82,
-邮件和通知模板,通知中心（notifications.ts）,notifications.862ae2d9,写死,供应商状态变化,文字,tenant.status_changed,packages/domain/src/notifications.ts,83,
-邮件和通知模板,通知中心（notifications.ts）,notifications.659ede4b,写死,供应商改了企业信息,文字,tenant.profile_updated,packages/domain/src/notifications.ts,84,
-邮件和通知模板,通知中心（notifications.ts）,notifications.7decb245,写死,供应商申请修改资料,文字,tenant.profile_change_submitted,packages/domain/src/notifications.ts,85,
-邮件和通知模板,通知中心（notifications.ts）,notifications.a3f0b40b,写死,资料修改已生效,文字,tenant.profile_change_approved,packages/domain/src/notifications.ts,86 200,
-邮件和通知模板,通知中心（notifications.ts）,notifications.0e461e13,写死,资料修改被驳回,文字,tenant.profile_change_rejected,packages/domain/src/notifications.ts,87,
-邮件和通知模板,通知中心（notifications.ts）,notifications.3e797664,写死,收款账户已提交,文字,payout_account.submitted,packages/domain/src/notifications.ts,88,
-邮件和通知模板,通知中心（notifications.ts）,notifications.183ad8b7,写死,收款账户已生效,文字,payout_account.approved,packages/domain/src/notifications.ts,89,
-邮件和通知模板,通知中心（notifications.ts）,notifications.3a1d32d9,写死,收款账户被驳回,文字,payout_account.rejected,packages/domain/src/notifications.ts,90,
-邮件和通知模板,通知中心（notifications.ts）,notifications.8961b48b,写死,新的异常,文字,exception.opened,packages/domain/src/notifications.ts,91,
-邮件和通知模板,通知中心（notifications.ts）,notifications.a71e89d5,写死,汇率告警,文字,fx.alert,packages/domain/src/notifications.ts,92,
-邮件和通知模板,通知中心（notifications.ts）,notifications.d8127997,写死,官网找回告警,文字,site.lookup_ceiling,packages/domain/src/notifications.ts,93,
-邮件和通知模板,通知中心（notifications.ts）,notifications.23e281a7,写死,失败,提示,failed,packages/domain/src/notifications.ts,100,
-邮件和通知模板,通知中心（notifications.ts）,notifications.3ba8b4cd,写死,正在发送,文字,sending,packages/domain/src/notifications.ts,100,
-邮件和通知模板,通知中心（notifications.ts）,notifications.73a17aed,写死,已发送,文字,sent,packages/domain/src/notifications.ts,100,
-邮件和通知模板,通知中心（notifications.ts）,notifications.d4faab5b,写死,等待发送,文字,pending,packages/domain/src/notifications.ts,100,
-邮件和通知模板,通知中心（notifications.ts）,notifications.f69821b7,写死,已过期,文字,expired,packages/domain/src/notifications.ts,100,
+邮件和通知模板,通知中心（notifications.ts）,notifications.3eb38d34,写死,平台员工,文字,staff,packages/domain/src/notifications.ts,15,
+邮件和通知模板,通知中心（notifications.ts）,notifications.7d81313a,写死,供应商,文字,tenant,packages/domain/src/notifications.ts,15,
+邮件和通知模板,通知中心（notifications.ts）,notifications.7e74bf5c,写死,司机,文字,driver,packages/domain/src/notifications.ts,15,
+邮件和通知模板,通知中心（notifications.ts）,notifications.ae304e12,写死,客人,文字,guest,packages/domain/src/notifications.ts,15,
+邮件和通知模板,通知中心（notifications.ts）,notifications.e7779d8f,写死,订单确认,文字,order.confirmed,packages/domain/src/notifications.ts,61,
+邮件和通知模板,通知中心（notifications.ts）,notifications.c0636e38,写死,司机信息,文字,order.assigned,packages/domain/src/notifications.ts,62,
+邮件和通知模板,通知中心（notifications.ts）,notifications.fbe6dd51,写死,司机链接,文字,order.driver_link,packages/domain/src/notifications.ts,63,
+邮件和通知模板,通知中心（notifications.ts）,notifications.24b9ece3,写死,司机：客人申请修改,文字,order.driver_change_pending,packages/domain/src/notifications.ts,64,
+邮件和通知模板,通知中心（notifications.ts）,notifications.82155968,写死,司机：任务有更新,文字,order.driver_changed,packages/domain/src/notifications.ts,65,
+邮件和通知模板,通知中心（notifications.ts）,notifications.079817a4,写死,司机：修改没有通过,文字,order.driver_change_declined,packages/domain/src/notifications.ts,66,
+邮件和通知模板,通知中心（notifications.ts）,notifications.b7c9e2d6,写死,司机：任务取消,文字,order.driver_cancelled,packages/domain/src/notifications.ts,67,
+邮件和通知模板,通知中心（notifications.ts）,notifications.abfc2509,写死,用车提醒,文字,order.service_reminder,packages/domain/src/notifications.ts,68,
+邮件和通知模板,通知中心（notifications.ts）,notifications.282b1912,写死,司机已到达,文字,order.driver_arrived,packages/domain/src/notifications.ts,69,
+邮件和通知模板,通知中心（notifications.ts）,notifications.7256dda8,写死,订单修改,文字,order.changed,packages/domain/src/notifications.ts,70,
+邮件和通知模板,通知中心（notifications.ts）,notifications.81cb744b,写死,修改待确认,文字,order.change_pending,packages/domain/src/notifications.ts,71,
+邮件和通知模板,通知中心（notifications.ts）,notifications.0dea2e7f,写死,修改未通过,文字,order.change_declined,packages/domain/src/notifications.ts,72,
+邮件和通知模板,通知中心（notifications.ts）,notifications.c5146cae,写死,订单取消,文字,order.cancelled,packages/domain/src/notifications.ts,73,
+邮件和通知模板,通知中心（notifications.ts）,notifications.cab7b0d8,写死,服务后费用,文字,extra_charge.submitted,packages/domain/src/notifications.ts,74,
+邮件和通知模板,通知中心（notifications.ts）,notifications.77f361ec,写死,工单回复,文字,ticket.guest_reply,packages/domain/src/notifications.ts,75,
+邮件和通知模板,通知中心（notifications.ts）,notifications.dcd0b9e5,写死,订单链接,文字,order.view_link,packages/domain/src/notifications.ts,76,
+邮件和通知模板,通知中心（notifications.ts）,notifications.250b50bc,写死,救援新订单,文字,order.rescue_assigned,packages/domain/src/notifications.ts,77,
+邮件和通知模板,通知中心（notifications.ts）,notifications.d808a56d,写死,进入救援改派,文字,order.rescue_started,packages/domain/src/notifications.ts,78,
+邮件和通知模板,通知中心（notifications.ts）,notifications.2c219f07,写死,超时未派车,文字,order.dispatch_overdue,packages/domain/src/notifications.ts,79,
+邮件和通知模板,通知中心（notifications.ts）,notifications.edfae6d5,写死,司机未出发,文字,order.departure_overdue,packages/domain/src/notifications.ts,80,
+邮件和通知模板,通知中心（notifications.ts）,notifications.bb8793f9,写死,工单待回复,文字,ticket.reply_requested,packages/domain/src/notifications.ts,81,
+邮件和通知模板,通知中心（notifications.ts）,notifications.4d1052e0,写死,资质快到期,文字,tenant.document_expiring,packages/domain/src/notifications.ts,82,
+邮件和通知模板,通知中心（notifications.ts）,notifications.4eef66f2,写死,资质已到期,文字,tenant.document_expired,packages/domain/src/notifications.ts,83,
+邮件和通知模板,通知中心（notifications.ts）,notifications.55b85be0,写死,进入观察期,文字,tenant.observation_started,packages/domain/src/notifications.ts,84,
+邮件和通知模板,通知中心（notifications.ts）,notifications.862ae2d9,写死,供应商状态变化,文字,tenant.status_changed,packages/domain/src/notifications.ts,85,
+邮件和通知模板,通知中心（notifications.ts）,notifications.659ede4b,写死,供应商改了企业信息,文字,tenant.profile_updated,packages/domain/src/notifications.ts,86,
+邮件和通知模板,通知中心（notifications.ts）,notifications.7decb245,写死,供应商申请修改资料,文字,tenant.profile_change_submitted,packages/domain/src/notifications.ts,87,
+邮件和通知模板,通知中心（notifications.ts）,notifications.a3f0b40b,写死,资料修改已生效,文字,tenant.profile_change_approved,packages/domain/src/notifications.ts,88 202,
+邮件和通知模板,通知中心（notifications.ts）,notifications.0e461e13,写死,资料修改被驳回,文字,tenant.profile_change_rejected,packages/domain/src/notifications.ts,89,
+邮件和通知模板,通知中心（notifications.ts）,notifications.3e797664,写死,收款账户已提交,文字,payout_account.submitted,packages/domain/src/notifications.ts,90,
+邮件和通知模板,通知中心（notifications.ts）,notifications.183ad8b7,写死,收款账户已生效,文字,payout_account.approved,packages/domain/src/notifications.ts,91,
+邮件和通知模板,通知中心（notifications.ts）,notifications.3a1d32d9,写死,收款账户被驳回,文字,payout_account.rejected,packages/domain/src/notifications.ts,92,
+邮件和通知模板,通知中心（notifications.ts）,notifications.8961b48b,写死,新的异常,文字,exception.opened,packages/domain/src/notifications.ts,93,
+邮件和通知模板,通知中心（notifications.ts）,notifications.a71e89d5,写死,汇率告警,文字,fx.alert,packages/domain/src/notifications.ts,94,
+邮件和通知模板,通知中心（notifications.ts）,notifications.d8127997,写死,官网找回告警,文字,site.lookup_ceiling,packages/domain/src/notifications.ts,95,
+邮件和通知模板,通知中心（notifications.ts）,notifications.23e281a7,写死,失败,提示,failed,packages/domain/src/notifications.ts,102,
+邮件和通知模板,通知中心（notifications.ts）,notifications.3ba8b4cd,写死,正在发送,文字,sending,packages/domain/src/notifications.ts,102,
+邮件和通知模板,通知中心（notifications.ts）,notifications.73a17aed,写死,已发送,文字,sent,packages/domain/src/notifications.ts,102,
+邮件和通知模板,通知中心（notifications.ts）,notifications.d4faab5b,写死,等待发送,文字,pending,packages/domain/src/notifications.ts,102,
+邮件和通知模板,通知中心（notifications.ts）,notifications.f69821b7,写死,已过期,文字,expired,packages/domain/src/notifications.ts,102,
 邮件和通知模板,通知中心（notifications.ts）,notifications.367b38d0,写死,"
 
 查看和管理订单：
 {{view_url}}
 这个链接只属于您的这张订单，请不要转发给别人。
 
-NOZOMI 用车",文字,GUEST_FOOTER,packages/domain/src/notifications.ts,154,
+NOZOMI 用车",文字,GUEST_FOOTER,packages/domain/src/notifications.ts,156,
 邮件和通知模板,通知中心（notifications.ts）,notifications.1edd4672,写死,"订单号：{{order_no}}
 用车时间：{{service_time}}（当地时间）
 行程：{{route}}
-车型：{{vehicle_group}}{VEHICLE_LABEL_LINES}",文字,TRIP,packages/domain/src/notifications.ts,158,
+车型：{{vehicle_group}}{VEHICLE_LABEL_LINES}",文字,TRIP,packages/domain/src/notifications.ts,160,
 邮件和通知模板,通知中心（notifications.ts）,notifications.c4f2491c,写死,"订单号：{{order_no}}
 用车时间：{{service_time}}（当地时间）
 行程：{{route}}
 车型：{{vehicle_group}}{VEHICLE_LABEL_LINES}
-人数：{{passengers}}",文字,TENANT_TRIP,packages/domain/src/notifications.ts,159,
+人数：{{passengers}}",文字,TENANT_TRIP,packages/domain/src/notifications.ts,161,
 邮件和通知模板,通知中心（notifications.ts）,notifications.5f3182b5,写死,"
 
 到后台处理：
 {{order_url}}
 
-NOZOMI 平台",文字,TENANT_FOOTER,packages/domain/src/notifications.ts,160,
+NOZOMI 平台",文字,TENANT_FOOTER,packages/domain/src/notifications.ts,162,
 邮件和通知模板,通知中心（notifications.ts）,notifications.188df130,写死,"订单号：{{order_no}}
 用车时间：{{service_time}}（当地时间）
 行程：{{trip_summary}}
-车型：{{vehicle_group}}{VEHICLE_LABEL_LINES}",文字,DRIVER_TRIP,packages/domain/src/notifications.ts,161,
+车型：{{vehicle_group}}{VEHICLE_LABEL_LINES}",文字,DRIVER_TRIP,packages/domain/src/notifications.ts,163,
 邮件和通知模板,通知中心（notifications.ts）,notifications.6df81c66,写死,"
 
-NOZOMI 用车",文字,DRIVER_FOOTER,packages/domain/src/notifications.ts,162,
+NOZOMI 用车",文字,DRIVER_FOOTER,packages/domain/src/notifications.ts,164,
 邮件和通知模板,通知中心（notifications.ts）,notifications.e6a6f90b,写死,"
 
 到后台查看：
 {{console_url}}
 
-NOZOMI 平台",文字,COMPANY_FOOTER,packages/domain/src/notifications.ts,163,
+NOZOMI 平台",文字,COMPANY_FOOTER,packages/domain/src/notifications.ts,165,
+邮件和通知模板,通知中心（notifications.ts）,notifications.1f1d74d4,写死,【NOZOMI】预订已确认：{{order_no}},邮件主题,"zhEmail(""order.confirmed"",""guest"")",packages/domain/src/notifications.ts,171,
 邮件和通知模板,通知中心（notifications.ts）,notifications.2970591e,写死,"{{passenger_name}}，您好：
 
 我们已收到您的付款，订单已确认。
@@ -10323,8 +10321,8 @@ NOZOMI 平台",文字,COMPANY_FOOTER,packages/domain/src/notifications.ts,163,
 公里数：{{distance_note}}
 费用说明：{{fee_note}}
 
-派好司机后我们会再发邮件告诉您司机信息。{GUEST_FOOTER}",邮件正文,"zhEmail(""order.confirmed"",""guest"")",packages/domain/src/notifications.ts,169,
-邮件和通知模板,通知中心（notifications.ts）,notifications.72e73a18,写死,预订已确认：{{order_no}},邮件主题,"zhEmail(""order.confirmed"",""guest"")",packages/domain/src/notifications.ts,169,
+派好司机后我们会再发邮件告诉您司机信息。{GUEST_FOOTER}",邮件正文,"zhEmail(""order.confirmed"",""guest"")",packages/domain/src/notifications.ts,171,
+邮件和通知模板,通知中心（notifications.ts）,notifications.26172236,写死,【NOZOMI】司机信息：{{order_no}},邮件主题,"zhEmail(""order.assigned"",""guest"")",packages/domain/src/notifications.ts,172,
 邮件和通知模板,通知中心（notifications.ts）,notifications.6cec79f3,写死,"{{passenger_name}}，您好：
 
 您的订单已安排司机。如果之前收到过司机信息，请以这一封为准。
@@ -10332,50 +10330,49 @@ NOZOMI 平台",文字,COMPANY_FOOTER,packages/domain/src/notifications.ts,163,
 {TRIP}
 司机：{{driver_name}}
 电话：{{driver_phone}}
-车牌：{{vehicle_plate}}{GUEST_FOOTER}",邮件正文,"zhEmail(""order.assigned"",""guest"")",packages/domain/src/notifications.ts,170,
-邮件和通知模板,通知中心（notifications.ts）,notifications.9ad4eb7c,写死,司机信息：{{order_no}},邮件主题,"zhEmail(""order.assigned"",""guest"")",packages/domain/src/notifications.ts,170,
-邮件和通知模板,通知中心（notifications.ts）,notifications.2fe92a54,写死,用车提醒：{{service_time}}（{{order_no}}）,邮件主题,"zhEmail(""order.service_reminder"",""guest"")",packages/domain/src/notifications.ts,171,
-邮件和通知模板,通知中心（notifications.ts）,notifications.c5c5b678,写死,"{{passenger_name}}，您好：
+车牌：{{vehicle_plate}}{GUEST_FOOTER}",邮件正文,"zhEmail(""order.assigned"",""guest"")",packages/domain/src/notifications.ts,172,
+邮件和通知模板,通知中心（notifications.ts）,notifications.35656711,写死,【NOZOMI】用车提醒：{{service_time}}（{{order_no}}）,邮件主题,"zhEmail(""order.service_reminder"",""guest"")",packages/domain/src/notifications.ts,173,
+邮件和通知模板,通知中心（notifications.ts）,notifications.df9cb52b,写死,"{{passenger_name}}，您好：
 
-您的用车时间快到了，请按时到达上车点。
+您的用车时间快到了，{{service_reminder_note}}。
 
-{TRIP}{GUEST_FOOTER}",邮件正文,"zhEmail(""order.service_reminder"",""guest"")",packages/domain/src/notifications.ts,171,
-邮件和通知模板,通知中心（notifications.ts）,notifications.1974202a,写死,司机已到达：{{order_no}},邮件主题,"zhEmail(""order.driver_arrived"",""guest"")",packages/domain/src/notifications.ts,172,
+{TRIP}{GUEST_FOOTER}",邮件正文,"zhEmail(""order.service_reminder"",""guest"")",packages/domain/src/notifications.ts,173,
 邮件和通知模板,通知中心（notifications.ts）,notifications.1d4af1bc,写死,"{{passenger_name}}，您好：
 
 司机已经到达上车点。
 
 司机：{{driver_name}}
 电话：{{driver_phone}}
-车牌：{{vehicle_plate}}{GUEST_FOOTER}",邮件正文,"zhEmail(""order.driver_arrived"",""guest"")",packages/domain/src/notifications.ts,172,
+车牌：{{vehicle_plate}}{GUEST_FOOTER}",邮件正文,"zhEmail(""order.driver_arrived"",""guest"")",packages/domain/src/notifications.ts,174,
+邮件和通知模板,通知中心（notifications.ts）,notifications.2ee009c6,写死,【NOZOMI】司机已到达：{{order_no}},邮件主题,"zhEmail(""order.driver_arrived"",""guest"")",packages/domain/src/notifications.ts,174,
 邮件和通知模板,通知中心（notifications.ts）,notifications.12595293,写死,"{{passenger_name}}，您好：
 
 您的订单修改已生效，改动的内容：{{changed_fields}}。
 
-{TRIP}{GUEST_FOOTER}",邮件正文,"zhEmail(""order.changed"",""guest"")",packages/domain/src/notifications.ts,173,
-邮件和通知模板,通知中心（notifications.ts）,notifications.67a332bc,写死,订单已修改：{{order_no}},邮件主题,"zhEmail(""order.changed"",""guest"")",packages/domain/src/notifications.ts,173 188,
+{TRIP}{GUEST_FOOTER}",邮件正文,"zhEmail(""order.changed"",""guest"")",packages/domain/src/notifications.ts,175,
+邮件和通知模板,通知中心（notifications.ts）,notifications.6f0d0b03,写死,【NOZOMI】订单已修改：{{order_no}},邮件主题,"zhEmail(""order.changed"",""guest"")",packages/domain/src/notifications.ts,175,
 邮件和通知模板,通知中心（notifications.ts）,notifications.9e496cb5,写死,"{{passenger_name}}，您好：
 
 很抱歉，您申请的修改（{{changed_fields}}）{{change_decline_reason}}，订单仍按原来的预约执行；如果修改时补过差价，会原路退回。{{change_decline_advice}}
 
-{TRIP}{GUEST_FOOTER}",邮件正文,"zhEmail(""order.change_declined"",""guest"")",packages/domain/src/notifications.ts,174,
-邮件和通知模板,通知中心（notifications.ts）,notifications.da14353c,写死,修改没有成功：{{order_no}},邮件主题,"zhEmail(""order.change_declined"",""guest"")",packages/domain/src/notifications.ts,174,
+{TRIP}{GUEST_FOOTER}",邮件正文,"zhEmail(""order.change_declined"",""guest"")",packages/domain/src/notifications.ts,176,
+邮件和通知模板,通知中心（notifications.ts）,notifications.a6fa17df,写死,【NOZOMI】修改没有成功：{{order_no}},邮件主题,"zhEmail(""order.change_declined"",""guest"")",packages/domain/src/notifications.ts,176,
+邮件和通知模板,通知中心（notifications.ts）,notifications.15b0d0ec,写死,【NOZOMI】订单已取消：{{order_no}},邮件主题,"zhEmail(""order.cancelled"",""guest"")",packages/domain/src/notifications.ts,177,
 邮件和通知模板,通知中心（notifications.ts）,notifications.d2e3a034,写死,"{{passenger_name}}，您好：
 
 您的订单已取消。如有退款，会按取消政策原路退回，金额可在订单页查看。
 
-{TRIP}{GUEST_FOOTER}",邮件正文,"zhEmail(""order.cancelled"",""guest"")",packages/domain/src/notifications.ts,175,
-邮件和通知模板,通知中心（notifications.ts）,notifications.d3171e33,写死,订单已取消：{{order_no}},邮件主题,"zhEmail(""order.cancelled"",""guest"")",packages/domain/src/notifications.ts,175 190,
-邮件和通知模板,通知中心（notifications.ts）,notifications.8e377d03,写死,"{{passenger_name}}，您好：
+{TRIP}{GUEST_FOOTER}",邮件正文,"zhEmail(""order.cancelled"",""guest"")",packages/domain/src/notifications.ts,177,
+邮件和通知模板,通知中心（notifications.ts）,notifications.2e055e47,写死,"{{passenger_name}}，您好：
 
-供应商提交了一项服务后费用。
+服务方提交了一项服务后费用。
 
 项目：{{extra_charge_type}}
 金额：{{extra_charge_amount}}
 
-如有异议，请在 {{dispute_until}}（东京时间）之前在订单页提出；没有异议的，到时会从您保存的支付方式中扣款。{GUEST_FOOTER}",邮件正文,"zhEmail(""extra_charge.submitted"",""guest"")",packages/domain/src/notifications.ts,176,
-邮件和通知模板,通知中心（notifications.ts）,notifications.e2a1d0a2,写死,服务后费用待确认：{{order_no}},邮件主题,"zhEmail(""extra_charge.submitted"",""guest"")",packages/domain/src/notifications.ts,176,
-邮件和通知模板,通知中心（notifications.ts）,notifications.2e3ab146,写死,您的订单链接：{{order_no}},邮件主题,"zhEmail(""order.view_link"",""guest"")",packages/domain/src/notifications.ts,181,
+如有异议，请在 {{dispute_until}}（当地时间）之前在订单页提出；没有异议的，到时会从您保存的支付方式中扣款。{GUEST_FOOTER}",邮件正文,"zhEmail(""extra_charge.submitted"",""guest"")",packages/domain/src/notifications.ts,178,
+邮件和通知模板,通知中心（notifications.ts）,notifications.420fa00c,写死,【NOZOMI】服务后费用待确认：{{order_no}},邮件主题,"zhEmail(""extra_charge.submitted"",""guest"")",packages/domain/src/notifications.ts,178,
+邮件和通知模板,通知中心（notifications.ts）,notifications.74fb06be,写死,【NOZOMI】您的订单链接：{{order_no}},邮件主题,"zhEmail(""order.view_link"",""guest"")",packages/domain/src/notifications.ts,183,
 邮件和通知模板,通知中心（notifications.ts）,notifications.a815f407,写死,"您好：
 
 这是您申请的 NOZOMI 用车订单链接（在官网「查订单」或联系客服时申请）。点下面的链接可以查看和管理订单 {{order_no}}：
@@ -10386,76 +10383,78 @@ NOZOMI 平台",文字,COMPANY_FOOTER,packages/domain/src/notifications.ts,163,
 
 如果不是您本人申请的，可以忽略这封邮件：没有这个链接，别人看不到您的订单。
 
-NOZOMI 用车",邮件正文,"zhEmail(""order.view_link"",""guest"")",packages/domain/src/notifications.ts,182,
+NOZOMI 用车",邮件正文,"zhEmail(""order.view_link"",""guest"")",packages/domain/src/notifications.ts,184,
 邮件和通知模板,通知中心（notifications.ts）,notifications.58d15c50,写死,"{{passenger_name}}，您好：
 
-客服回复了您关于订单 {{order_no}} 的问题，请到订单页查看。{GUEST_FOOTER}",邮件正文,"zhEmail(""ticket.guest_reply"",""guest"")",packages/domain/src/notifications.ts,184,
-邮件和通知模板,通知中心（notifications.ts）,notifications.b6253be4,写死,您的工单有新回复：{{order_no}},邮件主题,"zhEmail(""ticket.guest_reply"",""guest"")",packages/domain/src/notifications.ts,184,
+客服回复了您关于订单 {{order_no}} 的问题，请到订单页查看。{GUEST_FOOTER}",邮件正文,"zhEmail(""ticket.guest_reply"",""guest"")",packages/domain/src/notifications.ts,186,
+邮件和通知模板,通知中心（notifications.ts）,notifications.5cf4b347,写死,【NOZOMI】您的问题有新回复：{{order_no}},邮件主题,"zhEmail(""ticket.guest_reply"",""guest"")",packages/domain/src/notifications.ts,186,
 邮件和通知模板,通知中心（notifications.ts）,notifications.28b6dd78,写死,"你有一张新订单，请在派车截止时间前派好司机和车辆。
 
 {TENANT_TRIP}
 派车截止：{{dispatch_due_at}}（东京时间）
-{{charter_price_note}}{TENANT_FOOTER}",邮件正文,"zhEmail(""order.confirmed"",""tenant"")",packages/domain/src/notifications.ts,186,
-邮件和通知模板,通知中心（notifications.ts）,notifications.fe99d677,写死,新订单：{{order_no}},邮件主题,"zhEmail(""order.confirmed"",""tenant"")",packages/domain/src/notifications.ts,186,
-邮件和通知模板,通知中心（notifications.ts）,notifications.6990c83d,写死,救援新订单：{{order_no}},邮件主题,"zhEmail(""order.rescue_assigned"",""tenant"")",packages/domain/src/notifications.ts,187,
+{{charter_price_note}}{TENANT_FOOTER}",邮件正文,"zhEmail(""order.confirmed"",""tenant"")",packages/domain/src/notifications.ts,188,
+邮件和通知模板,通知中心（notifications.ts）,notifications.fe99d677,写死,新订单：{{order_no}},邮件主题,"zhEmail(""order.confirmed"",""tenant"")",packages/domain/src/notifications.ts,188,
+邮件和通知模板,通知中心（notifications.ts）,notifications.6990c83d,写死,救援新订单：{{order_no}},邮件主题,"zhEmail(""order.rescue_assigned"",""tenant"")",packages/domain/src/notifications.ts,189,
 邮件和通知模板,通知中心（notifications.ts）,notifications.d134c95a,写死,"这张救援单已经转给你，请尽快派好司机和车辆。
 
-{TENANT_TRIP}{TENANT_FOOTER}",邮件正文,"zhEmail(""order.rescue_assigned"",""tenant"")",packages/domain/src/notifications.ts,187,
+{TENANT_TRIP}{TENANT_FOOTER}",邮件正文,"zhEmail(""order.rescue_assigned"",""tenant"")",packages/domain/src/notifications.ts,189,
 邮件和通知模板,通知中心（notifications.ts）,notifications.03578f2d,写死,"这张订单有修改，已经生效，改动的内容：{{changed_fields}}。{{free_wait_change}}
 {{driver_notice}}
 
-{TENANT_TRIP}{TENANT_FOOTER}",邮件正文,"zhEmail(""order.changed"",""tenant"")",packages/domain/src/notifications.ts,188,
+{TENANT_TRIP}{TENANT_FOOTER}",邮件正文,"zhEmail(""order.changed"",""tenant"")",packages/domain/src/notifications.ts,190,
+邮件和通知模板,通知中心（notifications.ts）,notifications.67a332bc,写死,订单已修改：{{order_no}},邮件主题,"zhEmail(""order.changed"",""tenant"")",packages/domain/src/notifications.ts,190,
 邮件和通知模板,通知中心（notifications.ts）,notifications.77b8681a,写死,"客人申请修改订单（{{changed_fields}}），确认前原预约仍然有效。
 {{driver_notice}}
 
 请在 {{confirm_due_at}}（东京时间）之前到后台同意或拒绝；正在换司机或协调的，可以先标记「调整中」。超时没有结论的，修改不生效，客人可能免费取消。
 
-{TENANT_TRIP}{TENANT_FOOTER}",邮件正文,"zhEmail(""order.change_pending"",""tenant"")",packages/domain/src/notifications.ts,189,
-邮件和通知模板,通知中心（notifications.ts）,notifications.ad578cf9,写死,修改待确认：{{order_no}},邮件主题,"zhEmail(""order.change_pending"",""tenant"")",packages/domain/src/notifications.ts,189,
+{TENANT_TRIP}{TENANT_FOOTER}",邮件正文,"zhEmail(""order.change_pending"",""tenant"")",packages/domain/src/notifications.ts,191,
+邮件和通知模板,通知中心（notifications.ts）,notifications.ad578cf9,写死,修改待确认：{{order_no}},邮件主题,"zhEmail(""order.change_pending"",""tenant"")",packages/domain/src/notifications.ts,191,
+邮件和通知模板,通知中心（notifications.ts）,notifications.d3171e33,写死,订单已取消：{{order_no}},邮件主题,"zhEmail(""order.cancelled"",""tenant"")",packages/domain/src/notifications.ts,192,
 邮件和通知模板,通知中心（notifications.ts）,notifications.e93b5757,写死,"这张订单已取消，不用再安排。
 {{driver_notice}}
 
-{TENANT_TRIP}{TENANT_FOOTER}",邮件正文,"zhEmail(""order.cancelled"",""tenant"")",packages/domain/src/notifications.ts,190,
-邮件和通知模板,通知中心（notifications.ts）,notifications.18486171,写死,订单进入救援改派：{{order_no}},邮件主题,"zhEmail(""order.rescue_started"",""tenant"")",packages/domain/src/notifications.ts,191,
+{TENANT_TRIP}{TENANT_FOOTER}",邮件正文,"zhEmail(""order.cancelled"",""tenant"")",packages/domain/src/notifications.ts,192,
+邮件和通知模板,通知中心（notifications.ts）,notifications.18486171,写死,订单进入救援改派：{{order_no}},邮件主题,"zhEmail(""order.rescue_started"",""tenant"")",packages/domain/src/notifications.ts,193,
 邮件和通知模板,通知中心（notifications.ts）,notifications.c1e0dedf,写死,"这张订单已进入救援改派，平台在安排别的供应商，你不用再安排。
 {{driver_notice}}
 
-{TENANT_TRIP}{TENANT_FOOTER}",邮件正文,"zhEmail(""order.rescue_started"",""tenant"")",packages/domain/src/notifications.ts,191,
+{TENANT_TRIP}{TENANT_FOOTER}",邮件正文,"zhEmail(""order.rescue_started"",""tenant"")",packages/domain/src/notifications.ts,193,
 邮件和通知模板,通知中心（notifications.ts）,notifications.120aaaca,写死,"这张订单已过派车截止时间，还没有派司机和车辆，请马上处理。用车前 6 小时仍未派车会进入救援改派，并按规则扣违约金。
 
 {TENANT_TRIP}
-派车截止：{{dispatch_due_at}}（东京时间）{TENANT_FOOTER}",邮件正文,"zhEmail(""order.dispatch_overdue"",""tenant"")",packages/domain/src/notifications.ts,192,
-邮件和通知模板,通知中心（notifications.ts）,notifications.d39bd00b,写死,超时未派车：{{order_no}},邮件主题,"zhEmail(""order.dispatch_overdue"",""tenant"")",packages/domain/src/notifications.ts,192,
-邮件和通知模板,通知中心（notifications.ts）,notifications.05ac7fe6,写死,司机还没有出发：{{order_no}},邮件主题,"zhEmail(""order.departure_overdue"",""tenant"")",packages/domain/src/notifications.ts,193,
+派车截止：{{dispatch_due_at}}（东京时间）{TENANT_FOOTER}",邮件正文,"zhEmail(""order.dispatch_overdue"",""tenant"")",packages/domain/src/notifications.ts,194,
+邮件和通知模板,通知中心（notifications.ts）,notifications.d39bd00b,写死,超时未派车：{{order_no}},邮件主题,"zhEmail(""order.dispatch_overdue"",""tenant"")",packages/domain/src/notifications.ts,194,
+邮件和通知模板,通知中心（notifications.ts）,notifications.05ac7fe6,写死,司机还没有出发：{{order_no}},邮件主题,"zhEmail(""order.departure_overdue"",""tenant"")",packages/domain/src/notifications.ts,195,
 邮件和通知模板,通知中心（notifications.ts）,notifications.c610dff5,写死,"离用车不到 1 小时，司机还没有点「已出发」，请马上确认。
 
-{TENANT_TRIP}{TENANT_FOOTER}",邮件正文,"zhEmail(""order.departure_overdue"",""tenant"")",packages/domain/src/notifications.ts,193,
-邮件和通知模板,通知中心（notifications.ts）,notifications.87dfd631,写死,工单待回复：{{ticket_no}},邮件主题,"zhEmail(""ticket.reply_requested"",""tenant"")",packages/domain/src/notifications.ts,194,
-邮件和通知模板,通知中心（notifications.ts）,notifications.bfe434ad,写死,平台在工单 {{ticket_no}} 里征求你的意见，请在 24 小时内回复并上传证据。{COMPANY_FOOTER},邮件正文,"zhEmail(""ticket.reply_requested"",""tenant"")",packages/domain/src/notifications.ts,194,
-邮件和通知模板,通知中心（notifications.ts）,notifications.16c2477d,写死,你的「{{document_type}}」将在 {{expires_on}} 到期（还有 {{days_left}} 天），请尽快上传新的证件。到期后供应商会被自动暂停。{COMPANY_FOOTER},邮件正文,"zhEmail(""tenant.document_expiring"",""tenant"")",packages/domain/src/notifications.ts,195,
-邮件和通知模板,通知中心（notifications.ts）,notifications.bce4cdb8,写死,资质快到期：{{document_type}},邮件主题,"zhEmail(""tenant.document_expiring"",""tenant"")",packages/domain/src/notifications.ts,195,
-邮件和通知模板,通知中心（notifications.ts）,notifications.4ba1233b,写死,资质已到期：{{document_type}},邮件主题,"zhEmail(""tenant.document_expired"",""tenant"")",packages/domain/src/notifications.ts,196,
-邮件和通知模板,通知中心（notifications.ts）,notifications.eb08dd5c,写死,你的「{{document_type}}」已在 {{expires_on}} 到期，请尽快上传新的证件。{COMPANY_FOOTER},邮件正文,"zhEmail(""tenant.document_expired"",""tenant"")",packages/domain/src/notifications.ts,196,
-邮件和通知模板,通知中心（notifications.ts）,notifications.2316960a,写死,进入观察期，请整改,邮件主题,"zhEmail(""tenant.observation_started"",""tenant"")",packages/domain/src/notifications.ts,197,
-邮件和通知模板,通知中心（notifications.ts）,notifications.75fc4df9,写死,你的账号已进入观察期，原因：{{reasons}}。观察期内排序会受影响，请尽快整改。{COMPANY_FOOTER},邮件正文,"zhEmail(""tenant.observation_started"",""tenant"")",packages/domain/src/notifications.ts,197,
-邮件和通知模板,通知中心（notifications.ts）,notifications.2d3b1b4a,写死,你的供应商状态已变为「{{tenant_status}}」。{COMPANY_FOOTER},邮件正文,"zhEmail(""tenant.status_changed"",""tenant"")",packages/domain/src/notifications.ts,198,
-邮件和通知模板,通知中心（notifications.ts）,notifications.9debd794,写死,供应商状态变化：{{tenant_status}},邮件主题,"zhEmail(""tenant.status_changed"",""tenant"")",packages/domain/src/notifications.ts,198,
+{TENANT_TRIP}{TENANT_FOOTER}",邮件正文,"zhEmail(""order.departure_overdue"",""tenant"")",packages/domain/src/notifications.ts,195,
+邮件和通知模板,通知中心（notifications.ts）,notifications.87dfd631,写死,工单待回复：{{ticket_no}},邮件主题,"zhEmail(""ticket.reply_requested"",""tenant"")",packages/domain/src/notifications.ts,196,
+邮件和通知模板,通知中心（notifications.ts）,notifications.bfe434ad,写死,平台在工单 {{ticket_no}} 里征求你的意见，请在 24 小时内回复并上传证据。{COMPANY_FOOTER},邮件正文,"zhEmail(""ticket.reply_requested"",""tenant"")",packages/domain/src/notifications.ts,196,
+邮件和通知模板,通知中心（notifications.ts）,notifications.16c2477d,写死,你的「{{document_type}}」将在 {{expires_on}} 到期（还有 {{days_left}} 天），请尽快上传新的证件。到期后供应商会被自动暂停。{COMPANY_FOOTER},邮件正文,"zhEmail(""tenant.document_expiring"",""tenant"")",packages/domain/src/notifications.ts,197,
+邮件和通知模板,通知中心（notifications.ts）,notifications.bce4cdb8,写死,资质快到期：{{document_type}},邮件主题,"zhEmail(""tenant.document_expiring"",""tenant"")",packages/domain/src/notifications.ts,197,
+邮件和通知模板,通知中心（notifications.ts）,notifications.4ba1233b,写死,资质已到期：{{document_type}},邮件主题,"zhEmail(""tenant.document_expired"",""tenant"")",packages/domain/src/notifications.ts,198,
+邮件和通知模板,通知中心（notifications.ts）,notifications.eb08dd5c,写死,你的「{{document_type}}」已在 {{expires_on}} 到期，请尽快上传新的证件。{COMPANY_FOOTER},邮件正文,"zhEmail(""tenant.document_expired"",""tenant"")",packages/domain/src/notifications.ts,198,
+邮件和通知模板,通知中心（notifications.ts）,notifications.2316960a,写死,进入观察期，请整改,邮件主题,"zhEmail(""tenant.observation_started"",""tenant"")",packages/domain/src/notifications.ts,199,
+邮件和通知模板,通知中心（notifications.ts）,notifications.75fc4df9,写死,你的账号已进入观察期，原因：{{reasons}}。观察期内排序会受影响，请尽快整改。{COMPANY_FOOTER},邮件正文,"zhEmail(""tenant.observation_started"",""tenant"")",packages/domain/src/notifications.ts,199,
+邮件和通知模板,通知中心（notifications.ts）,notifications.2d3b1b4a,写死,你的供应商状态已变为「{{tenant_status}}」。{COMPANY_FOOTER},邮件正文,"zhEmail(""tenant.status_changed"",""tenant"")",packages/domain/src/notifications.ts,200,
+邮件和通知模板,通知中心（notifications.ts）,notifications.9debd794,写死,供应商状态变化：{{tenant_status}},邮件主题,"zhEmail(""tenant.status_changed"",""tenant"")",packages/domain/src/notifications.ts,200,
 邮件和通知模板,通知中心（notifications.ts）,notifications.6f30d250,写死,"你们申请修改的{{changed_fields}}已通过平台审核，现在起按新的内容显示和使用。
 
-如果不是你们提交的，请马上联系平台。{COMPANY_FOOTER}",邮件正文,"zhEmail(""tenant.profile_change_approved"",""tenant"")",packages/domain/src/notifications.ts,200,
-邮件和通知模板,通知中心（notifications.ts）,notifications.c5070e0c,写死,资料修改没有通过,邮件主题,"zhEmail(""tenant.profile_change_rejected"",""tenant"")",packages/domain/src/notifications.ts,201,
-邮件和通知模板,通知中心（notifications.ts）,notifications.f32452ce,写死,你们申请修改的{{changed_fields}}没有通过平台审核，原因：{{reject_reason}}。原来的内容照常使用；核对后可以重新提交。{COMPANY_FOOTER},邮件正文,"zhEmail(""tenant.profile_change_rejected"",""tenant"")",packages/domain/src/notifications.ts,201,
-邮件和通知模板,通知中心（notifications.ts）,notifications.55ae45a9,写死,收款账户变更已提交：{{payout_currency}},邮件主题,"zhEmail(""payout_account.submitted"",""tenant"")",packages/domain/src/notifications.ts,204,
+如果不是你们提交的，请马上联系平台。{COMPANY_FOOTER}",邮件正文,"zhEmail(""tenant.profile_change_approved"",""tenant"")",packages/domain/src/notifications.ts,202,
+邮件和通知模板,通知中心（notifications.ts）,notifications.c5070e0c,写死,资料修改没有通过,邮件主题,"zhEmail(""tenant.profile_change_rejected"",""tenant"")",packages/domain/src/notifications.ts,203,
+邮件和通知模板,通知中心（notifications.ts）,notifications.f32452ce,写死,你们申请修改的{{changed_fields}}没有通过平台审核，原因：{{reject_reason}}。原来的内容照常使用；核对后可以重新提交。{COMPANY_FOOTER},邮件正文,"zhEmail(""tenant.profile_change_rejected"",""tenant"")",packages/domain/src/notifications.ts,203,
+邮件和通知模板,通知中心（notifications.ts）,notifications.55ae45a9,写死,收款账户变更已提交：{{payout_currency}},邮件主题,"zhEmail(""payout_account.submitted"",""tenant"")",packages/domain/src/notifications.ts,206,
 邮件和通知模板,通知中心（notifications.ts）,notifications.b2eaea39,写死,"你们提交了新的 {{payout_currency}} 收款账户（账号 {{payout_account}}），平台审核通过后生效，批准之前现在的账户继续有效。
 
-如果不是你们提交的，请马上联系平台，并修改管理员密码。{COMPANY_FOOTER}",邮件正文,"zhEmail(""payout_account.submitted"",""tenant"")",packages/domain/src/notifications.ts,204,
+如果不是你们提交的，请马上联系平台，并修改管理员密码。{COMPANY_FOOTER}",邮件正文,"zhEmail(""payout_account.submitted"",""tenant"")",packages/domain/src/notifications.ts,206,
 邮件和通知模板,通知中心（notifications.ts）,notifications.10dec67b,写死,"你们的 {{payout_currency}} 收款账户（账号 {{payout_account}}）已通过审核，之后的转账付到这个账户。
 
-如果不是你们提交的，请马上联系平台。{COMPANY_FOOTER}",邮件正文,"zhEmail(""payout_account.approved"",""tenant"")",packages/domain/src/notifications.ts,205,
-邮件和通知模板,通知中心（notifications.ts）,notifications.bdfd2667,写死,收款账户已生效：{{payout_currency}},邮件主题,"zhEmail(""payout_account.approved"",""tenant"")",packages/domain/src/notifications.ts,205,
-邮件和通知模板,通知中心（notifications.ts）,notifications.2bdfea49,写死,你们提交的 {{payout_currency}} 收款账户（账号 {{payout_account}}）没有通过审核，原因：{{reject_reason}}。请核对后重新提交。{COMPANY_FOOTER},邮件正文,"zhEmail(""payout_account.rejected"",""tenant"")",packages/domain/src/notifications.ts,206,
-邮件和通知模板,通知中心（notifications.ts）,notifications.6da220bd,写死,收款账户被驳回：{{payout_currency}},邮件主题,"zhEmail(""payout_account.rejected"",""tenant"")",packages/domain/src/notifications.ts,206,
-邮件和通知模板,通知中心（notifications.ts）,notifications.bd6e378d,写死,用车任务：{{service_time}}（{{order_no}}）,邮件主题,"zhEmail(""order.driver_link"",""driver"")",packages/domain/src/notifications.ts,212,
+如果不是你们提交的，请马上联系平台。{COMPANY_FOOTER}",邮件正文,"zhEmail(""payout_account.approved"",""tenant"")",packages/domain/src/notifications.ts,207,
+邮件和通知模板,通知中心（notifications.ts）,notifications.bdfd2667,写死,收款账户已生效：{{payout_currency}},邮件主题,"zhEmail(""payout_account.approved"",""tenant"")",packages/domain/src/notifications.ts,207,
+邮件和通知模板,通知中心（notifications.ts）,notifications.2bdfea49,写死,你们提交的 {{payout_currency}} 收款账户（账号 {{payout_account}}）没有通过审核，原因：{{reject_reason}}。请核对后重新提交。{COMPANY_FOOTER},邮件正文,"zhEmail(""payout_account.rejected"",""tenant"")",packages/domain/src/notifications.ts,208,
+邮件和通知模板,通知中心（notifications.ts）,notifications.6da220bd,写死,收款账户被驳回：{{payout_currency}},邮件主题,"zhEmail(""payout_account.rejected"",""tenant"")",packages/domain/src/notifications.ts,208,
+邮件和通知模板,通知中心（notifications.ts）,notifications.bd6e378d,写死,用车任务：{{service_time}}（{{order_no}}）,邮件主题,"zhEmail(""order.driver_link"",""driver"")",packages/domain/src/notifications.ts,214,
 邮件和通知模板,通知中心（notifications.ts）,notifications.5419184b,写死,"{{driver_name}}，您好：
 
 调度给您安排了一张用车任务，请打开下面的链接查看详情，并在行程中回传出发、到达、接到客人、完成。
@@ -10468,13 +10467,13 @@ NOZOMI 用车",邮件正文,"zhEmail(""order.view_link"",""guest"")",packages/do
 请不要转发这封邮件：这个链接能看到客人信息，只给您本人使用。
 链接到 {{link_expires_at}}（当地时间）失效；改派或调度重新生成后也会失效，打不开时请联系调度。
 
-NOZOMI 用车",邮件正文,"zhEmail(""order.driver_link"",""driver"")",packages/domain/src/notifications.ts,213,
+NOZOMI 用车",邮件正文,"zhEmail(""order.driver_link"",""driver"")",packages/domain/src/notifications.ts,215,
 邮件和通知模板,通知中心（notifications.ts）,notifications.01b9265f,写死,"{{driver_name}}，您好：
 
 客人申请修改下面这张任务（{{changed_fields}}），调度正在确认。确认之前请按原任务执行，有变化调度会再通知您。
 
-{DRIVER_TRIP}{DRIVER_FOOTER}",邮件正文,"zhEmail(""order.driver_change_pending"",""driver"")",packages/domain/src/notifications.ts,217,
-邮件和通知模板,通知中心（notifications.ts）,notifications.1967cbeb,写死,客人申请修改任务：{{service_time}}（{{order_no}}）,邮件主题,"zhEmail(""order.driver_change_pending"",""driver"")",packages/domain/src/notifications.ts,217,
+{DRIVER_TRIP}{DRIVER_FOOTER}",邮件正文,"zhEmail(""order.driver_change_pending"",""driver"")",packages/domain/src/notifications.ts,219,
+邮件和通知模板,通知中心（notifications.ts）,notifications.1967cbeb,写死,客人申请修改任务：{{service_time}}（{{order_no}}）,邮件主题,"zhEmail(""order.driver_change_pending"",""driver"")",packages/domain/src/notifications.ts,219,
 邮件和通知模板,通知中心（notifications.ts）,notifications.e42b15f2,写死,"{{driver_name}}，您好：
 
 这张任务有更新（{{changed_fields}}），请打开下面的链接查看最新内容，以链接里的为准。
@@ -10485,79 +10484,81 @@ NOZOMI 用车",邮件正文,"zhEmail(""order.driver_link"",""driver"")",packages
 {{driver_link_url}}
 
 请不要转发这封邮件：这个链接能看到客人信息，只给您本人使用。
-链接到 {{link_expires_at}}（当地时间）失效；改派或调度重新生成后也会失效，打不开时请联系调度。{DRIVER_FOOTER}",邮件正文,"zhEmail(""order.driver_changed"",""driver"")",packages/domain/src/notifications.ts,218,
-邮件和通知模板,通知中心（notifications.ts）,notifications.fa37fb77,写死,任务有更新：{{service_time}}（{{order_no}}）,邮件主题,"zhEmail(""order.driver_changed"",""driver"")",packages/domain/src/notifications.ts,218,
-邮件和通知模板,通知中心（notifications.ts）,notifications.646528a1,写死,客人的修改没有通过：{{service_time}}（{{order_no}}）,邮件主题,"zhEmail(""order.driver_change_declined"",""driver"")",packages/domain/src/notifications.ts,219,
+链接到 {{link_expires_at}}（当地时间）失效；改派或调度重新生成后也会失效，打不开时请联系调度。{DRIVER_FOOTER}",邮件正文,"zhEmail(""order.driver_changed"",""driver"")",packages/domain/src/notifications.ts,220,
+邮件和通知模板,通知中心（notifications.ts）,notifications.fa37fb77,写死,任务有更新：{{service_time}}（{{order_no}}）,邮件主题,"zhEmail(""order.driver_changed"",""driver"")",packages/domain/src/notifications.ts,220,
+邮件和通知模板,通知中心（notifications.ts）,notifications.646528a1,写死,客人的修改没有通过：{{service_time}}（{{order_no}}）,邮件主题,"zhEmail(""order.driver_change_declined"",""driver"")",packages/domain/src/notifications.ts,221,
 邮件和通知模板,通知中心（notifications.ts）,notifications.8df3136a,写死,"{{driver_name}}，您好：
 
 客人申请的修改（{{changed_fields}}）没有通过，请继续按原任务执行。
 
-{DRIVER_TRIP}{DRIVER_FOOTER}",邮件正文,"zhEmail(""order.driver_change_declined"",""driver"")",packages/domain/src/notifications.ts,219,
-邮件和通知模板,通知中心（notifications.ts）,notifications.002afb71,写死,任务已取消：{{service_time}}（{{order_no}}）,邮件主题,"zhEmail(""order.driver_cancelled"",""driver"")",packages/domain/src/notifications.ts,220,
+{DRIVER_TRIP}{DRIVER_FOOTER}",邮件正文,"zhEmail(""order.driver_change_declined"",""driver"")",packages/domain/src/notifications.ts,221,
+邮件和通知模板,通知中心（notifications.ts）,notifications.002afb71,写死,任务已取消：{{service_time}}（{{order_no}}）,邮件主题,"zhEmail(""order.driver_cancelled"",""driver"")",packages/domain/src/notifications.ts,222,
 邮件和通知模板,通知中心（notifications.ts）,notifications.9c4f744e,写死,"{{driver_name}}，您好：
 
 这张任务已取消或已转给别的供应商，您不用再去了。如已在路上，请联系调度。
 
-{DRIVER_TRIP}{DRIVER_FOOTER}",邮件正文,"zhEmail(""order.driver_cancelled"",""driver"")",packages/domain/src/notifications.ts,220,
+{DRIVER_TRIP}{DRIVER_FOOTER}",邮件正文,"zhEmail(""order.driver_cancelled"",""driver"")",packages/domain/src/notifications.ts,222,
 邮件和通知模板,通知中心（notifications.ts）,notifications.3e3cc11b,写死,"异常队列新增一条，请处理。
 
 类型：{{exception_type}}
-订单号：{{order_no}}{COMPANY_FOOTER}",邮件正文,"zhEmail(""exception.opened"",""staff"")",packages/domain/src/notifications.ts,222,
-邮件和通知模板,通知中心（notifications.ts）,notifications.f8fcb207,写死,新的异常：{{exception_type}}（{{order_no}}）,邮件主题,"zhEmail(""exception.opened"",""staff"")",packages/domain/src/notifications.ts,222,
-邮件和通知模板,通知中心（notifications.ts）,notifications.a63ddf2a,写死,汇率告警：{{alert_kind}},邮件主题,"zhEmail(""fx.alert"",""staff"")",packages/domain/src/notifications.ts,223,
-邮件和通知模板,通知中心（notifications.ts）,notifications.4cdcdca4,写死,供应商改了企业信息：{{tenant_name}},邮件主题,"zhEmail(""tenant.profile_updated"",""staff"")",packages/domain/src/notifications.ts,225,
-邮件和通知模板,通知中心（notifications.ts）,notifications.d3e20d9b,写死,供应商「{{tenant_name}}」在供应商后台直接改了：{{changed_fields}}。改动已经生效，改之前和改之后的内容见审计日志。如果对方没有事先打过招呼，请和供应商确认。{COMPANY_FOOTER},邮件正文,"zhEmail(""tenant.profile_updated"",""staff"")",packages/domain/src/notifications.ts,225,
-邮件和通知模板,通知中心（notifications.ts）,notifications.226c649e,写死,供应商「{{tenant_name}}」申请修改：{{changed_fields}}。请按营业执照、登记簿核对后，在供应商详情里发起复核（另一位同事批准后生效）或驳回。审核期间原来的内容照常使用。{COMPANY_FOOTER},邮件正文,"zhEmail(""tenant.profile_change_submitted"",""staff"")",packages/domain/src/notifications.ts,226,
-邮件和通知模板,通知中心（notifications.ts）,notifications.ef39d644,写死,供应商申请修改资料：{{tenant_name}},邮件主题,"zhEmail(""tenant.profile_change_submitted"",""staff"")",packages/domain/src/notifications.ts,226,
-邮件和通知模板,通知中心（notifications.ts）,notifications.3eabd9be,写死,官网找回订单告警,邮件主题,"zhEmail(""site.lookup_ceiling"",""staff"")",packages/domain/src/notifications.ts,227,
+订单号：{{order_no}}{COMPANY_FOOTER}",邮件正文,"zhEmail(""exception.opened"",""staff"")",packages/domain/src/notifications.ts,224,
+邮件和通知模板,通知中心（notifications.ts）,notifications.f8fcb207,写死,新的异常：{{exception_type}}（{{order_no}}）,邮件主题,"zhEmail(""exception.opened"",""staff"")",packages/domain/src/notifications.ts,224,
+邮件和通知模板,通知中心（notifications.ts）,notifications.a63ddf2a,写死,汇率告警：{{alert_kind}},邮件主题,"zhEmail(""fx.alert"",""staff"")",packages/domain/src/notifications.ts,225,
+邮件和通知模板,通知中心（notifications.ts）,notifications.4cdcdca4,写死,供应商改了企业信息：{{tenant_name}},邮件主题,"zhEmail(""tenant.profile_updated"",""staff"")",packages/domain/src/notifications.ts,227,
+邮件和通知模板,通知中心（notifications.ts）,notifications.d3e20d9b,写死,供应商「{{tenant_name}}」在供应商后台直接改了：{{changed_fields}}。改动已经生效，改之前和改之后的内容见审计日志。如果对方没有事先打过招呼，请和供应商确认。{COMPANY_FOOTER},邮件正文,"zhEmail(""tenant.profile_updated"",""staff"")",packages/domain/src/notifications.ts,227,
+邮件和通知模板,通知中心（notifications.ts）,notifications.226c649e,写死,供应商「{{tenant_name}}」申请修改：{{changed_fields}}。请按营业执照、登记簿核对后，在供应商详情里发起复核（另一位同事批准后生效）或驳回。审核期间原来的内容照常使用。{COMPANY_FOOTER},邮件正文,"zhEmail(""tenant.profile_change_submitted"",""staff"")",packages/domain/src/notifications.ts,228,
+邮件和通知模板,通知中心（notifications.ts）,notifications.ef39d644,写死,供应商申请修改资料：{{tenant_name}},邮件主题,"zhEmail(""tenant.profile_change_submitted"",""staff"")",packages/domain/src/notifications.ts,228,
+邮件和通知模板,通知中心（notifications.ts）,notifications.3eabd9be,写死,官网找回订单告警,邮件主题,"zhEmail(""site.lookup_ceiling"",""staff"")",packages/domain/src/notifications.ts,229,
 邮件和通知模板,通知中心（notifications.ts）,notifications.db47d8ee,写死,"官网找回订单：同一个订单号 24 小时内失败满 100 次，接下来连对上的联系方式也会被挡，请留意是否有人在猜。
 
-{{detail}}{COMPANY_FOOTER}",邮件正文,"zhEmail(""site.lookup_ceiling"",""staff"")",packages/domain/src/notifications.ts,227,
-邮件和通知模板,通知中心（notifications.ts）,notifications.b9b40456,写死,乘客信息,文字,passenger,packages/domain/src/notifications.ts,422,
-邮件和通知模板,通知中心（notifications.ts）,notifications.d18d668f,写死,航班号,文字,flight_no,packages/domain/src/notifications.ts,423,
-邮件和通知模板,通知中心（notifications.ts）,notifications.9d7254a1,写死,航班类型,文字,flight_kind,packages/domain/src/notifications.ts,424,
-邮件和通知模板,通知中心（notifications.ts）,notifications.a31f4618,写死,即时通讯,文字,messaging,packages/domain/src/notifications.ts,425,
-邮件和通知模板,通知中心（notifications.ts）,notifications.1eaf0c28,写死,备注,说明,notes,packages/domain/src/notifications.ts,426,
-邮件和通知模板,通知中心（notifications.ts）,notifications.c002c248,写死,上车地址,文字,pickup_address,packages/domain/src/notifications.ts,427,
-邮件和通知模板,通知中心（notifications.ts）,notifications.e8d36bf2,写死,下车地址,文字,dropoff_address,packages/domain/src/notifications.ts,428,
-邮件和通知模板,通知中心（notifications.ts）,notifications.db2f4af6,写死,用车时间,文字,service_time,packages/domain/src/notifications.ts,429,
-邮件和通知模板,通知中心（notifications.ts）,notifications.f1e13776,写死,人数,文字,passengers,packages/domain/src/notifications.ts,430,
-邮件和通知模板,通知中心（notifications.ts）,notifications.a869a677,写死,行李数,文字,luggage,packages/domain/src/notifications.ts,431,
-邮件和通知模板,通知中心（notifications.ts）,notifications.1e5365fd,写死,您也可以在订单页免费取消后重新下单。,按钮,free_cancel,packages/domain/src/notifications.ts,436,
-邮件和通知模板,通知中心（notifications.ts）,notifications.4df83649,写死,如不再需要用车，可以按取消政策在订单页取消。,文字,policy,packages/domain/src/notifications.ts,437 440,
-邮件和通知模板,通知中心（notifications.ts）,notifications.de6a5a65,写死,我们正在为您安排新的服务方，订单继续有效。,文字,rescue,packages/domain/src/notifications.ts,438,
-邮件和通知模板,通知中心（notifications.ts）,notifications.254a80f0,写死,服务已经开始，如有问题请联系客服。,文字,started,packages/domain/src/notifications.ts,439,
-邮件和通知模板,通知中心（notifications.ts）,notifications.dd119d2e,写死,因为用保存的支付方式补差价没有成功，没有生效,提示,changeDeclineReason(),packages/domain/src/notifications.ts,445,
-邮件和通知模板,通知中心（notifications.ts）,notifications.e673c36d,写死,没有得到确认,提示,changeDeclineReason(),packages/domain/src/notifications.ts,445,
-邮件和通知模板,通知中心（notifications.ts）,notifications.f9dcd583,写死,这张单还没有派司机。,文字,tenantDriverNoticeText(),packages/domain/src/notifications.ts,456,
-邮件和通知模板,通知中心（notifications.ts）,notifications.2f66d2ed,写死,你们设置了手动发送,提示,reason,packages/domain/src/notifications.ts,457,
-邮件和通知模板,通知中心（notifications.ts）,notifications.a654e760,写死,这位司机没有邮箱,提示,reason,packages/domain/src/notifications.ts,457,
-邮件和通知模板,通知中心（notifications.ts）,notifications.ca06fba1,写死,系统没有给司机发邮件（{reason}），请马上联系司机。,文字,tell,packages/domain/src/notifications.ts,458,
-邮件和通知模板,通知中心（notifications.ts）,notifications.e1a04063,写死,已派司机 {driverName}，需调整司机：确认前司机按原任务执行。{…},文字,tenantDriverNoticeText(),packages/domain/src/notifications.ts,459,
-邮件和通知模板,通知中心（notifications.ts）,notifications.fc493de9,写死,系统已发邮件告诉司机。,文字,tenantDriverNoticeText(),packages/domain/src/notifications.ts,459,
-邮件和通知模板,通知中心（notifications.ts）,notifications.240c7526,写死,已派司机 {driverName}。{…},文字,tenantDriverNoticeText(),packages/domain/src/notifications.ts,460,
-邮件和通知模板,通知中心（notifications.ts）,notifications.3343a43c,写死,系统已把最新信息发给司机。,文字,tenantDriverNoticeText(),packages/domain/src/notifications.ts,460,
-邮件和通知模板,通知中心（notifications.ts）,notifications.94a1f051,写死,已派司机 {driverName}，需调整司机：请确认司机和车辆还合适。{…},文字,tenantDriverNoticeText(),packages/domain/src/notifications.ts,460,
-邮件和通知模板,通知中心（notifications.ts）,notifications.b455a34c,写死,系统已把最新任务发给司机。,文字,tenantDriverNoticeText(),packages/domain/src/notifications.ts,460,
-邮件和通知模板,通知中心（notifications.ts）,notifications.91d35455,写死,已派司机 {driverName}，需调整司机：司机不用再去了。{…},文字,tenantDriverNoticeText(),packages/domain/src/notifications.ts,461,
-邮件和通知模板,通知中心（notifications.ts）,notifications.bda4f761,写死,系统已发邮件告诉司机，请确认他已经知道。,文字,tenantDriverNoticeText(),packages/domain/src/notifications.ts,461,
-邮件和通知模板,通知中心（notifications.ts）,notifications.49286a26,写死,评分低于观察线,文字,score_below_threshold,packages/domain/src/notifications.ts,464,
-邮件和通知模板,通知中心（notifications.ts）,notifications.78d1e4ba,写死,司机未到,文字,driver_no_show,packages/domain/src/notifications.ts,464,
-邮件和通知模板,通知中心（notifications.ts）,notifications.f0dcec13,写死,邮件发送还没有配置，配好后自动发送,文字,NOT_CONFIGURED,packages/domain/src/notifications.ts,511,
-邮件和通知模板,通知中心（notifications.ts）,notifications.4d843896,写死,在免打扰时段里，时段结束后发送,文字,QUIET_HOURS,packages/domain/src/notifications.ts,512,
-邮件和通知模板,通知中心（notifications.ts）,notifications.97c2b05e,写死,过了有效期，不再发送,文字,EXPIRED,packages/domain/src/notifications.ts,513,
-邮件和通知模板,通知中心（notifications.ts）,notifications.2ded2576,写死,订单情况变了，再发只会误导，不再发送,文字,ORDER_STATE_CHANGED,packages/domain/src/notifications.ts,514,
-邮件和通知模板,通知中心（notifications.ts）,notifications.e66567b1,写死,发送途中服务中断，不知道发出去了没有；可能已发出，重试前请先确认,文字,OUTCOME_UNKNOWN,packages/domain/src/notifications.ts,515,
-邮件和通知模板,通知中心（notifications.ts）,notifications.0e5eaa52,写死,邮件内容生成失败（程序问题）,提示,RENDER_FAILED,packages/domain/src/notifications.ts,516,
-邮件和通知模板,通知中心（notifications.ts）,notifications.2b53e409,写死,乘客信息解不开，没有发送；不会自动重试，请联系技术,提示,PASSENGER_DECRYPT_FAILED,packages/domain/src/notifications.ts,517,
-邮件和通知模板,通知中心（notifications.ts）,notifications.7b5c40e5,写死,收件人地址或邮件内容不合格,提示,MESSAGE_INVALID,packages/domain/src/notifications.ts,518,
-邮件和通知模板,通知中心（notifications.ts）,notifications.a0165115,写死,准备或发送邮件时出错，系统会自动重试；一直不好请联系技术,文字,UNEXPECTED,packages/domain/src/notifications.ts,519,
-邮件和通知模板,通知中心（notifications.ts）,notifications.850d8d23,写死,这封信排队期间链接已被作废（改派、吊销或重新生成），不再发送,文字,DRIVER_LINK_REVOKED,packages/domain/src/notifications.ts,520,
-邮件和通知模板,通知中心（notifications.ts）,notifications.888da01e,写死,这张单后来又发起了一次发送，只发最新的,文字,DRIVER_LINK_SUPERSEDED,packages/domain/src/notifications.ts,521,
-邮件和通知模板,通知中心（notifications.ts）,notifications.f11238b6,写死,供应商已改成手动发送，不再发送,文字,DRIVER_LINK_MANUAL,packages/domain/src/notifications.ts,522,
-邮件和通知模板,通知中心（notifications.ts）,notifications.f7c5221e,写死,司机已经没有邮箱，不再发送,文字,DRIVER_EMAIL_MISSING,packages/domain/src/notifications.ts,523,
-邮件和通知模板,通知中心（notifications.ts）,notifications.887a1eb2,写死,司机已停用，不再发送,文字,DRIVER_DISABLED,packages/domain/src/notifications.ts,524,
-邮件和通知模板,通知中心（notifications.ts）,notifications.aea4bc7a,写死,这次修改已经有结论，不再发送,文字,CHANGE_DECIDED,packages/domain/src/notifications.ts,525,
+{{detail}}{COMPANY_FOOTER}",邮件正文,"zhEmail(""site.lookup_ceiling"",""staff"")",packages/domain/src/notifications.ts,229,
+邮件和通知模板,通知中心（notifications.ts）,notifications.10fd0582,写死,司机会按航班落地时间在到达口等候,说明,serviceReminderNote(),packages/domain/src/notifications.ts,237,
+邮件和通知模板,通知中心（notifications.ts）,notifications.e6d5c010,写死,请按时到达上车点,说明,serviceReminderNote(),packages/domain/src/notifications.ts,237,
+邮件和通知模板,通知中心（notifications.ts）,notifications.b9b40456,写死,乘客信息,文字,passenger,packages/domain/src/notifications.ts,432,
+邮件和通知模板,通知中心（notifications.ts）,notifications.d18d668f,写死,航班号,文字,flight_no,packages/domain/src/notifications.ts,433,
+邮件和通知模板,通知中心（notifications.ts）,notifications.9d7254a1,写死,航班类型,文字,flight_kind,packages/domain/src/notifications.ts,434,
+邮件和通知模板,通知中心（notifications.ts）,notifications.a31f4618,写死,即时通讯,文字,messaging,packages/domain/src/notifications.ts,435,
+邮件和通知模板,通知中心（notifications.ts）,notifications.1eaf0c28,写死,备注,说明,notes,packages/domain/src/notifications.ts,436,
+邮件和通知模板,通知中心（notifications.ts）,notifications.c002c248,写死,上车地址,文字,pickup_address,packages/domain/src/notifications.ts,437,
+邮件和通知模板,通知中心（notifications.ts）,notifications.e8d36bf2,写死,下车地址,文字,dropoff_address,packages/domain/src/notifications.ts,438,
+邮件和通知模板,通知中心（notifications.ts）,notifications.db2f4af6,写死,用车时间,文字,service_time,packages/domain/src/notifications.ts,439,
+邮件和通知模板,通知中心（notifications.ts）,notifications.f1e13776,写死,人数,文字,passengers,packages/domain/src/notifications.ts,440,
+邮件和通知模板,通知中心（notifications.ts）,notifications.a869a677,写死,行李数,文字,luggage,packages/domain/src/notifications.ts,441,
+邮件和通知模板,通知中心（notifications.ts）,notifications.1e5365fd,写死,您也可以在订单页免费取消后重新下单。,按钮,free_cancel,packages/domain/src/notifications.ts,446,
+邮件和通知模板,通知中心（notifications.ts）,notifications.4df83649,写死,如不再需要用车，可以按取消政策在订单页取消。,文字,policy,packages/domain/src/notifications.ts,447 450,
+邮件和通知模板,通知中心（notifications.ts）,notifications.de6a5a65,写死,我们正在为您安排新的服务方，订单继续有效。,文字,rescue,packages/domain/src/notifications.ts,448,
+邮件和通知模板,通知中心（notifications.ts）,notifications.254a80f0,写死,服务已经开始，如有问题请联系客服。,文字,started,packages/domain/src/notifications.ts,449,
+邮件和通知模板,通知中心（notifications.ts）,notifications.dd119d2e,写死,因为用保存的支付方式补差价没有成功，没有生效,提示,changeDeclineReason(),packages/domain/src/notifications.ts,455,
+邮件和通知模板,通知中心（notifications.ts）,notifications.e673c36d,写死,没有得到确认,提示,changeDeclineReason(),packages/domain/src/notifications.ts,455,
+邮件和通知模板,通知中心（notifications.ts）,notifications.f9dcd583,写死,这张单还没有派司机。,文字,tenantDriverNoticeText(),packages/domain/src/notifications.ts,466,
+邮件和通知模板,通知中心（notifications.ts）,notifications.2f66d2ed,写死,你们设置了手动发送,提示,reason,packages/domain/src/notifications.ts,467,
+邮件和通知模板,通知中心（notifications.ts）,notifications.a654e760,写死,这位司机没有邮箱,提示,reason,packages/domain/src/notifications.ts,467,
+邮件和通知模板,通知中心（notifications.ts）,notifications.ca06fba1,写死,系统没有给司机发邮件（{reason}），请马上联系司机。,文字,tell,packages/domain/src/notifications.ts,468,
+邮件和通知模板,通知中心（notifications.ts）,notifications.e1a04063,写死,已派司机 {driverName}，需调整司机：确认前司机按原任务执行。{…},文字,tenantDriverNoticeText(),packages/domain/src/notifications.ts,469,
+邮件和通知模板,通知中心（notifications.ts）,notifications.fc493de9,写死,系统已发邮件告诉司机。,文字,tenantDriverNoticeText(),packages/domain/src/notifications.ts,469,
+邮件和通知模板,通知中心（notifications.ts）,notifications.240c7526,写死,已派司机 {driverName}。{…},文字,tenantDriverNoticeText(),packages/domain/src/notifications.ts,470,
+邮件和通知模板,通知中心（notifications.ts）,notifications.3343a43c,写死,系统已把最新信息发给司机。,文字,tenantDriverNoticeText(),packages/domain/src/notifications.ts,470,
+邮件和通知模板,通知中心（notifications.ts）,notifications.94a1f051,写死,已派司机 {driverName}，需调整司机：请确认司机和车辆还合适。{…},文字,tenantDriverNoticeText(),packages/domain/src/notifications.ts,470,
+邮件和通知模板,通知中心（notifications.ts）,notifications.b455a34c,写死,系统已把最新任务发给司机。,文字,tenantDriverNoticeText(),packages/domain/src/notifications.ts,470,
+邮件和通知模板,通知中心（notifications.ts）,notifications.91d35455,写死,已派司机 {driverName}，需调整司机：司机不用再去了。{…},文字,tenantDriverNoticeText(),packages/domain/src/notifications.ts,471,
+邮件和通知模板,通知中心（notifications.ts）,notifications.bda4f761,写死,系统已发邮件告诉司机，请确认他已经知道。,文字,tenantDriverNoticeText(),packages/domain/src/notifications.ts,471,
+邮件和通知模板,通知中心（notifications.ts）,notifications.49286a26,写死,评分低于观察线,文字,score_below_threshold,packages/domain/src/notifications.ts,474,
+邮件和通知模板,通知中心（notifications.ts）,notifications.78d1e4ba,写死,司机未到,文字,driver_no_show,packages/domain/src/notifications.ts,474,
+邮件和通知模板,通知中心（notifications.ts）,notifications.f0dcec13,写死,邮件发送还没有配置，配好后自动发送,文字,NOT_CONFIGURED,packages/domain/src/notifications.ts,521,
+邮件和通知模板,通知中心（notifications.ts）,notifications.4d843896,写死,在免打扰时段里，时段结束后发送,文字,QUIET_HOURS,packages/domain/src/notifications.ts,522,
+邮件和通知模板,通知中心（notifications.ts）,notifications.97c2b05e,写死,过了有效期，不再发送,文字,EXPIRED,packages/domain/src/notifications.ts,523,
+邮件和通知模板,通知中心（notifications.ts）,notifications.2ded2576,写死,订单情况变了，再发只会误导，不再发送,文字,ORDER_STATE_CHANGED,packages/domain/src/notifications.ts,524,
+邮件和通知模板,通知中心（notifications.ts）,notifications.e66567b1,写死,发送途中服务中断，不知道发出去了没有；可能已发出，重试前请先确认,文字,OUTCOME_UNKNOWN,packages/domain/src/notifications.ts,525,
+邮件和通知模板,通知中心（notifications.ts）,notifications.0e5eaa52,写死,邮件内容生成失败（程序问题）,提示,RENDER_FAILED,packages/domain/src/notifications.ts,526,
+邮件和通知模板,通知中心（notifications.ts）,notifications.2b53e409,写死,乘客信息解不开，没有发送；不会自动重试，请联系技术,提示,PASSENGER_DECRYPT_FAILED,packages/domain/src/notifications.ts,527,
+邮件和通知模板,通知中心（notifications.ts）,notifications.7b5c40e5,写死,收件人地址或邮件内容不合格,提示,MESSAGE_INVALID,packages/domain/src/notifications.ts,528,
+邮件和通知模板,通知中心（notifications.ts）,notifications.a0165115,写死,准备或发送邮件时出错，系统会自动重试；一直不好请联系技术,文字,UNEXPECTED,packages/domain/src/notifications.ts,529,
+邮件和通知模板,通知中心（notifications.ts）,notifications.850d8d23,写死,这封信排队期间链接已被作废（改派、吊销或重新生成），不再发送,文字,DRIVER_LINK_REVOKED,packages/domain/src/notifications.ts,530,
+邮件和通知模板,通知中心（notifications.ts）,notifications.888da01e,写死,这张单后来又发起了一次发送，只发最新的,文字,DRIVER_LINK_SUPERSEDED,packages/domain/src/notifications.ts,531,
+邮件和通知模板,通知中心（notifications.ts）,notifications.f11238b6,写死,供应商已改成手动发送，不再发送,文字,DRIVER_LINK_MANUAL,packages/domain/src/notifications.ts,532,
+邮件和通知模板,通知中心（notifications.ts）,notifications.f7c5221e,写死,司机已经没有邮箱，不再发送,文字,DRIVER_EMAIL_MISSING,packages/domain/src/notifications.ts,533,
+邮件和通知模板,通知中心（notifications.ts）,notifications.887a1eb2,写死,司机已停用，不再发送,文字,DRIVER_DISABLED,packages/domain/src/notifications.ts,534,
+邮件和通知模板,通知中心（notifications.ts）,notifications.aea4bc7a,写死,这次修改已经有结论，不再发送,文字,CHANGE_DECIDED,packages/domain/src/notifications.ts,535,
 后端返回的提示（接口错误等）,构建 Fastify 应用（app.ts）,app.43e7e2d4,写死,接口不存在,文字,"errorBody(""NOT_FOUND"")",apps/api/src/app.ts,239,
 后端返回的提示（接口错误等）,统一的错误返回格式（errors.ts）,errors.bcfe624c,写死,请求格式不正确,提示,message,apps/api/src/errors.ts,34,
 后端返回的提示（接口错误等）,统一的错误返回格式（errors.ts）,errors.7f58c9ec,写死,接口不存在,提示,message,apps/api/src/errors.ts,35,
@@ -11436,29 +11437,29 @@ NOZOMI 用车",邮件正文,"zhEmail(""order.driver_link"",""driver"")",packages
 后端返回的提示（接口错误等）,平台主数据的业务流程（master-data.ts）,master-data.391f22da,写死,这个地点已经有所属城市；要换城市请用修改接口,提示,message,apps/api/src/services/master-data.ts,636,
 后端返回的提示（接口错误等）,平台主数据的业务流程（master-data.ts）,master-data.db79ce9c,写死,这个车型组,文字,"assertNoPublishedProducts(""vehicle_group"")",apps/api/src/services/master-data.ts,740,
 后端返回的提示（接口错误等）,平台主数据的业务流程（master-data.ts）,master-data.99fbd6c4,写死,这个附加服务,文字,"assertNoPublishedProducts(""addon"")",apps/api/src/services/master-data.ts,783,
-后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.4b2a598f,写死,邮件发送还没有配置，配好后自动发送,提示,NOT_CONFIGURED_MESSAGE,apps/api/src/services/notification-jobs.ts,133,
-后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.3a27b703,写死,测试环境的验收单：只给 {QA_ACCEPTANCE_MAIL_RECIPIENT} 发信，这一封没有发出，内容可在发送记录里查看,提示,ACCEPTANCE_SUPPRESSED_MESSAGE,apps/api/src/services/notification-jobs.ts,136,
-后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.4231139b,写死,包车 {packageHours} 小时,文字,route,apps/api/src/services/notification-jobs.ts,190,
-后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.9f48d156,写死,见订单,文字,route,apps/api/src/services/notification-jobs.ts,190 191,
-后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.0c1d3ad4,写死,{before} → {after} 分钟,文字,change,apps/api/src/services/notification-jobs.ts,226,
-后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.1e74ee43,写死,{after} 分钟,文字,change,apps/api/src/services/notification-jobs.ts,226,
-后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.723ff9a4,写死,不限时,文字,change,apps/api/src/services/notification-jobs.ts,226,
-后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.9285e611,写死,{before} 分钟,文字,change,apps/api/src/services/notification-jobs.ts,226,
-后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.7cc5ab0f,写死,免费等待 {change}（按客人的航班重新锁定，请按新的时长安排司机等候）。,文字,freeWaitChangeText(),apps/api/src/services/notification-jobs.ts,227,
-后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.d1558dd6,写死,订单信息,文字,changedFieldsText(),apps/api/src/services/notification-jobs.ts,230,
-后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.9fd94507,写死,（见供应商详情）,名称,tenant_name,apps/api/src/services/notification-jobs.ts,296,
-后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.1086cccd,写死,企业信息,文字,changed_fields,apps/api/src/services/notification-jobs.ts,297,
-后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.a028e366,写死,请到异常队列查看,文字,exception_type,apps/api/src/services/notification-jobs.ts,302,
-后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.d57be254,写死,见汇率中心的拉取记录,文字,detail,apps/api/src/services/notification-jobs.ts,306,
-后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.fa9188bd,写死,汇率源缺币种，这批整批拒收，继续用上一批,文字,alert_kind,apps/api/src/services/notification-jobs.ts,306,
-后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.677e6ca0,写死,汇率变动超过 3%，已挂起，等待人工确认,文字,alert_kind,apps/api/src/services/notification-jobs.ts,310,
-后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.c0b35d82,写死,汇率超过 48 小时没有更新，已暂停跨币种报价,文字,alert_kind,apps/api/src/services/notification-jobs.ts,310,
-后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.64aa19b0,写死,涉及币种：{…},文字,detail,apps/api/src/services/notification-jobs.ts,311,
-后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.9fb2d01e,写死,最后一次更新时间见汇率中心,文字,detail,apps/api/src/services/notification-jobs.ts,311,
-后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.cfaad56f,写死,最后一次更新：{…},文字,detail,apps/api/src/services/notification-jobs.ts,311,
-后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.d811a069,写死,见汇率中心,文字,detail,apps/api/src/services/notification-jobs.ts,311,
-后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.a89b8a54,写死,订单号：{orderNo},文字,detail,apps/api/src/services/notification-jobs.ts,315,
-后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.ef675876,写死,这个订单号不存在：有人可能在猜订单号。,文字,detail,apps/api/src/services/notification-jobs.ts,315,
+后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.4b2a598f,写死,邮件发送还没有配置，配好后自动发送,提示,NOT_CONFIGURED_MESSAGE,apps/api/src/services/notification-jobs.ts,134,
+后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.3a27b703,写死,测试环境的验收单：只给 {QA_ACCEPTANCE_MAIL_RECIPIENT} 发信，这一封没有发出，内容可在发送记录里查看,提示,ACCEPTANCE_SUPPRESSED_MESSAGE,apps/api/src/services/notification-jobs.ts,137,
+后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.4231139b,写死,包车 {packageHours} 小时,文字,route,apps/api/src/services/notification-jobs.ts,191,
+后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.9f48d156,写死,见订单,文字,route,apps/api/src/services/notification-jobs.ts,191 192,
+后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.0c1d3ad4,写死,{before} → {after} 分钟,文字,change,apps/api/src/services/notification-jobs.ts,227,
+后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.1e74ee43,写死,{after} 分钟,文字,change,apps/api/src/services/notification-jobs.ts,227,
+后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.723ff9a4,写死,不限时,文字,change,apps/api/src/services/notification-jobs.ts,227,
+后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.9285e611,写死,{before} 分钟,文字,change,apps/api/src/services/notification-jobs.ts,227,
+后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.7cc5ab0f,写死,免费等待 {change}（按客人的航班重新锁定，请按新的时长安排司机等候）。,文字,freeWaitChangeText(),apps/api/src/services/notification-jobs.ts,228,
+后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.d1558dd6,写死,订单信息,文字,changedFieldsText(),apps/api/src/services/notification-jobs.ts,231,
+后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.9fd94507,写死,（见供应商详情）,名称,tenant_name,apps/api/src/services/notification-jobs.ts,299,
+后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.1086cccd,写死,企业信息,文字,changed_fields,apps/api/src/services/notification-jobs.ts,300,
+后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.a028e366,写死,请到异常队列查看,文字,exception_type,apps/api/src/services/notification-jobs.ts,305,
+后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.d57be254,写死,见汇率中心的拉取记录,文字,detail,apps/api/src/services/notification-jobs.ts,309,
+后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.fa9188bd,写死,汇率源缺币种，这批整批拒收，继续用上一批,文字,alert_kind,apps/api/src/services/notification-jobs.ts,309,
+后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.677e6ca0,写死,汇率变动超过 3%，已挂起，等待人工确认,文字,alert_kind,apps/api/src/services/notification-jobs.ts,313,
+后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.c0b35d82,写死,汇率超过 48 小时没有更新，已暂停跨币种报价,文字,alert_kind,apps/api/src/services/notification-jobs.ts,313,
+后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.64aa19b0,写死,涉及币种：{…},文字,detail,apps/api/src/services/notification-jobs.ts,314,
+后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.9fb2d01e,写死,最后一次更新时间见汇率中心,文字,detail,apps/api/src/services/notification-jobs.ts,314,
+后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.cfaad56f,写死,最后一次更新：{…},文字,detail,apps/api/src/services/notification-jobs.ts,314,
+后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.d811a069,写死,见汇率中心,文字,detail,apps/api/src/services/notification-jobs.ts,314,
+后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.a89b8a54,写死,订单号：{orderNo},文字,detail,apps/api/src/services/notification-jobs.ts,318,
+后端返回的提示（接口错误等）,通知中心的后台任务（notification-jobs.ts）,notification-jobs.ef675876,写死,这个订单号不存在：有人可能在猜订单号。,文字,detail,apps/api/src/services/notification-jobs.ts,318,
 后端返回的提示（接口错误等）,通知中心的接口层业务（notifications.ts）,notifications.cc4f08ea,写死,邮件发送还没有配置，请超级管理员在「系统设置 → 系统状态」填写；配好后等待中的通知会自动发送,错误提示,"AppError(""MAIL_NOT_CONFIGURED"")",apps/api/src/services/notifications.ts,59,
 后端返回的提示（接口错误等）,通知中心的接口层业务（notifications.ts）,notifications.e9c9bb10,写死,通知,错误提示,notFound(),apps/api/src/services/notifications.ts,63 66,
 后端返回的提示（接口错误等）,通知中心的接口层业务（notifications.ts）,notifications.7af2efb6,写死,这条通知现在不能重试：只有失败的、过了有效期的可以,错误提示,"AppError(""NOTIFICATION_NOT_RETRYABLE"")",apps/api/src/services/notifications.ts,68,

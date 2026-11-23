@@ -7,7 +7,7 @@
  *
  * - 地址带 `?nzdraft=<草稿号>`（组件 `init({ bookingUrl })` 跳过来的）：草稿号存进本标签页 sessionStorage `nozomi.host-draft`（只存草稿号和时间，2 小时），
  *   再从地址栏去掉；在容器里建 iframe 打开主站 `/embed/book`。刷新时地址上没有 nzdraft，就从这个存储里取。
- * - 不带（存储里也没有）：在容器里画查价表单（= init，bookingUrl 是本页），客人点「查看价格」后整页跳回本页带 nzdraft。
+ * - 不带（存储里也没有）：在容器里画查价表单（= init，bookingUrl 是本页），客人点「查询价格」后整页跳回本页带 nzdraft。
  * - 15 秒没收到 iframe 的 ready（被 frame-ancestors 拒绝时浏览器不告诉父页面，只能靠超时）：拿掉 iframe，显示一句话和「到主站继续预订」（新标签页）。
  * - 收到 completed、草稿过期（error DRAFT_NOT_FOUND）时删掉存储里的草稿号；草稿过期还在 iframe 上方给「重新查询」，点了换回查价表单。
  * - postMessage：只认 `event.source === iframe.contentWindow && event.origin === 主站 origin`、频道号对得上的；发出时 targetOrigin 写主站 origin，从不用 "*"。

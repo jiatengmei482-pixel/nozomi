@@ -10,7 +10,7 @@ const ZH: Readonly<Record<StepBarTextKey, string>> = {
   label: "本步操作",
   needVehicle: "请先选择车型",
   quoting: "正在查询价格，查好后请选择车型",
-  quoteFailed: "价格没有查出来，请先点「重试」",
+  quoteFailed: "价格查询失败，请先点「重试」",
 };
 
 export const STEP_BAR_TEXTS: Readonly<Record<StepBarLang, Partial<Record<StepBarTextKey, string>>>> = { zh: ZH, ja: {}, en: {} };
