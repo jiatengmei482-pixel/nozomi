@@ -740,3 +740,95 @@
   color: var(--color-text-secondary);
   pointer-events: none;
 }
+
+/* ---- 法律页面（M9E-24，ADR 0107）：页脚的三个链接、三页的正文和表格 ---- */
+.site__legal {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--font-size-sm);
+}
+
+.site__legal-link {
+  color: var(--color-text-secondary);
+}
+
+.legal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.legal__title {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+}
+
+.legal__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  line-height: var(--line-height-normal);
+}
+
+.legal__body ul {
+  margin: 0;
+  padding-left: var(--space-5);
+}
+
+.legal-unset {
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+.legal-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.legal-table {
+  width: 100%;
+  border-collapse: collapse;
+  line-height: var(--line-height-normal);
+}
+
+.legal-table th,
+.legal-table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--border-width) solid var(--color-border-default);
+  text-align: left;
+  vertical-align: top;
+}
+
+.legal-table th {
+  font-weight: var(--font-weight-bold);
+}
+
+.legal-table tbody th {
+  width: 30%;
+  min-width: 8em;
+}
+
+.legal-table--grid {
+  min-width: 36rem;
+}
+
+.legal-table__tier {
+  display: block;
+}
+
+.legal-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--font-size-sm);
+}
