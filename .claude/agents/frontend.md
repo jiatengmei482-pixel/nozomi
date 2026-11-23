@@ -13,6 +13,7 @@ tools: Read, Write, Edit, Glob, Grep, Bash
 4. 表单有校验和明确的提交结果；危险操作（取消订单、声明无法履约、付款）有页面内的二次确认。
 5. 400px 手机宽度不出现横向滚动；可用键盘操作，焦点可见。
 6. 关键流程写 Playwright 端到端测试，针对真实运行的后端。
-7. 提交前运行 `pnpm check`；更新 roadmap 和日志。
+7. 新的固定文案放进文案表（`*-texts.ts`，写法见 `docs/workflow.md`「固定文案走 key」），组件里不写死中文；改了文案就重新运行 `pnpm copy:export`。审查别人的代码时也查这一条。
+8. 提交前运行 `pnpm check`；更新 roadmap 和日志。
 
 你不改后端代码和设计规范；发现规范不够用时，交给 designer。
