@@ -241,7 +241,7 @@ test("供应商在价格页新增计程价（重叠的被拒）→ 一端在区�
   await page.getByRole("button", { name: "下一步：填写乘客信息" }).click();
   await page.getByLabel("乘车人姓名").fill("陈小红");
   await page.getByLabel("邮箱").fill(`mileage-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`);
-  await page.getByLabel("手机号（含国家区号）").fill(`+81 90-${randomInt(1000, 9999)}-${randomInt(1000, 9999)}`);
+  await page.getByLabel("手机号（含国家码）").fill(`+81 90-${randomInt(1000, 9999)}-${randomInt(1000, 9999)}`);
   await page.getByRole("button", { name: "下一步：核对订单" }).click();
   await page.getByRole("checkbox", { name: /同意保存/ }).check();
   const placed = page.waitForResponse((response) => new URL(response.url()).pathname === "/site/v1/orders" && response.request().method() === "POST");

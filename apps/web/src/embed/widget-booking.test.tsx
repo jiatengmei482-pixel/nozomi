@@ -343,7 +343,7 @@ test("不带 nzdraft：画查价表单（= init，bookingUrl 是本页）；提�
   assert.deepEqual(Object.keys(body).sort(), ["delivery", "draft", "return_url"], "onEvent、title 不转给表单");
 });
 
-/** 组件（init）填好两个地点后点「查看价格」：返回建草稿的请求体和跳去的地址 */
+/** 组件（init）填好两个地点后点「查询价格」：返回建草稿的请求体和跳去的地址 */
 async function submitInit(options: Record<string, unknown>): Promise<{ body: Record<string, unknown>; went: string[] }> {
   let drafted: Record<string, unknown> = {};
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {

@@ -146,7 +146,7 @@ test("F3：订单页崩溃后，点顶栏「预订用车」能回到预订页", 
     openOrder(envelopeOf(broken), () => json(200, configOf()));
     assert.ok(await screen.findByRole("heading", { level: 1, name: "页面出了点问题" }));
     await user().click(within(screen.getByRole("navigation", { name: "官网" })).getByRole("link", { name: "预订用车" }));
-    assert.ok(await screen.findByRole("heading", { level: 1, name: "预订接送车" }));
+    assert.ok(await screen.findByRole("heading", { level: 1, name: "预订用车" }));
   } finally {
     console.error = quiet;
   }
@@ -289,7 +289,7 @@ test("F12：只改姓名、旧电话不合规——前端放行，后端说电�
   await actor.type(name, "李四");
   await actor.click(screen.getByRole("button", { name: "提交修改" }));
   assert.ok(await screen.findByText("电话要写成带国家码的国际格式，如 +81 90-1234-5678"));
-  assert.equal(screen.getByLabelText("手机号（带国家码）").getAttribute("aria-invalid"), "true");
+  assert.equal(screen.getByLabelText("手机号（含国家码）").getAttribute("aria-invalid"), "true");
   assert.deepEqual(patchBodies(calls)[0], { passenger: { name: "李四", phone: "090-1234-5678", email: "guest@example.com" } });
 });
 

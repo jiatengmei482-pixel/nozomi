@@ -76,7 +76,7 @@ async function expectResultStructure(page: Page): Promise<void> {
     const plan = plans.nth(index);
     await expect(plan.getByRole("heading", { level: 3 })).toHaveText(/^(同一辆车跑完全程|每天选最划算的车)$/);
     await expect(plan.locator(".trip-plan__amount")).toHaveText(/^\d{1,3}(,\d{3})* JPY$/);
-    await expect(plan.getByRole("heading", { level: 4, name: /^第 1 天 · \d+月\d+日$/ })).toBeVisible();
+    await expect(plan.getByRole("heading", { level: 4, name: /^第 1 天 · \d+ 月 \d+ 日$/ })).toBeVisible();
     expect(await plan.locator(".trip-plan__line").count(), "每个方案至少有一段").toBeGreaterThan(0);
   }
   for (let index = 0; index < unquotedCount; index += 1) await expect(unquoted.nth(index)).toHaveText(/^(同一辆车跑完全程|每天选最划算的车)(（第 \d+ 天）)?：这个方案暂时报不出：.+$/);

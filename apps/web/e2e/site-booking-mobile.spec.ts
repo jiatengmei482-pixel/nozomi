@@ -86,7 +86,7 @@ test("M8-37 手机：地址、日期、时间都是全屏选择页（占满屏�
   await simulateKeyboard(page);
 
   await page.goto(`${SITE}/book`);
-  await expect(page.getByRole("heading", { level: 1, name: "预订接送车" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "预订用车" })).toBeVisible();
   expect(await page.evaluate(() => window.matchMedia("(pointer: coarse)").matches)).toBe(true);
   // 页面上没有直接打字的地址框，只有点了打开选择页的那一格
   await expect(page.getByRole("combobox", { name: "出发地" })).toHaveCount(0);

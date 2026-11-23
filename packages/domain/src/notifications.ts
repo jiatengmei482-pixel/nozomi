@@ -6,6 +6,8 @@
  */
 import { parseTimeOfDay, instantToLocal, MINUTES_PER_DAY } from "./service-time.ts";
 import { VEHICLE_LABEL_TEXTS } from "./vehicle-label.ts";
+import type { ServiceCategory } from "./master-data.ts";
+import type { TripDirection } from "./pricing.ts";
 
 export const NOTIFICATION_AUDIENCES = ["guest", "tenant", "staff", "driver"] as const;
 export type NotificationAudience = (typeof NOTIFICATION_AUDIENCES)[number];
@@ -105,7 +107,7 @@ export const NOTIFICATION_CHANNELS = ["email"] as const;
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
 
 /** 客人邮件能用的变量。 */
-export const GUEST_VARIABLES = ["order_no", "passenger_name", "service_time", "route", "vehicle_group", "vehicle_similar", "vehicle_max_persons", "vehicle_max_luggage", "paid_amount", "view_url", "driver_name", "driver_phone", "vehicle_plate", "changed_fields", "change_decline_reason", "change_decline_advice", "extra_charge_amount", "extra_charge_type", "dispute_until", "fee_note", "area_surcharge_note", "distance_note", "pricing_basis_note"] as const;
+export const GUEST_VARIABLES = ["order_no", "passenger_name", "service_time", "route", "vehicle_group", "vehicle_similar", "vehicle_max_persons", "vehicle_max_luggage", "paid_amount", "view_url", "driver_name", "driver_phone", "vehicle_plate", "changed_fields", "change_decline_reason", "change_decline_advice", "extra_charge_amount", "extra_charge_type", "dispute_until", "fee_note", "area_surcharge_note", "distance_note", "pricing_basis_note", "service_reminder_note"] as const;
 /** 供应商邮件能用的变量：行程和编号。**不能往这里加对外价、加价比例、客人付的钱**（规则 4）。 */
 export const TENANT_VARIABLES = ["order_no", "service_time", "route", "vehicle_group", "vehicle_similar", "vehicle_max_persons", "vehicle_max_luggage", "passengers", "order_url", "console_url", "dispatch_due_at", "confirm_due_at", "changed_fields", "free_wait_change", "driver_notice", "ticket_no", "document_type", "expires_on", "days_left", "tenant_status", "reasons", "payout_currency", "payout_account", "reject_reason", "charter_price_note"] as const;
 /** 平台员工邮件能用的变量。 */
@@ -166,22 +168,22 @@ const zhEmail = (event: NotificationEvent, audience: NotificationAudience, subje
 
 /** 全部模板。加语言 = 在这里加常量（ADR 0049「模板」）。 */
 export const NOTIFICATION_TEMPLATES: readonly NotificationTemplate[] = [
-  zhEmail("order.confirmed", "guest", "预订已确认：{{order_no}}", `{{passenger_name}}，您好：\n\n我们已收到您的付款，订单已确认。\n\n${TRIP}\n已付金额：{{paid_amount}}{{area_surcharge_note}}{{pricing_basis_note}}\n公里数：{{distance_note}}\n费用说明：{{fee_note}}\n\n派好司机后我们会再发邮件告诉您司机信息。${GUEST_FOOTER}`),
-  zhEmail("order.assigned", "guest", "司机信息：{{order_no}}", `{{passenger_name}}，您好：\n\n您的订单已安排司机。如果之前收到过司机信息，请以这一封为准。\n\n${TRIP}\n司机：{{driver_name}}\n电话：{{driver_phone}}\n车牌：{{vehicle_plate}}${GUEST_FOOTER}`),
-  zhEmail("order.service_reminder", "guest", "用车提醒：{{service_time}}（{{order_no}}）", `{{passenger_name}}，您好：\n\n您的用车时间快到了，请按时到达上车点。\n\n${TRIP}${GUEST_FOOTER}`),
-  zhEmail("order.driver_arrived", "guest", "司机已到达：{{order_no}}", `{{passenger_name}}，您好：\n\n司机已经到达上车点。\n\n司机：{{driver_name}}\n电话：{{driver_phone}}\n车牌：{{vehicle_plate}}${GUEST_FOOTER}`),
-  zhEmail("order.changed", "guest", "订单已修改：{{order_no}}", `{{passenger_name}}，您好：\n\n您的订单修改已生效，改动的内容：{{changed_fields}}。\n\n${TRIP}${GUEST_FOOTER}`),
-  zhEmail("order.change_declined", "guest", "修改没有成功：{{order_no}}", `{{passenger_name}}，您好：\n\n很抱歉，您申请的修改（{{changed_fields}}）{{change_decline_reason}}，订单仍按原来的预约执行；如果修改时补过差价，会原路退回。{{change_decline_advice}}\n\n${TRIP}${GUEST_FOOTER}`),
-  zhEmail("order.cancelled", "guest", "订单已取消：{{order_no}}", `{{passenger_name}}，您好：\n\n您的订单已取消。如有退款，会按取消政策原路退回，金额可在订单页查看。\n\n${TRIP}${GUEST_FOOTER}`),
-  zhEmail("extra_charge.submitted", "guest", "服务后费用待确认：{{order_no}}", `{{passenger_name}}，您好：\n\n供应商提交了一项服务后费用。\n\n项目：{{extra_charge_type}}\n金额：{{extra_charge_amount}}\n\n如有异议，请在 {{dispute_until}}（东京时间）之前在订单页提出；没有异议的，到时会从您保存的支付方式中扣款。${GUEST_FOOTER}`),
+  zhEmail("order.confirmed", "guest", "【NOZOMI】预订已确认：{{order_no}}", `{{passenger_name}}，您好：\n\n我们已收到您的付款，订单已确认。\n\n${TRIP}\n已付金额：{{paid_amount}}{{area_surcharge_note}}{{pricing_basis_note}}\n公里数：{{distance_note}}\n费用说明：{{fee_note}}\n\n派好司机后我们会再发邮件告诉您司机信息。${GUEST_FOOTER}`),
+  zhEmail("order.assigned", "guest", "【NOZOMI】司机信息：{{order_no}}", `{{passenger_name}}，您好：\n\n您的订单已安排司机。如果之前收到过司机信息，请以这一封为准。\n\n${TRIP}\n司机：{{driver_name}}\n电话：{{driver_phone}}\n车牌：{{vehicle_plate}}${GUEST_FOOTER}`),
+  zhEmail("order.service_reminder", "guest", "【NOZOMI】用车提醒：{{service_time}}（{{order_no}}）", `{{passenger_name}}，您好：\n\n您的用车时间快到了，{{service_reminder_note}}。\n\n${TRIP}${GUEST_FOOTER}`),
+  zhEmail("order.driver_arrived", "guest", "【NOZOMI】司机已到达：{{order_no}}", `{{passenger_name}}，您好：\n\n司机已经到达上车点。\n\n司机：{{driver_name}}\n电话：{{driver_phone}}\n车牌：{{vehicle_plate}}${GUEST_FOOTER}`),
+  zhEmail("order.changed", "guest", "【NOZOMI】订单已修改：{{order_no}}", `{{passenger_name}}，您好：\n\n您的订单修改已生效，改动的内容：{{changed_fields}}。\n\n${TRIP}${GUEST_FOOTER}`),
+  zhEmail("order.change_declined", "guest", "【NOZOMI】修改没有成功：{{order_no}}", `{{passenger_name}}，您好：\n\n很抱歉，您申请的修改（{{changed_fields}}）{{change_decline_reason}}，订单仍按原来的预约执行；如果修改时补过差价，会原路退回。{{change_decline_advice}}\n\n${TRIP}${GUEST_FOOTER}`),
+  zhEmail("order.cancelled", "guest", "【NOZOMI】订单已取消：{{order_no}}", `{{passenger_name}}，您好：\n\n您的订单已取消。如有退款，会按取消政策原路退回，金额可在订单页查看。\n\n${TRIP}${GUEST_FOOTER}`),
+  zhEmail("extra_charge.submitted", "guest", "【NOZOMI】服务后费用待确认：{{order_no}}", `{{passenger_name}}，您好：\n\n服务方提交了一项服务后费用。\n\n项目：{{extra_charge_type}}\n金额：{{extra_charge_amount}}\n\n如有异议，请在 {{dispute_until}}（当地时间）之前在订单页提出；没有异议的，到时会从您保存的支付方式中扣款。${GUEST_FOOTER}`),
   // 官网查订单、运营核实后重发（ADR 0061）：只有订单号和链接，没有姓名、行程、金额——收件人可能只是被人填了这个邮箱
   zhEmail(
     "order.view_link",
     "guest",
-    "您的订单链接：{{order_no}}",
+    "【NOZOMI】您的订单链接：{{order_no}}",
     "您好：\n\n这是您申请的 NOZOMI 用车订单链接（在官网「查订单」或联系客服时申请）。点下面的链接可以查看和管理订单 {{order_no}}：\n\n{{view_url}}\n\n这个链接只属于您的这张订单，请不要转发给别人。以前收到的链接仍然可以使用。\n\n如果不是您本人申请的，可以忽略这封邮件：没有这个链接，别人看不到您的订单。\n\nNOZOMI 用车",
   ),
-  zhEmail("ticket.guest_reply", "guest", "您的工单有新回复：{{order_no}}", `{{passenger_name}}，您好：\n\n客服回复了您关于订单 {{order_no}} 的问题，请到订单页查看。${GUEST_FOOTER}`),
+  zhEmail("ticket.guest_reply", "guest", "【NOZOMI】您的问题有新回复：{{order_no}}", `{{passenger_name}}，您好：\n\n客服回复了您关于订单 {{order_no}} 的问题，请到订单页查看。${GUEST_FOOTER}`),
 
   zhEmail("order.confirmed", "tenant", "新订单：{{order_no}}", `你有一张新订单，请在派车截止时间前派好司机和车辆。\n\n${TENANT_TRIP}\n派车截止：{{dispatch_due_at}}（东京时间）\n{{charter_price_note}}${TENANT_FOOTER}`),
   zhEmail("order.rescue_assigned", "tenant", "救援新订单：{{order_no}}", `这张救援单已经转给你，请尽快派好司机和车辆。\n\n${TENANT_TRIP}${TENANT_FOOTER}`),
@@ -226,6 +228,14 @@ export const NOTIFICATION_TEMPLATES: readonly NotificationTemplate[] = [
   zhEmail("tenant.profile_change_submitted", "staff", "供应商申请修改资料：{{tenant_name}}", `供应商「{{tenant_name}}」申请修改：{{changed_fields}}。请按营业执照、登记簿核对后，在供应商详情里发起复核（另一位同事批准后生效）或驳回。审核期间原来的内容照常使用。${COMPANY_FOOTER}`),
   zhEmail("site.lookup_ceiling", "staff", "官网找回订单告警", `官网找回订单：同一个订单号 24 小时内失败满 100 次，接下来连对上的联系方式也会被挡，请留意是否有人在猜。\n\n{{detail}}${COMPANY_FOOTER}`),
 ];
+
+/**
+ * 客人「用车提醒」正文里那一句（M11-03）：接机单（接送机 + 接机方向）是司机按航班落地时间在到达口等，客人不用「按时到达上车点」；
+ * 其余（送机、点对点、包车）照旧请客人按时到上车点。
+ */
+export function serviceReminderNote(trip: { category: ServiceCategory; direction: TripDirection | null }): string {
+  return trip.category === "airport_transfer" && trip.direction === "pickup" ? "司机会按航班落地时间在到达口等候" : "请按时到达上车点";
+}
 
 export function findNotificationTemplate(event: NotificationEvent, audience: NotificationAudience, locale: NotificationLocale, channel: NotificationChannel): NotificationTemplate | null {
   return NOTIFICATION_TEMPLATES.find((template) => template.event === event && template.audience === audience && template.locale === locale && template.channel === channel) ?? null;

@@ -67,7 +67,7 @@ async function expectManualQuoteOnly(page: Page): Promise<void> {
   await expect(page.getByRole("region", { name: "请客服人工报价" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "怎么联系你" })).toHaveCount(0);
   await expect(page.getByLabel("乘车人姓名")).toHaveCount(0);
-  await expect(page.getByLabel("手机号（含国家区号）")).toHaveCount(0);
+  await expect(page.getByLabel("手机号（含国家码）")).toHaveCount(0);
   await expect(page.getByRole("checkbox", { name: /同意保存这次付款用的银行卡/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "去付款 →" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "下一步：填写乘客信息" })).toHaveCount(0);

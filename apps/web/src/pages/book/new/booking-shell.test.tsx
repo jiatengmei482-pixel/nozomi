@@ -70,7 +70,7 @@ test("主站模式的请求与重构前逐字相同：读草稿不带 key / host
   );
   const actor = userEvent.setup();
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
-  assert.ok(screen.getByRole("heading", { name: "预订接送车", level: 1 }), "主站外壳和标题");
+  assert.ok(screen.getByRole("heading", { name: "预订用车", level: 1 }), "主站外壳和标题");
   assert.ok(screen.getByRole("complementary", { name: "行程摘要" }), "电脑上仍是两栏");
   assert.deepEqual(calls.filter((call) => call.path.startsWith("/site/v1/booking-drafts/")).map((call) => call.path), [`/site/v1/booking-drafts/${DRAFT}`]);
   assert.deepEqual(calls.find((call) => call.method === "POST" && call.path === "/site/v1/quotes/by-points")?.body, {
@@ -85,7 +85,7 @@ test("主站模式的请求与重构前逐字相同：读草稿不带 key / host
   await actor.click(screen.getByRole("button", { name: "下一步：填写乘客信息" }));
   await actor.type(screen.getByLabelText("乘车人姓名"), "王小明");
   await actor.type(screen.getByLabelText("邮箱"), "guest@example.com");
-  await actor.type(screen.getByLabelText("手机号（含国家区号）"), "+81 90-1234-5678");
+  await actor.type(screen.getByLabelText("手机号（含国家码）"), "+81 90-1234-5678");
   await actor.click(screen.getByRole("button", { name: "下一步：核对订单" }));
   await actor.click(await screen.findByRole("checkbox", { name: /同意保存这次付款用的银行卡/ }));
   await actor.click(screen.getByRole("button", { name: "去付款 →" }));

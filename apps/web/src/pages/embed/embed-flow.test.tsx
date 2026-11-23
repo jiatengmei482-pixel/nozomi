@@ -229,7 +229,7 @@ async function toReview(actor: ReturnType<typeof userEvent.setup>): Promise<void
   keepsFrameParams();
   await actor.type(screen.getByLabelText("乘车人姓名"), "王小明");
   await actor.type(screen.getByLabelText("邮箱"), "guest@example.com");
-  await actor.type(screen.getByLabelText("手机号（含国家区号）"), "+81 90-1234-5678");
+  await actor.type(screen.getByLabelText("手机号（含国家码）"), "+81 90-1234-5678");
   await actor.click(screen.getByRole("button", { name: "下一步：核对订单" }));
   await screen.findByRole("heading", { name: "核对订单" });
   keepsFrameParams();
@@ -286,7 +286,7 @@ test("iframe ≥ 1024 宽（M9E-27）：和主站一样两栏，右边是同一�
   assert.equal(document.querySelectorAll(".leaflet-container").length, 0, "没有 Leaflet 地图");
   // 主站外壳 SiteLayout 的顶栏、导航、页脚（.site__*）一样都不在；页面上的 <nav>、<footer> 也没有
   assert.deepEqual([...document.querySelectorAll(".site, .site__header, .site__nav, .site__footer, nav, footer")].map((node) => node.className), [], "没有主站顶栏、导航、页脚");
-  assert.equal(screen.queryAllByRole("heading", { name: "预订接送车", level: 1 }).length, 0, "没有主站的页面标题");
+  assert.equal(screen.queryAllByRole("heading", { name: "预订用车", level: 1 }).length, 0, "没有主站的页面标题");
   assert.ok(screen.getByText(EMBED_TEXTS.ja.seller), "卖方说明照旧在");
 
   await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
@@ -547,7 +547,7 @@ test("付款进 iframe（M9E-19）：下单后同一页直接挂付款表单（�
   assert.ok(screen.getByRole("link", { name: new RegExp(`^${EMBED_TEXTS.ja.payInNewWindow}`) }).closest(".embed-book__pay-hint"), "新窗口只是退路");
 
   await actor.click(payButton);
-  await actor.click(await screen.findByRole("button", { name: "确认支付" }));
+  await actor.click(await screen.findByRole("button", { name: "确认付款" }));
   await waitFor(() => assert.equal(log.confirms.length, 1));
   const back = new URL(log.confirms[0] as string);
   assert.equal(back.origin + back.pathname, `${window.location.origin}/embed/book/order`);

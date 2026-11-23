@@ -48,7 +48,7 @@ test("齐全的行程：直接能建行程单；机场认成 airport，酒店、
   assert.ok(fill.marks.filled.includes("date") && fill.marks.filled.includes("passengers") && fill.marks.filled.includes("luggage"));
   assert.equal(fill.marks.filled.length, 3 + 3 + 5, "日期、人数、行李 + 第 1 天时间和两个点 + 第 2 天时间、三个点、一个停留");
   assert.deepEqual(fill.summary, { missing: [], confirm: [], unused: [], outOfScope: null });
-  assert.equal(fill.headline, "已按你的描述填好 2 天行程。标黄的地方请补填或确认，然后点「查看报价」");
+  assert.equal(fill.headline, "已按您的描述填好 2 天行程。标黄的地方请补填或确认，然后点「查看报价」");
 });
 
 test("不猜：日期、人数、行李、时间没给的进「请补填」；人数行李先按表单默认值填并写明；时间格式不对当没给", () => {
@@ -58,7 +58,7 @@ test("不猜：日期、人数、行李、时间没给的进「请补填」；�
   assert.equal(fill.draft.passengers, defaults.passengers);
   assert.equal(fill.draft.luggage, defaults.luggage, "超出上限当没给");
   assert.equal(fill.draft.days[0]?.time, "");
-  assert.deepEqual(fill.summary.missing, ["第 1 天的日期", `人数（先按 ${defaults.passengers} 人填了）`, `行李件数（先按 ${defaults.luggage} 件填了）`, "第 1 天的上车时间"]);
+  assert.deepEqual(fill.summary.missing, ["第 1 天的日期", `人数（暂按 ${defaults.passengers} 人）`, `行李件数（暂按 ${defaults.luggage} 件）`, "第 1 天的上车时间"]);
   const dayKey = fill.draft.days[0]?.key ?? "";
   assert.deepEqual(fill.marks.missing, ["date", "passengers", "luggage", `${dayKey}.time`]);
 });
@@ -114,8 +114,8 @@ test("空闲日：忽略当天的时间和地点、照给住宿；天数按应�
 });
 
 test("一天都没有（或全是空闲日）→ 没看出行程；超过 14 天或每天超过 10 个中间地点 → 行程较长（不截断）", () => {
-  assert.deepEqual(tripAiFillOf(result([])), { kind: "failed", text: "没看出行程，请写上日期、地点，或直接在下面填写" });
-  assert.deepEqual(tripAiFillOf(result([{ idle: true }])), { kind: "failed", text: "没看出行程，请写上日期、地点，或直接在下面填写" });
+  assert.deepEqual(tripAiFillOf(result([])), { kind: "failed", text: "没能识别出行程，请写上日期、地点，或直接在下面填写" });
+  assert.deepEqual(tripAiFillOf(result([{ idle: true }])), { kind: "failed", text: "没能识别出行程，请写上日期、地点，或直接在下面填写" });
   const day: SiteTripParseDay = { idle: false, time: "09:00", start: at("酒店", HOTEL), stops: [], end: at("酒店", HOTEL) };
   assert.equal(tripAiFillOf(result(Array.from({ length: 15 }, () => day))).kind, "failed");
   assert.deepEqual(tripAiFillOf(result([{ ...day, stops: Array.from({ length: 11 }, () => ({ ...at("浅草寺", TEMPLE), stay_minutes: 30 })) }])), { kind: "failed", text: "行程较长，请分段报价或转人工" });
@@ -146,7 +146,7 @@ test("请确认 / 没有用上 / 不在报价范围：只按代码拼文案；�
   assert.deepEqual(fill.summary.confirm, ["第 1 天的日期按 11 月 20 日填", "第 1 天的上车时间是推算出来的", "标黄的地方是推算出来的"]);
   assert.deepEqual(fill.summary.unused, [
     "航班号 NH211：行程报价暂不用航班号，下单时可以填在备注里",
-    "你说的「包车 8 小时」会按实际路线自动选套餐，报价里能看到",
+    "您说的「包车 8 小时」会按实际路线自动选套餐，报价里能看到",
     "儿童座椅：报价后在附加服务里选",
     "其他要求：下单时可以填在备注里",
     "有一些信息报价用不上，下单时可以填在备注里",
@@ -174,16 +174,16 @@ test("字数按 Unicode 码点、去掉首尾空白；空表单判断（页面�
 
 test("失败的说法：没配密钥收起；额度用完、没看出行程、太长、太频繁（带秒数）、字数各自一句；其余（断网、AI 出错）同一句", () => {
   const api = (status: number, code: string, retry: number | null = null) => new ApiError(status, code, "x", {}, retry);
-  assert.deepEqual(tripAiFailureOf(api(503, "AI_NOT_CONFIGURED")), { text: "暂时没法自动整理，请直接在下面填写", hide: true });
+  assert.deepEqual(tripAiFailureOf(api(503, "AI_NOT_CONFIGURED")), { text: "暂时无法自动整理，请直接在下面填写", hide: true });
   assert.equal(tripAiFailureOf(api(503, "AI_DAILY_LIMIT")).text, "今天的自动整理次数已满，请直接填写");
-  assert.equal(tripAiFailureOf(api(422, "NOT_A_TRIP")).text, "没看出行程，请写上日期、地点，或直接在下面填写");
+  assert.equal(tripAiFailureOf(api(422, "NOT_A_TRIP")).text, "没能识别出行程，请写上日期、地点，或直接在下面填写");
   assert.equal(tripAiFailureOf(api(422, "TRIP_TOO_LONG")).text, "行程较长，请分段报价或转人工");
   assert.equal(tripAiFailureOf(api(400, "VALIDATION_FAILED")).text, "最多 500 字，请删短一些");
   assert.equal(tripAiFailureOf(api(429, "RATE_LIMITED", 12)).text, "请 12 秒后再试");
   assert.equal(tripAiFailureOf(api(429, "RATE_LIMITED", 120)).text, "请 2 分钟后再试");
   assert.equal(tripAiFailureOf(api(429, "RATE_LIMITED")).text, "请稍后再试");
-  assert.deepEqual(tripAiFailureOf(api(503, "AI_UNAVAILABLE")), { text: "暂时没法自动整理，请直接在下面填写", hide: false });
-  assert.deepEqual(tripAiFailureOf(new NetworkError()), { text: "暂时没法自动整理，请直接在下面填写", hide: false });
+  assert.deepEqual(tripAiFailureOf(api(503, "AI_UNAVAILABLE")), { text: "暂时无法自动整理，请直接在下面填写", hide: false });
+  assert.deepEqual(tripAiFailureOf(new NetworkError()), { text: "暂时无法自动整理，请直接在下面填写", hide: false });
 });
 
 test("服务端的新提示代码：没说年份（DATE_YEAR_INFERRED）进请确认；停留不在档上（STAY_OFF_GRID，服务端已置空）改进请确认、不再算请补填", () => {

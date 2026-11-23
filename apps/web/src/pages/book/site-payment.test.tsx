@@ -148,7 +148,7 @@ test("可付：先显示加载中，再挂上 Stripe 的表单（publishable key
 
   stripe.submit = async () => ({});
   await askToPay(actor);
-  assert.ok(screen.getByText("确认支付 21,780 JPY？"));
+  assert.ok(screen.getByText("确认付款 21,780 JPY？"));
   assert.ok(screen.getByText(/如果银行要求验证，会弹出银行的验证窗口/));
   await actor.click(screen.getByRole("button", { name: "返回" }));
   assertAbsent(screen.queryByRole("group", { name: "确认付款" }));
@@ -163,7 +163,7 @@ test("验证中：确认付款还没结果时（Stripe 的 3D 验证弹窗开着
   const calls = openOrderPage(stripe, () => status);
   const actor = user();
   await askToPay(actor);
-  await actor.click(screen.getByRole("button", { name: "确认支付" }));
+  await actor.click(screen.getByRole("button", { name: "确认付款" }));
   await waitFor(() => assert.equal(stripe.calls.confirm.length, 1));
   assert.ok(screen.getByRole("button", { name: /正在付款/ }));
   assert.equal((screen.getByRole("button", { name: "返回" }) as HTMLButtonElement).disabled, true);
@@ -178,7 +178,7 @@ test("验证中：确认付款还没结果时（Stripe 的 3D 验证弹窗开着
 
   await askToPay(actor);
   stripe.confirm = async () => ({ paymentIntent: intentOf("succeeded") });
-  await actor.click(screen.getByRole("button", { name: "确认支付" }));
+  await actor.click(screen.getByRole("button", { name: "确认付款" }));
   assert.ok(await screen.findByText(/^付款成功，等待确认。/));
   assert.equal(document.querySelector("[data-fake-stripe]"), null, "付完拆掉表单");
   status = "confirmed";
@@ -194,13 +194,13 @@ test("失败卡：按错误代码说明原因（卡被拒、余额不足），�
   openOrderPage(stripe);
   const actor = user();
   await askToPay(actor);
-  await actor.click(screen.getByRole("button", { name: "确认支付" }));
+  await actor.click(screen.getByRole("button", { name: "确认付款" }));
   const alert = await screen.findByText("付款没有成功：您的银行卡余额不足。请换一张卡。");
   assert.ok(alert.closest('[role="alert"]'), "失败用 role=alert 播报");
   assertAbsent(screen.queryByRole("group", { name: "确认付款" }));
   stripe.confirm = async () => ({ paymentIntent: intentOf("succeeded") });
   await askToPay(actor);
-  await actor.click(screen.getByRole("button", { name: "确认支付" }));
+  await actor.click(screen.getByRole("button", { name: "确认付款" }));
   assert.ok(await screen.findByText(/^付款成功，等待确认。/));
   assertAbsent(screen.queryByText(/余额不足/));
 });
@@ -213,14 +213,14 @@ test("网络失败：没连上 Stripe 时说可能没提交、可以再点且不
   openOrderPage(stripe);
   const actor = user();
   await askToPay(actor);
-  await actor.click(screen.getByRole("button", { name: "确认支付" }));
-  assert.ok(await screen.findByText("没有连上 Stripe，这次付款可能没有提交。请检查网络后再点「付款」；同一张订单不会被扣两次。"));
+  await actor.click(screen.getByRole("button", { name: "确认付款" }));
+  assert.ok(await screen.findByText("付款服务连接失败，这次付款可能没有提交。请检查网络后再点「付款」；同一张订单不会被扣两次。"));
   assert.ok(screen.getByRole("button", { name: "付款 21,780 JPY" }));
 
   stripe.confirm = async () => ({ error: { type: "api_connection_error" } });
   stripe.intent = intentOf("succeeded");
   await askToPay(actor);
-  await actor.click(screen.getByRole("button", { name: "确认支付" }));
+  await actor.click(screen.getByRole("button", { name: "确认付款" }));
   assert.ok(await screen.findByText(/^付款成功，等待确认。/));
 });
 
@@ -230,7 +230,7 @@ test("处理中：银行还在处理时说会自动确认、别重复付款，�
   const { refreshes } = openSection(stripe);
   const actor = user();
   await askToPay(actor);
-  await actor.click(screen.getByRole("button", { name: "确认支付" }));
+  await actor.click(screen.getByRole("button", { name: "确认付款" }));
   const text = await screen.findByText(/^银行正在处理这笔付款，处理完订单会自动确认/);
   assert.ok(text.closest('[role="status"]'));
   await waitFor(() => assert.ok(refreshes.length >= 3, `刷新了 ${refreshes.length} 次`));
@@ -257,7 +257,7 @@ test("付款组件没加载出来（Stripe.js、表单、查付款）：说检�
   const stripe = fakeStripeJs();
   stripe.failLoads = 1;
   openSection(stripe);
-  assert.ok(await screen.findByText("付款组件没有加载出来，请检查网络后点「重新加载」。"));
+  assert.ok(await screen.findByText("付款组件加载失败，请检查网络后点「重新加载」。"));
   const actor = user();
   await actor.click(screen.getByRole("button", { name: "重新加载" }));
   assert.ok(await screen.findByRole("button", { name: "付款 21,780 JPY" }));
@@ -267,14 +267,14 @@ test("付款组件没加载出来（Stripe.js、表单、查付款）：说检�
   const broken = fakeStripeJs();
   broken.elementLoads = false;
   openSection(broken);
-  assert.ok(await screen.findByText("付款组件没有加载出来，请检查网络后点「重新加载」。"));
+  assert.ok(await screen.findByText("付款组件加载失败，请检查网络后点「重新加载」。"));
   assert.equal(broken.calls.destroyed, 1, "没加载出来的表单拆掉");
   resetBrowser();
 
   const offline = fakeStripeJs();
   offline.intent = null;
   openSection(offline);
-  assert.ok(await screen.findByText("付款组件没有加载出来，请检查网络后点「重新加载」。"));
+  assert.ok(await screen.findByText("付款组件加载失败，请检查网络后点「重新加载」。"));
 });
 
 test("后端准备付款出错（Stripe 不可用）：说明并能重新加载；付款已经结束（没有 client_secret）：说不能付了并刷新订单", async () => {
@@ -332,7 +332,7 @@ test("缺陷：重新打开页面时 Stripe 给的是英文（被拒卡、3D 验
     ["Your card was declined.", { code: "card_declined", decline_code: "generic_decline" }, "上次付款没有成功：您的银行卡被拒绝了。请换一张卡，或联系发卡银行。"],
     ["Your card has insufficient funds.", { code: "card_declined", decline_code: "insufficient_funds" }, "上次付款没有成功：您的银行卡余额不足。请换一张卡。"],
     ["The provided PaymentMethod has failed authentication. You can provide payment_method_data or a new PaymentMethod to attempt to fulfill this PaymentIntent again.", { code: "payment_intent_authentication_failure" }, "上次付款没有成功：银行验证没有通过。请重新付款并完成验证，或换一张卡。"],
-    ["Something new from Stripe.", { code: "some_future_code" }, "上次付款没有成功：银行没有接受这次付款。请换一张卡，或稍后再试；一直不行请联系客服。"],
+    ["Something new from Stripe.", { code: "some_future_code" }, "上次付款没有成功：银行没有接受这次付款。请换一张卡，或稍后再试；多次失败请联系客服。"],
   ];
   for (const [message, failure, expected] of cases) {
     const stripe = fakeStripeJs();
@@ -351,8 +351,8 @@ test("缺陷：其他错误（Stripe 给了英文说明）也不显示原话，�
   openSection(stripe);
   const actor = user();
   await askToPay(actor);
-  await actor.click(screen.getByRole("button", { name: "确认支付" }));
-  assert.ok(await screen.findByText("付款没有完成。请稍后再试；一直不行请联系客服。"));
+  await actor.click(screen.getByRole("button", { name: "确认付款" }));
+  assert.ok(await screen.findByText("付款没有完成。请稍后再试；多次失败请联系客服。"));
   assertAbsent(screen.queryByText(/unknown error/));
 });
 
@@ -371,14 +371,14 @@ test("缺陷：确认付款失败、校验不过时，提示滚进视野并拿�
   const actor = user();
   await askToPay(actor);
   assert.equal(scrolled.length, 0, "还没出错不滚动");
-  await actor.click(screen.getByRole("button", { name: "确认支付" }));
+  await actor.click(screen.getByRole("button", { name: "确认付款" }));
   const first = await screen.findByText(/^付款没有成功：/);
   assert.equal(scrolled.length, 1, "滚进视野一次");
   assert.ok(document.activeElement?.contains(first), "焦点移到提示上");
   assert.equal(document.activeElement?.getAttribute("tabindex"), "-1", "提示本身不进 Tab 顺序");
 
   await askToPay(actor);
-  await actor.click(screen.getByRole("button", { name: "确认支付" }));
+  await actor.click(screen.getByRole("button", { name: "确认付款" }));
   await waitFor(() => assert.equal(scrolled.length, 2, "再失败一次再滚一次"));
   assert.ok(document.activeElement?.contains(screen.getByText(/^付款没有成功：/)));
 
@@ -408,7 +408,7 @@ test("缺陷：确认时才发现付款已取消，「不能付款了」的提�
   openSection(stripe);
   const actor = user();
   await askToPay(actor);
-  await actor.click(screen.getByRole("button", { name: "确认支付" }));
+  await actor.click(screen.getByRole("button", { name: "确认付款" }));
   const notice = await screen.findByText(/这张订单现在不能付款了/);
   assert.equal(scrolled.length, 1);
   assert.ok(document.activeElement?.contains(notice));
@@ -449,7 +449,7 @@ test("Stripe 的错误归类：卡和填写的问题、验证没通过都给中�
     [{ type: "invalid_request_error", code: "payment_intent_authentication_failure", message: "We are unable to authenticate your payment method." }, { kind: "declined", message: "银行验证没有通过。请重新付款并完成验证，或换一张卡。" }],
     [{ type: "api_connection_error" }, { kind: "network" }],
     [{ type: "invalid_request_error", code: "payment_intent_unexpected_state", message: "This PaymentIntent could not be confirmed." }, { kind: "failed" }],
-    [{ type: "card_error" }, { kind: "declined", message: "银行没有接受这次付款。请换一张卡，或稍后再试；一直不行请联系客服。" }],
+    [{ type: "card_error" }, { kind: "declined", message: "银行没有接受这次付款。请换一张卡，或稍后再试；多次失败请联系客服。" }],
   ];
   for (const [error, expected] of cases) assert.deepEqual(outcomeOfError(error), expected, JSON.stringify(error));
 });
