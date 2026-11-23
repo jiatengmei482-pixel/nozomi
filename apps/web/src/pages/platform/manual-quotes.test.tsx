@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import type { ManualQuoteDetail, ManualQuoteSummary, SiteSettings } from "../../api/manual-quotes.ts";
-import type { LegalPageSettings } from "../../api/legal-pages.ts";
+import type { LegalPageSettings, LegalPageSettingsInput } from "../../api/legal-pages.ts";
 import { COLLEAGUE, ME, openApp } from "../../testing/order-center-fixtures.tsx";
 import { type ApiCall, apiError, assertAbsent, json, resetBrowser } from "../../testing/harness.tsx";
 
@@ -252,9 +252,11 @@ test("详情：过了保留期的只写已清除，不能再改、不能写备�
 // ───────────── 官网设置 ─────────────
 
 /** 法律页面设置（M9E-24）：PUT 的请求体（平铺的写法）也能直接喂进来 */
-const legalOf = (changes: Record<string, unknown> = {}): LegalPageSettings => {
-  const flat = { seller: null, japan_contact: null, email: null, mail_provider: null, mail_provider_country: null, map_provider: null, map_provider_country: null, server_provider: null, server_provider_country: null, published_on: null, version: 0, ...changes } as Record<string, string | null> & { version: number };
-  const values = {
+const legalOf = (changes: Partial<LegalPageSettingsInput> & { version?: number } = {}): LegalPageSettings => {
+  const empty: LegalPageSettingsInput = { seller: null, japan_contact: null, email: null, mail_provider: null, mail_provider_country: null, map_provider: null, map_provider_country: null, server_provider: null, server_provider_country: null, published_on: null };
+  const { version = 0, ...rest } = changes;
+  const flat: LegalPageSettingsInput = { ...empty, ...rest };
+  return {
     seller: flat.seller,
     japan_contact: flat.japan_contact,
     email: flat.email,
@@ -262,9 +264,11 @@ const legalOf = (changes: Record<string, unknown> = {}): LegalPageSettings => {
     map_provider: { name: flat.map_provider, country: flat.map_provider_country },
     server_provider: { name: flat.server_provider, country: flat.server_provider_country },
     published_on: flat.published_on,
+    complete: Object.values(flat).every((value) => value !== null),
+    version,
+    updated_at: version === 0 ? null : "2030-11-10T05:00:00.000Z",
+    updated_by: version === 0 ? null : { id: ME, name: "测试员工" },
   };
-  const complete = [flat.seller, flat.japan_contact, flat.email, flat.mail_provider, flat.mail_provider_country, flat.map_provider, flat.map_provider_country, flat.server_provider, flat.server_provider_country, flat.published_on].every((value) => value !== null);
-  return { ...values, complete, version: flat.version, updated_at: flat.version === 0 ? null : "2030-11-10T05:00:00.000Z", updated_by: flat.version === 0 ? null : { id: ME, name: "测试员工" } };
 };
 
 const settingsOf = (changes: Partial<SiteSettings> = {}): SiteSettings => ({ support_whatsapp: null, page_width: "standard", maps_browser_key: null, version: 0, updated_at: null, updated_by: null, ...changes });
@@ -274,7 +278,7 @@ function openSettings(role: string, settings: SiteSettings, put: (call: ApiCall)
     if (call.method === "GET" && call.url.pathname === "/platform/v1/site-settings") return json(200, settings);
     if (call.method === "PUT" && call.url.pathname === "/platform/v1/site-settings") return put(call);
     if (call.method === "GET" && call.url.pathname === "/platform/v1/legal-page-settings") return json(200, legalOf());
-    if (call.method === "PUT" && call.url.pathname === "/platform/v1/legal-page-settings") return json(200, legalOf({ ...(call.body as object), version: 1 }));
+    if (call.method === "PUT" && call.url.pathname === "/platform/v1/legal-page-settings") return json(200, legalOf({ ...(call.body as Partial<LegalPageSettingsInput>), version: 1 }));
     return null;
   });
 }

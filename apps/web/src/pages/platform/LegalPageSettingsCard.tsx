@@ -76,7 +76,19 @@ function Editor({ settings, onSaved, onReload }: { settings: LegalPageSettings; 
   const save = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
     if (busy) return;
-    const input = Object.fromEntries(FIELDS.map((field) => [field.key, values[field.key].trim() === "" ? null : values[field.key].trim()])) as LegalPageSettingsInput;
+    const value = (key: FieldKey): string | null => (values[key].trim() === "" ? null : values[key].trim());
+    const input: LegalPageSettingsInput = {
+      seller: value("seller"),
+      japan_contact: value("japan_contact"),
+      email: value("email"),
+      mail_provider: value("mail_provider"),
+      mail_provider_country: value("mail_provider_country"),
+      map_provider: value("map_provider"),
+      map_provider_country: value("map_provider_country"),
+      server_provider: value("server_provider"),
+      server_provider_country: value("server_provider_country"),
+      published_on: value("published_on"),
+    };
     const found: Partial<Record<FieldKey, string>> = {};
     for (const field of FIELDS) {
       const value = input[field.key];
