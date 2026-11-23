@@ -1,6 +1,7 @@
 # ADR 0072：官网路线小地图改用谷歌静态地图
 
 - 状态：已采纳（2026-11-09，M8-10）。
+- 由 M10-01 修订（2026-11-18，PR #312；本段 2026-11-23 补记）：没开通静态地图时不再退回 Leaflet 地图，只留文字。见文末「补充：不退回 Leaflet 地图」。
 - 落实 ADR 0069 B11（右侧栏路线图）：业主选「谷歌静态地图」——灰色调底图，路线和起终点用品牌色突出；**密钥不进浏览器**（后端代调）。
 - 补充 ADR 0042「路线预估」：路线折线沿用同一个路线缓存键和 `RoutePreviewer`（M8-02），Routes 的调用照旧计入 `GOOGLE_ROUTES_DAILY_LIMIT`；冷却时长、东京日期、并发不超、记不了数就不调的做法照搬到静态地图，计数和上限另起一套。
 - 补充 ADR 0005「配置」：新增普通配置 `GOOGLE_STATIC_MAPS_DAILY_LIMIT`（不是密钥）和只给测试用的 `GOOGLE_STATIC_MAPS_URL`（只有 local / ci 能改）。
@@ -25,7 +26,7 @@
 
 | `reason` | 什么时候 | 页面 |
 | --- | --- | --- |
-| `NOT_ENABLED` | 没配谷歌密钥；谷歌说静态地图没开通（「This API is not activated…」「This API project is not authorized to use this API」）、密钥限制（referer、IP、只允许某些 API）、密钥无效、没绑卡、没权限 | 继续用原来的 Leaflet 地图（后备） |
+| `NOT_ENABLED` | 没配谷歌密钥；谷歌说静态地图没开通（「This API is not activated…」「This API project is not authorized to use this API」）、密钥限制（referer、IP、只允许某些 API）、密钥无效、没绑卡、没权限 | 不显示地图，只留「约 N 分钟 · N 公里」那行文字（2026-11-18 起，M10-01；以前退回 Leaflet 地图，见文末补充） |
 | `UNAVAILABLE` | 其余一切：静态地图到了每日上限、冷却中、超时、谷歌出错、图太大或不是图片、跳转；取不到路线（Routes 出错、到了路线上限、两点间没有路线、折线看不懂）；起终点取整后是同一个点；官网没开 | 只显示「约 X 分钟 · Y 公里」 |
 
   Routes 自己的「没开通」算 `UNAVAILABLE`：那是路线取不到，原来的地图也画不出路线。
@@ -132,4 +133,8 @@
 - 网址数字签名（见待确认 4）。
 - 坐标限制在渠道授权的城市范围内：现在靠每个地址的限频和全站每日上限控制费用；需要时加。
 - 多进程共享冷却和「并发只调一次」：同 ADR 0042，最坏每个进程各调一次，每日上限仍在库里统一计数，不会超。
-- 前端（同一任务的前端部分）：右侧栏 `<img>` 按主题、尺寸、倍率请求；`NOT_ENABLED` 退回 Leaflet 地图，`UNAVAILABLE` 只显示时间和距离；端到端测试的假谷歌加 `GOOGLE_STATIC_MAPS_URL`（`apps/api/src/testing/fake-integrations.ts` 的 `startFakeGoogleStaticMaps`）。
+- 前端（同一任务的前端部分）：右侧栏 `<img>` 按主题、尺寸、倍率请求；`NOT_ENABLED` 和 `UNAVAILABLE` 都只显示时间和距离（M10-01 起；原先 `NOT_ENABLED` 退回 Leaflet 地图）；端到端测试的假谷歌加 `GOOGLE_STATIC_MAPS_URL`（`apps/api/src/testing/fake-integrations.ts` 的 `startFakeGoogleStaticMaps`）。
+
+## 补充：不退回 Leaflet 地图（M10-01，2026-11-18）
+
+谷歌《服务专用条款》不许把谷歌的内容（这里是 Routes 算出的路线折线）画在非谷歌的地图上。原来 `NOT_ENABLED` 时前端退回 Leaflet，把谷歌的路线画在 OpenStreetMap 底图上，违反这一条。业主在 #288 选推荐 A：静态地图出不来时（不论 `NOT_ENABLED` 还是别的原因）都不显示地图，只留「约 N 分钟 · N 公里」那行文字；删掉 `RouteMap.tsx`（PR #312）。行程地图（ADR 0096）本来就没有 Leaflet 后备。接口和本 ADR 其余部分不变。
