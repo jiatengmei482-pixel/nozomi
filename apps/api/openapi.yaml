@@ -18369,6 +18369,88 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/legal-settings:
+    get:
+      tags: [ 官网设置 ]
+      operationId: getLegalSettings
+      summary: 法律文案的待补项（M9E-24）
+      description: 需要操作 `site_settings.read`。`version` 为 0 表示还没有保存过。`required_for_launch` 为 true（正式环境）时，没填齐官网不开放预订。
+      security:
+        - platformToken: []
+      responses:
+        "200":
+          description: 现在的待补项
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LegalSettings"
+    put:
+      tags: [ 官网设置 ]
+      operationId: updateLegalSettings
+      summary: 改法律文案的待补项（M9E-24）
+      description: |
+        需要操作 `site_settings.manage`（只归超级管理员）。整份提交：10 个键都要给，`null` 或空白是没填。
+        长度、邮箱（`contact_email`）、日期（`published_on`，YYYY-MM-DD）不对 400 `VALIDATION_FAILED`（路径 `/fields/<键>`，`reason` 是 `TOO_LONG` / `EMAIL_INVALID` / `DATE_INVALID`）。
+        保存过的要带 `If-Match`（版本号），对不上 409。写审计（`site_legal_settings` / `update`，前后的值）。
+      security:
+        - platformToken: []
+      parameters:
+        - name: If-Match
+          in: header
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ fields ]
+              properties:
+                fields:
+                  $ref: "#/components/schemas/LegalFields"
+      responses:
+        "200":
+          description: 保存后的待补项
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LegalSettings"
+        "400":
+          $ref: "#/components/responses/AreaInvalid"
+        "409":
+          description: 版本对不上（`VERSION_CONFLICT`）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /site/v1/legal:
+    get:
+      tags: [ 官网 ]
+      operationId: getSiteLegal
+      summary: 三份法律文案用的待补项和平台当前的取消政策（M9E-24）
+      description: |
+        不要登录；官网没开放时也能读。特定商取引法に基づく表記、キャンセルポリシー、プライバシーポリシー三个页面用：
+        正文写在页面里，待补项没填的显示「未設定」；キャンセルポリシー的取消费表按 `cancellation_policy` 实时生成。按地址限速（`site_read`）。
+      responses:
+        "200":
+          description: 待补项和取消政策
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ fields, complete, cancellation_policy ]
+                properties:
+                  fields:
+                    $ref: "#/components/schemas/LegalFields"
+                  complete:
+                    type: boolean
+                  cancellation_policy:
+                    $ref: "#/components/schemas/CancellationPolicy"
+        "429":
+          $ref: "#/components/responses/RateLimited"
 webhooks:
   tenantOrderEvent:
     post:
@@ -20926,7 +21008,7 @@ components:
     HealthResponse:
       type: object
       additionalProperties: false
-      required: [ status, env, database, migrations, integrations ]
+      required: [ status, env, database, migrations, integrations, legal ]
       properties:
         status:
           type: string
@@ -20942,6 +21024,22 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/IntegrationStatus"
+        legal:
+          $ref: "#/components/schemas/LegalHealth"
+    LegalHealth:
+      type: object
+      additionalProperties: false
+      required: [ state, requiredForLaunch ]
+      description: |
+        法律文案的待补项（M9E-24，ADR 0107）。不影响 `status`：正式环境没填齐时官网自己不开放预订（`/site/v1/config` 的 `open` 为 false）。
+      properties:
+        state:
+          type: string
+          enum: [ complete, incomplete, unknown ]
+          description: "`complete` 都填了；`incomplete` 还有没填的；`unknown` 数据库不可用或没读出来"
+        requiredForLaunch:
+          type: boolean
+          description: 这个环境是不是要填齐才开放预订（只有正式环境为 true）
     DatabaseHealth:
       type: object
       additionalProperties: false
@@ -35962,6 +36060,49 @@ components:
       type: string
       enum: [ standard, wide, full ]
       description: 官网页面宽度（M8-28，ADR 0079）：标准（最宽 1200px）、较宽（1440px）、最宽（1920px）；全站一个值，没设过是 standard。平板、手机不受影响
+    LegalFields:
+      type: object
+      additionalProperties: false
+      description: 法律文案【 】里的待补项（`packages/domain/src/legal-pages.ts` 的 `LEGAL_FIELDS`）；null 是没填
+      required: [ seller_name, japan_contact, contact_email, mail_provider, mail_provider_country, map_provider, map_provider_country, server_provider, server_provider_country, published_on ]
+      properties:
+        seller_name: { type: [ string, "null" ], maxLength: 2000, description: 販売事業者 }
+        japan_contact: { type: [ string, "null" ], maxLength: 2000, description: 日本国内の連絡先（可多行） }
+        contact_email: { type: [ string, "null" ], maxLength: 2000, description: 联系邮箱 }
+        mail_provider: { type: [ string, "null" ], maxLength: 2000, description: メール配信事業者 }
+        mail_provider_country: { type: [ string, "null" ], maxLength: 2000 }
+        map_provider: { type: [ string, "null" ], maxLength: 2000, description: 地図表示事業者 }
+        map_provider_country: { type: [ string, "null" ], maxLength: 2000 }
+        server_provider: { type: [ string, "null" ], maxLength: 2000, description: サーバー事業者 }
+        server_provider_country: { type: [ string, "null" ], maxLength: 2000 }
+        published_on: { type: [ string, "null" ], maxLength: 2000, description: 公開日（YYYY-MM-DD） }
+    LegalSettings:
+      type: object
+      additionalProperties: false
+      required: [ fields, missing, complete, required_for_launch, version, updated_at, updated_by ]
+      properties:
+        fields:
+          $ref: "#/components/schemas/LegalFields"
+        missing:
+          type: array
+          items:
+            type: string
+          description: 没填的键（按 `LEGAL_FIELDS` 的顺序）
+        complete:
+          type: boolean
+        required_for_launch:
+          type: boolean
+          description: 正式环境为 true：没填齐官网不开放预订
+        version:
+          type: integer
+          description: 0 表示还没有保存过
+        updated_at:
+          type: [ string, "null" ]
+          format: date-time
+        updated_by:
+          oneOf:
+            - $ref: "#/components/schemas/ManualQuotePerson"
+            - type: "null"
     SiteSettings:
       type: object
       additionalProperties: false

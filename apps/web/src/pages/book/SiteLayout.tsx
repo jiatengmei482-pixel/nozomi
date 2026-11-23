@@ -1,7 +1,7 @@
 /**
  * 官网页面的外观（M3-05，ADR 0032；docs/design/03-layout.md「官网下单页」）：不用后台的菜单壳。
- * 单栏、内容最宽 `layout-reading-max-width`、居中；顶部是品牌、主题切换和两个入口；底部是数据来源的署名
- * （页面上有城市、机场的名称：GeoNames CC BY 4.0、OurAirports 公有领域）。
+ * 单栏、内容最宽 `layout-reading-max-width`、居中；顶部是品牌、主题切换和两个入口；底部是三份法律文案的链接（M9E-24）和数据来源的署名
+ * （页面上有城市、机场的名称：GeoNames CC BY 4.0、OurAirports 公有领域；`attribution={false}` 的页面不写署名，法律文案的链接总在）。
  */
 import { Component, type ReactNode, useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { Link, Outlet, useLocation } from "react-router";
@@ -10,6 +10,7 @@ import { SITE_PAGE_WIDTHS, type SiteConfig, type SitePageWidth, getSiteConfig } 
 import { Attributions, placeSources } from "../../components/Attribution.tsx";
 import { Brand } from "../../components/Brand.tsx";
 import { Button } from "../../components/Button.tsx";
+import { LegalLinks } from "../../components/LegalLinks.tsx";
 import { StateBlock } from "../../components/States.tsx";
 import { failureText } from "../../lib/failure.ts";
 import { SITE_HOME_PATH, SITE_ORDER_PATH } from "../../lib/site-display.ts";
@@ -87,11 +88,12 @@ export function SiteLayout({ children, attribution = true }: { children: ReactNo
         </nav>
       </header>
       <main className="site__main">{children}</main>
-      {attribution && (
-        <footer className="site__footer">
-          <Attributions sources={placeSources(true)} />
-        </footer>
-      )}
+      <footer className="site__footer">
+        <nav className="site__legal" aria-label="法律文案">
+          <LegalLinks />
+        </nav>
+        {attribution && <Attributions sources={placeSources(true)} />}
+      </footer>
     </div>
   );
 }

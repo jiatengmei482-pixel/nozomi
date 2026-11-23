@@ -5,7 +5,7 @@
  */
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { BrowserRouter, useNavigate } from "react-router";
 import { useEffect } from "react";
 import { apiError, json, stubApiWith } from "../../testing/harness.tsx";
@@ -191,3 +191,24 @@ for (const target of ["/login", "/platform", "/platform/orders", "/tenant", "/bo
     assert.equal(document.querySelectorAll("main").length, 1);
   });
 }
+
+test("嵌入页顶部（M9E-24）：卖方说明下面三份法律文案的链接，日文名称（三种语言都一样）、主站地址、新标签页打开", async () => {
+  for (const lang of ["ja", "zh", "en"]) {
+    stubApiWith(() => apiError(404, "BOOKING_DRAFT_NOT_FOUND", "链接已过期"));
+    open(url(`&lang=${lang}`));
+    const head = (await screen.findByText(EMBED_TEXTS[lang as "ja" | "zh" | "en"].seller)).closest("header") as HTMLElement;
+    const list = within(head).getByRole("list", { name: "法律文案" });
+    assert.equal(list.getAttribute("lang"), "ja");
+    const links = within(list).getAllByRole("link");
+    assert.deepEqual(
+      links.map((link) => [link.textContent?.replace("（在新标签页打开）", ""), link.getAttribute("href"), link.getAttribute("target"), link.getAttribute("rel")]),
+      [
+        ["特定商取引法に基づく表記", "/legal/tokushoho", "_blank", "noopener"],
+        ["キャンセルポリシー", "/legal/cancellation", "_blank", "noopener"],
+        ["プライバシーポリシー", "/legal/privacy", "_blank", "noopener"],
+      ],
+      lang,
+    );
+    cleanup();
+  }
+});

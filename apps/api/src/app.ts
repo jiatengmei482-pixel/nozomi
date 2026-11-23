@@ -79,6 +79,7 @@ import { registerSiteRoutes } from "./routes/site.ts";
 import { registerSiteTripRoutes } from "./routes/site-trips.ts";
 import { registerUncoveredDemandRoutes } from "./routes/uncovered-demands.ts";
 import { registerPlatformSecurityRoutes } from "./routes/platform-security.ts";
+import { registerLegalSettingsRoutes } from "./routes/legal-settings.ts";
 import { registerManualQuoteRoutes } from "./routes/manual-quotes.ts";
 import { registerReportRoutes } from "./routes/reports.ts";
 import { ManualQuoteRetentionJobs } from "./services/manual-quotes.ts";
@@ -460,6 +461,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerEmbedRoutes(app, context);
   registerViewLinkRoutes(app, context);
   registerManualQuoteRoutes(app, context);
+  registerLegalSettingsRoutes(app, context);
 
   return app;
 }

@@ -40,6 +40,7 @@ export const PAGE_ENTRIES: Readonly<Record<string, PageEntry>> = {
   "pages/book/OrderPage.tsx": { area: "site", page: "订单页（查订单、管理订单）" },
   "pages/book/LegacyBookingRedirect.tsx": { area: "site", page: "旧预订地址跳转" },
   "pages/book/SiteLayout.tsx": { area: "site", page: "官网外框（页头、页脚、出错页）" },
+  "pages/legal/LegalPages.tsx": { area: "site", page: "法律文案（特定商取引法に基づく表記、キャンセルポリシー、プライバシーポリシー）" },
   "pages/embed/EmbedApp.tsx": { area: "embed", page: "嵌入预订页（合作网站里的预订页）" },
   "embed/widget.ts": { area: "embed", page: "嵌入组件脚本（合作网站页面上的询价框）" },
   "pages/driver/DriverTripPage.tsx": { area: "driver", page: "司机任务页" },
@@ -105,6 +106,7 @@ const ROUTER_FILES = new Set(["App.tsx", "main.tsx", "pages/platform/routes.tsx"
 /** 不在 PAGE_ENTRIES、也没有页面用到时，按目录归区域（先匹配长的） */
 const DIRECTORY_AREAS: ReadonlyArray<readonly [string, AreaId]> = [
   ["pages/book/", "site"],
+  ["pages/legal/", "site"],
   ["pages/embed/", "embed"],
   ["embed/", "embed"],
   ["pages/driver/", "driver"],
