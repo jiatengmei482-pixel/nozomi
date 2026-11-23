@@ -14,7 +14,8 @@
  * - A 网站建的草稿在 B 网站打开：询价不带 draft_id（来源按主站记）。
  * 第三期（M9E-19，ADR 0095 第七节）：下单后在 iframe 里直接挂付款表单（假 Stripe），要 3D 验证的卡在 iframe 里弹验证框，宿主先收到 modal{open:true}
  *   再收到 modal{open:false}；付完宿主的 onEvent 收到 completed；模拟银行整页回跳到 return_url（带 key、host、ch，过得了 frame-check）后照常显示、
- *   地址里的付款参数去掉、回跳后的消息仍带频道号，换 4242 付完收到 completed。
+ *   地址里的付款参数去掉、回跳后的消息仍带频道号，换 4242 付完收到 completed。被拒的卡：iframe 里显示被拒的原因、表单留着、订单仍是待付款、
+ *   宿主没收到 completed，换 4242 付完才收到。宿主窗口 390 宽、客人往下滚过（iframe 上沿在屏幕外）时点「确认付款」：验证框的标题和按钮都在宿主屏幕里。
  * M9E-27（ADR 0095 第十二节末第二轮决策）：分栏按 iframe 自己的宽度——iframe 1440、1024 宽两栏，右边是主站同一个「行程摘要」右侧栏
  * （谷歌静态路线图经同源 /site/v1/route-map 出图、时长公里数、车型、出发地、目的地、航班落地时间、乘客 / 行李），1023、375 宽单栏、顶部摘要条；
  * 宿主窗口宽而预订区窄时照样单栏；宽窄切换后 resize 报的高度等于内容高度、不多发 step；亮暗两色 axe；截图存到 E2E_SCREENSHOT_DIR（m9e27-*.png）。
@@ -730,4 +731,83 @@ test("M9E-19 跨站：银行整页回跳到嵌入订单页（return_url 过得�
   const after = (await hostMessages(page)).slice(before);
   expect(after.length).toBeGreaterThan(0);
   expect(after.every((message) => message.data["ch"] === ch), "回跳后的 ready / step / completed 都带频道号").toBe(true);
+});
+
+/** 宿主 onEvent 收到的事件 */
+async function hostEvents(page: Page): Promise<{ type: string }[]> {
+  return (await page.evaluate(() => (window as unknown as { __events: { type: string }[] }).__events)) ?? [];
+}
+
+test("M9E-19 跨站：iframe 里用被拒的卡付款——显示被拒的原因、表单留着、订单仍是待付款、宿主没收到 completed；换 4242 付完宿主收到 completed", async ({ page, request }) => {
+  test.setTimeout(240_000);
+  const routed = await routeStripe(page, fakeStripeUrl());
+  const { created } = await placeInFrame(page, request);
+  const frame = frameOf(page);
+  const cardField = frame.getByLabel("卡号（假 Stripe）");
+  await cardField.fill(TEST_CARDS.declined);
+  await frame.getByRole("button", { name: /^付款 / }).click();
+  await frame.getByRole("button", { name: "确认付款" }).click();
+  await expect(frame.getByRole("alert").filter({ hasText: "付款没有成功" })).toHaveText("付款没有成功：您的银行卡被拒绝了。请换一张卡，或联系发卡银行。");
+  await expect(cardField, "被拒后付款表单留着，可以换卡").toBeVisible();
+  await expect.poll(async () => (await hostMessages(page)).filter((message) => message.data["type"] === "modal").map((message) => message.data["open"])).toEqual([true, false]);
+
+  // 等假 Stripe 发出的 payment_failed 通知被后端处理完，订单仍是待付款
+  const headers = await platformAdminHeaders(request);
+  await expect.poll(async () => {
+    const detail = await request.get(`/platform/v1/orders/${created.order.id}`, { headers });
+    const body = (await detail.json()) as { payments: { last_error: { decline_code: string | null } | null }[] };
+    return body.payments.some((payment) => payment.last_error !== null);
+  }, { timeout: 20_000 }).toBe(true);
+  const detail = await request.get(`/platform/v1/orders/${created.order.id}`, { headers });
+  expect(detail.status(), await detail.text()).toBe(200);
+  expect(((await detail.json()) as { order: { status: string } }).order.status).toBe("pending_payment");
+  expect((await hostEvents(page)).map((event) => event.type), "被拒时宿主不收到 completed").not.toContain("completed");
+  expect((await hostMessages(page)).some((message) => message.data["type"] === "completed"), "被拒时 iframe 不发 completed").toBe(false);
+
+  await cardField.fill(TEST_CARDS.success);
+  await frame.getByRole("button", { name: /^付款 / }).click();
+  await frame.getByRole("button", { name: "确认付款" }).click();
+  await expect(frame.getByText(/付款成功，等待确认/)).toBeVisible();
+  await expect.poll(async () => (await hostEvents(page)).some((event) => event.type === "completed"), { timeout: 30_000 }).toBe(true);
+  const completed = (await hostMessages(page)).filter((message) => message.data["type"] === "completed");
+  expect(completed).toHaveLength(1);
+  expect(completed[0]?.data).toMatchObject({ orderNo: created.order.order_no, status: "submitted" });
+  expect(routed.unexpected).toEqual([]);
+});
+
+test("M9E-19 跨站：宿主页手机 390 宽——3D 验证框弹出时在客人可视范围内（宿主收到 modal{open:true}），完成验证后付款成功、宿主收到 completed", async ({ page, request }) => {
+  test.setTimeout(240_000);
+  const routed = await routeStripe(page, fakeStripeUrl());
+  const { created } = await placeInFrame(page, request);
+  // 下单按默认宽度走（390 宽时 placeInFrame 的点法会点到底部按钮条上，四步的 390 宽另见 M9E-32 那条）；付款这一步宿主窗口是手机 390 宽
+  await page.setViewportSize({ width: 390, height: 844 });
+  const frame = frameOf(page);
+  await expect.poll(async () => page.locator('iframe[title="NOZOMI 用车预订"]').evaluate((element) => Math.round(element.getBoundingClientRect().width))).toBeLessThanOrEqual(390);
+  await frame.getByLabel("卡号（假 Stripe）").fill(TEST_CARDS.threeDs);
+  await frame.getByRole("button", { name: /^付款 / }).click();
+  // 客人往下滚过：「确认付款」在宿主屏幕上方附近，iframe 的上沿已经滚出屏幕（不处理 modal 的话，验证框的标题和按钮就在屏幕外）
+  const confirm = frame.getByRole("button", { name: "确认付款" });
+  await expect(confirm).toBeVisible();
+  const embedFrame = page.locator('iframe[title="NOZOMI 用车预订"]');
+  const confirmTop = (await confirm.boundingBox())?.y ?? 0;
+  await page.evaluate((by) => window.scrollBy(0, by), confirmTop - 80);
+  await expect.poll(async () => embedFrame.evaluate((element) => element.getBoundingClientRect().top), "前提：iframe 上沿在宿主屏幕外").toBeLessThan(-200);
+  await expect(confirm).toBeInViewport();
+  await confirm.click();
+  const bank = frame.frameLocator('iframe[title="银行验证（假）"]');
+  await expect(bank.getByRole("heading", { name: "银行验证（假 Stripe）" })).toBeVisible();
+  await expect.poll(async () => (await hostMessages(page)).filter((message) => message.data["type"] === "modal").map((message) => message.data["open"])).toEqual([true]);
+  // 宿主窗口 390 宽：验证框和里面的按钮都在宿主屏幕里，客人不用自己滚
+  await expect(frame.locator('iframe[title="银行验证（假）"]')).toBeInViewport();
+  await expect(bank.getByRole("heading", { name: "银行验证（假 Stripe）" })).toBeInViewport();
+  await expect(bank.getByRole("button", { name: "完成验证" })).toBeInViewport();
+  await expect(bank.getByRole("button", { name: "验证失败" })).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth), "宿主页没有横向滚动").toBeLessThanOrEqual(390);
+  await snapshot(page, "m9e19-embed-3ds-390");
+  await bank.getByRole("button", { name: "完成验证" }).click();
+  await expect(frame.getByText(/付款成功，等待确认/)).toBeVisible();
+  await expect.poll(async () => (await hostMessages(page)).filter((message) => message.data["type"] === "modal").map((message) => message.data["open"])).toEqual([true, false]);
+  await expect.poll(async () => (await hostEvents(page)).some((event) => event.type === "completed"), { timeout: 30_000 }).toBe(true);
+  expect((await hostMessages(page)).find((message) => message.data["type"] === "completed")?.data).toMatchObject({ orderNo: created.order.order_no, status: "submitted" });
+  expect(routed.unexpected).toEqual([]);
 });
