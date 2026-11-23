@@ -173,6 +173,9 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
       ["POST", `/platform/v1/manual-quote-requests/${ids.userId}/notes`, { note: "不该生效" }],
       ["GET", "/platform/v1/site-settings"],
       ["PUT", "/platform/v1/site-settings", { support_whatsapp: "+81 3 1234 5678" }],
+      // 法律页面设置（M9E-24，ADR 0107）
+      ["GET", "/platform/v1/legal-page-settings"],
+      ["PUT", "/platform/v1/legal-page-settings", { seller: "不该生效", japan_contact: null, email: null, mail_provider: null, mail_provider_country: null, map_provider: null, map_provider_country: null, server_provider: null, server_provider_country: null, published_on: null }],
       // 运营后台填写的第三方密钥（M4-09，ADR 0041）
       ["GET", "/platform/v1/integration-secrets"],
       ["PUT", `/platform/v1/integration-secrets/${ids.integration ?? "google-maps"}`, { api_key: "AIzaBypassBypassBypassBypass0001" }],

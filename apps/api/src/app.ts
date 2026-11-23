@@ -80,6 +80,8 @@ import { registerSiteTripRoutes } from "./routes/site-trips.ts";
 import { registerUncoveredDemandRoutes } from "./routes/uncovered-demands.ts";
 import { registerPlatformSecurityRoutes } from "./routes/platform-security.ts";
 import { registerManualQuoteRoutes } from "./routes/manual-quotes.ts";
+import { registerLegalPageRoutes } from "./routes/legal-pages.ts";
+import { legalPagesFilled } from "./services/legal-pages.ts";
 import { registerReportRoutes } from "./routes/reports.ts";
 import { ManualQuoteRetentionJobs } from "./services/manual-quotes.ts";
 import { BookingDraftRetentionJobs } from "./services/booking-drafts.ts";
@@ -273,6 +275,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       pool,
       migrationFiles,
       timeoutMs: deps.healthTimeoutMs ?? 2_000,
+      // 法律页面设置填齐了没有（M9E-24，ADR 0107 第三节）：只报告，不影响 200 / 503
+      legalPages: () => legalPagesFilled({ pool }),
     });
     return reply
       .code(report.status === "ok" ? 200 : 503)
@@ -460,6 +464,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerEmbedRoutes(app, context);
   registerViewLinkRoutes(app, context);
   registerManualQuoteRoutes(app, context);
+  registerLegalPageRoutes(app, context);
 
   return app;
 }

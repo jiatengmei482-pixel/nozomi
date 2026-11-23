@@ -113,6 +113,9 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   // 官网设置（M8-21）：看 site_settings.read；改 site_settings.manage（只归超级管理员；空的请求体有权限时 400，不会改到）
   { method: "GET", url: "/platform/v1/site-settings", action: "site_settings.read" },
   { method: "PUT", url: "/platform/v1/site-settings", action: "site_settings.manage", body: {} },
+  // 法律页面设置（M9E-24，ADR 0107）：权限同官网设置
+  { method: "GET", url: "/platform/v1/legal-page-settings", action: "site_settings.read" },
+  { method: "PUT", url: "/platform/v1/legal-page-settings", action: "site_settings.manage", body: {} },
   // 嵌入组件（M9E-02，ADR 0090）：看 embed.read；新建、改 embed.manage（空的请求体有权限时 400；不存在的编号有权限时 404 / 428，不会改到）
   { method: "GET", url: "/platform/v1/embed-keys", action: "embed.read" },
   { method: "GET", url: `/platform/v1/embed-keys/${MISSING}`, action: "embed.read" },

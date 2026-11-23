@@ -64,6 +64,11 @@ export interface HealthReport {
   database: DatabaseHealth;
   migrations: MigrationHealth;
   integrations: PublicIntegrationStatus[];
+  /**
+   * 法律页面（特定商取引法表記・キャンセルポリシー・プライバシーポリシー）里业主留空的几项，运营后台填齐了没有（M9E-24，ADR 0107 第三节）。
+   * 只报告、不影响 status（正式站第一次部署时还没人能登录后台去填，算失败的话部署会回滚）。数据库不通、读不到时为 unknown；不给检查函数时没有这一项。
+   */
+  legal_pages?: "complete" | "incomplete" | "unknown";
 }
 
 /** 公开的集成状态：没有 detail。 */
@@ -81,6 +86,8 @@ export interface HealthDeps {
   migrationFiles: readonly MigrationFile[];
   /** 整个健康检查（数据库探测 + 迁移探测）的时限（毫秒） */
   timeoutMs: number;
+  /** 法律页面设置填齐了没有（ADR 0107）；不给时报告里没有 legal_pages */
+  legalPages?: () => Promise<boolean>;
 }
 
 const MIGRATIONS_UNKNOWN: MigrationHealth = { state: "unknown", applied: null, pending: null, errorCode: null };
@@ -122,6 +129,15 @@ async function checkMigrations(
   }
 }
 
+async function checkLegalPages(check: () => Promise<boolean>, remainingMs: number): Promise<"complete" | "incomplete" | "unknown"> {
+  if (remainingMs < 1) return "unknown";
+  try {
+    return (await withTimeout(check(), remainingMs)) ? "complete" : "incomplete";
+  } catch {
+    return "unknown";
+  }
+}
+
 export async function checkHealth(deps: HealthDeps): Promise<HealthReport> {
   const deadline = performance.now() + deps.timeoutMs;
   const database = await checkDatabase(deps.pool, deps.timeoutMs);
@@ -131,11 +147,13 @@ export async function checkHealth(deps: HealthDeps): Promise<HealthReport> {
       ? await checkMigrations(deps.pool, deps.migrationFiles, remainingMs)
       : MIGRATIONS_UNKNOWN;
   const healthy = database.state === "up" && migrations.state === "up_to_date";
-  return {
+  const report: HealthReport = {
     status: healthy ? "ok" : "degraded",
     env: deps.config.appEnv,
     database,
     migrations,
     integrations: publicIntegrationStatus(deps.config, deps.effective),
   };
+  if (deps.legalPages !== undefined) report.legal_pages = healthy ? await checkLegalPages(deps.legalPages, deadline - performance.now()) : "unknown";
+  return report;
 }

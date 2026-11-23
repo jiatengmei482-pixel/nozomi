@@ -52,6 +52,8 @@ const PLATFORM_TABLES = [
   "itinerary_route_polylines",
   "legacy_price_cleanup_backups",
   "legacy_price_cleanup_runs",
+  // 法律页面设置（M9E-24，ADR 0107）：全站一行
+  "legal_page_settings",
   "login_throttles",
   "manual_quote_request_events",
   "manual_quote_requests",
@@ -362,6 +364,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     manual_quote_trip_links: ["INSERT", "SELECT"],
     // 官网设置（ADR 0076）：全站一行，第一次保存时写入
     site_settings: ["INSERT", "SELECT", "UPDATE"],
+    // 法律页面设置（M9E-24，ADR 0107）：全站一行，第一次保存时写入；只改不删
+    legal_page_settings: ["INSERT", "SELECT", "UPDATE"],
     // AI 一句话行程（M9T-32，ADR 0104）：型号设置只改不删；调用记录 90 天后由清理任务删
     ai_trip_settings: ["INSERT", "SELECT", "UPDATE"],
     trip_parse_runs: ["DELETE", "INSERT", "SELECT", "UPDATE"],
