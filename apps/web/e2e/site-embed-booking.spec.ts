@@ -109,7 +109,7 @@ const dayAfterTomorrow = (): string => new Date(Date.now() + 2 * 86_400_000 + 9 
 const frameOf = (page: Page) => page.frameLocator('iframe[title="NOZOMI 用车预订"]');
 const fakeDraft = (): string => `${randomLetters(8)}${"x".repeat(35)}`;
 
-/** 在宿主首页的组件里选两个地点、填日期，点「查看价格」：等跳到宿主 /booking/ */
+/** 在宿主首页的组件里选两个地点、填日期，点「查询价格」：等跳到宿主 /booking/ */
 async function searchFromHostHome(page: Page, host: Host, airportName: string): Promise<void> {
   await page.goto(`${host.origin}/`);
   const from = page.getByRole("combobox", { name: "出发地" });
@@ -124,7 +124,7 @@ async function searchFromHostHome(page: Page, host: Host, airportName: string): 
   await expect(to).toHaveValue(/東京駅/);
   await page.getByLabel("日期").fill(dayAfterTomorrow());
   const drafted = page.waitForResponse((res) => res.url().includes("/embed/v1/booking-drafts") && res.request().method() === "POST");
-  await page.getByRole("button", { name: "查看价格" }).click();
+  await page.getByRole("button", { name: "查询价格" }).click();
   const response = await drafted;
   expect(response.status()).toBe(201);
   expect(JSON.parse(response.request().postData() ?? "{}").delivery, "传了 bookingUrl 的建草稿带 delivery").toBe("host_page");
@@ -274,7 +274,7 @@ test("M9E-17 跨站整条流程：iframe 里走完四步（询价带 draft_id、
   await frame.getByRole("radio", { name: /^国际航班/ }).check();
   await frame.getByLabel("乘车人姓名").fill("王小明");
   await frame.getByLabel("邮箱").fill(email);
-  const phone = frame.getByLabel("手机号（含国家区号）");
+  const phone = frame.getByLabel("手机号（含国家码）");
   await phone.fill("+81 90-1234-5678");
   // 键盘：在输入框里按回车提交这一步
   await phone.press("Enter");
@@ -581,7 +581,7 @@ test("M9E-32 跨站：手机 390 宽，iframe 被撑到全高，每一步的主�
   await frame.getByRole("radio", { name: /^国际航班/ }).check();
   await frame.getByLabel("乘车人姓名").fill("王小明");
   await frame.getByLabel("邮箱").fill(`m9e32-embed-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`);
-  await frame.getByLabel("手机号（含国家区号）").fill("+81 90-1234-5678");
+  await frame.getByLabel("手机号（含国家码）").fill("+81 90-1234-5678");
   await expectFrameButtonOnScreen(page, bar.getByRole("button", { name: "下一步：核对订单" }), 0, "第 3 步「下一步：核对订单」");
   await expectFrameButtonOnScreen(page, bar.getByRole("button", { name: "上一步" }), 0, "第 3 步「上一步」");
   await snapshot(page, "m9e32-embed-step3");
@@ -608,7 +608,7 @@ test("M9E-32 跨站：手机 390 宽，iframe 被撑到全高，每一步的主�
   await bar.getByRole("button", { name: "上一步" }).click();
   await bar.getByRole("button", { name: "上一步" }).click();
   await bar.getByRole("button", { name: "上一步" }).click();
-  await expect(frame.getByRole("heading", { name: "你的行程" })).toBeVisible();
+  await expect(frame.getByRole("heading", { name: "您的行程" })).toBeVisible();
   await expectFrameButtonOnScreen(page, bar.getByRole("button", { name: "下一步：选择车型" }), 0, "第 1 步「下一步：选择车型」");
   await snapshot(page, "m9e32-embed-step1");
 });
@@ -619,7 +619,7 @@ function fakeStripeUrl(): string {
   return url;
 }
 
-/** 配了 Stripe 的那一组主站：宿主首页选机场 → 平台车站、后天，查看价格 → /booking/ 的 iframe 里走完四步下单，停在 iframe 里的订单页 */
+/** 配了 Stripe 的那一组主站：宿主首页选机场 → 平台车站、后天，查询价格 → /booking/ 的 iframe 里走完四步下单，停在 iframe 里的订单页 */
 async function placeInFrame(page: Page, request: APIRequestContext): Promise<{ host: Host; created: { order: { id: string; order_no: string }; link: { token: string } } }> {
   const world = await createWorld(request);
   const airport = await createAirport(request, world);
@@ -637,7 +637,7 @@ async function placeInFrame(page: Page, request: APIRequestContext): Promise<{ h
     await expect(input).toHaveValue(name);
   }
   await page.getByLabel("日期").fill(dayAfterTomorrow());
-  await page.getByRole("button", { name: "查看价格" }).click();
+  await page.getByRole("button", { name: "查询价格" }).click();
   await expect.poll(() => page.url()).toBe(`${host.origin}/booking/`);
   const frame = frameOf(page);
   const card = frame.getByRole("listitem").filter({ has: frame.getByRole("heading", { name: world.group.name }) });
@@ -647,7 +647,7 @@ async function placeInFrame(page: Page, request: APIRequestContext): Promise<{ h
   await frame.getByRole("radio", { name: /^国际航班/ }).check();
   await frame.getByLabel("乘车人姓名").fill("王小明");
   await frame.getByLabel("邮箱").fill(`embed-pay-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`);
-  await frame.getByLabel("手机号（含国家区号）").fill("+81 90-1234-5678");
+  await frame.getByLabel("手机号（含国家码）").fill("+81 90-1234-5678");
   await frame.getByRole("button", { name: "下一步：核对订单" }).click();
   await frame.getByRole("checkbox", { name: /同意保存这次付款用的银行卡/ }).check();
   const placed = page.waitForResponse((res) => new URL(res.url()).pathname === "/site/v1/orders" && res.request().method() === "POST");
@@ -668,7 +668,7 @@ test("M9E-19 跨站：下单后 iframe 里直接出付款表单；3D 验证框�
   await expect(cardField, "下单后不用再点按钮，付款表单就在这一页").toBeVisible();
   await cardField.fill(TEST_CARDS.threeDs);
   await frame.getByRole("button", { name: /^付款 / }).click();
-  await frame.getByRole("button", { name: "确认支付" }).click();
+  await frame.getByRole("button", { name: "确认付款" }).click();
   const bank = frame.frameLocator('iframe[title="银行验证（假）"]');
   await expect(bank.getByRole("heading", { name: "银行验证（假 Stripe）" })).toBeVisible();
   // 验证框开着：宿主已收到 modal{open:true}，iframe 高度改成宿主可视高度、滚到 iframe 顶部
@@ -698,7 +698,7 @@ test("M9E-19 跨站：银行整页回跳到嵌入订单页（return_url 过得�
   const frame = frameOf(page);
   await frame.getByLabel("卡号（假 Stripe）").fill(TEST_CARDS.threeDs);
   await frame.getByRole("button", { name: /^付款 / }).click();
-  await frame.getByRole("button", { name: "确认支付" }).click();
+  await frame.getByRole("button", { name: "确认付款" }).click();
   await expect(frame.frameLocator('iframe[title="银行验证（假）"]').getByRole("heading", { name: "银行验证（假 Stripe）" })).toBeVisible();
   // 像 Stripe 把整个 iframe 带去银行再回来：iframe 整页打开 return_url + Stripe 加的参数
   const embed = embedFrameHandle(page);
@@ -726,7 +726,7 @@ test("M9E-19 跨站：银行整页回跳到嵌入订单页（return_url 过得�
   for (const name of ["payment_intent", "payment_intent_client_secret", "redirect_status", "ch"]) expect(embedUrl(page).searchParams.has(name), `地址里还有 ${name}`).toBe(false);
   await frameOf(page).getByLabel("卡号（假 Stripe）").fill(TEST_CARDS.success);
   await frameOf(page).getByRole("button", { name: /^付款 / }).click();
-  await frameOf(page).getByRole("button", { name: "确认支付" }).click();
+  await frameOf(page).getByRole("button", { name: "确认付款" }).click();
   await expect.poll(async () => (await hostMessages(page)).slice(before).some((message) => message.data["type"] === "completed"), { timeout: 30_000 }).toBe(true);
   const after = (await hostMessages(page)).slice(before);
   expect(after.length).toBeGreaterThan(0);

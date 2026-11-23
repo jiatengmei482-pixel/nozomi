@@ -677,6 +677,9 @@ test("用车前 24 小时提醒：只发官网的、只提醒一次；下单时�
   assert.ok((await site.app.notificationJobs.sweepReminders()) >= 1);
   await site.app.notificationJobs.tick();
   assert.equal((await guestRow(order.orderId, "order.service_reminder")).status, "sent");
+  const reminder = smtp.messages.find((message) => message.to.includes(GUEST_EMAIL) && bodyOf(message).includes(order.orderNo) && bodyOf(message).includes("您的用车时间快到了"));
+  assert.ok(reminder, "客人收到用车提醒");
+  assert.match(bodyOf(reminder), /您的用车时间快到了，司机会按航班落地时间在到达口等候。/, "接机单不叫客人「按时到达上车点」（M11-03）");
   const again = await site.app.notificationJobs.sweepReminders();
   await site.app.notificationJobs.tick();
   assert.equal((await rowsOf(order.orderId)).filter((row) => row.event === "order.service_reminder").length, 1, `第二轮扫到 ${again} 张`);

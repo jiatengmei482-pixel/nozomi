@@ -8,12 +8,17 @@
  * - 迁移记录在登录前事务里读（应用账号自己没有任何表权限）。
  * - 第三方集成「未配置」不算故障：配置文件和运营后台都可以不填（ADR 0041），缺了只是那项功能不可用。
  * - 谷歌地图、Stripe 按生效的值（运营后台填写的优先）报「已配置 / 未配置」。
- * - 整个检查共用一个时限 `timeoutMs`：数据库探测和迁移探测加起来不超过它。
+ * - 法律文案的待补项（M9E-24，ADR 0107）：`legal` 报「已填齐 / 未填齐」和这个环境是否要求填齐（正式环境）。
+ *   不影响 `status`：正式环境没填齐时官网自己不开放预订；这里判成故障会让部署回退，而待补项要在新版本跑起来以后才能在后台填。
+ * - 整个检查共用一个时限 `timeoutMs`：数据库探测、迁移探测、读待补项加起来不超过它。
  * - 探测用的每个查询都带同样的客户端时限：超时的连接会被连接池丢弃重建，
  *   所以「对端不应答也不断开」的失效连接不会一直占着连接池。
  */
 import { type AppConfig, type AppEnv, type EffectiveIntegrations, type IntegrationStatus, integrationStatus } from "@nozomi/config";
-import { withPreAuthTx } from "./db/context.ts";
+import { legalFieldsComplete } from "@nozomi/domain";
+import { withPlatformTx, withPreAuthTx } from "./db/context.ts";
+import { readLegalSettings } from "./repos/legal-settings.ts";
+import { legalRequiredForLaunch } from "./services/legal-settings.ts";
 import { DB_ROLE_UNSAFE, DbIdentityError, assertLeastPrivilege } from "./db/identity.ts";
 import { type Pool, isDriverTimeout } from "./db/pool.ts";
 import { readAppliedMigrations } from "./db/migrate.ts";
@@ -58,12 +63,20 @@ export interface MigrationHealth {
   errorCode: string | null;
 }
 
+export interface LegalHealth {
+  /** complete：待补项都填了；incomplete：还有没填的；unknown：数据库不可用或没读出来 */
+  state: "complete" | "incomplete" | "unknown";
+  /** 这个环境是不是要填齐才开放预订（正式环境） */
+  requiredForLaunch: boolean;
+}
+
 export interface HealthReport {
   status: "ok" | "degraded";
   env: AppEnv;
   database: DatabaseHealth;
   migrations: MigrationHealth;
   integrations: PublicIntegrationStatus[];
+  legal: LegalHealth;
 }
 
 /** 公开的集成状态：没有 detail。 */
@@ -122,6 +135,18 @@ async function checkMigrations(
   }
 }
 
+async function checkLegal(pool: Pool, timeoutMs: number): Promise<LegalHealth["state"]> {
+  try {
+    const settings = await withTimeout(
+      withPlatformTx(pool, (db) => readLegalSettings(db, { queryTimeoutMs: timeoutMs }), { queryTimeoutMs: timeoutMs, snapshot: true }),
+      timeoutMs,
+    );
+    return legalFieldsComplete(settings.fields) ? "complete" : "incomplete";
+  } catch {
+    return "unknown";
+  }
+}
+
 export async function checkHealth(deps: HealthDeps): Promise<HealthReport> {
   const deadline = performance.now() + deps.timeoutMs;
   const database = await checkDatabase(deps.pool, deps.timeoutMs);
@@ -131,11 +156,14 @@ export async function checkHealth(deps: HealthDeps): Promise<HealthReport> {
       ? await checkMigrations(deps.pool, deps.migrationFiles, remainingMs)
       : MIGRATIONS_UNKNOWN;
   const healthy = database.state === "up" && migrations.state === "up_to_date";
+  const legalMs = deadline - performance.now();
+  const legal = healthy && legalMs >= 1 ? await checkLegal(deps.pool, legalMs) : "unknown";
   return {
     status: healthy ? "ok" : "degraded",
     env: deps.config.appEnv,
     database,
     migrations,
     integrations: publicIntegrationStatus(deps.config, deps.effective),
+    legal: { state: legal, requiredForLaunch: legalRequiredForLaunch(deps.config.appEnv) },
   };
 }

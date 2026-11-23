@@ -175,7 +175,7 @@ export interface ContactForm {
 export const emptyContact = (): ContactForm => ({ name: "", phone: "", email: "", messagingApp: "", messagingHandle: "", notes: "", signName: "", signEdited: false, forOther: false, riderName: "", riderPhone: "", consent: false });
 
 /**
- * 第 3 步「乘客信息」（M8-27；字段和校验沿用 M8-04 的「怎么联系你」）：乘车人姓名、邮箱、手机号（含国家区号）、
+ * 第 3 步「乘客信息」（M8-27；字段和校验沿用 M8-04 的「怎么联系你」）：乘车人姓名、邮箱、手机号（含国家码）、
  * 接机的航班号和举牌姓名（`extra`）、即时通讯（选填）、给司机的备注（选填）。同意保存银行卡在第 4 步付款前。
  */
 export function ContactSection({
@@ -223,11 +223,11 @@ export function ContactSection({
         </fieldset>
         <TextField label={form.forOther ? "预订人姓名" : "乘车人姓名"} size="lg" required autoComplete="name" value={form.name} errors={errors.name ? [errors.name] : []} onChange={(event) => onChange({ name: event.target.value })} />
         <TextField label="邮箱" size="lg" required type="email" autoComplete="email" inputMode="email" autoCapitalize="none" spellCheck={false} value={form.email} errors={errors.email ? [errors.email] : []} hint={FIELD_HINTS.email} onChange={(event) => onChange({ email: event.target.value })} />
-        <TextField label="手机号（含国家区号）" size="lg" required type="tel" autoComplete="tel" inputMode="tel" value={form.phone} errors={errors.phone ? [errors.phone] : []} hint={FIELD_HINTS.phone} onChange={(event) => onChange({ phone: event.target.value })} />
+        <TextField label="手机号（含国家码）" size="lg" required type="tel" autoComplete="tel" inputMode="tel" value={form.phone} errors={errors.phone ? [errors.phone] : []} hint={FIELD_HINTS.phone} onChange={(event) => onChange({ phone: event.target.value })} />
         {form.forOther && (
           <div className="site-form__row">
             <TextField label="乘车人姓名" size="lg" required maxLength={RIDER_NAME_MAX} value={form.riderName} errors={riderErrors.riderName ? [riderErrors.riderName] : []} hint="确认邮件仍发给上面的预订人" onChange={(event) => onChange({ riderName: event.target.value })} />
-            <TextField label="乘车人电话/WhatsApp" size="lg" required type="tel" inputMode="tel" maxLength={RIDER_PHONE_MAX} value={form.riderPhone} errors={riderErrors.riderPhone ? [riderErrors.riderPhone] : []} hint="司机当天联系乘车人用，如 +81 90-1234-5678" onChange={(event) => onChange({ riderPhone: event.target.value })} />
+            <TextField label="乘车人电话 / WhatsApp" size="lg" required type="tel" inputMode="tel" maxLength={RIDER_PHONE_MAX} value={form.riderPhone} errors={riderErrors.riderPhone ? [riderErrors.riderPhone] : []} hint="司机当天联系乘车人用，如 +81 90-1234-5678" onChange={(event) => onChange({ riderPhone: event.target.value })} />
           </div>
         )}
         {extra}

@@ -32,7 +32,7 @@ import { PickerTrigger, useFullScreenPickers } from "./full-screen.tsx";
  * 这个地址今天调谷歌的额度用完了（M8-45，应答带 `unavailable_reason: "IP_DAILY_LIMIT"`）：输入即提示（含手机全屏选择页、经停点）都用这一句开头。
  * 和「输入太快了」（每分钟限流 429）、「暂时用不了」（谷歌出错、全站上限）分开说。
  */
-const PLACES_DAILY_LIMIT_TEXT = "今天的地址提示次数用完了";
+const PLACES_DAILY_LIMIT_TEXT = "地址提示暂时不可用";
 
 /** 停顿多久再查（毫秒）：每输入一个字都查会白花钱。 */
 export const AUTOCOMPLETE_DEBOUNCE_MS = 300;

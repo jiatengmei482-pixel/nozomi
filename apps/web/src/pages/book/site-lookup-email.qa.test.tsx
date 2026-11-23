@@ -111,7 +111,7 @@ test("邮件没配置（503 ORDER_LINK_EMAIL_UNAVAILABLE）：请客人联系客
   open({ pathname: "/book/order" }, lookupRoute(() => apiError(503, "ORDER_LINK_EMAIL_UNAVAILABLE", "暂时发不了邮件，请联系客服找回订单")));
   await submit("NZ20261026QAQA2345", "qa@example.com");
   const alert = await screen.findByRole("alert");
-  assert.equal(await within(alert).findByText("暂时发不了邮件，请联系客服找回订单。").then(() => true), true);
+  assert.equal(await within(alert).findByText("邮件暂时无法发送，请联系客服找回订单。").then(() => true), true);
   assert.equal(screen.queryByText(SENT), null, "发不了邮件时不说「已发送」");
   assert.equal(/不存在|没有找到|对不上/.test(document.body.textContent ?? ""), false);
   resetBrowser();

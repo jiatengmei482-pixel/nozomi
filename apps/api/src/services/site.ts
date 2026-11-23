@@ -109,6 +109,7 @@ import { validationFailed } from "../validation.ts";
 import { notFound } from "./errors.ts";
 import { type SalesOrderInput, type SalesOrderPayment, type SalesOrderView, type OrderLog, SILENT_ORDER_LOG, createSiteOrder } from "./orders.ts";
 import { type BackgroundLog, inBackground } from "./background.ts";
+import { legalGateClosed, readLegalFields } from "./legal-settings.ts";
 import { orderSellBreakdown } from "./order-price-notes.ts";
 import { type SalesRateScope, rateLimited, takeRateSlot } from "./rate-limit.ts";
 import { lastUsedIsStale } from "./sales-auth.ts";
@@ -174,7 +175,8 @@ async function loadSiteChannel(ctx: AppContext): Promise<SiteChannel | null> {
     if (client === null) return null;
     const channel = await findChannel(db, client.channelId);
     if (channel === null) return null;
-    const open = client.status === "active" && client.channelStatus !== "paused";
+    // 正式环境法律文案的待补项没填齐：不开放预订（M9E-24，ADR 0107）
+    const open = client.status === "active" && client.channelStatus !== "paused" && !legalGateClosed(ctx.config.appEnv, await readLegalFields(db));
     // 「最近使用」和渠道调用同一个口径（ADR 0023 补充）：按分钟节流，只在接单的时候记
     if (open && lastUsedIsStale(client.lastUsedAt, ctx.now())) {
       await db.query("update channel_api_clients set last_used_at = $2 where id = $1 and (last_used_at is null or last_used_at <= $3)", [client.id, ctx.now(), new Date(ctx.now().getTime() - 60_000)]);

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { PAYMENT_FAILURE_TEXTS, paymentFailureText } from "./payment-errors.ts";
 
 const GENERIC_DECLINE = "您的银行卡被拒绝了。请换一张卡，或联系发卡银行。";
-const UNKNOWN = "银行没有接受这次付款。请换一张卡，或稍后再试；一直不行请联系客服。";
+const UNKNOWN = "银行没有接受这次付款。请换一张卡，或稍后再试；多次失败请联系客服。";
 
 test("decline_code 优先于 code：同样是 card_declined，余额不足要说余额不足", () => {
   assert.equal(paymentFailureText({ type: "card_error", code: "card_declined", decline_code: "insufficient_funds" }), "您的银行卡余额不足。请换一张卡。");

@@ -1,6 +1,6 @@
 # 前后端共用的业务说法（domain 包）
 
-由 `pnpm copy:export` 从代码生成，不要手改。本区域共 789 条：写死 774 条，已走 key 15 条。列的意思见 [README](README.md)。
+由 `pnpm copy:export` 从代码生成，不要手改。本区域共 822 条：写死 807 条，已走 key 15 条。列的意思见 [README](README.md)。
 
 ## 页面
 
@@ -24,6 +24,7 @@
 - [城市主数据的公开数据源（geonames.ts）](#城市主数据的公开数据源geonamests)（21 条）
 - [含公里数和区域加价的说法（included-km.ts）](#含公里数和区域加价的说法included-kmts)（10 条）
 - [库存（inventory.ts）](#库存inventoryts)（2 条）
+- [官网和嵌入页的三份法律文案（legal-pages.ts）](#官网和嵌入页的三份法律文案legal-pagests)（33 条）
 - [人工报价申请（manual-quote.ts）](#人工报价申请manual-quotets)（10 条）
 - [平台主数据的规则（master-data.ts）](#平台主数据的规则master-datats)（39 条）
 - [订单与付款（orders.ts）](#订单与付款ordersts)（12 条）
@@ -443,6 +444,46 @@
 | --- | --- | --- | --- | --- |
 | `inventory.70894f3a` | 写死 | 不限量 | 文字 | [inventory.ts:15](../../packages/domain/src/inventory.ts#L15) |
 | `inventory.c99eaea1` | 写死 | 限量 | 文字 | [inventory.ts:15](../../packages/domain/src/inventory.ts#L15) |
+
+## 官网和嵌入页的三份法律文案（legal-pages.ts）
+
+文件：`packages/domain/src/legal-pages.ts`
+
+| key | 状态 | 中文 | 类型 | 位置 |
+| --- | --- | --- | --- | --- |
+| `legal-pages.370eed6d` | 写死 | 特定商取引法表記「販売事業者」、プライバシーポリシー开头 | 文字 | [legal-pages.ts:41](../../packages/domain/src/legal-pages.ts#L41) |
+| `legal-pages.526bc1b4` | 写死 | 販売事業者（销售主体） | 名称 | [legal-pages.ts:41](../../packages/domain/src/legal-pages.ts#L41) |
+| `legal-pages.4350a9aa` | 写死 | 特定商取引法表記「日本国内の連絡先」：日本的地址和电话，或「請求があった場合は遅滞なく開示します」 | 文字 | [legal-pages.ts:42](../../packages/domain/src/legal-pages.ts#L42) |
+| `legal-pages.459ed963` | 写死 | 日本国内の連絡先 | 名称 | [legal-pages.ts:42](../../packages/domain/src/legal-pages.ts#L42) |
+| `legal-pages.5f769394` | 写死 | メールアドレス（联系邮箱） | 名称 | [legal-pages.ts:43](../../packages/domain/src/legal-pages.ts#L43) |
+| `legal-pages.fac2983f` | 写死 | 特定商取引法表記「メールアドレス」、プライバシーポリシー第 7 条 | 文字 | [legal-pages.ts:43](../../packages/domain/src/legal-pages.ts#L43) |
+| `legal-pages.2bf91503` | 写死 | メール配信事業者（邮件服务商） | 名称 | [legal-pages.ts:44](../../packages/domain/src/legal-pages.ts#L44) |
+| `legal-pages.50c7db34` | 写死 | プライバシーポリシー第 4 条的表格 | 文字 | [legal-pages.ts:44](../../packages/domain/src/legal-pages.ts#L44)、45、46、47、48、49 行 |
+| `legal-pages.da9160ff` | 写死 | メール配信事業者の所在国 | 名称 | [legal-pages.ts:45](../../packages/domain/src/legal-pages.ts#L45) |
+| `legal-pages.8ad886df` | 写死 | 地図表示事業者（地图底图服务商） | 名称 | [legal-pages.ts:46](../../packages/domain/src/legal-pages.ts#L46) |
+| `legal-pages.c519689e` | 写死 | 地図表示事業者の所在国 | 名称 | [legal-pages.ts:47](../../packages/domain/src/legal-pages.ts#L47) |
+| `legal-pages.fde181b2` | 写死 | サーバー事業者（服务器服务商） | 名称 | [legal-pages.ts:48](../../packages/domain/src/legal-pages.ts#L48) |
+| `legal-pages.3c88f75f` | 写死 | サーバー事業者の所在国 | 名称 | [legal-pages.ts:49](../../packages/domain/src/legal-pages.ts#L49) |
+| `legal-pages.00a27e1f` | 写死 | プライバシーポリシー末尾「制定日」 | 文字 | [legal-pages.ts:50](../../packages/domain/src/legal-pages.ts#L50) |
+| `legal-pages.dd4f61d4` | 写死 | 公開日（制定日） | 名称 | [legal-pages.ts:50](../../packages/domain/src/legal-pages.ts#L50) |
+| `legal-pages.a7113fe6` | 写死 | 未設定 | 文字 | [legal-pages.ts:125](../../packages/domain/src/legal-pages.ts#L125) |
+| `legal-pages.1278d4a0` | 写死 | {…}年{…}月{…}日 | 文字 | [legal-pages.ts:131](../../packages/domain/src/legal-pages.ts#L131) |
+| `legal-pages.99401b6c` | 写死 | 空港送迎 | 文字 | [legal-pages.ts:137](../../packages/domain/src/legal-pages.ts#L137) |
+| `legal-pages.f5a369ac` | 写死 | 地点間送迎 | 文字 | [legal-pages.ts:138](../../packages/domain/src/legal-pages.ts#L138) |
+| `legal-pages.1a656f48` | 写死 | 貸切（チャーター） | 文字 | [legal-pages.ts:139](../../packages/domain/src/legal-pages.ts#L139) |
+| `legal-pages.328f534a` | 写死 | エコノミー | 文字 | [legal-pages.ts:143](../../packages/domain/src/legal-pages.ts#L143) |
+| `legal-pages.1e8c2e50` | 写死 | コンフォート | 文字 | [legal-pages.ts:144](../../packages/domain/src/legal-pages.ts#L144) |
+| `legal-pages.2dc177ac` | 写死 | ビジネス | 文字 | [legal-pages.ts:145](../../packages/domain/src/legal-pages.ts#L145) |
+| `legal-pages.287add8e` | 写死 | ラグジュアリー | 文字 | [legal-pages.ts:146](../../packages/domain/src/legal-pages.ts#L146) |
+| `legal-pages.fb83c488` | 写死 | マイクロバス（10 名以上） | 文字 | [legal-pages.ts:147](../../packages/domain/src/legal-pages.ts#L147) |
+| `legal-pages.87a9e260` | 写死 | 無料 | 名称 | [legal-pages.ts:169](../../packages/domain/src/legal-pages.ts#L169) |
+| `legal-pages.57dc59a2` | 写死 | ご利用時間にかかわらず | 文字 | [legal-pages.ts:180](../../packages/domain/src/legal-pages.ts#L180) |
+| `legal-pages.360ac408` | 写死 | {minHoursBefore} 時間前まで | 文字 | [legal-pages.ts:181](../../packages/domain/src/legal-pages.ts#L181) |
+| `legal-pages.e5f8a6f8` | 写死 | {upper} 時間前以降 | 文字 | [legal-pages.ts:183](../../packages/domain/src/legal-pages.ts#L183) |
+| `legal-pages.ee300d14` | 写死 | {upper} 時間前〜{minHoursBefore} 時間前 | 文字 | [legal-pages.ts:184](../../packages/domain/src/legal-pages.ts#L184) |
+| `legal-pages.ae66c061` | 写死 | ちょうど {minHoursBefore} 時間前は{…} | 文字 | [legal-pages.ts:227](../../packages/domain/src/legal-pages.ts#L227) |
+| `legal-pages.ea87828a` | 写死 | 全車種 | 名称 | [legal-pages.ts:233](../../packages/domain/src/legal-pages.ts#L233) |
+| `legal-pages.9ada6ac3` | 写死 | {…}{…}とします | 说明 | [legal-pages.ts:235](../../packages/domain/src/legal-pages.ts#L235) |
 
 ## 人工报价申请（manual-quote.ts）
 

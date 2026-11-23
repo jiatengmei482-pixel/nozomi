@@ -624,7 +624,7 @@ export async function findSiteAirportAt(point: { lat: number; lng: number; kind?
 export type SitePlaceKind = "airport" | "other";
 
 /**
- * `available` 为 false 时客人要知道的原因（M8-45）：`IP_DAILY_LIMIT` 这个地址今天调谷歌的额度用完了（页面说「今天的地址提示次数用完了」）；
+ * `available` 为 false 时客人要知道的原因（M8-45）：`IP_DAILY_LIMIT` 这个地址今天调谷歌的额度用完了（页面说「地址提示暂时不可用」）；
  * 其余（没配置、全站上限、谷歌出错）不带这个字段，页面照旧说「暂时用不了」。
  */
 export type SitePlaceUnavailableReason = "IP_DAILY_LIMIT";

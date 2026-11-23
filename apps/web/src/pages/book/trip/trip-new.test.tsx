@@ -175,7 +175,7 @@ test("第 1 步：标题、两步的步骤条、乘客 / 行李、第 1 天（�
   wideScreen();
   open();
   assert.ok(await screen.findByRole("heading", { name: "多日行程报价", level: 1 }, SLOW));
-  assert.ok(await screen.findByRole("heading", { name: "你的行程", level: 2 }, SLOW));
+  assert.ok(await screen.findByRole("heading", { name: "您的行程", level: 2 }, SLOW));
   const steps = screen.getByRole("list", { name: "行程报价步骤" });
   assert.deepEqual(within(steps).getAllByRole("listitem").map((item) => item.textContent), ["1填写行程", "2报价结果"]);
   assert.ok(within(daySection(1)).getByRole("combobox", { name: "第 1 天 上车地点" }));
@@ -306,7 +306,7 @@ test("刷新第 2 步（网址带行程单编号）：只读行程单、不重�
   assert.equal(calls.filter((call) => call.method === "POST").length, 0, "刷新不重新报价");
 
   await user().click(screen.getByRole("button", { name: "上一步" }));
-  assert.ok(await screen.findByRole("heading", { name: "你的行程", level: 2 }));
+  assert.ok(await screen.findByRole("heading", { name: "您的行程", level: 2 }));
   assert.equal(search(), "");
   assert.equal((screen.getByLabelText("日期（当地）") as HTMLInputElement).value, "2030-11-20");
   assert.equal((within(daySection(1)).getByRole("combobox", { name: "第 1 天 上车地点" }) as HTMLInputElement).value, "成田国际机场");
@@ -394,7 +394,7 @@ test("两个方案对比卡片：逐天列出每一段的类型、时间、金�
   const compare = await screen.findByRole("list", { name: "两个方案对比" }, SLOW);
   const oneCar = within(compare).getByRole("listitem", { name: "同一辆车跑完全程" });
   assert.ok(within(oneCar).getByText("推荐"));
-  assert.ok(within(oneCar).getByRole("heading", { name: "第 1 天 · 11月20日" }));
+  assert.ok(within(oneCar).getByRole("heading", { name: "第 1 天 · 11 月 20 日" }));
   assert.ok(within(oneCar).getByText("接机"));
   assert.ok(within(oneCar).getByText("14:30–16:00"));
   assert.ok(within(oneCar).getByText("30,000 JPY"));
@@ -415,7 +415,7 @@ test("网址里的行程单编号格式不对：回到第 1 步，顶部说「�
   wideScreen();
   const calls = open({ at: "/book/trip?trip=not-a-trip&step=2" });
   assert.ok(await screen.findByText("这个行程已过期或不存在，请重新填写。", {}, SLOW));
-  assert.ok(screen.getByRole("heading", { name: "你的行程", level: 2 }));
+  assert.ok(screen.getByRole("heading", { name: "您的行程", level: 2 }));
   assert.equal(calls.filter((call) => call.path.startsWith("/site/v1/trips") && call.path !== "/site/v1/trips/parse-status").length, 0);
 });
 
@@ -436,7 +436,7 @@ test("报价出错：太复杂（422）写需要人工报价；太频繁（429�
   await fillFirstDay(actor);
   await actor.click(screen.getByRole("button", { name: "查看报价" }));
   assert.ok(await screen.findByRole("heading", { name: "这个行程需要客服人工报价" }, SLOW));
-  assert.ok(screen.getByText(/这个行程太复杂，暂时没法在线报价。客服会按您填的行程人工报价/));
+  assert.ok(screen.getByText(/这个行程太复杂，暂时无法在线报价。客服会按您填的行程人工报价/));
 
   resetBrowser();
   wideScreen();
@@ -461,7 +461,7 @@ test("报价出错：太复杂（422）写需要人工报价；太频繁（429�
   open({ at: `/book/trip?trip=${TRIP_ID}&step=2`, read: () => apiError(404, "TRIP_NOT_FOUND", "x") });
   assert.ok(await screen.findByText("这个行程已过期或不存在，请重新填写。", {}, SLOW));
   await user().click(screen.getByRole("button", { name: "修改行程" }));
-  assert.ok(await screen.findByRole("heading", { name: "你的行程", level: 2 }));
+  assert.ok(await screen.findByRole("heading", { name: "您的行程", level: 2 }));
 });
 
 test("建行程单出错（太频繁）：留在第 1 步，说明写在表单上方，不报价", async () => {
@@ -515,8 +515,8 @@ test("报价没拿到应答、读回来还没报过价：给「重试」；读�
   const actor = user();
   await fillFirstDay(actor);
   await actor.click(screen.getByRole("button", { name: "查看报价" }));
-  assert.ok(await screen.findByRole("heading", { name: "报价没有查出来" }, SLOW));
-  assert.match(announcer().textContent ?? "", /^报价没有查出来：/);
+  assert.ok(await screen.findByRole("heading", { name: "价格查询失败，请重试" }, SLOW));
+  assert.match(announcer().textContent ?? "", /^价格查询失败，请重试：/);
   await actor.click(screen.getByRole("button", { name: "重试" }));
   assert.ok(await screen.findByRole("listitem", { name: "同一辆车跑完全程" }, SLOW));
   assert.equal(posts(calls, `/site/v1/trips/${TRIP_ID}/quote`).length, 2);
@@ -534,7 +534,7 @@ test("刷新到第 2 步后重新报价失败：「上一步」仍用失败前�
   await user().click(screen.getByRole("button", { name: "查看报价" }));
   assert.ok(await screen.findByText("操作太频繁了，请 30 秒后再试。", {}, SLOW));
   await user().click(screen.getByRole("button", { name: "上一步" }));
-  assert.ok(await screen.findByRole("heading", { name: "你的行程", level: 2 }));
+  assert.ok(await screen.findByRole("heading", { name: "您的行程", level: 2 }));
   assert.equal((screen.getByLabelText("日期（当地）") as HTMLInputElement).value, "2030-11-20");
   assert.equal((within(daySection(2)).getByRole("combobox", { name: "第 2 天 第 2 个地点" }) as HTMLInputElement).value, "浅草寺");
 });
@@ -712,7 +712,7 @@ test("预订时行程单已过期（404 TRIP_NOT_FOUND）：写明并给「修�
   await actor.click(within(card).getByRole("button", { name: "预订这个方案" }));
   assert.ok(await within(card).findByText("预订没有打开：这个行程已过期或不存在，请重新填写。", {}, SLOW));
   await actor.click(within(card).getByRole("button", { name: "修改行程" }));
-  assert.ok(await screen.findByRole("heading", { name: "你的行程", level: 2 }, SLOW));
+  assert.ok(await screen.findByRole("heading", { name: "您的行程", level: 2 }, SLOW));
 });
 
 // ---------- AI 一句话（M9T-33，ADR 0104） ----------
@@ -749,16 +749,16 @@ const PARSED = {
 test("AI 一句话：parse-status 说不可用或问不到时不显示输入框", { timeout: 30_000 }, async () => {
   wideScreen();
   open({ parseStatus: () => apiError(404, "NOT_FOUND", "x") });
-  assert.ok(await screen.findByRole("heading", { name: "你的行程", level: 2 }, SLOW));
+  assert.ok(await screen.findByRole("heading", { name: "您的行程", level: 2 }, SLOW));
   await dateField();
-  assert.equal(screen.queryByRole("heading", { name: "一句话描述你的行程" }), null);
+  assert.equal(screen.queryByRole("heading", { name: "一句话描述您的行程" }), null);
   assert.equal(screen.queryByLabelText("行程描述"), null);
 });
 
 test("AI 一句话：可用时表单上方有输入框、字数、「帮我填好」和一行小字", { timeout: 30_000 }, async () => {
   wideScreen();
   open({ parseStatus: AI_ON });
-  assert.ok(await screen.findByRole("heading", { name: "一句话描述你的行程", level: 2 }, SLOW));
+  assert.ok(await screen.findByRole("heading", { name: "一句话描述您的行程", level: 2 }, SLOW));
   assert.ok(screen.getByText("0 / 500 字"));
   assert.ok(screen.getByRole("button", { name: "帮我填好" }));
   assert.ok(screen.getByText("由 AI 整理，价格由系统按规则计算；请勿填写姓名、电话等个人信息"));
@@ -767,7 +767,7 @@ test("AI 一句话：可用时表单上方有输入框、字数、「帮我填�
 /** 打开页面、等输入框出来；返回输入框 */
 async function aiBox(parse?: Route): Promise<{ box: HTMLTextAreaElement; calls: ApiCall[] }> {
   const calls = open({ parseStatus: AI_ON, ...(parse === undefined ? {} : { parse }) });
-  await screen.findByRole("heading", { name: "一句话描述你的行程", level: 2 }, SLOW);
+  await screen.findByRole("heading", { name: "一句话描述您的行程", level: 2 }, SLOW);
   return { box: screen.getByLabelText("行程描述") as HTMLTextAreaElement, calls };
 }
 
@@ -805,7 +805,7 @@ test("AI 一句话：没看出行程、太频繁、额度用完：输入框下�
   const { box, calls } = await aiBox((call) => answer(call));
   writeBox(box, "你好");
   fireEvent.click(screen.getByRole("button", { name: "帮我填好" }));
-  assert.ok(await screen.findByText("没看出行程，请写上日期、地点，或直接在下面填写", {}, SLOW));
+  assert.ok(await screen.findByText("没能识别出行程，请写上日期、地点，或直接在下面填写", {}, SLOW));
   assert.deepEqual(posts(calls, "/site/v1/trips/parse")[0]?.body, { text: "你好", lang: "zh" });
   assert.equal(document.querySelector(".trip-ai-summary"), null);
 
@@ -824,7 +824,7 @@ test("AI 一句话：没配密钥（503 AI_NOT_CONFIGURED）整块收起，表�
   writeBox(box, "成田接机");
   fireEvent.click(screen.getByRole("button", { name: "帮我填好" }));
   await waitFor(() => assert.equal((document.querySelector(".trip-ai") as HTMLElement | null)?.hidden, true), SLOW);
-  assert.ok(screen.getByRole("heading", { name: "你的行程", level: 2 }));
+  assert.ok(screen.getByRole("heading", { name: "您的行程", level: 2 }));
 });
 
 test("AI 一句话：整理中按钮变「正在整理…」、输入框只读；结果回来后恢复", { timeout: 30_000 }, async () => {
@@ -838,7 +838,7 @@ test("AI 一句话：整理中按钮变「正在整理…」、输入框只读�
   assert.match(button.textContent ?? "", /正在整理…/);
   assert.equal(box.readOnly, true);
   slow.resolve(apiError(422, "NOT_A_TRIP", "x"));
-  assert.ok(await screen.findByText("没看出行程，请写上日期、地点，或直接在下面填写", {}, SLOW));
+  assert.ok(await screen.findByText("没能识别出行程，请写上日期、地点，或直接在下面填写", {}, SLOW));
   assert.equal(box.readOnly, false);
 });
 
@@ -880,10 +880,10 @@ test("AI 一句话：表单已经填了东西时先问「替换吗」，取消�
   await actor.click(screen.getByRole("button", { name: "帮我填好" }));
   await actor.click((await screen.findByText("替换", {}, SLOW)).closest("button") as HTMLElement);
   const summary = await aiSummary();
-  assert.match(summary.textContent ?? "", /已按你的描述填好 1 天行程/);
+  assert.match(summary.textContent ?? "", /已按您的描述填好 1 天行程/);
   assert.equal(posts(calls, "/site/v1/trips/parse").length, 2);
   const missing = within(summary).getByRole("heading", { name: "请补填" }).nextElementSibling as HTMLElement;
-  assert.deepEqual(within(missing).getAllByRole("listitem").map((item) => item.textContent), ["人数（先按 2 人填了）", "第 1 天的上车时间", "第 1 天的最后下车地点"]);
+  assert.deepEqual(within(missing).getAllByRole("listitem").map((item) => item.textContent), ["人数（暂按 2 人）", "第 1 天的上车时间", "第 1 天的最后下车地点"]);
   assert.ok(within(summary).getByText("第 1 天第 1 个中间地点的停留时长没有对应的选项，请自己选"));
   assert.ok(within(summary).getByText("行程里有暂时报不了价的部分（大巴），可以转人工报价"));
   assert.equal((within(daySection(1)).getByRole("combobox", { name: "第 1 天 最后下车地点" }) as HTMLInputElement).value, "", "两个候选：留空等客人选");
@@ -895,7 +895,7 @@ test("AI 一句话：可用时表单上方有输入框；整理好的结果直�
   wideScreen();
   const calls = open({ parseStatus: AI_ON, parse: () => json(200, PARSED) });
   const actor = user();
-  assert.ok(await screen.findByRole("heading", { name: "一句话描述你的行程", level: 2 }, SLOW));
+  assert.ok(await screen.findByRole("heading", { name: "一句话描述您的行程", level: 2 }, SLOW));
   assert.ok(screen.getByText("由 AI 整理，价格由系统按规则计算；请勿填写姓名、电话等个人信息"));
   const box = screen.getByLabelText("行程描述") as HTMLTextAreaElement;
   await dateField();
@@ -904,12 +904,12 @@ test("AI 一句话：可用时表单上方有输入框；整理好的结果直�
   await actor.click(screen.getByRole("button", { name: "帮我填好" }));
 
   const summary = await aiSummary();
-  assert.ok(within(summary).getByText("已按你的描述填好 2 天行程。标黄的地方请补填或确认，然后点「查看报价」"));
+  assert.ok(within(summary).getByText("已按您的描述填好 2 天行程。标黄的地方请补填或确认，然后点「查看报价」"));
   assert.deepEqual(posts(calls, "/site/v1/trips/parse")[0]?.body, { text: SENTENCE, lang: "zh" });
   assert.equal(within(summary).queryByRole("heading", { name: "请补填" }), null, "都齐了，没有请补填");
   assert.ok(within(summary).getByText("第 1 天的日期按 11 月 20 日填"));
   assert.ok(within(summary).getByText("航班号 NH211：行程报价暂不用航班号，下单时可以填在备注里"));
-  assert.ok(within(summary).getByText("你说的「包车 8 小时」会按实际路线自动选套餐，报价里能看到"));
+  assert.ok(within(summary).getByText("您说的「包车 8 小时」会按实际路线自动选套餐，报价里能看到"));
   assert.equal(screen.queryByText("服务端拼的文案（页面不用）"), null);
   await waitFor(() => assert.equal(document.activeElement, summary), SLOW);
 
@@ -935,7 +935,7 @@ test("AI 一句话：全站今天的额度用完（parse-status reason DAILY_LIM
   wideScreen();
   open({ parseStatus: () => json(200, { available: false, max_chars: 500, reason: "DAILY_LIMIT" }) });
   assert.ok(await screen.findByText("今天的自动整理次数已满，请直接填写", {}, SLOW));
-  assert.ok(screen.getByRole("heading", { name: "一句话描述你的行程", level: 2 }));
+  assert.ok(screen.getByRole("heading", { name: "一句话描述您的行程", level: 2 }));
   assert.equal(screen.queryByLabelText("行程描述"), null);
 });
 
@@ -1017,6 +1017,6 @@ test("AI 一句话：没说是哪一家（PLACE_TOO_VAGUE）的地点提示「�
   await aiSummary();
   const end = within(daySection(1)).getByRole("combobox", { name: "第 1 天 最后下车地点" }) as HTMLInputElement;
   assert.equal(end.value, "新宿的酒店");
-  assert.ok(within(daySection(1)).getByText("「新宿的酒店」没说是哪一家，请搜索选一家"));
+  assert.ok(within(daySection(1)).getByText("「新宿的酒店」有多家，请搜索选择具体是哪一家"));
   assert.equal(within(daySection(1)).queryByText(/没找到/), null);
 });

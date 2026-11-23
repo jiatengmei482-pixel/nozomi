@@ -58,7 +58,7 @@ test("通知模板 320 宽：全部模板的长正文也不横向滚动", async 
   await loginAs(page, "platform", email, password);
   await page.setViewportSize({ width: 320, height: 800 });
   await page.goto("/platform/notification-templates");
-  await expect(page.getByRole("region", { name: "通知模板" }).getByText("预订已确认：{{order_no}}")).toBeVisible();
+  await expect(page.getByRole("region", { name: "通知模板" }).getByText("【NOZOMI】预订已确认：{{order_no}}")).toBeVisible();
   await expectNoHorizontalOverflow(page, "通知模板 320");
 });
 
