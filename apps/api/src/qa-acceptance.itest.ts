@@ -28,6 +28,7 @@ import { DROPOFF, type Market, SERVICE_TIME, buildMarket, newChannel, ok, salesC
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
 import { FakePaymentProvider, deliverWebhook } from "./testing/payments.ts";
 import { ensureQaTenant } from "./services/qa-tenant.ts";
+import { fillLegalSettings } from "./testing/legal.ts";
 
 const TOKEN = "qa-acceptance-token-for-itests-only-Vb93kLm2Qz7Rt";
 const QA_EMAIL = "qa-admin@example.com";
@@ -479,6 +480,8 @@ test("验收单不进出账：完成了也不是应付；同时完成的普通�
 });
 
 test("生产环境的第二道关：就算配置里有口令，解锁 404、Cookie 不看（按普通客人）", async () => {
+  // 正式环境要先填齐法律文案的待补项才开放预订（M9E-24，ADR 0107）
+  await fillLegalSettings(api, m.root);
   const prod = await siteApp({ token: true, appEnv: "production" });
   const unlockRes = await prod.call("POST", SESSION_PATH, { body: { token: TOKEN } });
   assert.equal(unlockRes.status, 404);
