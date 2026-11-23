@@ -2,6 +2,7 @@
  * 运营后台「系统设置 → 官网设置」（M8-21，ADR 0076；规范 docs/design/pages/platform-settings.md 第 9 节）。
  * 两项：客服 WhatsApp 号码（官网报不出价时的「通过 WhatsApp 联系我们」用它；清空就不显示按钮）；
  * 页面宽度（M8-28，ADR 0079）：官网所有页面的内容最宽多少，标准 / 较宽 / 最宽三档，手机、平板不受影响。
+ * 法律页面（M9E-24，ADR 0107）：三页里业主定稿留空的几项（LegalPageSettingsCard）。
  * - 看（`site_settings.read`）：超级管理员、运营、客服；
  * - 改（`site_settings.manage`）：只归超级管理员（号码被换掉，客人就会把行程发给别人）。别人看到的是只读的号码和这句说明。
  * 已经设置过的带版本号保存（If-Match），被别人改过时刷新再说。
@@ -25,6 +26,7 @@ import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan } from "../../lib/use-master-access.ts";
 import { Detail, LocalTime, NO_ACCESS } from "./order-center-parts.tsx";
+import { LegalPageSettingsCard } from "./LegalPageSettingsCard.tsx";
 
 const TRAIL = [{ label: "系统设置" }];
 
@@ -300,6 +302,7 @@ export function SiteSettingsPage() {
           )}
         </div>
       </section>
+      <LegalPageSettingsCard canManage={canManage} />
     </>,
   );
 }

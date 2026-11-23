@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import { screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import type { ManualQuoteDetail, ManualQuoteSummary, SiteSettings } from "../../api/manual-quotes.ts";
+import type { LegalPageSettings } from "../../api/legal-pages.ts";
 import { COLLEAGUE, ME, openApp } from "../../testing/order-center-fixtures.tsx";
 import { type ApiCall, apiError, assertAbsent, json, resetBrowser } from "../../testing/harness.tsx";
 
@@ -250,12 +251,30 @@ test("详情：过了保留期的只写已清除，不能再改、不能写备�
 
 // ───────────── 官网设置 ─────────────
 
+/** 法律页面设置（M9E-24）：PUT 的请求体（平铺的写法）也能直接喂进来 */
+const legalOf = (changes: Record<string, unknown> = {}): LegalPageSettings => {
+  const flat = { seller: null, japan_contact: null, email: null, mail_provider: null, mail_provider_country: null, map_provider: null, map_provider_country: null, server_provider: null, server_provider_country: null, published_on: null, version: 0, ...changes } as Record<string, string | null> & { version: number };
+  const values = {
+    seller: flat.seller,
+    japan_contact: flat.japan_contact,
+    email: flat.email,
+    mail_provider: { name: flat.mail_provider, country: flat.mail_provider_country },
+    map_provider: { name: flat.map_provider, country: flat.map_provider_country },
+    server_provider: { name: flat.server_provider, country: flat.server_provider_country },
+    published_on: flat.published_on,
+  };
+  const complete = [flat.seller, flat.japan_contact, flat.email, flat.mail_provider, flat.mail_provider_country, flat.map_provider, flat.map_provider_country, flat.server_provider, flat.server_provider_country, flat.published_on].every((value) => value !== null);
+  return { ...values, complete, version: flat.version, updated_at: flat.version === 0 ? null : "2030-11-10T05:00:00.000Z", updated_by: flat.version === 0 ? null : { id: ME, name: "测试员工" } };
+};
+
 const settingsOf = (changes: Partial<SiteSettings> = {}): SiteSettings => ({ support_whatsapp: null, page_width: "standard", maps_browser_key: null, version: 0, updated_at: null, updated_by: null, ...changes });
 
 function openSettings(role: string, settings: SiteSettings, put: (call: ApiCall) => Response = (call) => json(200, settingsOf({ support_whatsapp: "810000000000", version: settings.version + 1, updated_at: "2030-11-10T05:00:00.000Z", updated_by: { id: ME, name: "测试员工" } }))): ApiCall[] {
   return openApp("/platform/settings/site", "platform", role, (call) => {
     if (call.method === "GET" && call.url.pathname === "/platform/v1/site-settings") return json(200, settings);
     if (call.method === "PUT" && call.url.pathname === "/platform/v1/site-settings") return put(call);
+    if (call.method === "GET" && call.url.pathname === "/platform/v1/legal-page-settings") return json(200, legalOf());
+    if (call.method === "PUT" && call.url.pathname === "/platform/v1/legal-page-settings") return json(200, legalOf({ ...(call.body as object), version: 1 }));
     return null;
   });
 }
@@ -362,4 +381,31 @@ test("官网设置 · 谷歌地图浏览器密钥（M10-01 第 2 处）：超级
   assert.ok(readOnly.getByText("AIzaSyaa…（共 39 位）"));
   assert.ok(readOnly.getByText("只有超级管理员能改这把密钥。"));
   assertAbsent(readOnly.queryByRole("textbox"));
+});
+
+test("官网设置 · 法律页面（M9E-24）：超级管理员填三页里留空的几项，整份保存（没填的给 null），第一次不带 If-Match；提示还有几项没填；三页链接新窗口打开；运营只读、没填的写「未設定」", async () => {
+  const calls = openSettings("super_admin", settingsOf());
+  const actor = user();
+  const card = within(await screen.findByRole("region", { name: "法律页面" }));
+  assert.ok(await card.findByText("还有 10 项没填，页面上这几处显示「未設定」。正式站上线前要填齐。"));
+  for (const name of ["特定商取引法に基づく表記", "キャンセルポリシー", "プライバシーポリシー"]) assert.equal(card.getByRole("link", { name: new RegExp(name) }).getAttribute("target"), "_blank");
+  await actor.type(card.getByLabelText("メールアドレス"), "not-an-email");
+  await actor.click(card.getByRole("button", { name: "保存法律页面" }));
+  assert.ok(card.getByText("请填写邮箱地址，例如 support@example.com"));
+  assert.equal(calls.filter((call) => call.method === "PUT").length, 0);
+  await actor.clear(card.getByLabelText("メールアドレス"));
+  await actor.type(card.getByLabelText("メールアドレス"), "support@example.com");
+  await actor.type(card.getByLabelText("販売事業者名"), "  RELAX CAR SERVICE CO. LIMITED ");
+  await actor.click(card.getByRole("button", { name: "保存法律页面" }));
+  await waitFor(() => assert.ok(calls.some((call) => call.method === "PUT" && call.path.includes("legal-page-settings"))));
+  const put = calls.find((call) => call.method === "PUT" && call.path.includes("legal-page-settings"));
+  assert.deepEqual(put?.body, { seller: "RELAX CAR SERVICE CO. LIMITED", japan_contact: null, email: "support@example.com", mail_provider: null, mail_provider_country: null, map_provider: null, map_provider_country: null, server_provider: null, server_provider_country: null, published_on: null });
+  assert.equal(put?.headers["if-match"], undefined);
+  assert.ok(await card.findByText("还有 8 项没填，页面上这几处显示「未設定」。正式站上线前要填齐。"));
+  resetBrowser();
+  openSettings("operations", settingsOf({ version: 1, updated_at: "2030-11-10T05:00:00.000Z", updated_by: { id: COLLEAGUE, name: "佐藤" } }));
+  const readonly = within(await screen.findByRole("region", { name: "法律页面" }));
+  assert.ok(await readonly.findByText("只有超级管理员能改这几项。"));
+  assert.ok(readonly.getAllByText("未設定").length >= 10);
+  assertAbsent(readonly.queryByRole("button", { name: "保存法律页面" }));
 });
