@@ -5,6 +5,7 @@
  * - 看（`site_settings.read`）：超级管理员、运营、客服；
  * - 改（`site_settings.manage`）：只归超级管理员（号码被换掉，客人就会把行程发给别人）。别人看到的是只读的号码和这句说明。
  * 已经设置过的带版本号保存（If-Match），被别人改过时刷新再说。
+ * 最下面是「法律文案的待补项」（M9E-24，LegalSettingsSection.tsx）：单独的接口、单独的版本号。
  */
 import { whatsappDigits } from "@nozomi/domain";
 import { type FormEvent, type ReactNode, useState } from "react";
@@ -24,6 +25,7 @@ import { SUPPORT_WHATSAPP_HINT, SUPPORT_WHATSAPP_INVALID, supportWhatsappText } 
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan } from "../../lib/use-master-access.ts";
+import { LegalSettingsSection } from "./LegalSettingsSection.tsx";
 import { Detail, LocalTime, NO_ACCESS } from "./order-center-parts.tsx";
 
 const TRAIL = [{ label: "系统设置" }];
@@ -300,6 +302,7 @@ export function SiteSettingsPage() {
           )}
         </div>
       </section>
+      <LegalSettingsSection canManage={canManage} />
     </>,
   );
 }

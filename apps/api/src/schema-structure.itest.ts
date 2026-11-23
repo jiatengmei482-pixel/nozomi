@@ -87,6 +87,7 @@ const PLATFORM_TABLES = [
   "route_order_suggestions",
   "sales_rate_limits",
   "schema_migrations",
+  "site_legal_settings",
   "site_lookup_failures",
   "site_order_links",
   "shared_area_duplicates",
@@ -362,6 +363,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     manual_quote_trip_links: ["INSERT", "SELECT"],
     // 官网设置（ADR 0076）：全站一行，第一次保存时写入
     site_settings: ["INSERT", "SELECT", "UPDATE"],
+    // 法律文案的待补项（M9E-24，ADR 0107）：全站一行，第一次保存时写入
+    site_legal_settings: ["INSERT", "SELECT", "UPDATE"],
     // AI 一句话行程（M9T-32，ADR 0104）：型号设置只改不删；调用记录 90 天后由清理任务删
     ai_trip_settings: ["INSERT", "SELECT", "UPDATE"],
     trip_parse_runs: ["DELETE", "INSERT", "SELECT", "UPDATE"],

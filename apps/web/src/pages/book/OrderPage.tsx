@@ -50,8 +50,8 @@ export const EXPIRED_LINK_HINT = "已结束超过 180 天的订单，链接和�
 
 const EXPIRED_LINK_TEXT = "订单链接无效或已过期。请填订单号和下单邮箱，我们会把新的订单链接发到您的邮箱。";
 
-/** 后端说暂时发不了邮件（邮件服务没配置）：和订单无关，直接请客人联系客服。 */
-const MAIL_UNAVAILABLE_TEXT = "暂时发不了邮件，请联系客服找回订单。";
+/** 后端说邮件暂时无法发送（邮件服务没配置）：和订单无关，直接请客人联系客服。 */
+const MAIL_UNAVAILABLE_TEXT = "邮件暂时无法发送，请联系客服找回订单。";
 
 function lookupFailureText(err: unknown): string {
   if (err instanceof ApiError && err.status === 429) return lookupThrottledText(err.retryAfterSeconds);
@@ -291,7 +291,7 @@ function OrderView({ token, hashToken, heldToken, arrival }: { token: string; ha
     return (
       <SiteLayout attribution={false}>
         <h1 className="site__title">订单</h1>
-        <StateBlock title="订单没有读出来" description={loaded.message} action={<Button size="lg" onClick={refresh}>重试</Button>} />
+        <StateBlock title="订单加载失败，请刷新重试" description={loaded.message} action={<Button size="lg" onClick={refresh}>重试</Button>} />
       </SiteLayout>
     );
   }

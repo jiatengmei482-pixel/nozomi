@@ -112,7 +112,7 @@ async function openOrder(page: Page, source: string, token: string): Promise<Awa
 async function toBank(page: Page): Promise<void> {
   await cardField(page).fill(TEST_CARDS.threeDs);
   await page.getByRole("button", { name: "付款 22,000 JPY" }).click();
-  await page.getByRole("button", { name: "确认支付" }).click();
+  await page.getByRole("button", { name: "确认付款" }).click();
   await expect(page.locator('iframe[title="银行验证（假）"]')).toBeVisible();
 }
 
@@ -229,7 +229,7 @@ test("重复付款：确认按钮双击只发一次确认请求；订单只确�
   const routed = await openOrder(page, source, placed.token);
   await cardField(page).fill(TEST_CARDS.success);
   await page.getByRole("button", { name: "付款 22,000 JPY" }).click();
-  await page.getByRole("button", { name: "确认支付" }).dblclick();
+  await page.getByRole("button", { name: "确认付款" }).dblclick();
   await expect(page.getByText(CONFIRMED)).toBeVisible({ timeout: 20_000 });
   expect(confirms(routed.seen)).toHaveLength(1);
   await page.reload();
@@ -254,7 +254,7 @@ test("重复付款：确认请求到了 Stripe 但应答丢了（已经扣款）
   });
   await cardField(page).fill(TEST_CARDS.success);
   await page.getByRole("button", { name: "付款 22,000 JPY" }).click();
-  await page.getByRole("button", { name: "确认支付" }).click();
+  await page.getByRole("button", { name: "确认付款" }).click();
   await expect(paymentSection(page).getByRole("status")).toContainText("付款成功，等待确认。");
   await expect(cardField(page)).toHaveCount(0);
   await expect(page.getByText(CONFIRMED)).toBeVisible({ timeout: 20_000 });
@@ -279,12 +279,12 @@ test("重复付款：确认请求没发出去（网络断了）后再点，还�
   });
   await cardField(page).fill(TEST_CARDS.success);
   await page.getByRole("button", { name: "付款 22,000 JPY" }).click();
-  await page.getByRole("button", { name: "确认支付" }).click();
-  await expect(paymentSection(page).getByRole("alert")).toContainText("没有连上 Stripe，这次付款可能没有提交。");
+  await page.getByRole("button", { name: "确认付款" }).click();
+  await expect(paymentSection(page).getByRole("alert")).toContainText("付款服务连接失败，这次付款可能没有提交。");
   expect(await stored(page)).toBeNull();
   await expect(cardField(page)).toBeVisible();
   await page.getByRole("button", { name: "付款 22,000 JPY" }).click();
-  await page.getByRole("button", { name: "确认支付" }).click();
+  await page.getByRole("button", { name: "确认付款" }).click();
   await expect(page.getByText(CONFIRMED)).toBeVisible({ timeout: 20_000 });
   expect(intents).toHaveLength(2);
   expect(new Set(intents).size, "两次都是同一笔付款").toBe(1);
@@ -305,7 +305,7 @@ test("订单在付款表单开着时被取消：付款被后端取消，再点�
   await recordAlerts(page);
   await cardField(page).fill(TEST_CARDS.success);
   await page.getByRole("button", { name: "付款 22,000 JPY" }).click();
-  await page.getByRole("button", { name: "确认支付" }).click();
+  await page.getByRole("button", { name: "确认付款" }).click();
   await expect(paymentSection(page), "订单刷新成已取消，付款区块（表单、付款按钮）消失").toHaveCount(0);
   await expect(page.getByRole("region", { name: "取消" })).toContainText("您取消了订单");
   expect(confirms(routed.seen), "确认真的发给了 Stripe").toHaveLength(1);
@@ -338,7 +338,7 @@ test("320 / 360 / 768 宽不横向滚动，亮暗 axe：付款表单、确认框
   await page.getByRole("button", { name: "付款 22,000 JPY" }).click();
   await expect(page.getByRole("group", { name: "确认付款" })).toBeVisible();
   await check("确认框");
-  await page.getByRole("button", { name: "确认支付" }).click();
+  await page.getByRole("button", { name: "确认付款" }).click();
   await expect(paymentSection(page).getByRole("alert")).toContainText("付款没有成功");
   await check("失败提示");
   await page.goto(returnUrl(placed.clientSecret));
@@ -346,7 +346,7 @@ test("320 / 360 / 768 宽不横向滚动，亮暗 axe：付款表单、确认框
   await check("取不回令牌");
 });
 
-test("只用键盘完成付款：Tab 到卡号填写 → Tab 到「付款」回车 → 确认框里 Tab 顺序是「确认支付」→「返回」，回车付款 → 已确认", async ({ page, request }) => {
+test("只用键盘完成付款：Tab 到卡号填写 → Tab 到「付款」回车 → 确认框里 Tab 顺序是「确认付款」→「返回」，回车付款 → 已确认", async ({ page, request }) => {
   test.setTimeout(90_000);
   const world = await sellableWorld(request);
   const source = sourceAddress();
@@ -365,12 +365,12 @@ test("只用键盘完成付款：Tab 到卡号填写 → Tab 到「付款」回�
   await tabTo("付款 22,000 JPY", 4);
   await page.keyboard.press("Enter");
   await expect(page.getByRole("group", { name: "确认付款" })).toBeVisible();
-  // 「付款」按钮被确认框换掉：焦点不能掉回页面开头，下一个 Tab 就要到「确认支付」
-  await tabTo("确认支付", 1);
+  // 「付款」按钮被确认框换掉：焦点不能掉回页面开头，下一个 Tab 就要到「确认付款」
+  await tabTo("确认付款", 1);
   await page.keyboard.press("Tab");
   expect(await focused()).toBe("返回");
   await page.keyboard.press("Shift+Tab");
-  expect(await focused()).toBe("确认支付");
+  expect(await focused()).toBe("确认付款");
   await page.keyboard.press("Enter");
   await expect(page.getByText(CONFIRMED)).toBeVisible({ timeout: 20_000 });
 });

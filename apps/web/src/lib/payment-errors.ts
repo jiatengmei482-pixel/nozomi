@@ -14,7 +14,7 @@ export interface StripeFailure {
 }
 
 const DECLINED = "您的银行卡被拒绝了。请换一张卡，或联系发卡银行。";
-const UNKNOWN = "银行没有接受这次付款。请换一张卡，或稍后再试；一直不行请联系客服。";
+const UNKNOWN = "银行没有接受这次付款。请换一张卡，或稍后再试；多次失败请联系客服。";
 const CHECK_CARD = "请检查银行卡信息后再付。";
 
 const NUMBER_WRONG = "卡号不正确。请检查后再付。";

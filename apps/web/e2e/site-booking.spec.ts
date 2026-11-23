@@ -91,7 +91,7 @@ test("官网：预订页带参数的链接报价 → 选车 → 乘客信息 →
 
   // 预订页（M8-05 起 /book 就是四步新流程）：带参数的链接打开即报价——出发地是本用例的机场（坐标加名称，认出接机），目的地坐标加名称
   await page.goto(`/book?${airportLink(airport)}&to=${CENTER.lat + 0.01},${CENTER.lng + 0.01}&to_name=${encodeURIComponent("新宿站南口")}&date=${when.date}&time=${when.time}`);
-  await expect(page.getByRole("heading", { level: 1, name: "预订接送车" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "预订用车" })).toBeVisible();
   await expect(page.getByText(/GeoNames/)).toBeVisible();
   await expect(page.getByText(/OurAirports/)).toBeVisible();
   await expect(page.getByRole("navigation", { name: "官网" }).getByRole("link", { name: "预订用车" })).toHaveAttribute("aria-current", "page");
@@ -119,7 +119,7 @@ test("官网：预订页带参数的链接报价 → 选车 → 乘客信息 →
   // 乘客信息 → 核对 → 去付款（下单）
   await expect(page.getByRole("heading", { level: 2, name: "乘客信息" })).toBeFocused();
   await page.getByLabel("乘车人姓名").fill("王小明");
-  await page.getByLabel("手机号（含国家区号）").fill("+81 90-1234-5678");
+  await page.getByLabel("手机号（含国家码）").fill("+81 90-1234-5678");
   await page.getByLabel("邮箱").fill(email);
   await page.getByLabel("航班号").fill("NH 211");
   await page.getByRole("radio", { name: /^国际航班/ }).check();
@@ -181,10 +181,10 @@ test("官网：预订页带参数的链接报价 → 选车 → 乘客信息 →
 
   // 修改订单：字段级错误（F12），展开的表单在窄屏不横向滚动、两色过 axe；不提交
   await page.getByRole("button", { name: "修改订单" }).click();
-  await page.getByLabel("手机号（带国家码）").fill("090-1234-5678");
+  await page.getByLabel("手机号（含国家码）").fill("090-1234-5678");
   await page.getByRole("button", { name: "提交修改" }).click();
   await expect(page.getByText("有几项没有填好，请看标红的地方。")).toBeVisible();
-  await expect(page.getByLabel("手机号（带国家码）")).toHaveAttribute("aria-invalid", "true");
+  await expect(page.getByLabel("手机号（含国家码）")).toHaveAttribute("aria-invalid", "true");
   await expectNoOverflow(page, "订单页（改单表单出错）");
   await expectAccessibleBothThemes(page, "订单页（改单表单出错）");
   await page.getByRole("button", { name: "不改了" }).click();

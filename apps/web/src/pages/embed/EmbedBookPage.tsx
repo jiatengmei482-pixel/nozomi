@@ -16,6 +16,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { ApiError } from "../../api/client.ts";
 import { type BookingDraft, getSiteBookingDraft, getSiteOrder } from "../../api/site.ts";
+import { LegalLinks } from "../../components/LegalLinks.tsx";
 import { NewTabLink } from "../../components/NewTabLink.tsx";
 import { type BookingErrorCode, type BookingStep, EMBED_BOOK_ORDER_PATH, mainSiteBookingUrl } from "../../embed/booking-protocol.ts";
 import { embedOrderFor, forgetEmbedOrder, rememberEmbedOrder } from "../../embed/embed-order-store.ts";
@@ -32,13 +33,15 @@ type Load = { kind: "loading" } | { kind: "ready"; draft: BookingDraft; sourceMa
 
 const STEP_NAMES: Readonly<Record<BookStep, BookingStep>> = { 1: "trip", 2: "vehicle", 3: "passenger", 4: "review" };
 
-/** 嵌入页顶部：标题和卖方（Q14） */
+/** 嵌入页顶部：标题、卖方（Q14）和三份法律文案的链接（M9E-24） */
 export function EmbedHeader({ children }: { children?: ReactNode }) {
   const { t } = useEmbedFrame();
   return (
     <header className="embed-book__head">
       <h1 className="embed-book__title">{t.title}</h1>
       <p className="embed-book__seller">{t.seller}</p>
+      {/* 三份法律文案（M9E-24）：主站的地址，新标签页打开；先只有日文，三种语言都用日文名称 */}
+      <LegalLinks newTab label="法律文案" />
       {children}
     </header>
   );

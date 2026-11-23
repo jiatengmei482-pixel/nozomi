@@ -90,7 +90,7 @@ test("查看令牌只在 # 后面和订单接口的 Authorization 里：每个�
   await expect(page.getByRole("heading", { level: 1, name: `订单 ${orderNo}` })).toBeVisible();
   // 站内跳转再回来：来源页（Referer）是带 # 的订单页
   await page.getByRole("link", { name: "预订用车" }).first().click();
-  await expect(page.getByRole("heading", { level: 1, name: "预订接送车" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "预订用车" })).toBeVisible();
   await page.goBack();
   await expect(page.getByRole("heading", { level: 1, name: `订单 ${orderNo}` })).toBeVisible();
   await page.reload();
@@ -144,7 +144,7 @@ test("链接失效时的「查订单」：320px 不横向滚动，亮暗两色 a
   await page.getByLabel("下单时的邮箱").fill("nobody@e2e.example.com");
   await page.getByRole("button", { name: "发送订单链接" }).click();
   // 主 API 的邮件设置别的用例会填、会清空（ADR 0061：没配置时一律 503，和订单无关）：两种说法都可能，都不说订单存不存在
-  await expect(page.getByText(/^(如信息匹配，链接已发送到下单邮箱|暂时发不了邮件，请联系客服找回订单)/)).toBeVisible();
+  await expect(page.getByText(/^(如信息匹配，链接已发送到下单邮箱|邮件暂时无法发送，请联系客服找回订单)/)).toBeVisible();
   await expectNoOverflowAt320(page, "查订单（已提交）");
   const lookup = seen.find((req) => new URL(req.url()).pathname === "/site/v1/orders/lookup");
   expect(lookup, "发了查订单请求").toBeTruthy();

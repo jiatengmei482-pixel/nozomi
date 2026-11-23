@@ -113,7 +113,7 @@ type PanelState =
 const CANNOT_PAY_TEXT = "这张订单现在不能付款了（可能已超过付款期限），订单状态马上会更新。";
 /** 从银行回来、地址说失败、Stripe 也确实在等客人重新付款，却没写原因（如客人关掉了银行页面）。 */
 const RETURN_FAILED_TEXT = "上次付款没有完成，请重新付款。";
-const NETWORK_TEXT = "没有连上 Stripe，这次付款可能没有提交。请检查网络后再点「付款」；同一张订单不会被扣两次。";
+const NETWORK_TEXT = "付款服务连接失败，这次付款可能没有提交。请检查网络后再点「付款」；同一张订单不会被扣两次。";
 
 function submittedText(outcome: "succeeded" | "processing", slow: boolean): string {
   const head = outcome === "succeeded" ? "付款成功，等待确认。订单通常几秒钟内确认，页面会自动更新，请不要重复付款。" : "银行正在处理这笔付款，处理完订单会自动确认（通常几分钟内），页面会自动更新，请不要重复付款。";
@@ -218,7 +218,7 @@ function PaymentPanel({ token, order, initial, returnFailed, onRefresh, polling,
     load().catch((err: unknown) => {
       if (!alive) return;
       setState({ kind: "failed" });
-      setNotice({ kind: "danger", text: err instanceof ApiError ? siteFailureText(err, "准备付款") : "付款组件没有加载出来，请检查网络后点「重新加载」。" });
+      setNotice({ kind: "danger", text: err instanceof ApiError ? siteFailureText(err, "准备付款") : "付款组件加载失败，请检查网络后点「重新加载」。" });
     });
     return () => {
       alive = false;
@@ -276,7 +276,7 @@ function PaymentPanel({ token, order, initial, returnFailed, onRefresh, polling,
         return;
       }
       setConfirming(false);
-      showFailure(outcome.kind === "declined" ? `付款没有成功：${outcome.message}` : outcome.kind === "network" ? NETWORK_TEXT : "付款没有完成。请稍后再试；一直不行请联系客服。");
+      showFailure(outcome.kind === "declined" ? `付款没有成功：${outcome.message}` : outcome.kind === "network" ? NETWORK_TEXT : "付款没有完成。请稍后再试；多次失败请联系客服。");
     } catch (err) {
       embedding?.onModal(false);
       throw err;
@@ -299,11 +299,11 @@ function PaymentPanel({ token, order, initial, returnFailed, onRefresh, polling,
       {state.kind === "ready" &&
         (confirming ? (
           <div className="site-confirm" role="group" aria-label="确认付款">
-            <p>确认支付 {moneyText(order.price.total)}？</p>
+            <p>确认付款 {moneyText(order.price.total)}？</p>
             <p className="site-muted">如果银行要求验证，会弹出银行的验证窗口，请按提示完成。</p>
             <div className="site-actions site-actions--inline">
               <Button variant="primary" size="lg" loading={busy} loadingText="正在付款" onClick={() => void pay()}>
-                确认支付
+                确认付款
               </Button>
               <Button size="lg" disabled={busy} onClick={() => setConfirming(false)}>
                 返回
@@ -397,7 +397,7 @@ export function TripSection({ order, names, breakdown = null }: { order: SiteOrd
         {order.flight_no !== null && <Fact label="航班号">{order.flight_no}</Fact>}
         <Fact label="车型">{group === null ? "—" : <span lang={group.lang}>{group.text}</span>}</Fact>
         {names.vehicle_group !== null && <VehicleLabelItems group={names.vehicle_group} itemClassName="site-facts__item" />}
-        <Fact label="人数 / 行李">
+        <Fact label="乘客 / 行李">
           {order.passengers} 人 / {order.luggage} 件
         </Fact>
         {/* 为他人预订（M8-32）：联系人是预订人，乘车人单独一项；为自己预订时联系人就是乘车人 */}
@@ -948,7 +948,7 @@ export function ChangeSection({ token, order, onChanged }: { token: string; orde
         ) : (
           <form className="site-form" noValidate onSubmit={(event) => void submit(event)}>
             <TextField label="乘车人姓名" size="lg" required autoComplete="name" maxLength={ORDER_FIELD_LIMITS.nameMax} value={form.name} errors={fieldErrors("name")} onChange={(event) => set({ name: event.target.value })} />
-            <TextField label="手机号（带国家码）" size="lg" required type="tel" inputMode="tel" autoComplete="tel" hint="以 + 和国家码开头，如 +81 90-1234-5678" value={form.phone} errors={fieldErrors("phone")} onChange={(event) => set({ phone: event.target.value })} />
+            <TextField label="手机号（含国家码）" size="lg" required type="tel" inputMode="tel" autoComplete="tel" hint="以 + 和国家码开头，如 +81 90-1234-5678" value={form.phone} errors={fieldErrors("phone")} onChange={(event) => set({ phone: event.target.value })} />
             <TextField label="邮箱" size="lg" required type="email" inputMode="email" autoCapitalize="none" spellCheck={false} autoComplete="email" value={form.email} errors={fieldErrors("email")} onChange={(event) => set({ email: event.target.value })} />
             {takesFlight(order) && <TextField label={arrival ? "航班号" : "航班号（选填）"} size="lg" required={arrival} autoCapitalize="characters" hint={p2pArrival(order) ? FREE_WAIT_TEXTS.p2pFlightHint : "如 NH211"} value={form.flightNo} errors={fieldErrors("flightNo")} onChange={(event) => set({ flightNo: event.target.value })} />}
             {flightArrival(order) && form.flightNo.trim() !== "" && (

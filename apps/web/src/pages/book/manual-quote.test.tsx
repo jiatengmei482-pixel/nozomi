@@ -217,7 +217,7 @@ const P2P_LINK = "/book?from=35.6896,139.7006&from_name=%E6%96%B0%E5%AE%BF%E7%AB
 function assertNoCheckout(): void {
   assertAbsent(screen.queryByRole("heading", { name: "怎么联系你" }));
   assertAbsent(screen.queryByLabelText("乘车人姓名"));
-  assertAbsent(screen.queryByLabelText("手机号（含国家区号）"));
+  assertAbsent(screen.queryByLabelText("手机号（含国家码）"));
   assertAbsent(screen.queryByRole("checkbox", { name: /同意保存这次付款用的银行卡/ }));
   assertAbsent(screen.queryByRole("button", { name: "去付款 →" }));
   assertAbsent(screen.queryByRole("button", { name: "下一步：填写乘客信息" }));
@@ -329,5 +329,5 @@ test("有报价时照旧：能往第 3 步「乘客信息」走，没有人工�
   await actor.click(screen.getByRole("button", { name: "下一步：填写乘客信息" }));
   assert.ok(await screen.findByRole("heading", { name: "乘客信息", level: 2 }));
   assert.ok(screen.getByLabelText("乘车人姓名"));
-  assert.ok(screen.getByLabelText("手机号（含国家区号）"));
+  assert.ok(screen.getByLabelText("手机号（含国家码）"));
 });

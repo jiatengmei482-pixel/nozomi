@@ -45,7 +45,7 @@ test("新预订页四步：输入即提示选机场和酒店 → 自动报价、
   await page.setViewportSize({ width: 400, height: 800 });
 
   await page.goto(`${SITE}/book`);
-  await expect(page.getByRole("heading", { level: 1, name: "预订接送车" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "预订用车" })).toBeVisible();
   await expect(page.getByRole("list", { name: "预订步骤" }).getByRole("listitem")).toHaveCount(4);
   await expect(page.getByRole("heading", { name: "选择车型" })).toHaveCount(0);
 
@@ -114,7 +114,7 @@ test("新预订页四步：输入即提示选机场和酒店 → 自动报价、
   await page.getByLabel("举牌姓名（选填）").fill("WANG XIAOMING");
   await page.getByLabel("乘车人姓名").fill("王小明");
   await page.getByLabel("邮箱").fill(`book-new-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`);
-  await page.getByLabel("手机号（含国家区号）").fill("+81 90-1234-5678");
+  await page.getByLabel("手机号（含国家码）").fill("+81 90-1234-5678");
   await expectNarrowAndAccessible(page, "新预订页第 3 步（乘客信息）");
   await page.getByRole("button", { name: "下一步：核对订单" }).click();
 
@@ -212,9 +212,9 @@ test("新预订页付款：选车 → 加附加服务（重新报价、右侧栏
   await page.getByRole("radio", { name: /^国内航班/ }).check();
   await page.getByLabel("预订人姓名").fill("王小明");
   await page.getByLabel("邮箱").fill(`book-new-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`);
-  await page.getByLabel("手机号（含国家区号）").fill("+81 90-1234-5678");
+  await page.getByLabel("手机号（含国家码）").fill("+81 90-1234-5678");
   await page.getByLabel("乘车人姓名").fill("李华");
-  await page.getByLabel("乘车人电话/WhatsApp").fill("+81 90-5555-6666");
+  await page.getByLabel("乘车人电话 / WhatsApp").fill("+81 90-5555-6666");
   await expect(page.getByLabel("举牌姓名（选填）")).toHaveValue("李华");
   await page.getByLabel("给司机的备注（选填）").fill("两个大箱子");
   await expectNarrowAndAccessible(page, "新预订页第 3 步（为他人预订）");
@@ -251,7 +251,7 @@ test("新预订页付款：选车 → 加附加服务（重新报价、右侧栏
   await expect(page.locator("main")).toContainText("23,100 JPY");
   await page.getByLabel("卡号（假 Stripe）").fill(TEST_CARDS.success);
   await page.getByRole("button", { name: "付款 23,100 JPY" }).click();
-  await page.getByRole("button", { name: "确认支付" }).click();
+  await page.getByRole("button", { name: "确认付款" }).click();
   await expect(page.getByRole("region", { name: "付款", exact: true }).getByRole("status")).toContainText("付款成功，等待确认。");
   await expect(page.getByText("付款成功，订单已确认。派车后这里会显示司机和车辆。")).toBeVisible({ timeout: 20_000 });
   // 下单时按国内航班锁定（M9E-28）：商品设 60，max(60, 60) = 60，订单页注明航班类型
@@ -268,7 +268,7 @@ test("M8-47：链接里的预订草稿编号写法不对、或者草稿不存在
   for (const draft of ["ZZZZZZ", "Q".repeat(43)]) {
     await page.goto(`${SITE}/book?draft=${draft}`);
     await expect(page.getByText("预订链接已过期或无效，请在下面重新填写行程。")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "你的行程" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "您的行程" })).toBeVisible();
     await expect(page.getByRole("combobox", { name: "出发地" })).toHaveValue("");
     await expect(page.getByRole("heading", { name: "选择车型" })).toHaveCount(0);
     await expectNarrowAndAccessible(page, `草稿编号 ${draft.length} 位`);

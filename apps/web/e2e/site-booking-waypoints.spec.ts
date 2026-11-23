@@ -180,7 +180,7 @@ test("包车加 3 个经停点：增删排序、停留必填 → 按行程计价
   await page.getByRole("button", { name: "下一步：填写乘客信息" }).click();
   await page.getByLabel("乘车人姓名").fill("陈小红");
   await page.getByLabel("邮箱").fill(`waypoints-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`);
-  await page.getByLabel("手机号（含国家区号）").fill("+81 90-2222-3333");
+  await page.getByLabel("手机号（含国家码）").fill("+81 90-2222-3333");
   await page.getByRole("button", { name: "下一步：核对订单" }).click();
   const review = page.getByRole("region", { name: "核对订单" });
   await expect(review.getByLabel("价格明细")).toBeVisible();

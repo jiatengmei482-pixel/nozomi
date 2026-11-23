@@ -51,7 +51,7 @@ test("官网地址（预订页 /book）：目的地输入即提示出候选 → 
 
   // 出发地从链接来（城市中心），日期时间也在链接里；目的地留空
   await page.goto(`${SITE}/book?from=${center.lat},${center.lng}&from_name=${encodeURIComponent("望站南口")}&date=${tomorrowInTokyo()}&time=10:00`);
-  await expect(page.getByRole("heading", { level: 1, name: "预订接送车" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "预订用车" })).toBeVisible();
   await expect(page.getByLabel(/^城市/)).toHaveCount(0);
   const from = page.getByRole("combobox", { name: "出发地" });
   await expect(from).toHaveValue("望站南口");

@@ -92,6 +92,7 @@ test("数据库故障时仍给出集成状态（只有已配置 / 未配置，�
   for (const item of report.integrations) assert.deepEqual(Object.keys(item), ["key", "label", "state"]);
   assert.deepEqual(leakedSecrets(JSON.stringify(report)), []);
   assert.equal(report.env, "ci");
+  assert.deepEqual(report.legal, { state: "unknown", requiredForLaunch: false }, "数据库不可用时不去读待补项");
 });
 
 test("整个健康检查共用一个时限：数据库探测用掉大半后，迁移探测只剩余下的时间，总耗时不超过时限太多", async () => {
@@ -119,12 +120,16 @@ test("探测用的每个查询都带客户端时限，且不超过健康检查�
   });
   const report = await checkHealth({ config: testConfig(), pool, migrationFiles: [], timeoutMs: 400 });
   assert.equal(report.status, "ok");
-  // 数据库探测 1 条；迁移探测在登录前事务里：这条连接的账号自检、begin、切换角色、查迁移记录表、commit
+  // 数据库探测 1 条；迁移探测在登录前事务里：这条连接的账号自检、begin、切换角色、查迁移记录表、commit；
+  // 法律文案的待补项（M9E-24）在平台的只读事务里：begin、切换角色、读一行、commit
   const statements = seen.map((input) => ((input as { text?: string }).text ?? "").trim().split(/\s+/).slice(0, 2).join(" "));
-  assert.equal(statements.length, 6, statements.join(" | "));
+  assert.equal(statements.length, 10, statements.join(" | "));
   assert.deepEqual(statements.slice(2, 4), ["begin", "set local"]);
   assert.equal(statements[5], "commit");
   assert.equal((seen[3] as { text: string }).text, "set local role nozomi_preauth");
+  assert.deepEqual(statements.slice(6), ["begin isolation", "set local", "select s.fields,", "commit"]);
+  assert.equal((seen[7] as { text: string }).text, "set local role nozomi_platform");
+  assert.equal(report.legal.state, "incomplete");
   for (const input of seen) {
     const timeout = (input as { query_timeout?: number }).query_timeout;
     assert.ok(typeof timeout === "number" && timeout >= 1 && timeout <= 400, `query_timeout = ${timeout}`);

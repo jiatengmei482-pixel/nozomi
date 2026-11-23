@@ -130,7 +130,7 @@ function assertKept(block: HTMLElement): void {
   assert.equal((within(block).getByRole("radio", { name: /失物招领/ }) as HTMLInputElement).checked, true);
 }
 
-test("一单提得太多（TICKET_LIMIT_REACHED）：说「这一单已经提了很多次，请直接联系客服」，填的内容都在", async () => {
+test("一单提得太多（TICKET_LIMIT_REACHED）：说「这张订单的反馈次数已达上限，请直接联系客服」，填的内容都在", async () => {
   open(orderOf({ status: "completed" }), (call) => {
     if (call.method === "GET" && call.url.pathname === "/site/v1/order/tickets") return json(200, { items: [] });
     if (call.method === "POST" && call.url.pathname === "/site/v1/order/tickets") return apiError(409, "TICKET_LIMIT_REACHED", "这一单的工单太多了");
@@ -140,7 +140,7 @@ test("一单提得太多（TICKET_LIMIT_REACHED）：说「这一单已经提了
   const block = await section();
   await fill(block, u);
   await u.click(within(block).getByRole("button", { name: "提交" }));
-  await within(block).findByText("这一单已经提了很多次，请直接联系客服。");
+  await within(block).findByText("这张订单的反馈次数已达上限，请直接联系客服。");
   assertKept(block);
 });
 

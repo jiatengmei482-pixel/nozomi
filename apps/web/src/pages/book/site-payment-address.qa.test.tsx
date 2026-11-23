@@ -219,7 +219,7 @@ test("A 付完显示成功后贴 B（同样已确认）：成功提示不带到 
   const actor = userEvent.setup();
   await actor.click(await screen.findByRole("button", { name: PAY_A }));
   world.statusA = "confirmed";
-  await actor.click(await screen.findByRole("button", { name: "确认支付" }));
+  await actor.click(await screen.findByRole("button", { name: "确认付款" }));
   await screen.findByText("付款成功，订单已确认。派车后这里会显示司机和车辆。", undefined, { timeout: 5000 });
   paste(LINK_B);
   await orderHeading(ORDER_B);
@@ -232,7 +232,7 @@ test("A 付完（这个文档加载过 Stripe.js，A 已不用付款）后贴已
   const actor = userEvent.setup();
   await actor.click(await screen.findByRole("button", { name: PAY_A }));
   world.statusA = "confirmed";
-  await actor.click(await screen.findByRole("button", { name: "确认支付" }));
+  await actor.click(await screen.findByRole("button", { name: "确认付款" }));
   await screen.findByText("付款成功，订单已确认。派车后这里会显示司机和车辆。", undefined, { timeout: 5000 });
   paste(LINK_B);
   await orderHeading(ORDER_B);
@@ -368,7 +368,7 @@ test("读配置失败：不知道配没配 Stripe，付款区块不挂表单，�
 test("读订单出错（不是令牌失效）：显示重试，不掉到查订单，令牌还在；不加载 Stripe.js；恢复后重试能付款且地址干净", async () => {
   const stripe = fakeStripeJs();
   const world = open(stripe, LINK_A, worldOf({ orderFails: true }));
-  await screen.findByText("订单没有读出来");
+  await screen.findByText("订单加载失败，请刷新重试");
   assert.equal(address(), LINK_A);
   assert.equal(stripe.calls.addresses.length, 0);
   world.orderFails = false;
@@ -442,7 +442,7 @@ test("付款成功：确认后 sessionStorage 不留令牌，轮询用 state 里
   const actor = userEvent.setup();
   await actor.click(await screen.findByRole("button", { name: PAY_A }));
   world.statusA = "confirmed";
-  await actor.click(await screen.findByRole("button", { name: "确认支付" }));
+  await actor.click(await screen.findByRole("button", { name: "确认付款" }));
   await screen.findByText("付款成功，订单已确认。派车后这里会显示司机和车辆。", undefined, { timeout: 5000 });
   assert.equal(sessionStorage.getItem("nozomi.payment-return"), null);
   assert.equal(address(), "/book/order");

@@ -40,7 +40,7 @@ export const MAIN_BOOKING_SHELL: BookingShell = {
   title: "预订用车 · NOZOMI 用车",
   frame: (body) => (
     <SiteLayout>
-      <h1 className="site__title">预订接送车</h1>
+      <h1 className="site__title">预订用车</h1>
       <p className="site-muted">输入出发地和目的地，马上看到所有车型的一口价</p>
       {body}
     </SiteLayout>

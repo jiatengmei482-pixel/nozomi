@@ -8,6 +8,7 @@ import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
+import { LEGAL_FIELD_KEYS } from "@nozomi/domain";
 import type { ManualQuoteDetail, ManualQuoteSummary, SiteSettings } from "../../api/manual-quotes.ts";
 import { COLLEAGUE, ME, openApp } from "../../testing/order-center-fixtures.tsx";
 import { type ApiCall, apiError, assertAbsent, json, resetBrowser } from "../../testing/harness.tsx";
@@ -256,6 +257,8 @@ function openSettings(role: string, settings: SiteSettings, put: (call: ApiCall)
   return openApp("/platform/settings/site", "platform", role, (call) => {
     if (call.method === "GET" && call.url.pathname === "/platform/v1/site-settings") return json(200, settings);
     if (call.method === "PUT" && call.url.pathname === "/platform/v1/site-settings") return put(call);
+    // 同一页最下面的「法律文案的待补项」（M9E-24，legal-settings.test.tsx）
+    if (call.method === "GET" && call.url.pathname === "/platform/v1/legal-settings") return json(200, { fields: Object.fromEntries(LEGAL_FIELD_KEYS.map((key) => [key, null])), missing: [...LEGAL_FIELD_KEYS], complete: false, required_for_launch: false, version: 1, updated_at: "2030-11-01T00:00:00.000Z", updated_by: null });
     return null;
   });
 }

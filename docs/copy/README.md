@@ -3,7 +3,7 @@
 由 `pnpm copy:export` 从代码自动生成（M11-02），**不要手改**；代码里的文案改了，重新运行一次即可。
 用 `pnpm copy:export --check` 可以检查这里是不是最新的。
 
-共 12496 条：**写死 12028 条**（直接写在页面代码里，没走 i18n key），已走 key 468 条。
+共 12657 条：**写死 12189 条**（直接写在页面代码里，没走 i18n key），已走 key 468 条。
 
 - 用 Excel 看：下载 [copy.csv](copy.csv)，可以按「区域」「页面」「状态」筛选。
 - 在 GitHub 上看：点下面的区域，按页面分组，位置可以点开直接看代码。
@@ -12,16 +12,16 @@
 
 | 区域 | 条数 | 写死 | 已走 key |
 | --- | ---: | ---: | ---: |
-| [官网（客人预订）](site.md) | 763 | 537 | 226 |
-| [嵌入预订（合作网站上的组件和嵌入页）](embed.md) | 93 | 65 | 28 |
+| [官网（客人预订）](site.md) | 856 | 630 | 226 |
+| [嵌入预订（合作网站上的组件和嵌入页）](embed.md) | 92 | 64 | 28 |
 | [司机页](driver.md) | 69 | 69 | 0 |
 | [登录和账号（两个后台共用）](account.md) | 98 | 98 | 0 |
 | [供应商后台](tenant.md) | 3321 | 3321 | 0 |
-| [运营后台](platform.md) | 3906 | 3900 | 6 |
-| [前端公共组件和共用文案](shared.md) | 1814 | 1632 | 182 |
-| [邮件和通知模板](mail.md) | 193 | 182 | 11 |
+| [运营后台](platform.md) | 3935 | 3929 | 6 |
+| [前端公共组件和共用文案](shared.md) | 1817 | 1635 | 182 |
+| [邮件和通知模板](mail.md) | 197 | 186 | 11 |
 | [后端返回的提示（接口错误等）](api.md) | 1450 | 1450 | 0 |
-| [前后端共用的业务说法（domain 包）](domain.md) | 789 | 774 | 15 |
+| [前后端共用的业务说法（domain 包）](domain.md) | 822 | 807 | 15 |
 
 ## 每一列的意思
 
@@ -62,16 +62,16 @@ CSS 类名、网址、错误码这类不含中文的字符串（页面文字和�
 
 | 文件 | 写死条数 |
 | --- | ---: |
-| [apps/web/src/lib/audit-display.ts](../../apps/web/src/lib/audit-display.ts) | 246 |
+| [apps/web/src/lib/audit-display.ts](../../apps/web/src/lib/audit-display.ts) | 248 |
 | [packages/domain/src/price-sheet.ts](../../packages/domain/src/price-sheet.ts) | 229 |
 | [apps/web/src/pages/products/prices/PriceRulesTab.tsx](../../apps/web/src/pages/products/prices/PriceRulesTab.tsx) | 203 |
-| [apps/web/src/pages/book/OrderSections.tsx](../../apps/web/src/pages/book/OrderSections.tsx) | 182 |
 | [apps/web/src/pages/products/prices/AdjustRuleForm.tsx](../../apps/web/src/pages/products/prices/AdjustRuleForm.tsx) | 182 |
+| [apps/web/src/pages/book/OrderSections.tsx](../../apps/web/src/pages/book/OrderSections.tsx) | 181 |
 | [apps/web/src/pages/platform/ChannelSections.tsx](../../apps/web/src/pages/platform/ChannelSections.tsx) | 178 |
 | [apps/web/src/pages/platform/PlatformOrderPages.tsx](../../apps/web/src/pages/platform/PlatformOrderPages.tsx) | 178 |
 | [apps/web/src/pages/platform/TicketDetailPage.tsx](../../apps/web/src/pages/platform/TicketDetailPage.tsx) | 176 |
 | [apps/web/src/pages/products/ServiceRulesStep.tsx](../../apps/web/src/pages/products/ServiceRulesStep.tsx) | 173 |
-| [packages/domain/src/notifications.ts](../../packages/domain/src/notifications.ts) | 168 |
+| [packages/domain/src/notifications.ts](../../packages/domain/src/notifications.ts) | 172 |
 | [apps/web/src/pages/platform/QuotePreviewPage.tsx](../../apps/web/src/pages/platform/QuotePreviewPage.tsx) | 163 |
 | [apps/web/src/lib/channel-display.ts](../../apps/web/src/lib/channel-display.ts) | 160 |
 | [apps/web/src/pages/products/BasicStep.tsx](../../apps/web/src/pages/products/BasicStep.tsx) | 141 |
@@ -81,8 +81,8 @@ CSS 类名、网址、错误码这类不含中文的字符串（页面文字和�
 | [apps/web/src/pages/orders/OrderPages.tsx](../../apps/web/src/pages/orders/OrderPages.tsx) | 132 |
 | [apps/web/src/pages/products/inventory/InventoryStep.tsx](../../apps/web/src/pages/products/inventory/InventoryStep.tsx) | 132 |
 | [apps/web/src/pages/products/inventory/ImportPage.tsx](../../apps/web/src/pages/products/inventory/ImportPage.tsx) | 130 |
+| [apps/web/src/pages/book/new/BookNewPage.tsx](../../apps/web/src/pages/book/new/BookNewPage.tsx) | 124 |
 | [apps/web/src/pages/areas/AreaEditorPage.tsx](../../apps/web/src/pages/areas/AreaEditorPage.tsx) | 123 |
-| [apps/web/src/pages/book/new/BookNewPage.tsx](../../apps/web/src/pages/book/new/BookNewPage.tsx) | 123 |
 | [apps/web/src/pages/platform/SettingsPages.tsx](../../apps/web/src/pages/platform/SettingsPages.tsx) | 122 |
 | [apps/web/src/pages/platform/FinancePages.tsx](../../apps/web/src/pages/platform/FinancePages.tsx) | 121 |
 | [apps/web/src/pages/platform/BankFilePages.tsx](../../apps/web/src/pages/platform/BankFilePages.tsx) | 114 |

@@ -46,10 +46,10 @@ const planName = (kind: SiteTripPlanKind): string => tripCopy(kind === "one_car"
 /** `YYYY-MM-DDTHH:MM…` → `HH:MM`；没有为 null */
 const clock = (local: string | null): string | null => (local !== null && local.length >= 16 ? local.slice(11, 16) : null);
 
-/** `YYYY-MM-DD` → `M月D日` */
+/** `YYYY-MM-DD` → `M 月 D 日` */
 const dayDate = (date: string): string => {
   const [, month, day] = date.split("-");
-  return month !== undefined && day !== undefined ? `${Number(month)}月${Number(day)}日` : date;
+  return month !== undefined && day !== undefined ? `${Number(month)} 月 ${Number(day)} 日` : date;
 };
 
 /** 段类型 → 文案键：新增段类型时这里编译不过，提醒补文案 */

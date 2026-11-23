@@ -1,26 +1,27 @@
 # 嵌入预订（合作网站上的组件和嵌入页）
 
-由 `pnpm copy:export` 从代码生成，不要手改。本区域共 93 条：写死 65 条，已走 key 28 条。列的意思见 [README](README.md)。
+由 `pnpm copy:export` 从代码生成，不要手改。本区域共 92 条：写死 64 条，已走 key 28 条。列的意思见 [README](README.md)。
 
 ## 页面
 
-- [嵌入预订页（合作网站里的预订页）](#嵌入预订页合作网站里的预订页)（24 条）
-- [嵌入组件脚本（合作网站页面上的询价框）](#嵌入组件脚本合作网站页面上的询价框)（68 条）
+- [嵌入预订页（合作网站里的预订页）](#嵌入预订页合作网站里的预订页)（25 条）
+- [嵌入组件脚本（合作网站页面上的询价框）](#嵌入组件脚本合作网站页面上的询价框)（66 条）
 - [嵌入组件脚本的大小预算（widget-size.ts）](#嵌入组件脚本的大小预算widget-sizets)（1 条）
 
 ## 嵌入预订页（合作网站里的预订页）
 
-文件：`apps/web/src/pages/embed/EmbedApp.tsx`、`apps/web/src/pages/embed/embed-texts.ts`
+文件：`apps/web/src/pages/embed/EmbedApp.tsx`、`apps/web/src/pages/embed/EmbedBookPage.tsx`、`apps/web/src/pages/embed/embed-texts.ts`
 
 | key | 状态 | 中文 | 类型 | 位置 |
 | --- | --- | --- | --- | --- |
 | `EmbedApp.383753fe` | 写死 | 这个页面不能在合作网站里显示，请在新窗口打开。 | 正文 | [EmbedApp.tsx:24](../../apps/web/src/pages/embed/EmbedApp.tsx#L24) |
 | `EmbedApp.769150f4` | 写死 | 在新窗口打开 | 链接 | [EmbedApp.tsx:26](../../apps/web/src/pages/embed/EmbedApp.tsx#L26) |
+| `EmbedBookPage.96e8de30` | 写死 | 法律文案 | 名称 | [EmbedBookPage.tsx:44](../../apps/web/src/pages/embed/EmbedBookPage.tsx#L44) |
 | `embed.title` | 已走 key | NOZOMI 用车预订 | 标题 | [embed-texts.ts:35](../../apps/web/src/pages/embed/embed-texts.ts#L35) |
 | `embed.loading` | 已走 key | 正在读取预订内容… | 文字 | [embed-texts.ts:36](../../apps/web/src/pages/embed/embed-texts.ts#L36) |
 | `embed.seller` | 已走 key | 本预订由 NOZOMI 提供并收款。 | 文字 | [embed-texts.ts:37](../../apps/web/src/pages/embed/embed-texts.ts#L37) |
 | `embed.expired` | 已走 key | 这次查询已过期，请在上方重新查询。 | 文字 | [embed-texts.ts:38](../../apps/web/src/pages/embed/embed-texts.ts#L38) |
-| `embed.failed` | 已走 key | 预订内容暂时读不出来，请稍后刷新，或到主站预订。 | 提示 | [embed-texts.ts:39](../../apps/web/src/pages/embed/embed-texts.ts#L39) |
+| `embed.failed` | 已走 key | 预订内容暂时无法加载，请稍后刷新，或到主站预订。 | 提示 | [embed-texts.ts:39](../../apps/web/src/pages/embed/embed-texts.ts#L39) |
 | `embed.topLevel` | 已走 key | 请在合作网站上预订，或到 NOZOMI 主站预订。 | 文字 | [embed-texts.ts:40](../../apps/web/src/pages/embed/embed-texts.ts#L40) |
 | `embed.goToSite` | 已走 key | 到 NOZOMI 主站预订 | 文字 | [embed-texts.ts:41](../../apps/web/src/pages/embed/embed-texts.ts#L41) |
 | `embed.badAddress` | 已走 key | 预订页的地址不完整，请回到合作网站重新打开。 | 文字 | [embed-texts.ts:42](../../apps/web/src/pages/embed/embed-texts.ts#L42) |
@@ -28,14 +29,14 @@
 | `embed.orderPending` | 已走 key | 请在下面填写银行卡完成付款。30 分钟内没有付款，订单会自动取消。 | 文字 | [embed-texts.ts:44](../../apps/web/src/pages/embed/embed-texts.ts#L44) |
 | `embed.payInNewWindow` | 已走 key | 在新窗口打开订单页付款 | 文字 | [embed-texts.ts:45](../../apps/web/src/pages/embed/embed-texts.ts#L45) |
 | `embed.payHint` | 已走 key | 付款表单打不开时，可以 | 说明 | [embed-texts.ts:46](../../apps/web/src/pages/embed/embed-texts.ts#L46) |
-| `embed.payLoadFailed` | 已走 key | 付款组件没有加载出来，请检查网络后重试。 | 提示 | [embed-texts.ts:47](../../apps/web/src/pages/embed/embed-texts.ts#L47) |
+| `embed.payLoadFailed` | 已走 key | 付款组件加载失败，请检查网络后重试。 | 提示 | [embed-texts.ts:47](../../apps/web/src/pages/embed/embed-texts.ts#L47) |
 | `embed.openOrder` | 已走 key | 在新窗口打开订单页 | 文字 | [embed-texts.ts:48](../../apps/web/src/pages/embed/embed-texts.ts#L48) |
 | `embed.manageNote` | 已走 key | 取消、修改订单请在新窗口打开订单页操作。订单链接也会发到您的邮箱。 | 说明 | [embed-texts.ts:49](../../apps/web/src/pages/embed/embed-texts.ts#L49) |
 | `embed.paid` | 已走 key | 付款已提交。订单确认后会发邮件通知您，派车后可以在订单页看到司机和车辆。 | 文字 | [embed-texts.ts:50](../../apps/web/src/pages/embed/embed-texts.ts#L50) |
 | `embed.cancelled` | 已走 key | 这张订单已取消。 | 文字 | [embed-texts.ts:51](../../apps/web/src/pages/embed/embed-texts.ts#L51) |
 | `embed.orderMissing` | 已走 key | 这里找不到刚才的订单了。请用邮件里的链接，或到主站「查订单」找回。 | 文字 | [embed-texts.ts:52](../../apps/web/src/pages/embed/embed-texts.ts#L52) |
 | `embed.lookup` | 已走 key | 到主站查订单 | 文字 | [embed-texts.ts:53](../../apps/web/src/pages/embed/embed-texts.ts#L53) |
-| `embed.orderFailed` | 已走 key | 订单暂时读不出来，请稍后重试。 | 提示 | [embed-texts.ts:54](../../apps/web/src/pages/embed/embed-texts.ts#L54) |
+| `embed.orderFailed` | 已走 key | 订单暂时无法加载，请稍后重试。 | 提示 | [embed-texts.ts:54](../../apps/web/src/pages/embed/embed-texts.ts#L54) |
 | `embed.retry` | 已走 key | 重试 | 文字 | [embed-texts.ts:55](../../apps/web/src/pages/embed/embed-texts.ts#L55) |
 | `embed.orderNo` | 已走 key | 订单号 | 文字 | [embed-texts.ts:56](../../apps/web/src/pages/embed/embed-texts.ts#L56) |
 
@@ -58,21 +59,19 @@
 | `widget-core.021f1cd7` | 写死 | 上车地点 | 文字 | [widget-core.ts:166](../../apps/web/src/embed/widget-core.ts#L166) |
 | `widget-core.32e116b8` | 写死 | 经停点 | 文字 | [widget-core.ts:166](../../apps/web/src/embed/widget-core.ts#L166) |
 | `widget-core.6738382d` | 写死 | 停留时长 | 文字 | [widget-core.ts:166](../../apps/web/src/embed/widget-core.ts#L166) |
-| `widget-core.688de784` | 写死 | 专属司机 | 文字 | [widget-core.ts:166](../../apps/web/src/embed/widget-core.ts#L166) |
+| `widget-core.6c8116fd` | 写死 | 区间 | 文字 | [widget-core.ts:166](../../apps/web/src/embed/widget-core.ts#L166) |
 | `widget-core.7a8306f9` | 写死 | 删除经停点 | 文字 | [widget-core.ts:166](../../apps/web/src/embed/widget-core.ts#L166) |
 | `widget-core.88bb8748` | 写死 | 下车地点 | 文字 | [widget-core.ts:166](../../apps/web/src/embed/widget-core.ts#L166) |
-| `widget-core.9243ff05` | 写死 | 按时包车 | 文字 | [widget-core.ts:166](../../apps/web/src/embed/widget-core.ts#L166) |
+| `widget-core.89ecbde1` | 写死 | 包车 | 文字 | [widget-core.ts:166](../../apps/web/src/embed/widget-core.ts#L166) |
 | `widget-core.95b00c8e` | 写死 | 用车日期和时间 | 文字 | [widget-core.ts:166](../../apps/web/src/embed/widget-core.ts#L166) |
 | `widget-core.95f43ba0` | 写死 | 出发地 | 文字 | [widget-core.ts:166](../../apps/web/src/embed/widget-core.ts#L166) |
 | `widget-core.bc8ab1ba` | 写死 | 目的地 | 文字 | [widget-core.ts:166](../../apps/web/src/embed/widget-core.ts#L166) |
-| `widget-core.d912dc25` | 写死 | 区间接送 | 文字 | [widget-core.ts:166](../../apps/web/src/embed/widget-core.ts#L166) |
-| `widget-core.ecf2c7d4` | 写死 | 预约接送 | 文字 | [widget-core.ts:166](../../apps/web/src/embed/widget-core.ts#L166) |
 | `widget-core.f2f80a6b` | 写死 | 添加经停点 | 文字 | [widget-core.ts:166](../../apps/web/src/embed/widget-core.ts#L166) |
 | `widget-core.4ceb14cc` | 写死 | 乘客 | 文字 | [widget-core.ts:167](../../apps/web/src/embed/widget-core.ts#L167) |
 | `widget-core.4e1b77bf` | 写死 | 行李 | 文字 | [widget-core.ts:167](../../apps/web/src/embed/widget-core.ts#L167) |
+| `widget-core.70de32cd` | 写死 | 查询价格 | 按钮 | [widget-core.ts:167](../../apps/web/src/embed/widget-core.ts#L167) |
 | `widget-core.7aef77bd` | 写死 | 只填地点，不要填姓名、电话。 | 文字 | [widget-core.ts:167](../../apps/web/src/embed/widget-core.ts#L167) |
 | `widget-core.dc2ee299` | 写死 | 日期 | 文字 | [widget-core.ts:167](../../apps/web/src/embed/widget-core.ts#L167) |
-| `widget-core.e0aa55f3` | 写死 | 查看价格 | 按钮 | [widget-core.ts:167](../../apps/web/src/embed/widget-core.ts#L167) |
 | `widget-core.eb23c635` | 写死 | 时间 | 文字 | [widget-core.ts:167](../../apps/web/src/embed/widget-core.ts#L167) |
 | `widget-core.f1de26c1` | 写死 | 正在跳转… | 文字 | [widget-core.ts:167](../../apps/web/src/embed/widget-core.ts#L167) |
 | `widget-core.1f041113` | 写死 | 请选择停留时长 | 文字 | [widget-core.ts:168](../../apps/web/src/embed/widget-core.ts#L168) |
@@ -110,9 +109,9 @@
 | `widget-ui.d099f8cd` | 写死 | 主站拒绝了取配置的请求（浏览器读不到具体原因）。请依次检查：① 嵌入码是否已在 NOZOMI 运营后台停用；② 嵌入码是否填错；③ 本网站的域名是否在这个嵌入码的白名单里；④ 组件脚本是否直接从主站加载。NOZOMI 运维可在主站日志 embed.gate\_refused 查到是哪一种。 | 文字 | [widget-ui.ts:126](../../apps/web/src/embed/widget-ui.ts#L126) |
 | `widget-ui.83d830e5` | 写死 | bookingUrl 不合格（要用 https、和当前页同一个域名和端口），已按没传处理：草稿建好后跳到主站。 | 文字 | [widget-ui.ts:204](../../apps/web/src/embed/widget-ui.ts#L204) |
 | `widget-ui.d7f60640` | 写死 | 取组件配置超时或出错，先按 init 的参数显示表单。 | 文字 | [widget-ui.ts:274](../../apps/web/src/embed/widget-ui.ts#L274) |
-| `widget-ui.0f505117` | 写死 | 请直接从主站的 {WIDGET\_SCRIPT\_PATH} 加载组件脚本（不要改名、转存或合并进别的文件）。 | 文字 | [widget-ui.ts:818](../../apps/web/src/embed/widget-ui.ts#L818) |
-| `widget-ui.dc84553f` | 写死 | init 需要 key（嵌入码）和 root（容器）。 | 文字 | [widget-ui.ts:822](../../apps/web/src/embed/widget-ui.ts#L822) |
-| `widget-ui.1772d022` | 写死 | init 找不到 root 指定的容器。 | 文字 | [widget-ui.ts:827](../../apps/web/src/embed/widget-ui.ts#L827) |
+| `widget-ui.0f505117` | 写死 | 请直接从主站的 {WIDGET\_SCRIPT\_PATH} 加载组件脚本（不要改名、转存或合并进别的文件）。 | 文字 | [widget-ui.ts:820](../../apps/web/src/embed/widget-ui.ts#L820) |
+| `widget-ui.dc84553f` | 写死 | init 需要 key（嵌入码）和 root（容器）。 | 文字 | [widget-ui.ts:824](../../apps/web/src/embed/widget-ui.ts#L824) |
+| `widget-ui.1772d022` | 写死 | init 找不到 root 指定的容器。 | 文字 | [widget-ui.ts:829](../../apps/web/src/embed/widget-ui.ts#L829) |
 
 ## 嵌入组件脚本的大小预算（widget-size.ts）
 

@@ -22,6 +22,7 @@ import {
   quietHoursIssue,
   quietHoursResumeAt,
   renderNotification,
+  serviceReminderNote,
   templateNeedsViewLink,
   templatePlaceholders,
 } from "./notifications.ts";
@@ -199,4 +200,18 @@ test("订单链接（ADR 0061）：只发给客人；带新的查看链接；没
   for (const status of ["pending_payment", "cancelled", "completed", "rescue_pending"]) {
     assert.equal(notificationStale("order.view_link", {}, { status, serviceAtMs: 0, driverId: null, vehicleId: null }, { audience: "guest" }), false, status);
   }
+});
+
+test("客人邮件（M11-03）：主题都以「【NOZOMI】」开头；用车提醒对接机单说司机在到达口等，其余请客人按时到上车点", () => {
+  for (const template of NOTIFICATION_TEMPLATES.filter((item) => item.audience === "guest")) assert.ok(template.subject.startsWith("【NOZOMI】"), template.event);
+  assert.equal(serviceReminderNote({ category: "airport_transfer", direction: "pickup" }), "司机会按航班落地时间在到达口等候");
+  assert.equal(serviceReminderNote({ category: "airport_transfer", direction: "dropoff" }), "请按时到达上车点");
+  assert.equal(serviceReminderNote({ category: "point_to_point", direction: null }), "请按时到达上车点");
+  assert.equal(serviceReminderNote({ category: "charter", direction: null }), "请按时到达上车点");
+  const template = findNotificationTemplate("order.service_reminder", "guest", "zh-CN", "email");
+  assert.ok(template);
+  const rendered = renderNotification(template, { order_no: "N-1", passenger_name: "王", service_time: "2026-12-01 10:00", route: "成田 → 新宿", vehicle_group: "轿车", view_url: "https://example.test/o", service_reminder_note: serviceReminderNote({ category: "airport_transfer", direction: "pickup" }) });
+  assert.equal(rendered?.subject, "【NOZOMI】用车提醒：2026-12-01 10:00（N-1）");
+  assert.match(rendered?.text ?? "", /您的用车时间快到了，司机会按航班落地时间在到达口等候。/);
+  assert.equal(renderNotification(template, { order_no: "N-1", passenger_name: "王", service_time: "x", route: "x", vehicle_group: "x", view_url: "x" }), null, "缺这一句就不发");
 });

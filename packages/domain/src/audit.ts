@@ -68,6 +68,8 @@ export const AUDIT_RESOURCES = [
   "embed_key",
   // AI 一句话行程用哪个 Claude 型号（M9T-32，ADR 0104 第六节）：只有 update，前后值是用法（sonnet / haiku / haiku_then_sonnet）
   "ai_trip_settings",
+  // 官网、嵌入页法律文案的待补项（M9E-24，ADR 0107）：只有 update，前后值是 10 个待补项（要公开在网页上的公司信息）
+  "site_legal_settings",
 ] as const;
 
 export type AuditResource = (typeof AUDIT_RESOURCES)[number];

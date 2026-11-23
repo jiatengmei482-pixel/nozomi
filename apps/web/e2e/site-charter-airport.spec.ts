@@ -26,7 +26,7 @@ test("M9P-22 主站手机 390：「机场接机开始」按航站楼选，底部
   const trip = await charterAirportWorld(request);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`${SITE}/book?mode=charter&${linkPoint("to", trip.nearby, "市内下车点")}&date=${tomorrowInTokyo()}&time=10:00`);
-  await expect(page.getByRole("heading", { name: "你的行程" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "您的行程" })).toBeVisible();
 
   await page.getByRole("button", { name: "机场接机开始" }).click();
   await expect(page.getByRole("button", { name: "机场接机开始" })).toHaveAttribute("aria-pressed", "true");
@@ -69,7 +69,7 @@ test("M9P-22 主站电脑 1280：「改填其他地点」退回普通地址输�
   const trip = await charterAirportWorld(request);
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(`${SITE}/book?mode=charter&${linkPoint("from", trip.pickup, "上车酒店")}&date=${tomorrowInTokyo()}&time=10:00`);
-  await expect(page.getByRole("heading", { name: "你的行程" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "您的行程" })).toBeVisible();
 
   await page.getByRole("button", { name: "机场接机开始" }).click();
   await expect(page.getByText(/在上面的「上车地点」里输入机场名称或地址/)).toBeVisible();
