@@ -336,37 +336,6 @@ export function seatPlan(passengers: number, luggage: number): SeatPlan {
 
 // ---- 右侧栏（M8-04）：路线、附加服务差额、参考价 ----
 
-/** 谷歌的 encoded polyline → 坐标点（只用来画路线，不参与计价）。写法不对时返回空数组。 */
-export function decodePolyline(encoded: string): { lat: number; lng: number }[] {
-  const points: { lat: number; lng: number }[] = [];
-  let index = 0;
-  let lat = 0;
-  let lng = 0;
-  const next = (): number | null => {
-    let result = 0;
-    let shift = 0;
-    for (;;) {
-      if (index >= encoded.length) return null;
-      const byte = encoded.charCodeAt(index++) - 63;
-      if (byte < 0 || byte > 63) return null;
-      result |= (byte & 0x1f) << shift;
-      shift += 5;
-      if (byte < 0x20) break;
-      if (shift > 30) return null;
-    }
-    return result & 1 ? ~(result >> 1) : result >> 1;
-  };
-  while (index < encoded.length) {
-    const dLat = next();
-    const dLng = next();
-    if (dLat === null || dLng === null) return [];
-    lat += dLat;
-    lng += dLng;
-    points.push({ lat: lat / 1e5, lng: lng / 1e5 });
-  }
-  return points;
-}
-
 /** 「约 52 分钟 · 63.4 公里」：分钟取整，公里保留一位小数（整数不带 .0）。 */
 export function routeSummaryText(minutes: number, meters: number): string {
   const km = (Math.round(meters / 100) / 10).toFixed(1).replace(/\.0$/, "");

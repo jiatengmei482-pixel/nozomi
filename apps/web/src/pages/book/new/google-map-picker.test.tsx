@@ -1,5 +1,5 @@
 /**
- * 新预订页的谷歌地图选点（M10-01 第 2 处）：配了浏览器密钥时「在地图上选点」打开同源的地图小页面（iframe），不再用开源地图；
+ * 新预订页的谷歌地图选点（M10-01 第 2 处）：配了浏览器密钥时「在地图上选点」打开同源的地图小页面（iframe）；没配密钥时不提供地图选点（不退回开源地图）；
  * 小页面发来的选点照常反查地址；加载不出来（大陆网络、密钥被拒）时收起地图、提示用搜索或直接输入地址；只认同源、这个 iframe 发来的消息。
  * 测试里没有真的谷歌地图：直接以 iframe 的身份发消息。
  */
@@ -37,6 +37,7 @@ function open(mapsKey: string | null): ApiCall[] {
     const path = call.url.pathname;
     if (path === "/site/v1/config") return json(200, config);
     if (path === "/site/v1/cities") return json(200, { items: [TOKYO] });
+    if (path === "/site/v1/places/autocomplete") return json(200, { available: false, items: [] });
     if (path === "/site/v1/places/reverse") return json(200, { available: true, address: "东京都新宿区西新宿 2-8-1" });
     if (path === "/site/v1/charter-packages") return json(200, { city: { id: TOKYO.id, code: TOKYO.code, name: TOKYO.name, timezone: TOKYO.timezone }, items: [{ hours: 8 }] });
     if (path === "/site/v1/fx/reference") return json(200, { available: false, from: "JPY", to: call.url.searchParams.get("to"), rate: null, as_of: null, reason: "NO_RATE" });
@@ -114,13 +115,18 @@ test("地图加载不出来（小页面报 failed）：收起地图和按钮，�
   assert.equal(screen.queryByRole("button", { name: "在地图上选点" }) !== null && document.querySelector(".leaflet-container") !== null, false);
 });
 
-test("没配密钥：照旧用开源地图（过渡期）", async () => {
+test("没配密钥（即使配了开源底图）：没有「在地图上选点」、没有任何地图，搜索照常；地址提示用不了时只请客人输入机场、车站，不提地图", async () => {
   wideScreen();
-  open(null);
-  const group = await screen.findByRole("group", { name: "出发地的地图" }, SLOW);
-  await userEvent.setup().click(within(group).getByRole("button", { name: "在地图上选点" }));
-  await waitFor(() => assert.ok(group.querySelector(".leaflet-container")), SLOW);
-  assert.equal(group.querySelector("iframe"), null);
+  const calls = open(null);
+  const from = await screen.findByRole("combobox", { name: "出发地" }, SLOW);
+  assert.equal(screen.queryByRole("group", { name: "出发地的地图" }), null);
+  assert.equal(screen.queryByRole("button", { name: "在地图上选点" }), null);
+  await userEvent.setup().type(from, "京王广场");
+  assert.ok(await screen.findByText("地址提示暂时用不了。请输入机场、车站的名称。", {}, SLOW));
+  assert.ok(calls.some((call) => call.path.startsWith("/site/v1/places/autocomplete")), "搜索照常");
+  assert.equal(document.querySelector(".leaflet-container"), null);
+  assert.equal(document.querySelector("iframe"), null);
+  assert.equal(calls.filter((call) => call.path.startsWith("/site/v1/places/reverse")).length, 0);
 });
 
 test("坐标保留 6 位小数，经度折回 [-180, 180)", () => {

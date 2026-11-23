@@ -35,6 +35,8 @@ function wideScreen(): void {
 }
 
 const SLOW = { timeout: 3000 };
+/** 谷歌地图浏览器密钥（M10-01）：配了才有「在地图上选点」 */
+const MAPS_KEY = `AIzaSy${"k".repeat(33)}`;
 const CITY_ID = "11111111-1111-4111-8111-111111111111";
 const AIRPORT_ID = "22222222-2222-4222-8222-222222222222";
 const city: SiteCity = { id: CITY_ID, code: "CTY-JP-TYO", name: { zh: "东京" }, timezone: "Asia/Tokyo", country_code: "JP", center: { lat: 35.6895, lng: 139.6917 }, categories: ["airport_transfer", "point_to_point", "charter"] };
@@ -277,7 +279,7 @@ test("地址框：谷歌用不了时只有平台的地点，状态行说明", as
 test("地址框（M8-45）：这个地址今天的额度用完了（unavailable_reason IP_DAILY_LIMIT）说「地址提示暂时不可用」，平台的地点照常；每分钟限流（429）仍说「输入太快了」；谷歌出错的说法不变", async () => {
   wideScreen();
   let reply = (): Response => json(200, { available: false, unavailable_reason: "IP_DAILY_LIMIT", items: [airportSuggestion] });
-  open({ config: configOf({ map_tiles: ROUTE_TILES }), autocomplete: () => reply() });
+  open({ config: configOf({ maps_browser_key: MAPS_KEY }), autocomplete: () => reply() });
   const actor = user();
   const from = await screen.findByRole("combobox", { name: "出发地" });
   await actor.type(from, "成田");
@@ -304,7 +306,7 @@ test("地址框（M8-45）：这个地址今天的额度用完了（unavailable_
 
 test("手机全屏选择页（M8-45）：额度用完的说法和电脑上一样", async () => {
   window.matchMedia = ((query: string) => ({ matches: query === FULL_SCREEN_PICKER_QUERY || query === "(pointer: coarse)", media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false })) as typeof window.matchMedia;
-  open({ config: configOf({ map_tiles: ROUTE_TILES }), autocomplete: () => json(200, { available: false, unavailable_reason: "IP_DAILY_LIMIT", items: [airportSuggestion] }) });
+  open({ config: configOf({ maps_browser_key: MAPS_KEY }), autocomplete: () => json(200, { available: false, unavailable_reason: "IP_DAILY_LIMIT", items: [airportSuggestion] }) });
   const actor = user();
   await actor.click(await screen.findByRole("button", { name: /^出发地/ }));
   const sheet = await screen.findByRole("dialog", { name: "出发地" });
@@ -314,7 +316,7 @@ test("手机全屏选择页（M8-45）：额度用完的说法和电脑上一样
 
 test("地址框（M8-37）：候选开着时 Tab 走到同一块里的「在地图上选点」，候选收起（不盖住获得焦点的按钮）；点页面别处也收起", async () => {
   wideScreen();
-  open({ config: configOf({ map_tiles: ROUTE_TILES }) });
+  open({ config: configOf({ maps_browser_key: MAPS_KEY }) });
   const actor = user();
   const from = await screen.findByRole("combobox", { name: "出发地" });
   await actor.type(from, "成田");
@@ -402,14 +404,25 @@ test("手机触屏（M8-37）：地址、日期、时间都是全屏选择页—
   assert.match(dateCell.textContent ?? "", /2030-11-20/);
 });
 
-/** 手机全屏选择页：打开出发地的选择页，在地图上按「选地图中间这个位置」（从城市中心开始），选择页关上。 */
+/** 手机全屏选择页：打开出发地的选择页，在谷歌地图上选城市中心，选择页关上。 */
 async function pickFromOnMapInSheet(actor: ReturnType<typeof user>): Promise<HTMLElement> {
   window.matchMedia = ((query: string) => ({ matches: query === FULL_SCREEN_PICKER_QUERY || query === "(pointer: coarse)", media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false })) as typeof window.matchMedia;
   const fromCell = await screen.findByRole("button", { name: /^出发地/ });
   await actor.click(fromCell);
   const sheet = await screen.findByRole("dialog", { name: "出发地" });
-  await actor.click(within(within(sheet).getByRole("group", { name: "出发地的地图" })).getByRole("button", { name: "在地图上选点" }));
-  await actor.click(await within(sheet).findByRole("button", { name: "选地图中间这个位置" }));
+  const group = within(sheet).getByRole("group", { name: "出发地的地图" });
+  await actor.click(within(group).getByRole("button", { name: "在地图上选点" }));
+  // 测试里没有真的谷歌地图：以地图小页面（iframe）的身份发「地图好了」「选了城市中心」（google-map-picker.test.tsx 同一做法）
+  const frame = (await waitFor(() => {
+    const found = group.querySelector("iframe");
+    assert.ok(found);
+    return found;
+  }, SLOW)) as HTMLIFrameElement;
+  for (const data of [{ source: "nozomi-map", type: "ready" }, { source: "nozomi-map", type: "pick", lat: city.center.lat, lng: city.center.lng }]) {
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", { data, origin: window.location.origin, source: frame.contentWindow }));
+    });
+  }
   await waitFor(() => assertAbsent(screen.queryByRole("dialog", { name: "出发地" })));
   assert.match(fromCell.textContent ?? "", /地图上选的位置（/);
   return fromCell;
@@ -417,7 +430,7 @@ async function pickFromOnMapInSheet(actor: ReturnType<typeof user>): Promise<HTM
 
 test("手机地图选点（M8-42）：反查还没回来时又打开选择页打字、再点「取消」，反查回来后出发地仍换成地址（取消不改值，也不作废反查）", async () => {
   const pending = deferred();
-  const calls = open({ config: configOf({ map_tiles: ROUTE_TILES }), reverse: () => pending.promise });
+  const calls = open({ config: configOf({ maps_browser_key: MAPS_KEY }), reverse: () => pending.promise });
   const actor = user();
   const fromCell = await pickFromOnMapInSheet(actor);
   await waitFor(() => assert.equal(calls.filter((call) => call.path.includes("/places/reverse")).length, 1));
@@ -437,7 +450,7 @@ test("手机地图选点（M8-42）：反查还没回来时又打开选择页打
 
 test("手机地图选点（M8-42）：选择页开着、客人正在打字时反查回来，输入框里还是客人打的字，页面那一格已换成地址；再点「取消」出发地是地址", async () => {
   const pending = deferred();
-  const calls = open({ config: configOf({ map_tiles: ROUTE_TILES }), reverse: () => pending.promise });
+  const calls = open({ config: configOf({ maps_browser_key: MAPS_KEY }), reverse: () => pending.promise });
   const actor = user();
   const fromCell = await pickFromOnMapInSheet(actor);
   await waitFor(() => assert.equal(calls.filter((call) => call.path.includes("/places/reverse")).length, 1));
@@ -461,7 +474,7 @@ test("手机地图选点（M8-42）：选择页开着、客人正在打字时反
 
 test("手机地图选点（M8-42）：反查还没回来时切换到「包车」（地址框换成新的），在新框里改选了候选，旧框的反查回来后不覆盖", async () => {
   const pending = deferred();
-  const calls = open({ config: configOf({ map_tiles: ROUTE_TILES }), reverse: () => pending.promise });
+  const calls = open({ config: configOf({ maps_browser_key: MAPS_KEY }), reverse: () => pending.promise });
   const actor = user();
   await pickFromOnMapInSheet(actor);
   await waitFor(() => assert.equal(calls.filter((call) => call.path.includes("/places/reverse")).length, 1));
@@ -488,7 +501,7 @@ test("手机地图选点（M8-42）：反查还没回来时切换到「包车」
 
 test("手机地图选点（M8-42）：反查还没回来时客人改选了别的候选，反查回来后不覆盖新选的地点", async () => {
   const pending = deferred();
-  open({ config: configOf({ map_tiles: ROUTE_TILES }), reverse: () => pending.promise });
+  open({ config: configOf({ maps_browser_key: MAPS_KEY }), reverse: () => pending.promise });
   const actor = user();
   const fromCell = await pickFromOnMapInSheet(actor);
 

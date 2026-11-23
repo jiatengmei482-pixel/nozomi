@@ -6,8 +6,8 @@
  * - 读草稿时带上 iframe 地址里的 `key`、`host`：服务端回答草稿上记的嵌入码、宿主和这次对不对得上（`source_matches`）；
  *   对不上时照常预填和报价，但询价不带 `draft_id`，来源按主站记。
  * - 读到草稿后发 `ready`，然后就是主站预订页 `/book` 的四步（同一份组件，`BookingShell` 换外壳）：和主站一样 iframe ≥ 1024px 两栏、带「行程摘要」右侧栏，
- *   < 1024px 单栏、顶部摘要条（M9E-27，按 iframe 自己的视口）；不用 Leaflet（不提供地图选点，
- *   静态路线图失败时只留时长和公里数）、换步发 `step`、下单后进 iframe 里的订单页（令牌放 history.state 和 `nozomi.embed-order`，不进地址、不发给宿主）。
+ *   < 1024px 单栏、顶部摘要条（M9E-27，按 iframe 自己的视口）；不提供地图选点（不加载谷歌地图；
+ *   静态路线图失败时和主站一样只留时长和公里数）、换步发 `step`、下单后进 iframe 里的订单页（令牌放 history.state 和 `nozomi.embed-order`，不进地址、不发给宿主）。
  *   读不到草稿发 `ready` 再发 `error`。
  * - 页面顶部写明卖方「本预订由 NOZOMI 提供并收款」（Q14）。去主站的链接一律新标签页。
  * - 直接在地址栏打开（没被嵌）：不显示预订内容，只说「请在合作网站上预订」并给主站链接（ADR 0095 第五节第 3 小节表格最后一行）。
@@ -136,7 +136,6 @@ export function EmbedBookPage() {
     return {
       title: t.title,
       frame: (body) => <div lang="zh-CN">{body}</div>,
-      tiles: () => null,
       mapsKey: () => null,
       // 草稿已经在上面读过了：直接交给四步，不再读第二次
       readDraft: () => Promise.resolve({ draft: saved, sourceMatches }),
