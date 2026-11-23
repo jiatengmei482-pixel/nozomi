@@ -757,9 +757,9 @@
 | `book-new.8bc16ef7` | 写死 | 时间太近，请选更晚的时间或联系客服 | 说明 | [book-new.ts:248](../../apps/web/src/lib/book-new.ts#L248) |
 | `book-new.fe1cef53` | 写死 | 人数或行李超过所有车型，可以分两辆车预订或联系客服 | 文字 | [book-new.ts:249](../../apps/web/src/lib/book-new.ts#L249) |
 | `book-new.2857e373` | 写死 | 这个地址暂时没有在线报价，请联系客服 | 文字 | [book-new.ts:250](../../apps/web/src/lib/book-new.ts#L250)、251 行 |
-| `book-new.c7978a68` | 写死 | 约 {…} 分钟 · {km} 公里 | 说明 | [book-new.ts:373](../../apps/web/src/lib/book-new.ts#L373) |
-| `book-new.c76289f0` | 写死 | 约 {…} 分钟 · {…} 公里 | 说明 | [book-new.ts:381](../../apps/web/src/lib/book-new.ts#L381) |
-| `book-new.ad2c7072` | 写死 | 按当前汇率换算，仅供参考，实际以支付金额为准 | 说明 | [book-new.ts:426](../../apps/web/src/lib/book-new.ts#L426) |
+| `book-new.c7978a68` | 写死 | 约 {…} 分钟 · {km} 公里 | 说明 | [book-new.ts:342](../../apps/web/src/lib/book-new.ts#L342) |
+| `book-new.c76289f0` | 写死 | 约 {…} 分钟 · {…} 公里 | 说明 | [book-new.ts:350](../../apps/web/src/lib/book-new.ts#L350) |
+| `book-new.ad2c7072` | 写死 | 按当前汇率换算，仅供参考，实际以支付金额为准 | 说明 | [book-new.ts:395](../../apps/web/src/lib/book-new.ts#L395) |
 
 ## 渠道、加价规则、双人复核在页面上的写法（channel-display.ts）
 

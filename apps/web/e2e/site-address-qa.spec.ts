@@ -2,10 +2,12 @@
  * 端到端（测试角色补充）：官网地址搜索与地图选点（M3-12，ADR 0044）。真实浏览器 → 构建好的前端 → 真实 API → 真实 PostgreSQL；
  * 谷歌是 global-setup 起的本机假服务器，**从不调用真实的谷歌**。用地址搜索专用的那组 API 和前端（配置文件里有一把本次运行随机生成的 `AIzaE2E…` 假密钥）。
  *
- * - 密钥不进浏览器：构建产物、页面、浏览器收到的每个应答、cookie / localStorage / sessionStorage 里都没有 `AIza` 开头的东西，也没有谷歌的接口地址；
- *   浏览器只连本站和底图；内容安全策略的 connect-src 只有 'self' 和 Stripe（官网付款，ADR 0046）、img-src 只多了底图来源、没有任何谷歌来源，整个流程没有违反策略的事件。
- * - 键盘：地图聚焦后 `+` / `-` 真的缩放（瓦片的层级变了）、方向键平移，Tab 到「选地图中间这个位置」回车选中准星处；只选一端不发询价。
- * - 配置里没有底图、也没有谷歌地图的浏览器密钥时：没有「在地图上选点」，地址框照常能输入。
+ * - 服务器密钥不进浏览器：构建产物、页面、浏览器收到的每个应答、cookie / localStorage / sessionStorage 里都没有 `AIza` 开头的东西（给谷歌地图选点的浏览器密钥除外，
+ *   它本来就要交给地图小页面），也没有谷歌的接口地址；浏览器只连本站；内容安全策略的 connect-src 只有 'self' 和 Stripe（官网付款，ADR 0046）、
+ *   img-src 只多了底图来源（后台区域地图用）、没有任何谷歌来源，整个流程没有违反策略的事件。
+ * - 地图选点只用谷歌地图（M10-01，业主 2026-11-18 选 A）：配了浏览器密钥时打开同源的地图小页面（端到端里换成假页面 `useFakeGoogleMapPicker`，不连真实的谷歌），
+ *   选点后反查地址填进地址框；键盘能打开地图、选中间的位置，只选一端不发询价；页面上从不出现开源地图（`.leaflet-container`）。
+ * - 没有谷歌地图的浏览器密钥（即使配了底图）：没有「在地图上选点」，地址框照常能输入。
  *   （只改浏览器收到的 /site/v1/config 这一项来模拟，其余接口都是真的。）
  * 页面都是预订页 /book（M8-05 起是四步新流程，地址框是输入即提示 PlaceField）。
  */
@@ -15,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import { type APIRequestContext, expect, test } from "@playwright/test";
 import { E2E_TILE_PORT, E2E_WEB_PLACES_PORT } from "../playwright.config.ts";
 import { type Supplier, type World, createProductByApi, createSupplier, createWorld } from "./catalog.ts";
-import { OWN_SITE_SOURCE } from "./support.ts";
+import { FAKE_MAPS_BROWSER_KEY, OWN_SITE_SOURCE, useFakeGoogleMapPicker } from "./support.ts";
 
 // 官网按来源地址限速：每条用例带自己的文档专用地址，不和并行的官网用例在 127.0.0.1 上抢同一份额度（M8-17）
 test.use(OWN_SITE_SOURCE);
@@ -82,9 +84,12 @@ test("构建产物里没有谷歌的密钥和接口地址（官网选点的谷�
   }
 });
 
-test("密钥不进浏览器：输入即提示、选中、地图选点全程，应答、页面、存储里没有密钥；只连本站和底图；内容安全策略不放行谷歌，也没有违反策略的事件", async ({ page, request }) => {
+test("服务器密钥不进浏览器：输入即提示、选中、谷歌地图选点全程，应答、页面、存储里只有给地图小页面的浏览器密钥；只连本站；内容安全策略不放行谷歌，也没有违反策略的事件", async ({ page, request }) => {
   test.setTimeout(120_000);
   await bookableWorld(request);
+  await useFakeGoogleMapPicker(page);
+  /** 浏览器密钥是公开给地图小页面用的（运营后台填，限定了网址）：查谷歌痕迹前去掉它，剩下的才算泄漏 */
+  const withoutBrowserKey = (text: string): string => text.split(FAKE_MAPS_BROWSER_KEY).join("");
   const origins = new Set<string>();
   const bodies: { url: string; text: string }[] = [];
   page.on("request", (sent) => origins.add(new URL(sent.url()).origin));
@@ -118,104 +123,72 @@ test("密钥不进浏览器：输入即提示、选中、地图选点全程，�
   await expect(from).toHaveValue(/^東京駅/);
   const toMap = page.getByRole("group", { name: "目的地的地图" });
   await toMap.getByRole("button", { name: "在地图上选点" }).click();
+  await expect(toMap.locator("iframe")).toHaveAttribute("src", /^\/maps\/picker\.html\?key=/);
   await toMap.getByRole("button", { name: "选地图中间这个位置" }).click();
   await expect(page.getByRole("combobox", { name: "目的地" })).toHaveValue("日本、〒100-0005 東京都千代田区丸の内１丁目９");
+  await expect(page.locator(".leaflet-container"), "官网不用开源地图").toHaveCount(0);
 
   expect(bodies.some((body) => body.url.includes("/site/v1/places/autocomplete")), "浏览器发了输入即提示").toBe(true);
   expect(bodies.some((body) => body.url.includes("/site/v1/places/details")), "浏览器取了候选的坐标").toBe(true);
   expect(bodies.some((body) => body.url.includes("/site/v1/places/reverse")), "浏览器发了反查").toBe(true);
-  for (const body of bodies) for (const trace of GOOGLE_TRACES) expect(trace.test(body.text), `${body.url} 的应答里有 ${trace}`).toBe(false);
-  const html = await page.content();
+  for (const body of bodies) for (const trace of GOOGLE_TRACES) expect(trace.test(withoutBrowserKey(body.text)), `${body.url} 的应答里有 ${trace}`).toBe(false);
+  const html = withoutBrowserKey(await page.content());
   for (const trace of GOOGLE_TRACES) expect(trace.test(html), `页面里有 ${trace}`).toBe(false);
   const stored = await page.evaluate(() => JSON.stringify({ cookie: document.cookie, local: { ...localStorage }, session: { ...sessionStorage } }));
   const cookies = JSON.stringify(await page.context().cookies());
   for (const trace of GOOGLE_TRACES) expect(trace.test(stored) || trace.test(cookies), `浏览器存储里有 ${trace}`).toBe(false);
-  expect([...origins].filter((origin) => origin !== SITE && origin !== TILE_ORIGIN)).toEqual([]);
+  expect([...origins].filter((origin) => origin !== SITE)).toEqual([]);
   expect(await page.evaluate(() => (window as unknown as { __cspViolations: string[] }).__cspViolations)).toEqual([]);
 });
 
-test("键盘：地图聚焦后 + / - 真的缩放、方向键平移，Tab 到「选地图中间这个位置」回车选中准星处；只选一端不询价", async ({ page, request }) => {
+test("键盘：回车打开谷歌地图，Tab 到「选地图中间这个位置」回车选中；只选一端不询价；没有开源地图", async ({ page, request }) => {
   test.setTimeout(120_000);
   await bookableWorld(request);
+  await useFakeGoogleMapPicker(page);
   const quotes: string[] = [];
-  const zooms: number[] = [];
   const picked: { lat: number; lng: number }[] = [];
   page.on("request", (sent) => {
     const url = new URL(sent.url());
     if (sent.method() === "POST" && url.pathname.startsWith("/site/v1/quotes")) quotes.push(url.pathname);
-    if (url.origin === TILE_ORIGIN) zooms.push(Number(url.pathname.split("/")[1]));
     if (url.pathname === "/site/v1/places/reverse") picked.push({ lat: Number(url.searchParams.get("lat")), lng: Number(url.searchParams.get("lng")) });
   });
-  await page.setViewportSize({ width: 360, height: 740 });
+  await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(`${SITE}/book`);
 
   const toMap = page.getByRole("group", { name: "目的地的地图" });
   const toggle = toMap.getByRole("button", { name: "在地图上选点" });
-  const map = page.getByRole("application", { name: /地图：点一下选目的地位置/ });
   const pickCenter = toMap.getByRole("button", { name: "选地图中间这个位置" });
-  // 先不动地图选一次中间的位置，记下起点（选好后地图收起）
-  await toggle.click();
-  await expect(map).toBeVisible();
-  await pickCenter.click();
-  await expect.poll(() => picked.length).toBe(1);
-  await expect(map).toHaveCount(0);
-
-  // 再用键盘打开地图（从选好的点打开）
-  zooms.length = 0;
   await toggle.focus();
   await page.keyboard.press("Enter");
-  await expect(map).toBeVisible();
-  await expect.poll(() => zooms.length).toBeGreaterThan(0);
-  const startZoom = Math.max(...zooms);
-  await map.focus();
-  await expect(map).toBeFocused();
-  zooms.length = 0;
-  await page.keyboard.press("+");
-  await expect.poll(() => Math.max(0, ...zooms), { message: "按 + 没有放大" }).toBe(startZoom + 1);
-  zooms.length = 0;
-  await page.keyboard.press("-");
-  await page.keyboard.press("-");
-  await expect.poll(() => (zooms.length === 0 ? Number.POSITIVE_INFINITY : Math.min(...zooms)), { message: "按 - 没有缩小" }).toBe(startZoom - 1);
-  // 地图库在上一次平移的动画没走完时不理方向键：每按一次等地图停稳再按下一个
-  const pane = map.locator(".leaflet-map-pane");
-  const panWith = async (key: string): Promise<void> => {
-    const before = await pane.evaluate((element) => getComputedStyle(element).transform);
-    await page.keyboard.press(key);
-    await expect
-      .poll(async () => {
-        const first = await pane.evaluate((element) => getComputedStyle(element).transform);
-        await page.waitForTimeout(100);
-        return first !== before && first === (await pane.evaluate((element) => getComputedStyle(element).transform));
-      }, { message: `按 ${key} 地图没有平移` })
-      .toBe(true);
-  };
-  await panWith("ArrowLeft");
-  await panWith("ArrowUp");
-
-  // 只用 Tab 走到「选地图中间这个位置」，回车选中
+  await expect(toMap.getByTitle(/地图：点一下选目的地位置/)).toBeVisible();
+  await expect(pickCenter).toBeEnabled();
   for (let i = 0; i < 6 && !(await pickCenter.evaluate((element) => element === document.activeElement)); i++) await page.keyboard.press("Tab");
   await expect(pickCenter).toBeFocused();
   await page.keyboard.press("Enter");
-  await expect.poll(() => picked.length).toBe(2);
-  const [first, second] = picked as [{ lat: number; lng: number }, { lat: number; lng: number }];
-  expect(second.lat, "方向键往上移动了地图").toBeGreaterThan(first.lat);
-  expect(second.lng, "方向键往左移动了地图").toBeLessThan(first.lng);
+  await expect.poll(() => picked.length).toBe(1);
+  await expect(page.getByRole("combobox", { name: "目的地" })).toHaveValue("日本、〒100-0005 東京都千代田区丸の内１丁目９");
+  await expect(toMap.locator("iframe"), "选好后地图收起").toHaveCount(0);
+  await expect(page.locator(".leaflet-container")).toHaveCount(0);
   expect(quotes, "只选了目的地，不询价").toEqual([]);
 });
 
-test("配置里没有底图、也没有谷歌地图的浏览器密钥：没有「在地图上选点」，地址框照常能输入", async ({ page, request }) => {
+test("没有谷歌地图的浏览器密钥（即使配了底图）：没有「在地图上选点」、没有任何地图，地址框照常能输入", async ({ page, request }) => {
   test.setTimeout(120_000);
   await bookableWorld(request);
+  let tiles: unknown = null;
   await page.route("**/site/v1/config", async (route) => {
     const response = await route.fetch();
     const body = (await response.json()) as Record<string, unknown>;
-    await route.fulfill({ response, json: { ...body, map_tiles: null, maps_browser_key: null } });
+    tiles = body["map_tiles"];
+    await route.fulfill({ response, json: { ...body, maps_browser_key: null } });
   });
   await page.goto(`${SITE}/book`);
   const from = page.getByRole("combobox", { name: "出发地" });
   await expect(from).toBeEditable();
+  expect(tiles, "这组 API 配了底图（后台区域地图用）").not.toBeNull();
   await expect(page.getByRole("button", { name: /在地图上选/ })).toHaveCount(0);
   await expect(page.getByRole("application")).toHaveCount(0);
+  await expect(page.locator(".leaflet-container")).toHaveCount(0);
   await from.fill("東京駅");
   await page.getByRole("listbox", { name: "出发地的候选" }).getByRole("option", { name: /東京駅/ }).click();
   await expect(from).toHaveValue(/^東京駅/);
@@ -252,6 +225,7 @@ test("谷歌地图选点（M10-01 第 2 处）：配了浏览器密钥时打开�
   await group.getByRole("button", { name: "在地图上选点" }).click();
   await expect(page.getByText("地图加载不出来（可能是网络原因）。请用上面的搜索找到地址；门牌、楼层等可以写在下单时的「给司机的备注」里。")).toBeVisible({ timeout: 15_000 });
   await expect(page.locator("iframe")).toHaveCount(0);
+  await expect(page.locator(".leaflet-container"), "不退回开源地图").toHaveCount(0);
   // 打开的是同源的地图小页面，带着密钥（谷歌挡住后它马上报失败、被收起，所以看请求而不是 iframe）
   expect(pickerRequests.length).toBeGreaterThan(0);
   expect(new URL(pickerRequests[0] ?? "").origin).toBe(SITE);

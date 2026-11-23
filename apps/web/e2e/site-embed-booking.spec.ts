@@ -22,6 +22,7 @@
  * 停在宿主屏幕下沿看得见，滚到底回到原位置；截图 m9e32-embed-*.png。769–1023 的平板也用底部按钮条（业主 2026-11-17，ADR 0100 补充）：
  * M9E-27 那条在 iframe 1023 宽时核对有条、1024 宽时没有。
  * M9P-22（ADR 0098 第三节第 7 小节）：iframe 里包车快捷入口「机场送机结束」按航站楼选，询价匹配到机场、明细写场景名，第 3 步备注提示航班号。
+ * M10-01：静态路线图出不来（/site/v1/route-map 503，UNAVAILABLE 和 NOT_ENABLED）时 iframe 里不显示地图、没有 Leaflet，只写「约 X 分钟 · Y 公里」。
  */
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -527,6 +528,47 @@ test("M9E-27 跨站：分栏按 iframe 自己的宽度——1440、1024 两栏�
     if (width !== 1023) await snapshot(page, `m9e27-embed-${width}`);
   }
   expect(await stepCount(), "宽窄切换不算换步，不多发 step").toBe(steps);
+});
+
+test("M10-01 跨站：静态路线图出不来（/site/v1/route-map 503：暂时不可用 UNAVAILABLE、平台没开通 NOT_ENABLED）时 iframe 里不显示地图、不退回开源地图，右侧栏只写「约 X 分钟 · Y 公里」", async ({ page, request }) => {
+  test.setTimeout(240_000);
+  const world = await createWorld(request);
+  const airport = await createAirport(request, world);
+  await publishTransfer(request, await createSupplier(request, world), { ...world, airport });
+  let reason = "UNAVAILABLE";
+  let asked = 0;
+  // 路线图的图片和图片失败后再问一次原因都走这里（iframe 里的请求也经过 page.route）
+  await page.route((url) => url.pathname === "/site/v1/route-map", async (route) => {
+    asked += 1;
+    await route.fulfill({ status: 503, json: { error: { code: "ROUTE_MAP_UNAVAILABLE", message: "路线图暂不可用", details: { reason } } } });
+  });
+  const host = await newHost(request);
+  await page.setViewportSize({ width: 1500, height: 900 });
+  await searchFromHostHome(page, host, airport.name);
+  await expect.poll(() => page.url()).toBe(`${host.origin}/booking/`);
+  const frame = frameOf(page);
+  await frameWidth(page, 1440);
+  const card = frame.getByRole("listitem").filter({ has: frame.getByRole("heading", { name: world.group.name }) });
+  await card.getByRole("button", { name: `选择 ${world.group.name}` }).click();
+  await frame.getByRole("button", { name: "下一步：填写乘客信息" }).click();
+  const aside = frame.getByRole("complementary", { name: "行程摘要" });
+  await expect(aside).toBeVisible();
+
+  for (const next of ["UNAVAILABLE", "NOT_ENABLED"] as const) {
+    if (next === "NOT_ENABLED") {
+      // 换应答的原因后刷新宿主页：iframe 从存储里的草稿接着嵌，重新要一次路线图
+      reason = next;
+      const before = asked;
+      await page.reload();
+      await frameWidth(page, 1440);
+      await expect(aside).toBeVisible();
+      await expect.poll(() => asked, `${next}：又要了一次路线图`).toBeGreaterThan(before);
+    } else await expect.poll(() => asked, `${next}：要过路线图`).toBeGreaterThan(0);
+    await expect(aside.locator(".book-summary__route"), next).toHaveText(/^约 \d+ 分钟 · [\d.]+ 公里$/);
+    await expect(frame.locator(".route-map"), `${next}：不显示地图`).toHaveCount(0);
+    await expect(frame.locator(".leaflet-container"), `${next}：不退回开源地图`).toHaveCount(0);
+    await expect(aside.getByRole("img", { name: /^路线图：/ })).toHaveCount(0);
+  }
 });
 
 /** 宿主页滚到 scrollY：iframe 里这个按钮在宿主屏幕里（宿主发的 viewport 是异步的，轮询） */

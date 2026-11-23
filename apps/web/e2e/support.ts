@@ -480,3 +480,52 @@ export async function expectMapFollowsTheme(page: Page, canvas: Locator, what: s
     else expect(filters.tiles, `${what}：亮色瓦片层不加滤镜`).toBe("none");
   }
 }
+
+/** 端到端里给官网配的谷歌地图浏览器密钥（假的，格式对；只出现在改过的 /site/v1/config 应答和地图小页面的地址里） */
+export const FAKE_MAPS_BROWSER_KEY = `AIzaSy${"f".repeat(33)}`;
+
+/**
+ * 假的谷歌地图选点小页面：协议和 public/maps/picker.js 一样（`ready`、`pick`；收 `point`、`pick-center`），但不加载谷歌的任何东西。
+ * 从打开时地址里的位置（有已选点用已选点，没有用 lat / lng）开始；「选地图中间这个位置」选的就是它；`window.fakePick(lat, lng)` 模拟在地图上点一下。
+ */
+const FAKE_MAPS_PICKER = `<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>地图选点</title></head>
+<body><div role="application" aria-label="地图" tabindex="0" style="width: 100%; height: 100vh"></div><script>
+const query = new URLSearchParams(location.search);
+let at = { lat: Number(query.get("plat") ?? query.get("lat")), lng: Number(query.get("plng") ?? query.get("lng")) };
+const send = (message) => parent.postMessage(Object.assign({ source: "nozomi-map" }, message), location.origin);
+addEventListener("message", (event) => {
+  if (event.origin !== location.origin || event.data === null || typeof event.data !== "object" || event.data.source !== "nozomi-map") return;
+  if (event.data.type === "point") at = { lat: event.data.lat, lng: event.data.lng };
+  if (event.data.type === "pick-center") send({ type: "pick", lat: at.lat, lng: at.lng });
+});
+window.fakePick = (lat, lng) => send({ type: "pick", lat, lng });
+send({ type: "ready" });
+</script></body></html>`;
+
+/**
+ * 官网用谷歌地图选点（M10-01）：只改浏览器收到的 /site/v1/config 里的 `maps_browser_key`（其余接口都是真的），
+ * 地图小页面 /maps/picker.html 换成上面的假页面（端到端从不连真实的谷歌）。返回打开过的小页面地址。
+ */
+export async function useFakeGoogleMapPicker(page: Page): Promise<string[]> {
+  const opened: string[] = [];
+  await page.route("**/site/v1/config", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as Record<string, unknown>;
+    await route.fulfill({ response, json: { ...body, maps_browser_key: FAKE_MAPS_BROWSER_KEY } });
+  });
+  await page.route(/\/maps\/picker\.html(\?|$)/, async (route) => {
+    opened.push(route.request().url());
+    await route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: FAKE_MAPS_PICKER });
+  });
+  return opened;
+}
+
+/** 在打开着的（假）谷歌地图上点一个位置 */
+export async function fakeGoogleMapPick(page: Page, point: { lat: number; lng: number }): Promise<void> {
+  const find = () => page.frames().find((entry) => entry.url().includes("/maps/picker.html"));
+  await expect.poll(() => find() !== undefined, { message: "地图小页面没有打开" }).toBe(true);
+  const frame = find();
+  if (frame === undefined) throw new Error("地图小页面没有打开");
+  await frame.evaluate(({ lat, lng }) => (window as unknown as { fakePick(lat: number, lng: number): void }).fakePick(lat, lng), point);
+}

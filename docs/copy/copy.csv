@@ -38,16 +38,16 @@
 官网（客人预订）,预订页（/book）,BookNewPage.7da32bc5,写死,送机,文字,dropoff,apps/web/src/pages/book/new/BookNewPage.tsx,166,
 官网（客人预订）,预订页（/book）,BookNewPage.858e47e2,写死,点对点,文字,point_to_point,apps/web/src/pages/book/new/BookNewPage.tsx,166,
 官网（客人预订）,预订页（/book）,BookNewPage.97915a38,写死,接机,文字,pickup,apps/web/src/pages/book/new/BookNewPage.tsx,166,
-官网（客人预订）,预订页（/book）,BookNewPage.1079f8e4,写死,出发地,文字,which,apps/web/src/pages/book/new/BookNewPage.tsx,247 1137 1502,
-官网（客人预订）,预订页（/book）,BookNewPage.28f20d9f,写死,目的地,文字,which,apps/web/src/pages/book/new/BookNewPage.tsx,247 1163 1522,
+官网（客人预订）,预订页（/book）,BookNewPage.1079f8e4,写死,出发地,文字,which,apps/web/src/pages/book/new/BookNewPage.tsx,247 1136 1498,
+官网（客人预订）,预订页（/book）,BookNewPage.28f20d9f,写死,目的地,文字,which,apps/web/src/pages/book/new/BookNewPage.tsx,247 1160 1518,
 官网（客人预订）,预订页（/book）,BookNewPage.2afd7ec7,写死,和,文字,"(mode===""charter""?[""上车地点"",""下车地点""]:[""出发地"",""目的地""]).filter((_,index)=>ends[index]?.",apps/web/src/pages/book/new/BookNewPage.tsx,247,
-官网（客人预订）,预订页（/book）,BookNewPage.57c54c9f,写死,上车地点,文字,which,apps/web/src/pages/book/new/BookNewPage.tsx,247 537 1137 1147 1502,
-官网（客人预订）,预订页（/book）,BookNewPage.7b821b8c,写死,下车地点,文字,which,apps/web/src/pages/book/new/BookNewPage.tsx,247 537 1163 1174 1522,
+官网（客人预订）,预订页（/book）,BookNewPage.57c54c9f,写死,上车地点,文字,which,apps/web/src/pages/book/new/BookNewPage.tsx,247 537 1136 1145 1498,
+官网（客人预订）,预订页（/book）,BookNewPage.7b821b8c,写死,下车地点,文字,which,apps/web/src/pages/book/new/BookNewPage.tsx,247 537 1160 1170 1518,
 官网（客人预订）,预订页（/book）,BookNewPage.0617425f,写死,链接里的地点{…}没有找到，请在下面重新选择{which}。,文字,linkNotice(),apps/web/src/pages/book/new/BookNewPage.tsx,248,
 官网（客人预订）,预订页（/book）,BookNewPage.9b45becd,写死,链接里的地点{…}暂时没有读出来，请稍后刷新页面，或在下面直接选择。,文字,linkNotice(),apps/web/src/pages/book/new/BookNewPage.tsx,250,
 官网（客人预订）,预订页（/book）,BookNewPage.0f9d8336,写死,请从候选里选出发地,文字,,apps/web/src/pages/book/new/BookNewPage.tsx,270,
 官网（客人预订）,预订页（/book）,BookNewPage.af68712f,写死,请从候选里选上车地点,文字,,apps/web/src/pages/book/new/BookNewPage.tsx,270,
-官网（客人预订）,预订页（/book）,BookNewPage.45f2175d,写死,这个地址暂时没有在线报价，请联系客服,文字,,apps/web/src/pages/book/new/BookNewPage.tsx,271 538 1177,
+官网（客人预订）,预订页（/book）,BookNewPage.45f2175d,写死,这个地址暂时没有在线报价，请联系客服,文字,,apps/web/src/pages/book/new/BookNewPage.tsx,271 538 1173,
 官网（客人预订）,预订页（/book）,BookNewPage.12033fa0,写死,请从候选里选目的地,文字,,apps/web/src/pages/book/new/BookNewPage.tsx,272,
 官网（客人预订）,预订页（/book）,BookNewPage.537fa825,写死,请选择下车地点,文字,,apps/web/src/pages/book/new/BookNewPage.tsx,272,
 官网（客人预订）,预订页（/book）,BookNewPage.4c3726e8,写死,请选择包车时长,文字,,apps/web/src/pages/book/new/BookNewPage.tsx,273,
@@ -67,7 +67,7 @@
 官网（客人预订）,预订页（/book）,BookNewPage.312756db,写死,请填写乘车人的电话或 WhatsApp 号码，以 + 和国家码开头，如 +81 90-1234-5678,文字,riderPhone,apps/web/src/pages/book/new/BookNewPage.tsx,844,
 官网（客人预订）,预订页（/book）,BookNewPage.b14479eb,写死,有几项没有填好，请看标红的地方。,文字,text,apps/web/src/pages/book/new/BookNewPage.tsx,855 885 977,
 官网（客人预订）,预订页（/book）,BookNewPage.712879a2,写死,请先选择车型。,文字,text,apps/web/src/pages/book/new/BookNewPage.tsx,871,
-官网（客人预订）,预订页（/book）,BookNewPage.744066fe,写死,这个车型现在加不了所选的附加服务，请减少附加服务或换一个车型。,文字,text,apps/web/src/pages/book/new/BookNewPage.tsx,873 1620,
+官网（客人预订）,预订页（/book）,BookNewPage.744066fe,写死,这个车型现在加不了所选的附加服务，请减少附加服务或换一个车型。,文字,text,apps/web/src/pages/book/new/BookNewPage.tsx,873 1616,
 官网（客人预订）,预订页（/book）,BookNewPage.7332e8c5,写死,价格还在计算，请稍等再点「去付款」。,文字,text,apps/web/src/pages/book/new/BookNewPage.tsx,876,
 官网（客人预订）,预订页（/book）,BookNewPage.2ecf7902,写死,需要同意保存支付方式才能下单,文字,consent,apps/web/src/pages/book/new/BookNewPage.tsx,890,
 官网（客人预订）,预订页（/book）,BookNewPage.92721a79,写死,请先勾选同意保存银行卡，再点「去付款」。,文字,text,apps/web/src/pages/book/new/BookNewPage.tsx,891,
@@ -75,89 +75,89 @@
 官网（客人预订）,预订页（/book）,BookNewPage.2eaaf754,写死,提交订单,文字,siteFailureText(),apps/web/src/pages/book/new/BookNewPage.tsx,916,
 官网（客人预订）,预订页（/book）,BookNewPage.95dfcd48,写死,正在打开预订页,名称,label,apps/web/src/pages/book/new/BookNewPage.tsx,1058,
 官网（客人预订）,预订页（/book）,BookNewPage.35339cc5,写死,页面没有打开,标题,title,apps/web/src/pages/book/new/BookNewPage.tsx,1060,
-官网（客人预订）,预订页（/book）,BookNewPage.4653cb0b,写死,重试,按钮,<Button>,apps/web/src/pages/book/new/BookNewPage.tsx,1060 1064 1216 1289,
+官网（客人预订）,预订页（/book）,BookNewPage.4653cb0b,写死,重试,按钮,<Button>,apps/web/src/pages/book/new/BookNewPage.tsx,1060 1064 1212 1285,
 官网（客人预订）,预订页（/book）,BookNewPage.597336a1,写死,暂未开放预订,标题,title,apps/web/src/pages/book/new/BookNewPage.tsx,1062,
 官网（客人预订）,预订页（/book）,BookNewPage.fd26ebca,写死,官网的在线预订还没有开放，请稍后再来。已经下过单的客人可以点上方的「查订单」查看订单。,说明,description,apps/web/src/pages/book/new/BookNewPage.tsx,1062,
 官网（客人预订）,预订页（/book）,BookNewPage.584f1d9b,写死,城市列表没有读出来,标题,title,apps/web/src/pages/book/new/BookNewPage.tsx,1064,
 官网（客人预订）,预订页（/book）,BookNewPage.04e51a10,写死,暂时没有可预订的城市,标题,title,apps/web/src/pages/book/new/BookNewPage.tsx,1066,
 官网（客人预订）,预订页（/book）,BookNewPage.f163951b,写死,现在还没有可以在线预订用车的城市，请稍后再来。,说明,description,apps/web/src/pages/book/new/BookNewPage.tsx,1066,
-官网（客人预订）,预订页（/book）,BookNewPage.0b7d61b4,写死,用车时间（当地）,名称,timeLabel,apps/web/src/pages/book/new/BookNewPage.tsx,1077,
-官网（客人预订）,预订页（/book）,BookNewPage.676c2b63,写死,上车时间（当地）,名称,timeLabel,apps/web/src/pages/book/new/BookNewPage.tsx,1077,
-官网（客人预订）,预订页（/book）,BookNewPage.6e8983b2,写死,航班落地时间（当地）,名称,timeLabel,apps/web/src/pages/book/new/BookNewPage.tsx,1077,
-官网（客人预订）,预订页（/book）,BookNewPage.03007c56,写死,包车 {itineraryPackage} 小时（按行程）,名称,tripName,apps/web/src/pages/book/new/BookNewPage.tsx,1078,
-官网（客人预订）,预订页（/book）,BookNewPage.77edee7f,写死,包车,名称,tripName,apps/web/src/pages/book/new/BookNewPage.tsx,1078,
-官网（客人预订）,预订页（/book）,BookNewPage.79429f95,写死,包车 {packageHours} 小时,名称,tripName,apps/web/src/pages/book/new/BookNewPage.tsx,1078,
-官网（客人预订）,预订页（/book）,BookNewPage.dd1f3a80,写死,包车（按行程）,名称,tripName,apps/web/src/pages/book/new/BookNewPage.tsx,1078,
-官网（客人预订）,预订页（/book）,BookNewPage.f2cef006,写死, 落地,文字,whenText,apps/web/src/pages/book/new/BookNewPage.tsx,1079,
-官网（客人预订）,预订页（/book）,BookNewPage.3a6734be,写死,预订步骤,读屏说明,aria-label,apps/web/src/pages/book/new/BookNewPage.tsx,1084,
-官网（客人预订）,预订页（/book）,BookNewPage.b2b70d17,写死,第 {number} 步：{name}（已完成，回到这一步）,读屏说明,aria-label,apps/web/src/pages/book/new/BookNewPage.tsx,1098,
-官网（客人预订）,预订页（/book）,BookNewPage.63b87d40,写死,第 {number} 步：{name}{…},读屏说明,aria-label,apps/web/src/pages/book/new/BookNewPage.tsx,1102,
-官网（客人预订）,预订页（/book）,BookNewPage.c632b0e1,写死,（当前）,读屏说明,aria-label,apps/web/src/pages/book/new/BookNewPage.tsx,1102,
-官网（客人预订）,预订页（/book）,BookNewPage.faf3d664,写死,你的行程,标题,<h2>,apps/web/src/pages/book/new/BookNewPage.tsx,1116,
-官网（客人预订）,预订页（/book）,BookNewPage.df7e4bdc,写死,用车类型,表单标签,<legend>,apps/web/src/pages/book/new/BookNewPage.tsx,1120 1498,
-官网（客人预订）,预订页（/book）,BookNewPage.ce510457,写死,包车结束时在哪里下车，价格按上车和下车地点算。,说明,hint,apps/web/src/pages/book/new/BookNewPage.tsx,1167,
-官网（客人预订）,预订页（/book）,BookNewPage.8afe6885,写死,请选择下车地点，包车现在按上车和下车地点报价。,文字,info,apps/web/src/pages/book/new/BookNewPage.tsx,1168,
-官网（客人预订）,预订页（/book）,BookNewPage.5b2624a0,写死,这段行程的包车还没有可以在线预订的套餐，请联系客服,正文,<p>,apps/web/src/pages/book/new/BookNewPage.tsx,1183,
-官网（客人预订）,预订页（/book）,BookNewPage.ceb7ca64,写死,包车时长,名称,label,apps/web/src/pages/book/new/BookNewPage.tsx,1189 1208 1224,
-官网（客人预订）,预订页（/book）,BookNewPage.c9fb9cff,写死,请选择大概的时长,输入框占位,placeholder,apps/web/src/pages/book/new/BookNewPage.tsx,1190,
-官网（客人预订）,预订页（/book）,BookNewPage.ad9420ad,写死,{hours} 小时,名称,label,apps/web/src/pages/book/new/BookNewPage.tsx,1192 1211 1228,
-官网（客人预订）,预订页（/book）,BookNewPage.e8401c1a,写死,没有在线报价时，选一个大概的时长，客服报价时会和您确认,说明,hint,apps/web/src/pages/book/new/BookNewPage.tsx,1193,
-官网（客人预订）,预订页（/book）,BookNewPage.644b71e1,写死,包车时长：按行程自动选套餐,正文,<strong>,apps/web/src/pages/book/new/BookNewPage.tsx,1200,
-官网（客人预订）,预订页（/book）,BookNewPage.8db00818,写死,有经停点时，按各段行驶时间和停留时长算出总时长，自动选合适的套餐。,正文,<p>,apps/web/src/pages/book/new/BookNewPage.tsx,1202,
-官网（客人预订）,预订页（/book）,BookNewPage.75dc7fa1,写死,想多留些时间可以选更长的套餐；不能选比预计用时短的,说明,hint,apps/web/src/pages/book/new/BookNewPage.tsx,1212,
-官网（客人预订）,预订页（/book）,BookNewPage.05b10dea,写死,包车时长没有读出来,标题,title,apps/web/src/pages/book/new/BookNewPage.tsx,1216,
-官网（客人预订）,预订页（/book）,BookNewPage.08158d8d,写死,正在读取,输入框占位,placeholder,apps/web/src/pages/book/new/BookNewPage.tsx,1226,
-官网（客人预订）,预订页（/book）,BookNewPage.1316b921,写死,先选上车、下车地点,输入框占位,placeholder,apps/web/src/pages/book/new/BookNewPage.tsx,1226,
-官网（客人预订）,预订页（/book）,BookNewPage.7297716d,写死,请选择时长,输入框占位,placeholder,apps/web/src/pages/book/new/BookNewPage.tsx,1226,
-官网（客人预订）,预订页（/book）,BookNewPage.ec13d057,写死,超出套餐的时长和公里服务后按实际收取,说明,hint,apps/web/src/pages/book/new/BookNewPage.tsx,1230,
-官网（客人预订）,预订页（/book）,BookNewPage.cbba7514,写死,日期（当地）,名称,label,apps/web/src/pages/book/new/BookNewPage.tsx,1236,
-官网（客人预订）,预订页（/book）,BookNewPage.4ff77eb3,写死,{cityName}的当地时间,说明,hint,apps/web/src/pages/book/new/BookNewPage.tsx,1237,
-官网（客人预订）,预订页（/book）,BookNewPage.e5efcd14,写死,下一步：选择车型,按钮,<Button>,apps/web/src/pages/book/new/BookNewPage.tsx,1254,
-官网（客人预订）,预订页（/book）,BookNewPage.55d12785,写死,改选 {hours} 小时,按钮,<Button>,apps/web/src/pages/book/new/BookNewPage.tsx,1270,
-官网（客人预订）,预订页（/book）,BookNewPage.51ba1197,写死,选好上车地点、下车地点、包车时长、日期和时间后，这里会列出能坐下的车型和价格。,正文,<p>,apps/web/src/pages/book/new/BookNewPage.tsx,1280,
-官网（客人预订）,预订页（/book）,BookNewPage.f7e12a64,写死,填好出发地、目的地、日期和时间后，这里会列出能坐下的车型和一口价。,正文,<p>,apps/web/src/pages/book/new/BookNewPage.tsx,1280,
-官网（客人预订）,预订页（/book）,BookNewPage.96584c87,写死,正在查询价格,名称,label,apps/web/src/pages/book/new/BookNewPage.tsx,1282,
-官网（客人预订）,预订页（/book）,BookNewPage.34617c14,写死,价格没有查出来,标题,title,apps/web/src/pages/book/new/BookNewPage.tsx,1287,
-官网（客人预订）,预订页（/book）,BookNewPage.589c19f4,写死,没有在线报价,标题,title,apps/web/src/pages/book/new/BookNewPage.tsx,1287,
-官网（客人预订）,预订页（/book）,BookNewPage.2c46d70f,写死,没有可预订的车,标题,<h3>,apps/web/src/pages/book/new/BookNewPage.tsx,1311,
-官网（客人预订）,预订页（/book）,BookNewPage.f4f761da,写死,按价格从低到高 · 坐不下的已隐藏。报价 30 分钟内有效（到当地时间 {…}），过了请重新查询。,正文,<p>,apps/web/src/pages/book/new/BookNewPage.tsx,1331,
-官网（客人预订）,预订页（/book）,BookNewPage.ccfebb59,写死,行程时间表,标题,<h3>,apps/web/src/pages/book/new/BookNewPage.tsx,1337,
-官网（客人预订）,预订页（/book）,BookNewPage.6373c8ca,写死,选择车型,标题,<h2>,apps/web/src/pages/book/new/BookNewPage.tsx,1388,
-官网（客人预订）,预订页（/book）,BookNewPage.4e3fd180,写死,上一步,按钮,<Button>,apps/web/src/pages/book/new/BookNewPage.tsx,1410 1483,
-官网（客人预订）,预订页（/book）,BookNewPage.f3aceeb4,写死,下一步：填写乘客信息,按钮,<Button>,apps/web/src/pages/book/new/BookNewPage.tsx,1416,
-官网（客人预订）,预订页（/book）,BookNewPage.ed962805,写死,航班号,名称,label,apps/web/src/pages/book/new/BookNewPage.tsx,1426 1559,
-官网（客人预订）,预订页（/book）,BookNewPage.0ca939aa,写死,举牌姓名（选填）,名称,label,apps/web/src/pages/book/new/BookNewPage.tsx,1439,
-官网（客人预订）,预订页（/book）,BookNewPage.8f6f6631,写死,司机在到达口举的牌子上写的名字，如 ZHANG SAN,说明,hint,apps/web/src/pages/book/new/BookNewPage.tsx,1439,
-官网（客人预订）,预订页（/book）,BookNewPage.4bd13f96,写死,下一步：核对订单,按钮,<Button>,apps/web/src/pages/book/new/BookNewPage.tsx,1488,
-官网（客人预订）,预订页（/book）,BookNewPage.ddc8b793,写死,经停点,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1507,
-官网（客人预订）,预订页（/book）,BookNewPage.ab11fa1a,写死,{…} {name}（停留 {…}{…}）,正文,<li>,apps/web/src/pages/book/new/BookNewPage.tsx,1513,
-官网（客人预订）,预订页（/book）,BookNewPage.81c7a040,写死,行程时长,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1527,
-官网（客人预订）,预订页（/book）,BookNewPage.0d1cb237,写死,航班落地（当地时间）,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1532,
-官网（客人预订）,预订页（/book）,BookNewPage.4be5ed12,写死,用车时间（当地时间）,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1532,
-官网（客人预订）,预订页（/book）,BookNewPage.115f3614,写死,乘客 / 行李,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1536,
-官网（客人预订）,预订页（/book）,BookNewPage.14ffadbb,写死,预订人,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1545,
-官网（客人预订）,预订页（/book）,BookNewPage.9468c573,写死,乘车人,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1545 1575,
-官网（客人预订）,预订页（/book）,BookNewPage.b323d3f1,写死,邮箱,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1549,
-官网（客人预订）,预订页（/book）,BookNewPage.3232a5cc,写死,手机号,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1553,
-官网（客人预订）,预订页（/book）,BookNewPage.5f4d7731,写死,航班类型,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1563,
-官网（客人预订）,预订页（/book）,BookNewPage.b9e44eec,写死,免费等待,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1567,
-官网（客人预订）,预订页（/book）,BookNewPage.22028ae5,写死,不限时,正文,<dd>,apps/web/src/pages/book/new/BookNewPage.tsx,1568,
-官网（客人预订）,预订页（/book）,BookNewPage.8c34d128,写死,航班落地后 {freeWait} 分钟,正文,<dd>,apps/web/src/pages/book/new/BookNewPage.tsx,1568,
-官网（客人预订）,预订页（/book）,BookNewPage.5b8adaaf,写死,乘车人电话/WhatsApp,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1579,
-官网（客人预订）,预订页（/book）,BookNewPage.b7c2e6e8,写死,举牌姓名,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1586,
-官网（客人预订）,预订页（/book）,BookNewPage.08773378,写死,给司机的备注,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1598,
-官网（客人预订）,预订页（/book）,BookNewPage.94d63521,写死,车型和价格,标题,<h3>,apps/web/src/pages/book/new/BookNewPage.tsx,1613 1690,
-官网（客人预订）,预订页（/book）,BookNewPage.1549869d,写死,正在重新计算…,正文,<span>,apps/web/src/pages/book/new/BookNewPage.tsx,1619,
-官网（客人预订）,预订页（/book）,BookNewPage.88966edf,写死,每确认一步，这里会加上那一步的内容。,正文,<p>,apps/web/src/pages/book/new/BookNewPage.tsx,1635,
-官网（客人预订）,预订页（/book）,BookNewPage.ba384a96,写死,行程,标题,<h3>,apps/web/src/pages/book/new/BookNewPage.tsx,1638 1681,
-官网（客人预订）,预订页（/book）,BookNewPage.ed1c357b,写死,乘客信息,标题,<h3>,apps/web/src/pages/book/new/BookNewPage.tsx,1645 1698,
-官网（客人预订）,预订页（/book）,BookNewPage.a9922481,写死,修改{what},读屏说明,aria-label,apps/web/src/pages/book/new/BookNewPage.tsx,1653,
-官网（客人预订）,预订页（/book）,BookNewPage.0af303e3,写死,修改,按钮,<Button>,apps/web/src/pages/book/new/BookNewPage.tsx,1655,
-官网（客人预订）,预订页（/book）,BookNewPage.851bbd69,写死,核对订单,标题,<h2>,apps/web/src/pages/book/new/BookNewPage.tsx,1668,
-官网（客人预订）,预订页（/book）,BookNewPage.ec517f42,写死,选的车型现在报不出价了，请点「修改」重新选择车型。,正文,<p>,apps/web/src/pages/book/new/BookNewPage.tsx,1709,
-官网（客人预订）,预订页（/book）,BookNewPage.f7748eb6,写死,正在重新查询价格…,正文,<p>,apps/web/src/pages/book/new/BookNewPage.tsx,1709,
-官网（客人预订）,预订页（/book）,BookNewPage.e51eb20c,写死,行程摘要,正文,<span>,apps/web/src/pages/book/new/BookNewPage.tsx,1757 1783 1805,
-官网（客人预订）,预订页（/book）,BookNewPage.dc4b4482,写死,还没有确认的内容,正文,<span>,apps/web/src/pages/book/new/BookNewPage.tsx,1777,
+官网（客人预订）,预订页（/book）,BookNewPage.0b7d61b4,写死,用车时间（当地）,名称,timeLabel,apps/web/src/pages/book/new/BookNewPage.tsx,1076,
+官网（客人预订）,预订页（/book）,BookNewPage.676c2b63,写死,上车时间（当地）,名称,timeLabel,apps/web/src/pages/book/new/BookNewPage.tsx,1076,
+官网（客人预订）,预订页（/book）,BookNewPage.6e8983b2,写死,航班落地时间（当地）,名称,timeLabel,apps/web/src/pages/book/new/BookNewPage.tsx,1076,
+官网（客人预订）,预订页（/book）,BookNewPage.03007c56,写死,包车 {itineraryPackage} 小时（按行程）,名称,tripName,apps/web/src/pages/book/new/BookNewPage.tsx,1077,
+官网（客人预订）,预订页（/book）,BookNewPage.77edee7f,写死,包车,名称,tripName,apps/web/src/pages/book/new/BookNewPage.tsx,1077,
+官网（客人预订）,预订页（/book）,BookNewPage.79429f95,写死,包车 {packageHours} 小时,名称,tripName,apps/web/src/pages/book/new/BookNewPage.tsx,1077,
+官网（客人预订）,预订页（/book）,BookNewPage.dd1f3a80,写死,包车（按行程）,名称,tripName,apps/web/src/pages/book/new/BookNewPage.tsx,1077,
+官网（客人预订）,预订页（/book）,BookNewPage.f2cef006,写死, 落地,文字,whenText,apps/web/src/pages/book/new/BookNewPage.tsx,1078,
+官网（客人预订）,预订页（/book）,BookNewPage.3a6734be,写死,预订步骤,读屏说明,aria-label,apps/web/src/pages/book/new/BookNewPage.tsx,1083,
+官网（客人预订）,预订页（/book）,BookNewPage.b2b70d17,写死,第 {number} 步：{name}（已完成，回到这一步）,读屏说明,aria-label,apps/web/src/pages/book/new/BookNewPage.tsx,1097,
+官网（客人预订）,预订页（/book）,BookNewPage.63b87d40,写死,第 {number} 步：{name}{…},读屏说明,aria-label,apps/web/src/pages/book/new/BookNewPage.tsx,1101,
+官网（客人预订）,预订页（/book）,BookNewPage.c632b0e1,写死,（当前）,读屏说明,aria-label,apps/web/src/pages/book/new/BookNewPage.tsx,1101,
+官网（客人预订）,预订页（/book）,BookNewPage.faf3d664,写死,你的行程,标题,<h2>,apps/web/src/pages/book/new/BookNewPage.tsx,1115,
+官网（客人预订）,预订页（/book）,BookNewPage.df7e4bdc,写死,用车类型,表单标签,<legend>,apps/web/src/pages/book/new/BookNewPage.tsx,1119 1494,
+官网（客人预订）,预订页（/book）,BookNewPage.ce510457,写死,包车结束时在哪里下车，价格按上车和下车地点算。,说明,hint,apps/web/src/pages/book/new/BookNewPage.tsx,1164,
+官网（客人预订）,预订页（/book）,BookNewPage.8afe6885,写死,请选择下车地点，包车现在按上车和下车地点报价。,文字,info,apps/web/src/pages/book/new/BookNewPage.tsx,1165,
+官网（客人预订）,预订页（/book）,BookNewPage.5b2624a0,写死,这段行程的包车还没有可以在线预订的套餐，请联系客服,正文,<p>,apps/web/src/pages/book/new/BookNewPage.tsx,1179,
+官网（客人预订）,预订页（/book）,BookNewPage.ceb7ca64,写死,包车时长,名称,label,apps/web/src/pages/book/new/BookNewPage.tsx,1185 1204 1220,
+官网（客人预订）,预订页（/book）,BookNewPage.c9fb9cff,写死,请选择大概的时长,输入框占位,placeholder,apps/web/src/pages/book/new/BookNewPage.tsx,1186,
+官网（客人预订）,预订页（/book）,BookNewPage.ad9420ad,写死,{hours} 小时,名称,label,apps/web/src/pages/book/new/BookNewPage.tsx,1188 1207 1224,
+官网（客人预订）,预订页（/book）,BookNewPage.e8401c1a,写死,没有在线报价时，选一个大概的时长，客服报价时会和您确认,说明,hint,apps/web/src/pages/book/new/BookNewPage.tsx,1189,
+官网（客人预订）,预订页（/book）,BookNewPage.644b71e1,写死,包车时长：按行程自动选套餐,正文,<strong>,apps/web/src/pages/book/new/BookNewPage.tsx,1196,
+官网（客人预订）,预订页（/book）,BookNewPage.8db00818,写死,有经停点时，按各段行驶时间和停留时长算出总时长，自动选合适的套餐。,正文,<p>,apps/web/src/pages/book/new/BookNewPage.tsx,1198,
+官网（客人预订）,预订页（/book）,BookNewPage.75dc7fa1,写死,想多留些时间可以选更长的套餐；不能选比预计用时短的,说明,hint,apps/web/src/pages/book/new/BookNewPage.tsx,1208,
+官网（客人预订）,预订页（/book）,BookNewPage.05b10dea,写死,包车时长没有读出来,标题,title,apps/web/src/pages/book/new/BookNewPage.tsx,1212,
+官网（客人预订）,预订页（/book）,BookNewPage.08158d8d,写死,正在读取,输入框占位,placeholder,apps/web/src/pages/book/new/BookNewPage.tsx,1222,
+官网（客人预订）,预订页（/book）,BookNewPage.1316b921,写死,先选上车、下车地点,输入框占位,placeholder,apps/web/src/pages/book/new/BookNewPage.tsx,1222,
+官网（客人预订）,预订页（/book）,BookNewPage.7297716d,写死,请选择时长,输入框占位,placeholder,apps/web/src/pages/book/new/BookNewPage.tsx,1222,
+官网（客人预订）,预订页（/book）,BookNewPage.ec13d057,写死,超出套餐的时长和公里服务后按实际收取,说明,hint,apps/web/src/pages/book/new/BookNewPage.tsx,1226,
+官网（客人预订）,预订页（/book）,BookNewPage.cbba7514,写死,日期（当地）,名称,label,apps/web/src/pages/book/new/BookNewPage.tsx,1232,
+官网（客人预订）,预订页（/book）,BookNewPage.4ff77eb3,写死,{cityName}的当地时间,说明,hint,apps/web/src/pages/book/new/BookNewPage.tsx,1233,
+官网（客人预订）,预订页（/book）,BookNewPage.e5efcd14,写死,下一步：选择车型,按钮,<Button>,apps/web/src/pages/book/new/BookNewPage.tsx,1250,
+官网（客人预订）,预订页（/book）,BookNewPage.55d12785,写死,改选 {hours} 小时,按钮,<Button>,apps/web/src/pages/book/new/BookNewPage.tsx,1266,
+官网（客人预订）,预订页（/book）,BookNewPage.51ba1197,写死,选好上车地点、下车地点、包车时长、日期和时间后，这里会列出能坐下的车型和价格。,正文,<p>,apps/web/src/pages/book/new/BookNewPage.tsx,1276,
+官网（客人预订）,预订页（/book）,BookNewPage.f7e12a64,写死,填好出发地、目的地、日期和时间后，这里会列出能坐下的车型和一口价。,正文,<p>,apps/web/src/pages/book/new/BookNewPage.tsx,1276,
+官网（客人预订）,预订页（/book）,BookNewPage.96584c87,写死,正在查询价格,名称,label,apps/web/src/pages/book/new/BookNewPage.tsx,1278,
+官网（客人预订）,预订页（/book）,BookNewPage.34617c14,写死,价格没有查出来,标题,title,apps/web/src/pages/book/new/BookNewPage.tsx,1283,
+官网（客人预订）,预订页（/book）,BookNewPage.589c19f4,写死,没有在线报价,标题,title,apps/web/src/pages/book/new/BookNewPage.tsx,1283,
+官网（客人预订）,预订页（/book）,BookNewPage.2c46d70f,写死,没有可预订的车,标题,<h3>,apps/web/src/pages/book/new/BookNewPage.tsx,1307,
+官网（客人预订）,预订页（/book）,BookNewPage.f4f761da,写死,按价格从低到高 · 坐不下的已隐藏。报价 30 分钟内有效（到当地时间 {…}），过了请重新查询。,正文,<p>,apps/web/src/pages/book/new/BookNewPage.tsx,1327,
+官网（客人预订）,预订页（/book）,BookNewPage.ccfebb59,写死,行程时间表,标题,<h3>,apps/web/src/pages/book/new/BookNewPage.tsx,1333,
+官网（客人预订）,预订页（/book）,BookNewPage.6373c8ca,写死,选择车型,标题,<h2>,apps/web/src/pages/book/new/BookNewPage.tsx,1384,
+官网（客人预订）,预订页（/book）,BookNewPage.4e3fd180,写死,上一步,按钮,<Button>,apps/web/src/pages/book/new/BookNewPage.tsx,1406 1479,
+官网（客人预订）,预订页（/book）,BookNewPage.f3aceeb4,写死,下一步：填写乘客信息,按钮,<Button>,apps/web/src/pages/book/new/BookNewPage.tsx,1412,
+官网（客人预订）,预订页（/book）,BookNewPage.ed962805,写死,航班号,名称,label,apps/web/src/pages/book/new/BookNewPage.tsx,1422 1555,
+官网（客人预订）,预订页（/book）,BookNewPage.0ca939aa,写死,举牌姓名（选填）,名称,label,apps/web/src/pages/book/new/BookNewPage.tsx,1435,
+官网（客人预订）,预订页（/book）,BookNewPage.8f6f6631,写死,司机在到达口举的牌子上写的名字，如 ZHANG SAN,说明,hint,apps/web/src/pages/book/new/BookNewPage.tsx,1435,
+官网（客人预订）,预订页（/book）,BookNewPage.4bd13f96,写死,下一步：核对订单,按钮,<Button>,apps/web/src/pages/book/new/BookNewPage.tsx,1484,
+官网（客人预订）,预订页（/book）,BookNewPage.ddc8b793,写死,经停点,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1503,
+官网（客人预订）,预订页（/book）,BookNewPage.ab11fa1a,写死,{…} {name}（停留 {…}{…}）,正文,<li>,apps/web/src/pages/book/new/BookNewPage.tsx,1509,
+官网（客人预订）,预订页（/book）,BookNewPage.81c7a040,写死,行程时长,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1523,
+官网（客人预订）,预订页（/book）,BookNewPage.0d1cb237,写死,航班落地（当地时间）,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1528,
+官网（客人预订）,预订页（/book）,BookNewPage.4be5ed12,写死,用车时间（当地时间）,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1528,
+官网（客人预订）,预订页（/book）,BookNewPage.115f3614,写死,乘客 / 行李,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1532,
+官网（客人预订）,预订页（/book）,BookNewPage.14ffadbb,写死,预订人,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1541,
+官网（客人预订）,预订页（/book）,BookNewPage.9468c573,写死,乘车人,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1541 1571,
+官网（客人预订）,预订页（/book）,BookNewPage.b323d3f1,写死,邮箱,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1545,
+官网（客人预订）,预订页（/book）,BookNewPage.3232a5cc,写死,手机号,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1549,
+官网（客人预订）,预订页（/book）,BookNewPage.5f4d7731,写死,航班类型,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1559,
+官网（客人预订）,预订页（/book）,BookNewPage.b9e44eec,写死,免费等待,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1563,
+官网（客人预订）,预订页（/book）,BookNewPage.22028ae5,写死,不限时,正文,<dd>,apps/web/src/pages/book/new/BookNewPage.tsx,1564,
+官网（客人预订）,预订页（/book）,BookNewPage.8c34d128,写死,航班落地后 {freeWait} 分钟,正文,<dd>,apps/web/src/pages/book/new/BookNewPage.tsx,1564,
+官网（客人预订）,预订页（/book）,BookNewPage.5b8adaaf,写死,乘车人电话/WhatsApp,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1575,
+官网（客人预订）,预订页（/book）,BookNewPage.b7c2e6e8,写死,举牌姓名,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1582,
+官网（客人预订）,预订页（/book）,BookNewPage.08773378,写死,给司机的备注,正文,<dt>,apps/web/src/pages/book/new/BookNewPage.tsx,1594,
+官网（客人预订）,预订页（/book）,BookNewPage.94d63521,写死,车型和价格,标题,<h3>,apps/web/src/pages/book/new/BookNewPage.tsx,1609 1686,
+官网（客人预订）,预订页（/book）,BookNewPage.1549869d,写死,正在重新计算…,正文,<span>,apps/web/src/pages/book/new/BookNewPage.tsx,1615,
+官网（客人预订）,预订页（/book）,BookNewPage.88966edf,写死,每确认一步，这里会加上那一步的内容。,正文,<p>,apps/web/src/pages/book/new/BookNewPage.tsx,1631,
+官网（客人预订）,预订页（/book）,BookNewPage.ba384a96,写死,行程,标题,<h3>,apps/web/src/pages/book/new/BookNewPage.tsx,1634 1677,
+官网（客人预订）,预订页（/book）,BookNewPage.ed1c357b,写死,乘客信息,标题,<h3>,apps/web/src/pages/book/new/BookNewPage.tsx,1641 1694,
+官网（客人预订）,预订页（/book）,BookNewPage.a9922481,写死,修改{what},读屏说明,aria-label,apps/web/src/pages/book/new/BookNewPage.tsx,1649,
+官网（客人预订）,预订页（/book）,BookNewPage.0af303e3,写死,修改,按钮,<Button>,apps/web/src/pages/book/new/BookNewPage.tsx,1651,
+官网（客人预订）,预订页（/book）,BookNewPage.851bbd69,写死,核对订单,标题,<h2>,apps/web/src/pages/book/new/BookNewPage.tsx,1664,
+官网（客人预订）,预订页（/book）,BookNewPage.ec517f42,写死,选的车型现在报不出价了，请点「修改」重新选择车型。,正文,<p>,apps/web/src/pages/book/new/BookNewPage.tsx,1705,
+官网（客人预订）,预订页（/book）,BookNewPage.f7748eb6,写死,正在重新查询价格…,正文,<p>,apps/web/src/pages/book/new/BookNewPage.tsx,1705,
+官网（客人预订）,预订页（/book）,BookNewPage.e51eb20c,写死,行程摘要,正文,<span>,apps/web/src/pages/book/new/BookNewPage.tsx,1753 1779 1801,
+官网（客人预订）,预订页（/book）,BookNewPage.dc4b4482,写死,还没有确认的内容,正文,<span>,apps/web/src/pages/book/new/BookNewPage.tsx,1773,
 官网（客人预订）,预订页（/book）,CheckoutParts.a706b23f,写死,路线图：{name} → {name}，{text},名称,label,apps/web/src/pages/book/new/CheckoutParts.tsx,37,
 官网（客人预订）,预订页（/book）,CheckoutParts.876bf27e,写死,附加服务（选填）,标题,<h3>,apps/web/src/pages/book/new/CheckoutParts.tsx,53,
 官网（客人预订）,预订页（/book）,CheckoutParts.4dbc87b2,写死,车费,正文,<dt>,apps/web/src/pages/book/new/CheckoutParts.tsx,89,
@@ -199,20 +199,20 @@
 官网（客人预订）,预订页（/book）,VehicleList.4a0e10b6,写死,已选择,按钮,<Button>,apps/web/src/pages/book/new/VehicleList.tsx,55,
 官网（客人预订）,预订页（/book）,VehicleList.c84914c4,写死,选择,按钮,<Button>,apps/web/src/pages/book/new/VehicleList.tsx,55,
 官网（客人预订）,预订页（/book）,VehicleList.9620cb9b,写死,显示全部 {length} 个车型 ▾,按钮,<Button>,apps/web/src/pages/book/new/VehicleList.tsx,91,
-官网（客人预订）,预订页（/book）,WaypointsField.7754feee,写死,第 {…} 个经停点,文字,nameOf(),apps/web/src/pages/book/new/WaypointsField.tsx,53 72,
-官网（客人预订）,预订页（/book）,WaypointsField.0074b875,写死,{…} 现在排第 {…}，共 {length} 个,提示,setAnnounce(),apps/web/src/pages/book/new/WaypointsField.tsx,60 125,
-官网（客人预订）,预订页（/book）,WaypointsField.31c84be2,写死,这个经停点,提示,setAnnounce(),apps/web/src/pages/book/new/WaypointsField.tsx,60 125,
-官网（客人预订）,预订页（/book）,WaypointsField.1ac50101,写死,已删除{…},提示,setAnnounce(),apps/web/src/pages/book/new/WaypointsField.tsx,72,
-官网（客人预订）,预订页（/book）,WaypointsField.b1d4efc3,写死,经停点「{name}」,提示,setAnnounce(),apps/web/src/pages/book/new/WaypointsField.tsx,72,
-官网（客人预订）,预订页（/book）,WaypointsField.3ca64a5a,写死,经停点（选填）,表单标签,<legend>,apps/web/src/pages/book/new/WaypointsField.tsx,130,
-官网（客人预订）,预订页（/book）,WaypointsField.c532d03f,写死,按顺序填想去的景点和每处大概停留多久，最多 {MAX_WAYPOINTS} 个；价格按经停点所在区域和行程总时长计算。{…},正文,<p>,apps/web/src/pages/book/new/WaypointsField.tsx,131,
-官网（客人预订）,预订页（/book）,WaypointsField.b0b17a5e,写死,经停点 {…},名称,label,apps/web/src/pages/book/new/WaypointsField.tsx,158,
-官网（客人预订）,预订页（/book）,WaypointsField.0b2b48bd,写死,经停点 {…} 停留时长,名称,label,apps/web/src/pages/book/new/WaypointsField.tsx,169,
-官网（客人预订）,预订页（/book）,WaypointsField.bcbf8263,写死,停留多久,输入框占位,placeholder,apps/web/src/pages/book/new/WaypointsField.tsx,171,
-官网（客人预订）,预订页（/book）,WaypointsField.e5fec948,写死,把 {name} 上移,名称,label,apps/web/src/pages/book/new/WaypointsField.tsx,202,
-官网（客人预订）,预订页（/book）,WaypointsField.0d9a8743,写死,把 {name} 下移,名称,label,apps/web/src/pages/book/new/WaypointsField.tsx,203,
-官网（客人预订）,预订页（/book）,WaypointsField.e10a228c,写死,删除 {name},名称,label,apps/web/src/pages/book/new/WaypointsField.tsx,204,
-官网（客人预订）,预订页（/book）,WaypointsField.222a34f0,写死,添加经停点,按钮,<Button>,apps/web/src/pages/book/new/WaypointsField.tsx,220,
+官网（客人预订）,预订页（/book）,WaypointsField.7754feee,写死,第 {…} 个经停点,文字,nameOf(),apps/web/src/pages/book/new/WaypointsField.tsx,51 70,
+官网（客人预订）,预订页（/book）,WaypointsField.0074b875,写死,{…} 现在排第 {…}，共 {length} 个,提示,setAnnounce(),apps/web/src/pages/book/new/WaypointsField.tsx,58 123,
+官网（客人预订）,预订页（/book）,WaypointsField.31c84be2,写死,这个经停点,提示,setAnnounce(),apps/web/src/pages/book/new/WaypointsField.tsx,58 123,
+官网（客人预订）,预订页（/book）,WaypointsField.1ac50101,写死,已删除{…},提示,setAnnounce(),apps/web/src/pages/book/new/WaypointsField.tsx,70,
+官网（客人预订）,预订页（/book）,WaypointsField.b1d4efc3,写死,经停点「{name}」,提示,setAnnounce(),apps/web/src/pages/book/new/WaypointsField.tsx,70,
+官网（客人预订）,预订页（/book）,WaypointsField.3ca64a5a,写死,经停点（选填）,表单标签,<legend>,apps/web/src/pages/book/new/WaypointsField.tsx,128,
+官网（客人预订）,预订页（/book）,WaypointsField.c532d03f,写死,按顺序填想去的景点和每处大概停留多久，最多 {MAX_WAYPOINTS} 个；价格按经停点所在区域和行程总时长计算。{…},正文,<p>,apps/web/src/pages/book/new/WaypointsField.tsx,129,
+官网（客人预订）,预订页（/book）,WaypointsField.b0b17a5e,写死,经停点 {…},名称,label,apps/web/src/pages/book/new/WaypointsField.tsx,156,
+官网（客人预订）,预订页（/book）,WaypointsField.0b2b48bd,写死,经停点 {…} 停留时长,名称,label,apps/web/src/pages/book/new/WaypointsField.tsx,166,
+官网（客人预订）,预订页（/book）,WaypointsField.bcbf8263,写死,停留多久,输入框占位,placeholder,apps/web/src/pages/book/new/WaypointsField.tsx,168,
+官网（客人预订）,预订页（/book）,WaypointsField.e5fec948,写死,把 {name} 上移,名称,label,apps/web/src/pages/book/new/WaypointsField.tsx,199,
+官网（客人预订）,预订页（/book）,WaypointsField.0d9a8743,写死,把 {name} 下移,名称,label,apps/web/src/pages/book/new/WaypointsField.tsx,200,
+官网（客人预订）,预订页（/book）,WaypointsField.e10a228c,写死,删除 {name},名称,label,apps/web/src/pages/book/new/WaypointsField.tsx,201,
+官网（客人预订）,预订页（/book）,WaypointsField.222a34f0,写死,添加经停点,按钮,<Button>,apps/web/src/pages/book/new/WaypointsField.tsx,217,
 官网（客人预订）,多日行程报价页（/book/trip）,trip-ai.1c6af00e,写死,{…} 月 {…} 日,文字,dateText(),apps/web/src/lib/trip-ai.ts,125,
 官网（客人预订）,多日行程报价页（/book/trip）,trip-ai.e1969ab0,写死,{rest} 分钟,文字,stayText(),apps/web/src/lib/trip-ai.ts,132,
 官网（客人预订）,多日行程报价页（/book/trip）,trip-ai.0c025e01,写死,{hours} 小时,文字,stayText(),apps/web/src/lib/trip-ai.ts,133,
@@ -721,37 +721,32 @@
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.42b6366d,写死,对订单有疑问、找不到司机，或者要改网上改不了的内容，请打电话给客服。,正文,<p>,apps/web/src/pages/book/OrderSections.tsx,1143,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.b5d8f462,写死,打电话给客服 {phone},链接,<a>,apps/web/src/pages/book/OrderSections.tsx,1146,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：官网订单页的各个区块（OrderSections.tsx）,OrderSections.1a00e9d3,写死,联系时请提供订单号 {order_no}。,正文,<p>,apps/web/src/pages/book/OrderSections.tsx,1149,官网（客人预订） · 订单页（查订单、管理订单）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
-官网（客人预订）,多个页面共用：官网的地图选点（SiteMapPicker.tsx）,SiteMapPicker.0532bbab,写死,地图：点一下选{word}位置，或拖动标记；也可以用方向键移动地图、加号减号缩放，再按地图下面的「选地图中间这个位置」,读屏说明,aria-label,apps/web/src/pages/book/SiteMapPicker.tsx,134,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：官网的地图选点（SiteMapPicker.tsx）,SiteMapPicker.4551a538,写死,放大地图,读屏说明,aria-label,apps/web/src/pages/book/SiteMapPicker.tsx,161,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：官网的地图选点（SiteMapPicker.tsx）,SiteMapPicker.ef19acb1,写死,缩小地图,读屏说明,aria-label,apps/web/src/pages/book/SiteMapPicker.tsx,164,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：官网的地图选点（SiteMapPicker.tsx）,SiteMapPicker.4ceda6a1,写死,地图没有加载出来。可以用上面的搜索、常用地点，或直接填写地址和坐标。,正文,<p>,apps/web/src/pages/book/SiteMapPicker.tsx,168,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：官网的地图选点（SiteMapPicker.tsx）,SiteMapPicker.6df8dc07,写死,选地图中间这个位置,按钮,<Button>,apps/web/src/pages/book/SiteMapPicker.tsx,192,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.fc872f45,写死,今天的地址提示次数用完了,文字,PLACES_DAILY_LIMIT_TEXT,apps/web/src/pages/book/new/PlaceField.tsx,35,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.53ffb5ec,写死,车站,文字,suggestionDetail(),apps/web/src/pages/book/new/PlaceField.tsx,53,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.c00e886a,写死,机场,文字,suggestionDetail(),apps/web/src/pages/book/new/PlaceField.tsx,53,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.5b6ec7a2,写死,也可以在地图上选点。,文字,FALLBACK_MAP,apps/web/src/pages/book/new/PlaceField.tsx,59,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.329919e4,写死,地址提示暂时用不了,文字,head,apps/web/src/pages/book/new/PlaceField.tsx,181,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.5cf47b46,写死,{head}，下面只有平台的机场和车站{…},文字,text,apps/web/src/pages/book/new/PlaceField.tsx,183,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.35330cef,写死,{head}。{…}输入机场、车站的名称。,文字,text,apps/web/src/pages/book/new/PlaceField.tsx,184,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.6f380d23,写死,请,文字,text,apps/web/src/pages/book/new/PlaceField.tsx,184,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.7cde6385,写死,请在地图上选点，或,文字,text,apps/web/src/pages/book/new/PlaceField.tsx,184,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.88e17cc3,写死,地址提示暂时用不了。,文字,text,apps/web/src/pages/book/new/PlaceField.tsx,194,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.be6f8886,写死,输入太快了，请稍等几秒再输入。,文字,text,apps/web/src/pages/book/new/PlaceField.tsx,194,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.05a93f14,写死,{PLACES_DAILY_LIMIT_TEXT}，没有取到这个地点的位置，请选平台的机场、车站。,文字,head,apps/web/src/pages/book/new/PlaceField.tsx,221,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.9bb319a9,写死,没有取到这个地点的位置，请换一个候选。,文字,head,apps/web/src/pages/book/new/PlaceField.tsx,221,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.5be4fe4c,写死,没有取到这个地点的位置，请稍后再选一次。{…},文字,text,apps/web/src/pages/book/new/PlaceField.tsx,232,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.a4c81089,写死,已选好地图上的位置。,文字,text,apps/web/src/pages/book/new/PlaceField.tsx,248 262 272,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.406d4d0a,写死,已填入这个位置的地址。,文字,text,apps/web/src/pages/book/new/PlaceField.tsx,269,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.f02bd7f9,写死,请至少输入 2 个字，如酒店名、地址或机场,文字,,apps/web/src/pages/book/new/PlaceField.tsx,300,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.4c6234bf,写死,正在查找…,文字,,apps/web/src/pages/book/new/PlaceField.tsx,301,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.08d7028f,写死,找到 {length} 个地点，用 ↑↓ 选择、回车确认。,文字,,apps/web/src/pages/book/new/PlaceField.tsx,302,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.35c9d3de,写死,没有找到。请换个说法（如酒店的英文名、地址）。{…},文字,,apps/web/src/pages/book/new/PlaceField.tsx,303,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.1a115143,写死,{label}的候选,读屏说明,aria-label,apps/web/src/pages/book/new/PlaceField.tsx,349,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.dace264d,写死,地图加载不出来（可能是网络原因）。请用上面的搜索找到地址；门牌、楼层等可以写在下单时的「给司机的备注」里。,正文,<p>,apps/web/src/pages/book/new/PlaceField.tsx,371,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.faffd893,写死,{label}的地图,读屏说明,aria-label,apps/web/src/pages/book/new/PlaceField.tsx,374,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.9c77f1b0,写死,在地图上选点,按钮,<Button>,apps/web/src/pages/book/new/PlaceField.tsx,377,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.ed43cbb1,写死,收起地图,按钮,<Button>,apps/web/src/pages/book/new/PlaceField.tsx,377,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.2deee099,写死,点按输入地址,输入框占位,placeholder,apps/web/src/pages/book/new/PlaceField.tsx,421,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.fc872f45,写死,今天的地址提示次数用完了,文字,PLACES_DAILY_LIMIT_TEXT,apps/web/src/pages/book/new/PlaceField.tsx,33,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.53ffb5ec,写死,车站,文字,suggestionDetail(),apps/web/src/pages/book/new/PlaceField.tsx,51,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.c00e886a,写死,机场,文字,suggestionDetail(),apps/web/src/pages/book/new/PlaceField.tsx,51,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.5b6ec7a2,写死,也可以在地图上选点。,文字,FALLBACK_MAP,apps/web/src/pages/book/new/PlaceField.tsx,57,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.329919e4,写死,地址提示暂时用不了,文字,head,apps/web/src/pages/book/new/PlaceField.tsx,176,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.5cf47b46,写死,{head}，下面只有平台的机场和车站{…},文字,text,apps/web/src/pages/book/new/PlaceField.tsx,178,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.35330cef,写死,{head}。{…}输入机场、车站的名称。,文字,text,apps/web/src/pages/book/new/PlaceField.tsx,179,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.6f380d23,写死,请,文字,text,apps/web/src/pages/book/new/PlaceField.tsx,179,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.7cde6385,写死,请在地图上选点，或,文字,text,apps/web/src/pages/book/new/PlaceField.tsx,179,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.88e17cc3,写死,地址提示暂时用不了。,文字,text,apps/web/src/pages/book/new/PlaceField.tsx,189,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.be6f8886,写死,输入太快了，请稍等几秒再输入。,文字,text,apps/web/src/pages/book/new/PlaceField.tsx,189,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.05a93f14,写死,{PLACES_DAILY_LIMIT_TEXT}，没有取到这个地点的位置，请选平台的机场、车站。,文字,head,apps/web/src/pages/book/new/PlaceField.tsx,216,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.9bb319a9,写死,没有取到这个地点的位置，请换一个候选。,文字,head,apps/web/src/pages/book/new/PlaceField.tsx,216,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.5be4fe4c,写死,没有取到这个地点的位置，请稍后再选一次。{…},文字,text,apps/web/src/pages/book/new/PlaceField.tsx,227,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.a4c81089,写死,已选好地图上的位置。,文字,text,apps/web/src/pages/book/new/PlaceField.tsx,243 257 267,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.406d4d0a,写死,已填入这个位置的地址。,文字,text,apps/web/src/pages/book/new/PlaceField.tsx,264,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.f02bd7f9,写死,请至少输入 2 个字，如酒店名、地址或机场,文字,,apps/web/src/pages/book/new/PlaceField.tsx,295,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.4c6234bf,写死,正在查找…,文字,,apps/web/src/pages/book/new/PlaceField.tsx,296,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.08d7028f,写死,找到 {length} 个地点，用 ↑↓ 选择、回车确认。,文字,,apps/web/src/pages/book/new/PlaceField.tsx,297,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.35c9d3de,写死,没有找到。请换个说法（如酒店的英文名、地址）。{…},文字,,apps/web/src/pages/book/new/PlaceField.tsx,298,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.1a115143,写死,{label}的候选,读屏说明,aria-label,apps/web/src/pages/book/new/PlaceField.tsx,344,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.dace264d,写死,地图加载不出来（可能是网络原因）。请用上面的搜索找到地址；门牌、楼层等可以写在下单时的「给司机的备注」里。,正文,<p>,apps/web/src/pages/book/new/PlaceField.tsx,366,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.faffd893,写死,{label}的地图,读屏说明,aria-label,apps/web/src/pages/book/new/PlaceField.tsx,369,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.9c77f1b0,写死,在地图上选点,按钮,<Button>,apps/web/src/pages/book/new/PlaceField.tsx,372,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.ed43cbb1,写死,收起地图,按钮,<Button>,apps/web/src/pages/book/new/PlaceField.tsx,372,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
+官网（客人预订）,多个页面共用：新预订页的一个地址框（PlaceField.tsx）,PlaceField.2deee099,写死,点按输入地址,输入框占位,placeholder,apps/web/src/pages/book/new/PlaceField.tsx,413,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：包车的对外价明细（PriceBreakdown.tsx）,PriceBreakdown.fd820c27,写死,价格明细,读屏说明,aria-label,apps/web/src/pages/book/new/PriceBreakdown.tsx,11,官网（客人预订） · 订单页（查订单、管理订单）；官网（客人预订） · 预订页（/book）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：包车的对外价明细（PriceBreakdown.tsx）,PriceBreakdown.b3f98689,写死,合计,正文,<dt>,apps/web/src/pages/book/new/PriceBreakdown.tsx,23,官网（客人预订） · 订单页（查订单、管理订单）；官网（客人预订） · 预订页（/book）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：「乘客 / 行李」合并栏（TravellersField.tsx）,TravellersField.89b971f0,写死,减少{label},读屏说明,aria-label,apps/web/src/pages/book/new/TravellersField.tsx,19,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
@@ -761,9 +756,9 @@
 官网（客人预订）,多个页面共用：「乘客 / 行李」合并栏（TravellersField.tsx）,TravellersField.92c51fbe,写死,乘客,名称,label,apps/web/src/pages/book/new/TravellersField.tsx,47,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：「乘客 / 行李」合并栏（TravellersField.tsx）,TravellersField.02e7b080,写死,行李,名称,label,apps/web/src/pages/book/new/TravellersField.tsx,48,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：「乘客 / 行李」合并栏（TravellersField.tsx）,TravellersField.d679b22c,写死,件,文字,unit,apps/web/src/pages/book/new/TravellersField.tsx,48,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-官网（客人预订）,多个页面共用：新预订页的「页面外壳」（booking-shell.tsx）,booking-shell.99e48b29,写死,预订用车 · NOZOMI 用车,标题,title,apps/web/src/pages/book/new/booking-shell.tsx,44,官网（客人预订） · 预订页（/book）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
-官网（客人预订）,多个页面共用：新预订页的「页面外壳」（booking-shell.tsx）,booking-shell.6bd11448,写死,预订接送车,标题,<h1>,apps/web/src/pages/book/new/booking-shell.tsx,47,官网（客人预订） · 预订页（/book）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
-官网（客人预订）,多个页面共用：新预订页的「页面外壳」（booking-shell.tsx）,booking-shell.1f18f529,写死,输入出发地和目的地，马上看到所有车型的一口价,正文,<p>,apps/web/src/pages/book/new/booking-shell.tsx,48,官网（客人预订） · 预订页（/book）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+官网（客人预订）,多个页面共用：新预订页的「页面外壳」（booking-shell.tsx）,booking-shell.99e48b29,写死,预订用车 · NOZOMI 用车,标题,title,apps/web/src/pages/book/new/booking-shell.tsx,40,官网（客人预订） · 预订页（/book）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+官网（客人预订）,多个页面共用：新预订页的「页面外壳」（booking-shell.tsx）,booking-shell.6bd11448,写死,预订接送车,标题,<h1>,apps/web/src/pages/book/new/booking-shell.tsx,43,官网（客人预订） · 预订页（/book）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+官网（客人预订）,多个页面共用：新预订页的「页面外壳」（booking-shell.tsx）,booking-shell.1f18f529,写死,输入出发地和目的地，马上看到所有车型的一口价,正文,<p>,apps/web/src/pages/book/new/booking-shell.tsx,44,官网（客人预订） · 预订页（/book）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 官网（客人预订）,多个页面共用：手机触屏上的新预订页（full-screen.tsx）,full-screen.6e1e7fb8,写死,点按选择日期,输入框占位,placeholder,apps/web/src/pages/book/new/full-screen.tsx,105,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：手机触屏上的新预订页（full-screen.tsx）,full-screen.fa4b2959,写死,点按选择时间,输入框占位,placeholder,apps/web/src/pages/book/new/full-screen.tsx,105,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
 官网（客人预订）,多个页面共用：手机触屏上的新预订页（full-screen.tsx）,full-screen.c4e49830,写死,确定,按钮,<Button>,apps/web/src/pages/book/new/full-screen.tsx,145,官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
@@ -6600,10 +6595,10 @@
 运营后台,官网设置,SiteSettingsPage.1dcf149d,写死,页面宽度,表单标签,<legend>,apps/web/src/pages/platform/SiteSettingsPage.tsx,124 270 278,
 运营后台,官网设置,SiteSettingsPage.9d7f8f27,写死,谷歌地图密钥是 AIza 开头、共 39 位的一串字母数字，请从谷歌后台整串复制,提示,MAPS_KEY_INVALID,apps/web/src/pages/platform/SiteSettingsPage.tsx,150,
 运营后台,官网设置,SiteSettingsPage.488f141e,写死,{…}…（共 {length} 位）,说明,mapsKeyHint(),apps/web/src/pages/platform/SiteSettingsPage.tsx,154,
-运营后台,官网设置,SiteSettingsPage.66a6a339,写死,已清除，官网的选点地图不再用谷歌地图,提示,toast(),apps/web/src/pages/platform/SiteSettingsPage.tsx,172,
-运营后台,官网设置,SiteSettingsPage.debe140d,写死,已保存，客人刷新页面后选点地图改用谷歌地图,提示,toast(),apps/web/src/pages/platform/SiteSettingsPage.tsx,172,
+运营后台,官网设置,SiteSettingsPage.42e34555,写死,已保存，客人刷新页面后可以在谷歌地图上选点,提示,toast(),apps/web/src/pages/platform/SiteSettingsPage.tsx,172,
+运营后台,官网设置,SiteSettingsPage.97ab2075,写死,已清除，客人刷新页面后官网不再提供地图选点,提示,toast(),apps/web/src/pages/platform/SiteSettingsPage.tsx,172,
 运营后台,官网设置,SiteSettingsPage.49e7658d,写死,请粘贴密钥,错误提示,setError(),apps/web/src/pages/platform/SiteSettingsPage.tsx,189,
-运营后台,官网设置,SiteSettingsPage.7c4f5ea7,写死,还没有填（官网选点用开源地图）,正文,<Detail>,apps/web/src/pages/platform/SiteSettingsPage.tsx,198,
+运营后台,官网设置,SiteSettingsPage.11646786,写死,还没有填（官网不提供地图选点，客人用搜索找地址）,正文,<Detail>,apps/web/src/pages/platform/SiteSettingsPage.tsx,198,
 运营后台,官网设置,SiteSettingsPage.fb277682,写死,现在的密钥,名称,label,apps/web/src/pages/platform/SiteSettingsPage.tsx,198,
 运营后台,官网设置,SiteSettingsPage.46207e43,写死,在谷歌后台新建的、限定了官网网址、只开 Maps JavaScript API 的那把；不是服务器用的密钥,说明,hint,apps/web/src/pages/platform/SiteSettingsPage.tsx,200,
 运营后台,官网设置,SiteSettingsPage.7e7453bf,写死,浏览器密钥,名称,label,apps/web/src/pages/platform/SiteSettingsPage.tsx,200 296,
@@ -6624,7 +6619,7 @@
 运营后台,官网设置,SiteSettingsPage.a3efece2,写死,官网所有页面（首页、预订、下单、订单页）的内容最宽多少。只影响电脑屏幕；手机和平板始终是单栏，不受这个设置影响。,正文,<p>,apps/web/src/pages/platform/SiteSettingsPage.tsx,271,
 运营后台,官网设置,SiteSettingsPage.695e3cad,写死,只有超级管理员能改页面宽度。,正文,<p>,apps/web/src/pages/platform/SiteSettingsPage.tsx,280,
 运营后台,官网设置,SiteSettingsPage.bcdbbd5c,写死,谷歌地图（浏览器密钥）,标题,<h2>,apps/web/src/pages/platform/SiteSettingsPage.tsx,287,
-运营后台,官网设置,SiteSettingsPage.0c2c0ffd,写死,官网「在地图上选点」用谷歌地图显示时要的密钥。它会出现在官网网页里，所以要在谷歌后台限定网址、只开 Maps JavaScript API。没填时选点仍用开源地图。,正文,<p>,apps/web/src/pages/platform/SiteSettingsPage.tsx,289,
+运营后台,官网设置,SiteSettingsPage.bd191882,写死,官网「在地图上选点」用谷歌地图显示时要的密钥。它会出现在官网网页里，所以要在谷歌后台限定网址、只开 Maps JavaScript API。没填时官网不提供地图选点，客人用搜索找地址。,正文,<p>,apps/web/src/pages/platform/SiteSettingsPage.tsx,289,
 运营后台,官网设置,SiteSettingsPage.1a38d779,写死,还没有填,正文,<Detail>,apps/web/src/pages/platform/SiteSettingsPage.tsx,296,
 运营后台,官网设置,SiteSettingsPage.f35df324,写死,只有超级管理员能改这把密钥。,正文,<p>,apps/web/src/pages/platform/SiteSettingsPage.tsx,298,
 运营后台,嵌入组件,EmbedKeysPage.a803132f,写死,中文,文字,zh,apps/web/src/pages/platform/EmbedKeysPage.tsx,39,
@@ -8758,9 +8753,9 @@
 前端公共组件和共用文案,预订页（book-new.ts）,book-new.8bc16ef7,写死,时间太近，请选更晚的时间或联系客服,说明,LEAD_TIME_TOO_SHORT,apps/web/src/lib/book-new.ts,248,供应商后台 · Webhook 设置（运营后台的推送记录也在这里）；供应商后台 · 价格规则总览；供应商后台 · 企业信息；供应商后台 · 公司；供应商后台 · 区域列表 等 56 个页面
 前端公共组件和共用文案,预订页（book-new.ts）,book-new.fe1cef53,写死,人数或行李超过所有车型，可以分两辆车预订或联系客服,文字,CAPACITY_EXCEEDED,apps/web/src/lib/book-new.ts,249,供应商后台 · Webhook 设置（运营后台的推送记录也在这里）；供应商后台 · 价格规则总览；供应商后台 · 企业信息；供应商后台 · 公司；供应商后台 · 区域列表 等 56 个页面
 前端公共组件和共用文案,预订页（book-new.ts）,book-new.2857e373,写死,这个地址暂时没有在线报价，请联系客服,文字,OUT_OF_SERVICE_AREA,apps/web/src/lib/book-new.ts,250 251,供应商后台 · Webhook 设置（运营后台的推送记录也在这里）；供应商后台 · 价格规则总览；供应商后台 · 企业信息；供应商后台 · 公司；供应商后台 · 区域列表 等 56 个页面
-前端公共组件和共用文案,预订页（book-new.ts）,book-new.c7978a68,写死,约 {…} 分钟 · {km} 公里,说明,routeSummaryText(),apps/web/src/lib/book-new.ts,373,供应商后台 · Webhook 设置（运营后台的推送记录也在这里）；供应商后台 · 价格规则总览；供应商后台 · 企业信息；供应商后台 · 公司；供应商后台 · 区域列表 等 56 个页面
-前端公共组件和共用文案,预订页（book-new.ts）,book-new.c76289f0,写死,约 {…} 分钟 · {…} 公里,说明,lockedRouteSummaryText(),apps/web/src/lib/book-new.ts,381,供应商后台 · Webhook 设置（运营后台的推送记录也在这里）；供应商后台 · 价格规则总览；供应商后台 · 企业信息；供应商后台 · 公司；供应商后台 · 区域列表 等 56 个页面
-前端公共组件和共用文案,预订页（book-new.ts）,book-new.ad2c7072,写死,按当前汇率换算，仅供参考，实际以支付金额为准,说明,FX_REFERENCE_NOTE,apps/web/src/lib/book-new.ts,426,供应商后台 · Webhook 设置（运营后台的推送记录也在这里）；供应商后台 · 价格规则总览；供应商后台 · 企业信息；供应商后台 · 公司；供应商后台 · 区域列表 等 56 个页面
+前端公共组件和共用文案,预订页（book-new.ts）,book-new.c7978a68,写死,约 {…} 分钟 · {km} 公里,说明,routeSummaryText(),apps/web/src/lib/book-new.ts,342,供应商后台 · Webhook 设置（运营后台的推送记录也在这里）；供应商后台 · 价格规则总览；供应商后台 · 企业信息；供应商后台 · 公司；供应商后台 · 区域列表 等 56 个页面
+前端公共组件和共用文案,预订页（book-new.ts）,book-new.c76289f0,写死,约 {…} 分钟 · {…} 公里,说明,lockedRouteSummaryText(),apps/web/src/lib/book-new.ts,350,供应商后台 · Webhook 设置（运营后台的推送记录也在这里）；供应商后台 · 价格规则总览；供应商后台 · 企业信息；供应商后台 · 公司；供应商后台 · 区域列表 等 56 个页面
+前端公共组件和共用文案,预订页（book-new.ts）,book-new.ad2c7072,写死,按当前汇率换算，仅供参考，实际以支付金额为准,说明,FX_REFERENCE_NOTE,apps/web/src/lib/book-new.ts,395,供应商后台 · Webhook 设置（运营后台的推送记录也在这里）；供应商后台 · 价格规则总览；供应商后台 · 企业信息；供应商后台 · 公司；供应商后台 · 区域列表 等 56 个页面
 前端公共组件和共用文案,渠道、加价规则、双人复核在页面上的写法（channel-display.ts）,channel-display.2237353c,写死,线下代理,文字,offline,apps/web/src/lib/channel-display.ts,25,供应商后台 · 企业信息；供应商后台 · 公司；运营后台 · 人工报价；运营后台 · 供应商（列表、新建、详情）；运营后台 · 取消政策 等 18 个页面
 前端公共组件和共用文案,渠道、加价规则、双人复核在页面上的写法（channel-display.ts）,channel-display.25109934,写死,自营,文字,own,apps/web/src/lib/channel-display.ts,25,供应商后台 · 企业信息；供应商后台 · 公司；运营后台 · 人工报价；运营后台 · 供应商（列表、新建、详情）；运营后台 · 取消政策 等 18 个页面
 前端公共组件和共用文案,渠道、加价规则、双人复核在页面上的写法（channel-display.ts）,channel-display.5de74acc,写死,API 分销商,文字,api,apps/web/src/lib/channel-display.ts,25,供应商后台 · 企业信息；供应商后台 · 公司；运营后台 · 人工报价；运营后台 · 供应商（列表、新建、详情）；运营后台 · 取消政策 等 18 个页面

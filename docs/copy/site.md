@@ -1,6 +1,6 @@
 # 官网（客人预订）
 
-由 `pnpm copy:export` 从代码生成，不要手改。本区域共 768 条：写死 542 条，已走 key 226 条。列的意思见 [README](README.md)。
+由 `pnpm copy:export` 从代码生成，不要手改。本区域共 763 条：写死 537 条，已走 key 226 条。列的意思见 [README](README.md)。
 
 ## 页面
 
@@ -16,7 +16,6 @@
 - [多个页面共用：官网的地图选点（GoogleMapPicker.tsx）](#多个页面共用官网的地图选点googlemappickertsx)（3 条）
 - [多个页面共用：官网报不出价时的「留下联系方式、人工报价」和「通过 What…（ManualQuote.tsx）](#多个页面共用官网报不出价时的留下联系方式人工报价和通过-whatmanualquotetsx)（10 条）
 - [多个页面共用：官网订单页的各个区块（OrderSections.tsx）](#多个页面共用官网订单页的各个区块ordersectionstsx)（182 条）
-- [多个页面共用：官网的地图选点（SiteMapPicker.tsx）](#多个页面共用官网的地图选点sitemappickertsx)（5 条）
 - [多个页面共用：新预订页的一个地址框（PlaceField.tsx）](#多个页面共用新预订页的一个地址框placefieldtsx)（26 条）
 - [多个页面共用：包车的对外价明细（PriceBreakdown.tsx）](#多个页面共用包车的对外价明细pricebreakdowntsx)（2 条）
 - [多个页面共用：「乘客 / 行李」合并栏（TravellersField.tsx）](#多个页面共用乘客--行李合并栏travellersfieldtsx)（7 条）
@@ -68,16 +67,16 @@
 | `BookNewPage.7da32bc5` | 写死 | 送机 | 文字 | [BookNewPage.tsx:166](../../apps/web/src/pages/book/new/BookNewPage.tsx#L166) |
 | `BookNewPage.858e47e2` | 写死 | 点对点 | 文字 | [BookNewPage.tsx:166](../../apps/web/src/pages/book/new/BookNewPage.tsx#L166) |
 | `BookNewPage.97915a38` | 写死 | 接机 | 文字 | [BookNewPage.tsx:166](../../apps/web/src/pages/book/new/BookNewPage.tsx#L166) |
-| `BookNewPage.1079f8e4` | 写死 | 出发地 | 文字 | [BookNewPage.tsx:247](../../apps/web/src/pages/book/new/BookNewPage.tsx#L247)、1137、1502 行 |
-| `BookNewPage.28f20d9f` | 写死 | 目的地 | 文字 | [BookNewPage.tsx:247](../../apps/web/src/pages/book/new/BookNewPage.tsx#L247)、1163、1522 行 |
+| `BookNewPage.1079f8e4` | 写死 | 出发地 | 文字 | [BookNewPage.tsx:247](../../apps/web/src/pages/book/new/BookNewPage.tsx#L247)、1136、1498 行 |
+| `BookNewPage.28f20d9f` | 写死 | 目的地 | 文字 | [BookNewPage.tsx:247](../../apps/web/src/pages/book/new/BookNewPage.tsx#L247)、1160、1518 行 |
 | `BookNewPage.2afd7ec7` | 写死 | 和 | 文字 | [BookNewPage.tsx:247](../../apps/web/src/pages/book/new/BookNewPage.tsx#L247) |
-| `BookNewPage.57c54c9f` | 写死 | 上车地点 | 文字 | [BookNewPage.tsx:247](../../apps/web/src/pages/book/new/BookNewPage.tsx#L247)、537、1137、1147、1502 行 |
-| `BookNewPage.7b821b8c` | 写死 | 下车地点 | 文字 | [BookNewPage.tsx:247](../../apps/web/src/pages/book/new/BookNewPage.tsx#L247)、537、1163、1174、1522 行 |
+| `BookNewPage.57c54c9f` | 写死 | 上车地点 | 文字 | [BookNewPage.tsx:247](../../apps/web/src/pages/book/new/BookNewPage.tsx#L247)、537、1136、1145、1498 行 |
+| `BookNewPage.7b821b8c` | 写死 | 下车地点 | 文字 | [BookNewPage.tsx:247](../../apps/web/src/pages/book/new/BookNewPage.tsx#L247)、537、1160、1170、1518 行 |
 | `BookNewPage.0617425f` | 写死 | 链接里的地点{…}没有找到，请在下面重新选择{which}。 | 文字 | [BookNewPage.tsx:248](../../apps/web/src/pages/book/new/BookNewPage.tsx#L248) |
 | `BookNewPage.9b45becd` | 写死 | 链接里的地点{…}暂时没有读出来，请稍后刷新页面，或在下面直接选择。 | 文字 | [BookNewPage.tsx:250](../../apps/web/src/pages/book/new/BookNewPage.tsx#L250) |
 | `BookNewPage.0f9d8336` | 写死 | 请从候选里选出发地 | 文字 | [BookNewPage.tsx:270](../../apps/web/src/pages/book/new/BookNewPage.tsx#L270) |
 | `BookNewPage.af68712f` | 写死 | 请从候选里选上车地点 | 文字 | [BookNewPage.tsx:270](../../apps/web/src/pages/book/new/BookNewPage.tsx#L270) |
-| `BookNewPage.45f2175d` | 写死 | 这个地址暂时没有在线报价，请联系客服 | 文字 | [BookNewPage.tsx:271](../../apps/web/src/pages/book/new/BookNewPage.tsx#L271)、538、1177 行 |
+| `BookNewPage.45f2175d` | 写死 | 这个地址暂时没有在线报价，请联系客服 | 文字 | [BookNewPage.tsx:271](../../apps/web/src/pages/book/new/BookNewPage.tsx#L271)、538、1173 行 |
 | `BookNewPage.12033fa0` | 写死 | 请从候选里选目的地 | 文字 | [BookNewPage.tsx:272](../../apps/web/src/pages/book/new/BookNewPage.tsx#L272) |
 | `BookNewPage.537fa825` | 写死 | 请选择下车地点 | 文字 | [BookNewPage.tsx:272](../../apps/web/src/pages/book/new/BookNewPage.tsx#L272) |
 | `BookNewPage.4c3726e8` | 写死 | 请选择包车时长 | 文字 | [BookNewPage.tsx:273](../../apps/web/src/pages/book/new/BookNewPage.tsx#L273) |
@@ -97,7 +96,7 @@
 | `BookNewPage.312756db` | 写死 | 请填写乘车人的电话或 WhatsApp 号码，以 + 和国家码开头，如 +81 90-1234-5678 | 文字 | [BookNewPage.tsx:844](../../apps/web/src/pages/book/new/BookNewPage.tsx#L844) |
 | `BookNewPage.b14479eb` | 写死 | 有几项没有填好，请看标红的地方。 | 文字 | [BookNewPage.tsx:855](../../apps/web/src/pages/book/new/BookNewPage.tsx#L855)、885、977 行 |
 | `BookNewPage.712879a2` | 写死 | 请先选择车型。 | 文字 | [BookNewPage.tsx:871](../../apps/web/src/pages/book/new/BookNewPage.tsx#L871) |
-| `BookNewPage.744066fe` | 写死 | 这个车型现在加不了所选的附加服务，请减少附加服务或换一个车型。 | 文字 | [BookNewPage.tsx:873](../../apps/web/src/pages/book/new/BookNewPage.tsx#L873)、1620 行 |
+| `BookNewPage.744066fe` | 写死 | 这个车型现在加不了所选的附加服务，请减少附加服务或换一个车型。 | 文字 | [BookNewPage.tsx:873](../../apps/web/src/pages/book/new/BookNewPage.tsx#L873)、1616 行 |
 | `BookNewPage.7332e8c5` | 写死 | 价格还在计算，请稍等再点「去付款」。 | 文字 | [BookNewPage.tsx:876](../../apps/web/src/pages/book/new/BookNewPage.tsx#L876) |
 | `BookNewPage.2ecf7902` | 写死 | 需要同意保存支付方式才能下单 | 文字 | [BookNewPage.tsx:890](../../apps/web/src/pages/book/new/BookNewPage.tsx#L890) |
 | `BookNewPage.92721a79` | 写死 | 请先勾选同意保存银行卡，再点「去付款」。 | 文字 | [BookNewPage.tsx:891](../../apps/web/src/pages/book/new/BookNewPage.tsx#L891) |
@@ -105,89 +104,89 @@
 | `BookNewPage.2eaaf754` | 写死 | 提交订单 | 文字 | [BookNewPage.tsx:916](../../apps/web/src/pages/book/new/BookNewPage.tsx#L916) |
 | `BookNewPage.95dfcd48` | 写死 | 正在打开预订页 | 名称 | [BookNewPage.tsx:1058](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1058) |
 | `BookNewPage.35339cc5` | 写死 | 页面没有打开 | 标题 | [BookNewPage.tsx:1060](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1060) |
-| `BookNewPage.4653cb0b` | 写死 | 重试 | 按钮 | [BookNewPage.tsx:1060](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1060)、1064、1216、1289 行 |
+| `BookNewPage.4653cb0b` | 写死 | 重试 | 按钮 | [BookNewPage.tsx:1060](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1060)、1064、1212、1285 行 |
 | `BookNewPage.597336a1` | 写死 | 暂未开放预订 | 标题 | [BookNewPage.tsx:1062](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1062) |
 | `BookNewPage.fd26ebca` | 写死 | 官网的在线预订还没有开放，请稍后再来。已经下过单的客人可以点上方的「查订单」查看订单。 | 说明 | [BookNewPage.tsx:1062](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1062) |
 | `BookNewPage.584f1d9b` | 写死 | 城市列表没有读出来 | 标题 | [BookNewPage.tsx:1064](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1064) |
 | `BookNewPage.04e51a10` | 写死 | 暂时没有可预订的城市 | 标题 | [BookNewPage.tsx:1066](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1066) |
 | `BookNewPage.f163951b` | 写死 | 现在还没有可以在线预订用车的城市，请稍后再来。 | 说明 | [BookNewPage.tsx:1066](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1066) |
-| `BookNewPage.0b7d61b4` | 写死 | 用车时间（当地） | 名称 | [BookNewPage.tsx:1077](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1077) |
-| `BookNewPage.676c2b63` | 写死 | 上车时间（当地） | 名称 | [BookNewPage.tsx:1077](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1077) |
-| `BookNewPage.6e8983b2` | 写死 | 航班落地时间（当地） | 名称 | [BookNewPage.tsx:1077](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1077) |
-| `BookNewPage.03007c56` | 写死 | 包车 {itineraryPackage} 小时（按行程） | 名称 | [BookNewPage.tsx:1078](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1078) |
-| `BookNewPage.77edee7f` | 写死 | 包车 | 名称 | [BookNewPage.tsx:1078](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1078) |
-| `BookNewPage.79429f95` | 写死 | 包车 {packageHours} 小时 | 名称 | [BookNewPage.tsx:1078](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1078) |
-| `BookNewPage.dd1f3a80` | 写死 | 包车（按行程） | 名称 | [BookNewPage.tsx:1078](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1078) |
-| `BookNewPage.f2cef006` | 写死 |  落地 | 文字 | [BookNewPage.tsx:1079](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1079) |
-| `BookNewPage.3a6734be` | 写死 | 预订步骤 | 读屏说明 | [BookNewPage.tsx:1084](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1084) |
-| `BookNewPage.b2b70d17` | 写死 | 第 {number} 步：{name}（已完成，回到这一步） | 读屏说明 | [BookNewPage.tsx:1098](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1098) |
-| `BookNewPage.63b87d40` | 写死 | 第 {number} 步：{name}{…} | 读屏说明 | [BookNewPage.tsx:1102](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1102) |
-| `BookNewPage.c632b0e1` | 写死 | （当前） | 读屏说明 | [BookNewPage.tsx:1102](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1102) |
-| `BookNewPage.faf3d664` | 写死 | 你的行程 | 标题 | [BookNewPage.tsx:1116](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1116) |
-| `BookNewPage.df7e4bdc` | 写死 | 用车类型 | 表单标签 | [BookNewPage.tsx:1120](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1120)、1498 行 |
-| `BookNewPage.ce510457` | 写死 | 包车结束时在哪里下车，价格按上车和下车地点算。 | 说明 | [BookNewPage.tsx:1167](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1167) |
-| `BookNewPage.8afe6885` | 写死 | 请选择下车地点，包车现在按上车和下车地点报价。 | 文字 | [BookNewPage.tsx:1168](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1168) |
-| `BookNewPage.5b2624a0` | 写死 | 这段行程的包车还没有可以在线预订的套餐，请联系客服 | 正文 | [BookNewPage.tsx:1183](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1183) |
-| `BookNewPage.ceb7ca64` | 写死 | 包车时长 | 名称 | [BookNewPage.tsx:1189](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1189)、1208、1224 行 |
-| `BookNewPage.c9fb9cff` | 写死 | 请选择大概的时长 | 输入框占位 | [BookNewPage.tsx:1190](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1190) |
-| `BookNewPage.ad9420ad` | 写死 | {hours} 小时 | 名称 | [BookNewPage.tsx:1192](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1192)、1211、1228 行 |
-| `BookNewPage.e8401c1a` | 写死 | 没有在线报价时，选一个大概的时长，客服报价时会和您确认 | 说明 | [BookNewPage.tsx:1193](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1193) |
-| `BookNewPage.644b71e1` | 写死 | 包车时长：按行程自动选套餐 | 正文 | [BookNewPage.tsx:1200](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1200) |
-| `BookNewPage.8db00818` | 写死 | 有经停点时，按各段行驶时间和停留时长算出总时长，自动选合适的套餐。 | 正文 | [BookNewPage.tsx:1202](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1202) |
-| `BookNewPage.75dc7fa1` | 写死 | 想多留些时间可以选更长的套餐；不能选比预计用时短的 | 说明 | [BookNewPage.tsx:1212](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1212) |
-| `BookNewPage.05b10dea` | 写死 | 包车时长没有读出来 | 标题 | [BookNewPage.tsx:1216](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1216) |
-| `BookNewPage.08158d8d` | 写死 | 正在读取 | 输入框占位 | [BookNewPage.tsx:1226](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1226) |
-| `BookNewPage.1316b921` | 写死 | 先选上车、下车地点 | 输入框占位 | [BookNewPage.tsx:1226](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1226) |
-| `BookNewPage.7297716d` | 写死 | 请选择时长 | 输入框占位 | [BookNewPage.tsx:1226](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1226) |
-| `BookNewPage.ec13d057` | 写死 | 超出套餐的时长和公里服务后按实际收取 | 说明 | [BookNewPage.tsx:1230](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1230) |
-| `BookNewPage.cbba7514` | 写死 | 日期（当地） | 名称 | [BookNewPage.tsx:1236](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1236) |
-| `BookNewPage.4ff77eb3` | 写死 | {cityName}的当地时间 | 说明 | [BookNewPage.tsx:1237](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1237) |
-| `BookNewPage.e5efcd14` | 写死 | 下一步：选择车型 | 按钮 | [BookNewPage.tsx:1254](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1254) |
-| `BookNewPage.55d12785` | 写死 | 改选 {hours} 小时 | 按钮 | [BookNewPage.tsx:1270](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1270) |
-| `BookNewPage.51ba1197` | 写死 | 选好上车地点、下车地点、包车时长、日期和时间后，这里会列出能坐下的车型和价格。 | 正文 | [BookNewPage.tsx:1280](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1280) |
-| `BookNewPage.f7e12a64` | 写死 | 填好出发地、目的地、日期和时间后，这里会列出能坐下的车型和一口价。 | 正文 | [BookNewPage.tsx:1280](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1280) |
-| `BookNewPage.96584c87` | 写死 | 正在查询价格 | 名称 | [BookNewPage.tsx:1282](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1282) |
-| `BookNewPage.34617c14` | 写死 | 价格没有查出来 | 标题 | [BookNewPage.tsx:1287](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1287) |
-| `BookNewPage.589c19f4` | 写死 | 没有在线报价 | 标题 | [BookNewPage.tsx:1287](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1287) |
-| `BookNewPage.2c46d70f` | 写死 | 没有可预订的车 | 标题 | [BookNewPage.tsx:1311](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1311) |
-| `BookNewPage.f4f761da` | 写死 | 按价格从低到高 · 坐不下的已隐藏。报价 30 分钟内有效（到当地时间 {…}），过了请重新查询。 | 正文 | [BookNewPage.tsx:1331](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1331) |
-| `BookNewPage.ccfebb59` | 写死 | 行程时间表 | 标题 | [BookNewPage.tsx:1337](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1337) |
-| `BookNewPage.6373c8ca` | 写死 | 选择车型 | 标题 | [BookNewPage.tsx:1388](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1388) |
-| `BookNewPage.4e3fd180` | 写死 | 上一步 | 按钮 | [BookNewPage.tsx:1410](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1410)、1483 行 |
-| `BookNewPage.f3aceeb4` | 写死 | 下一步：填写乘客信息 | 按钮 | [BookNewPage.tsx:1416](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1416) |
-| `BookNewPage.ed962805` | 写死 | 航班号 | 名称 | [BookNewPage.tsx:1426](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1426)、1559 行 |
-| `BookNewPage.0ca939aa` | 写死 | 举牌姓名（选填） | 名称 | [BookNewPage.tsx:1439](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1439) |
-| `BookNewPage.8f6f6631` | 写死 | 司机在到达口举的牌子上写的名字，如 ZHANG SAN | 说明 | [BookNewPage.tsx:1439](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1439) |
-| `BookNewPage.4bd13f96` | 写死 | 下一步：核对订单 | 按钮 | [BookNewPage.tsx:1488](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1488) |
-| `BookNewPage.ddc8b793` | 写死 | 经停点 | 正文 | [BookNewPage.tsx:1507](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1507) |
-| `BookNewPage.ab11fa1a` | 写死 | {…} {name}（停留 {…}{…}） | 正文 | [BookNewPage.tsx:1513](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1513) |
-| `BookNewPage.81c7a040` | 写死 | 行程时长 | 正文 | [BookNewPage.tsx:1527](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1527) |
-| `BookNewPage.0d1cb237` | 写死 | 航班落地（当地时间） | 正文 | [BookNewPage.tsx:1532](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1532) |
-| `BookNewPage.4be5ed12` | 写死 | 用车时间（当地时间） | 正文 | [BookNewPage.tsx:1532](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1532) |
-| `BookNewPage.115f3614` | 写死 | 乘客 / 行李 | 正文 | [BookNewPage.tsx:1536](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1536) |
-| `BookNewPage.14ffadbb` | 写死 | 预订人 | 正文 | [BookNewPage.tsx:1545](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1545) |
-| `BookNewPage.9468c573` | 写死 | 乘车人 | 正文 | [BookNewPage.tsx:1545](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1545)、1575 行 |
-| `BookNewPage.b323d3f1` | 写死 | 邮箱 | 正文 | [BookNewPage.tsx:1549](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1549) |
-| `BookNewPage.3232a5cc` | 写死 | 手机号 | 正文 | [BookNewPage.tsx:1553](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1553) |
-| `BookNewPage.5f4d7731` | 写死 | 航班类型 | 正文 | [BookNewPage.tsx:1563](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1563) |
-| `BookNewPage.b9e44eec` | 写死 | 免费等待 | 正文 | [BookNewPage.tsx:1567](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1567) |
-| `BookNewPage.22028ae5` | 写死 | 不限时 | 正文 | [BookNewPage.tsx:1568](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1568) |
-| `BookNewPage.8c34d128` | 写死 | 航班落地后 {freeWait} 分钟 | 正文 | [BookNewPage.tsx:1568](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1568) |
-| `BookNewPage.5b8adaaf` | 写死 | 乘车人电话/WhatsApp | 正文 | [BookNewPage.tsx:1579](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1579) |
-| `BookNewPage.b7c2e6e8` | 写死 | 举牌姓名 | 正文 | [BookNewPage.tsx:1586](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1586) |
-| `BookNewPage.08773378` | 写死 | 给司机的备注 | 正文 | [BookNewPage.tsx:1598](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1598) |
-| `BookNewPage.94d63521` | 写死 | 车型和价格 | 标题 | [BookNewPage.tsx:1613](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1613)、1690 行 |
-| `BookNewPage.1549869d` | 写死 | 正在重新计算… | 正文 | [BookNewPage.tsx:1619](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1619) |
-| `BookNewPage.88966edf` | 写死 | 每确认一步，这里会加上那一步的内容。 | 正文 | [BookNewPage.tsx:1635](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1635) |
-| `BookNewPage.ba384a96` | 写死 | 行程 | 标题 | [BookNewPage.tsx:1638](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1638)、1681 行 |
-| `BookNewPage.ed1c357b` | 写死 | 乘客信息 | 标题 | [BookNewPage.tsx:1645](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1645)、1698 行 |
-| `BookNewPage.a9922481` | 写死 | 修改{what} | 读屏说明 | [BookNewPage.tsx:1653](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1653) |
-| `BookNewPage.0af303e3` | 写死 | 修改 | 按钮 | [BookNewPage.tsx:1655](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1655) |
-| `BookNewPage.851bbd69` | 写死 | 核对订单 | 标题 | [BookNewPage.tsx:1668](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1668) |
-| `BookNewPage.ec517f42` | 写死 | 选的车型现在报不出价了，请点「修改」重新选择车型。 | 正文 | [BookNewPage.tsx:1709](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1709) |
-| `BookNewPage.f7748eb6` | 写死 | 正在重新查询价格… | 正文 | [BookNewPage.tsx:1709](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1709) |
-| `BookNewPage.e51eb20c` | 写死 | 行程摘要 | 正文 | [BookNewPage.tsx:1757](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1757)、1783、1805 行 |
-| `BookNewPage.dc4b4482` | 写死 | 还没有确认的内容 | 正文 | [BookNewPage.tsx:1777](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1777) |
+| `BookNewPage.0b7d61b4` | 写死 | 用车时间（当地） | 名称 | [BookNewPage.tsx:1076](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1076) |
+| `BookNewPage.676c2b63` | 写死 | 上车时间（当地） | 名称 | [BookNewPage.tsx:1076](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1076) |
+| `BookNewPage.6e8983b2` | 写死 | 航班落地时间（当地） | 名称 | [BookNewPage.tsx:1076](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1076) |
+| `BookNewPage.03007c56` | 写死 | 包车 {itineraryPackage} 小时（按行程） | 名称 | [BookNewPage.tsx:1077](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1077) |
+| `BookNewPage.77edee7f` | 写死 | 包车 | 名称 | [BookNewPage.tsx:1077](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1077) |
+| `BookNewPage.79429f95` | 写死 | 包车 {packageHours} 小时 | 名称 | [BookNewPage.tsx:1077](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1077) |
+| `BookNewPage.dd1f3a80` | 写死 | 包车（按行程） | 名称 | [BookNewPage.tsx:1077](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1077) |
+| `BookNewPage.f2cef006` | 写死 |  落地 | 文字 | [BookNewPage.tsx:1078](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1078) |
+| `BookNewPage.3a6734be` | 写死 | 预订步骤 | 读屏说明 | [BookNewPage.tsx:1083](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1083) |
+| `BookNewPage.b2b70d17` | 写死 | 第 {number} 步：{name}（已完成，回到这一步） | 读屏说明 | [BookNewPage.tsx:1097](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1097) |
+| `BookNewPage.63b87d40` | 写死 | 第 {number} 步：{name}{…} | 读屏说明 | [BookNewPage.tsx:1101](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1101) |
+| `BookNewPage.c632b0e1` | 写死 | （当前） | 读屏说明 | [BookNewPage.tsx:1101](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1101) |
+| `BookNewPage.faf3d664` | 写死 | 你的行程 | 标题 | [BookNewPage.tsx:1115](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1115) |
+| `BookNewPage.df7e4bdc` | 写死 | 用车类型 | 表单标签 | [BookNewPage.tsx:1119](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1119)、1494 行 |
+| `BookNewPage.ce510457` | 写死 | 包车结束时在哪里下车，价格按上车和下车地点算。 | 说明 | [BookNewPage.tsx:1164](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1164) |
+| `BookNewPage.8afe6885` | 写死 | 请选择下车地点，包车现在按上车和下车地点报价。 | 文字 | [BookNewPage.tsx:1165](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1165) |
+| `BookNewPage.5b2624a0` | 写死 | 这段行程的包车还没有可以在线预订的套餐，请联系客服 | 正文 | [BookNewPage.tsx:1179](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1179) |
+| `BookNewPage.ceb7ca64` | 写死 | 包车时长 | 名称 | [BookNewPage.tsx:1185](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1185)、1204、1220 行 |
+| `BookNewPage.c9fb9cff` | 写死 | 请选择大概的时长 | 输入框占位 | [BookNewPage.tsx:1186](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1186) |
+| `BookNewPage.ad9420ad` | 写死 | {hours} 小时 | 名称 | [BookNewPage.tsx:1188](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1188)、1207、1224 行 |
+| `BookNewPage.e8401c1a` | 写死 | 没有在线报价时，选一个大概的时长，客服报价时会和您确认 | 说明 | [BookNewPage.tsx:1189](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1189) |
+| `BookNewPage.644b71e1` | 写死 | 包车时长：按行程自动选套餐 | 正文 | [BookNewPage.tsx:1196](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1196) |
+| `BookNewPage.8db00818` | 写死 | 有经停点时，按各段行驶时间和停留时长算出总时长，自动选合适的套餐。 | 正文 | [BookNewPage.tsx:1198](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1198) |
+| `BookNewPage.75dc7fa1` | 写死 | 想多留些时间可以选更长的套餐；不能选比预计用时短的 | 说明 | [BookNewPage.tsx:1208](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1208) |
+| `BookNewPage.05b10dea` | 写死 | 包车时长没有读出来 | 标题 | [BookNewPage.tsx:1212](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1212) |
+| `BookNewPage.08158d8d` | 写死 | 正在读取 | 输入框占位 | [BookNewPage.tsx:1222](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1222) |
+| `BookNewPage.1316b921` | 写死 | 先选上车、下车地点 | 输入框占位 | [BookNewPage.tsx:1222](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1222) |
+| `BookNewPage.7297716d` | 写死 | 请选择时长 | 输入框占位 | [BookNewPage.tsx:1222](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1222) |
+| `BookNewPage.ec13d057` | 写死 | 超出套餐的时长和公里服务后按实际收取 | 说明 | [BookNewPage.tsx:1226](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1226) |
+| `BookNewPage.cbba7514` | 写死 | 日期（当地） | 名称 | [BookNewPage.tsx:1232](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1232) |
+| `BookNewPage.4ff77eb3` | 写死 | {cityName}的当地时间 | 说明 | [BookNewPage.tsx:1233](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1233) |
+| `BookNewPage.e5efcd14` | 写死 | 下一步：选择车型 | 按钮 | [BookNewPage.tsx:1250](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1250) |
+| `BookNewPage.55d12785` | 写死 | 改选 {hours} 小时 | 按钮 | [BookNewPage.tsx:1266](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1266) |
+| `BookNewPage.51ba1197` | 写死 | 选好上车地点、下车地点、包车时长、日期和时间后，这里会列出能坐下的车型和价格。 | 正文 | [BookNewPage.tsx:1276](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1276) |
+| `BookNewPage.f7e12a64` | 写死 | 填好出发地、目的地、日期和时间后，这里会列出能坐下的车型和一口价。 | 正文 | [BookNewPage.tsx:1276](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1276) |
+| `BookNewPage.96584c87` | 写死 | 正在查询价格 | 名称 | [BookNewPage.tsx:1278](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1278) |
+| `BookNewPage.34617c14` | 写死 | 价格没有查出来 | 标题 | [BookNewPage.tsx:1283](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1283) |
+| `BookNewPage.589c19f4` | 写死 | 没有在线报价 | 标题 | [BookNewPage.tsx:1283](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1283) |
+| `BookNewPage.2c46d70f` | 写死 | 没有可预订的车 | 标题 | [BookNewPage.tsx:1307](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1307) |
+| `BookNewPage.f4f761da` | 写死 | 按价格从低到高 · 坐不下的已隐藏。报价 30 分钟内有效（到当地时间 {…}），过了请重新查询。 | 正文 | [BookNewPage.tsx:1327](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1327) |
+| `BookNewPage.ccfebb59` | 写死 | 行程时间表 | 标题 | [BookNewPage.tsx:1333](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1333) |
+| `BookNewPage.6373c8ca` | 写死 | 选择车型 | 标题 | [BookNewPage.tsx:1384](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1384) |
+| `BookNewPage.4e3fd180` | 写死 | 上一步 | 按钮 | [BookNewPage.tsx:1406](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1406)、1479 行 |
+| `BookNewPage.f3aceeb4` | 写死 | 下一步：填写乘客信息 | 按钮 | [BookNewPage.tsx:1412](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1412) |
+| `BookNewPage.ed962805` | 写死 | 航班号 | 名称 | [BookNewPage.tsx:1422](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1422)、1555 行 |
+| `BookNewPage.0ca939aa` | 写死 | 举牌姓名（选填） | 名称 | [BookNewPage.tsx:1435](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1435) |
+| `BookNewPage.8f6f6631` | 写死 | 司机在到达口举的牌子上写的名字，如 ZHANG SAN | 说明 | [BookNewPage.tsx:1435](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1435) |
+| `BookNewPage.4bd13f96` | 写死 | 下一步：核对订单 | 按钮 | [BookNewPage.tsx:1484](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1484) |
+| `BookNewPage.ddc8b793` | 写死 | 经停点 | 正文 | [BookNewPage.tsx:1503](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1503) |
+| `BookNewPage.ab11fa1a` | 写死 | {…} {name}（停留 {…}{…}） | 正文 | [BookNewPage.tsx:1509](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1509) |
+| `BookNewPage.81c7a040` | 写死 | 行程时长 | 正文 | [BookNewPage.tsx:1523](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1523) |
+| `BookNewPage.0d1cb237` | 写死 | 航班落地（当地时间） | 正文 | [BookNewPage.tsx:1528](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1528) |
+| `BookNewPage.4be5ed12` | 写死 | 用车时间（当地时间） | 正文 | [BookNewPage.tsx:1528](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1528) |
+| `BookNewPage.115f3614` | 写死 | 乘客 / 行李 | 正文 | [BookNewPage.tsx:1532](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1532) |
+| `BookNewPage.14ffadbb` | 写死 | 预订人 | 正文 | [BookNewPage.tsx:1541](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1541) |
+| `BookNewPage.9468c573` | 写死 | 乘车人 | 正文 | [BookNewPage.tsx:1541](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1541)、1571 行 |
+| `BookNewPage.b323d3f1` | 写死 | 邮箱 | 正文 | [BookNewPage.tsx:1545](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1545) |
+| `BookNewPage.3232a5cc` | 写死 | 手机号 | 正文 | [BookNewPage.tsx:1549](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1549) |
+| `BookNewPage.5f4d7731` | 写死 | 航班类型 | 正文 | [BookNewPage.tsx:1559](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1559) |
+| `BookNewPage.b9e44eec` | 写死 | 免费等待 | 正文 | [BookNewPage.tsx:1563](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1563) |
+| `BookNewPage.22028ae5` | 写死 | 不限时 | 正文 | [BookNewPage.tsx:1564](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1564) |
+| `BookNewPage.8c34d128` | 写死 | 航班落地后 {freeWait} 分钟 | 正文 | [BookNewPage.tsx:1564](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1564) |
+| `BookNewPage.5b8adaaf` | 写死 | 乘车人电话/WhatsApp | 正文 | [BookNewPage.tsx:1575](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1575) |
+| `BookNewPage.b7c2e6e8` | 写死 | 举牌姓名 | 正文 | [BookNewPage.tsx:1582](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1582) |
+| `BookNewPage.08773378` | 写死 | 给司机的备注 | 正文 | [BookNewPage.tsx:1594](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1594) |
+| `BookNewPage.94d63521` | 写死 | 车型和价格 | 标题 | [BookNewPage.tsx:1609](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1609)、1686 行 |
+| `BookNewPage.1549869d` | 写死 | 正在重新计算… | 正文 | [BookNewPage.tsx:1615](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1615) |
+| `BookNewPage.88966edf` | 写死 | 每确认一步，这里会加上那一步的内容。 | 正文 | [BookNewPage.tsx:1631](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1631) |
+| `BookNewPage.ba384a96` | 写死 | 行程 | 标题 | [BookNewPage.tsx:1634](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1634)、1677 行 |
+| `BookNewPage.ed1c357b` | 写死 | 乘客信息 | 标题 | [BookNewPage.tsx:1641](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1641)、1694 行 |
+| `BookNewPage.a9922481` | 写死 | 修改{what} | 读屏说明 | [BookNewPage.tsx:1649](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1649) |
+| `BookNewPage.0af303e3` | 写死 | 修改 | 按钮 | [BookNewPage.tsx:1651](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1651) |
+| `BookNewPage.851bbd69` | 写死 | 核对订单 | 标题 | [BookNewPage.tsx:1664](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1664) |
+| `BookNewPage.ec517f42` | 写死 | 选的车型现在报不出价了，请点「修改」重新选择车型。 | 正文 | [BookNewPage.tsx:1705](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1705) |
+| `BookNewPage.f7748eb6` | 写死 | 正在重新查询价格… | 正文 | [BookNewPage.tsx:1705](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1705) |
+| `BookNewPage.e51eb20c` | 写死 | 行程摘要 | 正文 | [BookNewPage.tsx:1753](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1753)、1779、1801 行 |
+| `BookNewPage.dc4b4482` | 写死 | 还没有确认的内容 | 正文 | [BookNewPage.tsx:1773](../../apps/web/src/pages/book/new/BookNewPage.tsx#L1773) |
 | `CheckoutParts.a706b23f` | 写死 | 路线图：{name} → {name}，{text} | 名称 | [CheckoutParts.tsx:37](../../apps/web/src/pages/book/new/CheckoutParts.tsx#L37) |
 | `CheckoutParts.876bf27e` | 写死 | 附加服务（选填） | 标题 | [CheckoutParts.tsx:53](../../apps/web/src/pages/book/new/CheckoutParts.tsx#L53) |
 | `CheckoutParts.4dbc87b2` | 写死 | 车费 | 正文 | [CheckoutParts.tsx:89](../../apps/web/src/pages/book/new/CheckoutParts.tsx#L89) |
@@ -229,20 +228,20 @@
 | `VehicleList.4a0e10b6` | 写死 | 已选择 | 按钮 | [VehicleList.tsx:55](../../apps/web/src/pages/book/new/VehicleList.tsx#L55) |
 | `VehicleList.c84914c4` | 写死 | 选择 | 按钮 | [VehicleList.tsx:55](../../apps/web/src/pages/book/new/VehicleList.tsx#L55) |
 | `VehicleList.9620cb9b` | 写死 | 显示全部 {length} 个车型 ▾ | 按钮 | [VehicleList.tsx:91](../../apps/web/src/pages/book/new/VehicleList.tsx#L91) |
-| `WaypointsField.7754feee` | 写死 | 第 {…} 个经停点 | 文字 | [WaypointsField.tsx:53](../../apps/web/src/pages/book/new/WaypointsField.tsx#L53)、72 行 |
-| `WaypointsField.0074b875` | 写死 | {…} 现在排第 {…}，共 {length} 个 | 提示 | [WaypointsField.tsx:60](../../apps/web/src/pages/book/new/WaypointsField.tsx#L60)、125 行 |
-| `WaypointsField.31c84be2` | 写死 | 这个经停点 | 提示 | [WaypointsField.tsx:60](../../apps/web/src/pages/book/new/WaypointsField.tsx#L60)、125 行 |
-| `WaypointsField.1ac50101` | 写死 | 已删除{…} | 提示 | [WaypointsField.tsx:72](../../apps/web/src/pages/book/new/WaypointsField.tsx#L72) |
-| `WaypointsField.b1d4efc3` | 写死 | 经停点「{name}」 | 提示 | [WaypointsField.tsx:72](../../apps/web/src/pages/book/new/WaypointsField.tsx#L72) |
-| `WaypointsField.3ca64a5a` | 写死 | 经停点（选填） | 表单标签 | [WaypointsField.tsx:130](../../apps/web/src/pages/book/new/WaypointsField.tsx#L130) |
-| `WaypointsField.c532d03f` | 写死 | 按顺序填想去的景点和每处大概停留多久，最多 {MAX\_WAYPOINTS} 个；价格按经停点所在区域和行程总时长计算。{…} | 正文 | [WaypointsField.tsx:131](../../apps/web/src/pages/book/new/WaypointsField.tsx#L131) |
-| `WaypointsField.b0b17a5e` | 写死 | 经停点 {…} | 名称 | [WaypointsField.tsx:158](../../apps/web/src/pages/book/new/WaypointsField.tsx#L158) |
-| `WaypointsField.0b2b48bd` | 写死 | 经停点 {…} 停留时长 | 名称 | [WaypointsField.tsx:169](../../apps/web/src/pages/book/new/WaypointsField.tsx#L169) |
-| `WaypointsField.bcbf8263` | 写死 | 停留多久 | 输入框占位 | [WaypointsField.tsx:171](../../apps/web/src/pages/book/new/WaypointsField.tsx#L171) |
-| `WaypointsField.e5fec948` | 写死 | 把 {name} 上移 | 名称 | [WaypointsField.tsx:202](../../apps/web/src/pages/book/new/WaypointsField.tsx#L202) |
-| `WaypointsField.0d9a8743` | 写死 | 把 {name} 下移 | 名称 | [WaypointsField.tsx:203](../../apps/web/src/pages/book/new/WaypointsField.tsx#L203) |
-| `WaypointsField.e10a228c` | 写死 | 删除 {name} | 名称 | [WaypointsField.tsx:204](../../apps/web/src/pages/book/new/WaypointsField.tsx#L204) |
-| `WaypointsField.222a34f0` | 写死 | 添加经停点 | 按钮 | [WaypointsField.tsx:220](../../apps/web/src/pages/book/new/WaypointsField.tsx#L220) |
+| `WaypointsField.7754feee` | 写死 | 第 {…} 个经停点 | 文字 | [WaypointsField.tsx:51](../../apps/web/src/pages/book/new/WaypointsField.tsx#L51)、70 行 |
+| `WaypointsField.0074b875` | 写死 | {…} 现在排第 {…}，共 {length} 个 | 提示 | [WaypointsField.tsx:58](../../apps/web/src/pages/book/new/WaypointsField.tsx#L58)、123 行 |
+| `WaypointsField.31c84be2` | 写死 | 这个经停点 | 提示 | [WaypointsField.tsx:58](../../apps/web/src/pages/book/new/WaypointsField.tsx#L58)、123 行 |
+| `WaypointsField.1ac50101` | 写死 | 已删除{…} | 提示 | [WaypointsField.tsx:70](../../apps/web/src/pages/book/new/WaypointsField.tsx#L70) |
+| `WaypointsField.b1d4efc3` | 写死 | 经停点「{name}」 | 提示 | [WaypointsField.tsx:70](../../apps/web/src/pages/book/new/WaypointsField.tsx#L70) |
+| `WaypointsField.3ca64a5a` | 写死 | 经停点（选填） | 表单标签 | [WaypointsField.tsx:128](../../apps/web/src/pages/book/new/WaypointsField.tsx#L128) |
+| `WaypointsField.c532d03f` | 写死 | 按顺序填想去的景点和每处大概停留多久，最多 {MAX\_WAYPOINTS} 个；价格按经停点所在区域和行程总时长计算。{…} | 正文 | [WaypointsField.tsx:129](../../apps/web/src/pages/book/new/WaypointsField.tsx#L129) |
+| `WaypointsField.b0b17a5e` | 写死 | 经停点 {…} | 名称 | [WaypointsField.tsx:156](../../apps/web/src/pages/book/new/WaypointsField.tsx#L156) |
+| `WaypointsField.0b2b48bd` | 写死 | 经停点 {…} 停留时长 | 名称 | [WaypointsField.tsx:166](../../apps/web/src/pages/book/new/WaypointsField.tsx#L166) |
+| `WaypointsField.bcbf8263` | 写死 | 停留多久 | 输入框占位 | [WaypointsField.tsx:168](../../apps/web/src/pages/book/new/WaypointsField.tsx#L168) |
+| `WaypointsField.e5fec948` | 写死 | 把 {name} 上移 | 名称 | [WaypointsField.tsx:199](../../apps/web/src/pages/book/new/WaypointsField.tsx#L199) |
+| `WaypointsField.0d9a8743` | 写死 | 把 {name} 下移 | 名称 | [WaypointsField.tsx:200](../../apps/web/src/pages/book/new/WaypointsField.tsx#L200) |
+| `WaypointsField.e10a228c` | 写死 | 删除 {name} | 名称 | [WaypointsField.tsx:201](../../apps/web/src/pages/book/new/WaypointsField.tsx#L201) |
+| `WaypointsField.222a34f0` | 写死 | 添加经停点 | 按钮 | [WaypointsField.tsx:217](../../apps/web/src/pages/book/new/WaypointsField.tsx#L217) |
 
 ## 多日行程报价页（/book/trip）
 
@@ -845,20 +844,6 @@
 | `OrderSections.b5d8f462` | 写死 | 打电话给客服 {phone} | 链接 | [OrderSections.tsx:1146](../../apps/web/src/pages/book/OrderSections.tsx#L1146) |
 | `OrderSections.1a00e9d3` | 写死 | 联系时请提供订单号 {order\_no}。 | 正文 | [OrderSections.tsx:1149](../../apps/web/src/pages/book/OrderSections.tsx#L1149) |
 
-## 多个页面共用：官网的地图选点（SiteMapPicker.tsx）
-
-用在：官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
-
-文件：`apps/web/src/pages/book/SiteMapPicker.tsx`
-
-| key | 状态 | 中文 | 类型 | 位置 |
-| --- | --- | --- | --- | --- |
-| `SiteMapPicker.0532bbab` | 写死 | 地图：点一下选{word}位置，或拖动标记；也可以用方向键移动地图、加号减号缩放，再按地图下面的「选地图中间这个位置」 | 读屏说明 | [SiteMapPicker.tsx:134](../../apps/web/src/pages/book/SiteMapPicker.tsx#L134) |
-| `SiteMapPicker.4551a538` | 写死 | 放大地图 | 读屏说明 | [SiteMapPicker.tsx:161](../../apps/web/src/pages/book/SiteMapPicker.tsx#L161) |
-| `SiteMapPicker.ef19acb1` | 写死 | 缩小地图 | 读屏说明 | [SiteMapPicker.tsx:164](../../apps/web/src/pages/book/SiteMapPicker.tsx#L164) |
-| `SiteMapPicker.4ceda6a1` | 写死 | 地图没有加载出来。可以用上面的搜索、常用地点，或直接填写地址和坐标。 | 正文 | [SiteMapPicker.tsx:168](../../apps/web/src/pages/book/SiteMapPicker.tsx#L168) |
-| `SiteMapPicker.6df8dc07` | 写死 | 选地图中间这个位置 | 按钮 | [SiteMapPicker.tsx:192](../../apps/web/src/pages/book/SiteMapPicker.tsx#L192) |
-
 ## 多个页面共用：新预订页的一个地址框（PlaceField.tsx）
 
 用在：官网（客人预订） · 多日行程报价页（/book/trip）；官网（客人预订） · 预订页（/book）
@@ -867,32 +852,32 @@
 
 | key | 状态 | 中文 | 类型 | 位置 |
 | --- | --- | --- | --- | --- |
-| `PlaceField.fc872f45` | 写死 | 今天的地址提示次数用完了 | 文字 | [PlaceField.tsx:35](../../apps/web/src/pages/book/new/PlaceField.tsx#L35) |
-| `PlaceField.53ffb5ec` | 写死 | 车站 | 文字 | [PlaceField.tsx:53](../../apps/web/src/pages/book/new/PlaceField.tsx#L53) |
-| `PlaceField.c00e886a` | 写死 | 机场 | 文字 | [PlaceField.tsx:53](../../apps/web/src/pages/book/new/PlaceField.tsx#L53) |
-| `PlaceField.5b6ec7a2` | 写死 | 也可以在地图上选点。 | 文字 | [PlaceField.tsx:59](../../apps/web/src/pages/book/new/PlaceField.tsx#L59) |
-| `PlaceField.329919e4` | 写死 | 地址提示暂时用不了 | 文字 | [PlaceField.tsx:181](../../apps/web/src/pages/book/new/PlaceField.tsx#L181) |
-| `PlaceField.5cf47b46` | 写死 | {head}，下面只有平台的机场和车站{…} | 文字 | [PlaceField.tsx:183](../../apps/web/src/pages/book/new/PlaceField.tsx#L183) |
-| `PlaceField.35330cef` | 写死 | {head}。{…}输入机场、车站的名称。 | 文字 | [PlaceField.tsx:184](../../apps/web/src/pages/book/new/PlaceField.tsx#L184) |
-| `PlaceField.6f380d23` | 写死 | 请 | 文字 | [PlaceField.tsx:184](../../apps/web/src/pages/book/new/PlaceField.tsx#L184) |
-| `PlaceField.7cde6385` | 写死 | 请在地图上选点，或 | 文字 | [PlaceField.tsx:184](../../apps/web/src/pages/book/new/PlaceField.tsx#L184) |
-| `PlaceField.88e17cc3` | 写死 | 地址提示暂时用不了。 | 文字 | [PlaceField.tsx:194](../../apps/web/src/pages/book/new/PlaceField.tsx#L194) |
-| `PlaceField.be6f8886` | 写死 | 输入太快了，请稍等几秒再输入。 | 文字 | [PlaceField.tsx:194](../../apps/web/src/pages/book/new/PlaceField.tsx#L194) |
-| `PlaceField.05a93f14` | 写死 | {PLACES\_DAILY\_LIMIT\_TEXT}，没有取到这个地点的位置，请选平台的机场、车站。 | 文字 | [PlaceField.tsx:221](../../apps/web/src/pages/book/new/PlaceField.tsx#L221) |
-| `PlaceField.9bb319a9` | 写死 | 没有取到这个地点的位置，请换一个候选。 | 文字 | [PlaceField.tsx:221](../../apps/web/src/pages/book/new/PlaceField.tsx#L221) |
-| `PlaceField.5be4fe4c` | 写死 | 没有取到这个地点的位置，请稍后再选一次。{…} | 文字 | [PlaceField.tsx:232](../../apps/web/src/pages/book/new/PlaceField.tsx#L232) |
-| `PlaceField.a4c81089` | 写死 | 已选好地图上的位置。 | 文字 | [PlaceField.tsx:248](../../apps/web/src/pages/book/new/PlaceField.tsx#L248)、262、272 行 |
-| `PlaceField.406d4d0a` | 写死 | 已填入这个位置的地址。 | 文字 | [PlaceField.tsx:269](../../apps/web/src/pages/book/new/PlaceField.tsx#L269) |
-| `PlaceField.f02bd7f9` | 写死 | 请至少输入 2 个字，如酒店名、地址或机场 | 文字 | [PlaceField.tsx:300](../../apps/web/src/pages/book/new/PlaceField.tsx#L300) |
-| `PlaceField.4c6234bf` | 写死 | 正在查找… | 文字 | [PlaceField.tsx:301](../../apps/web/src/pages/book/new/PlaceField.tsx#L301) |
-| `PlaceField.08d7028f` | 写死 | 找到 {length} 个地点，用 ↑↓ 选择、回车确认。 | 文字 | [PlaceField.tsx:302](../../apps/web/src/pages/book/new/PlaceField.tsx#L302) |
-| `PlaceField.35c9d3de` | 写死 | 没有找到。请换个说法（如酒店的英文名、地址）。{…} | 文字 | [PlaceField.tsx:303](../../apps/web/src/pages/book/new/PlaceField.tsx#L303) |
-| `PlaceField.1a115143` | 写死 | {label}的候选 | 读屏说明 | [PlaceField.tsx:349](../../apps/web/src/pages/book/new/PlaceField.tsx#L349) |
-| `PlaceField.dace264d` | 写死 | 地图加载不出来（可能是网络原因）。请用上面的搜索找到地址；门牌、楼层等可以写在下单时的「给司机的备注」里。 | 正文 | [PlaceField.tsx:371](../../apps/web/src/pages/book/new/PlaceField.tsx#L371) |
-| `PlaceField.faffd893` | 写死 | {label}的地图 | 读屏说明 | [PlaceField.tsx:374](../../apps/web/src/pages/book/new/PlaceField.tsx#L374) |
-| `PlaceField.9c77f1b0` | 写死 | 在地图上选点 | 按钮 | [PlaceField.tsx:377](../../apps/web/src/pages/book/new/PlaceField.tsx#L377) |
-| `PlaceField.ed43cbb1` | 写死 | 收起地图 | 按钮 | [PlaceField.tsx:377](../../apps/web/src/pages/book/new/PlaceField.tsx#L377) |
-| `PlaceField.2deee099` | 写死 | 点按输入地址 | 输入框占位 | [PlaceField.tsx:421](../../apps/web/src/pages/book/new/PlaceField.tsx#L421) |
+| `PlaceField.fc872f45` | 写死 | 今天的地址提示次数用完了 | 文字 | [PlaceField.tsx:33](../../apps/web/src/pages/book/new/PlaceField.tsx#L33) |
+| `PlaceField.53ffb5ec` | 写死 | 车站 | 文字 | [PlaceField.tsx:51](../../apps/web/src/pages/book/new/PlaceField.tsx#L51) |
+| `PlaceField.c00e886a` | 写死 | 机场 | 文字 | [PlaceField.tsx:51](../../apps/web/src/pages/book/new/PlaceField.tsx#L51) |
+| `PlaceField.5b6ec7a2` | 写死 | 也可以在地图上选点。 | 文字 | [PlaceField.tsx:57](../../apps/web/src/pages/book/new/PlaceField.tsx#L57) |
+| `PlaceField.329919e4` | 写死 | 地址提示暂时用不了 | 文字 | [PlaceField.tsx:176](../../apps/web/src/pages/book/new/PlaceField.tsx#L176) |
+| `PlaceField.5cf47b46` | 写死 | {head}，下面只有平台的机场和车站{…} | 文字 | [PlaceField.tsx:178](../../apps/web/src/pages/book/new/PlaceField.tsx#L178) |
+| `PlaceField.35330cef` | 写死 | {head}。{…}输入机场、车站的名称。 | 文字 | [PlaceField.tsx:179](../../apps/web/src/pages/book/new/PlaceField.tsx#L179) |
+| `PlaceField.6f380d23` | 写死 | 请 | 文字 | [PlaceField.tsx:179](../../apps/web/src/pages/book/new/PlaceField.tsx#L179) |
+| `PlaceField.7cde6385` | 写死 | 请在地图上选点，或 | 文字 | [PlaceField.tsx:179](../../apps/web/src/pages/book/new/PlaceField.tsx#L179) |
+| `PlaceField.88e17cc3` | 写死 | 地址提示暂时用不了。 | 文字 | [PlaceField.tsx:189](../../apps/web/src/pages/book/new/PlaceField.tsx#L189) |
+| `PlaceField.be6f8886` | 写死 | 输入太快了，请稍等几秒再输入。 | 文字 | [PlaceField.tsx:189](../../apps/web/src/pages/book/new/PlaceField.tsx#L189) |
+| `PlaceField.05a93f14` | 写死 | {PLACES\_DAILY\_LIMIT\_TEXT}，没有取到这个地点的位置，请选平台的机场、车站。 | 文字 | [PlaceField.tsx:216](../../apps/web/src/pages/book/new/PlaceField.tsx#L216) |
+| `PlaceField.9bb319a9` | 写死 | 没有取到这个地点的位置，请换一个候选。 | 文字 | [PlaceField.tsx:216](../../apps/web/src/pages/book/new/PlaceField.tsx#L216) |
+| `PlaceField.5be4fe4c` | 写死 | 没有取到这个地点的位置，请稍后再选一次。{…} | 文字 | [PlaceField.tsx:227](../../apps/web/src/pages/book/new/PlaceField.tsx#L227) |
+| `PlaceField.a4c81089` | 写死 | 已选好地图上的位置。 | 文字 | [PlaceField.tsx:243](../../apps/web/src/pages/book/new/PlaceField.tsx#L243)、257、267 行 |
+| `PlaceField.406d4d0a` | 写死 | 已填入这个位置的地址。 | 文字 | [PlaceField.tsx:264](../../apps/web/src/pages/book/new/PlaceField.tsx#L264) |
+| `PlaceField.f02bd7f9` | 写死 | 请至少输入 2 个字，如酒店名、地址或机场 | 文字 | [PlaceField.tsx:295](../../apps/web/src/pages/book/new/PlaceField.tsx#L295) |
+| `PlaceField.4c6234bf` | 写死 | 正在查找… | 文字 | [PlaceField.tsx:296](../../apps/web/src/pages/book/new/PlaceField.tsx#L296) |
+| `PlaceField.08d7028f` | 写死 | 找到 {length} 个地点，用 ↑↓ 选择、回车确认。 | 文字 | [PlaceField.tsx:297](../../apps/web/src/pages/book/new/PlaceField.tsx#L297) |
+| `PlaceField.35c9d3de` | 写死 | 没有找到。请换个说法（如酒店的英文名、地址）。{…} | 文字 | [PlaceField.tsx:298](../../apps/web/src/pages/book/new/PlaceField.tsx#L298) |
+| `PlaceField.1a115143` | 写死 | {label}的候选 | 读屏说明 | [PlaceField.tsx:344](../../apps/web/src/pages/book/new/PlaceField.tsx#L344) |
+| `PlaceField.dace264d` | 写死 | 地图加载不出来（可能是网络原因）。请用上面的搜索找到地址；门牌、楼层等可以写在下单时的「给司机的备注」里。 | 正文 | [PlaceField.tsx:366](../../apps/web/src/pages/book/new/PlaceField.tsx#L366) |
+| `PlaceField.faffd893` | 写死 | {label}的地图 | 读屏说明 | [PlaceField.tsx:369](../../apps/web/src/pages/book/new/PlaceField.tsx#L369) |
+| `PlaceField.9c77f1b0` | 写死 | 在地图上选点 | 按钮 | [PlaceField.tsx:372](../../apps/web/src/pages/book/new/PlaceField.tsx#L372) |
+| `PlaceField.ed43cbb1` | 写死 | 收起地图 | 按钮 | [PlaceField.tsx:372](../../apps/web/src/pages/book/new/PlaceField.tsx#L372) |
+| `PlaceField.2deee099` | 写死 | 点按输入地址 | 输入框占位 | [PlaceField.tsx:413](../../apps/web/src/pages/book/new/PlaceField.tsx#L413) |
 
 ## 多个页面共用：包车的对外价明细（PriceBreakdown.tsx）
 
@@ -929,9 +914,9 @@
 
 | key | 状态 | 中文 | 类型 | 位置 |
 | --- | --- | --- | --- | --- |
-| `booking-shell.99e48b29` | 写死 | 预订用车 · NOZOMI 用车 | 标题 | [booking-shell.tsx:44](../../apps/web/src/pages/book/new/booking-shell.tsx#L44) |
-| `booking-shell.6bd11448` | 写死 | 预订接送车 | 标题 | [booking-shell.tsx:47](../../apps/web/src/pages/book/new/booking-shell.tsx#L47) |
-| `booking-shell.1f18f529` | 写死 | 输入出发地和目的地，马上看到所有车型的一口价 | 正文 | [booking-shell.tsx:48](../../apps/web/src/pages/book/new/booking-shell.tsx#L48) |
+| `booking-shell.99e48b29` | 写死 | 预订用车 · NOZOMI 用车 | 标题 | [booking-shell.tsx:40](../../apps/web/src/pages/book/new/booking-shell.tsx#L40) |
+| `booking-shell.6bd11448` | 写死 | 预订接送车 | 标题 | [booking-shell.tsx:43](../../apps/web/src/pages/book/new/booking-shell.tsx#L43) |
+| `booking-shell.1f18f529` | 写死 | 输入出发地和目的地，马上看到所有车型的一口价 | 正文 | [booking-shell.tsx:44](../../apps/web/src/pages/book/new/booking-shell.tsx#L44) |
 
 ## 多个页面共用：手机触屏上的新预订页（full-screen.tsx）
 

@@ -11,7 +11,7 @@
  */
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { fireEvent, screen, waitFor, within, render } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within, render } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router";
 import { App } from "../../../App.tsx";
@@ -89,10 +89,10 @@ function tripOf(changes: Partial<SiteTrip> = {}): SiteTrip {
 
 type Route = (call: ApiCall & { url: URL }) => Response | Promise<Response> | null;
 
-function open(options: { at?: string; create?: Route; quote?: Route; read?: Route; orderQuote?: Route; parseStatus?: Route; parse?: Route } = {}): ApiCall[] {
+function open(options: { at?: string; config?: SiteConfig; create?: Route; quote?: Route; read?: Route; orderQuote?: Route; parseStatus?: Route; parse?: Route } = {}): ApiCall[] {
   const calls = stubApiWith((call) => {
     const path = call.url.pathname;
-    if (path === "/site/v1/config") return json(200, config);
+    if (path === "/site/v1/config") return json(200, options.config ?? config);
     if (path === "/site/v1/cities") return json(200, { items: [city] });
     if (path === "/site/v1/places/autocomplete") {
       const q = call.url.searchParams.get("q") ?? "";
@@ -187,6 +187,34 @@ test("第 1 步：标题、两步的步骤条、乘客 / 行李、第 1 天（�
   assert.ok(within(aside).getByText("选好地点后在这里显示每天的路线"));
   assert.ok(screen.getByRole("button", { name: "查看报价" }));
   assert.equal(document.title, "多日行程报价 · NOZOMI 用车");
+});
+
+test("地图选点（M10-01）：配了谷歌地图浏览器密钥时每个地点框的「在地图上选点」打开谷歌地图小页面（带密钥和城市中心），不加载开源地图；没配密钥时（即使有开源底图）没有地图选点", async () => {
+  wideScreen();
+  const key = `AIzaSy${"k".repeat(33)}`;
+  open({ config: { ...config, maps_browser_key: key } });
+  const group = await screen.findByRole("group", { name: "第 1 天 上车地点的地图" }, SLOW);
+  await user().click(within(group).getByRole("button", { name: "在地图上选点" }));
+  const frame = await waitFor(() => {
+    const found = group.querySelector("iframe");
+    assert.ok(found);
+    return found;
+  }, SLOW);
+  const src = new URL(frame.getAttribute("src") ?? "", "http://localhost");
+  assert.equal(src.pathname, "/maps/picker.html");
+  assert.deepEqual([src.searchParams.get("key"), Number(src.searchParams.get("lat")), Number(src.searchParams.get("lng"))], [key, city.center.lat, city.center.lng]);
+  assert.equal(document.querySelector(".leaflet-container"), null, "不加载开源地图");
+  assert.ok(within(daySection(1)).getByRole("group", { name: "第 1 天 最后下车地点的地图" }));
+  cleanup();
+  resetBrowser();
+
+  wideScreen();
+  const tiles = { url_template: "http://127.0.0.1:1/{z}/{x}/{y}.png", dark_url_template: null, min_zoom: 3, max_zoom: 19, tile_size: 256, referrer_policy: "strict-origin", attribution: [{ text: "© OpenStreetMap", href: "https://www.openstreetmap.org/copyright" }] } satisfies SiteConfig["map_tiles"];
+  open({ config: { ...config, maps_browser_key: null, map_tiles: tiles } });
+  assert.ok(await screen.findByRole("combobox", { name: "第 1 天 上车地点" }, SLOW));
+  assert.equal(screen.queryByRole("button", { name: "在地图上选点" }), null);
+  assert.equal(screen.queryByRole("group", { name: "第 1 天 上车地点的地图" }), null);
+  assert.equal(document.querySelector(".leaflet-container"), null);
 });
 
 test("加一天 / 删一天：新的一天接着前一天的日期、上车地点接着前一天最后下车的地方；中间的日子可以勾「这天不用车」；最多 14 天", async () => {

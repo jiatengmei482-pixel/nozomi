@@ -10,6 +10,8 @@
  *   「同一辆车跑完全程（第 1 天）：路线暂时算不出来」（ROUTE_UNAVAILABLE）并转人工。报出有价方案的页面展示由组件测试覆盖。
  * - 刷新：只读行程单（GET），不再报价，结果一样；地名从本标签页取回。
  * 电脑 1280：右侧栏「每天的路线」有第 1 天的地图和按编号的 3 个地名；手机 390：没有右侧栏，「查看报价」「上一步」在底部按钮条，不横向滚动。亮暗两色 axe。
+ * 地图选点（M10-01）：配了谷歌地图浏览器密钥时地点框的「在地图上选点」打开同源的谷歌地图小页面（这里换成假页面，不连真实的谷歌），页面上没有开源地图；
+ * 没配密钥时没有地图选点。
  * 用官网那组 API 和前端（信任一层代理），浏览器带一个随机的文档专用来源地址：行程报价按来源地址限频（每分钟 5 次），不占别的官网用例的额度。
  */
 import { type Page, type Request, expect, test } from "@playwright/test";
@@ -17,7 +19,7 @@ import { E2E_WEB_STRIPE_PORT } from "../playwright.config.ts";
 import { tomorrowInTokyo } from "./book-new-support.ts";
 import { expectAccessible } from "./catalog.ts";
 import { type CharterWorld, type Point, charterWorld } from "./charter-support.ts";
-import { platformAdminHeaders, randomLetters } from "./support.ts";
+import { FAKE_MAPS_BROWSER_KEY, fakeGoogleMapPick, platformAdminHeaders, randomLetters, useFakeGoogleMapPicker } from "./support.ts";
 
 const SITE = `http://127.0.0.1:${E2E_WEB_STRIPE_PORT}`;
 
@@ -179,4 +181,38 @@ test("行程报价页（手机 390）：路线图在当天的块里，「查看�
   expect(overflow2, "390px 第 2 步横向溢出").toBe(0);
   await expectBothThemes(page, "行程报价第 2 步（390）");
   await screenshot(page, "step2-390");
+});
+
+test("行程报价页地图选点（M10-01）：配了谷歌地图浏览器密钥时打开 /maps/picker.html（带密钥），选点后填进地点框，页面上没有开源地图；没配密钥时没有「在地图上选点」", async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const { world } = await tripWorld(request);
+  await page.setExtraHTTPHeaders({ "x-forwarded-for": `192.0.2.${1 + Math.floor(Math.random() * 250)}` });
+  const opened = await useFakeGoogleMapPicker(page);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(`${SITE}/book/trip`);
+  const group = page.getByRole("group", { name: "第 1 天 上车地点的地图" });
+  await group.getByRole("button", { name: "在地图上选点" }).click();
+  const iframe = group.locator("iframe");
+  await expect(iframe).toHaveAttribute("src", /^\/maps\/picker\.html\?/);
+  const src = new URL((await iframe.getAttribute("src")) ?? "", SITE);
+  expect(src.searchParams.get("key")).toBe(FAKE_MAPS_BROWSER_KEY);
+  expect(opened.length).toBeGreaterThan(0);
+  expect(new URL(opened[0] ?? "").origin, "同源的地图小页面").toBe(SITE);
+  await expect(group.getByRole("button", { name: "选地图中间这个位置" })).toBeEnabled();
+  await expect(page.locator(".leaflet-container")).toHaveCount(0);
+  await fakeGoogleMapPick(page, world.center);
+  await expect(iframe, "选好后地图收起").toHaveCount(0);
+  await expect(page.getByRole("combobox", { name: "第 1 天 上车地点", exact: true })).not.toHaveValue("");
+  await expect(page.locator(".leaflet-container")).toHaveCount(0);
+
+  await page.unrouteAll({ behavior: "wait" });
+  await page.route("**/site/v1/config", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as Record<string, unknown>;
+    await route.fulfill({ response, json: { ...body, maps_browser_key: null } });
+  });
+  await page.reload();
+  await expect(page.getByRole("combobox", { name: "第 1 天 上车地点", exact: true })).toBeEditable();
+  await expect(page.getByRole("button", { name: "在地图上选点" })).toHaveCount(0);
+  await expect(page.locator(".leaflet-container, iframe")).toHaveCount(0);
 });

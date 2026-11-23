@@ -621,10 +621,10 @@
 | `SiteSettingsPage.1dcf149d` | 写死 | 页面宽度 | 表单标签 | [SiteSettingsPage.tsx:124](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L124)、270、278 行 |
 | `SiteSettingsPage.9d7f8f27` | 写死 | 谷歌地图密钥是 AIza 开头、共 39 位的一串字母数字，请从谷歌后台整串复制 | 提示 | [SiteSettingsPage.tsx:150](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L150) |
 | `SiteSettingsPage.488f141e` | 写死 | {…}…（共 {length} 位） | 说明 | [SiteSettingsPage.tsx:154](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L154) |
-| `SiteSettingsPage.66a6a339` | 写死 | 已清除，官网的选点地图不再用谷歌地图 | 提示 | [SiteSettingsPage.tsx:172](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L172) |
-| `SiteSettingsPage.debe140d` | 写死 | 已保存，客人刷新页面后选点地图改用谷歌地图 | 提示 | [SiteSettingsPage.tsx:172](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L172) |
+| `SiteSettingsPage.42e34555` | 写死 | 已保存，客人刷新页面后可以在谷歌地图上选点 | 提示 | [SiteSettingsPage.tsx:172](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L172) |
+| `SiteSettingsPage.97ab2075` | 写死 | 已清除，客人刷新页面后官网不再提供地图选点 | 提示 | [SiteSettingsPage.tsx:172](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L172) |
 | `SiteSettingsPage.49e7658d` | 写死 | 请粘贴密钥 | 错误提示 | [SiteSettingsPage.tsx:189](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L189) |
-| `SiteSettingsPage.7c4f5ea7` | 写死 | 还没有填（官网选点用开源地图） | 正文 | [SiteSettingsPage.tsx:198](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L198) |
+| `SiteSettingsPage.11646786` | 写死 | 还没有填（官网不提供地图选点，客人用搜索找地址） | 正文 | [SiteSettingsPage.tsx:198](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L198) |
 | `SiteSettingsPage.fb277682` | 写死 | 现在的密钥 | 名称 | [SiteSettingsPage.tsx:198](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L198) |
 | `SiteSettingsPage.46207e43` | 写死 | 在谷歌后台新建的、限定了官网网址、只开 Maps JavaScript API 的那把；不是服务器用的密钥 | 说明 | [SiteSettingsPage.tsx:200](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L200) |
 | `SiteSettingsPage.7e7453bf` | 写死 | 浏览器密钥 | 名称 | [SiteSettingsPage.tsx:200](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L200)、296 行 |
@@ -645,7 +645,7 @@
 | `SiteSettingsPage.a3efece2` | 写死 | 官网所有页面（首页、预订、下单、订单页）的内容最宽多少。只影响电脑屏幕；手机和平板始终是单栏，不受这个设置影响。 | 正文 | [SiteSettingsPage.tsx:271](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L271) |
 | `SiteSettingsPage.695e3cad` | 写死 | 只有超级管理员能改页面宽度。 | 正文 | [SiteSettingsPage.tsx:280](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L280) |
 | `SiteSettingsPage.bcdbbd5c` | 写死 | 谷歌地图（浏览器密钥） | 标题 | [SiteSettingsPage.tsx:287](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L287) |
-| `SiteSettingsPage.0c2c0ffd` | 写死 | 官网「在地图上选点」用谷歌地图显示时要的密钥。它会出现在官网网页里，所以要在谷歌后台限定网址、只开 Maps JavaScript API。没填时选点仍用开源地图。 | 正文 | [SiteSettingsPage.tsx:289](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L289) |
+| `SiteSettingsPage.bd191882` | 写死 | 官网「在地图上选点」用谷歌地图显示时要的密钥。它会出现在官网网页里，所以要在谷歌后台限定网址、只开 Maps JavaScript API。没填时官网不提供地图选点，客人用搜索找地址。 | 正文 | [SiteSettingsPage.tsx:289](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L289) |
 | `SiteSettingsPage.1a38d779` | 写死 | 还没有填 | 正文 | [SiteSettingsPage.tsx:296](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L296) |
 | `SiteSettingsPage.f35df324` | 写死 | 只有超级管理员能改这把密钥。 | 正文 | [SiteSettingsPage.tsx:298](../../apps/web/src/pages/platform/SiteSettingsPage.tsx#L298) |
 

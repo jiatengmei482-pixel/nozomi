@@ -4,7 +4,8 @@
  * - 后端给的平台地点（机场、车站，带坐标）在前，谷歌的候选在后（选中后取坐标和类型）；谷歌用不了时只有平台地点，状态行说明；
  * - 无障碍和组合框（`components/Combobox.tsx`）同一套：`role="combobox"`、↑↓ 移动高亮、Enter 选中、Esc 收起，`aria-activedescendant`；
  *   正在查、没找到、用不了这些话放在输入框下面的状态行（`role="status"`），不放进候选列表；
- * - 后备：有底图时「在地图上选点」（现有的地图选点组件），选中后查这个位置的地址当名称。
+ * - 后备：配了谷歌地图浏览器密钥时「在地图上选点」（谷歌地图，`GoogleMapPicker`），选中后查这个位置的地址填进地址框；
+ *   没有密钥时不提供地图选点（M10-01：谷歌查出的地址不配非谷歌地图），只用搜索。
  * - 手机触屏（M8-37，业主 2026-11-12：移动设备优先保证操作流程）：页面上是一格「出发地 / 目的地」，点一下打开全屏选择页
  *   （`FullScreenSheet`，在页面最上层，手机键盘、吸顶条、地图都盖不住），里面是输入框、候选列表和「在地图上选点」；选中后回到页面，「取消」不改原来的值。
  *   电脑和鼠标操作的窄窗口照旧在页面上选（窄窗口候选紧贴输入框下面）。
@@ -12,19 +13,16 @@
  * 浏览器只连 `/site/v1`，不连谷歌（ADR 0044）。
  */
 import { type CityCandidate, normalizePlaceQuery, placeQueryIssue, serviceCityOf } from "@nozomi/domain";
-import { type KeyboardEvent, useEffect, useId, useRef, useState, lazy, Suspense } from "react";
+import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import { ApiError } from "../../../api/client.ts";
-import type { MapTiles } from "../../../api/areas.ts";
 import { type SitePlaceSuggestion, autocompleteSitePlaces, getSitePlaceDetails, reverseSitePlace } from "../../../api/site.ts";
 import { Button } from "../../../components/Button.tsx";
 import { GoogleMapsAttribution } from "../../../components/GoogleMapsAttribution.tsx";
 import { Icon } from "../../../components/Icon.tsx";
 import { type TripPoint, pointName } from "../../../lib/book-new.ts";
 import { addressText } from "../../../lib/address-text.ts";
-import type { LatLngValue } from "../SiteMapPicker.tsx";
+import type { LatLngValue } from "../../../lib/lat-lng.ts";
 import { GoogleMapPicker } from "../GoogleMapPicker.tsx";
-/** 地图按需加载（M9E-25）：Leaflet 单独成包，打开地图时才下载，嵌入页和其他页面的首包里没有 Leaflet */
-const SiteMapPicker = lazy(() => import("../SiteMapPicker.tsx").then((module) => ({ default: module.SiteMapPicker })));
 import { FullScreenSheet } from "../../../components/FullScreenSheet.tsx";
 import { PickerTrigger, useFullScreenPickers } from "./full-screen.tsx";
 
@@ -67,11 +65,9 @@ export interface PlaceFieldProps {
   hint?: string | readonly string[];
   /** 输入框下面的信息提示（不是出错，如旧链接没有下车地点时请客人补选） */
   info?: string;
-  /** 地图选点的底图（开源地图）；和 `mapsKey` 都没有时没有「在地图上选点」 */
-  tiles: MapTiles | null;
   /**
-   * 谷歌地图的浏览器密钥（M10-01 第 2 处）：有就只用谷歌地图选点（加载不出来时收起地图、不退回开源地图，谷歌查出的地址不配开源地图）；
-   * 没有时照旧用开源地图（业主配好密钥之前的过渡）
+   * 谷歌地图的浏览器密钥（M10-01 第 2 处）：有就提供「在地图上选点」（谷歌地图；加载不出来时收起地图，不换别的地图）；
+   * 没有时不提供地图选点，只用搜索（谷歌查出的地址不配非谷歌地图）
    */
   mapsKey?: string | null;
   /** 地图从哪里打开（另一端或第一个城市的中心） */
@@ -82,7 +78,7 @@ export interface PlaceFieldProps {
   initialText?: string;
 }
 
-export function PlaceField({ label, value, onChange, error, hint, info, tiles, mapsKey = null, mapCenter, cities, initialText }: PlaceFieldProps) {
+export function PlaceField({ label, value, onChange, error, hint, info, mapsKey = null, mapCenter, cities, initialText }: PlaceFieldProps) {
   const id = useId();
   const listId = `${id}-list`;
   const statusId = `${id}-status`;
@@ -98,8 +94,7 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
   const [mapOpen, setMapOpen] = useState(false);
   /** 谷歌地图加载不出来（中国大陆的网络、密钥被拒）：收起「在地图上选点」，改提示用搜索或手写地址 */
   const [mapUnavailable, setMapUnavailable] = useState(false);
-  const google = mapsKey !== null && !mapUnavailable;
-  const canMap = google || (mapsKey === null && tiles !== null);
+  const canMap = mapsKey !== null && !mapUnavailable;
   const session = useRef(newSessionToken());
   const round = useRef(0);
   /** 最新的字段值：地图选点的反查回来时，看字段是不是还是那次选点（M8-42） */
@@ -370,22 +365,19 @@ export function PlaceField({ label, value, onChange, error, hint, info, tiles, m
       <Icon name="alert-triangle" />
       地图加载不出来（可能是网络原因）。请用上面的搜索找到地址；门牌、楼层等可以写在下单时的「给司机的备注」里。
     </p>
-  ) : canMap && mapCenter !== null && (
+  ) : mapsKey !== null && mapCenter !== null && (
     <div className="site-address__map" role="group" aria-label={`${label}的地图`}>
       <Button className="site-address__map-toggle" aria-expanded={mapOpen} aria-controls={mapId} onClick={() => setMapOpen((current) => !current)}>
         <Icon name="map" />
         {mapOpen ? "收起地图" : "在地图上选点"}
       </Button>
       <div id={mapId} hidden={!mapOpen}>
-        {mapOpen &&
-          (google ? (
-            <GoogleMapPicker apiKey={mapsKey} center={mapCenter} point={value === null ? null : { lat: value.lat, lng: value.lng }} word={label} onPick={(point) => void pickOnMap(point)} onUnavailable={() => {
-                setMapOpen(false);
-                setMapUnavailable(true);
-              }} />
-          ) : tiles !== null ? (
-            <Suspense fallback={null}><SiteMapPicker tiles={tiles} center={mapCenter} point={value === null ? null : { lat: value.lat, lng: value.lng }} word={label} onPick={(point) => void pickOnMap(point)} /></Suspense>
-          ) : null)}
+        {mapOpen && (
+          <GoogleMapPicker apiKey={mapsKey} center={mapCenter} point={value === null ? null : { lat: value.lat, lng: value.lng }} word={label} onPick={(point) => void pickOnMap(point)} onUnavailable={() => {
+              setMapOpen(false);
+              setMapUnavailable(true);
+            }} />
+        )}
       </div>
     </div>
   );
