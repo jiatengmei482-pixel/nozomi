@@ -7,7 +7,7 @@
  */
 import { type LocalizedText, type PricingBasis, consoleMoneyText, displayStopNumber, includedKmSummary, isCurrencyCode, parseMajor, routeMetersText, tenantIncludedKmSummary } from "@nozomi/domain";
 import { charterAirportText } from "./charter-airport-copy.ts";
-import { durationText, kmText } from "./charter-itinerary.ts";
+import { durationText, exactKmText } from "./charter-itinerary.ts";
 import { itineraryCopy } from "./itinerary-texts.ts";
 import { moneyText } from "./dispatch-display.ts";
 import { displayName } from "./master-display.ts";
@@ -205,17 +205,32 @@ export interface OrderItineraryMoneyView {
   estimated_minutes?: number;
 }
 
+/** 超出米数 × 每公里单价不是整的最小单位（65,722 米 × JPY 100 = 6,572.2）时，算式后面注明「按米计，四舍五入」；单价读不出来时不注。只用整数（BigInt）判断 */
+function overKmRoundingNote(overMeters: number, perKm: Money): string {
+  const minor = minorOf(perKm);
+  if (minor === null) return "";
+  return (BigInt(Math.max(0, Math.trunc(overMeters))) * BigInt(minor)) % 1_000n === 0n ? "" : itineraryCopy("overKmByMeter");
+}
+
 /**
  * 「超公里 / 超时」那一项的两行（结算价）：
  * 「超公里：全程 260 公里，套餐含 200 公里，超出 60 公里 × 每公里 JPY 300 = JPY 18,000」「超时：预计 9 小时（含停留），套餐 10 小时，超出 0 分钟 × 每小时 JPY 5,000 = JPY 0」；没有为 null。
  * M9P-03 起的单下单时不收超时费（`overtime_at_booking: false`，ADR 0091 第三节第 3 小节）：不写单价和金额，写「预计超出 Z，未预收，服务后按实际提交」
  * 或「未超出套餐时长」；有含缓冲的预计用时时在前面写「预计用时（含缓冲）X，」，让供应商和客人看到同一个预计用时。旧单照旧，一字不变。
+ * 超公里那一行的全程、超出公里数按米精确（M9W-09：「超出 65.722 公里 × 每公里 JPY 100 = JPY 6,572（按米计，四舍五入）」），和按米算的金额对得上。
  */
 export function itineraryOverageLines(audience: "platform" | "tenant", itinerary: OrderItineraryMoneyView | null | undefined): string[] | null {
   if (itinerary === null || itinerary === undefined) return null;
   const money = (value: Money): string => auditMoney(audience, value);
   return [
-    `超公里：全程 ${kmText(itinerary.route_meters)}，套餐含 ${itinerary.package_km} 公里，超出 ${kmText(itinerary.over_meters)} × 每公里 ${money(itinerary.over_km_per_km)} = ${money(itinerary.over_km_fee)}`,
+    itineraryCopy("overKmLine", {
+      route: exactKmText(itinerary.route_meters),
+      packageKm: itinerary.package_km,
+      over: exactKmText(itinerary.over_meters),
+      perKm: money(itinerary.over_km_per_km),
+      fee: money(itinerary.over_km_fee),
+      note: overKmRoundingNote(itinerary.over_meters, itinerary.over_km_per_km),
+    }),
     itinerary.overtime_at_booking === false
       ? `超时：${itinerary.estimated_minutes === undefined ? "" : `预计用时（含缓冲）${durationText(itinerary.estimated_minutes)}，`}预计 ${durationText(itinerary.route_minutes)}（含停留），套餐 ${durationText(itinerary.package_minutes)}，${itinerary.overtime_minutes > 0 ? `预计超出 ${durationText(itinerary.overtime_minutes)}，未预收，服务后按实际提交` : "未超出套餐时长"}`
       : `超时：预计 ${durationText(itinerary.route_minutes)}（含停留），套餐 ${durationText(itinerary.package_minutes)}，超出 ${durationText(itinerary.overtime_minutes)} × 每小时 ${money(itinerary.overtime_per_hour)} = ${money(itinerary.overtime_fee)}`,

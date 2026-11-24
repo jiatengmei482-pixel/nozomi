@@ -57,7 +57,9 @@ export type ItineraryTextKey =
   | "timeDepart"
   | "timeArrive"
   | "timeArriveDepart"
-  | "arriveByFieldHint";
+  | "arriveByFieldHint"
+  | "overKmLine"
+  | "overKmByMeter";
 
 const ZH: Readonly<Record<ItineraryTextKey, string>> = {
   pickup: "上车",
@@ -112,6 +114,8 @@ const ZH: Readonly<Record<ItineraryTextKey, string>> = {
   timeArrive: "预计 {time} 到",
   timeArriveDepart: "预计 {arrive} 到 · {depart} 出发",
   arriveByFieldHint: "填了指定到达时间的经停会锁定位置，不参与建议顺序。",
+  overKmLine: "超公里：全程 {route} 公里，套餐含 {packageKm} 公里，超出 {over} 公里 × 每公里 {perKm} = {fee}{note}",
+  overKmByMeter: "（按米计，四舍五入）",
 };
 
 export const ITINERARY_TEXTS: Readonly<Record<ItineraryLang, Partial<Record<ItineraryTextKey, string>>>> = { zh: ZH, ja: {}, en: {} };

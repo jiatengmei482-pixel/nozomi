@@ -808,6 +808,17 @@ test("包车按行程计价（M9W-04）：供应商订单详情「超公里 / �
   assert.equal(tripItem("超公里 / 超时"), null);
 });
 
+test("包车按行程计价（M9W-09）：供应商订单详情超公里算式的公里数按米精确——全程 265.722、超出 65.722 公里 × JPY 100 = JPY 6,572（按米计，四舍五入）；「全程约」写 265.7，不出现 65.8 / 265.8", async () => {
+  const base = orderOf({ category: "charter", direction: null, place_id: null, flight_no: null, package_hours: 10, pickup: { lng: 139.7, lat: 35.69, address: "京王广场酒店" }, dropoff: { lng: 139.7, lat: 35.69, address: "新宿站" }, waypoints: STOPS, itinerary: { route_meters: 265_722, route_minutes: 540, package_km: 200, package_minutes: 600, over_meters: 65_722, overtime_minutes: 0 } });
+  const itinerary = { route_meters: 265_722, route_minutes: 540, package_km: 200, package_minutes: 600, over_meters: 65_722, overtime_minutes: 0, over_km_fee: yen("6572"), overtime_fee: yen("0"), over_km_per_km: yen("100"), overtime_per_hour: yen("5000") };
+  const charter = { ...base, settlement: { ...base.settlement, total: yen("61572"), itinerary } };
+  open(`/orders/${ORDER_ID}`, "dispatch", (call) => (call.method === "GET" && call.url.pathname === `/tenant/v1/orders/${ORDER_ID}` ? json(200, { ...detailOf(charter), pricing_route: null, area_surcharge: null }) : null));
+  await screen.findByRole("heading", { name: "行程" });
+  const lines = [...(tripItem("超公里 / 超时")?.querySelectorAll(".details__lines > span") ?? [])].map((line) => line.textContent);
+  assert.equal(lines[0], "超公里：全程 265.722 公里，套餐含 200 公里，超出 65.722 公里 × 每公里 JPY 100 = JPY 6,572（按米计，四舍五入）");
+  assert.doesNotMatch(document.body.textContent ?? "", /65\.8|265\.8/);
+});
+
 test("司机页面（M9W-03）：包车经停点按顺序写名称、停留和「导航到 N 号点」，在上车和下车之间，编号 1 = 上车（M9P-20）；没有任何价格", async () => {
   denyGeolocation();
   const trip = tripOf({ order: { ...tripOf().order, category: "charter", direction: null, flight_no: null, package_hours: 10, place: null, pickup: { lng: 139.7, lat: 35.69, address: "京王广场酒店" }, dropoff: { lng: 139.7, lat: 35.69, address: "新宿站" }, waypoints: STOPS, pickup_point: { lng: 139.7, lat: 35.69 } } });
@@ -827,4 +838,17 @@ test("司机页面（M9W-03）：包车经停点按顺序写名称、停留和�
   const dropoffAt = order.indexOf("4 下车：新宿站");
   assert.ok(pickupAt >= 0 && pickupAt < stopsAt && stopsAt < dropoffAt, JSON.stringify(order));
   assert.doesNotMatch(document.body.textContent ?? "", /JPY|价格|结算|对外价|加价|区域|公里数/);
+});
+
+test("司机页面（M9W-09）：包车按行程计价写「全程约 265.7 公里」（265,722 米四舍五入到 0.1，不再向上取成 265.8）；没有任何价格", async () => {
+  denyGeolocation();
+  const trip = tripOf({ order: { ...tripOf().order, category: "charter", direction: null, flight_no: null, package_hours: 10, place: null, pickup: { lng: 139.7, lat: 35.69, address: "京王广场酒店" }, dropoff: { lng: 139.7, lat: 35.69, address: "新宿站" }, waypoints: STOPS, itinerary: { route_meters: 265_722, route_minutes: 540, package_km: 200, package_minutes: 600, over_meters: 65_722, overtime_minutes: 0 }, pickup_point: { lng: 139.7, lat: 35.69 } } });
+  stubApiWith((call) => (call.url.pathname === "/driver/v1/trip" && call.method === "GET" ? json(200, trip) : null));
+  render(
+    <MemoryRouter initialEntries={[{ pathname: "/driver", hash: `#${LINK_TOKEN}` }]}>
+      <App />
+    </MemoryRouter>,
+  );
+  assert.ok(await screen.findByText("全程约 265.7 公里，预计 9 小时（含停留）"));
+  assert.doesNotMatch(document.body.textContent ?? "", /265\.8|JPY|价格|结算|对外价|加价/);
 });
