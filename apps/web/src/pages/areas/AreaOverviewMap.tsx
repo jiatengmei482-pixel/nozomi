@@ -5,13 +5,11 @@
  * 图形层只通过 `MapSurface`（lib/map-surface.ts）和底图打交道：坐标换像素、点击换坐标、移动视野。现在的底图是 Leaflet + 配置的瓦片；
  * 测试和以后换底图时换一个 `surfaceFactory` 即可，这里不用改。颜色只用设计令牌（样式文件 areas.css 的 `area-color--N`）。
  */
-import { type AreaOverlapPiece, type AreaPolygonKind, type AreaRole, PRODUCT_CATEGORY_NAMES, type Position, locatePoint } from "@nozomi/domain";
+import { type AreaOverlapPiece, type AreaPolygonKind, type AreaRole, type Position, locatePoint } from "@nozomi/domain";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { MapTiles } from "../../api/areas.ts";
 import { Icon } from "../../components/Icon.tsx";
 import { type LatLngBox, type LatLngPoint, type MapSurface, type Pixel, type SurfaceEvents, createLeafletSurface } from "../../lib/map-surface.ts";
-import { formatLocalDateTime } from "../../lib/master-display.ts";
-import { DEMAND_REASON_NAMES, type DemandMapPoint, demandDotRadius, pointText, serviceLocalText } from "../../lib/uncovered-demand-display.ts";
 import { useColorScheme } from "../../theme/use-color-scheme.ts";
 import { hatchLines, Swatch } from "./AreaMap.tsx";
 
@@ -45,8 +43,6 @@ export interface AreaOverviewMapProps {
   outside?: readonly AreaOverlapPiece[];
   /** 包车三层区域里不允许的重叠（M9P-13，按商品和层筛选时）：标红；不给 = 不画、图例里不列 */
   conflicts?: readonly AreaOverlapPiece[] | null;
-  /** 运营后台「未覆盖需求」图层（M8-20）：给了就画、图例里列出；`null` / 不给 = 图层关着 */
-  demands?: readonly DemandMapPoint[] | null;
   /** 地图的名字（读屏） */
   label?: string;
   /** 换底图、测试用；默认 Leaflet */
@@ -86,24 +82,9 @@ export function areasAt(areas: readonly OverviewArea[], point: LatLngPoint): str
   return hits.sort((a, b) => span(a) - span(b)).map((area) => area.id);
 }
 
-/** 点在某个未覆盖需求的点上（像素距离在点的半径 + 4 以内），最近的那个。 */
-export function demandAt(points: readonly DemandMapPoint[], at: Pixel, project: (point: LatLngPoint) => Pixel): DemandMapPoint | null {
-  let best: DemandMapPoint | null = null;
-  let bestDistance = Infinity;
-  for (const entry of points) {
-    const pixel = project(entry.point);
-    const distance = Math.hypot(pixel.x - at.x, pixel.y - at.y);
-    if (distance <= demandDotRadius(entry.item.repeat_count) + 4 && distance < bestDistance) {
-      best = entry;
-      bestDistance = distance;
-    }
-  }
-  return best;
-}
-
 const isOperating = (area: OverviewArea): boolean => area.role === "operating";
 
-export function AreaOverviewMap({ tiles, areas, selected, onSelect, overlaps, showOverlaps, focusSignal, marker, outside, conflicts = null, demands = null, label = "区域地图", surfaceFactory = createLeafletSurface }: AreaOverviewMapProps) {
+export function AreaOverviewMap({ tiles, areas, selected, onSelect, overlaps, showOverlaps, focusSignal, marker, outside, conflicts = null, label = "区域地图", surfaceFactory = createLeafletSurface }: AreaOverviewMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const clipPrefix = `overview-clip-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
   const surfaceRef = useRef<MapSurface | null>(null);
@@ -111,9 +92,8 @@ export function AreaOverviewMap({ tiles, areas, selected, onSelect, overlaps, sh
   const [, setView] = useState(0);
   const [ready, setReady] = useState(false);
   const [tileTrouble, setTileTrouble] = useState(false);
-  const [popup, setPopup] = useState<DemandMapPoint | null>(null);
-  const latest = useRef({ areas, selected, onSelect, demands, marker });
-  latest.current = { areas, selected, onSelect, demands, marker };
+  const latest = useRef({ areas, selected, onSelect, marker });
+  latest.current = { areas, selected, onSelect, marker };
 
   const fitTo = (id: string | null): void => {
     const surface = surfaceRef.current;
@@ -131,12 +111,6 @@ export function AreaOverviewMap({ tiles, areas, selected, onSelect, overlaps, sh
       onTileTrouble: setTileTrouble,
       onClick: (point) => {
         const state = latest.current;
-        const current = surfaceRef.current;
-        if (state.demands && current) {
-          const hit = demandAt(state.demands, current.project(point), (at) => current.project(at));
-          setPopup(hit);
-          if (hit) return;
-        }
         const hits = areasAt(state.areas, point);
         // 叠在一起的地方再点一次，轮到下一个
         const index = hits.indexOf(state.selected ?? "");
@@ -168,7 +142,7 @@ export function AreaOverviewMap({ tiles, areas, selected, onSelect, overlaps, sh
   useEffect(() => {
     if (areasKey === firstKey.current) return;
     firstKey.current = areasKey;
-    // 有位置标记（定位、从未覆盖需求列表过来）时视野留在标记上，不被区域取回来之后的「看全部」挤走
+    // 有位置标记（定位）时视野留在标记上，不被区域取回来之后的「看全部」挤走
     const pinned = latest.current.marker;
     if (pinned) surfaceRef.current?.setView(pinned.point, MARKER_ZOOM);
     else if (latest.current.selected === null) fitTo(null);
@@ -194,8 +168,6 @@ export function AreaOverviewMap({ tiles, areas, selected, onSelect, overlaps, sh
   // 图例只列画面上有的：没有运营区域时和改版前一样只有「区域」一行；没有超出的部分时不列「超出运营区域」（图例小一点，少挡地图）
   const hasOperating = areas.some(isOperating);
   const selectedOutsidePath = selected !== null ? (outside ?? []).filter((piece) => piece.areaIds.includes(selected)).map((piece) => path(piece.ring)).join("") : "";
-  // 图层关掉、换了一批点：弹出的说明跟着收起
-  const shownPopup = popup !== null && demands?.some((entry) => entry.key === popup.key) ? popup : null;
 
   return (
     <div className="area-map area-overview-map">
@@ -281,48 +253,7 @@ export function AreaOverviewMap({ tiles, areas, selected, onSelect, overlaps, sh
               </text>
             </g>
           )}
-          {/* 未覆盖需求的点画在位置标记上面：从列表过来时标记和点在同一个位置 */}
-          {demands && (
-            <g data-demand-layer="on">
-              {demands.map((entry) => {
-                const at = project([entry.point.lng, entry.point.lat]);
-                const radius = demandDotRadius(entry.item.repeat_count);
-                return entry.end === "pickup" ? (
-                  <circle key={entry.key} className={shownPopup?.key === entry.key ? "demand-dot demand-dot--active" : "demand-dot"} cx={at.x} cy={at.y} r={radius} data-demand={entry.key} />
-                ) : (
-                  <rect key={entry.key} className={shownPopup?.key === entry.key ? "demand-dot demand-dot--active" : "demand-dot"} x={at.x - radius} y={at.y - radius} width={radius * 2} height={radius * 2} data-demand={entry.key} />
-                );
-              })}
-            </g>
-          )}
         </svg>
-      )}
-      {/* 说明框固定在地图左上角（不跟着点走：不用内联样式定位，窄屏也不伸出地图）；点了的那个点在图上换成主色 */}
-      {shownPopup && (
-        <section className="demand-popup" aria-label="未覆盖需求">
-          <p className="demand-popup__title">
-            <strong>未覆盖需求</strong>
-            <button type="button" className="icon-button demand-popup__close" aria-label="关闭" onClick={() => setPopup(null)}>
-              <Icon name="x" />
-            </button>
-          </p>
-          <dl className="demand-popup__facts">
-            <dt>用车类型</dt>
-            <dd>{PRODUCT_CATEGORY_NAMES[shownPopup.item.category]}</dd>
-            <dt>用车时间</dt>
-            <dd>{`${serviceLocalText(shownPopup.item.service_local)}（当地）`}</dd>
-            <dt>最近出现</dt>
-            <dd>{formatLocalDateTime(shownPopup.item.last_seen_at)}</dd>
-            <dt>这一点</dt>
-            <dd>{shownPopup.end === "pickup" ? "上车点" : "下车点"}</dd>
-            <dt>原因</dt>
-            <dd>{DEMAND_REASON_NAMES[shownPopup.item.reason]}</dd>
-            <dt>次数</dt>
-            <dd>{`${shownPopup.item.repeat_count} 次`}</dd>
-            <dt>坐标</dt>
-            <dd>{pointText(shownPopup.point)}</dd>
-          </dl>
-        </section>
       )}
       <div className="area-map__controls">
         <button type="button" className="icon-button area-map__control" aria-label="放大" onClick={() => surfaceRef.current?.zoomIn()}>
@@ -398,17 +329,6 @@ export function AreaOverviewMap({ tiles, areas, selected, onSelect, overlaps, sh
               </svg>
               <span>
                 <strong>超出运营区域</strong> 报价区域的这部分不会报价
-              </span>
-            </li>
-          )}
-          {demands && (
-            <li>
-              <svg className="legend-swatch" viewBox="0 0 24 14" aria-hidden="true">
-                <circle className="demand-dot" cx="6" cy="7" r="4" />
-                <rect className="demand-dot" x="14" y="3" width="8" height="8" />
-              </svg>
-              <span>
-                <strong>未覆盖需求</strong> 圆是上车点，方是下车点；越大次数越多
               </span>
             </li>
           )}

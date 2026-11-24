@@ -1,6 +1,6 @@
 /**
  * 运营后台「未覆盖需求」（M8-20）的组件测试：菜单按权限、列表和计数、筛选写进请求、日期范围不对当场说、详情（运营区域的名称、拒绝原因）、
- * 「在区域地图上查看」、翻页、空 / 出错 / 没有权限。接口一律是测试替身。
+ * 不再有「在区域地图上查看」（M10-02）、翻页、空 / 出错 / 没有权限。接口一律是测试替身。
  */
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
@@ -114,12 +114,12 @@ test("列表：计数（合计、按原因、按城市、按供应商、被限�
   assert.match(row.textContent ?? "", /→ 35\.6586, 139\.7454/);
   assert.match(row.textContent ?? "", /在运营区域里，但没有报价区域/);
   assert.match(row.textContent ?? "", /甲车队/);
-  const map = within(row).getByRole("link", { name: "在区域地图上查看" });
-  assert.equal(map.getAttribute("href"), "/platform/areas/map?demands=1&lat=35.6812&lng=139.7671");
-  // 手机卡片里「次数」「涉及的供应商」前面有标签（M6-08）；两个操作排在可以上下排的操作区里
+  // 只列表，不去地图（M10-02）：操作只有「详情」
+  assert.ok(within(row).getByRole("button", { name: /^详情：/ }));
+  assertAbsent(within(row).queryByRole("link", { name: "在区域地图上查看" }));
+  // 手机卡片里「次数」「涉及的供应商」前面有标签（M6-08）
   const labels = [...row.querySelectorAll(".table__card-label")].map((node) => node.textContent);
   assert.ok(labels.includes("次数：") && labels.includes("涉及的供应商："), labels.join(","));
-  assert.ok(map.closest(".table__actions--stack"));
 });
 
 test("筛选：城市、供应商、日期、用车类型、原因都写进请求；开始晚于结束当场说明、不发请求", async () => {
@@ -149,7 +149,7 @@ test("详情：两端的名称和坐标、落在哪个供应商的哪个运营�
   assert.match(dialog.textContent ?? "", /在运营区域里，但商品没有勾选覆盖它的报价区域 × 2、提前预订时长不够 × 1/);
   assert.match(dialog.textContent ?? "", /官网/);
   assert.match(dialog.textContent ?? "", /3 次/);
-  assert.ok(within(dialog).getByRole("link", { name: "在区域地图上查看" }));
+  assertAbsent(within(dialog).queryByRole("link", { name: "在区域地图上查看" }));
   const footerClose = within(dialog).getAllByRole("button", { name: "关闭" }).at(-1) as HTMLElement;
   await user.click(footerClose);
   await waitFor(() => assertAbsent(screen.queryByRole("dialog", { name: "未覆盖需求的详情" })));

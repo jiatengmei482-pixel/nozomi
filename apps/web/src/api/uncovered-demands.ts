@@ -7,7 +7,6 @@ import { apiRequest } from "./client.ts";
 import { query } from "./areas.ts";
 
 export const UNCOVERED_DEMANDS_PATH = "/platform/v1/uncovered-demands";
-export const UNCOVERED_DEMAND_POINTS_PATH = "/platform/v1/uncovered-demands/points";
 
 export const UNCOVERED_DEMAND_REASONS = ["OUTSIDE_OPERATING", "NO_PRICING_AREA", "OTHER"] as const;
 export type UncoveredDemandReason = (typeof UNCOVERED_DEMAND_REASONS)[number];
@@ -77,27 +76,6 @@ export interface UncoveredDemandPage {
   cities: { id: string; name: LocalizedText }[];
 }
 
-export interface UncoveredDemandPointItem {
-  id: string;
-  category: ServiceCategory;
-  reason: UncoveredDemandReason;
-  repeat_count: number;
-  pickup: DemandPoint | null;
-  dropoff: DemandPoint | null;
-  /** 用车的当地时间 `YYYY-MM-DDTHH:mm` */
-  service_local: string;
-  /** 最近一次出现的时刻 */
-  last_seen_at: string;
-}
-
-export interface UncoveredDemandPoints {
-  from: string;
-  to: string;
-  items: UncoveredDemandPointItem[];
-  /** 超过 2000 条，只给了最近的 2000 条 */
-  truncated: boolean;
-}
-
 export interface UncoveredDemandFilter {
   city_id?: string;
   tenant_id?: string;
@@ -118,10 +96,6 @@ export function listUncoveredDemands(token: string, values: UncoveredDemandQuery
   return apiRequest("GET", query(UNCOVERED_DEMANDS_PATH, values), { token });
 }
 
-export function fetchUncoveredDemandPoints(token: string, values: UncoveredDemandFilter): Promise<UncoveredDemandPoints> {
-  return apiRequest("GET", query(UNCOVERED_DEMAND_POINTS_PATH, values), { token });
-}
-
 /** 对账用：字段名清单。 */
 export const UNCOVERED_DEMAND_FIELDS = {
   UncoveredDemand: ["id", "first_seen_at", "last_seen_at", "repeat_count", "channel_kind", "channel_id", "category", "direction", "package_hours", "city_id", "airport_id", "pickup", "dropoff", "pickup_name", "dropoff_name", "service_local", "service_date", "passengers", "luggage", "vehicle_group_id", "pickup_operating", "dropoff_operating", "tenant_ids", "reason", "refusal_counts"],
@@ -129,16 +103,11 @@ export const UNCOVERED_DEMAND_FIELDS = {
   UncoveredDemandPoint: ["lat", "lng"],
   UncoveredDemandOperatingRef: ["tenant_id", "area_id"],
   Page: ["from", "to", "items", "next_cursor", "summary", "tenants", "cities"],
-  Points: ["from", "to", "items", "truncated"],
-  PointItem: ["id", "category", "reason", "repeat_count", "pickup", "dropoff", "service_local", "last_seen_at"],
 } as const satisfies {
   UncoveredDemand: readonly (keyof UncoveredDemand)[];
   UncoveredDemandSummary: readonly (keyof UncoveredDemandSummary)[];
   UncoveredDemandPoint: readonly (keyof DemandPoint)[];
   UncoveredDemandOperatingRef: readonly (keyof DemandOperatingRef)[];
   Page: readonly (keyof UncoveredDemandPage)[];
-  Points: readonly (keyof UncoveredDemandPoints)[];
-  PointItem: readonly (keyof UncoveredDemandPointItem)[];
 };
 export const UNCOVERED_DEMAND_QUERY_KEYS = ["limit", "cursor", "city_id", "tenant_id", "from", "to", "category", "reason"] as const satisfies readonly (keyof UncoveredDemandQuery)[];
-export const UNCOVERED_DEMAND_POINT_QUERY_KEYS = ["city_id", "tenant_id", "from", "to", "category", "reason"] as const satisfies readonly (keyof UncoveredDemandFilter)[];

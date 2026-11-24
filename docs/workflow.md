@@ -47,6 +47,7 @@ flowchart LR
 - 已有写死的文案不强求一次改完，改到哪个文件就把那个文件里新增的文案放进表；主站已有的日文、英文文案原样保留，不删、不改。
 - `pnpm copy:export` 按这个约定统计「已走 key」和「写死」（`docs/copy/README.md`「怎么算已走 key」）。
 - **审查时**：看 PR 里 `docs/copy/copy.csv` 的变化，新增的行如果「状态」是「写死」，要求改成走表。
+- **CI 自动拦**（M11-07，监工 2026-11-24 决定）：PR 的 CI 先检查 `docs/copy/` 是最新的（`pnpm copy:export --check`），再和 main 的 `copy.csv` 比「写死」的条数，多了就失败并列出新增的条目；持平或减少通过（删一条旧的、加一条新的也放行，但新增的照样列出来）。只拦新增，存量不要求一次清完。本机先跑：`git fetch origin main && pnpm copy:export --check-hardcoded origin/main`。
 
 ## 本机检查与 CI 的分工（2026-11-10 起，从 M8-19 开始）
 

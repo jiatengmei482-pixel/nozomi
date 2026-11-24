@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { dateRangeProblem, demandDotRadius, demandMapPoints, endText, refusalName, refusalSummary, serviceLocalText, shiftDate, tokyoToday, tripText } from "./uncovered-demand-display.ts";
+import { dateRangeProblem, endText, refusalName, refusalSummary, serviceLocalText, tripText } from "./uncovered-demand-display.ts";
 
 describe("未覆盖需求的说法（M8-20）", () => {
   it("用车类型：接机 / 送机 / 点对点 / 包车几小时", () => {
@@ -24,16 +24,7 @@ describe("未覆盖需求的说法（M8-20）", () => {
     assert.equal(refusalName("SOMETHING_NEW"), "SOMETHING_NEW");
   });
 
-  it("地图上的点：上车、下车各一个，没给的那一端不画；大小按次数三档", () => {
-    const points = demandMapPoints([{ id: "d", category: "charter", reason: "OTHER", repeat_count: 2, pickup: { lat: 1, lng: 2 }, dropoff: null, service_local: "2026-12-01T09:00", last_seen_at: "2026-11-10T01:00:00.000Z" }]);
-    assert.deepEqual(points.map((point) => [point.key, point.end]), [["d:p", "pickup"]]);
-    assert.deepEqual([1, 2, 4, 5, 100].map(demandDotRadius), [5, 7, 7, 9, 9]);
-  });
-
-  it("日期：东京的今天、往前推、范围检查和接口同一套（开始不晚于结束、最长 366 天）", () => {
-    assert.equal(tokyoToday(new Date("2026-11-09T15:30:00Z")), "2026-11-10", "UTC 15:30 是东京第二天 0:30");
-    assert.equal(shiftDate("2026-03-01", -1), "2026-02-28");
-    assert.equal(shiftDate("2026-11-10", -29), "2026-10-12");
+  it("日期：范围检查和接口同一套（开始不晚于结束、最长 366 天）", () => {
     assert.equal(dateRangeProblem("", ""), null);
     assert.equal(dateRangeProblem("2026-11-10", "2026-11-01"), "开始日期不能晚于结束日期。");
     assert.equal(dateRangeProblem("2025-01-01", "2026-01-01"), null, "366 天可以");
