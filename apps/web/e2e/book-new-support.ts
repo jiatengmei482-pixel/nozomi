@@ -4,7 +4,7 @@
  */
 import { type APIRequestContext, type Page, expect } from "@playwright/test";
 import { CENTER, type Ref, type Supplier, type World, createBrand, createProductByApi, createWorld, expectAccessible, post, tenantHeaders } from "./catalog.ts";
-import { createActiveTenant, platformAdminHeaders, randomLetters } from "./support.ts";
+import { createTestCity, createActiveTenant, platformAdminHeaders, randomLetters } from "./support.ts";
 
 const RULES = {
   booking: { sale_from: null, sale_to: null, service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 0, note: null },
@@ -24,10 +24,9 @@ const EMPTY_PRICE = { package_hours: null, start_price: null, start_meters: null
  */
 export async function pointToPointCity(request: APIRequestContext, price: Record<string, unknown>): Promise<{ world: World; supplier: Supplier; center: { lat: number; lng: number } }> {
   const base = await createWorld(request);
-  const tag = randomLetters(5);
   const center = { lat: Number((38.5 + Math.random() * 2.0).toFixed(6)), lng: Number((140.0 + Math.random() * 1.5).toFixed(6)) };
-  const created = await post<{ id: string }>(request, await platformAdminHeaders(request), "/platform/v1/master/cities", { code: `CTY-JP-${tag}`, country_code: "JP", name: { zh: `点对点城市${tag}` }, timezone: "Asia/Tokyo", center }, "新建城市");
-  const world: World = { ...base, city: { id: created.id, code: `CTY-JP-${tag}`, name: `点对点城市${tag}` } };
+  const { tag, ...city } = await createTestCity(request, await platformAdminHeaders(request), (tag) => ({ name: { zh: `点对点城市${tag}` }, timezone: "Asia/Tokyo", center }));
+  const world: World = { ...base, city };
   const tenant = await createActiveTenant(request);
   const headers = await tenantHeaders(request, tenant.adminEmail, tenant.password);
   const brand = await createBrand(request, headers, `品牌 ${randomLetters(4)}`);

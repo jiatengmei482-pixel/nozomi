@@ -5,6 +5,15 @@ import { buildZip } from "../testing/zip.ts";
 import { XLSX_LIMITS, type XlsxCell, XlsxError, cellReference, guardFormula, readXlsx, readXlsxSheet, unguardFormula, writeXlsx } from "./xlsx.ts";
 import { createZip, hasZipEntry, unzipEntry } from "./zip.ts";
 
+// 用时断言量的是本进程用掉的 CPU 时间，不是墙上时间：机器忙（别的会话在跑全套测试）时墙上时间会成倍拉长，
+// CPU 时间不受影响；解析器真变慢（例如退化成平方级）时 CPU 时间照样超标。
+const cpuMilliseconds = <T>(run: () => T): number => {
+  const before = process.cpuUsage();
+  run();
+  const used = process.cpuUsage(before);
+  return (used.user + used.system) / 1000;
+};
+
 const text = (cells: XlsxCell[]): (string | null)[] => cells.map((cell) => (cell.type === "empty" ? null : cell.type === "formula" ? "#FORMULA" : cell.text));
 
 /** 按 Excel 存盘的写法拼一个文件：共享字符串、数字、带样式的单元格。 */
@@ -151,7 +160,6 @@ test("不可信的文件：不是 xlsx、损坏、XML 实体、工作表指到�
 });
 
 test("构造出来刁难解析的内容：几 MB 的不闭合标签、没有尽头的属性——用时和长度成正比，不卡住", () => {
-  const started = performance.now();
   const nasty = [
     `<row r="1"><c r="A1"><v>1</v></c></row><${"a".repeat(3_000_000)}`,
     `<row r="1"><c r="A1"><v>1</v></c></row>${"<a ".repeat(500_000)}`,
@@ -159,14 +167,16 @@ test("构造出来刁难解析的内容：几 MB 的不闭合标签、没有尽�
     `<row r="1">${"<c".repeat(1_000_000)}</row>`,
     `<row r="1"><c r="A1" t="inlineStr"><is>${"<t>".repeat(400_000)}</is></c></row>`,
   ];
-  for (const sheet of nasty) {
-    try {
-      readXlsx(excelFile(sheet));
-    } catch (err) {
-      assert.ok(err instanceof XlsxError, String(err));
+  const used = cpuMilliseconds(() => {
+    for (const sheet of nasty) {
+      try {
+        readXlsx(excelFile(sheet));
+      } catch (err) {
+        assert.ok(err instanceof XlsxError, String(err));
+      }
     }
-  }
-  assert.ok(performance.now() - started < 8_000, `用了 ${Math.round(performance.now() - started)} 毫秒`);
+  });
+  assert.ok(used < 8_000, `用了 ${Math.round(used)} 毫秒 CPU 时间`);
 });
 
 test("XML 的合法写法都读得对：属性用单引号、等号两边有空白、属性里有实体；注释和处理指令跳过；CDATA 里的是原文；带前缀的标签和属性", () => {
@@ -309,14 +319,14 @@ test("最坏情况的用时：各项上限之内能造出来的最费时的文�
   ];
   for (const [label, bytes] of cases) {
     assert.ok(bytes.length < 64 * 1024, `${label}：样本只有 ${bytes.length} 字节（上传的大小限制拦不住）`);
-    const started = performance.now();
-    try {
-      readXlsx(bytes);
-    } catch (err) {
-      assert.ok(err instanceof XlsxError && err.code === "TOO_LARGE", `${label}：${String(err)}`);
-    }
-    const elapsed = performance.now() - started;
-    assert.ok(elapsed < 1_000, `${label} 用了 ${Math.round(elapsed)} ms`);
+    const used = cpuMilliseconds(() => {
+      try {
+        readXlsx(bytes);
+      } catch (err) {
+        assert.ok(err instanceof XlsxError && err.code === "TOO_LARGE", `${label}：${String(err)}`);
+      }
+    });
+    assert.ok(used < 1_000, `${label} 用了 ${Math.round(used)} ms CPU 时间`);
   }
   // 行数、单元格数在上限以内的读得出来
   assert.equal(readXlsx(cases[2]?.[1] as Buffer).length, 5000);
