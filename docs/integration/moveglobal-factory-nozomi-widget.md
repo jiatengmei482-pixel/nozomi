@@ -577,6 +577,7 @@ auto 下宽屏自动是横条、窄屏是卡片。
 - `lang` 按 3.2 的映射；`services`、`layout`、`theme` 只在①里有意义，规则同第 3 节。
 - `mountBooking` 也可以加 `onEvent: function (e) { … }` 收 `step` / `completed` / `error` 事件做统计（ADR 0095 附录 A），不加不影响下单。
 - 容器不要设固定高度或 `overflow: hidden`，不要再包一层 iframe；②只允许被白名单网站的顶层页面直接嵌入。
+- **固定顶栏会盖住银行验证框的顶部**（M9E-19，2026-11-24 测试站实测）：信用卡需要 3-D Secure 验证时，银行的验证框在 iframe 里贴着可视区域显示。宿主页如果有 `position: fixed` / `sticky` 的顶栏，手机上（390 宽实测）顶栏会盖住验证框最上面约 70px——测试模式下盖住的是 Stripe 的标志，说明文字和按钮仍然可见、可点，所以不影响付款；但真实银行的验证页顶部可能有说明文字。建议 `/booking/` 页在手机上不用固定顶栏（或改为随页面滚走）。NOZOMI 这边不改嵌入代码。
 - 站内软跳转（3.5）同样适用：指向 `/booking/` 的链接加 `data-astro-reload`，或在 `astro:page-load` 里调 `mountBooking`。
 - 站点有内容安全策略时，`script-src`、`connect-src` 之外再在 **`frame-src`** 放行 `https://nozomi.moveglobal.io`。
 

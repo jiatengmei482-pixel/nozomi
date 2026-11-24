@@ -1438,7 +1438,7 @@
           "id": "M9E-19",
           "title": "嵌在宿主页·第三期：付款进 iframe（PaymentPanel 复用、return_url 指向 /embed/book/order、3D 验证弹窗 modal / viewport、银行回跳取令牌、新窗口打开订单页退路）；后端付款不改（ADR 0095 第七节）",
           "role": "frontend",
-          "status": "doing",
+          "status": "review",
           "acceptance": [
             "后端付款、Webhook、超时取消、退款无改动；假 Stripe 端到端在跨站宿主（localhost / 127.0.0.1）里付款成功、失败卡、3D 验证成功 / 失败各一遍",
             "return_url 带 key、host：模拟银行整页回跳、订单页刷新后仍在 iframe 里正常显示",
@@ -1446,7 +1446,7 @@
             "Stripe 测试模式在跨站宿主上 Chrome、Safari（含 iOS）、Firefox 实测，结果写进 PR",
             "频道号 ch 现在只在文档第一次加载时从 #ch= 读、放在内存里（EmbedFrame.tsx）；进订单页后地址里没有 #ch=，银行整页回跳、iframe 刷新后 ch 为空，宿主按频道核对会丢掉这些消息：回跳后的 ready / step / completed 要仍带得上 ch（例如 ch 随站内地址的 # 一起带上，或存进 iframe 自己的 sessionStorage），端到端覆盖回跳后宿主照样收到 completed（M9E-17 审查建议）"
           ],
-          "evidence": "PR #279、#280、#380 已合并；#385 已合并：嵌入页付款 4 条 e2e 在 Firefox 下也跑（firefox-embed-pay），补 3D 验证失败后重试。演示站（Stripe 测试模式，3D 验证测试卡）chromium 390 宽和 firefox 各一单：先失败再通过，付款成功、宿主收到 completed，两单已取消全额退款。剩：验收记录 docs/acceptance/M9E-19.md 和上线清单里「真机 Safari / iPhone 人工检查项」待写（监工 11-24 定为上线前人工检查）；发现演示站 390 宽时宿主固定顶栏盖住 3D 弹窗顶部约 70px（按钮可见可点），待监工定是否改 ADR 0095 第七节",
+          "evidence": "PR #279、#280、#380、#385 已合并：M9E-19 付款用例在 chromium、webkit-embed、firefox-embed-pay 三个项目里跑（含被拒的卡、3-D Secure 先失败再通过、银行整页回跳、390 宽验证框）。演示站 Stripe 测试模式 3-D Secure 测试卡实测（chromium 390 宽 NZ20261124GUGS30MY、firefox NZ20261124UYR54UF0）：先失败再通过，付款成功、宿主收到 completed，两单已取消全额退款，验收记录 docs/acceptance/M9E-19.md（截图 12 张）。真机 Safari / iPhone 按监工 2026-11-24 决定列为上线前人工检查（docs/delivery/production-launch-checklist.md）；宿主固定顶栏盖住验证框顶部按监工决定不改代码，接入说明第 11.1 节加提醒",
           "updated": "2026-11-24"
         },
         {
@@ -3875,6 +3875,7 @@
     {"date": "2026-11-24", "by": "Codespace 开发", "summary": "M11-07（#384）、M9W-09（#386）合并，改为待验收；M9E-19 Firefox 自动测和 3D 验证失败用例合并（#385），演示站 3D 验证测试卡实测通过，验收记录和真机 Safari 上线前检查项待写"},
     {"date": "2026-11-24", "by": "Codespace 开发", "summary": "M10-02（#387）合并，改为待验收：后台未覆盖需求只显示列表，开源底图上不再画客人搜索点"},
     {"date": "2026-11-24", "by": "Codespace 开发", "summary": "M8-29b（#389）合并，改为待验收：剩余 8 类偶发查清并修掉，CI 上 Ubuntu 镜像慢改为缓存浏览器和 apt 包"},
-    {"date": "2026-11-24", "by": "Codespace 开发", "summary": "监工 2026-11-24 验收通过改为已验收：M9P-04、M9P-20（P1；P2、P3 和 P1 遗留拆到 M9P-20b 待验收）、M10-01、M8-47、M9T-09、M9T-30~33"}
+    {"date": "2026-11-24", "by": "Codespace 开发", "summary": "监工 2026-11-24 验收通过改为已验收：M9P-04、M9P-20（P1；P2、P3 和 P1 遗留拆到 M9P-20b 待验收）、M10-01、M8-47、M9T-09、M9T-30~33"},
+    {"date": "2026-11-24", "by": "Codespace 开发", "summary": "M9E-19 待验收：验收记录和 12 张截图提交；真机 Safari / iPhone 写进上线清单；宿主接入说明提醒固定顶栏会盖住 3-D Secure 验证框顶部（监工 11-24 决定不改嵌入代码）"}
   ]
 }
