@@ -21,6 +21,10 @@
 #   remote.sh rollback <环境>                 在服务器上回退到上一个版本
 #   remote.sh platform                        输出服务器的镜像平台（linux/amd64 或 linux/arm64）
 #   remote.sh public-health <域名> <次数>     从本机访问 https://<域名>/health，每 5 秒一次，返回 200 即成功
+#   remote.sh masterdata <环境> <数据> <国家码> <dry-run|apply>
+#       在当前运行版本的 API 容器里执行主数据导入（M8-47b）：<数据> 是 airports / cities / airport-names，
+#       对应 pnpm masterdata:import-<数据>；<国家码> 是逗号分隔的两位大写字母（如 JP,KR）；dry-run 只显示将要做什么，apply 才写数据库。
+#       导入程序自己从公开数据源（OurAirports / GeoNames）下载，只给库里空着的填，可以反复运行；输出原样传回，退出码原样传回
 #
 # 环境、版本、域名等值都作为「变量名=值」前缀传给服务器上的脚本，由服务器上的脚本负责校验；
 # 这里只负责原样、安全地传过去（每个值都经过 shell 转义）。不使用 set -x，不打印任何密钥。
@@ -152,6 +156,24 @@ cmd_public_health() {
   return 1
 }
 
+cmd_masterdata() {
+  local app_env="${1:-}" dataset="${2:-}" countries="${3:-}" mode="${4:-}" dry_run_flag
+  require_env_name "$app_env"
+  case "$dataset" in
+    airports | cities | airport-names) ;;
+    *) die "要导入的数据只能是 airports、cities 或 airport-names" ;;
+  esac
+  [[ "$countries" =~ ^[A-Z]{2}(,[A-Z]{2}){0,19}$ ]] || die "国家码写成两位大写字母、逗号分隔（如 JP,KR），最多 20 个"
+  case "$mode" in
+    dry-run) dry_run_flag=" --dry-run" ;;
+    apply) dry_run_flag="" ;;
+    *) die "最后一个参数只能是 dry-run（只看不写）或 apply（写入数据库）" ;;
+  esac
+  require_ssh
+  log "在 $app_env 执行主数据导入：$dataset，国家 $countries，$([[ "$mode" == "apply" ]] && echo "写入数据库" || echo "试运行（不写数据库）")"
+  remote "$(quoted "$DEPLOY_BASE/$app_env/current/bin/compose.sh") exec -T api node $(quoted "apps/api/src/cli/masterdata-import-$dataset.ts") --country $(quoted "$countries")$dry_run_flag"
+}
+
 main() {
   local command="${1:-}"
   [[ $# -gt 0 ]] && shift
@@ -163,7 +185,8 @@ main() {
     rollback) cmd_rollback "$@" ;;
     platform) cmd_platform "$@" ;;
     public-health) cmd_public_health "$@" ;;
-    *) die "用法：remote.sh init | upload | load-image | deploy | rollback | platform | public-health（说明见脚本开头）" ;;
+    masterdata) cmd_masterdata "$@" ;;
+    *) die "用法：remote.sh init | upload | load-image | deploy | rollback | platform | public-health | masterdata（说明见脚本开头）" ;;
   esac
 }
 
