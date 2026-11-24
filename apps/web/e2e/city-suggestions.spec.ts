@@ -3,7 +3,7 @@
  * 城市经接口新建（启用的、中心坐标由用例给定），机场经真实的导入命令从用例构造的小样本导入。
  */
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
-import { adminCredentials, importAirports, loginAs, platformAdminHeaders, randomLetters } from "./support.ts";
+import { createTestCity, adminCredentials, importAirports, loginAs, platformAdminHeaders, randomLetters } from "./support.ts";
 
 interface Created {
   id: string;
@@ -13,10 +13,8 @@ interface Created {
 
 async function createCityAt(request: APIRequestContext, country: string, timezone: string, name: string, center: { lat: number; lng: number }): Promise<Created> {
   const headers = await platformAdminHeaders(request);
-  const code = `CTY-${country}-${randomLetters(6)}`;
-  const response = await request.post("/platform/v1/master/cities", { headers, data: { code, country_code: country, name: { zh: name }, timezone, center } });
-  expect(response.status(), "接口新建城市").toBe(201);
-  return { id: ((await response.json()) as { id: string }).id, code, name };
+  const { id, code } = await createTestCity(request, headers, () => ({ name: { zh: name }, timezone, center }), { country, tagLength: 6 });
+  return { id, code, name };
 }
 
 async function placeByCode(request: APIRequestContext, code: string): Promise<{ id: string; city_id: string | null; status: string }> {

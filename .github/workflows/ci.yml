@@ -99,6 +99,25 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
+      # 浏览器和它要的系统库的下载缓存（M8-29b）：Ubuntu 公共软件源 2026-11-23 起时常一个包传二三十秒，装系统库整步 25 分钟超时。
+      # 缓存 Playwright 下载的浏览器和 apt 下载的 .deb（apt 改用缓存目录、保留下载的包），下一轮只下载变了的；每周换一次缓存，不越积越旧。
+      # 装包本身仍由 playwright install --with-deps 走 apt-get，和原来一样
+      - name: 本周的缓存编号
+        id: cache-week
+        run: echo "week=$(date -u +%G-%V)" >>"$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ${{ runner.temp }}/apt-archives
+          key: e2e-browsers-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ steps.cache-week.outputs.week }}
+          restore-keys: e2e-browsers-${{ runner.os }}-
+      - name: apt 用缓存目录、保留下载的包，加超时和重试
+        run: |
+          mkdir -p "$RUNNER_TEMP/apt-archives/partial"
+          printf '%s\n' "Dir::Cache::Archives \"$RUNNER_TEMP/apt-archives/\";" 'APT::Keep-Downloaded-Packages "true";' 'Acquire::Retries "5";' 'Acquire::http::Timeout "30";' 'Acquire::https::Timeout "30";' |
+            sudo tee /etc/apt/apt.conf.d/90-nozomi-ci-cache >/dev/null
+
       - run: pnpm install --frozen-lockfile
       # webkit 只给 iPhone Safari 内核的那条用例用（M8-37b，playwright.config.ts 的 webkit-iphone 项目）；多下载约 100 MB、多装一批 GStreamer / GTK 系统库
       - name: 安装 Playwright 的 Chromium、WebKit 和它们需要的系统库
@@ -110,6 +129,10 @@ jobs:
         # 用例已有 400 多条，正常要 17～20 分钟；20 分钟的上限曾把全部通过、只是没跑完的一轮判成失败
         timeout-minutes: 30
         run: pnpm test:e2e
+      # apt 以 root 写进缓存目录（含只有 root 能读的 lock）：交还给 runner 用户，缓存才存得下
+      - name: 缓存目录交还 runner 用户
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/apt-archives"
       - name: 失败时上传 Playwright 报告和现场（截图、trace）
         if: failure()
         uses: actions/upload-artifact@v4
@@ -133,9 +156,24 @@ jobs:
         run: deploy/ci/smoke.sh
       - name: 部署冒烟：behind-proxy 模式（前面套一层 nginx 模拟机器上原有的反向代理，同样的全流程）
         run: deploy/ci/smoke.sh behind-proxy
+      # 初始化演练里 Ubuntu 容器的 apt 索引和 .deb 缓存（M8-29b，见 bootstrap-check.sh 的 BOOTSTRAP_APT_CACHE_DIR）；每周换一次
+      - name: 本周的缓存编号
+        id: cache-week
+        run: echo "week=$(date -u +%G-%V)" >>"$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/bootstrap-apt
+          key: bootstrap-apt-${{ hashFiles('deploy/bootstrap.sh') }}-${{ steps.cache-week.outputs.week }}
+          restore-keys: bootstrap-apt-
       - name: 服务器初始化脚本在 Ubuntu 22.04 / 24.04、CentOS Stream 9 / 10 容器里各跑两遍（可重复执行）
         timeout-minutes: 25
+        env:
+          BOOTSTRAP_APT_CACHE_DIR: ${{ runner.temp }}/bootstrap-apt
         run: deploy/ci/bootstrap-check.sh
+      # 容器里的 root 写的缓存（含只有 root 能读的 lock、partial）：交还给 runner 用户，缓存才存得下
+      - name: 初始化演练的缓存目录交还 runner 用户
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/bootstrap-apt" || true
       - name: 手工部署演练（push-local.sh → remote.sh → 一台已有 Docker、80/443 被别的网站占着的 CentOS Stream 10 演练服务器）
         run: deploy/ci/push-local-check.sh
       - name: 恢复到任意时间点的演练（写数据 → 基础备份 → 再写 → 恢复到两次写之间，行数正好；异地备份到 S3 兼容存储再取回恢复，ADR 0105）
