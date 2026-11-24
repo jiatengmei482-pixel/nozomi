@@ -105,10 +105,11 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # webkit 只给 iPhone Safari 内核的那条用例用（M8-37b，playwright.config.ts 的 webkit-iphone 项目）；多下载约 100 MB、多装一批 GStreamer / GTK 系统库
-      - name: 安装 Playwright 的 Chromium、WebKit 和它们需要的系统库
+      # webkit 只给 iPhone Safari 内核和嵌入页的用例用（M8-37b、M9E-16，playwright.config.ts 的 webkit-* 项目）；多下载约 100 MB、多装一批 GStreamer / GTK 系统库
+      # firefox 只给嵌入页付款的 4 条用例用（M9E-19，firefox-embed-pay 项目）；多下载约 100 MB
+      - name: 安装 Playwright 的 Chromium、WebKit、Firefox 和它们需要的系统库
         timeout-minutes: 25
-        run: pnpm --filter @nozomi/web exec playwright install --with-deps chromium webkit
+        run: pnpm --filter @nozomi/web exec playwright install --with-deps chromium webkit firefox
       - name: 创建数据库的应用账号（最小权限）
         run: pnpm db:provision
       - name: 端到端测试（先构建前端，再起 API 和前端跑 Playwright）

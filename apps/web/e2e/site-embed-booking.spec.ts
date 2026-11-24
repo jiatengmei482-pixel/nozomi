@@ -1,7 +1,7 @@
 /**
  * 嵌在宿主页·第一期（M9E-16，ADR 0095 第三、五、六节、第十节「端到端（新）」）的跨站端到端：
  * 主站是 127.0.0.1（地址搜索那一组的 vite preview，带和 Caddy 同规则的 frame-check），宿主网站是 localhost（本文件起的小服务器）——两者不同站。
- * chromium 和 webkit（playwright.config.ts 的 webkit-embed）各跑一遍。经真实的 /embed/v1、/site/v1 → 真实 API → 真实 PostgreSQL；谷歌是本机的假服务器。
+ * chromium 和 webkit（playwright.config.ts 的 webkit-embed）各跑一遍；M9E-19 的付款用例另在 Firefox 里跑一遍（firefox-embed-pay）。经真实的 /embed/v1、/site/v1 → 真实 API → 真实 PostgreSQL；谷歌是本机的假服务器。
  *
  * - 宿主首页 init({ bookingUrl }) → 建草稿 → 整页跳宿主 /booking/?nzdraft= → nzdraft 从地址栏消失、进 sessionStorage → mountBooking 建 iframe →
  *   跨站 iframe 里的嵌入页读草稿、显示内容、发 ready / resize（高度跟着变）；收到的消息只来自主站 origin、没有草稿内容；刷新后仍从存储接着嵌；axe 无问题。
@@ -13,7 +13,7 @@
  *   iframe 自己刷新、宿主页刷新都接着显示这张待付款的单；平台订单详情来源是「宿主页内」；390 宽、axe；
  * - A 网站建的草稿在 B 网站打开：询价不带 draft_id（来源按主站记）。
  * 第三期（M9E-19，ADR 0095 第七节）：下单后在 iframe 里直接挂付款表单（假 Stripe），要 3D 验证的卡在 iframe 里弹验证框，宿主先收到 modal{open:true}
- *   再收到 modal{open:false}；付完宿主的 onEvent 收到 completed；模拟银行整页回跳到 return_url（带 key、host、ch，过得了 frame-check）后照常显示、
+ *   再收到 modal{open:false}；验证失败时显示原因、表单留着、宿主不收到 completed，再付一次验证通过；付完宿主的 onEvent 收到 completed；模拟银行整页回跳到 return_url（带 key、host、ch，过得了 frame-check）后照常显示、
  *   地址里的付款参数去掉、回跳后的消息仍带频道号，换 4242 付完收到 completed。被拒的卡：iframe 里显示被拒的原因、表单留着、订单仍是待付款、
  *   宿主没收到 completed，换 4242 付完才收到。宿主窗口 390 宽、客人往下滚过（iframe 上沿在屏幕外）时点「确认付款」：验证框的标题和按钮都在宿主屏幕里。
  * M9E-27（ADR 0095 第十二节末第二轮决策）：分栏按 iframe 自己的宽度——iframe 1440、1024 宽两栏，右边是主站同一个「行程摘要」右侧栏
@@ -701,7 +701,7 @@ async function placeInFrame(page: Page, request: APIRequestContext): Promise<{ h
 
 const embedFrameHandle = (page: Page) => page.frames().find((candidate) => new URL(candidate.url(), "http://x").pathname.startsWith("/embed/book"));
 
-test("M9E-19 跨站：下单后 iframe 里直接出付款表单；3D 验证框在 iframe 里弹出、宿主先后收到 modal{open:true}/{open:false}；付完宿主 onEvent 收到 completed；return_url 回到嵌入订单页、带 key / host / ch、不带令牌", async ({ page, request }) => {
+test("M9E-19 跨站：下单后 iframe 里直接出付款表单；3D 验证框在 iframe 里弹出、宿主先后收到 modal{open:true}/{open:false}；验证失败显示原因、表单留着、宿主没收到 completed；再付一次验证通过，宿主 onEvent 收到 completed；return_url 回到嵌入订单页、带 key / host / ch、不带令牌", async ({ page, request }) => {
   test.setTimeout(240_000);
   const routed = await routeStripe(page, fakeStripeUrl());
   const { created } = await placeInFrame(page, request);
@@ -716,9 +716,22 @@ test("M9E-19 跨站：下单后 iframe 里直接出付款表单；3D 验证框�
   // 验证框开着：宿主已收到 modal{open:true}，iframe 高度改成宿主可视高度、滚到 iframe 顶部
   await expect.poll(async () => (await hostMessages(page)).filter((message) => message.data["type"] === "modal").map((message) => message.data["open"])).toEqual([true]);
   await expect(page.locator('iframe[title="NOZOMI 用车预订"]')).toBeInViewport();
+  // 先点「验证失败」：iframe 里显示原因、表单留着，宿主收到 modal{open:false}、没收到 completed
+  await bank.getByRole("button", { name: "验证失败" }).click();
+  await expect(frame.getByRole("alert").filter({ hasText: "付款没有成功" })).toHaveText("付款没有成功：银行验证没有通过。请重新付款并完成验证，或换一张卡。");
+  await expect(frame.locator('iframe[title="银行验证（假）"]')).toHaveCount(0);
+  await expect(cardField, "验证失败后付款表单留着，可以再付").toBeVisible();
+  await expect.poll(async () => (await hostMessages(page)).filter((message) => message.data["type"] === "modal").map((message) => message.data["open"])).toEqual([true, false]);
+  expect((await hostMessages(page)).some((message) => message.data["type"] === "completed"), "验证失败时 iframe 不发 completed").toBe(false);
+  // 再付一次，这次验证通过
+  await cardField.fill(TEST_CARDS.threeDs);
+  await frame.getByRole("button", { name: /^付款 / }).click();
+  await frame.getByRole("button", { name: "确认付款" }).click();
+  await expect(bank.getByRole("heading", { name: "银行验证（假 Stripe）" })).toBeVisible();
+  await expect.poll(async () => (await hostMessages(page)).filter((message) => message.data["type"] === "modal").map((message) => message.data["open"])).toEqual([true, false, true]);
   await bank.getByRole("button", { name: "完成验证" }).click();
   await expect(frame.getByText(/付款成功，等待确认/)).toBeVisible();
-  await expect.poll(async () => (await hostMessages(page)).filter((message) => message.data["type"] === "modal").map((message) => message.data["open"])).toEqual([true, false]);
+  await expect.poll(async () => (await hostMessages(page)).filter((message) => message.data["type"] === "modal").map((message) => message.data["open"])).toEqual([true, false, true, false]);
   await expect.poll(async () => ((await page.evaluate(() => (window as unknown as { __events: { type: string }[] }).__events)) ?? []).some((event) => event.type === "completed"), { timeout: 30_000 }).toBe(true);
   const completed = (await hostMessages(page)).find((message) => message.data["type"] === "completed");
   expect(completed?.data).toMatchObject({ orderNo: created.order.order_no, status: "submitted" });
