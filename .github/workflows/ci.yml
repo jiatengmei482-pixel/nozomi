@@ -53,6 +53,11 @@ jobs:
       - run: pnpm typecheck
       - name: 单元测试（不需要数据库）
         run: pnpm test
+      - name: 固定文案清单是最新的（改了文案要重新运行 pnpm copy:export）
+        run: pnpm copy:export --check
+      - name: 写死的固定文案不比 main 多（M11-07，只拦新增）
+        if: github.event_name == 'pull_request'
+        run: pnpm copy:export --check-hardcoded origin/main
       - name: 创建数据库的应用账号（最小权限）
         run: pnpm db:provision
       - name: 创建应用账号（再执行一次，必须可重复）
