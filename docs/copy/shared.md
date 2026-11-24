@@ -1,6 +1,6 @@
 # 前端公共组件和共用文案（第 1 / 2 份）
 
-由 `pnpm copy:export` 从代码生成，不要手改。本区域共 1817 条：写死 1635 条，已走 key 182 条。列的意思见 [README](README.md)。
+由 `pnpm copy:export` 从代码生成，不要手改。本区域共 1818 条：写死 1634 条，已走 key 184 条。列的意思见 [README](README.md)。
 
 本区域分 2 份：第 1 份 · [第 2 份](shared-2.md)
 
@@ -53,13 +53,13 @@
 - [免费等待按航班定（free-wait-display.ts）](#免费等待按航班定free-wait-displayts)（24 条）
 - [汇率页、首页的显示规则（fx-display.ts）](#汇率页首页的显示规则fx-displayts)（35 条）
 - [库存日历每一格的话、改一天和批量设置的表单、导入页的文字（inventory-form.ts）](#库存日历每一格的话改一天和批量设置的表单导入页的文字inventory-formts)（74 条）
-- [包车行程地图和编号（itinerary-texts.ts）](#包车行程地图和编号itinerary-textsts)（52 条）
+- [包车行程地图和编号（itinerary-texts.ts）](#包车行程地图和编号itinerary-textsts)（54 条）
 - [官网的三份法律文案页面（legal-display.ts）](#官网的三份法律文案页面legal-displayts)（3 条）
 - [主数据各种值在界面上的写法（master-display.ts）](#主数据各种值在界面上的写法master-displayts)（29 条）
 - [两步验证的文案（mfa-display.ts）](#两步验证的文案mfa-displayts)（14 条）
 - [运营审核 no-show 时看的证据（no-show-evidence.ts）](#运营审核-no-show-时看的证据no-show-evidencets)（37 条）
 - [供应商入驻（onboarding-display.ts）](#供应商入驻onboarding-displayts)（97 条）
-- [订单详情「行程」卡片里的区域价说明（order-area-price-display.ts）](#订单详情行程卡片里的区域价说明order-area-price-displayts)（19 条）
+- [订单详情「行程」卡片里的区域价说明（order-area-price-display.ts）](#订单详情行程卡片里的区域价说明order-area-price-displayts)（18 条）
 - [订单中心（order-center-display.ts）](#订单中心order-center-displayts)（53 条）
 - [取消、改单、事后加收、取消政策在页面上的说法（order-money-display.ts）](#取消改单事后加收取消政策在页面上的说法order-money-displayts)（74 条）
 - [付款组件的接入点（payment-driver.ts）](#付款组件的接入点payment-driverts)（4 条）
@@ -1054,43 +1054,43 @@
 
 | key | 状态 | 中文 | 类型 | 位置 |
 | --- | --- | --- | --- | --- |
-| `charter-itinerary.effb082f` | 写死 | 价格按您填的经停点计算；当天临时去其他区域或超出预计可能会加收。 | 说明 | [charter-itinerary.ts:35](../../apps/web/src/lib/charter-itinerary.ts#L35) |
-| `charter-itinerary.2c71536f` | 写死 | {rest} 分钟 | 文字 | [charter-itinerary.ts:63](../../apps/web/src/lib/charter-itinerary.ts#L63)、83 行 |
-| `charter-itinerary.0b85d658` | 写死 | {hours} 小时 | 文字 | [charter-itinerary.ts:64](../../apps/web/src/lib/charter-itinerary.ts#L64)、84 行 |
-| `charter-itinerary.df5e171b` | 写死 | {hours} 小时 {rest} 分钟 | 文字 | [charter-itinerary.ts:64](../../apps/web/src/lib/charter-itinerary.ts#L64) |
-| `charter-itinerary.6374708f` | 写死 | （含缓冲） | 文字 | [charter-itinerary.ts:75](../../apps/web/src/lib/charter-itinerary.ts#L75) |
-| `charter-itinerary.e57ebd8b` | 写死 | 预计用时 {…}{…} | 文字 | [charter-itinerary.ts:75](../../apps/web/src/lib/charter-itinerary.ts#L75) |
-| `charter-itinerary.2fbf6dd9` | 写死 | {text}，超过套餐时长，超出部分服务后按实际收取 | 文字 | [charter-itinerary.ts:76](../../apps/web/src/lib/charter-itinerary.ts#L76) |
-| `charter-itinerary.011f3ac7` | 写死 | {hours} 小时 {rest} 分 | 文字 | [charter-itinerary.ts:84](../../apps/web/src/lib/charter-itinerary.ts#L84) |
-| `charter-itinerary.3eebbf4b` | 写死 | 请选择第 {…} 个经停点，或删除这一行 | 文字 | [charter-itinerary.ts:94](../../apps/web/src/lib/charter-itinerary.ts#L94) |
-| `charter-itinerary.5ba33dd8` | 写死 | 请选择停留时长 | 文字 | [charter-itinerary.ts:95](../../apps/web/src/lib/charter-itinerary.ts#L95) |
-| `charter-itinerary.af61e6aa` | 写死 | 自动（{own} 小时） | 名称 | [charter-itinerary.ts:157](../../apps/web/src/lib/charter-itinerary.ts#L157) |
-| `charter-itinerary.8c68105d` | 写死 | 自动（{low} 小时） | 名称 | [charter-itinerary.ts:163](../../apps/web/src/lib/charter-itinerary.ts#L163) |
-| `charter-itinerary.c8f6d108` | 写死 | 自动（按车型 {low}–{high} 小时） | 名称 | [charter-itinerary.ts:163](../../apps/web/src/lib/charter-itinerary.ts#L163) |
-| `charter-itinerary.cd65c6f8` | 写死 | {…} 公里 | 文字 | [charter-itinerary.ts:178](../../apps/web/src/lib/charter-itinerary.ts#L178) |
-| `charter-itinerary.5010a909` | 写死 | （行驶 {…} + 停留 {…}） | 文字 | [charter-itinerary.ts:184](../../apps/web/src/lib/charter-itinerary.ts#L184) |
-| `charter-itinerary.0833d293` | 写死 | 按行程预计 {…}{parts}，全程约 {…}{…} | 文字 | [charter-itinerary.ts:185](../../apps/web/src/lib/charter-itinerary.ts#L185) |
-| `charter-itinerary.8eb0dfe1` | 写死 | ，套餐 {packageHours} 小时 | 文字 | [charter-itinerary.ts:185](../../apps/web/src/lib/charter-itinerary.ts#L185) |
-| `charter-itinerary.e03c35c3` | 写死 | 全程约 {…}，预计 {…}（含停留） | 文字 | [charter-itinerary.ts:191](../../apps/web/src/lib/charter-itinerary.ts#L191) |
-| `charter-itinerary.5cd0844b` | 写死 | 有一段 | 文字 | [charter-itinerary.ts:203](../../apps/web/src/lib/charter-itinerary.ts#L203) |
-| `charter-itinerary.eaaa5e27` | 写死 | {where}路线暂时算不出来，没有在线报价。请联系客服人工报价，或调整经停点再试。 | 提示 | [charter-itinerary.ts:204](../../apps/web/src/lib/charter-itinerary.ts#L204) |
-| `charter-itinerary.7083b9d3` | 写死 | 上车加价 | 文字 | [charter-itinerary.ts:216](../../apps/web/src/lib/charter-itinerary.ts#L216) |
-| `charter-itinerary.b9589c19` | 写死 | 下车加价 | 文字 | [charter-itinerary.ts:217](../../apps/web/src/lib/charter-itinerary.ts#L217) |
-| `charter-itinerary.850c1f0f` | 写死 | 行程加价 | 文字 | [charter-itinerary.ts:218](../../apps/web/src/lib/charter-itinerary.ts#L218) |
-| `charter-itinerary.8555f0f0` | 写死 | 超公里费 | 文字 | [charter-itinerary.ts:219](../../apps/web/src/lib/charter-itinerary.ts#L219) |
-| `charter-itinerary.775eef59` | 写死 | 超时费 | 文字 | [charter-itinerary.ts:220](../../apps/web/src/lib/charter-itinerary.ts#L220) |
-| `charter-itinerary.4e1f8373` | 写死 | 调价 | 文字 | [charter-itinerary.ts:221](../../apps/web/src/lib/charter-itinerary.ts#L221) |
-| `charter-itinerary.ea33a6b1` | 写死 | 其他费用（加急、夜间、附加服务等） | 文字 | [charter-itinerary.ts:222](../../apps/web/src/lib/charter-itinerary.ts#L222) |
-| `charter-itinerary.4145f2ee` | 写死 | 包车套餐 {packageHours} 小时 | 文字 | [charter-itinerary.ts:276](../../apps/web/src/lib/charter-itinerary.ts#L276) |
-| `charter-itinerary.cce751e3` | 写死 | 基础价 | 文字 | [charter-itinerary.ts:276](../../apps/web/src/lib/charter-itinerary.ts#L276) |
-| `charter-itinerary.f20e5eb8` | 写死 | 下车点 | 文字 | [charter-itinerary.ts:279](../../apps/web/src/lib/charter-itinerary.ts#L279) |
-| `charter-itinerary.46c1894d` | 写死 | 其他费用 | 文字 | [charter-itinerary.ts:281](../../apps/web/src/lib/charter-itinerary.ts#L281) |
-| `charter-itinerary.00974e63` | 写死 | 有经停点暂时没有在线报价，请联系客服人工报价，或去掉这个经停点再试。 | 文字 | [charter-itinerary.ts:361](../../apps/web/src/lib/charter-itinerary.ts#L361) |
-| `charter-itinerary.34e28860` | 写死 | {…}暂时没有在线报价，请联系客服人工报价，或去掉这个经停点再试。 | 文字 | [charter-itinerary.ts:362](../../apps/web/src/lib/charter-itinerary.ts#L362) |
-| `charter-itinerary.41b16e16` | 写死 | ，选 {chosenHours} 小时订不了 | 文字 | [charter-itinerary.ts:383](../../apps/web/src/lib/charter-itinerary.ts#L383) |
-| `charter-itinerary.996007df` | 写死 | 有 {count} 个车型 | 文字 | [charter-itinerary.ts:383](../../apps/web/src/lib/charter-itinerary.ts#L383) |
-| `charter-itinerary.d4e5a6d6` | 写死 | 有一个车型 | 文字 | [charter-itinerary.ts:383](../../apps/web/src/lib/charter-itinerary.ts#L383) |
-| `charter-itinerary.df14c3aa` | 写死 | {…}最短 {hours} 小时{…}。 | 文字 | [charter-itinerary.ts:383](../../apps/web/src/lib/charter-itinerary.ts#L383) |
+| `charter-itinerary.effb082f` | 写死 | 价格按您填的经停点计算；当天临时去其他区域或超出预计可能会加收。 | 说明 | [charter-itinerary.ts:36](../../apps/web/src/lib/charter-itinerary.ts#L36) |
+| `charter-itinerary.2c71536f` | 写死 | {rest} 分钟 | 文字 | [charter-itinerary.ts:64](../../apps/web/src/lib/charter-itinerary.ts#L64)、84 行 |
+| `charter-itinerary.0b85d658` | 写死 | {hours} 小时 | 文字 | [charter-itinerary.ts:65](../../apps/web/src/lib/charter-itinerary.ts#L65)、85 行 |
+| `charter-itinerary.df5e171b` | 写死 | {hours} 小时 {rest} 分钟 | 文字 | [charter-itinerary.ts:65](../../apps/web/src/lib/charter-itinerary.ts#L65) |
+| `charter-itinerary.6374708f` | 写死 | （含缓冲） | 文字 | [charter-itinerary.ts:76](../../apps/web/src/lib/charter-itinerary.ts#L76) |
+| `charter-itinerary.e57ebd8b` | 写死 | 预计用时 {…}{…} | 文字 | [charter-itinerary.ts:76](../../apps/web/src/lib/charter-itinerary.ts#L76) |
+| `charter-itinerary.2fbf6dd9` | 写死 | {text}，超过套餐时长，超出部分服务后按实际收取 | 文字 | [charter-itinerary.ts:77](../../apps/web/src/lib/charter-itinerary.ts#L77) |
+| `charter-itinerary.011f3ac7` | 写死 | {hours} 小时 {rest} 分 | 文字 | [charter-itinerary.ts:85](../../apps/web/src/lib/charter-itinerary.ts#L85) |
+| `charter-itinerary.3eebbf4b` | 写死 | 请选择第 {…} 个经停点，或删除这一行 | 文字 | [charter-itinerary.ts:95](../../apps/web/src/lib/charter-itinerary.ts#L95) |
+| `charter-itinerary.5ba33dd8` | 写死 | 请选择停留时长 | 文字 | [charter-itinerary.ts:96](../../apps/web/src/lib/charter-itinerary.ts#L96) |
+| `charter-itinerary.af61e6aa` | 写死 | 自动（{own} 小时） | 名称 | [charter-itinerary.ts:158](../../apps/web/src/lib/charter-itinerary.ts#L158) |
+| `charter-itinerary.8c68105d` | 写死 | 自动（{low} 小时） | 名称 | [charter-itinerary.ts:164](../../apps/web/src/lib/charter-itinerary.ts#L164) |
+| `charter-itinerary.c8f6d108` | 写死 | 自动（按车型 {low}–{high} 小时） | 名称 | [charter-itinerary.ts:164](../../apps/web/src/lib/charter-itinerary.ts#L164) |
+| `charter-itinerary.cd65c6f8` | 写死 | {…} 公里 | 文字 | [charter-itinerary.ts:181](../../apps/web/src/lib/charter-itinerary.ts#L181) |
+| `charter-itinerary.5010a909` | 写死 | （行驶 {…} + 停留 {…}） | 文字 | [charter-itinerary.ts:195](../../apps/web/src/lib/charter-itinerary.ts#L195) |
+| `charter-itinerary.0833d293` | 写死 | 按行程预计 {…}{parts}，全程约 {…}{…} | 文字 | [charter-itinerary.ts:196](../../apps/web/src/lib/charter-itinerary.ts#L196) |
+| `charter-itinerary.8eb0dfe1` | 写死 | ，套餐 {packageHours} 小时 | 文字 | [charter-itinerary.ts:196](../../apps/web/src/lib/charter-itinerary.ts#L196) |
+| `charter-itinerary.e03c35c3` | 写死 | 全程约 {…}，预计 {…}（含停留） | 文字 | [charter-itinerary.ts:202](../../apps/web/src/lib/charter-itinerary.ts#L202) |
+| `charter-itinerary.5cd0844b` | 写死 | 有一段 | 文字 | [charter-itinerary.ts:214](../../apps/web/src/lib/charter-itinerary.ts#L214) |
+| `charter-itinerary.eaaa5e27` | 写死 | {where}路线暂时算不出来，没有在线报价。请联系客服人工报价，或调整经停点再试。 | 提示 | [charter-itinerary.ts:215](../../apps/web/src/lib/charter-itinerary.ts#L215) |
+| `charter-itinerary.7083b9d3` | 写死 | 上车加价 | 文字 | [charter-itinerary.ts:227](../../apps/web/src/lib/charter-itinerary.ts#L227) |
+| `charter-itinerary.b9589c19` | 写死 | 下车加价 | 文字 | [charter-itinerary.ts:228](../../apps/web/src/lib/charter-itinerary.ts#L228) |
+| `charter-itinerary.850c1f0f` | 写死 | 行程加价 | 文字 | [charter-itinerary.ts:229](../../apps/web/src/lib/charter-itinerary.ts#L229) |
+| `charter-itinerary.8555f0f0` | 写死 | 超公里费 | 文字 | [charter-itinerary.ts:230](../../apps/web/src/lib/charter-itinerary.ts#L230) |
+| `charter-itinerary.775eef59` | 写死 | 超时费 | 文字 | [charter-itinerary.ts:231](../../apps/web/src/lib/charter-itinerary.ts#L231) |
+| `charter-itinerary.4e1f8373` | 写死 | 调价 | 文字 | [charter-itinerary.ts:232](../../apps/web/src/lib/charter-itinerary.ts#L232) |
+| `charter-itinerary.ea33a6b1` | 写死 | 其他费用（加急、夜间、附加服务等） | 文字 | [charter-itinerary.ts:233](../../apps/web/src/lib/charter-itinerary.ts#L233) |
+| `charter-itinerary.4145f2ee` | 写死 | 包车套餐 {packageHours} 小时 | 文字 | [charter-itinerary.ts:287](../../apps/web/src/lib/charter-itinerary.ts#L287) |
+| `charter-itinerary.cce751e3` | 写死 | 基础价 | 文字 | [charter-itinerary.ts:287](../../apps/web/src/lib/charter-itinerary.ts#L287) |
+| `charter-itinerary.f20e5eb8` | 写死 | 下车点 | 文字 | [charter-itinerary.ts:290](../../apps/web/src/lib/charter-itinerary.ts#L290) |
+| `charter-itinerary.46c1894d` | 写死 | 其他费用 | 文字 | [charter-itinerary.ts:292](../../apps/web/src/lib/charter-itinerary.ts#L292) |
+| `charter-itinerary.00974e63` | 写死 | 有经停点暂时没有在线报价，请联系客服人工报价，或去掉这个经停点再试。 | 文字 | [charter-itinerary.ts:372](../../apps/web/src/lib/charter-itinerary.ts#L372) |
+| `charter-itinerary.34e28860` | 写死 | {…}暂时没有在线报价，请联系客服人工报价，或去掉这个经停点再试。 | 文字 | [charter-itinerary.ts:373](../../apps/web/src/lib/charter-itinerary.ts#L373) |
+| `charter-itinerary.41b16e16` | 写死 | ，选 {chosenHours} 小时订不了 | 文字 | [charter-itinerary.ts:394](../../apps/web/src/lib/charter-itinerary.ts#L394) |
+| `charter-itinerary.996007df` | 写死 | 有 {count} 个车型 | 文字 | [charter-itinerary.ts:394](../../apps/web/src/lib/charter-itinerary.ts#L394) |
+| `charter-itinerary.d4e5a6d6` | 写死 | 有一个车型 | 文字 | [charter-itinerary.ts:394](../../apps/web/src/lib/charter-itinerary.ts#L394) |
+| `charter-itinerary.df14c3aa` | 写死 | {…}最短 {hours} 小时{…}。 | 文字 | [charter-itinerary.ts:394](../../apps/web/src/lib/charter-itinerary.ts#L394) |
 
 ## 包车三层区域的价格页模型（charter-layers.ts）
 
@@ -1380,58 +1380,60 @@
 
 | key | 状态 | 中文 | 类型 | 位置 |
 | --- | --- | --- | --- | --- |
-| `itinerary.pickup` | 已走 key | 上车 | 文字 | [itinerary-texts.ts:63](../../apps/web/src/lib/itinerary-texts.ts#L63) |
-| `itinerary.stop` | 已走 key | 经停 | 文字 | [itinerary-texts.ts:64](../../apps/web/src/lib/itinerary-texts.ts#L64) |
-| `itinerary.dropoff` | 已走 key | 下车 | 文字 | [itinerary-texts.ts:65](../../apps/web/src/lib/itinerary-texts.ts#L65) |
-| `itinerary.routeTitle` | 已走 key | 行程路线 | 标题 | [itinerary-texts.ts:66](../../apps/web/src/lib/itinerary-texts.ts#L66) |
-| `itinerary.listOnly` | 已走 key | 经停较多，仅显示列表 | 文字 | [itinerary-texts.ts:67](../../apps/web/src/lib/itinerary-texts.ts#L67) |
-| `itinerary.updating` | 已走 key | 路线更新中 | 文字 | [itinerary-texts.ts:68](../../apps/web/src/lib/itinerary-texts.ts#L68) |
-| `itinerary.mapAlt` | 已走 key | 路线图：{chain} | 文字 | [itinerary-texts.ts:69](../../apps/web/src/lib/itinerary-texts.ts#L69) |
-| `itinerary.mapAltTotal` | 已走 key | 路线图：{chain}，约 {duration} · {km} | 文字 | [itinerary-texts.ts:70](../../apps/web/src/lib/itinerary-texts.ts#L70) |
-| `itinerary.drive` | 已走 key | 行驶约 {duration} | 文字 | [itinerary-texts.ts:71](../../apps/web/src/lib/itinerary-texts.ts#L71) |
-| `itinerary.driveKm` | 已走 key | 行驶约 {duration} · {km} | 文字 | [itinerary-texts.ts:72](../../apps/web/src/lib/itinerary-texts.ts#L72) |
-| `itinerary.breakdownStops` | 已走 key | {numbers} · 经停 | 文字 | [itinerary-texts.ts:73](../../apps/web/src/lib/itinerary-texts.ts#L73) |
-| `itinerary.unavailableStop` | 已走 key | {number} 号点「{name}」 | 文字 | [itinerary-texts.ts:74](../../apps/web/src/lib/itinerary-texts.ts#L74) |
-| `itinerary.legFailure` | 已走 key | 第 {leg} 段（{from}「{fromName}」→ {to}「{toName}」） | 提示 | [itinerary-texts.ts:75](../../apps/web/src/lib/itinerary-texts.ts#L75) |
-| `itinerary.areaStops` | 已走 key | 经停（{numbers} 号点） | 文字 | [itinerary-texts.ts:76](../../apps/web/src/lib/itinerary-texts.ts#L76) |
-| `itinerary.navigateTo` | 已走 key | 导航到 {number} 号点 | 文字 | [itinerary-texts.ts:77](../../apps/web/src/lib/itinerary-texts.ts#L77) |
-| `itinerary.suggestTitle` | 已走 key | 建议顺序，可省 {saved} | 标题 | [itinerary-texts.ts:78](../../apps/web/src/lib/itinerary-texts.ts#L78) |
-| `itinerary.suggestTitleSame` | 已走 key | 建议顺序，可省 {saved}，价格不变 | 标题 | [itinerary-texts.ts:79](../../apps/web/src/lib/itinerary-texts.ts#L79) |
-| `itinerary.suggestTooLong` | 已走 key | 当前顺序超过在线下单时长，按建议顺序约 {duration}，可以在线下单 | 文字 | [itinerary-texts.ts:80](../../apps/web/src/lib/itinerary-texts.ts#L80) |
-| `itinerary.suggestPending` | 已走 key | 建议顺序：计算中… | 文字 | [itinerary-texts.ts:81](../../apps/web/src/lib/itinerary-texts.ts#L81) |
-| `itinerary.suggestCurrent` | 已走 key | 当前顺序 | 文字 | [itinerary-texts.ts:82](../../apps/web/src/lib/itinerary-texts.ts#L82) |
-| `itinerary.suggestSuggested` | 已走 key | 建议顺序 | 文字 | [itinerary-texts.ts:83](../../apps/web/src/lib/itinerary-texts.ts#L83) |
-| `itinerary.suggestAdopt` | 已走 key | 采用建议顺序 | 文字 | [itinerary-texts.ts:84](../../apps/web/src/lib/itinerary-texts.ts#L84) |
-| `itinerary.suggestKeep` | 已走 key | 保持我的顺序 | 文字 | [itinerary-texts.ts:85](../../apps/web/src/lib/itinerary-texts.ts#L85) |
-| `itinerary.suggestRecomputing` | 已走 key | 正在按最新行程重算建议… | 文字 | [itinerary-texts.ts:86](../../apps/web/src/lib/itinerary-texts.ts#L86) |
-| `itinerary.suggestRestore` | 已走 key | 恢复原来的顺序 | 文字 | [itinerary-texts.ts:87](../../apps/web/src/lib/itinerary-texts.ts#L87) |
-| `itinerary.suggestAdopted` | 已走 key | 已按建议顺序排列：{chain} | 文字 | [itinerary-texts.ts:88](../../apps/web/src/lib/itinerary-texts.ts#L88) |
-| `itinerary.suggestRestored` | 已走 key | 已恢复原来的顺序 | 文字 | [itinerary-texts.ts:89](../../apps/web/src/lib/itinerary-texts.ts#L89) |
-| `itinerary.suggestPriceUpdated` | 已走 key | 价格已更新：{vehicle} {price} | 文字 | [itinerary-texts.ts:90](../../apps/web/src/lib/itinerary-texts.ts#L90) |
-| `itinerary.suggestPrice` | 已走 key | {vehicle} {price} | 文字 | [itinerary-texts.ts:91](../../apps/web/src/lib/itinerary-texts.ts#L91) |
-| `itinerary.suggestRegion` | 已走 key | 经停顺序建议 | 文字 | [itinerary-texts.ts:92](../../apps/web/src/lib/itinerary-texts.ts#L92) |
-| `itinerary.optimizeTitle` | 已走 key | 经停顺序建议（谷歌地图） | 标题 | [itinerary-texts.ts:93](../../apps/web/src/lib/itinerary-texts.ts#L93) |
-| `itinerary.optimizeIntro` | 已走 key | 包车客人填 2 个以上经停时，用谷歌地图算更省路程的顺序（按调用次数计费，比路线预估贵一倍）。同一组经停 24 小时内不再调用；次数按东京时间每天 0 点重新计。 | 说明 | [itinerary-texts.ts:94](../../apps/web/src/lib/itinerary-texts.ts#L94) |
-| `itinerary.optimizeCalls` | 已走 key | 今天的调用（{day}） | 文字 | [itinerary-texts.ts:95](../../apps/web/src/lib/itinerary-texts.ts#L95) |
-| `itinerary.optimizeLimit` | 已走 key | {calls} / {limit} 次（含重试） | 文字 | [itinerary-texts.ts:96](../../apps/web/src/lib/itinerary-texts.ts#L96) |
-| `itinerary.optimizeRefused` | 已走 key | 今天被上限挡下 | 文字 | [itinerary-texts.ts:97](../../apps/web/src/lib/itinerary-texts.ts#L97) |
-| `itinerary.rulesSuggestLegend` | 已走 key | 经停顺序建议 | 标题 | [itinerary-texts.ts:98](../../apps/web/src/lib/itinerary-texts.ts#L98) |
-| `itinerary.rulesSuggestLabel` | 已走 key | 提示更省路程的经停顺序 | 名称 | [itinerary-texts.ts:99](../../apps/web/src/lib/itinerary-texts.ts#L99) |
-| `itinerary.rulesSuggestHint` | 已走 key | 客人填 2 个以上经停时，提示更省路程的顺序，并给出按建议顺序的价格。关了只是这个商品不显示建议价，客人自己排的任何顺序照常报价。默认开。 | 说明 | [itinerary-texts.ts:100](../../apps/web/src/lib/itinerary-texts.ts#L100) |
-| `itinerary.arriveByLabel` | 已走 key | 经停点 {number} 指定到达时间（选填） | 名称 | [itinerary-texts.ts:101](../../apps/web/src/lib/itinerary-texts.ts#L101) |
-| `itinerary.arriveByNextDay` | 已走 key | 次日 {time} | 文字 | [itinerary-texts.ts:102](../../apps/web/src/lib/itinerary-texts.ts#L102) |
-| `itinerary.arriveByLaterDay` | 已走 key | 第 {day} 天 {time} | 文字 | [itinerary-texts.ts:103](../../apps/web/src/lib/itinerary-texts.ts#L103) |
-| `itinerary.arriveByFormat` | 已走 key | 请按 HH:MM 填写到达时间，或清空 | 文字 | [itinerary-texts.ts:104](../../apps/web/src/lib/itinerary-texts.ts#L104) |
-| `itinerary.arriveByDeadline` | 已走 key | 须在 {time} 前到达 | 文字 | [itinerary-texts.ts:105](../../apps/web/src/lib/itinerary-texts.ts#L105) |
-| `itinerary.arriveByLocked` | 已走 key | {name}，须在 {time} 前到达，已锁定，不参与建议顺序，只能用上移 / 下移调整 | 文字 | [itinerary-texts.ts:106](../../apps/web/src/lib/itinerary-texts.ts#L106) |
-| `itinerary.arriveByLockedIcon` | 已走 key | 已锁定 | 文字 | [itinerary-texts.ts:107](../../apps/web/src/lib/itinerary-texts.ts#L107) |
-| `itinerary.arriveByLate` | 已走 key | 预计 {eta} 到，晚于指定的 {time} | 文字 | [itinerary-texts.ts:108](../../apps/web/src/lib/itinerary-texts.ts#L108) |
-| `itinerary.arriveByLateStop` | 已走 key | {name}：预计 {eta} 到，晚于指定的 {time} | 文字 | [itinerary-texts.ts:109](../../apps/web/src/lib/itinerary-texts.ts#L109) |
-| `itinerary.arriveByLateAdjust` | 已走 key | 预计 {eta} 到，晚于指定的 {time}，来不及。请把上车时间提前到 {start} 或更早，或减少前面的经停、缩短停留 | 文字 | [itinerary-texts.ts:110](../../apps/web/src/lib/itinerary-texts.ts#L110) |
-| `itinerary.timeDepart` | 已走 key | {time} 出发 | 文字 | [itinerary-texts.ts:111](../../apps/web/src/lib/itinerary-texts.ts#L111) |
-| `itinerary.timeArrive` | 已走 key | 预计 {time} 到 | 文字 | [itinerary-texts.ts:112](../../apps/web/src/lib/itinerary-texts.ts#L112) |
-| `itinerary.timeArriveDepart` | 已走 key | 预计 {arrive} 到 · {depart} 出发 | 文字 | [itinerary-texts.ts:113](../../apps/web/src/lib/itinerary-texts.ts#L113) |
-| `itinerary.arriveByFieldHint` | 已走 key | 填了指定到达时间的经停会锁定位置，不参与建议顺序。 | 说明 | [itinerary-texts.ts:114](../../apps/web/src/lib/itinerary-texts.ts#L114) |
+| `itinerary.pickup` | 已走 key | 上车 | 文字 | [itinerary-texts.ts:65](../../apps/web/src/lib/itinerary-texts.ts#L65) |
+| `itinerary.stop` | 已走 key | 经停 | 文字 | [itinerary-texts.ts:66](../../apps/web/src/lib/itinerary-texts.ts#L66) |
+| `itinerary.dropoff` | 已走 key | 下车 | 文字 | [itinerary-texts.ts:67](../../apps/web/src/lib/itinerary-texts.ts#L67) |
+| `itinerary.routeTitle` | 已走 key | 行程路线 | 标题 | [itinerary-texts.ts:68](../../apps/web/src/lib/itinerary-texts.ts#L68) |
+| `itinerary.listOnly` | 已走 key | 经停较多，仅显示列表 | 文字 | [itinerary-texts.ts:69](../../apps/web/src/lib/itinerary-texts.ts#L69) |
+| `itinerary.updating` | 已走 key | 路线更新中 | 文字 | [itinerary-texts.ts:70](../../apps/web/src/lib/itinerary-texts.ts#L70) |
+| `itinerary.mapAlt` | 已走 key | 路线图：{chain} | 文字 | [itinerary-texts.ts:71](../../apps/web/src/lib/itinerary-texts.ts#L71) |
+| `itinerary.mapAltTotal` | 已走 key | 路线图：{chain}，约 {duration} · {km} | 文字 | [itinerary-texts.ts:72](../../apps/web/src/lib/itinerary-texts.ts#L72) |
+| `itinerary.drive` | 已走 key | 行驶约 {duration} | 文字 | [itinerary-texts.ts:73](../../apps/web/src/lib/itinerary-texts.ts#L73) |
+| `itinerary.driveKm` | 已走 key | 行驶约 {duration} · {km} | 文字 | [itinerary-texts.ts:74](../../apps/web/src/lib/itinerary-texts.ts#L74) |
+| `itinerary.breakdownStops` | 已走 key | {numbers} · 经停 | 文字 | [itinerary-texts.ts:75](../../apps/web/src/lib/itinerary-texts.ts#L75) |
+| `itinerary.unavailableStop` | 已走 key | {number} 号点「{name}」 | 文字 | [itinerary-texts.ts:76](../../apps/web/src/lib/itinerary-texts.ts#L76) |
+| `itinerary.legFailure` | 已走 key | 第 {leg} 段（{from}「{fromName}」→ {to}「{toName}」） | 提示 | [itinerary-texts.ts:77](../../apps/web/src/lib/itinerary-texts.ts#L77) |
+| `itinerary.areaStops` | 已走 key | 经停（{numbers} 号点） | 文字 | [itinerary-texts.ts:78](../../apps/web/src/lib/itinerary-texts.ts#L78) |
+| `itinerary.navigateTo` | 已走 key | 导航到 {number} 号点 | 文字 | [itinerary-texts.ts:79](../../apps/web/src/lib/itinerary-texts.ts#L79) |
+| `itinerary.suggestTitle` | 已走 key | 建议顺序，可省 {saved} | 标题 | [itinerary-texts.ts:80](../../apps/web/src/lib/itinerary-texts.ts#L80) |
+| `itinerary.suggestTitleSame` | 已走 key | 建议顺序，可省 {saved}，价格不变 | 标题 | [itinerary-texts.ts:81](../../apps/web/src/lib/itinerary-texts.ts#L81) |
+| `itinerary.suggestTooLong` | 已走 key | 当前顺序超过在线下单时长，按建议顺序约 {duration}，可以在线下单 | 文字 | [itinerary-texts.ts:82](../../apps/web/src/lib/itinerary-texts.ts#L82) |
+| `itinerary.suggestPending` | 已走 key | 建议顺序：计算中… | 文字 | [itinerary-texts.ts:83](../../apps/web/src/lib/itinerary-texts.ts#L83) |
+| `itinerary.suggestCurrent` | 已走 key | 当前顺序 | 文字 | [itinerary-texts.ts:84](../../apps/web/src/lib/itinerary-texts.ts#L84) |
+| `itinerary.suggestSuggested` | 已走 key | 建议顺序 | 文字 | [itinerary-texts.ts:85](../../apps/web/src/lib/itinerary-texts.ts#L85) |
+| `itinerary.suggestAdopt` | 已走 key | 采用建议顺序 | 文字 | [itinerary-texts.ts:86](../../apps/web/src/lib/itinerary-texts.ts#L86) |
+| `itinerary.suggestKeep` | 已走 key | 保持我的顺序 | 文字 | [itinerary-texts.ts:87](../../apps/web/src/lib/itinerary-texts.ts#L87) |
+| `itinerary.suggestRecomputing` | 已走 key | 正在按最新行程重算建议… | 文字 | [itinerary-texts.ts:88](../../apps/web/src/lib/itinerary-texts.ts#L88) |
+| `itinerary.suggestRestore` | 已走 key | 恢复原来的顺序 | 文字 | [itinerary-texts.ts:89](../../apps/web/src/lib/itinerary-texts.ts#L89) |
+| `itinerary.suggestAdopted` | 已走 key | 已按建议顺序排列：{chain} | 文字 | [itinerary-texts.ts:90](../../apps/web/src/lib/itinerary-texts.ts#L90) |
+| `itinerary.suggestRestored` | 已走 key | 已恢复原来的顺序 | 文字 | [itinerary-texts.ts:91](../../apps/web/src/lib/itinerary-texts.ts#L91) |
+| `itinerary.suggestPriceUpdated` | 已走 key | 价格已更新：{vehicle} {price} | 文字 | [itinerary-texts.ts:92](../../apps/web/src/lib/itinerary-texts.ts#L92) |
+| `itinerary.suggestPrice` | 已走 key | {vehicle} {price} | 文字 | [itinerary-texts.ts:93](../../apps/web/src/lib/itinerary-texts.ts#L93) |
+| `itinerary.suggestRegion` | 已走 key | 经停顺序建议 | 文字 | [itinerary-texts.ts:94](../../apps/web/src/lib/itinerary-texts.ts#L94) |
+| `itinerary.optimizeTitle` | 已走 key | 经停顺序建议（谷歌地图） | 标题 | [itinerary-texts.ts:95](../../apps/web/src/lib/itinerary-texts.ts#L95) |
+| `itinerary.optimizeIntro` | 已走 key | 包车客人填 2 个以上经停时，用谷歌地图算更省路程的顺序（按调用次数计费，比路线预估贵一倍）。同一组经停 24 小时内不再调用；次数按东京时间每天 0 点重新计。 | 说明 | [itinerary-texts.ts:96](../../apps/web/src/lib/itinerary-texts.ts#L96) |
+| `itinerary.optimizeCalls` | 已走 key | 今天的调用（{day}） | 文字 | [itinerary-texts.ts:97](../../apps/web/src/lib/itinerary-texts.ts#L97) |
+| `itinerary.optimizeLimit` | 已走 key | {calls} / {limit} 次（含重试） | 文字 | [itinerary-texts.ts:98](../../apps/web/src/lib/itinerary-texts.ts#L98) |
+| `itinerary.optimizeRefused` | 已走 key | 今天被上限挡下 | 文字 | [itinerary-texts.ts:99](../../apps/web/src/lib/itinerary-texts.ts#L99) |
+| `itinerary.rulesSuggestLegend` | 已走 key | 经停顺序建议 | 标题 | [itinerary-texts.ts:100](../../apps/web/src/lib/itinerary-texts.ts#L100) |
+| `itinerary.rulesSuggestLabel` | 已走 key | 提示更省路程的经停顺序 | 名称 | [itinerary-texts.ts:101](../../apps/web/src/lib/itinerary-texts.ts#L101) |
+| `itinerary.rulesSuggestHint` | 已走 key | 客人填 2 个以上经停时，提示更省路程的顺序，并给出按建议顺序的价格。关了只是这个商品不显示建议价，客人自己排的任何顺序照常报价。默认开。 | 说明 | [itinerary-texts.ts:102](../../apps/web/src/lib/itinerary-texts.ts#L102) |
+| `itinerary.arriveByLabel` | 已走 key | 经停点 {number} 指定到达时间（选填） | 名称 | [itinerary-texts.ts:103](../../apps/web/src/lib/itinerary-texts.ts#L103) |
+| `itinerary.arriveByNextDay` | 已走 key | 次日 {time} | 文字 | [itinerary-texts.ts:104](../../apps/web/src/lib/itinerary-texts.ts#L104) |
+| `itinerary.arriveByLaterDay` | 已走 key | 第 {day} 天 {time} | 文字 | [itinerary-texts.ts:105](../../apps/web/src/lib/itinerary-texts.ts#L105) |
+| `itinerary.arriveByFormat` | 已走 key | 请按 HH:MM 填写到达时间，或清空 | 文字 | [itinerary-texts.ts:106](../../apps/web/src/lib/itinerary-texts.ts#L106) |
+| `itinerary.arriveByDeadline` | 已走 key | 须在 {time} 前到达 | 文字 | [itinerary-texts.ts:107](../../apps/web/src/lib/itinerary-texts.ts#L107) |
+| `itinerary.arriveByLocked` | 已走 key | {name}，须在 {time} 前到达，已锁定，不参与建议顺序，只能用上移 / 下移调整 | 文字 | [itinerary-texts.ts:108](../../apps/web/src/lib/itinerary-texts.ts#L108) |
+| `itinerary.arriveByLockedIcon` | 已走 key | 已锁定 | 文字 | [itinerary-texts.ts:109](../../apps/web/src/lib/itinerary-texts.ts#L109) |
+| `itinerary.arriveByLate` | 已走 key | 预计 {eta} 到，晚于指定的 {time} | 文字 | [itinerary-texts.ts:110](../../apps/web/src/lib/itinerary-texts.ts#L110) |
+| `itinerary.arriveByLateStop` | 已走 key | {name}：预计 {eta} 到，晚于指定的 {time} | 文字 | [itinerary-texts.ts:111](../../apps/web/src/lib/itinerary-texts.ts#L111) |
+| `itinerary.arriveByLateAdjust` | 已走 key | 预计 {eta} 到，晚于指定的 {time}，来不及。请把上车时间提前到 {start} 或更早，或减少前面的经停、缩短停留 | 文字 | [itinerary-texts.ts:112](../../apps/web/src/lib/itinerary-texts.ts#L112) |
+| `itinerary.timeDepart` | 已走 key | {time} 出发 | 文字 | [itinerary-texts.ts:113](../../apps/web/src/lib/itinerary-texts.ts#L113) |
+| `itinerary.timeArrive` | 已走 key | 预计 {time} 到 | 文字 | [itinerary-texts.ts:114](../../apps/web/src/lib/itinerary-texts.ts#L114) |
+| `itinerary.timeArriveDepart` | 已走 key | 预计 {arrive} 到 · {depart} 出发 | 文字 | [itinerary-texts.ts:115](../../apps/web/src/lib/itinerary-texts.ts#L115) |
+| `itinerary.arriveByFieldHint` | 已走 key | 填了指定到达时间的经停会锁定位置，不参与建议顺序。 | 说明 | [itinerary-texts.ts:116](../../apps/web/src/lib/itinerary-texts.ts#L116) |
+| `itinerary.overKmLine` | 已走 key | 超公里：全程 {route} 公里，套餐含 {packageKm} 公里，超出 {over} 公里 × 每公里 {perKm} = {fee}{note} | 文字 | [itinerary-texts.ts:117](../../apps/web/src/lib/itinerary-texts.ts#L117) |
+| `itinerary.overKmByMeter` | 已走 key | （按米计，四舍五入） | 文字 | [itinerary-texts.ts:118](../../apps/web/src/lib/itinerary-texts.ts#L118) |
 
 ## 官网的三份法律文案页面（legal-display.ts）
 
@@ -1679,12 +1681,11 @@
 | `order-area-price-display.03c72dce` | 写死 | 经停 | 名称 | [order-area-price-display.ts:124](../../apps/web/src/lib/order-area-price-display.ts#L124) |
 | `order-area-price-display.835880d7` | 写死 | {…}：{…} · 对外 {…} / 结算 {…} | 文字 | [order-area-price-display.ts:135](../../apps/web/src/lib/order-area-price-display.ts#L135)、136 行 |
 | `order-area-price-display.979089bd` | 写死 | {…}：{…} · 加 {…} | 文字 | [order-area-price-display.ts:146](../../apps/web/src/lib/order-area-price-display.ts#L146)、147 行 |
-| `order-area-price-display.8ac38bd2` | 写死 | 超公里：全程 {…}，套餐含 {package\_km} 公里，超出 {…} × 每公里 {…} = {…} | 文字 | [order-area-price-display.ts:218](../../apps/web/src/lib/order-area-price-display.ts#L218) |
-| `order-area-price-display.46dd5f56` | 写死 | 预计超出 {…}，未预收，服务后按实际提交 | 文字 | [order-area-price-display.ts:220](../../apps/web/src/lib/order-area-price-display.ts#L220) |
-| `order-area-price-display.50b7cdb3` | 写死 | 超时：{…}预计 {…}（含停留），套餐 {…}，{…} | 文字 | [order-area-price-display.ts:220](../../apps/web/src/lib/order-area-price-display.ts#L220) |
-| `order-area-price-display.b3df0780` | 写死 | 未超出套餐时长 | 文字 | [order-area-price-display.ts:220](../../apps/web/src/lib/order-area-price-display.ts#L220) |
-| `order-area-price-display.e09552b8` | 写死 | 预计用时（含缓冲）{…}， | 文字 | [order-area-price-display.ts:220](../../apps/web/src/lib/order-area-price-display.ts#L220) |
-| `order-area-price-display.fadf9511` | 写死 | 超时：预计 {…}（含停留），套餐 {…}，超出 {…} × 每小时 {…} = {…} | 文字 | [order-area-price-display.ts:221](../../apps/web/src/lib/order-area-price-display.ts#L221) |
+| `order-area-price-display.46dd5f56` | 写死 | 预计超出 {…}，未预收，服务后按实际提交 | 文字 | [order-area-price-display.ts:235](../../apps/web/src/lib/order-area-price-display.ts#L235) |
+| `order-area-price-display.50b7cdb3` | 写死 | 超时：{…}预计 {…}（含停留），套餐 {…}，{…} | 文字 | [order-area-price-display.ts:235](../../apps/web/src/lib/order-area-price-display.ts#L235) |
+| `order-area-price-display.b3df0780` | 写死 | 未超出套餐时长 | 文字 | [order-area-price-display.ts:235](../../apps/web/src/lib/order-area-price-display.ts#L235) |
+| `order-area-price-display.e09552b8` | 写死 | 预计用时（含缓冲）{…}， | 文字 | [order-area-price-display.ts:235](../../apps/web/src/lib/order-area-price-display.ts#L235) |
+| `order-area-price-display.fadf9511` | 写死 | 超时：预计 {…}（含停留），套餐 {…}，超出 {…} × 每小时 {…} = {…} | 文字 | [order-area-price-display.ts:236](../../apps/web/src/lib/order-area-price-display.ts#L236) |
 
 ## 订单中心（order-center-display.ts）
 

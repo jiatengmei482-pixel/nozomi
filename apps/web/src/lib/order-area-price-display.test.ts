@@ -56,6 +56,22 @@ test("超公里 / 超时（M9W-04）：运营「18,000 JPY」、供应商「JPY 
   assert.equal(itineraryOverageLines("platform", undefined), null);
 });
 
+test("超公里算式的公里数按米精确（M9W-09）：265,722 米、超出 65,722 米 × 每公里 100 = 6,572（6,572.2 取整，注明按米计）；正好整数时不注", () => {
+  const base = { route_meters: 265_722, route_minutes: 540, package_km: 200, package_minutes: 600, over_meters: 65_722, overtime_minutes: 0, over_km_fee: yen("6572"), overtime_fee: yen("0"), over_km_per_km: yen("100"), overtime_per_hour: yen("5000") };
+  assert.equal(itineraryOverageLines("tenant", base)?.[0], "超公里：全程 265.722 公里，套餐含 200 公里，超出 65.722 公里 × 每公里 JPY 100 = JPY 6,572（按米计，四舍五入）");
+  assert.equal(itineraryOverageLines("platform", base)?.[0], "超公里：全程 265.722 公里，套餐含 200 公里，超出 65.722 公里 × 每公里 100 JPY = 6,572 JPY（按米计，四舍五入）");
+  // 单价 300：65.722 × 300 = 19,716.6 → 19,717，只显示两位小数（65.72 × 300 = 19,716）就对不上，所以精确到米
+  assert.equal(itineraryOverageLines("tenant", { ...base, over_km_per_km: yen("300"), over_km_fee: yen("19717") })?.[0], "超公里：全程 265.722 公里，套餐含 200 公里，超出 65.722 公里 × 每公里 JPY 300 = JPY 19,717（按米计，四舍五入）");
+  // 65,720 米 × 100 = 6,572 正好是整数：不注
+  assert.equal(itineraryOverageLines("tenant", { ...base, route_meters: 265_720, over_meters: 65_720 })?.[0], "超公里：全程 265.72 公里，套餐含 200 公里，超出 65.72 公里 × 每公里 JPY 100 = JPY 6,572");
+  assert.equal(itineraryOverageLines("tenant", { ...base, route_meters: 260_000, over_meters: 60_000, over_km_fee: yen("6000") })?.[0], "超公里：全程 260 公里，套餐含 200 公里，超出 60 公里 × 每公里 JPY 100 = JPY 6,000");
+  assert.equal(itineraryOverageLines("tenant", { ...base, route_meters: 190_000, over_meters: 0, over_km_fee: yen("0") })?.[0], "超公里：全程 190 公里，套餐含 200 公里，超出 0 公里 × 每公里 JPY 100 = JPY 0");
+  // 小数币种按最小单位判断：65,722 米 × 12.50 CNY = 821.525 → 注明
+  assert.equal(itineraryOverageLines("tenant", { ...base, over_km_per_km: { amount: "12.50", currency: "CNY" }, over_km_fee: { amount: "821.53", currency: "CNY" } })?.[0], "超公里：全程 265.722 公里，套餐含 200 公里，超出 65.722 公里 × 每公里 CNY 12.50 = CNY 821.53（按米计，四舍五入）");
+  // 单价读不出来：不猜，不注
+  assert.equal(itineraryOverageLines("tenant", { ...base, over_km_per_km: { amount: "100", currency: "XXX" } })?.[0], "超公里：全程 265.722 公里，套餐含 200 公里，超出 65.722 公里 × 每公里 XXX 100 = JPY 6,572");
+});
+
 test("超时（M9P-03，ADR 0091 第三节第 3 小节）：新订单没预收超时费——不写单价和金额，写「预计超出…未预收，服务后按实际提交」或「未超出套餐时长」；有含缓冲的预计用时时一并写；旧单（true / 没有这一项）一字不变", () => {
   const base = { route_meters: 254_300, route_minutes: 690, package_km: 200, package_minutes: 600, over_meters: 54_300, overtime_minutes: 90, over_km_fee: yen("16290"), overtime_fee: yen("0"), over_km_per_km: yen("300"), overtime_per_hour: yen("5000") };
   assert.equal(itineraryOverageLines("tenant", { ...base, overtime_at_booking: false })?.[1], "超时：预计 11 小时 30 分（含停留），套餐 10 小时，预计超出 1 小时 30 分，未预收，服务后按实际提交");
