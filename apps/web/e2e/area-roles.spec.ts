@@ -3,7 +3,7 @@
  * - 供应商：在页面上建一个大的运营区域、在它里面建一个报价区域（另经接口建一个一半在运营区域外的报价区域）；
  *   列表的用途列、编辑页的「超出运营区域」提醒；商品的服务区域只列报价区域并说明运营区域为什么不在；
  *   区域地图上运营区域虚线、报价区域实线、超出的部分斜线、重叠只在报价区域之间算；亮色 / 暗色 axe；390 / 320 不横向滚动。
- * - 运营后台：官网按两个坐标询价一家都报不出 → 「未覆盖需求」列表出现这一条（详情、计数）→「在区域地图上查看」图层上有它的点，点了有说明。
+ * - 运营后台：官网按两个坐标询价一家都报不出 → 「未覆盖需求」列表出现这一条（详情、计数）；只列表，区域地图上不画（M10-02，监工 2026-11-24）。
  * 截图只在设置了 E2E_SCREENSHOT_DIR 时保存。
  */
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
@@ -143,7 +143,7 @@ test("供应商：建运营区域和里面的报价区域；商品只列报价�
   }
 });
 
-test("运营后台：官网询价一家都报不出 → 未覆盖需求列表里有这一条（详情、计数）→ 在区域地图上查看，图层上有它的点；亮暗 axe；320 / 390 不横向滚动", async ({ page, request }) => {
+test("运营后台：官网询价一家都报不出 → 未覆盖需求列表里有这一条（详情、计数）→ 只列表、区域地图上没有未覆盖需求图层；亮暗 axe；320 / 390 不横向滚动", async ({ page, request }) => {
   test.slow();
   await page.setViewportSize({ width: 1280, height: 860 });
   const tag = randomLetters(5);
@@ -177,10 +177,11 @@ test("运营后台：官网询价一家都报不出 → 未覆盖需求列表里
     await expect(row).toContainText("不在任何运营区域里");
     await expect(row).toContainText(`未覆盖终点 ${tag}`);
     await expect(page.getByRole("list", { name: "按原因" })).toContainText("不在任何运营区域里");
-    // 1280 宽：「操作」列不用横向滚动就看得到（M6-08）
+    // 1280 宽：「操作」列不用横向滚动就看得到（M6-08）；只列表，没有去地图的链接（M10-02）
     const scroller = page.getByRole("region", { name: "未覆盖需求", exact: true });
     expect(await scroller.evaluate((node) => node.scrollWidth - node.clientWidth), "表格不横向滚动").toBeLessThanOrEqual(0);
-    await expect(row.getByRole("link", { name: "在区域地图上查看" })).toBeInViewport();
+    await expect(row.getByRole("button", { name: /^详情/ })).toBeInViewport();
+    await expect(row.getByRole("link", { name: "在区域地图上查看" })).toHaveCount(0);
     await expectAccessible(page, `未覆盖需求（${scheme}）`);
     await snapshot(page, `m820-demands-${scheme}`);
   }
@@ -192,26 +193,15 @@ test("运营后台：官网询价一家都报不出 → 未覆盖需求列表里
   await expect(dialog).toContainText("官网");
   await expectAccessible(page, "未覆盖需求的详情");
   await snapshot(page, "m820-demand-detail-dark");
+  await expect(dialog.getByRole("link", { name: "在区域地图上查看" })).toHaveCount(0);
   await dialog.getByRole("button", { name: "关闭" }).last().click();
 
-  // 在区域地图上查看：图层开着，地图移到这一点；点它有说明
+  // 区域地图不画未覆盖需求（M10-02）：没有图层开关；旧链接 ?demands=1 打开也不画点
   await page.emulateMedia({ colorScheme: "light" });
-  await row.getByRole("link", { name: "在区域地图上查看" }).click();
-  await expect(page).toHaveURL(/\/platform\/areas\/map\?demands=1/);
-  await expect(page.getByRole("checkbox", { name: "显示未覆盖需求" })).toBeChecked();
-  const dot = page.locator(`circle[data-demand="${demandId}:p"]`);
-  await expect(dot).toHaveCount(1);
-  await expect(page.locator(`rect[data-demand="${demandId}:d"]`)).toHaveCount(1);
-  await expect(page.getByRole("list", { name: "图例" })).toContainText("未覆盖需求");
-  const box = await dot.boundingBox();
-  if (!box) throw new Error("找不到未覆盖需求的点");
-  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-  const popup = page.getByRole("region", { name: "未覆盖需求" });
-  await expect(popup).toContainText("点对点");
-  await expect(popup).toContainText("上车点");
-  await expect(popup).toContainText("不在任何运营区域里");
-  await expectAccessible(page, "区域地图的未覆盖需求图层");
-  await snapshot(page, "m820-platform-map-demands");
+  await page.goto(`/platform/areas/map?demands=1&lat=${pickup.lat}&lng=${pickup.lng}`);
+  await expect(page.getByRole("heading", { level: 1, name: "区域地图" })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "显示未覆盖需求" })).toHaveCount(0);
+  await expect(page.locator("[data-demand-layer], [data-demand]")).toHaveCount(0);
 
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 844 });
@@ -223,9 +213,5 @@ test("运营后台：官网询价一家都报不出 → 未覆盖需求列表里
     await expect(card).toContainText("次数：1");
     await expect(card).toContainText("涉及的供应商：没有");
     await expectNoHorizontalOverflow(page, `未覆盖需求 ${width}px`);
-    await page.goto(`/platform/areas/map?demands=1&lat=${pickup.lat}&lng=${pickup.lng}`);
-    await expect(page.locator(`circle[data-demand="${demandId}:p"]`)).toHaveCount(1);
-    await expectNoHorizontalOverflow(page, `区域地图（未覆盖需求图层）${width}px`);
-    if (width === 390) await snapshot(page, "m820-platform-map-390");
   }
 });

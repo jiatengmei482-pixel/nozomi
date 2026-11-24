@@ -38,8 +38,6 @@ export const UNCOVERED_DEMAND_RULES = {
   globalNewRowsPerDay: 5_000,
   /** 记录最多等多久（毫秒）：超时就放弃，不影响报价 */
   recordTimeoutMs: 200,
-  /** 地图上的点一次最多给几条 */
-  maxMapPoints: 2_000,
 } as const;
 
 /** 算区域原因的那几种拒绝原因（报价引擎第 4 步）：都是这些时主原因是 `NO_PRICING_AREA` */

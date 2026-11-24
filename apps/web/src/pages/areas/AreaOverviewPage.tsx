@@ -7,7 +7,7 @@
  * - 运营后台 `/platform/areas/map`：全部供应商的区域，只读，按供应商、城市筛。
  * - 重叠只是提醒，不拦保存（同一个位置落在几个区域里时报价取最低）。怎么算见 @nozomi/domain 的 `findAreaOverlaps`、ADR 0074。
  * - M8-20（ADR 0075 第五部分）：运营区域虚线、很淡；报价区域实线。按用途筛；重叠只在报价区域之间算；报价区域超出运营区域的部分画警告色斜线。
- *   运营后台另有「未覆盖需求」图层（`demand.read`，默认关）：`?demands=1&lat=&lng=` 打开时图层开着、在那个位置放标记（从未覆盖需求列表过来）。
+ *   运营后台不画未覆盖需求（M10-02，监工 2026-11-24：搜索地点可能来自谷歌，不能画在开源底图上），只在未覆盖需求列表里看。
  * - M9P-13（规格第四节第 3 小节「在地图上看全部」）：供应商后台按商品（`?product=` 带进来）和层（① 基础价、② 行程、③ 上下车加价）筛选；
  *   这时只画选中商品选中层的区域，同一个包车商品里同层、①∩③ 的重叠标红（`charterLayerConflictPieces`，和保存校验同一口径），不再画一般的重叠。
  */
@@ -19,7 +19,6 @@ import { type MapConfig, type ProductAreaLayers, TENANT_BASE, fetchAreaLayers, f
 import { type FilterableCity, listFilterCityOptions } from "../../api/city-options.ts";
 import type { Place } from "../../api/master.ts";
 import { listAllTenants } from "../../api/platform.ts";
-import { UNCOVERED_DEMAND_REASONS, type UncoveredDemandPoints, type UncoveredDemandReason, fetchUncoveredDemandPoints } from "../../api/uncovered-demands.ts";
 import type { Tenant } from "../../api/types.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
@@ -35,9 +34,7 @@ import { useToast } from "../../components/Toast.tsx";
 import { AREA_LIST_PATH, AREA_MAP_PATH, AREA_NEW_PATH, areaEditPath } from "../../lib/area-paths.ts";
 import { type OverviewRoleFilter, areaRing, areasToGeoJson, checkImportText, colorSlot, computeOverlaps, editorText, exportFileName, filterAreas, overlapAreaText, overlapText, parseLatLngText, roleInGeoJson, shapeSummary } from "../../lib/area-overview.ts";
 import { computeOutside, outsideText, roleName, roleOf } from "../../lib/area-roles.ts";
-import { DEMAND_REASON_NAMES, demandMapPoints, shiftDate, tokyoToday } from "../../lib/uncovered-demand-display.ts";
 import { saveFile } from "../../lib/download.ts";
-import { UNCOVERED_DEMANDS_PAGE_PATH } from "../../lib/platform-paths.ts";
 import { MASTER_STATUS_BADGES, displayName, formatLocalDateTime } from "../../lib/master-display.ts";
 import { tenantOptionLabel } from "../../lib/platform-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
@@ -56,9 +53,6 @@ const PLACE_RESULTS = 20;
 
 const PLATFORM_PLACES_PATH = "/platform/v1/master/places";
 
-/** 未覆盖需求图层看最近几天（东京日期，含今天）。 */
-const DEMAND_DAY_OPTIONS = [7, 30, 90, 365].map((days) => ({ value: String(days), label: `最近 ${days} 天` }));
-
 function nameOf(item: AreaMapItem): string {
   return displayName(item.name).text;
 }
@@ -71,7 +65,6 @@ export function AreaOverviewPage() {
   const canPlatformRead = usePlatformCan("product.read");
   const canSeeTenants = usePlatformCan("tenant.read");
   const canSearchPlatformPlaces = usePlatformCan("master_data.read");
-  const canSeeDemands = usePlatformCan("demand.read") && platform;
   const [params] = useSearchParams();
   const canRead = platform ? canPlatformRead : canTenantRead;
   const navigate = useNavigate();
@@ -97,22 +90,7 @@ export function AreaOverviewPage() {
   const [layerSelection, setLayerSelection] = useState<LayerSelection>(ALL_LAYERS);
   const [selected, setSelected] = useState<string | null>(null);
   const [focusSignal, setFocusSignal] = useState(0);
-  // 从未覆盖需求列表的「在区域地图上查看」过来：图层开着，在那一点放标记
-  const linked = platform ? parseLatLngText(`${params.get("lat") ?? ""}, ${params.get("lng") ?? ""}`) : null;
-  const [marker, setMarker] = useState<OverviewMarker | null>(linked ? { point: linked, label: "未覆盖需求" } : null);
-  const [demandsOn, setDemandsOn] = useState(platform && params.get("demands") === "1");
-  const [demandDays, setDemandDays] = useState(30);
-  const [demandReason, setDemandReason] = useState<UncoveredDemandReason | "all">("all");
-  const demandLoad = useLoad<UncoveredDemandPoints>(
-    `area-map-demands:${tenantId ?? ""}:${cityId ?? ""}:${demandDays}:${demandReason}`,
-    canSeeDemands && demandsOn
-      ? (token) => {
-          const to = tokyoToday();
-          return fetchUncoveredDemandPoints(token, { from: shiftDate(to, -(demandDays - 1)), to, ...(tenantId ? { tenant_id: tenantId } : {}), ...(cityId ? { city_id: cityId } : {}), ...(demandReason !== "all" ? { reason: demandReason } : {}) });
-        }
-      : null,
-  );
-  const demandPoints = useMemo(() => (canSeeDemands && demandsOn && demandLoad.state.data ? demandMapPoints(demandLoad.state.data.items) : null), [canSeeDemands, demandsOn, demandLoad.state.data]);
+  const [marker, setMarker] = useState<OverviewMarker | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
 
   const items = loaded.state.data?.items ?? null;
@@ -238,32 +216,6 @@ export function AreaOverviewPage() {
       {platform && <Alert kind="info">这里只能查看。区域由供应商在自己的后台维护。</Alert>}
       {loaded.state.data?.truncated && <Alert kind="warning">区域太多，只显示了最近修改的 300 个。{platform ? "请按供应商或城市筛选。" : "请到列表里按城市查找。"}</Alert>}
       <PlaceSearch platform={platform} canSearchPlaces={!platform || canSearchPlatformPlaces} onLocate={setMarker} />
-      {canSeeDemands && (
-        <div className="filter-bar area-overview__demands" role="group" aria-label="未覆盖需求图层">
-          <label className="choice">
-            <input type="checkbox" checked={demandsOn} onChange={(event) => setDemandsOn(event.target.checked)} />
-            <span className="choice__text">显示未覆盖需求</span>
-          </label>
-          {demandsOn && (
-            <>
-              <SelectField inline label="日期" value={String(demandDays)} options={DEMAND_DAY_OPTIONS} onChange={(value) => setDemandDays(Number(value))} />
-              <SelectField<UncoveredDemandReason | "all"> inline label="原因" value={demandReason} options={[{ value: "all", label: "全部" }, ...UNCOVERED_DEMAND_REASONS.map((reason) => ({ value: reason, label: DEMAND_REASON_NAMES[reason] }))]} onChange={setDemandReason} />
-              <span className="field__hint" role="status">
-                {demandLoad.state.data === null
-                  ? demandLoad.state.status === "error"
-                    ? "未覆盖需求没有加载出来，请检查网络后再勾选一次。"
-                    : "正在加载未覆盖需求…"
-                  : demandLoad.state.data.items.length === 0
-                    ? "这段时间没有未覆盖需求。"
-                    : `${demandLoad.state.data.items.length} 条需求${demandLoad.state.data.truncated ? "（太多了，只画了最近的 2000 条，请缩短日期或按供应商、城市筛选）" : ""}。点地图上的点看详情。`}
-              </span>
-              <Link className="link" to={UNCOVERED_DEMANDS_PAGE_PATH}>
-                去未覆盖需求列表
-              </Link>
-            </>
-          )}
-        </div>
-      )}
 
       {failed ? (
         <section className="card">
@@ -443,7 +395,7 @@ export function AreaOverviewPage() {
             ) : tiles === null ? (
               <p className="area-map-placeholder">{mapConfig.state.status === "ready" ? "这个环境没有配置地图底图。" : "地图没有加载出来。"}区域的名称、形状和重叠照常列在左边。</p>
             ) : (
-              <Suspense fallback={null}><AreaOverviewMap tiles={tiles} areas={mapAreas} selected={selected} onSelect={pickFromMap} overlaps={shownPieces} showOverlaps={membership === null} focusSignal={focusSignal} marker={marker} outside={shownOutside} conflicts={shownConflicts} demands={demandPoints} /></Suspense>
+              <Suspense fallback={null}><AreaOverviewMap tiles={tiles} areas={mapAreas} selected={selected} onSelect={pickFromMap} overlaps={shownPieces} showOverlaps={membership === null} focusSignal={focusSignal} marker={marker} outside={shownOutside} conflicts={shownConflicts} /></Suspense>
             )}
           </div>
         </div>
