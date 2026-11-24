@@ -361,9 +361,9 @@ export async function createTestCity(
 
 /**
  * 用真实的导入命令 `masterdata-import-airports.ts --file` 导入一小份测试里构造的机场清单（OurAirports 的 CSV 格式）。
- * 不联网；导入进来的机场是停用的、没有所属城市，和正式导入完全一样。
+ * 不联网；导入进来的机场是停用的、没有所属城市，和正式导入完全一样。返回这次没有导入、要人工处理的三字码（见 importNewAirports）。
  */
-export async function importAirports(country: string, airports: readonly SampleAirport[]): Promise<void> {
+export async function importAirports(country: string, airports: readonly SampleAirport[]): Promise<string[]> {
   const dir = await mkdtemp(join(tmpdir(), "nozomi-e2e-airports-"));
   try {
     const header = "id,ident,type,name,latitude_deg,longitude_deg,iso_country,scheduled_service,iata_code";
@@ -373,8 +373,10 @@ export async function importAirports(country: string, airports: readonly SampleA
     // 导入命令同一时间只允许跑一个（后到的立即退出）；并行的用例撞上时等一下再来，不算失败
     for (let attempt = 1; ; attempt += 1) {
       try {
-        await runCli("masterdata-import-airports.ts", ["--country", country, "--file", file]);
-        break;
+        const output = await runCli("masterdata-import-airports.ts", ["--country", country, "--file", file]);
+        // 「需要人工处理」里列出的（这次没有导入）：三字码已被库里别的机场占着等
+        const conflicted = new Set(Array.from(output.matchAll(/^ {2}- ([A-Z0-9]{3})：/gm), (match) => match[1]));
+        return airports.filter((airport) => conflicted.has(airport.iata)).map((airport) => airport.iata);
       } catch (err) {
         const busy = err instanceof Error && /IMPORT_ALREADY_RUNNING|IMPORT_CODE_CONFLICT/.test(err.message);
         if (!busy || attempt >= 20) throw err;
@@ -384,6 +386,23 @@ export async function importAirports(country: string, airports: readonly SampleA
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+}
+
+/**
+ * 同 importAirports，但要求每个机场都作为新导入的机场建出来（M8-29b）：三字码只有两位随机字母，偶尔已被并行用例手工建的机场占着
+ * （如 charter-airport-support 的 `Q??`），导入命令按设计不覆盖、只报「需要人工处理」，用例就找不到它（main CI run 45332782995）。
+ * 被占的那几个换 `nextCode()` 给的三字码再导入，名称、坐标不变；返回实际用的清单，顺序和传入的一样。
+ */
+export async function importNewAirports(country: string, airports: readonly SampleAirport[], nextCode: () => string): Promise<SampleAirport[]> {
+  const result = [...airports];
+  let pending = result.map((_, index) => index);
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const conflicted = new Set(await importAirports(country, pending.map((index) => result[index] as SampleAirport)));
+    pending = pending.filter((index) => conflicted.has((result[index] as SampleAirport).iata));
+    if (pending.length === 0) return result;
+    for (const index of pending) result[index] = { ...(result[index] as SampleAirport), iata: nextCode() };
+  }
+  throw new Error(`连续 8 次三字码都被占用，没有导入：${pending.map((index) => (result[index] as SampleAirport).name).join("、")}`);
 }
 
 export interface SampleAirportNames {

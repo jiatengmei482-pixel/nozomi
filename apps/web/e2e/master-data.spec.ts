@@ -5,7 +5,7 @@
  */
 import { AxeBuilder } from "@axe-core/playwright";
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
-import { createTestCity, adminCredentials, expectNoHorizontalOverflow, fillLogin, importAirports, loginAs, newPassword, platformAdminHeaders, randomLetters, uniqueEmail, settleAnimations } from "./support.ts";
+import { createTestCity, adminCredentials, expectNoHorizontalOverflow, fillLogin, importAirports, importNewAirports, loginAs, newPassword, platformAdminHeaders, randomLetters, uniqueEmail, settleAnimations, type SampleAirport } from "./support.ts";
 
 async function expectAccessible(page: Page, what: string): Promise<void> {
   await settleAnimations(page);
@@ -51,9 +51,11 @@ test("新建城市 → 导入机场 → 在流水线页只用键盘指定城市�
   const country = "NZ";
   const cityCode = `CTY-NZ-${randomLetters(5)}`;
   const cityName = `奥克兰${cityCode.slice(-5)}`;
-  const first = { iata: `Q${randomLetters(2)}`, name: `E2E Auckland ${randomLetters(4)} International Airport`, lat: -37.008056, lng: 174.791667 };
-  const second = { iata: `Q${randomLetters(2)}`, name: `E2E Wellington ${randomLetters(4)} Airport`, lat: -41.327221, lng: 174.805278 };
-  test.skip(first.iata === second.iata, "两个随机三字码恰好相同");
+  const airports = [
+    { iata: `Q${randomLetters(2)}`, name: `E2E Auckland ${randomLetters(4)} International Airport`, lat: -37.008056, lng: 174.791667 },
+    { iata: `Q${randomLetters(2)}`, name: `E2E Wellington ${randomLetters(4)} Airport`, lat: -41.327221, lng: 174.805278 },
+  ];
+  test.skip(airports[0]?.iata === airports[1]?.iata, "两个随机三字码恰好相同");
   await signInAsAdmin(page);
 
   // 新建城市（界面）
@@ -81,8 +83,8 @@ test("新建城市 → 导入机场 → 在流水线页只用键盘指定城市�
   await expect(rowOf(page, cityCode).locator(".badge")).toHaveText("启用");
   await expect(page).toHaveURL(new RegExp(`q=${cityCode}`));
 
-  // 导入机场（真实命令）
-  await importAirports(country, [first, second]);
+  // 导入机场（真实命令）；三字码被并行用例占了就换一个（importNewAirports）
+  const [first, second] = (await importNewAirports(country, airports, () => `Q${randomLetters(2)}`)) as [SampleAirport, SampleAirport];
 
   // 机场列表：导入的是已停用、待指定城市
   await page.goto(`/platform/master/places?country=${country}&q=${first.iata}`);
