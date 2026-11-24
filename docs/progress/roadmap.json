@@ -841,7 +841,7 @@
           "id": "M8-29b",
           "title": "端到端去偶发（拆自 M8-29 的剩余几类）",
           "role": "tester",
-          "status": "doing",
+          "status": "review",
           "acceptance": [
             "xlsx.test.ts 计时断言偶发（M8-29 第 23 条）",
             "site-embed-widget.spec.ts:75 偶发（第 24 条）",
@@ -851,7 +851,7 @@
             "建测试城市撞号统一重建的公共函数（第 13 条，原 #209，落后 main 太多需重做后关掉 #209）",
             "webkit site-embed-booking.spec.ts「M9E-19 银行整页回跳」超时（#288 报过，未登记）"
           ],
-          "evidence": "",
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/389 已合并（#209 关闭）：① xlsx 用时断言改量 CPU 时间；② site-embed-widget 等全文查询应答回来再选候选（typeAndAwaitSuggestions）；③ 组件测试全局 asyncUtilTimeout 5000（机器忙时跳页渲染超过 1 秒）；④ Target crashed 只在本机（CI 自 11-13 起 0 次），处理办法写进 docs/workflow.md；⑤ Ubuntu 镜像慢（每包 20–30 秒）：e2e 缓存 Playwright 浏览器和 apt 包，服务器初始化检查用 BOOTSTRAP_APT_CACHE_DIR 缓存 apt；⑥ createTestCity 撞号换编码重建，17 处改用；⑦ webkit 银行整页回跳：换步后焦点移到标题抢走输入，改为等标题拿到焦点再填；⑧ master-data.spec.ts:52 机场代码撞号被导入器跳过，importNewAirports 撞号换代码重导。组件 1509/1509，e2e chromium 98、webkit-embed 5 条；#389 CI 全绿",
           "updated": "2026-11-24"
         },
         {
@@ -3860,6 +3860,7 @@
     {"date": "2026-11-24", "by": "Codespace 开发", "summary": "M9E-24、M11-03 监工测试站验收通过，改为已验收（#288，2026-11-24 05:40 JST）。"},
     {"date": "2026-11-24", "by": "Codespace 开发", "summary": "监工 2026-11-24 定四个技术决定：M8-25b 不做（删掉）；M8-36 以部署前后 17/17 快照代替 30 天回放；后台「未覆盖需求」只显示列表，新任务 M10-02 去掉开源底图上的需求图层；CI 拦截写死文案增多（只拦新增），新任务 M11-07。M9W-09、M8-29b 开始做"},
     {"date": "2026-11-24", "by": "Codespace 开发", "summary": "M11-07（#384）、M9W-09（#386）合并，改为待验收；M9E-19 Firefox 自动测和 3D 验证失败用例合并（#385），演示站 3D 验证测试卡实测通过，验收记录和真机 Safari 上线前检查项待写"},
-    {"date": "2026-11-24", "by": "Codespace 开发", "summary": "M10-02（#387）合并，改为待验收：后台未覆盖需求只显示列表，开源底图上不再画客人搜索点"}
+    {"date": "2026-11-24", "by": "Codespace 开发", "summary": "M10-02（#387）合并，改为待验收：后台未覆盖需求只显示列表，开源底图上不再画客人搜索点"},
+    {"date": "2026-11-24", "by": "Codespace 开发", "summary": "M8-29b（#389）合并，改为待验收：剩余 8 类偶发查清并修掉，CI 上 Ubuntu 镜像慢改为缓存浏览器和 apt 包"}
   ]
 }
