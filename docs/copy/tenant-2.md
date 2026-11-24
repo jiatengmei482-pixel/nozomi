@@ -1,12 +1,11 @@
 # 供应商后台（第 2 / 2 份）
 
-由 `pnpm copy:export` 从代码生成，不要手改。本区域共 3321 条：写死 3321 条，已走 key 0 条。列的意思见 [README](README.md)。
+由 `pnpm copy:export` 从代码生成，不要手改。本区域共 3295 条：写死 3295 条，已走 key 0 条。列的意思见 [README](README.md)。
 
 本区域分 2 份：[第 1 份](tenant.md) · 第 2 份
 
 ## 页面
 
-- [多个页面共用：新建子品牌（BrandDialog.tsx）](#多个页面共用新建子品牌branddialogtsx)（17 条）
 - [多个页面共用：⑤ 商品详情（ContentStep.tsx）](#多个页面共用⑤-商品详情contentsteptsx)（44 条）
 - [多个页面共用：商品「服务规则」里的取消规则（PlatformPolicyLines.tsx）](#多个页面共用商品服务规则里的取消规则platformpolicylinestsx)（5 条）
 - [多个页面共用：商品的步骤导航和当前步骤（ProductSteps.tsx）](#多个页面共用商品的步骤导航和当前步骤productstepstsx)（20 条）
@@ -28,32 +27,6 @@
 - [多个页面共用：修改取整单位（RoundingUnitDialog.tsx）](#多个页面共用修改取整单位roundingunitdialogtsx)（22 条）
 - [多个页面共用：点对点「线路价」的选线路和两个对话框（RouteDialogs.tsx）](#多个页面共用点对点线路价的选线路和两个对话框routedialogstsx)（55 条）
 - [多个页面共用：商品的下架（useProductActions.tsx）](#多个页面共用商品的下架useproductactionstsx)（18 条）
-
-## 多个页面共用：新建子品牌（BrandDialog.tsx）
-
-用在：供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-
-文件：`apps/web/src/pages/products/BrandDialog.tsx`
-
-| key | 状态 | 中文 | 类型 | 位置 |
-| --- | --- | --- | --- | --- |
-| `BrandDialog.93f397f4` | 写死 | 请填写名称 | 提示 | [BrandDialog.tsx:29](../../apps/web/src/pages/products/BrandDialog.tsx#L29) |
-| `BrandDialog.f0737711` | 写死 | 名称最多 {maxBrandNameLength} 个字 | 提示 | [BrandDialog.tsx:30](../../apps/web/src/pages/products/BrandDialog.tsx#L30) |
-| `BrandDialog.a9a40c56` | 写死 | 已经有同名的子品牌，请换一个名字 | 提示 | [BrandDialog.tsx:31](../../apps/web/src/pages/products/BrandDialog.tsx#L31) |
-| `BrandDialog.98275106` | 写死 | 请选择结算币种 | 提示 | [BrandDialog.tsx:33](../../apps/web/src/pages/products/BrandDialog.tsx#L33) |
-| `BrandDialog.1e385f3e` | 写死 | 已新建子品牌「{name}」 | 提示 | [BrandDialog.tsx:64](../../apps/web/src/pages/products/BrandDialog.tsx#L64) |
-| `BrandDialog.c41f5ae1` | 写死 | 你没有权限新建子品牌。请联系你们的管理员。 | 文字 | [BrandDialog.tsx:71](../../apps/web/src/pages/products/BrandDialog.tsx#L71) |
-| `BrandDialog.e758ef99` | 写死 | 新建 | 文字 | [BrandDialog.tsx:72](../../apps/web/src/pages/products/BrandDialog.tsx#L72)、93 行 |
-| `BrandDialog.834c07b6` | 写死 | 新建子品牌 | 标题 | [BrandDialog.tsx:82](../../apps/web/src/pages/products/BrandDialog.tsx#L82) |
-| `BrandDialog.5e6f59cd` | 写死 | 取消 | 按钮 | [BrandDialog.tsx:90](../../apps/web/src/pages/products/BrandDialog.tsx#L90) |
-| `BrandDialog.c2ccfd74` | 写死 | 新建中… | 文字 | [BrandDialog.tsx:91](../../apps/web/src/pages/products/BrandDialog.tsx#L91) |
-| `BrandDialog.03977e6e` | 写死 | 名称 | 表单标签 | [BrandDialog.tsx:102](../../apps/web/src/pages/products/BrandDialog.tsx#L102) |
-| `BrandDialog.d6cb39c9` | 写死 | 你们对外用的品牌名。只有一个品牌的话，填公司或车队的名字就行。 | 正文 | [BrandDialog.tsx:123](../../apps/web/src/pages/products/BrandDialog.tsx#L123) |
-| `BrandDialog.2eadf784` | 写死 | 结算币种 | 表单标签 | [BrandDialog.tsx:129](../../apps/web/src/pages/products/BrandDialog.tsx#L129) |
-| `BrandDialog.a97099dd` | 写死 | 请选择 | 选项 | [BrandDialog.tsx:134](../../apps/web/src/pages/products/BrandDialog.tsx#L134) |
-| `BrandDialog.6319145b` | 写死 | 这个子品牌下所有商品的价格都用这种币种填写，平台也按它跟你们结算。 | 正文 | [BrandDialog.tsx:143](../../apps/web/src/pages/products/BrandDialog.tsx#L143) |
-| `BrandDialog.5b267f9b` | 写死 | 币种创建后不能修改。 | 正文 | [BrandDialog.tsx:147](../../apps/web/src/pages/products/BrandDialog.tsx#L147) |
-| `BrandDialog.d717ca52` | 写死 | 选错了只能另建一个子品牌。 | 正文 | [BrandDialog.tsx:148](../../apps/web/src/pages/products/BrandDialog.tsx#L148) |
 
 ## 多个页面共用：⑤ 商品详情（ContentStep.tsx）
 

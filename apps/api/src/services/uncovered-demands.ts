@@ -34,14 +34,12 @@ import { decodeTimeCursor } from "../pagination.ts";
 import {
   type DemandDraft,
   type DemandFilter,
-  type DemandPoint,
   type DemandSummary,
   type UncoveredDemand,
   countDroppedDemand,
   demandLabels,
   findDemandAirport,
   insertDemand,
-  listDemandPoints,
   listDemands,
   purgeUncoveredDemands,
   repeatDemand,
@@ -210,12 +208,6 @@ export async function listUncoveredDemands(ctx: DbContext, query: DemandQuery, l
     },
     { snapshot: true },
   );
-}
-
-export async function uncoveredDemandPoints(ctx: DbContext, query: DemandQuery): Promise<{ items: DemandPoint[]; truncated: boolean; from: string; to: string }> {
-  const { filter, fromDay, toDay } = demandFilter(query, ctx.now());
-  const found = await withPlatformTx(ctx.pool, (db) => listDemandPoints(db, filter, UNCOVERED_DEMAND_RULES.maxMapPoints), { snapshot: true });
-  return { ...found, from: fromDay, to: toDay };
 }
 
 // ---- 保留期清理（每天一次；和别的定时任务一样跑在 API 进程里，ADR 0022） ----

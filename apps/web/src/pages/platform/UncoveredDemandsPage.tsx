@@ -1,8 +1,9 @@
 /**
  * 运营后台「未覆盖需求」（M8-20，ADR 0075 第四部分；docs/design/pages/platform-products.md 第 9 节）：
  * 客人询价一家都报不出价时平台自动记的一条（不含任何客人个人信息）。按城市、供应商、日期、用车类型、原因筛；上面是计数，下面是列表（游标翻页）；
- * 每条可以看详情（两端坐标和名称、落在哪些供应商的哪些运营区域、全部拒绝原因），并「在区域地图上查看」。
- * 看要 `demand.read`（超级管理员、运营、招商、渠道经理）；去区域地图要能看区域地图（`product.read`）。
+ * 每条可以看详情（两端坐标和名称、落在哪些供应商的哪些运营区域、全部拒绝原因）。只列表，不画在地图上（M10-02，监工 2026-11-24：搜索地点可能来自谷歌，
+ * 按谷歌条款不能画在开源底图上，ADR 0075 补充）。
+ * 看要 `demand.read`（超级管理员、运营、招商、渠道经理）；详情里的区域名称要能看区域地图（`product.read`），看不了时写编号。
  */
 import { PRODUCT_CATEGORY_NAMES, SERVICE_CATEGORIES, type ServiceCategory } from "@nozomi/domain";
 import { type ReactNode, useMemo, useState } from "react";
@@ -15,7 +16,7 @@ import { UNCOVERED_DEMAND_REASONS, type UncoveredDemand, type UncoveredDemandPag
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
-import { Button, LinkButton } from "../../components/Button.tsx";
+import { Button } from "../../components/Button.tsx";
 import { Combobox } from "../../components/Combobox.tsx";
 import { type Column, CursorPagination, DataTable, PAGE_SIZES, type TableState } from "../../components/DataTable.tsx";
 import { Dialog } from "../../components/Dialog.tsx";
@@ -24,7 +25,6 @@ import { DateFilter } from "../../components/FilterFields.tsx";
 import { SelectField } from "../../components/FormFields.tsx";
 import { StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
-import { PLATFORM_AREA_MAP_PATH } from "../../lib/area-paths.ts";
 import { displayName, formatLocalDateTime } from "../../lib/master-display.ts";
 import { DEMAND_REASON_HINTS, DEMAND_REASON_NAMES, dateRangeProblem, endText, pointText, refusalSummary, serviceLocalText, tripText } from "../../lib/uncovered-demand-display.ts";
 import { tenantOptionLabel } from "../../lib/platform-display.ts";
@@ -41,12 +41,6 @@ const FILTERS = ["city", "tenant", "from", "to", "category", "reason"] as const;
 const TOP = 5;
 
 const REASON_TONES: Readonly<Record<UncoveredDemandReason, "danger" | "warning" | "neutral">> = { OUTSIDE_OPERATING: "danger", NO_PRICING_AREA: "warning", OTHER: "neutral" };
-
-/** 一条需求「在区域地图上查看」的地址：图层打开，标记放在上车点（没有时下车点）。 */
-export function demandMapLink(demand: Pick<UncoveredDemand, "pickup" | "dropoff">): string | null {
-  const point = demand.pickup ?? demand.dropoff;
-  return point === null ? null : `${PLATFORM_AREA_MAP_PATH}?demands=1&lat=${point.lat}&lng=${point.lng}`;
-}
 
 function Filters({ cities, tenants, canSeeTenants }: { cities: { data: FilterableCity[] | null; status: string }; tenants: { data: Tenant[] | null; status: string }; canSeeTenants: boolean }) {
   const [city, setCity] = useFilterParam("city");
@@ -95,7 +89,7 @@ export function UncoveredDemandsPage() {
   useDocumentTitle(`未覆盖需求 · NOZOMI ${portal.name}`);
   const canRead = usePlatformCan("demand.read");
   const canSeeTenants = usePlatformCan("tenant.read");
-  const canSeeMap = usePlatformCan("product.read");
+  const canSeeAreas = usePlatformCan("product.read");
   const location = useLocation();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
@@ -187,21 +181,13 @@ export function UncoveredDemandsPage() {
     {
       key: "actions",
       header: "操作",
-      cell: (row) => {
-        const map = canSeeMap ? demandMapLink(row) : null;
-        return (
-          <span className="table__actions table__actions--stack">
-            <Button variant="text" size="sm" onClick={() => setDetail(row)} aria-label={`详情：${tripText(row)} ${serviceLocalText(row.service_local)}`}>
-              详情
-            </Button>
-            {map !== null && (
-              <LinkButton variant="text" size="sm" to={map}>
-                在区域地图上查看
-              </LinkButton>
-            )}
-          </span>
-        );
-      },
+      cell: (row) => (
+        <span className="table__actions">
+          <Button variant="text" size="sm" onClick={() => setDetail(row)} aria-label={`详情：${tripText(row)} ${serviceLocalText(row.service_local)}`}>
+            详情
+          </Button>
+        </span>
+      ),
     },
   ];
 
@@ -289,21 +275,20 @@ export function UncoveredDemandsPage() {
           if (next) goToPage([...stack, next]);
         }}
       />
-      <DemandDetail demand={detail} onClose={() => setDetail(null)} tenantName={tenantName} cityName={cityName} canSeeMap={canSeeMap} />
+      <DemandDetail demand={detail} onClose={() => setDetail(null)} tenantName={tenantName} cityName={cityName} canSeeAreas={canSeeAreas} />
     </>,
   );
 }
 
 /** 一条需求的详情：两端坐标和名称、落在哪些供应商的哪些运营区域（区域名字从区域地图取，看不了时写编号）、全部拒绝原因。 */
-function DemandDetail({ demand, onClose, tenantName, cityName, canSeeMap }: { demand: UncoveredDemand | null; onClose(): void; tenantName(id: string): string; cityName(id: string | null): string; canSeeMap: boolean }) {
+function DemandDetail({ demand, onClose, tenantName, cityName, canSeeAreas }: { demand: UncoveredDemand | null; onClose(): void; tenantName(id: string): string; cityName(id: string | null): string; canSeeAreas: boolean }) {
   const tenantIds = demand?.tenant_ids ?? [];
-  const areas = useLoad(`demand-detail-areas:${tenantIds.join(",")}`, demand !== null && canSeeMap && tenantIds.length > 0 ? async (token) => (await Promise.all(tenantIds.slice(0, 5).map((id) => fetchPlatformAreaMap(token, { tenant_id: id, status: "all" })))).flatMap((page) => page.items) : null);
+  const areas = useLoad(`demand-detail-areas:${tenantIds.join(",")}`, demand !== null && canSeeAreas && tenantIds.length > 0 ? async (token) => (await Promise.all(tenantIds.slice(0, 5).map((id) => fetchPlatformAreaMap(token, { tenant_id: id, status: "all" })))).flatMap((page) => page.items) : null);
   const areaName = (id: string): string => {
     const found = areas.state.data?.find((item) => item.id === id);
     return found ? `「${displayName(found.name).text}」` : `区域 ${id.slice(0, 8)}`;
   };
   const refs = (list: UncoveredDemand["pickup_operating"]): string => (list.length === 0 ? "不在任何供应商的运营区域里" : list.map((ref) => `${tenantName(ref.tenant_id)} ${areaName(ref.area_id)}`).join("；"));
-  const map = demand && canSeeMap ? demandMapLink(demand) : null;
   return (
     <Dialog
       open={demand !== null}
@@ -311,12 +296,9 @@ function DemandDetail({ demand, onClose, tenantName, cityName, canSeeMap }: { de
       size="form"
       onClose={onClose}
       footer={
-        <>
-          {map !== null && <LinkButton to={map}>在区域地图上查看</LinkButton>}
-          <Button variant="secondary" data-autofocus onClick={onClose}>
-            关闭
-          </Button>
-        </>
+        <Button variant="secondary" data-autofocus onClick={onClose}>
+          关闭
+        </Button>
       }
     >
       {demand && (

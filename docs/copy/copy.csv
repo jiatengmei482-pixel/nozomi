@@ -1580,91 +1580,79 @@
 供应商后台,区域编辑,SubtractDialog.01aee344,写死,要减去的区域,名称,label,apps/web/src/pages/areas/SubtractDialog.tsx,62,
 供应商后台,区域编辑,SubtractDialog.fd78d6e4,写死,输入区域名称查找,输入框占位,placeholder,apps/web/src/pages/areas/SubtractDialog.tsx,65,
 供应商后台,区域编辑,SubtractDialog.1a13a8de,写死,还没有别的区域,空状态,emptyText,apps/web/src/pages/areas/SubtractDialog.tsx,66,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.0ba2f76d,写死,最近 {days} 天,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,60,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.32351836,写死,区域地图 · NOZOMI {name},浏览器标题,useDocumentTitle(),apps/web/src/pages/areas/AreaOverviewPage.tsx,79,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.59d59011,写死,未覆盖需求,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,102,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.08538b58,写死,已导出 {length} 个区域（{name}）,提示,toast(),apps/web/src/pages/areas/AreaOverviewPage.tsx,174,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.490cc580,写死,商品,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,177 305,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.bf871b83,写死,区域,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,177 284,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.e05fea8f,写死,商品配置,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,177,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.a226d9f8,写死,区域地图,名称,pageName,apps/web/src/pages/areas/AreaOverviewPage.tsx,179 180,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.0f75232c,写死,你没有权限查看这里,标题,title,apps/web/src/pages/areas/AreaOverviewPage.tsx,185,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.1089ba5c,写死,需要的话，请联系你们的管理员开通。,说明,description,apps/web/src/pages/areas/AreaOverviewPage.tsx,185,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.3abbd056,写死,导出 GeoJSON,按钮,<Button>,apps/web/src/pages/areas/AreaOverviewPage.tsx,191,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.4869a786,写死,列表,按钮,<LinkButton>,apps/web/src/pages/areas/AreaOverviewPage.tsx,193,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.4a89dceb,写死,添加区域,按钮,<LinkButton>,apps/web/src/pages/areas/AreaOverviewPage.tsx,198 345,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.43765163,写死,筛选,读屏说明,aria-label,apps/web/src/pages/areas/AreaOverviewPage.tsx,211,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.8b9c7427,写死,供应商,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,215,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.3970f42a,写死,全部,名称,clearLabel,apps/web/src/pages/areas/AreaOverviewPage.tsx,216 217 228 229 250 296,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.ed7903a2,写死,城市,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,227,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.9aa733e4,写死,（已停用）,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,230,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.e8fe59fe,写死,这里只能查看。区域由供应商在自己的后台维护。,提示,<Alert>,apps/web/src/pages/areas/AreaOverviewPage.tsx,238,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.29a086d2,写死,区域太多，只显示了最近修改的 300 个。{…},提示,<Alert>,apps/web/src/pages/areas/AreaOverviewPage.tsx,239,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.4f02d2f1,写死,请按供应商或城市筛选。,提示,<Alert>,apps/web/src/pages/areas/AreaOverviewPage.tsx,239,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.eb39826c,写死,请到列表里按城市查找。,提示,<Alert>,apps/web/src/pages/areas/AreaOverviewPage.tsx,239,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.fa896e85,写死,未覆盖需求图层,读屏说明,aria-label,apps/web/src/pages/areas/AreaOverviewPage.tsx,242,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.544a4414,写死,显示未覆盖需求,正文,<span>,apps/web/src/pages/areas/AreaOverviewPage.tsx,245,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.8ff1ff9d,写死,日期,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,249,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.64f7c7d0,写死,原因,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,250,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.e457b532,写死,未覆盖需求没有加载出来，请检查网络后再勾选一次。,正文,<span>,apps/web/src/pages/areas/AreaOverviewPage.tsx,254,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.34f92305,写死,正在加载未覆盖需求…,正文,<span>,apps/web/src/pages/areas/AreaOverviewPage.tsx,255,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.ffc600c6,写死,这段时间没有未覆盖需求。,正文,<span>,apps/web/src/pages/areas/AreaOverviewPage.tsx,257,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.e8f6985f,写死,（太多了，只画了最近的 2000 条，请缩短日期或按供应商、城市筛选）,正文,<span>,apps/web/src/pages/areas/AreaOverviewPage.tsx,258,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.f08924cb,写死,{length} 条需求{…}。点地图上的点看详情。,正文,<span>,apps/web/src/pages/areas/AreaOverviewPage.tsx,258,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.87779d3c,写死,去未覆盖需求列表,链接,<Link>,apps/web/src/pages/areas/AreaOverviewPage.tsx,262,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.8da9c094,写死,加载失败,标题,title,apps/web/src/pages/areas/AreaOverviewPage.tsx,271,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.3a4fbd45,写死,请检查网络后重试。,说明,description,apps/web/src/pages/areas/AreaOverviewPage.tsx,272,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.309a04d8,写死,重试,按钮,<Button>,apps/web/src/pages/areas/AreaOverviewPage.tsx,276,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.5d1e1799,写死,共 {total} 个区域，显示 {length} 个,标题,<h2>,apps/web/src/pages/areas/AreaOverviewPage.tsx,284,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.6ebb005c,写死,共 {total} 个区域,标题,<h2>,apps/web/src/pages/areas/AreaOverviewPage.tsx,284,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.cbb132da,写死,按名称搜索,表单标签,<label>,apps/web/src/pages/areas/AreaOverviewPage.tsx,289 290,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.4cbbd806,写死,用途,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,293,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.44bb5df7,写死,运营区域,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,297 351,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.77a584b7,写死,报价区域,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,298 351,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.a886e79f,写死,全部区域（不按商品）,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,308,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.3b2bf00b,写死,全部包车商品,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,309,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.bac8800e,写死,（加载中）,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,311,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.53a9e3aa,写死,按层筛选,表单标签,<legend>,apps/web/src/pages/areas/AreaOverviewPage.tsx,318,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.b243cf77,写死,只看有三层重叠的（{size}）,正文,<span>,apps/web/src/pages/areas/AreaOverviewPage.tsx,329,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.eda59348,写死,只看有重叠的{…},正文,<span>,apps/web/src/pages/areas/AreaOverviewPage.tsx,329,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.d6b48b9c,写死,商品没有加载出来，请刷新页面重试。,正文,<p>,apps/web/src/pages/areas/AreaOverviewPage.tsx,332,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.d416dba4,写死,区域加载中,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,334,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.c5f256e4,写死,还没有区域,标题,title,apps/web/src/pages/areas/AreaOverviewPage.tsx,338,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.6dc9fbea,写死,符合条件的供应商还没有建区域。,说明,description,apps/web/src/pages/areas/AreaOverviewPage.tsx,339,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.cc04e37a,写死,区域就是你提供服务的范围。添加一个区域，在地图上画出去的地方（营运区）和不去的地方（禁行区）。,说明,description,apps/web/src/pages/areas/AreaOverviewPage.tsx,339,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.1987aeaf,写死,换个名称试试，或清空搜索。,说明,description,apps/web/src/pages/areas/AreaOverviewPage.tsx,351,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.1a4e42d5,写死,选中的商品在选中的层里没有区域。,说明,description,apps/web/src/pages/areas/AreaOverviewPage.tsx,351,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.3d2ecfe6,写死,没有符合条件的区域,标题,title,apps/web/src/pages/areas/AreaOverviewPage.tsx,351,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.3d5edda3,写死,没有和别的区域重叠的区域。,说明,description,apps/web/src/pages/areas/AreaOverviewPage.tsx,351,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.445a6ddb,写死,还没有{…}。,说明,description,apps/web/src/pages/areas/AreaOverviewPage.tsx,351,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.af6f3161,写死,选中的商品在选中的层里没有三层重叠。,说明,description,apps/web/src/pages/areas/AreaOverviewPage.tsx,351,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.120fa241,写死,区域列表,读屏说明,aria-label,apps/web/src/pages/areas/AreaOverviewPage.tsx,353 455,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.2f4e2ea2,写死,（供应商已不存在）,正文,<span>,apps/web/src/pages/areas/AreaOverviewPage.tsx,370,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.44398995,写死,报价区域超出运营区域：{…}。,正文,<span>,apps/web/src/pages/areas/AreaOverviewPage.tsx,405,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.c4fe9226,写死,{…}最近修改 {…},正文,<p>,apps/web/src/pages/areas/AreaOverviewPage.tsx,408,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.8233c7eb,写死,编辑 {…},读屏说明,aria-label,apps/web/src/pages/areas/AreaOverviewPage.tsx,411,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.8ad2ef37,写死,查看 {…},读屏说明,aria-label,apps/web/src/pages/areas/AreaOverviewPage.tsx,411,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.490aa967,写死,编辑,按钮,<LinkButton>,apps/web/src/pages/areas/AreaOverviewPage.tsx,412,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.5d8faea0,写死,查看,按钮,<LinkButton>,apps/web/src/pages/areas/AreaOverviewPage.tsx,412,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.93142d7c,写死,导出这个区域,按钮,<Button>,apps/web/src/pages/areas/AreaOverviewPage.tsx,416 428,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.0655843e,写死,更多,文字,buttonContent,apps/web/src/pages/areas/AreaOverviewPage.tsx,418,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.7784cf5b,写死,{…} 的更多操作,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,418,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.2f7da99d,写死,正在加载地图…,正文,<p>,apps/web/src/pages/areas/AreaOverviewPage.tsx,442,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.782fab25,写死,地图没有加载出来。,正文,<p>,apps/web/src/pages/areas/AreaOverviewPage.tsx,444,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.a13f42bb,写死,{…}区域的名称、形状和重叠照常列在左边。,正文,<p>,apps/web/src/pages/areas/AreaOverviewPage.tsx,444,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.dc0feaad,写死,这个环境没有配置地图底图。,正文,<p>,apps/web/src/pages/areas/AreaOverviewPage.tsx,444,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.ef62a74e,写死,重叠只在报价区域之间算，只是提醒，不影响保存：同一个位置落在几个报价区域里时，报价取最低。区域的禁行区压在别的区域上不算重叠，但同时选了这两个区域的商品在禁行区里不报价；运营区域之间、运营区域和报价区域之间也不算。报价区域超出运营区域的部分不会报价。详见,正文,<p>,apps/web/src/pages/areas/AreaOverviewPage.tsx,455,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.3889f87a,写死,在地图上定位,读屏说明,aria-label,apps/web/src/pages/areas/AreaOverviewPage.tsx,500,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.32a88d8d,写死,搜索机场、车站、地标，或输入坐标,表单标签,<label>,apps/web/src/pages/areas/AreaOverviewPage.tsx,502,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.492a9314,写死,"搜索机场、车站、地标，或输入坐标（纬度, 经度）",输入框占位,placeholder,apps/web/src/pages/areas/AreaOverviewPage.tsx,504,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.d126d4e5,写死,查找中…,文字,loadingText,apps/web/src/pages/areas/AreaOverviewPage.tsx,505,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.8dac0651,写死,定位,按钮,<Button>,apps/web/src/pages/areas/AreaOverviewPage.tsx,508,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.3371d969,写死,没有查到。请检查网络后重试。,正文,<span>,apps/web/src/pages/areas/AreaOverviewPage.tsx,510,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.ccab7b66,写死,"没有匹配的地点。可以输入坐标（纬度, 经度）来定位。暂时不能按地址搜索。",正文,<span>,apps/web/src/pages/areas/AreaOverviewPage.tsx,511,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.e32d2fac,写死,匹配的地点,读屏说明,aria-label,apps/web/src/pages/areas/AreaOverviewPage.tsx,513,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.9637b55a,写死,导入,读屏说明,aria-label,apps/web/src/pages/areas/AreaOverviewPage.tsx,549,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.5eccd295,写死,拖放 .geojson 文件到这里，或点击导入,正文,<span>,apps/web/src/pages/areas/AreaOverviewPage.tsx,566,
-供应商后台,区域地图（运营后台也用）,AreaOverviewPage.be31fdd7,写死,导入为一个新区域：在新增区域页核对图形、选城市、起名字后保存。文件只在浏览器里读，不上传。,正文,<span>,apps/web/src/pages/areas/AreaOverviewPage.tsx,567,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.32351836,写死,区域地图 · NOZOMI {name},浏览器标题,useDocumentTitle(),apps/web/src/pages/areas/AreaOverviewPage.tsx,72,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.08538b58,写死,已导出 {length} 个区域（{name}）,提示,toast(),apps/web/src/pages/areas/AreaOverviewPage.tsx,152,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.490cc580,写死,商品,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,155 257,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.bf871b83,写死,区域,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,155 236,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.e05fea8f,写死,商品配置,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,155,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.a226d9f8,写死,区域地图,名称,pageName,apps/web/src/pages/areas/AreaOverviewPage.tsx,157 158,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.0f75232c,写死,你没有权限查看这里,标题,title,apps/web/src/pages/areas/AreaOverviewPage.tsx,163,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.1089ba5c,写死,需要的话，请联系你们的管理员开通。,说明,description,apps/web/src/pages/areas/AreaOverviewPage.tsx,163,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.3abbd056,写死,导出 GeoJSON,按钮,<Button>,apps/web/src/pages/areas/AreaOverviewPage.tsx,169,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.4869a786,写死,列表,按钮,<LinkButton>,apps/web/src/pages/areas/AreaOverviewPage.tsx,171,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.4a89dceb,写死,添加区域,按钮,<LinkButton>,apps/web/src/pages/areas/AreaOverviewPage.tsx,176 297,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.43765163,写死,筛选,读屏说明,aria-label,apps/web/src/pages/areas/AreaOverviewPage.tsx,189,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.8b9c7427,写死,供应商,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,193,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.3970f42a,写死,全部,名称,clearLabel,apps/web/src/pages/areas/AreaOverviewPage.tsx,194 195 206 207 248,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.ed7903a2,写死,城市,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,205,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.9aa733e4,写死,（已停用）,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,208,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.e8fe59fe,写死,这里只能查看。区域由供应商在自己的后台维护。,提示,<Alert>,apps/web/src/pages/areas/AreaOverviewPage.tsx,216,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.29a086d2,写死,区域太多，只显示了最近修改的 300 个。{…},提示,<Alert>,apps/web/src/pages/areas/AreaOverviewPage.tsx,217,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.4f02d2f1,写死,请按供应商或城市筛选。,提示,<Alert>,apps/web/src/pages/areas/AreaOverviewPage.tsx,217,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.eb39826c,写死,请到列表里按城市查找。,提示,<Alert>,apps/web/src/pages/areas/AreaOverviewPage.tsx,217,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.8da9c094,写死,加载失败,标题,title,apps/web/src/pages/areas/AreaOverviewPage.tsx,223,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.3a4fbd45,写死,请检查网络后重试。,说明,description,apps/web/src/pages/areas/AreaOverviewPage.tsx,224,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.309a04d8,写死,重试,按钮,<Button>,apps/web/src/pages/areas/AreaOverviewPage.tsx,228,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.5d1e1799,写死,共 {total} 个区域，显示 {length} 个,标题,<h2>,apps/web/src/pages/areas/AreaOverviewPage.tsx,236,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.6ebb005c,写死,共 {total} 个区域,标题,<h2>,apps/web/src/pages/areas/AreaOverviewPage.tsx,236,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.cbb132da,写死,按名称搜索,表单标签,<label>,apps/web/src/pages/areas/AreaOverviewPage.tsx,241 242,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.4cbbd806,写死,用途,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,245,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.44bb5df7,写死,运营区域,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,249 303,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.77a584b7,写死,报价区域,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,250 303,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.a886e79f,写死,全部区域（不按商品）,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,260,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.3b2bf00b,写死,全部包车商品,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,261,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.bac8800e,写死,（加载中）,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,263,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.53a9e3aa,写死,按层筛选,表单标签,<legend>,apps/web/src/pages/areas/AreaOverviewPage.tsx,270,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.b243cf77,写死,只看有三层重叠的（{size}）,正文,<span>,apps/web/src/pages/areas/AreaOverviewPage.tsx,281,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.eda59348,写死,只看有重叠的{…},正文,<span>,apps/web/src/pages/areas/AreaOverviewPage.tsx,281,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.d6b48b9c,写死,商品没有加载出来，请刷新页面重试。,正文,<p>,apps/web/src/pages/areas/AreaOverviewPage.tsx,284,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.d416dba4,写死,区域加载中,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,286,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.c5f256e4,写死,还没有区域,标题,title,apps/web/src/pages/areas/AreaOverviewPage.tsx,290,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.6dc9fbea,写死,符合条件的供应商还没有建区域。,说明,description,apps/web/src/pages/areas/AreaOverviewPage.tsx,291,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.cc04e37a,写死,区域就是你提供服务的范围。添加一个区域，在地图上画出去的地方（营运区）和不去的地方（禁行区）。,说明,description,apps/web/src/pages/areas/AreaOverviewPage.tsx,291,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.1987aeaf,写死,换个名称试试，或清空搜索。,说明,description,apps/web/src/pages/areas/AreaOverviewPage.tsx,303,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.1a4e42d5,写死,选中的商品在选中的层里没有区域。,说明,description,apps/web/src/pages/areas/AreaOverviewPage.tsx,303,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.3d2ecfe6,写死,没有符合条件的区域,标题,title,apps/web/src/pages/areas/AreaOverviewPage.tsx,303,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.3d5edda3,写死,没有和别的区域重叠的区域。,说明,description,apps/web/src/pages/areas/AreaOverviewPage.tsx,303,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.445a6ddb,写死,还没有{…}。,说明,description,apps/web/src/pages/areas/AreaOverviewPage.tsx,303,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.af6f3161,写死,选中的商品在选中的层里没有三层重叠。,说明,description,apps/web/src/pages/areas/AreaOverviewPage.tsx,303,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.120fa241,写死,区域列表,读屏说明,aria-label,apps/web/src/pages/areas/AreaOverviewPage.tsx,305 407,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.2f4e2ea2,写死,（供应商已不存在）,正文,<span>,apps/web/src/pages/areas/AreaOverviewPage.tsx,322,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.44398995,写死,报价区域超出运营区域：{…}。,正文,<span>,apps/web/src/pages/areas/AreaOverviewPage.tsx,357,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.c4fe9226,写死,{…}最近修改 {…},正文,<p>,apps/web/src/pages/areas/AreaOverviewPage.tsx,360,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.8233c7eb,写死,编辑 {…},读屏说明,aria-label,apps/web/src/pages/areas/AreaOverviewPage.tsx,363,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.8ad2ef37,写死,查看 {…},读屏说明,aria-label,apps/web/src/pages/areas/AreaOverviewPage.tsx,363,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.490aa967,写死,编辑,按钮,<LinkButton>,apps/web/src/pages/areas/AreaOverviewPage.tsx,364,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.5d8faea0,写死,查看,按钮,<LinkButton>,apps/web/src/pages/areas/AreaOverviewPage.tsx,364,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.93142d7c,写死,导出这个区域,按钮,<Button>,apps/web/src/pages/areas/AreaOverviewPage.tsx,368 380,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.0655843e,写死,更多,文字,buttonContent,apps/web/src/pages/areas/AreaOverviewPage.tsx,370,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.7784cf5b,写死,{…} 的更多操作,名称,label,apps/web/src/pages/areas/AreaOverviewPage.tsx,370,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.2f7da99d,写死,正在加载地图…,正文,<p>,apps/web/src/pages/areas/AreaOverviewPage.tsx,394,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.782fab25,写死,地图没有加载出来。,正文,<p>,apps/web/src/pages/areas/AreaOverviewPage.tsx,396,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.a13f42bb,写死,{…}区域的名称、形状和重叠照常列在左边。,正文,<p>,apps/web/src/pages/areas/AreaOverviewPage.tsx,396,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.dc0feaad,写死,这个环境没有配置地图底图。,正文,<p>,apps/web/src/pages/areas/AreaOverviewPage.tsx,396,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.ef62a74e,写死,重叠只在报价区域之间算，只是提醒，不影响保存：同一个位置落在几个报价区域里时，报价取最低。区域的禁行区压在别的区域上不算重叠，但同时选了这两个区域的商品在禁行区里不报价；运营区域之间、运营区域和报价区域之间也不算。报价区域超出运营区域的部分不会报价。详见,正文,<p>,apps/web/src/pages/areas/AreaOverviewPage.tsx,407,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.3889f87a,写死,在地图上定位,读屏说明,aria-label,apps/web/src/pages/areas/AreaOverviewPage.tsx,452,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.32a88d8d,写死,搜索机场、车站、地标，或输入坐标,表单标签,<label>,apps/web/src/pages/areas/AreaOverviewPage.tsx,454,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.492a9314,写死,"搜索机场、车站、地标，或输入坐标（纬度, 经度）",输入框占位,placeholder,apps/web/src/pages/areas/AreaOverviewPage.tsx,456,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.d126d4e5,写死,查找中…,文字,loadingText,apps/web/src/pages/areas/AreaOverviewPage.tsx,457,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.8dac0651,写死,定位,按钮,<Button>,apps/web/src/pages/areas/AreaOverviewPage.tsx,460,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.3371d969,写死,没有查到。请检查网络后重试。,正文,<span>,apps/web/src/pages/areas/AreaOverviewPage.tsx,462,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.ccab7b66,写死,"没有匹配的地点。可以输入坐标（纬度, 经度）来定位。暂时不能按地址搜索。",正文,<span>,apps/web/src/pages/areas/AreaOverviewPage.tsx,463,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.e32d2fac,写死,匹配的地点,读屏说明,aria-label,apps/web/src/pages/areas/AreaOverviewPage.tsx,465,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.9637b55a,写死,导入,读屏说明,aria-label,apps/web/src/pages/areas/AreaOverviewPage.tsx,501,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.5eccd295,写死,拖放 .geojson 文件到这里，或点击导入,正文,<span>,apps/web/src/pages/areas/AreaOverviewPage.tsx,518,
+供应商后台,区域地图（运营后台也用）,AreaOverviewPage.be31fdd7,写死,导入为一个新区域：在新增区域页核对图形、选城市、起名字后保存。文件只在浏览器里读，不上传。,正文,<span>,apps/web/src/pages/areas/AreaOverviewPage.tsx,519,
 供应商后台,商品列表,ProductListPage.b279a17f,写死,（已停用）,名称,label,apps/web/src/pages/products/ProductListPage.tsx,41,
 供应商后台,商品列表,ProductListPage.ebb3617d,写死,品类,名称,label,apps/web/src/pages/products/ProductListPage.tsx,46 197,
 供应商后台,商品列表,ProductListPage.68a8b54d,写死,全部,名称,label,apps/web/src/pages/products/ProductListPage.tsx,48 51 56 64,
@@ -2650,41 +2638,27 @@
 供应商后台,多个页面共用：「在地图上查看」（AreaMapDialog.tsx）,AreaMapDialog.550800dc,写死,这个环境没有配置地图底图。,正文,<p>,apps/web/src/pages/areas/AreaMapDialog.tsx,129,供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
 供应商后台,多个页面共用：「在地图上查看」（AreaMapDialog.tsx）,AreaMapDialog.63fa77a6,写死,{…}区域和重叠照常列在上面。,正文,<p>,apps/web/src/pages/areas/AreaMapDialog.tsx,129,供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
 供应商后台,多个页面共用：「在地图上查看」（AreaMapDialog.tsx）,AreaMapDialog.43ad7790,写死,选中区域的地图,名称,label,apps/web/src/pages/areas/AreaMapDialog.tsx,131,供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.b95daefe,写死,区域地图,文字,,apps/web/src/pages/areas/AreaOverviewMap.tsx,106,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.68194dba,写死,{label}：拖动平移，滚轮或加减号缩放；区域的名称、形状和重叠在旁边的列表里,读屏说明,aria-label,apps/web/src/pages/areas/AreaOverviewMap.tsx,202,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.a4502f14,写死,未覆盖需求,读屏说明,aria-label,apps/web/src/pages/areas/AreaOverviewMap.tsx,302 304 411,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.ba5eedfa,写死,关闭,读屏说明,aria-label,apps/web/src/pages/areas/AreaOverviewMap.tsx,305,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.d589f691,写死,用车类型,正文,<dt>,apps/web/src/pages/areas/AreaOverviewMap.tsx,310,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.25ac7341,写死,用车时间,正文,<dt>,apps/web/src/pages/areas/AreaOverviewMap.tsx,312,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.b6a1da15,写死,{…}（当地）,正文,<dd>,apps/web/src/pages/areas/AreaOverviewMap.tsx,313,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.74a72534,写死,最近出现,正文,<dt>,apps/web/src/pages/areas/AreaOverviewMap.tsx,314,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.b2c9672d,写死,这一点,正文,<dt>,apps/web/src/pages/areas/AreaOverviewMap.tsx,316,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.033667e2,写死,上车点,正文,<dd>,apps/web/src/pages/areas/AreaOverviewMap.tsx,317,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.ec2df804,写死,下车点,正文,<dd>,apps/web/src/pages/areas/AreaOverviewMap.tsx,317,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.c1f5834d,写死,原因,正文,<dt>,apps/web/src/pages/areas/AreaOverviewMap.tsx,318,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.ab0465aa,写死,次数,正文,<dt>,apps/web/src/pages/areas/AreaOverviewMap.tsx,320,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.82f021e5,写死,{repeat_count} 次,正文,<dd>,apps/web/src/pages/areas/AreaOverviewMap.tsx,321,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.3c6ceb03,写死,坐标,正文,<dt>,apps/web/src/pages/areas/AreaOverviewMap.tsx,322,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.dccf5094,写死,放大,读屏说明,aria-label,apps/web/src/pages/areas/AreaOverviewMap.tsx,328,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.397ba796,写死,缩小,读屏说明,aria-label,apps/web/src/pages/areas/AreaOverviewMap.tsx,331,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.7aa6b282,写死,看全部区域,读屏说明,aria-label,apps/web/src/pages/areas/AreaOverviewMap.tsx,334,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.a28b2469,写死,底图没有加载出来。区域照常显示，名称和重叠见旁边的列表。,正文,<p>,apps/web/src/pages/areas/AreaOverviewMap.tsx,338,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.3a0b4f6b,写死,图例,读屏说明,aria-label,apps/web/src/pages/areas/AreaOverviewMap.tsx,340,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.bd1f95dd,写死,虚线：只决定能不能接单,正文,<span>,apps/web/src/pages/areas/AreaOverviewMap.tsx,348,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.c38ec266,写死,运营区域,正文,<strong>,apps/web/src/pages/areas/AreaOverviewMap.tsx,348,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.0e2e0c90,写死,实线：颜色同列表圆点,正文,<span>,apps/web/src/pages/areas/AreaOverviewMap.tsx,359,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.10908dfd,写死,报价区域 / 运营 + 报价,正文,<strong>,apps/web/src/pages/areas/AreaOverviewMap.tsx,359,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.55e46818,写死,区域,正文,<strong>,apps/web/src/pages/areas/AreaOverviewMap.tsx,363,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.e03a4576,写死,颜色和列表的圆点一致,正文,<span>,apps/web/src/pages/areas/AreaOverviewMap.tsx,363,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.39e14c37,写死,点落在里面，用到这个区域的商品一律不报价,正文,<span>,apps/web/src/pages/areas/AreaOverviewMap.tsx,370,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.53189cd0,写死,报价区域的禁行区,正文,<strong>,apps/web/src/pages/areas/AreaOverviewMap.tsx,370,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.179fae4f,写死,报价区域之间，取最低价,正文,<span>,apps/web/src/pages/areas/AreaOverviewMap.tsx,379,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.6cfea9d0,写死,重叠的地方,正文,<strong>,apps/web/src/pages/areas/AreaOverviewMap.tsx,379,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.4a6611c7,写死,三层区域重叠,正文,<strong>,apps/web/src/pages/areas/AreaOverviewMap.tsx,389,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.c720cf02,写死,同一个包车商品里同一层、或基础价和上下车加价区域重叠，不允许,正文,<span>,apps/web/src/pages/areas/AreaOverviewMap.tsx,389,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.14d43c40,写死,超出运营区域,正文,<strong>,apps/web/src/pages/areas/AreaOverviewMap.tsx,400,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.87208f9b,写死,报价区域的这部分不会报价,正文,<span>,apps/web/src/pages/areas/AreaOverviewMap.tsx,400,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
-供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.2df71004,写死,圆是上车点，方是下车点；越大次数越多,正文,<span>,apps/web/src/pages/areas/AreaOverviewMap.tsx,411,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
+供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.b95daefe,写死,区域地图,文字,,apps/web/src/pages/areas/AreaOverviewMap.tsx,87,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
+供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.68194dba,写死,{label}：拖动平移，滚轮或加减号缩放；区域的名称、形状和重叠在旁边的列表里,读屏说明,aria-label,apps/web/src/pages/areas/AreaOverviewMap.tsx,174,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
+供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.dccf5094,写死,放大,读屏说明,aria-label,apps/web/src/pages/areas/AreaOverviewMap.tsx,259,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
+供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.397ba796,写死,缩小,读屏说明,aria-label,apps/web/src/pages/areas/AreaOverviewMap.tsx,262,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
+供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.7aa6b282,写死,看全部区域,读屏说明,aria-label,apps/web/src/pages/areas/AreaOverviewMap.tsx,265,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
+供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.a28b2469,写死,底图没有加载出来。区域照常显示，名称和重叠见旁边的列表。,正文,<p>,apps/web/src/pages/areas/AreaOverviewMap.tsx,269,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
+供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.3a0b4f6b,写死,图例,读屏说明,aria-label,apps/web/src/pages/areas/AreaOverviewMap.tsx,271,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
+供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.bd1f95dd,写死,虚线：只决定能不能接单,正文,<span>,apps/web/src/pages/areas/AreaOverviewMap.tsx,279,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
+供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.c38ec266,写死,运营区域,正文,<strong>,apps/web/src/pages/areas/AreaOverviewMap.tsx,279,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
+供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.0e2e0c90,写死,实线：颜色同列表圆点,正文,<span>,apps/web/src/pages/areas/AreaOverviewMap.tsx,290,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
+供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.10908dfd,写死,报价区域 / 运营 + 报价,正文,<strong>,apps/web/src/pages/areas/AreaOverviewMap.tsx,290,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
+供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.55e46818,写死,区域,正文,<strong>,apps/web/src/pages/areas/AreaOverviewMap.tsx,294,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
+供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.e03a4576,写死,颜色和列表的圆点一致,正文,<span>,apps/web/src/pages/areas/AreaOverviewMap.tsx,294,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
+供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.39e14c37,写死,点落在里面，用到这个区域的商品一律不报价,正文,<span>,apps/web/src/pages/areas/AreaOverviewMap.tsx,301,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
+供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.53189cd0,写死,报价区域的禁行区,正文,<strong>,apps/web/src/pages/areas/AreaOverviewMap.tsx,301,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
+供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.179fae4f,写死,报价区域之间，取最低价,正文,<span>,apps/web/src/pages/areas/AreaOverviewMap.tsx,310,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
+供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.6cfea9d0,写死,重叠的地方,正文,<strong>,apps/web/src/pages/areas/AreaOverviewMap.tsx,310,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
+供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.4a6611c7,写死,三层区域重叠,正文,<strong>,apps/web/src/pages/areas/AreaOverviewMap.tsx,320,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
+供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.c720cf02,写死,同一个包车商品里同一层、或基础价和上下车加价区域重叠，不允许,正文,<span>,apps/web/src/pages/areas/AreaOverviewMap.tsx,320,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
+供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.14d43c40,写死,超出运营区域,正文,<strong>,apps/web/src/pages/areas/AreaOverviewMap.tsx,331,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
+供应商后台,多个页面共用：区域地图的画布（AreaOverviewMap.tsx）,AreaOverviewMap.87208f9b,写死,报价区域的这部分不会报价,正文,<span>,apps/web/src/pages/areas/AreaOverviewMap.tsx,331,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
 供应商后台,多个页面共用：自测（SelfTest.tsx）,SelfTest.7d1b1d5b,写死,这里只判断这个区域的范围。实际能不能报价，还要看商品、价格规则和服务时间。,说明,FIXED_NOTE,apps/web/src/pages/areas/SelfTest.tsx,42,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
 供应商后台,多个页面共用：自测（SelfTest.tsx）,SelfTest.9db3d25c,写死,找不到这个区域，它可能已被删除。,文字,setFailure(),apps/web/src/pages/areas/SelfTest.tsx,89,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
 供应商后台,多个页面共用：自测（SelfTest.tsx）,SelfTest.4105c139,写死,没有检查成功。请检查网络后重试。,文字,setFailure(),apps/web/src/pages/areas/SelfTest.tsx,90,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
@@ -5044,69 +5018,103 @@
 运营后台,报价试算,QuotePreviewPage.0e357add,写死,不填时按谷歌地图预估的路程计价；填了就按这两项算、不调用谷歌地图（谷歌地图取不到路线时，或想看某个路程下的价格时用）。只有按「里程 + 时长」计价的商品用得到。,正文,<p>,apps/web/src/pages/platform/QuotePreviewPage.tsx,662,
 运营后台,报价试算,QuotePreviewPage.3206dde4,写死,试算中…,文字,loadingText,apps/web/src/pages/platform/QuotePreviewPage.tsx,666,
 运营后台,报价试算,QuotePreviewPage.aa08b879,写死,清空重填,按钮,<Button>,apps/web/src/pages/platform/QuotePreviewPage.tsx,681,
-运营后台,未覆盖需求,UncoveredDemandsPage.29f7d87c,写死,（已停用）,名称,label,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,56,
-运营后台,未覆盖需求,UncoveredDemandsPage.7b0f659e,写死,城市,名称,label,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,59 329,
-运营后台,未覆盖需求,UncoveredDemandsPage.826a2233,写死,全部,名称,clearLabel,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,59 64 65 79 86,
-运营后台,未覆盖需求,UncoveredDemandsPage.46ab8eb4,写死,供应商,名称,label,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,63,
-运营后台,未覆盖需求,UncoveredDemandsPage.21eaa81b,写死,从,名称,label,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,73,
-运营后台,未覆盖需求,UncoveredDemandsPage.90afadf3,写死,到,名称,label,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,74,
-运营后台,未覆盖需求,UncoveredDemandsPage.1e4100ce,写死,用车类型,名称,label,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,77,
-运营后台,未覆盖需求,UncoveredDemandsPage.4a27a588,写死,原因,名称,label,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,84 178 349,
-运营后台,未覆盖需求,UncoveredDemandsPage.4f16ee6c,写死,未覆盖需求 · NOZOMI {name},浏览器标题,useDocumentTitle(),apps/web/src/pages/platform/UncoveredDemandsPage.tsx,95,
-运营后台,未覆盖需求,UncoveredDemandsPage.6f6ce6c8,写死,未覆盖需求,名称,pageName,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,140 141 272,
-运营后台,未覆盖需求,UncoveredDemandsPage.b8635a5d,写死,商品,名称,label,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,140,
-运营后台,未覆盖需求,UncoveredDemandsPage.33012467,写死,需要的话，请联系管理员开通「未覆盖需求 · 查看」。,说明,description,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,144,
-运营后台,未覆盖需求,UncoveredDemandsPage.40390a8d,写死,你没有权限查看这里,标题,title,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,144,
-运营后台,未覆盖需求,UncoveredDemandsPage.68aefc9b,写死,（供应商已不存在）,名称,tenantName(),apps/web/src/pages/platform/UncoveredDemandsPage.tsx,147,
-运营后台,未覆盖需求,UncoveredDemandsPage.9c25477a,写死,不在任何能订的城市,名称,cityName(),apps/web/src/pages/platform/UncoveredDemandsPage.tsx,148,
-运营后台,未覆盖需求,UncoveredDemandsPage.3e4a2c7a,写死,（城市已不存在）,名称,cityName(),apps/web/src/pages/platform/UncoveredDemandsPage.tsx,150,
-运营后台,未覆盖需求,UncoveredDemandsPage.2722cc61,写死,最近出现,文字,header,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,154,
-运营后台,未覆盖需求,UncoveredDemandsPage.7d462ce2,写死,用车,文字,header,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,157 325,
-运营后台,未覆盖需求,UncoveredDemandsPage.e0605a0b,写死,{passengers} 人 {luggage} 件行李,正文,<span>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,163,
-运营后台,未覆盖需求,UncoveredDemandsPage.67fe3b9a,写死,上车 → 下车,文字,header,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,169,
-运营后台,未覆盖需求,UncoveredDemandsPage.b4f3c9fc,写死,次数,文字,header,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,179,
-运营后台,未覆盖需求,UncoveredDemandsPage.6a880455,写死,涉及的供应商,文字,header,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,182,
-运营后台,未覆盖需求,UncoveredDemandsPage.1b8651ab,写死,没有,正文,<span>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,185,
-运营后台,未覆盖需求,UncoveredDemandsPage.760c59e1,写死, 等 {length} 家,文字,UncoveredDemandsPage(),apps/web/src/pages/platform/UncoveredDemandsPage.tsx,185 264,
-运营后台,未覆盖需求,UncoveredDemandsPage.b74dbc74,写死,操作,文字,header,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,189,
-运营后台,未覆盖需求,UncoveredDemandsPage.7edfcd3b,写死,详情：{…} {…},读屏说明,aria-label,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,194,
-运营后台,未覆盖需求,UncoveredDemandsPage.9dc997dc,写死,详情,按钮,<Button>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,196,
-运营后台,未覆盖需求,UncoveredDemandsPage.10a88997,写死,在区域地图上查看,按钮,<LinkButton>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,200 315,
-运营后台,未覆盖需求,UncoveredDemandsPage.439cd720,写死,没有符合条件的未覆盖需求,标题,title,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,212,
-运营后台,未覆盖需求,UncoveredDemandsPage.17794297,写死,日期范围不对，改好后再查（见上面的说明）。,说明,description,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,213,
-运营后台,未覆盖需求,UncoveredDemandsPage.7a080946,写死,换个条件试试，或清空筛选。,说明,description,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,213,
-运营后台,未覆盖需求,UncoveredDemandsPage.21b872c4,写死,清空筛选,按钮,<Button>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,217,
-运营后台,未覆盖需求,UncoveredDemandsPage.04c0b575,写死,客人询价时只要有一家报得出价，就不会记在这里。,说明,description,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,221,
-运营后台,未覆盖需求,UncoveredDemandsPage.277a6e64,写死,最近 30 天没有未覆盖需求,标题,title,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,221,
-运营后台,未覆盖需求,UncoveredDemandsPage.04b3c5b9,写死,客人询价时一家供应商都报不出价，平台会自动记一条（不含客人的姓名、电话、邮箱等任何个人信息，坐标只到约 10 米）。同一天、同一个需求只记一行，再来只加次数。日期按东京时间，默认最近 30 天。,正文,<p>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,227,
-运营后台,未覆盖需求,UncoveredDemandsPage.ce585cd7,写死,{from} 至 {to}：{rows} 条需求，合计 {repeats} 次,标题,<h2>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,239,
-运营后台,未覆盖需求,UncoveredDemandsPage.2185da49,写死,按原因,读屏说明,aria-label,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,242,
-运营后台,未覆盖需求,UncoveredDemandsPage.844fe499,写死,{rows} 条 · {repeats} 次,正文,<span>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,246,
-运营后台,未覆盖需求,UncoveredDemandsPage.3e6654e9,写死,按城市：,正文,<strong>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,255,
-运营后台,未覆盖需求,UncoveredDemandsPage.0386d709,写死,{…} {rows} 条,文字,UncoveredDemandsPage(),apps/web/src/pages/platform/UncoveredDemandsPage.tsx,256 263,
-运营后台,未覆盖需求,UncoveredDemandsPage.30ad21f5,写死, 等 {length} 个,正文,<p>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,257,
-运营后台,未覆盖需求,UncoveredDemandsPage.ac3a9ae4,写死,按运营区域涉及的供应商：,正文,<strong>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,262,
-运营后台,未覆盖需求,UncoveredDemandsPage.d34f1fde,写死,另有 {dropped} 条新需求因为防刷限流没有记下来（每个来源每小时最多 30 条、全站每天最多 5000 条），不分城市和供应商。,正文,<p>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,268,
-运营后台,未覆盖需求,UncoveredDemandsPage.c7ef66e5,写死,区域 {…},名称,areaName(),apps/web/src/pages/platform/UncoveredDemandsPage.tsx,303,
-运营后台,未覆盖需求,UncoveredDemandsPage.2f22bdc3,写死,不在任何供应商的运营区域里,文字,refs(),apps/web/src/pages/platform/UncoveredDemandsPage.tsx,305,
-运营后台,未覆盖需求,UncoveredDemandsPage.dbc81130,写死,未覆盖需求的详情,标题,title,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,310,
-运营后台,未覆盖需求,UncoveredDemandsPage.d2df5ca3,写死,关闭,按钮,<Button>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,318,
-运营后台,未覆盖需求,UncoveredDemandsPage.3129f29d,写死, · 指定了车型组,正文,<dd>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,326,
-运营后台,未覆盖需求,UncoveredDemandsPage.b1923770,写死,{…} · {…}（当地时间） · {passengers} 人 {luggage} 件行李{…},正文,<dd>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,326,
-运营后台,未覆盖需求,UncoveredDemandsPage.bd7c526e,写死,上车,正文,<dt>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,333,
-运营后台,未覆盖需求,UncoveredDemandsPage.bf439a73,写死,（没有地点名称）,正文,<dd>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,334 342,
-运营后台,未覆盖需求,UncoveredDemandsPage.0d07976b,写死,上车点在哪些运营区域里,正文,<dt>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,337,
-运营后台,未覆盖需求,UncoveredDemandsPage.22f50318,写死,下车,正文,<dt>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,341,
-运营后台,未覆盖需求,UncoveredDemandsPage.3260d332,写死,渠道没有给下车地点,正文,<dd>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,342,
-运营后台,未覆盖需求,UncoveredDemandsPage.a22db64e,写死,下车点在哪些运营区域里,正文,<dt>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,345,
-运营后台,未覆盖需求,UncoveredDemandsPage.4a097315,写死,各商品报不出的原因,正文,<dt>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,353,
-运营后台,未覆盖需求,UncoveredDemandsPage.eb23c6f8,写死,没有可以比价的商品（这一带没有供应商的商品）,正文,<dd>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,354,
-运营后台,未覆盖需求,UncoveredDemandsPage.1e063dc8,写死,来源,正文,<dt>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,357,
-运营后台,未覆盖需求,UncoveredDemandsPage.35e3f0d4,写死,官网,正文,<dd>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,358,
-运营后台,未覆盖需求,UncoveredDemandsPage.5256726a,写死,渠道接口,正文,<dd>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,358,
-运营后台,未覆盖需求,UncoveredDemandsPage.b5c69094,写死,出现,正文,<dt>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,361,
-运营后台,未覆盖需求,UncoveredDemandsPage.306bc43f,写死,{repeat_count} 次，第一次 {…}，最近 {…},正文,<dd>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,362,
-运营后台,未覆盖需求,UncoveredDemandsPage.b48faa7e,写死,区域名称没有加载出来，先显示编号。,正文,<p>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,366,
+运营后台,未覆盖需求,uncovered-demand-display.a2827edc,写死,不在任何运营区域里,文字,OUTSIDE_OPERATING,apps/web/src/lib/uncovered-demand-display.ts,9,
+运营后台,未覆盖需求,uncovered-demand-display.5e85f70c,写死,在运营区域里，但没有报价区域,文字,NO_PRICING_AREA,apps/web/src/lib/uncovered-demand-display.ts,10,
+运营后台,未覆盖需求,uncovered-demand-display.9832599d,写死,其他原因,文字,OTHER,apps/web/src/lib/uncovered-demand-display.ts,11,
+运营后台,未覆盖需求,uncovered-demand-display.dcf33f5b,写死,这里没有供应商接单：可以请招商找这一带的供应商，或请现有供应商把运营区域画大一些。,文字,OUTSIDE_OPERATING,apps/web/src/lib/uncovered-demand-display.ts,16,
+运营后台,未覆盖需求,uncovered-demand-display.8142cc97,写死,有供应商能来，但商品没有勾选覆盖这里的报价区域：可以联系这些供应商补一个报价区域、设好价格。,文字,NO_PRICING_AREA,apps/web/src/lib/uncovered-demand-display.ts,17,
+运营后台,未覆盖需求,uncovered-demand-display.f299ada9,写死,区域没有问题，是别的原因（提前预订不够、售罄、人数超出、没有价格……），见详情里的拒绝原因。,文字,OTHER,apps/web/src/lib/uncovered-demand-display.ts,18,
+运营后台,未覆盖需求,uncovered-demand-display.ce0bc235,写死,不在运营区域或商品区域里,文字,OUT_OF_SERVICE_AREA,apps/web/src/lib/uncovered-demand-display.ts,23,
+运营后台,未覆盖需求,uncovered-demand-display.54075d7d,写死,在禁行区里,文字,IN_FORBIDDEN_AREA,apps/web/src/lib/uncovered-demand-display.ts,24,
+运营后台,未覆盖需求,uncovered-demand-display.e3b24886,写死,在运营区域里，但商品没有勾选覆盖它的报价区域,文字,NO_PRICING_AREA,apps/web/src/lib/uncovered-demand-display.ts,25,
+运营后台,未覆盖需求,uncovered-demand-display.c5557b19,写死,提前预订时长不够,说明,LEAD_TIME_TOO_SHORT,apps/web/src/lib/uncovered-demand-display.ts,26,
+运营后台,未覆盖需求,uncovered-demand-display.6bbcd015,写死,不在服务时间里,文字,OUTSIDE_SERVICE_TIME,apps/web/src/lib/uncovered-demand-display.ts,27,
+运营后台,未覆盖需求,uncovered-demand-display.08a19111,写死,不在下单有效期里,文字,OUTSIDE_SALE_PERIOD,apps/web/src/lib/uncovered-demand-display.ts,28,
+运营后台,未覆盖需求,uncovered-demand-display.cf11b46d,写死,用车时间已经过去,文字,SERVICE_TIME_PASSED,apps/web/src/lib/uncovered-demand-display.ts,29,
+运营后台,未覆盖需求,uncovered-demand-display.6120699a,写死,库存不足,文字,SOLD_OUT,apps/web/src/lib/uncovered-demand-display.ts,30,
+运营后台,未覆盖需求,uncovered-demand-display.7feff321,写死,加急库存用完,文字,URGENT_SOLD_OUT,apps/web/src/lib/uncovered-demand-display.ts,31,
+运营后台,未覆盖需求,uncovered-demand-display.99d5e5fc,写死,人数或行李超出车型,文字,CAPACITY_EXCEEDED,apps/web/src/lib/uncovered-demand-display.ts,32,
+运营后台,未覆盖需求,uncovered-demand-display.3d0382d3,写死,没有这个车型组,文字,VEHICLE_GROUP_NOT_OFFERED,apps/web/src/lib/uncovered-demand-display.ts,33,
+运营后台,未覆盖需求,uncovered-demand-display.0cc97063,写死,没有价格,文字,NO_PRICE_RULE,apps/web/src/lib/uncovered-demand-display.ts,34,
+运营后台,未覆盖需求,uncovered-demand-display.4b80aab8,写死,价格不在生效期,文字,PRICE_NOT_IN_EFFECT,apps/web/src/lib/uncovered-demand-display.ts,35,
+运营后台,未覆盖需求,uncovered-demand-display.07b30a0f,写死,价格已停用,文字,PRICE_RULE_DISABLED,apps/web/src/lib/uncovered-demand-display.ts,36,
+运营后台,未覆盖需求,uncovered-demand-display.18e6795c,写死,取不到路线,文字,ROUTE_UNAVAILABLE,apps/web/src/lib/uncovered-demand-display.ts,37,
+运营后台,未覆盖需求,uncovered-demand-display.1f4cc323,写死,包车没给下车地点,提示,DROPOFF_REQUIRED,apps/web/src/lib/uncovered-demand-display.ts,38,
+运营后台,未覆盖需求,uncovered-demand-display.8c22b79a,写死,经停点不在任何区域,文字,WAYPOINT_NOT_PRICED,apps/web/src/lib/uncovered-demand-display.ts,39,
+运营后台,未覆盖需求,uncovered-demand-display.fcb34820,写死,预计用时超过在线下单上限,文字,ITINERARY_TOO_LONG,apps/web/src/lib/uncovered-demand-display.ts,40,
+运营后台,未覆盖需求,uncovered-demand-display.2b3d9ba5,写死,附加服务不提供,文字,ADDON_NOT_OFFERED,apps/web/src/lib/uncovered-demand-display.ts,41,
+运营后台,未覆盖需求,uncovered-demand-display.f074e959,写死,没有可用的汇率,文字,FX_RATE_UNAVAILABLE,apps/web/src/lib/uncovered-demand-display.ts,42,
+运营后台,未覆盖需求,uncovered-demand-display.d31a4d35,写死,试运营每日上限,文字,TRIAL_DAILY_LIMIT,apps/web/src/lib/uncovered-demand-display.ts,43,
+运营后台,未覆盖需求,uncovered-demand-display.7850f8de,写死,接机,文字,tripText(),apps/web/src/lib/uncovered-demand-display.ts,58,
+运营后台,未覆盖需求,uncovered-demand-display.c60398de,写死,送机,文字,tripText(),apps/web/src/lib/uncovered-demand-display.ts,58,
+运营后台,未覆盖需求,uncovered-demand-display.b824d06a,写死,包车 {package_hours} 小时,文字,tripText(),apps/web/src/lib/uncovered-demand-display.ts,59,
+运营后台,未覆盖需求,uncovered-demand-display.eb4f6afe,写死,没有给,文字,endText(),apps/web/src/lib/uncovered-demand-display.ts,69,
+运营后台,未覆盖需求,uncovered-demand-display.4ac8dd74,写死,开始日期的写法不对，请写成「年-月-日」。,文字,dateRangeProblem(),apps/web/src/lib/uncovered-demand-display.ts,82,
+运营后台,未覆盖需求,uncovered-demand-display.5303e910,写死,结束日期的写法不对，请写成「年-月-日」。,文字,dateRangeProblem(),apps/web/src/lib/uncovered-demand-display.ts,83,
+运营后台,未覆盖需求,uncovered-demand-display.06298213,写死,开始日期不能晚于结束日期。,文字,dateRangeProblem(),apps/web/src/lib/uncovered-demand-display.ts,85,
+运营后台,未覆盖需求,uncovered-demand-display.ba61899d,写死,日期范围最长 366 天，请缩短。,文字,dateRangeProblem(),apps/web/src/lib/uncovered-demand-display.ts,87,
+运营后台,未覆盖需求,UncoveredDemandsPage.29f7d87c,写死,（已停用）,名称,label,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,50,
+运营后台,未覆盖需求,UncoveredDemandsPage.7b0f659e,写死,城市,名称,label,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,53 311,
+运营后台,未覆盖需求,UncoveredDemandsPage.826a2233,写死,全部,名称,clearLabel,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,53 58 59 73 80,
+运营后台,未覆盖需求,UncoveredDemandsPage.46ab8eb4,写死,供应商,名称,label,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,57,
+运营后台,未覆盖需求,UncoveredDemandsPage.21eaa81b,写死,从,名称,label,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,67,
+运营后台,未覆盖需求,UncoveredDemandsPage.90afadf3,写死,到,名称,label,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,68,
+运营后台,未覆盖需求,UncoveredDemandsPage.1e4100ce,写死,用车类型,名称,label,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,71,
+运营后台,未覆盖需求,UncoveredDemandsPage.4a27a588,写死,原因,名称,label,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,78 172 331,
+运营后台,未覆盖需求,UncoveredDemandsPage.4f16ee6c,写死,未覆盖需求 · NOZOMI {name},浏览器标题,useDocumentTitle(),apps/web/src/pages/platform/UncoveredDemandsPage.tsx,89,
+运营后台,未覆盖需求,UncoveredDemandsPage.6f6ce6c8,写死,未覆盖需求,名称,pageName,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,134 135 258,
+运营后台,未覆盖需求,UncoveredDemandsPage.b8635a5d,写死,商品,名称,label,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,134,
+运营后台,未覆盖需求,UncoveredDemandsPage.33012467,写死,需要的话，请联系管理员开通「未覆盖需求 · 查看」。,说明,description,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,138,
+运营后台,未覆盖需求,UncoveredDemandsPage.40390a8d,写死,你没有权限查看这里,标题,title,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,138,
+运营后台,未覆盖需求,UncoveredDemandsPage.68aefc9b,写死,（供应商已不存在）,名称,tenantName(),apps/web/src/pages/platform/UncoveredDemandsPage.tsx,141,
+运营后台,未覆盖需求,UncoveredDemandsPage.9c25477a,写死,不在任何能订的城市,名称,cityName(),apps/web/src/pages/platform/UncoveredDemandsPage.tsx,142,
+运营后台,未覆盖需求,UncoveredDemandsPage.3e4a2c7a,写死,（城市已不存在）,名称,cityName(),apps/web/src/pages/platform/UncoveredDemandsPage.tsx,144,
+运营后台,未覆盖需求,UncoveredDemandsPage.2722cc61,写死,最近出现,文字,header,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,148,
+运营后台,未覆盖需求,UncoveredDemandsPage.7d462ce2,写死,用车,文字,header,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,151 307,
+运营后台,未覆盖需求,UncoveredDemandsPage.e0605a0b,写死,{passengers} 人 {luggage} 件行李,正文,<span>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,157,
+运营后台,未覆盖需求,UncoveredDemandsPage.67fe3b9a,写死,上车 → 下车,文字,header,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,163,
+运营后台,未覆盖需求,UncoveredDemandsPage.b4f3c9fc,写死,次数,文字,header,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,173,
+运营后台,未覆盖需求,UncoveredDemandsPage.6a880455,写死,涉及的供应商,文字,header,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,176,
+运营后台,未覆盖需求,UncoveredDemandsPage.1b8651ab,写死,没有,正文,<span>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,179,
+运营后台,未覆盖需求,UncoveredDemandsPage.760c59e1,写死, 等 {length} 家,文字,UncoveredDemandsPage(),apps/web/src/pages/platform/UncoveredDemandsPage.tsx,179 250,
+运营后台,未覆盖需求,UncoveredDemandsPage.b74dbc74,写死,操作,文字,header,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,183,
+运营后台,未覆盖需求,UncoveredDemandsPage.7edfcd3b,写死,详情：{…} {…},读屏说明,aria-label,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,186,
+运营后台,未覆盖需求,UncoveredDemandsPage.9dc997dc,写死,详情,按钮,<Button>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,188,
+运营后台,未覆盖需求,UncoveredDemandsPage.439cd720,写死,没有符合条件的未覆盖需求,标题,title,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,198,
+运营后台,未覆盖需求,UncoveredDemandsPage.17794297,写死,日期范围不对，改好后再查（见上面的说明）。,说明,description,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,199,
+运营后台,未覆盖需求,UncoveredDemandsPage.7a080946,写死,换个条件试试，或清空筛选。,说明,description,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,199,
+运营后台,未覆盖需求,UncoveredDemandsPage.21b872c4,写死,清空筛选,按钮,<Button>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,203,
+运营后台,未覆盖需求,UncoveredDemandsPage.04c0b575,写死,客人询价时只要有一家报得出价，就不会记在这里。,说明,description,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,207,
+运营后台,未覆盖需求,UncoveredDemandsPage.277a6e64,写死,最近 30 天没有未覆盖需求,标题,title,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,207,
+运营后台,未覆盖需求,UncoveredDemandsPage.04b3c5b9,写死,客人询价时一家供应商都报不出价，平台会自动记一条（不含客人的姓名、电话、邮箱等任何个人信息，坐标只到约 10 米）。同一天、同一个需求只记一行，再来只加次数。日期按东京时间，默认最近 30 天。,正文,<p>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,213,
+运营后台,未覆盖需求,UncoveredDemandsPage.ce585cd7,写死,{from} 至 {to}：{rows} 条需求，合计 {repeats} 次,标题,<h2>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,225,
+运营后台,未覆盖需求,UncoveredDemandsPage.2185da49,写死,按原因,读屏说明,aria-label,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,228,
+运营后台,未覆盖需求,UncoveredDemandsPage.844fe499,写死,{rows} 条 · {repeats} 次,正文,<span>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,232,
+运营后台,未覆盖需求,UncoveredDemandsPage.3e6654e9,写死,按城市：,正文,<strong>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,241,
+运营后台,未覆盖需求,UncoveredDemandsPage.0386d709,写死,{…} {rows} 条,文字,UncoveredDemandsPage(),apps/web/src/pages/platform/UncoveredDemandsPage.tsx,242 249,
+运营后台,未覆盖需求,UncoveredDemandsPage.30ad21f5,写死, 等 {length} 个,正文,<p>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,243,
+运营后台,未覆盖需求,UncoveredDemandsPage.ac3a9ae4,写死,按运营区域涉及的供应商：,正文,<strong>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,248,
+运营后台,未覆盖需求,UncoveredDemandsPage.d34f1fde,写死,另有 {dropped} 条新需求因为防刷限流没有记下来（每个来源每小时最多 30 条、全站每天最多 5000 条），不分城市和供应商。,正文,<p>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,254,
+运营后台,未覆盖需求,UncoveredDemandsPage.c7ef66e5,写死,区域 {…},名称,areaName(),apps/web/src/pages/platform/UncoveredDemandsPage.tsx,289,
+运营后台,未覆盖需求,UncoveredDemandsPage.2f22bdc3,写死,不在任何供应商的运营区域里,文字,refs(),apps/web/src/pages/platform/UncoveredDemandsPage.tsx,291,
+运营后台,未覆盖需求,UncoveredDemandsPage.dbc81130,写死,未覆盖需求的详情,标题,title,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,295,
+运营后台,未覆盖需求,UncoveredDemandsPage.d2df5ca3,写死,关闭,按钮,<Button>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,301,
+运营后台,未覆盖需求,UncoveredDemandsPage.3129f29d,写死, · 指定了车型组,正文,<dd>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,308,
+运营后台,未覆盖需求,UncoveredDemandsPage.b1923770,写死,{…} · {…}（当地时间） · {passengers} 人 {luggage} 件行李{…},正文,<dd>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,308,
+运营后台,未覆盖需求,UncoveredDemandsPage.bd7c526e,写死,上车,正文,<dt>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,315,
+运营后台,未覆盖需求,UncoveredDemandsPage.bf439a73,写死,（没有地点名称）,正文,<dd>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,316 324,
+运营后台,未覆盖需求,UncoveredDemandsPage.0d07976b,写死,上车点在哪些运营区域里,正文,<dt>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,319,
+运营后台,未覆盖需求,UncoveredDemandsPage.22f50318,写死,下车,正文,<dt>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,323,
+运营后台,未覆盖需求,UncoveredDemandsPage.3260d332,写死,渠道没有给下车地点,正文,<dd>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,324,
+运营后台,未覆盖需求,UncoveredDemandsPage.a22db64e,写死,下车点在哪些运营区域里,正文,<dt>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,327,
+运营后台,未覆盖需求,UncoveredDemandsPage.4a097315,写死,各商品报不出的原因,正文,<dt>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,335,
+运营后台,未覆盖需求,UncoveredDemandsPage.eb23c6f8,写死,没有可以比价的商品（这一带没有供应商的商品）,正文,<dd>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,336,
+运营后台,未覆盖需求,UncoveredDemandsPage.1e063dc8,写死,来源,正文,<dt>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,339,
+运营后台,未覆盖需求,UncoveredDemandsPage.35e3f0d4,写死,官网,正文,<dd>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,340,
+运营后台,未覆盖需求,UncoveredDemandsPage.5256726a,写死,渠道接口,正文,<dd>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,340,
+运营后台,未覆盖需求,UncoveredDemandsPage.b5c69094,写死,出现,正文,<dt>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,343,
+运营后台,未覆盖需求,UncoveredDemandsPage.306bc43f,写死,{repeat_count} 次，第一次 {…}，最近 {…},正文,<dd>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,344,
+运营后台,未覆盖需求,UncoveredDemandsPage.b48faa7e,写死,区域名称没有加载出来，先显示编号。,正文,<p>,apps/web/src/pages/platform/UncoveredDemandsPage.tsx,348,
 运营后台,渠道,ChannelPages.800ebdf5,写死,你没有权限查看这里,标题,title,apps/web/src/pages/platform/ChannelPages.tsx,39,
 运营后台,渠道,ChannelPages.e3d6c968,写死,需要的话，请联系管理员开通。,说明,description,apps/web/src/pages/platform/ChannelPages.tsx,39,
 运营后台,渠道,ChannelPages.8bbb8118,写死,状态,名称,label,apps/web/src/pages/platform/ChannelPages.tsx,49 110,
@@ -10285,41 +10293,6 @@
 前端公共组件和共用文案,时刻、日期的输入整理和「读回来的话」（time-input.ts）,time-input.a8d238bc,写死,{from} 至 {to},文字,dateRangeReadback(),apps/web/src/lib/time-input.ts,62,供应商后台 · 企业信息；供应商后台 · 公司；供应商后台 · 商品编辑；供应商后台 · 工单；供应商后台 · 收款账户 等 28 个页面
 前端公共组件和共用文案,时刻、日期的输入整理和「读回来的话」（time-input.ts）,time-input.55469bca,写死,从 {from} 起,文字,dateRangeReadback(),apps/web/src/lib/time-input.ts,63,供应商后台 · 企业信息；供应商后台 · 公司；供应商后台 · 商品编辑；供应商后台 · 工单；供应商后台 · 收款账户 等 28 个页面
 前端公共组件和共用文案,时刻、日期的输入整理和「读回来的话」（time-input.ts）,time-input.153587e9,写死,到 {to} 为止,文字,dateRangeReadback(),apps/web/src/lib/time-input.ts,64,供应商后台 · 企业信息；供应商后台 · 公司；供应商后台 · 商品编辑；供应商后台 · 工单；供应商后台 · 收款账户 等 28 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.a2827edc,写死,不在任何运营区域里,文字,OUTSIDE_OPERATING,apps/web/src/lib/uncovered-demand-display.ts,9,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.5e85f70c,写死,在运营区域里，但没有报价区域,文字,NO_PRICING_AREA,apps/web/src/lib/uncovered-demand-display.ts,10,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.9832599d,写死,其他原因,文字,OTHER,apps/web/src/lib/uncovered-demand-display.ts,11,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.dcf33f5b,写死,这里没有供应商接单：可以请招商找这一带的供应商，或请现有供应商把运营区域画大一些。,文字,OUTSIDE_OPERATING,apps/web/src/lib/uncovered-demand-display.ts,16,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.8142cc97,写死,有供应商能来，但商品没有勾选覆盖这里的报价区域：可以联系这些供应商补一个报价区域、设好价格。,文字,NO_PRICING_AREA,apps/web/src/lib/uncovered-demand-display.ts,17,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.f299ada9,写死,区域没有问题，是别的原因（提前预订不够、售罄、人数超出、没有价格……），见详情里的拒绝原因。,文字,OTHER,apps/web/src/lib/uncovered-demand-display.ts,18,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.ce0bc235,写死,不在运营区域或商品区域里,文字,OUT_OF_SERVICE_AREA,apps/web/src/lib/uncovered-demand-display.ts,23,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.54075d7d,写死,在禁行区里,文字,IN_FORBIDDEN_AREA,apps/web/src/lib/uncovered-demand-display.ts,24,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.e3b24886,写死,在运营区域里，但商品没有勾选覆盖它的报价区域,文字,NO_PRICING_AREA,apps/web/src/lib/uncovered-demand-display.ts,25,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.c5557b19,写死,提前预订时长不够,说明,LEAD_TIME_TOO_SHORT,apps/web/src/lib/uncovered-demand-display.ts,26,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.6bbcd015,写死,不在服务时间里,文字,OUTSIDE_SERVICE_TIME,apps/web/src/lib/uncovered-demand-display.ts,27,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.08a19111,写死,不在下单有效期里,文字,OUTSIDE_SALE_PERIOD,apps/web/src/lib/uncovered-demand-display.ts,28,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.cf11b46d,写死,用车时间已经过去,文字,SERVICE_TIME_PASSED,apps/web/src/lib/uncovered-demand-display.ts,29,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.6120699a,写死,库存不足,文字,SOLD_OUT,apps/web/src/lib/uncovered-demand-display.ts,30,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.7feff321,写死,加急库存用完,文字,URGENT_SOLD_OUT,apps/web/src/lib/uncovered-demand-display.ts,31,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.99d5e5fc,写死,人数或行李超出车型,文字,CAPACITY_EXCEEDED,apps/web/src/lib/uncovered-demand-display.ts,32,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.3d0382d3,写死,没有这个车型组,文字,VEHICLE_GROUP_NOT_OFFERED,apps/web/src/lib/uncovered-demand-display.ts,33,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.0cc97063,写死,没有价格,文字,NO_PRICE_RULE,apps/web/src/lib/uncovered-demand-display.ts,34,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.4b80aab8,写死,价格不在生效期,文字,PRICE_NOT_IN_EFFECT,apps/web/src/lib/uncovered-demand-display.ts,35,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.07b30a0f,写死,价格已停用,文字,PRICE_RULE_DISABLED,apps/web/src/lib/uncovered-demand-display.ts,36,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.18e6795c,写死,取不到路线,文字,ROUTE_UNAVAILABLE,apps/web/src/lib/uncovered-demand-display.ts,37,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.1f4cc323,写死,包车没给下车地点,提示,DROPOFF_REQUIRED,apps/web/src/lib/uncovered-demand-display.ts,38,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.8c22b79a,写死,经停点不在任何区域,文字,WAYPOINT_NOT_PRICED,apps/web/src/lib/uncovered-demand-display.ts,39,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.fcb34820,写死,预计用时超过在线下单上限,文字,ITINERARY_TOO_LONG,apps/web/src/lib/uncovered-demand-display.ts,40,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.2b3d9ba5,写死,附加服务不提供,文字,ADDON_NOT_OFFERED,apps/web/src/lib/uncovered-demand-display.ts,41,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.f074e959,写死,没有可用的汇率,文字,FX_RATE_UNAVAILABLE,apps/web/src/lib/uncovered-demand-display.ts,42,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.d31a4d35,写死,试运营每日上限,文字,TRIAL_DAILY_LIMIT,apps/web/src/lib/uncovered-demand-display.ts,43,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.7850f8de,写死,接机,文字,tripText(),apps/web/src/lib/uncovered-demand-display.ts,58,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.c60398de,写死,送机,文字,tripText(),apps/web/src/lib/uncovered-demand-display.ts,58,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.b824d06a,写死,包车 {package_hours} 小时,文字,tripText(),apps/web/src/lib/uncovered-demand-display.ts,59,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.eb4f6afe,写死,没有给,文字,endText(),apps/web/src/lib/uncovered-demand-display.ts,69,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.4ac8dd74,写死,开始日期的写法不对，请写成「年-月-日」。,文字,dateRangeProblem(),apps/web/src/lib/uncovered-demand-display.ts,117,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.5303e910,写死,结束日期的写法不对，请写成「年-月-日」。,文字,dateRangeProblem(),apps/web/src/lib/uncovered-demand-display.ts,118,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.06298213,写死,开始日期不能晚于结束日期。,文字,dateRangeProblem(),apps/web/src/lib/uncovered-demand-display.ts,120,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
-前端公共组件和共用文案,「未覆盖需求」（uncovered-demand-display.ts）,uncovered-demand-display.ba61899d,写死,日期范围最长 366 天，请缩短。,文字,dateRangeProblem(),apps/web/src/lib/uncovered-demand-display.ts,122,供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看） 等 6 个页面
 前端公共组件和共用文案,把一段文字写进剪贴板（use-copy-text.tsx）,use-copy-text.6b7a7a0e,写死,已复制,提示,toast(),apps/web/src/lib/use-copy-text.tsx,18,供应商后台 · 区域编辑；官网（客人预订） · 订单页（查订单、管理订单）；登录和账号（两个后台共用） · 两步验证；运营后台 · 系统设置（审计日志、系统状态）；运营后台 · 账号安全和角色
 前端公共组件和共用文案,把一段文字写进剪贴板（use-copy-text.tsx）,use-copy-text.f8b40db0,写死,没有复制成功,标题,title,apps/web/src/lib/use-copy-text.tsx,24,供应商后台 · 区域编辑；官网（客人预订） · 订单页（查订单、管理订单）；登录和账号（两个后台共用） · 两步验证；运营后台 · 系统设置（审计日志、系统状态）；运营后台 · 账号安全和角色
 前端公共组件和共用文案,把一段文字写进剪贴板（use-copy-text.tsx）,use-copy-text.fe6b0da4,写死,我已经复制好了,按钮,<Button>,apps/web/src/lib/use-copy-text.tsx,29,供应商后台 · 区域编辑；官网（客人预订） · 订单页（查订单、管理订单）；登录和账号（两个后台共用） · 两步验证；运营后台 · 系统设置（审计日志、系统状态）；运营后台 · 账号安全和角色
@@ -10955,7 +10928,7 @@ NOZOMI 用车",邮件正文,"zhEmail(""order.driver_link"",""driver"")",packages
 后端返回的提示（接口错误等）,跨段规则配置（trip-rules.ts）,trip-rules.2fd0702a,写死,格式不对,提示,issueMessage(),apps/api/src/services/trip-rules.ts,134,
 后端返回的提示（接口错误等）,运营后台「未覆盖需求」（uncovered-demands.ts）,uncovered-demands.a3c02c4f,写死,不是真实存在的日期,文字,"z.string().regex(/^\d{4}-\d{2}-\d{2}$/,""日期写成YYYY-MM-DD"").refine()",apps/api/src/routes/uncovered-demands.ts,22,
 后端返回的提示（接口错误等）,运营后台「未覆盖需求」（uncovered-demands.ts）,uncovered-demands.c9c8546d,写死,日期写成 YYYY-MM-DD,文字,z.string().regex(),apps/api/src/routes/uncovered-demands.ts,22,
-后端返回的提示（接口错误等）,运营后台「未覆盖需求」（uncovered-demands.ts）,uncovered-demands.57bd4482,写死,开始日期不能晚于结束日期，范围最长 {MAX_RANGE_DAYS} 天,提示,message,apps/api/src/routes/uncovered-demands.ts,39,
+后端返回的提示（接口错误等）,运营后台「未覆盖需求」（uncovered-demands.ts）,uncovered-demands.57bd4482,写死,开始日期不能晚于结束日期，范围最长 {MAX_RANGE_DAYS} 天,提示,message,apps/api/src/routes/uncovered-demands.ts,38,
 后端返回的提示（接口错误等）,运营后台（view-link.ts）,view-link.776a0e5f,写死,订单,文字,resourceId(),apps/api/src/routes/view-link.ts,44 58,
 后端返回的提示（接口错误等）,运营后台（view-link.ts）,view-link.64cee352,写死,请填写核实后的新邮箱,提示,message,apps/api/src/routes/view-link.ts,60,
 后端返回的提示（接口错误等）,运营后台（view-link.ts）,view-link.6dbc58ee,写死,发到下单邮箱不用填新邮箱（请删掉）,提示,message,apps/api/src/routes/view-link.ts,61,

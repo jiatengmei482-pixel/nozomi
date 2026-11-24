@@ -5,7 +5,7 @@
  * - 去重（同一天同一个指纹只累加次数）、限流（每个来源每小时 30 行、全站每天 5000 行，超了只记「被限掉」）、保留 365 天的清理任务；
  * - 记录失败不影响给客人的应答；
  * - 不含任何客人个人信息（没有 IP、手打的地址文字、姓名），坐标 4 位小数；
- * - 运营后台列表、计数、地图上的点（`demand.read`）；租户读不到。
+ * - 运营后台列表、计数（`demand.read`；没有地图用的点，M10-02）；租户读不到。
  * 测试数据全在本文件里经接口建出来（直接摆进库里的只有「400 天前的旧需求」和「全站额度已满」两种时间上的边界），随测试 schema 一起删除（规则 1）。
  */
 import { after, before, test } from "node:test";
@@ -234,16 +234,8 @@ test("运营后台列表：按城市、供应商、日期、品类、原因筛�
   for (const query of ["?tenantid=x", "?from=2026-13-01", "?from=2026-10-10&to=2026-10-01", "?from=2025-01-01&to=2026-10-01", "?reason=WHATEVER", "?limit=0"]) {
     assert.equal((await platform(`/uncovered-demands${query}`)).status, 400, query);
   }
-  // 地图上的点
-  const points = await platform(`/uncovered-demands/points?tenant_id=${m.a.tenantId}`);
-  assertMatchesOpenApi("GET", "/platform/v1/uncovered-demands/points", points);
-  assert.equal(points.body.truncated, false);
-  assert.deepEqual(points.body.items.map((item: any) => item.id).sort(), ofA.items.map((item: any) => item.id).sort());
-  assert.ok(points.body.items.every((item: any) => item.dropoff === null || Object.keys(item.dropoff).sort().join() === "lat,lng"));
-  // 每个点带用车时间和最近出现的时刻（地图的弹出框显示时间用），和列表里同一条一致
-  const listed = new Map<string, any>(ofA.items.map((item: any) => [item.id, item]));
-  for (const item of points.body.items) assert.deepEqual([item.service_local, item.last_seen_at], [listed.get(item.id).service_local, listed.get(item.id).last_seen_at]);
-  assert.equal((await platform("/uncovered-demands/points?limit=5")).status, 400, "点不分页");
+  // 地图用的点接口已经删掉（M10-02：运营后台只看列表）
+  assert.equal((await platform("/uncovered-demands/points")).status, 404);
 });
 
 test("谁能看：超级管理员、运营、招商、渠道经理能看；客服、财务、只读不能；租户的令牌进不来", async () => {
@@ -252,9 +244,8 @@ test("谁能看：超级管理员、运营、招商、渠道经理能看；客�
   const finance = await addStaff(api, m.root, "fin@platform.test", "finance");
   for (const [token, status] of [[m.staff.operations.token, 200], [onboarding.token, 200], [m.staff.cm1.token, 200], [cs.token, 403], [finance.token, 403], [m.staff.readonly.token, 403]] as const) {
     assert.equal((await platform("/uncovered-demands", token)).status, status);
-    assert.equal((await platform("/uncovered-demands/points", token)).status, status);
   }
-  for (const path of ["/platform/v1/uncovered-demands", "/platform/v1/uncovered-demands/points"]) assert.equal((await api.call("GET", path, { token: m.a.adminToken })).status, 401);
+  assert.equal((await api.call("GET", "/platform/v1/uncovered-demands", { token: m.a.adminToken })).status, 401);
 });
 
 test("保留期：每天的清理任务删掉最近出现早于 365 天的需求和「被限掉」计数、1 天以前的限流窗口；近的不动", async () => {

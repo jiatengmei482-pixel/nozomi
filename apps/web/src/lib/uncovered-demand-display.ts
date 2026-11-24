@@ -1,9 +1,9 @@
 /**
  * 「未覆盖需求」（M8-20，ADR 0075 第四部分；docs/design/pages/platform-products.md 第 9 节）的说法：原因、用车类型、两端、拒绝原因、
- * 地图上点的大小，和筛选里「最近 N 天」换成东京日期。不依赖浏览器，用 node:test 直接测。
+ * 和筛选的日期范围检查。不依赖浏览器，用 node:test 直接测。
  */
 import { PRODUCT_CATEGORY_NAMES } from "@nozomi/domain";
-import type { DemandPoint, UncoveredDemand, UncoveredDemandPointItem, UncoveredDemandReason } from "../api/uncovered-demands.ts";
+import type { DemandPoint, UncoveredDemand, UncoveredDemandReason } from "../api/uncovered-demands.ts";
 
 export const DEMAND_REASON_NAMES: Readonly<Record<UncoveredDemandReason, string>> = {
   OUTSIDE_OPERATING: "不在任何运营区域里",
@@ -73,41 +73,6 @@ export function endText(name: string | null, point: DemandPoint | null): string 
 /** 「2026-11-12T09:30」→「2026-11-12 09:30」（用车的当地时间，接口已经是当地时间，不换算）。 */
 export function serviceLocalText(local: string): string {
   return local.replace("T", " ");
-}
-
-/** 地图上点的大小：按次数分三档（1 次、2–4 次、5 次以上），返回半径（像素）。 */
-export function demandDotRadius(repeatCount: number): number {
-  if (repeatCount >= 5) return 9;
-  if (repeatCount >= 2) return 7;
-  return 5;
-}
-
-/** 地图上的点：上车点、下车点各一个（没给的那一端不画）。 */
-export interface DemandMapPoint {
-  key: string;
-  demandId: string;
-  end: "pickup" | "dropoff";
-  point: DemandPoint;
-  item: UncoveredDemandPointItem;
-}
-
-export function demandMapPoints(items: readonly UncoveredDemandPointItem[]): DemandMapPoint[] {
-  return items.flatMap((item) => [
-    ...(item.pickup ? [{ key: `${item.id}:p`, demandId: item.id, end: "pickup" as const, point: item.pickup, item }] : []),
-    ...(item.dropoff ? [{ key: `${item.id}:d`, demandId: item.id, end: "dropoff" as const, point: item.dropoff, item }] : []),
-  ]);
-}
-
-/** 东京的「今天」（YYYY-MM-DD）。 */
-export function tokyoToday(now: Date = new Date()): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
-}
-
-/** 东京日期往前推几天。 */
-export function shiftDate(date: string, days: number): string {
-  const at = new Date(`${date}T00:00:00Z`);
-  at.setUTCDate(at.getUTCDate() + days);
-  return at.toISOString().slice(0, 10);
 }
 
 export const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
