@@ -1081,7 +1081,7 @@
           "updated": "2026-11-22"
         },
         {"id": "M8-46", "title": "共享区域库对话框：引用前看得到形状（地图预览）、列表名称和块数分开、城市名按一种语言显示", "role": "frontend", "status": "review", "acceptance": ["M8-06 验收问题 3：ADR 0083 写了地图预览延后，但 roadmap 没有任务", "引用前能在地图上看到区域形状；列表里名称和块数分开显示；城市下拉不混排中英日名称", "亮暗两套、360px 不横向滚动、axe 通过；测试全过"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/371 ；「看形状」在列表里展开地图（营运区、禁行区），确认步骤也显示；名称和块数分两行；城市改为可搜索组合框（全站统一的名称顺序）；后端接口不变；组件新增 7 条、端到端新增 4 条（亮暗 × 1280 / 360，axe、无横向滚动），单元 3238、组件 1493、集成 17 条全过。部分城市主数据缺简体中文名，下拉里仍显示英文或繁体，需运营补数据", "updated": "2026-11-22"},
-        {"id": "M8-47", "title": "预订页小问题：无效草稿编号给提示、点对点无城市时摘要不留空、输入「羽田」时平台的羽田机场也出现", "role": "frontend", "status": "review", "acceptance": ["M8-06 验收信息项：/book?draft=<无效编号> 时告诉客人链接已失效，再按空白第 1 步打开", "点对点没有城市时行程摘要不显示「点对点 · 」后面空着", "输入「羽田」「羽田空港」时平台的羽田机场出现在候选里（查平台主数据的名称、别名）", "价格规则、订单、付款逻辑不改；测试全过"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/370 ；无效草稿编号提示、摘要条地点名空时不留「 · 」（防御性修复，测试站复现未能在本地重现）；机场搜索别名（迁移 0680，导入时从 GeoNames 存其他日文、中文写法，输入「羽田」能找到羽田机场）；单元 3238、组件 175、集成 277 条全过，CI 全绿；部署后要在测试站运行一次 masterdata:import-airport-names", "updated": "2026-11-22"}
+        {"id": "M8-47", "title": "预订页小问题：无效草稿编号给提示、点对点无城市时摘要不留空、输入「羽田」时平台的羽田机场也出现", "role": "frontend", "status": "done", "acceptance": ["M8-06 验收信息项：/book?draft=<无效编号> 时告诉客人链接已失效，再按空白第 1 步打开", "点对点没有城市时行程摘要不显示「点对点 · 」后面空着", "输入「羽田」「羽田空港」时平台的羽田机场出现在候选里（查平台主数据的名称、别名）", "价格规则、订单、付款逻辑不改；测试全过"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/370 ；无效草稿编号提示、摘要条地点名空时不留「 · 」（防御性修复，测试站复现未能在本地重现）；机场搜索别名（迁移 0680，导入时从 GeoNames 存其他日文、中文写法，输入「羽田」能找到羽田机场）；单元 3238、组件 175、集成 277 条全过，CI 全绿；部署后要在测试站运行一次 masterdata:import-airport-names。监工 2026-11-24 测试站验收通过：输入「羽田」第一条候选是「羽田空港 (HND)」，/book/new?draft=无效编号 显示「预订链接已过期或无效」", "updated": "2026-11-24"}
       ]
     },
     {
@@ -1694,10 +1694,10 @@
           "id": "M9P-04",
           "title": "官网：预计用时（含缓冲）、套餐下拉只列 ≥ 自动档、明细逐项；供应商后台服务规则页三项配置和「下车点行程加价」开关（规格 docs/requirements/charter-pricing-spec-2026-11-14.md，ADR 0093）",
           "role": "frontend",
-          "status": "review",
+          "status": "done",
           "acceptance": ["价格明细「预计用时 X 小时 Y 分钟（含缓冲）」；带经停时套餐下拉默认「自动（N 小时）」、只列 ≥ 自动档", "明细逐项列区域名和第几个经停 / 下车点", "供应商 / 运营订单详情的超时一行：新订单写「预计超出 X 分钟，未预收，服务后按实际提交」，旧单照旧「× 单价 = 金额」（ADR 0091 第四稿第三节第 3 小节）；官网 T 超过所选套餐时的提示文案按 0091 业主确认第 1 条；超过 13 小时提示联系客服", "服务规则页：经停点默认占用、整单缓冲、最低套餐（灰色写建议值，不预填）、「下车点行程加价」开关（默认开，说明写「没有市外经停时，下车点所在行程区域收一次行程加价」）", "组件测试 + 端到端（用例 1、10 的页面部分）", "独立审查、合并、部署后测试站验收", "#229 审查建议（M9P-01 后续）：运营后台救援页展示救援差价的基准（order_rescues.deduction_base_minor，以及重算前后的加价合计、退回原因）——旧单救援时原结算价 65,000、候选 75,500、差价 500 这种情况，不显示基准运营看不懂；后端救援视图接口同步加 deduction_base（OpenAPI）", "P0 验收后续 A（监工 2026-11-14，排在 M9P-03 之后）：不填经停时也显示价格明细，逐行列出套餐、上车加价、下车加价、下车点行程加价，让客人看懂价格是怎么来的", "有经停点时的套餐下拉（默认「自动（N 小时）」、只列比自动档长的、改了重新报价）已在 M9P-03（PR #240）做了，本任务只做预计用时、明细逐项和服务规则页等其余部分", "M9P-03 验收后续（监工 2026-11-14）：有经停时套餐下拉的「自动（N 小时）」现在取的是所有车型里最短的自动档——用例 10 下拉显示「自动（4 小时）」，经济7座卡片却是 5h，客人看到的不一致；改为按客人所选的车型（或卡片上的车型）显示该车型的自动档，下拉只列比这一档长的；组件测试覆盖两个车型自动档不同的情况", "进展（2026-11-14，分支 m9p-04-site-and-rules-ui，PR #248）：服务规则页加「包车按行程计价」一块（经停点默认占用、整单缓冲、最低套餐三个输入框，0 / 不限时空着、灰字占位写建议值，说明里写「建议 15 分钟」「建议 60 分钟，填 0 关闭」「可设为 5 小时」；「下车点行程加价」开关默认开；不加在线下单上限输入框；最低套餐比所有套餐都长时提醒）；官网明细套餐行下面写「预计用时 X 小时 Y 分钟（含缓冲）」，预计用时超过套餐时接着写「超过套餐时长，超出部分服务后按实际收取」（接口没有对外的超时单价，暂不写单价，见 PR 风险）；明细按套餐、上车加价、下车加价、行程加价（区域名，第几个经停点 / 下车点）排，「经停加价」改叫「行程加价」；不填经停点也逐项列明细；套餐下拉按所选车型的自动档（没选车型时各车型一样写这一档，不一样写「自动（按车型 4–5 小时）」、只列比最长的长的）；运营后台救援页和候选对话框写出救援差价基准（后端 PlatformRescue 只加 deduction_base 字段，OpenAPI 同步）。订单详情超时一行（新订单「预计超出 X 分钟，未预收，服务后按实际提交」）和超过 13 小时转客服在 M9P-03 已做"],
-          "evidence": "PR #248（https://github.com/jiatengmei482-pixel/nozomi/pull/248）：本机组件 / 单元测试（官网预订页、订单页、服务规则、救援、运营后台相关 752 条，charter-itinerary / service-rules-form / 契约 26 条）全过；集成测试 charter-dropoff-itinerary 8 条、救援和选档相关 37 条全过；端到端新加 charter-estimate-breakdown.spec.ts 2 条（用例 1、10、16、19 页面部分和服务规则页，亮暗 axe 0、390 宽不横向滚动），受影响的 site-booking-waypoints / site-booking-charter / charter-surcharge / site-booking-package-upgrade / rescue 等单线程全过；待独立审查、合并、部署后测试站验收",
-          "updated": "2026-11-14"
+          "evidence": "PR #248（https://github.com/jiatengmei482-pixel/nozomi/pull/248）：本机组件 / 单元测试（官网预订页、订单页、服务规则、救援、运营后台相关 752 条，charter-itinerary / service-rules-form / 契约 26 条）全过；集成测试 charter-dropoff-itinerary 8 条、救援和选档相关 37 条全过；端到端新加 charter-estimate-breakdown.spec.ts 2 条（用例 1、10、16、19 页面部分和服务规则页，亮暗 axe 0、390 宽不横向滚动），受影响的 site-booking-waypoints / site-booking-charter / charter-surcharge / site-booking-package-upgrade / rescue 等单线程全过；待独立审查、合并、部署后测试站验收。监工 2026-11-24 测试站验收通过：包车时长显示「按行程自动选套餐」，预计 1 小时 49 分（行驶 49 分 + 停留 1 小时）、25.6 公里自动选 4 小时套餐，经济 7 座 30,800 JPY",
+          "updated": "2026-11-24"
         },
         {
           "id": "M9P-05",
@@ -1746,9 +1746,9 @@
         },
         {
           "id": "M9P-20",
-          "title": "包车行程地图（上车 = 1、经停依次、下车 = 最后，列表同编号、每段时长和公里）+ 经停顺序优化（≥ 2 个经停时按 Routes optimizeWaypointOrder 给建议顺序，两条路线两个报价，一键采用或拖动，指定到达时间的经停不重排）；设计见 ADR 0096",
+          "title": "包车行程地图 P1（上车 = 1、经停依次、下车 = 最后，列表同编号、每段时长和公里）；P2 顺序优化、P3 指定到达时间拆到 M9P-20b",
           "role": "backend",
-          "status": "review",
+          "status": "done",
           "acceptance": [
             "按 ADR 0096 分三期：P1 地图和编号（主站、嵌入页都用谷歌静态地图，不加 Leaflet 后备）；P2 顺序优化（只在经停点集合变化时调用、只缓存顺序且与顺序无关、单独每日上限按调用次数计、按预订会话限频只数要调谷歌的请求、每个地址每天 25 次要调谷歌的请求加宽松兜底、必须带有效报价或超长时的询价日志编号、达到阈值才多算一次报价；经停标识 ref 不进 request_key、快照、订单和司机视图）；P3 指定到达时间（arrive_by，可跨午夜）",
             "建议报价和请求绑定：停留、日期时间、人数、行李、到达时间、附加项、升档变了，服务器用缓存的顺序重算建议报价，不再调谷歌优化；「一键采用」核对 request_key，不一致不采用；建议顺序按经停标识 ref 回传、按 ref 重排；客人拖动后页面按新的当前报价重算可省的公里、分钟、日元，低于阈值或已排成建议顺序时收起建议块（端到端「先拖动、再采用」）；两份报价各按各的 expires_at 提示过期；当前顺序没有任何一家报出价、且至少一家因超长报不出时用询价日志编号申请建议；拖成超长时照算公里、分钟、不显示日元，路线取不到时收起；按预订会话限频、只数要调谷歌的请求",
@@ -1758,8 +1758,21 @@
             "单元、集成（本机假谷歌）、端到端（主站 + 嵌入页，chromium + webkit，含键盘上移下移和 360px）；独立审查、合并、部署后按 ADR 0096 第七节第 4 小节在测试站验收",
             "P1 遗留（#256 审查记下，P1 合并后另做）：订单页、司机页、供应商 / 运营订单详情每段写时长和公里（订单接口带 itinerary.legs，ADR 0096 第九节 P1 一行）；行程地图出图单设每日上限（现在和两点路线小地图共用 GOOGLE_STATIC_MAPS_DAILY_LIMIT）；部署冒烟核对 /map-markers/10.png 公网可取、是 PNG"
           ],
-          "evidence": "P1（地图和编号）：PR #256——新接口 GET /site/v1/itinerary-map（迁移 0490）；单元 domain itinerary-map 9 条 + google-itinerary-routes 3 条 + web charter-itinerary 11 条、map-markers 1 条；集成 site-itinerary-map.itest.ts 9 条（含 /site/v1/itinerary-legs）；组件 itinerary-map.test.tsx 8 条 + embed-flow 1 条；端到端 site-booking-itinerary-map.spec.ts 2 条（亮暗 axe、360 宽、10 个经停）+ site-embed-booking.spec.ts 1 条（chromium + webkit-embed）；截图 docs/acceptance/M9P-20-shots/。P2（顺序建议）：PR #267（基于 #256）——POST /site/v1/charter/order-suggestion、迁移 0530；单元 domain 7 条 + web 4 条、集成 site-order-suggestion.itest.ts 8 条、组件 order-suggestion.test.tsx 5 条、端到端 site-booking-order-suggestion.spec.ts 1 条。P3（指定到达时间 arrive_by）：单元 domain arrive-by.test.ts 8 条 + web arrive-by-display.test.ts 4 条、order-suggestion.test.ts 1 条；集成 site-arrive-by.itest.ts 5 条 + manual-quotes.itest.ts 1 条；组件 waypoints.test.tsx 1 条、order-suggestion.test.tsx 1 条；端到端 site-booking-arrive-by.spec.ts 1 条（chromium）；无迁移。P3 已合并（PR #286，main 17fa9361）并部署到测试站；监工 2026-11-17 验收基本通过，提了 2 条修改待做：地点搜索结果排序、每个经停的预计到达时刻表；监工 2026-11-17 的 2 条修改已做：地点候选排序 #292（+ #300 文字搜索要 10 条带 types），每站预计时刻、来不及标红 #293；待监工复验",
-          "updated": "2026-11-18"
+          "evidence": "P1（地图和编号）：PR #256——新接口 GET /site/v1/itinerary-map（迁移 0490）；单元 domain itinerary-map 9 条 + google-itinerary-routes 3 条 + web charter-itinerary 11 条、map-markers 1 条；集成 site-itinerary-map.itest.ts 9 条（含 /site/v1/itinerary-legs）；组件 itinerary-map.test.tsx 8 条 + embed-flow 1 条；端到端 site-booking-itinerary-map.spec.ts 2 条（亮暗 axe、360 宽、10 个经停）+ site-embed-booking.spec.ts 1 条（chromium + webkit-embed）；截图 docs/acceptance/M9P-20-shots/。监工 2026-11-24 测试站验收 P1 通过：行程地图上车 1、经停 2、下车 3，列表同编号，每段时长和公里（21 分 8.4 公里 / 28 分 17.2 公里）",
+          "updated": "2026-11-24"
+        },
+        {
+          "id": "M9P-20b",
+          "title": "包车行程（拆自 M9P-20）：P2 经停顺序建议、P3 指定到达时间（含监工 11-17 两条修改）、P1 遗留",
+          "role": "frontend",
+          "status": "review",
+          "acceptance": [
+            "P2、P3 的验收标准见 M9P-20（ADR 0096 第七节第 4 小节）",
+            "P3 监工 2026-11-17 两条修改：地点搜索结果排序、每个经停的预计到达时刻表（来不及标红）",
+            "P1 遗留（#256 审查记下）：订单页、司机页、供应商 / 运营订单详情每段写时长和公里；行程地图出图单设每日上限；部署冒烟核对 /map-markers/10.png 公网可取、是 PNG——逐条核对是否已做"
+          ],
+          "evidence": "P2（顺序建议）：PR #267（基于 #256）——POST /site/v1/charter/order-suggestion、迁移 0530；单元 domain 7 条 + web 4 条、集成 site-order-suggestion.itest.ts 8 条、组件 order-suggestion.test.tsx 5 条、端到端 site-booking-order-suggestion.spec.ts 1 条。P3（指定到达时间 arrive_by）：单元 domain arrive-by.test.ts 8 条 + web arrive-by-display.test.ts 4 条、order-suggestion.test.ts 1 条；集成 site-arrive-by.itest.ts 5 条 + manual-quotes.itest.ts 1 条；组件 waypoints.test.tsx 1 条、order-suggestion.test.tsx 1 条；端到端 site-booking-arrive-by.spec.ts 1 条（chromium）；无迁移。P3 已合并（PR #286，main 17fa9361）并部署到测试站；监工 2026-11-17 验收基本通过，提了 2 条修改待做：地点搜索结果排序、每个经停的预计到达时刻表；监工 2026-11-17 的 2 条修改已做：地点候选排序 #292（+ #300 文字搜索要 10 条带 types），每站预计时刻、来不及标红 #293；待监工复验",
+          "updated": "2026-11-24"
         },
         {
           "id": "M9P-09",
@@ -1966,10 +1979,10 @@
           "id": "M9T-09",
           "title": "官网行程报价页 /book/trip：按天填写、建单与报价、两个方案对比（每天编号地图）、全部报不出转人工、部分报不出写明原因（ADR 0101 第十三节第 1 小节）",
           "role": "frontend",
-          "status": "review",
-          "evidence": "第 1 部分 #320：/book/trip 填写、建单、报价骨架；第 2 部分（本 PR）：方案对比卡片（逐天每段、费用、提示）、全部报不出「转人工报价」带 trip_id / trip_labels（M9T-08）",
+          "status": "done",
+          "evidence": "第 1 部分 #320：/book/trip 填写、建单、报价骨架；第 2 部分（本 PR）：方案对比卡片（逐天每段、费用、提示）、全部报不出「转人工报价」带 trip_id / trip_labels（M9T-08）。监工 2026-11-22 测试站复验通过，2026-11-24 确认改为已验收",
           "acceptance": ["样式同 /book/new：桌面两栏 + 每天一张编号地图，≤1023px 单栏 + 底部步骤条", "文案按 ADR 0101 第十三节文案表", "manual_quote_suggested 为 true 时只给转人工（带 trip_id）；部分报不出照常展示并写明原因", "不做 embed；验收通过前不加入口链接；组件测试与契约测试通过，测试站可直接打开地址验收"],
-          "updated": "2026-11-18"
+          "updated": "2026-11-24"
         },
         {
           "id": "M9T-10",
@@ -1993,37 +2006,37 @@
           "id": "M9T-30",
           "title": "ADR 0104：AI 一句话行程报价（P3 实施篇）——Claude 把一句话整理成 /book/trip 表单草稿、地名经现有地址搜索变坐标、无状态解析接口、第三方密钥新增 Claude 项、限频与隐私、测试与分工（只有文档）",
           "role": "product",
-          "status": "review",
-          "evidence": "PR #346：ADR 0104 已采纳（业主 2026-11-20 定完 Q1–Q5）",
+          "status": "done",
+          "evidence": "PR #346：ADR 0104 已采纳（业主 2026-11-20 定完 Q1–Q5）。监工 2026-11-22 测试站复验 5 句全过，2026-11-24 确认改为已验收",
           "acceptance": ["监工确认、业主定 Q1–Q5 后改为已采纳", "第三节接口约定两位开发在 #288 对过"],
-          "updated": "2026-11-20"
+          "updated": "2026-11-24"
         },
         {
           "id": "M9T-31",
           "title": "第三方密钥新增「Claude（AI 行程解析）」：迁移放宽 integration_secrets 取值、packages/config 校验与 ANTHROPIC_API_KEY 后备、后台页、「测试一下」（模型查询，不产生 token 费用）、/health、docs/secrets.md（ADR 0104 第六节）",
           "role": "backend",
-          "status": "review",
-          "evidence": "PR #347 已合并（1254ff87）：后台第三方密钥「Claude（AI 行程解析）」、测试一下查模型列表、/health 一项；单元、集成测试；待业主在测试站填密钥后验收",
+          "status": "done",
+          "evidence": "PR #347 已合并（1254ff87）：后台第三方密钥「Claude（AI 行程解析）」、测试一下查模型列表、/health 一项；单元、集成测试；待业主在测试站填密钥后验收。监工 2026-11-22 测试站复验 5 句全过，2026-11-24 确认改为已验收",
           "acceptance": ["只有超级管理员能填，打码、审计、后台优先同现有三项（集成测试）", "代码、日志、仓库里没有密钥原文"],
-          "updated": "2026-11-20"
+          "updated": "2026-11-24"
         },
         {
           "id": "M9T-32",
           "title": "POST /site/v1/trips/parse、GET /site/v1/trips/parse-status：Claude 结构化输出 + zod 校验、Sonnet 5.5 / Haiku 5.5 两个型号与后台三选一（ai_trip_settings，先 Haiku 出错再 Sonnet）、每个型号今天的次数、null → 请补填、个人信息替换、地名经现有地址搜索解析、三档限频（同地址每分钟 3 / 每天 20、全站每天 300）、trip_parse_runs（不含文字）；不建行程单、不存原文（ADR 0104 第三～七、九节）",
           "role": "backend",
-          "status": "review",
-          "evidence": "PR #349（domain 纯函数）、#350（解析接口、parse-status、后台型号三选一与今天的次数、限频与全站额度、调用记录与 90 天清理、端到端假 Claude）均已合并（e9aa5aed）；集成 11 + 单元 + 组件 3。按监工 11-21 验收意见补：#359（明确地名取第一候选、候选去重、默认停留、起点接上一天终点）、#360（默认用法先 Haiku 出错再 Sonnet）、#361（说了起点照用、包车日没说终点回起点、泛指地点提示没说是哪一家），集成 12 条。测试站验收：监工重跑 5 句",
+          "status": "done",
+          "evidence": "PR #349（domain 纯函数）、#350（解析接口、parse-status、后台型号三选一与今天的次数、限频与全站额度、调用记录与 90 天清理、端到端假 Claude）均已合并（e9aa5aed）；集成 11 + 单元 + 组件 3。按监工 11-21 验收意见补：#359（明确地名取第一候选、候选去重、默认停留、起点接上一天终点）、#360（默认用法先 Haiku 出错再 Sonnet）、#361（说了起点照用、包车日没说终点回起点、泛指地点提示没说是哪一家），集成 12 条。测试站验收：监工重跑 5 句。监工 2026-11-22 测试站复验 5 句全过，2026-11-24 确认改为已验收",
           "acceptance": ["Claude 用测试替身覆盖正常、缺字段、拒答、超时、不合格两次、注入样例；CI 不调真接口", "没配密钥 / 出错 / 额度用完 → 503，报价接口和 trips 表无改动", "trip_parse_runs 逐列检查不含输入文字"],
-          "updated": "2026-11-20"
+          "updated": "2026-11-24"
         },
         {
           "id": "M9T-33",
           "title": "/book/trip 一句话输入框（第二开发）：帮我填好、替换确认、「AI 填的」「请补填」「请选一个」标记、候选选择、失败退回手填、隐私小字与隐私政策一句（ADR 0104 第二节、文案表）",
           "role": "frontend",
-          "status": "review",
-          "evidence": "前端三个 PR：#348（fac7b71，输入框、解析结果转表单、替换确认、摘要框、失败提示、文案表）、#351（d66fb42，额度用完提示、新提示代码、不在报价范围转人工、parse 接口契约测试）、#353（277df98，格子「AI 填的 / 请补填」标记、候选点选、没找到预填、e2e site-trip-ai.spec.ts）；组件测试 + 单测 + e2e（假 Claude）都在 CI 里。待测试站验收（业主先填测试站 Claude 密钥）。隐私政策那一句登记进 M9E-24（页面待业主给内容）。已知限制：转人工报价只带表单第 1 天、没有说明框（#288【需业主决定】，先按 A 不改）",
+          "status": "done",
+          "evidence": "前端三个 PR：#348（fac7b71，输入框、解析结果转表单、替换确认、摘要框、失败提示、文案表）、#351（d66fb42，额度用完提示、新提示代码、不在报价范围转人工、parse 接口契约测试）、#353（277df98，格子「AI 填的 / 请补填」标记、候选点选、没找到预填、e2e site-trip-ai.spec.ts）；组件测试 + 单测 + e2e（假 Claude）都在 CI 里。待测试站验收（业主先填测试站 Claude 密钥）。隐私政策那一句登记进 M9E-24（页面待业主给内容）。已知限制：转人工报价只带表单第 1 天、没有说明框（#288【需业主决定】，先按 A 不改）。监工 2026-11-22 测试站复验 5 句全过，2026-11-24 确认改为已验收",
           "acceptance": ["组件测试覆盖显隐、标记、候选、失败提示", "端到端：一句话 → 填表 → 补填 → 查看报价 → 方案；AI 不可用时手填照旧"],
-          "updated": "2026-11-20"
+          "updated": "2026-11-24"
         },
         {
           "id": "M9T-34",
@@ -2054,9 +2067,9 @@
           "id": "M10-01",
           "title": "核实并整改：官网 Leaflet 路线后备图和地图选点与谷歌《服务专用条款》19.2 / 14.2 / 6.2（谷歌内容不得用于非谷歌地图）",
           "role": "frontend",
-          "status": "review",
+          "status": "done",
           "acceptance": ["盘点所有把谷歌 Routes 折线、Places 搜索结果、Geocoding 反查结果和 Leaflet 非谷歌底图一起显示的地方（至少 apps/web/src/pages/book/new/RouteMap.tsx 后备路线图、SiteMapPicker.tsx 地图选点）", "逐处给出整改：改用谷歌地图（静态图或 Maps JS），或不显示地图只显示文字；方案写进 ADR（修订 ADR 0017 / 0072）并经独立审查", "整改后端到端测试覆盖：静态地图未开通时不再在 Leaflet 上画谷歌路线", "嵌入页 /embed/book（ADR 0095，Q11）同步改用同一套合规后备图：首期静态图失败时只显示时长和公里数，M10-01 之后显示和主站相同的路线摘要图；端到端覆盖嵌入页"],
-          "evidence": "PR #312、#319、#321 已合并；业主 11-18 选 A（谷歌选点）。测试站 2026-11-23 实测谷歌选点能填地址，屏蔽谷歌后 0.5 秒内提示用搜索。独立审查（2026-11-23）提的必改项在本 PR 整改：多日行程页改用谷歌选点、没有浏览器密钥时不提供地图选点（删掉 SiteMapPicker，官网不再用 Leaflet）、嵌入页路线图 503 只留文字补 e2e、ADR 0017 / 0044 / 0072 和设计文档对齐。运营后台「未覆盖需求」图层待业主决定（#288）",
+          "evidence": "PR #312、#319、#321 已合并；业主 11-18 选 A（谷歌选点）。测试站 2026-11-23 实测谷歌选点能填地址，屏蔽谷歌后 0.5 秒内提示用搜索。独立审查（2026-11-23）提的必改项在本 PR 整改：多日行程页改用谷歌选点、没有浏览器密钥时不提供地图选点（删掉 SiteMapPicker，官网不再用 Leaflet）、嵌入页路线图 503 只留文字补 e2e、ADR 0017 / 0044 / 0072 和设计文档对齐。运营后台「未覆盖需求」图层待业主决定（#288）。监工 2026-11-24 测试站验收通过（地图部分）：官网地图为谷歌地图，无 OpenStreetMap",
           "updated": "2026-11-24"
         },
         {
@@ -3861,6 +3874,7 @@
     {"date": "2026-11-24", "by": "Codespace 开发", "summary": "监工 2026-11-24 定四个技术决定：M8-25b 不做（删掉）；M8-36 以部署前后 17/17 快照代替 30 天回放；后台「未覆盖需求」只显示列表，新任务 M10-02 去掉开源底图上的需求图层；CI 拦截写死文案增多（只拦新增），新任务 M11-07。M9W-09、M8-29b 开始做"},
     {"date": "2026-11-24", "by": "Codespace 开发", "summary": "M11-07（#384）、M9W-09（#386）合并，改为待验收；M9E-19 Firefox 自动测和 3D 验证失败用例合并（#385），演示站 3D 验证测试卡实测通过，验收记录和真机 Safari 上线前检查项待写"},
     {"date": "2026-11-24", "by": "Codespace 开发", "summary": "M10-02（#387）合并，改为待验收：后台未覆盖需求只显示列表，开源底图上不再画客人搜索点"},
-    {"date": "2026-11-24", "by": "Codespace 开发", "summary": "M8-29b（#389）合并，改为待验收：剩余 8 类偶发查清并修掉，CI 上 Ubuntu 镜像慢改为缓存浏览器和 apt 包"}
+    {"date": "2026-11-24", "by": "Codespace 开发", "summary": "M8-29b（#389）合并，改为待验收：剩余 8 类偶发查清并修掉，CI 上 Ubuntu 镜像慢改为缓存浏览器和 apt 包"},
+    {"date": "2026-11-24", "by": "Codespace 开发", "summary": "监工 2026-11-24 验收通过改为已验收：M9P-04、M9P-20（P1；P2、P3 和 P1 遗留拆到 M9P-20b 待验收）、M10-01、M8-47、M9T-09、M9T-30~33"}
   ]
 }
