@@ -6,7 +6,7 @@
  * 并行的用例共用一个库，所以每条用自己的城市、供应商和随机编码。
  */
 import { type APIRequestContext, type Locator, type Page, expect, test } from "@playwright/test";
-import { createActiveTenant, expectNoHorizontalOverflow, loginAs, platformAdminHeaders, randomLetters } from "./support.ts";
+import { createTestCity, createActiveTenant, expectNoHorizontalOverflow, loginAs, platformAdminHeaders, randomLetters } from "./support.ts";
 
 const CENTER = { lat: 35.6895, lng: 139.6917 };
 
@@ -37,8 +37,8 @@ async function post<T>(request: APIRequestContext, headers: Record<string, strin
 /** 平台这边的主数据：一个城市、城市下的一个机场、一个车型组（两个组合）、一个按个计费的附加服务。 */
 async function createWorld(request: APIRequestContext): Promise<World> {
   const headers = await platformAdminHeaders(request);
-  const tag = randomLetters(5);
-  const city = await post<{ id: string }>(request, headers, "/platform/v1/master/cities", { code: `CTY-JP-${tag}`, country_code: "JP", name: { zh: `测试城${tag}` }, timezone: "Asia/Tokyo", center: CENTER }, "新建城市");
+  const city = await createTestCity(request, headers, (tag) => ({ name: { zh: `测试城${tag}` }, timezone: "Asia/Tokyo", center: CENTER }));
+  const tag = city.tag;
   let airport: Ref | null = null;
   for (let attempt = 0; airport === null && attempt < 8; attempt += 1) {
     const code = `Y${randomLetters(2)}`;

@@ -4,7 +4,7 @@
  * 并行的用例共用一个库：每条用例用自己的国家和三字码前缀，页面都带上国家筛选，断言不依赖全库的数量。
  */
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
-import { adminCredentials, importAirports, loginAs, platformAdminHeaders, randomLetters } from "./support.ts";
+import { createTestCity, adminCredentials, importAirports, loginAs, platformAdminHeaders, randomLetters } from "./support.ts";
 
 interface Created {
   id: string;
@@ -23,10 +23,8 @@ function sampleAirports(prefix: string, count: number): { iata: string; name: st
 
 async function createCity(request: APIRequestContext, country: string, timezone: string, name: string): Promise<Created> {
   const headers = await platformAdminHeaders(request);
-  const code = `CTY-${country}-${randomLetters(6)}`;
-  const response = await request.post("/platform/v1/master/cities", { headers, data: { code, country_code: country, name: { zh: name }, timezone, center: { lng: 36.817223, lat: -1.286389 } } });
-  expect(response.status(), "接口新建城市").toBe(201);
-  return { id: ((await response.json()) as { id: string }).id, code, name };
+  const { id, code } = await createTestCity(request, headers, () => ({ name: { zh: name }, timezone, center: { lng: 36.817223, lat: -1.286389 } }), { country, tagLength: 6 });
+  return { id, code, name };
 }
 
 interface PendingPlace {

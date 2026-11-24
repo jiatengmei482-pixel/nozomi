@@ -58,6 +58,19 @@ flowchart LR
 - **必须在本机跑全套时**（例如改了测试基础设施、迁移框架），两个角色错开跑，不要同时跑；开始前先看有没有别的 `pnpm check` / `pnpm test:integration` 进程在跑。
 - 交回报告写清本机跑了哪些测试、多少条，以及 PR 的 CI 结果。
 
+### 本机跑端到端时浏览器崩溃（Target crashed / Page crashed）
+
+（M8-29b 登记）本机单线程跑端到端时偶尔报 `Target crashed`、`Page crashed`、`browserContext.newPage: Target crashed`，出在截图、axe、点击、开新页等任意一步（登记过的有 charter-estimate-breakdown、embed-key-delivery、site-booking-waypoints:56、manual-quote、platform-products、site-booking-mobile-address、site-booking-charter）。
+
+- **只在本机出现**：CI 上 2026-11-13 以来全部 150 次失败的运行里没有一次浏览器崩溃（CI 的 Playwright 不重试，崩一次整轮就红，所以失败记录就是全量）。每次本机崩溃时都有别的会话同时在跑集成测试、`vite preview` 或 `tsc`，可用内存只剩一两百 MB；Codespace 只有 2 核、8 GB、`/dev/shm` 64 MB，浏览器渲染进程被系统杀掉。不是断言失败，也不是页面问题。
+- **跑之前**：`free -m` 看 available，低于约 1 GB 先等别的会话跑完；`ps aux --sort=-rss | head` 看是谁占着。一律 `--workers=1`、只跑相关文件。端口被别的会话占着时换端口：`E2E_API_PORT=28080 E2E_WEB_PORT=24173 pnpm --filter @nozomi/web exec playwright test <文件> --workers=1`（其余端口跟着这两个走，见 `apps/web/playwright.config.ts`）。
+- **崩了以后**：报错是 `Target crashed` / `Page crashed` / `Target page, context or browser has been closed`（不是 `Test timeout`）时，等内存空出来单独重跑那一条，记进交回报告；同一条在内存充足时（available > 1 GB、没有别的会话在跑）仍然崩，才当真问题查。
+- **CI 上出现**：按上面「CI 有失败一律先查原因」处理，不能当本机内存问题直接重跑。
+
+### 组件测试的等待上限
+
+组件测试（`apps/web`，happy-dom）的 `findBy*`、`waitFor` 默认等待上限统一放宽到 5 秒（`apps/web/test/register.mjs`，M8-29b）：机器忙时「保存 → 跳页 → 渲染列表」一步就要 0.5～0.9 秒，测试库默认的 1 秒会误报。条件一满足就立即返回，不让测试变慢；单条测试不要再自己加长等待。
+
 ## 在 claude.ai/code 里怎么开始一个会话
 
 在 claude.ai/code 选择本仓库，发一句话即可，例如：

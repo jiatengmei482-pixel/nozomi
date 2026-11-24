@@ -6,7 +6,7 @@
  */
 import { AxeBuilder } from "@axe-core/playwright";
 import { type APIRequestContext, type Locator, type Page, expect, test } from "@playwright/test";
-import { createActiveTenant, expectNoHorizontalOverflow, loginAs, platformAdminHeaders, randomLetters, settleAnimations, snapshot } from "./support.ts";
+import { createTestCity, createActiveTenant, expectNoHorizontalOverflow, loginAs, platformAdminHeaders, randomLetters, settleAnimations, snapshot } from "./support.ts";
 
 const CENTER = { lat: 35.3192, lng: 139.5467 };
 
@@ -17,11 +17,7 @@ function rect(west: number, south: number, east: number, north: number): { type:
 /** 一个新城市（别的用例的区域不会出现在它的共享库里）+ 供应商甲在里面建的一个区域。 */
 async function seed(request: APIRequestContext): Promise<{ cityName: string; areaName: string; areaId: string }> {
   const headers = await platformAdminHeaders(request);
-  const code = `CTY-JP-${randomLetters(5)}`;
-  const cityName = `共享预览城市${code.slice(-5)}`;
-  const city = await request.post("/platform/v1/master/cities", { headers, data: { code, country_code: "JP", name: { zh: cityName, en: `Preview ${code.slice(-5)}` }, timezone: "Asia/Tokyo", center: CENTER } });
-  expect(city.status(), "接口新建城市").toBe(201);
-  const cityId = ((await city.json()) as { id: string }).id;
+  const { id: cityId, name: cityName } = await createTestCity(request, headers, (tag) => ({ name: { zh: `共享预览城市${tag}`, en: `Preview ${tag}` }, timezone: "Asia/Tokyo", center: CENTER }));
 
   const owner = await createActiveTenant(request);
   const login = await request.post("/tenant/v1/auth/login", { data: { email: owner.adminEmail, password: owner.password } });

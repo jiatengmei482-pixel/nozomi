@@ -2,7 +2,7 @@
  * 运营后台「未覆盖需求」（M8-20，ADR 0075 第四部分第 5 节）：只读，`demand.read`（超级管理员、运营、招商、渠道经理）。
  * - `GET /platform/v1/uncovered-demands`：按城市、供应商、最近出现的日期范围（东京日期，默认最近 30 天）、品类、原因筛选；游标分页；
  *   带合计（行数、次数之和）和按原因、按城市、按供应商的计数，以及这段时间里因为限流没记下来的条数。
- * - `GET /platform/v1/uncovered-demands/points`：同样的筛选，给区域地图图层用的点（每条的上车、下车坐标、原因、次数），最多 2000 条。
+ * 不给地图用的点（M10-02，监工 2026-11-24：运营后台只看列表，搜索地点可能来自谷歌，不能画在开源底图上；ADR 0075 补充）。
  * 不认识的查询参数一律 400。里面没有任何客人个人信息；`/tenant/v1` 没有读它的接口。
  */
 import type { FastifyInstance } from "fastify";
@@ -11,7 +11,7 @@ import { SERVICE_CATEGORIES, UNCOVERED_DEMAND_REASONS, addDays } from "@nozomi/d
 import type { AppContext } from "../context.ts";
 import type { DemandOperatingRef, UncoveredDemand } from "../repos/uncovered-demands.ts";
 import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
-import { type DemandQuery, listUncoveredDemands, uncoveredDemandPoints } from "../services/uncovered-demands.ts";
+import { type DemandQuery, listUncoveredDemands } from "../services/uncovered-demands.ts";
 import { pageQuerySchema, parseInput, uuidSchema, validationFailed } from "../validation.ts";
 
 type Json = Record<string, unknown>;
@@ -30,7 +30,6 @@ const filterSchema = z.object({
   reason: z.enum(UNCOVERED_DEMAND_REASONS).optional(),
 });
 const listQuerySchema = pageQuerySchema.merge(filterSchema).strict();
-const pointsQuerySchema = filterSchema.strict();
 
 function demandQuery(input: z.output<typeof filterSchema>): DemandQuery {
   const from = input.from ?? null;
@@ -95,18 +94,6 @@ export function registerUncoveredDemandRoutes(app: FastifyInstance, ctx: AppCont
       },
       tenants: [...found.tenants].map(([id, name]) => ({ id, name })),
       cities: [...found.cities].map(([id, name]) => ({ id, name })),
-    };
-  });
-
-  app.get("/platform/v1/uncovered-demands/points", async (request) => {
-    await authenticatePlatform(ctx, platformCredentials(request), { action: "demand.read" });
-    const query = parseInput(pointsQuerySchema, request.query, "querystring");
-    const found = await uncoveredDemandPoints(ctx, demandQuery(query));
-    return {
-      from: found.from,
-      to: found.to,
-      items: found.items.map((item) => ({ id: item.id, category: item.category, reason: item.reason, repeat_count: item.repeatCount, pickup: pointJson(item.pickup), dropoff: pointJson(item.dropoff), service_local: item.serviceLocal, last_seen_at: item.lastSeenAt.toISOString() })),
-      truncated: found.truncated,
     };
   });
 }

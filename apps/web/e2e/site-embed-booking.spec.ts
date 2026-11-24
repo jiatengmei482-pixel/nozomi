@@ -617,8 +617,8 @@ test("M9E-32 跨站：手机 390 宽，iframe 被撑到全高，每一步的主�
   await expectFrameButtonOnScreen(page, next, "bottom", "第 2 步「下一步」（宿主滚到底）");
   await next.click();
 
-  // 第 3 步
-  await expect(frame.getByRole("heading", { level: 2, name: "乘客信息" })).toBeVisible();
+  // 第 3 步：等换步后焦点移到标题再填（同 placeInFrame 的说明）
+  await expect(frame.getByRole("heading", { level: 2, name: "乘客信息" })).toBeFocused();
   await frame.getByLabel("航班号").fill("NH211");
   await frame.getByRole("radio", { name: /^国际航班/ }).check();
   await frame.getByLabel("乘车人姓名").fill("王小明");
@@ -685,6 +685,9 @@ async function placeInFrame(page: Page, request: APIRequestContext): Promise<{ h
   const card = frame.getByRole("listitem").filter({ has: frame.getByRole("heading", { name: world.group.name }) });
   await card.getByRole("button", { name: `选择 ${world.group.name}` }).click();
   await frame.getByRole("button", { name: "下一步：填写乘客信息" }).click();
+  // 换步后页面把焦点移到这一步的标题（BookNewPage 的 effect）：等移过去再填。WebKit 忙时这一下晚到，正好落在 fill 聚焦输入框和
+  // 输入文字之间，文字打进了标题、航班号是空的，第 3 步过不去（M8-29b：CI run 44290150003、44294848795 的追踪，fill 刚结束航班号就是空的）
+  await expect(frame.getByRole("heading", { level: 2, name: "乘客信息" })).toBeFocused();
   await frame.getByLabel("航班号").fill("NH211");
   await frame.getByRole("radio", { name: /^国际航班/ }).check();
   await frame.getByLabel("乘车人姓名").fill("王小明");

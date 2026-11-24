@@ -1,6 +1,6 @@
 # 运营后台（第 1 / 3 份）
 
-由 `pnpm copy:export` 从代码生成，不要手改。本区域共 3935 条：写死 3929 条，已走 key 6 条。列的意思见 [README](README.md)。
+由 `pnpm copy:export` 从代码生成，不要手改。本区域共 3969 条：写死 3963 条，已走 key 6 条。列的意思见 [README](README.md)。
 
 本区域分 3 份：第 1 份 · [第 2 份](platform-2.md) · [第 3 份](platform-3.md)
 
@@ -11,7 +11,7 @@
 - [资质审核](#资质审核)（26 条）
 - [商品（只读查看）](#商品只读查看)（67 条）
 - [报价试算](#报价试算)（179 条）
-- [未覆盖需求](#未覆盖需求)（63 条）
+- [未覆盖需求](#未覆盖需求)（97 条）
 - [渠道](#渠道)（102 条）
 - [待审核](#待审核)（88 条）
 - [平台员工](#平台员工)（93 条）
@@ -524,73 +524,107 @@
 
 ## 未覆盖需求
 
-文件：`apps/web/src/pages/platform/UncoveredDemandsPage.tsx`
+文件：`apps/web/src/lib/uncovered-demand-display.ts`、`apps/web/src/pages/platform/UncoveredDemandsPage.tsx`
 
 | key | 状态 | 中文 | 类型 | 位置 |
 | --- | --- | --- | --- | --- |
-| `UncoveredDemandsPage.29f7d87c` | 写死 | （已停用） | 名称 | [UncoveredDemandsPage.tsx:56](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L56) |
-| `UncoveredDemandsPage.7b0f659e` | 写死 | 城市 | 名称 | [UncoveredDemandsPage.tsx:59](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L59)、329 行 |
-| `UncoveredDemandsPage.826a2233` | 写死 | 全部 | 名称 | [UncoveredDemandsPage.tsx:59](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L59)、64、65、79、86 行 |
-| `UncoveredDemandsPage.46ab8eb4` | 写死 | 供应商 | 名称 | [UncoveredDemandsPage.tsx:63](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L63) |
-| `UncoveredDemandsPage.21eaa81b` | 写死 | 从 | 名称 | [UncoveredDemandsPage.tsx:73](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L73) |
-| `UncoveredDemandsPage.90afadf3` | 写死 | 到 | 名称 | [UncoveredDemandsPage.tsx:74](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L74) |
-| `UncoveredDemandsPage.1e4100ce` | 写死 | 用车类型 | 名称 | [UncoveredDemandsPage.tsx:77](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L77) |
-| `UncoveredDemandsPage.4a27a588` | 写死 | 原因 | 名称 | [UncoveredDemandsPage.tsx:84](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L84)、178、349 行 |
-| `UncoveredDemandsPage.4f16ee6c` | 写死 | 未覆盖需求 · NOZOMI {name} | 浏览器标题 | [UncoveredDemandsPage.tsx:95](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L95) |
-| `UncoveredDemandsPage.6f6ce6c8` | 写死 | 未覆盖需求 | 名称 | [UncoveredDemandsPage.tsx:140](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L140)、141、272 行 |
-| `UncoveredDemandsPage.b8635a5d` | 写死 | 商品 | 名称 | [UncoveredDemandsPage.tsx:140](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L140) |
-| `UncoveredDemandsPage.33012467` | 写死 | 需要的话，请联系管理员开通「未覆盖需求 · 查看」。 | 说明 | [UncoveredDemandsPage.tsx:144](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L144) |
-| `UncoveredDemandsPage.40390a8d` | 写死 | 你没有权限查看这里 | 标题 | [UncoveredDemandsPage.tsx:144](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L144) |
-| `UncoveredDemandsPage.68aefc9b` | 写死 | （供应商已不存在） | 名称 | [UncoveredDemandsPage.tsx:147](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L147) |
-| `UncoveredDemandsPage.9c25477a` | 写死 | 不在任何能订的城市 | 名称 | [UncoveredDemandsPage.tsx:148](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L148) |
-| `UncoveredDemandsPage.3e4a2c7a` | 写死 | （城市已不存在） | 名称 | [UncoveredDemandsPage.tsx:150](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L150) |
-| `UncoveredDemandsPage.2722cc61` | 写死 | 最近出现 | 文字 | [UncoveredDemandsPage.tsx:154](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L154) |
-| `UncoveredDemandsPage.7d462ce2` | 写死 | 用车 | 文字 | [UncoveredDemandsPage.tsx:157](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L157)、325 行 |
-| `UncoveredDemandsPage.e0605a0b` | 写死 | {passengers} 人 {luggage} 件行李 | 正文 | [UncoveredDemandsPage.tsx:163](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L163) |
-| `UncoveredDemandsPage.67fe3b9a` | 写死 | 上车 → 下车 | 文字 | [UncoveredDemandsPage.tsx:169](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L169) |
-| `UncoveredDemandsPage.b4f3c9fc` | 写死 | 次数 | 文字 | [UncoveredDemandsPage.tsx:179](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L179) |
-| `UncoveredDemandsPage.6a880455` | 写死 | 涉及的供应商 | 文字 | [UncoveredDemandsPage.tsx:182](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L182) |
-| `UncoveredDemandsPage.1b8651ab` | 写死 | 没有 | 正文 | [UncoveredDemandsPage.tsx:185](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L185) |
-| `UncoveredDemandsPage.760c59e1` | 写死 |  等 {length} 家 | 文字 | [UncoveredDemandsPage.tsx:185](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L185)、264 行 |
-| `UncoveredDemandsPage.b74dbc74` | 写死 | 操作 | 文字 | [UncoveredDemandsPage.tsx:189](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L189) |
-| `UncoveredDemandsPage.7edfcd3b` | 写死 | 详情：{…} {…} | 读屏说明 | [UncoveredDemandsPage.tsx:194](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L194) |
-| `UncoveredDemandsPage.9dc997dc` | 写死 | 详情 | 按钮 | [UncoveredDemandsPage.tsx:196](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L196) |
-| `UncoveredDemandsPage.10a88997` | 写死 | 在区域地图上查看 | 按钮 | [UncoveredDemandsPage.tsx:200](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L200)、315 行 |
-| `UncoveredDemandsPage.439cd720` | 写死 | 没有符合条件的未覆盖需求 | 标题 | [UncoveredDemandsPage.tsx:212](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L212) |
-| `UncoveredDemandsPage.17794297` | 写死 | 日期范围不对，改好后再查（见上面的说明）。 | 说明 | [UncoveredDemandsPage.tsx:213](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L213) |
-| `UncoveredDemandsPage.7a080946` | 写死 | 换个条件试试，或清空筛选。 | 说明 | [UncoveredDemandsPage.tsx:213](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L213) |
-| `UncoveredDemandsPage.21b872c4` | 写死 | 清空筛选 | 按钮 | [UncoveredDemandsPage.tsx:217](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L217) |
-| `UncoveredDemandsPage.04c0b575` | 写死 | 客人询价时只要有一家报得出价，就不会记在这里。 | 说明 | [UncoveredDemandsPage.tsx:221](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L221) |
-| `UncoveredDemandsPage.277a6e64` | 写死 | 最近 30 天没有未覆盖需求 | 标题 | [UncoveredDemandsPage.tsx:221](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L221) |
-| `UncoveredDemandsPage.04b3c5b9` | 写死 | 客人询价时一家供应商都报不出价，平台会自动记一条（不含客人的姓名、电话、邮箱等任何个人信息，坐标只到约 10 米）。同一天、同一个需求只记一行，再来只加次数。日期按东京时间，默认最近 30 天。 | 正文 | [UncoveredDemandsPage.tsx:227](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L227) |
-| `UncoveredDemandsPage.ce585cd7` | 写死 | {from} 至 {to}：{rows} 条需求，合计 {repeats} 次 | 标题 | [UncoveredDemandsPage.tsx:239](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L239) |
-| `UncoveredDemandsPage.2185da49` | 写死 | 按原因 | 读屏说明 | [UncoveredDemandsPage.tsx:242](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L242) |
-| `UncoveredDemandsPage.844fe499` | 写死 | {rows} 条 · {repeats} 次 | 正文 | [UncoveredDemandsPage.tsx:246](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L246) |
-| `UncoveredDemandsPage.3e6654e9` | 写死 | 按城市： | 正文 | [UncoveredDemandsPage.tsx:255](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L255) |
-| `UncoveredDemandsPage.0386d709` | 写死 | {…} {rows} 条 | 文字 | [UncoveredDemandsPage.tsx:256](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L256)、263 行 |
-| `UncoveredDemandsPage.30ad21f5` | 写死 |  等 {length} 个 | 正文 | [UncoveredDemandsPage.tsx:257](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L257) |
-| `UncoveredDemandsPage.ac3a9ae4` | 写死 | 按运营区域涉及的供应商： | 正文 | [UncoveredDemandsPage.tsx:262](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L262) |
-| `UncoveredDemandsPage.d34f1fde` | 写死 | 另有 {dropped} 条新需求因为防刷限流没有记下来（每个来源每小时最多 30 条、全站每天最多 5000 条），不分城市和供应商。 | 正文 | [UncoveredDemandsPage.tsx:268](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L268) |
-| `UncoveredDemandsPage.c7ef66e5` | 写死 | 区域 {…} | 名称 | [UncoveredDemandsPage.tsx:303](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L303) |
-| `UncoveredDemandsPage.2f22bdc3` | 写死 | 不在任何供应商的运营区域里 | 文字 | [UncoveredDemandsPage.tsx:305](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L305) |
-| `UncoveredDemandsPage.dbc81130` | 写死 | 未覆盖需求的详情 | 标题 | [UncoveredDemandsPage.tsx:310](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L310) |
-| `UncoveredDemandsPage.d2df5ca3` | 写死 | 关闭 | 按钮 | [UncoveredDemandsPage.tsx:318](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L318) |
-| `UncoveredDemandsPage.3129f29d` | 写死 |  · 指定了车型组 | 正文 | [UncoveredDemandsPage.tsx:326](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L326) |
-| `UncoveredDemandsPage.b1923770` | 写死 | {…} · {…}（当地时间） · {passengers} 人 {luggage} 件行李{…} | 正文 | [UncoveredDemandsPage.tsx:326](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L326) |
-| `UncoveredDemandsPage.bd7c526e` | 写死 | 上车 | 正文 | [UncoveredDemandsPage.tsx:333](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L333) |
-| `UncoveredDemandsPage.bf439a73` | 写死 | （没有地点名称） | 正文 | [UncoveredDemandsPage.tsx:334](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L334)、342 行 |
-| `UncoveredDemandsPage.0d07976b` | 写死 | 上车点在哪些运营区域里 | 正文 | [UncoveredDemandsPage.tsx:337](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L337) |
-| `UncoveredDemandsPage.22f50318` | 写死 | 下车 | 正文 | [UncoveredDemandsPage.tsx:341](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L341) |
-| `UncoveredDemandsPage.3260d332` | 写死 | 渠道没有给下车地点 | 正文 | [UncoveredDemandsPage.tsx:342](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L342) |
-| `UncoveredDemandsPage.a22db64e` | 写死 | 下车点在哪些运营区域里 | 正文 | [UncoveredDemandsPage.tsx:345](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L345) |
-| `UncoveredDemandsPage.4a097315` | 写死 | 各商品报不出的原因 | 正文 | [UncoveredDemandsPage.tsx:353](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L353) |
-| `UncoveredDemandsPage.eb23c6f8` | 写死 | 没有可以比价的商品（这一带没有供应商的商品） | 正文 | [UncoveredDemandsPage.tsx:354](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L354) |
-| `UncoveredDemandsPage.1e063dc8` | 写死 | 来源 | 正文 | [UncoveredDemandsPage.tsx:357](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L357) |
-| `UncoveredDemandsPage.35e3f0d4` | 写死 | 官网 | 正文 | [UncoveredDemandsPage.tsx:358](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L358) |
-| `UncoveredDemandsPage.5256726a` | 写死 | 渠道接口 | 正文 | [UncoveredDemandsPage.tsx:358](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L358) |
-| `UncoveredDemandsPage.b5c69094` | 写死 | 出现 | 正文 | [UncoveredDemandsPage.tsx:361](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L361) |
-| `UncoveredDemandsPage.306bc43f` | 写死 | {repeat\_count} 次，第一次 {…}，最近 {…} | 正文 | [UncoveredDemandsPage.tsx:362](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L362) |
-| `UncoveredDemandsPage.b48faa7e` | 写死 | 区域名称没有加载出来，先显示编号。 | 正文 | [UncoveredDemandsPage.tsx:366](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L366) |
+| `uncovered-demand-display.a2827edc` | 写死 | 不在任何运营区域里 | 文字 | [uncovered-demand-display.ts:9](../../apps/web/src/lib/uncovered-demand-display.ts#L9) |
+| `uncovered-demand-display.5e85f70c` | 写死 | 在运营区域里，但没有报价区域 | 文字 | [uncovered-demand-display.ts:10](../../apps/web/src/lib/uncovered-demand-display.ts#L10) |
+| `uncovered-demand-display.9832599d` | 写死 | 其他原因 | 文字 | [uncovered-demand-display.ts:11](../../apps/web/src/lib/uncovered-demand-display.ts#L11) |
+| `uncovered-demand-display.dcf33f5b` | 写死 | 这里没有供应商接单：可以请招商找这一带的供应商，或请现有供应商把运营区域画大一些。 | 文字 | [uncovered-demand-display.ts:16](../../apps/web/src/lib/uncovered-demand-display.ts#L16) |
+| `uncovered-demand-display.8142cc97` | 写死 | 有供应商能来，但商品没有勾选覆盖这里的报价区域：可以联系这些供应商补一个报价区域、设好价格。 | 文字 | [uncovered-demand-display.ts:17](../../apps/web/src/lib/uncovered-demand-display.ts#L17) |
+| `uncovered-demand-display.f299ada9` | 写死 | 区域没有问题，是别的原因（提前预订不够、售罄、人数超出、没有价格……），见详情里的拒绝原因。 | 文字 | [uncovered-demand-display.ts:18](../../apps/web/src/lib/uncovered-demand-display.ts#L18) |
+| `uncovered-demand-display.ce0bc235` | 写死 | 不在运营区域或商品区域里 | 文字 | [uncovered-demand-display.ts:23](../../apps/web/src/lib/uncovered-demand-display.ts#L23) |
+| `uncovered-demand-display.54075d7d` | 写死 | 在禁行区里 | 文字 | [uncovered-demand-display.ts:24](../../apps/web/src/lib/uncovered-demand-display.ts#L24) |
+| `uncovered-demand-display.e3b24886` | 写死 | 在运营区域里，但商品没有勾选覆盖它的报价区域 | 文字 | [uncovered-demand-display.ts:25](../../apps/web/src/lib/uncovered-demand-display.ts#L25) |
+| `uncovered-demand-display.c5557b19` | 写死 | 提前预订时长不够 | 说明 | [uncovered-demand-display.ts:26](../../apps/web/src/lib/uncovered-demand-display.ts#L26) |
+| `uncovered-demand-display.6bbcd015` | 写死 | 不在服务时间里 | 文字 | [uncovered-demand-display.ts:27](../../apps/web/src/lib/uncovered-demand-display.ts#L27) |
+| `uncovered-demand-display.08a19111` | 写死 | 不在下单有效期里 | 文字 | [uncovered-demand-display.ts:28](../../apps/web/src/lib/uncovered-demand-display.ts#L28) |
+| `uncovered-demand-display.cf11b46d` | 写死 | 用车时间已经过去 | 文字 | [uncovered-demand-display.ts:29](../../apps/web/src/lib/uncovered-demand-display.ts#L29) |
+| `uncovered-demand-display.6120699a` | 写死 | 库存不足 | 文字 | [uncovered-demand-display.ts:30](../../apps/web/src/lib/uncovered-demand-display.ts#L30) |
+| `uncovered-demand-display.7feff321` | 写死 | 加急库存用完 | 文字 | [uncovered-demand-display.ts:31](../../apps/web/src/lib/uncovered-demand-display.ts#L31) |
+| `uncovered-demand-display.99d5e5fc` | 写死 | 人数或行李超出车型 | 文字 | [uncovered-demand-display.ts:32](../../apps/web/src/lib/uncovered-demand-display.ts#L32) |
+| `uncovered-demand-display.3d0382d3` | 写死 | 没有这个车型组 | 文字 | [uncovered-demand-display.ts:33](../../apps/web/src/lib/uncovered-demand-display.ts#L33) |
+| `uncovered-demand-display.0cc97063` | 写死 | 没有价格 | 文字 | [uncovered-demand-display.ts:34](../../apps/web/src/lib/uncovered-demand-display.ts#L34) |
+| `uncovered-demand-display.4b80aab8` | 写死 | 价格不在生效期 | 文字 | [uncovered-demand-display.ts:35](../../apps/web/src/lib/uncovered-demand-display.ts#L35) |
+| `uncovered-demand-display.07b30a0f` | 写死 | 价格已停用 | 文字 | [uncovered-demand-display.ts:36](../../apps/web/src/lib/uncovered-demand-display.ts#L36) |
+| `uncovered-demand-display.18e6795c` | 写死 | 取不到路线 | 文字 | [uncovered-demand-display.ts:37](../../apps/web/src/lib/uncovered-demand-display.ts#L37) |
+| `uncovered-demand-display.1f4cc323` | 写死 | 包车没给下车地点 | 提示 | [uncovered-demand-display.ts:38](../../apps/web/src/lib/uncovered-demand-display.ts#L38) |
+| `uncovered-demand-display.8c22b79a` | 写死 | 经停点不在任何区域 | 文字 | [uncovered-demand-display.ts:39](../../apps/web/src/lib/uncovered-demand-display.ts#L39) |
+| `uncovered-demand-display.fcb34820` | 写死 | 预计用时超过在线下单上限 | 文字 | [uncovered-demand-display.ts:40](../../apps/web/src/lib/uncovered-demand-display.ts#L40) |
+| `uncovered-demand-display.2b3d9ba5` | 写死 | 附加服务不提供 | 文字 | [uncovered-demand-display.ts:41](../../apps/web/src/lib/uncovered-demand-display.ts#L41) |
+| `uncovered-demand-display.f074e959` | 写死 | 没有可用的汇率 | 文字 | [uncovered-demand-display.ts:42](../../apps/web/src/lib/uncovered-demand-display.ts#L42) |
+| `uncovered-demand-display.d31a4d35` | 写死 | 试运营每日上限 | 文字 | [uncovered-demand-display.ts:43](../../apps/web/src/lib/uncovered-demand-display.ts#L43) |
+| `uncovered-demand-display.7850f8de` | 写死 | 接机 | 文字 | [uncovered-demand-display.ts:58](../../apps/web/src/lib/uncovered-demand-display.ts#L58) |
+| `uncovered-demand-display.c60398de` | 写死 | 送机 | 文字 | [uncovered-demand-display.ts:58](../../apps/web/src/lib/uncovered-demand-display.ts#L58) |
+| `uncovered-demand-display.b824d06a` | 写死 | 包车 {package\_hours} 小时 | 文字 | [uncovered-demand-display.ts:59](../../apps/web/src/lib/uncovered-demand-display.ts#L59) |
+| `uncovered-demand-display.eb4f6afe` | 写死 | 没有给 | 文字 | [uncovered-demand-display.ts:69](../../apps/web/src/lib/uncovered-demand-display.ts#L69) |
+| `uncovered-demand-display.4ac8dd74` | 写死 | 开始日期的写法不对，请写成「年-月-日」。 | 文字 | [uncovered-demand-display.ts:82](../../apps/web/src/lib/uncovered-demand-display.ts#L82) |
+| `uncovered-demand-display.5303e910` | 写死 | 结束日期的写法不对，请写成「年-月-日」。 | 文字 | [uncovered-demand-display.ts:83](../../apps/web/src/lib/uncovered-demand-display.ts#L83) |
+| `uncovered-demand-display.06298213` | 写死 | 开始日期不能晚于结束日期。 | 文字 | [uncovered-demand-display.ts:85](../../apps/web/src/lib/uncovered-demand-display.ts#L85) |
+| `uncovered-demand-display.ba61899d` | 写死 | 日期范围最长 366 天，请缩短。 | 文字 | [uncovered-demand-display.ts:87](../../apps/web/src/lib/uncovered-demand-display.ts#L87) |
+| `UncoveredDemandsPage.29f7d87c` | 写死 | （已停用） | 名称 | [UncoveredDemandsPage.tsx:50](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L50) |
+| `UncoveredDemandsPage.7b0f659e` | 写死 | 城市 | 名称 | [UncoveredDemandsPage.tsx:53](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L53)、311 行 |
+| `UncoveredDemandsPage.826a2233` | 写死 | 全部 | 名称 | [UncoveredDemandsPage.tsx:53](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L53)、58、59、73、80 行 |
+| `UncoveredDemandsPage.46ab8eb4` | 写死 | 供应商 | 名称 | [UncoveredDemandsPage.tsx:57](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L57) |
+| `UncoveredDemandsPage.21eaa81b` | 写死 | 从 | 名称 | [UncoveredDemandsPage.tsx:67](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L67) |
+| `UncoveredDemandsPage.90afadf3` | 写死 | 到 | 名称 | [UncoveredDemandsPage.tsx:68](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L68) |
+| `UncoveredDemandsPage.1e4100ce` | 写死 | 用车类型 | 名称 | [UncoveredDemandsPage.tsx:71](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L71) |
+| `UncoveredDemandsPage.4a27a588` | 写死 | 原因 | 名称 | [UncoveredDemandsPage.tsx:78](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L78)、172、331 行 |
+| `UncoveredDemandsPage.4f16ee6c` | 写死 | 未覆盖需求 · NOZOMI {name} | 浏览器标题 | [UncoveredDemandsPage.tsx:89](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L89) |
+| `UncoveredDemandsPage.6f6ce6c8` | 写死 | 未覆盖需求 | 名称 | [UncoveredDemandsPage.tsx:134](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L134)、135、258 行 |
+| `UncoveredDemandsPage.b8635a5d` | 写死 | 商品 | 名称 | [UncoveredDemandsPage.tsx:134](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L134) |
+| `UncoveredDemandsPage.33012467` | 写死 | 需要的话，请联系管理员开通「未覆盖需求 · 查看」。 | 说明 | [UncoveredDemandsPage.tsx:138](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L138) |
+| `UncoveredDemandsPage.40390a8d` | 写死 | 你没有权限查看这里 | 标题 | [UncoveredDemandsPage.tsx:138](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L138) |
+| `UncoveredDemandsPage.68aefc9b` | 写死 | （供应商已不存在） | 名称 | [UncoveredDemandsPage.tsx:141](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L141) |
+| `UncoveredDemandsPage.9c25477a` | 写死 | 不在任何能订的城市 | 名称 | [UncoveredDemandsPage.tsx:142](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L142) |
+| `UncoveredDemandsPage.3e4a2c7a` | 写死 | （城市已不存在） | 名称 | [UncoveredDemandsPage.tsx:144](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L144) |
+| `UncoveredDemandsPage.2722cc61` | 写死 | 最近出现 | 文字 | [UncoveredDemandsPage.tsx:148](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L148) |
+| `UncoveredDemandsPage.7d462ce2` | 写死 | 用车 | 文字 | [UncoveredDemandsPage.tsx:151](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L151)、307 行 |
+| `UncoveredDemandsPage.e0605a0b` | 写死 | {passengers} 人 {luggage} 件行李 | 正文 | [UncoveredDemandsPage.tsx:157](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L157) |
+| `UncoveredDemandsPage.67fe3b9a` | 写死 | 上车 → 下车 | 文字 | [UncoveredDemandsPage.tsx:163](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L163) |
+| `UncoveredDemandsPage.b4f3c9fc` | 写死 | 次数 | 文字 | [UncoveredDemandsPage.tsx:173](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L173) |
+| `UncoveredDemandsPage.6a880455` | 写死 | 涉及的供应商 | 文字 | [UncoveredDemandsPage.tsx:176](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L176) |
+| `UncoveredDemandsPage.1b8651ab` | 写死 | 没有 | 正文 | [UncoveredDemandsPage.tsx:179](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L179) |
+| `UncoveredDemandsPage.760c59e1` | 写死 |  等 {length} 家 | 文字 | [UncoveredDemandsPage.tsx:179](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L179)、250 行 |
+| `UncoveredDemandsPage.b74dbc74` | 写死 | 操作 | 文字 | [UncoveredDemandsPage.tsx:183](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L183) |
+| `UncoveredDemandsPage.7edfcd3b` | 写死 | 详情：{…} {…} | 读屏说明 | [UncoveredDemandsPage.tsx:186](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L186) |
+| `UncoveredDemandsPage.9dc997dc` | 写死 | 详情 | 按钮 | [UncoveredDemandsPage.tsx:188](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L188) |
+| `UncoveredDemandsPage.439cd720` | 写死 | 没有符合条件的未覆盖需求 | 标题 | [UncoveredDemandsPage.tsx:198](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L198) |
+| `UncoveredDemandsPage.17794297` | 写死 | 日期范围不对，改好后再查（见上面的说明）。 | 说明 | [UncoveredDemandsPage.tsx:199](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L199) |
+| `UncoveredDemandsPage.7a080946` | 写死 | 换个条件试试，或清空筛选。 | 说明 | [UncoveredDemandsPage.tsx:199](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L199) |
+| `UncoveredDemandsPage.21b872c4` | 写死 | 清空筛选 | 按钮 | [UncoveredDemandsPage.tsx:203](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L203) |
+| `UncoveredDemandsPage.04c0b575` | 写死 | 客人询价时只要有一家报得出价，就不会记在这里。 | 说明 | [UncoveredDemandsPage.tsx:207](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L207) |
+| `UncoveredDemandsPage.277a6e64` | 写死 | 最近 30 天没有未覆盖需求 | 标题 | [UncoveredDemandsPage.tsx:207](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L207) |
+| `UncoveredDemandsPage.04b3c5b9` | 写死 | 客人询价时一家供应商都报不出价，平台会自动记一条（不含客人的姓名、电话、邮箱等任何个人信息，坐标只到约 10 米）。同一天、同一个需求只记一行，再来只加次数。日期按东京时间，默认最近 30 天。 | 正文 | [UncoveredDemandsPage.tsx:213](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L213) |
+| `UncoveredDemandsPage.ce585cd7` | 写死 | {from} 至 {to}：{rows} 条需求，合计 {repeats} 次 | 标题 | [UncoveredDemandsPage.tsx:225](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L225) |
+| `UncoveredDemandsPage.2185da49` | 写死 | 按原因 | 读屏说明 | [UncoveredDemandsPage.tsx:228](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L228) |
+| `UncoveredDemandsPage.844fe499` | 写死 | {rows} 条 · {repeats} 次 | 正文 | [UncoveredDemandsPage.tsx:232](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L232) |
+| `UncoveredDemandsPage.3e6654e9` | 写死 | 按城市： | 正文 | [UncoveredDemandsPage.tsx:241](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L241) |
+| `UncoveredDemandsPage.0386d709` | 写死 | {…} {rows} 条 | 文字 | [UncoveredDemandsPage.tsx:242](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L242)、249 行 |
+| `UncoveredDemandsPage.30ad21f5` | 写死 |  等 {length} 个 | 正文 | [UncoveredDemandsPage.tsx:243](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L243) |
+| `UncoveredDemandsPage.ac3a9ae4` | 写死 | 按运营区域涉及的供应商： | 正文 | [UncoveredDemandsPage.tsx:248](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L248) |
+| `UncoveredDemandsPage.d34f1fde` | 写死 | 另有 {dropped} 条新需求因为防刷限流没有记下来（每个来源每小时最多 30 条、全站每天最多 5000 条），不分城市和供应商。 | 正文 | [UncoveredDemandsPage.tsx:254](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L254) |
+| `UncoveredDemandsPage.c7ef66e5` | 写死 | 区域 {…} | 名称 | [UncoveredDemandsPage.tsx:289](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L289) |
+| `UncoveredDemandsPage.2f22bdc3` | 写死 | 不在任何供应商的运营区域里 | 文字 | [UncoveredDemandsPage.tsx:291](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L291) |
+| `UncoveredDemandsPage.dbc81130` | 写死 | 未覆盖需求的详情 | 标题 | [UncoveredDemandsPage.tsx:295](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L295) |
+| `UncoveredDemandsPage.d2df5ca3` | 写死 | 关闭 | 按钮 | [UncoveredDemandsPage.tsx:301](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L301) |
+| `UncoveredDemandsPage.3129f29d` | 写死 |  · 指定了车型组 | 正文 | [UncoveredDemandsPage.tsx:308](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L308) |
+| `UncoveredDemandsPage.b1923770` | 写死 | {…} · {…}（当地时间） · {passengers} 人 {luggage} 件行李{…} | 正文 | [UncoveredDemandsPage.tsx:308](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L308) |
+| `UncoveredDemandsPage.bd7c526e` | 写死 | 上车 | 正文 | [UncoveredDemandsPage.tsx:315](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L315) |
+| `UncoveredDemandsPage.bf439a73` | 写死 | （没有地点名称） | 正文 | [UncoveredDemandsPage.tsx:316](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L316)、324 行 |
+| `UncoveredDemandsPage.0d07976b` | 写死 | 上车点在哪些运营区域里 | 正文 | [UncoveredDemandsPage.tsx:319](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L319) |
+| `UncoveredDemandsPage.22f50318` | 写死 | 下车 | 正文 | [UncoveredDemandsPage.tsx:323](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L323) |
+| `UncoveredDemandsPage.3260d332` | 写死 | 渠道没有给下车地点 | 正文 | [UncoveredDemandsPage.tsx:324](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L324) |
+| `UncoveredDemandsPage.a22db64e` | 写死 | 下车点在哪些运营区域里 | 正文 | [UncoveredDemandsPage.tsx:327](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L327) |
+| `UncoveredDemandsPage.4a097315` | 写死 | 各商品报不出的原因 | 正文 | [UncoveredDemandsPage.tsx:335](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L335) |
+| `UncoveredDemandsPage.eb23c6f8` | 写死 | 没有可以比价的商品（这一带没有供应商的商品） | 正文 | [UncoveredDemandsPage.tsx:336](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L336) |
+| `UncoveredDemandsPage.1e063dc8` | 写死 | 来源 | 正文 | [UncoveredDemandsPage.tsx:339](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L339) |
+| `UncoveredDemandsPage.35e3f0d4` | 写死 | 官网 | 正文 | [UncoveredDemandsPage.tsx:340](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L340) |
+| `UncoveredDemandsPage.5256726a` | 写死 | 渠道接口 | 正文 | [UncoveredDemandsPage.tsx:340](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L340) |
+| `UncoveredDemandsPage.b5c69094` | 写死 | 出现 | 正文 | [UncoveredDemandsPage.tsx:343](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L343) |
+| `UncoveredDemandsPage.306bc43f` | 写死 | {repeat\_count} 次，第一次 {…}，最近 {…} | 正文 | [UncoveredDemandsPage.tsx:344](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L344) |
+| `UncoveredDemandsPage.b48faa7e` | 写死 | 区域名称没有加载出来，先显示编号。 | 正文 | [UncoveredDemandsPage.tsx:348](../../apps/web/src/pages/platform/UncoveredDemandsPage.tsx#L348) |
 
 ## 渠道
 

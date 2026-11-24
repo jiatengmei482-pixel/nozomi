@@ -1,6 +1,6 @@
 # 供应商后台（第 1 / 2 份）
 
-由 `pnpm copy:export` 从代码生成，不要手改。本区域共 3321 条：写死 3321 条，已走 key 0 条。列的意思见 [README](README.md)。
+由 `pnpm copy:export` 从代码生成，不要手改。本区域共 3295 条：写死 3295 条，已走 key 0 条。列的意思见 [README](README.md)。
 
 本区域分 2 份：第 1 份 · [第 2 份](tenant-2.md)
 
@@ -9,7 +9,7 @@
 - [首页](#首页)（47 条）
 - [区域列表](#区域列表)（38 条）
 - [区域编辑](#区域编辑)（239 条）
-- [区域地图（运营后台也用）](#区域地图运营后台也用)（85 条）
+- [区域地图（运营后台也用）](#区域地图运营后台也用)（73 条）
 - [商品列表](#商品列表)（43 条）
 - [商品编辑](#商品编辑)（27 条）
 - [价格规则总览](#价格规则总览)（48 条）
@@ -27,7 +27,7 @@
 - [多个页面共用：区域在商品里当哪一层（area-layers.ts）](#多个页面共用区域在商品里当哪一层area-layersts)（23 条）
 - [多个页面共用：区域编辑器的地图画布（AreaMap.tsx）](#多个页面共用区域编辑器的地图画布areamaptsx)（27 条）
 - [多个页面共用：「在地图上查看」（AreaMapDialog.tsx）](#多个页面共用在地图上查看areamapdialogtsx)（18 条）
-- [多个页面共用：区域地图的画布（AreaOverviewMap.tsx）](#多个页面共用区域地图的画布areaoverviewmaptsx)（35 条）
+- [多个页面共用：区域地图的画布（AreaOverviewMap.tsx）](#多个页面共用区域地图的画布areaoverviewmaptsx)（21 条）
 - [多个页面共用：自测（SelfTest.tsx）](#多个页面共用自测selftesttsx)（22 条）
 - [多个页面共用：从区域共享库引用（SharedAreaDialog.tsx）](#多个页面共用从区域共享库引用sharedareadialogtsx)（35 条）
 - [多个页面共用：共享库里一个区域的形状预览（SharedAreaPreview.tsx）](#多个页面共用共享库里一个区域的形状预览sharedareapreviewtsx)（10 条）
@@ -35,6 +35,7 @@
 - [多个页面共用：履约评分（PerformanceView.tsx）](#多个页面共用履约评分performanceviewtsx)（30 条）
 - [多个页面共用：订单的一张证据照片（EvidencePhoto.tsx）](#多个页面共用订单的一张证据照片evidencephototsx)（9 条）
 - [多个页面共用：① 基础信息（BasicStep.tsx）](#多个页面共用①-基础信息basicsteptsx)（141 条）
+- [多个页面共用：新建子品牌（BrandDialog.tsx）](#多个页面共用新建子品牌branddialogtsx)（17 条）
 
 ## 首页
 
@@ -387,91 +388,79 @@
 
 | key | 状态 | 中文 | 类型 | 位置 |
 | --- | --- | --- | --- | --- |
-| `AreaOverviewPage.0ba2f76d` | 写死 | 最近 {days} 天 | 名称 | [AreaOverviewPage.tsx:60](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L60) |
-| `AreaOverviewPage.32351836` | 写死 | 区域地图 · NOZOMI {name} | 浏览器标题 | [AreaOverviewPage.tsx:79](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L79) |
-| `AreaOverviewPage.59d59011` | 写死 | 未覆盖需求 | 名称 | [AreaOverviewPage.tsx:102](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L102) |
-| `AreaOverviewPage.08538b58` | 写死 | 已导出 {length} 个区域（{name}） | 提示 | [AreaOverviewPage.tsx:174](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L174) |
-| `AreaOverviewPage.490cc580` | 写死 | 商品 | 名称 | [AreaOverviewPage.tsx:177](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L177)、305 行 |
-| `AreaOverviewPage.bf871b83` | 写死 | 区域 | 名称 | [AreaOverviewPage.tsx:177](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L177)、284 行 |
-| `AreaOverviewPage.e05fea8f` | 写死 | 商品配置 | 名称 | [AreaOverviewPage.tsx:177](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L177) |
-| `AreaOverviewPage.a226d9f8` | 写死 | 区域地图 | 名称 | [AreaOverviewPage.tsx:179](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L179)、180 行 |
-| `AreaOverviewPage.0f75232c` | 写死 | 你没有权限查看这里 | 标题 | [AreaOverviewPage.tsx:185](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L185) |
-| `AreaOverviewPage.1089ba5c` | 写死 | 需要的话，请联系你们的管理员开通。 | 说明 | [AreaOverviewPage.tsx:185](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L185) |
-| `AreaOverviewPage.3abbd056` | 写死 | 导出 GeoJSON | 按钮 | [AreaOverviewPage.tsx:191](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L191) |
-| `AreaOverviewPage.4869a786` | 写死 | 列表 | 按钮 | [AreaOverviewPage.tsx:193](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L193) |
-| `AreaOverviewPage.4a89dceb` | 写死 | 添加区域 | 按钮 | [AreaOverviewPage.tsx:198](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L198)、345 行 |
-| `AreaOverviewPage.43765163` | 写死 | 筛选 | 读屏说明 | [AreaOverviewPage.tsx:211](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L211) |
-| `AreaOverviewPage.8b9c7427` | 写死 | 供应商 | 名称 | [AreaOverviewPage.tsx:215](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L215) |
-| `AreaOverviewPage.3970f42a` | 写死 | 全部 | 名称 | [AreaOverviewPage.tsx:216](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L216)、217、228、229、250、296 行 |
-| `AreaOverviewPage.ed7903a2` | 写死 | 城市 | 名称 | [AreaOverviewPage.tsx:227](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L227) |
-| `AreaOverviewPage.9aa733e4` | 写死 | （已停用） | 名称 | [AreaOverviewPage.tsx:230](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L230) |
-| `AreaOverviewPage.e8fe59fe` | 写死 | 这里只能查看。区域由供应商在自己的后台维护。 | 提示 | [AreaOverviewPage.tsx:238](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L238) |
-| `AreaOverviewPage.29a086d2` | 写死 | 区域太多，只显示了最近修改的 300 个。{…} | 提示 | [AreaOverviewPage.tsx:239](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L239) |
-| `AreaOverviewPage.4f02d2f1` | 写死 | 请按供应商或城市筛选。 | 提示 | [AreaOverviewPage.tsx:239](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L239) |
-| `AreaOverviewPage.eb39826c` | 写死 | 请到列表里按城市查找。 | 提示 | [AreaOverviewPage.tsx:239](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L239) |
-| `AreaOverviewPage.fa896e85` | 写死 | 未覆盖需求图层 | 读屏说明 | [AreaOverviewPage.tsx:242](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L242) |
-| `AreaOverviewPage.544a4414` | 写死 | 显示未覆盖需求 | 正文 | [AreaOverviewPage.tsx:245](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L245) |
-| `AreaOverviewPage.8ff1ff9d` | 写死 | 日期 | 名称 | [AreaOverviewPage.tsx:249](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L249) |
-| `AreaOverviewPage.64f7c7d0` | 写死 | 原因 | 名称 | [AreaOverviewPage.tsx:250](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L250) |
-| `AreaOverviewPage.e457b532` | 写死 | 未覆盖需求没有加载出来，请检查网络后再勾选一次。 | 正文 | [AreaOverviewPage.tsx:254](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L254) |
-| `AreaOverviewPage.34f92305` | 写死 | 正在加载未覆盖需求… | 正文 | [AreaOverviewPage.tsx:255](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L255) |
-| `AreaOverviewPage.ffc600c6` | 写死 | 这段时间没有未覆盖需求。 | 正文 | [AreaOverviewPage.tsx:257](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L257) |
-| `AreaOverviewPage.e8f6985f` | 写死 | （太多了，只画了最近的 2000 条，请缩短日期或按供应商、城市筛选） | 正文 | [AreaOverviewPage.tsx:258](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L258) |
-| `AreaOverviewPage.f08924cb` | 写死 | {length} 条需求{…}。点地图上的点看详情。 | 正文 | [AreaOverviewPage.tsx:258](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L258) |
-| `AreaOverviewPage.87779d3c` | 写死 | 去未覆盖需求列表 | 链接 | [AreaOverviewPage.tsx:262](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L262) |
-| `AreaOverviewPage.8da9c094` | 写死 | 加载失败 | 标题 | [AreaOverviewPage.tsx:271](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L271) |
-| `AreaOverviewPage.3a4fbd45` | 写死 | 请检查网络后重试。 | 说明 | [AreaOverviewPage.tsx:272](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L272) |
-| `AreaOverviewPage.309a04d8` | 写死 | 重试 | 按钮 | [AreaOverviewPage.tsx:276](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L276) |
-| `AreaOverviewPage.5d1e1799` | 写死 | 共 {total} 个区域，显示 {length} 个 | 标题 | [AreaOverviewPage.tsx:284](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L284) |
-| `AreaOverviewPage.6ebb005c` | 写死 | 共 {total} 个区域 | 标题 | [AreaOverviewPage.tsx:284](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L284) |
-| `AreaOverviewPage.cbb132da` | 写死 | 按名称搜索 | 表单标签 | [AreaOverviewPage.tsx:289](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L289)、290 行 |
-| `AreaOverviewPage.4cbbd806` | 写死 | 用途 | 名称 | [AreaOverviewPage.tsx:293](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L293) |
-| `AreaOverviewPage.44bb5df7` | 写死 | 运营区域 | 名称 | [AreaOverviewPage.tsx:297](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L297)、351 行 |
-| `AreaOverviewPage.77a584b7` | 写死 | 报价区域 | 名称 | [AreaOverviewPage.tsx:298](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L298)、351 行 |
-| `AreaOverviewPage.a886e79f` | 写死 | 全部区域（不按商品） | 名称 | [AreaOverviewPage.tsx:308](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L308) |
-| `AreaOverviewPage.3b2bf00b` | 写死 | 全部包车商品 | 名称 | [AreaOverviewPage.tsx:309](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L309) |
-| `AreaOverviewPage.bac8800e` | 写死 | （加载中） | 名称 | [AreaOverviewPage.tsx:311](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L311) |
-| `AreaOverviewPage.53a9e3aa` | 写死 | 按层筛选 | 表单标签 | [AreaOverviewPage.tsx:318](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L318) |
-| `AreaOverviewPage.b243cf77` | 写死 | 只看有三层重叠的（{size}） | 正文 | [AreaOverviewPage.tsx:329](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L329) |
-| `AreaOverviewPage.eda59348` | 写死 | 只看有重叠的{…} | 正文 | [AreaOverviewPage.tsx:329](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L329) |
-| `AreaOverviewPage.d6b48b9c` | 写死 | 商品没有加载出来，请刷新页面重试。 | 正文 | [AreaOverviewPage.tsx:332](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L332) |
-| `AreaOverviewPage.d416dba4` | 写死 | 区域加载中 | 名称 | [AreaOverviewPage.tsx:334](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L334) |
-| `AreaOverviewPage.c5f256e4` | 写死 | 还没有区域 | 标题 | [AreaOverviewPage.tsx:338](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L338) |
-| `AreaOverviewPage.6dc9fbea` | 写死 | 符合条件的供应商还没有建区域。 | 说明 | [AreaOverviewPage.tsx:339](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L339) |
-| `AreaOverviewPage.cc04e37a` | 写死 | 区域就是你提供服务的范围。添加一个区域，在地图上画出去的地方（营运区）和不去的地方（禁行区）。 | 说明 | [AreaOverviewPage.tsx:339](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L339) |
-| `AreaOverviewPage.1987aeaf` | 写死 | 换个名称试试，或清空搜索。 | 说明 | [AreaOverviewPage.tsx:351](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L351) |
-| `AreaOverviewPage.1a4e42d5` | 写死 | 选中的商品在选中的层里没有区域。 | 说明 | [AreaOverviewPage.tsx:351](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L351) |
-| `AreaOverviewPage.3d2ecfe6` | 写死 | 没有符合条件的区域 | 标题 | [AreaOverviewPage.tsx:351](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L351) |
-| `AreaOverviewPage.3d5edda3` | 写死 | 没有和别的区域重叠的区域。 | 说明 | [AreaOverviewPage.tsx:351](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L351) |
-| `AreaOverviewPage.445a6ddb` | 写死 | 还没有{…}。 | 说明 | [AreaOverviewPage.tsx:351](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L351) |
-| `AreaOverviewPage.af6f3161` | 写死 | 选中的商品在选中的层里没有三层重叠。 | 说明 | [AreaOverviewPage.tsx:351](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L351) |
-| `AreaOverviewPage.120fa241` | 写死 | 区域列表 | 读屏说明 | [AreaOverviewPage.tsx:353](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L353)、455 行 |
-| `AreaOverviewPage.2f4e2ea2` | 写死 | （供应商已不存在） | 正文 | [AreaOverviewPage.tsx:370](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L370) |
-| `AreaOverviewPage.44398995` | 写死 | 报价区域超出运营区域：{…}。 | 正文 | [AreaOverviewPage.tsx:405](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L405) |
-| `AreaOverviewPage.c4fe9226` | 写死 | {…}最近修改 {…} | 正文 | [AreaOverviewPage.tsx:408](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L408) |
-| `AreaOverviewPage.8233c7eb` | 写死 | 编辑 {…} | 读屏说明 | [AreaOverviewPage.tsx:411](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L411) |
-| `AreaOverviewPage.8ad2ef37` | 写死 | 查看 {…} | 读屏说明 | [AreaOverviewPage.tsx:411](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L411) |
-| `AreaOverviewPage.490aa967` | 写死 | 编辑 | 按钮 | [AreaOverviewPage.tsx:412](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L412) |
-| `AreaOverviewPage.5d8faea0` | 写死 | 查看 | 按钮 | [AreaOverviewPage.tsx:412](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L412) |
-| `AreaOverviewPage.93142d7c` | 写死 | 导出这个区域 | 按钮 | [AreaOverviewPage.tsx:416](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L416)、428 行 |
-| `AreaOverviewPage.0655843e` | 写死 | 更多 | 文字 | [AreaOverviewPage.tsx:418](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L418) |
-| `AreaOverviewPage.7784cf5b` | 写死 | {…} 的更多操作 | 名称 | [AreaOverviewPage.tsx:418](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L418) |
-| `AreaOverviewPage.2f7da99d` | 写死 | 正在加载地图… | 正文 | [AreaOverviewPage.tsx:442](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L442) |
-| `AreaOverviewPage.782fab25` | 写死 | 地图没有加载出来。 | 正文 | [AreaOverviewPage.tsx:444](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L444) |
-| `AreaOverviewPage.a13f42bb` | 写死 | {…}区域的名称、形状和重叠照常列在左边。 | 正文 | [AreaOverviewPage.tsx:444](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L444) |
-| `AreaOverviewPage.dc0feaad` | 写死 | 这个环境没有配置地图底图。 | 正文 | [AreaOverviewPage.tsx:444](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L444) |
-| `AreaOverviewPage.ef62a74e` | 写死 | 重叠只在报价区域之间算，只是提醒，不影响保存：同一个位置落在几个报价区域里时，报价取最低。区域的禁行区压在别的区域上不算重叠，但同时选了这两个区域的商品在禁行区里不报价；运营区域之间、运营区域和报价区域之间也不算。报价区域超出运营区域的部分不会报价。详见 | 正文 | [AreaOverviewPage.tsx:455](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L455) |
-| `AreaOverviewPage.3889f87a` | 写死 | 在地图上定位 | 读屏说明 | [AreaOverviewPage.tsx:500](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L500) |
-| `AreaOverviewPage.32a88d8d` | 写死 | 搜索机场、车站、地标，或输入坐标 | 表单标签 | [AreaOverviewPage.tsx:502](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L502) |
-| `AreaOverviewPage.492a9314` | 写死 | 搜索机场、车站、地标，或输入坐标（纬度, 经度） | 输入框占位 | [AreaOverviewPage.tsx:504](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L504) |
-| `AreaOverviewPage.d126d4e5` | 写死 | 查找中… | 文字 | [AreaOverviewPage.tsx:505](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L505) |
-| `AreaOverviewPage.8dac0651` | 写死 | 定位 | 按钮 | [AreaOverviewPage.tsx:508](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L508) |
-| `AreaOverviewPage.3371d969` | 写死 | 没有查到。请检查网络后重试。 | 正文 | [AreaOverviewPage.tsx:510](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L510) |
-| `AreaOverviewPage.ccab7b66` | 写死 | 没有匹配的地点。可以输入坐标（纬度, 经度）来定位。暂时不能按地址搜索。 | 正文 | [AreaOverviewPage.tsx:511](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L511) |
-| `AreaOverviewPage.e32d2fac` | 写死 | 匹配的地点 | 读屏说明 | [AreaOverviewPage.tsx:513](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L513) |
-| `AreaOverviewPage.9637b55a` | 写死 | 导入 | 读屏说明 | [AreaOverviewPage.tsx:549](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L549) |
-| `AreaOverviewPage.5eccd295` | 写死 | 拖放 .geojson 文件到这里，或点击导入 | 正文 | [AreaOverviewPage.tsx:566](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L566) |
-| `AreaOverviewPage.be31fdd7` | 写死 | 导入为一个新区域：在新增区域页核对图形、选城市、起名字后保存。文件只在浏览器里读，不上传。 | 正文 | [AreaOverviewPage.tsx:567](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L567) |
+| `AreaOverviewPage.32351836` | 写死 | 区域地图 · NOZOMI {name} | 浏览器标题 | [AreaOverviewPage.tsx:72](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L72) |
+| `AreaOverviewPage.08538b58` | 写死 | 已导出 {length} 个区域（{name}） | 提示 | [AreaOverviewPage.tsx:152](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L152) |
+| `AreaOverviewPage.490cc580` | 写死 | 商品 | 名称 | [AreaOverviewPage.tsx:155](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L155)、257 行 |
+| `AreaOverviewPage.bf871b83` | 写死 | 区域 | 名称 | [AreaOverviewPage.tsx:155](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L155)、236 行 |
+| `AreaOverviewPage.e05fea8f` | 写死 | 商品配置 | 名称 | [AreaOverviewPage.tsx:155](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L155) |
+| `AreaOverviewPage.a226d9f8` | 写死 | 区域地图 | 名称 | [AreaOverviewPage.tsx:157](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L157)、158 行 |
+| `AreaOverviewPage.0f75232c` | 写死 | 你没有权限查看这里 | 标题 | [AreaOverviewPage.tsx:163](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L163) |
+| `AreaOverviewPage.1089ba5c` | 写死 | 需要的话，请联系你们的管理员开通。 | 说明 | [AreaOverviewPage.tsx:163](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L163) |
+| `AreaOverviewPage.3abbd056` | 写死 | 导出 GeoJSON | 按钮 | [AreaOverviewPage.tsx:169](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L169) |
+| `AreaOverviewPage.4869a786` | 写死 | 列表 | 按钮 | [AreaOverviewPage.tsx:171](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L171) |
+| `AreaOverviewPage.4a89dceb` | 写死 | 添加区域 | 按钮 | [AreaOverviewPage.tsx:176](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L176)、297 行 |
+| `AreaOverviewPage.43765163` | 写死 | 筛选 | 读屏说明 | [AreaOverviewPage.tsx:189](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L189) |
+| `AreaOverviewPage.8b9c7427` | 写死 | 供应商 | 名称 | [AreaOverviewPage.tsx:193](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L193) |
+| `AreaOverviewPage.3970f42a` | 写死 | 全部 | 名称 | [AreaOverviewPage.tsx:194](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L194)、195、206、207、248 行 |
+| `AreaOverviewPage.ed7903a2` | 写死 | 城市 | 名称 | [AreaOverviewPage.tsx:205](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L205) |
+| `AreaOverviewPage.9aa733e4` | 写死 | （已停用） | 名称 | [AreaOverviewPage.tsx:208](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L208) |
+| `AreaOverviewPage.e8fe59fe` | 写死 | 这里只能查看。区域由供应商在自己的后台维护。 | 提示 | [AreaOverviewPage.tsx:216](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L216) |
+| `AreaOverviewPage.29a086d2` | 写死 | 区域太多，只显示了最近修改的 300 个。{…} | 提示 | [AreaOverviewPage.tsx:217](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L217) |
+| `AreaOverviewPage.4f02d2f1` | 写死 | 请按供应商或城市筛选。 | 提示 | [AreaOverviewPage.tsx:217](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L217) |
+| `AreaOverviewPage.eb39826c` | 写死 | 请到列表里按城市查找。 | 提示 | [AreaOverviewPage.tsx:217](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L217) |
+| `AreaOverviewPage.8da9c094` | 写死 | 加载失败 | 标题 | [AreaOverviewPage.tsx:223](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L223) |
+| `AreaOverviewPage.3a4fbd45` | 写死 | 请检查网络后重试。 | 说明 | [AreaOverviewPage.tsx:224](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L224) |
+| `AreaOverviewPage.309a04d8` | 写死 | 重试 | 按钮 | [AreaOverviewPage.tsx:228](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L228) |
+| `AreaOverviewPage.5d1e1799` | 写死 | 共 {total} 个区域，显示 {length} 个 | 标题 | [AreaOverviewPage.tsx:236](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L236) |
+| `AreaOverviewPage.6ebb005c` | 写死 | 共 {total} 个区域 | 标题 | [AreaOverviewPage.tsx:236](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L236) |
+| `AreaOverviewPage.cbb132da` | 写死 | 按名称搜索 | 表单标签 | [AreaOverviewPage.tsx:241](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L241)、242 行 |
+| `AreaOverviewPage.4cbbd806` | 写死 | 用途 | 名称 | [AreaOverviewPage.tsx:245](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L245) |
+| `AreaOverviewPage.44bb5df7` | 写死 | 运营区域 | 名称 | [AreaOverviewPage.tsx:249](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L249)、303 行 |
+| `AreaOverviewPage.77a584b7` | 写死 | 报价区域 | 名称 | [AreaOverviewPage.tsx:250](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L250)、303 行 |
+| `AreaOverviewPage.a886e79f` | 写死 | 全部区域（不按商品） | 名称 | [AreaOverviewPage.tsx:260](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L260) |
+| `AreaOverviewPage.3b2bf00b` | 写死 | 全部包车商品 | 名称 | [AreaOverviewPage.tsx:261](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L261) |
+| `AreaOverviewPage.bac8800e` | 写死 | （加载中） | 名称 | [AreaOverviewPage.tsx:263](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L263) |
+| `AreaOverviewPage.53a9e3aa` | 写死 | 按层筛选 | 表单标签 | [AreaOverviewPage.tsx:270](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L270) |
+| `AreaOverviewPage.b243cf77` | 写死 | 只看有三层重叠的（{size}） | 正文 | [AreaOverviewPage.tsx:281](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L281) |
+| `AreaOverviewPage.eda59348` | 写死 | 只看有重叠的{…} | 正文 | [AreaOverviewPage.tsx:281](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L281) |
+| `AreaOverviewPage.d6b48b9c` | 写死 | 商品没有加载出来，请刷新页面重试。 | 正文 | [AreaOverviewPage.tsx:284](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L284) |
+| `AreaOverviewPage.d416dba4` | 写死 | 区域加载中 | 名称 | [AreaOverviewPage.tsx:286](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L286) |
+| `AreaOverviewPage.c5f256e4` | 写死 | 还没有区域 | 标题 | [AreaOverviewPage.tsx:290](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L290) |
+| `AreaOverviewPage.6dc9fbea` | 写死 | 符合条件的供应商还没有建区域。 | 说明 | [AreaOverviewPage.tsx:291](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L291) |
+| `AreaOverviewPage.cc04e37a` | 写死 | 区域就是你提供服务的范围。添加一个区域，在地图上画出去的地方（营运区）和不去的地方（禁行区）。 | 说明 | [AreaOverviewPage.tsx:291](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L291) |
+| `AreaOverviewPage.1987aeaf` | 写死 | 换个名称试试，或清空搜索。 | 说明 | [AreaOverviewPage.tsx:303](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L303) |
+| `AreaOverviewPage.1a4e42d5` | 写死 | 选中的商品在选中的层里没有区域。 | 说明 | [AreaOverviewPage.tsx:303](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L303) |
+| `AreaOverviewPage.3d2ecfe6` | 写死 | 没有符合条件的区域 | 标题 | [AreaOverviewPage.tsx:303](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L303) |
+| `AreaOverviewPage.3d5edda3` | 写死 | 没有和别的区域重叠的区域。 | 说明 | [AreaOverviewPage.tsx:303](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L303) |
+| `AreaOverviewPage.445a6ddb` | 写死 | 还没有{…}。 | 说明 | [AreaOverviewPage.tsx:303](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L303) |
+| `AreaOverviewPage.af6f3161` | 写死 | 选中的商品在选中的层里没有三层重叠。 | 说明 | [AreaOverviewPage.tsx:303](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L303) |
+| `AreaOverviewPage.120fa241` | 写死 | 区域列表 | 读屏说明 | [AreaOverviewPage.tsx:305](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L305)、407 行 |
+| `AreaOverviewPage.2f4e2ea2` | 写死 | （供应商已不存在） | 正文 | [AreaOverviewPage.tsx:322](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L322) |
+| `AreaOverviewPage.44398995` | 写死 | 报价区域超出运营区域：{…}。 | 正文 | [AreaOverviewPage.tsx:357](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L357) |
+| `AreaOverviewPage.c4fe9226` | 写死 | {…}最近修改 {…} | 正文 | [AreaOverviewPage.tsx:360](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L360) |
+| `AreaOverviewPage.8233c7eb` | 写死 | 编辑 {…} | 读屏说明 | [AreaOverviewPage.tsx:363](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L363) |
+| `AreaOverviewPage.8ad2ef37` | 写死 | 查看 {…} | 读屏说明 | [AreaOverviewPage.tsx:363](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L363) |
+| `AreaOverviewPage.490aa967` | 写死 | 编辑 | 按钮 | [AreaOverviewPage.tsx:364](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L364) |
+| `AreaOverviewPage.5d8faea0` | 写死 | 查看 | 按钮 | [AreaOverviewPage.tsx:364](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L364) |
+| `AreaOverviewPage.93142d7c` | 写死 | 导出这个区域 | 按钮 | [AreaOverviewPage.tsx:368](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L368)、380 行 |
+| `AreaOverviewPage.0655843e` | 写死 | 更多 | 文字 | [AreaOverviewPage.tsx:370](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L370) |
+| `AreaOverviewPage.7784cf5b` | 写死 | {…} 的更多操作 | 名称 | [AreaOverviewPage.tsx:370](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L370) |
+| `AreaOverviewPage.2f7da99d` | 写死 | 正在加载地图… | 正文 | [AreaOverviewPage.tsx:394](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L394) |
+| `AreaOverviewPage.782fab25` | 写死 | 地图没有加载出来。 | 正文 | [AreaOverviewPage.tsx:396](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L396) |
+| `AreaOverviewPage.a13f42bb` | 写死 | {…}区域的名称、形状和重叠照常列在左边。 | 正文 | [AreaOverviewPage.tsx:396](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L396) |
+| `AreaOverviewPage.dc0feaad` | 写死 | 这个环境没有配置地图底图。 | 正文 | [AreaOverviewPage.tsx:396](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L396) |
+| `AreaOverviewPage.ef62a74e` | 写死 | 重叠只在报价区域之间算，只是提醒，不影响保存：同一个位置落在几个报价区域里时，报价取最低。区域的禁行区压在别的区域上不算重叠，但同时选了这两个区域的商品在禁行区里不报价；运营区域之间、运营区域和报价区域之间也不算。报价区域超出运营区域的部分不会报价。详见 | 正文 | [AreaOverviewPage.tsx:407](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L407) |
+| `AreaOverviewPage.3889f87a` | 写死 | 在地图上定位 | 读屏说明 | [AreaOverviewPage.tsx:452](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L452) |
+| `AreaOverviewPage.32a88d8d` | 写死 | 搜索机场、车站、地标，或输入坐标 | 表单标签 | [AreaOverviewPage.tsx:454](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L454) |
+| `AreaOverviewPage.492a9314` | 写死 | 搜索机场、车站、地标，或输入坐标（纬度, 经度） | 输入框占位 | [AreaOverviewPage.tsx:456](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L456) |
+| `AreaOverviewPage.d126d4e5` | 写死 | 查找中… | 文字 | [AreaOverviewPage.tsx:457](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L457) |
+| `AreaOverviewPage.8dac0651` | 写死 | 定位 | 按钮 | [AreaOverviewPage.tsx:460](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L460) |
+| `AreaOverviewPage.3371d969` | 写死 | 没有查到。请检查网络后重试。 | 正文 | [AreaOverviewPage.tsx:462](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L462) |
+| `AreaOverviewPage.ccab7b66` | 写死 | 没有匹配的地点。可以输入坐标（纬度, 经度）来定位。暂时不能按地址搜索。 | 正文 | [AreaOverviewPage.tsx:463](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L463) |
+| `AreaOverviewPage.e32d2fac` | 写死 | 匹配的地点 | 读屏说明 | [AreaOverviewPage.tsx:465](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L465) |
+| `AreaOverviewPage.9637b55a` | 写死 | 导入 | 读屏说明 | [AreaOverviewPage.tsx:501](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L501) |
+| `AreaOverviewPage.5eccd295` | 写死 | 拖放 .geojson 文件到这里，或点击导入 | 正文 | [AreaOverviewPage.tsx:518](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L518) |
+| `AreaOverviewPage.be31fdd7` | 写死 | 导入为一个新区域：在新增区域页核对图形、选城市、起名字后保存。文件只在浏览器里读，不上传。 | 正文 | [AreaOverviewPage.tsx:519](../../apps/web/src/pages/areas/AreaOverviewPage.tsx#L519) |
 
 ## 商品列表
 
@@ -1591,41 +1580,27 @@
 
 | key | 状态 | 中文 | 类型 | 位置 |
 | --- | --- | --- | --- | --- |
-| `AreaOverviewMap.b95daefe` | 写死 | 区域地图 | 文字 | [AreaOverviewMap.tsx:106](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L106) |
-| `AreaOverviewMap.68194dba` | 写死 | {label}：拖动平移，滚轮或加减号缩放；区域的名称、形状和重叠在旁边的列表里 | 读屏说明 | [AreaOverviewMap.tsx:202](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L202) |
-| `AreaOverviewMap.a4502f14` | 写死 | 未覆盖需求 | 读屏说明 | [AreaOverviewMap.tsx:302](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L302)、304、411 行 |
-| `AreaOverviewMap.ba5eedfa` | 写死 | 关闭 | 读屏说明 | [AreaOverviewMap.tsx:305](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L305) |
-| `AreaOverviewMap.d589f691` | 写死 | 用车类型 | 正文 | [AreaOverviewMap.tsx:310](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L310) |
-| `AreaOverviewMap.25ac7341` | 写死 | 用车时间 | 正文 | [AreaOverviewMap.tsx:312](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L312) |
-| `AreaOverviewMap.b6a1da15` | 写死 | {…}（当地） | 正文 | [AreaOverviewMap.tsx:313](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L313) |
-| `AreaOverviewMap.74a72534` | 写死 | 最近出现 | 正文 | [AreaOverviewMap.tsx:314](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L314) |
-| `AreaOverviewMap.b2c9672d` | 写死 | 这一点 | 正文 | [AreaOverviewMap.tsx:316](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L316) |
-| `AreaOverviewMap.033667e2` | 写死 | 上车点 | 正文 | [AreaOverviewMap.tsx:317](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L317) |
-| `AreaOverviewMap.ec2df804` | 写死 | 下车点 | 正文 | [AreaOverviewMap.tsx:317](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L317) |
-| `AreaOverviewMap.c1f5834d` | 写死 | 原因 | 正文 | [AreaOverviewMap.tsx:318](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L318) |
-| `AreaOverviewMap.ab0465aa` | 写死 | 次数 | 正文 | [AreaOverviewMap.tsx:320](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L320) |
-| `AreaOverviewMap.82f021e5` | 写死 | {repeat\_count} 次 | 正文 | [AreaOverviewMap.tsx:321](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L321) |
-| `AreaOverviewMap.3c6ceb03` | 写死 | 坐标 | 正文 | [AreaOverviewMap.tsx:322](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L322) |
-| `AreaOverviewMap.dccf5094` | 写死 | 放大 | 读屏说明 | [AreaOverviewMap.tsx:328](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L328) |
-| `AreaOverviewMap.397ba796` | 写死 | 缩小 | 读屏说明 | [AreaOverviewMap.tsx:331](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L331) |
-| `AreaOverviewMap.7aa6b282` | 写死 | 看全部区域 | 读屏说明 | [AreaOverviewMap.tsx:334](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L334) |
-| `AreaOverviewMap.a28b2469` | 写死 | 底图没有加载出来。区域照常显示，名称和重叠见旁边的列表。 | 正文 | [AreaOverviewMap.tsx:338](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L338) |
-| `AreaOverviewMap.3a0b4f6b` | 写死 | 图例 | 读屏说明 | [AreaOverviewMap.tsx:340](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L340) |
-| `AreaOverviewMap.bd1f95dd` | 写死 | 虚线：只决定能不能接单 | 正文 | [AreaOverviewMap.tsx:348](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L348) |
-| `AreaOverviewMap.c38ec266` | 写死 | 运营区域 | 正文 | [AreaOverviewMap.tsx:348](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L348) |
-| `AreaOverviewMap.0e2e0c90` | 写死 | 实线：颜色同列表圆点 | 正文 | [AreaOverviewMap.tsx:359](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L359) |
-| `AreaOverviewMap.10908dfd` | 写死 | 报价区域 / 运营 + 报价 | 正文 | [AreaOverviewMap.tsx:359](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L359) |
-| `AreaOverviewMap.55e46818` | 写死 | 区域 | 正文 | [AreaOverviewMap.tsx:363](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L363) |
-| `AreaOverviewMap.e03a4576` | 写死 | 颜色和列表的圆点一致 | 正文 | [AreaOverviewMap.tsx:363](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L363) |
-| `AreaOverviewMap.39e14c37` | 写死 | 点落在里面，用到这个区域的商品一律不报价 | 正文 | [AreaOverviewMap.tsx:370](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L370) |
-| `AreaOverviewMap.53189cd0` | 写死 | 报价区域的禁行区 | 正文 | [AreaOverviewMap.tsx:370](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L370) |
-| `AreaOverviewMap.179fae4f` | 写死 | 报价区域之间，取最低价 | 正文 | [AreaOverviewMap.tsx:379](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L379) |
-| `AreaOverviewMap.6cfea9d0` | 写死 | 重叠的地方 | 正文 | [AreaOverviewMap.tsx:379](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L379) |
-| `AreaOverviewMap.4a6611c7` | 写死 | 三层区域重叠 | 正文 | [AreaOverviewMap.tsx:389](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L389) |
-| `AreaOverviewMap.c720cf02` | 写死 | 同一个包车商品里同一层、或基础价和上下车加价区域重叠，不允许 | 正文 | [AreaOverviewMap.tsx:389](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L389) |
-| `AreaOverviewMap.14d43c40` | 写死 | 超出运营区域 | 正文 | [AreaOverviewMap.tsx:400](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L400) |
-| `AreaOverviewMap.87208f9b` | 写死 | 报价区域的这部分不会报价 | 正文 | [AreaOverviewMap.tsx:400](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L400) |
-| `AreaOverviewMap.2df71004` | 写死 | 圆是上车点，方是下车点；越大次数越多 | 正文 | [AreaOverviewMap.tsx:411](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L411) |
+| `AreaOverviewMap.b95daefe` | 写死 | 区域地图 | 文字 | [AreaOverviewMap.tsx:87](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L87) |
+| `AreaOverviewMap.68194dba` | 写死 | {label}：拖动平移，滚轮或加减号缩放；区域的名称、形状和重叠在旁边的列表里 | 读屏说明 | [AreaOverviewMap.tsx:174](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L174) |
+| `AreaOverviewMap.dccf5094` | 写死 | 放大 | 读屏说明 | [AreaOverviewMap.tsx:259](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L259) |
+| `AreaOverviewMap.397ba796` | 写死 | 缩小 | 读屏说明 | [AreaOverviewMap.tsx:262](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L262) |
+| `AreaOverviewMap.7aa6b282` | 写死 | 看全部区域 | 读屏说明 | [AreaOverviewMap.tsx:265](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L265) |
+| `AreaOverviewMap.a28b2469` | 写死 | 底图没有加载出来。区域照常显示，名称和重叠见旁边的列表。 | 正文 | [AreaOverviewMap.tsx:269](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L269) |
+| `AreaOverviewMap.3a0b4f6b` | 写死 | 图例 | 读屏说明 | [AreaOverviewMap.tsx:271](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L271) |
+| `AreaOverviewMap.bd1f95dd` | 写死 | 虚线：只决定能不能接单 | 正文 | [AreaOverviewMap.tsx:279](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L279) |
+| `AreaOverviewMap.c38ec266` | 写死 | 运营区域 | 正文 | [AreaOverviewMap.tsx:279](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L279) |
+| `AreaOverviewMap.0e2e0c90` | 写死 | 实线：颜色同列表圆点 | 正文 | [AreaOverviewMap.tsx:290](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L290) |
+| `AreaOverviewMap.10908dfd` | 写死 | 报价区域 / 运营 + 报价 | 正文 | [AreaOverviewMap.tsx:290](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L290) |
+| `AreaOverviewMap.55e46818` | 写死 | 区域 | 正文 | [AreaOverviewMap.tsx:294](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L294) |
+| `AreaOverviewMap.e03a4576` | 写死 | 颜色和列表的圆点一致 | 正文 | [AreaOverviewMap.tsx:294](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L294) |
+| `AreaOverviewMap.39e14c37` | 写死 | 点落在里面，用到这个区域的商品一律不报价 | 正文 | [AreaOverviewMap.tsx:301](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L301) |
+| `AreaOverviewMap.53189cd0` | 写死 | 报价区域的禁行区 | 正文 | [AreaOverviewMap.tsx:301](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L301) |
+| `AreaOverviewMap.179fae4f` | 写死 | 报价区域之间，取最低价 | 正文 | [AreaOverviewMap.tsx:310](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L310) |
+| `AreaOverviewMap.6cfea9d0` | 写死 | 重叠的地方 | 正文 | [AreaOverviewMap.tsx:310](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L310) |
+| `AreaOverviewMap.4a6611c7` | 写死 | 三层区域重叠 | 正文 | [AreaOverviewMap.tsx:320](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L320) |
+| `AreaOverviewMap.c720cf02` | 写死 | 同一个包车商品里同一层、或基础价和上下车加价区域重叠，不允许 | 正文 | [AreaOverviewMap.tsx:320](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L320) |
+| `AreaOverviewMap.14d43c40` | 写死 | 超出运营区域 | 正文 | [AreaOverviewMap.tsx:331](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L331) |
+| `AreaOverviewMap.87208f9b` | 写死 | 报价区域的这部分不会报价 | 正文 | [AreaOverviewMap.tsx:331](../../apps/web/src/pages/areas/AreaOverviewMap.tsx#L331) |
 
 ## 多个页面共用：自测（SelfTest.tsx）
 
@@ -1962,3 +1937,29 @@
 | `BasicStep.784ba285` | 写死 | 第 {…} 个调度人的电话和第 {…} 个相同。 | 正文 | [BasicStep.tsx:922](../../apps/web/src/pages/products/BasicStep.tsx#L922) |
 | `BasicStep.2de9d87d` | 写死 | 接到订单后联系谁。姓名和电话会随订单一起发给平台客服和你们的调度系统。电话建议带国家区号。 | 正文 | [BasicStep.tsx:923](../../apps/web/src/pages/products/BasicStep.tsx#L923) |
 | `BasicStep.40ab3df1` | 写死 | 接到订单后联系谁。姓名和电话会随订单一起发给平台客服和供应商的调度系统。 | 正文 | [BasicStep.tsx:923](../../apps/web/src/pages/products/BasicStep.tsx#L923) |
+
+## 多个页面共用：新建子品牌（BrandDialog.tsx）
+
+用在：供应商后台 · 商品编辑；运营后台 · 商品（只读查看）
+
+文件：`apps/web/src/pages/products/BrandDialog.tsx`
+
+| key | 状态 | 中文 | 类型 | 位置 |
+| --- | --- | --- | --- | --- |
+| `BrandDialog.93f397f4` | 写死 | 请填写名称 | 提示 | [BrandDialog.tsx:29](../../apps/web/src/pages/products/BrandDialog.tsx#L29) |
+| `BrandDialog.f0737711` | 写死 | 名称最多 {maxBrandNameLength} 个字 | 提示 | [BrandDialog.tsx:30](../../apps/web/src/pages/products/BrandDialog.tsx#L30) |
+| `BrandDialog.a9a40c56` | 写死 | 已经有同名的子品牌，请换一个名字 | 提示 | [BrandDialog.tsx:31](../../apps/web/src/pages/products/BrandDialog.tsx#L31) |
+| `BrandDialog.98275106` | 写死 | 请选择结算币种 | 提示 | [BrandDialog.tsx:33](../../apps/web/src/pages/products/BrandDialog.tsx#L33) |
+| `BrandDialog.1e385f3e` | 写死 | 已新建子品牌「{name}」 | 提示 | [BrandDialog.tsx:64](../../apps/web/src/pages/products/BrandDialog.tsx#L64) |
+| `BrandDialog.c41f5ae1` | 写死 | 你没有权限新建子品牌。请联系你们的管理员。 | 文字 | [BrandDialog.tsx:71](../../apps/web/src/pages/products/BrandDialog.tsx#L71) |
+| `BrandDialog.e758ef99` | 写死 | 新建 | 文字 | [BrandDialog.tsx:72](../../apps/web/src/pages/products/BrandDialog.tsx#L72)、93 行 |
+| `BrandDialog.834c07b6` | 写死 | 新建子品牌 | 标题 | [BrandDialog.tsx:82](../../apps/web/src/pages/products/BrandDialog.tsx#L82) |
+| `BrandDialog.5e6f59cd` | 写死 | 取消 | 按钮 | [BrandDialog.tsx:90](../../apps/web/src/pages/products/BrandDialog.tsx#L90) |
+| `BrandDialog.c2ccfd74` | 写死 | 新建中… | 文字 | [BrandDialog.tsx:91](../../apps/web/src/pages/products/BrandDialog.tsx#L91) |
+| `BrandDialog.03977e6e` | 写死 | 名称 | 表单标签 | [BrandDialog.tsx:102](../../apps/web/src/pages/products/BrandDialog.tsx#L102) |
+| `BrandDialog.d6cb39c9` | 写死 | 你们对外用的品牌名。只有一个品牌的话，填公司或车队的名字就行。 | 正文 | [BrandDialog.tsx:123](../../apps/web/src/pages/products/BrandDialog.tsx#L123) |
+| `BrandDialog.2eadf784` | 写死 | 结算币种 | 表单标签 | [BrandDialog.tsx:129](../../apps/web/src/pages/products/BrandDialog.tsx#L129) |
+| `BrandDialog.a97099dd` | 写死 | 请选择 | 选项 | [BrandDialog.tsx:134](../../apps/web/src/pages/products/BrandDialog.tsx#L134) |
+| `BrandDialog.6319145b` | 写死 | 这个子品牌下所有商品的价格都用这种币种填写，平台也按它跟你们结算。 | 正文 | [BrandDialog.tsx:143](../../apps/web/src/pages/products/BrandDialog.tsx#L143) |
+| `BrandDialog.5b267f9b` | 写死 | 币种创建后不能修改。 | 正文 | [BrandDialog.tsx:147](../../apps/web/src/pages/products/BrandDialog.tsx#L147) |
+| `BrandDialog.d717ca52` | 写死 | 选错了只能另建一个子品牌。 | 正文 | [BrandDialog.tsx:148](../../apps/web/src/pages/products/BrandDialog.tsx#L148) |

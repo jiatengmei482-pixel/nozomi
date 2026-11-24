@@ -116,12 +116,26 @@ package_installed() {
   fi
 }
 
+# 可选的 apt 下载缓存（M8-29b）：设了 BOOTSTRAP_APT_CACHE_DIR 时，Ubuntu 容器的软件包索引和下载的 .deb 放在这台机器上的
+# <目录>/<镜像>/ 下，CI 用 actions/cache 在几轮之间保留。2026-11-23 起公共软件源一个包要传二三十秒，Ubuntu 24.04 一种情形
+# 两次都超过 360 秒；有了缓存，只有和上次不同的包要下载。装包仍然走初始化脚本自己的 apt-get、官方软件源，校验照旧；不设就和原来一样。
+apt_cache_volumes=()
+set_apt_cache_volumes() {
+  local image="$1" dir
+  apt_cache_volumes=()
+  [[ -n "${BOOTSTRAP_APT_CACHE_DIR:-}" && "$image" == ubuntu:* ]] || return 0
+  dir="$BOOTSTRAP_APT_CACHE_DIR/${image//[^a-z0-9.]/-}"
+  mkdir -p "$dir/archives" "$dir/lists"
+  apt_cache_volumes=(--volume "$dir/archives:/var/cache/apt/archives" --volume "$dir/lists:/var/lib/apt/lists")
+}
+
 start_container() {
   local name="$1" image="$2"
   shift 2
+  set_apt_cache_volumes "$image"
   docker run --detach --name "$name" --cap-add NET_ADMIN \
     --volume "$work_dir/systemctl:/usr/local/sbin/systemctl:ro" \
-    "$@" "$image" sleep infinity >/dev/null
+    "${apt_cache_volumes[@]}" "$@" "$image" sleep infinity >/dev/null
   containers+=("$name")
   harden_package_sources "$name"
 }
@@ -134,11 +148,13 @@ harden_package_sources() {
   docker exec "$name" sh -c '
     if [ -d /etc/apt ]; then
       printf "%s\n" "Acquire::Retries \"5\";" "Acquire::http::Timeout \"30\";" "Acquire::https::Timeout \"30\";" >/etc/apt/apt.conf.d/80-ci-retries
+      # 官方 Ubuntu 镜像装完包就删 .deb（docker-clean）；用缓存时留着，下一轮直接用
+      if [ -n "$1" ]; then rm -f /etc/apt/apt.conf.d/docker-clean; fi
     fi
     if [ -f /etc/dnf/dnf.conf ]; then
       printf "%s\n" "retries=5" "timeout=30" "minrate=1000" >>/etc/dnf/dnf.conf
     fi
-  ' || fail "演练容器 $name 的软件源设置失败"
+  ' sh "${apt_cache_volumes[*]}" || fail "演练容器 $name 的软件源设置失败"
 }
 
 # 两种情形共用：用户、目录、密钥、公钥、定时任务，以及「重跑不覆盖、只补缺」。

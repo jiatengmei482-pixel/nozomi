@@ -1,6 +1,6 @@
 # 前端公共组件和共用文案（第 2 / 2 份）
 
-由 `pnpm copy:export` 从代码生成，不要手改。本区域共 1818 条：写死 1634 条，已走 key 184 条。列的意思见 [README](README.md)。
+由 `pnpm copy:export` 从代码生成，不要手改。本区域共 1783 条：写死 1599 条，已走 key 184 条。列的意思见 [README](README.md)。
 
 本区域分 2 份：[第 1 份](shared.md) · 第 2 份
 
@@ -17,7 +17,6 @@
 - [官网（site-display.ts）](#官网site-displayts)（108 条）
 - [Stripe.js 的加载和本站用到的那一小部分类型（stripe-js.ts）](#stripejs-的加载和本站用到的那一小部分类型stripe-jsts)（1 条）
 - [时刻、日期的输入整理和「读回来的话」（time-input.ts）](#时刻日期的输入整理和读回来的话time-inputts)（12 条）
-- [「未覆盖需求」（uncovered-demand-display.ts）](#未覆盖需求uncovered-demand-displayts)（35 条）
 - [把一段文字写进剪贴板（use-copy-text.tsx）](#把一段文字写进剪贴板use-copy-texttsx)（5 条）
 - [主题切换（ThemeSwitcher.tsx）](#主题切换themeswitchertsx)（1 条）
 - [主题（theme.ts）](#主题themets)（3 条）
@@ -518,50 +517,6 @@
 | `time-input.a8d238bc` | 写死 | {from} 至 {to} | 文字 | [time-input.ts:62](../../apps/web/src/lib/time-input.ts#L62) |
 | `time-input.55469bca` | 写死 | 从 {from} 起 | 文字 | [time-input.ts:63](../../apps/web/src/lib/time-input.ts#L63) |
 | `time-input.153587e9` | 写死 | 到 {to} 为止 | 文字 | [time-input.ts:64](../../apps/web/src/lib/time-input.ts#L64) |
-
-## 「未覆盖需求」（uncovered-demand-display.ts）
-
-用在：供应商后台 · 区域列表；供应商后台 · 区域地图（运营后台也用）；供应商后台 · 区域编辑；供应商后台 · 商品编辑；运营后台 · 商品（只读查看）；运营后台 · 未覆盖需求
-
-文件：`apps/web/src/lib/uncovered-demand-display.ts`
-
-| key | 状态 | 中文 | 类型 | 位置 |
-| --- | --- | --- | --- | --- |
-| `uncovered-demand-display.a2827edc` | 写死 | 不在任何运营区域里 | 文字 | [uncovered-demand-display.ts:9](../../apps/web/src/lib/uncovered-demand-display.ts#L9) |
-| `uncovered-demand-display.5e85f70c` | 写死 | 在运营区域里，但没有报价区域 | 文字 | [uncovered-demand-display.ts:10](../../apps/web/src/lib/uncovered-demand-display.ts#L10) |
-| `uncovered-demand-display.9832599d` | 写死 | 其他原因 | 文字 | [uncovered-demand-display.ts:11](../../apps/web/src/lib/uncovered-demand-display.ts#L11) |
-| `uncovered-demand-display.dcf33f5b` | 写死 | 这里没有供应商接单：可以请招商找这一带的供应商，或请现有供应商把运营区域画大一些。 | 文字 | [uncovered-demand-display.ts:16](../../apps/web/src/lib/uncovered-demand-display.ts#L16) |
-| `uncovered-demand-display.8142cc97` | 写死 | 有供应商能来，但商品没有勾选覆盖这里的报价区域：可以联系这些供应商补一个报价区域、设好价格。 | 文字 | [uncovered-demand-display.ts:17](../../apps/web/src/lib/uncovered-demand-display.ts#L17) |
-| `uncovered-demand-display.f299ada9` | 写死 | 区域没有问题，是别的原因（提前预订不够、售罄、人数超出、没有价格……），见详情里的拒绝原因。 | 文字 | [uncovered-demand-display.ts:18](../../apps/web/src/lib/uncovered-demand-display.ts#L18) |
-| `uncovered-demand-display.ce0bc235` | 写死 | 不在运营区域或商品区域里 | 文字 | [uncovered-demand-display.ts:23](../../apps/web/src/lib/uncovered-demand-display.ts#L23) |
-| `uncovered-demand-display.54075d7d` | 写死 | 在禁行区里 | 文字 | [uncovered-demand-display.ts:24](../../apps/web/src/lib/uncovered-demand-display.ts#L24) |
-| `uncovered-demand-display.e3b24886` | 写死 | 在运营区域里，但商品没有勾选覆盖它的报价区域 | 文字 | [uncovered-demand-display.ts:25](../../apps/web/src/lib/uncovered-demand-display.ts#L25) |
-| `uncovered-demand-display.c5557b19` | 写死 | 提前预订时长不够 | 说明 | [uncovered-demand-display.ts:26](../../apps/web/src/lib/uncovered-demand-display.ts#L26) |
-| `uncovered-demand-display.6bbcd015` | 写死 | 不在服务时间里 | 文字 | [uncovered-demand-display.ts:27](../../apps/web/src/lib/uncovered-demand-display.ts#L27) |
-| `uncovered-demand-display.08a19111` | 写死 | 不在下单有效期里 | 文字 | [uncovered-demand-display.ts:28](../../apps/web/src/lib/uncovered-demand-display.ts#L28) |
-| `uncovered-demand-display.cf11b46d` | 写死 | 用车时间已经过去 | 文字 | [uncovered-demand-display.ts:29](../../apps/web/src/lib/uncovered-demand-display.ts#L29) |
-| `uncovered-demand-display.6120699a` | 写死 | 库存不足 | 文字 | [uncovered-demand-display.ts:30](../../apps/web/src/lib/uncovered-demand-display.ts#L30) |
-| `uncovered-demand-display.7feff321` | 写死 | 加急库存用完 | 文字 | [uncovered-demand-display.ts:31](../../apps/web/src/lib/uncovered-demand-display.ts#L31) |
-| `uncovered-demand-display.99d5e5fc` | 写死 | 人数或行李超出车型 | 文字 | [uncovered-demand-display.ts:32](../../apps/web/src/lib/uncovered-demand-display.ts#L32) |
-| `uncovered-demand-display.3d0382d3` | 写死 | 没有这个车型组 | 文字 | [uncovered-demand-display.ts:33](../../apps/web/src/lib/uncovered-demand-display.ts#L33) |
-| `uncovered-demand-display.0cc97063` | 写死 | 没有价格 | 文字 | [uncovered-demand-display.ts:34](../../apps/web/src/lib/uncovered-demand-display.ts#L34) |
-| `uncovered-demand-display.4b80aab8` | 写死 | 价格不在生效期 | 文字 | [uncovered-demand-display.ts:35](../../apps/web/src/lib/uncovered-demand-display.ts#L35) |
-| `uncovered-demand-display.07b30a0f` | 写死 | 价格已停用 | 文字 | [uncovered-demand-display.ts:36](../../apps/web/src/lib/uncovered-demand-display.ts#L36) |
-| `uncovered-demand-display.18e6795c` | 写死 | 取不到路线 | 文字 | [uncovered-demand-display.ts:37](../../apps/web/src/lib/uncovered-demand-display.ts#L37) |
-| `uncovered-demand-display.1f4cc323` | 写死 | 包车没给下车地点 | 提示 | [uncovered-demand-display.ts:38](../../apps/web/src/lib/uncovered-demand-display.ts#L38) |
-| `uncovered-demand-display.8c22b79a` | 写死 | 经停点不在任何区域 | 文字 | [uncovered-demand-display.ts:39](../../apps/web/src/lib/uncovered-demand-display.ts#L39) |
-| `uncovered-demand-display.fcb34820` | 写死 | 预计用时超过在线下单上限 | 文字 | [uncovered-demand-display.ts:40](../../apps/web/src/lib/uncovered-demand-display.ts#L40) |
-| `uncovered-demand-display.2b3d9ba5` | 写死 | 附加服务不提供 | 文字 | [uncovered-demand-display.ts:41](../../apps/web/src/lib/uncovered-demand-display.ts#L41) |
-| `uncovered-demand-display.f074e959` | 写死 | 没有可用的汇率 | 文字 | [uncovered-demand-display.ts:42](../../apps/web/src/lib/uncovered-demand-display.ts#L42) |
-| `uncovered-demand-display.d31a4d35` | 写死 | 试运营每日上限 | 文字 | [uncovered-demand-display.ts:43](../../apps/web/src/lib/uncovered-demand-display.ts#L43) |
-| `uncovered-demand-display.7850f8de` | 写死 | 接机 | 文字 | [uncovered-demand-display.ts:58](../../apps/web/src/lib/uncovered-demand-display.ts#L58) |
-| `uncovered-demand-display.c60398de` | 写死 | 送机 | 文字 | [uncovered-demand-display.ts:58](../../apps/web/src/lib/uncovered-demand-display.ts#L58) |
-| `uncovered-demand-display.b824d06a` | 写死 | 包车 {package\_hours} 小时 | 文字 | [uncovered-demand-display.ts:59](../../apps/web/src/lib/uncovered-demand-display.ts#L59) |
-| `uncovered-demand-display.eb4f6afe` | 写死 | 没有给 | 文字 | [uncovered-demand-display.ts:69](../../apps/web/src/lib/uncovered-demand-display.ts#L69) |
-| `uncovered-demand-display.4ac8dd74` | 写死 | 开始日期的写法不对，请写成「年-月-日」。 | 文字 | [uncovered-demand-display.ts:117](../../apps/web/src/lib/uncovered-demand-display.ts#L117) |
-| `uncovered-demand-display.5303e910` | 写死 | 结束日期的写法不对，请写成「年-月-日」。 | 文字 | [uncovered-demand-display.ts:118](../../apps/web/src/lib/uncovered-demand-display.ts#L118) |
-| `uncovered-demand-display.06298213` | 写死 | 开始日期不能晚于结束日期。 | 文字 | [uncovered-demand-display.ts:120](../../apps/web/src/lib/uncovered-demand-display.ts#L120) |
-| `uncovered-demand-display.ba61899d` | 写死 | 日期范围最长 366 天，请缩短。 | 文字 | [uncovered-demand-display.ts:122](../../apps/web/src/lib/uncovered-demand-display.ts#L122) |
 
 ## 把一段文字写进剪贴板（use-copy-text.tsx）
 

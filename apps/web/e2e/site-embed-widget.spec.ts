@@ -87,6 +87,22 @@ async function quoteTotals(page: Page, open: () => Promise<unknown>): Promise<st
   return body.quotes.map((quote) => `${quote.vehicle_group.id}:${quote.price.total.amount} ${quote.price.total.currency}`).sort();
 }
 
+/**
+ * 在已获得焦点的地址框里逐字打 text，等组件按完整的 text 查回候选并画好列表再返回（M8-29b）。
+ * 组件停顿 300 毫秒才查候选：机器忙、打字中途卡顿超过 300 毫秒时，会先按打了一半的字查一次、画出一份旧列表；
+ * 只等「候选里有某一项」可能在旧列表上就满足了，方向键选的是旧列表的第一项，或者新列表随后替换掉已获焦点的那一项、回车落空。
+ * 这里等完整文字的那次查询回来、地址框下的「正在查找…」消失（组件收到应答、换好列表后才清掉它）。
+ */
+async function typeAndAwaitSuggestions(page: Page, field: "pickup" | "dropoff", text: string): Promise<void> {
+  const final = page.waitForResponse((res) => {
+    const url = new URL(res.url());
+    return url.pathname === "/embed/v1/places/autocomplete" && url.searchParams.get("q") === text;
+  });
+  await page.keyboard.type(text);
+  expect((await final).status()).toBe(200);
+  await expect(page.locator(`[data-field="${field}"] .nzb-status`)).toHaveText("");
+}
+
 test("嵌入组件：白名单网站上样式不受宿主页影响、320 px、axe、键盘走完 → 建草稿 → 跳主站自动询价，价格等于手填；不在白名单的网站只显示暂时无法使用", async ({ page, request }) => {
   test.setTimeout(180_000);
   const world = await createWorld(request);
@@ -140,7 +156,7 @@ test("嵌入组件：白名单网站上样式不受宿主页影响、320 px、ax
   // 键盘：出发地选平台的机场，目的地选谷歌候选，日期改成后天，Tab 到「查询价格」回车
   await fromBox.focus();
   // 打完整名称（带随机后缀）：只打前几个字时，并行用例建的「新预订机场XXXXX」也会排在候选里，方向键可能选到别人的（M8-29 同类）
-  await page.keyboard.type(airport.name);
+  await typeAndAwaitSuggestions(page, "pickup", airport.name);
   await expect(page.getByRole("listbox", { name: "出发地的候选" }).getByRole("option", { name: new RegExp(airport.name) })).toBeVisible();
   await page.keyboard.press("ArrowDown");
   await expect(page.getByRole("listbox", { name: "出发地的候选" }).getByRole("option").first()).toBeFocused();
@@ -148,7 +164,7 @@ test("嵌入组件：白名单网站上样式不受宿主页影响、320 px、ax
   await expect(fromBox).toHaveValue(airport.name);
   const toBox = page.getByRole("combobox", { name: "目的地" });
   await toBox.focus();
-  await page.keyboard.type("東京駅");
+  await typeAndAwaitSuggestions(page, "dropoff", "東京駅");
   const toList = page.getByRole("listbox", { name: "目的地的候选" });
   await expect(toList.getByRole("option", { name: /東京駅/ }).first()).toBeVisible();
   // 谷歌署名在候选列表外面、同一个弹出面板里（M9E-06）
