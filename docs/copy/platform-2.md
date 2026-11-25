@@ -1,6 +1,6 @@
 # 运营后台（第 2 / 3 份）
 
-由 `pnpm copy:export` 从代码生成，不要手改。本区域共 3969 条：写死 3963 条，已走 key 6 条。列的意思见 [README](README.md)。
+由 `pnpm copy:export` 从代码生成，不要手改。本区域共 3978 条：写死 3963 条，已走 key 15 条。列的意思见 [README](README.md)。
 
 本区域分 3 份：[第 1 份](platform.md) · 第 2 份 · [第 3 份](platform-3.md)
 
@@ -19,7 +19,7 @@
 - [主数据列表（城市、地点、车型组、附加服务）](#主数据列表城市地点车型组附加服务)（82 条）
 - [主数据编辑（共用表单）](#主数据编辑共用表单)（55 条）
 - [主数据 · 城市](#主数据--城市)（27 条）
-- [主数据 · 地点](#主数据--地点)（101 条）
+- [主数据 · 地点](#主数据--地点)（110 条）
 - [主数据 · 车型组和附加服务](#主数据--车型组和附加服务)（57 条）
 - [处理导入的机场](#处理导入的机场)（75 条）
 - [共享区域去重](#共享区域去重)（59 条）
@@ -1269,111 +1269,120 @@
 
 ## 主数据 · 地点
 
-文件：`apps/web/src/pages/master/PlaceForm.tsx`
+文件：`apps/web/src/pages/master/PlaceForm.tsx`、`apps/web/src/pages/master/place-texts.ts`
 
 | key | 状态 | 中文 | 类型 | 位置 |
 | --- | --- | --- | --- | --- |
-| `PlaceForm.04e3aecb` | 写死 | 不填 | 名称 | [PlaceForm.tsx:51](../../apps/web/src/pages/master/PlaceForm.tsx#L51) |
-| `PlaceForm.94df733e` | 写死 | 航站楼 | 名称 | [PlaceForm.tsx:60](../../apps/web/src/pages/master/PlaceForm.tsx#L60) |
-| `PlaceForm.bf44629a` | 写死 | 出口 | 名称 | [PlaceForm.tsx:60](../../apps/web/src/pages/master/PlaceForm.tsx#L60) |
-| `PlaceForm.f1dffacb` | 写死 | 名称 | 文字 | [PlaceForm.tsx:76](../../apps/web/src/pages/master/PlaceForm.tsx#L76)、154、291、445 行 |
-| `PlaceForm.bd11099c` | 写死 | 请选择所属城市 | 文字 | [PlaceForm.tsx:77](../../apps/web/src/pages/master/PlaceForm.tsx#L77) |
-| `PlaceForm.6b5a0a5b` | 写死 | 请选择车站类型 | 文字 | [PlaceForm.tsx:78](../../apps/web/src/pages/master/PlaceForm.tsx#L78) |
-| `PlaceForm.338471cb` | 写死 | 请选择地标类型 | 文字 | [PlaceForm.tsx:79](../../apps/web/src/pages/master/PlaceForm.tsx#L79) |
-| `PlaceForm.cf2bdb39` | 写死 | 地址最多 {ADDRESS\_MAX\_LENGTH} 个字 | 文字 | [PlaceForm.tsx:80](../../apps/web/src/pages/master/PlaceForm.tsx#L80) |
-| `PlaceForm.987ea286` | 写死 | 请输入编码 | 文字 | [PlaceForm.tsx:84](../../apps/web/src/pages/master/PlaceForm.tsx#L84) |
-| `PlaceForm.3e956d3d` | 写死 | 机场编码是 IATA 三字码，3 个大写字母，例如 HND | 文字 | [PlaceForm.tsx:89](../../apps/web/src/pages/master/PlaceForm.tsx#L89) |
-| `PlaceForm.ef1dc779` | 写死 | 编码里的国家码 {…} 和所属城市的国家 {…} 不一致 | 文字 | [PlaceForm.tsx:92](../../apps/web/src/pages/master/PlaceForm.tsx#L92) |
-| `PlaceForm.2ede925f` | 写死 | 编码格式应为 STN-国家码-序号，序号是 1 到 10 位大写字母或数字，例如 STN-JP-TOKYO | 文字 | [PlaceForm.tsx:93](../../apps/web/src/pages/master/PlaceForm.tsx#L93) |
-| `PlaceForm.5ae3a6d2` | 写死 | 编码格式应为 POI-序号，序号是 1 到 12 位大写字母或数字，例如 POI-000123 | 文字 | [PlaceForm.tsx:95](../../apps/web/src/pages/master/PlaceForm.tsx#L95) |
-| `PlaceForm.36f4f8ce` | 写死 | 上级编码 | 文字 | [PlaceForm.tsx:96](../../apps/web/src/pages/master/PlaceForm.tsx#L96) |
-| `PlaceForm.415a9736` | 写死 | 编码格式应为 {…}-后缀，后缀是 1 到 6 位大写字母或数字，例如 {…}-{…} | 文字 | [PlaceForm.tsx:96](../../apps/web/src/pages/master/PlaceForm.tsx#L96) |
-| `PlaceForm.b5a06ab7` | 写死 | 这个{name} | 文字 | [PlaceForm.tsx:115](../../apps/web/src/pages/master/PlaceForm.tsx#L115) |
-| `PlaceForm.877aadef` | 写死 | 「{code} {text}」的上级「{code} {text}」已停用，不能启用。请先启用上级。 | 文字 | [PlaceForm.tsx:117](../../apps/web/src/pages/master/PlaceForm.tsx#L117) |
-| `PlaceForm.4fa9f858` | 写死 | 新增{name} | 按钮 | [PlaceForm.tsx:124](../../apps/web/src/pages/master/PlaceForm.tsx#L124)、127 行 |
-| `PlaceForm.701df25a` | 写死 | {…}启用后才能新增{name}。 | 正文 | [PlaceForm.tsx:138](../../apps/web/src/pages/master/PlaceForm.tsx#L138) |
-| `PlaceForm.661c1197` | 写死 | {name}列表 | 名称 | [PlaceForm.tsx:145](../../apps/web/src/pages/master/PlaceForm.tsx#L145) |
-| `PlaceForm.ebebddbe` | 写死 | 编码 | 文字 | [PlaceForm.tsx:153](../../apps/web/src/pages/master/PlaceForm.tsx#L153)、291 行 |
-| `PlaceForm.13ba289b` | 写死 | 国际 / 国内 | 文字 | [PlaceForm.tsx:155](../../apps/web/src/pages/master/PlaceForm.tsx#L155)、291 行 |
-| `PlaceForm.3a89ed5b` | 写死 | 坐标 | 文字 | [PlaceForm.tsx:156](../../apps/web/src/pages/master/PlaceForm.tsx#L156)、291、483 行 |
-| `PlaceForm.7d9bd7bb` | 写死 | 状态 | 文字 | [PlaceForm.tsx:157](../../apps/web/src/pages/master/PlaceForm.tsx#L157) |
-| `PlaceForm.8125f50a` | 写死 | 操作 | 文字 | [PlaceForm.tsx:163](../../apps/web/src/pages/master/PlaceForm.tsx#L163) |
-| `PlaceForm.eead828c` | 写死 | 编辑 {code} | 读屏说明 | [PlaceForm.tsx:166](../../apps/web/src/pages/master/PlaceForm.tsx#L166) |
-| `PlaceForm.1756ddcf` | 写死 | 编辑 | 按钮 | [PlaceForm.tsx:168](../../apps/web/src/pages/master/PlaceForm.tsx#L168) |
-| `PlaceForm.9bf5b909` | 写死 | 停用 {code} | 读屏说明 | [PlaceForm.tsx:170](../../apps/web/src/pages/master/PlaceForm.tsx#L170) |
-| `PlaceForm.94d469fe` | 写死 | 停用 | 按钮 | [PlaceForm.tsx:172](../../apps/web/src/pages/master/PlaceForm.tsx#L172) |
-| `PlaceForm.47b214b1` | 写死 | 启用 {code} | 读屏说明 | [PlaceForm.tsx:174](../../apps/web/src/pages/master/PlaceForm.tsx#L174) |
-| `PlaceForm.ee6fbda2` | 写死 | 启用中… | 文字 | [PlaceForm.tsx:174](../../apps/web/src/pages/master/PlaceForm.tsx#L174) |
-| `PlaceForm.1340de7f` | 写死 | 启用 | 按钮 | [PlaceForm.tsx:176](../../apps/web/src/pages/master/PlaceForm.tsx#L176) |
-| `PlaceForm.a85e376c` | 写死 | 还没有{name} | 标题 | [PlaceForm.tsx:187](../../apps/web/src/pages/master/PlaceForm.tsx#L187) |
-| `PlaceForm.729d3bb2` | 写死 | 把车站的每个出口单独录入，各自有编码和坐标。 | 说明 | [PlaceForm.tsx:188](../../apps/web/src/pages/master/PlaceForm.tsx#L188) |
-| `PlaceForm.8b354008` | 写死 | 有多个航站楼的机场，把每个航站楼单独录入，各自有编码和坐标。 | 说明 | [PlaceForm.tsx:188](../../apps/web/src/pages/master/PlaceForm.tsx#L188) |
-| `PlaceForm.798c23b9` | 写死 | 数据来源 | 标题 | [PlaceForm.tsx:206](../../apps/web/src/pages/master/PlaceForm.tsx#L206) |
-| `PlaceForm.5323f550` | 写死 | 平台改过这个机场的英语名或坐标，再次导入时不会覆盖。 | 正文 | [PlaceForm.tsx:210](../../apps/web/src/pages/master/PlaceForm.tsx#L210) |
-| `PlaceForm.78a7f51a` | 写死 | 现在以这里填的为准。 | 正文 | [PlaceForm.tsx:211](../../apps/web/src/pages/master/PlaceForm.tsx#L211) |
-| `PlaceForm.5cc2a24c` | 写死 | 英语名和坐标来自 OurAirports，再次导入时会随数据源更新。 | 正文 | [PlaceForm.tsx:215](../../apps/web/src/pages/master/PlaceForm.tsx#L215) |
-| `PlaceForm.7b86b3fa` | 写死 | 你在这里改过其中任何一项之后，这个机场的英语名和坐标就不再随导入更新，以这里填的为准。所属城市、中文名、日文名等不受这项导入影响。 | 正文 | [PlaceForm.tsx:216](../../apps/web/src/pages/master/PlaceForm.tsx#L216) |
-| `PlaceForm.984e3d00` | 写死 | 来源 | 正文 | [PlaceForm.tsx:222](../../apps/web/src/pages/master/PlaceForm.tsx#L222) |
-| `PlaceForm.ef609861` | 写死 | OurAirports | 链接 | [PlaceForm.tsx:224](../../apps/web/src/pages/master/PlaceForm.tsx#L224) |
-| `PlaceForm.f06b8bae` | 写死 | （公开数据） | 正文 | [PlaceForm.tsx:226](../../apps/web/src/pages/master/PlaceForm.tsx#L226) |
-| `PlaceForm.4ba83aa0` | 写死 | 中文、日文名称 | 正文 | [PlaceForm.tsx:229](../../apps/web/src/pages/master/PlaceForm.tsx#L229) |
-| `PlaceForm.24439e80` | 写死 | 来自 | 正文 | [PlaceForm.tsx:231](../../apps/web/src/pages/master/PlaceForm.tsx#L231) |
-| `PlaceForm.4dd70d9c` | 写死 | GeoNames | 链接 | [PlaceForm.tsx:231](../../apps/web/src/pages/master/PlaceForm.tsx#L231) |
-| `PlaceForm.e7a855a9` | 写死 | （CC BY 4.0）。导入时只填空着的语言；在这里改过或删掉的，再导入时不会覆盖、也不会补回。 | 正文 | [PlaceForm.tsx:231](../../apps/web/src/pages/master/PlaceForm.tsx#L231) |
-| `PlaceForm.598beae8` | 写死 | 数据源里的编号 | 正文 | [PlaceForm.tsx:235](../../apps/web/src/pages/master/PlaceForm.tsx#L235) |
-| `PlaceForm.8f849be3` | 写死 | 最近核对 | 正文 | [PlaceForm.tsx:239](../../apps/web/src/pages/master/PlaceForm.tsx#L239) |
-| `PlaceForm.b488d422` | 写死 | 随导入更新 | 正文 | [PlaceForm.tsx:243](../../apps/web/src/pages/master/PlaceForm.tsx#L243) |
-| `PlaceForm.1e22f5c8` | 写死 | 否 | 正文 | [PlaceForm.tsx:244](../../apps/web/src/pages/master/PlaceForm.tsx#L244) |
-| `PlaceForm.80ffc153` | 写死 | 是 | 正文 | [PlaceForm.tsx:244](../../apps/web/src/pages/master/PlaceForm.tsx#L244) |
-| `PlaceForm.c0f4056c` | 写死 | 保存后，这个机场的英语名和坐标不再随 OurAirports 更新。 | 正文 | [PlaceForm.tsx:255](../../apps/web/src/pages/master/PlaceForm.tsx#L255) |
-| `PlaceForm.676d9fb4` | 写死 | 来自 OurAirports。 | 正文 | [PlaceForm.tsx:258](../../apps/web/src/pages/master/PlaceForm.tsx#L258) |
-| `PlaceForm.7a416b60` | 写死 | 地点 | 名称 | [PlaceForm.tsx:264](../../apps/web/src/pages/master/PlaceForm.tsx#L264) |
-| `PlaceForm.59862cc4` | 写死 | 找不到所属的{…} | 文字 | [PlaceForm.tsx:286](../../apps/web/src/pages/master/PlaceForm.tsx#L286) |
-| `PlaceForm.2eb2de0c` | 写死 | 包车覆盖检查 | 文字 | [PlaceForm.tsx:291](../../apps/web/src/pages/master/PlaceForm.tsx#L291)、513 行 |
-| `PlaceForm.4214e82e` | 写死 | 地址 | 文字 | [PlaceForm.tsx:291](../../apps/web/src/pages/master/PlaceForm.tsx#L291)、505 行 |
-| `PlaceForm.5543cd15` | 写死 | 所属城市 | 文字 | [PlaceForm.tsx:291](../../apps/web/src/pages/master/PlaceForm.tsx#L291)、392、400 行 |
-| `PlaceForm.ef25283b` | 写死 | 类型 | 文字 | [PlaceForm.tsx:291](../../apps/web/src/pages/master/PlaceForm.tsx#L291)、378 行 |
-| `PlaceForm.80c1562d` | 写死 | 机场一般不用手工新增：技术人员用导入命令从 OurAirports 批量导入。只有数据源里没有的机场才需要在这里录入。 | 文字 | [PlaceForm.tsx:324](../../apps/web/src/pages/master/PlaceForm.tsx#L324) |
-| `PlaceForm.31819873` | 写死 | 这个城市已经停用。请换一个城市，或先去启用它。 | 文字 | [PlaceForm.tsx:327](../../apps/web/src/pages/master/PlaceForm.tsx#L327) |
-| `PlaceForm.aa895d52` | 写死 | 所属{…}「{code} {text}」已停用，不能在它下面新增{…}。请先启用它。 | 文字 | [PlaceForm.tsx:328](../../apps/web/src/pages/master/PlaceForm.tsx#L328) |
-| `PlaceForm.e24b509f` | 写死 | 上级已停用，这次没有保存成功。请先启用它。 | 文字 | [PlaceForm.tsx:328](../../apps/web/src/pages/master/PlaceForm.tsx#L328) |
-| `PlaceForm.8d48f224` | 写死 | 这个{…} | 文字 | [PlaceForm.tsx:331](../../apps/web/src/pages/master/PlaceForm.tsx#L331) |
-| `PlaceForm.fcd6910b` | 写死 | 这个{…}下还有 {count} 个启用中的{…}，请先停用它们。 | 文字 | [PlaceForm.tsx:332](../../apps/web/src/pages/master/PlaceForm.tsx#L332) |
-| `PlaceForm.e57216cd` | 写死 | {label}还没有指定所属城市，不能启用。请先在下面选择所属城市并保存。 | 文字 | [PlaceForm.tsx:335](../../apps/web/src/pages/master/PlaceForm.tsx#L335) |
-| `PlaceForm.bf8f4803` | 写死 | {label}所属的城市「{text}」已停用，不能启用。请先启用这个城市。 | 文字 | [PlaceForm.tsx:336](../../apps/web/src/pages/master/PlaceForm.tsx#L336) |
-| `PlaceForm.c09acefe` | 写死 | 去看这个城市 | 名称 | [PlaceForm.tsx:336](../../apps/web/src/pages/master/PlaceForm.tsx#L336) |
-| `PlaceForm.462a91cf` | 写死 | {label}的上级「{code} {text}」已停用，不能启用。请先启用上级。 | 文字 | [PlaceForm.tsx:337](../../apps/web/src/pages/master/PlaceForm.tsx#L337) |
-| `PlaceForm.70e26c23` | 写死 | 去看上级 | 名称 | [PlaceForm.tsx:337](../../apps/web/src/pages/master/PlaceForm.tsx#L337) |
-| `PlaceForm.f4f23029` | 写死 | 基本信息 | 标题 | [PlaceForm.tsx:376](../../apps/web/src/pages/master/PlaceForm.tsx#L376) |
-| `PlaceForm.0d04b8cf` | 写死 | 所属{…} | 名称 | [PlaceForm.tsx:383](../../apps/web/src/pages/master/PlaceForm.tsx#L383) |
-| `PlaceForm.8620856d` | 写死 | 创建后不能修改。 | 说明 | [PlaceForm.tsx:383](../../apps/web/src/pages/master/PlaceForm.tsx#L383) |
-| `PlaceForm.9f57fd58` | 写死 | 跟随所属{…}，不能单独指定。 | 说明 | [PlaceForm.tsx:392](../../apps/web/src/pages/master/PlaceForm.tsx#L392) |
-| `PlaceForm.d126f477` | 写死 | 输入城市名称或编码查找 | 输入框占位 | [PlaceForm.tsx:405](../../apps/web/src/pages/master/PlaceForm.tsx#L405) |
-| `PlaceForm.d1e1d4ba` | 写死 | 还没有启用中的城市 | 空状态 | [PlaceForm.tsx:406](../../apps/web/src/pages/master/PlaceForm.tsx#L406) |
-| `PlaceForm.1ed8a8f4` | 写死 | 国家跟随所属城市。 | 说明 | [PlaceForm.tsx:410](../../apps/web/src/pages/master/PlaceForm.tsx#L410) |
-| `PlaceForm.23c6ada3` | 写死 | 只能换到同一个国家的城市。{…} | 说明 | [PlaceForm.tsx:410](../../apps/web/src/pages/master/PlaceForm.tsx#L410) |
-| `PlaceForm.243690ba` | 写死 | 它下面的出口会跟着一起换。 | 说明 | [PlaceForm.tsx:410](../../apps/web/src/pages/master/PlaceForm.tsx#L410) |
-| `PlaceForm.408b8511` | 写死 | 请先新增城市。 | 说明 | [PlaceForm.tsx:410](../../apps/web/src/pages/master/PlaceForm.tsx#L410) |
-| `PlaceForm.bde0ea02` | 写死 | 它下面的航站楼会跟着一起换。 | 说明 | [PlaceForm.tsx:410](../../apps/web/src/pages/master/PlaceForm.tsx#L410) |
-| `PlaceForm.a54dac01` | 写死 | IATA 三字码，3 个大写字母。创建后不能修改。 | 说明 | [PlaceForm.tsx:431](../../apps/web/src/pages/master/PlaceForm.tsx#L431) |
-| `PlaceForm.be569d6d` | 写死 | 格式：STN-国家码-序号。序号是 1 到 10 位大写字母或数字。创建后不能修改。 | 说明 | [PlaceForm.tsx:433](../../apps/web/src/pages/master/PlaceForm.tsx#L433) |
-| `PlaceForm.62a24565` | 写死 | 格式：POI-序号。序号是 1 到 12 位大写字母或数字。创建后不能修改。 | 说明 | [PlaceForm.tsx:435](../../apps/web/src/pages/master/PlaceForm.tsx#L435) |
-| `PlaceForm.af1ae1af` | 写死 | 格式：上级编码加后缀。后缀是 1 到 6 位大写字母或数字。创建后不能修改。 | 说明 | [PlaceForm.tsx:436](../../apps/web/src/pages/master/PlaceForm.tsx#L436) |
-| `PlaceForm.aec0ea6c` | 写死 | 至少填一种语言。 | 说明 | [PlaceForm.tsx:453](../../apps/web/src/pages/master/PlaceForm.tsx#L453) |
-| `PlaceForm.978a3fed` | 写死 | 车站类型 | 标题 | [PlaceForm.tsx:461](../../apps/web/src/pages/master/PlaceForm.tsx#L461) |
-| `PlaceForm.adbc700b` | 写死 | 地标类型 | 标题 | [PlaceForm.tsx:461](../../apps/web/src/pages/master/PlaceForm.tsx#L461) |
-| `PlaceForm.8ba6781a` | 写死 | 国际 / 国内（选填） | 标题 | [PlaceForm.tsx:476](../../apps/web/src/pages/master/PlaceForm.tsx#L476) |
-| `PlaceForm.8e1a4309` | 写死 | 这个机场起降的是国际航班、国内航班，还是都有。 | 说明 | [PlaceForm.tsx:476](../../apps/web/src/pages/master/PlaceForm.tsx#L476) |
-| `PlaceForm.8c6e26c1` | 写死 | 位置 | 标题 | [PlaceForm.tsx:480](../../apps/web/src/pages/master/PlaceForm.tsx#L480) |
-| `PlaceForm.385a6a89` | 写死 | WGS84 坐标，保留 6 位小数。这是司机到达判定用的位置，请尽量准确。 | 说明 | [PlaceForm.tsx:488](../../apps/web/src/pages/master/PlaceForm.tsx#L488) |
-| `PlaceForm.7db6585a` | 写死 | 这个{…}自己的坐标，保留 6 位小数。 | 说明 | [PlaceForm.tsx:488](../../apps/web/src/pages/master/PlaceForm.tsx#L488) |
-| `PlaceForm.907f6fa4` | 写死 | 填入{…}的坐标 | 按钮 | [PlaceForm.tsx:494](../../apps/web/src/pages/master/PlaceForm.tsx#L494) |
-| `PlaceForm.46212d5d` | 写死 | 地址（选填） | 名称 | [PlaceForm.tsx:505](../../apps/web/src/pages/master/PlaceForm.tsx#L505) |
-| `PlaceForm.35c782ef` | 写死 | 包车 | 标题 | [PlaceForm.tsx:510](../../apps/web/src/pages/master/PlaceForm.tsx#L510) |
-| `PlaceForm.834a2fe5` | 写死 | 不在检查清单里 | 正文 | [PlaceForm.tsx:515](../../apps/web/src/pages/master/PlaceForm.tsx#L515) |
-| `PlaceForm.a85ec1b8` | 写死 | 已放进检查清单 | 正文 | [PlaceForm.tsx:515](../../apps/web/src/pages/master/PlaceForm.tsx#L515) |
-| `PlaceForm.37e603d1` | 写死 | 放进包车覆盖检查 | 正文 | [PlaceForm.tsx:519](../../apps/web/src/pages/master/PlaceForm.tsx#L519) |
-| `PlaceForm.ba822768` | 写死 | 勾了以后，同一城市的包车商品上架时会检查这个地标在不在它的基础价、行程或上下车加价区域里；不在就提醒供应商（不拦上架）。 | 正文 | [PlaceForm.tsx:523](../../apps/web/src/pages/master/PlaceForm.tsx#L523) |
+| `PlaceForm.04e3aecb` | 写死 | 不填 | 名称 | [PlaceForm.tsx:107](../../apps/web/src/pages/master/PlaceForm.tsx#L107) |
+| `PlaceForm.94df733e` | 写死 | 航站楼 | 名称 | [PlaceForm.tsx:116](../../apps/web/src/pages/master/PlaceForm.tsx#L116) |
+| `PlaceForm.bf44629a` | 写死 | 出口 | 名称 | [PlaceForm.tsx:116](../../apps/web/src/pages/master/PlaceForm.tsx#L116) |
+| `PlaceForm.f1dffacb` | 写死 | 名称 | 文字 | [PlaceForm.tsx:132](../../apps/web/src/pages/master/PlaceForm.tsx#L132)、211、358、514 行 |
+| `PlaceForm.bd11099c` | 写死 | 请选择所属城市 | 文字 | [PlaceForm.tsx:133](../../apps/web/src/pages/master/PlaceForm.tsx#L133) |
+| `PlaceForm.6b5a0a5b` | 写死 | 请选择车站类型 | 文字 | [PlaceForm.tsx:134](../../apps/web/src/pages/master/PlaceForm.tsx#L134) |
+| `PlaceForm.338471cb` | 写死 | 请选择地标类型 | 文字 | [PlaceForm.tsx:135](../../apps/web/src/pages/master/PlaceForm.tsx#L135) |
+| `PlaceForm.cf2bdb39` | 写死 | 地址最多 {ADDRESS\_MAX\_LENGTH} 个字 | 文字 | [PlaceForm.tsx:136](../../apps/web/src/pages/master/PlaceForm.tsx#L136) |
+| `PlaceForm.987ea286` | 写死 | 请输入编码 | 文字 | [PlaceForm.tsx:141](../../apps/web/src/pages/master/PlaceForm.tsx#L141) |
+| `PlaceForm.3e956d3d` | 写死 | 机场编码是 IATA 三字码，3 个大写字母，例如 HND | 文字 | [PlaceForm.tsx:146](../../apps/web/src/pages/master/PlaceForm.tsx#L146) |
+| `PlaceForm.ef1dc779` | 写死 | 编码里的国家码 {…} 和所属城市的国家 {…} 不一致 | 文字 | [PlaceForm.tsx:149](../../apps/web/src/pages/master/PlaceForm.tsx#L149) |
+| `PlaceForm.2ede925f` | 写死 | 编码格式应为 STN-国家码-序号，序号是 1 到 10 位大写字母或数字，例如 STN-JP-TOKYO | 文字 | [PlaceForm.tsx:150](../../apps/web/src/pages/master/PlaceForm.tsx#L150) |
+| `PlaceForm.5ae3a6d2` | 写死 | 编码格式应为 POI-序号，序号是 1 到 12 位大写字母或数字，例如 POI-000123 | 文字 | [PlaceForm.tsx:152](../../apps/web/src/pages/master/PlaceForm.tsx#L152) |
+| `PlaceForm.36f4f8ce` | 写死 | 上级编码 | 文字 | [PlaceForm.tsx:153](../../apps/web/src/pages/master/PlaceForm.tsx#L153) |
+| `PlaceForm.415a9736` | 写死 | 编码格式应为 {…}-后缀，后缀是 1 到 6 位大写字母或数字，例如 {…}-{…} | 文字 | [PlaceForm.tsx:153](../../apps/web/src/pages/master/PlaceForm.tsx#L153) |
+| `PlaceForm.b5a06ab7` | 写死 | 这个{name} | 文字 | [PlaceForm.tsx:172](../../apps/web/src/pages/master/PlaceForm.tsx#L172) |
+| `PlaceForm.877aadef` | 写死 | 「{code} {text}」的上级「{code} {text}」已停用，不能启用。请先启用上级。 | 文字 | [PlaceForm.tsx:174](../../apps/web/src/pages/master/PlaceForm.tsx#L174) |
+| `PlaceForm.4fa9f858` | 写死 | 新增{name} | 按钮 | [PlaceForm.tsx:181](../../apps/web/src/pages/master/PlaceForm.tsx#L181)、184 行 |
+| `PlaceForm.701df25a` | 写死 | {…}启用后才能新增{name}。 | 正文 | [PlaceForm.tsx:195](../../apps/web/src/pages/master/PlaceForm.tsx#L195) |
+| `PlaceForm.661c1197` | 写死 | {name}列表 | 名称 | [PlaceForm.tsx:202](../../apps/web/src/pages/master/PlaceForm.tsx#L202) |
+| `PlaceForm.ebebddbe` | 写死 | 编码 | 文字 | [PlaceForm.tsx:210](../../apps/web/src/pages/master/PlaceForm.tsx#L210)、358 行 |
+| `PlaceForm.13ba289b` | 写死 | 国际 / 国内 | 文字 | [PlaceForm.tsx:212](../../apps/web/src/pages/master/PlaceForm.tsx#L212)、358 行 |
+| `PlaceForm.3a89ed5b` | 写死 | 坐标 | 文字 | [PlaceForm.tsx:213](../../apps/web/src/pages/master/PlaceForm.tsx#L213)、358、552 行 |
+| `PlaceForm.7d9bd7bb` | 写死 | 状态 | 文字 | [PlaceForm.tsx:214](../../apps/web/src/pages/master/PlaceForm.tsx#L214) |
+| `PlaceForm.8125f50a` | 写死 | 操作 | 文字 | [PlaceForm.tsx:220](../../apps/web/src/pages/master/PlaceForm.tsx#L220) |
+| `PlaceForm.eead828c` | 写死 | 编辑 {code} | 读屏说明 | [PlaceForm.tsx:223](../../apps/web/src/pages/master/PlaceForm.tsx#L223) |
+| `PlaceForm.1756ddcf` | 写死 | 编辑 | 按钮 | [PlaceForm.tsx:225](../../apps/web/src/pages/master/PlaceForm.tsx#L225) |
+| `PlaceForm.9bf5b909` | 写死 | 停用 {code} | 读屏说明 | [PlaceForm.tsx:227](../../apps/web/src/pages/master/PlaceForm.tsx#L227) |
+| `PlaceForm.94d469fe` | 写死 | 停用 | 按钮 | [PlaceForm.tsx:229](../../apps/web/src/pages/master/PlaceForm.tsx#L229) |
+| `PlaceForm.47b214b1` | 写死 | 启用 {code} | 读屏说明 | [PlaceForm.tsx:231](../../apps/web/src/pages/master/PlaceForm.tsx#L231) |
+| `PlaceForm.ee6fbda2` | 写死 | 启用中… | 文字 | [PlaceForm.tsx:231](../../apps/web/src/pages/master/PlaceForm.tsx#L231) |
+| `PlaceForm.1340de7f` | 写死 | 启用 | 按钮 | [PlaceForm.tsx:233](../../apps/web/src/pages/master/PlaceForm.tsx#L233) |
+| `PlaceForm.a85e376c` | 写死 | 还没有{name} | 标题 | [PlaceForm.tsx:244](../../apps/web/src/pages/master/PlaceForm.tsx#L244) |
+| `PlaceForm.729d3bb2` | 写死 | 把车站的每个出口单独录入，各自有编码和坐标。 | 说明 | [PlaceForm.tsx:245](../../apps/web/src/pages/master/PlaceForm.tsx#L245) |
+| `PlaceForm.8b354008` | 写死 | 有多个航站楼的机场，把每个航站楼单独录入，各自有编码和坐标。 | 说明 | [PlaceForm.tsx:245](../../apps/web/src/pages/master/PlaceForm.tsx#L245) |
+| `PlaceForm.798c23b9` | 写死 | 数据来源 | 标题 | [PlaceForm.tsx:263](../../apps/web/src/pages/master/PlaceForm.tsx#L263) |
+| `PlaceForm.5323f550` | 写死 | 平台改过这个机场的英语名或坐标，再次导入时不会覆盖。 | 正文 | [PlaceForm.tsx:267](../../apps/web/src/pages/master/PlaceForm.tsx#L267) |
+| `PlaceForm.78a7f51a` | 写死 | 现在以这里填的为准。 | 正文 | [PlaceForm.tsx:268](../../apps/web/src/pages/master/PlaceForm.tsx#L268) |
+| `PlaceForm.5cc2a24c` | 写死 | 英语名和坐标来自 OurAirports，再次导入时会随数据源更新。 | 正文 | [PlaceForm.tsx:272](../../apps/web/src/pages/master/PlaceForm.tsx#L272) |
+| `PlaceForm.7b86b3fa` | 写死 | 你在这里改过其中任何一项之后，这个机场的英语名和坐标就不再随导入更新，以这里填的为准。所属城市、中文名、日文名等不受这项导入影响。 | 正文 | [PlaceForm.tsx:273](../../apps/web/src/pages/master/PlaceForm.tsx#L273) |
+| `PlaceForm.984e3d00` | 写死 | 来源 | 正文 | [PlaceForm.tsx:279](../../apps/web/src/pages/master/PlaceForm.tsx#L279) |
+| `PlaceForm.ef609861` | 写死 | OurAirports | 链接 | [PlaceForm.tsx:281](../../apps/web/src/pages/master/PlaceForm.tsx#L281) |
+| `PlaceForm.f06b8bae` | 写死 | （公开数据） | 正文 | [PlaceForm.tsx:283](../../apps/web/src/pages/master/PlaceForm.tsx#L283) |
+| `PlaceForm.4ba83aa0` | 写死 | 中文、日文名称 | 正文 | [PlaceForm.tsx:286](../../apps/web/src/pages/master/PlaceForm.tsx#L286) |
+| `PlaceForm.24439e80` | 写死 | 来自 | 正文 | [PlaceForm.tsx:288](../../apps/web/src/pages/master/PlaceForm.tsx#L288) |
+| `PlaceForm.4dd70d9c` | 写死 | GeoNames | 链接 | [PlaceForm.tsx:288](../../apps/web/src/pages/master/PlaceForm.tsx#L288) |
+| `PlaceForm.e7a855a9` | 写死 | （CC BY 4.0）。导入时只填空着的语言；在这里改过或删掉的，再导入时不会覆盖、也不会补回。 | 正文 | [PlaceForm.tsx:288](../../apps/web/src/pages/master/PlaceForm.tsx#L288) |
+| `PlaceForm.598beae8` | 写死 | 数据源里的编号 | 正文 | [PlaceForm.tsx:292](../../apps/web/src/pages/master/PlaceForm.tsx#L292) |
+| `PlaceForm.8f849be3` | 写死 | 最近核对 | 正文 | [PlaceForm.tsx:296](../../apps/web/src/pages/master/PlaceForm.tsx#L296) |
+| `PlaceForm.b488d422` | 写死 | 随导入更新 | 正文 | [PlaceForm.tsx:300](../../apps/web/src/pages/master/PlaceForm.tsx#L300) |
+| `PlaceForm.1e22f5c8` | 写死 | 否 | 正文 | [PlaceForm.tsx:301](../../apps/web/src/pages/master/PlaceForm.tsx#L301) |
+| `PlaceForm.80ffc153` | 写死 | 是 | 正文 | [PlaceForm.tsx:301](../../apps/web/src/pages/master/PlaceForm.tsx#L301) |
+| `PlaceForm.c0f4056c` | 写死 | 保存后，这个机场的英语名和坐标不再随 OurAirports 更新。 | 正文 | [PlaceForm.tsx:312](../../apps/web/src/pages/master/PlaceForm.tsx#L312) |
+| `PlaceForm.676d9fb4` | 写死 | 来自 OurAirports。 | 正文 | [PlaceForm.tsx:315](../../apps/web/src/pages/master/PlaceForm.tsx#L315) |
+| `PlaceForm.7a416b60` | 写死 | 地点 | 名称 | [PlaceForm.tsx:321](../../apps/web/src/pages/master/PlaceForm.tsx#L321) |
+| `PlaceForm.59862cc4` | 写死 | 找不到所属的{…} | 文字 | [PlaceForm.tsx:343](../../apps/web/src/pages/master/PlaceForm.tsx#L343) |
+| `PlaceForm.2eb2de0c` | 写死 | 包车覆盖检查 | 文字 | [PlaceForm.tsx:358](../../apps/web/src/pages/master/PlaceForm.tsx#L358)、622 行 |
+| `PlaceForm.4214e82e` | 写死 | 地址 | 文字 | [PlaceForm.tsx:358](../../apps/web/src/pages/master/PlaceForm.tsx#L358)、575 行 |
+| `PlaceForm.5543cd15` | 写死 | 所属城市 | 文字 | [PlaceForm.tsx:358](../../apps/web/src/pages/master/PlaceForm.tsx#L358)、461、469 行 |
+| `PlaceForm.ef25283b` | 写死 | 类型 | 文字 | [PlaceForm.tsx:358](../../apps/web/src/pages/master/PlaceForm.tsx#L358)、447 行 |
+| `PlaceForm.80c1562d` | 写死 | 机场一般不用手工新增：技术人员用导入命令从 OurAirports 批量导入。只有数据源里没有的机场才需要在这里录入。 | 文字 | [PlaceForm.tsx:393](../../apps/web/src/pages/master/PlaceForm.tsx#L393) |
+| `PlaceForm.31819873` | 写死 | 这个城市已经停用。请换一个城市，或先去启用它。 | 文字 | [PlaceForm.tsx:396](../../apps/web/src/pages/master/PlaceForm.tsx#L396) |
+| `PlaceForm.aa895d52` | 写死 | 所属{…}「{code} {text}」已停用，不能在它下面新增{…}。请先启用它。 | 文字 | [PlaceForm.tsx:397](../../apps/web/src/pages/master/PlaceForm.tsx#L397) |
+| `PlaceForm.e24b509f` | 写死 | 上级已停用，这次没有保存成功。请先启用它。 | 文字 | [PlaceForm.tsx:397](../../apps/web/src/pages/master/PlaceForm.tsx#L397) |
+| `PlaceForm.8d48f224` | 写死 | 这个{…} | 文字 | [PlaceForm.tsx:400](../../apps/web/src/pages/master/PlaceForm.tsx#L400) |
+| `PlaceForm.fcd6910b` | 写死 | 这个{…}下还有 {count} 个启用中的{…}，请先停用它们。 | 文字 | [PlaceForm.tsx:401](../../apps/web/src/pages/master/PlaceForm.tsx#L401) |
+| `PlaceForm.e57216cd` | 写死 | {label}还没有指定所属城市，不能启用。请先在下面选择所属城市并保存。 | 文字 | [PlaceForm.tsx:404](../../apps/web/src/pages/master/PlaceForm.tsx#L404) |
+| `PlaceForm.bf8f4803` | 写死 | {label}所属的城市「{text}」已停用，不能启用。请先启用这个城市。 | 文字 | [PlaceForm.tsx:405](../../apps/web/src/pages/master/PlaceForm.tsx#L405) |
+| `PlaceForm.c09acefe` | 写死 | 去看这个城市 | 名称 | [PlaceForm.tsx:405](../../apps/web/src/pages/master/PlaceForm.tsx#L405) |
+| `PlaceForm.462a91cf` | 写死 | {label}的上级「{code} {text}」已停用，不能启用。请先启用上级。 | 文字 | [PlaceForm.tsx:406](../../apps/web/src/pages/master/PlaceForm.tsx#L406) |
+| `PlaceForm.70e26c23` | 写死 | 去看上级 | 名称 | [PlaceForm.tsx:406](../../apps/web/src/pages/master/PlaceForm.tsx#L406) |
+| `PlaceForm.f4f23029` | 写死 | 基本信息 | 标题 | [PlaceForm.tsx:445](../../apps/web/src/pages/master/PlaceForm.tsx#L445) |
+| `PlaceForm.0d04b8cf` | 写死 | 所属{…} | 名称 | [PlaceForm.tsx:452](../../apps/web/src/pages/master/PlaceForm.tsx#L452) |
+| `PlaceForm.8620856d` | 写死 | 创建后不能修改。 | 说明 | [PlaceForm.tsx:452](../../apps/web/src/pages/master/PlaceForm.tsx#L452) |
+| `PlaceForm.9f57fd58` | 写死 | 跟随所属{…}，不能单独指定。 | 说明 | [PlaceForm.tsx:461](../../apps/web/src/pages/master/PlaceForm.tsx#L461) |
+| `PlaceForm.d126f477` | 写死 | 输入城市名称或编码查找 | 输入框占位 | [PlaceForm.tsx:474](../../apps/web/src/pages/master/PlaceForm.tsx#L474) |
+| `PlaceForm.d1e1d4ba` | 写死 | 还没有启用中的城市 | 空状态 | [PlaceForm.tsx:475](../../apps/web/src/pages/master/PlaceForm.tsx#L475) |
+| `PlaceForm.1ed8a8f4` | 写死 | 国家跟随所属城市。 | 说明 | [PlaceForm.tsx:479](../../apps/web/src/pages/master/PlaceForm.tsx#L479) |
+| `PlaceForm.23c6ada3` | 写死 | 只能换到同一个国家的城市。{…} | 说明 | [PlaceForm.tsx:479](../../apps/web/src/pages/master/PlaceForm.tsx#L479) |
+| `PlaceForm.243690ba` | 写死 | 它下面的出口会跟着一起换。 | 说明 | [PlaceForm.tsx:479](../../apps/web/src/pages/master/PlaceForm.tsx#L479) |
+| `PlaceForm.408b8511` | 写死 | 请先新增城市。 | 说明 | [PlaceForm.tsx:479](../../apps/web/src/pages/master/PlaceForm.tsx#L479) |
+| `PlaceForm.bde0ea02` | 写死 | 它下面的航站楼会跟着一起换。 | 说明 | [PlaceForm.tsx:479](../../apps/web/src/pages/master/PlaceForm.tsx#L479) |
+| `PlaceForm.a54dac01` | 写死 | IATA 三字码，3 个大写字母。创建后不能修改。 | 说明 | [PlaceForm.tsx:500](../../apps/web/src/pages/master/PlaceForm.tsx#L500) |
+| `PlaceForm.be569d6d` | 写死 | 格式：STN-国家码-序号。序号是 1 到 10 位大写字母或数字。创建后不能修改。 | 说明 | [PlaceForm.tsx:502](../../apps/web/src/pages/master/PlaceForm.tsx#L502) |
+| `PlaceForm.62a24565` | 写死 | 格式：POI-序号。序号是 1 到 12 位大写字母或数字。创建后不能修改。 | 说明 | [PlaceForm.tsx:504](../../apps/web/src/pages/master/PlaceForm.tsx#L504) |
+| `PlaceForm.af1ae1af` | 写死 | 格式：上级编码加后缀。后缀是 1 到 6 位大写字母或数字。创建后不能修改。 | 说明 | [PlaceForm.tsx:505](../../apps/web/src/pages/master/PlaceForm.tsx#L505) |
+| `PlaceForm.aec0ea6c` | 写死 | 至少填一种语言。 | 说明 | [PlaceForm.tsx:522](../../apps/web/src/pages/master/PlaceForm.tsx#L522) |
+| `PlaceForm.978a3fed` | 写死 | 车站类型 | 标题 | [PlaceForm.tsx:530](../../apps/web/src/pages/master/PlaceForm.tsx#L530) |
+| `PlaceForm.adbc700b` | 写死 | 地标类型 | 标题 | [PlaceForm.tsx:530](../../apps/web/src/pages/master/PlaceForm.tsx#L530) |
+| `PlaceForm.8ba6781a` | 写死 | 国际 / 国内（选填） | 标题 | [PlaceForm.tsx:545](../../apps/web/src/pages/master/PlaceForm.tsx#L545) |
+| `PlaceForm.8e1a4309` | 写死 | 这个机场起降的是国际航班、国内航班，还是都有。 | 说明 | [PlaceForm.tsx:545](../../apps/web/src/pages/master/PlaceForm.tsx#L545) |
+| `PlaceForm.8c6e26c1` | 写死 | 位置 | 标题 | [PlaceForm.tsx:549](../../apps/web/src/pages/master/PlaceForm.tsx#L549) |
+| `PlaceForm.385a6a89` | 写死 | WGS84 坐标，保留 6 位小数。这是司机到达判定用的位置，请尽量准确。 | 说明 | [PlaceForm.tsx:557](../../apps/web/src/pages/master/PlaceForm.tsx#L557) |
+| `PlaceForm.7db6585a` | 写死 | 这个{…}自己的坐标，保留 6 位小数。 | 说明 | [PlaceForm.tsx:557](../../apps/web/src/pages/master/PlaceForm.tsx#L557) |
+| `PlaceForm.907f6fa4` | 写死 | 填入{…}的坐标 | 按钮 | [PlaceForm.tsx:563](../../apps/web/src/pages/master/PlaceForm.tsx#L563) |
+| `PlaceForm.46212d5d` | 写死 | 地址（选填） | 名称 | [PlaceForm.tsx:578](../../apps/web/src/pages/master/PlaceForm.tsx#L578) |
+| `PlaceForm.35c782ef` | 写死 | 包车 | 标题 | [PlaceForm.tsx:619](../../apps/web/src/pages/master/PlaceForm.tsx#L619) |
+| `PlaceForm.834a2fe5` | 写死 | 不在检查清单里 | 正文 | [PlaceForm.tsx:624](../../apps/web/src/pages/master/PlaceForm.tsx#L624) |
+| `PlaceForm.a85ec1b8` | 写死 | 已放进检查清单 | 正文 | [PlaceForm.tsx:624](../../apps/web/src/pages/master/PlaceForm.tsx#L624) |
+| `PlaceForm.37e603d1` | 写死 | 放进包车覆盖检查 | 正文 | [PlaceForm.tsx:628](../../apps/web/src/pages/master/PlaceForm.tsx#L628) |
+| `PlaceForm.ba822768` | 写死 | 勾了以后，同一城市的包车商品上架时会检查这个地标在不在它的基础价、行程或上下车加价区域里；不在就提醒供应商（不拦上架）。 | 正文 | [PlaceForm.tsx:632](../../apps/web/src/pages/master/PlaceForm.tsx#L632) |
+| `place.addressHintAirport` | 已走 key | 日文地址，含邮编，例如 〒144-0041 東京都大田区羽田空港 3-3-2。 | 说明 | [place-texts.ts:19](../../apps/web/src/pages/master/place-texts.ts#L19) |
+| `place.meetingPointLegend` | 已走 key | 集合地点说明 | 标题 | [place-texts.ts:20](../../apps/web/src/pages/master/place-texts.ts#L20) |
+| `place.meetingPointHintAirport` | 已走 key | 司机在哪里等客人、客人怎么找到司机。只有一个航站楼的机场写在这里；有多个航站楼的写在各航站楼上。选填；填的话中文必填，日文、英文选填。供应商也看得到。 | 说明 | [place-texts.ts:21](../../apps/web/src/pages/master/place-texts.ts#L21) |
+| `place.meetingPointHintTerminal` | 已走 key | 司机在这个航站楼的哪里等客人、客人怎么找到司机。选填；填的话中文必填，日文、英文选填。供应商也看得到。 | 说明 | [place-texts.ts:22](../../apps/web/src/pages/master/place-texts.ts#L22) |
+| `place.meetingPointZh` | 已走 key | 中文 | 文字 | [place-texts.ts:23](../../apps/web/src/pages/master/place-texts.ts#L23) |
+| `place.meetingPointJa` | 已走 key | 日文（选填） | 文字 | [place-texts.ts:24](../../apps/web/src/pages/master/place-texts.ts#L24) |
+| `place.meetingPointEn` | 已走 key | 英文（选填） | 文字 | [place-texts.ts:25](../../apps/web/src/pages/master/place-texts.ts#L25) |
+| `place.meetingPointZhRequired` | 已走 key | 填了日文或英文时，中文必填 | 提示 | [place-texts.ts:26](../../apps/web/src/pages/master/place-texts.ts#L26) |
+| `place.meetingPointTooLong` | 已走 key | 最多 {max} 个字 | 文字 | [place-texts.ts:27](../../apps/web/src/pages/master/place-texts.ts#L27) |
 
 ## 主数据 · 车型组和附加服务
 

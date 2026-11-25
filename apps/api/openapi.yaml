@@ -23524,6 +23524,24 @@ components:
           type: string
         name:
           $ref: "#/components/schemas/LocalizedName"
+    MeetingPoint:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: 集合地点说明（M12-06），按语言分开的文字；至少一种语言，每种去掉首尾空白后不为空、最多 1000 个字。运营后台录入时中文必填
+      properties:
+        zh:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        ja:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        en:
+          type: string
+          minLength: 1
+          maxLength: 1000
     PlaceParentRef:
       type: object
       additionalProperties: false
@@ -23686,7 +23704,7 @@ components:
       type: object
       description: 租户看到的地点（没有导入来源等平台内部信息）
       additionalProperties: false
-      required: [ id, type, code, country_code, city_id, parent_id, city, parent, name, location, category, flight_scope, address, status, version, created_at, updated_at ]
+      required: [ id, type, code, country_code, city_id, parent_id, city, parent, name, location, category, flight_scope, address, meeting_point, status, version, created_at, updated_at ]
       properties:
         id:
           type: string
@@ -23733,7 +23751,12 @@ components:
             - type: "null"
         address:
           type: [ string, "null" ]
-          description: 地标的地址；其他类型为 null
+          description: 地址。地标、机场、航站楼能填（M12-06 起机场、航站楼也有：日文地址，含邮编）；车站、出口和没填的为 null
+        meeting_point:
+          description: 集合地点说明（M12-06）：只有机场、航站楼有，没填或其他类型为 null。单航站楼的机场挂在机场上，多航站楼的挂在各航站楼上。租户也看得到（供应商按它安排司机在哪里等）
+          oneOf:
+            - $ref: "#/components/schemas/MeetingPoint"
+            - type: "null"
         status:
           $ref: "#/components/schemas/MasterDataStatus"
         version:
@@ -23786,7 +23809,7 @@ components:
     Place:
       type: object
       additionalProperties: false
-      required: [ id, type, code, country_code, city_id, parent_id, city, parent, name, location, category, flight_scope, address, status, version, created_at, updated_at, source, charter_coverage ]
+      required: [ id, type, code, country_code, city_id, parent_id, city, parent, name, location, category, flight_scope, address, meeting_point, status, version, created_at, updated_at, source, charter_coverage ]
       properties:
         id:
           type: string
@@ -23833,7 +23856,12 @@ components:
             - type: "null"
         address:
           type: [ string, "null" ]
-          description: 地标的地址；其他类型为 null
+          description: 地址。地标、机场、航站楼能填（M12-06 起机场、航站楼也有：日文地址，含邮编）；车站、出口和没填的为 null
+        meeting_point:
+          description: 集合地点说明（M12-06）：只有机场、航站楼有，没填或其他类型为 null。单航站楼的机场挂在机场上，多航站楼的挂在各航站楼上。租户也看得到（供应商按它安排司机在哪里等）
+          oneOf:
+            - $ref: "#/components/schemas/MeetingPoint"
+            - type: "null"
         charter_coverage:
           type: boolean
           description: 在不在包车上架的覆盖检查清单里（M9P-06，ADR 0093 第七节第 4 条；只有地标能勾，运营在地点页维护）。只在平台侧的应答里有（租户侧的 `TenantPlace` 没有）
@@ -23902,6 +23930,12 @@ components:
         address:
           type: [ string, "null" ]
           maxLength: 300
+          description: 地标、机场、航站楼能填；去掉首尾空白后不能为空。其他类型带了非 null 的值返回 400 `VALIDATION_FAILED`（路径 `/address`）
+        meeting_point:
+          description: 集合地点说明（M12-06）。只有机场、航站楼能填，其他类型带了非 null 的值返回 400 `VALIDATION_FAILED`（路径 `/meeting_point`）
+          oneOf:
+            - $ref: "#/components/schemas/MeetingPoint"
+            - type: "null"
     PlacePatch:
       type: object
       description: 只带要改的字段。`type`、`code`、`parent_id` 不能改（带了且和现有值不同返回 409 `FIELD_LOCKED`）
@@ -23924,6 +23958,12 @@ components:
         address:
           type: [ string, "null" ]
           maxLength: 300
+          description: 地标、机场、航站楼能填；null 表示清空
+        meeting_point:
+          description: 集合地点说明（M12-06），只有机场、航站楼能填；null 表示清空
+          oneOf:
+            - $ref: "#/components/schemas/MeetingPoint"
+            - type: "null"
         charter_coverage:
           type: boolean
           description: 放进 / 拿出包车上架的覆盖检查清单（M9P-06）。只有地标能设为 true（否则 400 `VALIDATION_FAILED`，路径 `/charter_coverage`）

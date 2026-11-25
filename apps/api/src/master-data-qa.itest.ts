@@ -291,7 +291,7 @@ test("租户：看导入的机场时没有任何导入来源的字段；读接�
   const imported = (await get("places?code=ZQA")).body.items[0];
   assert.equal(imported.source.name, "ourairports", "平台看得到来源");
 
-  const expectedKeys = ["address", "category", "city", "city_id", "code", "country_code", "created_at", "flight_scope", "id", "location", "name", "parent", "parent_id", "status", "type", "updated_at", "version"];
+  const expectedKeys = ["address", "category", "city", "city_id", "code", "country_code", "created_at", "flight_scope", "id", "location", "meeting_point", "name", "parent", "parent_id", "status", "type", "updated_at", "version"];
   const list = await api.call("GET", "/tenant/v1/master/places?status=all&code=ZQA", { token: tenant.adminToken });
   const single = await api.call("GET", `/tenant/v1/master/places/${imported.id}`, { token: tenant.adminToken });
   assert.equal(list.status, 200, list.text);
@@ -913,7 +913,7 @@ test("校验：上下级——航站楼只能挂机场、出口只能挂车站�
   assert.equal(selfParent.rows[0].n, 0);
 });
 
-test("校验：地点的属性跟着类型走——修改时也不能给机场加车站类型、给车站清空类型、给车站加地址", async () => {
+test("校验：地点的属性跟着类型走——修改时也不能给机场加车站类型、给车站清空类型、给车站加地址或集合地点", async () => {
   const city = await created("cities", cityBody());
   const base = { name: { zh: "地点" }, location: { lng: 139.7, lat: 35.6 } };
   const airport = await created("places", airportBody(city.id, { flight_scope: "international" }));
@@ -923,7 +923,8 @@ test("校验：地点的属性跟着类型走——修改时也不能给机场�
   const before = await snapshot();
   const rejected: [string, any, unknown, string][] = [
     ["机场加类型", airport, { category: "rail" }, "/category"],
-    ["机场加地址", airport, { address: "某处" }, "/address"],
+    ["机场的地址只有空格", airport, { address: "   " }, "/address"],
+    ["车站加集合地点", station, { meeting_point: { zh: "某处" } }, "/meeting_point"],
     ["机场的国际国内属性写错", airport, { flight_scope: "regional" }, "/flight_scope"],
     ["车站清空类型", station, { category: null }, "/category"],
     ["车站用地标的类型", station, { category: "hotel" }, "/category"],

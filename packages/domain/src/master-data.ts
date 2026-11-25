@@ -7,6 +7,7 @@
  * 这里全是纯函数：只判断「这个值合不合规则」，不读数据库。检查函数返回问题说明（中文），没有问题返回 null 或空数组。
  */
 import { type GeoJsonMultiPolygon, type GeoJsonPolygon, validatePolygon } from "./geo.ts";
+import { placeContentText } from "./place-content-texts.ts";
 
 /** 多语言字段支持的语言（ISO 639-1）。来源：需求文档「多语言：日、中、英、韩，可扩展」。 */
 export const MASTER_DATA_LANGUAGES = ["ja", "zh", "en", "ko"] as const;
@@ -207,14 +208,79 @@ export function requiredParentType(type: PlaceType): PlaceType | null {
   return null;
 }
 
+/** 地址最多 300 个字（地标、机场、航站楼共用） */
+export const MAX_PLACE_ADDRESS_LENGTH = 300;
+/** 集合地点说明每种语言最多 1000 个字 */
+export const MAX_MEETING_POINT_LENGTH = 1000;
+/** 集合地点说明的语言（M12-06）：中文、日文、英文。录入时中文必填（运营后台、核对表），接口只要求至少一种 */
+export const MEETING_POINT_LANGUAGES = ["zh", "ja", "en"] as const;
+export type MeetingPointLanguage = (typeof MEETING_POINT_LANGUAGES)[number];
+/** 集合地点说明：多语言文字，只有机场、航站楼有。单航站楼的机场挂在机场上，多航站楼的挂在各航站楼上 */
+export type MeetingPoint = Partial<Record<MeetingPointLanguage, string>>;
+
+/** 哪些类型的地点能填地址（M12-06 起：地标、机场、航站楼） */
+export function placeHasAddress(type: PlaceType): boolean {
+  return type === "poi" || type === "airport" || type === "terminal";
+}
+
+/** 哪些类型的地点能填集合地点说明（M12-06：机场、航站楼） */
+export function placeHasMeetingPoint(type: PlaceType): boolean {
+  return type === "airport" || type === "terminal";
+}
+
+/** 地址的格式：首尾没有空白、不能只有空白或不可见字符、最多 300 个字。返回问题说明，没问题返回 null */
+export function placeAddressIssue(text: string): string | null {
+  if (!hasVisibleText(text)) return placeContentText("blank");
+  if (text !== text.trim()) return placeContentText("untrimmed");
+  if (text.length > MAX_PLACE_ADDRESS_LENGTH) return placeContentText("tooLong", { max: MAX_PLACE_ADDRESS_LENGTH });
+  return null;
+}
+
+/** 集合地点说明的一处问题：`language` 为 null 是整体的问题 */
+export interface MeetingPointIssue {
+  language: string | null;
+  message: string;
+}
+
+/**
+ * 集合地点说明的格式（JSON 解析后的值）：对象；只认 zh、ja、en；至少一种；每种是首尾没有空白、看得见的文字，最多 1000 个字。
+ * `requireZh` 为真时中文必填（运营后台和核对表的约定；接口只要求至少一种）。
+ */
+export function meetingPointIssues(value: unknown, options: { requireZh?: boolean } = {}): MeetingPointIssue[] {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return [{ language: null, message: placeContentText("notObject") }];
+  const issues: MeetingPointIssue[] = [];
+  const entries = Object.entries(value as Record<string, unknown>);
+  for (const [language, text] of entries) {
+    if (!(MEETING_POINT_LANGUAGES as readonly string[]).includes(language)) {
+      issues.push({ language, message: placeContentText("unknownLanguage", { languages: MEETING_POINT_LANGUAGES.join("、") }) });
+      continue;
+    }
+    if (typeof text !== "string" || !hasVisibleText(text)) issues.push({ language, message: placeContentText("blank") });
+    else if (text !== text.trim()) issues.push({ language, message: placeContentText("untrimmed") });
+    else if (text.length > MAX_MEETING_POINT_LENGTH) issues.push({ language, message: placeContentText("tooLong", { max: MAX_MEETING_POINT_LENGTH }) });
+  }
+  if (entries.length === 0) issues.push({ language: null, message: placeContentText("noLanguage") });
+  else if (options.requireZh === true && !("zh" in value)) issues.push({ language: "zh", message: placeContentText("zhRequired") });
+  return issues;
+}
+
+/** 两段集合地点说明是不是一样（语言和文字都一样，不管键的顺序） */
+export function sameMeetingPoint(a: MeetingPoint | null, b: MeetingPoint | null): boolean {
+  if (a === null || b === null) return a === b;
+  return MEETING_POINT_LANGUAGES.every((language) => a[language] === b[language]);
+}
+
 export interface PlaceAttributes {
   category: PlaceCategory | null;
   flightScope: FlightScope | null;
   address: string | null;
+  /** 集合地点说明（M12-06）；没给等于 null */
+  meetingPoint?: MeetingPoint | null;
 }
 
 /**
- * 各类地点各自有哪些属性：车站必须有车站类型，地标必须有地标类型，只有地标有地址，只有机场和航站楼有国际 / 国内属性。
+ * 各类地点各自有哪些属性：车站必须有车站类型，地标必须有地标类型；地标、机场、航站楼有地址（M12-06 起机场、航站楼也有），
+ * 只有机场和航站楼有国际 / 国内属性和集合地点说明。只看「这个类型能不能有」，格式见 placeAddressIssue、meetingPointIssues。
  * 返回 [字段名, 问题说明] 的列表。
  */
 export function placeAttributeIssues(type: PlaceType, attributes: PlaceAttributes): [keyof PlaceAttributes, string][] {
@@ -231,7 +297,8 @@ export function placeAttributeIssues(type: PlaceType, attributes: PlaceAttribute
   if (attributes.flightScope !== null && type !== "airport" && type !== "terminal") {
     issues.push(["flightScope", "只有机场和航站楼有国际 / 国内属性"]);
   }
-  if (attributes.address !== null && type !== "poi") issues.push(["address", "只有地标有地址"]);
+  if (attributes.address !== null && !placeHasAddress(type)) issues.push(["address", placeContentText("addressType")]);
+  if ((attributes.meetingPoint ?? null) !== null && !placeHasMeetingPoint(type)) issues.push(["meetingPoint", placeContentText("meetingPointType")]);
   return issues;
 }
 

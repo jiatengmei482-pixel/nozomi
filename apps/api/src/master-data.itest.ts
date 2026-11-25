@@ -273,7 +273,7 @@ test("地点：机场、车站、地标归属城市，国家取自城市；航�
   const city = await newCity();
   const airport = await created("places", { ...HANEDA, city_id: city.id });
   assert.deepEqual(Object.keys(airport).sort(), [
-    "address", "category", "charter_coverage", "city", "city_id", "code", "country_code", "created_at", "flight_scope", "id", "location", "name", "parent", "parent_id", "source", "status", "type", "updated_at", "version",
+    "address", "category", "charter_coverage", "city", "city_id", "code", "country_code", "created_at", "flight_scope", "id", "location", "meeting_point", "name", "parent", "parent_id", "source", "status", "type", "updated_at", "version",
   ]);
   assert.deepEqual(
     [airport.country_code, airport.city_id, airport.parent_id, airport.status, airport.version, airport.source, airport.category, airport.flight_scope],
@@ -379,7 +379,7 @@ test("地点：类型、编码、归属、属性逐项校验", async () => {
   assert.deepEqual(issuePaths(await patch(`places/${airport.id}`, 1, { city_id: MISSING })), ["/city_id"]);
   assert.deepEqual(issuePaths(await patch(`places/${station.id}`, 1, { category: null })), ["/category"]);
   assert.deepEqual(issuePaths(await patch(`places/${station.id}`, 1, { category: "mall" })), ["/category"]);
-  assert.deepEqual(issuePaths(await patch(`places/${airport.id}`, 1, { address: "机场不该有地址" })), ["/address"]);
+  assert.deepEqual(issuePaths(await patch(`places/${station.id}`, 1, { address: "车站不该有地址" })), ["/address"]);
   assert.deepEqual(issuePaths(await patch(`places/${airport.id}`, 1, { location: { lng: 135.2, lat: 95 } })), ["/location/lat"]);
   const ok = await patch(`places/${airport.id}`, 1, { flight_scope: null, location: { lng: 135.2440031, lat: 34.4272994 } });
   assert.deepEqual([ok.body.flight_scope, ok.body.location, ok.body.version], [null, { lng: 135.244003, lat: 34.427299 }, 2]);

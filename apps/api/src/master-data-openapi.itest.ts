@@ -382,14 +382,14 @@ test("定义里的请求字段和实现一致：新增时每个必填项缺了�
   const schemas = doc.components.schemas;
   const valid: Record<Path, () => Record<string, unknown>> = {
     cities: cityBody,
-    places: () => ({ type: "poi", code: `POI-O${next()}`, city_id: city.id, parent_id: null, name: { zh: "酒店" }, location: { lng: 139.7, lat: 35.6 }, category: "hotel", flight_scope: null, address: "东京都港区 1-1" }),
+    places: () => ({ type: "poi", code: `POI-O${next()}`, city_id: city.id, parent_id: null, name: { zh: "酒店" }, location: { lng: 139.7, lat: 35.6 }, category: "hotel", flight_scope: null, address: "东京都港区 1-1", meeting_point: null }),
     "vehicle-groups": groupBody,
     addons: addonBody,
   };
   // 修改时每个字段的一个「和原值不同的合法值」
   const changes: Record<Path, Record<string, unknown>> = {
     cities: { name: { en: "Renamed" }, timezone: "Asia/Seoul", center: { lng: 1.5, lat: 2.5 }, boundary: null },
-    places: { city_id: otherCity.id, name: { en: "Renamed" }, location: { lng: 1.5, lat: 2.5 }, category: "mall", flight_scope: null, address: null, charter_coverage: true },
+    places: { city_id: otherCity.id, name: { en: "Renamed" }, location: { lng: 1.5, lat: 2.5 }, category: "mall", flight_scope: null, address: null, meeting_point: null, charter_coverage: true },
     "vehicle-groups": { name: { en: "Renamed" }, sample_models: ["别的车型"], power: "fuel", combos: [{ passengers: 1, luggage: 0 }] },
     addons: { categories: ["point_to_point"], charge_unit: "per_order", name: { en: "Renamed" }, description: {} },
   };
@@ -422,8 +422,8 @@ test("定义里的请求字段和实现一致：新增时每个必填项缺了�
       const responseField = field === "city_id" || field in res.body ? field : null;
       assert.ok(responseField, `${path}：应答里有 ${field}`);
       assert.deepEqual(res.body[field], value, `${path}：${field} 改成了提交的值`);
-      // flight_scope 原来就是 null：没有变化，版本不加
-      const unchanged = path === "places" && field === "flight_scope";
+      // flight_scope、meeting_point 原来就是 null（样本是地标，没有集合地点；机场、航站楼的集合地点见 master-data-meeting-point.itest.ts）：没有变化，版本不加
+      const unchanged = path === "places" && (field === "flight_scope" || field === "meeting_point");
       assert.equal(res.body.version, unchanged ? version : version + 1, `${path}：改了 ${field} 之后的版本`);
       version = res.body.version;
     }

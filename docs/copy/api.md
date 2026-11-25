@@ -336,11 +336,11 @@
 
 | key | 状态 | 中文 | 类型 | 位置 |
 | --- | --- | --- | --- | --- |
-| `master-data.3d88c341` | 写死 | 只支持这些语言：{…} | 说明 | [master-data.ts:70](../../apps/api/src/routes/master-data.ts#L70) |
-| `master-data.83ee57aa` | 写死 | 不能只有空白或不可见字符 | 文字 | [master-data.ts:74](../../apps/api/src/routes/master-data.ts#L74) |
-| `master-data.3b55045e` | 写死 | 至少填写一种语言的名称 | 文字 | [master-data.ts:86](../../apps/api/src/routes/master-data.ts#L86) |
-| `master-data.eb334bb5` | 写死 | 只能是这些类型：{…}；多个用逗号分隔 | 文字 | [master-data.ts:201](../../apps/api/src/routes/master-data.ts#L201) |
-| `master-data.3c3040ac` | 写死 | 必须是两位大写字母的国家码 | 文字 | [master-data.ts:208](../../apps/api/src/routes/master-data.ts#L208)、432 行 |
+| `master-data.3d88c341` | 写死 | 只支持这些语言：{…} | 说明 | [master-data.ts:75](../../apps/api/src/routes/master-data.ts#L75) |
+| `master-data.83ee57aa` | 写死 | 不能只有空白或不可见字符 | 文字 | [master-data.ts:79](../../apps/api/src/routes/master-data.ts#L79) |
+| `master-data.3b55045e` | 写死 | 至少填写一种语言的名称 | 文字 | [master-data.ts:91](../../apps/api/src/routes/master-data.ts#L91) |
+| `master-data.eb334bb5` | 写死 | 只能是这些类型：{…}；多个用逗号分隔 | 文字 | [master-data.ts:216](../../apps/api/src/routes/master-data.ts#L216) |
+| `master-data.3c3040ac` | 写死 | 必须是两位大写字母的国家码 | 文字 | [master-data.ts:223](../../apps/api/src/routes/master-data.ts#L223)、451 行 |
 
 ## 运营后台下拉框的主数据选项（master-options.ts）
 
@@ -1518,32 +1518,32 @@
 
 | key | 状态 | 中文 | 类型 | 位置 |
 | --- | --- | --- | --- | --- |
-| `master-data.0f7d37b7` | 写死 | 城市 | 名称 | [master-data.ts:95](../../apps/api/src/services/master-data.ts#L95) |
-| `master-data.2c46dac1` | 写死 | 地点 | 名称 | [master-data.ts:112](../../apps/api/src/services/master-data.ts#L112) |
-| `master-data.bf6452bb` | 写死 | 车型组 | 名称 | [master-data.ts:135](../../apps/api/src/services/master-data.ts#L135) |
-| `master-data.4281910c` | 写死 | 附加服务 | 名称 | [master-data.ts:150](../../apps/api/src/services/master-data.ts#L150) |
-| `master-data.9f5b30fe` | 写死 | 经度必须在 -180 到 180 之间 | 提示 | [master-data.ts:347](../../apps/api/src/services/master-data.ts#L347) |
-| `master-data.850ca3aa` | 写死 | 纬度必须在 -90 到 90 之间 | 提示 | [master-data.ts:348](../../apps/api/src/services/master-data.ts#L348) |
-| `master-data.acbe4d48` | 写死 | 有 {count} 个已上架的商品在用{what}，不能停用。请先让供应商下架这些商品或换掉它 | 文字 | [master-data.ts:358](../../apps/api/src/services/master-data.ts#L358) |
-| `master-data.572fdd3b` | 写死 | 不是合法的 IANA 时区名，例如 Asia/Tokyo | 提示 | [master-data.ts:375](../../apps/api/src/services/master-data.ts#L375) |
-| `master-data.5becc4ac` | 写死 | 不是合法的国家码（ISO 3166-1 两位大写字母） | 提示 | [master-data.ts:386](../../apps/api/src/services/master-data.ts#L386) |
-| `master-data.d26b30d1` | 写死 | 这个城市下还有 {active} 个启用中的地点，请先停用它们 | 文字 | [master-data.ts:443](../../apps/api/src/services/master-data.ts#L443) |
-| `master-data.10c4a2c3` | 写死 | 这个城市 | 文字 | [master-data.ts:444](../../apps/api/src/services/master-data.ts#L444) |
-| `master-data.0b4705fc` | 写死 | 航站楼必须指定所属机场 | 提示 | [master-data.ts:501](../../apps/api/src/services/master-data.ts#L501) |
-| `master-data.e4961f0b` | 写死 | 出口必须指定所属车站 | 提示 | [master-data.ts:501](../../apps/api/src/services/master-data.ts#L501) |
-| `master-data.6edfe68d` | 写死 | 所属车站不存在 | 提示 | [master-data.ts:504](../../apps/api/src/services/master-data.ts#L504) |
-| `master-data.d1f9a00f` | 写死 | 所属机场不存在 | 提示 | [master-data.ts:504](../../apps/api/src/services/master-data.ts#L504) |
-| `master-data.8b134d83` | 写死 | 航站楼和出口的城市跟随上级，不用单独指定 | 提示 | [master-data.ts:507](../../apps/api/src/services/master-data.ts#L507)、552、635 行 |
-| `master-data.3ff4300c` | 写死 | 只有航站楼和出口有上级 | 提示 | [master-data.ts:514](../../apps/api/src/services/master-data.ts#L514) |
-| `master-data.13a7567d` | 写死 | 必填 | 提示 | [master-data.ts:515](../../apps/api/src/services/master-data.ts#L515) |
-| `master-data.f6d2b4e2` | 写死 | 城市不存在 | 提示 | [master-data.ts:517](../../apps/api/src/services/master-data.ts#L517)、554、624 行 |
-| `master-data.b2242ff1` | 写死 | 这个城市属于 {countryCode}，而地点在 {countryCode} | 提示 | [master-data.ts:556](../../apps/api/src/services/master-data.ts#L556)、626 行 |
-| `master-data.c493fdf4` | 写死 | 只有地标能放进包车覆盖检查的清单 | 提示 | [master-data.ts:568](../../apps/api/src/services/master-data.ts#L568) |
-| `master-data.83627d32` | 写死 | 它下面还有 {active} 个启用中的航站楼或出口，请先停用它们 | 文字 | [master-data.ts:618](../../apps/api/src/services/master-data.ts#L618) |
-| `master-data.f4c95712` | 写死 | 这个地点 | 文字 | [master-data.ts:619](../../apps/api/src/services/master-data.ts#L619) |
-| `master-data.391f22da` | 写死 | 这个地点已经有所属城市；要换城市请用修改接口 | 提示 | [master-data.ts:636](../../apps/api/src/services/master-data.ts#L636) |
-| `master-data.db79ce9c` | 写死 | 这个车型组 | 文字 | [master-data.ts:740](../../apps/api/src/services/master-data.ts#L740) |
-| `master-data.99fbd6c4` | 写死 | 这个附加服务 | 文字 | [master-data.ts:783](../../apps/api/src/services/master-data.ts#L783) |
+| `master-data.0f7d37b7` | 写死 | 城市 | 名称 | [master-data.ts:98](../../apps/api/src/services/master-data.ts#L98) |
+| `master-data.2c46dac1` | 写死 | 地点 | 名称 | [master-data.ts:115](../../apps/api/src/services/master-data.ts#L115) |
+| `master-data.bf6452bb` | 写死 | 车型组 | 名称 | [master-data.ts:139](../../apps/api/src/services/master-data.ts#L139) |
+| `master-data.4281910c` | 写死 | 附加服务 | 名称 | [master-data.ts:154](../../apps/api/src/services/master-data.ts#L154) |
+| `master-data.9f5b30fe` | 写死 | 经度必须在 -180 到 180 之间 | 提示 | [master-data.ts:351](../../apps/api/src/services/master-data.ts#L351) |
+| `master-data.850ca3aa` | 写死 | 纬度必须在 -90 到 90 之间 | 提示 | [master-data.ts:352](../../apps/api/src/services/master-data.ts#L352) |
+| `master-data.acbe4d48` | 写死 | 有 {count} 个已上架的商品在用{what}，不能停用。请先让供应商下架这些商品或换掉它 | 文字 | [master-data.ts:362](../../apps/api/src/services/master-data.ts#L362) |
+| `master-data.572fdd3b` | 写死 | 不是合法的 IANA 时区名，例如 Asia/Tokyo | 提示 | [master-data.ts:379](../../apps/api/src/services/master-data.ts#L379) |
+| `master-data.5becc4ac` | 写死 | 不是合法的国家码（ISO 3166-1 两位大写字母） | 提示 | [master-data.ts:390](../../apps/api/src/services/master-data.ts#L390) |
+| `master-data.d26b30d1` | 写死 | 这个城市下还有 {active} 个启用中的地点，请先停用它们 | 文字 | [master-data.ts:447](../../apps/api/src/services/master-data.ts#L447) |
+| `master-data.10c4a2c3` | 写死 | 这个城市 | 文字 | [master-data.ts:448](../../apps/api/src/services/master-data.ts#L448) |
+| `master-data.0b4705fc` | 写死 | 航站楼必须指定所属机场 | 提示 | [master-data.ts:517](../../apps/api/src/services/master-data.ts#L517) |
+| `master-data.e4961f0b` | 写死 | 出口必须指定所属车站 | 提示 | [master-data.ts:517](../../apps/api/src/services/master-data.ts#L517) |
+| `master-data.6edfe68d` | 写死 | 所属车站不存在 | 提示 | [master-data.ts:520](../../apps/api/src/services/master-data.ts#L520) |
+| `master-data.d1f9a00f` | 写死 | 所属机场不存在 | 提示 | [master-data.ts:520](../../apps/api/src/services/master-data.ts#L520) |
+| `master-data.8b134d83` | 写死 | 航站楼和出口的城市跟随上级，不用单独指定 | 提示 | [master-data.ts:523](../../apps/api/src/services/master-data.ts#L523)、569、654 行 |
+| `master-data.3ff4300c` | 写死 | 只有航站楼和出口有上级 | 提示 | [master-data.ts:530](../../apps/api/src/services/master-data.ts#L530) |
+| `master-data.13a7567d` | 写死 | 必填 | 提示 | [master-data.ts:531](../../apps/api/src/services/master-data.ts#L531) |
+| `master-data.f6d2b4e2` | 写死 | 城市不存在 | 提示 | [master-data.ts:533](../../apps/api/src/services/master-data.ts#L533)、571、643 行 |
+| `master-data.b2242ff1` | 写死 | 这个城市属于 {countryCode}，而地点在 {countryCode} | 提示 | [master-data.ts:573](../../apps/api/src/services/master-data.ts#L573)、645 行 |
+| `master-data.c493fdf4` | 写死 | 只有地标能放进包车覆盖检查的清单 | 提示 | [master-data.ts:586](../../apps/api/src/services/master-data.ts#L586) |
+| `master-data.83627d32` | 写死 | 它下面还有 {active} 个启用中的航站楼或出口，请先停用它们 | 文字 | [master-data.ts:637](../../apps/api/src/services/master-data.ts#L637) |
+| `master-data.f4c95712` | 写死 | 这个地点 | 文字 | [master-data.ts:638](../../apps/api/src/services/master-data.ts#L638) |
+| `master-data.391f22da` | 写死 | 这个地点已经有所属城市；要换城市请用修改接口 | 提示 | [master-data.ts:655](../../apps/api/src/services/master-data.ts#L655) |
+| `master-data.db79ce9c` | 写死 | 这个车型组 | 文字 | [master-data.ts:759](../../apps/api/src/services/master-data.ts#L759) |
+| `master-data.99fbd6c4` | 写死 | 这个附加服务 | 文字 | [master-data.ts:802](../../apps/api/src/services/master-data.ts#L802) |
 
 ## 通知中心的后台任务（notification-jobs.ts）
 

@@ -2,7 +2,24 @@
  * 地点的新增 / 编辑表单：机场、车站、地标，以及挂在机场 / 车站下面的航站楼、出口
  * （docs/design/pages/master-data.md 6.2、6.3、第 7 节）。
  */
-import { FLIGHT_SCOPES, type FlightScope, type LocalizedText, PLACE_CATEGORY_NAMES, POI_CATEGORIES, type PlaceCategory, type PlaceType, STATION_CATEGORIES, placeCodeIssue, requiredParentType } from "@nozomi/domain";
+import {
+  FLIGHT_SCOPES,
+  type FlightScope,
+  type LocalizedText,
+  MAX_MEETING_POINT_LENGTH,
+  MAX_PLACE_ADDRESS_LENGTH,
+  type MeetingPoint,
+  PLACE_CATEGORY_NAMES,
+  POI_CATEGORIES,
+  type PlaceCategory,
+  type PlaceType,
+  STATION_CATEGORIES,
+  placeCodeIssue,
+  placeHasAddress,
+  placeHasMeetingPoint,
+  requiredParentType,
+  sameMeetingPoint,
+} from "@nozomi/domain";
 import { useEffect } from "react";
 import { Link } from "react-router";
 import { type City, type Place, type PlacePatch, getMaster, listAllMaster } from "../../api/master.ts";
@@ -15,6 +32,7 @@ import { CodeField, CoordinateInput, type CoordinateValue, LocalizedInput, Radio
 import { Icon } from "../../components/Icon.tsx";
 import { StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
+import { TextAreaField } from "../../components/TextAreaField.tsx";
 import { TextField } from "../../components/TextField.tsx";
 import { FLIGHT_SCOPE_NAMES, MASTER_STATUS_BADGES, PLACE_TYPE_NAMES, cleanLocalized, countryLabel, displayName, flightScopeName, formatLocalDateTime, formatPoint, sameLocalized } from "../../lib/master-display.ts";
 import { type PlaceTab, masterEditPath, masterNewPath, placeListPath } from "../../lib/master-paths.ts";
@@ -23,9 +41,10 @@ import { usePlatformCan } from "../../lib/use-master-access.ts";
 import { type FieldErrors, FieldSlot, FormGroup, type FormModel } from "./MasterForm.tsx";
 import { COMMON_PATHS, NAME_MAX_LENGTH, coordinateErrors, languageErrors, localizedErrors, pathMapper, samePoint, toCoordinateValue, toPoint } from "./forms-common.tsx";
 import { CodeLink, NameCell, cityOption, useAllCities, useReturnState } from "./shared.tsx";
+import { placeCopy } from "./place-texts.ts";
 import { useStatusToggle } from "./useStatusToggle.tsx";
 
-const ADDRESS_MAX_LENGTH = 300;
+const ADDRESS_MAX_LENGTH = MAX_PLACE_ADDRESS_LENGTH;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 interface PlaceValues {
@@ -36,6 +55,8 @@ interface PlaceValues {
   flightScope: FlightScope | "none";
   location: CoordinateValue;
   address: string;
+  /** 只有机场、航站楼：集合地点说明（M12-06），三种语言各一个文本框，空着的语言不提交 */
+  meetingPoint: MeetingPointValue;
   /** 只有地标：放进包车上架的覆盖检查清单（M9P-06 / M9P-07，ADR 0093 第七节第 4 条）。只能在编辑时勾，新增接口不收这一项 */
   charterCoverage: boolean;
 }
@@ -46,6 +67,41 @@ interface PlaceExtra {
   citiesState: LoadState<City[]>["status"];
   parent: Place | null;
   parentState: LoadState<Place>["status"] | "none";
+}
+
+interface MeetingPointValue {
+  zh: string;
+  ja: string;
+  en: string;
+}
+
+const MEETING_POINT_FIELDS = [
+  { key: "zh", label: () => placeCopy("meetingPointZh"), lang: "zh-CN" },
+  { key: "ja", label: () => placeCopy("meetingPointJa"), lang: "ja" },
+  { key: "en", label: () => placeCopy("meetingPointEn"), lang: "en" },
+] as const;
+
+const EMPTY_MEETING_POINT: MeetingPointValue = { zh: "", ja: "", en: "" };
+
+const toMeetingPointValue = (value: MeetingPoint | null): MeetingPointValue => ({ zh: value?.zh ?? "", ja: value?.ja ?? "", en: value?.en ?? "" });
+
+/** 表单里的集合地点 → 提交的值：去掉首尾空白，空着的语言不提交；全空是 null（不填 / 清空） */
+function toMeetingPoint(value: MeetingPointValue): MeetingPoint | null {
+  const result: MeetingPoint = {};
+  for (const { key } of MEETING_POINT_FIELDS) {
+    const text = value[key].trim();
+    if (text !== "") result[key] = text;
+  }
+  return Object.keys(result).length === 0 ? null : result;
+}
+
+function meetingPointErrors(value: MeetingPointValue): FieldErrors {
+  const errors: FieldErrors = {};
+  if (value.zh.trim() === "" && (value.ja.trim() !== "" || value.en.trim() !== "")) errors["meetingPoint.zh"] = [placeCopy("meetingPointZhRequired")];
+  for (const { key } of MEETING_POINT_FIELDS) {
+    if (value[key].trim().length > MAX_MEETING_POINT_LENGTH) errors[`meetingPoint.${key}`] = [placeCopy("meetingPointTooLong", { max: MAX_MEETING_POINT_LENGTH })];
+  }
+  return errors;
 }
 
 const SCOPE_OPTIONS = [{ value: "none" as const, label: "不填" }, ...FLIGHT_SCOPES.map((scope) => ({ value: scope, label: FLIGHT_SCOPE_NAMES[scope] }))];
@@ -77,7 +133,8 @@ function validatePlace(values: PlaceValues, mode: "new" | "edit", extra: PlaceEx
   if (!isChild(type) && values.cityId === null && !(mode === "edit" && record?.city_id === null)) errors["cityId"] = ["请选择所属城市"];
   if (type === "station" && values.category === null) errors["category"] = ["请选择车站类型"];
   if (type === "poi" && values.category === null) errors["category"] = ["请选择地标类型"];
-  if (type === "poi" && values.address.trim().length > ADDRESS_MAX_LENGTH) errors["address"] = [`地址最多 ${ADDRESS_MAX_LENGTH} 个字`];
+  if (placeHasAddress(type) && values.address.trim().length > ADDRESS_MAX_LENGTH) errors["address"] = [`地址最多 ${ADDRESS_MAX_LENGTH} 个字`];
+  if (placeHasMeetingPoint(type)) Object.assign(errors, meetingPointErrors(values.meetingPoint));
   if (mode === "edit") return errors;
   const country = countryOf(values, extra, record);
   const parentCode = extra.parent?.code ?? null;
@@ -285,11 +342,21 @@ export const placeFormModel: FormModel<"places", PlaceValues, PlaceExtra> = {
     const mismatch = extra.parent !== null && extra.parent.type !== requiredParentType(extra.type);
     return extra.parentState === "not-found" || mismatch ? `找不到所属的${parentName(extra.type)}` : null;
   },
-  empty: (search) => ({ cityId: null, code: codePrefix(typeOf(search, null), null, null), name: {}, category: null, flightScope: "none", location: { lat: "", lng: "" }, address: "", charterCoverage: false }),
-  fromRecord: (place) => ({ cityId: place.city_id, code: place.code, name: place.name, category: place.category, flightScope: place.flight_scope ?? "none", location: toCoordinateValue(place.location), address: place.address ?? "", charterCoverage: place.charter_coverage }),
+  empty: (search) => ({ cityId: null, code: codePrefix(typeOf(search, null), null, null), name: {}, category: null, flightScope: "none", location: { lat: "", lng: "" }, address: "", meetingPoint: EMPTY_MEETING_POINT, charterCoverage: false }),
+  fromRecord: (place) => ({
+    cityId: place.city_id,
+    code: place.code,
+    name: place.name,
+    category: place.category,
+    flightScope: place.flight_scope ?? "none",
+    location: toCoordinateValue(place.location),
+    address: place.address ?? "",
+    meetingPoint: toMeetingPointValue(place.meeting_point),
+    charterCoverage: place.charter_coverage,
+  }),
   validate: (values, context) => validatePlace(values, context.mode, context.extra, context.record),
-  labels: { cityId: "所属城市", code: "编码", name: "名称", category: "类型", flightScope: "国际 / 国内", location: "坐标", address: "地址", charterCoverage: "包车覆盖检查" },
-  fieldOfPath: pathMapper([...COMMON_PATHS, [/^\/city_id$/, "cityId"], [/^\/category$/, "category"], [/^\/flight_scope$/, "flightScope"], [/^\/address$/, "address"], [/^\/charter_coverage$/, "charterCoverage"], [/^\/location\/lat$/, "location.lat"], [/^\/location\/lng$/, "location.lng"], [/^\/location$/, "location.lat"]]),
+  labels: { cityId: "所属城市", code: "编码", name: "名称", category: "类型", flightScope: "国际 / 国内", location: "坐标", address: "地址", meetingPoint: placeCopy("meetingPointLegend"), charterCoverage: "包车覆盖检查" },
+  fieldOfPath: pathMapper([...COMMON_PATHS, [/^\/city_id$/, "cityId"], [/^\/category$/, "category"], [/^\/flight_scope$/, "flightScope"], [/^\/address$/, "address"], [/^\/meeting_point\/(zh|ja|en)$/, (match) => `meetingPoint.${match[1]}`], [/^\/meeting_point$/, "meetingPoint.zh"], [/^\/charter_coverage$/, "charterCoverage"], [/^\/location\/lat$/, "location.lat"], [/^\/location\/lng$/, "location.lng"], [/^\/location$/, "location.lat"]]),
   toCreate: (values, { extra }) => {
     const { type } = extra;
     return {
@@ -300,7 +367,8 @@ export const placeFormModel: FormModel<"places", PlaceValues, PlaceExtra> = {
       ...(isChild(type) ? { parent_id: extra.parent?.id ?? "" } : { city_id: values.cityId ?? "" }),
       ...(type === "station" || type === "poi" ? { category: values.category ?? "rail" } : {}),
       ...(type === "airport" || type === "terminal" ? { flight_scope: scopeValue(values.flightScope) } : {}),
-      ...(type === "poi" && values.address.trim() !== "" ? { address: values.address.trim() } : {}),
+      ...(placeHasAddress(type) && values.address.trim() !== "" ? { address: values.address.trim() } : {}),
+      ...(placeHasMeetingPoint(type) && toMeetingPoint(values.meetingPoint) !== null ? { meeting_point: toMeetingPoint(values.meetingPoint) } : {}),
     };
   },
   toPatch: (values, place) => {
@@ -310,14 +378,15 @@ export const placeFormModel: FormModel<"places", PlaceValues, PlaceExtra> = {
     if (!samePoint(values.location, place.location)) patch.location = toPoint(values.location);
     if ((place.type === "station" || place.type === "poi") && values.category !== null && values.category !== place.category) patch.category = values.category;
     if ((place.type === "airport" || place.type === "terminal") && scopeValue(values.flightScope) !== place.flight_scope) patch.flight_scope = scopeValue(values.flightScope);
-    if (place.type === "poi" && values.address.trim() !== (place.address ?? "")) patch.address = values.address.trim() === "" ? null : values.address.trim();
+    if (placeHasAddress(place.type) && values.address.trim() !== (place.address ?? "")) patch.address = values.address.trim() === "" ? null : values.address.trim();
+    if (placeHasMeetingPoint(place.type) && !sameMeetingPoint(toMeetingPoint(values.meetingPoint), place.meeting_point)) patch.meeting_point = toMeetingPoint(values.meetingPoint);
     if (place.type === "poi" && values.charterCoverage !== place.charter_coverage) patch.charter_coverage = values.charterCoverage;
     return patch;
   },
   continueWith: (values, search, extra) => {
     const type = typeOf(search, null);
     const country = extra.cities?.find((city) => city.id === values.cityId)?.country_code ?? null;
-    return { cityId: values.cityId, code: codePrefix(type, country, extra.parent?.code ?? null), name: {}, category: values.category, flightScope: "none", location: { lat: "", lng: "" }, address: "", charterCoverage: false };
+    return { cityId: values.cityId, code: codePrefix(type, country, extra.parent?.code ?? null), name: {}, category: values.category, flightScope: "none", location: { lat: "", lng: "" }, address: "", meetingPoint: EMPTY_MEETING_POINT, charterCoverage: false };
   },
   footnotes: ({ record }) => (record?.source ? ["ourairports", "geonames"] : ["geonames"]),
   returnAnchor: ({ extra }) => (isChild(extra.type) ? "children" : null),
@@ -500,9 +569,49 @@ export const placeFormModel: FormModel<"places", PlaceValues, PlaceExtra> = {
               onBlur={() => form.touch("location")}
             />
           </FieldSlot>
-          {type === "poi" && (
+          {placeHasAddress(type) && (
             <FieldSlot name="address" wide>
-              {readOnly ? <StaticField label="地址">{values.address === "" ? "—" : values.address}</StaticField> : <TextField label="地址（选填）" autoComplete="off" readOnly={busy} value={values.address} errors={form.errors("address")} onChange={(event) => form.set({ address: event.target.value })} onBlur={() => form.touch("address")} />}
+              {readOnly ? (
+                <StaticField label="地址">{values.address === "" ? "—" : values.address}</StaticField>
+              ) : (
+                <TextField
+                  label="地址（选填）"
+                  autoComplete="off"
+                  readOnly={busy}
+                  value={values.address}
+                  errors={form.errors("address")}
+                  {...(type === "poi" ? {} : { hint: placeCopy("addressHintAirport") })}
+                  onChange={(event) => form.set({ address: event.target.value })}
+                  onBlur={() => form.touch("address")}
+                />
+              )}
+            </FieldSlot>
+          )}
+          {placeHasMeetingPoint(type) && (
+            <FieldSlot name="meetingPoint" wide>
+              <fieldset className="field fieldset" id="place-meeting-point">
+                <legend className="field__label">{placeCopy("meetingPointLegend")}</legend>
+                <p className="field__hint">{placeCopy(type === "airport" ? "meetingPointHintAirport" : "meetingPointHintTerminal")}</p>
+                {MEETING_POINT_FIELDS.map(({ key, label, lang }) =>
+                  readOnly ? (
+                    <StaticField key={key} label={label()}>
+                      <span lang={lang}>{values.meetingPoint[key] === "" ? "—" : values.meetingPoint[key]}</span>
+                    </StaticField>
+                  ) : (
+                    <TextAreaField
+                      key={key}
+                      label={label()}
+                      lang={lang}
+                      rows={3}
+                      readOnly={busy}
+                      value={values.meetingPoint[key]}
+                      errors={form.errors(`meetingPoint.${key}`)}
+                      onChange={(event) => form.set({ meetingPoint: { ...values.meetingPoint, [key]: event.target.value } })}
+                      onBlur={() => form.touch(`meetingPoint.${key}`)}
+                    />
+                  ),
+                )}
+              </fieldset>
             </FieldSlot>
           )}
         </FormGroup>
