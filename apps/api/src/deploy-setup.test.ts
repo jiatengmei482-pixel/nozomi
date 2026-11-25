@@ -90,6 +90,7 @@ const PRODUCTION_SCRIPTS = [
   "deploy/bin/pitr-offsite.sh",
   "deploy/bin/pitr-status.sh",
   "deploy/bin/pitr-restore.sh",
+  "deploy/bin/uptime-check.sh",
   "deploy/client/remote.sh",
   "deploy/client/push-local.sh",
 ];
@@ -486,6 +487,7 @@ test("上传到服务器的文件（流水线和手工部署共用的 remote.sh�
     "pitr-restore.sh",
     "pitr-status.sh",
     "restore.sh",
+    "uptime-check.sh",
   ]);
   // deploy/ 下除了上传的这几样，只有不上服务器的东西：初始化脚本（经标准输入执行）、CI 脚本、发起端脚本
   const top = (await readdir(new URL("deploy/", ROOT))).sort();

@@ -24,6 +24,7 @@
 #      早先初始化过、还没有应用账号密码的服务器，重新运行会补上这一项）
 #   7. 防火墙：要管理时只放行 SSH、80、443（Ubuntu 用 ufw，RHEL 系用 firewalld）；不管理时什么都不动
 #   8. 安装每日数据库备份的定时任务
+#   9. 安装服务可用性检查的定时任务（每 5 分钟，ADR 0110）
 #
 # 不做的事：不改 SSH 服务的任何设置（不禁用 root 登录、不禁用密码登录——那是负责人的决定，
 # docs/deploy.md「可选的加固」），不改任何账号的密码，不改 SELinux 的模式，不升级系统已有的软件包，
@@ -318,7 +319,7 @@ HEADER
   ensure_generated_secret "$file" AUTH_JWT_SECRET 48
   ensure_generated_secret "$file" DATA_ENCRYPTION_KEY 32
   for key in STRIPE_SECRET_KEY STRIPE_PUBLISHABLE_KEY STRIPE_WEBHOOK_SECRET GOOGLE_MAPS_API_KEY MAP_TILE_URL_TEMPLATE MAP_TILE_ATTRIBUTION SITE_CLIENT_ID SITE_SUPPORT_PHONE \
-    OFFSITE_BACKUP_REPOSITORY OFFSITE_BACKUP_ACCESS_KEY_ID OFFSITE_BACKUP_SECRET_ACCESS_KEY OFFSITE_BACKUP_PASSWORD BACKUP_HEARTBEAT_URL; do
+    OFFSITE_BACKUP_REPOSITORY OFFSITE_BACKUP_ACCESS_KEY_ID OFFSITE_BACKUP_SECRET_ACCESS_KEY OFFSITE_BACKUP_PASSWORD BACKUP_HEARTBEAT_URL UPTIME_HEARTBEAT_URL; do
     ensure_placeholder "$file" "$key"
   done
   chown "$DEPLOY_USER:$DEPLOY_USER" "$file"
@@ -398,6 +399,23 @@ CRON
   log "每日备份和恢复到任意时间点的定时任务已安装：$cron_file"
 }
 
+# 服务可用性检查（ADR 0110）：每 5 分钟经正式入口查一次 /health、数一次最近 5 分钟 API 的 5xx，正常才访问 .env 里的
+# UPTIME_HEARTBEAT_URL。定时任务服务已由 install_backup_cron 装好并启动。
+install_uptime_cron() {
+  local app_env="$1" env_dir="$2" cron_file="/etc/cron.d/nozomi-uptime-$1"
+  cat >"$cron_file" <<CRON
+# NOZOMI $app_env 服务可用性检查（由 deploy/bootstrap.sh 生成，重新运行初始化会重写；ADR 0110）。
+# 每 5 分钟一次，结果在系统日志里，标签 nozomi-uptime。第一次部署之前 current 还不存在，什么都不做。
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+*/5 * * * * $DEPLOY_USER [ -x $env_dir/current/bin/uptime-check.sh ] && $env_dir/current/bin/uptime-check.sh 2>&1 | logger -t nozomi-uptime
+CRON
+  chown root:root "$cron_file"
+  chmod 644 "$cron_file"
+  restore_selinux_label "$cron_file"
+  log "服务可用性检查的定时任务已安装：$cron_file"
+}
+
 main() {
   local app_env="${1:-}" ssh_port="${2:-}" public_key="${3:-}" manage_firewall
   [[ "$app_env" =~ ^(staging|production)$ ]] || die "环境必须是 staging 或 production"
@@ -427,6 +445,7 @@ main() {
   ensure_env_file "$env_dir/.env"
   configure_firewall "$manage_firewall" "$ssh_port"
   install_backup_cron "$app_env" "$env_dir"
+  install_uptime_cron "$app_env" "$env_dir"
 
   cat <<DONE
 
