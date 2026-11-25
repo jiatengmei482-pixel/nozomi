@@ -10,6 +10,7 @@ import { HOST_DRAFT_TTL_MS } from "./booking-protocol.ts";
 import { HOST_DRAFT_KEY } from "./host-draft-store.ts";
 import { BOOKING_TEXTS, READY_TIMEOUT, mountBookingFrom } from "./widget-booking.ts";
 import { initFrom } from "./widget-ui.ts";
+import { GUEST_UI, GUEST_UI_LANGUAGES } from "@nozomi/domain/guest-ui-language";
 
 const BASE = "https://nozomi.example";
 const KEY = `nze_${"A".repeat(32)}`;
@@ -39,6 +40,7 @@ afterEach(() => {
   console.error = originalError;
   READY_TIMEOUT.ms = 15_000;
   document.body.innerHTML = "";
+  GUEST_UI.languages = GUEST_UI_LANGUAGES;
 });
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -74,10 +76,10 @@ test("带 nzdraft：草稿号进本标签页 sessionStorage、从地址栏去掉
   assert.equal(src.origin + src.pathname, `${BASE}/embed/book`);
   assert.equal(src.searchParams.get("draft"), DRAFT);
   assert.equal(src.searchParams.get("key"), KEY);
-  assert.equal(src.searchParams.get("lang"), "en");
+  assert.equal(src.searchParams.get("lang"), "en", "合作网站传的 lang 照原样交给嵌入页（M12-01：嵌入页自己过客人界面语言开关）");
   assert.equal(src.searchParams.get("host"), location.origin);
   assert.match(channelOf(frame), /^[0-9a-f]{32}$/, "频道号 16 字节随机数，放在 # 后面");
-  assert.equal(frame.getAttribute("title"), BOOKING_TEXTS.en.title);
+  assert.equal(frame.getAttribute("title"), BOOKING_TEXTS.zh.title, "M12-01：M11 之前外层一律中文");
   assert.equal(frame.getAttribute("allow"), "payment");
   assert.equal(frame.getAttribute("referrerpolicy"), "no-referrer");
   assert.equal(frame.hasAttribute("sandbox"), false, "不加 sandbox：会传给 Stripe 的付款和 3D 验证框架");
@@ -286,7 +288,7 @@ test("15 秒没收到 ready：拿掉 iframe，显示一句话和「到主站继�
   await wait(60);
   assert.equal(frameHost(), null);
   const fallback = root().querySelector('[data-nozomi-booking="fallback"]')?.shadowRoot as ShadowRoot;
-  assert.match(fallback.textContent ?? "", new RegExp(BOOKING_TEXTS.ja.failed));
+  assert.match(fallback.textContent ?? "", new RegExp(BOOKING_TEXTS.zh.failed), "M12-01：传了 ja 也显示中文");
   const link = fallback.querySelector("a") as HTMLAnchorElement;
   assert.equal(link.getAttribute("href"), `${BASE}/book?draft=${DRAFT}`);
   assert.equal(link.getAttribute("target"), "_blank");
@@ -404,4 +406,17 @@ test("参数不对：没有主站地址、没有 key、找不到容器都只在�
   assert.equal(root().children.length, 0);
   assert.equal(consoleErrors.length, 3);
   assert.ok(consoleErrors.every((line) => line.startsWith("NozomiBooking：")));
+});
+
+test("M11 放开日文、英文后（M12-01 的开关）：外层的 iframe 标题、打不开时的提示按合作网站传的 lang", async () => {
+  GUEST_UI.languages = ["zh", "ja", "en"];
+  READY_TIMEOUT.ms = 30;
+  mountWithDraft({ lang: "en" });
+  assert.equal(iframe().getAttribute("title"), BOOKING_TEXTS.en.title);
+  await wait(60);
+  document.body.innerHTML = '<p>宿主页</p><div id="flow"></div>';
+  mountWithDraft({ lang: "ja" });
+  await wait(60);
+  const fallback = root().querySelector('[data-nozomi-booking="fallback"]')?.shadowRoot as ShadowRoot;
+  assert.match(fallback.textContent ?? "", new RegExp(BOOKING_TEXTS.ja.failed));
 });

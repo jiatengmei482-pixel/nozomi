@@ -32,6 +32,7 @@ import {
   readHostDraftRecord,
   withoutDraft,
 } from "./booking-protocol.ts";
+import { guestUiLanguage } from "@nozomi/domain/guest-ui-language";
 import { type InitOptions, type WidgetLang, WIDGET_LANGS, resolveLang } from "./widget-core.ts";
 import { SCRIPT_ORIGIN, WIDGET_SCRIPT_PATH, initFrom, unmountWidget } from "./widget-ui.ts";
 import { WIDGET_CSS } from "./widget-style.ts";
@@ -120,7 +121,8 @@ class BookingMount {
     this.base = base;
     this.origin = new URL(base).origin;
     this.options = options;
-    this.lang = resolveLang(options.lang, "ja");
+    // 外层的标题、提示按客人界面语言（M12-01，M11 之前一律中文）；传给 iframe 的 lang 仍是合作网站给的原值，由嵌入页自己过开关
+    this.lang = guestUiLanguage(resolveLang(options.lang, "ja"));
   }
 
   private get t(): Texts {

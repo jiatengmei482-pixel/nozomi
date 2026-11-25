@@ -118,7 +118,7 @@ NOZOMI 模式完整示例（站点 73，站点语言 zh-CN，外观不写、跟�
 | 初始化时机 | `DOMContentLoaded` 里调 `NozomiBooking.init` | `defer` 脚本在 `DOMContentLoaded` 之前执行完，此时 `NozomiBooking` 一定已定义。站点如果用了 Astro 的站内软跳转（`<ClientRouter />`），见 3.5 |
 | `key` | 站点的 NOZOMI 嵌入码 | 必须转义后写入（见 3.3） |
 | `root` | `"#nozomi-booking"` | 固定 |
-| `lang` | 按站点语言映射：日语 → `"ja"`；中文简体或繁体（`zh`、`zh-CN`、`zh-TW`、`zh-HK`、`zh-Hans`、`zh-Hant` 等，即 `zh` 本身或以 `zh-`、`zh_` 开头；日语同理是 `ja`、`ja-JP` 等）→ `"zh"`；其他 → `"en"` | 组件只认 `zh` / `ja` / `en`；不认识的值会被忽略、改用 NOZOMI 后台给这个嵌入码设的默认语言，所以工厂一定要按表映射好再传 |
+| `lang` | 按站点语言映射：日语 → `"ja"`；中文简体或繁体（`zh`、`zh-CN`、`zh-TW`、`zh-HK`、`zh-Hans`、`zh-Hant` 等，即 `zh` 本身或以 `zh-`、`zh_` 开头；日语同理是 `ja`、`ja-JP` 等）→ `"zh"`；其他 → `"en"` | 组件只认 `zh` / `ja` / `en`；不认识的值会被忽略、改用 NOZOMI 后台给这个嵌入码设的默认语言，所以工厂一定要按表映射好再传。**NOZOMI 中文版上线期间（M11 多语言之前，业主 2026-11-25，ADR 0109）组件和预订页不论传什么都显示中文**；照表传，M11 开放日文、英文后自动按它显示，工厂不用再改 |
 | `services` | `["transfer","charter"]` | 区间、包车两个标签，顺序即标签顺序 |
 | `redirectUrl` | 站点首页 `https://<站点域名>/` | 付款完成后订单页「返回原网站」的链接。见下面「redirectUrl 的规则」和第 4 节 |
 | `layout` | **默认不写**。加了「NOZOMI 组件外观」字段且选的不是「跟随 NOZOMI 后台」时，才写 `"auto"` / `"card"` / `"bar"` | 组件外观，见 3.6。不写时组件用 NOZOMI 运营后台这个嵌入码的「外观」（默认「自动」）；写了就以写的为准，NOZOMI 后台的设置对这个站点不起作用 |

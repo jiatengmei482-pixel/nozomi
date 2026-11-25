@@ -64,11 +64,11 @@ function hostHtml(host: Host, path: string, nestedSrc: string): string | null {
   const record = `<script>window.__messages = []; window.__events = []; window.addEventListener("message", function (event) { window.__messages.push({ origin: event.origin, data: JSON.stringify(event.data) }); });</script>`;
   if (path === "/") {
     return `${head}<div id="nozomi-booking"></div></main><script src="${host.site}/embed/widget-v1.js"></script>
-<script>NozomiBooking.init({ key: ${JSON.stringify(host.key)}, root: "#nozomi-booking", lang: "zh", services: ["transfer"], bookingUrl: location.origin + "/booking/" });</script></body></html>`;
+<script>NozomiBooking.init({ key: ${JSON.stringify(host.key)}, root: "#nozomi-booking", lang: new URLSearchParams(location.search).get("lang") || "zh", services: ["transfer"], bookingUrl: location.origin + "/booking/" });</script></body></html>`;
   }
   if (path === "/booking/") {
     return `${head}<div id="flow"></div></main>${record}<script src="${host.site}/embed/widget-v1.js"></script>
-<script>NozomiBooking.mountBooking({ key: ${JSON.stringify(host.key)}, root: "#flow", lang: "zh", onEvent: function (event) { window.__events.push(event); } });</script></body></html>`;
+<script>NozomiBooking.mountBooking({ key: ${JSON.stringify(host.key)}, root: "#flow", lang: new URLSearchParams(location.search).get("lang") || "zh", onEvent: function (event) { window.__events.push(event); } });</script></body></html>`;
   }
   if (path === "/nest/") return `${head}<iframe title="再嵌一层" src="${nestedSrc}" width="800" height="900"></iframe></main></body></html>`;
   if (path === "/main-site/") return `${head}<iframe title="主站预订页" src="${SITE}/book"></iframe><iframe title="主站登录页" src="${SITE}/login"></iframe></main></body></html>`;
@@ -189,6 +189,31 @@ test("跨站：草稿过期——iframe 报 DRAFT_NOT_FOUND，宿主删存储、
   await page.getByRole("button", { name: "重新查询" }).click();
   await expect(page.locator('iframe[title="NOZOMI 用车预订"]')).toHaveCount(0);
   await expect(page.getByRole("combobox", { name: "出发地" })).toBeVisible();
+});
+
+test("M12-01 客人界面一律中文（业主 2026-11-25，M11 之前）：宿主传 lang=ja、en 时查价表单、iframe 标题、嵌入页、宿主上的提示都是中文；地址提示带 lang=zh；iframe 地址照传 lang，ready 带实际显示的 zh", async ({ page, request }) => {
+  test.setTimeout(90_000);
+  const host = await newHost(request);
+  for (const lang of ["ja", "en"] as const) {
+    await page.goto(`${host.origin}/?lang=${lang}`);
+    await expect(page.getByRole("button", { name: "查询价格" })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "出发地" })).toHaveAttribute("placeholder", "地址、机场、酒店等");
+    const suggested = page.waitForRequest((req) => new URL(req.url()).pathname === "/embed/v1/places/autocomplete");
+    await page.getByRole("combobox", { name: "出发地" }).fill("東京駅");
+    expect(new URL((await suggested).url()).searchParams.get("lang"), `${lang}：地址提示按客人界面语言`).toBe("zh");
+
+    await page.goto(`${host.origin}/booking/?lang=${lang}&nzdraft=${fakeDraft()}`);
+    const iframe = page.locator('iframe[title="NOZOMI 用车预订"]');
+    await expect(iframe).toHaveAttribute("src", new RegExp(`[?&]lang=${lang}&`));
+    await expect(page.getByText("这次查询已过期。")).toBeVisible();
+    await expect(frameOf(page).getByText("这次查询已过期，请在上方重新查询。")).toBeVisible();
+    await expect(frameOf(page).getByText("本预订由 NOZOMI 提供并收款。")).toBeVisible();
+    await expect(frameOf(page).locator("main")).toHaveAttribute("lang", "zh-CN");
+    const ready = async (): Promise<Record<string, unknown> | undefined> =>
+      (await page.evaluate(() => (window as unknown as { __messages: { data: string }[] }).__messages)).map((message) => JSON.parse(message.data) as Record<string, unknown>).find((message) => message["type"] === "ready");
+    await expect.poll(async () => (await ready())?.["lang"], `${lang}：ready 带实际显示的语言`).toBe("zh");
+    expect(Object.keys((await ready()) ?? {}).sort(), "ready 的字段不变").toEqual(["ch", "lang", "ns", "type", "v"]);
+  }
 });
 
 for (const [label, options, nested] of [

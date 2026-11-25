@@ -41,6 +41,7 @@ import {
   resolveTheme,
   tomorrow,
 } from "./widget-core.ts";
+import { guestUiLanguage } from "@nozomi/domain/guest-ui-language";
 import { icon } from "./widget-icons.ts";
 import { bookingUrlOf, mainSiteBookingUrl, withDraft } from "./booking-protocol.ts";
 import { tellDeveloper } from "./developer-notice.ts";
@@ -155,7 +156,8 @@ class Widget {
   private readonly shadow: ShadowRoot;
   private readonly base: string;
   private readonly options: InitOptions;
-  private lang: WidgetLang = "ja";
+  /** 实际显示的语言：init 的 lang / 嵌入码默认语言再经客人界面语言开关（M12-01，M11 之前一律中文） */
+  private lang: WidgetLang = "zh";
   private services: WidgetService[] = ["transfer", "charter"];
   private form: WidgetForm;
   private busy = false;
@@ -256,7 +258,7 @@ class Widget {
 
   /**
    * 先取配置（M9E-22）：被拒只显示「暂时无法使用」；正常按配置画表单；8 秒没回、连不上、5xx 按 init 的参数画表单
-   * （没传的用 auto、日文、两个标签都显示），客人提交时服务端照常核对嵌入码。8 秒没回时请求不取消，晚回来的见 lateConfig。
+   * （没传的用 auto、日文、两个标签都显示；显示的语言再经客人界面语言开关，M11 之前一律中文），客人提交时服务端照常核对嵌入码。8 秒没回时请求不取消，晚回来的见 lateConfig。
    */
   async start(): Promise<void> {
     const pending = configOutcome(this.url("/embed/v1/config"));
@@ -265,14 +267,14 @@ class Widget {
     clearTimeout(timer);
     if (this.destroyed) return;
     if (first !== "timeout" && first.kind === "refused") {
-      this.lang = resolveLang(this.options.lang, "ja");
+      this.lang = guestUiLanguage(resolveLang(this.options.lang, "ja"));
       this.renderUnavailable();
       tellDeveloper(REFUSED_NOTICE);
       return;
     }
     const config = first !== "timeout" && first.kind === "ok" ? first.body : null;
     if (config === null) tellDeveloper("取组件配置超时或出错，先按 init 的参数显示表单。");
-    this.lang = resolveLang(this.options.lang, config === null ? "ja" : config.lang);
+    this.lang = guestUiLanguage(resolveLang(this.options.lang, config === null ? "ja" : config.lang));
     this.services = resolveServices(this.options.services, config === null ? this.services : config.services);
     this.form.tab = this.services[0] ?? "transfer";
     // 取到配置（或超时 / 出错）之前表单还没画（只有样式表），所以取到配置时第一次画出来就是最终的外观；超时 / 出错时按 init 的，配置晚回来可能换一次外观（lateConfig）
@@ -638,7 +640,7 @@ class Widget {
       set(null);
       status.textContent = t.locating;
       const job: Locating = { name: item.name, view: { status } };
-      void getJson(this.url("/embed/v1/places/details", { id: item.id, session: used }), LOCATE_TIMEOUT.ms).then((details) => {
+      void getJson(this.url("/embed/v1/places/details", { id: item.id, session: used, lang: this.lang }), LOCATE_TIMEOUT.ms).then((details) => {
         // 同一个容器又 init 了一次（M9E-11）：旧实例晚回来的坐标不写进新表单
         if (this.destroyed || this.locating.get(slot) !== job) return;
         const location: { lat: number; lng: number } | null = details.status === 200 ? (details.body?.place?.location ?? null) : null;
@@ -656,7 +658,7 @@ class Widget {
     const search = async (query: string): Promise<void> => {
       const mine = ++round;
       status.textContent = t.searching;
-      const found = await getJson(this.url("/embed/v1/places/autocomplete", { q: query, session }));
+      const found = await getJson(this.url("/embed/v1/places/autocomplete", { q: query, session, lang: this.lang }));
       if (this.destroyed || mine !== round) return;
       const items: Suggestion[] = found.status === 200 && Array.isArray(found.body?.items) ? found.body.items : [];
       list.replaceChildren();

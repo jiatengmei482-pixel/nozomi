@@ -9,6 +9,7 @@
  * - 收宿主的消息：只认 `event.source === window.parent && event.origin === host`、频道号对得上的 viewport（只影响显示位置）。
  *   viewport 的 height、top（M9E-32，ADR 0100）放进 `viewport`（可订阅），手机底部按钮条订阅它来停在宿主屏幕的下沿；滚动时频繁更新也不让整页重新渲染。
  */
+import { guestUiLanguage } from "@nozomi/domain/guest-ui-language";
 import { type ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { type FrameMessage, type FrameParams, envelope, frameParamsOf, parseHostMessage } from "../../embed/booking-protocol.ts";
 import { type HostViewportSource, createHostViewportStore } from "../../embed/frame-bar.ts";
@@ -30,10 +31,11 @@ export interface EmbedFrameValue {
   params: FrameParams;
   /** 被嵌着（顶层打开为 false：不显示预订内容） */
   inFrame: boolean;
+  /** 实际显示的语言（客人界面语言开关之后，M11 之前总是 zh） */
   lang: EmbedLang;
   t: EmbedTexts;
   send(message: FrameMessage): void;
-  /** 页面准备好了：发 `ready`（整个文档只发一次）；地址没带 lang 时语言跟草稿 */
+  /** 页面准备好了：发 `ready`（整个文档只发一次）；地址没带 lang 时语言跟草稿，再经客人界面语言开关 */
   announce(lang: EmbedLang | null): void;
   /** 宿主最近一次发来的可视高度和 iframe 上沿位置（没收到为 null；旧版组件脚本不带 top） */
   viewport: HostViewportSource;
@@ -57,7 +59,8 @@ export function EmbedFrame({ children }: { children: ReactNode }) {
   const mainRef = useRef<HTMLElement | null>(null);
   const { host, ch } = params;
   const canTalk = parent !== null && host !== null;
-  const lang: EmbedLang = params.lang ?? draftLang ?? "ja";
+  // 地址里的 lang 照常读、照常校验，再经客人界面语言开关（M12-01，业主 2026-11-25：M11 之前一律中文）
+  const lang: EmbedLang = guestUiLanguage(params.lang ?? draftLang ?? "ja");
 
   const send = useCallback(
     (message: FrameMessage): void => {
@@ -72,7 +75,8 @@ export function EmbedFrame({ children }: { children: ReactNode }) {
       if (announced.current) return;
       announced.current = true;
       if (given !== null) setDraftLang(given);
-      send({ type: "ready", lang: params.lang ?? given ?? "ja" });
+      // ready 里的 lang 是实际显示的语言（M12-01 起 M11 之前总是 zh），不是地址里传进来的
+      send({ type: "ready", lang: guestUiLanguage(params.lang ?? given ?? "ja") });
     },
     [send, params.lang],
   );

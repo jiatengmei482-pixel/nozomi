@@ -505,7 +505,8 @@ test("嵌入组件（M9E-22）：白名单网站 + 启用的嵌入码显示表�
 });
 
 
-test("嵌入组件横条（M9E-11）：768–1100 宽、日文和英文下，地址框的占位文字、停留时长下拉的文字都不被截断", async ({ browser, request }) => {
+// M12-01 起 M11 之前客人界面一律中文：lang=ja、en 时显示的是中文（下面先核对），量的是实际显示的中文文字；M11 放开日文、英文后照旧量日文、英文
+test("嵌入组件横条（M9E-11）：768–1100 宽、宿主传 lang=ja、en 时，地址框的占位文字、停留时长下拉的文字都不被截断", async ({ browser, request }) => {
   test.setTimeout(180_000);
   await useNewEmbedKey(request);
   const problems: string[] = [];
@@ -516,6 +517,7 @@ test("嵌入组件横条（M9E-11）：768–1100 宽、日文和英文下，地
       const page = await context.newPage();
       await page.goto(`${allowedHost.origin}/?lang=${lang}&layout=bar`);
       await page.waitForFunction(() => document.querySelector("#nozomi-booking")?.shadowRoot?.querySelector(".nzb-shell") !== null);
+      await expect(page.getByRole("button", { name: "查询价格" }), `${lang}：M11 之前显示中文（M12-01）`).toBeVisible();
       // 包车标签才有停留时长；两个标签都量
       for (const tab of [0, 1]) {
         const cut = await page.evaluate((index) => {

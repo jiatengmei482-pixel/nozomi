@@ -246,11 +246,11 @@ test("四步（iframe 1023 宽）：读草稿带 key、host，对得上时询价
   assert.ok(screen.getByRole("button", { name: /行程摘要/ }), "顶部摘要条");
   assert.equal(screen.queryByRole("button", { name: /地图上选/ }), null, "没有地图选点");
   assert.equal(document.querySelector(".leaflet-container"), null, "没有 Leaflet 地图");
-  assert.ok(screen.getByText(EMBED_TEXTS.ja.seller), "卖方说明一直在");
+  assert.ok(screen.getByText(EMBED_TEXTS.zh.seller), "卖方说明一直在");
 
   await actor.click(screen.getByRole("checkbox", { name: /同意保存这次付款用的银行卡/ }));
   await actor.click(screen.getByRole("button", { name: "去付款 →" }));
-  const orderHeading = await screen.findByRole("heading", { name: `${EMBED_TEXTS.ja.orderNo} ${ORDER_NO}` }, SLOW);
+  const orderHeading = await screen.findByRole("heading", { name: `${EMBED_TEXTS.zh.orderNo} ${ORDER_NO}` }, SLOW);
   await waitFor(() => assert.equal(document.activeElement, orderHeading, "进订单页时焦点在订单号标题上（「去付款」按钮已经卸载）"));
   assert.equal(window.location.pathname, "/embed/book/order");
   keepsFrameParams();
@@ -258,16 +258,16 @@ test("四步（iframe 1023 宽）：读草稿带 key、host，对得上时询价
   assert.doesNotMatch(window.location.href, /nzo_/, "令牌不进地址");
   assert.equal((history.state as { usr?: { orderToken?: string } } | null)?.usr?.orderToken, TOKEN, "令牌在这条历史记录的 state 里");
   assert.equal(JSON.parse(sessionStorage.getItem(EMBED_ORDER_KEY) ?? "{}").token, TOKEN, "也在本标签页的 nozomi.embed-order 里");
-  const pay = screen.getByRole("link", { name: new RegExp(EMBED_TEXTS.ja.payInNewWindow) });
+  const pay = screen.getByRole("link", { name: new RegExp(EMBED_TEXTS.zh.payInNewWindow) });
   assert.equal(pay.getAttribute("href"), `/book/order#${TOKEN}`);
   assert.equal(pay.getAttribute("target"), "_blank");
   // 付款在 iframe 里（M9E-19）：新窗口的主站订单页只是退路，写在付款区块下面的一句话里
-  assert.ok(pay.closest(".embed-book__pay-hint")?.textContent?.startsWith(EMBED_TEXTS.ja.payHint));
+  assert.ok(pay.closest(".embed-book__pay-hint")?.textContent?.startsWith(EMBED_TEXTS.zh.payHint));
   assert.ok(screen.getByRole("heading", { name: "付款" }), "付款区块就在这一页（这里没配 Stripe：付款暂未开放）");
 
   // 草稿齐了先挂第 1 步、报价后到第 2 步（同主站）
   assert.deepEqual(steps(), ["trip", "vehicle", "passenger", "review", "payment"]);
-  assert.deepEqual(messages()[0], { ns: "nozomi-booking", v: 1, ch: CH, type: "ready", lang: "ja" });
+  assert.deepEqual(messages()[0], { ns: "nozomi-booking", v: 1, ch: CH, type: "ready", lang: "zh" }, "M12-01：地址 lang=ja，显示中文，ready 带实际显示的 zh");
   assert.equal(messages().filter((message) => message["type"] === "ready").length, 1, "ready 只发一次");
   assert.ok(posted.every(([, origin]) => origin === HOST));
   assert.doesNotMatch(JSON.stringify(posted), /王小明|guest@example|\+81|nzo_|京王|东京站|18000|D{43}|nze_/, "消息里没有个人信息、地点、价格、令牌、草稿号、嵌入码");
@@ -287,7 +287,7 @@ test("iframe ≥ 1024 宽（M9E-27）：和主站一样两栏，右边是同一�
   // 主站外壳 SiteLayout 的顶栏、导航、页脚（.site__*）一样都不在；页面上的 <nav>、<footer> 也没有
   assert.deepEqual([...document.querySelectorAll(".site, .site__header, .site__nav, .site__footer, nav, footer")].map((node) => node.className), [], "没有主站顶栏、导航、页脚");
   assert.equal(screen.queryAllByRole("heading", { name: "预订用车", level: 1 }).length, 0, "没有主站的页面标题");
-  assert.ok(screen.getByText(EMBED_TEXTS.ja.seller), "卖方说明照旧在");
+  assert.ok(screen.getByText(EMBED_TEXTS.zh.seller), "卖方说明照旧在");
 
   await actor.click(screen.getByRole("button", { name: "选择 车型1" }));
   await actor.click(screen.getByRole("button", { name: "下一步：填写乘客信息" }));
@@ -327,7 +327,7 @@ test("订单页：待付款时隔几秒读一次；客人在新窗口付完（�
   stub({ orderStatus: (call) => (call < 3 ? "pending_payment" : "confirmed") });
   sessionStorage.setItem(EMBED_ORDER_KEY, JSON.stringify({ draft: DRAFT, token: TOKEN, at: Date.now() }));
   open(`/embed/book/order${query}#ch=${CH}`);
-  await screen.findByText(EMBED_TEXTS.ja.paid, {}, SLOW);
+  await screen.findByText(EMBED_TEXTS.zh.paid, {}, SLOW);
   await waitFor(() => assert.equal(sessionStorage.getItem(EMBED_ORDER_KEY), null));
   await new Promise((resolve) => setTimeout(resolve, 80));
   assert.deepEqual(
@@ -336,7 +336,7 @@ test("订单页：待付款时隔几秒读一次；客人在新窗口付完（�
   );
   assert.deepEqual(steps(), ["payment", "paid"]);
   assert.deepEqual(messages()[3], { ns: "nozomi-booking", v: 1, ch: CH, type: "completed", orderNo: ORDER_NO, status: "submitted" });
-  assert.equal(screen.getByRole("link", { name: new RegExp(EMBED_TEXTS.ja.openOrder) }).getAttribute("target"), "_blank");
+  assert.equal(screen.getByRole("link", { name: new RegExp(EMBED_TEXTS.zh.openOrder) }).getAttribute("target"), "_blank");
   assert.equal(screen.queryByRole("button", { name: /取消/ }), null, "iframe 里不放取消按钮");
 });
 
@@ -349,7 +349,7 @@ test("订单页：标签页在后台（客人在新窗口付款）时不轮询�
     const calls = stub();
     sessionStorage.setItem(EMBED_ORDER_KEY, JSON.stringify({ draft: DRAFT, token: TOKEN, at: Date.now() }));
     open(`/embed/book/order${query}#ch=${CH}`);
-    await screen.findByRole("heading", { name: `${EMBED_TEXTS.ja.orderNo} ${ORDER_NO}` }, SLOW);
+    await screen.findByRole("heading", { name: `${EMBED_TEXTS.zh.orderNo} ${ORDER_NO}` }, SLOW);
     const reads = () => calls.filter((call) => call.path === "/site/v1/order").length;
     await waitFor(() => assert.ok(reads() >= 2, "在前台时照常轮询"));
     state = "hidden";
@@ -371,15 +371,15 @@ test("订单页：令牌失效（401）删掉记录、说找不到；没有令�
   stub({ orderStatus: () => "gone" });
   sessionStorage.setItem(EMBED_ORDER_KEY, JSON.stringify({ draft: DRAFT, token: TOKEN, at: Date.now() }));
   open(`/embed/book/order${query}#ch=${CH}`);
-  await screen.findByText(EMBED_TEXTS.ja.orderMissing, {}, SLOW);
+  await screen.findByText(EMBED_TEXTS.zh.orderMissing, {}, SLOW);
   assert.equal(sessionStorage.getItem(EMBED_ORDER_KEY), null);
   cleanup();
   posted = [];
   const calls = stub();
   open(`/embed/book/order${query}#ch=${CH}`);
-  await screen.findByText(EMBED_TEXTS.ja.orderMissing);
+  await screen.findByText(EMBED_TEXTS.zh.orderMissing);
   assert.equal(calls.length, 0);
-  const lookup = screen.getByRole("link", { name: new RegExp(EMBED_TEXTS.ja.lookup) });
+  const lookup = screen.getByRole("link", { name: new RegExp(EMBED_TEXTS.zh.lookup) });
   assert.equal(lookup.getAttribute("href"), "/book/order");
   assert.equal(lookup.getAttribute("target"), "_blank");
   await waitFor(() => assert.equal(messages()[0]?.["type"], "ready"));
@@ -389,7 +389,7 @@ test("宿主页刷新后续接：本标签页有这个草稿的待付款单，�
   const calls = stub();
   sessionStorage.setItem(EMBED_ORDER_KEY, JSON.stringify({ draft: DRAFT, token: TOKEN, at: Date.now() }));
   open(bookUrl);
-  await screen.findByRole("heading", { name: `${EMBED_TEXTS.ja.orderNo} ${ORDER_NO}` }, SLOW);
+  await screen.findByRole("heading", { name: `${EMBED_TEXTS.zh.orderNo} ${ORDER_NO}` }, SLOW);
   assert.equal(window.location.pathname, "/embed/book/order");
   keepsFrameParams();
   assert.equal(calls.filter((call) => call.path.startsWith("/site/v1/booking-drafts/")).length, 0);
@@ -422,7 +422,7 @@ test("订单页顶层打开（没被嵌）：不读订单、不显示订单内�
       <EmbedApp />
     </BrowserRouter>,
   );
-  await screen.findByText(EMBED_TEXTS.ja.topLevel);
+  await screen.findByText(EMBED_TEXTS.zh.topLevel);
   assert.equal(calls.length, 0);
   assert.equal(within(document.body).queryByText(ORDER_NO, { exact: false }), null);
 });
@@ -539,12 +539,12 @@ test("付款进 iframe（M9E-19）：下单后同一页直接挂付款表单（�
   await toReview(actor);
   await actor.click(screen.getByRole("checkbox", { name: /同意保存这次付款用的银行卡/ }));
   await actor.click(screen.getByRole("button", { name: "去付款 →" }));
-  await screen.findByRole("heading", { name: `${EMBED_TEXTS.ja.orderNo} ${ORDER_NO}` }, SLOW);
+  await screen.findByRole("heading", { name: `${EMBED_TEXTS.zh.orderNo} ${ORDER_NO}` }, SLOW);
   const payButton = await screen.findByRole("button", { name: "付款 18,000 JPY" }, SLOW);
   assert.equal(window.location.hash, `#ch=${CH}`, "订单页地址带频道号（# 后，不发给服务器），iframe 刷新后照样带得上");
-  assert.deepEqual(log.mounts, [{ publishableKey: PK, clientSecret: SECRET, locale: "ja" }], "用下单应答里的 client_secret 直接挂（不再读一次），语言跟嵌入页");
+  assert.deepEqual(log.mounts, [{ publishableKey: PK, clientSecret: SECRET, locale: "zh" }], "用下单应答里的 client_secret 直接挂（不再读一次），语言跟嵌入页实际显示的（M12-01：地址 lang=ja 也是中文）");
   assert.equal(calls.filter((call) => call.path === "/site/v1/order/payment").length, 0);
-  assert.ok(screen.getByRole("link", { name: new RegExp(`^${EMBED_TEXTS.ja.payInNewWindow}`) }).closest(".embed-book__pay-hint"), "新窗口只是退路");
+  assert.ok(screen.getByRole("link", { name: new RegExp(`^${EMBED_TEXTS.zh.payInNewWindow}`) }).closest(".embed-book__pay-hint"), "新窗口只是退路");
 
   await actor.click(payButton);
   await actor.click(await screen.findByRole("button", { name: "确认付款" }));
@@ -575,7 +575,7 @@ test("银行整页回跳回到嵌入订单页（M9E-19）：令牌从 nozomi.pay
   sessionStorage.setItem("nozomi.payment-return", JSON.stringify({ intentId: "pi_3Embed", token: TOKEN, at: Date.now() }));
   const log: DriverLog = { mounts: [], confirms: [], postedAtConfirm: [], searchAtMount: [] };
   open(`/embed/book/order${query}&ch=${CH}&payment_intent=pi_3Embed&payment_intent_client_secret=${SECRET}&redirect_status=failed`, fakeDriver(log, { awaiting: true }));
-  await screen.findByRole("heading", { name: `${EMBED_TEXTS.ja.orderNo} ${ORDER_NO}` }, SLOW);
+  await screen.findByRole("heading", { name: `${EMBED_TEXTS.zh.orderNo} ${ORDER_NO}` }, SLOW);
   keepsFrameParams();
   for (const name of ["payment_intent", "payment_intent_client_secret", "redirect_status", "ch"]) assert.equal(new URLSearchParams(window.location.search).has(name), false, `地址里还有 ${name}`);
   assert.equal(sessionStorage.getItem("nozomi.payment-return"), null, "取回后立刻删掉");

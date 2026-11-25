@@ -16,6 +16,7 @@ import { EmbedApp, isEmbedBookDocument } from "./EmbedApp.tsx";
 import { DRAFT_TIMEOUT } from "./EmbedBookPage.tsx";
 import { EMBED_FRAME } from "./EmbedFrame.tsx";
 import { EMBED_TEXTS } from "./embed-texts.ts";
+import { GUEST_UI, GUEST_UI_LANGUAGES } from "@nozomi/domain/guest-ui-language";
 
 const DRAFT = "D".repeat(43);
 const KEY = `nze_${"A".repeat(32)}`;
@@ -47,7 +48,13 @@ afterEach(() => {
   EMBED_FRAME.parent = originalParent;
   DRAFT_TIMEOUT.ms = 10_000;
   history.replaceState(null, "", "/");
+  GUEST_UI.languages = GUEST_UI_LANGUAGES;
 });
+
+/** M11 要恢复的日文、英文界面：临时放开客人界面语言开关（M12-01，M11 之前默认只有中文），afterEach 换回 */
+const allGuestLanguages = (): void => {
+  GUEST_UI.languages = ["zh", "ja", "en"];
+};
 
 function open(path: string): void {
   history.replaceState(null, "", path);
@@ -80,37 +87,55 @@ test("前端的两个嵌入页路径、Caddy 给 frame-ancestors 的匹配规则
   }
 });
 
-test("被嵌着：带上 key、host 读草稿，按宿主 origin 发 ready（语言跟草稿），消息里没有草稿内容；顶部写明「本预订由 NOZOMI 提供并收款」", async () => {
+test("被嵌着：带上 key、host 读草稿，按宿主 origin 发 ready（M12-01：草稿是日文也显示中文，ready 带实际显示的 zh），消息里没有草稿内容；顶部写明「本预订由 NOZOMI 提供并收款」", async () => {
   const calls = stubApiWith((call) => (call.url.pathname === `/site/v1/booking-drafts/${DRAFT}` ? json(200, { draft: DRAFT_BODY, expires_at: "2030-11-20T00:00:00Z", source_matches: true }) : apiError(503, "SITE_NOT_OPEN", "x")));
   open(url());
-  await screen.findByText(EMBED_TEXTS.ja.seller);
+  await screen.findByText(EMBED_TEXTS.zh.seller);
   await waitFor(() => assert.ok(types().includes("ready")));
   assert.equal(calls[0]?.path, `/site/v1/booking-drafts/${DRAFT}?key=${KEY}&host=${encodeURIComponent(HOST)}`, "读草稿带 key、host");
-  assert.deepEqual(posted[0], [{ ns: "nozomi-booking", v: 1, ch: CH, type: "ready", lang: "ja" }, HOST]);
+  assert.deepEqual(posted[0], [{ ns: "nozomi-booking", v: 1, ch: CH, type: "ready", lang: "zh" }, HOST]);
   assert.ok(posted.every(([, origin]) => origin === HOST), "targetOrigin 一律是宿主 origin，从不用 *");
   assert.doesNotMatch(JSON.stringify(posted), /成田|東京|35\.7|nze_|D{43}/, "消息里没有草稿内容、嵌入码、草稿号");
 });
 
-test("地址带 lang 时按它显示（不看草稿的语言）", async () => {
+test("地址带 lang 时按它显示（不看草稿的语言）；没带按草稿的语言（M11 放开日文、英文后）", async () => {
+  allGuestLanguages();
   stubApiWith((call) => (call.url.pathname.startsWith("/site/v1/booking-drafts/") ? json(200, { draft: DRAFT_BODY, expires_at: "2030-11-20T00:00:00Z" }) : apiError(503, "SITE_NOT_OPEN", "x")));
   open(url("&lang=en"));
   await screen.findByText(EMBED_TEXTS.en.seller);
   await waitFor(() => assert.deepEqual(posted[0]?.[0], { ns: "nozomi-booking", v: 1, ch: CH, type: "ready", lang: "en" }));
+  cleanup();
+  posted = [];
+  open(url());
+  await screen.findByText(EMBED_TEXTS.ja.seller);
+  await waitFor(() => assert.deepEqual(posted[0]?.[0], { ns: "nozomi-booking", v: 1, ch: CH, type: "ready", lang: "ja" }));
+});
+
+test("M12-01 客人界面一律中文（业主 2026-11-25，M11 之前）：地址 lang=ja、lang=en、没带（草稿是日文）都显示中文；ready 带实际显示的 zh，消息格式不变", async () => {
+  stubApiWith((call) => (call.url.pathname.startsWith("/site/v1/booking-drafts/") ? json(200, { draft: DRAFT_BODY, expires_at: "2030-11-20T00:00:00Z" }) : apiError(503, "SITE_NOT_OPEN", "x")));
+  for (const extra of ["&lang=ja", "&lang=en", ""]) {
+    open(url(extra));
+    await screen.findByText(EMBED_TEXTS.zh.seller);
+    assert.equal(document.querySelector("main")?.getAttribute("lang"), "zh-CN", extra);
+    await waitFor(() => assert.deepEqual(posted[0], [{ ns: "nozomi-booking", v: 1, ch: CH, type: "ready", lang: "zh" }, HOST], extra));
+    cleanup();
+    posted = [];
+  }
 });
 
 test("草稿过期（404）：发 ready 再发 error DRAFT_NOT_FOUND，提示在上方重新查询；读不出（500）发 LOAD_FAILED、给主站链接", async () => {
   stubApiWith(() => apiError(404, "BOOKING_DRAFT_NOT_FOUND", "链接已过期"));
   open(url());
-  await screen.findByText(EMBED_TEXTS.ja.expired);
+  await screen.findByText(EMBED_TEXTS.zh.expired);
   await waitFor(() => assert.deepEqual(types(), ["ready", "error"]));
   assert.deepEqual(posted[1]?.[0], { ns: "nozomi-booking", v: 1, ch: CH, type: "error", code: "DRAFT_NOT_FOUND" });
   cleanup();
   posted = [];
   stubApiWith(() => apiError(500, "INTERNAL_ERROR", "x"));
   open(url());
-  await screen.findByText(EMBED_TEXTS.ja.failed);
-  await waitFor(() => assert.deepEqual(posted.map(([message]) => message), [{ ns: "nozomi-booking", v: 1, ch: CH, type: "ready", lang: "ja" }, { ns: "nozomi-booking", v: 1, ch: CH, type: "error", code: "LOAD_FAILED" }]));
-  assert.equal(screen.getByRole("link", { name: new RegExp(EMBED_TEXTS.ja.goToSite) }).getAttribute("target"), "_blank");
+  await screen.findByText(EMBED_TEXTS.zh.failed);
+  await waitFor(() => assert.deepEqual(posted.map(([message]) => message), [{ ns: "nozomi-booking", v: 1, ch: CH, type: "ready", lang: "zh" }, { ns: "nozomi-booking", v: 1, ch: CH, type: "error", code: "LOAD_FAILED" }]));
+  assert.equal(screen.getByRole("link", { name: new RegExp(EMBED_TEXTS.zh.goToSite) }).getAttribute("target"), "_blank");
 });
 
 test("读草稿一直不回：到时限按读不出处理（宿主不会一直等 ready）", async () => {
@@ -125,14 +150,14 @@ test("地址没有草稿号：不调接口，直接 ready + error DRAFT_NOT_FOUN
   const calls = stubApiWith(() => null);
   open(`/embed/book?key=${KEY}&host=${encodeURIComponent(HOST)}&lang=ja#ch=smoke`);
   await waitFor(() => assert.deepEqual(types(), ["ready", "error"]));
-  assert.deepEqual(posted[0], [{ ns: "nozomi-booking", v: 1, ch: "smoke", type: "ready", lang: "ja" }, HOST]);
+  assert.deepEqual(posted[0], [{ ns: "nozomi-booking", v: 1, ch: "smoke", type: "ready", lang: "zh" }, HOST]);
   assert.equal(calls.length, 0);
 });
 
 test("宿主 origin 写法不对（带路径、大写、不是 http(s)）：一条消息都不发，只说地址不完整", async () => {
   stubApiWith(() => json(200, { draft: DRAFT_BODY, expires_at: "2030-11-20T00:00:00Z" }));
   open(`/embed/book?draft=${DRAFT}&key=${KEY}&host=${encodeURIComponent(`${HOST}/booking/`)}#ch=${CH}`);
-  await screen.findByText(EMBED_TEXTS.ja.badAddress);
+  await screen.findByText(EMBED_TEXTS.zh.badAddress);
   await act(() => new Promise((resolve) => setTimeout(resolve, 30)));
   assert.deepEqual(posted, []);
 });
@@ -140,7 +165,7 @@ test("宿主 origin 写法不对（带路径、大写、不是 http(s)）：一�
 test("viewport：只认父窗口、宿主 origin、同一个频道的；只记下高度，不改预订内容", async () => {
   stubApiWith((call) => (call.url.pathname.startsWith("/site/v1/booking-drafts/") ? json(200, { draft: DRAFT_BODY, expires_at: "2030-11-20T00:00:00Z" }) : apiError(503, "SITE_NOT_OPEN", "x")));
   open(url());
-  await screen.findByText(EMBED_TEXTS.ja.seller);
+  await screen.findByText(EMBED_TEXTS.zh.seller);
   const send = (data: unknown, origin: string, source: unknown) => act(() => void window.dispatchEvent(new MessageEvent("message", { data, origin, source: source as MessageEventSource })));
   const viewport = (height: number, ch = CH) => ({ ns: "nozomi-booking", v: 1, ch, type: "viewport", height });
   await send(viewport(500), "https://evil.example", parent);
@@ -151,15 +176,15 @@ test("viewport：只认父窗口、宿主 origin、同一个频道的；只记�
   assert.equal(main.hasAttribute("data-host-viewport"), false);
   await send(viewport(900), HOST, parent);
   assert.equal(main.getAttribute("data-host-viewport"), "900");
-  assert.ok(screen.getByText(EMBED_TEXTS.ja.seller), "页面内容不变");
+  assert.ok(screen.getByText(EMBED_TEXTS.zh.seller), "页面内容不变");
 });
 
 test("顶层打开（没被嵌）：不读草稿、不显示预订内容、不发消息，只说请在合作网站上预订并给主站链接", async () => {
   EMBED_FRAME.parent = () => null;
   const calls = stubApiWith(() => null);
   open(url());
-  await screen.findByText(EMBED_TEXTS.ja.topLevel);
-  assert.equal(screen.getByRole("link", { name: EMBED_TEXTS.ja.goToSite }).getAttribute("href"), `/book?draft=${DRAFT}`);
+  await screen.findByText(EMBED_TEXTS.zh.topLevel);
+  assert.equal(screen.getByRole("link", { name: EMBED_TEXTS.zh.goToSite }).getAttribute("href"), `/book?draft=${DRAFT}`);
   assert.equal(calls.length, 0);
   assert.deepEqual(posted, []);
   assert.equal(screen.queryByText("成田国際空港"), null);
@@ -192,7 +217,8 @@ for (const target of ["/login", "/platform", "/platform/orders", "/tenant", "/bo
   });
 }
 
-test("嵌入页顶部（M9E-24）：卖方说明下面三份法律文案的链接，日文名称（三种语言都一样）、主站地址、新标签页打开", async () => {
+test("嵌入页顶部（M9E-24）：卖方说明下面三份法律文案的链接，日文名称（三种语言都一样）、主站地址、新标签页打开（M11 放开日文、英文后）", async () => {
+  allGuestLanguages();
   for (const lang of ["ja", "zh", "en"]) {
     stubApiWith(() => apiError(404, "BOOKING_DRAFT_NOT_FOUND", "链接已过期"));
     open(url(`&lang=${lang}`));

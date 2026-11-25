@@ -11,6 +11,7 @@ import { GOOGLE_MAPS_ATTRIBUTION, GOOGLE_MAPS_ATTRIBUTION_ATTRIBUTES } from "../
 import { readFile } from "node:fs/promises";
 import { WIDGET_CSS } from "./widget-style.ts";
 import { TEXTS, luminance } from "./widget-core.ts";
+import { GUEST_UI, GUEST_UI_LANGUAGES } from "@nozomi/domain/guest-ui-language";
 
 const BASE = "https://nozomi.example";
 const KEY = `nze_${"A".repeat(32)}`;
@@ -36,7 +37,13 @@ beforeEach(() => {
 afterEach(() => {
   globalThis.fetch = originalFetch;
   document.body.innerHTML = "";
+  GUEST_UI.languages = GUEST_UI_LANGUAGES;
 });
+
+/** M11 要恢复的日文、英文界面：临时放开客人界面语言开关（M12-01，M11 之前默认只有中文），afterEach 换回 */
+const allGuestLanguages = (): void => {
+  GUEST_UI.languages = ["zh", "ja", "en"];
+};
 
 const shadow = (): ShadowRoot => document.querySelector("#nozomi-booking")?.shadowRoot as ShadowRoot;
 const $ = <T extends Element = HTMLElement>(selector: string): T => shadow().querySelector(selector) as T;
@@ -89,7 +96,8 @@ test("取配置被拒（浏览器里 403 不带 CORS 头读不出，主站有应
   );
 });
 
-test("界面在 Shadow DOM 里，合作网站的样式进不来；两个标签按 services 排，语言用 init 给的", async () => {
+test("界面在 Shadow DOM 里，合作网站的样式进不来；两个标签按 services 排，语言用 init 给的（M11 放开日文、英文后）", async () => {
+  allGuestLanguages();
   handler = places;
   await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "en", services: ["charter", "transfer", "bus"] });
   assert.equal(document.querySelector("#nozomi-booking")?.children.length, 0, "页面里没有组件的元素，全在 Shadow DOM 里");
@@ -256,7 +264,8 @@ test("建草稿 400：标出服务端说的那一项并把焦点移过去；删�
   assert.equal(shadow().activeElement, $('[data-action="add-waypoint"]'), "删除后焦点回到「添加经停点」");
 });
 
-test("经停点最多 25 个（M9P-10，和报价接口同一个常量）：加满后「添加经停点」不再出现，改为提示联系客服定制；日文界面先显示中文（翻译在 M11）；删掉一个又能加", async () => {
+test("经停点最多 25 个（M9P-10，和报价接口同一个常量）：加满后「添加经停点」不再出现，改为提示联系客服定制；日文界面先显示中文（翻译在 M11）；删掉一个又能加（M11 放开日文、英文后）", async () => {
+  allGuestLanguages();
   handler = places;
   for (const lang of ["zh", "ja"] as const) {
     document.body.innerHTML = '<div id="nozomi-booking"></div>';
@@ -770,7 +779,8 @@ test("M9E-10 主题：init 的 theme 变成 Shadow DOM 样式表里的 CSS 变�
   assert.match(WIDGET_CSS, /\.nzb-primary \{[^}]*background: var\(--nzb-primary\); color: var\(--nzb-on-primary\);/);
 });
 
-test("M9E-10 隐私提示只在底部写一次，每个地址框（含经停点）用 aria-describedby 关联到它；占位提示三语", async () => {
+test("M9E-10 隐私提示只在底部写一次，每个地址框（含经停点）用 aria-describedby 关联到它；占位提示三语（M11 放开日文、英文后）", async () => {
+  allGuestLanguages();
   handler = places;
   await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "zh", services: ["charter"] });
   ($('[data-action="add-waypoint"]') as HTMLButtonElement).click();
@@ -867,7 +877,8 @@ test("M9E-10 交换起点和终点；横条的搜索按钮填好前 data-ready=f
   assert.deepEqual([(sent?.draft["pickup"] as { name: string }).name, (sent?.draft["dropoff"] as { name: string }).name], ["東京駅", "成田国際空港"]);
 });
 
-test("M9E-10 日期、时间合成一个控件：两个原生输入框各有 label，控件有小标题", async () => {
+test("M9E-10 日期、时间合成一个控件：两个原生输入框各有 label，控件有小标题（M11 放开日文、英文后）", async () => {
+  allGuestLanguages();
   handler = places;
   await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "en" });
   const box = $(".nzb-when-box");
@@ -877,7 +888,8 @@ test("M9E-10 日期、时间合成一个控件：两个原生输入框各有 lab
   assert.equal($(".nzb-when .nzb-label").textContent, "Pickup date & time");
 });
 
-test("M9E-10 日期、时间按组件的语言显示（不按访客浏览器的语言）；改了跟着变，草稿里仍是 YYYY-MM-DD / HH:MM", async () => {
+test("M9E-10 日期、时间按组件的语言显示（不按访客浏览器的语言）；改了跟着变，草稿里仍是 YYYY-MM-DD / HH:MM（M11 放开日文、英文后）", async () => {
+  allGuestLanguages();
   let drafted: { draft: Record<string, unknown> } | null = null;
   handler = (url, init) => {
     if (url.pathname === "/embed/v1/booking-drafts") {
@@ -1045,7 +1057,8 @@ async function withConfigTimeout(ms: number, run: () => Promise<void>): Promise<
 const tabTitles = (): (string | null | undefined)[] => [...shadow().querySelectorAll('[role="tab"] .nzb-tab-title')].map((tab) => tab.textContent);
 const noCorsCalls = (): number => calls.filter((call) => call.init?.mode === "no-cors").length;
 
-test("M9E-22 取配置 8 秒没回：之前不画，到时按 init 的 layout / lang / services 显示表单；没传的用 auto、日文、两个标签", async () => {
+test("M9E-22 取配置 8 秒没回：之前不画，到时按 init 的 layout / lang / services 显示表单；没传的用 auto、日文、两个标签（M11 放开日文、英文后）", async () => {
+  allGuestLanguages();
   assert.equal(CONFIG_TIMEOUT.ms, 8_000, "默认等 8 秒");
   await withConfigTimeout(80, async () => {
     handler = heldConfig(config).handler;
@@ -1091,7 +1104,8 @@ test("M9E-22 取配置连不上（no-cors 也失败）、5xx：马上按 init �
   }
 });
 
-test("M9E-22 取配置读得到的 4xx（嵌入码无效 / 停用、不在白名单）：仍只显示「暂时无法使用」和主站链接，不显示表单", async () => {
+test("M9E-22 取配置读得到的 4xx（嵌入码无效 / 停用、不在白名单）：仍只显示「暂时无法使用」和主站链接，不显示表单（M11 放开日文、英文后）", async () => {
+  allGuestLanguages();
   for (const status of [401, 403, 404]) {
     document.body.innerHTML = '<div id="nozomi-booking"></div>';
     calls = [];
@@ -1104,7 +1118,8 @@ test("M9E-22 取配置读得到的 4xx（嵌入码无效 / 停用、不在白名
   }
 });
 
-test("M9E-22 表单已显示后配置才回来（正常）：init 没传 layout 时换成后台设的外观，不重画，已填的、焦点不丢；语言和标签不变", async () => {
+test("M9E-22 表单已显示后配置才回来（正常）：init 没传 layout 时换成后台设的外观，不重画，已填的、焦点不丢；语言和标签不变（M11 放开日文、英文后）", async () => {
+  allGuestLanguages();
   const late = { status: 200, body: { lang: "en", services: ["charter"], layout: "bar", site_origin: BASE } };
   await withConfigTimeout(50, async () => {
     const held = heldConfig(late);
@@ -1306,4 +1321,38 @@ test("M9E-11 人数弹层往下放不下时往上弹：超出组件底边且上�
   layout(0, 200, 100, 200);
   toggle();
   assert.equal(pop.hasAttribute("data-placement"), false);
+});
+
+test("M12-01 客人界面一律中文（业主 2026-11-25，M11 之前）：init 传 ja、en，没传 lang 而嵌入码默认日文，都显示中文；地址提示、取坐标带 lang=zh；草稿里的语言是 zh", async () => {
+  const drafts: Record<string, unknown>[] = [];
+  handler = (url, init) => {
+    if (url.pathname === "/embed/v1/booking-drafts") {
+      drafts.push((JSON.parse(String(init?.body)) as { draft: Record<string, unknown> }).draft);
+      return { status: 201, body: { id: "D".repeat(43), expires_at: "2030-01-01T00:00:00Z", url: "x" } };
+    }
+    return places(url, init);
+  };
+  for (const lang of ["ja", "en", undefined] as const) {
+    const label = lang ?? "没传 lang（嵌入码默认日文）";
+    document.body.innerHTML = '<div id="nozomi-booking"></div>';
+    calls = [];
+    await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", ...(lang === undefined ? {} : { lang }) }, () => undefined);
+    assert.equal($(".nzb-primary").textContent, TEXTS.zh.submit, label);
+    assert.equal($<HTMLInputElement>('[data-field="pickup"] input').placeholder, TEXTS.zh.placeholder, label);
+    assert.equal($(".nzb").getAttribute("lang"), "zh-CN", `${label}：标的语言也是中文`);
+    await pick("pickup", "成田", "成田国際空港");
+    await pick("dropoff", "東京", "東京駅");
+    for (const path of ["/embed/v1/places/autocomplete", "/embed/v1/places/details"]) {
+      const call = calls.find((item) => item.url.pathname === path);
+      assert.equal(call?.url.searchParams.get("lang"), "zh", `${label}：${path} 按客人界面语言带 lang=zh`);
+    }
+    submitForm();
+    await wait(30);
+    assert.equal(drafts.at(-1)?.["lang"], "zh", label);
+  }
+  // 取配置被拒时的「暂时无法使用」也是中文
+  document.body.innerHTML = '<div id="nozomi-booking"></div>';
+  handler = (url, init) => (url.pathname === "/embed/v1/config" ? { status: 403, body: { error: { code: "EMBED_ORIGIN_NOT_ALLOWED" } } } : places(url, init));
+  await initWithBase(BASE, { key: KEY, root: "#nozomi-booking", lang: "en" });
+  assert.equal($('[role="status"]').textContent?.includes(TEXTS.zh.unavailable), true);
 });
