@@ -33,7 +33,7 @@ import {
   withoutDraft,
 } from "./booking-protocol.ts";
 import { guestUiLanguage } from "@nozomi/domain/guest-ui-language";
-import { type InitOptions, type WidgetLang, WIDGET_LANGS, resolveLang } from "./widget-core.ts";
+import { type InitOptions, type WidgetLang, PAGE_LANGUAGE, pickLang } from "./widget-core.ts";
 import { SCRIPT_ORIGIN, WIDGET_SCRIPT_PATH, initFrom, unmountWidget } from "./widget-ui.ts";
 import { WIDGET_CSS } from "./widget-style.ts";
 
@@ -121,8 +121,8 @@ class BookingMount {
     this.base = base;
     this.origin = new URL(base).origin;
     this.options = options;
-    // 外层的标题、提示按客人界面语言（M12-01，M11 之前一律中文）；传给 iframe 的 lang 仍是合作网站给的原值，由嵌入页自己过开关
-    this.lang = guestUiLanguage(resolveLang(options.lang, "ja"));
+    // 界面语言跟随宿主页（M12-01，ADR 0109）：mountBooking 的 lang → 宿主页 <html lang> → 浏览器语言 → 英文；外层的标题、提示和 iframe 地址的 lang 都用它
+    this.lang = guestUiLanguage(pickLang(options.lang, PAGE_LANGUAGE.html(), PAGE_LANGUAGE.browser()));
   }
 
   private get t(): Texts {
@@ -176,10 +176,9 @@ class BookingMount {
     const notice = el("div", { class: "nzb-notice", role: "status" });
     notice.hidden = true;
     const ch = channel();
-    const given = WIDGET_LANGS.includes(this.options.lang as WidgetLang) ? (this.options.lang as WidgetLang) : null;
     const iframe = el("iframe", {
       class: "nzb-frame",
-      src: embedFrameUrl(this.base, { draft, key: this.options.key, host: window.location.origin, lang: given, ch }),
+      src: embedFrameUrl(this.base, { draft, key: this.options.key, host: window.location.origin, lang: this.lang, ch }),
       title: typeof this.options.title === "string" && this.options.title.trim() !== "" ? this.options.title.trim() : this.t.title,
       allow: "payment",
       referrerpolicy: "no-referrer",

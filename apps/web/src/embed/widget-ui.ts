@@ -36,7 +36,8 @@ import {
   formatDate,
   formatTime,
   guestsSummary,
-  resolveLang,
+  PAGE_LANGUAGE,
+  pickLang,
   resolveServices,
   resolveTheme,
   tomorrow,
@@ -156,8 +157,8 @@ class Widget {
   private readonly shadow: ShadowRoot;
   private readonly base: string;
   private readonly options: InitOptions;
-  /** 实际显示的语言：init 的 lang / 嵌入码默认语言再经客人界面语言开关（M12-01，M11 之前一律中文） */
-  private lang: WidgetLang = "zh";
+  /** 实际显示的语言：跟随宿主页（init 的 lang → 宿主页 <html lang> → 浏览器语言 → 英文，M12-01，见 pickLang），再经客人界面语言开关 */
+  private lang: WidgetLang = "en";
   private services: WidgetService[] = ["transfer", "charter"];
   private form: WidgetForm;
   private busy = false;
@@ -229,6 +230,11 @@ class Widget {
     return TEXTS[this.lang];
   }
 
+  /** 界面语言跟随宿主页（M12-01，ADR 0109）：init 的 lang → 宿主页 <html lang> → 浏览器语言 → 英文 */
+  private pageLang(): WidgetLang {
+    return guestUiLanguage(pickLang(this.options.lang, PAGE_LANGUAGE.html(), PAGE_LANGUAGE.browser()));
+  }
+
   private url(path: string, params: Record<string, string> = {}): string {
     const url = new URL(path, this.base);
     url.searchParams.set("key", this.options.key);
@@ -258,7 +264,7 @@ class Widget {
 
   /**
    * 先取配置（M9E-22）：被拒只显示「暂时无法使用」；正常按配置画表单；8 秒没回、连不上、5xx 按 init 的参数画表单
-   * （没传的用 auto、日文、两个标签都显示；显示的语言再经客人界面语言开关，M11 之前一律中文），客人提交时服务端照常核对嵌入码。8 秒没回时请求不取消，晚回来的见 lateConfig。
+   * （没传的用 auto、两个标签都显示），客人提交时服务端照常核对嵌入码。语言不看配置，一律跟随宿主页（pageLang）。8 秒没回时请求不取消，晚回来的见 lateConfig。
    */
   async start(): Promise<void> {
     const pending = configOutcome(this.url("/embed/v1/config"));
@@ -267,14 +273,14 @@ class Widget {
     clearTimeout(timer);
     if (this.destroyed) return;
     if (first !== "timeout" && first.kind === "refused") {
-      this.lang = guestUiLanguage(resolveLang(this.options.lang, "ja"));
+      this.lang = this.pageLang();
       this.renderUnavailable();
       tellDeveloper(REFUSED_NOTICE);
       return;
     }
     const config = first !== "timeout" && first.kind === "ok" ? first.body : null;
     if (config === null) tellDeveloper("取组件配置超时或出错，先按 init 的参数显示表单。");
-    this.lang = guestUiLanguage(resolveLang(this.options.lang, config === null ? "ja" : config.lang));
+    this.lang = this.pageLang();
     this.services = resolveServices(this.options.services, config === null ? this.services : config.services);
     this.form.tab = this.services[0] ?? "transfer";
     // 取到配置（或超时 / 出错）之前表单还没画（只有样式表），所以取到配置时第一次画出来就是最终的外观；超时 / 出错时按 init 的，配置晚回来可能换一次外观（lateConfig）
