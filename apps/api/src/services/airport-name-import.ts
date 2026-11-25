@@ -20,6 +20,11 @@ import { MasterImportError } from "./import-errors.ts";
 /** 机场名称导入没有进行（或整体回滚了）、换个时间再运行即可的情况。 */
 export class AirportNameImportError extends MasterImportError {}
 
+/** 同一时间只允许一次机场名称导入（GeoNames 名称导入和名称核对表写入共用这把锁） */
+export function airportNameImportRunning(): AirportNameImportError {
+  return new AirportNameImportError("IMPORT_ALREADY_RUNNING", "另一个机场名称导入正在运行。数据库没有任何变化，请等它结束后再试");
+}
+
 export interface AirportNameImportOptions {
   /** 只看这些国家的机场 */
   countries: readonly string[];
@@ -31,7 +36,7 @@ export function importAirportNames(pool: Pool, selection: AirportNameSelection, 
   const origin: AuditOrigin = { occurredAt: now, actor: { type: "system", id: null, email: null }, ip: null, source: "cli" };
   return withPlatformTx(pool, async (db) => {
     if (!options.dryRun && !(await tryLockAirportNameImport(db))) {
-      throw new AirportNameImportError("IMPORT_ALREADY_RUNNING", "另一个机场名称导入正在运行。数据库没有任何变化，请等它结束后再试");
+      throw airportNameImportRunning();
     }
     const existing = await listAllAirports(db);
     const searchNames = await listAirportSearchNames(db);

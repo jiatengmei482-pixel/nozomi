@@ -710,8 +710,8 @@
 
 | key | 状态 | 中文 | 类型 | 位置 |
 | --- | --- | --- | --- | --- |
-| `airport-name-import.99555f44` | 写死 | 另一个机场名称导入正在运行。数据库没有任何变化，请等它结束后再试 | 错误提示 | [airport-name-import.ts:34](../../apps/api/src/services/airport-name-import.ts#L34) |
-| `airport-name-import.328ee688` | 写死 | 导入期间平台在后台改了这个机场，没有填；需要的话请再运行一次导入 | 提示 | [airport-name-import.ts:53](../../apps/api/src/services/airport-name-import.ts#L53) |
+| `airport-name-import.99555f44` | 写死 | 另一个机场名称导入正在运行。数据库没有任何变化，请等它结束后再试 | 错误提示 | [airport-name-import.ts:25](../../apps/api/src/services/airport-name-import.ts#L25) |
+| `airport-name-import.328ee688` | 写死 | 导入期间平台在后台改了这个机场，没有填；需要的话请再运行一次导入 | 提示 | [airport-name-import.ts:58](../../apps/api/src/services/airport-name-import.ts#L58) |
 
 ## 敏感操作双人复核的通用机制（approvals.ts）
 
