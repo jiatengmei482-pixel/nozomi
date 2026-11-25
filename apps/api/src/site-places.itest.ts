@@ -114,7 +114,7 @@ test("搜索成功：后端调一次谷歌（密钥只在请求头、只要六�
   const bounds = cityBounds(TOKYO_CENTER);
   assert.deepEqual(JSON.parse(request.body), {
     textQuery: "東京駅 ホテル",
-    languageCode: "zh-CN",
+    languageCode: "ja",
     regionCode: "JP",
     pageSize: 10,
     locationRestriction: { rectangle: { low: { latitude: bounds.low.lat, longitude: bounds.low.lng }, high: { latitude: bounds.high.lat, longitude: bounds.high.lng } } },

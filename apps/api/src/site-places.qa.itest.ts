@@ -162,7 +162,7 @@ function service(options: { now: () => Date; search?: SearchFn; dailyLimit?: num
     apiKey: options.apiKey ?? (() => "AIzaQaPlaceService0000000000001"),
     dailyLimit: options.dailyLimit ?? 1_000_000,
     search: options.search ?? (async () => ({ ok: true, value: [] })),
-    reverse: async (_key, _point, _region, beforeAttempt) => ((await beforeAttempt()) ? { ok: true, value: "替身地址" } : { ok: false, code: "DAILY_LIMIT_REACHED" }),
+    reverse: async (_key, _request, beforeAttempt) => ((await beforeAttempt()) ? { ok: true, value: "替身地址" } : { ok: false, code: "DAILY_LIMIT_REACHED" }),
     autocomplete: async () => ({ ok: false, code: "UNREACHABLE" }),
     details: async () => ({ ok: false, code: "UNREACHABLE" }),
     log: { warn: (obj, msg) => void warnings.push({ obj, msg }) },
@@ -188,7 +188,7 @@ function counting(next: (query: string) => PlaceCallResult<PlaceCandidate[]> = (
   };
 }
 const BOUNDS = cityBounds(TOKYO_CENTER);
-const ask = (places: GooglePlaceSearch, query: string, cityId = "c-qa") => places.search({ cityId, query, bounds: BOUNDS, regionCode: "JP" });
+const ask = (places: GooglePlaceSearch, query: string, cityId = "c-qa") => places.search({ cityId, query, bounds: BOUNDS, regionCode: "JP", language: "zh-CN" });
 
 /** 把单调时钟（缓存和冷却用的 performance.now）换成可控的 */
 async function withMonotonic<T>(start: number, fn: (set: (ms: number) => void) => Promise<T>): Promise<T> {
@@ -307,7 +307,7 @@ test("来源地址的额度（M8-45，服务层）：命中缓存、冷却中不
   let asked = 0;
   let allow = true;
   const guard = { beforeGoogle: async () => (asked++, allow) };
-  const guarded = (query: string) => places.search({ cityId: "c-qa-m845", query, bounds: BOUNDS, regionCode: "JP" }, guard);
+  const guarded = (query: string) => places.search({ cityId: "c-qa-m845", query, bounds: BOUNDS, regionCode: "JP", language: "zh-CN" }, guard);
   assert.equal((await guarded("额度 一")).ok, true);
   assert.equal((await guarded("额度 一")).ok, true, "命中缓存");
   assert.deepEqual([asked, fake.calls()], [1, 1]);
@@ -332,12 +332,12 @@ test("来源地址的额度（M8-45，服务层）：命中缓存、冷却中不
     },
   });
   asked = 0;
-  assert.equal((await retrying.search({ cityId: "c-qa-m845", query: "额度 重试", bounds: BOUNDS, regionCode: "JP" }, guard)).ok, true);
+  assert.equal((await retrying.search({ cityId: "c-qa-m845", query: "额度 重试", bounds: BOUNDS, regionCode: "JP", language: "zh-CN" }, guard)).ok, true);
   assert.deepEqual([asked, attempts], [1, 2]);
   // 问额度出错：宽进不如少调，这次 UNAVAILABLE、不调谷歌
   const broken = counting();
   const failing = service({ now: () => new Date("2030-10-09T03:00:00.000Z"), search: broken.search });
-  const result = await failing.search({ cityId: "c-qa-m845", query: "额度 出错", bounds: BOUNDS, regionCode: "JP" }, { beforeGoogle: async () => { throw new Error("db down"); } });
+  const result = await failing.search({ cityId: "c-qa-m845", query: "额度 出错", bounds: BOUNDS, regionCode: "JP", language: "zh-CN" }, { beforeGoogle: async () => { throw new Error("db down"); } });
   assert.deepEqual([result, broken.calls()], [{ ok: false, code: "UNAVAILABLE" }, 0]);
 });
 
@@ -701,4 +701,45 @@ test("每天调谷歌 300 次（M8-45）：300 个新词都调谷歌，第 301 �
   const again = await app.call("GET", searchUrl(freshQuery()), { ip });
   assert.deepEqual([again.status, again.body.available, again.body.unavailable_reason], [200, true, undefined]);
   reset();
+});
+
+test("M12-07：取坐标沿用同一会话输入即提示的语言，记 10 分钟（到期退回页面语言）；最多记 2000 个会话，先进先出", async () => {
+  assert.equal(PLACE_SEARCH_RULES.sessionLanguageTtlMs, 10 * 60_000);
+  const asked: string[] = [];
+  const places = new GooglePlaceSearch({
+    pool: api.db.pool,
+    now: () => new Date("2030-10-11T03:00:00.000Z"),
+    apiKey: () => "AIzaQaSessionLanguage0000000001",
+    dailyLimit: 1_000_000,
+    search: async () => ({ ok: true, value: [] }),
+    reverse: async () => ({ ok: true, value: null }),
+    autocomplete: async () => ({ ok: true, value: [] }),
+    details: async (_key, request) => {
+      asked.push(`${request.placeId}:${request.language}`);
+      return { ok: true, value: { id: request.placeId, address: "", location: TOKYO_CENTER, kind: "other" } };
+    },
+    log: { warn: () => undefined },
+    cacheTtlMs: 0,
+  });
+  const session = "qa-session-language-0001";
+  const suggest = (token: string, language: "zh-CN" | "ja" | "en") => places.autocomplete({ scope: "qa", query: `q ${token}`, sessionToken: token, regionCodes: ["JP"], bounds: BOUNDS, language });
+  const pick = (placeId: string, token: string | null) => places.details({ placeId, sessionToken: token, fallbackLanguage: "zh-CN" });
+  await withMonotonic(1_000_000, async (set) => {
+    await suggest(session, "en");
+    set(1_000_000 + 10 * 60_000 - 1);
+    assert.equal(places.sessionLanguage(session), "en");
+    await pick("ChIJqaA", session);
+    set(1_000_000 + 10 * 60_000);
+    assert.equal(places.sessionLanguage(session), null, "10 分钟到了");
+    await pick("ChIJqaB", session);
+    await suggest(session, "ja");
+    await pick("ChIJqaC", session);
+    await pick("ChIJqaD", null);
+    // 再记 2000 个会话：最早的那个被挤掉
+    await suggest("qa-session-language-first", "en");
+    for (let i = 0; i < PLACE_SEARCH_RULES.sessionLanguageMaxEntries; i++) await suggest(`qa-session-language-${String(i).padStart(6, "0")}`, "ja");
+    assert.equal(places.sessionLanguage("qa-session-language-first"), null);
+    assert.equal(places.sessionLanguage(`qa-session-language-${String(PLACE_SEARCH_RULES.sessionLanguageMaxEntries - 1).padStart(6, "0")}`), "ja");
+  });
+  assert.deepEqual(asked, ["ChIJqaA:en", "ChIJqaB:zh-CN", "ChIJqaC:ja", "ChIJqaD:zh-CN"]);
 });

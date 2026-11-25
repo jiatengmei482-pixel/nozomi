@@ -34,7 +34,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { CurrencyCode, LocalizedText, SellBreakdownItem } from "@nozomi/domain";
 import { z } from "zod";
-import { AIRPORT_SCENARIO_KINDS, FLIGHT_KINDS, FX_CURRENCIES, MESSAGING_APPS, ORDER_FIELD_LIMITS, PLACE_KINDS, PRICE_LIMITS, QUOTE_RULES, SERVICE_CATEGORIES, STATIC_MAP_RULES, STATIC_MAP_THEMES, type RouteMapReason, isGooglePlaceId, isPlaceSessionToken, normalizePlaceQuery, placeQueryIssue, viewLinkLookupEmail, ITINERARY_MAP_RULES, arriveByIssue } from "@nozomi/domain";
+import { AIRPORT_SCENARIO_KINDS, FLIGHT_KINDS, FX_CURRENCIES, MESSAGING_APPS, ORDER_FIELD_LIMITS, PLACE_KINDS, PLACE_PAGE_LANGS, PRICE_LIMITS, QUOTE_RULES, SERVICE_CATEGORIES, STATIC_MAP_RULES, STATIC_MAP_THEMES, type RouteMapReason, isGooglePlaceId, isPlaceSessionToken, normalizePlaceQuery, placeQueryIssue, viewLinkLookupEmail, ITINERARY_MAP_RULES, arriveByIssue } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { AppError } from "../errors.ts";
@@ -233,13 +233,18 @@ export function siteTripOf(body: QuoteBody): SiteTrip {
   }
 }
 
+/**
+ * 页面语言（M12-07，ADR 0108）：客人选的界面语言。地址搜索、输入即提示按关键字判断请求谷歌的语言，判断不出时用它；取坐标（没有同一会话的输入即提示时）、反查直接用它。
+ * 不带时 `zh-CN`（嵌入组件不带时用嵌入码的默认语言）。
+ */
+const pageLangSchema = z.enum(PLACE_PAGE_LANGS).optional();
 /** 地址搜索：关键字（规范化后 2–100 个字，见 domain 的 `placeQueryIssue`），城市可以不带（M8-02：在渠道授权的范围里搜）。 */
-const placeSearchSchema = z.object({ city_id: uuidSchema.optional(), q: z.string().max(400) }).strict();
+const placeSearchSchema = z.object({ city_id: uuidSchema.optional(), q: z.string().max(400), lang: pageLangSchema }).strict();
 /** 输入即提示：关键字 + 浏览器生成的会话令牌（一次「输入 → 选中」同一个，见 domain 的 `isPlaceSessionToken`）。 */
 const sessionSchema = z.string().refine(isPlaceSessionToken, "会话令牌是 16–36 个字母、数字、下划线或连字符（推荐用 UUID）");
-export const placeAutocompleteSchema = z.object({ q: z.string().max(400), session: sessionSchema }).strict();
+export const placeAutocompleteSchema = z.object({ q: z.string().max(400), session: sessionSchema, lang: pageLangSchema }).strict();
 /** 输入即提示选中之后：谷歌的地点 ID + 同一个会话令牌（不给也行，按单次计费）。 */
-export const placeDetailsSchema = z.object({ id: z.string().refine(isGooglePlaceId, "不是谷歌地点 ID 的格式"), session: sessionSchema.optional() }).strict();
+export const placeDetailsSchema = z.object({ id: z.string().refine(isGooglePlaceId, "不是谷歌地点 ID 的格式"), session: sessionSchema.optional(), lang: pageLangSchema }).strict();
 
 /** 按两个坐标报价的一端：名称（客人看到的地址文字，只校验、不进日志）、坐标、地址搜索给的类型（手填的不给）。 */
 const tripEndSchema = z
@@ -352,6 +357,7 @@ const placeReverseSchema = z
     city_id: uuidSchema,
     lat: z.coerce.number().finite().min(-90).max(90),
     lng: z.coerce.number().finite().min(-180).max(180),
+    lang: pageLangSchema,
   })
   .strict();
 
@@ -686,7 +692,7 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
   app.get("/site/v1/places/search", async (request) => {
     await placeSlot(request);
     const input = parseInput(placeSearchSchema, request.query, "querystring");
-    const found = await siteSearchPlaces(ctx, input.city_id ?? null, placeQueryOf(input.q), sitePlacesGoogleGuard(ctx, request.ip));
+    const found = await siteSearchPlaces(ctx, input.city_id ?? null, placeQueryOf(input.q), sitePlacesGoogleGuard(ctx, request.ip), input.lang ?? null);
     return { available: found.available, ...placeUnavailableJson(found.unavailableReason), items: found.items.map(placeItemJson) };
   });
 
@@ -698,14 +704,14 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
   app.get("/site/v1/places/autocomplete", async (request) => {
     await autocompleteSlot(request);
     const input = parseInput(placeAutocompleteSchema, request.query, "querystring");
-    const found = await siteAutocomplete(ctx, placeQueryOf(input.q), input.session, sitePlacesGoogleGuard(ctx, request.ip));
+    const found = await siteAutocomplete(ctx, placeQueryOf(input.q), input.session, sitePlacesGoogleGuard(ctx, request.ip), input.lang ?? null);
     return { available: found.available, ...placeUnavailableJson(found.unavailableReason), items: found.items.map(placeItemJson) };
   });
 
   app.get("/site/v1/places/details", async (request) => {
     await autocompleteSlot(request);
     const input = parseInput(placeDetailsSchema, request.query, "querystring");
-    const found = await sitePlaceDetails(ctx, input.id, input.session ?? null, sitePlacesGoogleGuard(ctx, request.ip));
+    const found = await sitePlaceDetails(ctx, input.id, input.session ?? null, sitePlacesGoogleGuard(ctx, request.ip), input.lang ?? null);
     return { available: found.available, ...placeUnavailableJson(found.unavailableReason), place: found.place === null ? null : { id: found.place.id, address: found.place.address, location: { lat: found.place.location.lat, lng: found.place.location.lng }, kind: found.place.kind } };
   });
 
@@ -716,7 +722,7 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
     const missing = (["lat", "lng"] as const).filter((name) => query[name] === undefined || (typeof query[name] === "string" && (query[name] as string).trim() === ""));
     if (missing.length > 0) throw validationFailed("querystring", missing.map((name) => ({ path: `/${name}`, reason: "REQUIRED", message: name === "lat" ? "请给出纬度" : "请给出经度" })));
     const input = parseInput(placeReverseSchema, request.query, "querystring");
-    const found = await siteReversePlace(ctx, input.city_id, { lat: input.lat, lng: input.lng }, sitePlacesGoogleGuard(ctx, request.ip));
+    const found = await siteReversePlace(ctx, input.city_id, { lat: input.lat, lng: input.lng }, sitePlacesGoogleGuard(ctx, request.ip), input.lang ?? null);
     return { available: found.available, ...placeUnavailableJson(found.unavailableReason), address: found.address };
   });
 

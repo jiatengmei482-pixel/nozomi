@@ -3,7 +3,9 @@
  *
  * - 搜索：Places API (New) 的 Text Search（`POST places:searchText`）。只要 `places.id,places.displayName,places.formattedAddress,places.location,places.primaryType` 五个字段
  *   （字段掩码；`primaryType` 和名称同一档，M8-02 用它认机场），结果限制在城市中心周围的正方形里（`locationRestriction`；不带城市时是渠道授权的几个城市合起来的范围），
- *   最多 5 条，中文（`zh-CN`）。
+ *   最多 5 条。
+ * - 语言（M12-07，ADR 0108，取代原来固定的 `zh-CN`）：每个请求带调用方给的 `languageCode`（`zh-CN` / `ja` / `en`）——搜索和输入即提示按客人输入的文字判断，
+ *   取坐标沿用同一会话输入即提示的语言，反查用页面语言（domain 的 `place-language.ts`）。
  * - 输入即提示（M8-02，ADR 0069 B1）：Places API (New) 的 Autocomplete（`POST places:autocomplete`），带会话令牌，只要地点预测的 ID、名称和地址两段、类型；
  *   选中后取坐标用 Place Details（`GET places/{id}`，同一个会话令牌，只要 `id,formattedAddress,location,types`——Essentials 一档）。
  * - 反查：Geocoding API 的反查（`GET …/geocode/location/纬度,经度`），只要 `results.formattedAddress`。
@@ -13,7 +15,7 @@
  * 每次真正发请求之前问一次 `beforeAttempt`（每日调用上限），不允许就不发。
  * 永远不抛异常：结果是候选地点 / 地址，或原因代码（不带对方返回的原文）。
  */
-import { type LatLng, type LatLngBounds, type PlaceCandidate, type PlaceFailureCode, type PlaceKind, type PlacePrediction, PLACE_SEARCH_RULES, cleanPlaceText, rankPlaces, inBounds, isGooglePlaceId, isValidLatLng, placeKindOfGoogleTypes } from "@nozomi/domain";
+import { type LatLng, type LatLngBounds, type PlaceCandidate, type PlaceFailureCode, type PlaceKind, type PlaceLanguage, type PlacePrediction, PLACE_SEARCH_RULES, cleanPlaceText, rankPlaces, inBounds, isGooglePlaceId, isValidLatLng, placeKindOfGoogleTypes } from "@nozomi/domain";
 import { GOOGLE_MAPS_ATTEMPTS, classifyCode, isTimeout, readCapped } from "./google-maps.ts";
 
 /** 整次最多花多久（毫秒）：客人在页面上等着，但不像询价那样还要等别的 */
@@ -32,9 +34,6 @@ export const PLACE_DETAILS_FIELD_MASK = "id,formattedAddress,location,types";
 export const AUTOCOMPLETE_MAX_REGIONS = 15;
 /** 反查要的字段：只要地址文字 */
 export const REVERSE_FIELD_MASK = "results.formattedAddress";
-/** 结果的语言：官网是中文页面 */
-export const PLACE_LANGUAGE = "zh-CN";
-
 export type PlaceCallResult<T> = { ok: true; value: T } | { ok: false; code: PlaceFailureCode };
 
 export interface PlaceCallOptions {
@@ -101,13 +100,15 @@ export interface PlaceSearchRequest {
   regionCode: string | null;
   /** 范围里的结果再筛一遍（不带城市时：在不在某个城市的范围里）；不给就只看 `bounds` */
   accept?: (location: LatLng) => boolean;
+  /** 结果的语言（谷歌的 `languageCode`，按关键字判断） */
+  language: PlaceLanguage;
 }
 
 /** Text Search 的请求体。 */
 export function placeSearchBody(request: PlaceSearchRequest): string {
   return JSON.stringify({
     textQuery: request.query,
-    languageCode: PLACE_LANGUAGE,
+    languageCode: request.language,
     ...(request.regionCode === null ? {} : { regionCode: request.regionCode }),
     pageSize: PLACE_SEARCH_RULES.fetchResults,
     locationRestriction: {
@@ -160,6 +161,8 @@ export interface PlaceAutocompleteRequest {
   regionCodes: readonly string[];
   /** 只要这个范围里的结果（渠道授权的几个城市合起来的外接矩形）；null = 不限 */
   bounds: LatLngBounds | null;
+  /** 结果的语言（谷歌的 `languageCode`，按关键字判断） */
+  language: PlaceLanguage;
 }
 
 /** Autocomplete 的请求体。 */
@@ -168,7 +171,7 @@ export function placeAutocompleteBody(request: PlaceAutocompleteRequest): string
   return JSON.stringify({
     input: request.query,
     sessionToken: request.sessionToken,
-    languageCode: PLACE_LANGUAGE,
+    languageCode: request.language,
     ...(regions.length === 0 ? {} : { includedRegionCodes: regions }),
     ...(request.bounds === null
       ? {}
@@ -215,11 +218,18 @@ export interface PlaceDetails {
   kind: PlaceKind;
 }
 
-/** Place Details 的网址：`前缀/地点ID?languageCode=…&sessionToken=…`（地点 ID 已核对过格式；不含密钥）。 */
-export function placeDetailsUrl(base: string, placeId: string, sessionToken: string | null): string {
-  const url = new URL(`${base.replace(/\/+$/, "")}/${encodeURIComponent(placeId)}`);
-  url.searchParams.set("languageCode", PLACE_LANGUAGE);
-  if (sessionToken !== null) url.searchParams.set("sessionToken", sessionToken);
+/** 取坐标的请求：地点 ID（已核对过格式）、会话令牌（不给按单次计费）、地址文字的语言。 */
+export interface PlaceDetailsRequest {
+  placeId: string;
+  sessionToken: string | null;
+  language: PlaceLanguage;
+}
+
+/** Place Details 的网址：`前缀/地点ID?languageCode=…&sessionToken=…`（不含密钥）。 */
+export function placeDetailsUrl(base: string, request: PlaceDetailsRequest): string {
+  const url = new URL(`${base.replace(/\/+$/, "")}/${encodeURIComponent(request.placeId)}`);
+  url.searchParams.set("languageCode", request.language);
+  if (request.sessionToken !== null) url.searchParams.set("sessionToken", request.sessionToken);
   return url.toString();
 }
 
@@ -233,15 +243,22 @@ export function parsePlaceDetails(body: unknown, placeId: string): PlaceCallResu
 }
 
 /** 取一个地点的坐标和类型（输入即提示选中之后，同一个会话令牌）。 */
-export function placeDetails(apiKey: string, placeId: string, sessionToken: string | null, options: PlaceCallOptions): Promise<PlaceCallResult<PlaceDetails>> {
-  return call(apiKey, { url: placeDetailsUrl(options.url, placeId, sessionToken), method: "GET", fieldMask: PLACE_DETAILS_FIELD_MASK }, (body) => parsePlaceDetails(body, placeId), options);
+export function placeDetails(apiKey: string, request: PlaceDetailsRequest, options: PlaceCallOptions): Promise<PlaceCallResult<PlaceDetails>> {
+  return call(apiKey, { url: placeDetailsUrl(options.url, request), method: "GET", fieldMask: PLACE_DETAILS_FIELD_MASK }, (body) => parsePlaceDetails(body, request.placeId), options);
 }
 
-/** 反查的网址：`前缀/纬度,经度?languageCode=…&regionCode=…`（坐标是取整后的，不含密钥）。 */
-export function reverseGeocodeUrl(base: string, point: LatLng, regionCode: string): string {
-  const url = new URL(`${base.replace(/\/+$/, "")}/${point.lat},${point.lng}`);
-  url.searchParams.set("languageCode", PLACE_LANGUAGE);
-  url.searchParams.set("regionCode", regionCode);
+/** 反查的请求：坐标（取整后的）、国家、地址文字的语言（页面语言）。 */
+export interface PlaceReverseRequest {
+  point: LatLng;
+  regionCode: string;
+  language: PlaceLanguage;
+}
+
+/** 反查的网址：`前缀/纬度,经度?languageCode=…&regionCode=…`（不含密钥）。 */
+export function reverseGeocodeUrl(base: string, request: PlaceReverseRequest): string {
+  const url = new URL(`${base.replace(/\/+$/, "")}/${request.point.lat},${request.point.lng}`);
+  url.searchParams.set("languageCode", request.language);
+  url.searchParams.set("regionCode", request.regionCode);
   return url.toString();
 }
 
@@ -258,6 +275,6 @@ export function parseReverse(body: unknown): PlaceCallResult<string | null> {
 }
 
 /** 查一个坐标的地址文字。 */
-export function reverseGeocode(apiKey: string, point: LatLng, regionCode: string, options: PlaceCallOptions): Promise<PlaceCallResult<string | null>> {
-  return call(apiKey, { url: reverseGeocodeUrl(options.url, point, regionCode), method: "GET", fieldMask: REVERSE_FIELD_MASK }, parseReverse, options);
+export function reverseGeocode(apiKey: string, request: PlaceReverseRequest, options: PlaceCallOptions): Promise<PlaceCallResult<string | null>> {
+  return call(apiKey, { url: reverseGeocodeUrl(options.url, request), method: "GET", fieldMask: REVERSE_FIELD_MASK }, parseReverse, options);
 }
