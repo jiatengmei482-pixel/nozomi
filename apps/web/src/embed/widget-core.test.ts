@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { bookingDraftIssues } from "@nozomi/domain";
 import { WIDGET_CSS, themeCss } from "./widget-style.ts";
-import { AUTO_BREAKPOINT, BAR_MIN_WIDTH, resolveAutoBreakpoint, GUEST_LIMITS, formatDate, formatTime, toneContrast, toneOn, STAY_OPTIONS, TEXTS, type WidgetForm, contrastWithWhite, guestsSummary, hexOf, luminance, layoutFor, resolveLayout, resolveTheme, draftFailureOf,draftOf, formProblems, problemOfIssuePath, resolveLang, resolveServices, tomorrow, trimName } from "./widget-core.ts";
+import { AUTO_BREAKPOINT, BAR_MIN_WIDTH, resolveAutoBreakpoint, GUEST_LIMITS, formatDate, formatTime, toneContrast, toneOn, STAY_OPTIONS, TEXTS, type WidgetForm, contrastWithWhite, guestsSummary, hexOf, luminance, layoutFor, resolveLayout, resolveTheme, draftFailureOf,draftOf, formProblems, problemOfIssuePath, pickLang, primaryLang, FALLBACK_LANG, resolveServices, tomorrow, trimName } from "./widget-core.ts";
 
 const form = (changes: Partial<WidgetForm> = {}): WidgetForm => ({
   tab: "transfer",
@@ -17,10 +17,26 @@ const form = (changes: Partial<WidgetForm> = {}): WidgetForm => ({
   ...changes,
 });
 
-test("init 的 lang、services：不认识的忽略，忽略后为空用后台默认值；重复的只算一次", () => {
-  assert.equal(resolveLang("en", "ja"), "en");
-  assert.equal(resolveLang("ko", "ja"), "ja");
-  assert.equal(resolveLang(undefined, "zh"), "zh");
+test("M12-01 界面语言跟随宿主页（ADR 0109）：init 的 lang 优先于 <html lang>；没传按 <html lang>；都没有按浏览器语言依次；都不支持用英文", () => {
+  assert.equal(pickLang("ja", "en-US", ["zh-CN"]), "ja", "init 的 lang 优先");
+  assert.equal(pickLang("en", "zh", ["ja"]), "en");
+  assert.equal(pickLang("ko", "ja-JP", []), "ja", "init 写错的忽略，按 <html lang>");
+  assert.equal(pickLang("ja-JP", "zh", []), "zh", "init 的 lang 只认 zh / ja / en 三个写法");
+  assert.equal(pickLang(undefined, "zh-TW", ["ja"]), "zh", "zh-TW 也归中文（界面是简体）");
+  assert.equal(pickLang(undefined, "zh-HK", []), "zh");
+  assert.equal(pickLang(undefined, "", ["ko-KR", "ja-JP", "en"]), "ja", "浏览器语言依次找第一个支持的");
+  assert.equal(pickLang(undefined, "fr", ["en-GB"]), "en", "<html lang> 不支持时看浏览器");
+  assert.equal(pickLang(undefined, "ko", ["fr-FR"]), "en", "都不支持：英文");
+  assert.equal(pickLang(undefined, "", []), "en", "都没有：英文");
+  assert.equal(FALLBACK_LANG, "en");
+});
+
+test("M12-01 BCP 47 取主语言：zh*、ja*、en* 归三种，大小写、下划线都认；别的为 null", () => {
+  for (const [tag, lang] of [["zh", "zh"], ["zh-CN", "zh"], ["zh-Hant-HK", "zh"], ["ZH_tw", "zh"], ["ja-JP", "ja"], ["en-GB", "en"], [" en ", "en"]] as const) assert.equal(primaryLang(tag), lang, tag);
+  for (const tag of ["ko", "fr-FR", "", "zhx", "jav", "eng", null, 3]) assert.equal(primaryLang(tag), null, String(tag));
+});
+
+test("init 的 services：不认识的忽略，忽略后为空用后台默认值；重复的只算一次", () => {
   assert.deepEqual(resolveServices(["charter", "transfer"], ["transfer"]), ["charter", "transfer"], "顺序即标签顺序");
   assert.deepEqual(resolveServices(["bus", "charter", "charter"], ["transfer"]), ["charter"]);
   assert.deepEqual(resolveServices(["bus"], ["transfer", "charter"]), ["transfer", "charter"]);

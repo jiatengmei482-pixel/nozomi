@@ -880,65 +880,15 @@
 嵌入预订（合作网站上的组件和嵌入页）,嵌入预订页（合作网站里的预订页）,embed.orderFailed,已走 key,订单暂时无法加载，请稍后重试。,提示,EMBED_TEXTS,apps/web/src/pages/embed/embed-texts.ts,54,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入预订页（合作网站里的预订页）,embed.retry,已走 key,重试,文字,EMBED_TEXTS,apps/web/src/pages/embed/embed-texts.ts,55,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入预订页（合作网站里的预订页）,embed.orderNo,已走 key,订单号,文字,EMBED_TEXTS,apps/web/src/pages/embed/embed-texts.ts,56,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-booking.booking.expired,已走 key,这次查询已过期。,文字,BOOKING_TEXTS,apps/web/src/embed/widget-booking.ts,54,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-booking.booking.failed,已走 key,预订页暂时打不开。请刷新，或到主站继续预订。,提示,BOOKING_TEXTS,apps/web/src/embed/widget-booking.ts,54,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-booking.booking.goToSite,已走 key,到主站继续预订,文字,BOOKING_TEXTS,apps/web/src/embed/widget-booking.ts,54,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-booking.booking.restart,已走 key,重新查询,文字,BOOKING_TEXTS,apps/web/src/embed/widget-booking.ts,54,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-booking.booking.title,已走 key,NOZOMI 用车预订,标题,BOOKING_TEXTS,apps/web/src/embed/widget-booking.ts,54,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-booking.e80757c1,写死,预订页 15 秒内没有加载出来。请确认本网站已加入嵌入码的白名单、NOZOMI 运营已为这个嵌入码打开「允许整页嵌入」，并且本页没有再被别的网页嵌套。,文字,tellDeveloper(),apps/web/src/embed/widget-booking.ts,202,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-booking.15e5db6b,写死,请直接从主站的 {WIDGET_SCRIPT_PATH} 加载组件脚本（不要改名、转存或合并进别的文件）。,文字,tellDeveloper(),apps/web/src/embed/widget-booking.ts,307,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-booking.73a7857f,写死,mountBooking 需要 key（嵌入码）和 root（容器）。,文字,tellDeveloper(),apps/web/src/embed/widget-booking.ts,311,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-booking.995e2142,写死,mountBooking 找不到 root 指定的容器。,文字,tellDeveloper(),apps/web/src/embed/widget-booking.ts,316,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.pending.waypointLimit,已走 key,最多 {MAX_WAYPOINTS} 个经停点，更多请联系客服定制。,文字,PENDING_TEXTS,apps/web/src/embed/widget-core.ts,158,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.021f1cd7,写死,上车地点,文字,pickup,apps/web/src/embed/widget-core.ts,166,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.32e116b8,写死,经停点,文字,waypoint,apps/web/src/embed/widget-core.ts,166,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.6738382d,写死,停留时长,文字,stay,apps/web/src/embed/widget-core.ts,166,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.6c8116fd,写死,区间,文字,transfer,apps/web/src/embed/widget-core.ts,166,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.7a8306f9,写死,删除经停点,文字,removeWaypoint,apps/web/src/embed/widget-core.ts,166,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.88bb8748,写死,下车地点,文字,dropoff,apps/web/src/embed/widget-core.ts,166,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.89ecbde1,写死,包车,文字,charter,apps/web/src/embed/widget-core.ts,166,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.95b00c8e,写死,用车日期和时间,文字,when,apps/web/src/embed/widget-core.ts,166,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.95f43ba0,写死,出发地,文字,from,apps/web/src/embed/widget-core.ts,166,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.bc8ab1ba,写死,目的地,文字,to,apps/web/src/embed/widget-core.ts,166,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.f2f80a6b,写死,添加经停点,文字,addWaypoint,apps/web/src/embed/widget-core.ts,166,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.4ceb14cc,写死,乘客,文字,passengers,apps/web/src/embed/widget-core.ts,167,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.4e1b77bf,写死,行李,文字,luggage,apps/web/src/embed/widget-core.ts,167,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.70de32cd,写死,查询价格,按钮,submit,apps/web/src/embed/widget-core.ts,167,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.7aef77bd,写死,只填地点，不要填姓名、电话。,文字,placeOnly,apps/web/src/embed/widget-core.ts,167,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.dc2ee299,写死,日期,文字,date,apps/web/src/embed/widget-core.ts,167,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.eb23c635,写死,时间,文字,time,apps/web/src/embed/widget-core.ts,167,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.f1de26c1,写死,正在跳转…,文字,submitting,apps/web/src/embed/widget-core.ts,167,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.1f041113,写死,请选择停留时长,文字,pickStay,apps/web/src/embed/widget-core.ts,168,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.62ab48ed,写死,取不到这个地点的位置，请重新选一个,提示,locateFailed,apps/web/src/embed/widget-core.ts,168,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.72acf493,写死,正在查找…,文字,searching,apps/web/src/embed/widget-core.ts,168,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.786046d2,写死,正在取位置…,文字,locating,apps/web/src/embed/widget-core.ts,168,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.9edeb8a7,写死,请选择日期,文字,pickDate,apps/web/src/embed/widget-core.ts,168,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.ab543c19,写死,请从候选里选一个地点,文字,pickPlace,apps/web/src/embed/widget-core.ts,168,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.cb0409ec,写死,没有找到，换个说法试试,文字,noMatch,apps/web/src/embed/widget-core.ts,168,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.ff6ec94c,写死,请选择时间,文字,pickTime,apps/web/src/embed/widget-core.ts,168,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.510b9596,写死,预订组件暂时无法使用。请稍后刷新，或直接到主站预订。,文字,unavailable,apps/web/src/embed/widget-core.ts,169,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.58606d52,写死,到主站预订,文字,goToSite,apps/web/src/embed/widget-core.ts,169,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.22d7462d,写死,这个网站暂时不能直接预订，请到主站预订。,文字,refused,apps/web/src/embed/widget-core.ts,170,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.7a38bbba,写死,暂时无法查询，请稍后再试或直接到主站预订。,文字,busy,apps/web/src/embed/widget-core.ts,170,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.85a20cbe,写死,暂时连不上，请稍后再试或直接到主站预订。,文字,unreachable,apps/web/src/embed/widget-core.ts,170,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.af047c4b,写死,操作太频繁，请稍等一分钟再试。,文字,tooFast,apps/web/src/embed/widget-core.ts,170,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.e90c7a1c,写死,有几项填得不对，请检查后再试。,提示,invalid,apps/web/src/embed/widget-core.ts,170,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.434c3666,写死,用车类型,文字,tabs,apps/web/src/embed/widget-core.ts,171,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.6c4fbfe1,写死,不填经停点时，到预订页选包车时长。,说明,packageNote,apps/web/src/embed/widget-core.ts,171,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.744c9502,写死,分钟,文字,minutes,apps/web/src/embed/widget-core.ts,171,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.7b3cdacb,写死,的候选,文字,suggestions,apps/web/src/embed/widget-core.ts,171,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.04dacd8d,写死,完成,文字,done,apps/web/src/embed/widget-core.ts,172,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.0acb2416,写死,增加行李,文字,incLuggage,apps/web/src/embed/widget-core.ts,172,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.262eca43,写死,人数和行李,文字,guests,apps/web/src/embed/widget-core.ts,172,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.28eaa377,写死,交换起点和终点,文字,swap,apps/web/src/embed/widget-core.ts,172,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.878402d3,写死,增加乘客,文字,incPassengers,apps/web/src/embed/widget-core.ts,172,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.94027b62,写死,减少乘客,文字,decPassengers,apps/web/src/embed/widget-core.ts,172,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.9b0d2ccc,写死,地址、机场、酒店等,输入框占位,placeholder,apps/web/src/embed/widget-core.ts,172,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.e7c14c4b,写死,减少行李,文字,decLuggage,apps/web/src/embed/widget-core.ts,172,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.2658f1e7,写死,{passengers} 人 · {luggage} 件,说明,guestsSummary(),apps/web/src/embed/widget-core.ts,201,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.e06cb7fd,写死,{passengers}名 · {luggage}個,说明,guestsSummary(),apps/web/src/embed/widget-core.ts,201,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.5db797d4,写死,{passengers} 位乘客 · {luggage} 件行李,说明,guestsSummary(),apps/web/src/embed/widget-core.ts,202,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-core.9f088014,写死,{passengers}名 · 荷物{luggage}個,说明,guestsSummary(),apps/web/src/embed/widget-core.ts,203,
+嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-booking.booking.expired,已走 key,这次查询已过期。,文字,BOOKING_TEXTS,apps/web/src/embed/widget-booking.ts,55,
+嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-booking.booking.failed,已走 key,预订页暂时打不开。请刷新，或到主站继续预订。,提示,BOOKING_TEXTS,apps/web/src/embed/widget-booking.ts,55,
+嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-booking.booking.goToSite,已走 key,到主站继续预订,文字,BOOKING_TEXTS,apps/web/src/embed/widget-booking.ts,55,
+嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-booking.booking.restart,已走 key,重新查询,文字,BOOKING_TEXTS,apps/web/src/embed/widget-booking.ts,55,
+嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-booking.booking.title,已走 key,NOZOMI 用车预订,标题,BOOKING_TEXTS,apps/web/src/embed/widget-booking.ts,55,
+嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-booking.e80757c1,写死,预订页 15 秒内没有加载出来。请确认本网站已加入嵌入码的白名单、NOZOMI 运营已为这个嵌入码打开「允许整页嵌入」，并且本页没有再被别的网页嵌套。,文字,tellDeveloper(),apps/web/src/embed/widget-booking.ts,203,
+嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-booking.15e5db6b,写死,请直接从主站的 {WIDGET_SCRIPT_PATH} 加载组件脚本（不要改名、转存或合并进别的文件）。,文字,tellDeveloper(),apps/web/src/embed/widget-booking.ts,308,
+嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-booking.73a7857f,写死,mountBooking 需要 key（嵌入码）和 root（容器）。,文字,tellDeveloper(),apps/web/src/embed/widget-booking.ts,312,
+嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-booking.995e2142,写死,mountBooking 找不到 root 指定的容器。,文字,tellDeveloper(),apps/web/src/embed/widget-booking.ts,317,
 嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-style.ff39fd90,写死,"
 :host { all: initial; display: block; }
 .nzb-shell { all: initial; display: block; box-sizing: border-box; font-family: var(--nzb-font); container-type: inline-size; --nzb-pad: 24px; --nzb-light: #ffffff; --nzb-dark: #1a1f29; --nzb-black: #000000; --nzb-primary: #1b2a5c; --nzb-on-primary: var(--nzb-light); --nzb-ink: var(--nzb-primary); --nzb-mark: var(--nzb-primary); --nzb-accent: #f3e9d8; --nzb-on-accent: var(--nzb-dark); --nzb-radius: 24px; --nzb-radius-control: calc(var(--nzb-radius) / 2); --nzb-font: system-ui, -apple-system, ""Segoe UI"", ""PingFang SC"", ""Hiragino Sans"", ""Microsoft YaHei UI"", ""Noto Sans CJK SC"", ""Noto Sans SC"", ""Noto Sans JP"", sans-serif; }
@@ -1082,12 +1032,62 @@
 }
 @container (max-width: 440px) { .nzb { --nzb-pad: 16px; } .nzb-tab { padding: 10px 14px; } }
 ",文字,WIDGET_CSS,apps/web/src/embed/widget-style.ts,12,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-ui.d099f8cd,写死,主站拒绝了取配置的请求（浏览器读不到具体原因）。请依次检查：① 嵌入码是否已在 NOZOMI 运营后台停用；② 嵌入码是否填错；③ 本网站的域名是否在这个嵌入码的白名单里；④ 组件脚本是否直接从主站加载。NOZOMI 运维可在主站日志 embed.gate_refused 查到是哪一种。,文字,REFUSED_NOTICE,apps/web/src/embed/widget-ui.ts,126,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-ui.83d830e5,写死,bookingUrl 不合格（要用 https、和当前页同一个域名和端口），已按没传处理：草稿建好后跳到主站。,文字,tellDeveloper(),apps/web/src/embed/widget-ui.ts,204,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-ui.d7f60640,写死,取组件配置超时或出错，先按 init 的参数显示表单。,文字,tellDeveloper(),apps/web/src/embed/widget-ui.ts,274,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-ui.0f505117,写死,请直接从主站的 {WIDGET_SCRIPT_PATH} 加载组件脚本（不要改名、转存或合并进别的文件）。,文字,tellDeveloper(),apps/web/src/embed/widget-ui.ts,820,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-ui.dc84553f,写死,init 需要 key（嵌入码）和 root（容器）。,文字,tellDeveloper(),apps/web/src/embed/widget-ui.ts,824,
-嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-ui.1772d022,写死,init 找不到 root 指定的容器。,文字,tellDeveloper(),apps/web/src/embed/widget-ui.ts,829,
+嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-ui.d099f8cd,写死,主站拒绝了取配置的请求（浏览器读不到具体原因）。请依次检查：① 嵌入码是否已在 NOZOMI 运营后台停用；② 嵌入码是否填错；③ 本网站的域名是否在这个嵌入码的白名单里；④ 组件脚本是否直接从主站加载。NOZOMI 运维可在主站日志 embed.gate_refused 查到是哪一种。,文字,REFUSED_NOTICE,apps/web/src/embed/widget-ui.ts,128,
+嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-ui.83d830e5,写死,bookingUrl 不合格（要用 https、和当前页同一个域名和端口），已按没传处理：草稿建好后跳到主站。,文字,tellDeveloper(),apps/web/src/embed/widget-ui.ts,207,
+嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-ui.d7f60640,写死,取组件配置超时或出错，先按 init 的参数显示表单。,文字,tellDeveloper(),apps/web/src/embed/widget-ui.ts,282,
+嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-ui.0f505117,写死,请直接从主站的 {WIDGET_SCRIPT_PATH} 加载组件脚本（不要改名、转存或合并进别的文件）。,文字,tellDeveloper(),apps/web/src/embed/widget-ui.ts,828,
+嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-ui.dc84553f,写死,init 需要 key（嵌入码）和 root（容器）。,文字,tellDeveloper(),apps/web/src/embed/widget-ui.ts,832,
+嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本（合作网站页面上的询价框）,widget-ui.1772d022,写死,init 找不到 root 指定的容器。,文字,tellDeveloper(),apps/web/src/embed/widget-ui.ts,837,
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.pending.waypointLimit,已走 key,最多 {MAX_WAYPOINTS} 个经停点，更多请联系客服定制。,文字,PENDING_TEXTS,apps/web/src/embed/widget-core.ts,192,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.021f1cd7,写死,上车地点,文字,pickup,apps/web/src/embed/widget-core.ts,200,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.32e116b8,写死,经停点,文字,waypoint,apps/web/src/embed/widget-core.ts,200,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.6738382d,写死,停留时长,文字,stay,apps/web/src/embed/widget-core.ts,200,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.6c8116fd,写死,区间,文字,transfer,apps/web/src/embed/widget-core.ts,200,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.7a8306f9,写死,删除经停点,文字,removeWaypoint,apps/web/src/embed/widget-core.ts,200,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.88bb8748,写死,下车地点,文字,dropoff,apps/web/src/embed/widget-core.ts,200,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.89ecbde1,写死,包车,文字,charter,apps/web/src/embed/widget-core.ts,200,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.95b00c8e,写死,用车日期和时间,文字,when,apps/web/src/embed/widget-core.ts,200,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.95f43ba0,写死,出发地,文字,from,apps/web/src/embed/widget-core.ts,200,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.bc8ab1ba,写死,目的地,文字,to,apps/web/src/embed/widget-core.ts,200,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.f2f80a6b,写死,添加经停点,文字,addWaypoint,apps/web/src/embed/widget-core.ts,200,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.4ceb14cc,写死,乘客,文字,passengers,apps/web/src/embed/widget-core.ts,201,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.4e1b77bf,写死,行李,文字,luggage,apps/web/src/embed/widget-core.ts,201,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.70de32cd,写死,查询价格,按钮,submit,apps/web/src/embed/widget-core.ts,201,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.7aef77bd,写死,只填地点，不要填姓名、电话。,文字,placeOnly,apps/web/src/embed/widget-core.ts,201,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.dc2ee299,写死,日期,文字,date,apps/web/src/embed/widget-core.ts,201,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.eb23c635,写死,时间,文字,time,apps/web/src/embed/widget-core.ts,201,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.f1de26c1,写死,正在跳转…,文字,submitting,apps/web/src/embed/widget-core.ts,201,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.1f041113,写死,请选择停留时长,文字,pickStay,apps/web/src/embed/widget-core.ts,202,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.62ab48ed,写死,取不到这个地点的位置，请重新选一个,提示,locateFailed,apps/web/src/embed/widget-core.ts,202,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.72acf493,写死,正在查找…,文字,searching,apps/web/src/embed/widget-core.ts,202,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.786046d2,写死,正在取位置…,文字,locating,apps/web/src/embed/widget-core.ts,202,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.9edeb8a7,写死,请选择日期,文字,pickDate,apps/web/src/embed/widget-core.ts,202,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.ab543c19,写死,请从候选里选一个地点,文字,pickPlace,apps/web/src/embed/widget-core.ts,202,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.cb0409ec,写死,没有找到，换个说法试试,文字,noMatch,apps/web/src/embed/widget-core.ts,202,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.ff6ec94c,写死,请选择时间,文字,pickTime,apps/web/src/embed/widget-core.ts,202,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.510b9596,写死,预订组件暂时无法使用。请稍后刷新，或直接到主站预订。,文字,unavailable,apps/web/src/embed/widget-core.ts,203,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.58606d52,写死,到主站预订,文字,goToSite,apps/web/src/embed/widget-core.ts,203,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.22d7462d,写死,这个网站暂时不能直接预订，请到主站预订。,文字,refused,apps/web/src/embed/widget-core.ts,204,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.7a38bbba,写死,暂时无法查询，请稍后再试或直接到主站预订。,文字,busy,apps/web/src/embed/widget-core.ts,204,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.85a20cbe,写死,暂时连不上，请稍后再试或直接到主站预订。,文字,unreachable,apps/web/src/embed/widget-core.ts,204,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.af047c4b,写死,操作太频繁，请稍等一分钟再试。,文字,tooFast,apps/web/src/embed/widget-core.ts,204,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.e90c7a1c,写死,有几项填得不对，请检查后再试。,提示,invalid,apps/web/src/embed/widget-core.ts,204,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.434c3666,写死,用车类型,文字,tabs,apps/web/src/embed/widget-core.ts,205,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.6c4fbfe1,写死,不填经停点时，到预订页选包车时长。,说明,packageNote,apps/web/src/embed/widget-core.ts,205,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.744c9502,写死,分钟,文字,minutes,apps/web/src/embed/widget-core.ts,205,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.7b3cdacb,写死,的候选,文字,suggestions,apps/web/src/embed/widget-core.ts,205,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.04dacd8d,写死,完成,文字,done,apps/web/src/embed/widget-core.ts,206,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.0acb2416,写死,增加行李,文字,incLuggage,apps/web/src/embed/widget-core.ts,206,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.262eca43,写死,人数和行李,文字,guests,apps/web/src/embed/widget-core.ts,206,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.28eaa377,写死,交换起点和终点,文字,swap,apps/web/src/embed/widget-core.ts,206,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.878402d3,写死,增加乘客,文字,incPassengers,apps/web/src/embed/widget-core.ts,206,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.94027b62,写死,减少乘客,文字,decPassengers,apps/web/src/embed/widget-core.ts,206,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.9b0d2ccc,写死,地址、机场、酒店等,输入框占位,placeholder,apps/web/src/embed/widget-core.ts,206,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.e7c14c4b,写死,减少行李,文字,decLuggage,apps/web/src/embed/widget-core.ts,206,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.2658f1e7,写死,{passengers} 人 · {luggage} 件,说明,guestsSummary(),apps/web/src/embed/widget-core.ts,235,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.e06cb7fd,写死,{passengers}名 · {luggage}個,说明,guestsSummary(),apps/web/src/embed/widget-core.ts,235,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.5db797d4,写死,{passengers} 位乘客 · {luggage} 件行李,说明,guestsSummary(),apps/web/src/embed/widget-core.ts,236,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
+嵌入预订（合作网站上的组件和嵌入页）,多个页面共用：嵌入组件的纯逻辑（widget-core.ts）,widget-core.9f088014,写死,{passengers}名 · 荷物{luggage}個,说明,guestsSummary(),apps/web/src/embed/widget-core.ts,237,嵌入预订（合作网站上的组件和嵌入页） · 嵌入组件脚本（合作网站页面上的询价框）；嵌入预订（合作网站上的组件和嵌入页） · 嵌入预订页（合作网站里的预订页）
 嵌入预订（合作网站上的组件和嵌入页）,嵌入组件脚本的大小预算（widget-size.ts）,widget-size.3a91541b,写死,嵌入组件脚本 gzip 后 {size} 字节，超过预算 {budget} 字节,文字,widgetSizeProblem(),apps/web/src/embed/widget-size.ts,10,
 司机页,司机任务页,DriverTripPage.29665c38,写死,没有指定（包车，按客人安排）,文字,dropoffText(),apps/web/src/pages/driver/DriverTripPage.tsx,84,
 司机页,司机任务页,DriverTripPage.58bad823,写死,链接无效或已过期，请联系调度重新发送。,提示,errorText(),apps/web/src/pages/driver/DriverTripPage.tsx,95,

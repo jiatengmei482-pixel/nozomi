@@ -10,6 +10,7 @@ import { HOST_DRAFT_TTL_MS } from "./booking-protocol.ts";
 import { HOST_DRAFT_KEY } from "./host-draft-store.ts";
 import { BOOKING_TEXTS, READY_TIMEOUT, mountBookingFrom } from "./widget-booking.ts";
 import { initFrom } from "./widget-ui.ts";
+import { PAGE_LANGUAGE } from "./widget-core.ts";
 
 const BASE = "https://nozomi.example";
 const KEY = `nze_${"A".repeat(32)}`;
@@ -24,6 +25,7 @@ beforeEach(() => {
   consoleErrors = [];
   console.error = (...args: unknown[]) => consoleErrors.push(args.join(" "));
   sessionStorage.clear();
+  hostPage("");
   document.body.innerHTML = '<p>宿主页</p><div id="flow"></div>';
   history.replaceState(null, "", "/booking/");
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -39,7 +41,16 @@ afterEach(() => {
   console.error = originalError;
   READY_TIMEOUT.ms = 15_000;
   document.body.innerHTML = "";
+  PAGE_LANGUAGE.html = originalPageLanguage.html;
+  PAGE_LANGUAGE.browser = originalPageLanguage.browser;
 });
+
+/** 宿主页的 <html lang> 和浏览器语言（M12-01 界面语言跟随宿主页）：默认都没有，用例里按需换 */
+const originalPageLanguage = { ...PAGE_LANGUAGE };
+const hostPage = (html: string, browser: readonly string[] = []): void => {
+  PAGE_LANGUAGE.html = () => html;
+  PAGE_LANGUAGE.browser = () => browser;
+};
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const root = (): HTMLElement => document.querySelector("#flow") as HTMLElement;
@@ -74,7 +85,7 @@ test("带 nzdraft：草稿号进本标签页 sessionStorage、从地址栏去掉
   assert.equal(src.origin + src.pathname, `${BASE}/embed/book`);
   assert.equal(src.searchParams.get("draft"), DRAFT);
   assert.equal(src.searchParams.get("key"), KEY);
-  assert.equal(src.searchParams.get("lang"), "en");
+  assert.equal(src.searchParams.get("lang"), "en", "定下的语言带进 iframe 地址");
   assert.equal(src.searchParams.get("host"), location.origin);
   assert.match(channelOf(frame), /^[0-9a-f]{32}$/, "频道号 16 字节随机数，放在 # 后面");
   assert.equal(frame.getAttribute("title"), BOOKING_TEXTS.en.title);
@@ -89,7 +100,7 @@ test("刷新（地址上没有 nzdraft）：从 sessionStorage 取草稿号接�
   sessionStorage.setItem(HOST_DRAFT_KEY, JSON.stringify({ id: DRAFT, at: Date.now() - 60_000 }));
   mountBookingFrom(BASE, { key: KEY, root: "#flow" });
   assert.equal(new URL(iframe().src).searchParams.get("draft"), DRAFT);
-  assert.equal(new URL(iframe().src).searchParams.has("lang"), false, "没传语言不带，嵌入页按草稿的语言");
+  assert.equal(new URL(iframe().src).searchParams.get("lang"), "en", "没传语言、宿主页和浏览器都没有：英文（M12-01），照样带进 iframe 地址");
 
   sessionStorage.setItem(HOST_DRAFT_KEY, JSON.stringify({ id: DRAFT, at: Date.now() - HOST_DRAFT_TTL_MS - 1 }));
   mountBookingFrom(BASE, { key: KEY, root: "#flow" });
@@ -404,4 +415,24 @@ test("参数不对：没有主站地址、没有 key、找不到容器都只在�
   assert.equal(root().children.length, 0);
   assert.equal(consoleErrors.length, 3);
   assert.ok(consoleErrors.every((line) => line.startsWith("NozomiBooking：")));
+});
+
+test("M12-01 界面语言跟随宿主页（ADR 0109）：mountBooking 没传 lang 时按宿主页 <html lang>（zh-TW 归中文）、再按浏览器语言、都不支持用英文；定下的语言带进 iframe 地址和外层的标题、提示", async () => {
+  READY_TIMEOUT.ms = 30;
+  for (const [html, browser, shown] of [["ja-JP", ["en"], "ja"], ["zh-TW", [], "zh"], ["", ["fr-FR", "zh-CN"], "zh"], ["ko", ["fr"], "en"]] as const) {
+    hostPage(html, browser);
+    document.body.innerHTML = '<p>宿主页</p><div id="flow"></div>';
+    mountWithDraft();
+    const frame = iframe();
+    assert.equal(new URL(frame.src).searchParams.get("lang"), shown, `${html} / ${browser.join(",")}：iframe 地址`);
+    assert.equal(frame.getAttribute("title"), BOOKING_TEXTS[shown].title);
+    await wait(60);
+    const fallback = root().querySelector('[data-nozomi-booking="fallback"]')?.shadowRoot as ShadowRoot;
+    assert.match(fallback.textContent ?? "", new RegExp(BOOKING_TEXTS[shown].failed));
+  }
+  hostPage("ja");
+  document.body.innerHTML = '<p>宿主页</p><div id="flow"></div>';
+  mountWithDraft({ lang: "en" });
+  assert.equal(new URL(iframe().src).searchParams.get("lang"), "en", "mountBooking 的 lang 优先于 <html lang>");
+  await wait(60);
 });

@@ -516,6 +516,7 @@ test("嵌入组件横条（M9E-11）：768–1100 宽、日文和英文下，地
       const page = await context.newPage();
       await page.goto(`${allowedHost.origin}/?lang=${lang}&layout=bar`);
       await page.waitForFunction(() => document.querySelector("#nozomi-booking")?.shadowRoot?.querySelector(".nzb-shell") !== null);
+      await expect(page.getByRole("button", { name: lang === "ja" ? "料金を見る" : "See prices" }), `${lang}：按 init 的 lang 显示`).toBeVisible();
       // 包车标签才有停留时长；两个标签都量
       for (const tab of [0, 1]) {
         const cut = await page.evaluate((index) => {

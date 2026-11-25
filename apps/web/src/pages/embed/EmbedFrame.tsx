@@ -9,10 +9,21 @@
  * - 收宿主的消息：只认 `event.source === window.parent && event.origin === host`、频道号对得上的 viewport（只影响显示位置）。
  *   viewport 的 height、top（M9E-32，ADR 0100）放进 `viewport`（可订阅），手机底部按钮条订阅它来停在宿主屏幕的下沿；滚动时频繁更新也不让整页重新渲染。
  */
+import { guestUiLanguage } from "@nozomi/domain/guest-ui-language";
 import { type ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { type FrameMessage, type FrameParams, envelope, frameParamsOf, parseHostMessage } from "../../embed/booking-protocol.ts";
 import { type HostViewportSource, createHostViewportStore } from "../../embed/frame-bar.ts";
+import { PAGE_LANGUAGE, pickLang } from "../../embed/widget-core.ts";
 import { EMBED_TEXTS, type EmbedLang, type EmbedTexts } from "./embed-texts.ts";
+
+/**
+ * 嵌入页外层的语言（M12-01，ADR 0109）：地址里的 lang（宿主页上的组件已按「init 的 lang → 宿主页 <html lang> → 浏览器语言 → 英文」定好）
+ * → 草稿里记的语言（旧版组件脚本不带 lang 时）→ 浏览器语言 → 英文；再经客人界面语言开关。
+ * 不看本文档的 <html lang>：那是主站自己的，不是宿主页的。
+ */
+function embedLang(given: EmbedLang | null): EmbedLang {
+  return guestUiLanguage(pickLang(given, null, PAGE_LANGUAGE.browser()));
+}
 
 /** 嵌着这个页面的父窗口；顶层打开为 null。测试里换成替身 */
 export const EMBED_FRAME = {
@@ -30,10 +41,11 @@ export interface EmbedFrameValue {
   params: FrameParams;
   /** 被嵌着（顶层打开为 false：不显示预订内容） */
   inFrame: boolean;
+  /** 实际显示的语言（见 embedLang） */
   lang: EmbedLang;
   t: EmbedTexts;
   send(message: FrameMessage): void;
-  /** 页面准备好了：发 `ready`（整个文档只发一次）；地址没带 lang 时语言跟草稿 */
+  /** 页面准备好了：发 `ready`（整个文档只发一次）；地址没带 lang 时语言跟草稿，再经客人界面语言开关 */
   announce(lang: EmbedLang | null): void;
   /** 宿主最近一次发来的可视高度和 iframe 上沿位置（没收到为 null；旧版组件脚本不带 top） */
   viewport: HostViewportSource;
@@ -57,7 +69,7 @@ export function EmbedFrame({ children }: { children: ReactNode }) {
   const mainRef = useRef<HTMLElement | null>(null);
   const { host, ch } = params;
   const canTalk = parent !== null && host !== null;
-  const lang: EmbedLang = params.lang ?? draftLang ?? "ja";
+  const lang: EmbedLang = embedLang(params.lang ?? draftLang);
 
   const send = useCallback(
     (message: FrameMessage): void => {
@@ -72,7 +84,8 @@ export function EmbedFrame({ children }: { children: ReactNode }) {
       if (announced.current) return;
       announced.current = true;
       if (given !== null) setDraftLang(given);
-      send({ type: "ready", lang: params.lang ?? given ?? "ja" });
+      // ready 里的 lang 是实际显示的语言（M12-01）
+      send({ type: "ready", lang: embedLang(params.lang ?? given) });
     },
     [send, params.lang],
   );

@@ -1,6 +1,6 @@
 /**
  * 嵌入组件的纯逻辑（M9E-03，ADR 0090 第四节）：init 参数、文案（中 / 日 / 英）、表单 → 预订草稿、失败时的说法。
- * 不依赖 DOM，单元测试直接测；widget.ts 只负责画界面和调接口。组件不询价、不下单、不显示价格。
+ * 不依赖 DOM（PAGE_LANGUAGE 读宿主页、浏览器语言，测试里换替身），单元测试直接测；widget.ts 只负责画界面和调接口。组件不询价、不下单、不显示价格。
  */
 
 import { CHARTER_ITINERARY_LIMITS } from "@nozomi/domain/charter-itinerary-limits";
@@ -34,11 +34,45 @@ export interface InitOptions {
   bookingUrl?: string;
 }
 
-/** init 参数里合作网站给的 lang、services：不认识的忽略，忽略后为空用后台设的默认值 */
-export function resolveLang(given: unknown, fallback: WidgetLang): WidgetLang {
-  return WIDGET_LANGS.includes(given as WidgetLang) ? (given as WidgetLang) : fallback;
+
+/** BCP 47 语言标签取主语言：zh*（含 zh-TW、zh-HK，界面是简体）→ zh、ja* → ja、en* → en；别的语言、空、写法不对为 null */
+export function primaryLang(tag: unknown): WidgetLang | null {
+  if (typeof tag !== "string") return null;
+  const primary = tag.trim().toLowerCase().split(/[-_]/)[0] ?? "";
+  return WIDGET_LANGS.includes(primary as WidgetLang) ? (primary as WidgetLang) : null;
 }
 
+/** 都判断不出（或宿主页、浏览器是 ko、fr 等不支持的语言）时用英文：合作网站的客人多是外国游客，英文最通用（ADR 0109） */
+export const FALLBACK_LANG: WidgetLang = "en";
+
+/**
+ * 嵌入入口和嵌入页外层的界面语言（M12-01，业主 2026-11-25，ADR 0109），依次：
+ * ① 合作网站 init / mountBooking 传的 lang（只认 zh / ja / en，写错的忽略）；② 宿主页 `<html lang>` 的主语言；
+ * ③ 浏览器语言（navigator.languages 依次）；④ 都没有或都不支持 → 英文。
+ */
+export function pickLang(given: unknown, htmlLang: unknown, browser: readonly unknown[]): WidgetLang {
+  if (WIDGET_LANGS.includes(given as WidgetLang)) return given as WidgetLang;
+  const fromHtml = primaryLang(htmlLang);
+  if (fromHtml !== null) return fromHtml;
+  for (const tag of browser) {
+    const found = primaryLang(tag);
+    if (found !== null) return found;
+  }
+  return FALLBACK_LANG;
+}
+
+/** 读宿主页 / 浏览器的语言（测试里换成替身） */
+export const PAGE_LANGUAGE = {
+  html(): string {
+    return typeof document === "undefined" ? "" : document.documentElement.lang;
+  },
+  browser(): readonly string[] {
+    if (typeof navigator === "undefined") return [];
+    return navigator.languages !== undefined && navigator.languages.length > 0 ? navigator.languages : navigator.language ? [navigator.language] : [];
+  },
+};
+
+/** init 参数里合作网站给的 services：不认识的忽略，忽略后为空用后台设的默认值 */
 export function resolveServices(given: unknown, fallback: readonly WidgetService[]): WidgetService[] {
   if (!Array.isArray(given)) return [...fallback];
   const known = given.filter((value, index): value is WidgetService => WIDGET_SERVICES.includes(value as WidgetService) && given.indexOf(value) === index);

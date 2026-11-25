@@ -16,6 +16,7 @@ import { EmbedApp, isEmbedBookDocument } from "./EmbedApp.tsx";
 import { DRAFT_TIMEOUT } from "./EmbedBookPage.tsx";
 import { EMBED_FRAME } from "./EmbedFrame.tsx";
 import { EMBED_TEXTS } from "./embed-texts.ts";
+import { PAGE_LANGUAGE } from "../../embed/widget-core.ts";
 
 const DRAFT = "D".repeat(43);
 const KEY = `nze_${"A".repeat(32)}`;
@@ -37,14 +38,21 @@ const DRAFT_BODY = {
 let posted: [unknown, string][] = [];
 const parent = { postMessage: (message: unknown, targetOrigin: string) => posted.push([message, targetOrigin]) } as unknown as Window;
 const originalParent = EMBED_FRAME.parent;
+const originalBrowser = PAGE_LANGUAGE.browser;
+/** 浏览器语言（M12-01：地址没带 lang、也读不到草稿时按它）；默认没有 */
+const browserLanguages = (...tags: string[]): void => {
+  PAGE_LANGUAGE.browser = () => tags;
+};
 
 beforeEach(() => {
   posted = [];
   EMBED_FRAME.parent = () => parent;
+  browserLanguages();
 });
 afterEach(() => {
   cleanup();
   EMBED_FRAME.parent = originalParent;
+  PAGE_LANGUAGE.browser = originalBrowser;
   DRAFT_TIMEOUT.ms = 10_000;
   history.replaceState(null, "", "/");
 });
@@ -98,7 +106,32 @@ test("地址带 lang 时按它显示（不看草稿的语言）", async () => {
   await waitFor(() => assert.deepEqual(posted[0]?.[0], { ns: "nozomi-booking", v: 1, ch: CH, type: "ready", lang: "en" }));
 });
 
+test("M12-01 界面语言（ADR 0109）：地址的 lang 优先于草稿；没带按草稿；都没有按浏览器语言（zh-TW 归中文）；都不支持用英文；ready 带实际显示的语言", async () => {
+  stubApiWith((call) => (call.url.pathname.startsWith("/site/v1/booking-drafts/") ? json(200, { draft: DRAFT_BODY, expires_at: "2030-11-20T00:00:00Z" }) : apiError(503, "SITE_NOT_OPEN", "x")));
+  for (const [extra, shown] of [["&lang=en", "en"], ["&lang=zh", "zh"], ["", "ja"]] as const) {
+    browserLanguages("zh-CN");
+    open(url(extra));
+    await screen.findByText(EMBED_TEXTS[shown].seller);
+    assert.equal(document.querySelector("main")?.getAttribute("lang"), shown === "zh" ? "zh-CN" : shown, extra);
+    await waitFor(() => assert.deepEqual(posted[0], [{ ns: "nozomi-booking", v: 1, ch: CH, type: "ready", lang: shown }, HOST], extra));
+    cleanup();
+    posted = [];
+  }
+  // 地址没带 lang、草稿读不到（过期）：按浏览器语言；不支持的用英文
+  stubApiWith(() => apiError(404, "BOOKING_DRAFT_NOT_FOUND", "链接已过期"));
+  for (const [tags, shown] of [[["zh-TW"], "zh"], [["ko-KR", "fr"], "en"], [[], "en"]] as const) {
+    browserLanguages(...tags);
+    open(url());
+    await screen.findByText(EMBED_TEXTS[shown].expired);
+    await waitFor(() => assert.deepEqual(posted[0]?.[0], { ns: "nozomi-booking", v: 1, ch: CH, type: "ready", lang: shown }, tags.join(",")));
+    cleanup();
+    posted = [];
+  }
+});
+
 test("草稿过期（404）：发 ready 再发 error DRAFT_NOT_FOUND，提示在上方重新查询；读不出（500）发 LOAD_FAILED、给主站链接", async () => {
+  // 地址没带 lang、读不到草稿：按浏览器语言（M12-01）
+  browserLanguages("ja-JP");
   stubApiWith(() => apiError(404, "BOOKING_DRAFT_NOT_FOUND", "链接已过期"));
   open(url());
   await screen.findByText(EMBED_TEXTS.ja.expired);
@@ -130,6 +163,8 @@ test("地址没有草稿号：不调接口，直接 ready + error DRAFT_NOT_FOUN
 });
 
 test("宿主 origin 写法不对（带路径、大写、不是 http(s)）：一条消息都不发，只说地址不完整", async () => {
+  // 地址没带 lang、读不到草稿：按浏览器语言（M12-01）
+  browserLanguages("ja-JP");
   stubApiWith(() => json(200, { draft: DRAFT_BODY, expires_at: "2030-11-20T00:00:00Z" }));
   open(`/embed/book?draft=${DRAFT}&key=${KEY}&host=${encodeURIComponent(`${HOST}/booking/`)}#ch=${CH}`);
   await screen.findByText(EMBED_TEXTS.ja.badAddress);
@@ -155,6 +190,8 @@ test("viewport：只认父窗口、宿主 origin、同一个频道的；只记�
 });
 
 test("顶层打开（没被嵌）：不读草稿、不显示预订内容、不发消息，只说请在合作网站上预订并给主站链接", async () => {
+  // 地址没带 lang、读不到草稿：按浏览器语言（M12-01）
+  browserLanguages("ja-JP");
   EMBED_FRAME.parent = () => null;
   const calls = stubApiWith(() => null);
   open(url());
