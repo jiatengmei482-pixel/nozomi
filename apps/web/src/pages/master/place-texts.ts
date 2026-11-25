@@ -16,7 +16,7 @@ export type PlaceTextKey =
   | "meetingPointTooLong";
 
 const ZH: Readonly<Record<PlaceTextKey, string>> = {
-  addressHintAirport: "日文地址，含邮编，例如 〒144-0041 東京都大田区羽田空港3-3-2。",
+  addressHintAirport: "日文地址，含邮编，例如 〒144-0041 東京都大田区羽田空港 3-3-2。",
   meetingPointLegend: "集合地点说明",
   meetingPointHintAirport: "司机在哪里等客人、客人怎么找到司机。只有一个航站楼的机场写在这里；有多个航站楼的写在各航站楼上。选填；填的话中文必填，日文、英文选填。供应商也看得到。",
   meetingPointHintTerminal: "司机在这个航站楼的哪里等客人、客人怎么找到司机。选填；填的话中文必填，日文、英文选填。供应商也看得到。",

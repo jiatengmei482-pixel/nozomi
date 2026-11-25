@@ -1374,7 +1374,7 @@
 | `PlaceForm.a85ec1b8` | 写死 | 已放进检查清单 | 正文 | [PlaceForm.tsx:624](../../apps/web/src/pages/master/PlaceForm.tsx#L624) |
 | `PlaceForm.37e603d1` | 写死 | 放进包车覆盖检查 | 正文 | [PlaceForm.tsx:628](../../apps/web/src/pages/master/PlaceForm.tsx#L628) |
 | `PlaceForm.ba822768` | 写死 | 勾了以后，同一城市的包车商品上架时会检查这个地标在不在它的基础价、行程或上下车加价区域里；不在就提醒供应商（不拦上架）。 | 正文 | [PlaceForm.tsx:632](../../apps/web/src/pages/master/PlaceForm.tsx#L632) |
-| `place.addressHintAirport` | 已走 key | 日文地址，含邮编，例如 〒144-0041 東京都大田区羽田空港3-3-2。 | 说明 | [place-texts.ts:19](../../apps/web/src/pages/master/place-texts.ts#L19) |
+| `place.addressHintAirport` | 已走 key | 日文地址，含邮编，例如 〒144-0041 東京都大田区羽田空港 3-3-2。 | 说明 | [place-texts.ts:19](../../apps/web/src/pages/master/place-texts.ts#L19) |
 | `place.meetingPointLegend` | 已走 key | 集合地点说明 | 标题 | [place-texts.ts:20](../../apps/web/src/pages/master/place-texts.ts#L20) |
 | `place.meetingPointHintAirport` | 已走 key | 司机在哪里等客人、客人怎么找到司机。只有一个航站楼的机场写在这里；有多个航站楼的写在各航站楼上。选填；填的话中文必填，日文、英文选填。供应商也看得到。 | 说明 | [place-texts.ts:21](../../apps/web/src/pages/master/place-texts.ts#L21) |
 | `place.meetingPointHintTerminal` | 已走 key | 司机在这个航站楼的哪里等客人、客人怎么找到司机。选填；填的话中文必填，日文、英文选填。供应商也看得到。 | 说明 | [place-texts.ts:22](../../apps/web/src/pages/master/place-texts.ts#L22) |
