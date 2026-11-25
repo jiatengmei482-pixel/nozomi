@@ -45,7 +45,7 @@ test("工作流只能手动触发，环境只有 staging，默认试运行", () 
   assert.deepEqual(inputs["environment"]?.options, ["staging"]);
   assert.equal(inputs["apply"]?.type, "boolean");
   assert.equal(inputs["apply"]?.default, false);
-  assert.deepEqual(inputs["dataset"]?.options?.slice().sort(), ["airport-names", "airports", "cities"]);
+  assert.deepEqual(inputs["dataset"]?.options?.slice().sort(), ["airport-names", "airport-names-reviewed", "airports", "cities"]);
   assert.equal(job.env["MODE"], "${{ inputs.apply && 'apply' || 'dry-run' }}");
   // 第一步就拦：不是 main、不是 staging、国家码不对都直接失败，还没准备 SSH
   const check = steps[0]?.run ?? "";
