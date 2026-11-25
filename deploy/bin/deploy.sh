@@ -460,6 +460,10 @@ cmd_deploy() {
     # 平时由每天的定时任务做；这里兜底那些还没重新运行初始化、没装上这个定时任务的服务器。失败不影响部署结果。
     "$release_dir/bin/pitr-backup.sh" --if-older-than-hours 20 ||
       log "基础备份没有做成（不影响本次部署结果）：请在服务器上运行 $release_dir/bin/pitr-status.sh 查看原因"
+    # 服务可用性检查（ADR 0110）的定时任务由初始化脚本安装（部署账号写不了 /etc/cron.d）：初始化过、但还没装上它的服务器提示一句
+    if [[ -f "/etc/cron.d/nozomi-backup-$APP_ENV" && ! -f "/etc/cron.d/nozomi-uptime-$APP_ENV" ]]; then
+      log "提示：这台服务器还没有服务可用性检查的定时任务。请重新运行一次「服务器初始化」（docs/deploy.md「服务可用性提醒」第 4 步），已有的配置和密钥不会被改动"
+    fi
     log "部署成功：$release_id 已在运行"
     return 0
   fi

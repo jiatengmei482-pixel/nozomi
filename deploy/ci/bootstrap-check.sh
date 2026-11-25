@@ -95,7 +95,7 @@ in_container() {
 }
 
 fingerprint() {
-  docker exec "$1" sha256sum "$env_file" /home/nozomi/.ssh/authorized_keys /etc/cron.d/nozomi-backup-staging
+  docker exec "$1" sha256sum "$env_file" /home/nozomi/.ssh/authorized_keys /etc/cron.d/nozomi-backup-staging /etc/cron.d/nozomi-uptime-staging
 }
 
 password_digest() {
@@ -195,6 +195,10 @@ check_common() {
   in_container "$name" "grep -q '^\*/15 \* \* \* \* nozomi .*pitr-offsite.sh sync --quiet-if-unconfigured; .*pitr-status.sh; } 2>&1 | logger -t nozomi-pitr\$' /etc/cron.d/nozomi-backup-staging" ||
     fail "定时任务里应有每 15 分钟的异地同步和备份状态检查（ADR 0105）"
   in_container "$name" "grep -qx 'OFFSITE_BACKUP_REPOSITORY=' /opt/nozomi/staging/.env" || fail ".env 里应留出异地备份的空位，等负责人填"
+  [[ "$(in_container "$name" 'stat -c "%a %U" /etc/cron.d/nozomi-uptime-staging')" == "644 root" ]] || fail "可用性检查的定时任务文件应为 644、属于 root"
+  in_container "$name" "grep -q '^\*/5 \* \* \* \* nozomi \[ -x /opt/nozomi/staging/current/bin/uptime-check.sh \] && /opt/nozomi/staging/current/bin/uptime-check.sh 2>&1 | logger -t nozomi-uptime\$' /etc/cron.d/nozomi-uptime-staging" ||
+    fail "应有每 5 分钟的服务可用性检查（ADR 0110）"
+  in_container "$name" "grep -qx 'UPTIME_HEARTBEAT_URL=' /opt/nozomi/staging/.env" || fail ".env 里应留出服务可用性心跳地址的空位，等负责人填"
   package_installed "$name" "$family" "$cron_package" || fail "应已安装定时任务服务 $cron_package"
   in_container "$name" "grep -qx 'enable --now $cron_service' $systemctl_log" || fail "应启用定时任务服务 $cron_service"
   if in_container "$name" "grep -Eq '^(restart|reload|stop|disable|mask) ' $systemctl_log"; then
@@ -294,7 +298,7 @@ check_shared() {
     in_container "$name" ': >/etc/modprobe-stub-missing'
     output="$(bootstrap "$name" EDGE_MODE=behind-proxy -- staging 22 "$public_key")"
     grep -q '内核模块：Docker 容器网络需要的模块齐全' <<<"$output" || fail "模块齐全时应说明检查通过"
-    in_container "$name" 'userdel --remove nozomi && rm -rf /opt/nozomi /etc/cron.d/nozomi-backup-staging /var/log/systemctl-stub.log /var/log/docker-stub.log'
+    in_container "$name" 'userdel --remove nozomi && rm -rf /opt/nozomi /etc/cron.d/nozomi-backup-staging /etc/cron.d/nozomi-uptime-staging /var/log/systemctl-stub.log /var/log/docker-stub.log'
   fi
 
   # 已有的 Docker 太旧（Compose 低于 2.25）：报错停下，不去升级它，也不往下做任何事。

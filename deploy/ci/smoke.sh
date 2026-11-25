@@ -12,6 +12,7 @@
 #      （.env 里故意不放应用账号的密码，模拟「在有应用账号之前就初始化过的服务器」：部署时应自动补上）
 #   2. 安全响应头齐全；访问日志里没有查询串；数据库和 API 没有映射端口到主机；
 #      behind-proxy 时反向代理只发布回环地址上的一个端口，不占 80/443
+#  2b. 服务可用性检查（ADR 0110）：正常时访问一次假的心跳接收端；API 停了（/health 不通）、5xx 超过阈值时不访问
 #   3. 前端（ADR 0007「前端接入部署」）：域名根路径是登录页所在的 index.html；刷新任意前端地址不 404；
 #      接口前缀（含前缀本身带查询串）仍然到 API；不存在的 /assets/ 文件是 404；内容安全策略里的哈希和页面里的
 #      内联脚本对得上；/assets/ 长缓存，index.html 不缓存
@@ -30,7 +31,7 @@
 #      白名单外、开关没开、冒充白名单宿主的嵌不进（Caddy 的 forward_auth + frame-ancestors 在真实镜像上生效）
 #
 # 用法：deploy/ci/smoke.sh [standalone|behind-proxy]
-#   需要 Docker（带 BuildKit）、curl、perl、openssl、python3、Chrome（google-chrome，或 Playwright 下载的 Chromium）；占用本机 127.0.0.1 的 18080、18443（standalone）或 18080、18088（behind-proxy）端口，第 10 步另占 18091、18092（宿主页）
+#   需要 Docker（带 BuildKit）、curl、perl、openssl、python3、Chrome（google-chrome，或 Playwright 下载的 Chromium）；占用本机 127.0.0.1 的 18080、18443（standalone）或 18080、18088（behind-proxy）端口，第 2b 步另占 18093（假的心跳接收端），第 10 步另占 18091、18092（宿主页）
 # 这里出现的所有「密码」都是明显的占位值，数据库是本次运行临时起的容器，结束即删除。
 set -euo pipefail
 
@@ -39,6 +40,8 @@ mode="${1:-standalone}"
 https_port="${SMOKE_HTTPS_PORT:-18443}"
 edge_port="${SMOKE_EDGE_PORT:-18080}"
 outer_port="${SMOKE_OUTER_PORT:-18088}"
+# 第 2b 步的假心跳接收端
+heartbeat_port="${SMOKE_HEARTBEAT_PORT:-18093}"
 # 一个版本是一对同标签的镜像：API（nozomi-api）和「Caddy + 前端静态文件」（nozomi-web）。
 # 部署时只传 API 镜像，配对的前端镜像由 bin/deploy.sh 推出来。
 good_image="nozomi-api:smoke-good"
@@ -100,6 +103,8 @@ cleanup() {
   fi
   # 第 10 步起的两个宿主页静态服务（没走到那一步时为空）
   [[ -n "${host_server:-}" ]] && kill "$host_server" "${other_server:-}" >/dev/null 2>&1
+  # 第 2b 步的假心跳接收端（没走到那一步或已经停了时为空）
+  [[ -n "${heartbeat_server:-}" ]] && kill "$heartbeat_server" >/dev/null 2>&1
   docker compose --project-name nozomi-ci down --volumes --remove-orphans >/dev/null 2>&1 || true
   docker rm --force --volumes "$outer_proxy" "$neighbor" >/dev/null 2>&1 || true
   docker volume rm "$neighbor-data" >/dev/null 2>&1 || true
@@ -585,6 +590,53 @@ else
   [[ "$(compose exec -T api printenv TRUST_PROXY_HOPS)" == "1" ]] || fail "standalone：API 应信任 1 层反向代理"
 fi
 [[ "$(compose exec -T api id -u)" != "0" ]] || fail "API 不应以 root 运行"
+
+step "2b. 服务可用性检查（ADR 0110）：正常时访问心跳地址；/health 不通、5xx 超过阈值时不访问"
+# 假的心跳接收端：本机的静态服务，访问记录在 heartbeat.log 里。/ping/smoke 是个真实存在的文件，访问它返回 200。
+heartbeat_dir="$work_dir/heartbeat"
+mkdir -p "$heartbeat_dir/ping"
+: >"$heartbeat_dir/ping/smoke"
+python3 -u -m http.server "$heartbeat_port" --bind 127.0.0.1 --directory "$heartbeat_dir" >/dev/null 2>"$work_dir/heartbeat.log" &
+heartbeat_server=$!
+for attempt in $(seq 1 30); do
+  if curl --silent --output /dev/null "http://127.0.0.1:$heartbeat_port/"; then break; fi
+  [[ $attempt -lt 30 ]] || fail "假的心跳接收端没有起来"
+  sleep 1
+done
+heartbeats() { grep -c 'GET /ping/smoke' "$work_dir/heartbeat.log" || true; }
+uptime_check() { "$root_dir/current/bin/uptime-check.sh" >"$work_dir/uptime.out" 2>&1; }
+if [[ "$mode" == "standalone" ]]; then
+  # 冒烟的证书是 Caddy 自签的、端口是高位端口：告诉检查脚本用哪个根证书和端口（真实服务器上这两个变量都不设）
+  compose exec -T caddy cat /data/caddy/pki/authorities/local/root.crt >"$work_dir/caddy-root.crt"
+  export UPTIME_CHECK_HTTPS_PORT="$https_port" UPTIME_CHECK_CA_FILE="$work_dir/caddy-root.crt"
+fi
+printf 'UPTIME_HEARTBEAT_URL=http://127.0.0.1:%s/ping/smoke\n' "$heartbeat_port" >>"$root_dir/.env"
+uptime_check || { cat "$work_dir/uptime.out"; fail "服务正常时可用性检查应通过"; }
+grep -q '正常：/health 返回 200，status 是 ok' "$work_dir/uptime.out" || fail "可用性检查应经入口查到 /health 正常"
+[[ "$(heartbeats)" == "1" ]] || fail "服务正常时应访问一次心跳地址，实际访问了 $(heartbeats) 次"
+if grep -q "ping/smoke\|$heartbeat_port" "$work_dir/uptime.out"; then fail "可用性检查的输出里不应出现心跳地址"; fi
+
+compose stop api >/dev/null
+for attempt in 1 2 3 4 5; do status_of "/platform/v1/auth/me" >/dev/null; done
+if uptime_check; then fail "API 停了以后可用性检查应判为异常"; fi
+grep -q '异常：从本机经入口访问 /health 没有返回 200' "$work_dir/uptime.out" || { cat "$work_dir/uptime.out"; fail "可用性检查应写明 /health 不通"; }
+[[ "$(heartbeats)" == "1" ]] || fail "/health 不通时不应访问心跳地址"
+compose up -d --wait --wait-timeout 120 >/dev/null
+expect_healthy "可用性检查：API 重新启动后"
+
+# 刚才 API 停着时的那几次 502 留在访问日志里：阈值调到 3 次、1% 时应判为异常（核对真实的 Caddy 访问日志能被正确统计）
+printf '%s\n' 'UPTIME_5XX_MIN_COUNT=3' 'UPTIME_5XX_MIN_PERCENT=1' >>"$root_dir/.env"
+if uptime_check; then cat "$work_dir/uptime.out"; fail "5xx 超过阈值时可用性检查应判为异常"; fi
+grep -q '正常：/health 返回 200' "$work_dir/uptime.out" || fail "API 恢复后 /health 应正常"
+grep -Eq '异常：最近 5 分钟 API 有 [0-9]+ 次 5xx' "$work_dir/uptime.out" || { cat "$work_dir/uptime.out"; fail "可用性检查应写明 5xx 超过阈值"; }
+[[ "$(heartbeats)" == "1" ]] || fail "5xx 超过阈值时不应访问心跳地址"
+# 回到默认阈值（至少 20 次）：那几次 502 不够，判为正常，再访问一次心跳
+sed -i '/^UPTIME_5XX_MIN_/d' "$root_dir/.env"
+uptime_check || { cat "$work_dir/uptime.out"; fail "默认阈值下可用性检查应通过"; }
+[[ "$(heartbeats)" == "2" ]] || fail "恢复正常后应再访问一次心跳地址"
+sed -i '/^UPTIME_HEARTBEAT_URL=/d' "$root_dir/.env"
+kill "$heartbeat_server" 2>/dev/null || true
+heartbeat_server=""
 
 step "3. 前端：登录页、刷新不 404、接口前缀、/assets/、内容安全策略、缓存"
 [[ "$(running_images)" == "$good_image $good_web_image" ]] || fail "api 和反向代理应分别运行这个版本的两个镜像，实际是：$(running_images)"
