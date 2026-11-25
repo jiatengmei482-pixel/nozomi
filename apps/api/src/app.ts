@@ -336,9 +336,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     apiKey: () => secretCache.effective.googleMaps.apiKey,
     dailyLimit: config.places.dailyLimit,
     search: (apiKey, request, beforeAttempt) => searchPlaces(apiKey, request, { url: config.integrationEndpoints.googlePlacesSearchUrl, beforeAttempt }),
-    reverse: (apiKey, point, regionCode, beforeAttempt) => reverseGeocode(apiKey, point, regionCode, { url: config.integrationEndpoints.googleGeocodeUrl, beforeAttempt }),
+    reverse: (apiKey, request, beforeAttempt) => reverseGeocode(apiKey, request, { url: config.integrationEndpoints.googleGeocodeUrl, beforeAttempt }),
     autocomplete: (apiKey, request, beforeAttempt) => autocompletePlaces(apiKey, request, { url: config.integrationEndpoints.googlePlacesAutocompleteUrl, beforeAttempt }),
-    details: (apiKey, placeId, sessionToken, beforeAttempt) => placeDetails(apiKey, placeId, sessionToken, { url: config.integrationEndpoints.googlePlaceDetailsUrl, beforeAttempt }),
+    details: (apiKey, request, beforeAttempt) => placeDetails(apiKey, request, { url: config.integrationEndpoints.googlePlaceDetailsUrl, beforeAttempt }),
     log: app.log,
     ...(deps.placeCacheTtlMs === undefined ? {} : { cacheTtlMs: deps.placeCacheTtlMs }),
   });

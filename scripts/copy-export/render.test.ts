@@ -106,8 +106,8 @@ test("汇总：同一文件里同一句话只留一条、行号合并；key 表�
 });
 
 test("不扫的文件：测试、测试工具、命令行工具、迁移、外部对接", () => {
-  for (const file of ["apps/web/src/lib/a.test.ts", "apps/web/src/components/B.test.tsx", "apps/api/src/x.itest.ts", "apps/api/src/x.qa.itest.ts", "apps/web/src/testing/fake.ts", "apps/api/src/cli/admin-create.ts", "apps/api/src/db/migrate.ts", "apps/api/src/integrations/stripe.ts", "apps/api/src/logging.ts", "packages/domain/src/quote-compat.samples.ts", "apps/api/src/services/trip-parse.ts"]) {
+  for (const file of ["apps/web/src/lib/a.test.ts", "apps/web/src/components/B.test.tsx", "apps/api/src/x.itest.ts", "apps/api/src/x.qa.itest.ts", "apps/web/src/testing/fake.ts", "apps/api/src/cli/admin-create.ts", "apps/api/src/db/migrate.ts", "apps/api/src/integrations/stripe.ts", "apps/api/src/logging.ts", "packages/domain/src/quote-compat.samples.ts", "apps/api/src/services/trip-parse.ts", "packages/domain/src/place-language-tables.ts"]) {
     assert.equal(isExcludedFile(file), true, file);
   }
-  for (const file of ["apps/web/src/pages/LoginPage.tsx", "apps/api/src/services/orders.ts", "packages/domain/src/notifications.ts"]) assert.equal(isExcludedFile(file), false, file);
+  for (const file of ["apps/web/src/pages/LoginPage.tsx", "apps/api/src/services/orders.ts", "packages/domain/src/notifications.ts", "packages/domain/src/place-language.ts"]) assert.equal(isExcludedFile(file), false, file);
 });

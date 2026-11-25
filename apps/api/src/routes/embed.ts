@@ -195,7 +195,7 @@ export function registerEmbedRoutes(app: FastifyInstance, ctx: AppContext): void
     await takeEmbedPlacesSlot(ctx, gate);
     const input = parseInput(placeAutocompleteSchema, rest, "querystring");
     // 每个地址每天的额度只在真调谷歌时扣，和官网同一份（M8-45）
-    const found = await siteAutocomplete(ctx, placeQueryOf(input.q), input.session, sitePlacesGoogleGuard(ctx, request.ip));
+    const found = await siteAutocomplete(ctx, placeQueryOf(input.q), input.session, sitePlacesGoogleGuard(ctx, request.ip), input.lang ?? gate.embedKey.defaultLang);
     return { available: found.available, ...placeUnavailableJson(found.unavailableReason), items: found.items.map(placeItemJson) };
   });
 
@@ -206,7 +206,7 @@ export function registerEmbedRoutes(app: FastifyInstance, ctx: AppContext): void
     await takeSiteSlot(ctx, "site_autocomplete", { ip: request.ip });
     await takeEmbedPlacesSlot(ctx, gate);
     const input = parseInput(placeDetailsSchema, rest, "querystring");
-    const found = await sitePlaceDetails(ctx, input.id, input.session ?? null, sitePlacesGoogleGuard(ctx, request.ip));
+    const found = await sitePlaceDetails(ctx, input.id, input.session ?? null, sitePlacesGoogleGuard(ctx, request.ip), input.lang ?? gate.embedKey.defaultLang);
     return { available: found.available, ...placeUnavailableJson(found.unavailableReason), place: found.place === null ? null : { id: found.place.id, address: found.place.address, location: { lat: found.place.location.lat, lng: found.place.location.lng }, kind: found.place.kind } };
   });
 

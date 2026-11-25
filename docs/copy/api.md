@@ -562,7 +562,7 @@
 | `site.cb8c87d5` | 写死 | 指定到达时间要晚于用车开始时间 | 文字 | [site.ts:136](../../apps/api/src/routes/site.ts#L136) |
 | `site.8593f39b` | 写死 | 指定到达时间不能晚于用车开始后 24 小时 | 文字 | [site.ts:137](../../apps/api/src/routes/site.ts#L137) |
 | `site.dd2d829f` | 写死 | 最多 {maxWaypoints} 个经停点，更多请联系客服定制 | 文字 | [site.ts:180](../../apps/api/src/routes/site.ts#L180) |
-| `site.143fafa6` | 写死 | 写成当地时间 YYYY-MM-DDTHH:mm | 文字 | [site.ts:185](../../apps/api/src/routes/site.ts#L185)、257 行 |
+| `site.143fafa6` | 写死 | 写成当地时间 YYYY-MM-DDTHH:mm | 文字 | [site.ts:185](../../apps/api/src/routes/site.ts#L185)、262 行 |
 | `site.02896238` | 写死 | 地址那一端的坐标 | 文字 | [site.ts:204](../../apps/api/src/routes/site.ts#L204) |
 | `site.1afb6bd9` | 写死 | 下车点的坐标 | 文字 | [site.ts:204](../../apps/api/src/routes/site.ts#L204) |
 | `site.1b4f2cbf` | 写死 | 机场 | 文字 | [site.ts:204](../../apps/api/src/routes/site.ts#L204) |
@@ -576,36 +576,36 @@
 | `site.09411e4c` | 写死 | {…}要填{…} | 提示 | [site.ts:218](../../apps/api/src/routes/site.ts#L218) |
 | `site.fb64edb0` | 写死 | {…}不用填{…}（请删掉） | 提示 | [site.ts:219](../../apps/api/src/routes/site.ts#L219) |
 | `site.cc2d5838` | 写死 | {…}不用填经停点（只有包车可以填，请删掉） | 提示 | [site.ts:222](../../apps/api/src/routes/site.ts#L222) |
-| `site.97ffd0df` | 写死 | 会话令牌是 16–36 个字母、数字、下划线或连字符（推荐用 UUID） | 文字 | [site.ts:239](../../apps/api/src/routes/site.ts#L239) |
-| `site.fb60d004` | 写死 | 不是谷歌地点 ID 的格式 | 文字 | [site.ts:242](../../apps/api/src/routes/site.ts#L242) |
-| `site.6a3698ae` | 写死 | 请填地址 | 文字 | [site.ts:247](../../apps/api/src/routes/site.ts#L247) |
-| `site.74c57df0` | 写死 | 每个点写成「纬度,经度」 | 文字 | [site.ts:286](../../apps/api/src/routes/site.ts#L286) |
-| `site.54c03971` | 写死 | 坐标超出范围 | 文字 | [site.ts:291](../../apps/api/src/routes/site.ts#L291) |
-| `site.a518bb26` | 写死 | 路线图服务没有开通，请用页面上的地图 | 文字 | [site.ts:312](../../apps/api/src/routes/site.ts#L312) |
-| `site.e1ee6a17` | 写死 | 路线图暂时出不了，请稍后再试 | 文字 | [site.ts:313](../../apps/api/src/routes/site.ts#L313) |
-| `site.0fa0561a` | 写死 | 经停标识只能是 1–40 个字母、数字、- 或 \_ | 文字 | [site.ts:328](../../apps/api/src/routes/site.ts#L328) |
-| `site.2a814408` | 写死 | 报价编号格式不对 | 文字 | [site.ts:329](../../apps/api/src/routes/site.ts#L329) |
-| `site.6f4c597f` | 写死 | 会话标识是 8–64 个字母、数字、- 或 \_ | 文字 | [site.ts:331](../../apps/api/src/routes/site.ts#L331) |
-| `site.16f7968b` | 写死 | 关键字太长了，最多 100 个字 | 提示 | [site.ts:342](../../apps/api/src/routes/site.ts#L342) |
-| `site.3df3a9db` | 写死 | 请至少输入 2 个字（字母、数字、汉字或假名），如酒店名、地址 | 提示 | [site.ts:342](../../apps/api/src/routes/site.ts#L342) |
-| `site.38d6c94e` | 写死 | 不是报价编号的格式 | 文字 | [site.ts:362](../../apps/api/src/routes/site.ts#L362) |
-| `site.0671dc46` | 写死 | 订单号是 NZ 开头的 18 位，如 NZ20261026AB12CD34 | 文字 | [site.ts:385](../../apps/api/src/routes/site.ts#L385) |
-| `site.63e91981` | 写死 | 请填写下单时的邮箱 | 提示 | [site.ts:388](../../apps/api/src/routes/site.ts#L388) |
-| `site.578a1937` | 写死 | 写成 纬度,经度，如 35.6812,139.7671 | 文字 | [site.ts:445](../../apps/api/src/routes/site.ts#L445) |
-| `site.30637564` | 写死 | 纬度在 -90 到 90、经度在 -180 到 180 之间 | 文字 | [site.ts:450](../../apps/api/src/routes/site.ts#L450) |
-| `site.21f3f33d` | 写死 | 接口不存在 | 文字 | [site.ts:495](../../apps/api/src/routes/site.ts#L495) |
-| `site.1fdb30e7` | 写死 | 订单 | 错误提示 | [site.ts:553](../../apps/api/src/routes/site.ts#L553) |
-| `site.02341d59` | 写死 | 城市 | 文字 | [site.ts:598](../../apps/api/src/routes/site.ts#L598)、604、664 行 |
-| `site.733457b5` | 写死 | 地点编码只能是 1 到 32 位字母、数字和连字符 | 提示 | [site.ts:673](../../apps/api/src/routes/site.ts#L673) |
-| `site.3a266ac3` | 写死 | 请给出经度 | 提示 | [site.ts:717](../../apps/api/src/routes/site.ts#L717) |
-| `site.7fe8ec3c` | 写死 | 请给出纬度 | 提示 | [site.ts:717](../../apps/api/src/routes/site.ts#L717) |
-| `site.aa5b5edd` | 写死 | 请给出 {name} | 提示 | [site.ts:738](../../apps/api/src/routes/site.ts#L738)、765 行 |
-| `site.bc3a3615` | 写死 | 请给出 p | 提示 | [site.ts:784](../../apps/api/src/routes/site.ts#L784) |
-| `site.85f7ee30` | 写死 | 请先询价，再申请建议顺序 | 错误提示 | [site.ts:799](../../apps/api/src/routes/site.ts#L799) |
-| `site.6ca5e32d` | 写死 | 只有按行程计价、带经停点的包车询价能申请建议顺序，refs 个数要和经停点一样 | 提示 | [site.ts:802](../../apps/api/src/routes/site.ts#L802) |
-| `site.d06e827a` | 写死 | 只有按行程计价的包车能申请建议顺序 | 提示 | [site.ts:805](../../apps/api/src/routes/site.ts#L805) |
-| `site.cc955b57` | 写死 | 必填 | 提示 | [site.ts:846](../../apps/api/src/routes/site.ts#L846) |
-| `site.015d49ae` | 写死 | 加收 | 文字 | [site.ts:972](../../apps/api/src/routes/site.ts#L972) |
+| `site.97ffd0df` | 写死 | 会话令牌是 16–36 个字母、数字、下划线或连字符（推荐用 UUID） | 文字 | [site.ts:244](../../apps/api/src/routes/site.ts#L244) |
+| `site.fb60d004` | 写死 | 不是谷歌地点 ID 的格式 | 文字 | [site.ts:247](../../apps/api/src/routes/site.ts#L247) |
+| `site.6a3698ae` | 写死 | 请填地址 | 文字 | [site.ts:252](../../apps/api/src/routes/site.ts#L252) |
+| `site.74c57df0` | 写死 | 每个点写成「纬度,经度」 | 文字 | [site.ts:291](../../apps/api/src/routes/site.ts#L291) |
+| `site.54c03971` | 写死 | 坐标超出范围 | 文字 | [site.ts:296](../../apps/api/src/routes/site.ts#L296) |
+| `site.a518bb26` | 写死 | 路线图服务没有开通，请用页面上的地图 | 文字 | [site.ts:317](../../apps/api/src/routes/site.ts#L317) |
+| `site.e1ee6a17` | 写死 | 路线图暂时出不了，请稍后再试 | 文字 | [site.ts:318](../../apps/api/src/routes/site.ts#L318) |
+| `site.0fa0561a` | 写死 | 经停标识只能是 1–40 个字母、数字、- 或 \_ | 文字 | [site.ts:333](../../apps/api/src/routes/site.ts#L333) |
+| `site.2a814408` | 写死 | 报价编号格式不对 | 文字 | [site.ts:334](../../apps/api/src/routes/site.ts#L334) |
+| `site.6f4c597f` | 写死 | 会话标识是 8–64 个字母、数字、- 或 \_ | 文字 | [site.ts:336](../../apps/api/src/routes/site.ts#L336) |
+| `site.16f7968b` | 写死 | 关键字太长了，最多 100 个字 | 提示 | [site.ts:347](../../apps/api/src/routes/site.ts#L347) |
+| `site.3df3a9db` | 写死 | 请至少输入 2 个字（字母、数字、汉字或假名），如酒店名、地址 | 提示 | [site.ts:347](../../apps/api/src/routes/site.ts#L347) |
+| `site.38d6c94e` | 写死 | 不是报价编号的格式 | 文字 | [site.ts:368](../../apps/api/src/routes/site.ts#L368) |
+| `site.0671dc46` | 写死 | 订单号是 NZ 开头的 18 位，如 NZ20261026AB12CD34 | 文字 | [site.ts:391](../../apps/api/src/routes/site.ts#L391) |
+| `site.63e91981` | 写死 | 请填写下单时的邮箱 | 提示 | [site.ts:394](../../apps/api/src/routes/site.ts#L394) |
+| `site.578a1937` | 写死 | 写成 纬度,经度，如 35.6812,139.7671 | 文字 | [site.ts:451](../../apps/api/src/routes/site.ts#L451) |
+| `site.30637564` | 写死 | 纬度在 -90 到 90、经度在 -180 到 180 之间 | 文字 | [site.ts:456](../../apps/api/src/routes/site.ts#L456) |
+| `site.21f3f33d` | 写死 | 接口不存在 | 文字 | [site.ts:501](../../apps/api/src/routes/site.ts#L501) |
+| `site.1fdb30e7` | 写死 | 订单 | 错误提示 | [site.ts:559](../../apps/api/src/routes/site.ts#L559) |
+| `site.02341d59` | 写死 | 城市 | 文字 | [site.ts:604](../../apps/api/src/routes/site.ts#L604)、610、670 行 |
+| `site.733457b5` | 写死 | 地点编码只能是 1 到 32 位字母、数字和连字符 | 提示 | [site.ts:679](../../apps/api/src/routes/site.ts#L679) |
+| `site.3a266ac3` | 写死 | 请给出经度 | 提示 | [site.ts:723](../../apps/api/src/routes/site.ts#L723) |
+| `site.7fe8ec3c` | 写死 | 请给出纬度 | 提示 | [site.ts:723](../../apps/api/src/routes/site.ts#L723) |
+| `site.aa5b5edd` | 写死 | 请给出 {name} | 提示 | [site.ts:744](../../apps/api/src/routes/site.ts#L744)、771 行 |
+| `site.bc3a3615` | 写死 | 请给出 p | 提示 | [site.ts:790](../../apps/api/src/routes/site.ts#L790) |
+| `site.85f7ee30` | 写死 | 请先询价，再申请建议顺序 | 错误提示 | [site.ts:805](../../apps/api/src/routes/site.ts#L805) |
+| `site.6ca5e32d` | 写死 | 只有按行程计价、带经停点的包车询价能申请建议顺序，refs 个数要和经停点一样 | 提示 | [site.ts:808](../../apps/api/src/routes/site.ts#L808) |
+| `site.d06e827a` | 写死 | 只有按行程计价的包车能申请建议顺序 | 提示 | [site.ts:811](../../apps/api/src/routes/site.ts#L811) |
+| `site.cc955b57` | 写死 | 必填 | 提示 | [site.ts:852](../../apps/api/src/routes/site.ts#L852) |
+| `site.015d49ae` | 写死 | 加收 | 文字 | [site.ts:978](../../apps/api/src/routes/site.ts#L978) |
 
 ## 供应商入驻的接口（tenant-onboarding.ts）
 
@@ -2145,15 +2145,15 @@
 
 | key | 状态 | 中文 | 类型 | 位置 |
 | --- | --- | --- | --- | --- |
-| `site.5b4aed8a` | 写死 | 官网暂未开放预订，请稍后再来 | 错误提示 | [site.ts:134](../../apps/api/src/services/site.ts#L134) |
-| `site.07e3200b` | 写死 | 订单链接无效或已过期，请在「查订单」填订单号和下单邮箱，我们会把新链接发到下单邮箱 | 错误提示 | [site.ts:138](../../apps/api/src/services/site.ts#L138) |
-| `site.20181878` | 写死 | 暂时发不了邮件，请联系客服找回订单 | 错误提示 | [site.ts:142](../../apps/api/src/services/site.ts#L142) |
-| `site.2a6cc074` | 写死 | 地点 | 错误提示 | [site.ts:443](../../apps/api/src/services/site.ts#L443) |
-| `site.65ebce5a` | 写死 | 城市不存在或暂不开放 | 提示 | [site.ts:483](../../apps/api/src/services/site.ts#L483)、751 行 |
-| `site.276319f5` | 写死 | 这个位置离城市太远，请在城市附近选点 | 提示 | [site.ts:624](../../apps/api/src/services/site.ts#L624) |
-| `site.27f09bde` | 写死 | 第 {leg} 段路线暂时算不出来，没法按行程报价，请联系客服人工报价 | 错误提示 | [site.ts:756](../../apps/api/src/services/site.ts#L756) |
-| `site.003064a0` | 写死 | 机场不存在、已停用，或者不在这个城市 | 提示 | [site.ts:953](../../apps/api/src/services/site.ts#L953) |
-| `site.35a599b0` | 写死 | 用车时间写成当地的 YYYY-MM-DDTHH:mm，并且是这个城市里存在的时间 | 提示 | [site.ts:959](../../apps/api/src/services/site.ts#L959) |
+| `site.5b4aed8a` | 写死 | 官网暂未开放预订，请稍后再来 | 错误提示 | [site.ts:137](../../apps/api/src/services/site.ts#L137) |
+| `site.07e3200b` | 写死 | 订单链接无效或已过期，请在「查订单」填订单号和下单邮箱，我们会把新链接发到下单邮箱 | 错误提示 | [site.ts:141](../../apps/api/src/services/site.ts#L141) |
+| `site.20181878` | 写死 | 暂时发不了邮件，请联系客服找回订单 | 错误提示 | [site.ts:145](../../apps/api/src/services/site.ts#L145) |
+| `site.2a6cc074` | 写死 | 地点 | 错误提示 | [site.ts:446](../../apps/api/src/services/site.ts#L446) |
+| `site.65ebce5a` | 写死 | 城市不存在或暂不开放 | 提示 | [site.ts:486](../../apps/api/src/services/site.ts#L486)、763 行 |
+| `site.276319f5` | 写死 | 这个位置离城市太远，请在城市附近选点 | 提示 | [site.ts:636](../../apps/api/src/services/site.ts#L636) |
+| `site.27f09bde` | 写死 | 第 {leg} 段路线暂时算不出来，没法按行程报价，请联系客服人工报价 | 错误提示 | [site.ts:768](../../apps/api/src/services/site.ts#L768) |
+| `site.003064a0` | 写死 | 机场不存在、已停用，或者不在这个城市 | 提示 | [site.ts:965](../../apps/api/src/services/site.ts#L965) |
+| `site.35a599b0` | 写死 | 用车时间写成当地的 YYYY-MM-DDTHH:mm，并且是这个城市里存在的时间 | 提示 | [site.ts:971](../../apps/api/src/services/site.ts#L971) |
 
 ## 租户用户的登录、会话校验、退出、接受邀请（tenant-auth.ts）
 

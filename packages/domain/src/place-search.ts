@@ -5,6 +5,7 @@
  * 哪些失败冷却多久、给客人看的文字怎么清理。调用谷歌在 `apps/api/src/integrations/google-places.ts`，缓存、计数在 `apps/api/src/services/place-search.ts`。
  */
 import { type LatLng, isValidLatLng } from "./geo.ts";
+import type { PlaceLanguage } from "./place-language.ts";
 import { routeCoordinateText } from "./route-estimate.ts";
 
 const MINUTE_MS = 60_000;
@@ -31,6 +32,13 @@ export const PLACE_SEARCH_RULES = {
   cacheTtlMs: 10 * MINUTE_MS,
   /** 进程内短时缓存最多留几条（先进先出） */
   cacheMaxEntries: 500,
+  /**
+   * 输入即提示的会话记住它用的语言多久（M12-07，ADR 0108）：同一次「输入 → 选中」取坐标时沿用输入即提示的语言。
+   * 谷歌的会话从第一次输入到选中通常几分钟；超时后取坐标退回页面语言
+   */
+  sessionLanguageTtlMs: 10 * MINUTE_MS,
+  /** 最多记几个会话的语言（先进先出） */
+  sessionLanguageMaxEntries: 2_000,
   /** 每天（东京时间）最多调用谷歌几次（搜索和反查合计）：默认 500（配置 `GOOGLE_PLACES_DAILY_LIMIT`，0 = 不调用） */
   defaultDailyLimit: 500,
   /** 给客人看的名称、地址最多几个字（超出截短；下单的地址栏上限是 300） */
@@ -128,19 +136,27 @@ export function placeQueryIssue(normalized: string): PlaceQueryIssue | null {
   return null;
 }
 
-/** 搜索的缓存键：城市（不带城市时是渠道授权范围的标识）+ 规范化后的关键字（不分大小写）。 */
-export function placeSearchCacheKey(cityId: string, normalizedQuery: string): string {
-  return `search:${cityId}:${normalizedQuery.toLowerCase()}`;
+/**
+ * 搜索的缓存键：语言 + 城市（不带城市时是渠道授权范围的标识）+ 规范化后的关键字（不分大小写）。
+ * 语言（M12-07，ADR 0108）在前：同一关键字按不同语言问谷歌的结果各存各的，不互相覆盖。
+ */
+export function placeSearchCacheKey(language: PlaceLanguage, cityId: string, normalizedQuery: string): string {
+  return `search:${language}:${cityId}:${normalizedQuery.toLowerCase()}`;
 }
 
-/** 输入即提示的缓存键：渠道授权范围的标识 + 规范化后的关键字（不分大小写）。不含会话令牌：同一关键字 10 分钟内谁来都不再调谷歌。 */
-export function placeAutocompleteCacheKey(scope: string, normalizedQuery: string): string {
-  return `autocomplete:${scope}:${normalizedQuery.toLowerCase()}`;
+/** 输入即提示的缓存键：语言 + 渠道授权范围的标识 + 规范化后的关键字（不分大小写）。不含会话令牌：同一关键字 10 分钟内谁来都不再调谷歌。 */
+export function placeAutocompleteCacheKey(language: PlaceLanguage, scope: string, normalizedQuery: string): string {
+  return `autocomplete:${language}:${scope}:${normalizedQuery.toLowerCase()}`;
 }
 
-/** 取一个地点的坐标和类型（Place Details）的缓存键：谷歌的地点 ID（区分大小写）。 */
-export function placeDetailsCacheKey(placeId: string): string {
-  return `details:${placeId}`;
+/** 取一个地点的坐标和类型（Place Details）的缓存键：语言 + 谷歌的地点 ID（区分大小写；地址文字随语言不同）。 */
+export function placeDetailsCacheKey(language: PlaceLanguage, placeId: string): string {
+  return `details:${language}:${placeId}`;
+}
+
+/** 反查的缓存键：语言 + 取整后的坐标（`placeReverseKey`）+ 国家。 */
+export function placeReverseCacheKey(language: PlaceLanguage, point: LatLng, regionCode: string): string {
+  return `reverse:${language}:${placeReverseKey(point).key.slice("reverse:".length)}:${regionCode}`;
 }
 
 /** 反查的缓存键和调谷歌用的坐标：都取整到 `PLACE_SEARCH_RULES.reverseDecimals` 位，同一个键的结果一定来自同一组坐标。 */
