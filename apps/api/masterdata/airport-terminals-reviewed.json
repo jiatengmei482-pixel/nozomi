@@ -1,0 +1,4 @@
+{
+  "description": "机场地址、集合地点说明和航站楼核对表（M12-06）。只用机场官网、政府资料和维基数据（CC0），不用谷歌数据；每一项写明来源。由 pnpm masterdata:import-airport-terminals-reviewed（主数据导入工作流的 airport-terminals-reviewed）写入：库里没有的航站楼新建，已有的只填空着的地址、集合地点、名称语言，不覆盖平台改过的。每个机场：code（三字码）、country（国家码）、address {text（日本的写日文、含邮编）, source}、meetingPoint {zh, ja?, en?, source}（只有不列航站楼的单航站楼机场写，列了航站楼的写在各航站楼上）、terminals [{ suffix（如 T1，编码是三字码-后缀）, names {ja, zh, en}, lat, lng, coordSource, flightScope?（international / domestic / mixed）, address? {text, source}, meetingPoint {zh, ja?, en?, source?（不写时用 sources）}, sources [来源说明] }]。航站楼坐标和机场相距超过 5 公里的不用。",
+  "airports": []
+}

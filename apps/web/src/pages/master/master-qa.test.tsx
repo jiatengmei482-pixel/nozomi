@@ -35,6 +35,7 @@ const airport = (n: number): Place => ({
   category: null,
   flight_scope: null,
   address: null,
+  meeting_point: null,
   source: { name: "ourairports", ref: String(2000 + n), synced_at: "2026-01-01T00:00:00.000Z", overridden: false },
   status: "disabled",
   version: 1,

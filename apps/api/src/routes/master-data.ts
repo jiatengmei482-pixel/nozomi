@@ -16,6 +16,10 @@ import {
   type LocalizedText,
   MASTER_DATA_LANGUAGES,
   MAX_BOUNDARY_POINTS,
+  MAX_MEETING_POINT_LENGTH,
+  MAX_PLACE_ADDRESS_LENGTH,
+  MEETING_POINT_LANGUAGES,
+  type MeetingPoint,
   MAX_VEHICLE_COMBOS,
   MAX_VEHICLE_SEATS,
   type MasterDataStatus,
@@ -28,6 +32,7 @@ import {
   VEHICLE_GRADES,
   VEHICLE_POWERS,
   hasVisibleText,
+  placeContentText,
 } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
@@ -115,7 +120,15 @@ const cityPatchSchema = z.object({
   boundary: boundarySchema.nullable().optional(),
 });
 
-const addressSchema = visibleText(300);
+const addressSchema = visibleText(MAX_PLACE_ADDRESS_LENGTH);
+
+/** 集合地点说明（M12-06）：{zh, ja, en}，至少一种；只有机场、航站楼能填（类型的规则在 services / @nozomi/domain） */
+const meetingPointText = visibleText(MAX_MEETING_POINT_LENGTH).optional();
+const meetingPointSchema = z
+  .object({ zh: meetingPointText, ja: meetingPointText, en: meetingPointText })
+  .strict(placeContentText("unknownLanguage", { languages: MEETING_POINT_LANGUAGES.join("、") }))
+  .transform((value): MeetingPoint => Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)))
+  .refine((value) => Object.keys(value).length > 0, placeContentText("noLanguage"));
 
 const placeSchema = z.object({
   type: z.enum(PLACE_TYPES),
@@ -127,6 +140,7 @@ const placeSchema = z.object({
   category: z.enum(PLACE_CATEGORIES).nullable().default(null),
   flight_scope: z.enum(FLIGHT_SCOPES).nullable().default(null),
   address: addressSchema.nullable().default(null),
+  meeting_point: meetingPointSchema.nullable().default(null),
 });
 
 const placePatchSchema = z.object({
@@ -139,6 +153,7 @@ const placePatchSchema = z.object({
   category: z.enum(PLACE_CATEGORIES).nullable().optional(),
   flight_scope: z.enum(FLIGHT_SCOPES).nullable().optional(),
   address: addressSchema.nullable().optional(),
+  meeting_point: meetingPointSchema.nullable().optional(),
   // 包车上架的覆盖检查清单（M9P-06，ADR 0093 第七节第 4 条）：只有地标能勾
   charter_coverage: z.boolean().optional(),
 });
@@ -249,7 +264,10 @@ function refJson(ref: MasterRef | undefined): Json | null {
   return ref === undefined ? null : { id: ref.id, code: ref.code, name: ref.name };
 }
 
-/** 租户看到的地点：没有导入来源这些平台内部的信息。`city`、`parent` 是所属城市和上级的编码与名称，省得再查一次。 */
+/**
+ * 租户看到的地点：没有导入来源这些平台内部的信息。`city`、`parent` 是所属城市和上级的编码与名称，省得再查一次。
+ * 地址和集合地点说明（M12-06）租户也看得到：供应商要按它安排司机在哪里等客人。
+ */
 export function tenantPlaceJson(place: Place, refs?: PlaceRefs): Json {
   const parent = place.parentId === null ? undefined : refs?.parents.get(place.parentId);
   return {
@@ -266,6 +284,7 @@ export function tenantPlaceJson(place: Place, refs?: PlaceRefs): Json {
     category: place.category,
     flight_scope: place.flightScope,
     address: place.address,
+    meeting_point: place.meetingPoint,
     ...versionedJson(place),
   };
 }
@@ -495,6 +514,7 @@ export function registerMasterDataRoutes(app: FastifyInstance, ctx: AppContext):
         category: input.category,
         flightScope: input.flight_scope,
         address: input.address,
+        meetingPoint: input.meeting_point,
       }),
     patchSchema: placePatchSchema,
     update: (writer, id, version, patch) =>
@@ -509,6 +529,7 @@ export function registerMasterDataRoutes(app: FastifyInstance, ctx: AppContext):
         category: patch.category,
         flightScope: patch.flight_scope,
         address: patch.address,
+        meetingPoint: patch.meeting_point,
         charterCoverage: patch.charter_coverage,
       }),
     setStatus: (writer, id, status, cityId) => setPlaceStatus(ctx, writer, id, status, cityId),

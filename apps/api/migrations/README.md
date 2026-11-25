@@ -119,3 +119,4 @@
 | `0600_trip_quote.sql` | AI 行程报价 P1（M9T-02，ADR 0101 第二节）：平台表 `trips`、`trip_plans`、`trip_segments`、`trip_fees`（行程单、方案、服务段、跨段费用，只授权平台角色）和租户表 `trip_rule_configs`（跨段规则配置，行级安全，平台只读）。只建结构，不含任何数据；编号按监工要求从 0600 起 |
 | `0660_integration_secrets_anthropic.sql` | 运营后台填写 Claude 密钥（M9T-31，ADR 0104 第六节）：`integration_secrets` 的取值多一项 `anthropic`。只放宽约束，不含任何数据 |
 | `0680_place_search_names.sql` | 机场的搜索别名（M8-47）：`places.search_names`（`text[]`，默认空数组，最多 20 个），数据源里这个机场的其他日文、中文写法（如羽田的「羽田空港」），只给官网地址搜索、输入即提示按名称找平台的机场用。由 `pnpm masterdata:import-airport-names` 每次整份替换（不算修改，不写审计）。只加列，不含任何数据；上线后运行一次这个导入补上已有的机场 |
+| `0700_place_address_meeting_point.sql` | 机场 / 航站楼的固定地址和集合地点说明（M12-06）：`places.address` 从只有地标能填放宽到地标、机场、航站楼（非空白）；新列 `meeting_point`（jsonb，可空，`{zh, ja, en}` 至少一种、每种 ≤ 1000 字，只有机场、航站楼能填）；新列 `content_sources`（地址、集合地点是哪次导入填的，同 `name_sources` 的用法，不进接口应答）。只改结构，不含任何数据 |

@@ -9,6 +9,7 @@ import type {
   FlightScope,
   LocalizedText,
   MasterDataStatus,
+  MeetingPoint,
   PlaceCategory,
   PlaceType,
   ServiceCategory,
@@ -69,6 +70,8 @@ export interface Place extends MasterRecord {
   category: PlaceCategory | null;
   flight_scope: FlightScope | null;
   address: string | null;
+  /** 集合地点说明（M12-06）：只有机场、航站楼有 */
+  meeting_point: MeetingPoint | null;
   source: PlaceSource | null;
   /** 在不在包车上架的覆盖检查清单里（M9P-06）：只有地标能勾；地点页的勾选在 M9P-07 */
   charter_coverage: boolean;
@@ -107,6 +110,7 @@ export interface PlaceCreate {
   category?: PlaceCategory;
   flight_scope?: FlightScope | null;
   address?: string | null;
+  meeting_point?: MeetingPoint | null;
 }
 export interface PlacePatch {
   city_id?: string;
@@ -115,6 +119,7 @@ export interface PlacePatch {
   category?: PlaceCategory;
   flight_scope?: FlightScope | null;
   address?: string | null;
+  meeting_point?: MeetingPoint | null;
   charter_coverage?: boolean;
 }
 
@@ -269,7 +274,7 @@ export function fetchDashboardSummary(token: string): Promise<DashboardSummary> 
 const RECORD = ["id", "code", "name", "status", "version", "created_at", "updated_at"] as const;
 export const MASTER_SCHEMA_FIELDS = {
   City: [...RECORD, "country_code", "timezone", "center", "boundary"],
-  Place: [...RECORD, "type", "country_code", "city_id", "parent_id", "city", "parent", "location", "category", "flight_scope", "address", "source", "charter_coverage"],
+  Place: [...RECORD, "type", "country_code", "city_id", "parent_id", "city", "parent", "location", "category", "flight_scope", "address", "meeting_point", "source", "charter_coverage"],
   VehicleGroup: [...RECORD, "grade", "seats", "sample_models", "power", "combos"],
   Addon: [...RECORD, "categories", "charge_unit", "description"],
   MasterRef: ["id", "code", "name"],
@@ -295,8 +300,8 @@ export const MASTER_SCHEMA_FIELDS = {
 export const MASTER_WRITE_FIELDS = {
   CityCreate: ["code", "country_code", "name", "timezone", "center"],
   CityPatch: ["name", "timezone", "center"],
-  PlaceCreate: ["type", "code", "city_id", "parent_id", "name", "location", "category", "flight_scope", "address"],
-  PlacePatch: ["city_id", "name", "location", "category", "flight_scope", "address", "charter_coverage"],
+  PlaceCreate: ["type", "code", "city_id", "parent_id", "name", "location", "category", "flight_scope", "address", "meeting_point"],
+  PlacePatch: ["city_id", "name", "location", "category", "flight_scope", "address", "meeting_point", "charter_coverage"],
   VehicleGroupCreate: ["code", "grade", "seats", "name", "sample_models", "power", "combos"],
   VehicleGroupPatch: ["name", "sample_models", "power", "combos"],
   AddonCreate: ["code", "categories", "charge_unit", "name", "description"],

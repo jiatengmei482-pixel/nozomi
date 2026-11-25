@@ -45,7 +45,7 @@ test("工作流只能手动触发，环境只有 staging，默认试运行", () 
   assert.deepEqual(inputs["environment"]?.options, ["staging"]);
   assert.equal(inputs["apply"]?.type, "boolean");
   assert.equal(inputs["apply"]?.default, false);
-  assert.deepEqual(inputs["dataset"]?.options?.slice().sort(), ["airport-names", "airport-names-reviewed", "airports", "cities"]);
+  assert.deepEqual(inputs["dataset"]?.options?.slice().sort(), ["airport-names", "airport-names-reviewed", "airport-terminals-reviewed", "airports", "cities"]);
   assert.equal(job.env["MODE"], "${{ inputs.apply && 'apply' || 'dry-run' }}");
   // 第一步就拦：不是 main、不是 staging、国家码不对都直接失败，还没准备 SSH
   const check = steps[0]?.run ?? "";
@@ -111,6 +111,11 @@ test("remote.sh masterdata：试运行带 --dry-run，写入不带；在当前�
   assert.equal(apply.status, 0, apply.stderr);
   assert.equal(apply.command, "/opt/nozomi/staging/current/bin/compose.sh exec -T api node apps/api/src/cli/masterdata-import-cities.ts --country JP");
   assert.match(apply.stderr, /写入数据库/);
+
+  // M12-06：航站楼核对表
+  const terminals = await runRemote(["staging", "airport-terminals-reviewed", "JP", "dry-run"]);
+  assert.equal(terminals.status, 0, terminals.stderr);
+  assert.equal(terminals.command, "/opt/nozomi/staging/current/bin/compose.sh exec -T api node apps/api/src/cli/masterdata-import-airport-terminals-reviewed.ts --country JP --dry-run");
 });
 
 test("remote.sh masterdata：服务器上导入失败时退出码原样传回", linuxOnly, async () => {

@@ -1,4 +1,4 @@
-# 主数据导入（M8-47b）：在服务器上运行 pnpm masterdata:import-airports / import-cities / import-airport-names / import-airport-names-reviewed（M12-06）。
+# 主数据导入（M8-47b）：在服务器上运行 pnpm masterdata:import-airports / import-cities / import-airport-names / import-airport-names-reviewed / import-airport-terminals-reviewed（M12-06）。
 # 实际执行的是 deploy/client/remote.sh masterdata——在当前运行版本的 API 容器里跑导入程序，数据从公开数据源下载
 # （OurAirports 公有领域、GeoNames CC BY 4.0），只给库里空着的填，可以反复运行。
 #
@@ -28,6 +28,7 @@ on:
         options:
           - airport-names
           - airport-names-reviewed
+          - airport-terminals-reviewed
           - airports
           - cities
       countries:

@@ -16,6 +16,7 @@ import {
   type GeoJsonPolygon,
   type LocalizedText,
   type MasterDataStatus,
+  type MeetingPoint,
   PLACE_ENABLE_BLOCKER_MESSAGES,
   type PlaceCategory,
   type PlaceType,
@@ -30,6 +31,8 @@ import {
   isIanaTimeZone,
   isLatitude,
   isLongitude,
+  meetingPointIssues,
+  placeAddressIssue,
   placeAttributeIssues,
   placeCodeIssue,
   placeEnableBlocker,
@@ -122,6 +125,7 @@ export const PLACE: MasterResource<Place> = {
     category: place.category,
     flight_scope: place.flightScope,
     address: place.address,
+    meeting_point: place.meetingPoint,
     source: place.source,
     source_ref: place.sourceRef,
     source_overridden: place.sourceOverridden,
@@ -458,6 +462,8 @@ export interface PlaceInput {
   category: PlaceCategory | null;
   flightScope: FlightScope | null;
   address: string | null;
+  /** 集合地点说明（M12-06）：只有机场、航站楼能填 */
+  meetingPoint: MeetingPoint | null;
 }
 
 export interface PlacePatch {
@@ -471,16 +477,26 @@ export interface PlacePatch {
   category?: PlaceCategory | null | undefined;
   flightScope?: FlightScope | null | undefined;
   address?: string | null | undefined;
+  meetingPoint?: MeetingPoint | null | undefined;
   /** 包车上架的覆盖检查清单（M9P-06）：只有地标能勾 */
   charterCoverage?: boolean | undefined;
 }
 
-function placeFieldIssues(type: PlaceType, place: Pick<PlaceInput, "lng" | "lat" | "category" | "flightScope" | "address">): InputIssue[] {
-  const paths = { category: "/category", flightScope: "/flight_scope", address: "/address" } as const;
-  return [
+function placeFieldIssues(type: PlaceType, place: Pick<PlaceInput, "lng" | "lat" | "category" | "flightScope" | "address" | "meetingPoint">): InputIssue[] {
+  const paths = { category: "/category", flightScope: "/flight_scope", address: "/address", meetingPoint: "/meeting_point" } as const;
+  const issues: InputIssue[] = [
     ...coordinateIssues(place.lng, place.lat, "/location/lng", "/location/lat"),
     ...placeAttributeIssues(type, place).map(([field, message]) => ({ path: paths[field], message })),
   ];
+  // 格式（接口层已经按同样的规则校验过一遍，这里兜底）：类型不对的已经报过，不再重复
+  if (place.address !== null && !issues.some((issue) => issue.path === "/address")) {
+    const issue = placeAddressIssue(place.address);
+    if (issue !== null) issues.push({ path: "/address", message: issue });
+  }
+  if (place.meetingPoint !== null && !issues.some((issue) => issue.path === "/meeting_point")) {
+    for (const issue of meetingPointIssues(place.meetingPoint)) issues.push({ path: issue.language === null ? "/meeting_point" : `/meeting_point/${issue.language}`, message: issue.message });
+  }
+  return issues;
 }
 
 function notReady(blocker: keyof typeof PLACE_ENABLE_BLOCKER_MESSAGES): never {
@@ -535,6 +551,7 @@ export function createPlace(ctx: AppContext, writer: MasterWriter, input: PlaceI
       category: input.category,
       flight_scope: input.flightScope,
       address: input.address,
+      meeting_point: input.meetingPoint,
     };
   });
 }
@@ -563,6 +580,7 @@ export function updatePlace(ctx: AppContext, writer: MasterWriter, id: string, v
       category: patch.category === undefined ? current.category : patch.category,
       flightScope: patch.flightScope === undefined ? current.flightScope : patch.flightScope,
       address: patch.address === undefined ? current.address : patch.address,
+      meetingPoint: patch.meetingPoint === undefined ? current.meetingPoint : patch.meetingPoint,
     };
     const issues = placeFieldIssues(current.type, merged);
     if (patch.charterCoverage === true && current.type !== "poi") issues.push({ path: "/charter_coverage", message: "只有地标能放进包车覆盖检查的清单" });
@@ -583,6 +601,7 @@ export function updatePlace(ctx: AppContext, writer: MasterWriter, id: string, v
         category: patch.category,
         flight_scope: patch.flightScope,
         address: patch.address,
+        meeting_point: patch.meetingPoint,
         charter_coverage: patch.charterCoverage,
         source_overridden: current.source !== null && sourceFieldChanged ? true : undefined,
       }),
