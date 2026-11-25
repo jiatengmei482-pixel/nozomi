@@ -506,7 +506,8 @@ test("输入即提示：平台的机场、车站在前（带坐标），谷歌�
   assert.deepEqual(body, {
     input: "東京",
     sessionToken: SESSION,
-    languageCode: "zh-CN",
+    // M12-07：「東」是繁体、日文共用的字形（简体是「东」），按日文问谷歌
+    languageCode: "ja",
     includedRegionCodes: ["JP"],
     locationRestriction: { rectangle: { low: { latitude: bounds?.low.lat, longitude: bounds?.low.lng }, high: { latitude: bounds?.high.lat, longitude: bounds?.high.lng } } },
   });
@@ -551,11 +552,11 @@ test("输入即提示的缓存：同一关键字（大小写、全角半角不�
   assert.deepEqual(picked.body, { available: true, place: { id: "ChIJfakeTokyoStation", address: "日本、〒100-0005 東京都千代田区丸の内１丁目", location: TOKYO_STATION, kind: "other" } });
   const [request] = details.requests as [FakeService["requests"][number]];
   assert.equal(request.method, "GET");
-  assert.equal(request.path, `/v1/places/ChIJfakeTokyoStation?languageCode=zh-CN&sessionToken=${SESSION}`);
+  assert.equal(request.path, `/v1/places/ChIJfakeTokyoStation?languageCode=en&sessionToken=${SESSION}`, "M12-07：沿用同一会话输入即提示的语言（英文输入）");
   assert.equal(request.headers["x-goog-fieldmask"], "id,formattedAddress,location,types");
   assert.equal(request.headers["x-goog-api-key"], FAKE_SECRETS.googleMapsApiKey);
-  await ok(site.call("GET", `/site/v1/places/details?id=ChIJfakeTokyoStation&session=${randomUUID()}`, { ip: nextIp() }));
-  assert.equal(details.requests.length, 1, "同一个地点不再调");
+  await ok(site.call("GET", `/site/v1/places/details?id=ChIJfakeTokyoStation&session=${randomUUID()}&lang=en`, { ip: nextIp() }));
+  assert.equal(details.requests.length, 1, "同一个地点、同一语言不再调");
   // 机场的类型
   details.respond({ body: googleDetailsBody("ChIJhnd", 35.5494, 139.7798, "日本、東京都大田区羽田空港", ["international_airport"]) });
   const airport = await ok(site.call("GET", `/site/v1/places/details?id=ChIJhnd`, { ip: nextIp() }));

@@ -10,6 +10,7 @@ import {
   placeFailureCooldownMs,
   placeQueryIssue,
   placeReverseKey,
+  placeReverseCacheKey,
   placeSearchCacheKey,
   placeAutocompleteCacheKey,
   placeDetailsCacheKey,
@@ -47,9 +48,11 @@ test("纯表情、纯符号不能搜：字母、数字、汉字、假名合计�
   assert.equal(placeQueryIssue("😀".repeat(101)), "TOO_LONG");
 });
 
-test("搜索的缓存键：城市 + 关键字，不分大小写", () => {
-  assert.equal(placeSearchCacheKey("c1", "Hilton Tokyo"), placeSearchCacheKey("c1", "hilton tokyo"));
-  assert.notEqual(placeSearchCacheKey("c1", "hilton"), placeSearchCacheKey("c2", "hilton"));
+test("搜索的缓存键：语言 + 城市 + 关键字，不分大小写；不同语言不共用（M12-07）", () => {
+  assert.equal(placeSearchCacheKey("en", "c1", "Hilton Tokyo"), placeSearchCacheKey("en", "c1", "hilton tokyo"));
+  assert.notEqual(placeSearchCacheKey("en", "c1", "hilton"), placeSearchCacheKey("en", "c2", "hilton"));
+  assert.equal(placeSearchCacheKey("zh-CN", "c1", "新宿"), "search:zh-CN:c1:新宿");
+  assert.notEqual(placeSearchCacheKey("zh-CN", "c1", "新宿"), placeSearchCacheKey("ja", "c1", "新宿"));
 });
 
 test("反查的键：坐标取整到 4 位（约 11 米），同一个键调谷歌用同一组坐标；无效坐标报错", () => {
@@ -61,6 +64,10 @@ test("反查的键：坐标取整到 4 位（约 11 米），同一个键调谷�
   assert.equal(placeReverseKey({ lat: 35.68125, lng: 139.76715 }).key, "reverse:35.6813,139.7672");
   assert.equal(placeReverseKey({ lat: -33.86785, lng: 151.2 }).key, "reverse:-33.8679,151.2000");
   assert.throws(() => placeReverseKey({ lat: 91, lng: 0 }), RangeError);
+  // M12-07：反查的缓存键带语言和国家，坐标同样取整
+  assert.equal(placeReverseCacheKey("ja", { lat: 35.681249, lng: 139.767149 }, "JP"), "reverse:ja:35.6812,139.7671:JP");
+  assert.notEqual(placeReverseCacheKey("ja", { lat: 35.6812, lng: 139.7671 }, "JP"), placeReverseCacheKey("zh-CN", { lat: 35.6812, lng: 139.7671 }, "JP"));
+  assert.throws(() => placeReverseCacheKey("en", { lat: 91, lng: 0 }, "JP"), RangeError);
 });
 
 test("城市范围：中心周围 80 公里的正方形；成田（东京站约 60 公里）在里面，大阪不在；纬度、经度夹在合法范围", () => {
@@ -109,8 +116,10 @@ test("M8-02：谷歌的类型 → 机场 / 其他；地点 ID、会话令牌的�
   assert.ok(!isGooglePlaceId("ChIJ abc") && !isGooglePlaceId("") && !isGooglePlaceId("x".repeat(301)) && !isGooglePlaceId(1));
   assert.ok(isPlaceSessionToken("3f2c1e9a-5b7d-4c1e-9a2b-1234567890ab"));
   assert.ok(!isPlaceSessionToken("short") && !isPlaceSessionToken("x".repeat(37)) && !isPlaceSessionToken("3f2c1e9a 5b7d 4c1e 9a2b") && !isPlaceSessionToken(undefined));
-  assert.equal(placeAutocompleteCacheKey("JP", "Hilton Tokyo"), "autocomplete:JP:hilton tokyo");
-  assert.equal(placeDetailsCacheKey("ChIJabc"), "details:ChIJabc");
+  assert.equal(placeAutocompleteCacheKey("en", "JP", "Hilton Tokyo"), "autocomplete:en:JP:hilton tokyo");
+  assert.notEqual(placeAutocompleteCacheKey("en", "JP", "tokyo"), placeAutocompleteCacheKey("zh-CN", "JP", "tokyo"));
+  assert.equal(placeDetailsCacheKey("ja", "ChIJabc"), "details:ja:ChIJabc");
+  assert.notEqual(placeDetailsCacheKey("ja", "ChIJabc"), placeDetailsCacheKey("en", "ChIJabc"));
 });
 
 test("M8-02：短时缓存 10 分钟（业主确认 ADR 0069）", () => {

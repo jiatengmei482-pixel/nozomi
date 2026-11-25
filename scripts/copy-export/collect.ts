@@ -27,7 +27,7 @@ export const SOURCE_ROOTS = ["apps/web/src", "apps/api/src", "packages/domain/sr
 
 /**
  * 不扫的文件：测试和测试工具；后端的命令行工具（运维在终端里看）、数据库迁移、外部接口的对接代码（发给 Google、Stripe、Claude 的内容）、
- * 日志；评测用例和金样本（测试数据）；AI 解析的提示词（发给模型，不给人看）。
+ * 日志；评测用例和金样本（测试数据）；AI 解析的提示词（发给模型，不给人看）；地址搜索判断语言用的汉字表（Unihan 生成的数据，ADR 0108）。
  */
 const EXCLUDED = [
   /\.(test|itest)\.tsx?$/,
@@ -38,6 +38,7 @@ const EXCLUDED = [
   /\/e2e\//,
   /^apps\/api\/src\/(cli|db|integrations)\//,
   /^apps\/api\/src\/logging\.ts$/,
+  /^packages\/domain\/src\/place-language-tables\.ts$/,
   /^apps\/api\/src\/services\/(trip-eval|trip-eval-cases|trip-parse|replay-classify|replay-digest|qa-acceptance)\.ts$/,
 ];
 

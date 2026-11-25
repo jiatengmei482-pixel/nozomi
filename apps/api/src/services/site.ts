@@ -23,6 +23,9 @@ import {
   type RouteUsage,
   type LocalizedText,
   type PlaceKind,
+  type PlacePageLang,
+  placeLanguageOf,
+  placeLanguageOfPage,
   type QuoteSnapshot,
   type SellBreakdownItem,
   type PointsTripType,
@@ -564,14 +567,16 @@ async function platformSuggestions(ctx: AppContext, cityIds: readonly string[], 
 /**
  * 按关键字搜地点（关键字已规范化、长短合格）：平台的机场、车站在前，谷歌的结果在后。谷歌出问题不报错，`available: false`、只有平台的地点。
  * 带城市：城市附近（ADR 0044）；不带城市（M8-02）：渠道授权的几个城市的范围里，授权的只有一个国家时按它做 `regionCode`。
+ * 请求谷歌的语言按关键字判断，判断不出用页面语言 `pageLang`，没有时 `zh-CN`（M12-07，ADR 0108）；平台的地点照旧按所有语言的名称和别名找，不受影响。
  */
-export async function siteSearchPlaces(ctx: AppContext, cityId: string | null, query: string, options: PlaceLookupOptions = {}): Promise<SitePlaceSearchResult> {
+export async function siteSearchPlaces(ctx: AppContext, cityId: string | null, query: string, options: PlaceLookupOptions = {}, pageLang: PlacePageLang | null = null): Promise<SitePlaceSearchResult> {
+  const language = placeLanguageOf(query, pageLang);
   const google = (found: { ok: true; value: { id: string; name: string; address: string; location: LatLng; kind: PlaceKind }[] } | { ok: false }): SitePlaceItem[] =>
     found.ok ? found.value.map((item) => ({ source: "google", id: item.id, name: item.name, address: item.address, location: item.location, kind: item.kind })) : [];
   if (cityId !== null) {
     const city = await sitePlaceCity(ctx, cityId);
     const platform = await platformSuggestions(ctx, [cityId], query);
-    const found = await ctx.places.search({ cityId, query, bounds: cityBounds(city.center), regionCode: city.countryCode }, options);
+    const found = await ctx.places.search({ cityId, query, bounds: cityBounds(city.center), regionCode: city.countryCode, language }, options);
     return { available: found.ok, unavailableReason: unavailableReasonOf(found), items: [...platform, ...google(found)] };
   }
   const region = await siteRegion(ctx);
@@ -579,20 +584,21 @@ export async function siteSearchPlaces(ctx: AppContext, cityId: string | null, q
   const centers = region.cities.map((city) => city.center);
   const bounds = regionBounds(centers);
   if (bounds === null) return { available: ctx.places.enabled, unavailableReason: null, items: platform };
-  const found = await ctx.places.search({ cityId: `region-${region.scope}`, query, bounds, regionCode: region.countries.length === 1 ? (region.countries[0] as string) : null, accept: (location) => inAnyCity(location, centers) }, options);
+  const found = await ctx.places.search({ cityId: `region-${region.scope}`, query, bounds, regionCode: region.countries.length === 1 ? (region.countries[0] as string) : null, accept: (location) => inAnyCity(location, centers), language }, options);
   return { available: found.ok, unavailableReason: unavailableReasonOf(found), items: [...platform, ...google(found)] };
 }
 
 /**
  * 输入即提示（M8-02，ADR 0069 B1）：平台的机场、车站在前（带坐标），谷歌的候选在后（还没有坐标，选中后取）。
  * 谷歌只给渠道授权的国家、授权城市合起来的范围里的。谷歌出问题不报错，`available: false`、只有平台的地点。
+ * 请求谷歌的语言同地址搜索（按关键字判断，判断不出用页面语言，M12-07）；同一会话选中后取坐标沿用这个语言。
  */
-export async function siteAutocomplete(ctx: AppContext, query: string, sessionToken: string, options: PlaceLookupOptions = {}): Promise<SitePlaceSearchResult> {
+export async function siteAutocomplete(ctx: AppContext, query: string, sessionToken: string, options: PlaceLookupOptions = {}, pageLang: PlacePageLang | null = null): Promise<SitePlaceSearchResult> {
   const region = await siteRegion(ctx);
   const platform = await platformSuggestions(ctx, region.cities.map((city) => city.id), query);
   const bounds = regionBounds(region.cities.map((city) => city.center));
   if (bounds === null) return { available: ctx.places.enabled, unavailableReason: null, items: platform };
-  const found = await ctx.places.autocomplete({ scope: region.scope, query, sessionToken, regionCodes: region.countries, bounds }, options);
+  const found = await ctx.places.autocomplete({ scope: region.scope, query, sessionToken, regionCodes: region.countries, bounds, language: placeLanguageOf(query, pageLang) }, options);
   const google: SitePlaceItem[] = found.ok ? found.value.map((item) => ({ source: "google", id: item.id, name: item.name, address: item.address, location: null, kind: item.kind })) : [];
   return { available: found.ok, unavailableReason: unavailableReasonOf(found), items: [...platform, ...google] };
 }
@@ -604,10 +610,13 @@ export interface SitePlaceDetailsResult {
   place: { id: string; address: string; location: LatLng; kind: PlaceKind } | null;
 }
 
-/** 输入即提示选中的谷歌地点的坐标和类型（同一个会话令牌，谷歌按一次会话计费）。官网要开着；谷歌出问题不报错，`available: false`。 */
-export async function sitePlaceDetails(ctx: AppContext, placeId: string, sessionToken: string | null, options: PlaceLookupOptions = {}): Promise<SitePlaceDetailsResult> {
+/**
+ * 输入即提示选中的谷歌地点的坐标和类型（同一个会话令牌，谷歌按一次会话计费）。官网要开着；谷歌出问题不报错，`available: false`。
+ * 地址的语言沿用同一会话的输入即提示；没带会话或记不到时用页面语言，没有时 `zh-CN`（M12-07）。
+ */
+export async function sitePlaceDetails(ctx: AppContext, placeId: string, sessionToken: string | null, options: PlaceLookupOptions = {}, pageLang: PlacePageLang | null = null): Promise<SitePlaceDetailsResult> {
   await requireOpenSite(ctx);
-  const found = await ctx.places.details({ placeId, sessionToken }, options);
+  const found = await ctx.places.details({ placeId, sessionToken, fallbackLanguage: placeLanguageOfPage(pageLang) }, options);
   return found.ok ? { available: true, unavailableReason: null, place: found.value } : { available: false, unavailableReason: unavailableReasonOf(found), place: null };
 }
 
@@ -618,11 +627,14 @@ export interface SiteReverseResult {
   address: string | null;
 }
 
-/** 查地图上一个位置的地址。坐标离城市太远 400 `OUT_OF_CITY`（这个代理只为在这个城市用车服务）。谷歌出问题不报错，`available: false`。 */
-export async function siteReversePlace(ctx: AppContext, cityId: string, point: LatLng, options: PlaceLookupOptions = {}): Promise<SiteReverseResult> {
+/**
+ * 查地图上一个位置的地址。坐标离城市太远 400 `OUT_OF_CITY`（这个代理只为在这个城市用车服务）。谷歌出问题不报错，`available: false`。
+ * 反查没有输入的文字：地址的语言用页面语言，没有时 `zh-CN`（M12-07）。
+ */
+export async function siteReversePlace(ctx: AppContext, cityId: string, point: LatLng, options: PlaceLookupOptions = {}, pageLang: PlacePageLang | null = null): Promise<SiteReverseResult> {
   const city = await sitePlaceCity(ctx, cityId);
   if (!inBounds(point, cityBounds(city.center))) throw validationFailed("querystring", [{ path: "/lat", reason: "OUT_OF_CITY", message: "这个位置离城市太远，请在城市附近选点" }]);
-  const found = await ctx.places.reverse({ point, regionCode: city.countryCode }, options);
+  const found = await ctx.places.reverse({ point, regionCode: city.countryCode, language: placeLanguageOfPage(pageLang) }, options);
   return found.ok ? { available: true, unavailableReason: null, address: found.value } : { available: false, unavailableReason: unavailableReasonOf(found), address: null };
 }
 
