@@ -496,3 +496,41 @@ test("320 / 360 / 400 宽度下流水线页和各表单都不横向滚动；亮�
   await sweep("城市编辑页");
   await bothThemes("城市编辑页");
 });
+
+test("机场、航站楼的地址和集合地点说明（M12-06）：在编辑页填写保存，接口读得到；航站楼新增时一起填", async ({ page, request }) => {
+  const city = await createCity(request, "NC", "Pacific/Noumea");
+  const headers = await platformAdminHeaders(request);
+  let airport: { id: string; code: string } | null = null;
+  for (let attempt = 0; attempt < 8 && airport === null; attempt += 1) {
+    const response = await request.post("/platform/v1/master/places", { headers, data: { type: "airport", code: randomLetters(3), city_id: city.id, name: { zh: `端到端机场${city.code}` }, location: { lng: 166.212972, lat: -22.014553 } } });
+    if (response.status() === 201) airport = (await response.json()) as { id: string; code: string };
+    else expect(response.status(), await response.text()).toBe(409);
+  }
+  expect(airport, "建出一个机场").not.toBeNull();
+  const { id, code } = airport as { id: string; code: string };
+  await signInAsAdmin(page);
+
+  await page.goto(`/platform/master/places/${id}`);
+  await page.getByLabel(/^地址/).fill("〒000-0000 测试地址 1-1");
+  const meeting = page.getByRole("group", { name: "集合地点说明" });
+  await meeting.getByLabel("日文（选填）").fill("到着ロビー");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(meeting.getByText("填了日文或英文时，中文必填")).toBeVisible();
+  await meeting.getByLabel("中文", { exact: true }).fill("到达大厅出口外");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: "已保存" })).toBeVisible();
+  const saved = (await (await request.get(`/platform/v1/master/places/${id}`, { headers })).json()) as { address: string; meeting_point: Record<string, string>; version: number };
+  expect([saved.address, saved.meeting_point, saved.version]).toEqual(["〒000-0000 测试地址 1-1", { zh: "到达大厅出口外", ja: "到着ロビー" }, 2]);
+
+  await page.goto(`/platform/master/places/${id}`);
+  await page.getByRole("link", { name: "新增航站楼" }).first().click();
+  await expect(page.getByLabel(/^编码/)).toHaveValue(`${code}-`);
+  await page.getByLabel(/^编码/).fill(`${code}-T1`);
+  await page.getByLabel("名称 中文").fill("第 1 航站楼");
+  await page.getByRole("button", { name: "填入机场的坐标" }).click();
+  await page.getByRole("group", { name: "集合地点说明" }).getByLabel("中文", { exact: true }).fill("1 楼到达大厅");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: "已新增航站楼「第 1 航站楼」" })).toBeVisible();
+  const terminals = (await (await request.get(`/platform/v1/master/places?parent_id=${id}`, { headers })).json()) as { items: { code: string; meeting_point: Record<string, string> | null }[] };
+  expect(terminals.items.map((item) => [item.code, item.meeting_point])).toEqual([[`${code}-T1`, { zh: "1 楼到达大厅" }]]);
+});

@@ -631,7 +631,7 @@ NOZOMI_SSH_USER=nozomi NOZOMI_SSH_KEY_FILE=nozomi-deploy私钥路径 \
 ### 每次怎么做
 
 1. 仓库 → **Actions** → 左边选 **Masterdata import** → 右边 **Run workflow**。
-2. 分支选 **main**；环境只有 staging；「导入什么数据」选 `airport-names`（机场中文、日文名和搜索别名，来自 GeoNames）、`airport-names-reviewed`（按仓库里核对过的机场名称表补空着的日文、简体中文名，M12-06，表在 `apps/api/masterdata/airport-names-reviewed.json`）、`airports`（机场）或 `cities`（城市）；国家码填两位大写字母、逗号分隔，例如 `JP,KR`。
+2. 分支选 **main**；环境只有 staging；「导入什么数据」选 `airport-names`（机场中文、日文名和搜索别名，来自 GeoNames）、`airport-names-reviewed`（按仓库里核对过的机场名称表补空着的日文、简体中文名，M12-06，表在 `apps/api/masterdata/airport-names-reviewed.json`）、`airport-terminals-reviewed`（按仓库里核对过的航站楼核对表给机场填地址、集合地点说明，新建还没有的航站楼，给已有的航站楼补空着的项，M12-06，表在 `apps/api/masterdata/airport-terminals-reviewed.json`，要先导入机场；不联网）、`airports`（机场）或 `cities`（城市）；国家码填两位大写字母、逗号分隔，例如 `JP,KR`。
 3. **第一次不勾「写入数据库」**，点 Run workflow。这是试运行：只显示将要新增、更新多少条，数据库不变。
 4. 跑完点进这次运行，摘要里就是结果；同样的内容在页面底部 **Artifacts** 里可以下载（保留 30 天）。
 5. 结果核对过、确认可以写入后，同样的选项**勾上「写入数据库」**再运行一次。再运行一次试运行，应显示没有要填的。

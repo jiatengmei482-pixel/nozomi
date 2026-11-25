@@ -28,6 +28,16 @@ const NOT_SIMPLIFIED = /[國機場際飛島澤見標麗戶關東縣濟長岡靜�
 /** 日文名里应有日文用的写法：至少有一个汉字或假名（防止把英文、韩文填进日文名） */
 const JAPANESE_TEXT = /[぀-ヿ一-鿿]/u;
 
+/** 简体中文里不该出现的繁体 / 日文字形（去重，按出现顺序）。航站楼核对表（reviewed-airport-terminals.ts）也用 */
+export function nonSimplifiedChars(text: string): string[] {
+  return [...new Set(text.match(NOT_SIMPLIFIED) ?? [])];
+}
+
+/** 有没有汉字或假名（日文名、日文地址要有） */
+export function hasJapaneseText(text: string): boolean {
+  return JAPANESE_TEXT.test(text);
+}
+
 export interface ReviewedAirportName {
   code: string;
   country: string;
@@ -86,10 +96,10 @@ export function readReviewedAirportNames(value: unknown): { entries: ReviewedAir
         continue;
       }
       if (language === "zh") {
-        const bad = [...new Set(text.match(NOT_SIMPLIFIED) ?? [])];
+        const bad = nonSimplifiedChars(text);
         if (bad.length > 0) report("NOT_SIMPLIFIED", { language, text, chars: bad.join("") });
       }
-      if (language === "ja" && !JAPANESE_TEXT.test(text)) report("NOT_JAPANESE", { language, text });
+      if (language === "ja" && !hasJapaneseText(text)) report("NOT_JAPANESE", { language, text });
       const ref = sources[language];
       if (typeof ref !== "string" || !hasVisibleText(ref) || ref.length > MAX_REF_LENGTH) report("NO_SOURCE", { language });
       else {

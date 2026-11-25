@@ -15,11 +15,14 @@ import {
   isIataCode,
   isLatitude,
   isLongitude,
+  meetingPointIssues,
+  placeAddressIssue,
   placeAttributeIssues,
   placeCodeIssue,
   placeEnableBlocker,
   requiredParentType,
   roundCoordinate,
+  sameMeetingPoint,
   vehicleComboIssues,
   vehicleGroupCodeIssue,
 } from "./master-data.ts";
@@ -102,7 +105,7 @@ test("上级：航站楼挂机场，出口挂车站，其余没有上级", () =>
   assert.deepEqual(PLACE_TYPES.map((type) => requiredParentType(type)), [null, null, null, "airport", "station"]);
 });
 
-test("地点的属性：车站 / 地标必须有各自的类型，地址只属于地标，国际国内属性只属于机场和航站楼", () => {
+test("地点的属性：车站 / 地标必须有各自的类型，地址属于地标、机场、航站楼，国际国内属性和集合地点只属于机场和航站楼", () => {
   const none = { category: null, flightScope: null, address: null };
   assert.deepEqual(placeAttributeIssues("airport", none), []);
   assert.deepEqual(placeAttributeIssues("airport", { ...none, flightScope: "international" }), []);
@@ -119,6 +122,47 @@ test("地点的属性：车站 / 地标必须有各自的类型，地址只属�
   assert.deepEqual(placeAttributeIssues("airport", { ...none, category: "hotel" }).map(([field]) => field), ["category"]);
   assert.deepEqual(placeAttributeIssues("station", { category: "rail", flightScope: "mixed", address: "x" }).map(([field]) => field), ["flightScope", "address"]);
   assert.deepEqual(placeAttributeIssues("exit", { ...none, flightScope: "mixed" }).map(([field]) => field), ["flightScope"]);
+
+  // M12-06：机场、航站楼也能有地址和集合地点；车站、出口、地标不能有集合地点，车站、出口仍然不能有地址
+  const meetingPoint = { zh: "到达大厅 1 号出口外" };
+  assert.deepEqual(placeAttributeIssues("airport", { ...none, address: "〒144-0041 東京都大田区羽田空港3-3-2", meetingPoint }), []);
+  assert.deepEqual(placeAttributeIssues("terminal", { ...none, address: "〒144-0041 東京都大田区羽田空港2-6-5", meetingPoint }), []);
+  assert.deepEqual(placeAttributeIssues("exit", { ...none, address: "x" }), [["address", "只有地标、机场和航站楼有地址"]]);
+  for (const type of ["station", "exit", "poi"] as const) {
+    assert.deepEqual(placeAttributeIssues(type, { ...none, category: type === "station" ? "rail" : type === "poi" ? "hotel" : null, meetingPoint }), [["meetingPoint", "只有机场和航站楼有集合地点说明"]], type);
+    assert.deepEqual(placeAttributeIssues(type, { ...none, category: type === "station" ? "rail" : type === "poi" ? "hotel" : null, meetingPoint: null }), [], type);
+  }
+});
+
+test("地址的格式：不能只有空白、首尾不能有空白、最多 300 个字", () => {
+  assert.equal(placeAddressIssue("〒282-0004 千葉県成田市古込1-1"), null);
+  assert.equal(placeAddressIssue("x".repeat(300)), null);
+  assert.equal(placeAddressIssue("x".repeat(301)), "最多 300 个字");
+  assert.equal(placeAddressIssue("   "), "不能只有空白或不可见字符");
+  assert.equal(placeAddressIssue("\u200b"), "不能只有空白或不可见字符");
+  assert.equal(placeAddressIssue(" 千葉県 "), "首尾不能有空白");
+});
+
+test("集合地点说明的格式：对象、只认 zh / ja / en、至少一种、每种看得见且最多 1000 个字；可要求中文必填", () => {
+  assert.deepEqual(meetingPointIssues({ zh: "国际线到达大厅", ja: "国際線到着ロビー", en: "International arrivals lobby" }), []);
+  assert.deepEqual(meetingPointIssues({ ja: "到着ロビー" }), []);
+  assert.deepEqual(meetingPointIssues({ zh: "x".repeat(1000) }), []);
+  assert.deepEqual(meetingPointIssues({ zh: "x".repeat(1001) }), [{ language: "zh", message: "最多 1000 个字" }]);
+  assert.deepEqual(meetingPointIssues({}), [{ language: null, message: "至少填一种语言" }]);
+  assert.deepEqual(meetingPointIssues({ ko: "도착 로비" }), [{ language: "ko", message: "只支持这些语言：zh、ja、en" }]);
+  assert.deepEqual(meetingPointIssues({ zh: "  " }), [{ language: "zh", message: "不能只有空白或不可见字符" }]);
+  assert.deepEqual(meetingPointIssues({ zh: 1 }), [{ language: "zh", message: "不能只有空白或不可见字符" }]);
+  assert.deepEqual(meetingPointIssues({ en: " Lobby" }), [{ language: "en", message: "首尾不能有空白" }]);
+  for (const value of [null, "到达大厅", ["到达大厅"], 3]) assert.equal(meetingPointIssues(value)[0]?.language, null, JSON.stringify(value));
+  assert.deepEqual(meetingPointIssues({ ja: "到着ロビー" }, { requireZh: true }), [{ language: "zh", message: "中文必填" }]);
+  assert.deepEqual(meetingPointIssues({ zh: "到达大厅" }, { requireZh: true }), []);
+});
+
+test("两段集合地点说明是否一样：按语言比，不管键的顺序", () => {
+  assert.equal(sameMeetingPoint({ zh: "a", en: "b" }, { en: "b", zh: "a" }), true);
+  assert.equal(sameMeetingPoint({ zh: "a" }, { zh: "a", en: "b" }), false);
+  assert.equal(sameMeetingPoint(null, null), true);
+  assert.equal(sameMeetingPoint(null, { zh: "a" }), false);
 });
 
 test("地点能否启用：要有城市、城市启用、上级启用", () => {

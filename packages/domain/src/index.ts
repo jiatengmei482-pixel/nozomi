@@ -21,6 +21,8 @@ export * from "./temporary-password.ts";
 export * from "./geonames.ts";
 export * from "./geonames-airports.ts";
 export * from "./reviewed-airport-names.ts";
+export * from "./reviewed-airport-terminals.ts";
+export * from "./place-content-texts.ts";
 export * from "./areas.ts";
 export * from "./area-overlap.ts";
 export * from "./shared-areas.ts";

@@ -1,6 +1,6 @@
 # 前后端共用的业务说法（domain 包）
 
-由 `pnpm copy:export` 从代码生成，不要手改。本区域共 822 条：写死 807 条，已走 key 15 条。列的意思见 [README](README.md)。
+由 `pnpm copy:export` 从代码生成，不要手改。本区域共 832 条：写死 806 条，已走 key 26 条。列的意思见 [README](README.md)。
 
 ## 页面
 
@@ -26,11 +26,12 @@
 - [库存（inventory.ts）](#库存inventoryts)（2 条）
 - [官网和嵌入页的三份法律文案（legal-pages.ts）](#官网和嵌入页的三份法律文案legal-pagests)（33 条）
 - [人工报价申请（manual-quote.ts）](#人工报价申请manual-quotets)（10 条）
-- [平台主数据的规则（master-data.ts）](#平台主数据的规则master-datats)（39 条）
+- [平台主数据的规则（master-data.ts）](#平台主数据的规则master-datats)（38 条）
 - [订单与付款（orders.ts）](#订单与付款ordersts)（12 条）
 - [机场主数据的公开数据源（ourairports.ts）](#机场主数据的公开数据源ourairportsts)（18 条）
 - [运营「代客人改单」改乘客邮箱要双人复核（passenger-email-review.ts）](#运营代客人改单改乘客邮箱要双人复核passenger-email-reviewts)（2 条）
 - [密码最小强度规则（password-policy.ts）](#密码最小强度规则password-policyts)（5 条）
+- [机场 / 航站楼的地址、集合地点说明（place-content-texts.ts）](#机场--航站楼的地址集合地点说明place-content-textsts)（11 条）
 - [地点名称的匹配规则（place-match.ts）](#地点名称的匹配规则place-matchts)（15 条）
 - [价格表导入第 1 阶段（price-import.ts）](#价格表导入第-1-阶段price-importts)（53 条）
 - [价格表导入第 0 阶段（price-sheet.ts）](#价格表导入第-0-阶段price-sheetts)（229 条）
@@ -508,45 +509,44 @@
 
 | key | 状态 | 中文 | 类型 | 位置 |
 | --- | --- | --- | --- | --- |
-| `master-data.bd9c317c` | 写死 | 新干线 | 文字 | [master-data.ts:37](../../packages/domain/src/master-data.ts#L37) |
-| `master-data.c993e07b` | 写死 | 铁路 | 文字 | [master-data.ts:38](../../packages/domain/src/master-data.ts#L38) |
-| `master-data.e7b1880d` | 写死 | 地铁 | 文字 | [master-data.ts:39](../../packages/domain/src/master-data.ts#L39) |
-| `master-data.17267afe` | 写死 | 酒店 | 文字 | [master-data.ts:40](../../packages/domain/src/master-data.ts#L40) |
-| `master-data.44e73c8e` | 写死 | 景点 | 按钮 | [master-data.ts:41](../../packages/domain/src/master-data.ts#L41) |
-| `master-data.51f7974b` | 写死 | 港口 | 文字 | [master-data.ts:42](../../packages/domain/src/master-data.ts#L42) |
-| `master-data.a6c18506` | 写死 | 商场 | 文字 | [master-data.ts:43](../../packages/domain/src/master-data.ts#L43) |
-| `master-data.8d6fa64b` | 写死 | 经济 | 文字 | [master-data.ts:55](../../packages/domain/src/master-data.ts#L55) |
-| `master-data.d3e3fb00` | 写死 | 舒适 | 文字 | [master-data.ts:56](../../packages/domain/src/master-data.ts#L56) |
-| `master-data.05d2fe0b` | 写死 | 商务 | 文字 | [master-data.ts:57](../../packages/domain/src/master-data.ts#L57) |
-| `master-data.55c89209` | 写死 | 豪华 | 文字 | [master-data.ts:58](../../packages/domain/src/master-data.ts#L58) |
-| `master-data.e2adfc92` | 写死 | 边界顶点太多（{points} 个），最多 {MAX\_BOUNDARY\_POINTS} 个 | 文字 | [master-data.ts:151](../../packages/domain/src/master-data.ts#L151) |
-| `master-data.55f26d48` | 写死 | 格式应为 CTY-国家码-序号，序号是 2 到 8 位大写字母或数字，例如 CTY-JP-TYO | 文字 | [master-data.ts:159](../../packages/domain/src/master-data.ts#L159) |
-| `master-data.bd1c4c0c` | 写死 | 编码里的国家码 {…} 和所属国家 {countryCode} 不一致 | 文字 | [master-data.ts:160](../../packages/domain/src/master-data.ts#L160)、190 行 |
-| `master-data.1056d466` | 写死 | 机场编码必须是 IATA 三字码（3 个大写字母），例如 HND | 文字 | [master-data.ts:186](../../packages/domain/src/master-data.ts#L186) |
-| `master-data.39a52195` | 写死 | 格式应为 STN-国家码-序号，序号是 1 到 10 位大写字母或数字，例如 STN-JP-TOKYO | 文字 | [master-data.ts:189](../../packages/domain/src/master-data.ts#L189) |
-| `master-data.abf677df` | 写死 | 格式应为 POI-序号，序号是 1 到 12 位大写字母或数字，例如 POI-000123 | 文字 | [master-data.ts:193](../../packages/domain/src/master-data.ts#L193) |
-| `master-data.f5e75e1e` | 写死 | 格式应为上级编码加后缀，后缀是 1 到 6 位大写字母或数字，例如 {…}-{…} | 文字 | [master-data.ts:198](../../packages/domain/src/master-data.ts#L198) |
-| `master-data.50680b0b` | 写死 | 只有车站和地标有类型 | 错误提示 | [master-data.ts:224](../../packages/domain/src/master-data.ts#L224) |
-| `master-data.695391a7` | 写死 | 必填 | 错误提示 | [master-data.ts:226](../../packages/domain/src/master-data.ts#L226) |
-| `master-data.24f44214` | 写死 | 地标 | 错误提示 | [master-data.ts:229](../../packages/domain/src/master-data.ts#L229) |
-| `master-data.77d93075` | 写死 | {…}的类型只能是：{names} | 错误提示 | [master-data.ts:229](../../packages/domain/src/master-data.ts#L229) |
-| `master-data.bfef7cf4` | 写死 | 车站 | 错误提示 | [master-data.ts:229](../../packages/domain/src/master-data.ts#L229) |
-| `master-data.43d4bd25` | 写死 | 只有机场和航站楼有国际 / 国内属性 | 错误提示 | [master-data.ts:232](../../packages/domain/src/master-data.ts#L232) |
-| `master-data.deaa6076` | 写死 | 只有地标有地址 | 错误提示 | [master-data.ts:234](../../packages/domain/src/master-data.ts#L234) |
-| `master-data.66727411` | 写死 | 还没有指定所属城市，不能启用 | 文字 | [master-data.ts:241](../../packages/domain/src/master-data.ts#L241) |
-| `master-data.47b16c5c` | 写死 | 所属城市已停用，请先启用城市 | 文字 | [master-data.ts:242](../../packages/domain/src/master-data.ts#L242) |
-| `master-data.0c66f1d6` | 写死 | 上级地点已停用，请先启用上级地点 | 文字 | [master-data.ts:243](../../packages/domain/src/master-data.ts#L243) |
-| `master-data.bf95056f` | 写死 | 格式应为 VG-等级-座位数，等级是 2 到 8 位大写字母或数字，例如 VG-BIZ-7 | 文字 | [master-data.ts:279](../../packages/domain/src/master-data.ts#L279) |
-| `master-data.0b6258c8` | 写死 | 编码末尾的座位数 {…} 和座位数 {seats} 不一致 | 文字 | [master-data.ts:280](../../packages/domain/src/master-data.ts#L280) |
-| `master-data.a8f8a97f` | 写死 | 编码里的 {…} 是「{…}」的缩写，和所选的等级「{…}」不一致（{…}的缩写是 {…}） | 文字 | [master-data.ts:285](../../packages/domain/src/master-data.ts#L285) |
-| `master-data.310d7003` | 写死 | 至少要有一个「人数 / 行李数」组合 | 错误提示 | [master-data.ts:299](../../packages/domain/src/master-data.ts#L299) |
-| `master-data.977cc55c` | 写死 | 组合最多 {MAX\_VEHICLE\_COMBOS} 个 | 错误提示 | [master-data.ts:300](../../packages/domain/src/master-data.ts#L300) |
-| `master-data.4e390663` | 写死 | 第 {…} 个组合 | 名称 | [master-data.ts:303](../../packages/domain/src/master-data.ts#L303) |
-| `master-data.a15962cb` | 写死 | {label}：人数必须是不小于 1 的整数 | 错误提示 | [master-data.ts:304](../../packages/domain/src/master-data.ts#L304) |
-| `master-data.f17adca4` | 写死 | {label}：人数 {passengers} 超过了座位数 {seats} | 错误提示 | [master-data.ts:305](../../packages/domain/src/master-data.ts#L305) |
-| `master-data.b4939b6e` | 写死 | {label}：行李数必须是 0 到 {MAX\_LUGGAGE} 的整数 | 错误提示 | [master-data.ts:307](../../packages/domain/src/master-data.ts#L307) |
-| `master-data.21319d69` | 写死 | {label}：和前面的组合重复 | 错误提示 | [master-data.ts:310](../../packages/domain/src/master-data.ts#L310) |
-| `master-data.88920c8e` | 写死 | 格式应为 ADD-代码，代码以大写字母开头，由大写字母、数字、下划线组成，例如 ADD-CHILD\_SEAT | 文字 | [master-data.ts:320](../../packages/domain/src/master-data.ts#L320) |
+| `master-data.bd9c317c` | 写死 | 新干线 | 文字 | [master-data.ts:38](../../packages/domain/src/master-data.ts#L38) |
+| `master-data.c993e07b` | 写死 | 铁路 | 文字 | [master-data.ts:39](../../packages/domain/src/master-data.ts#L39) |
+| `master-data.e7b1880d` | 写死 | 地铁 | 文字 | [master-data.ts:40](../../packages/domain/src/master-data.ts#L40) |
+| `master-data.17267afe` | 写死 | 酒店 | 文字 | [master-data.ts:41](../../packages/domain/src/master-data.ts#L41) |
+| `master-data.44e73c8e` | 写死 | 景点 | 按钮 | [master-data.ts:42](../../packages/domain/src/master-data.ts#L42) |
+| `master-data.51f7974b` | 写死 | 港口 | 文字 | [master-data.ts:43](../../packages/domain/src/master-data.ts#L43) |
+| `master-data.a6c18506` | 写死 | 商场 | 文字 | [master-data.ts:44](../../packages/domain/src/master-data.ts#L44) |
+| `master-data.8d6fa64b` | 写死 | 经济 | 文字 | [master-data.ts:56](../../packages/domain/src/master-data.ts#L56) |
+| `master-data.d3e3fb00` | 写死 | 舒适 | 文字 | [master-data.ts:57](../../packages/domain/src/master-data.ts#L57) |
+| `master-data.05d2fe0b` | 写死 | 商务 | 文字 | [master-data.ts:58](../../packages/domain/src/master-data.ts#L58) |
+| `master-data.55c89209` | 写死 | 豪华 | 文字 | [master-data.ts:59](../../packages/domain/src/master-data.ts#L59) |
+| `master-data.e2adfc92` | 写死 | 边界顶点太多（{points} 个），最多 {MAX\_BOUNDARY\_POINTS} 个 | 文字 | [master-data.ts:152](../../packages/domain/src/master-data.ts#L152) |
+| `master-data.55f26d48` | 写死 | 格式应为 CTY-国家码-序号，序号是 2 到 8 位大写字母或数字，例如 CTY-JP-TYO | 文字 | [master-data.ts:160](../../packages/domain/src/master-data.ts#L160) |
+| `master-data.bd1c4c0c` | 写死 | 编码里的国家码 {…} 和所属国家 {countryCode} 不一致 | 文字 | [master-data.ts:161](../../packages/domain/src/master-data.ts#L161)、191 行 |
+| `master-data.1056d466` | 写死 | 机场编码必须是 IATA 三字码（3 个大写字母），例如 HND | 文字 | [master-data.ts:187](../../packages/domain/src/master-data.ts#L187) |
+| `master-data.39a52195` | 写死 | 格式应为 STN-国家码-序号，序号是 1 到 10 位大写字母或数字，例如 STN-JP-TOKYO | 文字 | [master-data.ts:190](../../packages/domain/src/master-data.ts#L190) |
+| `master-data.abf677df` | 写死 | 格式应为 POI-序号，序号是 1 到 12 位大写字母或数字，例如 POI-000123 | 文字 | [master-data.ts:194](../../packages/domain/src/master-data.ts#L194) |
+| `master-data.f5e75e1e` | 写死 | 格式应为上级编码加后缀，后缀是 1 到 6 位大写字母或数字，例如 {…}-{…} | 文字 | [master-data.ts:199](../../packages/domain/src/master-data.ts#L199) |
+| `master-data.50680b0b` | 写死 | 只有车站和地标有类型 | 错误提示 | [master-data.ts:290](../../packages/domain/src/master-data.ts#L290) |
+| `master-data.695391a7` | 写死 | 必填 | 错误提示 | [master-data.ts:292](../../packages/domain/src/master-data.ts#L292) |
+| `master-data.24f44214` | 写死 | 地标 | 错误提示 | [master-data.ts:295](../../packages/domain/src/master-data.ts#L295) |
+| `master-data.77d93075` | 写死 | {…}的类型只能是：{names} | 错误提示 | [master-data.ts:295](../../packages/domain/src/master-data.ts#L295) |
+| `master-data.bfef7cf4` | 写死 | 车站 | 错误提示 | [master-data.ts:295](../../packages/domain/src/master-data.ts#L295) |
+| `master-data.43d4bd25` | 写死 | 只有机场和航站楼有国际 / 国内属性 | 错误提示 | [master-data.ts:298](../../packages/domain/src/master-data.ts#L298) |
+| `master-data.66727411` | 写死 | 还没有指定所属城市，不能启用 | 文字 | [master-data.ts:308](../../packages/domain/src/master-data.ts#L308) |
+| `master-data.47b16c5c` | 写死 | 所属城市已停用，请先启用城市 | 文字 | [master-data.ts:309](../../packages/domain/src/master-data.ts#L309) |
+| `master-data.0c66f1d6` | 写死 | 上级地点已停用，请先启用上级地点 | 文字 | [master-data.ts:310](../../packages/domain/src/master-data.ts#L310) |
+| `master-data.bf95056f` | 写死 | 格式应为 VG-等级-座位数，等级是 2 到 8 位大写字母或数字，例如 VG-BIZ-7 | 文字 | [master-data.ts:346](../../packages/domain/src/master-data.ts#L346) |
+| `master-data.0b6258c8` | 写死 | 编码末尾的座位数 {…} 和座位数 {seats} 不一致 | 文字 | [master-data.ts:347](../../packages/domain/src/master-data.ts#L347) |
+| `master-data.a8f8a97f` | 写死 | 编码里的 {…} 是「{…}」的缩写，和所选的等级「{…}」不一致（{…}的缩写是 {…}） | 文字 | [master-data.ts:352](../../packages/domain/src/master-data.ts#L352) |
+| `master-data.310d7003` | 写死 | 至少要有一个「人数 / 行李数」组合 | 错误提示 | [master-data.ts:366](../../packages/domain/src/master-data.ts#L366) |
+| `master-data.977cc55c` | 写死 | 组合最多 {MAX\_VEHICLE\_COMBOS} 个 | 错误提示 | [master-data.ts:367](../../packages/domain/src/master-data.ts#L367) |
+| `master-data.4e390663` | 写死 | 第 {…} 个组合 | 名称 | [master-data.ts:370](../../packages/domain/src/master-data.ts#L370) |
+| `master-data.a15962cb` | 写死 | {label}：人数必须是不小于 1 的整数 | 错误提示 | [master-data.ts:371](../../packages/domain/src/master-data.ts#L371) |
+| `master-data.f17adca4` | 写死 | {label}：人数 {passengers} 超过了座位数 {seats} | 错误提示 | [master-data.ts:372](../../packages/domain/src/master-data.ts#L372) |
+| `master-data.b4939b6e` | 写死 | {label}：行李数必须是 0 到 {MAX\_LUGGAGE} 的整数 | 错误提示 | [master-data.ts:374](../../packages/domain/src/master-data.ts#L374) |
+| `master-data.21319d69` | 写死 | {label}：和前面的组合重复 | 错误提示 | [master-data.ts:377](../../packages/domain/src/master-data.ts#L377) |
+| `master-data.88920c8e` | 写死 | 格式应为 ADD-代码，代码以大写字母开头，由大写字母、数字、下划线组成，例如 ADD-CHILD\_SEAT | 文字 | [master-data.ts:387](../../packages/domain/src/master-data.ts#L387) |
 
 ## 订单与付款（orders.ts）
 
@@ -612,6 +612,24 @@
 | `password-policy.fe189e53` | 写死 | 密码要包含小写字母、大写字母、数字、符号中的至少三类 | 文字 | [password-policy.ts:26](../../packages/domain/src/password-policy.ts#L26) |
 | `password-policy.50c644cd` | 写死 | 密码里至少要有 {MIN\_DISTINCT\_CHARACTERS} 个不同的字符 | 文字 | [password-policy.ts:27](../../packages/domain/src/password-policy.ts#L27) |
 | `password-policy.81c535cf` | 写死 | 密码不能包含邮箱名 | 文字 | [password-policy.ts:28](../../packages/domain/src/password-policy.ts#L28) |
+
+## 机场 / 航站楼的地址、集合地点说明（place-content-texts.ts）
+
+文件：`packages/domain/src/place-content-texts.ts`
+
+| key | 状态 | 中文 | 类型 | 位置 |
+| --- | --- | --- | --- | --- |
+| `place-content.blank` | 已走 key | 不能只有空白或不可见字符 | 文字 | [place-content-texts.ts:21](../../packages/domain/src/place-content-texts.ts#L21) |
+| `place-content.untrimmed` | 已走 key | 首尾不能有空白 | 文字 | [place-content-texts.ts:22](../../packages/domain/src/place-content-texts.ts#L22) |
+| `place-content.tooLong` | 已走 key | 最多 {max} 个字 | 文字 | [place-content-texts.ts:23](../../packages/domain/src/place-content-texts.ts#L23) |
+| `place-content.notObject` | 已走 key | 要是一个按语言分开的文字对象，例如 {"zh": "…"} | 文字 | [place-content-texts.ts:24](../../packages/domain/src/place-content-texts.ts#L24) |
+| `place-content.unknownLanguage` | 已走 key | 只支持这些语言：{languages} | 文字 | [place-content-texts.ts:25](../../packages/domain/src/place-content-texts.ts#L25) |
+| `place-content.noLanguage` | 已走 key | 至少填一种语言 | 文字 | [place-content-texts.ts:26](../../packages/domain/src/place-content-texts.ts#L26) |
+| `place-content.zhRequired` | 已走 key | 中文必填 | 提示 | [place-content-texts.ts:27](../../packages/domain/src/place-content-texts.ts#L27) |
+| `place-content.addressType` | 已走 key | 只有地标、机场和航站楼有地址 | 文字 | [place-content-texts.ts:28](../../packages/domain/src/place-content-texts.ts#L28) |
+| `place-content.meetingPointType` | 已走 key | 只有机场和航站楼有集合地点说明 | 文字 | [place-content-texts.ts:29](../../packages/domain/src/place-content-texts.ts#L29) |
+| `place-content.terminalImportRunning` | 已走 key | 另一个航站楼核对表导入正在运行。数据库没有任何变化，请等它结束后再试 | 文字 | [place-content-texts.ts:30](../../packages/domain/src/place-content-texts.ts#L30) |
+| `place-content.terminalImportCodeConflict` | 已走 key | 导入期间有人在后台新增了编码相同的航站楼。数据库没有任何变化，请再运行一次 | 文字 | [place-content-texts.ts:31](../../packages/domain/src/place-content-texts.ts#L31) |
 
 ## 地点名称的匹配规则（place-match.ts）
 

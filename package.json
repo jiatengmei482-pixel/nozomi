@@ -23,6 +23,7 @@
     "masterdata:import-cities": "node --env-file-if-exists=.env apps/api/src/cli/masterdata-import-cities.ts",
     "masterdata:import-airport-names": "node --env-file-if-exists=.env apps/api/src/cli/masterdata-import-airport-names.ts",
     "masterdata:import-airport-names-reviewed": "node --env-file-if-exists=.env apps/api/src/cli/masterdata-import-airport-names-reviewed.ts",
+    "masterdata:import-airport-terminals-reviewed": "node --env-file-if-exists=.env apps/api/src/cli/masterdata-import-airport-terminals-reviewed.ts",
     "areas:role-preview": "node --env-file-if-exists=.env apps/api/src/cli/areas-role-preview.ts",
     "price-sheet:report": "node apps/api/src/cli/price-sheet-report.ts",
     "replay:classify": "node apps/api/src/cli/replay-classify.ts",

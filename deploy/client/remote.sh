@@ -22,7 +22,7 @@
 #   remote.sh platform                        输出服务器的镜像平台（linux/amd64 或 linux/arm64）
 #   remote.sh public-health <域名> <次数>     从本机访问 https://<域名>/health，每 5 秒一次，返回 200 即成功
 #   remote.sh masterdata <环境> <数据> <国家码> <dry-run|apply>
-#       在当前运行版本的 API 容器里执行主数据导入（M8-47b）：<数据> 是 airports / cities / airport-names / airport-names-reviewed，
+#       在当前运行版本的 API 容器里执行主数据导入（M8-47b）：<数据> 是 airports / cities / airport-names / airport-names-reviewed / airport-terminals-reviewed，
 #       对应 pnpm masterdata:import-<数据>；<国家码> 是逗号分隔的两位大写字母（如 JP,KR）；dry-run 只显示将要做什么，apply 才写数据库。
 #       导入程序自己从公开数据源（OurAirports / GeoNames）下载，只给库里空着的填，可以反复运行；输出原样传回，退出码原样传回
 #
@@ -160,8 +160,8 @@ cmd_masterdata() {
   local app_env="${1:-}" dataset="${2:-}" countries="${3:-}" mode="${4:-}" dry_run_flag
   require_env_name "$app_env"
   case "$dataset" in
-    airports | cities | airport-names | airport-names-reviewed) ;;
-    *) die "要导入的数据只能是 airports、cities、airport-names 或 airport-names-reviewed" ;;
+    airports | cities | airport-names | airport-names-reviewed | airport-terminals-reviewed) ;;
+    *) die "要导入的数据只能是 airports、cities、airport-names、airport-names-reviewed 或 airport-terminals-reviewed" ;;
   esac
   [[ "$countries" =~ ^[A-Z]{2}(,[A-Z]{2}){0,19}$ ]] || die "国家码写成两位大写字母、逗号分隔（如 JP,KR），最多 20 个"
   case "$mode" in

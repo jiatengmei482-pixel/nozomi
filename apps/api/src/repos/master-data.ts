@@ -14,6 +14,7 @@ import type {
   GeoJsonPolygon,
   LocalizedText,
   MasterDataStatus,
+  MeetingPoint,
   NameSources,
   PlaceCategory,
   PlaceType,
@@ -60,6 +61,8 @@ export interface Place extends Versioned {
   category: PlaceCategory | null;
   flightScope: FlightScope | null;
   address: string | null;
+  /** 集合地点说明（M12-06）：只有机场、航站楼有 */
+  meetingPoint: MeetingPoint | null;
   source: string | null;
   sourceRef: string | null;
   sourceSyncedAt: Date | null;
@@ -70,7 +73,17 @@ export interface Place extends Versioned {
   nameSources: NameSources;
   /** 在不在包车上架的覆盖检查清单里（M9P-06，ADR 0093 第七节第 4 条）：只有地标能勾，运营后台维护 */
   charterCoverage: boolean;
+  /** 地址、集合地点是哪次导入填的（航站楼核对表导入，M12-06，迁移 0700）；不出现在接口的应答里 */
+  contentSources: ContentSources;
 }
+
+/** 导入写进地址 / 集合地点时记下的来源和当时写的值（同 name_sources 的用法：拿它和现在的值比，认出平台改过或删掉了） */
+export interface ContentSource {
+  source: string;
+  ref: string;
+  value: string | MeetingPoint;
+}
+export type ContentSources = Partial<Record<"address" | "meeting_point", ContentSource>>;
 
 export interface VehicleGroup extends Versioned {
   grade: VehicleGrade;
@@ -161,6 +174,7 @@ export const PLACES: MasterTable<Place> = {
     "category",
     "flight_scope",
     "address",
+    "meeting_point",
     "source",
     "source_ref",
     "source_synced_at",
@@ -168,8 +182,9 @@ export const PLACES: MasterTable<Place> = {
     "municipality",
     "name_sources",
     "charter_coverage",
+    "content_sources",
   ],
-  jsonColumns: ["name", "name_sources"],
+  jsonColumns: ["name", "name_sources", "meeting_point", "content_sources"],
   codeConstraint: "places_code_key",
   toItem: (row) => ({
     ...versioned(row),
@@ -183,6 +198,7 @@ export const PLACES: MasterTable<Place> = {
     category: row["category"],
     flightScope: row["flight_scope"],
     address: row["address"],
+    meetingPoint: row["meeting_point"] ?? null,
     source: row["source"],
     sourceRef: row["source_ref"],
     sourceSyncedAt: row["source_synced_at"],
@@ -190,6 +206,7 @@ export const PLACES: MasterTable<Place> = {
     municipality: row["municipality"],
     nameSources: row["name_sources"],
     charterCoverage: row["charter_coverage"] === true,
+    contentSources: row["content_sources"] ?? {},
   }),
 };
 
@@ -350,7 +367,7 @@ export async function findPlaceParentId(db: Db, placeId: string): Promise<string
  * 抢某一种导入的锁（事务结束自动释放）：同一个库、同一个 schema 里同一时间只允许一次同类导入。
  * 抢不到立即返回 false，不排队。
  */
-async function tryLockImport(db: Db, kind: "import-airports" | "import-cities" | "import-airport-names"): Promise<boolean> {
+async function tryLockImport(db: Db, kind: "import-airports" | "import-cities" | "import-airport-names" | "import-airport-terminals"): Promise<boolean> {
   const result = await db.query<{ locked: boolean }>(
     "select pg_try_advisory_xact_lock(hashtextextended(current_database() || '.' || current_schema() || '.masterdata.' || $1, 0)) as locked",
     [kind],
@@ -390,6 +407,11 @@ export function tryLockCityImport(db: Db): Promise<boolean> {
 
 export function tryLockAirportNameImport(db: Db): Promise<boolean> {
   return tryLockImport(db, "import-airport-names");
+}
+
+/** 航站楼核对表导入（M12-06）：同一时间只允许一次 */
+export function tryLockAirportTerminalImport(db: Db): Promise<boolean> {
+  return tryLockImport(db, "import-airport-terminals");
 }
 
 /** 按编号取一行。`lock` 为真时锁住这一行直到事务结束（修改前用；租户事务没有这个权限，只能传 false）。 */
@@ -526,6 +548,12 @@ export async function moveChildPlacesToCity(db: Db, parentId: string, cityId: st
 /** 全部机场（手工录入的和导入的都算），给导入命令做比较用。 */
 export async function listAllAirports(db: Db): Promise<Place[]> {
   const result = await db.query<Row>(`select ${selectList(PLACES)} from places where type = 'airport' order by code`);
+  return result.rows.map(PLACES.toItem);
+}
+
+/** 全部航站楼（启用的和停用的），给航站楼核对表导入做比较用。 */
+export async function listAllTerminals(db: Db): Promise<Place[]> {
+  const result = await db.query<Row>(`select ${selectList(PLACES)} from places where type = 'terminal' order by code`);
   return result.rows.map(PLACES.toItem);
 }
 

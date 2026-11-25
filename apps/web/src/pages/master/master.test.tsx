@@ -35,6 +35,7 @@ const airport = (id: string, code: string, name: string): Place => ({
   category: null,
   flight_scope: null,
   address: null,
+  meeting_point: null,
   source: { name: "ourairports", ref: "2434", synced_at: "2026-01-01T00:00:00.000Z", overridden: false },
   status: "disabled",
   version: 1,

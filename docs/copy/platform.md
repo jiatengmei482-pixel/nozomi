@@ -1,6 +1,6 @@
 # 运营后台（第 1 / 3 份）
 
-由 `pnpm copy:export` 从代码生成，不要手改。本区域共 3969 条：写死 3963 条，已走 key 6 条。列的意思见 [README](README.md)。
+由 `pnpm copy:export` 从代码生成，不要手改。本区域共 3978 条：写死 3963 条，已走 key 15 条。列的意思见 [README](README.md)。
 
 本区域分 3 份：第 1 份 · [第 2 份](platform-2.md) · [第 3 份](platform-3.md)
 
